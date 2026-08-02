@@ -100,12 +100,15 @@ const builderMod = loadModule('src/context/builder.ts');
 const tokenizerMod = loadModule('src/context/tokenizer.ts');
 
 const baseConfig = {
-  provider: 'openai',
-  openaiBaseUrl: 'https://api.openai.com/v1',
-  openaiModel: 'gpt-4o',
-  anthropicBaseUrl: 'https://api.anthropic.com',
-  anthropicModel: 'claude-sonnet-4-5',
-  vscodeLmFamily: 'gpt-4o',
+  providers: [
+    { id: 'openai', kind: 'openai', baseUrl: 'https://api.openai.com/v1', models: [{ name: 'gpt-4o' }] },
+  ],
+  model: 'openai/gpt-4o',
+  active: {
+    ref: 'openai/gpt-4o',
+    profile: { id: 'openai', kind: 'openai', baseUrl: 'https://api.openai.com/v1', models: [{ name: 'gpt-4o' }] },
+    model: { name: 'gpt-4o' },
+  },
   contextWindow: 128000,
   maxOutputTokens: 4096,
   temperature: 0.8,

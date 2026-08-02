@@ -177,7 +177,15 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
-/** `20260802-143012-4f2a`：可读、可排序、够唯一。 */
+/**
+ * `20260802-143012-4f2a1b`：可读、可排序、够唯一。
+ *
+ * 时间戳只精确到秒，所以随机位之外还带一个进程内计数器：
+ * 同一秒里连开几个会话（连点＋）必须保证不撞——id 就是文件名，
+ * 撞了会直接覆盖掉另一个会话。计数器保证同进程内不撞，
+ * 随机位负责把不同窗口/进程分开。
+ */
+let sessionCounter = 0;
 export function makeSessionId(): string {
   const d = new Date();
   const p = (n: number, w = 2) => String(n).padStart(w, '0');
@@ -185,7 +193,8 @@ export function makeSessionId(): string {
     d.getMinutes()
   )}${p(d.getSeconds())}`;
   const rand = Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0');
-  return `${stamp}-${rand}`;
+  sessionCounter = (sessionCounter + 1) % 0x100;
+  return `${stamp}-${rand}${sessionCounter.toString(16).padStart(2, '0')}`;
 }
 
 /**

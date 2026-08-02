@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import { BuildRequest, BuiltContext, buildContext } from '../context/builder';
 import { CancelledError, ChatOptions } from '../llm/provider';
-import { resolveProvider } from '../llm/registry';
+import { buildProvider, resolveProvider } from '../llm/registry';
 import { NovelProject, readConfig, sanitizeFileName } from '../model/project';
+import { describeModelIssue, providerLabel, resolveModelRef } from '../model/providers';
 import { Chapter } from '../model/types';
 
 export interface GenerateHandlers {
@@ -27,7 +28,7 @@ export class ContinueSession {
     const config = readConfig();
     let providerMaxInputTokens: number | undefined;
     // vscode-lm 有硬配额，预览时也要按真实上限算，否则预览与实际不符。
-    if (config.provider === 'vscode-lm') {
+    if (config.active?.profile.kind === 'vscode-lm') {
       const provider = await resolveProvider();
       providerMaxInputTokens = await provider?.maxInputTokens();
     }
@@ -43,13 +44,19 @@ export class ContinueSession {
       return undefined;
     }
 
-    const provider = await resolveProvider();
+    const config = readConfig();
+    if (!config.active) {
+      handlers.onError(describeModelIssue(config.providers, config.model));
+      return undefined;
+    }
+    const provider = await buildProvider(config.active);
     if (!provider) {
-      handlers.onError('未配置模型。请运行命令「Novel: 设置 API Key」，或把 novel.provider 改为 vscode-lm。');
+      handlers.onError(
+        `未配置「${providerLabel(config.active.profile)}」的 API Key。可在设置页录入，或换一个已配置好的模型。`
+      );
       return undefined;
     }
 
-    const config = readConfig();
     const providerMaxInputTokens = await provider.maxInputTokens();
     const built = await buildContext(this.project, { ...request, providerMaxInputTokens }, config);
 
@@ -91,11 +98,21 @@ export class ContinueSession {
   /**
    * 发一个最小请求验证配置能不能用。
    * 设置页的「测试连接」——比让用户先写半章再发现 Key 填错好得多。
+   *
+   * @param ref 要测的模型引用；留空则测当前选中的。
    */
-  async testConnection(): Promise<{ ok: boolean; message: string }> {
-    const provider = await resolveProvider();
+  async testConnection(ref?: string): Promise<{ ok: boolean; message: string }> {
+    const config = readConfig();
+    const active = ref ? resolveModelRef(config.providers, ref) : config.active;
+    if (!active) {
+      return { ok: false, message: describeModelIssue(config.providers, ref ?? config.model) };
+    }
+    const provider = await buildProvider(active);
     if (!provider) {
-      return { ok: false, message: '未配置模型：请先设置 API Key，或把服务商改为 VS Code 语言模型。' };
+      return {
+        ok: false,
+        message: `未配置「${providerLabel(active.profile)}」的 API Key，已取消测试。`,
+      };
     }
     const source = new vscode.CancellationTokenSource();
     try {
@@ -111,10 +128,10 @@ export class ContinueSession {
         }
       }
       return reply.trim()
-        ? { ok: true, message: `连接正常：${provider.label} 回复「${reply.trim().slice(0, 20)}」` }
-        : { ok: false, message: `${provider.label} 连接成功但没有返回内容，检查模型名是否正确。` };
+        ? { ok: true, message: `${active.ref} 连接正常：${provider.label} 回复「${reply.trim().slice(0, 20)}」` }
+        : { ok: false, message: `${active.ref} 连接成功但没有返回内容，检查模型名是否正确。` };
     } catch (err) {
-      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+      return { ok: false, message: `${active.ref}：${err instanceof Error ? err.message : String(err)}` };
     } finally {
       source.cancel();
       source.dispose();

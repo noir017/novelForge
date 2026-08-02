@@ -106,9 +106,9 @@ export async function describeHttpError(response: Response, label: string): Prom
 
   const hint =
     response.status === 401 || response.status === 403
-      ? '（API Key 可能无效，可运行命令「Novel: 设置 API Key」重新录入）'
+      ? '（API Key 可能无效，可在设置页重新录入该服务商的 Key）'
       : response.status === 404
-        ? '（baseUrl 或模型名可能填错了，检查设置 novel.openai.baseUrl / novel.openai.model）'
+        ? '（接口地址或模型名可能填错了，检查设置页里该服务商的 baseUrl 与模型清单）'
         : response.status === 429
           ? '（触发限流，稍后再试）'
           : '';

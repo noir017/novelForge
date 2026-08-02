@@ -13,10 +13,17 @@ export class VsCodeLmProvider implements LlmProvider {
 
   private model: vscode.LanguageModelChat | undefined;
 
-  constructor(private readonly family: string) {}
+  /**
+   * @param family 模型 family，如 `gpt-4o`、`claude-3.5-sonnet`。
+   * @param providerName 服务商显示名，用于错误提示里指名道姓。
+   */
+  constructor(
+    private readonly family: string,
+    private readonly providerName = 'VS Code LM'
+  ) {}
 
   get label(): string {
-    return this.model ? `${this.model.name}（VS Code LM）` : `${this.family}（VS Code LM）`;
+    return `${this.model?.name ?? this.family}（${this.providerName}）`;
   }
 
   private async resolveModel(): Promise<vscode.LanguageModelChat> {
@@ -29,7 +36,7 @@ export class VsCodeLmProvider implements LlmProvider {
       models = await vscode.lm.selectChatModels();
       if (models.length === 0) {
         throw new LlmError(
-          '没有可用的 VS Code 语言模型。请确认已安装并登录 GitHub Copilot，或在设置里把 novel.provider 改为 openai/anthropic。'
+          '没有可用的 VS Code 语言模型。请确认已安装并登录 GitHub Copilot，或在设置页改用自建 API 的服务商。'
         );
       }
       void vscode.window.showWarningMessage(
@@ -110,9 +117,9 @@ function translateLmError(err: vscode.LanguageModelError): string {
     case vscode.LanguageModelError.NoPermissions.name:
       return '未获得使用该语言模型的授权，请在弹出的确认框中允许 Novel Forge 使用 Copilot 模型。';
     case vscode.LanguageModelError.Blocked.name:
-      return '请求被模型的内容策略拦截。可尝试调整纲要措辞，或改用自建 API（novel.provider 设为 openai）。';
+      return '请求被模型的内容策略拦截。可尝试调整纲要措辞，或在设置页切换到自建 API 的模型。';
     case vscode.LanguageModelError.NotFound.name:
-      return '找不到指定的语言模型，请检查设置 novel.vscodeLm.family。';
+      return '找不到指定的语言模型，请在设置页检查该服务商下配置的模型 family。';
     default:
       return `VS Code 语言模型错误：${err.message}`;
   }

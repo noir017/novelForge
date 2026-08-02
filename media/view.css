@@ -558,8 +558,69 @@ button.chip-btn:hover {
   flex-direction: column;
   gap: 8px;
   padding: 10px;
+  margin-bottom: 8px;
   border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
   border-radius: var(--radius);
+}
+
+.provider-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.provider-title {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.model-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 7px;
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.08));
+}
+
+.model-row .field.compact {
+  flex: 1 1 110px;
+}
+
+.model-row .field.compact input {
+  padding: 3px 6px;
+  font-size: 0.9em;
+}
+
+.model-tail {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1 1 100%;
+}
+
+.model-ref {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85em;
+}
+
+.composer-meta.warn {
+  color: var(--vscode-editorWarning-foreground, #cca700);
 }
 
 .grid {

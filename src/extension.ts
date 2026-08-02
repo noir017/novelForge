@@ -3,7 +3,7 @@ import { extractCharacters, newCharacter, newLore } from './features/characters'
 import { quickContinue } from './features/continueWriting';
 import { extractStyle } from './features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from './features/summarize';
-import { clearApiKey, initSecrets, promptForApiKey } from './llm/registry';
+import { clearApiKey, initSecrets, pickModelRef, promptForApiKey } from './llm/registry';
 import { NovelProject, readConfig } from './model/project';
 import { ChatController } from './ui/chatController';
 import { ChatPanel } from './ui/chatPanel';
@@ -160,8 +160,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ---------------------------------------------------------------- 模型
 
-  register('novel.setApiKey', (provider?: 'openai' | 'anthropic') => promptForApiKey(provider));
-  register('novel.clearApiKey', (provider?: 'openai' | 'anthropic') => clearApiKey(provider));
+  register('novel.setApiKey', (providerId?: string) => promptForApiKey(providerId));
+  register('novel.clearApiKey', (providerId?: string) => clearApiKey(providerId));
+
+  register('novel.selectModel', async () => {
+    const ref = await pickModelRef();
+    if (!ref) {
+      return;
+    }
+    const target = vscode.workspace.workspaceFolders?.length
+      ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+    await vscode.workspace.getConfiguration('novel').update('model', ref, target);
+    await chat?.pushState();
+    void vscode.window.showInformationMessage(`Novel Forge：已切换到 ${ref}`);
+  });
 
   // ---------------------------------------------------------------- 续写
 

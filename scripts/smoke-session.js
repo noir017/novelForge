@@ -96,7 +96,7 @@ async function main() {
 
   console.log('\n== 新建与写入 ==');
   const s = store.create(4);
-  check('新会话有 id', /^\d{8}-\d{6}-[0-9a-f]{4}$/.test(s.id), s.id);
+  check('新会话有 id', /^\d{8}-\d{6}-[0-9a-f]{6}$/.test(s.id), s.id);
   check('新会话记住写入目标', s.targetOrder === 4);
   check('新会话无轮次', s.turns.length === 0);
   check('新建不落盘', !fs.existsSync(sessionsDir) || fs.readdirSync(sessionsDir).length === 0);

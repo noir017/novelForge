@@ -78,6 +78,10 @@
         "title": "Novel: 清除 API Key"
       },
       {
+        "command": "novel.selectModel",
+        "title": "Novel: 选择模型"
+      },
+      {
         "command": "novel.continue",
         "title": "Novel: 打开续写对话",
         "icon": "$(sparkle)"
@@ -230,64 +234,99 @@
     "configuration": {
       "title": "Novel Forge",
       "properties": {
-        "novel.provider": {
-          "type": "string",
-          "enum": [
-            "openai",
-            "anthropic",
-            "vscode-lm"
-          ],
-          "default": "openai",
-          "enumDescriptions": [
-            "OpenAI 兼容接口（OpenAI / DeepSeek / Kimi / 通义 / 本地 Ollama 等）",
-            "Anthropic Messages API",
-            "VS Code Language Model API（复用 GitHub Copilot 订阅）"
-          ],
-          "description": "使用哪个大模型服务商。"
+        "novel.providers": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "服务商列表。每个服务商有一个前缀 `id`，其下可配置多个模型；模型用 `前缀/模型名` 引用（模型名本身可含斜杠，只在第一个斜杠处切分）。留空时会沿用旧版的 `novel.provider` 等设置。",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "models"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "description": "引用前缀，不能含斜杠。例如 glm、openrouter、ollama。"
+              },
+              "label": {
+                "type": "string",
+                "description": "显示名，留空则显示 id。"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "openai",
+                  "anthropic",
+                  "vscode-lm"
+                ],
+                "default": "openai",
+                "enumDescriptions": [
+                  "OpenAI 兼容接口（OpenAI / DeepSeek / 智谱 / Kimi / 通义 / OpenRouter / Ollama 等）",
+                  "Anthropic Messages API",
+                  "VS Code Language Model API（复用 GitHub Copilot 订阅）"
+                ],
+                "description": "接口协议。"
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "接口地址，不含末尾斜杠。vscode-lm 无需填写。"
+              },
+              "models": {
+                "type": "array",
+                "description": "该服务商下的模型清单。",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "原样传给 API 的模型名，可含斜杠，如 z-ai/glm-4.6。"
+                    },
+                    "label": {
+                      "type": "string",
+                      "description": "显示名，留空则显示模型名。"
+                    },
+                    "contextWindow": {
+                      "type": "number",
+                      "description": "该模型的上下文窗口，留空则用 novel.contextWindow。"
+                    },
+                    "maxOutputTokens": {
+                      "type": "number",
+                      "description": "该模型的最大输出 token，留空则用 novel.maxOutputTokens。"
+                    }
+                  }
+                }
+              }
+            }
+          }
         },
-        "novel.openai.baseUrl": {
+        "novel.model": {
           "type": "string",
-          "default": "https://api.openai.com/v1",
-          "description": "OpenAI 兼容接口的 baseUrl，不含末尾斜杠。例如 DeepSeek 填 https://api.deepseek.com/v1"
-        },
-        "novel.openai.model": {
-          "type": "string",
-          "default": "gpt-4o",
-          "description": "OpenAI 兼容接口使用的模型名。"
-        },
-        "novel.anthropic.baseUrl": {
-          "type": "string",
-          "default": "https://api.anthropic.com",
-          "description": "Anthropic API baseUrl，不含末尾斜杠。"
-        },
-        "novel.anthropic.model": {
-          "type": "string",
-          "default": "claude-sonnet-4-5",
-          "description": "Anthropic 使用的模型名。"
-        },
-        "novel.vscodeLm.family": {
-          "type": "string",
-          "default": "gpt-4o",
-          "description": "VS Code LM API 选择的模型 family，例如 gpt-4o、claude-3.5-sonnet。"
+          "default": "",
+          "markdownDescription": "当前使用的模型，格式为 `前缀/模型名`，例如 `glm/glm-4-plus`、`openrouter/z-ai/glm-4.6`。留空则取第一个可用模型。"
         },
         "novel.contextWindow": {
           "type": "number",
           "default": 128000,
           "minimum": 4000,
-          "description": "模型上下文窗口大小（token）。上下文装配器据此计算预算。"
+          "description": "默认上下文窗口大小（token）。模型自带 contextWindow 时以模型为准。"
         },
         "novel.maxOutputTokens": {
           "type": "number",
           "default": 4096,
           "minimum": 256,
-          "description": "单次生成的最大输出 token 数。"
+          "description": "默认单次生成的最大输出 token 数。模型自带 maxOutputTokens 时以模型为准。"
         },
         "novel.temperature": {
           "type": "number",
           "default": 0.8,
           "minimum": 0,
           "maximum": 2,
-          "description": "采样温度。写小说建议 0.7 ~ 1.0。"
+          "description": "采样温度。写小说建议 0.7 ~ 1.0。摘要类任务内部固定用 0.3。"
         },
         "novel.recentChaptersFullText": {
           "type": "number",
@@ -318,6 +357,47 @@
           "default": 300000,
           "minimum": 10000,
           "description": "单次 LLM 请求超时（毫秒）。"
+        },
+        "novel.provider": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic",
+            "vscode-lm"
+          ],
+          "default": "openai",
+          "markdownDeprecationMessage": "已由 `novel.providers` + `novel.model` 取代。仅在 `novel.providers` 为空时作为兼容兜底。",
+          "description": "（旧版）使用哪个大模型服务商。"
+        },
+        "novel.openai.baseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "markdownDeprecationMessage": "已由 `novel.providers` 中各服务商的 `baseUrl` 取代。",
+          "description": "（旧版）OpenAI 兼容接口的 baseUrl。"
+        },
+        "novel.openai.model": {
+          "type": "string",
+          "default": "gpt-4o",
+          "markdownDeprecationMessage": "已由 `novel.providers` 中的模型清单取代。",
+          "description": "（旧版）OpenAI 兼容接口使用的模型名。"
+        },
+        "novel.anthropic.baseUrl": {
+          "type": "string",
+          "default": "https://api.anthropic.com",
+          "markdownDeprecationMessage": "已由 `novel.providers` 中各服务商的 `baseUrl` 取代。",
+          "description": "（旧版）Anthropic API baseUrl。"
+        },
+        "novel.anthropic.model": {
+          "type": "string",
+          "default": "claude-sonnet-4-5",
+          "markdownDeprecationMessage": "已由 `novel.providers` 中的模型清单取代。",
+          "description": "（旧版）Anthropic 使用的模型名。"
+        },
+        "novel.vscodeLm.family": {
+          "type": "string",
+          "default": "gpt-4o",
+          "markdownDeprecationMessage": "已由 `novel.providers` 中 kind 为 vscode-lm 的服务商取代。",
+          "description": "（旧版）VS Code LM API 选择的模型 family。"
         }
       }
     }
@@ -328,7 +408,7 @@
     "watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
     "typecheck": "tsc --noEmit",
-    "smoke": "node scripts/smoke.js && node scripts/smoke-builder.js && node scripts/smoke-llm.js && node scripts/smoke-session.js",
+    "smoke": "node scripts/smoke.js && node scripts/smoke-providers.js && node scripts/smoke-builder.js && node scripts/smoke-llm.js && node scripts/smoke-session.js",
     "test": "npm run typecheck && npm run smoke"
   },
   "devDependencies": {

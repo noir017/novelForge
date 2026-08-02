@@ -41,19 +41,18 @@ export type InMessage =
   | { type: 'openFile'; path: string }
   | { type: 'openInEditor' }
   | { type: 'syncSummaries' }
+  | { type: 'selectModel'; ref: string }
   | { type: 'saveSettings'; settings: SettingsPayload }
-  | { type: 'setApiKey'; provider: 'openai' | 'anthropic' }
-  | { type: 'clearApiKey'; provider: 'openai' | 'anthropic' }
-  | { type: 'testConnection' }
+  | { type: 'setApiKey'; providerId: string }
+  | { type: 'clearApiKey'; providerId: string }
+  | { type: 'testConnection'; ref?: string }
   | { type: 'openNativeSettings' };
 
+/** 设置页提交的全部内容。服务商列表整体替换。 */
 export interface SettingsPayload {
-  provider: 'openai' | 'anthropic' | 'vscode-lm';
-  openaiBaseUrl: string;
-  openaiModel: string;
-  anthropicBaseUrl: string;
-  anthropicModel: string;
-  vscodeLmFamily: string;
+  providers: SerializedProvider[];
+  /** 当前模型引用，形如 `glm/glm-4-plus`。 */
+  model: string;
   contextWindow: number;
   maxOutputTokens: number;
   temperature: number;
@@ -61,6 +60,21 @@ export interface SettingsPayload {
   prevChapterTailChars: number;
   summaryBatchSize: number;
   requestTimeoutMs: number;
+}
+
+export interface SerializedProvider {
+  id: string;
+  label?: string;
+  kind: 'openai' | 'anthropic' | 'vscode-lm';
+  baseUrl?: string;
+  models: SerializedModel[];
+}
+
+export interface SerializedModel {
+  name: string;
+  label?: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
 }
 
 /** 扩展 → Webview */
@@ -75,20 +89,27 @@ export type OutMessage =
   | { type: 'context'; turnId: string; digest: SerializedDigest }
   | { type: 'busy'; value: boolean }
   | { type: 'attachments'; items: SerializedAttachment[] }
-  | { type: 'settings'; settings: SettingsPayload; keys: KeyStatus }
+  /**
+   * `ack` 标明这次推送是不是某次保存的回执：
+   * `saved` 表示已落盘（前端可放心以磁盘为准），`rejected` 表示被拒
+   * （前端必须保住用户的编辑）。普通刷新不带 ack。
+   */
+  | { type: 'settings'; settings: SettingsPayload; keys: Record<string, boolean>; ack?: 'saved' | 'rejected' }
   | { type: 'toast'; message: string; level: 'info' | 'error' };
-
-export interface KeyStatus {
-  openai: boolean;
-  anthropic: boolean;
-}
 
 export interface ViewState {
   initialized: boolean;
   chapters: { order: number; title: string; wordCount: number }[];
   nextOrder: number;
   staleCount: number;
-  providerLabel: string;
+  /** 当前模型引用；未配置好时为空串。 */
+  model: string;
+  /** 当前模型的展示名，如「智谱 GLM · glm-4-plus」。 */
+  modelLabel: string;
+  /** 模型引用无效时的说明，直接显示在输入框下方。 */
+  modelIssue?: string;
+  /** 下拉框用的全部可选模型。 */
+  models: { ref: string; label: string; group: string }[];
   contextWindow: number;
   maxOutputTokens: number;
   /** 宿主是侧边栏还是编辑器面板——侧边栏才显示「在编辑器中打开」。 */
@@ -199,6 +220,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     <div class="composer-bar">
       <button class="chip-btn" id="atBtn" title="引用文件或章节">@ 引用</button>
       <button class="chip-btn" id="selBtn" title="把编辑器中选中的文字加入上下文">加入选区</button>
+      <select id="modelSelect" title="使用哪个模型"></select>
       <select id="modeSelect" title="写作模式">
         <option value="write">续写正文</option>
         <option value="discuss">讨论/建议</option>
@@ -225,59 +247,26 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
 
 <!-- ------------------------------------------------------------ 设置 -->
 <section class="pane" id="pane-settings">
-  <div class="pane-head"><span>模型与预算</span></div>
-
-  <label class="field">
-    <span>服务商</span>
-    <select id="setProvider">
-      <option value="openai">OpenAI 兼容接口</option>
-      <option value="anthropic">Anthropic</option>
-      <option value="vscode-lm">VS Code 语言模型（Copilot）</option>
-    </select>
-  </label>
-
-  <div class="provider-block" id="block-openai">
-    <label class="field">
-      <span>接口地址 baseUrl</span>
-      <input type="text" id="setOpenaiBaseUrl" placeholder="https://api.openai.com/v1">
-    </label>
-    <div class="presets" id="presets"></div>
-    <label class="field">
-      <span>模型名</span>
-      <input type="text" id="setOpenaiModel" placeholder="gpt-4o">
-    </label>
-    <div class="key-row">
-      <span class="key-status" id="openaiKeyStatus"></span>
-      <button class="secondary" id="setOpenaiKey">设置 API Key</button>
-      <button class="secondary" id="clearOpenaiKey">清除</button>
-    </div>
+  <div class="pane-head">
+    <span>服务商与模型</span>
+    <span class="meta" id="providerCount"></span>
+  </div>
+  <div class="hint">
+    模型用「前缀/模型名」引用，前缀是服务商 id。同一个模型走不同渠道就是两条：
+    <code>glm/glm-4-plus</code> 与 <code>openrouter/z-ai/glm-4.6</code>。
+    模型名本身可以带斜杠，只在第一个斜杠处切分。
   </div>
 
-  <div class="provider-block hidden" id="block-anthropic">
-    <label class="field">
-      <span>接口地址 baseUrl</span>
-      <input type="text" id="setAnthropicBaseUrl" placeholder="https://api.anthropic.com">
-    </label>
-    <label class="field">
-      <span>模型名</span>
-      <input type="text" id="setAnthropicModel" placeholder="claude-sonnet-4-5">
-    </label>
-    <div class="key-row">
-      <span class="key-status" id="anthropicKeyStatus"></span>
-      <button class="secondary" id="setAnthropicKey">设置 API Key</button>
-      <button class="secondary" id="clearAnthropicKey">清除</button>
-    </div>
-  </div>
+  <div id="providerList"></div>
 
-  <div class="provider-block hidden" id="block-vscode-lm">
-    <label class="field">
-      <span>模型 family</span>
-      <input type="text" id="setVscodeLmFamily" placeholder="gpt-4o">
-    </label>
-    <div class="hint">复用 GitHub Copilot 订阅，无需 API Key。模型有硬性输入配额，装配器会自动收紧预算。</div>
+  <div class="actions">
+    <button class="secondary" id="addProviderBtn">＋ 添加服务商</button>
+    <span class="meta">或从预设添加：</span>
   </div>
+  <div class="presets" id="presets"></div>
 
-  <div class="pane-head"><span>上下文预算</span></div>
+  <div class="pane-head"><span>默认预算</span></div>
+  <div class="hint">未给模型单独设置窗口时用这里的值。</div>
   <div class="grid">
     <label class="field"><span>上下文窗口</span><input type="number" id="setContextWindow" min="4000" step="1000"></label>
     <label class="field"><span>最大输出 token</span><input type="number" id="setMaxOutputTokens" min="256" step="256"></label>
@@ -290,7 +279,6 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
 
   <div class="actions">
     <button class="primary" id="saveSettingsBtn">保存设置</button>
-    <button class="secondary" id="testConnBtn">测试连接</button>
     <button class="link" id="nativeSettingsBtn">在 VS Code 设置中打开</button>
   </div>
   <div class="hint">设置写入工作区 settings.json；API Key 只存 SecretStorage，不落盘到配置文件。</div>

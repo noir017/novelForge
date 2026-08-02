@@ -1,5 +1,6 @@
-/** 章节：chapters/NNN-标题.md 中的一篇正文。 */
-export interface Chapter {
+import { ActiveModel, ProviderProfile } from './providers';
+
+/** 章节：chapters/NNN-标题.md 中的一篇正文。 */export interface Chapter {
   /** 序号，来自文件名前缀，决定顺序。 */
   order: number;
   /** 标题，来自文件名（去掉序号前缀与扩展名），若正文首行是 `# xxx` 则以正文为准。 */
@@ -118,12 +119,13 @@ export const MANIFEST_VERSION = 1;
 
 /** 从设置读出的运行时配置。 */
 export interface NovelConfig {
-  provider: 'openai' | 'anthropic' | 'vscode-lm';
-  openaiBaseUrl: string;
-  openaiModel: string;
-  anthropicBaseUrl: string;
-  anthropicModel: string;
-  vscodeLmFamily: string;
+  /** 已配置的服务商（含各自的模型清单）。 */
+  providers: ProviderProfile[];
+  /** 当前模型引用，形如 `glm/glm-4-plus`。 */
+  model: string;
+  /** 当前模型解析结果；引用无效时为 undefined。 */
+  active?: ActiveModel;
+  /** 全局默认上下文窗口，模型自带 contextWindow 时以模型为准。 */
   contextWindow: number;
   maxOutputTokens: number;
   temperature: number;

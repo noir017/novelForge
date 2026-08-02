@@ -1,7 +1,15 @@
 import * as vscode from 'vscode';
 import { BuiltContext, ContextItem } from '../context/builder';
 import { ContinueSession } from '../features/continueWriting';
-import { NovelProject, readConfig } from '../model/project';
+import { NovelProject, readConfig, readGlobalBudget } from '../model/project';
+import {
+  describeModelIssue,
+  listModelChoices,
+  modelLabel,
+  normalizeProviders,
+  providerLabel,
+  resolveModelRef,
+} from '../model/providers';
 import {
   Attachment,
   ChatSession,
@@ -11,7 +19,8 @@ import {
   makeTurnId,
   nowIso,
 } from '../model/session';
-import { hasApiKey } from '../llm/registry';
+import { apiKeyStatus, pruneApiKeys } from '../llm/registry';
+import { NovelConfig } from '../model/types';
 import {
   InMessage,
   OutMessage,
@@ -195,23 +204,27 @@ export class ChatController {
         await this.pushState();
         return;
 
+      case 'selectModel':
+        await this.selectModel(msg.ref);
+        return;
+
       case 'saveSettings':
         await this.saveSettings(msg.settings);
         return;
 
       case 'setApiKey':
-        await vscode.commands.executeCommand('novel.setApiKey', msg.provider);
+        await vscode.commands.executeCommand('novel.setApiKey', msg.providerId);
         await this.pushSettings();
         await this.pushState();
         return;
 
       case 'clearApiKey':
-        await vscode.commands.executeCommand('novel.clearApiKey', msg.provider);
+        await vscode.commands.executeCommand('novel.clearApiKey', msg.providerId);
         await this.pushSettings();
         return;
 
       case 'testConnection':
-        await this.testConnection();
+        await this.testConnection(msg.ref);
         return;
 
       case 'openNativeSettings':
@@ -224,26 +237,38 @@ export class ChatController {
 
   private async buildState(host: ViewHost): Promise<ViewState> {
     const initialized = await this.project.isInitialized();
+    const config = readConfig();
+    const models = listModelChoices(config.providers).map((c) => ({
+      ref: c.ref,
+      label: c.label,
+      group: c.group,
+    }));
+
     if (!initialized) {
       return {
         initialized: false,
         chapters: [],
         nextOrder: 1,
         staleCount: 0,
-        providerLabel: '',
+        model: config.model,
+        modelLabel: '',
+        models,
         contextWindow: 0,
         maxOutputTokens: 0,
         host: host.kind,
       };
     }
     const chapters = await this.project.listChapters();
-    const config = readConfig();
     return {
       initialized: true,
       chapters: chapters.map((c) => ({ order: c.order, title: c.title, wordCount: c.wordCount })),
       nextOrder: await this.project.nextChapterOrder(),
       staleCount: (await this.project.staleChapters()).length,
-      providerLabel: describeProvider(),
+      model: config.model,
+      modelLabel: describeProvider(config),
+      // 只在解析失败时给出说明——正常情况下不要在输入框下方堆红字。
+      modelIssue: config.active ? undefined : describeModelIssue(config.providers, config.model),
+      models,
       contextWindow: config.contextWindow,
       maxOutputTokens: config.maxOutputTokens,
       host: host.kind,
@@ -276,26 +301,37 @@ export class ChatController {
     });
   }
 
-  private async pushSettings(): Promise<void> {
+  private async pushSettings(ack?: 'saved' | 'rejected'): Promise<void> {
     const c = readConfig();
+    // 预算字段回显全局默认值，而不是被当前模型覆盖后的值——
+    // 否则用户在设置页看到的数字会随选中模型漂移，一保存就把默认值改掉了。
+    const budget = readGlobalBudget();
     this.post({
       type: 'settings',
+      ack,
       settings: {
-        provider: c.provider,
-        openaiBaseUrl: c.openaiBaseUrl,
-        openaiModel: c.openaiModel,
-        anthropicBaseUrl: c.anthropicBaseUrl,
-        anthropicModel: c.anthropicModel,
-        vscodeLmFamily: c.vscodeLmFamily,
-        contextWindow: c.contextWindow,
-        maxOutputTokens: c.maxOutputTokens,
+        providers: c.providers.map((p) => ({
+          id: p.id,
+          label: p.label,
+          kind: p.kind,
+          baseUrl: p.baseUrl,
+          models: p.models.map((m) => ({
+            name: m.name,
+            label: m.label,
+            contextWindow: m.contextWindow,
+            maxOutputTokens: m.maxOutputTokens,
+          })),
+        })),
+        model: c.model,
+        contextWindow: budget.contextWindow,
+        maxOutputTokens: budget.maxOutputTokens,
         temperature: c.temperature,
         recentChaptersFullText: c.recentChaptersFullText,
         prevChapterTailChars: c.prevChapterTailChars,
         summaryBatchSize: c.summaryBatchSize,
         requestTimeoutMs: c.requestTimeoutMs,
       },
-      keys: { openai: await hasApiKey('openai'), anthropic: await hasApiKey('anthropic') },
+      keys: await apiKeyStatus(c.providers),
     });
   }
 
@@ -601,13 +637,18 @@ export class ChatController {
       ? vscode.ConfigurationTarget.Workspace
       : vscode.ConfigurationTarget.Global;
 
+    const before = readConfig().providers.map((p) => p.id);
+    const providers = normalizeProviders(s.providers);
+    if (s.providers.length > 0 && providers.length === 0) {
+      this.toast('服务商配置不合法：id 不能为空或含斜杠，且每个服务商至少要有一个模型。', 'error');
+      // 回执必须发——前端据此知道这次没落盘，从而保住未保存的编辑。
+      await this.pushSettings('rejected');
+      return;
+    }
+
     const entries: [string, unknown][] = [
-      ['provider', s.provider],
-      ['openai.baseUrl', s.openaiBaseUrl.trim()],
-      ['openai.model', s.openaiModel.trim()],
-      ['anthropic.baseUrl', s.anthropicBaseUrl.trim()],
-      ['anthropic.model', s.anthropicModel.trim()],
-      ['vscodeLm.family', s.vscodeLmFamily.trim()],
+      ['providers', providers],
+      ['model', s.model.trim()],
       ['contextWindow', s.contextWindow],
       ['maxOutputTokens', s.maxOutputTokens],
       ['temperature', s.temperature],
@@ -620,14 +661,33 @@ export class ChatController {
       await c.update(key, value, target);
     }
 
-    await this.pushSettings();
+    // 删掉的服务商不该在钥匙串里留下孤儿 Key。
+    await pruneApiKeys(providers, before);
+
+    await this.pushSettings('saved');
     await this.pushState();
     this.toast('设置已保存。');
   }
 
-  private async testConnection(): Promise<void> {
-    this.toast('正在测试连接…');
-    const result = await this.session.testConnection();
+  /** 输入框旁边的模型下拉框。只改选中项，不动服务商列表。 */
+  private async selectModel(ref: string): Promise<void> {
+    const config = readConfig();
+    if (!resolveModelRef(config.providers, ref)) {
+      this.toast(describeModelIssue(config.providers, ref), 'error');
+      await this.pushState();
+      return;
+    }
+    const target = vscode.workspace.workspaceFolders?.length
+      ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+    await vscode.workspace.getConfiguration('novel').update('model', ref, target);
+    await this.pushState();
+  }
+
+  private async testConnection(ref?: string): Promise<void> {
+    const target = ref ?? readConfig().model;
+    this.toast(`正在测试 ${target}…`);
+    const result = await this.session.testConnection(ref);
     this.toast(result.message, result.ok ? 'info' : 'error');
     await this.pushState();
   }
@@ -685,10 +745,10 @@ function serializeItem(i: ContextItem) {
   };
 }
 
-export function describeProvider(): string {
-  const c = readConfig();
-  if (c.provider === 'vscode-lm') {
-    return `${c.vscodeLmFamily}（VS Code LM）`;
+export function describeProvider(config: NovelConfig = readConfig()): string {
+  if (!config.active) {
+    return config.model || '未选择模型';
   }
-  return c.provider === 'anthropic' ? c.anthropicModel : c.openaiModel;
+  const { profile, model } = config.active;
+  return `${providerLabel(profile)} · ${modelLabel(model)}`;
 }

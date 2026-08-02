@@ -239,7 +239,7 @@ async function main() {
   console.log('\n== OpenAI provider · HTTP 错误 ==');
   for (const [mode, expect] of [
     ['http-401', 'API Key 可能无效'],
-    ['http-404', 'baseUrl 或模型名可能填错'],
+    ['http-404', '接口地址或模型名可能填错'],
     ['http-429', '触发限流'],
   ]) {
     server.mode = mode;

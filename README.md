@@ -26,8 +26,8 @@ npm run compile
 
 1. 打开一个空文件夹作为工作区
 2. 命令面板 → `Novel: 初始化小说工程`
-3. 点活动栏的 Novel Forge 图标 → 「设置」页填服务商与 API Key → 「测试连接」
-4. 回到「对话」页，描述接下来要写什么
+3. 点活动栏的 Novel Forge 图标 → 「设置」页点一个预设添加服务商 → 填 API Key → 点该模型的「测试」
+4. 回到「对话」页，在下拉框里选模型，描述接下来要写什么
 
 ## 界面
 
@@ -37,7 +37,7 @@ npm run compile
 |---|---|
 | **对话** | 聊天式续写。描述剧情 → 流式生成 → 就地编辑 → 采纳写入 |
 | **历史** | 本工程的所有会话，可打开、重命名、删除 |
-| **设置** | 服务商、模型、API Key、上下文预算 |
+| **设置** | 服务商与模型清单、API Key、上下文预算 |
 
 侧边栏太窄时，点右上角 ⧉ 可以把同一个面板作为标签页在编辑器区打开——两边是同一个会话，内容实时同步。
 
@@ -45,6 +45,7 @@ npm run compile
 
 输入框里直接写要发生什么，Enter 发送、Shift+Enter 换行。下方一排控件：
 
+- **模型** —— 在已配置的模型间切换，形如 `glm/glm-4-plus`。切换即时生效，预算按新模型的窗口重算。
 - **模式** —— 「续写正文」产出成稿；「讨论/建议」用来问「这个人物立住了吗」这类问题，此时不强制只输出正文。
 - **写入位置** —— 采纳时是追加到某章，还是新建下一章。
 - **目标字数** —— 0 表示不限。
@@ -148,6 +149,7 @@ lastSeen: 3
 | `Novel: 新建对话` | 存下当前会话并开一个新的 |
 | `Novel: 将选中文本加入对话上下文` | <kbd>Ctrl+Shift+L</kbd> |
 | `Novel: 打开设置页` | 切到设置页签 |
+| `Novel: 选择模型` | 在已配置的模型间切换 |
 | `Novel: 快速续写（不开面板）` | 输入纲要，结果流式写入新文档 |
 | `Novel: 新建章节` | 自动分配序号 |
 | `Novel: 总结本章` | 生成单章摘要（六个固定小节） |
@@ -155,7 +157,7 @@ lastSeen: 3
 | `Novel: 重建全书摘要` | map-reduce：每 15 章一批 reduce，再合并 |
 | `Novel: 提取/更新角色卡` | 新角色直接建，已有角色走 diff 确认 |
 | `Novel: 提取文风指南` | 从 1~3 章样章归纳 |
-| `Novel: 设置 / 清除 API Key` | 存 SecretStorage |
+| `Novel: 设置 / 清除 API Key` | 按服务商存 SecretStorage |
 
 ### 摘要过期机制
 
@@ -173,28 +175,67 @@ lastSeen: 3
 
 设置页（侧边栏 → 设置）能改全部配置，也可以直接编辑 settings.json。API Key 只存 SecretStorage，不写进配置文件。
 
+### 服务商与模型
+
+可以同时配置多个服务商，每个服务商下挂多个模型。模型用 **`前缀/模型名`** 引用，前缀就是服务商的 id：
+
+```jsonc
+"novel.providers": [
+  {
+    "id": "glm",                                              // 引用前缀
+    "label": "智谱 GLM",
+    "kind": "openai",                                         // openai / anthropic / vscode-lm
+    "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+    "models": [
+      { "name": "glm-4-plus", "contextWindow": 128000 },
+      { "name": "glm-4-air" }
+    ]
+  },
+  {
+    "id": "openrouter",
+    "kind": "openai",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "models": [
+      { "name": "z-ai/glm-4.6", "contextWindow": 200000 }     // 模型名自带斜杠
+    ]
+  }
+],
+"novel.model": "glm/glm-4-plus"
+```
+
+于是：
+
+| 引用 | 含义 |
+|---|---|
+| `glm/glm-4-plus` | 智谱官方的 glm-4-plus |
+| `openrouter/z-ai/glm-4.6` | OpenRouter 上的 GLM |
+| `ollama/qwen2.5:14b` | 本地 Ollama |
+
+**引用只在第一个斜杠处切分**，后面的都属于模型名——OpenRouter 的模型名本就是 `厂商/型号`，不这样切就没法引用。所以服务商前缀不能含斜杠，设置页会挡住。
+
+同一个模型走不同渠道就是两条独立的引用，各有各的 baseUrl、各有各的 API Key，切换只要在输入框旁的下拉框里选一下（或用命令 `Novel: 选择模型`）。
+
+**每个模型可以单独设窗口**。同一家的 32k 和 200k 模型常常并存，模型上填了 `contextWindow` 就以它为准，没填才用全局的 `novel.contextWindow`。装配器据此算预算，所以切模型时预算会跟着变。
+
+设置页备了 9 个常用预设（OpenAI / DeepSeek / 智谱 / Kimi / 通义 / OpenRouter / Anthropic / 本地 Ollama / Copilot），点一下**添加一整个服务商**（含常用模型和窗口大小），不会覆盖已有的。每个模型行右边有「测试」，当场发一个最小请求验证——比写半章才发现 Key 填错强。
+
+API Key 按服务商 id 分开存。本地 Ollama 随便填一个非空值即可；`vscode-lm`（Copilot）不需要 Key，但模型有硬性输入配额，装配器会自动按其 `maxInputTokens` 收紧预算，明细里会标注「已按模型配额压缩」。
+
+### 其余设置项
+
 | 设置项 | 默认值 | 说明 |
 |---|---|---|
-| `novel.provider` | `openai` | `openai` / `anthropic` / `vscode-lm` |
-| `novel.openai.baseUrl` | `https://api.openai.com/v1` | 任何 OpenAI 兼容接口 |
-| `novel.openai.model` | `gpt-4o` | |
-| `novel.anthropic.model` | `claude-sonnet-4-5` | |
-| `novel.vscodeLm.family` | `gpt-4o` | 复用 Copilot 订阅 |
-| `novel.contextWindow` | `128000` | 用于算预算 |
-| `novel.maxOutputTokens` | `4096` | |
+| `novel.providers` | `[]` | 服务商与模型清单，见上 |
+| `novel.model` | 第一个可用 | 当前模型引用，如 `glm/glm-4-plus` |
+| `novel.contextWindow` | `128000` | 默认窗口，模型自带的优先 |
+| `novel.maxOutputTokens` | `4096` | 默认输出上限，模型自带的优先 |
 | `novel.temperature` | `0.8` | 摘要类任务内部固定用 0.3 |
 | `novel.recentChaptersFullText` | `2` | 注入几章完整原文 |
 | `novel.prevChapterTailChars` | `1500` | 上一章结尾片段字数 |
 | `novel.summaryBatchSize` | `15` | 重建全书摘要的批大小 |
 | `novel.requestTimeoutMs` | `300000` | |
 
-### 接其他服务商
-
-只要是 OpenAI 兼容接口，改 `baseUrl` + `model` 即可。设置页备了几个常用预设（OpenAI / DeepSeek / Kimi / 通义 / 智谱 / 本地 Ollama），点一下自动填好地址、模型名和窗口大小，改完点「测试连接」当场验证——比写半章才发现 Key 填错强。
-
-本地 Ollama 的 API Key 随便填一个非空值即可。
-
-用 `vscode-lm`（Copilot）时无需 API Key，但模型有硬性输入配额，装配器会自动按其 `maxInputTokens` 收紧预算，明细里会标注「已按模型配额压缩」。
+> 从 0.1.x 升级：旧的 `novel.provider` / `novel.openai.*` / `novel.anthropic.*` / `novel.vscodeLm.family` 仍然生效——`novel.providers` 为空时会自动按它们生成一份服务商列表（前缀分别是 `openai` / `anthropic` / `copilot`），旧的 API Key 也会迁到新键上，不用重新输。在设置页保存一次即转为新结构。
 
 ---
 
@@ -209,9 +250,10 @@ npm test            # typecheck + smoke
 
 ### 测试
 
-`scripts/` 下四个离线测试，都不需要真实 API Key：
+`scripts/` 下五个离线测试，都不需要真实 API Key：
 
 - **`smoke.js`** —— markdown 解析、tokenizer、模型输出清洗、摘要/角色 JSON 解析的容错，以及示例工程的 hash 一致性
+- **`smoke-providers.js`** —— 模型引用解析（含嵌套斜杠 `openrouter/z-ai/glm-4.6`）、服务商配置容错、按模型覆盖窗口、0.1.x 单服务商配置的兜底
 - **`smoke-builder.js`** —— 用真实文件系统的 vscode 桩跑完整上下文装配：优先级、预算、降级链、手动排除、附件截断、多轮历史封顶、discuss 模式、provider 配额压缩
 - **`smoke-llm.js`** —— 起本地假服务器模拟 SSE，验证流式解析（含跨块切分、CRLF、心跳、非 JSON 行）、取消、超时、HTTP 401/404/429 错误信息，以及 Anthropic 的 system 提取与消息合并
 - **`smoke-session.js`** —— 会话读写 round-trip、损坏文件容错、列表排序、重命名/删除、id 唯一性，以及 `.novel` → `.novelforge` 的迁移
@@ -224,6 +266,7 @@ src/
 ├── model/
 │   ├── types.ts           数据结构与固定小节定义
 │   ├── markdown.ts        frontmatter + 小节解析（容错优先，手改文件不该让插件崩）
+│   ├── providers.ts       ★ 多服务商 / 多模型与「前缀/模型名」引用
 │   ├── session.ts         对话会话的读写（.novelforge/sessions/）
 │   └── project.ts         NovelProject：所有文件读写
 ├── llm/
@@ -231,7 +274,7 @@ src/
 │   ├── openaiProvider.ts  OpenAI 兼容
 │   ├── anthropicProvider.ts
 │   ├── vscodeLmProvider.ts
-│   └── registry.ts        provider 选择 + SecretStorage
+│   └── registry.ts        按引用构造 provider + 按服务商存 SecretStorage
 ├── context/
 │   ├── tokenizer.ts       粗估：中文 1.5x，拉丁 /4
 │   └── builder.ts         ★ 分层预算装配
