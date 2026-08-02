@@ -328,7 +328,7 @@
     "watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
     "typecheck": "tsc --noEmit",
-    "smoke": "node scripts/smoke.js && node scripts/smoke-builder.js && node scripts/smoke-llm.js",
+    "smoke": "node scripts/smoke.js && node scripts/smoke-builder.js && node scripts/smoke-llm.js && node scripts/smoke-session.js",
     "test": "npm run typecheck && npm run smoke"
   },
   "devDependencies": {

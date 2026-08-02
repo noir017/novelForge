@@ -188,8 +188,16 @@ export function makeSessionId(): string {
   return `${stamp}-${rand}`;
 }
 
+/**
+ * 轮次 id。
+ *
+ * 用递增计数器而非纯随机：turnId 是 DOM 查找和历史映射的键，
+ * 同一毫秒内连续建两条（插入用户消息后紧接着插空回复）必须保证不撞。
+ */
+let turnCounter = 0;
 export function makeTurnId(): string {
-  return `t${Date.now().toString(36)}${Math.floor(Math.random() * 0xfff).toString(16)}`;
+  turnCounter += 1;
+  return `t${Date.now().toString(36)}-${turnCounter.toString(36)}`;
 }
 
 /** 从首条用户消息生成会话标题。 */
