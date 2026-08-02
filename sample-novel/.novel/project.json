@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "title": "青崖记",
+  "author": "示例",
+  "chapters": [
+    {
+      "file": "chapters/001-楔子.md",
+      "order": 1,
+      "title": "楔子",
+      "wordCount": 375,
+      "contentHash": "f6142df08cec2b18",
+      "summaryHash": "f6142df08cec2b18"
+    },
+    {
+      "file": "chapters/002-客栈里的女人.md",
+      "order": 2,
+      "title": "客栈里的女人",
+      "wordCount": 610,
+      "contentHash": "a26b6dc8fb924aa7",
+      "summaryHash": "a26b6dc8fb924aa7"
+    },
+    {
+      "file": "chapters/003-夜访.md",
+      "order": 3,
+      "title": "夜访",
+      "wordCount": 620,
+      "contentHash": "3c0beb4bf5829790",
+      "summaryHash": "3c0beb4bf5829790"
+    }
+  ],
+  "globalSummaryThrough": 3
+}

@@ -1,0 +1,290 @@
+{
+  "name": "novel-forge",
+  "displayName": "Novel Forge — 长篇小说上下文管理",
+  "description": "为长篇小说写作提供上下文注入、纲要扩写与角色/剧情整合总结的 VS Code 插件。",
+  "version": "0.1.0",
+  "publisher": "novel-forge",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "novel",
+    "writing",
+    "llm",
+    "context",
+    "小说"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "workspaceContains:.novel/project.json"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "novelForge",
+          "title": "Novel Forge",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "novelForge": [
+        {
+          "id": "novelForge.explorer",
+          "name": "小说工程",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "novelForge.explorer",
+        "contents": "当前工作区还不是 Novel Forge 小说工程。\n[初始化小说工程](command:novel.initProject)\n初始化会创建 chapters/ 与 .novel/ 目录及模板文件。"
+      }
+    ],
+    "commands": [
+      {
+        "command": "novel.initProject",
+        "title": "Novel: 初始化小说工程",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "novel.refresh",
+        "title": "Novel: 刷新",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "novel.newChapter",
+        "title": "Novel: 新建章节",
+        "icon": "$(add)"
+      },
+      {
+        "command": "novel.setApiKey",
+        "title": "Novel: 设置 API Key"
+      },
+      {
+        "command": "novel.clearApiKey",
+        "title": "Novel: 清除 API Key"
+      },
+      {
+        "command": "novel.continue",
+        "title": "Novel: 打开续写面板",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "novel.continueFromChapter",
+        "title": "在此续写",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "novel.quickContinue",
+        "title": "Novel: 快速续写（不开面板）"
+      },
+      {
+        "command": "novel.summarizeChapter",
+        "title": "Novel: 总结本章",
+        "icon": "$(book)"
+      },
+      {
+        "command": "novel.syncSummaries",
+        "title": "Novel: 同步所有过期摘要"
+      },
+      {
+        "command": "novel.rebuildGlobalSummary",
+        "title": "Novel: 重建全书摘要"
+      },
+      {
+        "command": "novel.extractCharacters",
+        "title": "Novel: 提取/更新角色卡"
+      },
+      {
+        "command": "novel.extractStyle",
+        "title": "Novel: 提取文风指南"
+      },
+      {
+        "command": "novel.openFile",
+        "title": "打开文件"
+      },
+      {
+        "command": "novel.newCharacter",
+        "title": "Novel: 新建角色卡",
+        "icon": "$(person-add)"
+      },
+      {
+        "command": "novel.newLore",
+        "title": "Novel: 新建设定条目",
+        "icon": "$(add)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "novel.continue",
+          "when": "view == novelForge.explorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "novel.newChapter",
+          "when": "view == novelForge.explorer",
+          "group": "navigation@2"
+        },
+        {
+          "command": "novel.refresh",
+          "when": "view == novelForge.explorer",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "novel.continueFromChapter",
+          "when": "view == novelForge.explorer && viewItem == chapter",
+          "group": "inline@1"
+        },
+        {
+          "command": "novel.summarizeChapter",
+          "when": "view == novelForge.explorer && viewItem == chapter",
+          "group": "inline@2"
+        },
+        {
+          "command": "novel.newChapter",
+          "when": "view == novelForge.explorer && viewItem == group:chapters",
+          "group": "inline"
+        },
+        {
+          "command": "novel.newCharacter",
+          "when": "view == novelForge.explorer && viewItem == group:characters",
+          "group": "inline"
+        },
+        {
+          "command": "novel.newLore",
+          "when": "view == novelForge.explorer && viewItem == group:lore",
+          "group": "inline"
+        },
+        {
+          "command": "novel.syncSummaries",
+          "when": "view == novelForge.explorer && viewItem == group:summaries",
+          "group": "1_novel"
+        },
+        {
+          "command": "novel.rebuildGlobalSummary",
+          "when": "view == novelForge.explorer && viewItem == group:summaries",
+          "group": "1_novel"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Novel Forge",
+      "properties": {
+        "novel.provider": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic",
+            "vscode-lm"
+          ],
+          "default": "openai",
+          "enumDescriptions": [
+            "OpenAI 兼容接口（OpenAI / DeepSeek / Kimi / 通义 / 本地 Ollama 等）",
+            "Anthropic Messages API",
+            "VS Code Language Model API（复用 GitHub Copilot 订阅）"
+          ],
+          "description": "使用哪个大模型服务商。"
+        },
+        "novel.openai.baseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "description": "OpenAI 兼容接口的 baseUrl，不含末尾斜杠。例如 DeepSeek 填 https://api.deepseek.com/v1"
+        },
+        "novel.openai.model": {
+          "type": "string",
+          "default": "gpt-4o",
+          "description": "OpenAI 兼容接口使用的模型名。"
+        },
+        "novel.anthropic.baseUrl": {
+          "type": "string",
+          "default": "https://api.anthropic.com",
+          "description": "Anthropic API baseUrl，不含末尾斜杠。"
+        },
+        "novel.anthropic.model": {
+          "type": "string",
+          "default": "claude-sonnet-4-5",
+          "description": "Anthropic 使用的模型名。"
+        },
+        "novel.vscodeLm.family": {
+          "type": "string",
+          "default": "gpt-4o",
+          "description": "VS Code LM API 选择的模型 family，例如 gpt-4o、claude-3.5-sonnet。"
+        },
+        "novel.contextWindow": {
+          "type": "number",
+          "default": 128000,
+          "minimum": 4000,
+          "description": "模型上下文窗口大小（token）。上下文装配器据此计算预算。"
+        },
+        "novel.maxOutputTokens": {
+          "type": "number",
+          "default": 4096,
+          "minimum": 256,
+          "description": "单次生成的最大输出 token 数。"
+        },
+        "novel.temperature": {
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "采样温度。写小说建议 0.7 ~ 1.0。"
+        },
+        "novel.recentChaptersFullText": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 10,
+          "description": "续写时注入多少章「完整原文」（不含上一章结尾片段）。预算不足会自动降级为摘要。"
+        },
+        "novel.prevChapterTailChars": {
+          "type": "number",
+          "default": 1500,
+          "minimum": 0,
+          "description": "上一章结尾原文注入的字数，用于保证语气衔接。"
+        },
+        "novel.chaptersDir": {
+          "type": "string",
+          "default": "chapters",
+          "description": "章节正文目录（相对工作区根目录）。"
+        },
+        "novel.summaryBatchSize": {
+          "type": "number",
+          "default": 15,
+          "minimum": 3,
+          "description": "重建全书摘要时，每批 reduce 多少章的单章摘要。"
+        },
+        "novel.requestTimeoutMs": {
+          "type": "number",
+          "default": 300000,
+          "minimum": 10000,
+          "description": "单次 LLM 请求超时（毫秒）。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke.js && node scripts/smoke-builder.js && node scripts/smoke-llm.js",
+    "test": "npm run typecheck && npm run smoke"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.0"
+  }
+}
