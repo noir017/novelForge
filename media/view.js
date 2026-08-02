@@ -23,6 +23,8 @@
     sendBtn: $('sendBtn'),
     stopBtn: $('stopBtn'),
     providerMeta: $('providerMeta'),
+    projectToolbar: $('projectToolbar'),
+    projectBody: $('projectBody'),
     historyMeta: $('historyMeta'),
     sessionList: $('sessionList'),
     providerList: $('providerList'),
@@ -568,6 +570,262 @@
     }
   }
 
+  // ---------------------------------------------------------------- 工程
+
+  /** 分组展开状态。放在模块级，重渲染后不会把用户折叠的组又展开。 */
+  const openGroups = { chapters: true, characters: true, lore: true, meta: true };
+
+  function projectAction(action, order) {
+    vscode.postMessage({ type: 'projectAction', action, order });
+  }
+
+  el.projectToolbar.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (btn) projectAction(btn.dataset.action);
+  });
+
+  function renderProject(tree) {
+    el.projectBody.innerHTML = '';
+    // 还不是小说工程时，工具栏上的「新建章节」等按钮点了只会报错。
+    el.projectToolbar.classList.toggle('hidden', !tree.initialized);
+
+    if (!tree.initialized) {
+      el.projectBody.appendChild(buildInitPrompt());
+      return;
+    }
+
+    el.projectBody.appendChild(buildProjectHead(tree));
+    el.projectBody.appendChild(
+      buildGroup('chapters', '章节', `${tree.chapterCount} 章 · ${formatWords(tree.totalWords)}`, () =>
+        tree.chapters.length === 0
+          ? [emptyRow('还没有章节。点上方「＋ 新建章节」开始。')]
+          : [...tree.chapters].reverse().map(buildChapterRow)
+      )
+    );
+    el.projectBody.appendChild(
+      buildGroup('characters', '角色', `${tree.characters.length} 人`, () =>
+        tree.characters.length === 0
+          ? [emptyRow('还没有角色卡。可运行「提取/更新角色卡」从正文抽取。')]
+          : tree.characters.map((f) => buildFileRow(f, '👤'))
+      )
+    );
+    el.projectBody.appendChild(
+      buildGroup('lore', '设定', `${tree.lore.length} 条`, () =>
+        tree.lore.length === 0
+          ? [emptyRow('还没有设定条目。keywords 命中纲要时会自动注入上下文。')]
+          : tree.lore.map((f) => buildFileRow(f, '🌐'))
+      )
+    );
+    el.projectBody.appendChild(
+      buildGroup('meta', '文风与摘要', tree.staleCount > 0 ? `${tree.staleCount} 章待总结` : '已同步', () =>
+        buildMetaRows(tree)
+      )
+    );
+  }
+
+  function buildInitPrompt() {
+    const box = document.createElement('div');
+    box.className = 'project-empty';
+    const p = document.createElement('p');
+    p.textContent = '当前工作区还不是 Novel Forge 小说工程。';
+    box.appendChild(p);
+    const btn = document.createElement('button');
+    btn.className = 'primary';
+    btn.textContent = '初始化小说工程';
+    btn.addEventListener('click', () => projectAction('initProject'));
+    box.appendChild(btn);
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = '会创建 chapters/ 与 .novelforge/ 目录及模板文件。';
+    box.appendChild(hint);
+    return box;
+  }
+
+  function buildProjectHead(tree) {
+    const head = document.createElement('div');
+    head.className = 'project-head';
+
+    const title = document.createElement('div');
+    title.className = 'project-title';
+    title.textContent = tree.title || '未命名';
+    head.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = [tree.author, `${tree.chapterCount} 章`, formatWords(tree.totalWords)]
+      .filter(Boolean)
+      .join(' · ');
+    head.appendChild(meta);
+
+    if (tree.staleCount > 0) {
+      const banner = document.createElement('div');
+      banner.className = 'banner';
+      const text = document.createElement('span');
+      text.textContent = `${tree.staleCount} 章摘要缺失或已过期，这些章节的剧情不会进入上下文。`;
+      banner.appendChild(text);
+      banner.appendChild(linkBtn('立即同步', () => projectAction('syncSummaries')));
+      head.appendChild(banner);
+    }
+    return head;
+  }
+
+  /** 可折叠分组。`build` 惰性调用，折叠时不生成行。 */
+  function buildGroup(id, label, description, build) {
+    const box = document.createElement('div');
+    box.className = 'group';
+
+    const head = document.createElement('button');
+    head.className = 'group-head';
+    const caret = document.createElement('span');
+    caret.className = 'caret';
+    caret.textContent = openGroups[id] ? '▾' : '▸';
+    head.appendChild(caret);
+    const name = document.createElement('span');
+    name.className = 'group-name';
+    name.textContent = label;
+    head.appendChild(name);
+    const desc = document.createElement('span');
+    desc.className = 'meta';
+    desc.textContent = description;
+    head.appendChild(desc);
+    box.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'group-body';
+    box.appendChild(body);
+
+    const sync = () => {
+      caret.textContent = openGroups[id] ? '▾' : '▸';
+      body.innerHTML = '';
+      if (!openGroups[id]) return;
+      for (const row of build()) body.appendChild(row);
+    };
+    head.addEventListener('click', () => {
+      openGroups[id] = !openGroups[id];
+      sync();
+    });
+    sync();
+    return box;
+  }
+
+  function buildChapterRow(c) {
+    const row = document.createElement('div');
+    row.className = 'row';
+
+    const dot = document.createElement('span');
+    dot.className = `dot${c.stale ? ' stale' : ''}`;
+    dot.textContent = c.stale ? '○' : '●';
+    dot.title = c.stale ? '摘要缺失或已过期' : '摘要为最新';
+    row.appendChild(dot);
+
+    const label = document.createElement('span');
+    label.className = 'row-label';
+    label.textContent = `${String(c.order).padStart(3, '0')} ${c.title}`;
+    label.title = c.relPath;
+    label.addEventListener('click', () => vscode.postMessage({ type: 'openFile', path: c.relPath }));
+    row.appendChild(label);
+
+    const words = document.createElement('span');
+    words.className = 'meta';
+    words.textContent = formatWords(c.wordCount);
+    row.appendChild(words);
+
+    const actions = document.createElement('span');
+    actions.className = 'row-actions';
+    actions.appendChild(
+      // 从第 N 章续写意味着写第 N+1 章，与右键菜单的语义一致。
+      linkBtn('在此续写', () => projectAction('continueFrom', c.order))
+    );
+    actions.appendChild(linkBtn(c.stale ? '总结' : '重新总结', () => projectAction('summarizeChapter', c.order)));
+    if (c.summaryPath) {
+      actions.appendChild(
+        linkBtn('看摘要', () => vscode.postMessage({ type: 'openFile', path: c.summaryPath }))
+      );
+    }
+    row.appendChild(actions);
+    return row;
+  }
+
+  function buildFileRow(f, icon) {
+    const row = document.createElement('div');
+    row.className = 'row';
+
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.textContent = icon;
+    row.appendChild(dot);
+
+    const label = document.createElement('span');
+    label.className = 'row-label';
+    label.textContent = f.label;
+    label.title = f.relPath;
+    label.addEventListener('click', () => vscode.postMessage({ type: 'openFile', path: f.relPath }));
+    row.appendChild(label);
+
+    if (f.detail) {
+      const detail = document.createElement('span');
+      detail.className = 'meta row-detail';
+      detail.textContent = f.detail;
+      row.appendChild(detail);
+    }
+    return row;
+  }
+
+  function buildMetaRows(tree) {
+    const rows = [];
+
+    const global = buildFileRow(
+      {
+        label: '全书摘要',
+        relPath: tree.globalSummaryPath,
+        detail:
+          tree.globalSummaryThrough > 0
+            ? `覆盖至第 ${tree.globalSummaryThrough} 章${
+                tree.globalSummaryThrough < tree.chapterCount ? ' ⚠ 落后于正文' : ''
+              }`
+            : '未生成',
+      },
+      '📖'
+    );
+    const globalActions = document.createElement('span');
+    globalActions.className = 'row-actions';
+    globalActions.appendChild(linkBtn('重建', () => projectAction('rebuildGlobalSummary')));
+    global.appendChild(globalActions);
+    rows.push(global);
+
+    const style = buildFileRow({ label: '文风指南', relPath: tree.styleGuidePath, detail: '' }, '🎨');
+    const styleActions = document.createElement('span');
+    styleActions.className = 'row-actions';
+    styleActions.appendChild(linkBtn('从正文提取', () => projectAction('extractStyle')));
+    style.appendChild(styleActions);
+    rows.push(style);
+
+    rows.push(buildFileRow({ label: '全书大纲', relPath: tree.outlinePath, detail: '人工维护' }, '🗂'));
+
+    const tools = document.createElement('div');
+    tools.className = 'row row-tools';
+    tools.appendChild(
+      linkBtn(
+        tree.staleCount > 0 ? `同步 ${tree.staleCount} 章过期摘要` : '同步过期摘要',
+        () => projectAction('syncSummaries')
+      )
+    );
+    tools.appendChild(linkBtn('提取/更新角色卡', () => projectAction('extractCharacters')));
+    rows.push(tools);
+    return rows;
+  }
+
+  function emptyRow(text) {
+    const row = document.createElement('div');
+    row.className = 'hint row-empty';
+    row.textContent = text;
+    return row;
+  }
+
+  function formatWords(n) {
+    return n >= 10000 ? `${(n / 10000).toFixed(1)} 万字` : `${n} 字`;
+  }
+
   // ---------------------------------------------------------------- 设置
 
   const BUDGET_FIELDS = {
@@ -1023,6 +1281,9 @@
         break;
       case 'sessions':
         renderSessions(msg.list);
+        break;
+      case 'project':
+        renderProject(msg.tree);
         break;
       case 'attachments':
         store.attachments = msg.items;

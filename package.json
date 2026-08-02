@@ -37,22 +37,11 @@
       "novelForge": [
         {
           "id": "novelForge.chat",
-          "name": "对话",
+          "name": "Novel Forge",
           "type": "webview"
-        },
-        {
-          "id": "novelForge.explorer",
-          "name": "小说工程",
-          "icon": "media/icon.svg"
         }
       ]
     },
-    "viewsWelcome": [
-      {
-        "view": "novelForge.explorer",
-        "contents": "当前工作区还不是 Novel Forge 小说工程。\n[初始化小说工程](command:novel.initProject)\n初始化会创建 chapters/ 与 .novelforge/ 目录及模板文件。"
-      }
-    ],
     "commands": [
       {
         "command": "novel.initProject",
@@ -104,6 +93,11 @@
         "command": "novel.openSettings",
         "title": "Novel: 打开设置页",
         "icon": "$(gear)"
+      },
+      {
+        "command": "novel.openProject",
+        "title": "Novel: 打开工程页",
+        "icon": "$(book)"
       },
       {
         "command": "novel.continueFromChapter",
@@ -161,21 +155,6 @@
           "command": "novel.openChatInEditor",
           "when": "view == novelForge.chat",
           "group": "navigation@2"
-        },
-        {
-          "command": "novel.continue",
-          "when": "view == novelForge.explorer",
-          "group": "navigation@1"
-        },
-        {
-          "command": "novel.newChapter",
-          "when": "view == novelForge.explorer",
-          "group": "navigation@2"
-        },
-        {
-          "command": "novel.refresh",
-          "when": "view == novelForge.explorer",
-          "group": "navigation@3"
         }
       ],
       "editor/context": [
@@ -185,41 +164,14 @@
           "group": "novelforge@1"
         }
       ],
-      "view/item/context": [
+      "commandPalette": [
         {
           "command": "novel.continueFromChapter",
-          "when": "view == novelForge.explorer && viewItem == chapter",
-          "group": "inline@1"
+          "when": "false"
         },
         {
-          "command": "novel.summarizeChapter",
-          "when": "view == novelForge.explorer && viewItem == chapter",
-          "group": "inline@2"
-        },
-        {
-          "command": "novel.newChapter",
-          "when": "view == novelForge.explorer && viewItem == group:chapters",
-          "group": "inline"
-        },
-        {
-          "command": "novel.newCharacter",
-          "when": "view == novelForge.explorer && viewItem == group:characters",
-          "group": "inline"
-        },
-        {
-          "command": "novel.newLore",
-          "when": "view == novelForge.explorer && viewItem == group:lore",
-          "group": "inline"
-        },
-        {
-          "command": "novel.syncSummaries",
-          "when": "view == novelForge.explorer && viewItem == group:summaries",
-          "group": "1_novel"
-        },
-        {
-          "command": "novel.rebuildGlobalSummary",
-          "when": "view == novelForge.explorer && viewItem == group:summaries",
-          "group": "1_novel"
+          "command": "novel.openFile",
+          "when": "false"
         }
       ]
     },

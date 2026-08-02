@@ -24,6 +24,7 @@ import { NovelConfig } from '../model/types';
 import {
   InMessage,
   OutMessage,
+  ProjectAction,
   SendPayload,
   SerializedAttachment,
   SerializedDigest,
@@ -33,6 +34,7 @@ import {
   Tab,
   ViewState,
 } from './protocol';
+import { buildProjectTree } from './projectView';
 import { pickAttachment, selectionAttachment } from './attachments';
 
 /** Webview 宿主需要提供的能力。侧边栏与编辑器面板各实现一份。 */
@@ -107,15 +109,14 @@ export class ChatController {
         this.post({ type: 'session', session: serializeSession(this.current) });
         this.post({ type: 'attachments', items: this.pending.map(serializeAttachment) });
         this.post({ type: 'busy', value: this.busy });
+        // webview 被销毁重建时（侧边栏切走再切回）停在哪个页签就补哪份数据，
+        // 否则会看到一个空白的工程页/历史页。
+        await this.pushTabData();
         return;
 
       case 'switchTab':
         this.tab = msg.tab;
-        if (msg.tab === 'history') {
-          await this.pushSessions();
-        } else if (msg.tab === 'settings') {
-          await this.pushSettings();
-        }
+        await this.pushTabData();
         return;
 
       case 'send':
@@ -204,6 +205,10 @@ export class ChatController {
         await this.pushState();
         return;
 
+      case 'projectAction':
+        await this.projectAction(msg.action, msg.order);
+        return;
+
       case 'selectModel':
         await this.selectModel(msg.ref);
         return;
@@ -281,9 +286,26 @@ export class ChatController {
     for (const host of this.hosts) {
       host.post({ type: 'state', state: await this.buildState(host) });
     }
-    if (this.tab === 'settings') {
+    await this.pushTabData();
+  }
+
+  /**
+   * 补齐当前页签需要的数据。
+   * 只推可见页签的——工程页要遍历全部章节算摘要新鲜度，
+   * 每保存一次正文都跑一遍没必要。
+   */
+  private async pushTabData(): Promise<void> {
+    if (this.tab === 'project') {
+      await this.pushProject();
+    } else if (this.tab === 'history') {
+      await this.pushSessions();
+    } else if (this.tab === 'settings') {
       await this.pushSettings();
     }
+  }
+
+  private async pushProject(): Promise<void> {
+    this.post({ type: 'project', tree: await buildProjectTree(this.project) });
   }
 
   private async pushSessions(): Promise<void> {
@@ -374,11 +396,7 @@ export class ChatController {
   async showTab(tab: Tab): Promise<void> {
     this.tab = tab;
     this.post({ type: 'tab', tab });
-    if (tab === 'history') {
-      await this.pushSessions();
-    } else if (tab === 'settings') {
-      await this.pushSettings();
-    }
+    await this.pushTabData();
     for (const host of this.hosts) {
       host.reveal();
     }
@@ -626,6 +644,45 @@ export class ChatController {
       preview: false,
     });
     await vscode.commands.executeCommand('novel.refresh');
+  }
+
+  // ---------------------------------------------------------------- 工程页
+
+  /**
+   * 工程页的按钮统一转成命令执行，webview 不直接碰文件系统。
+   * 这样命令面板与工程页走的是同一条路径，行为不会分叉。
+   */
+  private async projectAction(action: ProjectAction, order?: number): Promise<void> {
+    const COMMANDS: Record<ProjectAction, string> = {
+      initProject: 'novel.initProject',
+      refresh: 'novel.refresh',
+      newChapter: 'novel.newChapter',
+      newCharacter: 'novel.newCharacter',
+      newLore: 'novel.newLore',
+      continueFrom: 'novel.continueFromChapter',
+      summarizeChapter: 'novel.summarizeChapter',
+      syncSummaries: 'novel.syncSummaries',
+      rebuildGlobalSummary: 'novel.rebuildGlobalSummary',
+      extractCharacters: 'novel.extractCharacters',
+      extractStyle: 'novel.extractStyle',
+    };
+    const command = COMMANDS[action];
+    if (!command) {
+      return;
+    }
+
+    // 章节相关的命令要带序号；continueFromChapter 收的是节点形状。
+    if (action === 'continueFrom') {
+      await vscode.commands.executeCommand(command, { chapterOrder: order });
+    } else if (action === 'summarizeChapter') {
+      await vscode.commands.executeCommand(command, order);
+    } else {
+      await vscode.commands.executeCommand(command);
+    }
+
+    // 这些命令大多会改动磁盘，且不一定触发 watcher（比如刚初始化的空工程）。
+    // pushState 会顺带刷新当前页签。
+    await this.pushState();
   }
 
   // ---------------------------------------------------------------- 设置

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 /** Webview ↔ 扩展 的消息协议。两个宿主（侧边栏 / 编辑器面板）共用。 */
 
-export type Tab = 'chat' | 'history' | 'settings';
+export type Tab = 'chat' | 'project' | 'history' | 'settings';
 
 export interface SendPayload {
   text: string;
@@ -41,12 +41,30 @@ export type InMessage =
   | { type: 'openFile'; path: string }
   | { type: 'openInEditor' }
   | { type: 'syncSummaries' }
+  | { type: 'projectAction'; action: ProjectAction; order?: number }
   | { type: 'selectModel'; ref: string }
   | { type: 'saveSettings'; settings: SettingsPayload }
   | { type: 'setApiKey'; providerId: string }
   | { type: 'clearApiKey'; providerId: string }
   | { type: 'testConnection'; ref?: string }
   | { type: 'openNativeSettings' };
+
+/**
+ * 工程页上可触发的动作。全部走命令，webview 只负责说「点了什么」。
+ * `order` 只有章节相关的动作会带。
+ */
+export type ProjectAction =
+  | 'initProject'
+  | 'refresh'
+  | 'newChapter'
+  | 'newCharacter'
+  | 'newLore'
+  | 'continueFrom'
+  | 'summarizeChapter'
+  | 'syncSummaries'
+  | 'rebuildGlobalSummary'
+  | 'extractCharacters'
+  | 'extractStyle';
 
 /** 设置页提交的全部内容。服务商列表整体替换。 */
 export interface SettingsPayload {
@@ -89,6 +107,7 @@ export type OutMessage =
   | { type: 'context'; turnId: string; digest: SerializedDigest }
   | { type: 'busy'; value: boolean }
   | { type: 'attachments'; items: SerializedAttachment[] }
+  | { type: 'project'; tree: ProjectTree }
   /**
    * `ack` 标明这次推送是不是某次保存的回执：
    * `saved` 表示已落盘（前端可放心以磁盘为准），`rejected` 表示被拒
@@ -114,6 +133,45 @@ export interface ViewState {
   maxOutputTokens: number;
   /** 宿主是侧边栏还是编辑器面板——侧边栏才显示「在编辑器中打开」。 */
   host: 'sidebar' | 'editor';
+}
+
+/**
+ * 工程页的全部内容。一次性推完——这些数据量很小（几十到几百行），
+ * 分层懒加载换来的那点开销不值得让 webview 维护展开状态与请求往返。
+ */
+export interface ProjectTree {
+  initialized: boolean;
+  title: string;
+  author: string;
+  chapterCount: number;
+  totalWords: number;
+  staleCount: number;
+  chapters: ProjectChapter[];
+  characters: ProjectFile[];
+  lore: ProjectFile[];
+  /** 全书摘要覆盖到第几章；0 表示还没生成。 */
+  globalSummaryThrough: number;
+  styleGuidePath: string;
+  outlinePath: string;
+  globalSummaryPath: string;
+}
+
+export interface ProjectChapter {
+  order: number;
+  title: string;
+  relPath: string;
+  wordCount: number;
+  /** 摘要缺失或过期。 */
+  stale: boolean;
+  /** 摘要文件路径；没生成过则为空。 */
+  summaryPath: string;
+}
+
+export interface ProjectFile {
+  label: string;
+  relPath: string;
+  /** 副标题，如角色别名、设定关键词。 */
+  detail: string;
 }
 
 export interface SerializedSession {
@@ -192,6 +250,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
 <body>
 <nav class="tabbar" id="tabbar">
   <button class="tab active" data-tab="chat">对话</button>
+  <button class="tab" data-tab="project">工程</button>
   <button class="tab" data-tab="history">历史</button>
   <button class="tab" data-tab="settings">设置</button>
   <span class="tabbar-spacer"></span>
@@ -233,6 +292,18 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     </div>
     <div class="composer-meta" id="providerMeta"></div>
   </div>
+</section>
+
+<!-- ------------------------------------------------------------ 工程 -->
+<section class="pane" id="pane-project">
+  <div class="project-toolbar" id="projectToolbar">
+    <button class="chip-btn" data-action="newChapter">＋ 新建章节</button>
+    <button class="chip-btn" data-action="newCharacter">＋ 角色卡</button>
+    <button class="chip-btn" data-action="newLore">＋ 设定</button>
+    <span class="spacer"></span>
+    <button class="icon-btn" data-action="refresh" title="刷新">⟳</button>
+  </div>
+  <div class="project-body" id="projectBody"></div>
 </section>
 
 <!-- ------------------------------------------------------------ 历史 -->

@@ -8,7 +8,6 @@ import { NovelProject, readConfig } from './model/project';
 import { ChatController } from './ui/chatController';
 import { ChatPanel } from './ui/chatPanel';
 import { ChatViewProvider } from './ui/chatViewProvider';
-import { NovelTreeProvider } from './ui/treeProvider';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   initSecrets(context);
@@ -17,7 +16,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (project) {
     await offerMigration(project);
   }
-  const treeProvider = project ? new NovelTreeProvider(project) : undefined;
   const chat = project ? new ChatController(project) : undefined;
 
   if (chat) {
@@ -29,22 +27,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }),
       { dispose: () => chat.dispose() }
     );
-  }
-
-  if (treeProvider && project) {
+  } else {
+    // 没有工作区就没有 controller，但视图仍在活动栏里挂着。
+    // 不注册 provider 的话它会一直空转，用户看不出是缺了什么。
     context.subscriptions.push(
-      vscode.window.createTreeView('novelForge.explorer', {
-        treeDataProvider: treeProvider,
-        showCollapseAll: true,
+      vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, {
+        resolveWebviewView(view) {
+          view.webview.html = NO_WORKSPACE_HTML;
+        },
       })
     );
+  }
+
+  if (project) {
     await setInitializedContext(project);
-    registerWatcher(context, project, treeProvider, chat);
+    registerWatcher(context, project, chat);
   }
 
   const refresh = async () => {
     project?.invalidate();
-    treeProvider?.refresh();
     await chat?.pushState();
     if (project) {
       await setInitializedContext(project);
@@ -205,6 +206,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await chat?.showTab('settings');
   });
 
+  register('novel.openProject', async () => {
+    await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
+    await chat?.showTab('project');
+  });
+
   register('novel.addSelectionToChat', async () => {
     const target = await NovelProject.require();
     if (!target || !chat) {
@@ -303,6 +309,16 @@ export function deactivate(): void {
 
 // ---------------------------------------------------------------- 辅助
 
+/** 无工作区时的占位页。不加载脚本，CSP 收到最紧。 */
+const NO_WORKSPACE_HTML = `<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
+<style>
+body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
+       color: var(--vscode-descriptionForeground); padding: 16px; line-height: 1.7; }
+</style></head>
+<body><p>请先打开一个文件夹作为工作区，Novel Forge 的所有数据都存在工作区里。</p></body></html>`;
+
 /**
  * 0.1.x 把元数据放在 `.novel/`。检测到旧目录就问一次是否改名，
  * 不静默动用户的文件——那目录可能已经进了 Git。
@@ -332,13 +348,12 @@ async function offerMigration(project: NovelProject): Promise<void> {
 }
 
 /**
- * 监听章节与元数据变化，刷新树与面板。
+ * 监听章节与元数据变化，刷新面板。
  * 保存正文会改变 contentHash，从而让对应章节的摘要标记为过期。
  */
 function registerWatcher(
   context: vscode.ExtensionContext,
   project: NovelProject,
-  tree: NovelTreeProvider,
   chat: ChatController | undefined
 ): void {
   const config = readConfig();
@@ -354,7 +369,6 @@ function registerWatcher(
     // 连续保存时合并刷新，避免频繁重算全部章节 hash。
     timer = setTimeout(() => {
       project.invalidate();
-      tree.refresh();
       void chat?.pushState();
     }, 250);
   };
