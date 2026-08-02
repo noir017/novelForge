@@ -46,6 +46,14 @@ async function ensureApiKey(provider: 'openai' | 'anthropic'): Promise<string | 
   return promptForApiKey(provider);
 }
 
+/** 某个服务商是否已存过 Key——设置页据此显示状态，不回显 Key 本身。 */
+export async function hasApiKey(provider: 'openai' | 'anthropic'): Promise<boolean> {
+  if (!secrets) {
+    return false;
+  }
+  return !!(await secrets.get(SECRET_KEYS[provider]));
+}
+
 export async function promptForApiKey(provider?: 'openai' | 'anthropic'): Promise<string | undefined> {
   const target = provider ?? (readConfig().provider === 'anthropic' ? 'anthropic' : 'openai');
   if (readConfig().provider === 'vscode-lm' && !provider) {
@@ -74,8 +82,18 @@ export async function promptForApiKey(provider?: 'openai' | 'anthropic'): Promis
   return value.trim();
 }
 
-export async function clearApiKey(): Promise<void> {
+export async function clearApiKey(provider?: 'openai' | 'anthropic'): Promise<void> {
   const store = requireSecrets();
+
+  // 设置页会指名清哪个；从命令面板进来则要问一下。
+  if (provider) {
+    await store.delete(SECRET_KEYS[provider]);
+    void vscode.window.showInformationMessage(
+      `Novel Forge：已清除 ${provider === 'anthropic' ? 'Anthropic' : 'OpenAI 兼容接口'} 的 API Key。`
+    );
+    return;
+  }
+
   const pick = await vscode.window.showQuickPick(
     [
       { label: 'OpenAI 兼容接口', value: 'openai' as const },

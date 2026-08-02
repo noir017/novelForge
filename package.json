@@ -36,6 +36,11 @@
     "views": {
       "novelForge": [
         {
+          "id": "novelForge.chat",
+          "name": "对话",
+          "type": "webview"
+        },
+        {
           "id": "novelForge.explorer",
           "name": "小说工程",
           "icon": "media/icon.svg"
@@ -74,8 +79,27 @@
       },
       {
         "command": "novel.continue",
-        "title": "Novel: 打开续写面板",
+        "title": "Novel: 打开续写对话",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "novel.openChatInEditor",
+        "title": "Novel: 在编辑器中打开对话面板",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "novel.newSession",
+        "title": "Novel: 新建对话",
+        "icon": "$(add)"
+      },
+      {
+        "command": "novel.addSelectionToChat",
+        "title": "Novel: 将选中文本加入对话上下文"
+      },
+      {
+        "command": "novel.openSettings",
+        "title": "Novel: 打开设置页",
+        "icon": "$(gear)"
       },
       {
         "command": "novel.continueFromChapter",
@@ -125,6 +149,16 @@
     "menus": {
       "view/title": [
         {
+          "command": "novel.newSession",
+          "when": "view == novelForge.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "novel.openChatInEditor",
+          "when": "view == novelForge.chat",
+          "group": "navigation@2"
+        },
+        {
           "command": "novel.continue",
           "when": "view == novelForge.explorer",
           "group": "navigation@1"
@@ -138,6 +172,13 @@
           "command": "novel.refresh",
           "when": "view == novelForge.explorer",
           "group": "navigation@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "novel.addSelectionToChat",
+          "when": "editorHasSelection && novelForge.initialized",
+          "group": "novelforge@1"
         }
       ],
       "view/item/context": [
@@ -178,6 +219,14 @@
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "novel.addSelectionToChat",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l",
+        "when": "editorHasSelection && novelForge.initialized"
+      }
+    ],
     "configuration": {
       "title": "Novel Forge",
       "properties": {

@@ -88,6 +88,39 @@ export class ContinueSession {
     this.currentCancel?.cancel();
   }
 
+  /**
+   * 发一个最小请求验证配置能不能用。
+   * 设置页的「测试连接」——比让用户先写半章再发现 Key 填错好得多。
+   */
+  async testConnection(): Promise<{ ok: boolean; message: string }> {
+    const provider = await resolveProvider();
+    if (!provider) {
+      return { ok: false, message: '未配置模型：请先设置 API Key，或把服务商改为 VS Code 语言模型。' };
+    }
+    const source = new vscode.CancellationTokenSource();
+    try {
+      let reply = '';
+      for await (const delta of provider.chatStream(
+        [{ role: 'user', content: '回复两个字：收到' }],
+        { maxOutputTokens: 16, temperature: 0, timeoutMs: 30000, token: source.token }
+      )) {
+        reply += delta;
+        // 拿到任何内容就算通了，不必等它说完。
+        if (reply.trim().length >= 2) {
+          break;
+        }
+      }
+      return reply.trim()
+        ? { ok: true, message: `连接正常：${provider.label} 回复「${reply.trim().slice(0, 20)}」` }
+        : { ok: false, message: `${provider.label} 连接成功但没有返回内容，检查模型名是否正确。` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    } finally {
+      source.cancel();
+      source.dispose();
+    }
+  }
+
   dispose(): void {
     this.currentCancel?.cancel();
     this.currentCancel?.dispose();

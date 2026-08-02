@@ -5,7 +5,9 @@ import { extractStyle } from './features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from './features/summarize';
 import { clearApiKey, initSecrets, promptForApiKey } from './llm/registry';
 import { NovelProject, readConfig } from './model/project';
-import { ContinuePanel } from './ui/continuePanel';
+import { ChatController } from './ui/chatController';
+import { ChatPanel } from './ui/chatPanel';
+import { ChatViewProvider } from './ui/chatViewProvider';
 import { NovelTreeProvider } from './ui/treeProvider';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -16,6 +18,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await offerMigration(project);
   }
   const treeProvider = project ? new NovelTreeProvider(project) : undefined;
+  const chat = project ? new ChatController(project) : undefined;
+
+  if (chat) {
+    const viewProvider = new ChatViewProvider(context.extensionUri, chat);
+    context.subscriptions.push(
+      vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, viewProvider, {
+        // 侧边栏被折叠时保留 webview 状态，否则草稿和流式内容会丢。
+        webviewOptions: { retainContextWhenHidden: true },
+      }),
+      { dispose: () => chat.dispose() }
+    );
+  }
 
   if (treeProvider && project) {
     context.subscriptions.push(
@@ -25,13 +39,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       })
     );
     await setInitializedContext(project);
-    registerWatcher(context, project, treeProvider);
+    registerWatcher(context, project, treeProvider, chat);
   }
 
   const refresh = async () => {
     project?.invalidate();
     treeProvider?.refresh();
-    ContinuePanel.refreshIfOpen();
+    await chat?.pushState();
     if (project) {
       await setInitializedContext(project);
     }
@@ -146,26 +160,57 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ---------------------------------------------------------------- 模型
 
-  register('novel.setApiKey', () => promptForApiKey());
-  register('novel.clearApiKey', () => clearApiKey());
+  register('novel.setApiKey', (provider?: 'openai' | 'anthropic') => promptForApiKey(provider));
+  register('novel.clearApiKey', (provider?: 'openai' | 'anthropic') => clearApiKey(provider));
 
   // ---------------------------------------------------------------- 续写
 
   register('novel.continue', async () => {
     const target = await NovelProject.require();
     if (target) {
-      await ContinuePanel.show(context, target);
+      await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
+    }
+  });
+
+  register('novel.openChatInEditor', async () => {
+    const target = await NovelProject.require();
+    if (target && chat) {
+      ChatPanel.show(context.extensionUri, chat);
+    }
+  });
+
+  register('novel.newSession', async () => {
+    const target = await NovelProject.require();
+    if (target && chat) {
+      await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
+      await chat.newSessionFromCommand();
+    }
+  });
+
+  register('novel.openSettings', async () => {
+    await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
+    await chat?.showTab('settings');
+  });
+
+  register('novel.addSelectionToChat', async () => {
+    const target = await NovelProject.require();
+    if (!target || !chat) {
+      return;
+    }
+    if (!chat.addSelectionFromCommand()) {
+      void vscode.window.showWarningMessage('Novel Forge：请先在编辑器里选中一段文字。');
     }
   });
 
   register('novel.continueFromChapter', async (node?: { chapterOrder?: number }) => {
     const target = await NovelProject.require();
-    if (!target) {
+    if (!target || !chat) {
       return;
     }
     // 从某章右键进来时，默认写「下一章」。
     const order = node?.chapterOrder !== undefined ? node.chapterOrder + 1 : await target.nextChapterOrder();
-    await ContinuePanel.show(context, target, { targetOrder: order });
+    await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
+    await chat.focusWithTarget(order);
   });
 
   register('novel.quickContinue', async () => {
@@ -240,7 +285,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export function deactivate(): void {
-  ContinuePanel.disposeInstance();
+  ChatPanel.disposeInstance();
 }
 
 // ---------------------------------------------------------------- 辅助
@@ -280,7 +325,8 @@ async function offerMigration(project: NovelProject): Promise<void> {
 function registerWatcher(
   context: vscode.ExtensionContext,
   project: NovelProject,
-  tree: NovelTreeProvider
+  tree: NovelTreeProvider,
+  chat: ChatController | undefined
 ): void {
   const config = readConfig();
   const patterns = [
@@ -296,7 +342,7 @@ function registerWatcher(
     timer = setTimeout(() => {
       project.invalidate();
       tree.refresh();
-      ContinuePanel.refreshIfOpen();
+      void chat?.pushState();
     }, 250);
   };
 
