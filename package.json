@@ -20,6 +20,7 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
+    "workspaceContains:.novelforge/project.json",
     "workspaceContains:.novel/project.json"
   ],
   "contributes": {
@@ -44,7 +45,7 @@
     "viewsWelcome": [
       {
         "view": "novelForge.explorer",
-        "contents": "当前工作区还不是 Novel Forge 小说工程。\n[初始化小说工程](command:novel.initProject)\n初始化会创建 chapters/ 与 .novel/ 目录及模板文件。"
+        "contents": "当前工作区还不是 Novel Forge 小说工程。\n[初始化小说工程](command:novel.initProject)\n初始化会创建 chapters/ 与 .novelforge/ 目录及模板文件。"
       }
     ],
     "commands": [

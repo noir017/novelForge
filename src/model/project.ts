@@ -16,7 +16,9 @@ import {
 } from './types';
 import { extractH1, parseMarkdown, pickSections, stringifyFrontmatter, stringifySections, stripH1 } from './markdown';
 
-const NOVEL_DIR = '.novel';
+const NOVEL_DIR = '.novelforge';
+/** 0.1.x 用的目录名。检测到就提示迁移，不静默改动用户文件。 */
+const LEGACY_NOVEL_DIR = '.novel';
 const MANIFEST_FILE = 'project.json';
 
 /** 文件名形如 `001-楔子.md` / `12_初入江湖.md` / `003.md`。 */
@@ -97,6 +99,15 @@ export class NovelProject {
     return vscode.Uri.joinPath(this.novelDir, 'summaries');
   }
 
+  get sessionsDir(): vscode.Uri {
+    return vscode.Uri.joinPath(this.novelDir, 'sessions');
+  }
+
+  /** 0.1.x 的 `.novel/` 目录，仅用于迁移检测。 */
+  get legacyNovelDir(): vscode.Uri {
+    return vscode.Uri.joinPath(this.root, LEGACY_NOVEL_DIR);
+  }
+
   get globalSummaryUri(): vscode.Uri {
     return vscode.Uri.joinPath(this.summariesDir, 'global.md');
   }
@@ -113,6 +124,23 @@ export class NovelProject {
     return exists(this.manifestUri);
   }
 
+  /** 只有旧目录、没有新目录时为真——需要迁移。 */
+  async needsMigration(): Promise<boolean> {
+    if (await exists(this.novelDir)) {
+      return false;
+    }
+    return exists(vscode.Uri.joinPath(this.legacyNovelDir, MANIFEST_FILE));
+  }
+
+  /**
+   * 把 `.novel/` 整体搬到 `.novelforge/`。
+   * 用 rename 而非复制，避免留下两份会各自漂移的元数据。
+   */
+  async migrateLegacyDir(): Promise<void> {
+    await vscode.workspace.fs.rename(this.legacyNovelDir, this.novelDir, { overwrite: false });
+    this.invalidate();
+  }
+
   invalidate(): void {
     this.chapterCache = undefined;
   }
@@ -124,6 +152,7 @@ export class NovelProject {
     await vscode.workspace.fs.createDirectory(this.charactersDir);
     await vscode.workspace.fs.createDirectory(this.loreDir);
     await vscode.workspace.fs.createDirectory(this.summariesDir);
+    await vscode.workspace.fs.createDirectory(this.sessionsDir);
 
     await writeIfAbsent(this.styleUri, STYLE_TEMPLATE);
     await writeIfAbsent(this.outlineUri, OUTLINE_TEMPLATE(meta.title));

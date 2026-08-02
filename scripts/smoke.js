@@ -40,7 +40,7 @@ console.log('\n== markdown.ts ==');
 {
   const md = loadModule('src/model/markdown.ts');
 
-  const raw = fs.readFileSync(path.join(SAMPLE, '.novel/characters/林昭.md'), 'utf8');
+  const raw = fs.readFileSync(path.join(SAMPLE, '.novelforge/characters/林昭.md'), 'utf8');
   const parsed = md.parseMarkdown(raw);
   check('解析 frontmatter name', parsed.frontmatter.name === '林昭', JSON.stringify(parsed.frontmatter.name));
   check(
@@ -178,7 +178,7 @@ console.log('\n== summarize.ts · parseSummaryResponse ==');
   check('完全无结构时全文进梗概', garbage.梗概 === '模型胡说了一通完全没有结构的内容。');
 
   // 真实示例摘要文件应能被解析回来
-  const real = fs.readFileSync(path.join(SAMPLE, '.novel/summaries/002.md'), 'utf8');
+  const real = fs.readFileSync(path.join(SAMPLE, '.novelforge/summaries/002.md'), 'utf8');
   const md = loadModule('src/model/markdown.ts');
   const realParsed = sum.parseSummaryResponse(md.parseMarkdown(real).body);
   check('解析真实摘要文件', realParsed.出场人物.includes('沈氏'), realParsed.出场人物);
@@ -220,7 +220,7 @@ console.log('\n== 示例工程数据一致性 ==');
 {
   const crypto = require('crypto');
   const md = loadModule('src/model/markdown.ts');
-  const manifest = JSON.parse(fs.readFileSync(path.join(SAMPLE, '.novel/project.json'), 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(path.join(SAMPLE, '.novelforge/project.json'), 'utf8'));
 
   const files = fs.readdirSync(path.join(SAMPLE, 'chapters')).filter((f) => f.endsWith('.md'));
   check('manifest 章节数与磁盘一致', manifest.chapters.length === files.length);
@@ -231,7 +231,7 @@ console.log('\n== 示例工程数据一致性 ==');
     check(`第 ${entry.order} 章 contentHash 正确`, h === entry.contentHash, `expected ${h}`);
     check(`第 ${entry.order} 章摘要标记为最新`, entry.summaryHash === h);
 
-    const sumPath = path.join(SAMPLE, '.novel/summaries', `${String(entry.order).padStart(3, '0')}.md`);
+    const sumPath = path.join(SAMPLE, '.novelforge/summaries', `${String(entry.order).padStart(3, '0')}.md`);
     check(`第 ${entry.order} 章摘要文件存在`, fs.existsSync(sumPath));
     const sumFm = md.parseMarkdown(fs.readFileSync(sumPath, 'utf8')).frontmatter;
     check(`第 ${entry.order} 章摘要 sourceHash 匹配正文`, sumFm.sourceHash === h, `${sumFm.sourceHash} vs ${h}`);
@@ -239,10 +239,10 @@ console.log('\n== 示例工程数据一致性 ==');
 
   // 角色卡的 aliases 应能在示例纲要中被命中（验证角色筛选可用）
   const outline = '林昭带年轻守卫去见他母亲，沈氏在暗处跟着。';
-  const cards = fs.readdirSync(path.join(SAMPLE, '.novel/characters'));
+  const cards = fs.readdirSync(path.join(SAMPLE, '.novelforge/characters'));
   let hitCount = 0;
   for (const f of cards) {
-    const fm = md.parseMarkdown(fs.readFileSync(path.join(SAMPLE, '.novel/characters', f), 'utf8')).frontmatter;
+    const fm = md.parseMarkdown(fs.readFileSync(path.join(SAMPLE, '.novelforge/characters', f), 'utf8')).frontmatter;
     const names = [fm.name, ...(Array.isArray(fm.aliases) ? fm.aliases : [])];
     if (names.some((n) => n && n.length >= 2 && outline.includes(n))) hitCount++;
   }

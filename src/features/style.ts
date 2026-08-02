@@ -6,7 +6,7 @@ import { takeHead } from '../context/tokenizer';
 import { stripCodeFence } from './summarize';
 
 /**
- * 从样章提取文风指南，写入 .novel/style.md。
+ * 从样章提取文风指南，写入 .novelforge/style.md。
  * 覆盖前先确认——style.md 常被作者手工调过。
  */
 export async function extractStyle(project: NovelProject): Promise<void> {

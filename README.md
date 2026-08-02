@@ -37,16 +37,19 @@ npm run compile
 chapters/                    正文，NNN-标题.md，序号即顺序
 ├── 001-楔子.md
 └── 002-客栈里的女人.md
-.novel/
+.novelforge/
 ├── project.json             章节索引 + 摘要新鲜度（hash 比对）
 ├── style.md                 文风指南 —— 每次续写必注入
 ├── outline.md               全书大纲（人工维护，不自动注入）
 ├── characters/<名字>.md      角色卡
 ├── lore/<条目>.md            世界观设定
+├── sessions/                对话历史，一次会话一个 .json
 └── summaries/
     ├── 001.md               单章摘要
     └── global.md            全书滚动摘要
 ```
+
+> 从 0.1.x 升级：元数据目录由 `.novel/` 改名为 `.novelforge/`。插件启动时检测到旧目录会问一次是否重命名，不会静默改动。
 
 ### 角色卡格式
 

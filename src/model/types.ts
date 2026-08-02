@@ -12,7 +12,7 @@ export interface Chapter {
   contentHash: string;
 }
 
-/** 单章摘要，存于 .novel/summaries/NNN.md。 */
+/** 单章摘要，存于 .novelforge/summaries/NNN.md。 */
 export interface ChapterSummary {
   order: number;
   relPath: string;
@@ -42,7 +42,7 @@ export const SUMMARY_SECTION_KEYS: (keyof SummarySections)[] = [
   '状态变更',
 ];
 
-/** 角色卡，存于 .novel/characters/<slug>.md。 */
+/** 角色卡，存于 .novelforge/characters/<slug>.md。 */
 export interface CharacterCard {
   /** 文件名（不含扩展名）。 */
   slug: string;
@@ -82,7 +82,7 @@ export const CHARACTER_SECTION_KEYS: (keyof CharacterSections)[] = [
 /** 续写时优先保留的角色卡小节（预算不足时只留这几节）。 */
 export const CHARACTER_ESSENTIAL_KEYS: (keyof CharacterSections)[] = ['身份', '当前状态', '未收伏笔'];
 
-/** 世界观设定条目，存于 .novel/lore/<slug>.md。 */
+/** 世界观设定条目，存于 .novelforge/lore/<slug>.md。 */
 export interface LoreEntry {
   slug: string;
   relPath: string;
@@ -92,7 +92,7 @@ export interface LoreEntry {
   body: string;
 }
 
-/** .novel/project.json 的结构。 */
+/** .novelforge/project.json 的结构。 */
 export interface ProjectManifest {
   /** 数据格式版本，便于日后迁移。 */
   version: number;

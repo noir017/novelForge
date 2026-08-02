@@ -12,6 +12,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   initSecrets(context);
 
   const project = NovelProject.current();
+  if (project) {
+    await offerMigration(project);
+  }
   const treeProvider = project ? new NovelTreeProvider(project) : undefined;
 
   if (treeProvider && project) {
@@ -243,6 +246,34 @@ export function deactivate(): void {
 // ---------------------------------------------------------------- 辅助
 
 /**
+ * 0.1.x 把元数据放在 `.novel/`。检测到旧目录就问一次是否改名，
+ * 不静默动用户的文件——那目录可能已经进了 Git。
+ */
+async function offerMigration(project: NovelProject): Promise<void> {
+  if (!(await project.needsMigration())) {
+    return;
+  }
+  const pick = await vscode.window.showInformationMessage(
+    'Novel Forge：检测到旧版数据目录 .novel/，新版已改名为 .novelforge/。要现在重命名吗？',
+    { modal: false },
+    '重命名',
+    '暂不'
+  );
+  if (pick !== '重命名') {
+    return;
+  }
+  try {
+    await project.migrateLegacyDir();
+    void vscode.window.showInformationMessage(
+      'Novel Forge：已重命名为 .novelforge/。若用 Git 管理，记得提交这次改名。'
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    void vscode.window.showErrorMessage(`Novel Forge：重命名失败（${message}）。可手动把 .novel 改名为 .novelforge。`);
+  }
+}
+
+/**
  * 监听章节与元数据变化，刷新树与面板。
  * 保存正文会改变 contentHash，从而让对应章节的摘要标记为过期。
  */
@@ -252,7 +283,11 @@ function registerWatcher(
   tree: NovelTreeProvider
 ): void {
   const config = readConfig();
-  const patterns = [`${config.chaptersDir}/**/*.md`, '.novel/**/*.md', '.novel/project.json'];
+  const patterns = [
+    `${config.chaptersDir}/**/*.md`,
+    '.novelforge/**/*.md',
+    '.novelforge/project.json',
+  ];
 
   let timer: NodeJS.Timeout | undefined;
   const schedule = () => {
