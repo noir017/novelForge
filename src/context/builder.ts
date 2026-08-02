@@ -1,4 +1,4 @@
-import { NovelProject } from '../model/project';
+import { NovelProject, exists, readText } from '../model/project';
 import {
   CHARACTER_ESSENTIAL_KEYS,
   CHARACTER_SECTION_KEYS,
@@ -6,6 +6,7 @@ import {
   CharacterCard,
   NovelConfig,
 } from '../model/types';
+import { Attachment, ChatTurn } from '../model/session';
 import { stringifySections } from '../model/markdown';
 import { ChatMessage } from '../llm/provider';
 import { estimateTokens, takeHead, takeTail } from './tokenizer';
@@ -16,6 +17,8 @@ export type Priority = 0 | 1 | 2 | 3 | 4;
 export type ItemKind =
   | 'system'
   | 'outline'
+  | 'attachment'
+  | 'history'
   | 'prevTail'
   | 'style'
   | 'globalSummary'
@@ -48,7 +51,7 @@ export interface ContextItem {
 export interface BuildRequest {
   /** 本次要写的章节序号（尚不存在也可以，用于定位「前文」范围）。 */
   targetOrder: number;
-  /** 用户填写的剧情纲要。 */
+  /** 用户填写的剧情纲要 / 本轮对话内容。 */
   outline: string;
   /** 目标字数，写进 prompt 指令。 */
   targetWords?: number;
@@ -60,6 +63,15 @@ export interface BuildRequest {
   excludedIds?: string[];
   /** provider 的硬性输入上限，会与 contextWindow 取小。 */
   providerMaxInputTokens?: number;
+  /** 用户本轮 @ 进来的文件 / 选区引用（Cursor 式）。 */
+  attachments?: Attachment[];
+  /** 本会话之前的对话轮次，按时间正序，不含本轮。 */
+  history?: ChatTurn[];
+  /**
+   * 写作模式：`write` 产出成稿正文（默认），`discuss` 允许自由作答。
+   * 分开是因为「只输出正文、不要解释」这条硬约束对讨论型提问是有害的。
+   */
+  mode?: 'write' | 'discuss';
 }
 
 export interface BuiltContext {
@@ -74,6 +86,12 @@ export interface BuiltContext {
 }
 
 const SAFETY_MARGIN = 512;
+/** 单条附件最多吃掉多少预算——用户 @ 一个大文件不该把前文全挤掉。 */
+const ATTACHMENT_CAP_RATIO = 0.35;
+/** 全部历史对话最多吃掉多少预算。 */
+const HISTORY_CAP_RATIO = 0.3;
+/** 历史里单条消息的上限，超出取结尾（越靠后越相关）。 */
+const HISTORY_TURN_CAP_RATIO = 0.12;
 
 /**
  * 上下文装配器。
@@ -141,11 +159,85 @@ export async function buildContext(
       id: 'outline',
       kind: 'outline',
       priority: 0,
-      label: '本章剧情纲要',
+      label: request.mode === 'discuss' ? '我的提问' : '本章剧情纲要',
       text: request.outline.trim(),
     },
     { force: true }
   );
+
+  // ---------------- P0：用户 @ 的引用 ----------------
+  // 用户手动挂上来的东西优先级仅次于纲要——他既然特意点了，就不该被自动装配挤掉。
+  // 但也不能无限制：单条超过预算的 35% 就从头部截断，并在 note 里说明。
+  const attachmentCap = Math.floor(budget * ATTACHMENT_CAP_RATIO);
+  for (const att of request.attachments ?? []) {
+    const id = `attachment:${att.id}`;
+    if (excluded.has(id)) {
+      admit({ id, kind: 'attachment', priority: 0, label: att.label, source: att.relPath, text: '' });
+      continue;
+    }
+    const body = await resolveAttachment(project, att);
+    if (!body.trim()) {
+      items.push({
+        id,
+        kind: 'attachment',
+        priority: 0,
+        label: att.label,
+        source: att.relPath,
+        text: '',
+        tokens: 0,
+        status: 'dropped',
+        note: '内容为空或文件已不存在',
+      });
+      continue;
+    }
+
+    const raw = `【引用 · ${att.label}】\n${body}`;
+    const rawTokens = estimateTokens(raw);
+    const cap = Math.min(attachmentCap, Math.max(0, remaining));
+    if (rawTokens <= cap) {
+      remaining -= rawTokens;
+      items.push({
+        id,
+        kind: 'attachment',
+        priority: 0,
+        label: att.label,
+        source: att.relPath,
+        text: raw,
+        tokens: rawTokens,
+        status: 'included',
+        note: ATTACHMENT_NOTE[att.kind],
+      });
+      continue;
+    }
+    if (cap < 200) {
+      items.push({
+        id,
+        kind: 'attachment',
+        priority: 0,
+        label: att.label,
+        source: att.relPath,
+        text: '',
+        tokens: 0,
+        status: 'dropped',
+        note: `预算不足（需 ${rawTokens} token，剩 ${Math.max(0, remaining)}）`,
+      });
+      continue;
+    }
+    const clipped = `【引用 · ${att.label}】\n${takeHead(body, cap - 40)}`;
+    const clippedTokens = estimateTokens(clipped);
+    remaining -= clippedTokens;
+    items.push({
+      id,
+      kind: 'attachment',
+      priority: 0,
+      label: att.label,
+      source: att.relPath,
+      text: clipped,
+      tokens: clippedTokens,
+      status: 'degraded',
+      note: `原文需 ${rawTokens} token，已截断至 ${clippedTokens}`,
+    });
+  }
 
   // ---------------- P0：上一章结尾原文 ----------------
   const prevChapter = previous[previous.length - 1];
@@ -182,6 +274,62 @@ export async function buildContext(
   }
 
   // 强制项可能已经吃掉全部预算，后续条目自然会被判 dropped。
+
+  // ---------------- P1：本会话历史对话（由近及远） ----------------
+  // 历史整体封顶 30%：一段长对话不该把文风指南和前文正文全挤出去。
+  // 由近及远填充——最近几轮才是模型真正需要接住的语境。
+  const history = request.history ?? [];
+  if (history.length > 0) {
+    const historyCap = Math.floor(budget * HISTORY_CAP_RATIO);
+    const turnCap = Math.floor(budget * HISTORY_TURN_CAP_RATIO);
+    let historyRemaining = Math.min(historyCap, Math.max(0, remaining));
+
+    // 先从最新往回收，最后再按时间正序还原。
+    const kept: ContextItem[] = [];
+    const skipped: ContextItem[] = [];
+    for (let i = history.length - 1; i >= 0; i--) {
+      const turn = history[i];
+      const id = `history:${turn.id}`;
+      const label = `${turn.role === 'user' ? '我' : '模型'} · 第 ${i + 1} 轮`;
+      const base = { id, kind: 'history' as const, priority: 1 as const, label };
+
+      if (excluded.has(id) || !turn.content.trim()) {
+        skipped.push({
+          ...base,
+          text: '',
+          tokens: 0,
+          status: excluded.has(id) ? 'excluded' : 'dropped',
+          note: excluded.has(id) ? '已被手动排除' : '空消息',
+        });
+        continue;
+      }
+
+      // 单轮过长时取结尾：一段长草稿里，越靠后越接近当前进度。
+      const content = takeTail(turn.content, turnCap);
+      const tokens = estimateTokens(content);
+      if (tokens > historyRemaining) {
+        skipped.push({
+          ...base,
+          text: '',
+          tokens: 0,
+          status: 'dropped',
+          note: '历史对话预算已满，更早的轮次不再注入',
+        });
+        continue;
+      }
+      historyRemaining -= tokens;
+      remaining -= tokens;
+      kept.push({
+        ...base,
+        text: content,
+        tokens,
+        status: content.length < turn.content.length ? 'degraded' : 'included',
+        note: content.length < turn.content.length ? '过长，仅注入结尾部分' : undefined,
+      });
+    }
+    // 明细按时间正序展示，读起来才是一段对话。
+    items.push(...kept.reverse(), ...skipped.reverse());
+  }
 
   // ---------------- P1：文风指南 ----------------
   const style = await project.readStyleGuide();
@@ -447,6 +595,17 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
     messages.push({ role: 'system', content: system.text });
   }
 
+  // 历史对话作为真正的多轮消息发出，而不是塞进一段文本里——
+  // 模型对 role 交替的理解远好于「以下是我们之前的对话」。
+  const history = pick('history');
+  const historyById = new Map((request.history ?? []).map((t) => [`history:${t.id}`, t]));
+  for (const item of history) {
+    const turn = historyById.get(item.id);
+    if (turn) {
+      messages.push({ role: turn.role, content: item.text });
+    }
+  }
+
   const sections: string[] = [];
 
   const style = pick('style')[0];
@@ -489,10 +648,20 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
     sections.push(`你要从上面「${last.label.replace(' · 原文', '')}」的结尾处无缝接下去。`);
   }
 
+  // 用户 @ 的引用紧挨着他的指令放——他多半正是要针对这些内容提要求。
+  const attachments = pick('attachment');
+  if (attachments.length > 0) {
+    sections.push(`# 我引用的内容（请针对这些内容作答）\n\n${join(attachments)}`);
+  }
+
+  const discuss = request.mode === 'discuss';
+
   const requirements: string[] = [
-    `# 本章剧情纲要（必须完整覆盖，按顺序推进）\n\n${pick('outline')[0]?.text ?? request.outline}`,
+    discuss
+      ? `# 我的问题 / 要求\n\n${pick('outline')[0]?.text ?? request.outline}`
+      : `# 本章剧情纲要（必须完整覆盖，按顺序推进）\n\n${pick('outline')[0]?.text ?? request.outline}`,
   ];
-  if (request.targetWords && request.targetWords > 0) {
+  if (!discuss && request.targetWords && request.targetWords > 0) {
     requirements.push(`目标字数：约 ${request.targetWords} 字（±15% 均可）。`);
   }
   if (request.extraInstruction?.trim()) {
@@ -506,9 +675,11 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
   }
 
   sections.push(
-    `现在开始写作。只输出小说正文，不要输出任何标题、序号、解释、总结或「以下是」之类的话。${
-      config.recentChaptersFullText > 0 ? '注意与上文的语气、称谓、时态保持一致。' : ''
-    }`
+    discuss
+      ? '请直接回答上面的问题。若我要的是修改建议或分析，就给建议或分析，不必写成小说正文。'
+      : `现在开始写作。只输出小说正文，不要输出任何标题、序号、解释、总结或「以下是」之类的话。${
+          config.recentChaptersFullText > 0 ? '注意与上文的语气、称谓、时态保持一致。' : ''
+        }`
   );
 
   messages.push({ role: 'user', content: sections.join('\n\n---\n\n') });
@@ -525,6 +696,20 @@ function orderOf(item: ContextItem): number {
 }
 
 function buildSystemPrompt(request: BuildRequest, config: NovelConfig): string {
+  if (request.mode === 'discuss') {
+    return [
+      '你是一位资深中文长篇小说编辑与写作搭子，正在协助作者推进一部长篇作品。',
+      '',
+      '要求：',
+      '1. 熟读已给出的文风指南、角色设定与前文，回答必须建立在这些既有设定之上，不要凭空发明。',
+      '2. 作者问什么就答什么：要建议给建议，要分析给分析，要改写才动笔改写。',
+      '3. 回答简洁具体，能引用前文原句就引用，不要泛泛而谈。',
+      '4. 若发现作者的想法与既有设定冲突（人物性格、已收伏笔、时间线），必须直说，并给出可行的调整方案。',
+      '',
+      '语言：简体中文。',
+    ].join('\n');
+  }
+
   const lines = [
     '你是一位资深中文长篇小说作者，正在为一部已连载的作品续写新的章节。',
     '',
@@ -541,6 +726,41 @@ function buildSystemPrompt(request: BuildRequest, config: NovelConfig): string {
   }
   lines.push('', `叙事语言：简体中文。温度设定 ${config.temperature}，请在保持稳定的前提下让文字有生气。`);
   return lines.join('\n');
+}
+
+// ---------------------------------------------------------------- 附件
+
+const ATTACHMENT_NOTE: Record<Attachment['kind'], string> = {
+  selection: '编辑器选中片段',
+  file: '整文件引用',
+  chapter: '章节原文引用',
+  character: '角色卡引用',
+  lore: '设定条目引用',
+  summary: '摘要引用',
+};
+
+/**
+ * 取附件正文。
+ *
+ * 选区带快照，直接用快照——用户当时选的是那个样子，之后文件改了
+ * 不该让历史对话跟着变。整文件引用则每次读盘，取最新内容。
+ */
+async function resolveAttachment(project: NovelProject, att: Attachment): Promise<string> {
+  if (att.text !== undefined) {
+    return att.text;
+  }
+  if (!att.relPath) {
+    return '';
+  }
+  const uri = project.uriOf(att.relPath);
+  if (!(await exists(uri))) {
+    return '';
+  }
+  try {
+    return (await readText(uri)).trim();
+  } catch {
+    return '';
+  }
 }
 
 // ---------------------------------------------------------------- 角色筛选

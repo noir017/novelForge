@@ -337,6 +337,169 @@ async function main() {
   check('前文只取到第 2 章', aById.has('prevTail:2') && !aById.has('prevTail:3'));
   check('第 3 章自身不作为前文注入', !aById.has('chapterFull:3'));
 
+  // ------------------------------------------------------------ 附件
+  console.log('\n== 装配：用户 @ 的引用 ==');
+  {
+    const att = await builderMod.buildContext(
+      project,
+      {
+        targetOrder: 4,
+        outline: '继续写。',
+        attachments: [
+          { id: 'sel1', kind: 'selection', label: '003-夜访.md:5-9', relPath: 'chapters/003-夜访.md',
+            range: { start: 5, end: 9 }, text: '这是我选中的一段话，请针对它修改。' },
+          { id: 'file1', kind: 'character', label: '林昭.md', relPath: '.novelforge/characters/林昭.md' },
+          { id: 'gone', kind: 'file', label: '不存在.md', relPath: 'chapters/不存在.md' },
+        ],
+      },
+      baseConfig
+    );
+    const m = new Map(att.items.map((i) => [i.id, i]));
+    check('选区附件已注入', m.get('attachment:sel1').status === 'included');
+    check('选区用的是快照文本', m.get('attachment:sel1').text.includes('这是我选中的一段话'));
+    check('文件附件读盘注入', m.get('attachment:file1').text.includes('林昭'));
+    check('文件附件为 P0', m.get('attachment:file1').priority === 0);
+    check('文件不存在时判 dropped', m.get('attachment:gone').status === 'dropped');
+    check('缺失附件带原因', m.get('attachment:gone').note.includes('不存在'));
+    check('user 含引用段', att.messages[att.messages.length - 1].content.includes('# 我引用的内容'));
+    check('附件可被手动排除', (await builderMod.buildContext(project,
+      { targetOrder: 4, outline: 'x', attachments: [{ id: 'sel1', kind: 'selection', label: 'a', text: '内容' }],
+        excludedIds: ['attachment:sel1'] }, baseConfig))
+      .items.find((i) => i.id === 'attachment:sel1').status === 'excluded');
+  }
+
+  console.log('\n== 装配：超大附件应截断而非丢弃 ==');
+  {
+    const huge = '很长的引用内容。'.repeat(4000);
+    const att = await builderMod.buildContext(
+      project,
+      {
+        targetOrder: 4,
+        outline: '继续写。',
+        attachments: [{ id: 'big', kind: 'file', label: '大文件.md', text: huge }],
+      },
+      { ...baseConfig, contextWindow: 20000, maxOutputTokens: 2000 }
+    );
+    const item = att.items.find((i) => i.id === 'attachment:big');
+    check('超大附件降级而非丢弃', item.status === 'degraded', item.status);
+    check('降级说明写明截断', item.note.includes('截断'), item.note);
+    check('截断后不超过预算 35%', item.tokens <= Math.floor(att.budget * 0.35) + 5,
+      `${item.tokens} vs ${Math.floor(att.budget * 0.35)}`);
+    check('用量不超预算', att.usedTokens <= att.budget, `${att.usedTokens} / ${att.budget}`);
+    check('前文仍有空间注入', att.items.some((i) => i.kind === 'chapterFull' && i.status !== 'dropped'));
+  }
+
+  // ------------------------------------------------------------ 多轮历史
+  console.log('\n== 装配：多轮对话历史 ==');
+  {
+    const history = [
+      { id: 'h1', role: 'user', content: '先写林昭进城。', at: '2026-08-01T10:00:00Z' },
+      { id: 'h2', role: 'assistant', content: '林昭在辰时进了城门。', at: '2026-08-01T10:01:00Z' },
+      { id: 'h3', role: 'user', content: '语气再冷一点。', at: '2026-08-01T10:02:00Z' },
+    ];
+    const conv = await builderMod.buildContext(
+      project,
+      { targetOrder: 4, outline: '接着写夜里的部分。', history },
+      baseConfig
+    );
+    const m = new Map(conv.items.map((i) => [i.id, i]));
+    check('三轮历史都已注入', ['h1', 'h2', 'h3'].every((h) => m.get(`history:${h}`).status === 'included'));
+    check('历史为 P1', m.get('history:h1').priority === 1);
+    check('历史明细按时间正序', conv.items.filter((i) => i.kind === 'history').map((i) => i.id).join(',')
+      === 'history:h1,history:h2,history:h3');
+
+    // 历史必须作为真正的多轮消息发出，而不是塞进一段文本
+    check('消息数为 system + 3 轮历史 + 本轮', conv.messages.length === 5, String(conv.messages.length));
+    check('历史保持 role 交替',
+      conv.messages.slice(1, 4).map((m) => m.role).join(',') === 'user,assistant,user',
+      conv.messages.slice(1, 4).map((m) => m.role).join(','));
+    check('历史内容原样', conv.messages[2].content === '林昭在辰时进了城门。');
+    check('本轮在最后一条', conv.messages[4].content.includes('接着写夜里的部分'));
+    check('历史不重复出现在本轮文本里', !conv.messages[4].content.includes('语气再冷一点'));
+
+    const someExcluded = await builderMod.buildContext(
+      project,
+      { targetOrder: 4, outline: 'x', history, excludedIds: ['history:h2'] },
+      baseConfig
+    );
+    check('历史可被手动排除',
+      someExcluded.items.find((i) => i.id === 'history:h2').status === 'excluded');
+    check('排除后该轮不进 messages',
+      !someExcluded.messages.some((m) => m.content === '林昭在辰时进了城门。'));
+  }
+
+  console.log('\n== 装配：历史预算封顶（由近及远保留） ==');
+  {
+    const many = [];
+    for (let i = 1; i <= 40; i++) {
+      many.push({
+        id: `m${i}`,
+        role: i % 2 === 1 ? 'user' : 'assistant',
+        content: `第 ${i} 轮的内容。`.repeat(60),
+        at: '2026-08-01T10:00:00Z',
+      });
+    }
+    // 128k 窗口下 40 轮也吃不满 30%，用一个更贴近实际的小窗口来考察封顶。
+    const cfg = { ...baseConfig, contextWindow: 40000 };
+    const conv = await builderMod.buildContext(
+      project,
+      { targetOrder: 4, outline: '继续。', history: many },
+      cfg
+    );
+    const hist = conv.items.filter((i) => i.kind === 'history');
+    const kept = hist.filter((i) => i.status === 'included' || i.status === 'degraded');
+    const droppedH = hist.filter((i) => i.status === 'dropped');
+    check('历史总量被封顶', droppedH.length > 0, `kept=${kept.length}, dropped=${droppedH.length}`);
+    check('确有部分历史保留', kept.length > 0, `kept=${kept.length}`);
+    check('保留的是最近几轮',
+      kept.every((k) => Number(k.id.slice(9)) > Math.max(...droppedH.map((d) => Number(d.id.slice(9))))),
+      `kept=${kept.map((k) => k.id).join(',')}`);
+    check('历史占用不超过预算 30%',
+      kept.reduce((s, i) => s + i.tokens, 0) <= Math.floor(conv.budget * 0.3) + 5);
+    check('被丢弃的历史带原因', droppedH.every((d) => d.note.includes('历史对话预算已满')));
+    check('用量不超预算', conv.usedTokens <= conv.budget, `${conv.usedTokens} / ${conv.budget}`);
+    check('封顶后前文仍能注入', conv.items.some((i) => i.kind === 'chapterFull' && i.status !== 'dropped'));
+  }
+
+  console.log('\n== 装配：单轮过长时取结尾 ==');
+  {
+    const long = {
+      id: 'big',
+      role: 'assistant',
+      content: `开头的部分。${'中间的废话。'.repeat(3000)}这是结尾的部分。`,
+      at: '2026-08-01T10:00:00Z',
+    };
+    const conv = await builderMod.buildContext(
+      project,
+      { targetOrder: 4, outline: '继续。', history: [long] },
+      { ...baseConfig, contextWindow: 40000 }
+    );
+    const item = conv.items.find((i) => i.id === 'history:big');
+    check('过长的一轮降级而非丢弃', item.status === 'degraded', item.status);
+    check('降级说明写明只取结尾', item.note.includes('仅注入结尾部分'), item.note);
+    check('保留了结尾', item.text.includes('这是结尾的部分'));
+    check('丢掉了开头', !item.text.includes('开头的部分'));
+    check('用量不超预算', conv.usedTokens <= conv.budget, `${conv.usedTokens} / ${conv.budget}`);
+  }
+
+  console.log('\n== 装配：discuss 模式 ==');
+  {
+    const d = await builderMod.buildContext(
+      project,
+      { targetOrder: 4, outline: '林昭这个人物到目前为止立住了吗？', mode: 'discuss', targetWords: 2000 },
+      baseConfig
+    );
+    check('系统提示切换为编辑角色', d.messages[0].content.includes('编辑'), d.messages[0].content.slice(0, 30));
+    check('discuss 不强制只输出正文', !d.messages[0].content.includes('只输出正文'));
+    const last = d.messages[d.messages.length - 1].content;
+    check('末尾指令为「直接回答」', last.includes('请直接回答上面的问题'));
+    check('discuss 忽略目标字数', !last.includes('2000 字'));
+    check('discuss 仍注入文风与角色', last.includes('# 文风指南') && last.includes('# 相关角色设定'));
+    check('write 模式仍要求只输出正文',
+      (await builderMod.buildContext(project, { targetOrder: 4, outline: 'x' }, baseConfig))
+        .messages[0].content.includes('只输出正文'));
+  }
+
   console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
   process.exit(failures === 0 ? 0 : 1);
 }

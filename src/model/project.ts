@@ -120,6 +120,11 @@ export class NovelProject {
     return vscode.workspace.asRelativePath(uri, false).replace(/\\/g, '/');
   }
 
+  /** relPath 的逆运算。 */
+  uriOf(relPath: string): vscode.Uri {
+    return vscode.Uri.joinPath(this.root, relPath);
+  }
+
   async isInitialized(): Promise<boolean> {
     return exists(this.manifestUri);
   }
