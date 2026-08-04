@@ -622,6 +622,10 @@ button.link {
   font-size: 0.85em;
 }
 
+button.link.danger {
+  color: var(--vscode-errorForeground);
+}
+
 button.chip-btn {
   background: none;
   border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.4));
@@ -720,6 +724,133 @@ button.chip-btn:hover {
   border-radius: var(--radius);
 }
 
+/* 设置列表里的概要卡片，详细配置在弹窗里。 */
+.provider-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  border-radius: var(--radius);
+}
+
+.provider-card:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.provider-card .provider-head {
+  align-items: center;
+}
+
+.provider-card button.secondary.small {
+  padding: 2px 8px;
+  font-size: 0.85em;
+}
+
+.provider-url {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-models {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 模型徽标，跟 VS Code 的 badge 同色系。 */
+.model-chip {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.8em;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 配置弹窗 */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px 10px;
+  background: rgba(0, 0, 0, 0.45);
+  overflow-y: auto;
+}
+
+.modal {
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100% - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background, #252526));
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.4)));
+  border-radius: var(--radius);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  flex: 0 0 auto;
+}
+
+.modal-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-body {
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.modal-body .provider-block {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.modal-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
 .provider-head {
   display: flex;
   align-items: baseline;
@@ -786,12 +917,6 @@ button.chip-btn:hover {
   gap: 8px;
 }
 
-.presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
 .key-row {
   display: flex;
   align-items: center;
@@ -830,7 +955,7 @@ button.chip-btn:hover {
   border: 1px solid var(--vscode-notifications-border, var(--vscode-panel-border));
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
   font-size: 0.85em;
-  z-index: 10;
+  z-index: 30;
   word-break: break-word;
 }
 

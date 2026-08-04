@@ -27,8 +27,11 @@
     sessionList: $('sessionList'),
     providerList: $('providerList'),
     providerCount: $('providerCount'),
+    providerModal: $('providerModal'),
+    providerModalTitle: $('providerModalTitle'),
+    providerModalBody: $('providerModalBody'),
+    providerModalClose: $('providerModalClose'),
     addProviderBtn: $('addProviderBtn'),
-    presets: $('presets'),
     toast: $('toast'),
   };
 
@@ -911,6 +914,7 @@
       if (JSON.stringify(nextKeys) !== JSON.stringify(draft.keys)) {
         draft.keys = nextKeys;
         renderProviders();
+        refreshProviderModal();
       }
       return;
     }
@@ -923,6 +927,7 @@
       if (node) node.value = String(settings[key]);
     }
     renderProviders();
+    refreshProviderModal();
   }
 
   function renderProviders() {
@@ -942,9 +947,226 @@
     }
   }
 
+  /** 列表里的信息卡片：只放概要，点「配置」进弹窗改细节。 */
   function buildProviderCard(p) {
     const card = document.createElement('div');
+    card.className = 'provider-card';
+
+    const head = document.createElement('div');
+    head.className = 'provider-head';
+    const title = document.createElement('span');
+    title.className = 'provider-title';
+    title.textContent = p.label || p.id;
+    title.title = `模型引用前缀 ${p.id}/`;
+    head.appendChild(title);
+    const kindTag = document.createElement('span');
+    kindTag.className = 'meta';
+    kindTag.textContent = KIND_LABEL[p.kind] || p.kind;
+    head.appendChild(kindTag);
+    head.appendChild(smallBtn('配置', () => openProviderModal(p.id)));
+    head.appendChild(buildDeleteProviderBtn(p));
+    card.appendChild(head);
+
+    const url = document.createElement('div');
+    url.className = 'provider-url';
+    url.textContent =
+      p.kind === 'vscode-lm' ? '内置 · 无需接口地址' : p.baseUrl || '未设置接口地址';
+    url.title = p.baseUrl || '';
+    card.appendChild(url);
+
+    const models = document.createElement('div');
+    models.className = 'provider-models';
+    if (p.models.length === 0) {
+      const none = document.createElement('span');
+      none.className = 'meta';
+      none.textContent = '还没有模型';
+      models.appendChild(none);
+    }
+    for (const m of p.models.slice(0, 5)) {
+      const chip = document.createElement('span');
+      chip.className = 'model-chip';
+      chip.textContent = m.name || '…';
+      chip.title = `${p.id}/${m.name}`;
+      models.appendChild(chip);
+    }
+    if (p.models.length > 5) {
+      const more = document.createElement('span');
+      more.className = 'meta';
+      more.textContent = `… 共 ${p.models.length} 个`;
+      models.appendChild(more);
+    }
+    card.appendChild(models);
+    return card;
+  }
+
+  /** 卡片上的删除按钮：第一次点击进入确认态，三秒内再点才真删。 */
+  function buildDeleteProviderBtn(p) {
+    const b = document.createElement('button');
+    b.className = 'link';
+    b.textContent = '删除';
+    let timer = null;
+    b.addEventListener('click', () => {
+      if (timer) {
+        clearTimeout(timer);
+        draft.providers = draft.providers.filter((x) => x !== p);
+        touch();
+        renderProviders();
+        toast(`已删除服务商「${p.label || p.id}」，记得保存。`);
+      } else {
+        b.textContent = '确认删除？';
+        b.classList.add('danger');
+        timer = setTimeout(() => {
+          timer = null;
+          b.textContent = '删除';
+          b.classList.remove('danger');
+        }, 3000);
+      }
+    });
+    return b;
+  }
+
+  // ---------------------------------------------------------------- 配置弹窗
+
+  /** 弹窗模式：'edit' 改 draft 里已有服务商；'add' 编辑临时对象，确认后才写入 draft。 */
+  let modalMode = null;
+  /** edit 模式下正在编辑的服务商 id。 */
+  let modalProviderId = null;
+  /** add 模式下的临时服务商，确认添加后才进 draft。 */
+  let modalTemp = null;
+
+  function openProviderModal(id) {
+    const p = draft.providers.find((x) => x.id === id);
+    if (!p) return;
+    modalMode = 'edit';
+    modalProviderId = id;
+    fillProviderModal(p);
+    el.providerModal.classList.remove('hidden');
+  }
+
+  /** 添加服务商：弹窗里先编辑临时对象，确认后才进列表。 */
+  function openAddModal() {
+    modalMode = 'add';
+    modalTemp = { id: uniqueId('provider'), kind: 'openai', baseUrl: '', models: [{ name: '' }] };
+    fillProviderModal(modalTemp);
+    el.providerModal.classList.remove('hidden');
+  }
+
+  function fillProviderModal(p) {
+    el.providerModalTitle.textContent =
+      modalMode === 'add' ? '添加服务商' : `配置 · ${p.label || p.id}`;
+    const body = el.providerModalBody;
+    body.innerHTML = '';
+
+    // 添加弹窗顶部放预设，点一下直接填入整套配置。
+    if (modalMode === 'add') {
+      const presetRow = document.createElement('div');
+      presetRow.className = 'modal-presets';
+      const label = document.createElement('span');
+      label.className = 'meta';
+      label.textContent = '从预设填入：';
+      presetRow.appendChild(label);
+      for (const preset of PRESETS) {
+        const btn = document.createElement('button');
+        btn.className = 'chip-btn';
+        btn.textContent = preset.label;
+        btn.title = preset.baseUrl || KIND_LABEL[preset.kind];
+        btn.addEventListener('click', () => applyPreset(preset));
+        presetRow.appendChild(btn);
+      }
+      body.appendChild(presetRow);
+    }
+
+    body.appendChild(buildProviderEditor(p));
+
+    const foot = document.createElement('div');
+    foot.className = 'modal-foot';
+    if (modalMode === 'add') {
+      foot.appendChild(primaryBtn('确认添加', confirmAddProvider));
+      foot.appendChild(secondaryBtn('取消', closeProviderModal));
+    } else {
+      foot.appendChild(secondaryBtn('完成', closeProviderModal));
+    }
+    body.appendChild(foot);
+  }
+
+  /** 点预设：用预设配置替换临时对象内容，仍可继续微调。 */
+  function applyPreset(preset) {
+    const copy = JSON.parse(JSON.stringify(preset));
+    copy.id = uniqueId(preset.id);
+    modalTemp.id = copy.id;
+    modalTemp.label = copy.label;
+    modalTemp.kind = copy.kind;
+    modalTemp.baseUrl = copy.baseUrl;
+    modalTemp.models = copy.models;
+    fillProviderModal(modalTemp);
+  }
+
+  function confirmAddProvider() {
+    const p = modalTemp;
+    const problem = validateProviders([p]);
+    if (problem) {
+      toast(problem, true);
+      return;
+    }
+    if (draft.providers.some((x) => x.id === p.id)) {
+      toast(`前缀「${p.id}」与已有服务商重复。`, true);
+      return;
+    }
+    draft.providers.push(p);
+    touch();
+    closeProviderModal();
+    toast(`已添加「${p.label || p.id}」，模型引用前缀为 ${p.id}/，记得保存。`);
+  }
+
+  function closeProviderModal() {
+    if (modalMode === null) return;
+    modalMode = null;
+    modalProviderId = null;
+    modalTemp = null;
+    el.providerModal.classList.add('hidden');
+    el.providerModalBody.innerHTML = '';
+    // 弹窗里改过的名字、模型数要反映回卡片。
+    renderProviders();
+  }
+
+  /** draft.providers 被整体替换后（外部刷新/Key 变更），把弹窗重绑到新对象上。 */
+  function refreshProviderModal() {
+    if (modalMode === 'edit') {
+      const p = draft.providers.find((x) => x.id === modalProviderId);
+      if (!p) {
+        closeProviderModal();
+        return;
+      }
+      fillProviderModal(p);
+    } else if (modalMode === 'add') {
+      // 临时对象不在 draft 里，原样重建，只刷新 Key 状态等。
+      fillProviderModal(modalTemp);
+    }
+  }
+
+  el.providerModalClose.addEventListener('click', closeProviderModal);
+  el.providerModal.addEventListener('click', (e) => {
+    if (e.target === el.providerModal) closeProviderModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeProviderModal();
+  });
+
+  /** add 模式下编辑的是临时对象，不能把 draft 标脏，否则 dirty 清不掉。 */
+  function editorTouch() {
+    if (modalMode === 'edit') touch();
+  }
+
+  /** 弹窗里的完整编辑器。 */
+  function buildProviderEditor(p) {
+    const card = document.createElement('div');
     card.className = 'provider-block';
+
+    const syncTitle = () => {
+      if (modalMode === 'edit') {
+        el.providerModalTitle.textContent = `配置 · ${p.label || p.id}`;
+      }
+    };
 
     const head = document.createElement('div');
     head.className = 'provider-head';
@@ -956,13 +1178,6 @@
     kindTag.className = 'meta';
     kindTag.textContent = KIND_LABEL[p.kind] || p.kind;
     head.appendChild(kindTag);
-    head.appendChild(
-      linkBtn('删除服务商', () => {
-        draft.providers = draft.providers.filter((x) => x !== p);
-        touch();
-        renderProviders();
-      })
-    );
     card.appendChild(head);
 
     const row = document.createElement('div');
@@ -970,8 +1185,10 @@
     row.appendChild(
       textField('前缀 id', p.id, '不能含斜杠', (v) => {
         p.id = v.trim();
+        if (modalMode === 'edit') modalProviderId = p.id;
         title.textContent = p.label || p.id;
-        touch();
+        syncTitle();
+        editorTouch();
         renderModelRows();
       })
     );
@@ -979,7 +1196,8 @@
       textField('显示名', p.label || '', '可留空', (v) => {
         p.label = v.trim() || undefined;
         title.textContent = p.label || p.id;
-        touch();
+        syncTitle();
+        editorTouch();
       })
     );
     card.appendChild(row);
@@ -988,7 +1206,7 @@
       card.appendChild(
         textField('接口地址 baseUrl', p.baseUrl || '', 'https://…', (v) => {
           p.baseUrl = v.trim() || undefined;
-          touch();
+          editorTouch();
         })
       );
     }
@@ -1003,7 +1221,7 @@
     modelsHead.appendChild(
       linkBtn('＋ 添加模型', () => {
         p.models.push({ name: '' });
-        touch();
+        editorTouch();
         renderModelRows();
       })
     );
@@ -1061,26 +1279,26 @@
     row.appendChild(
       compactField('模型名', m.name, p.kind === 'vscode-lm' ? 'gpt-4o' : 'glm-4-plus', (v) => {
         m.name = v.trim();
-        touch();
+        editorTouch();
         updateRef();
       })
     );
     row.appendChild(
       compactField('显示名', m.label || '', '可留空', (v) => {
         m.label = v.trim() || undefined;
-        touch();
+        editorTouch();
       })
     );
     row.appendChild(
       compactNumber('窗口', m.contextWindow, '默认', (v) => {
         m.contextWindow = v;
-        touch();
+        editorTouch();
       })
     );
     row.appendChild(
       compactNumber('输出上限', m.maxOutputTokens, '默认', (v) => {
         m.maxOutputTokens = v;
-        touch();
+        editorTouch();
       })
     );
 
@@ -1159,6 +1377,21 @@
     return b;
   }
 
+  function primaryBtn(text, onClick) {
+    const b = document.createElement('button');
+    b.className = 'primary';
+    b.textContent = text;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  /** 卡片头部用的小号按钮。 */
+  function smallBtn(text, onClick) {
+    const b = secondaryBtn(text, onClick);
+    b.classList.add('small');
+    return b;
+  }
+
   /** 生成一个不与现有服务商冲突的 id。 */
   function uniqueId(base) {
     if (!draft.providers.some((p) => p.id === base)) return base;
@@ -1168,32 +1401,7 @@
     }
   }
 
-  for (const preset of PRESETS) {
-    const btn = document.createElement('button');
-    btn.className = 'chip-btn';
-    btn.textContent = preset.label;
-    btn.title = preset.baseUrl || KIND_LABEL[preset.kind];
-    btn.addEventListener('click', () => {
-      const copy = JSON.parse(JSON.stringify(preset));
-      copy.id = uniqueId(preset.id);
-      draft.providers.push(copy);
-      touch();
-      renderProviders();
-      toast(`已添加「${copy.label}」，模型引用前缀为 ${copy.id}/，记得保存。`);
-    });
-    el.presets.appendChild(btn);
-  }
-
-  el.addProviderBtn.addEventListener('click', () => {
-    draft.providers.push({
-      id: uniqueId('provider'),
-      kind: 'openai',
-      baseUrl: '',
-      models: [{ name: '' }],
-    });
-    touch();
-    renderProviders();
-  });
+  el.addProviderBtn.addEventListener('click', openAddModal);
 
   for (const id of Object.values(BUDGET_FIELDS)) {
     const node = $(id);

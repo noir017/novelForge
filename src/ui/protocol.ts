@@ -325,9 +325,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
 
   <div class="actions">
     <button class="secondary" id="addProviderBtn">＋ 添加服务商</button>
-    <span class="meta">或从预设添加：</span>
   </div>
-  <div class="presets" id="presets"></div>
 
   <div class="pane-head"><span>默认预算</span></div>
   <div class="hint">未给模型单独设置窗口时用这里的值。</div>
@@ -347,6 +345,16 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
   </div>
   <div class="hint">设置写入工作区 settings.json；API Key 只存 SecretStorage，不落盘到配置文件。</div>
 </section>
+
+<div class="modal-overlay hidden" id="providerModal">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title" id="providerModalTitle">配置</span>
+      <button class="icon-btn" id="providerModalClose" title="关闭">×</button>
+    </div>
+    <div class="modal-body" id="providerModalBody"></div>
+  </div>
+</div>
 
 <div class="toast hidden" id="toast"></div>
 <script nonce="${nonce}" src="${asset('view.js')}"></script>
