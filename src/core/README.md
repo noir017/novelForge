@@ -11,14 +11,20 @@
 
 依赖方向自上而下：`features/` → `context/` / `llm/` → `model/`，反向不允许。
 
-本目录根下另有两个不属于任何子目录的文件：
+本目录根下另有几个不属于任何子目录的文件：
 
 | 文件 | 职责 |
 |---|---|
-| [protocol.ts](protocol.ts) | Webview ↔ 扩展的消息协议（`InMessage` / `OutMessage` / `ViewState`）。两个宿主（侧边栏 / 编辑器面板）共用，是前后端的唯一契约。 |
+| [protocol.ts](protocol.ts) | 前端 ↔ 后端的消息协议（`InMessage` / `OutMessage` / `ViewState`）。插件 webview 与独立版网页共用，是前后端的唯一契约。 |
+| [controller.ts](controller.ts) | ★ `ChatController`：全部面板逻辑。收 `InMessage` → 调度 `ContinueSession` / 会话存储 / 设置读写 → 广播 `OutMessage`。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。 |
+| [host.ts](host.ts) | core 对宿主的唯一依赖面（窄接口）：弹窗/选择/进度/文件监听/打开文件等，两个壳各实现一份。 |
+| [actions.ts](actions.ts) | 工程级交互流程（初始化、新建章节），命令面板与网页共用。 |
+| [attachments.ts](attachments.ts) | @ 引用的候选列表构建（展示与选择交给 Host.pick）。 |
+| [config.ts](config.ts) | `readConfig` / `readGlobalBudget` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |
+| [stores.ts](stores.ts) | 文件后端的配置/密钥存储（`~/.novelforge/`），双壳共用。 |
 | [projectView.ts](projectView.ts) | 工程页的数据来源：产出一份可序列化的 `ProjectTree` 快照（章节、角色、设定、摘要新鲜度），展开/折叠状态留在前端。 |
 
 ## 已知约定
 
-- 目标是本层**零 vscode 依赖**（双形态改造的前提）。目前仍有少量残留：features 里的 withProgress / QuickPick / diff 编辑器交互，正按计划逐步移入宿主窄接口（`host.ts`），见 `docs/design/plans` 的 standalone 改造计划。新代码不要再增加对 `vscode` 的依赖，也不要依赖具体的视图/面板类型。
+- 本层**零 vscode 依赖**（双形态改造的前提）：弹窗/进度/文件监听等宿主能力全部经窄接口 `host.ts`。新代码不要增加对 `vscode` 的依赖，也不要依赖具体的视图/面板类型；完整改造背景见 `docs/design/plans` 的 standalone 改造计划。
 - `readConfig` / `readGlobalBudget` 已移入 `config.ts`，数据源由宿主注入的 `ConfigStore` 提供；新增设置项时同时更新 `PersistedSettings` 与两处默认值。

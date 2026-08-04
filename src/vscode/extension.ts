@@ -7,7 +7,7 @@ import { clearApiKey, initSecrets, pickModelRef, promptForApiKey } from '../core
 import { CancelledError } from '../core/llm/provider';
 import { readConfig } from '../core/config';
 import { NovelProject } from '../core/model/project';
-import { ChatController } from '../ui/chatController';
+import { ChatController } from '../core/controller';
 import { ChatPanel } from './chatPanel';
 import { ChatViewProvider } from './chatViewProvider';
 
@@ -226,7 +226,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!target || !chat) {
       return;
     }
-    if (!chat.addSelectionFromCommand()) {
+    if (!(await chat.addSelectionFromCommand())) {
       void vscode.window.showWarningMessage('Novel Forge：请先在编辑器里选中一段文字。');
     }
   });

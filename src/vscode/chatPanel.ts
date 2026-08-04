@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ChatController, ViewHost } from '../ui/chatController';
+import { ChatController, ViewHost } from '../core/controller';
 import { InMessage, OutMessage } from '../core/protocol';
 import { renderHtml } from './webviewHtml';
 

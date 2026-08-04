@@ -1,8 +1,14 @@
-import * as vscode from 'vscode';
-import { BuiltContext, ContextItem } from '../core/context/builder';
-import { ContinueSession } from '../core/features/continueWriting';
-import { readConfig, readGlobalBudget } from '../core/config';
-import { NovelProject } from '../core/model/project';
+import { dirBaseName, initProjectFlow, newChapterFlow } from './actions';
+import { listAttachmentChoices } from './attachments';
+import { updateSettings, readConfig, readGlobalBudget } from './config';
+import { BuiltContext, ContextItem } from './context/builder';
+import { extractCharacters, newCharacter, newLore } from './features/characters';
+import { ContinueSession } from './features/continueWriting';
+import { extractStyle } from './features/style';
+import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from './features/summarize';
+import { getHost } from './host';
+import { apiKeyStatus, clearApiKey, promptForApiKey, pruneApiKeys } from './llm/registry';
+import { NovelProject } from './model/project';
 import {
   describeModelIssue,
   listModelChoices,
@@ -10,7 +16,7 @@ import {
   normalizeProviders,
   providerLabel,
   resolveModelRef,
-} from '../core/model/providers';
+} from './model/providers';
 import {
   Attachment,
   ChatSession,
@@ -19,9 +25,8 @@ import {
   deriveTitle,
   makeTurnId,
   nowIso,
-} from '../core/model/session';
-import { apiKeyStatus, pruneApiKeys } from '../core/llm/registry';
-import { NovelConfig } from '../core/model/types';
+} from './model/session';
+import { NovelConfig } from './model/types';
 import {
   InMessage,
   OutMessage,
@@ -34,9 +39,8 @@ import {
   SettingsPayload,
   Tab,
   ViewState,
-} from '../core/protocol';
-import { buildProjectTree } from '../core/projectView';
-import { pickAttachment, selectionAttachment } from './attachments';
+} from './protocol';
+import { buildProjectTree } from './projectView';
 
 /** Webview 宿主需要提供的能力。侧边栏与编辑器面板各实现一份。 */
 export interface ViewHost {
@@ -172,7 +176,8 @@ export class ChatController {
         return;
 
       case 'pickAttachment': {
-        const picked = await pickAttachment(this.project);
+        const choices = await listAttachmentChoices(this.project);
+        const picked = await getHost().pick(choices, '引用到上下文');
         if (picked) {
           this.addAttachment(picked);
         }
@@ -180,9 +185,9 @@ export class ChatController {
       }
 
       case 'addSelection': {
-        const att = selectionAttachment(this.project);
+        const att = await getHost().selectionAttachment(this.project);
         if (!att) {
-          this.toast('请先在编辑器里选中一段文字。', 'error');
+          this.toast('没有可加入的文本。', 'error');
           return;
         }
         this.addAttachment(att);
@@ -190,11 +195,11 @@ export class ChatController {
       }
 
       case 'openFile':
-        await vscode.commands.executeCommand('novel.openFile', msg.path);
+        await getHost().openFile(msg.path);
         return;
 
       case 'syncSummaries':
-        await vscode.commands.executeCommand('novel.syncSummaries');
+        await syncSummaries(this.project);
         await this.pushState();
         return;
 
@@ -211,13 +216,13 @@ export class ChatController {
         return;
 
       case 'setApiKey':
-        await vscode.commands.executeCommand('novel.setApiKey', msg.providerId);
+        await promptForApiKey(msg.providerId);
         await this.pushSettings();
         await this.pushState();
         return;
 
       case 'clearApiKey':
-        await vscode.commands.executeCommand('novel.clearApiKey', msg.providerId);
+        await clearApiKey(msg.providerId);
         await this.pushSettings();
         return;
 
@@ -226,7 +231,7 @@ export class ChatController {
         return;
 
       case 'openNativeSettings':
-        await vscode.commands.executeCommand('workbench.action.openSettings', 'novel.');
+        await getHost().openNativeSettings?.();
         return;
     }
   }
@@ -360,8 +365,8 @@ export class ChatController {
   }
 
   /** 供命令直接调用：把当前选区加入待发送上下文。 */
-  addSelectionFromCommand(): boolean {
-    const att = selectionAttachment(this.project);
+  async addSelectionFromCommand(): Promise<boolean> {
+    const att = await getHost().selectionAttachment(this.project);
     if (!att) {
       return false;
     }
@@ -451,10 +456,10 @@ export class ChatController {
 
   private async deleteSession(id: string): Promise<void> {
     const target = await this.store.read(id);
-    const pick = await vscode.window.showWarningMessage(
+    const pick = await getHost().confirm(
       `删除对话「${target?.title ?? id}」？`,
-      { modal: true, detail: '会移到回收站，可以从系统回收站找回。' },
-      '删除'
+      ['删除'],
+      { modal: true, detail: '会移到 .novelforge/.trash/，可手动找回。' }
     );
     if (pick !== '删除') {
       return;
@@ -472,10 +477,10 @@ export class ChatController {
     if (!target) {
       return;
     }
-    const title = await vscode.window.showInputBox({
+    const title = await getHost().input({
       title: '重命名对话',
       value: target.title,
-      validateInput: (v) => (v.trim() ? undefined : '不能为空'),
+      validate: (v) => (v.trim() ? undefined : '不能为空'),
     });
     if (!title) {
       return;
@@ -616,7 +621,7 @@ export class ChatController {
     // 前端可能改过草稿，以传上来的为准。
     turn.content = text;
 
-    const uri =
+    const relPath =
       mode === 'append'
         ? await this.session.accept(text, { mode: 'append', order })
         : await this.session.accept(text, {
@@ -625,53 +630,74 @@ export class ChatController {
             title: title.trim() || ContinueSession.suggestTitle(text, order),
           });
 
-    turn.acceptedTo = this.project.relPath(uri);
+    turn.acceptedTo = relPath;
     await this.persist();
     this.post({ type: 'turnDone', turn: serializeTurn(turn) });
     this.toast(`已写入 ${turn.acceptedTo}`);
 
-    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), {
-      viewColumn: vscode.ViewColumn.One,
-      preview: false,
-    });
-    await vscode.commands.executeCommand('novel.refresh');
+    await getHost().openFile(turn.acceptedTo);
+    await this.pushState();
   }
 
   // ---------------------------------------------------------------- 工程页
 
   /**
-   * 工程页的按钮统一转成命令执行，webview 不直接碰文件系统。
-   * 这样命令面板与工程页走的是同一条路径，行为不会分叉。
+   * 工程页的按钮直调 core 流程，webview 不直接碰文件系统。
+   * 插件的命令面板也复用同一批 core 流程，行为不会分叉。
    */
   private async projectAction(action: ProjectAction, order?: number): Promise<void> {
-    const COMMANDS: Record<ProjectAction, string> = {
-      initProject: 'novel.initProject',
-      refresh: 'novel.refresh',
-      newChapter: 'novel.newChapter',
-      newCharacter: 'novel.newCharacter',
-      newLore: 'novel.newLore',
-      continueFrom: 'novel.continueFromChapter',
-      summarizeChapter: 'novel.summarizeChapter',
-      syncSummaries: 'novel.syncSummaries',
-      rebuildGlobalSummary: 'novel.rebuildGlobalSummary',
-      extractCharacters: 'novel.extractCharacters',
-      extractStyle: 'novel.extractStyle',
-    };
-    const command = COMMANDS[action];
-    if (!command) {
-      return;
+    const host = getHost();
+    switch (action) {
+      case 'initProject':
+        await initProjectFlow(this.project, dirBaseName(this.project));
+        break;
+      case 'refresh':
+        break; // pushState 本身就是刷新
+      case 'newChapter':
+        await newChapterFlow(this.project);
+        break;
+      case 'newCharacter':
+        await newCharacter(this.project);
+        break;
+      case 'newLore':
+        await newLore(this.project);
+        break;
+      case 'continueFrom':
+        // 与原语义一致：从某章续写 = 目标设为下一章
+        this.current.targetOrder = (order ?? (await this.project.nextChapterOrder() - 1)) + 1;
+        await this.showTab('chat');
+        break;
+      case 'summarizeChapter': {
+        if (order === undefined) {
+          break;
+        }
+        const chapter = await this.project.getChapter(order);
+        if (!chapter) {
+          break;
+        }
+        await host.progress(`Novel Forge：总结第 ${chapter.order} 章`, async (signal) => {
+          const ok = await summarizeChapter(this.project, chapter, undefined, signal);
+          if (ok) {
+            host.toast(`第 ${chapter.order} 章摘要已生成。`);
+          }
+        });
+        break;
+      }
+      case 'syncSummaries':
+        await syncSummaries(this.project);
+        break;
+      case 'rebuildGlobalSummary':
+        await rebuildGlobalSummary(this.project);
+        break;
+      case 'extractCharacters':
+        await extractCharacters(this.project);
+        break;
+      case 'extractStyle':
+        await extractStyle(this.project);
+        break;
     }
 
-    // 章节相关的命令要带序号；continueFromChapter 收的是节点形状。
-    if (action === 'continueFrom') {
-      await vscode.commands.executeCommand(command, { chapterOrder: order });
-    } else if (action === 'summarizeChapter') {
-      await vscode.commands.executeCommand(command, order);
-    } else {
-      await vscode.commands.executeCommand(command);
-    }
-
-    // 这些命令大多会改动磁盘，且不一定触发 watcher（比如刚初始化的空工程）。
+    // 这些流程大多会改动磁盘，且不一定触发 watcher（比如刚初始化的空工程）。
     // pushState 会顺带刷新当前页签。
     await this.pushState();
   }
@@ -679,12 +705,6 @@ export class ChatController {
   // ---------------------------------------------------------------- 设置
 
   private async saveSettings(s: SettingsPayload): Promise<void> {
-    const c = vscode.workspace.getConfiguration('novel');
-    // 有工作区就写工作区配置，没有就退回全局——否则会静默失败。
-    const target = vscode.workspace.workspaceFolders?.length
-      ? vscode.ConfigurationTarget.Workspace
-      : vscode.ConfigurationTarget.Global;
-
     const before = readConfig().providers.map((p) => p.id);
     const providers = normalizeProviders(s.providers);
     if (s.providers.length > 0 && providers.length === 0) {
@@ -694,20 +714,17 @@ export class ChatController {
       return;
     }
 
-    const entries: [string, unknown][] = [
-      ['providers', providers],
-      ['model', s.model.trim()],
-      ['contextWindow', s.contextWindow],
-      ['maxOutputTokens', s.maxOutputTokens],
-      ['temperature', s.temperature],
-      ['recentChaptersFullText', s.recentChaptersFullText],
-      ['prevChapterTailChars', s.prevChapterTailChars],
-      ['summaryBatchSize', s.summaryBatchSize],
-      ['requestTimeoutMs', s.requestTimeoutMs],
-    ];
-    for (const [key, value] of entries) {
-      await c.update(key, value, target);
-    }
+    await updateSettings({
+      providers,
+      model: s.model.trim(),
+      contextWindow: s.contextWindow,
+      maxOutputTokens: s.maxOutputTokens,
+      temperature: s.temperature,
+      recentChaptersFullText: s.recentChaptersFullText,
+      prevChapterTailChars: s.prevChapterTailChars,
+      summaryBatchSize: s.summaryBatchSize,
+      requestTimeoutMs: s.requestTimeoutMs,
+    });
 
     // 删掉的服务商不该在钥匙串里留下孤儿 Key。
     await pruneApiKeys(providers, before);
@@ -725,10 +742,7 @@ export class ChatController {
       await this.pushState();
       return;
     }
-    const target = vscode.workspace.workspaceFolders?.length
-      ? vscode.ConfigurationTarget.Workspace
-      : vscode.ConfigurationTarget.Global;
-    await vscode.workspace.getConfiguration('novel').update('model', ref, target);
+    await updateSettings({ model: ref });
     await this.pushState();
   }
 
