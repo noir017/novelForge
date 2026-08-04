@@ -1,9 +1,10 @@
-import * as vscode from 'vscode';
-import { CancelledError, ChatOptions, collectStream } from '../llm/provider';
+import { getHost } from '../host';
+import { ChatOptions, collectStream } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
 import { NovelProject } from '../model/project';
 import { takeHead } from '../context/tokenizer';
+import { pickChaptersByInput } from './pickChapters';
 import { stripCodeFence } from './summarize';
 
 /**
@@ -13,36 +14,30 @@ import { stripCodeFence } from './summarize';
 export async function extractStyle(project: NovelProject): Promise<void> {
   const chapters = await project.listChapters();
   if (chapters.length === 0) {
-    void vscode.window.showWarningMessage('Novel Forge：还没有章节，无法提取文风。');
+    getHost().toast('还没有章节，无法提取文风。');
     return;
   }
 
-  const picked = await vscode.window.showQuickPick(
-    chapters.map((c) => ({
-      label: `${String(c.order).padStart(3, '0')} ${c.title}`,
-      description: `${c.wordCount} 字`,
-      chapter: c,
-      picked: c.order <= 2,
-    })),
-    {
-      title: '选取 1~3 章最能代表文风的样章',
-      canPickMany: true,
-      placeHolder: '建议选写得最顺手的章节，模型会以此为准归纳文风。',
-    }
+  // 默认拿前两章当样章，用户可改成写得最顺手的章节。
+  const picked = await pickChaptersByInput(
+    chapters,
+    '选取 1~3 章最能代表文风的样章',
+    '输入章节序号，逗号分隔，如 1,2,3',
+    chapters.slice(0, 2).map((c) => c.order)
   );
   if (!picked || picked.length === 0) {
     return;
   }
   if (picked.length > 3) {
-    void vscode.window.showWarningMessage('Novel Forge：最多选 3 章，只取前 3 章。');
+    getHost().toast('最多选 3 章，只取前 3 章。');
   }
 
   const existing = await project.readStyleGuide();
   if (existing.trim() && !isTemplate(existing)) {
-    const confirm = await vscode.window.showWarningMessage(
+    const confirm = await getHost().confirm(
       '已存在文风指南，重新提取会覆盖当前内容（可用 Git 或撤销恢复）。',
-      { modal: true },
-      '覆盖'
+      ['覆盖'],
+      { modal: true }
     );
     if (confirm !== '覆盖') {
       return;
@@ -55,44 +50,38 @@ export async function extractStyle(project: NovelProject): Promise<void> {
   }
   const config = readConfig();
 
-  await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: 'Novel Forge：提取文风指南', cancellable: true },
-    async (progress, token) => {
-      // TODO(Task 5): 换成 getHost().progress(signal, report) 后删掉此桥接
-      const abort = new AbortController();
-      token.onCancellationRequested(() => abort.abort(new CancelledError()));
-      progress.report({ message: '读取样章' });
-      const parts: string[] = [];
-      for (const p of picked.slice(0, 3)) {
-        parts.push(`【样章：第${p.chapter.order}章 ${p.chapter.title}】\n${await project.readChapterText(p.chapter)}`);
-      }
-      const corpus = takeHead(parts.join('\n\n'), Math.max(3000, config.contextWindow - config.maxOutputTokens - 2000));
-
-      progress.report({ message: '分析文风特征' });
-      const options: ChatOptions = {
-        maxOutputTokens: Math.min(config.maxOutputTokens, 2000),
-        temperature: 0.3,
-        timeoutMs: config.requestTimeoutMs,
-        signal: abort.signal,
-      };
-      const raw = await collectStream(
-        provider.chatStream(
-          [
-            { role: 'system', content: STYLE_SYSTEM },
-            { role: 'user', content: corpus },
-          ],
-          options
-        )
-      );
-      if (abort.signal.aborted) {
-        return;
-      }
-
-      const uri = await project.writeStyleGuide(stripCodeFence(raw));
-      void vscode.window.showInformationMessage('Novel Forge：文风指南已生成，建议人工过一遍再用。');
-      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+  await getHost().progress('Novel Forge：提取文风指南', async (signal, report) => {
+    report('读取样章');
+    const parts: string[] = [];
+    for (const chapter of picked.slice(0, 3)) {
+      parts.push(`【样章：第${chapter.order}章 ${chapter.title}】\n${await project.readChapterText(chapter)}`);
     }
-  );
+    const corpus = takeHead(parts.join('\n\n'), Math.max(3000, config.contextWindow - config.maxOutputTokens - 2000));
+
+    report('分析文风特征');
+    const options: ChatOptions = {
+      maxOutputTokens: Math.min(config.maxOutputTokens, 2000),
+      temperature: 0.3,
+      timeoutMs: config.requestTimeoutMs,
+      signal,
+    };
+    const raw = await collectStream(
+      provider.chatStream(
+        [
+          { role: 'system', content: STYLE_SYSTEM },
+          { role: 'user', content: corpus },
+        ],
+        options
+      )
+    );
+    if (signal.aborted) {
+      return;
+    }
+
+    await project.writeStyleGuide(stripCodeFence(raw));
+    getHost().toast('文风指南已生成，建议人工过一遍再用。');
+    await getHost().openFile(project.relPath(project.stylePath));
+  });
 }
 
 function isTemplate(text: string): boolean {

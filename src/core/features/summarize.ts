@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+import { getHost } from '../host';
 import { collectStream, CancelledError, ChatOptions, LlmProvider } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
 import { pickSections } from '../model/markdown';
@@ -21,7 +21,7 @@ export async function summarizeChapter(
   const config = readConfig();
   const text = await project.readChapterText(chapter);
   if (!text.trim()) {
-    void vscode.window.showWarningMessage(`第 ${chapter.order} 章是空的，跳过总结。`);
+    getHost().toast(`第 ${chapter.order} 章是空的，跳过总结。`);
     return false;
   }
 
@@ -57,18 +57,18 @@ export async function summarizeChapter(
   return true;
 }
 
-/** 批量补齐所有缺失/过期的摘要，带进度条，可取消。 */
+/** 批量补齐所有缺失/过期的摘要，带进度，可取消。 */
 export async function syncSummaries(project: NovelProject): Promise<void> {
   const stale = await project.staleChapters();
   if (stale.length === 0) {
-    void vscode.window.showInformationMessage('Novel Forge：所有章节摘要都是最新的。');
+    getHost().toast('所有章节摘要都是最新的。');
     return;
   }
 
-  const confirm = await vscode.window.showInformationMessage(
+  const confirm = await getHost().confirm(
     `有 ${stale.length} 章摘要缺失或已过期，需要调用 ${stale.length} 次模型。现在同步？`,
-    { modal: true },
-    '开始同步'
+    ['开始同步'],
+    { modal: true }
   );
   if (confirm !== '开始同步') {
     return;
@@ -79,46 +79,31 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
     return;
   }
 
-  await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: 'Novel Forge：同步章节摘要', cancellable: true },
-    async (progress, token) => {
-      // TODO(Task 5): 换成 getHost().progress(signal, report) 后删掉此桥接
-      const abort = new AbortController();
-      const sub = token.onCancellationRequested(() => abort.abort(new CancelledError()));
-      try {
-        let done = 0;
-        const failed: number[] = [];
-        for (const chapter of stale) {
-          if (abort.signal.aborted) {
-            break;
-          }
-          progress.report({
-            message: `第 ${chapter.order} 章《${chapter.title}》（${done + 1}/${stale.length}）`,
-            increment: done === 0 ? 0 : 100 / stale.length,
-          });
-          try {
-            await summarizeChapter(project, chapter, provider, abort.signal);
-          } catch (err) {
-            if (err instanceof CancelledError) {
-              break;
-            }
-            failed.push(chapter.order);
-          }
-          done++;
-        }
-        const okCount = done - failed.length;
-        if (failed.length > 0) {
-          void vscode.window.showWarningMessage(
-            `Novel Forge：完成 ${okCount} 章，第 ${failed.join('、')} 章失败，可稍后重试。`
-          );
-        } else if (okCount > 0) {
-          void vscode.window.showInformationMessage(`Novel Forge：已同步 ${okCount} 章摘要。`);
-        }
-      } finally {
-        sub.dispose();
+  await getHost().progress('Novel Forge：同步章节摘要', async (signal, report) => {
+    let done = 0;
+    const failed: number[] = [];
+    for (const chapter of stale) {
+      if (signal.aborted) {
+        break;
       }
+      report(`第 ${chapter.order} 章《${chapter.title}》（${done + 1}/${stale.length}）`);
+      try {
+        await summarizeChapter(project, chapter, provider, signal);
+      } catch (err) {
+        if (err instanceof CancelledError) {
+          break;
+        }
+        failed.push(chapter.order);
+      }
+      done++;
     }
-  );
+    const okCount = done - failed.length;
+    if (failed.length > 0) {
+      getHost().toast(`完成 ${okCount} 章，第 ${failed.join('、')} 章失败，可稍后重试。`);
+    } else if (okCount > 0) {
+      getHost().toast(`已同步 ${okCount} 章摘要。`);
+    }
+  });
 }
 
 /**
@@ -130,17 +115,16 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
 export async function rebuildGlobalSummary(project: NovelProject): Promise<void> {
   const chapters = await project.listChapters();
   if (chapters.length === 0) {
-    void vscode.window.showWarningMessage('Novel Forge：还没有章节。');
+    getHost().toast('还没有章节。');
     return;
   }
 
   const stale = await project.staleChapters();
   if (stale.length > 0) {
-    const pick = await vscode.window.showWarningMessage(
+    const pick = await getHost().confirm(
       `有 ${stale.length} 章摘要缺失或过期，直接重建会丢失这些章节的信息。`,
-      { modal: true },
-      '先同步摘要',
-      '仍然重建'
+      ['先同步摘要', '仍然重建'],
+      { modal: true }
     );
     if (!pick) {
       return;
@@ -165,93 +149,77 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
     }
   }
   if (units.length === 0) {
-    void vscode.window.showWarningMessage('Novel Forge：没有任何单章摘要，请先运行「同步所有过期摘要」。');
+    getHost().toast('没有任何单章摘要，请先运行「同步所有过期摘要」。');
     return;
   }
 
   const batches = chunk(units, Math.max(3, config.summaryBatchSize));
 
-  await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: 'Novel Forge：重建全书摘要', cancellable: true },
-    async (progress, token) => {
-      // TODO(Task 5): 换成 getHost().progress(signal, report) 后删掉此桥接
-      const abort = new AbortController();
-      const sub = token.onCancellationRequested(() => abort.abort(new CancelledError()));
-      try {
-        const options: ChatOptions = {
-          maxOutputTokens: Math.min(config.maxOutputTokens, 2000),
-          temperature: 0.3,
-          timeoutMs: config.requestTimeoutMs,
-          signal: abort.signal,
-        };
+  await getHost().progress('Novel Forge：重建全书摘要', async (signal, report) => {
+    const options: ChatOptions = {
+      maxOutputTokens: Math.min(config.maxOutputTokens, 2000),
+      temperature: 0.3,
+      timeoutMs: config.requestTimeoutMs,
+      signal,
+    };
 
-        // ---- map：每批 reduce 成阶段摘要 ----
-        const stageSummaries: string[] = [];
-        for (let i = 0; i < batches.length; i++) {
-          if (abort.signal.aborted) {
-            return;
-          }
-          const batch = batches[i];
-          const range = `第 ${batch[0].order} - ${batch[batch.length - 1].order} 章`;
-          progress.report({
-            message: `汇总 ${range}（${i + 1}/${batches.length}）`,
-            increment: i === 0 ? 0 : 80 / batches.length,
-          });
-
-          const joined = batch
-            .map((u) => `【第${u.order}章 ${u.title}】\n${u.content}`)
-            .join('\n\n');
-          const text = await collectStream(
-            provider.chatStream(
-              [
-                { role: 'system', content: STAGE_SYSTEM },
-                { role: 'user', content: `以下是${range}的逐章摘要，请汇总成阶段摘要。\n\n${joined}` },
-              ],
-              options
-            )
-          );
-          stageSummaries.push(`## ${range}\n\n${text.trim()}`);
-        }
-
-        if (abort.signal.aborted) {
-          return;
-        }
-
-        // ---- reduce：阶段摘要合并成全书摘要 ----
-        let finalText: string;
-        if (stageSummaries.length === 1) {
-          finalText = stageSummaries[0].replace(/^## .*\n+/, '');
-        } else {
-          progress.report({ message: '合并为全书摘要', increment: 15 });
-          const combined = stageSummaries.join('\n\n');
-          const inputBudget = Math.max(4000, config.contextWindow - config.maxOutputTokens - 2000);
-          finalText = await collectStream(
-            provider.chatStream(
-              [
-                { role: 'system', content: GLOBAL_SYSTEM },
-                {
-                  role: 'user',
-                  content: `以下是各阶段摘要，请合并成一份全书滚动摘要。\n\n${takeHead(combined, inputBudget)}`,
-                },
-              ],
-              options
-            )
-          );
-        }
-
-        const through = units[units.length - 1].order;
-        await project.writeGlobalSummary(finalText.trim(), through);
-        progress.report({ message: '完成', increment: 5 });
-        void vscode.window.showInformationMessage(
-          `Novel Forge：全书摘要已重建，覆盖至第 ${through} 章（约 ${estimateTokens(finalText)} token）。`
-        );
-        // TODO(Task 5): 经 Host.openFile 打开摘要文件
-        void project.relPath(project.globalSummaryPath);
-      } finally {
-        sub.dispose();
+    // ---- map：每批 reduce 成阶段摘要 ----
+    const stageSummaries: string[] = [];
+    for (let i = 0; i < batches.length; i++) {
+      if (signal.aborted) {
+        return;
       }
+      const batch = batches[i];
+      const range = `第 ${batch[0].order} - ${batch[batch.length - 1].order} 章`;
+      report(`汇总 ${range}（${i + 1}/${batches.length}）`);
+
+      const joined = batch
+        .map((u) => `【第${u.order}章 ${u.title}】\n${u.content}`)
+        .join('\n\n');
+      const text = await collectStream(
+        provider.chatStream(
+          [
+            { role: 'system', content: STAGE_SYSTEM },
+            { role: 'user', content: `以下是${range}的逐章摘要，请汇总成阶段摘要。\n\n${joined}` },
+          ],
+          options
+        )
+      );
+      stageSummaries.push(`## ${range}\n\n${text.trim()}`);
     }
-  );
+
+    if (signal.aborted) {
+      return;
+    }
+
+    // ---- reduce：阶段摘要合并成全书摘要 ----
+    let finalText: string;
+    if (stageSummaries.length === 1) {
+      finalText = stageSummaries[0].replace(/^## .*\n+/, '');
+    } else {
+      report('合并为全书摘要');
+      const combined = stageSummaries.join('\n\n');
+      const inputBudget = Math.max(4000, config.contextWindow - config.maxOutputTokens - 2000);
+      finalText = await collectStream(
+        provider.chatStream(
+          [
+            { role: 'system', content: GLOBAL_SYSTEM },
+            {
+              role: 'user',
+              content: `以下是各阶段摘要，请合并成一份全书滚动摘要。\n\n${takeHead(combined, inputBudget)}`,
+            },
+          ],
+          options
+        )
+      );
+    }
+
+    const through = units[units.length - 1].order;
+    await project.writeGlobalSummary(finalText.trim(), through);
+    report('完成');
+    getHost().toast(`全书摘要已重建，覆盖至第 ${through} 章（约 ${estimateTokens(finalText)} token）。`);
+    await getHost().openFile(project.relPath(project.globalSummaryPath));
+  });
 }
 
 // ---------------------------------------------------------------- 解析

@@ -1,39 +1,33 @@
-import * as vscode from 'vscode';
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { CancelledError, collectStream, ChatOptions } from '../llm/provider';
+import { getHost } from '../host';
+import { collectStream, ChatOptions } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
-import { NovelProject, emptyCharacterSections, exists, renderCharacterCard, slugify, writeText } from '../model/project';
+import { NovelProject, emptyCharacterSections, exists, readText, renderCharacterCard, slugify, writeText } from '../model/project';
 import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections, Chapter } from '../model/types';
 import { takeHead } from '../context/tokenizer';
+import { pickChaptersByInput } from './pickChapters';
 import { stripCodeFence } from './summarize';
 
 /**
  * 从选定章节提取/更新角色卡。
  *
- * 关键约束：**绝不静默覆盖作者手写的角色卡**。已存在的角色一律走
- * diff 编辑器让作者确认；新角色则直接创建（无可覆盖的内容）。
+ * 关键约束：**绝不静默覆盖作者手写的角色卡**。已存在的角色一律经
+ * 宿主审阅（插件开 diff 编辑器，独立版弹确认框）；新角色则直接创建。
  */
 export async function extractCharacters(project: NovelProject): Promise<void> {
   const chapters = await project.listChapters();
   if (chapters.length === 0) {
-    void vscode.window.showWarningMessage('Novel Forge：还没有章节。');
+    getHost().toast('还没有章节。');
     return;
   }
 
-  const picked = await vscode.window.showQuickPick(
-    chapters.map((c) => ({
-      label: `${String(c.order).padStart(3, '0')} ${c.title}`,
-      description: `${c.wordCount} 字`,
-      chapter: c,
-      picked: c.order > chapters.length - 3, // 默认勾最近三章
-    })),
-    {
-      title: '从哪些章节提取角色信息？',
-      canPickMany: true,
-      placeHolder: '可多选。选得越多越准，但消耗的 token 也越多。',
-    }
+  // 默认勾最近三章；选得越多越准，但消耗的 token 也越多。
+  const picked = await pickChaptersByInput(
+    chapters,
+    '从哪些章节提取角色信息？',
+    '输入章节序号，逗号分隔，如 1,2,3',
+    chapters.slice(-3).map((c) => c.order)
   );
   if (!picked || picked.length === 0) {
     return;
@@ -46,57 +40,51 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
   const config = readConfig();
   const existing = await project.listCharacters();
 
-  await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: 'Novel Forge：提取角色信息', cancellable: true },
-    async (progress, token) => {
-      // TODO(Task 5): 换成 getHost().progress(signal, report) 后删掉此桥接
-      const abort = new AbortController();
-      token.onCancellationRequested(() => abort.abort(new CancelledError()));
-      progress.report({ message: '读取章节正文' });
-      const selected = picked.map((p) => p.chapter).sort((a, b) => a.order - b.order);
-      const corpus = await buildCorpus(project, selected, config.contextWindow - config.maxOutputTokens - 2000);
+  await getHost().progress('Novel Forge：提取角色信息', async (signal, report) => {
+    report('读取章节正文');
+    const selected = [...picked].sort((a, b) => a.order - b.order);
+    const corpus = await buildCorpus(project, selected, config.contextWindow - config.maxOutputTokens - 2000);
 
-      const knownList =
-        existing.length > 0
-          ? existing.map((c) => `- ${c.name}${c.aliases.length ? `（别名：${c.aliases.join('、')}）` : ''}`).join('\n')
-          : '（暂无已有角色卡）';
+    const knownList =
+      existing.length > 0
+        ? existing.map((c) => `- ${c.name}${c.aliases.length ? `（别名：${c.aliases.join('、')}）` : ''}`).join('\n')
+        : '（暂无已有角色卡）';
 
-      progress.report({ message: '调用模型分析人物' });
-      const options: ChatOptions = {
-        maxOutputTokens: config.maxOutputTokens,
-        temperature: 0.3,
-        timeoutMs: config.requestTimeoutMs,
-        signal: abort.signal,
-      };
-      const raw = await collectStream(
-        provider.chatStream(
-          [
-            { role: 'system', content: CHARACTER_SYSTEM },
-            {
-              role: 'user',
-              content: `已有角色卡（同一人请沿用既有名字，不要另起新名）：\n${knownList}\n\n以下是正文：\n\n${corpus}`,
-            },
-          ],
-          options
-        )
-      );
+    report('调用模型分析人物');
+    const options: ChatOptions = {
+      maxOutputTokens: config.maxOutputTokens,
+      temperature: 0.3,
+      timeoutMs: config.requestTimeoutMs,
+      signal,
+    };
+    const raw = await collectStream(
+      provider.chatStream(
+        [
+          { role: 'system', content: CHARACTER_SYSTEM },
+          {
+            role: 'user',
+            content: `已有角色卡（同一人请沿用既有名字，不要另起新名）：\n${knownList}\n\n以下是正文：\n\n${corpus}`,
+          },
+        ],
+        options
+      )
+    );
 
-      if (abort.signal.aborted) {
-        return;
-      }
-
-      const parsed = parseCharacterResponse(raw);
-      if (parsed.length === 0) {
-        void vscode.window.showWarningMessage('Novel Forge：没有从这些章节中解析出角色信息。');
-        return;
-      }
-
-      progress.report({ message: `解析出 ${parsed.length} 个角色，正在合并` });
-      const lastOrder = selected[selected.length - 1].order;
-      const firstOrder = selected[0].order;
-      await mergeCharacters(project, parsed, existing, { firstOrder, lastOrder });
+    if (signal.aborted) {
+      return;
     }
-  );
+
+    const parsed = parseCharacterResponse(raw);
+    if (parsed.length === 0) {
+      getHost().toast('没有从这些章节中解析出角色信息。');
+      return;
+    }
+
+    report(`解析出 ${parsed.length} 个角色，正在合并`);
+    const lastOrder = selected[selected.length - 1].order;
+    const firstOrder = selected[0].order;
+    await mergeCharacters(project, parsed, existing, { firstOrder, lastOrder });
+  });
 }
 
 interface ParsedCharacter {
@@ -144,7 +132,7 @@ async function mergeCharacters(
   }
 
   if (created.length > 0) {
-    void vscode.window.showInformationMessage(`Novel Forge：新建角色卡 ${created.join('、')}。`);
+    getHost().toast(`新建角色卡 ${created.join('、')}。`);
   }
 
   if (pendingDiff.length === 0) {
@@ -152,11 +140,10 @@ async function mergeCharacters(
   }
 
   const names = pendingDiff.map((p) => p.name).join('、');
-  const choice = await vscode.window.showInformationMessage(
+  const choice = await getHost().confirm(
     `已有角色卡的更新：${names}。要逐个对比确认吗？`,
-    { modal: true },
-    '逐个对比',
-    '跳过更新'
+    ['逐个对比', '跳过更新'],
+    { modal: true }
   );
   if (choice !== '逐个对比') {
     return;
@@ -172,8 +159,8 @@ async function mergeCharacters(
 }
 
 /**
- * 打开 diff 编辑器让作者对比「现有角色卡」与「模型建议」，确认后才写入。
- * 建议内容写到临时文件（untitled scheme 不支持 diff 保存，故用真实临时文件）。
+ * 让作者对比「现有角色卡」与「模型建议」，确认后才写入。
+ * 插件宿主开 diff 编辑器；独立版弹确认框（Host.reviewReplace）。
  */
 async function reviewCharacterUpdate(
   project: NovelProject,
@@ -202,47 +189,34 @@ async function reviewCharacterUpdate(
 
   const proposedText = renderCharacterCard(mergedCard);
   const currentAbs = project.pathOf(existing.relPath);
-  const previewAbs = path.join(project.novelDir, '.tmp', `${existing.slug}.proposed.md`);
+  const currentText = await readText(currentAbs);
 
-  await fs.mkdir(path.join(project.novelDir, '.tmp'), { recursive: true });
-  await writeText(previewAbs, proposedText);
-
-  // TODO(Task 6): 换成 Host.reviewReplace，并删除 .tmp 预览文件流程
-  await vscode.commands.executeCommand(
-    'vscode.diff',
-    vscode.Uri.file(currentAbs),
-    vscode.Uri.file(previewAbs),
-    `${existing.name}：现有 ↔ 建议`,
-    { preview: true }
-  );
-
-  const apply = await vscode.window.showInformationMessage(
-    `是否采纳对「${existing.name}」的更新？（可先在右侧编辑器里手动调整，再点采纳）`,
-    { modal: true },
-    '采纳右侧内容',
-    '跳过'
-  );
-
-  if (apply === '采纳右侧内容') {
-    // 读回预览文件——作者可能在 diff 里改过。
-    const finalText = await fs.readFile(previewAbs, 'utf8');
-    await writeText(currentAbs, finalText);
-    void vscode.window.showInformationMessage(`Novel Forge：已更新「${existing.name}」。`);
+  let verdict: 'apply' | 'discard' | undefined;
+  const host = getHost();
+  if (host.reviewReplace) {
+    verdict = await host.reviewReplace(existing.name, currentText, proposedText);
+  } else {
+    // 宿主未实现审阅能力时退化为纯确认（不展示差异）。
+    const pick = await getHost().confirm(
+      `已生成对「${existing.name}」的更新（合并模型建议与现有内容）。直接采纳？`,
+      ['采纳', '跳过'],
+      { modal: true }
+    );
+    verdict = pick === '采纳' ? 'apply' : pick === '跳过' ? 'discard' : undefined;
   }
 
-  try {
-    await fs.rm(previewAbs, { force: true });
-  } catch {
-    /* 临时文件删不掉不影响主流程 */
+  if (verdict === 'apply') {
+    await writeText(currentAbs, proposedText);
+    getHost().toast(`已更新「${existing.name}」。`);
   }
 }
 
 /** 手动新建一张空角色卡。 */
 export async function newCharacter(project: NovelProject): Promise<void> {
-  const name = await vscode.window.showInputBox({
+  const name = await getHost().input({
     title: '新建角色卡',
     prompt: '角色姓名',
-    validateInput: (v) => (v.trim() ? undefined : '不能为空'),
+    validate: (v) => (v.trim() ? undefined : '不能为空'),
   });
   if (!name) {
     return;
@@ -255,15 +229,15 @@ export async function newCharacter(project: NovelProject): Promise<void> {
     tags: [],
     sections: emptyCharacterSections(),
   });
-  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(project.pathOf(relPath))));
+  await getHost().openFile(relPath);
 }
 
 /** 手动新建一条设定。 */
 export async function newLore(project: NovelProject): Promise<void> {
-  const title = await vscode.window.showInputBox({
+  const title = await getHost().input({
     title: '新建设定条目',
     prompt: '设定标题（如「玄门七宗」）',
-    validateInput: (v) => (v.trim() ? undefined : '不能为空'),
+    validate: (v) => (v.trim() ? undefined : '不能为空'),
   });
   if (!title) {
     return;
@@ -274,7 +248,7 @@ export async function newLore(project: NovelProject): Promise<void> {
     abs,
     `---\ntitle: ${title.trim()}\nkeywords: [${title.trim()}]\n---\n\n# ${title.trim()}\n\n（在这里写设定内容。keywords 命中续写纲要时会自动注入上下文。）\n`
   );
-  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(abs)));
+  await getHost().openFile(project.relPath(abs));
 }
 
 // ---------------------------------------------------------------- 解析

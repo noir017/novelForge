@@ -108,27 +108,7 @@ console.log('\n== tokenizer.ts ==');
 
 console.log('\n== continueWriting.ts · cleanOutput ==');
 {
-  // cleanOutput 是纯函数，但模块顶层 import 了 vscode，需要打桩。
-  const originalResolve = Module._resolveFilename;
-  Module._resolveFilename = function (request, ...args) {
-    if (request === 'vscode') return 'vscode';
-    return originalResolve.call(this, request, ...args);
-  };
-  const originalLoad = Module._load;
-  Module._load = function (request, ...args) {
-    if (request === 'vscode') {
-      return {
-        window: {}, workspace: {}, commands: {}, Uri: {},
-        ProgressLocation: {}, ViewColumn: {}, CancellationTokenSource: class {},
-        EventEmitter: class {}, TreeItem: class {}, ThemeIcon: class {},
-      };
-    }
-    return originalLoad.call(this, request, ...args);
-  };
-
   const cw = loadModule('src/core/features/continueWriting.ts');
-  Module._resolveFilename = originalResolve;
-  Module._load = originalLoad;
 
   const { cleanOutput } = cw;
   check('去掉代码块包裹', cleanOutput('```\n正文内容\n```') === '正文内容');
@@ -150,15 +130,7 @@ console.log('\n== continueWriting.ts · cleanOutput ==');
 
 console.log('\n== summarize.ts · parseSummaryResponse ==');
 {
-  const originalLoad = Module._load;
-  Module._load = function (request, ...args) {
-    if (request === 'vscode') {
-      return { window: {}, workspace: {}, commands: {}, Uri: {}, ProgressLocation: {} };
-    }
-    return originalLoad.call(this, request, ...args);
-  };
   const sum = loadModule('src/core/features/summarize.ts');
-  Module._load = originalLoad;
 
   const standard = `## 梗概\n\n林昭进镇。\n\n## 出场人物\n\n林昭、李叔\n\n## 时间地点\n\n傍晚，镇口\n\n## 关键事件\n\n- 递上令牌\n\n## 新增伏笔\n\n令牌来历\n\n## 状态变更\n\n无`;
   const parsed = sum.parseSummaryResponse(standard);
@@ -187,15 +159,7 @@ console.log('\n== summarize.ts · parseSummaryResponse ==');
 
 console.log('\n== characters.ts · parseCharacterResponse ==');
 {
-  const originalLoad = Module._load;
-  Module._load = function (request, ...args) {
-    if (request === 'vscode') {
-      return { window: {}, workspace: {}, commands: {}, Uri: { joinPath: () => ({}) }, ProgressLocation: {} };
-    }
-    return originalLoad.call(this, request, ...args);
-  };
   const ch = loadModule('src/core/features/characters.ts');
-  Module._load = originalLoad;
 
   const json = JSON.stringify([
     { name: '林昭', aliases: ['阿昭'], tags: ['主角'], 身份: '幸存者', 语言习惯: '答话极短', 当前状态: '客栈中' },
