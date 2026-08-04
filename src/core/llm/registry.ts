@@ -1,5 +1,5 @@
-import * as vscode from 'vscode';
-import { readConfig } from '../model/project';
+import { readConfig } from '../config';
+import { getHost } from '../host';
 import {
   ActiveModel,
   ProviderProfile,
@@ -10,10 +10,10 @@ import {
   providerLabel,
   resolveModelRef,
 } from '../model/providers';
+import { SecretStore } from '../stores';
 import { AnthropicProvider } from './anthropicProvider';
 import { OpenAiProvider } from './openaiProvider';
 import { LlmProvider } from './provider';
-import { VsCodeLmProvider } from '../../vscode/vscodeLmProvider';
 
 /**
  * API Key 按服务商 id 存，不再按 kind——同一种协议下可以并存
@@ -30,15 +30,23 @@ const LEGACY_SECRET_KEYS: Record<string, string> = {
   anthropic: 'novel-forge.apiKey.anthropic',
 };
 
-let secrets: vscode.SecretStorage | undefined;
+let secrets: SecretStore | undefined;
 
-export function initSecrets(context: vscode.ExtensionContext): void {
-  secrets = context.secrets;
+export function initSecrets(store: SecretStore): void {
+  secrets = store;
 }
 
 /** vscode-lm 走 Copilot 授权，不需要 Key。 */
 export function needsApiKey(profile: ProviderProfile): boolean {
   return profile.kind !== 'vscode-lm';
+}
+
+type ExtraProviderFactory = (active: ActiveModel) => LlmProvider | undefined;
+let extraFactory: ExtraProviderFactory | undefined;
+
+/** VS Code 壳启动时注册 vscode-lm provider 工厂（core 不反向依赖 vscode 层）。 */
+export function registerProviderFactory(fn: ExtraProviderFactory): void {
+  extraFactory = fn;
 }
 
 /**
@@ -49,9 +57,7 @@ export async function resolveProvider(ref?: string): Promise<LlmProvider | undef
   const config = readConfig();
   const active = ref ? resolveModelRef(config.providers, ref) : config.active;
   if (!active) {
-    void vscode.window.showErrorMessage(
-      `Novel Forge：${describeModelIssue(config.providers, ref ?? config.model)}`
-    );
+    getHost().toast(`${describeModelIssue(config.providers, ref ?? config.model)}`, 'error');
     return undefined;
   }
   return buildProvider(active);
@@ -62,7 +68,7 @@ export async function buildProvider(active: ActiveModel): Promise<LlmProvider | 
   const { profile, model } = active;
 
   if (profile.kind === 'vscode-lm') {
-    return new VsCodeLmProvider(model.name, providerLabel(profile));
+    return extraFactory?.(active);
   }
 
   const key = await ensureApiKey(profile);
@@ -98,7 +104,7 @@ async function lookupApiKey(profile: ProviderProfile): Promise<string | undefine
   }
   const legacy = await store.get(legacyKey);
   if (legacy) {
-    await store.store(secretKey(profile.id), legacy);
+    await store.set(secretKey(profile.id), legacy);
     await store.delete(legacyKey);
   }
   return legacy ?? undefined;
@@ -132,33 +138,31 @@ export async function promptForApiKey(providerId?: string): Promise<string | und
     : config.active?.profile ?? (await pickProvider(config.providers, '为哪个服务商设置 API Key？'));
 
   if (!profile) {
-    void vscode.window.showErrorMessage(
-      `Novel Forge：${describeModelIssue(config.providers, providerId ? `${providerId}/` : config.model)}`
+    getHost().toast(
+      `${describeModelIssue(config.providers, providerId ? `${providerId}/` : config.model)}`,
+      'error'
     );
     return undefined;
   }
   if (!needsApiKey(profile)) {
-    void vscode.window.showInformationMessage(
-      `Novel Forge：「${providerLabel(profile)}」使用 VS Code 语言模型（Copilot），无需 API Key。`
-    );
+    getHost().toast(`「${providerLabel(profile)}」使用 VS Code 语言模型（Copilot），无需 API Key。`);
     return undefined;
   }
 
   const host = profile.baseUrl || defaultBaseUrl(profile.kind);
-  const value = await vscode.window.showInputBox({
-    title: `Novel Forge：设置「${providerLabel(profile)}」的 API Key`,
-    prompt: `将安全保存在 VS Code SecretStorage 中，不会写入 settings.json。接口地址：${host}`,
+  const value = await getHost().input({
+    title: `设置「${providerLabel(profile)}」的 API Key`,
+    prompt: `安全保存在本机密钥存储中，不会写入配置文件。接口地址：${host}`,
     password: true,
-    ignoreFocusOut: true,
     placeHolder: profile.kind === 'anthropic' ? 'sk-ant-...' : 'sk-...',
-    validateInput: (v) => (v.trim().length === 0 ? 'API Key 不能为空' : undefined),
+    validate: (v) => (v.trim().length === 0 ? 'API Key 不能为空' : undefined),
   });
 
   if (!value) {
     return undefined;
   }
-  await requireSecrets().store(secretKey(profile.id), value.trim());
-  void vscode.window.showInformationMessage(`Novel Forge：「${providerLabel(profile)}」的 API Key 已保存。`);
+  await requireSecrets().set(secretKey(profile.id), value.trim());
+  getHost().toast(`「${providerLabel(profile)}」的 API Key 已保存。`);
   return value.trim();
 }
 
@@ -179,7 +183,7 @@ export async function clearApiKey(providerId?: string): Promise<void> {
   if (legacyKey) {
     await store.delete(legacyKey);
   }
-  void vscode.window.showInformationMessage(`Novel Forge：已清除「${providerLabel(profile)}」的 API Key。`);
+  getHost().toast(`已清除「${providerLabel(profile)}」的 API Key。`);
 }
 
 /** 清掉配置里已不存在的服务商的 Key——删掉服务商后不该在钥匙串里留下孤儿。 */
@@ -209,16 +213,15 @@ async function pickProvider(
   if (providers.length === 1) {
     return providers[0];
   }
-  const picked = await vscode.window.showQuickPick(
+  return getHost().pick(
     providers.map((p) => ({
       label: providerLabel(p),
       description: p.id,
       detail: p.baseUrl || defaultBaseUrl(p.kind),
-      profile: p,
+      value: p,
     })),
-    { title }
+    title
   );
-  return picked?.profile;
 }
 
 /** 命令面板里的模型切换器。 */
@@ -226,35 +229,27 @@ export async function pickModelRef(): Promise<string | undefined> {
   const config = readConfig();
   const choices = listModelChoices(config.providers);
   if (choices.length === 0) {
-    void vscode.window.showErrorMessage(`Novel Forge：${describeModelIssue(config.providers, config.model)}`);
+    getHost().toast(`${describeModelIssue(config.providers, config.model)}`, 'error');
     return undefined;
   }
 
-  const items: (vscode.QuickPickItem & { ref?: string })[] = [];
-  let group = '';
-  for (const choice of choices) {
-    if (choice.group !== group) {
-      group = choice.group;
-      items.push({ label: group, kind: vscode.QuickPickItemKind.Separator });
-    }
-    items.push({
+  return getHost().pick(
+    choices.map((choice) => ({
       label: choice.ref,
       description: choice.label !== choice.ref.slice(choice.ref.indexOf('/') + 1) ? choice.label : undefined,
       detail: choice.contextWindow ? `窗口 ${choice.contextWindow} token` : undefined,
-      picked: choice.ref === config.model,
-      ref: choice.ref,
-    });
-  }
-
-  const picked = await vscode.window.showQuickPick(items, { title: '选择模型' });
-  return picked?.ref;
+      group: choice.group,
+      value: choice.ref,
+    })),
+    '选择模型'
+  );
 }
 
 export { makeModelRef };
 
-function requireSecrets(): vscode.SecretStorage {
+function requireSecrets(): SecretStore {
   if (!secrets) {
-    throw new Error('SecretStorage 尚未初始化');
+    throw new Error('SecretStore 尚未初始化');
   }
   return secrets;
 }

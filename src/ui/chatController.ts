@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { BuiltContext, ContextItem } from '../core/context/builder';
 import { ContinueSession } from '../core/features/continueWriting';
-import { NovelProject, readConfig, readGlobalBudget } from '../core/model/project';
+import { readConfig, readGlobalBudget } from '../core/config';
+import { NovelProject } from '../core/model/project';
 import {
   describeModelIssue,
   listModelChoices,

@@ -20,5 +20,5 @@
 
 ## 已知约定
 
-- 目标是本层**零 vscode 依赖**（双形态改造的前提）。目前仍有少量残留：只读 API（读配置）与 features 里的 withProgress / QuickPick / diff 编辑器交互，正按计划逐步移入宿主层或窄接口，见 `docs/design/plans` 的 standalone 改造计划。新代码不要再增加对 `vscode` 的依赖，也不要依赖具体的视图/面板类型。
-- `project.ts` 中有一个进行中的拆分 TODO：`readConfig` / `readGlobalBudget` 计划移入独立的 `config.ts`，改动时注意不要新增对现状的依赖。
+- 目标是本层**零 vscode 依赖**（双形态改造的前提）。目前仍有少量残留：features 里的 withProgress / QuickPick / diff 编辑器交互，正按计划逐步移入宿主窄接口（`host.ts`），见 `docs/design/plans` 的 standalone 改造计划。新代码不要再增加对 `vscode` 的依赖，也不要依赖具体的视图/面板类型。
+- `readConfig` / `readGlobalBudget` 已移入 `config.ts`，数据源由宿主注入的 `ConfigStore` 提供；新增设置项时同时更新 `PersistedSettings` 与两处默认值。

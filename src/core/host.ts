@@ -1,3 +1,4 @@
+import { ConfigStore, initConfigFromHost } from './config';
 import { NovelProject } from './model/project';
 import { Attachment } from './model/session';
 
@@ -32,6 +33,8 @@ export interface Host {
   readonly name: 'vscode' | 'standalone';
   /** 该宿主能否提供 vscode-lm（Copilot）模型。 */
   readonly supportsVscodeLm: boolean;
+  /** 设置读写后端：插件暂用 settings.json，独立版用 ~/.novelforge/config.json。 */
+  readonly config: ConfigStore;
 
   input(opts: InputOptions): Promise<string | undefined>;
   /** 返回用户点选的 action 文案；取消返回 undefined。 */
@@ -59,7 +62,7 @@ let current: Host | undefined;
 
 export function initHost(host: Host): void {
   current = host;
-  // TODO(Task 4): import { initConfigFromHost } from './config' 并在此调用
+  initConfigFromHost(host);
 }
 
 export function getHost(): Host {

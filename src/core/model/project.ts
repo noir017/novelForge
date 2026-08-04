@@ -1,8 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-// TODO(Task 4): readConfig/readGlobalBudget 移入 config.ts 后删除此 import
-import * as vscode from 'vscode';
+import { readConfig } from '../config';
 import {
   CHARACTER_SECTION_KEYS,
   Chapter,
@@ -18,7 +17,6 @@ import {
   SummarySections,
 } from './types';
 import { extractH1, parseMarkdown, pickSections, stringifyFrontmatter, stringifySections, stripH1 } from './markdown';
-import { firstModelRef, normalizeProviders, resolveModelRef, seedFromLegacy } from './providers';
 
 const NOVEL_DIR = '.novelforge';
 /** 0.1.x 用的目录名。检测到就提示迁移，不静默改动用户文件。 */
@@ -475,61 +473,6 @@ export function emptySummarySections(): SummarySections {
 }
 
 // ---------------------------------------------------------------- 工具函数
-
-export function readConfig(): NovelConfig {
-  const c = vscode.workspace.getConfiguration('novel');
-
-  let providers = normalizeProviders(c.get('providers', [] as unknown[]));
-  let model = (c.get('model', '') as string).trim();
-
-  // 0.1.x 的单服务商设置。只在新结构为空时兜底，不写回磁盘——
-  // 用户一旦在设置页保存过，就以 novel.providers 为准。
-  if (providers.length === 0) {
-    const seeded = seedFromLegacy({
-      provider: c.get('provider', 'openai'),
-      openaiBaseUrl: c.get('openai.baseUrl', 'https://api.openai.com/v1'),
-      openaiModel: c.get('openai.model', 'gpt-4o'),
-      anthropicBaseUrl: c.get('anthropic.baseUrl', 'https://api.anthropic.com'),
-      anthropicModel: c.get('anthropic.model', 'claude-sonnet-4-5'),
-      vscodeLmFamily: c.get('vscodeLm.family', 'gpt-4o'),
-    });
-    providers = seeded.providers;
-    if (!model) {
-      model = seeded.activeRef;
-    }
-  }
-  if (!model) {
-    model = firstModelRef(providers);
-  }
-
-  const active = resolveModelRef(providers, model);
-  const globalWindow = c.get('contextWindow', 128000);
-  const globalOutput = c.get('maxOutputTokens', 4096);
-
-  return {
-    providers,
-    model,
-    active,
-    // 模型自带的窗口优先——同一个服务商下 32k 和 200k 的模型常常并存。
-    contextWindow: active?.model.contextWindow ?? globalWindow,
-    maxOutputTokens: active?.model.maxOutputTokens ?? globalOutput,
-    temperature: c.get('temperature', 0.8),
-    recentChaptersFullText: c.get('recentChaptersFullText', 2),
-    prevChapterTailChars: c.get('prevChapterTailChars', 1500),
-    chaptersDir: c.get('chaptersDir', 'chapters'),
-    summaryBatchSize: c.get('summaryBatchSize', 15),
-    requestTimeoutMs: c.get('requestTimeoutMs', 300000),
-  };
-}
-
-/** 设置页要显示的全局默认值（不被当前模型的覆盖值遮住）。 */
-export function readGlobalBudget(): { contextWindow: number; maxOutputTokens: number } {
-  const c = vscode.workspace.getConfiguration('novel');
-  return {
-    contextWindow: c.get('contextWindow', 128000),
-    maxOutputTokens: c.get('maxOutputTokens', 4096),
-  };
-}
 
 export function hash(text: string): string {
   return crypto.createHash('sha1').update(text.replace(/\r\n/g, '\n')).digest('hex').slice(0, 16);

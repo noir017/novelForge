@@ -57,6 +57,17 @@ function loadModule(relPath) {
 
 const p = loadModule('src/core/model/providers.ts');
 const projectMod = loadModule('src/core/model/project.ts');
+const configMod = loadModule('src/core/config.ts');
+
+// readConfig 改由注入的 ConfigStore 供数：这里用内存对象模拟 settings.json。
+configMod.initConfigFromHost({
+  config: {
+    read: () => settings,
+    write: async (s) => { settings = s; },
+  },
+});
+// 注册遗留读取器，才能走 0.1.x 兜底分支（与真实 VS Code 壳一致）。
+configMod.setLegacyConfigReader({ read: () => settings });
 
 // ---------------------------------------------------------------- 引用解析
 
@@ -234,7 +245,7 @@ console.log('\n== readConfig 串起来 ==');
     contextWindow: 64000,
     maxOutputTokens: 4096,
   };
-  const cfg = projectMod.readConfig();
+  const cfg = configMod.readConfig();
   check('读出两个服务商', cfg.providers.length === 2);
   check('当前模型已解析', cfg.active && cfg.active.model.name === 'z-ai/glm-4.6');
   // 同一服务商下 32k 和 200k 的模型常并存，全局值不该盖住模型自带的窗口。
@@ -242,20 +253,20 @@ console.log('\n== readConfig 串起来 ==');
   check('模型输出上限覆盖全局值', cfg.maxOutputTokens === 8192, String(cfg.maxOutputTokens));
 
   settings.model = 'glm/glm-4-plus';
-  const cfg2 = projectMod.readConfig();
+  const cfg2 = configMod.readConfig();
   check('切换模型后窗口跟着变', cfg2.contextWindow === 128000, String(cfg2.contextWindow));
   check('模型没设输出上限时用全局值', cfg2.maxOutputTokens === 4096, String(cfg2.maxOutputTokens));
 
   settings.model = 'nope/x';
-  const bad = projectMod.readConfig();
+  const bad = configMod.readConfig();
   check('引用无效时 active 为空', bad.active === undefined);
   check('引用无效时退回全局窗口', bad.contextWindow === 64000, String(bad.contextWindow));
   check('引用无效时不丢服务商列表', bad.providers.length === 2);
 
   settings.model = '';
-  check('未指定模型时取第一个', projectMod.readConfig().model === 'glm/glm-4-plus');
+  check('未指定模型时取第一个', configMod.readConfig().model === 'glm/glm-4-plus');
 
-  const globals = projectMod.readGlobalBudget();
+  const globals = configMod.readGlobalBudget();
   check('readGlobalBudget 不受模型覆盖影响', globals.contextWindow === 64000, String(globals.contextWindow));
 
   // 老用户升级：providers 为空，应从旧设置兜底，而不是「没有模型」。
@@ -266,7 +277,7 @@ console.log('\n== readConfig 串起来 ==');
     'anthropic.model': '',
     'vscodeLm.family': '',
   };
-  const legacy = projectMod.readConfig();
+  const legacy = configMod.readConfig();
   check('providers 为空时从旧设置兜底', legacy.providers.length === 1, JSON.stringify(legacy.providers));
   check('兜底后模型可用', legacy.active && legacy.active.model.name === 'deepseek-chat');
   check('兜底后引用为 openai/deepseek-chat', legacy.model === 'openai/deepseek-chat', legacy.model);
@@ -274,7 +285,7 @@ console.log('\n== readConfig 串起来 ==');
   // 新结构一旦存在就以它为准，不再看旧设置。
   settings.providers = [{ id: 'glm', models: [{ name: 'glm-4-plus' }] }];
   settings.model = 'glm/glm-4-plus';
-  const both = projectMod.readConfig();
+  const both = configMod.readConfig();
   check('新结构存在时忽略旧设置', both.providers.length === 1 && both.providers[0].id === 'glm',
     JSON.stringify(both.providers.map((x) => x.id)));
 }

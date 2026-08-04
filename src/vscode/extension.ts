@@ -5,13 +5,19 @@ import { extractStyle } from '../core/features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../core/features/summarize';
 import { clearApiKey, initSecrets, pickModelRef, promptForApiKey } from '../core/llm/registry';
 import { CancelledError } from '../core/llm/provider';
-import { NovelProject, readConfig } from '../core/model/project';
+import { readConfig } from '../core/config';
+import { NovelProject } from '../core/model/project';
 import { ChatController } from '../ui/chatController';
 import { ChatPanel } from './chatPanel';
 import { ChatViewProvider } from './chatViewProvider';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  initSecrets(context);
+  // TODO(Task 7/12): 换成 initHost(VsCodeHost) + FileSecretStore 后删掉此适配
+  initSecrets({
+    get: (key) => Promise.resolve(context.secrets.get(key)),
+    set: (key, value) => Promise.resolve(context.secrets.store(key, value)),
+    delete: (key) => Promise.resolve(context.secrets.delete(key)),
+  });
 
   const project = currentProject();
   if (project) {

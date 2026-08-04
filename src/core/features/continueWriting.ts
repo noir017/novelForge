@@ -1,7 +1,8 @@
 import { BuildRequest, BuiltContext, buildContext } from '../context/builder';
 import { CancelledError, ChatOptions } from '../llm/provider';
 import { buildProvider, resolveProvider } from '../llm/registry';
-import { NovelProject, readConfig, sanitizeFileName } from '../model/project';
+import { readConfig } from '../config';
+import { NovelProject, sanitizeFileName } from '../model/project';
 import { describeModelIssue, providerLabel, resolveModelRef } from '../model/providers';
 import { Chapter } from '../model/types';
 

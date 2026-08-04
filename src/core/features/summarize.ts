@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { collectStream, CancelledError, ChatOptions, LlmProvider } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
 import { pickSections } from '../model/markdown';
-import { NovelProject, emptySummarySections, readConfig } from '../model/project';
+import { readConfig } from '../config';
+import { NovelProject, emptySummarySections } from '../model/project';
 import { Chapter, SUMMARY_SECTION_KEYS, SummarySections } from '../model/types';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 

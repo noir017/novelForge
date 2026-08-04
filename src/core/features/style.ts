@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { CancelledError, ChatOptions, collectStream } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
-import { NovelProject, readConfig } from '../model/project';
+import { readConfig } from '../config';
+import { NovelProject } from '../model/project';
 import { takeHead } from '../context/tokenizer';
 import { stripCodeFence } from './summarize';
 
