@@ -27,7 +27,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ViewHost {
       localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')],
     };
     view.webview.html = renderHtml(view.webview, this.extensionUri);
-    view.webview.onDidReceiveMessage((msg: InMessage) => void this.controller.handle(msg, this));
+    view.webview.onDidReceiveMessage((msg: InMessage) => void this.controller.handle(msg));
 
     this.controller.attach(this);
     view.onDidDispose(() => {

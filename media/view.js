@@ -5,8 +5,6 @@
 
   const el = {
     tabbar: $('tabbar'),
-    newSessionBtn: $('newSessionBtn'),
-    openInEditorBtn: $('openInEditorBtn'),
     staleBanner: $('staleBanner'),
     staleText: $('staleText'),
     syncBtn: $('syncBtn'),
@@ -113,7 +111,6 @@
 
   function renderState(state) {
     store.state = state;
-    el.openInEditorBtn.classList.toggle('hidden', state.host !== 'sidebar');
     renderModelSelect(state);
 
     if (!state.initialized) {
@@ -495,8 +492,6 @@
   el.atBtn.addEventListener('click', () => vscode.postMessage({ type: 'pickAttachment' }));
   el.selBtn.addEventListener('click', () => vscode.postMessage({ type: 'addSelection' }));
   el.syncBtn.addEventListener('click', () => vscode.postMessage({ type: 'syncSummaries' }));
-  el.newSessionBtn.addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
-  el.openInEditorBtn.addEventListener('click', () => vscode.postMessage({ type: 'openInEditor' }));
 
   el.input.addEventListener('input', persist);
   el.modeSelect.addEventListener('change', persist);

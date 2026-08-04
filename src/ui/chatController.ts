@@ -91,9 +91,9 @@ export class ChatController {
 
   // ---------------------------------------------------------------- 消息入口
 
-  async handle(msg: InMessage, host: ViewHost): Promise<void> {
+  async handle(msg: InMessage): Promise<void> {
     try {
-      await this.dispatch(msg, host);
+      await this.dispatch(msg);
     } catch (err) {
       this.busy = false;
       this.post({ type: 'busy', value: false });
@@ -101,10 +101,10 @@ export class ChatController {
     }
   }
 
-  private async dispatch(msg: InMessage, host: ViewHost): Promise<void> {
+  private async dispatch(msg: InMessage): Promise<void> {
     switch (msg.type) {
       case 'ready':
-        this.post({ type: 'init', state: await this.buildState(host) });
+        this.post({ type: 'init', state: await this.buildState() });
         this.post({ type: 'tab', tab: this.tab });
         this.post({ type: 'session', session: serializeSession(this.current) });
         this.post({ type: 'attachments', items: this.pending.map(serializeAttachment) });
@@ -158,10 +158,6 @@ export class ChatController {
         return;
       }
 
-      case 'newSession':
-        await this.newSession();
-        return;
-
       case 'openSession':
         await this.openSession(msg.id);
         return;
@@ -194,10 +190,6 @@ export class ChatController {
 
       case 'openFile':
         await vscode.commands.executeCommand('novel.openFile', msg.path);
-        return;
-
-      case 'openInEditor':
-        await vscode.commands.executeCommand('novel.openChatInEditor');
         return;
 
       case 'syncSummaries':
@@ -240,7 +232,7 @@ export class ChatController {
 
   // ---------------------------------------------------------------- 状态
 
-  private async buildState(host: ViewHost): Promise<ViewState> {
+  private async buildState(): Promise<ViewState> {
     const initialized = await this.project.isInitialized();
     const config = readConfig();
     const models = listModelChoices(config.providers).map((c) => ({
@@ -260,7 +252,6 @@ export class ChatController {
         models,
         contextWindow: 0,
         maxOutputTokens: 0,
-        host: host.kind,
       };
     }
     const chapters = await this.project.listChapters();
@@ -276,7 +267,6 @@ export class ChatController {
       models,
       contextWindow: config.contextWindow,
       maxOutputTokens: config.maxOutputTokens,
-      host: host.kind,
     };
   }
 
@@ -284,7 +274,7 @@ export class ChatController {
   async pushState(): Promise<void> {
     this.project.invalidate();
     for (const host of this.hosts) {
-      host.post({ type: 'state', state: await this.buildState(host) });
+      host.post({ type: 'state', state: await this.buildState() });
     }
     await this.pushTabData();
   }

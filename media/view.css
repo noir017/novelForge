@@ -57,10 +57,6 @@ body {
   border-bottom-color: var(--vscode-focusBorder);
 }
 
-.tabbar-spacer {
-  flex: 1;
-}
-
 .icon-btn {
   background: none;
   border: none;

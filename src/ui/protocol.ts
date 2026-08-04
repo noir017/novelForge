@@ -32,14 +32,12 @@ export type InMessage =
   | { type: 'accept'; turnId: string; mode: 'append' | 'new'; order: number; title: string; text: string }
   | { type: 'editTurn'; turnId: string; text: string }
   | { type: 'deleteTurn'; turnId: string }
-  | { type: 'newSession' }
   | { type: 'openSession'; id: string }
   | { type: 'deleteSession'; id: string }
   | { type: 'renameSession'; id: string }
   | { type: 'pickAttachment' }
   | { type: 'addSelection' }
   | { type: 'openFile'; path: string }
-  | { type: 'openInEditor' }
   | { type: 'syncSummaries' }
   | { type: 'projectAction'; action: ProjectAction; order?: number }
   | { type: 'selectModel'; ref: string }
@@ -131,8 +129,6 @@ export interface ViewState {
   models: { ref: string; label: string; group: string }[];
   contextWindow: number;
   maxOutputTokens: number;
-  /** 宿主是侧边栏还是编辑器面板——侧边栏才显示「在编辑器中打开」。 */
-  host: 'sidebar' | 'editor';
 }
 
 /**
@@ -253,9 +249,6 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
   <button class="tab" data-tab="project">工程</button>
   <button class="tab" data-tab="history">历史</button>
   <button class="tab" data-tab="settings">设置</button>
-  <span class="tabbar-spacer"></span>
-  <button class="icon-btn" id="newSessionBtn" title="新建对话">＋</button>
-  <button class="icon-btn hidden" id="openInEditorBtn" title="在编辑器中打开">⧉</button>
 </nav>
 
 <!-- ------------------------------------------------------------ 对话 -->

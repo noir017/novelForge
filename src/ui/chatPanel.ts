@@ -41,7 +41,7 @@ export class ChatPanel implements ViewHost {
   ) {
     panel.iconPath = vscode.Uri.joinPath(extensionUri, 'media', 'icon.svg');
     panel.webview.html = renderHtml(panel.webview, extensionUri);
-    panel.webview.onDidReceiveMessage((msg: InMessage) => void this.controller.handle(msg, this));
+    panel.webview.onDidReceiveMessage((msg: InMessage) => void this.controller.handle(msg));
 
     this.controller.attach(this);
     panel.onDidDispose(() => {
