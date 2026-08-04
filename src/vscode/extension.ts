@@ -1,23 +1,27 @@
 import * as vscode from 'vscode';
+import { initProjectFlow, newChapterFlow } from '../core/actions';
+import { ChatController } from '../core/controller';
+import { updateSettings, setLegacyConfigReader } from '../core/config';
 import { extractCharacters, newCharacter, newLore } from '../core/features/characters';
-import { quickContinue } from './quickContinue';
 import { extractStyle } from '../core/features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../core/features/summarize';
-import { clearApiKey, initSecrets, pickModelRef, promptForApiKey } from '../core/llm/registry';
-import { CancelledError } from '../core/llm/provider';
-import { readConfig } from '../core/config';
+import { getHost, initHost } from '../core/host';
+import { clearApiKey, initSecrets, pickModelRef, promptForApiKey, registerProviderFactory } from '../core/llm/registry';
 import { NovelProject } from '../core/model/project';
-import { ChatController } from '../core/controller';
+import { providerLabel } from '../core/model/providers';
+import { Chapter } from '../core/model/types';
 import { ChatPanel } from './chatPanel';
 import { ChatViewProvider } from './chatViewProvider';
+import { quickContinue } from './quickContinue';
+import { legacySettingsReader, SecretStorageSecretStore, SettingsJsonConfigStore } from './settingsStore';
+import { VsCodeHost } from './vscodeHost';
+import { VsCodeLmProvider } from './vscodeLmProvider';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  // TODO(Task 7/12): 换成 initHost(VsCodeHost) + FileSecretStore 后删掉此适配
-  initSecrets({
-    get: (key) => Promise.resolve(context.secrets.get(key)),
-    set: (key, value) => Promise.resolve(context.secrets.store(key, value)),
-    delete: (key) => Promise.resolve(context.secrets.delete(key)),
-  });
+  initHost(new VsCodeHost(new SettingsJsonConfigStore()));
+  setLegacyConfigReader(legacySettingsReader);
+  initSecrets(new SecretStorageSecretStore(context.secrets));
+  registerProviderFactory((active) => new VsCodeLmProvider(active.model.name, providerLabel(active.profile)));
 
   const project = currentProject();
   if (project) {
@@ -78,42 +82,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ---------------------------------------------------------------- 工程
 
   register('novel.initProject', async () => {
-    const target = currentProject();
+    const target = await requireProject();
     if (!target) {
-      void vscode.window.showErrorMessage('Novel Forge：请先打开一个工作区文件夹。');
       return;
     }
-    if (await target.isInitialized()) {
-      void vscode.window.showInformationMessage('Novel Forge：当前工作区已经是小说工程。');
-      return;
-    }
-
-    const title = await vscode.window.showInputBox({
-      title: '初始化小说工程（1/2）',
-      prompt: '作品名',
-      value: workspaceName(),
-      validateInput: (v) => (v.trim() ? undefined : '不能为空'),
-    });
-    if (!title) {
-      return;
-    }
-    const author = await vscode.window.showInputBox({
-      title: '初始化小说工程（2/2）',
-      prompt: '作者名（可留空）',
-      ignoreFocusOut: true,
-    });
-
-    await target.initialize({ title: title.trim(), author: (author ?? '').trim() });
+    await initProjectFlow(target, workspaceName());
     await refresh();
-
-    const pick = await vscode.window.showInformationMessage(
-      `Novel Forge：已初始化《${title.trim()}》。要现在新建第 1 章吗？`,
-      '新建第 1 章',
-      '稍后'
-    );
-    if (pick === '新建第 1 章') {
-      await vscode.commands.executeCommand('novel.newChapter');
-    }
   });
 
   register('novel.refresh', refresh);
@@ -135,22 +109,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!target) {
       return;
     }
-    const order = await target.nextChapterOrder();
-    const title = await vscode.window.showInputBox({
-      title: `新建第 ${order} 章`,
-      prompt: '章节标题',
-      value: `第${order}章`,
-      validateInput: (v) => (v.trim() ? undefined : '不能为空'),
-    });
-    if (!title) {
-      return;
-    }
-    const rel = await target.createChapter(order, title.trim());
+    await newChapterFlow(target);
     await refresh();
-    await vscode.window.showTextDocument(
-      await vscode.workspace.openTextDocument(vscode.Uri.file(target.pathOf(rel))),
-      { preview: false }
-    );
   });
 
   register('novel.newCharacter', async () => {
@@ -179,12 +139,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!ref) {
       return;
     }
-    const target = vscode.workspace.workspaceFolders?.length
-      ? vscode.ConfigurationTarget.Workspace
-      : vscode.ConfigurationTarget.Global;
-    await vscode.workspace.getConfiguration('novel').update('model', ref, target);
+    await updateSettings({ model: ref });
     await chat?.pushState();
-    void vscode.window.showInformationMessage(`Novel Forge：已切换到 ${ref}`);
+    getHost().toast(`已切换到 ${ref}`);
   });
 
   // ---------------------------------------------------------------- 续写
@@ -264,26 +221,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
 
-    await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: `Novel Forge：总结第 ${chapter.order} 章`,
-        cancellable: true,
-      },
-      async (_progress, token) => {
-        const abort = new AbortController();
-        const sub = token.onCancellationRequested(() => abort.abort(new CancelledError()));
-        try {
-          const ok = await summarizeChapter(target, chapter, undefined, abort.signal);
-          if (ok) {
-            void vscode.window.showInformationMessage(`Novel Forge：第 ${chapter.order} 章摘要已生成。`);
-            await refresh();
-          }
-        } finally {
-          sub.dispose();
-        }
+    await getHost().progress(`Novel Forge：总结第 ${chapter.order} 章`, async (signal) => {
+      const ok = await summarizeChapter(target, chapter, undefined, signal);
+      if (ok) {
+        getHost().toast(`第 ${chapter.order} 章摘要已生成。`);
+        await refresh();
       }
-    );
+    });
   });
 
   register('novel.syncSummaries', async () => {
@@ -358,23 +302,19 @@ async function offerMigration(project: NovelProject): Promise<void> {
   if (!(await project.needsMigration())) {
     return;
   }
-  const pick = await vscode.window.showInformationMessage(
-    'Novel Forge：检测到旧版数据目录 .novel/，新版已改名为 .novelforge/。要现在重命名吗？',
-    { modal: false },
-    '重命名',
-    '暂不'
+  const pick = await getHost().confirm(
+    '检测到旧版数据目录 .novel/，新版已改名为 .novelforge/。要现在重命名吗？',
+    ['重命名', '暂不']
   );
   if (pick !== '重命名') {
     return;
   }
   try {
     await project.migrateLegacyDir();
-    void vscode.window.showInformationMessage(
-      'Novel Forge：已重命名为 .novelforge/。若用 Git 管理，记得提交这次改名。'
-    );
+    getHost().toast('已重命名为 .novelforge/。若用 Git 管理，记得提交这次改名。');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    void vscode.window.showErrorMessage(`Novel Forge：重命名失败（${message}）。可手动把 .novel 改名为 .novelforge。`);
+    getHost().toast(`重命名失败（${message}）。可手动把 .novel 改名为 .novelforge。`, 'error');
   }
 }
 
@@ -387,13 +327,6 @@ function registerWatcher(
   project: NovelProject,
   chat: ChatController | undefined
 ): void {
-  const config = readConfig();
-  const patterns = [
-    `${config.chaptersDir}/**/*.md`,
-    '.novelforge/**/*.md',
-    '.novelforge/project.json',
-  ];
-
   let timer: NodeJS.Timeout | undefined;
   const schedule = () => {
     clearTimeout(timer);
@@ -404,16 +337,7 @@ function registerWatcher(
     }, 250);
   };
 
-  for (const pattern of patterns) {
-    const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(project.root, pattern)
-    );
-    watcher.onDidChange(schedule);
-    watcher.onDidCreate(schedule);
-    watcher.onDidDelete(schedule);
-    context.subscriptions.push(watcher);
-  }
-
+  context.subscriptions.push(getHost().watch(project, schedule));
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('novel')) {
@@ -431,10 +355,10 @@ async function setInitializedContext(project: NovelProject): Promise<void> {
   );
 }
 
-async function pickChapter(project: NovelProject) {
+async function pickChapter(project: NovelProject): Promise<Chapter | undefined> {
   const chapters = await project.listChapters();
   if (chapters.length === 0) {
-    void vscode.window.showWarningMessage('Novel Forge：还没有章节。');
+    getHost().toast('还没有章节。');
     return undefined;
   }
 
@@ -448,15 +372,14 @@ async function pickChapter(project: NovelProject) {
     }
   }
 
-  const picked = await vscode.window.showQuickPick(
+  return getHost().pick(
     chapters.map((c) => ({
       label: `${String(c.order).padStart(3, '0')} ${c.title}`,
       description: `${c.wordCount} 字`,
-      chapter: c,
+      value: c,
     })),
-    { title: '选择要总结的章节' }
+    '选择要总结的章节'
   );
-  return picked?.chapter;
 }
 
 function workspaceName(): string {
