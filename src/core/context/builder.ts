@@ -339,7 +339,7 @@ export async function buildContext(
       kind: 'style',
       priority: 1,
       label: '文风指南',
-      source: project.relPath(project.styleUri),
+      source: project.relPath(project.stylePath),
       text: style,
     });
   }
@@ -352,7 +352,7 @@ export async function buildContext(
       kind: 'globalSummary',
       priority: 1,
       label: '全书滚动摘要',
-      source: project.relPath(project.globalSummaryUri),
+      source: project.relPath(project.globalSummaryPath),
       text: globalSummary,
     });
   }
@@ -752,12 +752,12 @@ async function resolveAttachment(project: NovelProject, att: Attachment): Promis
   if (!att.relPath) {
     return '';
   }
-  const uri = project.uriOf(att.relPath);
-  if (!(await exists(uri))) {
+  const abs = project.pathOf(att.relPath);
+  if (!(await exists(abs))) {
     return '';
   }
   try {
-    return (await readText(uri)).trim();
+    return (await readText(abs)).trim();
   } catch {
     return '';
   }

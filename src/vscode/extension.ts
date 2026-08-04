@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { extractCharacters, newCharacter, newLore } from '../core/features/characters';
-import { quickContinue } from '../core/features/continueWriting';
+import { quickContinue } from './quickContinue';
 import { extractStyle } from '../core/features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../core/features/summarize';
 import { clearApiKey, initSecrets, pickModelRef, promptForApiKey } from '../core/llm/registry';
@@ -12,7 +12,7 @@ import { ChatViewProvider } from './chatViewProvider';
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   initSecrets(context);
 
-  const project = NovelProject.current();
+  const project = currentProject();
   if (project) {
     await offerMigration(project);
   }
@@ -71,7 +71,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ---------------------------------------------------------------- 工程
 
   register('novel.initProject', async () => {
-    const target = NovelProject.current();
+    const target = currentProject();
     if (!target) {
       void vscode.window.showErrorMessage('Novel Forge：请先打开一个工作区文件夹。');
       return;
@@ -112,11 +112,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   register('novel.refresh', refresh);
 
   register('novel.openFile', async (relPath: string) => {
-    const target = NovelProject.current();
+    const target = currentProject();
     if (!target || !relPath) {
       return;
     }
-    const uri = vscode.Uri.joinPath(target.root, relPath);
+    const uri = vscode.Uri.file(target.pathOf(relPath));
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), {
       viewColumn: vscode.ViewColumn.One,
       preview: false,
@@ -124,7 +124,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   register('novel.newChapter', async () => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (!target) {
       return;
     }
@@ -138,13 +138,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!title) {
       return;
     }
-    const uri = await target.createChapter(order, title.trim());
+    const rel = await target.createChapter(order, title.trim());
     await refresh();
-    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { preview: false });
+    await vscode.window.showTextDocument(
+      await vscode.workspace.openTextDocument(vscode.Uri.file(target.pathOf(rel))),
+      { preview: false }
+    );
   });
 
   register('novel.newCharacter', async () => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (target) {
       await newCharacter(target);
       await refresh();
@@ -152,7 +155,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   register('novel.newLore', async () => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (target) {
       await newLore(target);
       await refresh();
@@ -180,21 +183,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ---------------------------------------------------------------- 续写
 
   register('novel.continue', async () => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (target) {
       await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
     }
   });
 
   register('novel.openChatInEditor', async () => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (target && chat) {
       ChatPanel.show(context.extensionUri, chat);
     }
   });
 
   register('novel.newSession', async () => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (target && chat) {
       await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
       await chat.newSessionFromCommand();
@@ -212,7 +215,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   register('novel.addSelectionToChat', async () => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (!target || !chat) {
       return;
     }
@@ -222,7 +225,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   register('novel.continueFromChapter', async (node?: { chapterOrder?: number }) => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (!target || !chat) {
       return;
     }
@@ -233,7 +236,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   register('novel.quickContinue', async () => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (target) {
       await quickContinue(target);
       await refresh();
@@ -243,7 +246,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ---------------------------------------------------------------- 总结
 
   register('novel.summarizeChapter', async (arg?: number | { chapterOrder?: number }) => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (!target) {
       return;
     }
@@ -271,7 +274,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   register('novel.syncSummaries', async () => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (target) {
       await syncSummaries(target);
       await refresh();
@@ -279,7 +282,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   register('novel.rebuildGlobalSummary', async () => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (target) {
       await rebuildGlobalSummary(target);
       await refresh();
@@ -287,7 +290,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   register('novel.extractCharacters', async () => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (target) {
       await extractCharacters(target);
       await refresh();
@@ -295,7 +298,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   register('novel.extractStyle', async () => {
-    const target = await NovelProject.require();
+    const target = await requireProject();
     if (target) {
       await extractStyle(target);
       await refresh();
@@ -308,6 +311,21 @@ export function deactivate(): void {
 }
 
 // ---------------------------------------------------------------- 辅助
+
+/** 以当前工作区第一个文件夹为根打开工程实例；没有工作区则 undefined。 */
+function currentProject(): NovelProject | undefined {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  return folder ? NovelProject.open(folder.uri.fsPath) : undefined;
+}
+
+/** 需要工作区的命令用这个：缺工作区时提示一次。 */
+async function requireProject(): Promise<NovelProject | undefined> {
+  const project = currentProject();
+  if (!project) {
+    void vscode.window.showErrorMessage('Novel Forge：请先打开一个工作区文件夹。');
+  }
+  return project;
+}
 
 /** 无工作区时的占位页。不加载脚本，CSP 收到最紧。 */
 const NO_WORKSPACE_HTML = `<!DOCTYPE html>
@@ -410,7 +428,7 @@ async function pickChapter(project: NovelProject) {
   // 当前编辑器就是某一章时，直接用它。
   const active = vscode.window.activeTextEditor?.document.uri;
   if (active) {
-    const rel = project.relPath(active);
+    const rel = project.relPath(active.fsPath);
     const match = chapters.find((c) => c.relPath === rel);
     if (match) {
       return match;

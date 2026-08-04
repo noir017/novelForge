@@ -57,13 +57,13 @@ export async function pickAttachment(project: NovelProject): Promise<Attachment 
   }
 
   items.push({ label: '其他', kind: vscode.QuickPickItemKind.Separator });
-  const outlineRel = project.relPath(project.outlineUri);
+  const outlineRel = project.relPath(project.outlinePath);
   items.push({
     label: '$(list-tree) 全书大纲',
     detail: outlineRel,
     attachment: fileAttachment('file', '全书大纲', outlineRel),
   });
-  const styleRel = project.relPath(project.styleUri);
+  const styleRel = project.relPath(project.stylePath);
   items.push({
     label: '$(symbol-color) 文风指南',
     detail: styleRel,
@@ -89,14 +89,14 @@ async function browseWorkspace(project: NovelProject): Promise<Attachment | unde
   const uris = await vscode.window.showOpenDialog({
     title: '选择要引用的文件',
     canSelectMany: false,
-    defaultUri: project.root,
+    defaultUri: vscode.Uri.file(project.root),
     openLabel: '引用',
   });
   const uri = uris?.[0];
   if (!uri) {
     return undefined;
   }
-  const rel = project.relPath(uri);
+  const rel = project.relPath(uri.fsPath);
   return fileAttachment('file', baseName(rel), rel);
 }
 
@@ -117,7 +117,7 @@ export function selectionAttachment(project: NovelProject): Attachment | undefin
   }
   const start = editor.selection.start.line + 1;
   const end = editor.selection.end.line + 1;
-  const rel = project.relPath(editor.document.uri);
+  const rel = project.relPath(editor.document.uri.fsPath);
   const name = baseName(rel);
   return {
     // 同一处选区重复添加时 id 相同，前端会去重。

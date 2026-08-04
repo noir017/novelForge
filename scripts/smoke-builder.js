@@ -121,7 +121,7 @@ const baseConfig = {
 };
 
 async function main() {
-  const project = projectMod.NovelProject.current();
+  const project = projectMod.NovelProject.open(SAMPLE);
 
   console.log('\n== NovelProject 读取示例工程 ==');
   const chapters = await project.listChapters();

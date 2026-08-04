@@ -23,41 +23,16 @@ function check(name, cond, detail) {
 
 // ---------------------------------------------------------------- vscode 桩
 
-const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
-const makeUri = (p) => ({ fsPath: p, path: p.replace(/\\/g, '/'), scheme: 'file' });
-
-const deleted = [];
+// project.ts 的 readConfig 仍读 vscode 配置（Task 4 后移除），这里给个最小桩。
 const vscodeStub = {
-  FileType,
-  Uri: { file: makeUri, joinPath: (base, ...s) => makeUri(path.join(base.fsPath, ...s)) },
   workspace: {
-    workspaceFolders: [{ uri: makeUri(WORK), name: 'work' }],
     getConfiguration: () => ({ get: (_k, d) => d }),
-    asRelativePath: (uri) => path.relative(WORK, uri.fsPath).replace(/\\/g, '/'),
-    fs: {
-      readFile: async (uri) => new Uint8Array(fs.readFileSync(uri.fsPath)),
-      writeFile: async (uri, bytes) => fs.writeFileSync(uri.fsPath, Buffer.from(bytes)),
-      stat: async (uri) => {
-        const s = fs.statSync(uri.fsPath);
-        return { type: s.isDirectory() ? FileType.Directory : FileType.File, size: s.size };
-      },
-      readDirectory: async (uri) =>
-        fs.readdirSync(uri.fsPath, { withFileTypes: true })
-          .map((d) => [d.name, d.isDirectory() ? FileType.Directory : FileType.File]),
-      createDirectory: async (uri) => fs.mkdirSync(uri.fsPath, { recursive: true }),
-      delete: async (uri, opts) => {
-        deleted.push({ path: uri.fsPath, useTrash: !!(opts && opts.useTrash) });
-        fs.rmSync(uri.fsPath, { force: true });
-      },
-      rename: async (from, to) => fs.renameSync(from.fsPath, to.fsPath),
-    },
   },
   window: {
     showErrorMessage: async () => undefined,
     showWarningMessage: async () => undefined,
     showInformationMessage: async () => undefined,
   },
-  commands: { executeCommand: async () => undefined },
 };
 
 const originalLoad = Module._load;
@@ -86,12 +61,12 @@ const sessionMod = loadModule('src/core/model/session.ts');
 const sessionsDir = path.join(WORK, '.novelforge', 'sessions');
 
 async function main() {
-  const project = projectMod.NovelProject.current();
+  const project = projectMod.NovelProject.open(WORK);
   const store = new sessionMod.SessionStore(project);
 
   console.log('\n== 目录与路径 ==');
   check('sessionsDir 指向 .novelforge/sessions',
-    project.sessionsDir.fsPath === sessionsDir, project.sessionsDir.fsPath);
+    project.sessionsDir === sessionsDir, project.sessionsDir);
   check('空目录时列表为空数组', (await store.list()).length === 0);
 
   console.log('\n== 新建与写入 ==');
@@ -178,7 +153,8 @@ async function main() {
 
   await store.delete(older.id);
   check('删除后读不到', (await store.read(older.id)) === undefined);
-  check('删除走回收站', deleted.some((d) => d.path.endsWith(`${older.id}.json`) && d.useTrash));
+  check('删除移入 .novelforge/.trash',
+    fs.existsSync(path.join(WORK, '.novelforge', '.trash', `${older.id}.json`)));
   check('删除不存在的会话不报错', await store.delete('nope') === undefined);
 
   console.log('\n== 标题推导 ==');
@@ -201,9 +177,6 @@ async function main() {
   {
     // 只有 .novel/ 时应判定需要迁移；rename 后内容原样搬过去。
     const legacyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'novelforge-legacy-'));
-    vscodeStub.workspace.workspaceFolders = [{ uri: makeUri(legacyRoot), name: 'legacy' }];
-    vscodeStub.workspace.asRelativePath = (uri) =>
-      path.relative(legacyRoot, uri.fsPath).replace(/\\/g, '/');
 
     const legacyDir = path.join(legacyRoot, '.novel');
     fs.mkdirSync(path.join(legacyDir, 'summaries'), { recursive: true });
@@ -211,7 +184,7 @@ async function main() {
     fs.writeFileSync(path.join(legacyDir, 'style.md'), '# 文风指南\n\n旧的内容。\n');
     fs.writeFileSync(path.join(legacyDir, 'summaries', '001.md'), '摘要内容');
 
-    const legacy = projectMod.NovelProject.current();
+    const legacy = projectMod.NovelProject.open(legacyRoot);
     check('检测到需要迁移', (await legacy.needsMigration()) === true);
     check('迁移前 isInitialized 为 false', (await legacy.isInitialized()) === false);
 

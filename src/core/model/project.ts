@@ -1,4 +1,7 @@
 import * as crypto from 'crypto';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+// TODO(Task 4): readConfig/readGlobalBudget 移入 config.ts 后删除此 import
 import * as vscode from 'vscode';
 import {
   CHARACTER_SECTION_KEYS,
@@ -34,32 +37,11 @@ const CHAPTER_FILE_RE = /^(\d{1,5})[-_.\s]*(.*?)\.md$/i;
 export class NovelProject {
   private chapterCache: Chapter[] | undefined;
 
-  private constructor(public readonly root: vscode.Uri) {}
+  private constructor(public readonly root: string) {}
 
-  /** 取当前工作区的工程实例；无工作区时返回 undefined。 */
-  static current(): NovelProject | undefined {
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    return folder ? new NovelProject(folder.uri) : undefined;
-  }
-
-  /** 取工程实例，取不到就提示用户并返回 undefined。 */
-  static async require(): Promise<NovelProject | undefined> {
-    const project = NovelProject.current();
-    if (!project) {
-      void vscode.window.showErrorMessage('Novel Forge：请先打开一个工作区文件夹。');
-      return undefined;
-    }
-    if (!(await project.isInitialized())) {
-      const pick = await vscode.window.showErrorMessage(
-        'Novel Forge：当前工作区还不是小说工程。',
-        '初始化小说工程'
-      );
-      if (pick) {
-        await vscode.commands.executeCommand('novel.initProject');
-      }
-      return undefined;
-    }
-    return project;
+  /** 以某目录为工程根打开实例（不做初始化检查）。 */
+  static open(root: string): NovelProject {
+    return new NovelProject(path.resolve(root));
   }
 
   // ---------------------------------------------------------------- 路径
@@ -68,66 +50,67 @@ export class NovelProject {
     return readConfig();
   }
 
-  get chaptersDir(): vscode.Uri {
-    return vscode.Uri.joinPath(this.root, this.config.chaptersDir);
+  get chaptersDir(): string {
+    return path.join(this.root, this.config.chaptersDir);
   }
 
-  get novelDir(): vscode.Uri {
-    return vscode.Uri.joinPath(this.root, NOVEL_DIR);
+  get novelDir(): string {
+    return path.join(this.root, NOVEL_DIR);
   }
 
-  get manifestUri(): vscode.Uri {
-    return vscode.Uri.joinPath(this.novelDir, MANIFEST_FILE);
+  get manifestPath(): string {
+    return path.join(this.novelDir, MANIFEST_FILE);
   }
 
-  get styleUri(): vscode.Uri {
-    return vscode.Uri.joinPath(this.novelDir, 'style.md');
+  get stylePath(): string {
+    return path.join(this.novelDir, 'style.md');
   }
 
-  get outlineUri(): vscode.Uri {
-    return vscode.Uri.joinPath(this.novelDir, 'outline.md');
+  get outlinePath(): string {
+    return path.join(this.novelDir, 'outline.md');
   }
 
-  get charactersDir(): vscode.Uri {
-    return vscode.Uri.joinPath(this.novelDir, 'characters');
+  get charactersDir(): string {
+    return path.join(this.novelDir, 'characters');
   }
 
-  get loreDir(): vscode.Uri {
-    return vscode.Uri.joinPath(this.novelDir, 'lore');
+  get loreDir(): string {
+    return path.join(this.novelDir, 'lore');
   }
 
-  get summariesDir(): vscode.Uri {
-    return vscode.Uri.joinPath(this.novelDir, 'summaries');
+  get summariesDir(): string {
+    return path.join(this.novelDir, 'summaries');
   }
 
-  get sessionsDir(): vscode.Uri {
-    return vscode.Uri.joinPath(this.novelDir, 'sessions');
+  get sessionsDir(): string {
+    return path.join(this.novelDir, 'sessions');
   }
 
   /** 0.1.x 的 `.novel/` 目录，仅用于迁移检测。 */
-  get legacyNovelDir(): vscode.Uri {
-    return vscode.Uri.joinPath(this.root, LEGACY_NOVEL_DIR);
+  get legacyNovelDir(): string {
+    return path.join(this.root, LEGACY_NOVEL_DIR);
   }
 
-  get globalSummaryUri(): vscode.Uri {
-    return vscode.Uri.joinPath(this.summariesDir, 'global.md');
+  get globalSummaryPath(): string {
+    return path.join(this.summariesDir, 'global.md');
   }
 
-  summaryUri(order: number): vscode.Uri {
-    return vscode.Uri.joinPath(this.summariesDir, `${pad3(order)}.md`);
+  summaryPath(order: number): string {
+    return path.join(this.summariesDir, `${pad3(order)}.md`);
   }
 
-  relPath(uri: vscode.Uri): string {
-    return vscode.workspace.asRelativePath(uri, false).replace(/\\/g, '/');
+  /** 绝对路径 → 工作区相对路径（正斜杠）。 */
+  relPath(absPath: string): string {
+    return path.relative(this.root, absPath).replace(/\\/g, '/');
   }
 
   /** relPath 的逆运算。 */
-  uriOf(relPath: string): vscode.Uri {
-    return vscode.Uri.joinPath(this.root, relPath);
+  pathOf(relPath: string): string {
+    return path.join(this.root, relPath);
   }
 
   async isInitialized(): Promise<boolean> {
-    return exists(this.manifestUri);
+    return exists(this.manifestPath);
   }
 
   /** 只有旧目录、没有新目录时为真——需要迁移。 */
@@ -135,7 +118,7 @@ export class NovelProject {
     if (await exists(this.novelDir)) {
       return false;
     }
-    return exists(vscode.Uri.joinPath(this.legacyNovelDir, MANIFEST_FILE));
+    return exists(path.join(this.legacyNovelDir, MANIFEST_FILE));
   }
 
   /**
@@ -143,7 +126,7 @@ export class NovelProject {
    * 用 rename 而非复制，避免留下两份会各自漂移的元数据。
    */
   async migrateLegacyDir(): Promise<void> {
-    await vscode.workspace.fs.rename(this.legacyNovelDir, this.novelDir, { overwrite: false });
+    await fs.rename(this.legacyNovelDir, this.novelDir);
     this.invalidate();
   }
 
@@ -154,20 +137,17 @@ export class NovelProject {
   // ---------------------------------------------------------------- 初始化
 
   async initialize(meta: { title: string; author: string }): Promise<void> {
-    await vscode.workspace.fs.createDirectory(this.chaptersDir);
-    await vscode.workspace.fs.createDirectory(this.charactersDir);
-    await vscode.workspace.fs.createDirectory(this.loreDir);
-    await vscode.workspace.fs.createDirectory(this.summariesDir);
-    await vscode.workspace.fs.createDirectory(this.sessionsDir);
+    await fs.mkdir(this.chaptersDir, { recursive: true });
+    await fs.mkdir(this.charactersDir, { recursive: true });
+    await fs.mkdir(this.loreDir, { recursive: true });
+    await fs.mkdir(this.summariesDir, { recursive: true });
+    await fs.mkdir(this.sessionsDir, { recursive: true });
 
-    await writeIfAbsent(this.styleUri, STYLE_TEMPLATE);
-    await writeIfAbsent(this.outlineUri, OUTLINE_TEMPLATE(meta.title));
-    await writeIfAbsent(this.globalSummaryUri, GLOBAL_SUMMARY_TEMPLATE);
-    await writeIfAbsent(
-      vscode.Uri.joinPath(this.charactersDir, 'example-protagonist.md'),
-      CHARACTER_TEMPLATE
-    );
-    await writeIfAbsent(vscode.Uri.joinPath(this.loreDir, 'example-setting.md'), LORE_TEMPLATE);
+    await writeIfAbsent(this.stylePath, STYLE_TEMPLATE);
+    await writeIfAbsent(this.outlinePath, OUTLINE_TEMPLATE(meta.title));
+    await writeIfAbsent(this.globalSummaryPath, GLOBAL_SUMMARY_TEMPLATE);
+    await writeIfAbsent(path.join(this.charactersDir, 'example-protagonist.md'), CHARACTER_TEMPLATE);
+    await writeIfAbsent(path.join(this.loreDir, 'example-setting.md'), LORE_TEMPLATE);
 
     this.invalidate();
     const manifest: ProjectManifest = {
@@ -187,31 +167,31 @@ export class NovelProject {
     if (this.chapterCache) {
       return this.chapterCache;
     }
-    let entries: [string, vscode.FileType][];
+    let entries: import('node:fs').Dirent[];
     try {
-      entries = await vscode.workspace.fs.readDirectory(this.chaptersDir);
+      entries = await fs.readdir(this.chaptersDir, { withFileTypes: true });
     } catch {
       this.chapterCache = [];
       return this.chapterCache;
     }
 
     const chapters: Chapter[] = [];
-    for (const [name, type] of entries) {
-      if (type !== vscode.FileType.File) {
+    for (const entry of entries) {
+      if (!entry.isFile()) {
         continue;
       }
-      const m = CHAPTER_FILE_RE.exec(name);
+      const m = CHAPTER_FILE_RE.exec(entry.name);
       if (!m) {
         continue;
       }
-      const uri = vscode.Uri.joinPath(this.chaptersDir, name);
-      const raw = await readText(uri);
+      const abs = path.join(this.chaptersDir, entry.name);
+      const raw = await readText(abs);
       const body = raw.trim();
       const title = extractH1(body) ?? (m[2].trim() || `第 ${Number(m[1])} 章`);
       chapters.push({
         order: Number(m[1]),
         title,
-        relPath: this.relPath(uri),
+        relPath: this.relPath(abs),
         wordCount: countWords(stripH1(body)),
         contentHash: hash(body),
       });
@@ -228,13 +208,13 @@ export class NovelProject {
 
   /** 读章节正文（已去掉 `# 标题` 行）。 */
   async readChapterText(chapter: Chapter): Promise<string> {
-    const raw = await readText(vscode.Uri.joinPath(this.root, chapter.relPath));
+    const raw = await readText(this.pathOf(chapter.relPath));
     return stripH1(raw.trim());
   }
 
   /** 读章节原始内容（含标题行）。 */
   async readChapterRaw(chapter: Chapter): Promise<string> {
-    return (await readText(vscode.Uri.joinPath(this.root, chapter.relPath))).trim();
+    return (await readText(this.pathOf(chapter.relPath))).trim();
   }
 
   /** 下一个可用章节序号。 */
@@ -243,32 +223,33 @@ export class NovelProject {
     return chapters.length === 0 ? 1 : Math.max(...chapters.map((c) => c.order)) + 1;
   }
 
-  async createChapter(order: number, title: string, content = ''): Promise<vscode.Uri> {
+  /** 新建章节文件，返回工作区相对路径。 */
+  async createChapter(order: number, title: string, content = ''): Promise<string> {
     const fileName = `${pad3(order)}-${sanitizeFileName(title)}.md`;
-    const uri = vscode.Uri.joinPath(this.chaptersDir, fileName);
-    if (await exists(uri)) {
+    const abs = path.join(this.chaptersDir, fileName);
+    if (await exists(abs)) {
       throw new Error(`章节文件已存在：${fileName}`);
     }
     const text = `# ${title}\n\n${content.trim()}\n`;
-    await writeText(uri, text);
+    await writeText(abs, text);
     this.invalidate();
-    return uri;
+    return this.relPath(abs);
   }
 
-  /** 把文本追加到章节末尾。 */
-  async appendToChapter(chapter: Chapter, text: string): Promise<vscode.Uri> {
-    const uri = vscode.Uri.joinPath(this.root, chapter.relPath);
-    const existing = (await readText(uri)).replace(/\s+$/, '');
-    await writeText(uri, `${existing}\n\n${text.trim()}\n`);
+  /** 把文本追加到章节末尾，返回工作区相对路径。 */
+  async appendToChapter(chapter: Chapter, text: string): Promise<string> {
+    const abs = this.pathOf(chapter.relPath);
+    const existing = (await readText(abs)).replace(/\s+$/, '');
+    await writeText(abs, `${existing}\n\n${text.trim()}\n`);
     this.invalidate();
-    return uri;
+    return chapter.relPath;
   }
 
   // ---------------------------------------------------------------- manifest
 
   async readManifest(): Promise<ProjectManifest> {
     try {
-      const raw = await readText(this.manifestUri);
+      const raw = await readText(this.manifestPath);
       const parsed = JSON.parse(raw) as Partial<ProjectManifest>;
       return {
         version: parsed.version ?? MANIFEST_VERSION,
@@ -283,7 +264,7 @@ export class NovelProject {
   }
 
   async writeManifest(manifest: ProjectManifest): Promise<void> {
-    await writeText(this.manifestUri, `${JSON.stringify(manifest, null, 2)}\n`);
+    await writeText(this.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   }
 
   /**
@@ -338,23 +319,23 @@ export class NovelProject {
   // ---------------------------------------------------------------- 摘要
 
   async readSummary(order: number): Promise<ChapterSummary | undefined> {
-    const uri = this.summaryUri(order);
-    if (!(await exists(uri))) {
+    const abs = this.summaryPath(order);
+    if (!(await exists(abs))) {
       return undefined;
     }
-    const raw = await readText(uri);
+    const raw = await readText(abs);
     const { frontmatter, body } = parseMarkdown(raw);
     return {
       order,
-      relPath: this.relPath(uri),
+      relPath: this.relPath(abs),
       sourceHash: asString(frontmatter.sourceHash),
       content: stripH1(body),
       sections: pickSections<keyof SummarySections>(body, SUMMARY_SECTION_KEYS) as SummarySections,
     };
   }
 
-  async writeSummary(chapter: Chapter, sections: SummarySections): Promise<vscode.Uri> {
-    const uri = this.summaryUri(chapter.order);
+  async writeSummary(chapter: Chapter, sections: SummarySections): Promise<string> {
+    const abs = this.summaryPath(chapter.order);
     const fm = stringifyFrontmatter({
       order: chapter.order,
       title: chapter.title,
@@ -364,25 +345,25 @@ export class NovelProject {
     const body = stringifySections(sections as unknown as Record<string, string>, SUMMARY_SECTION_KEYS, {
       keepEmpty: true,
     });
-    await writeText(uri, `${fm}\n\n# 第${chapter.order}章 ${chapter.title} · 摘要\n\n${body}\n`);
+    await writeText(abs, `${fm}\n\n# 第${chapter.order}章 ${chapter.title} · 摘要\n\n${body}\n`);
     await this.markSummarized(chapter.order, chapter.contentHash);
-    return uri;
+    return this.relPath(abs);
   }
 
   async readGlobalSummary(): Promise<string> {
-    if (!(await exists(this.globalSummaryUri))) {
+    if (!(await exists(this.globalSummaryPath))) {
       return '';
     }
-    return stripH1(parseMarkdown(await readText(this.globalSummaryUri)).body);
+    return stripH1(parseMarkdown(await readText(this.globalSummaryPath)).body);
   }
 
-  async writeGlobalSummary(content: string, through: number): Promise<vscode.Uri> {
+  async writeGlobalSummary(content: string, through: number): Promise<string> {
     const fm = stringifyFrontmatter({ through, generatedBy: 'novel-forge' });
-    await writeText(this.globalSummaryUri, `${fm}\n\n# 全书滚动摘要\n\n${content.trim()}\n`);
+    await writeText(this.globalSummaryPath, `${fm}\n\n# 全书滚动摘要\n\n${content.trim()}\n`);
     const manifest = await this.readManifest();
     manifest.globalSummaryThrough = through;
     await this.writeManifest(manifest);
-    return this.globalSummaryUri;
+    return this.relPath(this.globalSummaryPath);
   }
 
   // ---------------------------------------------------------------- 角色 / 设定 / 文风
@@ -390,13 +371,13 @@ export class NovelProject {
   async listCharacters(): Promise<CharacterCard[]> {
     const files = await listMarkdown(this.charactersDir);
     const cards: CharacterCard[] = [];
-    for (const uri of files) {
-      const raw = await readText(uri);
+    for (const abs of files) {
+      const raw = await readText(abs);
       const { frontmatter, body } = parseMarkdown(raw);
-      const slug = baseName(uri);
+      const slug = baseName(abs);
       cards.push({
         slug,
-        relPath: this.relPath(uri),
+        relPath: this.relPath(abs),
         name: asString(frontmatter.name) || extractH1(body) || slug,
         aliases: asArray(frontmatter.aliases),
         tags: asArray(frontmatter.tags),
@@ -410,22 +391,22 @@ export class NovelProject {
     return cards;
   }
 
-  async writeCharacter(card: Omit<CharacterCard, 'relPath' | 'body'>): Promise<vscode.Uri> {
-    const uri = vscode.Uri.joinPath(this.charactersDir, `${card.slug}.md`);
-    await writeText(uri, renderCharacterCard(card));
-    return uri;
+  async writeCharacter(card: Omit<CharacterCard, 'relPath' | 'body'>): Promise<string> {
+    const abs = path.join(this.charactersDir, `${card.slug}.md`);
+    await writeText(abs, renderCharacterCard(card));
+    return this.relPath(abs);
   }
 
   async listLore(): Promise<LoreEntry[]> {
     const files = await listMarkdown(this.loreDir);
     const entries: LoreEntry[] = [];
-    for (const uri of files) {
-      const raw = await readText(uri);
+    for (const abs of files) {
+      const raw = await readText(abs);
       const { frontmatter, body } = parseMarkdown(raw);
-      const slug = baseName(uri);
+      const slug = baseName(abs);
       entries.push({
         slug,
-        relPath: this.relPath(uri),
+        relPath: this.relPath(abs),
         title: asString(frontmatter.title) || extractH1(body) || slug,
         keywords: asArray(frontmatter.keywords),
         body: stripH1(body),
@@ -435,22 +416,22 @@ export class NovelProject {
   }
 
   async readStyleGuide(): Promise<string> {
-    if (!(await exists(this.styleUri))) {
+    if (!(await exists(this.stylePath))) {
       return '';
     }
-    return stripH1(parseMarkdown(await readText(this.styleUri)).body);
+    return stripH1(parseMarkdown(await readText(this.stylePath)).body);
   }
 
-  async writeStyleGuide(content: string): Promise<vscode.Uri> {
-    await writeText(this.styleUri, `# 文风指南\n\n${content.trim()}\n`);
-    return this.styleUri;
+  async writeStyleGuide(content: string): Promise<string> {
+    await writeText(this.stylePath, `# 文风指南\n\n${content.trim()}\n`);
+    return this.relPath(this.stylePath);
   }
 
   async readOutline(): Promise<string> {
-    if (!(await exists(this.outlineUri))) {
+    if (!(await exists(this.outlinePath))) {
       return '';
     }
-    return stripH1(parseMarkdown(await readText(this.outlineUri)).body);
+    return stripH1(parseMarkdown(await readText(this.outlinePath)).body);
   }
 }
 
@@ -581,44 +562,44 @@ export function slugify(name: string): string {
   return sanitizeFileName(name).toLowerCase() || 'unnamed';
 }
 
-export async function exists(uri: vscode.Uri): Promise<boolean> {
+export async function exists(absPath: string): Promise<boolean> {
   try {
-    await vscode.workspace.fs.stat(uri);
+    await fs.stat(absPath);
     return true;
   } catch {
     return false;
   }
 }
 
-export async function readText(uri: vscode.Uri): Promise<string> {
-  const bytes = await vscode.workspace.fs.readFile(uri);
-  return new TextDecoder('utf-8').decode(bytes);
+export async function readText(absPath: string): Promise<string> {
+  return fs.readFile(absPath, 'utf8');
 }
 
-export async function writeText(uri: vscode.Uri, text: string): Promise<void> {
-  await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(text));
+export async function writeText(absPath: string, text: string): Promise<void> {
+  await fs.mkdir(path.dirname(absPath), { recursive: true });
+  await fs.writeFile(absPath, text, 'utf8');
 }
 
-async function writeIfAbsent(uri: vscode.Uri, text: string): Promise<void> {
-  if (!(await exists(uri))) {
-    await writeText(uri, text);
+async function writeIfAbsent(absPath: string, text: string): Promise<void> {
+  if (!(await exists(absPath))) {
+    await writeText(absPath, text);
   }
 }
 
-async function listMarkdown(dir: vscode.Uri): Promise<vscode.Uri[]> {
+/** 列出目录下所有 .md 文件的绝对路径。 */
+async function listMarkdown(dir: string): Promise<string[]> {
   try {
-    const entries = await vscode.workspace.fs.readDirectory(dir);
+    const entries = await fs.readdir(dir, { withFileTypes: true });
     return entries
-      .filter(([name, type]) => type === vscode.FileType.File && name.toLowerCase().endsWith('.md'))
-      .map(([name]) => vscode.Uri.joinPath(dir, name));
+      .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.md'))
+      .map((e) => path.join(dir, e.name));
   } catch {
     return [];
   }
 }
 
-function baseName(uri: vscode.Uri): string {
-  const segs = uri.path.split('/');
-  return segs[segs.length - 1].replace(/\.md$/i, '');
+function baseName(absPath: string): string {
+  return path.basename(absPath).replace(/\.md$/i, '');
 }
 
 function asString(v: string | string[] | undefined): string {

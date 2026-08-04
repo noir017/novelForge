@@ -9,9 +9,9 @@ import { ProjectChapter, ProjectFile, ProjectTree } from './protocol';
  * getChildren/TreeItem/ThemeIcon 全部不再需要，展开状态由前端自己管。
  */
 export async function buildProjectTree(project: NovelProject): Promise<ProjectTree> {
-  const styleGuidePath = project.relPath(project.styleUri);
-  const outlinePath = project.relPath(project.outlineUri);
-  const globalSummaryPath = project.relPath(project.globalSummaryUri);
+  const styleGuidePath = project.relPath(project.stylePath);
+  const outlinePath = project.relPath(project.outlinePath);
+  const globalSummaryPath = project.relPath(project.globalSummaryPath);
 
   if (!(await project.isInitialized())) {
     return {

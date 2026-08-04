@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { collectStream, ChatOptions } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
 import { NovelProject, emptyCharacterSections, exists, readConfig, renderCharacterCard, slugify, writeText } from '../model/project';
@@ -195,16 +197,17 @@ async function reviewCharacterUpdate(
   };
 
   const proposedText = renderCharacterCard(mergedCard);
-  const currentUri = vscode.Uri.joinPath(project.root, existing.relPath);
-  const previewUri = vscode.Uri.joinPath(project.novelDir, '.tmp', `${existing.slug}.proposed.md`);
+  const currentAbs = project.pathOf(existing.relPath);
+  const previewAbs = path.join(project.novelDir, '.tmp', `${existing.slug}.proposed.md`);
 
-  await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(project.novelDir, '.tmp'));
-  await writeText(previewUri, proposedText);
+  await fs.mkdir(path.join(project.novelDir, '.tmp'), { recursive: true });
+  await writeText(previewAbs, proposedText);
 
+  // TODO(Task 6): 换成 Host.reviewReplace，并删除 .tmp 预览文件流程
   await vscode.commands.executeCommand(
     'vscode.diff',
-    currentUri,
-    previewUri,
+    vscode.Uri.file(currentAbs),
+    vscode.Uri.file(previewAbs),
     `${existing.name}：现有 ↔ 建议`,
     { preview: true }
   );
@@ -218,13 +221,13 @@ async function reviewCharacterUpdate(
 
   if (apply === '采纳右侧内容') {
     // 读回预览文件——作者可能在 diff 里改过。
-    const finalText = await vscode.workspace.fs.readFile(previewUri);
-    await vscode.workspace.fs.writeFile(currentUri, finalText);
+    const finalText = await fs.readFile(previewAbs, 'utf8');
+    await writeText(currentAbs, finalText);
     void vscode.window.showInformationMessage(`Novel Forge：已更新「${existing.name}」。`);
   }
 
   try {
-    await vscode.workspace.fs.delete(previewUri);
+    await fs.rm(previewAbs, { force: true });
   } catch {
     /* 临时文件删不掉不影响主流程 */
   }
@@ -241,14 +244,14 @@ export async function newCharacter(project: NovelProject): Promise<void> {
     return;
   }
   const slug = await uniqueSlug(project, slugify(name));
-  const uri = await project.writeCharacter({
+  const relPath = await project.writeCharacter({
     slug,
     name: name.trim(),
     aliases: [],
     tags: [],
     sections: emptyCharacterSections(),
   });
-  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(project.pathOf(relPath))));
 }
 
 /** 手动新建一条设定。 */
@@ -262,12 +265,12 @@ export async function newLore(project: NovelProject): Promise<void> {
     return;
   }
   const slug = slugify(title);
-  const uri = vscode.Uri.joinPath(project.loreDir, `${slug}.md`);
+  const abs = path.join(project.loreDir, `${slug}.md`);
   await writeText(
-    uri,
+    abs,
     `---\ntitle: ${title.trim()}\nkeywords: [${title.trim()}]\n---\n\n# ${title.trim()}\n\n（在这里写设定内容。keywords 命中续写纲要时会自动注入上下文。）\n`
   );
-  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(abs)));
 }
 
 // ---------------------------------------------------------------- 解析
@@ -347,7 +350,7 @@ function unique(arr: string[]): string[] {
 async function uniqueSlug(project: NovelProject, base: string): Promise<string> {
   let slug = base;
   let i = 2;
-  while (await exists(vscode.Uri.joinPath(project.charactersDir, `${slug}.md`))) {
+  while (await exists(path.join(project.charactersDir, `${slug}.md`))) {
     slug = `${base}-${i++}`;
   }
   return slug;

@@ -1,4 +1,5 @@
-import * as vscode from 'vscode';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { NovelProject, exists, readText, writeText } from './project';
 
 /**
@@ -94,24 +95,23 @@ export interface SessionSummary {
 export class SessionStore {
   constructor(private readonly project: NovelProject) {}
 
-  private uri(id: string): vscode.Uri {
-    return vscode.Uri.joinPath(this.project.sessionsDir, `${id}.json`);
+  private filePath(id: string): string {
+    return path.join(this.project.sessionsDir, `${id}.json`);
   }
 
   /** 按更新时间倒序列出所有会话。损坏的文件跳过，不让一个坏文件废掉整个历史。 */
   async list(): Promise<SessionSummary[]> {
-    let entries: [string, vscode.FileType][];
+    let names: string[];
     try {
-      entries = await vscode.workspace.fs.readDirectory(this.project.sessionsDir);
+      names = (await fs.readdir(this.project.sessionsDir, { withFileTypes: true }))
+        .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.json'))
+        .map((e) => e.name);
     } catch {
       return [];
     }
 
     const out: SessionSummary[] = [];
-    for (const [name, type] of entries) {
-      if (type !== vscode.FileType.File || !name.toLowerCase().endsWith('.json')) {
-        continue;
-      }
+    for (const name of names) {
       const session = await this.read(name.replace(/\.json$/i, ''));
       if (session) {
         out.push(summarize(session));
@@ -122,12 +122,12 @@ export class SessionStore {
   }
 
   async read(id: string): Promise<ChatSession | undefined> {
-    const uri = this.uri(id);
-    if (!(await exists(uri))) {
+    const file = this.filePath(id);
+    if (!(await exists(file))) {
       return undefined;
     }
     try {
-      return normalize(id, JSON.parse(await readText(uri)));
+      return normalize(id, JSON.parse(await readText(file)));
     } catch {
       // 手改坏了或写到一半断电——当作不存在，别抛给用户。
       return undefined;
@@ -135,15 +135,18 @@ export class SessionStore {
   }
 
   async write(session: ChatSession): Promise<void> {
-    await vscode.workspace.fs.createDirectory(this.project.sessionsDir);
-    await writeText(this.uri(session.id), `${JSON.stringify(session, null, 2)}\n`);
+    await writeText(this.filePath(session.id), `${JSON.stringify(session, null, 2)}\n`);
   }
 
+  /** core 无系统回收站能力：移到 .novelforge/.trash/ 下（保留原文件名可手动找回）。 */
   async delete(id: string): Promise<void> {
-    const uri = this.uri(id);
-    if (await exists(uri)) {
-      await vscode.workspace.fs.delete(uri, { useTrash: true });
+    const file = this.filePath(id);
+    if (!(await exists(file))) {
+      return;
     }
+    const trashDir = path.join(this.project.novelDir, '.trash');
+    await fs.mkdir(trashDir, { recursive: true });
+    await fs.rename(file, path.join(trashDir, `${id}.json`));
   }
 
   async rename(id: string, title: string): Promise<ChatSession | undefined> {

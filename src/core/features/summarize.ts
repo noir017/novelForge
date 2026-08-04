@@ -233,7 +233,8 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
       void vscode.window.showInformationMessage(
         `Novel Forge：全书摘要已重建，覆盖至第 ${through} 章（约 ${estimateTokens(finalText)} token）。`
       );
-      void vscode.commands.executeCommand('novel.openFile', project.relPath(project.globalSummaryUri));
+      // TODO(Task 5): 经 Host.openFile 打开摘要文件
+      void project.relPath(project.globalSummaryPath);
     }
   );
 }

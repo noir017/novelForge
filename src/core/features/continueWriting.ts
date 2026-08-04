@@ -143,24 +143,24 @@ export class ContinueSession {
     this.currentCancel?.dispose();
   }
 
-  /** 采纳草稿：追加到已有章节，或新建章节。 */
+  /** 采纳草稿：追加到已有章节，或新建章节。返回工作区相对路径。 */
   async accept(
     draft: string,
     target: { mode: 'append'; order: number } | { mode: 'new'; order: number; title: string }
-  ): Promise<vscode.Uri> {
+  ): Promise<string> {
     if (target.mode === 'append') {
       const chapter = await this.project.getChapter(target.order);
       if (!chapter) {
         throw new Error(`第 ${target.order} 章不存在。`);
       }
-      const uri = await this.project.appendToChapter(chapter, draft);
+      const relPath = await this.project.appendToChapter(chapter, draft);
       await this.project.syncManifest();
-      return uri;
+      return relPath;
     }
 
-    const uri = await this.project.createChapter(target.order, target.title, draft);
+    const relPath = await this.project.createChapter(target.order, target.title, draft);
     await this.project.syncManifest();
-    return uri;
+    return relPath;
   }
 
   /** 给新章节起个默认标题：优先用纲要首句。 */
@@ -204,44 +204,7 @@ export function cleanOutput(text: string): string {
   return out.trim();
 }
 
-/** 供命令面板走的极简续写（不开 Webview），结果流式写入新文档。 */
-export async function quickContinue(project: NovelProject): Promise<void> {
-  const outline = await vscode.window.showInputBox({
-    title: 'Novel: 快速续写',
-    prompt: '输入接下来的剧情纲要（详细的写作请用续写面板）',
-    ignoreFocusOut: true,
-    validateInput: (v) => (v.trim() ? undefined : '纲要不能为空'),
-  });
-  if (!outline) {
-    return;
-  }
-
-  const order = await project.nextChapterOrder();
-  const session = new ContinueSession(project);
-  const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: '' });
-  const editor = await vscode.window.showTextDocument(doc, { preview: false });
-
-  await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: 'Novel Forge：生成中', cancellable: true },
-    async (_progress, token) => {
-      token.onCancellationRequested(() => session.stop());
-      await session.generate(
-        { targetOrder: order, outline },
-        {
-          onDelta: (delta) => {
-            void editor.edit(
-              (b) => b.insert(doc.lineAt(doc.lineCount - 1).range.end, delta),
-              { undoStopBefore: false, undoStopAfter: false }
-            );
-          },
-          onDone: () => void vscode.window.showInformationMessage('Novel Forge：生成完成。'),
-          onError: (msg) => void vscode.window.showErrorMessage(`Novel Forge：${msg}`),
-          onCancelled: () => void vscode.window.showInformationMessage('Novel Forge：已取消。'),
-        }
-      );
-    }
-  );
-}
+/** 供命令面板走的极简续写（不开 Webview）已移到 src/vscode/quickContinue.ts（依赖编辑器）。 */
 
 export function describeTarget(chapters: Chapter[], order: number): string {
   const chapter = chapters.find((c) => c.order === order);
