@@ -69,9 +69,9 @@ function loadModule(relPath) {
   return m.exports;
 }
 
-const { OpenAiProvider } = loadModule('src/llm/openaiProvider.ts');
-const { AnthropicProvider } = loadModule('src/llm/anthropicProvider.ts');
-const providerMod = loadModule('src/llm/provider.ts');
+const { OpenAiProvider } = loadModule('src/core/llm/openaiProvider.ts');
+const { AnthropicProvider } = loadModule('src/core/llm/anthropicProvider.ts');
+const providerMod = loadModule('src/core/llm/provider.ts');
 
 // ---------------------------------------------------------------- 假服务器
 

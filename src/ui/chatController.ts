@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { BuiltContext, ContextItem } from '../context/builder';
-import { ContinueSession } from '../features/continueWriting';
-import { NovelProject, readConfig, readGlobalBudget } from '../model/project';
+import { BuiltContext, ContextItem } from '../core/context/builder';
+import { ContinueSession } from '../core/features/continueWriting';
+import { NovelProject, readConfig, readGlobalBudget } from '../core/model/project';
 import {
   describeModelIssue,
   listModelChoices,
@@ -9,7 +9,7 @@ import {
   normalizeProviders,
   providerLabel,
   resolveModelRef,
-} from '../model/providers';
+} from '../core/model/providers';
 import {
   Attachment,
   ChatSession,
@@ -18,9 +18,9 @@ import {
   deriveTitle,
   makeTurnId,
   nowIso,
-} from '../model/session';
-import { apiKeyStatus, pruneApiKeys } from '../llm/registry';
-import { NovelConfig } from '../model/types';
+} from '../core/model/session';
+import { apiKeyStatus, pruneApiKeys } from '../core/llm/registry';
+import { NovelConfig } from '../core/model/types';
 import {
   InMessage,
   OutMessage,
@@ -33,8 +33,8 @@ import {
   SettingsPayload,
   Tab,
   ViewState,
-} from './protocol';
-import { buildProjectTree } from './projectView';
+} from '../core/protocol';
+import { buildProjectTree } from '../core/projectView';
 import { pickAttachment, selectionAttachment } from './attachments';
 
 /** Webview 宿主需要提供的能力。侧边栏与编辑器面板各实现一份。 */

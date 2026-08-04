@@ -95,10 +95,10 @@ function loadModule(relPath) {
   return m.exports;
 }
 
-const projectMod = loadModule('src/model/project.ts');
-const builderMod = loadModule('src/context/builder.ts');
-const tokenizerMod = loadModule('src/context/tokenizer.ts');
-const projectViewMod = loadModule('src/ui/projectView.ts');
+const projectMod = loadModule('src/core/model/project.ts');
+const builderMod = loadModule('src/core/context/builder.ts');
+const tokenizerMod = loadModule('src/core/context/tokenizer.ts');
+const projectViewMod = loadModule('src/core/projectView.ts');
 
 const baseConfig = {
   providers: [

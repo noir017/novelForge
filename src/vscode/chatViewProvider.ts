@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { ChatController, ViewHost } from './chatController';
-import { InMessage, OutMessage, renderHtml } from './protocol';
+import { ChatController, ViewHost } from '../ui/chatController';
+import { InMessage, OutMessage } from '../core/protocol';
+import { renderHtml } from './webviewHtml';
 
 /**
  * 侧边栏宿主。视图在 package.json 里注册为 `novelForge.chat`，

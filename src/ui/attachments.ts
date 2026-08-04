@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { NovelProject } from '../model/project';
-import { Attachment, AttachmentKind } from '../model/session';
+import { NovelProject } from '../core/model/project';
+import { Attachment, AttachmentKind } from '../core/model/session';
 
 /**
  * Cursor 式的上下文引用。

@@ -1,4 +1,4 @@
-import { NovelProject } from '../model/project';
+import { NovelProject } from './model/project';
 import { ProjectChapter, ProjectFile, ProjectTree } from './protocol';
 
 /**

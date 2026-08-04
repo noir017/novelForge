@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
-import { extractCharacters, newCharacter, newLore } from './features/characters';
-import { quickContinue } from './features/continueWriting';
-import { extractStyle } from './features/style';
-import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from './features/summarize';
-import { clearApiKey, initSecrets, pickModelRef, promptForApiKey } from './llm/registry';
-import { NovelProject, readConfig } from './model/project';
-import { ChatController } from './ui/chatController';
-import { ChatPanel } from './ui/chatPanel';
-import { ChatViewProvider } from './ui/chatViewProvider';
+import { extractCharacters, newCharacter, newLore } from '../core/features/characters';
+import { quickContinue } from '../core/features/continueWriting';
+import { extractStyle } from '../core/features/style';
+import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../core/features/summarize';
+import { clearApiKey, initSecrets, pickModelRef, promptForApiKey } from '../core/llm/registry';
+import { NovelProject, readConfig } from '../core/model/project';
+import { ChatController } from '../ui/chatController';
+import { ChatPanel } from './chatPanel';
+import { ChatViewProvider } from './chatViewProvider';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   initSecrets(context);

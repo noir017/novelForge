@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CancelledError, ChatMessage, ChatOptions, LlmError, LlmProvider } from './provider';
+import { CancelledError, ChatMessage, ChatOptions, LlmError, LlmProvider } from '../core/llm/provider';
 
 /**
  * 基于 VS Code Language Model API（复用 Copilot 订阅）。

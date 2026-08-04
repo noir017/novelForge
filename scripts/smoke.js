@@ -38,7 +38,7 @@ function loadModule(relPath) {
 
 console.log('\n== markdown.ts ==');
 {
-  const md = loadModule('src/model/markdown.ts');
+  const md = loadModule('src/core/model/markdown.ts');
 
   const raw = fs.readFileSync(path.join(SAMPLE, '.novelforge/characters/林昭.md'), 'utf8');
   const parsed = md.parseMarkdown(raw);
@@ -82,7 +82,7 @@ console.log('\n== markdown.ts ==');
 
 console.log('\n== tokenizer.ts ==');
 {
-  const tk = loadModule('src/context/tokenizer.ts');
+  const tk = loadModule('src/core/context/tokenizer.ts');
 
   check('空串为 0', tk.estimateTokens('') === 0);
   const cn = tk.estimateTokens('雨下了三天');
@@ -126,7 +126,7 @@ console.log('\n== continueWriting.ts · cleanOutput ==');
     return originalLoad.call(this, request, ...args);
   };
 
-  const cw = loadModule('src/features/continueWriting.ts');
+  const cw = loadModule('src/core/features/continueWriting.ts');
   Module._resolveFilename = originalResolve;
   Module._load = originalLoad;
 
@@ -157,7 +157,7 @@ console.log('\n== summarize.ts · parseSummaryResponse ==');
     }
     return originalLoad.call(this, request, ...args);
   };
-  const sum = loadModule('src/features/summarize.ts');
+  const sum = loadModule('src/core/features/summarize.ts');
   Module._load = originalLoad;
 
   const standard = `## 梗概\n\n林昭进镇。\n\n## 出场人物\n\n林昭、李叔\n\n## 时间地点\n\n傍晚，镇口\n\n## 关键事件\n\n- 递上令牌\n\n## 新增伏笔\n\n令牌来历\n\n## 状态变更\n\n无`;
@@ -179,7 +179,7 @@ console.log('\n== summarize.ts · parseSummaryResponse ==');
 
   // 真实示例摘要文件应能被解析回来
   const real = fs.readFileSync(path.join(SAMPLE, '.novelforge/summaries/002.md'), 'utf8');
-  const md = loadModule('src/model/markdown.ts');
+  const md = loadModule('src/core/model/markdown.ts');
   const realParsed = sum.parseSummaryResponse(md.parseMarkdown(real).body);
   check('解析真实摘要文件', realParsed.出场人物.includes('沈氏'), realParsed.出场人物);
   check('真实摘要的未收伏笔非空', realParsed.新增伏笔.length > 10);
@@ -194,7 +194,7 @@ console.log('\n== characters.ts · parseCharacterResponse ==');
     }
     return originalLoad.call(this, request, ...args);
   };
-  const ch = loadModule('src/features/characters.ts');
+  const ch = loadModule('src/core/features/characters.ts');
   Module._load = originalLoad;
 
   const json = JSON.stringify([
@@ -219,7 +219,7 @@ console.log('\n== characters.ts · parseCharacterResponse ==');
 console.log('\n== 示例工程数据一致性 ==');
 {
   const crypto = require('crypto');
-  const md = loadModule('src/model/markdown.ts');
+  const md = loadModule('src/core/model/markdown.ts');
   const manifest = JSON.parse(fs.readFileSync(path.join(SAMPLE, '.novelforge/project.json'), 'utf8'));
 
   const files = fs.readdirSync(path.join(SAMPLE, 'chapters')).filter((f) => f.endsWith('.md'));

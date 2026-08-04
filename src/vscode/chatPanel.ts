@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { ChatController, ViewHost } from './chatController';
-import { InMessage, OutMessage, renderHtml } from './protocol';
+import { ChatController, ViewHost } from '../ui/chatController';
+import { InMessage, OutMessage } from '../core/protocol';
+import { renderHtml } from './webviewHtml';
 
 /**
  * 编辑器宿主：把同一个对话面板作为标签页在编辑器区打开。

@@ -55,8 +55,8 @@ function loadModule(relPath) {
   return m.exports;
 }
 
-const p = loadModule('src/model/providers.ts');
-const projectMod = loadModule('src/model/project.ts');
+const p = loadModule('src/core/model/providers.ts');
+const projectMod = loadModule('src/core/model/project.ts');
 
 // ---------------------------------------------------------------- 引用解析
 

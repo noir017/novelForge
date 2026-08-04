@@ -13,7 +13,7 @@ import {
 import { AnthropicProvider } from './anthropicProvider';
 import { OpenAiProvider } from './openaiProvider';
 import { LlmProvider } from './provider';
-import { VsCodeLmProvider } from './vscodeLmProvider';
+import { VsCodeLmProvider } from '../../vscode/vscodeLmProvider';
 
 /**
  * API Key 按服务商 id 存，不再按 kind——同一种协议下可以并存

@@ -80,8 +80,8 @@ function loadModule(relPath) {
   return m.exports;
 }
 
-const projectMod = loadModule('src/model/project.ts');
-const sessionMod = loadModule('src/model/session.ts');
+const projectMod = loadModule('src/core/model/project.ts');
+const sessionMod = loadModule('src/core/model/session.ts');
 
 const sessionsDir = path.join(WORK, '.novelforge', 'sessions');
 
