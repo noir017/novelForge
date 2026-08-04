@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { collectStream, ChatOptions } from '../llm/provider';
+import { CancelledError, collectStream, ChatOptions } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
 import { NovelProject, emptyCharacterSections, exists, readConfig, renderCharacterCard, slugify, writeText } from '../model/project';
 import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections, Chapter } from '../model/types';
@@ -48,6 +48,9 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Novel Forge：提取角色信息', cancellable: true },
     async (progress, token) => {
+      // TODO(Task 5): 换成 getHost().progress(signal, report) 后删掉此桥接
+      const abort = new AbortController();
+      token.onCancellationRequested(() => abort.abort(new CancelledError()));
       progress.report({ message: '读取章节正文' });
       const selected = picked.map((p) => p.chapter).sort((a, b) => a.order - b.order);
       const corpus = await buildCorpus(project, selected, config.contextWindow - config.maxOutputTokens - 2000);
@@ -62,7 +65,7 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
         maxOutputTokens: config.maxOutputTokens,
         temperature: 0.3,
         timeoutMs: config.requestTimeoutMs,
-        token,
+        signal: abort.signal,
       };
       const raw = await collectStream(
         provider.chatStream(
@@ -77,7 +80,7 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
         )
       );
 
-      if (token.isCancellationRequested) {
+      if (abort.signal.aborted) {
         return;
       }
 

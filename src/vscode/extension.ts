@@ -4,6 +4,7 @@ import { quickContinue } from './quickContinue';
 import { extractStyle } from '../core/features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../core/features/summarize';
 import { clearApiKey, initSecrets, pickModelRef, promptForApiKey } from '../core/llm/registry';
+import { CancelledError } from '../core/llm/provider';
 import { NovelProject, readConfig } from '../core/model/project';
 import { ChatController } from '../ui/chatController';
 import { ChatPanel } from './chatPanel';
@@ -264,10 +265,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         cancellable: true,
       },
       async (_progress, token) => {
-        const ok = await summarizeChapter(target, chapter, undefined, token);
-        if (ok) {
-          void vscode.window.showInformationMessage(`Novel Forge：第 ${chapter.order} 章摘要已生成。`);
-          await refresh();
+        const abort = new AbortController();
+        const sub = token.onCancellationRequested(() => abort.abort(new CancelledError()));
+        try {
+          const ok = await summarizeChapter(target, chapter, undefined, abort.signal);
+          if (ok) {
+            void vscode.window.showInformationMessage(`Novel Forge：第 ${chapter.order} 章摘要已生成。`);
+            await refresh();
+          }
+        } finally {
+          sub.dispose();
         }
       }
     );

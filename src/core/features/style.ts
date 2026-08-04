@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ChatOptions, collectStream } from '../llm/provider';
+import { CancelledError, ChatOptions, collectStream } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
 import { NovelProject, readConfig } from '../model/project';
 import { takeHead } from '../context/tokenizer';
@@ -57,6 +57,9 @@ export async function extractStyle(project: NovelProject): Promise<void> {
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Novel Forge：提取文风指南', cancellable: true },
     async (progress, token) => {
+      // TODO(Task 5): 换成 getHost().progress(signal, report) 后删掉此桥接
+      const abort = new AbortController();
+      token.onCancellationRequested(() => abort.abort(new CancelledError()));
       progress.report({ message: '读取样章' });
       const parts: string[] = [];
       for (const p of picked.slice(0, 3)) {
@@ -69,7 +72,7 @@ export async function extractStyle(project: NovelProject): Promise<void> {
         maxOutputTokens: Math.min(config.maxOutputTokens, 2000),
         temperature: 0.3,
         timeoutMs: config.requestTimeoutMs,
-        token,
+        signal: abort.signal,
       };
       const raw = await collectStream(
         provider.chatStream(
@@ -80,7 +83,7 @@ export async function extractStyle(project: NovelProject): Promise<void> {
           options
         )
       );
-      if (token.isCancellationRequested) {
+      if (abort.signal.aborted) {
         return;
       }
 

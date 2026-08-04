@@ -1,4 +1,3 @@
-import * as vscode from 'vscode';
 import { BuildRequest, BuiltContext, buildContext } from '../context/builder';
 import { CancelledError, ChatOptions } from '../llm/provider';
 import { buildProvider, resolveProvider } from '../llm/registry';
@@ -15,12 +14,12 @@ export interface GenerateHandlers {
 
 /** 续写编排：装配上下文 → 流式生成 → 交由调用方决定采纳。 */
 export class ContinueSession {
-  private currentCancel: vscode.CancellationTokenSource | undefined;
+  private currentAbort: AbortController | undefined;
 
   constructor(private readonly project: NovelProject) {}
 
   get isGenerating(): boolean {
-    return this.currentCancel !== undefined;
+    return this.currentAbort !== undefined;
   }
 
   /** 只装配上下文，不调用模型——用于面板里的「预览上下文」。 */
@@ -39,7 +38,7 @@ export class ContinueSession {
     request: Omit<BuildRequest, 'providerMaxInputTokens'>,
     handlers: GenerateHandlers
   ): Promise<BuiltContext | undefined> {
-    if (this.currentCancel) {
+    if (this.currentAbort) {
       handlers.onError('已有一个生成任务在进行中。');
       return undefined;
     }
@@ -60,14 +59,14 @@ export class ContinueSession {
     const providerMaxInputTokens = await provider.maxInputTokens();
     const built = await buildContext(this.project, { ...request, providerMaxInputTokens }, config);
 
-    const source = new vscode.CancellationTokenSource();
-    this.currentCancel = source;
+    const abort = new AbortController();
+    this.currentAbort = abort;
 
     const options: ChatOptions = {
       maxOutputTokens: config.maxOutputTokens,
       temperature: config.temperature,
       timeoutMs: config.requestTimeoutMs,
-      token: source.token,
+      signal: abort.signal,
     };
 
     try {
@@ -78,21 +77,20 @@ export class ContinueSession {
       }
       handlers.onDone(cleanOutput(full));
     } catch (err) {
-      if (err instanceof CancelledError || source.token.isCancellationRequested) {
+      if (err instanceof CancelledError || abort.signal.aborted) {
         handlers.onCancelled();
       } else {
         handlers.onError(err instanceof Error ? err.message : String(err));
       }
     } finally {
-      source.dispose();
-      this.currentCancel = undefined;
+      this.currentAbort = undefined;
     }
 
     return built;
   }
 
   stop(): void {
-    this.currentCancel?.cancel();
+    this.currentAbort?.abort(new CancelledError());
   }
 
   /**
@@ -114,12 +112,12 @@ export class ContinueSession {
         message: `未配置「${providerLabel(active.profile)}」的 API Key，已取消测试。`,
       };
     }
-    const source = new vscode.CancellationTokenSource();
+    const abort = new AbortController();
     try {
       let reply = '';
       for await (const delta of provider.chatStream(
         [{ role: 'user', content: '回复两个字：收到' }],
-        { maxOutputTokens: 16, temperature: 0, timeoutMs: 30000, token: source.token }
+        { maxOutputTokens: 16, temperature: 0, timeoutMs: 30000, signal: abort.signal }
       )) {
         reply += delta;
         // 拿到任何内容就算通了，不必等它说完。
@@ -132,15 +130,11 @@ export class ContinueSession {
         : { ok: false, message: `${active.ref} 连接成功但没有返回内容，检查模型名是否正确。` };
     } catch (err) {
       return { ok: false, message: `${active.ref}：${err instanceof Error ? err.message : String(err)}` };
-    } finally {
-      source.cancel();
-      source.dispose();
     }
   }
 
   dispose(): void {
-    this.currentCancel?.cancel();
-    this.currentCancel?.dispose();
+    this.currentAbort?.abort(new CancelledError());
   }
 
   /** 采纳草稿：追加到已有章节，或新建章节。返回工作区相对路径。 */

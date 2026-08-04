@@ -15,7 +15,7 @@
 
 ## 关键设计
 
-- **统一接口**：`chatStream(messages, options): AsyncIterable<string>` 逐段 yield 增量文本，取消经 `CancellationToken`，超时经 `timeoutMs`。
+- **统一接口**：`chatStream(messages, options): AsyncIterable<string>` 逐段 yield 增量文本，取消经 `AbortSignal`，超时经 `timeoutMs`。
 - **错误说人话**：HTTP 401/404/429 等都在 provider 内整理成面向作者的中文提示后以 `LlmError` 抛出；用户主动取消抛 `CancelledError`，调用方静默处理。
 - **API Key 按服务商 id 分开存**：同一种协议可以并存多个服务商（智谱官方、OpenRouter、本地 Ollama 都是 openai 兼容），各有各的 Key。`vscode-lm` 走 Copilot 授权，不需要 Key。
 - **硬配额上报**：`maxInputTokens()` 返回 provider 的硬性输入上限（vscode-lm 有配额），装配器会与 `contextWindow` 取小。

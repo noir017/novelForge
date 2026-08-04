@@ -58,7 +58,15 @@ export class VsCodeLmProvider implements LlmProvider {
   async *chatStream(messages: ChatMessage[], options: ChatOptions): AsyncIterable<string> {
     const model = await this.resolveModel();
     const source = new vscode.CancellationTokenSource();
-    const sub = options.token?.onCancellationRequested(() => source.cancel());
+    // core 侧已统一为 AbortSignal，这里桥接回语言模型 API 需要的 token。
+    const onAbort = () => source.cancel();
+    if (options.signal) {
+      if (options.signal.aborted) {
+        onAbort();
+      } else {
+        options.signal.addEventListener('abort', onAbort, { once: true });
+      }
+    }
     const timer = setTimeout(() => source.cancel(), options.timeoutMs);
 
     try {
@@ -79,7 +87,7 @@ export class VsCodeLmProvider implements LlmProvider {
       throw new LlmError(`VS Code 语言模型请求失败：${err instanceof Error ? err.message : String(err)}`, err);
     } finally {
       clearTimeout(timer);
-      sub?.dispose();
+      options.signal?.removeEventListener('abort', onAbort);
       source.dispose();
     }
   }

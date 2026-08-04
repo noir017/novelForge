@@ -22,20 +22,12 @@ function check(name, cond, detail) {
 
 // ---------------------------------------------------------------- vscode 桩
 
-function makeTokenSource() {
-  const listeners = [];
+/** core 侧取消已改 AbortSignal：包一层，用 provider 模块自己的 CancelledError 作 reason。 */
+function makeCancelSource() {
+  const controller = new AbortController();
   return {
-    token: {
-      isCancellationRequested: false,
-      onCancellationRequested: (cb) => {
-        listeners.push(cb);
-        return { dispose() {} };
-      },
-    },
-    cancel() {
-      this.token.isCancellationRequested = true;
-      listeners.forEach((cb) => cb());
-    },
+    signal: controller.signal,
+    cancel() { controller.abort(new providerMod.CancelledError()); },
   };
 }
 
@@ -43,12 +35,6 @@ const originalLoad = Module._load;
 Module._load = function (request, ...args) {
   if (request === 'vscode') {
     return {
-      CancellationTokenSource: class {
-        constructor() {
-          Object.assign(this, makeTokenSource());
-        }
-        dispose() {}
-      },
       window: {}, workspace: {}, commands: {}, Uri: {},
     };
   }
@@ -256,8 +242,8 @@ async function main() {
   console.log('\n== OpenAI provider · 取消与超时 ==');
   server.mode = 'slow';
   {
-    const src = makeTokenSource();
-    const stream = openai.chatStream([], opts({ token: src.token }));
+    const src = makeCancelSource();
+    const stream = openai.chatStream([], opts({ signal: src.signal }));
     const iter = stream[Symbol.asyncIterator]();
     const first = await iter.next();
     check('取消前已收到首个分片', first.value === '慢', JSON.stringify(first.value));
@@ -284,17 +270,17 @@ async function main() {
   }
 
   {
-    // 已取消的 token 传进来时应立刻失败，不发请求
+    // 已取消的 signal 传进来时应立刻失败，不发请求
     server.mode = 'openai-ok';
-    const src = makeTokenSource();
+    const src = makeCancelSource();
     src.cancel();
     let err;
     try {
-      await providerMod.collectStream(openai.chatStream([], opts({ token: src.token })));
+      await providerMod.collectStream(openai.chatStream([], opts({ signal: src.signal })));
     } catch (e) {
       err = e;
     }
-    check('预先取消的 token 立即抛 CancelledError', err && err.name === 'CancelledError', err && err.name);
+    check('预先取消的 signal 立即抛 CancelledError', err && err.name === 'CancelledError', err && err.name);
   }
 
   console.log('\n== Anthropic provider ==');

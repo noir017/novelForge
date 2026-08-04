@@ -1,5 +1,3 @@
-import * as vscode from 'vscode';
-
 export type Role = 'system' | 'user' | 'assistant';
 
 export interface ChatMessage {
@@ -12,7 +10,8 @@ export interface ChatOptions {
   temperature: number;
   /** 请求超时（毫秒）。 */
   timeoutMs: number;
-  token?: vscode.CancellationToken;
+  /** 外部取消（用户点「停止」）。超时仍由本模块内部处理。 */
+  signal?: AbortSignal;
 }
 
 export interface LlmProvider {
@@ -58,21 +57,25 @@ export async function collectStream(
 }
 
 /**
- * 把 CancellationToken 与超时统一成一个 AbortSignal。
+ * 把外部取消信号与超时统一成一个 AbortSignal。
  * 返回的 dispose 必须在请求结束后调用，否则定时器会泄漏。
  */
 export function makeAbortSignal(options: ChatOptions): { signal: AbortSignal; dispose: () => void } {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('timeout')), options.timeoutMs);
-  const sub = options.token?.onCancellationRequested(() => controller.abort(new CancelledError()));
-  if (options.token?.isCancellationRequested) {
-    controller.abort(new CancelledError());
+  const onAbort = () => controller.abort(options.signal?.reason ?? new CancelledError());
+  if (options.signal) {
+    if (options.signal.aborted) {
+      onAbort();
+    } else {
+      options.signal.addEventListener('abort', onAbort, { once: true });
+    }
   }
   return {
     signal: controller.signal,
     dispose: () => {
       clearTimeout(timer);
-      sub?.dispose();
+      options.signal?.removeEventListener('abort', onAbort);
     },
   };
 }

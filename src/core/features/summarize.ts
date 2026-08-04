@@ -11,7 +11,7 @@ export async function summarizeChapter(
   project: NovelProject,
   chapter: Chapter,
   provider?: LlmProvider,
-  token?: vscode.CancellationToken
+  signal?: AbortSignal
 ): Promise<boolean> {
   const llm = provider ?? (await resolveProvider());
   if (!llm) {
@@ -32,7 +32,7 @@ export async function summarizeChapter(
     maxOutputTokens: Math.min(config.maxOutputTokens, 1500),
     temperature: 0.3, // 摘要要稳定、可复现，压低温度
     timeoutMs: config.requestTimeoutMs,
-    token,
+    signal,
   };
 
   const raw = await collectStream(
@@ -81,33 +81,40 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Novel Forge：同步章节摘要', cancellable: true },
     async (progress, token) => {
-      let done = 0;
-      const failed: number[] = [];
-      for (const chapter of stale) {
-        if (token.isCancellationRequested) {
-          break;
-        }
-        progress.report({
-          message: `第 ${chapter.order} 章《${chapter.title}》（${done + 1}/${stale.length}）`,
-          increment: done === 0 ? 0 : 100 / stale.length,
-        });
-        try {
-          await summarizeChapter(project, chapter, provider, token);
-        } catch (err) {
-          if (err instanceof CancelledError) {
+      // TODO(Task 5): 换成 getHost().progress(signal, report) 后删掉此桥接
+      const abort = new AbortController();
+      const sub = token.onCancellationRequested(() => abort.abort(new CancelledError()));
+      try {
+        let done = 0;
+        const failed: number[] = [];
+        for (const chapter of stale) {
+          if (abort.signal.aborted) {
             break;
           }
-          failed.push(chapter.order);
+          progress.report({
+            message: `第 ${chapter.order} 章《${chapter.title}》（${done + 1}/${stale.length}）`,
+            increment: done === 0 ? 0 : 100 / stale.length,
+          });
+          try {
+            await summarizeChapter(project, chapter, provider, abort.signal);
+          } catch (err) {
+            if (err instanceof CancelledError) {
+              break;
+            }
+            failed.push(chapter.order);
+          }
+          done++;
         }
-        done++;
-      }
-      const okCount = done - failed.length;
-      if (failed.length > 0) {
-        void vscode.window.showWarningMessage(
-          `Novel Forge：完成 ${okCount} 章，第 ${failed.join('、')} 章失败，可稍后重试。`
-        );
-      } else if (okCount > 0) {
-        void vscode.window.showInformationMessage(`Novel Forge：已同步 ${okCount} 章摘要。`);
+        const okCount = done - failed.length;
+        if (failed.length > 0) {
+          void vscode.window.showWarningMessage(
+            `Novel Forge：完成 ${okCount} 章，第 ${failed.join('、')} 章失败，可稍后重试。`
+          );
+        } else if (okCount > 0) {
+          void vscode.window.showInformationMessage(`Novel Forge：已同步 ${okCount} 章摘要。`);
+        }
+      } finally {
+        sub.dispose();
       }
     }
   );
@@ -166,75 +173,82 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Novel Forge：重建全书摘要', cancellable: true },
     async (progress, token) => {
-      const options: ChatOptions = {
-        maxOutputTokens: Math.min(config.maxOutputTokens, 2000),
-        temperature: 0.3,
-        timeoutMs: config.requestTimeoutMs,
-        token,
-      };
+      // TODO(Task 5): 换成 getHost().progress(signal, report) 后删掉此桥接
+      const abort = new AbortController();
+      const sub = token.onCancellationRequested(() => abort.abort(new CancelledError()));
+      try {
+        const options: ChatOptions = {
+          maxOutputTokens: Math.min(config.maxOutputTokens, 2000),
+          temperature: 0.3,
+          timeoutMs: config.requestTimeoutMs,
+          signal: abort.signal,
+        };
 
-      // ---- map：每批 reduce 成阶段摘要 ----
-      const stageSummaries: string[] = [];
-      for (let i = 0; i < batches.length; i++) {
-        if (token.isCancellationRequested) {
+        // ---- map：每批 reduce 成阶段摘要 ----
+        const stageSummaries: string[] = [];
+        for (let i = 0; i < batches.length; i++) {
+          if (abort.signal.aborted) {
+            return;
+          }
+          const batch = batches[i];
+          const range = `第 ${batch[0].order} - ${batch[batch.length - 1].order} 章`;
+          progress.report({
+            message: `汇总 ${range}（${i + 1}/${batches.length}）`,
+            increment: i === 0 ? 0 : 80 / batches.length,
+          });
+
+          const joined = batch
+            .map((u) => `【第${u.order}章 ${u.title}】\n${u.content}`)
+            .join('\n\n');
+          const text = await collectStream(
+            provider.chatStream(
+              [
+                { role: 'system', content: STAGE_SYSTEM },
+                { role: 'user', content: `以下是${range}的逐章摘要，请汇总成阶段摘要。\n\n${joined}` },
+              ],
+              options
+            )
+          );
+          stageSummaries.push(`## ${range}\n\n${text.trim()}`);
+        }
+
+        if (abort.signal.aborted) {
           return;
         }
-        const batch = batches[i];
-        const range = `第 ${batch[0].order} - ${batch[batch.length - 1].order} 章`;
-        progress.report({
-          message: `汇总 ${range}（${i + 1}/${batches.length}）`,
-          increment: i === 0 ? 0 : 80 / batches.length,
-        });
 
-        const joined = batch
-          .map((u) => `【第${u.order}章 ${u.title}】\n${u.content}`)
-          .join('\n\n');
-        const text = await collectStream(
-          provider.chatStream(
-            [
-              { role: 'system', content: STAGE_SYSTEM },
-              { role: 'user', content: `以下是${range}的逐章摘要，请汇总成阶段摘要。\n\n${joined}` },
-            ],
-            options
-          )
+        // ---- reduce：阶段摘要合并成全书摘要 ----
+        let finalText: string;
+        if (stageSummaries.length === 1) {
+          finalText = stageSummaries[0].replace(/^## .*\n+/, '');
+        } else {
+          progress.report({ message: '合并为全书摘要', increment: 15 });
+          const combined = stageSummaries.join('\n\n');
+          const inputBudget = Math.max(4000, config.contextWindow - config.maxOutputTokens - 2000);
+          finalText = await collectStream(
+            provider.chatStream(
+              [
+                { role: 'system', content: GLOBAL_SYSTEM },
+                {
+                  role: 'user',
+                  content: `以下是各阶段摘要，请合并成一份全书滚动摘要。\n\n${takeHead(combined, inputBudget)}`,
+                },
+              ],
+              options
+            )
+          );
+        }
+
+        const through = units[units.length - 1].order;
+        await project.writeGlobalSummary(finalText.trim(), through);
+        progress.report({ message: '完成', increment: 5 });
+        void vscode.window.showInformationMessage(
+          `Novel Forge：全书摘要已重建，覆盖至第 ${through} 章（约 ${estimateTokens(finalText)} token）。`
         );
-        stageSummaries.push(`## ${range}\n\n${text.trim()}`);
+        // TODO(Task 5): 经 Host.openFile 打开摘要文件
+        void project.relPath(project.globalSummaryPath);
+      } finally {
+        sub.dispose();
       }
-
-      if (token.isCancellationRequested) {
-        return;
-      }
-
-      // ---- reduce：阶段摘要合并成全书摘要 ----
-      let finalText: string;
-      if (stageSummaries.length === 1) {
-        finalText = stageSummaries[0].replace(/^## .*\n+/, '');
-      } else {
-        progress.report({ message: '合并为全书摘要', increment: 15 });
-        const combined = stageSummaries.join('\n\n');
-        const inputBudget = Math.max(4000, config.contextWindow - config.maxOutputTokens - 2000);
-        finalText = await collectStream(
-          provider.chatStream(
-            [
-              { role: 'system', content: GLOBAL_SYSTEM },
-              {
-                role: 'user',
-                content: `以下是各阶段摘要，请合并成一份全书滚动摘要。\n\n${takeHead(combined, inputBudget)}`,
-              },
-            ],
-            options
-          )
-        );
-      }
-
-      const through = units[units.length - 1].order;
-      await project.writeGlobalSummary(finalText.trim(), through);
-      progress.report({ message: '完成', increment: 5 });
-      void vscode.window.showInformationMessage(
-        `Novel Forge：全书摘要已重建，覆盖至第 ${through} 章（约 ${estimateTokens(finalText)} token）。`
-      );
-      // TODO(Task 5): 经 Host.openFile 打开摘要文件
-      void project.relPath(project.globalSummaryPath);
     }
   );
 }
