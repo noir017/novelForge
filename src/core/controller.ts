@@ -241,6 +241,7 @@ export class ChatController {
   private async buildState(): Promise<ViewState> {
     const initialized = await this.project.isInitialized();
     const config = readConfig();
+    const standalone = getHost().name === 'standalone';
     const models = listModelChoices(config.providers).map((c) => ({
       ref: c.ref,
       label: c.label,
@@ -258,6 +259,7 @@ export class ChatController {
         models,
         contextWindow: 0,
         maxOutputTokens: 0,
+        standalone,
       };
     }
     const chapters = await this.project.listChapters();
@@ -273,6 +275,7 @@ export class ChatController {
       models,
       contextWindow: config.contextWindow,
       maxOutputTokens: config.maxOutputTokens,
+      standalone,
     };
   }
 
