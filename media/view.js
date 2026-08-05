@@ -112,8 +112,19 @@
 
   // ---------------------------------------------------------------- 状态
 
+  // 独立版的环境差异只应用一次（隐藏 VS Code 专属入口、改存储提示文案）。
+  let standaloneApplied = false;
+
   function renderState(state) {
     store.state = state;
+    if (state.standalone && !standaloneApplied) {
+      standaloneApplied = true;
+      $('nativeSettingsBtn').classList.add('hidden');
+      const hint = $('settingsStorageHint');
+      if (hint) {
+        hint.textContent = '设置写入 ~/.novelforge/config.json；API Key 存在 ~/.novelforge/secrets.json。';
+      }
+    }
     renderModelSelect(state);
 
     if (!state.initialized) {
@@ -1467,6 +1478,69 @@
     vscode.postMessage({ type: 'openNativeSettings' })
   );
 
+  // ---------------------------------------------------------------- 弹窗（独立版）
+
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[ch]);
+  }
+
+  /**
+   * 独立版把 host.input/confirm/pick 变成这里的 modal：
+   * 复用 providerModal 遮罩层，body 换成临时内容，提交后回 promptResult。
+   */
+  function renderPrompt(msg) {
+    const overlay = el.providerModal;
+    const body = el.providerModalBody;
+    el.providerModalTitle.textContent = msg.title;
+    let inputEl;
+
+    if (msg.kind === 'confirm') {
+      body.innerHTML = `<p class="hint">${escapeHtml(msg.message ?? '')}</p>
+        <div class="actions"><button class="primary" id="pmOk">确定</button>
+        <button class="secondary" id="pmCancel">取消</button></div>`;
+    } else if (msg.kind === 'pick') {
+      body.innerHTML = `<div class="picklist" id="pmList"></div>
+        <div class="actions"><button class="secondary" id="pmCancel">取消</button></div>`;
+      const list = $('pmList');
+      (msg.options ?? []).forEach((opt) => {
+        const btn = document.createElement('button');
+        btn.className = 'pick-item';
+        btn.textContent = opt;
+        btn.addEventListener('click', () => reply(opt));
+        list.appendChild(btn);
+      });
+    } else {
+      const tag = msg.multiline ? 'textarea' : 'input';
+      body.innerHTML = `${msg.message ? `<p class="hint">${escapeHtml(msg.message)}</p>` : ''}
+        <${tag} id="pmInput" ${msg.multiline ? 'rows="6"' : ''} ${msg.password ? 'type="password"' : ''}
+          placeholder="${escapeHtml(msg.placeholder ?? '')}" style="width:100%"></${tag}>
+        <div class="actions"><button class="primary" id="pmOk">确定</button>
+        <button class="secondary" id="pmCancel">取消</button></div>`;
+      inputEl = $('pmInput');
+      inputEl.value = msg.value ?? '';
+      inputEl.focus();
+      inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !msg.multiline) {
+          e.preventDefault();
+          reply(inputEl.value);
+        }
+        if (e.key === 'Escape') reply(undefined);
+      });
+    }
+
+    $('pmOk')?.addEventListener('click', () => reply(msg.kind === 'confirm' ? 'yes' : inputEl.value));
+    $('pmCancel')?.addEventListener('click', () => reply(msg.kind === 'confirm' ? 'no' : undefined));
+    overlay.classList.remove('hidden');
+
+    function reply(value) {
+      overlay.classList.add('hidden');
+      body.innerHTML = '';
+      vscode.postMessage({ type: 'promptResult', requestId: msg.requestId, value });
+    }
+  }
+
   // ---------------------------------------------------------------- 消息
 
   window.addEventListener('message', (event) => {
@@ -1522,6 +1596,9 @@
         break;
       case 'toast':
         toast(msg.message, msg.level === 'error');
+        break;
+      case 'prompt':
+        renderPrompt(msg);
         break;
     }
   });

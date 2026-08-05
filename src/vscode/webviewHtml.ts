@@ -119,7 +119,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     <button class="primary" id="saveSettingsBtn">保存设置</button>
     <button class="link" id="nativeSettingsBtn">在 VS Code 设置中打开</button>
   </div>
-  <div class="hint">设置写入工作区 settings.json；API Key 只存 SecretStorage，不落盘到配置文件。</div>
+  <div class="hint" id="settingsStorageHint">设置写入工作区 settings.json；API Key 只存 SecretStorage，不落盘到配置文件。</div>
 </section>
 
 <div class="modal-overlay hidden" id="providerModal">

@@ -962,3 +962,27 @@ button.chip-btn:hover {
 .toast.error {
   border-color: var(--vscode-inputValidation-errorBorder);
 }
+
+/* 独立版 prompt 弹窗里的选项列表（Host.pick） */
+.picklist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.pick-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-panel-border);
+  cursor: pointer;
+}
+
+.pick-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}

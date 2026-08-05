@@ -43,7 +43,9 @@ export type InMessage =
   | { type: 'setApiKey'; providerId: string }
   | { type: 'clearApiKey'; providerId: string }
   | { type: 'testConnection'; ref?: string }
-  | { type: 'openNativeSettings' };
+  | { type: 'openNativeSettings' }
+  /** 网页弹窗的回执（仅独立版：host.input/confirm/pick 经 WebSocket 变成 modal）。 */
+  | { type: 'promptResult'; requestId: string; value?: string };
 
 /**
  * 工程页上可触发的动作。全部走命令，webview 只负责说「点了什么」。
@@ -110,7 +112,20 @@ export type OutMessage =
    * （前端必须保住用户的编辑）。普通刷新不带 ack。
    */
   | { type: 'settings'; settings: SettingsPayload; keys: Record<string, boolean>; ack?: 'saved' | 'rejected' }
-  | { type: 'toast'; message: string; level: 'info' | 'error' };
+  | { type: 'toast'; message: string; level: 'info' | 'error' }
+  /** 要求前端弹一个 modal（仅独立版）。用户提交后回 `promptResult`。 */
+  | {
+      type: 'prompt';
+      requestId: string;
+      kind: 'input' | 'confirm' | 'pick';
+      title: string;
+      message?: string;
+      placeholder?: string;
+      value?: string;
+      password?: boolean;
+      multiline?: boolean;
+      options?: string[];
+    };
 
 export interface ViewState {
   initialized: boolean;
@@ -127,6 +142,8 @@ export interface ViewState {
   models: { ref: string; label: string; group: string }[];
   contextWindow: number;
   maxOutputTokens: number;
+  /** 独立 Web 服务版：前端据此隐藏「在 VS Code 设置中打开」并改存储提示文案。 */
+  standalone?: boolean;
 }
 
 /**
