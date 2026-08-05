@@ -251,12 +251,18 @@ export class ChatController {
   private async buildState(): Promise<ViewState> {
     const initialized = await this.project.isInitialized();
     const config = readConfig();
-    const standalone = getHost().name === 'standalone';
-    const models = listModelChoices(config.providers).map((c) => ({
+    const host = getHost();
+    const standalone = host.name === 'standalone';
+    const models = listModelChoices(config.providers, host.supportsVscodeLm).map((c) => ({
       ref: c.ref,
       label: c.label,
       group: c.group,
     }));
+    // 当前模型若是 vscode-lm 而宿主不支持（独立版），下拉里已过滤，需明确提示切换。
+    const lmOnlyIssue =
+      config.active?.profile.kind === 'vscode-lm' && !host.supportsVscodeLm
+        ? '当前模型仅在 VS Code 内可用（Copilot），请在设置页切换到自建 API 的模型。'
+        : undefined;
 
     if (!initialized) {
       return {
@@ -281,7 +287,8 @@ export class ChatController {
       model: config.model,
       modelLabel: describeProvider(config),
       // 只在解析失败时给出说明——正常情况下不要在输入框下方堆红字。
-      modelIssue: config.active ? undefined : describeModelIssue(config.providers, config.model),
+      modelIssue:
+        lmOnlyIssue ?? (config.active ? undefined : describeModelIssue(config.providers, config.model)),
       models,
       contextWindow: config.contextWindow,
       maxOutputTokens: config.maxOutputTokens,

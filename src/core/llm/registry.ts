@@ -227,7 +227,7 @@ async function pickProvider(
 /** 命令面板里的模型切换器。 */
 export async function pickModelRef(): Promise<string | undefined> {
   const config = readConfig();
-  const choices = listModelChoices(config.providers);
+  const choices = listModelChoices(config.providers, getHost().supportsVscodeLm);
   if (choices.length === 0) {
     getHost().toast(`${describeModelIssue(config.providers, config.model)}`, 'error');
     return undefined;

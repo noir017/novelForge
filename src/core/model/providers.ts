@@ -199,10 +199,16 @@ export function firstModelRef(providers: ProviderProfile[]): string {
   return '';
 }
 
-/** 全部可选模型，按配置顺序。 */
-export function listModelChoices(providers: ProviderProfile[]): ModelChoice[] {
+/**
+ * 全部可选模型，按配置顺序。
+ * @param includeVscodeLm 独立版没有 Copilot 授权，传 false 过滤掉 vscode-lm 模型。
+ */
+export function listModelChoices(providers: ProviderProfile[], includeVscodeLm = true): ModelChoice[] {
   const out: ModelChoice[] = [];
   for (const profile of providers) {
+    if (!includeVscodeLm && profile.kind === 'vscode-lm') {
+      continue;
+    }
     for (const model of profile.models) {
       out.push({
         ref: makeModelRef(profile.id, model.name),
