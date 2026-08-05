@@ -106,17 +106,23 @@ export class ChatController {
     }
   }
 
-  private async dispatch(msg: InMessage): Promise<void> {
+  /**
+   * 重放当前页签的全部数据。新前端连接挂上来时调用——
+   * webview 被销毁重建或网页刷新/重连后，靠这一套消息即可恢复。
+   */
+  async resendFullState(): Promise<void> {
+    this.post({ type: 'init', state: await this.buildState() });
+    this.post({ type: 'tab', tab: this.tab });
+    this.post({ type: 'session', session: serializeSession(this.current) });
+    this.post({ type: 'attachments', items: this.pending.map(serializeAttachment) });
+    this.post({ type: 'busy', value: this.busy });
+    await this.pushTabData();
+  }
+
+  async dispatch(msg: InMessage): Promise<void> {
     switch (msg.type) {
       case 'ready':
-        this.post({ type: 'init', state: await this.buildState() });
-        this.post({ type: 'tab', tab: this.tab });
-        this.post({ type: 'session', session: serializeSession(this.current) });
-        this.post({ type: 'attachments', items: this.pending.map(serializeAttachment) });
-        this.post({ type: 'busy', value: this.busy });
-        // webview 被销毁重建时（侧边栏切走再切回）停在哪个页签就补哪份数据，
-        // 否则会看到一个空白的工程页/历史页。
-        await this.pushTabData();
+        await this.resendFullState();
         return;
 
       case 'switchTab':
@@ -232,6 +238,10 @@ export class ChatController {
 
       case 'openNativeSettings':
         await getHost().openNativeSettings?.();
+        return;
+
+      case 'promptResult':
+        // 由独立版壳在进入 controller 前截获（解弹窗）；插件永远不会收到。
         return;
     }
   }
