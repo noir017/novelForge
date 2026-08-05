@@ -370,13 +370,18 @@
     "watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
     "typecheck": "tsc --noEmit",
-    "smoke": "node scripts/smoke.js && node scripts/smoke-providers.js && node scripts/smoke-builder.js && node scripts/smoke-llm.js && node scripts/smoke-session.js",
-    "test": "npm run typecheck && npm run smoke"
+    "smoke": "node scripts/smoke.js && node scripts/smoke-providers.js && node scripts/smoke-builder.js && node scripts/smoke-llm.js && node scripts/smoke-session.js && bun scripts/smoke-server.js",
+    "test": "npm run typecheck && node scripts/check-core-purity.js && npm run smoke",
+    "standalone": "bun run src/standalone/main.ts",
+    "dist": "node scripts/embed-media.js && bun build src/standalone/main.ts --compile --outfile dist/novelforge"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.90.0",
     "esbuild": "^0.23.0",
     "typescript": "^5.5.0"
+  },
+  "bin": {
+    "novelforge": "./bin/novelforge.js"
   }
 }

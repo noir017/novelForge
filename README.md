@@ -29,6 +29,38 @@ npm run compile
 3. 点活动栏的 Novel Forge 图标 → 「设置」页点一个预设添加服务商 → 填 API Key → 点该模型的「测试」
 4. 回到「对话」页，在下拉框里选模型，描述接下来要写什么
 
+## 独立 Web 版（不装 VS Code 也能用）
+
+同一套核心逻辑另有一个独立壳：在本机起一个 Web 服务，浏览器里操作，写作仍在你自己的编辑器里完成。
+
+```bash
+# 方式一：源码直接跑（需要 Bun）
+bun run src/standalone/main.ts [目录]          # 默认当前目录、端口 3680、自动开浏览器
+bun run src/standalone/main.ts sample-novel --no-open --port 4000
+bun run src/standalone/main.ts init [目录]     # 终端交互式初始化
+
+# 方式二：编译成单文件可执行
+npm run dist                                   # 产出 dist/novelforge（当前平台）
+./dist/novelforge sample-novel
+
+# 方式三：npm 包
+npm i -g novel-forge && novelforge [目录]
+```
+
+服务只绑定 `127.0.0.1`，无鉴权——设计上只服务本机作者。配置与 API Key 存在 `~/.novelforge/config.json` / `secrets.json`（不再用 VS Code 的 settings.json / SecretStorage；插件壳首次激活时会把旧配置一次性迁移过去）。
+
+与插件版的差异：
+
+| 能力 | 插件 | 独立版 |
+|---|---|---|
+| 加入选区 | 读编辑器选区 | 弹粘贴框 |
+| 角色卡更新 | diff 编辑器对比 | 确认框（无 diff） |
+| 打开文件 | VS Code 文档 | 系统默认程序 |
+| vscode-lm（Copilot） | 支持 | 隐藏（无 Copilot 授权） |
+| 弹窗（输入/确认/选择） | 原生对话框 | 网页 modal（WebSocket 往返） |
+
+断线时页面顶部出现红色重连条，恢复后自动重放全量状态。
+
 ## 界面
 
 活动栏里只有一个侧边栏视图，全部内容都在这个 webview 里，顶部 tabbar 切四页：
@@ -254,57 +286,58 @@ API Key 按服务商 id 分开存。本地 Ollama 随便填一个非空值即可
 ## 开发
 
 ```bash
-npm run watch       # esbuild 监听
-npm run typecheck   # tsc --noEmit
-npm run smoke       # 离线冒烟测试（不需要 API Key）
-npm test            # typecheck + smoke
+npm run watch        # esbuild 监听（插件 bundle）
+npm run typecheck    # tsc --noEmit
+node scripts/check-core-purity.js   # 断言 src/core 零 vscode 依赖
+npm run smoke        # 离线冒烟 + bun 起的独立服务冒烟（不需要 API Key）
+npm test             # typecheck + 纯度检查 + smoke
+npm run standalone   # bun 起独立 Web 服务
+npm run dist         # 编译独立版单文件可执行（dist/novelforge）
 ```
 
 ### 测试
 
-`scripts/` 下五个离线测试，都不需要真实 API Key：
+`scripts/` 下的离线测试，都不需要真实 API Key：
 
 - **`smoke.js`** —— markdown 解析、tokenizer、模型输出清洗、摘要/角色 JSON 解析的容错，以及示例工程的 hash 一致性
 - **`smoke-providers.js`** —— 模型引用解析（含嵌套斜杠 `openrouter/z-ai/glm-4.6`）、服务商配置容错、按模型覆盖窗口、0.1.x 单服务商配置的兜底
-- **`smoke-builder.js`** —— 用真实文件系统的 vscode 桩跑完整上下文装配：优先级、预算、降级链、手动排除、附件截断、多轮历史封顶、discuss 模式、provider 配额压缩；另含工程页快照（章节/角色/设定清单、摘要新鲜度随正文改动翻转）
+- **`smoke-builder.js`** —— 用真实文件系统跑完整上下文装配：优先级、预算、降级链、手动排除、附件截断、多轮历史封顶、discuss 模式、provider 配额压缩；另含工程页快照
 - **`smoke-llm.js`** —— 起本地假服务器模拟 SSE，验证流式解析（含跨块切分、CRLF、心跳、非 JSON 行）、取消、超时、HTTP 401/404/429 错误信息，以及 Anthropic 的 system 提取与消息合并
-- **`smoke-session.js`** —— 会话读写 round-trip、损坏文件容错、列表排序、重命名/删除、id 唯一性，以及 `.novel` → `.novelforge` 的迁移
+- **`smoke-session.js`** —— 会话读写 round-trip、损坏文件容错、列表排序、重命名/删除（移入 `.trash`）、id 唯一性，以及 `.novel` → `.novelforge` 的迁移
+- **`smoke-server.js`** —— 用 bun 起独立服务，验证首页/静态资源 200、WebSocket 首条消息为 init/state（需 Bun）
 
 ### 代码结构
 
+双形态架构：`src/core/` 零 vscode 依赖，插件壳与独立壳各实现一个 `Host` 窄接口。
+
 ```
 src/
-├── extension.ts           命令注册、FileSystemWatcher
-├── model/
-│   ├── types.ts           数据结构与固定小节定义
-│   ├── markdown.ts        frontmatter + 小节解析（容错优先，手改文件不该让插件崩）
-│   ├── providers.ts       ★ 多服务商 / 多模型与「前缀/模型名」引用
-│   ├── session.ts         对话会话的读写（.novelforge/sessions/）
-│   └── project.ts         NovelProject：所有文件读写
-├── llm/
-│   ├── provider.ts        LlmProvider 接口、SSE 解析、取消/超时
-│   ├── openaiProvider.ts  OpenAI 兼容
-│   ├── anthropicProvider.ts
-│   ├── vscodeLmProvider.ts
-│   └── registry.ts        按引用构造 provider + 按服务商存 SecretStorage
-├── context/
-│   ├── tokenizer.ts       粗估：中文 1.5x，拉丁 /4
-│   └── builder.ts         ★ 分层预算装配
-├── features/
-│   ├── continueWriting.ts 续写编排 + 输出清洗 + 连接测试
-│   ├── summarize.ts       单章 / map-reduce 全书摘要
-│   ├── characters.ts      角色抽取 + diff 合并
-│   └── style.ts           文风提取
-└── ui/
-    ├── protocol.ts        webview 消息协议 + HTML
-    ├── chatController.ts  ★ 面板逻辑（与宿主解耦）
-    ├── projectView.ts     工程页数据快照
-    ├── chatViewProvider.ts 侧边栏宿主
-    ├── chatPanel.ts       编辑器宿主
-    └── attachments.ts     @ 引用与选区
+├── core/                  ★ 宿主无关核心（永不 import vscode）
+│   ├── host.ts            Host 窄接口（弹窗/进度/监听/打开文件），双壳各实现一份
+│   ├── controller.ts      ★ ChatController：面板逻辑，经 ViewHost 与视图解耦
+│   ├── config.ts          readConfig/updateSettings，数据源由 ConfigStore 注入
+│   ├── stores.ts          FileConfigStore/FileSecretStore（~/.novelforge/）
+│   ├── actions.ts         初始化/新建章节等工程级流程
+│   ├── attachments.ts     @ 引用候选列表构建
+│   ├── protocol.ts        前后端消息协议（+ 独立版 prompt/promptResult）
+│   ├── model/             types / markdown / providers / session / project
+│   ├── llm/               provider / openai / anthropic / registry（vscode-lm 经工厂钩子）
+│   ├── context/           tokenizer + 分层预算装配
+│   └── features/          续写 / 摘要 / 角色 / 文风（交互全走 Host）
+├── vscode/                插件壳
+│   ├── extension.ts       命令注册、initHost(VsCodeHost)、迁移
+│   ├── vscodeHost.ts      Host 的 VS Code 实现
+│   ├── migrate.ts         settings.json/SecretStorage → ~/.novelforge 一次性迁移
+│   ├── vscodeLmProvider.ts、chatViewProvider.ts、chatPanel.ts、webviewHtml.ts
+└── standalone/            独立壳（Bun）
+    ├── main.ts / cli.ts   入口与参数解析
+    ├── server.ts          Bun.serve：静态页 + /ws WebSocket
+    ├── fileHost.ts        Host 的文件/网页实现（弹窗经 PromptHub）
+    ├── promptHub.ts       未决网页弹窗管理
+    └── html.ts            内嵌资源直出的页面
 ```
 
-面板逻辑集中在 `chatController.ts`，两个宿主（侧边栏 / 编辑器）各自只负责收发消息，因此同一个会话能在两处同时打开且保持同步。
+面板逻辑集中在 `core/controller.ts`，两个视图宿主（侧边栏 / 编辑器）与独立版 WebSocket 各自只负责收发消息，因此同一个会话能在多处同时打开且保持同步。
 
 界面不使用 VS Code 自带的 TreeView 等控件，全部由 webview 渲染：一套 UI 同时供侧边栏和编辑器标签页使用，工程页与对话页共享同一个 tabbar，不再上下分栏。`projectView.ts` 只产出一份可序列化快照，展开/折叠状态留在前端。
 
