@@ -254,61 +254,71 @@
                 }
               }
             }
-          }
+          },
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.model": {
           "type": "string",
           "default": "",
-          "markdownDescription": "当前使用的模型，格式为 `前缀/模型名`，例如 `glm/glm-4-plus`、`openrouter/z-ai/glm-4.6`。留空则取第一个可用模型。"
+          "markdownDescription": "当前使用的模型，格式为 `前缀/模型名`，例如 `glm/glm-4-plus`、`openrouter/z-ai/glm-4.6`。留空则取第一个可用模型。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.contextWindow": {
           "type": "number",
           "default": 128000,
           "minimum": 4000,
-          "description": "默认上下文窗口大小（token）。模型自带 contextWindow 时以模型为准。"
+          "description": "默认上下文窗口大小（token）。模型自带 contextWindow 时以模型为准。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.maxOutputTokens": {
           "type": "number",
           "default": 4096,
           "minimum": 256,
-          "description": "默认单次生成的最大输出 token 数。模型自带 maxOutputTokens 时以模型为准。"
+          "description": "默认单次生成的最大输出 token 数。模型自带 maxOutputTokens 时以模型为准。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.temperature": {
           "type": "number",
           "default": 0.8,
           "minimum": 0,
           "maximum": 2,
-          "description": "采样温度。写小说建议 0.7 ~ 1.0。摘要类任务内部固定用 0.3。"
+          "description": "采样温度。写小说建议 0.7 ~ 1.0。摘要类任务内部固定用 0.3。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.recentChaptersFullText": {
           "type": "number",
           "default": 2,
           "minimum": 0,
           "maximum": 10,
-          "description": "续写时注入多少章「完整原文」（不含上一章结尾片段）。预算不足会自动降级为摘要。"
+          "description": "续写时注入多少章「完整原文」（不含上一章结尾片段）。预算不足会自动降级为摘要。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.prevChapterTailChars": {
           "type": "number",
           "default": 1500,
           "minimum": 0,
-          "description": "上一章结尾原文注入的字数，用于保证语气衔接。"
+          "description": "上一章结尾原文注入的字数，用于保证语气衔接。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.chaptersDir": {
           "type": "string",
           "default": "chapters",
-          "description": "章节正文目录（相对工作区根目录）。"
+          "description": "章节正文目录（相对工作区根目录）。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.summaryBatchSize": {
           "type": "number",
           "default": 15,
           "minimum": 3,
-          "description": "重建全书摘要时，每批 reduce 多少章的单章摘要。"
+          "description": "重建全书摘要时，每批 reduce 多少章的单章摘要。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.requestTimeoutMs": {
           "type": "number",
           "default": 300000,
           "minimum": 10000,
-          "description": "单次 LLM 请求超时（毫秒）。"
+          "description": "单次 LLM 请求超时（毫秒）。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.provider": {
           "type": "string",

@@ -13,14 +13,17 @@ import { Chapter } from '../core/model/types';
 import { ChatPanel } from './chatPanel';
 import { ChatViewProvider } from './chatViewProvider';
 import { quickContinue } from './quickContinue';
-import { legacySettingsReader, SecretStorageSecretStore, SettingsJsonConfigStore } from './settingsStore';
+import { legacySettingsReader, migrateVscodeSettings } from './migrate';
+import { FileConfigStore, FileSecretStore } from '../core/stores';
 import { VsCodeHost } from './vscodeHost';
 import { VsCodeLmProvider } from './vscodeLmProvider';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  initHost(new VsCodeHost(new SettingsJsonConfigStore()));
+  // 老用户的 settings.json / SecretStorage 一次性搬到 ~/.novelforge/，之后双壳共用文件后端。
+  await migrateVscodeSettings(context.secrets);
+  initHost(new VsCodeHost(new FileConfigStore()));
   setLegacyConfigReader(legacySettingsReader);
-  initSecrets(new SecretStorageSecretStore(context.secrets));
+  initSecrets(new FileSecretStore());
   registerProviderFactory((active) => new VsCodeLmProvider(active.model.name, providerLabel(active.profile)));
 
   const project = currentProject();
