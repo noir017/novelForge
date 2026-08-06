@@ -200,5 +200,134 @@ console.log('\n== 生成中的限制 ==');
     ui.sent.filter((m) => m.type === 'retry').length === before);
 }
 
+// ---------------------------------------------------------------- 工程页目录树
+
+/** 造一棵三层深的树，覆盖目录 / 章节 / 角色 / 空文件夹四种节点。 */
+function sampleTree() {
+  return {
+    initialized: true, title: '测试', author: '甲', chapterCount: 3, totalWords: 900, staleCount: 1,
+    chaptersRoot: 'chapters', charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
+    globalSummaryThrough: 2, styleGuidePath: '.novelforge/style.md',
+    outlinePath: '.novelforge/outline.md', globalSummaryPath: '.novelforge/summaries/global.md',
+    chapters: [
+      { kind: 'dir', label: '第一卷', relPath: 'chapters/第一卷', fileCount: 2, children: [
+        { kind: 'dir', label: '深处', relPath: 'chapters/第一卷/深处', fileCount: 1, children: [
+          { kind: 'chapter', order: 3, title: '夜访', relPath: 'chapters/第一卷/深处/003-夜访.md',
+            wordCount: 300, stale: true, summaryPath: '' },
+        ] },
+        { kind: 'chapter', order: 2, title: '入镇', relPath: 'chapters/第一卷/002-入镇.md',
+          wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/002.md' },
+      ] },
+      { kind: 'dir', label: '第二卷', relPath: 'chapters/第二卷', fileCount: 0, children: [] },
+      { kind: 'chapter', order: 1, title: '楔子', relPath: 'chapters/001-楔子.md',
+        wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/001.md' },
+    ],
+    characters: [
+      { kind: 'dir', label: '配角', relPath: '.novelforge/characters/配角', fileCount: 1, children: [
+        { kind: 'file', label: '李叔', relPath: '.novelforge/characters/配角/李叔.md', detail: '' },
+      ] },
+      { kind: 'file', label: '林昭', relPath: '.novelforge/characters/林昭.md', detail: '主角' },
+    ],
+    lore: [],
+  };
+}
+
+console.log('\n== 工程页目录树 ==');
+{
+  const ui = mount();
+  const clickEl = (node) => node.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const labels = () =>
+    [...ui.doc.querySelectorAll('#projectBody .row-label')].map((n) => n.textContent);
+  const dirLabel = (name) =>
+    [...ui.doc.querySelectorAll('#projectBody .row-dir-label')].find((n) => n.textContent.includes(name));
+
+  ui.post({ type: 'project', tree: sampleTree() });
+
+  check('顶层三个节点都在',
+    labels().some((l) => l.includes('第一卷')) &&
+    labels().some((l) => l.includes('第二卷')) &&
+    labels().some((l) => l.includes('楔子')), labels().join(' | '));
+  check('文件夹默认折叠，不渲染子节点',
+    !labels().some((l) => l.includes('入镇')), labels().join(' | '));
+  check('折叠时用闭合文件夹图标', labels().some((l) => l.startsWith('📁 第一卷')));
+
+  clickEl(dirLabel('第一卷'));
+  check('展开后出现子章节', labels().some((l) => l.includes('入镇')), labels().join(' | '));
+  check('只展开一层，第三层仍折叠', !labels().some((l) => l.includes('夜访')));
+  check('展开时用打开文件夹图标', labels().some((l) => l.startsWith('📂 第一卷')));
+
+  clickEl(dirLabel('深处'));
+  check('第三层展开后出现最深的章节', labels().some((l) => l.includes('夜访')));
+
+  // 层级靠 paddingLeft 表达（DOM 是扁平的），每层 14px。
+  const padOf = (text) => {
+    const row = [...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes(text));
+    return row ? parseInt(row.style.paddingLeft, 10) : -1;
+  };
+  check('第 0 层缩进 16px', padOf('楔子') === 16, String(padOf('楔子')));
+  check('第 1 层缩进 30px', padOf('入镇') === 30, String(padOf('入镇')));
+  check('第 2 层缩进 44px', padOf('夜访') === 44, String(padOf('夜访')));
+
+  clickEl(dirLabel('第二卷'));
+  check('展开空文件夹给出提示',
+    [...ui.doc.querySelectorAll('#projectBody .row-empty')].some((n) => n.textContent.includes('空文件夹')));
+
+  // 折叠状态是前端自己的，全量推送不该把它重置掉。
+  ui.post({ type: 'project', tree: sampleTree() });
+  check('重推数据后保持展开状态', labels().some((l) => l.includes('夜访')), labels().join(' | '));
+}
+
+console.log('\n== 工程页的行内操作 ==');
+{
+  const ui = mount();
+  const clickEl = (node) => node.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const icons = (title) => [...ui.doc.querySelectorAll(`#projectBody [title="${title}"]`)];
+  const last = (type) => [...ui.sent].reverse().find((m) => m.type === type);
+
+  ui.post({ type: 'project', tree: sampleTree() });
+
+  clickEl(icons('重命名')[0]);
+  const ren = last('fileAction');
+  check('重命名发 fileAction',
+    ren && ren.action === 'rename' && ren.relPath.startsWith('chapters/'), JSON.stringify(ren));
+
+  clickEl(icons('移动到…')[0]);
+  check('移动发 fileAction', last('fileAction').action === 'move');
+
+  clickEl(icons('删除（移到回收站）')[0]);
+  check('删除发 fileAction', last('fileAction').action === 'delete');
+
+  // 文件夹行上的「＋」必须带落点目录，否则会建到区根目录去。
+  clickEl(icons('在此新建')[0]);
+  const add = last('projectAction');
+  check('文件夹上的「＋」带 dir',
+    add && add.action === 'newChapter' && add.dir === 'chapters/第一卷', JSON.stringify(add));
+
+  clickEl(icons('新建子文件夹')[0]);
+  const mk = last('projectAction');
+  check('新建子文件夹带 dir',
+    mk && mk.action === 'newFolder' && mk.dir === 'chapters/第一卷', JSON.stringify(mk));
+
+  // 分组标题栏上的按钮，落点是该区根目录。
+  const groupAdd = ui.doc.querySelector('#projectBody .group-head [title="新建角色卡"]');
+  clickEl(groupAdd);
+  const rootAdd = last('projectAction');
+  check('分组标题栏的「＋」落点为区根目录',
+    rootAdd.action === 'newCharacter' && rootAdd.dir === '.novelforge/characters', JSON.stringify(rootAdd));
+
+  // 点文件名走 openPath：这里挂的是插件的 body（没有 #wbEditor），应当发 openFile。
+  const lin = [...ui.doc.querySelectorAll('#projectBody .row-label')].find((n) => n.textContent === '林昭');
+  clickEl(lin);
+  const open = last('openFile');
+  check('点角色名发 openFile（插件壳无内置编辑器）',
+    open && open.path === '.novelforge/characters/林昭.md', JSON.stringify(open));
+
+  // 「文风与摘要」那几行是工程固定文件，不该挂重命名/删除。
+  const metaRow = [...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes('全书大纲'));
+  check('固定元数据行没有重命名/删除',
+    metaRow && !metaRow.querySelector('[title="重命名"]') &&
+    !metaRow.querySelector('[title="删除（移到回收站）"]'));
+}
+
 console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
 process.exit(failures === 0 ? 0 : 1);

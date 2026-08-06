@@ -13,7 +13,7 @@ npm install              # 依赖
 npm run compile          # esbuild 打包到 dist/extension.js（F5 调试前必须有）
 npm run watch            # 监听构建
 npm run typecheck        # tsc --noEmit，必须零错误
-npm run smoke            # 五个离线冒烟测试，不需要 API Key
+npm run smoke            # 八个离线冒烟测试，不需要 API Key
 npm test                 # typecheck + smoke
 ```
 
@@ -26,7 +26,7 @@ npm test                 # typecheck + smoke
 | 模块 | 一句话职责 | README |
 |---|---|---|
 | `src/` | 三层架构总览与一条续写请求的完整链路 | [src/README.md](src/README.md) |
-| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts） | [src/core/README.md](src/core/README.md) |
+| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts、类文件操作 fileOps.ts） | [src/core/README.md](src/core/README.md) |
 | `src/core/model/` | 数据层：NovelProject、Markdown 解析、服务商配置、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/context/` | ★ 分层预算上下文装配器 + token 粗估 | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/features/` | 功能编排：续写、摘要、角色卡、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
@@ -59,10 +59,12 @@ npm test                 # typecheck + smoke
 
 1. **容错优先**：作者会手改任何 Markdown；解析失败退化为忽略，绝不抛崩。
 2. **不静默截断**：装配器降级/丢弃任何条目都必须留在明细里并附原因。
-3. **不静默覆盖**：角色卡更新走 diff 确认；style.md 覆盖前先问；「采纳写入」前正文只存在会话里；内置编辑器保存走内容 hash 乐观锁（[src/core/fileEditing.ts](src/core/fileEditing.ts)），磁盘变过就报冲突让用户取舍。
+3. **不静默覆盖**：角色卡更新走 diff 确认；style.md 覆盖前先问；「采纳写入」前正文只存在会话里；类文件操作遇到同名目标一律报错退出；内置编辑器保存走内容 hash 乐观锁（[src/core/fileEditing.ts](src/core/fileEditing.ts)），磁盘变过就报冲突让用户取舍。
 4. **不偷偷烧 token**：摘要不自动生成，只提示过期。
 5. **模型引用只在第一个斜杠处切分**：`openrouter/z-ai/glm-4.6` 中服务商前缀是 `openrouter`。
-6. **独立版的文件访问必须受限**：路径要落在工程根目录内、扩展名在白名单里、有大小上限。服务无鉴权（只绑 127.0.0.1），这些校验全在 `fileEditing.ts` 里兜住，别在别处绕过它直接读写。
+6. **不真删**：工程页的删除（以及会话删除）一律搬进 `.novelforge/.trash/` 并保留原相对路径。
+7. **文件访问不越界**：工程页的类文件操作锁在章节/角色/设定三个区内（`core/fileOps.ts` 的 `normalizeRel` / `sectionOf`）；独立版的读写另有一层——路径落在工程根内、扩展名白名单、大小上限，全在 `fileEditing.ts` 里兜住。服务无鉴权（只绑 127.0.0.1），别在别处绕过这两处直接读写。
+8. **层级只是收纳**：章节顺序永远由文件名数字前缀决定，与所在目录层级无关；分卷不重置编号，也不影响上下文装配与摘要新鲜度。
 
 ## 提交约定
 

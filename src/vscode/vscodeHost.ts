@@ -82,6 +82,11 @@ export class VsCodeHost implements Host {
       `${config.chaptersDir}/**/*.md`,
       '.novelforge/**/*.md',
       '.novelforge/project.json',
+      // 目录本身也要监听：工程页上文件夹是可见节点，新建/删除空文件夹
+      // 不动任何 .md，靠上面几条 glob 是看不见的。
+      `${config.chaptersDir}/**`,
+      '.novelforge/characters/**',
+      '.novelforge/lore/**',
     ];
     const watchers = patterns.map((p) =>
       vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(project.root, p))

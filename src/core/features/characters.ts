@@ -3,6 +3,7 @@ import { getHost } from '../host';
 import { collectStream, ChatOptions } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
+import { resolveSectionDir } from '../fileOps';
 import { NovelProject, emptyCharacterSections, exists, readText, renderCharacterCard, slugify, writeText } from '../model/project';
 import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections, Chapter } from '../model/types';
 import { takeHead } from '../context/tokenizer';
@@ -118,7 +119,7 @@ async function mergeCharacters(
       continue;
     }
     // 新角色：直接创建，没有可覆盖的人工内容。
-    const slug = await uniqueSlug(project, slugify(item.name));
+    const slug = await uniqueSlug(project.charactersDir, slugify(item.name));
     await project.writeCharacter({
       slug,
       name: item.name,
@@ -211,17 +212,25 @@ async function reviewCharacterUpdate(
   }
 }
 
-/** 手动新建一张空角色卡。 */
-export async function newCharacter(project: NovelProject): Promise<void> {
+/**
+ * 手动新建一张空角色卡。
+ * `dir` 是落点目录（工作区相对路径，如 `.novelforge/characters/主角`）；
+ * 缺省或越界时落在 characters/ 根下。
+ */
+export async function newCharacter(project: NovelProject, dir?: string): Promise<void> {
+  const target = resolveSectionDir(project, 'characters', dir);
+  const root = project.relPath(project.charactersDir);
   const name = await getHost().input({
     title: '新建角色卡',
-    prompt: '角色姓名',
+    prompt: target === root ? '角色姓名' : `角色姓名（建到 ${target}/）`,
     validate: (v) => (v.trim() ? undefined : '不能为空'),
   });
   if (!name) {
     return;
   }
-  const slug = await uniqueSlug(project, slugify(name));
+  // slug 带上子目录前缀，writeCharacter 会连中间目录一起建出来。
+  const prefix = target === root ? '' : `${target.slice(root.length + 1)}/`;
+  const slug = await uniqueSlug(project.charactersDir, `${prefix}${slugify(name)}`);
   const relPath = await project.writeCharacter({
     slug,
     name: name.trim(),
@@ -232,17 +241,20 @@ export async function newCharacter(project: NovelProject): Promise<void> {
   await getHost().openFile(relPath);
 }
 
-/** 手动新建一条设定。 */
-export async function newLore(project: NovelProject): Promise<void> {
+/** 手动新建一条设定。`dir` 同 newCharacter。 */
+export async function newLore(project: NovelProject, dir?: string): Promise<void> {
+  const target = resolveSectionDir(project, 'lore', dir);
+  const root = project.relPath(project.loreDir);
   const title = await getHost().input({
     title: '新建设定条目',
-    prompt: '设定标题（如「玄门七宗」）',
+    prompt: target === root ? '设定标题（如「玄门七宗」）' : `设定标题（建到 ${target}/）`,
     validate: (v) => (v.trim() ? undefined : '不能为空'),
   });
   if (!title) {
     return;
   }
-  const slug = slugify(title);
+  const prefix = target === root ? '' : `${target.slice(root.length + 1)}/`;
+  const slug = await uniqueSlug(project.loreDir, `${prefix}${slugify(title)}`);
   const abs = path.join(project.loreDir, `${slug}.md`);
   await writeText(
     abs,
@@ -325,10 +337,11 @@ function unique(arr: string[]): string[] {
   return [...new Set(arr.filter(Boolean))];
 }
 
-async function uniqueSlug(project: NovelProject, base: string): Promise<string> {
+/** 在某个区目录下找一个没被占用的 slug。slug 可以带子目录前缀。 */
+async function uniqueSlug(dirAbs: string, base: string): Promise<string> {
   let slug = base;
   let i = 2;
-  while (await exists(path.join(project.charactersDir, `${slug}.md`))) {
+  while (await exists(path.join(dirAbs, `${slug}.md`))) {
     slug = `${base}-${i++}`;
   }
   return slug;

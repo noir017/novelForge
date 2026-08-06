@@ -100,10 +100,12 @@ export class FileHost implements Host {
     try {
       const watcher = fs.watch(project.root, { recursive: true }, (_event, filename) => {
         const name = String(filename ?? '');
-        if (!/\.(md|json)$/i.test(name)) {
+        if (name.includes('node_modules') || name.includes('.trash')) {
           return;
         }
-        if (name.includes('node_modules')) {
+        // 目录事件没有扩展名——工程页上文件夹是可见节点，新建/删除空文件夹
+        // 也得刷新。凡是不带扩展名的路径都放行。
+        if (/\.[^./\\]+$/.test(name) && !/\.(md|json)$/i.test(name)) {
           return;
         }
         onChange();

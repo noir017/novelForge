@@ -26,11 +26,18 @@ const MANIFEST_FILE = 'project.json';
 /** 文件名形如 `001-楔子.md` / `12_初入江湖.md` / `003.md`。 */
 const CHAPTER_FILE_RE = /^(\d{1,5})[-_.\s]*(.*?)\.md$/i;
 
+/** 递归扫描的深度上限。防御性的：正常工程不会有这么深的卷/册嵌套。 */
+const MAX_TREE_DEPTH = 8;
+
 /**
  * 小说工程的数据访问层。
  *
  * 约定：所有 read* 方法每次都读盘（作者随时可能在编辑器里手改文件），
  * 只有章节列表做了一层缓存，由 FileSystemWatcher 主动失效。
+ *
+ * 章节 / 角色 / 设定三个目录都是**递归扫描**的：作者可以按卷、按阵营
+ * 分子目录整理，插件只认「目录下（含各级子目录）的 .md 文件」。
+ * 章节的顺序始终由文件名的数字前缀决定，与它在哪一层无关。
  */
 export class NovelProject {
   private chapterCache: Chapter[] | undefined;
@@ -82,6 +89,11 @@ export class NovelProject {
 
   get sessionsDir(): string {
     return path.join(this.novelDir, 'sessions');
+  }
+
+  /** 删除的东西搬这里，不真删。会话存储也用这个目录。 */
+  get trashDir(): string {
+    return path.join(this.novelDir, '.trash');
   }
 
   /** 0.1.x 的 `.novel/` 目录，仅用于迁移检测。 */
@@ -160,29 +172,24 @@ export class NovelProject {
 
   // ---------------------------------------------------------------- 章节
 
-  /** 扫描 chapters/ 下所有 `NNN-*.md`，按序号排序。 */
+  /**
+   * 递归扫描 chapters/ 下所有 `NNN-*.md`，按序号排序。
+   *
+   * 子目录只是给作者分卷用的收纳，不参与排序：`卷一/003-x.md` 与
+   * `003-x.md` 是同一个「第 3 章」。序号重复时按路径稳定排序，
+   * 让两条都出现在树上（作者能看见冲突，才能去改）。
+   */
   async listChapters(): Promise<Chapter[]> {
     if (this.chapterCache) {
       return this.chapterCache;
     }
-    let entries: import('node:fs').Dirent[];
-    try {
-      entries = await fs.readdir(this.chaptersDir, { withFileTypes: true });
-    } catch {
-      this.chapterCache = [];
-      return this.chapterCache;
-    }
 
     const chapters: Chapter[] = [];
-    for (const entry of entries) {
-      if (!entry.isFile()) {
-        continue;
-      }
-      const m = CHAPTER_FILE_RE.exec(entry.name);
+    for (const abs of await listMarkdownDeep(this.chaptersDir)) {
+      const m = CHAPTER_FILE_RE.exec(path.basename(abs));
       if (!m) {
         continue;
       }
-      const abs = path.join(this.chaptersDir, entry.name);
       const raw = await readText(abs);
       const body = raw.trim();
       const title = extractH1(body) ?? (m[2].trim() || `第 ${Number(m[1])} 章`);
@@ -195,7 +202,7 @@ export class NovelProject {
       });
     }
 
-    chapters.sort((a, b) => a.order - b.order);
+    chapters.sort((a, b) => a.order - b.order || a.relPath.localeCompare(b.relPath));
     this.chapterCache = chapters;
     return chapters;
   }
@@ -221,12 +228,16 @@ export class NovelProject {
     return chapters.length === 0 ? 1 : Math.max(...chapters.map((c) => c.order)) + 1;
   }
 
-  /** 新建章节文件，返回工作区相对路径。 */
-  async createChapter(order: number, title: string, content = ''): Promise<string> {
+  /**
+   * 新建章节文件，返回工作区相对路径。
+   * `dir` 是工作区相对的落点目录（如 `chapters/卷一`），缺省落在 chapters/ 根下。
+   */
+  async createChapter(order: number, title: string, content = '', dir?: string): Promise<string> {
     const fileName = `${pad3(order)}-${sanitizeFileName(title)}.md`;
-    const abs = path.join(this.chaptersDir, fileName);
+    const parent = dir ? this.pathOf(dir) : this.chaptersDir;
+    const abs = path.join(parent, fileName);
     if (await exists(abs)) {
-      throw new Error(`章节文件已存在：${fileName}`);
+      throw new Error(`章节文件已存在：${this.relPath(abs)}`);
     }
     const text = `# ${title}\n\n${content.trim()}\n`;
     await writeText(abs, text);
@@ -268,10 +279,14 @@ export class NovelProject {
   /**
    * 用磁盘上的实际章节刷新 manifest 索引，保留已记录的 summaryHash。
    * 返回刷新后的 manifest。
+   *
+   * 按 file 匹配，匹配不上再按 order 兜底——作者把某章挪进子目录后
+   * 路径变了，但那仍是同一章，不该因此丢掉「已总结」的记录。
    */
   async syncManifest(): Promise<ProjectManifest> {
     const manifest = await this.readManifest();
     const oldByFile = new Map(manifest.chapters.map((c) => [c.file, c]));
+    const oldByOrder = new Map(manifest.chapters.map((c) => [c.order, c]));
     const chapters = await this.listChapters();
 
     manifest.chapters = chapters.map<ManifestChapter>((c) => ({
@@ -280,7 +295,7 @@ export class NovelProject {
       title: c.title,
       wordCount: c.wordCount,
       contentHash: c.contentHash,
-      summaryHash: oldByFile.get(c.relPath)?.summaryHash,
+      summaryHash: (oldByFile.get(c.relPath) ?? oldByOrder.get(c.order))?.summaryHash,
     }));
 
     await this.writeManifest(manifest);
@@ -367,16 +382,16 @@ export class NovelProject {
   // ---------------------------------------------------------------- 角色 / 设定 / 文风
 
   async listCharacters(): Promise<CharacterCard[]> {
-    const files = await listMarkdown(this.charactersDir);
+    const files = await listMarkdownDeep(this.charactersDir);
     const cards: CharacterCard[] = [];
     for (const abs of files) {
       const raw = await readText(abs);
       const { frontmatter, body } = parseMarkdown(raw);
-      const slug = baseName(abs);
+      const slug = this.slugUnder(this.charactersDir, abs);
       cards.push({
         slug,
         relPath: this.relPath(abs),
-        name: asString(frontmatter.name) || extractH1(body) || slug,
+        name: asString(frontmatter.name) || extractH1(body) || baseName(abs),
         aliases: asArray(frontmatter.aliases),
         tags: asArray(frontmatter.tags),
         firstAppear: asNumber(frontmatter.firstAppear),
@@ -390,27 +405,67 @@ export class NovelProject {
   }
 
   async writeCharacter(card: Omit<CharacterCard, 'relPath' | 'body'>): Promise<string> {
+    // slug 可以带子目录（如 `主角/林昭`），writeText 会补齐中间目录。
     const abs = path.join(this.charactersDir, `${card.slug}.md`);
     await writeText(abs, renderCharacterCard(card));
     return this.relPath(abs);
   }
 
   async listLore(): Promise<LoreEntry[]> {
-    const files = await listMarkdown(this.loreDir);
+    const files = await listMarkdownDeep(this.loreDir);
     const entries: LoreEntry[] = [];
     for (const abs of files) {
       const raw = await readText(abs);
       const { frontmatter, body } = parseMarkdown(raw);
-      const slug = baseName(abs);
+      const slug = this.slugUnder(this.loreDir, abs);
       entries.push({
         slug,
         relPath: this.relPath(abs),
-        title: asString(frontmatter.title) || extractH1(body) || slug,
+        title: asString(frontmatter.title) || extractH1(body) || baseName(abs),
         keywords: asArray(frontmatter.keywords),
         body: stripH1(body),
       });
     }
     return entries;
+  }
+
+  /**
+   * 某个区目录下的文件标识：去掉扩展名的相对路径（正斜杠）。
+   * 根目录下的文件与改造前一致（就是文件名），子目录里的形如 `主角/林昭`——
+   * 上下文明细里的 `character:<slug>` 因此仍然唯一。
+   */
+  private slugUnder(dirAbs: string, fileAbs: string): string {
+    return path.relative(dirAbs, fileAbs).replace(/\\/g, '/').replace(/\.md$/i, '');
+  }
+
+  /**
+   * 递归列出某目录下的全部子目录（工作区相对路径，正斜杠，已排序）。
+   * 空目录也在内——作者建好卷目录还没往里写，树上也该看得见。
+   */
+  async listFolders(dirAbs: string): Promise<string[]> {
+    const out: string[] = [];
+    const walk = async (dir: string, depth: number): Promise<void> => {
+      if (depth > MAX_TREE_DEPTH) {
+        return;
+      }
+      let entries: import('node:fs').Dirent[];
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory() || isIgnoredDir(entry.name)) {
+          continue;
+        }
+        const abs = path.join(dir, entry.name);
+        out.push(this.relPath(abs));
+        await walk(abs, depth + 1);
+      }
+    };
+    await walk(dirAbs, 1);
+    out.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+    return out;
   }
 
   async readStyleGuide(): Promise<string> {
@@ -529,16 +584,42 @@ async function writeIfAbsent(absPath: string, text: string): Promise<void> {
   }
 }
 
-/** 列出目录下所有 .md 文件的绝对路径。 */
-async function listMarkdown(dir: string): Promise<string[]> {
-  try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    return entries
-      .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.md'))
-      .map((e) => path.join(dir, e.name));
-  } catch {
-    return [];
-  }
+/**
+ * 递归列出目录下所有 .md 文件的绝对路径（按路径排序，保证稳定）。
+ * 隐藏目录与 node_modules 一律跳过：`.trash/` 里躺着刚删掉的东西，
+ * 再扫出来就等于没删。
+ */
+async function listMarkdownDeep(dir: string): Promise<string[]> {
+  const out: string[] = [];
+  const walk = async (current: string, depth: number): Promise<void> => {
+    if (depth > MAX_TREE_DEPTH) {
+      return;
+    }
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const abs = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (!isIgnoredDir(entry.name)) {
+          await walk(abs, depth + 1);
+        }
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+        out.push(abs);
+      }
+    }
+  };
+  await walk(dir, 1);
+  out.sort((a, b) => a.localeCompare(b));
+  return out;
+}
+
+/** 扫描时跳过的目录名。 */
+export function isIgnoredDir(name: string): boolean {
+  return name.startsWith('.') || name === 'node_modules';
 }
 
 function baseName(absPath: string): string {

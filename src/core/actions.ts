@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { resolveSectionDir } from './fileOps';
 import { getHost } from './host';
 import { NovelProject } from './model/project';
 
@@ -32,19 +33,24 @@ export async function initProjectFlow(project: NovelProject, defaultTitle: strin
   return true;
 }
 
-/** 新建一章：问标题后落盘并打开。返回相对路径，取消返回 undefined。 */
-export async function newChapterFlow(project: NovelProject): Promise<string | undefined> {
+/**
+ * 新建一章：问标题后落盘并打开。返回相对路径，取消返回 undefined。
+ * `dir` 是落点目录（工作区相对路径，如 `chapters/第一卷`），缺省或越界时落在 chapters/ 根下。
+ * 序号仍然是全书唯一的下一个——分卷只是收纳，不重置编号。
+ */
+export async function newChapterFlow(project: NovelProject, dir?: string): Promise<string | undefined> {
+  const target = resolveSectionDir(project, 'chapters', dir);
   const order = await project.nextChapterOrder();
   const title = await getHost().input({
     title: `新建第 ${order} 章`,
-    prompt: '章节标题',
+    prompt: target === project.relPath(project.chaptersDir) ? '章节标题' : `章节标题（建到 ${target}/）`,
     value: `第${order}章`,
     validate: (v) => (v.trim() ? undefined : '不能为空'),
   });
   if (!title) {
     return undefined;
   }
-  const relPath = await project.createChapter(order, title.trim());
+  const relPath = await project.createChapter(order, title.trim(), '', target);
   await getHost().openFile(relPath);
   return relPath;
 }
