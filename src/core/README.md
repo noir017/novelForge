@@ -20,6 +20,7 @@
 | [host.ts](host.ts) | core 对宿主的唯一依赖面（窄接口）：弹窗/选择/进度/文件监听/打开文件等，两个壳各实现一份。 |
 | [actions.ts](actions.ts) | 工程级交互流程（初始化、新建章节），命令面板与网页共用。 |
 | [attachments.ts](attachments.ts) | @ 引用的候选列表构建（展示与选择交给 Host.pick）。 |
+| [fileEditing.ts](fileEditing.ts) | 内置编辑器的文件读写：路径必须落在工程根内、只碰白名单文本扩展名、有大小上限，保存走内容 hash 乐观锁（磁盘变过就抛 `FileConflictError`，绝不静默覆盖）。独立版用；插件壳走 VS Code 自己的编辑器，不经这里。 |
 | [config.ts](config.ts) | `readConfig` / `readGlobalBudget` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |
 | [stores.ts](stores.ts) | 文件后端的配置/密钥存储（`~/.novelforge/`），双壳共用。 |
 | [projectView.ts](projectView.ts) | 工程页的数据来源：产出一份可序列化的 `ProjectTree` 快照（章节、角色、设定、摘要新鲜度），展开/折叠状态留在前端。 |

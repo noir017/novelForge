@@ -204,6 +204,35 @@ export class ChatController {
         await getHost().openFile(msg.path);
         return;
 
+      case 'openEditor':
+      case 'reloadFile': {
+        // 有内置编辑器的宿主（独立版）走内置编辑器；插件壳没有，
+        // 回落到 openFile —— 那边打开的本来就是 VS Code 真正的编辑器。
+        const host = getHost();
+        if (host.openInEditor) {
+          await host.openInEditor(msg.path);
+        } else {
+          await host.openFile(msg.path);
+        }
+        return;
+      }
+
+      case 'saveFile': {
+        const host = getHost();
+        if (!host.saveFromEditor) {
+          this.toast('当前环境没有内置编辑器。', 'error');
+          return;
+        }
+        await host.saveFromEditor(msg.path, msg.text, msg.baseHash);
+        // 保存的可能是章节正文，字数/摘要新鲜度都会变。
+        await this.pushState();
+        return;
+      }
+
+      case 'openExternal':
+        await (getHost().openExternal ?? getHost().openFile)(msg.path);
+        return;
+
       case 'syncSummaries':
         await syncSummaries(this.project);
         await this.pushState();

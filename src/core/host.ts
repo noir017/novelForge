@@ -52,6 +52,18 @@ export interface Host {
   selectionAttachment(project: NovelProject): Promise<Attachment | undefined>;
   /** 「浏览工作区文件」：插件弹文件对话框；独立版提示输入相对路径。可选。 */
   browseFile?(project: NovelProject): Promise<string | undefined>;
+  /**
+   * 在宿主自己的编辑器里打开一个文本文件。
+   *
+   * 独立版实现为「读文件 → 广播 editorOpen」，网页里开内置编辑器；
+   * 插件壳不实现——那边 openFile 已经开的是 VS Code 真正的编辑器 tab，
+   * controller 会自动回落到 openFile。
+   */
+  openInEditor?(relPath: string): Promise<void>;
+  /** 保存内置编辑器的内容。只有提供 openInEditor 的宿主才需要实现。 */
+  saveFromEditor?(relPath: string, text: string, baseHash?: string): Promise<void>;
+  /** 用系统默认程序打开。独立版用它实现编辑器里的「在外部打开」。 */
+  openExternal?(relPath: string): Promise<void>;
   /** 角色卡更新审阅：插件开 diff 编辑器；独立版弹确认框。返回 undefined=取消。 */
   reviewReplace?(name: string, currentText: string, proposedText: string): Promise<'apply' | 'discard' | undefined>;
   /** 「在 VS Code 设置中打开」，仅插件实现。 */

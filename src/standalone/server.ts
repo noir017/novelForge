@@ -54,13 +54,19 @@ export function startServer(opts: ServeOptions): number {
     fetch(req, server) {
       const url = new URL(req.url);
       if (url.pathname === '/ws') {
+        // 服务无鉴权，只靠「仅绑 127.0.0.1」保护。恶意网页无法读跨源
+        // WebSocket 的响应，但能发消息（WS 不受同源策略约束），
+        // 所以这里显式校验 Origin，把 DNS rebinding 一类的写入攻击挡在外面。
+        if (!isAllowedOrigin(req.headers.get('origin'), server.port)) {
+          return new Response('Forbidden origin', { status: 403 });
+        }
         if (server.upgrade(req)) {
           return undefined;
         }
         return new Response('WebSocket upgrade failed', { status: 400 });
       }
       if (url.pathname === '/' || url.pathname === '/index.html') {
-        return new Response(standalonePage(), {
+        return new Response(standalonePage(opts.root), {
           headers: { 'content-type': 'text/html; charset=utf-8' },
         });
       }
@@ -68,6 +74,16 @@ export function startServer(opts: ServeOptions): number {
         const asset = assetBytes(url.pathname.slice('/media/'.length));
         if (asset) {
           return new Response(asset.bytes, { headers: { 'content-type': asset.mime } });
+        }
+      }
+      // 浏览器会自动请求 /favicon.ico；不接住的话每次加载都在控制台留一条 404。
+      // icon.svg 用 currentColor（活动栏里要跟随主题），单独当 favicon 时没有
+      // 继承色可用，这里替换成品牌蓝，深浅色标签栏上都看得见。
+      if (url.pathname === '/favicon.ico') {
+        const icon = assetBytes('icon.svg');
+        if (icon) {
+          const svg = new TextDecoder().decode(icon.bytes).replaceAll('currentColor', '#4daafc');
+          return new Response(svg, { headers: { 'content-type': icon.mime } });
         }
       }
       return new Response('Not Found', { status: 404 });
@@ -107,4 +123,24 @@ export function startServer(opts: ServeOptions): number {
 
   console.log(`Novel Forge 已启动：http://127.0.0.1:${server.port}/（工程：${opts.root}）`);
   return server.port;
+}
+
+/**
+ * WS 的 Origin 白名单：只认本机同端口。
+ *
+ * 没有 Origin 头的一律放过——命令行工具（冒烟测试里的 Bun WebSocket、
+ * wscat 等）不发这个头，浏览器一定发，所以缺失说明不是网页发起的请求。
+ */
+function isAllowedOrigin(origin: string | null, port: number): boolean {
+  if (!origin) {
+    return true;
+  }
+  try {
+    const u = new URL(origin);
+    const host = u.hostname.toLowerCase();
+    const localhost = host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1';
+    return localhost && u.port === String(port);
+  } catch {
+    return false;
+  }
 }
