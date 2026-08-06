@@ -100,7 +100,36 @@ export async function updateSettings(patch: PersistedSettings): Promise<void> {
   if (!store) {
     throw new Error('配置后端尚未初始化');
   }
-  await store.write({ ...raw(), ...patch });
+  // 合并的基线必须是**解析后**的配置，不能是 raw()。
+  // config.json 还不存在时 raw() 来自 legacy reader，其中的 providers 可能缺席；
+  // 直接 merge 会把只改一个字段（例如下拉框切模型）的写入变成
+  // 「一份没有 providers 的 config.json」，此后 model 指向的服务商再也解析不出来。
+  await store.write({ ...effectiveSettings(), ...patch });
+}
+
+/**
+ * 落盘用的完整快照：raw() 打底，再补上兜底推导出的 providers/model。
+ * 保证任何一次写入都不会产出「有 model、没 providers」的配置。
+ *
+ * 顺手丢掉 0.1.x 的带点键：它们只是 legacy reader 的输入，写进
+ * config.json 既无人读取，又会在 providers 日后被清空时重新触发兜底。
+ */
+function effectiveSettings(): PersistedSettings {
+  const c = { ...raw() } as Record<string, unknown>;
+  for (const key of Object.keys(c)) {
+    if (key.includes('.') || key === 'provider') {
+      delete c[key];
+    }
+  }
+  const settings = c as PersistedSettings;
+  const config = readConfig();
+  if (normalizeProviders(settings.providers ?? []).length === 0 && config.providers.length > 0) {
+    settings.providers = config.providers;
+    if (!(settings.model ?? '').trim()) {
+      settings.model = config.model;
+    }
+  }
+  return settings;
 }
 
 /** seedFromLegacy 原本吃 vscode 配置的分散键；这里接受扁平 raw。 */

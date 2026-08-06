@@ -3,29 +3,41 @@ import { PersistedSettings } from '../core/config';
 import { normalizeProviders } from '../core/model/providers';
 import { FileConfigStore, FileSecretStore } from '../core/stores';
 
-/**
- * 遗留单服务商键的读取器（novel.provider / novel.openai.baseUrl …），
- * 供 config.ts 的 seedFromLegacyRaw 兜底（未迁移或回滚用户）。
- */
-export const legacySettingsReader = {
-  read(): PersistedSettings {
-    const cfg = vscode.workspace.getConfiguration('novel');
-    return {
-      provider: cfg.get<string>('provider'),
-      'openai.baseUrl': cfg.get<string>('openai.baseUrl'),
-      'openai.model': cfg.get<string>('openai.model'),
-      'anthropic.baseUrl': cfg.get<string>('anthropic.baseUrl'),
-      'anthropic.model': cfg.get<string>('anthropic.model'),
-      'vscodeLm.family': cfg.get<string>('vscodeLm.family'),
-    } as unknown as PersistedSettings;
-  },
-};
-
 const SETTING_KEYS = [
   'providers', 'model', 'contextWindow', 'maxOutputTokens', 'temperature',
   'recentChaptersFullText', 'prevChapterTailChars', 'chaptersDir',
   'summaryBatchSize', 'requestTimeoutMs',
 ];
+
+/** 0.1.x 的单服务商键，供 config.ts 的 seedFromLegacyRaw 消费。 */
+const LEGACY_KEYS = [
+  'provider', 'openai.baseUrl', 'openai.model',
+  'anthropic.baseUrl', 'anthropic.model', 'vscodeLm.family',
+];
+
+/**
+ * settings.json 的读取器，在 ~/.novelforge/config.json 尚不可用时兜底
+ *（未迁移、被删、或内容损坏——FileConfigStore.read 对坏 JSON 返回 undefined）。
+ *
+ * 必须连**新结构**的键一起读，不能只读 0.1.x 的单服务商键：
+ * 用户在 settings.json 里配好的 novel.providers 否则会被整份丢掉，
+ * readConfig 只剩 0.1.x 默认值可兜底（novel.openai.model 声明了默认值
+ * "gpt-4o"，cfg.get 永远拿得到值），于是界面报「服务商下没有模型」，
+ * 而那个模型明明就在设置里躺着。
+ */
+export const legacySettingsReader = {
+  read(): PersistedSettings {
+    const cfg = vscode.workspace.getConfiguration('novel');
+    const out: Record<string, unknown> = {};
+    for (const key of [...SETTING_KEYS, ...LEGACY_KEYS]) {
+      const value = cfg.get(key);
+      if (value !== undefined) {
+        out[key] = value;
+      }
+    }
+    return out as PersistedSettings;
+  },
+};
 
 /**
  * 一次性迁移：settings.json 的 novel.* + SecretStorage → ~/.novelforge/。
