@@ -520,6 +520,37 @@ kbd {
   font-size: 0.82em;
 }
 
+/* 思考过程折叠区（推理模型）。样式跟随上下文明细，视觉上更淡一层——
+   它是过程信息，不该抢正文的注意力。 */
+
+details.reasoning {
+  font-size: 0.82em;
+  border: 1px dashed var(--vscode-panel-border, rgba(128, 128, 128, 0.3));
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.05));
+}
+
+details.reasoning > summary {
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+  list-style: revert;
+}
+
+.reasoning-body {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-editor-font-family);
+  /* 思考往往比正文还长，限高滚动，别把正文顶出屏幕。 */
+  max-height: 220px;
+  overflow-y: auto;
+}
+
 /* 上下文明细折叠区 */
 
 details.ctx {

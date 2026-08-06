@@ -8,6 +8,8 @@ import { Chapter } from '../model/types';
 
 export interface GenerateHandlers {
   onDelta(delta: string, full: string): void;
+  /** 推理模型的思考增量。正文之前可能先想很久，界面靠它给出反馈。 */
+  onReasoning?(delta: string, full: string): void;
   onDone(full: string): void;
   onError(message: string): void;
   onCancelled(): void;
@@ -63,11 +65,18 @@ export class ContinueSession {
     const abort = new AbortController();
     this.currentAbort = abort;
 
+    let reasoning = '';
     const options: ChatOptions = {
       maxOutputTokens: config.maxOutputTokens,
       temperature: config.temperature,
       timeoutMs: config.requestTimeoutMs,
       signal: abort.signal,
+      onReasoning: handlers.onReasoning
+        ? (text) => {
+            reasoning += text;
+            handlers.onReasoning?.(text, reasoning);
+          }
+        : undefined,
     };
 
     try {

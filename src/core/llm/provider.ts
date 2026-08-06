@@ -12,6 +12,14 @@ export interface ChatOptions {
   timeoutMs: number;
   /** 外部取消（用户点「停止」）。超时仍由本模块内部处理。 */
   signal?: AbortSignal;
+  /**
+   * 推理模型的思考内容（DeepSeek reasoner、Gemma/Gemini thinking 等）。
+   *
+   * 思考不是正文，不能混进 chatStream 的产出——它不该被写入章节。
+   * 但它可能先跑几十秒才开始吐正文，界面在这期间必须有反馈，
+   * 否则看起来就像「卡住了，最后一次性蹦出来」。
+   */
+  onReasoning?: (text: string) => void;
 }
 
 export interface LlmProvider {

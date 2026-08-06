@@ -66,6 +66,11 @@ export interface ChatTurn {
   interrupted?: boolean;
   /** 仅 assistant 轮：本轮报错信息（保留在历史里，便于复查）。 */
   error?: string;
+  /**
+   * 仅 assistant 轮：推理模型的思考过程。
+   * 不是正文——采纳写入章节时只取 content。
+   */
+  reasoning?: string;
 }
 
 export interface ChatSession {

@@ -349,6 +349,12 @@
       wrap.appendChild(box);
     }
 
+    // 思考过程放在正文上方，默认折叠——它不是正文，但正文迟迟不来时
+    // 它是唯一的进度反馈。用户展开后的状态由 details 自己维持。
+    if (turn.reasoning) {
+      wrap.appendChild(buildReasoningDetails(turn.reasoning));
+    }
+
     const body = document.createElement('div');
     body.className = 'msg-body';
     body.textContent = turn.error ? turn.error : turn.content;
@@ -518,6 +524,28 @@
     b.setAttribute('aria-label', title);
     b.addEventListener('click', onClick);
     return b;
+  }
+
+  /**
+   * 思考过程的折叠块。
+   *
+   * 推理模型（gemma/gemini thinking、DeepSeek reasoner 等）可能先想几十秒
+   * 才开始吐正文。这段内容不是正文——采纳写入时不会带上它——但把它显示
+   * 出来，用户才知道模型在动，而不是界面卡住了。
+   */
+  function buildReasoningDetails(text) {
+    const det = document.createElement('details');
+    det.className = 'reasoning';
+
+    const sum = document.createElement('summary');
+    sum.textContent = `思考过程 · ${countWords(text)} 字`;
+    det.appendChild(sum);
+
+    const pre = document.createElement('div');
+    pre.className = 'reasoning-body';
+    pre.textContent = text;
+    det.appendChild(pre);
+    return det;
   }
 
   function buildContextDetails(digest) {
@@ -1846,6 +1874,28 @@
           node.classList.add('streaming');
           const body = node.querySelector('.msg-body');
           if (body) body.textContent += msg.text;
+          scrollToBottom();
+        }
+        break;
+      }
+      case 'reasoning': {
+        // 思考增量：气泡里没有折叠块就建一个（默认收起），有就往里追加。
+        // 就地追加而不是重建节点——重建会把用户展开的状态和滚动位置弄丢。
+        const node = el.messages.querySelector(`[data-turn="${msg.turnId}"]`);
+        if (node) {
+          node.classList.add('streaming');
+          let det = node.querySelector('details.reasoning');
+          if (!det) {
+            det = buildReasoningDetails('');
+            node.insertBefore(det, node.querySelector('.msg-body'));
+          }
+          const box = det.querySelector('.reasoning-body');
+          if (box) {
+            box.textContent += msg.text;
+            det.querySelector('summary').textContent = `思考过程 · ${countWords(box.textContent)} 字`;
+            // 展开着看的时候，让它跟着滚到最新。
+            if (det.open) box.scrollTop = box.scrollHeight;
+          }
           scrollToBottom();
         }
         break;

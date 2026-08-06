@@ -123,6 +123,8 @@ export type OutMessage =
   | { type: 'session'; session: SerializedSession }
   | { type: 'sessions'; list: SessionListItem[] }
   | { type: 'delta'; turnId: string; text: string }
+  /** 推理模型的思考增量。前端折叠显示，不计入正文。 */
+  | { type: 'reasoning'; turnId: string; text: string }
   | { type: 'turnDone'; turn: SerializedTurn }
   | { type: 'context'; turnId: string; digest: SerializedDigest }
   | { type: 'busy'; value: boolean }
@@ -275,6 +277,8 @@ export interface SerializedTurn {
   acceptedTo?: string;
   interrupted?: boolean;
   error?: string;
+  /** 推理模型的思考过程。折叠展示，不属于正文，采纳时不写入章节。 */
+  reasoning?: string;
 }
 
 export interface SerializedDigest {

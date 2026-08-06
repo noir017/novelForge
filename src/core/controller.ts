@@ -632,6 +632,12 @@ export class ChatController {
       },
       {
         onDelta: (delta) => this.post({ type: 'delta', turnId: assistantTurn.id, text: delta }),
+        // 推理模型可能先思考几十秒才开始吐正文。把思考也推给前端，
+        // 否则那段时间气泡是空的，看起来就像卡住、最后一次性蹦出来。
+        onReasoning: (delta, full) => {
+          assistantTurn.reasoning = full;
+          this.post({ type: 'reasoning', turnId: assistantTurn.id, text: delta });
+        },
         onDone: (full) => {
           assistantTurn.content = full;
         },
@@ -871,6 +877,7 @@ function serializeTurn(t: ChatTurn): SerializedTurn {
     acceptedTo: t.acceptedTo,
     interrupted: t.interrupted,
     error: t.error,
+    reasoning: t.reasoning,
   };
 }
 

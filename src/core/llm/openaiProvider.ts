@@ -63,7 +63,13 @@ export class OpenAiProvider implements LlmProvider {
           throw new LlmError(`${this.label} 返回错误：${chunk.error.message ?? '未知错误'}`);
         }
         const delta = chunk.choices?.[0]?.delta;
-        // 部分服务商（DeepSeek reasoner 等）会先吐思考内容，这里只取正文。
+        // 思考内容不能混进正文——它不该被采纳写入章节。但推理模型
+        // （gemma/gemini thinking、DeepSeek reasoner 等）可能先想几十秒
+        // 才开始吐正文，这段时间界面不能是空的，所以单独回调出去。
+        const reasoning = delta?.reasoning_content ?? delta?.reasoning;
+        if (reasoning) {
+          options.onReasoning?.(reasoning);
+        }
         if (delta?.content) {
           yield delta.content;
         }
@@ -77,7 +83,7 @@ export class OpenAiProvider implements LlmProvider {
 }
 
 interface OpenAiChunk {
-  choices?: { delta?: { content?: string } }[];
+  choices?: { delta?: { content?: string; reasoning_content?: string; reasoning?: string } }[];
   error?: { message?: string };
 }
 

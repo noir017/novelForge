@@ -67,17 +67,26 @@ function readJson(file) {
     ? new AnthropicProvider(baseUrl, active.model.name, key)
     : new OpenAiProvider(baseUrl, active.model.name, key);
 
+  // 上游会按提示词缓存：同一句话第二次问就是瞬间返回整段，
+  // 那不是「不流式」，是根本没跑模型。每次塞一个唯一串避开缓存。
+  const nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const prompt =
+    `（忽略这行编号 ${nonce}）写一段 300 字左右的中文场景描写：` +
+    '深夜的旧书店，店主在整理最后一排书架。只输出正文。';
+
   console.log(`模型 ${ref}`);
   console.log(`地址 ${baseUrl}`);
-  console.log('请求「从 1 数到 30，用中文，每个数字之间加顿号」…\n');
+  console.log(`防缓存 nonce ${nonce}`);
+  console.log('请求一段 300 字场景描写…\n');
 
   const t0 = Date.now();
   const marks = [];
   let full = '';
   try {
     for await (const delta of provider.chatStream(
-      [{ role: 'user', content: '从 1 数到 30，用中文，每个数字之间加顿号。只输出数字。' }],
-      { maxOutputTokens: 400, temperature: 0, timeoutMs: 120000 }
+      [{ role: 'user', content: prompt }],
+      // temperature 拉高一点，进一步降低命中语义缓存的可能。
+      { maxOutputTokens: 800, temperature: 0.9, timeoutMs: 180000 }
     )) {
       marks.push({ at: Date.now() - t0, len: delta.length });
       full += delta;
@@ -106,12 +115,13 @@ function readJson(file) {
 
   if (marks.length === 1) {
     console.log('结论：上游一次性返回了全部内容（只有 1 个增量块）。');
-    console.log('      这不是插件的问题——界面拿到的就是一整段，无法再拆成流式。');
-    console.log('      多半是中间的反代/网关缓冲了 SSE，或该服务不支持 stream。');
+    console.log('      注意先排除缓存命中——本脚本已加 nonce，但若上游做的是');
+    console.log('      语义缓存仍可能命中。可用 curl 看 x-omniroute-cache-hit。');
+    console.log('      确认非缓存后，多半是反代缓冲了 SSE，或该服务不支持 stream。');
     console.log('      若走 Nginx，检查 proxy_buffering off; 与 X-Accel-Buffering: no。');
   } else if (last - first < 200) {
     console.log('结论：分块了，但几乎同时到达（跨度 < 200ms）。');
-    console.log('      通常也是被反代整体缓冲后一次性放行。');
+    console.log('      要么是缓存命中（整段已备好），要么被反代整体缓冲后一次放行。');
   } else {
     console.log('结论：上游确实在逐块流式返回，链路正常。');
     console.log('      若界面仍是「等全部生成完才显示」，问题在前端渲染。');

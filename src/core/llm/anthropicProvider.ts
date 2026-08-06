@@ -71,6 +71,14 @@ export class AnthropicProvider implements LlmProvider {
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
           yield event.delta.text;
         }
+        // 扩展思考（thinking blocks）同样不是正文，单独回调给界面展示。
+        if (
+          event.type === 'content_block_delta' &&
+          event.delta?.type === 'thinking_delta' &&
+          event.delta.thinking
+        ) {
+          options.onReasoning?.(event.delta.thinking);
+        }
       }
     } catch (err) {
       throw normalizeError(err, signal, this.label);
@@ -82,7 +90,7 @@ export class AnthropicProvider implements LlmProvider {
 
 interface AnthropicEvent {
   type: string;
-  delta?: { type?: string; text?: string };
+  delta?: { type?: string; text?: string; thinking?: string };
   error?: { message?: string };
 }
 

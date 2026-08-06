@@ -200,6 +200,71 @@ console.log('\n== 生成中的限制 ==');
     ui.sent.filter((m) => m.type === 'retry').length === before);
 }
 
+// ---------------------------------------------------------------- 思考过程
+
+console.log('\n== 思考过程（推理模型）==');
+{
+  const ui = mount();
+  ui.post({ type: 'session', session: { id: 's', title: '', turns: [] } });
+  ui.post({ type: 'turnDone', turn: turn('u1', 'user', '写一段') });
+  ui.post({ type: 'busy', value: true });
+  ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '') });
+
+  const det = () => ui.bubble('a1').querySelector('details.reasoning');
+  check('还没思考时不显示折叠块', !det());
+
+  // 推理模型常常先想几十秒才吐正文——这段时间界面必须有东西。
+  ui.post({ type: 'reasoning', turnId: 'a1', text: '先确定场景：' });
+  check('收到思考后出现折叠块', !!det());
+  check('默认是折叠的', det().open === false);
+  check('思考内容已写入', det().querySelector('.reasoning-body').textContent === '先确定场景：');
+  check('折叠标题显示字数', /思考过程/.test(det().querySelector('summary').textContent),
+    det().querySelector('summary').textContent);
+  check('思考不进正文', ui.bodyOf('a1').textContent === '',
+    JSON.stringify(ui.bodyOf('a1').textContent));
+  check('思考期间也显示流式光标', ui.bubble('a1').classList.contains('streaming'));
+
+  ui.post({ type: 'reasoning', turnId: 'a1', text: '夜里的旧书店。' });
+  check('思考增量累加',
+    det().querySelector('.reasoning-body').textContent === '先确定场景：夜里的旧书店。');
+
+  // 用户展开后，后续增量不能把它重新收起来。
+  det().open = true;
+  ui.post({ type: 'reasoning', turnId: 'a1', text: '再补细节。' });
+  check('展开状态不被后续增量重置', det().open === true);
+
+  // 正文开始后，思考块仍在，正文只含正文。
+  ui.post({ type: 'delta', turnId: 'a1', text: '灯昏。' });
+  check('正文开始后思考块仍保留', !!det());
+  check('正文只含正文', ui.bodyOf('a1').textContent === '灯昏。');
+
+  ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '灯昏。', { reasoning: '先确定场景：夜里的旧书店。再补细节。' }) });
+  ui.post({ type: 'busy', value: false });
+  check('收尾后思考块还在（从 turn.reasoning 重建）', !!det());
+  check('收尾后默认仍是折叠的', det().open === false);
+  check('收尾后正文可编辑', ui.bodyOf('a1').getAttribute('contenteditable') === 'true');
+
+  // 最关键的一条：采纳写入章节时绝不能带上思考内容。
+  const accept = [...ui.bubble('a1').querySelectorAll('.msg-actions button')]
+    .find((b) => b.textContent === '采纳写入');
+  accept.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const sent = ui.sent.filter((m) => m.type === 'accept').pop();
+  check('采纳的文本不含思考内容', !!sent && !sent.text.includes('先确定场景'),
+    sent ? JSON.stringify(sent.text) : '没发出 accept');
+  check('采纳的文本就是正文', !!sent && sent.text === '灯昏。',
+    sent ? JSON.stringify(sent.text) : '');
+
+  // 复制同理。
+  const copy = [...ui.bubble('a1').querySelectorAll('.msg-actions button')]
+    .find((b) => b.textContent === '复制');
+  check('复制按钮存在（不含思考）', !!copy);
+
+  // 没有思考的普通模型不该多出一个空折叠块。
+  ui.post({ type: 'turnDone', turn: turn('a2', 'assistant', '普通输出') });
+  check('无思考的回复不出现折叠块',
+    !ui.bubble('a2').querySelector('details.reasoning'));
+}
+
 // ---------------------------------------------------------------- 工程页目录树
 
 /** 造一棵三层深的树，覆盖目录 / 章节 / 角色 / 空文件夹四种节点。 */
