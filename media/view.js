@@ -419,6 +419,17 @@
     return b;
   }
 
+  /** 行尾的小图标按钮（新建/重命名/移动/删除）。文字太长会把行挤没。 */
+  function iconBtn(glyph, title, onClick) {
+    const b = document.createElement('button');
+    b.className = 'row-icon';
+    b.textContent = glyph;
+    b.title = title;
+    b.setAttribute('aria-label', title);
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
   function buildContextDetails(digest) {
     const det = document.createElement('details');
     det.className = 'ctx';
@@ -581,11 +592,34 @@
 
   // ---------------------------------------------------------------- 工程
 
-  /** 分组展开状态。放在模块级，重渲染后不会把用户折叠的组又展开。 */
+  /**
+   * 折叠状态。放在模块级，重渲染后不会把用户折叠的东西又展开。
+   * 四个顶层分组默认展开；文件夹默认折叠——一进工程页就摊开整棵树反而看不清。
+   */
   const openGroups = { chapters: true, characters: true, lore: true, meta: true };
+  /** 展开着的文件夹（relPath 集合）。 */
+  const openFolders = new Set();
 
-  function projectAction(action, order) {
-    vscode.postMessage({ type: 'projectAction', action, order });
+  function projectAction(action, order, dir) {
+    vscode.postMessage({ type: 'projectAction', action, order, dir });
+  }
+
+  function fileAction(action, relPath) {
+    vscode.postMessage({ type: 'fileAction', action, relPath });
+  }
+
+  function openFile(relPath) {
+    vscode.postMessage({ type: 'openFile', path: relPath });
+  }
+
+  /**
+   * 最近一次收到的树。展开/折叠文件夹只是本地状态变化，
+   * 拿这份快照重画即可，不必往后端要一次。
+   */
+  let lastTree = null;
+
+  function rerenderProject() {
+    if (lastTree) renderProject(lastTree);
   }
 
   el.projectToolbar.addEventListener('click', (e) => {
@@ -594,6 +628,7 @@
   });
 
   function renderProject(tree) {
+    lastTree = tree;
     el.projectBody.innerHTML = '';
     // 还不是小说工程时，工具栏上的「新建章节」等按钮点了只会报错。
     el.projectToolbar.classList.toggle('hidden', !tree.initialized);
@@ -605,32 +640,94 @@
 
     el.projectBody.appendChild(buildProjectHead(tree));
     el.projectBody.appendChild(
-      buildGroup('chapters', '章节', `${tree.chapterCount} 章 · ${formatWords(tree.totalWords)}`, () =>
-        tree.chapters.length === 0
-          ? [emptyRow('还没有章节。点上方「＋ 新建章节」开始。')]
-          : [...tree.chapters].reverse().map(buildChapterRow)
-      )
+      buildGroup('chapters', '章节', `${tree.chapterCount} 章 · ${formatWords(tree.totalWords)}`, {
+        root: tree.chaptersRoot,
+        newAction: 'newChapter',
+        newLabel: '新建章节',
+        build: () =>
+          tree.chapters.length === 0
+            ? [emptyRow('还没有章节。点上方「＋ 新建章节」开始。')]
+            : renderNodes(tree.chapters, 0, 'newChapter'),
+      })
     );
     el.projectBody.appendChild(
-      buildGroup('characters', '角色', `${tree.characters.length} 人`, () =>
-        tree.characters.length === 0
-          ? [emptyRow('还没有角色卡。可运行「提取/更新角色卡」从正文抽取。')]
-          : tree.characters.map((f) => buildFileRow(f, '👤'))
-      )
+      buildGroup('characters', '角色', countLabel(tree.characters, '人'), {
+        root: tree.charactersRoot,
+        newAction: 'newCharacter',
+        newLabel: '新建角色卡',
+        build: () =>
+          tree.characters.length === 0
+            ? [emptyRow('还没有角色卡。可运行「提取/更新角色卡」从正文抽取。')]
+            : renderNodes(tree.characters, 0, 'newCharacter'),
+      })
     );
     el.projectBody.appendChild(
-      buildGroup('lore', '设定', `${tree.lore.length} 条`, () =>
-        tree.lore.length === 0
-          ? [emptyRow('还没有设定条目。keywords 命中纲要时会自动注入上下文。')]
-          : tree.lore.map((f) => buildFileRow(f, '🌐'))
-      )
+      buildGroup('lore', '设定', countLabel(tree.lore, '条'), {
+        root: tree.loreRoot,
+        newAction: 'newLore',
+        newLabel: '新建设定',
+        build: () =>
+          tree.lore.length === 0
+            ? [emptyRow('还没有设定条目。keywords 命中纲要时会自动注入上下文。')]
+            : renderNodes(tree.lore, 0, 'newLore'),
+      })
     );
     el.projectBody.appendChild(
-      buildGroup('meta', '文风与摘要', tree.staleCount > 0 ? `${tree.staleCount} 章待总结` : '已同步', () =>
-        buildMetaRows(tree)
-      )
+      buildGroup('meta', '文风与摘要', tree.staleCount > 0 ? `${tree.staleCount} 章待总结` : '已同步', {
+        build: () => buildMetaRows(tree),
+      })
     );
   }
+
+  /** 顶层分组的副标题：文件总数（含子文件夹里的）。 */
+  function countLabel(nodes, unit) {
+    let files = 0;
+    let folders = 0;
+    const walk = (list) => {
+      for (const n of list) {
+        if (n.kind === 'dir') {
+          folders++;
+          walk(n.children);
+        } else {
+          files++;
+        }
+      }
+    };
+    walk(nodes);
+    return folders > 0 ? `${files} ${unit} · ${folders} 个文件夹` : `${files} ${unit}`;
+  }
+
+  /**
+   * 递归渲染一层节点。返回扁平的行数组——树的层级靠 depth 缩进表达，
+   * 而不是嵌套 DOM：折叠一个文件夹只需要重建它所在的分组。
+   *
+   * `newAction` 是该区「在此新建」的动作名，挂在每个文件夹行上。
+   */
+  function renderNodes(nodes, depth, newAction) {
+    const rows = [];
+    for (const node of nodes) {
+      if (node.kind === 'dir') {
+        rows.push(buildFolderRow(node, depth, newAction));
+        if (openFolders.has(node.relPath)) {
+          if (node.children.length === 0) {
+            rows.push(emptyRow('（空文件夹）', depth + 1));
+          } else {
+            rows.push(...renderNodes(node.children, depth + 1, newAction));
+          }
+        }
+      } else if (node.kind === 'chapter') {
+        rows.push(buildChapterRow(node, depth));
+      } else {
+        rows.push(buildFileRow(node, iconFor(newAction), depth));
+      }
+    }
+    return rows;
+  }
+
+  function iconFor(newAction) {
+    return newAction === 'newCharacter' ? '👤' : newAction === 'newLore' ? '🌐' : '📄';
+  }
+
 
   function buildInitPrompt() {
     const box = document.createElement('div');
@@ -678,25 +775,42 @@
     return head;
   }
 
-  /** 可折叠分组。`build` 惰性调用，折叠时不生成行。 */
-  function buildGroup(id, label, description, build) {
+  /**
+   * 可折叠分组。`opts.build` 惰性调用，折叠时不生成行。
+   * 给了 `opts.root` 的分组，标题栏右侧还挂「＋ 新建」与「＋ 文件夹」。
+   */
+  function buildGroup(id, label, description, opts) {
     const box = document.createElement('div');
     box.className = 'group';
 
-    const head = document.createElement('button');
+    const head = document.createElement('div');
     head.className = 'group-head';
+
+    const toggle = document.createElement('button');
+    toggle.className = 'group-toggle';
     const caret = document.createElement('span');
     caret.className = 'caret';
     caret.textContent = openGroups[id] ? '▾' : '▸';
-    head.appendChild(caret);
+    toggle.appendChild(caret);
     const name = document.createElement('span');
     name.className = 'group-name';
     name.textContent = label;
-    head.appendChild(name);
+    toggle.appendChild(name);
     const desc = document.createElement('span');
     desc.className = 'meta';
     desc.textContent = description;
-    head.appendChild(desc);
+    toggle.appendChild(desc);
+    head.appendChild(toggle);
+
+    if (opts.root) {
+      const actions = document.createElement('span');
+      actions.className = 'row-actions';
+      actions.appendChild(iconBtn('＋', opts.newLabel, () => projectAction(opts.newAction, undefined, opts.root)));
+      actions.appendChild(
+        iconBtn('🗀', '在此新建文件夹', () => projectAction('newFolder', undefined, opts.root))
+      );
+      head.appendChild(actions);
+    }
     box.appendChild(head);
 
     const body = document.createElement('div');
@@ -707,9 +821,9 @@
       caret.textContent = openGroups[id] ? '▾' : '▸';
       body.innerHTML = '';
       if (!openGroups[id]) return;
-      for (const row of build()) body.appendChild(row);
+      for (const row of opts.build()) body.appendChild(row);
     };
-    head.addEventListener('click', () => {
+    toggle.addEventListener('click', () => {
       openGroups[id] = !openGroups[id];
       sync();
     });
@@ -717,9 +831,66 @@
     return box;
   }
 
-  function buildChapterRow(c) {
+  /**
+   * 文件夹行。点行体展开/折叠，行尾挂「在此新建 / 新建子文件夹 / 重命名 / 移动 / 删除」。
+   * 折叠状态由前端自己记，不进后端。
+   */
+  function buildFolderRow(node, depth, newAction) {
+    const row = document.createElement('div');
+    row.className = 'row row-dir';
+    row.style.paddingLeft = `${indentOf(depth)}px`;
+
+    const open = openFolders.has(node.relPath);
+
+    const caret = document.createElement('span');
+    caret.className = 'caret';
+    caret.textContent = open ? '▾' : '▸';
+    row.appendChild(caret);
+
+    const label = document.createElement('span');
+    label.className = 'row-label row-dir-label';
+    label.textContent = `${open ? '📂' : '📁'} ${node.label}`;
+    label.title = node.relPath;
+    row.appendChild(label);
+
+    const count = document.createElement('span');
+    count.className = 'meta';
+    count.textContent = node.fileCount > 0 ? `${node.fileCount} 项` : '空';
+    row.appendChild(count);
+
+    const toggle = () => {
+      if (openFolders.has(node.relPath)) openFolders.delete(node.relPath);
+      else openFolders.add(node.relPath);
+      rerenderProject();
+    };
+    caret.addEventListener('click', toggle);
+    label.addEventListener('click', toggle);
+
+    const actions = document.createElement('span');
+    actions.className = 'row-actions';
+    actions.appendChild(iconBtn('＋', '在此新建', () => projectAction(newAction, undefined, node.relPath)));
+    actions.appendChild(iconBtn('🗀', '新建子文件夹', () => projectAction('newFolder', undefined, node.relPath)));
+    appendEntryActions(actions, node.relPath);
+    row.appendChild(actions);
+    return row;
+  }
+
+  /** 重命名 / 移动 / 删除——文件与文件夹都是这三个。 */
+  function appendEntryActions(actions, relPath) {
+    actions.appendChild(iconBtn('✎', '重命名', () => fileAction('rename', relPath)));
+    actions.appendChild(iconBtn('↦', '移动到…', () => fileAction('move', relPath)));
+    actions.appendChild(iconBtn('🗑', '删除（移到回收站）', () => fileAction('delete', relPath)));
+  }
+
+  /** 每层缩进 14px，第 0 层与改造前的行保持同样的左内边距。 */
+  function indentOf(depth) {
+    return 16 + depth * 14;
+  }
+
+  function buildChapterRow(c, depth) {
     const row = document.createElement('div');
     row.className = 'row';
+    row.style.paddingLeft = `${indentOf(depth)}px`;
 
     const dot = document.createElement('span');
     dot.className = `dot${c.stale ? ' stale' : ''}`;
@@ -731,7 +902,7 @@
     label.className = 'row-label';
     label.textContent = `${String(c.order).padStart(3, '0')} ${c.title}`;
     label.title = c.relPath;
-    label.addEventListener('click', () => vscode.postMessage({ type: 'openFile', path: c.relPath }));
+    label.addEventListener('click', () => openFile(c.relPath));
     row.appendChild(label);
 
     const words = document.createElement('span');
@@ -747,17 +918,23 @@
     );
     actions.appendChild(linkBtn(c.stale ? '总结' : '重新总结', () => projectAction('summarizeChapter', c.order)));
     if (c.summaryPath) {
-      actions.appendChild(
-        linkBtn('看摘要', () => vscode.postMessage({ type: 'openFile', path: c.summaryPath }))
-      );
+      actions.appendChild(linkBtn('看摘要', () => openFile(c.summaryPath)));
     }
+    appendEntryActions(actions, c.relPath);
     row.appendChild(actions);
     return row;
   }
 
-  function buildFileRow(f, icon) {
+  /**
+   * 角色/设定/元数据行。
+   * `depth` 为 undefined 时不设缩进——「文风与摘要」那几行不在树里。
+   */
+  function buildFileRow(f, icon, depth) {
     const row = document.createElement('div');
     row.className = 'row';
+    if (depth !== undefined) {
+      row.style.paddingLeft = `${indentOf(depth)}px`;
+    }
 
     const dot = document.createElement('span');
     dot.className = 'dot';
@@ -768,7 +945,7 @@
     label.className = 'row-label';
     label.textContent = f.label;
     label.title = f.relPath;
-    label.addEventListener('click', () => vscode.postMessage({ type: 'openFile', path: f.relPath }));
+    label.addEventListener('click', () => openFile(f.relPath));
     row.appendChild(label);
 
     if (f.detail) {
@@ -776,6 +953,13 @@
       detail.className = 'meta row-detail';
       detail.textContent = f.detail;
       row.appendChild(detail);
+    }
+
+    if (depth !== undefined) {
+      const actions = document.createElement('span');
+      actions.className = 'row-actions';
+      appendEntryActions(actions, f.relPath);
+      row.appendChild(actions);
     }
     return row;
   }
@@ -824,9 +1008,12 @@
     return rows;
   }
 
-  function emptyRow(text) {
+  function emptyRow(text, depth) {
     const row = document.createElement('div');
     row.className = 'hint row-empty';
+    if (depth !== undefined) {
+      row.style.paddingLeft = `${indentOf(depth)}px`;
+    }
     row.textContent = text;
     return row;
   }

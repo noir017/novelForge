@@ -507,38 +507,55 @@ async function main() {
   console.log('\n== 工程页数据 ==');
   {
     const tree = await projectViewMod.buildProjectTree(project);
+    // 示例工程是全平铺的，因此顶层节点就是全部文件——这条不变量保证
+    // 层级改造没有把「没有子目录时」的行为搞复杂。
+    const flat = (nodes) => nodes.flatMap((n) => (n.kind === 'dir' ? flat(n.children) : [n]));
+    const chapters = flat(tree.chapters);
+    const characters = flat(tree.characters);
+    const lore = flat(tree.lore);
+
     check('已初始化', tree.initialized === true);
     check('带上作品名', tree.title.length > 0, tree.title);
-    check('章节数与磁盘一致', tree.chapters.length === 3, String(tree.chapters.length));
-    check('章节按序号升序', tree.chapters.map((c) => c.order).join(',') === '1,2,3');
+    check('章节数与磁盘一致', chapters.length === 3, String(chapters.length));
+    check('平铺工程顶层没有目录节点', tree.chapters.every((n) => n.kind === 'chapter'));
+    check('章节节点带 kind', chapters.every((c) => c.kind === 'chapter'));
+    // 工程页倒序展示（最新的在上），与改造前一致。
+    check('章节按序号倒序', chapters.map((c) => c.order).join(',') === '3,2,1',
+      chapters.map((c) => c.order).join(','));
     check('总字数为各章之和',
-      tree.totalWords === tree.chapters.reduce((s, c) => s + c.wordCount, 0), String(tree.totalWords));
-    check('示例工程摘要都是新鲜的', tree.staleCount === 0 && tree.chapters.every((c) => !c.stale));
-    check('新鲜的章节带摘要路径', tree.chapters[0].summaryPath.endsWith('001.md'), tree.chapters[0].summaryPath);
-    check('章节带正文相对路径', tree.chapters[0].relPath.startsWith('chapters/'), tree.chapters[0].relPath);
+      tree.totalWords === chapters.reduce((s, c) => s + c.wordCount, 0), String(tree.totalWords));
+    check('示例工程摘要都是新鲜的', tree.staleCount === 0 && chapters.every((c) => !c.stale));
+    check('新鲜的章节带摘要路径', chapters[2].summaryPath.endsWith('001.md'), chapters[2].summaryPath);
+    check('章节带正文相对路径', chapters[0].relPath.startsWith('chapters/'), chapters[0].relPath);
 
-    check('角色数与磁盘一致', tree.characters.length === 4, String(tree.characters.length));
-    const lin2 = tree.characters.find((c) => c.label === '林昭');
+    check('角色数与磁盘一致', characters.length === 4, String(characters.length));
+    const lin2 = characters.find((c) => c.label === '林昭');
     check('角色副标题含标签与别名', lin2 && lin2.detail.includes('主角') && lin2.detail.includes('阿昭'), lin2 && lin2.detail);
-    check('设定数与磁盘一致', tree.lore.length === 2, String(tree.lore.length));
-    check('设定副标题为 keywords', tree.lore.some((l) => l.detail.includes('令牌')));
+    check('设定数与磁盘一致', lore.length === 2, String(lore.length));
+    check('设定副标题为 keywords', lore.some((l) => l.detail.includes('令牌')));
 
+    check('给出三个区的根目录',
+      tree.chaptersRoot === 'chapters' && tree.charactersRoot === '.novelforge/characters' &&
+      tree.loreRoot === '.novelforge/lore', [tree.chaptersRoot, tree.charactersRoot, tree.loreRoot].join(' '));
     check('全书摘要覆盖章数来自 manifest', typeof tree.globalSummaryThrough === 'number');
     check('元数据路径都在 .novelforge 下',
       [tree.styleGuidePath, tree.outlinePath, tree.globalSummaryPath].every((p) => p.startsWith('.novelforge/')),
       [tree.styleGuidePath, tree.outlinePath, tree.globalSummaryPath].join(' '));
 
     // 改动正文后，对应章节必须立刻显示为过期——这正是工程页存在的意义之一。
-    const target = path.join(SAMPLE, tree.chapters[2].relPath);
+    const byOrder = (nodes, order) => flat(nodes).find((c) => c.order === order);
+    const target = path.join(SAMPLE, byOrder(tree.chapters, 3).relPath);
     const backup = fs.readFileSync(target, 'utf8');
     try {
       fs.writeFileSync(target, `${backup}\n\n临时追加的一句话。\n`);
       project.invalidate();
       const dirty = await projectViewMod.buildProjectTree(project);
-      check('改正文后该章标记为过期', dirty.chapters[2].stale === true);
+      check('改正文后该章标记为过期', byOrder(dirty.chapters, 3).stale === true);
       check('过期计数为 1', dirty.staleCount === 1, String(dirty.staleCount));
-      check('过期章节仍带旧摘要路径（可点开对照）', dirty.chapters[2].summaryPath.endsWith('003.md'));
-      check('其他章节不受影响', !dirty.chapters[0].stale && !dirty.chapters[1].stale);
+      check('过期章节仍带旧摘要路径（可点开对照）',
+        byOrder(dirty.chapters, 3).summaryPath.endsWith('003.md'));
+      check('其他章节不受影响',
+        !byOrder(dirty.chapters, 1).stale && !byOrder(dirty.chapters, 2).stale);
     } finally {
       fs.writeFileSync(target, backup);
       project.invalidate();

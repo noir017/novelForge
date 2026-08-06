@@ -69,6 +69,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     <button class="chip-btn" data-action="newChapter">＋ 新建章节</button>
     <button class="chip-btn" data-action="newCharacter">＋ 角色卡</button>
     <button class="chip-btn" data-action="newLore">＋ 设定</button>
+    <button class="chip-btn" data-action="newFolder">＋ 文件夹</button>
     <span class="spacer"></span>
     <button class="icon-btn" data-action="refresh" title="刷新">⟳</button>
   </div>

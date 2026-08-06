@@ -10,7 +10,8 @@ src/
 │   ├── features/    续写 / 摘要 / 角色卡 / 文风提取
 │   ├── llm/         LlmProvider 接口与 OpenAI / Anthropic 实现
 │   ├── protocol.ts  webview ↔ 扩展消息协议（前后端唯一契约）
-│   └── projectView.ts 工程页可序列化快照
+│   ├── fileOps.ts   类文件操作：建文件夹/重命名/移动/删除（区内、不覆盖、进回收站）
+│   └── projectView.ts 工程页可序列化快照（任意深度的 ProjectNode 目录树）
 ├── ui/          宿主无关的面板逻辑：ChatController + @ 引用（见 ui/README.md）
 └── vscode/      VS Code 宿主层：extension 入口、两个 webview 宿主、vscode-lm（见 vscode/README.md）
 ```

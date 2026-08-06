@@ -2,6 +2,7 @@ import { dirBaseName, initProjectFlow, newChapterFlow } from './actions';
 import { listAttachmentChoices } from './attachments';
 import { updateSettings, readConfig, readGlobalBudget } from './config';
 import { BuiltContext, ContextItem } from './context/builder';
+import { deleteEntry, moveEntry, newFolder, renameEntry, Section, sectionOf, sectionRoots } from './fileOps';
 import { extractCharacters, newCharacter, newLore } from './features/characters';
 import { ContinueSession } from './features/continueWriting';
 import { extractStyle } from './features/style';
@@ -28,6 +29,7 @@ import {
 } from './model/session';
 import { NovelConfig } from './model/types';
 import {
+  FileAction,
   InMessage,
   OutMessage,
   ProjectAction,
@@ -210,7 +212,11 @@ export class ChatController {
         return;
 
       case 'projectAction':
-        await this.projectAction(msg.action, msg.order);
+        await this.projectAction(msg.action, msg.order, msg.dir);
+        return;
+
+      case 'fileAction':
+        await this.fileAction(msg.action, msg.relPath, msg.targetDir);
         return;
 
       case 'selectModel':
@@ -664,8 +670,10 @@ export class ChatController {
   /**
    * 工程页的按钮直调 core 流程，webview 不直接碰文件系统。
    * 插件的命令面板也复用同一批 core 流程，行为不会分叉。
+   *
+   * `dir` 是「在某个文件夹上点＋」时的落点目录；从工具栏点则不带，落在区根目录。
    */
-  private async projectAction(action: ProjectAction, order?: number): Promise<void> {
+  private async projectAction(action: ProjectAction, order?: number, dir?: string): Promise<void> {
     const host = getHost();
     switch (action) {
       case 'initProject':
@@ -674,14 +682,23 @@ export class ChatController {
       case 'refresh':
         break; // pushState 本身就是刷新
       case 'newChapter':
-        await newChapterFlow(this.project);
+        await newChapterFlow(this.project, dir);
         break;
       case 'newCharacter':
-        await newCharacter(this.project);
+        await newCharacter(this.project, dir);
         break;
       case 'newLore':
-        await newLore(this.project);
+        await newLore(this.project, dir);
         break;
+      case 'newFolder': {
+        // 落点目录决定建到哪个区；没给就问用户。
+        const section = dir ? sectionOf(this.project, dir)?.section : await this.pickSection();
+        if (!section) {
+          break;
+        }
+        await newFolder(this.project, section, dir);
+        break;
+      }
       case 'continueFrom':
         // 与原语义一致：从某章续写 = 目标设为下一章
         this.current.targetOrder = (order ?? (await this.project.nextChapterOrder() - 1)) + 1;
@@ -719,6 +736,33 @@ export class ChatController {
 
     // 这些流程大多会改动磁盘，且不一定触发 watcher（比如刚初始化的空工程）。
     // pushState 会顺带刷新当前页签。
+    await this.pushState();
+  }
+
+  /** 工具栏上的「＋ 文件夹」没有落点，先问建到哪个区。 */
+  private async pickSection(): Promise<Section | undefined> {
+    return getHost().pick<Section>(
+      sectionRoots(this.project).map((s) => ({ label: s.label, detail: `${s.root}/`, value: s.section })),
+      '在哪个区新建文件夹？'
+    );
+  }
+
+  /**
+   * 类文件操作。全部走 core/fileOps，越界与覆盖的检查都在那里，
+   * 这里只负责调完刷新一次。
+   */
+  private async fileAction(action: FileAction, relPath: string, targetDir?: string): Promise<void> {
+    switch (action) {
+      case 'rename':
+        await renameEntry(this.project, relPath);
+        break;
+      case 'move':
+        await moveEntry(this.project, relPath, targetDir);
+        break;
+      case 'delete':
+        await deleteEntry(this.project, relPath);
+        break;
+    }
     await this.pushState();
   }
 

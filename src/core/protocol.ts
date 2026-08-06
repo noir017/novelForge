@@ -37,7 +37,10 @@ export type InMessage =
   | { type: 'addSelection' }
   | { type: 'openFile'; path: string }
   | { type: 'syncSummaries' }
-  | { type: 'projectAction'; action: ProjectAction; order?: number }
+  /** `dir` 为新建类动作指定落点目录（工作区相对路径），缺省落在该区的根目录。 */
+  | { type: 'projectAction'; action: ProjectAction; order?: number; dir?: string }
+  /** 工程页的类文件操作。`relPath` 是操作对象（文件或目录）。 */
+  | { type: 'fileAction'; action: FileAction; relPath: string; targetDir?: string }
   | { type: 'selectModel'; ref: string }
   | { type: 'saveSettings'; settings: SettingsPayload }
   | { type: 'setApiKey'; providerId: string }
@@ -57,12 +60,19 @@ export type ProjectAction =
   | 'newChapter'
   | 'newCharacter'
   | 'newLore'
+  | 'newFolder'
   | 'continueFrom'
   | 'summarizeChapter'
   | 'syncSummaries'
   | 'rebuildGlobalSummary'
   | 'extractCharacters'
   | 'extractStyle';
+
+/**
+ * 类文件操作。作用对象由 `relPath` 给出，可以是文件也可以是目录。
+ * `move` 另需 `targetDir`（工作区相对路径，空串表示所属区的根目录）。
+ */
+export type FileAction = 'rename' | 'move' | 'delete';
 
 /** 设置页提交的全部内容。服务商列表整体替换。 */
 export interface SettingsPayload {
@@ -149,6 +159,10 @@ export interface ViewState {
 /**
  * 工程页的全部内容。一次性推完——这些数据量很小（几十到几百行），
  * 分层懒加载换来的那点开销不值得让 webview 维护展开状态与请求往返。
+ *
+ * 三个区（章节/角色/设定）都是**任意深度的目录树**：`chapters` / `characters`
+ * / `lore` 是各区根目录下的直接子节点，目录节点自带 `children`。
+ * 展开/折叠状态仍然完全留在前端，按 relPath 记住。
  */
 export interface ProjectTree {
   initialized: boolean;
@@ -157,14 +171,41 @@ export interface ProjectTree {
   chapterCount: number;
   totalWords: number;
   staleCount: number;
-  chapters: ProjectChapter[];
-  characters: ProjectFile[];
-  lore: ProjectFile[];
+  chapters: ProjectNode[];
+  characters: ProjectNode[];
+  lore: ProjectNode[];
+  /** 各区的根目录相对路径，供「在此新建」与「移动到根」用。 */
+  chaptersRoot: string;
+  charactersRoot: string;
+  loreRoot: string;
   /** 全书摘要覆盖到第几章；0 表示还没生成。 */
   globalSummaryThrough: number;
   styleGuidePath: string;
   outlinePath: string;
   globalSummaryPath: string;
+}
+
+/**
+ * 树上的一个节点：目录、章节，或角色/设定文件。
+ * 目录节点只有 `label` / `relPath` / `children`；文件节点按 kind 带各自的字段。
+ */
+export type ProjectNode = ProjectDirNode | ProjectChapterNode | ProjectFileNode;
+
+export interface ProjectDirNode {
+  kind: 'dir';
+  label: string;
+  relPath: string;
+  children: ProjectNode[];
+  /** 子树里的文件数（含各级子目录），用于目录行的副标题。 */
+  fileCount: number;
+}
+
+export interface ProjectChapterNode extends ProjectChapter {
+  kind: 'chapter';
+}
+
+export interface ProjectFileNode extends ProjectFile {
+  kind: 'file';
 }
 
 export interface ProjectChapter {

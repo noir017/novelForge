@@ -3,6 +3,7 @@ import { initProjectFlow, newChapterFlow } from '../core/actions';
 import { ChatController } from '../core/controller';
 import { updateSettings, setLegacyConfigReader } from '../core/config';
 import { extractCharacters, newCharacter, newLore } from '../core/features/characters';
+import { newFolder, sectionRoots } from '../core/fileOps';
 import { extractStyle } from '../core/features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../core/features/summarize';
 import { getHost, initHost } from '../core/host';
@@ -128,6 +129,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const target = await requireProject();
     if (target) {
       await newLore(target);
+      await refresh();
+    }
+  });
+
+  register('novel.newFolder', async () => {
+    const target = await requireProject();
+    if (!target) {
+      return;
+    }
+    // 命令面板没有落点，先问建到哪个区——与工程页工具栏上的按钮同一条路径。
+    const section = await getHost().pick(
+      sectionRoots(target).map((s) => ({ label: s.label, detail: `${s.root}/`, value: s.section })),
+      '在哪个区新建文件夹？'
+    );
+    if (section) {
+      await newFolder(target, section);
       await refresh();
     }
   });

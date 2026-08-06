@@ -144,7 +144,7 @@ export class SessionStore {
     if (!(await exists(file))) {
       return;
     }
-    const trashDir = path.join(this.project.novelDir, '.trash');
+    const trashDir = this.project.trashDir;
     await fs.mkdir(trashDir, { recursive: true });
     await fs.rename(file, path.join(trashDir, `${id}.json`));
   }

@@ -26,7 +26,7 @@ npm test                 # typecheck + smoke
 | 模块 | 一句话职责 | README |
 |---|---|---|
 | `src/` | 三层架构总览与一条续写请求的完整链路 | [src/README.md](src/README.md) |
-| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts） | [src/core/README.md](src/core/README.md) |
+| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts、类文件操作 fileOps.ts） | [src/core/README.md](src/core/README.md) |
 | `src/core/model/` | 数据层：NovelProject、Markdown 解析、服务商配置、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/context/` | ★ 分层预算上下文装配器 + token 粗估 | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/features/` | 功能编排：续写、摘要、角色卡、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
@@ -56,9 +56,12 @@ npm test                 # typecheck + smoke
 
 1. **容错优先**：作者会手改任何 Markdown；解析失败退化为忽略，绝不抛崩。
 2. **不静默截断**：装配器降级/丢弃任何条目都必须留在明细里并附原因。
-3. **不静默覆盖**：角色卡更新走 diff 确认；style.md 覆盖前先问；「采纳写入」前正文只存在会话里。
+3. **不静默覆盖**：角色卡更新走 diff 确认；style.md 覆盖前先问；「采纳写入」前正文只存在会话里；类文件操作遇到同名目标一律报错退出。
 4. **不偷偷烧 token**：摘要不自动生成，只提示过期。
 5. **模型引用只在第一个斜杠处切分**：`openrouter/z-ai/glm-4.6` 中服务商前缀是 `openrouter`。
+6. **不真删**：工程页的删除（以及会话删除）一律搬进 `.novelforge/.trash/` 并保留原相对路径。
+7. **类文件操作不越界**：章节/角色/设定三个区各自封闭，`..` 与绝对路径一律拒绝（`core/fileOps.ts` 的 `normalizeRel` / `sectionOf`）。
+8. **层级只是收纳**：章节顺序永远由文件名数字前缀决定，与所在目录层级无关；分卷不重置编号，也不影响上下文装配与摘要新鲜度。
 
 ## 提交约定
 

@@ -10,14 +10,17 @@
 |---|---|
 | [types.ts](types.ts) | 全部数据结构：`Chapter` / `ChapterSummary` / `CharacterCard` / `LoreEntry` / `NovelConfig`，以及摘要与角色卡的**固定小节**定义（`SUMMARY_SECTION_KEYS`、`CHARACTER_SECTION_KEYS`）。 |
 | [markdown.ts](markdown.ts) | 轻量 Markdown 结构工具：YAML frontmatter 与「## 小节」的解析/序列化。刻意不引入 yaml 依赖，解析失败退化为忽略该行而非抛错。 |
-| [project.ts](project.ts) | ★ `NovelProject`：数据访问层，所有 read*/write* 都在这里。含初始化模板、章节索引、摘要新鲜度（hash 比对）、`.novel` → `.novelforge` 迁移检测。另导出 `readConfig()` 读取 `novel.*` 设置。 |
+| [project.ts](project.ts) | ★ `NovelProject`：数据访问层，所有 read*/write* 都在这里。含初始化模板、章节索引、摘要新鲜度（hash 比对）、`.novel` → `.novelforge` 迁移检测，以及三个区目录的**递归扫描**。 |
 | [providers.ts](providers.ts) | ★ 多服务商/多模型的数据模型。「前缀/模型名」引用只在**第一个**斜杠处切分（OpenRouter 的模型名本就含斜杠）；含 0.1.x 单服务商配置的兼容兜底。 |
 | [session.ts](session.ts) | 对话会话存储：`.novelforge/sessions/<id>.json`。含 `Attachment`（@ 引用）、`ContextDigest`（上下文明细快照）的序列化。 |
 
 ## 关键设计
 
 - **每次读盘，不缓存正文**：`read*` 方法每次调用都重新读文件（作者可能刚手改完），只有章节列表做一层缓存，由 FileSystemWatcher 主动失效。
-- **摘要新鲜度**：章节保存后重算 `contentHash`，与摘要 frontmatter 里的 `sourceHash` 比对，不一致即过期。摘要不自动生成，只提示。
+- **目录是任意深度的**：`chapters/`、`characters/`、`lore/` 都递归扫描，作者可以按卷、按阵营分子目录整理。隐藏目录（含 `.trash/`）与 `node_modules` 一律跳过，深度上限 8 层。
+- **顺序只看序号**：章节顺序由文件名数字前缀决定，与所在层级无关；`卷一/003-x.md` 与 `003-x.md` 都是「第 3 章」。序号撞车时两条都留在树上，让作者看见冲突。
+- **角色/设定的 slug 是路径**：根目录下的文件 slug 就是文件名（与改造前一致），子目录里的形如 `主角/林昭`——上下文明细里的 `character:<slug>` 因此仍然唯一。
+- **摘要新鲜度**：章节保存后重算 `contentHash`，与摘要 frontmatter 里的 `sourceHash` 比对，不一致即过期。摘要不自动生成，只提示。`syncManifest` 按路径匹配不上时会按 order 兜底，因此把章节挪进子目录不会丢掉「已总结」的记录。
 - **会话用 JSON 而不是 Markdown**：会话是机器记录（含 token 明细、附件快照），不期待人工编写，但仍是纯文本、可 Git。
 - **选区引用存快照**：`Attachment.text` 对 selection 存当时的快照，历史对话不因原文修改而变；整文件引用每次读盘取最新。
 
