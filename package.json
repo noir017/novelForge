@@ -378,7 +378,7 @@
     "pretypecheck": "node scripts/embed-media.js",
     "typecheck": "tsc --noEmit",
     "presmoke": "node scripts/embed-media.js",
-    "smoke": "node scripts/smoke.js && node scripts/smoke-providers.js && node scripts/smoke-builder.js && node scripts/smoke-fileops.js && node scripts/smoke-llm.js && node scripts/smoke-session.js && bun scripts/smoke-server.js",
+    "smoke": "node scripts/smoke.js && node scripts/smoke-providers.js && node scripts/smoke-view.js && node scripts/smoke-builder.js && node scripts/smoke-fileops.js && node scripts/smoke-llm.js && node scripts/smoke-session.js && bun scripts/smoke-server.js",
     "test": "npm run typecheck && node scripts/check-core-purity.js && npm run smoke",
     "standalone": "node scripts/embed-media.js && bun run src/standalone/main.ts",
     "dist": "node scripts/embed-media.js && bun build src/standalone/main.ts --compile --outfile dist/novelforge"
@@ -387,6 +387,7 @@
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.90.0",
     "esbuild": "^0.23.0",
+    "jsdom": "^29.1.1",
     "typescript": "^5.5.0"
   },
   "bin": {

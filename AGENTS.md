@@ -13,7 +13,7 @@ npm install              # 依赖
 npm run compile          # esbuild 打包到 dist/extension.js（F5 调试前必须有）
 npm run watch            # 监听构建
 npm run typecheck        # tsc --noEmit，必须零错误
-npm run smoke            # 七个离线冒烟测试，不需要 API Key
+npm run smoke            # 八个离线冒烟测试，不需要 API Key
 npm test                 # typecheck + smoke
 ```
 

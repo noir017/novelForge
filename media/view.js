@@ -321,6 +321,10 @@
       flag.textContent = '· 已中断';
       head.appendChild(flag);
     }
+    // 低频且有破坏性的操作（重新生成/删除）收进右上角的 ...，
+    // 不和「采纳写入」「复制」挤在一起。
+    head.appendChild(document.createElement('span')).className = 'spacer';
+    head.appendChild(buildMenuBtn(turn));
     wrap.appendChild(head);
 
     if (turn.attachments && turn.attachments.length > 0) {
@@ -348,9 +352,13 @@
     const body = document.createElement('div');
     body.className = 'msg-body';
     body.textContent = turn.error ? turn.error : turn.content;
-    if (turn.role === 'assistant' && !turn.error) {
+    // 生成中不允许改：contentEditable 的光标会被后续 delta 追加冲掉，
+    // 用户改到一半的内容也会被 turnDone 的整体重建覆盖。
+    // 结束后（turnDone 会重建这个节点）才放开就地编辑。
+    const streaming = store.streamingId === turn.id;
+    if (turn.role === 'assistant' && !turn.error && !streaming) {
       // 结果可以就地改完再采纳。
-      body.contentEditable = 'true';
+      body.setAttribute('contenteditable', 'true');
       body.spellcheck = false;
       body.addEventListener('blur', () => {
         if (body.textContent !== turn.content) {
@@ -409,23 +417,89 @@
       );
     }
 
+    return bar;
+  }
+
+  // ------------------------------------------------- 气泡右上角的 ... 菜单
+
+  /** 当前打开的菜单（同时只允许一个）。 */
+  let openMenu = null;
+
+  function closeMenu() {
+    if (!openMenu) return;
+    openMenu.menu.remove();
+    openMenu.btn.classList.remove('active');
+    openMenu = null;
+  }
+
+  /** 这条消息在 ... 菜单里能做什么。 */
+  function menuItemsFor(turn) {
+    const items = [];
+    // 「重新生成」只对用户消息有意义：重来是从那一条分叉，
+    // 丢掉它之后的所有轮次再跑一遍。
     if (turn.role === 'user') {
-      bar.appendChild(
-        linkBtn('重新生成', () => {
+      items.push({
+        label: '重新生成',
+        run: () => {
           if (store.busy) {
             toast('正在生成，请先停止。', true);
             return;
           }
           vscode.postMessage({ type: 'retry', turnId: turn.id, payload: payload() });
-        })
-      );
+        },
+      });
     }
-
-    bar.appendChild(
-      linkBtn('删除', () => vscode.postMessage({ type: 'deleteTurn', turnId: turn.id }))
-    );
-    return bar;
+    items.push({
+      label: '删除',
+      danger: true,
+      run: () => vscode.postMessage({ type: 'deleteTurn', turnId: turn.id }),
+    });
+    return items;
   }
+
+  function buildMenuBtn(turn) {
+    const btn = document.createElement('button');
+    btn.className = 'msg-menu-btn';
+    btn.textContent = '⋯';
+    btn.title = '更多操作';
+    btn.setAttribute('aria-label', '更多操作');
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // 再点一次同一个按钮就是收起。
+      if (openMenu && openMenu.btn === btn) {
+        closeMenu();
+        return;
+      }
+      closeMenu();
+
+      const menu = document.createElement('div');
+      menu.className = 'msg-menu';
+      for (const item of menuItemsFor(turn)) {
+        const b = document.createElement('button');
+        b.textContent = item.label;
+        if (item.danger) b.classList.add('danger');
+        b.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          closeMenu();
+          item.run();
+        });
+        menu.appendChild(b);
+      }
+      // 菜单挂在按钮的容器里，用绝对定位贴住右上角——
+      // 挂到 body 上就得手算坐标，还要跟着 .messages 滚动。
+      btn.parentElement.appendChild(menu);
+      btn.classList.add('active');
+      openMenu = { btn, menu };
+    });
+    return btn;
+  }
+
+  // 点别处、按 Esc、切页签都要收起菜单。
+  document.addEventListener('click', closeMenu);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeMenu();
+  });
 
   function linkBtn(text, onClick) {
     const b = document.createElement('button');
@@ -1777,7 +1851,14 @@
         break;
       }
       case 'turnDone':
-        store.streamingId = null;
+        // 生成开始时控制器先插一条空回复，后续 delta 都挂在它上面。
+        // 必须在这一刻就标成 streaming：否则气泡会以「可编辑」建出来，
+        // 用户在生成途中的改动会被随后的 delta 追加和收尾重建冲掉。
+        // 收尾的那次 turnDone 带着完整内容、busy 已为 false，于是解锁。
+        store.streamingId =
+          store.busy && msg.turn.role === 'assistant' && !msg.turn.content && !msg.turn.error
+            ? msg.turn.id
+            : null;
         upsertTurn(msg.turn);
         break;
       case 'context': {
