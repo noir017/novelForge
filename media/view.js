@@ -78,6 +78,19 @@
     toast._timer = setTimeout(() => el.toast.classList.add('hidden'), isError ? 9000 : 3500);
   }
 
+  // 独立版的 editor.js 复用同一个 toast，避免两套提示条互相盖住。
+  window.__nfToast = toast;
+
+  /**
+   * 「打开某个文件」。独立版有内置编辑器，走 openEditor 在右侧开标签页；
+   * 插件里没有这块 DOM，仍走 openFile 开 VS Code 的编辑器 tab。
+   */
+  const hasBuiltInEditor = !!document.getElementById('wbEditor');
+  function openPath(path) {
+    if (!path) return;
+    vscode.postMessage({ type: hasBuiltInEditor ? 'openEditor' : 'openFile', path });
+  }
+
   function timeLabel(iso) {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
@@ -163,6 +176,9 @@
     } else {
       el.staleBanner.classList.add('hidden');
     }
+    // 独立版的活动栏上给「工程」挂一个小圆点，切走了也看得见待办。
+    const dot = $('projectStaleDot');
+    if (dot) dot.classList.toggle('hidden', state.staleCount === 0);
   }
 
   /** 输入框旁的模型下拉框，按服务商分组。 */
@@ -321,7 +337,7 @@
           chip.style.cursor = 'pointer';
           chip.title = att.relPath;
           chip.addEventListener('click', () =>
-            vscode.postMessage({ type: 'openFile', path: att.relPath })
+            openPath(att.relPath)
           );
         }
         box.appendChild(chip);
@@ -364,7 +380,7 @@
         note.textContent = `✓ 已写入 ${turn.acceptedTo}`;
         bar.appendChild(note);
         bar.appendChild(
-          linkBtn('打开', () => vscode.postMessage({ type: 'openFile', path: turn.acceptedTo }))
+          linkBtn('打开', () => openPath(turn.acceptedTo))
         );
       } else {
         const accept = document.createElement('button');
@@ -448,7 +464,7 @@
 
       if (item.source) {
         li.appendChild(
-          linkBtn('打开', () => vscode.postMessage({ type: 'openFile', path: item.source }))
+          linkBtn('打开', () => openPath(item.source))
         );
       }
 
@@ -731,7 +747,7 @@
     label.className = 'row-label';
     label.textContent = `${String(c.order).padStart(3, '0')} ${c.title}`;
     label.title = c.relPath;
-    label.addEventListener('click', () => vscode.postMessage({ type: 'openFile', path: c.relPath }));
+    label.addEventListener('click', () => openPath(c.relPath));
     row.appendChild(label);
 
     const words = document.createElement('span');
@@ -748,7 +764,7 @@
     actions.appendChild(linkBtn(c.stale ? '总结' : '重新总结', () => projectAction('summarizeChapter', c.order)));
     if (c.summaryPath) {
       actions.appendChild(
-        linkBtn('看摘要', () => vscode.postMessage({ type: 'openFile', path: c.summaryPath }))
+        linkBtn('看摘要', () => openPath(c.summaryPath))
       );
     }
     row.appendChild(actions);
@@ -768,7 +784,7 @@
     label.className = 'row-label';
     label.textContent = f.label;
     label.title = f.relPath;
-    label.addEventListener('click', () => vscode.postMessage({ type: 'openFile', path: f.relPath }));
+    label.addEventListener('click', () => openPath(f.relPath));
     row.appendChild(label);
 
     if (f.detail) {

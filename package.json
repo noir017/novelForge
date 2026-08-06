@@ -369,10 +369,13 @@
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
+    "embed": "node scripts/embed-media.js",
+    "pretypecheck": "node scripts/embed-media.js",
     "typecheck": "tsc --noEmit",
+    "presmoke": "node scripts/embed-media.js",
     "smoke": "node scripts/smoke.js && node scripts/smoke-providers.js && node scripts/smoke-builder.js && node scripts/smoke-llm.js && node scripts/smoke-session.js && bun scripts/smoke-server.js",
     "test": "npm run typecheck && node scripts/check-core-purity.js && npm run smoke",
-    "standalone": "bun run src/standalone/main.ts",
+    "standalone": "node scripts/embed-media.js && bun run src/standalone/main.ts",
     "dist": "node scripts/embed-media.js && bun build src/standalone/main.ts --compile --outfile dist/novelforge"
   },
   "devDependencies": {

@@ -33,7 +33,8 @@ npm test                 # typecheck + smoke
 | `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
 | `src/ui/` | 宿主无关的面板逻辑：ChatController + @ 引用 | [src/ui/README.md](src/ui/README.md) |
 | `src/vscode/` | VS Code 宿主层：extension 入口、webview 宿主、vscode-lm | [src/vscode/README.md](src/vscode/README.md) |
-| `media/` | webview 前端（原生 JS/CSS，无框架） | [media/README.md](media/README.md) |
+| `src/standalone/` | 独立 Web 服务壳（Bun）：HTTP/WS 服务、FileHost、页面骨架 | [src/standalone/README.md](src/standalone/README.md) |
+| `media/` | 前端资源（原生 JS/CSS，无框架）；`standalone.css` / `editor.js` 只在独立版加载 | [media/README.md](media/README.md) |
 | `scripts/` | 离线冒烟测试（也是理解核心行为的最佳入口） | [scripts/README.md](scripts/README.md) |
 | `sample-novel/` | 示例工程 / 测试夹具，勿随手改正文（hash 断言会挂） | [sample-novel/README.md](sample-novel/README.md) |
 
@@ -49,6 +50,8 @@ npm test                 # typecheck + smoke
 - **消息协议是前后端唯一契约**：[src/core/protocol.ts](src/core/protocol.ts) 的 `InMessage` / `OutMessage`。改协议要同时改 [media/view.js](media/view.js) 与 `src/ui/chatController.ts`。
 - **一个 controller，多个宿主**：侧边栏与编辑器标签页挂同一个 `ChatController`，同一会话双开实时同步。
 - **前端无状态**：webview 靠 `ViewState` 全量推送重建，展开/折叠等 UI 状态留在前端。
+- **两形态的前端隔离**：`media/standalone.css` 与 `media/editor.js` 只由 [src/standalone/html.ts](src/standalone/html.ts) 加载，插件的 `webviewHtml.ts` 里没有它们。改独立版的样式/布局只动这两个文件，别为独立版去改 `view.css`（会连带影响插件）；`view.js` 里区分形态用能力探测（`#wbEditor` 存不存在），不要判断环境字符串。
+- **新增前端资源要三处同改**：`media/` 放文件 → [scripts/embed-media.js](scripts/embed-media.js) 的 `files` 数组 → `html.ts` 里引用。漏了第二步，`bun build --compile` 出的单文件会 404。
 
 ## 必须遵守的行为约束
 
@@ -56,9 +59,10 @@ npm test                 # typecheck + smoke
 
 1. **容错优先**：作者会手改任何 Markdown；解析失败退化为忽略，绝不抛崩。
 2. **不静默截断**：装配器降级/丢弃任何条目都必须留在明细里并附原因。
-3. **不静默覆盖**：角色卡更新走 diff 确认；style.md 覆盖前先问；「采纳写入」前正文只存在会话里。
+3. **不静默覆盖**：角色卡更新走 diff 确认；style.md 覆盖前先问；「采纳写入」前正文只存在会话里；内置编辑器保存走内容 hash 乐观锁（[src/core/fileEditing.ts](src/core/fileEditing.ts)），磁盘变过就报冲突让用户取舍。
 4. **不偷偷烧 token**：摘要不自动生成，只提示过期。
 5. **模型引用只在第一个斜杠处切分**：`openrouter/z-ai/glm-4.6` 中服务商前缀是 `openrouter`。
+6. **独立版的文件访问必须受限**：路径要落在工程根目录内、扩展名在白名单里、有大小上限。服务无鉴权（只绑 127.0.0.1），这些校验全在 `fileEditing.ts` 里兜住，别在别处绕过它直接读写。
 
 ## 提交约定
 

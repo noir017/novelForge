@@ -27,14 +27,13 @@
     };
   }
 
+  // 断线条挂在最顶上；样式走 standalone.css 的主题变量，不写死颜色。
   let banner;
   function showBanner() {
     if (!banner) {
       banner = document.createElement('div');
-      banner.style.cssText =
-        'position:fixed;top:0;left:0;right:0;z-index:9999;' +
-        'background:#b83e3e;color:#fff;padding:6px 12px;font-size:12px;text-align:center;';
-      banner.textContent = '与服务器的连接已断开，正在重连…';
+      banner.className = 'wb-offline';
+      banner.textContent = '与服务器的连接已断开，正在重连…（未保存的内容仍在页面里）';
       document.body.appendChild(banner);
     }
     banner.style.display = '';
@@ -43,15 +42,36 @@
     if (banner) banner.style.display = 'none';
   }
 
+  /**
+   * webview 的 getState/setState 在浏览器里对应 localStorage。
+   * view.js 用它存输入框草稿——网页会被刷新，比 webview 更需要这个。
+   */
+  const STATE_KEY = 'novelforge.viewState';
+  let memoryState;
+
   window.acquireVsCodeApi = () => ({
     postMessage(msg) {
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
       else outbox.push(msg);
     },
     getState() {
-      return undefined;
+      if (memoryState !== undefined) return memoryState;
+      try {
+        memoryState = JSON.parse(localStorage.getItem(STATE_KEY) || 'null') || undefined;
+      } catch {
+        memoryState = undefined;
+      }
+      return memoryState;
     },
-    setState() {},
+    setState(state) {
+      memoryState = state;
+      try {
+        localStorage.setItem(STATE_KEY, JSON.stringify(state));
+      } catch {
+        // 隐私模式下写不进去，退化为仅本次会话保留。
+      }
+      return state;
+    },
   });
 
   connect();
