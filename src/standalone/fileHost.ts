@@ -3,6 +3,13 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import { ConfigStore } from '../core/config';
+import {
+  FileConflictError,
+  FileEditError,
+  isEditablePath,
+  readFileForEditor,
+  writeFileFromEditor,
+} from '../core/fileEditing';
 import { Disposable, Host, InputOptions, PickChoice } from '../core/host';
 import { NovelProject } from '../core/model/project';
 import { Attachment } from '../core/model/session';
@@ -14,7 +21,7 @@ import { PromptHub } from './promptHub';
  *
  * 交互（input/confirm/pick）经 WebSocket 变成网页弹窗（PromptHub）；
  * 进度降级为 toast；文件监听用 fs.watch（失败退化为轮询）；
- * 「打开文件」用系统默认程序——写作仍然在用户自己的编辑器里。
+ * 「打开文件」交给网页里的内置编辑器，非文本文件才回落到系统默认程序。
  */
 export class FileHost implements Host {
   readonly name = 'standalone' as const;
@@ -113,13 +120,64 @@ export class FileHost implements Host {
     }
   }
 
+  /**
+   * 「打开文件」。文本文件进网页的内置编辑器，其余（图片等）交系统默认程序。
+   *
+   * 这里刻意让 openFile 也走编辑器：controller 里「采纳写入后打开」
+   * 「点章节名」「点上下文条目」全都调它，改这一处，三处都对。
+   */
   async openFile(relPath: string): Promise<void> {
-    // 用系统默认程序打开（用户自己的编辑器）。
+    if (isEditablePath(relPath)) {
+      await this.openInEditor(relPath);
+      return;
+    }
+    await this.openExternal(relPath);
+  }
+
+  /** 读一份快照广播给前端，网页里开标签页。失败只报错，不抛给 controller。 */
+  async openInEditor(relPath: string): Promise<void> {
+    try {
+      const file = await readFileForEditor(this.root ?? '.', relPath);
+      this.broadcastMsg({ type: 'editorOpen', file });
+    } catch (err) {
+      if (err instanceof FileEditError) {
+        this.broadcastMsg({ type: 'editorError', path: relPath, message: err.message });
+        return;
+      }
+      throw err;
+    }
+  }
+
+  /** 保存编辑器内容。冲突不覆盖，改为把磁盘版本回给前端让用户取舍。 */
+  async saveFromEditor(relPath: string, text: string, baseHash?: string): Promise<void> {
+    try {
+      const file = await writeFileFromEditor(this.root ?? '.', relPath, text, baseHash);
+      this.broadcastMsg({ type: 'editorSaved', file });
+    } catch (err) {
+      if (err instanceof FileConflictError) {
+        this.broadcastMsg({
+          type: 'editorConflict',
+          path: relPath,
+          diskText: err.diskText,
+          diskHash: err.diskHash,
+        });
+        return;
+      }
+      if (err instanceof FileEditError) {
+        this.broadcastMsg({ type: 'editorError', path: relPath, message: err.message });
+        return;
+      }
+      throw err;
+    }
+  }
+
+  /** 用系统默认程序打开（用户自己的编辑器 / 图片查看器）。 */
+  async openExternal(relPath: string): Promise<void> {
     const abs = path.resolve(this.root ?? '.', relPath);
     const cmd = process.platform === 'win32' ? 'explorer' : process.platform === 'darwin' ? 'open' : 'xdg-open';
     try {
       spawn(cmd, [abs], { detached: true, stdio: 'ignore' }).unref();
-      this.toast(`已打开：${relPath}`);
+      this.toast(`已用系统程序打开：${relPath}`);
     } catch {
       this.toast(`无法打开：${relPath}，请手动打开。`);
     }

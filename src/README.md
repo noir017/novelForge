@@ -11,9 +11,11 @@ src/
 │   ├── llm/         LlmProvider 接口与 OpenAI / Anthropic 实现
 │   ├── protocol.ts  webview ↔ 扩展消息协议（前后端唯一契约）
 │   ├── fileOps.ts   类文件操作：建文件夹/重命名/移动/删除（区内、不覆盖、进回收站）
+│   ├── fileEditing.ts 内置编辑器的文件读写（路径校验 + hash 乐观锁）
 │   └── projectView.ts 工程页可序列化快照（任意深度的 ProjectNode 目录树）
 ├── ui/          宿主无关的面板逻辑：ChatController + @ 引用（见 ui/README.md）
-└── vscode/      VS Code 宿主层：extension 入口、两个 webview 宿主、vscode-lm（见 vscode/README.md）
+├── vscode/      VS Code 宿主层：extension 入口、两个 webview 宿主、vscode-lm（见 vscode/README.md）
+└── standalone/  独立 Web 服务壳：Bun 服务 + FileHost + 页面骨架（见 standalone/README.md）
 ```
 
 各模块详见：
@@ -21,7 +23,7 @@ src/
 - [core/README.md](core/README.md)
 - [core/model/README.md](core/model/README.md) · [core/context/README.md](core/context/README.md) · [core/features/README.md](core/features/README.md) · [core/llm/README.md](core/llm/README.md)
 - [ui/README.md](ui/README.md)
-- [vscode/README.md](vscode/README.md)
+- [vscode/README.md](vscode/README.md) · [standalone/README.md](standalone/README.md)
 
 ## 一条续写请求的完整链路
 

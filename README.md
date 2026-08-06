@@ -47,7 +47,24 @@ npm run dist                                   # 产出 dist/novelforge（当前
 npm i -g novel-forge && novelforge [目录]
 ```
 
-服务只绑定 `127.0.0.1`，无鉴权——设计上只服务本机作者。配置与 API Key 存在 `~/.novelforge/config.json` / `secrets.json`（不再用 VS Code 的 settings.json / SecretStorage；插件壳首次激活时会把旧配置一次性迁移过去）。
+服务只绑定 `127.0.0.1`，无鉴权——设计上只服务本机作者。WebSocket 额外校验 `Origin`（只认本机同端口），挡住恶意网页跨源写入。配置与 API Key 存在 `~/.novelforge/config.json` / `secrets.json`（不再用 VS Code 的 settings.json / SecretStorage；插件壳首次激活时会把旧配置一次性迁移过去）。
+
+独立版是一个 VS Code 式的工作台：左边活动栏切「对话 / 工程 / 历史 / 设置」，右边是**内置文件编辑器**，中间的分隔条可拖拽（双击复位）。深浅主题用标题栏右上角的按钮切换，选择记在浏览器里。
+
+### 内置编辑器
+
+在「工程」页点任意章节、角色卡、设定条目即可在右侧打开；模型「采纳写入」后也会自动打开写入的那一章。
+
+- 多标签页，未保存的标签带圆点标记
+- `Ctrl`/`Cmd` + `S` 保存，「还原」丢弃修改重新读盘
+- 底部状态栏显示字数、字符数、行列位置与保存状态
+- Markdown 可切「预览」；frontmatter 单独框出，不混进正文
+- 刷新页面不丢未保存的草稿（存在浏览器本地，磁盘内容变过则丢弃并提示）
+- 关闭有未保存修改的标签、或带未保存内容离开页面，都会先问一句
+
+**不静默覆盖**：保存带内容 hash 乐观锁。如果文件在你编辑期间被别处改过（你在真编辑器里改了、或插件写入了内容），保存会被拒绝并给出取舍——「用磁盘版本覆盖编辑器」或「用编辑器内容强制保存」，绝不悄悄盖掉任何一边。
+
+只有纯文本（`.md` / `.markdown` / `.txt` / `.json` / `.yml` / `.yaml`）且在工程目录内、不超过 2 MB 的文件会进内置编辑器，其余仍交系统默认程序；工具栏上的「外部打开」可随时切到你自己的编辑器。
 
 与插件版的差异：
 
@@ -55,9 +72,10 @@ npm i -g novel-forge && novelforge [目录]
 |---|---|---|
 | 加入选区 | 读编辑器选区 | 弹粘贴框 |
 | 角色卡更新 | diff 编辑器对比 | 确认框（无 diff） |
-| 打开文件 | VS Code 文档 | 系统默认程序 |
+| 打开文件 | VS Code 文档 | 内置编辑器（非文本回落系统默认程序） |
 | vscode-lm（Copilot） | 支持 | 隐藏（无 Copilot 授权） |
 | 弹窗（输入/确认/选择） | 原生对话框 | 网页 modal（WebSocket 往返） |
+| 主题 | 跟随 VS Code | 页内切换深/浅 |
 
 断线时页面顶部出现红色重连条，恢复后自动重放全量状态。
 
@@ -327,7 +345,7 @@ npm run dist         # 编译独立版单文件可执行（dist/novelforge）
 - **`smoke-fileops.js`** —— 层级目录与类文件操作：递归扫描、目录树折叠、路径越界守卫、新建文件夹、重命名（保留序号前缀、H1 同步策略）、移动（跨区/自嵌套/同名一律拒绝）、删除（进回收站、不覆盖），以及挪动章节后摘要仍算新鲜
 - **`smoke-llm.js`** —— 起本地假服务器模拟 SSE，验证流式解析（含跨块切分、CRLF、心跳、非 JSON 行）、取消、超时、HTTP 401/404/429 错误信息，以及 Anthropic 的 system 提取与消息合并
 - **`smoke-session.js`** —— 会话读写 round-trip、损坏文件容错、列表排序、重命名/删除（移入 `.trash`）、id 唯一性，以及 `.novel` → `.novelforge` 的迁移
-- **`smoke-server.js`** —— 用 bun 起独立服务，验证首页/静态资源 200、WebSocket 首条消息为 init/state（需 Bun）
+- **`smoke-server.js`** —— 用 bun 起独立服务，验证首页/静态资源 200、WebSocket 首条消息为 init/state、`Origin` 校验，以及内置编辑器的读写往返（保存落盘、冲突不覆盖、强制保存、越界路径与非文本扩展名被拒）（需 Bun）
 
 ### 代码结构
 
@@ -343,7 +361,8 @@ src/
 │   ├── actions.ts         初始化/新建章节等工程级流程
 │   ├── fileOps.ts         类文件操作：建文件夹/重命名/移动/删除（区内、不覆盖、进回收站）
 │   ├── attachments.ts     @ 引用候选列表构建
-│   ├── protocol.ts        前后端消息协议（+ 独立版 prompt/promptResult）
+│   ├── fileEditing.ts     内置编辑器的文件读写（路径包含校验 + hash 乐观锁）
+│   ├── protocol.ts        前后端消息协议（+ 独立版 prompt/promptResult、编辑器消息）
 │   ├── projectView.ts     工程页快照：把扁平文件清单折成 ProjectNode 目录树
 │   ├── model/             types / markdown / providers / session / project
 │   ├── llm/               provider / openai / anthropic / registry（vscode-lm 经工厂钩子）
@@ -357,9 +376,9 @@ src/
 └── standalone/            独立壳（Bun）
     ├── main.ts / cli.ts   入口与参数解析
     ├── server.ts          Bun.serve：静态页 + /ws WebSocket
-    ├── fileHost.ts        Host 的文件/网页实现（弹窗经 PromptHub）
+    ├── fileHost.ts        Host 的文件/网页实现（弹窗经 PromptHub，openFile 走内置编辑器）
     ├── promptHub.ts       未决网页弹窗管理
-    └── html.ts            内嵌资源直出的页面
+    └── html.ts            内嵌资源直出的页面（工作台骨架 + 编辑器 DOM）
 ```
 
 面板逻辑集中在 `core/controller.ts`，两个视图宿主（侧边栏 / 编辑器）与独立版 WebSocket 各自只负责收发消息，因此同一个会话能在多处同时打开且保持同步。

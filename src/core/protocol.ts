@@ -36,6 +36,18 @@ export type InMessage =
   | { type: 'pickAttachment' }
   | { type: 'addSelection' }
   | { type: 'openFile'; path: string }
+  /**
+   * 在内置编辑器里打开一个文本文件（仅独立版；插件壳收到会转成 openFile）。
+   * 与 `openFile` 分开是为了让「点章节名」在两个壳里各自做对的事：
+   * 插件开 VS Code 的 tab，独立版开自己的编辑器。
+   */
+  | { type: 'openEditor'; path: string }
+  /** 保存编辑器里的内容。`baseHash` 为空表示用户已确认强制覆盖。 */
+  | { type: 'saveFile'; path: string; text: string; baseHash?: string }
+  /** 重新从磁盘读一份（放弃本地修改 / 冲突后取磁盘版）。 */
+  | { type: 'reloadFile'; path: string }
+  /** 用系统默认程序打开（编辑器里「在外部打开」）。 */
+  | { type: 'openExternal'; path: string }
   | { type: 'syncSummaries' }
   /** `dir` 为新建类动作指定落点目录（工作区相对路径），缺省落在该区的根目录。 */
   | { type: 'projectAction'; action: ProjectAction; order?: number; dir?: string }
@@ -123,6 +135,14 @@ export type OutMessage =
    */
   | { type: 'settings'; settings: SettingsPayload; keys: Record<string, boolean>; ack?: 'saved' | 'rejected' }
   | { type: 'toast'; message: string; level: 'info' | 'error' }
+  /** 内置编辑器：打开/重载一份文件（仅独立版）。 */
+  | { type: 'editorOpen'; file: EditorFileView }
+  /** 内置编辑器：保存成功，带回新的 hash 基线。 */
+  | { type: 'editorSaved'; file: EditorFileView }
+  /** 内置编辑器：磁盘上已被改过，保存被拒。前端展示取舍界面，绝不静默覆盖。 */
+  | { type: 'editorConflict'; path: string; diskText: string; diskHash: string }
+  /** 内置编辑器：打开/保存失败（越界、扩展名不符、过大等）。 */
+  | { type: 'editorError'; path: string; message: string }
   /** 要求前端弹一个 modal（仅独立版）。用户提交后回 `promptResult`。 */
   | {
       type: 'prompt';
@@ -136,6 +156,17 @@ export type OutMessage =
       multiline?: boolean;
       options?: string[];
     };
+
+/** 内置编辑器里一份文件的快照（core/fileEditing.ts 的 EditorFile 的线上形状）。 */
+export interface EditorFileView {
+  /** 工程内相对路径（正斜杠）。同时是前端标签页的 key。 */
+  path: string;
+  name: string;
+  text: string;
+  /** 保存时回传的乐观锁基线。 */
+  hash: string;
+  bytes: number;
+}
 
 export interface ViewState {
   initialized: boolean;

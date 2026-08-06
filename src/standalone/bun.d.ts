@@ -13,7 +13,7 @@ interface BunServeOptions {
   hostname?: string;
   fetch(
     req: Request,
-    server: { upgrade(req: Request, options?: { data?: unknown }): boolean }
+    server: { port: number; upgrade(req: Request, options?: { data?: unknown }): boolean }
   ): Response | undefined | Promise<Response | undefined>;
   websocket?: {
     open?(ws: BunServerWebSocket): void;

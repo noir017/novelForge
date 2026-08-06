@@ -2,30 +2,22 @@
     "novel.providers": [
         {
             "id": "openai",
-            "label": "OpenAI 兼容接口",
+            "label": "my-router",
             "kind": "openai",
-            "baseUrl": "https://api.openai.com/v1",
+            "baseUrl": "https://router.example/v1",
             "models": [
                 {
-                    "name": "gpt-4o"
-                }
-            ]
-        },
-        {
-            "id": "anthropic",
-            "label": "Anthropic",
-            "kind": "anthropic",
-            "baseUrl": "https://api.anthropic.com",
-            "models": [
-                {
-                    "name": "claude-sonnet-4-5"
+                    "name": "gemini/gemma-4-31b-it",
+                    "label": "gemini/gemma-4-31b-it",
+                    "contextWindow": 256000,
+                    "maxOutputTokens": 33000
                 }
             ]
         }
     ],
-    "novel.model": "openai/gpt-4o",
-    "novel.contextWindow": 128000,
-    "novel.maxOutputTokens": 4096,
+    "novel.model": "openai/gemini/gemma-4-31b-it",
+    "novel.contextWindow": 256000,
+    "novel.maxOutputTokens": 35840,
     "novel.temperature": 0.8,
     "novel.recentChaptersFullText": 2,
     "novel.prevChapterTailChars": 1500,

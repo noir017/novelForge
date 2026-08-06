@@ -340,5 +340,75 @@ console.log('\n== 设置页未保存编辑不被刷新冲掉 ==');
   check('干净状态下正常跟随磁盘', draft.providers.length === 0);
 }
 
-console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
-process.exit(failures === 0 ? 0 : 1);
+// ------------------------------------------- config.json 缺席时不吞掉 providers
+
+console.log('\n== config.json 缺席时的 settings.json 兜底 ==');
+{
+  // 真实 VS Code 壳里这是**两个不同的源**：ConfigStore 读 ~/.novelforge/config.json，
+  // legacy reader 读 settings.json。上面的用例让两者共用一个对象，
+  // 恰好掩盖了这条路径——这里必须分开。
+  //
+  // 触发条件：config.json 不存在/损坏（FileConfigStore.read 返回 undefined），
+  // 而用户的 novel.providers 就在 settings.json 里。
+  const userProvider = {
+    id: 'openai', label: 'my-router', kind: 'openai',
+    baseUrl: 'https://router.example/v1',
+    models: [{ name: 'gemini/gemma-4-31b-it', contextWindow: 256000, maxOutputTokens: 33000 }],
+  };
+  // cfg.get() 对声明了默认值的键永远返回值，所以 0.1.x 的键总是"存在"。
+  const settingsJson = {
+    providers: [userProvider],
+    model: 'openai/gemini/gemma-4-31b-it',
+    contextWindow: 256000,
+    maxOutputTokens: 35840,
+    provider: 'openai',
+    'openai.baseUrl': 'https://api.openai.com/v1',
+    'openai.model': 'gpt-4o',
+    'anthropic.baseUrl': 'https://api.anthropic.com',
+    'anthropic.model': 'claude-sonnet-4-5',
+    'vscodeLm.family': 'gpt-4o',
+  };
+  let configJson;
+  configMod.initConfigFromHost({
+    config: { read: () => configJson, write: async (s) => { configJson = JSON.parse(JSON.stringify(s)); } },
+  });
+  // 用**真实**的 legacySettingsReader，而不是手写桩：这条 bug 的一半就出在
+  // 那个 reader 只读 0.1.x 的键、把 novel.providers 整份漏掉。
+  settings = settingsJson;
+  configMod.setLegacyConfigReader(loadModule('src/vscode/migrate.ts').legacySettingsReader);
+
+  const cfg = configMod.readConfig();
+  check('用 settings.json 里的 providers，而不是 0.1.x 默认值',
+    cfg.providers.length === 1 && cfg.providers[0].label === 'my-router',
+    JSON.stringify(cfg.providers.map((x) => x.label)));
+  check('当前模型解析得出', !!cfg.active, cfg.active ? '' : p.describeModelIssue(cfg.providers, cfg.model));
+  check('窗口取模型自带值', cfg.contextWindow === 256000, String(cfg.contextWindow));
+
+  // 只改一个字段的写入（下拉框切模型）不能把 providers 弄丢，
+  // 否则回读时 model 指向的服务商解析不出来，界面报「下没有模型」。
+  return configMod.updateSettings({ model: 'openai/gemini/gemma-4-31b-it' }).then(() => {
+    check('落盘时带上 providers', Array.isArray(configJson.providers) && configJson.providers.length === 1,
+      JSON.stringify(Object.keys(configJson)));
+    check('落盘时丢掉 0.1.x 的带点键',
+      !Object.keys(configJson).some((k) => k.includes('.') || k === 'provider'),
+      JSON.stringify(Object.keys(configJson)));
+
+    const back = configMod.readConfig();
+    check('回读后模型仍可解析', !!back.active,
+      back.active ? '' : p.describeModelIssue(back.providers, back.model));
+    check('回读后仍是用户的服务商', back.providers[0] && back.providers[0].label === 'my-router');
+
+    // providers 被用户清空时，0.1.x 兜底仍要生效（老用户升级路径不能回归）。
+    const legacyOnly = { provider: 'openai', 'openai.baseUrl': 'https://api.deepseek.com/v1', 'openai.model': 'deepseek-chat', 'anthropic.model': '', 'vscodeLm.family': '' };
+    configJson = undefined;
+    settings = legacyOnly;
+    const seeded = configMod.readConfig();
+    check('纯 0.1.x 设置仍能兜底', seeded.model === 'openai/deepseek-chat' && !!seeded.active, seeded.model);
+    finish();
+  });
+}
+
+function finish() {
+  console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
+  process.exit(failures === 0 ? 0 : 1);
+}
