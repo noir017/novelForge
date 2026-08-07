@@ -1495,33 +1495,65 @@
    * 编辑器标签页——想快速回忆「第 37 章讲了什么」代价太大。悬停浮窗把这件事
    * 变成不打断写作的一瞥。
    *
-   * 三条设计取舍：
+   * 四条设计取舍：
    * - **摘要正文不进 `ProjectTree`**：那棵树每次文件变动都全量重推，两百章
    *   每章上千字等于每保存一次就推几百 KB。改成悬停时按 order 单章去取。
    * - **前端缓存、收到新树即作废**：同一章反复扫过去只请求一次；正文一改
    *   （后端会重推树）缓存整体清掉，不会拿旧摘要糊弄人。
    * - **半秒延迟**：鼠标从工具栏划到某一行的路上会扫过好几行，立刻弹会闪。
+   * - **浮窗可以进得去**：摘要有六个小节、可能上千字，一瞥看不完。鼠标移上去
+   *   浮窗就一直留着（可滚动、可选中复制），移开才收。为此收起要延迟一点——
+   *   从行挪到浮窗中间要跨过一道缝，那一两帧鼠标既不在行上也不在浮窗上，
+   *   立刻收会让浮窗永远够不着。
    */
   const HOVER_DELAY_MS = 450;
+  /** 收起的宽限期：够鼠标从行跨到浮窗，又不至于让它赖着不走。 */
+  const CLOSE_DELAY_MS = 200;
+  /** 浮窗与目标行之间的缝，以及与视口边缘的留白。 */
+  const TIP_GAP = 4;
+  const TIP_MARGIN = 8;
+  /** 压高度时的下限：再挤也得看得见一行字，否则等于浮窗没弹。 */
+  const MIN_TIP_HEIGHT = 48;
   /** order -> ChapterSummaryView。收到新的树时整体作废。 */
   const summaryCache = new Map();
   /** 已经发出请求、还没等到回音的 order，避免同一章连发好几次。 */
   const summaryPending = new Set();
   let hoverTimer = null;
+  /** 收起的宽限计时。与 hoverTimer 是两件事，别合并。 */
+  let closeTimer = null;
   /** 当前浮窗：{ order, box }。 */
   let hoverTip = null;
   /** 正在等延迟的那一行（延迟到点时用它定位）。 */
   let hoverRow = null;
 
+  /** 立刻收起。滚动 / Esc / 右键 / 重渲染用这个，不给宽限。 */
   function hideSummaryTip() {
     if (hoverTimer) {
       clearTimeout(hoverTimer);
       hoverTimer = null;
     }
+    cancelScheduledHide();
     hoverRow = null;
     if (hoverTip) {
       hoverTip.box.remove();
       hoverTip = null;
+    }
+  }
+
+  /** 鼠标离开行或浮窗：给一点宽限再收，好让鼠标能挪到浮窗上去。 */
+  function scheduleHideSummaryTip() {
+    if (closeTimer) clearTimeout(closeTimer);
+    closeTimer = setTimeout(() => {
+      closeTimer = null;
+      hideSummaryTip();
+    }, CLOSE_DELAY_MS);
+  }
+
+  /** 鼠标回到行上或进了浮窗：撤销待执行的收起。 */
+  function cancelScheduledHide() {
+    if (closeTimer) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
     }
   }
 
@@ -1548,35 +1580,64 @@
     }, HOVER_DELAY_MS);
   }
 
-  /** 建出浮窗并贴在行的右侧/下方。数据还没到就先显示「读取中」。 */
+  /** 建出浮窗并贴在行的下方/上方。数据还没到就先显示「读取中」。 */
   function showSummaryTip(row, order) {
     const box = document.createElement('div');
     box.className = 'summary-tip';
     box.appendChild(buildSummaryTipBody(summaryCache.get(order)));
+    // 鼠标进了浮窗就别收——用户正在读，或者要滚动、选中复制。
+    // 监听挂在 box 上，box 每次都是新建的，收起时随元素一起回收。
+    box.addEventListener('mouseenter', cancelScheduledHide);
+    box.addEventListener('mouseleave', scheduleHideSummaryTip);
     document.body.appendChild(box);
     hoverTip = { order, box };
     placeSummaryTip(row, box);
   }
 
   /**
-   * 定位浮窗：优先贴在行的下方左对齐，够不下就翻到上方；
-   * 横向溢出时向左收。挂在 body 上 `position: fixed`——工程页有内部滚动，
-   * 挂在行里会被容器裁掉（与右键菜单同一套理由）。
+   * 定位浮窗，并保证它整个落在视口内。
+   *
+   * 挂在 body 上 `position: fixed`——工程页有内部滚动，挂在行里会被容器裁掉
+   * （与右键菜单同一套理由）。代价是位置得自己算：
+   *
+   * - 横向左对齐目标行，右边溢出就往左收，最左不越过边距。
+   * - 纵向优先放行下方（顺着视线），放不下翻到上方；**两边都放不下时选空间
+   *   大的那一侧，并把高度压进那点空间**——摘要可以滚，但绝不能长到屏幕外面
+   *   去。只翻转不压高度的话，一份长摘要在矮窗口里会有一截永远够不到。
    */
   function placeSummaryTip(row, box) {
     const r = row.getBoundingClientRect();
     const vw = window.innerWidth || 0;
     const vh = window.innerHeight || 0;
-    const w = box.offsetWidth;
-    const h = box.offsetHeight;
-    let left = r.left;
-    if (w > 0 && left + w > vw - 8) left = Math.max(8, vw - w - 8);
-    // 下方放不下就翻到上方；两边都放不下时贴顶，让它至少能滚。
-    let top = r.bottom + 4;
-    if (h > 0 && top + h > vh - 8) {
-      top = r.top - h - 4;
-      if (top < 8) top = Math.max(8, vh - h - 8);
+
+    // 先撤掉上一次的限制再量，否则会一直沿用之前那个更矮的值。
+    // 量到的「自然高度」已经含 CSS 里 60vh 的可读性上限。
+    box.style.maxHeight = '';
+    const natural = box.offsetHeight;
+
+    const below = vh - r.bottom - TIP_GAP - TIP_MARGIN;
+    const above = r.top - TIP_GAP - TIP_MARGIN;
+    const putBelow = natural <= below || below >= above;
+    // 窗口特别矮时算出来的空间可能是 0 甚至负数，直接拿去当 max-height
+    // 会得到一个看不见的浮窗。给一个下限，宁可稍微出界一点也得留得住内容。
+    const room = Math.max(MIN_TIP_HEIGHT, putBelow ? below : above);
+    if (natural > room) {
+      box.style.maxHeight = `${room}px`;
     }
+
+    // 压过高度之后才量得到最终高度，上翻时要用它算 top。
+    const h = box.offsetHeight;
+    const top = putBelow ? r.bottom + TIP_GAP : Math.max(TIP_MARGIN, r.top - h - TIP_GAP);
+
+    const w = box.offsetWidth;
+    let left = r.left;
+    if (w > 0 && left + w > vw - TIP_MARGIN) {
+      left = vw - w - TIP_MARGIN;
+    }
+    if (left < TIP_MARGIN) {
+      left = TIP_MARGIN;
+    }
+
     box.style.left = `${left}px`;
     box.style.top = `${top}px`;
   }
@@ -1652,15 +1713,37 @@
   // 逐行 addEventListener 会随重渲染次数堆积。
   el.projectBody.addEventListener('mouseover', (e) => {
     const row = e.target.closest && e.target.closest('.row-chapter');
-    if (row) scheduleSummaryTip(row);
-    else if (hoverTip || hoverTimer) hideSummaryTip();
+    if (row) {
+      // 回到行上就撤销待执行的收起（从浮窗挪回行上时会走到这儿）。
+      cancelScheduledHide();
+      scheduleSummaryTip(row);
+    } else if (hoverTip) {
+      // 挪到了别的行/空白处：给宽限而不是立刻收——鼠标要去浮窗的话，
+      // 半路会先扫过行下方的那道缝。
+      scheduleHideSummaryTip();
+    } else if (hoverTimer) {
+      hideSummaryTip();
+    }
   });
-  el.projectBody.addEventListener('mouseleave', hideSummaryTip);
+  el.projectBody.addEventListener('mouseleave', () => {
+    // 往浮窗方向移出去也会触发这里，同样给宽限。
+    if (hoverTip) scheduleHideSummaryTip();
+    else hideSummaryTip();
+  });
   // 右键菜单弹出来时浮窗该让路，两个都是 fixed 会叠在一起。
   el.projectBody.addEventListener('contextmenu', hideSummaryTip);
-  // 浮窗是 fixed 的，一滚就和目标行脱节（与右键菜单同一个理由）。
-  // 捕获阶段才收得到 .project-body 自己的滚动。
-  document.addEventListener('scroll', hideSummaryTip, true);
+  // 浮窗是 fixed 的，页面一滚就和目标行脱节（与右键菜单同一个理由）。
+  // 但**浮窗自己内部的滚动不算**——摘要有六个小节，滚动是要给用户用的，
+  // 一滚就把浮窗收掉等于这个滚动条形同虚设。捕获阶段才收得到内部容器
+  // （.project-body）的滚动。
+  document.addEventListener(
+    'scroll',
+    (e) => {
+      if (hoverTip && hoverTip.box.contains(e.target)) return;
+      hideSummaryTip();
+    },
+    true
+  );
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') hideSummaryTip();
   });

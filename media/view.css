@@ -766,7 +766,14 @@ kbd {
    挂在 body 上 position: fixed，与右键菜单同一个理由：工程页有内部滚动，
    挂在行里会被容器裁掉。z-index 排在 toast（30）与 .ctx-menu（40）之下——
    提示条和右键菜单都是用户主动要的，一个划过去就出现的浮窗不该盖住它们。
-   摘要可能很长，给一个高度上限让它自己滚，不占满整屏。 */
+
+   摘要有六个小节、可能上千字，一瞥看不完，所以浮窗是**可以进去的**：
+   鼠标移上去就一直留着，能滚、能选中复制，移开才收（收起有宽限期，
+   见 view.js 的 CLOSE_DELAY_MS）。因此这里不能有 pointer-events: none。
+
+   两道高度限制各管一件事：max-height 是可读性上限（再长也不该占满屏），
+   view.js 的 placeSummaryTip 另外按上/下可用空间压一次行内 max-height，
+   保证浮窗整个落在视口内。overflow-y 让超出的部分滚起来。 */
 
 .summary-tip {
   position: fixed;
@@ -775,6 +782,9 @@ kbd {
   max-width: calc(100vw - 16px);
   max-height: 60vh;
   overflow-y: auto;
+  /* 浮窗里滚到头时不要把滚动继续传给底下的工程页——
+     那会让整棵树跟着动，而浮窗是 fixed 的，位置立刻就脱节。 */
+  overscroll-behavior: contain;
   padding: 8px 10px;
   background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
   border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
@@ -782,9 +792,8 @@ kbd {
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
   font-size: 0.85em;
   line-height: 1.5;
-  /* 浮窗只是给人看的：鼠标划过去不该抢走 mouseover，否则 hover 会在
-     「行」与「浮窗」之间来回跳，浮窗一闪一闪。 */
-  pointer-events: none;
+  /* 摘要是拿来读、拿来抄进正文的，别禁掉选中。 */
+  user-select: text;
 }
 
 .summary-tip-head {

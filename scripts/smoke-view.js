@@ -966,8 +966,58 @@ async function summaryTipTests() {
   const last = (type) => [...ui.sent].reverse().find((m) => m.type === type);
   /** 等过悬停延迟（view.js 里是 450ms）。 */
   const settle = () => new Promise((r) => setTimeout(r, 600));
-  /** 移开鼠标：悬停到分组标题栏（不是章节行）即可收起。 */
-  const moveAway = () => hover(ui.doc.querySelector('#projectBody .group-head'));
+  /** 等过收起的宽限期（CLOSE_DELAY_MS 是 200ms）。 */
+  const grace = () => new Promise((r) => setTimeout(r, 320));
+  /** 鼠标进/出浮窗。这两个事件不冒泡，得直接派到浮窗上。 */
+  const enterTip = () => tip().dispatchEvent(new ui.window.MouseEvent('mouseenter'));
+  const leaveTip = () => tip().dispatchEvent(new ui.window.MouseEvent('mouseleave'));
+  /** 移开鼠标并等过宽限期：悬停到分组标题栏（不是章节行）即可。 */
+  const moveAway = async () => {
+    hover(ui.doc.querySelector('#projectBody .group-head'));
+    await grace();
+  };
+
+  // jsdom 里所有尺寸都是 0，定位逻辑会全程退化成「贴光标」，量不出东西来。
+  // 给浮窗与章节行装上可控的几何，才验得了「不许跑到窗口外面去」。
+  const VIEWPORT = { w: 800, h: 600 };
+  /** 浮窗的自然高度（不受行内 maxHeight 限制时的高度）。 */
+  let tipNaturalHeight = 200;
+  /** 目标行在视口里的位置。 */
+  let rowRect = { top: 100, bottom: 120, left: 20 };
+  const isTip = (node) => node.classList && node.classList.contains('summary-tip');
+  Object.defineProperty(ui.window, 'innerWidth', { get: () => VIEWPORT.w, configurable: true });
+  Object.defineProperty(ui.window, 'innerHeight', { get: () => VIEWPORT.h, configurable: true });
+  Object.defineProperty(ui.window.HTMLElement.prototype, 'offsetWidth', {
+    configurable: true,
+    get() { return isTip(this) ? 340 : 0; },
+  });
+  Object.defineProperty(ui.window.HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get() {
+      if (!isTip(this)) return 0;
+      // 行内 maxHeight 是 placeSummaryTip 压上去的，这里要如实反映它的效果，
+      // 否则「压过高度后再量」那一步测不出来。
+      const cap = parseFloat(this.style.maxHeight);
+      return Number.isFinite(cap) && cap > 0 ? Math.min(tipNaturalHeight, cap) : tipNaturalHeight;
+    },
+  });
+  ui.window.Element.prototype.getBoundingClientRect = function () {
+    if (this.classList && this.classList.contains('row-chapter')) {
+      return {
+        top: rowRect.top, bottom: rowRect.bottom, left: rowRect.left,
+        right: rowRect.left + 200, width: 200, height: rowRect.bottom - rowRect.top,
+      };
+    }
+    return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 };
+  };
+  /** 浮窗当前占据的矩形（按行内样式算），用来断言它有没有跑出窗口。 */
+  const tipBox = () => {
+    const box = tip();
+    const top = parseFloat(box.style.top);
+    const left = parseFloat(box.style.left);
+    return { top, left, bottom: top + box.offsetHeight, right: left + box.offsetWidth };
+  };
+
   const summaryOf = (extra) =>
     Object.assign(
       {
@@ -1018,9 +1068,35 @@ async function summaryTipTests() {
   check('显示小节正文', tip().textContent.includes('雨下了三天'), tip().textContent);
   check('新鲜的摘要不打过期标', !tip().querySelector('.summary-tip-stale'));
 
-  // ---- 移开就收
-  moveAway();
-  check('移到非章节行收起浮窗', !tip());
+  // ---- 鼠标移到浮窗上：一直留着，能滚、能选中复制
+  //
+  // 从行挪到浮窗要跨过一道缝，那一两帧鼠标既不在行上也不在浮窗上。
+  // 所以收起有宽限期，中途进了浮窗就撤销。
+  hover(ui.doc.querySelector('#projectBody .group-head'));
+  check('刚移开时浮窗还在（有宽限期，够鼠标挪过去）', !!tip());
+  enterTip();
+  await grace();
+  check('鼠标停在浮窗上就一直显示', !!tip());
+  await grace();
+  check('停久了也不会自己消失', !!tip());
+
+  // 浮窗自己内部的滚动不能把它收掉——摘要有六个小节，滚动条是给人用的。
+  tip().dispatchEvent(new ui.window.Event('scroll', { bubbles: true }));
+  check('浮窗内部滚动不收起浮窗', !!tip());
+
+  // 移出浮窗才收。
+  leaveTip();
+  check('刚离开浮窗时还在（同样有宽限期）', !!tip());
+  await grace();
+  check('离开浮窗后收起', !tip());
+
+  // ---- 移开就收（没进浮窗的情况）
+  ui.sent.length = 0;
+  hover(rowWith('楔子'));
+  await settle();
+  check('再次悬停弹出浮窗', !!tip());
+  await moveAway();
+  check('移到非章节行、且没进浮窗时收起', !tip());
 
   // ---- 缓存：同一章再悬停不再发请求
   ui.sent.length = 0;
@@ -1058,7 +1134,7 @@ async function summaryTipTests() {
   check('过期的摘要打标', !!tip().querySelector('.summary-tip-stale'));
   check('过期标写着「已过期」',
     tip().querySelector('.summary-tip-stale').textContent === '已过期');
-  moveAway();
+  await moveAway();
 
   // ---- 没生成过摘要的章节：说清楚，不给空浮窗
   hover(rowWith('楔子'));
@@ -1070,7 +1146,7 @@ async function summaryTipTests() {
   check('未总结时给出说明而非空白', tip().textContent.includes('还没有摘要'), tip().textContent);
   check('未总结时不打「已过期」标（说「还没有」就够了）',
     !tip().querySelector('.summary-tip-stale'));
-  moveAway();
+  await moveAway();
 
   // ---- 摘要是模型写的，一律走 textContent，绝不拼 HTML
   ui.post({ type: 'project', tree: sampleTree() });
@@ -1083,7 +1159,74 @@ async function summaryTipTests() {
   check('摘要正文不当 HTML 解析', !tip().querySelector('img'), tip().innerHTML);
   check('摘要正文原样显示为文字',
     tip().textContent.includes('<img src=x onerror=alert(1)>'), tip().textContent);
-  moveAway();
+  await moveAway();
+
+  // ---- 定位：浮窗任何时候都不许有一部分落到窗口外面
+  //
+  // 视口 800×600（上面用 defineProperty 钉住的）。浮窗宽 340，
+  // 高度由 tipNaturalHeight 控制，行的位置由 rowRect 控制。
+  const showTip = async () => {
+    hover(rowWith('楔子'));
+    await settle();
+    ui.post({ type: 'summary', summary: summaryOf() });
+  };
+  /** 浮窗完整落在视口内（留 8px 边距，view.js 的 TIP_MARGIN）。 */
+  const insideViewport = () => {
+    const b = tipBox();
+    return b.top >= 0 && b.left >= 0 && b.bottom <= VIEWPORT.h && b.right <= VIEWPORT.w;
+  };
+
+  // ① 常规位置：行在上半屏，浮窗放在行下方
+  rowRect = { top: 100, bottom: 120, left: 20 };
+  tipNaturalHeight = 200;
+  ui.post({ type: 'project', tree: sampleTree() });
+  await showTip();
+  check('空间够时放在行的下方', tipBox().top >= rowRect.bottom, JSON.stringify(tipBox()));
+  check('常规位置整个在视口内', insideViewport(), JSON.stringify(tipBox()));
+  await moveAway();
+
+  // ② 行贴近底部：下方放不下 → 翻到上方
+  rowRect = { top: 540, bottom: 560, left: 20 };
+  tipNaturalHeight = 200;
+  ui.post({ type: 'project', tree: sampleTree() });
+  await showTip();
+  check('行贴底时翻到行的上方', tipBox().bottom <= rowRect.top, JSON.stringify(tipBox()));
+  check('翻转后整个在视口内', insideViewport(), JSON.stringify(tipBox()));
+  await moveAway();
+
+  // ③ 行贴右边缘：横向往左收，不许右边溢出
+  rowRect = { top: 100, bottom: 120, left: 700 };
+  tipNaturalHeight = 200;
+  ui.post({ type: 'project', tree: sampleTree() });
+  await showTip();
+  check('贴右边缘时向左收', tipBox().right <= VIEWPORT.w, JSON.stringify(tipBox()));
+  check('向左收后仍不越过左边缘', tipBox().left >= 0, JSON.stringify(tipBox()));
+  await moveAway();
+
+  // ④ 摘要很长、上下都放不下：压高度进可用空间，靠滚动看剩下的。
+  //    只翻转不压高度的话，长摘要在矮窗口里会有一截永远够不到。
+  rowRect = { top: 280, bottom: 300, left: 20 };
+  tipNaturalHeight = 2000;
+  ui.post({ type: 'project', tree: sampleTree() });
+  await showTip();
+  check('超长摘要被压进可用空间', tipBox().bottom <= VIEWPORT.h, JSON.stringify(tipBox()));
+  check('超长摘要不越过顶边', tipBox().top >= 0, JSON.stringify(tipBox()));
+  check('压高度靠的是 maxHeight（内容仍可滚动，不是被截掉）',
+    parseFloat(tip().style.maxHeight) > 0, tip().style.maxHeight);
+  await moveAway();
+
+  // ⑤ 内容后到达导致高度变化时，也要重新收进视口
+  rowRect = { top: 500, bottom: 520, left: 20 };
+  tipNaturalHeight = 60;
+  ui.post({ type: 'project', tree: sampleTree() });
+  hover(rowWith('楔子'));
+  await settle();
+  check('「读取中」的小浮窗放在下方', tipBox().top >= rowRect.bottom, JSON.stringify(tipBox()));
+  // 摘要到了，内容一下子撑高——不能就这么支棱到窗口外面去。
+  tipNaturalHeight = 400;
+  ui.post({ type: 'summary', summary: summaryOf() });
+  check('内容到达撑高后重新定位，仍在视口内', insideViewport(), JSON.stringify(tipBox()));
+  await moveAway();
 }
 
 summaryTipTests().then(() => {
