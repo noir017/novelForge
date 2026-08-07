@@ -520,8 +520,8 @@ async function main() {
     check('章节数与磁盘一致', chapters.length === 3, String(chapters.length));
     check('平铺工程顶层没有目录节点', tree.chapters.every((n) => n.kind === 'chapter'));
     check('章节节点带 kind', chapters.every((c) => c.kind === 'chapter'));
-    // 工程页倒序展示（最新的在上），与改造前一致。
-    check('章节按序号倒序', chapters.map((c) => c.order).join(',') === '3,2,1',
+    // 工程页正序展示（第 1 章在上），与文件名顺序一致。
+    check('章节按序号正序', chapters.map((c) => c.order).join(',') === '1,2,3',
       chapters.map((c) => c.order).join(','));
     check('总字数为各章之和',
       tree.totalWords === chapters.reduce((s, c) => s + c.wordCount, 0), String(tree.totalWords));
@@ -530,7 +530,7 @@ async function main() {
     check('已总结数与过期数互补',
       tree.staleCount + tree.summarizedCount === tree.chapterCount,
       `${tree.staleCount} + ${tree.summarizedCount} ≠ ${tree.chapterCount}`);
-    check('新鲜的章节带摘要路径', chapters[2].summaryPath.endsWith('001.md'), chapters[2].summaryPath);
+    check('新鲜的章节带摘要路径', chapters[0].summaryPath.endsWith('001.md'), chapters[0].summaryPath);
     check('章节带正文相对路径', chapters[0].relPath.startsWith('chapters/'), chapters[0].relPath);
 
     check('角色数与磁盘一致', characters.length === 4, String(characters.length));

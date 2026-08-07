@@ -159,6 +159,15 @@ function normalizeKey(s: string): string {
   return s.replace(/[\s·・、,，.。:：/-]/g, '').toLowerCase();
 }
 
+/**
+ * 空小节的占位文字。
+ *
+ * `keepEmpty` 写出的摘要里，没内容的小节仍会留一个 `## 小节名` + 这行字——
+ * 文件结构保持完整，作者手改时知道该往哪填。读回来的一侧要认得它：
+ * 展示摘要时六个小节全是「（待补充）」不如干脆不显示。
+ */
+export const SECTION_PLACEHOLDER = '（待补充）';
+
 /** 把小节 Record 序列化回 `## 小节名` 形式，跳过空小节。 */
 export function stringifySections(
   sections: Record<string, string>,
@@ -171,7 +180,7 @@ export function stringifySections(
     if (!value && !opts.keepEmpty) {
       continue;
     }
-    parts.push(`## ${key}\n\n${value || '（待补充）'}`);
+    parts.push(`## ${key}\n\n${value || SECTION_PLACEHOLDER}`);
   }
   return parts.join('\n\n');
 }

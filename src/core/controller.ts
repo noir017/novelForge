@@ -45,7 +45,7 @@ import {
   Tab,
   ViewState,
 } from './protocol';
-import { buildProjectTree } from './projectView';
+import { buildChapterSummaryView, buildProjectTree } from './projectView';
 
 /** Webview 宿主需要提供的能力。侧边栏与编辑器面板各实现一份。 */
 export interface ViewHost {
@@ -263,6 +263,12 @@ export class ChatController {
       case 'syncSummaries':
         await syncSummaries(this.project);
         await this.pushState();
+        return;
+
+      case 'requestSummary':
+        // 只回给发问的那个前端就够了，但 post 是广播——多开一个面板时
+        // 另一边收到一份用不上的摘要，代价只是一次无害的缓存写入。
+        this.post({ type: 'summary', summary: await buildChapterSummaryView(this.project, msg.order) });
         return;
 
       case 'projectAction':

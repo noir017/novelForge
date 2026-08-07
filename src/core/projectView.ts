@@ -1,5 +1,14 @@
+import { SECTION_PLACEHOLDER } from './model/markdown';
 import { NovelProject } from './model/project';
-import { ProjectChapterNode, ProjectDirNode, ProjectFileNode, ProjectNode, ProjectTree } from './protocol';
+import { SUMMARY_SECTION_KEYS } from './model/types';
+import {
+  ChapterSummaryView,
+  ProjectChapterNode,
+  ProjectDirNode,
+  ProjectFileNode,
+  ProjectNode,
+  ProjectTree,
+} from './protocol';
 
 /**
  * 工程页的数据来源。
@@ -109,12 +118,55 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
 }
 
 /**
+ * 单章摘要的浮窗视图。工程页鼠标悬停在章节行上时按需取一次。
+ *
+ * 与 `buildProjectTree` 分开是有意的：摘要正文一章上千字，而那棵树每次
+ * 文件变动都全量重推，把摘要塞进去等于每保存一次正文就多推几百 KB。
+ *
+ * 摘要不存在不是错误——章节可以还没总结过。这时给 `exists: false`，
+ * 让前端说清「还没有摘要」，而不是弹一个空浮窗或报错。
+ */
+export async function buildChapterSummaryView(
+  project: NovelProject,
+  order: number
+): Promise<ChapterSummaryView> {
+  const chapter = (await project.listChapters()).find((c) => c.order === order);
+  const summary = await project.readSummary(order);
+  const title = chapter?.title ?? '';
+
+  if (!summary) {
+    return { order, title, exists: false, stale: true, relPath: '', sections: [] };
+  }
+  // 与 staleChapters() / buildProjectTree 同一套判据：以 sourceHash 为准。
+  // 章节本身没了（摘要成了孤儿）也算过期——浮窗里那句提示总比默认「新鲜」诚实。
+  const stale = !chapter || summary.sourceHash !== chapter.contentHash;
+
+  const parsed = SUMMARY_SECTION_KEYS.map((name) => ({
+    name: name as string,
+    text: (summary.sections[name] ?? '').trim(),
+  }));
+  // `keepEmpty` 写出的摘要里，没内容的小节留着标题和「（待补充）」占位。
+  // 浮窗里六行占位是纯噪声，滤掉。
+  const sections = parsed.filter((s) => s.text !== '' && s.text !== SECTION_PLACEHOLDER);
+
+  // 一个小节都没认出来（作者手改摘要、把 `## 小节名` 全删了改成大白话）时
+  // 退回摘要全文，总比给一个空浮窗好。
+  //
+  // 只在「什么都没解析出来」时才退：小节解析得出来、只是内容全是占位的，
+  // 那就是一份货真价实的空摘要，退回全文只会把六行「（待补充）」摊在浮窗里。
+  if (sections.length === 0 && parsed.every((s) => s.text === '') && summary.content.trim() !== '') {
+    sections.push({ name: '摘要', text: summary.content.trim() });
+  }
+  return { order, title, exists: true, stale, relPath: summary.relPath, sections };
+}
+
+/**
  * 把扁平的文件清单按 relPath 折成目录树。
  *
  * `dirs` 是磁盘上实际存在的子目录（含空目录）——作者刚建好卷目录还没
  * 往里写东西时，树上也该看得见，否则「新建文件夹」点完像是什么都没发生。
  *
- * 每层内目录在前、文件在后；章节每层内倒序（最新的在上），
+ * 每层内目录在前、文件在后；章节每层内正序（第 1 章在上），
  * 角色/设定保持传入顺序（已按拼音排好）。
  */
 function nest(root: string, leaves: ProjectNode[], dirs: string[]): ProjectNode[] {
@@ -211,8 +263,8 @@ function byDepthThenName(a: string, b: string): number {
 /**
  * 每层内目录在前、文件在后。
  *
- * 目录按名称排；章节在**每一层内倒序**（最新的在上，与改造前的平铺列表
- * 一致——写到第 200 章时不该每次都往下翻）；角色/设定保持传入顺序（已按拼音排好）。
+ * 目录按名称排；章节在**每一层内正序**（第 1 章在上，与磁盘上的文件名顺序、
+ * 与读者的阅读顺序一致）；角色/设定保持传入顺序（已按拼音排好）。
  */
 function compareNodes(a: ProjectNode, b: ProjectNode): number {
   if (a.kind === 'dir' && b.kind !== 'dir') {
@@ -225,7 +277,8 @@ function compareNodes(a: ProjectNode, b: ProjectNode): number {
     return a.label.localeCompare(b.label, 'zh-Hans-CN');
   }
   if (a.kind === 'chapter' && b.kind === 'chapter') {
-    return b.order - a.order || b.relPath.localeCompare(a.relPath);
+    // 序号重复（作者手动改名撞车）时按路径兜底，保证顺序稳定。
+    return a.order - b.order || a.relPath.localeCompare(b.relPath);
   }
   return 0;
 }

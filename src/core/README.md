@@ -26,7 +26,7 @@
 | [fileEditing.ts](fileEditing.ts) | 内置编辑器的文件读写：路径必须落在工程根内、有大小上限、只碰纯文本（扩展名白名单 **∪ 章节文件名规则**——`001-楔子` 这种无扩展名的章节也得打得开），保存走内容 hash 乐观锁（磁盘变过就抛 `FileConflictError`，绝不静默覆盖）。独立版用；插件壳走 VS Code 自己的编辑器，不经这里。 |
 | [config.ts](config.ts) | `readConfig` / `readGlobalBudget` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |
 | [stores.ts](stores.ts) | 文件后端的配置/密钥存储（`~/.novelforge/`），双壳共用。 |
-| [projectView.ts](projectView.ts) | 工程页的数据来源：把数据层给的扁平文件清单折成 `ProjectNode` 目录树（章节、角色、设定、摘要新鲜度、草稿有无），展开/折叠状态留在前端。 |
+| [projectView.ts](projectView.ts) | 工程页的数据来源：把数据层给的扁平文件清单折成 `ProjectNode` 目录树（章节、角色、设定、摘要新鲜度、草稿有无），展开/折叠状态留在前端。另有 `buildChapterSummaryView`——悬停浮窗要看的单章摘要，按需单取。 |
 
 ## 已知约定
 
@@ -35,7 +35,8 @@
 - **日志三条硬约束**（对应 `logger.ts` 的实现）：① 所有文本过 `redact`，API Key 绝不落进日志——它会被用户复制进 issue；② sink 抛异常只被吞掉，日志坏了不能带崩正事；③ 只记条数与字数，**绝不记 prompt / 正文全文**——一次续写的 prompt 有十万字，进了缓冲会把此前所有日志挤没（见 `continueWriting.ts` 的 `logAssembly`）。
 - **降级与丢弃必须同时进日志**：「不静默截断」这条产品承诺过去只落在界面的上下文明细里，折叠着不点开就看不见。现在装配器的降级项、摘要同步跳过的章节、超预算被截断的正文都会打一条 `warn`。新加截断逻辑时记得跟上。
 - `readConfig` / `readGlobalBudget` 已移入 `config.ts`，数据源由宿主注入的 `ConfigStore` 提供；新增设置项时同时更新 `PersistedSettings` 与两处默认值。
-- **层级是纯收纳**：章节顺序永远由文件名的数字前缀决定，与它在第几层子目录无关；分卷不重置编号。上下文装配、摘要新鲜度、@ 引用都不看目录结构。
+- **层级是纯收纳**：章节顺序永远由文件名的数字前缀决定，与它在第几层子目录无关；分卷不重置编号。上下文装配、摘要新鲜度、@ 引用都不看目录结构。工程页每层内**正序**展示（第 1 章在上，与文件名顺序一致）。
+- **摘要正文不进 `ProjectTree`**：那棵树每次文件变动都全量重推（`pushState` → `buildProjectTree`），一本两百章的书每章带上千字摘要，等于每保存一次正文就推几百 KB。悬停浮窗要的摘要走单独的 `requestSummary` / `summary` 一问一答（`buildChapterSummaryView`），前端按 order 缓存、收到新树即作废。往树上加字段前先想想它会不会把这条推送撑爆。
 - **草稿不是可管理区**：`drafts/` 不在 `fileOps.ts` 的三个区里（工程页上也没有它的节点），但它是**可打开的**——`fileEditing.ts` 只看工程根包含 + 扩展名/章节规则 + 大小，草稿天然满足。草稿路径由 `NovelProject.draftRelPathFor` 从章节路径推导，别在别处另拼一份。
 - **草稿永不自动注入**：`context/builder.ts` 里没有任何一处读 `drafts/`，草稿只能经 `resolveAttachment`（作者显式 `@` 引用）进 prompt。加功能时别打破这条——它是「不偷偷烧 token」的一部分。
 - **`openDraft` 会写盘**：`controller.ts` 里那句 `listChapters().find(...)` 是它没变成「往 `drafts/<任意路径>` 写文件」的原语的唯一原因。别为了省一次扫描就信任前端传来的路径。

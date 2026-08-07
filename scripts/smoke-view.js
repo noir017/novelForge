@@ -794,5 +794,143 @@ console.log('\n== 日志页 ==');
   check('清空后只剩痕迹那条', rows().length === 1 && texts()[0].includes('日志已清空'), texts().join(' | '));
 }
 
-console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
-process.exit(failures === 0 ? 0 : 1);
+// ---------------------------------------------------------------- 摘要悬停浮窗
+
+/**
+ * 这一块必须放在最后：浮窗有半秒悬停延迟，只能等真定时器，
+ * 于是整块是异步的，收尾与 process.exit 都挪进它里面。
+ */
+async function summaryTipTests() {
+  console.log('\n== 章节摘要的悬停浮窗 ==');
+  const ui = mount();
+  const tip = () => ui.doc.querySelector('.summary-tip');
+  const rowWith = (text) =>
+    [...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes(text));
+  const hover = (node) => node.dispatchEvent(new ui.window.MouseEvent('mouseover', { bubbles: true }));
+  const last = (type) => [...ui.sent].reverse().find((m) => m.type === type);
+  /** 等过悬停延迟（view.js 里是 450ms）。 */
+  const settle = () => new Promise((r) => setTimeout(r, 600));
+  /** 移开鼠标：悬停到分组标题栏（不是章节行）即可收起。 */
+  const moveAway = () => hover(ui.doc.querySelector('#projectBody .group-head'));
+  const summaryOf = (extra) =>
+    Object.assign(
+      {
+        order: 1, title: '楔子', exists: true, stale: false,
+        relPath: '.novelforge/summaries/001.md',
+        sections: [
+          { name: '梗概', text: '雨下了三天，林昭进入青崖镇。' },
+          { name: '关键事件', text: '- 以旧牌子代替过所\n- 李叔放行' },
+        ],
+      },
+      extra
+    );
+
+  ui.post({ type: 'project', tree: sampleTree() });
+
+  check('默认不显示浮窗', !tip());
+
+  // 只有章节行有浮窗，角色行没有。
+  hover(rowWith('林昭'));
+  await settle();
+  check('角色行不弹浮窗', !tip());
+
+  // ---- 悬停在章节行上
+  ui.sent.length = 0;
+  hover(rowWith('楔子'));
+  check('悬停后不立刻弹出（有延迟，免得划过时闪）', !tip());
+  check('延迟未到时不发请求', !last('requestSummary'));
+
+  // 光标在行上微动（mouseover 从子元素冒泡上来）不该重置延迟，
+  // 否则手一抖浮窗就永远弹不出来。等一半再抖一下，总时长仍应触发。
+  await new Promise((r) => setTimeout(r, 300));
+  hover(rowWith('楔子').querySelector('.row-label'));
+  await new Promise((r) => setTimeout(r, 300));
+
+  check('行内微动不重置延迟，浮窗照常弹出', !!tip());
+  check('数据没到时先显示读取中', tip().textContent.includes('读取摘要'), tip().textContent);
+  const req = last('requestSummary');
+  check('向后端要这一章的摘要', req && req.order === 1, JSON.stringify(req));
+  check('浮窗挂在 body 上（工程页有内部滚动，挂在行里会被裁掉）',
+    tip().parentElement === ui.doc.body);
+
+  // ---- 摘要到了
+  ui.post({ type: 'summary', summary: summaryOf() });
+  check('摘要到达后换掉内容', !tip().textContent.includes('读取摘要'), tip().textContent);
+  check('浮窗带章号与标题', tip().textContent.includes('第 1 章 楔子'), tip().textContent);
+  check('显示小节名', tip().textContent.includes('梗概') && tip().textContent.includes('关键事件'),
+    tip().textContent);
+  check('显示小节正文', tip().textContent.includes('雨下了三天'), tip().textContent);
+  check('新鲜的摘要不打过期标', !tip().querySelector('.summary-tip-stale'));
+
+  // ---- 移开就收
+  moveAway();
+  check('移到非章节行收起浮窗', !tip());
+
+  // ---- 缓存：同一章再悬停不再发请求
+  ui.sent.length = 0;
+  hover(rowWith('楔子'));
+  await settle();
+  check('命中缓存时直接显示，不再请求', !!tip() && !last('requestSummary'), JSON.stringify(ui.sent));
+  check('缓存命中时不经过「读取中」', !tip().textContent.includes('读取摘要'), tip().textContent);
+
+  // ---- 滚动 / Esc / 右键都要收（浮窗是 fixed 的，会和目标行脱节）
+  ui.doc.getElementById('projectBody').dispatchEvent(new ui.window.Event('scroll', { bubbles: true }));
+  check('滚动收起浮窗', !tip());
+
+  hover(rowWith('楔子'));
+  await settle();
+  ui.doc.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  check('按 Esc 收起浮窗', !tip());
+
+  hover(rowWith('楔子'));
+  await settle();
+  rowWith('楔子').dispatchEvent(
+    new ui.window.MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 60 })
+  );
+  check('右键弹菜单时浮窗让路', !tip());
+  closeAnyMenu(ui);
+
+  // ---- 后端重推树 = 磁盘变过，缓存必须作废
+  ui.post({ type: 'project', tree: sampleTree() });
+  ui.sent.length = 0;
+  hover(rowWith('楔子'));
+  await settle();
+  check('重推树后缓存作废、重新请求', !!last('requestSummary'), JSON.stringify(ui.sent));
+
+  // ---- 过期的摘要必须标出来（照着旧摘要做判断比没摘要更糟）
+  ui.post({ type: 'summary', summary: summaryOf({ stale: true }) });
+  check('过期的摘要打标', !!tip().querySelector('.summary-tip-stale'));
+  check('过期标写着「已过期」',
+    tip().querySelector('.summary-tip-stale').textContent === '已过期');
+  moveAway();
+
+  // ---- 没生成过摘要的章节：说清楚，不给空浮窗
+  hover(rowWith('楔子'));
+  await settle();
+  ui.post({
+    type: 'summary',
+    summary: { order: 1, title: '楔子', exists: false, stale: true, relPath: '', sections: [] },
+  });
+  check('未总结时给出说明而非空白', tip().textContent.includes('还没有摘要'), tip().textContent);
+  check('未总结时不打「已过期」标（说「还没有」就够了）',
+    !tip().querySelector('.summary-tip-stale'));
+  moveAway();
+
+  // ---- 摘要是模型写的，一律走 textContent，绝不拼 HTML
+  ui.post({ type: 'project', tree: sampleTree() });
+  hover(rowWith('楔子'));
+  await settle();
+  ui.post({
+    type: 'summary',
+    summary: summaryOf({ sections: [{ name: '梗概', text: '<img src=x onerror=alert(1)>' }] }),
+  });
+  check('摘要正文不当 HTML 解析', !tip().querySelector('img'), tip().innerHTML);
+  check('摘要正文原样显示为文字',
+    tip().textContent.includes('<img src=x onerror=alert(1)>'), tip().textContent);
+  moveAway();
+}
+
+summaryTipTests().then(() => {
+  console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
+  process.exit(failures === 0 ? 0 : 1);
+});
