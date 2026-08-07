@@ -531,6 +531,10 @@
     return node;
   }
 
+  // 独立版的 explorer.js 复用同一套菜单引擎：全局 contextmenu 监听在这里，
+  // 另起一套只会两层菜单一起弹。
+  window.__nfContextMenu = onContextMenu;
+
   /** 从事件目标往上找第一个登记过菜单的祖先。 */
   function resolveMenuItems(target) {
     for (let node = target; node && node !== document; node = node.parentElement) {

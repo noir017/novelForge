@@ -3,6 +3,7 @@ import { listAttachmentChoices } from './attachments';
 import { updateSettings, readConfig, readGlobalBudget } from './config';
 import { BuiltContext, ContextItem } from './context/builder';
 import { deleteEntry, moveEntry, newFolder, renameEntry, Section, sectionOf, sectionRoots } from './fileOps';
+import { listDirs } from './fileTree';
 import { extractCharacters, newCharacter, newLore } from './features/characters';
 import { ContinueSession } from './features/continueWriting';
 import { extractStyle } from './features/style';
@@ -73,6 +74,15 @@ export class ChatController {
   private readonly hosts = new Set<ViewHost>();
   /** 日志与任务的订阅，dispose 时要解掉——否则重开面板会留下往死通道推的 sink。 */
   private readonly subscriptions: { dispose(): void }[] = [];
+  /**
+   * 资源管理器里当前展开着的目录（工程内相对路径，空串是工程根）。
+   *
+   * 记在后端是为了让**工程变动时能主动重推**：作者在编辑器里新建一章、
+   * 或在外面动了盘上的文件，watcher 触发 pushState，这份集合让资源管理器
+   * 跟着刷新，不必等用户手动点一下折叠再展开。
+   * 前端每次发 `listDir` 都带全量，这里整体替换。
+   */
+  private watchedDirs: string[] = [];
 
   constructor(private readonly project: NovelProject) {
     this.store = new SessionStore(project);
@@ -260,6 +270,10 @@ export class ChatController {
         await (getHost().openExternal ?? getHost().openFile)(msg.path);
         return;
 
+      case 'listDir':
+        await this.pushDirListings(msg.dirs);
+        return;
+
       case 'syncSummaries':
         await syncSummaries(this.project);
         await this.pushState();
@@ -389,6 +403,10 @@ export class ChatController {
   private async pushTabData(): Promise<void> {
     if (this.tab === 'project') {
       await this.pushProject();
+    } else if (this.tab === 'files') {
+      // 资源管理器只重推前端说过它关心的那些目录；一个都没登记（刚切过来、
+      // 前端还没发 listDir）时什么也不做，等那条消息到了自然会推。
+      await this.pushDirListings(this.watchedDirs);
     } else if (this.tab === 'history') {
       await this.pushSessions();
     } else if (this.tab === 'settings') {
@@ -397,6 +415,20 @@ export class ChatController {
       // 切到日志页时补一份全量；此后靠 sink 增量追加。
       this.post({ type: 'logs', entries: recentLogs() });
     }
+  }
+
+  /**
+   * 列举资源管理器要的目录并广播。
+   *
+   * 顺带把 `dirs` 记成新的关注集合——工程有变动时 `pushTabData` 会照着
+   * 再推一遍。空数组是合法输入（前端把树全折叠了），此时只更新集合。
+   */
+  private async pushDirListings(dirs: string[]): Promise<void> {
+    this.watchedDirs = dirs;
+    if (dirs.length === 0) {
+      return;
+    }
+    this.post({ type: 'dirListings', listings: await listDirs(this.project.root, dirs) });
   }
 
   private async pushProject(): Promise<void> {

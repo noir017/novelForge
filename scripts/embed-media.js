@@ -10,7 +10,7 @@ const ROOT = path.join(__dirname, '..');
 const MEDIA = path.join(ROOT, 'media');
 const OUT = path.join(ROOT, 'src', 'standalone', 'mediaAssets.ts');
 
-const files = ['view.css', 'standalone.css', 'view.js', 'bridge.js', 'editor.js', 'icon.svg'];
+const files = ['view.css', 'standalone.css', 'view.js', 'bridge.js', 'editor.js', 'explorer.js', 'icon.svg'];
 const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
