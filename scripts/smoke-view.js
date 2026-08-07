@@ -116,6 +116,63 @@ function mountEditor() {
   return { window, doc: window.document, sent, post, file, panes };
 }
 
+/**
+ * 起一个装好 explorer.js 的独立版环境（资源管理器）。
+ *
+ * 与 mountEditor 同理：explorer.js 只在有 `#filesBody` 时才跑。
+ * view.js 也一起装上——右键菜单引擎在那边，`window.__nfContextMenu`
+ * 是两个文件之间的唯一接口，测试要覆盖到它真的被接上了。
+ */
+function mountExplorer() {
+  const dom = new JSDOM(`<!DOCTYPE html><html><body class="workbench">${standaloneBodyHtml()}</body></html>`, {
+    runScripts: 'outside-only',
+  });
+  const { window } = dom;
+  const sent = [];
+  window.acquireVsCodeApi = () => ({
+    postMessage: (m) => sent.push(m),
+    getState: () => undefined,
+    setState: () => {},
+  });
+  window.HTMLElement.prototype.setPointerCapture = () => {};
+  window.HTMLElement.prototype.releasePointerCapture = () => {};
+  window.HTMLElement.prototype.scrollIntoView = () => {};
+  window.navigator.clipboard = { writeText: () => Promise.resolve() };
+  window.confirm = () => true;
+
+  window.eval(fs.readFileSync(path.join(ROOT, 'media/view.js'), 'utf8'));
+  window.eval(fs.readFileSync(path.join(ROOT, 'media/editor.js'), 'utf8'));
+  window.eval(fs.readFileSync(path.join(ROOT, 'media/explorer.js'), 'utf8'));
+
+  const post = (msg) => window.dispatchEvent(new window.MessageEvent('message', { data: msg }));
+  const rows = () => [...window.document.querySelectorAll('#filesBody .fx-row')];
+  /** 每行的名字（跳过图标与大小两列，它们各有各的断言）。 */
+  const names = () =>
+    rows().map((r) => {
+      const name = r.querySelector('.fx-name');
+      return (name ? name.textContent : r.textContent).trim();
+    });
+  /** 造一份 DirListing。`spec` 形如 { 'a': 'dir', 'b.md': 'file' }。 */
+  const listing = (relPath, spec, extra) =>
+    Object.assign(
+      {
+        relPath,
+        truncated: 0,
+        entries: Object.entries(spec).map(([name, kind]) => ({
+          kind: kind === 'dir' ? 'dir' : 'file',
+          name,
+          relPath: relPath ? `${relPath}/${name}` : name,
+          editable: kind === 'file',
+          bytes: kind === 'dir' ? 0 : 100,
+          modified: 0,
+        })),
+      },
+      extra
+    );
+  const click = (row) => row.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  return { window, doc: window.document, sent, post, rows, names, listing, click };
+}
+
 /** 收起当前打开的菜单（点一下 body），免得它挂在那儿影响后续断言。 */
 function closeAnyMenu(ui) {
   ui.doc.body.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
@@ -918,5 +975,385 @@ console.log('\n== 日志页 ==');
   check('清空后只剩痕迹那条', rows().length === 1 && texts()[0].includes('日志已清空'), texts().join(' | '));
 }
 
-console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
-process.exit(failures === 0 ? 0 : 1);
+// ---------------------------------------------------------------- 资源管理器
+console.log('\n== 资源管理器（独立版「文件」页）==');
+{
+  const ui = mountExplorer();
+  const last = (type) => [...ui.sent].reverse().find((m) => m.type === type);
+
+  // 挂载即要一份工程根：切到「文件」页时树已经在了，不必等一次往返。
+  const first = last('listDir');
+  check('挂载后请求工程根', first && first.dirs.includes(''), JSON.stringify(first));
+
+  ui.post({
+    type: 'dirListings',
+    listings: [ui.listing('', { '.novelforge': 'dir', chapters: 'dir', 'README.md': 'file' })],
+  });
+  // 这一条是这个功能存在的理由：工程页永远看不见 .novelforge。
+  check('点开头的文件夹列得出来', ui.names().includes('.novelforge'), ui.names().join(','));
+  check('点开头的行压暗显示',
+    ui.rows().some((r) => r.textContent.includes('.novelforge') && r.classList.contains('fx-dotted')));
+  check('目录在文件之前', ui.names().join(',') === '.novelforge,chapters,README.md', ui.names().join(','));
+
+  // ---- 展开一个目录：懒加载，展开哪个才要哪个
+  ui.sent.length = 0;
+  ui.click(ui.rows().find((r) => r.textContent.includes('.novelforge')));
+  const expanded = last('listDir');
+  check('展开后请求那个目录', expanded && expanded.dirs.includes('.novelforge'), JSON.stringify(expanded));
+  check('请求带的是全量展开集合', expanded && expanded.dirs.includes(''), JSON.stringify(expanded));
+  check('还没回数据时显示载入中', ui.names().some((n) => n === '载入中…'), ui.names().join(','));
+
+  ui.post({
+    type: 'dirListings',
+    listings: [ui.listing('.novelforge', { summaries: 'dir', 'project.json': 'file' })],
+  });
+  check('子项挂在父目录下', ui.names().join(',') === '.novelforge,summaries,project.json,chapters,README.md',
+    ui.names().join(','));
+  check('子项有缩进', ui.rows()[1].style.paddingLeft !== ui.rows()[0].style.paddingLeft,
+    `${ui.rows()[0].style.paddingLeft} vs ${ui.rows()[1].style.paddingLeft}`);
+
+  // ---- 折叠：子目录一并收起，再展开时不该凭空还开着
+  ui.sent.length = 0;
+  ui.click(ui.rows().find((r) => r.textContent.includes('summaries')));
+  ui.click(ui.rows().find((r) => r.textContent.includes('.novelforge')));
+  const collapsed = last('listDir');
+  check('折叠后不再关注该目录', collapsed && !collapsed.dirs.includes('.novelforge'), JSON.stringify(collapsed));
+  check('子目录跟着一起收起', collapsed && !collapsed.dirs.includes('.novelforge/summaries'),
+    JSON.stringify(collapsed));
+
+  // ---- 点文件：可编辑的进内置编辑器
+  ui.sent.length = 0;
+  ui.click(ui.rows().find((r) => r.textContent.includes('README.md')));
+  check('点文本文件发 openEditor',
+    last('openEditor') && last('openEditor').path === 'README.md', JSON.stringify(ui.sent));
+
+  // ---- 二进制文件：不撞一个必然失败的 openEditor，直接交系统程序
+  ui.post({
+    type: 'dirListings',
+    listings: [
+      Object.assign(ui.listing('', { '封面.png': 'file' }), {
+        entries: [{ kind: 'file', name: '封面.png', relPath: '封面.png', editable: false, bytes: 9, modified: 0 }],
+      }),
+    ],
+  });
+  ui.sent.length = 0;
+  ui.click(ui.rows()[0]);
+  check('点不可编辑的文件走 openExternal',
+    last('openExternal') && last('openExternal').path === '封面.png', JSON.stringify(ui.sent));
+  check('不可编辑的行置灰', ui.rows()[0].classList.contains('fx-binary'));
+
+  // ---- 高亮跟着编辑器走（点章节、采纳写入也会开文件，不只这棵树）
+  ui.post({ type: 'dirListings', listings: [ui.listing('', { 'a.md': 'file', 'b.md': 'file' })] });
+  ui.post({ type: 'editorOpen', file: { path: 'b.md', name: 'b.md', text: '', hash: 'h', bytes: 0 } });
+  check('编辑器打开谁就高亮谁',
+    ui.rows().filter((r) => r.classList.contains('active')).map((r) => r.textContent.trim()).join(',').includes('b.md'),
+    ui.names().join(','));
+
+  // ---- 不静默截断
+  ui.post({
+    type: 'dirListings',
+    listings: [Object.assign(ui.listing('', { 'a.md': 'file' }), { truncated: 3000 })],
+  });
+  check('截断时如实告知', ui.names().some((n) => n.includes('未列出')), ui.names().join(','));
+
+  // ---- 读不动的目录降级成一行提示，不炸整页
+  ui.post({
+    type: 'dirListings',
+    listings: [{ relPath: '', entries: [], truncated: 0, error: '目录不存在（可能刚被删除或改名）' }],
+  });
+  check('读失败显示原因', ui.names().some((n) => n.includes('目录不存在')), ui.names().join(','));
+  check('读失败不抛异常把树清空', ui.rows().length === 1, `${ui.rows().length}`);
+
+  // ---- 右键复用 view.js 的菜单引擎（另起一套会两层菜单一起弹）
+  ui.post({ type: 'dirListings', listings: [ui.listing('', { 'a.md': 'file' })] });
+  ui.rows()[0].dispatchEvent(new ui.window.MouseEvent('contextmenu', { bubbles: true }));
+  const menu = ui.doc.querySelector('.ctx-menu');
+  check('右键弹出菜单', !!menu);
+  check('菜单里有「打开」', menu && [...menu.querySelectorAll('button')].some((b) => b.textContent === '打开'),
+    menu && [...menu.querySelectorAll('button')].map((b) => b.textContent).join(','));
+  closeAnyMenu(ui);
+}
+
+// ---------------------------------------------------------------- 摘要悬停浮窗
+
+/**
+ * 这一块必须放在最后：浮窗有半秒悬停延迟，只能等真定时器，
+ * 于是整块是异步的，收尾与 process.exit 都挪进它里面。
+ */
+async function summaryTipTests() {
+  console.log('\n== 章节摘要的悬停浮窗 ==');
+  const ui = mount();
+  const tip = () => ui.doc.querySelector('.summary-tip');
+  const rowWith = (text) =>
+    [...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes(text));
+  const hover = (node) => node.dispatchEvent(new ui.window.MouseEvent('mouseover', { bubbles: true }));
+  const last = (type) => [...ui.sent].reverse().find((m) => m.type === type);
+  /** 等过悬停延迟（view.js 里是 450ms）。 */
+  const settle = () => new Promise((r) => setTimeout(r, 600));
+  /** 等过收起的宽限期（CLOSE_DELAY_MS 是 200ms）。 */
+  const grace = () => new Promise((r) => setTimeout(r, 320));
+  /** 鼠标进/出浮窗。这两个事件不冒泡，得直接派到浮窗上。 */
+  const enterTip = () => tip().dispatchEvent(new ui.window.MouseEvent('mouseenter'));
+  const leaveTip = () => tip().dispatchEvent(new ui.window.MouseEvent('mouseleave'));
+  /** 移开鼠标并等过宽限期：悬停到分组标题栏（不是章节行）即可。 */
+  const moveAway = async () => {
+    hover(ui.doc.querySelector('#projectBody .group-head'));
+    await grace();
+  };
+
+  // jsdom 里所有尺寸都是 0，定位逻辑会全程退化成「贴光标」，量不出东西来。
+  // 给浮窗与章节行装上可控的几何，才验得了「不许跑到窗口外面去」。
+  const VIEWPORT = { w: 800, h: 600 };
+  /** 浮窗的自然高度（不受行内 maxHeight 限制时的高度）。 */
+  let tipNaturalHeight = 200;
+  /** 目标行在视口里的位置。 */
+  let rowRect = { top: 100, bottom: 120, left: 20 };
+  const isTip = (node) => node.classList && node.classList.contains('summary-tip');
+  Object.defineProperty(ui.window, 'innerWidth', { get: () => VIEWPORT.w, configurable: true });
+  Object.defineProperty(ui.window, 'innerHeight', { get: () => VIEWPORT.h, configurable: true });
+  Object.defineProperty(ui.window.HTMLElement.prototype, 'offsetWidth', {
+    configurable: true,
+    get() { return isTip(this) ? 340 : 0; },
+  });
+  Object.defineProperty(ui.window.HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get() {
+      if (!isTip(this)) return 0;
+      // 行内 maxHeight 是 placeSummaryTip 压上去的，这里要如实反映它的效果，
+      // 否则「压过高度后再量」那一步测不出来。
+      const cap = parseFloat(this.style.maxHeight);
+      return Number.isFinite(cap) && cap > 0 ? Math.min(tipNaturalHeight, cap) : tipNaturalHeight;
+    },
+  });
+  ui.window.Element.prototype.getBoundingClientRect = function () {
+    if (this.classList && this.classList.contains('row-chapter')) {
+      return {
+        top: rowRect.top, bottom: rowRect.bottom, left: rowRect.left,
+        right: rowRect.left + 200, width: 200, height: rowRect.bottom - rowRect.top,
+      };
+    }
+    return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 };
+  };
+  /** 浮窗当前占据的矩形（按行内样式算），用来断言它有没有跑出窗口。 */
+  const tipBox = () => {
+    const box = tip();
+    const top = parseFloat(box.style.top);
+    const left = parseFloat(box.style.left);
+    return { top, left, bottom: top + box.offsetHeight, right: left + box.offsetWidth };
+  };
+
+  const summaryOf = (extra) =>
+    Object.assign(
+      {
+        order: 1, title: '楔子', exists: true, stale: false,
+        relPath: '.novelforge/summaries/001.md',
+        sections: [
+          { name: '梗概', text: '雨下了三天，林昭进入青崖镇。' },
+          { name: '关键事件', text: '- 以旧牌子代替过所\n- 李叔放行' },
+        ],
+      },
+      extra
+    );
+
+  ui.post({ type: 'project', tree: sampleTree() });
+
+  check('默认不显示浮窗', !tip());
+
+  // 只有章节行有浮窗，角色行没有。
+  hover(rowWith('林昭'));
+  await settle();
+  check('角色行不弹浮窗', !tip());
+
+  // ---- 悬停在章节行上
+  ui.sent.length = 0;
+  hover(rowWith('楔子'));
+  check('悬停后不立刻弹出（有延迟，免得划过时闪）', !tip());
+  check('延迟未到时不发请求', !last('requestSummary'));
+
+  // 光标在行上微动（mouseover 从子元素冒泡上来）不该重置延迟，
+  // 否则手一抖浮窗就永远弹不出来。等一半再抖一下，总时长仍应触发。
+  await new Promise((r) => setTimeout(r, 300));
+  hover(rowWith('楔子').querySelector('.row-label'));
+  await new Promise((r) => setTimeout(r, 300));
+
+  check('行内微动不重置延迟，浮窗照常弹出', !!tip());
+  check('数据没到时先显示读取中', tip().textContent.includes('读取摘要'), tip().textContent);
+  const req = last('requestSummary');
+  check('向后端要这一章的摘要', req && req.order === 1, JSON.stringify(req));
+  check('浮窗挂在 body 上（工程页有内部滚动，挂在行里会被裁掉）',
+    tip().parentElement === ui.doc.body);
+
+  // ---- 摘要到了
+  ui.post({ type: 'summary', summary: summaryOf() });
+  check('摘要到达后换掉内容', !tip().textContent.includes('读取摘要'), tip().textContent);
+  check('浮窗带章号与标题', tip().textContent.includes('第 1 章 楔子'), tip().textContent);
+  check('显示小节名', tip().textContent.includes('梗概') && tip().textContent.includes('关键事件'),
+    tip().textContent);
+  check('显示小节正文', tip().textContent.includes('雨下了三天'), tip().textContent);
+  check('新鲜的摘要不打过期标', !tip().querySelector('.summary-tip-stale'));
+
+  // ---- 鼠标移到浮窗上：一直留着，能滚、能选中复制
+  //
+  // 从行挪到浮窗要跨过一道缝，那一两帧鼠标既不在行上也不在浮窗上。
+  // 所以收起有宽限期，中途进了浮窗就撤销。
+  hover(ui.doc.querySelector('#projectBody .group-head'));
+  check('刚移开时浮窗还在（有宽限期，够鼠标挪过去）', !!tip());
+  enterTip();
+  await grace();
+  check('鼠标停在浮窗上就一直显示', !!tip());
+  await grace();
+  check('停久了也不会自己消失', !!tip());
+
+  // 浮窗自己内部的滚动不能把它收掉——摘要有六个小节，滚动条是给人用的。
+  tip().dispatchEvent(new ui.window.Event('scroll', { bubbles: true }));
+  check('浮窗内部滚动不收起浮窗', !!tip());
+
+  // 移出浮窗才收。
+  leaveTip();
+  check('刚离开浮窗时还在（同样有宽限期）', !!tip());
+  await grace();
+  check('离开浮窗后收起', !tip());
+
+  // ---- 移开就收（没进浮窗的情况）
+  ui.sent.length = 0;
+  hover(rowWith('楔子'));
+  await settle();
+  check('再次悬停弹出浮窗', !!tip());
+  await moveAway();
+  check('移到非章节行、且没进浮窗时收起', !tip());
+
+  // ---- 缓存：同一章再悬停不再发请求
+  ui.sent.length = 0;
+  hover(rowWith('楔子'));
+  await settle();
+  check('命中缓存时直接显示，不再请求', !!tip() && !last('requestSummary'), JSON.stringify(ui.sent));
+  check('缓存命中时不经过「读取中」', !tip().textContent.includes('读取摘要'), tip().textContent);
+
+  // ---- 滚动 / Esc / 右键都要收（浮窗是 fixed 的，会和目标行脱节）
+  ui.doc.getElementById('projectBody').dispatchEvent(new ui.window.Event('scroll', { bubbles: true }));
+  check('滚动收起浮窗', !tip());
+
+  hover(rowWith('楔子'));
+  await settle();
+  ui.doc.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  check('按 Esc 收起浮窗', !tip());
+
+  hover(rowWith('楔子'));
+  await settle();
+  rowWith('楔子').dispatchEvent(
+    new ui.window.MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 60 })
+  );
+  check('右键弹菜单时浮窗让路', !tip());
+  closeAnyMenu(ui);
+
+  // ---- 后端重推树 = 磁盘变过，缓存必须作废
+  ui.post({ type: 'project', tree: sampleTree() });
+  ui.sent.length = 0;
+  hover(rowWith('楔子'));
+  await settle();
+  check('重推树后缓存作废、重新请求', !!last('requestSummary'), JSON.stringify(ui.sent));
+
+  // ---- 过期的摘要必须标出来（照着旧摘要做判断比没摘要更糟）
+  ui.post({ type: 'summary', summary: summaryOf({ stale: true }) });
+  check('过期的摘要打标', !!tip().querySelector('.summary-tip-stale'));
+  check('过期标写着「已过期」',
+    tip().querySelector('.summary-tip-stale').textContent === '已过期');
+  await moveAway();
+
+  // ---- 没生成过摘要的章节：说清楚，不给空浮窗
+  hover(rowWith('楔子'));
+  await settle();
+  ui.post({
+    type: 'summary',
+    summary: { order: 1, title: '楔子', exists: false, stale: true, relPath: '', sections: [] },
+  });
+  check('未总结时给出说明而非空白', tip().textContent.includes('还没有摘要'), tip().textContent);
+  check('未总结时不打「已过期」标（说「还没有」就够了）',
+    !tip().querySelector('.summary-tip-stale'));
+  await moveAway();
+
+  // ---- 摘要是模型写的，一律走 textContent，绝不拼 HTML
+  ui.post({ type: 'project', tree: sampleTree() });
+  hover(rowWith('楔子'));
+  await settle();
+  ui.post({
+    type: 'summary',
+    summary: summaryOf({ sections: [{ name: '梗概', text: '<img src=x onerror=alert(1)>' }] }),
+  });
+  check('摘要正文不当 HTML 解析', !tip().querySelector('img'), tip().innerHTML);
+  check('摘要正文原样显示为文字',
+    tip().textContent.includes('<img src=x onerror=alert(1)>'), tip().textContent);
+  await moveAway();
+
+  // ---- 定位：浮窗任何时候都不许有一部分落到窗口外面
+  //
+  // 视口 800×600（上面用 defineProperty 钉住的）。浮窗宽 340，
+  // 高度由 tipNaturalHeight 控制，行的位置由 rowRect 控制。
+  const showTip = async () => {
+    hover(rowWith('楔子'));
+    await settle();
+    ui.post({ type: 'summary', summary: summaryOf() });
+  };
+  /** 浮窗完整落在视口内（留 8px 边距，view.js 的 TIP_MARGIN）。 */
+  const insideViewport = () => {
+    const b = tipBox();
+    return b.top >= 0 && b.left >= 0 && b.bottom <= VIEWPORT.h && b.right <= VIEWPORT.w;
+  };
+
+  // ① 常规位置：行在上半屏，浮窗放在行下方
+  rowRect = { top: 100, bottom: 120, left: 20 };
+  tipNaturalHeight = 200;
+  ui.post({ type: 'project', tree: sampleTree() });
+  await showTip();
+  check('空间够时放在行的下方', tipBox().top >= rowRect.bottom, JSON.stringify(tipBox()));
+  check('常规位置整个在视口内', insideViewport(), JSON.stringify(tipBox()));
+  await moveAway();
+
+  // ② 行贴近底部：下方放不下 → 翻到上方
+  rowRect = { top: 540, bottom: 560, left: 20 };
+  tipNaturalHeight = 200;
+  ui.post({ type: 'project', tree: sampleTree() });
+  await showTip();
+  check('行贴底时翻到行的上方', tipBox().bottom <= rowRect.top, JSON.stringify(tipBox()));
+  check('翻转后整个在视口内', insideViewport(), JSON.stringify(tipBox()));
+  await moveAway();
+
+  // ③ 行贴右边缘：横向往左收，不许右边溢出
+  rowRect = { top: 100, bottom: 120, left: 700 };
+  tipNaturalHeight = 200;
+  ui.post({ type: 'project', tree: sampleTree() });
+  await showTip();
+  check('贴右边缘时向左收', tipBox().right <= VIEWPORT.w, JSON.stringify(tipBox()));
+  check('向左收后仍不越过左边缘', tipBox().left >= 0, JSON.stringify(tipBox()));
+  await moveAway();
+
+  // ④ 摘要很长、上下都放不下：压高度进可用空间，靠滚动看剩下的。
+  //    只翻转不压高度的话，长摘要在矮窗口里会有一截永远够不到。
+  rowRect = { top: 280, bottom: 300, left: 20 };
+  tipNaturalHeight = 2000;
+  ui.post({ type: 'project', tree: sampleTree() });
+  await showTip();
+  check('超长摘要被压进可用空间', tipBox().bottom <= VIEWPORT.h, JSON.stringify(tipBox()));
+  check('超长摘要不越过顶边', tipBox().top >= 0, JSON.stringify(tipBox()));
+  check('压高度靠的是 maxHeight（内容仍可滚动，不是被截掉）',
+    parseFloat(tip().style.maxHeight) > 0, tip().style.maxHeight);
+  await moveAway();
+
+  // ⑤ 内容后到达导致高度变化时，也要重新收进视口
+  rowRect = { top: 500, bottom: 520, left: 20 };
+  tipNaturalHeight = 60;
+  ui.post({ type: 'project', tree: sampleTree() });
+  hover(rowWith('楔子'));
+  await settle();
+  check('「读取中」的小浮窗放在下方', tipBox().top >= rowRect.bottom, JSON.stringify(tipBox()));
+  // 摘要到了，内容一下子撑高——不能就这么支棱到窗口外面去。
+  tipNaturalHeight = 400;
+  ui.post({ type: 'summary', summary: summaryOf() });
+  check('内容到达撑高后重新定位，仍在视口内', insideViewport(), JSON.stringify(tipBox()));
+  await moveAway();
+}
+
+summaryTipTests().then(() => {
+  console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
+  process.exit(failures === 0 ? 0 : 1);
+});

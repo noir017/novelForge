@@ -26,8 +26,9 @@
 | [fileEditing.ts](fileEditing.ts) | 内置编辑器的文件读写：路径必须落在工程根内、有大小上限、只碰纯文本（扩展名白名单 **∪ 章节文件名规则**——`001-楔子` 这种无扩展名的章节也得打得开），保存走内容 hash 乐观锁（磁盘变过就抛 `FileConflictError`，绝不静默覆盖）。独立版用；插件壳走 VS Code 自己的编辑器，不经这里。 |
 | [config.ts](config.ts) | `readConfig` / `readGlobalBudget` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |
 | [stores.ts](stores.ts) | 文件后端的配置/密钥存储（`~/.novelforge/`），双壳共用。 |
-| [projectView.ts](projectView.ts) | 工程页的数据来源：把数据层给的扁平文件清单折成 `ProjectNode` 目录树（章节、角色、设定、摘要新鲜度、草稿有无），展开/折叠状态留在前端。 |
+| [projectView.ts](projectView.ts) | 工程页的数据来源：把数据层给的扁平文件清单折成 `ProjectNode` 目录树（章节、角色、设定、摘要新鲜度、草稿有无），展开/折叠状态留在前端。另有 `buildChapterSummaryView`——悬停浮窗要看的单章摘要，按需单取。 |
 | [cast.ts](cast.ts) | ★ 出场人物索引：把各章摘要的 `cast` 反向聚合成「谁在哪些章出现过」。工程页的角色区、「更新角色卡」取语料、角色卡的 `appearsIn` 都吃它。 |
+| [fileTree.ts](fileTree.ts) | 独立版「文件」页（资源管理器）的数据来源：按目录**懒加载**列举磁盘上的真实结构，一层一次。与 projectView.ts 是两件事——那边是整理过的语义视图，这里一个文件都不藏（**含 `.novelforge/` 等点开头的目录**，只挡 `node_modules` 与 `.git`）。路径包含检查复用 fileEditing.ts；读失败降级成带 `error` 的空结果而不抛。 |
 
 ## 已知约定
 
@@ -36,9 +37,12 @@
 - **日志三条硬约束**（对应 `logger.ts` 的实现）：① 所有文本过 `redact`，API Key 绝不落进日志——它会被用户复制进 issue；② sink 抛异常只被吞掉，日志坏了不能带崩正事；③ 只记条数与字数，**绝不记 prompt / 正文全文**——一次续写的 prompt 有十万字，进了缓冲会把此前所有日志挤没（见 `continueWriting.ts` 的 `logAssembly`）。
 - **降级与丢弃必须同时进日志**：「不静默截断」这条产品承诺过去只落在界面的上下文明细里，折叠着不点开就看不见。现在装配器的降级项、摘要同步跳过的章节、超预算被截断的正文都会打一条 `warn`。新加截断逻辑时记得跟上。
 - `readConfig` / `readGlobalBudget` 已移入 `config.ts`，数据源由宿主注入的 `ConfigStore` 提供；新增设置项时同时更新 `PersistedSettings` 与两处默认值。
-- **层级是纯收纳**：章节顺序永远由文件名的数字前缀决定，与它在第几层子目录无关；分卷不重置编号。上下文装配、摘要新鲜度、@ 引用都不看目录结构。
+- **层级是纯收纳**：章节顺序永远由文件名的数字前缀决定，与它在第几层子目录无关；分卷不重置编号。上下文装配、摘要新鲜度、@ 引用都不看目录结构。工程页每层内**正序**展示（第 1 章在上，与文件名顺序一致）。
+- **摘要正文不进 `ProjectTree`**：那棵树每次文件变动都全量重推（`pushState` → `buildProjectTree`），一本两百章的书每章带上千字摘要，等于每保存一次正文就推几百 KB。悬停浮窗要的摘要走单独的 `requestSummary` / `summary` 一问一答（`buildChapterSummaryView`），前端按 order 缓存、收到新树即作废。往树上加字段前先想想它会不会把这条推送撑爆。
 - **草稿不是可管理区**：`drafts/` 不在 `fileOps.ts` 的三个区里（工程页上也没有它的节点），但它是**可打开的**——`fileEditing.ts` 只看工程根包含 + 扩展名/章节规则 + 大小，草稿天然满足。草稿路径由 `NovelProject.draftRelPathFor` 从章节路径推导，别在别处另拼一份。
 - **草稿永不自动注入**：`context/builder.ts` 里没有任何一处读 `drafts/`，草稿只能经 `resolveAttachment`（作者显式 `@` 引用）进 prompt。加功能时别打破这条——它是「不偷偷烧 token」的一部分。
 - **`openDraft` 会写盘**：`controller.ts` 里那句 `listChapters().find(...)` 是它没变成「往 `drafts/<任意路径>` 写文件」的原语的唯一原因。别为了省一次扫描就信任前端传来的路径。
 - **摘要是出场人物的唯一真相**：角色卡 frontmatter 里的 `appearsIn` / `updatedThrough` **只是缓存**。想知道谁在哪出场，一律经 `cast.ts` 的 `buildCastIndex()` 从摘要重算，别读角色卡的字段——摘要重跑之后那里就旧了。索引按 `name ∪ aliases` 匹配（摘要里的名字是模型写的，角色卡文件名是作者起的，两者没有硬关联）。
 - **`characterAction` 与 `fileAction` 不能合并**：前者的作用对象是**一个角色**（用名字标识），未建卡的人物根本没有文件，走 `fileAction` 那套区守卫无从谈起。
+- **资源管理器只列不改**：`fileTree.ts` 是纯读取，没有新建/删除/改名——那些仍然只走 `fileOps.ts`（锁在章节/角色/设定三个区内，删除是搬进 `.trash/`）。「文件」页看得见 `.novelforge/` 不等于可以在那里随手删东西；要放开写操作，先想清楚它绕过了 `fileOps.ts` 的哪一条约束。
+- **`watchedDirs` 是前端说了算的**：controller 记住前端最近一次 `listDir` 报上来的展开集合，`pushTabData` 时照着重推。它只是「该关注哪些目录」的缓存，不是权限——每次列举仍然过 `resolveInRoot`，越界照拒。
