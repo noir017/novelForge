@@ -8,6 +8,8 @@ import { ContinueSession } from './features/continueWriting';
 import { extractStyle } from './features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from './features/summarize';
 import { getHost } from './host';
+import { addLogSink, clearLogs, describeError, recentLogs, scoped } from './logger';
+import { activeTasks, cancelTask, onTasksChanged, runTask } from './progress';
 import { apiKeyStatus, clearApiKey, promptForApiKey, pruneApiKeys } from './llm/registry';
 import { NovelProject } from './model/project';
 import {
@@ -52,6 +54,8 @@ export interface ViewHost {
   reveal(): void;
 }
 
+const log = scoped('面板');
+
 /**
  * 对话面板的全部逻辑。
  *
@@ -67,11 +71,18 @@ export class ChatController {
   /** 尚未落盘的附件（用户已经 @ 了，但还没发送）。 */
   private pending: Attachment[] = [];
   private readonly hosts = new Set<ViewHost>();
+  /** 日志与任务的订阅，dispose 时要解掉——否则重开面板会留下往死通道推的 sink。 */
+  private readonly subscriptions: { dispose(): void }[] = [];
 
   constructor(private readonly project: NovelProject) {
     this.store = new SessionStore(project);
     this.session = new ContinueSession(project);
     this.current = this.store.create();
+
+    // 日志实时推给前端：日志页在跑长任务时要跟着滚，不能只在切页时拉一次。
+    this.subscriptions.push(addLogSink((entry) => this.post({ type: 'log', entry })));
+    // 任务表变化 → 推快照。工程页的进度条与工具栏的忙碌标记都吃这一条。
+    this.subscriptions.push(onTasksChanged(() => this.post({ type: 'tasks', tasks: activeTasks() })));
   }
 
   attach(host: ViewHost): void {
@@ -84,6 +95,10 @@ export class ChatController {
 
   dispose(): void {
     this.session.dispose();
+    for (const sub of this.subscriptions) {
+      sub.dispose();
+    }
+    this.subscriptions.length = 0;
   }
 
   /** 广播给所有已挂载的宿主，两个视图始终一致。 */
@@ -105,7 +120,9 @@ export class ChatController {
     } catch (err) {
       this.busy = false;
       this.post({ type: 'busy', value: false });
-      this.toast(err instanceof Error ? err.message : String(err), 'error');
+      // 未被下层接住的异常一律进日志：toast 五秒就没了，日志页留得住。
+      log.error(`处理消息 ${msg.type} 时出错：${describeError(err)}`, err);
+      this.toast(describeError(err), 'error');
     }
   }
 
@@ -119,6 +136,8 @@ export class ChatController {
     this.post({ type: 'session', session: serializeSession(this.current) });
     this.post({ type: 'attachments', items: this.pending.map(serializeAttachment) });
     this.post({ type: 'busy', value: this.busy });
+    // 刷新页面时长任务多半还在跑，进度条必须立刻接上，别让人以为任务没了。
+    this.post({ type: 'tasks', tasks: activeTasks() });
     await this.pushTabData();
   }
 
@@ -281,6 +300,22 @@ export class ChatController {
         await getHost().openNativeSettings?.();
         return;
 
+      case 'cancelTask':
+        if (!cancelTask(msg.id)) {
+          // 任务刚好在这一刻结束：推一份新快照让前端把进度条收掉。
+          this.post({ type: 'tasks', tasks: activeTasks() });
+        }
+        return;
+
+      case 'requestLogs':
+        this.post({ type: 'logs', entries: recentLogs() });
+        return;
+
+      case 'clearLogs':
+        clearLogs();
+        this.post({ type: 'logs', entries: recentLogs() });
+        return;
+
       case 'promptResult':
         // 由独立版壳在进入 controller 前截获（解弹窗）；插件永远不会收到。
         return;
@@ -358,6 +393,9 @@ export class ChatController {
       await this.pushSessions();
     } else if (this.tab === 'settings') {
       await this.pushSettings();
+    } else if (this.tab === 'logs') {
+      // 切到日志页时补一份全量；此后靠 sink 增量追加。
+      this.post({ type: 'logs', entries: recentLogs() });
     }
   }
 
@@ -718,11 +756,13 @@ export class ChatController {
   private async openDraft(chapterRelPath: string): Promise<void> {
     const chapter = (await this.project.listChapters()).find((c) => c.relPath === chapterRelPath);
     if (!chapter) {
+      log.warn(`找不到章节 ${chapterRelPath}，可能刚被改名或删除`);
       this.toast('找不到这一章，可能刚被改名或删除。', 'error');
       await this.pushState();
       return;
     }
     const rel = await this.project.ensureDraft(chapter);
+    log.info(`打开第 ${chapter.order} 章的草稿`, rel);
     const host = getHost();
     if (host.openBeside) {
       await host.openBeside(rel);
@@ -742,7 +782,13 @@ export class ChatController {
    * `dir` 是「在某个文件夹上点＋」时的落点目录；从工具栏点则不带，落在区根目录。
    */
   private async projectAction(action: ProjectAction, order?: number, dir?: string): Promise<void> {
-    const host = getHost();
+    // refresh 每次切页/刷盘都来一趟，记了只会淹掉别的；其余动作都值得留痕。
+    if (action !== 'refresh') {
+      log.info(
+        `工程页动作：${action}`,
+        [order !== undefined ? `章节 ${order}` : '', dir ? `落点 ${dir}` : ''].filter(Boolean).join('｜') || undefined
+      );
+    }
     switch (action) {
       case 'initProject':
         await initProjectFlow(this.project, dirBaseName(this.project));
@@ -778,14 +824,21 @@ export class ChatController {
         }
         const chapter = await this.project.getChapter(order);
         if (!chapter) {
+          log.warn(`找不到第 ${order} 章，可能刚被改名或删除`);
           break;
         }
-        await host.progress(`Novel Forge：总结第 ${chapter.order} 章`, async (signal) => {
-          const ok = await summarizeChapter(this.project, chapter, undefined, signal);
-          if (ok) {
-            host.toast(`第 ${chapter.order} 章摘要已生成。`);
-          }
-        });
+        await runTask(
+          `总结第 ${chapter.order} 章`,
+          async ({ signal, report }) => {
+            report({ message: `《${chapter.title}》`, current: 0, total: 1 });
+            const ok = await summarizeChapter(this.project, chapter, undefined, signal);
+            report({ message: ok ? '完成' : '未生成', current: 1, total: 1 });
+            if (ok) {
+              getHost().toast(`第 ${chapter.order} 章摘要已生成。`);
+            }
+          },
+          { scope: '摘要' }
+        );
         break;
       }
       case 'syncSummaries':
@@ -820,6 +873,7 @@ export class ChatController {
    * 这里只负责调完刷新一次。
    */
   private async fileAction(action: FileAction, relPath: string, targetDir?: string): Promise<void> {
+    log.info(`文件动作：${action} ${relPath}`, targetDir ? `目标目录 ${targetDir}` : undefined);
     switch (action) {
       case 'rename':
         await renameEntry(this.project, relPath);
@@ -840,6 +894,10 @@ export class ChatController {
     const before = readConfig().providers.map((p) => p.id);
     const providers = normalizeProviders(s.providers);
     if (s.providers.length > 0 && providers.length === 0) {
+      log.error(
+        '设置未保存：服务商配置不合法',
+        'id 不能为空或含斜杠，且每个服务商至少要有一个模型。前端已收到 rejected 回执，编辑内容保留。'
+      );
       this.toast('服务商配置不合法：id 不能为空或含斜杠，且每个服务商至少要有一个模型。', 'error');
       // 回执必须发——前端据此知道这次没落盘，从而保住未保存的编辑。
       await this.pushSettings('rejected');
@@ -861,6 +919,11 @@ export class ChatController {
     // 删掉的服务商不该在钥匙串里留下孤儿 Key。
     await pruneApiKeys(providers, before);
 
+    log.info(
+      '设置已保存',
+      `${providers.length} 个服务商｜当前模型 ${s.model.trim() || '（未选）'}｜` +
+        `窗口 ${s.contextWindow}／输出 ${s.maxOutputTokens}｜温度 ${s.temperature}｜超时 ${s.requestTimeoutMs}ms`
+    );
     await this.pushSettings('saved');
     await this.pushState();
     this.toast('设置已保存。');
@@ -870,11 +933,14 @@ export class ChatController {
   private async selectModel(ref: string): Promise<void> {
     const config = readConfig();
     if (!resolveModelRef(config.providers, ref)) {
-      this.toast(describeModelIssue(config.providers, ref), 'error');
+      const issue = describeModelIssue(config.providers, ref);
+      log.error(`切换模型失败：${issue}`, `请求的引用 ${ref}`);
+      this.toast(issue, 'error');
       await this.pushState();
       return;
     }
     await updateSettings({ model: ref });
+    log.info(`已切换到模型 ${ref}`);
     await this.pushState();
   }
 

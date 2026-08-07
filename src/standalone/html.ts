@@ -46,6 +46,7 @@ export function standalonePage(root?: string): string {
     <button class="tab active" data-tab="chat"><span class="tab-icon">✎</span><span>对话</span></button>
     <button class="tab" data-tab="project"><span class="tab-icon">❐</span><span>工程</span><span class="tab-dot hidden" id="projectStaleDot"></span></button>
     <button class="tab" data-tab="history"><span class="tab-icon">◷</span><span>历史</span></button>
+    <button class="tab" data-tab="logs"><span class="tab-icon">☰</span><span>日志</span><span class="tab-dot err hidden" id="logsErrorDot"></span></button>
     <button class="tab" data-tab="settings"><span class="tab-icon">⚙</span><span>设置</span></button>
   </nav>
 
@@ -99,6 +100,8 @@ export function standalonePage(root?: string): string {
         <span class="spacer"></span>
         <button class="icon-btn" data-action="refresh" title="刷新">⟳</button>
       </div>
+      <!-- 正在跑的长任务（同步摘要等）。没有任务时整块隐藏。 -->
+      <div class="tasks hidden" id="taskList"></div>
       <div class="project-body" id="projectBody"></div>
     </section>
 
@@ -110,6 +113,25 @@ export function standalonePage(root?: string): string {
       </div>
       <div class="hint">会话保存在 <code>.novelforge/sessions/</code>，可随工程一起提交。</div>
       <ul class="sessions" id="sessionList"></ul>
+    </section>
+
+    <!-- 日志 -->
+    <section class="pane" id="pane-logs">
+      <div class="log-toolbar">
+        <select id="logLevel" title="只显示这一级别以上的日志">
+          <option value="debug">全部（含调试）</option>
+          <option value="info" selected>信息及以上</option>
+          <option value="warn">警告及以上</option>
+          <option value="error">仅错误</option>
+        </select>
+        <input type="search" id="logFilter" placeholder="过滤关键字…">
+        <label class="log-follow"><input type="checkbox" id="logFollow" checked>自动滚动</label>
+        <span class="spacer"></span>
+        <span class="meta" id="logMeta"></span>
+        <button class="chip-btn" id="logCopyBtn" title="复制当前筛选出的日志">复制</button>
+        <button class="chip-btn" id="logClearBtn" title="清空日志缓冲">清空</button>
+      </div>
+      <div class="log-body" id="logBody"></div>
     </section>
 
     <!-- 设置 -->

@@ -320,6 +320,7 @@ console.log('\n== 思考过程（推理模型）==');
 function sampleTree() {
   return {
     initialized: true, title: '测试', author: '甲', chapterCount: 3, totalWords: 900, staleCount: 1,
+    summarizedCount: 2,
     chaptersRoot: 'chapters', charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
     globalSummaryThrough: 2, styleGuidePath: '.novelforge/style.md',
     outlinePath: '.novelforge/outline.md', globalSummaryPath: '.novelforge/summaries/global.md',
@@ -630,6 +631,167 @@ console.log('\n== 内置编辑器：两块编辑区 ==');
     tabsOf(ui.panes()[0]).join(',') === 'style.md', tabsOf(ui.panes()[0]).join(','));
   check('草稿区现在有两个标签', ui.panes()[1].querySelectorAll('.ed-tab').length === 2,
     tabsOf(ui.panes()[1]).join(','));
+}
+
+console.log('\n== 摘要进度显示 ==');
+{
+  const ui = mount();
+  const banner = () => ui.doc.querySelector('#projectBody .banner-summary');
+  const groupMeta = (name) =>
+    [...ui.doc.querySelectorAll('#projectBody .group-head')]
+      .find((h) => h.textContent.includes(name))
+      ?.querySelector('.meta')?.textContent ?? '';
+
+  ui.post({ type: 'project', tree: sampleTree() });
+
+  check('有过期摘要时出现进度横幅', !!banner());
+  check('横幅说明有几章过期', banner().textContent.includes('1 章摘要缺失或已过期'), banner().textContent);
+  check('横幅给出已完成／总数', banner().textContent.includes('已总结 2 / 3 章'), banner().textContent);
+  check('横幅给出百分比', banner().textContent.includes('67%'), banner().textContent);
+  check('横幅有进度条', !!banner().querySelector('.sum-fill'));
+  check('进度条按比例填充',
+    banner().querySelector('.sum-fill').style.width === '67%',
+    banner().querySelector('.sum-fill').style.width);
+  check('没有任务时仍能点「立即同步」',
+    [...banner().querySelectorAll('button')].some((b) => b.textContent === '立即同步'));
+  check('分组副标题带进度',
+    groupMeta('文风与摘要').includes('已总结 2/3 章'), groupMeta('文风与摘要'));
+
+  // 同步跑起来后，重复点只会撞上「已有任务」，所以按钮撤掉。
+  ui.post({ type: 'tasks', tasks: [{ id: 't1', title: '同步章节摘要', message: '第 3 章', current: 0, total: 1, elapsedMs: 0 }] });
+  ui.post({ type: 'project', tree: sampleTree() });
+  check('同步进行中不再显示「立即同步」',
+    ![...banner().querySelectorAll('button')].some((b) => b.textContent === '立即同步'));
+
+  // 全部同步完就不该再有横幅。
+  ui.post({ type: 'tasks', tasks: [] });
+  ui.post({ type: 'project', tree: { ...sampleTree(), staleCount: 0, summarizedCount: 3 } });
+  check('全部同步后横幅消失', !banner());
+  check('分组副标题改为已同步',
+    groupMeta('文风与摘要').includes('已全部同步'), groupMeta('文风与摘要'));
+}
+
+console.log('\n== 长任务进度条 ==');
+{
+  const ui = mount();
+  const taskList = () => ui.doc.getElementById('taskList');
+  const rows = () => [...taskList().querySelectorAll('.task')];
+  const textOf = (i) => rows()[i].textContent;
+
+  check('没有任务时整块隐藏', taskList().classList.contains('hidden'));
+
+  ui.post({
+    type: 'tasks',
+    tasks: [{ id: 't1', title: '同步章节摘要', message: '第 12 章《夜访》', current: 11, total: 76, elapsedMs: 65000 }],
+  });
+  check('有任务时露出来', !taskList().classList.contains('hidden'));
+  check('渲染出一行', rows().length === 1, `${rows().length}`);
+  check('显示标题', textOf(0).includes('同步章节摘要'), textOf(0));
+  check('显示当前在做什么', textOf(0).includes('第 12 章《夜访》'), textOf(0));
+  check('显示 n/N 与百分比', textOf(0).includes('11/76') && textOf(0).includes('14%'), textOf(0));
+  check('显示已用时（分:秒）', textOf(0).includes('1:05'), textOf(0));
+  check('进度条按比例填充',
+    rows()[0].querySelector('.task-fill').style.width === '14%',
+    rows()[0].querySelector('.task-fill').style.width);
+
+  // 点「停止」要把任务 id 发回后端。
+  ui.sent.length = 0;
+  [...rows()[0].querySelectorAll('button')].find((b) => b.textContent === '停止')
+    .dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  check('点停止发出 cancelTask',
+    ui.sent.some((m) => m.type === 'cancelTask' && m.id === 't1'), JSON.stringify(ui.sent));
+
+  // 不知道总量时走不定量条，不显示假的百分比。
+  ui.post({ type: 'tasks', tasks: [{ id: 't2', title: '提取文风指南', message: '分析中', elapsedMs: 3000 }] });
+  check('无 total 时用不定量条', rows()[0].querySelector('.task-bar').classList.contains('indeterminate'));
+  check('无 total 时不显示百分比', !textOf(0).includes('%'), textOf(0));
+
+  // 多个任务并存。
+  ui.post({
+    type: 'tasks',
+    tasks: [
+      { id: 't3', title: '甲', message: '一', current: 1, total: 2, elapsedMs: 0 },
+      { id: 't4', title: '乙', message: '二', current: 0, total: 5, elapsedMs: 0 },
+    ],
+  });
+  check('两个任务都渲染', rows().length === 2, `${rows().length}`);
+
+  ui.post({ type: 'tasks', tasks: [] });
+  check('任务结束后整块收起', taskList().classList.contains('hidden'));
+  check('任务结束后行清空', rows().length === 0, `${rows().length}`);
+}
+
+console.log('\n== 日志页 ==');
+{
+  const ui = mount();
+  const rows = () => [...ui.doc.querySelectorAll('#logBody .log-row')];
+  const texts = () => rows().map((n) => n.textContent);
+  const entry = (seq, level, scope, message, detail) => ({
+    seq, level, scope, message, detail, at: new Date(2026, 0, 1, 12, 3, 41).toISOString(),
+  });
+
+  ui.post({
+    type: 'logs',
+    entries: [
+      entry(1, 'debug', '摘要', '第 1 章请求模型'),
+      entry(2, 'info', '摘要', '第 1 章摘要已写入', '耗时 3.2s'),
+      entry(3, 'warn', '摘要', '第 2 章是空的'),
+      entry(4, 'error', '模型', '连接失败'),
+    ],
+  });
+
+  // 默认「信息及以上」：debug 那条不显示。
+  check('默认过滤掉 debug', rows().length === 3, `${rows().length}`);
+  check('显示时间', texts()[0].includes('12:03:41'), texts()[0]);
+  check('显示来源', texts()[0].includes('摘要'), texts()[0]);
+  check('显示消息', texts()[0].includes('第 1 章摘要已写入'), texts()[0]);
+  check('警告行带级别样式', rows()[1].classList.contains('log-warn'));
+  check('错误行带级别样式', rows()[2].classList.contains('log-error'));
+  check('detail 折叠在 details 里', !!rows()[0].querySelector('details.log-detail'));
+  check('detail 默认收起', !rows()[0].querySelector('details.log-detail').open);
+  check('计数显示筛选比例', ui.doc.getElementById('logMeta').textContent === '3 / 4 条',
+    ui.doc.getElementById('logMeta').textContent);
+
+  // 调到「全部」应当把 debug 放出来。
+  const setLevel = (v) => {
+    ui.doc.getElementById('logLevel').value = v;
+    ui.doc.getElementById('logLevel').dispatchEvent(new ui.window.Event('change'));
+  };
+  setLevel('debug');
+  check('切到全部后 debug 出现', rows().length === 4, `${rows().length}`);
+  check('全部显示时计数不带比例', ui.doc.getElementById('logMeta').textContent === '4 条',
+    ui.doc.getElementById('logMeta').textContent);
+
+  setLevel('error');
+  check('切到仅错误只剩一条', rows().length === 1, `${rows().length}`);
+  check('剩下的就是那条错误', texts()[0].includes('连接失败'), texts()[0]);
+  setLevel('info');
+
+  // 关键字过滤。
+  const filter = ui.doc.getElementById('logFilter');
+  filter.value = '模型';
+  filter.dispatchEvent(new ui.window.Event('input'));
+  check('关键字过滤生效', rows().length === 1 && texts()[0].includes('连接失败'), texts().join(' | '));
+  filter.value = '';
+  filter.dispatchEvent(new ui.window.Event('input'));
+  check('清空过滤后恢复', rows().length === 3, `${rows().length}`);
+
+  // 增量追加。
+  ui.post({ type: 'log', entry: entry(5, 'info', '摘要', '第 3 章摘要已写入') });
+  check('增量追加一条', rows().length === 4, `${rows().length}`);
+  check('追加在末尾', texts().at(-1).includes('第 3 章摘要已写入'), texts().at(-1));
+
+  // 被过滤掉的级别，增量也不该冒出来。
+  ui.post({ type: 'log', entry: entry(6, 'debug', '摘要', '不该显示的调试') });
+  check('增量也走过滤', !texts().some((t) => t.includes('不该显示的调试')), texts().join(' | '));
+
+  // 清空按钮把请求发回后端，前端不自己清（后端要留一条痕迹）。
+  ui.sent.length = 0;
+  ui.doc.getElementById('logClearBtn').dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  check('点清空发出 clearLogs', ui.sent.some((m) => m.type === 'clearLogs'), JSON.stringify(ui.sent));
+
+  ui.post({ type: 'logs', entries: [entry(7, 'info', '日志', '日志已清空')] });
+  check('清空后只剩痕迹那条', rows().length === 1 && texts()[0].includes('日志已清空'), texts().join(' | '));
 }
 
 console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);

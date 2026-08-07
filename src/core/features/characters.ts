@@ -4,11 +4,15 @@ import { collectStream, ChatOptions } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
 import { resolveSectionDir } from '../fileOps';
+import { elapsed, scoped } from '../logger';
+import { runTask } from '../progress';
 import { NovelProject, emptyCharacterSections, exists, readText, renderCharacterCard, slugify, writeText } from '../model/project';
 import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections, Chapter } from '../model/types';
-import { takeHead } from '../context/tokenizer';
+import { estimateTokens, takeHead } from '../context/tokenizer';
 import { pickChaptersByInput } from './pickChapters';
 import { stripCodeFence } from './summarize';
+
+const log = scoped('角色卡');
 
 /**
  * 从选定章节提取/更新角色卡。
@@ -19,6 +23,7 @@ import { stripCodeFence } from './summarize';
 export async function extractCharacters(project: NovelProject): Promise<void> {
   const chapters = await project.listChapters();
   if (chapters.length === 0) {
+    log.warn('还没有章节，无法提取角色');
     getHost().toast('还没有章节。');
     return;
   }
@@ -31,61 +36,82 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
     chapters.slice(-3).map((c) => c.order)
   );
   if (!picked || picked.length === 0) {
+    log.info('用户取消了章节选择');
     return;
   }
 
   const provider = await resolveProvider();
   if (!provider) {
+    log.error('没有可用的模型，提取中止');
     return;
   }
   const config = readConfig();
   const existing = await project.listCharacters();
+  log.info(
+    `准备从 ${picked.length} 章提取角色`,
+    `章节 ${picked.map((c) => c.order).join('、')}｜已有角色卡 ${existing.length} 张｜模型 ${provider.label}`
+  );
 
-  await getHost().progress('Novel Forge：提取角色信息', async (signal, report) => {
-    report('读取章节正文');
-    const selected = [...picked].sort((a, b) => a.order - b.order);
-    const corpus = await buildCorpus(project, selected, config.contextWindow - config.maxOutputTokens - 2000);
+  await runTask(
+    '提取角色信息',
+    async ({ signal, report }) => {
+      const startedAt = Date.now();
+      // 三步：读正文 → 调模型 → 合并。给 total 才画得出进度条。
+      report({ message: '读取章节正文', current: 0, total: 3 });
+      const selected = [...picked].sort((a, b) => a.order - b.order);
+      const budget = config.contextWindow - config.maxOutputTokens - 2000;
+      const corpus = await buildCorpus(project, selected, budget);
+      log.debug('正文已读取', `${corpus.length} 字（约 ${estimateTokens(corpus)} token）`);
 
-    const knownList =
-      existing.length > 0
-        ? existing.map((c) => `- ${c.name}${c.aliases.length ? `（别名：${c.aliases.join('、')}）` : ''}`).join('\n')
-        : '（暂无已有角色卡）';
+      const knownList =
+        existing.length > 0
+          ? existing.map((c) => `- ${c.name}${c.aliases.length ? `（别名：${c.aliases.join('、')}）` : ''}`).join('\n')
+          : '（暂无已有角色卡）';
 
-    report('调用模型分析人物');
-    const options: ChatOptions = {
-      maxOutputTokens: config.maxOutputTokens,
-      temperature: 0.3,
-      timeoutMs: config.requestTimeoutMs,
-      signal,
-    };
-    const raw = await collectStream(
-      provider.chatStream(
-        [
-          { role: 'system', content: CHARACTER_SYSTEM },
-          {
-            role: 'user',
-            content: `已有角色卡（同一人请沿用既有名字，不要另起新名）：\n${knownList}\n\n以下是正文：\n\n${corpus}`,
-          },
-        ],
-        options
-      )
-    );
+      report({ message: '调用模型分析人物', current: 1, total: 3 });
+      const options: ChatOptions = {
+        maxOutputTokens: config.maxOutputTokens,
+        temperature: 0.3,
+        timeoutMs: config.requestTimeoutMs,
+        signal,
+      };
+      const modelStart = Date.now();
+      const raw = await collectStream(
+        provider.chatStream(
+          [
+            { role: 'system', content: CHARACTER_SYSTEM },
+            {
+              role: 'user',
+              content: `已有角色卡（同一人请沿用既有名字，不要另起新名）：\n${knownList}\n\n以下是正文：\n\n${corpus}`,
+            },
+          ],
+          options
+        )
+      );
+      log.info('模型已返回', `${raw.length} 字，用时 ${elapsed(modelStart)}`);
 
-    if (signal.aborted) {
-      return;
-    }
+      if (signal.aborted) {
+        log.warn('提取被取消');
+        return;
+      }
 
-    const parsed = parseCharacterResponse(raw);
-    if (parsed.length === 0) {
-      getHost().toast('没有从这些章节中解析出角色信息。');
-      return;
-    }
+      const parsed = parseCharacterResponse(raw);
+      if (parsed.length === 0) {
+        log.warn('没有解析出角色信息', `模型返回开头：${raw.slice(0, 300)}`);
+        getHost().toast('没有从这些章节中解析出角色信息。');
+        return;
+      }
 
-    report(`解析出 ${parsed.length} 个角色，正在合并`);
-    const lastOrder = selected[selected.length - 1].order;
-    const firstOrder = selected[0].order;
-    await mergeCharacters(project, parsed, existing, { firstOrder, lastOrder });
-  });
+      report({ message: `解析出 ${parsed.length} 个角色，正在合并`, current: 2, total: 3 });
+      log.info(`解析出 ${parsed.length} 个角色`, parsed.map((p) => p.name).join('、'));
+      const lastOrder = selected[selected.length - 1].order;
+      const firstOrder = selected[0].order;
+      await mergeCharacters(project, parsed, existing, { firstOrder, lastOrder });
+      report({ message: '完成', current: 3, total: 3 });
+      log.info('提取结束', `总耗时 ${elapsed(startedAt)}`);
+    },
+    { scope: '角色卡' }
+  );
 }
 
 interface ParsedCharacter {
@@ -120,7 +146,7 @@ async function mergeCharacters(
     }
     // 新角色：直接创建，没有可覆盖的人工内容。
     const slug = await uniqueSlug(project.charactersDir, slugify(item.name));
-    await project.writeCharacter({
+    const relPath = await project.writeCharacter({
       slug,
       name: item.name,
       aliases: item.aliases,
@@ -129,6 +155,7 @@ async function mergeCharacters(
       lastSeen: range.lastOrder,
       sections: item.sections,
     });
+    log.info(`新建角色卡「${item.name}」`, relPath);
     created.push(item.name);
   }
 
@@ -141,12 +168,14 @@ async function mergeCharacters(
   }
 
   const names = pendingDiff.map((p) => p.name).join('、');
+  log.info(`${pendingDiff.length} 张已有角色卡有更新建议`, names);
   const choice = await getHost().confirm(
     `已有角色卡的更新：${names}。要逐个对比确认吗？`,
     ['逐个对比', '跳过更新'],
     { modal: true }
   );
   if (choice !== '逐个对比') {
+    log.info('用户跳过了已有角色卡的更新');
     return;
   }
 
@@ -208,7 +237,10 @@ async function reviewCharacterUpdate(
 
   if (verdict === 'apply') {
     await writeText(currentAbs, proposedText);
+    log.info(`已更新角色卡「${existing.name}」`, `${existing.relPath}｜${currentText.length} 字 → ${proposedText.length} 字`);
     getHost().toast(`已更新「${existing.name}」。`);
+  } else {
+    log.info(`跳过角色卡「${existing.name}」`, verdict === 'discard' ? '用户放弃' : '用户取消');
   }
 }
 
@@ -353,7 +385,16 @@ async function buildCorpus(project: NovelProject, chapters: Chapter[], budget: n
     const text = await project.readChapterText(chapter);
     parts.push(`【第${chapter.order}章 ${chapter.title}】\n${text}`);
   }
-  return takeHead(parts.join('\n\n'), Math.max(2000, budget));
+  const joined = parts.join('\n\n');
+  const clipped = takeHead(joined, Math.max(2000, budget));
+  if (clipped.length < joined.length) {
+    // 「不静默截断」：选了五章却只读进去两章半，作者必须知道。
+    log.warn(
+      '选中章节的正文超出输入预算，已截断',
+      `${joined.length} 字 → ${clipped.length} 字。少选几章可让提取更完整。`
+    );
+  }
+  return clipped;
 }
 
 // ---------------------------------------------------------------- 提示词

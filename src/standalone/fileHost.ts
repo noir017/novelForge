@@ -88,14 +88,22 @@ export class FileHost implements Host {
     return idx >= 0 ? choices[idx].value : undefined;
   }
 
+  /**
+   * 长任务。**不再为每次进度弹 toast**——`core/progress.ts` 把同一份进度
+   * 结构化推给了网页，工程页顶部有进度条与计时，逐条 toast 只会连着刷屏
+   * 把别的提示盖掉。这里只负责给出 signal，以及把失败原因报出来。
+   *
+   * 取消：网页点进度条上的「停止」走 `cancelTask`，那边直接 abort
+   * `runTask` 自己的 controller，因此这里不需要额外的取消入口。
+   */
   async progress<T>(
     title: string,
     fn: (signal: AbortSignal, report: (message: string) => void) => Promise<T>
   ): Promise<T> {
-    this.toast(`开始：${title}`);
+    void title; // 展示名由 core/progress.ts 推给网页，这里用不上
     const abort = new AbortController();
     try {
-      return await fn(abort.signal, (m) => this.toast(`${title}：${m}`));
+      return await fn(abort.signal, () => undefined);
     } catch (err) {
       this.toast(err instanceof Error ? err.message : String(err), 'error');
       throw err;

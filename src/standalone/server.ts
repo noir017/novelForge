@@ -1,11 +1,18 @@
 import { ChatController } from '../core/controller';
 import { initHost } from '../core/host';
 import { initSecrets } from '../core/llm/registry';
+import { addLogSink, describeError, formatLogEntry, scoped, setSinkLevel } from '../core/logger';
 import { NovelProject } from '../core/model/project';
 import { InMessage, OutMessage } from '../core/protocol';
 import { FileConfigStore, FileSecretStore } from '../core/stores';
 import { FileHost } from './fileHost';
 import { assetBytes, standalonePage } from './html';
+
+const log = scoped('服务');
+
+/** 终端 sink 只挂一次：端口被占时 main.ts 会重试着调 startServer，
+ *  每次都挂会让同一条日志打印好几遍。 */
+let consoleSinkAttached = false;
 
 /**
  * 独立版 Web 服务：Bun.serve 提供静态页 + /ws WebSocket。
@@ -16,9 +23,19 @@ export interface ServeOptions {
   /** 小说工程目录（绝对路径）。 */
   root: string;
   port: number;
+  /** 终端里也打 debug 级日志。网页的日志页始终收全量，不受这里影响。 */
+  verbose?: boolean;
 }
 
 export function startServer(opts: ServeOptions): number {
+  // 终端只转 info 及以上（--verbose 时放开 debug）：debug 里有逐章进度，
+  // 跑一次同步会刷屏，而网页的日志页本来就看得到那些。
+  setSinkLevel(opts.verbose ? 'debug' : 'info');
+  if (!consoleSinkAttached) {
+    consoleSinkAttached = true;
+    addLogSink((entry) => console.log(formatLogEntry(entry)));
+  }
+
   const project = NovelProject.open(opts.root);
   const clients = new Set<BunServerWebSocket>();
 
@@ -58,6 +75,7 @@ export function startServer(opts: ServeOptions): number {
         // WebSocket 的响应，但能发消息（WS 不受同源策略约束），
         // 所以这里显式校验 Origin，把 DNS rebinding 一类的写入攻击挡在外面。
         if (!isAllowedOrigin(req.headers.get('origin'), server.port)) {
+          log.warn('拒绝了一个跨源 WebSocket 连接', `Origin: ${req.headers.get('origin')}`);
           return new Response('Forbidden origin', { status: 403 });
         }
         if (server.upgrade(req)) {
@@ -92,6 +110,7 @@ export function startServer(opts: ServeOptions): number {
     websocket: {
       open(ws) {
         clients.add(ws);
+        log.debug(`网页已连接（当前 ${clients.size} 个客户端）`);
         // 重连时 view.js 不会再发 ready，这里主动推一遍全量状态；
         // 首次加载时前端还没挂监听，view.js 加载完会发 ready 再推一遍。
         void chat.resendFullState();
@@ -105,15 +124,17 @@ export function startServer(opts: ServeOptions): number {
           }
           await chat.handle(msg);
         } catch (err) {
+          log.error(`处理网页消息失败：${describeError(err)}`, err);
           broadcast({
             type: 'toast',
-            message: err instanceof Error ? err.message : String(err),
+            message: describeError(err),
             level: 'error',
           });
         }
       },
       close(ws) {
         clients.delete(ws);
+        log.debug(`网页已断开（剩 ${clients.size} 个客户端）`);
         if (clients.size === 0) {
           host.prompts.cancelAll();
         }
@@ -121,7 +142,8 @@ export function startServer(opts: ServeOptions): number {
     },
   });
 
-  console.log(`Novel Forge 已启动：http://127.0.0.1:${server.port}/（工程：${opts.root}）`);
+  // 走日志而不是裸 console.log：终端 sink 会把它打出来，网页的日志页也留一条。
+  log.info(`服务已启动：http://127.0.0.1:${server.port}/`, `工程根 ${opts.root}`);
   return server.port;
 }
 

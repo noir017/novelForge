@@ -1,5 +1,6 @@
 import { readConfig } from '../config';
 import { getHost } from '../host';
+import { scoped } from '../logger';
 import {
   ActiveModel,
   ProviderProfile,
@@ -14,6 +15,8 @@ import { SecretStore } from '../stores';
 import { AnthropicProvider } from './anthropicProvider';
 import { OpenAiProvider } from './openaiProvider';
 import { LlmProvider } from './provider';
+
+const log = scoped('模型');
 
 /**
  * API Key 按服务商 id 存，不再按 kind——同一种协议下可以并存
@@ -57,7 +60,10 @@ export async function resolveProvider(ref?: string): Promise<LlmProvider | undef
   const config = readConfig();
   const active = ref ? resolveModelRef(config.providers, ref) : config.active;
   if (!active) {
-    getHost().toast(`${describeModelIssue(config.providers, ref ?? config.model)}`, 'error');
+    const issue = describeModelIssue(config.providers, ref ?? config.model);
+    const wanted = ref ?? config.model;
+    log.error(issue, `请求的引用 ${wanted || '（空）'}｜已配置 ${config.providers.length} 个服务商`);
+    getHost().toast(`${issue}`, 'error');
     return undefined;
   }
   return buildProvider(active);
@@ -68,14 +74,20 @@ export async function buildProvider(active: ActiveModel): Promise<LlmProvider | 
   const { profile, model } = active;
 
   if (profile.kind === 'vscode-lm') {
-    return extraFactory?.(active);
+    const provider = extraFactory?.(active);
+    if (!provider) {
+      log.error('当前环境不提供 VS Code 语言模型（Copilot）', `引用 ${active.ref}`);
+    }
+    return provider;
   }
 
   const key = await ensureApiKey(profile);
   if (!key) {
+    log.error(`未取得「${providerLabel(profile)}」的 API Key`, `引用 ${active.ref}`);
     return undefined;
   }
   const baseUrl = profile.baseUrl || defaultBaseUrl(profile.kind);
+  log.debug(`构造 provider ${active.ref}`, `${profile.kind}｜${baseUrl}｜模型 ${model.name}`);
   return profile.kind === 'anthropic'
     ? new AnthropicProvider(baseUrl, model.name, key)
     : new OpenAiProvider(baseUrl, model.name, key);
@@ -106,6 +118,7 @@ async function lookupApiKey(profile: ProviderProfile): Promise<string | undefine
   if (legacy) {
     await store.set(secretKey(profile.id), legacy);
     await store.delete(legacyKey);
+    log.info(`「${providerLabel(profile)}」的 API Key 已从 0.1.x 的键位迁移`);
   }
   return legacy ?? undefined;
 }
@@ -159,9 +172,11 @@ export async function promptForApiKey(providerId?: string): Promise<string | und
   });
 
   if (!value) {
+    log.info(`用户取消了「${providerLabel(profile)}」的 API Key 录入`);
     return undefined;
   }
   await requireSecrets().set(secretKey(profile.id), value.trim());
+  log.info(`「${providerLabel(profile)}」的 API Key 已保存`, `接口地址 ${host}`);
   getHost().toast(`「${providerLabel(profile)}」的 API Key 已保存。`);
   return value.trim();
 }
@@ -183,6 +198,7 @@ export async function clearApiKey(providerId?: string): Promise<void> {
   if (legacyKey) {
     await store.delete(legacyKey);
   }
+  log.info(`已清除「${providerLabel(profile)}」的 API Key`);
   getHost().toast(`已清除「${providerLabel(profile)}」的 API Key。`);
 }
 
@@ -199,6 +215,7 @@ export async function pruneApiKeys(providers: ProviderProfile[], removedIds: str
       if (legacyKey) {
         await secrets.delete(legacyKey);
       }
+      log.info(`服务商「${id}」已删除，顺手清掉它的 API Key`);
     }
   }
 }

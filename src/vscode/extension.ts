@@ -7,6 +7,8 @@ import { newFolder, sectionRoots } from '../core/fileOps';
 import { extractStyle } from '../core/features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../core/features/summarize';
 import { getHost, initHost } from '../core/host';
+import { addLogSink, describeError, formatLogEntry, recentLogs, scoped } from '../core/logger';
+import { runTask } from '../core/progress';
 import { clearApiKey, initSecrets, pickModelRef, promptForApiKey, registerProviderFactory } from '../core/llm/registry';
 import { NovelProject } from '../core/model/project';
 import { providerLabel } from '../core/model/providers';
@@ -19,7 +21,13 @@ import { FileConfigStore, FileSecretStore } from '../core/stores';
 import { VsCodeHost } from './vscodeHost';
 import { VsCodeLmProvider } from './vscodeLmProvider';
 
+const log = scoped('插件');
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // 输出面板要最先建：激活途中（迁移、offerMigration）就已经在打日志了，
+  // 晚注册的话那几条只进缓冲、不进面板。缓冲里的先补一遍即可。
+  registerOutputChannel(context);
+
   // 老用户的 settings.json / SecretStorage 一次性搬到 ~/.novelforge/，之后双壳共用文件后端。
   await migrateVscodeSettings(context.secrets);
   initHost(new VsCodeHost(new FileConfigStore()));
@@ -28,6 +36,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerProviderFactory((active) => new VsCodeLmProvider(active.model.name, providerLabel(active.profile)));
 
   const project = currentProject();
+  log.info(
+    `插件已激活${project ? '' : '（无工作区）'}`,
+    project ? `工程根 ${project.root}` : '打开一个文件夹后功能才可用'
+  );
   if (project) {
     await offerMigration(project);
   }
@@ -76,8 +88,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if ((err as Error)?.name === 'CancelledError') {
             return;
           }
-          const message = err instanceof Error ? err.message : String(err);
-          void vscode.window.showErrorMessage(`Novel Forge：${message}`);
+          // 命令是最外层：到这里还没被接住的异常，除了弹窗还要留在日志里。
+          log.error(`命令 ${command} 执行失败：${describeError(err)}`, err);
+          void vscode.window.showErrorMessage(`Novel Forge：${describeError(err)}`);
         }
       })
     );
@@ -198,6 +211,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await chat?.showTab('project');
   });
 
+  register('novel.openLogs', async () => {
+    await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
+    await chat?.showTab('logs');
+  });
+
+  register('novel.showOutputChannel', () => {
+    // 面板里的日志与网页里的是同一份，只是这条走 VS Code 原生输出面板，
+    // 可以跟其他扩展的日志并排看，也能整段复制。
+    outputChannel?.show(true);
+  });
+
   register('novel.addSelectionToChat', async () => {
     const target = await requireProject();
     if (!target || !chat) {
@@ -241,13 +265,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
 
-    await getHost().progress(`Novel Forge：总结第 ${chapter.order} 章`, async (signal) => {
-      const ok = await summarizeChapter(target, chapter, undefined, signal);
-      if (ok) {
-        getHost().toast(`第 ${chapter.order} 章摘要已生成。`);
-        await refresh();
-      }
-    });
+    await runTask(
+      `总结第 ${chapter.order} 章`,
+      async ({ signal, report }) => {
+        report({ message: `《${chapter.title}》`, current: 0, total: 1 });
+        const ok = await summarizeChapter(target, chapter, undefined, signal);
+        report({ message: ok ? '完成' : '未生成', current: 1, total: 1 });
+        if (ok) {
+          getHost().toast(`第 ${chapter.order} 章摘要已生成。`);
+          await refresh();
+        }
+      },
+      { scope: '摘要' }
+    );
   });
 
   register('novel.syncSummaries', async () => {
@@ -287,6 +317,29 @@ export function deactivate(): void {
   ChatPanel.disposeInstance();
 }
 
+// ---------------------------------------------------------------- 日志
+
+/** 「Novel Forge」输出面板。整个插件生命周期内只有一个。 */
+let outputChannel: vscode.OutputChannel | undefined;
+
+/**
+ * 把 core 的日志接到 VS Code 的输出面板上。
+ *
+ * 缓冲里已有的先补一遍：这个函数在 activate 最开头调用，但迁移、
+ * 配置读取等模块在 import 期就可能打过日志了。
+ */
+function registerOutputChannel(context: vscode.ExtensionContext): void {
+  const channel = vscode.window.createOutputChannel('Novel Forge');
+  outputChannel = channel;
+  for (const entry of recentLogs()) {
+    channel.appendLine(formatLogEntry(entry));
+  }
+  context.subscriptions.push(
+    channel,
+    addLogSink((entry) => channel.appendLine(formatLogEntry(entry)))
+  );
+}
+
 // ---------------------------------------------------------------- 辅助
 
 /** 以当前工作区第一个文件夹为根打开工程实例；没有工作区则 undefined。 */
@@ -322,19 +375,22 @@ async function offerMigration(project: NovelProject): Promise<void> {
   if (!(await project.needsMigration())) {
     return;
   }
+  log.warn('检测到 0.1.x 的 .novel/ 目录', `工程根 ${project.root}`);
   const pick = await getHost().confirm(
     '检测到旧版数据目录 .novel/，新版已改名为 .novelforge/。要现在重命名吗？',
     ['重命名', '暂不']
   );
   if (pick !== '重命名') {
+    log.info('用户选择暂不迁移目录');
     return;
   }
   try {
     await project.migrateLegacyDir();
+    log.info('.novel/ 已重命名为 .novelforge/');
     getHost().toast('已重命名为 .novelforge/。若用 Git 管理，记得提交这次改名。');
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    getHost().toast(`重命名失败（${message}）。可手动把 .novel 改名为 .novelforge。`, 'error');
+    log.error(`目录重命名失败：${describeError(err)}`, err);
+    getHost().toast(`重命名失败（${describeError(err)}）。可手动把 .novel 改名为 .novelforge。`, 'error');
   }
 }
 

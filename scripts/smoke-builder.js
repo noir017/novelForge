@@ -526,6 +526,10 @@ async function main() {
     check('总字数为各章之和',
       tree.totalWords === chapters.reduce((s, c) => s + c.wordCount, 0), String(tree.totalWords));
     check('示例工程摘要都是新鲜的', tree.staleCount === 0 && chapters.every((c) => !c.stale));
+    // 前端画进度条要分母：staleCount + summarizedCount 必须等于章节总数。
+    check('已总结数与过期数互补',
+      tree.staleCount + tree.summarizedCount === tree.chapterCount,
+      `${tree.staleCount} + ${tree.summarizedCount} ≠ ${tree.chapterCount}`);
     check('新鲜的章节带摘要路径', chapters[2].summaryPath.endsWith('001.md'), chapters[2].summaryPath);
     check('章节带正文相对路径', chapters[0].relPath.startsWith('chapters/'), chapters[0].relPath);
 
@@ -553,6 +557,7 @@ async function main() {
       const dirty = await projectViewMod.buildProjectTree(project);
       check('改正文后该章标记为过期', byOrder(dirty.chapters, 3).stale === true);
       check('过期计数为 1', dirty.staleCount === 1, String(dirty.staleCount));
+      check('已总结计数跟着减 1', dirty.summarizedCount === 2, String(dirty.summarizedCount));
       check('过期章节仍带旧摘要路径（可点开对照）',
         byOrder(dirty.chapters, 3).summaryPath.endsWith('003.md'));
       check('其他章节不受影响',

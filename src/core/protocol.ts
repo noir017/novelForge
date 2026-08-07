@@ -1,6 +1,9 @@
 /** Webview ↔ 扩展 的消息协议。两个宿主（侧边栏 / 编辑器面板）共用。 */
 
-export type Tab = 'chat' | 'project' | 'history' | 'settings';
+import { LogEntry } from './logger';
+import { TaskSnapshot } from './progress';
+
+export type Tab = 'chat' | 'project' | 'history' | 'settings' | 'logs';
 
 export interface SendPayload {
   text: string;
@@ -81,6 +84,12 @@ export type InMessage =
    */
   | { type: 'testConnection'; ref?: string; provider?: SerializedProvider }
   | { type: 'openNativeSettings' }
+  /** 取消一个正在跑的长任务（进度条上的「停止」）。 */
+  | { type: 'cancelTask'; id: string }
+  /** 日志页：要一份缓冲全量（切到该页 / 点刷新时发）。 */
+  | { type: 'requestLogs' }
+  /** 日志页：清空缓冲。 */
+  | { type: 'clearLogs' }
   /** 网页弹窗的回执（仅独立版：host.input/confirm/pick 经 WebSocket 变成 modal）。 */
   | { type: 'promptResult'; requestId: string; value?: string };
 
@@ -170,6 +179,16 @@ export type OutMessage =
   | { type: 'editorConflict'; path: string; diskText: string; diskHash: string }
   /** 内置编辑器：打开/保存失败（越界、扩展名不符、过大等）。 */
   | { type: 'editorError'; path: string; message: string }
+  /**
+   * 正在跑的长任务快照，全量替换。
+   *
+   * 任何变化（新增/进度/结束）都重推整份——列表最多两三项，
+   * 增量协议换来的那点带宽不值得让前端维护一份可能对不上的副本。
+   */
+  | { type: 'tasks'; tasks: TaskSnapshot[] }
+  /** 日志：增量一条（实时追加），或全量一批（日志页首次加载/清空后）。 */
+  | { type: 'log'; entry: LogEntry }
+  | { type: 'logs'; entries: LogEntry[] }
   /** 要求前端弹一个 modal（仅独立版）。用户提交后回 `promptResult`。 */
   | {
       type: 'prompt';
@@ -234,6 +253,14 @@ export interface ProjectTree {
   chapterCount: number;
   totalWords: number;
   staleCount: number;
+  /**
+   * 摘要已是最新的章节数。`staleCount + summarizedCount === chapterCount`。
+   *
+   * 与 staleCount 一起给，前端才画得出「已完成 N/M」的进度条——
+   * 只有 staleCount 时，用户看到「76 章待总结」不知道分母是多少，
+   * 同步跑到一半也说不清还剩几章。
+   */
+  summarizedCount: number;
   chapters: ProjectNode[];
   characters: ProjectNode[];
   lore: ProjectNode[];
@@ -339,6 +366,10 @@ export interface SessionListItem {
   preview: string;
   active: boolean;
 }
+
+/** 日志与任务的形状定义在各自模块里，这里转出去供前端与壳统一从协议引用。 */
+export type { LogEntry, LogLevel } from './logger';
+export type { TaskSnapshot } from './progress';
 
 /** CSP 用的一次性 nonce。 */
 export function makeNonce(): string {
