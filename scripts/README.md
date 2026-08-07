@@ -6,7 +6,7 @@
 |---|---|
 | [smoke.js](smoke.js) | Markdown 解析、tokenizer、模型输出清洗、摘要/角色 JSON 解析的容错，以及 `sample-novel/` 的 hash 一致性 |
 | [smoke-providers.js](smoke-providers.js) | 模型引用解析（含嵌套斜杠 `openrouter/z-ai/glm-4.6`）、服务商配置容错、按模型覆盖窗口、0.1.x 单服务商配置兜底 |
-| [smoke-view.js](smoke-view.js) | 用 jsdom 跑真正的 `media/view.js`（DOM 结构从 `webviewHtml.ts` 里抠出来，保证与真实渲染一致）：流式过程中逐段显示、生成中不可编辑、结束后可编辑，以及气泡右上角的 ... 菜单；以及工程页目录树——折叠/展开、缩进层级、空文件夹提示、重推后保持展开状态，以及行内操作发出的消息负载（`fileAction` 与带 `dir` 的 `projectAction`）。**未装 jsdom 时自行跳过**，不算失败。 |
+| [smoke-view.js](smoke-view.js) | 用 jsdom 跑真正的 `media/view.js`（DOM 结构从 `webviewHtml.ts` 里抠出来，保证与真实渲染一致）：流式过程中逐段显示、生成中不可编辑、结束后可编辑，以及气泡右上角的 ... 菜单；工程页目录树——折叠/展开、缩进层级、空文件夹提示、重推后保持展开状态；以及右键菜单——各类行给出的菜单项、点击后发出的消息负载（`fileAction` 与带 `dir` 的 `projectAction`）、行上不再有行内按钮、其它页面只给「刷新」、点空白/Esc 关闭。**未装 jsdom 时自行跳过**，不算失败。 |
 | [smoke-builder.js](smoke-builder.js) | 用真实文件系统的 vscode 桩跑完整上下文装配：优先级、预算、降级链、手动排除、附件截断、多轮历史封顶、discuss 模式、provider 配额压缩；另含工程页快照 |
 | [smoke-fileops.js](smoke-fileops.js) | ★ 层级目录与类文件操作：递归扫描（含 `.trash/` 排除）、`ProjectTree` 折叠、路径越界守卫、新建文件夹/在文件夹内新建、重命名（保留序号前缀、H1 同步策略）、移动（跨区/自嵌套/同名拒绝）、删除（搬回收站、不覆盖）、挪动章节后摘要仍算新鲜 |
 | [smoke-llm.js](smoke-llm.js) | 起本地假服务器模拟 SSE：流式解析（跨块切分、CRLF、心跳、非 JSON 行）、取消、超时、HTTP 401/404/429 错误信息，Anthropic 的 system 提取与消息合并 |

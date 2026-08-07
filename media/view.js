@@ -426,7 +426,14 @@
     return bar;
   }
 
-  // ------------------------------------------------- 气泡右上角的 ... 菜单
+  // ---------------------------------------------------------------- 菜单
+
+  /**
+   * 一套菜单引擎，两个入口：气泡右上角的 ⋯ 按钮（贴着按钮定位），
+   * 以及任意位置的右键（跟着光标定位）。
+   *
+   * 菜单项是 `{ label, run, danger, disabled }`；`{ sep: true }` 是分隔线。
+   */
 
   /** 当前打开的菜单（同时只允许一个）。 */
   let openMenu = null;
@@ -434,9 +441,117 @@
   function closeMenu() {
     if (!openMenu) return;
     openMenu.menu.remove();
-    openMenu.btn.classList.remove('active');
+    if (openMenu.btn) openMenu.btn.classList.remove('active');
     openMenu = null;
   }
+
+  /** 由菜单项数组建出菜单 DOM。两个入口共用，差别只在挂到哪儿、怎么定位。 */
+  function buildMenuElement(items, className) {
+    const menu = document.createElement('div');
+    menu.className = className;
+    for (const item of items) {
+      if (item.sep) {
+        // 首尾的分隔线没有意义（构建方按需拼接，这里兜一下）。
+        if (menu.lastElementChild && !menu.lastElementChild.classList.contains('menu-sep')) {
+          const hr = document.createElement('div');
+          hr.className = 'menu-sep';
+          menu.appendChild(hr);
+        }
+        continue;
+      }
+      const b = document.createElement('button');
+      b.textContent = item.label;
+      if (item.danger) b.classList.add('danger');
+      if (item.disabled) b.disabled = true;
+      b.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (item.disabled) return;
+        closeMenu();
+        item.run();
+      });
+      menu.appendChild(b);
+    }
+    // 拼完后可能落下一条尾部分隔线。
+    const tail = menu.lastElementChild;
+    if (tail && tail.classList.contains('menu-sep')) tail.remove();
+    return menu;
+  }
+
+  /**
+   * 在视口坐标 (x, y) 处弹出菜单。挂在 body 上、position: fixed——
+   * 右键可能发生在任何容器里（含内部滚动的工程页），跟着容器走会被裁掉。
+   * 贴近右边缘/下边缘时向左/向上翻转，不让菜单掉出屏幕。
+   */
+  function showContextMenu(items, x, y) {
+    closeMenu();
+    if (items.length === 0) return;
+
+    const menu = buildMenuElement(items, 'ctx-menu');
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    document.body.appendChild(menu);
+    openMenu = { btn: null, menu };
+
+    // jsdom 里 offsetWidth 恒为 0，翻转逻辑自动退化为「贴光标」，不影响断言。
+    const w = menu.offsetWidth;
+    const h = menu.offsetHeight;
+    const vw = window.innerWidth || 0;
+    const vh = window.innerHeight || 0;
+    const left = w > 0 && x + w > vw ? Math.max(0, x - w) : x;
+    const top = h > 0 && y + h > vh ? Math.max(0, y - h) : y;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+
+  /**
+   * 「这个元素上右键给什么菜单」的登记表。
+   *
+   * 用 WeakMap 而不是在右键时按 relPath 反查 `lastTree`：菜单项在构建那一行时
+   * 就已经知道全部上下文（节点、所属区、落点目录），反查得把这些再拼一遍。
+   * 行被重渲染丢弃后条目自动回收。
+   */
+  const menuProviders = new WeakMap();
+
+  /** 给一个元素登记右键菜单。`provide` 返回菜单项数组，右键那一刻才调用。 */
+  function onContextMenu(node, provide) {
+    menuProviders.set(node, provide);
+    return node;
+  }
+
+  /** 从事件目标往上找第一个登记过菜单的祖先。 */
+  function resolveMenuItems(target) {
+    for (let node = target; node && node !== document; node = node.parentElement) {
+      const provide = menuProviders.get(node);
+      if (provide) return provide();
+    }
+    return null;
+  }
+
+  /** 所有页面都有的兜底菜单：一个刷新。 */
+  function baseMenuItems() {
+    return [{ label: '刷新', run: () => projectAction('refresh') }];
+  }
+
+  document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    // 在已弹出的菜单上右键：收起就好，不要再叠一层兜底菜单。
+    if (openMenu && openMenu.menu.contains(e.target)) {
+      closeMenu();
+      return;
+    }
+    const items = resolveMenuItems(e.target) || baseMenuItems();
+    // 键盘的「菜单键」触发时 clientX/Y 为 0，改用目标元素的位置，
+    // 否则菜单会跑到屏幕左上角。
+    let { clientX: x, clientY: y } = e;
+    if (!x && !y && e.target && e.target.getBoundingClientRect) {
+      const rect = e.target.getBoundingClientRect();
+      x = rect.left;
+      y = rect.bottom;
+    }
+    showContextMenu(items, x, y);
+  });
+
+  // ------------------------------------------------- 气泡右上角的 ... 菜单
 
   /** 这条消息在 ... 菜单里能做什么。 */
   function menuItemsFor(turn) {
@@ -479,21 +594,9 @@
       }
       closeMenu();
 
-      const menu = document.createElement('div');
-      menu.className = 'msg-menu';
-      for (const item of menuItemsFor(turn)) {
-        const b = document.createElement('button');
-        b.textContent = item.label;
-        if (item.danger) b.classList.add('danger');
-        b.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          closeMenu();
-          item.run();
-        });
-        menu.appendChild(b);
-      }
       // 菜单挂在按钮的容器里，用绝对定位贴住右上角——
       // 挂到 body 上就得手算坐标，还要跟着 .messages 滚动。
+      const menu = buildMenuElement(menuItemsFor(turn), 'msg-menu');
       btn.parentElement.appendChild(menu);
       btn.classList.add('active');
       openMenu = { btn, menu };
@@ -501,27 +604,27 @@
     return btn;
   }
 
-  // 点别处、按 Esc、切页签都要收起菜单。
+  // 点别处、按 Esc 都要收起菜单。
   document.addEventListener('click', closeMenu);
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeMenu();
   });
+  // 右键菜单是 fixed 定位的，内容一滚它就和目标行脱节了，收起来。
+  // 只收右键菜单：⋯ 菜单挂在气泡里会跟着滚，而且流式输出每来一段
+  // 都会 scrollToBottom()，一起收会让它刚点开就消失。捕获阶段才收得到
+  // 内部容器（.messages / .project-body）的滚动。
+  document.addEventListener(
+    'scroll',
+    () => {
+      if (openMenu && !openMenu.btn) closeMenu();
+    },
+    true
+  );
 
   function linkBtn(text, onClick) {
     const b = document.createElement('button');
     b.className = 'link';
     b.textContent = text;
-    b.addEventListener('click', onClick);
-    return b;
-  }
-
-  /** 行尾的小图标按钮（新建/重命名/移动/删除）。文字太长会把行挤没。 */
-  function iconBtn(glyph, title, onClick) {
-    const b = document.createElement('button');
-    b.className = 'row-icon';
-    b.textContent = glyph;
-    b.title = title;
-    b.setAttribute('aria-label', title);
     b.addEventListener('click', onClick);
     return b;
   }
@@ -755,35 +858,32 @@
     el.projectBody.appendChild(buildProjectHead(tree));
     el.projectBody.appendChild(
       buildGroup('chapters', '章节', `${tree.chapterCount} 章 · ${formatWords(tree.totalWords)}`, {
+        section: SECTIONS.chapters,
         root: tree.chaptersRoot,
-        newAction: 'newChapter',
-        newLabel: '新建章节',
         build: () =>
           tree.chapters.length === 0
             ? [emptyRow('还没有章节。点上方「＋ 新建章节」开始。')]
-            : renderNodes(tree.chapters, 0, 'newChapter'),
+            : renderNodes(tree.chapters, 0, SECTIONS.chapters),
       })
     );
     el.projectBody.appendChild(
       buildGroup('characters', '角色', countLabel(tree.characters, '人'), {
+        section: SECTIONS.characters,
         root: tree.charactersRoot,
-        newAction: 'newCharacter',
-        newLabel: '新建角色卡',
         build: () =>
           tree.characters.length === 0
             ? [emptyRow('还没有角色卡。可运行「提取/更新角色卡」从正文抽取。')]
-            : renderNodes(tree.characters, 0, 'newCharacter'),
+            : renderNodes(tree.characters, 0, SECTIONS.characters),
       })
     );
     el.projectBody.appendChild(
       buildGroup('lore', '设定', countLabel(tree.lore, '条'), {
+        section: SECTIONS.lore,
         root: tree.loreRoot,
-        newAction: 'newLore',
-        newLabel: '新建设定',
         build: () =>
           tree.lore.length === 0
             ? [emptyRow('还没有设定条目。keywords 命中纲要时会自动注入上下文。')]
-            : renderNodes(tree.lore, 0, 'newLore'),
+            : renderNodes(tree.lore, 0, SECTIONS.lore),
       })
     );
     el.projectBody.appendChild(
@@ -791,6 +891,33 @@
         build: () => buildMetaRows(tree),
       })
     );
+  }
+
+  /**
+   * 三个可管理区各自的差异：新建什么、菜单上怎么称呼、文件行用什么图标。
+   * 与 core/fileOps.ts 的 Section 一一对应。
+   */
+  const SECTIONS = {
+    chapters: { newAction: 'newChapter', newLabel: '在此新建章节', icon: '📄' },
+    characters: { newAction: 'newCharacter', newLabel: '在此新建角色卡', icon: '👤' },
+    lore: { newAction: 'newLore', newLabel: '在此新建设定', icon: '🌐' },
+  };
+
+  /** 「在此新建 X / 在此新建文件夹」两项，落点是 `dir`。 */
+  function newItemsIn(section, dir) {
+    return [
+      { label: section.newLabel, run: () => projectAction(section.newAction, undefined, dir) },
+      { label: '在此新建文件夹', run: () => projectAction('newFolder', undefined, dir) },
+    ];
+  }
+
+  /** 重命名 / 移动 / 删除——文件与文件夹都是这三个。 */
+  function entryItems(relPath) {
+    return [
+      { label: '重命名', run: () => fileAction('rename', relPath) },
+      { label: '移动到…', run: () => fileAction('move', relPath) },
+      { label: '删除（移到回收站）', danger: true, run: () => fileAction('delete', relPath) },
+    ];
   }
 
   /** 顶层分组的副标题：文件总数（含子文件夹里的）。 */
@@ -815,31 +942,27 @@
    * 递归渲染一层节点。返回扁平的行数组——树的层级靠 depth 缩进表达，
    * 而不是嵌套 DOM：折叠一个文件夹只需要重建它所在的分组。
    *
-   * `newAction` 是该区「在此新建」的动作名，挂在每个文件夹行上。
+   * `section` 是 SECTIONS 里的那一项，决定文件图标与「在此新建」建什么。
    */
-  function renderNodes(nodes, depth, newAction) {
+  function renderNodes(nodes, depth, section) {
     const rows = [];
     for (const node of nodes) {
       if (node.kind === 'dir') {
-        rows.push(buildFolderRow(node, depth, newAction));
+        rows.push(buildFolderRow(node, depth, section));
         if (openFolders.has(node.relPath)) {
           if (node.children.length === 0) {
             rows.push(emptyRow('（空文件夹）', depth + 1));
           } else {
-            rows.push(...renderNodes(node.children, depth + 1, newAction));
+            rows.push(...renderNodes(node.children, depth + 1, section));
           }
         }
       } else if (node.kind === 'chapter') {
         rows.push(buildChapterRow(node, depth));
       } else {
-        rows.push(buildFileRow(node, iconFor(newAction), depth));
+        rows.push(buildFileRow(node, section.icon, depth));
       }
     }
     return rows;
-  }
-
-  function iconFor(newAction) {
-    return newAction === 'newCharacter' ? '👤' : newAction === 'newLore' ? '🌐' : '📄';
   }
 
 
@@ -891,7 +1014,9 @@
 
   /**
    * 可折叠分组。`opts.build` 惰性调用，折叠时不生成行。
-   * 给了 `opts.root` 的分组，标题栏右侧还挂「＋ 新建」与「＋ 文件夹」。
+   *
+   * 三个可管理区（给了 `opts.section` + `opts.root`）在标题栏与分组空白处
+   * 右键能「在此新建」，落点是该区根目录；行上的右键各自登记，会先命中。
    */
   function buildGroup(id, label, description, opts) {
     const box = document.createElement('div');
@@ -915,21 +1040,20 @@
     desc.textContent = description;
     toggle.appendChild(desc);
     head.appendChild(toggle);
-
-    if (opts.root) {
-      const actions = document.createElement('span');
-      actions.className = 'row-actions';
-      actions.appendChild(iconBtn('＋', opts.newLabel, () => projectAction(opts.newAction, undefined, opts.root)));
-      actions.appendChild(
-        iconBtn('🗀', '在此新建文件夹', () => projectAction('newFolder', undefined, opts.root))
-      );
-      head.appendChild(actions);
-    }
     box.appendChild(head);
 
     const body = document.createElement('div');
     body.className = 'group-body';
     box.appendChild(body);
+
+    if (opts.section) {
+      // 登记在整个分组上：标题栏、分组内的空白、空提示行都能右键新建。
+      onContextMenu(box, () => [
+        ...newItemsIn(opts.section, opts.root),
+        { sep: true },
+        ...baseMenuItems(),
+      ]);
+    }
 
     const sync = () => {
       caret.textContent = openGroups[id] ? '▾' : '▸';
@@ -946,10 +1070,10 @@
   }
 
   /**
-   * 文件夹行。点行体展开/折叠，行尾挂「在此新建 / 新建子文件夹 / 重命名 / 移动 / 删除」。
+   * 文件夹行。点行体展开/折叠，其余操作走右键。
    * 折叠状态由前端自己记，不进后端。
    */
-  function buildFolderRow(node, depth, newAction) {
+  function buildFolderRow(node, depth, section) {
     const row = document.createElement('div');
     row.className = 'row row-dir';
     row.style.paddingLeft = `${indentOf(depth)}px`;
@@ -980,20 +1104,15 @@
     caret.addEventListener('click', toggle);
     label.addEventListener('click', toggle);
 
-    const actions = document.createElement('span');
-    actions.className = 'row-actions';
-    actions.appendChild(iconBtn('＋', '在此新建', () => projectAction(newAction, undefined, node.relPath)));
-    actions.appendChild(iconBtn('🗀', '新建子文件夹', () => projectAction('newFolder', undefined, node.relPath)));
-    appendEntryActions(actions, node.relPath);
-    row.appendChild(actions);
+    // 「在此新建」的落点是这个文件夹自己，不是区根目录。
+    onContextMenu(row, () => [
+      { label: open ? '折叠' : '展开', run: toggle },
+      { sep: true },
+      ...newItemsIn(section, node.relPath),
+      { sep: true },
+      ...entryItems(node.relPath),
+    ]);
     return row;
-  }
-
-  /** 重命名 / 移动 / 删除——文件与文件夹都是这三个。 */
-  function appendEntryActions(actions, relPath) {
-    actions.appendChild(iconBtn('✎', '重命名', () => fileAction('rename', relPath)));
-    actions.appendChild(iconBtn('↦', '移动到…', () => fileAction('move', relPath)));
-    actions.appendChild(iconBtn('🗑', '删除（移到回收站）', () => fileAction('delete', relPath)));
   }
 
   /** 每层缩进 14px，第 0 层与改造前的行保持同样的左内边距。 */
@@ -1024,24 +1143,29 @@
     words.textContent = formatWords(c.wordCount);
     row.appendChild(words);
 
-    const actions = document.createElement('span');
-    actions.className = 'row-actions';
-    actions.appendChild(
-      // 从第 N 章续写意味着写第 N+1 章，与右键菜单的语义一致。
-      linkBtn('在此续写', () => projectAction('continueFrom', c.order))
-    );
-    actions.appendChild(linkBtn(c.stale ? '总结' : '重新总结', () => projectAction('summarizeChapter', c.order)));
-    if (c.summaryPath) {
-      actions.appendChild(linkBtn('看摘要', () => openPath(c.summaryPath)));
-    }
-    appendEntryActions(actions, c.relPath);
-    row.appendChild(actions);
+    onContextMenu(row, () => {
+      const items = [
+        { label: '打开', run: () => openPath(c.relPath) },
+        // 从第 N 章续写意味着写第 N+1 章。
+        { label: '在此续写', run: () => projectAction('continueFrom', c.order) },
+        {
+          label: c.stale ? '总结本章' : '重新总结',
+          run: () => projectAction('summarizeChapter', c.order),
+        },
+      ];
+      if (c.summaryPath) {
+        items.push({ label: '看摘要', run: () => openPath(c.summaryPath) });
+      }
+      items.push({ sep: true }, ...entryItems(c.relPath));
+      return items;
+    });
     return row;
   }
 
   /**
    * 角色/设定/元数据行。
-   * `depth` 为 undefined 时不设缩进——「文风与摘要」那几行不在树里。
+   * `depth` 为 undefined 时不设缩进，也不挂类文件操作的右键菜单——
+   * 「文风与摘要」那几行是工程的固定文件，不能重命名/移动/删除。
    */
   function buildFileRow(f, icon, depth) {
     const row = document.createElement('div');
@@ -1070,10 +1194,11 @@
     }
 
     if (depth !== undefined) {
-      const actions = document.createElement('span');
-      actions.className = 'row-actions';
-      appendEntryActions(actions, f.relPath);
-      row.appendChild(actions);
+      onContextMenu(row, () => [
+        { label: '打开', run: () => openPath(f.relPath) },
+        { sep: true },
+        ...entryItems(f.relPath),
+      ]);
     }
     return row;
   }
@@ -1098,6 +1223,12 @@
     globalActions.className = 'row-actions';
     globalActions.appendChild(linkBtn('重建', () => projectAction('rebuildGlobalSummary')));
     global.appendChild(globalActions);
+    onContextMenu(global, () => [
+      { label: '打开', run: () => openPath(tree.globalSummaryPath) },
+      { label: '重建全书摘要', run: () => projectAction('rebuildGlobalSummary') },
+      { sep: true },
+      ...baseMenuItems(),
+    ]);
     rows.push(global);
 
     const style = buildFileRow({ label: '文风指南', relPath: tree.styleGuidePath, detail: '' }, '🎨');
@@ -1105,9 +1236,21 @@
     styleActions.className = 'row-actions';
     styleActions.appendChild(linkBtn('从正文提取', () => projectAction('extractStyle')));
     style.appendChild(styleActions);
+    onContextMenu(style, () => [
+      { label: '打开', run: () => openPath(tree.styleGuidePath) },
+      { label: '从正文提取文风', run: () => projectAction('extractStyle') },
+      { sep: true },
+      ...baseMenuItems(),
+    ]);
     rows.push(style);
 
-    rows.push(buildFileRow({ label: '全书大纲', relPath: tree.outlinePath, detail: '人工维护' }, '🗂'));
+    const outline = buildFileRow({ label: '全书大纲', relPath: tree.outlinePath, detail: '人工维护' }, '🗂');
+    onContextMenu(outline, () => [
+      { label: '打开', run: () => openPath(tree.outlinePath) },
+      { sep: true },
+      ...baseMenuItems(),
+    ]);
+    rows.push(outline);
 
     const tools = document.createElement('div');
     tools.className = 'row row-tools';
@@ -1118,6 +1261,12 @@
       )
     );
     tools.appendChild(linkBtn('提取/更新角色卡', () => projectAction('extractCharacters')));
+    onContextMenu(tools, () => [
+      { label: '同步过期摘要', run: () => projectAction('syncSummaries') },
+      { label: '提取/更新角色卡', run: () => projectAction('extractCharacters') },
+      { sep: true },
+      ...baseMenuItems(),
+    ]);
     rows.push(tools);
     return rows;
   }

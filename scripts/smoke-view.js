@@ -31,13 +31,14 @@ try {
 /** 从 webviewHtml.ts 里抠出 body，保证测试用的结构与真实渲染的一致。 */
 function bodyHtml() {
   const src = fs.readFileSync(path.join(ROOT, 'src/vscode/webviewHtml.ts'), 'utf8');
-  const start = src.indexOf('<body>');
+  // <body> 上带着 data-vscode-context 属性，不能按字面量找。
+  const open = /<body[^>]*>/.exec(src);
   const end = src.indexOf('</body>');
-  if (start === -1 || end === -1) {
+  if (!open || end === -1) {
     throw new Error('webviewHtml.ts 里找不到 <body>，测试需要同步更新');
   }
   return src
-    .slice(start + 6, end)
+    .slice(open.index + open[0].length, end)
     // 去掉两个 <script src>（模板串里是 ${asset(...)}），脚本我们手动注入。
     .replace(/<script[\s\S]*?<\/script>/g, '');
 }
@@ -71,6 +72,11 @@ function mount() {
 
 const turn = (id, role, content, extra) =>
   Object.assign({ id, role, content, at: new Date(0).toISOString() }, extra);
+
+/** 收起当前打开的菜单（点一下 body），免得它挂在那儿影响后续断言。 */
+function closeAnyMenu(ui) {
+  ui.doc.body.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+}
 
 // ---------------------------------------------------------------- 流式输出
 
@@ -342,56 +348,182 @@ console.log('\n== 工程页目录树 ==');
   check('重推数据后保持展开状态', labels().some((l) => l.includes('夜访')), labels().join(' | '));
 }
 
-console.log('\n== 工程页的行内操作 ==');
+console.log('\n== 工程页的右键菜单 ==');
 {
   const ui = mount();
   const clickEl = (node) => node.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
-  const icons = (title) => [...ui.doc.querySelectorAll(`#projectBody [title="${title}"]`)];
+  /** 在某个元素上右键，返回弹出的菜单。 */
+  const rightClick = (node) => {
+    node.dispatchEvent(
+      new ui.window.MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 60 })
+    );
+    return ui.doc.querySelector('.ctx-menu');
+  };
+  const itemsOf = (menu) => [...menu.querySelectorAll('button')].map((b) => b.textContent);
+  const pick = (menu, label) =>
+    clickEl([...menu.querySelectorAll('button')].find((b) => b.textContent === label));
+  const rowWith = (text) =>
+    [...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes(text));
   const last = (type) => [...ui.sent].reverse().find((m) => m.type === type);
 
   ui.post({ type: 'project', tree: sampleTree() });
 
-  clickEl(icons('重命名')[0]);
-  const ren = last('fileAction');
-  check('重命名发 fileAction',
-    ren && ren.action === 'rename' && ren.relPath.startsWith('chapters/'), JSON.stringify(ren));
+  // 页面整洁：章节/角色/设定三个区的行不再挂任何行内按钮。
+  // （「文风与摘要」不是文件管理区，它的「重建」「从正文提取」链接照旧留在行内。）
+  const treeRows = [...ui.doc.querySelectorAll('#projectBody .group')]
+    .slice(0, 3)
+    .flatMap((g) => [...g.querySelectorAll('.row')]);
+  check('树上的行不再有行内操作按钮',
+    treeRows.length > 0 && treeRows.every((r) => !r.querySelector('.row-actions')),
+    `${treeRows.length} 行`);
+  check('分组标题栏不再有「＋」按钮',
+    !ui.doc.querySelector('#projectBody .group-head .row-actions'));
 
-  clickEl(icons('移动到…')[0]);
-  check('移动发 fileAction', last('fileAction').action === 'move');
+  // ---- 章节行
+  const chapterMenu = rightClick(rowWith('楔子'));
+  check('右键章节行弹出菜单', !!chapterMenu);
+  const chapterItems = itemsOf(chapterMenu);
+  for (const label of ['打开', '在此续写', '重新总结', '看摘要', '重命名', '移动到…', '删除（移到回收站）']) {
+    check(`章节菜单含「${label}」`, chapterItems.includes(label), JSON.stringify(chapterItems));
+  }
+  check('菜单有分隔线', chapterMenu.querySelectorAll('.menu-sep').length >= 1);
 
-  clickEl(icons('删除（移到回收站）')[0]);
-  check('删除发 fileAction', last('fileAction').action === 'delete');
+  pick(chapterMenu, '删除（移到回收站）');
+  const del = last('fileAction');
+  check('点删除发 fileAction',
+    del && del.action === 'delete' && del.relPath === 'chapters/001-楔子.md', JSON.stringify(del));
+  check('点完菜单关闭', !ui.doc.querySelector('.ctx-menu'));
 
-  // 文件夹行上的「＋」必须带落点目录，否则会建到区根目录去。
-  clickEl(icons('在此新建')[0]);
+  pick(rightClick(rowWith('楔子')), '在此续写');
+  const cont = last('projectAction');
+  check('「在此续写」带章节序号',
+    cont && cont.action === 'continueFrom' && cont.order === 1, JSON.stringify(cont));
+
+  pick(rightClick(rowWith('楔子')), '重命名');
+  check('「重命名」发 fileAction', last('fileAction').action === 'rename');
+
+  pick(rightClick(rowWith('楔子')), '移动到…');
+  check('「移动到…」发 fileAction', last('fileAction').action === 'move');
+
+  // 没生成过摘要的章节不该出现「看摘要」。夜访在第三层，先展开两级。
+  const dirLabel = (name) =>
+    [...ui.doc.querySelectorAll('#projectBody .row-dir-label')].find((n) => n.textContent.includes(name));
+  clickEl(dirLabel('第一卷'));
+  clickEl(dirLabel('深处'));
+  const staleItems = itemsOf(rightClick(rowWith('夜访')));
+  check('未生成摘要的章节没有「看摘要」', !staleItems.includes('看摘要'), JSON.stringify(staleItems));
+  check('未生成摘要的章节显示「总结本章」', staleItems.includes('总结本章'), JSON.stringify(staleItems));
+  closeAnyMenu(ui);
+
+  // ---- 文件夹行：「在此新建」的落点必须是这个文件夹，不是区根目录。
+  const folderMenu = rightClick(rowWith('第一卷'));
+  const folderItems = itemsOf(folderMenu);
+  check('文件夹菜单含「在此新建章节」', folderItems.includes('在此新建章节'), JSON.stringify(folderItems));
+  check('文件夹菜单含折叠项', folderItems.includes('折叠'), JSON.stringify(folderItems));
+  pick(folderMenu, '在此新建章节');
   const add = last('projectAction');
-  check('文件夹上的「＋」带 dir',
+  check('文件夹的「在此新建章节」带 dir',
     add && add.action === 'newChapter' && add.dir === 'chapters/第一卷', JSON.stringify(add));
 
-  clickEl(icons('新建子文件夹')[0]);
+  pick(rightClick(rowWith('第一卷')), '在此新建文件夹');
   const mk = last('projectAction');
-  check('新建子文件夹带 dir',
+  check('「在此新建文件夹」带 dir',
     mk && mk.action === 'newFolder' && mk.dir === 'chapters/第一卷', JSON.stringify(mk));
 
-  // 分组标题栏上的按钮，落点是该区根目录。
-  const groupAdd = ui.doc.querySelector('#projectBody .group-head [title="新建角色卡"]');
-  clickEl(groupAdd);
-  const rootAdd = last('projectAction');
-  check('分组标题栏的「＋」落点为区根目录',
-    rootAdd.action === 'newCharacter' && rootAdd.dir === '.novelforge/characters', JSON.stringify(rootAdd));
+  // ---- 角色文件行
+  const linRow = rowWith('林昭');
+  const fileItems = itemsOf(rightClick(linRow));
+  check('角色行菜单含打开与三个类文件操作',
+    ['打开', '重命名', '移动到…', '删除（移到回收站）'].every((l) => fileItems.includes(l)),
+    JSON.stringify(fileItems));
+  check('角色行菜单没有「在此新建」', !fileItems.some((l) => l.startsWith('在此新建')));
+  closeAnyMenu(ui);
 
-  // 点文件名走 openPath：这里挂的是插件的 body（没有 #wbEditor），应当发 openFile。
-  const lin = [...ui.doc.querySelectorAll('#projectBody .row-label')].find((n) => n.textContent === '林昭');
-  clickEl(lin);
+  // 点文件名仍走 openPath：插件的 body 没有 #wbEditor，应当发 openFile。
+  clickEl([...ui.doc.querySelectorAll('#projectBody .row-label')].find((n) => n.textContent === '林昭'));
   const open = last('openFile');
   check('点角色名发 openFile（插件壳无内置编辑器）',
     open && open.path === '.novelforge/characters/林昭.md', JSON.stringify(open));
 
-  // 「文风与摘要」那几行是工程固定文件，不该挂重命名/删除。
-  const metaRow = [...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes('全书大纲'));
-  check('固定元数据行没有重命名/删除',
-    metaRow && !metaRow.querySelector('[title="重命名"]') &&
-    !metaRow.querySelector('[title="删除（移到回收站）"]'));
+  // ---- 分组标题栏：落点是该区根目录。
+  const groupHead = [...ui.doc.querySelectorAll('#projectBody .group-head')]
+    .find((n) => n.textContent.includes('角色'));
+  pick(rightClick(groupHead), '在此新建角色卡');
+  const rootAdd = last('projectAction');
+  check('分组标题栏的新建落点为区根目录',
+    rootAdd.action === 'newCharacter' && rootAdd.dir === '.novelforge/characters', JSON.stringify(rootAdd));
+
+  // ---- 「文风与摘要」是工程固定文件，不能重命名/删除。
+  const metaItems = itemsOf(rightClick(rowWith('全书大纲')));
+  check('固定元数据行的菜单没有重命名/删除',
+    !metaItems.includes('重命名') && !metaItems.includes('删除（移到回收站）'), JSON.stringify(metaItems));
+  check('固定元数据行的菜单有打开与刷新',
+    metaItems.includes('打开') && metaItems.includes('刷新'), JSON.stringify(metaItems));
+  closeAnyMenu(ui);
+}
+
+console.log('\n== 右键菜单的通用行为 ==');
+{
+  const ui = mount();
+  const rightClick = (node, x, y) => {
+    node.dispatchEvent(
+      new ui.window.MouseEvent('contextmenu', { bubbles: true, clientX: x ?? 40, clientY: y ?? 60 })
+    );
+    return ui.doc.querySelector('.ctx-menu');
+  };
+  const itemsOf = (menu) => [...menu.querySelectorAll('button')].map((b) => b.textContent);
+  const last = (type) => [...ui.sent].reverse().find((m) => m.type === type);
+
+  // 其它页面只要基础刷新。
+  const historyMenu = rightClick(ui.doc.getElementById('pane-history'));
+  check('历史页右键弹出菜单', !!historyMenu);
+  check('历史页菜单只有「刷新」',
+    itemsOf(historyMenu).length === 1 && itemsOf(historyMenu)[0] === '刷新',
+    JSON.stringify(itemsOf(historyMenu)));
+
+  historyMenu.querySelector('button').dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const refresh = last('projectAction');
+  check('点「刷新」发 projectAction refresh',
+    refresh && refresh.action === 'refresh', JSON.stringify(refresh));
+
+  check('设置页右键也给刷新',
+    itemsOf(rightClick(ui.doc.getElementById('pane-settings'))).includes('刷新'));
+
+  // 同时只允许一个菜单。
+  rightClick(ui.doc.getElementById('pane-chat'));
+  check('同时只存在一个菜单', ui.doc.querySelectorAll('.ctx-menu').length === 1);
+
+  // 用绝对定位挂在 body 上，不会被内部滚动容器裁掉。
+  check('菜单挂在 body 上', ui.doc.querySelector('.ctx-menu').parentElement === ui.doc.body);
+
+  ui.doc.body.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  check('点空白处关闭菜单', !ui.doc.querySelector('.ctx-menu'));
+
+  rightClick(ui.doc.getElementById('pane-history'));
+  ui.doc.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  check('按 Esc 关闭菜单', !ui.doc.querySelector('.ctx-menu'));
+
+  // 气泡的 ⋯ 菜单与右键菜单是两个类名，互不干扰。
+  ui.post({ type: 'session', session: { id: 's', title: '', turns: [] } });
+  ui.post({ type: 'turnDone', turn: turn('u1', 'user', '写一段') });
+  ui.bubble('u1').querySelector('.msg-menu-btn')
+    .dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  check('⋯ 菜单仍用 .msg-menu 且贴在气泡里',
+    !!ui.doc.querySelector('.msg-menu') && !ui.doc.querySelector('.ctx-menu'));
+
+  // ⋯ 菜单挂在气泡里、跟着一起滚，不该被滚动关掉——否则流式输出时
+  // 每来一段都 scrollToBottom()，菜单刚点开就没了。
+  ui.doc.getElementById('messages').dispatchEvent(new ui.window.Event('scroll', { bubbles: true }));
+  check('滚动不关闭 ⋯ 菜单', !!ui.doc.querySelector('.msg-menu'));
+
+  rightClick(ui.doc.getElementById('pane-history'));
+  check('右键会顶掉已打开的 ⋯ 菜单',
+    !ui.doc.querySelector('.msg-menu') && !!ui.doc.querySelector('.ctx-menu'));
+
+  // 右键菜单是 fixed 的，一滚就和目标行脱节，必须关掉。
+  ui.doc.getElementById('messages').dispatchEvent(new ui.window.Event('scroll', { bubbles: true }));
+  check('滚动关闭右键菜单', !ui.doc.querySelector('.ctx-menu'));
+  closeAnyMenu(ui);
 }
 
 console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
