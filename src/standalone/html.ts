@@ -45,6 +45,7 @@ export function standalonePage(root?: string): string {
   <nav class="tabbar" id="tabbar">
     <button class="tab active" data-tab="chat"><span class="tab-icon">✎</span><span>对话</span></button>
     <button class="tab" data-tab="project"><span class="tab-icon">❐</span><span>工程</span><span class="tab-dot hidden" id="projectStaleDot"></span></button>
+    <button class="tab" data-tab="files"><span class="tab-icon">🗀</span><span>文件</span></button>
     <button class="tab" data-tab="history"><span class="tab-icon">◷</span><span>历史</span></button>
     <button class="tab" data-tab="logs"><span class="tab-icon">☰</span><span>日志</span><span class="tab-dot err hidden" id="logsErrorDot"></span></button>
     <button class="tab" data-tab="settings"><span class="tab-icon">⚙</span><span>设置</span></button>
@@ -103,6 +104,20 @@ export function standalonePage(root?: string): string {
       <!-- 正在跑的长任务（同步摘要等）。没有任务时整块隐藏。 -->
       <div class="tasks hidden" id="taskList"></div>
       <div class="project-body" id="projectBody"></div>
+    </section>
+
+    <!-- 文件（仅独立版）：磁盘上真实的目录树，点开头的目录也列出来。
+         插件形态由 VS Code 自己的资源管理器承担，webviewHtml.ts 里没有这一段。 -->
+    <section class="pane" id="pane-files">
+      <div class="fx-toolbar">
+        <span class="fx-title">资源管理器</span>
+        <span class="spacer"></span>
+        <button class="icon-btn" id="filesReveal" title="定位编辑器里当前的文件">◎</button>
+        <button class="icon-btn" id="filesCollapse" title="全部折叠">⌃</button>
+        <button class="icon-btn" id="filesRefresh" title="刷新">⟳</button>
+      </div>
+      <div class="fx-body" id="filesBody"></div>
+      <div class="hint fx-foot">这里是工程目录的原样结构，含 <code>.novelforge/</code> 等点开头的文件夹。文本文件在右侧编辑器打开，其余交系统程序。</div>
     </section>
 
     <!-- 历史 -->
@@ -238,6 +253,7 @@ export function standalonePage(root?: string): string {
 <script src="/media/bridge.js"></script>
 <script src="/media/view.js"></script>
 <script src="/media/editor.js"></script>
+<script src="/media/explorer.js"></script>
 </body>
 </html>`;
 }

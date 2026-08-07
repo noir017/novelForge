@@ -48,6 +48,20 @@
   /** paneId -> 恢复完成后应该激活的 path。 */
   const pendingActive = new Map();
 
+  /**
+   * 广播「现在编辑的是哪个文件」。资源管理器（explorer.js）据此高亮那一行。
+   *
+   * 用自定义事件而不是让 explorer.js 直接读 panes：那会把编辑器的内部状态
+   * 变成两个文件之间的契约，而且资源管理器在插件形态里根本不存在。
+   * 没人监听时事件白发一趟，代价可以忽略。
+   */
+  function announceActive() {
+    const file = activePane && activePane.activeFile();
+    window.dispatchEvent(
+      new CustomEvent('nf-editor-active', { detail: { path: file ? file.path : null } })
+    );
+  }
+
   // ---------------------------------------------------------------- 一块编辑区
 
   /**
@@ -158,6 +172,7 @@
       pane.previewMode = false;
       activePane = pane;
       renderAll();
+      announceActive();
       el.area.focus();
       if (file.caret !== undefined) {
         el.area.selectionStart = el.area.selectionEnd = Math.min(file.caret, el.area.value.length);
@@ -204,6 +219,7 @@
       conflicts.delete(path);
       if (pane.activePath === path) {
         pane.activePath = [...files.keys()].pop() || null;
+        announceActive();
       }
     }
 
@@ -327,12 +343,14 @@
     });
 
     // 谁被点/被聚焦，谁就是「当前」这一块——Ctrl+S 保存的是它。
-    el.root.addEventListener('focusin', () => {
+    // 换了一块就等于换了「正在编辑的文件」，资源管理器的高亮要跟着走。
+    const claimFocus = () => {
+      if (activePane === pane) return;
       activePane = pane;
-    });
-    el.root.addEventListener('pointerdown', () => {
-      activePane = pane;
-    });
+      announceActive();
+    };
+    el.root.addEventListener('focusin', claimFocus);
+    el.root.addEventListener('pointerdown', claimFocus);
 
     // ---------------------------------------------------------------- 保存
 
@@ -469,6 +487,7 @@
 
       pane.previewMode = false;
       renderAll();
+      announceActive();
       persist();
     }
 
@@ -982,8 +1001,10 @@
             if (moved && moved !== true) carried = moved;
           }
         }
-        target.upsertFile(msg.file, carried);
+        // 先认下当前这一块，再收文件：upsertFile 末尾会广播「正在编辑哪个
+        // 文件」，那句读的是 activePane，顺序反了会报出上一块的文件。
         activePane = target;
+        target.upsertFile(msg.file, carried);
         syncDraftVisibility();
         revealEditor();
         break;

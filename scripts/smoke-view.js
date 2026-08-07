@@ -116,6 +116,63 @@ function mountEditor() {
   return { window, doc: window.document, sent, post, file, panes };
 }
 
+/**
+ * 起一个装好 explorer.js 的独立版环境（资源管理器）。
+ *
+ * 与 mountEditor 同理：explorer.js 只在有 `#filesBody` 时才跑。
+ * view.js 也一起装上——右键菜单引擎在那边，`window.__nfContextMenu`
+ * 是两个文件之间的唯一接口，测试要覆盖到它真的被接上了。
+ */
+function mountExplorer() {
+  const dom = new JSDOM(`<!DOCTYPE html><html><body class="workbench">${standaloneBodyHtml()}</body></html>`, {
+    runScripts: 'outside-only',
+  });
+  const { window } = dom;
+  const sent = [];
+  window.acquireVsCodeApi = () => ({
+    postMessage: (m) => sent.push(m),
+    getState: () => undefined,
+    setState: () => {},
+  });
+  window.HTMLElement.prototype.setPointerCapture = () => {};
+  window.HTMLElement.prototype.releasePointerCapture = () => {};
+  window.HTMLElement.prototype.scrollIntoView = () => {};
+  window.navigator.clipboard = { writeText: () => Promise.resolve() };
+  window.confirm = () => true;
+
+  window.eval(fs.readFileSync(path.join(ROOT, 'media/view.js'), 'utf8'));
+  window.eval(fs.readFileSync(path.join(ROOT, 'media/editor.js'), 'utf8'));
+  window.eval(fs.readFileSync(path.join(ROOT, 'media/explorer.js'), 'utf8'));
+
+  const post = (msg) => window.dispatchEvent(new window.MessageEvent('message', { data: msg }));
+  const rows = () => [...window.document.querySelectorAll('#filesBody .fx-row')];
+  /** 每行的名字（跳过图标与大小两列，它们各有各的断言）。 */
+  const names = () =>
+    rows().map((r) => {
+      const name = r.querySelector('.fx-name');
+      return (name ? name.textContent : r.textContent).trim();
+    });
+  /** 造一份 DirListing。`spec` 形如 { 'a': 'dir', 'b.md': 'file' }。 */
+  const listing = (relPath, spec, extra) =>
+    Object.assign(
+      {
+        relPath,
+        truncated: 0,
+        entries: Object.entries(spec).map(([name, kind]) => ({
+          kind: kind === 'dir' ? 'dir' : 'file',
+          name,
+          relPath: relPath ? `${relPath}/${name}` : name,
+          editable: kind === 'file',
+          bytes: kind === 'dir' ? 0 : 100,
+          modified: 0,
+        })),
+      },
+      extra
+    );
+  const click = (row) => row.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  return { window, doc: window.document, sent, post, rows, names, listing, click };
+}
+
 /** 收起当前打开的菜单（点一下 body），免得它挂在那儿影响后续断言。 */
 function closeAnyMenu(ui) {
   ui.doc.body.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
@@ -792,6 +849,106 @@ console.log('\n== 日志页 ==');
 
   ui.post({ type: 'logs', entries: [entry(7, 'info', '日志', '日志已清空')] });
   check('清空后只剩痕迹那条', rows().length === 1 && texts()[0].includes('日志已清空'), texts().join(' | '));
+}
+
+// ---------------------------------------------------------------- 资源管理器
+
+console.log('\n== 资源管理器（独立版「文件」页）==');
+{
+  const ui = mountExplorer();
+  const last = (type) => [...ui.sent].reverse().find((m) => m.type === type);
+
+  // 挂载即要一份工程根：切到「文件」页时树已经在了，不必等一次往返。
+  const first = last('listDir');
+  check('挂载后请求工程根', first && first.dirs.includes(''), JSON.stringify(first));
+
+  ui.post({
+    type: 'dirListings',
+    listings: [ui.listing('', { '.novelforge': 'dir', chapters: 'dir', 'README.md': 'file' })],
+  });
+  // 这一条是这个功能存在的理由：工程页永远看不见 .novelforge。
+  check('点开头的文件夹列得出来', ui.names().includes('.novelforge'), ui.names().join(','));
+  check('点开头的行压暗显示',
+    ui.rows().some((r) => r.textContent.includes('.novelforge') && r.classList.contains('fx-dotted')));
+  check('目录在文件之前', ui.names().join(',') === '.novelforge,chapters,README.md', ui.names().join(','));
+
+  // ---- 展开一个目录：懒加载，展开哪个才要哪个
+  ui.sent.length = 0;
+  ui.click(ui.rows().find((r) => r.textContent.includes('.novelforge')));
+  const expanded = last('listDir');
+  check('展开后请求那个目录', expanded && expanded.dirs.includes('.novelforge'), JSON.stringify(expanded));
+  check('请求带的是全量展开集合', expanded && expanded.dirs.includes(''), JSON.stringify(expanded));
+  check('还没回数据时显示载入中', ui.names().some((n) => n === '载入中…'), ui.names().join(','));
+
+  ui.post({
+    type: 'dirListings',
+    listings: [ui.listing('.novelforge', { summaries: 'dir', 'project.json': 'file' })],
+  });
+  check('子项挂在父目录下', ui.names().join(',') === '.novelforge,summaries,project.json,chapters,README.md',
+    ui.names().join(','));
+  check('子项有缩进', ui.rows()[1].style.paddingLeft !== ui.rows()[0].style.paddingLeft,
+    `${ui.rows()[0].style.paddingLeft} vs ${ui.rows()[1].style.paddingLeft}`);
+
+  // ---- 折叠：子目录一并收起，再展开时不该凭空还开着
+  ui.sent.length = 0;
+  ui.click(ui.rows().find((r) => r.textContent.includes('summaries')));
+  ui.click(ui.rows().find((r) => r.textContent.includes('.novelforge')));
+  const collapsed = last('listDir');
+  check('折叠后不再关注该目录', collapsed && !collapsed.dirs.includes('.novelforge'), JSON.stringify(collapsed));
+  check('子目录跟着一起收起', collapsed && !collapsed.dirs.includes('.novelforge/summaries'),
+    JSON.stringify(collapsed));
+
+  // ---- 点文件：可编辑的进内置编辑器
+  ui.sent.length = 0;
+  ui.click(ui.rows().find((r) => r.textContent.includes('README.md')));
+  check('点文本文件发 openEditor',
+    last('openEditor') && last('openEditor').path === 'README.md', JSON.stringify(ui.sent));
+
+  // ---- 二进制文件：不撞一个必然失败的 openEditor，直接交系统程序
+  ui.post({
+    type: 'dirListings',
+    listings: [
+      Object.assign(ui.listing('', { '封面.png': 'file' }), {
+        entries: [{ kind: 'file', name: '封面.png', relPath: '封面.png', editable: false, bytes: 9, modified: 0 }],
+      }),
+    ],
+  });
+  ui.sent.length = 0;
+  ui.click(ui.rows()[0]);
+  check('点不可编辑的文件走 openExternal',
+    last('openExternal') && last('openExternal').path === '封面.png', JSON.stringify(ui.sent));
+  check('不可编辑的行置灰', ui.rows()[0].classList.contains('fx-binary'));
+
+  // ---- 高亮跟着编辑器走（点章节、采纳写入也会开文件，不只这棵树）
+  ui.post({ type: 'dirListings', listings: [ui.listing('', { 'a.md': 'file', 'b.md': 'file' })] });
+  ui.post({ type: 'editorOpen', file: { path: 'b.md', name: 'b.md', text: '', hash: 'h', bytes: 0 } });
+  check('编辑器打开谁就高亮谁',
+    ui.rows().filter((r) => r.classList.contains('active')).map((r) => r.textContent.trim()).join(',').includes('b.md'),
+    ui.names().join(','));
+
+  // ---- 不静默截断
+  ui.post({
+    type: 'dirListings',
+    listings: [Object.assign(ui.listing('', { 'a.md': 'file' }), { truncated: 3000 })],
+  });
+  check('截断时如实告知', ui.names().some((n) => n.includes('未列出')), ui.names().join(','));
+
+  // ---- 读不动的目录降级成一行提示，不炸整页
+  ui.post({
+    type: 'dirListings',
+    listings: [{ relPath: '', entries: [], truncated: 0, error: '目录不存在（可能刚被删除或改名）' }],
+  });
+  check('读失败显示原因', ui.names().some((n) => n.includes('目录不存在')), ui.names().join(','));
+  check('读失败不抛异常把树清空', ui.rows().length === 1, `${ui.rows().length}`);
+
+  // ---- 右键复用 view.js 的菜单引擎（另起一套会两层菜单一起弹）
+  ui.post({ type: 'dirListings', listings: [ui.listing('', { 'a.md': 'file' })] });
+  ui.rows()[0].dispatchEvent(new ui.window.MouseEvent('contextmenu', { bubbles: true }));
+  const menu = ui.doc.querySelector('.ctx-menu');
+  check('右键弹出菜单', !!menu);
+  check('菜单里有「打开」', menu && [...menu.querySelectorAll('button')].some((b) => b.textContent === '打开'),
+    menu && [...menu.querySelectorAll('button')].map((b) => b.textContent).join(','));
+  closeAnyMenu(ui);
 }
 
 console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);

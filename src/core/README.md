@@ -27,6 +27,7 @@
 | [config.ts](config.ts) | `readConfig` / `readGlobalBudget` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |
 | [stores.ts](stores.ts) | 文件后端的配置/密钥存储（`~/.novelforge/`），双壳共用。 |
 | [projectView.ts](projectView.ts) | 工程页的数据来源：把数据层给的扁平文件清单折成 `ProjectNode` 目录树（章节、角色、设定、摘要新鲜度、草稿有无），展开/折叠状态留在前端。 |
+| [fileTree.ts](fileTree.ts) | 独立版「文件」页（资源管理器）的数据来源：按目录**懒加载**列举磁盘上的真实结构，一层一次。与 projectView.ts 是两件事——那边是整理过的语义视图，这里一个文件都不藏（**含 `.novelforge/` 等点开头的目录**，只挡 `node_modules` 与 `.git`）。路径包含检查复用 fileEditing.ts；读失败降级成带 `error` 的空结果而不抛。 |
 
 ## 已知约定
 
@@ -39,3 +40,5 @@
 - **草稿不是可管理区**：`drafts/` 不在 `fileOps.ts` 的三个区里（工程页上也没有它的节点），但它是**可打开的**——`fileEditing.ts` 只看工程根包含 + 扩展名/章节规则 + 大小，草稿天然满足。草稿路径由 `NovelProject.draftRelPathFor` 从章节路径推导，别在别处另拼一份。
 - **草稿永不自动注入**：`context/builder.ts` 里没有任何一处读 `drafts/`，草稿只能经 `resolveAttachment`（作者显式 `@` 引用）进 prompt。加功能时别打破这条——它是「不偷偷烧 token」的一部分。
 - **`openDraft` 会写盘**：`controller.ts` 里那句 `listChapters().find(...)` 是它没变成「往 `drafts/<任意路径>` 写文件」的原语的唯一原因。别为了省一次扫描就信任前端传来的路径。
+- **资源管理器只列不改**：`fileTree.ts` 是纯读取，没有新建/删除/改名——那些仍然只走 `fileOps.ts`（锁在章节/角色/设定三个区内，删除是搬进 `.trash/`）。「文件」页看得见 `.novelforge/` 不等于可以在那里随手删东西；要放开写操作，先想清楚它绕过了 `fileOps.ts` 的哪一条约束。
+- **`watchedDirs` 是前端说了算的**：controller 记住前端最近一次 `listDir` 报上来的展开集合，`pushTabData` 时照着重推。它只是「该关注哪些目录」的缓存，不是权限——每次列举仍然过 `resolveInRoot`，越界照拒。

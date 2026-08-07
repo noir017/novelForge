@@ -704,6 +704,136 @@ body.resizing {
   color: var(--vscode-editorWarning-foreground);
 }
 
+/* ================================================================ 资源管理器 */
+
+/* 侧栏「文件」页：磁盘目录的原样结构。样式对齐 VS Code 的资源管理器——
+   紧凑行高、缩进参考线、整行选中态。只在独立版加载，插件形态没有这一页。 */
+
+.fx-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 8px 10px 8px 16px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.fx-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+}
+
+.fx-toolbar .spacer {
+  flex: 1;
+}
+
+.fx-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0 12px;
+  /* 长文件名不折行，横向滚动——折行会把树的缩进读乱。 */
+  white-space: nowrap;
+}
+
+.fx-foot {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  padding: 8px 16px;
+  margin: 0;
+}
+
+.fx-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding-right: 10px;
+  line-height: 22px;
+  cursor: pointer;
+  /* 选中行的左侧标记条。未选中时透明，宽度照占，避免选中时整行位移。 */
+  border-left: 2px solid transparent;
+}
+
+.fx-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.fx-row.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  border-left-color: var(--vscode-focusBorder);
+}
+
+.fx-caret {
+  flex: 0 0 12px;
+  width: 12px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.fx-icon {
+  flex: 0 0 auto;
+  font-size: 12px;
+  /* emoji 图标的基线比文字低一点，压回来才与名字对齐。 */
+  line-height: 1;
+}
+
+.fx-name {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fx-dir > .fx-name {
+  font-weight: 600;
+}
+
+/* 点开头的文件夹（.novelforge / .vscode）：看得见、打得开，但压暗一档，
+   不跟正文抢注意力。VS Code 对 gitignore 里的条目也是这个处理。 */
+.fx-dotted > .fx-name {
+  opacity: 0.75;
+}
+
+/* 二进制文件：内置编辑器打不开（点击回落到系统程序），置灰示意。 */
+.fx-binary > .fx-name {
+  color: var(--vscode-descriptionForeground);
+}
+
+/* 文件大小贴右侧，平时不显眼，hover 时才亮起来——常态下它是噪音。 */
+.fx-size {
+  margin-left: auto;
+  padding-left: 10px;
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0;
+}
+
+.fx-row:hover .fx-size,
+.fx-row.active .fx-size {
+  opacity: 0.8;
+}
+
+.fx-hint {
+  cursor: default;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.fx-hint:hover {
+  background: none;
+}
+
+.fx-hint.err {
+  color: var(--vscode-editorWarning-foreground);
+  font-style: normal;
+}
+
 /* ================================================================ 侧栏内容微调 */
 
 /* 浏览器里 body 不再是 flex 容器，pane 的高度改由 .wb-side 提供。 */

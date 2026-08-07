@@ -1,9 +1,15 @@
 /** Webview ↔ 扩展 的消息协议。两个宿主（侧边栏 / 编辑器面板）共用。 */
 
+import { DirListing } from './fileTree';
 import { LogEntry } from './logger';
 import { TaskSnapshot } from './progress';
 
-export type Tab = 'chat' | 'project' | 'history' | 'settings' | 'logs';
+/**
+ * 侧栏页签。`files` 是独立版专属的资源管理器（插件壳里由 VS Code 自己的
+ * 资源管理器承担，活动栏上没有这个按钮），但类型放在共用协议里——
+ * 后端对页签的处理是一份代码，多一个分支好过分叉出两套 Tab 定义。
+ */
+export type Tab = 'chat' | 'project' | 'files' | 'history' | 'settings' | 'logs';
 
 export interface SendPayload {
   text: string;
@@ -64,6 +70,14 @@ export type InMessage =
   | { type: 'saveFile'; path: string; text: string; baseHash?: string }
   /** 重新从磁盘读一份（放弃本地修改 / 冲突后取磁盘版）。 */
   | { type: 'reloadFile'; path: string }
+  /**
+   * 资源管理器：要这些目录的直接子项（仅独立版）。
+   *
+   * `dirs` 是前端**当前展开着的全部目录**（空串表示工程根），不是增量——
+   * 后端据此记住该关注哪些目录，工程有变动时原样重推一遍。
+   * 一次带全量比每展开一个目录发一条要省事：折叠也不必再发一条撤销消息。
+   */
+  | { type: 'listDir'; dirs: string[] }
   /** 用系统默认程序打开（编辑器里「在外部打开」）。 */
   | { type: 'openExternal'; path: string }
   | { type: 'syncSummaries' }
@@ -179,6 +193,14 @@ export type OutMessage =
   | { type: 'editorConflict'; path: string; diskText: string; diskHash: string }
   /** 内置编辑器：打开/保存失败（越界、扩展名不符、过大等）。 */
   | { type: 'editorError'; path: string; message: string }
+  /**
+   * 资源管理器：若干目录的列举结果（仅独立版）。
+   *
+   * 每次推的是前端登记过的全部目录，前端整批替换即可——
+   * 目录数只有个位数到几十，增量协议不值得让前端维护一份可能对不上的副本
+   * （与 `tasks` 同一套取舍）。
+   */
+  | { type: 'dirListings'; listings: DirListing[] }
   /**
    * 正在跑的长任务快照，全量替换。
    *
@@ -370,6 +392,8 @@ export interface SessionListItem {
 /** 日志与任务的形状定义在各自模块里，这里转出去供前端与壳统一从协议引用。 */
 export type { LogEntry, LogLevel } from './logger';
 export type { TaskSnapshot } from './progress';
+/** 资源管理器的目录列举结果，形状定义在 fileTree.ts。 */
+export type { DirListing, FsEntry } from './fileTree';
 
 /** CSP 用的一次性 nonce。 */
 export function makeNonce(): string {

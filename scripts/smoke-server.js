@@ -66,10 +66,12 @@ try {
   const html = await (await fetch(`${base}/`)).text();
   check('首页含 view.js', html.includes('view.js'));
   check('首页含 editor.js', html.includes('editor.js'));
+  check('首页含 explorer.js', html.includes('explorer.js'));
   check('首页含 standalone.css', html.includes('standalone.css'));
   check('首页含编辑器容器', html.includes('id="wbEditor"'));
+  check('首页含资源管理器容器', html.includes('id="filesBody"'));
   check('首页标题带工程名', html.includes('sample-novel'));
-  for (const asset of ['view.js', 'bridge.js', 'editor.js', 'view.css', 'standalone.css']) {
+  for (const asset of ['view.js', 'bridge.js', 'editor.js', 'explorer.js', 'view.css', 'standalone.css']) {
     check(`${asset} 可取`, (await fetch(`${base}/media/${asset}`)).status === 200);
   }
 
@@ -101,6 +103,47 @@ try {
   conn.send({ type: 'openEditor', path: '.novelforge/project.json' });
   const json = await conn.waitFor((m) => m.type === 'editorOpen', 'json editorOpen');
   check('工程内 json 可打开', json.file.name === 'project.json');
+
+  console.log('\n== 资源管理器：目录列举 ==');
+  conn.send({ type: 'listDir', dirs: [''] });
+  const rootList = await conn.waitFor((m) => m.type === 'dirListings', 'dirListings');
+  const rootEntries = rootList.listings.find((l) => l.relPath === '').entries;
+  const nameOf = (list) => list.map((e) => e.name);
+  // 这一条是「文件」页存在的理由：工程页永远看不见 .novelforge。
+  check('列出点开头的目录', nameOf(rootEntries).includes('.novelforge'), nameOf(rootEntries).join(','));
+  check('列出章节目录', nameOf(rootEntries).includes('chapters'), nameOf(rootEntries).join(','));
+  check('目录排在文件之前',
+    rootEntries.findIndex((e) => e.kind === 'file') > rootEntries.findLastIndex((e) => e.kind === 'dir'),
+    nameOf(rootEntries).join(','));
+  check('目录不标 editable', rootEntries.every((e) => e.kind !== 'dir' || e.editable === false));
+  check('.md 标为可编辑',
+    rootEntries.filter((e) => e.name.endsWith('.md')).every((e) => e.editable === true));
+
+  // 一次多个目录：前端展开好几层时不该来回好几趟。
+  conn.send({ type: 'listDir', dirs: ['', 'chapters', '.novelforge'] });
+  const multi = await conn.waitFor((m) => m.type === 'dirListings' && m.listings.length === 3, '多目录 dirListings');
+  check('一次返回三个目录', multi.listings.length === 3, String(multi.listings.length));
+  const chapters = multi.listings.find((l) => l.relPath === 'chapters');
+  check('章节目录列得出文件', chapters.entries.some((e) => e.name.endsWith('.md')), nameOf(chapters.entries).join(','));
+  check('子项 relPath 带父目录',
+    chapters.entries.every((e) => e.relPath.startsWith('chapters/')), nameOf(chapters.entries).join(','));
+
+  // 越界不能靠前端自觉：路径是前端传上来的。
+  conn.send({ type: 'listDir', dirs: ['../..'] });
+  const outside = await conn.waitFor(
+    (m) => m.type === 'dirListings' && m.listings[0].relPath === '../..',
+    '越界 dirListings'
+  );
+  check('越界目录被拒', !!outside.listings[0].error, JSON.stringify(outside.listings[0]));
+  check('越界不返回任何条目', outside.listings[0].entries.length === 0);
+
+  // 不存在的目录降级成 error，不让常驻侧栏跟着炸。
+  conn.send({ type: 'listDir', dirs: ['没有这个目录'] });
+  const gone = await conn.waitFor(
+    (m) => m.type === 'dirListings' && m.listings[0].relPath === '没有这个目录',
+    '缺目录 dirListings'
+  );
+  check('不存在的目录给出人话原因', gone.listings[0].error.includes('目录不存在'), gone.listings[0].error);
 
   conn.ws.close();
 
