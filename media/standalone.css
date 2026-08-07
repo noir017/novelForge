@@ -319,6 +319,14 @@ body.resizing {
 
 /* ================================================================ 编辑区 */
 
+/* 两块编辑区并列的容器。草稿区没打开时里面只有主区，与改造前无差别。 */
+.wb-editors {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 .wb-editor {
   display: flex;
   flex-direction: column;
@@ -326,6 +334,24 @@ body.resizing {
   min-width: 0;
   min-height: 0;
   background: var(--vscode-editor-background);
+}
+
+/* ---- 草稿区：固定宽度、可拖拽，正文那块继续占剩下的空间 */
+
+.wb-editor-draft {
+  flex: 0 0 auto;
+  width: var(--nf-draft-width, 420px);
+  border-left: 1px solid var(--vscode-panel-border);
+}
+
+/* 标签条换个底色，一眼分得出哪块是草稿。 */
+.wb-editor-draft .ed-tabs {
+  background: var(--vscode-sideBar-background);
+}
+
+.wb-draft-resizer {
+  margin-left: -2px;
+  margin-right: -3px;
 }
 
 /* ---- 标签条 */
@@ -786,6 +812,15 @@ body.resizing {
     display: none;
   }
 
+  /* 窄屏放不下两块并列的编辑区：草稿区整块收起，只留主区那层覆盖。 */
+  .wb-editors {
+    display: contents;
+  }
+
+  .wb-editor-draft {
+    display: none;
+  }
+
   .wb-editor {
     position: fixed;
     inset: 38px 0 0;
@@ -796,6 +831,10 @@ body.resizing {
 
   body.editor-open .wb-editor {
     display: flex;
+  }
+
+  body.editor-open .wb-editor-draft {
+    display: none;
   }
 
   .ed-area,

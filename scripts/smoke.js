@@ -186,7 +186,10 @@ console.log('\n== 示例工程数据一致性 ==');
   const md = loadModule('src/core/model/markdown.ts');
   const manifest = JSON.parse(fs.readFileSync(path.join(SAMPLE, '.novelforge/project.json'), 'utf8'));
 
-  const files = fs.readdirSync(path.join(SAMPLE, 'chapters')).filter((f) => f.endsWith('.md'));
+  // 用真实的章节判定规则过滤，而不是写死 .md——章节可以是任意非二进制扩展名，
+  // 这条断言要跟着规则走，不然示例工程里加一份 .txt 章节它就误报。
+  const chapterFile = loadModule('src/core/model/chapterFile.ts');
+  const files = fs.readdirSync(path.join(SAMPLE, 'chapters')).filter((f) => chapterFile.isChapterFileName(f));
   check('manifest 章节数与磁盘一致', manifest.chapters.length === files.length);
 
   for (const entry of manifest.chapters) {

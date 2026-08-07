@@ -11,9 +11,10 @@ import {
   writeFileFromEditor,
 } from '../core/fileEditing';
 import { Disposable, Host, InputOptions, PickChoice } from '../core/host';
+import { NON_CHAPTER_EXTENSIONS, isChapterFileName } from '../core/model/chapterFile';
 import { NovelProject } from '../core/model/project';
 import { Attachment } from '../core/model/session';
-import { OutMessage } from '../core/protocol';
+import { EditorPane, OutMessage } from '../core/protocol';
 import { PromptHub } from './promptHub';
 
 /**
@@ -27,6 +28,11 @@ export class FileHost implements Host {
   readonly name = 'standalone' as const;
   readonly supportsVscodeLm = false;
   readonly prompts: PromptHub;
+  /**
+   * 用来回答「这份文件是不是某一章、它的草稿在哪」。
+   * 只做纯路径推导，不缓存章节列表——那份缓存归 controller 持有的实例管。
+   */
+  private readonly project: NovelProject | undefined;
 
   constructor(
     public readonly config: ConfigStore,
@@ -35,6 +41,7 @@ export class FileHost implements Host {
     private readonly root?: string
   ) {
     this.prompts = new PromptHub(broadcastMsg);
+    this.project = root ? NovelProject.open(root) : undefined;
   }
 
   async input(opts: InputOptions): Promise<string | undefined> {
@@ -96,6 +103,16 @@ export class FileHost implements Host {
   }
 
   watch(project: NovelProject, onChange: () => void): Disposable {
+    // 去抖：onChange 会触发 pushState，那是一次全量重扫（每章读盘算摘要新鲜度）。
+    // 编辑器连续保存、Git 切分支这类操作会连着扔出十几个事件，逐个跑一遍没必要。
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fire = (): void => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      timer = setTimeout(onChange, 250);
+    };
+
     // 优先 fs.watch（recursive）；不支持时退化为 1s 轮询。
     try {
       const watcher = fs.watch(project.root, { recursive: true }, (_event, filename) => {
@@ -103,20 +120,28 @@ export class FileHost implements Host {
         if (name.includes('node_modules') || name.includes('.trash')) {
           return;
         }
-        // 目录事件没有扩展名——工程页上文件夹是可见节点，新建/删除空文件夹
-        // 也得刷新。凡是不带扩展名的路径都放行。
-        if (/\.[^./\\]+$/.test(name) && !/\.(md|json)$/i.test(name)) {
+        // 只跳过「改了也与工程无关」的二进制文件。章节可以是任意扩展名
+        // （含无扩展名），目录事件也没有扩展名——两者都得放行。
+        const ext = path.extname(name).toLowerCase();
+        if (ext && NON_CHAPTER_EXTENSIONS.has(ext)) {
           return;
         }
-        onChange();
+        fire();
       });
-      return { dispose: () => watcher.close() };
+      return {
+        dispose: () => {
+          if (timer) {
+            clearTimeout(timer);
+          }
+          watcher.close();
+        },
+      };
     } catch {
-      const timer = setInterval(() => {
+      const timer2 = setInterval(() => {
         // 轮询兜底：目录可访问就触发一次刷新（pushState 内部会合并）。
         void fsp.stat(project.novelDir).then(onChange, () => undefined);
       }, 1000);
-      return { dispose: () => clearInterval(timer) };
+      return { dispose: () => clearInterval(timer2) };
     }
   }
 
@@ -135,10 +160,14 @@ export class FileHost implements Host {
   }
 
   /** 读一份快照广播给前端，网页里开标签页。失败只报错，不抛给 controller。 */
-  async openInEditor(relPath: string): Promise<void> {
+  async openInEditor(relPath: string, pane?: EditorPane): Promise<void> {
     try {
       const file = await readFileForEditor(this.root ?? '.', relPath);
-      this.broadcastMsg({ type: 'editorOpen', file });
+      this.broadcastMsg({
+        type: 'editorOpen',
+        file: { ...file, draftPath: this.draftPathOf(file.path) },
+        pane,
+      });
     } catch (err) {
       if (err instanceof FileEditError) {
         this.broadcastMsg({ type: 'editorError', path: relPath, message: err.message });
@@ -148,11 +177,39 @@ export class FileHost implements Host {
     }
   }
 
+  /** 「在旁边打开」= 开在第二块编辑区（草稿区）。 */
+  async openBeside(relPath: string): Promise<void> {
+    if (!isEditablePath(relPath)) {
+      await this.openExternal(relPath);
+      return;
+    }
+    await this.openInEditor(relPath, 'draft');
+  }
+
+  /**
+   * 这份文件是章节正文时，给出它草稿的相对路径；否则 undefined。
+   *
+   * 「在章节根之下」由 draftRelPathFor 判定，「文件名像章节」由
+   * isChapterFileName 判定——两半都复用现成的，不在这里写第三份规则。
+   */
+  private draftPathOf(rel: string): string | undefined {
+    if (!this.project) {
+      return undefined;
+    }
+    const draft = this.project.draftRelPathFor(rel);
+    if (!draft || draft === rel) {
+      return undefined;
+    }
+    return isChapterFileName(path.basename(rel)) ? draft : undefined;
+  }
+
   /** 保存编辑器内容。冲突不覆盖，改为把磁盘版本回给前端让用户取舍。 */
   async saveFromEditor(relPath: string, text: string, baseHash?: string): Promise<void> {
     try {
       const file = await writeFileFromEditor(this.root ?? '.', relPath, text, baseHash);
-      this.broadcastMsg({ type: 'editorSaved', file });
+      // draftPath 要一并带回：前端的保存分支只更新 text/hash，
+      // 这里漏掉的话工具栏上的「草稿」按钮会在首次保存后消失。
+      this.broadcastMsg({ type: 'editorSaved', file: { ...file, draftPath: this.draftPathOf(file.path) } });
     } catch (err) {
       if (err instanceof FileConflictError) {
         this.broadcastMsg({

@@ -132,6 +132,8 @@ export interface NovelConfig {
   recentChaptersFullText: number;
   prevChapterTailChars: number;
   chaptersDir: string;
+  /** 草稿根目录（相对工作区根）。镜像章节在 chaptersDir 之下的相对路径。 */
+  draftsDir: string;
   summaryBatchSize: number;
   requestTimeoutMs: number;
 }

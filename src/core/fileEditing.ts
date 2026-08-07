@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { isChapterFileName } from './model/chapterFile';
 import { hash } from './model/project';
 
 /**
@@ -8,11 +9,14 @@ import { hash } from './model/project';
  *
  * 三条硬约束，全部在这里兜住，调用方不必重复检查：
  * 1. 路径必须落在工程根目录内（前端传上来的路径不可信）；
- * 2. 只碰纯文本扩展名，且有大小上限；
+ * 2. 只碰纯文本（扩展名白名单 ∪ 章节文件名规则），且有大小上限；
  * 3. 保存时比对内容 hash，磁盘上被人改过就报冲突，绝不静默覆盖。
  */
 
-/** 允许在内置编辑器里打开/保存的扩展名。都是纯文本，与「数据即 Markdown」的承诺一致。 */
+/**
+ * 允许在内置编辑器里打开/保存的扩展名。都是纯文本，与「数据即 Markdown」的承诺一致。
+ * 章节另有一条规则，见 isEditablePath。
+ */
 export const EDITABLE_EXTENSIONS = ['.md', '.markdown', '.txt', '.json', '.yml', '.yaml'];
 
 /** 单文件大小上限。再大就不进编辑器了——一个 textarea 装不下，也不是这个工具该干的事。 */
@@ -68,7 +72,14 @@ export function toRelPosix(root: string, absPath: string): string {
 }
 
 export function isEditablePath(relPath: string): boolean {
-  return EDITABLE_EXTENSIONS.includes(path.extname(relPath).toLowerCase());
+  const ext = path.extname(relPath).toLowerCase();
+  if (EDITABLE_EXTENSIONS.includes(ext)) {
+    return true;
+  }
+  // 章节可以叫 `001-楔子`（无扩展名）或 `001-手记.rtf`——白名单挡不住它们，
+  // 但树上看得见就必须打得开，否则点一下只弹「不是可编辑的文本文件」。
+  // 章节判定本身已经排掉了二进制扩展名，工程根包含检查与大小上限照旧兜底。
+  return isChapterFileName(path.basename(relPath));
 }
 
 /**

@@ -143,6 +143,41 @@ try {
   const badExt = await edit.waitFor((m) => m.type === 'editorError', '扩展名 editorError');
   check('非文本扩展名被拒', badExt.message.includes('不是可编辑的文本文件'), badExt.message);
 
+  // 章节可以没有扩展名——白名单挡不住它，章节判定规则得放它过去。
+  fs.writeFileSync(path.join(work, 'chapters/002-无扩展名'), '没有扩展名的一章。\n', 'utf8');
+  edit.send({ type: 'openEditor', path: 'chapters/002-无扩展名' });
+  const bare = await edit.waitFor((m) => m.type === 'editorOpen', '无扩展名 editorOpen');
+  check('无扩展名的章节可打开', bare.file.text.includes('没有扩展名的一章'), bare.file.text);
+  check('无扩展名章节也带 draftPath', bare.file.draftPath === 'drafts/002-无扩展名', bare.file.draftPath);
+
+  console.log('\n== 章节草稿 ==');
+  check('正文带 draftPath', f1.file.draftPath === 'drafts/001-测试.md', String(f1.file.draftPath));
+
+  edit.send({ type: 'openDraft', path: rel });
+  const draft = await edit.waitFor(
+    (m) => m.type === 'editorOpen' && m.file.path.startsWith('drafts/'),
+    'draft editorOpen'
+  );
+  check('草稿开在第二块编辑区', draft.pane === 'draft', String(draft.pane));
+  check('草稿路径镜像章节', draft.file.path === 'drafts/001-测试.md', draft.file.path);
+  check('草稿已落盘', fs.existsSync(path.join(work, 'drafts/001-测试.md')));
+  check('markdown 草稿带模板头', draft.file.text.startsWith('# 测试 · 草稿'), draft.file.text);
+  check('草稿自己不再有 draftPath', draft.file.draftPath === undefined, String(draft.file.draftPath));
+
+  // 作者在草稿里写了东西，再点一次不能被抹掉。
+  fs.writeFileSync(path.join(work, 'drafts/001-测试.md'), '# 测试 · 草稿\n\n手写的内容。\n', 'utf8');
+  edit.send({ type: 'openDraft', path: rel });
+  const draft2 = await edit.waitFor(
+    (m) => m.type === 'editorOpen' && m.file.path.startsWith('drafts/') && m.file.text.includes('手写'),
+    '第二次 draft editorOpen'
+  );
+  check('第二次打开不覆盖草稿', draft2.file.text.includes('手写的内容'), draft2.file.text);
+
+  edit.send({ type: 'openDraft', path: 'chapters/不存在.md' });
+  const missing = await edit.waitFor((m) => m.type === 'toast' && m.level === 'error', '缺章 toast');
+  check('对不存在的章节报错而非建文件', missing.message.includes('找不到这一章'), missing.message);
+  check('没有凭空造出草稿', !fs.existsSync(path.join(work, 'drafts/不存在.md')));
+
   edit.ws.close();
 
   console.log(failures === 0 ? '\n✓ smoke-server 通过' : `\n✗ smoke-server ${failures} 项失败`);

@@ -153,12 +153,16 @@ export function standalonePage(root?: string): string {
   <div class="wb-resizer" id="wbResizer" title="拖动调整宽度，双击复位"></div>
 
   <!-- ---------------------------------------------------------- 编辑器 -->
+  <!-- 两块编辑区并列：主区放正文，草稿区按需出现。草稿区的 DOM 由
+       editor.js 克隆主区结构生成，这里只留容器与那条分隔条。 -->
+  <div class="wb-editors" id="wbEditors">
   <section class="wb-editor" id="wbEditor">
     <div class="ed-tabs" id="edTabs"></div>
 
     <div class="ed-toolbar hidden" id="edToolbar">
       <span class="ed-path" id="edPath"></span>
       <button class="chip-btn" id="edPreviewBtn" title="预览 Markdown">预览</button>
+      <button class="chip-btn hidden" id="edDraftBtn" title="打开这一章的草稿（并排）">草稿</button>
       <button class="chip-btn" id="edRevertBtn" title="放弃修改，重新从磁盘读取">还原</button>
       <button class="chip-btn" id="edExternalBtn" title="用系统默认程序打开">外部打开</button>
       <button class="primary" id="edSaveBtn" title="保存（Ctrl+S）">保存</button>
@@ -193,6 +197,9 @@ export function standalonePage(root?: string): string {
       <span class="ed-save-state" id="edStatusSave"></span>
     </div>
   </section>
+
+  <div class="wb-resizer wb-draft-resizer hidden" id="wbDraftResizer" title="拖动调整草稿栏宽度，双击复位"></div>
+  </div>
 </div>
 
 <div class="modal-overlay hidden" id="providerModal">

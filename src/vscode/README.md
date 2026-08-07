@@ -7,6 +7,7 @@
 | 文件 | 职责 |
 |---|---|
 | [extension.ts](extension.ts) | ★ `activate()`：注册全部 `novel.*` 命令、FileSystemWatcher（章节保存 → 刷新摘要新鲜度）、`.novel` → `.novelforge` 迁移询问、无工作区时的占位视图。 |
+| [vscodeHost.ts](vscodeHost.ts) | `Host` 的实现：弹窗/进度/文件监听接回原生 API。`openFile` 开在第一栏，`openBeside` 用 `ViewColumn.Beside` 让草稿与正文并排。 |
 | [chatViewProvider.ts](chatViewProvider.ts) | 侧边栏宿主（`WebviewViewProvider`，视图 id `novelForge.chat`）。实现 `ViewHost` 挂到 `ChatController`。 |
 | [chatPanel.ts](chatPanel.ts) | 编辑器宿主（`WebviewPanel` 单例）。侧边栏太窄时用 ⧉ 打开，两边是同一个会话。 |
 | [webviewHtml.ts](webviewHtml.ts) | 两个宿主共用的 HTML 外壳：tabbar + 四个页签的静态结构，CSP 只允许本地资源，加载 [../../media](../../media) 下的 view.css / view.js。 |
@@ -18,6 +19,8 @@
 - **激活条件**：`workspaceContains:.novelforge/project.json`（含旧目录 `.novel/`），非小说工程不激活。
 - **侧边栏折叠不丢状态**：`retainContextWhenHidden: true`，否则草稿和流式内容会丢。
 - **命令是兜底入口**：工程页上每个按钮都映射到一条 `novel.*` 命令（webview 只说「点了什么」），命令面板也能直达同一功能。
+- **草稿开在旁边一栏**：`openBeside` 用 `ViewColumn.Beside`，它是相对**当前活动编辑器**的。从侧边栏点过来时最后活动的文本编辑器通常就是正文（`openFile` 把它放在第一栏），草稿于是落到第二栏；若此刻活动的是 `ChatPanel` 那个 tab，草稿就开在它旁边。够用，没去纠正。
+- **watcher 的章节 glob 是全量的**：`${chaptersDir}/**` 那条本来是为了看见空目录的增删，顺带也覆盖了非 `.md` 的章节（`.txt` / 无扩展名 / `.json`），所以章节扩展名放宽不需要在这里加模式。另加了 `${draftsDir}/**`，手工建的草稿也能让工程页上的「有草稿」标记翻过来。
 
 ## 依赖关系
 

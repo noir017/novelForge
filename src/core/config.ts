@@ -16,6 +16,7 @@ export interface PersistedSettings {
   recentChaptersFullText?: number;
   prevChapterTailChars?: number;
   chaptersDir?: string;
+  draftsDir?: string;
   summaryBatchSize?: number;
   requestTimeoutMs?: number;
 }
@@ -81,6 +82,7 @@ export function readConfig(): NovelConfig {
     recentChaptersFullText: c.recentChaptersFullText ?? 2,
     prevChapterTailChars: c.prevChapterTailChars ?? 1500,
     chaptersDir: c.chaptersDir ?? 'chapters',
+    draftsDir: c.draftsDir ?? 'drafts',
     summaryBatchSize: c.summaryBatchSize ?? 15,
     requestTimeoutMs: c.requestTimeoutMs ?? 300000,
   };

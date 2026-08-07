@@ -20,6 +20,22 @@ export async function listAttachmentChoices(project: NovelProject): Promise<Pick
     });
   }
 
+  // 草稿单列一组。**只列磁盘上已存在的**——没建过草稿的章节列出来只会是
+  // 一堆点了报错的空条目。草稿永远不自动进上下文，想用就在这里手动挑。
+  const draftPaths = await project.listDraftPaths();
+  for (const c of [...chapters].reverse()) {
+    const draft = project.draftRelPathFor(c.relPath);
+    if (!draft || !draftPaths.has(draft)) {
+      continue;
+    }
+    choices.push({
+      label: `${String(c.order).padStart(3, '0')} ${c.title} · 草稿`,
+      detail: draft,
+      group: '草稿',
+      value: fileAttachment('file', `第${c.order}章 ${c.title} · 草稿`, draft),
+    });
+  }
+
   for (const card of await project.listCharacters()) {
     choices.push({
       label: card.name,

@@ -213,12 +213,17 @@ export class ChatController {
         // 回落到 openFile —— 那边打开的本来就是 VS Code 真正的编辑器。
         const host = getHost();
         if (host.openInEditor) {
-          await host.openInEditor(msg.path);
+          // reloadFile 不带 pane：重载哪一块由前端按 path 自己认。
+          await host.openInEditor(msg.path, msg.type === 'openEditor' ? msg.pane : undefined);
         } else {
           await host.openFile(msg.path);
         }
         return;
       }
+
+      case 'openDraft':
+        await this.openDraft(msg.path);
+        return;
 
       case 'saveFile': {
         const host = getHost();
@@ -698,6 +703,33 @@ export class ChatController {
     this.toast(`已写入 ${turn.acceptedTo}`);
 
     await getHost().openFile(turn.acceptedTo);
+    await this.pushState();
+  }
+
+  // ---------------------------------------------------------------- 草稿
+
+  /**
+   * 打开某章的草稿。首次点击按需创建，已存在原样打开（绝不覆盖）。
+   *
+   * **必须先在真实章节列表里查到这一章**：这条路径会写盘，拿前端传上来的
+   * 任意相对路径去拼 `drafts/<任意>` 就等于开了一个绕过区守卫的写入口子。
+   * 别为了省一次扫描把这一步优化掉。
+   */
+  private async openDraft(chapterRelPath: string): Promise<void> {
+    const chapter = (await this.project.listChapters()).find((c) => c.relPath === chapterRelPath);
+    if (!chapter) {
+      this.toast('找不到这一章，可能刚被改名或删除。', 'error');
+      await this.pushState();
+      return;
+    }
+    const rel = await this.project.ensureDraft(chapter);
+    const host = getHost();
+    if (host.openBeside) {
+      await host.openBeside(rel);
+    } else {
+      await host.openFile(rel);
+    }
+    // 刚建出来的草稿要让 hasDraft 立刻翻过来，菜单文案跟着变。
     await this.pushState();
   }
 

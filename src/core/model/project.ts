@@ -17,14 +17,12 @@ import {
   SummarySections,
 } from './types';
 import { extractH1, parseMarkdown, pickSections, stringifyFrontmatter, stringifySections, stripH1 } from './markdown';
+import { isChapterFileName, isMarkdownExt, isMarkdownPath, parseChapterFileName } from './chapterFile';
 
 const NOVEL_DIR = '.novelforge';
 /** 0.1.x 用的目录名。检测到就提示迁移，不静默改动用户文件。 */
 const LEGACY_NOVEL_DIR = '.novel';
 const MANIFEST_FILE = 'project.json';
-
-/** 文件名形如 `001-楔子.md` / `12_初入江湖.md` / `003.md`。 */
-const CHAPTER_FILE_RE = /^(\d{1,5})[-_.\s]*(.*?)\.md$/i;
 
 /** 递归扫描的深度上限。防御性的：正常工程不会有这么深的卷/册嵌套。 */
 const MAX_TREE_DEPTH = 8;
@@ -36,7 +34,8 @@ const MAX_TREE_DEPTH = 8;
  * 只有章节列表做了一层缓存，由 FileSystemWatcher 主动失效。
  *
  * 章节 / 角色 / 设定三个目录都是**递归扫描**的：作者可以按卷、按阵营
- * 分子目录整理，插件只认「目录下（含各级子目录）的 .md 文件」。
+ * 分子目录整理。角色 / 设定只认 `.md`（那是插件自己的数据格式）；章节
+ * 则认「数字前缀 + 非二进制扩展名」的任意文件（见 model/chapterFile.ts）。
  * 章节的顺序始终由文件名的数字前缀决定，与它在哪一层无关。
  */
 export class NovelProject {
@@ -57,6 +56,14 @@ export class NovelProject {
 
   get chaptersDir(): string {
     return path.join(this.root, this.config.chaptersDir);
+  }
+
+  /**
+   * 草稿根目录。与 chapters/ 平级的兄弟目录，**不从 chaptersDir 派生**——
+   * 作者把正文目录改名成 `正文/` 时，草稿仍然落在 `drafts/` 下。
+   */
+  get draftsDir(): string {
+    return path.join(this.root, this.config.draftsDir);
   }
 
   get novelDir(): string {
@@ -173,7 +180,11 @@ export class NovelProject {
   // ---------------------------------------------------------------- 章节
 
   /**
-   * 递归扫描 chapters/ 下所有 `NNN-*.md`，按序号排序。
+   * 递归扫描 chapters/ 下所有章节文件，按序号排序。
+   *
+   * 「什么算章节」由 model/chapterFile.ts 定义：数字前缀 + 扩展名不在
+   * 二进制黑名单里。`001-楔子.md`、`001-楔子.txt`、`001-楔子`（无扩展名）、
+   * `004.json` 都算；`001-封面.png` 不算。
    *
    * 子目录只是给作者分卷用的收纳，不参与排序：`卷一/003-x.md` 与
    * `003-x.md` 是同一个「第 3 章」。序号重复时按路径稳定排序，
@@ -185,19 +196,24 @@ export class NovelProject {
     }
 
     const chapters: Chapter[] = [];
-    for (const abs of await listMarkdownDeep(this.chaptersDir)) {
-      const m = CHAPTER_FILE_RE.exec(path.basename(abs));
-      if (!m) {
-        continue;
+    for (const abs of await listFilesDeep(this.chaptersDir, isChapterFileName, this.chapterSkipDirs())) {
+      const parsed = parseChapterFileName(path.basename(abs));
+      if (!parsed) {
+        continue; // 容错优先：accept 与 parse 用同一套规则，理论上到不了这里
       }
       const raw = await readText(abs);
       const body = raw.trim();
-      const title = extractH1(body) ?? (m[2].trim() || `第 ${Number(m[1])} 章`);
+      // 只有 markdown 家族才认 `# 标题`。.txt 正文里一行「# 分隔」不是标题，
+      // 认了它既会顶掉文件名标题，又会把那行留在正文里。
+      const markdown = isMarkdownExt(parsed.ext);
+      const title =
+        (markdown ? extractH1(body) : undefined) ?? (parsed.stem.trim() || `第 ${parsed.order} 章`);
       chapters.push({
-        order: Number(m[1]),
+        order: parsed.order,
         title,
         relPath: this.relPath(abs),
-        wordCount: countWords(stripH1(body)),
+        wordCount: countWords(markdown ? stripH1(body) : body),
+        // 哈希的永远是整份正文（含标题行）——摘要新鲜度靠它，口径不能变。
         contentHash: hash(body),
       });
     }
@@ -207,14 +223,25 @@ export class NovelProject {
     return chapters;
   }
 
+  /**
+   * 扫章节时要跳过的目录（绝对路径）。
+   *
+   * `drafts/` 正常情况下是 `chapters/` 的兄弟，本来就扫不到；这里是
+   * `chaptersDir` 被配成 `.` 或空串时的唯一防线——那时草稿会落进章节根，
+   * 每份草稿都会变成一章。
+   */
+  private chapterSkipDirs(): ReadonlySet<string> {
+    return new Set([this.draftsDir]);
+  }
+
   async getChapter(order: number): Promise<Chapter | undefined> {
     return (await this.listChapters()).find((c) => c.order === order);
   }
 
-  /** 读章节正文（已去掉 `# 标题` 行）。 */
+  /** 读章节正文（markdown 家族会去掉 `# 标题` 行）。 */
   async readChapterText(chapter: Chapter): Promise<string> {
-    const raw = await readText(this.pathOf(chapter.relPath));
-    return stripH1(raw.trim());
+    const raw = (await readText(this.pathOf(chapter.relPath))).trim();
+    return isMarkdownPath(chapter.relPath) ? stripH1(raw) : raw;
   }
 
   /** 读章节原始内容（含标题行）。 */
@@ -231,15 +258,18 @@ export class NovelProject {
   /**
    * 新建章节文件，返回工作区相对路径。
    * `dir` 是工作区相对的落点目录（如 `chapters/卷一`），缺省落在 chapters/ 根下。
+   *
+   * `ext` 默认 `.md`：扫描时认任意扩展名，但插件自己建的东西仍然出 markdown，
+   * 免得同一个工程里格式随建随变。非 markdown 家族不写标题行。
    */
-  async createChapter(order: number, title: string, content = '', dir?: string): Promise<string> {
-    const fileName = `${pad3(order)}-${sanitizeFileName(title)}.md`;
+  async createChapter(order: number, title: string, content = '', dir?: string, ext = '.md'): Promise<string> {
+    const fileName = `${pad3(order)}-${sanitizeFileName(title)}${ext}`;
     const parent = dir ? this.pathOf(dir) : this.chaptersDir;
     const abs = path.join(parent, fileName);
     if (await exists(abs)) {
       throw new Error(`章节文件已存在：${this.relPath(abs)}`);
     }
-    const text = `# ${title}\n\n${content.trim()}\n`;
+    const text = isMarkdownExt(ext) ? `# ${title}\n\n${content.trim()}\n` : `${content.trim()}\n`;
     await writeText(abs, text);
     this.invalidate();
     return this.relPath(abs);
@@ -252,6 +282,58 @@ export class NovelProject {
     await writeText(abs, `${existing}\n\n${text.trim()}\n`);
     this.invalidate();
     return chapter.relPath;
+  }
+
+  // ---------------------------------------------------------------- 草稿
+
+  /**
+   * 章节 → 它草稿的工作区相对路径（正斜杠）。
+   *
+   * 镜像章节在**章节根之下**的那段相对路径，文件名（含扩展名）原样沿用：
+   *   `chapters/卷一/003-夜访.md` → `drafts/卷一/003-夜访.md`
+   *   `chapters/005-手记.txt`     → `drafts/005-手记.txt`
+   * 章节不在章节根之下（配置被改坏等）时返回 undefined。
+   *
+   * 纯计算，不碰磁盘——调用方常常只是想知道「草稿该在哪」，
+   * 而不是「草稿在不在」。
+   */
+  draftRelPathFor(chapterRelPath: string): string | undefined {
+    const under = path.relative(this.chaptersDir, this.pathOf(chapterRelPath));
+    if (!under || under.startsWith('..') || path.isAbsolute(under)) {
+      return undefined;
+    }
+    return this.relPath(path.join(this.draftsDir, under));
+  }
+
+  /**
+   * 按需创建草稿，返回它的工作区相对路径。
+   *
+   * **已存在就原样返回，绝不覆盖**——第二次点「打开草稿」不能把上次写的
+   * 东西抹掉。这是「不静默覆盖」在草稿上的落法。
+   */
+  async ensureDraft(chapter: Chapter): Promise<string> {
+    const rel = this.draftRelPathFor(chapter.relPath);
+    if (!rel) {
+      throw new Error(`这一章不在 ${this.config.chaptersDir}/ 下，无法建草稿：${chapter.relPath}`);
+    }
+    const abs = this.pathOf(rel);
+    if (!(await exists(abs))) {
+      // markdown 家族给一行标题好认；其余（.txt / 无扩展名 / .json）留空文件，
+      // 往里塞 markdown 语法只会碍事。
+      await writeText(abs, isMarkdownPath(rel) ? `# ${chapter.title} · 草稿\n\n` : '');
+    }
+    return rel;
+  }
+
+  /**
+   * 磁盘上已存在的草稿路径集合（工作区相对路径）。
+   *
+   * 走一次递归遍历而不是每章一次 stat：工程页每次刷新都要为所有章节判断
+   * 「有没有草稿」，五百章工程逐个 stat 会把 syscall 翻一倍。
+   */
+  async listDraftPaths(): Promise<Set<string>> {
+    const files = await listFilesDeep(this.draftsDir, () => true);
+    return new Set(files.map((abs) => this.relPath(abs)));
   }
 
   // ---------------------------------------------------------------- manifest
@@ -585,11 +667,16 @@ async function writeIfAbsent(absPath: string, text: string): Promise<void> {
 }
 
 /**
- * 递归列出目录下所有 .md 文件的绝对路径（按路径排序，保证稳定）。
+ * 递归列出目录下满足 `accept` 的文件的绝对路径（按路径排序，保证稳定）。
+ *
  * 隐藏目录与 node_modules 一律跳过：`.trash/` 里躺着刚删掉的东西，
- * 再扫出来就等于没删。
+ * 再扫出来就等于没删。`skipDirs` 是额外要跳过的目录绝对路径。
  */
-async function listMarkdownDeep(dir: string): Promise<string[]> {
+async function listFilesDeep(
+  dir: string,
+  accept: (fileName: string) => boolean,
+  skipDirs?: ReadonlySet<string>
+): Promise<string[]> {
   const out: string[] = [];
   const walk = async (current: string, depth: number): Promise<void> => {
     if (depth > MAX_TREE_DEPTH) {
@@ -604,10 +691,10 @@ async function listMarkdownDeep(dir: string): Promise<string[]> {
     for (const entry of entries) {
       const abs = path.join(current, entry.name);
       if (entry.isDirectory()) {
-        if (!isIgnoredDir(entry.name)) {
+        if (!isIgnoredDir(entry.name) && !skipDirs?.has(abs)) {
           await walk(abs, depth + 1);
         }
-      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+      } else if (entry.isFile() && accept(entry.name)) {
         out.push(abs);
       }
     }
@@ -615,6 +702,14 @@ async function listMarkdownDeep(dir: string): Promise<string[]> {
   await walk(dir, 1);
   out.sort((a, b) => a.localeCompare(b));
   return out;
+}
+
+/**
+ * 只列 `.md`。角色 / 设定用这一条——那两个区是插件自己的数据格式
+ * （frontmatter + 固定小节），不跟着章节一起放宽扩展名。
+ */
+async function listMarkdownDeep(dir: string): Promise<string[]> {
+  return listFilesDeep(dir, (name) => name.toLowerCase().endsWith('.md'));
 }
 
 /** 扫描时跳过的目录名。 */
