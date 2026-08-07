@@ -1,5 +1,14 @@
+import { buildCastIndex, describeChapters } from './cast';
 import { NovelProject } from './model/project';
-import { ProjectChapterNode, ProjectDirNode, ProjectFileNode, ProjectNode, ProjectTree } from './protocol';
+import {
+  CastEntry,
+  CastSummary,
+  ProjectChapterNode,
+  ProjectDirNode,
+  ProjectFileNode,
+  ProjectNode,
+  ProjectTree,
+} from './protocol';
 
 /**
  * 工程页的数据来源。
@@ -31,6 +40,9 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       chapters: [],
       characters: [],
       lore: [],
+      cast: [],
+      castByCard: {},
+      summaryCount: 0,
       chaptersRoot,
       charactersRoot,
       loreRoot,
@@ -86,6 +98,30 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     detail: entry.keywords.join('/'),
   }));
 
+  // 出场人物索引：已建卡的补出场统计，未建卡的单列一组。
+  // 与角色树分开——那是文件树，这些人还没有文件。
+  const castIndex = await buildCastIndex(project);
+  const castByCard: Record<string, CastSummary> = {};
+  for (const member of castIndex.known) {
+    if (!member.card) {
+      continue;
+    }
+    const updatedThrough = member.card.updatedThrough ?? 0;
+    castByCard[member.card.relPath] = {
+      chapters: member.chapters,
+      detail: describeChapters(member.chapters),
+      updatedThrough,
+      // 上次更新之后又出场了几章——角色行上的「有新章节可更新」提示吃这个数。
+      pending: member.chapters.filter((o) => o > updatedThrough).length,
+    };
+  }
+  const cast: CastEntry[] = castIndex.unknown.map((member) => ({
+    name: member.name,
+    aliases: member.aliases,
+    chapters: member.chapters,
+    detail: describeChapters(member.chapters),
+  }));
+
   const staleCount = chapterLeaves.filter((r) => r.stale).length;
   return {
     initialized: true,
@@ -98,6 +134,9 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     chapters: nest(chaptersRoot, chapterLeaves, chapterDirs),
     characters: nest(charactersRoot, characterLeaves, characterDirs),
     lore: nest(loreRoot, loreLeaves, loreDirs),
+    cast,
+    castByCard,
+    summaryCount: castIndex.summaryCount,
     chaptersRoot,
     charactersRoot,
     loreRoot,

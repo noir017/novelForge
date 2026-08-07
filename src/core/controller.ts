@@ -4,6 +4,7 @@ import { updateSettings, readConfig, readGlobalBudget } from './config';
 import { BuiltContext, ContextItem } from './context/builder';
 import { deleteEntry, moveEntry, newFolder, renameEntry, Section, sectionOf, sectionRoots } from './fileOps';
 import { extractCharacters, newCharacter, newLore } from './features/characters';
+import { createCardForCast, updateCharacterCard } from './features/characterCard';
 import { ContinueSession } from './features/continueWriting';
 import { extractStyle } from './features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from './features/summarize';
@@ -31,6 +32,7 @@ import {
 } from './model/session';
 import { NovelConfig } from './model/types';
 import {
+  CharacterAction,
   FileAction,
   InMessage,
   OutMessage,
@@ -271,6 +273,10 @@ export class ChatController {
 
       case 'fileAction':
         await this.fileAction(msg.action, msg.relPath, msg.targetDir);
+        return;
+
+      case 'characterAction':
+        await this.characterAction(msg.action, msg.name, msg.relPath);
         return;
 
       case 'selectModel':
@@ -883,6 +889,32 @@ export class ChatController {
         break;
       case 'delete':
         await deleteEntry(this.project, relPath);
+        break;
+    }
+    await this.pushState();
+  }
+
+  /**
+   * 角色卡动作。作用对象是**一个角色**（用名字标识），不是文件或章节，
+   * 因此与 fileAction / projectAction 分开走。
+   */
+  private async characterAction(action: CharacterAction, name: string, relPath?: string): Promise<void> {
+    log.info(`角色动作：${action} ${name}`, relPath);
+    switch (action) {
+      case 'updateCard':
+      case 'rebuildCard':
+        if (!relPath) {
+          log.warn(`${action} 缺少角色卡路径，忽略`);
+          break;
+        }
+        await updateCharacterCard(
+          this.project,
+          relPath,
+          action === 'updateCard' ? 'incremental' : 'full'
+        );
+        break;
+      case 'createCard':
+        await createCardForCast(this.project, name);
         break;
     }
     await this.pushState();

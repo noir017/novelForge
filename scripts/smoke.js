@@ -106,6 +106,75 @@ console.log('\n== tokenizer.ts ==');
   check('takeHead 不足预算时原样返回', tk.takeHead('短文本', 1000) === '短文本');
 }
 
+// 这一节要 await（切换计数器可能需要异步 prepare），单独包成 async 函数，
+// 在脚本末尾调用；脚本其余部分是同步的。
+async function checkTokenCounter() {
+  console.log('\n== tokenCounter.ts · 可替换实现 ==');
+  const tc = loadModule('src/core/context/tokenCounter.ts');
+
+  check('默认计数器是启发式的', tc.activeTokenCounter().id === 'heuristic');
+  check('默认计数器自述为估算', tc.activeTokenCounter().accuracy === 'estimate');
+  check('注册表里有默认实现', tc.listTokenCounters().some((c) => c.id === 'heuristic'));
+
+  // 注册一个「一个字符一个 token」的假计数器，验证切换真的生效。
+  let prepared = 0;
+  tc.registerTokenCounter({
+    id: 'test-exact',
+    label: '测试用',
+    accuracy: 'exact',
+    prepare: async () => { prepared++; },
+    count: (t) => t.length,
+    charsFor: (n) => n,
+  });
+  check('注册后出现在列表里', tc.listTokenCounters().some((c) => c.id === 'test-exact'));
+
+  const before = tc.countTokens('雨下了三天');
+  check('切换成功', await tc.useTokenCounter('test-exact') === true);
+  check('prepare 被调用一次', prepared === 1);
+  check('切换后计数走新实现', tc.countTokens('雨下了三天') === 5, String(tc.countTokens('雨下了三天')));
+  check('切换后反推字符数也走新实现', tc.charsForTokens(100) === 100);
+  check('新旧实现给出不同结果（确实切了）', before !== tc.countTokens('雨下了三天'));
+
+  // 计数器坏掉不能让写作流程停下：切换失败保持原样，不抛错。
+  tc.registerTokenCounter({
+    id: 'test-broken',
+    label: '坏的',
+    accuracy: 'exact',
+    prepare: async () => { throw new Error('加载失败'); },
+    count: () => 0,
+    charsFor: () => 0,
+  });
+  check('prepare 抛错时切换失败而非抛出', await tc.useTokenCounter('test-broken') === false);
+  check('切换失败后仍用原计数器', tc.activeTokenCounter().id === 'test-exact');
+  check('未注册的 id 返回 false', await tc.useTokenCounter('不存在') === false);
+
+  tc.resetTokenCounter();
+  check('reset 回到默认实现', tc.activeTokenCounter().id === 'heuristic');
+  check('reset 后计数恢复', tc.countTokens('雨下了三天') === before);
+
+  // ---- 校准回路：只收真实用量，不拿估算冒充。
+  tc.resetUsageStats();
+  check('没有样本时比值为 1', tc.usageStats().ratio === 1);
+  tc.recordUsage('续写', 1200, { inputTokens: 1000, outputTokens: 500 });
+  const stats = tc.usageStats();
+  check('记下一个样本', stats.samples === 1);
+  check('比值 = 估算/实测', Math.abs(stats.ratio - 1.2) < 1e-9, String(stats.ratio));
+  check('输出 token 累计', stats.outputTotal === 500);
+
+  // 服务商没给 usage 时什么都不记——否则比值会被污染成 1。
+  tc.recordUsage('摘要', 800, {});
+  check('没有 inputTokens 则不计样本', tc.usageStats().samples === 1);
+  tc.recordUsage('摘要', 800, { outputTokens: 200 });
+  check('只有输出时不计输入样本', tc.usageStats().samples === 1);
+  check('但输出仍累计', tc.usageStats().outputTotal === 700);
+
+  const note = tc.describeUsage(1200, { inputTokens: 1000, outputTokens: 500 });
+  check('describeUsage 报出实测与偏差',
+    note.includes('实测 1000') && note.includes('+20%'), note);
+  check('没有用量时 describeUsage 为空', tc.describeUsage(1200, {}) === undefined);
+  tc.resetUsageStats();
+}
+
 console.log('\n== continueWriting.ts · cleanOutput ==');
 {
   const cw = loadModule('src/core/features/continueWriting.ts');
@@ -132,29 +201,103 @@ console.log('\n== summarize.ts · parseSummaryResponse ==');
 {
   const sum = loadModule('src/core/features/summarize.ts');
 
+  // ---- JSON 路径（现在的提示词要求的形状）----
+  const json = JSON.stringify({
+    梗概: '林昭进镇。',
+    出场人物: [{ name: '林昭', aliases: ['阿昭'] }, { name: '李叔', aliases: [] }],
+    时间地点: '傍晚，镇口',
+    关键事件: ['递上令牌', '掌柜多看了他两眼'],
+    新增伏笔: ['令牌来历'],
+    状态变更: '',
+  });
+  const j = sum.parseSummaryResponse(json);
+  check('JSON：解析梗概', j.sections.梗概 === '林昭进镇。', j.sections.梗概);
+  check('JSON：数组小节渲染成列表',
+    j.sections.关键事件 === '- 递上令牌\n- 掌柜多看了他两眼', JSON.stringify(j.sections.关键事件));
+  check('JSON：空字段为空串而非「无」', j.sections.状态变更 === '');
+  check('JSON：出场人物结构化', j.cast.length === 2 && j.cast[0].name === '林昭', JSON.stringify(j.cast));
+  check('JSON：保留 cast 别名', j.cast[0].aliases[0] === '阿昭');
+  // 出场人物小节从 cast 渲染回来，两者始终一致。
+  check('JSON：出场人物小节由 cast 渲染',
+    j.sections.出场人物 === '林昭(阿昭)、李叔', j.sections.出场人物);
+
+  check('JSON：代码块包裹', sum.parseSummaryResponse('```json\n' + json + '\n```').sections.梗概 === '林昭进镇。');
+  check('JSON：前后有废话', sum.parseSummaryResponse('好的：\n' + json + '\n以上。').cast.length === 2);
+  // 出场人物写成字符串（模型没照做）也要收下。
+  const loose = sum.parseSummaryResponse('{"梗概":"x","出场人物":"林昭、沈氏","关键事件":[]}');
+  check('JSON：出场人物写成字符串也解析', loose.cast.length === 2 && loose.cast[1].name === '沈氏',
+    JSON.stringify(loose.cast));
+  // 语法合法但不相干的 JSON 不能被认成一份（空的）摘要——认下来就不会再降级，
+  // 结果是静默写出一份没有内容的摘要文件。降级后走小节解析，最终全文进梗概。
+  const irrelevant = sum.parseSummaryResponse('{"text":"模型答非所问"}');
+  check('JSON：不相干的 JSON 不被当成摘要',
+    irrelevant.sections.梗概.includes('模型答非所问'), irrelevant.sections.梗概);
+  // 同上：模型把六小节写成 markdown 但外面裹了个 JSON 壳时，仍要拿到小节。
+  const wrapped = sum.parseSummaryResponse('{"summary": "x"}\n\n## 梗概\n\n林昭进镇。\n\n## 关键事件\n\n- 递上令牌');
+  check('JSON：壳外的小节仍能解析', wrapped.sections.梗概 === '林昭进镇。', wrapped.sections.梗概);
+
+  // ---- Markdown 降级路径（旧格式 / 模型不听话 / 作者手改）----
   const standard = `## 梗概\n\n林昭进镇。\n\n## 出场人物\n\n林昭、李叔\n\n## 时间地点\n\n傍晚，镇口\n\n## 关键事件\n\n- 递上令牌\n\n## 新增伏笔\n\n令牌来历\n\n## 状态变更\n\n无`;
   const parsed = sum.parseSummaryResponse(standard);
-  check('解析标准六小节', parsed.梗概 === '林昭进镇。' && parsed.出场人物 === '林昭、李叔');
-  check('关键事件保留列表', parsed.关键事件 === '- 递上令牌');
+  check('降级：解析标准六小节',
+    parsed.sections.梗概 === '林昭进镇。' && parsed.sections.出场人物 === '林昭、李叔');
+  check('降级：关键事件保留列表', parsed.sections.关键事件 === '- 递上令牌');
+  // 没有结构化 cast 时从「出场人物」小节文本反解，角色页不该因此少人。
+  check('降级：从小节文本反解出场人物',
+    parsed.cast.length === 2 && parsed.cast[0].name === '林昭', JSON.stringify(parsed.cast));
 
   const fenced = sum.parseSummaryResponse('```markdown\n' + standard + '\n```');
-  check('剥离代码块围栏', fenced.梗概 === '林昭进镇。');
+  check('降级：剥离代码块围栏', fenced.sections.梗概 === '林昭进镇。');
 
   const inline = sum.parseSummaryResponse('梗概：林昭进镇。\n出场人物：林昭、李叔\n关键事件：递上令牌');
-  check('行内写法兜底', inline.梗概 === '林昭进镇。' && inline.出场人物 === '林昭、李叔');
+  check('降级：行内写法兜底',
+    inline.sections.梗概 === '林昭进镇。' && inline.sections.出场人物 === '林昭、李叔');
 
   const bold = sum.parseSummaryResponse('**梗概**：林昭进镇。\n**出场人物**：林昭');
-  check('加粗行内写法兜底', bold.梗概 === '林昭进镇。');
+  check('降级：加粗行内写法兜底', bold.sections.梗概 === '林昭进镇。');
 
   const garbage = sum.parseSummaryResponse('模型胡说了一通完全没有结构的内容。');
-  check('完全无结构时全文进梗概', garbage.梗概 === '模型胡说了一通完全没有结构的内容。');
+  check('降级：完全无结构时全文进梗概', garbage.sections.梗概 === '模型胡说了一通完全没有结构的内容。');
+  check('降级：无结构时 cast 为空', garbage.cast.length === 0);
+
+  // 「无」这类占位不是人名。
+  check('降级：出场人物写「无」不产生假人',
+    sum.parseSummaryResponse('## 梗概\n\nx\n\n## 出场人物\n\n无').cast.length === 0);
 
   // 真实示例摘要文件应能被解析回来
   const real = fs.readFileSync(path.join(SAMPLE, '.novelforge/summaries/002.md'), 'utf8');
   const md = loadModule('src/core/model/markdown.ts');
   const realParsed = sum.parseSummaryResponse(md.parseMarkdown(real).body);
-  check('解析真实摘要文件', realParsed.出场人物.includes('沈氏'), realParsed.出场人物);
-  check('真实摘要的未收伏笔非空', realParsed.新增伏笔.length > 10);
+  check('解析真实摘要文件', realParsed.sections.出场人物.includes('沈氏'), realParsed.sections.出场人物);
+  check('真实摘要的未收伏笔非空', realParsed.sections.新增伏笔.length > 10);
+  check('真实摘要能反解出出场人物',
+    realParsed.cast.some((c) => c.name === '沈氏'), JSON.stringify(realParsed.cast));
+}
+
+console.log('\n== project.ts · 出场人物字段 ==');
+{
+  const p = loadModule('src/core/model/project.ts');
+
+  // frontmatter 里的 `林昭(阿昭、昭儿)` ←→ 结构化条目，必须互为逆运算。
+  const entry = p.parseCastEntry('林昭(阿昭、昭儿)');
+  check('解析带别名的 cast 条目',
+    entry.name === '林昭' && entry.aliases.length === 2, JSON.stringify(entry));
+  check('解析无别名的 cast 条目', p.parseCastEntry('沈氏').aliases.length === 0);
+  check('全角括号也认', p.parseCastEntry('林昭（阿昭）').name === '林昭');
+  check('渲染带别名', p.renderCastEntry({ name: '林昭', aliases: ['阿昭'] }) === '林昭(阿昭)');
+  check('渲染无别名不加括号', p.renderCastEntry({ name: '沈氏', aliases: [] }) === '沈氏');
+  check('渲染时别名与名字相同则丢弃',
+    p.renderCastEntry({ name: '沈氏', aliases: ['沈氏'] }) === '沈氏');
+  const round = p.parseCastEntry(p.renderCastEntry({ name: '林昭', aliases: ['阿昭', '昭儿'] }));
+  check('cast 条目序列化往返', round.name === '林昭' && round.aliases.join('、') === '阿昭、昭儿');
+
+  // 小节文本反解（旧摘要与手写摘要走这条）。
+  check('文本反解顿号分隔', p.castFromText('林昭、沈氏、客栈掌柜').length === 3);
+  check('文本反解列表写法', p.castFromText('- 林昭\n- 沈氏').length === 2);
+  check('文本反解去重', p.castFromText('林昭、林昭').length === 1);
+  check('文本反解跳过「无」', p.castFromText('无').length === 0);
+  check('文本反解跳过整段描述',
+    p.castFromText('本章没有新人物出场，只有林昭一人在客栈中独坐').length === 0);
 }
 
 console.log('\n== characters.ts · parseCharacterResponse ==');
@@ -216,5 +359,8 @@ console.log('\n== 示例工程数据一致性 ==');
   check('示例纲要能命中 3 个角色（林昭/沈氏/年轻守卫）', hitCount === 3, `got ${hitCount}`);
 }
 
-console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
-process.exit(failures === 0 ? 0 : 1);
+// 唯一的异步小节放在最后跑，跑完再统计。
+checkTokenCounter().then(() => {
+  console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
+  process.exit(failures === 0 ? 0 : 1);
+});

@@ -44,6 +44,10 @@ export class OpenAiProvider implements LlmProvider {
           max_tokens: options.maxOutputTokens,
           temperature: options.temperature,
           stream: true,
+          // 要真实用量必须显式开这个开关，否则流式响应里没有 usage 字段。
+          // 只有调用方想听（给了 onUsage）时才带上——有些兼容实现见到未知
+          // 字段会直接 400，不该让所有请求都冒这个风险。
+          ...(options.onUsage ? { stream_options: { include_usage: true } } : {}),
         }),
         signal,
       });
@@ -61,6 +65,13 @@ export class OpenAiProvider implements LlmProvider {
         }
         if (chunk.error) {
           throw new LlmError(`${this.label} 返回错误：${chunk.error.message ?? '未知错误'}`);
+        }
+        // usage 通常在最后一个（choices 为空的）chunk 里。
+        if (chunk.usage) {
+          options.onUsage?.({
+            inputTokens: chunk.usage.prompt_tokens,
+            outputTokens: chunk.usage.completion_tokens,
+          });
         }
         const delta = chunk.choices?.[0]?.delta;
         // 思考内容不能混进正文——它不该被采纳写入章节。但推理模型
@@ -84,6 +95,7 @@ export class OpenAiProvider implements LlmProvider {
 
 interface OpenAiChunk {
   choices?: { delta?: { content?: string; reasoning_content?: string; reasoning?: string } }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
   error?: { message?: string };
 }
 

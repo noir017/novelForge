@@ -27,6 +27,7 @@
 | [config.ts](config.ts) | `readConfig` / `readGlobalBudget` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |
 | [stores.ts](stores.ts) | 文件后端的配置/密钥存储（`~/.novelforge/`），双壳共用。 |
 | [projectView.ts](projectView.ts) | 工程页的数据来源：把数据层给的扁平文件清单折成 `ProjectNode` 目录树（章节、角色、设定、摘要新鲜度、草稿有无），展开/折叠状态留在前端。 |
+| [cast.ts](cast.ts) | ★ 出场人物索引：把各章摘要的 `cast` 反向聚合成「谁在哪些章出现过」。工程页的角色区、「更新角色卡」取语料、角色卡的 `appearsIn` 都吃它。 |
 
 ## 已知约定
 
@@ -39,3 +40,5 @@
 - **草稿不是可管理区**：`drafts/` 不在 `fileOps.ts` 的三个区里（工程页上也没有它的节点），但它是**可打开的**——`fileEditing.ts` 只看工程根包含 + 扩展名/章节规则 + 大小，草稿天然满足。草稿路径由 `NovelProject.draftRelPathFor` 从章节路径推导，别在别处另拼一份。
 - **草稿永不自动注入**：`context/builder.ts` 里没有任何一处读 `drafts/`，草稿只能经 `resolveAttachment`（作者显式 `@` 引用）进 prompt。加功能时别打破这条——它是「不偷偷烧 token」的一部分。
 - **`openDraft` 会写盘**：`controller.ts` 里那句 `listChapters().find(...)` 是它没变成「往 `drafts/<任意路径>` 写文件」的原语的唯一原因。别为了省一次扫描就信任前端传来的路径。
+- **摘要是出场人物的唯一真相**：角色卡 frontmatter 里的 `appearsIn` / `updatedThrough` **只是缓存**。想知道谁在哪出场，一律经 `cast.ts` 的 `buildCastIndex()` 从摘要重算，别读角色卡的字段——摘要重跑之后那里就旧了。索引按 `name ∪ aliases` 匹配（摘要里的名字是模型写的，角色卡文件名是作者起的，两者没有硬关联）。
+- **`characterAction` 与 `fileAction` 不能合并**：前者的作用对象是**一个角色**（用名字标识），未建卡的人物根本没有文件，走 `fileAction` 那套区守卫无从谈起。

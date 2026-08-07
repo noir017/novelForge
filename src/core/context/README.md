@@ -6,8 +6,21 @@
 
 | 文件 | 职责 |
 |---|---|
-| [tokenizer.ts](tokenizer.ts) | Token 粗估（中文 ≈ 1.5 token/字，拉丁 ≈ 1/4）与按预算截取文本的 `takeHead` / `takeTail`。不引入 tiktoken：只要保证不低估，加上 512 安全余量即可。 |
+| [tokenCounter.ts](tokenCounter.ts) | ★ `TokenCounter` 接口 + 注册表 + 默认的字符加权实现（中文 ≈ 1.5 token/字，拉丁 ≈ 1/4）。另含真实用量的校准统计。 |
+| [tokenizer.ts](tokenizer.ts) | 门面：`estimateTokens`（= `countTokens`）与按预算截取的 `takeHead` / `takeTail`。全仓库几十处调用点都走这里。 |
 | [builder.ts](builder.ts) | ★ `buildContext()`：分层预算装配器。输入 `BuildRequest`（纲要、目标章、附件、历史、排除名单、模式），输出 `BuiltContext`（messages + 逐条明细 items）。 |
+
+## Token 计数是可替换的
+
+改造前 `estimateTokens` 是一个写死的函数，想换更准的算法得改遍全仓库。现在分三层：
+
+1. **`TokenCounter` 接口**——`count(text)` 数 token、`charsFor(tokens)` 反推字符数（截断要用），可选 `prepare()` 供需要加载 wasm/词表的实现。
+2. **注册表**——`registerTokenCounter()` 注册、`useTokenCounter(id)` 切换。切换失败（未注册、`prepare()` 抛错）时**保持原计数器并返回 false**，绝不让「数不了 token」把写作流程带停。
+3. **`HeuristicTokenCounter`**——默认实现，就是原来那套系数，零依赖、同步、永不失败。它是所有降级路径的终点。
+
+要接 tiktoken 或服务商的 count_tokens 接口，写一个实现注册进去即可，`builder.ts` 一行都不用改。
+
+**校准回路**：服务商返回真实用量时（`ChatOptions.onUsage` → `recordUsage`）记下「估算/实测」比值，`usageStats()` 可查。它**只用于日志与展示，不自动修正估算值**——估算必须是纯函数，否则同一份上下文两次装配会得出不同的预算判断，「不静默截断」的明细也就不可复现了。没给 usage 的服务商什么都不记，不拿估算冒充实测。
 
 ## 分层优先级
 

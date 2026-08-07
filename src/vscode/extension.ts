@@ -3,6 +3,8 @@ import { initProjectFlow, newChapterFlow } from '../core/actions';
 import { ChatController } from '../core/controller';
 import { updateSettings, setLegacyConfigReader } from '../core/config';
 import { extractCharacters, newCharacter, newLore } from '../core/features/characters';
+import { updateCharacterCard } from '../core/features/characterCard';
+import { appearancesOf, buildCastIndex, describeChapters } from '../core/cast';
 import { newFolder, sectionRoots } from '../core/fileOps';
 import { extractStyle } from '../core/features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../core/features/summarize';
@@ -300,6 +302,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const target = await requireProject();
     if (target) {
       await extractCharacters(target);
+      await refresh();
+    }
+  });
+
+  /**
+   * 更新单个角色的档案。命令面板入口——工程页的角色行右键走的是同一条
+   * core 流程（controller 的 characterAction），两处行为不会分叉。
+   *
+   * 出场章节由摘要自动关联，所以这里只需要问「更新谁」。
+   */
+  register('novel.updateCharacterCard', async () => {
+    const target = await requireProject();
+    if (!target) {
+      return;
+    }
+    const cards = await target.listCharacters();
+    if (cards.length === 0) {
+      vscode.window.showInformationMessage('还没有角色卡。可先运行「Novel: 提取/更新角色卡」。');
+      return;
+    }
+    const index = await buildCastIndex(target);
+    const picked = await vscode.window.showQuickPick(
+      cards.map((card) => {
+        const chapters = appearancesOf(index, card);
+        const pending = chapters.filter((o) => o > (card.updatedThrough ?? 0)).length;
+        return {
+          label: card.name,
+          description: pending > 0 ? `＋${pending} 章待读` : undefined,
+          detail: describeChapters(chapters),
+          card,
+        };
+      }),
+      { title: '更新哪个角色的档案？', placeHolder: '出场章节由摘要自动关联' }
+    );
+    if (picked) {
+      await updateCharacterCard(target, picked.card.relPath);
       await refresh();
     }
   });

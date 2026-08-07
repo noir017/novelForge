@@ -22,6 +22,23 @@ export interface ChapterSummary {
   /** 摘要全文（含各固定小节）。 */
   content: string;
   sections: SummarySections;
+  /**
+   * 出场人物的结构化清单。
+   *
+   * 与 `sections.出场人物`（人类可读的「林昭、沈氏」）是同一份信息的两种形态：
+   * 这一份来自 frontmatter 的 `cast`，供角色页聚合与角色卡关联用；那一份供
+   * 阅读与注入 prompt 用。**读取时以 frontmatter 为准，缺席则从小节文本回退解析**——
+   * 0.2.x 之前写的摘要文件没有 cast 字段，不该因此在角色页上凭空少一批人。
+   */
+  cast: SummaryCast[];
+}
+
+/** 摘要里的一位出场人物。 */
+export interface SummaryCast {
+  /** 正式姓名（模型被要求沿用已有角色卡的名字）。 */
+  name: string;
+  /** 本章出现的别名/称呼。 */
+  aliases: string[];
 }
 
 /** 单章摘要的固定小节。缺失的小节为空字符串。 */
@@ -55,6 +72,21 @@ export interface CharacterCard {
   firstAppear?: number;
   /** 最后出场章节序号。 */
   lastSeen?: number;
+  /**
+   * 该角色出场的全部章节序号（升序）。
+   *
+   * 由摘要的 `cast` 反向聚合后写回 frontmatter，**是缓存而非真相**——
+   * 真相始终是各章摘要。落在卡里是为了两件事：不读全部摘要就能在角色页上
+   * 显示「出场 12 章」，以及日后按人物检索章节。摘要重算后这里会跟着更新。
+   */
+  appearsIn: number[];
+  /**
+   * 上次「更新角色卡」时读到了第几章。
+   *
+   * 增量更新的依据：只关联这一章之后的出场章节。undefined 表示从未更新过
+   * （手写的卡也是这个状态），此时增量等于全量。
+   */
+  updatedThrough?: number;
   /** 除 frontmatter 外的正文全文。 */
   body: string;
   sections: CharacterSections;

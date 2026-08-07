@@ -26,9 +26,9 @@ npm test                 # typecheck + smoke
 | 模块 | 一句话职责 | README |
 |---|---|---|
 | `src/` | 三层架构总览与一条续写请求的完整链路 | [src/README.md](src/README.md) |
-| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts、类文件操作 fileOps.ts、日志 logger.ts、长任务 progress.ts） | [src/core/README.md](src/core/README.md) |
+| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts、出场人物索引 cast.ts、类文件操作 fileOps.ts、日志 logger.ts、长任务 progress.ts） | [src/core/README.md](src/core/README.md) |
 | `src/core/model/` | 数据层：NovelProject、Markdown 解析、章节文件名规则、服务商配置、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
-| `src/core/context/` | ★ 分层预算上下文装配器 + token 粗估 | [src/core/context/README.md](src/core/context/README.md) |
+| `src/core/context/` | ★ 分层预算上下文装配器 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/features/` | 功能编排：续写、摘要、角色卡、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
 | `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
 | `src/ui/` | 宿主无关的面板逻辑：ChatController + @ 引用 | [src/ui/README.md](src/ui/README.md) |
@@ -60,7 +60,7 @@ npm test                 # typecheck + smoke
 1. **容错优先**：作者会手改任何 Markdown；解析失败退化为忽略，绝不抛崩。
 2. **不静默截断**：装配器降级/丢弃任何条目都必须留在明细里并附原因。
 3. **不静默覆盖**：角色卡更新走 diff 确认；style.md 覆盖前先问；「采纳写入」前正文只存在会话里；类文件操作遇到同名目标一律报错退出；内置编辑器保存走内容 hash 乐观锁（[src/core/fileEditing.ts](src/core/fileEditing.ts)），磁盘变过就报冲突让用户取舍。
-4. **不偷偷烧 token**：摘要不自动生成，只提示过期。
+4. **不偷偷烧 token**：摘要不自动生成，只提示过期。要分多次调模型的动作（更新角色卡可能分十几批）必须在动手前的确认框里写明预计调用次数。
 5. **模型引用只在第一个斜杠处切分**：`openrouter/z-ai/glm-4.6` 中服务商前缀是 `openrouter`。
 6. **不真删**：工程页的删除（以及会话删除）一律搬进 `.novelforge/.trash/` 并保留原相对路径。
 7. **文件访问不越界**：工程页的类文件操作锁在章节/角色/设定三个区内（`core/fileOps.ts` 的 `normalizeRel` / `sectionOf`）；独立版的读写另有一层——路径落在工程根内、大小上限、以及「纯文本扩展名白名单 ∪ 章节文件名规则」，全在 `fileEditing.ts` 里兜住。服务无鉴权（只绑 127.0.0.1），别在别处绕过这两处直接读写。
@@ -68,6 +68,8 @@ npm test                 # typecheck + smoke
 9. **章节不认扩展名**：章节根下「数字前缀 + 扩展名不在二进制黑名单里」的文件都是章节（`001-楔子.txt`、`001-楔子`、`004.json` 都算，`.png/.docx/.zip` 不算），规则只在 [src/core/model/chapterFile.ts](src/core/model/chapterFile.ts) 里定义一次。`.md`/`.markdown` 之外的章节**不解析 `# 标题`**，标题只取文件名——`extractH1` 与 `stripH1` 都只看首行，两者必须保持互逆。角色/设定区不跟着放宽，仍然只认 `.md`。
 10. **草稿不进上下文**：`drafts/` 只有作者显式 `@` 引用才进 prompt，装配器永不自动读它。按需创建（首次点「打开草稿」），已存在绝不覆盖；章节改名/移动时草稿跟着走，删章节不删草稿（确认框里会说明）。
 11. **不闷着干活**：任何要调模型或跑几十秒的动作都必须看得见——走 [src/core/progress.ts](src/core/progress.ts) 的 `runTask`（工程页顶部出进度条：n/N、百分比、计时、可停止），并在 [src/core/logger.ts](src/core/logger.ts) 里留下开始/每步/结束与耗时。日志页（第四个页签）是用户唯一能事后复查「刚才那 76 章卡在哪」的地方。**日志里绝不出现 API Key**（统一走 `redact`），也**绝不记 prompt 或正文全文**（只记条数与字数）。
+12. **摘要是出场人物的唯一真相**：单章摘要让模型输出 JSON，解析后落盘仍是 Markdown（作者要手改），结构化的出场人物写进 frontmatter 的 `cast`。角色卡里的 `appearsIn` / `updatedThrough` 只是缓存，要用就经 [src/core/cast.ts](src/core/cast.ts) 的 `buildCastIndex()` 从摘要重算。摘要解析必须保留三层降级（JSON → Markdown 小节 → 全文进梗概）——解析失败等于这一章的剧情永远进不了上下文。
+13. **角色卡不能无限膨胀**：它每次续写都要注入上下文。更新角色卡的提示词给每一节都定了字数上限，并明确「性格 / 语言习惯」优先、外貌与人物关系从简。加字段或改提示词时别把这条抹掉。
 
 ## 提交约定
 

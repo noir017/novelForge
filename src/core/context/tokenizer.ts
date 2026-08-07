@@ -1,58 +1,54 @@
 /**
- * Token 粗估。
+ * Token 预算工具：计数 + 按预算截取文本。
  *
- * 不引入 tiktoken：一是体积大、需要 wasm，二是不同服务商分词器本就不同，
- * 精确到个位没有意义。这里只要保证「不低估」，预算里再留 512 的安全余量即可。
+ * 计数本身已经拆到 [tokenCounter.ts](tokenCounter.ts)（可替换实现 + 注册表）。
+ * 本文件只留两样东西：
+ * - `estimateTokens` —— `countTokens` 的别名，全仓库几十处调用沿用这个名字；
+ * - `takeHead` / `takeTail` —— 按预算截断，永远走**当前**计数器。
  *
- * 经验系数：
- * - 中日韩字符：约 1 字 ≈ 1.5 token（GPT 系分词器对中文并不友好）
- * - 拉丁字母：约 4 字符 ≈ 1 token
- * - 其余字符（标点、空白、数字）：约 3 字符 ≈ 1 token
+ * 截断函数刻意不接受计数器参数：预算判断与截断必须用同一套口径，
+ * 否则「估算说放得下、截断按另一套系数切」会切出超预算的文本。
+ */
+
+import { charsForTokens, countTokens } from './tokenCounter';
+
+export {
+  activeTokenCounter,
+  charsForTokens,
+  countTokens,
+  describeUsage,
+  HeuristicTokenCounter,
+  listTokenCounters,
+  recordUsage,
+  registerTokenCounter,
+  resetTokenCounter,
+  resetUsageStats,
+  useTokenCounter,
+  usageStats,
+} from './tokenCounter';
+export type { TokenCounter, TokenUsage, UsageStats } from './tokenCounter';
+
+/**
+ * 数一段文本的 token 数。
+ *
+ * 名字里的「estimate」是历史包袱：换上精确计数器后它返回的就是精确值。
+ * 保留这个名字是因为调用点太多，且语义（「这段文本值多少预算」）没变。
  */
 export function estimateTokens(text: string): number {
-  if (!text) {
-    return 0;
-  }
-  let cjk = 0;
-  let latin = 0;
-  let other = 0;
-
-  for (const ch of text) {
-    const code = ch.codePointAt(0)!;
-    if (isCjk(code)) {
-      cjk++;
-    } else if ((code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a)) {
-      latin++;
-    } else {
-      other++;
-    }
-  }
-
-  return Math.ceil(cjk * 1.5 + latin / 4 + other / 3);
+  return countTokens(text);
 }
 
-function isCjk(code: number): boolean {
-  return (
-    (code >= 0x4e00 && code <= 0x9fff) || // 中日韩统一表意文字
-    (code >= 0x3400 && code <= 0x4dbf) || // 扩展 A
-    (code >= 0xf900 && code <= 0xfaff) || // 兼容表意文字
-    (code >= 0x3040 && code <= 0x30ff) || // 假名
-    (code >= 0xac00 && code <= 0xd7af) || // 谚文
-    (code >= 0x3000 && code <= 0x303f) // 中日韩标点
-  );
-}
-
-/** 目标 token 数对应的大致字符数（按中文为主估算），用于截断文本。 */
+/** 目标 token 数对应的大致字符数（按当前计数器反推），用于截断文本。 */
 export function tokensToChars(tokens: number): number {
-  return Math.floor(tokens / 1.5);
+  return charsForTokens(tokens);
 }
 
 /** 从尾部截取不超过 maxTokens 的文本，并尽量从段落边界开始。 */
 export function takeTail(text: string, maxTokens: number): string {
-  if (estimateTokens(text) <= maxTokens) {
+  if (countTokens(text) <= maxTokens) {
     return text;
   }
-  const chars = tokensToChars(maxTokens);
+  const chars = charsForTokens(maxTokens);
   let slice = text.slice(-chars);
   // 对齐到段落开头，避免从半句话开始。
   const paragraphBreak = slice.indexOf('\n\n');
@@ -64,9 +60,9 @@ export function takeTail(text: string, maxTokens: number): string {
 
 /** 从头部截取不超过 maxTokens 的文本，尾部加省略标记。 */
 export function takeHead(text: string, maxTokens: number): string {
-  if (estimateTokens(text) <= maxTokens) {
+  if (countTokens(text) <= maxTokens) {
     return text;
   }
-  const chars = tokensToChars(maxTokens);
+  const chars = charsForTokens(maxTokens);
   return `${text.slice(0, chars).trimEnd()}\n……（此处因上下文预算截断）`;
 }
