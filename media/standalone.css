@@ -716,6 +716,20 @@ body.resizing {
   padding: 14px 16px 24px;
 }
 
+/* 日志页自己管内边距（工具栏贴边、正文一片），不吃上面那条统一 padding。 */
+.workbench .log-toolbar {
+  padding: 10px 16px;
+}
+
+.workbench .log-body {
+  padding: 8px 16px 20px;
+}
+
+/* 活动栏「日志」上的红点：有没看过的错误时亮。默认那颗是黄的（过期摘要）。 */
+.tab-dot.err {
+  background: var(--vscode-editorError-foreground);
+}
+
 .workbench .messages {
   padding: 14px 16px;
   gap: 16px;

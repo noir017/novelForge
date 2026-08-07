@@ -27,6 +27,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       chapterCount: 0,
       totalWords: 0,
       staleCount: 0,
+      summarizedCount: 0,
       chapters: [],
       characters: [],
       lore: [],
@@ -85,13 +86,15 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     detail: entry.keywords.join('/'),
   }));
 
+  const staleCount = chapterLeaves.filter((r) => r.stale).length;
   return {
     initialized: true,
     title: manifest.title,
     author: manifest.author,
     chapterCount: chapters.length,
     totalWords: chapters.reduce((sum, c) => sum + c.wordCount, 0),
-    staleCount: chapterLeaves.filter((r) => r.stale).length,
+    staleCount,
+    summarizedCount: chapterLeaves.length - staleCount,
     chapters: nest(chaptersRoot, chapterLeaves, chapterDirs),
     characters: nest(charactersRoot, characterLeaves, characterDirs),
     lore: nest(loreRoot, loreLeaves, loreDirs),

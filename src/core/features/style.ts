@@ -2,10 +2,14 @@ import { getHost } from '../host';
 import { ChatOptions, collectStream } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
+import { elapsed, scoped } from '../logger';
+import { runTask } from '../progress';
 import { NovelProject } from '../model/project';
-import { takeHead } from '../context/tokenizer';
+import { estimateTokens, takeHead } from '../context/tokenizer';
 import { pickChaptersByInput } from './pickChapters';
 import { stripCodeFence } from './summarize';
+
+const log = scoped('文风');
 
 /**
  * 从样章提取文风指南，写入 .novelforge/style.md。
@@ -14,6 +18,7 @@ import { stripCodeFence } from './summarize';
 export async function extractStyle(project: NovelProject): Promise<void> {
   const chapters = await project.listChapters();
   if (chapters.length === 0) {
+    log.warn('还没有章节，无法提取文风');
     getHost().toast('还没有章节，无法提取文风。');
     return;
   }
@@ -26,9 +31,11 @@ export async function extractStyle(project: NovelProject): Promise<void> {
     chapters.slice(0, 2).map((c) => c.order)
   );
   if (!picked || picked.length === 0) {
+    log.info('用户取消了样章选择');
     return;
   }
   if (picked.length > 3) {
+    log.warn(`选了 ${picked.length} 章，只取前 3 章`);
     getHost().toast('最多选 3 章，只取前 3 章。');
   }
 
@@ -40,48 +47,75 @@ export async function extractStyle(project: NovelProject): Promise<void> {
       { modal: true }
     );
     if (confirm !== '覆盖') {
+      log.info('用户拒绝覆盖已有文风指南');
       return;
     }
+    log.warn('用户确认覆盖已有文风指南', `原内容 ${existing.length} 字`);
   }
 
   const provider = await resolveProvider();
   if (!provider) {
+    log.error('没有可用的模型，提取中止');
     return;
   }
   const config = readConfig();
+  const samples = picked.slice(0, 3);
+  log.info(
+    `准备从 ${samples.length} 章样章提取文风`,
+    `章节 ${samples.map((c) => c.order).join('、')}｜模型 ${provider.label}`
+  );
 
-  await getHost().progress('Novel Forge：提取文风指南', async (signal, report) => {
-    report('读取样章');
-    const parts: string[] = [];
-    for (const chapter of picked.slice(0, 3)) {
-      parts.push(`【样章：第${chapter.order}章 ${chapter.title}】\n${await project.readChapterText(chapter)}`);
-    }
-    const corpus = takeHead(parts.join('\n\n'), Math.max(3000, config.contextWindow - config.maxOutputTokens - 2000));
+  await runTask(
+    '提取文风指南',
+    async ({ signal, report }) => {
+      const startedAt = Date.now();
+      report({ message: '读取样章', current: 0, total: 2 });
+      const parts: string[] = [];
+      for (const chapter of samples) {
+        parts.push(`【样章：第${chapter.order}章 ${chapter.title}】\n${await project.readChapterText(chapter)}`);
+      }
+      const joined = parts.join('\n\n');
+      const budget = Math.max(3000, config.contextWindow - config.maxOutputTokens - 2000);
+      const corpus = takeHead(joined, budget);
+      if (corpus.length < joined.length) {
+        log.warn(
+          '样章正文超出输入预算，已截断',
+          `${joined.length} 字 → ${corpus.length} 字（预算 ${budget} token）。少选一章可让归纳更完整。`
+        );
+      }
+      log.debug('样章已读取', `${corpus.length} 字（约 ${estimateTokens(corpus)} token）`);
 
-    report('分析文风特征');
-    const options: ChatOptions = {
-      maxOutputTokens: Math.min(config.maxOutputTokens, 2000),
-      temperature: 0.3,
-      timeoutMs: config.requestTimeoutMs,
-      signal,
-    };
-    const raw = await collectStream(
-      provider.chatStream(
-        [
-          { role: 'system', content: STYLE_SYSTEM },
-          { role: 'user', content: corpus },
-        ],
-        options
-      )
-    );
-    if (signal.aborted) {
-      return;
-    }
+      report({ message: '分析文风特征', current: 1, total: 2 });
+      const options: ChatOptions = {
+        maxOutputTokens: Math.min(config.maxOutputTokens, 2000),
+        temperature: 0.3,
+        timeoutMs: config.requestTimeoutMs,
+        signal,
+      };
+      const modelStart = Date.now();
+      const raw = await collectStream(
+        provider.chatStream(
+          [
+            { role: 'system', content: STYLE_SYSTEM },
+            { role: 'user', content: corpus },
+          ],
+          options
+        )
+      );
+      log.info('模型已返回', `${raw.length} 字，用时 ${elapsed(modelStart)}`);
+      if (signal.aborted) {
+        log.warn('提取被取消，未写盘');
+        return;
+      }
 
-    await project.writeStyleGuide(stripCodeFence(raw));
-    getHost().toast('文风指南已生成，建议人工过一遍再用。');
-    await getHost().openFile(project.relPath(project.stylePath));
-  });
+      const relPath = await project.writeStyleGuide(stripCodeFence(raw));
+      report({ message: '完成', current: 2, total: 2 });
+      log.info('文风指南已写入', `${relPath}｜总耗时 ${elapsed(startedAt)}`);
+      getHost().toast('文风指南已生成，建议人工过一遍再用。');
+      await getHost().openFile(project.relPath(project.stylePath));
+    },
+    { scope: '文风' }
+  );
 }
 
 function isTemplate(text: string): boolean {

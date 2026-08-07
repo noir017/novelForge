@@ -1,7 +1,10 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { scoped } from './logger';
 import { isChapterFileName } from './model/chapterFile';
 import { hash } from './model/project';
+
+const log = scoped('编辑器');
 
 /**
  * 内置编辑器的文件读写。宿主无关：独立版把它接到网页编辑器上，
@@ -108,6 +111,7 @@ export async function readFileForEditor(root: string, relPath: string): Promise<
   }
 
   const text = await fs.readFile(abs, 'utf8');
+  log.debug(`打开 ${relPath}`, `${stat.size} 字节`);
   return {
     path: toRelPosix(root, abs),
     name: path.basename(abs),
@@ -149,13 +153,20 @@ export async function writeFileFromEditor(
     if (diskText !== undefined) {
       const diskHash = hash(diskText);
       if (diskHash !== baseHash) {
+        log.warn(
+          `保存被拒：${relPath} 在磁盘上已被改过`,
+          `编辑器基线 ${baseHash}，磁盘 ${diskHash}。已把磁盘版本交回前端由用户取舍，未覆盖。`
+        );
         throw new FileConflictError(diskText, diskHash);
       }
     }
+  } else {
+    log.warn(`强制保存 ${relPath}（用户已确认覆盖磁盘版本）`);
   }
 
   await fs.mkdir(path.dirname(abs), { recursive: true });
   await fs.writeFile(abs, text, 'utf8');
+  log.info(`已保存 ${relPath}`, `${Buffer.byteLength(text, 'utf8')} 字节`);
   return {
     path: toRelPosix(root, abs),
     name: path.basename(abs),

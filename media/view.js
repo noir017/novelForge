@@ -23,8 +23,16 @@
     providerMeta: $('providerMeta'),
     projectToolbar: $('projectToolbar'),
     projectBody: $('projectBody'),
+    taskList: $('taskList'),
     historyMeta: $('historyMeta'),
     sessionList: $('sessionList'),
+    logBody: $('logBody'),
+    logLevel: $('logLevel'),
+    logFilter: $('logFilter'),
+    logFollow: $('logFollow'),
+    logMeta: $('logMeta'),
+    logCopyBtn: $('logCopyBtn'),
+    logClearBtn: $('logClearBtn'),
     providerList: $('providerList'),
     providerCount: $('providerCount'),
     providerModal: $('providerModal'),
@@ -114,6 +122,11 @@
       pane.classList.toggle('active', pane.id === `pane-${tab}`);
     }
     if (tab === 'chat') el.input.focus();
+    if (tab === 'logs') {
+      // 看过了就把红点收掉。
+      unseenErrors = 0;
+      syncLogsDot();
+    }
   }
 
   el.tabbar.addEventListener('click', (e) => {
@@ -811,6 +824,251 @@
     }
   }
 
+  // ---------------------------------------------------------------- 长任务
+
+  /**
+   * 正在跑的长任务。后端每次进度变化都全量重推 `tasks`，这里整块重画——
+   * 列表最多两三项，增量更新换来的那点开销不值得多维护一份状态。
+   *
+   * 秒数由前端自己走：后端只在有进度时才推，一次模型调用能安静一分钟，
+   * 那期间计时器停住会让人以为卡死了。
+   */
+  let tasks = [];
+  let taskTimer = null;
+
+  function renderTasks(list) {
+    tasks = list || [];
+    el.taskList.innerHTML = '';
+    el.taskList.classList.toggle('hidden', tasks.length === 0);
+
+    if (tasks.length === 0) {
+      if (taskTimer) {
+        clearInterval(taskTimer);
+        taskTimer = null;
+      }
+      return;
+    }
+    // 每项各自记住「收到快照时的本地时刻」，好在两次推送之间自己走秒。
+    const now = Date.now();
+    for (const t of tasks) {
+      t._baseAt = now - (t.elapsedMs || 0);
+      el.taskList.appendChild(buildTaskRow(t));
+    }
+    if (!taskTimer) {
+      taskTimer = setInterval(tickTasks, 1000);
+    }
+  }
+
+  function buildTaskRow(t) {
+    const box = document.createElement('div');
+    box.className = 'task';
+    box.dataset.task = t.id;
+
+    const head = document.createElement('div');
+    head.className = 'task-head';
+
+    const title = document.createElement('span');
+    title.className = 'task-title';
+    title.textContent = t.title;
+    head.appendChild(title);
+
+    const counter = document.createElement('span');
+    counter.className = 'meta task-counter';
+    counter.textContent = taskCounterText(t);
+    head.appendChild(counter);
+
+    head.appendChild(document.createElement('span')).className = 'spacer';
+
+    const time = document.createElement('span');
+    time.className = 'meta task-time';
+    time.textContent = durationText(t.elapsedMs || 0);
+    head.appendChild(time);
+
+    head.appendChild(
+      linkBtn('停止', () => vscode.postMessage({ type: 'cancelTask', id: t.id }))
+    );
+    box.appendChild(head);
+
+    // 有 total 才画进度条；只有一句文案的任务（单章总结的准备阶段）留空。
+    const bar = document.createElement('div');
+    bar.className = 'task-bar';
+    const fill = document.createElement('div');
+    fill.className = 'task-fill';
+    if (t.total > 0) {
+      fill.style.width = `${Math.min(100, Math.round(((t.current || 0) / t.total) * 100))}%`;
+    } else {
+      // 不知道总量时走一条来回扫的条，至少表明还活着。
+      bar.classList.add('indeterminate');
+      fill.style.width = '35%';
+    }
+    bar.appendChild(fill);
+    box.appendChild(bar);
+
+    const msg = document.createElement('div');
+    msg.className = 'task-msg';
+    msg.textContent = t.message || '';
+    box.appendChild(msg);
+    return box;
+  }
+
+  function taskCounterText(t) {
+    if (!(t.total > 0)) return '';
+    const current = Math.min(t.current || 0, t.total);
+    const percent = Math.round((current / t.total) * 100);
+    return `${current}/${t.total} · ${percent}%`;
+  }
+
+  /** 每秒只改计时文本，不重建 DOM——重建会打断「停止」按钮上的点击。 */
+  function tickTasks() {
+    for (const t of tasks) {
+      const row = el.taskList.querySelector(`[data-task="${t.id}"] .task-time`);
+      if (row) row.textContent = durationText(Date.now() - t._baseAt);
+    }
+  }
+
+  function durationText(ms) {
+    const total = Math.max(0, Math.round(ms / 1000));
+    const m = Math.floor(total / 60);
+    return m > 0 ? `${m}:${String(total % 60).padStart(2, '0')}` : `${total}s`;
+  }
+
+  // ---------------------------------------------------------------- 日志
+
+  const LOG_ORDER = { debug: 10, info: 20, warn: 30, error: 40 };
+  const LOG_LABEL = { debug: '调试', info: '信息', warn: '警告', error: '错误' };
+  /** 全量缓冲的前端副本；筛选纯在本地做，不往后端要。 */
+  let logs = [];
+  /** 只在日志页之外累计，切过去就清零——徽标是「有没有没看过的错」。 */
+  let unseenErrors = 0;
+
+  function logLevelValue() {
+    return LOG_ORDER[el.logLevel.value] || LOG_ORDER.info;
+  }
+
+  function logMatches(entry) {
+    if ((LOG_ORDER[entry.level] || 0) < logLevelValue()) return false;
+    const needle = el.logFilter.value.trim().toLowerCase();
+    if (!needle) return true;
+    return `${entry.scope} ${entry.message} ${entry.detail || ''}`.toLowerCase().includes(needle);
+  }
+
+  function renderLogs(entries) {
+    logs = entries || [];
+    el.logBody.innerHTML = '';
+    const shown = logs.filter(logMatches);
+    for (const entry of shown) el.logBody.appendChild(buildLogRow(entry));
+    updateLogMeta(shown.length);
+    if (el.logFollow.checked) el.logBody.scrollTop = el.logBody.scrollHeight;
+  }
+
+  /** 增量追加一条。不重画整表——长任务每秒好几条，重画会让滚动位置乱跳。 */
+  function appendLog(entry) {
+    logs.push(entry);
+    // 与后端 MAX_ENTRIES 同量级，避免网页开一整天后攒下几万个节点。
+    if (logs.length > 800) logs.splice(0, logs.length - 800);
+
+    if (entry.level === 'error' && !isTabActive('logs')) {
+      unseenErrors++;
+      syncLogsDot();
+    }
+    if (!logMatches(entry)) return;
+
+    // 只在原本就贴着底时才跟着滚：用户翻上去看东西时不该被拽回来。
+    const atBottom =
+      el.logBody.scrollHeight - el.logBody.scrollTop - el.logBody.clientHeight < 40;
+    el.logBody.appendChild(buildLogRow(entry));
+    while (el.logBody.childElementCount > 800) el.logBody.removeChild(el.logBody.firstChild);
+    updateLogMeta(el.logBody.childElementCount);
+    if (el.logFollow.checked && atBottom) el.logBody.scrollTop = el.logBody.scrollHeight;
+  }
+
+  function buildLogRow(entry) {
+    const row = document.createElement('div');
+    row.className = `log-row log-${entry.level}`;
+
+    const head = document.createElement('div');
+    head.className = 'log-head';
+
+    const time = document.createElement('span');
+    time.className = 'log-time';
+    time.textContent = logTime(entry.at);
+    head.appendChild(time);
+
+    const level = document.createElement('span');
+    level.className = 'log-level';
+    level.textContent = LOG_LABEL[entry.level] || entry.level;
+    head.appendChild(level);
+
+    const scope = document.createElement('span');
+    scope.className = 'log-scope';
+    scope.textContent = entry.scope;
+    head.appendChild(scope);
+
+    const msg = document.createElement('span');
+    msg.className = 'log-msg';
+    msg.textContent = entry.message;
+    head.appendChild(msg);
+    row.appendChild(head);
+
+    if (entry.detail) {
+      // detail 默认收起：一次同步几十条，摊开就没法扫了。
+      const det = document.createElement('details');
+      det.className = 'log-detail';
+      const sum = document.createElement('summary');
+      sum.textContent = '详情';
+      det.appendChild(sum);
+      const pre = document.createElement('pre');
+      pre.textContent = entry.detail;
+      det.appendChild(pre);
+      row.appendChild(det);
+    }
+    return row;
+  }
+
+  function logTime(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
+
+  function updateLogMeta(shown) {
+    el.logMeta.textContent =
+      shown === logs.length ? `${logs.length} 条` : `${shown} / ${logs.length} 条`;
+  }
+
+  /** 独立版活动栏上的红点：有没看过的错误就亮着。插件里没这个节点。 */
+  function syncLogsDot() {
+    const dot = $('logsErrorDot');
+    if (dot) dot.classList.toggle('hidden', unseenErrors === 0);
+  }
+
+  function isTabActive(tab) {
+    const pane = $(`pane-${tab}`);
+    return !!pane && pane.classList.contains('active');
+  }
+
+  el.logLevel.addEventListener('change', () => renderLogs(logs));
+  el.logFilter.addEventListener('input', () => renderLogs(logs));
+  el.logClearBtn.addEventListener('click', () => vscode.postMessage({ type: 'clearLogs' }));
+  el.logCopyBtn.addEventListener('click', () => {
+    const text = logs
+      .filter(logMatches)
+      .map((e) => {
+        const head = `[${logTime(e.at)}] ${(LOG_LABEL[e.level] || e.level)} ${e.scope}｜${e.message}`;
+        return e.detail ? `${head}\n${e.detail.split('\n').map((l) => `    ${l}`).join('\n')}` : head;
+      })
+      .join('\n');
+    if (!text) {
+      toast('没有可复制的日志。');
+      return;
+    }
+    navigator.clipboard
+      .writeText(text)
+      .then(() => toast('日志已复制到剪贴板。'))
+      .catch(() => toast('复制失败，可手动选中复制。', true));
+  });
+
   // ---------------------------------------------------------------- 工程
 
   /**
@@ -892,10 +1150,18 @@
       })
     );
     el.projectBody.appendChild(
-      buildGroup('meta', '文风与摘要', tree.staleCount > 0 ? `${tree.staleCount} 章待总结` : '已同步', {
+      buildGroup('meta', '文风与摘要', summaryGroupLabel(tree), {
         build: () => buildMetaRows(tree),
       })
     );
+  }
+
+  /** 分组副标题：待办数与总量一起给，不必展开就知道摘要覆盖到什么程度。 */
+  function summaryGroupLabel(tree) {
+    if (tree.chapterCount === 0) return '还没有章节';
+    return tree.staleCount > 0
+      ? `已总结 ${tree.summarizedCount}/${tree.chapterCount} 章 · ${tree.staleCount} 章待总结`
+      : `${tree.chapterCount} 章已全部同步`;
   }
 
   /**
@@ -1006,15 +1272,56 @@
     head.appendChild(meta);
 
     if (tree.staleCount > 0) {
-      const banner = document.createElement('div');
-      banner.className = 'banner';
-      const text = document.createElement('span');
-      text.textContent = `${tree.staleCount} 章摘要缺失或已过期，这些章节的剧情不会进入上下文。`;
-      banner.appendChild(text);
-      banner.appendChild(linkBtn('立即同步', () => projectAction('syncSummaries')));
-      head.appendChild(banner);
+      head.appendChild(buildSummaryBanner(tree));
     }
     return head;
+  }
+
+  /**
+   * 摘要进度横幅。
+   *
+   * 改造前这里只有一句「76 章摘要缺失或已过期」——用户不知道分母，
+   * 也看不出同步跑到哪了。现在给出「已完成 N/M」与一条进度条，
+   * 同步过程中每章刷新一次（后端 pushState 会重推整棵树）。
+   */
+  function buildSummaryBanner(tree) {
+    const banner = document.createElement('div');
+    banner.className = 'banner banner-summary';
+
+    const line = document.createElement('div');
+    line.className = 'banner-line';
+    const text = document.createElement('span');
+    text.textContent = `${tree.staleCount} 章摘要缺失或已过期，这些章节的剧情不会进入上下文。`;
+    line.appendChild(text);
+    line.appendChild(document.createElement('span')).className = 'spacer';
+    // 同步在跑时不再显示「立即同步」——点第二次只会撞上「已有任务在进行」。
+    if (!hasTask('同步章节摘要')) {
+      line.appendChild(linkBtn('立即同步', () => projectAction('syncSummaries')));
+    }
+    banner.appendChild(line);
+
+    const done = tree.summarizedCount;
+    const total = tree.chapterCount;
+    if (total > 0) {
+      const bar = document.createElement('div');
+      bar.className = 'sum-bar';
+      const fill = document.createElement('div');
+      fill.className = 'sum-fill';
+      fill.style.width = `${Math.round((done / total) * 100)}%`;
+      bar.appendChild(fill);
+      banner.appendChild(bar);
+
+      const meta = document.createElement('div');
+      meta.className = 'meta sum-meta';
+      meta.textContent = `已总结 ${done} / ${total} 章（${Math.round((done / total) * 100)}%）`;
+      banner.appendChild(meta);
+    }
+    return banner;
+  }
+
+  /** 某个标题的长任务是否在跑。用于避免重复触发同一个动作。 */
+  function hasTask(title) {
+    return tasks.some((t) => t.title === title);
   }
 
   /**
@@ -2084,6 +2391,15 @@
         break;
       case 'settings':
         renderSettings(msg.settings, msg.keys, msg.ack);
+        break;
+      case 'tasks':
+        renderTasks(msg.tasks);
+        break;
+      case 'logs':
+        renderLogs(msg.entries);
+        break;
+      case 'log':
+        appendLog(msg.entry);
         break;
       case 'toast':
         toast(msg.message, msg.level === 'error');

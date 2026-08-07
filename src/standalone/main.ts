@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   let port = opts.port;
   for (let i = 0; ; i++) {
     try {
-      port = startServer({ root: opts.root, port });
+      port = startServer({ root: opts.root, port, verbose: opts.verbose });
       break;
     } catch (err) {
       if (i >= 20) {

@@ -2,6 +2,7 @@ import { BuildRequest, BuiltContext, buildContext } from '../context/builder';
 import { CancelledError, ChatOptions } from '../llm/provider';
 import { buildProvider, resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
+import { describeError, elapsed, scoped } from '../logger';
 import { NovelProject, sanitizeFileName } from '../model/project';
 import {
   describeModelIssue,
@@ -11,6 +12,8 @@ import {
   withDraftProvider,
 } from '../model/providers';
 import { Chapter } from '../model/types';
+
+const log = scoped('续写');
 
 export interface GenerateHandlers {
   onDelta(delta: string, full: string): void;
@@ -48,25 +51,39 @@ export class ContinueSession {
     handlers: GenerateHandlers
   ): Promise<BuiltContext | undefined> {
     if (this.currentAbort) {
+      log.warn('已有一个生成任务在进行中，本次请求被拒');
       handlers.onError('已有一个生成任务在进行中。');
       return undefined;
     }
 
     const config = readConfig();
     if (!config.active) {
-      handlers.onError(describeModelIssue(config.providers, config.model));
+      const issue = describeModelIssue(config.providers, config.model);
+      log.error(`模型引用无效：${issue}`, `当前引用 ${config.model || '（空）'}`);
+      handlers.onError(issue);
       return undefined;
     }
     const provider = await buildProvider(config.active);
     if (!provider) {
+      log.error(`未配置「${providerLabel(config.active.profile)}」的 API Key`);
       handlers.onError(
         `未配置「${providerLabel(config.active.profile)}」的 API Key。可在设置页录入，或换一个已配置好的模型。`
       );
       return undefined;
     }
 
+    const startedAt = Date.now();
+    log.info(
+      `开始${request.mode === 'discuss' ? '讨论' : '续写'}：目标第 ${request.targetOrder} 章`,
+      `模型 ${provider.label}${request.targetWords ? `｜目标 ${request.targetWords} 字` : ''}` +
+        `${request.attachments?.length ? `｜引用 ${request.attachments.length} 项` : ''}` +
+        `${request.history?.length ? `｜历史 ${request.history.length} 轮` : ''}`
+    );
+
     const providerMaxInputTokens = await provider.maxInputTokens();
+    const buildStart = Date.now();
     const built = await buildContext(this.project, { ...request, providerMaxInputTokens }, config);
+    logAssembly(built, buildStart);
 
     const abort = new AbortController();
     this.currentAbort = abort;
@@ -87,16 +104,28 @@ export class ContinueSession {
 
     try {
       let full = '';
+      let firstDeltaAt = 0;
       for await (const delta of provider.chatStream(built.messages, options)) {
+        if (!firstDeltaAt) {
+          firstDeltaAt = Date.now();
+          log.debug('首个正文分片已到达', `首字延迟 ${elapsed(startedAt, firstDeltaAt)}`);
+        }
         full += delta;
         handlers.onDelta(delta, full);
       }
       handlers.onDone(cleanOutput(full));
+      log.info(
+        '生成完成',
+        `产出 ${full.length} 字，用时 ${elapsed(startedAt)}` +
+          `${reasoning ? `；另有思考 ${reasoning.length} 字` : ''}`
+      );
     } catch (err) {
       if (err instanceof CancelledError || abort.signal.aborted) {
+        log.warn('生成被取消', `已产出内容，用时 ${elapsed(startedAt)}`);
         handlers.onCancelled();
       } else {
-        handlers.onError(err instanceof Error ? err.message : String(err));
+        log.error(`生成失败：${describeError(err)}`, err);
+        handlers.onError(describeError(err));
       }
     } finally {
       this.currentAbort = undefined;
@@ -106,6 +135,9 @@ export class ContinueSession {
   }
 
   stop(): void {
+    if (this.currentAbort) {
+      log.info('用户点了停止');
+    }
     this.currentAbort?.abort(new CancelledError());
   }
 
@@ -133,6 +165,8 @@ export class ContinueSession {
         message: `未配置「${providerLabel(active.profile)}」的 API Key，已取消测试。`,
       };
     }
+    log.info(`测试连接 ${active.ref}`, provider.label);
+    const startedAt = Date.now();
     const abort = new AbortController();
     try {
       let reply = '';
@@ -146,11 +180,15 @@ export class ContinueSession {
           break;
         }
       }
-      return reply.trim()
-        ? { ok: true, message: `${active.ref} 连接正常：${provider.label} 回复「${reply.trim().slice(0, 20)}」` }
-        : { ok: false, message: `${active.ref} 连接成功但没有返回内容，检查模型名是否正确。` };
+      if (reply.trim()) {
+        log.info(`${active.ref} 连接正常`, `回复「${reply.trim().slice(0, 20)}」，用时 ${elapsed(startedAt)}`);
+        return { ok: true, message: `${active.ref} 连接正常：${provider.label} 回复「${reply.trim().slice(0, 20)}」` };
+      }
+      log.warn(`${active.ref} 连接成功但没有返回内容`, `用时 ${elapsed(startedAt)}，检查模型名是否正确`);
+      return { ok: false, message: `${active.ref} 连接成功但没有返回内容，检查模型名是否正确。` };
     } catch (err) {
-      return { ok: false, message: `${active.ref}：${err instanceof Error ? err.message : String(err)}` };
+      log.error(`${active.ref} 连接失败：${describeError(err)}`, err);
+      return { ok: false, message: `${active.ref}：${describeError(err)}` };
     }
   }
 
@@ -166,15 +204,18 @@ export class ContinueSession {
     if (target.mode === 'append') {
       const chapter = await this.project.getChapter(target.order);
       if (!chapter) {
+        log.error(`采纳失败：第 ${target.order} 章不存在`);
         throw new Error(`第 ${target.order} 章不存在。`);
       }
       const relPath = await this.project.appendToChapter(chapter, draft);
       await this.project.syncManifest();
+      log.info(`已追加 ${draft.length} 字到第 ${target.order} 章`, `${relPath}｜该章摘要将变为过期`);
       return relPath;
     }
 
     const relPath = await this.project.createChapter(target.order, target.title, draft);
     await this.project.syncManifest();
+    log.info(`已新建第 ${target.order} 章《${target.title}》`, `${relPath}｜${draft.length} 字`);
     return relPath;
   }
 
@@ -220,6 +261,35 @@ export function cleanOutput(text: string): string {
 }
 
 /** 供命令面板走的极简续写（不开 Webview）已移到 src/vscode/quickContinue.ts（依赖编辑器）。 */
+
+/**
+ * 把这次装配的结果写进日志。
+ *
+ * 只记条目名与 token 数，**绝不记 prompt 全文**——那是十万字级的东西，
+ * 一次就能把整个日志缓冲挤空。降级/丢弃的条目单列一段，对应
+ * 「不静默截断」那条承诺：界面上的明细折叠着，日志里得看得见。
+ */
+function logAssembly(built: BuiltContext, startedAtMs: number): void {
+  const kept = built.items.filter((i) => i.status === 'included' || i.status === 'degraded');
+  const lost = built.items.filter((i) => i.status === 'dropped' || i.status === 'degraded');
+  const percent = built.budget > 0 ? Math.round((built.usedTokens / built.budget) * 100) : 0;
+
+  log.info(
+    `上下文已装配：${built.usedTokens}/${built.budget} token（${percent}%），${kept.length} 项`,
+    `${built.messages.length} 条消息，用时 ${elapsed(startedAtMs)}` +
+      `${built.budgetClampedByProvider ? '｜预算被服务商配额压低' : ''}`
+  );
+  if (lost.length > 0) {
+    log.warn(
+      `${lost.length} 项被降级或丢弃`,
+      lost.map((i) => `${statusLabel(i.status)} ${i.label}${i.note ? `——${i.note}` : ''}`).join('\n')
+    );
+  }
+}
+
+function statusLabel(status: string): string {
+  return status === 'degraded' ? '[降级]' : status === 'dropped' ? '[丢弃]' : `[${status}]`;
+}
 
 export function describeTarget(chapters: Chapter[], order: number): string {
   const chapter = chapters.find((c) => c.order === order);

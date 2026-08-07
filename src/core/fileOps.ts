@@ -1,8 +1,11 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getHost } from './host';
+import { scoped } from './logger';
 import { isMarkdownPath } from './model/chapterFile';
 import { NovelProject, exists, readText, sanitizeFileName, writeText } from './model/project';
+
+const log = scoped('文件');
 
 /**
  * 工程页的类文件操作：新建文件夹、重命名、移动、删除。
@@ -104,11 +107,13 @@ export async function newFolder(
   const rel = `${parent}/${sanitizeFileName(name)}`;
   const abs = project.pathOf(rel);
   if (await exists(abs)) {
+    log.warn(`新建文件夹被拒：已存在 ${rel}`);
     getHost().toast(`已存在：${rel}`, 'error');
     return undefined;
   }
   await fs.mkdir(abs, { recursive: true });
   project.invalidate();
+  log.info(`已新建文件夹 ${rel}`);
   getHost().toast(`已新建文件夹 ${rel}`);
   return rel;
 }
@@ -154,6 +159,7 @@ export async function renameEntry(project: NovelProject, relPath: string): Promi
   }
   const nextAbs = project.pathOf(nextRel);
   if (await exists(nextAbs)) {
+    log.warn(`重命名被拒：已存在同名项 ${nextRel}`);
     getHost().toast(`已存在同名项：${nextRel}`, 'error');
     return undefined;
   }
@@ -169,6 +175,7 @@ export async function renameEntry(project: NovelProject, relPath: string): Promi
     const updated = renamedBody(body, editable, nextStem);
     if (updated !== body) {
       await writeText(abs, updated);
+      log.debug(`正文里的 # 标题跟着改名同步`, `「${editable}」→「${nextStem}」`);
     }
   }
 
@@ -178,6 +185,7 @@ export async function renameEntry(project: NovelProject, relPath: string): Promi
     await carryDraft(project, rel, nextRel, isDir);
     await project.syncManifest();
   }
+  log.info(`已重命名${isDir ? '文件夹' : ''}`, `${rel} → ${nextRel}`);
   getHost().toast(`已重命名为 ${nextRel}`);
   return nextRel;
 }
@@ -218,6 +226,7 @@ export async function moveEntry(
 
   let destRel = targetDir === undefined ? undefined : resolveDirWithin(info, targetDir);
   if (targetDir !== undefined && destRel === undefined) {
+    log.warn(`移动被拒：目标目录不在「${info.label}」区里`, `${rel} → ${targetDir}`);
     getHost().toast(`目标目录不在「${info.label}」区里：${targetDir}`, 'error');
     return undefined;
   }
@@ -235,10 +244,12 @@ export async function moveEntry(
   }
   // 目录不能移进自己的子孙里——那会把这棵子树从文件系统上摘下来。
   if (isDir && (destRel === rel || destRel.startsWith(`${rel}/`))) {
+    log.warn(`移动被拒：不能把文件夹移进自己里面`, `${rel} → ${destRel}`);
     getHost().toast('不能把文件夹移动到它自己里面。', 'error');
     return undefined;
   }
   if (!(await exists(project.pathOf(destRel)))) {
+    log.warn(`移动被拒：目标目录不存在 ${destRel}`);
     getHost().toast(`目标目录不存在：${destRel}`, 'error');
     return undefined;
   }
@@ -246,6 +257,7 @@ export async function moveEntry(
   const nextRel = `${destRel}/${path.basename(rel)}`;
   const nextAbs = project.pathOf(nextRel);
   if (await exists(nextAbs)) {
+    log.warn(`移动被拒：目标目录里已有同名项 ${nextRel}`);
     getHost().toast(`目标目录里已有同名项：${nextRel}`, 'error');
     return undefined;
   }
@@ -257,6 +269,7 @@ export async function moveEntry(
     // 路径变了但序号没变，syncManifest 会按 order 兜底找回 summaryHash。
     await project.syncManifest();
   }
+  log.info(`已移动${isDir ? '文件夹' : ''}`, `${rel} → ${nextRel}`);
   getHost().toast(`已移动到 ${nextRel}`);
   return nextRel;
 }
@@ -287,6 +300,10 @@ async function carryDraft(
   }
   const toAbs = project.pathOf(toDraft);
   if (await exists(toAbs)) {
+    log.warn(
+      `新位置已有${isDir ? '草稿目录' : '草稿'}，旧草稿未动`,
+      `目标 ${toDraft}｜旧草稿仍在 ${fromDraft}`
+    );
     getHost().toast(
       `新位置已有${isDir ? '草稿目录' : '草稿'}：${toDraft}，旧草稿留在 ${fromDraft} 未动。`,
       'error'
@@ -295,6 +312,7 @@ async function carryDraft(
   }
   await fs.mkdir(path.dirname(toAbs), { recursive: true });
   await fs.rename(fromAbs, toAbs);
+  log.info(`草稿已跟随移动`, `${fromDraft} → ${toDraft}`);
 }
 
 async function pickDestination(
@@ -342,6 +360,7 @@ export async function deleteEntry(project: NovelProject, relPath: string): Promi
     detail: [detail, draftNote, '会移到 .novelforge/.trash/，可手动找回。'].filter(Boolean).join('\n'),
   });
   if (pick !== '删除') {
+    log.info(`用户取消了删除 ${rel}`);
     return false;
   }
 
@@ -352,6 +371,7 @@ export async function deleteEntry(project: NovelProject, relPath: string): Promi
   if (info.section === 'chapters') {
     await project.syncManifest();
   }
+  log.info(`已移到回收站：${rel}`, `落点 ${project.relPath(dest)}${detail ? `｜${detail}` : ''}`);
   getHost().toast(`已移到回收站：${rel}`);
   return true;
 }
@@ -428,15 +448,18 @@ interface ResolvedTarget {
 async function resolveTarget(project: NovelProject, relPath: string): Promise<ResolvedTarget | undefined> {
   const rel = normalizeRel(relPath);
   if (!rel) {
+    log.warn(`操作被拒：路径不合法`, `原始输入 ${JSON.stringify(relPath)}`);
     getHost().toast('路径不合法。', 'error');
     return undefined;
   }
   const info = sectionOf(project, rel);
   if (!info) {
+    log.warn(`操作被拒：${rel} 不在章节/角色/设定三个区里`);
     getHost().toast('只能操作章节、角色、设定目录里的内容。', 'error');
     return undefined;
   }
   if (rel === info.root) {
+    log.warn(`操作被拒：${rel} 是「${info.label}」区的固定根目录`);
     getHost().toast(`「${info.label}」是工程的固定目录，不能重命名或删除。`, 'error');
     return undefined;
   }
@@ -446,6 +469,7 @@ async function resolveTarget(project: NovelProject, relPath: string): Promise<Re
   try {
     isDir = (await fs.stat(abs)).isDirectory();
   } catch {
+    log.warn(`操作被拒：找不到 ${rel}（可能刚被改名或删除）`);
     getHost().toast(`找不到：${rel}`, 'error');
     return undefined;
   }
