@@ -91,6 +91,11 @@ export type InMessage =
   | { type: 'requestSummary'; order: number }
   /** `dir` 为新建类动作指定落点目录（工作区相对路径），缺省落在该区的根目录。 */
   | { type: 'projectAction'; action: ProjectAction; order?: number; dir?: string }
+  /**
+   * 角色卡动作。`name` 是角色名（未建卡的人物只有名字）；
+   * `relPath` 在更新已有卡时给出，指向那张卡。
+   */
+  | { type: 'characterAction'; action: CharacterAction; name: string; relPath?: string }
   /** 工程页的类文件操作。`relPath` 是操作对象（文件或目录）。 */
   | { type: 'fileAction'; action: FileAction; relPath: string; targetDir?: string }
   | { type: 'selectModel'; ref: string }
@@ -132,6 +137,17 @@ export type ProjectAction =
   | 'rebuildGlobalSummary'
   | 'extractCharacters'
   | 'extractStyle';
+
+/**
+ * 角色相关的动作。与 `projectAction` 分开是因为它们的作用对象是**一个角色**
+ * （用名字标识），而不是一个文件或一个章节。
+ *
+ * - `updateCard` / `rebuildCard`：更新已有角色卡。前者只读上次更新之后的新章节
+ *   （增量），后者从头通读该角色的全部出场章节。`relPath` 指向那张卡。
+ * - `createCard`：给摘要里出现但还没建卡的人物建一张卡，并立刻用它的出场章节
+ *   跑一次提取。`name` 是摘要里的名字。
+ */
+export type CharacterAction = 'updateCard' | 'rebuildCard' | 'createCard';
 
 /**
  * 类文件操作。作用对象由 `relPath` 给出，可以是文件也可以是目录。
@@ -303,6 +319,20 @@ export interface ProjectTree {
   chapters: ProjectNode[];
   characters: ProjectNode[];
   lore: ProjectNode[];
+  /**
+   * 摘要里出现、但还没有角色卡的人物，按出场章数降序。
+   *
+   * 与 `characters` 分开而不是混在一起：那棵树是**文件树**（能重命名、移动、
+   * 删除），这些人还没有文件。混进去会让右键菜单上的「删除」无从谈起。
+   */
+  cast: CastEntry[];
+  /**
+   * 已建卡角色的出场统计，按角色卡的 relPath 索引。
+   * 前端据此给角色行加「出场 12 章」的副标题，不必自己去翻摘要。
+   */
+  castByCard: Record<string, CastSummary>;
+  /** 参与统计的摘要数。为 0 说明还没生成过摘要，前端据此改文案。 */
+  summaryCount: number;
   /** 各区的根目录相对路径，供「在此新建」与「移动到根」用。 */
   chaptersRoot: string;
   charactersRoot: string;
@@ -357,6 +387,27 @@ export interface ProjectFile {
   relPath: string;
   /** 副标题，如角色别名、设定关键词。 */
   detail: string;
+}
+
+/** 摘要里出现、尚未建卡的一位人物。 */
+export interface CastEntry {
+  name: string;
+  /** 摘要里见过的其它称呼。 */
+  aliases: string[];
+  /** 出场章节序号，升序。 */
+  chapters: number[];
+  /** 人类可读的出场描述，如「第 3、7、12 章」。后端生成，两处文案不会分叉。 */
+  detail: string;
+}
+
+/** 一位已建卡角色的出场统计。 */
+export interface CastSummary {
+  chapters: number[];
+  detail: string;
+  /** 上次更新角色卡时读到第几章；0 表示从未更新过。 */
+  updatedThrough: number;
+  /** 上次更新之后新增的出场章节数。>0 时前端在行上给个提示点。 */
+  pending: number;
 }
 
 /**

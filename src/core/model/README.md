@@ -8,7 +8,7 @@
 
 | 文件 | 职责 |
 |---|---|
-| [types.ts](types.ts) | 全部数据结构：`Chapter` / `ChapterSummary` / `CharacterCard` / `LoreEntry` / `NovelConfig`，以及摘要与角色卡的**固定小节**定义（`SUMMARY_SECTION_KEYS`、`CHARACTER_SECTION_KEYS`）。 |
+| [types.ts](types.ts) | 全部数据结构：`Chapter` / `ChapterSummary` / `SummaryCast` / `CharacterCard` / `LoreEntry` / `NovelConfig`，以及摘要与角色卡的**固定小节**定义（`SUMMARY_SECTION_KEYS`、`CHARACTER_SECTION_KEYS`）。 |
 | [chapterFile.ts](chapterFile.ts) | ★ 「什么文件算章节」的唯一定义：数字前缀 + 扩展名不在二进制黑名单里。纯函数无 I/O，扫描器、编辑器可编辑判定、独立版文件监听三处共用。 |
 | [markdown.ts](markdown.ts) | 轻量 Markdown 结构工具：YAML frontmatter 与「## 小节」的解析/序列化。刻意不引入 yaml 依赖，解析失败退化为忽略该行而非抛错。 |
 | [project.ts](project.ts) | ★ `NovelProject`：数据访问层，所有 read*/write* 都在这里。含初始化模板、章节索引、草稿路径推导、摘要新鲜度（hash 比对）、`.novel` → `.novelforge` 迁移检测，以及三个区目录的**递归扫描**。 |
@@ -25,6 +25,9 @@
 - **草稿是纯推导出来的**：`draftRelPathFor` 把章节在**章节根之下**的那段相对路径镜像到 `draftsDir` 下，文件名含扩展名原样沿用，不落任何索引——没有索引就没有会漂移的第二份真相。`ensureDraft` 按需创建、已存在原样返回（不静默覆盖）；`listDraftPaths` 一次遍历给出全部已存在的草稿，供工程页与 `@` 引用共用（每章一次 stat 会把工程页刷新的 syscall 翻一倍）。`draftsDir` 是 `chaptersDir` 的兄弟目录、不从它派生，因此改 `chaptersDir` 不影响草稿落点；`chapterSkipDirs()` 兜住 `chaptersDir` 被配成 `.` 的极端情况。
 - **角色/设定的 slug 是路径**：根目录下的文件 slug 就是文件名（与改造前一致），子目录里的形如 `主角/林昭`——上下文明细里的 `character:<slug>` 因此仍然唯一。
 - **摘要新鲜度**：章节保存后重算 `contentHash`（哈希的是**整份正文含标题行**，口径不能改，否则所有既有摘要一夜之间全部过期），与摘要 frontmatter 里的 `sourceHash` 比对，不一致即过期。摘要不自动生成，只提示。`syncManifest` 按路径匹配不上时会按 order 兜底，因此把章节挪进子目录（或改扩展名）不会丢掉「已总结」的记录。
+- **出场人物有两种形态，一份信息**：摘要 frontmatter 的 `cast: [林昭, 年轻守卫(那个年轻人)]` 给程序用（角色页聚合、角色卡关联），`## 出场人物` 小节给人看。写的时候从结构化 cast 渲染出小节，保证两者一致；**读的时候以 frontmatter 为准，字段缺席才从小节文本反解**（`castFromText`）——0.2.x 之前的摘要与作者手写的摘要没有这个字段，不该因此在角色页上凭空少一批人。用括号而不是嵌套 YAML 是因为本层的 frontmatter 解析器刻意只支持字符串与字符串数组，为一个字段引入真正的 yaml 依赖不值得，而括号形式作者也能直接手改。
+  `castFromText` 的两条判据（名字 ≤ 8 字、不含「的了是在不没」这类虚词）是为了挡住模型把这一节写成句子的情况——按标点切开会得到一串句子碎片，全都会跑进角色页的「未建卡」组里。宁可漏掉一两个长称呼，也不能让那一组塞满垃圾；漏掉的重新生成摘要就有了（新摘要走结构化 cast，根本不经过这个函数）。
+- **角色卡的 `appearsIn` / `updatedThrough` 是缓存**：前者是该角色出场的章节序号，后者是上次「更新角色卡」读到了第几章（增量更新的依据）。真相永远是各章摘要，落在卡里只为两件事——不读全部摘要就能在角色页显示「出场 12 章」，以及日后按人物检索章节。
 - **会话用 JSON 而不是 Markdown**：会话是机器记录（含 token 明细、附件快照），不期待人工编写，但仍是纯文本、可 Git。
 - **选区引用存快照**：`Attachment.text` 对 selection 存当时的快照，历史对话不因原文修改而变；整文件引用每次读盘取最新。
 

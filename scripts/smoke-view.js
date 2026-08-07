@@ -404,6 +404,20 @@ function sampleTree() {
       { kind: 'file', label: '林昭', relPath: '.novelforge/characters/林昭.md', detail: '主角' },
     ],
     lore: [],
+    summaryCount: 3,
+    // 林昭出场三章、上次只更新到第 1 章 → 待更新 2 章；李叔从没在摘要里出现。
+    castByCard: {
+      '.novelforge/characters/林昭.md': {
+        chapters: [1, 2, 3], detail: '第 1、2、3 章', updatedThrough: 1, pending: 2,
+      },
+      '.novelforge/characters/配角/李叔.md': {
+        chapters: [], detail: '未在摘要中出现', updatedThrough: 0, pending: 0,
+      },
+    },
+    cast: [
+      { name: '客栈掌柜', aliases: ['掌柜'], chapters: [2, 3], detail: '第 2、3 章' },
+      { name: '老周', aliases: [], chapters: [3], detail: '第 3 章' },
+    ],
   };
 }
 
@@ -561,8 +575,10 @@ console.log('\n== 工程页的右键菜单 ==');
     open && open.path === '.novelforge/characters/林昭.md', JSON.stringify(open));
 
   // ---- 分组标题栏：落点是该区根目录。
+  // 注意用精确匹配取分组名：「出场人物 · 未建卡」也含「角色」二字之外的字样，
+  // 而角色区标题就是「角色」，includes 在两组都在时会撞上第一个。
   const groupHead = [...ui.doc.querySelectorAll('#projectBody .group-head')]
-    .find((n) => n.textContent.includes('角色'));
+    .find((n) => n.querySelector('.group-name').textContent === '角色');
   pick(rightClick(groupHead), '在此新建角色卡');
   const rootAdd = last('projectAction');
   check('分组标题栏的新建落点为区根目录',
@@ -574,6 +590,114 @@ console.log('\n== 工程页的右键菜单 ==');
     !metaItems.includes('重命名') && !metaItems.includes('删除（移到回收站）'), JSON.stringify(metaItems));
   check('固定元数据行的菜单有打开与刷新',
     metaItems.includes('打开') && metaItems.includes('刷新'), JSON.stringify(metaItems));
+  closeAnyMenu(ui);
+}
+
+console.log('\n== 角色的出场统计与更新菜单 ==');
+{
+  const ui = mount();
+  const clickEl = (node) => node.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const rightClick = (node) => {
+    node.dispatchEvent(new ui.window.MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 60 }));
+    return ui.doc.querySelector('.ctx-menu');
+  };
+  const itemsOf = (menu) => [...menu.querySelectorAll('button')].map((b) => b.textContent);
+  const pick = (menu, label) =>
+    clickEl([...menu.querySelectorAll('button')].find((b) => b.textContent === label));
+  const rowWith = (text) =>
+    [...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes(text));
+  const last = (type) => [...ui.sent].reverse().find((m) => m.type === type);
+
+  ui.post({ type: 'project', tree: sampleTree() });
+
+  // ---- 已建卡的角色行：出场章数进副标题，待更新章数单独标记。
+  const linRow = rowWith('林昭');
+  check('角色行显示出场章数', linRow.textContent.includes('出场 3 章'), linRow.textContent);
+  check('角色行保留原有副标题（标签）', linRow.textContent.includes('主角'), linRow.textContent);
+  check('待更新章数有标记', linRow.textContent.includes('＋2'), linRow.textContent);
+  check('标记带解释性 title',
+    linRow.querySelector('.cast-pending').title.includes('第 1 章'),
+    linRow.querySelector('.cast-pending').title);
+
+  const linItems = itemsOf(rightClick(linRow));
+  check('菜单含带章数的「更新角色卡」',
+    linItems.includes('更新角色卡（新增 2 章）'), JSON.stringify(linItems));
+  check('菜单含「重新通读全部」',
+    linItems.includes('重新通读全部 3 章'), JSON.stringify(linItems));
+  check('菜单里能看到出场章节', linItems.includes('出场：第 1、2、3 章'), JSON.stringify(linItems));
+  check('角色行仍有类文件操作',
+    ['重命名', '移动到…', '删除（移到回收站）'].every((l) => linItems.includes(l)), JSON.stringify(linItems));
+  closeAnyMenu(ui);
+
+  // 增量走 updateCard，全量走 rebuildCard——两个动作不能混。
+  pick(rightClick(rowWith('林昭')), '更新角色卡（新增 2 章）');
+  const inc = last('characterAction');
+  check('「更新角色卡」发 updateCard 并带卡路径',
+    inc && inc.action === 'updateCard' && inc.name === '林昭' &&
+    inc.relPath === '.novelforge/characters/林昭.md', JSON.stringify(inc));
+
+  pick(rightClick(rowWith('林昭')), '重新通读全部 3 章');
+  const full = last('characterAction');
+  check('「重新通读」发 rebuildCard', full && full.action === 'rebuildCard', JSON.stringify(full));
+
+  // ---- 摘要里没出现过的角色：不给更新入口，说明为什么。
+  const dirLabel = (name) =>
+    [...ui.doc.querySelectorAll('#projectBody .row-dir-label')].find((n) => n.textContent.includes(name));
+  clickEl(dirLabel('配角'));
+  const liRow = rowWith('李叔');
+  check('未出场的角色行不显示出场章数', !liRow.textContent.includes('出场'), liRow.textContent);
+  check('未出场的角色行没有待更新标记', !liRow.querySelector('.cast-pending'));
+  const liItems = itemsOf(rightClick(liRow));
+  check('未出场的角色没有「更新角色卡」',
+    !liItems.some((l) => l.startsWith('更新角色卡')), JSON.stringify(liItems));
+  check('未出场的角色说明原因',
+    liItems.includes('未在摘要中出现，无法自动更新'), JSON.stringify(liItems));
+  closeAnyMenu(ui);
+
+  // ---- 未建卡的出场人物：单独一组，只有「建卡」一个动作。
+  const castGroup = [...ui.doc.querySelectorAll('#projectBody .group-head')]
+    .find((n) => n.querySelector('.group-name').textContent.includes('未建卡'));
+  check('有「出场人物 · 未建卡」分组', !!castGroup);
+  check('分组副标题给出人数', castGroup.textContent.includes('2 人'), castGroup.textContent);
+
+  const castRow = rowWith('客栈掌柜');
+  check('未建卡的人也列出出场章节', castRow.textContent.includes('第 2、3 章'), castRow.textContent);
+  check('未建卡的行有独立样式', castRow.classList.contains('row-cast'));
+  check('别名进 title', castRow.querySelector('.row-label').title.includes('掌柜'));
+
+  const castItems = itemsOf(rightClick(castRow));
+  check('未建卡的菜单只给建卡',
+    castItems.includes('创建角色卡（通读出场章节）'), JSON.stringify(castItems));
+  // 这些人还没有文件，类文件操作无从谈起。
+  check('未建卡的菜单没有类文件操作',
+    !castItems.includes('重命名') && !castItems.includes('删除（移到回收站）'), JSON.stringify(castItems));
+  pick(rightClick(castRow), '创建角色卡（通读出场章节）');
+  const create = last('characterAction');
+  check('建卡发 createCard 且不带 relPath',
+    create && create.action === 'createCard' && create.name === '客栈掌柜' && !create.relPath,
+    JSON.stringify(create));
+
+  // 点名字也是建卡（最常用的动作放在最省事的位置）。
+  clickEl([...ui.doc.querySelectorAll('#projectBody .row-label')].find((n) => n.textContent === '老周'));
+  check('点未建卡的名字直接建卡',
+    last('characterAction').name === '老周', JSON.stringify(last('characterAction')));
+
+  // 没有未建卡的人时，整组不出现——不该留一个空分组占地方。
+  ui.post({ type: 'project', tree: { ...sampleTree(), cast: [] } });
+  check('没有未建卡的人则不显示该分组',
+    ![...ui.doc.querySelectorAll('#projectBody .group-name')]
+      .some((n) => n.textContent.includes('未建卡')));
+
+  // 旧后端（还没有 cast 字段）推来的树不能让前端崩。
+  const legacy = sampleTree();
+  delete legacy.cast;
+  delete legacy.castByCard;
+  ui.post({ type: 'project', tree: legacy });
+  check('缺 cast 字段时仍能渲染', !!rowWith('林昭'));
+  check('缺 castByCard 时角色行不显示出场', !rowWith('林昭').textContent.includes('出场'));
+  const legacyItems = itemsOf(rightClick(rowWith('林昭')));
+  check('缺 castByCard 时不给更新入口',
+    !legacyItems.some((l) => l.startsWith('更新角色卡')), JSON.stringify(legacyItems));
   closeAnyMenu(ui);
 }
 

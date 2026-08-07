@@ -251,6 +251,23 @@ body {
   white-space: nowrap;
 }
 
+/* 「上次更新之后又出场了 N 章」。用强调色而非警告色——
+   角色卡没跟上正文不是错误，只是件待办。 */
+.cast-pending {
+  flex: 0 0 auto;
+  color: var(--vscode-textLink-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 摘要里出现、还没建卡的人物：整行压暗，与真正的角色卡区分开。 */
+.row-cast .row-label {
+  color: var(--vscode-descriptionForeground);
+}
+
+.row-cast:hover .row-label {
+  color: var(--vscode-foreground);
+}
+
 /* 行内操作平时藏起来，免得每行都挂一串链接。
    工程页的树行已经全部改走右键菜单，这里只剩「文风与摘要」那几行的链接。 */
 .row-actions {

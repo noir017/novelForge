@@ -106,7 +106,11 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
       log.info(`解析出 ${parsed.length} 个角色`, parsed.map((p) => p.name).join('、'));
       const lastOrder = selected[selected.length - 1].order;
       const firstOrder = selected[0].order;
-      await mergeCharacters(project, parsed, existing, { firstOrder, lastOrder });
+      await mergeCharacters(project, parsed, existing, {
+        firstOrder,
+        lastOrder,
+        orders: selected.map((c) => c.order),
+      });
       report({ message: '完成', current: 3, total: 3 });
       log.info('提取结束', `总耗时 ${elapsed(startedAt)}`);
     },
@@ -125,7 +129,7 @@ async function mergeCharacters(
   project: NovelProject,
   parsed: ParsedCharacter[],
   existing: CharacterCard[],
-  range: { firstOrder: number; lastOrder: number }
+  range: { firstOrder: number; lastOrder: number; orders: number[] }
 ): Promise<void> {
   const byName = new Map<string, CharacterCard>();
   for (const card of existing) {
@@ -153,6 +157,10 @@ async function mergeCharacters(
       tags: item.tags,
       firstAppear: range.firstOrder,
       lastSeen: range.lastOrder,
+      // 这一批章节就是目前已知的出场记录。摘要索引之后会给出更完整的清单，
+      // 这里先落一份，免得新卡在角色页上显示「未在摘要中出现」。
+      appearsIn: range.orders,
+      updatedThrough: range.lastOrder,
       sections: item.sections,
     });
     log.info(`新建角色卡「${item.name}」`, relPath);
@@ -184,7 +192,7 @@ async function mergeCharacters(
     if (!match) {
       continue;
     }
-    await reviewCharacterUpdate(project, match, item, range.lastOrder);
+    await reviewCharacterUpdate(project, match, item, range);
   }
 }
 
@@ -196,7 +204,7 @@ async function reviewCharacterUpdate(
   project: NovelProject,
   existing: CharacterCard,
   proposed: ParsedCharacter,
-  lastSeen: number
+  range: { lastOrder: number; orders: number[] }
 ): Promise<void> {
   // 合并策略：模型有内容的小节覆盖，模型留空的保留原文；别名/标签取并集。
   const merged: CharacterSections = { ...existing.sections };
@@ -207,13 +215,17 @@ async function reviewCharacterUpdate(
     }
   }
 
+  const appearsIn = [...new Set([...existing.appearsIn, ...range.orders])].sort((a, b) => a - b);
   const mergedCard = {
     slug: existing.slug,
     name: existing.name,
     aliases: unique([...existing.aliases, ...proposed.aliases]),
     tags: unique([...existing.tags, ...proposed.tags]),
-    firstAppear: existing.firstAppear,
-    lastSeen: Math.max(existing.lastSeen ?? 0, lastSeen) || lastSeen,
+    firstAppear: existing.firstAppear ?? appearsIn[0],
+    lastSeen: Math.max(existing.lastSeen ?? 0, range.lastOrder) || range.lastOrder,
+    appearsIn,
+    // 这次读到了哪一章，下次「更新角色卡」的增量从这里接着走。
+    updatedThrough: Math.max(existing.updatedThrough ?? 0, range.lastOrder),
     sections: merged,
   };
 

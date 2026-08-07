@@ -1,5 +1,6 @@
 import { BuildRequest, BuiltContext, buildContext } from '../context/builder';
-import { CancelledError, ChatOptions } from '../llm/provider';
+import { describeUsage, recordUsage } from '../context/tokenizer';
+import { CancelledError, ChatOptions, TokenUsage } from '../llm/provider';
 import { buildProvider, resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
 import { describeError, elapsed, scoped } from '../logger';
@@ -89,11 +90,21 @@ export class ContinueSession {
     this.currentAbort = abort;
 
     let reasoning = '';
+    // 服务商分多次回报用量（Anthropic 输入/输出分开给），按字段合并成一份。
+    const usage: TokenUsage = {};
     const options: ChatOptions = {
       maxOutputTokens: config.maxOutputTokens,
       temperature: config.temperature,
       timeoutMs: config.requestTimeoutMs,
       signal: abort.signal,
+      onUsage: (u) => {
+        if (u.inputTokens !== undefined) {
+          usage.inputTokens = u.inputTokens;
+        }
+        if (u.outputTokens !== undefined) {
+          usage.outputTokens = u.outputTokens;
+        }
+      },
       onReasoning: handlers.onReasoning
         ? (text) => {
             reasoning += text;
@@ -114,10 +125,14 @@ export class ContinueSession {
         handlers.onDelta(delta, full);
       }
       handlers.onDone(cleanOutput(full));
+      // 有实测用量就记一笔：估算准不准，只有对着服务商的账单才看得出来。
+      recordUsage('续写', built.usedTokens, usage);
+      const usageNote = describeUsage(built.usedTokens, usage);
       log.info(
         '生成完成',
         `产出 ${full.length} 字，用时 ${elapsed(startedAt)}` +
-          `${reasoning ? `；另有思考 ${reasoning.length} 字` : ''}`
+          `${reasoning ? `；另有思考 ${reasoning.length} 字` : ''}` +
+          `${usageNote ? `；${usageNote}` : ''}`
       );
     } catch (err) {
       if (err instanceof CancelledError || abort.signal.aborted) {

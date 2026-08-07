@@ -20,6 +20,21 @@ export interface ChatOptions {
    * 否则看起来就像「卡住了，最后一次性蹦出来」。
    */
   onReasoning?: (text: string) => void;
+  /**
+   * 服务商回报的真实 token 用量。
+   *
+   * 只有服务商确实给了才回调——没给就什么都不发，绝不用估算值冒充实测
+   * （那会污染 tokenCounter 的校准比值）。同一次请求可能回调多次
+   * （Anthropic 在 message_start 给输入、message_delta 给输出），
+   * 调用方按字段合并即可。
+   */
+  onUsage?: (usage: TokenUsage) => void;
+}
+
+/** 一次请求的真实 token 用量。字段缺席表示该服务商没给这一项。 */
+export interface TokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface LlmProvider {

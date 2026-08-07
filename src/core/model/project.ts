@@ -14,6 +14,7 @@ import {
   NovelConfig,
   ProjectManifest,
   SUMMARY_SECTION_KEYS,
+  SummaryCast,
   SummarySections,
 } from './types';
 import { extractH1, parseMarkdown, pickSections, stringifyFrontmatter, stringifySections, stripH1 } from './markdown';
@@ -420,21 +421,28 @@ export class NovelProject {
     }
     const raw = await readText(abs);
     const { frontmatter, body } = parseMarkdown(raw);
+    const sections = pickSections<keyof SummarySections>(body, SUMMARY_SECTION_KEYS) as SummarySections;
     return {
       order,
       relPath: this.relPath(abs),
       sourceHash: asString(frontmatter.sourceHash),
       content: stripH1(body),
-      sections: pickSections<keyof SummarySections>(body, SUMMARY_SECTION_KEYS) as SummarySections,
+      sections,
+      // frontmatter 的 cast 是结构化真相；没有它（0.2.x 之前的摘要、
+      // 作者手写的摘要）就从「出场人物」小节的文本回退解析，不让角色页少人。
+      cast: parseCast(frontmatter.cast) ?? castFromText(sections.出场人物),
     };
   }
 
-  async writeSummary(chapter: Chapter, sections: SummarySections): Promise<string> {
+  async writeSummary(chapter: Chapter, sections: SummarySections, cast: SummaryCast[] = []): Promise<string> {
     const abs = this.summaryPath(chapter.order);
     const fm = stringifyFrontmatter({
       order: chapter.order,
       title: chapter.title,
       sourceHash: chapter.contentHash,
+      // 机器可读的出场人物。别名跟在名字后的括号里：`林昭(阿昭)`——
+      // frontmatter 解析器只认字符串数组，不要为此引入嵌套 YAML。
+      cast: cast.map(renderCastEntry),
       generatedBy: 'novel-forge',
     });
     const body = stringifySections(sections as unknown as Record<string, string>, SUMMARY_SECTION_KEYS, {
@@ -478,6 +486,8 @@ export class NovelProject {
         tags: asArray(frontmatter.tags),
         firstAppear: asNumber(frontmatter.firstAppear),
         lastSeen: asNumber(frontmatter.lastSeen),
+        appearsIn: asNumberArray(frontmatter.appearsIn),
+        updatedThrough: asNumber(frontmatter.updatedThrough),
         body: stripH1(body),
         sections: pickSections<keyof CharacterSections>(body, CHARACTER_SECTION_KEYS) as CharacterSections,
       });
@@ -486,7 +496,7 @@ export class NovelProject {
     return cards;
   }
 
-  async writeCharacter(card: Omit<CharacterCard, 'relPath' | 'body'>): Promise<string> {
+  async writeCharacter(card: WritableCharacterCard): Promise<string> {
     // slug 可以带子目录（如 `主角/林昭`），writeText 会补齐中间目录。
     const abs = path.join(this.charactersDir, `${card.slug}.md`);
     await writeText(abs, renderCharacterCard(card));
@@ -572,13 +582,27 @@ export class NovelProject {
 
 // ---------------------------------------------------------------- 渲染模板
 
-export function renderCharacterCard(card: Omit<CharacterCard, 'relPath' | 'body'>): string {
+/**
+ * 写角色卡时的入参。
+ *
+ * `appearsIn` 可省：手工新建的空卡还没有出场记录，硬要调用方传个 `[]`
+ * 只是噪音。读回来的 `CharacterCard.appearsIn` 则一定是数组（缺席即空）。
+ */
+export type WritableCharacterCard = Omit<CharacterCard, 'relPath' | 'body' | 'appearsIn'> & {
+  appearsIn?: number[];
+};
+
+export function renderCharacterCard(card: WritableCharacterCard): string {
   const fm = stringifyFrontmatter({
     name: card.name,
     aliases: card.aliases,
     tags: card.tags,
     firstAppear: card.firstAppear,
     lastSeen: card.lastSeen,
+    // 出场章节列表落在卡里，角色页不必读全部摘要就能显示「出场 12 章」，
+    // 也方便作者/日后的检索功能按人物找章节。
+    appearsIn: card.appearsIn?.length ? card.appearsIn.map(String) : undefined,
+    updatedThrough: card.updatedThrough,
   });
   const body = stringifySections(card.sections as unknown as Record<string, string>, CHARACTER_SECTION_KEYS, {
     keepEmpty: true,
@@ -748,6 +772,126 @@ function asNumber(v: string | string[] | undefined): number | undefined {
   }
   const n = Number(s);
   return Number.isFinite(n) ? n : undefined;
+}
+
+/** frontmatter 里的数字数组（如 `appearsIn: [1, 3, 7]`）。去重并升序。 */
+function asNumberArray(v: string | string[] | undefined): number[] {
+  const out = new Set<number>();
+  for (const s of asArray(v)) {
+    const n = Number(s.trim());
+    if (Number.isInteger(n) && n > 0) {
+      out.add(n);
+    }
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+// ---------------------------------------------------------------- 出场人物
+
+/**
+ * `林昭(阿昭、昭儿)` ←→ `{ name: '林昭', aliases: ['阿昭', '昭儿'] }`。
+ *
+ * 用括号而不是嵌套 YAML：本项目的 frontmatter 解析器（model/markdown.ts）
+ * 刻意只支持字符串与字符串数组，为了一个字段引入真正的 YAML 依赖不值得。
+ * 括号形式作者也能一眼看懂、直接手改。
+ */
+export function renderCastEntry(entry: SummaryCast): string {
+  const aliases = entry.aliases.filter((a) => a.trim() && a.trim() !== entry.name);
+  return aliases.length > 0 ? `${entry.name}(${aliases.join('、')})` : entry.name;
+}
+
+export function parseCastEntry(raw: string): SummaryCast | undefined {
+  const text = raw.trim();
+  if (!text) {
+    return undefined;
+  }
+  // 全角括号也认——作者手改时很可能打出中文括号。
+  const m = /^(.*?)[（(]([^）)]*)[）)]\s*$/.exec(text);
+  if (!m) {
+    return { name: text, aliases: [] };
+  }
+  const name = m[1].trim();
+  if (!name) {
+    return { name: text, aliases: [] };
+  }
+  return {
+    name,
+    aliases: m[2]
+      .split(/[、,，/]/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+  };
+}
+
+/**
+ * frontmatter 的 `cast` 字段 → 结构化清单。
+ * 字段**缺席**返回 undefined（调用方据此决定回退解析小节文本）；
+ * 字段存在但为空数组返回 `[]`——那是「这一章确实没人出场」，不该回退。
+ */
+function parseCast(v: string | string[] | undefined): SummaryCast[] | undefined {
+  if (v === undefined) {
+    return undefined;
+  }
+  const list = Array.isArray(v) ? v : [v];
+  const out: SummaryCast[] = [];
+  const seen = new Set<string>();
+  for (const raw of list) {
+    const entry = parseCastEntry(raw);
+    if (entry && !seen.has(entry.name)) {
+      seen.add(entry.name);
+      out.push(entry);
+    }
+  }
+  return out;
+}
+
+/**
+ * 从「出场人物」小节的文本回退解析，如 `林昭、沈氏、客栈掌柜`。
+ *
+ * 用于 0.2.x 之前生成的摘要与作者手写的摘要——这些文件没有 cast 字段，
+ * 但角色页上不该因此凭空少一批人。允许列表写法（`- 林昭`）与顿号分隔混用。
+ *
+ * 难点在于模型有时把这一节写成句子（「本章没有新人物出场，只有林昭独坐」）。
+ * 那种东西按标点切开会得到一串假人名，全都会跑到角色页的「未建卡」组里。
+ * 两条判据挡住它：**长度**（中文人名/称呼极少超过 8 字）与**句子特征词**
+ * （人名里不会有「的」「了」「没」这类虚词）。宁可漏掉一两个长称呼，
+ * 也不能让角色页塞满句子碎片——漏掉的那个重新生成摘要就有了（新摘要走
+ * 结构化 cast，根本不经过这里）。
+ */
+export function castFromText(text: string): SummaryCast[] {
+  const out: SummaryCast[] = [];
+  const seen = new Set<string>();
+  for (const line of text.split(/\r?\n/)) {
+    const cleaned = line.replace(/^\s*[-*·]\s*/, '').trim();
+    if (!cleaned) {
+      continue;
+    }
+    for (const part of cleaned.split(/[、,，;；]/)) {
+      const entry = parseCastEntry(part);
+      if (!entry?.name || !isPlausibleName(entry.name)) {
+        continue;
+      }
+      if (!seen.has(entry.name)) {
+        seen.add(entry.name);
+        out.push(entry);
+      }
+    }
+  }
+  return out;
+}
+
+/** 人名/称呼里不会出现的虚词。命中即判定为句子碎片。 */
+const SENTENCE_MARKERS = /[的了是在不没有和与也都而被把从向对为及则却就还很]/;
+
+function isPlausibleName(name: string): boolean {
+  if (name.length === 0 || name.length > 8) {
+    return false;
+  }
+  // 「无」「暂无」这类占位不是人名。
+  if (/^(无|暂无|没有|未知|none|n\/a)$/i.test(name)) {
+    return false;
+  }
+  return !SENTENCE_MARKERS.test(name);
 }
 
 // ---------------------------------------------------------------- 初始化模板

@@ -99,6 +99,7 @@ const projectMod = loadModule('src/core/model/project.ts');
 const builderMod = loadModule('src/core/context/builder.ts');
 const tokenizerMod = loadModule('src/core/context/tokenizer.ts');
 const projectViewMod = loadModule('src/core/projectView.ts');
+const castMod = loadModule('src/core/cast.ts');
 
 const baseConfig = {
   providers: [
@@ -542,6 +543,25 @@ async function main() {
     check('给出三个区的根目录',
       tree.chaptersRoot === 'chapters' && tree.charactersRoot === '.novelforge/characters' &&
       tree.loreRoot === '.novelforge/lore', [tree.chaptersRoot, tree.charactersRoot, tree.loreRoot].join(' '));
+
+    // 出场人物：已建卡的挂 castByCard（按 relPath 索引），未建卡的进 cast。
+    check('树上带摘要数', tree.summaryCount === 3, String(tree.summaryCount));
+    const linStats = tree.castByCard[lin2.relPath];
+    check('已建卡角色带出场统计', !!linStats && linStats.chapters.length > 0,
+      JSON.stringify(linStats));
+    check('出场统计带人类可读描述',
+      linStats && linStats.detail.startsWith('第') && linStats.detail.endsWith('章'), linStats && linStats.detail);
+    // 示例工程的角色卡没有 updatedThrough，因此全部出场章节都算「待更新」。
+    check('从未更新过的卡 updatedThrough 为 0', linStats && linStats.updatedThrough === 0);
+    check('待更新章数等于出场章数',
+      linStats && linStats.pending === linStats.chapters.length,
+      `${linStats && linStats.pending} vs ${linStats && linStats.chapters.length}`);
+    check('未建卡人物单列在 cast 里', tree.cast.length > 0, String(tree.cast.length));
+    check('cast 条目带名字与描述',
+      tree.cast.every((c) => c.name && c.detail && Array.isArray(c.chapters)));
+    check('cast 里不含已建卡的角色',
+      !tree.cast.some((c) => characters.some((f) => f.label === c.name)),
+      tree.cast.map((c) => c.name).join('、'));
     check('全书摘要覆盖章数来自 manifest', typeof tree.globalSummaryThrough === 'number');
     check('元数据路径都在 .novelforge 下',
       [tree.styleGuidePath, tree.outlinePath, tree.globalSummaryPath].every((p) => p.startsWith('.novelforge/')),
@@ -569,10 +589,66 @@ async function main() {
     check('还原后不再过期', (await projectViewMod.buildProjectTree(project)).staleCount === 0);
   }
 
+  console.log('\n== 出场人物索引 ==');
+  {
+    // 示例工程刻意混了两种摘要：第 3 章带 frontmatter.cast（新格式），
+    // 第 1、2 章没有（0.2.x 之前的格式）。真实工程升级后就是这个样子，
+    // 索引必须同时吃下两种，否则老章节的人会在角色页上凭空消失。
+    const s3 = await project.readSummary(3);
+    check('新格式摘要读到结构化 cast', s3.cast.length === 2, JSON.stringify(s3.cast));
+    check('新格式 cast 带别名',
+      s3.cast.find((c) => c.name === '年轻守卫').aliases.includes('那个年轻人'),
+      JSON.stringify(s3.cast));
+    const s1 = await project.readSummary(1);
+    check('旧格式摘要从小节文本反解 cast', s1.cast.length === 3, JSON.stringify(s1.cast));
+    check('旧格式反解出的名字正确',
+      s1.cast.map((c) => c.name).join('、') === '林昭、李叔、年轻守卫',
+      s1.cast.map((c) => c.name).join('、'));
+
+    const index = await castMod.buildCastIndex(project);
+    check('统计到 3 份摘要', index.summaryCount === 3, String(index.summaryCount));
+
+    const lin = index.known.find((m) => m.card && m.card.name === '林昭');
+    check('林昭被识别为已建卡', !!lin);
+    check('林昭有出场章节', lin && lin.chapters.length > 0, lin && lin.chapters.join(','));
+    check('出场章节升序去重',
+      lin && lin.chapters.every((o, i, a) => i === 0 || o > a[i - 1]), lin && lin.chapters.join(','));
+
+    // 别名匹配：某一章摘要里写「阿昭」也该记到林昭头上，不该多出一个人。
+    check('未建卡列表里没有已知别名',
+      !index.unknown.some((m) => m.name === '阿昭'),
+      index.unknown.map((m) => m.name).join('、'));
+
+    // 摘要里出现、没有角色卡的人（示例工程里是「客栈掌柜」）。
+    check('未建卡人物被单列',
+      index.unknown.some((m) => m.name.includes('掌柜')),
+      index.unknown.map((m) => m.name).join('、'));
+    check('未建卡按出场章数降序',
+      index.unknown.every((m, i, a) => i === 0 || a[i - 1].chapters.length >= m.chapters.length));
+    check('未建卡的人都带出场章节',
+      index.unknown.every((m) => m.chapters.length > 0));
+    check('已建卡与未建卡不重叠',
+      !index.unknown.some((u) => index.known.some((k) => k.card && k.card.name === u.name)));
+    check('示例工程没有名字冲突', index.conflicts.length === 0,
+      index.conflicts.map((c) => c.name).join('、'));
+
+    // appearancesOf 是「更新角色卡」取章节的入口，必须与索引一致。
+    const linCard = (await project.listCharacters()).find((c) => c.name === '林昭');
+    check('appearancesOf 与索引一致',
+      castMod.appearancesOf(index, linCard).join(',') === lin.chapters.join(','));
+    const missing = { slug: '不存在', name: '不存在', aliases: [], tags: [], appearsIn: [], relPath: 'x', body: '', sections: {} };
+    check('查不到的角色返回空数组', castMod.appearancesOf(index, missing).length === 0);
+
+    check('describeChapters 短列表全列', castMod.describeChapters([1, 2, 3]) === '第 1、2、3 章');
+    check('describeChapters 长列表折叠',
+      castMod.describeChapters([1, 2, 3, 4, 5, 6, 7, 8]) === '第 1、2、3、4、5、6 章等 8 章',
+      castMod.describeChapters([1, 2, 3, 4, 5, 6, 7, 8]));
+    check('describeChapters 空列表有说法', castMod.describeChapters([]) === '未在摘要中出现');
+  }
+
   console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
   process.exit(failures === 0 ? 0 : 1);
 }
-
 main().catch((e) => {
   console.error(e);
   process.exit(1);

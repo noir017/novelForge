@@ -68,6 +68,15 @@ export class AnthropicProvider implements LlmProvider {
         if (event.type === 'error') {
           throw new LlmError(`${this.label} 返回错误：${event.error?.message ?? '未知错误'}`);
         }
+        // 用量分两处给：message_start 带输入，message_delta 带输出累计值。
+        // 两条都转发出去，调用方按字段合并。
+        const usage = event.type === 'message_start' ? event.message?.usage : event.usage;
+        if (usage) {
+          options.onUsage?.({
+            inputTokens: usage.input_tokens,
+            outputTokens: usage.output_tokens,
+          });
+        }
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
           yield event.delta.text;
         }
@@ -91,7 +100,14 @@ export class AnthropicProvider implements LlmProvider {
 interface AnthropicEvent {
   type: string;
   delta?: { type?: string; text?: string; thinking?: string };
+  message?: { usage?: AnthropicUsage };
+  usage?: AnthropicUsage;
   error?: { message?: string };
+}
+
+interface AnthropicUsage {
+  input_tokens?: number;
+  output_tokens?: number;
 }
 
 /** Anthropic 要求 user/assistant 严格交替，把相邻同角色消息合并。 */

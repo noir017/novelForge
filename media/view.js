@@ -1079,7 +1079,7 @@
    * 折叠状态。放在模块级，重渲染后不会把用户折叠的东西又展开。
    * 四个顶层分组默认展开；文件夹默认折叠——一进工程页就摊开整棵树反而看不清。
    */
-  const openGroups = { chapters: true, characters: true, lore: true, meta: true };
+  const openGroups = { chapters: true, characters: true, cast: true, lore: true, meta: true };
   /** 展开着的文件夹（relPath 集合）。 */
   const openFolders = new Set();
 
@@ -1089,6 +1089,14 @@
 
   function fileAction(action, relPath) {
     vscode.postMessage({ type: 'fileAction', action, relPath });
+  }
+
+  /**
+   * 角色卡动作。作用对象是一个**角色**（用名字标识），不是文件——
+   * 未建卡的人物根本没有文件，所以不能走 fileAction。
+   */
+  function characterAction(action, name, relPath) {
+    vscode.postMessage({ type: 'characterAction', action, name, relPath });
   }
 
   /** 打开某章的草稿。传的是**章节**路径，草稿路径由后端推导并按需创建。 */
@@ -1142,9 +1150,18 @@
         build: () =>
           tree.characters.length === 0
             ? [emptyRow('还没有角色卡。可运行「提取/更新角色卡」从正文抽取。')]
-            : renderNodes(tree.characters, 0, SECTIONS.characters),
+            : renderNodes(tree.characters, 0, SECTIONS.characters, tree),
       })
     );
+    // 摘要里出现但还没建卡的人物。单独一组而不是混进角色树——
+    // 那棵是文件树（能改名/移动/删除），这些人还没有文件。
+    if (tree.cast && tree.cast.length > 0) {
+      el.projectBody.appendChild(
+        buildGroup('cast', '出场人物 · 未建卡', `${tree.cast.length} 人`, {
+          build: () => tree.cast.map((c) => buildCastRow(c)),
+        })
+      );
+    }
     el.projectBody.appendChild(
       buildGroup('lore', '设定', countLabel(tree.lore, '条'), {
         section: SECTIONS.lore,
@@ -1220,8 +1237,9 @@
    * 而不是嵌套 DOM：折叠一个文件夹只需要重建它所在的分组。
    *
    * `section` 是 SECTIONS 里的那一项，决定文件图标与「在此新建」建什么。
+   * `tree` 只有角色区用得上（要按 relPath 查出场统计），其余区传不传都行。
    */
-  function renderNodes(nodes, depth, section) {
+  function renderNodes(nodes, depth, section, tree) {
     const rows = [];
     for (const node of nodes) {
       if (node.kind === 'dir') {
@@ -1230,11 +1248,13 @@
           if (node.children.length === 0) {
             rows.push(emptyRow('（空文件夹）', depth + 1));
           } else {
-            rows.push(...renderNodes(node.children, depth + 1, section));
+            rows.push(...renderNodes(node.children, depth + 1, section, tree));
           }
         }
       } else if (node.kind === 'chapter') {
         rows.push(buildChapterRow(node, depth));
+      } else if (section === SECTIONS.characters) {
+        rows.push(buildCharacterRow(node, depth, tree));
       } else {
         rows.push(buildFileRow(node, section.icon, depth));
       }
@@ -1786,6 +1806,86 @@
         ...entryItems(f.relPath),
       ]);
     }
+    return row;
+  }
+
+  /**
+   * 角色行。比普通文件行多两样东西：出场章节副标题，以及「更新角色卡」菜单。
+   *
+   * 出场统计来自后端的 `castByCard`（按摘要聚合），前端不自己算——
+   * 「第 3、7、12 章」这句话在日志里也要出现，两处文案必须一致。
+   */
+  function buildCharacterRow(f, depth, tree) {
+    const stats = (tree && tree.castByCard && tree.castByCard[f.relPath]) || null;
+    const detail = [f.detail, stats && stats.chapters.length > 0 ? `出场 ${stats.chapters.length} 章` : '']
+      .filter(Boolean)
+      .join(' · ');
+    const row = buildFileRow({ ...f, detail }, SECTIONS.characters.icon, depth);
+
+    // 上次更新之后又出场了若干章：给个小标记，作者一眼看出这张卡该刷了。
+    if (stats && stats.pending > 0) {
+      const flag = document.createElement('span');
+      flag.className = 'meta cast-pending';
+      flag.textContent = `＋${stats.pending}`;
+      flag.title = `上次更新覆盖到第 ${stats.updatedThrough} 章，此后新增 ${stats.pending} 章出场`;
+      row.appendChild(flag);
+    }
+
+    onContextMenu(row, () => {
+      const items = [{ label: '打开', run: () => openPath(f.relPath) }, { sep: true }];
+      if (stats && stats.chapters.length > 0) {
+        items.push({
+          label: stats.pending > 0 ? `更新角色卡（新增 ${stats.pending} 章）` : '更新角色卡',
+          run: () => characterAction('updateCard', f.label, f.relPath),
+        });
+        items.push({
+          label: `重新通读全部 ${stats.chapters.length} 章`,
+          run: () => characterAction('rebuildCard', f.label, f.relPath),
+        });
+        items.push({ label: `出场：${stats.detail}`, disabled: true });
+      } else {
+        items.push({ label: '未在摘要中出现，无法自动更新', disabled: true });
+      }
+      items.push({ sep: true }, ...entryItems(f.relPath));
+      return items;
+    });
+    return row;
+  }
+
+  /**
+   * 「出场人物 · 未建卡」的一行。
+   * 只有一个动作：建卡（建完立刻用它的出场章节跑一次提取）。
+   */
+  function buildCastRow(c) {
+    const row = document.createElement('div');
+    row.className = 'row row-cast';
+    row.style.paddingLeft = `${indentOf(0)}px`;
+
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.textContent = '○';
+    dot.title = '摘要里出现过，还没有角色卡';
+    row.appendChild(dot);
+
+    const label = document.createElement('span');
+    label.className = 'row-label';
+    label.textContent = c.name;
+    if (c.aliases.length > 0) label.title = `又称 ${c.aliases.join('、')}`;
+    row.appendChild(label);
+
+    const detail = document.createElement('span');
+    detail.className = 'meta row-detail';
+    detail.textContent = c.detail;
+    row.appendChild(detail);
+
+    const create = () => characterAction('createCard', c.name);
+    label.addEventListener('click', create);
+    onContextMenu(row, () => [
+      { label: '创建角色卡（通读出场章节）', run: create },
+      { label: `出场：${c.detail}`, disabled: true },
+      { sep: true },
+      ...baseMenuItems(),
+    ]);
     return row;
   }
 
