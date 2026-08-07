@@ -81,6 +81,14 @@ export type InMessage =
   /** 用系统默认程序打开（编辑器里「在外部打开」）。 */
   | { type: 'openExternal'; path: string }
   | { type: 'syncSummaries' }
+  /**
+   * 要一章的摘要正文（工程页悬停浮窗用）。
+   *
+   * 摘要正文不进 `ProjectTree`：那棵树每次文件变动都全量重推，
+   * 一本两百章的书每章带上一千多字摘要，等于每保存一次正文就推几百 KB。
+   * 悬停时单章去取一次，前端按 order 缓存，收到新的树时整体作废。
+   */
+  | { type: 'requestSummary'; order: number }
   /** `dir` 为新建类动作指定落点目录（工作区相对路径），缺省落在该区的根目录。 */
   | { type: 'projectAction'; action: ProjectAction; order?: number; dir?: string }
   /** 工程页的类文件操作。`relPath` 是操作对象（文件或目录）。 */
@@ -175,6 +183,15 @@ export type OutMessage =
   | { type: 'busy'; value: boolean }
   | { type: 'attachments'; items: SerializedAttachment[] }
   | { type: 'project'; tree: ProjectTree }
+  /**
+   * 一章摘要的正文，回应 `requestSummary`。
+   *
+   * `sections` 是摘要的固定小节（缺的为空串），前端据此分块渲染；
+   * 摘要不存在时 `exists: false`，浮窗给出「还没有摘要」的说明而不是空白。
+   * `stale` 说明这份摘要对不对得上当前正文——过期时浮窗要标出来，
+   * 否则用户会照着一份写于三次修改之前的摘要做判断。
+   */
+  | { type: 'summary'; summary: ChapterSummaryView }
   /**
    * `ack` 标明这次推送是不是某次保存的回执：
    * `saved` 表示已落盘（前端可放心以磁盘为准），`rejected` 表示被拒
@@ -340,6 +357,27 @@ export interface ProjectFile {
   relPath: string;
   /** 副标题，如角色别名、设定关键词。 */
   detail: string;
+}
+
+/**
+ * 一章摘要的线上形状（工程页悬停浮窗用）。
+ *
+ * 刻意不复用 `ChapterSummary`：那是数据层的结构，带着 `sourceHash` 这种
+ * 前端用不上的字段；这里给的是「浮窗要显示什么」——章号章名、有没有、
+ * 新不新鲜、分好块的小节。
+ */
+export interface ChapterSummaryView {
+  order: number;
+  /** 章节标题，浮窗标题行用。 */
+  title: string;
+  /** 摘要文件存在。为 false 时 `sections` 全空，浮窗显示「还没有摘要」。 */
+  exists: boolean;
+  /** 摘要与当前正文对不上（正文改过或摘要缺失）。浮窗要标出来。 */
+  stale: boolean;
+  /** 摘要文件路径；不存在时为空串。 */
+  relPath: string;
+  /** 固定小节，顺序即展示顺序。空小节由前端跳过。 */
+  sections: { name: string; text: string }[];
 }
 
 export interface SerializedSession {

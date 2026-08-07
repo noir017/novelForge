@@ -1114,6 +1114,8 @@
   function renderProject(tree) {
     lastTree = tree;
     el.projectBody.innerHTML = '';
+    // 全部行都被换掉了，开着的浮窗指向的是已丢弃的节点。
+    hideSummaryTip();
     // 还不是小说工程时，工具栏上的「新建章节」等按钮点了只会报错。
     el.projectToolbar.classList.toggle('hidden', !tree.initialized);
 
@@ -1438,7 +1440,10 @@
 
   function buildChapterRow(c, depth) {
     const row = document.createElement('div');
-    row.className = 'row';
+    // row-chapter + data-order 是悬停浮窗的抓手：事件委托在 projectBody 上，
+    // 行被重渲染丢弃也不会留下失效的监听器。
+    row.className = 'row row-chapter';
+    row.dataset.order = String(c.order);
     row.style.paddingLeft = `${indentOf(depth)}px`;
 
     const dot = document.createElement('span');
@@ -1480,6 +1485,185 @@
     });
     return row;
   }
+
+  // ------------------------------------------------- 章节摘要的悬停浮窗
+
+  /**
+   * 摘要浮窗。
+   *
+   * 摘要此前只能在 `.novelforge/summaries/` 里手动翻，或右键「看摘要」开一个
+   * 编辑器标签页——想快速回忆「第 37 章讲了什么」代价太大。悬停浮窗把这件事
+   * 变成不打断写作的一瞥。
+   *
+   * 三条设计取舍：
+   * - **摘要正文不进 `ProjectTree`**：那棵树每次文件变动都全量重推，两百章
+   *   每章上千字等于每保存一次就推几百 KB。改成悬停时按 order 单章去取。
+   * - **前端缓存、收到新树即作废**：同一章反复扫过去只请求一次；正文一改
+   *   （后端会重推树）缓存整体清掉，不会拿旧摘要糊弄人。
+   * - **半秒延迟**：鼠标从工具栏划到某一行的路上会扫过好几行，立刻弹会闪。
+   */
+  const HOVER_DELAY_MS = 450;
+  /** order -> ChapterSummaryView。收到新的树时整体作废。 */
+  const summaryCache = new Map();
+  /** 已经发出请求、还没等到回音的 order，避免同一章连发好几次。 */
+  const summaryPending = new Set();
+  let hoverTimer = null;
+  /** 当前浮窗：{ order, box }。 */
+  let hoverTip = null;
+  /** 正在等延迟的那一行（延迟到点时用它定位）。 */
+  let hoverRow = null;
+
+  function hideSummaryTip() {
+    if (hoverTimer) {
+      clearTimeout(hoverTimer);
+      hoverTimer = null;
+    }
+    hoverRow = null;
+    if (hoverTip) {
+      hoverTip.box.remove();
+      hoverTip = null;
+    }
+  }
+
+  /** 悬停在某一行上：延迟后弹浮窗，数据没有就先要一份。 */
+  function scheduleSummaryTip(row) {
+    const order = Number(row.dataset.order);
+    if (!Number.isFinite(order)) return;
+    // mouseover 在行内子元素之间移动时也会冒泡上来。已经为这一行开着浮窗、
+    // 或已经在为它计时了，就什么都别做——否则光标在行上微动一下就重置延迟，
+    // 浮窗永远弹不出来。
+    if (hoverTip && hoverTip.order === order) return;
+    if (hoverRow === row) return;
+    hideSummaryTip();
+    hoverRow = row;
+    hoverTimer = setTimeout(() => {
+      hoverTimer = null;
+      // 延迟期间行可能被重渲染丢弃，那就不弹了。
+      if (!hoverRow || !hoverRow.isConnected) return;
+      showSummaryTip(hoverRow, order);
+      if (!summaryCache.has(order) && !summaryPending.has(order)) {
+        summaryPending.add(order);
+        vscode.postMessage({ type: 'requestSummary', order });
+      }
+    }, HOVER_DELAY_MS);
+  }
+
+  /** 建出浮窗并贴在行的右侧/下方。数据还没到就先显示「读取中」。 */
+  function showSummaryTip(row, order) {
+    const box = document.createElement('div');
+    box.className = 'summary-tip';
+    box.appendChild(buildSummaryTipBody(summaryCache.get(order)));
+    document.body.appendChild(box);
+    hoverTip = { order, box };
+    placeSummaryTip(row, box);
+  }
+
+  /**
+   * 定位浮窗：优先贴在行的下方左对齐，够不下就翻到上方；
+   * 横向溢出时向左收。挂在 body 上 `position: fixed`——工程页有内部滚动，
+   * 挂在行里会被容器裁掉（与右键菜单同一套理由）。
+   */
+  function placeSummaryTip(row, box) {
+    const r = row.getBoundingClientRect();
+    const vw = window.innerWidth || 0;
+    const vh = window.innerHeight || 0;
+    const w = box.offsetWidth;
+    const h = box.offsetHeight;
+    let left = r.left;
+    if (w > 0 && left + w > vw - 8) left = Math.max(8, vw - w - 8);
+    // 下方放不下就翻到上方；两边都放不下时贴顶，让它至少能滚。
+    let top = r.bottom + 4;
+    if (h > 0 && top + h > vh - 8) {
+      top = r.top - h - 4;
+      if (top < 8) top = Math.max(8, vh - h - 8);
+    }
+    box.style.left = `${left}px`;
+    box.style.top = `${top}px`;
+  }
+
+  /** 浮窗内容。`view` 为 undefined 表示还在等后端。 */
+  function buildSummaryTipBody(view) {
+    const frag = document.createDocumentFragment();
+
+    if (!view) {
+      const loading = document.createElement('div');
+      loading.className = 'hint';
+      loading.textContent = '读取摘要…';
+      frag.appendChild(loading);
+      return frag;
+    }
+
+    const head = document.createElement('div');
+    head.className = 'summary-tip-head';
+    const title = document.createElement('span');
+    title.className = 'summary-tip-title';
+    title.textContent = `第 ${view.order} 章 ${view.title}`.trim();
+    head.appendChild(title);
+    // 过期必须说出来：照着一份写于三次修改之前的摘要做判断比没有摘要更糟。
+    if (view.exists && view.stale) {
+      const tag = document.createElement('span');
+      tag.className = 'summary-tip-stale';
+      tag.textContent = '已过期';
+      head.appendChild(tag);
+    }
+    frag.appendChild(head);
+
+    if (!view.exists) {
+      const empty = document.createElement('div');
+      empty.className = 'hint';
+      empty.textContent = '这一章还没有摘要。右键「总结本章」可以生成。';
+      frag.appendChild(empty);
+      return frag;
+    }
+
+    for (const section of view.sections) {
+      const name = document.createElement('div');
+      name.className = 'summary-tip-section';
+      name.textContent = section.name;
+      frag.appendChild(name);
+      const text = document.createElement('div');
+      text.className = 'summary-tip-text';
+      // textContent 而非 innerHTML：摘要是模型写的，里面可能有任何字符。
+      text.textContent = section.text;
+      frag.appendChild(text);
+    }
+    if (view.sections.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'hint';
+      empty.textContent = '摘要文件是空的。';
+      frag.appendChild(empty);
+    }
+    return frag;
+  }
+
+  /** 摘要到了：填进缓存，正开着的浮窗就地换掉内容（不重建，免得闪）。 */
+  function applySummary(view) {
+    summaryPending.delete(view.order);
+    summaryCache.set(view.order, view);
+    if (!hoverTip || hoverTip.order !== view.order) return;
+    hoverTip.box.innerHTML = '';
+    hoverTip.box.appendChild(buildSummaryTipBody(view));
+    const row = el.projectBody.querySelector(`.row-chapter[data-order="${view.order}"]`);
+    // 内容换了尺寸也变了，重新定位一次。
+    if (row) placeSummaryTip(row, hoverTip.box);
+  }
+
+  // 事件委托挂在 projectBody 上：树每次重渲染都换掉全部行，
+  // 逐行 addEventListener 会随重渲染次数堆积。
+  el.projectBody.addEventListener('mouseover', (e) => {
+    const row = e.target.closest && e.target.closest('.row-chapter');
+    if (row) scheduleSummaryTip(row);
+    else if (hoverTip || hoverTimer) hideSummaryTip();
+  });
+  el.projectBody.addEventListener('mouseleave', hideSummaryTip);
+  // 右键菜单弹出来时浮窗该让路，两个都是 fixed 会叠在一起。
+  el.projectBody.addEventListener('contextmenu', hideSummaryTip);
+  // 浮窗是 fixed 的，一滚就和目标行脱节（与右键菜单同一个理由）。
+  // 捕获阶段才收得到 .project-body 自己的滚动。
+  document.addEventListener('scroll', hideSummaryTip, true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideSummaryTip();
+  });
 
   /**
    * 角色/设定/元数据行。
@@ -2333,7 +2517,15 @@
         renderSessions(msg.list);
         break;
       case 'project':
+        // 后端推树 = 磁盘上有东西变了（可能正是某一章的正文或摘要）。
+        // 缓存一律作废，宁可再取一次也不拿旧摘要糊弄人。折叠文件夹走的是
+        // rerenderProject()，不经这里，缓存留着。
+        summaryCache.clear();
+        summaryPending.clear();
         renderProject(msg.tree);
+        break;
+      case 'summary':
+        applySummary(msg.summary);
         break;
       case 'attachments':
         store.attachments = msg.items;

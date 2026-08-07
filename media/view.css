@@ -761,6 +761,73 @@ kbd {
   background: var(--vscode-menu-separatorBackground, var(--vscode-panel-border, rgba(128, 128, 128, 0.3)));
 }
 
+/* ---- 章节摘要的悬停浮窗
+
+   挂在 body 上 position: fixed，与右键菜单同一个理由：工程页有内部滚动，
+   挂在行里会被容器裁掉。z-index 排在 toast（30）与 .ctx-menu（40）之下——
+   提示条和右键菜单都是用户主动要的，一个划过去就出现的浮窗不该盖住它们。
+   摘要可能很长，给一个高度上限让它自己滚，不占满整屏。 */
+
+.summary-tip {
+  position: fixed;
+  z-index: 25;
+  width: 340px;
+  max-width: calc(100vw - 16px);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  border-radius: var(--radius);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+  font-size: 0.85em;
+  line-height: 1.5;
+  /* 浮窗只是给人看的：鼠标划过去不该抢走 mouseover，否则 hover 会在
+     「行」与「浮窗」之间来回跳，浮窗一闪一闪。 */
+  pointer-events: none;
+}
+
+.summary-tip-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 5px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.summary-tip-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-tip-stale {
+  flex: 0 0 auto;
+  font-size: 0.85em;
+  padding: 0 5px;
+  border-radius: 3px;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  border: 1px solid var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.summary-tip-section {
+  margin-top: 6px;
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground);
+}
+
+.summary-tip-section:first-of-type {
+  margin-top: 0;
+}
+
+.summary-tip-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .accepted {
   color: var(--vscode-descriptionForeground);
   font-size: 0.82em;

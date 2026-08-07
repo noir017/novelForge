@@ -155,14 +155,14 @@ async function main() {
     const deep = vol1.children.find((n) => n.kind === 'dir');
     check('第三层节点在位', deep.label === '深处' && deep.children[0].order === 3);
 
-    // 每层内章节倒序（最新的在上），与改造前的平铺列表一致。
+    // 每层内章节正序（第 1 章在上），与文件名顺序一致。
     write('chapters/第一卷/004-后续.md', '# 后续\n\n再后来。\n');
     project.invalidate();
     const reordered = (await projectViewMod.buildProjectTree(project)).chapters
       .find((n) => n.kind === 'dir' && n.label === '第一卷')
       .children.filter((n) => n.kind === 'chapter')
       .map((n) => n.order);
-    check('同层章节倒序排列', reordered.join(',') === '4,2', reordered.join(','));
+    check('同层章节正序排列', reordered.join(',') === '2,4', reordered.join(','));
     fs.rmSync(rel('chapters/第一卷/004-后续.md'));
     project.invalidate();
 
@@ -429,6 +429,67 @@ async function main() {
       moved && moved.relPath);
     check('移动后摘要仍算新鲜', moved.stale === false);
     check('摘要路径仍指得到', moved.summaryPath.endsWith('010.md'), moved.summaryPath);
+  }
+
+  console.log('\n== 单章摘要视图（悬停浮窗的数据源） ==');
+  {
+    // 上一块留下的：chapters/归档/010-有摘要.md，摘要只填了「梗概」。
+    const view = await projectViewMod.buildChapterSummaryView(project, 10);
+    check('摘要存在', view.exists === true);
+    check('带章号与标题', view.order === 10 && view.title === '有摘要', view.title);
+    check('新鲜的摘要不标过期', view.stale === false);
+    check('给出摘要文件路径', view.relPath.endsWith('010.md'), view.relPath);
+    check('只给非空小节', view.sections.length === 1 && view.sections[0].name === '梗概',
+      JSON.stringify(view.sections.map((s) => s.name)));
+    check('小节带正文', view.sections[0].text === '摘要正文。', view.sections[0].text);
+    check('「（待补充）」占位不进浮窗',
+      !view.sections.some((s) => s.text.includes('待补充')), JSON.stringify(view.sections));
+
+    // 正文改过 → 浮窗必须说「已过期」，否则用户会照着旧摘要做判断。
+    write('chapters/归档/010-有摘要.md', '# 有摘要\n\n正文内容。又加了一段。\n');
+    project.invalidate();
+    check('改正文后标为过期',
+      (await projectViewMod.buildChapterSummaryView(project, 10)).stale === true);
+
+    // 没总结过的章节不是错误，给 exists:false 让前端说清楚。
+    write('chapters/011-没摘要.md', '# 没摘要\n\n正文。\n');
+    project.invalidate();
+    const none = await projectViewMod.buildChapterSummaryView(project, 11);
+    check('未总结的章节 exists 为 false', none.exists === false);
+    check('未总结时仍带标题（浮窗标题行要用）', none.title === '没摘要', none.title);
+    check('未总结时算过期', none.stale === true);
+    check('未总结时小节为空', none.sections.length === 0);
+    check('未总结时不给摘要路径', none.relPath === '');
+
+    // 不存在的章节：不抛异常，退化成「没有摘要」。
+    const ghost = await projectViewMod.buildChapterSummaryView(project, 999);
+    check('不存在的章节退化为空视图', ghost.exists === false && ghost.title === '');
+
+    // 作者手改摘要、把小节标题全删了 → 退回全文，不给空浮窗。
+    const ch11 = (await project.listChapters()).find((c) => c.order === 11);
+    const secs = projectMod.emptySummarySections();
+    secs.梗概 = '会被覆盖掉。';
+    await project.writeSummary(ch11, secs);
+    const summaryFile = rel('.novelforge/summaries/011.md');
+    const raw = fs.readFileSync(summaryFile, 'utf8');
+    // 留下 frontmatter 与 H1，正文改成没有任何 `## 小节` 的大白话。
+    fs.writeFileSync(summaryFile, `${raw.split('\n\n#')[0]}\n\n# 第11章 没摘要 · 摘要\n\n我自己写的一段话。\n`);
+    project.invalidate();
+    const handEdited = await projectViewMod.buildChapterSummaryView(project, 11);
+    check('小节全被删掉时退回摘要全文',
+      handEdited.sections.length === 1 && handEdited.sections[0].text === '我自己写的一段话。',
+      JSON.stringify(handEdited.sections));
+
+    // 六个小节全是占位的空摘要：不退回全文，否则浮窗里摊六行「（待补充）」。
+    await project.writeSummary(ch11, projectMod.emptySummarySections());
+    project.invalidate();
+    const allPlaceholder = await projectViewMod.buildChapterSummaryView(project, 11);
+    check('全占位的摘要不退回全文', allPlaceholder.sections.length === 0,
+      JSON.stringify(allPlaceholder.sections));
+    check('全占位的摘要仍算存在（前端说「摘要文件是空的」）', allPlaceholder.exists === true);
+
+    fs.rmSync(rel('chapters/011-没摘要.md'));
+    project.invalidate();
   }
 
   fs.rmSync(WORK, { recursive: true, force: true });
