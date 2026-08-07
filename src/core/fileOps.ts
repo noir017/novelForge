@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getHost } from './host';
+import { isMarkdownPath } from './model/chapterFile';
 import { NovelProject, exists, readText, sanitizeFileName, writeText } from './model/project';
 
 /**
@@ -12,6 +13,9 @@ import { NovelProject, exists, readText, sanitizeFileName, writeText } from './m
  *    章节挪不进角色目录，任何路径也出不了工程根——`..` 一律拒绝。
  * 2. **不静默覆盖**：目标已存在就报错退出，绝不覆盖作者的文件。
  * 3. **不真删**：删除是搬进 `.novelforge/.trash/`，与会话删除同一套做法。
+ *
+ * 章节改名/移动时，`drafts/` 里对应的草稿一并搬走（见 carryDraft）——
+ * 草稿不是可管理区，但它的位置由章节路径推导，章节动了就必须跟着动。
  */
 
 /** 三个可管理的区。每个区有自己的根目录，操作不跨区。 */
@@ -157,7 +161,10 @@ export async function renameEntry(project: NovelProject, relPath: string): Promi
   // 先改内容再改名：改名成功后内容一定是对的，反过来则可能留下半吊子状态。
   // 用清洗后的 nextStem 而不是用户原样输入，H1 才会继续与文件名一致，
   // 下次改名时仍然认得出「这个 H1 是跟着文件名走的」。
-  if (!isDir && info.section === 'chapters') {
+  //
+  // 只对 markdown 家族做：.txt 章节的标题本来就只取文件名，往里写一行 `# x`
+  // 是凭空多出来的 markdown 痕迹；.json 章节则是直接写坏文件。
+  if (!isDir && info.section === 'chapters' && isMarkdownPath(rel)) {
     const body = await readText(abs);
     const updated = renamedBody(body, editable, nextStem);
     if (updated !== body) {
@@ -168,6 +175,7 @@ export async function renameEntry(project: NovelProject, relPath: string): Promi
   await fs.rename(abs, nextAbs);
   project.invalidate();
   if (info.section === 'chapters') {
+    await carryDraft(project, rel, nextRel, isDir);
     await project.syncManifest();
   }
   getHost().toast(`已重命名为 ${nextRel}`);
@@ -245,11 +253,48 @@ export async function moveEntry(
   await fs.rename(abs, nextAbs);
   project.invalidate();
   if (info.section === 'chapters') {
+    await carryDraft(project, rel, nextRel, isDir);
     // 路径变了但序号没变，syncManifest 会按 order 兜底找回 summaryHash。
     await project.syncManifest();
   }
   getHost().toast(`已移动到 ${nextRel}`);
   return nextRel;
+}
+
+/**
+ * 章节改名/移动后，把它的草稿一并搬过去。
+ *
+ * 不搬的话草稿就成了孤儿：下次点「打开草稿」会在新位置静默新建一个空文件，
+ * 之前写的东西还躺在旧路径下，没人告诉作者。文件与目录都要搬——
+ * 移动 `chapters/卷一/` 时 `drafts/卷一/` 得跟着走。
+ *
+ * 目标位置已有草稿时**不覆盖**：两份都留着，提示作者自己去合。
+ */
+async function carryDraft(
+  project: NovelProject,
+  fromRel: string,
+  toRel: string,
+  isDir: boolean
+): Promise<void> {
+  const fromDraft = project.draftRelPathFor(fromRel);
+  const toDraft = project.draftRelPathFor(toRel);
+  if (!fromDraft || !toDraft || fromDraft === toDraft) {
+    return;
+  }
+  const fromAbs = project.pathOf(fromDraft);
+  if (!(await exists(fromAbs))) {
+    return;
+  }
+  const toAbs = project.pathOf(toDraft);
+  if (await exists(toAbs)) {
+    getHost().toast(
+      `新位置已有${isDir ? '草稿目录' : '草稿'}：${toDraft}，旧草稿留在 ${fromDraft} 未动。`,
+      'error'
+    );
+    return;
+  }
+  await fs.mkdir(path.dirname(toAbs), { recursive: true });
+  await fs.rename(fromAbs, toAbs);
 }
 
 async function pickDestination(
@@ -289,9 +334,12 @@ export async function deleteEntry(project: NovelProject, relPath: string): Promi
   const { abs, rel, info, isDir } = target;
 
   const detail = isDir ? await describeFolder(project, rel) : undefined;
+  // 草稿不跟着删——那是作者另写的东西，删正文不代表要连草稿一起丢。
+  // 但得说一句，否则「删了这一章」之后草稿还在，下次看见会以为闹鬼。
+  const draftNote = await describeDraft(project, rel, info.section);
   const pick = await getHost().confirm(`删除${isDir ? '文件夹' : ''}「${path.basename(rel)}」？`, ['删除'], {
     modal: true,
-    detail: [detail, '会移到 .novelforge/.trash/，可手动找回。'].filter(Boolean).join('\n'),
+    detail: [detail, draftNote, '会移到 .novelforge/.trash/，可手动找回。'].filter(Boolean).join('\n'),
   });
   if (pick !== '删除') {
     return false;
@@ -306,6 +354,18 @@ export async function deleteEntry(project: NovelProject, relPath: string): Promi
   }
   getHost().toast(`已移到回收站：${rel}`);
   return true;
+}
+
+/** 有草稿时在确认框里说一声——它不会跟着删。 */
+async function describeDraft(project: NovelProject, rel: string, section: Section): Promise<string | undefined> {
+  if (section !== 'chapters') {
+    return undefined;
+  }
+  const draft = project.draftRelPathFor(rel);
+  if (!draft || !(await exists(project.pathOf(draft)))) {
+    return undefined;
+  }
+  return `草稿 ${draft} 不会一起删除。`;
 }
 
 /** 删文件夹前先说清楚里面有多少东西——整棵子树一起没了不该是个意外。 */

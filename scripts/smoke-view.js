@@ -30,16 +30,27 @@ try {
 
 /** 从 webviewHtml.ts 里抠出 body，保证测试用的结构与真实渲染的一致。 */
 function bodyHtml() {
-  const src = fs.readFileSync(path.join(ROOT, 'src/vscode/webviewHtml.ts'), 'utf8');
-  // <body> 上带着 data-vscode-context 属性，不能按字面量找。
+  return extractBody(path.join(ROOT, 'src/vscode/webviewHtml.ts'));
+}
+
+/** 独立版的 body（含 #wbEditor 等工作台结构），给 editor.js 用。 */
+function standaloneBodyHtml() {
+  // html.ts 里有 ${LOGO_SVG} / ${escapeHtml(...)} 之类的插值，测试只关心
+  // 结构与 id，把插值统统抹平即可。
+  return extractBody(path.join(ROOT, 'src/standalone/html.ts')).replace(/\$\{[^}]*\}/g, '');
+}
+
+function extractBody(file) {
+  const src = fs.readFileSync(file, 'utf8');
+  // <body> 上带着 data-vscode-context / class 属性，不能按字面量找。
   const open = /<body[^>]*>/.exec(src);
   const end = src.indexOf('</body>');
   if (!open || end === -1) {
-    throw new Error('webviewHtml.ts 里找不到 <body>，测试需要同步更新');
+    throw new Error(`${path.basename(file)} 里找不到 <body>，测试需要同步更新`);
   }
   return src
     .slice(open.index + open[0].length, end)
-    // 去掉两个 <script src>（模板串里是 ${asset(...)}），脚本我们手动注入。
+    // 去掉 <script src>（模板串里是 ${asset(...)}），脚本我们手动注入。
     .replace(/<script[\s\S]*?<\/script>/g, '');
 }
 
@@ -72,6 +83,38 @@ function mount() {
 
 const turn = (id, role, content, extra) =>
   Object.assign({ id, role, content, at: new Date(0).toISOString() }, extra);
+
+/**
+ * 起一个装好 editor.js 的独立版环境。
+ *
+ * 与 mount() 分开：editor.js 只在有 `#wbEditor` 时才跑，插件形态的 body 里
+ * 没有那块 DOM，它会直接退出——所以覆盖它必须用 html.ts 的结构。
+ */
+function mountEditor() {
+  const dom = new JSDOM(`<!DOCTYPE html><html><body class="workbench">${standaloneBodyHtml()}</body></html>`, {
+    runScripts: 'outside-only',
+  });
+  const { window } = dom;
+  const sent = [];
+  window.acquireVsCodeApi = () => ({
+    postMessage: (m) => sent.push(m),
+    getState: () => undefined,
+    setState: () => {},
+  });
+  // jsdom 没有 localStorage 之外的这些零碎。
+  window.HTMLElement.prototype.setPointerCapture = () => {};
+  window.HTMLElement.prototype.releasePointerCapture = () => {};
+  window.confirm = () => true;
+
+  window.eval(fs.readFileSync(path.join(ROOT, 'media/editor.js'), 'utf8'));
+
+  const post = (msg) => window.dispatchEvent(new window.MessageEvent('message', { data: msg }));
+  const file = (p, text, extra) =>
+    Object.assign({ path: p, name: p.split('/').pop(), text, hash: `h-${p}`, bytes: text.length }, extra);
+  /** 页面上的两块编辑区（主区固定 id，草稿区靠 class 找）。 */
+  const panes = () => [...window.document.querySelectorAll('.wb-editor')];
+  return { window, doc: window.document, sent, post, file, panes };
+}
 
 /** 收起当前打开的菜单（点一下 body），免得它挂在那儿影响后续断言。 */
 function closeAnyMenu(ui) {
@@ -284,14 +327,17 @@ function sampleTree() {
       { kind: 'dir', label: '第一卷', relPath: 'chapters/第一卷', fileCount: 2, children: [
         { kind: 'dir', label: '深处', relPath: 'chapters/第一卷/深处', fileCount: 1, children: [
           { kind: 'chapter', order: 3, title: '夜访', relPath: 'chapters/第一卷/深处/003-夜访.md',
-            wordCount: 300, stale: true, summaryPath: '' },
+            wordCount: 300, stale: true, summaryPath: '',
+            draftPath: 'drafts/第一卷/深处/003-夜访.md', hasDraft: false },
         ] },
         { kind: 'chapter', order: 2, title: '入镇', relPath: 'chapters/第一卷/002-入镇.md',
-          wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/002.md' },
+          wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/002.md',
+          draftPath: 'drafts/第一卷/002-入镇.md', hasDraft: false },
       ] },
       { kind: 'dir', label: '第二卷', relPath: 'chapters/第二卷', fileCount: 0, children: [] },
       { kind: 'chapter', order: 1, title: '楔子', relPath: 'chapters/001-楔子.md',
-        wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/001.md' },
+        wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/001.md',
+        draftPath: 'drafts/001-楔子.md', hasDraft: true },
     ],
     characters: [
       { kind: 'dir', label: '配角', relPath: '.novelforge/characters/配角', fileCount: 1, children: [
@@ -386,7 +432,16 @@ console.log('\n== 工程页的右键菜单 ==');
   for (const label of ['打开', '在此续写', '重新总结', '看摘要', '重命名', '移动到…', '删除（移到回收站）']) {
     check(`章节菜单含「${label}」`, chapterItems.includes(label), JSON.stringify(chapterItems));
   }
+  check('已有草稿的章节显示「打开草稿」', chapterItems.includes('打开草稿'), JSON.stringify(chapterItems));
+  check('已有草稿的章节不显示「新建草稿」', !chapterItems.includes('新建草稿'), JSON.stringify(chapterItems));
   check('菜单有分隔线', chapterMenu.querySelectorAll('.menu-sep').length >= 1);
+
+  check('有草稿的章节行带标记', rowWith('楔子').textContent.includes('· 草稿'), rowWith('楔子').textContent);
+
+  pick(rightClick(rowWith('楔子')), '打开草稿');
+  const draftMsg = last('openDraft');
+  check('点「打开草稿」发 openDraft，带的是章节路径',
+    draftMsg && draftMsg.path === 'chapters/001-楔子.md', JSON.stringify(draftMsg));
 
   pick(chapterMenu, '删除（移到回收站）');
   const del = last('fileAction');
@@ -413,6 +468,8 @@ console.log('\n== 工程页的右键菜单 ==');
   const staleItems = itemsOf(rightClick(rowWith('夜访')));
   check('未生成摘要的章节没有「看摘要」', !staleItems.includes('看摘要'), JSON.stringify(staleItems));
   check('未生成摘要的章节显示「总结本章」', staleItems.includes('总结本章'), JSON.stringify(staleItems));
+  check('没有草稿的章节显示「新建草稿」', staleItems.includes('新建草稿'), JSON.stringify(staleItems));
+  check('没有草稿的章节行不带标记', !rowWith('夜访').textContent.includes('· 草稿'));
   closeAnyMenu(ui);
 
   // ---- 文件夹行：「在此新建」的落点必须是这个文件夹，不是区根目录。
@@ -524,6 +581,55 @@ console.log('\n== 右键菜单的通用行为 ==');
   ui.doc.getElementById('messages').dispatchEvent(new ui.window.Event('scroll', { bubbles: true }));
   check('滚动关闭右键菜单', !ui.doc.querySelector('.ctx-menu'));
   closeAnyMenu(ui);
+}
+
+// ---------------------------------------------------------------- 内置编辑器（独立版）
+
+console.log('\n== 内置编辑器：两块编辑区 ==');
+{
+  const ui = mountEditor();
+  const tabsOf = (pane) => [...pane.querySelectorAll('.ed-tab-name')].map((n) => n.textContent);
+  const last = (type) => [...ui.sent].reverse().find((m) => m.type === type);
+
+  check('一开始只有主区一块', ui.panes().length === 1, `${ui.panes().length} 块`);
+  check('草稿分隔条藏着', ui.doc.getElementById('wbDraftResizer').classList.contains('hidden'));
+
+  // ---- 主区打开正文
+  ui.post({ type: 'editorOpen', file: ui.file('chapters/001-楔子.md', '# 楔子\n\n正文', { draftPath: 'drafts/001-楔子.md' }) });
+  check('正文开在主区', tabsOf(ui.panes()[0]).join(',') === '001-楔子.md', tabsOf(ui.panes()[0]).join(','));
+  check('是章节时显示「草稿」按钮', !ui.doc.getElementById('edDraftBtn').classList.contains('hidden'));
+
+  ui.doc.getElementById('edDraftBtn').dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const req = last('openDraft');
+  check('点「草稿」发 openDraft，带的是章节路径',
+    req && req.path === 'chapters/001-楔子.md', JSON.stringify(req));
+
+  // ---- 后端回一份草稿，开在第二块
+  ui.post({
+    type: 'editorOpen',
+    pane: 'draft',
+    file: ui.file('drafts/001-楔子.md', '# 楔子 · 草稿\n\n'),
+  });
+  check('草稿区被创建出来', ui.panes().length === 2, `${ui.panes().length} 块`);
+  check('第二块带 wb-editor-draft', ui.panes()[1].classList.contains('wb-editor-draft'));
+  check('草稿分隔条露出来', !ui.doc.getElementById('wbDraftResizer').classList.contains('hidden'));
+  check('正文仍在主区', tabsOf(ui.panes()[0]).join(',') === '001-楔子.md', tabsOf(ui.panes()[0]).join(','));
+  check('草稿在草稿区', tabsOf(ui.panes()[1]).join(',') === '001-楔子.md', tabsOf(ui.panes()[1]).join(','));
+
+  // ---- 保存回执按 path 找对应的那一块，别把 draftPath 冲掉
+  ui.post({ type: 'editorSaved', file: ui.file('chapters/001-楔子.md', '# 楔子\n\n改过了', { draftPath: 'drafts/001-楔子.md' }) });
+  check('保存后「草稿」按钮还在', !ui.doc.getElementById('edDraftBtn').classList.contains('hidden'));
+
+  // ---- 非章节文件不显示「草稿」按钮
+  ui.post({ type: 'editorOpen', file: ui.file('.novelforge/style.md', '# 文风指南') });
+  check('非章节不显示「草稿」按钮', ui.doc.getElementById('edDraftBtn').classList.contains('hidden'));
+
+  // ---- 一个路径只属于一块：把主区的正文改开到草稿区
+  ui.post({ type: 'editorOpen', pane: 'draft', file: ui.file('chapters/001-楔子.md', '# 楔子\n\n改过了') });
+  check('主区交出了这个路径，只剩另一份文件',
+    tabsOf(ui.panes()[0]).join(',') === 'style.md', tabsOf(ui.panes()[0]).join(','));
+  check('草稿区现在有两个标签', ui.panes()[1].querySelectorAll('.ed-tab').length === 2,
+    tabsOf(ui.panes()[1]).join(','));
 }
 
 console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);

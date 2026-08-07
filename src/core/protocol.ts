@@ -20,6 +20,12 @@ export interface SerializedAttachment {
   text?: string;
 }
 
+/**
+ * 独立版的两块编辑区：主区放正文，草稿区放草稿，左右并列。
+ * 缺省 `main`——插件壳与旧消息都当主区处理。
+ */
+export type EditorPane = 'main' | 'draft';
+
 /** Webview → 扩展 */
 export type InMessage =
   | { type: 'ready' }
@@ -40,8 +46,17 @@ export type InMessage =
    * 在内置编辑器里打开一个文本文件（仅独立版；插件壳收到会转成 openFile）。
    * 与 `openFile` 分开是为了让「点章节名」在两个壳里各自做对的事：
    * 插件开 VS Code 的 tab，独立版开自己的编辑器。
+   *
+   * `pane` 只有独立版用得上：刷新后恢复标签页时要说清楚开在哪一块。
    */
-  | { type: 'openEditor'; path: string }
+  | { type: 'openEditor'; path: string; pane?: EditorPane }
+  /**
+   * 打开某章的草稿。`path` 是**章节**的工作区相对路径，草稿路径由后端推导。
+   *
+   * 首次点击时按需创建（已存在则原样打开，绝不覆盖）；
+   * 独立版开在第二块编辑区，插件壳开在正文旁边一栏。
+   */
+  | { type: 'openDraft'; path: string }
   /** 保存编辑器里的内容。`baseHash` 为空表示用户已确认强制覆盖。 */
   | { type: 'saveFile'; path: string; text: string; baseHash?: string }
   /** 重新从磁盘读一份（放弃本地修改 / 冲突后取磁盘版）。 */
@@ -144,8 +159,11 @@ export type OutMessage =
    */
   | { type: 'settings'; settings: SettingsPayload; keys: Record<string, boolean>; ack?: 'saved' | 'rejected' }
   | { type: 'toast'; message: string; level: 'info' | 'error' }
-  /** 内置编辑器：打开/重载一份文件（仅独立版）。 */
-  | { type: 'editorOpen'; file: EditorFileView }
+  /**
+   * 内置编辑器：打开/重载一份文件（仅独立版）。
+   * `pane` 指明开在哪一块编辑区，缺省主区。
+   */
+  | { type: 'editorOpen'; file: EditorFileView; pane?: EditorPane }
   /** 内置编辑器：保存成功，带回新的 hash 基线。 */
   | { type: 'editorSaved'; file: EditorFileView }
   /** 内置编辑器：磁盘上已被改过，保存被拒。前端展示取舍界面，绝不静默覆盖。 */
@@ -175,6 +193,11 @@ export interface EditorFileView {
   /** 保存时回传的乐观锁基线。 */
   hash: string;
   bytes: number;
+  /**
+   * 这份文件是某一章的正文时，给出它草稿的相对路径（文件不一定已存在）。
+   * 前端据此决定要不要显示工具栏上的「草稿」按钮，不必自己复刻章节判定规则。
+   */
+  draftPath?: string;
 }
 
 export interface ViewState {
@@ -257,6 +280,10 @@ export interface ProjectChapter {
   stale: boolean;
   /** 摘要文件路径；没生成过则为空。 */
   summaryPath: string;
+  /** 这一章草稿的工作区相对路径；不在章节根下时为空串。文件不一定已存在。 */
+  draftPath: string;
+  /** 草稿文件已经存在。决定菜单文案（打开草稿 / 新建草稿）与行上的标记。 */
+  hasDraft: boolean;
 }
 
 export interface ProjectFile {

@@ -1,6 +1,7 @@
 import { ConfigStore, initConfigFromHost } from './config';
 import { NovelProject } from './model/project';
 import { Attachment } from './model/session';
+import { EditorPane } from './protocol';
 
 /**
  * core 对宿主的唯一依赖面。VS Code 插件与独立 Web 服务各实现一份。
@@ -58,8 +59,17 @@ export interface Host {
    * 独立版实现为「读文件 → 广播 editorOpen」，网页里开内置编辑器；
    * 插件壳不实现——那边 openFile 已经开的是 VS Code 真正的编辑器 tab，
    * controller 会自动回落到 openFile。
+   *
+   * `pane` 只有独立版认：指明开在主区还是草稿区。
    */
-  openInEditor?(relPath: string): Promise<void>;
+  openInEditor?(relPath: string, pane?: EditorPane): Promise<void>;
+  /**
+   * 「在旁边打开」：与当前正在编辑的文件并列显示。草稿走这一条。
+   *
+   * 插件用 ViewColumn.Beside 开第二栏，独立版开第二块编辑区。
+   * 宿主不实现时 controller 回落到 openFile（退化为普通打开，不并列）。
+   */
+  openBeside?(relPath: string): Promise<void>;
   /** 保存内置编辑器的内容。只有提供 openInEditor 的宿主才需要实现。 */
   saveFromEditor?(relPath: string, text: string, baseHash?: string): Promise<void>;
   /** 用系统默认程序打开。独立版用它实现编辑器里的「在外部打开」。 */

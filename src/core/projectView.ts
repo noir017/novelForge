@@ -40,20 +40,24 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     };
   }
 
-  const [manifest, chapters, characters, lore, chapterDirs, characterDirs, loreDirs] = await Promise.all([
-    project.readManifest(),
-    project.listChapters(),
-    project.listCharacters(),
-    project.listLore(),
-    project.listFolders(project.chaptersDir),
-    project.listFolders(project.charactersDir),
-    project.listFolders(project.loreDir),
-  ]);
+  const [manifest, chapters, characters, lore, chapterDirs, characterDirs, loreDirs, draftPaths] =
+    await Promise.all([
+      project.readManifest(),
+      project.listChapters(),
+      project.listCharacters(),
+      project.listLore(),
+      project.listFolders(project.chaptersDir),
+      project.listFolders(project.charactersDir),
+      project.listFolders(project.loreDir),
+      // 一次遍历拿到全部已存在的草稿，胜过每章一次 stat。
+      project.listDraftPaths(),
+    ]);
 
   const chapterLeaves: ProjectChapterNode[] = [];
   for (const chapter of chapters) {
     // 以摘要文件里的 sourceHash 为准，与 staleChapters() 同一套判据。
     const summary = await project.readSummary(chapter.order);
+    const draftPath = project.draftRelPathFor(chapter.relPath) ?? '';
     chapterLeaves.push({
       kind: 'chapter',
       order: chapter.order,
@@ -62,6 +66,8 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       wordCount: chapter.wordCount,
       stale: !summary || summary.sourceHash !== chapter.contentHash,
       summaryPath: summary?.relPath ?? '',
+      draftPath,
+      hasDraft: draftPath !== '' && draftPaths.has(draftPath),
     });
   }
 

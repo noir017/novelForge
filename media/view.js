@@ -829,6 +829,11 @@
     vscode.postMessage({ type: 'fileAction', action, relPath });
   }
 
+  /** 打开某章的草稿。传的是**章节**路径，草稿路径由后端推导并按需创建。 */
+  function openDraft(relPath) {
+    vscode.postMessage({ type: 'openDraft', path: relPath });
+  }
+
   /**
    * 最近一次收到的树。展开/折叠文件夹只是本地状态变化，
    * 拿这份快照重画即可，不必往后端要一次。
@@ -1140,7 +1145,8 @@
 
     const words = document.createElement('span');
     words.className = 'meta';
-    words.textContent = formatWords(c.wordCount);
+    // 「有草稿」跟在字数后面，不新增 DOM——树行一律不挂行内按钮。
+    words.textContent = formatWords(c.wordCount) + (c.hasDraft ? ' · 草稿' : '');
     row.appendChild(words);
 
     onContextMenu(row, () => {
@@ -1148,6 +1154,8 @@
         { label: '打开', run: () => openPath(c.relPath) },
         // 从第 N 章续写意味着写第 N+1 章。
         { label: '在此续写', run: () => projectAction('continueFrom', c.order) },
+        // 草稿按需创建：没有就建一个再打开，文案据此区分。
+        { label: c.hasDraft ? '打开草稿' : '新建草稿', run: () => openDraft(c.relPath) },
         {
           label: c.stale ? '总结本章' : '重新总结',
           run: () => projectAction('summarizeChapter', c.order),

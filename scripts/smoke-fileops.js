@@ -110,7 +110,7 @@ async function main() {
     write('chapters/001-楔子.md', '# 楔子\n\n雨下了三天。\n');
     write('chapters/第一卷/002-入镇.md', '# 入镇\n\n他走进青崖镇。\n');
     write('chapters/第一卷/深处/003-夜访.md', '# 夜访\n\n三更时分。\n');
-    write('chapters/第一卷/笔记.txt', '不是 markdown，应被忽略');
+    write('chapters/第一卷/笔记.txt', '没有数字前缀，不是章节');
     write('.novelforge/characters/林昭.md', '---\nname: 林昭\ntags: [主角]\n---\n\n# 林昭\n');
     write('.novelforge/characters/配角/李叔.md', '---\nname: 李叔\n---\n\n# 李叔\n');
     write('.novelforge/lore/势力/玄门七宗.md', '---\ntitle: 玄门七宗\nkeywords: [玄门]\n---\n\n# 玄门七宗\n');
@@ -122,7 +122,7 @@ async function main() {
       chapters.map((c) => c.order).join(',') === '1,2,3', chapters.map((c) => c.order).join(','));
     check('子目录章节的 relPath 带目录',
       chapters[2].relPath === 'chapters/第一卷/深处/003-夜访.md', chapters[2].relPath);
-    check('非 .md 文件被忽略', !chapters.some((c) => c.relPath.endsWith('.txt')));
+    check('无数字前缀的文件不算章节', !chapters.some((c) => c.relPath.endsWith('.txt')));
 
     const cards = await project.listCharacters();
     check('角色卡递归扫描', cards.length === 2, `got ${cards.length}`);

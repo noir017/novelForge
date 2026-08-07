@@ -176,9 +176,16 @@ export function stringifySections(
   return parts.join('\n\n');
 }
 
-/** 取正文首个 `# 标题`，没有则返回 undefined。 */
+/**
+ * 取正文**首行**的 `# 标题`，首行不是标题则返回 undefined。
+ *
+ * 刻意只看首行，与 stripH1 互为逆运算。早先这里带 `m` 标志扫全文，
+ * 于是正文中段任何一行 `# xxx` 都会被当成标题——但 stripH1 只剥开头那行，
+ * 结果是标题取自正文中段、那行却还留在正文里。章节可以是 .txt 之后，
+ * 「正文里出现一行以 # 开头的字」不再是稀罕事，这个不对称必须堵上。
+ */
 export function extractH1(body: string): string | undefined {
-  const m = /^#\s+(.+?)\s*$/m.exec(body);
+  const m = /^#[ \t]+(.+?)[ \t]*(?:\r?\n|$)/.exec(body);
   return m ? m[1].trim() : undefined;
 }
 

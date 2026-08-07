@@ -116,6 +116,7 @@ const baseConfig = {
   recentChaptersFullText: 2,
   prevChapterTailChars: 1500,
   chaptersDir: 'chapters',
+  draftsDir: 'drafts',
   summaryBatchSize: 15,
   requestTimeoutMs: 300000,
 };

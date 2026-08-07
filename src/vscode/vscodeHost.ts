@@ -84,7 +84,11 @@ export class VsCodeHost implements Host {
       '.novelforge/project.json',
       // 目录本身也要监听：工程页上文件夹是可见节点，新建/删除空文件夹
       // 不动任何 .md，靠上面几条 glob 是看不见的。
+      // 这一条同时兜住了非 .md 的章节（.txt / 无扩展名 / .json）——
+      // 它是章节根下的全量 glob，扩展名放宽不需要额外加模式。
       `${config.chaptersDir}/**`,
+      // 草稿目录：手工建的草稿也该让工程页上的「有草稿」标记翻过来。
+      `${config.draftsDir}/**`,
       '.novelforge/characters/**',
       '.novelforge/lore/**',
     ];
@@ -100,12 +104,27 @@ export class VsCodeHost implements Host {
   }
 
   async openFile(relPath: string): Promise<void> {
+    await this.show(relPath, vscode.ViewColumn.One);
+  }
+
+  /**
+   * 「在旁边打开」：草稿开在正文旁边一栏，两边同屏对照。
+   *
+   * `Beside` 是相对**当前活动编辑器**的。从侧边栏点过来时最后活动的文本
+   * 编辑器通常就是正文（openFile 把它放在第一栏），草稿于是落到第二栏；
+   * 若此刻活动的是对话面板那个 tab，草稿就开在它旁边。够用，不去纠正。
+   */
+  async openBeside(relPath: string): Promise<void> {
+    await this.show(relPath, vscode.ViewColumn.Beside);
+  }
+
+  private async show(relPath: string, viewColumn: vscode.ViewColumn): Promise<void> {
     // relPath 相对当前工作区根（与 currentProject() 的口径一致）。
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const abs = root ? path.join(root, relPath) : relPath;
     await vscode.window.showTextDocument(
       await vscode.workspace.openTextDocument(vscode.Uri.file(abs)),
-      { viewColumn: vscode.ViewColumn.One, preview: false }
+      { viewColumn, preview: false }
     );
   }
 
