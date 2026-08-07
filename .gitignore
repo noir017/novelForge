@@ -6,3 +6,4 @@ out/
 
 src/standalone/mediaAssets.ts
 sample-novel/.novelforge/sessions
+.claude/
