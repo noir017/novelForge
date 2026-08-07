@@ -3,7 +3,13 @@ import { CancelledError, ChatOptions } from '../llm/provider';
 import { buildProvider, resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
 import { NovelProject, sanitizeFileName } from '../model/project';
-import { describeModelIssue, providerLabel, resolveModelRef } from '../model/providers';
+import {
+  describeModelIssue,
+  ProviderProfile,
+  providerLabel,
+  resolveModelRef,
+  withDraftProvider,
+} from '../model/providers';
 import { Chapter } from '../model/types';
 
 export interface GenerateHandlers {
@@ -108,12 +114,17 @@ export class ContinueSession {
    * 设置页的「测试连接」——比让用户先写半章再发现 Key 填错好得多。
    *
    * @param ref 要测的模型引用；留空则测当前选中的。
+   * @param draft 设置页屏幕上那份尚未保存的服务商配置。给了就以它为准——
+   *   「新加的模型必须先保存才能测」对用户毫无道理，而且保存一份没验过的
+   *   配置正是测试想要避免的事。
    */
-  async testConnection(ref?: string): Promise<{ ok: boolean; message: string }> {
+  async testConnection(ref?: string, draft?: ProviderProfile): Promise<{ ok: boolean; message: string }> {
     const config = readConfig();
-    const active = ref ? resolveModelRef(config.providers, ref) : config.active;
+    // 草稿只补充、不替换：其余服务商仍用已保存的，这样 ref 指向别家时照样能解析。
+    const providers = withDraftProvider(config.providers, draft);
+    const active = ref ? resolveModelRef(providers, ref) : config.active;
     if (!active) {
-      return { ok: false, message: describeModelIssue(config.providers, ref ?? config.model) };
+      return { ok: false, message: describeModelIssue(providers, ref ?? config.model) };
     }
     const provider = await buildProvider(active);
     if (!provider) {

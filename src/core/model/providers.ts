@@ -174,6 +174,23 @@ function trimSlash(s: string): string {
   return s.trim().replace(/\/+$/, '');
 }
 
+/**
+ * 把设置页上那份尚未保存的服务商叠加到已保存的列表上。
+ *
+ * 草稿只**替换同 id 的那一个**，其余原样保留——测试连接时 ref 可能指向
+ * 另一个服务商，把列表整个换成草稿会让它解析不出来。
+ * 草稿排在最前，保证同 id 时命中的是屏幕上这份。
+ */
+export function withDraftProvider(
+  providers: ProviderProfile[],
+  draft: ProviderProfile | undefined
+): ProviderProfile[] {
+  if (!draft) {
+    return providers;
+  }
+  return [draft, ...providers.filter((p) => p.id !== draft.id)];
+}
+
 /** 按引用找模型。找不到返回 undefined，由调用方决定怎么提示。 */
 export function resolveModelRef(providers: ProviderProfile[], ref: string): ActiveModel | undefined {
   const parsed = parseModelRef(ref);

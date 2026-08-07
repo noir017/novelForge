@@ -1772,10 +1772,14 @@
           toast('先填模型名。', true);
           return;
         }
-        if (draft.dirty) {
-          toast('测试用的是已保存的配置，刚改的内容请先保存。');
-        }
-        vscode.postMessage({ type: 'testConnection', ref: `${p.id}/${m.name}` });
+        // 把屏幕上这份服务商一起发过去，测的就是眼前这份配置——
+        // 新加的模型、刚改的 baseUrl 不必先保存也能验。
+        // API Key 仍取已保存的：它从不回显，草稿里也就没有。
+        vscode.postMessage({
+          type: 'testConnection',
+          ref: `${p.id}/${m.name}`,
+          provider: JSON.parse(JSON.stringify(p)),
+        });
       })
     );
     tail.appendChild(

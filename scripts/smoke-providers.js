@@ -340,6 +340,58 @@ console.log('\n== 设置页未保存编辑不被刷新冲掉 ==');
   check('干净状态下正常跟随磁盘', draft.providers.length === 0);
 }
 
+// ------------------------------------------- 未保存的模型也能测试连接
+
+console.log('\n== 设置页草稿：新配置的模型不必先保存就能测 ==');
+{
+  // 「新加的模型必须先保存才能测」对用户毫无道理——而且保存一份没验过的
+  // 配置正是「测试」这个按钮想要避免的事。设置页把屏幕上那份服务商随
+  // testConnection 一起发过来，解析时叠加到已保存的列表上。
+  const saved = p.normalizeProviders([
+    { id: 'openai', label: 'my-router', kind: 'openai', baseUrl: 'https://router.example/v1',
+      models: [{ name: 'gemini/gemma-4-31b-it' }, { name: 'ms/deepseek-ai/DeepSeek-V4-Flash' }] },
+    { id: 'glm', kind: 'openai', models: [{ name: 'glm-4-plus' }] },
+  ]);
+
+  // 屏幕上：同一个服务商刚加了第三个模型，还没保存。
+  const draft = p.normalizeProviders([
+    { id: 'openai', label: 'my-router', kind: 'openai', baseUrl: 'https://router.example/v1',
+      models: [{ name: 'gemini/gemma-4-31b-it' }, { name: 'ms/deepseek-ai/DeepSeek-V4-Flash' },
+        { name: 'ms/deepseek-ai/DeepSeek-V4-Pro' }] },
+  ])[0];
+
+  const withDraft = p.withDraftProvider(saved, draft);
+  const fresh = p.resolveModelRef(withDraft, 'openai/ms/deepseek-ai/DeepSeek-V4-Pro');
+  check('未保存的新模型能解析出来', !!fresh, p.describeModelIssue(withDraft, 'openai/ms/deepseek-ai/DeepSeek-V4-Pro'));
+  check('解析出的模型名是完整的（含两层斜杠）',
+    fresh && fresh.model.name === 'ms/deepseek-ai/DeepSeek-V4-Pro', fresh && fresh.model.name);
+
+  // 草稿只顶掉同 id 的那一个，别家不能受牵连——否则 ref 指向 glm 时就废了。
+  check('草稿不影响其他服务商', !!p.resolveModelRef(withDraft, 'glm/glm-4-plus'));
+  check('同 id 只保留草稿那一份', withDraft.filter((x) => x.id === 'openai').length === 1);
+  check('草稿排在最前（同 id 时命中屏幕上这份）', withDraft[0] === draft);
+
+  // 改了 baseUrl 但没保存，测试要打新地址而不是旧地址。
+  const moved = p.normalizeProviders([
+    { id: 'openai', kind: 'openai', baseUrl: 'https://新地址.example/v1', models: [{ name: 'gemini/gemma-4-31b-it' }] },
+  ])[0];
+  const movedResolved = p.resolveModelRef(p.withDraftProvider(saved, moved), 'openai/gemini/gemma-4-31b-it');
+  check('未保存的 baseUrl 生效', movedResolved && movedResolved.profile.baseUrl === 'https://新地址.example/v1',
+    movedResolved && movedResolved.profile.baseUrl);
+
+  // 没有草稿时行为完全不变。
+  check('没有草稿时原样返回', p.withDraftProvider(saved, undefined) === saved);
+
+  // 全新的服务商（还没保存过任何一份）同样要能测。
+  const brandNew = p.normalizeProviders([
+    { id: 'kimi', kind: 'openai', baseUrl: 'https://kimi.example/v1', models: [{ name: 'moonshot-v1-128k' }] },
+  ])[0];
+  check('全新服务商的模型也能测',
+    !!p.resolveModelRef(p.withDraftProvider(saved, brandNew), 'kimi/moonshot-v1-128k'));
+  check('全新服务商不挤掉已保存的',
+    p.withDraftProvider(saved, brandNew).length === 3);
+}
+
 // ------------------------------------------- config.json 缺席时不吞掉 providers
 
 console.log('\n== config.json 缺席时的 settings.json 兜底 ==');

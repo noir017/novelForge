@@ -202,6 +202,17 @@ async function main() {
   check('system 消息保留在 messages 中', req.body.messages[0].role === 'system');
   check('provider label 含模型与主机', openai.label.includes('test-model') && openai.label.includes('127.0.0.1'));
 
+  // 含斜杠的模型名必须**原样**上线。路由型服务商（OpenRouter、my-router 等）
+  // 的模型名本就是 `渠道/厂商/模型`，任何一段被吃掉，上游都会回
+  // 「has no provider supported」，而那个报错看起来像是模型不存在。
+  {
+    const nested = new OpenAiProvider(base, 'ms/deepseek-ai/DeepSeek-V4-Flash', 'sk-test');
+    await providerMod.collectStream(nested.chatStream([], opts()));
+    check('多层斜杠的模型名原样传给上游',
+      server.lastRequest.body.model === 'ms/deepseek-ai/DeepSeek-V4-Flash',
+      JSON.stringify(server.lastRequest.body.model));
+  }
+
   console.log('\n== OpenAI provider · 边界情况 ==');
   server.mode = 'openai-crlf';
   check('CRLF 分隔的 SSE', (await providerMod.collectStream(openai.chatStream([], opts()))) === 'CRLF分隔');

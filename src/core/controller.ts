@@ -36,6 +36,7 @@ import {
   SendPayload,
   SerializedAttachment,
   SerializedDigest,
+  SerializedProvider,
   SerializedSession,
   SerializedTurn,
   SettingsPayload,
@@ -268,7 +269,7 @@ export class ChatController {
         return;
 
       case 'testConnection':
-        await this.testConnection(msg.ref);
+        await this.testConnection(msg.ref, msg.provider);
         return;
 
       case 'openNativeSettings':
@@ -845,10 +846,12 @@ export class ChatController {
     await this.pushState();
   }
 
-  private async testConnection(ref?: string): Promise<void> {
+  private async testConnection(ref?: string, provider?: SerializedProvider): Promise<void> {
     const target = ref ?? readConfig().model;
+    // 设置页传来的草稿同样走一遍容错归一化——手改过的字段不该让测试崩掉。
+    const draft = provider ? normalizeProviders([provider])[0] : undefined;
     this.toast(`正在测试 ${target}…`);
-    const result = await this.session.testConnection(ref);
+    const result = await this.session.testConnection(ref, draft);
     this.toast(result.message, result.ok ? 'info' : 'error');
     await this.pushState();
   }

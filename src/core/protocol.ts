@@ -57,7 +57,14 @@ export type InMessage =
   | { type: 'saveSettings'; settings: SettingsPayload }
   | { type: 'setApiKey'; providerId: string }
   | { type: 'clearApiKey'; providerId: string }
-  | { type: 'testConnection'; ref?: string }
+  /**
+   * 测试某个模型能不能用。
+   *
+   * `provider` 是设置页当前**屏幕上**的那份服务商配置（可能还没保存）。
+   * 带上它，测试就测所见即所得的这一份——刚加的模型、刚改的 baseUrl
+   * 不必先保存也能验。留空则退回已保存的配置。
+   */
+  | { type: 'testConnection'; ref?: string; provider?: SerializedProvider }
   | { type: 'openNativeSettings' }
   /** 网页弹窗的回执（仅独立版：host.input/confirm/pick 经 WebSocket 变成 modal）。 */
   | { type: 'promptResult'; requestId: string; value?: string };
