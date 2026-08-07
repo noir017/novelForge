@@ -4,6 +4,10 @@ import { makeNonce } from '../core/protocol';
 /**
  * 两个 webview 宿主共用的 HTML。只加载本地资源，CSP 里不开任何外部来源。
  * bridge.js 在 view.js 之前加载：webview 里它检测到 acquireVsCodeApi 存在就直通。
+ *
+ * body 上的 `data-vscode-context` 关掉 VS Code 给 webview 右键菜单加的
+ * 复制/粘贴项：右键全部由 view.js 自己接管（见 media/README.md），
+ * 不关掉的话点一下会同时冒出两层菜单——JS 的 preventDefault 压不住那一层。
  */
 export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   const nonce = makeNonce();
@@ -19,7 +23,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
 <link href="${asset('view.css')}" rel="stylesheet">
 <title>Novel Forge</title>
 </head>
-<body>
+<body data-vscode-context='{"preventDefaultContextMenuItems": true}'>
 <nav class="tabbar" id="tabbar">
   <button class="tab active" data-tab="chat">对话</button>
   <button class="tab" data-tab="project">工程</button>
