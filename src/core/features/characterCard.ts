@@ -44,7 +44,7 @@ export type UpdateScope =
   /** 从头通读该角色的全部出场章节。 */
   | 'full';
 
-interface Batch {
+export interface Batch {
   chapters: Chapter[];
   /** 这一批的语料（已按预算截断）。 */
   corpus: string;
@@ -166,6 +166,13 @@ export async function createCardForCast(project: NovelProject, name: string): Pr
 
 // ---------------------------------------------------------------- 核心流程
 
+/** 单卡执行的结果。批量编排据此统计。 */
+export interface CardUpdateOutcome {
+  status: 'updated' | 'discarded' | 'failed' | 'cancelled';
+  /** status 为 updated 时给出推进后的水位线。 */
+  updatedThrough?: number;
+}
+
 async function runUpdate(
   project: NovelProject,
   card: CharacterCard,
@@ -227,125 +234,163 @@ async function runUpdate(
   await runTask(
     `更新角色卡「${card.name}」`,
     async ({ signal, report }) => {
-      const startedAt = Date.now();
-      // 批数 + 最后写入那一步。
-      const steps = batches.length + 1;
-      let sections: CharacterSections = { ...card.sections };
-      let aliases = [...card.aliases];
-      let tags = [...card.tags];
-      /**
-       * 真正分析成功 / 失败的章节。
-       *
-       * `updatedThrough` 是一条**水位线**（下次增量从它之后开始），所以不能
-       * 简单地推到「最后一批成功的章节」——中间某批失败时，那几章会被水位线
-       * 越过去，此后永远不会被重读，而界面上看不出任何异常。因此水位线只能
-       * 推进到**第一个失败章节之前**，失败之后的成果照样写进卡里（那是白赚的），
-       * 但下次更新会从失败处重来。
-       */
-      const analyzed: number[] = [];
-      const failed: number[] = [];
-
-      for (let i = 0; i < batches.length; i++) {
-        if (signal.aborted) {
-          log.warn(`更新被取消，已完成 ${i}/${batches.length} 批`);
-          return;
-        }
-        const batch = batches[i];
-        const range = describeChapters(batch.chapters.map((c) => c.order));
-        report({ message: `分析 ${range}`, current: i, total: steps });
-
-        const each = Date.now();
-        const parsed = await analyzeBatch(provider, card, sections, batch, {
-          index: i,
-          total: batches.length,
-          config,
+      const outcome = await runCardUpdate(
+        project,
+        card,
+        { scope: opts.scope, allAppearances: opts.allAppearances, batches, skipReview: opts.skipReview },
+        {
           signal,
-        });
-        if (!parsed) {
-          // 单批解析失败不放弃整次更新：已归纳出的内容仍然值得写回。
-          failed.push(...batch.chapters.map((c) => c.order));
-          log.warn(
-            `第 ${i + 1}/${batches.length} 批解析失败，跳过`,
-            `范围 ${range}｜这几章不计入「已读到」，下次更新会重试`
-          );
-          continue;
+          report: (message, current, total) => report({ message, current, total }),
+          provider,
+          config,
         }
-        sections = parsed.sections;
-        aliases = unique([...aliases, ...parsed.aliases]);
-        tags = unique([...tags, ...parsed.tags]);
-        analyzed.push(...batch.chapters.map((c) => c.order));
-        log.info(
-          `第 ${i + 1}/${batches.length} 批完成（${range}）`,
-          `${batch.chapters.length} 章，用时 ${elapsed(each)}`
-        );
-      }
-
-      if (signal.aborted) {
-        log.warn('更新被取消（写入前）');
-        return;
-      }
-
-      // 一批都没成功：没有任何新内容，不要拿一份原样的卡去烦作者确认，
-      // 更不能推进 updatedThrough（那等于宣称读过了这些章）。
-      if (analyzed.length === 0) {
-        log.error(
-          `「${card.name}」的 ${batches.length} 批全部解析失败，角色卡未改动`,
-          '模型没有按要求返回 JSON。可在日志上方看到每批的失败记录；换个模型或稍后重试。'
-        );
-        getHost().toast(`模型返回无法解析，「${card.name}」未改动。`, 'error');
-        return;
-      }
-
-      report({ message: '写入角色卡', current: batches.length, total: steps });
-      const appearances = unique2(
-        opts.scope === 'incremental'
-          ? [...card.appearsIn, ...opts.allAppearances]
-          : opts.allAppearances
       );
-      // 水位线只推进到第一个失败章节之前——越过去的话那几章再也不会被重读。
-      const firstFailure = failed.length > 0 ? Math.min(...failed) : Number.POSITIVE_INFINITY;
-      const covered = analyzed.filter((o) => o < firstFailure);
-      const updatedThrough = Math.max(card.updatedThrough ?? 0, ...covered, 0);
-      if (failed.length > 0) {
-        log.warn(
-          `${failed.length} 章解析失败，「已读到」只推进到第 ${updatedThrough} 章`,
-          `失败章节：${describeChapters(unique2(failed))}｜下次更新会从这里重来`
-        );
+      if (outcome.status === 'updated') {
+        getHost().toast(`「${card.name}」已更新，覆盖至第 ${outcome.updatedThrough} 章。`);
+        await getHost().openFile(card.relPath);
       }
-      const merged = {
-        slug: card.slug,
-        name: card.name,
-        aliases,
-        tags,
-        firstAppear: appearances[0] ?? card.firstAppear,
-        lastSeen: appearances[appearances.length - 1] ?? card.lastSeen,
-        appearsIn: appearances,
-        updatedThrough,
-        sections,
-      };
-
-      const abs = project.pathOf(card.relPath);
-      const proposedText = renderCharacterCard(merged);
-      if (opts.skipReview) {
-        await writeText(abs, proposedText);
-        log.info(`已写入角色卡「${card.name}」`, `${card.relPath}｜总耗时 ${elapsed(startedAt)}`);
-      } else {
-        const applied = await review(project, card, proposedText);
-        if (!applied) {
-          report({ message: '已放弃', current: steps, total: steps });
-          return;
-        }
-        log.info(
-          `已更新角色卡「${card.name}」`,
-          `${card.relPath}｜覆盖至第 ${merged.updatedThrough} 章｜总耗时 ${elapsed(startedAt)}`
-        );
-      }
-      report({ message: '完成', current: steps, total: steps });
-      getHost().toast(`「${card.name}」已更新，覆盖至第 ${merged.updatedThrough} 章。`);
-      await getHost().openFile(card.relPath);
     },
     { scope: '角色卡' }
   );
+}
+
+/**
+ * 单张卡的执行体：分批分析 → 合并 → 审阅/写回。
+ *
+ * 不自己开 runTask，进度经 ctx.report 交给外层——单卡与批量共用一条
+ * 进度条，不叠两层。`batches` 由外层算好传入：批量场景在总确认前已算过
+ * 一次，执行时不必重读章节。
+ */
+async function runCardUpdate(
+  project: NovelProject,
+  card: CharacterCard,
+  opts: {
+    scope: UpdateScope;
+    allAppearances: number[];
+    batches: Batch[];
+    skipReview?: boolean;
+  },
+  ctx: {
+    signal: AbortSignal;
+    report: (message: string, current?: number, total?: number) => void;
+    provider: LlmProvider;
+    config: { contextWindow: number; maxOutputTokens: number; requestTimeoutMs: number };
+  }
+): Promise<CardUpdateOutcome> {
+  const startedAt = Date.now();
+  const { batches } = opts;
+  // 批数 + 最后写入那一步。
+  const steps = batches.length + 1;
+  let sections: CharacterSections = { ...card.sections };
+  let aliases = [...card.aliases];
+  let tags = [...card.tags];
+  /**
+   * 真正分析成功 / 失败的章节。
+   *
+   * `updatedThrough` 是一条**水位线**（下次增量从它之后开始），所以不能
+   * 简单地推到「最后一批成功的章节」——中间某批失败时，那几章会被水位线
+   * 越过去，此后永远不会被重读，而界面上看不出任何异常。因此水位线只能
+   * 推进到**第一个失败章节之前**，失败之后的成果照样写进卡里（那是白赚的），
+   * 但下次更新会从失败处重来。
+   */
+  const analyzed: number[] = [];
+  const failed: number[] = [];
+
+  for (let i = 0; i < batches.length; i++) {
+    if (ctx.signal.aborted) {
+      log.warn(`更新被取消，已完成 ${i}/${batches.length} 批`);
+      return { status: 'cancelled' };
+    }
+    const batch = batches[i];
+    const range = describeChapters(batch.chapters.map((c) => c.order));
+    ctx.report(`分析 ${range}`, i, steps);
+
+    const each = Date.now();
+    const parsed = await analyzeBatch(ctx.provider, card, sections, batch, {
+      index: i,
+      total: batches.length,
+      config: ctx.config,
+      signal: ctx.signal,
+    });
+    if (!parsed) {
+      // 单批解析失败不放弃整次更新：已归纳出的内容仍然值得写回。
+      failed.push(...batch.chapters.map((c) => c.order));
+      log.warn(
+        `第 ${i + 1}/${batches.length} 批解析失败，跳过`,
+        `范围 ${range}｜这几章不计入「已读到」，下次更新会重试`
+      );
+      continue;
+    }
+    sections = parsed.sections;
+    aliases = unique([...aliases, ...parsed.aliases]);
+    tags = unique([...tags, ...parsed.tags]);
+    analyzed.push(...batch.chapters.map((c) => c.order));
+    log.info(
+      `第 ${i + 1}/${batches.length} 批完成（${range}）`,
+      `${batch.chapters.length} 章，用时 ${elapsed(each)}`
+    );
+  }
+
+  if (ctx.signal.aborted) {
+    log.warn('更新被取消（写入前）');
+    return { status: 'cancelled' };
+  }
+
+  // 一批都没成功：没有任何新内容，不要拿一份原样的卡去烦作者确认，
+  // 更不能推进 updatedThrough（那等于宣称读过了这些章）。
+  if (analyzed.length === 0) {
+    log.error(
+      `「${card.name}」的 ${batches.length} 批全部解析失败，角色卡未改动`,
+      '模型没有按要求返回 JSON。可在日志上方看到每批的失败记录；换个模型或稍后重试。'
+    );
+    getHost().toast(`模型返回无法解析，「${card.name}」未改动。`, 'error');
+    return { status: 'failed' };
+  }
+
+  ctx.report('写入角色卡', batches.length, steps);
+  const appearances = unique2(
+    opts.scope === 'incremental' ? [...card.appearsIn, ...opts.allAppearances] : opts.allAppearances
+  );
+  // 水位线只推进到第一个失败章节之前——越过去的话那几章再也不会被重读。
+  const firstFailure = failed.length > 0 ? Math.min(...failed) : Number.POSITIVE_INFINITY;
+  const covered = analyzed.filter((o) => o < firstFailure);
+  const updatedThrough = Math.max(card.updatedThrough ?? 0, ...covered, 0);
+  if (failed.length > 0) {
+    log.warn(
+      `${failed.length} 章解析失败，「已读到」只推进到第 ${updatedThrough} 章`,
+      `失败章节：${describeChapters(unique2(failed))}｜下次更新会从这里重来`
+    );
+  }
+  const merged = {
+    slug: card.slug,
+    name: card.name,
+    aliases,
+    tags,
+    firstAppear: appearances[0] ?? card.firstAppear,
+    lastSeen: appearances[appearances.length - 1] ?? card.lastSeen,
+    appearsIn: appearances,
+    updatedThrough,
+    sections,
+  };
+
+  const abs = project.pathOf(card.relPath);
+  const proposedText = renderCharacterCard(merged);
+  if (opts.skipReview) {
+    await writeText(abs, proposedText);
+    log.info(`已写入角色卡「${card.name}」`, `${card.relPath}｜总耗时 ${elapsed(startedAt)}`);
+  } else {
+    const applied = await review(project, card, proposedText);
+    if (!applied) {
+      ctx.report('已放弃', steps, steps);
+      return { status: 'discarded' };
+    }
+    log.info(
+      `已更新角色卡「${card.name}」`,
+      `${card.relPath}｜覆盖至第 ${merged.updatedThrough} 章｜总耗时 ${elapsed(startedAt)}`
+    );
+  }
+  ctx.report('完成', steps, steps);
+  return { status: 'updated', updatedThrough: merged.updatedThrough };
 }
 
 /**
