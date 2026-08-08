@@ -118,6 +118,169 @@ export async function updateCharacterCard(
   });
 }
 
+/** 批量计划里的一张卡。 */
+export interface CardUpdatePlan {
+  card: CharacterCard;
+  /** 本次要读的出场章节序号。 */
+  orders: number[];
+  /** 预先算好的分批（总确认报调用次数用，执行时不重算）。 */
+  batches: Batch[];
+  /** 真正参与分析的章节数（空章节已剔除）。 */
+  chapters: number;
+}
+
+export interface BatchUpdatePlan {
+  plans: CardUpdatePlan[];
+  skipped: { card: CharacterCard; reason: string }[];
+}
+
+/**
+ * 批量计划：列出全部角色卡，逐卡算出要读哪些章、分几批。
+ * 增量模式只取 updatedThrough 之后的新出场；无新出场/未在摘要出现/
+ * 出场章节已不在磁盘/正文全空的卡计入 skipped。导出供总确认与冒烟测试。
+ */
+export async function planAllUpdates(project: NovelProject, scope: UpdateScope): Promise<BatchUpdatePlan> {
+  const cards = await project.listCharacters();
+  const index = await buildCastIndex(project);
+  const config = readConfig();
+  const allChapters = await project.listChapters();
+  const result: BatchUpdatePlan = { plans: [], skipped: [] };
+
+  for (const card of cards) {
+    const all = appearancesOf(index, card);
+    if (all.length === 0) {
+      result.skipped.push({ card, reason: '未在摘要中出现' });
+      continue;
+    }
+    const orders = scope === 'incremental' ? all.filter((o) => o > (card.updatedThrough ?? 0)) : all;
+    if (orders.length === 0) {
+      result.skipped.push({ card, reason: '没有新的出场章节' });
+      continue;
+    }
+    const chapters = allChapters.filter((c) => orders.includes(c.order));
+    if (chapters.length === 0) {
+      result.skipped.push({ card, reason: '出场章节已不在磁盘上' });
+      continue;
+    }
+    const batches = await planBatches(project, chapters, config);
+    if (batches.length === 0) {
+      result.skipped.push({ card, reason: '章节正文都为空' });
+      continue;
+    }
+    result.plans.push({
+      card,
+      orders,
+      batches,
+      chapters: batches.reduce((sum, b) => sum + b.chapters.length, 0),
+    });
+  }
+  return result;
+}
+
+/**
+ * 批量更新全部角色卡——工程页「角色」分组的右键动作。
+ * incremental：每卡只读上次更新后的新出场章节；full：每卡全量重读。
+ *
+ * 「不偷偷烧 token」：总确认框先报清卡数、章数、批数（= 预计调用次数），
+ * 并让用户选采纳方式（逐张 diff 确认 / 全部直接采纳）。
+ */
+export async function updateAllCharacterCards(project: NovelProject, scope: UpdateScope): Promise<void> {
+  const provider = await resolveProvider();
+  if (!provider) {
+    log.error('没有可用的模型，批量更新中止');
+    return;
+  }
+  const config = readConfig();
+  const { plans, skipped } = await planAllUpdates(project, scope);
+  if (plans.length === 0) {
+    log.info('没有需要更新的角色卡', skipped.length > 0 ? `跳过 ${skipped.length} 张` : undefined);
+    getHost().toast(
+      `没有需要更新的角色卡${skipped.length > 0 ? `（${skipped.length} 张被跳过）` : ''}。`
+    );
+    return;
+  }
+
+  const totalBatches = plans.reduce((sum, p) => sum + p.batches.length, 0);
+  const totalChapters = plans.reduce((sum, p) => sum + p.chapters, 0);
+  const label = scope === 'incremental' ? '更新' : '从头重建';
+  const pick = await getHost().confirm(
+    `${label} ${plans.length} 张角色卡：共需通读 ${totalChapters} 章，` +
+      `分 ${totalBatches} 批，预计调用模型 ${totalBatches} 次。现在开始？`,
+    ['逐张确认后开始', '全部直接采纳并开始'],
+    {
+      modal: true,
+      detail:
+        skipped.length > 0
+          ? `跳过 ${skipped.length} 张：${skipped.map((s) => `「${s.card.name}」（${s.reason}）`).join('、')}`
+          : undefined,
+    }
+  );
+  if (!pick) {
+    log.info('用户取消了批量更新');
+    return;
+  }
+  const autoApply = pick === '全部直接采纳并开始';
+
+  log.info(
+    `开始批量${label}角色卡`,
+    `${plans.length} 张｜${totalChapters} 章分 ${totalBatches} 批｜模型 ${provider.label}｜` +
+      (autoApply ? '全部直接采纳' : '逐张确认')
+  );
+
+  await runTask(
+    `批量${label}角色卡`,
+    async ({ signal, report }) => {
+      // 每张卡的步数（批数 + 写入那一步），累加成总进度条的分母。
+      const totalSteps = plans.reduce((sum, p) => sum + p.batches.length + 1, 0);
+      let done = 0;
+      let updated = 0;
+      let failed = 0;
+      let discarded = 0;
+
+      for (let i = 0; i < plans.length; i++) {
+        if (signal.aborted) {
+          break;
+        }
+        const plan = plans[i];
+        // 分批在确认前已算好（语料也已读取）；此处直接按既定计划执行。
+        const outcome = await runCardUpdate(
+          project,
+          plan.card,
+          { scope, allAppearances: plan.orders, batches: plan.batches, skipReview: autoApply },
+          {
+            signal,
+            report: (message, current) =>
+              report({
+                message: `第 ${i + 1}/${plans.length} 张「${plan.card.name}」· ${message}`,
+                current: done + (current ?? 0),
+                total: totalSteps,
+              }),
+            provider,
+            config,
+          }
+        );
+        done += plan.batches.length + 1;
+        if (outcome.status === 'updated') updated++;
+        else if (outcome.status === 'failed') failed++;
+        else if (outcome.status === 'discarded') discarded++;
+        else if (outcome.status === 'cancelled') break;
+      }
+
+      report({ message: '完成', current: totalSteps, total: totalSteps });
+      const summary =
+        `已更新 ${updated} 张` +
+        (discarded > 0 ? `，放弃 ${discarded} 张` : '') +
+        (failed > 0 ? `，失败 ${failed} 张` : '') +
+        (skipped.length > 0 ? `，跳过 ${skipped.length} 张` : '');
+      log.info(`批量${label}角色卡结束`, summary);
+      getHost().toast(`角色卡${label}完成：${summary}。`);
+      // 与单卡流程不同：批量结束后不自动打开卡——连开几十个标签是灾难，
+      // 每张卡的路径已经在日志里了。
+    },
+    { scope: '角色卡' }
+  );
+}
+
 /**
  * 给摘要里出现、但还没建卡的人物建一张卡，并立刻用它的出场章节跑一次提取。
  * 工程页「出场人物 · 未建卡」那一组的右键动作。
