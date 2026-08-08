@@ -292,7 +292,8 @@ export class ChatController {
         return;
 
       case 'fileAction':
-        await this.fileAction(msg.action, msg.relPath, msg.targetDir);
+        // relPath 在 rename/move/delete 下必带；paste/renameAny 的完整接线在后续任务。
+        await this.fileAction(msg.action, msg.relPath!, msg.targetDir);
         return;
 
       case 'characterAction':
