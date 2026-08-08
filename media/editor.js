@@ -43,6 +43,10 @@
     if (typeof window.__nfToast === 'function') window.__nfToast(message, isError);
   };
 
+  // view.js 的右键菜单登记表。独立版里 view.js 先加载，必有；兜底成
+  // 「不登记」只是让菜单缺席，不影响编辑主流程。
+  const onCtx = window.__nfContextMenu || ((node) => node);
+
   /** path -> { hash, draft }，等对应的 editorOpen 到达时消费。 */
   const pendingDrafts = new Map();
   /** paneId -> 恢复完成后应该激活的 path。 */
@@ -159,8 +163,30 @@
             closeFile(file.path);
           }
         });
+        onCtx(tab, () => tabMenuItems(file.path));
         el.tabs.appendChild(tab);
       }
+    }
+
+    /**
+     * 标签右键菜单：关闭当前/左侧/右侧/其它。
+     * 批量关闭**逐个确认**：每个脏标签各问一次，取消哪个跳过哪个、继续其余。
+     */
+    function tabMenuItems(anchor) {
+      const order = [...files.keys()];
+      const idx = order.indexOf(anchor);
+      const left = order.slice(0, idx);
+      const right = order.slice(idx + 1);
+      const closeMany = (paths) => {
+        for (const p of paths) closeFile(p);
+      };
+      const items = [{ label: '关闭', run: () => closeFile(anchor) }];
+      if (left.length > 0) items.push({ label: `关闭左侧（${left.length}）`, run: () => closeMany(left) });
+      if (right.length > 0) items.push({ label: `关闭右侧（${right.length}）`, run: () => closeMany(right) });
+      if (left.length + right.length > 0) {
+        items.push({ label: `关闭其它（${left.length + right.length}）`, run: () => closeMany([...left, ...right]) });
+      }
+      return items;
     }
 
     function activate(path) {
@@ -316,6 +342,28 @@
       el.area.addEventListener(evt, updateStatus);
     }
 
+    // 标签条空白处右键：以当前激活标签为准。
+    onCtx(el.tabs, () => (pane.activePath ? tabMenuItems(pane.activePath) : []));
+
+    // 正文区菜单：预览模式没有可编辑内容，provider 返回空数组即不弹。
+    onCtx(el.area, () => {
+      if (pane.previewMode) return [];
+      const hasSel = el.area.selectionStart !== el.area.selectionEnd;
+      return [
+        { label: '剪切', disabled: !hasSel, run: () => areaCut(el.area) },
+        { label: '复制', disabled: !hasSel, run: () => areaCopy(el.area) },
+        { label: '粘贴', run: () => areaPaste(el.area) },
+        { sep: true },
+        {
+          label: '全选',
+          run: () => {
+            el.area.focus();
+            el.area.select();
+          },
+        },
+      ];
+    });
+
     el.area.addEventListener('scroll', () => {
       const file = activeFile();
       if (file) file.scrollTop = el.area.scrollTop;
@@ -468,7 +516,9 @@
         // （hash 一致）才贴回去，否则拿旧内容盖新内容就是另一种静默覆盖。
         const restore = carried && carried.draft !== undefined ? carried : pending;
         if (restore && restore.draft !== undefined) {
-          if (restore.hash === incoming.hash) {
+          // moved：文件刚改名/搬家，hash 基线必然变了，草稿照贴；
+          // 其余情况（刷新恢复）仍要求磁盘没变过。
+          if (restore.moved || restore.hash === incoming.hash) {
             file.draft = restore.draft;
           } else {
             toast(`「${file.name}」在离开期间被改过，已放弃未保存的草稿。`, true);
@@ -818,6 +868,57 @@
     return n >= 10000 ? `${(n / 10000).toFixed(2)} 万字` : `${n} 字`;
   }
 
+  // ---------------------------------------------------------------- 正文区剪贴板
+
+  /**
+   * 正文区的剪切/复制/粘贴。优先 execCommand——它保留 textarea 的
+   * 原生撤销栈；Clipboard API 作为读剪贴板的正路（粘贴）与兜底（复制）。
+   */
+  function areaCopy(area) {
+    area.focus();
+    if (document.execCommand && document.execCommand('copy')) return;
+    const text = area.value.slice(area.selectionStart, area.selectionEnd);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(() => toast('复制失败，请手动选中复制。', true));
+    } else {
+      toast('当前环境不支持剪贴板。', true);
+    }
+  }
+
+  function areaCut(area) {
+    area.focus();
+    if (document.execCommand && document.execCommand('cut')) return;
+    // 兜底：先复制再手动删选区。
+    areaCopy(area);
+    const s = area.selectionStart;
+    const e = area.selectionEnd;
+    area.value = area.value.slice(0, s) + area.value.slice(e);
+    area.selectionStart = area.selectionEnd = s;
+    area.dispatchEvent(new Event('input'));
+  }
+
+  async function areaPaste(area) {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      toast('当前环境不支持剪贴板读取。', true);
+      return;
+    }
+    let text;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      toast('粘贴失败：浏览器未授权剪贴板读取。', true);
+      return;
+    }
+    area.focus();
+    // insertText 保留撤销栈；不支持时退回手动拼接（丢撤销，但能贴上）。
+    if (document.execCommand && document.execCommand('insertText', false, text)) return;
+    const s = area.selectionStart;
+    const e = area.selectionEnd;
+    area.value = area.value.slice(0, s) + text + area.value.slice(e);
+    area.selectionStart = area.selectionEnd = s + text.length;
+    area.dispatchEvent(new Event('input'));
+  }
+
   // ---------------------------------------------------------------- Markdown 预览
 
   /**
@@ -983,6 +1084,48 @@
       else parts.push(seg);
     }
     return parts.join('/');
+  }
+
+  // ---------------------------------------------------------------- 标签搬家
+
+  /**
+   * explorer.js 在 rename/move 成功后广播的搬家事件：把旧标签连同
+   * 未保存草稿整体挪到新路径。
+   *
+   * 走 pendingDrafts 的 `moved` 标记绕开 hash 相等检查——改名后
+   * 文件的 hash 基线必然变化，但草稿本身没有理由丢。
+   */
+  window.addEventListener('nf-files-moved', (event) => {
+    const from = event.detail && event.detail.from;
+    const to = event.detail && event.detail.to;
+    if (!from || !to) return;
+    const pane = paneOwning(from);
+    if (!pane) return;
+    const file = pane.files.get(from);
+    const carry = file.draft !== file.text ? { hash: file.hash, draft: file.draft, moved: true } : undefined;
+    pane.closeSilently(from);
+    rekeyStorage(from, to);
+    if (carry) pendingDrafts.set(to, carry);
+    pendingActive.set(pane.id, to);
+    vscode.postMessage({ type: 'openEditor', path: to, pane: pane.id });
+  });
+
+  /** 刷新恢复用的 localStorage 里，旧路径条目改写成新路径，草稿不丢。 */
+  function rekeyStorage(from, to) {
+    try {
+      const data = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+      if (!data || !data.panes) return;
+      for (const paneData of Object.values(data.panes)) {
+        if (!paneData || !Array.isArray(paneData.open)) continue;
+        for (const item of paneData.open) {
+          if (item && item.path === from) item.path = to;
+        }
+        if (paneData.active === from) paneData.active = to;
+      }
+      localStorage.setItem(STORE_KEY, JSON.stringify(data));
+    } catch {
+      /* 读不下/写不进都无所谓，最坏退化为丢一次刷新恢复 */
+    }
   }
 
   // ---------------------------------------------------------------- 收消息

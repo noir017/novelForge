@@ -590,6 +590,21 @@ console.log('\n== 工程页的右键菜单 ==');
     !metaItems.includes('重命名') && !metaItems.includes('删除（移到回收站）'), JSON.stringify(metaItems));
   check('固定元数据行的菜单有打开与刷新',
     metaItems.includes('打开') && metaItems.includes('刷新'), JSON.stringify(metaItems));
+
+  // ---- 角色分组：批量更新/重建。
+  const charItems = itemsOf(rightClick(groupHead));
+  check('角色分组菜单含批量项',
+    charItems.includes('更新所有角色卡') && charItems.includes('从头重建所有角色卡'),
+    JSON.stringify(charItems));
+  check('角色分组菜单仍含新建项', charItems.includes('在此新建角色卡'), JSON.stringify(charItems));
+  pick(rightClick(groupHead), '更新所有角色卡');
+  const upAll = last('characterAction');
+  check('「更新所有角色卡」发 updateAllCards',
+    upAll && upAll.action === 'updateAllCards', JSON.stringify(upAll));
+  pick(rightClick(groupHead), '从头重建所有角色卡');
+  const reAll = last('characterAction');
+  check('「从头重建」发 rebuildAllCards',
+    reAll && reAll.action === 'rebuildAllCards', JSON.stringify(reAll));
   closeAnyMenu(ui);
 }
 
@@ -1351,6 +1366,127 @@ async function summaryTipTests() {
   ui.post({ type: 'summary', summary: summaryOf() });
   check('内容到达撑高后重新定位，仍在视口内', insideViewport(), JSON.stringify(tipBox()));
   await moveAway();
+}
+
+console.log('\n== 文件页：剪贴板与右键菜单 ==');
+{
+  const ui = mountExplorer();
+  const written = [];
+  ui.window.navigator.clipboard = { writeText: (t) => { written.push(t); return Promise.resolve(); } };
+  ui.doc.getElementById('pane-files').classList.add('active');
+  const rightClick = (node) => {
+    node.dispatchEvent(new ui.window.MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 60 }));
+    return ui.doc.querySelector('.ctx-menu');
+  };
+  const itemsOf = (menu) => [...menu.querySelectorAll('button')].map((b) => b.textContent);
+  const btn = (menu, label) => [...menu.querySelectorAll('button')].find((b) => b.textContent === label);
+  const clickEl = (node) => node.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const last = (type) => [...ui.sent].reverse().find((m) => m.type === type);
+  // render() 会整批重建行，每次操作后都要重新按名字找行。
+  const fileRowOf = (name) => ui.rows().find((r) => r.textContent.includes(name));
+
+  ui.post({ type: 'dirListings', listings: [ui.listing('', { '子目录': 'dir', 'a.md': 'file' })] });
+
+  const fileItems = itemsOf(rightClick(fileRowOf('a.md')));
+  check('文件行菜单含剪切/复制/粘贴/重命名',
+    ['剪切', '复制', '粘贴', '重命名'].every((l) => fileItems.includes(l)), JSON.stringify(fileItems));
+  check('没有剪贴板时粘贴置灰', btn(rightClick(fileRowOf('a.md')), '粘贴').disabled);
+  closeAnyMenu(ui);
+
+  // 复制：内部登记 + 路径外送系统剪贴板。
+  clickEl(btn(rightClick(fileRowOf('a.md')), '复制'));
+  check('复制把路径写进系统剪贴板', written.includes('a.md'), JSON.stringify(written));
+  check('粘贴变为可用', !btn(rightClick(fileRowOf('a.md')), '粘贴').disabled);
+  closeAnyMenu(ui);
+
+  // 在文件夹行上粘贴：落点是该文件夹。
+  clickEl(btn(rightClick(fileRowOf('子目录')), '粘贴'));
+  const pasteMsg = last('fileAction');
+  check('粘贴发 fileAction',
+    pasteMsg && pasteMsg.action === 'paste' && pasteMsg.op === 'copy' &&
+    pasteMsg.relPaths.join(',') === 'a.md' && pasteMsg.targetDir === '子目录',
+    JSON.stringify(pasteMsg));
+
+  // 复制态在粘贴后保留（可再粘）；重命名走 renameAny。
+  check('复制态粘贴后保留', !btn(rightClick(fileRowOf('子目录')), '粘贴').disabled);
+  closeAnyMenu(ui);
+  clickEl(btn(rightClick(fileRowOf('a.md')), '重命名'));
+  const ren = last('fileAction');
+  check('重命名发 renameAny', ren && ren.action === 'renameAny' && ren.relPath === 'a.md', JSON.stringify(ren));
+
+  // 剪切 + move 完成后清除剪切态。
+  clickEl(btn(rightClick(fileRowOf('a.md')), '剪切'));
+  check('剪切后行带 fx-cut 标记',
+    ui.rows().some((r) => r.classList.contains('fx-cut')));
+  ui.post({ type: 'filesOpDone', op: 'move', results: [{ from: 'a.md', to: '子目录/a.md', ok: true }] });
+  check('move 完成后剪切态清除', btn(rightClick(fileRowOf('子目录')), '粘贴').disabled);
+  closeAnyMenu(ui);
+
+  // 快捷键：焦点行上 Ctrl+C。
+  ui.post({ type: 'dirListings', listings: [ui.listing('', { 'b.md': 'file' })] });
+  const bRow = fileRowOf('b.md');
+  bRow.dispatchEvent(new ui.window.FocusEvent('focus', { bubbles: true }));
+  ui.doc.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }));
+  check('Ctrl+C 复制焦点行', written.includes('b.md'), JSON.stringify(written));
+}
+
+console.log('\n== 内置编辑器：右键菜单与标签搬家 ==');
+{
+  const ui = mountExplorer();
+  const rightClick = (node) => {
+    node.dispatchEvent(new ui.window.MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 60 }));
+    return ui.doc.querySelector('.ctx-menu');
+  };
+  const itemsOf = (menu) => [...menu.querySelectorAll('button')].map((b) => b.textContent);
+  const btn = (menu, label) => [...menu.querySelectorAll('button')].find((b) => b.textContent === label);
+  const clickEl = (node) => node.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const tabs = () => [...ui.doc.querySelectorAll('.ed-tab')];
+  /** mountExplorer 不带 file 助手（那是 mountEditor 的），这里就地造一个。 */
+  const file = (p, text, extra) =>
+    Object.assign({ path: p, name: p.split('/').pop(), text, hash: `h-${p}`, bytes: text.length }, extra);
+
+  ui.post({ type: 'editorOpen', file: file('a.md', '甲的内容') });
+  ui.post({ type: 'editorOpen', file: file('b.md', '乙的内容') });
+  check('打开了两个标签', tabs().length === 2, String(tabs().length));
+
+  // ---- 标签菜单
+  const tabItems = itemsOf(rightClick(tabs()[0]));
+  check('标签菜单含关闭/关闭右侧/关闭其它',
+    tabItems.includes('关闭') &&
+    tabItems.some((l) => l.startsWith('关闭右侧')) &&
+    tabItems.some((l) => l.startsWith('关闭其它')),
+    JSON.stringify(tabItems));
+  clickEl(btn(rightClick(tabs()[0]), tabItems.find((l) => l.startsWith('关闭其它'))));
+  check('关闭其它后只剩一个标签', tabs().length === 1, String(tabs().length));
+  closeAnyMenu(ui);
+
+  // ---- 正文区菜单
+  const area = ui.doc.getElementById('edArea');
+  const areaMenu = rightClick(area);
+  check('正文区菜单含剪切/复制/粘贴/全选',
+    ['剪切', '复制', '粘贴', '全选'].every((l) => itemsOf(areaMenu).includes(l)),
+    JSON.stringify(itemsOf(areaMenu)));
+  check('无选中时剪切/复制置灰',
+    btn(areaMenu, '剪切').disabled && btn(areaMenu, '复制').disabled);
+  closeAnyMenu(ui);
+  clickEl(btn(rightClick(area), '全选'));
+  check('全选选中全文', area.selectionStart === 0 && area.selectionEnd === area.value.length,
+    `${area.selectionStart}-${area.selectionEnd}/${area.value.length}`);
+  closeAnyMenu(ui);
+
+  // ---- 标签搬家：未保存草稿原样带走
+  area.value = '甲的内容，改了一半';
+  area.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+  ui.window.dispatchEvent(new ui.window.CustomEvent('nf-files-moved', { detail: { from: 'a.md', to: 'sub/a.md' } }));
+  const reopen = [...ui.sent].reverse().find((m) => m.type === 'openEditor' && m.path === 'sub/a.md');
+  check('搬家后请求打开新路径', !!reopen && reopen.pane === 'main', JSON.stringify(reopen));
+  // hash 变了也没关系：moved 标记豁免基线检查。
+  ui.post({ type: 'editorOpen', file: Object.assign(file('sub/a.md', '甲的内容'), { hash: 'h-other' }) });
+  check('搬家后只剩一个标签且是新路径', tabs().length === 1 && tabs()[0].textContent.includes('a'),
+    tabs().map((t) => t.textContent).join(','));
+  check('未保存草稿跟着搬', ui.doc.getElementById('edArea').value === '甲的内容，改了一半',
+    ui.doc.getElementById('edArea').value);
+  check('草稿仍是脏标记', tabs()[0].classList.contains('dirty'));
 }
 
 summaryTipTests().then(() => {

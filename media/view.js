@@ -1096,7 +1096,8 @@
    * 未建卡的人物根本没有文件，所以不能走 fileAction。
    */
   function characterAction(action, name, relPath) {
-    vscode.postMessage({ type: 'characterAction', action, name, relPath });
+    // 批量动作（updateAllCards/rebuildAllCards）没有具体角色，name 兜底空串。
+    vscode.postMessage({ type: 'characterAction', action, name: name ?? '', relPath });
   }
 
   /** 打开某章的草稿。传的是**章节**路径，草稿路径由后端推导并按需创建。 */
@@ -1147,6 +1148,11 @@
       buildGroup('characters', '角色', countLabel(tree.characters, '人'), {
         section: SECTIONS.characters,
         root: tree.charactersRoot,
+        extraItems: () => [
+          { label: '更新所有角色卡', run: () => characterAction('updateAllCards') },
+          { label: '从头重建所有角色卡', run: () => characterAction('rebuildAllCards') },
+          { sep: true },
+        ],
         build: () =>
           tree.characters.length === 0
             ? [emptyRow('还没有角色卡。可运行「提取/更新角色卡」从正文抽取。')]
@@ -1386,7 +1392,9 @@
 
     if (opts.section) {
       // 登记在整个分组上：标题栏、分组内的空白、空提示行都能右键新建。
+      // extraItems（如角色区的批量动作）排在新建项之前。
       onContextMenu(box, () => [
+        ...(opts.extraItems ? opts.extraItems() : []),
         ...newItemsIn(opts.section, opts.root),
         { sep: true },
         ...baseMenuItems(),

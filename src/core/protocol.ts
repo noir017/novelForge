@@ -96,8 +96,19 @@ export type InMessage =
    * `relPath` 在更新已有卡时给出，指向那张卡。
    */
   | { type: 'characterAction'; action: CharacterAction; name: string; relPath?: string }
-  /** 工程页的类文件操作。`relPath` 是操作对象（文件或目录）。 */
-  | { type: 'fileAction'; action: FileAction; relPath: string; targetDir?: string }
+  /**
+   * 类文件操作。工程页用 `relPath` 单数（rename/move/delete，锁在三个区内）；
+   * 文件页用 `renameAny`（根范围重命名）与 `paste`（`relPaths` 源列表 +
+   * `op` 区分移动/复制 + `targetDir` 落点）。
+   */
+  | {
+      type: 'fileAction';
+      action: FileAction;
+      relPath?: string;
+      relPaths?: string[];
+      op?: 'cut' | 'copy';
+      targetDir?: string;
+    }
   | { type: 'selectModel'; ref: string }
   | { type: 'saveSettings'; settings: SettingsPayload }
   | { type: 'setApiKey'; providerId: string }
@@ -139,21 +150,29 @@ export type ProjectAction =
   | 'extractStyle';
 
 /**
- * 角色相关的动作。与 `projectAction` 分开是因为它们的作用对象是**一个角色**
- * （用名字标识），而不是一个文件或一个章节。
+ * 角色相关的动作。与 `projectAction` 分开是因为它们的作用对象是**角色**，
+ * 而不是一个文件或一个章节。
  *
- * - `updateCard` / `rebuildCard`：更新已有角色卡。前者只读上次更新之后的新章节
- *   （增量），后者从头通读该角色的全部出场章节。`relPath` 指向那张卡。
- * - `createCard`：给摘要里出现但还没建卡的人物建一张卡，并立刻用它的出场章节
- *   跑一次提取。`name` 是摘要里的名字。
+ * - `updateCard` / `rebuildCard`：更新已有角色卡。前者增量、后者全量，`relPath` 指向那张卡。
+ * - `createCard`：给摘要里出现但还没建卡的人物建卡。`name` 是摘要里的名字。
+ * - `updateAllCards` / `rebuildAllCards`：批量更新全部角色卡（增量 / 全量），
+ *   不需要 name/relPath。
  */
-export type CharacterAction = 'updateCard' | 'rebuildCard' | 'createCard';
+export type CharacterAction =
+  | 'updateCard'
+  | 'rebuildCard'
+  | 'createCard'
+  | 'updateAllCards'
+  | 'rebuildAllCards';
 
 /**
- * 类文件操作。作用对象由 `relPath` 给出，可以是文件也可以是目录。
+ * 类文件操作。作用对象由 `relPath` / `relPaths` 给出，可以是文件也可以是目录。
  * `move` 另需 `targetDir`（工作区相对路径，空串表示所属区的根目录）。
+ *
+ * - `rename` / `move` / `delete`：工程页用，锁在章节/角色/设定三个区内（fileOps.ts）。
+ * - `renameAny` / `paste`：文件页用，范围放宽到整个工程根（projectFiles.ts）。
  */
-export type FileAction = 'rename' | 'move' | 'delete';
+export type FileAction = 'rename' | 'renameAny' | 'move' | 'delete' | 'paste';
 
 /** 设置页提交的全部内容。服务商列表整体替换。 */
 export interface SettingsPayload {
@@ -235,6 +254,11 @@ export type OutMessage =
    */
   | { type: 'dirListings'; listings: DirListing[] }
   /**
+   * 文件页类文件操作（renameAny / paste）的逐项结果。
+   * 前端据此 remap 开着的编辑器标签，失败项各自提示原因。
+   */
+  | { type: 'filesOpDone'; op: 'rename' | 'move' | 'copy'; results: FileOpResult[] }
+  /**
    * 正在跑的长任务快照，全量替换。
    *
    * 任何变化（新增/进度/结束）都重推整份——列表最多两三项，
@@ -257,6 +281,15 @@ export type OutMessage =
       multiline?: boolean;
       options?: string[];
     };
+
+/** 文件操作的单项结果。失败时保持原路径并给出原因（toast 也会同时报）。 */
+export interface FileOpResult {
+  from: string;
+  /** 操作成功后的新路径；失败时没有。 */
+  to?: string;
+  ok: boolean;
+  error?: string;
+}
 
 /** 内置编辑器里一份文件的快照（core/fileEditing.ts 的 EditorFile 的线上形状）。 */
 export interface EditorFileView {

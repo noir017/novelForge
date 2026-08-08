@@ -26,7 +26,7 @@ npm test                 # typecheck + smoke
 | 模块 | 一句话职责 | README |
 |---|---|---|
 | `src/` | 三层架构总览与一条续写请求的完整链路 | [src/README.md](src/README.md) |
-| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts、出场人物索引 cast.ts、资源管理器目录列举 fileTree.ts、类文件操作 fileOps.ts、日志 logger.ts、长任务 progress.ts） | [src/core/README.md](src/core/README.md) |
+| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts、出场人物索引 cast.ts、资源管理器目录列举 fileTree.ts、三区类文件操作 fileOps.ts、工程根范围文件操作 projectFiles.ts、日志 logger.ts、长任务 progress.ts） | [src/core/README.md](src/core/README.md) |
 | `src/core/model/` | 数据层：NovelProject、Markdown 解析、章节文件名规则、服务商配置、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/context/` | ★ 分层预算上下文装配器 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/features/` | 功能编排：续写、摘要、角色卡、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
@@ -63,7 +63,7 @@ npm test                 # typecheck + smoke
 4. **不偷偷烧 token**：摘要不自动生成，只提示过期。要分多次调模型的动作（更新角色卡可能分十几批）必须在动手前的确认框里写明预计调用次数。
 5. **模型引用只在第一个斜杠处切分**：`openrouter/z-ai/glm-4.6` 中服务商前缀是 `openrouter`。
 6. **不真删**：工程页的删除（以及会话删除）一律搬进 `.novelforge/.trash/` 并保留原相对路径。
-7. **文件访问不越界**：工程页的类文件操作锁在章节/角色/设定三个区内（`core/fileOps.ts` 的 `normalizeRel` / `sectionOf`）；独立版的读写另有一层——路径落在工程根内、大小上限、以及「纯文本扩展名白名单 ∪ 章节文件名规则」，全在 `fileEditing.ts` 里兜住。独立版「文件」页的目录列举（`core/fileTree.ts`）**只读**，同样过工程根包含检查，不提供任何写入口。服务无鉴权（只绑 127.0.0.1），别在别处绕过这几处直接读写。
+7. **文件访问不越界**：工程页的类文件操作锁在章节/角色/设定三个区内（`core/fileOps.ts` 的 `normalizeRel` / `sectionOf`）；独立版的读写另有一层——路径落在工程根内、大小上限、以及「纯文本扩展名白名单 ∪ 章节文件名规则」，全在 `fileEditing.ts` 里兜住。独立版「文件」页的写入口只经 `core/projectFiles.ts`（重命名/移动/复制锁在工程根内，`chapters/`、`drafts/`、`.novelforge` 等固定目录受 `isProtectedPath` 保护，同名绝不覆盖，`.trash` 内容不可操作），目录列举（`core/fileTree.ts`）仍只读。服务无鉴权（只绑 127.0.0.1），别在别处绕过这几处直接读写。
 8. **层级只是收纳**：章节顺序永远由文件名数字前缀决定，与所在目录层级无关；分卷不重置编号，也不影响上下文装配与摘要新鲜度。草稿按章节在章节根之下的相对路径镜像存放，文件名（含扩展名）原样沿用。
 9. **章节不认扩展名**：章节根下「数字前缀 + 扩展名不在二进制黑名单里」的文件都是章节（`001-楔子.txt`、`001-楔子`、`004.json` 都算，`.png/.docx/.zip` 不算），规则只在 [src/core/model/chapterFile.ts](src/core/model/chapterFile.ts) 里定义一次。`.md`/`.markdown` 之外的章节**不解析 `# 标题`**，标题只取文件名——`extractH1` 与 `stripH1` 都只看首行，两者必须保持互逆。角色/设定区不跟着放宽，仍然只认 `.md`。
 10. **草稿不进上下文**：`drafts/` 只有作者显式 `@` 引用才进 prompt，装配器永不自动读它。按需创建（首次点「打开草稿」），已存在绝不覆盖；章节改名/移动时草稿跟着走，删章节不删草稿（确认框里会说明）。
