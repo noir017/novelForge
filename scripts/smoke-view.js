@@ -590,6 +590,21 @@ console.log('\n== 工程页的右键菜单 ==');
     !metaItems.includes('重命名') && !metaItems.includes('删除（移到回收站）'), JSON.stringify(metaItems));
   check('固定元数据行的菜单有打开与刷新',
     metaItems.includes('打开') && metaItems.includes('刷新'), JSON.stringify(metaItems));
+
+  // ---- 角色分组：批量更新/重建。
+  const charItems = itemsOf(rightClick(groupHead));
+  check('角色分组菜单含批量项',
+    charItems.includes('更新所有角色卡') && charItems.includes('从头重建所有角色卡'),
+    JSON.stringify(charItems));
+  check('角色分组菜单仍含新建项', charItems.includes('在此新建角色卡'), JSON.stringify(charItems));
+  pick(rightClick(groupHead), '更新所有角色卡');
+  const upAll = last('characterAction');
+  check('「更新所有角色卡」发 updateAllCards',
+    upAll && upAll.action === 'updateAllCards', JSON.stringify(upAll));
+  pick(rightClick(groupHead), '从头重建所有角色卡');
+  const reAll = last('characterAction');
+  check('「从头重建」发 rebuildAllCards',
+    reAll && reAll.action === 'rebuildAllCards', JSON.stringify(reAll));
   closeAnyMenu(ui);
 }
 

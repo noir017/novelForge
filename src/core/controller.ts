@@ -6,7 +6,7 @@ import { deleteEntry, moveEntry, newFolder, renameEntry, Section, sectionOf, sec
 import { listDirs } from './fileTree';
 import { copyInto, moveInto, renameAny } from './projectFiles';
 import { extractCharacters, newCharacter, newLore } from './features/characters';
-import { createCardForCast, updateCharacterCard } from './features/characterCard';
+import { createCardForCast, updateAllCharacterCards, updateCharacterCard } from './features/characterCard';
 import { ContinueSession } from './features/continueWriting';
 import { extractStyle } from './features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from './features/summarize';
@@ -986,6 +986,12 @@ export class ChatController {
         break;
       case 'createCard':
         await createCardForCast(this.project, name);
+        break;
+      case 'updateAllCards':
+        await updateAllCharacterCards(this.project, 'incremental');
+        break;
+      case 'rebuildAllCards':
+        await updateAllCharacterCards(this.project, 'full');
         break;
     }
     await this.pushState();
