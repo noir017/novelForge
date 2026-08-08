@@ -58,6 +58,7 @@ const { host: hostMod, project: projectMod, cast: castMod, characterCard: cardMo
 const answers = [];
 const toasts = [];
 const confirms = [];
+const opened = [];
 let reviewVerdict = 'apply';
 const reviewed = [];
 
@@ -84,7 +85,7 @@ const fakeHost = {
   pick: async () => answers.shift(),
   progress: async (_t, fn) => fn(new AbortController().signal, () => {}),
   watch: () => ({ dispose: () => {} }),
-  openFile: async () => {},
+  openFile: async (p) => opened.push(p),
   toast: (m, level) => toasts.push(`${level ?? 'info'}: ${m}`),
   selectionAttachment: async () => undefined,
   reviewReplace: async (name, current, proposed) => {
@@ -135,6 +136,7 @@ function expect(...values) {
   confirms.length = 0;
   calls.length = 0;
   reviewed.length = 0;
+  opened.length = 0;
   answers.push(...values);
 }
 
@@ -210,6 +212,7 @@ async function main() {
     check('回写出场章节', card.includes('appearsIn: [1, 2, 4, 5]'), card.split('\n')[5]);
     check('记下读到第几章', card.includes('updatedThrough: 5'), card);
     check('保留作者写的别名', card.includes('阿昭'));
+    check('单卡更新后自动打开该卡', opened.includes('.novelforge/characters/林昭.md'), JSON.stringify(opened));
   }
 
   console.log('\n== 增量更新 ==');
@@ -329,6 +332,59 @@ async function main() {
     expect('开始');
     await cardMod.createCardForCast(project, '查无此人');
     check('摘要里没有的人不建卡', toasts.some((t) => t.startsWith('error:')), toasts.join(' | '));
+  }
+
+  console.log('\n== 批量更新所有角色卡 ==');
+  {
+    // 此时夹具：林昭（updatedThrough 6，第 7、8 章是新出场）、
+    // 幽灵（摘要里没出现）、客栈掌柜（updatedThrough 3，无新章）。
+
+    // ---- 增量：只挑有新出场的卡，动手前报总调用次数。
+    project.invalidate();
+    expect('逐张确认后开始');
+    replies = [cardJson({ 当前状态: '批量测试中' })];
+    await cardMod.updateAllCharacterCards(project, 'incremental');
+
+    const ask = confirms.find((c) => c.message.includes('预计调用模型'));
+    check('批量动手前问过用户', !!ask, JSON.stringify(confirms.map((c) => c.message)));
+    check('确认框给出两种采纳方式',
+      ask && ask.actions.includes('逐张确认后开始') && ask.actions.includes('全部直接采纳并开始'),
+      ask && JSON.stringify(ask.actions));
+    check('预计调用次数与实际一致',
+      ask && ask.message.includes(`预计调用模型 ${calls.length} 次`), ask && ask.message);
+    check('跳过情况写进明细',
+      ask && ask.detail.includes('幽灵') && ask.detail.includes('客栈掌柜'), ask && ask.detail);
+
+    const corpus = calls.map((m) => m[1].content).join('\n');
+    check('增量批量只读新出场的章节', corpus.includes('第七') && !corpus.includes('楔子'), corpus.slice(0, 120));
+    check('逐张确认模式走了 diff 审阅', reviewed.length === 1, String(reviewed.length));
+    check('批量不自动打开卡', opened.length === 0, JSON.stringify(opened));
+    check('林昭的卡已更新', read('.novelforge/characters/林昭.md').includes('批量测试中'));
+
+    // ---- 从头重建：全部有出场的卡全量重读，可整体直接采纳。
+    expect('全部直接采纳并开始');
+    replies = [cardJson({ 身份: '重建的身份' })];
+    await cardMod.updateAllCharacterCards(project, 'full');
+
+    const fullCorpus = calls.map((m) => m[1].content).join('\n');
+    check('重建读全部出场章节', fullCorpus.includes('楔子') && fullCorpus.includes('夜谈'));
+    check('直接采纳模式不走审阅', reviewed.length === 0, String(reviewed.length));
+    check('两张卡都已重写',
+      read('.novelforge/characters/林昭.md').includes('重建的身份') &&
+      read('.novelforge/characters/客栈掌柜.md').includes('重建的身份'));
+    check('完成提示报数', toasts.some((t) => t.includes('已更新 2 张')), toasts.join(' | '));
+
+    // ---- 取消：一次模型都不调。
+    expect(undefined);
+    replies = [cardJson()];
+    await cardMod.updateAllCharacterCards(project, 'full');
+    check('用户取消则不调模型', calls.length === 0, String(calls.length));
+
+    // ---- 无可更新：不弹确认框，直接说明。
+    expect();
+    await cardMod.updateAllCharacterCards(project, 'incremental');
+    check('没有新章节时不弹确认框', confirms.length === 0, JSON.stringify(confirms.map((c) => c.message)));
+    check('没有新章节时明说', toasts.some((t) => t.includes('没有需要更新的角色卡')), toasts.join(' | '));
   }
 
   console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
