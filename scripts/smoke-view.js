@@ -1430,6 +1430,65 @@ console.log('\n== 文件页：剪贴板与右键菜单 ==');
   check('Ctrl+C 复制焦点行', written.includes('b.md'), JSON.stringify(written));
 }
 
+console.log('\n== 内置编辑器：右键菜单与标签搬家 ==');
+{
+  const ui = mountExplorer();
+  const rightClick = (node) => {
+    node.dispatchEvent(new ui.window.MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 60 }));
+    return ui.doc.querySelector('.ctx-menu');
+  };
+  const itemsOf = (menu) => [...menu.querySelectorAll('button')].map((b) => b.textContent);
+  const btn = (menu, label) => [...menu.querySelectorAll('button')].find((b) => b.textContent === label);
+  const clickEl = (node) => node.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const tabs = () => [...ui.doc.querySelectorAll('.ed-tab')];
+  /** mountExplorer 不带 file 助手（那是 mountEditor 的），这里就地造一个。 */
+  const file = (p, text, extra) =>
+    Object.assign({ path: p, name: p.split('/').pop(), text, hash: `h-${p}`, bytes: text.length }, extra);
+
+  ui.post({ type: 'editorOpen', file: file('a.md', '甲的内容') });
+  ui.post({ type: 'editorOpen', file: file('b.md', '乙的内容') });
+  check('打开了两个标签', tabs().length === 2, String(tabs().length));
+
+  // ---- 标签菜单
+  const tabItems = itemsOf(rightClick(tabs()[0]));
+  check('标签菜单含关闭/关闭右侧/关闭其它',
+    tabItems.includes('关闭') &&
+    tabItems.some((l) => l.startsWith('关闭右侧')) &&
+    tabItems.some((l) => l.startsWith('关闭其它')),
+    JSON.stringify(tabItems));
+  clickEl(btn(rightClick(tabs()[0]), tabItems.find((l) => l.startsWith('关闭其它'))));
+  check('关闭其它后只剩一个标签', tabs().length === 1, String(tabs().length));
+  closeAnyMenu(ui);
+
+  // ---- 正文区菜单
+  const area = ui.doc.getElementById('edArea');
+  const areaMenu = rightClick(area);
+  check('正文区菜单含剪切/复制/粘贴/全选',
+    ['剪切', '复制', '粘贴', '全选'].every((l) => itemsOf(areaMenu).includes(l)),
+    JSON.stringify(itemsOf(areaMenu)));
+  check('无选中时剪切/复制置灰',
+    btn(areaMenu, '剪切').disabled && btn(areaMenu, '复制').disabled);
+  closeAnyMenu(ui);
+  clickEl(btn(rightClick(area), '全选'));
+  check('全选选中全文', area.selectionStart === 0 && area.selectionEnd === area.value.length,
+    `${area.selectionStart}-${area.selectionEnd}/${area.value.length}`);
+  closeAnyMenu(ui);
+
+  // ---- 标签搬家：未保存草稿原样带走
+  area.value = '甲的内容，改了一半';
+  area.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+  ui.window.dispatchEvent(new ui.window.CustomEvent('nf-files-moved', { detail: { from: 'a.md', to: 'sub/a.md' } }));
+  const reopen = [...ui.sent].reverse().find((m) => m.type === 'openEditor' && m.path === 'sub/a.md');
+  check('搬家后请求打开新路径', !!reopen && reopen.pane === 'main', JSON.stringify(reopen));
+  // hash 变了也没关系：moved 标记豁免基线检查。
+  ui.post({ type: 'editorOpen', file: Object.assign(file('sub/a.md', '甲的内容'), { hash: 'h-other' }) });
+  check('搬家后只剩一个标签且是新路径', tabs().length === 1 && tabs()[0].textContent.includes('a'),
+    tabs().map((t) => t.textContent).join(','));
+  check('未保存草稿跟着搬', ui.doc.getElementById('edArea').value === '甲的内容，改了一半',
+    ui.doc.getElementById('edArea').value);
+  check('草稿仍是脏标记', tabs()[0].classList.contains('dirty'));
+}
+
 summaryTipTests().then(() => {
   console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
   process.exit(failures === 0 ? 0 : 1);
