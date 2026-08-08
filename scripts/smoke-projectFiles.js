@@ -187,9 +187,10 @@ async function main() {
 
   console.log('\n== 复制（复制+粘贴） ==');
   {
-    let results = await pf.copyInto(project, ['archive/撞名.txt'], 'notes');
+    fs.mkdirSync(rel('copydest'), { recursive: true });
+    let results = await pf.copyInto(project, ['archive/撞名.txt'], 'copydest');
     check('复制后原文件还在', results[0].ok && fs.existsSync(rel('archive/撞名.txt')), JSON.stringify(results));
-    check('复制出同名新文件', read('notes/撞名.txt').includes('先来的'));
+    check('复制出同名新文件', read('copydest/撞名.txt').includes('先来的'));
 
     // 落点目录必须已存在——粘贴不会凭空建目录。
     results = await pf.copyInto(project, ['archive'], 'backup');
