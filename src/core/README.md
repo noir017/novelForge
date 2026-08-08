@@ -21,7 +21,8 @@
 | [progress.ts](progress.ts) | ★ 长任务登记处：`runTask` 包住 `Host.progress`，一次调用同时做三件事——宿主原生进度、结构化进度推给网页（工程页据此画进度条）、开始/每步/结束进日志附耗时。`cancelTask` 供前端进度条上的「停止」用。 |
 | [host.ts](host.ts) | core 对宿主的唯一依赖面（窄接口）：弹窗/选择/进度/文件监听/打开文件等，两个壳各实现一份。 |
 | [actions.ts](actions.ts) | 工程级交互流程（初始化、新建章节），命令面板与网页共用。 |
-| [fileOps.ts](fileOps.ts) | ★ 类文件操作：新建文件夹、重命名、移动、删除。三条硬约束——操作锁在所属区内（章节/角色/设定，`..` 与绝对路径一律拒绝）、目标已存在就报错不覆盖、删除是搬进 `.novelforge/.trash/` 而非真删。章节改名/移动时 `carryDraft` 把对应草稿一并搬走。 |
+| [fileOps.ts](fileOps.ts) | ★ 类文件操作（工程页）：新建文件夹、重命名、移动、删除。三条硬约束——操作锁在所属区内（章节/角色/设定，`..` 与绝对路径一律拒绝）、目标已存在就报错不覆盖、删除是搬进 `.novelforge/.trash/` 而非真删。章节改名/移动时 `carryDraft` 把对应草稿一并搬走。 |
+| [projectFiles.ts](projectFiles.ts) | 文件页的根范围文件操作：`renameAny` / `moveInto` / `copyInto`。不限三区但不出工程根；`isProtectedPath` 保护固定目录（chapters/、drafts/、.novelforge 及其关键子目录）、同名逐项拒绝、`.trash` 内容不可操作；章节移动仍带草稿跟随与 manifest 同步。逐项结果经 `filesOpDone` 回推前端。 |
 | [attachments.ts](attachments.ts) | @ 引用的候选列表构建（展示与选择交给 Host.pick）。分组：章节 / 草稿（只列已存在的）/ 角色 / 设定 / 其他。 |
 | [fileEditing.ts](fileEditing.ts) | 内置编辑器的文件读写：路径必须落在工程根内、有大小上限、只碰纯文本（扩展名白名单 **∪ 章节文件名规则**——`001-楔子` 这种无扩展名的章节也得打得开），保存走内容 hash 乐观锁（磁盘变过就抛 `FileConflictError`，绝不静默覆盖）。独立版用；插件壳走 VS Code 自己的编辑器，不经这里。 |
 | [config.ts](config.ts) | `readConfig` / `readGlobalBudget` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |
@@ -44,5 +45,5 @@
 - **`openDraft` 会写盘**：`controller.ts` 里那句 `listChapters().find(...)` 是它没变成「往 `drafts/<任意路径>` 写文件」的原语的唯一原因。别为了省一次扫描就信任前端传来的路径。
 - **摘要是出场人物的唯一真相**：角色卡 frontmatter 里的 `appearsIn` / `updatedThrough` **只是缓存**。想知道谁在哪出场，一律经 `cast.ts` 的 `buildCastIndex()` 从摘要重算，别读角色卡的字段——摘要重跑之后那里就旧了。索引按 `name ∪ aliases` 匹配（摘要里的名字是模型写的，角色卡文件名是作者起的，两者没有硬关联）。
 - **`characterAction` 与 `fileAction` 不能合并**：前者的作用对象是**一个角色**（用名字标识），未建卡的人物根本没有文件，走 `fileAction` 那套区守卫无从谈起。
-- **资源管理器只列不改**：`fileTree.ts` 是纯读取，没有新建/删除/改名——那些仍然只走 `fileOps.ts`（锁在章节/角色/设定三个区内，删除是搬进 `.trash/`）。「文件」页看得见 `.novelforge/` 不等于可以在那里随手删东西；要放开写操作，先想清楚它绕过了 `fileOps.ts` 的哪一条约束。
+- **资源管理器只列不改，写走 projectFiles**：`fileTree.ts` 是纯读取，没有新建/删除/改名。「文件」页的写入口只有 `projectFiles.ts`（重命名/移动/复制，工程根范围，固定目录受保护，同名不覆盖）；删除入口仍然只在工程页（`fileOps.ts`，搬进 `.trash/`）。往文件页加新写操作前，先想清楚它绕过了这里的哪一条约束。
 - **`watchedDirs` 是前端说了算的**：controller 记住前端最近一次 `listDir` 报上来的展开集合，`pushTabData` 时照着重推。它只是「该关注哪些目录」的缓存，不是权限——每次列举仍然过 `resolveInRoot`，越界照拒。
