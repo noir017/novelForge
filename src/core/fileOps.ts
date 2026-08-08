@@ -80,6 +80,26 @@ export function normalizeRel(relPath: string): string | undefined {
   return resolved;
 }
 
+/**
+ * 工程的固定目录：改名/搬走会让工程结构散架（章节索引、草稿镜像、
+ * 元数据与会话）。文件页的根范围操作对这些路径一律拒绝。
+ */
+export function isProtectedPath(project: NovelProject, relPath: string): boolean {
+  const rel = normalizeRel(relPath);
+  if (!rel) {
+    return true;
+  }
+  const fixed = [
+    project.relPath(project.chaptersDir),
+    project.relPath(project.draftsDir),
+    '.novelforge',
+    '.novelforge/characters',
+    '.novelforge/lore',
+    '.novelforge/.trash',
+  ];
+  return fixed.includes(rel);
+}
+
 // ---------------------------------------------------------------- 新建文件夹
 
 /**
@@ -128,17 +148,36 @@ export async function newFolder(
  * 不该在改个标题时被顺手改掉。
  */
 export async function renameEntry(project: NovelProject, relPath: string): Promise<string | undefined> {
-  const target = await resolveTarget(project, relPath);
+  return renameEntryImpl(project, relPath, true);
+}
+
+/**
+ * 工程根范围的重命名（文件页用）。不再要求路径在三个管理区内，
+ * 但固定目录受 isProtectedPath 保护；章节的序号前缀/H1 同步与草稿跟随
+ * 在路径确实位于章节区时照常生效。
+ */
+export async function renameEntryInRoot(project: NovelProject, relPath: string): Promise<string | undefined> {
+  return renameEntryImpl(project, relPath, false);
+}
+
+async function renameEntryImpl(
+  project: NovelProject,
+  relPath: string,
+  requireSection: boolean
+): Promise<string | undefined> {
+  const target = requireSection
+    ? await resolveTarget(project, relPath)
+    : await resolveTargetInRoot(project, relPath);
   if (!target) {
     return undefined;
   }
-  const { abs, rel, info, isDir } = target;
+  const { abs, rel, isDir } = target;
 
   const base = path.basename(rel);
   const ext = isDir ? '' : path.extname(base);
   const stem = isDir ? base : base.slice(0, base.length - ext.length);
   // 章节的序号前缀单独拆出来，让用户只编辑标题部分。
-  const prefixMatch = !isDir && info.section === 'chapters' ? /^(\d{1,5}[-_.\s]*)(.*)$/.exec(stem) : null;
+  const prefixMatch = !isDir && target.info?.section === 'chapters' ? /^(\d{1,5}[-_.\s]*)(.*)$/.exec(stem) : null;
   const prefix = prefixMatch ? prefixMatch[1] : '';
   const editable = prefixMatch ? prefixMatch[2] : stem;
 
@@ -170,7 +209,7 @@ export async function renameEntry(project: NovelProject, relPath: string): Promi
   //
   // 只对 markdown 家族做：.txt 章节的标题本来就只取文件名，往里写一行 `# x`
   // 是凭空多出来的 markdown 痕迹；.json 章节则是直接写坏文件。
-  if (!isDir && info.section === 'chapters' && isMarkdownPath(rel)) {
+  if (!isDir && target.info?.section === 'chapters' && isMarkdownPath(rel)) {
     const body = await readText(abs);
     const updated = renamedBody(body, editable, nextStem);
     if (updated !== body) {
@@ -181,7 +220,7 @@ export async function renameEntry(project: NovelProject, relPath: string): Promi
 
   await fs.rename(abs, nextAbs);
   project.invalidate();
-  if (info.section === 'chapters') {
+  if (target.info?.section === 'chapters') {
     await carryDraft(project, rel, nextRel, isDir);
     await project.syncManifest();
   }
@@ -283,7 +322,7 @@ export async function moveEntry(
  *
  * 目标位置已有草稿时**不覆盖**：两份都留着，提示作者自己去合。
  */
-async function carryDraft(
+export async function carryDraft(
   project: NovelProject,
   fromRel: string,
   toRel: string,
@@ -476,6 +515,33 @@ async function resolveTarget(project: NovelProject, relPath: string): Promise<Re
   return { abs, rel, info, isDir };
 }
 
+/** 根范围解析：路径合法、不是固定目录、存在即可（不要求在三区内）。 */
+async function resolveTargetInRoot(project: NovelProject, relPath: string): Promise<ResolvedTarget | undefined> {
+  const rel = normalizeRel(relPath);
+  if (!rel) {
+    log.warn(`操作被拒：路径不合法`, `原始输入 ${JSON.stringify(relPath)}`);
+    getHost().toast('路径不合法。', 'error');
+    return undefined;
+  }
+  if (isProtectedPath(project, rel)) {
+    log.warn(`操作被拒：${rel} 是工程的固定目录`);
+    getHost().toast(`「${rel}」是工程的固定目录，不能改名或搬走。`, 'error');
+    return undefined;
+  }
+  const abs = project.pathOf(rel);
+  let isDir: boolean;
+  try {
+    isDir = (await fs.stat(abs)).isDirectory();
+  } catch {
+    log.warn(`操作被拒：找不到 ${rel}（可能刚被改名或删除）`);
+    getHost().toast(`找不到：${rel}`, 'error');
+    return undefined;
+  }
+  // 区外路径 info 为 undefined：下游用 `target.info?.section` 守卫。
+  const info = sectionOf(project, rel);
+  return { abs, rel, info: info as SectionInfo, isDir };
+}
+
 /** 把一个「目录相对路径」收敛到某个区内；不在区里返回 undefined。 */
 function resolveDirWithin(info: SectionInfo, dirRel?: string): string | undefined {
   if (dirRel === undefined || dirRel.trim() === '') {
@@ -488,7 +554,7 @@ function resolveDirWithin(info: SectionInfo, dirRel?: string): string | undefine
   return rel === info.root || rel.startsWith(`${info.root}/`) ? rel : undefined;
 }
 
-function validateName(value: string): string | undefined {
+export function validateName(value: string): string | undefined {
   const trimmed = value.trim();
   if (!trimmed) {
     return '不能为空';
