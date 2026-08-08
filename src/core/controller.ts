@@ -4,6 +4,7 @@ import { updateSettings, readConfig, readGlobalBudget } from './config';
 import { BuiltContext, ContextItem } from './context/builder';
 import { deleteEntry, moveEntry, newFolder, renameEntry, Section, sectionOf, sectionRoots } from './fileOps';
 import { listDirs } from './fileTree';
+import { copyInto, moveInto, renameAny } from './projectFiles';
 import { extractCharacters, newCharacter, newLore } from './features/characters';
 import { createCardForCast, updateCharacterCard } from './features/characterCard';
 import { ContinueSession } from './features/continueWriting';
@@ -34,7 +35,7 @@ import {
 import { NovelConfig } from './model/types';
 import {
   CharacterAction,
-  FileAction,
+  FileOpResult,
   InMessage,
   OutMessage,
   ProjectAction,
@@ -292,8 +293,7 @@ export class ChatController {
         return;
 
       case 'fileAction':
-        // relPath 在 rename/move/delete 下必带；paste/renameAny 的完整接线在后续任务。
-        await this.fileAction(msg.action, msg.relPath!, msg.targetDir);
+        await this.fileAction(msg);
         return;
 
       case 'characterAction':
@@ -914,21 +914,53 @@ export class ChatController {
   }
 
   /**
-   * 类文件操作。全部走 core/fileOps，越界与覆盖的检查都在那里，
-   * 这里只负责调完刷新一次。
+   * 类文件操作。工程页的 rename/move/delete 走 core/fileOps（三区锁定），
+   * 文件页的 renameAny/paste 走 core/projectFiles（根范围）。
+   * 有逐项结果的动作额外推 filesOpDone，前端据此 remap 编辑器标签。
    */
-  private async fileAction(action: FileAction, relPath: string, targetDir?: string): Promise<void> {
-    log.info(`文件动作：${action} ${relPath}`, targetDir ? `目标目录 ${targetDir}` : undefined);
+  private async fileAction(msg: Extract<InMessage, { type: 'fileAction' }>): Promise<void> {
+    const { action, relPath, relPaths, op, targetDir } = msg;
+    log.info(
+      `文件动作：${action}`,
+      [relPath ?? '', relPaths ? relPaths.join('、') : '', targetDir !== undefined ? `目标目录 ${targetDir || '（根）'}` : '']
+        .filter(Boolean)
+        .join('｜') || undefined
+    );
+    let results: FileOpResult[] | undefined;
     switch (action) {
       case 'rename':
-        await renameEntry(this.project, relPath);
+        if (relPath) {
+          await renameEntry(this.project, relPath);
+        }
+        break;
+      case 'renameAny':
+        if (relPath) {
+          results = [await renameAny(this.project, relPath)];
+        }
         break;
       case 'move':
-        await moveEntry(this.project, relPath, targetDir);
+        if (relPath) {
+          await moveEntry(this.project, relPath, targetDir);
+        }
         break;
       case 'delete':
-        await deleteEntry(this.project, relPath);
+        if (relPath) {
+          await deleteEntry(this.project, relPath);
+        }
         break;
+      case 'paste':
+        results =
+          op === 'copy'
+            ? await copyInto(this.project, relPaths ?? [], targetDir ?? '')
+            : await moveInto(this.project, relPaths ?? [], targetDir ?? '');
+        break;
+    }
+    if (results && results.length > 0) {
+      this.post({
+        type: 'filesOpDone',
+        op: action === 'renameAny' ? 'rename' : op === 'copy' ? 'copy' : 'move',
+        results,
+      });
     }
     await this.pushState();
   }
