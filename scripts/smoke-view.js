@@ -1368,6 +1368,68 @@ async function summaryTipTests() {
   await moveAway();
 }
 
+console.log('\n== 文件页：剪贴板与右键菜单 ==');
+{
+  const ui = mountExplorer();
+  const written = [];
+  ui.window.navigator.clipboard = { writeText: (t) => { written.push(t); return Promise.resolve(); } };
+  ui.doc.getElementById('pane-files').classList.add('active');
+  const rightClick = (node) => {
+    node.dispatchEvent(new ui.window.MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 60 }));
+    return ui.doc.querySelector('.ctx-menu');
+  };
+  const itemsOf = (menu) => [...menu.querySelectorAll('button')].map((b) => b.textContent);
+  const btn = (menu, label) => [...menu.querySelectorAll('button')].find((b) => b.textContent === label);
+  const clickEl = (node) => node.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const last = (type) => [...ui.sent].reverse().find((m) => m.type === type);
+  // render() 会整批重建行，每次操作后都要重新按名字找行。
+  const fileRowOf = (name) => ui.rows().find((r) => r.textContent.includes(name));
+
+  ui.post({ type: 'dirListings', listings: [ui.listing('', { '子目录': 'dir', 'a.md': 'file' })] });
+
+  const fileItems = itemsOf(rightClick(fileRowOf('a.md')));
+  check('文件行菜单含剪切/复制/粘贴/重命名',
+    ['剪切', '复制', '粘贴', '重命名'].every((l) => fileItems.includes(l)), JSON.stringify(fileItems));
+  check('没有剪贴板时粘贴置灰', btn(rightClick(fileRowOf('a.md')), '粘贴').disabled);
+  closeAnyMenu(ui);
+
+  // 复制：内部登记 + 路径外送系统剪贴板。
+  clickEl(btn(rightClick(fileRowOf('a.md')), '复制'));
+  check('复制把路径写进系统剪贴板', written.includes('a.md'), JSON.stringify(written));
+  check('粘贴变为可用', !btn(rightClick(fileRowOf('a.md')), '粘贴').disabled);
+  closeAnyMenu(ui);
+
+  // 在文件夹行上粘贴：落点是该文件夹。
+  clickEl(btn(rightClick(fileRowOf('子目录')), '粘贴'));
+  const pasteMsg = last('fileAction');
+  check('粘贴发 fileAction',
+    pasteMsg && pasteMsg.action === 'paste' && pasteMsg.op === 'copy' &&
+    pasteMsg.relPaths.join(',') === 'a.md' && pasteMsg.targetDir === '子目录',
+    JSON.stringify(pasteMsg));
+
+  // 复制态在粘贴后保留（可再粘）；重命名走 renameAny。
+  check('复制态粘贴后保留', !btn(rightClick(fileRowOf('子目录')), '粘贴').disabled);
+  closeAnyMenu(ui);
+  clickEl(btn(rightClick(fileRowOf('a.md')), '重命名'));
+  const ren = last('fileAction');
+  check('重命名发 renameAny', ren && ren.action === 'renameAny' && ren.relPath === 'a.md', JSON.stringify(ren));
+
+  // 剪切 + move 完成后清除剪切态。
+  clickEl(btn(rightClick(fileRowOf('a.md')), '剪切'));
+  check('剪切后行带 fx-cut 标记',
+    ui.rows().some((r) => r.classList.contains('fx-cut')));
+  ui.post({ type: 'filesOpDone', op: 'move', results: [{ from: 'a.md', to: '子目录/a.md', ok: true }] });
+  check('move 完成后剪切态清除', btn(rightClick(fileRowOf('子目录')), '粘贴').disabled);
+  closeAnyMenu(ui);
+
+  // 快捷键：焦点行上 Ctrl+C。
+  ui.post({ type: 'dirListings', listings: [ui.listing('', { 'b.md': 'file' })] });
+  const bRow = fileRowOf('b.md');
+  bRow.dispatchEvent(new ui.window.FocusEvent('focus', { bubbles: true }));
+  ui.doc.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }));
+  check('Ctrl+C 复制焦点行', written.includes('b.md'), JSON.stringify(written));
+}
+
 summaryTipTests().then(() => {
   console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
   process.exit(failures === 0 ? 0 : 1);

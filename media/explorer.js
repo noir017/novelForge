@@ -33,6 +33,56 @@
   /** 编辑器里当前激活的文件路径，树上高亮它。 */
   let activeFile = null;
 
+  /**
+   * 文件剪贴板：剪切/复制只是登记，真正的磁盘动作只有「粘贴」一次。
+   * 同时把相对路径以纯文本写进系统剪贴板（仅外送，不读回）——
+   * 在别处粘贴得到的是路径字符串。
+   */
+  let clipboard = null; // { op: 'cut' | 'copy', paths: string[] }
+
+  /** 当前选中行（点击或键盘焦点到达的行）。Ctrl+X/C/V 作用在它上面。 */
+  let selectedEntry = null;
+
+  function parentOf(relPath) {
+    const i = relPath.lastIndexOf('/');
+    return i === -1 ? '' : relPath.slice(0, i);
+  }
+
+  function setClipboard(op, paths) {
+    clipboard = { op, paths };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(paths.join('\n')).catch(() => {});
+    }
+    toast(`${op === 'cut' ? '已剪切' : '已复制'} ${paths.length} 项`);
+    render();
+  }
+
+  function pasteInto(destDir) {
+    if (!clipboard) return;
+    vscode.postMessage({
+      type: 'fileAction',
+      action: 'paste',
+      op: clipboard.op,
+      relPaths: clipboard.paths,
+      targetDir: destDir,
+    });
+  }
+
+  /** 剪切/复制/粘贴/重命名四项。文件与文件夹行共用。 */
+  function clipboardItems(entry) {
+    const dest = entry.kind === 'dir' ? entry.relPath : parentOf(entry.relPath);
+    return [
+      { label: '剪切', run: () => setClipboard('cut', [entry.relPath]) },
+      { label: '复制', run: () => setClipboard('copy', [entry.relPath]) },
+      { label: '粘贴', disabled: !clipboard, run: () => pasteInto(dest) },
+      {
+        label: '重命名',
+        run: () => vscode.postMessage({ type: 'fileAction', action: 'renameAny', relPath: entry.relPath }),
+      },
+      { sep: true },
+    ];
+  }
+
   // ---------------------------------------------------------------- 与后端往返
 
   /** 把当前展开集合整个报给后端。折叠也走这条——少一条「取消关注」的消息。 */
@@ -148,6 +198,7 @@
     const row = document.createElement('div');
     row.className = 'fx-row';
     row.style.paddingLeft = `${8 + depth * 14}px`;
+    row.tabIndex = 0;
     return row;
   }
 
@@ -174,8 +225,17 @@
     if (entry.name.startsWith('.')) row.classList.add('fx-dotted');
     row.appendChild(name);
 
-    row.addEventListener('click', () => toggleDir(entry.relPath));
+    // 剪切源压暗，与 VS Code 一致。
+    if (clipboard && clipboard.op === 'cut' && clipboard.paths.includes(entry.relPath)) {
+      row.classList.add('fx-cut');
+    }
+    row.addEventListener('focus', () => { selectedEntry = entry; });
+    row.addEventListener('click', () => {
+      selectedEntry = entry;
+      toggleDir(entry.relPath);
+    });
     onContextMenu(row, () => [
+      ...clipboardItems(entry),
       { label: open ? '折叠' : '展开', run: () => toggleDir(entry.relPath) },
       { label: '在系统中打开', run: () => vscode.postMessage({ type: 'openExternal', path: entry.relPath }) },
       { sep: true },
@@ -212,8 +272,16 @@
     row.appendChild(size);
 
     row.title = `${entry.relPath}${entry.editable ? '' : '（不是文本文件，将用系统默认程序打开）'}`;
-    row.addEventListener('click', () => openEntry(entry));
+    if (clipboard && clipboard.op === 'cut' && clipboard.paths.includes(entry.relPath)) {
+      row.classList.add('fx-cut');
+    }
+    row.addEventListener('focus', () => { selectedEntry = entry; });
+    row.addEventListener('click', () => {
+      selectedEntry = entry;
+      openEntry(entry);
+    });
     onContextMenu(row, () => [
+      ...clipboardItems(entry),
       {
         label: entry.editable ? '打开' : '打开（外部程序）',
         run: () => openEntry(entry),
@@ -275,6 +343,41 @@
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
 
+  // ---------------------------------------------------------------- 剪贴板快捷键与空白区菜单
+
+  // 树里的空白处（没命中任何行）：给一条粘贴到工程根。
+  onContextMenu(body, () => [
+    { label: '粘贴到工程根目录', disabled: !clipboard, run: () => pasteInto('') },
+    { sep: true },
+    {
+      label: '刷新',
+      run: () => {
+        for (const dir of openDirs) pending.add(dir);
+        requestDirs();
+      },
+    },
+  ]);
+
+  // 快捷键只认「文件」页激活且树里有选中行——编辑器里的文本
+  // Ctrl+C/V 走不到这里（焦点不在树上），互不干扰。
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || !selectedEntry) return;
+    const pane = document.getElementById('pane-files');
+    if (!pane || !pane.classList.contains('active')) return;
+    const key = e.key.toLowerCase();
+    if (key === 'c') {
+      e.preventDefault();
+      setClipboard('copy', [selectedEntry.relPath]);
+    } else if (key === 'x') {
+      e.preventDefault();
+      setClipboard('cut', [selectedEntry.relPath]);
+    } else if (key === 'v') {
+      e.preventDefault();
+      const dest = selectedEntry.kind === 'dir' ? selectedEntry.relPath : parentOf(selectedEntry.relPath);
+      pasteInto(dest);
+    }
+  });
+
   // ---------------------------------------------------------------- 工具栏
 
   document.getElementById('filesRefresh').addEventListener('click', () => {
@@ -318,6 +421,22 @@
         listings.set(listing.relPath, listing);
         pending.delete(listing.relPath);
       }
+      render();
+      return;
+    }
+
+    // 文件操作完成：剪切态清除（仅 move 成功时），改名/搬家的结果广播给
+    // 编辑器 remap 标签。复制态保留——可以在别处再粘一次。
+    if (msg.type === 'filesOpDone') {
+      if (msg.op === 'move' && clipboard && clipboard.op === 'cut') clipboard = null;
+      for (const r of msg.results) {
+        if (r.ok && r.to && (msg.op === 'rename' || msg.op === 'move')) {
+          window.dispatchEvent(new CustomEvent('nf-files-moved', { detail: { from: r.from, to: r.to } }));
+        }
+      }
+      // 不清空 pending：已有结果的目录保持显示，只标记待刷新，避免闪「载入中」。
+      for (const dir of openDirs) pending.add(dir);
+      requestDirs();
       render();
       return;
     }

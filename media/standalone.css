@@ -762,6 +762,16 @@ body.resizing {
   background: var(--vscode-list-hoverBackground);
 }
 
+/* 剪切源压暗；行可聚焦（Ctrl+X/C/V 的作用对象）。 */
+.fx-row.fx-cut {
+  opacity: 0.55;
+}
+
+.fx-row:focus {
+  outline: 1px solid var(--vscode-focusBorder, rgba(128, 128, 128, 0.6));
+  outline-offset: -1px;
+}
+
 .fx-row.active {
   background: var(--vscode-list-activeSelectionBackground);
   border-left-color: var(--vscode-focusBorder);
