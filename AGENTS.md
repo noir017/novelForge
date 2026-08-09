@@ -14,7 +14,7 @@ npm run compile          # esbuild 打包到 dist/extension.js + dist/media/ 的
 npm run watch            # 监听构建（两边都监听）
 npm run media            # 只构建前端资源（media/src → dist/media/）
 npm run typecheck        # tsc --noEmit，含 media/tsconfig.json，必须零错误
-npm run smoke             # 十一个离线冒烟测试，不需要 API Key
+npm run smoke             # 十三个离线冒烟测试，不需要 API Key
 npm test                 # typecheck + smoke
 ```
 
@@ -61,16 +61,17 @@ npm test                 # typecheck + smoke
 1. **容错优先**：作者会手改任何 Markdown；解析失败退化为忽略，绝不抛崩。
 2. **不静默截断**：装配器降级/丢弃任何条目都必须留在明细里并附原因。
 3. **不静默覆盖**：角色卡更新走 diff 确认；style.md 覆盖前先问；「采纳写入」前正文只存在会话里；类文件操作遇到同名目标一律报错退出；内置编辑器保存走内容 hash 乐观锁（[src/core/fileEditing.ts](src/core/fileEditing.ts)），磁盘变过就报冲突让用户取舍。
-4. **不偷偷烧 token**：摘要不自动生成，只提示过期。要分多次调模型的动作（更新角色卡可能分十几批）必须在动手前的确认框里写明预计调用次数。
+4. **不偷偷烧 token**：摘要不自动生成，只提示过期。要分多次调模型的动作（更新角色卡可能分十几批、批量建卡可能是几十个人）必须在动手前的确认框里写明预计调用次数。并发不改变总次数，这个数在并发下依然要对得上账。
 5. **模型引用只在第一个斜杠处切分**：`openrouter/z-ai/glm-4.6` 中服务商前缀是 `openrouter`。
 6. **不真删**：工程页的删除（以及会话删除）一律搬进 `.novelforge/.trash/` 并保留原相对路径。
 7. **文件访问不越界**：工程页的类文件操作锁在章节/角色/设定三个区内（`core/fileOps.ts` 的 `normalizeRel` / `sectionOf`）；独立版的读写另有一层——路径落在工程根内、大小上限、以及「纯文本扩展名白名单 ∪ 章节文件名规则」，全在 `fileEditing.ts` 里兜住。独立版「文件」页的写入口只经 `core/projectFiles.ts`（重命名/移动/复制锁在工程根内，`chapters/`、`drafts/`、`.novelforge` 等固定目录受 `isProtectedPath` 保护，同名绝不覆盖，`.trash` 内容不可操作），目录列举（`core/fileTree.ts`）仍只读。服务无鉴权（只绑 127.0.0.1），别在别处绕过这几处直接读写。
 8. **层级只是收纳**：章节顺序永远由文件名数字前缀决定，与所在目录层级无关；分卷不重置编号，也不影响上下文装配与摘要新鲜度。草稿按章节在章节根之下的相对路径镜像存放，文件名（含扩展名）原样沿用。
 9. **章节不认扩展名**：章节根下「数字前缀 + 扩展名不在二进制黑名单里」的文件都是章节（`001-楔子.txt`、`001-楔子`、`004.json` 都算，`.png/.docx/.zip` 不算），规则只在 [src/core/model/chapterFile.ts](src/core/model/chapterFile.ts) 里定义一次。`.md`/`.markdown` 之外的章节**不解析 `# 标题`**，标题只取文件名——`extractH1` 与 `stripH1` 都只看首行，两者必须保持互逆。角色/设定区不跟着放宽，仍然只认 `.md`。
 10. **草稿不进上下文**：`drafts/` 只有作者显式 `@` 引用才进 prompt，装配器永不自动读它。按需创建（首次点「打开草稿」），已存在绝不覆盖；章节改名/移动时草稿跟着走，删章节不删草稿（确认框里会说明）。
-11. **不闷着干活**：任何要调模型或跑几十秒的动作都必须看得见——走 [src/core/progress.ts](src/core/progress.ts) 的 `runTask`（工程页顶部出进度条：n/N、百分比、计时、可停止），并在 [src/core/logger.ts](src/core/logger.ts) 里留下开始/每步/结束与耗时。日志页（第四个页签）是用户唯一能事后复查「刚才那 76 章卡在哪」的地方。**日志里绝不出现 API Key**（统一走 `redact`），也**绝不记 prompt 或正文全文**（只记条数与字数）。
-12. **摘要是出场人物的唯一真相**：单章摘要让模型输出 JSON，解析后落盘仍是 Markdown（作者要手改），结构化的出场人物写进 frontmatter 的 `cast`。角色卡里的 `appearsIn` / `updatedThrough` 只是缓存，要用就经 [src/core/cast.ts](src/core/cast.ts) 的 `buildCastIndex()` 从摘要重算。摘要解析必须保留三层降级（JSON → Markdown 小节 → 全文进梗概）——解析失败等于这一章的剧情永远进不了上下文。
-13. **角色卡不能无限膨胀**：它每次续写都要注入上下文。更新角色卡的提示词给每一节都定了字数上限，并明确「性格 / 语言习惯」优先、外貌与人物关系从简。加字段或改提示词时别把这条抹掉。
+11. **不闷着干活**：任何要调模型或跑几十秒的动作都必须看得见——走 [src/core/progress.ts](src/core/progress.ts) 的 `runTask`（工程页顶部出进度条：n/N、百分比、计时、可停止），并在 [src/core/logger.ts](src/core/logger.ts) 里留下开始/每步/结束与耗时。日志页（第四个页签）是用户唯一能事后复查「刚才那 76 章卡在哪」的地方。**日志里绝不出现 API Key**（统一走 `redact`），也**绝不记 prompt 或正文全文**（只记条数与字数）。并发跑时（[src/core/concurrency.ts](src/core/concurrency.ts) 的 `runPool`）`current` **只在一项真正结束时 +1**，message 报「已完成 n/N + 正在跑哪几项」——按启动数递增会让进度条冲到头然后干等。
+12. **模型引用只在工程页任务里 fallback**：工程页的后台任务经 [src/core/llm/pool.ts](src/core/llm/pool.ts) 取模型（串行恒用 `models[0]`、失败随机换；并发轮转做负载均衡）；**对话页续写与连接测试严格用用户选定的那个模型**，中途换人会让文风断掉。构造池时只有首选模型能弹 API Key 输入框，备选缺 Key 一律剔除并 warn。
+13. **摘要是出场人物的唯一真相**：单章摘要让模型输出 JSON，解析后落盘仍是 Markdown（作者要手改），结构化的出场人物写进 frontmatter 的 `cast`。角色卡里的 `appearsIn` / `updatedThrough` 只是缓存，要用就经 [src/core/cast.ts](src/core/cast.ts) 的 `buildCastIndex()` 从摘要重算。摘要解析必须保留三层降级（JSON → Markdown 小节 → 全文进梗概）——解析失败等于这一章的剧情永远进不了上下文。
+14. **角色卡不能无限膨胀**：它每次续写都要注入上下文。更新角色卡的提示词给每一节都定了字数上限，并明确「性格 / 语言习惯」优先、外貌与人物关系从简。加字段或改提示词时别把这条抹掉。
 
 ## 提交约定
 

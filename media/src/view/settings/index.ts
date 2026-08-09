@@ -39,7 +39,7 @@ export function renderSettings(
   }
 
   draft.providers = JSON.parse(JSON.stringify(settings.providers || []));
-  draft.model = settings.model || '';
+  draft.models = [...(settings.models || [])];
   draft.keys = nextKeys;
   for (const [key, id] of Object.entries(BUDGET_FIELDS)) {
     const node = maybeById<HTMLInputElement>(id);
@@ -52,7 +52,7 @@ export function renderSettings(
 }
 
 function save(): void {
-  const settings = { providers: draft.providers, model: draft.model } as SettingsPayload;
+  const settings = { providers: draft.providers, models: draft.models } as SettingsPayload;
   for (const [key, id] of Object.entries(BUDGET_FIELDS)) {
     settings[key as BudgetField] = Number(byId<HTMLInputElement>(id).value);
   }
@@ -71,11 +71,15 @@ function save(): void {
     return;
   }
 
-  // 当前选中的模型如果已经被删掉了，退回第一个可用的，
-  // 而不是保存一个指向空气的引用。
+  // 列表里指向已删模型的项要摘掉，而不是保存一串指向空气的引用；
+  // 全摘光了退回第一个可用的，别让工程页任务无模型可用。
   const refs = allRefs();
-  if (!refs.includes(settings.model)) {
-    settings.model = refs[0] || '';
+  settings.models = draft.models.filter((m) => refs.includes(m));
+  if (settings.models.length === 0 && refs.length > 0) {
+    settings.models = [refs[0]];
+  }
+  if (settings.models.length !== draft.models.length) {
+    toast('默认模型列表里有已删除的模型，已自动摘掉。');
   }
   vscode.postMessage({ type: 'saveSettings', settings });
 }
@@ -83,12 +87,6 @@ function save(): void {
 export function installSettings(): void {
   bindOpenModal(openProviderModal);
   installProviderModal();
-
-  const defaultModel = maybeById<HTMLSelectElement>('setDefaultModel');
-  defaultModel?.addEventListener('change', () => {
-    draft.model = defaultModel.value;
-    touch();
-  });
 
   for (const id of Object.values(BUDGET_FIELDS)) {
     maybeById(id)?.addEventListener('input', touch);

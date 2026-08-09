@@ -136,3 +136,65 @@
 .key-status.set {
   color: var(--vscode-testing-iconPassed, #89d185);
 }
+
+/* 「默认模型」有序列表。顺序即优先级，所以行首要有序号、首项要有标记。 */
+#defaultModelList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.model-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.08));
+}
+
+.model-order {
+  min-width: 1.2em;
+  text-align: right;
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.model-entry-ref {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+}
+
+.model-tag {
+  font-size: 0.75em;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  white-space: nowrap;
+}
+
+.model-tag.danger {
+  background: var(--vscode-inputValidation-errorBackground, rgba(190, 70, 70, 0.5));
+  color: var(--vscode-errorForeground, inherit);
+}
+
+.model-ops {
+  display: flex;
+  gap: 4px;
+}
+
+.model-ops button.secondary.small {
+  padding: 1px 7px;
+  font-size: 0.85em;
+}
+
+.model-add select {
+  width: 100%;
+}

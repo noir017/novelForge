@@ -36,7 +36,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 
 各子目录的划分：
 
-- **`src/view/`** —— `refs`（页面上固定 id 的节点）、`store`（运行时状态与草稿存取）、`format` / `buttons` / `toast` / `menu`（通用件）、`tabs` / `state` / `messages` / `composer` / `history` / `tasks` / `logs` / `prompt`（各块），外加 `project/`（工程页：`actions` `treeState` `rows` `groups` `summaryTip`）与 `settings/`（设置页：`presets` `draft` `fields` `providerList` `providerModal`）两个子目录。`index.ts` 只做装配与消息分发。
+- **`src/view/`** —— `refs`（页面上固定 id 的节点）、`store`（运行时状态与草稿存取）、`format` / `buttons` / `toast` / `menu`（通用件）、`tabs` / `state` / `messages` / `composer` / `history` / `tasks` / `logs` / `prompt`（各块），外加 `project/`（工程页：`actions` `treeState` `rows` `groups` `summaryTip`）与 `settings/`（设置页：`presets` `draft` `fields` `modelList` `providerList` `providerModal`）两个子目录。`index.ts` 只做装配与消息分发。
 - **`src/editor/`** —— `paneElements`（一块编辑区的类型与 DOM）、`pane`（工厂，两块编辑区是它的两个实例）、`store`（两块之间共享的状态与 localStorage）、`shell`（主题/拖拽/窄屏）、`preview` / `clipboard` / `words`。
 - **`src/explorer/`** —— `state`（展开集合、剪贴板、高亮）、`actions`（发消息）、`rows`（建行与菜单）。
 

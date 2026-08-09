@@ -1,12 +1,17 @@
 import { dirBaseName, initProjectFlow, newChapterFlow } from './actions';
 import { listAttachmentChoices } from './attachments';
-import { updateSettings, readConfig, readGlobalBudget } from './config';
+import { normalizeModelList, promoteModel, updateSettings, readConfig, readGlobalBudget } from './config';
 import { BuiltContext, ContextItem } from './context/builder';
 import { deleteEntry, moveEntry, newFolder, renameEntry, Section, sectionOf, sectionRoots } from './fileOps';
 import { listDirs } from './fileTree';
 import { copyInto, moveInto, renameAny } from './projectFiles';
 import { extractCharacters, newCharacter, newLore } from './features/characters';
-import { createCardForCast, updateAllCharacterCards, updateCharacterCard } from './features/characterCard';
+import {
+  createCardForCast,
+  createCardsForAllCast,
+  updateAllCharacterCards,
+  updateCharacterCard,
+} from './features/characterCard';
 import { ContinueSession } from './features/continueWriting';
 import { extractStyle } from './features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from './features/summarize';
@@ -484,7 +489,7 @@ export class ChatController {
             maxOutputTokens: m.maxOutputTokens,
           })),
         })),
-        model: c.model,
+        models: c.models,
         contextWindow: budget.contextWindow,
         maxOutputTokens: budget.maxOutputTokens,
         temperature: c.temperature,
@@ -492,6 +497,8 @@ export class ChatController {
         prevChapterTailChars: c.prevChapterTailChars,
         summaryBatchSize: c.summaryBatchSize,
         requestTimeoutMs: c.requestTimeoutMs,
+        concurrency: c.concurrency,
+        fallbackAttempts: c.fallbackAttempts,
       },
       keys: await apiKeyStatus(c.providers),
     });
@@ -987,6 +994,9 @@ export class ChatController {
       case 'createCard':
         await createCardForCast(this.project, name);
         break;
+      case 'createAllCards':
+        await createCardsForAllCast(this.project);
+        break;
       case 'updateAllCards':
         await updateAllCharacterCards(this.project, 'incremental');
         break;
@@ -1013,9 +1023,12 @@ export class ChatController {
       return;
     }
 
+    const models = normalizeModelList(s.models);
     await updateSettings({
       providers,
-      model: s.model.trim(),
+      // 列表是唯一真相；updateSettings 会顺手把 model 对齐到首项。
+      models,
+      model: models[0] ?? '',
       contextWindow: s.contextWindow,
       maxOutputTokens: s.maxOutputTokens,
       temperature: s.temperature,
@@ -1023,6 +1036,8 @@ export class ChatController {
       prevChapterTailChars: s.prevChapterTailChars,
       summaryBatchSize: s.summaryBatchSize,
       requestTimeoutMs: s.requestTimeoutMs,
+      concurrency: s.concurrency,
+      fallbackAttempts: s.fallbackAttempts,
     });
 
     // 删掉的服务商不该在钥匙串里留下孤儿 Key。
@@ -1030,15 +1045,21 @@ export class ChatController {
 
     log.info(
       '设置已保存',
-      `${providers.length} 个服务商｜当前模型 ${s.model.trim() || '（未选）'}｜` +
-        `窗口 ${s.contextWindow}／输出 ${s.maxOutputTokens}｜温度 ${s.temperature}｜超时 ${s.requestTimeoutMs}ms`
+      `${providers.length} 个服务商｜默认模型 ${models.join('、') || '（未选）'}｜` +
+        `窗口 ${s.contextWindow}／输出 ${s.maxOutputTokens}｜温度 ${s.temperature}｜超时 ${s.requestTimeoutMs}ms｜` +
+        `并发 ${s.concurrency}｜换模型重试 ${s.fallbackAttempts} 次`
     );
     await this.pushSettings('saved');
     await this.pushState();
     this.toast('设置已保存。');
   }
 
-  /** 输入框旁边的模型下拉框。只改选中项，不动服务商列表。 */
+  /**
+   * 输入框旁边的模型下拉框。只改选中项，不动服务商列表。
+   *
+   * 「默认模型列表」是唯一真相，所以这里不是覆盖某个字段，而是**把选中的
+   * 模型提到列表头**——设置页里排的顺序其余部分原样保留。
+   */
   private async selectModel(ref: string): Promise<void> {
     const config = readConfig();
     if (!resolveModelRef(config.providers, ref)) {
@@ -1048,9 +1069,11 @@ export class ChatController {
       await this.pushState();
       return;
     }
-    await updateSettings({ model: ref });
-    log.info(`已切换到模型 ${ref}`);
+    const models = await promoteModel(ref);
+    log.info(`已切换到模型 ${ref}`, models.length > 1 ? `默认模型列表：${models.join('、')}` : undefined);
     await this.pushState();
+    // 设置页开着时，列表顺序变了要立刻看得见。
+    await this.pushSettings();
   }
 
   private async testConnection(ref?: string, provider?: SerializedProvider): Promise<void> {

@@ -1,6 +1,6 @@
 import { getHost } from '../host';
 import { ChatOptions, collectStream } from '../llm/provider';
-import { resolveProvider } from '../llm/registry';
+import { createModelPool } from '../llm/pool';
 import { readConfig } from '../config';
 import { elapsed, scoped } from '../logger';
 import { runTask } from '../progress';
@@ -53,8 +53,9 @@ export async function extractStyle(project: NovelProject): Promise<void> {
     log.warn('用户确认覆盖已有文风指南', `原内容 ${existing.length} 字`);
   }
 
-  const provider = await resolveProvider();
-  if (!provider) {
+  // 只有一次调用，谈不上并发；走池是为了拿到「首选失败就换模型」。
+  const pool = await createModelPool({ concurrent: false });
+  if (!pool) {
     log.error('没有可用的模型，提取中止');
     return;
   }
@@ -62,7 +63,7 @@ export async function extractStyle(project: NovelProject): Promise<void> {
   const samples = picked.slice(0, 3);
   log.info(
     `准备从 ${samples.length} 章样章提取文风`,
-    `章节 ${samples.map((c) => c.order).join('、')}｜模型 ${provider.label}`
+    `章节 ${samples.map((c) => c.order).join('、')}｜模型 ${pool.label}`
   );
 
   await runTask(
@@ -93,13 +94,15 @@ export async function extractStyle(project: NovelProject): Promise<void> {
         signal,
       };
       const modelStart = Date.now();
-      const raw = await collectStream(
-        provider.chatStream(
-          [
-            { role: 'system', content: STYLE_SYSTEM },
-            { role: 'user', content: corpus },
-          ],
-          options
+      const raw = await pool.run('提取文风', (llm) =>
+        collectStream(
+          llm.chatStream(
+            [
+              { role: 'system', content: STYLE_SYSTEM },
+              { role: 'user', content: corpus },
+            ],
+            options
+          )
         )
       );
       log.info('模型已返回', `${raw.length} 字，用时 ${elapsed(modelStart)}`);

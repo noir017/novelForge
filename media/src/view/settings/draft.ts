@@ -8,12 +8,12 @@ import type { SerializedProvider } from '../../protocol';
 
 export const draft: {
   providers: SerializedProvider[];
-  /** 默认模型引用，形如 `glm/glm-4-plus`。 */
-  model: string;
+  /** 默认模型列表（有序，第一个是首选），每项形如 `glm/glm-4-plus`。 */
+  models: string[];
   /** providerId -> 有没有存过 API Key。Key 本身从不回显。 */
   keys: Record<string, boolean>;
   dirty: boolean;
-} = { providers: [], model: '', keys: {}, dirty: false };
+} = { providers: [], models: [], keys: {}, dirty: false };
 
 export function touch(): void {
   draft.dirty = true;

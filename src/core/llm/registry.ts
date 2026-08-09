@@ -70,20 +70,35 @@ export async function resolveProvider(ref?: string): Promise<LlmProvider | undef
 }
 
 /** 已知模型时直接构造，不再读配置。 */
-export async function buildProvider(active: ActiveModel): Promise<LlmProvider | undefined> {
+export async function buildProvider(
+  active: ActiveModel,
+  opts: BuildProviderOptions = {}
+): Promise<LlmProvider | undefined> {
   const { profile, model } = active;
+  const quiet = opts.promptForKey === false;
 
   if (profile.kind === 'vscode-lm') {
     const provider = extraFactory?.(active);
     if (!provider) {
-      log.error('当前环境不提供 VS Code 语言模型（Copilot）', `引用 ${active.ref}`);
+      const detail = `引用 ${active.ref}`;
+      if (quiet) {
+        log.warn('当前环境不提供 VS Code 语言模型（Copilot）', detail);
+      } else {
+        log.error('当前环境不提供 VS Code 语言模型（Copilot）', detail);
+      }
     }
     return provider;
   }
 
-  const key = await ensureApiKey(profile);
+  const key = quiet ? await lookupApiKey(profile) : await ensureApiKey(profile);
   if (!key) {
-    log.error(`未取得「${providerLabel(profile)}」的 API Key`, `引用 ${active.ref}`);
+    const message = `未取得「${providerLabel(profile)}」的 API Key`;
+    // 静默构造用于备选模型：缺 Key 只是把它排除在池外，不是错误。
+    if (quiet) {
+      log.warn(message, `引用 ${active.ref}｜可在设置页录入后重新参与`);
+    } else {
+      log.error(message, `引用 ${active.ref}`);
+    }
     return undefined;
   }
   const baseUrl = profile.baseUrl || defaultBaseUrl(profile.kind);
@@ -91,6 +106,15 @@ export async function buildProvider(active: ActiveModel): Promise<LlmProvider | 
   return profile.kind === 'anthropic'
     ? new AnthropicProvider(baseUrl, model.name, key)
     : new OpenAiProvider(baseUrl, model.name, key);
+}
+
+export interface BuildProviderOptions {
+  /**
+   * 缺 API Key 时是否弹输入框引导录入。缺省 true（与用户点了某个动作的
+   * 直觉一致）。**模型池构造备选模型时必须传 false**——一个池里有五个
+   * 模型就连弹五个输入框，那比没有 fallback 还糟。
+   */
+  promptForKey?: boolean;
 }
 
 async function ensureApiKey(profile: ProviderProfile): Promise<string | undefined> {

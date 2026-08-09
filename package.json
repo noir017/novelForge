@@ -275,10 +275,35 @@
           },
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
+        "novel.models": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "默认模型列表，按顺序，第一个是首选。格式为 `前缀/模型名`。工程页的摘要 / 角色卡 / 文风任务串行时用第一个，失败会随机换用其余（见 `novel.fallbackAttempts`）；并发时在列表里轮转做负载均衡。留空则退化为 `novel.model` 单个模型。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
+        },
         "novel.model": {
           "type": "string",
           "default": "",
-          "markdownDescription": "当前使用的模型，格式为 `前缀/模型名`，例如 `glm/glm-4-plus`、`openrouter/z-ai/glm-4.6`。留空则取第一个可用模型。",
+          "markdownDescription": "当前使用的模型，格式为 `前缀/模型名`，例如 `glm/glm-4-plus`、`openrouter/z-ai/glm-4.6`。恒等于 `novel.models` 的第一项（对话页切换模型会把它提到列表首位）。留空则取第一个可用模型。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
+        },
+        "novel.concurrency": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 16,
+          "markdownDescription": "工程页批量任务（同步摘要、重建全书摘要、批量更新角色卡、批量建卡）的并发请求数。1 表示串行。调大能显著缩短等待，但更容易撞上服务商的限流（429）。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
+        },
+        "novel.fallbackAttempts": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 5,
+          "markdownDescription": "工程页任务里一次调用失败后，换用 `novel.models` 中其它模型重试的次数上限。0 表示不重试。列表里只有一个模型时不生效。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.contextWindow": {
@@ -398,7 +423,7 @@
     "pretypecheck": "node scripts/embed-media.js",
     "typecheck": "tsc --noEmit && tsc --noEmit -p media/tsconfig.json",
     "presmoke": "node scripts/embed-media.js",
-    "smoke": "node scripts/smoke.js && node scripts/smoke-providers.js && node scripts/smoke-view.js && node scripts/smoke-builder.js && node scripts/smoke-fileops.js && node scripts/smoke-projectFiles.js && node scripts/smoke-chapters.js && node scripts/smoke-characterCard.js && node scripts/smoke-logging.js && node scripts/smoke-llm.js && node scripts/smoke-session.js && bun scripts/smoke-server.js",
+    "smoke": "node scripts/smoke.js && node scripts/smoke-providers.js && node scripts/smoke-view.js && node scripts/smoke-builder.js && node scripts/smoke-fileops.js && node scripts/smoke-projectFiles.js && node scripts/smoke-chapters.js && node scripts/smoke-pool.js && node scripts/smoke-characterCard.js && node scripts/smoke-logging.js && node scripts/smoke-llm.js && node scripts/smoke-session.js && bun scripts/smoke-server.js",
     "test": "npm run typecheck && node scripts/check-core-purity.js && npm run smoke",
     "standalone": "node scripts/embed-media.js && bun run src/standalone/main.ts",
     "dist": "node scripts/embed-media.js && bun build src/standalone/main.ts --compile --outfile dist/novelforge"

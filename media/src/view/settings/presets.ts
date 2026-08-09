@@ -21,6 +21,8 @@ export const BUDGET_FIELDS = {
   prevChapterTailChars: 'setPrevChapterTailChars',
   summaryBatchSize: 'setSummaryBatchSize',
   requestTimeoutMs: 'setRequestTimeoutMs',
+  concurrency: 'setConcurrency',
+  fallbackAttempts: 'setFallbackAttempts',
 } as const;
 
 export type BudgetField = keyof typeof BUDGET_FIELDS;

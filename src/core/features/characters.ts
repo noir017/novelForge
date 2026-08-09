@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import { getHost } from '../host';
 import { collectStream, ChatOptions } from '../llm/provider';
-import { resolveProvider } from '../llm/registry';
+import { createModelPool } from '../llm/pool';
 import { readConfig } from '../config';
 import { resolveSectionDir } from '../fileOps';
 import { elapsed, scoped } from '../logger';
@@ -40,8 +40,9 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
     return;
   }
 
-  const provider = await resolveProvider();
-  if (!provider) {
+  // 一批章节一次调用，谈不上并发；走池是为了拿到「首选失败就换模型」。
+  const pool = await createModelPool({ concurrent: false });
+  if (!pool) {
     log.error('没有可用的模型，提取中止');
     return;
   }
@@ -49,7 +50,7 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
   const existing = await project.listCharacters();
   log.info(
     `准备从 ${picked.length} 章提取角色`,
-    `章节 ${picked.map((c) => c.order).join('、')}｜已有角色卡 ${existing.length} 张｜模型 ${provider.label}`
+    `章节 ${picked.map((c) => c.order).join('、')}｜已有角色卡 ${existing.length} 张｜模型 ${pool.label}`
   );
 
   await runTask(
@@ -76,16 +77,18 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
         signal,
       };
       const modelStart = Date.now();
-      const raw = await collectStream(
-        provider.chatStream(
-          [
-            { role: 'system', content: CHARACTER_SYSTEM },
-            {
-              role: 'user',
-              content: `已有角色卡（同一人请沿用既有名字，不要另起新名）：\n${knownList}\n\n以下是正文：\n\n${corpus}`,
-            },
-          ],
-          options
+      const raw = await pool.run('提取角色', (llm) =>
+        collectStream(
+          llm.chatStream(
+            [
+              { role: 'system', content: CHARACTER_SYSTEM },
+              {
+                role: 'user',
+                content: `已有角色卡（同一人请沿用既有名字，不要另起新名）：\n${knownList}\n\n以下是正文：\n\n${corpus}`,
+              },
+            ],
+            options
+          )
         )
       );
       log.info('模型已返回', `${raw.length} 字，用时 ${elapsed(modelStart)}`);

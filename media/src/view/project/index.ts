@@ -68,6 +68,10 @@ export function renderProject(tree: ProjectTree): void {
   if (tree.cast && tree.cast.length > 0) {
     el.projectBody.appendChild(
       buildGroup('cast', '出场人物 · 未建卡', `${tree.cast.length} 人`, {
+        extraItems: () => [
+          { label: `给全部 ${tree.cast.length} 人建卡`, run: () => characterAction('createAllCards') },
+          { sep: true },
+        ],
         build: () => tree.cast.map(buildCastRow),
       })
     );

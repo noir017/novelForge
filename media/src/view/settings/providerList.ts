@@ -1,13 +1,14 @@
 /**
  * 设置页的服务商列表：一堆概要卡片，详细配置在弹窗里改。
- * 另含「默认模型」下拉框——选项跟着服务商列表走，所以在同一处刷新。
+ * 「默认模型」列表跟着它走（模型可能被删掉），所以在同一处刷新。
  */
-import { el as mk, maybeById } from '../../dom';
+import { el as mk } from '../../dom';
 import type { SerializedProvider } from '../../protocol';
 import { smallBtn } from '../buttons';
 import { el } from '../refs';
 import { toast } from '../toast';
 import { draft, touch } from './draft';
+import { renderModelList } from './modelList';
 import { KIND_LABEL } from './presets';
 
 /** 由 index.ts 注入：卡片上的「配置」要开弹窗，而弹窗又要能刷新卡片。 */
@@ -35,7 +36,7 @@ export function renderProviders(): void {
   for (const p of draft.providers) {
     el.providerList.appendChild(buildProviderCard(p));
   }
-  fillDefaultModelOptions();
+  renderModelList();
 }
 
 function buildProviderCard(p: SerializedProvider): HTMLElement {
@@ -101,52 +102,4 @@ function buildDeleteBtn(p: SerializedProvider): HTMLElement {
     }, CONFIRM_MS);
   });
   return b;
-}
-
-/**
- * 「默认模型」下拉框的选项。跟着服务商列表走，所以由 renderProviders 统一
- * 调用——增删服务商、改模型、外部刷新都覆盖得到。
- */
-function fillDefaultModelOptions(): void {
-  const sel = maybeById<HTMLSelectElement>('setDefaultModel');
-  if (!sel) {
-    return;
-  }
-  sel.innerHTML = '';
-
-  const refs: string[] = [];
-  for (const p of draft.providers) {
-    if (p.models.length === 0) {
-      continue;
-    }
-    const og = document.createElement('optgroup');
-    og.label = p.label || p.id;
-    for (const m of p.models) {
-      const opt = document.createElement('option');
-      // 显示完整引用——与对话页下拉框口径一致，它才是配置里存的东西。
-      opt.value = opt.textContent = `${p.id}/${m.name}`;
-      og.appendChild(opt);
-      refs.push(opt.value);
-    }
-    sel.appendChild(og);
-  }
-
-  if (refs.length === 0) {
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = '未配置模型';
-    sel.appendChild(opt);
-    sel.disabled = true;
-    return;
-  }
-  sel.disabled = false;
-
-  // 当前默认模型指向已删掉的模型时补一条占位项，不静默跳回第一个。
-  if (draft.model && !refs.includes(draft.model)) {
-    const opt = document.createElement('option');
-    opt.value = draft.model;
-    opt.textContent = `${draft.model}（未配置）`;
-    sel.appendChild(opt);
-  }
-  sel.value = draft.model || refs[0];
 }

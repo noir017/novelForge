@@ -62,19 +62,32 @@ const opened = [];
 let reviewVerdict = 'apply';
 const reviewed = [];
 
+/**
+ * 配置。默认并发 1，让绝大多数用例保持改造前的串行行为；
+ * 并发那一节自己把它调大。
+ */
+const settings = {
+  // 用 vscode-lm 这个 kind：它是唯一一条走 registerProviderFactory 的路径，
+  // 于是不必碰 SecretStore 就能塞进假模型（其余 kind 会去要 API Key）。
+  providers: [{ id: 'fake', kind: 'vscode-lm', models: [{ name: 'm' }] }],
+  models: ['fake/m'],
+  // 窗口刻意开得小，好让几章正文就撑出多批来。
+  contextWindow: 4000,
+  maxOutputTokens: 500,
+  concurrency: 1,
+};
+
+/** 同时在跑的 diff 审阅数与峰值——并发时它必须恒为 1。 */
+let reviewInFlight = 0;
+let reviewPeak = 0;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 const fakeHost = {
   name: 'standalone',
   supportsVscodeLm: true,
   config: {
-    read: () => ({
-      // 用 vscode-lm 这个 kind：它是唯一一条走 registerProviderFactory 的路径，
-      // 于是不必碰 SecretStore 就能塞进假模型（其余 kind 会去要 API Key）。
-      providers: [{ id: 'fake', kind: 'vscode-lm', models: [{ name: 'm' }] }],
-      model: 'fake/m',
-      // 窗口刻意开得小，好让几章正文就撑出多批来。
-      contextWindow: 4000,
-      maxOutputTokens: 500,
-    }),
+    read: () => settings,
     write: async () => {},
   },
   input: async () => answers.shift(),
@@ -89,7 +102,13 @@ const fakeHost = {
   toast: (m, level) => toasts.push(`${level ?? 'info'}: ${m}`),
   selectionAttachment: async () => undefined,
   reviewReplace: async (name, current, proposed) => {
+    reviewInFlight++;
+    reviewPeak = Math.max(reviewPeak, reviewInFlight);
     reviewed.push({ name, current, proposed });
+    // 真实的 diff 审阅是「弹出去等用户」，这里也要留出重入的机会，
+    // 否则串行与否根本测不出来。
+    await sleep(6);
+    reviewInFlight--;
     return reviewVerdict;
   },
 };
@@ -117,6 +136,10 @@ function cardJson(overrides) {
   });
 }
 
+/** 同时在飞的模型请求数与峰值——并发那一节据此断言确实并发了。 */
+let callsInFlight = 0;
+let callsPeak = 0;
+
 // 假模型经 registerProviderFactory 注入——这是 core 本来就有的注册点
 // （VS Code 壳用它挂 Copilot），不必为测试在 registry 里开后门。
 registry.registerProviderFactory(() => ({
@@ -125,7 +148,12 @@ registry.registerProviderFactory(() => ({
   maxInputTokens: async () => undefined,
   chatStream: async function* (messages) {
     calls.push(messages);
+    callsInFlight++;
+    callsPeak = Math.max(callsPeak, callsInFlight);
     const reply = replies.length > 1 ? replies.shift() : replies[0];
+    // 留出重叠的机会，否则并发与串行跑出来是一样的。
+    await sleep(4);
+    callsInFlight--;
     yield reply ?? cardJson();
   },
 }));
@@ -137,6 +165,8 @@ function expect(...values) {
   calls.length = 0;
   reviewed.length = 0;
   opened.length = 0;
+  callsPeak = 0;
+  reviewPeak = 0;
   answers.push(...values);
 }
 
@@ -391,6 +421,93 @@ async function main() {
     await cardMod.updateAllCharacterCards(project, 'incremental');
     check('没有新章节时不弹确认框', confirms.length === 0, JSON.stringify(confirms.map((c) => c.message)));
     check('没有新章节时明说', toasts.some((t) => t.includes('没有需要更新的角色卡')), toasts.join(' | '));
+  }
+
+  console.log('\n== 批量更新：并发与审阅排队 ==');
+  {
+    settings.concurrency = 3;
+    try {
+      // 逐张确认 + 并发：分析可以重叠，但 diff 一次只能弹一张——
+      // 同时弹三个 diff，用户根本不知道自己在看谁。
+      expect('逐张确认后开始');
+      replies = [cardJson({ 当前状态: '并发审阅' })];
+      await cardMod.updateAllCharacterCards(project, 'full');
+
+      check('并发时确实重叠了模型请求', callsPeak > 1, `峰值 ${callsPeak}`);
+      check('并发不超过配置值', callsPeak <= 3, `峰值 ${callsPeak}`);
+      check('diff 审阅仍然一次只弹一张', reviewPeak === 1, `峰值 ${reviewPeak}`);
+      check('每张卡都审阅到了', reviewed.length === 2, String(reviewed.length));
+      check('确认框写明并发', confirms[0] && confirms[0].detail.includes('并发 2 张'), confirms[0] && confirms[0].detail);
+      check(
+        '逐张确认时说明 diff 会排队',
+        confirms[0] && confirms[0].detail.includes('一张一张弹出'),
+        confirms[0] && confirms[0].detail
+      );
+      check('两张卡都写盘了', read('.novelforge/characters/林昭.md').includes('并发审阅'));
+
+      // 预计调用次数是承诺，不能因为并发就对不上账。
+      const ask = confirms.find((c) => c.message.includes('预计调用模型'));
+      check('并发不改变预计调用次数', ask && ask.message.includes(`预计调用模型 ${calls.length} 次`), ask && ask.message);
+    } finally {
+      settings.concurrency = 1;
+    }
+  }
+
+  console.log('\n== 给未建卡的人全部建卡 ==');
+  {
+    // 造两个还没有卡的人物，各出场两章。
+    makeChapter(9, '渡船', ['艄公', '货郎']);
+    makeChapter(10, '雨歇', ['艄公', '货郎']);
+    project.invalidate();
+
+    // ---- 取消：一次模型都不调。
+    expect(undefined);
+    replies = [cardJson()];
+    await cardMod.createCardsForAllCast(project);
+    const ask = confirms.find((c) => c.message.includes('预计调用模型'));
+    check('批量建卡动手前问过用户', !!ask, JSON.stringify(confirms.map((c) => c.message)));
+    // 未建卡的人不止这两位（沈氏一直没建卡），所以报数按实际人数对，
+    // 而不是钉死一个数字——重要的是「说的人数 = 列出的人数」。
+    const pending = await castMod.buildCastIndex(project).then((idx) => idx.unknown.length);
+    check(
+      '确认框报清人数',
+      ask && ask.message.includes(`给 ${pending} 位未建卡的人物建卡`),
+      ask && ask.message
+    );
+    check('确认框列出是哪几位', ask && ask.detail.includes('艄公') && ask.detail.includes('货郎'), ask && ask.detail);
+    check('用户取消则不调模型', calls.length === 0, String(calls.length));
+    check('取消时不留下空卡', !fs.existsSync(rel('.novelforge/characters/艄公.md')));
+
+    // ---- 真跑：并发建卡，新卡不走 diff。
+    settings.concurrency = 3;
+    try {
+      expect('开始建卡');
+      replies = [cardJson({ 身份: '批量建出来的' })];
+      await cardMod.createCardsForAllCast(project);
+
+      check('两张新卡都建出来了',
+        fs.existsSync(rel('.novelforge/characters/艄公.md')) && fs.existsSync(rel('.novelforge/characters/货郎.md')));
+      check('新卡填上了模型产出', read('.novelforge/characters/艄公.md').includes('批量建出来的'));
+      check('新卡带出场章节', read('.novelforge/characters/艄公.md').includes('appearsIn: [9, 10]'),
+        read('.novelforge/characters/艄公.md').slice(0, 200));
+      check('批量建卡不走 diff 审阅', reviewed.length === 0, String(reviewed.length));
+      check('并发时确实重叠了模型请求', callsPeak > 1, `峰值 ${callsPeak}`);
+      check('完成提示报数', toasts.some((t) => t.includes(`已建 ${pending} 张`)), toasts.join(' | '));
+
+      project.invalidate();
+      const index = await castMod.buildCastIndex(project);
+      check('建完后未建卡列表里没有他们',
+        !index.unknown.some((m) => m.name === '艄公' || m.name === '货郎'),
+        index.unknown.map((m) => m.name).join('、'));
+    } finally {
+      settings.concurrency = 1;
+    }
+
+    // ---- 人都建过了：不弹确认框，直接说明。
+    expect();
+    await cardMod.createCardsForAllCast(project);
+    check('没人可建时不弹确认框', confirms.length === 0, JSON.stringify(confirms.map((c) => c.message)));
+    check('没人可建时明说', toasts.some((t) => t.includes('都已经有角色卡')), toasts.join(' | '));
   }
 
   console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);

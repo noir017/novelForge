@@ -19,7 +19,10 @@ interface GroupOptions {
   /** 给了 section + root 的分组，标题栏与空白处右键能「在此新建」。 */
   section?: Section;
   root?: string;
-  /** 排在新建项之前的额外菜单项（如角色区的批量动作）。 */
+  /**
+   * 排在新建项之前的额外菜单项（如角色区的批量动作）。
+   * 没有 `section` 的分组只挂这些 + 通用项，所以自带的分隔线要自己写。
+   */
   extraItems?: () => MenuItem[];
   /** 惰性调用：折叠时不生成行。 */
   build: () => HTMLElement[];
@@ -60,6 +63,9 @@ export function buildGroup(
       { sep: true },
       ...baseMenuItems(),
     ]);
+  } else if (opts.extraItems) {
+    // 没有落点目录的分组（「出场人物 · 未建卡」）：只挂批量动作与通用项。
+    onContextMenu(box, () => [...(opts.extraItems?.() ?? []), ...baseMenuItems()]);
   }
 
   const sync = () => {

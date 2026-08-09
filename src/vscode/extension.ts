@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { initProjectFlow, newChapterFlow } from '../core/actions';
 import { ChatController } from '../core/controller';
-import { updateSettings, setLegacyConfigReader } from '../core/config';
+import { promoteModel, setLegacyConfigReader } from '../core/config';
 import { extractCharacters, newCharacter, newLore } from '../core/features/characters';
 import { updateCharacterCard } from '../core/features/characterCard';
 import { appearancesOf, buildCastIndex, describeChapters } from '../core/cast';
@@ -174,7 +174,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!ref) {
       return;
     }
-    await updateSettings({ model: ref });
+    await promoteModel(ref);
     await chat?.pushState();
     getHost().toast(`已切换到 ${ref}`);
   });

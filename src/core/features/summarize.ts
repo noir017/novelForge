@@ -1,6 +1,8 @@
 import { getHost } from '../host';
 import { collectStream, CancelledError, ChatOptions, LlmProvider, TokenUsage } from '../llm/provider';
+import { createModelPool } from '../llm/pool';
 import { resolveProvider } from '../llm/registry';
+import { runPool } from '../concurrency';
 import { pickSections } from '../model/markdown';
 import { readConfig } from '../config';
 import { describeError, elapsed, formatDuration, scoped } from '../logger';
@@ -133,7 +135,7 @@ async function knownNamesHint(project: NovelProject): Promise<string> {
 }
 
 
-/** 批量补齐所有缺失/过期的摘要，带进度，可取消。 */
+/** 批量补齐所有缺失/过期的摘要，带进度，可取消。各章之间无先后，按配置并发。 */
 export async function syncSummaries(project: NovelProject): Promise<void> {
   log.info('开始检查摘要新鲜度');
   const scanStart = Date.now();
@@ -149,65 +151,98 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
     return;
   }
 
+  const config = readConfig();
+  const lanes = Math.min(config.concurrency, stale.length);
   const confirm = await getHost().confirm(
     `有 ${stale.length} 章摘要缺失或已过期，需要调用 ${stale.length} 次模型。现在同步？`,
     ['开始同步'],
-    { modal: true }
+    {
+      modal: true,
+      detail:
+        `模型：${config.models.join('、')}${config.models.length > 1 ? '（失败会自动换用其余模型重试）' : ''}\n` +
+        (lanes > 1 ? `并发 ${lanes} 路，各章之间没有先后依赖。` : '串行逐章处理（并发数为 1）。'),
+    }
   );
   if (confirm !== '开始同步') {
     log.info('用户取消了同步');
     return;
   }
 
-  const provider = await resolveProvider();
-  if (!provider) {
+  const pool = await createModelPool({ concurrent: lanes > 1 });
+  if (!pool) {
     log.error('没有可用的模型，同步中止');
     return;
   }
-  log.info(`使用模型 ${provider.label}`);
+  log.info(`使用模型 ${pool.label}`, lanes > 1 ? `并发 ${lanes} 路，轮转负载均衡` : '串行');
 
   await runTask(
     '同步章节摘要',
     async ({ signal, report }) => {
       const startedAt = Date.now();
-      let done = 0;
       const failed: { order: number; reason: string }[] = [];
+      // 并发下「正在跑哪几章」是变动的，用一个集合维护，报进度时现拼。
+      const running = new Set<number>();
+      let done = 0;
+      let okCount = 0;
       report({ message: '准备中…', current: 0, total: stale.length });
 
-      for (const chapter of stale) {
-        if (signal.aborted) {
-          log.warn(`同步被取消，已完成 ${done}/${stale.length} 章`);
-          break;
-        }
-        report({
-          message: `第 ${chapter.order} 章《${chapter.title}》`,
-          current: done,
-          total: stale.length,
-        });
-        const each = Date.now();
-        try {
-          await summarizeChapter(project, chapter, provider, signal);
-        } catch (err) {
-          if (err instanceof CancelledError || (err as Error)?.name === 'CancelledError') {
-            log.warn(`同步被取消，已完成 ${done}/${stale.length} 章`);
-            break;
-          }
-          const reason = describeError(err);
-          failed.push({ order: chapter.order, reason });
-          log.error(`第 ${chapter.order} 章《${chapter.title}》失败：${reason}`, err);
-        }
-        done++;
-        // 每章一条 info：一次跑几十章，中途出问题时要看得出停在哪。
-        log.info(
-          `进度 ${done}/${stale.length}`,
-          `刚完成第 ${chapter.order} 章，用时 ${elapsed(each)}；` +
-            `平均 ${formatDuration((Date.now() - startedAt) / done)}/章，` +
-            `预计剩余 ${formatDuration(((Date.now() - startedAt) / done) * (stale.length - done))}`
-        );
-      }
+      const describeRunning = (): string =>
+        lanes > 1
+          ? `已完成 ${done}/${stale.length} · ${running.size} 路进行中（第 ${[...running]
+              .sort((a, b) => a - b)
+              .join('、')} 章）`
+          : '';
 
+      await runPool(
+        stale,
+        lanes,
+        (chapter) =>
+          pool.run(`第 ${chapter.order} 章`, (llm) => summarizeChapter(project, chapter, llm, signal)),
+        {
+          signal,
+          onStart: (chapter) => {
+            running.add(chapter.order);
+            report({
+              message: lanes > 1 ? describeRunning() : `第 ${chapter.order} 章《${chapter.title}》`,
+              current: done,
+              total: stale.length,
+            });
+          },
+          onSettled: (result, chapter, _index, finished) => {
+            running.delete(chapter.order);
+            done = finished;
+            if (result.status === 'fulfilled') {
+              okCount++;
+            } else {
+              const err = result.reason;
+              if (!(err instanceof CancelledError || err?.name === 'CancelledError')) {
+                const reason = describeError(err);
+                failed.push({ order: chapter.order, reason });
+                log.error(`第 ${chapter.order} 章《${chapter.title}》失败：${reason}`, err);
+              }
+            }
+            // 每章一条 info：一次跑几十章，中途出问题时要看得出停在哪。
+            const perItem = (Date.now() - startedAt) / done;
+            log.info(
+              `进度 ${done}/${stale.length}`,
+              `刚完成第 ${chapter.order} 章；平均 ${formatDuration(perItem)}/章，` +
+                `预计剩余 ${formatDuration(perItem * (stale.length - done))}`
+            );
+            report({
+              message: lanes > 1 ? describeRunning() : `第 ${chapter.order} 章《${chapter.title}》`,
+              current: done,
+              total: stale.length,
+            });
+          },
+        }
+      );
+
+      if (signal.aborted) {
+        log.warn(`同步被取消，已完成 ${done}/${stale.length} 章`);
+      }
       report({ message: '收尾', current: done, total: stale.length });
-      const okCount = done - failed.length;
+      // 完成顺序是乱的，汇报前按章节号排回来——「第 7、3、12 章失败」没法读。
+      failed.sort((a, b) => a.order - b.order);
       if (failed.length > 0) {
         log.warn(
           `同步结束：成功 ${okCount} 章，失败 ${failed.length} 章`,
@@ -263,11 +298,6 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
     }
   }
 
-  const provider = await resolveProvider();
-  if (!provider) {
-    log.error('没有可用的模型，重建中止');
-    return;
-  }
   const config = readConfig();
 
   // 收集可用的单章摘要
@@ -295,9 +325,16 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
   }
 
   const batches = chunk(units, Math.max(3, config.summaryBatchSize));
+  const lanes = Math.min(config.concurrency, batches.length);
+  const pool = await createModelPool({ concurrent: lanes > 1 });
+  if (!pool) {
+    log.error('没有可用的模型，重建中止');
+    return;
+  }
   log.info(
     `准备重建：${units.length} 章摘要分 ${batches.length} 批`,
-    `模型 ${provider.label}｜每批 ${Math.max(3, config.summaryBatchSize)} 章`
+    `模型 ${pool.label}｜每批 ${Math.max(3, config.summaryBatchSize)} 章｜` +
+      (lanes > 1 ? `汇总阶段并发 ${lanes} 路` : '汇总阶段串行')
   );
 
   await runTask(
@@ -315,39 +352,65 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
       const steps = batches.length + (batches.length > 1 ? 1 : 0);
 
       // ---- map：每批 reduce 成阶段摘要 ----
-      const stageSummaries: string[] = [];
-      for (let i = 0; i < batches.length; i++) {
-        if (signal.aborted) {
-          log.warn(`重建被取消，已汇总 ${i}/${batches.length} 批`);
-          return;
-        }
-        const batch = batches[i];
-        const range = `第 ${batch[0].order} - ${batch[batch.length - 1].order} 章`;
-        report({ message: `汇总 ${range}`, current: i, total: steps });
+      // 各批彼此独立（只有最后的合并才要全部到齐），因此按配置并发。
+      // runPool 的结果按 index 对齐，阶段小节的先后不会因完成顺序而乱。
+      let mapped = 0;
+      const rangeOf = (batch: typeof batches[number]): string =>
+        `第 ${batch[0].order} - ${batch[batch.length - 1].order} 章`;
 
-        const joined = batch
-          .map((u) => `【第${u.order}章 ${u.title}】\n${u.content}`)
-          .join('\n\n');
-        const each = Date.now();
-        log.debug(`汇总 ${range}`, `${batch.length} 章摘要，约 ${estimateTokens(joined)} token`);
-        const text = await collectStream(
-          provider.chatStream(
-            [
-              { role: 'system', content: STAGE_SYSTEM },
-              { role: 'user', content: `以下是${range}的逐章摘要，请汇总成阶段摘要。\n\n${joined}` },
-            ],
-            options
-          )
-        );
-        stageSummaries.push(`## ${range}\n\n${text.trim()}`);
-        log.info(
-          `阶段摘要 ${i + 1}/${batches.length} 完成（${range}）`,
-          `产出 ${text.trim().length} 字，用时 ${elapsed(each)}`
-        );
-      }
+      const results = await runPool(
+        batches,
+        lanes,
+        async (batch) => {
+          const range = rangeOf(batch);
+          const joined = batch.map((u) => `【第${u.order}章 ${u.title}】\n${u.content}`).join('\n\n');
+          const each = Date.now();
+          log.debug(`汇总 ${range}`, `${batch.length} 章摘要，约 ${estimateTokens(joined)} token`);
+          const text = await pool.run(range, (llm) =>
+            collectStream(
+              llm.chatStream(
+                [
+                  { role: 'system', content: STAGE_SYSTEM },
+                  { role: 'user', content: `以下是${range}的逐章摘要，请汇总成阶段摘要。\n\n${joined}` },
+                ],
+                options
+              )
+            )
+          );
+          log.info(`阶段摘要完成（${range}）`, `产出 ${text.trim().length} 字，用时 ${elapsed(each)}`);
+          return `## ${range}\n\n${text.trim()}`;
+        },
+        {
+          signal,
+          onStart: (batch) => report({ message: `汇总 ${rangeOf(batch)}`, current: mapped, total: steps }),
+          onSettled: (_result, _batch, _index, finished) => {
+            mapped = finished;
+            report({ current: mapped, total: steps });
+          },
+        }
+      );
 
       if (signal.aborted) {
-        log.warn('重建被取消（合并前）');
+        log.warn(`重建被取消，已汇总 ${mapped}/${batches.length} 批`);
+        return;
+      }
+
+      // 「不静默截断」：某一批失败时全书摘要会凭空缺一段，必须说出来。
+      const stageSummaries: string[] = [];
+      const lost: string[] = [];
+      for (const [i, r] of results.entries()) {
+        if (r.status === 'fulfilled') {
+          stageSummaries.push(r.value);
+        } else {
+          lost.push(`${rangeOf(batches[i])}：${describeError(r.reason)}`);
+        }
+      }
+      if (lost.length > 0) {
+        log.error(`${lost.length} 批汇总失败，这几段不会进入全书摘要`, lost.join('\n'));
+        getHost().toast(`${lost.length} 批汇总失败，全书摘要会缺这几段，详见日志页。`, 'error');
+      }
+      if (stageSummaries.length === 0) {
+        log.error('所有批次都汇总失败，全书摘要未改动');
         return;
       }
 
@@ -370,16 +433,18 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
         }
         const mergeStart = Date.now();
         log.debug(`合并 ${stageSummaries.length} 份阶段摘要`, `约 ${estimateTokens(clipped)} token`);
-        finalText = await collectStream(
-          provider.chatStream(
-            [
-              { role: 'system', content: GLOBAL_SYSTEM },
-              {
-                role: 'user',
-                content: `以下是各阶段摘要，请合并成一份全书滚动摘要。\n\n${clipped}`,
-              },
-            ],
-            options
+        finalText = await pool.run('合并全书摘要', (llm) =>
+          collectStream(
+            llm.chatStream(
+              [
+                { role: 'system', content: GLOBAL_SYSTEM },
+                {
+                  role: 'user',
+                  content: `以下是各阶段摘要，请合并成一份全书滚动摘要。\n\n${clipped}`,
+                },
+              ],
+              options
+            )
           )
         );
         log.info('阶段摘要已合并', `产出 ${finalText.trim().length} 字，用时 ${elapsed(mergeStart)}`);

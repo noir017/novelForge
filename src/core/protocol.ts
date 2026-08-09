@@ -157,13 +157,15 @@ export type ProjectAction =
  * - `createCard`：给摘要里出现但还没建卡的人物建卡。`name` 是摘要里的名字。
  * - `updateAllCards` / `rebuildAllCards`：批量更新全部角色卡（增量 / 全量），
  *   不需要 name/relPath。
+ * - `createAllCards`：给「未建卡」那一组里的所有人建卡，同样不需要 name/relPath。
  */
 export type CharacterAction =
   | 'updateCard'
   | 'rebuildCard'
   | 'createCard'
   | 'updateAllCards'
-  | 'rebuildAllCards';
+  | 'rebuildAllCards'
+  | 'createAllCards';
 
 /**
  * 类文件操作。作用对象由 `relPath` / `relPaths` 给出，可以是文件也可以是目录。
@@ -177,8 +179,13 @@ export type FileAction = 'rename' | 'renameAny' | 'move' | 'delete' | 'paste';
 /** 设置页提交的全部内容。服务商列表整体替换。 */
 export interface SettingsPayload {
   providers: SerializedProvider[];
-  /** 当前模型引用，形如 `glm/glm-4-plus`。 */
-  model: string;
+  /**
+   * 默认模型列表，按顺序，第一个是首选（形如 `glm/glm-4-plus`）。
+   *
+   * 这是「当前模型」的唯一真相：后端落盘时 `novel.model` 恒等于首项，
+   * 对话页下拉框切换模型等于把那一项提到列表头。
+   */
+  models: string[];
   contextWindow: number;
   maxOutputTokens: number;
   temperature: number;
@@ -186,6 +193,10 @@ export interface SettingsPayload {
   prevChapterTailChars: number;
   summaryBatchSize: number;
   requestTimeoutMs: number;
+  /** 工程页批量任务的并发请求数。1 表示串行。 */
+  concurrency: number;
+  /** 一次调用失败后，换用列表里其它模型重试的次数上限。 */
+  fallbackAttempts: number;
 }
 
 export interface SerializedProvider {

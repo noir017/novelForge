@@ -4,9 +4,9 @@ import { normalizeProviders } from '../core/model/providers';
 import { FileConfigStore, FileSecretStore } from '../core/stores';
 
 const SETTING_KEYS = [
-  'providers', 'model', 'contextWindow', 'maxOutputTokens', 'temperature',
+  'providers', 'models', 'model', 'contextWindow', 'maxOutputTokens', 'temperature',
   'recentChaptersFullText', 'prevChapterTailChars', 'chaptersDir', 'draftsDir',
-  'summaryBatchSize', 'requestTimeoutMs',
+  'summaryBatchSize', 'requestTimeoutMs', 'concurrency', 'fallbackAttempts',
 ];
 
 /** 0.1.x 的单服务商键，供 config.ts 的 seedFromLegacyRaw 消费。 */

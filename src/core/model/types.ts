@@ -153,7 +153,14 @@ export const MANIFEST_VERSION = 1;
 export interface NovelConfig {
   /** 已配置的服务商（含各自的模型清单）。 */
   providers: ProviderProfile[];
-  /** 当前模型引用，形如 `glm/glm-4-plus`。 */
+  /**
+   * 默认模型列表，按顺序，第一个是首选。至少一项（配不出来时为空数组）。
+   *
+   * 工程页的后台任务从这里取模型：串行调用恒用第一个、失败随机换用其余，
+   * 并发调用在列表里轮转。对话页续写不走这套，严格用 `model`。
+   */
+  models: string[];
+  /** 当前模型引用，形如 `glm/glm-4-plus`。恒等于 `models[0]`。 */
   model: string;
   /** 当前模型解析结果；引用无效时为 undefined。 */
   active?: ActiveModel;
@@ -168,4 +175,8 @@ export interface NovelConfig {
   draftsDir: string;
   summaryBatchSize: number;
   requestTimeoutMs: number;
+  /** 工程页批量任务的并发请求数。1 表示串行。 */
+  concurrency: number;
+  /** 一次调用失败后，换用列表里其它模型重试的次数上限。0 表示不重试。 */
+  fallbackAttempts: number;
 }

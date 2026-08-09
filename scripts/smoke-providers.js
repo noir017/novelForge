@@ -290,6 +290,69 @@ console.log('\n== readConfig 串起来 ==');
     JSON.stringify(both.providers.map((x) => x.id)));
 }
 
+// ---------------------------------------------------------------- 默认模型列表
+
+console.log('\n== 默认模型列表 ==');
+{
+  const norm = configMod.normalizeModelList;
+  check('非数组返回空', norm(undefined).length === 0 && norm(null).length === 0);
+  check('裸字符串当作单元素列表', norm('glm/a').join(',') === 'glm/a');
+  check('去空白与空项', norm(['  a/x  ', '', '   ']).join(',') === 'a/x', JSON.stringify(norm(['  a/x  ', '', '   '])));
+  check('去重且保序', norm(['a/x', 'b/y', 'a/x']).join(',') === 'a/x,b/y');
+  check('非字符串项被跳过', norm(['a/x', 42, null, { a: 1 }]).join(',') === 'a/x');
+
+  const providers = [
+    { id: 'glm', models: [{ name: 'glm-4-plus', contextWindow: 128000 }] },
+    { id: 'ds', models: [{ name: 'deepseek-chat', contextWindow: 64000 }] },
+  ];
+
+  // 只有 model 的旧配置：自动升级成单元素列表，用户无感。
+  settings = { providers, model: 'ds/deepseek-chat' };
+  const upgraded = configMod.readConfig();
+  check('旧配置只有 model 时升级成单元素列表', upgraded.models.join(',') === 'ds/deepseek-chat', upgraded.models.join(','));
+  check('升级后 model 不变', upgraded.model === 'ds/deepseek-chat');
+
+  // 两者都空：取第一个可用模型，不能是空列表。
+  settings = { providers };
+  const seeded = configMod.readConfig();
+  check('都没配时取第一个可用模型', seeded.models.join(',') === 'glm/glm-4-plus', seeded.models.join(','));
+
+  // 列表是唯一真相：model 恒等于首项，哪怕磁盘上的 model 指着别处。
+  settings = { providers, models: ['ds/deepseek-chat', 'glm/glm-4-plus'], model: 'glm/glm-4-plus' };
+  const listed = configMod.readConfig();
+  check('model 恒等于列表首项', listed.model === 'ds/deepseek-chat', listed.model);
+  check('首项决定窗口', listed.contextWindow === 64000, String(listed.contextWindow));
+  check('列表原样保留顺序', listed.models.join(',') === 'ds/deepseek-chat,glm/glm-4-plus');
+
+  // 解析不出的引用**留在列表里**——设置页要能说清「这个模型没了」，
+  // 剔除是模型池构造时的事（那里会打 warn）。
+  settings = { providers, models: ['nope/x', 'glm/glm-4-plus'] };
+  const broken = configMod.readConfig();
+  check('解析不出的引用不在 readConfig 里被丢掉', broken.models.length === 2, broken.models.join(','));
+  check('首项解析不出时 active 为空', broken.active === undefined);
+
+  // 并发与 fallback 的默认值与 clamp。
+  settings = { providers };
+  const defaults = configMod.readConfig();
+  check('并发默认 3', defaults.concurrency === 3, String(defaults.concurrency));
+  check('换模型重试默认 2 次', defaults.fallbackAttempts === 2, String(defaults.fallbackAttempts));
+
+  settings = { providers, concurrency: 99, fallbackAttempts: 99 };
+  const high = configMod.readConfig();
+  check('并发超上限被收到 16', high.concurrency === 16, String(high.concurrency));
+  check('重试超上限被收到 5', high.fallbackAttempts === 5, String(high.fallbackAttempts));
+
+  settings = { providers, concurrency: 0, fallbackAttempts: -3 };
+  const low = configMod.readConfig();
+  check('并发不小于 1', low.concurrency === 1, String(low.concurrency));
+  check('重试次数不小于 0', low.fallbackAttempts === 0, String(low.fallbackAttempts));
+
+  settings = { providers, concurrency: 2.7, fallbackAttempts: '3' };
+  const odd = configMod.readConfig();
+  check('小数向下取整', odd.concurrency === 2, String(odd.concurrency));
+  check('非数字退回默认值', odd.fallbackAttempts === 2, String(odd.fallbackAttempts));
+}
+
 // ---------------------------------------------------------------- 设置页脏状态
 
 console.log('\n== 设置页未保存编辑不被刷新冲掉 ==');
@@ -456,8 +519,59 @@ console.log('\n== config.json 缺席时的 settings.json 兜底 ==');
     settings = legacyOnly;
     const seeded = configMod.readConfig();
     check('纯 0.1.x 设置仍能兜底', seeded.model === 'openai/deepseek-chat' && !!seeded.active, seeded.model);
-    finish();
+    return promoteModelSection();
   });
+}
+
+/**
+ * 切换模型 = 把它提到默认模型列表首位。
+ *
+ * 单独一节且放在最后，因为它要 await 落盘：前面的用例都是同步读配置，
+ * 混进去会打乱它们对 `settings` 的假设。
+ */
+async function promoteModelSection() {
+  console.log('\n== 切换模型 = 提到列表首位 ==');
+  const providers = [
+    { id: 'glm', models: [{ name: 'glm-4-plus' }] },
+    { id: 'ds', models: [{ name: 'deepseek-chat' }] },
+    { id: 'kimi', models: [{ name: 'moonshot-v1-128k' }] },
+  ];
+  // 自带一份存储：上一节把 store 换成了 configJson，这里要能直接看落盘结果。
+  let disk = { providers, models: ['glm/glm-4-plus', 'ds/deepseek-chat', 'kimi/moonshot-v1-128k'] };
+  configMod.initConfigFromHost({
+    config: { read: () => disk, write: async (s) => { disk = JSON.parse(JSON.stringify(s)); } },
+  });
+
+  await configMod.promoteModel('ds/deepseek-chat');
+  const after = configMod.readConfig();
+  check('切换的模型排到了首位', after.models[0] === 'ds/deepseek-chat', after.models.join(','));
+  check(
+    '其余顺序原样保留',
+    after.models.join(',') === 'ds/deepseek-chat,glm/glm-4-plus,kimi/moonshot-v1-128k',
+    after.models.join(',')
+  );
+  check('model 跟着变', after.model === 'ds/deepseek-chat', after.model);
+  check('落盘的 models 与 model 一致', disk.models[0] === disk.model, `${disk.models[0]} vs ${disk.model}`);
+
+  // 只写 model 不写 models 会被首项盖回去——这是「列表是唯一真相」的代价：
+  // 所有切换模型的入口都必须走 promoteModel，不能自己写 model。
+  await configMod.updateSettings({ model: 'kimi/moonshot-v1-128k' });
+  check('只写 model 不生效（切换模型必须走 promoteModel）',
+    configMod.readConfig().model === 'ds/deepseek-chat', configMod.readConfig().model);
+
+  await configMod.promoteModel('kimi/moonshot-v1-128k');
+  check('promoteModel 才切得动', configMod.readConfig().model === 'kimi/moonshot-v1-128k');
+  check('切换不丢别的模型', configMod.readConfig().models.length === 3,
+    configMod.readConfig().models.join(','));
+
+  // 列表里原本没有的模型也能切过去（命令面板可以选到任何已配置的模型）。
+  disk = { providers, models: ['glm/glm-4-plus'] };
+  await configMod.promoteModel('ds/deepseek-chat');
+  check('切到列表外的模型会把它加进列表',
+    configMod.readConfig().models.join(',') === 'ds/deepseek-chat,glm/glm-4-plus',
+    configMod.readConfig().models.join(','));
+
+  finish();
 }
 
 function finish() {

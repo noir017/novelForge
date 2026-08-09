@@ -135,9 +135,17 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
   </div>
 
   <div class="pane-head"><span>默认模型</span></div>
-  <div class="hint">工程页的总结摘要、提取角色卡、提取文风等操作默认使用这个模型；对话页随时可在输入框旁的下拉框里切换。</div>
+  <div class="hint">
+    工程页的总结摘要、提取角色卡、提取文风等操作用这份列表：<b>串行时用第一个</b>，失败会自动换用后面的重试；
+    <b>并发时在列表里轮转</b>做负载均衡。对话页随时可在输入框旁的下拉框里切换——切换等于把那个模型提到列表首位。
+  </div>
+  <div id="defaultModelList"></div>
+
+  <div class="pane-head"><span>并发与容错</span></div>
+  <div class="hint">只作用于工程页的批量任务（同步摘要、重建全书摘要、批量更新角色卡、批量建卡）；对话页续写始终单请求、严格用你选的模型。</div>
   <div class="grid">
-    <label class="field"><span>默认模型</span><select id="setDefaultModel"></select></label>
+    <label class="field"><span>并发请求数</span><input type="number" id="setConcurrency" min="1" max="16"></label>
+    <label class="field"><span>换模型重试次数</span><input type="number" id="setFallbackAttempts" min="0" max="5"></label>
   </div>
 
   <div class="pane-head"><span>默认预算</span></div>
