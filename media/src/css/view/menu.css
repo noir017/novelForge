@@ -1,0 +1,104 @@
+/* 菜单：气泡右上角的 ⋯ 与任意位置的右键共用同一套外观。 */
+
+.msg-head .spacer {
+  flex: 1;
+}
+
+/* 菜单相对这里定位；头部高度由文字决定，不受绝对定位的菜单影响。 */
+.msg-head {
+  position: relative;
+}
+
+.msg-menu-btn {
+  background: none;
+  border: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 1.1em;
+  line-height: 1;
+  padding: 1px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  /* 平时压到很淡，hover 或菜单打开时才明显——每条消息都挂一个，
+     全亮起来会把消息流搅得很花。 */
+  opacity: 0;
+}
+
+.msg:hover .msg-menu-btn,
+.msg-menu-btn:focus-visible,
+.msg-menu-btn.active {
+  opacity: 0.85;
+}
+
+.msg-menu-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+  opacity: 1;
+}
+
+/* ---- 菜单（气泡右上角的 ⋯ 与任意位置的右键共用同一套外观） */
+
+.msg-menu,
+.ctx-menu {
+  min-width: 116px;
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  border-radius: var(--radius);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+}
+
+.msg-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 20;
+}
+
+/* 右键菜单挂在 body 上跟着光标走：要压过设置弹窗（20）与 toast（30），
+   否则在弹窗里右键会看不见菜单。 */
+.ctx-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 148px;
+  max-width: 260px;
+}
+
+.msg-menu button,
+.ctx-menu button {
+  background: none;
+  border: none;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  font-size: 0.86em;
+  text-align: left;
+  padding: 5px 9px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.msg-menu button:hover:not(:disabled),
+.ctx-menu button:hover:not(:disabled) {
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+}
+
+/* 全局 button.danger 是实心红底，用在「确认删除」那种按钮上。
+   菜单项平时要和其他项一样朴素，只在 hover 时才变红。 */
+.msg-menu button.danger,
+.ctx-menu button.danger {
+  background: none;
+  color: var(--vscode-errorForeground, #f48771);
+}
+
+.msg-menu button.danger:hover,
+.ctx-menu button.danger:hover {
+  background: var(--vscode-inputValidation-errorBorder, #a1260d);
+  color: #fff;
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--vscode-menu-separatorBackground, var(--vscode-panel-border, rgba(128, 128, 128, 0.3)));
+}

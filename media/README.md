@@ -2,38 +2,72 @@
 
 面板的全部前端代码，两个形态共用。插件形态由 [../src/vscode/webviewHtml.ts](../src/vscode/webviewHtml.ts) 生成 HTML 加载（侧边栏 / 编辑器标签页），独立形态由 [../src/standalone/html.ts](../src/standalone/html.ts) 加载。
 
-| 文件 | 加载于 | 职责 |
-|---|---|---|
-| [view.js](view.js) | 两者 | 前端逻辑（原生 JS，无框架）：渲染 `ViewState`、tabbar 切页、流式文本追加、回复就地编辑、上下文明细折叠展示、@ 引用标签、工程页的多层目录树、长任务进度条、日志页、右键菜单、设置页表单。顶部取 `acquireVsCodeApi()` 后以 `postMessage` 发 `InMessage`、监听 `message` 收 `OutMessage`，加载完自报 `{ type: 'ready' }`。 |
-| [view.css](view.css) | 两者 | 面板样式，全部走 `--vscode-*` 变量。**不写死颜色**——插件里这些变量由 VS Code 注入，独立版由 standalone.css 提供。 |
-| [icon.svg](icon.svg) | 两者 | 活动栏与编辑器标签页图标。`stroke="currentColor"`，跟随主题色。 |
-| [bridge.js](bridge.js) | 仅独立版 | 把 WebSocket 伪装成 webview API：`postMessage` / `message` 事件 / `getState`+`setState`（落 localStorage）。检测到 `acquireVsCodeApi` 已存在（即在 webview 里）就直接退出。断线时插入重连提示条。 |
-| [standalone.css](standalone.css) | 仅独立版 | ① 补齐 view.css 依赖的全部 `--vscode-*` 变量（深/浅两套，对齐 VS Code Dark/Light Modern）；② 把单列页面重排为工作台：标题栏 + 竖排活动栏 + 侧栏 + 编辑区（可并列两块）+ 拖拽分隔条，并含窄屏（≤900px）适配。 |
-| [editor.js](editor.js) | 仅独立版 | 内置文件编辑器：**两块编辑区**（正文 / 草稿并列），每块各有多标签、脏标记、`Ctrl+S` 保存、还原、冲突取舍、字数/行列状态栏、Markdown 预览；另含主题切换、两条分隔条的宽度拖拽、刷新后恢复未保存草稿。切换/关闭标签页时广播 `nf-editor-active` 事件，资源管理器据此高亮。 |
-| [explorer.js](explorer.js) | 仅独立版 | 侧栏「文件」页的资源管理器：磁盘目录的原样结构（**含 `.novelforge/` 等点开头的文件夹**），按目录懒展开、折叠状态存 localStorage、当前编辑的文件高亮、点文件开进内置编辑器。数据走 `listDir` / `dirListings`。 |
+## 仓库里只有源码，产物在 `dist/media/`
+
+`media/` 下入库的只有 `src/`（TypeScript 与 CSS 片段）、`icon.svg` 与本文件。`view.js` / `editor.js` / `explorer.js` / `bridge.js` / `view.css` / `standalone.css` 由 [`../scripts/build-media.js`](../scripts/build-media.js) 生成到 **`dist/media/`**——和 `dist/extension.js` 同一个去处，整个 `dist/` 都不入库。
+
+```
+npm run media          # 构建一次（→ dist/media/）
+npm run compile        # 连同扩展主体一起构建（F5 调试前跑这个）
+npm run watch          # 监听重建
+npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会报错
+```
+
+`embed-media.js`、`standalone`、`dist` 都会先跑一次构建，所以克隆下来直接 `npm run standalone` 不会撞上「找不到 view.js」。**没跑过构建就按 F5，webview 会 404 一片白**——两个宿主的 `localResourceRoots` 里现在有 `dist/media/`，那儿空着就什么都加载不到。
+
+产物是 IIFE 格式的 classic script，不是 ES module：webview 的 CSP 用 nonce 放行脚本，而 nonce 不传递给 `import` 进来的模块——原生模块要么得开 `strict-dynamic`，要么就打包，这里选打包。顺带 jsdom 的 `window.eval` 也只吃得下 classic script。
+
+独立版的 `/media/*` 是**路由名不是路径**：字节全部来自 `embed-media.js` 内嵌进 `mediaAssets.ts` 的表，URL 不必跟着产物目录改。
+
+## 目录
+
+| 路径 | 产物（在 `dist/media/`） | 加载于 | 职责 |
+|---|---|---|---|
+| `src/view/` | view.js | 两者 | 面板主体：渲染 `ViewState`、tabbar 切页、消息流、工程页、日志页、设置页、右键菜单 |
+| `src/editor/` | editor.js | 仅独立版 | 内置文件编辑器：两块编辑区、多标签、乐观锁保存、Markdown 预览、主题与拖拽调宽 |
+| `src/explorer/` | explorer.js | 仅独立版 | 侧栏「文件」页的资源管理器 |
+| `src/bridge/` | bridge.js | 仅独立版 | 把 WebSocket 伪装成 webview API |
+| `src/css/view/` | view.css | 两者 | 面板样式，全部走 `--vscode-*` 变量 |
+| `src/css/standalone/` | standalone.css | 仅独立版 | 主题变量（深/浅两套）+ 工作台布局 |
+| `src/protocol.ts` | — | — | 从 `core/protocol.ts` 转出全部消息类型 |
+| `src/globals.ts` | — | — | 三个产物之间的全部交集（就三样，见下） |
+| `src/dom.ts` / `src/vscodeApi.ts` | — | — | 建 DOM 的小工具、取 webview API 与收消息 |
+| [icon.svg](icon.svg) | —（静态文件，不经构建） | 两者 | 活动栏与编辑器标签页图标。`stroke="currentColor"`，跟随主题色 |
+
+各子目录的划分：
+
+- **`src/view/`** —— `refs`（页面上固定 id 的节点）、`store`（运行时状态与草稿存取）、`format` / `buttons` / `toast` / `menu`（通用件）、`tabs` / `state` / `messages` / `composer` / `history` / `tasks` / `logs` / `prompt`（各块），外加 `project/`（工程页：`actions` `treeState` `rows` `groups` `summaryTip`）与 `settings/`（设置页：`presets` `draft` `fields` `providerList` `providerModal`）两个子目录。`index.ts` 只做装配与消息分发。
+- **`src/editor/`** —— `paneElements`（一块编辑区的类型与 DOM）、`pane`（工厂，两块编辑区是它的两个实例）、`store`（两块之间共享的状态与 localStorage）、`shell`（主题/拖拽/窄屏）、`preview` / `clipboard` / `words`。
+- **`src/explorer/`** —— `state`（展开集合、剪贴板、高亮）、`actions`（发消息）、`rows`（建行与菜单）。
+
+## 类型是真的会被检查的
+
+`src/protocol.ts` 用 `import type` 直接从 [../src/core/protocol.ts](../src/core/protocol.ts) 转出 `InMessage` / `OutMessage` 等全部类型（只有类型跨过这条边界，一行运行时代码都不会被打包进来）。**改协议后端加了字段、改了名字，前端对不上会直接编译不过**——这以前只是一句「记得同时改 view.js」的注释约定。
+
+`media/tsconfig.json` 是独立的一份（`lib` 带 DOM，`moduleResolution: Bundler`），`npm run typecheck` 会连它一起跑。
 
 ## 关键约定
 
 - **前端无状态**：一切数据来自 `ViewState` / `ProjectTree` 全量推送，前端只保留 UI 状态（草稿、展开/折叠、正在编辑的回复）。webview 销毁重建后一条 `ready` 就能完整恢复。
 - **进度与日志各有一条推送路径**：长任务用 `tasks`（**全量替换**，列表最多两三项，增量协议不值得），日志用 `log`（增量一条）+ `logs`（全量，切到日志页或清空后）。两者都在 `resendFullState` 里补推，刷新页面时正在跑的任务不会凭空消失。
-  - **计时由前端自己走**：后端只在有进度时才推快照，一次模型调用能安静一分钟，那期间计时停住会让人以为卡死。收到快照时记下 `Date.now() - elapsedMs` 当基线，之后每秒**只改计时文本**——重建 DOM 会打断「停止」按钮上的点击。
-  - **日志增量不重画整表**：长任务每秒好几条，重画会让滚动位置乱跳。只在原本就贴着底时才跟着滚，用户翻上去看东西时不该被拽回来。
-- **工程页的树是扁平渲染的**：`renderNodes` 递归遍历 `ProjectNode`，但产出的是**扁平的行数组**，层级靠 `paddingLeft` 缩进表达而非嵌套 DOM。折叠状态存在模块级的 `openFolders`（relPath 集合）与 `openGroups` 里；切换折叠只用最近一次收到的树重画（`rerenderProject`），不往后端要数据。文件夹默认折叠，四个顶层分组默认展开。
-- **摘要浮窗按需取、事件委托**：鼠标停在章节行上约半秒后弹出该章摘要。摘要正文**不在** `ProjectTree` 里（那棵树每次文件变动都全量重推，塞进去等于每保存一次就推几百 KB），悬停时发 `requestSummary{order}` 单章去要，回来的 `summary` 进 `summaryCache`。**缓存只在收到 `project` 消息时清**——那说明磁盘变过；折叠文件夹走 `rerenderProject()` 不经那条分支，缓存留着。监听用事件委托挂在 `#projectBody` 上（行每次重渲染都换掉，逐行 `addEventListener` 会堆积），浮窗与右键菜单同样是挂在 `body` 上的 `position: fixed`。
-  - **浮窗是可以进去的**：摘要有六个小节、可能上千字，一瞥看不完。鼠标移上去就一直留着，能滚动、能选中复制，移开才收。所以**不能**给它 `pointer-events: none`，收起也**必须有宽限期**（`CLOSE_DELAY_MS`）——从行挪到浮窗要跨过一道缝，那一两帧鼠标既不在行上也不在浮窗上，立刻收会让浮窗永远够不着。进浮窗（`mouseenter`）撤销待执行的收起，出浮窗重新排一次。
+  - **计时由前端自己走**（`view/tasks.ts`）：后端只在有进度时才推快照，一次模型调用能安静一分钟，那期间计时停住会让人以为卡死。收到快照时记下 `Date.now() - elapsedMs` 当基线，之后每秒**只改计时文本**——重建 DOM 会打断「停止」按钮上的点击。
+  - **日志增量不重画整表**（`view/logs.ts`）：长任务每秒好几条，重画会让滚动位置乱跳。只在原本就贴着底时才跟着滚，用户翻上去看东西时不该被拽回来。
+- **工程页的树是扁平渲染的**（`view/project/rows.ts`）：`renderNodes` 递归遍历 `ProjectNode`，但产出的是**扁平的行数组**，层级靠 `paddingLeft` 缩进表达而非嵌套 DOM。折叠状态存在 `project/treeState.ts` 的 `openFolders`（relPath 集合）与 `openGroups` 里；切换折叠只用最近一次收到的树重画（`rerenderProject`），不往后端要数据。文件夹默认折叠，四个顶层分组默认展开。
+- **摘要浮窗按需取、事件委托**（`view/project/summaryTip.ts`）：鼠标停在章节行上约半秒后弹出该章摘要。摘要正文**不在** `ProjectTree` 里（那棵树每次文件变动都全量重推，塞进去等于每保存一次就推几百 KB），悬停时发 `requestSummary{order}` 单章去要。**缓存只在收到 `project` 消息时清**——那说明磁盘变过；折叠文件夹走 `rerenderProject()` 不经那条分支，缓存留着。监听用事件委托挂在 `#projectBody` 上（行每次重渲染都换掉，逐行 `addEventListener` 会堆积），浮窗与右键菜单同样是挂在 `body` 上的 `position: fixed`。
+  - **浮窗是可以进去的**：摘要有六个小节、可能上千字，一瞥看不完。鼠标移上去就一直留着，能滚动、能选中复制，移开才收。所以**不能**给它 `pointer-events: none`，收起也**必须有宽限期**（`CLOSE_DELAY_MS`）——从行挪到浮窗要跨过一道缝，那一两帧鼠标既不在行上也不在浮窗上，立刻收会让浮窗永远够不着。
   - **收起要分清是谁在滚**：页面滚动会让 fixed 的浮窗和目标行脱节，得收；但**浮窗自己内部的滚动不算**，一滚就收等于那个滚动条形同虚设。捕获阶段的 `scroll` 监听里用 `hoverTip.box.contains(e.target)` 区分。Esc 与右键仍然立刻收（右键菜单也是 fixed，会叠在一起）。
-  - **定位必须夹进视口**：`placeSummaryTip` 横向左对齐目标行、右边溢出往左收；纵向优先放下方，放不下翻上方，**两边都放不下时选空间大的一侧并压行内 `max-height`**——只翻转不压高度的话，一份长摘要在矮窗口里会有一截永远够不到。量高度前要先清掉上一次的 `maxHeight`，否则会一直沿用之前那个更矮的值；内容后到达（`applySummary`）把浮窗撑高后要重新走一次定位。
-- **一套菜单引擎、两个入口**：`buildMenuElement(items, className)` 由 `{ label, run, danger, disabled }`（`{ sep: true }` 是分隔线）建出菜单 DOM。气泡右上角的 ⋯ 用 `.msg-menu` 绝对定位贴在 `.msg-head` 里；右键用 `.ctx-menu` 挂到 `body` 上 `position: fixed` 跟着光标走（工程页有内部滚动，挂在容器里会被裁掉），贴边时翻转。`openMenu` 保证同时只有一个，点别处 / Esc / 滚动都收起。
-- **右键菜单靠 WeakMap 登记**：构建某一行时用 `onContextMenu(row, () => items)` 把「这行右键给什么」记在元素上（那一刻上下文最全，不用右键时反查 `lastTree`；行被重渲染丢弃后自动回收）。全局 `contextmenu` 监听从 `e.target` 向上找第一个登记过的祖先，找不到就用兜底的「刷新」。**刷新复用已有的 `projectAction: 'refresh'`**——后端那个分支只是 `pushState()`，会按当前页签推数据，天然适用于所有页面，无需新增协议。
-- **右键一律接管**：全局监听里无条件 `preventDefault()`，输入框 / 文本域 / 内置编辑器里也一样，所以**原生的复制/粘贴/剪切菜单不会出现**。这是有意的取舍（菜单风格统一），代价是这几处的编辑项要自己实现——目前还没做，那里只有「刷新」。插件形态另需 [../src/vscode/webviewHtml.ts](../src/vscode/webviewHtml.ts) 的 `<body data-vscode-context='{"preventDefaultContextMenuItems": true}'>`：VS Code 给 webview 右键菜单加的复制/粘贴项由宿主渲染，JS 的 `preventDefault` 压不住，不加会同时冒出两层菜单。
-- **消息契约**：收发的消息类型与 [../src/core/protocol.ts](../src/core/protocol.ts) 一一对应。改协议要同时改这里；`smoke-server.js` 覆盖了编辑器的消息往返，其余前端逻辑需手动验证。
-- **DOM 结构两处同源**：工程页工具栏等结构在 [../src/vscode/webviewHtml.ts](../src/vscode/webviewHtml.ts) 与 [../src/standalone/html.ts](../src/standalone/html.ts) 各有一份，加按钮要同时改两处。草稿那块编辑区是例外——它的 DOM 由 `editor.js` 的 `createPaneElements()` 克隆主区结构现造，`html.ts` 里只有容器 `#wbEditors` 与分隔条 `#wbDraftResizer`，免得同一套四十行结构要在两个地方对齐。
+  - **定位必须夹进视口**：`place()` 横向左对齐目标行、右边溢出往左收；纵向优先放下方，放不下翻上方，**两边都放不下时选空间大的一侧并压行内 `max-height`**——只翻转不压高度的话，一份长摘要在矮窗口里会有一截永远够不到。量高度前要先清掉上一次的 `maxHeight`，否则会一直沿用之前那个更矮的值；内容后到达（`applySummary`）把浮窗撑高后要重新走一次定位。
+- **一套菜单引擎、两个入口**（`view/menu.ts`）：`buildMenuElement(items, className)` 由 `{ label, run, danger, disabled }`（`{ sep: true }` 是分隔线）建出菜单 DOM。气泡右上角的 ⋯ 用 `.msg-menu` 绝对定位贴在 `.msg-head` 里；右键用 `.ctx-menu` 挂到 `body` 上 `position: fixed` 跟着光标走（工程页有内部滚动，挂在容器里会被裁掉），贴边时翻转。同时只有一个菜单，点别处 / Esc / 滚动都收起。
+- **右键菜单靠 WeakMap 登记**：构建某一行时用 `onContextMenu(row, () => items)` 把「这行右键给什么」记在元素上（那一刻上下文最全，不用右键时反查最近那棵树；行被重渲染丢弃后自动回收）。全局 `contextmenu` 监听从 `e.target` 向上找第一个登记过的祖先，找不到就用兜底的「刷新」。**刷新复用已有的 `projectAction: 'refresh'`**——后端那个分支只是 `pushState()`，会按当前页签推数据，天然适用于所有页面，无需新增协议。
+- **右键一律接管**：全局监听里无条件 `preventDefault()`，输入框 / 文本域 / 内置编辑器里也一样，所以**原生的复制/粘贴/剪切菜单不会出现**。这是有意的取舍（菜单风格统一），代价是这几处的编辑项要自己实现（编辑器正文区与文件页已经做了，见 `editor/clipboard.ts` 与 `explorer/rows.ts`；输入框里目前只有「刷新」）。插件形态另需 [../src/vscode/webviewHtml.ts](../src/vscode/webviewHtml.ts) 的 `<body data-vscode-context='{"preventDefaultContextMenuItems": true}'>`：VS Code 给 webview 右键菜单加的复制/粘贴项由宿主渲染，JS 的 `preventDefault` 压不住，不加会同时冒出两层菜单。
+- **DOM 结构两处同源**：工程页工具栏等结构在 [../src/vscode/webviewHtml.ts](../src/vscode/webviewHtml.ts) 与 [../src/standalone/html.ts](../src/standalone/html.ts) 各有一份，加按钮要同时改两处。草稿那块编辑区是例外——它的 DOM 由 `editor/paneElements.ts` 的 `createPaneElements()` 克隆主区结构现造，`html.ts` 里只有容器 `#wbEditors` 与分隔条 `#wbDraftResizer`，免得同一套四十行结构要在两个地方对齐。
 - **CSP**：webview 的 CSP 只允许本地资源与 nonce 脚本，不引任何 CDN / 外部脚本。独立版同样不引外部资源。
-- **两形态隔离**：`standalone.css` 与 `editor.js` / `explorer.js` **只**由独立版加载，插件的 `webviewHtml.ts` 里没有它们，也没有 `#wbEditor` / `#filesBody` 容器。给独立版加样式请只改 `standalone.css`（必要时用 `.workbench` 前缀覆盖 view.css），不要为独立版去动 view.css。
-- **能力探测而非环境判断**：`view.js` 里用 `document.getElementById('wbEditor')` 判断有没有内置编辑器，据此决定「打开文件」发 `openEditor` 还是 `openFile`；`editor.js` / `explorer.js` 各自开头探测自己那块容器（`#wbEditor` / `#filesBody`），不在就直接 return。插件里没有这些容器，行为不变。
-- **跨文件只经三个全局**：`window.__nfToast`（view.js 出，editor.js / explorer.js 用）、`window.__nfContextMenu`（view.js 出的右键菜单登记函数）、`nf-editor-active` 事件（editor.js 出，explorer.js 用）。别让 explorer.js 直接读 editor.js 的 `panes`——那会把编辑器的内部状态变成两个文件之间的契约，而资源管理器在插件形态里根本不存在。右键菜单尤其**不能各起一套**：全局 `contextmenu` 监听在 view.js 里，另起一个会两层菜单一起弹。
-- **不拼 HTML 字符串渲染用户内容**：Markdown 预览全部走 `createElement` + `textContent`，正文里写 `<script>` 也只是普通文字。
+- **两形态隔离**：`standalone.css` 与 `editor.js` / `explorer.js` **只**由独立版加载，插件的 `webviewHtml.ts` 里没有它们，也没有 `#wbEditor` / `#filesBody` 容器。给独立版加样式请只改 `src/css/standalone/`（必要时用 `.workbench` 前缀覆盖 view 的规则），不要为独立版去动 `src/css/view/`。
+- **能力探测而非环境判断**：`view/store.ts` 里用 `document.getElementById('wbEditor')` 判断有没有内置编辑器，据此决定「打开文件」发 `openEditor` 还是 `openFile`；`editor/index.ts` 与 `explorer/index.ts` 各自开头探测自己那块容器（`#wbEditor` / `#filesBody`），不在就直接 return（连 `acquireVsCodeApi()` 都不调——webview 里那个函数只允许调一次）。插件里没有这些容器，行为不变。
+- **跨文件只经三样东西**（全在 `src/globals.ts`）：`window.__nfToast`（view 出，editor / explorer 用）、`window.__nfContextMenu`（view 出的右键菜单登记函数）、两个自定义事件 `nf-editor-active`（editor → explorer，高亮当前文件）与 `nf-files-moved`（explorer → editor，改名后搬标签）。别让 explorer 直接读 editor 的 `panes`——那会把编辑器的内部状态变成两个文件之间的契约，而资源管理器在插件形态里根本不存在。右键菜单尤其**不能各起一套**：全局 `contextmenu` 监听在 view 里，另起一个会两层菜单一起弹。
+- **不拼 HTML 字符串渲染用户内容**：一律 `createElement` + `textContent`（`src/dom.ts` 的 `el()` 就是干这个的），正文里写 `<script>` 也只是普通文字。
 - **预览与等宽字体是两件事**：章节可以是 `.txt` / 无扩展名，那时没有 Markdown 可预览（隐藏「预览」按钮），但它仍是正文，该用正文字体；只有 `.json` / `.yml` 这类结构化文件才加 `.mono`。
+- **两处 `countWords` 口径不同，别合并**：`editor/words.ts` 的与 core 一致（中文按字、英文按词），状态栏上的字数要与工程页上后端算的对得上；`view/format.ts` 的统计模型回复长度（去空白后的字符数），是另一件事。
 
 ## 内置编辑器的行为约束
 
@@ -46,7 +80,7 @@
 
 ## 两块编辑区
 
-- `createPane(id, refs)` 是工厂，两块编辑区是它的两个实例，各自持有 `files` / `conflicts` / `activePath` / `previewMode`。主区绑页面上固定 id 的节点，草稿区在首次收到 `editorOpen{pane:'draft'}` 时惰性创建。
+- `createPane(id, refs, post)`（`editor/pane.ts`）是工厂，两块编辑区是它的两个实例，各自持有 `files` / `conflicts` / `activePath` / 预览开关。主区绑页面上固定 id 的节点，草稿区在首次收到 `editorOpen{pane:'draft'}` 时惰性创建。
 - **一个路径同一时刻只属于一块**。`editorSaved` / `editorConflict` / `editorError` 都只带 `path`，靠这条不变量才认得出该送给谁（`paneOwning`）。因此收到 `editorOpen` 时会先让另一块 `closeSilently` 掉同路径，未保存内容一并搬过来——不是关闭，是搬家。破坏这条会导致从错的那块保存时用错 `baseHash`，触发假冲突。
 - `activePane` 靠两块根元素上的 `focusin` / `pointerdown` 跟踪，`Ctrl+S` / `Ctrl+W` 作用于它，`beforeunload` 则扫两块。
 - 「草稿」按钮的可见性由后端给的 `file.draftPath` 决定，前端不自己判断什么算章节。点它发 `openDraft{path}`，**传的是章节路径**，草稿路径由后端推导并按需创建。
@@ -61,3 +95,19 @@
 - **能不能编辑由后端算**（`FsEntry.editable`，与 `fileEditing.ts` 同一份规则）。前端不复刻扩展名白名单，也就不会去撞一个必然失败的 `openEditor`——不可编辑的文件点击直接走 `openExternal`。
 - **树是扁平渲染的**，与工程页同一套取舍：层级靠 `paddingLeft` 缩进表达，折叠只是重画一遍。展开集合存 localStorage 的 `novelforge.files.open`。
 - **截断要说出来**：目录条目超过上限时后端给 `truncated`（真实总数），树尾多一行「另有 N 项未列出」。
+
+## 测试
+
+- [`../scripts/smoke-view.js`](../scripts/smoke-view.js) 用 jsdom 跑**构建产物**（`dist/media/*.js`，不是源码），从两个 html 模板里抠 body 保证结构与真实渲染一致，覆盖消息流、工程页、右键菜单、摘要浮窗、两块编辑区、资源管理器。改了 `media/src/**` 先 `npm run media` 再跑它，否则测的是上一次的产物（`npm run smoke` / `npm test` 会自动先构建）。
+- [`../scripts/verify-css.js`](../scripts/verify-css.js) 比对两份 CSS 是否等价：规则集合一条不多一条不少，且「同选择器 + 同属性」的相对顺序没被改变。拆分或重排样式片段后可以拿它对着旧产物验一遍。
+
+## 新增产物
+
+加一个新的 `.js` / `.css` 产物要四处同改（比改造前多一处，就是第一步）：
+
+1. `media/src/<名字>/index.ts`（或 `src/css/<名字>.css`）放源码；
+2. [`../scripts/build-media.js`](../scripts/build-media.js) 的 `JS_ENTRIES` / `CSS_ENTRIES` 加一条；
+3. [`../scripts/embed-media.js`](../scripts/embed-media.js) 的 `built` 数组加一条——漏了这步，`bun build --compile` 出的单文件会 404；
+4. `html.ts`（与需要时 `webviewHtml.ts`）里引用。
+
+**在已有产物内部拆模块不用改任何配置**，直接 import 即可——这正是这次改造要换来的东西。

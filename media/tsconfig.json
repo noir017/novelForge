@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // 产物由 esbuild 打包，tsc 只做类型检查——所以用 Bundler 解析（相对
+    // 导入不必写 .js 扩展名），并且永不 emit。
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "noEmit": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // 前端代码本身不该碰 Node，但 `src/protocol.ts` 顺着 core 的协议定义
+    // 会解析到 fileTree/logger 那几个 Node 侧模块，少了 node 类型它们自己
+    // 就编译不过。真正挡住「前端误用 Node API」的是 esbuild：产物按
+    // platform: 'browser' 打包，import 'node:path' 会直接解析失败。
+    "types": ["node"]
+  },
+  // ../src/core/protocol.ts 由 src/protocol.ts 以 `import type` 引入，
+  // tsc 会顺着解析进去，不必在 include 里点名。
+  "include": ["src/**/*.ts", "src/**/*.d.ts"]
+}

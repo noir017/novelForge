@@ -1,4 +1,6 @@
 node_modules/
+# 全部构建产物都在这里：dist/extension.js、dist/media/（前端，源码在 media/src/）、
+# dist/novelforge（单文件可执行）。一处都不入库。
 dist/
 out/
 *.vsix

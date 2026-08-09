@@ -1,8 +1,13 @@
 /**
- * 用真实 DOM（jsdom）跑真正的 media/view.js，验证对话气泡的行为：
- * 流式过程中逐段显示、生成中不可编辑、结束后可编辑，以及 ... 菜单。
+ * 用真实 DOM（jsdom）跑真正的前端代码，验证对话气泡、工程页、右键菜单、
+ * 摘要浮窗、内置编辑器与资源管理器的行为。
  *
- * 这是唯一能覆盖 view.js 的测试——它是纯浏览器脚本，其他 smoke 都碰不到。
+ * 这是唯一能覆盖前端的测试——它们是纯浏览器脚本，其他 smoke 都碰不到。
+ *
+ * **跑的是构建产物**（`dist/media/view.js` 等，classic script，jsdom 的
+ * `window.eval` 只吃得下这种），源码在 `media/src/`。`npm run smoke` 的
+ * presmoke 会先构建；单独跑本文件前请先 `npm run media`，否则测的是
+ * 上一次的产物。
  *
  * 用法：node scripts/smoke-view.js
  */
@@ -10,6 +15,8 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
+/** 前端构建产物目录。与 scripts/build-media.js 的 outdir 同一处。 */
+const MEDIA = path.join(ROOT, 'dist', 'media');
 
 let failures = 0;
 function check(name, cond, detail) {
@@ -70,7 +77,7 @@ function mount() {
   window.navigator.clipboard = { writeText: () => Promise.resolve() };
   window.HTMLElement.prototype.scrollIntoView = () => {};
 
-  window.eval(fs.readFileSync(path.join(ROOT, 'media/view.js'), 'utf8'));
+  window.eval(fs.readFileSync(path.join(MEDIA, 'view.js'), 'utf8'));
 
   const post = (msg) => window.dispatchEvent(new window.MessageEvent('message', { data: msg }));
   const bubble = (id) => window.document.querySelector(`[data-turn="${id}"]`);
@@ -106,7 +113,7 @@ function mountEditor() {
   window.HTMLElement.prototype.releasePointerCapture = () => {};
   window.confirm = () => true;
 
-  window.eval(fs.readFileSync(path.join(ROOT, 'media/editor.js'), 'utf8'));
+  window.eval(fs.readFileSync(path.join(MEDIA, 'editor.js'), 'utf8'));
 
   const post = (msg) => window.dispatchEvent(new window.MessageEvent('message', { data: msg }));
   const file = (p, text, extra) =>
@@ -140,9 +147,9 @@ function mountExplorer() {
   window.navigator.clipboard = { writeText: () => Promise.resolve() };
   window.confirm = () => true;
 
-  window.eval(fs.readFileSync(path.join(ROOT, 'media/view.js'), 'utf8'));
-  window.eval(fs.readFileSync(path.join(ROOT, 'media/editor.js'), 'utf8'));
-  window.eval(fs.readFileSync(path.join(ROOT, 'media/explorer.js'), 'utf8'));
+  window.eval(fs.readFileSync(path.join(MEDIA, 'view.js'), 'utf8'));
+  window.eval(fs.readFileSync(path.join(MEDIA, 'editor.js'), 'utf8'));
+  window.eval(fs.readFileSync(path.join(MEDIA, 'explorer.js'), 'utf8'));
 
   const post = (msg) => window.dispatchEvent(new window.MessageEvent('message', { data: msg }));
   const rows = () => [...window.document.querySelectorAll('#filesBody .fx-row')];

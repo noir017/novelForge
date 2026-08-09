@@ -1,0 +1,29 @@
+/*
+ * 独立版专属样式。只由 src/standalone/html.ts 引入，插件的 webview 不加载，
+ * 因此这里可以自由重排布局，不影响插件形态。
+ * 由 scripts/build-media.js 打包成 media/standalone.css。
+ *
+ * 两件事：
+ * 1. 把 view.css 依赖的全部 --vscode-* 变量补齐（浏览器里没有 VS Code 注入的
+ *    主题色），取值对齐 VS Code 的 Dark Modern / Light Modern；
+ * 2. 把单列页面改成 VS Code 式工作台：标题栏 + 活动栏 + 侧栏 + 编辑区。
+ *
+ * 顺序有意义：theme 先定下变量，narrow 的媒体查询压在最后。
+ */
+
+@import './standalone/theme.css';
+@import './standalone/scrollbar.css';
+@import './standalone/workbench.css';
+
+/* 内置编辑器与资源管理器（这两块 DOM 只有独立版才有） */
+@import './standalone/editor.css';
+@import './standalone/preview.css';
+@import './standalone/explorer.css';
+
+/* 覆盖 view.css 的那几处 */
+@import './standalone/side-tweaks.css';
+@import './standalone/toast.css';
+@import './standalone/offline.css';
+
+/* 媒体查询放最后 */
+@import './standalone/narrow.css';

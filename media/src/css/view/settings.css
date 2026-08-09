@@ -1,0 +1,138 @@
+/* 设置页：服务商卡片与模型行。 */
+
+.provider-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  border-radius: var(--radius);
+}
+
+/* 设置列表里的概要卡片，详细配置在弹窗里。 */
+.provider-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  border-radius: var(--radius);
+}
+
+.provider-card:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.provider-card .provider-head {
+  align-items: center;
+}
+
+.provider-card button.secondary.small {
+  padding: 2px 8px;
+  font-size: 0.85em;
+}
+
+.provider-url {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-models {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 模型徽标，跟 VS Code 的 badge 同色系。 */
+.model-chip {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.8em;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.provider-title {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.model-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 7px;
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.08));
+}
+
+.model-row .field.compact {
+  flex: 1 1 110px;
+}
+
+.model-row .field.compact input {
+  padding: 3px 6px;
+  font-size: 0.9em;
+}
+
+.model-tail {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1 1 100%;
+}
+
+.model-ref {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85em;
+}
+
+.key-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.key-status {
+  flex: 1;
+  min-width: 100px;
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.key-status.set {
+  color: var(--vscode-testing-iconPassed, #89d185);
+}

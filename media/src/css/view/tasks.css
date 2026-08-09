@@ -1,0 +1,75 @@
+/* 长任务进度条。 */
+
+/* 工程页顶部的进度块。没有任务时整块 hidden，页面回到原样。 */
+.tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.task {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.task-head .spacer {
+  flex: 1;
+}
+
+.task-title {
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.task-counter {
+  font-variant-numeric: tabular-nums;
+}
+
+.task-time {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.task-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.task-fill {
+  height: 100%;
+  background: var(--vscode-progressBar-background, #0078d4);
+  transition: width 200ms ease;
+}
+
+/* 不知道总量时来回扫，表明还活着。 */
+.task-bar.indeterminate .task-fill {
+  position: absolute;
+  transition: none;
+  animation: task-scan 1.6s ease-in-out infinite;
+}
+
+@keyframes task-scan {
+  0% { left: -35%; }
+  100% { left: 100%; }
+}
+
+.task-msg {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

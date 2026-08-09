@@ -1,0 +1,48 @@
+/* 侧栏内容微调：工作台比侧边栏宽得多，几处间距与字体要跟着改。 */
+
+/* 浏览器里 body 不再是 flex 容器，pane 的高度改由 .wb-side 提供。 */
+.workbench .pane {
+  min-height: 0;
+}
+
+.workbench #pane-history,
+.workbench #pane-settings {
+  padding: 14px 16px 24px;
+}
+
+/* 日志页自己管内边距（工具栏贴边、正文一片），不吃上面那条统一 padding。 */
+.workbench .log-toolbar {
+  padding: 10px 16px;
+}
+
+.workbench .log-body {
+  padding: 8px 16px 20px;
+}
+
+/* 活动栏「日志」上的红点：有没看过的错误时亮。默认那颗是黄的（过期摘要）。 */
+.tab-dot.err {
+  background: var(--vscode-editorError-foreground);
+}
+
+.workbench .messages {
+  padding: 14px 16px;
+  gap: 16px;
+}
+
+.workbench .composer {
+  padding: 10px 14px 10px;
+  background: var(--vscode-sideBar-background);
+}
+
+.workbench #input {
+  min-height: 62px;
+  max-height: 40vh;
+  line-height: 1.7;
+}
+
+/* 模型回复是小说正文，用衬线族按行距铺开，比等宽字体好读得多。 */
+.workbench .msg.assistant .msg-body {
+  font-family: var(--nf-prose-font-family);
+  font-size: 14.5px;
+  line-height: 1.95;
+}

@@ -29,7 +29,7 @@ src/
 
 ## 一条续写请求的完整链路
 
-1. webview 前端（[media/view.js](../media/view.js)）发 `send` 消息 → 宿主（`vscode/chatViewProvider` 或 `chatPanel`）转给 `ui/ChatController`。
+1. webview 前端（[media/src/view/](../media/src/view/)）发 `send` 消息 → 宿主（`vscode/chatViewProvider` 或 `chatPanel`）转给 `ui/ChatController`。
 2. `ChatController` 把 payload 交给 `core/features/ContinueSession.generate()`。
 3. `ContinueSession` 先经 `core/llm/registry` 拿到 provider，再调 `core/context/builder.buildContext()` 装配上下文。
 4. 装配器从 `core/model/NovelProject` 读文风、摘要、角色卡、近章原文，按 P0–P4 填预算，产出 messages + 明细。

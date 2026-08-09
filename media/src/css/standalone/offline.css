@@ -1,0 +1,15 @@
+/* 断线提示条。bridge.js 在 WS 断开时插入。 */
+
+/* bridge.js 在 WS 断开时插入。压在最顶层，但不挡住内容的可读性。 */
+.wb-offline {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding: 6px 12px;
+  background: var(--vscode-inputValidation-errorBorder);
+  color: #ffffff;
+  font-size: 0.8em;
+  text-align: center;
+}

@@ -1,0 +1,296 @@
+/* 内置编辑器：两块编辑区、标签条、工具条、正文、冲突条、状态栏。 */
+
+/* 两块编辑区并列的容器。草稿区没打开时里面只有主区，与改造前无差别。 */
+.wb-editors {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.wb-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--vscode-editor-background);
+}
+
+/* ---- 草稿区：固定宽度、可拖拽，正文那块继续占剩下的空间 */
+
+.wb-editor-draft {
+  flex: 0 0 auto;
+  width: var(--nf-draft-width, 420px);
+  border-left: 1px solid var(--vscode-panel-border);
+}
+
+/* 标签条换个底色，一眼分得出哪块是草稿。 */
+.wb-editor-draft .ed-tabs {
+  background: var(--vscode-sideBar-background);
+}
+
+.wb-draft-resizer {
+  margin-left: -2px;
+  margin-right: -3px;
+}
+
+/* ---- 标签条 */
+
+.ed-tabs {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  min-height: 35px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--nf-tab-inactive-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  scrollbar-width: none;
+}
+
+.ed-tabs::-webkit-scrollbar {
+  height: 0;
+}
+
+.ed-tabs:empty {
+  display: none;
+}
+
+.ed-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  max-width: 240px;
+  padding: 0 8px 0 12px;
+  border: none;
+  border-right: 1px solid var(--vscode-panel-border);
+  border-top: 1px solid transparent;
+  background: var(--nf-tab-inactive-background);
+  color: var(--vscode-descriptionForeground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ed-tab:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.ed-tab.active {
+  background: var(--nf-tab-active-background);
+  color: var(--vscode-foreground);
+  border-top-color: var(--vscode-focusBorder);
+}
+
+.ed-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 脏标记：圆点占位常驻，避免关闭按钮在保存前后左右跳动。 */
+.ed-tab-dirty {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.ed-tab.dirty .ed-tab-dirty {
+  background: currentColor;
+}
+
+.ed-tab-close {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.ed-tab:hover .ed-tab-close,
+.ed-tab.active .ed-tab-close,
+.ed-tab.dirty .ed-tab-close {
+  opacity: 0.75;
+}
+
+.ed-tab-close:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+/* ---- 工具条 */
+
+.ed-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editor-background);
+}
+
+.ed-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.82em;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ---- 内容区 */
+
+.ed-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ed-area {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 18px 24px;
+  border: none;
+  border-radius: 0;
+  resize: none;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font-family: var(--nf-prose-font-family);
+  font-size: 15px;
+  line-height: 1.95;
+  tab-size: 2;
+}
+
+.ed-area:focus {
+  outline: none;
+}
+
+/* Markdown 之外（json/yml）用等宽字体，改缩进才看得清。 */
+.ed-area.mono {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.ed-welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--vscode-descriptionForeground);
+  text-align: center;
+}
+
+.ed-welcome .ed-welcome-logo {
+  color: var(--vscode-panel-border);
+}
+
+.ed-welcome .ed-welcome-logo svg {
+  width: 64px;
+  height: 64px;
+}
+
+.ed-welcome h2 {
+  margin: 0;
+  font-size: 1.05em;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.ed-welcome p {
+  margin: 0;
+  max-width: 42ch;
+  line-height: 1.8;
+  font-size: 0.9em;
+}
+
+.ed-welcome dl {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px 14px;
+  margin: 4px 0 0;
+  font-size: 0.85em;
+  text-align: left;
+}
+
+.ed-welcome dt {
+  justify-self: end;
+}
+
+.ed-welcome dd {
+  margin: 0;
+  color: var(--vscode-foreground);
+}
+
+/* ---- 冲突提示：绝不静默覆盖，把取舍摆在用户面前。 */
+
+.ed-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-inputValidation-warningBorder);
+  background: var(--vscode-inputValidation-warningBackground);
+  font-size: 0.85em;
+}
+
+.ed-conflict .ed-conflict-text {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+/* 强制覆盖会丢掉磁盘上别人的改动，别让它跟「取磁盘版」长得一样。 */
+.ed-conflict #edConflictForce {
+  border-color: var(--vscode-inputValidation-errorBorder);
+  color: var(--vscode-errorForeground);
+}
+
+/* ---- 状态栏 */
+
+.ed-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  border-top: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background);
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.78em;
+  font-variant-numeric: tabular-nums;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.ed-status .spacer {
+  flex: 1;
+}
+
+.ed-status .ed-save-state.dirty {
+  color: var(--vscode-editorWarning-foreground);
+}

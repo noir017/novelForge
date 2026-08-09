@@ -1,0 +1,78 @@
+/* 窄屏（≤900px）：编辑区改成覆盖层，活动栏回到水平排布。 */
+
+/*
+ * 窄屏（手机/分屏）没有并排的余地：编辑区改成覆盖层，
+ * 由标题栏的「编辑器」按钮切换；活动栏回到水平排布。
+ */
+@media (max-width: 900px) {
+  .workbench .tabbar {
+    flex-direction: row;
+    width: auto;
+    flex: 0 0 auto;
+    border-right: none;
+    border-bottom: 1px solid var(--vscode-panel-border);
+  }
+
+  .workbench .tab {
+    flex-direction: row;
+    gap: 5px;
+    border-left: none;
+    border-bottom: 2px solid transparent;
+  }
+
+  .workbench .tab.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--vscode-focusBorder);
+  }
+
+  .wb-main {
+    flex-direction: column;
+  }
+
+  .wb-side {
+    width: auto;
+    flex: 1;
+    border-right: none;
+  }
+
+  .wb-resizer {
+    display: none;
+  }
+
+  /* 窄屏放不下两块并列的编辑区：草稿区整块收起，只留主区那层覆盖。 */
+  .wb-editors {
+    display: contents;
+  }
+
+  .wb-editor-draft {
+    display: none;
+  }
+
+  .wb-editor {
+    position: fixed;
+    inset: 38px 0 0;
+    z-index: 15;
+    display: none;
+    box-shadow: var(--nf-shadow);
+  }
+
+  body.editor-open .wb-editor {
+    display: flex;
+  }
+
+  body.editor-open .wb-editor-draft {
+    display: none;
+  }
+
+  .ed-area,
+  .ed-preview {
+    padding: 14px 16px;
+  }
+}
+
+/* 宽屏时标题栏的「编辑器」开关无用（编辑区常驻）。 */
+@media (min-width: 901px) {
+  #wbEditorToggle {
+    display: none;
+  }
+}

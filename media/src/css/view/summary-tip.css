@@ -1,0 +1,77 @@
+/* 章节摘要的悬停浮窗。 */
+
+/* ---- 章节摘要的悬停浮窗
+
+   挂在 body 上 position: fixed，与右键菜单同一个理由：工程页有内部滚动，
+   挂在行里会被容器裁掉。z-index 排在 toast（30）与 .ctx-menu（40）之下——
+   提示条和右键菜单都是用户主动要的，一个划过去就出现的浮窗不该盖住它们。
+
+   摘要有六个小节、可能上千字，一瞥看不完，所以浮窗是**可以进去的**：
+   鼠标移上去就一直留着，能滚、能选中复制，移开才收（收起有宽限期，
+   见 view.js 的 CLOSE_DELAY_MS）。因此这里不能有 pointer-events: none。
+
+   两道高度限制各管一件事：max-height 是可读性上限（再长也不该占满屏），
+   view.js 的 placeSummaryTip 另外按上/下可用空间压一次行内 max-height，
+   保证浮窗整个落在视口内。overflow-y 让超出的部分滚起来。 */
+
+.summary-tip {
+  position: fixed;
+  z-index: 25;
+  width: 340px;
+  max-width: calc(100vw - 16px);
+  max-height: 60vh;
+  overflow-y: auto;
+  /* 浮窗里滚到头时不要把滚动继续传给底下的工程页——
+     那会让整棵树跟着动，而浮窗是 fixed 的，位置立刻就脱节。 */
+  overscroll-behavior: contain;
+  padding: 8px 10px;
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  border-radius: var(--radius);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+  font-size: 0.85em;
+  line-height: 1.5;
+  /* 摘要是拿来读、拿来抄进正文的，别禁掉选中。 */
+  user-select: text;
+}
+
+.summary-tip-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 5px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.summary-tip-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-tip-stale {
+  flex: 0 0 auto;
+  font-size: 0.85em;
+  padding: 0 5px;
+  border-radius: 3px;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  border: 1px solid var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.summary-tip-section {
+  margin-top: 6px;
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground);
+}
+
+.summary-tip-section:first-of-type {
+  margin-top: 0;
+}
+
+.summary-tip-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

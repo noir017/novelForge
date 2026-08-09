@@ -1,0 +1,30 @@
+/*
+ * 面板样式，两个形态共用。由 scripts/build-media.js 打包成 media/view.css。
+ *
+ * **不写死颜色**——全部走 `--vscode-*` 变量：插件里这些变量由 VS Code 注入，
+ * 独立版由 standalone.css 提供（深/浅两套）。
+ *
+ * 顺序有意义：base 定下变量与通用排版，后面的片段各管一块，
+ * 同名选择器越靠后越优先。
+ */
+
+@import './view/base.css';
+@import './view/tabbar.css';
+@import './view/buttons.css';
+@import './view/forms.css';
+@import './view/banner.css';
+
+/* 各页 */
+@import './view/project.css';
+@import './view/tasks.css';
+@import './view/logs.css';
+@import './view/messages.css';
+@import './view/composer.css';
+@import './view/history.css';
+@import './view/settings.css';
+
+/* 浮层：菜单、浮窗、弹窗、提示条 */
+@import './view/menu.css';
+@import './view/summary-tip.css';
+@import './view/modal.css';
+@import './view/toast.css';

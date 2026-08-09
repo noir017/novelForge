@@ -1,0 +1,49 @@
+/* 横幅：过期摘要提示与同步进度条。 */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 10px 0;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--vscode-inputValidation-warningBackground, rgba(255, 204, 0, 0.15));
+  border: 1px solid var(--vscode-inputValidation-warningBorder, rgba(255, 204, 0, 0.5));
+  font-size: 0.85em;
+}
+
+/* 摘要进度横幅：文字一行、进度条一行、比例一行，纵向排。 */
+.banner-summary {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+}
+
+.banner-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.banner-line .spacer {
+  flex: 1;
+}
+
+.sum-bar {
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--vscode-progressBar-background, rgba(128, 128, 128, 0.3));
+  opacity: 0.45;
+}
+
+.sum-fill {
+  height: 100%;
+  background: var(--vscode-progressBar-background, #0078d4);
+  opacity: 1;
+  transition: width 200ms ease;
+}
+
+.sum-meta {
+  align-self: flex-end;
+}

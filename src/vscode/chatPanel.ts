@@ -25,7 +25,11 @@ export class ChatPanel implements ViewHost {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
+        // icon.svg 在 media/，脚本与样式在 dist/media/（构建产物）。
+        localResourceRoots: [
+          vscode.Uri.joinPath(extensionUri, 'media'),
+          vscode.Uri.joinPath(extensionUri, 'dist', 'media'),
+        ],
       }
     );
     ChatPanel.instance = new ChatPanel(panel, extensionUri, controller);

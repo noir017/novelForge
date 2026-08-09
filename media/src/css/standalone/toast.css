@@ -1,0 +1,15 @@
+/* 提示条：view.css 里是贴满底部一整条（给窄侧边栏设计的），工作台改成右下角浮层。 */
+
+/*
+ * view.css 里的 toast 是「贴满底部一整条」——那是给窄侧边栏设计的。
+ * 工作台宽得多，铺满会盖住状态栏，这里改成右下角的浮层。
+ */
+.workbench .toast {
+  left: auto;
+  right: 16px;
+  bottom: 16px;
+  max-width: min(460px, calc(100vw - 32px));
+  padding: 9px 14px;
+  border-radius: 8px;
+  box-shadow: var(--nf-shadow);
+}

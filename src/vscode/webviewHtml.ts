@@ -5,6 +5,10 @@ import { makeNonce } from '../core/protocol';
  * 两个 webview 宿主共用的 HTML。只加载本地资源，CSP 里不开任何外部来源。
  * bridge.js 在 view.js 之前加载：webview 里它检测到 acquireVsCodeApi 存在就直通。
  *
+ * 脚本与样式取自 `dist/media/`（`media/src/` 的构建产物，不入库），
+ * 所以两个宿主的 `localResourceRoots` 都要带上 `dist`——F5 调试前必须跑过
+ * `npm run compile`，否则这里 404 一片白。
+ *
  * body 上的 `data-vscode-context` 关掉 VS Code 给 webview 右键菜单加的
  * 复制/粘贴项：右键全部由 view.js 自己接管（见 media/README.md），
  * 不关掉的话点一下会同时冒出两层菜单——JS 的 preventDefault 压不住那一层。
@@ -12,7 +16,7 @@ import { makeNonce } from '../core/protocol';
 export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   const nonce = makeNonce();
   const asset = (name: string) =>
-    webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', name));
+    webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'media', name));
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">

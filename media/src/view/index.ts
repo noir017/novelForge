@@ -1,0 +1,184 @@
+/**
+ * 面板的前端入口。插件与独立版共用同一份，差异全靠**能力探测**
+ * （`#wbEditor` 在不在），不判断环境字符串。
+ *
+ * **前端无状态**：一切数据来自 `ViewState` / `ProjectTree` 的全量推送，
+ * webview 销毁重建后一条 `ready` 就能完整恢复；展开/折叠等纯 UI 状态
+ * 留在前端各自的模块里。
+ *
+ * 消息契约是 [core/protocol.ts](../../../src/core/protocol.ts) 的
+ * `InMessage` / `OutMessage`，经 src/protocol.ts 引进来——改协议这边
+ * 对不上会直接编译不过。
+ */
+import { installComposer, payload, renderChips } from './composer';
+import { renderSessions } from './history';
+import { appendLog, installLogs, renderLogs } from './logs';
+import { installMenus } from './menu';
+import {
+  bindPayload,
+  buildContextDetails,
+  buildReasoningDetails,
+  bubbleOf,
+  renderSession,
+  scrollToBottom,
+  upsertTurn,
+} from './messages';
+import { applySummary, installProject, invalidateSummaries, renderProject } from './project';
+import { baseMenuItems } from './project/actions';
+import { renderPrompt } from './prompt';
+import { installSettings, renderSettings } from './settings';
+import { renderState, setBusy } from './state';
+import { restoreDraft, store, vscode } from './store';
+import { installTabs, showTab } from './tabs';
+import { renderTasks } from './tasks';
+import { countWords } from './format';
+import { exposeToast, toast } from './toast';
+import { onMessage } from '../vscodeApi';
+
+restoreDraft();
+exposeToast();
+installMenus(baseMenuItems);
+installTabs();
+installComposer();
+bindPayload(payload);
+installProject();
+installLogs();
+installSettings();
+
+onMessage((msg) => {
+  switch (msg.type) {
+    case 'init':
+    case 'state':
+      renderState(msg.state);
+      break;
+
+    case 'tab':
+      showTab(msg.tab);
+      break;
+
+    case 'session':
+      renderSession(msg.session);
+      break;
+
+    case 'sessions':
+      renderSessions(msg.list);
+      break;
+
+    case 'project':
+      // 后端推树 = 磁盘上有东西变了（可能正是某一章的正文或摘要）。
+      // 摘要缓存一律作废，宁可再取一次也不拿旧摘要糊弄人。折叠文件夹走的是
+      // rerenderProject()，不经这里，缓存留着。
+      invalidateSummaries();
+      renderProject(msg.tree);
+      break;
+
+    case 'summary':
+      applySummary(msg.summary);
+      break;
+
+    case 'attachments':
+      store.attachments = msg.items;
+      renderChips();
+      break;
+
+    case 'delta': {
+      store.streamingId = msg.turnId;
+      const node = bubbleOf(msg.turnId);
+      if (node) {
+        node.classList.add('streaming');
+        const body = node.querySelector('.msg-body');
+        if (body) {
+          body.textContent += msg.text;
+        }
+        scrollToBottom();
+      }
+      break;
+    }
+
+    case 'reasoning':
+      appendReasoning(msg.turnId, msg.text);
+      break;
+
+    case 'turnDone':
+      // 生成开始时控制器先插一条空回复，后续 delta 都挂在它上面。
+      // 必须在这一刻就标成 streaming：否则气泡会以「可编辑」建出来，
+      // 用户在生成途中的改动会被随后的 delta 追加和收尾重建冲掉。
+      // 收尾的那次 turnDone 带着完整内容、busy 已为 false，于是解锁。
+      store.streamingId =
+        store.busy && msg.turn.role === 'assistant' && !msg.turn.content && !msg.turn.error
+          ? msg.turn.id
+          : null;
+      upsertTurn(msg.turn);
+      break;
+
+    case 'context': {
+      const node = bubbleOf(msg.turnId);
+      if (node && !node.querySelector('details.ctx')) {
+        node.insertBefore(buildContextDetails(msg.digest), node.querySelector('.msg-actions'));
+      }
+      break;
+    }
+
+    case 'busy':
+      setBusy(msg.value);
+      break;
+
+    case 'settings':
+      renderSettings(msg.settings, msg.keys, msg.ack);
+      break;
+
+    case 'tasks':
+      renderTasks(msg.tasks);
+      break;
+
+    case 'logs':
+      renderLogs(msg.entries);
+      break;
+
+    case 'log':
+      appendLog(msg.entry);
+      break;
+
+    case 'toast':
+      toast(msg.message, msg.level === 'error');
+      break;
+
+    case 'prompt':
+      renderPrompt(msg);
+      break;
+  }
+});
+
+/**
+ * 思考增量：气泡里没有折叠块就建一个（默认收起），有就往里追加。
+ * **就地追加而不是重建节点**——重建会把用户展开的状态和滚动位置弄丢。
+ */
+function appendReasoning(turnId: string, text: string): void {
+  const node = bubbleOf(turnId);
+  if (!node) {
+    return;
+  }
+  node.classList.add('streaming');
+
+  let det = node.querySelector<HTMLDetailsElement>('details.reasoning');
+  if (!det) {
+    det = buildReasoningDetails('');
+    node.insertBefore(det, node.querySelector('.msg-body'));
+  }
+  const box = det.querySelector<HTMLElement>('.reasoning-body');
+  if (box) {
+    box.textContent += text;
+    const summary = det.querySelector('summary');
+    if (summary) {
+      summary.textContent = `思考过程 · ${countWords(box.textContent ?? '')} 字`;
+    }
+    // 展开着看的时候，让它跟着滚到最新。
+    if (det.open) {
+      box.scrollTop = box.scrollHeight;
+    }
+  }
+  scrollToBottom();
+}
+
+renderChips();
+vscode.postMessage({ type: 'ready' });

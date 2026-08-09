@@ -1,0 +1,86 @@
+/* 输入区：附件标签、下拉框、发送。 */
+
+.composer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  padding: 8px 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chips:empty {
+  display: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8em;
+  padding: 1px 4px 1px 7px;
+  border-radius: 10px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  max-width: 100%;
+}
+
+.chip .chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip .chip-x {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 3px;
+  font-size: 1.1em;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.chip .chip-x:hover {
+  opacity: 1;
+}
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.composer-bar .spacer {
+  flex: 1;
+}
+
+.composer-meta {
+  font-size: 0.78em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.composer-bar select,
+.composer-bar input[type='number'] {
+  width: auto;
+  flex: 0 1 auto;
+  max-width: 45%;
+  font-size: 0.85em;
+  padding: 3px 5px;
+}
+
+.composer-bar input[type='number'] {
+  flex: 0 0 70px;
+}
+
+.composer-meta.warn {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}

@@ -12,7 +12,7 @@
 | [fileHost.ts](fileHost.ts) | `Host` 的实现：弹窗经 `PromptHub` 变成网页 modal；`fs.watch` 监听工程（失败退化为轮询，带 250ms 去抖）；`openFile` 走内置编辑器；`openBeside` 开在第二块编辑区。`progress` 只提供 signal——进度由 `core/progress.ts` 结构化推给网页。 |
 | [promptHub.ts](promptHub.ts) | 未决网页弹窗的登记与回执匹配。WS 全部断开时一律按取消处理。 |
 | [html.ts](html.ts) | 页面骨架：工作台布局（标题栏 + 活动栏 + 侧栏 + 内置编辑器）＋ 从内嵌资源表取字节的 `assetBytes`。活动栏比插件多一个「文件」页（资源管理器容器 `#filesBody`）。 |
-| `mediaAssets.ts` | **生成文件**（已 gitignore）。由 [../../scripts/embed-media.js](../../scripts/embed-media.js) 把 `media/` 下的资源 base64 内嵌，使单文件可执行不依赖外部资源。`npm run typecheck` / `smoke` / `dist` 前会自动生成。 |
+| `mediaAssets.ts` | **生成文件**（已 gitignore）。由 [../../scripts/embed-media.js](../../scripts/embed-media.js) 把前端资源 base64 内嵌（`.js` / `.css` 取自构建产物 `dist/media/`，`icon.svg` 取自 `media/`），使单文件可执行不依赖外部资源。`npm run typecheck` / `smoke` / `dist` 前会自动生成。 |
 
 ## 关键设计
 
@@ -21,11 +21,11 @@
 - **openFile 的语义差异**：插件里是「打开 VS Code 的编辑器 tab」，这里是「在网页内置编辑器里打开」。刻意让 `openFile` 本身改道，这样 controller 里「采纳写入后打开」「点章节」「点上下文条目」三处调用点一次全对。非文本文件回落到系统默认程序。
 - **两块编辑区**：`openInEditor(rel, pane)` 的 `pane` 决定 `editorOpen` 落到哪一块，`openBeside` 就是 `pane: 'draft'`。`editorOpen` 广播时顺手带上 `draftPath`（由 `draftPathOf` 从章节路径推导），前端据此显示工具栏上的「草稿」按钮——前端不该自己复刻「什么算章节」。`editorSaved` 也必须带它，否则按钮会在首次保存后消失。
 - **文件读写全部经 [../core/fileEditing.ts](../core/fileEditing.ts)**：路径包含校验、可编辑判定（扩展名白名单 ∪ 章节文件名规则）、大小上限、保存的 hash 乐观锁都在那里。本层只负责把异常翻译成 `editorError` / `editorConflict` 广播出去，不要绕过它直接 `fs.writeFile`。
-- **多一个「文件」页**：侧栏比插件形态多一个资源管理器（[../core/fileTree.ts](../core/fileTree.ts) 出数据，`media/explorer.js` 渲染），列的是磁盘上的真实目录结构，**含 `.novelforge/` 等点开头的文件夹**——插件形态里这件事由 VS Code 自己的资源管理器承担，独立版没有它，作者就没有任何入口去手改摘要/会话/`project.json`。它只读不写：新建/改名/删除仍然只在「工程」页走 `fileOps.ts`。
+- **多一个「文件」页**：侧栏比插件形态多一个资源管理器（[../core/fileTree.ts](../core/fileTree.ts) 出数据，`media/src/explorer/` 渲染），列的是磁盘上的真实目录结构，**含 `.novelforge/` 等点开头的文件夹**——插件形态里这件事由 VS Code 自己的资源管理器承担，独立版没有它，作者就没有任何入口去手改摘要/会话/`project.json`。它只读不写：新建/改名/删除仍然只在「工程」页走 `fileOps.ts`。
 - **watcher 只挡二进制**：`fs.watch` 的过滤用 `NON_CHAPTER_EXTENSIONS` 黑名单——章节可以是 `.txt`/无扩展名，目录事件也没有扩展名，白名单式过滤会让这些改动看不见。因为放行面变宽，`onChange` 带 250ms 去抖：它会触发 `pushState`，那是一次全量重扫。
 - **进度不再是 toast**：`FileHost.progress` 过去每收到一次 `report` 就弹一条 toast，跑一次「同步 76 章摘要」等于刷 76 条提示、把别的消息全盖掉。现在同一份进度由 `core/progress.ts` 结构化推成 `tasks` 消息，工程页顶部画进度条（n/N、计时、可停止），`FileHost.progress` 只负责给出 signal 与报告失败。
 - **终端 sink 只挂一次**：端口被占时 `main.ts` 会重试着调 `startServer`，每次都 `addLogSink` 会让同一条日志打印好几遍。
-- **前端资源三处同改**：新增 `media/` 下的**文件**后，要同时加进 `embed-media.js` 的 `files` 数组和 `html.ts` 的引用，否则编译版会 404。（只改已有文件的内容不需要动 `embed-media.js`。）
+- **前端资源三处同改**：新增前端**产物**后，要同时加进 `build-media.js` 的 entryPoints、`embed-media.js` 的 `built` 数组和 `html.ts` 的引用，否则编译版会 404。（只改已有产物的源码不需要动那两个脚本。）`/media/*` 是路由名，不是磁盘路径——字节全部来自内嵌的 `MEDIA_ASSETS`。
 
 ## 与插件壳的能力差异
 
@@ -35,4 +35,4 @@
 
 `bun scripts/smoke-server.js`（含在 `npm run smoke` 里）：静态资源、WS 首条消息、Origin 校验，内置编辑器的读写往返——保存落盘、过期基线触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒、无扩展名章节可打开，以及草稿的按需创建与并列打开；资源管理器的目录列举——点开头的目录列得出来、目录排在文件前、`editable` 标注、一次多目录、越界与不存在的目录降级成 `error`。
 
-资源管理器的前端行为在 `node scripts/smoke-view.js` 里（jsdom 跑真实的 `explorer.js`）：懒展开、折叠连带子目录、载入中占位、可编辑与否走不同消息、编辑器高亮联动、截断提示、右键菜单复用 view.js 的引擎。
+资源管理器的前端行为在 `node scripts/smoke-view.js` 里（jsdom 跑构建产物 `dist/media/explorer.js`，源码在 `media/src/explorer/`）：懒展开、折叠连带子目录、载入中占位、可编辑与否走不同消息、编辑器高亮联动、截断提示、右键菜单复用 view 的引擎。

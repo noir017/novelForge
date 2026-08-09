@@ -1,0 +1,20 @@
+/* 提示条。 */
+
+.toast {
+  position: fixed;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  padding: 7px 12px;
+  border-radius: var(--radius);
+  background: var(--vscode-notifications-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-notifications-border, var(--vscode-panel-border));
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  font-size: 0.85em;
+  z-index: 30;
+  word-break: break-word;
+}
+
+.toast.error {
+  border-color: var(--vscode-inputValidation-errorBorder);
+}

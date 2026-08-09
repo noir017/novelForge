@@ -25,7 +25,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ViewHost {
     this.view = view;
     view.webview.options = {
       enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')],
+      // icon.svg 在 media/，脚本与样式在 dist/media/（构建产物）。
+      localResourceRoots: [
+        vscode.Uri.joinPath(this.extensionUri, 'media'),
+        vscode.Uri.joinPath(this.extensionUri, 'dist', 'media'),
+      ],
     };
     view.webview.html = renderHtml(view.webview, this.extensionUri);
     view.webview.onDidReceiveMessage((msg: InMessage) => void this.controller.handle(msg));

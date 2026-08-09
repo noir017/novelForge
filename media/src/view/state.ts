@@ -1,0 +1,129 @@
+/**
+ * `ViewState` 的渲染：输入框旁的模型下拉、写入目标下拉、过期摘要横幅，
+ * 以及生成中的按钮状态。
+ *
+ * 后端全量推 state，这里整块重画——数据量只有几十行，增量更新换来的那点
+ * 开销不值得多维护一份状态。
+ */
+import { maybeById, setHidden } from '../dom';
+import type { ViewState } from '../protocol';
+import { fmt } from './format';
+import { el } from './refs';
+import { store } from './store';
+
+/** 独立版的环境差异只应用一次（隐藏 VS Code 专属入口、改存储提示文案）。 */
+let standaloneApplied = false;
+
+export function renderState(state: ViewState): void {
+  store.state = state;
+  if (state.standalone && !standaloneApplied) {
+    standaloneApplied = true;
+    maybeById('nativeSettingsBtn')?.classList.add('hidden');
+    const hint = maybeById('settingsStorageHint');
+    if (hint) {
+      hint.textContent = '设置写入 ~/.novelforge/config.json；API Key 存在 ~/.novelforge/secrets.json。';
+    }
+  }
+  renderModelSelect(state);
+
+  if (!state.initialized) {
+    el.providerMeta.textContent = '当前工作区还不是小说工程，先运行「Novel: 初始化小说工程」。';
+    el.sendBtn.disabled = true;
+    return;
+  }
+
+  el.sendBtn.disabled = store.busy;
+  el.providerMeta.textContent = state.modelIssue
+    ? state.modelIssue
+    : `${state.modelLabel} · 窗口 ${fmt(state.contextWindow)} / 输出 ${fmt(state.maxOutputTokens)}`;
+  el.providerMeta.classList.toggle('warn', !!state.modelIssue);
+
+  renderTargetSelect(state);
+
+  if (state.staleCount > 0) {
+    el.staleText.textContent = `有 ${state.staleCount} 章摘要缺失或已过期，这些章节的剧情不会进入上下文。`;
+  }
+  setHidden(el.staleBanner, state.staleCount === 0);
+
+  // 独立版的活动栏上给「工程」挂一个小圆点，切走了也看得见待办。
+  const dot = maybeById('projectStaleDot');
+  if (dot) {
+    setHidden(dot, state.staleCount === 0);
+  }
+}
+
+/** 「采纳写入」写到哪里：新建下一章，或追加到已有的某一章。 */
+function renderTargetSelect(state: ViewState): void {
+  const prev = el.targetSelect.value;
+  el.targetSelect.innerHTML = '';
+
+  const newOpt = document.createElement('option');
+  newOpt.value = String(state.nextOrder);
+  newOpt.textContent = `新建第 ${state.nextOrder} 章`;
+  newOpt.dataset.mode = 'new';
+  el.targetSelect.appendChild(newOpt);
+
+  for (const c of [...state.chapters].reverse()) {
+    const opt = document.createElement('option');
+    opt.value = String(c.order);
+    opt.textContent = `追加到第 ${c.order} 章《${c.title}》`;
+    opt.dataset.mode = 'append';
+    el.targetSelect.appendChild(opt);
+  }
+
+  const want = prev || String(store.session.targetOrder ?? state.nextOrder);
+  el.targetSelect.value = [...el.targetSelect.options].some((o) => o.value === want)
+    ? want
+    : String(state.nextOrder);
+}
+
+/** 输入框旁的模型下拉框，按服务商分组。 */
+function renderModelSelect(state: ViewState): void {
+  el.modelSelect.innerHTML = '';
+  const models = state.models || [];
+
+  if (models.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '未配置模型';
+    el.modelSelect.appendChild(opt);
+    el.modelSelect.disabled = true;
+    return;
+  }
+  el.modelSelect.disabled = false;
+
+  let group: string | null = null;
+  let optgroup: HTMLOptGroupElement | null = null;
+  for (const m of models) {
+    if (m.group !== group) {
+      group = m.group;
+      optgroup = document.createElement('optgroup');
+      optgroup.label = group;
+      el.modelSelect.appendChild(optgroup);
+    }
+    const opt = document.createElement('option');
+    opt.value = m.ref;
+    // 显示完整引用，因为它才是用户在别处（配置文件、文档）看到的东西。
+    opt.textContent = m.ref;
+    opt.title = `${m.group} · ${m.label}`;
+    optgroup?.appendChild(opt);
+  }
+
+  // 当前引用可能指向一个已被删掉的模型，这时补一条占位项，
+  // 否则下拉框会静默跳到第一个模型，用户以为自己在用另一个。
+  if (state.model && !models.some((m) => m.ref === state.model)) {
+    const opt = document.createElement('option');
+    opt.value = state.model;
+    opt.textContent = `${state.model}（未配置）`;
+    el.modelSelect.appendChild(opt);
+  }
+  el.modelSelect.value = state.model || models[0].ref;
+}
+
+export function setBusy(value: boolean): void {
+  store.busy = value;
+  setHidden(el.sendBtn, value);
+  setHidden(el.stopBtn, !value);
+  el.atBtn.disabled = value;
+  el.selBtn.disabled = value;
+}

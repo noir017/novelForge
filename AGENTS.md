@@ -10,14 +10,15 @@ shell 为 PowerShell（不支持 `&&`，用 `;` 分隔），均在仓库根目�
 
 ```powershell
 npm install              # 依赖
-npm run compile          # esbuild 打包到 dist/extension.js（F5 调试前必须有）
-npm run watch            # 监听构建
-npm run typecheck        # tsc --noEmit，必须零错误
+npm run compile          # esbuild 打包到 dist/extension.js + dist/media/ 的前端产物（F5 调试前必须有）
+npm run watch            # 监听构建（两边都监听）
+npm run media            # 只构建前端资源（media/src → dist/media/）
+npm run typecheck        # tsc --noEmit，含 media/tsconfig.json，必须零错误
 npm run smoke             # 十一个离线冒烟测试，不需要 API Key
 npm test                 # typecheck + smoke
 ```
 
-改了 `src/core/**` 后必须跑 `npm run smoke`；改了任何 TS 都要过 `npm run typecheck`。手动验证 UI 时按 `F5` 启动 Extension Development Host（自动打开 `sample-novel/`）。
+改了 `src/core/**` 后必须跑 `npm run smoke`；改了任何 TS（含 `media/src/**`）都要过 `npm run typecheck`。手动验证 UI 时按 `F5` 启动 Extension Development Host（自动打开 `sample-novel/`）。
 
 ## 模块地图
 
@@ -34,24 +35,24 @@ npm test                 # typecheck + smoke
 | `src/ui/` | 宿主无关的面板逻辑：ChatController + @ 引用 | [src/ui/README.md](src/ui/README.md) |
 | `src/vscode/` | VS Code 宿主层：extension 入口、webview 宿主、vscode-lm | [src/vscode/README.md](src/vscode/README.md) |
 | `src/standalone/` | 独立 Web 服务壳（Bun）：HTTP/WS 服务、FileHost、页面骨架 | [src/standalone/README.md](src/standalone/README.md) |
-| `media/` | 前端资源（原生 JS/CSS，无框架）；`standalone.css` / `editor.js` / `explorer.js` 只在独立版加载 | [media/README.md](media/README.md) |
+| `media/` | 前端资源（原生 TS/CSS，无框架）。**仓库里只有源码 `media/src/` 与 `icon.svg`，构建产物在 `dist/media/`**；`standalone.css` / `editor.js` / `explorer.js` 只在独立版加载 | [media/README.md](media/README.md) |
 | `scripts/` | 离线冒烟测试（也是理解核心行为的最佳入口） | [scripts/README.md](scripts/README.md) |
 | `sample-novel/` | 示例工程 / 测试夹具，勿随手改正文（hash 断言会挂） | [sample-novel/README.md](sample-novel/README.md) |
 
 其他关键位置：
 
 - [package.json](package.json) —— 命令 / 菜单 / 快捷键 / 全部 `novel.*` 配置项的声明。
-- [esbuild.js](esbuild.js) —— 构建脚本，入口 `src/vscode/extension.ts` → `dist/extension.js`。
+- [esbuild.js](esbuild.js) —— 构建脚本，入口 `src/vscode/extension.ts` → `dist/extension.js`；同时调 [scripts/build-media.js](scripts/build-media.js) 把前端资源打进 `dist/media/`。
 - `docs/design/plans/` 与 `docs/design/specs/` —— 「双形态改造」（共享核心 + VS Code 壳 + Bun 独立 Web 服务壳）的实施计划与设计文档，涉及分层调整时先读。
 
 ## 架构要点
 
 - **三层、单向依赖**：`core/`（数据与逻辑）→ `ui/`（面板逻辑，宿主无关）→ `vscode/`（宿主壳），反向依赖不允许。`core/` 的目标是零 vscode 依赖（双形态改造前提），新代码不要给 `core/` 增加 `vscode` import。
-- **消息协议是前后端唯一契约**：[src/core/protocol.ts](src/core/protocol.ts) 的 `InMessage` / `OutMessage`。改协议要同时改 [media/view.js](media/view.js) 与 `src/ui/chatController.ts`。
+- **消息协议是前后端唯一契约**：[src/core/protocol.ts](src/core/protocol.ts) 的 `InMessage` / `OutMessage`。前端经 [media/src/protocol.ts](media/src/protocol.ts) 以 `import type` 直接引用同一份定义，所以**改协议后前端对不上会编译不过**（`npm run typecheck` 覆盖 `media/`），不再靠人记得同步改。
 - **一个 controller，多个宿主**：侧边栏与编辑器标签页挂同一个 `ChatController`，同一会话双开实时同步。
 - **前端无状态**：webview 靠 `ViewState` 全量推送重建，展开/折叠等 UI 状态留在前端。
-- **两形态的前端隔离**：`media/standalone.css` 与 `media/editor.js` 只由 [src/standalone/html.ts](src/standalone/html.ts) 加载，插件的 `webviewHtml.ts` 里没有它们。改独立版的样式/布局只动这两个文件，别为独立版去改 `view.css`（会连带影响插件）；`view.js` 里区分形态用能力探测（`#wbEditor` 存不存在），不要判断环境字符串。
-- **新增前端资源要三处同改**：`media/` 放文件 → [scripts/embed-media.js](scripts/embed-media.js) 的 `files` 数组 → `html.ts` 里引用。漏了第二步，`bun build --compile` 出的单文件会 404。
+- **两形态的前端隔离**：`media/src/css/standalone/` 与 `media/src/editor/` `media/src/explorer/` 只由 [src/standalone/html.ts](src/standalone/html.ts) 加载，插件的 `webviewHtml.ts` 里没有它们。改独立版的样式/布局只动那几处，别为独立版去改 `media/src/css/view/`（会连带影响插件）；区分形态用能力探测（`#wbEditor` 存不存在），不要判断环境字符串。
+- **前端源码与产物分离**：仓库里的 `media/` 只有源码（`media/src/`）与 `icon.svg`；`view.js` / `view.css` 等六个产物构建到 **`dist/media/`**，和 `dist/extension.js` 同一个去处，整个 `dist/` 都不入库。加**新产物**要三处同改：`media/src/` 放源码 → [scripts/build-media.js](scripts/build-media.js) 的 entryPoints → [scripts/embed-media.js](scripts/embed-media.js) 的 `built` 数组 → `html.ts` 里引用（漏了第三步，`bun build --compile` 出的单文件会 404）。在**已有产物内部**拆模块则不必动任何配置，直接 import。
 
 ## 必须遵守的行为约束
 

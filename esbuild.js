@@ -1,4 +1,5 @@
 const esbuild = require('esbuild');
+const { buildMedia } = require('./scripts/build-media');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -21,6 +22,10 @@ const problemMatcherPlugin = {
 };
 
 async function main() {
+  // 前端资源（media/src → dist/media/）与扩展主体一起构建：
+  // F5 调试前只跑 `npm run compile`，漏了这一步 webview 会 404。
+  await buildMedia({ watch });
+
   const ctx = await esbuild.context({
     entryPoints: ['src/vscode/extension.ts'],
     bundle: true,
