@@ -167,6 +167,12 @@ export function standalonePage(root?: string): string {
         <button class="secondary" id="addProviderBtn">＋ 添加服务商</button>
       </div>
 
+      <div class="pane-head"><span>默认模型</span></div>
+      <div class="hint">工程页的总结摘要、提取角色卡、提取文风等操作默认使用这个模型；对话页随时可在输入框旁的下拉框里切换。</div>
+      <div class="grid">
+        <label class="field"><span>默认模型</span><select id="setDefaultModel"></select></label>
+      </div>
+
       <div class="pane-head"><span>默认预算</span></div>
       <div class="hint">未给模型单独设置窗口时用这里的值。</div>
       <div class="grid">

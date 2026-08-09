@@ -2095,11 +2095,53 @@
       empty.className = 'hint';
       empty.textContent = '还没有服务商。点下面的预设快速添加一个，或手动添加。';
       el.providerList.appendChild(empty);
-      return;
     }
     for (const p of draft.providers) {
       el.providerList.appendChild(buildProviderCard(p));
     }
+    fillDefaultModelOptions();
+  }
+
+  /**
+   * 刷新「默认模型」下拉框的选项。选项跟着服务商列表走，所以放在
+   * renderProviders 里统一调用——增删服务商、改模型、外部刷新都覆盖得到。
+   */
+  function fillDefaultModelOptions() {
+    const sel = $('setDefaultModel');
+    if (!sel) return;
+    sel.innerHTML = '';
+    const refs = [];
+    for (const p of draft.providers) {
+      if (p.models.length === 0) continue;
+      const og = document.createElement('optgroup');
+      og.label = p.label || p.id;
+      for (const m of p.models) {
+        const opt = document.createElement('option');
+        opt.value = `${p.id}/${m.name}`;
+        // 显示完整引用——与对话页下拉框口径一致，它才是配置里存的东西。
+        opt.textContent = `${p.id}/${m.name}`;
+        og.appendChild(opt);
+        refs.push(opt.value);
+      }
+      sel.appendChild(og);
+    }
+    if (refs.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '未配置模型';
+      sel.appendChild(opt);
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    // 当前默认模型指向已删掉的模型时补一条占位项，不静默跳回第一个。
+    if (draft.model && !refs.includes(draft.model)) {
+      const opt = document.createElement('option');
+      opt.value = draft.model;
+      opt.textContent = `${draft.model}（未配置）`;
+      sel.appendChild(opt);
+    }
+    sel.value = draft.model || refs[0];
   }
 
   /** 列表里的信息卡片：只放概要，点「配置」进弹窗改细节。 */
@@ -2561,6 +2603,14 @@
   }
 
   el.addProviderBtn.addEventListener('click', openAddModal);
+
+  const setDefaultModel = $('setDefaultModel');
+  if (setDefaultModel) {
+    setDefaultModel.addEventListener('change', () => {
+      draft.model = setDefaultModel.value;
+      touch();
+    });
+  }
 
   for (const id of Object.values(BUDGET_FIELDS)) {
     const node = $(id);
