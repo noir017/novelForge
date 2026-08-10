@@ -172,7 +172,7 @@ export interface NovelConfig {
   tierModels: TierModels;
   /** 任务 → 档位的覆盖，缺席的任务用 `DEFAULT_TASK_TIERS`。 */
   taskTiers: Partial<Record<LlmTask, ModelTier>>;
-  /** 全局默认上下文窗口，模型自带 contextWindow 时以模型为准。 */
+  /** 当前模型的上下文窗口（模型配置优先，缺省使用兼容值）。 */
   contextWindow: number;
   maxOutputTokens: number;
   temperature: number;

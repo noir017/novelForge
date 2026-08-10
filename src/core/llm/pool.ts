@@ -1,4 +1,4 @@
-import { readConfig, readGlobalBudget } from '../config';
+import { readBudgetFallback, readConfig } from '../config';
 import { describeError, scoped } from '../logger';
 import { describeModelIssue, resolveModelRef } from '../model/providers';
 import { describeTier, LlmTask, ModelTier, refsForTask, TASK_LABEL } from '../model/tiers';
@@ -79,9 +79,9 @@ export async function createModelPool(opts: ModelPoolOptions): Promise<ModelPool
   const config = readConfig();
   const picked = refsForTask(config, opts.task);
   const scope = `${TASK_LABEL[opts.task]}（${describeTier(picked)}）`;
-  // 模型没自带窗口时的兜底值。用全局默认而不是 config.contextWindow：
+  // 模型没自带窗口时的兼容兜底。不能用 config.contextWindow：
   // 后者已被「当前模型」的覆盖值遮住，那是对话页选的模型的窗口。
-  const globalBudget = readGlobalBudget();
+  const fallbackBudget = readBudgetFallback();
 
   const entries: { ref: string; llm: LlmProvider; budget: ModelBudget }[] = [];
   const dropped: string[] = [];
@@ -101,11 +101,11 @@ export async function createModelPool(opts: ModelPoolOptions): Promise<ModelPool
     entries.push({
       ref: active.ref,
       llm,
-      // 模型自带的窗口优先，缺省退回全局默认值——与 readConfig() 里
+      // 模型自带的窗口优先，缺省退回兼容值——与 readConfig() 里
       // 对「当前模型」的取值逻辑一致。
       budget: {
-        contextWindow: active.model.contextWindow ?? globalBudget.contextWindow,
-        maxOutputTokens: active.model.maxOutputTokens ?? globalBudget.maxOutputTokens,
+        contextWindow: active.model.contextWindow ?? fallbackBudget.contextWindow,
+        maxOutputTokens: active.model.maxOutputTokens ?? fallbackBudget.maxOutputTokens,
       },
     });
   }
@@ -149,18 +149,18 @@ interface ModelBudget {
  */
 export function budgetForTask(task: LlmTask): ModelBudget {
   const config = readConfig();
-  const globalBudget = readGlobalBudget();
+  const fallbackBudget = readBudgetFallback();
   for (const ref of refsForTask(config, task).refs) {
     const active = resolveModelRef(config.providers, ref);
     if (active) {
       return {
-        contextWindow: active.model.contextWindow ?? globalBudget.contextWindow,
-        maxOutputTokens: active.model.maxOutputTokens ?? globalBudget.maxOutputTokens,
+        contextWindow: active.model.contextWindow ?? fallbackBudget.contextWindow,
+        maxOutputTokens: active.model.maxOutputTokens ?? fallbackBudget.maxOutputTokens,
       };
     }
   }
-  // 一个都解析不出：照旧返回全局默认值，后续建池时会报「没有可用的模型」。
-  return globalBudget;
+  // 一个都解析不出：照旧返回兼容值，后续建池时会报「没有可用的模型」。
+  return fallbackBudget;
 }
 
 class RoundRobinPool implements ModelPool {

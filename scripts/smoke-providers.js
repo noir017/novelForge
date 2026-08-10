@@ -266,8 +266,8 @@ console.log('\n== readConfig 串起来 ==');
   settings.model = '';
   check('未指定模型时取第一个', configMod.readConfig().model === 'glm/glm-4-plus');
 
-  const globals = configMod.readGlobalBudget();
-  check('readGlobalBudget 不受模型覆盖影响', globals.contextWindow === 64000, String(globals.contextWindow));
+  const globals = configMod.readBudgetFallback();
+  check('readBudgetFallback 不受模型覆盖影响', globals.contextWindow === 64000, String(globals.contextWindow));
 
   // 老用户升级：providers 为空，应从旧设置兜底，而不是「没有模型」。
   settings = {

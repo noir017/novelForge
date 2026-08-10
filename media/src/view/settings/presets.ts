@@ -13,9 +13,7 @@ export const KIND_LABEL: Record<string, string> = {
 };
 
 /** 设置页上的数字输入框：配置项名 -> 页面上的 id。 */
-export const BUDGET_FIELDS = {
-  contextWindow: 'setContextWindow',
-  maxOutputTokens: 'setMaxOutputTokens',
+export const NUMERIC_FIELDS = {
   temperature: 'setTemperature',
   recentChaptersFullText: 'setRecentChaptersFullText',
   prevChapterTailChars: 'setPrevChapterTailChars',
@@ -25,7 +23,7 @@ export const BUDGET_FIELDS = {
   fallbackAttempts: 'setFallbackAttempts',
 } as const;
 
-export type BudgetField = keyof typeof BUDGET_FIELDS;
+export type NumericField = keyof typeof NUMERIC_FIELDS;
 
 export const PRESETS: SerializedProvider[] = [
   {

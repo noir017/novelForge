@@ -18,9 +18,9 @@ export interface ModelEntry {
   name: string;
   /** 列表里的显示名，留空则显示模型名本身。 */
   label?: string;
-  /** 该模型的上下文窗口；留空则用全局默认值。 */
+  /** 该模型的上下文窗口；留空则用内置兼容值。 */
   contextWindow?: number;
-  /** 该模型的最大输出 token；留空则用全局默认值。 */
+  /** 该模型的最大输出 token；留空则用内置兼容值。 */
   maxOutputTokens?: number;
 }
 

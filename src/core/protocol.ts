@@ -209,8 +209,6 @@ export interface SettingsPayload {
   tierModels: Record<ModelTier, string[]>;
   /** 任务 → 档位的覆盖。只带与内置默认不同的项。 */
   taskTiers: Partial<Record<LlmTask, ModelTier>>;
-  contextWindow: number;
-  maxOutputTokens: number;
   temperature: number;
   recentChaptersFullText: number;
   prevChapterTailChars: number;

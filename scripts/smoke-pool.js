@@ -587,7 +587,7 @@ async function main() {
       String(fast.primaryBudget.maxOutputTokens)
     );
     check(
-      '模型没自带窗口时退回全局默认',
+      '模型没自带窗口时退回兼容值',
       merge.primaryBudget.contextWindow === 128000 && merge.primaryBudget.maxOutputTokens === 4096,
       JSON.stringify(merge.primaryBudget)
     );

@@ -266,11 +266,11 @@
                     },
                     "contextWindow": {
                       "type": "number",
-                      "description": "该模型的上下文窗口，留空则用 novel.contextWindow。"
+                      "description": "该模型的上下文窗口。建议按模型实际规格填写；留空时使用内置兼容值。"
                     },
                     "maxOutputTokens": {
                       "type": "number",
-                      "description": "该模型的最大输出 token，留空则用 novel.maxOutputTokens。"
+                      "description": "该模型的最大输出 token。建议按模型实际规格填写；留空时使用内置兼容值。"
                     }
                   }
                 }
@@ -349,20 +349,6 @@
           "minimum": 0,
           "maximum": 5,
           "markdownDescription": "工程页任务里一次调用失败后，换用**同档**其它模型重试的次数上限（档位见 `novel.tierModels`，未分档时就是 `novel.models`）。0 表示不重试。该档里只有一个模型时不生效，也不会跨档去找别的模型。",
-          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
-        },
-        "novel.contextWindow": {
-          "type": "number",
-          "default": 128000,
-          "minimum": 4000,
-          "description": "默认上下文窗口大小（token）。模型自带 contextWindow 时以模型为准。",
-          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
-        },
-        "novel.maxOutputTokens": {
-          "type": "number",
-          "default": 4096,
-          "minimum": 256,
-          "description": "默认单次生成的最大输出 token 数。模型自带 maxOutputTokens 时以模型为准。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.temperature": {

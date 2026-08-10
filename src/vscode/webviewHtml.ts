@@ -119,72 +119,84 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
 
 <!-- ------------------------------------------------------------ 设置 -->
 <section class="pane" id="pane-settings">
-  <div class="pane-head">
-    <span>服务商与模型</span>
-    <span class="meta" id="providerCount"></span>
-  </div>
-  <div class="hint">
-    模型用「前缀/模型名」引用，前缀是服务商 id。同一个模型走不同渠道就是两条：
-    <code>glm/glm-4-plus</code> 与 <code>openrouter/z-ai/glm-4.6</code>。
-    模型名本身可以带斜杠，只在第一个斜杠处切分。
+  <div class="settings-subtabs" role="tablist" aria-label="设置分类">
+    <button class="settings-subtab active" id="settingsTabModels" data-settings-tab="models" role="tab" aria-selected="true" aria-controls="settingsPanelModels">模型配置</button>
+    <button class="settings-subtab" id="settingsTabContext" data-settings-tab="context" role="tab" aria-selected="false" aria-controls="settingsPanelContext">上下文管理</button>
   </div>
 
-  <div id="providerList"></div>
-
-  <div class="actions">
-    <button class="secondary" id="addProviderBtn">＋ 添加服务商</button>
-  </div>
-
-  <div class="pane-head"><span>默认模型</span></div>
-  <div class="hint">
-    工程页的总结摘要、提取角色卡、生成设定、提取文风等操作用这份列表：<b>串行时用第一个</b>，失败会自动换用后面的重试；
-    <b>并发时在列表里轮转</b>做负载均衡。对话页随时可在输入框旁的下拉框里切换——切换等于把那个模型提到列表首位。
-  </div>
-  <div id="defaultModelList"></div>
-
-  <div class="pane-head"><span>模型分档</span></div>
-  <div class="hint">
-    简单大量的活交给便宜模型，困难的活交给聪明模型。<b>每档留空就沿用上面的「默认模型」</b>——
-    三档都不配，行为和不分档时完全一样。每档也是一份有序清单：串行用第一个，失败自动换用<b>同档</b>其余模型，
-    并发时在档内轮转。<b>换人只在档内发生</b>，快速档失败不会偷偷升级到精标档去烧贵 token。
-    对话页续写不受分档影响，始终用你在输入框旁选的那个模型。
-  </div>
-  <div class="tier-grid">
-    <div class="tier-block">
-      <div class="tier-head"><span class="tier-name">快速档</span><span class="tier-hint">便宜、快，用于量大而单次简单的活</span></div>
-      <div id="tierModelList-fast"></div>
+  <div class="settings-panel active" id="settingsPanelModels" data-settings-panel="models" role="tabpanel" aria-labelledby="settingsTabModels">
+    <div class="pane-head">
+      <span>服务商与模型</span>
+      <span class="meta" id="providerCount"></span>
     </div>
-    <div class="tier-block">
-      <div class="tier-head"><span class="tier-name">均衡档</span><span class="tier-hint">折中，用于量不小但质量也要紧的活</span></div>
-      <div id="tierModelList-balanced"></div>
+    <div class="hint">
+      模型用「前缀/模型名」引用，前缀是服务商 id。同一个模型走不同渠道就是两条：
+      <code>glm/glm-4-plus</code> 与 <code>openrouter/z-ai/glm-4.6</code>。
+      模型名本身可以带斜杠，只在第一个斜杠处切分。窗口与输出上限在每个模型里单独配置。
     </div>
-    <div class="tier-block">
-      <div class="tier-head"><span class="tier-name">精标档</span><span class="tier-hint">最聪明的模型，用于一次定调、错了代价大的活</span></div>
-      <div id="tierModelList-quality"></div>
+
+    <div id="providerList"></div>
+
+    <div class="actions">
+      <button class="secondary" id="addProviderBtn">＋ 添加服务商</button>
+    </div>
+
+    <div class="pane-head"><span>默认模型</span></div>
+    <div class="hint">
+      工程页的总结摘要、提取角色卡、生成设定、提取文风等操作用这份列表：<b>串行时用第一个</b>，失败会自动换用后面的重试；
+      <b>并发时在列表里轮转</b>做负载均衡。对话页随时可在输入框旁的下拉框里切换——切换等于把那个模型提到列表首位。
+    </div>
+    <div id="defaultModelList"></div>
+
+    <div class="pane-head"><span>模型分档</span></div>
+    <div class="hint">
+      简单大量的活交给便宜模型，困难的活交给聪明模型。<b>每档留空就沿用上面的「默认模型」</b>——
+      三档都不配，行为和不分档时完全一样。每档也是一份有序清单：串行用第一个，失败自动换用<b>同档</b>其余模型，
+      并发时在档内轮转。<b>换人只在档内发生</b>，快速档失败不会偷偷升级到精标档去烧贵 token。
+      对话页续写不受分档影响，始终用你在输入框旁选的那个模型。
+    </div>
+    <div class="tier-grid">
+      <div class="tier-block">
+        <div class="tier-head"><span class="tier-name">快速档</span><span class="tier-hint">便宜、快，用于量大而单次简单的活</span></div>
+        <div id="tierModelList-fast"></div>
+      </div>
+      <div class="tier-block">
+        <div class="tier-head"><span class="tier-name">均衡档</span><span class="tier-hint">折中，用于量不小但质量也要紧的活</span></div>
+        <div id="tierModelList-balanced"></div>
+      </div>
+      <div class="tier-block">
+        <div class="tier-head"><span class="tier-name">精标档</span><span class="tier-hint">最聪明的模型，用于一次定调、错了代价大的活</span></div>
+        <div id="tierModelList-quality"></div>
+      </div>
+    </div>
+
+    <div class="pane-head"><span>任务档位</span></div>
+    <div class="hint">每项工程页任务归在哪一档。标「默认」的是内置推荐值，按调用次数与单次难度定的。</div>
+    <div id="taskTierTable"></div>
+
+    <div class="pane-head"><span>请求与调度</span></div>
+    <div class="hint">并发与重试只作用于工程页批量任务；对话页续写始终单请求、严格使用当前选中的模型。</div>
+    <div class="grid">
+      <label class="field"><span>温度</span><input type="number" id="setTemperature" min="0" max="2" step="0.1"></label>
+      <label class="field"><span>请求超时（毫秒）</span><input type="number" id="setRequestTimeoutMs" min="10000" step="10000"></label>
+      <label class="field"><span>并发请求数</span><input type="number" id="setConcurrency" min="1" max="16"></label>
+      <label class="field"><span>换模型重试次数</span><input type="number" id="setFallbackAttempts" min="0" max="5"></label>
     </div>
   </div>
 
-  <div class="pane-head"><span>任务档位</span></div>
-  <div class="hint">每项工程页任务归在哪一档。标「默认」的是内置推荐值，按调用次数与单次难度定的。</div>
-  <div id="taskTierTable"></div>
+  <div class="settings-panel" id="settingsPanelContext" data-settings-panel="context" role="tabpanel" aria-labelledby="settingsTabContext">
+    <div class="pane-head"><span>续写上下文</span></div>
+    <div class="hint">控制续写时自动装配的近期原文。预算不足时，完整原文仍会按明细中说明的顺序降级为摘要或省略。</div>
+    <div class="grid">
+      <label class="field"><span>注入完整原文章数</span><input type="number" id="setRecentChaptersFullText" min="0" max="10"></label>
+      <label class="field"><span>上一章结尾字数</span><input type="number" id="setPrevChapterTailChars" min="0" step="100"></label>
+    </div>
 
-  <div class="pane-head"><span>并发与容错</span></div>
-  <div class="hint">只作用于工程页的批量任务（同步摘要、重建全书摘要、批量更新角色卡、批量建卡、生成设定）；对话页续写始终单请求、严格用你选的模型。</div>
-  <div class="grid">
-    <label class="field"><span>并发请求数</span><input type="number" id="setConcurrency" min="1" max="16"></label>
-    <label class="field"><span>换模型重试次数</span><input type="number" id="setFallbackAttempts" min="0" max="5"></label>
-  </div>
-
-  <div class="pane-head"><span>默认预算</span></div>
-  <div class="hint">未给模型单独设置窗口时用这里的值。</div>
-  <div class="grid">
-    <label class="field"><span>上下文窗口</span><input type="number" id="setContextWindow" min="4000" step="1000"></label>
-    <label class="field"><span>最大输出 token</span><input type="number" id="setMaxOutputTokens" min="256" step="256"></label>
-    <label class="field"><span>温度</span><input type="number" id="setTemperature" min="0" max="2" step="0.1"></label>
-    <label class="field"><span>注入完整原文章数</span><input type="number" id="setRecentChaptersFullText" min="0" max="10"></label>
-    <label class="field"><span>上一章结尾字数</span><input type="number" id="setPrevChapterTailChars" min="0" step="100"></label>
-    <label class="field"><span>全书摘要批大小</span><input type="number" id="setSummaryBatchSize" min="3"></label>
-    <label class="field"><span>请求超时（毫秒）</span><input type="number" id="setRequestTimeoutMs" min="10000" step="10000"></label>
+    <div class="pane-head"><span>全书摘要</span></div>
+    <div class="hint">重建全书摘要时，单章摘要先按此数量分批汇总，再合并成全书摘要。</div>
+    <div class="grid">
+      <label class="field"><span>每批章节数</span><input type="number" id="setSummaryBatchSize" min="3"></label>
+    </div>
   </div>
 
   <div class="actions">

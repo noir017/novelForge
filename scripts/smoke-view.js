@@ -1164,8 +1164,6 @@ console.log('\n== 资源管理器（独立版「文件」页）==');
         models: ['p/smart'],
         tierModels: { fast: [], balanced: [], quality: [] },
         taskTiers: {},
-        contextWindow: 128000,
-        maxOutputTokens: 4096,
         temperature: 0.8,
         recentChaptersFullText: 2,
         prevChapterTailChars: 1500,
@@ -1185,6 +1183,36 @@ console.log('\n== 资源管理器（独立版「文件」页）==');
   };
 
   ui.post({ type: 'settings', settings: settings({ tierModels: { fast: ['p/cheap'], balanced: [], quality: ['p/smart'] } }), keys: {} });
+  const modelTab = ui.doc.getElementById('settingsTabModels');
+  const contextTab = ui.doc.getElementById('settingsTabContext');
+  const modelPanel = ui.doc.getElementById('settingsPanelModels');
+  const contextPanel = ui.doc.getElementById('settingsPanelContext');
+  check('设置页有两个二级分类', !!modelTab && !!contextTab);
+  check('默认显示模型配置', modelTab.getAttribute('aria-selected') === 'true' && !modelPanel.hidden);
+  check('默认隐藏上下文管理', contextTab.getAttribute('aria-selected') === 'false' && contextPanel.hidden);
+  contextTab.click();
+  check('点击后切到上下文管理', contextTab.getAttribute('aria-selected') === 'true' && !contextPanel.hidden && modelPanel.hidden);
+  contextTab.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  check('二级分类支持方向键切换', modelTab.getAttribute('aria-selected') === 'true' && !modelPanel.hidden);
+  check('页面不再提供全局预算输入', !ui.doc.getElementById('setContextWindow') && !ui.doc.getElementById('setMaxOutputTokens'));
+  check('上下文参数各自回显',
+    ui.doc.getElementById('setRecentChaptersFullText').value === '2' &&
+      ui.doc.getElementById('setPrevChapterTailChars').value === '1500' &&
+      ui.doc.getElementById('setSummaryBatchSize').value === '15');
+
+  ui.doc.getElementById('setRecentChaptersFullText').value = '4';
+  ui.doc.getElementById('setPrevChapterTailChars').value = '2400';
+  ui.doc.getElementById('setSummaryBatchSize').value = '12';
+  let sent = save();
+  check('上下文参数独立提交',
+    sent.settings.recentChaptersFullText === 4 &&
+      sent.settings.prevChapterTailChars === 2400 &&
+      sent.settings.summaryBatchSize === 12,
+    JSON.stringify(sent.settings));
+  check('保存负载不含全局预算',
+    !Object.hasOwn(sent.settings, 'contextWindow') && !Object.hasOwn(sent.settings, 'maxOutputTokens'),
+    JSON.stringify(sent.settings));
+
   check('三档各自渲染出自己的清单', refsOf('tierModelList-fast').join(',') === 'p/cheap', refsOf('tierModelList-fast').join(','));
   check('精标档也渲染得出', refsOf('tierModelList-quality').join(',') === 'p/smart', refsOf('tierModelList-quality').join(','));
   check('默认模型清单照旧', refsOf('defaultModelList').join(',') === 'p/smart', refsOf('defaultModelList').join(','));
@@ -1206,7 +1234,7 @@ console.log('\n== 资源管理器（独立版「文件」页）==');
   // 改一行档位 → 只有改过的项进负载。
   selOf(0).value = 'quality';
   selOf(0).dispatchEvent(new ui.window.Event('change', { bubbles: true }));
-  let sent = save();
+  sent = save();
   check('改过的任务写进 taskTiers', sent.settings.taskTiers.chapterSummary === 'quality', JSON.stringify(sent.settings.taskTiers));
   check('没改过的任务不写进配置', Object.keys(sent.settings.taskTiers).length === 1, JSON.stringify(sent.settings.taskTiers));
   check('档位清单原样带上', sent.settings.tierModels.fast.join(',') === 'p/cheap', JSON.stringify(sent.settings.tierModels));

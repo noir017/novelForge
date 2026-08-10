@@ -42,7 +42,9 @@ export interface PersistedSettings {
   concurrency?: number;
   /** 一次调用失败后，换模型重试的次数上限。 */
   fallbackAttempts?: number;
+  /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
   contextWindow?: number;
+  /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
   maxOutputTokens?: number;
   temperature?: number;
   recentChaptersFullText?: number;
@@ -104,8 +106,7 @@ export function readConfig(): NovelConfig {
   model = models[0] ?? '';
 
   const active = resolveModelRef(providers, model);
-  const globalWindow = c.contextWindow ?? 128000;
-  const globalOutput = c.maxOutputTokens ?? 4096;
+  const fallbackBudget = readBudgetFallback();
 
   return {
     providers,
@@ -115,8 +116,8 @@ export function readConfig(): NovelConfig {
     tierModels: normalizeTierModels(c.tierModels),
     taskTiers: normalizeTaskTiers(c.taskTiers),
     // 模型自带的窗口优先——同一个服务商下 32k 和 200k 的模型常常并存。
-    contextWindow: active?.model.contextWindow ?? globalWindow,
-    maxOutputTokens: active?.model.maxOutputTokens ?? globalOutput,
+    contextWindow: active?.model.contextWindow ?? fallbackBudget.contextWindow,
+    maxOutputTokens: active?.model.maxOutputTokens ?? fallbackBudget.maxOutputTokens,
     temperature: c.temperature ?? 0.8,
     recentChaptersFullText: c.recentChaptersFullText ?? 2,
     prevChapterTailChars: c.prevChapterTailChars ?? 1500,
@@ -207,8 +208,13 @@ function clamp(label: string, value: unknown, range: { min: number; max: number;
 }
 
 
-/** 设置页要显示的全局默认值（不被当前模型的覆盖值遮住）。 */
-export function readGlobalBudget(): { contextWindow: number; maxOutputTokens: number } {
+/**
+ * 单模型没有声明预算时的兼容兜底。
+ *
+ * 新设置页不再暴露全局预算：窗口与输出上限都应写在模型条目上。这里仍读取
+ * 旧配置中的两个键，避免升级后让既有项目突然换预算；新用户使用内置值。
+ */
+export function readBudgetFallback(): { contextWindow: number; maxOutputTokens: number } {
   const c = raw();
   return {
     contextWindow: c.contextWindow ?? 128000,

@@ -7,7 +7,6 @@ import {
   promoteModel,
   updateSettings,
   readConfig,
-  readGlobalBudget,
 } from './config';
 import { describeTierConfig } from './model/tiers';
 import { BuiltContext, ContextItem } from './context/builder';
@@ -510,9 +509,6 @@ export class ChatController {
 
   private async pushSettings(ack?: 'saved' | 'rejected'): Promise<void> {
     const c = readConfig();
-    // 预算字段回显全局默认值，而不是被当前模型覆盖后的值——
-    // 否则用户在设置页看到的数字会随选中模型漂移，一保存就把默认值改掉了。
-    const budget = readGlobalBudget();
     this.post({
       type: 'settings',
       ack,
@@ -532,8 +528,6 @@ export class ChatController {
         models: c.models,
         tierModels: c.tierModels,
         taskTiers: c.taskTiers,
-        contextWindow: budget.contextWindow,
-        maxOutputTokens: budget.maxOutputTokens,
         temperature: c.temperature,
         recentChaptersFullText: c.recentChaptersFullText,
         prevChapterTailChars: c.prevChapterTailChars,
@@ -1085,8 +1079,6 @@ export class ChatController {
       model: models[0] ?? '',
       tierModels,
       taskTiers,
-      contextWindow: s.contextWindow,
-      maxOutputTokens: s.maxOutputTokens,
       temperature: s.temperature,
       recentChaptersFullText: s.recentChaptersFullText,
       prevChapterTailChars: s.prevChapterTailChars,
@@ -1103,7 +1095,7 @@ export class ChatController {
       '设置已保存',
       `${providers.length} 个服务商｜默认模型 ${models.join('、') || '（未选）'}｜` +
         `${describeTierConfig(tierModels, taskTiers)}｜` +
-        `窗口 ${s.contextWindow}／输出 ${s.maxOutputTokens}｜温度 ${s.temperature}｜超时 ${s.requestTimeoutMs}ms｜` +
+        `温度 ${s.temperature}｜超时 ${s.requestTimeoutMs}ms｜` +
         `并发 ${s.concurrency}｜换模型重试 ${s.fallbackAttempts} 次`
     );
     await this.pushSettings('saved');

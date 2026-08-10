@@ -1,5 +1,43 @@
 /* 设置页：服务商卡片与模型行。 */
 
+.settings-subtabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+button.settings-subtab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+}
+
+button.settings-subtab:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-list-hoverBackground);
+}
+
+button.settings-subtab.active {
+  color: var(--vscode-foreground);
+  border-bottom-color: var(--vscode-focusBorder);
+}
+
+.settings-panel {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-panel.active {
+  display: flex;
+}
+
 .provider-block {
   display: flex;
   flex-direction: column;

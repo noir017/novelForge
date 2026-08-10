@@ -419,7 +419,7 @@ generatedBy: novel-forge
 
 ## 配置
 
-设置页（侧边栏 → 设置）能改全部配置，也可以直接编辑 settings.json。API Key 只存 SecretStorage，不写进配置文件。
+设置页（侧边栏 → 设置）分为「模型配置」与「上下文管理」两个二级页签。模型页管理服务商、模型预算、分档与请求参数；上下文页单独管理近期原文注入和全书摘要分批。API Key 只存 SecretStorage，不写进配置文件。
 
 ### 服务商与模型
 
@@ -461,7 +461,7 @@ generatedBy: novel-forge
 
 同一个模型走不同渠道就是两条独立的引用，各有各的 baseUrl、各有各的 API Key，切换只要在输入框旁的下拉框里选一下（或用命令 `Novel: 选择模型`）。
 
-**每个模型可以单独设窗口**。同一家的 32k 和 200k 模型常常并存，模型上填了 `contextWindow` 就以它为准，没填才用全局的 `novel.contextWindow`。装配器据此算预算，所以切模型时预算会跟着变。
+**窗口与输出上限按模型单独设置**。同一家的 32k 和 200k 模型常常并存，装配器按真正执行任务的模型计算预算，所以切模型或切档位时预算会跟着变。设置页不再提供全局默认预算；模型留空时使用内置兼容值（窗口 128000、输出 4096）。旧配置里已有的 `novel.contextWindow` / `novel.maxOutputTokens` 仍作为兼容兜底读取，但不再作为新配置项展示。
 
 设置页备了 9 个常用预设（OpenAI / DeepSeek / 智谱 / Kimi / 通义 / OpenRouter / Anthropic / 本地 Ollama / Copilot），点一下**添加一整个服务商**（含常用模型和窗口大小），不会覆盖已有的。每个模型行右边有「测试」，当场发一个最小请求验证——比写半章才发现 Key 填错强。
 
@@ -478,14 +478,12 @@ API Key 按服务商 id 分开存。本地 Ollama 随便填一个非空值即可
 | `novel.taskTiers` | `{}` | 每项工程页任务归在哪一档，只需写与内置默认不同的项 |
 | `novel.concurrency` | `3` | 工程页批量任务的并发请求数，1 表示串行 |
 | `novel.fallbackAttempts` | `2` | 一次调用失败后换用**同档**其它模型重试的次数上限，0 表示不重试 |
-| `novel.contextWindow` | `128000` | 默认窗口，模型自带的优先 |
-| `novel.maxOutputTokens` | `4096` | 默认输出上限，模型自带的优先 |
 | `novel.temperature` | `0.8` | 摘要类任务内部固定用 0.3 |
-| `novel.recentChaptersFullText` | `2` | 注入几章完整原文 |
-| `novel.prevChapterTailChars` | `1500` | 上一章结尾片段字数 |
+| `novel.recentChaptersFullText` | `2` | 上下文管理：注入几章完整原文 |
+| `novel.prevChapterTailChars` | `1500` | 上下文管理：上一章结尾片段字数 |
 | `novel.chaptersDir` | `chapters` | 章节正文目录（相对工作区根） |
 | `novel.draftsDir` | `drafts` | 章节草稿目录（相对工作区根） |
-| `novel.summaryBatchSize` | `15` | 重建全书摘要的批大小 |
+| `novel.summaryBatchSize` | `15` | 上下文管理：重建全书摘要的批大小 |
 | `novel.requestTimeoutMs` | `300000` | |
 
 ### 默认模型列表、并发与 fallback

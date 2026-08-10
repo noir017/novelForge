@@ -7,14 +7,15 @@ import type { SettingsPayload } from '../../protocol';
 import { vscode } from '../store';
 import { toast } from '../toast';
 import { allRefs, draft, touch, validateProviders } from './draft';
-import { BUDGET_FIELDS } from './presets';
-import type { BudgetField } from './presets';
+import { NUMERIC_FIELDS } from './presets';
+import type { NumericField } from './presets';
 import { bindOpenModal, renderProviders } from './providerList';
 import { installProviderModal, openProviderModal, refreshProviderModal } from './providerModal';
 import { renderTaskTiers } from './taskTiers';
 
-/** 上下文窗口的下限，与 package.json 里的 minimum 一致。 */
-const MIN_CONTEXT_WINDOW = 4000;
+type SettingsCategory = 'models' | 'context';
+
+const SETTINGS_CATEGORIES: readonly SettingsCategory[] = ['models', 'context'];
 
 export function renderSettings(
   settings: SettingsPayload,
@@ -49,10 +50,10 @@ export function renderSettings(
   };
   draft.taskTiers = { ...(settings.taskTiers || {}) };
   draft.keys = nextKeys;
-  for (const [key, id] of Object.entries(BUDGET_FIELDS)) {
+  for (const [key, id] of Object.entries(NUMERIC_FIELDS)) {
     const node = maybeById<HTMLInputElement>(id);
     if (node) {
-      node.value = String(settings[key as BudgetField]);
+      node.value = String(settings[key as NumericField]);
     }
   }
   renderProviders();
@@ -67,17 +68,8 @@ function save(): void {
     tierModels: draft.tierModels,
     taskTiers: draft.taskTiers,
   } as SettingsPayload;
-  for (const [key, id] of Object.entries(BUDGET_FIELDS)) {
-    settings[key as BudgetField] = Number(byId<HTMLInputElement>(id).value);
-  }
-
-  if (!Number.isFinite(settings.contextWindow) || settings.contextWindow < MIN_CONTEXT_WINDOW) {
-    toast(`上下文窗口至少 ${MIN_CONTEXT_WINDOW}。`, true);
-    return;
-  }
-  if (settings.maxOutputTokens >= settings.contextWindow) {
-    toast('最大输出 token 必须小于上下文窗口，否则装配器没有可用预算。', true);
-    return;
+  for (const [key, id] of Object.entries(NUMERIC_FIELDS)) {
+    settings[key as NumericField] = Number(byId<HTMLInputElement>(id).value);
   }
   const problem = validateProviders(draft.providers);
   if (problem) {
@@ -115,8 +107,9 @@ function save(): void {
 export function installSettings(): void {
   bindOpenModal(openProviderModal);
   installProviderModal();
+  installCategoryTabs();
 
-  for (const id of Object.values(BUDGET_FIELDS)) {
+  for (const id of Object.values(NUMERIC_FIELDS)) {
     maybeById(id)?.addEventListener('input', touch);
   }
 
@@ -124,4 +117,46 @@ export function installSettings(): void {
   byId('nativeSettingsBtn').addEventListener('click', () =>
     vscode.postMessage({ type: 'openNativeSettings' })
   );
+}
+
+function showCategory(category: SettingsCategory, focus = false): void {
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-settings-tab]')) {
+    const active = button.dataset.settingsTab === category;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+    button.tabIndex = active ? 0 : -1;
+    if (active && focus) {
+      button.focus();
+    }
+  }
+  for (const panel of document.querySelectorAll<HTMLElement>('[data-settings-panel]')) {
+    const active = panel.dataset.settingsPanel === category;
+    panel.classList.toggle('active', active);
+    panel.hidden = !active;
+  }
+}
+
+function installCategoryTabs(): void {
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>('[data-settings-tab]')];
+  for (const button of buttons) {
+    button.addEventListener('click', () => {
+      const category = button.dataset.settingsTab as SettingsCategory | undefined;
+      if (category && SETTINGS_CATEGORIES.includes(category)) {
+        showCategory(category);
+      }
+    });
+    button.addEventListener('keydown', (event) => {
+      const current = SETTINGS_CATEGORIES.indexOf(button.dataset.settingsTab as SettingsCategory);
+      let next = current;
+      if (event.key === 'ArrowLeft') next = (current - 1 + SETTINGS_CATEGORIES.length) % SETTINGS_CATEGORIES.length;
+      if (event.key === 'ArrowRight') next = (current + 1) % SETTINGS_CATEGORIES.length;
+      if (event.key === 'Home') next = 0;
+      if (event.key === 'End') next = SETTINGS_CATEGORIES.length - 1;
+      if (next !== current) {
+        event.preventDefault();
+        showCategory(SETTINGS_CATEGORIES[next], true);
+      }
+    });
+  }
+  showCategory('models');
 }
