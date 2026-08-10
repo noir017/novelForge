@@ -240,6 +240,46 @@ button.settings-subtab.active {
   width: 100%;
 }
 
+/* 「高级设置」折叠开关：把模型分档/任务档位/请求与调度这几块日常不动的
+   配置收起来，默认折叠。沿用工程页 group-toggle 的视觉语言。 */
+.settings-advanced-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 4px;
+  margin-top: 4px;
+  border: 0;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  border-radius: 0;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-advanced-toggle:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.settings-advanced-toggle .caret {
+  width: 12px;
+  flex: 0 0 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.settings-advanced-title {
+  font-weight: 600;
+}
+
+.settings-advanced-toggle .meta {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------------------------------------------------------------- 模型分档 */
 
 /*

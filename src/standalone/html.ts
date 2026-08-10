@@ -181,39 +181,46 @@ export function standalonePage(root?: string): string {
         </div>
         <div id="defaultModelList"></div>
 
-        <div class="pane-head"><span>模型分档</span></div>
-        <div class="hint">
-          简单大量的活交给便宜模型，困难的活交给聪明模型。<b>每档留空就沿用上面的「默认模型」</b>——
-          三档都不配，行为和不分档时完全一样。每档也是一份有序清单：串行用第一个，失败自动换用<b>同档</b>其余模型，
-          并发时在档内轮转。<b>换人只在档内发生</b>，快速档失败不会偷偷升级到精标档去烧贵 token。
-          对话页续写不受分档影响，始终用你在输入框旁选的那个模型。
-        </div>
-        <div class="tier-grid">
-          <div class="tier-block">
-            <div class="tier-head"><span class="tier-name">快速档</span><span class="tier-hint">便宜、快，用于量大而单次简单的活</span></div>
-            <div id="tierModelList-fast"></div>
+        <button type="button" class="settings-advanced-toggle" id="settingsAdvancedToggle" aria-expanded="false" aria-controls="settingsAdvanced">
+          <span class="caret">▸</span>
+          <span class="settings-advanced-title">高级设置</span>
+          <span class="meta">模型分档 · 任务档位 · 请求与调度</span>
+        </button>
+        <div id="settingsAdvanced" hidden>
+          <div class="pane-head"><span>模型分档</span></div>
+          <div class="hint">
+            简单大量的活交给便宜模型，困难的活交给聪明模型。<b>每档留空就沿用上面的「默认模型」</b>——
+            三档都不配，行为和不分档时完全一样。每档也是一份有序清单：串行用第一个，失败自动换用<b>同档</b>其余模型，
+            并发时在档内轮转。<b>换人只在档内发生</b>，快速档失败不会偷偷升级到精标档去烧贵 token。
+            对话页续写不受分档影响，始终用你在输入框旁选的那个模型。
           </div>
-          <div class="tier-block">
-            <div class="tier-head"><span class="tier-name">均衡档</span><span class="tier-hint">折中，用于量不小但质量也要紧的活</span></div>
-            <div id="tierModelList-balanced"></div>
+          <div class="tier-grid">
+            <div class="tier-block">
+              <div class="tier-head"><span class="tier-name">快速档</span><span class="tier-hint">便宜、快，用于量大而单次简单的活</span></div>
+              <div id="tierModelList-fast"></div>
+            </div>
+            <div class="tier-block">
+              <div class="tier-head"><span class="tier-name">均衡档</span><span class="tier-hint">折中，用于量不小但质量也要紧的活</span></div>
+              <div id="tierModelList-balanced"></div>
+            </div>
+            <div class="tier-block">
+              <div class="tier-head"><span class="tier-name">精标档</span><span class="tier-hint">最聪明的模型，用于一次定调、错了代价大的活</span></div>
+              <div id="tierModelList-quality"></div>
+            </div>
           </div>
-          <div class="tier-block">
-            <div class="tier-head"><span class="tier-name">精标档</span><span class="tier-hint">最聪明的模型，用于一次定调、错了代价大的活</span></div>
-            <div id="tierModelList-quality"></div>
-          </div>
-        </div>
 
-        <div class="pane-head"><span>任务档位</span></div>
-        <div class="hint">每项工程页任务归在哪一档。标「默认」的是内置推荐值，按调用次数与单次难度定的。</div>
-        <div id="taskTierTable"></div>
+          <div class="pane-head"><span>任务档位</span></div>
+          <div class="hint">每项工程页任务归在哪一档。标「默认」的是内置推荐值，按调用次数与单次难度定的。</div>
+          <div id="taskTierTable"></div>
 
-        <div class="pane-head"><span>请求与调度</span></div>
-        <div class="hint">并发与重试只作用于工程页批量任务；对话页续写始终单请求、严格使用当前选中的模型。</div>
-        <div class="grid">
-          <label class="field"><span>温度</span><input type="number" id="setTemperature" min="0" max="2" step="0.1"></label>
-          <label class="field"><span>请求超时（毫秒）</span><input type="number" id="setRequestTimeoutMs" min="10000" step="10000"></label>
-          <label class="field"><span>并发请求数</span><input type="number" id="setConcurrency" min="1" max="16"></label>
-          <label class="field"><span>换模型重试次数</span><input type="number" id="setFallbackAttempts" min="0" max="5"></label>
+          <div class="pane-head"><span>请求与调度</span></div>
+          <div class="hint">并发与重试只作用于工程页批量任务；对话页续写始终单请求、严格使用当前选中的模型。</div>
+          <div class="grid">
+            <label class="field"><span>温度</span><input type="number" id="setTemperature" min="0" max="2" step="0.1"></label>
+            <label class="field"><span>请求超时（毫秒）</span><input type="number" id="setRequestTimeoutMs" min="10000" step="10000"></label>
+            <label class="field"><span>并发请求数</span><input type="number" id="setConcurrency" min="1" max="16"></label>
+            <label class="field"><span>换模型重试次数</span><input type="number" id="setFallbackAttempts" min="0" max="5"></label>
+          </div>
         </div>
       </div>
 
