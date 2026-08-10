@@ -8,6 +8,7 @@ import { elapsed, scoped } from '../logger';
 import { runTask } from '../progress';
 import { NovelProject, emptyCharacterSections, exists, readText, renderCharacterCard, slugify, writeText } from '../model/project';
 import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections, Chapter } from '../model/types';
+import { sanitizeAliases } from '../naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { pickChaptersByInput } from './pickChapters';
 import { stripCodeFence } from './summarize';
@@ -135,10 +136,16 @@ async function mergeCharacters(
   range: { firstOrder: number; lastOrder: number; orders: number[] }
 ): Promise<void> {
   const byName = new Map<string, CharacterCard>();
+  // 正式名先占位，别名后补：一张卡上写错的别名（模型给方源挂过 `方正`）
+  // 抢不走另一张卡的正式名。泛称别名（`姐姐`/`她`）一律不进表——它们谁都能用。
   for (const card of existing) {
     byName.set(card.name, card);
-    for (const alias of card.aliases) {
-      byName.set(alias, card);
+  }
+  for (const card of existing) {
+    for (const alias of sanitizeAliases(card.aliases, card.name)) {
+      if (!byName.has(alias)) {
+        byName.set(alias, card);
+      }
     }
   }
 
@@ -222,7 +229,7 @@ async function reviewCharacterUpdate(
   const mergedCard = {
     slug: existing.slug,
     name: existing.name,
-    aliases: unique([...existing.aliases, ...proposed.aliases]),
+    aliases: unique(sanitizeAliases([...existing.aliases, ...proposed.aliases], existing.name)),
     tags: unique([...existing.tags, ...proposed.tags]),
     firstAppear: existing.firstAppear ?? appearsIn[0],
     lastSeen: Math.max(existing.lastSeen ?? 0, range.lastOrder) || range.lastOrder,
@@ -353,7 +360,7 @@ export function parseCharacterResponse(raw: string): ParsedCharacter[] {
     }
     out.push({
       name,
-      aliases: toStringArray(obj.aliases),
+      aliases: sanitizeAliases(toStringArray(obj.aliases), name),
       tags: toStringArray(obj.tags),
       sections,
     });
@@ -421,7 +428,7 @@ const CHARACTER_SYSTEM = `你是小说编辑，负责从正文中提取人物档
 数组每个元素的结构：
 {
   "name": "角色的正式姓名",
-  "aliases": ["别名/称呼/绰号"],
+  "aliases": ["这个人**专属**的其它称呼"],
   "tags": ["主角" 或 "配角" 或 "反派" 等],
   "身份": "他/她是谁，在故事中的位置",
   "外貌": "外貌特征",
@@ -435,5 +442,9 @@ const CHARACTER_SYSTEM = `你是小说编辑，负责从正文中提取人物档
 要求：
 - 只提取正文中确实出现的人物，不要虚构信息；正文没交代的字段填空字符串 ""。
 - 如果某个人物已在「已有角色卡」列表中，name 必须与列表中完全一致，不要改名。
+- **aliases 只收专属称呼**：姓名的其它写法、绰号、独一无二的职称。
+  **不要**代词（他/她）、亲属称谓（姐姐/舅父）、泛称（少女/丫头/小姐/公子）、
+  带修饰语的描述（「满身血迹的少女」），也**绝不要填别人的名字**——
+  程序拿 aliases 判断「谁是谁」，混进一个就会把两个角色认成同一个人。
 - 只提取有名有姓、对剧情有作用的角色，路人甲不必收录。
 - 所有内容用简体中文。`;

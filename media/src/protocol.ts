@@ -9,6 +9,7 @@
  * （core 是 Node 侧的，带进浏览器会立刻炸）。
  */
 export type {
+  CastConflictView,
   CastEntry,
   CastSummary,
   ChapterSummaryView,

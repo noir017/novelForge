@@ -17,7 +17,7 @@ import {
   countLabel,
   summaryGroupLabel,
 } from './groups';
-import { bindRerender, buildCastRow, emptyRow, renderNodes } from './rows';
+import { bindRerender, buildCastRow, buildConflictRow, emptyRow, renderNodes } from './rows';
 import { hideDetailTip, installDetailTip } from './detailTip';
 import { hideSummaryTip, installSummaryTip } from './summaryTip';
 import { lastTree, setLastTree } from './treeState';
@@ -57,11 +57,17 @@ export function renderProject(tree: ProjectTree): void {
         { label: '更新所有角色卡', run: () => characterAction('updateAllCards') },
         { label: '从头重建所有角色卡', run: () => characterAction('rebuildAllCards') },
         { sep: true },
+        { label: '清理别名（删掉「她」「姐姐」这类泛称）', run: () => characterAction('cleanAliases') },
+        { label: '查找并合并重复角色卡', run: () => characterAction('mergeDuplicates') },
+        { sep: true },
       ],
-      build: () =>
-        tree.characters.length === 0
+      build: () => [
+        // 冲突排在最前面：它说明这棵树上的出场统计有一处是错的。
+        ...(tree.castConflicts ?? []).map(buildConflictRow),
+        ...(tree.characters.length === 0
           ? [emptyRow('还没有角色卡。可运行「提取/更新角色卡」从正文抽取。')]
-          : renderNodes(tree.characters, 0, SECTIONS.characters, tree),
+          : renderNodes(tree.characters, 0, SECTIONS.characters, tree)),
+      ],
     })
   );
 

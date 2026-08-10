@@ -159,6 +159,8 @@ export type ProjectAction =
  * - `updateAllCards` / `rebuildAllCards`：批量更新全部角色卡（增量 / 全量），
  *   不需要 name/relPath。
  * - `createAllCards`：给「未建卡」那一组里的所有人建卡，同样不需要 name/relPath。
+ * - `cleanAliases` / `mergeDuplicates`：两条维护动作——删掉不是专属称呼的别名、
+ *   把同一个人的多张卡并成一张。都不调模型，也不需要 name/relPath。
  */
 export type CharacterAction =
   | 'updateCard'
@@ -166,7 +168,9 @@ export type CharacterAction =
   | 'createCard'
   | 'updateAllCards'
   | 'rebuildAllCards'
-  | 'createAllCards';
+  | 'createAllCards'
+  | 'cleanAliases'
+  | 'mergeDuplicates';
 
 /**
  * 类文件操作。作用对象由 `relPath` / `relPaths` 给出，可以是文件也可以是目录。
@@ -378,6 +382,13 @@ export interface ProjectTree {
   castByCard: Record<string, CastSummary>;
   /** 参与统计的摘要数。为 0 说明还没生成过摘要，前端据此改文案。 */
   summaryCount: number;
+  /**
+   * 多张角色卡抢同一个称呼。
+   *
+   * 出场统计按称呼归属，一个称呼只能算给一张卡，所以有冲突就必然有一张的
+   * 出场章节是错的——而这件事从数据上完全看不出来，必须说出来。
+   */
+  castConflicts: CastConflictView[];
   /** 各区的根目录相对路径，供「在此新建」与「移动到根」用。 */
   chaptersRoot: string;
   charactersRoot: string;
@@ -453,6 +464,19 @@ export interface CastSummary {
   updatedThrough: number;
   /** 上次更新之后新增的出场章节数。>0 时前端在行上给个提示点。 */
   pending: number;
+}
+
+/** 多张角色卡抢同一个称呼。 */
+export interface CastConflictView {
+  /** 被抢的称呼。 */
+  name: string;
+  /**
+   * - `name`：两张卡的**正式名**一模一样，多半是同一个人建了两张卡。
+   * - `alias`：一个称呼被多张卡当成自己的（别名撞别名，或别名撞上别人的正式名）。
+   */
+  kind: 'name' | 'alias';
+  /** 卷入的角色卡，供前端显示与跳转。第一个是当前占着这个称呼的那张。 */
+  cards: { name: string; relPath: string }[];
 }
 
 /**

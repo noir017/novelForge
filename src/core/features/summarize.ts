@@ -9,6 +9,7 @@ import { describeError, elapsed, formatDuration, scoped } from '../logger';
 import { runTask } from '../progress';
 import { NovelProject, castFromText, emptySummarySections, parseCastEntry, renderCastEntry } from '../model/project';
 import { Chapter, SUMMARY_SECTION_KEYS, SummaryCast, SummarySections } from '../model/types';
+import { sanitizeAliases } from '../naming';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
 
 const log = scoped('摘要');
@@ -129,7 +130,10 @@ async function knownNamesHint(project: NovelProject): Promise<string> {
     return '';
   }
   const list = cards
-    .map((c) => (c.aliases.length > 0 ? `${c.name}（又称 ${c.aliases.join('、')}）` : c.name))
+    .map((c) => {
+      const aliases = sanitizeAliases(c.aliases, c.name);
+      return aliases.length > 0 ? `${c.name}（又称 ${aliases.join('、')}）` : c.name;
+    })
     .join('、');
   return `已有角色卡：${list}。出场人物中若出现这些人，name 请与此处完全一致。\n\n`;
 }
@@ -573,7 +577,9 @@ function parseCastField(v: unknown): SummaryCast[] {
       : typeof obj.aliases === 'string'
         ? obj.aliases.split(/[、,，/]/).map((a) => a.trim()).filter(Boolean)
         : [];
-    push({ name, aliases: [...new Set(aliases.filter((a) => a !== name))] });
+    // 泛称在这里就挡住，不落进摘要 frontmatter：`姐姐`/`她`/`少女` 是好几个
+    // 角色的共同称呼，而 cast 的别名是 identity.ts 判断「谁是谁」的依据。
+    push({ name, aliases: sanitizeAliases(aliases, name) });
   }
   return out;
 }
@@ -666,7 +672,7 @@ const SUMMARY_SYSTEM = `你是小说编辑，负责为长篇小说建立可检�
 {
   "梗概": "用 3-5 句话概括本章发生了什么，写清因果链。",
   "出场人物": [
-    { "name": "角色的正式姓名", "aliases": ["本章中对他的其它称呼"] }
+    { "name": "角色的正式姓名", "aliases": ["本章中对他的**专属**称呼"] }
   ],
   "时间地点": "本章的时间点（与上一章的相对关系亦可）与主要场景。",
   "关键事件": ["推动主线的事件，一条一句话"],
@@ -677,6 +683,13 @@ const SUMMARY_SYSTEM = `你是小说编辑，负责为长篇小说建立可检�
 关于「出场人物」——这一节会被程序读取，用来自动关联角色档案，请特别当心：
 - 只列**本章确实登场或有实质动作**的人物，被别人提到一句的不算。
 - name 用正式姓名；同一人在本章里的其它叫法（绰号、职称、代称）放进 aliases。
+- **同一个人在全书里必须始终用同一个 name**。「已有角色卡」列表里有就照抄；
+  没有就用正文里最完整的正式姓名（有姓氏就带上姓氏），此后每一章都用它，
+  不要这一章写「方源」下一章写「古月方源」——程序会当成两个人各建一张档案。
+- **aliases 只收专属称呼**：姓名的其它写法、绰号、独一无二的职称。
+  **不要**代词（他/她）、亲属称谓（姐姐/舅父）、泛称（少女/丫头/小姐/公子）、
+  带修饰语的描述（「满身血迹的少女」），也**绝不要填另一个人的名字**——
+  程序拿 aliases 判断「谁是谁」，混进一个就会把两个角色认成同一个人。
 - 如果「已有角色卡」列表里已有这个人，name 必须与列表中**完全一致**，不要改写。
 - 没有姓名的路人（「掌柜」「老船夫」之类）若在本章有实质戏份也可以收，用正文对他的固定称呼作 name。
 - 本章确实无人出场就给空数组 []。

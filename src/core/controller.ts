@@ -12,6 +12,7 @@ import {
   updateAllCharacterCards,
   updateCharacterCard,
 } from './features/characterCard';
+import { cleanCharacterAliases, mergeDuplicateCharacterCards } from './features/characterMaintenance';
 import { ContinueSession } from './features/continueWriting';
 import { generateLore } from './features/lore';
 import { extractStyle } from './features/style';
@@ -1006,6 +1007,12 @@ export class ChatController {
         break;
       case 'rebuildAllCards':
         await updateAllCharacterCards(this.project, 'full');
+        break;
+      case 'cleanAliases':
+        await cleanCharacterAliases(this.project);
+        break;
+      case 'mergeDuplicates':
+        await mergeDuplicateCharacterCards(this.project);
         break;
     }
     await this.pushState();

@@ -506,7 +506,7 @@ async function describeFolder(project: NovelProject, rel: string): Promise<strin
 }
 
 /** 垃圾箱里保留原相对路径；同名冲突时加序号，不覆盖之前删掉的东西。 */
-async function trashPathFor(project: NovelProject, rel: string): Promise<string> {
+export async function trashPathFor(project: NovelProject, rel: string): Promise<string> {
   const base = path.join(project.trashDir, rel);
   if (!(await exists(base))) {
     return base;

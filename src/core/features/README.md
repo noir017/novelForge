@@ -11,6 +11,7 @@
 | [characters.ts](characters.ts) | 从选定章节**批量**提取/更新角色卡（一次扒出一批人）。**绝不静默覆盖作者手写的角色卡**——已存在的角色一律经 `Host.reviewReplace` 审阅确认，新角色直接创建。另含 `newCharacter` / `newLore` 的新建模板。 |
 | [lore.ts](lore.ts) | **从全书正文自动生成设定**：逐章识别可复用的世界观事实，再按设定整合跨章内容；新条目按分类创建，已有条目逐条审阅后才覆盖。 |
 | [characterCard.ts](characterCard.ts) | ★ **单个角色**的档案更新：自动关联出场章节、按预算分批调用、增量/全量两种范围。工程页角色行右键的「更新角色卡」走这里。另含批量更新全部角色卡与「给未建卡的人全部建卡」，两者都按卡并发。 |
+| [characterMaintenance.ts](characterMaintenance.ts) | ★ 两条**不调模型**的整理动作：`cleanCharacterAliases` 删掉不是专属称呼的别名（含被误填成别名的**其他角色的名字**），`mergeDuplicateCharacterCards` 把同一个人的多张卡并成一张。只改 frontmatter（`rewriteFrontmatter`），作者手写的正文一个字节不动；被合并的卡搬进 `.novelforge/.trash/`。 |
 | [style.ts](style.ts) | 从 1~3 章样章归纳文风指南写入 `.novelforge/style.md`，覆盖前先确认（style.md 常被作者手工调过）。 |
 | [pickChapters.ts](pickChapters.ts) | 多章选择：Host.pick 只支持单选，需要多章时改为输入序号列表（如 `1,2,3`）。 |
 
