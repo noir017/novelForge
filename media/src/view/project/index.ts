@@ -18,6 +18,7 @@ import {
   summaryGroupLabel,
 } from './groups';
 import { bindRerender, buildCastRow, emptyRow, renderNodes } from './rows';
+import { hideDetailTip, installDetailTip } from './detailTip';
 import { hideSummaryTip, installSummaryTip } from './summaryTip';
 import { lastTree, setLastTree } from './treeState';
 
@@ -26,6 +27,7 @@ export function renderProject(tree: ProjectTree): void {
   el.projectBody.innerHTML = '';
   // 全部行都被换掉了，开着的浮窗指向的是已丢弃的节点。
   hideSummaryTip();
+  hideDetailTip();
   // 还不是小说工程时，工具栏上的「新建章节」等按钮点了只会报错。
   setHidden(el.projectToolbar, !tree.initialized);
 
@@ -105,6 +107,7 @@ function rerenderProject(): void {
 export function installProject(): void {
   bindRerender(rerenderProject);
   installSummaryTip();
+  installDetailTip();
 
   el.projectToolbar.addEventListener('click', (e) => {
     const btn = closestFrom<HTMLElement>(e.target, '[data-action]');

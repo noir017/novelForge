@@ -26,5 +26,6 @@
 /* 浮层：菜单、浮窗、弹窗、提示条 */
 @import './view/menu.css';
 @import './view/summary-tip.css';
+@import './view/detail-tip.css';
 @import './view/modal.css';
 @import './view/toast.css';

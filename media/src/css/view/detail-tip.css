@@ -1,0 +1,29 @@
+/* 行内副标题（别名、设定关键词等）的悬停浮窗。 */
+
+/* ---- 行内副标题的悬停浮窗
+
+   挂在 body 上 position: fixed，与右键菜单同一个理由：工程页有内部滚动，
+   挂在行里会被容器裁掉。z-index 与摘要浮窗（25）同层——比 toast（30）与
+   右键菜单（40）低，那两个都是用户主动要的，一个划过去就出现的浮窗不该
+   盖住它们。
+
+   只展示一行文字，不互动，所以 pointer-events: none：鼠标永远落不进来，
+   收起不用等宽限期。 */
+
+.detail-tip {
+  position: fixed;
+  z-index: 25;
+  max-width: min(70vw, 480px);
+  padding: 6px 10px;
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  border-radius: var(--radius);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+  font-size: 0.85em;
+  line-height: 1.5;
+  /* 别名列表可能很长，允许换行，别逼用户看一条无限长的横线。 */
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: none;
+  pointer-events: none;
+}

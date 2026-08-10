@@ -154,6 +154,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* 别名/关键词再多也不许把正名挤没：副标题最多占半行，
+     截断的部分靠悬停浮窗看全文（detailTip.ts）。 */
+  max-width: 50%;
 }
 
 /* 「上次更新之后又出场了 N 章」。用强调色而非警告色——

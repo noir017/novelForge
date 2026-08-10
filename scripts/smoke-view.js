@@ -1375,6 +1375,90 @@ async function summaryTipTests() {
   await moveAway();
 }
 
+/**
+ * 行内副标题（别名等）的悬停浮窗。同样有悬停延迟，只能等真定时器，
+ * 与 summaryTipTests 同列，都归进最后的异步收尾。
+ */
+async function detailTipTests() {
+  console.log('\n== 行内副标题（别名）的悬停浮窗 ==');
+  const ui = mount();
+  const tip = () => ui.doc.querySelector('.detail-tip');
+  const detailOf = (row) => row.querySelector('.row-detail');
+  const rowWith = (text) =>
+    [...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes(text));
+  const hover = (node) => node.dispatchEvent(new ui.window.MouseEvent('mouseover', { bubbles: true }));
+  /** 等过悬停延迟（detailTip.ts 里是 350ms）。 */
+  const settle = () => new Promise((r) => setTimeout(r, 600));
+  /** 等过收起的宽限（CLOSE_DELAY_MS 是 150ms）。 */
+  const grace = () => new Promise((r) => setTimeout(r, 250));
+
+  // jsdom 里 scrollWidth/clientWidth 恒为 0，截断与否只能靠覆写 getter。
+  // 带 data-truncated 的副标题按「内容 300px、可见 50px」算，其余不算截断。
+  Object.defineProperty(ui.window.HTMLElement.prototype, 'clientWidth', {
+    configurable: true,
+    get() { return this.dataset && this.dataset.truncated ? 50 : 0; },
+  });
+  Object.defineProperty(ui.window.HTMLElement.prototype, 'scrollWidth', {
+    configurable: true,
+    get() { return this.dataset && this.dataset.truncated ? 300 : 0; },
+  });
+
+  // 别名多到一行放不下的角色。detail 是「标签 · 别名 …」的完整串，
+  // 浮窗要原样端出这一整段。
+  const LONG_DETAIL = '反派 · 别名 四娘/老板娘/四姐/沈掌柜/黑心店主/前朝遗孀';
+  const tree = sampleTree();
+  tree.characters.push({
+    kind: 'file', label: '沈四娘',
+    relPath: '.novelforge/characters/沈四娘.md', detail: LONG_DETAIL,
+  });
+  ui.post({ type: 'project', tree });
+
+  check('默认不显示浮窗', !tip());
+
+  // ---- 截断的副标题：悬停后浮窗显示完整别名
+  const detail = detailOf(rowWith('沈四娘'));
+  detail.dataset.truncated = '1';
+  hover(detail);
+  check('悬停后不立刻弹出（有延迟，免得划过时闪）', !tip());
+  await settle();
+
+  const box = tip();
+  check('截断的别名行悬停后弹出浮窗', !!box);
+  if (box) {
+    check('浮窗挂在 body 上（工程页有内部滚动，挂在行里会被裁掉）',
+      box.parentElement === ui.doc.body);
+    check('浮窗显示完整副标题（含全部别名）',
+      box.textContent === LONG_DETAIL, box.textContent);
+    check('浮窗带独立样式类（只读展示，不吃鼠标）',
+      box.classList.contains('detail-tip'), box.className);
+  }
+
+  // 光标在副标题上微动（mouseover 冒泡）不该重置延迟导致弹不出来。
+  hover(detail);
+  await grace();
+  check('微动后浮窗仍在', tip() === box);
+
+  // ---- 移开：宽限后收起
+  hover(ui.doc.querySelector('#projectBody .group-head'));
+  await grace();
+  check('移开后浮窗收起', !tip());
+
+  // ---- 全文可见（未截断）的副标题：不弹浮窗
+  const liDetail = detailOf(rowWith('林昭'));
+  delete liDetail.dataset.truncated;
+  hover(liDetail);
+  await settle();
+  check('未截断的副标题不弹浮窗', !tip());
+
+  // ---- 重渲染把行换掉后，开着的浮窗必须清掉
+  liDetail.dataset.truncated = '1';
+  hover(liDetail);
+  await settle();
+  check('截断后又能弹出', !!tip());
+  ui.post({ type: 'project', tree });
+  check('重渲染后浮窗随之收起', !tip());
+}
+
 console.log('\n== 文件页：剪贴板与右键菜单 ==');
 {
   const ui = mountExplorer();
@@ -1496,7 +1580,9 @@ console.log('\n== 内置编辑器：右键菜单与标签搬家 ==');
   check('草稿仍是脏标记', tabs()[0].classList.contains('dirty'));
 }
 
-summaryTipTests().then(() => {
+summaryTipTests()
+  .then(detailTipTests)
+  .then(() => {
   console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
   process.exit(failures === 0 ? 0 : 1);
 });
