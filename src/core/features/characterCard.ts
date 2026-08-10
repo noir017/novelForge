@@ -5,7 +5,7 @@ import { clearFailures, recordFailure } from '../errorLog';
 import { getHost } from '../host';
 import * as path from 'node:path';
 import { collectStream, ChatOptions } from '../llm/provider';
-import { createModelPool, ModelPool } from '../llm/pool';
+import { budgetForTask, createModelPool, ModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../logger';
 import { runTask } from '../progress';
 import {
@@ -18,6 +18,7 @@ import {
   writeText,
 } from '../model/project';
 import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
+import { describeTaskModels } from '../model/tiers';
 import { explainDroppedAliases, sanitizeAliases } from '../naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { stripCodeFence } from './summarize';
@@ -145,7 +146,9 @@ export interface BatchUpdatePlan {
 export async function planAllUpdates(project: NovelProject, scope: UpdateScope): Promise<BatchUpdatePlan> {
   const cards = await project.listCharacters();
   const index = await buildCastIndex(project);
-  const config = readConfig();
+  // 分批用**角色卡那一档**的窗口：批数就是确认框里那句「预计调用 N 次」，
+  // 拿对话页模型的窗口来算，跑起来会超窗且数字对不上账。
+  const budget = budgetForTask('characterCard');
   const allChapters = await project.listChapters();
   const result: BatchUpdatePlan = { plans: [], skipped: [] };
 
@@ -165,7 +168,7 @@ export async function planAllUpdates(project: NovelProject, scope: UpdateScope):
       result.skipped.push({ card, reason: '出场章节已不在磁盘上' });
       continue;
     }
-    const batches = await planBatches(project, chapters, config);
+    const batches = await planBatches(project, chapters, budget);
     if (batches.length === 0) {
       result.skipped.push({ card, reason: '章节正文都为空' });
       continue;
@@ -212,7 +215,7 @@ export async function updateAllCharacterCards(project: NovelProject, scope: Upda
     {
       modal: true,
       detail: [
-        `模型：${config.models.join('、')}${config.models.length > 1 ? '（失败会自动换用其余模型重试）' : ''}`,
+        describeTaskModels(config, 'characterCard'),
         lanes > 1
           ? `并发 ${lanes} 张同时处理（同一张卡内的批次仍按顺序来）。逐张确认时，diff 会按完成顺序一张一张弹出。`
           : '逐张串行处理（并发数为 1）。',
@@ -230,7 +233,7 @@ export async function updateAllCharacterCards(project: NovelProject, scope: Upda
   }
   const autoApply = pick === '全部直接采纳并开始';
 
-  const pool = await createModelPool({ concurrent: lanes > 1 });
+  const pool = await createModelPool({ task: 'characterCard', concurrent: lanes > 1 });
   if (!pool) {
     log.error('没有可用的模型，批量更新中止');
     return;
@@ -388,6 +391,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
   }
 
   const config = readConfig();
+  const cardBudget = budgetForTask('characterCard');
   const allChapters = await project.listChapters();
   const plans: { member: CastMember; chapters: Chapter[]; batches: Batch[] }[] = [];
   const skipped: { name: string; reason: string }[] = [];
@@ -398,7 +402,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
       skipped.push({ name: member.name, reason: '出场章节已不在磁盘上' });
       continue;
     }
-    const batches = await planBatches(project, chapters, config);
+    const batches = await planBatches(project, chapters, cardBudget);
     if (batches.length === 0) {
       skipped.push({ name: member.name, reason: '章节正文都为空' });
       continue;
@@ -423,7 +427,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
       modal: true,
       detail: [
         `人物：${plans.map((p) => p.member.name).join('、')}`,
-        `模型：${config.models.join('、')}${config.models.length > 1 ? '（失败会自动换用其余模型重试）' : ''}`,
+        describeTaskModels(config, 'characterCard'),
         lanes > 1 ? `并发 ${lanes} 位同时处理。` : '逐位串行处理（并发数为 1）。',
         skipped.length > 0
           ? `跳过 ${skipped.length} 位：${skipped.map((s) => `「${s.name}」（${s.reason}）`).join('、')}`
@@ -439,7 +443,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
     return;
   }
 
-  const pool = await createModelPool({ concurrent: lanes > 1 });
+  const pool = await createModelPool({ task: 'characterCard', concurrent: lanes > 1 });
   if (!pool) {
     log.error('没有可用的模型，批量建卡中止');
     return;
@@ -586,7 +590,7 @@ async function runUpdate(
   opts: { scope: UpdateScope; allAppearances: number[]; skipReview?: boolean }
 ): Promise<void> {
   const config = readConfig();
-  const batches = await planBatches(project, chapters, config);
+  const batches = await planBatches(project, chapters, budgetForTask('characterCard'));
   if (batches.length === 0) {
     log.warn(`「${card.name}」的出场章节都是空的`);
     getHost().toast('这些章节都是空的，没有可分析的内容。', 'error');
@@ -615,9 +619,7 @@ async function runUpdate(
             ? '章节太多，一次装不进上下文窗口，因此分批处理：后一批会看到前一批已经归纳出的内容，逐批精炼同一张卡。'
             : '',
           skipped > 0 ? `（另有 ${skipped} 章正文为空，已跳过。）` : '',
-          config.models.length > 1
-            ? `模型：${config.models.join('、')}（失败会自动换用其余模型重试）`
-            : '',
+          describeTaskModels(config, 'characterCard'),
         ]
           .filter(Boolean)
           .join('\n\n') || undefined,
@@ -630,7 +632,7 @@ async function runUpdate(
 
   // 单卡内的批必须串行（后一批看前一批的产出），所以池按串行取模型：
   // 恒用首选，失败才随机换。
-  const pool = await createModelPool({ concurrent: false });
+  const pool = await createModelPool({ task: 'characterCard', concurrent: false });
   if (!pool) {
     log.error('没有可用的模型，更新中止');
     return;
@@ -849,10 +851,11 @@ async function runCardUpdate(
 async function planBatches(
   project: NovelProject,
   chapters: Chapter[],
-  config: { contextWindow: number; maxOutputTokens: number }
+  /** 干活那个模型的窗口（`budgetForTask('characterCard')` / `pool.primaryBudget`）。 */
+  window: { contextWindow: number; maxOutputTokens: number }
 ): Promise<Batch[]> {
   // 留出角色卡本体、提示词与输出的余量。
-  const budget = Math.max(2000, config.contextWindow - config.maxOutputTokens - 3000);
+  const budget = Math.max(2000, window.contextWindow - window.maxOutputTokens - 3000);
   const batches: Batch[] = [];
   let current: { chapters: Chapter[]; parts: string[]; tokens: number } = {
     chapters: [],
@@ -918,12 +921,13 @@ async function analyzeBatch(
   ctx: {
     index: number;
     total: number;
-    config: { maxOutputTokens: number; requestTimeoutMs: number };
+    config: { requestTimeoutMs: number };
     signal: AbortSignal;
   }
 ): Promise<ParsedCard | undefined> {
   const options: ChatOptions = {
-    maxOutputTokens: Math.min(ctx.config.maxOutputTokens, 2000),
+    // 输出上限跟着实际干活的模型走（pool 就在手边），不是对话页那个。
+    maxOutputTokens: Math.min(pool.primaryBudget.maxOutputTokens, 2000),
     temperature: 0.3,
     timeoutMs: ctx.config.requestTimeoutMs,
     signal: ctx.signal,

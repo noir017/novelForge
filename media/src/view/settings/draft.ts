@@ -4,16 +4,27 @@
  * `dirty` 是必要的：FileSystemWatcher 一刷新就会推一份新设置过来，
  * 如果无条件重渲染，用户正在填的 baseUrl 会被磁盘上的旧值冲掉。
  */
-import type { SerializedProvider } from '../../protocol';
+import type { LlmTask, ModelTier, SerializedProvider } from '../../protocol';
 
 export const draft: {
   providers: SerializedProvider[];
   /** 默认模型列表（有序，第一个是首选），每项形如 `glm/glm-4-plus`。 */
   models: string[];
+  /** 三档各自的模型清单，与 models 同构。空档 = 沿用 models。 */
+  tierModels: Record<ModelTier, string[]>;
+  /** 任务 → 档位的覆盖，只存与内置默认不同的项。 */
+  taskTiers: Partial<Record<LlmTask, ModelTier>>;
   /** providerId -> 有没有存过 API Key。Key 本身从不回显。 */
   keys: Record<string, boolean>;
   dirty: boolean;
-} = { providers: [], models: [], keys: {}, dirty: false };
+} = {
+  providers: [],
+  models: [],
+  tierModels: { fast: [], balanced: [], quality: [] },
+  taskTiers: {},
+  keys: {},
+  dirty: false,
+};
 
 export function touch(): void {
   draft.dirty = true;

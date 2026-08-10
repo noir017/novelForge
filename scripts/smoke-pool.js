@@ -132,6 +132,31 @@ function configure(refs, extra = {}) {
 /** 让 pool.run 的回调「调一次模型」。 */
 const useModel = (llm) => providerMod.collectStream(llm.chatStream([], {}));
 
+/**
+ * 分档用的配置：providers 从「所有被提到的引用」推出来，
+ * 于是档位里的模型也解析得出。`windows` 可给单个模型指定窗口。
+ */
+function configureTiers({ models = [], tierModels = {}, taskTiers = {}, windows = {}, ...extra }) {
+  const all = [...models, ...Object.values(tierModels).flat()];
+  const names = [...new Set(all.map((r) => r.slice(2)))];
+  settings = {
+    providers: [
+      {
+        id: 'p',
+        kind: 'vscode-lm',
+        models: names.map((name) => ({ name, ...(windows[`p/${name}`] ?? {}) })),
+      },
+    ],
+    models,
+    tierModels,
+    taskTiers,
+    ...extra,
+  };
+  calls.length = 0;
+  inputs.length = 0;
+  warns.length = 0;
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
@@ -268,7 +293,7 @@ async function main() {
   {
     behavior = {};
     configure(['p/a', 'p/b', 'p/c']);
-    const pool = await createModelPool({ concurrent: true });
+    const pool = await createModelPool({ task: 'chapterSummary', concurrent: true });
     check('三个模型都进了池', pool && pool.size === 3, pool && pool.refs.join('、'));
     check('label 报得出数量', pool.label.includes('3 个模型'), pool.label);
     check('primary 是第一个', pool.primary.label === 'p/a', pool.primary.label);
@@ -277,7 +302,7 @@ async function main() {
   {
     behavior = { 'p/b': 'unavailable' };
     configure(['p/a', 'p/b', 'p/c']);
-    const pool = await createModelPool({});
+    const pool = await createModelPool({ task: 'chapterSummary' });
     check('构造不出来的模型被剔除', pool.refs.join(',') === 'p/a,p/c', pool.refs.join(','));
     check('剔除时说清是谁、为什么', warns.some((w) => w.includes('p/b')), warns.join(' | '));
     check('剔除备选模型时不弹输入框', inputs.length === 0, `弹了 ${inputs.length} 次`);
@@ -286,7 +311,7 @@ async function main() {
   {
     behavior = {};
     configure(['p/a', 'nosuch/x', 'p/c']);
-    const pool = await createModelPool({});
+    const pool = await createModelPool({ task: 'chapterSummary' });
     check('解析不出的引用被剔除', pool.refs.join(',') === 'p/a,p/c', pool.refs.join(','));
     check(
       '解析失败的原因写进日志',
@@ -298,7 +323,7 @@ async function main() {
   {
     behavior = { 'p/a': 'unavailable' };
     configure(['p/a']);
-    const pool = await createModelPool({});
+    const pool = await createModelPool({ task: 'chapterSummary' });
     check('一个可用模型都没有时返回 undefined', pool === undefined);
   }
 
@@ -306,7 +331,7 @@ async function main() {
   {
     behavior = {};
     configure(['p/a', 'p/b', 'p/c']);
-    const pool = await createModelPool({ concurrent: true });
+    const pool = await createModelPool({ task: 'chapterSummary', concurrent: true });
     for (let i = 0; i < 6; i++) {
       await pool.run(`第 ${i} 项`, useModel);
     }
@@ -330,7 +355,7 @@ async function main() {
   {
     behavior = {};
     configure(['p/a', 'p/b', 'p/c']);
-    const pool = await createModelPool({ concurrent: false });
+    const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
     for (let i = 0; i < 4; i++) {
       await pool.run('x', useModel);
     }
@@ -345,7 +370,7 @@ async function main() {
   {
     behavior = { 'p/a': 'fail' };
     configure(['p/a', 'p/b', 'p/c'], { fallbackAttempts: 2 });
-    const pool = await createModelPool({ concurrent: false });
+    const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
     const text = await pool.run('第 1 章', useModel);
     check('首选失败后换了别的模型', text !== 'ok:p/a' && text.startsWith('ok:p/'), text);
     check('换的是列表里的其余模型', ['ok:p/b', 'ok:p/c'].includes(text), text);
@@ -356,7 +381,7 @@ async function main() {
   {
     behavior = { 'p/a': 'fail', 'p/b': 'fail', 'p/c': 'fail' };
     configure(['p/a', 'p/b', 'p/c'], { fallbackAttempts: 1 });
-    const pool = await createModelPool({ concurrent: false });
+    const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
     let err;
     try {
       await pool.run('第 1 章', useModel);
@@ -370,7 +395,7 @@ async function main() {
   {
     behavior = { 'p/a': 'fail', 'p/b': 'fail', 'p/c': 'fail' };
     configure(['p/a', 'p/b', 'p/c'], { fallbackAttempts: 5 });
-    const pool = await createModelPool({ concurrent: false });
+    const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
     await pool.run('第 1 章', useModel).catch(() => {});
     check('不会把同一个模型试两遍', new Set(calls.map((c) => c.ref)).size === calls.length, calls.map((c) => c.ref).join(','));
     check('最多把池里每个模型试一遍', calls.length === 3, `调了 ${calls.length} 次`);
@@ -379,7 +404,7 @@ async function main() {
   {
     behavior = { 'p/a': 'fail' };
     configure(['p/a'], { fallbackAttempts: 3 });
-    const pool = await createModelPool({ concurrent: false });
+    const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
     await pool.run('第 1 章', useModel).catch(() => {});
     check('池里只有一个模型时不重试（换谁都是它自己）', calls.length === 1, `调了 ${calls.length} 次`);
   }
@@ -387,7 +412,7 @@ async function main() {
   {
     behavior = { 'p/a': 'cancel' };
     configure(['p/a', 'p/b'], { fallbackAttempts: 3 });
-    const pool = await createModelPool({ concurrent: false });
+    const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
     let err;
     try {
       await pool.run('第 1 章', useModel);
@@ -401,10 +426,171 @@ async function main() {
   {
     behavior = {};
     configure(['p/a', 'p/b'], { fallbackAttempts: 0 });
-    const pool = await createModelPool({ concurrent: false });
+    const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
     behavior = { 'p/a': 'fail' };
     await pool.run('第 1 章', useModel).catch(() => {});
     check('fallbackAttempts=0 时不重试', calls.length === 1, `调了 ${calls.length} 次`);
+  }
+
+  // ---------------------------------------------------------------- 模型分档
+
+  console.log('\n== 模型分档：档位生效 ==');
+  {
+    behavior = {};
+    configureTiers({
+      models: ['p/writer'],
+      tierModels: { fast: ['p/cheap'], balanced: ['p/mid'], quality: ['p/smart'] },
+    });
+    const fast = await createModelPool({ task: 'chapterSummary' });
+    const merge = await createModelPool({ task: 'globalSummaryMerge' });
+    const card = await createModelPool({ task: 'characterCard' });
+    check('单章摘要走快速档', fast.refs.join(',') === 'p/cheap', fast.refs.join(','));
+    check('全书摘要最终合并走精标档', merge.refs.join(',') === 'p/smart', merge.refs.join(','));
+    check('角色卡走均衡档', card.refs.join(',') === 'p/mid', card.refs.join(','));
+    check('label 里带档位名', fast.label.includes('快速档'), fast.label);
+    check(
+      '分档不动对话页的当前模型',
+      settings.models.join(',') === 'p/writer',
+      settings.models.join(',')
+    );
+  }
+
+  console.log('\n== 模型分档：空档位继承默认模型 ==');
+  {
+    behavior = {};
+    configureTiers({ models: ['p/a', 'p/b'], tierModels: {} });
+    const pool = await createModelPool({ task: 'chapterSummary', concurrent: true });
+    check('三档全空时沿用 models', pool.refs.join(',') === 'p/a,p/b', pool.refs.join(','));
+    check('label 说明是沿用来的', pool.label.includes('未配置，沿用默认模型'), pool.label);
+    // 分档之前的行为：并发轮转、失败换人，一条都不能少。
+    behavior = {};
+    for (let i = 0; i < 4; i++) {
+      await pool.run(`第 ${i} 项`, useModel);
+    }
+    check(
+      '未配档时并发轮转与分档前一致',
+      calls.map((c) => c.ref).join(',') === 'p/a,p/b,p/a,p/b',
+      calls.map((c) => c.ref).join(',')
+    );
+  }
+
+  {
+    // 只配了快速档：其余两档的任务仍走默认模型，不该被快速档顺手接管。
+    behavior = {};
+    configureTiers({ models: ['p/writer'], tierModels: { fast: ['p/cheap'] } });
+    const fast = await createModelPool({ task: 'chapterSummary' });
+    const merge = await createModelPool({ task: 'globalSummaryMerge' });
+    check('配了的档用自己的模型', fast.refs.join(',') === 'p/cheap', fast.refs.join(','));
+    check('没配的档仍继承 models', merge.refs.join(',') === 'p/writer', merge.refs.join(','));
+  }
+
+  console.log('\n== 模型分档：任务归档的覆盖 ==');
+  {
+    behavior = {};
+    configureTiers({
+      models: ['p/writer'],
+      tierModels: { fast: ['p/cheap'], quality: ['p/smart'] },
+      // 内置默认里单章摘要是快速档，这里改成精标。
+      taskTiers: { chapterSummary: 'quality' },
+    });
+    const pool = await createModelPool({ task: 'chapterSummary' });
+    check('覆盖优先于内置默认', pool.refs.join(',') === 'p/smart', pool.refs.join(','));
+
+    configureTiers({
+      models: ['p/writer'],
+      tierModels: { fast: ['p/cheap'], quality: ['p/smart'] },
+      taskTiers: { chapterSummary: '超级档', nosuchTask: 'fast' },
+    });
+    const fallbackPool = await createModelPool({ task: 'chapterSummary' });
+    check(
+      '非法档位名退回内置默认而不是崩',
+      fallbackPool.refs.join(',') === 'p/cheap',
+      fallbackPool.refs.join(',')
+    );
+  }
+
+  console.log('\n== 模型分档：fallback 不跨档 ==');
+  {
+    // behavior 要在建池**之前**定：假工厂在构造 provider 时就把它读走了。
+    behavior = { 'p/cheap': 'fail' };
+    configureTiers({
+      models: ['p/writer'],
+      tierModels: { fast: ['p/cheap', 'p/cheap2'], quality: ['p/smart'] },
+      fallbackAttempts: 5,
+    });
+    const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
+    await pool.run('第 1 章', useModel).catch(() => {});
+    const used = calls.map((c) => c.ref);
+    check('档内换人照旧生效', used.includes('p/cheap2'), used.join(','));
+    check('绝不升级到精标档的模型', !used.includes('p/smart'), used.join(','));
+  }
+
+  {
+    // 档内只有一个模型：无人可换，照旧上抛，不去别的档找。
+    behavior = { 'p/cheap': 'fail' };
+    configureTiers({
+      models: ['p/writer', 'p/spare'],
+      tierModels: { fast: ['p/cheap'], quality: ['p/smart'] },
+      fallbackAttempts: 5,
+    });
+    const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
+    let err;
+    try {
+      await pool.run('第 1 章', useModel);
+    } catch (e) {
+      err = e;
+    }
+    check('档内无人可换时不重试', calls.length === 1, `调了 ${calls.length} 次`);
+    check('错误照旧上抛', !!err, String(err));
+    check(
+      '也不去 models 里捞人',
+      !calls.some((c) => c.ref === 'p/writer' || c.ref === 'p/spare'),
+      calls.map((c) => c.ref).join(',')
+    );
+  }
+
+  console.log('\n== 模型分档：Key 输入框与预算 ==');
+  {
+    behavior = { 'p/cheap2': 'unavailable' };
+    configureTiers({
+      models: ['p/writer'],
+      tierModels: { fast: ['p/cheap', 'p/cheap2'] },
+    });
+    const pool = await createModelPool({ task: 'chapterSummary' });
+    check('档内备选缺 Key 被剔除', pool.refs.join(',') === 'p/cheap', pool.refs.join(','));
+    check('剔除档内备选时不弹输入框', inputs.length === 0, `弹了 ${inputs.length} 次`);
+    check('剔除原因写进日志', warns.some((w) => w.includes('p/cheap2')), warns.join(' | '));
+  }
+
+  {
+    behavior = {};
+    configureTiers({
+      models: ['p/writer'],
+      tierModels: { fast: ['p/cheap'], quality: ['p/smart'] },
+      windows: {
+        'p/writer': { contextWindow: 200000, maxOutputTokens: 8000 },
+        'p/cheap': { contextWindow: 32000, maxOutputTokens: 2000 },
+      },
+      contextWindow: 128000,
+      maxOutputTokens: 4096,
+    });
+    const fast = await createModelPool({ task: 'chapterSummary' });
+    const merge = await createModelPool({ task: 'globalSummaryMerge' });
+    check(
+      'primaryBudget 取该档首选的窗口，不是对话页模型的',
+      fast.primaryBudget.contextWindow === 32000,
+      String(fast.primaryBudget.contextWindow)
+    );
+    check(
+      'primaryBudget 的输出上限同样跟着该档走',
+      fast.primaryBudget.maxOutputTokens === 2000,
+      String(fast.primaryBudget.maxOutputTokens)
+    );
+    check(
+      '模型没自带窗口时退回全局默认',
+      merge.primaryBudget.contextWindow === 128000 && merge.primaryBudget.maxOutputTokens === 4096,
+      JSON.stringify(merge.primaryBudget)
+    );
   }
 
   console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
