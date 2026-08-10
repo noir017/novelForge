@@ -3,6 +3,7 @@
 import { DirListing } from './fileTree';
 import { LogEntry } from './logger';
 import { TaskSnapshot } from './progress';
+import type { LlmTask, ModelTier } from './model/tiers';
 
 /**
  * 侧栏页签。`files` 是独立版专属的资源管理器（插件壳里由 VS Code 自己的
@@ -191,6 +192,15 @@ export interface SettingsPayload {
    * 对话页下拉框切换模型等于把那一项提到列表头。
    */
   models: string[];
+  /**
+   * 三档（快速 / 均衡 / 精标）各自的模型清单，与 `models` 同构。
+   *
+   * 某一档为空 = 归在该档的工程页任务沿用 `models`。三档都空 = 不分档，
+   * 行为与分档之前完全一致。对话页续写永远只用 `models[0]`，不看档位。
+   */
+  tierModels: Record<ModelTier, string[]>;
+  /** 任务 → 档位的覆盖。只带与内置默认不同的项。 */
+  taskTiers: Partial<Record<LlmTask, ModelTier>>;
   contextWindow: number;
   maxOutputTokens: number;
   temperature: number;

@@ -54,7 +54,7 @@ export async function extractStyle(project: NovelProject): Promise<void> {
   }
 
   // 只有一次调用，谈不上并发；走池是为了拿到「首选失败就换模型」。
-  const pool = await createModelPool({ concurrent: false });
+  const pool = await createModelPool({ task: 'extractStyle', concurrent: false });
   if (!pool) {
     log.error('没有可用的模型，提取中止');
     return;
@@ -76,7 +76,10 @@ export async function extractStyle(project: NovelProject): Promise<void> {
         parts.push(`【样章：第${chapter.order}章 ${chapter.title}】\n${await project.readChapterText(chapter)}`);
       }
       const joined = parts.join('\n\n');
-      const budget = Math.max(3000, config.contextWindow - config.maxOutputTokens - 2000);
+      const budget = Math.max(
+        3000,
+        pool.primaryBudget.contextWindow - pool.primaryBudget.maxOutputTokens - 2000
+      );
       const corpus = takeHead(joined, budget);
       if (corpus.length < joined.length) {
         log.warn(
@@ -88,7 +91,7 @@ export async function extractStyle(project: NovelProject): Promise<void> {
 
       report({ message: '分析文风特征', current: 1, total: 2 });
       const options: ChatOptions = {
-        maxOutputTokens: Math.min(config.maxOutputTokens, 2000),
+        maxOutputTokens: Math.min(pool.primaryBudget.maxOutputTokens, 2000),
         temperature: 0.3,
         timeoutMs: config.requestTimeoutMs,
         signal,

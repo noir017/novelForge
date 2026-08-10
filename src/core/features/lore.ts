@@ -4,9 +4,10 @@ import { runPool, Settled } from '../concurrency';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { getHost } from '../host';
 import { collectStream, ChatOptions } from '../llm/provider';
-import { createModelPool, ModelPool } from '../llm/pool';
+import { budgetForTask, createModelPool, ModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../logger';
 import { parseMarkdown, stripH1 } from '../model/markdown';
+import { describeTaskModels } from '../model/tiers';
 import {
   exists,
   NovelProject,
@@ -65,7 +66,10 @@ export async function generateLore(project: NovelProject): Promise<void> {
 
   const existing = await project.listLore();
   const config = readConfig();
-  const inputBudget = Math.max(2000, config.contextWindow - config.maxOutputTokens - 2500);
+  // 切扫描片段用**逐章识别那一档**的窗口：片段数 = 确认框里那句「调用 N 次」，
+  // 拿错窗口既会让那个数字失真，也会让每个片段超出干活模型的窗口。
+  const scanBudget = budgetForTask('loreScan');
+  const inputBudget = Math.max(2000, scanBudget.contextWindow - scanBudget.maxOutputTokens - 2500);
   const scanUnits = await prepareScanUnits(project, chapters, Math.max(1000, Math.floor(inputBudget * 0.7)));
   if (scanUnits.length === 0) {
     log.error('所有章节都无法读取，设定生成中止');
@@ -85,7 +89,8 @@ export async function generateLore(project: NovelProject): Promise<void> {
         existing.length > 0
           ? `现有 ${existing.length} 条设定只会生成修改建议，逐条确认后才覆盖。`
           : '当前没有设定条目；新识别出的条目会自动创建。',
-        `模型：${config.models.join('、')}${config.models.length > 1 ? '（失败会自动换用其余模型重试）' : ''}`,
+        describeTaskModels(config, 'loreScan'),
+        describeTaskModels(config, 'loreSynthesis'),
         config.concurrency > 1
           ? `逐章识别保持串行；设定整合最多 ${config.concurrency} 路并发。`
           : '全部串行处理（并发数为 1）。',
@@ -98,13 +103,18 @@ export async function generateLore(project: NovelProject): Promise<void> {
   }
 
   // 逐章识别有前后依赖，恒用首选模型；第二阶段的设定彼此独立，可轮转负载均衡。
-  const scanPool = await createModelPool({ concurrent: false });
+  const scanPool = await createModelPool({ task: 'loreScan', concurrent: false });
   if (!scanPool) {
     log.error('没有可用的模型，设定生成中止');
     return;
   }
-  const synthesisPool =
-    config.concurrency > 1 ? await createModelPool({ concurrent: true }) : scanPool;
+  // 两阶段是**两档**（逐章识别只做事实摘录，整合要合并跨章事实且不能推翻
+  // 作者已写的内容），所以哪怕串行也各建一个池——串行时复用扫描池会把
+  // 整合悄悄降级到快速档。只有两档解析到同一份清单时才是同一批模型。
+  const synthesisPool = await createModelPool({
+    task: 'loreSynthesis',
+    concurrent: config.concurrency > 1,
+  });
   if (!synthesisPool) {
     log.error('没有可用的模型，设定生成中止');
     return;
@@ -112,7 +122,8 @@ export async function generateLore(project: NovelProject): Promise<void> {
 
   log.info(
     '开始从正文生成设定',
-    `${chapters.length} 章分 ${scanUnits.length} 个扫描片段｜已有 ${existing.length} 条｜模型 ${scanPool.label}｜` +
+    `${chapters.length} 章分 ${scanUnits.length} 个扫描片段｜已有 ${existing.length} 条｜` +
+      `逐章识别 ${scanPool.label}｜设定整合 ${synthesisPool.label}｜` +
       (config.concurrency > 1 ? `整合并发 ${config.concurrency} 路` : '串行')
   );
 
@@ -255,9 +266,10 @@ async function scanChapters(
 ): Promise<LoreDraft[]> {
   const drafts: LoreDraft[] = [];
   const config = readConfig();
-  const inputBudget = Math.max(2000, config.contextWindow - config.maxOutputTokens - 2500);
+  const budget = pool.primaryBudget;
+  const inputBudget = Math.max(2000, budget.contextWindow - budget.maxOutputTokens - 2500);
   const options: ChatOptions = {
-    maxOutputTokens: config.maxOutputTokens,
+    maxOutputTokens: budget.maxOutputTokens,
     temperature: 0.2,
     timeoutMs: config.requestTimeoutMs,
     signal,
@@ -446,7 +458,8 @@ async function synthesizeDrafts(
 
 async function synthesizeOne(draft: LoreDraft, pool: ModelPool, signal: AbortSignal): Promise<GeneratedLore> {
   const config = readConfig();
-  const inputBudget = Math.max(2000, config.contextWindow - config.maxOutputTokens - 2500);
+  const budget = pool.primaryBudget;
+  const inputBudget = Math.max(2000, budget.contextWindow - budget.maxOutputTokens - 2500);
   const source = [
     draft.existing?.body ? `作者现有内容（视为权威，除非正文明确更新，不得删除或改写其事实）：\n${draft.existing.body}` : '',
     `正文中提取的事实（来自第 ${draft.chapters.join('、')} 章）：\n${draft.facts.map((f) => `- ${f}`).join('\n')}`,
@@ -462,7 +475,7 @@ async function synthesizeOne(draft: LoreDraft, pool: ModelPool, signal: AbortSig
   }
 
   const options: ChatOptions = {
-    maxOutputTokens: config.maxOutputTokens,
+    maxOutputTokens: budget.maxOutputTokens,
     temperature: 0.2,
     timeoutMs: config.requestTimeoutMs,
     signal,

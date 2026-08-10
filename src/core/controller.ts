@@ -1,6 +1,15 @@
 import { dirBaseName, initProjectFlow, newChapterFlow } from './actions';
 import { listAttachmentChoices } from './attachments';
-import { normalizeModelList, promoteModel, updateSettings, readConfig, readGlobalBudget } from './config';
+import {
+  normalizeModelList,
+  normalizeTaskTiers,
+  normalizeTierModels,
+  promoteModel,
+  updateSettings,
+  readConfig,
+  readGlobalBudget,
+} from './config';
+import { describeTierConfig } from './model/tiers';
 import { BuiltContext, ContextItem } from './context/builder';
 import { deleteEntry, moveEntry, newFolder, renameEntry, Section, sectionOf, sectionRoots } from './fileOps';
 import { listDirs } from './fileTree';
@@ -492,6 +501,8 @@ export class ChatController {
           })),
         })),
         models: c.models,
+        tierModels: c.tierModels,
+        taskTiers: c.taskTiers,
         contextWindow: budget.contextWindow,
         maxOutputTokens: budget.maxOutputTokens,
         temperature: c.temperature,
@@ -1035,11 +1046,16 @@ export class ChatController {
     }
 
     const models = normalizeModelList(s.models);
+    // 档位清单与 models 同样容错：去空、去重、保序，认不出的档位名丢弃。
+    const tierModels = normalizeTierModels(s.tierModels);
+    const taskTiers = normalizeTaskTiers(s.taskTiers);
     await updateSettings({
       providers,
       // 列表是唯一真相；updateSettings 会顺手把 model 对齐到首项。
       models,
       model: models[0] ?? '',
+      tierModels,
+      taskTiers,
       contextWindow: s.contextWindow,
       maxOutputTokens: s.maxOutputTokens,
       temperature: s.temperature,
@@ -1057,6 +1073,7 @@ export class ChatController {
     log.info(
       '设置已保存',
       `${providers.length} 个服务商｜默认模型 ${models.join('、') || '（未选）'}｜` +
+        `${describeTierConfig(tierModels, taskTiers)}｜` +
         `窗口 ${s.contextWindow}／输出 ${s.maxOutputTokens}｜温度 ${s.temperature}｜超时 ${s.requestTimeoutMs}ms｜` +
         `并发 ${s.concurrency}｜换模型重试 ${s.fallbackAttempts} 次`
     );

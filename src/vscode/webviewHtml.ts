@@ -141,6 +141,32 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
   </div>
   <div id="defaultModelList"></div>
 
+  <div class="pane-head"><span>模型分档</span></div>
+  <div class="hint">
+    简单大量的活交给便宜模型，困难的活交给聪明模型。<b>每档留空就沿用上面的「默认模型」</b>——
+    三档都不配，行为和不分档时完全一样。每档也是一份有序清单：串行用第一个，失败自动换用<b>同档</b>其余模型，
+    并发时在档内轮转。<b>换人只在档内发生</b>，快速档失败不会偷偷升级到精标档去烧贵 token。
+    对话页续写不受分档影响，始终用你在输入框旁选的那个模型。
+  </div>
+  <div class="tier-grid">
+    <div class="tier-block">
+      <div class="tier-head"><span class="tier-name">快速档</span><span class="tier-hint">便宜、快，用于量大而单次简单的活</span></div>
+      <div id="tierModelList-fast"></div>
+    </div>
+    <div class="tier-block">
+      <div class="tier-head"><span class="tier-name">均衡档</span><span class="tier-hint">折中，用于量不小但质量也要紧的活</span></div>
+      <div id="tierModelList-balanced"></div>
+    </div>
+    <div class="tier-block">
+      <div class="tier-head"><span class="tier-name">精标档</span><span class="tier-hint">最聪明的模型，用于一次定调、错了代价大的活</span></div>
+      <div id="tierModelList-quality"></div>
+    </div>
+  </div>
+
+  <div class="pane-head"><span>任务档位</span></div>
+  <div class="hint">每项工程页任务归在哪一档。标「默认」的是内置推荐值，按调用次数与单次难度定的。</div>
+  <div id="taskTierTable"></div>
+
   <div class="pane-head"><span>并发与容错</span></div>
   <div class="hint">只作用于工程页的批量任务（同步摘要、重建全书摘要、批量更新角色卡、批量建卡、生成设定）；对话页续写始终单请求、严格用你选的模型。</div>
   <div class="grid">

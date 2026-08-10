@@ -137,8 +137,11 @@
   color: var(--vscode-testing-iconPassed, #89d185);
 }
 
-/* 「默认模型」有序列表。顺序即优先级，所以行首要有序号、首项要有标记。 */
-#defaultModelList {
+/* 「默认模型」与三档各自的有序列表。顺序即优先级，所以行首要有序号、首项要有标记。 */
+#defaultModelList,
+#tierModelList-fast,
+#tierModelList-balanced,
+#tierModelList-quality {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -197,4 +200,82 @@
 
 .model-add select {
   width: 100%;
+}
+
+/* ---------------------------------------------------------------- 模型分档 */
+
+/*
+ * 三档并排。侧边栏很窄（VS Code 里常只有 300px），auto-fit 让它在窄处
+ * 自然堆成一列，宽处才排成三列——不给分档单开一套断点。
+ */
+.tier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.tier-block {
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
+}
+
+.tier-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.tier-name {
+  font-weight: 600;
+}
+
+.tier-hint {
+  font-size: 0.8em;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* 任务 → 档位的对照表。 */
+#taskTierTable {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.task-tier-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.08));
+}
+
+.task-tier-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.task-tier-name {
+  font-size: 0.9em;
+}
+
+/* 「这活为什么归在这一档」——一行说明，窄处省略而不是把下拉框挤没。 */
+.task-tier-hint {
+  font-size: 0.78em;
+  color: var(--vscode-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-tier-select {
+  flex: 0 0 auto;
+  max-width: 45%;
 }

@@ -1,6 +1,7 @@
 import { firstModelRef, normalizeProviders, resolveModelRef, seedFromLegacy } from './model/providers';
 import { scoped } from './logger';
 import { NovelConfig } from './model/types';
+import { isLlmTask, isModelTier, LlmTask, MODEL_TIERS, ModelTier, TierModels } from './model/tiers';
 
 const log = scoped('配置');
 
@@ -25,6 +26,18 @@ export interface PersistedSettings {
    */
   models?: string[];
   model?: string;
+  /**
+   * 三档（快速 / 均衡 / 精标）各自的模型清单，与 `models` 同构。
+   *
+   * 某一档为空 = 该档的任务沿用 `models`。三档都空则整个分档不生效，
+   * 行为与分档之前完全一致（见 model/tiers.ts 的两条硬约束）。
+   */
+  tierModels?: Record<string, unknown>;
+  /**
+   * 任务 → 档位的**覆盖**。只存与内置默认（`DEFAULT_TASK_TIERS`）不同的项，
+   * 这样日后调整默认值时，没动过的任务会跟着新默认走。
+   */
+  taskTiers?: Record<string, unknown>;
   /** 工程页批量任务的并发请求数。 */
   concurrency?: number;
   /** 一次调用失败后，换模型重试的次数上限。 */
@@ -99,6 +112,8 @@ export function readConfig(): NovelConfig {
     models,
     model,
     active,
+    tierModels: normalizeTierModels(c.tierModels),
+    taskTiers: normalizeTaskTiers(c.taskTiers),
     // 模型自带的窗口优先——同一个服务商下 32k 和 200k 的模型常常并存。
     contextWindow: active?.model.contextWindow ?? globalWindow,
     maxOutputTokens: active?.model.maxOutputTokens ?? globalOutput,
@@ -133,6 +148,39 @@ export function normalizeModelList(raw: unknown): string[] {
     }
     seen.add(ref);
     out.push(ref);
+  }
+  return out;
+}
+
+/**
+ * 三档模型清单的容错读取。每档都走 `normalizeModelList`（去空、去重、保序），
+ * 缺席或类型不对的档退化为空数组 = 该档沿用默认模型清单。
+ *
+ * 与 `models` 一致，这里**不**剔除解析不出的引用——留着才能让设置页说清
+ * 「这个模型没了」，模型池会在构造时剔除并 warn。
+ */
+export function normalizeTierModels(raw: unknown): TierModels {
+  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const out = {} as TierModels;
+  for (const tier of MODEL_TIERS) {
+    out[tier] = normalizeModelList(source[tier]);
+  }
+  return out;
+}
+
+/**
+ * 任务 → 档位覆盖的容错读取。
+ *
+ * 认不出的任务名（旧版本留下的键、手改配置写错）与非法档位名一律丢弃，
+ * 那一项回落内置默认。配置文件被手改坏不该让工程页任务无法启动。
+ */
+export function normalizeTaskTiers(raw: unknown): Partial<Record<LlmTask, ModelTier>> {
+  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const out: Partial<Record<LlmTask, ModelTier>> = {};
+  for (const [task, tier] of Object.entries(source)) {
+    if (isLlmTask(task) && isModelTier(tier)) {
+      out[task] = tier;
+    }
   }
   return out;
 }

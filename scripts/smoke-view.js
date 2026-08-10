@@ -1109,6 +1109,94 @@ console.log('\n== 资源管理器（独立版「文件」页）==');
   closeAnyMenu(ui);
 }
 
+// ---------------------------------------------------------------- 设置页 · 模型分档
+
+{
+  console.log('\n== 设置页：模型分档 ==');
+  const ui = mount();
+  const settings = (extra) =>
+    Object.assign(
+      {
+        providers: [{ id: 'p', kind: 'openai', models: [{ name: 'cheap' }, { name: 'smart' }] }],
+        models: ['p/smart'],
+        tierModels: { fast: [], balanced: [], quality: [] },
+        taskTiers: {},
+        contextWindow: 128000,
+        maxOutputTokens: 4096,
+        temperature: 0.8,
+        recentChaptersFullText: 2,
+        prevChapterTailChars: 1500,
+        summaryBatchSize: 15,
+        requestTimeoutMs: 300000,
+        concurrency: 3,
+        fallbackAttempts: 2,
+      },
+      extra
+    );
+  const rows = (id) => [...ui.doc.querySelectorAll(`#${id} .model-entry`)];
+  const refsOf = (id) => rows(id).map((n) => n.querySelector('.model-entry-ref').textContent);
+  const taskRows = () => [...ui.doc.querySelectorAll('.task-tier-row')];
+  const save = () => {
+    ui.doc.getElementById('saveSettingsBtn').click();
+    return [...ui.sent].reverse().find((m) => m.type === 'saveSettings');
+  };
+
+  ui.post({ type: 'settings', settings: settings({ tierModels: { fast: ['p/cheap'], balanced: [], quality: ['p/smart'] } }), keys: {} });
+  check('三档各自渲染出自己的清单', refsOf('tierModelList-fast').join(',') === 'p/cheap', refsOf('tierModelList-fast').join(','));
+  check('精标档也渲染得出', refsOf('tierModelList-quality').join(',') === 'p/smart', refsOf('tierModelList-quality').join(','));
+  check('默认模型清单照旧', refsOf('defaultModelList').join(',') === 'p/smart', refsOf('defaultModelList').join(','));
+  // 空档位的说明必须说清「沿用默认模型」——否则用户以为这档的任务跑不了。
+  const emptyHint = ui.doc.querySelector('#tierModelList-balanced .hint');
+  check('空档位说明是「沿用默认模型」', !!emptyHint && emptyHint.textContent.includes('沿用'), emptyHint && emptyHint.textContent);
+
+  check('任务表八行', taskRows().length === 8, `${taskRows().length} 行`);
+  const nameOf = (i) => taskRows()[i].querySelector('.task-tier-name').textContent;
+  const selOf = (i) => taskRows()[i].querySelector('select');
+  check('第一行是单章摘要', nameOf(0) === '单章摘要', nameOf(0));
+  check('单章摘要默认落在快速档', selOf(0).value === 'fast', selOf(0).value);
+  check(
+    '内置默认在下拉里标出来',
+    [...selOf(0).options].some((o) => o.value === 'fast' && o.textContent.includes('默认')),
+    [...selOf(0).options].map((o) => o.textContent).join('|')
+  );
+
+  // 改一行档位 → 只有改过的项进负载。
+  selOf(0).value = 'quality';
+  selOf(0).dispatchEvent(new ui.window.Event('change', { bubbles: true }));
+  let sent = save();
+  check('改过的任务写进 taskTiers', sent.settings.taskTiers.chapterSummary === 'quality', JSON.stringify(sent.settings.taskTiers));
+  check('没改过的任务不写进配置', Object.keys(sent.settings.taskTiers).length === 1, JSON.stringify(sent.settings.taskTiers));
+  check('档位清单原样带上', sent.settings.tierModels.fast.join(',') === 'p/cheap', JSON.stringify(sent.settings.tierModels));
+
+  // 选回默认 = 删掉覆盖，而不是把默认值钉死进配置。
+  selOf(0).value = 'fast';
+  selOf(0).dispatchEvent(new ui.window.Event('change', { bubbles: true }));
+  sent = save();
+  check('选回默认就删掉覆盖', Object.keys(sent.settings.taskTiers).length === 0, JSON.stringify(sent.settings.taskTiers));
+
+  // 档位里指向已删模型的引用：保存时摘掉，但**摘空了就让它空着**
+  //（空档位是「沿用默认模型」，不该像默认模型那样兜底塞一个进去）。
+  ui.post({
+    type: 'settings',
+    ack: 'saved',
+    settings: settings({ tierModels: { fast: ['p/gone'], balanced: [], quality: [] } }),
+    keys: {},
+  });
+  check('已删模型仍留在界面上并标出来', !!ui.doc.querySelector('#tierModelList-fast .model-tag.danger'));
+  sent = save();
+  check('保存时摘掉已删模型', sent.settings.tierModels.fast.length === 0, JSON.stringify(sent.settings.tierModels));
+  check('摘空的档位保持为空（不兜底塞模型）', sent.settings.tierModels.fast.length === 0);
+  check('默认模型不受影响', sent.settings.models.join(',') === 'p/smart', sent.settings.models.join(','));
+
+  // 后端没推 tierModels/taskTiers（旧版本）时前端不能崩。
+  const old = settings();
+  delete old.tierModels;
+  delete old.taskTiers;
+  ui.post({ type: 'settings', ack: 'saved', settings: old, keys: {} });
+  check('旧后端不推分档字段时不崩', taskRows().length === 8, `${taskRows().length} 行`);
+  check('缺字段时三档都渲染成空', refsOf('tierModelList-fast').length === 0);
+}
+
 // ---------------------------------------------------------------- 摘要悬停浮窗
 
 /**

@@ -4,7 +4,8 @@ import { normalizeProviders } from '../core/model/providers';
 import { FileConfigStore, FileSecretStore } from '../core/stores';
 
 const SETTING_KEYS = [
-  'providers', 'models', 'model', 'contextWindow', 'maxOutputTokens', 'temperature',
+  'providers', 'models', 'model', 'tierModels', 'taskTiers',
+  'contextWindow', 'maxOutputTokens', 'temperature',
   'recentChaptersFullText', 'prevChapterTailChars', 'chaptersDir', 'draftsDir',
   'summaryBatchSize', 'requestTimeoutMs', 'concurrency', 'fallbackAttempts',
 ];

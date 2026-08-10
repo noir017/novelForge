@@ -285,7 +285,48 @@
           "items": {
             "type": "string"
           },
-          "markdownDescription": "默认模型列表，按顺序，第一个是首选。格式为 `前缀/模型名`。工程页的摘要 / 角色卡 / 设定 / 文风任务串行时用第一个，失败会随机换用其余（见 `novel.fallbackAttempts`）；并发时在列表里轮转做负载均衡。留空则退化为 `novel.model` 单个模型。",
+          "markdownDescription": "默认模型列表，按顺序，第一个是首选。格式为 `前缀/模型名`。工程页的摘要 / 角色卡 / 设定 / 文风任务串行时用第一个，失败会随机换用其余（见 `novel.fallbackAttempts`）；并发时在列表里轮转做负载均衡。分档后它是**所有未配置档位的兜底清单**（见 `novel.tierModels`）。留空则退化为 `novel.model` 单个模型。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
+        },
+        "novel.tierModels": {
+          "type": "object",
+          "default": {},
+          "properties": {
+            "fast": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "快速档：便宜、快，用于量大而单次简单的活。"
+            },
+            "balanced": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "均衡档：折中，用于量不小但质量也要紧的活。"
+            },
+            "quality": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "精标档：最聪明的模型，用于一次定调、错了代价大的活。"
+            }
+          },
+          "additionalProperties": false,
+          "markdownDescription": "三档（快速 / 均衡 / 精标）各自的模型清单，格式与 `novel.models` 相同。工程页任务按 `novel.taskTiers` 归档取模型：简单大量的活走快速档，困难的活走精标档。**某一档留空则该档的任务沿用 `novel.models`**，三档都空即不分档（行为与分档前一致）。失败换模型只在**同档内**发生，绝不跨档升级。对话页续写不看档位，永远用 `novel.model`。",
+          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
+        },
+        "novel.taskTiers": {
+          "type": "object",
+          "default": {},
+          "properties": {
+            "chapterSummary": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "单章摘要。默认 fast。" },
+            "globalSummaryStage": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "全书摘要 · 分批汇总。默认 fast。" },
+            "globalSummaryMerge": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "全书摘要 · 最终合并。默认 quality。" },
+            "loreScan": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "设定 · 逐章识别。默认 fast。" },
+            "loreSynthesis": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "设定 · 条目整合。默认 balanced。" },
+            "characterCard": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "角色卡 · 更新 / 建卡。默认 balanced。" },
+            "extractCharacters": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "提取角色。默认 quality。" },
+            "extractStyle": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "提取文风。默认 quality。" }
+          },
+          "additionalProperties": false,
+          "markdownDescription": "每项工程页任务归在哪一档（见 `novel.tierModels`）。只需写与内置默认不同的项——没写的任务跟着内置默认走。内置默认按「调用次数 × 单次难度」定：次数多而单次简单的归 fast，一次定调的归 quality。认不出的任务名与非法档位名一律忽略，那一项回落默认。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.model": {
@@ -307,7 +348,7 @@
           "default": 2,
           "minimum": 0,
           "maximum": 5,
-          "markdownDescription": "工程页任务里一次调用失败后，换用 `novel.models` 中其它模型重试的次数上限。0 表示不重试。列表里只有一个模型时不生效。",
+          "markdownDescription": "工程页任务里一次调用失败后，换用**同档**其它模型重试的次数上限（档位见 `novel.tierModels`，未分档时就是 `novel.models`）。0 表示不重试。该档里只有一个模型时不生效，也不会跨档去找别的模型。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.contextWindow": {

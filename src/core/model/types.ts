@@ -1,4 +1,5 @@
 import { ActiveModel, ProviderProfile } from './providers';
+import { LlmTask, ModelTier, TierModels } from './tiers';
 
 /** 章节：chapters/NNN-标题.md 中的一篇正文。 */export interface Chapter {
   /** 序号，来自文件名前缀，决定顺序。 */
@@ -164,6 +165,13 @@ export interface NovelConfig {
   model: string;
   /** 当前模型解析结果；引用无效时为 undefined。 */
   active?: ActiveModel;
+  /**
+   * 三档（快速 / 均衡 / 精标）各自的模型清单。每档都在，可能是空数组——
+   * 空 = 该档的任务沿用 `models`。只作用于工程页的后台任务。
+   */
+  tierModels: TierModels;
+  /** 任务 → 档位的覆盖，缺席的任务用 `DEFAULT_TASK_TIERS`。 */
+  taskTiers: Partial<Record<LlmTask, ModelTier>>;
   /** 全局默认上下文窗口，模型自带 contextWindow 时以模型为准。 */
   contextWindow: number;
   maxOutputTokens: number;

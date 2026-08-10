@@ -8,6 +8,7 @@ import { readConfig } from '../config';
 import { describeError, elapsed, formatDuration, scoped } from '../logger';
 import { runTask } from '../progress';
 import { NovelProject, castFromText, emptySummarySections, parseCastEntry, renderCastEntry } from '../model/project';
+import { describeTaskModels } from '../model/tiers';
 import { Chapter, SUMMARY_SECTION_KEYS, SummaryCast, SummarySections } from '../model/types';
 import { sanitizeAliases } from '../naming';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
@@ -31,7 +32,13 @@ export async function summarizeChapter(
   project: NovelProject,
   chapter: Chapter,
   provider?: LlmProvider,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /**
+   * 这次调用实际用的模型的窗口。批量入口从 `pool.primaryBudget` 传进来——
+   * 分档后干活的模型未必是对话页选的那个，拿它的窗口切正文会超窗。
+   * 单章入口（命令面板）不传，退回全局配置。
+   */
+  budget?: { contextWindow: number; maxOutputTokens: number }
 ): Promise<boolean> {
   const llm = provider ?? (await resolveProvider());
   if (!llm) {
@@ -39,6 +46,7 @@ export async function summarizeChapter(
     return false;
   }
   const config = readConfig();
+  const window = budget ?? { contextWindow: config.contextWindow, maxOutputTokens: config.maxOutputTokens };
   const text = await project.readChapterText(chapter);
   if (!text.trim()) {
     log.warn(`第 ${chapter.order} 章《${chapter.title}》是空的，跳过`);
@@ -47,7 +55,7 @@ export async function summarizeChapter(
   }
 
   // 单章正文通常远小于窗口；极长章节按输入预算截断。
-  const inputBudget = Math.max(2000, config.contextWindow - config.maxOutputTokens - 1500);
+  const inputBudget = Math.max(2000, window.contextWindow - window.maxOutputTokens - 1500);
   const body = takeHead(text, inputBudget);
   if (body.length < text.length) {
     log.warn(
@@ -58,7 +66,7 @@ export async function summarizeChapter(
 
   const usage: TokenUsage = {};
   const options: ChatOptions = {
-    maxOutputTokens: Math.min(config.maxOutputTokens, 1500),
+    maxOutputTokens: Math.min(window.maxOutputTokens, 1500),
     temperature: 0.3, // 摘要要稳定、可复现，压低温度
     timeoutMs: config.requestTimeoutMs,
     signal,
@@ -163,7 +171,7 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
     {
       modal: true,
       detail:
-        `模型：${config.models.join('、')}${config.models.length > 1 ? '（失败会自动换用其余模型重试）' : ''}\n` +
+        `${describeTaskModels(config, 'chapterSummary')}\n` +
         (lanes > 1 ? `并发 ${lanes} 路，各章之间没有先后依赖。` : '串行逐章处理（并发数为 1）。'),
     }
   );
@@ -172,7 +180,7 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
     return;
   }
 
-  const pool = await createModelPool({ concurrent: lanes > 1 });
+  const pool = await createModelPool({ task: 'chapterSummary', concurrent: lanes > 1 });
   if (!pool) {
     log.error('没有可用的模型，同步中止');
     return;
@@ -201,7 +209,9 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
         stale,
         lanes,
         (chapter) =>
-          pool.run(`第 ${chapter.order} 章`, (llm) => summarizeChapter(project, chapter, llm, signal)),
+          pool.run(`第 ${chapter.order} 章`, (llm) =>
+            summarizeChapter(project, chapter, llm, signal, pool.primaryBudget)
+          ),
         {
           signal,
           onStart: (chapter) => {
@@ -330,14 +340,23 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
 
   const batches = chunk(units, Math.max(3, config.summaryBatchSize));
   const lanes = Math.min(config.concurrency, batches.length);
-  const pool = await createModelPool({ concurrent: lanes > 1 });
-  if (!pool) {
+  // 两个池，两档：分批汇总是几十次「把 15 章摘要压成一段」的体力活，
+  // 最终合并全书只做一次却要跨几十万字取舍主线。这正是分档最大的收益点。
+  const stagePool = await createModelPool({ task: 'globalSummaryStage', concurrent: lanes > 1 });
+  if (!stagePool) {
+    log.error('没有可用的模型，重建中止');
+    return;
+  }
+  // 只有一批时根本不合并，不必为此构造第二个池（也不必弹它的 Key 输入框）。
+  const mergePool =
+    batches.length > 1 ? await createModelPool({ task: 'globalSummaryMerge', concurrent: false }) : stagePool;
+  if (!mergePool) {
     log.error('没有可用的模型，重建中止');
     return;
   }
   log.info(
     `准备重建：${units.length} 章摘要分 ${batches.length} 批`,
-    `模型 ${pool.label}｜每批 ${Math.max(3, config.summaryBatchSize)} 章｜` +
+    `分批汇总 ${stagePool.label}｜最终合并 ${mergePool.label}｜每批 ${Math.max(3, config.summaryBatchSize)} 章｜` +
       (lanes > 1 ? `汇总阶段并发 ${lanes} 路` : '汇总阶段串行')
   );
 
@@ -346,7 +365,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
     async ({ signal, report }) => {
       const startedAt = Date.now();
       const options: ChatOptions = {
-        maxOutputTokens: Math.min(config.maxOutputTokens, 2000),
+        maxOutputTokens: Math.min(stagePool.primaryBudget.maxOutputTokens, 2000),
         temperature: 0.3,
         timeoutMs: config.requestTimeoutMs,
         signal,
@@ -370,7 +389,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
           const joined = batch.map((u) => `【第${u.order}章 ${u.title}】\n${u.content}`).join('\n\n');
           const each = Date.now();
           log.debug(`汇总 ${range}`, `${batch.length} 章摘要，约 ${estimateTokens(joined)} token`);
-          const text = await pool.run(range, (llm) =>
+          const text = await stagePool.run(range, (llm) =>
             collectStream(
               llm.chatStream(
                 [
@@ -426,7 +445,9 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
       } else {
         report({ message: '合并为全书摘要', current: batches.length, total: steps });
         const combined = stageSummaries.join('\n\n');
-        const inputBudget = Math.max(4000, config.contextWindow - config.maxOutputTokens - 2000);
+        // 合并这一步用**精标档**的窗口：它和分批汇总很可能不是同一个模型。
+        const mergeBudget = mergePool.primaryBudget;
+        const inputBudget = Math.max(4000, mergeBudget.contextWindow - mergeBudget.maxOutputTokens - 2000);
         const clipped = takeHead(combined, inputBudget);
         if (clipped.length < combined.length) {
           log.warn(
@@ -437,7 +458,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
         }
         const mergeStart = Date.now();
         log.debug(`合并 ${stageSummaries.length} 份阶段摘要`, `约 ${estimateTokens(clipped)} token`);
-        finalText = await pool.run('合并全书摘要', (llm) =>
+        finalText = await mergePool.run('合并全书摘要', (llm) =>
           collectStream(
             llm.chatStream(
               [
@@ -447,7 +468,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
                   content: `以下是各阶段摘要，请合并成一份全书滚动摘要。\n\n${clipped}`,
                 },
               ],
-              options
+              { ...options, maxOutputTokens: Math.min(mergeBudget.maxOutputTokens, 2000) }
             )
           )
         );

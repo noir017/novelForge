@@ -353,6 +353,87 @@ console.log('\n== 默认模型列表 ==');
   check('非数字退回默认值', odd.fallbackAttempts === 2, String(odd.fallbackAttempts));
 }
 
+// ---------------------------------------------------------------- 模型分档
+
+console.log('\n== 模型分档的配置容错 ==');
+{
+  const providers = [
+    { id: 'glm', models: [{ name: 'glm-4-plus' }, { name: 'glm-4-air' }] },
+    { id: 'ds', models: [{ name: 'deepseek-chat' }] },
+  ];
+  const tiersMod = loadModule('src/core/model/tiers.ts');
+
+  // 缺席 / 类型不对：三档都退化为空数组 = 全部沿用 models，与分档前一致。
+  settings = { providers, models: ['glm/glm-4-plus'] };
+  const none = configMod.readConfig();
+  check(
+    '没配 tierModels 时三档都是空数组',
+    ['fast', 'balanced', 'quality'].every((t) => Array.isArray(none.tierModels[t]) && none.tierModels[t].length === 0),
+    JSON.stringify(none.tierModels)
+  );
+  check('没配 taskTiers 时是空对象', Object.keys(none.taskTiers).length === 0, JSON.stringify(none.taskTiers));
+  check(
+    '空档位的任务沿用 models',
+    tiersMod.refsForTask(none, 'chapterSummary').refs.join(',') === 'glm/glm-4-plus'
+  );
+  check('沿用时标出 inherited', tiersMod.refsForTask(none, 'chapterSummary').inherited === true);
+
+  settings = { providers, models: ['glm/glm-4-plus'], tierModels: 'nonsense', taskTiers: 42 };
+  const junk = configMod.readConfig();
+  check(
+    'tierModels 不是对象时不崩',
+    junk.tierModels.fast.length === 0 && junk.tierModels.quality.length === 0,
+    JSON.stringify(junk.tierModels)
+  );
+  check('taskTiers 不是对象时不崩', Object.keys(junk.taskTiers).length === 0);
+
+  // 每档各自走 normalizeModelList：去空、去重、保序。
+  settings = {
+    providers,
+    models: ['glm/glm-4-plus'],
+    tierModels: { fast: ['  glm/glm-4-air ', '', 'glm/glm-4-air', 42], quality: 'ds/deepseek-chat' },
+  };
+  const normed = configMod.readConfig();
+  check('档内去空白、去重、保序', normed.tierModels.fast.join(',') === 'glm/glm-4-air', JSON.stringify(normed.tierModels.fast));
+  check('档位给成裸字符串时收成单元素', normed.tierModels.quality.join(',') === 'ds/deepseek-chat', JSON.stringify(normed.tierModels.quality));
+  check('没提到的档仍是空数组', normed.tierModels.balanced.length === 0);
+
+  // 与 models 一致：解析不出的引用留在档里，剔除是模型池的事（那里会 warn）。
+  settings = { providers, models: ['glm/glm-4-plus'], tierModels: { fast: ['nope/x', 'glm/glm-4-air'] } };
+  const stale = configMod.readConfig();
+  check(
+    '档里解析不出的引用不在 readConfig 里被丢掉',
+    stale.tierModels.fast.length === 2,
+    stale.tierModels.fast.join(',')
+  );
+
+  // taskTiers：认不出的任务名与非法档位名一律丢弃，那一项回落内置默认。
+  settings = {
+    providers,
+    models: ['glm/glm-4-plus'],
+    taskTiers: { chapterSummary: 'quality', extractStyle: '超级档', nosuchTask: 'fast', loreScan: 7 },
+  };
+  const tiers = configMod.readConfig();
+  check('合法的覆盖被保留', tiers.taskTiers.chapterSummary === 'quality', JSON.stringify(tiers.taskTiers));
+  check('非法档位名被丢弃', tiers.taskTiers.extractStyle === undefined, JSON.stringify(tiers.taskTiers));
+  check('认不出的任务名被丢弃', tiers.taskTiers.nosuchTask === undefined, JSON.stringify(tiers.taskTiers));
+  check('非字符串档位被丢弃', tiers.taskTiers.loreScan === undefined, JSON.stringify(tiers.taskTiers));
+  check('覆盖优先于内置默认', tiersMod.tierOf(tiers, 'chapterSummary') === 'quality');
+  check('丢弃后回落内置默认', tiersMod.tierOf(tiers, 'extractStyle') === tiersMod.DEFAULT_TASK_TIERS.extractStyle);
+
+  // 内置默认必须给每个任务都指定一档，否则 refsForTask 会取到 undefined。
+  check(
+    '每个任务都有内置默认档位',
+    tiersMod.LLM_TASKS.every((t) => tiersMod.MODEL_TIERS.includes(tiersMod.DEFAULT_TASK_TIERS[t])),
+    JSON.stringify(tiersMod.DEFAULT_TASK_TIERS)
+  );
+  check(
+    '每个任务与档位都有中文名（设置页要显示）',
+    tiersMod.LLM_TASKS.every((t) => !!tiersMod.TASK_LABEL[t]) &&
+      tiersMod.MODEL_TIERS.every((t) => !!tiersMod.TIER_LABEL[t])
+  );
+}
+
 // ---------------------------------------------------------------- 设置页脏状态
 
 console.log('\n== 设置页未保存编辑不被刷新冲掉 ==');

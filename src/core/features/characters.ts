@@ -42,7 +42,7 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
   }
 
   // 一批章节一次调用，谈不上并发；走池是为了拿到「首选失败就换模型」。
-  const pool = await createModelPool({ concurrent: false });
+  const pool = await createModelPool({ task: 'extractCharacters', concurrent: false });
   if (!pool) {
     log.error('没有可用的模型，提取中止');
     return;
@@ -61,7 +61,8 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
       // 三步：读正文 → 调模型 → 合并。给 total 才画得出进度条。
       report({ message: '读取章节正文', current: 0, total: 3 });
       const selected = [...picked].sort((a, b) => a.order - b.order);
-      const budget = config.contextWindow - config.maxOutputTokens - 2000;
+      // 预算跟着实际干活的模型走，不是对话页选的那个。
+      const budget = pool.primaryBudget.contextWindow - pool.primaryBudget.maxOutputTokens - 2000;
       const corpus = await buildCorpus(project, selected, budget);
       log.debug('正文已读取', `${corpus.length} 字（约 ${estimateTokens(corpus)} token）`);
 
@@ -72,7 +73,7 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
 
       report({ message: '调用模型分析人物', current: 1, total: 3 });
       const options: ChatOptions = {
-        maxOutputTokens: config.maxOutputTokens,
+        maxOutputTokens: pool.primaryBudget.maxOutputTokens,
         temperature: 0.3,
         timeoutMs: config.requestTimeoutMs,
         signal,

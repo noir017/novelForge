@@ -2,6 +2,7 @@
  * 设置页的装配：收后端推来的设置、渲染、保存。
  */
 import { byId, maybeById } from '../../dom';
+import { MODEL_TIERS } from '../../protocol';
 import type { SettingsPayload } from '../../protocol';
 import { vscode } from '../store';
 import { toast } from '../toast';
@@ -10,6 +11,7 @@ import { BUDGET_FIELDS } from './presets';
 import type { BudgetField } from './presets';
 import { bindOpenModal, renderProviders } from './providerList';
 import { installProviderModal, openProviderModal, refreshProviderModal } from './providerModal';
+import { renderTaskTiers } from './taskTiers';
 
 /** 上下文窗口的下限，与 package.json 里的 minimum 一致。 */
 const MIN_CONTEXT_WINDOW = 4000;
@@ -40,6 +42,12 @@ export function renderSettings(
 
   draft.providers = JSON.parse(JSON.stringify(settings.providers || []));
   draft.models = [...(settings.models || [])];
+  draft.tierModels = {
+    fast: [...(settings.tierModels?.fast || [])],
+    balanced: [...(settings.tierModels?.balanced || [])],
+    quality: [...(settings.tierModels?.quality || [])],
+  };
+  draft.taskTiers = { ...(settings.taskTiers || {}) };
   draft.keys = nextKeys;
   for (const [key, id] of Object.entries(BUDGET_FIELDS)) {
     const node = maybeById<HTMLInputElement>(id);
@@ -48,11 +56,17 @@ export function renderSettings(
     }
   }
   renderProviders();
+  renderTaskTiers();
   refreshProviderModal();
 }
 
 function save(): void {
-  const settings = { providers: draft.providers, models: draft.models } as SettingsPayload;
+  const settings = {
+    providers: draft.providers,
+    models: draft.models,
+    tierModels: draft.tierModels,
+    taskTiers: draft.taskTiers,
+  } as SettingsPayload;
   for (const [key, id] of Object.entries(BUDGET_FIELDS)) {
     settings[key as BudgetField] = Number(byId<HTMLInputElement>(id).value);
   }
@@ -81,6 +95,20 @@ function save(): void {
   if (settings.models.length !== draft.models.length) {
     toast('默认模型列表里有已删除的模型，已自动摘掉。');
   }
+
+  // 档位清单同样摘掉指向已删模型的项，但**摘空了就让它空着**——
+  // 空档位是有意义的（沿用默认模型），不该像默认模型那样兜底塞一个进去。
+  let droppedFromTiers = 0;
+  settings.tierModels = { fast: [], balanced: [], quality: [] };
+  for (const tier of MODEL_TIERS) {
+    const kept = draft.tierModels[tier].filter((m) => refs.includes(m));
+    droppedFromTiers += draft.tierModels[tier].length - kept.length;
+    settings.tierModels[tier] = kept;
+  }
+  if (droppedFromTiers > 0) {
+    toast(`档位里有 ${droppedFromTiers} 个已删除的模型，已自动摘掉。`);
+  }
+
   vscode.postMessage({ type: 'saveSettings', settings });
 }
 
