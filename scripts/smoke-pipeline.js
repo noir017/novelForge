@@ -352,5 +352,260 @@ console.log('\n== pipeline.ts · 章节流水线状态推导 ==');
     p({ summaryExists: true, summaryStale: true }).summary === 0);
 }
 
-console.log(`\n${failures === 0 ? '✓ smoke-pipeline 通过' : `${failures} 项失败`}\n`);
-process.exit(failures === 0 ? 0 : 1);
+console.log(`\n${failures === 0 ? '✓ smoke-pipeline 纯函数部分通过' : `${failures} 项失败`}`);
+
+// ================================================================ 数据层（要落盘）
+
+const fs = require('fs');
+const os = require('os');
+const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'novelforge-pipeline-'));
+
+/** 与 smoke-chapters.js 同一套：几个模块打进同一个 bundle，共享 host 的模块级状态。 */
+function loadBundle(entries) {
+  const source = Object.entries(entries)
+    .map(([name, relPath]) => `export * as ${name} from '${relPath.replace(/\\/g, '/')}';`)
+    .join('\n');
+  const result = esbuild.buildSync({
+    stdin: { contents: source, resolveDir: ROOT, sourcefile: 'bundle.ts', loader: 'ts' },
+    bundle: true,
+    format: 'cjs',
+    platform: 'node',
+    write: false,
+    external: ['vscode'],
+  });
+  const m = new Module('bundle.ts', null);
+  m._compile(result.outputFiles[0].text, path.join(ROOT, 'bundle.ts'));
+  return m.exports;
+}
+
+const bundle = loadBundle({
+  host: './src/core/host.ts',
+  project: './src/core/model/project.ts',
+  planFile: './src/core/model/planFile.ts',
+  sceneFile: './src/core/model/sceneFile.ts',
+  fileOps: './src/core/fileOps.ts',
+  pipe: './src/core/pipeline.ts',
+});
+
+const answers = [];
+bundle.host.initHost({
+  name: 'standalone',
+  supportsVscodeLm: false,
+  config: { read: () => ({}), write: async () => {} },
+  input: async () => answers.shift(),
+  confirm: async () => answers.shift(),
+  pick: async () => answers.shift(),
+  progress: async (_t, fn) => fn(new AbortController().signal, () => {}),
+  watch: () => ({ dispose: () => {} }),
+  openFile: async () => {},
+  toast: () => {},
+  selectionAttachment: async () => undefined,
+});
+
+const rel = (...p) => path.join(WORK, ...p);
+const write = (relPath, text) => {
+  fs.mkdirSync(path.dirname(rel(relPath)), { recursive: true });
+  fs.writeFileSync(rel(relPath), text, 'utf8');
+};
+const has = (relPath) => fs.existsSync(rel(relPath));
+
+async function main() {
+  const project = bundle.project.NovelProject.open(WORK);
+  await project.initialize({ title: '青云剑录', author: '测试' });
+
+  console.log('\n== 数据层 · 目录与镜像路径 ==');
+  {
+    check('初始化建出 plans/', has('.novelforge/plans'));
+    check('初始化建出 scenes/', has('.novelforge/scenes'));
+
+    // 分卷收纳：目录层级只是收纳，镜像规则要原样跟着走。
+    const ch = 'chapters/卷一/012-夜入青云.md';
+    check('细纲路径镜像章节',
+      project.relPath(project.planPathForChapter(ch)) === '.novelforge/plans/卷一/012-夜入青云.md',
+      project.relPath(project.planPathForChapter(ch)));
+    check('场景目录镜像章节（去掉扩展名再开一层）',
+      project.relPath(project.sceneDirForChapter(ch)) === '.novelforge/scenes/卷一/012-夜入青云',
+      project.relPath(project.sceneDirForChapter(ch)));
+
+    // 章节不认扩展名，细纲/场景照样要对得上。
+    check('.txt 章节的细纲也是 .md',
+      project.relPath(project.planPathForChapter('chapters/005-手记.txt')) === '.novelforge/plans/005-手记.md');
+    check('无扩展名章节的细纲',
+      project.relPath(project.planPathForChapter('chapters/006-无扩展名')) === '.novelforge/plans/006-无扩展名.md');
+
+    // 同序号不同文件名的两章各有独立细纲——这正是不能用 order 当键的理由。
+    check('同序号不同文件的细纲互不覆盖',
+      project.planPathForChapter('chapters/001 序.txt') !== project.planPathForChapter('chapters/001 正文.txt'));
+
+    // 不在 chapters/ 之下时不落到「按序号命名」的位置，而是明确说没有。
+    check('章节不在 chapters/ 下时没有细纲路径',
+      project.planPathForChapter('别处/012-夜入青云.md') === undefined);
+    check('章节不在 chapters/ 下时没有场景目录',
+      project.sceneDirForChapter('别处/012.md') === undefined);
+
+    check('目录的细纲镜像原样映射',
+      project.planMirrorRelPath('chapters/卷一', true) === '.novelforge/plans/卷一');
+    check('目录的场景镜像原样映射',
+      project.sceneMirrorRelPath('chapters/卷一', true) === '.novelforge/scenes/卷一');
+  }
+
+  console.log('\n== 数据层 · 细纲与场景读写 ==');
+  {
+    write('chapters/卷一/012-夜入青云.md', '# 夜入青云\n\n');
+    project.invalidate();
+    const ch = 'chapters/卷一/012-夜入青云.md';
+
+    check('没写过时读不出细纲', (await project.readPlan(ch)) === undefined);
+    check('没写过时场景列表为空', (await project.listScenes(ch)).length === 0);
+
+    const planRel = await project.writePlan(ch, {
+      chapterRelPath: ch, order: 12, title: '夜入青云', arc: '第一幕', targetWords: 3000,
+      upstreamHash: 'OUTLINE_A', done: false,
+      sections: { ...bundle.planFile.emptyPlanSections(), 本章目标: '林昭成功进入青云宗。' },
+    });
+    check('细纲落在镜像路径', planRel === '.novelforge/plans/卷一/012-夜入青云.md', planRel);
+    check('细纲读得回来', (await project.readPlan(ch)).sections.本章目标 === '林昭成功进入青云宗。');
+
+    for (const [no, title] of [[1, '山门观察'], [2, '翻越侧峰'], [3, '初见沈月']]) {
+      await project.writeScene(ch, {
+        chapterRelPath: ch, no, title, place: '青云宗', time: '子时', characters: ['林昭'],
+        upstreamHash: 'PLAN_A', status: 'ready',
+        sections: { ...bundle.sceneFile.emptySceneSections(), 必须发生: '- 甲\n- 乙' },
+      });
+    }
+    check('场景落在镜像目录', has('.novelforge/scenes/卷一/012-夜入青云/02-翻越侧峰.md'));
+    const scenes = await project.listScenes(ch);
+    check('列出三场', scenes.length === 3, String(scenes.length));
+    check('场景按号排序', scenes.map((s) => s.no).join(',') === '1,2,3');
+    check('按号取单场', (await project.readScene(ch, 2)).title === '翻越侧峰');
+
+    // 改标题会改文件名——旧文件必须删掉，否则一场变两场。
+    await project.writeScene(ch, {
+      chapterRelPath: ch, no: 2, title: '翻墙', place: '', time: '', characters: [],
+      upstreamHash: 'PLAN_A', status: 'ready',
+      sections: { ...bundle.sceneFile.emptySceneSections(), 必须发生: '- 甲' },
+    });
+    check('改标题后旧文件被删', !has('.novelforge/scenes/卷一/012-夜入青云/02-翻越侧峰.md'));
+    check('改标题后新文件在', has('.novelforge/scenes/卷一/012-夜入青云/02-翻墙.md'));
+    check('改标题后仍是三场', (await project.listScenes(ch)).length === 3);
+
+    // 删除是搬进 .trash/，不真删（第 6 条）。
+    check('删掉第 3 场', (await project.deleteScene(ch, 3)) === true);
+    check('删后只剩两场', (await project.listScenes(ch)).length === 2);
+    check('被删的场景进了回收站',
+      has('.novelforge/.trash/.novelforge/scenes/卷一/012-夜入青云/03-初见沈月.md'));
+    check('删不存在的场景返回 false', (await project.deleteScene(ch, 9)) === false);
+  }
+
+  console.log('\n== 数据层 · 章节改名时细纲与场景跟随 ==');
+  {
+    const from = 'chapters/卷一/012-夜入青云.md';
+    answers.length = 0;
+    // renameEntry 问的是**去掉序号前缀**的词干，序号由它自己接回去。
+    answers.push('夜入');
+    const next = await bundle.fileOps.renameEntry(project, from);
+    check('改名成功', next === 'chapters/卷一/012-夜入.md', String(next));
+    check('细纲跟着改名', has('.novelforge/plans/卷一/012-夜入.md'));
+    check('旧细纲不再存在', !has('.novelforge/plans/卷一/012-夜入青云.md'));
+    check('场景目录跟着改名', has('.novelforge/scenes/卷一/012-夜入/01-山门观察.md'));
+    check('旧场景目录不再存在', !has('.novelforge/scenes/卷一/012-夜入青云'));
+    // 不跟随的话这里会读出 undefined，而界面只会说「这一章还没规划过」。
+    check('改名后细纲仍读得到', (await project.readPlan('chapters/卷一/012-夜入.md')) !== undefined);
+    check('改名后场景仍读得到', (await project.listScenes('chapters/卷一/012-夜入.md')).length === 2);
+  }
+
+  console.log('\n== 新鲜度链 ==');
+  {
+    const ch = 'chapters/卷一/012-夜入.md';
+    write('.novelforge/outline.md', '# 大纲\n\n第一幕：入局');
+    const outlineHash = bundle.project.hash(await project.readOutline());
+
+    // 细纲记下当时的大纲指纹。
+    await project.writePlan(ch, {
+      chapterRelPath: ch, order: 12, title: '夜入', arc: '', upstreamHash: outlineHash, done: false,
+      sections: { ...bundle.planFile.emptyPlanSections(), 本章目标: '进入青云宗', 冲突与节奏: '四拍推进' },
+    });
+    let p = await bundle.pipe.buildChapterPipeline(project, await project.getChapter(12));
+    check('刚生成的细纲不脏', p.plan.upstreamStale === false);
+
+    // 改大纲 → 细纲标脏。零模型调用。
+    write('.novelforge/outline.md', '# 大纲\n\n第一幕：入局（改了）');
+    p = await bundle.pipe.buildChapterPipeline(project, await project.getChapter(12));
+    check('改大纲后细纲标脏', p.plan.upstreamStale === true);
+
+    // 场景记下当时的细纲指纹。
+    const planHash = bundle.pipe.planContentHash(await project.readPlan(ch));
+    for (const no of [1, 2]) {
+      await project.writeScene(ch, {
+        chapterRelPath: ch, no, title: `场景${no}`, place: '', time: '', characters: [],
+        upstreamHash: planHash, status: 'ready',
+        sections: { ...bundle.sceneFile.emptySceneSections(), 必须发生: '- 甲' },
+      });
+    }
+    p = await bundle.pipe.buildChapterPipeline(project, await project.getChapter(12));
+    check('刚生成的场景不脏', p.scenes.every((s) => !s.upstreamStale));
+
+    // 改细纲 → 该章全部场景标脏。
+    const plan = await project.readPlan(ch);
+    plan.sections.冲突与节奏 = '改成三拍';
+    await project.writePlan(ch, { ...plan, chapterRelPath: ch });
+    p = await bundle.pipe.buildChapterPipeline(project, await project.getChapter(12));
+    check('改细纲后场景全部标脏', p.scenes.length === 2 && p.scenes.every((s) => s.upstreamStale));
+
+    // 只改 status 不该让下游标脏——采纳正文时会把场景标 written。
+    const beats = await project.beatsHashFor(ch);
+    await project.writeScene(ch, {
+      ...(await project.readScene(ch, 1)), chapterRelPath: ch, status: 'written',
+    });
+    check('只改场景状态不改变 beats 指纹', (await project.beatsHashFor(ch)) === beats);
+
+    // 写正文 → 记下场景指纹 → 改场景 → 正文标脏。
+    write('chapters/卷一/012-夜入.md', '# 夜入\n\n正文若干字。');
+    project.invalidate();
+    await project.markBeatsWritten(ch, await project.beatsHashFor(ch));
+    p = await bundle.pipe.buildChapterPipeline(project, await project.getChapter(12));
+    check('刚写完的正文不脏', p.manuscript.beatsStale === false);
+
+    const s2 = await project.readScene(ch, 2);
+    s2.sections.必须发生 = '- 甲\n- 乙\n- 丙';
+    await project.writeScene(ch, { ...s2, chapterRelPath: ch });
+    p = await bundle.pipe.buildChapterPipeline(project, await project.getChapter(12));
+    check('改场景后正文标脏', p.manuscript.beatsStale === true);
+    // 上游一变，状态就退回「待写正文」——这就是变更影响在状态机上的落法。
+    check('正文标脏后阶段退回待写正文', p.stage === 'manuscript', p.stage);
+  }
+
+  console.log('\n== 新鲜度链 · 手写产物不标脏 ==');
+  {
+    // 作者手写的细纲没有 upstreamHash。拿一个凭空的过期标记去催他重做，
+    // 比不标更糟——他会学会无视所有标记。
+    write('chapters/020-手写.md', '# 手写\n\n正文');
+    write('.novelforge/plans/020-手写.md', '## 本章目标\n\n我自己写的\n\n## 冲突与节奏\n\nx');
+    project.invalidate();
+    const p = await bundle.pipe.buildChapterPipeline(project, await project.getChapter(20));
+    check('手写细纲（无 upstreamHash）不标脏', p.plan.upstreamStale === false);
+    check('从没记过 beatsHash 的正文不标脏', p.manuscript.beatsStale === false);
+  }
+
+  console.log('\n== 流水线索引 ==');
+  {
+    const index = await bundle.pipe.buildPipelineIndex(project);
+    check('索引按 relPath 索引', index.has('chapters/卷一/012-夜入.md'));
+    check('索引覆盖全部章节', index.size === (await project.listChapters()).length);
+    const handwritten = index.get('chapters/020-手写.md');
+    check('没拆场景的章节停在待拆场景', handwritten.stage === 'scene', handwritten.stage);
+    check('没拆场景时场景完成度为 0', handwritten.progress.scene === 0);
+  }
+}
+
+main()
+  .then(() => {
+    fs.rmSync(WORK, { recursive: true, force: true });
+    console.log(`\n${failures === 0 ? '✓ smoke-pipeline 通过' : `${failures} 项失败`}\n`);
+    process.exit(failures === 0 ? 0 : 1);
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+

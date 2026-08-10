@@ -1,6 +1,15 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { carryDraft, carrySummary, isProtectedPath, normalizeRel, renameEntryInRoot, sectionOf } from './fileOps';
+import {
+  carryDraft,
+  carryPlan,
+  carryScenes,
+  carrySummary,
+  isProtectedPath,
+  normalizeRel,
+  renameEntryInRoot,
+  sectionOf,
+} from './fileOps';
 import { getHost } from './host';
 import { describeError, scoped } from './logger';
 import { NovelProject, exists } from './model/project';
@@ -162,19 +171,26 @@ async function pasteOne(
   }
 
   if (!copy && sectionOf(project, rel)?.section === 'chapters') {
-    // 章节移动：草稿与摘要跟随。移出 chapters/ 时新镜像路径推导不出，留在原处。
+    // 章节移动：草稿、摘要、细纲、场景一并跟随。
+    // 移出 chapters/ 时新镜像路径推导不出，四样都留在原处，逐样说出来——
+    // 不说的话作者会以为它们跟着走了，而界面上正好也看不出区别。
     const toDraft = project.draftRelPathFor(nextRel);
     if (toDraft) {
       await carryDraft(project, rel, nextRel, isDir);
       await carrySummary(project, rel, nextRel, isDir);
+      await carryPlan(project, rel, nextRel, isDir);
+      await carryScenes(project, rel, nextRel, isDir);
     } else {
-      const fromDraft = project.draftRelPathFor(rel);
-      if (fromDraft && (await exists(project.pathOf(fromDraft)))) {
-        log.warn(`章节被移出 chapters/，草稿留在原处`, `草稿仍在 ${fromDraft}`);
-      }
-      const fromSummary = project.summaryMirrorRelPath(rel, isDir);
-      if (fromSummary && (await exists(project.pathOf(fromSummary)))) {
-        log.warn(`章节被移出 chapters/，摘要留在原处`, `摘要仍在 ${fromSummary}`);
+      const strays: [string, string | undefined][] = [
+        ['草稿', project.draftRelPathFor(rel)],
+        ['摘要', project.summaryMirrorRelPath(rel, isDir)],
+        ['细纲', project.planMirrorRelPath(rel, isDir)],
+        ['场景', project.sceneMirrorRelPath(rel, isDir)],
+      ];
+      for (const [what, from] of strays) {
+        if (from && (await exists(project.pathOf(from)))) {
+          log.warn(`章节被移出 chapters/，${what}留在原处`, `${what}仍在 ${from}`);
+        }
       }
     }
   }
