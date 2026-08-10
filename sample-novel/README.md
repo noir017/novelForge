@@ -18,7 +18,7 @@ chapters/                    正文，NNN-标题.md，序号即顺序
 ├── outline.md               全书大纲（人工维护）
 ├── characters/              角色卡（frontmatter + 固定小节）
 ├── lore/                    世界观设定（含 keywords，命中即注入）
-└── summaries/               单章摘要 NNN.md + 全书滚动摘要 global.md
+└── summaries/               单章摘要（按章节文件名镜像，如 001-楔子.md）+ 全书滚动摘要 global.md
 ```
 
 格式细节（角色卡固定小节、摘要的六个小节、frontmatter 字段）见根目录 [README.md](../README.md) 与 [../src/core/model/README.md](../src/core/model/README.md)。

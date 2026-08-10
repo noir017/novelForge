@@ -113,8 +113,60 @@ export class NovelProject {
     return path.join(this.summariesDir, 'global.md');
   }
 
+  /**
+   * 旧的摘要文件名：只用序号（`001.md`）。
+   *
+   * **已废弃，仅用于读取回退与一次性迁移**——同序号但不同文件名/路径的章节
+   * （如 `001 序.txt` 与 `001 正文.txt`）会共用同一个 `001.md`，后写的覆盖先写的。
+   * 新摘要改走 `summaryPathForChapter`，按完整文件名与路径映射。这里保留是为了
+   * 让升级前已生成的旧摘要仍能被读到（`readSummary` 会先找新路径、再回退到这里）。
+   */
   summaryPath(order: number): string {
     return path.join(this.summariesDir, `${pad3(order)}.md`);
+  }
+
+  /**
+   * 章节（文件）→ 它的摘要文件路径。
+   *
+   * 镜像章节在**章节根之下**的相对路径到 summaries/ 下，扩展名换成 `.md`：
+   *   chapters/001 序.txt        → .novelforge/summaries/001 序.md
+   *   chapters/卷一/003 夜访.md  → .novelforge/summaries/卷一/003 夜访.md
+   *   chapters/005-手记           → .novelforge/summaries/005-手记.md
+   *
+   * 这样同序号但不同文件名/路径的章节各有独立摘要，不再互相覆盖。与草稿的
+   * 镜像策略（`draftRelPathFor`）一致——目录层级只是收纳，文件名（含扩展名）
+   * 才是身份。
+   *
+   * 章节不在章节根之下（配置被改坏等极端情况）时回落到旧的序号命名，绝不抛错。
+   */
+  summaryPathForChapter(chapterRelPath: string): string {
+    const under = path.relative(this.chaptersDir, this.pathOf(chapterRelPath));
+    if (!under || under.startsWith('..') || path.isAbsolute(under)) {
+      // 拿不到 order，用 basename 解析；实在解析不出就给 0，至少不崩。
+      const order = parseChapterFileName(path.basename(chapterRelPath))?.order ?? 0;
+      return this.summaryPath(order);
+    }
+    const parsed = path.parse(under);
+    return path.join(this.summariesDir, path.join(parsed.dir, `${parsed.name}.md`));
+  }
+
+  /**
+   * 章节（文件或目录）→ 摘要在 summaries/ 下的**工作区相对路径**（正斜杠）。
+   *
+   * 文件：扩展名换成 `.md`（与 `summaryPathForChapter` 同一套规则）。
+   * 目录：原样镜像（目录下的每章摘要各自落在镜像位置，搬目录时整体跟着走）。
+   *
+   * 不在章节根之下时返回 undefined——`carrySummary` 据此判断「搬出 chapters/
+   * 了，摘要留在原处」。纯计算，不碰磁盘。
+   */
+  summaryMirrorRelPath(chapterRelPath: string, isDir: boolean): string | undefined {
+    const under = path.relative(this.chaptersDir, this.pathOf(chapterRelPath));
+    if (!under || under.startsWith('..') || path.isAbsolute(under)) {
+      return undefined;
+    }
+    const parsed = path.parse(under);
+    const mirror = isDir ? under : path.join(parsed.dir, `${parsed.name}.md`);
+    return this.relPath(path.join(this.summariesDir, mirror));
   }
 
   /** 绝对路径 → 工作区相对路径（正斜杠）。 */
@@ -385,10 +437,16 @@ export class NovelProject {
     return manifest;
   }
 
-  /** 记录某章摘要已基于 hash 生成。 */
-  async markSummarized(order: number, sourceHash: string): Promise<void> {
+  /**
+   * 记录某章摘要已基于 hash 生成。
+   *
+   * 按 relPath 匹配 manifest 条目（同序号撞车时按路径区分），找不到再按 order 兜底。
+   */
+  async markSummarized(chapter: Chapter, sourceHash: string): Promise<void> {
     const manifest = await this.syncManifest();
-    const entry = manifest.chapters.find((c) => c.order === order);
+    const entry =
+      manifest.chapters.find((c) => c.file === chapter.relPath) ??
+      manifest.chapters.find((c) => c.order === chapter.order);
     if (entry) {
       entry.summaryHash = sourceHash;
       await this.writeManifest(manifest);
@@ -404,7 +462,7 @@ export class NovelProject {
     const chapters = await this.listChapters();
     const stale: Chapter[] = [];
     for (const chapter of chapters) {
-      const summary = await this.readSummary(chapter.order);
+      const summary = await this.readSummary(chapter);
       if (!summary || summary.sourceHash !== chapter.contentHash) {
         stale.push(chapter);
       }
@@ -414,17 +472,41 @@ export class NovelProject {
 
   // ---------------------------------------------------------------- 摘要
 
-  async readSummary(order: number): Promise<ChapterSummary | undefined> {
-    const abs = this.summaryPath(order);
-    if (!(await exists(abs))) {
+  /**
+   * 读单章摘要。
+   *
+   * 先按**完整文件名与路径**找新式摘要（`summaryPathForChapter`），找不到再回退到
+   * 旧的序号命名 `summaryPath(order)`——升级前已生成的摘要仍能读到，不至于一夜之间
+   * 全部「丢失」。两条路径都找不到才算这一章没总结过。
+   *
+   * 同序号撞车时，新式路径各自独立（这是本次修复的核心）；旧式 `NNN.md` 只有一份，
+   * 会被最先匹配到的同序号章节读到——但它的 sourceHash 对不上另一章，会被判过期，
+   * 重新生成后落到新路径，不再互相覆盖。
+   */
+  async readSummary(chapter: Chapter): Promise<ChapterSummary | undefined> {
+    // 新式：按文件名与路径映射。
+    const abs = this.summaryPathForChapter(chapter.relPath);
+    let raw: string | undefined;
+    let readFrom = abs;
+    if (await exists(abs)) {
+      raw = await readText(abs);
+    } else {
+      // 旧式回退：按序号。升级前的摘要是这种命名。
+      const legacy = this.summaryPath(chapter.order);
+      if (await exists(legacy)) {
+        raw = await readText(legacy);
+        readFrom = legacy;
+      }
+    }
+    if (raw === undefined) {
       return undefined;
     }
-    const raw = await readText(abs);
     const { frontmatter, body } = parseMarkdown(raw);
     const sections = pickSections<keyof SummarySections>(body, SUMMARY_SECTION_KEYS) as SummarySections;
     return {
-      order,
-      relPath: this.relPath(abs),
+      order: chapter.order,
+      // 报告实际读到的路径（旧式回退时是 NNN.md），点开/明细才指得到文件。
+      relPath: this.relPath(readFrom),
       sourceHash: asString(frontmatter.sourceHash),
       content: stripH1(body),
       sections,
@@ -435,7 +517,8 @@ export class NovelProject {
   }
 
   async writeSummary(chapter: Chapter, sections: SummarySections, cast: SummaryCast[] = []): Promise<string> {
-    const abs = this.summaryPath(chapter.order);
+    // 按完整文件名与路径落盘——同序号不同文件名的章节各有独立摘要。
+    const abs = this.summaryPathForChapter(chapter.relPath);
     const fm = stringifyFrontmatter({
       order: chapter.order,
       title: chapter.title,
@@ -449,7 +532,20 @@ export class NovelProject {
       keepEmpty: true,
     });
     await writeText(abs, `${fm}\n\n# 第${chapter.order}章 ${chapter.title} · 摘要\n\n${body}\n`);
-    await this.markSummarized(chapter.order, chapter.contentHash);
+
+    // 一次性迁移：新路径与旧式 `NNN.md` 不同时，若旧式文件还在且**该序号唯一**
+    // （没有同序号撞车的兄弟章节），就把它删掉——它已被新路径取代，留着只会让
+    // summaries/ 里同时冒出 `001.md` 与 `001 序.md` 两份。同序号撞车时不删：
+    // 旧式文件是尚未重新生成摘要的那个兄弟章节的回退来源，删了会让它凭空「丢失」。
+    const legacy = this.summaryPath(chapter.order);
+    if (legacy !== abs && (await exists(legacy))) {
+      const sameOrder = (await this.listChapters()).filter((c) => c.order === chapter.order).length;
+      if (sameOrder <= 1) {
+        await fs.unlink(legacy).catch(() => undefined);
+      }
+    }
+
+    await this.markSummarized(chapter, chapter.contentHash);
     return this.relPath(abs);
   }
 

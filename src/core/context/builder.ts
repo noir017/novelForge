@@ -470,7 +470,7 @@ export async function buildContext(
     }
 
     // 降级链：原文 → 该章摘要 → 省略
-    const summary = await project.readSummary(chapter.order);
+    const summary = await project.readSummary(chapter);
     if (summary?.content.trim()) {
       const summaryBlock = `【第${chapter.order}章 ${chapter.title} · 摘要】\n${summary.content}`;
       const summaryTokens = estimateTokens(summaryBlock);
@@ -512,7 +512,7 @@ export async function buildContext(
       admit({ id, kind: 'chapterSummary', priority: 4, label, text: '' });
       continue;
     }
-    const summary = await project.readSummary(chapter.order);
+    const summary = await project.readSummary(chapter);
     if (!summary?.content.trim()) {
       items.push({
         id,
@@ -793,7 +793,7 @@ async function selectCharacters(
 
   const recent = previous.slice(-2);
   for (const chapter of recent) {
-    const summary = await project.readSummary(chapter.order);
+    const summary = await project.readSummary(chapter);
     const cast = summary?.sections.出场人物 ?? '';
     if (!cast.trim()) {
       continue;

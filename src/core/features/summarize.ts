@@ -304,7 +304,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
   const units: { order: number; title: string; content: string }[] = [];
   const missing: number[] = [];
   for (const chapter of chapters) {
-    const summary = await project.readSummary(chapter.order);
+    const summary = await project.readSummary(chapter);
     if (summary?.content.trim()) {
       units.push({ order: chapter.order, title: chapter.title, content: summary.content });
     } else {

@@ -214,7 +214,7 @@ async function main() {
   const p0Tokens = sumTokens((i) => i.priority === 0);
   const upToP2Tokens = sumTokens((i) => i.priority <= 2);
   const ch3Full = built.items.find((i) => i.id === 'chapterFull:3').tokens;
-  const ch3Summary = (await project.readSummary(3)).content;
+  const ch3Summary = (await project.readSummary((await project.listChapters()).find((c) => c.order === 3))).content;
   const ch3SummaryTokens = tokenizerMod.estimateTokens(`【第3章 夜访】\n${ch3Summary}`);
 
   console.log('\n== 装配：预算刚好放不下整章原文（应降级为摘要） ==');
@@ -594,12 +594,13 @@ async function main() {
     // 示例工程刻意混了两种摘要：第 3 章带 frontmatter.cast（新格式），
     // 第 1、2 章没有（0.2.x 之前的格式）。真实工程升级后就是这个样子，
     // 索引必须同时吃下两种，否则老章节的人会在角色页上凭空消失。
-    const s3 = await project.readSummary(3);
+    const byOrder = async (order) => (await project.listChapters()).find((c) => c.order === order);
+    const s3 = await project.readSummary(await byOrder(3));
     check('新格式摘要读到结构化 cast', s3.cast.length === 2, JSON.stringify(s3.cast));
     check('新格式 cast 带别名',
       s3.cast.find((c) => c.name === '年轻守卫').aliases.includes('那个年轻人'),
       JSON.stringify(s3.cast));
-    const s1 = await project.readSummary(1);
+    const s1 = await project.readSummary(await byOrder(1));
     check('旧格式摘要从小节文本反解 cast', s1.cast.length === 3, JSON.stringify(s1.cast));
     check('旧格式反解出的名字正确',
       s1.cast.map((c) => c.name).join('、') === '林昭、李叔、年轻守卫',

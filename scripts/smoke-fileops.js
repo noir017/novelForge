@@ -428,7 +428,8 @@ async function main() {
     check('移动后仍在树上', moved && moved.relPath === 'chapters/归档/010-有摘要.md',
       moved && moved.relPath);
     check('移动后摘要仍算新鲜', moved.stale === false);
-    check('摘要路径仍指得到', moved.summaryPath.endsWith('010.md'), moved.summaryPath);
+    // 摘要按文件名+路径映射，章节搬进归档/ 后摘要也跟着搬到 summaries/归档/ 下。
+    check('摘要路径跟随章节移动', moved.summaryPath.endsWith('归档/010-有摘要.md'), moved.summaryPath);
   }
 
   console.log('\n== 单章摘要视图（悬停浮窗的数据源） ==');
@@ -438,7 +439,7 @@ async function main() {
     check('摘要存在', view.exists === true);
     check('带章号与标题', view.order === 10 && view.title === '有摘要', view.title);
     check('新鲜的摘要不标过期', view.stale === false);
-    check('给出摘要文件路径', view.relPath.endsWith('010.md'), view.relPath);
+    check('给出摘要文件路径', view.relPath.endsWith('归档/010-有摘要.md'), view.relPath);
     check('只给非空小节', view.sections.length === 1 && view.sections[0].name === '梗概',
       JSON.stringify(view.sections.map((s) => s.name)));
     check('小节带正文', view.sections[0].text === '摘要正文。', view.sections[0].text);
@@ -470,7 +471,8 @@ async function main() {
     const secs = projectMod.emptySummarySections();
     secs.梗概 = '会被覆盖掉。';
     await project.writeSummary(ch11, secs);
-    const summaryFile = rel('.novelforge/summaries/011.md');
+    // 摘要按文件名映射：chapters/011-没摘要.md → summaries/011-没摘要.md
+    const summaryFile = rel('.novelforge/summaries/011-没摘要.md');
     const raw = fs.readFileSync(summaryFile, 'utf8');
     // 留下 frontmatter 与 H1，正文改成没有任何 `## 小节` 的大白话。
     fs.writeFileSync(summaryFile, `${raw.split('\n\n#')[0]}\n\n# 第11章 没摘要 · 摘要\n\n我自己写的一段话。\n`);
@@ -489,6 +491,91 @@ async function main() {
     check('全占位的摘要仍算存在（前端说「摘要文件是空的」）', allPlaceholder.exists === true);
 
     fs.rmSync(rel('chapters/011-没摘要.md'));
+    project.invalidate();
+  }
+
+  console.log('\n== 同序号不同文件名 → 摘要各自独立 ==');
+  {
+    // 用户报告的 bug：两个同序号文件（如「001 序.txt」「001 正文.txt」）共用 001.md，
+    // 后写的摘要覆盖先写的。修复后摘要按完整文件名映射，互不覆盖。
+    write('chapters/020 序.txt', '# 序\n\n序章正文。\n');
+    write('chapters/020 正文.txt', '# 正文\n\n正文内容。\n');
+    project.invalidate();
+    const chapters = (await project.listChapters()).filter((c) => c.order === 20);
+    check('两个同序号章节都被扫到', chapters.length === 2, `实际 ${chapters.length}`);
+
+    const a = chapters.find((c) => c.title === '序');
+    const b = chapters.find((c) => c.title === '正文');
+    check('两个章节标题不同', !!a && !!b && a.title !== b.title, `${a && a.title} / ${b && b.title}`);
+
+    const sa = projectMod.emptySummarySections();
+    sa.梗概 = '序章的梗概。';
+    const sb = projectMod.emptySummarySections();
+    sb.梗概 = '正文的梗概。';
+    await project.writeSummary(a, sa);
+    await project.writeSummary(b, sb);
+    project.invalidate();
+
+    // 两份摘要落在不同文件里，互不覆盖。
+    check('序章摘要独立落盘', fs.existsSync(rel('.novelforge/summaries/020 序.md')));
+    check('正文摘要独立落盘', fs.existsSync(rel('.novelforge/summaries/020 正文.md')));
+
+    const ra = await project.readSummary(a);
+    const rb = await project.readSummary(b);
+    check('序章摘要读回自己的内容', ra && ra.sections.梗概 === '序章的梗概。', ra && ra.sections.梗概);
+    check('正文摘要读回自己的内容', rb && rb.sections.梗概 === '正文的梗概。', rb && rb.sections.梗概);
+    check('两份摘要内容不同', ra.sections.梗概 !== rb.sections.梗概);
+    check('两份摘要都算新鲜', ra.sourceHash === a.contentHash && rb.sourceHash === b.contentHash);
+
+    // 工程页树上两条同序号章节都该是「已总结、新鲜」。
+    const tree = await projectViewMod.buildProjectTree(project);
+    const flat20 = (function flat(nodes) {
+      const out = [];
+      for (const n of nodes) {
+        if (n.kind === 'dir') out.push(...flat(n.children));
+        else if (n.order === 20) out.push(n);
+      }
+      return out;
+    })(tree.chapters);
+    check('树上两条都不算过期', flat20.length === 2 && flat20.every((c) => !c.stale),
+      flat20.map((c) => `${c.title}:${c.stale}`).join(','));
+
+    fs.rmSync(rel('chapters/020 序.txt'));
+    fs.rmSync(rel('chapters/020 正文.txt'));
+    fs.rmSync(rel('.novelforge/summaries/020 序.md'));
+    fs.rmSync(rel('.novelforge/summaries/020 正文.md'));
+    project.invalidate();
+  }
+
+  console.log('\n== 旧式摘要回退与迁移 ==');
+  {
+    // 升级前生成的摘要是 NNN.md（按序号）。升级后 readSummary 必须仍能读到它，
+    // 重新生成摘要时再迁移到按文件名映射的新路径，并清掉旧的 NNN.md（序号唯一时）。
+    write('chapters/009-旧式.md', '# 旧式\n\n旧式章节正文。\n');
+    // 手写一份旧式摘要。
+    write(
+      '.novelforge/summaries/009.md',
+      '---\norder: 9\ntitle: 旧式\nsourceHash: legacy\n---\n\n# 第9章 旧式 · 摘要\n\n## 梗概\n\n旧式梗概。\n'
+    );
+    project.invalidate();
+    const ch = (await project.listChapters()).find((c) => c.order === 9);
+    const before = await project.readSummary(ch);
+    check('旧式摘要经回退仍能读到', before && before.sections.梗概 === '旧式梗概。', before && before.sections.梗概);
+    check('旧式摘要因 hash 不匹配算过期', before && before.sourceHash !== ch.contentHash);
+
+    // 重新生成：写入新路径，旧式 009.md 被清理（序号唯一）。
+    const secs = projectMod.emptySummarySections();
+    secs.梗概 = '新式梗概。';
+    await project.writeSummary(ch, secs);
+    project.invalidate();
+    check('新式摘要按文件名落盘', fs.existsSync(rel('.novelforge/summaries/009-旧式.md')));
+    check('旧式 009.md 已被迁移清理', !fs.existsSync(rel('.novelforge/summaries/009.md')));
+    const after = await project.readSummary(ch);
+    check('迁移后读到新式内容', after && after.sections.梗概 === '新式梗概。');
+    check('迁移后算新鲜', after && after.sourceHash === ch.contentHash);
+
+    fs.rmSync(rel('chapters/009-旧式.md'));
+    fs.rmSync(rel('.novelforge/summaries/009-旧式.md'));
     project.invalidate();
   }
 

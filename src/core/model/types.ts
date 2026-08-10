@@ -13,7 +13,7 @@ import { ActiveModel, ProviderProfile } from './providers';
   contentHash: string;
 }
 
-/** 单章摘要，存于 .novelforge/summaries/NNN.md。 */
+/** 单章摘要，存于 .novelforge/summaries/ 下，按章节文件名与路径镜像（如 `001 序.md`）。 */
 export interface ChapterSummary {
   order: number;
   relPath: string;

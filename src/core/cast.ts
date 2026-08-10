@@ -84,7 +84,7 @@ export async function buildCastIndex(project: NovelProject): Promise<CastIndex> 
 
   let summaryCount = 0;
   for (const chapter of chapters) {
-    const summary = await project.readSummary(chapter.order);
+    const summary = await project.readSummary(chapter);
     if (!summary) {
       continue;
     }

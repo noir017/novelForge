@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { carryDraft, isProtectedPath, normalizeRel, renameEntryInRoot, sectionOf } from './fileOps';
+import { carryDraft, carrySummary, isProtectedPath, normalizeRel, renameEntryInRoot, sectionOf } from './fileOps';
 import { getHost } from './host';
 import { describeError, scoped } from './logger';
 import { NovelProject, exists } from './model/project';
@@ -162,14 +162,19 @@ async function pasteOne(
   }
 
   if (!copy && sectionOf(project, rel)?.section === 'chapters') {
-    // 章节移动：草稿跟随。移出 chapters/ 时新镜像路径推导不出，草稿留在原处。
+    // 章节移动：草稿与摘要跟随。移出 chapters/ 时新镜像路径推导不出，留在原处。
     const toDraft = project.draftRelPathFor(nextRel);
     if (toDraft) {
       await carryDraft(project, rel, nextRel, isDir);
+      await carrySummary(project, rel, nextRel, isDir);
     } else {
       const fromDraft = project.draftRelPathFor(rel);
       if (fromDraft && (await exists(project.pathOf(fromDraft)))) {
         log.warn(`章节被移出 chapters/，草稿留在原处`, `草稿仍在 ${fromDraft}`);
+      }
+      const fromSummary = project.summaryMirrorRelPath(rel, isDir);
+      if (fromSummary && (await exists(project.pathOf(fromSummary)))) {
+        log.warn(`章节被移出 chapters/，摘要留在原处`, `摘要仍在 ${fromSummary}`);
       }
     }
   }

@@ -222,6 +222,7 @@ async function renameEntryImpl(
   project.invalidate();
   if (target.info?.section === 'chapters') {
     await carryDraft(project, rel, nextRel, isDir);
+    await carrySummary(project, rel, nextRel, isDir);
     await project.syncManifest();
   }
   log.info(`已重命名${isDir ? '文件夹' : ''}`, `${rel} → ${nextRel}`);
@@ -305,6 +306,7 @@ export async function moveEntry(
   project.invalidate();
   if (info.section === 'chapters') {
     await carryDraft(project, rel, nextRel, isDir);
+    await carrySummary(project, rel, nextRel, isDir);
     // 路径变了但序号没变，syncManifest 会按 order 兜底找回 summaryHash。
     await project.syncManifest();
   }
@@ -352,6 +354,51 @@ export async function carryDraft(
   await fs.mkdir(path.dirname(toAbs), { recursive: true });
   await fs.rename(fromAbs, toAbs);
   log.info(`草稿已跟随移动`, `${fromDraft} → ${toDraft}`);
+}
+
+/**
+ * 章节改名/移动后，把它的摘要文件一并搬过去。
+ *
+ * 摘要按「完整文件名与路径」映射（`summaryMirrorRelPath`），章节路径一变，
+ * 摘要的归属路径也跟着变——不搬的话旧位置的摘要成了孤儿，新位置又读不到，
+ * 工程页上原本新鲜的章节会凭空变成「过期」。这与草稿跟随（carryDraft）同源。
+ *
+ * 只搬**新式**摘要（按文件名映射的那份）。升级前的旧式 `NNN.md` 不在这里搬：
+ * 它按序号命名，`readSummary` 会用序号回退找到它，搬了反而破坏回退路径。
+ * 旧式摘要在该章下次重新生成摘要时由 `writeSummary` 一次性迁移到新路径。
+ *
+ * 目标位置已有摘要时**不覆盖**（与草稿一致）：两份都留着，提示作者自己去合。
+ */
+export async function carrySummary(
+  project: NovelProject,
+  fromRel: string,
+  toRel: string,
+  isDir: boolean
+): Promise<void> {
+  const fromSummary = project.summaryMirrorRelPath(fromRel, isDir);
+  const toSummary = project.summaryMirrorRelPath(toRel, isDir);
+  if (!fromSummary || !toSummary || fromSummary === toSummary) {
+    return;
+  }
+  const fromAbs = project.pathOf(fromSummary);
+  if (!(await exists(fromAbs))) {
+    return;
+  }
+  const toAbs = project.pathOf(toSummary);
+  if (await exists(toAbs)) {
+    log.warn(
+      `新位置已有${isDir ? '摘要目录' : '摘要'}，旧摘要未动`,
+      `目标 ${toSummary}｜旧摘要仍在 ${fromSummary}`
+    );
+    getHost().toast(
+      `新位置已有${isDir ? '摘要目录' : '摘要'}：${toSummary}，旧摘要留在 ${fromSummary} 未动。`,
+      'error'
+    );
+    return;
+  }
+  await fs.mkdir(path.dirname(toAbs), { recursive: true });
+  await fs.rename(fromAbs, toAbs);
+  log.info(`摘要已跟随移动`, `${fromSummary} → ${toSummary}`);
 }
 
 async function pickDestination(

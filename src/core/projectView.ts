@@ -72,7 +72,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   const chapterLeaves: ProjectChapterNode[] = [];
   for (const chapter of chapters) {
     // 以摘要文件里的 sourceHash 为准，与 staleChapters() 同一套判据。
-    const summary = await project.readSummary(chapter.order);
+    const summary = await project.readSummary(chapter);
     const draftPath = project.draftRelPathFor(chapter.relPath) ?? '';
     chapterLeaves.push({
       kind: 'chapter',
@@ -164,7 +164,8 @@ export async function buildChapterSummaryView(
   order: number
 ): Promise<ChapterSummaryView> {
   const chapter = (await project.listChapters()).find((c) => c.order === order);
-  const summary = await project.readSummary(order);
+  // 摘要按章节身份（文件名+路径）读取；章节不存在（幽灵章号）时无摘要可读。
+  const summary = chapter ? await project.readSummary(chapter) : undefined;
   const title = chapter?.title ?? '';
 
   if (!summary) {
