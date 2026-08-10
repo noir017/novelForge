@@ -1,4 +1,5 @@
 import { buildCastIndex, describeChapters } from './cast';
+import { listActiveFailures } from './errorLog';
 import { scoped } from './logger';
 import { SECTION_PLACEHOLDER } from './model/markdown';
 import { NovelProject } from './model/project';
@@ -56,6 +57,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       cast: [],
       castByCard: {},
       castConflicts: [],
+      failures: {},
       summaryCount: 0,
       chaptersRoot,
       charactersRoot,
@@ -148,6 +150,9 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   reportConflicts(castConflicts);
 
   const staleCount = chapterLeaves.filter((r) => r.stale).length;
+  // 未解决的失败记录，一次查询拿全部（按 relPath 索引，三个区共用一张表）。
+  // 库不可用时是空对象——工程页照常渲染，只是没有感叹号。
+  const failures = await listActiveFailures(project);
   return {
     initialized: true,
     title: manifest.title,
@@ -162,6 +167,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     cast,
     castByCard,
     castConflicts,
+    failures,
     summaryCount: castIndex.summaryCount,
     chaptersRoot,
     charactersRoot,

@@ -27,5 +27,6 @@
 @import './view/menu.css';
 @import './view/summary-tip.css';
 @import './view/detail-tip.css';
+@import './view/error-tip.css';
 @import './view/modal.css';
 @import './view/toast.css';

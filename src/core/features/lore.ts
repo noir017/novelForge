@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { readConfig } from '../config';
 import { runPool, Settled } from '../concurrency';
+import { clearFailures, recordFailure } from '../errorLog';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { getHost } from '../host';
 import { collectStream, ChatOptions } from '../llm/provider';
@@ -144,6 +145,7 @@ export async function generateLore(project: NovelProject): Promise<void> {
       );
 
       const generated = await synthesizeDrafts(
+        project,
         drafts,
         synthesisPool,
         signal,
@@ -397,6 +399,7 @@ function sameLore(
 }
 
 async function synthesizeDrafts(
+  project: NovelProject,
   drafts: LoreDraft[],
   pool: ModelPool,
   signal: AbortSignal,
@@ -425,6 +428,21 @@ async function synthesizeDrafts(
         running.delete(draft.title);
         if (result.status === 'rejected') {
           log.error(`设定「${draft.title}」生成失败`, describeError(result.reason));
+          // 只有**已存在**的条目挂得住标记：新条目此刻还没有文件，
+          // 记一条谁也看不到的记录不如不记（工程页按 relPath 匹配）。
+          // 那种情况仍然只有日志与「生成失败 N 条」的汇总——它本来也没有
+          // 可标记的对象，不为此在树上凭空造一行。
+          if (draft.existing) {
+            void recordFailure(project, {
+              scope: '设定',
+              targetKind: 'lore',
+              targetKey: draft.existing.relPath,
+              severity: 'error',
+              op: 'generateLore',
+              message: `整合失败：${describeError(result.reason)}`,
+              detail: `依据第 ${draft.chapters.join('、')} 章｜这一条未改动，可重新运行「从全部章节生成/更新设定」`,
+            });
+          }
         } else {
           log.info(
             `设定「${draft.title}」生成完成`,
@@ -560,6 +578,8 @@ async function reviewExisting(
   });
   if (currentText.replace(/\r\n/g, '\n').trim() === proposedText.trim()) {
     log.info(`设定「${existing.title}」无需更新`, existing.relPath);
+    // 内容一致也算这一条整合成功了（上次可能是失败挂着的），收掉感叹号。
+    await clearFailures(project, 'lore', existing.relPath, 'generateLore');
     return 'skipped';
   }
 
@@ -587,6 +607,8 @@ async function reviewExisting(
     keywords: item.keywords,
     body: item.body,
   });
+  // 写成了：这一条挂着的失败记录该清掉。
+  await clearFailures(project, 'lore', existing.relPath, 'generateLore');
   log.info(
     `已更新设定「${existing.title}」`,
     `${existing.relPath}｜${currentText.length} 字 → ${proposedText.length} 字`

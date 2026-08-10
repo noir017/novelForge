@@ -14,6 +14,7 @@ import type { MenuItem } from '../../globals';
 import type {
   CastConflictView,
   CastEntry,
+  FailureView,
   ProjectChapterNode,
   ProjectDirNode,
   ProjectFile,
@@ -33,7 +34,30 @@ import {
 } from './actions';
 import type { Section } from './actions';
 import { SECTIONS } from './actions';
-import { indentOf, openFolders } from './treeState';
+import { indentOf, lastTree, openFolders } from './treeState';
+
+/**
+ * 失败标记。有未解决的失败记录时插在文件名之前，鼠标移上去看原因
+ * （浮窗在 [errorTip.ts](errorTip.ts)，事件委托抓 `.row-failure`）。
+ *
+ * 为什么不做成行内的一段文字：失败信息有好几行，摊在树上会把行撑爆，
+ * 而绝大多数时候树上一个失败都没有。一个感叹号 + 悬停展开是最省地方的形态。
+ *
+ * 只要有一条是 `error`（整体失败、目标未改动）就按红色算——那比「部分完成」
+ * 严重，不能被同一目标上的一条黄色记录盖过去。
+ */
+function failureMark(relPath: string): HTMLElement | null {
+  const failures: FailureView[] | undefined = lastTree?.failures?.[relPath];
+  if (!failures || failures.length === 0) {
+    return null;
+  }
+  const hasError = failures.some((f) => f.severity === 'error');
+  const mark = mk('span', `row-failure ${hasError ? 'is-error' : 'is-warn'}`, '❗');
+  mark.dataset.failureKey = relPath;
+  // 原生 title 作兜底：浮窗要等 300ms，而且它只在工程页里装了事件委托。
+  mark.title = failures[0].message;
+  return mark;
+}
 
 /** 由 index.ts 注入：折叠状态变了要重画一遍树。 */
 let rerender: () => void = () => {};
@@ -124,6 +148,12 @@ function buildChapterRow(c: ProjectChapterNode, depth: number): HTMLElement {
   dot.title = c.stale ? '摘要缺失或已过期' : '摘要为最新';
   row.appendChild(dot);
 
+  // 摘要生成失败过：与「过期」是两回事——过期只说明该重跑，这个说明跑过但没成。
+  const mark = failureMark(c.relPath);
+  if (mark) {
+    row.appendChild(mark);
+  }
+
   const label = mk('span', 'row-label', `${String(c.order).padStart(3, '0')} ${c.title}`);
   label.title = c.relPath;
   label.addEventListener('click', () => openPath(c.relPath));
@@ -168,6 +198,12 @@ export function buildFileRow(f: ProjectFile, icon: string, depth?: number): HTML
   }
 
   row.appendChild(mk('span', 'dot', icon));
+
+  // 失败标记排在名字之前：扫一列文件名时，异常的那几行第一眼就跳出来。
+  const mark = failureMark(f.relPath);
+  if (mark) {
+    row.appendChild(mark);
+  }
 
   const label = mk('span', 'row-label', f.label);
   label.title = f.relPath;

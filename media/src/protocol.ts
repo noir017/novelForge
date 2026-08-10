@@ -17,6 +17,7 @@ export type {
   DirListing,
   EditorFileView,
   EditorPane,
+  FailureView,
   FileAction,
   FileOpResult,
   FsEntry,

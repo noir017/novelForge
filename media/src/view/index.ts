@@ -12,7 +12,7 @@
  */
 import { installComposer, payload, renderChips } from './composer';
 import { renderSessions } from './history';
-import { appendLog, installLogs, renderLogs } from './logs';
+import { appendLog, installLogs, prependLogHistory, renderLogs } from './logs';
 import { installMenus } from './menu';
 import {
   bindPayload,
@@ -133,6 +133,10 @@ onMessage((msg) => {
 
     case 'logs':
       renderLogs(msg.entries);
+      break;
+
+    case 'logHistory':
+      prependLogHistory(msg.entries, msg.exhausted);
       break;
 
     case 'log':

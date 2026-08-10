@@ -3,6 +3,7 @@ import { collectStream, CancelledError, ChatOptions, LlmProvider, TokenUsage } f
 import { createModelPool } from '../llm/pool';
 import { resolveProvider } from '../llm/registry';
 import { runPool } from '../concurrency';
+import { clearFailures, recordFailure } from '../errorLog';
 import { pickSections } from '../model/markdown';
 import { readConfig } from '../config';
 import { describeError, elapsed, formatDuration, scoped } from '../logger';
@@ -102,9 +103,25 @@ export async function summarizeChapter(
       `第 ${chapter.order} 章摘要解析失败：模型返回既不是 JSON 也不符合小节格式`,
       `返回 ${raw.length} 字，开头：${raw.slice(0, 300)}`
     );
+    // 也在这里记一条，而不是只靠 syncSummaries 的 onSettled：右键「总结本章」
+    // 走的是单章路径，那条异常会一路抛到命令外层，根本到不了批量编排里。
+    // 同一章 + 同一动作只留最新一条，两条路径都记也不会重复显示。
+    await recordFailure(project, {
+      scope: '摘要',
+      targetKind: 'chapter',
+      targetKey: chapter.relPath,
+      severity: 'error',
+      op: 'summarize',
+      message: '摘要解析失败，模型返回无法解析',
+      detail:
+        `模型返回 ${raw.length} 字，既不是 JSON 也不符合小节格式。` +
+        '这一章的剧情不会进入上下文；换个模型或稍后重试。',
+    });
     throw new Error(`第 ${chapter.order} 章摘要解析失败，模型返回内容无法解析。`);
   }
   const relPath = await project.writeSummary(chapter, sections, cast);
+  // 这一章好了：把它挂着的旧感叹号收掉（上次可能是超时/解析失败）。
+  await clearFailures(project, 'chapter', chapter.relPath, 'summarize');
   // 批量同步一次要跑几十章，是最烧 token 的动作之一；有实测用量就记一笔，
   // 供 tokenCounter 的校准统计使用。
   recordUsage('摘要', estimated, usage);
@@ -223,6 +240,17 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
                 const reason = describeError(err);
                 failed.push({ order: chapter.order, reason });
                 log.error(`第 ${chapter.order} 章《${chapter.title}》失败：${reason}`, err);
+                // toast 里只列得下章号，而它五秒就没了。挂到章节行上，
+                // 用户第二天回来还能看出是哪几章没总结成。
+                void recordFailure(project, {
+                  scope: '摘要',
+                  targetKind: 'chapter',
+                  targetKey: chapter.relPath,
+                  severity: 'error',
+                  op: 'summarize',
+                  message: `摘要生成失败：${reason}`,
+                  detail: '这一章的剧情不会进入上下文。可右键「总结本章」单独重试。',
+                });
               }
             }
             // 每章一条 info：一次跑几十章，中途出问题时要看得出停在哪。

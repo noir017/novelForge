@@ -126,6 +126,14 @@ export type InMessage =
   | { type: 'cancelTask'; id: string }
   /** 日志页：要一份缓冲全量（切到该页 / 点刷新时发）。 */
   | { type: 'requestLogs' }
+  /**
+   * 日志页：要更早的历史（存在工程库里，跨会话留得住）。
+   *
+   * 与 `requestLogs` 分开是有意的：那条回的是进程内环形缓冲（实时、几百条），
+   * 是默认路径，一次查询都不做；这条才碰数据库，只在用户点「加载更早」时发。
+   * `before` 是当前已显示的最早那条的时间戳，用于继续往前翻。
+   */
+  | { type: 'requestLogHistory'; before?: string }
   /** 日志页：清空缓冲。 */
   | { type: 'clearLogs' }
   /** 网页弹窗的回执（仅独立版：host.input/confirm/pick 经 WebSocket 变成 modal）。 */
@@ -284,6 +292,13 @@ export type OutMessage =
   /** 日志：增量一条（实时追加），或全量一批（日志页首次加载/清空后）。 */
   | { type: 'log'; entry: LogEntry }
   | { type: 'logs'; entries: LogEntry[] }
+  /**
+   * 日志：从库里取到的更早历史，回应 `requestLogHistory`。
+   *
+   * `exhausted` 说明再往前没有了——前端据此把「加载更早」按钮收掉，
+   * 而不是让用户一直点一个什么都不会发生的按钮。
+   */
+  | { type: 'logHistory'; entries: LogEntry[]; exhausted: boolean }
   /** 要求前端弹一个 modal（仅独立版）。用户提交后回 `promptResult`。 */
   | {
       type: 'prompt';
@@ -383,6 +398,17 @@ export interface ProjectTree {
   /** 参与统计的摘要数。为 0 说明还没生成过摘要，前端据此改文案。 */
   summaryCount: number;
   /**
+   * 未解决的失败记录，按目标的 relPath 索引（覆盖章节/角色/设定三个区）。
+   *
+   * 工程页据此在对应行上挂红色感叹号，悬停看原因。数据来自工程库
+   * （`core/errorLog.ts`），成功一次就被清掉。
+   *
+   * 放进这棵树是有意的，尽管它每次文件变动都全量重推：一条记录只有几十字，
+   * **且只有出错的目标才有**——正常工程这里是个空对象，撑不爆推送。
+   * 这一点与「摘要正文不进 ProjectTree」不冲突（那是每章上千字、人人都有）。
+   */
+  failures: Record<string, FailureView[]>;
+  /**
    * 多张角色卡抢同一个称呼。
    *
    * 出场统计按称呼归属，一个称呼只能算给一张卡，所以有冲突就必然有一张的
@@ -464,6 +490,26 @@ export interface CastSummary {
   updatedThrough: number;
   /** 上次更新之后新增的出场章节数。>0 时前端在行上给个提示点。 */
   pending: number;
+}
+
+/**
+ * 一条未解决的失败记录（工程页行上的红色感叹号 + 悬停浮窗）。
+ *
+ * 刻意不带 `targetKind` / `op` / `id`：前端只需要「显示什么」——那些字段
+ * 是库里用来筛选与清除的，摊到线上只会让每次全量推树多带一份没人读的数据。
+ */
+export interface FailureView {
+  /** ISO 时间戳。浮窗里显示成 `12:03:41`，用户才对得上日志页。 */
+  at: string;
+  /**
+   * - `error`：整体失败，目标一字未改（红色感叹号）。
+   * - `warn`：部分成功，但有一块没成、下次会重来（黄色感叹号）。
+   */
+  severity: 'error' | 'warn';
+  /** 一句人话，浮窗标题行。 */
+  message: string;
+  /** 多行补充：失败的批次/章节、水位线停在哪、建议怎么办。 */
+  detail?: string;
 }
 
 /** 多张角色卡抢同一个称呼。 */

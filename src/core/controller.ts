@@ -5,6 +5,7 @@ import { BuiltContext, ContextItem } from './context/builder';
 import { deleteEntry, moveEntry, newFolder, renameEntry, Section, sectionOf, sectionRoots } from './fileOps';
 import { listDirs } from './fileTree';
 import { copyInto, moveInto, renameAny } from './projectFiles';
+import { closeDatabase, installLogPersistence, readLogHistory } from './db';
 import { extractCharacters, newCharacter, newLore } from './features/characters';
 import {
   createCardForCast,
@@ -67,6 +68,9 @@ export interface ViewHost {
 
 const log = scoped('面板');
 
+/** 「加载更早」一次翻多少条日志。与前端的行数上限同量级。 */
+const LOG_HISTORY_PAGE = 200;
+
 /**
  * 对话面板的全部逻辑。
  *
@@ -93,6 +97,8 @@ export class ChatController {
    * 前端每次发 `listDir` 都带全量，这里整体替换。
    */
   private watchedDirs: string[] = [];
+  /** dispose 过了。异步挂载的订阅据此就地退订，不往死通道上挂。 */
+  private disposed = false;
 
   constructor(private readonly project: NovelProject) {
     this.store = new SessionStore(project);
@@ -103,6 +109,17 @@ export class ChatController {
     this.subscriptions.push(addLogSink((entry) => this.post({ type: 'log', entry })));
     // 任务表变化 → 推快照。工程页的进度条与工具栏的忙碌标记都吃这一条。
     this.subscriptions.push(onTasksChanged(() => this.post({ type: 'tasks', tasks: activeTasks() })));
+    // 日志再落一份进工程库，重启之后仍查得到「昨晚那 76 章卡在哪」。
+    // 开库是异步的，而 controller 可能在开完之前就被 dispose 掉（用户刚打开
+    // 侧边栏又立刻关掉窗口）——那时必须就地退订，否则这个 sink 会永远挂着
+    // 往一个已经关掉的库里写。
+    void installLogPersistence(project).then((sub) => {
+      if (this.disposed) {
+        sub.dispose();
+      } else {
+        this.subscriptions.push(sub);
+      }
+    });
   }
 
   attach(host: ViewHost): void {
@@ -114,11 +131,15 @@ export class ChatController {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.session.dispose();
     for (const sub of this.subscriptions) {
       sub.dispose();
     }
     this.subscriptions.length = 0;
+    // 关库要在退订之后：日志 sink 的 dispose 会把攒着的最后一批 flush 掉，
+    // 反过来的话那几条就丢了——而崩溃前的最后几条恰恰最想看。
+    closeDatabase(this.project);
   }
 
   /** 广播给所有已挂载的宿主，两个视图始终一致。 */
@@ -344,6 +365,14 @@ export class ChatController {
       case 'requestLogs':
         this.post({ type: 'logs', entries: recentLogs() });
         return;
+
+      case 'requestLogHistory': {
+        // 只有这一条会查库。默认进日志页仍然只看内存缓冲，一次查询都不做。
+        const entries = await readLogHistory(this.project, LOG_HISTORY_PAGE, msg.before);
+        // 取回来的比页大小少，说明再往前没有了——前端据此收掉按钮。
+        this.post({ type: 'logHistory', entries, exhausted: entries.length < LOG_HISTORY_PAGE });
+        return;
+      }
 
       case 'clearLogs':
         clearLogs();

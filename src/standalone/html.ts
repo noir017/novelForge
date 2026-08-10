@@ -143,6 +143,7 @@ export function standalonePage(root?: string): string {
         <label class="log-follow"><input type="checkbox" id="logFollow" checked>自动滚动</label>
         <span class="spacer"></span>
         <span class="meta" id="logMeta"></span>
+        <button class="chip-btn" id="logEarlierBtn" title="从工程数据库里读更早的日志（重启前的也在）">加载更早</button>
         <button class="chip-btn" id="logCopyBtn" title="复制当前筛选出的日志">复制</button>
         <button class="chip-btn" id="logClearBtn" title="清空日志缓冲">清空</button>
       </div>

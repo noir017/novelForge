@@ -49,9 +49,21 @@ const bundle = loadBundle({
   cast: './src/core/cast.ts',
   characterCard: './src/core/features/characterCard.ts',
   registry: './src/core/llm/registry.ts',
+  // 失败记录会落进工程库；这里要能读回来断言，收尾还要关掉连接
+  // （Windows 上不关就删不掉临时目录）。
+  db: './src/core/db.ts',
+  errorLog: './src/core/errorLog.ts',
 });
 
-const { host: hostMod, project: projectMod, cast: castMod, characterCard: cardMod, registry } = bundle;
+const {
+  host: hostMod,
+  project: projectMod,
+  cast: castMod,
+  characterCard: cardMod,
+  registry,
+  db: dbMod,
+  errorLog,
+} = bundle;
 
 // ---------------------------------------------------------------- 假宿主
 
@@ -293,6 +305,22 @@ async function main() {
     const line = card.split('\n').find((l) => l.startsWith('updatedThrough'));
     check('水位线停在第一个失败章节之前', line === 'updatedThrough: 0', line);
 
+    // 部分失败必须在界面上留痕：卡确实更新了一部分，但还缺一块，
+    // 而这件事以前只有一条 log.warn，工程页上完全看不出来。
+    let active = await errorLog.listActiveFailures(project);
+    let marks = active['.novelforge/characters/林昭.md'] || [];
+    check('部分失败在卡上留下标记', marks.length > 0, JSON.stringify(active));
+    check(
+      '部分失败标记为「部分完成」而非「未改动」',
+      marks[0] && marks[0].severity === 'warn',
+      marks[0] && marks[0].severity
+    );
+    check(
+      '部分失败的说明里给出水位线',
+      marks[0] && marks[0].message.includes('已读到'),
+      marks[0] && marks[0].message
+    );
+
     // 全部失败：不改卡、不推进 updatedThrough、明确报错。
     const before = read('.novelforge/characters/林昭.md');
     expect('开始');
@@ -301,6 +329,36 @@ async function main() {
     check('全部失败时角色卡一字不改', read('.novelforge/characters/林昭.md') === before);
     check('全部失败时不弹审阅', reviewed.length === 0, String(reviewed.length));
     check('全部失败时报错', toasts.some((t) => t.startsWith('error:')), toasts.join(' | '));
+
+    // ★ 这次修的 bug：日志与 toast 都要求用户「恰好在看」，而卡一字未改，
+    //   界面上跟更新成功的一模一样。失败必须挂在卡上，一直挂到成功为止。
+    active = await errorLog.listActiveFailures(project);
+    marks = active['.novelforge/characters/林昭.md'] || [];
+    check('全部失败在卡上留下标记', marks.length > 0, JSON.stringify(active));
+    check(
+      '全部失败标记为「未改动」',
+      marks[0] && marks[0].severity === 'error',
+      marks[0] && marks[0].severity
+    );
+    check(
+      '标记里说清了是解析失败、卡未改动',
+      marks[0] && marks[0].message.includes('解析失败') && marks[0].message.includes('未改动'),
+      marks[0] && marks[0].message
+    );
+    // 同一张卡 + 同一动作只留最新一条：连着失败两次不该并排挂两个感叹号。
+    check('同一动作只保留最新一条', marks.length === 1, String(marks.length));
+
+    // 修好之后标记必须自己消失——留着比一开始不报错更糟，用户会学会无视它。
+    expect('开始');
+    replies = [cardJson({ 身份: '这次成了' })];
+    await cardMod.updateCharacterCard(project, '.novelforge/characters/林昭.md', 'full');
+    check('成功后角色卡确实更新了', read('.novelforge/characters/林昭.md').includes('这次成了'));
+    active = await errorLog.listActiveFailures(project);
+    check(
+      '成功一次后标记自动消失',
+      !active['.novelforge/characters/林昭.md'],
+      JSON.stringify(active)
+    );
 
     // 用户在确认框点取消：一次模型都不该调。
     expect(undefined);
@@ -511,12 +569,25 @@ async function main() {
   }
 
   console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
-  fs.rmSync(WORK, { recursive: true, force: true });
+  cleanup();
   process.exit(failures === 0 ? 0 : 1);
+}
+
+/**
+ * 收尾。**必须先关库再删目录**：Windows 上 SQLite 连接开着时
+ * `.novelforge/novelforge.db` 删不掉，整个临时工程会留在 temp 里（EBUSY）。
+ */
+function cleanup() {
+  try {
+    dbMod.resetDatabases();
+  } catch {
+    /* 关不掉也要接着删 */
+  }
+  fs.rmSync(WORK, { recursive: true, force: true });
 }
 
 main().catch((e) => {
   console.error(e);
-  fs.rmSync(WORK, { recursive: true, force: true });
+  cleanup();
   process.exit(1);
 });

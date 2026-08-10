@@ -1,0 +1,107 @@
+/* 失败标记（工程页行上的感叹号）与它的悬停浮窗。 */
+
+/* ---- 行上的感叹号
+
+   排在文件名之前，扫一列名字时异常的几行第一眼就跳出来。
+   两级：error = 整体失败、目标一字未改；warn = 部分完成、下次会重来。
+   颜色一律走 --vscode-* 变量（插件里由 VS Code 注入，独立版由
+   standalone.css 提供深浅两套），不写死。 */
+
+.row-failure {
+  flex: 0 0 auto;
+  font-size: 0.85em;
+  line-height: 1;
+  cursor: help;
+  /* 感叹号本身在不同字体下宽度飘忽，给个固定位宽免得整列名字对不齐。 */
+  min-width: 1em;
+  text-align: center;
+}
+
+.row-failure.is-error {
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.row-failure.is-warn {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+/* ---- 悬停浮窗
+
+   挂在 body 上 position: fixed，与另两只浮窗同一个理由：工程页有内部滚动，
+   挂在行里会被容器裁掉。z-index 与摘要浮窗（25）同层——比 toast（30）与
+   右键菜单（40）低，那两个都是用户主动要的。
+
+   与 .detail-tip 不同，这里**没有** pointer-events: none：失败详情有好几行、
+   常含模型返回的片段，用户要能进来选中复制（收起的宽限期在 errorTip.ts）。 */
+
+.failure-tip {
+  position: fixed;
+  z-index: 25;
+  max-width: min(80vw, 460px);
+  /* 60vh 是可读性上限；放不下时 errorTip.ts 会再压 max-height。 */
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
+  border: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  border-radius: var(--radius);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+
+/* 同一目标可能挂着好几条（如「摘要失败」+「角色卡部分失败」），分条画。 */
+.failure-tip-item + .failure-tip-item {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.failure-tip-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+/* 「未改动」/「部分完成」——这是用户最想知道的一件事：磁盘上的东西动没动。 */
+.failure-tip-badge {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.failure-tip-badge.failure-error {
+  background: var(--vscode-inputValidation-errorBackground, rgba(241, 76, 76, 0.15));
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.failure-tip-badge.failure-warn {
+  background: var(--vscode-inputValidation-warningBackground, rgba(255, 204, 0, 0.15));
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.failure-tip-time {
+  color: var(--vscode-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+}
+
+.failure-tip-msg {
+  font-weight: 600;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.failure-tip-detail {
+  margin-top: 2px;
+  color: var(--vscode-descriptionForeground);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.failure-tip-foot {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}

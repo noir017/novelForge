@@ -1,6 +1,7 @@
 import { appearancesOf, buildCastIndex, CastMember, describeChapters } from '../cast';
 import { readConfig } from '../config';
 import { runPool, serialize } from '../concurrency';
+import { clearFailures, recordFailure } from '../errorLog';
 import { getHost } from '../host';
 import * as path from 'node:path';
 import { collectStream, ChatOptions } from '../llm/provider';
@@ -298,7 +299,19 @@ export async function updateAllCharacterCards(project: NovelProject, scope: Upda
             done += plan.batches.length + 1;
             if (result.status === 'rejected') {
               failed++;
-              log.error(`「${plan.card.name}」更新失败：${describeError(result.reason)}`, result.reason);
+              const reason = describeError(result.reason);
+              log.error(`「${plan.card.name}」更新失败：${reason}`, result.reason);
+              // 抛出来的异常（网络/超时/取消以外的错）此前只进了「失败 N 张」
+              // 这个汇总数字，看不出是哪一张。挂到卡上才找得回来。
+              void recordFailure(project, {
+                scope: '角色卡',
+                targetKind: 'character',
+                targetKey: plan.card.relPath,
+                severity: 'error',
+                op: 'updateCard',
+                message: `更新失败：${reason}`,
+                detail: `批量${label}时抛出异常，这张卡未改动｜共 ${plan.batches.length} 批`,
+              });
             } else if (result.value.status === 'updated') {
               updated++;
             } else if (result.value.status === 'failed') {
@@ -446,6 +459,13 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
       let created = 0;
       let failed = 0;
       const running = new Set<string>();
+      /**
+       * 每位人物那张刚落下的空卡的路径，按 plan 下标记。
+       *
+       * 抛异常时 `onSettled` 只拿得到 `plan`（那里只有名字），而失败记录要
+       * 挂在**文件**上。空卡是在 worker 里现建的，只能这样把路径带出来。
+       */
+      const seeded: (string | undefined)[] = [];
 
       const describeState = (): string =>
         `已完成 ${finished}/${plans.length} 位` +
@@ -454,12 +474,13 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
       await runPool(
         plans,
         lanes,
-        async (plan) => {
+        async (plan, i) => {
           // 先落一张空卡：即便模型调用失败/被取消，作者也拿到了一个可手写的档案。
           const card = await seedEmptyCard(project, plan.member);
           if (!card) {
             throw new Error(`建卡失败：${plan.member.name}`);
           }
+          seeded[i] = card.relPath;
           return runCardUpdate(
             project,
             card,
@@ -483,13 +504,28 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
           onStart: (plan) => {
             running.add(`「${plan.member.name}」`);
           },
-          onSettled: (result, plan, _index, count) => {
+          onSettled: (result, plan, index, count) => {
             running.delete(`「${plan.member.name}」`);
             finished = count;
             done += plan.batches.length + 1;
             if (result.status === 'rejected') {
               failed++;
-              log.error(`「${plan.member.name}」建卡失败：${describeError(result.reason)}`, result.reason);
+              const reason = describeError(result.reason);
+              log.error(`「${plan.member.name}」建卡失败：${reason}`, result.reason);
+              // 空卡已经落盘了（那是有意的），但它是空的——不挂个标记的话
+              // 作者会看到一张干净的新卡，以为模型就只写出这么点东西。
+              const relPath = seeded[index];
+              if (relPath) {
+                void recordFailure(project, {
+                  scope: '角色卡',
+                  targetKind: 'character',
+                  targetKey: relPath,
+                  severity: 'error',
+                  op: 'updateCard',
+                  message: `建卡失败：${reason}`,
+                  detail: '空卡已留下，可手写或重新运行「更新角色卡」重试。',
+                });
+              }
             } else if (result.value.status === 'updated') {
               created++;
             } else if (result.value.status === 'failed') {
@@ -715,11 +751,22 @@ async function runCardUpdate(
   // 一批都没成功：没有任何新内容，不要拿一份原样的卡去烦作者确认，
   // 更不能推进 updatedThrough（那等于宣称读过了这些章）。
   if (analyzed.length === 0) {
-    log.error(
-      `「${card.name}」的 ${batches.length} 批全部解析失败，角色卡未改动`,
-      '模型没有按要求返回 JSON。可在日志上方看到每批的失败记录；换个模型或稍后重试。'
-    );
+    const detail =
+      `范围 ${describeChapters(batches.flatMap((b) => b.chapters.map((c) => c.order)))}｜` +
+      '模型没有按要求返回 JSON。可在日志页看到每批的失败记录；换个模型或稍后重试。';
+    log.error(`「${card.name}」的 ${batches.length} 批全部解析失败，角色卡未改动`, detail);
     getHost().toast(`模型返回无法解析，「${card.name}」未改动。`, 'error');
+    // 日志与 toast 都是「要求用户恰好在看」的出口。这一条必须留在卡上：
+    // 界面上那张卡此刻与更新成功的一模一样，作者会以为已经更新过了。
+    await recordFailure(project, {
+      scope: '角色卡',
+      targetKind: 'character',
+      targetKey: card.relPath,
+      severity: 'error',
+      op: 'updateCard',
+      message: `${batches.length} 批全部解析失败，角色卡未改动`,
+      detail,
+    });
     return { status: 'failed' };
   }
 
@@ -743,10 +790,18 @@ async function runCardUpdate(
   const covered = analyzed.filter((o) => o < firstFailure);
   const updatedThrough = Math.max(card.updatedThrough ?? 0, ...covered, 0);
   if (failed.length > 0) {
-    log.warn(
-      `${failed.length} 章解析失败，「已读到」只推进到第 ${updatedThrough} 章`,
-      `失败章节：${describeChapters(unique2(failed))}｜下次更新会从这里重来`
-    );
+    const detail = `失败章节：${describeChapters(unique2(failed))}｜下次更新会从这里重来`;
+    log.warn(`${failed.length} 章解析失败，「已读到」只推进到第 ${updatedThrough} 章`, detail);
+    // 这一条以前只有日志：卡确实更新了一部分，界面上完全看不出还缺一块。
+    await recordFailure(project, {
+      scope: '角色卡',
+      targetKind: 'character',
+      targetKey: card.relPath,
+      severity: 'warn',
+      op: 'updateCard',
+      message: `${failed.length} 章解析失败，「已读到」只推进到第 ${updatedThrough} 章`,
+      detail,
+    });
   }
   const merged = {
     slug: card.slug,
@@ -777,6 +832,11 @@ async function runCardUpdate(
     );
   }
   ctx.report('完成', steps, steps);
+  // 全批都成功才算这张卡「好了」，把它挂着的旧感叹号收掉。
+  // 有失败批次时不能清——上面刚记了一条 warn，清掉等于自己把它抹了。
+  if (failed.length === 0) {
+    await clearFailures(project, 'character', card.relPath, 'updateCard');
+  }
   return { status: 'updated', updatedThrough: merged.updatedThrough };
 }
 

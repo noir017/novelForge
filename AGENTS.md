@@ -14,7 +14,7 @@ npm run compile          # esbuild 打包到 dist/extension.js + dist/media/ 的
 npm run watch            # 监听构建（两边都监听）
 npm run media            # 只构建前端资源（media/src → dist/media/）
 npm run typecheck        # tsc --noEmit，含 media/tsconfig.json，必须零错误
-npm run smoke             # 十五个离线冒烟测试，不需要 API Key
+npm run smoke             # 十六个离线冒烟测试，不需要 API Key
 npm test                 # typecheck + smoke
 ```
 
@@ -27,7 +27,7 @@ npm test                 # typecheck + smoke
 | 模块 | 一句话职责 | README |
 |---|---|---|
 | `src/` | 三层架构总览与一条续写请求的完整链路 | [src/README.md](src/README.md) |
-| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts、出场人物索引 cast.ts、资源管理器目录列举 fileTree.ts、三区类文件操作 fileOps.ts、工程根范围文件操作 projectFiles.ts、日志 logger.ts、长任务 progress.ts） | [src/core/README.md](src/core/README.md) |
+| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts、出场人物索引 cast.ts、资源管理器目录列举 fileTree.ts、三区类文件操作 fileOps.ts、工程根范围文件操作 projectFiles.ts、日志 logger.ts、失败记录 errorLog.ts、工程库 db.ts、长任务 progress.ts） | [src/core/README.md](src/core/README.md) |
 | `src/core/model/` | 数据层：NovelProject、Markdown 解析、章节文件名规则、服务商配置、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/context/` | ★ 分层预算上下文装配器 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/features/` | 功能编排：续写、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
@@ -72,6 +72,8 @@ npm test                 # typecheck + smoke
 12. **模型引用只在工程页任务里 fallback**：工程页的后台任务经 [src/core/llm/pool.ts](src/core/llm/pool.ts) 取模型（串行恒用 `models[0]`、失败随机换；并发轮转做负载均衡）；**对话页续写与连接测试严格用用户选定的那个模型**，中途换人会让文风断掉。构造池时只有首选模型能弹 API Key 输入框，备选缺 Key 一律剔除并 warn。
 13. **摘要是出场人物的唯一真相**：单章摘要让模型输出 JSON，解析后落盘仍是 Markdown（作者要手改），结构化的出场人物写进 frontmatter 的 `cast`。角色卡里的 `appearsIn` / `updatedThrough` 只是缓存，要用就经 [src/core/cast.ts](src/core/cast.ts) 的 `buildCastIndex()` 从摘要重算。摘要解析必须保留三层降级（JSON → Markdown 小节 → 全文进梗概）——解析失败等于这一章的剧情永远进不了上下文。 **`cast` 的 aliases 只收专属称呼**（经 [src/core/naming.ts](src/core/naming.ts) 过滤掉代词/亲属称谓/泛称/描述短语）：它是「谁是谁」的判据，`姐姐` 会把三个女角色串成一个。判定两个称呼是同一个人只信**同章共现**这条硬约束（[src/core/identity.ts](src/core/identity.ts)）——同章各自出场的两个人永不合并，一条幻觉别名不该把主角和她孪生弟弟并成一个。
 14. **角色卡不能无限膨胀**：它每次续写都要注入上下文。更新角色卡的提示词给每一节都定了字数上限，并明确「性格 / 语言习惯」优先、外貌与人物关系从简。加字段或改提示词时别把这条抹掉。
+15. **失败要留在出错的东西身上**：日志与 toast 都要求用户「恰好在看」——toast 五秒就没，日志页得主动去翻。所以角色卡/章节/设定失败时除了打日志，还要经 [src/core/errorLog.ts](src/core/errorLog.ts) 记一条，工程页那一行上挂红色感叹号（整体失败、目标未改动）或黄色（部分完成、下次会重来），悬停看原因。**成功路径必须 `clearFailures`**：修好了还挂着标记，用户会学会无视它。新增「可能失败且用户看不出来」的动作时照这条接上。
+16. **SQLite 只放可丢弃的痕迹**：工程库在 `.novelforge/novelforge.db`（[src/core/db.ts](src/core/db.ts)），目前只有失败记录与日志历史两张表。**内容的唯一真相永远是 Markdown**——作者要手改、要 diff、要进 Git，别把角色卡/摘要/设定的正文往库里搬。库是增强不是新的失败源：打不开就静默降级（只 warn 一次），所有 API 内部吞异常，绝不能出现「因为一张日志表而更新不了角色卡」。另外两条实现约束：两个壳用**两个不同的驱动**（插件/Node 用 `node:sqlite`，独立版 Bun 用 `bun:sqlite`），模块名必须拼接后 `await import`（写成字面量 esbuild 会解析 `bun:sqlite` 失败）；语句一律用完即 finalize（bun 侧不 finalize 的话 Windows 上库文件删不掉），所以 `SqlDatabase` 只暴露 run/all/insertMany，不给 prepare。
 
 ## 提交约定
 

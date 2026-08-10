@@ -8,6 +8,13 @@ out/
 
 src/standalone/mediaAssets.ts
 sample-novel/.novelforge/sessions
+
+# 工程数据库（失败记录 + 日志历史）。它是可丢弃的痕迹，不是内容——
+# 内容一律是 Markdown。WAL 模式还会带出 -wal / -shm 两个附属文件。
+*.db
+*.db-wal
+*.db-shm
+
 .claude/
 temp/
 local/

@@ -412,6 +412,8 @@ function sampleTree() {
     ],
     lore: [],
     summaryCount: 3,
+    // 正常工程这里是空对象——只有出错的目标才有记录。
+    failures: {},
     // 林昭出场三章、上次只更新到第 1 章 → 待更新 2 章；李叔从没在摘要里出现。
     castByCard: {
       '.novelforge/characters/林昭.md': {
@@ -1008,6 +1010,47 @@ console.log('\n== 日志页 ==');
 
   ui.post({ type: 'logs', entries: [entry(7, 'info', '日志', '日志已清空')] });
   check('清空后只剩痕迹那条', rows().length === 1 && texts()[0].includes('日志已清空'), texts().join(' | '));
+
+  // ---- 「加载更早」：内存缓冲只有几百条且随进程消失，更早的存在工程库里。
+  // 默认路径（切到日志页）仍然只看缓冲，一次查询都不做，所以这里要验的是
+  // 「只有点了按钮才发消息」。
+  ui.post({
+    type: 'logs',
+    entries: [entry(20, 'info', '摘要', '本次会话的一条')],
+  });
+  ui.sent.length = 0;
+  check('切到日志页不主动要历史', !ui.sent.some((m) => m.type === 'requestLogHistory'));
+
+  const earlierBtn = ui.doc.getElementById('logEarlierBtn');
+  check('日志页有「加载更早」按钮', !!earlierBtn);
+  earlierBtn.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const ask = ui.sent.find((m) => m.type === 'requestLogHistory');
+  check('点按钮发 requestLogHistory', !!ask, JSON.stringify(ui.sent));
+  // before 是已显示的最早那条的时间戳，据它继续往前翻。
+  check('带上已显示的最早时间戳', ask && typeof ask.before === 'string', JSON.stringify(ask));
+
+  // 历史接在最前面（seq 取负，与实时序号不会撞）。
+  ui.post({
+    type: 'logHistory',
+    entries: [
+      { seq: -2, level: 'error', scope: '角色卡', message: '上次会话的失败', at: new Date(2026, 0, 1, 9, 0, 0).toISOString() },
+      { seq: -1, level: 'info', scope: '摘要', message: '上次会话的一条', at: new Date(2026, 0, 1, 9, 0, 1).toISOString() },
+    ],
+    exhausted: false,
+  });
+  check('历史接在最前面', texts()[0].includes('上次会话的失败'), texts().join(' | '));
+  check('本次会话的日志还在', texts().some((t) => t.includes('本次会话的一条')), texts().join(' | '));
+
+  // 再往前没有了：按钮禁用并改文案，别让用户一直点一个没反应的按钮。
+  ui.post({ type: 'logHistory', entries: [], exhausted: true });
+  check('没有更早时按钮禁用', ui.doc.getElementById('logEarlierBtn').disabled);
+  check('没有更早时改文案',
+    ui.doc.getElementById('logEarlierBtn').textContent.includes('没有更早'),
+    ui.doc.getElementById('logEarlierBtn').textContent);
+
+  // 切筛选条件不该把加载进来的历史丢掉（那以前会走 renderLogs 重置状态）。
+  setLevel('debug');
+  check('切筛选后历史仍在', texts().some((t) => t.includes('上次会话的失败')), texts().join(' | '));
 }
 
 // ---------------------------------------------------------------- 资源管理器
@@ -1472,6 +1515,136 @@ async function detailTipTests() {
   check('重渲染后浮窗随之收起', !tip());
 }
 
+/**
+ * 失败标记（红色感叹号）与它的悬停浮窗。
+ *
+ * 这是「解析失败只有日志、用户看不到」那个 bug 的界面出口：卡一字未改，
+ * 而树上那一行此前与更新成功的一模一样。所以要验的是**看得见**与**说得清**。
+ *
+ * 与 detailTip 一样有悬停延迟（errorTip.ts 里是 300ms），只能等真定时器，
+ * 所以整块是异步的，排在末尾。
+ */
+async function failureTipTests() {
+  console.log('\n== 失败标记与悬停浮窗 ==');
+  const ui = mount();
+  const tip = () => ui.doc.querySelector('.failure-tip');
+  const rowWith = (text) =>
+    [...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes(text));
+  const markIn = (text) => {
+    const row = rowWith(text);
+    return row ? row.querySelector('.row-failure') : null;
+  };
+  const hover = (node) => node.dispatchEvent(new ui.window.MouseEvent('mouseover', { bubbles: true }));
+  /** 等过悬停延迟（HOVER_DELAY_MS 是 300ms）。 */
+  const settle = () => new Promise((r) => setTimeout(r, 550));
+  /** 等过收起的宽限（CLOSE_DELAY_MS 是 200ms）。 */
+  const grace = () => new Promise((r) => setTimeout(r, 320));
+
+  const CARD = '.novelforge/characters/林昭.md';
+  const CHAPTER = 'chapters/001-楔子.md';
+
+  // ---- 没有失败记录时，树上不该多出任何东西
+  ui.post({ type: 'project', tree: sampleTree() });
+  check('没有失败记录时不显示感叹号', !markIn('林昭'));
+  check('没有失败记录时没有浮窗', !tip());
+
+  // 旧后端推来的树没有 failures 字段，前端不能因此崩。
+  const legacy = sampleTree();
+  delete legacy.failures;
+  let threw = false;
+  try {
+    ui.post({ type: 'project', tree: legacy });
+  } catch {
+    threw = true;
+  }
+  check('缺 failures 字段时不崩', !threw && !!rowWith('林昭'));
+
+  // ---- 有失败记录：对应行挂上感叹号
+  const tree = sampleTree();
+  tree.failures = {
+    [CARD]: [
+      {
+        at: '2026-08-10T11:31:40.000Z',
+        severity: 'error',
+        message: '1 批全部解析失败，角色卡未改动',
+        detail: '模型没有按要求返回 JSON。换个模型或稍后重试。',
+      },
+    ],
+    [CHAPTER]: [
+      { at: '2026-08-10T11:20:00.000Z', severity: 'warn', message: '3 章解析失败，「已读到」只推进到第 2 章' },
+    ],
+  };
+  ui.post({ type: 'project', tree });
+
+  const cardMark = markIn('林昭');
+  check('出错的角色行挂上感叹号', !!cardMark);
+  check('没出错的角色行没有感叹号', !markIn('李叔'));
+  if (cardMark) {
+    check('整体失败标红', cardMark.classList.contains('is-error'), cardMark.className);
+    // 浮窗要等 300ms，原生 title 作兜底，鼠标一停就有提示。
+    check('感叹号带 title 兜底', cardMark.title.includes('未改动'), cardMark.title);
+  }
+  const chapterMark = markIn('楔子');
+  check('出错的章节行也挂上感叹号', !!chapterMark);
+  check('部分完成标黄而非标红',
+    chapterMark && chapterMark.classList.contains('is-warn'), chapterMark && chapterMark.className);
+
+  // ---- 悬停：延迟后弹浮窗，说清「改没改」与原因
+  hover(cardMark);
+  check('悬停后不立刻弹出（有延迟，免得划过时闪）', !tip());
+  await settle();
+
+  const box = tip();
+  check('悬停感叹号后弹出浮窗', !!box);
+  if (box) {
+    check('浮窗挂在 body 上（工程页有内部滚动，挂在行里会被裁掉）',
+      box.parentElement === ui.doc.body);
+    check('浮窗给出失败原因', box.textContent.includes('1 批全部解析失败'), box.textContent);
+    check('浮窗给出补充说明', box.textContent.includes('换个模型'), box.textContent);
+    // 用户最想知道的一件事：磁盘上的东西动没动。
+    check('浮窗点明「未改动」', box.textContent.includes('未改动'), box.textContent);
+    check('浮窗告知标记会自动消失', box.textContent.includes('自动消失'), box.textContent);
+  }
+
+  // ---- 可进入：详情有好几行、常含模型返回的片段，用户要能选中复制
+  box.dispatchEvent(new ui.window.MouseEvent('mouseleave', { bubbles: false }));
+  box.dispatchEvent(new ui.window.MouseEvent('mouseenter', { bubbles: false }));
+  await grace();
+  check('鼠标停在浮窗上时不收起', tip() === box);
+
+  // ---- 移开：宽限后收起
+  hover(ui.doc.querySelector('#projectBody .group-head'));
+  await grace();
+  check('移开后浮窗收起', !tip());
+
+  // ---- 同一目标挂多条：分条画，不是挤成一段
+  const multi = sampleTree();
+  multi.failures = {
+    [CARD]: [
+      { at: '2026-08-10T11:31:40.000Z', severity: 'error', message: '角色卡失败' },
+      { at: '2026-08-10T10:00:00.000Z', severity: 'warn', message: '摘要也失败了' },
+    ],
+  };
+  ui.post({ type: 'project', tree: multi });
+  hover(markIn('林昭'));
+  await settle();
+  const multiBox = tip();
+  check('同一目标的多条各占一块',
+    multiBox && multiBox.querySelectorAll('.failure-tip-item').length === 2,
+    multiBox && String(multiBox.querySelectorAll('.failure-tip-item').length));
+  // 有一条是 error 就按红色算——那比「部分完成」严重，不能被黄色盖过去。
+  check('混合严重度时按最严重的标色',
+    markIn('林昭').classList.contains('is-error'), markIn('林昭').className);
+
+  // ---- 重渲染把行换掉后，开着的浮窗必须清掉（指向的是已丢弃的节点）
+  ui.post({ type: 'project', tree: multi });
+  check('重渲染后浮窗随之收起', !tip());
+
+  // ---- 修好之后：后端不再推这条记录，感叹号就该没了
+  ui.post({ type: 'project', tree: sampleTree() });
+  check('后端不再推记录时感叹号消失', !markIn('林昭'));
+}
+
 console.log('\n== 文件页：剪贴板与右键菜单 ==');
 {
   const ui = mountExplorer();
@@ -1595,6 +1768,7 @@ console.log('\n== 内置编辑器：右键菜单与标签搬家 ==');
 
 summaryTipTests()
   .then(detailTipTests)
+  .then(failureTipTests)
   .then(() => {
   console.log(`\n${failures === 0 ? '全部通过' : `${failures} 项失败`}\n`);
   process.exit(failures === 0 ? 0 : 1);
