@@ -106,6 +106,45 @@ function quoteIfNeeded(value: string): string {
 }
 
 /**
+ * 只改 frontmatter，正文一个字节都不动。
+ *
+ * 维护类动作（清理别名、合并重复角色卡）改的全是元数据，但作者的正文可能
+ * 被手工排过版、加过自定义小节。用 `renderCharacterCard` 整卡重渲染会把这些
+ * 悄悄抹平——那是「不静默覆盖」的反面。所以这里只重写 `---` 之间那一段，
+ * 后面的内容原样接回去。
+ *
+ * `patch` 里值为 `undefined` 的键表示**删除**该字段。原有字段的顺序保留，
+ * 新字段追加在末尾。没有 frontmatter 的文件返回 undefined（调用方跳过）。
+ */
+export function rewriteFrontmatter(
+  text: string,
+  patch: Record<string, string | number | string[] | undefined>
+): string | undefined {
+  // BOM 要原样留着——它不属于 frontmatter，抹掉等于偷偷改了文件编码。
+  const bom = text.startsWith('﻿') ? '﻿' : '';
+  const rest = bom ? text.slice(1) : text;
+  const match = FM_FENCE.exec(rest);
+  if (!match) {
+    return undefined;
+  }
+
+  const current = parseFrontmatter(match[1]);
+  const merged: Record<string, string | number | string[] | undefined> = {};
+  for (const [key, value] of Object.entries(current)) {
+    merged[key] = key in patch ? patch[key] : value;
+  }
+  for (const [key, value] of Object.entries(patch)) {
+    if (!(key in merged)) {
+      merged[key] = value;
+    }
+  }
+
+  const eol = rest.includes('\r\n') ? '\r\n' : '\n';
+  const fence = stringifyFrontmatter(merged).split('\n').join(eol);
+  return `${bom}${fence}${eol}${rest.slice(match[0].length)}`;
+}
+
+/**
  * 把正文按 `## 小节名` 切开。返回小节名 → 内容（不含标题行，已 trim）。
  * `##` 之前的前言内容放在 key `''` 下。
  */

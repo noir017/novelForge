@@ -199,3 +199,14 @@
 .row-empty {
   padding: 4px 4px 6px 16px;
 }
+
+/* 「多张卡抢同一个称呼」的提示行。出场统计有一处必然是错的，得看得见。 */
+.row-conflict {
+  margin: 4px 10px 6px 16px;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  background: var(--vscode-inputValidation-warningBackground, rgba(255, 204, 0, 0.15));
+  border: 1px solid var(--vscode-inputValidation-warningBorder, rgba(255, 204, 0, 0.5));
+  font-size: 0.85em;
+  line-height: 1.5;
+}

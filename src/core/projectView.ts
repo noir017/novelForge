@@ -1,8 +1,10 @@
 import { buildCastIndex, describeChapters } from './cast';
+import { scoped } from './logger';
 import { SECTION_PLACEHOLDER } from './model/markdown';
 import { NovelProject } from './model/project';
 import { SUMMARY_SECTION_KEYS } from './model/types';
 import {
+  CastConflictView,
   CastEntry,
   CastSummary,
   ChapterSummaryView,
@@ -12,6 +14,14 @@ import {
   ProjectNode,
   ProjectTree,
 } from './protocol';
+
+const log = scoped('角色卡');
+
+/**
+ * 上一次报过的冲突签名。工程页每次刷新都会走到这里，同一批冲突反复打进日志
+ * 会把日志页淹掉——变了才说一次。
+ */
+let lastConflictSignature = '';
 
 /**
  * 工程页的数据来源。
@@ -45,6 +55,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       lore: [],
       cast: [],
       castByCard: {},
+      castConflicts: [],
       summaryCount: 0,
       chaptersRoot,
       charactersRoot,
@@ -125,6 +136,17 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     detail: describeChapters(member.chapters),
   }));
 
+  const bySlug = new Map(characters.map((c) => [c.slug, c]));
+  const castConflicts: CastConflictView[] = castIndex.conflicts.map((conflict) => ({
+    name: conflict.name,
+    kind: conflict.kind,
+    cards: conflict.slugs
+      .map((slug) => bySlug.get(slug))
+      .filter((c): c is NonNullable<typeof c> => !!c)
+      .map((c) => ({ name: c.name, relPath: c.relPath })),
+  }));
+  reportConflicts(castConflicts);
+
   const staleCount = chapterLeaves.filter((r) => r.stale).length;
   return {
     initialized: true,
@@ -139,6 +161,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     lore: nest(loreRoot, loreLeaves, loreDirs),
     cast,
     castByCard,
+    castConflicts,
     summaryCount: castIndex.summaryCount,
     chaptersRoot,
     charactersRoot,
@@ -148,6 +171,31 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     outlinePath,
     globalSummaryPath,
   };
+}
+
+/**
+ * 冲突进日志。前端也会显示一条，但日志才是事后能翻的地方——
+ * 「上周那批出场统计怎么会错」只有这里答得上。
+ */
+function reportConflicts(conflicts: CastConflictView[]): void {
+  const signature = conflicts.map((c) => `${c.kind}:${c.name}:${c.cards.map((x) => x.relPath).join(',')}`).join('|');
+  if (signature === lastConflictSignature) {
+    return;
+  }
+  lastConflictSignature = signature;
+  if (conflicts.length === 0) {
+    return;
+  }
+  log.warn(
+    `${conflicts.length} 个称呼被多张角色卡同时声明，出场统计必然有一张是错的`,
+    conflicts
+      .map(
+        (c) =>
+          `「${c.name}」← ${c.cards.map((x) => x.name).join(' / ')}` +
+          `（${c.kind === 'name' ? '两张卡的正式名一模一样，多半是同一个人建了两张卡' : '被多张卡当成自己的称呼，出场统计只算给第一张'}）`
+      )
+      .join('；') + '｜可用角色分组右键的「查找并合并重复角色卡」「清理别名」处理'
+  );
 }
 
 /**

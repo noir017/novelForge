@@ -17,6 +17,7 @@ import {
   writeText,
 } from '../model/project';
 import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
+import { explainDroppedAliases, sanitizeAliases } from '../naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { stripCodeFence } from './summarize';
 
@@ -522,7 +523,7 @@ async function seedEmptyCard(project: NovelProject, member: CastMember): Promise
   const relPath = await project.writeCharacter({
     slug,
     name: member.name,
-    aliases: member.aliases,
+    aliases: sanitizeAliases(member.aliases, member.name),
     tags: [],
     firstAppear: member.chapters[0],
     lastSeen: member.chapters[member.chapters.length - 1],
@@ -723,6 +724,17 @@ async function runCardUpdate(
   }
 
   ctx.report('写入角色卡', batches.length, steps);
+  // 别名在这里收一次口：并集是只进不出的，模型吐出的 `她`/`姐姐`/`少女` 一旦
+  // 混进来就再也出不去，而别名是「谁是谁」的判据（cast.ts / identity.ts 都吃它），
+  // 泛称会把几个角色串成一个。顺带把存量脏别名一并清掉——差异走 diff 审阅，看得见。
+  const droppedAliases = explainDroppedAliases(aliases, card.name);
+  aliases = sanitizeAliases(aliases, card.name);
+  if (droppedAliases.length > 0) {
+    log.info(
+      `「${card.name}」丢弃 ${droppedAliases.length} 个非专属称呼`,
+      droppedAliases.map((d) => `${d.alias}（${d.reason}）`).join('、')
+    );
+  }
   const appearances = unique2(
     opts.scope === 'incremental' ? [...card.appearsIn, ...opts.allAppearances] : opts.allAppearances
   );
@@ -992,7 +1004,7 @@ export function parseCardResponse(raw: string): ParsedCard | undefined {
   if (!any) {
     return undefined;
   }
-  return { sections, aliases: toStringArray(obj.aliases), tags: toStringArray(obj.tags) };
+  return { sections, aliases: sanitizeAliases(toStringArray(obj.aliases)), tags: toStringArray(obj.tags) };
 }
 
 function toStringArray(v: unknown): string[] {
@@ -1041,7 +1053,7 @@ const UPDATE_SYSTEM = `你是小说编辑，负责维护一部长篇小说的人
 请只输出一个 JSON 对象，除 JSON 外不要输出任何文字、解释或前后缀：
 
 {
-  "aliases": ["正文中对他的其它称呼"],
+  "aliases": ["正文中对他的**专属**称呼"],
   "tags": ["主角" 或 "配角" 或 "反派" 等，最多 3 个],
   "身份": "他是谁、在故事中的位置。80 字以内。",
   "外貌": "只写反复出现、有辨识度的特征。50 字以内，没写清楚就留空。",
@@ -1053,6 +1065,10 @@ const UPDATE_SYSTEM = `你是小说编辑，负责维护一部长篇小说的人
 }
 
 修订原则（**这几条比补充新内容更重要**）：
+- **aliases 只收专属称呼**：姓名的其它写法、绰号、独一无二的职称。
+  **不要**代词（他/她）、亲属称谓（姐姐/舅父）、泛称（少女/丫头/小姐/公子）、
+  带修饰语的描述（「满身血迹的少女」），也**绝不要填别人的名字**——
+  程序拿 aliases 判断「谁是谁」，混进一个就会把两个角色认成同一个人。
 - **档案要精炼，不是越长越好**。它会在每次续写时注入模型，臃肿的档案会挤掉正文。
   每一节都不要超过上面给的字数；写满了就删掉最不重要的那句，而不是往后加。
 - **优先保证「性格」和「语言习惯」**。这两节决定模型能不能把这个人写像；

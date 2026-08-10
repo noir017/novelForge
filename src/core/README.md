@@ -30,6 +30,8 @@
 | [stores.ts](stores.ts) | 文件后端的配置/密钥存储（`~/.novelforge/`），双壳共用。 |
 | [projectView.ts](projectView.ts) | 工程页的数据来源：把数据层给的扁平文件清单折成 `ProjectNode` 目录树（章节、角色、设定、摘要新鲜度、草稿有无），展开/折叠状态留在前端。另有 `buildChapterSummaryView`——悬停浮窗要看的单章摘要，按需单取。 |
 | [cast.ts](cast.ts) | ★ 出场人物索引：把各章摘要的 `cast` 反向聚合成「谁在哪些章出现过」。工程页的角色区、「更新角色卡」取语料、角色卡的 `appearsIn` 都吃它。 |
+| [naming.ts](naming.ts) | ★ 称呼学（纯函数、零 I/O）：`isGenericAppellation` 判断一个词是不是泛称（代词、亲属称谓、`少女`/`丫头` 这类谁都能用的词、带修饰语的描述短语），`sanitizeAliases` 据此过滤别名。**只过滤 aliases，绝不过滤 name**——`店小二`、`家老`、`房东` 这类以泛称当正式名的角色确实存在。 |
+| [identity.ts](identity.ts) | ★ 同一人聚类（纯函数）：把摘要里散落的称呼归并成人。判据是**同章共现作硬约束的贪心聚类**——同一章 cast 里各自出场的两个称呼永不合并，候选链接按「多少章这么写过」计票贪心处理。朴素并查集在这里是错的：一条幻觉别名会顺着传递闭包把主角和她孪生弟弟并成一个人。 |
 | [fileTree.ts](fileTree.ts) | 独立版「文件」页（资源管理器）的数据来源：按目录**懒加载**列举磁盘上的真实结构，一层一次。与 projectView.ts 是两件事——那边是整理过的语义视图，这里一个文件都不藏（**含 `.novelforge/` 等点开头的目录**，只挡 `node_modules` 与 `.git`）。路径包含检查复用 fileEditing.ts；读失败降级成带 `error` 的空结果而不抛。 |
 
 ## 已知约定
@@ -45,6 +47,8 @@
 - **草稿永不自动注入**：`context/builder.ts` 里没有任何一处读 `drafts/`，草稿只能经 `resolveAttachment`（作者显式 `@` 引用）进 prompt。加功能时别打破这条——它是「不偷偷烧 token」的一部分。
 - **`openDraft` 会写盘**：`controller.ts` 里那句 `listChapters().find(...)` 是它没变成「往 `drafts/<任意路径>` 写文件」的原语的唯一原因。别为了省一次扫描就信任前端传来的路径。
 - **摘要是出场人物的唯一真相**：角色卡 frontmatter 里的 `appearsIn` / `updatedThrough` **只是缓存**。想知道谁在哪出场，一律经 `cast.ts` 的 `buildCastIndex()` 从摘要重算，别读角色卡的字段——摘要重跑之后那里就旧了。索引按 `name ∪ aliases` 匹配（摘要里的名字是模型写的，角色卡文件名是作者起的，两者没有硬关联）。
+- **别名只收专属称呼，正式名压过别名**：aliases 是「谁是谁」的判据（`cast.ts` / `identity.ts` 都吃它），泛称会把几个角色串成一个，别人的名字会让出场章节整批记错人。所以模型产出的别名一律经 `naming.ts` 过滤，索引两趟建表（先占正式名再登记别名）。抢名的情况记进 `CastIndex.conflicts`，由工程页与日志说出来——出场统计必然有一张卡是错的，而这件事从界面上看不出来。
+- **判定两个称呼是同一个人，只信同章共现**：`identity.ts` 里同一章 cast 中各自出场的两个称呼是硬约束，永不合并；别的都只是证据。把两个角色错并成一个远比多建一张卡难收拾——此后所有出场统计与角色卡语料都是错的，而界面上一切正常。
 - **`characterAction` 与 `fileAction` 不能合并**：前者的作用对象是**一个角色**（用名字标识），未建卡的人物根本没有文件，走 `fileAction` 那套区守卫无从谈起。
 - **资源管理器只列不改，写走 projectFiles**：`fileTree.ts` 是纯读取，没有新建/删除/改名。「文件」页的写入口只有 `projectFiles.ts`（重命名/移动/复制，工程根范围，固定目录受保护，同名不覆盖）；删除入口仍然只在工程页（`fileOps.ts`，搬进 `.trash/`）。往文件页加新写操作前，先想清楚它绕过了这里的哪一条约束。
 - **`watchedDirs` 是前端说了算的**：controller 记住前端最近一次 `listDir` 报上来的展开集合，`pushTabData` 时照着重推。它只是「该关注哪些目录」的缓存，不是权限——每次列举仍然过 `resolveInRoot`，越界照拒。

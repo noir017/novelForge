@@ -14,7 +14,7 @@ npm run compile          # esbuild 打包到 dist/extension.js + dist/media/ 的
 npm run watch            # 监听构建（两边都监听）
 npm run media            # 只构建前端资源（media/src → dist/media/）
 npm run typecheck        # tsc --noEmit，含 media/tsconfig.json，必须零错误
-npm run smoke             # 十三个离线冒烟测试，不需要 API Key
+npm run smoke             # 十四个离线冒烟测试，不需要 API Key
 npm test                 # typecheck + smoke
 ```
 
@@ -70,7 +70,7 @@ npm test                 # typecheck + smoke
 10. **草稿不进上下文**：`drafts/` 只有作者显式 `@` 引用才进 prompt，装配器永不自动读它。按需创建（首次点「打开草稿」），已存在绝不覆盖；章节改名/移动时草稿跟着走，删章节不删草稿（确认框里会说明）。
 11. **不闷着干活**：任何要调模型或跑几十秒的动作都必须看得见——走 [src/core/progress.ts](src/core/progress.ts) 的 `runTask`（工程页顶部出进度条：n/N、百分比、计时、可停止），并在 [src/core/logger.ts](src/core/logger.ts) 里留下开始/每步/结束与耗时。日志页（第四个页签）是用户唯一能事后复查「刚才那 76 章卡在哪」的地方。**日志里绝不出现 API Key**（统一走 `redact`），也**绝不记 prompt 或正文全文**（只记条数与字数）。并发跑时（[src/core/concurrency.ts](src/core/concurrency.ts) 的 `runPool`）`current` **只在一项真正结束时 +1**，message 报「已完成 n/N + 正在跑哪几项」——按启动数递增会让进度条冲到头然后干等。
 12. **模型引用只在工程页任务里 fallback**：工程页的后台任务经 [src/core/llm/pool.ts](src/core/llm/pool.ts) 取模型（串行恒用 `models[0]`、失败随机换；并发轮转做负载均衡）；**对话页续写与连接测试严格用用户选定的那个模型**，中途换人会让文风断掉。构造池时只有首选模型能弹 API Key 输入框，备选缺 Key 一律剔除并 warn。
-13. **摘要是出场人物的唯一真相**：单章摘要让模型输出 JSON，解析后落盘仍是 Markdown（作者要手改），结构化的出场人物写进 frontmatter 的 `cast`。角色卡里的 `appearsIn` / `updatedThrough` 只是缓存，要用就经 [src/core/cast.ts](src/core/cast.ts) 的 `buildCastIndex()` 从摘要重算。摘要解析必须保留三层降级（JSON → Markdown 小节 → 全文进梗概）——解析失败等于这一章的剧情永远进不了上下文。
+13. **摘要是出场人物的唯一真相**：单章摘要让模型输出 JSON，解析后落盘仍是 Markdown（作者要手改），结构化的出场人物写进 frontmatter 的 `cast`。角色卡里的 `appearsIn` / `updatedThrough` 只是缓存，要用就经 [src/core/cast.ts](src/core/cast.ts) 的 `buildCastIndex()` 从摘要重算。摘要解析必须保留三层降级（JSON → Markdown 小节 → 全文进梗概）——解析失败等于这一章的剧情永远进不了上下文。 **`cast` 的 aliases 只收专属称呼**（经 [src/core/naming.ts](src/core/naming.ts) 过滤掉代词/亲属称谓/泛称/描述短语）：它是「谁是谁」的判据，`姐姐` 会把三个女角色串成一个。判定两个称呼是同一个人只信**同章共现**这条硬约束（[src/core/identity.ts](src/core/identity.ts)）——同章各自出场的两个人永不合并，一条幻觉别名不该把主角和她孪生弟弟并成一个。
 14. **角色卡不能无限膨胀**：它每次续写都要注入上下文。更新角色卡的提示词给每一节都定了字数上限，并明确「性格 / 语言习惯」优先、外貌与人物关系从简。加字段或改提示词时别把这条抹掉。
 
 ## 提交约定

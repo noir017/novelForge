@@ -12,6 +12,7 @@
 import { el as mk } from '../../dom';
 import type { MenuItem } from '../../globals';
 import type {
+  CastConflictView,
   CastEntry,
   ProjectChapterNode,
   ProjectDirNode,
@@ -267,4 +268,22 @@ export function emptyRow(text: string, depth?: number): HTMLElement {
     row.style.paddingLeft = `${indentOf(depth)}px`;
   }
   return row;
+}
+
+/**
+ * 「多张卡抢同一个称呼」的提示行，挂在角色分组顶部。
+ *
+ * 出场统计按称呼归属，一个称呼只能算给一张卡——有冲突就必然有一张的出场
+ * 章节是错的，而这件事从界面上完全看不出来（两张卡各自都显示得好好的）。
+ * 所以必须显式说出来，并指向能解决它的那两个菜单项。
+ */
+export function buildConflictRow(conflict: CastConflictView): HTMLElement {
+  const cards = conflict.cards.map((c) => `「${c.name}」`);
+  const text =
+    conflict.kind === 'name'
+      ? `⚠ ${cards.join('、')} 都叫「${conflict.name}」，出场统计只会算给其中一张。` +
+        '多半是同一个人建了两张卡——用本组右键的「查找并合并重复角色卡」。'
+      : `⚠ 「${conflict.name}」被 ${cards.join('、')} 同时当作自己的称呼，出场统计只会算给 ${cards[0] ?? ''}。` +
+        '若它们本来就是同一个人，用本组右键的「查找并合并重复角色卡」；若是别名填错了人，用「清理别名」。';
+  return mk('div', 'row-conflict', text);
 }

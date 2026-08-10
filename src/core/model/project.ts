@@ -19,6 +19,7 @@ import {
 } from './types';
 import { extractH1, parseMarkdown, pickSections, stringifyFrontmatter, stringifySections, stripH1 } from './markdown';
 import { isChapterFileName, isMarkdownExt, isMarkdownPath, parseChapterFileName } from './chapterFile';
+import { sanitizeAliases } from '../naming';
 
 const NOVEL_DIR = '.novelforge';
 /** 0.1.x 用的目录名。检测到就提示迁移，不静默改动用户文件。 */
@@ -969,7 +970,9 @@ export function castFromText(text: string): SummaryCast[] {
       }
       if (!seen.has(entry.name)) {
         seen.add(entry.name);
-        out.push(entry);
+        // 别名同样要过泛称关：这条回退路径产出的 cast 与 JSON 路径的一样，
+        // 会被 identity.ts 拿去判断「谁是谁」。
+        out.push({ name: entry.name, aliases: sanitizeAliases(entry.aliases, entry.name) });
       }
     }
   }
