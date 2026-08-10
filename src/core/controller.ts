@@ -752,15 +752,20 @@ export class ChatController {
     // 历史是本轮之前的所有轮次（不含刚插入的两条）。
     const history = this.current.turns.slice(0, -2).filter((t) => t.content.trim());
 
+    // 协议层的 stage/capability/target 在第四阶段接入，这里先按旧的 mode 桥接：
+    // 讨论 → 正文·讨论，续写 → 正文·生成。章节尚未落盘时 relPath 留空，
+    // 装配器据此退回用 targetOrder 定位「前文」边界。
+    const targetChapter = await this.project.getChapter(payload.targetOrder);
     const built = await this.session.generate(
       {
+        action: { stage: 'manuscript', capability: payload.mode === 'discuss' ? 'discuss' : 'generate' },
+        target: { kind: 'manuscript', chapterRelPath: targetChapter?.relPath ?? '' },
         targetOrder: payload.targetOrder,
-        outline: userTurn.content,
+        ask: userTurn.content,
         targetWords: payload.targetWords > 0 ? payload.targetWords : undefined,
         excludedIds: userTurn.excludedIds,
         attachments: userTurn.attachments,
         history,
-        mode: payload.mode,
       },
       {
         onDelta: (delta) => this.post({ type: 'delta', turnId: assistantTurn.id, text: delta }),

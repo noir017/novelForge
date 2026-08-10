@@ -122,6 +122,26 @@ const baseConfig = {
   requestTimeoutMs: 300000,
 };
 
+// ---------------------------------------------------------------- 请求构造
+// 装配请求现在带 action（阶段 × 能力）与 target（在改哪个产物），
+// 旧的 mode: 'write' | 'discuss' 对应正文阶段的 generate / discuss。
+const WRITE = { stage: 'manuscript', capability: 'generate' };
+const DISCUSS = { stage: 'manuscript', capability: 'discuss' };
+
+/**
+ * 默认目标是「第 4 章」——它还没落盘，所以 chapterRelPath 留空，
+ * 由 targetOrder 定位「前文」边界。这正是续写下一章的真实情形。
+ */
+function req(ask, extra = {}) {
+  return {
+    action: WRITE,
+    target: { kind: 'manuscript', chapterRelPath: '' },
+    targetOrder: 4,
+    ask,
+    ...extra,
+  };
+}
+
 async function main() {
   const project = projectMod.NovelProject.open(SAMPLE);
 
@@ -155,13 +175,13 @@ async function main() {
   // ------------------------------------------------------------ 充裕预算
   console.log('\n== 装配：预算充裕（128k） ==');
   const outline = '林昭答应给年轻守卫看令牌，两人约定天亮后去见他母亲。沈氏在楼下听见了动静。';
-  const built = await builderMod.buildContext(project, { targetOrder: 4, outline, targetWords: 2000 }, baseConfig);
+  const built = await builderMod.buildContext(project, req(outline, { targetWords: 2000 }), baseConfig);
 
   const byId = new Map(built.items.map((i) => [i.id, i]));
   const inc = (id) => byId.get(id) && (byId.get(id).status === 'included' || byId.get(id).status === 'degraded');
 
   check('P0 系统提示已注入', inc('system'));
-  check('P0 纲要已注入', inc('outline'));
+  check('P0 纲要已注入', inc('ask'));
   check('P1 文风指南已注入', inc('style'));
   check('P1 全书摘要已注入', inc('globalSummary'));
   check('P3 第 3 章原文已注入', inc('chapterFull:3'));
@@ -224,7 +244,7 @@ async function main() {
     const mid = ch3SummaryTokens + Math.floor((ch3Full - ch3SummaryTokens) / 2);
     const window = upToP2Tokens + mid + 2000 + 512;
     const cfg = { ...baseConfig, prevChapterTailChars: 0, maxOutputTokens: 2000, contextWindow: window };
-    const deg = await builderMod.buildContext(project, { targetOrder: 4, outline }, cfg);
+    const deg = await builderMod.buildContext(project, req(outline), cfg);
     const dById = new Map(deg.items.map((i) => [i.id, i]));
 
     check('结尾片段已关闭时不注入 prevTail', !dById.has('prevTail:3'));
@@ -241,10 +261,10 @@ async function main() {
 
   console.log('\n== 装配：预算极小（P0 之外几乎全丢） ==');
   const tight = { ...baseConfig, contextWindow: 3000, maxOutputTokens: 2000, prevChapterTailChars: 300 };
-  const small = await builderMod.buildContext(project, { targetOrder: 4, outline }, tight);
+  const small = await builderMod.buildContext(project, req(outline), tight);
   const sById = new Map(small.items.map((i) => [i.id, i]));
 
-  check('P0 纲要仍然注入', sById.get('outline').status === 'included');
+  check('P0 纲要仍然注入', sById.get('ask').status === 'included');
   check('P0 上一章结尾仍然注入', sById.get('prevTail:3').status === 'included',
     `status=${sById.get('prevTail:3').status}`);
   check('结尾片段确实带正文', sById.get('prevTail:3').text.includes('月亮出来'));
@@ -277,7 +297,7 @@ async function main() {
   console.log('\n== 装配：手动排除条目 ==');
   const excluded = await builderMod.buildContext(
     project,
-    { targetOrder: 4, outline, excludedIds: ['style', 'character:沈氏', 'chapterFull:2'] },
+    req(outline, { excludedIds: ['style', 'character:沈氏', 'chapterFull:2'] }),
     baseConfig
   );
   const eById = new Map(excluded.items.map((i) => [i.id, i]));
@@ -293,7 +313,7 @@ async function main() {
   console.log('\n== 装配：provider 配额压缩 ==');
   const clamped = await builderMod.buildContext(
     project,
-    { targetOrder: 4, outline, providerMaxInputTokens: 8000 },
+    req(outline, { providerMaxInputTokens: 8000 }),
     baseConfig
   );
   check('标记为被 provider 压缩', clamped.budgetClampedByProvider === true);
@@ -304,11 +324,9 @@ async function main() {
   console.log('\n== 装配：带修改意见重写 ==');
   const rev = await builderMod.buildContext(
     project,
-    {
-      targetOrder: 4,
-      outline,
+    req(outline, {
       revision: { previousDraft: '上一版的正文内容，写得太文气了。', feedback: '对白改口语一些' },
-    },
+    }),
     baseConfig
   );
   const rById = new Map(rev.items.map((i) => [i.id, i]));
@@ -321,13 +339,13 @@ async function main() {
   console.log('\n== 装配：从第 1 章开始写（无前文） ==');
   const first = await builderMod.buildContext(
     project,
-    { targetOrder: 1, outline: '开篇：主角进城。' },
+    req('开篇：主角进城。', { targetOrder: 1 }),
     baseConfig
   );
   const fById = new Map(first.items.map((i) => [i.id, i]));
   check('无前一章时不注入 prevTail', ![...fById.keys()].some((k) => k.startsWith('prevTail:')));
   check('无前文时不注入章节原文', ![...fById.keys()].some((k) => k.startsWith('chapterFull:')));
-  check('仍然注入系统提示与纲要', fById.get('system').status === 'included' && fById.get('outline').status === 'included');
+  check('仍然注入系统提示与纲要', fById.get('system').status === 'included' && fById.get('ask').status === 'included');
   check('仍然注入文风指南', fById.get('style').status === 'included');
   check('主角仍被注入（tags 含主角）', fById.get('character:林昭').status === 'included');
   check('主角注入原因为「主角，始终注入」', fById.get('character:林昭').note.includes('主角'));
@@ -336,7 +354,8 @@ async function main() {
   console.log('\n== 装配：追加到第 3 章（targetOrder=3） ==');
   const append = await builderMod.buildContext(
     project,
-    { targetOrder: 3, outline: '接着写下去。' },
+    // 追加到已经落盘的第 3 章：target 指向它自己，序号由磁盘决定。
+    req('接着写下去。', { target: { kind: 'manuscript', chapterRelPath: 'chapters/003-夜访.md' } }),
     baseConfig
   );
   const aById = new Map(append.items.map((i) => [i.id, i]));
@@ -348,16 +367,14 @@ async function main() {
   {
     const att = await builderMod.buildContext(
       project,
-      {
-        targetOrder: 4,
-        outline: '继续写。',
+      req('继续写。', {
         attachments: [
           { id: 'sel1', kind: 'selection', label: '003-夜访.md:5-9', relPath: 'chapters/003-夜访.md',
             range: { start: 5, end: 9 }, text: '这是我选中的一段话，请针对它修改。' },
           { id: 'file1', kind: 'character', label: '林昭.md', relPath: '.novelforge/characters/林昭.md' },
           { id: 'gone', kind: 'file', label: '不存在.md', relPath: 'chapters/不存在.md' },
         ],
-      },
+      }),
       baseConfig
     );
     const m = new Map(att.items.map((i) => [i.id, i]));
@@ -369,8 +386,8 @@ async function main() {
     check('缺失附件带原因', m.get('attachment:gone').note.includes('不存在'));
     check('user 含引用段', att.messages[att.messages.length - 1].content.includes('# 我引用的内容'));
     check('附件可被手动排除', (await builderMod.buildContext(project,
-      { targetOrder: 4, outline: 'x', attachments: [{ id: 'sel1', kind: 'selection', label: 'a', text: '内容' }],
-        excludedIds: ['attachment:sel1'] }, baseConfig))
+      req('x', { attachments: [{ id: 'sel1', kind: 'selection', label: 'a', text: '内容' }],
+        excludedIds: ['attachment:sel1'] }), baseConfig))
       .items.find((i) => i.id === 'attachment:sel1').status === 'excluded');
   }
 
@@ -379,11 +396,7 @@ async function main() {
     const huge = '很长的引用内容。'.repeat(4000);
     const att = await builderMod.buildContext(
       project,
-      {
-        targetOrder: 4,
-        outline: '继续写。',
-        attachments: [{ id: 'big', kind: 'file', label: '大文件.md', text: huge }],
-      },
+      req('继续写。', { attachments: [{ id: 'big', kind: 'file', label: '大文件.md', text: huge }] }),
       { ...baseConfig, contextWindow: 20000, maxOutputTokens: 2000 }
     );
     const item = att.items.find((i) => i.id === 'attachment:big');
@@ -405,7 +418,7 @@ async function main() {
     ];
     const conv = await builderMod.buildContext(
       project,
-      { targetOrder: 4, outline: '接着写夜里的部分。', history },
+      req('接着写夜里的部分。', { history }),
       baseConfig
     );
     const m = new Map(conv.items.map((i) => [i.id, i]));
@@ -425,7 +438,7 @@ async function main() {
 
     const someExcluded = await builderMod.buildContext(
       project,
-      { targetOrder: 4, outline: 'x', history, excludedIds: ['history:h2'] },
+      req('x', { history, excludedIds: ['history:h2'] }),
       baseConfig
     );
     check('历史可被手动排除',
@@ -449,7 +462,7 @@ async function main() {
     const cfg = { ...baseConfig, contextWindow: 40000 };
     const conv = await builderMod.buildContext(
       project,
-      { targetOrder: 4, outline: '继续。', history: many },
+      req('继续。', { history: many }),
       cfg
     );
     const hist = conv.items.filter((i) => i.kind === 'history');
@@ -477,7 +490,7 @@ async function main() {
     };
     const conv = await builderMod.buildContext(
       project,
-      { targetOrder: 4, outline: '继续。', history: [long] },
+      req('继续。', { history: [long] }),
       { ...baseConfig, contextWindow: 40000 }
     );
     const item = conv.items.find((i) => i.id === 'history:big');
@@ -492,18 +505,189 @@ async function main() {
   {
     const d = await builderMod.buildContext(
       project,
-      { targetOrder: 4, outline: '林昭这个人物到目前为止立住了吗？', mode: 'discuss', targetWords: 2000 },
+      req('林昭这个人物到目前为止立住了吗？', { action: DISCUSS, targetWords: 2000 }),
       baseConfig
     );
-    check('系统提示切换为编辑角色', d.messages[0].content.includes('编辑'), d.messages[0].content.slice(0, 30));
+    // 正文阶段的讨论对象仍是「作者」这个身份——找编辑聊要切到大纲阶段去，
+    // 那是身份换人的地方（见下面的四阶段配方）。
+    check('系统提示保持正文阶段的身份', d.messages[0].content.includes('作者'), d.messages[0].content.slice(0, 30));
+    check('系统提示写明本层职责', d.messages[0].content.includes('剧情不由你决定'));
     check('discuss 不强制只输出正文', !d.messages[0].content.includes('只输出正文'));
+    check('discuss 禁止顺手改写产物', d.messages[0].content.includes('不要输出改写后的完整产物'));
     const last = d.messages[d.messages.length - 1].content;
     check('末尾指令为「直接回答」', last.includes('请直接回答上面的问题'));
     check('discuss 忽略目标字数', !last.includes('2000 字'));
+    check('discuss 的用户输入不叫「剧情纲要」', !last.includes('本章剧情纲要'), last.slice(-400));
     check('discuss 仍注入文风与角色', last.includes('# 文风指南') && last.includes('# 相关角色设定'));
     check('write 模式仍要求只输出正文',
-      (await builderMod.buildContext(project, { targetOrder: 4, outline: 'x' }, baseConfig))
+      (await builderMod.buildContext(project, req('x'), baseConfig))
         .messages[0].content.includes('只输出正文'));
+  }
+
+  console.log('\n== 装配：四阶段配方 ==');
+  {
+    // 示例工程本身没有细纲与场景（它是 0.2.x 的样子），这里临时造一套，
+    // 跑完就删干净——不能把测试产物留在示例工程里。
+    const CH3 = 'chapters/003-夜访.md';
+    const CH2 = 'chapters/002-客栈里的女人.md';
+    const planSections = (goal) => ({
+      本章目标: goal,
+      开头: '林昭在楼下听见脚步声。',
+      结尾: '沈氏推门进来，手里握着半枚令牌。',
+      冲突与节奏: '三拍：试探、摊牌、被打断。第二拍最危险。',
+      伏笔与回收: '埋：沈氏袖口的烧痕。收：楔子里那半枚令牌的来路。',
+    });
+    const sceneSections = (goal, must) => ({
+      目的: goal,
+      前置: '林昭已经进了客栈，天还没亮。',
+      必须发生: must,
+      不能发生: '不能提前说破沈氏的身份。',
+      情绪曲线: '警惕 → 试探 → 短暂的信任',
+      人物状态: '林昭不知道沈氏见过他母亲。',
+      伏笔: '袖口的烧痕一闪而过。',
+    });
+
+    try {
+      await project.writePlan(CH2, {
+        chapterRelPath: CH2, order: 2, title: '客栈里的女人', arc: '第一卷 · 停舟',
+        upstreamHash: '', done: false, sections: planSections('林昭第一次见到沈氏。'),
+      });
+      await project.writePlan(CH3, {
+        chapterRelPath: CH3, order: 3, title: '夜访', arc: '第一卷 · 停舟',
+        targetWords: 3000, upstreamHash: '', done: false,
+        sections: planSections('沈氏摊牌，令牌的另一半现身。'),
+      });
+      for (const [no, title, who, must] of [
+        [1, '楼下的脚步', ['林昭'], '- 林昭听见脚步停在门外'],
+        [2, '摊牌', ['林昭', '沈氏'], '- 沈氏拿出半枚令牌\n- 林昭承认自己是谁'],
+        [3, '被打断', ['林昭', '沈氏', '客栈掌柜'], '- 掌柜敲门，谈话中断'],
+      ]) {
+        await project.writeScene(CH3, {
+          chapterRelPath: CH3, no, title, place: '青崖客栈', time: '寅时',
+          characters: who, targetWords: 1000, upstreamHash: '', status: 'ready',
+          sections: sceneSections(`把「${title}」这一拍演完`, must),
+        });
+      }
+      project.invalidate();
+
+      const ids = (built) => new Map(built.items.map((i) => [i.id, i]));
+      const alive = (m, id) => m.has(id) && m.get(id).status !== 'dropped' && m.get(id).status !== 'excluded';
+
+      // ---------------------------------------------------------- 大纲阶段
+      const oc = await builderMod.buildContext(
+        project,
+        { action: { stage: 'outline', capability: 'discuss' }, target: { kind: 'outline' },
+          ask: '第一卷的冲突升级够不够？' },
+        baseConfig
+      );
+      const oIds = ids(oc);
+      check('大纲阶段身份是策划编辑', oc.messages[0].content.includes('策划编辑'),
+        oc.messages[0].content.slice(0, 24));
+      check('大纲阶段注入大纲全文', alive(oIds, 'outlineDoc'));
+      check('大纲全文进了 user 段', oc.messages[1].content.includes('一句话立意'));
+      // 这是分阶段装配最直接的成本收益：讨论故事结构时不该读三章原文。
+      check('大纲阶段不带任何正文原文',
+        ![...oIds.keys()].some((k) => k.startsWith('chapterFull:')),
+        [...oIds.keys()].filter((k) => k.startsWith('chapterFull:')).join(','));
+      check('大纲阶段全书摘要都在',
+        [1, 2, 3].every((n) => alive(oIds, `chapterSummary:${n}`)),
+        [...oIds.keys()].filter((k) => k.startsWith('chapterSummary:')).join(','));
+      check('大纲阶段不写「只输出正文」', !oc.messages[0].content.includes('只输出正文'));
+
+      // ---------------------------------------------------------- 细纲阶段
+      const pc = await builderMod.buildContext(
+        project,
+        { action: { stage: 'plan', capability: 'discuss' },
+          target: { kind: 'plan', chapterRelPath: CH3 }, ask: '这一章的节奏是不是太平？' },
+        baseConfig
+      );
+      const pIds = ids(pc);
+      check('细纲阶段身份是剧情导演', pc.messages[0].content.includes('剧情导演'),
+        pc.messages[0].content.slice(0, 24));
+      check('细纲阶段注入本章细纲', alive(pIds, `plan:${CH3}`));
+      check('细纲阶段注入上一章细纲', alive(pIds, `plan:${CH2}`));
+      check('两份细纲都进了 user 段',
+        pc.messages[1].content.includes('沈氏摊牌') && pc.messages[1].content.includes('第一次见到沈氏'));
+      check('细纲阶段带上全书大纲', alive(pIds, 'outlineDoc'));
+      check('细纲阶段不带正文原文',
+        ![...pIds.keys()].some((k) => k.startsWith('chapterFull:')),
+        [...pIds.keys()].filter((k) => k.startsWith('chapterFull:')).join(','));
+      check('细纲阶段前文只到第 2 章', alive(pIds, 'chapterSummary:2') && !pIds.has('chapterSummary:3'));
+      // 同一个问题，正文阶段要为整章原文付钱，细纲阶段一个字都不付。
+      // 这里不比总量：示例工程一章才三四百字，省下的绝对值看不出来；
+      // 真实工程一章三千字 × 近三章，差的就是一个数量级。
+      const mcSame = await builderMod.buildContext(
+        project,
+        { action: WRITE, target: { kind: 'manuscript', chapterRelPath: CH3 },
+          ask: '这一章的节奏是不是太平？' },
+        baseConfig
+      );
+      const fullTokens = (b) => b.items.filter((i) => i.kind === 'chapterFull').reduce((s, i) => s + i.tokens, 0);
+      check('正文阶段确实为整章原文花了 token', fullTokens(mcSame) > 0, String(fullTokens(mcSame)));
+      check('细纲阶段一个字的原文都不花', fullTokens(pc) === 0, String(fullTokens(pc)));
+
+      // ---------------------------------------------------------- 细节阶段
+      const sc = await builderMod.buildContext(
+        project,
+        { action: { stage: 'scene', capability: 'generate' },
+          target: { kind: 'scene', chapterRelPath: CH3, sceneNo: 2 },
+          ask: '把这一场写扎实一点。' },
+        baseConfig
+      );
+      const sIds = ids(sc);
+      const sceneRel = (no) => [...sIds.keys()].find((k) => k.startsWith('scene:') && k.includes(`/0${no}-`));
+      check('细节阶段身份是编剧', sc.messages[0].content.includes('编剧'), sc.messages[0].content.slice(0, 24));
+      check('细节阶段注入本场', alive(sIds, sceneRel(2)), sceneRel(2));
+      check('细节阶段注入前后两场', alive(sIds, sceneRel(1)) && alive(sIds, sceneRel(3)));
+      check('邻居场景标注了前后关系', sIds.get(sceneRel(1)).label.includes('上一场')
+        && sIds.get(sceneRel(3)).label.includes('下一场'));
+      check('邻居只给约束不给整张卡', !sIds.get(sceneRel(1)).text.includes('情绪曲线'),
+        sIds.get(sceneRel(1)).text.slice(0, 60));
+      check('细节阶段带本章细纲', alive(sIds, `plan:${CH3}`));
+      // ★ 这一条是分阶段装配最直接的质量收益：出场人物来自场景 frontmatter，
+      //   而不是在用户那一句话里做子串匹配——用户这句话里一个人名都没有。
+      check('角色按场景在场人物精确取', alive(sIds, 'character:沈氏'));
+      check('取卡原因写明是本场出场', sIds.get('character:沈氏').note === '本场出场人物',
+        sIds.get('character:沈氏').note);
+      check('细节阶段角色卡升到 P1', sIds.get('character:沈氏').priority === 1,
+        String(sIds.get('character:沈氏').priority));
+      check('细节阶段不带正文原文',
+        ![...sIds.keys()].some((k) => k.startsWith('chapterFull:')));
+      check('细节阶段的输出契约是场景 JSON',
+        sc.messages[1].content.includes('"不能发生"') && sc.messages[1].content.includes('只输出 JSON'));
+
+      // ---------------------------------------------------------- 正文阶段
+      const mc = await builderMod.buildContext(
+        project,
+        { action: WRITE, target: { kind: 'manuscript', chapterRelPath: CH3, sceneNo: 2 },
+          ask: '按这一场写。', targetWords: 1200 },
+        baseConfig
+      );
+      const mIds = ids(mc);
+      check('正文阶段仍带整章原文', [...mIds.keys()].some((k) => k.startsWith('chapterFull:')));
+      check('正文阶段带本场场景卡', alive(mIds, sceneRel(2)) || alive(mIds, `scene:.novelforge/scenes/003-夜访/02-摊牌.md`));
+      check('正文阶段文风指南升到 P0', mIds.get('style').priority === 0, String(mIds.get('style').priority));
+      // ★ 另一条质量收益：文风指南不再与一段长对话抢预算。预算紧到只剩强制项时，
+      //   它必须仍然在——「读者感觉不到换人执笔」全靠它。
+      const squeezed = await builderMod.buildContext(
+        project,
+        { action: WRITE, target: { kind: 'manuscript', chapterRelPath: CH3 }, ask: '继续。' },
+        { ...baseConfig, contextWindow: 3000, maxOutputTokens: 2000 }
+      );
+      const qIds = ids(squeezed);
+      check('预算极小时文风指南仍强制注入', qIds.get('style').status === 'included',
+        qIds.get('style').status);
+      check('预算极小时确实挤掉了别的东西',
+        squeezed.items.some((i) => i.status === 'dropped'));
+      check('文风指南进了 user 段', squeezed.messages[1].content.includes('# 文风指南'));
+    } finally {
+      fs.rmSync(path.join(SAMPLE, '.novelforge', 'plans'), { recursive: true, force: true });
+      fs.rmSync(path.join(SAMPLE, '.novelforge', 'scenes'), { recursive: true, force: true });
+      project.invalidate();
+    }
+    check('测试产物已清理',
+      !fs.existsSync(path.join(SAMPLE, '.novelforge', 'plans')) &&
+      !fs.existsSync(path.join(SAMPLE, '.novelforge', 'scenes')));
   }
 
   console.log('\n== 工程页数据 ==');

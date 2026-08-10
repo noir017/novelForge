@@ -5,6 +5,7 @@ import { buildProvider, resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
 import { describeError, elapsed, scoped } from '../logger';
 import { NovelProject, sanitizeFileName } from '../model/project';
+import { CAPABILITY_LABEL, STAGE_LABEL, describeTarget as describeCreationTarget } from '../model/pipeline';
 import {
   describeModelIssue,
   ProviderProfile,
@@ -74,8 +75,9 @@ export class ContinueSession {
     }
 
     const startedAt = Date.now();
+    const { stage, capability } = request.action;
     log.info(
-      `开始${request.mode === 'discuss' ? '讨论' : '续写'}：目标第 ${request.targetOrder} 章`,
+      `开始${STAGE_LABEL[stage]}·${CAPABILITY_LABEL[capability]}：${describeCreationTarget(request.target)}`,
       `模型 ${provider.label}${request.targetWords ? `｜目标 ${request.targetWords} 字` : ''}` +
         `${request.attachments?.length ? `｜引用 ${request.attachments.length} 项` : ''}` +
         `${request.history?.length ? `｜历史 ${request.history.length} 轮` : ''}`

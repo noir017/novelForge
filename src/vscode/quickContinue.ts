@@ -24,7 +24,13 @@ export async function quickContinue(project: NovelProject): Promise<void> {
     async (_progress, token) => {
       token.onCancellationRequested(() => session.stop());
       await session.generate(
-        { targetOrder: order, outline },
+        {
+          action: { stage: 'manuscript', capability: 'generate' },
+          // 快速续写永远写「下一章」，那一章还不存在，relPath 留空。
+          target: { kind: 'manuscript', chapterRelPath: '' },
+          targetOrder: order,
+          ask: outline,
+        },
         {
           onDelta: (delta) => {
             void editor.edit(
