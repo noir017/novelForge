@@ -617,6 +617,12 @@ export class NovelProject {
     return entries;
   }
 
+  async writeLore(entry: WritableLoreEntry): Promise<string> {
+    const abs = path.join(this.loreDir, `${entry.slug}.md`);
+    await writeText(abs, renderLoreEntry(entry));
+    return this.relPath(abs);
+  }
+
   /**
    * 某个区目录下的文件标识：去掉扩展名的相对路径（正斜杠）。
    * 根目录下的文件与改造前一致（就是文件名），子目录里的形如 `主角/林昭`——
@@ -688,6 +694,9 @@ export type WritableCharacterCard = Omit<CharacterCard, 'relPath' | 'body' | 'ap
   appearsIn?: number[];
 };
 
+/** 写设定条目时的入参。slug 可以带子目录前缀。 */
+export type WritableLoreEntry = Omit<LoreEntry, 'relPath'>;
+
 export function renderCharacterCard(card: WritableCharacterCard): string {
   const fm = stringifyFrontmatter({
     name: card.name,
@@ -704,6 +713,15 @@ export function renderCharacterCard(card: WritableCharacterCard): string {
     keepEmpty: true,
   });
   return `${fm}\n\n# ${card.name}\n\n${body}\n`;
+}
+
+/** 将设定条目渲染成作者可继续手改的普通 Markdown。 */
+export function renderLoreEntry(entry: WritableLoreEntry): string {
+  const fm = stringifyFrontmatter({
+    title: entry.title,
+    keywords: entry.keywords,
+  });
+  return `${fm}\n\n# ${entry.title}\n\n${entry.body.trim()}\n`;
 }
 
 export function emptyCharacterSections(): CharacterSections {

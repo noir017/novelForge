@@ -4,6 +4,7 @@ import { ChatController } from '../core/controller';
 import { promoteModel, setLegacyConfigReader } from '../core/config';
 import { extractCharacters, newCharacter, newLore } from '../core/features/characters';
 import { updateCharacterCard } from '../core/features/characterCard';
+import { generateLore } from '../core/features/lore';
 import { appearancesOf, buildCastIndex, describeChapters } from '../core/cast';
 import { newFolder, sectionRoots } from '../core/fileOps';
 import { extractStyle } from '../core/features/style';
@@ -302,6 +303,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const target = await requireProject();
     if (target) {
       await extractCharacters(target);
+      await refresh();
+    }
+  });
+
+  register('novel.generateLore', async () => {
+    const target = await requireProject();
+    if (target) {
+      await generateLore(target);
       await refresh();
     }
   });

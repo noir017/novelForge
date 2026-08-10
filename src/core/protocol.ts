@@ -147,6 +147,7 @@ export type ProjectAction =
   | 'syncSummaries'
   | 'rebuildGlobalSummary'
   | 'extractCharacters'
+  | 'generateLore'
   | 'extractStyle';
 
 /**

@@ -13,6 +13,7 @@ import {
   updateCharacterCard,
 } from './features/characterCard';
 import { ContinueSession } from './features/continueWriting';
+import { generateLore } from './features/lore';
 import { extractStyle } from './features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from './features/summarize';
 import { getHost } from './host';
@@ -901,6 +902,9 @@ export class ChatController {
         break;
       case 'extractCharacters':
         await extractCharacters(this.project);
+        break;
+      case 'generateLore':
+        await generateLore(this.project);
         break;
       case 'extractStyle':
         await extractStyle(this.project);

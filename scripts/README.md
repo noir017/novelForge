@@ -1,6 +1,6 @@
 # scripts — 离线冒烟测试
 
-十三个不依赖 VS Code、也不需要真实 API Key 的测试脚本，`npm run smoke` 依次执行（末尾的 `smoke-server.js` 需要 bun），`npm test` = typecheck + core 纯度检查 + smoke。
+十四个不依赖 VS Code、也不需要真实 API Key 的测试脚本，`npm run smoke` 依次执行（末尾的 `smoke-server.js` 需要 bun），`npm test` = typecheck + core 纯度检查 + smoke。
 
 | 脚本 | 覆盖范围 |
 |---|---|
@@ -12,6 +12,7 @@
 | [smoke-projectFiles.js](smoke-projectFiles.js) | 工程根范围的类文件操作（独立版「文件」页）：重命名/移动/复制、固定目录保护、同名拒绝、垃圾箱豁免、章节联动（草稿跟随与 manifest 同步） |
 | [smoke-chapters.js](smoke-chapters.js) | ★ 章节文件名规则与草稿。前半：任意非二进制扩展名 / 无扩展名算章节、二进制黑名单被挡、非 markdown 章节不解析 H1（正文中段的 `# xxx` 不当标题也不被剥）、`extractH1` 只看首行、角色区仍只认 `.md`、`isEditablePath` 放行无扩展名章节。后半：草稿路径镜像、按需创建且**第二次不覆盖**、`.md` 有模板 `.txt` 留空、不混进章节树与 manifest、`@` 引用只列已存在的草稿、跟随章节改名/移动（目标已有则拒绝）、删章节不删草稿 |
 | [smoke-characterCard.js](smoke-characterCard.js) | ★ **更新角色卡**：假 provider（经 `registerProviderFactory` 注入，不碰 SecretStore）跑完整流程。分批（小窗口撑出多批）、确认框里写明「通读 N 章、分 M 批、预计调用 M 次」、只装该角色的出场章节、后续批次带上当前档案、提示词含控篇幅与「性格/语言习惯优先」；增量只读新章且没有新章时**一次模型都不调**；解析失败——部分失败仍写回成果但**水位线停在第一个失败章节之前**（越过去那几章就永久跳过了）、全部失败则一字不改并报错；用户取消/审阅放弃都不落盘；摘要里没出现的角色直接拒绝；给未建卡人物建卡（新卡带 `appearsIn`、不走 diff、建完离开未建卡列表）；**并发**——批量更新时模型请求确实重叠且不超过配置值，而 **diff 审阅仍一次只弹一张**，「预计调用 N 次」在并发下依然对得上账；**「全部建卡」**——确认框报清人数/章数/调用次数、取消时不留下空卡、并发建卡后全部离开未建卡列表 |
+| [smoke-lore.js](smoke-lore.js) | ★ **自动生成设定**：逐章识别调用次数、同一设定的跨章合并、分类目录落盘，以及已有设定必须经过审阅后才更新 |
 | [smoke-pool.js](smoke-pool.js) | ★ **并发与模型池**。`runPool`：并发峰值不超过 limit、结果按 index 对齐（完成顺序打乱也不影响）、单项失败不拖累其余、`limit=1` 严格串行、取消后不再起新任务且未启动的项占位为 `CancelledError`、`onSettled` 的计数单调不重复（进度条不会倒退）。`serialize`：同一时刻只跑一个、按入队顺序、前一个抛错不卡死后面的。模型池：并发轮转均摊到每个模型、串行恒用首选、首选失败后**换成别的**模型重试、同一模型不试两遍、重试不超过 `fallbackAttempts`、单模型池不重试、取消不 fallback、解析不出/构造不出的模型被剔除并留下 warn，且**剔除备选模型时不弹 API Key 输入框** |
 | [smoke-logging.js](smoke-logging.js) | ★ 日志与长任务。日志：脱敏（`sk-`／`Bearer`／`api_key=`／JSON 里的 `x-api-key` 都被抹，普通文本不受影响，message 与 detail 两条路径都过）、环形缓冲上限与「丢最旧的」、sink 级别过滤只作用于 sink（缓冲始终收全量）、**坏 sink 不抛给调用方也不影响别的 sink**、sink 内部再打日志不炸栈、detail 超长截断带说明、耗时/单行格式化。长任务：进度快照字段、字符串 `report` 只改文案而 current/total 沿用、宿主进度带 `（n/N）`、取消（任务体看得到 aborted）、抛异常时继续上抛且进日志、并发两个任务、结束后一律清表 |
 | [smoke-llm.js](smoke-llm.js) | 起本地假服务器模拟 SSE：流式解析（跨块切分、CRLF、心跳、非 JSON 行）、取消、超时、HTTP 401/404/429 错误信息，Anthropic 的 system 提取与消息合并 |

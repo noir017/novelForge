@@ -613,6 +613,19 @@ console.log('\n== 工程页的右键菜单 ==');
   check('「从头重建」发 rebuildAllCards',
     reAll && reAll.action === 'rebuildAllCards', JSON.stringify(reAll));
   closeAnyMenu(ui);
+
+  // ---- 设定分组：全书自动生成入口与手动新建并存。
+  const loreHead = [...ui.doc.querySelectorAll('#projectBody .group-head')]
+    .find((n) => n.querySelector('.group-name').textContent === '设定');
+  const loreItems = itemsOf(rightClick(loreHead));
+  check('设定分组菜单含自动生成入口',
+    loreItems.includes('从全部章节生成/更新设定'), JSON.stringify(loreItems));
+  check('设定分组菜单仍含手动新建', loreItems.includes('在此新建设定'), JSON.stringify(loreItems));
+  pick(rightClick(loreHead), '从全部章节生成/更新设定');
+  const generateLore = last('projectAction');
+  check('自动生成设定发 generateLore',
+    generateLore && generateLore.action === 'generateLore', JSON.stringify(generateLore));
+  closeAnyMenu(ui);
 }
 
 console.log('\n== 角色的出场统计与更新菜单 ==');

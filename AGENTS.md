@@ -14,7 +14,7 @@ npm run compile          # esbuild 打包到 dist/extension.js + dist/media/ 的
 npm run watch            # 监听构建（两边都监听）
 npm run media            # 只构建前端资源（media/src → dist/media/）
 npm run typecheck        # tsc --noEmit，含 media/tsconfig.json，必须零错误
-npm run smoke             # 十三个离线冒烟测试，不需要 API Key
+npm run smoke             # 十四个离线冒烟测试，不需要 API Key
 npm test                 # typecheck + smoke
 ```
 
@@ -30,7 +30,7 @@ npm test                 # typecheck + smoke
 | `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts、出场人物索引 cast.ts、资源管理器目录列举 fileTree.ts、三区类文件操作 fileOps.ts、工程根范围文件操作 projectFiles.ts、日志 logger.ts、长任务 progress.ts） | [src/core/README.md](src/core/README.md) |
 | `src/core/model/` | 数据层：NovelProject、Markdown 解析、章节文件名规则、服务商配置、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/context/` | ★ 分层预算上下文装配器 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
-| `src/core/features/` | 功能编排：续写、摘要、角色卡、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
+| `src/core/features/` | 功能编排：续写、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
 | `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
 | `src/ui/` | 宿主无关的面板逻辑：ChatController + @ 引用 | [src/ui/README.md](src/ui/README.md) |
 | `src/vscode/` | VS Code 宿主层：extension 入口、webview 宿主、vscode-lm | [src/vscode/README.md](src/vscode/README.md) |

@@ -9,6 +9,7 @@
 | [continueWriting.ts](continueWriting.ts) | ★ `ContinueSession`：续写编排——装配上下文 → 流式生成 → 回调交回调用方决定采纳。含 `preview()`（只装配不调用模型）、取消、输出清洗与连接测试。 |
 | [summarize.ts](summarize.ts) | 单章摘要（**模型输出 JSON**，解析成六个固定小节 + 结构化出场人物，temperature 固定 0.3）、批量同步过期摘要（各章并发）、map-reduce 重建全书摘要（每 N 章一批 reduce 再合并，map 阶段并发）。 |
 | [characters.ts](characters.ts) | 从选定章节**批量**提取/更新角色卡（一次扒出一批人）。**绝不静默覆盖作者手写的角色卡**——已存在的角色一律经 `Host.reviewReplace` 审阅确认，新角色直接创建。另含 `newCharacter` / `newLore` 的新建模板。 |
+| [lore.ts](lore.ts) | **从全书正文自动生成设定**：逐章识别可复用的世界观事实，再按设定整合跨章内容；新条目按分类创建，已有条目逐条审阅后才覆盖。 |
 | [characterCard.ts](characterCard.ts) | ★ **单个角色**的档案更新：自动关联出场章节、按预算分批调用、增量/全量两种范围。工程页角色行右键的「更新角色卡」走这里。另含批量更新全部角色卡与「给未建卡的人全部建卡」，两者都按卡并发。 |
 | [style.ts](style.ts) | 从 1~3 章样章归纳文风指南写入 `.novelforge/style.md`，覆盖前先确认（style.md 常被作者手工调过）。 |
 | [pickChapters.ts](pickChapters.ts) | 多章选择：Host.pick 只支持单选，需要多章时改为输入序号列表（如 `1,2,3`）。 |
@@ -44,7 +45,7 @@
 ## 关键设计
 
 - **回调而非返回**：生成类操作通过 `GenerateHandlers`（onDelta / onDone / onError / onCancelled）汇报进度，UI 层决定怎么展示流式内容。
-- **长任务走 `runTask`，不直调 `Host.progress`**：本层四个功能里除续写（它在对话页有流式气泡）以外全都是「点一下等半天」的批量活，一律经 [../progress.ts](../progress.ts)。`report({ message, current, total })` 里的 `total` 决定网页上画不画进度条——摘要同步是 `stale.length`，重建全书摘要是「批数 + 合并那一步」，角色/文风是固定三步/两步。
+- **长任务走 `runTask`，不直调 `Host.progress`**：本层除续写（它在对话页有流式气泡）以外的批量活一律经 [../progress.ts](../progress.ts)。`report({ message, current, total })` 里的 `total` 决定网页上画不画进度条——摘要同步是 `stale.length`，重建全书摘要是「批数 + 合并那一步」，角色/文风是固定三步/两步，设定生成是「章节扫描 + 设定整合 + 写入/审阅」。
 - **无先后依赖的条目并发跑**：章节摘要之间、角色卡之间、全书摘要的各阶段批次之间都没有依赖，一律经 [../concurrency.ts](../concurrency.ts) 的 `runPool`（并发量取 `config.concurrency`）。**有依赖的绝不并发**——同一张角色卡内部的分批必须串行，后一批要看到前一批的产出；全书摘要的 reduce 合并要等全部 map 到齐。并发下 `current` 只在项结束时 +1，`message` 报「已完成 n/N + 正在跑哪几项」。
 - **模型经 `llm/pool.ts` 取，不直调 `resolveProvider`**：这样才有「首选失败随机换模型」与并发轮转。本层唯一的例外是续写（`continueWriting.ts`），它必须用用户在对话页选定的那个模型。
 - **每一步都留痕**：批量任务逐项打一条 `info`（含刚完成的项、用时、平均速度、预计剩余），失败项打 `error` 并**继续跑完剩下的**，结束时汇总说明哪几项失败。日志里绝不出现 API Key（`logger.redact` 统一处理），也不记 prompt 全文。

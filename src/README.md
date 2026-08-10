@@ -7,7 +7,7 @@ src/
 ├── core/        核心逻辑：数据、上下文装配、功能编排、LLM 接入（见 core/README.md）
 │   ├── model/       数据层：NovelProject、Markdown 解析、服务商配置、会话
 │   ├── context/     ★ 分层预算上下文装配器 + token 粗估
-│   ├── features/    续写 / 摘要 / 角色卡 / 文风提取
+│   ├── features/    续写 / 摘要 / 角色卡 / 设定 / 文风提取
 │   ├── llm/         LlmProvider 接口与 OpenAI / Anthropic 实现
 │   ├── protocol.ts  webview ↔ 扩展消息协议（前后端唯一契约）
 │   ├── logger.ts    ★ 运行日志：环形缓冲 + sink（脱敏、不记 prompt 全文）

@@ -6,7 +6,7 @@
 |---|---|
 | [model/](model/README.md) | 数据层：数据结构、Markdown 解析、`NovelProject` 全部文件读写、服务商配置模型、会话存储 |
 | [context/](context/README.md) | ★ 上下文装配：token 粗估与分层预算装配器 |
-| [features/](features/README.md) | 功能编排：续写、摘要、角色卡、文风提取 |
+| [features/](features/README.md) | 功能编排：续写、摘要、角色卡、设定、文风提取 |
 | [llm/](llm/README.md) | 模型接入：`LlmProvider` 接口、OpenAI / Anthropic 协议实现、provider 注册表 |
 
 依赖方向自上而下：`features/` → `context/` / `llm/` → `model/`，反向不允许。

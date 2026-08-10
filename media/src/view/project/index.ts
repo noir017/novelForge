@@ -83,6 +83,10 @@ export function renderProject(tree: ProjectTree): void {
     buildGroup('lore', '设定', countLabel(tree.lore, '条'), {
       section: SECTIONS.lore,
       root: tree.loreRoot,
+      extraItems: () => [
+        { label: '从全部章节生成/更新设定', run: () => projectAction('generateLore') },
+        { sep: true },
+      ],
       build: () =>
         tree.lore.length === 0
           ? [emptyRow('还没有设定条目。keywords 命中纲要时会自动注入上下文。')]
