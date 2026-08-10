@@ -108,6 +108,7 @@ export function installSettings(): void {
   bindOpenModal(openProviderModal);
   installProviderModal();
   installCategoryTabs();
+  installAdvancedToggle();
 
   for (const id of Object.values(NUMERIC_FIELDS)) {
     maybeById(id)?.addEventListener('input', touch);
@@ -117,6 +118,31 @@ export function installSettings(): void {
   byId('nativeSettingsBtn').addEventListener('click', () =>
     vscode.postMessage({ type: 'openNativeSettings' })
   );
+}
+
+/**
+ * 「高级设置」折叠开关：默认收起模型分档/任务档位/请求与调度。
+ * 展开状态是纯 UI 状态，留在前端；重启后回到默认折叠。
+ */
+function installAdvancedToggle(): void {
+  const toggle = maybeById<HTMLButtonElement>('settingsAdvancedToggle');
+  const box = maybeById('settingsAdvanced');
+  if (!toggle || !box) {
+    return;
+  }
+  const sync = () => {
+    const open = !box.hidden;
+    toggle.setAttribute('aria-expanded', String(open));
+    const caret = toggle.querySelector('.caret');
+    if (caret) {
+      caret.textContent = open ? '▾' : '▸';
+    }
+  };
+  toggle.addEventListener('click', () => {
+    box.hidden = !box.hidden;
+    sync();
+  });
+  sync();
 }
 
 function showCategory(category: SettingsCategory, focus = false): void {

@@ -1266,6 +1266,33 @@ console.log('\n== 资源管理器（独立版「文件」页）==');
   ui.post({ type: 'settings', ack: 'saved', settings: old, keys: {} });
   check('旧后端不推分档字段时不崩', taskRows().length === 8, `${taskRows().length} 行`);
   check('缺字段时三档都渲染成空', refsOf('tierModelList-fast').length === 0);
+
+  // 「高级设置」折叠开关：模型分档及它后面的三块默认收起。
+  const advToggle = ui.doc.getElementById('settingsAdvancedToggle');
+  const advBox = ui.doc.getElementById('settingsAdvanced');
+  check('有高级设置开关', !!advToggle && !!advBox);
+  check('开关在模型配置页里', !!modelPanel && modelPanel.contains(advToggle));
+  check('高级设置默认折叠', !!advBox && advBox.hidden && advToggle.getAttribute('aria-expanded') === 'false');
+  check('折叠时箭头朝右', advToggle.querySelector('.caret').textContent === '▸');
+  const advancedHeads = [...advBox.querySelectorAll('.pane-head span')].map((s) => s.textContent);
+  check('高级设置收起的是模型分档及其后三块', advancedHeads.join(',') === '模型分档,任务档位,请求与调度', advancedHeads.join(','));
+  check('模型分档块在高级设置容器里', !!advBox.querySelector('.tier-grid'));
+
+  advToggle.click();
+  check('点击后展开', !advBox.hidden && advToggle.getAttribute('aria-expanded') === 'true');
+  check('展开后箭头朝下', advToggle.querySelector('.caret').textContent === '▾');
+  advToggle.click();
+  check('再点收起', advBox.hidden && advToggle.getAttribute('aria-expanded') === 'false');
+
+  // 折叠不影响保存：值仍在 DOM 里、照常进负载。
+  ui.post({
+    type: 'settings',
+    ack: 'saved',
+    settings: settings({ tierModels: { fast: ['p/cheap'], balanced: [], quality: ['p/smart'] } }),
+    keys: {},
+  });
+  sent = save();
+  check('折叠时保存照常带档位', sent.settings.tierModels.fast.join(',') === 'p/cheap', JSON.stringify(sent.settings.tierModels));
 }
 
 // ---------------------------------------------------------------- 摘要悬停浮窗
