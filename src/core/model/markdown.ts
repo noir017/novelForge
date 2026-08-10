@@ -144,6 +144,58 @@ export function rewriteFrontmatter(
   return `${bom}${fence}${eol}${rest.slice(match[0].length)}`;
 }
 
+// ---------------------------------------------------------------- frontmatter 取值
+//
+// 解析器只产出 `string | string[]`（见 parseFrontmatter），而调用方要的是
+// 字符串/数组/数字。这四个转换函数放在这里而不是各数据模块里，是因为
+// **作者会手改 frontmatter**：`targetWords: 三千`、`characters: 林昭`
+// （本该是数组）这类写法必须在同一个地方按同一套规则兜住，否则角色卡认
+// 一种、场景卡认另一种，同样的手改在两处表现不同。
+
+/** 取字符串；数组取首项；缺席为空串。 */
+export function asString(v: string | string[] | undefined): string {
+  if (Array.isArray(v)) {
+    return v[0] ?? '';
+  }
+  return v ?? '';
+}
+
+/** 取字符串数组；写成 `a、b` 的单行也拆开——作者常常忘了写方括号。 */
+export function asArray(v: string | string[] | undefined): string[] {
+  if (Array.isArray(v)) {
+    return v.filter((s) => s.trim().length > 0);
+  }
+  if (typeof v === 'string' && v.trim()) {
+    return v
+      .split(/[,，、]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+/** 取数字；解析不出（空、`三千`、`待定`）返回 undefined 而不是 NaN。 */
+export function asNumber(v: string | string[] | undefined): number | undefined {
+  const s = asString(v);
+  if (!s) {
+    return undefined;
+  }
+  const n = Number(s);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** frontmatter 里的数字数组（如 `appearsIn: [1, 3, 7]`）。去重并升序。 */
+export function asNumberArray(v: string | string[] | undefined): number[] {
+  const out = new Set<number>();
+  for (const s of asArray(v)) {
+    const n = Number(s.trim());
+    if (Number.isInteger(n) && n > 0) {
+      out.add(n);
+    }
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
 /**
  * 把正文按 `## 小节名` 切开。返回小节名 → 内容（不含标题行，已 trim）。
  * `##` 之前的前言内容放在 key `''` 下。

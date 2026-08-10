@@ -17,7 +17,18 @@ import {
   SummaryCast,
   SummarySections,
 } from './types';
-import { extractH1, parseMarkdown, pickSections, stringifyFrontmatter, stringifySections, stripH1 } from './markdown';
+import {
+  asArray,
+  asNumber,
+  asNumberArray,
+  asString,
+  extractH1,
+  parseMarkdown,
+  pickSections,
+  stringifyFrontmatter,
+  stringifySections,
+  stripH1,
+} from './markdown';
 import { isChapterFileName, isMarkdownExt, isMarkdownPath, parseChapterFileName } from './chapterFile';
 import { sanitizeAliases } from '../naming';
 
@@ -858,47 +869,6 @@ export function isIgnoredDir(name: string): boolean {
 
 function baseName(absPath: string): string {
   return path.basename(absPath).replace(/\.md$/i, '');
-}
-
-function asString(v: string | string[] | undefined): string {
-  if (Array.isArray(v)) {
-    return v[0] ?? '';
-  }
-  return v ?? '';
-}
-
-function asArray(v: string | string[] | undefined): string[] {
-  if (Array.isArray(v)) {
-    return v.filter((s) => s.trim().length > 0);
-  }
-  if (typeof v === 'string' && v.trim()) {
-    return v
-      .split(/[,，、]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-  return [];
-}
-
-function asNumber(v: string | string[] | undefined): number | undefined {
-  const s = asString(v);
-  if (!s) {
-    return undefined;
-  }
-  const n = Number(s);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-/** frontmatter 里的数字数组（如 `appearsIn: [1, 3, 7]`）。去重并升序。 */
-function asNumberArray(v: string | string[] | undefined): number[] {
-  const out = new Set<number>();
-  for (const s of asArray(v)) {
-    const n = Number(s.trim());
-    if (Number.isInteger(n) && n > 0) {
-      out.add(n);
-    }
-  }
-  return [...out].sort((a, b) => a - b);
 }
 
 // ---------------------------------------------------------------- 出场人物
