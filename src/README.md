@@ -1,6 +1,6 @@
 # src — 源码总览
 
-三层结构，依赖方向自上而下，反向不允许：
+两层结构，依赖方向自上而下，反向不允许：
 
 ```
 src/
@@ -10,13 +10,13 @@ src/
 │   ├── features/    创作（四层产物）/ 批量流水线 / 摘要 / 角色卡 / 设定 / 文风提取
 │   ├── llm/         LlmProvider 接口与 OpenAI / Anthropic 实现
 │   ├── protocol.ts  webview ↔ 扩展消息协议（前后端唯一契约）
+│   ├── controller.ts ★ ChatController：宿主无关的面板逻辑
 │   ├── logger.ts    ★ 运行日志：环形缓冲 + sink（脱敏、不记 prompt 全文）
 │   ├── progress.ts  ★ 长任务登记处：runTask（宿主进度 + 网页进度条 + 日志三合一）
 │   ├── pipeline.ts  ★ 章节流水线的读取聚合：四层产物 + 四段新鲜度链
 │   ├── fileOps.ts   类文件操作：建文件夹/重命名/移动/删除（区内、不覆盖、进回收站）
 │   ├── fileEditing.ts 内置编辑器的文件读写（路径校验 + hash 乐观锁）
 │   └── projectView.ts 工程页可序列化快照（任意深度的 ProjectNode 目录树）
-├── ui/          宿主无关的面板逻辑：ChatController + @ 引用（见 ui/README.md）
 ├── vscode/      VS Code 宿主层：extension 入口、两个 webview 宿主、vscode-lm（见 vscode/README.md）
 └── standalone/  独立 Web 服务壳：Bun 服务 + FileHost + 页面骨架（见 standalone/README.md）
 ```
@@ -25,14 +25,13 @@ src/
 
 - [core/README.md](core/README.md)
 - [core/model/README.md](core/model/README.md) · [core/context/README.md](core/context/README.md) · [core/features/README.md](core/features/README.md) · [core/llm/README.md](core/llm/README.md)
-- [ui/README.md](ui/README.md)
 - [vscode/README.md](vscode/README.md) · [standalone/README.md](standalone/README.md)
 
 ## 一条创作请求的完整链路
 
 以「在细纲阶段点生成」为例，四个阶段走的是同一条路，差别只在配方与提示词：
 
-1. webview 前端（[media/src/view/](../media/src/view/)）发 `send` 消息，带上 `stage` / `capability` / `target` → 宿主（`vscode/chatViewProvider` 或 `chatPanel`）转给 `ui/ChatController`。
+1. webview 前端（[media/src/view/](../media/src/view/)）发 `send` 消息，带上 `stage` / `capability` / `target` → 宿主（`vscode/chatViewProvider` 或 `chatPanel`）转给 `core/ChatController`。
 2. `ChatController` 校验一遍这个能力在这个阶段合不合法（对不上就回落到 `discuss` 并 warn），记进会话，交给 `core/features/CreationSession.generate()`。
 3. `CreationSession` 先经 `core/llm/registry` 拿到 provider，再调 `core/context/builder.buildContext()` 装配上下文。
 4. 装配器按 `action.stage` 取一张配方（[core/context/recipes.ts](core/context/recipes.ts)），**只读这一层用得上的文件**，按优先级填预算，产出 messages + 明细。系统提示由 `stage`（身份）× `capability`（任务）拼出。
