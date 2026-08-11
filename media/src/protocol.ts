@@ -25,6 +25,7 @@ export type {
   InMessage,
   LogEntry,
   LogLevel,
+  NextStepView,
   OutMessage,
   ProjectAction,
   ProjectChapterNode,
@@ -47,13 +48,15 @@ export type {
   Tab,
   TaskSnapshot,
   ViewState,
+  WorkbenchSection,
+  WorkbenchView,
 } from '../../src/core/protocol';
 
 /**
  * 创作流水线的类型与那几张对照表。
  *
- * 与 `tiers.ts` 同一套理由：**标签和「哪个阶段有哪些能力」必须与后端同源**。
- * 前端自己抄一份的话，界面上会出现一个后端不认的能力按钮，点了什么都不发生。
+ * 与 `tiers.ts` 同一套理由：**标签、命令表、状态机推荐必须与后端同源**。
+ * 前端自己抄一份的话，界面上会出现一个后端不认的命令，点了什么都不发生。
  * `model/pipeline.ts` 是纯类型 + 纯函数、**零 import**，打进浏览器产物是安全的。
  */
 export {
@@ -67,6 +70,9 @@ export {
   STAGE_LABEL,
   STAGE_QUESTION,
   chapterOfTarget,
+  commandOf,
+  commandsFor,
+  labelOf,
   outputKindOf,
   targetKey,
 } from '../../src/core/model/pipeline';
@@ -76,7 +82,9 @@ export type {
   CreationAction,
   CreationStage,
   CreationTarget,
+  NextStepPlan,
   PipelineProgress,
+  StageCommand,
 } from '../../src/core/model/pipeline';
 
 /**

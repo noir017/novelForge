@@ -1,21 +1,38 @@
 /**
- * 输入区：附件标签、发送、以及那几个下拉框的联动。
+ * 输入区：附件标签、待执行命令、发送，以及那几个下拉框的联动。
+ *
+ * ## 三条发送路径，一个出口
+ *
+ * - **主按钮**（状态机算出的下一步）：点了就跑，输入框可空
+ * - **`/` 命令**：挑一个 → 变成一枚 chip → Enter/发送时用它
+ * - **直接发送**：不挑就用会话当前的 stage/capability（多半是讨论）
+ *
+ * 三条都走同一个 `send()`：附件、草稿、busy 只在一处管。
  */
-import { el as mk } from '../dom';
-import type { SendPayload } from '../protocol';
-import { el } from './refs';
+import { el as mk, setHidden } from '../dom';
+import { CAPABILITY_LABEL, commandOf } from '../protocol';
+import type { Capability, CreationStage, NextStepView, SendPayload, StageCommand } from '../protocol';
+import { handleCommandKey, isCommandPaletteOpen, toggleCommands } from './commands';import { el } from './refs';
 import { persistDraft, store, vscode } from './store';
 import { setBusy } from './state';
 import { toast } from './toast';
+
+/**
+ * 已挑好、尚未执行的命令。
+ *
+ * 只活到下一次发送为止：命令是**一次性的选择**，不是模式。挑了「挑刺」
+ * 发出去之后，下一句话多半又是普通的讨论——让它粘住只会让人误发。
+ */
+let pending: { stage: CreationStage; capability: Capability; label: string } | null = null;
 
 /** 当前输入框里的那一套参数。发送与「重新生成」共用。 */
 export function payload(): SendPayload {
   return {
     text: el.input.value,
     // 阶段/能力/目标全都记在会话里（后端是唯一真相，前端只是回显它）。
-    // 按钮点击先改本地这一份，发送时原样带上去，后端再校验一遍。
-    stage: store.session.stage,
-    capability: store.session.capability,
+    // 挑了命令就用命令的，否则沿用会话当前的那一对。后端还会再校验一遍。
+    stage: pending?.stage ?? store.session.stage,
+    capability: pending?.capability ?? store.session.capability,
     target: store.session.target,
     targetOrder: Number(el.targetSelect.value) || 1,
     targetWords: Number(el.targetWords.value) || 0,
@@ -45,19 +62,82 @@ export function renderChips(): void {
   }
 }
 
+// ---------------------------------------------------------------- 待执行命令
+
+/** 挑中一个命令：变成输入框上方的一枚 chip，等一次发送。 */
+export function setPendingCommand(cmd: StageCommand): void {
+  pending = { stage: store.session.stage, capability: cmd.capability, label: cmd.label };
+  renderPending();
+  el.input.focus();
+}
+
+export function clearPendingCommand(): void {
+  pending = null;
+  renderPending();
+}
+
+function renderPending(): void {
+  el.pendingCmd.innerHTML = '';
+  setHidden(el.pendingCmd, !pending);
+  if (!pending) {
+    return;
+  }
+  const chip = mk('span', 'chip cmd-chip');
+  chip.appendChild(mk('span', 'chip-label', `/ ${pending.label}`));
+  const x = mk('button', 'chip-x', '×');
+  x.title = '取消这个命令';
+  x.addEventListener('click', clearPendingCommand);
+  chip.appendChild(x);
+  el.pendingCmd.appendChild(chip);
+}
+
+// ---------------------------------------------------------------- 发送
+
 function send(): void {
   if (store.busy) {
     return;
   }
-  if (!el.input.value.trim()) {
-    toast('请先输入内容。', true);
+  const p = payload();
+  // 空输入只挡「讨论」——讨论的全部内容就是你那句话。其余命令（生成细纲、
+  // 拆场景、写这一场）本来就不需要作者再说什么。后端也有同一道判断。
+  if (!p.text.trim() && (commandOf(p.stage, p.capability)?.needsText ?? true)) {
+    toast(`「${CAPABILITY_LABEL[p.capability]}」需要先说点什么。`, true);
     el.input.focus();
     return;
   }
   setBusy(true);
-  vscode.postMessage({ type: 'send', payload: payload() });
+  vscode.postMessage({ type: 'send', payload: p });
   el.input.value = '';
   store.attachments = [];
+  clearPendingCommand();
+  renderChips();
+  persistDraft();
+}
+
+/**
+ * 执行状态机算出的下一步。
+ *
+ * 工程动作（审阅阶段的「总结本章」）不是一轮对话，走 projectAction；
+ * 其余都当成一次带 stage/capability 的普通发送。
+ */
+export function runNextStep(step: NextStepView): void {
+  if (store.busy) {
+    return;
+  }
+  if (step.projectAction) {
+    // 序号由后端随 next 一起给。会话里的 targetOrder 可能还没同步
+    // （旧会话、刚改过名），而工程动作收到 undefined 会静默什么都不做。
+    vscode.postMessage({ type: 'projectAction', action: step.projectAction, order: step.order });
+    return;
+  }
+  setBusy(true);
+  vscode.postMessage({
+    type: 'send',
+    payload: { ...payload(), stage: step.stage, capability: step.capability },
+  });
+  el.input.value = '';
+  store.attachments = [];
+  clearPendingCommand();
   renderChips();
   persistDraft();
 }
@@ -68,33 +148,51 @@ export function installComposer(): void {
   el.atBtn.addEventListener('click', () => vscode.postMessage({ type: 'pickAttachment' }));
   el.selBtn.addEventListener('click', () => vscode.postMessage({ type: 'addSelection' }));
   el.syncBtn.addEventListener('click', () => vscode.postMessage({ type: 'syncSummaries' }));
+  el.cmdBtn.addEventListener('click', toggleCommands);
 
   el.input.addEventListener('input', persistDraft);
   el.targetWords.addEventListener('input', persistDraft);
-  // 目标下拉框换了一章 → 切创作目标。它现在不只是「采纳写到哪」，
-  // 而是「我在改哪一章」，装配的每一层都跟着它走。
+  // 目标下拉框换了一章 → **进入那一章当前该做的那一步**（由后端的状态机判定）。
+  // 旧版一律落到正文层，于是选中一个连细纲都没有的章节，界面直接把作者
+  // 丢进正文——四层流水线在创作页上等于不存在。
   el.targetSelect.addEventListener('change', () => {
     const relPath = el.targetSelect.selectedOptions[0]?.dataset.rel;
-    vscode.postMessage({
-      type: 'setTarget',
-      // 没有 relPath 说明选的是「新建第 N 章」——那一章还不存在，
-      // 只能落到大纲；真正新建走工程页或采纳时的「新建章节」。
-      target: relPath ? { kind: 'manuscript', chapterRelPath: relPath } : { kind: 'outline' },
-    });
+    if (relPath) {
+      vscode.postMessage({ type: 'selectChapter', chapterRelPath: relPath });
+      return;
+    }
+    // 没有 relPath 说明选的是「新建第 N 章」——那一章还不存在，
+    // 只能落到大纲；真正新建走工程页或采纳时的「新建章节」。
+    vscode.postMessage({ type: 'setTarget', target: { kind: 'outline' } });
   });
   el.modelSelect.addEventListener('change', () =>
     vscode.postMessage({ type: 'selectModel', ref: el.modelSelect.value })
   );
 
   el.input.addEventListener('keydown', (e) => {
+    // 面板开着时键盘归它（↑↓ 选、Enter 确认、其余字符进过滤串）。
+    if (isCommandPaletteOpen()) {
+      if (handleCommandKey(e)) {
+        e.preventDefault();
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       send();
+      return;
     }
     // 输入 @ 直接打开引用选择器，跟 Cursor 一致。
     if (e.key === '@') {
       e.preventDefault();
       vscode.postMessage({ type: 'pickAttachment' });
+      return;
+    }
+    // `/` 唤出命令面板，但**只在输入框为空时**：`/` 在中文正文里是普通
+    // 字符（日期、比值、网址），任何位置都拦会误伤。
+    if (e.key === '/' && el.input.value === '' && !e.isComposing) {
+      e.preventDefault();
+      toggleCommands();
     }
   });
 }

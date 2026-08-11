@@ -52,18 +52,29 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
   </div>
 
   <div class="messages" id="messages">
+    <!-- 工作区卡：当前这一层的产物本身。钉在消息流顶部，滚动时不滚出视野。 -->
+    <div class="workbench hidden" id="workbench"></div>
     <div class="empty" id="emptyHint">
-      <p><strong>描述接下来要写什么</strong></p>
-      <p>比如：「林昭在城门口被守卫拦下，亮出旧令牌，守卫神色骤变。」</p>
-      <p>用 <kbd>@</kbd> 引用章节、角色卡或任意文件；也可以在编辑器里选中一段文字，点下面的「加入选区」。</p>
+      <p><strong>先挑一章，从它当前该做的那一步接着做</strong></p>
+      <p>在「工程」页点任意章节，或用下面的下拉框选一章——界面会自动落到它的当前阶段：还没细纲就去写细纲，细纲写好了就去拆场景。</p>
+      <p>用 <kbd>@</kbd> 引用章节、角色卡或任意文件；输入框为空时按 <kbd>/</kbd> 可以挑其它命令。</p>
     </div>
+  </div>
+
+  <!-- 下一步：状态机算出来的那一个动作。点了就跑，不必先输入什么。 -->
+  <div class="nextstep hidden" id="nextStep">
+    <div class="nextstep-text">
+      <span class="nextstep-label" id="nextStepHint"></span>
+    </div>
+    <button class="primary nextstep-go" id="nextStepBtn"></button>
+    <button class="chip-btn" id="cmdBtn" title="其它命令（输入框为空时按 / 也可以）">/ 命令</button>
   </div>
 
   <div class="composer">
     <div class="chips" id="chips"></div>
-    <!-- 能力按钮组。可用的能力随阶段变，由前端读 STAGE_CAPABILITIES 渲染。 -->
-    <div class="capabilities" id="capabilities"></div>
-    <textarea id="input" rows="3" placeholder="描述要续写或修改的剧情…（Enter 发送，Shift+Enter 换行）"></textarea>
+    <!-- 已挑好、待执行的命令。发送时用它，不用状态机那一个。 -->
+    <div class="pending-cmd hidden" id="pendingCmd"></div>
+    <textarea id="input" rows="3" placeholder="补充要求（可留空）…（Enter 发送，Shift+Enter 换行）"></textarea>
     <div class="composer-bar">
       <button class="chip-btn" id="atBtn" title="引用文件或章节">@ 引用</button>
       <button class="chip-btn" id="selBtn" title="把编辑器中选中的文字加入上下文">加入选区</button>

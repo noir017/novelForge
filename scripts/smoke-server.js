@@ -55,7 +55,7 @@ function connect(port) {
         },
       });
     });
-  return { ws, ready, waitFor, send: (m) => ws.send(JSON.stringify(m)) };
+  return { ws, ready, waitFor, send: (m) => ws.send(JSON.stringify(m)), drain: () => (inbox.length = 0) };
 }
 
 startServer({ root, port: PORT });
@@ -144,6 +144,44 @@ try {
     '缺目录 dirListings'
   );
   check('不存在的目录给出人话原因', gone.listings[0].error.includes('目录不存在'), gone.listings[0].error);
+
+  // 这是**唯一一条**跑真控制器状态机的用例：前端只知道「我点了第 3 章」，
+  // 落在哪一层由后端算。别的 smoke 要么测纯函数、要么测前端。
+  console.log('\n== 选中章节 → 状态机决定落在哪一层 ==');
+  // 连上时后端推过一轮全量状态，里面就有一条 session。不清掉的话
+  // 下面的 waitFor 会立刻拿到那条旧的，而不是这次切目标的结果。
+  conn.drain();
+  conn.send({ type: 'selectChapter', chapterRelPath: 'chapters/003-夜访.md' });
+  const session = await conn.waitFor((m) => m.type === 'session', 'session');
+  // sample-novel 没有 plans/，所以每一章都停在「待写细纲」——
+  // 旧版这里一律落到 manuscript，作者一进来就被丢进正文层。
+  check('没细纲的章节落到细纲层', session.session.stage === 'plan', session.session.stage);
+  check('目标指向那一章',
+    session.session.target.chapterRelPath === 'chapters/003-夜访.md',
+    JSON.stringify(session.session.target));
+
+  const pipe = await conn.waitFor((m) => m.type === 'pipeline', 'pipeline');
+  check('推来流水线', pipe.pipeline?.order === 3, JSON.stringify(pipe.pipeline?.order));
+  check('推来工作区卡', !!pipe.workbench, JSON.stringify(pipe.workbench));
+  check('没细纲时工作区卡说明缺什么', !!pipe.workbench.empty, JSON.stringify(pipe.workbench));
+  check('下一步是生成细纲',
+    pipe.next?.stage === 'plan' && pipe.next?.capability === 'generate',
+    JSON.stringify(pipe.next));
+  check('下一步带上落点',
+    pipe.next?.target.chapterRelPath === 'chapters/003-夜访.md',
+    JSON.stringify(pipe.next?.target));
+
+  // 全书大纲层没有「这一章的四段」，但一样要有工作区卡与下一步。
+  conn.send({ type: 'setTarget', target: { kind: 'outline' } });
+  await conn.waitFor((m) => m.type === 'session', 'session（大纲）');
+  const outlinePipe = await conn.waitFor((m) => m.type === 'pipeline', 'pipeline（大纲）');
+  check('大纲层不带章节流水线', outlinePipe.pipeline === undefined, JSON.stringify(outlinePipe.pipeline));
+  check('大纲层仍有工作区卡', outlinePipe.workbench?.stage === 'outline', JSON.stringify(outlinePipe.workbench));
+
+  // 章节刚被改名/删掉时不能让整条推送失败。
+  conn.send({ type: 'selectChapter', chapterRelPath: 'chapters/不存在.md' });
+  const toasted = await conn.waitFor((m) => m.type === 'toast', 'toast');
+  check('选不存在的章节给提示而非崩', toasted.level === 'error', JSON.stringify(toasted));
 
   conn.ws.close();
 

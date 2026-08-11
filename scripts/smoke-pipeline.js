@@ -352,6 +352,81 @@ console.log('\n== pipeline.ts · 章节流水线状态推导 ==');
     p({ summaryExists: true, summaryStale: true }).summary === 0);
 }
 
+console.log('\n== pipeline.ts · 下一步（状态机 → 一个动作）==');
+{
+  const N = (patch) => ({ sceneCount: 0, beatsStale: false, ...patch });
+  const step = (chapterStage, patch) => pipeline.deriveNextStep(chapterStage, N(patch));
+
+  // 每一档都必须落在一个**该阶段支持**的能力上，否则界面上会出现一个
+  // 后端当场回落掉的主按钮——点了跑出来的不是它写的那件事。
+  for (const s of ['plan', 'scene', 'manuscript', 'review']) {
+    const next = step(s, { sceneCount: 2, firstUnreadyScene: 1 });
+    check(`${s} 有下一步`, !!next, s);
+    check(`${s} 的能力在该阶段合法`,
+      pipeline.STAGE_CAPABILITIES[next.stage].includes(next.capability),
+      `${next.stage}·${next.capability}`);
+    check(`${s} 的下一步有说明`, !!next.label && !!next.hint, JSON.stringify(next));
+  }
+
+  check('没细纲 → 生成细纲',
+    step('plan').stage === 'plan' && step('plan').capability === 'generate');
+
+  // 一场都没有就先拆；这一步归**细纲**阶段（拆的是细纲），不是场景阶段。
+  const split = step('scene', { sceneCount: 0 });
+  check('没场景 → 细纲拆场景', split.stage === 'plan' && split.capability === 'split',
+    `${split.stage}·${split.capability}`);
+
+  const design = step('scene', { sceneCount: 4, firstUnreadyScene: 3 });
+  check('有场没填满 → 去填第一个没填的',
+    design.stage === 'scene' && design.sceneNo === 3, JSON.stringify(design));
+  check('下一步的标题带上场号', design.label.includes('3'), design.label);
+
+  // 场景改过而正文没跟上：要的是拿新场景重做一版，不是往后接着写。
+  const stale = step('manuscript', { sceneCount: 2, beatsStale: true });
+  check('场景变过 → 重写正文', stale.capability === 'rewrite', stale.capability);
+  const write = step('manuscript', { sceneCount: 2, firstUnwrittenScene: 2 });
+  check('正文没写完 → 写第一场没写的',
+    write.capability === 'generate' && write.sceneNo === 2, JSON.stringify(write));
+
+  // 审阅要的是更新摘要，那是工程动作，不该假装成一轮对话。
+  const review = step('review');
+  check('待审阅 → 总结本章（工程动作）', review.projectAction === 'summarizeChapter', JSON.stringify(review));
+
+  // 写完就是写完了。造一个假的下一步等于逼作者一直有事可做。
+  check('已完成不催', pipeline.deriveNextStep('done', N()) === undefined);
+}
+
+console.log('\n== pipeline.ts · 命令表 ==');
+{
+  for (const stage of pipeline.CREATION_STAGES) {
+    const cmds = pipeline.commandsFor(stage);
+    check(`${stage} 有命令`, cmds.length > 0);
+    check(`${stage} 的命令与 STAGE_CAPABILITIES 一致`,
+      cmds.length === pipeline.STAGE_CAPABILITIES[stage].length &&
+      cmds.every((c) => pipeline.STAGE_CAPABILITIES[stage].includes(c.capability)));
+    check(`${stage} 的命令名不重复`,
+      new Set(cmds.map((c) => c.label)).size === cmds.length, cmds.map((c) => c.label).join('|'));
+    check(`${stage} 每个命令都有说明与过滤键`,
+      cmds.every((c) => c.hint && c.keys.length > 0));
+    // 只有讨论必须先输入——它的全部内容就是作者那句话。其余命令（生成细纲、
+    // 拆场景、写这一场）不该逼作者先编一句「请生成」。
+    check(`${stage} 只有讨论需要输入`,
+      cmds.filter((c) => c.needsText).map((c) => c.capability).join() === 'discuss',
+      cmds.filter((c) => c.needsText).map((c) => c.capability).join());
+    check(`${stage} 的写文件标记与 outputKindOf 一致`,
+      cmds.every((c) => c.writes === (pipeline.outputKindOf({ stage, capability: c.capability }) === 'artifact')));
+  }
+
+  // 同一个能力在不同阶段的说法不同——split 在大纲拆的是章，在细纲拆的是场。
+  check('大纲的 split 叫拆成章节', pipeline.labelOf('outline', 'split') === '拆成章节');
+  check('细纲的 split 叫拆成场景', pipeline.labelOf('plan', 'split') === '拆成场景');
+  // 没有专门说法的沿用通用标签（日志与确认框用的就是它）。
+  check('没覆盖的沿用通用说法', pipeline.labelOf('plan', 'critique') === pipeline.CAPABILITY_LABEL.critique);
+
+  check('查得到某个具体命令', pipeline.commandOf('plan', 'split')?.label === '拆成场景');
+  check('阶段不支持的能力查不到', pipeline.commandOf('manuscript', 'split') === undefined);
+}
+
 console.log(`\n${failures === 0 ? '✓ smoke-pipeline 纯函数部分通过' : `${failures} 项失败`}`);
 
 // ================================================================ 数据层（要落盘）
@@ -385,6 +460,7 @@ const bundle = loadBundle({
   sceneFile: './src/core/model/sceneFile.ts',
   fileOps: './src/core/fileOps.ts',
   pipe: './src/core/pipeline.ts',
+  workbench: './src/core/workbench.ts',
 });
 
 const answers = [];
@@ -595,6 +671,84 @@ async function main() {
     const handwritten = index.get('chapters/020-手写.md');
     check('没拆场景的章节停在待拆场景', handwritten.stage === 'scene', handwritten.stage);
     check('没拆场景时场景完成度为 0', handwritten.progress.scene === 0);
+  }
+
+  console.log('\n== 工作区卡 ==');
+  {
+    const ch = 'chapters/卷一/012-夜入.md';
+    const wb = (target) => bundle.workbench.buildWorkbench(project, target);
+
+    const plan = await wb({ kind: 'plan', chapterRelPath: ch });
+    check('细纲卡摊开小节', plan.sections.length > 0, JSON.stringify(plan.sections));
+    check('细纲卡标题带章号', plan.title.includes('第 12 章'), plan.title);
+    check('细纲卡指向细纲文件', plan.relPath.includes('plans/'), plan.relPath);
+    // 空小节不进卡片：卡片是给人看的，不是一张待填表格。
+    check('空小节不显示', plan.sections.every((s) => s.text.trim() && s.text !== '（待补充）'),
+      JSON.stringify(plan.sections));
+
+    const scene = await wb({ kind: 'scene', chapterRelPath: ch, sceneNo: 2 });
+    check('场景卡带必须发生', scene.sections.some((s) => s.key === '必须发生'),
+      JSON.stringify(scene.sections.map((s) => s.key)));
+    // 这一场的 place/time/characters 都是空的 → 不画那一行，而不是画一行空的。
+    check('没有地点时间时不画「这一幕」', !scene.sections.some((s) => s.key === '这一幕'),
+      JSON.stringify(scene.sections.map((s) => s.key)));
+    // 上一段刚改过场景的「必须发生」，但没重算 upstreamHash → 与细纲对不上。
+    check('场景卡说出上游变更', !!scene.warning, scene.warning);
+
+    // 填了地点时间就该合成一行「这一幕」——那是这一层最要紧的三样元信息。
+    await project.writeScene(ch, {
+      chapterRelPath: ch, no: 2, title: '翻墙', place: '青云宗侧峰', time: '子时，暴雨',
+      characters: ['林昭'], upstreamHash: 'X', status: 'ready',
+      sections: { ...bundle.sceneFile.emptySceneSections(), 必须发生: '- 甲' },
+    });
+    const withMeta = await wb({ kind: 'scene', chapterRelPath: ch, sceneNo: 2 });
+    const meta = withMeta.sections.find((s) => s.key === '这一幕');
+    check('有地点时间时合成「这一幕」',
+      meta && meta.text.includes('侧峰') && meta.text.includes('子时') && meta.text.includes('林昭'),
+      JSON.stringify(withMeta.sections.map((s) => s.key)));
+
+    // 正文层只给统计。三千字摊进一张常驻卡片既读不下去，又把消息流挤没了。
+    const ms = await wb({ kind: 'manuscript', chapterRelPath: ch });
+    check('正文卡只给统计', ms.sections.every((s) => s.key === '篇幅' || s.key === '场景'),
+      JSON.stringify(ms.sections.map((s) => s.key)));
+    check('正文卡不摊全文', ms.sections.every((s) => s.text.length < 60), JSON.stringify(ms.sections));
+
+    // 这一层还没有产物时说清缺什么，不要给一张空卡。
+    const none = await wb({ kind: 'plan', chapterRelPath: 'chapters/030-没细纲.md' });
+    check('没有章节时也不抛', !!none, JSON.stringify(none));
+    write('chapters/030-没细纲.md', '# 没细纲\n\n正文');
+    project.invalidate();
+    const empty = await wb({ kind: 'plan', chapterRelPath: 'chapters/030-没细纲.md' });
+    check('没有细纲时说明缺什么', !!empty.empty && empty.sections.length === 0, JSON.stringify(empty));
+
+    // 「文件在但一节都没填」与「文件不在」对作者是同一件事：这一层还没做。
+    // 只判文件在不在的话，一份全是占位符的骨架会渲染成一张只有标题的空卡。
+    await project.writePlan('chapters/030-没细纲.md', {
+      chapterRelPath: 'chapters/030-没细纲.md', order: 30, title: '没细纲', arc: '',
+      upstreamHash: '', done: false, sections: bundle.planFile.emptyPlanSections(),
+    });
+    const skeleton = await wb({ kind: 'plan', chapterRelPath: 'chapters/030-没细纲.md' });
+    check('空骨架细纲也说「还是空的」',
+      skeleton.sections.length === 0 && skeleton.empty?.includes('空'), JSON.stringify(skeleton));
+
+    // 刚拆出来的场景只有元信息，七节全空。这时用 warning 而不是 empty——
+    // empty 会连「这一幕」一起藏掉，而地点时间恰恰是这时唯一有的东西。
+    await project.writeScene(ch, {
+      chapterRelPath: ch, no: 5, title: '空壳', place: '山门', time: '黄昏',
+      characters: [], upstreamHash: '', status: 'draft',
+      sections: bundle.sceneFile.emptySceneSections(),
+    });
+    const shell = await wb({ kind: 'scene', chapterRelPath: ch, sceneNo: 5 });
+    check('空壳场景仍显示元信息', shell.sections.some((s) => s.key === '这一幕'),
+      JSON.stringify(shell.sections.map((s) => s.key)));
+    check('空壳场景提示还没设计', shell.warning?.includes('必须发生'), shell.warning);
+
+    // 章节刚被改名/删除时给一张说得清情况的空卡，而不是让整条推送失败。
+    const gone = await wb({ kind: 'scene', chapterRelPath: 'chapters/不存在.md', sceneNo: 1 });
+    check('章节不存在时给空卡而非抛', !!gone.empty, JSON.stringify(gone));
+
+    const outline = await wb({ kind: 'outline' });
+    check('大纲卡指向 outline.md', outline.relPath.endsWith('outline.md'), outline.relPath);
   }
 }
 

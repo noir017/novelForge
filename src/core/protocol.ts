@@ -9,6 +9,7 @@ import type {
   ChapterStage,
   CreationStage,
   CreationTarget,
+  NextStepPlan,
   PipelineProgress,
 } from './model/pipeline';
 
@@ -84,6 +85,15 @@ export type InMessage =
    * 换（每个阶段可用的能力不同），后者给出这一章各层产物的新鲜度。
    */
   | { type: 'setTarget'; target: CreationTarget }
+  /**
+   * 进入某一章。**由后端决定落在哪一层**——这是状态机在协议上的落点。
+   *
+   * 前端只有当前那一章的 pipeline，不知道别的章处于什么状态；而「选中一章
+   * 就该进它当前该做的那一层」正是这次改造的核心。旧的做法是前端一律发
+   * `setTarget({kind:'manuscript'})`，于是选中一个连细纲都没有的章节，
+   * 界面直接把作者丢进正文层。
+   */
+  | { type: 'selectChapter'; chapterRelPath: string }
   /** 要某一章的流水线状态（切目标、工程页展开章节时）。不带则给当前目标那一章。 */
   | { type: 'requestPipeline'; chapterRelPath?: string }
   | { type: 'editTurn'; turnId: string; text: string }
@@ -306,12 +316,23 @@ export type OutMessage =
    */
   | { type: 'summary'; summary: ChapterSummaryView }
   /**
-   * 一章的流水线状态：四层产物各自到哪一步、哪一层的上游变过。
+   * 创作页的全部现场：这一章走到哪一步、当前这一层的产物是什么、下一步该干什么。
    *
-   * 与 `ProjectTree` 分开推：那棵树每次文件变动都全量重推，而流水线只有
-   * 当前这一章要看。全书的流水线徽章走 `ProjectChapterNode` 上的精简字段。
+   * 三样东西一条消息推，因为它们**永远同时变**：切目标、采纳产物、跑完一轮
+   * 都会让三者一起过期。分三条推只会多两次往返，还得在前端处理「工作区卡
+   * 已经换到新目标、下一步还是上一个目标的」这种中间态。
+   *
+   * 与 `ProjectTree` 分开推：那棵树每次文件变动都全量重推，而这一份只关心
+   * 当前这一章。全书的流水线徽章走 `ProjectChapterNode` 上的精简字段。
    */
-  | { type: 'pipeline'; pipeline: ChapterPipelineView }
+  | {
+      type: 'pipeline';
+      /** 目标是全书大纲时缺席——那时没有「这一章的四段」可言。 */
+      pipeline?: ChapterPipelineView;
+      /** 状态机算出的下一步。全部做完时缺席（不催）。 */
+      next?: NextStepView;
+      workbench: WorkbenchView;
+    }
   /**
    * `ack` 标明这次推送是不是某次保存的回执：
    * `saved` 表示已落盘（前端可放心以磁盘为准），`rejected` 表示被拒
@@ -574,6 +595,47 @@ export interface ScenePipelineView {
   upstreamStale: boolean;
 }
 
+/**
+ * 状态机算出的下一步，加上它落在哪个具体产物上。
+ *
+ * `NextStepPlan` 是纯判断（在 model/pipeline.ts 里，可单测）；`target` 与
+ * `order` 由控制器补上——纯函数查不了章节列表，也不该查。
+ */
+export interface NextStepView extends NextStepPlan {
+  target: CreationTarget;
+  /**
+   * 章节序号。只有 `projectAction` 那一支用得上（工程动作按序号寻址）。
+   *
+   * 不让前端拿会话里的 `targetOrder` 顶替：那份可能还没同步（旧会话、
+   * 刚改过名），而 `summarizeChapter` 收到 undefined 会**静默什么都不做**。
+   */
+  order?: number;
+}
+
+/** 工作区卡里的一条。`key` 是小节名（「必须发生」），`text` 是它的内容。 */
+export interface WorkbenchSection {
+  key: string;
+  text: string;
+}
+
+/**
+ * 「我现在正在改的那份东西」。创作页顶部那张卡吃这一份。
+ *
+ * 刻意**不带正文全文**：正文层只给字数与场景写入进度（见 core/workbench.ts）。
+ */
+export interface WorkbenchView {
+  stage: CreationStage;
+  /** 卡片标题，如「细纲 · 第 12 章《夜入青云》」。后端生成，文案只有一份。 */
+  title: string;
+  /** 「打开」按钮的落点；空串表示这一层还没有文件。 */
+  relPath: string;
+  sections: WorkbenchSection[];
+  /** 上游变更之类的提示，一句人话。 */
+  warning?: string;
+  /** 这一层还没有产物时的说明。有它就不该再画 sections。 */
+  empty?: string;
+}
+
 export interface ProjectFile {
   label: string;
   relPath: string;
@@ -738,8 +800,8 @@ export type { TaskSnapshot } from './progress';
 export type { DirListing, FsEntry } from './fileTree';
 /**
  * 创作流水线的领域类型。定义在 `model/pipeline.ts`（纯函数、零 I/O），
- * 从协议转出去——前端的按钮组直接读 `STAGE_CAPABILITIES`，两边共用一份定义
- * 才不会出现「界面上有这个按钮，后端不认这个能力」。
+ * 从协议转出去——前端的命令面板直接读 `commandsFor`，两边共用一份定义
+ * 才不会出现「界面上有这个命令，后端不认这个能力」。
  */
 export type {
   Capability,
@@ -747,7 +809,10 @@ export type {
   CreationAction,
   CreationStage,
   CreationTarget,
+  NextStepFacts,
+  NextStepPlan,
   PipelineProgress,
+  StageCommand,
 } from './model/pipeline';
 
 /** CSP 用的一次性 nonce。 */

@@ -1,0 +1,101 @@
+/*
+ * 工作区卡：当前这一层的产物本身。
+ *
+ * `position: sticky` 是这块东西的关键：它在消息流里（跟着一起滚），
+ * 但滚不出视野——聊到第十轮回头看「这一场到底不能发生什么」，它还在。
+ * 做成常驻的独立一块会把消息流压扁，侧边栏只有三百来像素高的余量。
+ */
+
+.workbench {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+  padding: 6px 9px 8px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.3));
+  border-radius: var(--radius);
+  /* 不透明背景是必须的：底下的消息要从它后面滚过去。 */
+  background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+}
+
+.wb-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.wb-head .spacer {
+  flex: 1;
+}
+
+.wb-toggle {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.85em;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.wb-title {
+  font-size: 0.85em;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-open {
+  font-size: 0.78em;
+  flex: 0 0 auto;
+}
+
+.workbench.collapsed {
+  padding-bottom: 6px;
+}
+
+/* ---- 小节 */
+
+/*
+ * 「必须发生」这类小节。左边一列固定宽的键，右边是内容。
+ *
+ * `white-space: pre-line` 让「必须发生」那种 Markdown 列表保持分行——
+ * 三条并成一行读起来就完全不像三个独立的动作了。
+ */
+.wb-row {
+  display: flex;
+  gap: 8px;
+  font-size: 0.82em;
+  line-height: 1.5;
+}
+
+.wb-key {
+  flex: 0 0 4.5em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.wb-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* 上游变过。与流水线条上的 ⟳ 同色——同一件事在两处该长得一样。 */
+.wb-warning {
+  font-size: 0.8em;
+  line-height: 1.45;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+/* 这一层还没有产物。说清楚缺什么，不要留一张空卡。 */
+.wb-empty {
+  font-size: 0.82em;
+  line-height: 1.5;
+  color: var(--vscode-descriptionForeground);
+}

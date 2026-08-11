@@ -1,67 +1,63 @@
 /**
- * 创作流水线条与能力按钮组。
+ * 创作流水线条与「下一步」。
  *
- * 这是 `mode: 'write' | 'discuss'` 那个下拉框的替代者。旧的两个选项按
- * **AI 的输出形式**分，而作者的实际流程是四层产物：大纲 → 细纲 → 细节 → 正文。
- * 界面上因此要回答两个问题：
+ * 界面要回答三个问题，这里管前两个（第三个是工作区卡，见 workbench.ts）：
  *
- * - **我现在在哪一层？** —— 流水线条（面包屑 + 四段进度）
- * - **我要它干什么？** —— 能力按钮组（讨论/挑刺/生成…，随阶段变）
+ * - **我现在在哪一层？** —— 面包屑 + 状态徽章 + 四段进度
+ * - **我接下来该干什么？** —— 下一步条（一个主按钮 + 一个 `/ 命令`）
  *
- * ## 为什么按钮组是按钮而不是又一个下拉框
+ * ## 为什么是一个按钮而不是七个
  *
- * 下拉框把「这一层能做什么」藏起来了。作者在细纲阶段该看得见「可以拆场景」，
- * 而不是点开下拉才发现多了一项。代价是横向占地方，值得。
+ * 改造前这里是 `STAGE_CAPABILITIES[stage]` 的平铺：七个等重的按钮，
+ * 看不出该点哪个。可在任何一个具体时刻，作者真正要按的只有一个——
+ * 那一个由状态机算得出来（`deriveNextStep`，判据与 `deriveStage` 同源）。
+ * 于是：状态机那一个做主按钮，其余六个收进 `/` 命令面板。
  *
- * ## 为什么默认永远是「讨论」
+ * ## 为什么主按钮点了就跑
  *
- * 切阶段时能力回落到 discuss（后端 `DEFAULT_CAPABILITY` 也是这么定的）。
- * 默认动作不该是花钱产出一份要不要都不知道的产物——「不偷偷烧 token」
- * 在交互上的落法就是让用户主动点「生成」。
+ * 它是状态机替你选的，没有参数可填：细纲要写什么，细纲文件与大纲里都写着。
+ * 旧界面逼作者先编一句「请生成」才肯发送，而那句废话还会被当成要求装进
+ * prompt。输入框里有字就当补充要求带上，没有就不带。
  */
 import { el as mk, clear, maybeById, setHidden } from '../dom';
 import {
-  CAPABILITY_HINT,
-  CAPABILITY_LABEL,
+  CHAPTER_STAGE_LABEL,
   CREATION_STAGES,
-  STAGE_CAPABILITIES,
   STAGE_LABEL,
   STAGE_QUESTION,
   chapterOfTarget,
-  outputKindOf,
 } from '../protocol';
 import type {
   ChapterPipelineView,
   CreationStage,
   CreationTarget,
+  NextStepView,
   PipelineProgress,
 } from '../protocol';
 import { el } from './refs';
 import { store, vscode } from './store';
 
-/**
- * `split` 在不同阶段拆出的是不同的东西，按钮上直说。
- *
- * 这是唯一一处前端自己加的文案：后端的 `CAPABILITY_LABEL` 要在日志与确认框里
- * 通用，说「拆分」是对的；按钮上有阶段做上下文，说「拆场景」更直接。
- */
-const SPLIT_LABEL: Partial<Record<CreationStage, string>> = {
-  outline: '拆章节',
-  plan: '拆场景',
-};
-
 // ---------------------------------------------------------------- 状态
 
 /** 当前这一章的流水线。切目标或产物落盘后由后端重推。 */
 let current: ChapterPipelineView | null = null;
+/** 状态机算出的下一步。全书大纲阶段也有（去写大纲 / 去拆章节）。 */
+let next: NextStepView | null = null;
 
 const crumb = () => maybeById('pipelineCrumb');
 const stagesBox = () => maybeById('pipelineStages');
 const scenesBox = () => maybeById('pipelineScenes');
-const capsBox = () => maybeById('capabilities');
 
-export function renderPipeline(pipeline: ChapterPipelineView): void {
-  current = pipeline;
+/** 由 composer 注入：主按钮点下去要走发送那条路（它管附件、草稿、busy）。 */
+let runNextStep: (step: NextStepView) => void = () => {};
+
+export function bindNextStepRunner(fn: (step: NextStepView) => void): void {
+  runNextStep = fn;
+}
+
+export function renderPipeline(pipeline: ChapterPipelineView | undefined, step: NextStepView | undefined): void {
+  current = pipeline ?? null;
+  next = step ?? null;
   redraw();
 }
 
@@ -74,6 +70,7 @@ export function renderPipeline(pipeline: ChapterPipelineView): void {
 export function onSessionChanged(): void {
   if (current && current.chapterRelPath !== chapterOfTarget(store.session.target)) {
     current = null;
+    next = null;
   }
   redraw();
 }
@@ -82,7 +79,8 @@ function redraw(): void {
   renderCrumb();
   renderStages();
   renderScenes();
-  renderCapabilities();
+  renderNextStep();
+  updatePlaceholder();
 }
 
 // ---------------------------------------------------------------- 面包屑
@@ -113,6 +111,15 @@ function renderCrumb(): void {
     const scene = current?.scenes.find((s) => s.no === target.sceneNo);
     box.appendChild(mk('span', 'crumb-sep', '›'));
     box.appendChild(crumbItem(scene ? `场景 ${scene.no} ${scene.title}` : `场景 ${target.sceneNo}`, true));
+  }
+
+  // 章节状态徽章，与工程页那一列同一份文案（CHAPTER_STAGE_LABEL）。
+  // 它是「这一章整体走到哪了」，与下面四段的「每一层各自多少」不重复。
+  if (current) {
+    box.appendChild(mk('span', 'spacer'));
+    const badge = mk('span', `cstage cstage-${current.stage}`, CHAPTER_STAGE_LABEL[current.stage]);
+    badge.title = '这一章当前所处的阶段。由磁盘上的四层产物推导，不落盘。';
+    box.appendChild(badge);
   }
 }
 
@@ -232,45 +239,52 @@ function renderScenes(): void {
   }
 }
 
-// ---------------------------------------------------------------- 能力按钮
+// ---------------------------------------------------------------- 下一步
 
-function renderCapabilities(): void {
-  const box = capsBox();
-  if (!box) {
+/**
+ * 下一步条：一句「为什么是这一步」 + 一个主按钮 + `/ 命令`。
+ *
+ * 没有下一步（这一章全做完了）时主按钮收起，只留 `/ 命令`——**不造一个
+ * 假的下一步**。给一个「下一步」等于逼作者一直有事可做，而写完就是写完了。
+ */
+function renderNextStep(): void {
+  setHidden(el.nextStep, false);
+
+  if (!next) {
+    el.nextStepHint.textContent = current
+      ? '这一章各层都齐了。要改哪一层就点上面对应的那一段。'
+      : '挑一章开始，或用 / 挑一个命令。';
+    setHidden(el.nextStepBtn, true);
     return;
   }
-  clear(box);
 
-  const stage = store.session.stage;
-  for (const capability of STAGE_CAPABILITIES[stage] ?? []) {
-    const label = capability === 'split' ? (SPLIT_LABEL[stage] ?? CAPABILITY_LABEL.split) : CAPABILITY_LABEL[capability];
-    const btn = mk('button', 'cap', label);
-    btn.classList.toggle('active', store.session.capability === capability);
-    // 会写文件的能力单独标一下：点了会产出可采纳的东西，与「只是聊聊」不同。
-    btn.classList.toggle('cap-artifact', outputKindOf({ stage, capability }) === 'artifact');
-    btn.title = CAPABILITY_HINT[capability];
-    btn.addEventListener('click', () => {
-      store.session.capability = capability;
-      renderCapabilities();
-      updatePlaceholder();
-    });
-    box.appendChild(btn);
-  }
-  updatePlaceholder();
+  el.nextStepHint.textContent = next.hint;
+  setHidden(el.nextStepBtn, false);
+  el.nextStepBtn.textContent = next.label;
+  el.nextStepBtn.title = next.projectAction
+    ? '这一步是工程动作，不消耗对话上下文'
+    : `${STAGE_LABEL[next.stage]} · 点了立即执行，输入框里有字就一起带上`;
+  el.nextStepBtn.disabled = store.busy;
+  el.nextStepBtn.onclick = () => {
+    if (!store.busy && next) {
+      runNextStep(next);
+    }
+  };
 }
 
 /**
  * 输入框的提示语跟着阶段与能力走。
  *
  * 「描述要续写的剧情」在细纲阶段是误导——那一层用户输入的是要求而不是纲要。
+ * 而多数命令的输入是**可选**的，提示语要说出这一点。
  */
 function updatePlaceholder(): void {
   const { stage, capability } = store.session;
   if (stage === 'manuscript' && (capability === 'generate' || capability === 'rewrite')) {
-    el.input.placeholder = '描述这一段要写什么剧情…（Enter 发送，Shift+Enter 换行）';
+    el.input.placeholder = '描述这一段要写什么剧情…（可留空，Enter 发送）';
     return;
   }
-  el.input.placeholder = `${STAGE_LABEL[stage]} · ${CAPABILITY_LABEL[capability]}：${STAGE_QUESTION[stage]}`;
+  el.input.placeholder = `${STAGE_LABEL[stage]}：${STAGE_QUESTION[stage]}（可留空，/ 挑命令）`;
 }
 
 // ---------------------------------------------------------------- 工具

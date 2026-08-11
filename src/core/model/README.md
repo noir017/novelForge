@@ -10,7 +10,7 @@
 |---|---|
 | [types.ts](types.ts) | 全部数据结构：`Chapter` / `ChapterSummary` / `SummaryCast` / `CharacterCard` / `LoreEntry` / `NovelConfig`，以及摘要与角色卡的**固定小节**定义（`SUMMARY_SECTION_KEYS`、`CHARACTER_SECTION_KEYS`）。 |
 | [chapterFile.ts](chapterFile.ts) | ★ 「什么文件算章节」的唯一定义：数字前缀 + 扩展名不在二进制黑名单里。纯函数无 I/O，扫描器、编辑器可编辑判定、独立版文件监听三处共用。 |
-| [pipeline.ts](pipeline.ts) | ★ **创作流水线的领域模型**：`Stage × Capability × Target` 三元组、每阶段的身份与可用能力、`CreationTarget` 与它的稳定字符串键、章节流水线状态的推导（`deriveStage` / `deriveProgress`）。**纯类型 + 纯函数，零 import**，所以前端可以直接 import 同一份表。 |
+| [pipeline.ts](pipeline.ts) | ★ **创作流水线的领域模型**：`Stage × Capability × Target` 三元组、每阶段的身份与可用能力、`CreationTarget` 与它的稳定字符串键、章节流水线状态的推导（`deriveStage` / `deriveProgress`），以及界面直接吃的两样——`commandsFor`（`/` 命令面板的命令表）与 `deriveNextStep`（状态机 → 主按钮上那一个动作，判据与 `deriveStage` 同源）。**纯类型 + 纯函数，零 import**，所以前端可以直接 import 同一份表。 |
 | [planFile.ts](planFile.ts) | 章节细纲（`.novelforge/plans/<镜像章节路径>.md`）的格式：五个固定小节 + frontmatter 的 `upstreamHash`。纯函数无 I/O。 |
 | [sceneFile.ts](sceneFile.ts) | 场景卡（`.novelforge/scenes/<镜像章节路径>/NN-标题.md`）的格式：七个固定小节 + 场号来自文件名前缀。纯函数无 I/O。**只认 `.md`**——它是插件自己的数据格式，与「章节不认扩展名」相反。 |
 | [markdown.ts](markdown.ts) | 轻量 Markdown 结构工具：YAML frontmatter 与「## 小节」的解析/序列化，以及四个 frontmatter 取值兜底（`asString` / `asArray` / `asNumber` / `asNumberArray`）。刻意不引入 yaml 依赖，解析失败退化为忽略该行而非抛错。 |

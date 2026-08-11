@@ -10,7 +10,8 @@
  * `InMessage` / `OutMessage`，经 src/protocol.ts 引进来——改协议这边
  * 对不上会直接编译不过。
  */
-import { installComposer, payload, renderChips } from './composer';
+import { installComposer, payload, renderChips, runNextStep, setPendingCommand } from './composer';
+import { bindCommandPick } from './commands';
 import { renderSessions } from './history';
 import { appendLog, installLogs, prependLogHistory, renderLogs } from './logs';
 import { installMenus } from './menu';
@@ -25,7 +26,8 @@ import {
 } from './messages';
 import { applySummary, installProject, invalidateSummaries, renderProject } from './project';
 import { baseMenuItems } from './project/actions';
-import { renderPipeline } from './pipeline';
+import { bindNextStepRunner, renderPipeline } from './pipeline';
+import { renderWorkbench } from './workbench';
 import { renderPrompt } from './prompt';
 import { installSettings, renderSettings } from './settings';
 import { renderState, setBusy } from './state';
@@ -42,6 +44,10 @@ installMenus(baseMenuItems);
 installTabs();
 installComposer();
 bindPayload(payload);
+// 主按钮走 composer 的发送路径（它管附件、草稿、busy）；`/` 面板挑中的命令
+// 变成待执行 chip。两条线都不在各自模块里另起一套发送逻辑。
+bindNextStepRunner(runNextStep);
+bindCommandPick(setPendingCommand);
 installProject();
 installLogs();
 installSettings();
@@ -78,7 +84,8 @@ onMessage((msg) => {
       break;
 
     case 'pipeline':
-      renderPipeline(msg.pipeline);
+      renderPipeline(msg.pipeline, msg.next);
+      renderWorkbench(msg.workbench);
       break;
 
     case 'attachments':
