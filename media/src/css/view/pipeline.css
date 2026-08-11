@@ -1,8 +1,8 @@
 /*
- * 创作流水线条与能力按钮组。
+ * 创作流水线条、下一步与命令面板。
  *
  * 两块东西夹着消息区：上面是「我在哪一层、这一章走到哪一步了」，
- * 下面是「我要它干什么」。都做得很扁——它们是常驻的，不该抢正文的空间。
+ * 下面是「我接下来该干什么」。都做得很扁——它们是常驻的，不该抢正文的空间。
  *
  * 与全局一致：不写死颜色，全部走 `--vscode-*`（插件里由 VS Code 注入，
  * 独立版由 standalone.css 提供深浅两套）。
@@ -177,45 +177,147 @@ button.crumb:hover {
   color: var(--vscode-charts-green, #89d185);
 }
 
-/* ---------------------------------------------------------------- 能力按钮 */
+/* ---------------------------------------------------------------- 章节状态徽章 */
 
-.capabilities {
+/*
+ * 「待拆场景」这一格。与工程页那一列同一份文案，也该是同一种观感——
+ * 作者在两个页面上看到的是同一件事。
+ */
+.cstage {
+  font-size: 0.74em;
+  padding: 0 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  opacity: 0.85;
+}
+
+.cstage-done {
+  background: var(--vscode-charts-green, #89d185);
+  color: var(--vscode-editor-background);
+}
+
+/* ---------------------------------------------------------------- 下一步 */
+
+/*
+ * 下一步条：一句「为什么是这一步」 + 主按钮 + `/ 命令`。
+ *
+ * 夹在消息流与输入框之间——它是「读完上面、动手之前」那一刻要看的东西。
+ * 位置固定不滚，因为它随时可能被点。
+ */
+.nextstep {
+  flex: 0 0 auto;
+  position: relative;
   display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
 }
 
-.cap {
-  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
-  border-radius: 3px;
-  background: none;
-  color: var(--vscode-descriptionForeground);
+.nextstep-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.nextstep-label {
+  display: block;
   font-size: 0.8em;
-  font-family: inherit;
-  padding: 2px 9px;
-  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.4;
 }
 
-.cap:hover {
-  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+.nextstep-go {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- 命令面板 */
+
+/*
+ * `/` 命令面板。从下一步条往**上**展开——输入框在下面，面板往下会盖住它。
+ *
+ * 外观沿用右键菜单（menu.css 的 .ctx-menu），但布局不同：每一项是
+ * 「名字 + 一句说明」两行，不是单行菜单项。命令比菜单项更需要解释。
+ */
+.cmd-panel {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 2px);
+  z-index: 20;
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  border-radius: var(--radius);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+}
+
+.cmd-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.85em;
   color: var(--vscode-foreground);
 }
 
-.cap.active {
-  background: var(--vscode-button-background);
-  border-color: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
+.cmd-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  background: none;
+  border: none;
+  border-left: 3px solid transparent;
+  padding: 5px 10px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.cmd-item:hover,
+.cmd-item.active {
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
 }
 
 /*
- * 会产出可采纳产物的能力（生成/改写/拆分）左边加一道竖线。
- *
- * 「点了会写文件」与「点了只是聊聊」必须一眼分得开——前者要花钱，
- * 而且会在磁盘上留下东西。
+ * 会写文件的命令（生成/改写/拆分）左边一道竖线。
+ * 「点了会写文件」与「点了只是聊聊」必须一眼分得开。
  */
-.cap-artifact {
-  border-left-width: 3px;
+.cmd-writes {
   border-left-color: var(--vscode-charts-blue, #3794ff);
+}
+
+.cmd-label {
+  font-size: 0.92em;
+}
+
+.cmd-hint {
+  font-size: 0.76em;
+  opacity: 0.75;
+  line-height: 1.35;
+}
+
+/* 待执行的命令 chip。与附件 chip 同形，颜色区分开。 */
+.pending-cmd {
+  display: flex;
+  gap: 4px;
+}
+
+.cmd-chip {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
 }
 
 /* ---------------------------------------------------------------- 采纳卡片 */

@@ -19,6 +19,7 @@
 @import './view/tasks.css';
 @import './view/logs.css';
 @import './view/messages.css';
+@import './view/workbench.css';
 @import './view/pipeline.css';
 @import './view/composer.css';
 @import './view/history.css';

@@ -56,7 +56,9 @@ import {
   DEFAULT_CAPABILITY,
   STAGE_CAPABILITIES,
   chapterOfTarget,
+  commandOf,
   describeTarget,
+  deriveNextStep,
   isCreationStage,
   normalizeTarget,
   outputKindOf,
@@ -66,6 +68,9 @@ import {
   CharacterAction,
   FileOpResult,
   InMessage,
+  NextStepFacts,
+  NextStepPlan,
+  NextStepView,
   OutMessage,
   ProjectAction,
   SendPayload,
@@ -80,6 +85,8 @@ import {
   ViewState,
 } from './protocol';
 import { buildChapterPipelineView, buildChapterSummaryView, buildProjectTree } from './projectView';
+import { buildChapterPipeline } from './pipeline';
+import { buildWorkbench } from './workbench';
 
 /** Webview 宿主需要提供的能力。侧边栏与编辑器面板各实现一份。 */
 export interface ViewHost {
@@ -239,13 +246,19 @@ export class ChatController {
         await this.setTarget(normalizeTarget(msg.target));
         return;
 
-      case 'requestPipeline': {
-        const relPath = msg.chapterRelPath ?? chapterOfTarget(this.current.target);
-        if (relPath) {
-          this.post({ type: 'pipeline', pipeline: await buildChapterPipelineView(this.project, relPath) });
+      case 'selectChapter':
+        await this.selectChapter(msg.chapterRelPath);
+        return;
+
+      case 'requestPipeline':
+        // 指名要某一章的，就先切过去（那正是「点开另一章」的意思）；
+        // 不指名的是纯刷新，照当前目标推一份。
+        if (msg.chapterRelPath && msg.chapterRelPath !== chapterOfTarget(this.current.target)) {
+          await this.selectChapter(msg.chapterRelPath);
+        } else {
+          await this.pushPipeline();
         }
         return;
-      }
 
       case 'editTurn': {
         const turn = this.current.turns.find((t) => t.id === msg.turnId);
@@ -738,7 +751,15 @@ export class ChatController {
       this.toast('已有一个生成任务在进行中。', 'error');
       return;
     }
-    if (!payload.text.trim()) {
+    // 空输入只挡「讨论」。
+    //
+    // 旧界面一律要求先写点什么才能发送，而「生成细纲」「拆成场景」「写这一场」
+    // 本来就不需要作者说任何话——该说的都在细纲和场景卡里了。逼他先编一句
+    // 「请生成」，那句话还会被当成要求装进 prompt。
+    //
+    // 讨论例外：它的全部内容就是作者那句话，没有话就没有讨论。
+    const command = commandOf(payload.stage, payload.capability);
+    if (!payload.text.trim() && (command?.needsText ?? true)) {
       this.toast('请先输入内容。', 'error');
       return;
     }
@@ -1024,6 +1045,32 @@ export class ChatController {
   }
 
   /**
+   * 进入某一章：**由状态机决定落在哪一层**。
+   *
+   * 这是「选中章节 = 进入它当前该做的那一步」的实现。改造前前端一律发
+   * `setTarget({kind:'manuscript'})`，于是点开一个连细纲都没有的章节，
+   * 界面直接把作者丢进正文层——四层流水线在创作页上等于不存在。
+   *
+   * 判断必须在后端：前端手上只有当前那一章的 pipeline，不知道别的章
+   * 处于什么状态。
+   */
+  private async selectChapter(chapterRelPath: string): Promise<void> {
+    const chapter = (await this.project.listChapters()).find((c) => c.relPath === chapterRelPath);
+    if (!chapter) {
+      this.toast('这一章不存在，可能刚被改名或删除。', 'error');
+      return;
+    }
+    const pipeline = await buildChapterPipeline(this.project, chapter);
+    const next = deriveNextStep(pipeline.stage, factsOf(pipeline));
+
+    // 全做完了（next 为空）就停在正文——那是这一章的终点，也是最可能
+    // 要回头改的一层。
+    await this.setTarget(
+      next ? targetOf(next, chapterRelPath) : { kind: 'manuscript', chapterRelPath }
+    );
+  }
+
+  /**
    * 把这一轮请求里的 stage/capability/target 记进会话。
    *
    * 前端每次发送都带全量（它才知道用户点了哪个按钮），后端**校验一遍**：
@@ -1066,13 +1113,59 @@ export class ChatController {
     });
   }
 
-  /** 推一份当前目标那一章的流水线状态。目标是全书大纲时什么都不推。 */
+  /**
+   * 推一份创作页的现场：流水线 + 工作区卡 + 下一步。
+   *
+   * **全书大纲阶段也推**（改造前那时直接 return）：那一层没有「这一章的四段」，
+   * 但一样有产物要看、有下一步要做——大纲是空的就该去写大纲。
+   */
   private async pushPipeline(): Promise<void> {
-    const relPath = chapterOfTarget(this.current.target);
+    const target = this.current.target;
+    const relPath = chapterOfTarget(target);
+    const workbench = await buildWorkbench(this.project, target);
+
     if (!relPath) {
+      this.post({ type: 'pipeline', workbench, next: await this.outlineNextStep() });
       return;
     }
-    this.post({ type: 'pipeline', pipeline: await buildChapterPipelineView(this.project, relPath) });
+    const pipeline = await buildChapterPipelineView(this.project, relPath);
+    const plan = deriveNextStep(pipeline.stage, factsOf(pipeline));
+    this.post({
+      type: 'pipeline',
+      pipeline,
+      workbench,
+      next: plan ? { ...plan, target: targetOf(plan, relPath), order: pipeline.order } : undefined,
+    });
+  }
+
+  /**
+   * 全书大纲那一层的下一步。
+   *
+   * 没有状态机可用（`deriveStage` 是按章算的），判据只有两条，都很直白：
+   * 没有大纲就写大纲，有大纲但一章都还没有就拆成章节。都齐了就不催——
+   * 此时该做的是挑一章进去，而那是用户的选择，不是系统能替他定的。
+   */
+  private async outlineNextStep(): Promise<NextStepView | undefined> {
+    const outline = (await this.project.readOutline()).trim();
+    if (!outline) {
+      return {
+        stage: 'outline',
+        capability: 'generate',
+        label: '生成大纲',
+        hint: '先定下这个故事讲什么。后面三层都从它展开。',
+        target: { kind: 'outline' },
+      };
+    }
+    if ((await this.project.listChapters()).length === 0) {
+      return {
+        stage: 'outline',
+        capability: 'split',
+        label: '拆成章节',
+        hint: '把大纲拆成一章一章的清单，每章有一个能判断达成没达成的目标。',
+        target: { kind: 'outline' },
+      };
+    }
+    return undefined;
   }
 
   /**
@@ -1402,6 +1495,45 @@ export class ChatController {
     const result = await this.session.testConnection(ref, draft);
     this.toast(result.message, result.ok ? 'info' : 'error');
     await this.pushState();
+  }
+}
+
+// ---------------------------------------------------------------- 下一步
+
+/**
+ * 流水线 → `deriveNextStep` 要的那几个事实。
+ *
+ * 参数写成结构类型而不是 `ChapterPipeline`：数据层的 `ChapterPipeline` 与
+ * 线上的 `ChapterPipelineView` 在这几个字段上同形，两处调用共用一份。
+ */
+function factsOf(p: {
+  scenes: { no: number; ready: boolean; status: string }[];
+  manuscript: { beatsStale: boolean };
+}): NextStepFacts {
+  return {
+    sceneCount: p.scenes.length,
+    firstUnreadyScene: p.scenes.find((s) => !s.ready)?.no,
+    firstUnwrittenScene: p.scenes.find((s) => s.status !== 'written')?.no,
+    beatsStale: p.manuscript.beatsStale,
+  };
+}
+
+/**
+ * 下一步落在哪个具体产物上。
+ *
+ * 纯函数那边只说「细节层、第 2 场」，拼成 target 要知道章节路径，
+ * 而那是 I/O 层的事——`deriveNextStep` 不该也不能查章节列表。
+ */
+function targetOf(plan: NextStepPlan, chapterRelPath: string): CreationTarget {
+  switch (plan.stage) {
+    case 'outline':
+      return { kind: 'outline' };
+    case 'plan':
+      return { kind: 'plan', chapterRelPath };
+    case 'scene':
+      return { kind: 'scene', chapterRelPath, sceneNo: plan.sceneNo ?? 1 };
+    case 'manuscript':
+      return { kind: 'manuscript', chapterRelPath, sceneNo: plan.sceneNo };
   }
 }
 

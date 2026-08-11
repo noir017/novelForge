@@ -32,6 +32,10 @@ export function renderSession(session: typeof store.session): void {
   store.excluded = new Set();
   el.messages.innerHTML = '';
 
+  // 工作区卡住在消息流里（要 sticky 才滚不出视野），所以清空之后必须放回去。
+  // 与 emptyHint 同一套路：节点常驻、引用不变，只是重新挂载。
+  el.messages.appendChild(el.workbench);
+
   if (session.turns.length === 0) {
     el.messages.appendChild(el.emptyHint);
     el.emptyHint.classList.remove('hidden');

@@ -157,8 +157,11 @@ function buildChapterRow(c: ProjectChapterNode, depth: number): HTMLElement {
   }
 
   const label = mk('span', 'row-label', `${String(c.order).padStart(3, '0')} ${c.title}`);
-  label.title = c.relPath;
-  label.addEventListener('click', () => openPath(c.relPath));
+  label.title = `${c.relPath}\n点击进入这一章当前该做的那一步`;
+  // 点章节名 = **进入这一章**，由后端的状态机决定落在哪一层。
+  // 从前这里是「打开文件」，但作者点一章十次里有九次是想接着写它，
+  // 不是想读它——要读走右键的「打开」。
+  label.addEventListener('click', () => vscode.postMessage({ type: 'selectChapter', chapterRelPath: c.relPath }));
   row.appendChild(label);
 
   // 流水线徽章：这一章现在该做哪一步。全书扫一眼就知道卡在哪里，
@@ -182,9 +185,11 @@ function buildChapterRow(c: ProjectChapterNode, depth: number): HTMLElement {
 
   onContextMenu(row, () => {
     const items: MenuItem[] = [
-      { label: '打开', run: () => openPath(c.relPath) },
-      // 四层入口。点哪一层就把创作页切到那一层——比「在此续写」
-      // 只能进正文精确得多。
+      { label: '进入这一章', run: () => vscode.postMessage({ type: 'selectChapter', chapterRelPath: c.relPath }) },
+      { label: '打开正文', run: () => openPath(c.relPath) },
+      { sep: true },
+      // 四层入口。点哪一层就把创作页切到那一层——状态机给的是「该做的
+      // 下一步」，而作者常常要回头改上一层（设计文档里的「反向流动」）。
       { label: `细纲（${pct(c.progress.plan)}）`, run: () => setTarget({ kind: 'plan', chapterRelPath: c.relPath }) },
       {
         label: `场景（${pct(c.progress.scene)}）`,

@@ -139,4 +139,7 @@ export function setBusy(value: boolean): void {
   setHidden(el.stopBtn, !value);
   el.atBtn.disabled = value;
   el.selBtn.disabled = value;
+  // 主按钮与命令面板在生成期间都禁用：两者都会发起新的一轮。
+  el.nextStepBtn.disabled = value;
+  el.cmdBtn.disabled = value;
 }

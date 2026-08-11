@@ -106,6 +106,25 @@ export function isCapability(value: unknown): value is Capability {
 }
 
 /**
+ * 能力在某个阶段的**具体说法**。`CAPABILITY_LABEL` 是通用说法，日志与确认框
+ * 用它是对的；界面上有阶段做上下文，说得具体些更好懂。
+ *
+ * 只覆盖差别大到会让人误解的那几处：`split` 在大纲拆的是章、在细纲拆的是场；
+ * `generate` 在四层产出的是四种完全不同的东西。其余沿用通用说法。
+ */
+const CAPABILITY_LABEL_IN: Partial<Record<CreationStage, Partial<Record<Capability, string>>>> = {
+  outline: { split: '拆成章节', generate: '生成大纲', rewrite: '重写大纲' },
+  plan: { split: '拆成场景', generate: '生成细纲', rewrite: '重写细纲' },
+  scene: { generate: '设计这一场', rewrite: '重做这一场' },
+  manuscript: { generate: '写正文', rewrite: '重写正文' },
+};
+
+/** 某阶段下某能力在按钮上的说法。 */
+export function labelOf(stage: CreationStage, capability: Capability): string {
+  return CAPABILITY_LABEL_IN[stage]?.[capability] ?? CAPABILITY_LABEL[capability];
+}
+
+/**
  * 每个阶段合法的能力。**前端的按钮组直接读它**，不在前端另写一份。
  *
  * 两处刻意的缺席：
@@ -177,6 +196,63 @@ export function outputKindOf(action: CreationAction): OutputKind {
     action.capability === 'split'
     ? 'artifact'
     : 'text';
+}
+
+// ---------------------------------------------------------------- 命令表
+
+/**
+ * 一条可执行的命令。创作页的 `/` 命令面板吃这一份。
+ *
+ * 取代了原来那排七个平铺的能力按钮。平铺的问题不是不好看，是**七个等重的
+ * 按钮看不出该点哪个**——而在任何一个具体时刻，作者真正要按的只有一个
+ * （由状态机算出来，见 `deriveNextStep`），其余六个是「偶尔要用」。
+ * 偶尔要用的东西该收进命令面板，不该常驻占地方。
+ */
+export interface StageCommand {
+  capability: Capability;
+  /** 按钮/菜单项上的说法，已按阶段具体化。 */
+  label: string;
+  hint: string;
+  /** 点了会写文件（产出可采纳的产物）。界面上要与「只是聊聊」分得开。 */
+  writes: boolean;
+  /**
+   * 必须有输入才有意义。
+   *
+   * **只有 `discuss`**：讨论的全部内容就是作者那句话，没有话就没有讨论。
+   * 其余六个的输入是可选的补充要求——「生成细纲」不需要作者说任何话，
+   * 逼他先写一句才能点，是旧界面最没道理的一处。
+   */
+  needsText: boolean;
+  /** `/` 面板的过滤键。中文标签之外再给 ascii 别名，免得为了打一个命令切输入法。 */
+  keys: string[];
+}
+
+/** 各能力的 ascii 别名。全拼 + 拼音首字母，两种都认。 */
+const CAPABILITY_KEYS: Record<Capability, string[]> = {
+  discuss: ['discuss', 'tl'],
+  expand: ['expand', 'kz'],
+  critique: ['critique', 'tc'],
+  check: ['check', 'jc'],
+  split: ['split', 'cf'],
+  generate: ['generate', 'sc'],
+  rewrite: ['rewrite', 'gx'],
+};
+
+/** 这个阶段能下哪些命令。顺序即面板里的顺序。 */
+export function commandsFor(stage: CreationStage): StageCommand[] {
+  return (STAGE_CAPABILITIES[stage] ?? []).map((capability) => ({
+    capability,
+    label: labelOf(stage, capability),
+    hint: CAPABILITY_HINT[capability],
+    writes: outputKindOf({ stage, capability }) === 'artifact',
+    needsText: capability === 'discuss',
+    keys: CAPABILITY_KEYS[capability],
+  }));
+}
+
+/** 某阶段的某个能力对应的命令；不支持时 undefined。 */
+export function commandOf(stage: CreationStage, capability: Capability): StageCommand | undefined {
+  return commandsFor(stage).find((c) => c.capability === capability);
 }
 
 // ---------------------------------------------------------------- Target
@@ -388,4 +464,107 @@ export function deriveProgress(f: PipelineFacts): PipelineProgress {
     f.words === 0 ? 0 : f.sceneCount === 0 ? 1 : Math.min(1, f.sceneWritten / f.sceneCount);
   const summary = f.summaryExists && !f.summaryStale ? 1 : 0;
   return { plan, scene, manuscript, summary };
+}
+
+// ---------------------------------------------------------------- 下一步
+
+/**
+ * 状态机算出来的「现在该干什么」。创作页的主按钮吃这一份。
+ *
+ * 这是整套流水线在界面上的落点。四层产物、四段进度、⟳ 标记都只是**信息**；
+ * 作者真正要的是一句「所以我现在该点什么」。旧界面把这个判断留给了作者：
+ * 七个能力按钮平铺，选中一个章节一律落到正文层——哪怕那一章连细纲都没有。
+ *
+ * **与 `deriveStage` 共用同一套判据**，不另发明一套：那边算出停在哪一层，
+ * 这边把那一层翻译成一个具体动作。两处如果各判各的，界面上就会出现
+ * 「徽章说待拆场景，按钮让你写正文」。
+ */
+export interface NextStepPlan {
+  stage: CreationStage;
+  capability: Capability;
+  /** 动作落在具体某一场时给出。 */
+  sceneNo?: number;
+  /** 主按钮上的字，如「拆成场景」。 */
+  label: string;
+  /** 按钮下面那句话：为什么是这一步。 */
+  hint: string;
+  /**
+   * 这一步不是一次模型对话，而是一个工程动作。
+   *
+   * 只有审阅阶段用得上：正文齐了之后要做的是更新摘要，那是既有的
+   * `summarizeChapter`，不该假装成一轮对话。
+   */
+  projectAction?: 'summarizeChapter';
+}
+
+/** 推导下一步所需的事实。比 `PipelineFacts` 多两个「第一个没做完的是哪一场」。 */
+export interface NextStepFacts {
+  sceneCount: number;
+  /** 第一个「必须发生」还没填的场景号。 */
+  firstUnreadyScene?: number;
+  /** 第一个还没写正文的场景号。 */
+  firstUnwrittenScene?: number;
+  beatsStale: boolean;
+}
+
+export function deriveNextStep(stage: ChapterStage, f: NextStepFacts): NextStepPlan | undefined {
+  switch (stage) {
+    case 'plan':
+      return {
+        stage: 'plan',
+        capability: 'generate',
+        label: labelOf('plan', 'generate'),
+        hint: '先定下这一章要达成什么、主冲突是什么。后面几层都从它展开。',
+      };
+
+    case 'scene':
+      // 一场都没有 → 先拆；拆过了但有场没填满 → 去填第一个没填的。
+      if (f.sceneCount === 0) {
+        return {
+          stage: 'plan',
+          capability: 'split',
+          label: labelOf('plan', 'split'),
+          hint: '把这一章拆成 3~6 个能独立开写的场景。',
+        };
+      }
+      return {
+        stage: 'scene',
+        capability: 'generate',
+        sceneNo: f.firstUnreadyScene,
+        label: f.firstUnreadyScene === undefined ? '设计场景' : `设计场景 ${f.firstUnreadyScene}`,
+        hint: '填「必须发生」——它是这一场的骨架，也是写正文的前提。',
+      };
+
+    case 'manuscript':
+      // 场景改过而正文没跟上：要的是拿新场景重做一版，不是往后接着写。
+      if (f.beatsStale) {
+        return {
+          stage: 'manuscript',
+          capability: 'rewrite',
+          label: labelOf('manuscript', 'rewrite'),
+          hint: '场景改过，现有正文可能已经与细节对不上。',
+        };
+      }
+      return {
+        stage: 'manuscript',
+        capability: 'generate',
+        sceneNo: f.firstUnwrittenScene,
+        label:
+          f.firstUnwrittenScene === undefined ? '写正文' : `写场景 ${f.firstUnwrittenScene} 的正文`,
+        hint: '剧情已经定好了，这一步只负责把它写成小说。',
+      };
+
+    case 'review':
+      return {
+        stage: 'manuscript',
+        capability: 'generate',
+        projectAction: 'summarizeChapter',
+        label: '总结本章',
+        hint: '正文齐了。摘要是后面几百章唯一能记住这一章的东西。',
+      };
+
+    // 都做完了就不催。给一个「下一步」等于逼作者一直有事可做。
+    case 'done':
+      return undefined;
+  }
 }
