@@ -5,13 +5,14 @@
 ```
 src/
 ├── core/        核心逻辑：数据、上下文装配、功能编排、LLM 接入（见 core/README.md）
-│   ├── model/       数据层：NovelProject、Markdown 解析、服务商配置、会话
-│   ├── context/     ★ 分层预算上下文装配器 + token 粗估
-│   ├── features/    续写 / 摘要 / 角色卡 / 设定 / 文风提取
+│   ├── model/       数据层：NovelProject、Markdown 解析、创作流水线领域模型、服务商配置、会话
+│   ├── context/     ★ 分阶段装配（配方 × 层）+ 身份化提示词 + token 粗估
+│   ├── features/    创作（四层产物）/ 批量流水线 / 摘要 / 角色卡 / 设定 / 文风提取
 │   ├── llm/         LlmProvider 接口与 OpenAI / Anthropic 实现
 │   ├── protocol.ts  webview ↔ 扩展消息协议（前后端唯一契约）
 │   ├── logger.ts    ★ 运行日志：环形缓冲 + sink（脱敏、不记 prompt 全文）
 │   ├── progress.ts  ★ 长任务登记处：runTask（宿主进度 + 网页进度条 + 日志三合一）
+│   ├── pipeline.ts  ★ 章节流水线的读取聚合：四层产物 + 四段新鲜度链
 │   ├── fileOps.ts   类文件操作：建文件夹/重命名/移动/删除（区内、不覆盖、进回收站）
 │   ├── fileEditing.ts 内置编辑器的文件读写（路径校验 + hash 乐观锁）
 │   └── projectView.ts 工程页可序列化快照（任意深度的 ProjectNode 目录树）
@@ -27,16 +28,19 @@ src/
 - [ui/README.md](ui/README.md)
 - [vscode/README.md](vscode/README.md) · [standalone/README.md](standalone/README.md)
 
-## 一条续写请求的完整链路
+## 一条创作请求的完整链路
 
-1. webview 前端（[media/src/view/](../media/src/view/)）发 `send` 消息 → 宿主（`vscode/chatViewProvider` 或 `chatPanel`）转给 `ui/ChatController`。
-2. `ChatController` 把 payload 交给 `core/features/ContinueSession.generate()`。
-3. `ContinueSession` 先经 `core/llm/registry` 拿到 provider，再调 `core/context/builder.buildContext()` 装配上下文。
-4. 装配器从 `core/model/NovelProject` 读文风、摘要、角色卡、近章原文，按 P0–P4 填预算，产出 messages + 明细。
+以「在细纲阶段点生成」为例，四个阶段走的是同一条路，差别只在配方与提示词：
+
+1. webview 前端（[media/src/view/](../media/src/view/)）发 `send` 消息，带上 `stage` / `capability` / `target` → 宿主（`vscode/chatViewProvider` 或 `chatPanel`）转给 `ui/ChatController`。
+2. `ChatController` 校验一遍这个能力在这个阶段合不合法（对不上就回落到 `discuss` 并 warn），记进会话，交给 `core/features/CreationSession.generate()`。
+3. `CreationSession` 先经 `core/llm/registry` 拿到 provider，再调 `core/context/builder.buildContext()` 装配上下文。
+4. 装配器按 `action.stage` 取一张配方（[core/context/recipes.ts](core/context/recipes.ts)），**只读这一层用得上的文件**，按优先级填预算，产出 messages + 明细。系统提示由 `stage`（身份）× `capability`（任务）拼出。
 5. provider 流式返回增量文本，经 `GenerateHandlers` 回到 `ChatController`，以 `OutMessage` 广播给所有挂接的宿主。
-6. 用户编辑后点「采纳写入」，`ChatController` 经 `NovelProject` 落盘到 `chapters/`。
+6. 收尾时若这次的输出形态是 `artifact`，后端解析一遍并回一份「落点 + 形状 + 会不会覆盖」，前端据此画采纳卡片。
+7. 用户改完点「采纳写入」→ `acceptArtifact` **重新解析气泡里当下的文本**（用户可能改过），目标已有内容时先走 `reviewReplace`，确认后才落盘。
 
-全程 `core/logger.ts` 记下：模型与目标章、装配用了多少 token / 哪几项被降级丢弃、首字延迟、产出字数与总耗时、最终写到哪个文件。
+全程 `core/logger.ts` 记下：阶段·能力与目标产物、装配用了多少 token / 哪几项被降级丢弃、首字延迟、产出字数与总耗时、最终写到哪个文件。
 
 ## 一次批量摘要同步的链路
 

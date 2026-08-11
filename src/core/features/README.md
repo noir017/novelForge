@@ -6,7 +6,9 @@
 
 | 文件 | 职责 |
 |---|---|
-| [continueWriting.ts](continueWriting.ts) | ★ `ContinueSession`：续写编排——装配上下文 → 流式生成 → 回调交回调用方决定采纳。含 `preview()`（只装配不调用模型）、取消、输出清洗与连接测试。 |
+| [creation.ts](creation.ts) | ★ `CreationSession`：创作编排——装配上下文 → 流式生成 → **由用户点了采纳才落盘**。`acceptArtifact` 按 target 分派到六条落盘路径（大纲/拆章/细纲/拆场景/场景卡/正文）。含 `preview()`（只装配不调用模型）、取消、输出清洗与连接测试。 |
+| [artifact.ts](artifact.ts) | ★ 模型输出 → 可采纳的结构化产物。三层降级（JSON → Markdown 小节 → 全文兜底），与摘要同一套。**只解析，一个字都不写盘。** |
+| [pipelineBatch.ts](pipelineBatch.ts) | ★ 工程页的批量流水线动作：给缺细纲的章节批量生成细纲、给已有细纲的章节批量拆场景。**只补不改**，走 runTask + runPool，失败挂在那一章上。 |
 | [summarize.ts](summarize.ts) | 单章摘要（**模型输出 JSON**，解析成六个固定小节 + 结构化出场人物，temperature 固定 0.3）、批量同步过期摘要（各章并发）、map-reduce 重建全书摘要（每 N 章一批 reduce 再合并，map 阶段并发）。 |
 | [characters.ts](characters.ts) | 从选定章节**批量**提取/更新角色卡（一次扒出一批人）。**绝不静默覆盖作者手写的角色卡**——已存在的角色一律经 `Host.reviewReplace` 审阅确认，新角色直接创建。另含 `newCharacter` / `newLore` 的新建模板。 |
 | [lore.ts](lore.ts) | **从全书正文自动生成设定**：逐章识别可复用的世界观事实，再按设定整合跨章内容；新条目按分类创建，已有条目逐条审阅后才覆盖。 |
@@ -14,6 +16,29 @@
 | [characterMaintenance.ts](characterMaintenance.ts) | ★ 两条**不调模型**的整理动作：`cleanCharacterAliases` 删掉不是专属称呼的别名（含被误填成别名的**其他角色的名字**），`mergeDuplicateCharacterCards` 把同一个人的多张卡并成一张。只改 frontmatter（`rewriteFrontmatter`），作者手写的正文一个字节不动；被合并的卡搬进 `.novelforge/.trash/`。 |
 | [style.ts](style.ts) | 从 1~3 章样章归纳文风指南写入 `.novelforge/style.md`，覆盖前先确认（style.md 常被作者手工调过）。 |
 | [pickChapters.ts](pickChapters.ts) | 多章选择：Host.pick 只支持单选，需要多章时改为输入序号列表（如 `1,2,3`）。 |
+
+## 创作的四层与两条路
+
+创作按 `Stage × Capability × Target` 展开（定义在 [../model/pipeline.ts](../model/pipeline.ts)）：大纲 → 细纲 → 细节 → 正文。同一层可以被讨论、挑刺、检查，也可以被生成、改写、拆成下一层。
+
+**生成与落盘是两步**，这是本层最要紧的一条：
+
+1. `generate()` 只把文本交回调用方，**一个字都不写盘**；
+2. `parse()` 把它变成结构化产物（不写盘）；
+3. `acceptArtifact()` 才写，且只在用户点了采纳之后。
+
+中间那两步是用户看着产物决定要不要的机会——少了它，「不静默覆盖」无从谈起。
+
+`creation.ts`（创作页，一次一份）与 `pipelineBatch.ts`（工程页，一次几十份）的失败模型完全不同，所以是两条路：
+
+| | `creation.ts` | `pipelineBatch.ts` |
+|---|---|---|
+| 一次处理 | 一份产物 | 几十章 |
+| 覆盖已有产物 | 走 `reviewReplace` 逐份审阅 | **一律跳过**——一次弹 63 个 diff 没人看得完 |
+| 解析失败 | 全文兜底（产物摊在屏幕上，用户看得见它是什么） | **不兜底**（`parsePlanStrict`）——没人逐份过目，兜底会把「这次失败了」变成「这一章已规划」，紧接着的批量拆场景还会照着它往下拆 |
+| 出错 | 报错，用户重来 | 记进 errorLog 挂在那一章上，**继续跑完剩下的** |
+
+两条路共用同一个 `buildContext`，因此批量与单次产出的是同一个质量。
 
 ## 摘要走 JSON
 
@@ -46,9 +71,9 @@
 ## 关键设计
 
 - **回调而非返回**：生成类操作通过 `GenerateHandlers`（onDelta / onDone / onError / onCancelled）汇报进度，UI 层决定怎么展示流式内容。
-- **长任务走 `runTask`，不直调 `Host.progress`**：本层除续写（它在对话页有流式气泡）以外的批量活一律经 [../progress.ts](../progress.ts)。`report({ message, current, total })` 里的 `total` 决定网页上画不画进度条——摘要同步是 `stale.length`，重建全书摘要是「批数 + 合并那一步」，角色/文风是固定三步/两步，设定生成是「章节扫描 + 设定整合 + 写入/审阅」。
+- **长任务走 `runTask`，不直调 `Host.progress`**：本层除创作页的单次生成（它在对话页有流式气泡）以外的批量活一律经 [../progress.ts](../progress.ts)。`report({ message, current, total })` 里的 `total` 决定网页上画不画进度条——摘要同步是 `stale.length`，重建全书摘要是「批数 + 合并那一步」，角色/文风是固定三步/两步，设定生成是「章节扫描 + 设定整合 + 写入/审阅」，流水线批量是待处理的章数。
 - **无先后依赖的条目并发跑**：章节摘要之间、角色卡之间、全书摘要的各阶段批次之间都没有依赖，一律经 [../concurrency.ts](../concurrency.ts) 的 `runPool`（并发量取 `config.concurrency`）。**有依赖的绝不并发**——同一张角色卡内部的分批必须串行，后一批要看到前一批的产出；全书摘要的 reduce 合并要等全部 map 到齐。并发下 `current` 只在项结束时 +1，`message` 报「已完成 n/N + 正在跑哪几项」。
-- **模型经 `llm/pool.ts` 取，并且要报出档位**：建池时必须传 `task`（如 `createModelPool({ task: 'chapterSummary' })`），这样才有分档、「同档失败随机换模型」与并发轮转。本层唯一的例外是续写（`continueWriting.ts`），它必须用用户在对话页选定的那个模型。同一个功能里难度不同的阶段要**各建一个池**——`rebuildGlobalSummary` 的分批汇总（`globalSummaryStage`）与最终合并（`globalSummaryMerge`）、`generateLore` 的逐章识别（`loreScan`）与条目整合（`loreSynthesis`）都是两档，串行时也不能图省事复用同一个池（那会把后一阶段悄悄降级到前一阶段的档）。
+- **模型经 `llm/pool.ts` 取，并且要报出档位**：建池时必须传 `task`（如 `createModelPool({ task: 'chapterSummary' })`），这样才有分档、「同档失败随机换模型」与并发轮转。本层唯一的例外是创作页的单次生成（`creation.ts`），它必须用用户在对话页选定的那个模型。同一个功能里难度不同的阶段要**各建一个池**——`rebuildGlobalSummary` 的分批汇总（`globalSummaryStage`）与最终合并（`globalSummaryMerge`）、`generateLore` 的逐章识别（`loreScan`）与条目整合（`loreSynthesis`）都是两档，串行时也不能图省事复用同一个池（那会把后一阶段悄悄降级到前一阶段的档）。流水线批量的两档同理：`chapterPlan`（均衡）与 `sceneBreakdown`（快速）分开建池。
 - **切批与预算用 `pool.primaryBudget`，不用 `config.contextWindow`**：后者是对话页选定模型的窗口，分档后与干活的模型无关。确认框之前就要算的批数/片段数（它们就是「预计调用 N 次」那个数字）用 `budgetForTask(task)`，它不构造 provider，不会在用户点确认前弹 Key 输入框。
 - **确认框里的「模型」一行走 `describeTaskModels(config, task)`**：档位、实际清单、会不会换人、是不是继承默认模型，四件事一次说清。**不要再打印 `config.models`**——弹窗写着一个模型、实际跑另一个，是「不偷偷烧 token」的反面。
 - **每一步都留痕**：批量任务逐项打一条 `info`（含刚完成的项、用时、平均速度、预计剩余），失败项打 `error` 并**继续跑完剩下的**，结束时汇总说明哪几项失败。日志里绝不出现 API Key（`logger.redact` 统一处理），也不记 prompt 全文。

@@ -69,4 +69,4 @@
 
 ## 依赖关系
 
-依赖 `model/`（读章节、摘要、角色卡、设定、细纲、场景；`model/pipeline.ts` 提供 Stage × Capability × Target）与 `llm/`（`ChatMessage` 类型）。被 `features/continueWriting` 调用。
+依赖 `model/`（读章节、摘要、角色卡、设定、细纲、场景；`model/pipeline.ts` 提供 Stage × Capability × Target）与 `llm/`（`ChatMessage` 类型）。被 `features/creation.ts`（创作页单次生成）与 `features/pipelineBatch.ts`（工程页批量）调用——两者走同一个 `buildContext`，因此批量与单次产出的是同一个质量。
