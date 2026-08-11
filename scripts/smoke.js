@@ -175,9 +175,9 @@ async function checkTokenCounter() {
   tc.resetUsageStats();
 }
 
-console.log('\n== continueWriting.ts · cleanOutput ==');
+console.log('\n== creation.ts · cleanOutput ==');
 {
-  const cw = loadModule('src/core/features/continueWriting.ts');
+  const cw = loadModule('src/core/features/creation.ts');
 
   const { cleanOutput } = cw;
   check('去掉代码块包裹', cleanOutput('```\n正文内容\n```') === '正文内容');
@@ -192,9 +192,9 @@ console.log('\n== continueWriting.ts · cleanOutput ==');
     cleanOutput('他想起第三章那件事，于是停下。').includes('第三章'),
   );
 
-  const title = cw.ContinueSession.suggestTitle('1. 林昭带年轻守卫去见他母亲，第三块令牌出现。\n2. 沈氏尾随。', 4);
+  const title = cw.suggestTitle('1. 林昭带年轻守卫去见他母亲，第三块令牌出现。\n2. 沈氏尾随。', 4);
   check('suggestTitle 取纲要首句', title === '林昭带年轻守卫去见他母亲', `got "${title}"`);
-  check('suggestTitle 空纲要有兜底', cw.ContinueSession.suggestTitle('', 4) === '第4章');
+  check('suggestTitle 空纲要有兜底', cw.suggestTitle('', 4) === '第4章');
 }
 
 console.log('\n== summarize.ts · parseSummaryResponse ==');

@@ -22,7 +22,7 @@ import {
   updateCharacterCard,
 } from './features/characterCard';
 import { cleanCharacterAliases, mergeDuplicateCharacterCards } from './features/characterMaintenance';
-import { ContinueSession } from './features/continueWriting';
+import { CreationSession, suggestTitle } from './features/creation';
 import { generateLore } from './features/lore';
 import { extractStyle } from './features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from './features/summarize';
@@ -87,7 +87,7 @@ const LOG_HISTORY_PAGE = 200;
  */
 export class ChatController {
   private readonly store: SessionStore;
-  private readonly session: ContinueSession;
+  private readonly session: CreationSession;
   private current: ChatSession;
   private tab: Tab = 'chat';
   private busy = false;
@@ -110,7 +110,7 @@ export class ChatController {
 
   constructor(private readonly project: NovelProject) {
     this.store = new SessionStore(project);
-    this.session = new ContinueSession(project);
+    this.session = new CreationSession(project);
     this.current = this.store.create();
 
     // 日志实时推给前端：日志页在跑长任务时要跟着滚，不能只在切页时拉一次。
@@ -819,19 +819,30 @@ export class ChatController {
     // 前端可能改过草稿，以传上来的为准。
     turn.content = text;
 
-    const relPath =
-      mode === 'append'
-        ? await this.session.accept(text, { mode: 'append', order })
-        : await this.session.accept(text, {
-            mode: 'new',
-            order,
-            title: title.trim() || ContinueSession.suggestTitle(text, order),
-          });
+    // 协议层的 target 在第四阶段接入，这里先按旧的 append/new 桥接。
+    let result;
+    if (mode === 'append') {
+      const chapter = await this.project.getChapter(order);
+      if (!chapter) {
+        this.toast(`第 ${order} 章不存在。`, 'error');
+        return;
+      }
+      result = await this.session.acceptArtifact(
+        { kind: 'manuscript', chapterRelPath: chapter.relPath },
+        { kind: 'manuscript', text }
+      );
+    } else {
+      result = await this.session.acceptAsNewChapter(text, order, title.trim() || suggestTitle(text, order));
+    }
+    if (!result.relPath) {
+      this.toast(result.message, 'error');
+      return;
+    }
 
-    turn.acceptedTo = relPath;
+    turn.acceptedTo = result.relPath;
     await this.persist();
     this.post({ type: 'turnDone', turn: serializeTurn(turn) });
-    this.toast(`已写入 ${turn.acceptedTo}`);
+    this.toast(result.message);
 
     await getHost().openFile(turn.acceptedTo);
     await this.pushState();
