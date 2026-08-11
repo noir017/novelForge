@@ -197,6 +197,10 @@ export type ProjectAction =
   | 'summarizeChapter'
   | 'syncSummaries'
   | 'rebuildGlobalSummary'
+  /** 给所有还没有细纲的章节各生成一份（只补不改）。 */
+  | 'generatePlans'
+  /** 给所有「细纲写好了但没拆场景」的章节各拆一次（只补不改）。 */
+  | 'breakdownScenes'
   | 'extractCharacters'
   | 'generateLore'
   | 'extractStyle';

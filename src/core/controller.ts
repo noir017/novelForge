@@ -24,6 +24,7 @@ import {
 import { cleanCharacterAliases, mergeDuplicateCharacterCards } from './features/characterMaintenance';
 import { CreationSession, describeArtifact, suggestTitle } from './features/creation';
 import { generateLore } from './features/lore';
+import { breakdownScenes, generatePlans } from './features/pipelineBatch';
 import { extractStyle } from './features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from './features/summarize';
 import { getHost } from './host';
@@ -1196,6 +1197,12 @@ export class ChatController {
         break;
       case 'rebuildGlobalSummary':
         await rebuildGlobalSummary(this.project);
+        break;
+      case 'generatePlans':
+        await generatePlans(this.project);
+        break;
+      case 'breakdownScenes':
+        await breakdownScenes(this.project);
         break;
       case 'extractCharacters':
         await extractCharacters(this.project);

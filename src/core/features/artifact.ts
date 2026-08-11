@@ -144,6 +144,20 @@ export function describeArtifact(artifact: Artifact): string {
 
 /** 五个小节。JSON → Markdown 小节 → 全文塞进「本章目标」。 */
 export function parsePlanSections(text: string): PlanSections {
+  return parsePlanStrict(text) ?? { ...emptyPlanSections(), 本章目标: text.trim() };
+}
+
+/**
+ * 只走前两层，**不做全文兜底**。解析不出结构就返回 undefined。
+ *
+ * 批量路径（工程页一次给几十章生成细纲）必须用这个：那里没有人逐份过目，
+ * 而全文兜底会把模型的一句「我不太确定这一章写什么」变成一份「已规划」的
+ * 细纲——流水线状态从此开始撒谎，紧接着的批量拆场景会照着这份垃圾往下拆。
+ *
+ * 创作页反过来该用 {@link parsePlanSections}：那里产物就摊在屏幕上，
+ * 用户看得见它是什么，兜底至少留住了这次调用的钱。
+ */
+export function parsePlanStrict(text: string): PlanSections | undefined {
   const fromJson = objectOf(text);
   if (fromJson) {
     const sections = emptyPlanSections();
@@ -158,10 +172,7 @@ export function parsePlanSections(text: string): PlanSections {
   }
 
   const picked = pickSections(text, PLAN_SECTION_KEYS) as PlanSections;
-  if (Object.values(picked).some((v) => v.trim())) {
-    return { ...emptyPlanSections(), ...picked };
-  }
-  return { ...emptyPlanSections(), 本章目标: text.trim() };
+  return Object.values(picked).some((v) => v.trim()) ? { ...emptyPlanSections(), ...picked } : undefined;
 }
 
 // ---------------------------------------------------------------- 场景卡

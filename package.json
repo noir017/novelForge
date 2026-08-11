@@ -454,7 +454,7 @@
     "pretypecheck": "node scripts/embed-media.js",
     "typecheck": "tsc --noEmit && tsc --noEmit -p media/tsconfig.json",
     "presmoke": "node scripts/embed-media.js",
-    "smoke": "node scripts/smoke.js && node scripts/smoke-providers.js && node scripts/smoke-view.js && node scripts/smoke-builder.js && node scripts/smoke-fileops.js && node scripts/smoke-projectFiles.js && node scripts/smoke-chapters.js && node scripts/smoke-pipeline.js && node scripts/smoke-creation.js && node scripts/smoke-pool.js && node scripts/smoke-cast.js && node scripts/smoke-characterCard.js && node scripts/smoke-lore.js && node scripts/smoke-logging.js && node scripts/smoke-errorlog.js && node scripts/smoke-llm.js && node scripts/smoke-session.js && bun scripts/smoke-server.js",
+    "smoke": "node scripts/smoke.js && node scripts/smoke-providers.js && node scripts/smoke-view.js && node scripts/smoke-builder.js && node scripts/smoke-fileops.js && node scripts/smoke-projectFiles.js && node scripts/smoke-chapters.js && node scripts/smoke-pipeline.js && node scripts/smoke-creation.js && node scripts/smoke-pipeline-batch.js && node scripts/smoke-pool.js && node scripts/smoke-cast.js && node scripts/smoke-characterCard.js && node scripts/smoke-lore.js && node scripts/smoke-logging.js && node scripts/smoke-errorlog.js && node scripts/smoke-llm.js && node scripts/smoke-session.js && bun scripts/smoke-server.js",
     "test": "npm run typecheck && node scripts/check-core-purity.js && npm run smoke",
     "standalone": "node scripts/embed-media.js && bun run src/standalone/main.ts",
     "dist": "node scripts/embed-media.js && bun build src/standalone/main.ts --compile --outfile dist/novelforge"

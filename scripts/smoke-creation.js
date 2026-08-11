@@ -78,6 +78,14 @@ console.log('\n== artifact.ts · 细纲三层降级 ==');
   const plain = A.parseArtifact(act, '这一章讲林昭翻墙进宗门。');
   check('第三层全文兜底', plain.sections.本章目标 === '这一章讲林昭翻墙进宗门。');
 
+  // 严格解析不做全文兜底。批量路径（工程页一次给几十章生成细纲）用它：
+  // 那里没有人逐份过目，兜底会把模型的一句「我不太确定」变成一份「已规划」
+  // 的细纲，紧接着的批量拆场景还会照着它往下拆。
+  check('严格解析不兜底', A.parsePlanStrict('这一章讲林昭翻墙进宗门。') === undefined);
+  check('严格解析仍认 JSON', A.parsePlanStrict('{"本章目标":"进宗门"}')?.本章目标 === '进宗门');
+  check('严格解析仍认 Markdown 小节',
+    A.parsePlanStrict('## 本章目标\n\n进宗门')?.本章目标 === '进宗门');
+
   // 语法合法但完全不相干的 JSON 不能认下来——认了会得到一份空细纲**且不再降级**。
   const irrelevant = A.parseArtifact(act, '{"text":"林昭翻墙进宗门"}');
   check('不相干的 JSON 退到全文兜底',

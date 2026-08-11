@@ -219,9 +219,13 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   ]);
   rows.push(style);
 
+  // 大纲是整条流水线的源头：拆章、生成细纲都从它出发，所以两个批量动作
+  // 挂在这一行上，而不是散在工具栏里。
   const outline = buildFileRow({ label: '全书大纲', relPath: tree.outlinePath, detail: '人工维护' }, '🗂');
   onContextMenu(outline, () => [
     { label: '打开', run: () => openPath(tree.outlinePath) },
+    { label: '为缺细纲的章节批量生成细纲', run: () => projectAction('generatePlans') },
+    { label: '为已有细纲的章节批量拆场景', run: () => projectAction('breakdownScenes') },
     { sep: true },
     ...baseMenuItems(),
   ]);
@@ -238,6 +242,11 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   onContextMenu(tools, () => [
     { label: '同步过期摘要', run: () => projectAction('syncSummaries') },
     { label: '提取/更新角色卡', run: () => projectAction('extractCharacters') },
+    { sep: true },
+    // 两个批量动作都「只补不改」：已经有产物的章节一律跳过。批量路径上
+    // 没有逐个审阅的余地，跳过是唯一安全的做法。
+    { label: '批量生成细纲（只补缺）', run: () => projectAction('generatePlans') },
+    { label: '批量拆分场景（只补缺）', run: () => projectAction('breakdownScenes') },
     { sep: true },
     ...baseMenuItems(),
   ]);

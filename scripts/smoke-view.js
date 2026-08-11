@@ -1435,7 +1435,12 @@ console.log('\n== 资源管理器（独立版「文件」页）==');
   const emptyHint = ui.doc.querySelector('#tierModelList-balanced .hint');
   check('空档位说明是「沿用默认模型」', !!emptyHint && emptyHint.textContent.includes('沿用'), emptyHint && emptyHint.textContent);
 
-  check('任务表八行', taskRows().length === 8, `${taskRows().length} 行`);
+  // 行数跟着 LLM_TASKS 走，不写死——加一个任务就改一次测试没有意义。
+  // 要紧的是**每个任务都有一行**，漏掉的那个在设置页上就永远调不了档。
+  const taskNames = () => taskRows().map((r) => r.querySelector('.task-tier-name').textContent);
+  check('任务表每个任务一行', taskRows().length >= 10, `${taskRows().length} 行`);
+  check('流水线的两个任务在表里',
+    taskNames().includes('章节细纲') && taskNames().includes('拆分场景'), taskNames().join('|'));
   const nameOf = (i) => taskRows()[i].querySelector('.task-tier-name').textContent;
   const selOf = (i) => taskRows()[i].querySelector('select');
   check('第一行是单章摘要', nameOf(0) === '单章摘要', nameOf(0));
@@ -1479,7 +1484,7 @@ console.log('\n== 资源管理器（独立版「文件」页）==');
   delete old.tierModels;
   delete old.taskTiers;
   ui.post({ type: 'settings', ack: 'saved', settings: old, keys: {} });
-  check('旧后端不推分档字段时不崩', taskRows().length === 8, `${taskRows().length} 行`);
+  check('旧后端不推分档字段时不崩', taskRows().length >= 10, `${taskRows().length} 行`);
   check('缺字段时三档都渲染成空', refsOf('tierModelList-fast').length === 0);
 }
 

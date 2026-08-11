@@ -50,6 +50,8 @@ export type LlmTask =
   | 'chapterSummary'
   | 'globalSummaryStage'
   | 'globalSummaryMerge'
+  | 'chapterPlan'
+  | 'sceneBreakdown'
   | 'loreScan'
   | 'loreSynthesis'
   | 'characterCard'
@@ -60,6 +62,8 @@ export const LLM_TASKS: LlmTask[] = [
   'chapterSummary',
   'globalSummaryStage',
   'globalSummaryMerge',
+  'chapterPlan',
+  'sceneBreakdown',
   'loreScan',
   'loreSynthesis',
   'characterCard',
@@ -72,6 +76,8 @@ export const TASK_LABEL: Record<LlmTask, string> = {
   chapterSummary: '单章摘要',
   globalSummaryStage: '全书摘要 · 分批汇总',
   globalSummaryMerge: '全书摘要 · 最终合并',
+  chapterPlan: '章节细纲',
+  sceneBreakdown: '拆分场景',
   loreScan: '设定 · 逐章识别',
   loreSynthesis: '设定 · 条目整合',
   characterCard: '角色卡 · 更新 / 建卡',
@@ -84,6 +90,8 @@ export const TASK_HINT: Record<LlmTask, string> = {
   chapterSummary: '一章一次调用，几十上百次；输入只有单章，输出是固定结构',
   globalSummaryStage: '每批一次调用，批数多且各批独立',
   globalSummaryMerge: '全书只调一次，要跨几十万字取舍主线',
+  chapterPlan: '一章一次调用；要在大纲与前后章之间定这一章的目标与节奏，写歪了后面全歪',
+  sceneBreakdown: '一章一次调用，把细纲切成几场；结构活，判据明确',
   loreScan: '逐章通读一遍，只做事实摘录',
   loreSynthesis: '每条设定一次调用，要合并跨章事实且不能推翻作者已写的内容',
   characterCard: '按出场章节分批精炼，产物每次续写都注入上下文',
@@ -96,13 +104,20 @@ export const TASK_HINT: Record<LlmTask, string> = {
  *
  * 判据是「调用次数 × 单次难度」：次数多而单次简单的归快速档，
  * 次数少而一次定调的归精标档。作者可在设置页逐项改。
+ *
+ * 细纲归均衡档而拆场景归快速档，是这次分档里唯一需要解释的一对：两者
+ * 调用量相同（都是一章一次），但细纲决定这一章讲什么、节奏怎么走，
+ * **写歪了后面每一场、每一段正文都跟着歪**；拆场景是在已经定好的细纲上
+ * 切几刀，判据明确得多。
  */
 export const DEFAULT_TASK_TIERS: Record<LlmTask, ModelTier> = {
   chapterSummary: 'fast',
   globalSummaryStage: 'fast',
   loreScan: 'fast',
+  sceneBreakdown: 'fast',
   loreSynthesis: 'balanced',
   characterCard: 'balanced',
+  chapterPlan: 'balanced',
   globalSummaryMerge: 'quality',
   extractCharacters: 'quality',
   extractStyle: 'quality',
