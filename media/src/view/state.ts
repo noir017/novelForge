@@ -52,9 +52,14 @@ export function renderState(state: ViewState): void {
   }
 }
 
-/** 「采纳写入」写到哪里：新建下一章，或追加到已有的某一章。 */
+/**
+ * 当前创作目标那一章。
+ *
+ * 它不只是「采纳写到哪」了——装配的每一层都跟着它走，所以选项里带上
+ * `relPath`（目标一律按路径标识，序号会撞）。「新建第 N 章」那一项没有
+ * relPath：那一章还不存在。
+ */
 function renderTargetSelect(state: ViewState): void {
-  const prev = el.targetSelect.value;
   el.targetSelect.innerHTML = '';
 
   const newOpt = document.createElement('option');
@@ -66,15 +71,23 @@ function renderTargetSelect(state: ViewState): void {
   for (const c of [...state.chapters].reverse()) {
     const opt = document.createElement('option');
     opt.value = String(c.order);
-    opt.textContent = `追加到第 ${c.order} 章《${c.title}》`;
+    opt.textContent = `第 ${c.order} 章《${c.title}》`;
     opt.dataset.mode = 'append';
+    opt.dataset.rel = c.relPath;
     el.targetSelect.appendChild(opt);
   }
 
-  const want = prev || String(store.session.targetOrder ?? state.nextOrder);
-  el.targetSelect.value = [...el.targetSelect.options].some((o) => o.value === want)
-    ? want
-    : String(state.nextOrder);
+  // 以会话里的目标为准（后端是唯一真相），它指向的那一章不在列表里
+  // （刚被删/改名）时退回「新建下一章」。
+  const target = store.session.target;
+  const relPath = target.kind === 'outline' ? undefined : target.chapterRelPath;
+  const matched = relPath
+    ? [...el.targetSelect.options].find((o) => o.dataset.rel === relPath)
+    : undefined;
+  el.targetSelect.value = matched?.value ?? String(store.session.targetOrder ?? state.nextOrder);
+  if (!matched && !state.chapters.some((c) => c.order === store.session.targetOrder)) {
+    el.targetSelect.value = String(state.nextOrder);
+  }
 }
 
 /** 输入框旁的模型下拉框，按服务商分组。 */

@@ -12,7 +12,11 @@ import { toast } from './toast';
 export function payload(): SendPayload {
   return {
     text: el.input.value,
-    mode: el.modeSelect.value as SendPayload['mode'],
+    // 阶段/能力/目标全都记在会话里（后端是唯一真相，前端只是回显它）。
+    // 按钮点击先改本地这一份，发送时原样带上去，后端再校验一遍。
+    stage: store.session.stage,
+    capability: store.session.capability,
+    target: store.session.target,
     targetOrder: Number(el.targetSelect.value) || 1,
     targetWords: Number(el.targetWords.value) || 0,
     attachments: store.attachments,
@@ -66,8 +70,18 @@ export function installComposer(): void {
   el.syncBtn.addEventListener('click', () => vscode.postMessage({ type: 'syncSummaries' }));
 
   el.input.addEventListener('input', persistDraft);
-  el.modeSelect.addEventListener('change', persistDraft);
   el.targetWords.addEventListener('input', persistDraft);
+  // 目标下拉框换了一章 → 切创作目标。它现在不只是「采纳写到哪」，
+  // 而是「我在改哪一章」，装配的每一层都跟着它走。
+  el.targetSelect.addEventListener('change', () => {
+    const relPath = el.targetSelect.selectedOptions[0]?.dataset.rel;
+    vscode.postMessage({
+      type: 'setTarget',
+      // 没有 relPath 说明选的是「新建第 N 章」——那一章还不存在，
+      // 只能落到大纲；真正新建走工程页或采纳时的「新建章节」。
+      target: relPath ? { kind: 'manuscript', chapterRelPath: relPath } : { kind: 'outline' },
+    });
+  });
   el.modelSelect.addEventListener('change', () =>
     vscode.postMessage({ type: 'selectModel', ref: el.modelSelect.value })
   );

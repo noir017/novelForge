@@ -92,6 +92,48 @@ const turn = (id, role, content, extra) =>
   Object.assign({ id, role, content, at: new Date(0).toISOString() }, extra);
 
 /**
+ * 一个空会话。形状与后端 `serializeSession` 一致——前端把会话当唯一真相
+ * （面包屑、能力按钮、目标下拉全读它），缺字段会当场炸，而那正是我们要的：
+ * 协议对不上就该早点发现。
+ */
+const emptySession = (extra) =>
+  Object.assign(
+    { id: 's', title: '', target: { kind: 'outline' }, stage: 'outline', capability: 'discuss', turns: [] },
+    extra
+  );
+
+/** 一份章节流水线视图，字段与 `ChapterPipelineView` 一致。 */
+const pipelineView = (extra) =>
+  Object.assign(
+    {
+      chapterRelPath: 'chapters/012-夜入青云.md',
+      order: 12,
+      title: '夜入青云',
+      plan: { relPath: '.novelforge/plans/012-夜入青云.md', filled: true, upstreamStale: false },
+      scenes: [],
+      manuscript: { words: 0, beatsStale: false },
+      summary: { exists: false, stale: true },
+      stage: 'scene',
+      progress: { plan: 1, scene: 0, manuscript: 0, summary: 0 },
+    },
+    extra
+  );
+
+const sceneView = (no, title, extra) =>
+  Object.assign(
+    {
+      no,
+      title,
+      relPath: `.novelforge/scenes/012-夜入青云/0${no}-${title}.md`,
+      detail: `${no}. ${title}`,
+      status: 'ready',
+      ready: true,
+      upstreamStale: false,
+    },
+    extra
+  );
+
+/**
  * 起一个装好 editor.js 的独立版环境。
  *
  * 与 mount() 分开：editor.js 只在有 `#wbEditor` 时才跑，插件形态的 body 里
@@ -190,7 +232,7 @@ function closeAnyMenu(ui) {
 console.log('\n== 流式输出 ==');
 {
   const ui = mount();
-  ui.post({ type: 'session', session: { id: 's', title: '', turns: [] } });
+  ui.post({ type: 'session', session: emptySession() });
   ui.post({ type: 'turnDone', turn: turn('u1', 'user', '写一段') });
   // 控制器的真实顺序：busy=true，然后插一条空回复挂流式内容。
   ui.post({ type: 'busy', value: true });
@@ -229,7 +271,7 @@ console.log('\n== 流式输出 ==');
 console.log('\n== 中断与报错 ==');
 {
   const ui = mount();
-  ui.post({ type: 'session', session: { id: 's', title: '', turns: [] } });
+  ui.post({ type: 'session', session: emptySession() });
   ui.post({ type: 'busy', value: true });
   ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '') });
   ui.post({ type: 'delta', turnId: 'a1', text: '写到一半' });
@@ -250,7 +292,7 @@ console.log('\n== 中断与报错 ==');
 console.log('\n== 气泡右上角的 ... 菜单 ==');
 {
   const ui = mount();
-  ui.post({ type: 'session', session: { id: 's', title: '', turns: [] } });
+  ui.post({ type: 'session', session: emptySession() });
   ui.post({ type: 'turnDone', turn: turn('u1', 'user', '写一段') });
   ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '正文') });
 
@@ -297,7 +339,7 @@ console.log('\n== 气泡右上角的 ... 菜单 ==');
 console.log('\n== 生成中的限制 ==');
 {
   const ui = mount();
-  ui.post({ type: 'session', session: { id: 's', title: '', turns: [] } });
+  ui.post({ type: 'session', session: emptySession() });
   ui.post({ type: 'turnDone', turn: turn('u1', 'user', '写一段') });
   ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '') });
   ui.post({ type: 'busy', value: true });
@@ -313,12 +355,177 @@ console.log('\n== 生成中的限制 ==');
     ui.sent.filter((m) => m.type === 'retry').length === before);
 }
 
+// ---------------------------------------------------------------- 流水线条
+
+console.log('\n== 创作流水线条与能力按钮 ==');
+{
+  const ui = mount();
+  const clickEl = (node) => node.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const caps = () => [...ui.doc.querySelectorAll('#capabilities .cap')].map((n) => n.textContent);
+  const activeCap = () => ui.doc.querySelector('#capabilities .cap.active')?.textContent;
+  const crumbs = () => [...ui.doc.querySelectorAll('#pipelineCrumb .crumb')].map((n) => n.textContent);
+  const stages = () => [...ui.doc.querySelectorAll('#pipelineStages .pstage')];
+  const scenes = () => [...ui.doc.querySelectorAll('#pipelineScenes .pscene')];
+  const lastSetTarget = () => [...ui.sent].reverse().find((m) => m.type === 'setTarget');
+
+  // ---- 大纲阶段 ----
+  ui.post({ type: 'session', session: emptySession() });
+  check('大纲阶段面包屑只有一级', crumbs().length === 1 && crumbs()[0] === '全书大纲', crumbs().join('|'));
+  check('大纲阶段收起四段进度', ui.doc.getElementById('pipelineStages').classList.contains('hidden'));
+  check('大纲阶段有七个能力', caps().length === 7, caps().join('|'));
+  // 默认永远是讨论——默认动作不该是花钱产出一份要不要都不知道的产物。
+  check('默认高亮讨论', activeCap() === '讨论', activeCap());
+  // split 在大纲阶段拆的是章节，按钮上直说。
+  check('大纲的拆分写成「拆章节」', caps().includes('拆章节'), caps().join('|'));
+
+  // ---- 切到某一章的正文 ----
+  ui.post({
+    type: 'session',
+    session: emptySession({
+      target: { kind: 'manuscript', chapterRelPath: 'chapters/012-夜入青云.md' },
+      stage: 'manuscript',
+      capability: 'discuss',
+    }),
+  });
+  ui.post({ type: 'pipeline', pipeline: pipelineView({
+    scenes: [sceneView(1, '踩点'), sceneView(2, '翻越侧峰', { status: 'draft', ready: false })],
+    manuscript: { words: 1200, beatsStale: true },
+    stage: 'manuscript',
+    progress: { plan: 1, scene: 0.5, manuscript: 0.5, summary: 0 },
+  }) });
+
+  check('面包屑补出章节这一级', crumbs().length === 2 && crumbs()[1].includes('夜入青云'), crumbs().join('|'));
+  check('展开三段进度（细纲/场景/正文）', stages().length === 3, String(stages().length));
+  check('正文阶段没有拆分能力', !caps().includes('拆分') && !caps().includes('拆场景'), caps().join('|'));
+  check('正文阶段有五个能力', caps().length === 5, caps().join('|'));
+
+  // 上游变过的那一段挂 ⟳。这是整条流水线最有价值的一格信息。
+  const manuscriptStage = stages().find((n) => n.textContent.includes('正文'));
+  check('正文段标出上游已变更', !!manuscriptStage.querySelector('.pstage-stale'));
+  check('细纲段没有变更标记',
+    !stages().find((n) => n.textContent.includes('细纲')).querySelector('.pstage-stale'));
+
+  // 正文阶段展开场景列表：写哪一场是这一层的核心选择。
+  check('正文阶段列出场景', scenes().length === 2, String(scenes().length));
+  check('没填必须发生的场景标成 draft', scenes()[1].classList.contains('draft'));
+
+  // ---- 点击切目标 ----
+  clickEl(stages().find((n) => n.textContent.includes('细纲')));
+  check('点细纲段发出 setTarget', lastSetTarget()?.target.kind === 'plan',
+    JSON.stringify(lastSetTarget()));
+  check('切层保留当前章节',
+    lastSetTarget()?.target.chapterRelPath === 'chapters/012-夜入青云.md');
+
+  clickEl(scenes()[1]);
+  check('点场景带上场号', lastSetTarget()?.target.sceneNo === 2, JSON.stringify(lastSetTarget()));
+
+  clickEl(ui.doc.querySelectorAll('#pipelineCrumb .crumb')[0]);
+  check('点面包屑第一级回到大纲', lastSetTarget()?.target.kind === 'outline');
+
+  // ---- 能力按钮就地切换（不发消息，随下一次 send 带上去）----
+  const before = ui.sent.length;
+  clickEl([...ui.doc.querySelectorAll('#capabilities .cap')].find((n) => n.textContent === '挑刺'));
+  check('点能力按钮立刻高亮', activeCap() === '挑刺', activeCap());
+  check('点能力按钮不发消息', ui.sent.length === before);
+
+  // ---- 细纲阶段 ----
+  ui.post({
+    type: 'session',
+    session: emptySession({
+      target: { kind: 'plan', chapterRelPath: 'chapters/012-夜入青云.md' },
+      stage: 'plan',
+      capability: 'discuss',
+    }),
+  });
+  check('细纲的拆分写成「拆场景」', caps().includes('拆场景'), caps().join('|'));
+  // 场景列表在细纲阶段是噪声——这一层要决定的是整章怎么走。
+  check('细纲阶段不展开场景列表',
+    ui.doc.getElementById('pipelineScenes').classList.contains('hidden'));
+  check('切阶段后能力回落到讨论', activeCap() === '讨论', activeCap());
+
+  // ---- 目标换章时，上一章的进度不能留着显示 ----
+  ui.post({ type: 'pipeline', pipeline: pipelineView() });
+  ui.post({
+    type: 'session',
+    session: emptySession({
+      target: { kind: 'plan', chapterRelPath: 'chapters/013-另一章.md' },
+      stage: 'plan',
+      capability: 'discuss',
+    }),
+  });
+  check('换章后不再显示上一章的章名',
+    !crumbs().some((c) => c.includes('夜入青云')), crumbs().join('|'));
+}
+
+// ---------------------------------------------------------------- 产物采纳
+
+console.log('\n== 产物采纳卡片 ==');
+{
+  const ui = mount();
+  const clickEl = (node) => node.dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));
+  const acceptBtn = (id) =>
+    [...ui.bubble(id).querySelectorAll('.msg-actions .chip-btn')].find((n) => /采纳|覆盖/.test(n.textContent));
+
+  ui.post({
+    type: 'session',
+    session: emptySession({
+      target: { kind: 'plan', chapterRelPath: 'chapters/012-夜入青云.md' },
+      stage: 'plan',
+      capability: 'generate',
+    }),
+  });
+
+  // 讨论型回复：只有普通的「采纳写入」（写进某一章的正文）。
+  ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '我建议把冲突提前。') });
+  check('无产物时是普通采纳', acceptBtn('a1').textContent === '采纳写入', acceptBtn('a1').textContent);
+
+  // 产物型回复：说清落点与形状。
+  ui.post({
+    type: 'turnDone',
+    turn: turn('a2', 'assistant', '{"本章目标":"进宗门"}', {
+      artifact: { where: '第 12 章《夜入青云》 · 细纲', summary: '细纲 · 5/5 节', overwrites: false },
+    }),
+  });
+  const where = ui.bubble('a2').querySelector('.artifact-where');
+  check('产物卡片说明落点', where && where.textContent.includes('第 12 章'), where?.textContent);
+  check('产物卡片说明形状', where.textContent.includes('5/5 节'), where.textContent);
+  check('未覆盖时按钮是「采纳写入」', acceptBtn('a2').textContent === '采纳写入');
+
+  clickEl(acceptBtn('a2'));
+  const sent = [...ui.sent].reverse().find((m) => m.type === 'acceptArtifact');
+  check('采纳产物发 acceptArtifact', !!sent, JSON.stringify(ui.sent.slice(-1)));
+  check('带上当前目标', sent.target.kind === 'plan' && sent.target.chapterRelPath === 'chapters/012-夜入青云.md');
+  check('带上气泡里的文本', sent.text === '{"本章目标":"进宗门"}', sent.text);
+
+  // 会覆盖已有内容时按钮必须说出来——一个光秃秃的「采纳写入」在四层产物
+  // 之下已经不够，用户得知道这一下会盖掉什么。
+  ui.post({
+    type: 'turnDone',
+    turn: turn('a3', 'assistant', '{"本章目标":"换一版"}', {
+      artifact: { where: '第 12 章《夜入青云》 · 细纲', summary: '细纲 · 5/5 节', overwrites: true },
+    }),
+  });
+  check('会覆盖时按钮改文案', acceptBtn('a3').textContent === '覆盖并写入', acceptBtn('a3').textContent);
+  check('会覆盖时按钮标红', acceptBtn('a3').classList.contains('danger'));
+
+  // 已采纳过的那一轮不再给按钮，只给「打开」。
+  ui.post({
+    type: 'turnDone',
+    turn: turn('a4', 'assistant', 'x', {
+      artifact: { where: 'y', summary: 'z', overwrites: false },
+      acceptedTo: '.novelforge/plans/012-夜入青云.md',
+    }),
+  });
+  check('已采纳的不再显示采纳按钮', !acceptBtn('a4'));
+  check('已采纳的显示落点', !!ui.bubble('a4').querySelector('.accepted'));
+}
+
 // ---------------------------------------------------------------- 思考过程
 
 console.log('\n== 思考过程（推理模型）==');
 {
   const ui = mount();
-  ui.post({ type: 'session', session: { id: 's', title: '', turns: [] } });
+  ui.post({ type: 'session', session: emptySession() });
   ui.post({ type: 'turnDone', turn: turn('u1', 'user', '写一段') });
   ui.post({ type: 'busy', value: true });
   ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '') });
@@ -393,16 +600,24 @@ function sampleTree() {
         { kind: 'dir', label: '深处', relPath: 'chapters/第一卷/深处', fileCount: 1, children: [
           { kind: 'chapter', order: 3, title: '夜访', relPath: 'chapters/第一卷/深处/003-夜访.md',
             wordCount: 300, stale: true, summaryPath: '',
-            draftPath: 'drafts/第一卷/深处/003-夜访.md', hasDraft: false },
+            draftPath: 'drafts/第一卷/深处/003-夜访.md', hasDraft: false,
+            // 细纲拆了场景、正文写了，但摘要还没跟上 → 待审阅。
+            stage: 'review', upstreamStale: false,
+            progress: { plan: 1, scene: 1, manuscript: 1, summary: 0 } },
         ] },
         { kind: 'chapter', order: 2, title: '入镇', relPath: 'chapters/第一卷/002-入镇.md',
           wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/002.md',
-          draftPath: 'drafts/第一卷/002-入镇.md', hasDraft: false },
+          draftPath: 'drafts/第一卷/002-入镇.md', hasDraft: false,
+          // 场景拆了一半，且细纲的上游（全书大纲）改过。
+          stage: 'scene', upstreamStale: true,
+          progress: { plan: 1, scene: 0.5, manuscript: 0, summary: 1 } },
       ] },
       { kind: 'dir', label: '第二卷', relPath: 'chapters/第二卷', fileCount: 0, children: [] },
       { kind: 'chapter', order: 1, title: '楔子', relPath: 'chapters/001-楔子.md',
         wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/001.md',
-        draftPath: 'drafts/001-楔子.md', hasDraft: true },
+        draftPath: 'drafts/001-楔子.md', hasDraft: true,
+        stage: 'done', upstreamStale: false,
+        progress: { plan: 1, scene: 1, manuscript: 1, summary: 1 } },
     ],
     characters: [
       { kind: 'dir', label: '配角', relPath: '.novelforge/characters/配角', fileCount: 1, children: [
@@ -780,7 +995,7 @@ console.log('\n== 右键菜单的通用行为 ==');
   check('按 Esc 关闭菜单', !ui.doc.querySelector('.ctx-menu'));
 
   // 气泡的 ⋯ 菜单与右键菜单是两个类名，互不干扰。
-  ui.post({ type: 'session', session: { id: 's', title: '', turns: [] } });
+  ui.post({ type: 'session', session: emptySession() });
   ui.post({ type: 'turnDone', turn: turn('u1', 'user', '写一段') });
   ui.bubble('u1').querySelector('.msg-menu-btn')
     .dispatchEvent(new ui.window.MouseEvent('click', { bubbles: true }));

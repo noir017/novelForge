@@ -12,7 +12,6 @@ import { el } from './refs';
 /** 侧边栏折叠再展开时不丢草稿，网页刷新同理（独立版落 localStorage）。 */
 interface PersistedDraft {
   draft: string;
-  mode: string;
   targetWords: string;
 }
 
@@ -29,7 +28,9 @@ export const store: {
   excluded: Set<string>;
 } = {
   state: null,
-  session: { id: '', title: '', turns: [] },
+  // 会话的初值与后端 `SessionStore.create()` 对齐：全书大纲 · 讨论。
+  // 它一定会被第一条 `session` 消息覆盖，这里只是让首帧有东西可画。
+  session: { id: '', title: '', target: { kind: 'outline' }, stage: 'outline', capability: 'discuss', turns: [] },
   attachments: [],
   busy: false,
   streamingId: null,
@@ -42,9 +43,6 @@ export function restoreDraft(): void {
     return;
   }
   el.input.value = saved.draft || '';
-  if (saved.mode) {
-    el.modeSelect.value = saved.mode;
-  }
   if (saved.targetWords) {
     el.targetWords.value = saved.targetWords;
   }
@@ -53,7 +51,6 @@ export function restoreDraft(): void {
 export function persistDraft(): void {
   vscode.setState({
     draft: el.input.value,
-    mode: el.modeSelect.value,
     targetWords: el.targetWords.value,
   });
 }

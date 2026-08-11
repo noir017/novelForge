@@ -22,7 +22,7 @@ import {
   updateCharacterCard,
 } from './features/characterCard';
 import { cleanCharacterAliases, mergeDuplicateCharacterCards } from './features/characterMaintenance';
-import { CreationSession, suggestTitle } from './features/creation';
+import { CreationSession, describeArtifact, suggestTitle } from './features/creation';
 import { generateLore } from './features/lore';
 import { extractStyle } from './features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from './features/summarize';
@@ -50,12 +50,25 @@ import {
 } from './model/session';
 import { NovelConfig } from './model/types';
 import {
+  Capability,
+  CreationTarget,
+  DEFAULT_CAPABILITY,
+  STAGE_CAPABILITIES,
+  chapterOfTarget,
+  describeTarget,
+  isCreationStage,
+  normalizeTarget,
+  outputKindOf,
+  stageOfTarget,
+} from './model/pipeline';
+import {
   CharacterAction,
   FileOpResult,
   InMessage,
   OutMessage,
   ProjectAction,
   SendPayload,
+  SerializedArtifact,
   SerializedAttachment,
   SerializedDigest,
   SerializedProvider,
@@ -65,7 +78,7 @@ import {
   Tab,
   ViewState,
 } from './protocol';
-import { buildChapterSummaryView, buildProjectTree } from './projectView';
+import { buildChapterPipelineView, buildChapterSummaryView, buildProjectTree } from './projectView';
 
 /** Webview 宿主需要提供的能力。侧边栏与编辑器面板各实现一份。 */
 export interface ViewHost {
@@ -216,6 +229,22 @@ export class ChatController {
       case 'accept':
         await this.accept(msg.turnId, msg.mode, msg.order, msg.title, msg.text);
         return;
+
+      case 'acceptArtifact':
+        await this.acceptArtifact(msg.turnId, normalizeTarget(msg.target), msg.text);
+        return;
+
+      case 'setTarget':
+        await this.setTarget(normalizeTarget(msg.target));
+        return;
+
+      case 'requestPipeline': {
+        const relPath = msg.chapterRelPath ?? chapterOfTarget(this.current.target);
+        if (relPath) {
+          this.post({ type: 'pipeline', pipeline: await buildChapterPipelineView(this.project, relPath) });
+        }
+        return;
+      }
 
       case 'editTurn': {
         const turn = this.current.turns.find((t) => t.id === msg.turnId);
@@ -428,7 +457,12 @@ export class ChatController {
     const chapters = await this.project.listChapters();
     return {
       initialized: true,
-      chapters: chapters.map((c) => ({ order: c.order, title: c.title, wordCount: c.wordCount })),
+      chapters: chapters.map((c) => ({
+        order: c.order,
+        title: c.title,
+        wordCount: c.wordCount,
+        relPath: c.relPath,
+      })),
       nextOrder: await this.project.nextChapterOrder(),
       staleCount: (await this.project.staleChapters()).length,
       model: config.model,
@@ -564,12 +598,18 @@ export class ChatController {
     return true;
   }
 
-  /** 供命令直接调用：预设写入目标并聚焦。 */
+  /**
+   * 供命令直接调用：预设创作目标并聚焦。
+   *
+   * 命令面板给的是序号（它只有这个）；查不到那一章时退回大纲——
+   * 拿一个空 relPath 去装配，等于把「前文」的边界搞错。
+   */
   async focusWithTarget(order: number): Promise<void> {
+    const chapter = await this.project.getChapter(order);
+    await this.setTarget(
+      chapter ? { kind: 'manuscript', chapterRelPath: chapter.relPath } : { kind: 'outline' }
+    );
     this.current.targetOrder = order;
-    this.tab = 'chat';
-    this.post({ type: 'tab', tab: 'chat' });
-    this.post({ type: 'session', session: serializeSession(this.current) });
     for (const host of this.hosts) {
       host.reveal();
     }
@@ -613,7 +653,11 @@ export class ChatController {
       return;
     }
     await this.persist();
-    this.current = this.store.create(this.current.targetOrder);
+    this.current = this.store.create({
+      target: this.current.target,
+      stage: this.current.stage,
+      targetOrder: this.current.targetOrder,
+    });
     this.pending = [];
     this.tab = 'chat';
     this.post({ type: 'tab', tab: 'chat' });
@@ -633,12 +677,14 @@ export class ChatController {
       return;
     }
     await this.persist();
+    await this.restoreTarget(loaded);
     this.current = loaded;
     this.pending = [];
     this.tab = 'chat';
     this.post({ type: 'tab', tab: 'chat' });
     this.post({ type: 'session', session: serializeSession(this.current) });
     this.post({ type: 'attachments', items: [] });
+    await this.pushPipeline();
   }
 
   private async deleteSession(id: string): Promise<void> {
@@ -653,7 +699,11 @@ export class ChatController {
     }
     await this.store.delete(id);
     if (id === this.current.id) {
-      this.current = this.store.create(this.current.targetOrder);
+      this.current = this.store.create({
+        target: this.current.target,
+        stage: this.current.stage,
+        targetOrder: this.current.targetOrder,
+      });
       this.post({ type: 'session', session: serializeSession(this.current) });
     }
     await this.pushSessions();
@@ -704,6 +754,7 @@ export class ChatController {
     if (this.current.turns.length === 1) {
       this.current.title = deriveTitle(userTurn.content);
     }
+    this.applyAction(payload);
     this.current.targetOrder = payload.targetOrder;
     this.current.targetWords = payload.targetWords;
     this.pending = [];
@@ -752,14 +803,11 @@ export class ChatController {
     // 历史是本轮之前的所有轮次（不含刚插入的两条）。
     const history = this.current.turns.slice(0, -2).filter((t) => t.content.trim());
 
-    // 协议层的 stage/capability/target 在第四阶段接入，这里先按旧的 mode 桥接：
-    // 讨论 → 正文·讨论，续写 → 正文·生成。章节尚未落盘时 relPath 留空，
-    // 装配器据此退回用 targetOrder 定位「前文」边界。
-    const targetChapter = await this.project.getChapter(payload.targetOrder);
+    const action = { stage: this.current.stage, capability: this.current.capability };
     const built = await this.session.generate(
       {
-        action: { stage: 'manuscript', capability: payload.mode === 'discuss' ? 'discuss' : 'generate' },
-        target: { kind: 'manuscript', chapterRelPath: targetChapter?.relPath ?? '' },
+        action,
+        target: this.current.target,
         targetOrder: payload.targetOrder,
         ask: userTurn.content,
         targetWords: payload.targetWords > 0 ? payload.targetWords : undefined,
@@ -794,11 +842,64 @@ export class ChatController {
       assistantTurn.context = serializeDigest(built);
       this.post({ type: 'context', turnId: assistantTurn.id, digest: assistantTurn.context });
     }
+    // 产出的是可采纳的东西时，把落点与形状一起带给前端——它才画得出
+    // 「拆出了 4 场，采纳？」而不是一个光秃秃的按钮。
+    assistantTurn.artifact = await this.describeArtifactOf(assistantTurn.content);
     if (assistantTurn.error) {
       this.toast(assistantTurn.error, 'error');
     }
     this.post({ type: 'turnDone', turn: serializeTurn(assistantTurn) });
     await this.persist();
+    // 这一轮可能把某一层的产物写过（正文追加）——刷新流水线条。
+    await this.pushPipeline();
+  }
+
+  /**
+   * 这一轮的回复能不能采纳，以及采纳到哪里。
+   *
+   * 解析在这里跑一遍只是为了**画界面**（几场？覆盖谁？），真正落盘时
+   * `acceptArtifact` 会拿气泡里当时的文本重新解析——用户可能改过。
+   */
+  private async describeArtifactOf(content: string): Promise<SerializedArtifact | undefined> {
+    const action = { stage: this.current.stage, capability: this.current.capability };
+    if (outputKindOf(action) !== 'artifact' || !content.trim()) {
+      return undefined;
+    }
+    const artifact = this.session.parse(action, content);
+    if (!artifact) {
+      return undefined;
+    }
+    return {
+      where: await this.describeCurrentTarget(),
+      summary: describeArtifact(artifact),
+      overwrites: await this.targetHasContent(),
+    };
+  }
+
+  /**
+   * 采纳的落点上已经有东西了——按钮文案据此改成「覆盖…」。
+   *
+   * 只看**这一层自己的产物**：拆章/拆场景本来就跳过已存在的，
+   * 说「会覆盖」是吓唬人。
+   */
+  private async targetHasContent(): Promise<boolean> {
+    const { stage } = this.current;
+    const relPath = chapterOfTarget(this.current.target);
+    if (stage === 'outline') {
+      return this.current.capability !== 'split' && (await this.project.readOutline()).trim().length > 0;
+    }
+    if (!relPath || this.current.capability === 'split') {
+      return false;
+    }
+    if (stage === 'plan') {
+      return !!(await this.project.readPlan(relPath));
+    }
+    if (stage === 'scene') {
+      const sceneNo = this.current.target.kind === 'scene' ? this.current.target.sceneNo : undefined;
+      return sceneNo !== undefined && !!(await this.project.readScene(relPath, sceneNo));
+    }
+    // 正文是追加，不覆盖任何东西。
+    return false;
   }
 
   private async accept(
@@ -846,6 +947,150 @@ export class ChatController {
 
     await getHost().openFile(turn.acceptedTo);
     await this.pushState();
+  }
+
+  /**
+   * 采纳一份结构化产物（细纲、场景卡、章节清单、场景清单、大纲）。
+   *
+   * **重新解析一遍**而不是用生成时缓存的那份：用户可能在气泡里改过。
+   * 落盘与否由 creation.ts 决定——目标已有内容时它会先弹审阅。
+   */
+  private async acceptArtifact(turnId: string, target: CreationTarget, text: string): Promise<void> {
+    const turn = this.current.turns.find((t) => t.id === turnId);
+    if (!turn) {
+      return;
+    }
+    if (!text.trim()) {
+      this.toast('内容是空的。', 'error');
+      return;
+    }
+    turn.content = text;
+
+    const action = { stage: this.current.stage, capability: this.current.capability };
+    const artifact = this.session.parse(action, text);
+    if (!artifact) {
+      // 解析不出来时**不写**。写一个空产物比不写更糟：作者会以为存下了。
+      log.warn('产物解析不出内容，未写入', `阶段 ${action.stage}·${action.capability}`);
+      this.toast('这段内容解析不出可采纳的产物，没有写入任何文件。', 'error');
+      return;
+    }
+
+    const result = await this.session.acceptArtifact(target, artifact);
+    if (result.skipped || !result.relPath) {
+      this.toast(result.message);
+      return;
+    }
+    turn.acceptedTo = result.relPath;
+    await this.persist();
+    this.post({ type: 'turnDone', turn: serializeTurn(turn) });
+    this.toast(result.message);
+
+    await getHost().openFile(result.relPath);
+    await this.pushState();
+    await this.pushPipeline();
+  }
+
+  // ---------------------------------------------------------------- 创作目标
+
+  /**
+   * 切换当前在改哪个产物。
+   *
+   * 阶段跟着 target 走，能力回落到该阶段的默认值（一律 discuss）——
+   * 从「正文·生成」切到细纲还留着「生成」，等于点一下就花钱重写一份细纲。
+   */
+  private async setTarget(target: CreationTarget): Promise<void> {
+    if (this.busy) {
+      this.toast('正在生成，请先停止。', 'error');
+      return;
+    }
+    this.current.target = target;
+    this.current.stage = stageOfTarget(target);
+    this.current.capability = DEFAULT_CAPABILITY[this.current.stage];
+    // 章节已落盘时把序号同步过来：装配器在章节尚未落盘时靠它定位前文边界，
+    // 而这里正好知道答案。
+    const relPath = chapterOfTarget(target);
+    if (relPath) {
+      const chapter = (await this.project.listChapters()).find((c) => c.relPath === relPath);
+      if (chapter) {
+        this.current.targetOrder = chapter.order;
+      }
+    }
+    log.info(`创作目标切到 ${await this.describeCurrentTarget()}`);
+    this.tab = 'chat';
+    this.post({ type: 'tab', tab: 'chat' });
+    this.post({ type: 'session', session: serializeSession(this.current) });
+    await this.pushPipeline();
+  }
+
+  /**
+   * 把这一轮请求里的 stage/capability/target 记进会话。
+   *
+   * 前端每次发送都带全量（它才知道用户点了哪个按钮），后端**校验一遍**：
+   * 阶段认不出、或该阶段不支持这个能力时回落，绝不照单全收——那会让
+   * `STAGE_CAPABILITIES` 这张表形同虚设。
+   */
+  private applyAction(payload: SendPayload): void {
+    const stage = isCreationStage(payload.stage) ? payload.stage : this.current.stage;
+    const capability: Capability = STAGE_CAPABILITIES[stage].includes(payload.capability)
+      ? payload.capability
+      : DEFAULT_CAPABILITY[stage];
+    if (capability !== payload.capability) {
+      log.warn(
+        `「${payload.capability}」不是${stage}阶段的能力，已回落到${capability}`,
+        '前端的按钮组与 STAGE_CAPABILITIES 对不上了'
+      );
+    }
+    this.current.stage = stage;
+    this.current.capability = capability;
+    this.current.target = normalizeTarget(payload.target);
+  }
+
+  /** 当前目标的人话描述。日志、采纳卡片、面包屑共用。 */
+  private async describeCurrentTarget(): Promise<string> {
+    const relPath = chapterOfTarget(this.current.target);
+    if (!relPath) {
+      return describeTarget(this.current.target);
+    }
+    const chapter = (await this.project.listChapters()).find((c) => c.relPath === relPath);
+    const sceneNo =
+      this.current.target.kind === 'scene' || this.current.target.kind === 'manuscript'
+        ? this.current.target.sceneNo
+        : undefined;
+    const sceneTitle =
+      sceneNo === undefined ? undefined : (await this.project.readScene(relPath, sceneNo))?.title;
+    return describeTarget(this.current.target, {
+      order: chapter?.order,
+      title: chapter?.title,
+      sceneTitle,
+    });
+  }
+
+  /** 推一份当前目标那一章的流水线状态。目标是全书大纲时什么都不推。 */
+  private async pushPipeline(): Promise<void> {
+    const relPath = chapterOfTarget(this.current.target);
+    if (!relPath) {
+      return;
+    }
+    this.post({ type: 'pipeline', pipeline: await buildChapterPipelineView(this.project, relPath) });
+  }
+
+  /**
+   * 打开旧会话时把 target 补齐。
+   *
+   * 0.2.x 的会话只有 `targetOrder`，`normalize` 把它们一律落到全书大纲
+   * （那个函数是纯的，查不了章节列表）。这里手上有章节列表，能把它还原成
+   * 「正文 · 第 N 章」——那正是旧版唯一做得到的事。
+   */
+  private async restoreTarget(session: ChatSession): Promise<void> {
+    if (session.target.kind !== 'outline' || session.targetOrder === undefined) {
+      return;
+    }
+    const chapter = await this.project.getChapter(session.targetOrder);
+    if (chapter) {
+      session.target = { kind: 'manuscript', chapterRelPath: chapter.relPath };
+      session.stage = 'manuscript';
+      session.capability = DEFAULT_CAPABILITY.manuscript;
+    }
   }
 
   // ---------------------------------------------------------------- 草稿
@@ -917,11 +1162,12 @@ export class ChatController {
         await newFolder(this.project, section, dir);
         break;
       }
-      case 'continueFrom':
-        // 与原语义一致：从某章续写 = 目标设为下一章
-        this.current.targetOrder = (order ?? (await this.project.nextChapterOrder() - 1)) + 1;
-        await this.showTab('chat');
+      case 'continueFrom': {
+        // 与原语义一致：从某章续写 = 目标设为下一章的正文。
+        const next = (order ?? (await this.project.nextChapterOrder()) - 1) + 1;
+        await this.focusWithTarget(next);
         break;
+      }
       case 'summarizeChapter': {
         if (order === undefined) {
           break;
@@ -1158,6 +1404,9 @@ function serializeSession(s: ChatSession): SerializedSession {
   return {
     id: s.id,
     title: s.title,
+    target: s.target,
+    stage: s.stage,
+    capability: s.capability,
     targetOrder: s.targetOrder,
     targetWords: s.targetWords,
     turns: s.turns.map(serializeTurn),
@@ -1176,6 +1425,7 @@ function serializeTurn(t: ChatTurn): SerializedTurn {
     interrupted: t.interrupted,
     error: t.error,
     reasoning: t.reasoning,
+    artifact: t.artifact,
   };
 }
 

@@ -1,6 +1,16 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { NovelProject, exists, readText, writeText } from './project';
+import {
+  Capability,
+  CreationStage,
+  CreationTarget,
+  DEFAULT_CAPABILITY,
+  STAGE_CAPABILITIES,
+  isCapability,
+  isCreationStage,
+  normalizeTarget,
+} from './pipeline';
 
 /**
  * 会话存储：`.novelforge/sessions/<id>.json`。
@@ -71,6 +81,17 @@ export interface ChatTurn {
    * 不是正文——采纳写入章节时只取 content。
    */
   reasoning?: string;
+  /**
+   * 仅 assistant 轮：这一轮产出的是可采纳的产物时，它的落点与形状。
+   *
+   * 存进会话是为了**重开面板后采纳按钮还在**——不然刷新一次网页，
+   * 刚生成的四个场景就只剩一段谁也用不上的 JSON。
+   */
+  artifact?: {
+    where: string;
+    summary: string;
+    overwrites: boolean;
+  };
 }
 
 export interface ChatSession {
@@ -79,7 +100,15 @@ export interface ChatSession {
   title: string;
   createdAt: string;
   updatedAt: string;
-  /** 本会话默认写入的章节序号。 */
+  /**
+   * 当前在改哪个产物。会话跟着目标走——切到另一章的细纲通常意味着
+   * 换个话题，但**不强制新建会话**：作者可能正想拿这一章跟上一章比。
+   */
+  target: CreationTarget;
+  /** 当前阶段与能力。切阶段时能力回落到该阶段的默认值（一律 discuss）。 */
+  stage: CreationStage;
+  capability: Capability;
+  /** 本会话默认写入的章节序号。目标章节尚未落盘时用它定位「前文」边界。 */
   targetOrder?: number;
   /** 目标字数，跟着会话走，省得每次重填。 */
   targetWords?: number;
@@ -165,15 +194,25 @@ export class SessionStore {
     return session;
   }
 
-  /** 新建一个空会话（尚未落盘——没有内容的会话不该在历史里占位）。 */
-  create(targetOrder?: number): ChatSession {
+  /**
+   * 新建一个空会话（尚未落盘——没有内容的会话不该在历史里占位）。
+   *
+   * `seed` 让新会话继承上一个的落点：作者点「新对话」多半是想换个话题
+   * 接着在**同一个地方**写，把他弹回全书大纲纯属添乱。
+   */
+  create(seed?: { target?: CreationTarget; stage?: CreationStage; targetOrder?: number }): ChatSession {
     const at = nowIso();
+    const target = seed?.target ?? { kind: 'outline' };
+    const stage = seed?.stage ?? target.kind;
     return {
       id: makeSessionId(),
       title: '新对话',
       createdAt: at,
       updatedAt: at,
-      targetOrder,
+      target,
+      stage,
+      capability: DEFAULT_CAPABILITY[stage],
+      targetOrder: seed?.targetOrder,
       turns: [],
     };
   }
@@ -242,15 +281,32 @@ function summarize(session: ChatSession): SessionSummary {
   };
 }
 
-/** 容错读取：字段缺失或类型不对时补默认值，绝不抛。 */
+/**
+ * 容错读取：字段缺失或类型不对时补默认值，绝不抛。
+ *
+ * **旧会话没有 target/stage/capability**（0.2.x 的会话只有 `targetOrder`），
+ * 这里一律回落到全书大纲——它是唯一一个不依赖任何章节就一定存在的产物。
+ * 序号 → 章节路径要读盘，而这个函数是纯的；那一步由 controller 在打开会话时
+ * 补（见 `restoreTarget`），它手上才有章节列表。
+ */
 function normalize(id: string, raw: unknown): ChatSession {
   const o = (raw ?? {}) as Partial<ChatSession>;
   const at = typeof o.createdAt === 'string' ? o.createdAt : nowIso();
+  const target = normalizeTarget(o.target);
+  // 阶段认不出、或该阶段不支持记下来的那个能力时，都回落到该阶段的默认值。
+  const stage: CreationStage = isCreationStage(o.stage) ? o.stage : target.kind;
+  const capability: Capability =
+    isCapability(o.capability) && STAGE_CAPABILITIES[stage].includes(o.capability)
+      ? o.capability
+      : DEFAULT_CAPABILITY[stage];
   return {
     id,
     title: typeof o.title === 'string' && o.title.trim() ? o.title : '未命名对话',
     createdAt: at,
     updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : at,
+    target,
+    stage,
+    capability,
     targetOrder: typeof o.targetOrder === 'number' ? o.targetOrder : undefined,
     targetWords: typeof o.targetWords === 'number' ? o.targetWords : undefined,
     turns: Array.isArray(o.turns) ? o.turns.filter(isTurn) : [],
