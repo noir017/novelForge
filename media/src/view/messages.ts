@@ -11,7 +11,9 @@ import type { SerializedDigest, SerializedTurn } from '../protocol';
 import { linkBtn } from './buttons';
 import { countWords, fmt, timeLabel } from './format';
 import { toggleButtonMenu } from './menu';
+import { onSessionChanged } from './pipeline';
 import { el } from './refs';
+import { renderState } from './state';
 import { openPath, store, vscode } from './store';
 import { toast } from './toast';
 import type { SendPayload } from '../protocol';
@@ -41,12 +43,11 @@ export function renderSession(session: typeof store.session): void {
   if (session.targetWords) {
     el.targetWords.value = String(session.targetWords);
   }
-  if (store.state && session.targetOrder !== undefined) {
-    const want = String(session.targetOrder);
-    if ([...el.targetSelect.options].some((o) => o.value === want)) {
-      el.targetSelect.value = want;
-    }
+  // 目标下拉框与流水线条都跟着会话走——会话里的 target 是唯一真相。
+  if (store.state) {
+    renderState(store.state);
   }
+  onSessionChanged();
   scrollToBottom();
 }
 
@@ -168,7 +169,26 @@ function buildActions(turn: SerializedTurn): HTMLElement {
   if (turn.acceptedTo) {
     bar.appendChild(mk('span', 'accepted', `✓ 已写入 ${turn.acceptedTo}`));
     bar.appendChild(linkBtn('打开', () => openPath(turn.acceptedTo!)));
+  } else if (turn.artifact) {
+    // 结构化产物：说清落点与形状，覆盖时把「覆盖」两个字写在按钮上。
+    // 一个光秃秃的「采纳写入」在四层产物之下已经不够——用户得知道
+    // 这一下点下去会写到哪、会不会盖掉什么。
+    const a = turn.artifact;
+    bar.appendChild(mk('span', 'artifact-where', `${a.where} · ${a.summary}`));
+    const accept = mk('button', 'chip-btn', a.overwrites ? '覆盖并写入' : '采纳写入');
+    accept.classList.toggle('danger', a.overwrites);
+    accept.title = a.overwrites ? `${a.where} 已有内容，写入前会让你先对比一遍。` : `写入 ${a.where}`;
+    accept.addEventListener('click', () =>
+      vscode.postMessage({
+        type: 'acceptArtifact',
+        turnId: turn.id,
+        target: store.session.target,
+        text: currentText(),
+      })
+    );
+    bar.appendChild(accept);
   } else {
+    // 正文（或一段讨论——用户仍可能想把它塞进某一章）。
     const accept = mk('button', 'chip-btn', '采纳写入');
     accept.addEventListener('click', () => {
       const opt = el.targetSelect.selectedOptions[0];

@@ -11,9 +11,11 @@
  */
 import { el as mk } from '../../dom';
 import type { MenuItem } from '../../globals';
+import { CHAPTER_STAGE_LABEL } from '../../protocol';
 import type {
   CastConflictView,
   CastEntry,
+  CreationTarget,
   FailureView,
   ProjectChapterNode,
   ProjectDirNode,
@@ -23,7 +25,7 @@ import type {
 } from '../../protocol';
 import { formatWords } from '../format';
 import { onContextMenu } from '../menu';
-import { openPath } from '../store';
+import { openPath, vscode } from '../store';
 import {
   baseMenuItems,
   characterAction,
@@ -159,6 +161,20 @@ function buildChapterRow(c: ProjectChapterNode, depth: number): HTMLElement {
   label.addEventListener('click', () => openPath(c.relPath));
   row.appendChild(label);
 
+  // 流水线徽章：这一章现在该做哪一步。全书扫一眼就知道卡在哪里，
+  // 不必逐章点开——这是四层流水线在工程页上唯一的落点。
+  const stage = mk('span', `row-stage stage-${c.stage}`, CHAPTER_STAGE_LABEL[c.stage]);
+  stage.title = describeProgress(c);
+  row.appendChild(stage);
+
+  // 上游变过（大纲/细纲/场景改了）。用 ⟳ 而不是感叹号：这不是错误，
+  // 是「回头看一眼」——与失败标记要分得开。
+  if (c.upstreamStale) {
+    const stale = mk('span', 'row-upstream', '⟳');
+    stale.title = '上游产物改过，这一章的下游可能需要重做';
+    row.appendChild(stale);
+  }
+
   // 「有草稿」跟在字数后面，不新增 DOM——树行一律不挂行内按钮。
   row.appendChild(
     mk('span', 'meta', formatWords(c.wordCount) + (c.hasDraft ? ' · 草稿' : ''))
@@ -167,6 +183,18 @@ function buildChapterRow(c: ProjectChapterNode, depth: number): HTMLElement {
   onContextMenu(row, () => {
     const items: MenuItem[] = [
       { label: '打开', run: () => openPath(c.relPath) },
+      // 四层入口。点哪一层就把创作页切到那一层——比「在此续写」
+      // 只能进正文精确得多。
+      { label: `细纲（${pct(c.progress.plan)}）`, run: () => setTarget({ kind: 'plan', chapterRelPath: c.relPath }) },
+      {
+        label: `场景（${pct(c.progress.scene)}）`,
+        run: () => setTarget({ kind: 'scene', chapterRelPath: c.relPath, sceneNo: 1 }),
+      },
+      {
+        label: `正文（${pct(c.progress.manuscript)}）`,
+        run: () => setTarget({ kind: 'manuscript', chapterRelPath: c.relPath }),
+      },
+      { sep: true },
       // 从第 N 章续写意味着写第 N+1 章。
       { label: '在此续写', run: () => projectAction('continueFrom', c.order) },
       // 草稿按需创建：没有就建一个再打开，文案据此区分。
@@ -183,6 +211,23 @@ function buildChapterRow(c: ProjectChapterNode, depth: number): HTMLElement {
     return items;
   });
   return row;
+}
+
+/** 四段完成度，鼠标移上去看得见。 */
+function describeProgress(c: ProjectChapterNode): string {
+  return (
+    `${CHAPTER_STAGE_LABEL[c.stage]}\n` +
+    `细纲 ${pct(c.progress.plan)}｜场景 ${pct(c.progress.scene)}｜` +
+    `正文 ${pct(c.progress.manuscript)}｜摘要 ${pct(c.progress.summary)}`
+  );
+}
+
+function pct(ratio: number): string {
+  return `${Math.round(Math.max(0, Math.min(1, ratio)) * 100)}%`;
+}
+
+function setTarget(target: CreationTarget): void {
+  vscode.postMessage({ type: 'setTarget', target });
 }
 
 /**

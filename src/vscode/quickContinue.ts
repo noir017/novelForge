@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ContinueSession } from '../core/features/continueWriting';
+import { CreationSession } from '../core/features/creation';
 import { NovelProject } from '../core/model/project';
 
 /** 供命令面板走的极简续写（不开 Webview），结果流式写入新文档。 */
@@ -15,7 +15,7 @@ export async function quickContinue(project: NovelProject): Promise<void> {
   }
 
   const order = await project.nextChapterOrder();
-  const session = new ContinueSession(project);
+  const session = new CreationSession(project);
   const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: '' });
   const editor = await vscode.window.showTextDocument(doc, { preview: false });
 
@@ -24,7 +24,13 @@ export async function quickContinue(project: NovelProject): Promise<void> {
     async (_progress, token) => {
       token.onCancellationRequested(() => session.stop());
       await session.generate(
-        { targetOrder: order, outline },
+        {
+          action: { stage: 'manuscript', capability: 'generate' },
+          // 快速续写永远写「下一章」，那一章还不存在，relPath 留空。
+          target: { kind: 'manuscript', chapterRelPath: '' },
+          targetOrder: order,
+          ask: outline,
+        },
         {
           onDelta: (delta) => {
             void editor.edit(

@@ -16,7 +16,7 @@
 | 文件 | 职责 |
 |---|---|
 | [protocol.ts](protocol.ts) | 前端 ↔ 后端的消息协议（`InMessage` / `OutMessage` / `ViewState`）。插件 webview 与独立版网页共用，是前后端的唯一契约。 |
-| [controller.ts](controller.ts) | ★ `ChatController`：全部面板逻辑。收 `InMessage` → 调度 `ContinueSession` / 会话存储 / 设置读写 → 广播 `OutMessage`。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。 |
+| [controller.ts](controller.ts) | ★ `ChatController`：全部面板逻辑。收 `InMessage` → 调度 `CreationSession` / 会话存储 / 创作目标切换 / 设置读写 → 广播 `OutMessage`。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。 |
 | [logger.ts](logger.ts) | ★ 运行日志：环形缓冲（上限 `MAX_ENTRIES`）+ 若干 sink。`scoped('摘要')` 取一个带来源的记录器。**零依赖**（连 host.ts 都不引），core 任何模块都能直接用。历史持久化不在这里——见 db.ts 的 `installLogPersistence`（反向 import 会成环）。 |
 | [db.ts](db.ts) | ★ 工程库（`.novelforge/novelforge.db`）：失败记录 `errors` + 日志历史 `logs` 两张表，外加日志的攒批落盘（`installLogPersistence` / `flushPendingLogs` / `readLogHistory`）。**两个壳两个驱动**（Node 侧 `node:sqlite`、Bun 侧 `bun:sqlite`），模块名拼接后 `await import` 运行时探测。开不开得起来都不影响功能：失败一律吞掉并只 warn 一次。 |
 | [errorLog.ts](errorLog.ts) | ★ 失败记录门面：`recordFailure` / `clearFailures` / `listActiveFailures`。工程页行上那个红色感叹号的数据源。features 只碰这三个函数，不写 SQL。 |
@@ -30,7 +30,8 @@
 | [fileEditing.ts](fileEditing.ts) | 内置编辑器的文件读写：路径必须落在工程根内、有大小上限、只碰纯文本（扩展名白名单 **∪ 章节文件名规则**——`001-楔子` 这种无扩展名的章节也得打得开），保存走内容 hash 乐观锁（磁盘变过就抛 `FileConflictError`，绝不静默覆盖）。独立版用；插件壳走 VS Code 自己的编辑器，不经这里。 |
 | [config.ts](config.ts) | `readConfig` / `readBudgetFallback` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |
 | [stores.ts](stores.ts) | 文件后端的配置/密钥存储（`~/.novelforge/`），双壳共用。 |
-| [projectView.ts](projectView.ts) | 工程页的数据来源：把数据层给的扁平文件清单折成 `ProjectNode` 目录树（章节、角色、设定、摘要新鲜度、草稿有无），展开/折叠状态留在前端。另有 `buildChapterSummaryView`——悬停浮窗要看的单章摘要，按需单取。 |
+| [projectView.ts](projectView.ts) | 工程页的数据来源：把数据层给的扁平文件清单折成 `ProjectNode` 目录树（章节、角色、设定、摘要新鲜度、草稿有无、流水线徽章），展开/折叠状态留在前端。另有 `buildChapterSummaryView`（悬停浮窗要看的单章摘要）与 `buildChapterPipelineView`（创作页的流水线条），两者都按需单取——它们数据大、只在用到时要一次，不塞进每次文件变动都全量重推的树里。 |
+| [pipeline.ts](pipeline.ts) | ★ 章节流水线的读取聚合：把散落在 `plans/` `scenes/` `chapters/` `summaries/` 的四层产物合成一份「这一章现在到哪一步了」，并算出四段新鲜度。与 cast.ts 同级同类——那边把摘要反向聚合成出场索引，这边聚合成流水线状态。判断逻辑全在纯函数 `model/pipeline.ts` 里，这里只负责取数。 |
 | [cast.ts](cast.ts) | ★ 出场人物索引：把各章摘要的 `cast` 反向聚合成「谁在哪些章出现过」。工程页的角色区、「更新角色卡」取语料、角色卡的 `appearsIn` 都吃它。 |
 | [naming.ts](naming.ts) | ★ 称呼学（纯函数、零 I/O）：`isGenericAppellation` 判断一个词是不是泛称（代词、亲属称谓、`少女`/`丫头` 这类谁都能用的词、带修饰语的描述短语），`sanitizeAliases` 据此过滤别名。**只过滤 aliases，绝不过滤 name**——`店小二`、`家老`、`房东` 这类以泛称当正式名的角色确实存在。 |
 | [identity.ts](identity.ts) | ★ 同一人聚类（纯函数）：把摘要里散落的称呼归并成人。判据是**同章共现作硬约束的贪心聚类**——同一章 cast 里各自出场的两个称呼永不合并，候选链接按「多少章这么写过」计票贪心处理。朴素并查集在这里是错的：一条幻觉别名会顺着传递闭包把主角和她孪生弟弟并成一个人。 |
@@ -40,7 +41,7 @@
 
 - 本层**零 vscode 依赖**（双形态改造的前提）：弹窗/进度/文件监听等宿主能力全部经窄接口 `host.ts`。新代码不要增加对 `vscode` 的依赖，也不要依赖具体的视图/面板类型；完整改造背景见 `docs/design/plans` 的 standalone 改造计划。
 - **长任务一律走 `runTask`，不要直接调 `getHost().progress`**：直调只有宿主自己的 UI 看得见（VS Code 的通知条 / 独立版什么都没有），网页上那条进度条与计时不会动，日志里也不会留下开始/结束与耗时。`runTask` 把这三件事一次做完，`report({ message, current, total })` 给了 `total` 前端才画得出进度条。并发跑时 `current` **只在一项真正结束时 +1**（`runPool` 的 `onSettled` 会把已完成数递给你），按启动数递增会让进度条冲到头然后干等。
-- **日志三条硬约束**（对应 `logger.ts` 的实现）：① 所有文本过 `redact`，API Key 绝不落进日志——它会被用户复制进 issue；② sink 抛异常只被吞掉，日志坏了不能带崩正事；③ 只记条数与字数，**绝不记 prompt / 正文全文**——一次续写的 prompt 有十万字，进了缓冲会把此前所有日志挤没（见 `continueWriting.ts` 的 `logAssembly`）。
+- **日志三条硬约束**（对应 `logger.ts` 的实现）：① 所有文本过 `redact`，API Key 绝不落进日志——它会被用户复制进 issue；② sink 抛异常只被吞掉，日志坏了不能带崩正事；③ 只记条数与字数，**绝不记 prompt / 正文全文**——一次正文生成的 prompt 有十万字，进了缓冲会把此前所有日志挤没（见 `features/creation.ts` 的 `logAssembly`）。
 - **降级与丢弃必须同时进日志**：「不静默截断」这条产品承诺过去只落在界面的上下文明细里，折叠着不点开就看不见。现在装配器的降级项、摘要同步跳过的章节、超预算被截断的正文都会打一条 `warn`。新加截断逻辑时记得跟上。
 - **失败还要留在出错的东西身上，不只是日志**：日志与 toast 都要求用户「恰好在看」。角色卡/章节/设定失败时经 `errorLog.ts` 记一条（`severity: 'error'` = 目标一字未改，`'warn'` = 部分完成、下次重来），工程页那一行就挂上感叹号，一直挂到成功。**成功路径必须 `clearFailures`**——修好了还挂着比一开始不报错更糟，用户会学会无视它。`targetKey` 一律用 relPath（名字会被作者改，路径才是当下的身份，而且前端的树本来就按 relPath 索引）。
 - **库不可用不是错误路径**：`db.ts` / `errorLog.ts` 的每个 API 都自己吞异常并降级为「没有库」。纯读取的调用方（`listActiveFailures`、`clearFailures`、`readLogHistory`）必须带 `{ create: false }`——否则光是打开工程页就会在作者的 `.novelforge/` 里凭空生出一个 db 文件。写日志失败**绝不能再打日志**（会递归刷屏），只往 stderr 说一次然后彻底静默。

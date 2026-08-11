@@ -3,11 +3,14 @@ import { listActiveFailures } from './errorLog';
 import { scoped } from './logger';
 import { SECTION_PLACEHOLDER } from './model/markdown';
 import { NovelProject } from './model/project';
+import { describeScene } from './model/sceneFile';
 import { SUMMARY_SECTION_KEYS } from './model/types';
+import { ChapterPipeline, buildChapterPipeline, buildPipelineIndex } from './pipeline';
 import {
   CastConflictView,
   CastEntry,
   CastSummary,
+  ChapterPipelineView,
   ChapterSummaryView,
   ProjectChapterNode,
   ProjectDirNode,
@@ -69,7 +72,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     };
   }
 
-  const [manifest, chapters, characters, lore, chapterDirs, characterDirs, loreDirs, draftPaths] =
+  const [manifest, chapters, characters, lore, chapterDirs, characterDirs, loreDirs, draftPaths, pipelines] =
     await Promise.all([
       project.readManifest(),
       project.listChapters(),
@@ -80,6 +83,8 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       project.listFolders(project.loreDir),
       // 一次遍历拿到全部已存在的草稿，胜过每章一次 stat。
       project.listDraftPaths(),
+      // 全书流水线索引：大纲与 manifest 只读一次摊给所有章节。
+      buildPipelineIndex(project),
     ]);
 
   const chapterLeaves: ProjectChapterNode[] = [];
@@ -87,6 +92,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     // 以摘要文件里的 sourceHash 为准，与 staleChapters() 同一套判据。
     const summary = await project.readSummary(chapter);
     const draftPath = project.draftRelPathFor(chapter.relPath) ?? '';
+    const pipeline = pipelines.get(chapter.relPath);
     chapterLeaves.push({
       kind: 'chapter',
       order: chapter.order,
@@ -97,6 +103,11 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       summaryPath: summary?.relPath ?? '',
       draftPath,
       hasDraft: draftPath !== '' && draftPaths.has(draftPath),
+      // 流水线只带这两个精简字段：完整视图（含场景清单）走 requestPipeline，
+      // 五百章各带一份会把每次全量推树变成几百 KB。
+      stage: pipeline?.stage ?? 'plan',
+      progress: pipeline?.progress ?? { plan: 0, scene: 0, manuscript: 0, summary: 0 },
+      upstreamStale: !!pipeline && isUpstreamStale(pipeline),
     });
   }
 
@@ -177,6 +188,61 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     outlinePath,
     globalSummaryPath,
   };
+}
+
+/**
+ * 一章流水线的完整视图（创作页的流水线条与场景列表）。
+ *
+ * 与 `buildChapterSummaryView` 同一套取舍：数据小、只在切目标时取一次，
+ * 所以单独一条消息，不塞进每次文件变动都全量重推的 `ProjectTree`。
+ *
+ * 章节不存在时给一份空壳而不是抛——作者可能刚把那一章改了名，
+ * 界面该显示「这一章没了」而不是崩掉。
+ */
+export async function buildChapterPipelineView(
+  project: NovelProject,
+  chapterRelPath: string
+): Promise<ChapterPipelineView> {
+  const chapter = (await project.listChapters()).find((c) => c.relPath === chapterRelPath);
+  if (!chapter) {
+    return {
+      chapterRelPath,
+      order: 0,
+      title: '',
+      scenes: [],
+      manuscript: { words: 0, beatsStale: false },
+      summary: { exists: false, stale: true },
+      stage: 'plan',
+      progress: { plan: 0, scene: 0, manuscript: 0, summary: 0 },
+    };
+  }
+  const p = await buildChapterPipeline(project, chapter);
+  return {
+    chapterRelPath: p.chapterRelPath,
+    order: p.order,
+    title: p.title,
+    plan: p.plan,
+    scenes: p.scenes.map((s) => ({
+      no: s.no,
+      title: s.title,
+      relPath: s.relPath,
+      // 一行摘要在后端生成：创作页的场景列表、工程页的场景子节点、
+      // 细纲阶段装配进 prompt 的场景一览，三处共用同一份文案。
+      detail: describeScene(s),
+      status: s.status,
+      ready: s.ready,
+      upstreamStale: s.upstreamStale,
+    })),
+    manuscript: p.manuscript,
+    summary: p.summary,
+    stage: p.stage,
+    progress: p.progress,
+  };
+}
+
+/** 有任何一层的上游变过。工程页那一行据此挂提示点。 */
+function isUpstreamStale(p: ChapterPipeline): boolean {
+  return !!p.plan?.upstreamStale || p.manuscript.beatsStale || p.scenes.some((s) => s.upstreamStale);
 }
 
 /**

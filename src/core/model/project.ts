@@ -17,8 +17,29 @@ import {
   SummaryCast,
   SummarySections,
 } from './types';
-import { extractH1, parseMarkdown, pickSections, stringifyFrontmatter, stringifySections, stripH1 } from './markdown';
+import {
+  asArray,
+  asNumber,
+  asNumberArray,
+  asString,
+  extractH1,
+  parseMarkdown,
+  pickSections,
+  stringifyFrontmatter,
+  stringifySections,
+  stripH1,
+} from './markdown';
 import { isChapterFileName, isMarkdownExt, isMarkdownPath, parseChapterFileName } from './chapterFile';
+import { ChapterPlan, WritableChapterPlan, parsePlanFile, renderPlanFile } from './planFile';
+import {
+  SCENE_SECTION_KEYS,
+  Scene,
+  WritableScene,
+  isSceneFileName,
+  parseSceneFile,
+  renderSceneFile,
+  sceneFileName,
+} from './sceneFile';
 import { sanitizeAliases } from '../naming';
 
 const NOVEL_DIR = '.novelforge';
@@ -96,6 +117,16 @@ export class NovelProject {
     return path.join(this.novelDir, 'summaries');
   }
 
+  /** 章节细纲（`.novelforge/plans/`）。镜像章节在 chaptersDir 之下的相对路径。 */
+  get plansDir(): string {
+    return path.join(this.novelDir, 'plans');
+  }
+
+  /** 剧情细节（`.novelforge/scenes/`）。每章一个同名目录，里面按 `NN-标题.md` 放场景。 */
+  get scenesDir(): string {
+    return path.join(this.novelDir, 'scenes');
+  }
+
   get sessionsDir(): string {
     return path.join(this.novelDir, 'sessions');
   }
@@ -170,6 +201,88 @@ export class NovelProject {
     return this.relPath(path.join(this.summariesDir, mirror));
   }
 
+  // ------------------------------------------------- 细纲 / 场景的镜像路径
+
+  /**
+   * 章节在**章节根之下**的那段相对路径；不在其下时 undefined。
+   *
+   * 摘要、草稿、细纲、场景四套镜像共用这一条判据。分开写过四遍之后，
+   * 「作者把 chaptersDir 配成 `.`」这种边角只会在其中一两处被想到。
+   */
+  private underChapters(chapterRelPath: string): string | undefined {
+    const under = path.relative(this.chaptersDir, this.pathOf(chapterRelPath));
+    return !under || under.startsWith('..') || path.isAbsolute(under) ? undefined : under;
+  }
+
+  /**
+   * 章节 → 它细纲文件的绝对路径。
+   *
+   * 与摘要同一套镜像规则，扩展名换 `.md`：
+   *   `chapters/卷一/012-夜入青云.md` → `.novelforge/plans/卷一/012-夜入青云.md`
+   *   `chapters/005-手记.txt`         → `.novelforge/plans/005-手记.md`
+   *
+   * 与摘要**不同的一点**：这里没有「按序号命名」的旧式回退。细纲是新东西，
+   * 不存在需要兼容的历史文件，因此章节不在章节根之下时直接返回 undefined，
+   * 由调用方说清「这一章不在 chapters/ 下，没法建细纲」，而不是悄悄落到
+   * 一个按序号命名、同序号会互相覆盖的位置。
+   */
+  planPathForChapter(chapterRelPath: string): string | undefined {
+    const under = this.underChapters(chapterRelPath);
+    if (under === undefined) {
+      return undefined;
+    }
+    const parsed = path.parse(under);
+    return path.join(this.plansDir, path.join(parsed.dir, `${parsed.name}.md`));
+  }
+
+  /**
+   * 章节（文件或目录）→ 细纲在 plans/ 下的**工作区相对路径**（正斜杠）。
+   * 目录原样镜像。不在章节根之下时 undefined——`carryPlan` 据此判断
+   * 「搬出 chapters/ 了，细纲留在原处」。纯计算，不碰磁盘。
+   */
+  planMirrorRelPath(chapterRelPath: string, isDir: boolean): string | undefined {
+    const under = this.underChapters(chapterRelPath);
+    if (under === undefined) {
+      return undefined;
+    }
+    const parsed = path.parse(under);
+    const mirror = isDir ? under : path.join(parsed.dir, `${parsed.name}.md`);
+    return this.relPath(path.join(this.plansDir, mirror));
+  }
+
+  /**
+   * 章节 → 它的场景**目录**绝对路径。
+   *
+   *   `chapters/卷一/012-夜入青云.md` → `.novelforge/scenes/卷一/012-夜入青云/`
+   *
+   * 比摘要多开一层同名目录：一章有若干场景，它们要能整体跟着章节走。
+   */
+  sceneDirForChapter(chapterRelPath: string): string | undefined {
+    const under = this.underChapters(chapterRelPath);
+    if (under === undefined) {
+      return undefined;
+    }
+    const parsed = path.parse(under);
+    return path.join(this.scenesDir, path.join(parsed.dir, parsed.name));
+  }
+
+  /**
+   * 章节（文件或目录）→ 场景目录在 scenes/ 下的工作区相对路径。
+   *
+   * 文件：去掉扩展名后当目录名（`012-夜入青云.md` → `012-夜入青云/`）。
+   * 目录：原样镜像（`卷一/` → `卷一/`）——搬一整卷时里面每章的场景目录
+   * 都跟着走。
+   */
+  sceneMirrorRelPath(chapterRelPath: string, isDir: boolean): string | undefined {
+    const under = this.underChapters(chapterRelPath);
+    if (under === undefined) {
+      return undefined;
+    }
+    const parsed = path.parse(under);
+    const mirror = isDir ? under : path.join(parsed.dir, parsed.name);
+    return this.relPath(path.join(this.scenesDir, mirror));
+  }
+
   /** 绝对路径 → 工作区相对路径（正斜杠）。 */
   relPath(absPath: string): string {
     return path.relative(this.root, absPath).replace(/\\/g, '/');
@@ -212,6 +325,8 @@ export class NovelProject {
     await fs.mkdir(this.charactersDir, { recursive: true });
     await fs.mkdir(this.loreDir, { recursive: true });
     await fs.mkdir(this.summariesDir, { recursive: true });
+    await fs.mkdir(this.plansDir, { recursive: true });
+    await fs.mkdir(this.scenesDir, { recursive: true });
     await fs.mkdir(this.sessionsDir, { recursive: true });
 
     await writeIfAbsent(this.stylePath, STYLE_TEMPLATE);
@@ -425,14 +540,18 @@ export class NovelProject {
     const oldByOrder = new Map(manifest.chapters.map((c) => [c.order, c]));
     const chapters = await this.listChapters();
 
-    manifest.chapters = chapters.map<ManifestChapter>((c) => ({
-      file: c.relPath,
-      order: c.order,
-      title: c.title,
-      wordCount: c.wordCount,
-      contentHash: c.contentHash,
-      summaryHash: (oldByFile.get(c.relPath) ?? oldByOrder.get(c.order))?.summaryHash,
-    }));
+    manifest.chapters = chapters.map<ManifestChapter>((c) => {
+      const old = oldByFile.get(c.relPath) ?? oldByOrder.get(c.order);
+      return {
+        file: c.relPath,
+        order: c.order,
+        title: c.title,
+        wordCount: c.wordCount,
+        contentHash: c.contentHash,
+        summaryHash: old?.summaryHash,
+        beatsHash: old?.beatsHash,
+      };
+    });
 
     await this.writeManifest(manifest);
     return manifest;
@@ -550,8 +669,137 @@ export class NovelProject {
     return this.relPath(abs);
   }
 
-  async readGlobalSummary(): Promise<string> {
-    if (!(await exists(this.globalSummaryPath))) {
+  // ---------------------------------------------------------------- 细纲
+
+  /**
+   * 读一章的细纲。没有细纲不是错误——这一章可以还没规划过。
+   *
+   * 与摘要不同，这里不做旧式路径回退：细纲没有历史包袱（见 planPathForChapter）。
+   */
+  async readPlan(chapterRelPath: string): Promise<ChapterPlan | undefined> {
+    const abs = this.planPathForChapter(chapterRelPath);
+    if (!abs || !(await exists(abs))) {
+      return undefined;
+    }
+    try {
+      return parsePlanFile(await readText(abs), this.relPath(abs));
+    } catch {
+      // 读盘本身失败（权限、编码）也当作没有细纲——解析失败在 parsePlanFile
+      // 里已经退化过一层了，能走到这里的只有 I/O 异常。
+      return undefined;
+    }
+  }
+
+  /** 写细纲，返回工作区相对路径。 */
+  async writePlan(chapterRelPath: string, plan: WritableChapterPlan): Promise<string> {
+    const abs = this.planPathForChapter(chapterRelPath);
+    if (!abs) {
+      throw new Error(`这一章不在 ${this.config.chaptersDir}/ 下，无法建细纲：${chapterRelPath}`);
+    }
+    await writeText(abs, renderPlanFile(plan));
+    return this.relPath(abs);
+  }
+
+  // ---------------------------------------------------------------- 场景
+
+  /**
+   * 列一章的全部场景，按场景号升序。
+   *
+   * 顺序由**文件名的数字前缀**决定，与章节同一套规则——作者重排场景顺序
+   * 的方式就是改文件名前缀。号码撞车（手改重名）时按路径稳定排序，两条都
+   * 留在列表里，让作者看得见冲突。
+   */
+  async listScenes(chapterRelPath: string): Promise<Scene[]> {
+    const dir = this.sceneDirForChapter(chapterRelPath);
+    if (!dir) {
+      return [];
+    }
+    const files = await listFilesDeep(dir, isSceneFileName);
+    const scenes: Scene[] = [];
+    for (const abs of files) {
+      scenes.push(parseSceneFile(await readText(abs), this.relPath(abs)));
+    }
+    scenes.sort((a, b) => a.no - b.no || a.relPath.localeCompare(b.relPath));
+    return scenes;
+  }
+
+  /** 取某一场。找不到返回 undefined。 */
+  async readScene(chapterRelPath: string, sceneNo: number): Promise<Scene | undefined> {
+    return (await this.listScenes(chapterRelPath)).find((s) => s.no === sceneNo);
+  }
+
+  /**
+   * 写一场，返回工作区相对路径。
+   *
+   * 文件名由场景号与标题决定，所以**改标题会改文件名**：先按场景号找到旧
+   * 文件，路径不同就删掉旧的，避免 `02-翻墙.md` 与 `02-翻越侧峰.md` 并存
+   * 变成两场。这与章节改名走 `renameEntry` 是两回事——那边是作者在管文件，
+   * 这边是产物按自己的命名规则落盘。
+   */
+  async writeScene(chapterRelPath: string, scene: WritableScene): Promise<string> {
+    const dir = this.sceneDirForChapter(chapterRelPath);
+    if (!dir) {
+      throw new Error(`这一章不在 ${this.config.chaptersDir}/ 下，无法建场景：${chapterRelPath}`);
+    }
+    const abs = path.join(dir, sceneFileName(scene.no, sanitizeFileName(scene.title)));
+    const previous = await this.readScene(chapterRelPath, scene.no);
+    await writeText(abs, renderSceneFile(scene));
+    if (previous && this.pathOf(previous.relPath) !== abs) {
+      await fs.unlink(this.pathOf(previous.relPath)).catch(() => undefined);
+    }
+    return this.relPath(abs);
+  }
+
+  /**
+   * 删一场：搬进 `.trash/`，不真删（AGENTS.md 第 6 条）。
+   * 返回是否确实删掉了一场。
+   */
+  async deleteScene(chapterRelPath: string, sceneNo: number): Promise<boolean> {
+    const scene = await this.readScene(chapterRelPath, sceneNo);
+    if (!scene) {
+      return false;
+    }
+    const target = path.join(this.trashDir, scene.relPath);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.rename(this.pathOf(scene.relPath), target);
+    return true;
+  }
+
+  /**
+   * 一章全部场景拼起来的 hash——正文的上游指纹。
+   *
+   * 落在 manifest 的 `beatsHash` 里而不是章节文件的 frontmatter，是因为
+   * **章节可以是 `.txt` / 无扩展名 / `.json`**（AGENTS.md 第 9 条），
+   * 绝不能给正文文件加 frontmatter。
+   *
+   * 参与哈希的只有场景号与七个小节，不含 `status`——采纳正文时会把场景标成
+   * `written`，那一次写入不该反过来让刚写好的正文立刻显示「上游已变更」。
+   */
+  async beatsHashFor(chapterRelPath: string): Promise<string> {
+    const scenes = await this.listScenes(chapterRelPath);
+    if (scenes.length === 0) {
+      return '';
+    }
+    return hash(
+      scenes
+        .map((s) =>
+          [`#${s.no}`, s.title, s.place, s.time, ...SCENE_SECTION_KEYS.map((k) => s.sections[k])].join('\n')
+        )
+        .join('\n---\n')
+    );
+  }
+
+  /** 记录某章正文所依据的场景指纹。写完正文后调用，与 markSummarized 同构。 */
+  async markBeatsWritten(chapterRelPath: string, beatsHash: string): Promise<void> {
+    const manifest = await this.syncManifest();
+    const entry = manifest.chapters.find((c) => c.file === chapterRelPath);
+    if (entry) {
+      entry.beatsHash = beatsHash;
+      await this.writeManifest(manifest);
+    }
+  }
+
+  async readGlobalSummary(): Promise<string> {    if (!(await exists(this.globalSummaryPath))) {
       return '';
     }
     return stripH1(parseMarkdown(await readText(this.globalSummaryPath)).body);
@@ -858,47 +1106,6 @@ export function isIgnoredDir(name: string): boolean {
 
 function baseName(absPath: string): string {
   return path.basename(absPath).replace(/\.md$/i, '');
-}
-
-function asString(v: string | string[] | undefined): string {
-  if (Array.isArray(v)) {
-    return v[0] ?? '';
-  }
-  return v ?? '';
-}
-
-function asArray(v: string | string[] | undefined): string[] {
-  if (Array.isArray(v)) {
-    return v.filter((s) => s.trim().length > 0);
-  }
-  if (typeof v === 'string' && v.trim()) {
-    return v
-      .split(/[,，、]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-  return [];
-}
-
-function asNumber(v: string | string[] | undefined): number | undefined {
-  const s = asString(v);
-  if (!s) {
-    return undefined;
-  }
-  const n = Number(s);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-/** frontmatter 里的数字数组（如 `appearsIn: [1, 3, 7]`）。去重并升序。 */
-function asNumberArray(v: string | string[] | undefined): number[] {
-  const out = new Set<number>();
-  for (const s of asArray(v)) {
-    const n = Number(s.trim());
-    if (Number.isInteger(n) && n > 0) {
-      out.add(n);
-    }
-  }
-  return [...out].sort((a, b) => a - b);
 }
 
 // ---------------------------------------------------------------- 出场人物

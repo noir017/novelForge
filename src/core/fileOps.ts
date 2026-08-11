@@ -83,6 +83,11 @@ export function normalizeRel(relPath: string): string | undefined {
 /**
  * 工程的固定目录：改名/搬走会让工程结构散架（章节索引、草稿镜像、
  * 元数据与会话）。文件页的根范围操作对这些路径一律拒绝。
+ *
+ * `.novelforge/` 下的每一个目录名都被代码写死在某处查找逻辑里：摘要、细纲、
+ * 场景三套镜像路径与会话存储都是按目录名拼出来的，改了名就等于那批数据凭空
+ * 消失，**而界面上只会显示「还没生成过」**。所以这里列的是全部固定子目录，
+ * 不只是作者常看见的那几个。
  */
 export function isProtectedPath(project: NovelProject, relPath: string): boolean {
   const rel = normalizeRel(relPath);
@@ -95,6 +100,10 @@ export function isProtectedPath(project: NovelProject, relPath: string): boolean
     '.novelforge',
     '.novelforge/characters',
     '.novelforge/lore',
+    '.novelforge/summaries',
+    '.novelforge/plans',
+    '.novelforge/scenes',
+    '.novelforge/sessions',
     '.novelforge/.trash',
   ];
   return fixed.includes(rel);
@@ -223,6 +232,8 @@ async function renameEntryImpl(
   if (target.info?.section === 'chapters') {
     await carryDraft(project, rel, nextRel, isDir);
     await carrySummary(project, rel, nextRel, isDir);
+    await carryPlan(project, rel, nextRel, isDir);
+    await carryScenes(project, rel, nextRel, isDir);
     await project.syncManifest();
   }
   log.info(`已重命名${isDir ? '文件夹' : ''}`, `${rel} → ${nextRel}`);
@@ -307,7 +318,9 @@ export async function moveEntry(
   if (info.section === 'chapters') {
     await carryDraft(project, rel, nextRel, isDir);
     await carrySummary(project, rel, nextRel, isDir);
-    // 路径变了但序号没变，syncManifest 会按 order 兜底找回 summaryHash。
+    await carryPlan(project, rel, nextRel, isDir);
+    await carryScenes(project, rel, nextRel, isDir);
+    // 路径变了但序号没变，syncManifest 会按 order 兜底找回 summaryHash / beatsHash。
     await project.syncManifest();
   }
   log.info(`已移动${isDir ? '文件夹' : ''}`, `${rel} → ${nextRel}`);
@@ -316,13 +329,53 @@ export async function moveEntry(
 }
 
 /**
+ * 章节改名/移动后，把它在某个镜像目录下的伴生文件一并搬过去。
+ *
+ * 草稿、摘要、细纲、场景四套镜像共用这一条：它们的规则完全相同——
+ * 按章节在 `chapters/` 之下的相对路径镜像，章节路径一变归属路径就跟着变。
+ * 不搬的话旧位置的东西成了孤儿，新位置又读不到，**而界面上一切正常**：
+ * 原本新鲜的章节凭空「过期」、写好的细纲凭空「没规划过」。
+ *
+ * 目标位置已有同名的东西时**不覆盖**：两份都留着，提示作者自己去合
+ * （AGENTS.md 第 3 条）。
+ */
+async function carryMirror(
+  project: NovelProject,
+  what: string,
+  mirror: (rel: string, isDir: boolean) => string | undefined,
+  fromRel: string,
+  toRel: string,
+  isDir: boolean
+): Promise<void> {
+  const from = mirror(fromRel, isDir);
+  const to = mirror(toRel, isDir);
+  if (!from || !to || from === to) {
+    return;
+  }
+  const fromAbs = project.pathOf(from);
+  if (!(await exists(fromAbs))) {
+    return;
+  }
+  const toAbs = project.pathOf(to);
+  if (await exists(toAbs)) {
+    log.warn(`新位置已有${what}${isDir ? '目录' : ''}，旧${what}未动`, `目标 ${to}｜旧${what}仍在 ${from}`);
+    getHost().toast(
+      `新位置已有${what}${isDir ? '目录' : ''}：${to}，旧${what}留在 ${from} 未动。`,
+      'error'
+    );
+    return;
+  }
+  await fs.mkdir(path.dirname(toAbs), { recursive: true });
+  await fs.rename(fromAbs, toAbs);
+  log.info(`${what}已跟随移动`, `${from} → ${to}`);
+}
+
+/**
  * 章节改名/移动后，把它的草稿一并搬过去。
  *
  * 不搬的话草稿就成了孤儿：下次点「打开草稿」会在新位置静默新建一个空文件，
  * 之前写的东西还躺在旧路径下，没人告诉作者。文件与目录都要搬——
  * 移动 `chapters/卷一/` 时 `drafts/卷一/` 得跟着走。
- *
- * 目标位置已有草稿时**不覆盖**：两份都留着，提示作者自己去合。
  */
 export async function carryDraft(
   project: NovelProject,
@@ -330,44 +383,16 @@ export async function carryDraft(
   toRel: string,
   isDir: boolean
 ): Promise<void> {
-  const fromDraft = project.draftRelPathFor(fromRel);
-  const toDraft = project.draftRelPathFor(toRel);
-  if (!fromDraft || !toDraft || fromDraft === toDraft) {
-    return;
-  }
-  const fromAbs = project.pathOf(fromDraft);
-  if (!(await exists(fromAbs))) {
-    return;
-  }
-  const toAbs = project.pathOf(toDraft);
-  if (await exists(toAbs)) {
-    log.warn(
-      `新位置已有${isDir ? '草稿目录' : '草稿'}，旧草稿未动`,
-      `目标 ${toDraft}｜旧草稿仍在 ${fromDraft}`
-    );
-    getHost().toast(
-      `新位置已有${isDir ? '草稿目录' : '草稿'}：${toDraft}，旧草稿留在 ${fromDraft} 未动。`,
-      'error'
-    );
-    return;
-  }
-  await fs.mkdir(path.dirname(toAbs), { recursive: true });
-  await fs.rename(fromAbs, toAbs);
-  log.info(`草稿已跟随移动`, `${fromDraft} → ${toDraft}`);
+  // 草稿的镜像不分文件/目录：文件名（含扩展名）原样沿用。
+  await carryMirror(project, '草稿', (rel) => project.draftRelPathFor(rel), fromRel, toRel, isDir);
 }
 
 /**
  * 章节改名/移动后，把它的摘要文件一并搬过去。
  *
- * 摘要按「完整文件名与路径」映射（`summaryMirrorRelPath`），章节路径一变，
- * 摘要的归属路径也跟着变——不搬的话旧位置的摘要成了孤儿，新位置又读不到，
- * 工程页上原本新鲜的章节会凭空变成「过期」。这与草稿跟随（carryDraft）同源。
- *
  * 只搬**新式**摘要（按文件名映射的那份）。升级前的旧式 `NNN.md` 不在这里搬：
  * 它按序号命名，`readSummary` 会用序号回退找到它，搬了反而破坏回退路径。
  * 旧式摘要在该章下次重新生成摘要时由 `writeSummary` 一次性迁移到新路径。
- *
- * 目标位置已有摘要时**不覆盖**（与草稿一致）：两份都留着，提示作者自己去合。
  */
 export async function carrySummary(
   project: NovelProject,
@@ -375,30 +400,33 @@ export async function carrySummary(
   toRel: string,
   isDir: boolean
 ): Promise<void> {
-  const fromSummary = project.summaryMirrorRelPath(fromRel, isDir);
-  const toSummary = project.summaryMirrorRelPath(toRel, isDir);
-  if (!fromSummary || !toSummary || fromSummary === toSummary) {
-    return;
-  }
-  const fromAbs = project.pathOf(fromSummary);
-  if (!(await exists(fromAbs))) {
-    return;
-  }
-  const toAbs = project.pathOf(toSummary);
-  if (await exists(toAbs)) {
-    log.warn(
-      `新位置已有${isDir ? '摘要目录' : '摘要'}，旧摘要未动`,
-      `目标 ${toSummary}｜旧摘要仍在 ${fromSummary}`
-    );
-    getHost().toast(
-      `新位置已有${isDir ? '摘要目录' : '摘要'}：${toSummary}，旧摘要留在 ${fromSummary} 未动。`,
-      'error'
-    );
-    return;
-  }
-  await fs.mkdir(path.dirname(toAbs), { recursive: true });
-  await fs.rename(fromAbs, toAbs);
-  log.info(`摘要已跟随移动`, `${fromSummary} → ${toSummary}`);
+  await carryMirror(project, '摘要', (rel, dir) => project.summaryMirrorRelPath(rel, dir), fromRel, toRel, isDir);
+}
+
+/** 章节改名/移动后，把它的细纲一并搬过去。 */
+export async function carryPlan(
+  project: NovelProject,
+  fromRel: string,
+  toRel: string,
+  isDir: boolean
+): Promise<void> {
+  await carryMirror(project, '细纲', (rel, dir) => project.planMirrorRelPath(rel, dir), fromRel, toRel, isDir);
+}
+
+/**
+ * 章节改名/移动后，把它的整个场景目录一并搬过去。
+ *
+ * 搬的是**目录**（`scenes/卷一/012-夜入青云/`），里面几场一起走。
+ * 少了这一条，作者把「012-夜入青云.md」改名成「012-夜入.md」之后，
+ * 四个场景就全成了孤儿——而创作页只会显示「这一章还没拆场景」。
+ */
+export async function carryScenes(
+  project: NovelProject,
+  fromRel: string,
+  toRel: string,
+  isDir: boolean
+): Promise<void> {
+  await carryMirror(project, '场景', (rel, dir) => project.sceneMirrorRelPath(rel, dir), fromRel, toRel, isDir);
 }
 
 async function pickDestination(

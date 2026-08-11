@@ -4,6 +4,13 @@ import { DirListing } from './fileTree';
 import { LogEntry } from './logger';
 import { TaskSnapshot } from './progress';
 import type { LlmTask, ModelTier } from './model/tiers';
+import type {
+  Capability,
+  ChapterStage,
+  CreationStage,
+  CreationTarget,
+  PipelineProgress,
+} from './model/pipeline';
 
 /**
  * 侧栏页签。`files` 是独立版专属的资源管理器（插件壳里由 VS Code 自己的
@@ -12,9 +19,22 @@ import type { LlmTask, ModelTier } from './model/tiers';
  */
 export type Tab = 'chat' | 'project' | 'files' | 'history' | 'settings' | 'logs';
 
+/**
+ * 发一轮请求。
+ *
+ * `stage` / `capability` / `target` 三个字段取代了原来的 `mode`。旧的
+ * `'write' | 'discuss'` 按 **AI 的输出形式**划分，而作者的实际流程是四层
+ * 产物——「讨论」在四层里都会发生，「续写」只是正文层的一个动作。
+ *
+ * `targetOrder` 留着，但只在**目标章节尚未落盘**时有用（要写第 4 章，
+ * 磁盘上只有 3 章），装配器据此定位「前文」的边界。章节已存在时以
+ * `target.chapterRelPath` 为准。
+ */
 export interface SendPayload {
   text: string;
-  mode: 'write' | 'discuss';
+  stage: CreationStage;
+  capability: Capability;
+  target: CreationTarget;
   targetOrder: number;
   targetWords: number;
   attachments: SerializedAttachment[];
@@ -43,7 +63,29 @@ export type InMessage =
   | { type: 'send'; payload: SendPayload }
   | { type: 'stop' }
   | { type: 'retry'; turnId: string; payload: SendPayload }
+  /**
+   * 采纳一段正文。**只用于正文**：追加到已有章节，或新建一章。
+   *
+   * 结构化产物（细纲、场景、章节清单）走 `acceptArtifact`——那边不需要
+   * order/title，落点由 target 完全决定。
+   */
   | { type: 'accept'; turnId: string; mode: 'append' | 'new'; order: number; title: string; text: string }
+  /**
+   * 采纳一份结构化产物，写进 target 指向的位置。
+   *
+   * `text` 是**当前气泡里的内容**（用户可能改过），后端重新解析一遍再落盘——
+   * 不缓存上一次的解析结果，那份可能对不上用户眼前看到的东西。
+   */
+  | { type: 'acceptArtifact'; turnId: string; target: CreationTarget; text: string }
+  /**
+   * 切换当前创作目标（点流水线条、点工程页的场景、点面包屑）。
+   *
+   * 后端回一条 `session` 与一条 `pipeline`：前者让输入区的能力按钮组跟着
+   * 换（每个阶段可用的能力不同），后者给出这一章各层产物的新鲜度。
+   */
+  | { type: 'setTarget'; target: CreationTarget }
+  /** 要某一章的流水线状态（切目标、工程页展开章节时）。不带则给当前目标那一章。 */
+  | { type: 'requestPipeline'; chapterRelPath?: string }
   | { type: 'editTurn'; turnId: string; text: string }
   | { type: 'deleteTurn'; turnId: string }
   | { type: 'openSession'; id: string }
@@ -155,6 +197,10 @@ export type ProjectAction =
   | 'summarizeChapter'
   | 'syncSummaries'
   | 'rebuildGlobalSummary'
+  /** 给所有还没有细纲的章节各生成一份（只补不改）。 */
+  | 'generatePlans'
+  /** 给所有「细纲写好了但没拆场景」的章节各拆一次（只补不改）。 */
+  | 'breakdownScenes'
   | 'extractCharacters'
   | 'generateLore'
   | 'extractStyle';
@@ -260,6 +306,13 @@ export type OutMessage =
    */
   | { type: 'summary'; summary: ChapterSummaryView }
   /**
+   * 一章的流水线状态：四层产物各自到哪一步、哪一层的上游变过。
+   *
+   * 与 `ProjectTree` 分开推：那棵树每次文件变动都全量重推，而流水线只有
+   * 当前这一章要看。全书的流水线徽章走 `ProjectChapterNode` 上的精简字段。
+   */
+  | { type: 'pipeline'; pipeline: ChapterPipelineView }
+  /**
    * `ack` 标明这次推送是不是某次保存的回执：
    * `saved` 表示已落盘（前端可放心以磁盘为准），`rejected` 表示被拒
    * （前端必须保住用户的编辑）。普通刷新不带 ack。
@@ -348,7 +401,13 @@ export interface EditorFileView {
 
 export interface ViewState {
   initialized: boolean;
-  chapters: { order: number; title: string; wordCount: number }[];
+  /**
+   * 章节清单（输入框旁的目标下拉框用）。
+   *
+   * 带 `relPath` 是因为**创作目标一律按路径标识**：序号会撞
+   * （`001 序.txt` 与 `001 正文.txt` 并存是允许的），路径不会。
+   */
+  chapters: { order: number; title: string; wordCount: number; relPath: string }[];
   nextOrder: number;
   staleCount: number;
   /** 当前模型引用；未配置好时为空串。 */
@@ -470,6 +529,49 @@ export interface ProjectChapter {
   draftPath: string;
   /** 草稿文件已经存在。决定菜单文案（打开草稿 / 新建草稿）与行上的标记。 */
   hasDraft: boolean;
+  /**
+   * 流水线状态的**精简版**：这一章现在该做哪一步、四层各自的完成度。
+   *
+   * 只带这两个字段，不带完整的 `ChapterPipelineView`——那棵树每次文件变动
+   * 都全量重推，五百章各带一份场景清单就是几百 KB。要看细节点开那一章，
+   * 走 `requestPipeline`。
+   */
+  stage: ChapterStage;
+  progress: PipelineProgress;
+  /** 有任何一层的上游变过（大纲改了/细纲改了/场景改了）。行上挂一个提示点。 */
+  upstreamStale: boolean;
+}
+
+/**
+ * 一章流水线的完整视图。创作页的流水线条与场景列表吃这一份。
+ *
+ * 与数据层的 `ChapterPipeline` 几乎同形，但**是线上形状**：这里不出现
+ * 数据层才用得上的 hash，只出现「界面要显示什么」。
+ */
+export interface ChapterPipelineView {
+  chapterRelPath: string;
+  order: number;
+  title: string;
+  /** 细纲；没规划过时缺席。 */
+  plan?: { relPath: string; filled: boolean; upstreamStale: boolean };
+  scenes: ScenePipelineView[];
+  manuscript: { words: number; beatsStale: boolean };
+  summary: { exists: boolean; stale: boolean };
+  stage: ChapterStage;
+  progress: PipelineProgress;
+}
+
+export interface ScenePipelineView {
+  no: number;
+  title: string;
+  relPath: string;
+  /** 一行摘要（`2. 翻越侧峰 · 侧峰 · 子时`），后端生成，前端直接显示。 */
+  detail: string;
+  status: 'draft' | 'ready' | 'written';
+  /** 「必须发生」已填，可以写正文了。 */
+  ready: boolean;
+  /** 生成这一场之后本章细纲改过——前置条件可能已经失效。 */
+  upstreamStale: boolean;
 }
 
 export interface ProjectFile {
@@ -557,6 +659,12 @@ export interface ChapterSummaryView {
 export interface SerializedSession {
   id: string;
   title: string;
+  /** 当前在改哪个产物。前端的面包屑与能力按钮组吃它。 */
+  target: CreationTarget;
+  /** 当前选中的阶段。多数时候等于 `target.kind`，但可以不等——在正文页上
+   *  讨论这一章的细纲是合理的（stage=plan，target 仍指着这一章）。 */
+  stage: CreationStage;
+  capability: Capability;
   targetOrder?: number;
   targetWords?: number;
   turns: SerializedTurn[];
@@ -574,6 +682,28 @@ export interface SerializedTurn {
   error?: string;
   /** 推理模型的思考过程。折叠展示，不属于正文，采纳时不写入章节。 */
   reasoning?: string;
+  /**
+   * 仅 assistant 轮：这一轮产出的是可采纳的产物时，给出它的形状。
+   *
+   * 前端据此渲染采纳卡片（「拆出了 4 场，采纳？」）而不是一个光秃秃的
+   * 「写入章节」按钮。缺席 = 这是一次讨论，没有可落盘的东西。
+   */
+  artifact?: SerializedArtifact;
+}
+
+/**
+ * 一份可采纳产物的**展示形状**。
+ *
+ * 刻意不带解析后的结构：真正落盘时后端会拿气泡里的文本重新解析一遍
+ * （用户可能改过），所以线上只需要「显示什么、按钮写什么」。
+ */
+export interface SerializedArtifact {
+  /** 落点描述，如「第 12 章 · 细纲」。后端生成，文案只有一份。 */
+  where: string;
+  /** 产物摘要，如「4 场」「细纲 · 5/5 节」。 */
+  summary: string;
+  /** 目标位置已有内容——采纳会触发覆盖审阅。按钮文案据此改成「覆盖…」。 */
+  overwrites: boolean;
 }
 
 export interface SerializedDigest {
@@ -606,6 +736,19 @@ export type { LogEntry, LogLevel } from './logger';
 export type { TaskSnapshot } from './progress';
 /** 资源管理器的目录列举结果，形状定义在 fileTree.ts。 */
 export type { DirListing, FsEntry } from './fileTree';
+/**
+ * 创作流水线的领域类型。定义在 `model/pipeline.ts`（纯函数、零 I/O），
+ * 从协议转出去——前端的按钮组直接读 `STAGE_CAPABILITIES`，两边共用一份定义
+ * 才不会出现「界面上有这个按钮，后端不认这个能力」。
+ */
+export type {
+  Capability,
+  ChapterStage,
+  CreationAction,
+  CreationStage,
+  CreationTarget,
+  PipelineProgress,
+} from './model/pipeline';
 
 /** CSP 用的一次性 nonce。 */
 export function makeNonce(): string {

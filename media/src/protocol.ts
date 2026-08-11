@@ -12,6 +12,7 @@ export type {
   CastConflictView,
   CastEntry,
   CastSummary,
+  ChapterPipelineView,
   ChapterSummaryView,
   CharacterAction,
   DirListing,
@@ -32,7 +33,9 @@ export type {
   ProjectFileNode,
   ProjectNode,
   ProjectTree,
+  ScenePipelineView,
   SendPayload,
+  SerializedArtifact,
   SerializedAttachment,
   SerializedDigest,
   SerializedModel,
@@ -45,6 +48,36 @@ export type {
   TaskSnapshot,
   ViewState,
 } from '../../src/core/protocol';
+
+/**
+ * 创作流水线的类型与那几张对照表。
+ *
+ * 与 `tiers.ts` 同一套理由：**标签和「哪个阶段有哪些能力」必须与后端同源**。
+ * 前端自己抄一份的话，界面上会出现一个后端不认的能力按钮，点了什么都不发生。
+ * `model/pipeline.ts` 是纯类型 + 纯函数、**零 import**，打进浏览器产物是安全的。
+ */
+export {
+  CAPABILITIES,
+  CAPABILITY_HINT,
+  CAPABILITY_LABEL,
+  CHAPTER_STAGE_LABEL,
+  CREATION_STAGES,
+  DEFAULT_CAPABILITY,
+  STAGE_CAPABILITIES,
+  STAGE_LABEL,
+  STAGE_QUESTION,
+  chapterOfTarget,
+  outputKindOf,
+  targetKey,
+} from '../../src/core/model/pipeline';
+export type {
+  Capability,
+  ChapterStage,
+  CreationAction,
+  CreationStage,
+  CreationTarget,
+  PipelineProgress,
+} from '../../src/core/model/pipeline';
 
 /**
  * 模型分档的类型与那几张对照表。

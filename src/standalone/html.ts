@@ -61,6 +61,14 @@ export function standalonePage(root?: string): string {
         <button class="link" id="syncBtn">立即同步</button>
       </div>
 
+      <!-- 流水线条：这一章走到哪一步了。点任一段切到那一层。
+           目标是全书大纲时只剩面包屑，四段隐藏。 -->
+      <div class="pipeline" id="pipeline">
+        <div class="pipeline-crumb" id="pipelineCrumb"></div>
+        <div class="pipeline-stages" id="pipelineStages"></div>
+        <div class="pipeline-scenes hidden" id="pipelineScenes"></div>
+      </div>
+
       <div class="messages" id="messages">
         <div class="empty" id="emptyHint">
           <p><strong>描述接下来要写什么</strong></p>
@@ -72,16 +80,14 @@ export function standalonePage(root?: string): string {
 
       <div class="composer">
         <div class="chips" id="chips"></div>
+        <!-- 能力按钮组。可用的能力随阶段变，由前端读 STAGE_CAPABILITIES 渲染。 -->
+        <div class="capabilities" id="capabilities"></div>
         <textarea id="input" rows="3" placeholder="描述要续写或修改的剧情…（Enter 发送，Shift+Enter 换行）"></textarea>
         <div class="composer-bar">
           <button class="chip-btn" id="atBtn" title="引用文件或章节">@ 引用</button>
           <button class="chip-btn" id="selBtn" title="粘贴一段原文加入上下文">加入选区</button>
           <select id="modelSelect" title="使用哪个模型"></select>
-          <select id="modeSelect" title="写作模式">
-            <option value="write">续写正文</option>
-            <option value="discuss">讨论/建议</option>
-          </select>
-          <select id="targetSelect" title="采纳时写入哪里"></select>
+          <select id="targetSelect" title="当前创作目标"></select>
           <input type="number" id="targetWords" value="2000" min="0" step="100" title="目标字数（0 为不限）">
           <span class="spacer"></span>
           <button class="primary" id="sendBtn">发送</button>

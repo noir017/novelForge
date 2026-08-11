@@ -633,8 +633,14 @@ function parseCastField(v: unknown): SummaryCast[] {
   return out;
 }
 
-/** JSON 里的小节值：字符串直接用，数组渲染成无序列表（关键事件常是数组）。 */
-function toSectionText(v: unknown): string {
+/**
+ * JSON 里的小节值：字符串直接用，数组渲染成无序列表（关键事件常是数组）。
+ *
+ * 与 {@link stripCodeFence} / {@link extractJsonObject} 一样对外导出：模型
+ * 输出的容错解析在这个项目里就这一套，摘要、细纲、场景卡吃的是同一批坏习惯
+ * （该给字符串给了数组、该给数组给了顿号分隔的一行）。各写一份必然慢慢跑偏。
+ */
+export function toSectionText(v: unknown): string {
   if (typeof v === 'string') {
     return v.trim();
   }
@@ -668,7 +674,7 @@ function toSectionText(v: unknown): string {
  * 常有 `}` 出现在中文标点之间，直接取 `lastIndexOf('}')` 没问题，取第一个
  * `}` 就会截断。所以取第一个 `{` 到最后一个 `}`。
  */
-function extractJsonObject(text: string): string | undefined {
+export function extractJsonObject(text: string): string | undefined {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
   if (start === -1 || end === -1 || end <= start) {

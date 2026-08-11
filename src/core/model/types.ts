@@ -146,6 +146,15 @@ export interface ManifestChapter {
   contentHash: string;
   /** 该章摘要所依据的正文 hash；无摘要则为 undefined。 */
   summaryHash?: string;
+  /**
+   * 该章正文所依据的**场景指纹**（全部场景的号码、标题、地点时间与七个小节
+   * 拼起来的 hash）。与当前场景对不上 = 细节改过、正文可能已经失效。
+   *
+   * 落在这里而不是章节文件的 frontmatter，是因为章节可以是 `.txt` / 无扩展名 /
+   * `.json`（AGENTS.md 第 9 条）——**绝不能给正文文件加 frontmatter**。
+   * 它与 `summaryHash` 是同一类东西：下游产物记住上游的样子，对不上就标脏。
+   */
+  beatsHash?: string;
 }
 
 export const MANIFEST_VERSION = 1;

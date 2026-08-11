@@ -1,0 +1,228 @@
+/*
+ * 创作流水线条与能力按钮组。
+ *
+ * 两块东西夹着消息区：上面是「我在哪一层、这一章走到哪一步了」，
+ * 下面是「我要它干什么」。都做得很扁——它们是常驻的，不该抢正文的空间。
+ *
+ * 与全局一致：不写死颜色，全部走 `--vscode-*`（插件里由 VS Code 注入，
+ * 独立版由 standalone.css 提供深浅两套）。
+ */
+
+.pipeline {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* ---------------------------------------------------------------- 面包屑 */
+
+.pipeline-crumb {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+  font-size: 0.82em;
+}
+
+.crumb {
+  background: none;
+  border: none;
+  padding: 1px 3px;
+  border-radius: 3px;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.crumb:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+  color: var(--vscode-foreground);
+}
+
+.crumb.active {
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+
+.crumb-sep {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.6;
+}
+
+/* ---------------------------------------------------------------- 四段进度 */
+
+.pipeline-stages {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pstage {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.8em;
+  font-family: inherit;
+}
+
+.pstage:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+}
+
+.pstage.active {
+  border-color: var(--vscode-focusBorder, #007fd4);
+  color: var(--vscode-foreground);
+}
+
+.pstage.done .pstage-label {
+  color: var(--vscode-charts-green, #89d185);
+}
+
+.pstage-label {
+  white-space: nowrap;
+}
+
+/* 进度条本身很细：它是个状态提示，不是这一屏的主角。 */
+.pstage-bar {
+  display: inline-block;
+  width: 34px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--vscode-progressBar-background, rgba(128, 128, 128, 0.3));
+  opacity: 0.4;
+  overflow: hidden;
+}
+
+.pstage-fill {
+  display: block;
+  height: 100%;
+  background: var(--vscode-progressBar-background, #0e70c0);
+  opacity: 1;
+}
+
+/* 上游变过。用暖色而不是红色——这不是错误，是「回头看一眼」。 */
+.pstage-stale,
+.pscene-stale {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  font-size: 0.9em;
+}
+
+.psummary {
+  font-size: 0.76em;
+  color: var(--vscode-descriptionForeground);
+  margin-left: auto;
+}
+
+.psummary.stale {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+/* ---------------------------------------------------------------- 场景列表 */
+
+.pipeline-scenes {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.pscene {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  border-radius: 10px;
+  background: none;
+  padding: 1px 8px;
+  font-size: 0.78em;
+  font-family: inherit;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pscene:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+}
+
+.pscene.active {
+  border-color: var(--vscode-focusBorder, #007fd4);
+  color: var(--vscode-foreground);
+}
+
+/* 还没填「必须发生」的场景——写正文前得先补上，所以画得淡一点。 */
+.pscene.draft {
+  opacity: 0.65;
+  border-style: dashed;
+}
+
+.pscene.written {
+  color: var(--vscode-charts-green, #89d185);
+}
+
+/* ---------------------------------------------------------------- 能力按钮 */
+
+.capabilities {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.cap {
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  border-radius: 3px;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.8em;
+  font-family: inherit;
+  padding: 2px 9px;
+  cursor: pointer;
+}
+
+.cap:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+  color: var(--vscode-foreground);
+}
+
+.cap.active {
+  background: var(--vscode-button-background);
+  border-color: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+/*
+ * 会产出可采纳产物的能力（生成/改写/拆分）左边加一道竖线。
+ *
+ * 「点了会写文件」与「点了只是聊聊」必须一眼分得开——前者要花钱，
+ * 而且会在磁盘上留下东西。
+ */
+.cap-artifact {
+  border-left-width: 3px;
+  border-left-color: var(--vscode-charts-blue, #3794ff);
+}
+
+/* ---------------------------------------------------------------- 采纳卡片 */
+
+/* 产物的落点说明，紧挨着采纳按钮：写到哪、多少东西。 */
+.artifact-where {
+  font-size: 0.78em;
+  color: var(--vscode-descriptionForeground);
+  margin-right: 4px;
+}

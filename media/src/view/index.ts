@@ -25,6 +25,7 @@ import {
 } from './messages';
 import { applySummary, installProject, invalidateSummaries, renderProject } from './project';
 import { baseMenuItems } from './project/actions';
+import { renderPipeline } from './pipeline';
 import { renderPrompt } from './prompt';
 import { installSettings, renderSettings } from './settings';
 import { renderState, setBusy } from './state';
@@ -74,6 +75,10 @@ onMessage((msg) => {
 
     case 'summary':
       applySummary(msg.summary);
+      break;
+
+    case 'pipeline':
+      renderPipeline(msg.pipeline);
       break;
 
     case 'attachments':

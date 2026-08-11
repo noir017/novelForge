@@ -167,6 +167,35 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * 章节行上的流水线徽章：这一章现在该做哪一步。
+ *
+ * 做得很小很淡——它是全书扫一眼时的定位标记，不该跟章节名抢注意力。
+ * 只有「已完成」给了颜色，因为那是唯一一个「不用再管了」的状态。
+ */
+.row-stage {
+  flex: 0 0 auto;
+  font-size: 0.72em;
+  padding: 0 5px;
+  border-radius: 8px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.3));
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.row-stage.stage-done {
+  color: var(--vscode-charts-green, #89d185);
+  border-color: currentColor;
+  opacity: 0.75;
+}
+
+/* 上游变过。暖色而非红色：这不是错误，是「回头看一眼」。 */
+.row-upstream {
+  flex: 0 0 auto;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  font-size: 0.9em;
+}
+
 /* 摘要里出现、还没建卡的人物：整行压暗，与真正的角色卡区分开。 */
 .row-cast .row-label {
   color: var(--vscode-descriptionForeground);

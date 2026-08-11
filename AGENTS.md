@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Novel Forge 是一个 VS Code 插件，为长篇小说写作做 LLM 上下文管理：按 token 预算自动装配「文风指南 + 全书摘要 + 角色卡 + 近章原文」并透明展示、纲要扩写成稿（流式预览、采纳才落盘）、章节/全书摘要与角色卡整合。所有数据是工作区里的普通 Markdown（`.novelforge/` 目录），可 Git、可手改。
+Novel Forge 是一个 VS Code 插件，为长篇小说写作做 LLM 上下文管理：按**创作阶段**（大纲 / 细纲 / 细节 / 正文）分别装配上下文并透明展示、把上一层产物展开成下一层（拆章、拆场景、写正文，流式预览、采纳才落盘）、章节/全书摘要与角色卡整合。所有数据是工作区里的普通 Markdown（`.novelforge/` 目录），可 Git、可手改。
 
 产品文档（面向作者的完整使用说明）见根目录 [README.md](README.md)。本文件面向代码代理：先读模块 README 再动手。
 
@@ -14,7 +14,7 @@ npm run compile          # esbuild 打包到 dist/extension.js + dist/media/ 的
 npm run watch            # 监听构建（两边都监听）
 npm run media            # 只构建前端资源（media/src → dist/media/）
 npm run typecheck        # tsc --noEmit，含 media/tsconfig.json，必须零错误
-npm run smoke             # 十六个离线冒烟测试，不需要 API Key
+npm run smoke             # 十九个离线冒烟测试，不需要 API Key
 npm test                 # typecheck + smoke
 ```
 
@@ -26,13 +26,12 @@ npm test                 # typecheck + smoke
 
 | 模块 | 一句话职责 | README |
 |---|---|---|
-| `src/` | 三层架构总览与一条续写请求的完整链路 | [src/README.md](src/README.md) |
-| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts、出场人物索引 cast.ts、资源管理器目录列举 fileTree.ts、三区类文件操作 fileOps.ts、工程根范围文件操作 projectFiles.ts、日志 logger.ts、失败记录 errorLog.ts、工程库 db.ts、长任务 progress.ts） | [src/core/README.md](src/core/README.md) |
-| `src/core/model/` | 数据层：NovelProject、Markdown 解析、章节文件名规则、服务商配置、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
-| `src/core/context/` | ★ 分层预算上下文装配器 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
-| `src/core/features/` | 功能编排：续写、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
+| `src/` | 两层架构总览与一条创作请求的完整链路 | [src/README.md](src/README.md) |
+| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts、章节流水线聚合 pipeline.ts、出场人物索引 cast.ts、资源管理器目录列举 fileTree.ts、三区类文件操作 fileOps.ts、工程根范围文件操作 projectFiles.ts、日志 logger.ts、失败记录 errorLog.ts、工程库 db.ts、长任务 progress.ts） | [src/core/README.md](src/core/README.md) |
+| `src/core/model/` | 数据层：NovelProject、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**、细纲 planFile.ts、场景 sceneFile.ts、服务商配置、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
+| `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
+| `src/core/features/` | 功能编排：创作（四层产物）、批量流水线、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
 | `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
-| `src/ui/` | 宿主无关的面板逻辑：ChatController + @ 引用 | [src/ui/README.md](src/ui/README.md) |
 | `src/vscode/` | VS Code 宿主层：extension 入口、webview 宿主、vscode-lm | [src/vscode/README.md](src/vscode/README.md) |
 | `src/standalone/` | 独立 Web 服务壳（Bun）：HTTP/WS 服务、FileHost、页面骨架 | [src/standalone/README.md](src/standalone/README.md) |
 | `media/` | 前端资源（原生 TS/CSS，无框架）。**仓库里只有源码 `media/src/` 与 `icon.svg`，构建产物在 `dist/media/`**；`standalone.css` / `editor.js` / `explorer.js` 只在独立版加载 | [media/README.md](media/README.md) |
@@ -47,7 +46,7 @@ npm test                 # typecheck + smoke
 
 ## 架构要点
 
-- **三层、单向依赖**：`core/`（数据与逻辑）→ `ui/`（面板逻辑，宿主无关）→ `vscode/`（宿主壳），反向依赖不允许。`core/` 的目标是零 vscode 依赖（双形态改造前提），新代码不要给 `core/` 增加 `vscode` import。
+- **两层、单向依赖**：`core/`（数据、逻辑与宿主无关的面板逻辑 `controller.ts`）→ `vscode/` 与 `standalone/`（两个宿主壳），反向依赖不允许。`core/` 的目标是零 vscode 依赖（双形态改造前提），新代码不要给 `core/` 增加 `vscode` import。
 - **消息协议是前后端唯一契约**：[src/core/protocol.ts](src/core/protocol.ts) 的 `InMessage` / `OutMessage`。前端经 [media/src/protocol.ts](media/src/protocol.ts) 以 `import type` 直接引用同一份定义，所以**改协议后前端对不上会编译不过**（`npm run typecheck` 覆盖 `media/`），不再靠人记得同步改。
 - **一个 controller，多个宿主**：侧边栏与编辑器标签页挂同一个 `ChatController`，同一会话双开实时同步。
 - **前端无状态**：webview 靠 `ViewState` 全量推送重建，展开/折叠等 UI 状态留在前端。
@@ -69,12 +68,14 @@ npm test                 # typecheck + smoke
 9. **章节不认扩展名**：章节根下「数字前缀 + 扩展名不在二进制黑名单里」的文件都是章节（`001-楔子.txt`、`001-楔子`、`004.json` 都算，`.png/.docx/.zip` 不算），规则只在 [src/core/model/chapterFile.ts](src/core/model/chapterFile.ts) 里定义一次。`.md`/`.markdown` 之外的章节**不解析 `# 标题`**，标题只取文件名——`extractH1` 与 `stripH1` 都只看首行，两者必须保持互逆。角色/设定区不跟着放宽，仍然只认 `.md`。
 10. **草稿不进上下文**：`drafts/` 只有作者显式 `@` 引用才进 prompt，装配器永不自动读它。按需创建（首次点「打开草稿」），已存在绝不覆盖；章节改名/移动时草稿跟着走，删章节不删草稿（确认框里会说明）。
 11. **不闷着干活**：任何要调模型或跑几十秒的动作都必须看得见——走 [src/core/progress.ts](src/core/progress.ts) 的 `runTask`（工程页顶部出进度条：n/N、百分比、计时、可停止），并在 [src/core/logger.ts](src/core/logger.ts) 里留下开始/每步/结束与耗时。日志页（第四个页签）是用户唯一能事后复查「刚才那 76 章卡在哪」的地方。**日志里绝不出现 API Key**（统一走 `redact`），也**绝不记 prompt 或正文全文**（只记条数与字数）。并发跑时（[src/core/concurrency.ts](src/core/concurrency.ts) 的 `runPool`）`current` **只在一项真正结束时 +1**，message 报「已完成 n/N + 正在跑哪几项」——按启动数递增会让进度条冲到头然后干等。
-12. **模型引用只在工程页任务里 fallback，且换人只在档内**：工程页的后台任务经 [src/core/llm/pool.ts](src/core/llm/pool.ts) 取模型，取哪一档由**任务**决定（[src/core/model/tiers.ts](src/core/model/tiers.ts) 的 `DEFAULT_TASK_TIERS`，作者可在设置页逐项覆盖）——串行恒用该档首选、失败随机换**同档**其余，并发在**档内**轮转做负载均衡。**绝不跨档换人**：快速档失败升级到精标档等于绕过作者的成本决定去烧贵 token，而且日志上看不出来。**空档位沿用 `config.models`**，三档都不配则行为与分档前逐字节一致——静默把某些任务降级到便宜模型，等于替作者做了质量取舍。**对话页续写与连接测试严格用用户选定的那个模型**，中途换人会让文风断掉。构造池时只有该档首选能弹 API Key 输入框，备选缺 Key 一律剔除并 warn。
+12. **模型引用只在工程页任务里 fallback，且换人只在档内**：工程页的后台任务经 [src/core/llm/pool.ts](src/core/llm/pool.ts) 取模型，取哪一档由**任务**决定（[src/core/model/tiers.ts](src/core/model/tiers.ts) 的 `DEFAULT_TASK_TIERS`，作者可在设置页逐项覆盖）——串行恒用该档首选、失败随机换**同档**其余，并发在**档内**轮转做负载均衡。**绝不跨档换人**：快速档失败升级到精标档等于绕过作者的成本决定去烧贵 token，而且日志上看不出来。**空档位沿用 `config.models`**，三档都不配则行为与分档前逐字节一致——静默把某些任务降级到便宜模型，等于替作者做了质量取舍。**对话页创作页的单次生成与连接测试严格用用户选定的那个模型**，中途换人会让文风断掉。构造池时只有该档首选能弹 API Key 输入框，备选缺 Key 一律剔除并 warn。
 13. **切批与截断用干活那个模型的窗口**：分档后 `config.contextWindow` 只代表**对话页选定的模型**，拿它给快速档的 32k 模型切批会稳定超窗。执行中用 `pool.primaryBudget`；确认框之前就要算的东西（设定生成的扫描片段数、角色卡的批数——它们就是「预计调用 N 次」那个数字）用 `budgetForTask(task)`，它不构造 provider，因此不会在用户点确认前弹 Key 输入框。
 14. **摘要是出场人物的唯一真相**：单章摘要让模型输出 JSON，解析后落盘仍是 Markdown（作者要手改），结构化的出场人物写进 frontmatter 的 `cast`。角色卡里的 `appearsIn` / `updatedThrough` 只是缓存，要用就经 [src/core/cast.ts](src/core/cast.ts) 的 `buildCastIndex()` 从摘要重算。摘要解析必须保留三层降级（JSON → Markdown 小节 → 全文进梗概）——解析失败等于这一章的剧情永远进不了上下文。 **`cast` 的 aliases 只收专属称呼**（经 [src/core/naming.ts](src/core/naming.ts) 过滤掉代词/亲属称谓/泛称/描述短语）：它是「谁是谁」的判据，`姐姐` 会把三个女角色串成一个。判定两个称呼是同一个人只信**同章共现**这条硬约束（[src/core/identity.ts](src/core/identity.ts)）——同章各自出场的两个人永不合并，一条幻觉别名不该把主角和她孪生弟弟并成一个。
 15. **角色卡不能无限膨胀**：它每次续写都要注入上下文。更新角色卡的提示词给每一节都定了字数上限，并明确「性格 / 语言习惯」优先、外貌与人物关系从简。加字段或改提示词时别把这条抹掉。
 16. **失败要留在出错的东西身上**：日志与 toast 都要求用户「恰好在看」——toast 五秒就没，日志页得主动去翻。所以角色卡/章节/设定失败时除了打日志，还要经 [src/core/errorLog.ts](src/core/errorLog.ts) 记一条，工程页那一行上挂红色感叹号（整体失败、目标未改动）或黄色（部分完成、下次会重来），悬停看原因。**成功路径必须 `clearFailures`**：修好了还挂着标记，用户会学会无视它。新增「可能失败且用户看不出来」的动作时照这条接上。
 17. **SQLite 只放可丢弃的痕迹**：工程库在 `.novelforge/novelforge.db`（[src/core/db.ts](src/core/db.ts)），目前只有失败记录与日志历史两张表。**内容的唯一真相永远是 Markdown**——作者要手改、要 diff、要进 Git，别把角色卡/摘要/设定的正文往库里搬。库是增强不是新的失败源：打不开就静默降级（只 warn 一次），所有 API 内部吞异常，绝不能出现「因为一张日志表而更新不了角色卡」。另外两条实现约束：两个壳用**两个不同的驱动**（插件/Node 用 `node:sqlite`，独立版 Bun 用 `bun:sqlite`），模块名必须拼接后 `await import`（写成字面量 esbuild 会解析 `bun:sqlite` 失败）；语句一律用完即 finalize（bun 侧不 finalize 的话 Windows 上库文件删不掉），所以 `SqlDatabase` 只暴露 run/all/insertMany，不给 prepare。
+18. **上下游新鲜度只靠 hash 传播，不调模型**：四层产物串成一条指纹链——`outline.md` →（细纲 frontmatter 的 `upstreamHash`）→ `plans/*.md` →（场景 frontmatter 的 `upstreamHash`）→ `scenes/X/*.md` →（`manifest.beatsHash`）→ 章节正文 →（摘要 frontmatter 的 `sourceHash`，既有）→ `summaries/*.md`。改了大纲，所有细纲标脏；改了某章细纲，该章场景标脏；改了场景，正文标脏。**代价是零次模型调用、零幻觉、零 token**。把「变更影响」做成 AI 功能，等于每改一行细纲就烧一次钱，而且会给出看起来很像但没有依据的影响清单。三条配套约束：**(a) 手写的产物永不标脏**——`upstreamHash` 为空或 `beatsHash` 从没记录过，说明它不是这条链生出来的，拿凭空的过期标记催作者重做，他会学会无视所有标记；只有「记录过一次、现在对不上」才算变更。**(b) 指纹只哈希内容，不哈希状态**——`beatsHashFor` 排除场景的 `status`（采纳正文时会把场景标成 `written`，那一次写入不该让刚写好的正文立刻显示「上游已变更」），`planContentHash` 只哈希五个小节、不含 frontmatter。**(c) 流水线状态一律从磁盘推导，绝不落盘**（[src/core/model/pipeline.ts](src/core/model/pipeline.ts) 的 `deriveStage`）——存一个 `status: writing` 字段的话，作者手删半章正文之后它就在撒谎，而字数与 hash 永远诚实。
+19. **产物落盘前必须过一遍人**：创作页的四层产物（大纲、细纲、场景卡、正文）与摘要/角色卡一样，`generate` 只把文本交回界面，`acceptArtifact` 才写盘，且目标已有内容时先走 `reviewReplace`（插件开 diff，独立版弹确认）。**批量路径反过来：一律跳过已有产物的目标，不问、不覆盖**——一次弹几十个 diff 没有人看得完，跳过是那条路上唯一安全的做法（[src/core/features/pipelineBatch.ts](src/core/features/pipelineBatch.ts)）。同理，批量路径的解析用不带全文兜底的 `parsePlanStrict`：兜底会把模型的一句「我不太确定这一章写什么」变成一份「已规划」的细纲，紧接着的批量拆场景还会照着它往下拆；创作页保留兜底，因为那里产物摊在屏幕上，用户看得见它是什么。
 
 ## 提交约定
 
