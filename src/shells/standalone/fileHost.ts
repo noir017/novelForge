@@ -1,7 +1,6 @@
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
 import { ConfigStore } from '../../core/config';
 import {
   FileConflictError,
@@ -17,6 +16,7 @@ import { Attachment } from '../../core/model/session';
 import { EditorPane, OutMessage } from '../../core/protocol';
 import { shouldIgnoreChange } from '../../core/watchPolicy';
 import { PromptHub } from './promptHub';
+import { openWithSystem } from './systemOpen';
 
 /**
  * 独立 Web 服务壳的 Host 实现。
@@ -233,10 +233,8 @@ export class FileHost implements Host {
 
   /** 用系统默认程序打开（用户自己的编辑器 / 图片查看器）。 */
   async openExternal(relPath: string): Promise<void> {
-    const abs = path.resolve(this.root ?? '.', relPath);
-    const cmd = process.platform === 'win32' ? 'explorer' : process.platform === 'darwin' ? 'open' : 'xdg-open';
     try {
-      spawn(cmd, [abs], { detached: true, stdio: 'ignore' }).unref();
+      openWithSystem(path.resolve(this.root ?? '.', relPath));
       this.toast(`已用系统程序打开：${relPath}`);
     } catch {
       this.toast(`无法打开：${relPath}，请手动打开。`);

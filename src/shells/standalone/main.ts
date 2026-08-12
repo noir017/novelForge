@@ -1,28 +1,34 @@
 /**
- * 独立版入口：`bun run src/standalone/main.ts [dir]` 或
+ * 独立版入口：`bun run src/shells/standalone/main.ts [dir]` 或
  * `bun build --compile` 出的单文件可执行文件。
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
-import { createInterface } from 'node:readline/promises';
+import { dirBaseName, initProjectFlow } from '../../core/actions';
+import { initHost } from '../../core/host';
 import { NovelProject } from '../../core/model/project';
+import { FileConfigStore } from '../../core/stores';
 import { parseArgs } from './cli';
 import { startServer } from './server';
+import { openWithSystem } from './systemOpen';
+import { TerminalHost } from './terminalHost';
 
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
 
   if (opts.init) {
     // CLI 交互式 init：终端问答后写盘，不开服务。
+    // 流程本身**复用 core 的 initProjectFlow**——插件命令、网页按钮走的是同一条，
+    // 这里只是换了个把问答接到终端上的 Host。
+    const host = new TerminalHost(new FileConfigStore());
+    initHost(host);
     const project = NovelProject.open(opts.root);
-    if (await project.isInitialized()) {
-      console.log('该目录已是小说工程。');
-    } else {
-      const title = await ask('作品名：');
-      const author = await ask('作者名（可留空）：');
-      await project.initialize({ title: title.trim() || '我的小说', author: author.trim() });
-      console.log(`已初始化：${path.join(opts.root, '.novelforge')}`);
+    try {
+      if (await initProjectFlow(project, dirBaseName(project))) {
+        console.log(`已初始化：${path.join(opts.root, '.novelforge')}`);
+      }
+    } finally {
+      host.close();
     }
     process.exit(0);
   }
@@ -47,18 +53,7 @@ async function main(): Promise<void> {
   }
 
   if (opts.open) {
-    const url = `http://127.0.0.1:${port}/`;
-    const cmd = process.platform === 'win32' ? 'explorer' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-    spawn(cmd, [url], { detached: true, stdio: 'ignore' }).unref();
-  }
-}
-
-async function ask(label: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    return (await rl.question(label)).trim();
-  } finally {
-    rl.close();
+    openWithSystem(`http://127.0.0.1:${port}/`);
   }
 }
 
