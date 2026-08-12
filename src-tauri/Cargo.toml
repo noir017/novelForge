@@ -1,0 +1,34 @@
+[package]
+name = "novelforge-desktop"
+version = "0.1.0"
+description = "Novel Forge 桌面壳"
+edition = "2021"
+rust-version = "1.77"
+license = "AGPL-3.0"
+
+# 这个 crate 只是一层壳：起 sidecar、等它就绪、把窗口导航过去、退出时收尸。
+# 业务逻辑全在 sidecar（src/standalone 编出来的单文件可执行）里，
+# 这里一行小说相关的代码都没有，也不该有。
+#
+# 刻意没有 [lib]：桌面专用，不走 Tauri 的移动端入口。Android 需要的是另一套
+# 方案（core 跑在 webview 里），不会复用这个壳。
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+# 双开两个实例会有两个 sidecar 同时写同一个工程目录。内置编辑器的保存有乐观锁
+# 兜底，但摘要/角色卡这类批量写没有，所以直接从源头挡掉。
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 等 sidecar 就绪那个轮询循环要 sleep + mpsc。Tauri 本来就依赖 tokio，
+# 这里只是把它写明，不额外增加构建成本。
+tokio = { version = "1", features = ["time", "sync"] }
+
+[features]
+# `tauri build` 用它开启生产模式下的自定义协议。由 CLI 注入，别手动改。
+custom-protocol = ["tauri/custom-protocol"]

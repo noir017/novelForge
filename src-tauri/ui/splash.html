@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Novel Forge</title>
+<!--
+  桌面壳的启动页。窗口先加载它，等 sidecar 就绪后由 Rust 侧 navigate 到
+  http://127.0.0.1:PORT/ —— 那之后这一页就退场了，正常情况下只闪一下。
+
+  它存在的唯一理由是：spawn 进程 + 起服务要 0.5~1.5 秒，那段时间窗口不能是白的；
+  以及起不来的时候得有个地方说清楚原因、给个重试的按钮。
+
+  取值对齐 media/src/css/standalone/theme.css 的深色主题，但刻意不引用那边的
+  CSS —— 那些文件在 sidecar 里，这一页在壳里，两边不该有构建期依赖。
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    --fg: #cccccc;
+    --dim: #9d9d9d;
+    --bg: #1f1f1f;
+    --err: #f85149;
+    --link: #4daafc;
+    --btn: #0078d4;
+    --btn-hover: #026ec1;
+    --btn2: #313131;
+    --btn2-hover: #3c3c3c;
+    --border: #2b2b2b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--fg);
+    font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei UI',
+      'PingFang SC', 'Noto Sans CJK SC', sans-serif;
+    user-select: none;
+  }
+  main { width: 100%; max-width: 30rem; padding: 2rem; text-align: center; }
+  .logo { color: var(--link); width: 44px; height: 44px; margin-bottom: 1.1rem; }
+  h1 { margin: 0 0 .5rem; font-size: 1.15rem; font-weight: 600; letter-spacing: .02em; }
+  .msg { color: var(--dim); line-height: 1.7; margin: 0 0 1.25rem; }
+  .path {
+    display: block;
+    margin-top: .4rem;
+    font-family: Consolas, 'DejaVu Sans Mono', monospace;
+    font-size: 12px;
+    color: var(--dim);
+    word-break: break-all;
+    user-select: text;
+  }
+  .detail {
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #181818;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: .7rem .8rem;
+    margin: 0 0 1.25rem;
+    font-family: Consolas, 'DejaVu Sans Mono', monospace;
+    font-size: 12px;
+    color: var(--err);
+    max-height: 8rem;
+    overflow: auto;
+    user-select: text;
+  }
+  .actions { display: flex; gap: .5rem; justify-content: center; flex-wrap: wrap; }
+  button {
+    font: inherit;
+    padding: .42rem 1rem;
+    border: none;
+    border-radius: 4px;
+    background: var(--btn2);
+    color: var(--fg);
+    cursor: pointer;
+  }
+  button:hover { background: var(--btn2-hover); }
+  button.primary { background: var(--btn); color: #fff; }
+  button.primary:hover { background: var(--btn-hover); }
+  /* 转圈：不用动图也不用第三方库，一个 conic-gradient 就够。 */
+  .spinner {
+    width: 22px; height: 22px;
+    margin: 0 auto 1rem;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, transparent, var(--link));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
+    animation: spin 900ms linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(1turn); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H19v18H6.5A2.5 2.5 0 0 0 4 22z"/>
+    <path d="M8 6.5h7M8 10h7M8 13.5h4"/>
+  </svg>
+
+  <div class="spinner" id="spinner"></div>
+  <h1 id="title">正在启动 Novel Forge…</h1>
+  <p class="msg" id="msg"><span class="path" id="path"></span></p>
+  <pre class="detail" id="detail" hidden></pre>
+
+  <div class="actions" id="actions" hidden>
+    <button class="primary" id="btnRetry" hidden>重试</button>
+    <button class="primary" id="btnPick" hidden>选择工程目录…</button>
+    <button id="btnPickAgain" hidden>换一个工程目录…</button>
+    <button id="btnLogs" hidden>查看日志</button>
+  </div>
+</main>
+<script src="splash.js"></script>
+</body>
+</html>
