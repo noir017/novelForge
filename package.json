@@ -4,7 +4,7 @@
   "description": "为长篇小说写作提供上下文注入、纲要扩写与角色/剧情整合总结的 VS Code 插件。",
   "version": "0.1.0",
   "publisher": "novel-forge",
-  "license": "MIT",
+  "license": "AGPL-3.0",
   "engines": {
     "vscode": "^1.90.0"
   },
