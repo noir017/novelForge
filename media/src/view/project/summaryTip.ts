@@ -15,20 +15,19 @@
  *   浮窗就一直留着（可滚动、可选中复制），移开才收。为此收起要延迟一点——
  *   从行挪到浮窗中间要跨过一道缝，那一两帧鼠标既不在行上也不在浮窗上，
  *   立刻收会让浮窗永远够不着。
+ *
+ * 定位（挂 body、`position: fixed`、夹进视口）在 [../tip.ts](../tip.ts)，
+ * 四只浮窗共用一份。
  */
 import { el as mk, closestFrom } from '../../dom';
 import type { ChapterSummaryView } from '../../protocol';
 import { el } from '../refs';
 import { vscode } from '../store';
+import { placeTip } from '../tip';
 
 const HOVER_DELAY_MS = 450;
 /** 收起的宽限期：够鼠标从行跨到浮窗，又不至于让它赖着不走。 */
 const CLOSE_DELAY_MS = 200;
-/** 浮窗与目标行之间的缝，以及与视口边缘的留白。 */
-const TIP_GAP = 4;
-const TIP_MARGIN = 8;
-/** 压高度时的下限：再挤也得看得见一行字，否则等于浮窗没弹。 */
-const MIN_TIP_HEIGHT = 48;
 
 /** order -> ChapterSummaryView。收到新的树时整体作废。 */
 const summaryCache = new Map<number, ChapterSummaryView>();
@@ -120,55 +119,7 @@ function showSummaryTip(row: HTMLElement, order: number): void {
   box.addEventListener('mouseleave', scheduleHide);
   document.body.appendChild(box);
   hoverTip = { order, box };
-  place(row, box);
-}
-
-/**
- * 定位浮窗，并保证它整个落在视口内。
- *
- * 挂在 body 上 `position: fixed`——工程页有内部滚动，挂在行里会被容器裁掉
- * （与右键菜单同一套理由）。代价是位置得自己算：
- *
- * - 横向左对齐目标行，右边溢出就往左收，最左不越过边距。
- * - 纵向优先放行下方（顺着视线），放不下翻到上方；**两边都放不下时选空间
- *   大的那一侧，并把高度压进那点空间**——摘要可以滚，但绝不能长到屏幕外面
- *   去。只翻转不压高度的话，一份长摘要在矮窗口里会有一截永远够不到。
- */
-function place(row: HTMLElement, box: HTMLElement): void {
-  const r = row.getBoundingClientRect();
-  const vw = window.innerWidth || 0;
-  const vh = window.innerHeight || 0;
-
-  // 先撤掉上一次的限制再量，否则会一直沿用之前那个更矮的值。
-  // 量到的「自然高度」已经含 CSS 里 60vh 的可读性上限。
-  box.style.maxHeight = '';
-  const natural = box.offsetHeight;
-
-  const below = vh - r.bottom - TIP_GAP - TIP_MARGIN;
-  const above = r.top - TIP_GAP - TIP_MARGIN;
-  const putBelow = natural <= below || below >= above;
-  // 窗口特别矮时算出来的空间可能是 0 甚至负数，直接拿去当 max-height
-  // 会得到一个看不见的浮窗。给一个下限，宁可稍微出界一点也得留得住内容。
-  const room = Math.max(MIN_TIP_HEIGHT, putBelow ? below : above);
-  if (natural > room) {
-    box.style.maxHeight = `${room}px`;
-  }
-
-  // 压过高度之后才量得到最终高度，上翻时要用它算 top。
-  const h = box.offsetHeight;
-  const top = putBelow ? r.bottom + TIP_GAP : Math.max(TIP_MARGIN, r.top - h - TIP_GAP);
-
-  const w = box.offsetWidth;
-  let left = r.left;
-  if (w > 0 && left + w > vw - TIP_MARGIN) {
-    left = vw - w - TIP_MARGIN;
-  }
-  if (left < TIP_MARGIN) {
-    left = TIP_MARGIN;
-  }
-
-  box.style.left = `${left}px`;
-  box.style.top = `${top}px`;
+  placeTip(row, box);
 }
 
 /** 浮窗内容。`view` 为 undefined 表示还在等后端。 */
@@ -216,7 +167,7 @@ export function applySummary(view: ChapterSummaryView): void {
   // 内容换了尺寸也变了，重新定位一次。
   const row = el.projectBody.querySelector<HTMLElement>(`.row-chapter[data-order="${view.order}"]`);
   if (row) {
-    place(row, hoverTip.box);
+    placeTip(row, hoverTip.box);
   }
 }
 

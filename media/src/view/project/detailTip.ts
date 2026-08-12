@@ -9,15 +9,16 @@
  *   none`，鼠标永远落不进来，收起不需要宽限期。
  * - **只在真的截断时才弹**：`scrollWidth > clientWidth` 才说明有内容被吃掉，
  *   全文都看得见时弹窗只是复读一遍。
+ *
+ * 定位在 [../tip.ts](../tip.ts)，四只浮窗共用一份。这里传 `minHeight: 0` 关掉
+ * 「压高度」那一步：浮窗只有一行、滚不动，压出来的 max-height 等于把字截掉。
  */
 import { el as mk, closestFrom } from '../../dom';
 import { el } from '../refs';
+import { placeTip } from '../tip';
 
 const HOVER_DELAY_MS = 350;
 const CLOSE_DELAY_MS = 150;
-/** 浮窗与目标副标题之间的缝，以及与视口边缘的留白。 */
-const TIP_GAP = 4;
-const TIP_MARGIN = 8;
 
 let tip: HTMLElement | null = null;
 /** 当前浮窗对应的副标题（浮窗开着时再次悬停它不该关掉重开）。 */
@@ -91,37 +92,7 @@ function showTip(node: HTMLElement): void {
   document.body.appendChild(box);
   tip = box;
   tipTarget = node;
-  place(node, box);
-}
-
-/**
- * 定位浮窗，并保证它整个落在视口内。挂在 body 上 `position: fixed`——
- * 工程页有内部滚动，挂在行里会被容器裁掉。横向贴着副标题左缘，右边溢出
- * 就往左收；纵向优先放下方，放不下翻到上方。
- */
-function place(node: HTMLElement, box: HTMLElement): void {
-  const r = node.getBoundingClientRect();
-  const vw = window.innerWidth || 0;
-  const vh = window.innerHeight || 0;
-
-  const below = vh - r.bottom - TIP_GAP - TIP_MARGIN;
-  const above = r.top - TIP_GAP - TIP_MARGIN;
-  const putBelow = below >= above;
-
-  const h = box.offsetHeight;
-  const top = putBelow ? r.bottom + TIP_GAP : Math.max(TIP_MARGIN, r.top - h - TIP_GAP);
-
-  const w = box.offsetWidth;
-  let left = r.left;
-  if (w > 0 && left + w > vw - TIP_MARGIN) {
-    left = vw - w - TIP_MARGIN;
-  }
-  if (left < TIP_MARGIN) {
-    left = TIP_MARGIN;
-  }
-
-  box.style.left = `${left}px`;
-  box.style.top = `${top}px`;
+  placeTip(node, box, { minHeight: 0 });
 }
 
 export function installDetailTip(): void {

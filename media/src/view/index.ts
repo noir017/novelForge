@@ -27,7 +27,7 @@ import {
 import { applySummary, installProject, invalidateSummaries, renderProject } from './project';
 import { baseMenuItems } from './project/actions';
 import { bindNextStepRunner, renderPipeline } from './pipeline';
-import { renderWorkbench } from './workbench';
+import { renderWorkbench, installWorkbench } from './workbench';
 import { renderPrompt } from './prompt';
 import { installSettings, renderSettings } from './settings';
 import { renderState, setBusy } from './state';
@@ -51,6 +51,7 @@ bindCommandPick(setPendingCommand);
 installProject();
 installLogs();
 installSettings();
+installWorkbench();
 
 onMessage((msg) => {
   switch (msg.type) {

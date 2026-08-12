@@ -101,11 +101,13 @@ export function chatPane(opts: PaneOptions = {}): string {
     <div class="pipeline-crumb" id="pipelineCrumb"></div>
     <div class="pipeline-stages" id="pipelineStages"></div>
     <div class="pipeline-scenes hidden" id="pipelineScenes"></div>
+    <!-- 「当前产物」的入口：一行标题。悬停浮出这一层的产物，点击钉住。
+         从前它是消息流顶部一张 sticky 卡片——关不掉、藏不起来，还长期占着
+         半屏对话。现在与工程页那三只浮窗同一套路子。 -->
+    <button class="wb-entry hidden" id="workbench"></button>
   </div>
 
   <div class="messages" id="messages">
-    <!-- 工作区卡：当前这一层的产物本身。钉在消息流顶部，滚动时不滚出视野。 -->
-    <div class="workbench hidden" id="workbench"></div>
     <div class="empty" id="emptyHint">
       <p><strong>先挑一章，从它当前该做的那一步接着做</strong></p>
       <p>在「工程」页点任意章节，或用下面的下拉框选一章——界面会自动落到它的当前阶段：还没细纲就去写细纲，细纲写好了就去拆场景。</p>

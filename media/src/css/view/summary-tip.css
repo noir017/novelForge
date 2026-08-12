@@ -11,7 +11,7 @@
    见 view.js 的 CLOSE_DELAY_MS）。因此这里不能有 pointer-events: none。
 
    两道高度限制各管一件事：max-height 是可读性上限（再长也不该占满屏），
-   view.js 的 placeSummaryTip 另外按上/下可用空间压一次行内 max-height，
+   view/tip.ts 的 placeTip 另外按上/下可用空间压一次行内 max-height，
    保证浮窗整个落在视口内。overflow-y 让超出的部分滚起来。 */
 
 .summary-tip {

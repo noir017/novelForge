@@ -1,5 +1,5 @@
 /**
- * 创作页：流水线条与下一步、工作区卡、/ 命令面板、进章节、独立版壳。
+ * 创作页：流水线条与下一步、当前产物浮窗、/ 命令面板、进章节、独立版壳。
  *
  * 迁自 scripts/smoke-view.js 的这几节：
  *   == 创作流水线条与下一步 ==（389） == 工作区卡 ==（544）
@@ -247,21 +247,29 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
   });
 });
 
-describe('工作区卡', { skip: JSDOM_SKIP }, () => {
+/*
+ * 「当前产物」：流水线条上的入口 + 悬停浮窗。
+ *
+ * 从前它是消息流顶部一张 sticky 卡片，关不掉也藏不起来。现在与工程页那三只
+ * 浮窗同一套路子，所以要验的东西也换了：入口只占一行、悬停/点击才浮出来、
+ * 移开或 Esc 收得掉。
+ */
+describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
   let ui;
-  const box = () => ui.doc.getElementById('workbench');
-  const rows = () => [...box().querySelectorAll('.wb-row')].map((n) => n.textContent);
+  const entry = () => ui.doc.getElementById('workbench');
+  const tip = () => ui.doc.querySelector('.workbench-tip');
+  const rows = () => [...(tip()?.querySelectorAll('.wbt-row') ?? [])].map((n) => n.textContent);
+  const hoverEntry = () => entry().dispatchEvent(new ui.window.MouseEvent('mouseenter'));
+  const leaveEntry = () => entry().dispatchEvent(new ui.window.MouseEvent('mouseleave'));
+  const esc = () =>
+    ui.doc.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  /** 等过悬停延迟（HOVER_DELAY_MS 是 300ms）。 */
+  const settle = () => wait(450);
+  /** 等过收起的宽限期（CLOSE_DELAY_MS 是 200ms）。 */
+  const grace = () => wait(320);
 
-  before(() => {
-    ui = mount();
-    ui.post({
-      type: 'session',
-      session: emptySession({
-        target: { kind: 'scene', chapterRelPath: 'chapters/012-夜入青云.md', sceneNo: 2 },
-        stage: 'scene',
-        capability: 'discuss',
-      }),
-    });
+  const postScene = () =>
     ui.post({
       type: 'pipeline',
       pipeline: pipelineView(),
@@ -275,15 +283,56 @@ describe('工作区卡', { skip: JSDOM_SKIP }, () => {
         ],
       }),
     });
+
+  before(() => {
+    ui = mount();
+    ui.post({
+      type: 'session',
+      session: emptySession({
+        target: { kind: 'scene', chapterRelPath: 'chapters/012-夜入青云.md', sceneNo: 2 },
+        stage: 'scene',
+        capability: 'discuss',
+      }),
+    });
+    postScene();
   });
 
-  test('工作区卡显示出来', () => {
-    assert.ok(!box().classList.contains('hidden'));
+  // ---- 入口：一行，长在流水线条上（不在消息流里，不占版面）
+  test('入口显示出来', () => {
+    assert.ok(!entry().classList.contains('hidden'));
   });
 
-  test('卡片标题说清在改哪一层', () => {
-    assert.ok(box().querySelector('.wb-title').textContent.includes('场景 2'),
-      box().querySelector('.wb-title')?.textContent);
+  test('入口长在流水线条里，不在消息流里', () => {
+    assert.equal(entry().parentElement?.id, 'pipeline', entry().parentElement?.id);
+  });
+
+  test('入口上就写着在改哪一层', () => {
+    const title = entry().querySelector('.wbt-entry-title');
+    assert.ok(title?.textContent.includes('场景 2'), title?.textContent);
+  });
+
+  test('默认不显示浮窗', () => {
+    assert.ok(!tip());
+  });
+
+  // ---- 悬停：延迟后浮出来（免得划过时闪）
+  test('悬停后不立刻弹出', () => {
+    hoverEntry();
+    assert.ok(!tip());
+  });
+
+  test('悬停延迟到了浮出来', async () => {
+    await settle();
+    assert.ok(tip());
+  });
+
+  test('浮窗挂在 body 上（消息流有内部滚动，挂在里面会被裁掉）', () => {
+    assert.equal(tip().parentElement, ui.doc.body);
+  });
+
+  test('浮窗标题说清在改哪一层', () => {
+    assert.ok(tip().querySelector('.wbt-title').textContent.includes('场景 2'),
+      tip().querySelector('.wbt-title')?.textContent);
   });
 
   test('摊开产物的小节', () => {
@@ -294,50 +343,84 @@ describe('工作区卡', { skip: JSDOM_SKIP }, () => {
     assert.ok(rows()[1].includes('林昭决定翻墙') && rows()[1].includes('差点被'), rows()[1]);
   });
 
+  // 「必须发生」是要抄进正文的，鼠标得进得来——所以收起有宽限期。
+  test('移开后有宽限期，浮窗还在', () => {
+    leaveEntry();
+    assert.ok(tip());
+  });
+
+  test('宽限期过后收起', async () => {
+    await grace();
+    assert.ok(!tip());
+  });
+
+  // ---- 点一下钉住：照着「必须发生」写正文时鼠标要回输入框
+  test('点击立刻浮出来，不等延迟', () => {
+    ui.clickEl(entry());
+    assert.ok(tip());
+  });
+
+  test('钉住后移开鼠标也不收', async () => {
+    leaveEntry();
+    await grace();
+    assert.ok(tip());
+  });
+
+  test('再点一次收起', () => {
+    ui.clickEl(entry());
+    assert.ok(!tip());
+  });
+
+  test('按 Esc 收起', () => {
+    ui.clickEl(entry());
+    esc();
+    assert.ok(!tip());
+  });
+
   // 「打开」走的是既有的开文件通道（插件里是 openFile）。
   test('点打开发出开文件消息', () => {
-    ui.clickEl(box().querySelector('.wb-open'));
+    ui.clickEl(entry());
+    ui.clickEl(tip().querySelector('.wbt-open'));
     const opened = [...ui.sent].reverse().find((m) => m.type === 'openFile' || m.type === 'openEditor');
     assert.equal(opened?.path, '.novelforge/scenes/012-夜入青云/02-翻越侧峰.md', JSON.stringify(opened));
   });
 
-  // 收起/展开由用户自己控制。
-  test('可以收起', () => {
-    ui.clickEl(box().querySelector('.wb-toggle'));
-    assert.ok(box().classList.contains('collapsed'));
-    assert.equal(rows().length, 0);
-  });
-
-  test('可以再展开', () => {
-    ui.clickEl(box().querySelector('.wb-toggle'));
-    assert.ok(!box().classList.contains('collapsed'));
-    assert.equal(rows().length, 2);
-  });
-
-  // 上游变更在卡片上是一句人话，不只是流水线条上那个 ⟳。
+  // 上游变更在浮窗里是一句人话，不只是流水线条上那个 ⟳。
   test('上游变更给一句人话', () => {
+    ui.clickEl(entry());
     ui.post({
       type: 'pipeline',
       pipeline: pipelineView(),
       workbench: workbenchView({ stage: 'scene', warning: '本章细纲在这一场之后改过。' }),
     });
-    assert.ok(box().querySelector('.wb-warning')?.textContent.includes('细纲在这一场之后改过'),
-      box().querySelector('.wb-warning')?.textContent);
+    assert.ok(tip()?.querySelector('.wbt-warning')?.textContent.includes('细纲在这一场之后改过'),
+      tip()?.querySelector('.wbt-warning')?.textContent);
   });
 
-  // 这一层还没有产物时说清缺什么，不要留一张空卡。
+  // 开着的浮窗就地换内容，不重建——重建会让它闪一下。
+  test('重推产物时浮窗不关掉', () => {
+    assert.ok(tip());
+  });
+
+  // 入口上也要看得见，否则用户没有理由把它打开。
+  test('上游变更在入口上挂标记', () => {
+    assert.equal(entry().querySelector('.wbt-entry-mark')?.textContent, '⟳');
+  });
+
+  // 这一层还没有产物时说清缺什么，不要留一只空浮窗。
   test('没有产物时说明缺什么', () => {
     ui.post({
       type: 'pipeline',
       pipeline: pipelineView(),
       workbench: workbenchView({ stage: 'plan', sections: [], empty: '这一章还没有细纲。' }),
     });
-    assert.equal(box().querySelector('.wb-empty')?.textContent, '这一章还没有细纲。',
-      box().querySelector('.wb-empty')?.textContent);
+    assert.equal(tip()?.querySelector('.wbt-empty')?.textContent, '这一章还没有细纲。',
+      tip()?.querySelector('.wbt-empty')?.textContent);
   });
 
   test('没有产物时不画小节', () => {
     assert.equal(rows().length, 0);
+    esc();
   });
 });
 
@@ -628,9 +711,17 @@ describe('独立版壳上的创作页', { skip: JSDOM_SKIP }, () => {
     });
   });
 
-  test('独立版渲染工作区卡', () => {
-    assert.ok(!ui.doc.getElementById('workbench').classList.contains('hidden'));
-    assert.equal(ui.doc.querySelectorAll('#workbench .wb-row').length, 1);
+  test('独立版渲染当前产物入口', () => {
+    const entry = ui.doc.getElementById('workbench');
+    assert.ok(!entry.classList.contains('hidden'));
+    assert.ok(entry.querySelector('.wbt-entry-title')?.textContent.includes('细纲'),
+      entry.querySelector('.wbt-entry-title')?.textContent);
+  });
+
+  test('独立版能浮出产物浮窗', () => {
+    ui.clickEl(ui.doc.getElementById('workbench'));
+    assert.equal(ui.doc.querySelectorAll('.workbench-tip .wbt-row').length, 1);
+    ui.doc.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   });
 
   test('独立版渲染主按钮', () => {

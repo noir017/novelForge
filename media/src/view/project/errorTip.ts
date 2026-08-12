@@ -13,21 +13,19 @@
  *   ——从行挪到浮窗要跨一道缝，那一两帧鼠标既不在行上也不在浮窗上。
  * - 不像 `summaryTip.ts` 要向后端单取数据：失败记录已经随 `ProjectTree.failures`
  *   全量推过来了（每条几十字、只有出错的目标才有），直接读缓存即可。
+ *
+ * 定位在 [../tip.ts](../tip.ts)，四只浮窗共用一份。
  */
 import { el as mk, closestFrom } from '../../dom';
 import type { FailureView } from '../../protocol';
 import { logTime } from '../format';
 import { el } from '../refs';
+import { placeTip } from '../tip';
 import { lastTree } from './treeState';
 
 const HOVER_DELAY_MS = 300;
 /** 收起的宽限期：够鼠标从行跨到浮窗，又不至于让它赖着不走。 */
 const CLOSE_DELAY_MS = 200;
-/** 浮窗与目标之间的缝，以及与视口边缘的留白。 */
-const TIP_GAP = 4;
-const TIP_MARGIN = 8;
-/** 再挤也得看得见一行字，否则等于浮窗没弹。 */
-const MIN_TIP_HEIGHT = 48;
 
 let tip: { key: string; box: HTMLElement } | null = null;
 /** 正在等延迟的那个感叹号（延迟到点时用它定位）。 */
@@ -104,7 +102,7 @@ function showTip(node: HTMLElement, key: string, failures: FailureView[]): void 
   box.addEventListener('mouseleave', scheduleHide);
   document.body.appendChild(box);
   tip = { key, box };
-  place(node, box);
+  placeTip(node, box);
 }
 
 function buildBody(failures: FailureView[]): DocumentFragment {
@@ -132,44 +130,6 @@ function buildBody(failures: FailureView[]): DocumentFragment {
   }
   frag.appendChild(mk('div', 'hint failure-tip-foot', '成功一次后这个标记会自动消失。日志页有完整记录。'));
   return frag;
-}
-
-/**
- * 定位浮窗并夹进视口。挂在 body 上 `position: fixed`——工程页有内部滚动，
- * 挂在行里会被容器裁掉。与 `summaryTip.place` 同一套算法（横向左对齐、
- * 右溢出往左收、纵向优先下方、放不下翻上方、两边都不够就压高度）。
- */
-function place(node: HTMLElement, box: HTMLElement): void {
-  const r = node.getBoundingClientRect();
-  const vw = window.innerWidth || 0;
-  const vh = window.innerHeight || 0;
-
-  // 先撤掉上一次的限制再量，否则会一直沿用之前那个更矮的值。
-  box.style.maxHeight = '';
-  const natural = box.offsetHeight;
-
-  const below = vh - r.bottom - TIP_GAP - TIP_MARGIN;
-  const above = r.top - TIP_GAP - TIP_MARGIN;
-  const putBelow = natural <= below || below >= above;
-  const room = Math.max(MIN_TIP_HEIGHT, putBelow ? below : above);
-  if (natural > room) {
-    box.style.maxHeight = `${room}px`;
-  }
-
-  const h = box.offsetHeight;
-  const top = putBelow ? r.bottom + TIP_GAP : Math.max(TIP_MARGIN, r.top - h - TIP_GAP);
-
-  const w = box.offsetWidth;
-  let left = r.left;
-  if (w > 0 && left + w > vw - TIP_MARGIN) {
-    left = vw - w - TIP_MARGIN;
-  }
-  if (left < TIP_MARGIN) {
-    left = TIP_MARGIN;
-  }
-
-  box.style.left = `${left}px`;
-  box.style.top = `${top}px`;
 }
 
 export function installFailureTip(): void {

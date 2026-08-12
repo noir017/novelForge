@@ -1,62 +1,126 @@
 /*
- * 工作区卡：当前这一层的产物本身。
+ * 「当前产物」：流水线条上的一个入口 + 一只悬停浮窗。
  *
- * `position: sticky` 是这块东西的关键：它在消息流里（跟着一起滚），
- * 但滚不出视野——聊到第十轮回头看「这一场到底不能发生什么」，它还在。
- * 做成常驻的独立一块会把消息流压扁，侧边栏只有三百来像素高的余量。
+ * 从前这是消息流里一张 `position: sticky` 的常驻卡片——滚不出视野，代价是永远
+ * 占着消息流最上面那一块，既关不掉也藏不起来（只能折叠成一条标题栏，那条标题
+ * 栏还在）。侧边栏只有三百来像素宽，一份七小节的场景卡能吃掉半屏对话。
+ *
+ * 现在与工程页那三只浮窗（summary-tip / detail-tip / error-tip）同一套：挂在
+ * body 上 `position: fixed`（消息流有内部滚动，挂在里面会被裁掉），几何算在
+ * `view/tip.ts`。不占版面，随时够得着。
+ *
+ * 类名用 `wbt-` 而不是 `wb-`：`wb-` 是**独立版工作台外壳**的命名空间
+ * （`css/standalone/workbench.css` 里的 `.wb-title` 是那条 38px 高的标题栏、
+ * `.wb-side` 是侧栏……）。改造前这张卡的标题也叫 `.wb-title`，于是在独立版里
+ * 它被标题栏那条规则套上了 38px 高度与标题栏底色——一处没人发现的串味。
  */
 
-.workbench {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin-bottom: 8px;
-  padding: 6px 9px 8px;
-  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.3));
-  border-radius: var(--radius);
-  /* 不透明背景是必须的：底下的消息要从它后面滚过去。 */
-  background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
-}
+/* ---- 流水线条上的入口 */
 
-.wb-head {
+.wb-entry {
   display: flex;
   align-items: center;
   gap: 5px;
+  width: 100%;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 1px 5px;
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.8em;
+  font-family: inherit;
+  text-align: left;
 }
 
-.wb-head .spacer {
+.wb-entry:hover,
+.wb-entry.open {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+  color: var(--vscode-foreground);
+}
+
+.wbt-entry-icon {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+.wbt-entry-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 上游变过 / 这一层还空着。与流水线条上的 ⟳ 同色——同一件事在两处该长得一样。 */
+.wbt-entry-mark {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.wbt-entry-mark.is-empty {
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ---- 浮窗
+
+   与 .summary-tip 同一套取舍：z-index 25（低于 toast 30 与右键菜单 40，那两个
+   都是用户主动要的）；60vh 是可读性上限，放不下时 tip.ts 再压一次行内
+   max-height；**没有** pointer-events: none——「必须发生」是要抄进正文的，
+   鼠标得进得来，能滚、能选中复制（收起的宽限期在 workbench.ts）。 */
+
+.workbench-tip {
+  position: fixed;
+  z-index: 25;
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  max-height: 60vh;
+  overflow-y: auto;
+  /* 浮窗里滚到头时不要把滚动继续传给底下的消息流。 */
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  border-radius: var(--radius);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+  /* 产物是拿来读、拿来抄进正文的，别禁掉选中。 */
+  user-select: text;
+}
+
+.wbt-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 3px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.wbt-head .spacer {
   flex: 1;
 }
 
-.wb-toggle {
-  background: none;
-  border: none;
-  padding: 0 2px;
-  cursor: pointer;
-  color: var(--vscode-descriptionForeground);
-  font-size: 0.85em;
-  font-family: inherit;
-  line-height: 1;
-}
-
-.wb-title {
-  font-size: 0.85em;
+.wbt-title {
+  font-size: 0.9em;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.wb-open {
-  font-size: 0.78em;
+.wbt-open {
+  font-size: 0.85em;
   flex: 0 0 auto;
 }
 
-.workbench.collapsed {
-  padding-bottom: 6px;
+.wbt-close {
+  flex: 0 0 auto;
+  font-size: 1em;
+  line-height: 1;
+  padding: 1px 5px;
 }
 
 /* ---- 小节 */
@@ -67,19 +131,19 @@
  * `white-space: pre-line` 让「必须发生」那种 Markdown 列表保持分行——
  * 三条并成一行读起来就完全不像三个独立的动作了。
  */
-.wb-row {
+.wbt-row {
   display: flex;
   gap: 8px;
-  font-size: 0.82em;
-  line-height: 1.5;
+  font-size: 0.85em;
+  line-height: 1.55;
 }
 
-.wb-key {
+.wbt-key {
   flex: 0 0 4.5em;
   color: var(--vscode-descriptionForeground);
 }
 
-.wb-text {
+.wbt-text {
   flex: 1;
   min-width: 0;
   white-space: pre-line;
@@ -87,15 +151,15 @@
 }
 
 /* 上游变过。与流水线条上的 ⟳ 同色——同一件事在两处该长得一样。 */
-.wb-warning {
-  font-size: 0.8em;
-  line-height: 1.45;
+.wbt-warning {
+  font-size: 0.85em;
+  line-height: 1.5;
   color: var(--vscode-editorWarning-foreground, #cca700);
 }
 
-/* 这一层还没有产物。说清楚缺什么，不要留一张空卡。 */
-.wb-empty {
-  font-size: 0.82em;
+/* 这一层还没有产物。说清楚缺什么，不要留一只空浮窗。 */
+.wbt-empty {
+  font-size: 0.85em;
   line-height: 1.5;
   color: var(--vscode-descriptionForeground);
 }
