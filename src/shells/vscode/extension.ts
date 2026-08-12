@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import { initProjectFlow, newChapterFlow } from '../../core/actions';
+import { characterChoices, chapterChoices } from '../../core/choices';
 import { ChatController } from '../../core/controller';
 import { promoteModel, setLegacyConfigReader } from '../../core/config';
 import { extractCharacters, newCharacter, newLore } from '../../core/features/characters';
 import { updateCharacterCard } from '../../core/features/characterCard';
 import { generateLore } from '../../core/features/lore';
-import { appearancesOf, buildCastIndex, describeChapters } from '../../core/cast';
 import { newFolder, sectionRoots } from '../../core/fileOps';
 import { extractStyle } from '../../core/features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../../core/features/summarize';
@@ -92,8 +92,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             return;
           }
           // 命令是最外层：到这里还没被接住的异常，除了弹窗还要留在日志里。
+          // 弹窗走 Host.toast 而不是直接调 window.showErrorMessage——壳自己的
+          // 提示也该经那一个出口，否则「提示长什么样」会有两份实现。
           log.error(`命令 ${command} 执行失败：${describeError(err)}`, err);
-          void vscode.window.showErrorMessage(`Novel Forge：${describeError(err)}`);
+          getHost().toast(describeError(err), 'error');
         }
       })
     );
@@ -231,7 +233,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     if (!(await chat.addSelectionFromCommand())) {
-      void vscode.window.showWarningMessage('Novel Forge：请先在编辑器里选中一段文字。');
+      getHost().toast('请先在编辑器里选中一段文字。', 'error');
     }
   });
 
@@ -319,34 +321,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * 更新单个角色的档案。命令面板入口——工程页的角色行右键走的是同一条
    * core 流程（controller 的 characterAction），两处行为不会分叉。
    *
-   * 出场章节由摘要自动关联，所以这里只需要问「更新谁」。
+   * 出场章节由摘要自动关联，所以这里只需要问「更新谁」。清单（含「＋N 章待读」）
+   * 由 core/choices.ts 算，这里只负责把它交给宿主的选择器。
    */
   register('novel.updateCharacterCard', async () => {
     const target = await requireProject();
     if (!target) {
       return;
     }
-    const cards = await target.listCharacters();
-    if (cards.length === 0) {
-      vscode.window.showInformationMessage('还没有角色卡。可先运行「Novel: 提取/更新角色卡」。');
+    const choices = await characterChoices(target);
+    if (choices.length === 0) {
+      getHost().toast('还没有角色卡。可先运行「Novel: 提取/更新角色卡」。');
       return;
     }
-    const index = await buildCastIndex(target);
-    const picked = await vscode.window.showQuickPick(
-      cards.map((card) => {
-        const chapters = appearancesOf(index, card);
-        const pending = chapters.filter((o) => o > (card.updatedThrough ?? 0)).length;
-        return {
-          label: card.name,
-          description: pending > 0 ? `＋${pending} 章待读` : undefined,
-          detail: describeChapters(chapters),
-          card,
-        };
-      }),
-      { title: '更新哪个角色的档案？', placeHolder: '出场章节由摘要自动关联' }
-    );
-    if (picked) {
-      await updateCharacterCard(target, picked.card.relPath);
+    const relPath = await getHost().pick(choices, '更新哪个角色的档案？');
+    if (relPath) {
+      await updateCharacterCard(target, relPath);
       await refresh();
     }
   });
@@ -399,7 +389,7 @@ function currentProject(): NovelProject | undefined {
 async function requireProject(): Promise<NovelProject | undefined> {
   const project = currentProject();
   if (!project) {
-    void vscode.window.showErrorMessage('Novel Forge：请先打开一个工作区文件夹。');
+    getHost().toast('请先打开一个工作区文件夹。', 'error');
   }
   return project;
 }
@@ -478,6 +468,10 @@ async function setInitializedContext(project: NovelProject): Promise<void> {
   );
 }
 
+/**
+ * 挑一章。清单构造在 core（`chapterChoices`）；这里只多做一件宿主专属的事：
+ * 当前编辑器正好是某一章时不问，直接用它。
+ */
 async function pickChapter(project: NovelProject): Promise<Chapter | undefined> {
   const chapters = await project.listChapters();
   if (chapters.length === 0) {
@@ -485,7 +479,6 @@ async function pickChapter(project: NovelProject): Promise<Chapter | undefined> 
     return undefined;
   }
 
-  // 当前编辑器就是某一章时，直接用它。
   const active = vscode.window.activeTextEditor?.document.uri;
   if (active) {
     const rel = project.relPath(active.fsPath);
@@ -495,14 +488,8 @@ async function pickChapter(project: NovelProject): Promise<Chapter | undefined> 
     }
   }
 
-  return getHost().pick(
-    chapters.map((c) => ({
-      label: `${String(c.order).padStart(3, '0')} ${c.title}`,
-      description: `${c.wordCount} 字`,
-      value: c,
-    })),
-    '选择要总结的章节'
-  );
+  const order = await getHost().pick(await chapterChoices(project), '选择要总结的章节');
+  return order === undefined ? undefined : chapters.find((c) => c.order === order);
 }
 
 function workspaceName(): string {

@@ -7,6 +7,7 @@ import { Disposable, Host, InputOptions, PickChoice } from '../../core/host';
 import { CancelledError } from '../../core/llm/provider';
 import { NovelProject } from '../../core/model/project';
 import { Attachment } from '../../core/model/session';
+import { watchGlobs } from '../../core/watchPolicy';
 import { selectionAttachment } from './attachments';
 
 /**
@@ -76,23 +77,9 @@ export class VsCodeHost implements Host {
     );
   }
 
+  /** 机制是 VS Code 的 FileSystemWatcher；看哪些东西由 core 的 watchPolicy 说。 */
   watch(project: NovelProject, onChange: () => void): Disposable {
-    const config = readConfig();
-    const patterns = [
-      `${config.chaptersDir}/**/*.md`,
-      '.novelforge/**/*.md',
-      '.novelforge/project.json',
-      // 目录本身也要监听：工程页上文件夹是可见节点，新建/删除空文件夹
-      // 不动任何 .md，靠上面几条 glob 是看不见的。
-      // 这一条同时兜住了非 .md 的章节（.txt / 无扩展名 / .json）——
-      // 它是章节根下的全量 glob，扩展名放宽不需要额外加模式。
-      `${config.chaptersDir}/**`,
-      // 草稿目录：手工建的草稿也该让工程页上的「有草稿」标记翻过来。
-      `${config.draftsDir}/**`,
-      '.novelforge/characters/**',
-      '.novelforge/lore/**',
-    ];
-    const watchers = patterns.map((p) =>
+    const watchers = watchGlobs(readConfig()).map((p) =>
       vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(project.root, p))
     );
     for (const w of watchers) {

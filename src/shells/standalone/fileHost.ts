@@ -11,10 +11,11 @@ import {
   writeFileFromEditor,
 } from '../../core/fileEditing';
 import { Disposable, Host, InputOptions, PickChoice } from '../../core/host';
-import { NON_CHAPTER_EXTENSIONS, isChapterFileName } from '../../core/model/chapterFile';
+import { isChapterFileName } from '../../core/model/chapterFile';
 import { NovelProject } from '../../core/model/project';
 import { Attachment } from '../../core/model/session';
 import { EditorPane, OutMessage } from '../../core/protocol';
+import { shouldIgnoreChange } from '../../core/watchPolicy';
 import { PromptHub } from './promptHub';
 
 /**
@@ -122,16 +123,10 @@ export class FileHost implements Host {
     };
 
     // 优先 fs.watch（recursive）；不支持时退化为 1s 轮询。
+    // 「哪些改动值得刷新」由 core 的 watchPolicy 说，这里只管机制。
     try {
       const watcher = fs.watch(project.root, { recursive: true }, (_event, filename) => {
-        const name = String(filename ?? '');
-        if (name.includes('node_modules') || name.includes('.trash')) {
-          return;
-        }
-        // 只跳过「改了也与工程无关」的二进制文件。章节可以是任意扩展名
-        // （含无扩展名），目录事件也没有扩展名——两者都得放行。
-        const ext = path.extname(name).toLowerCase();
-        if (ext && NON_CHAPTER_EXTENSIONS.has(ext)) {
+        if (shouldIgnoreChange(String(filename ?? ''))) {
           return;
         }
         fire();
