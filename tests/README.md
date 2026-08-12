@@ -77,9 +77,10 @@ node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
 
 ### `dom/`
 
-跑的是**构建产物** `dist/media/*.js`（源码在 `media/src/`），DOM 结构从 `webviewHtml.ts` /
-`html.ts` 里抠出来，保证与真实渲染一致。**未装 jsdom 时整组跳过**（会出现在汇总的 skipped 里，
-不再伪装成通过）。
+跑的是**构建产物** `dist/media/*.js`（源码在 `media/src/`）。DOM 结构由 helpers 现场**执行页面模板**
+得到（`webviewHtml.renderHtml` / `standalonePage`），所以测的就是壳真会发出去的那份 HTML——
+从前是拿正则去模板源码里抠，页面骨架收进 `shells/shared/panes.ts` 之后那条路已经不成立了。
+**未装 jsdom 时整组跳过**（会出现在汇总的 skipped 里，不再伪装成通过）。
 
 | 文件 | 覆盖 |
 |---|---|
@@ -99,7 +100,8 @@ node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
 | 文件 | 覆盖 |
 |---|---|
 | `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、WS 首条消息、`Origin` 校验；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返 |
-| `contract/corePurity.test.js` | `src/core/` 零 vscode 依赖——双形态架构的硬约束，也是 `external: ['vscode']` 成立的前提 |
+| `contract/corePurity.test.js` | `src/core/` 零 vscode 依赖——分层架构的硬约束，也是 `external: ['vscode']` 成立的前提 |
+| `contract/shellPurity.test.js` | 壳的契约（[src/shells/README.md](../src/shells/README.md)）：`shells/shared/` 零宿主依赖（不碰 vscode / node: / bun:）、三个壳互不 import、全仓库没有 `host.name ===` 这类按身份分支的写法。三条都是**能悄悄长回来**的东西，只能靠断言守 |
 | `contract/sampleNovel.test.js` | `sample-novel/` 自洽：manifest 章节数与磁盘一致、每章 `contentHash` / `summaryHash` / 摘要 `sourceHash` 对得上、示例纲要能命中 3 个角色 |
 
 ## helpers/

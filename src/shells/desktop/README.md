@@ -5,7 +5,7 @@
 
 ## 它是一层纯壳
 
-`src/` 与 `media/` 一行都没有为它改过。壳只做四件事：
+`core/` 与 `media/` 一行都没有为它改过（除了它自己搬进 `src/shells/` 时那次改路径）。壳只做四件事：
 
 1. 想起（或让用户选）一个小说工程目录
 2. 起 sidecar —— 就是 `npm run dist` 那个单文件可执行，只换了个文件名
@@ -15,6 +15,11 @@
 **所以桌面版没有任何功能是"适配"出来的。** sidecar 是同一台机器上的普通进程，
 `fs.watch`、`bun:sqlite`、`openExternal` 唤起系统程序全部照旧工作。用户看不到服务的存在，
 但架构上它还在那儿——这也是 web 模式一行不改就能继续跑的原因。
+
+**这个目录本身就是 Tauri 工程根**（`tauri.conf.json` 直接放在这里，不再套一层 `src-tauri/`）。
+`npm run app:dev` / `app:build` 会先 `cd` 进来再调 CLI——Tauri 认「cwd 或 cwd/src-tauri 下的
+tauri.conf.json」，站在这里是最稳的那条发现路径。CI 里对应的是 tauri-action 的
+`projectPath: src/shells/desktop`。
 
 这层壳之所以能这么薄，是因为独立版早就把需要的东西给齐了：`--no-open` 已有、
 端口占用会自愈、[server.ts](../standalone/server.ts) 已经往 stdout 打了带端口的 URL、
