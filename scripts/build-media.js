@@ -8,7 +8,7 @@
  * 产物是 IIFE 格式的 classic script，不是 ES module：webview 的 CSP 用 nonce
  * 放行脚本，而 nonce 不传递给 `import` 进来的模块——原生模块要么得开
  * `strict-dynamic`，要么就打包，这里选打包。顺带 jsdom 的 `window.eval`
- * 也只吃得下 classic script，smoke-view.js 不必改加载方式。
+ * 也只吃得下 classic script，tests/dom/ 不必改加载方式。
  *
  * 用法：node scripts/build-media.js [--watch]
  */
@@ -101,7 +101,7 @@ async function buildMedia(opts = {}) {
   }
 }
 
-/** 产物目录的绝对路径。下游（embed-media、smoke-view）从这里取，别各自拼。 */
+/** 产物目录的绝对路径。下游（embed-media、tests/helpers/dom.js）从这里取，别各自拼。 */
 const MEDIA_OUT_DIR = OUT;
 
 module.exports = { buildMedia, MEDIA_OUT_DIR };

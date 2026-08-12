@@ -3,7 +3,7 @@
 一个真实格式的示例工程，有两个用途：
 
 1. **开发调试**：按 `F5` 启动 Extension Development Host 时自动打开这里，直接可以试续写 / 摘要 / 角色卡。
-2. **测试夹具**：`scripts/smoke.js` 与 `smoke-builder.js` 在它上面跑只读断言（含摘要 `sourceHash` 与章节正文的一致性）——**不要随手改章节正文**，否则 hash 断言会挂；要改就把对应摘要里的 `sourceHash` 一起更新。
+2. **测试夹具**：`tests/contract/sampleNovel.test.js` 与 `tests/integration/context/builder.test.js` 在它上面跑**只读**断言（含摘要 `sourceHash` 与章节正文的一致性）——**不要随手改章节正文**，否则 hash 断言会挂；要改就把对应摘要里的 `sourceHash` 一起更新。需要写盘的用例一律经 `tests/helpers/tmpProject.js` 的 `copyFixture()` 复制一份出去跑，不碰这里。
 
 ## 目录
 
