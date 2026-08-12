@@ -5,8 +5,9 @@ import { addLogSink, describeError, formatLogEntry, scoped, setSinkLevel } from 
 import { NovelProject } from '../../core/model/project';
 import { InMessage, OutMessage } from '../../core/protocol';
 import { FileConfigStore, FileSecretStore } from '../../core/stores';
+import { assetBytes } from './assets';
 import { FileHost } from './fileHost';
-import { assetBytes, standalonePage } from './html';
+import { standalonePage } from './page';
 
 const log = scoped('服务');
 

@@ -14,6 +14,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { loadModule } = require('./load');
 
 const ROOT = path.join(__dirname, '..', '..');
 /** 前端构建产物目录。与 scripts/build-media.js 的 outdir 同一处。 */
@@ -33,34 +34,43 @@ const JSDOM_SKIP = hasJsdom ? false : '未安装 jsdom（npm i -D jsdom）';
 // ---------------------------------------------------------------- body 模板
 
 /**
- * 从模板 .ts 里抠出 body，保证测试用的结构与真实渲染的一致。
+ * 从**渲染出来的**整页 HTML 里抠出 body。
+ *
+ * 从前这里是拿正则去模板源码里抠的，页面骨架收进 `src/shells/shared/panes.ts`
+ * 之后那条路就断了：模板源码里剩下的是 `${chatPane(...)}` 这样的插值，
+ * 抹掉插值等于抹掉整个页面。现在改成**执行模板函数**，测试因此比从前更严——
+ * 跑的是壳真正会发给浏览器的那份 HTML。
  *
  * 找不到 <body> 就当场抛——模板形状变了必须早点发现，这正是它存在的意义。
  */
-function extractBody(file) {
-  const src = fs.readFileSync(file, 'utf8');
+function extractBody(html, what) {
   // <body> 上带着 data-vscode-context / class 属性，不能按字面量找。
-  const open = /<body[^>]*>/.exec(src);
-  const end = src.indexOf('</body>');
+  const open = /<body[^>]*>/.exec(html);
+  const end = html.indexOf('</body>');
   if (!open || end === -1) {
-    throw new Error(`${path.basename(file)} 里找不到 <body>，测试需要同步更新`);
+    throw new Error(`${what} 渲染出来的 HTML 里找不到 <body>，测试需要同步更新`);
   }
-  return src
-    .slice(open.index + open[0].length, end)
-    // 去掉 <script src>（模板串里是 ${asset(...)}），脚本我们手动注入。
-    .replace(/<script[\s\S]*?<\/script>/g, '');
+  return (
+    html
+      .slice(open.index + open[0].length, end)
+      // 去掉 <script src>，脚本我们手动注入（跑的是 dist/media/ 的产物）。
+      .replace(/<script[\s\S]*?<\/script>/g, '')
+  );
 }
 
 /** 插件 webview 的 body。 */
 function bodyHtml() {
-  return extractBody(path.join(ROOT, 'src/shells/vscode/webviewHtml.ts'));
+  const { renderHtml } = loadModule('src/shells/vscode/webviewHtml.ts');
+  // asset / cspSource 由宿主注入（真实实现在 shells/vscode/webview.ts），
+  // 这里给个假的就够——脚本与样式都不从这条路加载。
+  const html = renderHtml({ asset: (name) => `/${name}`, cspSource: 'test:' });
+  return extractBody(html, 'webviewHtml.renderHtml');
 }
 
 /** 独立版的 body（含 #wbEditor 等工作台结构）。 */
 function standaloneBodyHtml() {
-  // html.ts 里有 ${LOGO_SVG} / ${escapeHtml(...)} 之类的插值，测试只关心
-  // 结构与 id，把插值统统抹平即可。
-  return extractBody(path.join(ROOT, 'src/shells/standalone/html.ts')).replace(/\$\{[^}]*\}/g, '');
+  const { standalonePage } = loadModule('src/shells/standalone/page.ts');
+  return extractBody(standalonePage('/tmp/示例工程'), 'standalonePage');
 }
 
 // ---------------------------------------------------------------- 挂载

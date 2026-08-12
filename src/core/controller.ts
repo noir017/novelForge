@@ -442,7 +442,6 @@ export class ChatController {
     const initialized = await this.project.isInitialized();
     const config = readConfig();
     const host = getHost();
-    const standalone = host.name === 'standalone';
     const models = listModelChoices(config.providers, host.supportsVscodeLm).map((c) => ({
       ref: c.ref,
       label: c.label,
@@ -465,7 +464,6 @@ export class ChatController {
         models,
         contextWindow: 0,
         maxOutputTokens: 0,
-        standalone,
       };
     }
     const chapters = await this.project.listChapters();
@@ -487,7 +485,6 @@ export class ChatController {
       models,
       contextWindow: config.contextWindow,
       maxOutputTokens: config.maxOutputTokens,
-      standalone,
     };
   }
 

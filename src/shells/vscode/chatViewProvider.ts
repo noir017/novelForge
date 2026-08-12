@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ChatController, ViewHost } from '../../core/controller';
 import { InMessage, OutMessage } from '../../core/protocol';
-import { renderHtml } from './webviewHtml';
+import { htmlFor, webviewOptions } from './webview';
 
 /**
  * 侧边栏宿主。视图在 package.json 里注册为 `novelForge.chat`，
@@ -23,15 +23,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ViewHost {
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
-    view.webview.options = {
-      enableScripts: true,
-      // icon.svg 在 media/，脚本与样式在 dist/media/（构建产物）。
-      localResourceRoots: [
-        vscode.Uri.joinPath(this.extensionUri, 'media'),
-        vscode.Uri.joinPath(this.extensionUri, 'dist', 'media'),
-      ],
-    };
-    view.webview.html = renderHtml(view.webview, this.extensionUri);
+    view.webview.options = webviewOptions(this.extensionUri);
+    view.webview.html = htmlFor(view.webview, this.extensionUri);
     view.webview.onDidReceiveMessage((msg: InMessage) => void this.controller.handle(msg));
 
     this.controller.attach(this);
