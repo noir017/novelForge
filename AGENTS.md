@@ -21,7 +21,7 @@ npm run test:dom         # jsdom 跑 dist/media 前端产物
 npm run test:e2e         # 独立版服务（需 Bun）
 ```
 
-改了 `src/core/**` 后必须跑 `npm test`；改了任何 TS（含 `media/src/**`）都要过 `npm run typecheck`。手动验证 UI 时按 `F5` 启动 Extension Development Host（自动打开 `sample-novel/`）。
+改了 `src/core/**` 后必须跑 `npm test`；改了任何 TS（含 `media/src/**`）都要过 `npm run typecheck`。手动验证 UI 时按 `F5` 启动 Extension Development Host（自动打开 `sample-novel/`）；独立版与桌面壳也各有 F5 配置，见 [.vscode/README.md](.vscode/README.md)。
 
 测试按类型分目录放在 [`tests/`](tests/README.md)（`unit` / `integration` / `dom` / `e2e` / `contract`），运行器是 Node 自带的 `node:test`，零新增依赖。单跑一条：`node --test --test-name-pattern="关键字" "tests/unit/**/*.test.js"`——**glob 要带引号**，`node --test <目录>` 会把目录当模块入口报错。
 
@@ -50,6 +50,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 
 - [package.json](package.json) —— 命令 / 菜单 / 快捷键 / 全部 `novel.*` 配置项的声明。
 - [esbuild.js](esbuild.js) —— 构建脚本，入口 `src/shells/vscode/extension.ts` → `dist/extension.js`；同时调 [scripts/build-media.js](scripts/build-media.js) 把前端资源打进 `dist/media/`。
+- [.vscode/README.md](.vscode/README.md) —— 三个壳各自的 F5 启动配置与构建/测试任务。**只有插件壳能打断点**，独立版（Bun 没实现 `node:inspector`）与桌面壳（Rust 那半边要 CodeLLDB）都只是把命令跑在终端里，原因写在那份 README 里。
 - `docs/design/plans/` 与 `docs/design/specs/` —— 「双形态改造」（共享核心 + VS Code 壳 + Bun 独立 Web 服务壳）的实施计划与设计文档，涉及分层调整时先读。
 
 ## 架构要点

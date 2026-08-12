@@ -1,0 +1,13 @@
+{
+  // 只推荐**调这三个壳真正需要**的东西，不塞格式化/主题一类个人偏好。
+  "recommendations": [
+    // 桌面壳是 Rust。没有它 src/shells/desktop/src/*.rs 只有语法高亮。
+    "rust-lang.rust-analyzer",
+    // 桌面壳的 Rust 断点。launch.json 里没有对应配置（原因见 README），
+    // 装了它才有得配。
+    "vadimcn.vscode-lldb",
+    // Tauri 的 tauri.conf.json 补全与命令。
+    "tauri-apps.tauri-vscode"
+  ],
+  "unwantedRecommendations": []
+}

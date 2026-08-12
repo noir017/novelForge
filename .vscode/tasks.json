@@ -1,7 +1,11 @@
 {
+  // 每个壳一条构建任务，命令与 package.json 的 scripts 一一对应（不在这里另写一份
+  // 命令行——那样两处会漂）。哪条任务服务哪个启动配置，见 .vscode/README.md。
   "version": "2.0.0",
   "tasks": [
     {
+      // 默认构建任务，插件壳的两条 launch 都靠它（${defaultBuildTask}）。
+      // esbuild.js 会连 media/src → dist/media/ 一起监听，漏了 webview 会 404。
       "label": "watch",
       "type": "npm",
       "script": "watch",
@@ -9,6 +13,129 @@
       "isBackground": true,
       "presentation": { "reveal": "never" },
       "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "插件：一次性编译",
+      "type": "npm",
+      "script": "compile",
+      "problemMatcher": "$esbuild",
+      "presentation": { "reveal": "silent" },
+      "group": "build"
+    },
+    {
+      // 只监听前端产物。改 media/src/ 时够用，比整个 watch 轻。
+      // 独立版的页面资源也来自这里（经 embed-media 内嵌），但**改完要重启服务**
+      // ——mediaAssets.ts 是启动时读进内存的。
+      "label": "前端：监听构建（media/src → dist/media）",
+      "type": "shell",
+      "command": "node scripts/build-media.js --watch",
+      "isBackground": true,
+      "problemMatcher": "$esbuild-watch",
+      "presentation": { "reveal": "never" },
+      "group": "build"
+    },
+    {
+      // 独立版/单文件的前置：把 dist/media 的产物 base64 内嵌进
+      // src/shells/standalone/mediaAssets.ts（生成文件，已 gitignore）。
+      "label": "独立版：内嵌前端资源",
+      "type": "npm",
+      "script": "embed",
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent" },
+      "group": "build"
+    },
+    {
+      // 「跑单文件可执行」那条 launch 的 preLaunchTask。npm run dist 自带 embed。
+      "label": "独立版：编译单文件",
+      "type": "npm",
+      "script": "dist",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" },
+      "group": "build"
+    },
+    {
+      // 桌面壳的 sidecar（当前平台）。app:dev / app:build 会自己触发，
+      // 这条是"只想单独编一次 sidecar"时用。
+      "label": "桌面版：编译 sidecar（当前平台）",
+      "type": "npm",
+      "script": "sidecar",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" },
+      "group": "build"
+    },
+    {
+      "label": "桌面版：编译 sidecar（含 Windows 交叉编译）",
+      "type": "npm",
+      "script": "sidecar:all",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" },
+      "group": "build"
+    },
+    {
+      "label": "桌面版：出安装包",
+      "type": "npm",
+      "script": "app:build",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" },
+      "group": "build"
+    },
+    {
+      "label": "typecheck",
+      "type": "npm",
+      "script": "typecheck",
+      "problemMatcher": "$tsc",
+      "presentation": { "reveal": "silent" },
+      "group": "build"
+    },
+    {
+      "label": "测试：全部",
+      "type": "npm",
+      "script": "test",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" },
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "测试：unit",
+      "type": "npm",
+      "script": "test:unit",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" },
+      "group": "test"
+    },
+    {
+      "label": "测试：integration",
+      "type": "npm",
+      "script": "test:integration",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" },
+      "group": "test"
+    },
+    {
+      "label": "测试：dom",
+      "type": "npm",
+      "script": "test:dom",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" },
+      "group": "test"
+    },
+    {
+      // 独立版的真 HTTP/WS 服务，需要 Bun。
+      "label": "测试：e2e（需 Bun）",
+      "type": "npm",
+      "script": "test:e2e",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" },
+      "group": "test"
+    },
+    {
+      // 架构不变式：core 零 vscode 依赖、壳之间不互相 import、没有"我是哪个壳"的分支。
+      "label": "测试：contract（架构不变式）",
+      "type": "npm",
+      "script": "test:contract",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" },
+      "group": "test"
     }
   ]
 }

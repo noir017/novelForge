@@ -652,6 +652,10 @@ npm run standalone   # bun 起独立 Web 服务
 npm run dist         # 编译独立版单文件可执行（dist/novelforge）
 ```
 
+上面这些以及三个壳的启动方式都在 VS Code 的调试下拉框和任务列表里备好了一条，
+按 `F5` 直接选——**插件 / 独立 Web 版 / 单文件可执行 / 桌面 App** 各有配置，
+细节（尤其是「为什么只有插件壳能打断点」）见 [.vscode/README.md](.vscode/README.md)。
+
 ### 测试
 
 测试在 [`tests/`](tests/README.md)，按**测试类型**分目录，运行器是 Node 自带的 `node:test`（零新增依赖）。都不需要真实 API Key。

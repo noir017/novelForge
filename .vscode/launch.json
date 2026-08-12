@@ -1,7 +1,12 @@
 {
+  // 三个壳各自的启动方式，与 README 的「快速开始」（插件）、「独立 Web 版」、
+  // 「桌面 App」三节一一对应。哪一条是真能打断点的调试、哪一条只是"把命令跑在
+  // 终端里"，以及为什么，见 .vscode/README.md。
   "version": "0.2.0",
   "configurations": [
     {
+      // 插件壳。extensionHost + outFiles + 非 production 的 sourcemap，
+      // 断点直接落在 src/ 的 TS 上。
       "name": "运行插件（示例小说工作区）",
       "type": "extensionHost",
       "request": "launch",
@@ -11,6 +16,88 @@
       ],
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
       "preLaunchTask": "${defaultBuildTask}"
+    },
+    {
+      // 同上，但在自己的小说上验证。这里必须给**绝对路径**：这个参数是交给
+      // VS Code 去"打开文件夹"的，不走 cli.ts 的 path.resolve。
+      "name": "运行插件（自选工程目录）",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "${input:extensionRoot}"
+      ],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "preLaunchTask": "${defaultBuildTask}"
+    },
+    {
+      // 独立壳（Bun）。README 的「方式一：源码直接跑」。
+      // 用 node-terminal 而不是 node/bun 调试器：js-debug 挂不上 Bun（原因见
+      // .vscode/README.md），所以这一条的价值就是"跑起来 + 输出可点"。
+      // 走 npm 脚本而不是直接 bun，是为了带上 embed-media 那一步——
+      // 少了它 mediaAssets.ts 不存在，页面会 404。
+      "name": "起独立 Web 版（示例小说工作区）",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run standalone -- sample-novel --verbose",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      // 相对路径按仓库根解析（cli.ts 会 path.resolve），绝对路径也认。
+      "name": "起独立 Web 版（自选工程目录）",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run standalone -- ${input:projectDir} --verbose",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      // 终端交互式初始化。问答走 stdin，所以只能在终端里跑——
+      // 顺便也是 TerminalHost 那条路径的唯一入口。
+      "name": "独立版 CLI：初始化工程（自选目录）",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run standalone -- init ${input:projectDir}",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      // README 的「方式二：编译成单文件可执行」。跑这一条是在验证**内嵌资源齐不齐**
+      // ——单文件里没有外部资源可读，漏了产物只有这里看得出来。
+      // Windows 上 Bun 给产物加 .exe，所以命令分平台写；两边都用 `./` + 正斜杠，
+      // PowerShell 与 Git Bash 都吃得下（cmd.exe 不行，见 .vscode/README.md）。
+      "name": "跑单文件可执行（dist/novelforge）",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "./dist/novelforge sample-novel --verbose",
+      "windows": {
+        "command": "./dist/novelforge.exe sample-novel --verbose"
+      },
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "独立版：编译单文件"
+    },
+    {
+      // 桌面壳（Tauri）。tauri.conf.json 的 beforeDevCommand 会自己先编 sidecar，
+      // 所以这里不挂 preLaunchTask。需要 Rust 工具链。
+      // 这一条调不了 Rust 断点（要 CodeLLDB，见 .vscode/README.md），
+      // 但窗口里的页面就是独立版，网页那半边照旧用浏览器开发者工具。
+      "name": "运行桌面 App（开发模式）",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run app:dev",
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "extensionRoot",
+      "type": "promptString",
+      "description": "在扩展开发实例里打开哪个工程目录（绝对路径）",
+      "default": "${workspaceFolder}/sample-novel"
+    },
+    {
+      "id": "projectDir",
+      "type": "promptString",
+      "description": "工程目录（相对仓库根或绝对路径都行）",
+      "default": "sample-novel"
     }
   ]
 }
