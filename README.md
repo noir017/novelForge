@@ -626,26 +626,36 @@ API Key 按服务商 id 分开存。本地 Ollama 随便填一个非空值即可
 ```bash
 npm run watch        # esbuild 监听（插件 bundle）
 npm run typecheck    # tsc --noEmit
-node scripts/check-core-purity.js   # 断言 src/core 零 vscode 依赖
-npm run smoke        # 离线冒烟 + bun 起的独立服务冒烟（不需要 API Key）
-npm test             # typecheck + 纯度检查 + smoke
+npm test             # typecheck + 全部测试（不需要 API Key）
 npm run standalone   # bun 起独立 Web 服务
 npm run dist         # 编译独立版单文件可执行（dist/novelforge）
 ```
 
 ### 测试
 
-`scripts/` 下的离线测试，都不需要真实 API Key：
+测试在 [`tests/`](tests/README.md)，按**测试类型**分目录，运行器是 Node 自带的 `node:test`（零新增依赖）。都不需要真实 API Key。
 
-- **`smoke.js`** —— markdown 解析、tokenizer、模型输出清洗、摘要/角色 JSON 解析的容错，以及示例工程的 hash 一致性
-- **`smoke-providers.js`** —— 模型引用解析（含嵌套斜杠 `openrouter/z-ai/glm-4.6`）、服务商配置容错、按模型覆盖窗口、0.1.x 单服务商配置的兜底
-- **`smoke-builder.js`** —— 用真实文件系统跑完整上下文装配：优先级、预算、降级链、手动排除、附件截断、多轮历史封顶、discuss 模式、provider 配额压缩；另含工程页快照
-- **`smoke-fileops.js`** —— 层级目录与类文件操作：递归扫描、目录树折叠、路径越界守卫、新建文件夹、重命名（保留序号前缀、H1 同步策略）、移动（跨区/自嵌套/同名一律拒绝）、删除（进回收站、不覆盖），以及挪动章节后摘要仍算新鲜
-- **`smoke-chapters.js`** —— 章节文件名规则（任意非二进制扩展名、无扩展名、二进制黑名单）、非 markdown 章节不解析 H1、`extractH1` 只看首行，以及草稿的全套行为：路径镜像、按需创建、不覆盖、不混进章节树、`@` 引用分组、跟随改名/移动、删章节不删草稿
-- **`smoke-llm.js`** —— 起本地假服务器模拟 SSE，验证流式解析（含跨块切分、CRLF、心跳、非 JSON 行）、取消、超时、HTTP 401/404/429 错误信息，以及 Anthropic 的 system 提取与消息合并
-- **`smoke-session.js`** —— 会话读写 round-trip、损坏文件容错、列表排序、重命名/删除（移入 `.trash`）、id 唯一性，以及 `.novel` → `.novelforge` 的迁移
-- **`smoke-errorlog.js`** —— 工程库与失败记录：两个 SQLite 驱动的适配层（含「关库之后删得掉目录」——语句不 finalize 的话 Windows 上库文件会被占着）、纯读取不建库、失败记录的记/清/查与「同一动作只留最新一条」、日志攒批落盘与挂载前缓冲的补写，以及**库不可用时全线静默降级**（一个 API 都不抛、工程页照常构建）
-- **`smoke-server.js`** —— 用 bun 起独立服务，验证首页/静态资源 200、WebSocket 首条消息为 init/state、`Origin` 校验，内置编辑器的读写往返（保存落盘、冲突不覆盖、强制保存、越界路径与非文本扩展名被拒、无扩展名章节可打开）与草稿并列打开，以及资源管理器的目录列举（点开头的目录列得出来、越界与缺目录降级成错误提示）（需 Bun）
+```bash
+npm run test:unit        # 纯函数，零 I/O，毫秒级
+npm run test:integration # 真临时工程 + 假模型，跨模块编排
+npm run test:dom         # jsdom 跑 dist/media 的前端产物
+npm run test:e2e         # 独立版真 HTTP/WS 服务（需 Bun）
+npm run test:contract    # 架构不变式与示例工程自洽
+```
+
+- **`unit/`** —— markdown 解析、tokenizer 与可替换计数器、模型引用与服务商配置、模型分档、流水线纯函数、摘要/角色 JSON 的容错降级、并发池与模型池、日志脱敏与长任务
+- **`integration/`** —— 层级目录与类文件操作、章节文件名规则与草稿、完整上下文装配、创作四层产物的采纳落盘、批量流水线、「谁是谁」的聚类、角色卡更新、设定生成、工程库与失败记录、会话存储、SSE 流式解析
+- **`dom/`** —— 对话页/创作页/工程页/日志页/设置页的渲染与交互、三组悬停浮窗、独立版的内置编辑器与资源管理器
+- **`e2e/`** —— 独立版服务：静态资源、WS 首条消息、`Origin` 校验、编辑器读写往返与冲突、资源管理器目录列举
+- **`contract/`** —— `src/core/` 零 vscode 依赖；`sample-novel/` 的 hash 自洽
+
+单跑一条用例：
+
+```bash
+node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
+```
+
+> glob 要带引号交给 node 展开——`node --test <目录>` 会把目录当模块入口报错。
 
 ### 代码结构
 

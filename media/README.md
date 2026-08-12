@@ -102,7 +102,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 
 ## 测试
 
-- [`../scripts/smoke-view.js`](../scripts/smoke-view.js) 用 jsdom 跑**构建产物**（`dist/media/*.js`，不是源码），从两个 html 模板里抠 body 保证结构与真实渲染一致，覆盖消息流、工程页、右键菜单、摘要浮窗、两块编辑区、资源管理器。改了 `media/src/**` 先 `npm run media` 再跑它，否则测的是上一次的产物（`npm run smoke` / `npm test` 会自动先构建）。
+- [`../tests/dom/`](../tests/dom/) 用 jsdom 跑**构建产物**（`dist/media/*.js`，不是源码），从两个 html 模板里抠 body 保证结构与真实渲染一致，按页面分成十个文件：消息流、创作页、工程页、角色出场、进度、日志页、设置页、悬停浮窗、两块编辑区、资源管理器。改了 `media/src/**` 先 `npm run media` 再跑它，否则测的是上一次的产物（`npm run test:dom` / `npm test` 会自动先构建）。
 - [`../scripts/verify-css.js`](../scripts/verify-css.js) 比对两份 CSS 是否等价：规则集合一条不多一条不少，且「同选择器 + 同属性」的相对顺序没被改变。拆分或重排样式片段后可以拿它对着旧产物验一遍。
 
 ## 新增产物

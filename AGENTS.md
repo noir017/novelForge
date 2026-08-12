@@ -14,11 +14,16 @@ npm run compile          # esbuild 打包到 dist/extension.js + dist/media/ 的
 npm run watch            # 监听构建（两边都监听）
 npm run media            # 只构建前端资源（media/src → dist/media/）
 npm run typecheck        # tsc --noEmit，含 media/tsconfig.json，必须零错误
-npm run smoke             # 十九个离线冒烟测试，不需要 API Key
-npm test                 # typecheck + smoke
+npm test                 # typecheck + 全部测试（node:test），不需要 API Key
+npm run test:unit        # 只跑纯函数那档，毫秒级
+npm run test:integration # 真临时工程 + 假模型
+npm run test:dom         # jsdom 跑 dist/media 前端产物
+npm run test:e2e         # 独立版服务（需 Bun）
 ```
 
-改了 `src/core/**` 后必须跑 `npm run smoke`；改了任何 TS（含 `media/src/**`）都要过 `npm run typecheck`。手动验证 UI 时按 `F5` 启动 Extension Development Host（自动打开 `sample-novel/`）。
+改了 `src/core/**` 后必须跑 `npm test`；改了任何 TS（含 `media/src/**`）都要过 `npm run typecheck`。手动验证 UI 时按 `F5` 启动 Extension Development Host（自动打开 `sample-novel/`）。
+
+测试按类型分目录放在 [`tests/`](tests/README.md)（`unit` / `integration` / `dom` / `e2e` / `contract`），运行器是 Node 自带的 `node:test`，零新增依赖。单跑一条：`node --test --test-name-pattern="关键字" "tests/unit/**/*.test.js"`——**glob 要带引号**，`node --test <目录>` 会把目录当模块入口报错。
 
 ## 模块地图
 
@@ -35,7 +40,8 @@ npm test                 # typecheck + smoke
 | `src/vscode/` | VS Code 宿主层：extension 入口、webview 宿主、vscode-lm | [src/vscode/README.md](src/vscode/README.md) |
 | `src/standalone/` | 独立 Web 服务壳（Bun）：HTTP/WS 服务、FileHost、页面骨架 | [src/standalone/README.md](src/standalone/README.md) |
 | `media/` | 前端资源（原生 TS/CSS，无框架）。**仓库里只有源码 `media/src/` 与 `icon.svg`，构建产物在 `dist/media/`**；`standalone.css` / `editor.js` / `explorer.js` 只在独立版加载 | [media/README.md](media/README.md) |
-| `scripts/` | 离线冒烟测试（也是理解核心行为的最佳入口） | [scripts/README.md](scripts/README.md) |
+| `tests/` | 自动化测试，按类型分目录（也是理解核心行为的最佳入口） | [tests/README.md](tests/README.md) |
+| `scripts/` | 构建与诊断工具（build-media / embed-media / verify-css / diag-stream） | [scripts/README.md](scripts/README.md) |
 | `sample-novel/` | 示例工程 / 测试夹具，勿随手改正文（hash 断言会挂） | [sample-novel/README.md](sample-novel/README.md) |
 
 其他关键位置：
@@ -55,7 +61,7 @@ npm test                 # typecheck + smoke
 
 ## 必须遵守的行为约束
 
-这些是产品承诺，改动时不可破坏（对应测试在 `scripts/`）：
+这些是产品承诺，改动时不可破坏（对应测试在 [`tests/`](tests/README.md)）：
 
 1. **容错优先**：作者会手改任何 Markdown；解析失败退化为忽略，绝不抛崩。
 2. **不静默截断**：装配器降级/丢弃任何条目都必须留在明细里并附原因。
