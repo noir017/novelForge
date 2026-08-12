@@ -48,10 +48,10 @@ npm run compile
 
 ```bash
 # 方式一：源码直接跑（需要 Bun）
-bun run src/standalone/main.ts [目录]          # 默认当前目录、端口 3680、自动开浏览器
-bun run src/standalone/main.ts sample-novel --no-open --port 4000
-bun run src/standalone/main.ts sample-novel --verbose   # 终端也打调试级日志
-bun run src/standalone/main.ts init [目录]     # 终端交互式初始化
+bun run src/shells/standalone/main.ts [目录]          # 默认当前目录、端口 3680、自动开浏览器
+bun run src/shells/standalone/main.ts sample-novel --no-open --port 4000
+bun run src/shells/standalone/main.ts sample-novel --verbose   # 终端也打调试级日志
+bun run src/shells/standalone/main.ts init [目录]     # 终端交互式初始化
 
 # 方式二：编译成单文件可执行
 npm run dist                                   # 产出 dist/novelforge（当前平台）
@@ -130,7 +130,7 @@ npm run app:build    # 出安装包（Linux: AppImage / deb，Windows: NSIS）
 
 Windows 安装包必须在 Windows 上构建（sidecar 能交叉编译，Tauri 的 Rust 壳不能），
 见 [.github/workflows/app.yml](.github/workflows/app.yml)。细节与已知坑见
-[src-tauri/README.md](src-tauri/README.md)。
+[src/shells/desktop/README.md](src/shells/desktop/README.md)。
 
 ## 界面
 

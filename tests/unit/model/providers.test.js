@@ -834,7 +834,7 @@ describe('config.json 缺席时的 settings.json 兜底', () => {
     // 用**真实**的 legacySettingsReader，而不是手写桩：这条 bug 的一半就出在
     // 那个 reader 只读 0.1.x 的键、把 novel.providers 整份漏掉。
     settings = settingsJson;
-    configMod.setLegacyConfigReader(loadModule('src/vscode/migrate.ts').legacySettingsReader);
+    configMod.setLegacyConfigReader(loadModule('src/shells/vscode/migrate.ts').legacySettingsReader);
 
     cfg = configMod.readConfig();
 

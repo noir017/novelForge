@@ -37,9 +37,9 @@ npm run test:e2e         # 独立版服务（需 Bun）
 | `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/features/` | 功能编排：创作（四层产物）、批量流水线、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
 | `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
-| `src/vscode/` | VS Code 宿主层：extension 入口、webview 宿主、vscode-lm | [src/vscode/README.md](src/vscode/README.md) |
-| `src/standalone/` | 独立 Web 服务壳（Bun）：HTTP/WS 服务、FileHost、页面骨架 | [src/standalone/README.md](src/standalone/README.md) |
-| `src-tauri/` | 桌面壳（Windows / Linux）。**一层纯壳**：把独立版的单文件可执行当 sidecar 起起来，窗口导航过去。`src/` 与 `media/` 一行都不为它改 | [src-tauri/README.md](src-tauri/README.md) |
+| `src/shells/vscode/` | VS Code 宿主层：extension 入口、webview 宿主、vscode-lm | [src/shells/vscode/README.md](src/shells/vscode/README.md) |
+| `src/shells/standalone/` | 独立 Web 服务壳（Bun）：HTTP/WS 服务、FileHost、页面骨架 | [src/shells/standalone/README.md](src/shells/standalone/README.md) |
+| `src/shells/desktop/` | 桌面壳（Windows / Linux）。**一层纯壳**：把独立版的单文件可执行当 sidecar 起起来，窗口导航过去。`src/` 与 `media/` 一行都不为它改 | [src/shells/desktop/README.md](src/shells/desktop/README.md) |
 | `media/` | 前端资源（原生 TS/CSS，无框架）。**仓库里只有源码 `media/src/` 与 `icon.svg`，构建产物在 `dist/media/`**；`standalone.css` / `editor.js` / `explorer.js` 只在独立版加载 | [media/README.md](media/README.md) |
 | `tests/` | 自动化测试，按类型分目录（也是理解核心行为的最佳入口） | [tests/README.md](tests/README.md) |
 | `scripts/` | 构建与诊断工具（build-media / embed-media / build-sidecar / verify-css / diag-stream） | [scripts/README.md](scripts/README.md) |
@@ -48,7 +48,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 其他关键位置：
 
 - [package.json](package.json) —— 命令 / 菜单 / 快捷键 / 全部 `novel.*` 配置项的声明。
-- [esbuild.js](esbuild.js) —— 构建脚本，入口 `src/vscode/extension.ts` → `dist/extension.js`；同时调 [scripts/build-media.js](scripts/build-media.js) 把前端资源打进 `dist/media/`。
+- [esbuild.js](esbuild.js) —— 构建脚本，入口 `src/shells/vscode/extension.ts` → `dist/extension.js`；同时调 [scripts/build-media.js](scripts/build-media.js) 把前端资源打进 `dist/media/`。
 - `docs/design/plans/` 与 `docs/design/specs/` —— 「双形态改造」（共享核心 + VS Code 壳 + Bun 独立 Web 服务壳）的实施计划与设计文档，涉及分层调整时先读。
 
 ## 架构要点
@@ -57,7 +57,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 - **消息协议是前后端唯一契约**：[src/core/protocol.ts](src/core/protocol.ts) 的 `InMessage` / `OutMessage`。前端经 [media/src/protocol.ts](media/src/protocol.ts) 以 `import type` 直接引用同一份定义，所以**改协议后前端对不上会编译不过**（`npm run typecheck` 覆盖 `media/`），不再靠人记得同步改。
 - **一个 controller，多个宿主**：侧边栏与编辑器标签页挂同一个 `ChatController`，同一会话双开实时同步。
 - **前端无状态**：webview 靠 `ViewState` 全量推送重建，展开/折叠等 UI 状态留在前端。
-- **两形态的前端隔离**：`media/src/css/standalone/` 与 `media/src/editor/` `media/src/explorer/` 只由 [src/standalone/html.ts](src/standalone/html.ts) 加载，插件的 `webviewHtml.ts` 里没有它们。改独立版的样式/布局只动那几处，别为独立版去改 `media/src/css/view/`（会连带影响插件）；区分形态用能力探测（`#wbEditor` 存不存在），不要判断环境字符串。
+- **两形态的前端隔离**：`media/src/css/standalone/` 与 `media/src/editor/` `media/src/explorer/` 只由 [src/shells/standalone/html.ts](src/shells/standalone/html.ts) 加载，插件的 `webviewHtml.ts` 里没有它们。改独立版的样式/布局只动那几处，别为独立版去改 `media/src/css/view/`（会连带影响插件）；区分形态用能力探测（`#wbEditor` 存不存在），不要判断环境字符串。
 - **前端源码与产物分离**：仓库里的 `media/` 只有源码（`media/src/`）与 `icon.svg`；`view.js` / `view.css` 等六个产物构建到 **`dist/media/`**，和 `dist/extension.js` 同一个去处，整个 `dist/` 都不入库。加**新产物**要三处同改：`media/src/` 放源码 → [scripts/build-media.js](scripts/build-media.js) 的 entryPoints → [scripts/embed-media.js](scripts/embed-media.js) 的 `built` 数组 → `html.ts` 里引用（漏了第三步，`bun build --compile` 出的单文件会 404）。在**已有产物内部**拆模块则不必动任何配置，直接 import。
 
 ## 必须遵守的行为约束

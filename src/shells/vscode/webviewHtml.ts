@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { makeNonce } from '../core/protocol';
+import { makeNonce } from '../../core/protocol';
 
 /**
  * 两个 webview 宿主共用的 HTML。只加载本地资源，CSP 里不开任何外部来源。

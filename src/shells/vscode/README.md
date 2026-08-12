@@ -10,12 +10,12 @@
 | [vscodeHost.ts](vscodeHost.ts) | `Host` 的实现：弹窗/进度/文件监听接回原生 API。`openFile` 开在第一栏，`openBeside` 用 `ViewColumn.Beside` 让草稿与正文并排。 |
 | [chatViewProvider.ts](chatViewProvider.ts) | 侧边栏宿主（`WebviewViewProvider`，视图 id `novelForge.chat`）。实现 `ViewHost` 挂到 `ChatController`。 |
 | [chatPanel.ts](chatPanel.ts) | 编辑器宿主（`WebviewPanel` 单例）。侧边栏太窄时用 ⧉ 打开，两边是同一个会话。 |
-| [webviewHtml.ts](webviewHtml.ts) | 两个宿主共用的 HTML 外壳：tabbar + 五个页签（对话/工程/历史/日志/设置）的静态结构，CSP 只允许本地资源，加载 [../../media](../../media) 下的 view.css / view.js。 |
+| [webviewHtml.ts](webviewHtml.ts) | 两个宿主共用的 HTML 外壳：tabbar + 五个页签（对话/工程/历史/日志/设置）的静态结构，CSP 只允许本地资源，加载 [../../media](../../../media) 下的 view.css / view.js。 |
 | [vscodeLmProvider.ts](vscodeLmProvider.ts) | `LlmProvider` 的 vscode-lm 实现（复用 Copilot 订阅）。两点特殊：system 提示并入首条 user 消息；有硬性 `maxInputTokens` 配额，装配器据此收紧预算。 |
 
 ## 关键设计
 
-- **UI 全在 webview**：不用 TreeView 等原生控件，一套 HTML 同时供侧边栏与编辑器标签页使用。命令、菜单、快捷键的声明在根目录 [package.json](../../package.json)。
+- **UI 全在 webview**：不用 TreeView 等原生控件，一套 HTML 同时供侧边栏与编辑器标签页使用。命令、菜单、快捷键的声明在根目录 [package.json](../../../package.json)。
 - **激活条件**：`workspaceContains:.novelforge/project.json`（含旧目录 `.novel/`），非小说工程不激活。
 - **侧边栏折叠不丢状态**：`retainContextWhenHidden: true`，否则草稿和流式内容会丢。
 - **命令是兜底入口**：工程页上每个按钮都映射到一条 `novel.*` 命令（webview 只说「点了什么」），命令面板也能直达同一功能。

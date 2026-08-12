@@ -27,7 +27,7 @@ async function main() {
   await buildMedia({ watch });
 
   const ctx = await esbuild.context({
-    entryPoints: ['src/vscode/extension.ts'],
+    entryPoints: ['src/shells/vscode/extension.ts'],
     bundle: true,
     format: 'cjs',
     minify: production,

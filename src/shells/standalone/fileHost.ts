@@ -2,19 +2,19 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
-import { ConfigStore } from '../core/config';
+import { ConfigStore } from '../../core/config';
 import {
   FileConflictError,
   FileEditError,
   isEditablePath,
   readFileForEditor,
   writeFileFromEditor,
-} from '../core/fileEditing';
-import { Disposable, Host, InputOptions, PickChoice } from '../core/host';
-import { NON_CHAPTER_EXTENSIONS, isChapterFileName } from '../core/model/chapterFile';
-import { NovelProject } from '../core/model/project';
-import { Attachment } from '../core/model/session';
-import { EditorPane, OutMessage } from '../core/protocol';
+} from '../../core/fileEditing';
+import { Disposable, Host, InputOptions, PickChoice } from '../../core/host';
+import { NON_CHAPTER_EXTENSIONS, isChapterFileName } from '../../core/model/chapterFile';
+import { NovelProject } from '../../core/model/project';
+import { Attachment } from '../../core/model/session';
+import { EditorPane, OutMessage } from '../../core/protocol';
 import { PromptHub } from './promptHub';
 
 /**

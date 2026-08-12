@@ -53,14 +53,14 @@ function extractBody(file) {
 
 /** 插件 webview 的 body。 */
 function bodyHtml() {
-  return extractBody(path.join(ROOT, 'src/vscode/webviewHtml.ts'));
+  return extractBody(path.join(ROOT, 'src/shells/vscode/webviewHtml.ts'));
 }
 
 /** 独立版的 body（含 #wbEditor 等工作台结构）。 */
 function standaloneBodyHtml() {
   // html.ts 里有 ${LOGO_SVG} / ${escapeHtml(...)} 之类的插值，测试只关心
   // 结构与 id，把插值统统抹平即可。
-  return extractBody(path.join(ROOT, 'src/standalone/html.ts')).replace(/\$\{[^}]*\}/g, '');
+  return extractBody(path.join(ROOT, 'src/shells/standalone/html.ts')).replace(/\$\{[^}]*\}/g, '');
 }
 
 // ---------------------------------------------------------------- 挂载

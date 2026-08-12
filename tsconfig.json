@@ -17,5 +17,7 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "out", "sample-novel"]
+  // 桌面壳是 Rust，没有一行 TS；排掉它主要是为了 `target/`——Rust 一编译，
+  // 那里面几万个文件都会被 `src/**/*.ts` 的目录遍历扫一遍。
+  "exclude": ["node_modules", "dist", "out", "sample-novel", "src/shells/desktop"]
 }

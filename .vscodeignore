@@ -1,0 +1,26 @@
+# .vsix 里只需要 dist/ 的产物、package.json、README 与图标。
+#
+# 之所以现在才需要这个文件：桌面壳搬到了 src/shells/desktop/，Rust 的
+# target/ 会长到几个 G，落在 src/ 之下。没有这份清单，一次 vsce package
+# 会把它整个打进扩展包。
+#
+# 注意 dist/ 在 .gitignore 里但**不能**在这里排除——它就是扩展本体
+# （dist/extension.js 与 dist/media/ 的前端产物）。
+
+src/**
+tests/**
+scripts/**
+docs/**
+sample-novel/**
+media/src/**
+.github/**
+.vscode/**
+bin/**
+
+esbuild.js
+tsconfig.json
+package-lock.json
+AGENTS.md
+**/*.map
+**/tsconfig.json
+**/.gitignore

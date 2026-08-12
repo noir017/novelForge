@@ -15,7 +15,7 @@ const { buildMedia, MEDIA_OUT_DIR } = require('./build-media');
 
 const ROOT = path.join(__dirname, '..');
 const STATIC_DIR = path.join(ROOT, 'media');
-const OUT = path.join(ROOT, 'src', 'standalone', 'mediaAssets.ts');
+const OUT = path.join(ROOT, 'src', 'shells', 'standalone', 'mediaAssets.ts');
 
 /** 构建产物（在 dist/media/）。加新产物时这里与 build-media 的 entryPoints 同改。 */
 const built = ['view.css', 'standalone.css', 'view.js', 'bridge.js', 'editor.js', 'explorer.js'];

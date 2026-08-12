@@ -2,11 +2,11 @@ import * as vscode from 'vscode';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { readConfig } from '../core/config';
-import { Disposable, Host, InputOptions, PickChoice } from '../core/host';
-import { CancelledError } from '../core/llm/provider';
-import { NovelProject } from '../core/model/project';
-import { Attachment } from '../core/model/session';
+import { readConfig } from '../../core/config';
+import { Disposable, Host, InputOptions, PickChoice } from '../../core/host';
+import { CancelledError } from '../../core/llm/provider';
+import { NovelProject } from '../../core/model/project';
+import { Attachment } from '../../core/model/session';
 import { selectionAttachment } from './attachments';
 
 /**
@@ -17,7 +17,7 @@ export class VsCodeHost implements Host {
   readonly name = 'vscode' as const;
   readonly supportsVscodeLm = true;
 
-  constructor(public readonly config: import('../core/config').ConfigStore) {}
+  constructor(public readonly config: import('../../core/config').ConfigStore) {}
 
   async input(opts: InputOptions): Promise<string | undefined> {
     return vscode.window.showInputBox({

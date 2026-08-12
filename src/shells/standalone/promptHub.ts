@@ -1,4 +1,4 @@
-import { OutMessage } from '../core/protocol';
+import { OutMessage } from '../../core/protocol';
 
 type PromptRequest = Extract<OutMessage, { type: 'prompt' }>;
 

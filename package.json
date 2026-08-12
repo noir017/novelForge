@@ -535,12 +535,12 @@
     "presmoke": "node scripts/embed-media.js",
     "smoke": "npm run test:node",
     "test": "npm run typecheck && npm run test:node && npm run test:e2e",
-    "standalone": "node scripts/embed-media.js && bun run src/standalone/main.ts",
-    "dist": "node scripts/embed-media.js && bun build src/standalone/main.ts --compile --outfile dist/novelforge",
+    "standalone": "node scripts/embed-media.js && bun run src/shells/standalone/main.ts",
+    "dist": "node scripts/embed-media.js && bun build src/shells/standalone/main.ts --compile --outfile dist/novelforge",
     "sidecar": "node scripts/build-sidecar.js",
     "sidecar:all": "node scripts/build-sidecar.js all",
-    "app:dev": "tauri dev",
-    "app:build": "tauri build"
+    "app:dev": "cd src/shells/desktop && tauri dev",
+    "app:build": "cd src/shells/desktop && tauri build"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",

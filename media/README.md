@@ -1,6 +1,6 @@
 # media — 前端资源
 
-面板的全部前端代码，两个形态共用。插件形态由 [../src/vscode/webviewHtml.ts](../src/vscode/webviewHtml.ts) 生成 HTML 加载（侧边栏 / 编辑器标签页），独立形态由 [../src/standalone/html.ts](../src/standalone/html.ts) 加载。
+面板的全部前端代码，两个形态共用。插件形态由 [../src/shells/vscode/webviewHtml.ts](../src/shells/vscode/webviewHtml.ts) 生成 HTML 加载（侧边栏 / 编辑器标签页），独立形态由 [../src/shells/standalone/html.ts](../src/shells/standalone/html.ts) 加载。
 
 ## 仓库里只有源码，产物在 `dist/media/`
 
@@ -63,8 +63,8 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 - **创作页只推荐一个动作，其余走 `/`**（`view/pipeline.ts` + `view/commands.ts`）：主按钮来自后端状态机算出的 `next`，**点了就跑**，输入框可留空——「生成细纲」本来就不需要作者再说什么。其余六个命令收在 `/` 面板里（输入框**为空**时按 `/` 才唤出：`/` 在中文正文里是普通字符，任何位置都拦会误伤），挑中变成一枚待执行 chip，用完即清。命令表来自 core 的 `commandsFor`（零 import 的纯函数，前端直接打包），**前端不自己维护一份**——否则界面上会出现后端不认的命令，点了什么都不发生。
 - **工作区卡钉在消息流里**（`view/workbench.ts`）：`position: sticky` 而不是独立一块——侧边栏分不出两栏，做成常驻会把消息流压扁。代价是 `renderSession` 清空 `#messages` 后必须把卡片节点**放回去**（与 `emptyHint` 同一套路：节点常驻、引用不变，只是重新挂载）。
 - **右键菜单靠 WeakMap 登记**：构建某一行时用 `onContextMenu(row, () => items)` 把「这行右键给什么」记在元素上（那一刻上下文最全，不用右键时反查最近那棵树；行被重渲染丢弃后自动回收）。全局 `contextmenu` 监听从 `e.target` 向上找第一个登记过的祖先，找不到就用兜底的「刷新」。**刷新复用已有的 `projectAction: 'refresh'`**——后端那个分支只是 `pushState()`，会按当前页签推数据，天然适用于所有页面，无需新增协议。
-- **右键一律接管**：全局监听里无条件 `preventDefault()`，输入框 / 文本域 / 内置编辑器里也一样，所以**原生的复制/粘贴/剪切菜单不会出现**。这是有意的取舍（菜单风格统一），代价是这几处的编辑项要自己实现（编辑器正文区与文件页已经做了，见 `editor/clipboard.ts` 与 `explorer/rows.ts`；输入框里目前只有「刷新」）。插件形态另需 [../src/vscode/webviewHtml.ts](../src/vscode/webviewHtml.ts) 的 `<body data-vscode-context='{"preventDefaultContextMenuItems": true}'>`：VS Code 给 webview 右键菜单加的复制/粘贴项由宿主渲染，JS 的 `preventDefault` 压不住，不加会同时冒出两层菜单。
-- **DOM 结构两处同源**：工程页工具栏等结构在 [../src/vscode/webviewHtml.ts](../src/vscode/webviewHtml.ts) 与 [../src/standalone/html.ts](../src/standalone/html.ts) 各有一份，加按钮要同时改两处。草稿那块编辑区是例外——它的 DOM 由 `editor/paneElements.ts` 的 `createPaneElements()` 克隆主区结构现造，`html.ts` 里只有容器 `#wbEditors` 与分隔条 `#wbDraftResizer`，免得同一套四十行结构要在两个地方对齐。
+- **右键一律接管**：全局监听里无条件 `preventDefault()`，输入框 / 文本域 / 内置编辑器里也一样，所以**原生的复制/粘贴/剪切菜单不会出现**。这是有意的取舍（菜单风格统一），代价是这几处的编辑项要自己实现（编辑器正文区与文件页已经做了，见 `editor/clipboard.ts` 与 `explorer/rows.ts`；输入框里目前只有「刷新」）。插件形态另需 [../src/shells/vscode/webviewHtml.ts](../src/shells/vscode/webviewHtml.ts) 的 `<body data-vscode-context='{"preventDefaultContextMenuItems": true}'>`：VS Code 给 webview 右键菜单加的复制/粘贴项由宿主渲染，JS 的 `preventDefault` 压不住，不加会同时冒出两层菜单。
+- **DOM 结构两处同源**：工程页工具栏等结构在 [../src/shells/vscode/webviewHtml.ts](../src/shells/vscode/webviewHtml.ts) 与 [../src/shells/standalone/html.ts](../src/shells/standalone/html.ts) 各有一份，加按钮要同时改两处。草稿那块编辑区是例外——它的 DOM 由 `editor/paneElements.ts` 的 `createPaneElements()` 克隆主区结构现造，`html.ts` 里只有容器 `#wbEditors` 与分隔条 `#wbDraftResizer`，免得同一套四十行结构要在两个地方对齐。
 - **CSP**：webview 的 CSP 只允许本地资源与 nonce 脚本，不引任何 CDN / 外部脚本。独立版同样不引外部资源。
 - **两形态隔离**：`standalone.css` 与 `editor.js` / `explorer.js` **只**由独立版加载，插件的 `webviewHtml.ts` 里没有它们，也没有 `#wbEditor` / `#filesBody` 容器。给独立版加样式请只改 `src/css/standalone/`（必要时用 `.workbench` 前缀覆盖 view 的规则），不要为独立版去动 `src/css/view/`。
 - **能力探测而非环境判断**：`view/store.ts` 里用 `document.getElementById('wbEditor')` 判断有没有内置编辑器，据此决定「打开文件」发 `openEditor` 还是 `openFile`；`editor/index.ts` 与 `explorer/index.ts` 各自开头探测自己那块容器（`#wbEditor` / `#filesBody`），不在就直接 return（连 `acquireVsCodeApi()` 都不调——webview 里那个函数只允许调一次）。插件里没有这些容器，行为不变。

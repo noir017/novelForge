@@ -1,7 +1,7 @@
-# src-tauri — 桌面壳（Windows / Linux）
+# desktop — 桌面壳（Windows / Linux）
 
-第三个壳。前两个是 VS Code 插件（[src/vscode](../src/vscode/README.md)）与独立 Web 服务
-（[src/standalone](../src/standalone/README.md)），这一个把**独立 Web 服务原封不动地装进一个桌面窗口**。
+第三个壳。前两个是 VS Code 插件（[vscode](../vscode/README.md)）与独立 Web 服务
+（[standalone](../standalone/README.md)），这一个把**独立 Web 服务原封不动地装进一个桌面窗口**。
 
 ## 它是一层纯壳
 
@@ -17,7 +17,7 @@
 但架构上它还在那儿——这也是 web 模式一行不改就能继续跑的原因。
 
 这层壳之所以能这么薄，是因为独立版早就把需要的东西给齐了：`--no-open` 已有、
-端口占用会自愈、[server.ts](../src/standalone/server.ts) 已经往 stdout 打了带端口的 URL、
+端口占用会自愈、[server.ts](../standalone/server.ts) 已经往 stdout 打了带端口的 URL、
 `isAllowedOrigin` 天然放行 `http://127.0.0.1:PORT` 的 webview。
 
 ## 文件
@@ -28,9 +28,9 @@
 | [src/sidecar.rs](src/sidecar.rs) | sidecar 生命周期：预挑端口、spawn、等就绪、日志落盘、kill |
 | [src/project.rs](src/project.rs) | 工程目录的记忆（`<app_config_dir>/shell.json`）与文件夹选择器 |
 | [ui/splash.html](ui/splash.html) + [ui/splash.js](ui/splash.js) | 启动页：启动中 / 选工程 / 失败三态 |
-| [icons/source.svg](icons/source.svg) | app 图标源文件，改了重跑 `npx tauri icon src-tauri/icons/source.svg` |
+| [icons/source.svg](icons/source.svg) | app 图标源文件，改了重跑 `npx tauri icon icons/source.svg` |
 
-sidecar 由 [scripts/build-sidecar.js](../scripts/build-sidecar.js) 产出到 `binaries/`（不入库），
+sidecar 由 [scripts/build-sidecar.js](../../../scripts/build-sidecar.js) 产出到 `binaries/`（不入库），
 由 `tauri.conf.json` 的 `beforeDevCommand` / `beforeBuildCommand` 自动触发。
 
 ## 用法
@@ -47,11 +47,11 @@ npm run sidecar:all  # 连 Windows 的一起编（Bun 交叉编译）
 
 ## 三条不能改的约定
 
-1. **传给 sidecar 的工程路径必须是绝对路径。** [cli.ts](../src/standalone/cli.ts) 会
+1. **传给 sidecar 的工程路径必须是绝对路径。** [cli.ts](../standalone/cli.ts) 会
    `path.resolve(root)`，而 sidecar 的 cwd 由系统决定、不可控。
 
 2. **退出时必须 kill sidecar。** Windows 上的孤儿进程会占着端口，还会占着
-   `.novelforge/novelforge.db`（[db.ts](../src/core/db.ts) 里记过这个 EBUSY 坑）。
+   `.novelforge/novelforge.db`（[db.ts](../../core/db.ts) 里记过这个 EBUSY 坑）。
 
 3. **绝不开 `dangerousRemoteDomainIpcAccess`。** 导航到 `http://127.0.0.1:PORT` 之后
    页面属于远程内容，[capabilities/default.json](capabilities/default.json) 刻意没有
@@ -63,7 +63,7 @@ npm run sidecar:all  # 连 Windows 的一起编（Bun 交叉编译）
 - **WSL2 里跑 `npm run app:dev`**：WSLg 能显示窗口，但 WebKitGTK 常需要
   `WEBKIT_DISABLE_COMPOSITING_MODE=1 npm run app:dev`。
 - **Windows 安装包不能在 Linux 上编**。sidecar 可以（Bun 交叉编译），Rust 壳不行——
-  用 [.github/workflows/app.yml](../.github/workflows/app.yml) 的 windows runner，或在
+  用 [.github/workflows/app.yml](../../../.github/workflows/app.yml) 的 windows runner，或在
   Windows 上原生构建。
 - **Bun 的 `--windows-*` 开关只在 Windows 上编译时接受**，交叉编译会直接报错。
   build-sidecar.js 因此只在原生构建时加它们；少了也无妨，Tauri spawn sidecar 时本来

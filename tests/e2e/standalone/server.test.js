@@ -7,7 +7,7 @@
  * **只在 Bun 下跑**：`bun test tests/e2e/`。ESM、直接 import TypeScript、
  * `import.meta.dir`、全局 WebSocket/fetch、`Bun.serve` —— 一样都不迁就 Node。
  * `bun test` 实现了 node:test 的接口，所以写法与其余测试一致。
- * 跑之前需要 `node scripts/embed-media.js`（生成 src/standalone/mediaAssets.ts
+ * 跑之前需要 `node scripts/embed-media.js`（生成 src/shells/standalone/mediaAssets.ts
  * 与 dist/media/，都已 gitignore），否则 html.ts 的 import 直接炸。
  *
  * 不另起子进程：避免 Windows 上子进程杀不干净留下占用端口的孤儿。
@@ -22,7 +22,7 @@
  *
  * ## 已知限制：两个服务关不掉
  *
- * `startServer()` 只返回端口号（src/standalone/server.ts:30,146），拿不到
+ * `startServer()` 只返回端口号（src/shells/standalone/server.ts:30,146），拿不到
  * `Bun.serve` 句柄，所以 after() 只能关 WebSocket，HTTP 服务会挂到进程退出为止。
  * 原脚本靠 process.exit 收尾。真要修得改 startServer 的返回值，超出本次范围。
  *
@@ -37,7 +37,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { startServer } from '../../../src/standalone/server';
+import { startServer } from '../../../src/shells/standalone/server';
 import { connect } from '../../helpers/ws.js';
 
 const PORT = 3999;
