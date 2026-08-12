@@ -111,6 +111,27 @@ npm i -g novel-forge && novelforge [目录]
 
 断线时页面顶部出现红色重连条，恢复后自动重放全量状态。
 
+## 桌面 App（Windows / Linux）
+
+不想开终端、不想面对浏览器地址栏的话，还有一个桌面壳：双击图标就是一个普通桌面应用，
+首次启动选一个工程目录，之后直接进上次的工程。
+
+```bash
+npm run app:dev      # 开发运行（需要 Rust 工具链）
+npm run app:build    # 出安装包（Linux: AppImage / deb，Windows: NSIS）
+```
+
+它是**一层纯壳**：里面装的就是上面那个独立 Web 版的单文件可执行，壳负责把它悄悄起起来、
+把窗口导航过去、退出时收掉。所以界面、功能、数据落点与独立 Web 版**完全一致**——
+文件仍是工作区里的普通 Markdown，仍然可以用你自己的编辑器改、用 Git 管。
+
+换工程用菜单「文件 → 打开其他工程」。服务起不来时窗口上会给出原因和「查看日志」
+（壳看到的进程输出在 `<应用日志目录>/sidecar.log`，与网页里那个「日志」页不是一回事）。
+
+Windows 安装包必须在 Windows 上构建（sidecar 能交叉编译，Tauri 的 Rust 壳不能），
+见 [.github/workflows/app.yml](.github/workflows/app.yml)。细节与已知坑见
+[src-tauri/README.md](src-tauri/README.md)。
+
 ## 界面
 
 活动栏里只有一个侧边栏视图，全部内容都在这个 webview 里，顶部 tabbar 切五页：

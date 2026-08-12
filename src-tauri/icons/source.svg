@@ -1,0 +1,20 @@
+<!--
+  桌面 app 图标的源文件，`tauri icon` 从它生成 icons/ 下的全部尺寸与格式。
+  改了图标就重跑：npx tauri icon src-tauri/icons/source.svg
+
+  与 media/icon.svg 是同一个书本符号，但**不能直接拿那个文件当 app 图标**：
+  那是给 VS Code 活动栏用的单色线稿（stroke="currentColor"，靠继承色），
+  单独渲染出来既没有颜色、又只有几根细线，在任务栏和桌面上几乎看不见。
+  所以这里补上品牌蓝的圆角底板，线稿改成白色。
+  （src/standalone/server.ts 处理 favicon 时踩过同一个坑，那边的解法是把
+  currentColor 换成品牌蓝。）
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <rect width="1024" height="1024" rx="228" fill="#0078d4"/>
+  <g transform="translate(220 232) scale(23.33)"
+     fill="none" stroke="#ffffff" stroke-width="1.6"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H19v18H6.5A2.5 2.5 0 0 0 4 22z"/>
+    <path d="M8 6.5h7M8 10h7M8 13.5h4"/>
+  </g>
+</svg>

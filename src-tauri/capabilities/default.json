@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "只给本地 splash 启动页最基本的权限：invoke 自定义命令 + 监听事件。刻意不含 shell/dialog/fs 权限（那些事在 Rust 侧做），也刻意没有 remote 段——导航到 http://127.0.0.1:PORT 之后那个页面拿不到任何 IPC 权限。详见 README.md。",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

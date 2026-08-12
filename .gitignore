@@ -21,3 +21,8 @@ local/
 
 # git worktree 隔离目录（见 .worktrees/）
 .worktrees/
+
+# 桌面壳的构建产物：sidecar 可执行文件（由 scripts/build-sidecar.js 生成，
+# 与 dist/novelforge 同源）与 Rust 编译中间产物。壳的源码本身是入库的。
+src-tauri/binaries/
+src-tauri/target/

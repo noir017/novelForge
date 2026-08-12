@@ -39,9 +39,10 @@ npm run test:e2e         # 独立版服务（需 Bun）
 | `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
 | `src/vscode/` | VS Code 宿主层：extension 入口、webview 宿主、vscode-lm | [src/vscode/README.md](src/vscode/README.md) |
 | `src/standalone/` | 独立 Web 服务壳（Bun）：HTTP/WS 服务、FileHost、页面骨架 | [src/standalone/README.md](src/standalone/README.md) |
+| `src-tauri/` | 桌面壳（Windows / Linux）。**一层纯壳**：把独立版的单文件可执行当 sidecar 起起来，窗口导航过去。`src/` 与 `media/` 一行都不为它改 | [src-tauri/README.md](src-tauri/README.md) |
 | `media/` | 前端资源（原生 TS/CSS，无框架）。**仓库里只有源码 `media/src/` 与 `icon.svg`，构建产物在 `dist/media/`**；`standalone.css` / `editor.js` / `explorer.js` 只在独立版加载 | [media/README.md](media/README.md) |
 | `tests/` | 自动化测试，按类型分目录（也是理解核心行为的最佳入口） | [tests/README.md](tests/README.md) |
-| `scripts/` | 构建与诊断工具（build-media / embed-media / verify-css / diag-stream） | [scripts/README.md](scripts/README.md) |
+| `scripts/` | 构建与诊断工具（build-media / embed-media / build-sidecar / verify-css / diag-stream） | [scripts/README.md](scripts/README.md) |
 | `sample-novel/` | 示例工程 / 测试夹具，勿随手改正文（hash 断言会挂） | [sample-novel/README.md](sample-novel/README.md) |
 
 其他关键位置：

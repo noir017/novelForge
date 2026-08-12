@@ -294,17 +294,23 @@
           "properties": {
             "fast": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "快速档：便宜、快，用于量大而单次简单的活。"
             },
             "balanced": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "均衡档：折中，用于量不小但质量也要紧的活。"
             },
             "quality": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "精标档：最聪明的模型，用于一次定调、错了代价大的活。"
             }
           },
@@ -316,14 +322,78 @@
           "type": "object",
           "default": {},
           "properties": {
-            "chapterSummary": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "单章摘要。默认 fast。" },
-            "globalSummaryStage": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "全书摘要 · 分批汇总。默认 fast。" },
-            "globalSummaryMerge": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "全书摘要 · 最终合并。默认 quality。" },
-            "loreScan": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "设定 · 逐章识别。默认 fast。" },
-            "loreSynthesis": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "设定 · 条目整合。默认 balanced。" },
-            "characterCard": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "角色卡 · 更新 / 建卡。默认 balanced。" },
-            "extractCharacters": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "提取角色。默认 quality。" },
-            "extractStyle": { "type": "string", "enum": ["fast", "balanced", "quality"], "description": "提取文风。默认 quality。" }
+            "chapterSummary": {
+              "type": "string",
+              "enum": [
+                "fast",
+                "balanced",
+                "quality"
+              ],
+              "description": "单章摘要。默认 fast。"
+            },
+            "globalSummaryStage": {
+              "type": "string",
+              "enum": [
+                "fast",
+                "balanced",
+                "quality"
+              ],
+              "description": "全书摘要 · 分批汇总。默认 fast。"
+            },
+            "globalSummaryMerge": {
+              "type": "string",
+              "enum": [
+                "fast",
+                "balanced",
+                "quality"
+              ],
+              "description": "全书摘要 · 最终合并。默认 quality。"
+            },
+            "loreScan": {
+              "type": "string",
+              "enum": [
+                "fast",
+                "balanced",
+                "quality"
+              ],
+              "description": "设定 · 逐章识别。默认 fast。"
+            },
+            "loreSynthesis": {
+              "type": "string",
+              "enum": [
+                "fast",
+                "balanced",
+                "quality"
+              ],
+              "description": "设定 · 条目整合。默认 balanced。"
+            },
+            "characterCard": {
+              "type": "string",
+              "enum": [
+                "fast",
+                "balanced",
+                "quality"
+              ],
+              "description": "角色卡 · 更新 / 建卡。默认 balanced。"
+            },
+            "extractCharacters": {
+              "type": "string",
+              "enum": [
+                "fast",
+                "balanced",
+                "quality"
+              ],
+              "description": "提取角色。默认 quality。"
+            },
+            "extractStyle": {
+              "type": "string",
+              "enum": [
+                "fast",
+                "balanced",
+                "quality"
+              ],
+              "description": "提取文风。默认 quality。"
+            }
           },
           "additionalProperties": false,
           "markdownDescription": "每项工程页任务归在哪一档（见 `novel.tierModels`）。只需写与内置默认不同的项——没写的任务跟着内置默认走。内置默认按「调用次数 × 单次难度」定：次数多而单次简单的归 fast，一次定调的归 quality。认不出的任务名与非法档位名一律忽略，那一项回落默认。",
@@ -466,9 +536,14 @@
     "smoke": "npm run test:node",
     "test": "npm run typecheck && npm run test:node && npm run test:e2e",
     "standalone": "node scripts/embed-media.js && bun run src/standalone/main.ts",
-    "dist": "node scripts/embed-media.js && bun build src/standalone/main.ts --compile --outfile dist/novelforge"
+    "dist": "node scripts/embed-media.js && bun build src/standalone/main.ts --compile --outfile dist/novelforge",
+    "sidecar": "node scripts/build-sidecar.js",
+    "sidecar:all": "node scripts/build-sidecar.js all",
+    "app:dev": "tauri dev",
+    "app:build": "tauri build"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.90.0",
     "esbuild": "^0.23.0",
