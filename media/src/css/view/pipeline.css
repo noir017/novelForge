@@ -17,7 +17,7 @@
   gap: 5px;
 }
 
-/* ---------------------------------------------------------------- 面包屑 */
+/* ---------------------------------------------------------------- 章名信息条（只读） */
 
 .pipeline-crumb {
   display: flex;
@@ -28,28 +28,14 @@
 }
 
 .crumb {
-  background: none;
-  border: none;
   padding: 1px 3px;
-  border-radius: 3px;
-  color: var(--vscode-descriptionForeground);
-  cursor: pointer;
+  color: var(--vscode-foreground);
+  font-weight: 600;
   font-size: inherit;
-  font-family: inherit;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-button.crumb:hover {
-  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
-  color: var(--vscode-foreground);
-}
-
-.crumb.active {
-  color: var(--vscode-foreground);
-  font-weight: 600;
 }
 
 .crumb-sep {
@@ -57,7 +43,7 @@ button.crumb:hover {
   opacity: 0.6;
 }
 
-/* ---------------------------------------------------------------- 四段进度 */
+/* ---------------------------------------------------------------- 三层状态 */
 
 .pipeline-stages {
   display: flex;
@@ -69,7 +55,7 @@ button.crumb:hover {
 .pstage {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   background: none;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -93,26 +79,47 @@ button.crumb:hover {
   color: var(--vscode-charts-green, #89d185);
 }
 
+.pstage.partial .pstage-label {
+  color: var(--vscode-foreground);
+}
+
 .pstage-label {
   white-space: nowrap;
 }
 
-/* 进度条本身很细：它是个状态提示，不是这一屏的主角。 */
-.pstage-bar {
-  display: inline-block;
-  width: 34px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--vscode-progressBar-background, rgba(128, 128, 128, 0.3));
-  opacity: 0.4;
-  overflow: hidden;
+/*
+ * 三态圆点：空心 = 未开始，点心 = 进行中，实心 = 已完成。
+ * 这里是状态机节点，不是百分比进度条。
+ * 类名用 todo 而不是 empty——后者被 messages.css 占用（大 padding）。
+ */
+.pstage-mark {
+  display: block;
+  width: 7px;
+  height: 7px;
+  min-width: 7px;
+  min-height: 7px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  box-sizing: border-box;
+  flex: 0 0 7px;
+  border: 1.5px solid currentColor;
+  background: transparent;
+  opacity: 0.55;
+  line-height: 0;
+  font-size: 0;
 }
 
-.pstage-fill {
-  display: block;
-  height: 100%;
-  background: var(--vscode-progressBar-background, #0e70c0);
+.pstage-mark.partial {
   opacity: 1;
+  border-color: transparent;
+  background: var(--vscode-charts-blue, #3794ff);
+}
+
+.pstage-mark.done {
+  opacity: 1;
+  border-color: transparent;
+  background: var(--vscode-charts-green, #89d185);
 }
 
 /* 上游变过。用暖色而不是红色——这不是错误，是「回头看一眼」。 */

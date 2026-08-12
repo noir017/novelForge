@@ -3,7 +3,7 @@
  *
  * 界面要回答三个问题，这里管前两个（第三个是工作区卡，见 workbench.ts）：
  *
- * - **我现在在哪一层？** —— 面包屑 + 状态徽章 + 四段进度
+ * - **我现在在哪一层？** —— 章名信息条 + 状态徽章 + 三层状态点
  * - **我接下来该干什么？** —— 下一步条（一个主按钮 + 一个 `/ 命令`）
  *
  * ## 为什么是一个按钮而不是七个
@@ -65,7 +65,7 @@ export function renderPipeline(pipeline: ChapterPipelineView | undefined, step: 
  * 会话变了（切目标、开历史会话）时重画。
  *
  * 目标换到另一章时手上这份 pipeline 就过期了——先丢掉再等后端推新的，
- * **不要留着显示**：拿上一章的进度条配这一章的面包屑，比什么都不显示更糟。
+ * **不要留着显示**：拿上一章的状态配这一章的章名，比什么都不显示更糟。
  */
 export function onSessionChanged(): void {
   if (current && current.chapterRelPath !== chapterOfTarget(store.session.target)) {
@@ -83,8 +83,14 @@ function redraw(): void {
   updatePlaceholder();
 }
 
-// ---------------------------------------------------------------- 面包屑
+// ---------------------------------------------------------------- 章名信息条（只读）
 
+/**
+ * 顶部只报「在哪一章 / 哪一场」，不负责导航。
+ *
+ * 切层靠下面的细纲/细节/正文按钮；切章靠工程页。这里做成可点只会多一个
+ * 几乎没人用的入口，还让人以为点了会有什么深层动作。
+ */
 function renderCrumb(): void {
   const box = crumb();
   if (!box) {
@@ -92,29 +98,27 @@ function renderCrumb(): void {
   }
   clear(box);
   const target = store.session.target;
-
-  box.appendChild(crumbItem('全书大纲', target.kind === 'outline', () => go({ kind: 'outline' })));
-
   const relPath = chapterOfTarget(target);
+
+  // 大纲阶段没有章可报，整条收起。
+  setHidden(box, !relPath);
   if (!relPath) {
     return;
   }
+
   const title = current?.title
     ? `第 ${current.order} 章《${current.title}》`
     : relPath.slice(relPath.lastIndexOf('/') + 1);
-  box.appendChild(mk('span', 'crumb-sep', '›'));
-  box.appendChild(
-    crumbItem(title, target.kind !== 'scene', () => go({ kind: 'manuscript', chapterRelPath: relPath }))
-  );
+  box.appendChild(mk('span', 'crumb', title));
 
   if (target.kind === 'scene') {
     const scene = current?.scenes.find((s) => s.no === target.sceneNo);
     box.appendChild(mk('span', 'crumb-sep', '›'));
-    box.appendChild(crumbItem(scene ? `场景 ${scene.no} ${scene.title}` : `场景 ${target.sceneNo}`, true));
+    box.appendChild(mk('span', 'crumb', scene ? `场景 ${scene.no} ${scene.title}` : `场景 ${target.sceneNo}`));
   }
 
   // 章节状态徽章，与工程页那一列同一份文案（CHAPTER_STAGE_LABEL）。
-  // 它是「这一章整体走到哪了」，与下面四段的「每一层各自多少」不重复。
+  // 它是「这一章整体走到哪了」，与下面三层各自的状态点不重复。
   if (current) {
     box.appendChild(mk('span', 'spacer'));
     const badge = mk('span', `cstage cstage-${current.stage}`, CHAPTER_STAGE_LABEL[current.stage]);
@@ -123,18 +127,13 @@ function renderCrumb(): void {
   }
 }
 
-function crumbItem(text: string, active: boolean, onClick?: () => void): HTMLElement {
-  const node = mk(onClick ? 'button' : 'span', `crumb${active ? ' active' : ''}`, text);
-  if (onClick) {
-    node.addEventListener('click', onClick);
-  }
-  return node;
-}
-
-// ---------------------------------------------------------------- 四段进度
+// ---------------------------------------------------------------- 三层状态
 
 /**
- * 四段进度条。每段是一个可点的按钮，点了就切到那一层。
+ * 细纲 / 细节 / 正文。每层一个可点的按钮，点了就切到那一层。
+ *
+ * 完成度落成三态圆点（未开始 / 进行中 / 已完成），不用百分比条——这里
+ * 表达的是状态机走到哪，不是「完成了百分之几」。
  *
  * 「上游变过」的标记（⟳）是这套流水线最有价值的一格信息：改了大纲之后，
  * 哪几章的细纲需要回头看，光靠人脑记不住。它由 hash 链算出来，零模型调用。
@@ -147,7 +146,7 @@ function renderStages(): void {
   clear(box);
 
   const relPath = chapterOfTarget(store.session.target);
-  // 全书大纲阶段没有「这一章的四段」可言，整条收起来。
+  // 全书大纲阶段没有「这一章的三层」可言，整条收起来。
   setHidden(box, !relPath);
   if (!relPath) {
     return;
@@ -165,18 +164,17 @@ function renderStages(): void {
       continue;
     }
     const ratio = progress[stage === 'manuscript' ? 'manuscript' : stage];
+    const status = stageStatus(ratio);
     const btn = mk('button', 'pstage');
     btn.classList.toggle('active', store.session.stage === stage);
-    btn.classList.toggle('done', ratio >= 1);
-    btn.title = `${STAGE_LABEL[stage]}：${STAGE_QUESTION[stage]}`;
+    btn.classList.toggle('done', status === 'done');
+    btn.classList.toggle('partial', status === 'partial');
+    btn.title = `${STAGE_LABEL[stage]}：${STAGE_STATUS_LABEL[status]} · ${STAGE_QUESTION[stage]}`;
 
-    const bar = mk('span', 'pstage-bar');
-    const fill = mk('span', 'pstage-fill');
-    fill.style.width = `${Math.round(Math.max(0, Math.min(1, ratio)) * 100)}%`;
-    bar.appendChild(fill);
-
+    const mark = mk('span', `pstage-mark ${status}`);
+    mark.setAttribute('aria-hidden', 'true');
+    btn.appendChild(mark);
     btn.appendChild(mk('span', 'pstage-label', STAGE_LABEL[stage]));
-    btn.appendChild(bar);
     if (stale[stage]) {
       const dot = mk('span', 'pstage-stale', '⟳');
       dot.title = '上游产物改过，这一层可能需要回头看';
@@ -192,6 +190,27 @@ function renderStages(): void {
     box.appendChild(s);
   }
 }
+
+/**
+ * 把 0..1 的比例收成界面要的三态——不把连续比例画成百分比。
+ *
+ * 类名刻意不用 `empty`：消息流的 `.empty` 带大 padding，撞上会把圆点撑成椭圆。
+ */
+function stageStatus(ratio: number): 'todo' | 'partial' | 'done' {
+  if (ratio >= 1) {
+    return 'done';
+  }
+  if (ratio > 0) {
+    return 'partial';
+  }
+  return 'todo';
+}
+
+const STAGE_STATUS_LABEL = {
+  todo: '未开始',
+  partial: '进行中',
+  done: '已完成',
+} as const;
 
 // ---------------------------------------------------------------- 场景列表
 

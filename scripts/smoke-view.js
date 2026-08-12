@@ -399,10 +399,10 @@ console.log('\n== 创作流水线条与下一步 ==');
 
   // ---- 大纲阶段 ----
   ui.post({ type: 'session', session: emptySession() });
-  check('大纲阶段面包屑只有一级', crumbs().length === 1 && crumbs()[0] === '全书大纲', crumbs().join('|'));
-  check('大纲阶段收起四段进度', ui.doc.getElementById('pipelineStages').classList.contains('hidden'));
+  check('大纲阶段收起章名信息条', ui.doc.getElementById('pipelineCrumb').classList.contains('hidden'));
+  check('大纲阶段收起三层状态', ui.doc.getElementById('pipelineStages').classList.contains('hidden'));
 
-  // 全书大纲阶段没有「这一章的四段」，但一样有下一步（去写大纲）。
+  // 全书大纲阶段没有「这一章的三层」，但一样有下一步（去写大纲）。
   ui.post({
     type: 'pipeline',
     workbench: workbenchView({ stage: 'outline', title: '全书大纲', sections: [], empty: '这部书还没有大纲。' }),
@@ -438,17 +438,25 @@ console.log('\n== 创作流水线条与下一步 ==');
     },
   });
 
-  check('面包屑补出章节这一级', crumbs().length === 2 && crumbs()[1].includes('夜入青云'), crumbs().join('|'));
-  check('展开三段进度（细纲/场景/正文）', stages().length === 3, String(stages().length));
+  check('信息条只显示章名', crumbs().length === 1 && crumbs()[0].includes('夜入青云'), crumbs().join('|'));
+  check('信息条不是按钮', [...ui.doc.querySelectorAll('#pipelineCrumb .crumb')].every((n) => n.tagName === 'SPAN'));
+  check('展开三层状态（细纲/场景/正文）', stages().length === 3, String(stages().length));
   // 章节状态徽章：与工程页那一列同一份文案。
   const badge = ui.doc.querySelector('#pipelineCrumb .cstage');
-  check('面包屑带章节状态徽章', badge && badge.textContent === '待写正文', badge?.textContent);
+  check('信息条带章节状态徽章', badge && badge.textContent === '待写正文', badge?.textContent);
+
+  // 三态圆点：细纲完成、场景/正文进行中——不是百分比条。
+  const planStage = stages().find((n) => n.textContent.includes('细纲'));
+  const sceneStage = stages().find((n) => n.textContent.includes('细节'));
+  const manuscriptStage = stages().find((n) => n.textContent.includes('正文'));
+  check('细纲标成已完成', !!planStage.querySelector('.pstage-mark.done'));
+  check('场景标成进行中', !!sceneStage.querySelector('.pstage-mark.partial'));
+  check('正文标成进行中', !!manuscriptStage.querySelector('.pstage-mark.partial'));
+  check('不再画百分比条', !ui.doc.querySelector('.pstage-bar'));
 
   // 上游变过的那一段挂 ⟳。这是整条流水线最有价值的一格信息。
-  const manuscriptStage = stages().find((n) => n.textContent.includes('正文'));
   check('正文段标出上游已变更', !!manuscriptStage.querySelector('.pstage-stale'));
-  check('细纲段没有变更标记',
-    !stages().find((n) => n.textContent.includes('细纲')).querySelector('.pstage-stale'));
+  check('细纲段没有变更标记', !planStage.querySelector('.pstage-stale'));
 
   // 正文阶段展开场景列表：写哪一场是这一层的核心选择。
   check('正文阶段列出场景', scenes().length === 2, String(scenes().length));
@@ -465,7 +473,12 @@ console.log('\n== 创作流水线条与下一步 ==');
     JSON.stringify(sentStep.payload));
   ui.post({ type: 'busy', value: false });
 
-  // ---- 点击切目标 ----
+  // ---- 点击切目标（信息条本身不可点，靠下面的层按钮切）----
+  const beforeCrumbClick = ui.sent.filter((m) => m.type === 'setTarget').length;
+  clickEl(ui.doc.querySelector('#pipelineCrumb .crumb'));
+  check('点信息条不发 setTarget',
+    ui.sent.filter((m) => m.type === 'setTarget').length === beforeCrumbClick);
+
   clickEl(stages().find((n) => n.textContent.includes('细纲')));
   check('点细纲段发出 setTarget', lastSetTarget()?.target.kind === 'plan',
     JSON.stringify(lastSetTarget()));
@@ -474,9 +487,6 @@ console.log('\n== 创作流水线条与下一步 ==');
 
   clickEl(scenes()[1]);
   check('点场景带上场号', lastSetTarget()?.target.sceneNo === 2, JSON.stringify(lastSetTarget()));
-
-  clickEl(ui.doc.querySelectorAll('#pipelineCrumb .crumb')[0]);
-  check('点面包屑第一级回到大纲', lastSetTarget()?.target.kind === 'outline');
 
   // ---- 细纲阶段 ----
   ui.post({
