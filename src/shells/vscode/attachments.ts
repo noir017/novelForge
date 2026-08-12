@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { NovelProject } from '../core/model/project';
-import { Attachment } from '../core/model/session';
+import { NovelProject } from '../../core/model/project';
+import { Attachment } from '../../core/model/session';
 
 /**
  * 把当前编辑器的选区做成附件（插件专属能力，由 VsCodeHost 暴露给 core）。

@@ -441,8 +441,6 @@ export interface ViewState {
   models: { ref: string; label: string; group: string }[];
   contextWindow: number;
   maxOutputTokens: number;
-  /** 独立 Web 服务版：前端据此隐藏「在 VS Code 设置中打开」并改存储提示文案。 */
-  standalone?: boolean;
 }
 
 /**

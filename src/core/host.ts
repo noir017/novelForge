@@ -31,6 +31,15 @@ export interface PickChoice<T = string> {
 export interface Disposable { dispose(): void; }
 
 export interface Host {
+  /**
+   * 壳的名字，**只用于日志与诊断**。
+   *
+   * 禁止拿它做分支（`host.name === 'standalone' ? … : …`）：能力差异一律表达成
+   * 「宿主有没有这个方法」，或由壳在渲染页面时决定产出什么。按身份分支会腐烂——
+   * 从前 buildState 里就有一句这样的判断，用来决定设置页那行存储说明怎么写，
+   * 后来两个壳都换成了 FileConfigStore，插件那半边分支没人想起来改，于是插件
+   * 形态长期显示着一句已经不成立的话。这条约束由 tests/contract/shellPurity.test.js 守着。
+   */
   readonly name: 'vscode' | 'standalone';
   /** 该宿主能否提供 vscode-lm（Copilot）模型。 */
   readonly supportsVscodeLm: boolean;

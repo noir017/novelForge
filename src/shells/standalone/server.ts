@@ -1,12 +1,13 @@
-import { ChatController } from '../core/controller';
-import { initHost } from '../core/host';
-import { initSecrets } from '../core/llm/registry';
-import { addLogSink, describeError, formatLogEntry, scoped, setSinkLevel } from '../core/logger';
-import { NovelProject } from '../core/model/project';
-import { InMessage, OutMessage } from '../core/protocol';
-import { FileConfigStore, FileSecretStore } from '../core/stores';
+import { ChatController } from '../../core/controller';
+import { initHost } from '../../core/host';
+import { initSecrets } from '../../core/llm/registry';
+import { addLogSink, describeError, formatLogEntry, scoped, setSinkLevel } from '../../core/logger';
+import { NovelProject } from '../../core/model/project';
+import { InMessage, OutMessage } from '../../core/protocol';
+import { FileConfigStore, FileSecretStore } from '../../core/stores';
+import { assetBytes } from './assets';
 import { FileHost } from './fileHost';
-import { assetBytes, standalonePage } from './html';
+import { standalonePage } from './page';
 
 const log = scoped('服务');
 

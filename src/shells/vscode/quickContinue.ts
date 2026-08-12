@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { CreationSession } from '../core/features/creation';
-import { NovelProject } from '../core/model/project';
+import { CreationSession } from '../../core/features/creation';
+import { NovelProject } from '../../core/model/project';
 
 /** 供命令面板走的极简续写（不开 Webview），结果流式写入新文档。 */
 export async function quickContinue(project: NovelProject): Promise<void> {

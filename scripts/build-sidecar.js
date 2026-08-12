@@ -20,8 +20,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
-const ENTRY = path.join('src', 'standalone', 'main.ts');
-const OUT_DIR = path.join(ROOT, 'src-tauri', 'binaries');
+const ENTRY = path.join('src', 'shells', 'standalone', 'main.ts');
+const OUT_DIR = path.join(ROOT, 'src', 'shells', 'desktop', 'binaries');
 
 /** sidecar 的基名。必须与 tauri.conf.json 的 `externalBin` 末段一致。 */
 const BASE = 'novelforge';

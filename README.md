@@ -48,10 +48,10 @@ npm run compile
 
 ```bash
 # 方式一：源码直接跑（需要 Bun）
-bun run src/standalone/main.ts [目录]          # 默认当前目录、端口 3680、自动开浏览器
-bun run src/standalone/main.ts sample-novel --no-open --port 4000
-bun run src/standalone/main.ts sample-novel --verbose   # 终端也打调试级日志
-bun run src/standalone/main.ts init [目录]     # 终端交互式初始化
+bun run src/shells/standalone/main.ts [目录]          # 默认当前目录、端口 3680、自动开浏览器
+bun run src/shells/standalone/main.ts sample-novel --no-open --port 4000
+bun run src/shells/standalone/main.ts sample-novel --verbose   # 终端也打调试级日志
+bun run src/shells/standalone/main.ts init [目录]     # 终端交互式初始化
 
 # 方式二：编译成单文件可执行
 npm run dist                                   # 产出 dist/novelforge（当前平台）
@@ -130,7 +130,7 @@ npm run app:build    # 出安装包（Linux: AppImage / deb，Windows: NSIS）
 
 Windows 安装包必须在 Windows 上构建（sidecar 能交叉编译，Tauri 的 Rust 壳不能），
 见 [.github/workflows/app.yml](.github/workflows/app.yml)。细节与已知坑见
-[src-tauri/README.md](src-tauri/README.md)。
+[src/shells/desktop/README.md](src/shells/desktop/README.md)。
 
 ## 界面
 
@@ -668,7 +668,7 @@ npm run test:contract    # 架构不变式与示例工程自洽
 - **`integration/`** —— 层级目录与类文件操作、章节文件名规则与草稿、完整上下文装配、创作四层产物的采纳落盘、批量流水线、「谁是谁」的聚类、角色卡更新、设定生成、工程库与失败记录、会话存储、SSE 流式解析
 - **`dom/`** —— 对话页/创作页/工程页/日志页/设置页的渲染与交互、三组悬停浮窗、独立版的内置编辑器与资源管理器
 - **`e2e/`** —— 独立版服务：静态资源、WS 首条消息、`Origin` 校验、编辑器读写往返与冲突、资源管理器目录列举
-- **`contract/`** —— `src/core/` 零 vscode 依赖；`sample-novel/` 的 hash 自洽
+- **`contract/`** —— `src/core/` 零 vscode 依赖；壳的契约（共享骨架零宿主依赖、壳之间不互相 import、没有「我是哪个壳」的分支）；`sample-novel/` 的 hash 自洽
 
 单跑一条用例：
 
@@ -680,7 +680,9 @@ node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
 
 ### 代码结构
 
-双形态架构：`src/core/` 零 vscode 依赖，插件壳与独立壳各实现一个 `Host` 窄接口。
+核心与壳分离：`src/core/` 零 vscode 依赖，三个壳并排放在 `src/shells/`，各实现一个 `Host` 窄接口。
+壳只做三件事——实现 `Host`、传输与生命周期、平台专属入口；业务逻辑、页面内容、以及
+「我是哪个壳」的分支都不属于壳（契约见 [src/shells/README.md](src/shells/README.md)）。
 
 ```
 src/
@@ -698,21 +700,31 @@ src/
 │   ├── fileTree.ts        「文件」页的目录列举（懒加载一层，含点开头的文件夹，只读）
 │   ├── db.ts              工程库（.novelforge/novelforge.db）：失败记录 + 日志历史
 │   ├── errorLog.ts        失败记录门面：工程页那个红色感叹号的数据源
+│   ├── choices.ts         「让用户挑一个」的清单构造（角色卡 / 章节）
+│   ├── watchPolicy.ts     哪些文件改动值得刷新界面（策略在这里，机制在壳里）
 │   ├── model/             types / markdown / providers / session / project
 │   ├── llm/               provider / openai / anthropic / registry（vscode-lm 经工厂钩子）
 │   ├── context/           tokenizer + 分层预算装配
 │   └── features/          创作 / 批量流水线 / 摘要 / 角色 / 文风（交互全走 Host）
-├── vscode/                插件壳
-│   ├── extension.ts       命令注册、initHost(VsCodeHost)、迁移
-│   ├── vscodeHost.ts      Host 的 VS Code 实现
-│   ├── migrate.ts         settings.json/SecretStorage → ~/.novelforge 一次性迁移
-│   ├── vscodeLmProvider.ts、chatViewProvider.ts、chatPanel.ts、webviewHtml.ts
-└── standalone/            独立壳（Bun）
-    ├── main.ts / cli.ts   入口与参数解析
-    ├── server.ts          Bun.serve：静态页 + /ws WebSocket
-    ├── fileHost.ts        Host 的文件/网页实现（弹窗经 PromptHub，openFile 走内置编辑器）
-    ├── promptHub.ts       未决网页弹窗管理
-    └── html.ts            内嵌资源直出的页面（工作台骨架 + 编辑器 DOM）
+└── shells/                三个壳
+    ├── shared/panes.ts    ★ 所有 pane 的 DOM 唯一来源（纯字符串函数，零宿主依赖）
+    ├── vscode/            插件壳
+    │   ├── extension.ts       命令注册、initHost(VsCodeHost)、迁移
+    │   ├── vscodeHost.ts      Host 的 VS Code 实现
+    │   ├── migrate.ts         settings.json/SecretStorage → ~/.novelforge 一次性迁移
+    │   ├── webviewHtml.ts     页面模板（纯函数，不碰 vscode API）
+    │   ├── webview.ts         webview 接线：localResourceRoots 与 asWebviewUri
+    │   └── vscodeLmProvider.ts、chatViewProvider.ts、chatPanel.ts
+    ├── standalone/        独立壳（Bun）
+    │   ├── main.ts / cli.ts   入口与参数解析
+    │   ├── server.ts          Bun.serve：静态页 + /ws WebSocket
+    │   ├── fileHost.ts        Host 的文件/网页实现（弹窗经 PromptHub，openFile 走内置编辑器）
+    │   ├── terminalHost.ts    Host 的终端实现，`novelforge init` 用它
+    │   ├── promptHub.ts       未决网页弹窗管理
+    │   ├── page.ts            工作台布局（pane 取自 shared/panes.ts）
+    │   ├── assets.ts          /media/* 的内嵌资源表
+    │   └── systemOpen.ts      交给系统默认程序打开
+    └── desktop/           桌面壳（Tauri / Rust，见 shells/desktop/README.md）
 ```
 
 面板逻辑集中在 `core/controller.ts`，两个视图宿主（侧边栏 / 编辑器）与独立版 WebSocket 各自只负责收发消息，因此同一个会话能在多处同时打开且保持同步。

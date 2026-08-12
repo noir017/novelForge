@@ -115,7 +115,9 @@ export function installSettings(): void {
   }
 
   byId('saveSettingsBtn').addEventListener('click', save);
-  byId('nativeSettingsBtn').addEventListener('click', () =>
+  // 能力探测：只有带原生设置界面的宿主（VS Code）才渲染这颗按钮，
+  // 独立版的页面里根本没有它——不是渲染出来再 hidden 掉。
+  maybeById('nativeSettingsBtn')?.addEventListener('click', () =>
     vscode.postMessage({ type: 'openNativeSettings' })
   );
 }

@@ -11,19 +11,11 @@ import { fmt } from './format';
 import { el } from './refs';
 import { store } from './store';
 
-/** 独立版的环境差异只应用一次（隐藏 VS Code 专属入口、改存储提示文案）。 */
-let standaloneApplied = false;
-
 export function renderState(state: ViewState): void {
   store.state = state;
-  if (state.standalone && !standaloneApplied) {
-    standaloneApplied = true;
-    maybeById('nativeSettingsBtn')?.classList.add('hidden');
-    const hint = maybeById('settingsStorageHint');
-    if (hint) {
-      hint.textContent = '设置写入 ~/.novelforge/config.json；API Key 存在 ~/.novelforge/secrets.json。';
-    }
-  }
+  // 这里从前有一段「如果是独立版就把 VS Code 专属入口 hidden 掉、把存储说明
+  // 改一改」。现在那两处差异由壳在渲染页面时决定要不要产出（见
+  // src/shells/shared/panes.ts 的 nativeSettings），前端不再认得环境。
   renderModelSelect(state);
 
   if (!state.initialized) {

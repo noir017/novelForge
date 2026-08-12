@@ -1,21 +1,22 @@
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
-import { ConfigStore } from '../core/config';
+import { ConfigStore } from '../../core/config';
 import {
   FileConflictError,
   FileEditError,
   isEditablePath,
   readFileForEditor,
   writeFileFromEditor,
-} from '../core/fileEditing';
-import { Disposable, Host, InputOptions, PickChoice } from '../core/host';
-import { NON_CHAPTER_EXTENSIONS, isChapterFileName } from '../core/model/chapterFile';
-import { NovelProject } from '../core/model/project';
-import { Attachment } from '../core/model/session';
-import { EditorPane, OutMessage } from '../core/protocol';
+} from '../../core/fileEditing';
+import { Disposable, Host, InputOptions, PickChoice } from '../../core/host';
+import { isChapterFileName } from '../../core/model/chapterFile';
+import { NovelProject } from '../../core/model/project';
+import { Attachment } from '../../core/model/session';
+import { EditorPane, OutMessage } from '../../core/protocol';
+import { shouldIgnoreChange } from '../../core/watchPolicy';
 import { PromptHub } from './promptHub';
+import { openWithSystem } from './systemOpen';
 
 /**
  * 独立 Web 服务壳的 Host 实现。
@@ -122,16 +123,10 @@ export class FileHost implements Host {
     };
 
     // 优先 fs.watch（recursive）；不支持时退化为 1s 轮询。
+    // 「哪些改动值得刷新」由 core 的 watchPolicy 说，这里只管机制。
     try {
       const watcher = fs.watch(project.root, { recursive: true }, (_event, filename) => {
-        const name = String(filename ?? '');
-        if (name.includes('node_modules') || name.includes('.trash')) {
-          return;
-        }
-        // 只跳过「改了也与工程无关」的二进制文件。章节可以是任意扩展名
-        // （含无扩展名），目录事件也没有扩展名——两者都得放行。
-        const ext = path.extname(name).toLowerCase();
-        if (ext && NON_CHAPTER_EXTENSIONS.has(ext)) {
+        if (shouldIgnoreChange(String(filename ?? ''))) {
           return;
         }
         fire();
@@ -238,10 +233,8 @@ export class FileHost implements Host {
 
   /** 用系统默认程序打开（用户自己的编辑器 / 图片查看器）。 */
   async openExternal(relPath: string): Promise<void> {
-    const abs = path.resolve(this.root ?? '.', relPath);
-    const cmd = process.platform === 'win32' ? 'explorer' : process.platform === 'darwin' ? 'open' : 'xdg-open';
     try {
-      spawn(cmd, [abs], { detached: true, stdio: 'ignore' }).unref();
+      openWithSystem(path.resolve(this.root ?? '.', relPath));
       this.toast(`已用系统程序打开：${relPath}`);
     } catch {
       this.toast(`无法打开：${relPath}，请手动打开。`);

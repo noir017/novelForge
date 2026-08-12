@@ -59,12 +59,16 @@ jobs:
       # 编译 Rust 壳很慢，缓存能把重复构建从几分钟压到几十秒。
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: src/shells/desktop
 
       # sidecar 由 tauri.conf.json 的 beforeBuildCommand 自动构建，
       # 不必在这里单独跑一步。
 
+      # projectPath 指向桌面壳所在目录（Tauri 工程根就是它自己，里面直接放着
+      # tauri.conf.json）。不给这个参数的话 action 会从仓库根去找 src-tauri/。
       - uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: src/shells/desktop
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -75,9 +79,9 @@ jobs:
           # targets 是 "all"，各平台产出什么由 Tauri 按平台决定，所以这里用通配
           # 而不是写死目录名。
           path: |
-            src-tauri/target/release/bundle/*/*.AppImage
-            src-tauri/target/release/bundle/*/*.deb
-            src-tauri/target/release/bundle/*/*.rpm
-            src-tauri/target/release/bundle/*/*.exe
-            src-tauri/target/release/bundle/*/*.msi
+            src/shells/desktop/target/release/bundle/*/*.AppImage
+            src/shells/desktop/target/release/bundle/*/*.deb
+            src/shells/desktop/target/release/bundle/*/*.rpm
+            src/shells/desktop/target/release/bundle/*/*.exe
+            src/shells/desktop/target/release/bundle/*/*.msi
           if-no-files-found: error

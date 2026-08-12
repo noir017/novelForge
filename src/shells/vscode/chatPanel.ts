@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { ChatController, ViewHost } from '../core/controller';
-import { InMessage, OutMessage } from '../core/protocol';
-import { renderHtml } from './webviewHtml';
+import { ChatController, ViewHost } from '../../core/controller';
+import { InMessage, OutMessage } from '../../core/protocol';
+import { htmlFor, localResourceRoots } from './webview';
 
 /**
  * 编辑器宿主：把同一个对话面板作为标签页在编辑器区打开。
@@ -25,11 +25,7 @@ export class ChatPanel implements ViewHost {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        // icon.svg 在 media/，脚本与样式在 dist/media/（构建产物）。
-        localResourceRoots: [
-          vscode.Uri.joinPath(extensionUri, 'media'),
-          vscode.Uri.joinPath(extensionUri, 'dist', 'media'),
-        ],
+        localResourceRoots: localResourceRoots(extensionUri),
       }
     );
     ChatPanel.instance = new ChatPanel(panel, extensionUri, controller);
@@ -45,7 +41,7 @@ export class ChatPanel implements ViewHost {
     private readonly controller: ChatController
   ) {
     panel.iconPath = vscode.Uri.joinPath(extensionUri, 'media', 'icon.svg');
-    panel.webview.html = renderHtml(panel.webview, extensionUri);
+    panel.webview.html = htmlFor(panel.webview, extensionUri);
     panel.webview.onDidReceiveMessage((msg: InMessage) => void this.controller.handle(msg));
 
     this.controller.attach(this);
