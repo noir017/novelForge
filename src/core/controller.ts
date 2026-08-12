@@ -48,6 +48,7 @@ import {
   deriveTitle,
   makeTurnId,
   nowIso,
+  turnPreview,
 } from './model/session';
 import { NovelConfig } from './model/types';
 import {
@@ -766,12 +767,15 @@ export class ChatController {
       role: 'user',
       content: payload.text.trim(),
       at: nowIso(),
+      // 点命令时输入框可以是空的，气泡里就只剩一片空白。记下这一轮下的是哪个
+      // 命令，界面才说得出「刚才那一下是 /生成细纲」。「讨论」是默认动作，不记。
+      command: payload.capability === 'discuss' ? undefined : command?.label,
       attachments: this.pending.length > 0 ? [...this.pending] : undefined,
       excludedIds: payload.excludedIds.length > 0 ? payload.excludedIds : undefined,
     };
     this.current.turns.push(userTurn);
     if (this.current.turns.length === 1) {
-      this.current.title = deriveTitle(userTurn.content);
+      this.current.title = deriveTitle(turnPreview(userTurn));
     }
     this.applyAction(payload);
     this.current.targetOrder = payload.targetOrder;
@@ -1555,6 +1559,7 @@ function serializeTurn(t: ChatTurn): SerializedTurn {
     role: t.role,
     content: t.content,
     at: t.at,
+    command: t.command,
     attachments: t.attachments?.map(serializeAttachment),
     context: t.context,
     acceptedTo: t.acceptedTo,

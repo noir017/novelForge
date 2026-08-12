@@ -18,15 +18,27 @@
   flex: 1;
 }
 
+/*
+ * 级别下拉与过滤框。`width: 100%` 是 forms.css 给表单页定的（那里一列一个
+ * 字段），在工具栏这种一行摆好几颗控件的地方必须收回来——不然下拉框会独占
+ * 一整行，把后面那排按钮挤到第二行去。高度与按钮对齐走 `--nf-ctl-height`。
+ */
 .log-toolbar select,
 .log-toolbar input[type='search'] {
+  width: auto;
+  min-height: var(--nf-ctl-height);
   background: var(--vscode-input-background);
   color: var(--vscode-input-foreground);
   border: 1px solid var(--vscode-input-border, transparent);
   border-radius: 3px;
   font: inherit;
-  font-size: 0.9em;
-  padding: 3px 5px;
+  font-size: 0.85em;
+  padding: 0 5px;
+}
+
+.log-toolbar select {
+  flex: 0 1 auto;
+  max-width: 40%;
 }
 
 .log-toolbar input[type='search'] {

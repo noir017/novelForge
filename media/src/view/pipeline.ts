@@ -261,10 +261,11 @@ function renderScenes(): void {
 // ---------------------------------------------------------------- 下一步
 
 /**
- * 下一步条：一句「为什么是这一步」 + 一个主按钮 + `/ 命令`。
+ * 下一步条：一句「为什么是这一步」 + 一个主按钮。
  *
- * 没有下一步（这一章全做完了）时主按钮收起，只留 `/ 命令`——**不造一个
- * 假的下一步**。给一个「下一步」等于逼作者一直有事可做，而写完就是写完了。
+ * 没有下一步（这一章全做完了）时主按钮收起——**不造一个假的下一步**。
+ * 给一个「下一步」等于逼作者一直有事可做，而写完就是写完了。其余命令在
+ * 输入框里打 `/` 就有（或点工具行上的「/ 命令」）。
  */
 function renderNextStep(): void {
   setHidden(el.nextStep, false);
@@ -272,7 +273,7 @@ function renderNextStep(): void {
   if (!next) {
     el.nextStepHint.textContent = current
       ? '这一章各层都齐了。要改哪一层就点上面对应的那一段。'
-      : '挑一章开始，或用 / 挑一个命令。';
+      : '挑一章开始，或在输入框里打 / 挑一个命令。';
     setHidden(el.nextStepBtn, true);
     return;
   }
@@ -303,7 +304,7 @@ function updatePlaceholder(): void {
     el.input.placeholder = '描述这一段要写什么剧情…（可留空，Enter 发送）';
     return;
   }
-  el.input.placeholder = `${STAGE_LABEL[stage]}：${STAGE_QUESTION[stage]}（可留空，/ 挑命令）`;
+  el.input.placeholder = `${STAGE_LABEL[stage]}：${STAGE_QUESTION[stage]}（可留空，打 / 挑命令）`;
 }
 
 // ---------------------------------------------------------------- 工具

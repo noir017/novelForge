@@ -126,13 +126,26 @@ function buildHead(turn: SerializedTurn): HTMLElement {
   return head;
 }
 
+/**
+ * 气泡正文。
+ *
+ * assistant 那一支**刻意保持成一个纯文本节点**：流式增量走的是
+ * `body.textContent += delta`（index.ts），里面有子元素的话第一片增量就会
+ * 把它们冲掉；就地编辑的 blur 判据也是拿 `body.textContent` 比 `turn.content`。
+ * 要加结构的是 user 那一支。
+ */
 function buildBody(turn: SerializedTurn): HTMLElement {
   const body = mk('div', 'msg-body');
+
+  if (turn.role === 'user') {
+    return fillUserBody(body, turn);
+  }
+
   body.textContent = turn.error ? turn.error : turn.content;
 
   // 结束后（turnDone 会重建这个节点）才放开就地编辑：结果可以改完再采纳。
   const streaming = store.streamingId === turn.id;
-  if (turn.role === 'assistant' && !turn.error && !streaming) {
+  if (!turn.error && !streaming) {
     body.setAttribute('contenteditable', 'true');
     body.spellcheck = false;
     body.addEventListener('blur', () => {
@@ -141,6 +154,29 @@ function buildBody(turn: SerializedTurn): HTMLElement {
         vscode.postMessage({ type: 'editTurn', turnId: turn.id, text: turn.content });
       }
     });
+  }
+  return body;
+}
+
+/**
+ * 用户气泡：命令标签 +（可选的）补充要求。
+ *
+ * 命令类的轮次 content 本来就是空的——「生成细纲」不需要作者说什么，该说的
+ * 都在大纲和细纲里（见 `StageCommand.needsText`）。但**空气泡不能就这么空着**：
+ * 翻回去看时认不出刚才点的是哪一下。所以把命令本身画成一枚 `/生成细纲` 标签。
+ */
+function fillUserBody(body: HTMLElement, turn: SerializedTurn): HTMLElement {
+  if (turn.command) {
+    body.classList.add('has-command');
+    body.appendChild(mk('span', 'msg-command', `/${turn.command}`));
+  }
+  const text = turn.error || turn.content;
+  if (text) {
+    body.appendChild(mk('span', 'msg-text', text));
+  } else if (!turn.command) {
+    // 既没有话也没有命令：只可能是旧会话里的空轮次（那时命令没被记下来）。
+    // 留一句说明，总比一片看不出所以然的空白好。
+    body.appendChild(mk('span', 'msg-text msg-text-empty', '（没有补充要求）'));
   }
   return body;
 }

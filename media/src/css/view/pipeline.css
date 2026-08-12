@@ -208,18 +208,20 @@
 /* ---------------------------------------------------------------- 下一步 */
 
 /*
- * 下一步条：一句「为什么是这一步」 + 主按钮 + `/ 命令`。
+ * 下一步条：一句「为什么是这一步」 + 主按钮。
  *
  * 夹在消息流与输入框之间——它是「读完上面、动手之前」那一刻要看的东西。
  * 位置固定不滚，因为它随时可能被点。
+ *
+ * 主按钮与全局的 `.primary` 同一套尺寸（见 buttons.css）：它靠颜色跳出来，
+ * 不靠体积。从前它比周围的小控件粗一号，在侧栏这么窄的地方等于一块色斑。
  */
 .nextstep {
   flex: 0 0 auto;
-  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 5px 10px;
   border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
 }
 
@@ -243,25 +245,29 @@
 /* ---------------------------------------------------------------- 命令面板 */
 
 /*
- * `/` 命令面板。从下一步条往**上**展开——输入框在下面，面板往下会盖住它。
+ * `/` 命令面板。挂在输入框那一格里（`.composer-input` 是 relative），
+ * 从**输入框上沿**往上浮——命令的字就打在下面那个输入框里，候选贴着它，
+ * 视线不用离开正在打字的地方（Cursor / Claude Code 那一套）。
  *
- * 外观沿用右键菜单（menu.css 的 .ctx-menu），但布局不同：每一项是
- * 「名字 + 一句说明」两行，不是单行菜单项。命令比菜单项更需要解释。
+ * 从前它挂在下一步条里、以「输入框上方另起一块」的形态出现，`/` 还被
+ * keydown 拦下来不落进输入框；那等于在输入框旁边又造了一个隐形输入框。
  */
 .cmd-panel {
   position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: calc(100% + 2px);
+  left: -1px;
+  right: -1px;
+  bottom: calc(100% + 5px);
   z-index: 20;
   max-height: 320px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
+  padding: 4px;
   background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
   border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
   border-radius: var(--radius);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.36);
 }
 
 .cmd-head {
@@ -269,13 +275,22 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  padding: 5px 10px;
+  padding: 3px 7px 6px;
+  margin-bottom: 2px;
   border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
-  font-family: var(--vscode-editor-font-family);
-  font-size: 0.85em;
+  font-size: 0.78em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.cmd-head-title {
+  font-weight: 600;
   color: var(--vscode-foreground);
 }
 
+/*
+ * 一项 = 一行「/名字（+ 写文件标记）」+ 一行说明。命令比菜单项更需要解释，
+ * 所以是两行；但两行之间只留 1px，整项还是一口能读完的一块。
+ */
 .cmd-item {
   display: flex;
   flex-direction: column;
@@ -283,8 +298,8 @@
   gap: 1px;
   background: none;
   border: none;
-  border-left: 3px solid transparent;
-  padding: 5px 10px;
+  border-radius: 4px;
+  padding: 5px 7px;
   cursor: pointer;
   text-align: left;
   color: var(--vscode-menu-foreground, var(--vscode-foreground));
@@ -292,22 +307,21 @@
   font-size: inherit;
 }
 
-.cmd-item:hover,
 .cmd-item.active {
-  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+  background: var(--vscode-list-activeSelectionBackground, var(--vscode-menu-selectionBackground));
   color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
 }
 
-/*
- * 会写文件的命令（生成/改写/拆分）左边一道竖线。
- * 「点了会写文件」与「点了只是聊聊」必须一眼分得开。
- */
-.cmd-writes {
-  border-left-color: var(--vscode-charts-blue, #3794ff);
+.cmd-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
 }
 
 .cmd-label {
-  font-size: 0.92em;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
 }
 
 .cmd-hint {
@@ -316,15 +330,45 @@
   line-height: 1.35;
 }
 
-/* 待执行的命令 chip。与附件 chip 同形，颜色区分开。 */
+/*
+ * 会写文件的命令（生成/改写/拆分）挂一枚小标签。
+ * 「点了会写文件」与「点了只是聊聊」必须一眼分得开——从前是左边一道竖线，
+ * 那道线在没有对照的情况下没人看得懂是什么意思。
+ */
+.cmd-tag {
+  flex: 0 0 auto;
+  font-size: 0.68em;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid var(--vscode-charts-blue, #3794ff);
+  color: var(--vscode-charts-blue, #3794ff);
+  opacity: 0.9;
+}
+
+.cmd-item.active .cmd-tag {
+  border-color: currentColor;
+  color: inherit;
+}
+
+/*
+ * 待执行的命令 chip。它长在**输入框里面**（`.composer-input` 的第一个孩子），
+ * 所以左对齐、贴着上沿，看起来像是输入内容的一部分——因为它就是：发送时
+ * 用的是它的能力，而不是会话当前那个。
+ */
 .pending-cmd {
   display: flex;
   gap: 4px;
+  padding: 2px 4px 0;
 }
 
 .cmd-chip {
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
+}
+
+.cmd-chip .chip-label {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.95em;
 }
 
 /* ---------------------------------------------------------------- 采纳卡片 */

@@ -1,4 +1,14 @@
-/* 输入区：附件标签、下拉框、发送。 */
+/*
+ * 输入区：附件标签、输入框、工具行、发送。
+ *
+ * ## 一个框，不是「一个框 + 一排零件」
+ *
+ * 从前这里是三块各自为政的东西：chips、textarea、一排按钮与下拉框。视觉上
+ * 输入框有自己的边框，工具行浮在它下面，发送按钮又比周围粗一号——三个层次
+ * 争着当主角。现在整块收成 Cursor 那样的**一个输入框**：边框长在外层
+ * （`.composer-input`），textarea 自己不画边框，chip 与命令标签长在框里，
+ * 工具行贴在框下沿。焦点落在 textarea 上时高亮的是**整个框**。
+ */
 
 .composer {
   flex: 0 0 auto;
@@ -52,10 +62,47 @@
   opacity: 1;
 }
 
+/* ---------------------------------------------------------------- 输入框那一格 */
+
+/*
+ * 边框长在这里而不是 textarea 上，为的是把命令 chip 和输入框画成一体，
+ * 也给 `/` 命令面板一个 `position: relative` 的锚（它 `bottom: 100%` 往上浮）。
+ */
+.composer-input {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 4px 2px;
+  border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.3));
+  border-radius: var(--radius);
+  background: var(--vscode-input-background);
+}
+
+/* 焦点高亮整个框——真正被聚焦的是里面的 textarea。 */
+.composer-input:focus-within {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* textarea 自己不再画边框/底色，它只是框里的一块文本区。 */
+.composer-input #input {
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: 3px 5px;
+}
+
+.composer-input #input:focus {
+  outline: none;
+}
+
+/* ---------------------------------------------------------------- 工具行 */
+
 .composer-bar {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 
@@ -68,17 +115,37 @@
   color: var(--vscode-descriptionForeground);
 }
 
+/*
+ * 下拉框与数字框跟按钮同高（`--nf-ctl-*`），否则这一行会高低不齐——
+ * 那是「按钮突兀」里最容易被漏掉的一半原因。
+ */
 .composer-bar select,
 .composer-bar input[type='number'] {
   width: auto;
   flex: 0 1 auto;
   max-width: 45%;
-  font-size: 0.85em;
-  padding: 3px 5px;
+  min-height: var(--nf-ctl-height);
+  font-size: 0.82em;
+  padding: 0 4px;
+  border-color: transparent;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+}
+
+.composer-bar select:hover,
+.composer-bar input[type='number']:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+  color: var(--vscode-foreground);
+}
+
+.composer-bar select:focus,
+.composer-bar input[type='number']:focus {
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
 }
 
 .composer-bar input[type='number'] {
-  flex: 0 0 70px;
+  flex: 0 0 62px;
 }
 
 .composer-meta.warn {

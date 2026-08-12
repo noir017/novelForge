@@ -430,6 +430,33 @@ describe('session.ts · SessionStore', () => {
     });
   });
 
+  // 命令类的轮次（生成细纲、拆成场景）content 本来就是空的：该说的都在大纲和
+  // 细纲里，作者一个字都不必打。空串会让历史列表出现一排「新对话」。
+  describe('轮次预览', () => {
+    const t = (content, command) => ({ id: 'p1', role: 'user', content, at: sessionMod.nowIso(), command });
+
+    test('有话就用那句话', () => {
+      assert.equal(sessionMod.turnPreview(t('林昭夜访沈氏。')), '林昭夜访沈氏。');
+    });
+
+    test('空输入的命令轮次用命令名', () => {
+      assert.equal(sessionMod.turnPreview(t('', '生成细纲')), '/生成细纲');
+    });
+
+    test('两样都有时话优先', () => {
+      assert.equal(sessionMod.turnPreview(t('慢一点', '生成细纲')), '慢一点');
+    });
+
+    test('两样都没有时给空串', () => {
+      assert.equal(sessionMod.turnPreview(t('   ')), '');
+    });
+
+    // 于是标题推导也跟着能说出这一轮干了什么，不再落到「新对话」。
+    test('命令轮次的标题不再是「新对话」', () => {
+      assert.equal(sessionMod.deriveTitle(sessionMod.turnPreview(t('', '拆成场景'))), '/拆成场景');
+    });
+  });
+
   describe('id 唯一性', () => {
     test('200 次生成无碰撞', () => {
       const ids = new Set();

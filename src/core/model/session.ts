@@ -64,6 +64,19 @@ export interface ChatTurn {
   content: string;
   /** ISO 时间戳。 */
   at: string;
+  /**
+   * 仅 user 轮：这一轮下的是哪个命令，如 `生成细纲`。**只在不是「讨论」时记**——
+   * 讨论是默认动作，每条消息都挂一枚「/讨论」的标签是纯噪声。
+   *
+   * 存的是标签而不是能力名：`labelOf` 是按阶段具体化过的（细纲阶段的 `split`
+   * 叫「拆成场景」），而历史里那一轮当时在哪个阶段，事后未必还推得出来。
+   *
+   * 为什么不干脆写进 `content`：那句话会被当成作者的要求装进 prompt。
+   * 「生成细纲」这类命令本来就不需要作者说什么，凭空塞一句「请生成细纲」
+   * 进上下文，与旧界面逼他手打一句是同一个毛病。界面要显示的东西和要发给
+   * 模型的东西是两件事。
+   */
+  command?: string;
   /** 仅 user 轮：本轮引用的附件。 */
   attachments?: Attachment[];
   /** 仅 user 轮：本轮被手动取消勾选的上下文条目 id。 */
@@ -269,6 +282,21 @@ export function deriveTitle(text: string): string {
   return (clipped || line).slice(0, 24);
 }
 
+/**
+ * 一轮对话拿什么当「它说了什么」——历史列表的预览与会话标题都用这一份。
+ *
+ * 命令类的轮次（生成细纲、拆成场景）content 本来就是空的：该说的都在细纲和
+ * 大纲里了，作者一个字都不必打。空串会让历史列表出现一排「新对话」，也让
+ * 消息流里出现一个空白气泡——两处都得能说出这一轮到底干了什么。
+ */
+export function turnPreview(turn: ChatTurn): string {
+  const text = turn.content.trim();
+  if (text) {
+    return text;
+  }
+  return turn.command ? `/${turn.command}` : '';
+}
+
 function summarize(session: ChatSession): SessionSummary {
   const lastUser = [...session.turns].reverse().find((t) => t.role === 'user');
   return {
@@ -277,7 +305,7 @@ function summarize(session: ChatSession): SessionSummary {
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     turnCount: session.turns.length,
-    preview: (lastUser?.content ?? '').replace(/\s+/g, ' ').slice(0, 60),
+    preview: (lastUser ? turnPreview(lastUser) : '').replace(/\s+/g, ' ').slice(0, 60),
   };
 }
 

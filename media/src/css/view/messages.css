@@ -54,6 +54,42 @@
   border-color: var(--vscode-input-border, rgba(128, 128, 128, 0.25));
 }
 
+/*
+ * 命令类的轮次（生成细纲、拆成场景）作者一个字都不必打，于是气泡是空的。
+ * 那一枚 `/生成细纲` 标签就是这条消息的全部内容——翻回去看时，它是唯一能
+ * 说出「刚才点的是哪一下」的东西。
+ *
+ * `pre-wrap` 会把标签与后面文字之间的换行原样留着，所以这里改 flex 排：
+ * 有补充要求时标签在上、正文在下；没有时只有标签，不多出一行空白。
+ */
+.msg.user .msg-body.has-command {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  white-space: normal;
+}
+
+.msg-command {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.85em;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
+
+/* 正文那一段自己管换行：外层 has-command 时是 normal（见上）。 */
+.msg-text {
+  white-space: pre-wrap;
+}
+
+/* 旧会话里既没话也没记下命令的空轮次。 */
+.msg-text-empty {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
 .msg.assistant .msg-body {
   background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.08));
   font-family: var(--vscode-editor-font-family);

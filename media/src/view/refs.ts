@@ -21,6 +21,7 @@ export const el = {
   cmdBtn: byId<HTMLButtonElement>('cmdBtn'),
   pendingCmd: byId('pendingCmd'),
   chips: byId('chips'),
+  composerInput: byId('composerInput'),
   input: byId<HTMLTextAreaElement>('input'),
   atBtn: byId<HTMLButtonElement>('atBtn'),
   selBtn: byId<HTMLButtonElement>('selBtn'),

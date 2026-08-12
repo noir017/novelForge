@@ -344,8 +344,28 @@ describe('工作区卡', { skip: JSDOM_SKIP }, () => {
 describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   let ui;
   let input;
+  /** 键盘事件。导航键（↑↓/Enter/Esc）走这条，可打印字符走 type()。 */
   const key = (k) =>
     input.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+  /**
+   * 打字：改输入框的值再发 input 事件。
+   *
+   * 面板是**输入框内容的函数**（真实浏览器里 keydown 之后浏览器自己落值、
+   * 再发 input），所以测试也必须照这个顺序模拟——从前面板自己攒过滤串，
+   * 于是测试只发 keydown 就够，那也正是输入法打的中文一个都收不到的原因。
+   */
+  const type = (text) => {
+    input.value += text;
+    input.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+  };
+  const backspace = () => {
+    input.value = input.value.slice(0, -1);
+    input.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+  };
+  const setValue = (text) => {
+    input.value = text;
+    input.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+  };
   const panel = () => ui.doc.querySelector('.cmd-panel');
   const items = () => [...ui.doc.querySelectorAll('.cmd-item .cmd-label')].map((n) => n.textContent);
 
@@ -366,19 +386,35 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     assert.ok(!panel());
   });
 
-  // 输入框为空时按 / 唤出。
-  test('空输入框按 / 唤出面板', () => {
-    key('/');
+  // 打 / 唤出。
+  test('打 / 唤出面板', () => {
+    type('/');
     assert.ok(panel());
+  });
+
+  // Cursor 那一套：命令的字**留在输入框里**，面板只是浮在上方的候选列表。
+  // 从前 `/` 被 keydown 拦下来不落进输入框，过滤串自己攒在模块变量里。
+  test('斜杠留在输入框里', () => {
+    assert.equal(input.value, '/');
+  });
+
+  // 面板浮在输入框那一格上（bottom: 100%），不再挂在下一步条里。
+  test('面板挂在输入框那一格上', () => {
+    assert.ok(ui.doc.querySelector('#composerInput .cmd-panel'));
   });
 
   test('细纲阶段七个命令', () => {
     assert.equal(items().length, 7, items().join('|'));
   });
 
+  // 面板里的名字带斜杠：挑的和打的是同一样东西。
+  test('命令名带斜杠', () => {
+    assert.ok(items().every((s) => s.startsWith('/')), items().join('|'));
+  });
+
   // split 在细纲阶段拆的是场景，命令名上直说。
   test('细纲的拆分写成「拆成场景」', () => {
-    assert.ok(items().includes('拆成场景'), items().join('|'));
+    assert.ok(items().includes('/拆成场景'), items().join('|'));
   });
 
   // 会写文件的命令与「只是聊聊」必须分得开。
@@ -387,23 +423,38 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     assert.equal(writes.length, 3, String(writes.length));
   });
 
+  test('写文件的命令挂「写文件」标签', () => {
+    assert.equal(ui.doc.querySelectorAll('.cmd-item .cmd-tag').length, 3);
+  });
+
   // 键入过滤：ascii 别名与中文标签都认。
   test('按拼音首字母过滤', () => {
-    key('c');
-    key('f');
+    type('cf');
     assert.equal(items().length, 1, items().join('|'));
-    assert.equal(items()[0], '拆成场景', items().join('|'));
+    assert.equal(items()[0], '/拆成场景', items().join('|'));
+  });
+
+  test('过滤串跟着输入框走', () => {
+    assert.equal(input.value, '/cf');
   });
 
   test('退格恢复全部', () => {
-    key('Backspace');
-    key('Backspace');
+    backspace();
+    backspace();
     assert.equal(items().length, 7, items().join('|'));
+  });
+
+  // 退到 `/` 之前就不是在下命令了，面板该收。
+  test('删掉斜杠收起面板', () => {
+    backspace();
+    assert.ok(!panel());
+    assert.equal(input.value, '');
   });
 
   // 选中 → 变成待执行 chip，不立刻发送。
   let beforePick;
   test('选中后收起面板', () => {
+    type('/');
     beforePick = ui.sent.length;
     ui.clickEl([...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('挑刺')));
     assert.ok(!panel());
@@ -419,6 +470,16 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     assert.ok(chip.textContent.includes('挑刺'), chip?.textContent);
   });
 
+  // chip 长在输入框**里面**：发送时用的是它的能力，它就是输入内容的一部分。
+  test('chip 在输入框那一格里', () => {
+    assert.ok(ui.doc.querySelector('#composerInput #pendingCmd .cmd-chip'));
+  });
+
+  // 挑中之后那几个字是用来挑命令的，不该跟着发给模型。
+  test('挑中后清掉输入框里的命令文字', () => {
+    assert.equal(input.value, '');
+  });
+
   // chip 在时发送用它，而不是会话当前的能力。
   test('发送用挑中的命令', () => {
     input.value = '这里冲突太弱';
@@ -432,23 +493,54 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     ui.post({ type: 'busy', value: false });
   });
 
-  // 输入框非空时 / 是普通字符（日期、比值、网址里都有）。
-  test('输入框非空时 / 不唤出面板', () => {
-    input.value = '子时 3/4 刻';
-    key('/');
+  // `/` 在中文正文里是普通字符（日期、比值、网址），只有「整个输入框就是一个
+  // /词」才算在下命令。
+  test('正文里的 / 不唤出面板', () => {
+    setValue('子时 3/4 刻');
     assert.ok(!panel());
   });
 
-  // Esc 收起。
-  test('再次唤出', () => {
-    input.value = '';
-    key('/');
-    assert.ok(panel());
+  test('斜杠后带空格不算命令', () => {
+    setValue('/ 这是一句话');
+    assert.ok(!panel());
   });
 
+  // 「/ 命令」按钮：与键盘走同一条路——输入框为空时顺手把 / 打进去。
+  test('按钮唤出面板', () => {
+    setValue('');
+    ui.clickEl(ui.doc.getElementById('cmdBtn'));
+    assert.ok(panel());
+    assert.equal(input.value, '/');
+  });
+
+  test('按钮再点一次收起', () => {
+    ui.clickEl(ui.doc.getElementById('cmdBtn'));
+    assert.ok(!panel());
+  });
+
+  // Esc 收起，且不会因为输入框里那个 / 还在就立刻弹回来。
   test('Esc 收起面板', () => {
+    setValue('');
+    type('/');
+    assert.ok(panel());
     key('Escape');
     assert.ok(!panel());
+  });
+
+  test('Esc 之后继续打字不再弹回来', () => {
+    type('c');
+    assert.ok(!panel());
+  });
+
+  // 生成中面板该收起：一个点不动的候选列表挂在那儿只会挡住消息流。
+  test('生成中收起面板并禁用按钮', () => {
+    setValue('');
+    type('/');
+    assert.ok(panel());
+    ui.post({ type: 'busy', value: true });
+    assert.ok(!panel());
+    assert.ok(ui.doc.getElementById('cmdBtn').disabled);
+    ui.post({ type: 'busy', value: false });
   });
 });
 
@@ -548,11 +640,13 @@ describe('独立版壳上的创作页', { skip: JSDOM_SKIP }, () => {
 
   test('独立版能唤出命令面板', () => {
     const input = ui.doc.getElementById('input');
-    input.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true }));
-    assert.ok(ui.doc.querySelector('#nextStep .cmd-panel'));
+    input.value = '/';
+    input.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+    assert.ok(ui.doc.querySelector('#composerInput .cmd-panel'));
   });
 
   test('独立版主按钮可发', () => {
+    ui.doc.getElementById('input').value = '';
     ui.clickEl(ui.doc.getElementById('nextStepBtn'));
     const sentStep = [...ui.sent].reverse().find((m) => m.type === 'send');
     assert.equal(sentStep?.payload.capability, 'split', JSON.stringify(sentStep));

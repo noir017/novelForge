@@ -109,7 +109,7 @@ export function chatPane(opts: PaneOptions = {}): string {
     <div class="empty" id="emptyHint">
       <p><strong>先挑一章，从它当前该做的那一步接着做</strong></p>
       <p>在「工程」页点任意章节，或用下面的下拉框选一章——界面会自动落到它的当前阶段：还没细纲就去写细纲，细纲写好了就去拆场景。</p>
-      <p>用 <kbd>@</kbd> 引用章节、角色卡或任意文件；输入框为空时按 <kbd>/</kbd> 可以挑其它命令。</p>${editorHint}
+      <p>用 <kbd>@</kbd> 引用章节、角色卡或任意文件；在输入框里打 <kbd>/</kbd> 可以挑其它命令。</p>${editorHint}
     </div>
   </div>
 
@@ -119,17 +119,21 @@ export function chatPane(opts: PaneOptions = {}): string {
       <span class="nextstep-label" id="nextStepHint"></span>
     </div>
     <button class="primary nextstep-go" id="nextStepBtn"></button>
-    <button class="chip-btn" id="cmdBtn" title="其它命令（输入框为空时按 / 也可以）">/ 命令</button>
   </div>
 
-  <div class="composer">
+  <!-- 输入区。「/」命令面板由前端挂进 #composerInput（它是 position: relative），
+       从输入框上沿浮出来——命令本身留在输入框里当普通文字，与 Cursor 一致。 -->
+  <div class="composer" id="composer">
     <div class="chips" id="chips"></div>
-    <!-- 已挑好、待执行的命令。发送时用它，不用状态机那一个。 -->
-    <div class="pending-cmd hidden" id="pendingCmd"></div>
-    <textarea id="input" rows="3" placeholder="补充要求（可留空）…（Enter 发送，Shift+Enter 换行）"></textarea>
+    <div class="composer-input" id="composerInput">
+      <!-- 已挑好、待执行的命令。它长在输入框**里面**，发送时用它，不用状态机那一个。 -->
+      <div class="pending-cmd hidden" id="pendingCmd"></div>
+      <textarea id="input" rows="3" placeholder="补充要求（可留空）…（Enter 发送，Shift+Enter 换行）"></textarea>
+    </div>
     <div class="composer-bar">
-      <button class="chip-btn" id="atBtn" title="引用文件或章节">@ 引用</button>
-      <button class="chip-btn" id="selBtn" title="${selTitle}">加入选区</button>
+      <button class="composer-tool" id="atBtn" title="引用文件或章节"><span class="tool-key">@</span>引用</button>
+      <button class="composer-tool" id="selBtn" title="${selTitle}">加入选区</button>
+      <button class="composer-tool" id="cmdBtn" title="其它命令（在输入框里直接打 / 也一样）"><span class="tool-key">/</span>命令</button>
       <select id="modelSelect" title="使用哪个模型"></select>
       <select id="targetSelect" title="当前创作目标"></select>
       <input type="number" id="targetWords" value="2000" min="0" step="100" title="目标字数（0 为不限）">

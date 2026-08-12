@@ -735,6 +735,14 @@ export interface SerializedTurn {
   role: 'user' | 'assistant';
   content: string;
   at: string;
+  /**
+   * 仅 user 轮：这一轮下的是哪个命令（已按阶段具体化的标签，如「生成细纲」）。
+   *
+   * 命令类的轮次 content 是空的（该说的都在产物里，作者不必再打字），气泡里
+   * 只有一片空白，事后翻历史根本看不出刚才点了什么。前端拿它渲染一枚
+   * `/生成细纲` 的标签。**「讨论」不带**——那是默认动作，每条都挂个标签是噪声。
+   */
+  command?: string;
   attachments?: SerializedAttachment[];
   context?: SerializedDigest;
   acceptedTo?: string;

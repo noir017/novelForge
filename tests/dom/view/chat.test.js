@@ -457,3 +457,63 @@ describe('思考过程（推理模型）', { skip: JSDOM_SKIP }, () => {
     assert.ok(!ui.bubble('a2').querySelector('details.reasoning'));
   });
 });
+
+describe('命令类消息的气泡', { skip: JSDOM_SKIP }, () => {
+  let ui;
+  const cmdTag = (id) => ui.bubble(id).querySelector('.msg-command');
+
+  before(() => {
+    ui = mount();
+    ui.post({
+      type: 'session',
+      session: emptySession({
+        target: { kind: 'plan', chapterRelPath: 'chapters/012-夜入青云.md' },
+        stage: 'plan',
+        capability: 'generate',
+      }),
+    });
+  });
+
+  // 「生成细纲」不需要作者说什么（该说的都在大纲里），于是 content 是空的。
+  // 但气泡不能就这么空着——翻回去看时认不出刚才点的是哪一下。
+  test('空输入的命令轮次显示命令名', () => {
+    ui.post({ type: 'turnDone', turn: turn('u1', 'user', '', { command: '生成细纲' }) });
+    assert.ok(cmdTag('u1'), '没有命令标签');
+    assert.equal(cmdTag('u1').textContent, '/生成细纲', cmdTag('u1')?.textContent);
+  });
+
+  test('气泡不再是一片空白', () => {
+    assert.ok(ui.bodyOf('u1').textContent.trim().length > 0, JSON.stringify(ui.bodyOf('u1').textContent));
+  });
+
+  // 有补充要求时两样都在：命令一枚标签，正文跟在后面。
+  test('带补充要求时命令与正文都显示', () => {
+    ui.post({ type: 'turnDone', turn: turn('u2', 'user', '这一章要慢一点', { command: '生成细纲' }) });
+    assert.equal(cmdTag('u2').textContent, '/生成细纲');
+    assert.equal(ui.bubble('u2').querySelector('.msg-text').textContent, '这一章要慢一点');
+  });
+
+  // 讨论是默认动作，后端不给 command——每条消息都挂一枚「/讨论」是纯噪声。
+  test('讨论轮次不挂命令标签', () => {
+    ui.post({ type: 'turnDone', turn: turn('u3', 'user', '这里冲突太弱') });
+    assert.ok(!cmdTag('u3'));
+    assert.equal(ui.bodyOf('u3').textContent, '这里冲突太弱');
+  });
+
+  // 旧会话里的空轮次（那时命令没被记下来）：留一句说明，别留一片空白。
+  test('既无话也无命令时给一句说明', () => {
+    ui.post({ type: 'turnDone', turn: turn('u4', 'user', '') });
+    assert.ok(ui.bubble('u4').querySelector('.msg-text-empty'), ui.bodyOf('u4')?.textContent);
+  });
+
+  // 模型回复那一支必须保持成纯文本节点：流式增量走 textContent += delta，
+  // 里面有子元素的话第一片增量就会把它们冲掉。
+  test('模型回复里不插结构', () => {
+    ui.post({ type: 'busy', value: true });
+    ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '') });
+    ui.post({ type: 'delta', turnId: 'a1', text: '第一段。' });
+    assert.equal(ui.bodyOf('a1').children.length, 0, ui.bodyOf('a1').innerHTML);
+    assert.equal(ui.bodyOf('a1').textContent, '第一段。');
+    ui.post({ type: 'busy', value: false });
+  });
+});

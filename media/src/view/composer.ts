@@ -12,7 +12,13 @@
 import { el as mk, setHidden } from '../dom';
 import { CAPABILITY_LABEL, commandOf } from '../protocol';
 import type { Capability, CreationStage, NextStepView, SendPayload, StageCommand } from '../protocol';
-import { handleCommandKey, isCommandPaletteOpen, toggleCommands } from './commands';import { el } from './refs';
+import {
+  handleCommandKey,
+  isCommandPaletteOpen,
+  syncCommandPalette,
+  toggleCommands,
+} from './commands';
+import { el } from './refs';
 import { persistDraft, store, vscode } from './store';
 import { setBusy } from './state';
 import { toast } from './toast';
@@ -83,10 +89,14 @@ function renderPending(): void {
     return;
   }
   const chip = mk('span', 'chip cmd-chip');
-  chip.appendChild(mk('span', 'chip-label', `/ ${pending.label}`));
+  chip.appendChild(mk('span', 'chip-label', `/${pending.label}`));
   const x = mk('button', 'chip-x', '×');
   x.title = '取消这个命令';
-  x.addEventListener('click', clearPendingCommand);
+  x.setAttribute('aria-label', '取消这个命令');
+  x.addEventListener('click', () => {
+    clearPendingCommand();
+    el.input.focus();
+  });
   chip.appendChild(x);
   el.pendingCmd.appendChild(chip);
 }
@@ -150,7 +160,13 @@ export function installComposer(): void {
   el.syncBtn.addEventListener('click', () => vscode.postMessage({ type: 'syncSummaries' }));
   el.cmdBtn.addEventListener('click', toggleCommands);
 
-  el.input.addEventListener('input', persistDraft);
+  // 面板的开合是**输入框内容的函数**（见 commands.ts）：打 `/` 就开、删掉
+  // 就关、往后打字就过滤。挂在 input 而不是 keydown 上，输入法打的中文
+  // （composition 结束才落值）才收得到。
+  el.input.addEventListener('input', () => {
+    persistDraft();
+    syncCommandPalette();
+  });
   el.targetWords.addEventListener('input', persistDraft);
   // 目标下拉框换了一章 → **进入那一章当前该做的那一步**（由后端的状态机判定）。
   // 旧版一律落到正文层，于是选中一个连细纲都没有的章节，界面直接把作者
@@ -170,12 +186,11 @@ export function installComposer(): void {
   );
 
   el.input.addEventListener('keydown', (e) => {
-    // 面板开着时键盘归它（↑↓ 选、Enter 确认、其余字符进过滤串）。
-    if (isCommandPaletteOpen()) {
-      if (handleCommandKey(e)) {
-        e.preventDefault();
-        return;
-      }
+    // 面板开着时导航键归它（↑↓ 选、Enter/Tab 确认、Esc 收起）。
+    // 可打印字符一律放行——过滤串由上面那个 input 监听从输入框的值重算。
+    if (isCommandPaletteOpen() && handleCommandKey(e)) {
+      e.preventDefault();
+      return;
     }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
@@ -186,13 +201,8 @@ export function installComposer(): void {
     if (e.key === '@') {
       e.preventDefault();
       vscode.postMessage({ type: 'pickAttachment' });
-      return;
     }
-    // `/` 唤出命令面板，但**只在输入框为空时**：`/` 在中文正文里是普通
-    // 字符（日期、比值、网址），任何位置都拦会误伤。
-    if (e.key === '/' && el.input.value === '' && !e.isComposing) {
-      e.preventDefault();
-      toggleCommands();
-    }
+    // `/` 不再在这里拦：它就打进输入框，面板由 input 监听按值唤出。
+    // 从前拦下来自己攒过滤串，等于在输入框旁边又造了一个隐形输入框。
   });
 }
