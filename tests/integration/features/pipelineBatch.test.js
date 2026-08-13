@@ -66,9 +66,9 @@ before(async () => {
     registry: './src/core/llm/registry.ts',
     provider: './src/core/llm/provider.ts',
     batch: './src/core/features/pipelineBatch.ts',
-    errorLog: './src/core/errorLog.ts',
-    db: './src/core/db.ts',
-    logger: './src/core/logger.ts',
+    errorLog: './src/core/runtime/errorLog.ts',
+    db: './src/core/runtime/db.ts',
+    logger: './src/core/runtime/logger.ts',
   });
 
   // 原脚本的假宿主没有 reviewReplace——批量路径本来就不该逐份弹 diff。

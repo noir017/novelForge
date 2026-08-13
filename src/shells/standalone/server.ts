@@ -1,7 +1,13 @@
 import { ChatController } from '../../core/controller';
 import { initHost } from '../../core/host';
 import { initSecrets } from '../../core/llm/registry';
-import { addLogSink, describeError, formatLogEntry, scoped, setSinkLevel } from '../../core/logger';
+import {
+  addLogSink,
+  describeError,
+  formatLogEntry,
+  scoped,
+  setSinkLevel,
+} from '../../core/runtime/logger';
 import { NovelProject } from '../../core/model/project';
 import { InMessage, OutMessage } from '../../core/protocol';
 import { FileConfigStore, FileSecretStore } from '../../core/stores';

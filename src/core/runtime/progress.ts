@@ -1,5 +1,5 @@
-import { getHost } from './host';
-import { CancelledError } from './llm/provider';
+import { getHost } from '../host';
+import { CancelledError } from '../llm/provider';
 import { describeError, elapsed, formatDuration, scoped } from './logger';
 
 /**

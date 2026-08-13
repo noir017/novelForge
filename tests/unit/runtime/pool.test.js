@@ -27,11 +27,11 @@ let host;
 before(() => {
   const bundle = loadBundle({
     host: './src/core/host.ts',
-    concurrency: './src/core/concurrency.ts',
+    concurrency: './src/core/runtime/concurrency.ts',
     pool: './src/core/llm/pool.ts',
     registry: './src/core/llm/registry.ts',
     provider: './src/core/llm/provider.ts',
-    logger: './src/core/logger.ts',
+    logger: './src/core/runtime/logger.ts',
   });
 
   ({ createModelPool } = bundle.pool);

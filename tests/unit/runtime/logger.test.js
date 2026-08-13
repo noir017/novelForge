@@ -18,7 +18,7 @@ let logger;
 before(() => {
   const bundle = loadBundle({
     host: './src/core/host.ts',
-    logger: './src/core/logger.ts',
+    logger: './src/core/runtime/logger.ts',
   });
   logger = bundle.logger;
   bundle.host.initHost(makeFakeHost().host);

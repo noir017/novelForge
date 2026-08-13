@@ -14,8 +14,8 @@ import { breakdownScenes, generatePlans } from '../features/pipelineBatch';
 import { extractStyle } from '../features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../features/summarize';
 import { getHost } from '../host';
-import { scoped } from '../logger';
-import { runTask } from '../progress';
+import { scoped } from '../runtime/logger';
+import { runTask } from '../runtime/progress';
 import { CharacterAction, ProjectAction } from '../protocol';
 import { focusWithTarget } from './chat';
 

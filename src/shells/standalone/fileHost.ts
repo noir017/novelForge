@@ -90,7 +90,7 @@ export class FileHost implements Host {
   }
 
   /**
-   * 长任务。**不再为每次进度弹 toast**——`core/progress.ts` 把同一份进度
+   * 长任务。**不再为每次进度弹 toast**——`core/runtime/progress.ts` 把同一份进度
    * 结构化推给了网页，工程页顶部有进度条与计时，逐条 toast 只会连着刷屏
    * 把别的提示盖掉。这里只负责给出 signal，以及把失败原因报出来。
    *
@@ -101,7 +101,7 @@ export class FileHost implements Host {
     title: string,
     fn: (signal: AbortSignal, report: (message: string) => void) => Promise<T>
   ): Promise<T> {
-    void title; // 展示名由 core/progress.ts 推给网页，这里用不上
+    void title; // 展示名由 core/runtime/progress.ts 推给网页，这里用不上
     const abort = new AbortController();
     try {
       return await fn(abort.signal, () => undefined);

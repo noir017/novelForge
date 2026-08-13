@@ -81,8 +81,8 @@ before(async () => {
     characterCard: './src/core/features/characterCard.ts',
     registry: './src/core/llm/registry.ts',
     // 失败记录会落进工程库；这里要能读回来断言，收尾还要关掉连接。
-    db: './src/core/db.ts',
-    errorLog: './src/core/errorLog.ts',
+    db: './src/core/runtime/db.ts',
+    errorLog: './src/core/runtime/errorLog.ts',
   });
   ({ project: projectMod, cast: castMod, characterCard: cardMod, errorLog } = bundle);
 

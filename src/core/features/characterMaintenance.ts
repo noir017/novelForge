@@ -4,13 +4,13 @@ import { buildCastIndex, readCastChapters } from '../views/cast';
 import { buildIdentityGroups } from '../model/identity';
 import { trashPathFor } from '../files/fileOps';
 import { getHost } from '../host';
-import { elapsed, scoped } from '../logger';
+import { elapsed, scoped } from '../runtime/logger';
 import { rewriteFrontmatter } from '../model/markdown';
 import { readText, writeText } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { CharacterCard } from '../model/types';
 import { DroppedAlias, explainDroppedAliases, normalizeName, sanitizeAliases } from '../model/naming';
-import { runTask } from '../progress';
+import { runTask } from '../runtime/progress';
 
 const log = scoped('角色卡');
 

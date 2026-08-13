@@ -1,4 +1,4 @@
-import { CancelledError } from './llm/provider';
+import { CancelledError } from '../llm/provider';
 
 /**
  * 有界并发。

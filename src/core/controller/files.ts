@@ -3,7 +3,7 @@ import { deleteEntry, moveEntry, renameEntry } from '../files/fileOps';
 import { listDirs } from '../files/fileTree';
 import { copyInto, moveInto, renameAny } from '../files/projectFiles';
 import { getHost } from '../host';
-import { scoped } from '../logger';
+import { scoped } from '../runtime/logger';
 import { FileOpResult, InMessage } from '../protocol';
 
 const log = scoped('面板');

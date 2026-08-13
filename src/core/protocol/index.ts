@@ -44,8 +44,8 @@ export type {
   WorkbenchView,
 } from './views';
 
-export type { LogEntry, LogLevel } from '../logger';
-export type { TaskSnapshot } from '../progress';
+export type { LogEntry, LogLevel } from '../runtime/logger';
+export type { TaskSnapshot } from '../runtime/progress';
 export type { DirListing, FsEntry } from '../files/fileTree';
 export type {
   Capability,

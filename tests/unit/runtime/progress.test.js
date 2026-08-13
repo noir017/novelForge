@@ -18,8 +18,8 @@ let hostProgressCalls;
 before(() => {
   const bundle = loadBundle({
     host: './src/core/host.ts',
-    logger: './src/core/logger.ts',
-    progress: './src/core/progress.ts',
+    logger: './src/core/runtime/logger.ts',
+    progress: './src/core/runtime/progress.ts',
   });
   logger = bundle.logger;
   progress = bundle.progress;

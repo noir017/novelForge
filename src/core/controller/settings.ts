@@ -15,7 +15,7 @@ import {
   resolveModelRef,
 } from '../model/providers';
 import { SerializedProvider, SettingsPayload } from '../protocol';
-import { scoped } from '../logger';
+import { scoped } from '../runtime/logger';
 
 const log = scoped('面板');
 

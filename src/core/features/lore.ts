@@ -1,11 +1,11 @@
 import { readConfig } from '../config';
-import { runPool, Settled } from '../concurrency';
-import { clearFailures, recordFailure } from '../errorLog';
+import { runPool, Settled } from '../runtime/concurrency';
+import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { getHost } from '../host';
 import { collectStream, ChatOptions } from '../llm/provider';
 import { budgetForTask, createModelPool, ModelPool } from '../llm/pool';
-import { describeError, elapsed, scoped } from '../logger';
+import { describeError, elapsed, scoped } from '../runtime/logger';
 import { readText, slugify, uniqueSlug } from '../model/fs';
 import { parseMarkdown, stripH1 } from '../model/markdown';
 import { describeTaskModels } from '../model/tiers';
@@ -14,7 +14,7 @@ import {
   renderLoreEntry,
 } from '../model/project';
 import { Chapter, LoreEntry } from '../model/types';
-import { runTask } from '../progress';
+import { runTask } from '../runtime/progress';
 import { LORE_EXTRACT_SYSTEM, LORE_SYNTHESIS_SYSTEM } from './lorePrompt';
 import { extractJson, stringArray, stripCodeFence, unique, uniqueNumbers } from './parse';
 

@@ -1,5 +1,5 @@
 import { readBudgetFallback, readConfig } from '../config';
-import { describeError, scoped } from '../logger';
+import { describeError, scoped } from '../runtime/logger';
 import { describeModelIssue, resolveModelRef } from '../model/providers';
 import { describeTier, LlmTask, ModelTier, refsForTask, TASK_LABEL } from '../model/tiers';
 import { buildProvider } from './registry';

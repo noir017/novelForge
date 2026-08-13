@@ -28,8 +28,8 @@
  */
 
 import { openDatabase } from './db';
-import { NovelProject } from './model/project';
-import { FailureView } from './protocol';
+import { NovelProject } from '../model/project';
+import { FailureView } from '../protocol';
 
 /** 失败挂在什么东西上。与工程页的三个区一一对应。 */
 export type FailureTargetKind = 'character' | 'chapter' | 'lore';

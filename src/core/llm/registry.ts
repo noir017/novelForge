@@ -1,6 +1,6 @@
 import { readConfig } from '../config';
 import { getHost } from '../host';
-import { scoped } from '../logger';
+import { scoped } from '../runtime/logger';
 import {
   ActiveModel,
   ProviderProfile,

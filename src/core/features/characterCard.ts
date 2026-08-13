@@ -1,12 +1,12 @@
 import { appearancesOf, buildCastIndex, CastMember, describeChapters } from '../views/cast';
 import { readConfig } from '../config';
-import { runPool, serialize } from '../concurrency';
-import { clearFailures, recordFailure } from '../errorLog';
+import { runPool, serialize } from '../runtime/concurrency';
+import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { getHost } from '../host';
 import { collectStream, ChatOptions } from '../llm/provider';
 import { budgetForTask, createModelPool, ModelPool } from '../llm/pool';
-import { describeError, elapsed, scoped } from '../logger';
-import { runTask } from '../progress';
+import { describeError, elapsed, scoped } from '../runtime/logger';
+import { runTask } from '../runtime/progress';
 import { readText, slugify, uniqueSlug, writeText } from '../model/fs';
 import {
   NovelProject,

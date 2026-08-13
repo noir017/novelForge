@@ -14,7 +14,7 @@ describe('runPool：并发上限与顺序', () => {
   let runPool;
 
   before(() => {
-    ({ runPool } = loadModule('src/core/concurrency.ts'));
+    ({ runPool } = loadModule('src/core/runtime/concurrency.ts'));
   });
 
   describe('并发上限', () => {
@@ -73,7 +73,7 @@ describe('runPool：失败与取消', () => {
   let runPool;
 
   before(() => {
-    ({ runPool } = loadModule('src/core/concurrency.ts'));
+    ({ runPool } = loadModule('src/core/runtime/concurrency.ts'));
   });
 
   describe('单项失败', () => {
@@ -172,7 +172,7 @@ describe('serialize：审阅排队', () => {
   let serialize;
 
   before(() => {
-    ({ serialize } = loadModule('src/core/concurrency.ts'));
+    ({ serialize } = loadModule('src/core/runtime/concurrency.ts'));
   });
 
   describe('排队执行', () => {

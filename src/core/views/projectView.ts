@@ -1,6 +1,6 @@
 import { buildCastIndex, describeChapters } from './cast';
-import { listActiveFailures } from '../errorLog';
-import { scoped } from '../logger';
+import { listActiveFailures } from '../runtime/errorLog';
+import { scoped } from '../runtime/logger';
 import { SECTION_PLACEHOLDER } from '../model/markdown';
 import { NovelProject } from '../model/project';
 import { describeScene } from '../model/sceneFile';

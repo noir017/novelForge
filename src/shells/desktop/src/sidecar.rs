@@ -44,7 +44,7 @@ pub struct Sidecar {
 }
 
 /// 收掉当前 sidecar。**退出时必须调**：Windows 上留下孤儿进程会占着端口，
-/// 还会占着 `.novelforge/novelforge.db`（`src/core/db.ts` 里记过这个 EBUSY 坑）。
+/// 还会占着 `.novelforge/novelforge.db`（`src/core/runtime/db.ts` 里记过这个 EBUSY 坑）。
 ///
 /// 幂等——没有在跑的子进程时什么都不做。
 pub fn kill(app: &AppHandle) {
@@ -201,7 +201,7 @@ fn reset_log(path: &Path, root: &Path, port: u16) {
 }
 
 /// 追加一段 sidecar 输出。**所有错误都吞掉**——日志是排查手段，不该成为
-/// 新的失败源（与 src/core/db.ts 里对 SQLite 的态度一致）。
+/// 新的失败源（与 src/core/runtime/db.ts 里对 SQLite 的态度一致）。
 fn append(path: &Option<PathBuf>, text: &str) {
     let Some(path) = path else {
         return;

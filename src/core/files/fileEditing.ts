@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { scoped } from '../logger';
+import { scoped } from '../runtime/logger';
 import { isChapterFileName } from '../model/chapterFile';
 import { hash } from '../model/fs';
 

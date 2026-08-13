@@ -1,7 +1,7 @@
 import type { ChatController } from './index';
 import { describeArtifact, suggestTitle } from '../features/creation';
 import { getHost } from '../host';
-import { scoped } from '../logger';
+import { scoped } from '../runtime/logger';
 import {
   ChatSession,
   ChatTurn,

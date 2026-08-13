@@ -22,7 +22,7 @@
  * 的影响清单。真正需要语义判断的跨章影响（「第 15 章提到他曾翻越侧峰」）只能
  * 由作者显式触发，不在这里自动跑。
  */
-import { scoped } from '../logger';
+import { scoped } from '../runtime/logger';
 import { hash } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { ChapterPlan } from '../model/planFile';

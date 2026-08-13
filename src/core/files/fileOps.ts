@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getHost } from '../host';
-import { scoped } from '../logger';
+import { scoped } from '../runtime/logger';
 import { isMarkdownPath } from '../model/chapterFile';
 import { exists, readText, sanitizeFileName, writeText } from '../model/fs';
 import { NovelProject } from '../model/project';

@@ -15,20 +15,20 @@
  * 「逐个审阅」的余地——一次弹 63 个 diff 没有人看得完——所以唯一安全的
  * 做法是只处理空白的那些。要重做某一章，去创作页单独重做。
  */
-import { runPool } from '../concurrency';
+import { runPool } from '../runtime/concurrency';
 import { readConfig } from '../config';
-import { clearFailures, recordFailure } from '../errorLog';
+import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { getHost } from '../host';
 import { collectStream, CancelledError, ChatMessage } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
-import { describeError, elapsed, formatDuration, scoped } from '../logger';
+import { describeError, elapsed, formatDuration, scoped } from '../runtime/logger';
 import { hash, sanitizeFileName } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { isPlanFilled } from '../model/planFile';
 import { describeTaskModels } from '../model/tiers';
 import { buildContext } from '../context/builder';
 import { Chapter } from '../model/types';
-import { runTask } from '../progress';
+import { runTask } from '../runtime/progress';
 import { planContentHash } from '../views/pipeline';
 import { parsePlanStrict, parseSceneList } from './artifact';
 

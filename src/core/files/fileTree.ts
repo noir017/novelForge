@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { isEditablePath, resolveInRoot, toRelPosix } from './fileEditing';
-import { scoped } from '../logger';
+import { scoped } from '../runtime/logger';
 
 const log = scoped('文件树');
 

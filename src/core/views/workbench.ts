@@ -17,7 +17,7 @@
  * 常驻卡片，既读不下去又把消息流挤没了；真要读，「打开」按钮就在旁边。
  * 大纲同理只给预览——它可能有几千字。
  */
-import { scoped } from '../logger';
+import { scoped } from '../runtime/logger';
 import { hash } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { PLAN_SECTION_KEYS } from '../model/planFile';

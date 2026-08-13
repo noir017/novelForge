@@ -11,7 +11,7 @@ import {
   sectionOf,
 } from './fileOps';
 import { getHost } from '../host';
-import { describeError, scoped } from '../logger';
+import { describeError, scoped } from '../runtime/logger';
 import { exists } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { FileOpResult } from '../protocol';

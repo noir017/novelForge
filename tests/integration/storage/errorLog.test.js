@@ -40,10 +40,10 @@ describe('errorLog · db', () => {
   before(() => {
     const bundle = loadBundle({
       host: './src/core/host.ts',
-      logger: './src/core/logger.ts',
+      logger: './src/core/runtime/logger.ts',
       project: './src/core/model/project.ts',
-      db: './src/core/db.ts',
-      errorLog: './src/core/errorLog.ts',
+      db: './src/core/runtime/db.ts',
+      errorLog: './src/core/runtime/errorLog.ts',
       projectView: './src/core/views/projectView.ts',
     });
     ({ logger, project: projectMod, db, errorLog, projectView } = bundle);

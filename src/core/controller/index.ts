@@ -1,11 +1,11 @@
 import { listAttachmentChoices } from '../files/attachments';
 import { readConfig } from '../config';
-import { closeDatabase, installLogPersistence, readLogHistory } from '../db';
+import { closeDatabase, installLogPersistence, readLogHistory } from '../runtime/db';
 import { CreationSession } from '../features/creation';
 import { syncSummaries } from '../features/summarize';
 import { getHost } from '../host';
-import { addLogSink, clearLogs, describeError, recentLogs, scoped } from '../logger';
-import { activeTasks, cancelTask, onTasksChanged } from '../progress';
+import { addLogSink, clearLogs, describeError, recentLogs, scoped } from '../runtime/logger';
+import { activeTasks, cancelTask, onTasksChanged } from '../runtime/progress';
 import { clearApiKey, promptForApiKey } from '../llm/registry';
 import { NovelProject } from '../model/project';
 import {

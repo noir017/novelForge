@@ -1,5 +1,5 @@
 import { firstModelRef, normalizeProviders, resolveModelRef, seedFromLegacy } from './model/providers';
-import { scoped } from './logger';
+import { scoped } from './runtime/logger';
 import { NovelConfig } from './model/types';
 import { isLlmTask, isModelTier, LlmTask, MODEL_TIERS, ModelTier, TierModels } from './model/tiers';
 
