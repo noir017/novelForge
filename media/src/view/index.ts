@@ -26,7 +26,7 @@ import {
 } from './messages';
 import { applySummary, installProject, invalidateSummaries, renderProject } from './project';
 import { baseMenuItems } from './project/actions';
-import { bindNextStepRunner, installNewSession, renderPipeline } from './pipeline';
+import { bindNextStepRunner, installNewSession, installRenameChapter, renderPipeline } from './pipeline';
 import { renderWorkbench, installWorkbench } from './workbench';
 import { renderPrompt } from './prompt';
 import { installSettings, renderSettings } from './settings';
@@ -48,6 +48,7 @@ bindPayload(payload);
 // 变成待执行 chip。两条线都不在各自模块里另起一套发送逻辑。
 bindNextStepRunner(runNextStep);
 installNewSession();
+installRenameChapter();
 bindCommandPick(setPendingCommand);
 installProject();
 installLogs();

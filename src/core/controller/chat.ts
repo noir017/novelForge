@@ -381,6 +381,44 @@ export async function selectChapter(c: ChatController, chapterRelPath: string): 
 }
 
 /**
+ * 章节改名/移动后，把当前会话的目标指到新路径。
+ *
+ * 少了这一步，`current.target.chapterRelPath` 还指着旧路径，创作页会拿到
+ * 一份「这一章找不到」的空壳 pipeline——徽章回落成「待写细纲」、三层进度全
+ * 归零、工作区卡说这一章不存在。而作者刚做的只是给它起个名字。
+ *
+ * `from`/`to` 也可能是**目录**（改名一整卷）：那时目标章节在它下面，按前缀
+ * 换一段就是新路径。不认这一条的话，「把卷一改名」会把作者正在写的那一章
+ * 从界面上弄丢。
+ *
+ * **不走 `setTarget`**：那会把 capability 重置成 discuss、把页签切到创作页。
+ * 改个名不该让他刚挑好的命令消失，也不该把他从工程页拽走。
+ */
+export async function retargetChapter(
+  c: ChatController,
+  fromRel: string,
+  toRel: string
+): Promise<void> {
+  const current = chapterOfTarget(c.current.target);
+  if (!current || fromRel === toRel) {
+    return;
+  }
+  const next =
+    current === fromRel
+      ? toRel
+      : current.startsWith(`${fromRel}/`)
+        ? `${toRel}${current.slice(fromRel.length)}`
+        : undefined;
+  if (next === undefined) {
+    return;
+  }
+  c.current.target = { ...c.current.target, chapterRelPath: next } as CreationTarget;
+  log.info(`创作目标跟随改名`, `${current} → ${next}`);
+  c.post({ type: 'session', session: serializeSession(c.current) });
+  await pushPipeline(c);
+}
+
+/**
  * 把这一轮请求里的 stage/capability/target 记进会话。
  *
  * 前端每次发送都带全量（它才知道用户点了哪个按钮），后端**校验一遍**：

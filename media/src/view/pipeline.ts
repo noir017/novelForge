@@ -25,6 +25,7 @@ import {
   CREATION_STAGES,
   STAGE_LABEL,
   STAGE_QUESTION,
+  chapterLabel,
   chapterOfTarget,
 } from '../protocol';
 import type {
@@ -65,6 +66,23 @@ export function installNewSession(): void {
   });
 }
 
+/**
+ * 「重命名当前章节」。
+ *
+ * 复用工程页右键那条 `fileAction: 'rename'`——后端的 `renameEntry` 已经会
+ * 保留序号前缀、同步正文 H1、把细纲/场景/摘要/草稿四套伴生文件连内容里的
+ * 引用一起带走。这里只负责说清「改的是哪一章」，不新增协议。
+ */
+export function installRenameChapter(): void {
+  el.renameChapterBtn.addEventListener('click', () => {
+    const relPath = chapterOfTarget(store.session.target);
+    if (!relPath || store.busy) {
+      return;
+    }
+    vscode.postMessage({ type: 'fileAction', action: 'rename', relPath });
+  });
+}
+
 export function renderPipeline(pipeline: ChapterPipelineView | undefined, step: NextStepView | undefined): void {
   current = pipeline ?? null;
   next = step ?? null;
@@ -87,10 +105,29 @@ export function onSessionChanged(): void {
 
 function redraw(): void {
   renderCrumb();
+  renderRenameBtn();
   renderStages();
   renderScenes();
   renderNextStep();
   updatePlaceholder();
+}
+
+/**
+ * 「重命名当前章节」按钮的显隐与 tooltip。
+ *
+ * 目标是全书大纲时藏起来——那一层没有章可改名，留一个点了会报错的按钮
+ * 比没有更糟。tooltip 里带上章名，作者才看得出改的是哪一章。
+ */
+function renderRenameBtn(): void {
+  const relPath = chapterOfTarget(store.session.target);
+  setHidden(el.renameChapterBtn, !relPath);
+  if (!relPath) {
+    return;
+  }
+  el.renameChapterBtn.title =
+    current && current.order > 0
+      ? `重命名${chapterLabel(current.order, current.title)}`
+      : `重命名 ${relPath}`;
 }
 
 // ---------------------------------------------------------------- 章名信息条（只读）
@@ -116,8 +153,10 @@ function renderCrumb(): void {
     return;
   }
 
-  const title = current?.title
-    ? `第 ${current.order} 章《${current.title}》`
+  // `order` 为 0 是后端给的「这一章找不到」空壳（刚被改名或删掉），
+  // 那时报文件名比报「第 0 章」有用。
+  const title = current && current.order > 0
+    ? chapterLabel(current.order, current.title)
     : relPath.slice(relPath.lastIndexOf('/') + 1);
   box.appendChild(mk('span', 'crumb', title));
 

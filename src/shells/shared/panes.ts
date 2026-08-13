@@ -100,6 +100,10 @@ export function chatPane(opts: PaneOptions = {}): string {
   <div class="pipeline" id="pipeline">
     <div class="pipeline-top" id="pipelineTop">
       <div class="pipeline-crumb" id="pipelineCrumb"></div>
+      <!-- 给当前这一章起名 / 改名。新建出来的章节是纯序号名（标题要等细纲
+           写完才定得下来），所以命名是主流程的一步，得有个常驻入口。
+           目标是全书大纲时前端把它藏起来。 -->
+      <button class="pipeline-new hidden" id="renameChapterBtn" title="重命名当前章节" aria-label="重命名当前章节">✎</button>
       <button class="pipeline-new" id="newSessionBtn" title="开始新对话" aria-label="开始新对话">＋</button>
     </div>
     <div class="pipeline-stages" id="pipelineStages"></div>

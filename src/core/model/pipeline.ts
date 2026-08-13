@@ -255,6 +255,22 @@ export function commandOf(stage: CreationStage, capability: Capability): StageCo
   return commandsFor(stage).find((c) => c.capability === capability);
 }
 
+/**
+ * 「第 12 章《夜入青云》」——章节在界面、日志、上下文标签里的统一说法。
+ *
+ * **未命名的章节只报序号。** 新建一章走流水线时文件名是纯序号（`007.md`，
+ * 标题要等细纲写完才定），`listChapters` 的标题回落链会给出「第 7 章」，
+ * 于是模板一套就成了「第 7 章《第 7 章》」——读起来像出了 bug。判据就是
+ * 「标题恰好等于那个回落值」，因为那正是「没有标题」在数据里的样子。
+ *
+ * 四处共用同一份（创作页面包屑、工作区卡、装配器的条目标签、`describeTarget`），
+ * 各写一遍的话同一章在四个地方会有四种叫法。
+ */
+export function chapterLabel(order: number, title?: string): string {
+  const named = title?.trim();
+  return named && named !== `第 ${order} 章` ? `第 ${order} 章《${named}》` : `第 ${order} 章`;
+}
+
 // ---------------------------------------------------------------- Target
 
 /**
@@ -319,10 +335,7 @@ export function describeTarget(
   if (target.kind === 'outline') {
     return '全书大纲';
   }
-  const head =
-    info?.order !== undefined
-      ? `第 ${info.order} 章${info.title ? `《${info.title}》` : ''}`
-      : target.chapterRelPath;
+  const head = info?.order !== undefined ? chapterLabel(info.order, info.title) : target.chapterRelPath;
   const scene = (no: number) => ` · 场景 ${no}${info?.sceneTitle ? ` ${info.sceneTitle}` : ''}`;
 
   switch (target.kind) {

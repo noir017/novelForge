@@ -15,6 +15,7 @@ export const el = {
   messages: byId('messages'),
   emptyHint: byId('emptyHint'),
   newSessionBtn: byId<HTMLButtonElement>('newSessionBtn'),
+  renameChapterBtn: byId<HTMLButtonElement>('renameChapterBtn'),
   workbench: byId<HTMLButtonElement>('workbench'),
   nextStep: byId('nextStep'),
   nextStepHint: byId('nextStepHint'),

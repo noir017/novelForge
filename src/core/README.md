@@ -21,7 +21,7 @@
 | [protocol/](protocol/index.ts) | 前端 ↔ 后端的消息协议（`InMessage` / `OutMessage` / `ViewState`）。对外入口仍是 `core/protocol`。插件 webview 与独立版网页共用，是前后端的唯一契约。 |
 | [controller/](controller/index.ts) | ★ `ChatController`：全部面板逻辑，按消息域拆在同目录模块里。收 `InMessage` → 调度 `CreationSession` / 会话存储 / 创作目标切换 / 设置读写 → 广播 `OutMessage`。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。 |
 | [host.ts](host.ts) | core 对宿主的唯一依赖面（窄接口）：弹窗/选择/进度/文件监听/打开文件等，两个壳各实现一份。 |
-| [actions.ts](actions.ts) | 工程级交互流程（初始化、新建章节），命令面板与网页共用。 |
+| [actions.ts](actions.ts) | 工程级交互流程（初始化、新建章节），命令面板与网页共用。新建章节只落一个纯序号名的空章节文件（标题等细纲写完再改名定），**不问标题也不打开它**；「建完去哪」由调用方决定，面板走 `selectChapter` 落到这一章的当前步骤。 |
 | [config.ts](config.ts) | `readConfig` / `readBudgetFallback` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |
 | [stores.ts](stores.ts) | 文件后端的配置/密钥存储（`~/.novelforge/`），双壳共用。 |
 

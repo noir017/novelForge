@@ -38,6 +38,11 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.ok(ui.doc.getElementById('pipelineStages').classList.contains('hidden'));
   });
 
+  // 全书大纲那一层没有章可改名，留一个点了会报错的按钮比没有更糟。
+  test('大纲阶段收起重命名按钮', () => {
+    assert.ok(ui.doc.getElementById('renameChapterBtn').classList.contains('hidden'));
+  });
+
   // 全书大纲阶段没有「这一章的三层」，但一样有下一步（去写大纲）。
   test('大纲阶段也给下一步', () => {
     ui.post({
@@ -183,6 +188,47 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.ok(ui.doc.getElementById('newSessionBtn').disabled);
     ui.post({ type: 'busy', value: false });
     assert.ok(!ui.doc.getElementById('newSessionBtn').disabled);
+  });
+
+  // ---- 「重命名当前章节」按钮：面包屑右侧那支笔 ----
+  // 新建出来的章节是纯序号名（标题要等细纲写完才定），所以命名是主流程的一步。
+  test('重命名按钮在面包屑右侧', () => {
+    const btn = ui.doc.getElementById('renameChapterBtn');
+    assert.ok(btn, '没有 renameChapterBtn');
+    assert.equal(btn.parentElement?.id, 'pipelineTop');
+  });
+
+  test('目标是章节时按钮可见', () => {
+    assert.ok(!ui.doc.getElementById('renameChapterBtn').classList.contains('hidden'));
+  });
+
+  test('tooltip 带上章名', () => {
+    assert.ok(ui.doc.getElementById('renameChapterBtn').title.includes('夜入青云'),
+      ui.doc.getElementById('renameChapterBtn').title);
+  });
+
+  // 复用工程页右键那条 fileAction，不新增协议。
+  test('点重命名发出 fileAction', () => {
+    ui.clickEl(ui.doc.getElementById('renameChapterBtn'));
+    const msg = [...ui.sent].reverse().find((m) => m.type === 'fileAction');
+    assert.ok(msg, JSON.stringify(ui.sent));
+    assert.equal(msg.action, 'rename', JSON.stringify(msg));
+    assert.equal(msg.relPath, 'chapters/012-夜入青云.md', JSON.stringify(msg));
+  });
+
+  test('生成中禁用重命名按钮', () => {
+    ui.post({ type: 'busy', value: true });
+    assert.ok(ui.doc.getElementById('renameChapterBtn').disabled);
+    ui.post({ type: 'busy', value: false });
+    assert.ok(!ui.doc.getElementById('renameChapterBtn').disabled);
+  });
+
+  test('生成中点重命名不发 fileAction', () => {
+    ui.post({ type: 'busy', value: true });
+    const before = ui.sent.filter((m) => m.type === 'fileAction').length;
+    ui.clickEl(ui.doc.getElementById('renameChapterBtn'));
+    assert.equal(ui.sent.filter((m) => m.type === 'fileAction').length, before);
+    ui.post({ type: 'busy', value: false });
   });
 
   test('点细纲段发出 setTarget', () => {

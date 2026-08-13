@@ -1,5 +1,6 @@
 import { exists, readText } from '../../model/fs';
 import { stringifySections } from '../../model/markdown';
+import { chapterLabel as labelOfChapter } from '../../model/pipeline';
 import { ChapterPlan, PLAN_SECTION_KEYS } from '../../model/planFile';
 import { NovelProject } from '../../model/project';
 import { describeScene, Scene, SCENE_SECTION_KEYS } from '../../model/sceneFile';
@@ -12,10 +13,15 @@ import {
 } from '../../model/types';
 import type { Focus } from './focus';
 
+/**
+ * 装配条目标签里的章节说法。序号与标题以磁盘上的章节为准，章节还没落盘
+ * （拆章之前）时退回细纲 frontmatter 里记的那一份。
+ *
+ * 拼字符串这件事交给 `model/pipeline.ts` 的 `chapterLabel`——未命名章节
+ * 该怎么说（只报序号，不写成「第 7 章《第 7 章》」）只有一处判据。
+ */
 export function chapterLabel(chapter: Chapter | undefined, plan: ChapterPlan): string {
-  const order = chapter?.order ?? plan.order;
-  const title = chapter?.title || plan.title;
-  return `第 ${order} 章${title ? `《${title}》` : ''}`;
+  return labelOfChapter(chapter?.order ?? plan.order, chapter?.title || plan.title);
 }
 
 export function renderPlan(plan: ChapterPlan): string {

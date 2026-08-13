@@ -21,7 +21,7 @@ import { scoped } from '../runtime/logger';
 import { hash } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { PLAN_SECTION_KEYS } from '../model/planFile';
-import { CreationTarget, STAGE_LABEL } from '../model/pipeline';
+import { CreationTarget, STAGE_LABEL, chapterLabel } from '../model/pipeline';
 import { SCENE_SECTION_KEYS } from '../model/sceneFile';
 import { planContentHash } from './pipeline';
 import { WorkbenchSection, WorkbenchView } from '../protocol';
@@ -72,7 +72,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       empty: `找不到章节 ${target.chapterRelPath}，它可能刚被改名或删除。`,
     };
   }
-  const head = `第 ${chapter.order} 章《${chapter.title}》`;
+  const head = chapterLabel(chapter.order, chapter.title);
 
   switch (target.kind) {
     case 'plan': {

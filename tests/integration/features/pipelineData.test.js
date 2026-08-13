@@ -236,9 +236,21 @@ describe('数据层 · 章节改名时细纲与场景跟随', () => {
   let next;
   let planRead;
   let sceneCount;
+  let planText;
+  let sceneText;
+  let planHashBefore;
+  let planHashAfter;
+  let beatsBefore;
+  let beatsAfter;
 
   before(async () => {
     const from = 'chapters/卷一/012-夜入青云.md';
+    // 改名前的两个上游指纹。改名**绝不能**动它们：`carryChapterRefs` 要改
+    // 细纲与场景的 frontmatter，一旦哪个字段进了哈希，改个名就会让这一章
+    // 的下游全部凭空标脏（AGENTS.md 第 18 条 (b)）。
+    planHashBefore = bundle.pipe.planContentHash(await project.readPlan(from));
+    beatsBefore = await project.beatsHashFor(from);
+
     h.answers.length = 0;
     // renameEntry 问的是**去掉序号前缀**的词干，序号由它自己接回去。
     h.answers.push('夜入');
@@ -246,6 +258,11 @@ describe('数据层 · 章节改名时细纲与场景跟随', () => {
     // 不跟随的话这里会读出 undefined，而界面只会说「这一章还没规划过」。
     planRead = await project.readPlan('chapters/卷一/012-夜入.md');
     sceneCount = (await project.listScenes('chapters/卷一/012-夜入.md')).length;
+
+    planText = t.read('.novelforge/plans/卷一/012-夜入.md');
+    sceneText = t.read('.novelforge/scenes/卷一/012-夜入/01-山门观察.md');
+    planHashAfter = bundle.pipe.planContentHash(planRead);
+    beatsAfter = await project.beatsHashFor('chapters/卷一/012-夜入.md');
   });
 
   test('改名成功', () => {
@@ -274,6 +291,98 @@ describe('数据层 · 章节改名时细纲与场景跟随', () => {
 
   test('改名后场景仍读得到', () => {
     assert.equal(sceneCount, 2);
+  });
+
+  // 文件搬对了还不够：它们**内容里**写着的旧路径与旧标题也得跟上，
+  // 否则作者打开细纲一看，chapter: 指向一个已经不存在的文件。
+  test('细纲的 chapter: 指向新路径', () => {
+    assert.equal(planRead.chapterRelPath, 'chapters/卷一/012-夜入.md', planRead.chapterRelPath);
+  });
+
+  test('细纲的 title: 跟着改', () => {
+    assert.equal(planRead.title, '夜入', planRead.title);
+  });
+
+  test('细纲的 H1 跟着改', () => {
+    assert.ok(planText.includes('# 第12章 夜入 · 细纲'), planText.slice(0, 300));
+  });
+
+  test('场景的 chapter: 指向新路径', () => {
+    assert.ok(sceneText.includes('chapter: chapters/卷一/012-夜入.md'), sceneText.slice(0, 200));
+  });
+
+  // 这两条是防「改个名把全章标脏」的回归线。
+  test('细纲的内容指纹没变', () => {
+    assert.equal(planHashAfter, planHashBefore);
+  });
+
+  test('场景的 beatsHash 没变', () => {
+    assert.equal(beatsAfter, beatsBefore);
+  });
+});
+
+/**
+ * 流水线新建那条路的主流程：建出来只有序号（`030.md`），先写细纲，写完了
+ * 才给它起名。此时细纲里记的 `title` 是回落值「第 30 章」——拿文件名词干
+ * （空串）去比永远不匹配，起名之后细纲里就会一直写着「第 30 章」。
+ */
+describe('数据层 · 给未命名的章节起名', () => {
+  const bare = 'chapters/030.md';
+  let named;
+  let planRead;
+  let planText;
+  let handwritten;
+
+  before(async () => {
+    await project.createChapter(30, '', '');
+    project.invalidate();
+    const chapter = (await project.listChapters()).find((c) => c.relPath === bare);
+    // 未命名时写下的细纲：title 是「第 30 章」，H1 的标题位置摆的也是它。
+    await project.writePlan(bare, {
+      chapterRelPath: bare, order: 30, title: chapter.title, arc: '', upstreamHash: '',
+      done: false,
+      sections: { ...bundle.planFile.emptyPlanSections(), 本章目标: '起个名字。' },
+    });
+
+    h.answers.length = 0;
+    h.answers.push('风起');
+    named = await bundle.fileOps.renameEntry(project, bare);
+    planRead = await project.readPlan(named);
+    planText = t.read('.novelforge/plans/030-风起.md');
+
+    // 作者手工改过的标题行不该被改名动。
+    await project.createChapter(31, '', '');
+    project.invalidate();
+    t.write(
+      '.novelforge/plans/031.md',
+      '---\nchapter: chapters/031.md\norder: 31\ntitle: 我自己起的\n---\n\n# 第31章 我自己写的标题 · 细纲\n\n## 本章目标\n\n略。\n'
+    );
+    h.answers.length = 0;
+    h.answers.push('别的名字');
+    await bundle.fileOps.renameEntry(project, 'chapters/031.md');
+    handwritten = t.read('.novelforge/plans/031-别的名字.md');
+  });
+
+  test('起名成功，序号后补上分隔符', () => {
+    assert.equal(named, 'chapters/030-风起.md', String(named));
+  });
+
+  test('细纲的 title: 从回落值换成真标题', () => {
+    assert.equal(planRead.title, '风起', planRead.title);
+  });
+
+  test('细纲的 H1 从回落值换成真标题', () => {
+    assert.ok(planText.includes('# 第30章 风起 · 细纲'), planText.slice(0, 300));
+  });
+
+  test('手写过的 title: 不被覆盖', () => {
+    assert.ok(handwritten.includes('title: 我自己起的'), handwritten.slice(0, 200));
+  });
+
+  // 少了「后面必须紧跟 ·」那道锚，这里会变成「# 第31章 别的名字 我自己写的标题」。
+  test('手写过的 H1 不被覆盖，也不会插进第二个标题', () => {
+    assert.ok(handwritten.includes('# 第31章 我自己写的标题 · 细纲'), handwritten.slice(0, 300));
+    assert.ok(!handwritten.includes('别的名字 我自己写的标题'), handwritten.slice(0, 300));
   });
 });
 

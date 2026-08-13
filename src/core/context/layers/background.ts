@@ -1,3 +1,4 @@
+import { chapterLabel } from '../../model/pipeline';
 import { estimateTokens, takeTail } from '../tokenizer';
 import type { LayerFn } from './assembly';
 import {
@@ -116,7 +117,7 @@ export const prevTail: LayerFn = async (a, spec) => {
       id: `prevTail:${prevChapter.order}`,
       kind: 'prevTail',
       priority: spec.priority,
-      label: `第 ${prevChapter.order} 章《${prevChapter.title}》· 结尾原文`,
+      label: `${chapterLabel(prevChapter.order, prevChapter.title)}· 结尾原文`,
       source: prevChapter.relPath,
       text: tailByChars(full, a.config.prevChapterTailChars),
       note: '原文注入，保证语气与场景衔接',
@@ -140,7 +141,7 @@ export const chapterFull: LayerFn = async (a, spec) => {
       id,
       kind: 'chapterFull' as const,
       priority: spec.priority,
-      label: `第 ${chapter.order} 章《${chapter.title}》· 原文`,
+      label: `${chapterLabel(chapter.order, chapter.title)}· 原文`,
       source: chapter.relPath,
     };
     if (a.excluded.has(id)) {
@@ -209,7 +210,7 @@ export const chapterSummary: LayerFn = async (a, spec) => {
       id,
       kind: 'chapterSummary' as const,
       priority: spec.priority,
-      label: `第 ${chapter.order} 章《${chapter.title}》· 摘要`,
+      label: `${chapterLabel(chapter.order, chapter.title)}· 摘要`,
       source: chapter.relPath,
     };
     if (a.excluded.has(id)) {

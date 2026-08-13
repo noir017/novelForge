@@ -143,17 +143,29 @@ describe('章节文件规则（磁盘）', () => {
     let createdHead;
     let txt;
     let txtBody;
+    let bare;
+    let bareBody;
+    let bareTitle;
+    let bareWords;
 
     before(async () => {
       created = await project.createChapter(9, '新章', '', undefined);
       createdHead = read(created);
       txt = await project.createChapter(10, '纯文本章', '正文', undefined, '.txt');
       txtBody = read(txt);
+      // 流水线新建那条路：还没有标题可言，落成纯序号名。
+      bare = await project.createChapter(11, '', '', undefined);
+      bareBody = read(bare);
+      project.invalidate();
+      const scanned = (await project.listChapters()).find((c) => c.relPath === bare);
+      bareTitle = scanned && scanned.title;
+      bareWords = scanned && scanned.wordCount;
     });
 
     after(() => {
       remove(created);
       remove(txt);
+      remove(bare);
       project.invalidate();
     });
 
@@ -167,6 +179,23 @@ describe('章节文件规则（磁盘）', () => {
 
     test('指定 .txt 时不写标题行', () => {
       assert.equal(txtBody, '正文\n', JSON.stringify(txtBody));
+    });
+
+    test('标题留空时文件名只有序号', () => {
+      assert.equal(bare, 'chapters/011.md', bare);
+    });
+
+    // 不写 `# `：空标题行既没意义，又会让改名时的 H1 同步判据从第一天就对不上。
+    test('标题留空时不写标题行', () => {
+      assert.equal(bareBody.trim(), '', JSON.stringify(bareBody));
+    });
+
+    test('扫描时标题回落成「第 N 章」', () => {
+      assert.equal(bareTitle, '第 11 章', bareTitle);
+    });
+
+    test('新建出来是 0 字', () => {
+      assert.equal(bareWords, 0, String(bareWords));
     });
   });
 

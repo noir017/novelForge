@@ -109,9 +109,9 @@ export class TerminalHost implements Host {
     return { dispose: () => undefined };
   }
 
-  /** 终端里开不了编辑器，报一句路径就够——`newChapterFlow` 建完章会调它。 */
+  /** 终端里开不了编辑器，报一句路径就够。 */
   async openFile(relPath: string): Promise<void> {
-    console.log(`已创建：${relPath}`);
+    console.log(`文件：${relPath}`);
   }
 
   toast(message: string, level: 'info' | 'error' = 'info'): void {

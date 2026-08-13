@@ -69,6 +69,7 @@ export {
   STAGE_CAPABILITIES,
   STAGE_LABEL,
   STAGE_QUESTION,
+  chapterLabel,
   chapterOfTarget,
   commandOf,
   commandsFor,

@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
+  carryChapterRefs,
   carryDraft,
   carryPlan,
   carryScenes,
@@ -181,6 +182,8 @@ async function pasteOne(
       await carrySummary(project, rel, nextRel, isDir);
       await carryPlan(project, rel, nextRel, isDir);
       await carryScenes(project, rel, nextRel, isDir);
+      // 标题没变（这是移动不是改名），只有路径变了——伴生文件里的 chapter: 要重指。
+      await carryChapterRefs(project, rel, nextRel, isDir);
     } else {
       const strays: [string, string | undefined][] = [
         ['草稿', project.draftRelPathFor(rel)],

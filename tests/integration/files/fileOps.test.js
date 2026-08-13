@@ -322,6 +322,9 @@ describe('fileOps.ts', () => {
 
   describe('在文件夹里新建', () => {
     let chapterPath;
+    let chapterBody;
+    let chapterTitle;
+    let inputCount;
     let nextOrder;
     let cardCreated;
     let loreCreated;
@@ -330,10 +333,17 @@ describe('fileOps.ts', () => {
     let crossed;
 
     before(async () => {
-      h.expect('新的一章');
+      // 新建章节不再问标题：文件按纯序号命名，标题等细纲写完再改名定下来。
+      // 所以这里**不排队答案**，并当场记下 input 次数以证明它没弹框
+      // （h.expect 会清空录制，晚一步取值就归零了）。
+      h.expect();
       chapterPath = await actionsMod.newChapterFlow(project, 'chapters/第三卷');
+      inputCount = h.inputs.length;
+      chapterBody = read(chapterPath);
       project.invalidate();
-      nextOrder = (await project.listChapters()).find((c) => c.order === 4);
+      const chapters = await project.listChapters();
+      nextOrder = chapters.find((c) => c.order === 4);
+      chapterTitle = nextOrder && nextOrder.title;
 
       h.expect('沈氏');
       await charactersMod.newCharacter(project, '.novelforge/characters/配角');
@@ -347,15 +357,26 @@ describe('fileOps.ts', () => {
       await charactersMod.newLore(project, '../../外面');
       loreEscaped = fs.existsSync(rel('.novelforge/lore/青崖镇.md'));
 
-      h.expect('越界的章');
       escaped = await actionsMod.newChapterFlow(project, '../../../外面');
-
-      h.expect('跨区的章');
       crossed = await actionsMod.newChapterFlow(project, '.novelforge/characters');
     });
 
-    test('章节建到指定目录', () => {
-      assert.equal(chapterPath, 'chapters/第三卷/004-新的一章.md', chapterPath);
+    test('章节建到指定目录，名字只有序号', () => {
+      assert.equal(chapterPath, 'chapters/第三卷/004.md', chapterPath);
+    });
+
+    test('新建不弹标题输入框', () => {
+      assert.equal(inputCount, 0, `${inputCount} 次 input`);
+    });
+
+    // 没有标题就不写标题行：`# ` 后面空着的 H1 会让改名时的同步判据从第一天
+    // 就对不上（renamedBody 拿空标题去比，永远不匹配）。
+    test('无标题时正文里没有 H1', () => {
+      assert.equal(chapterBody.trim(), '', JSON.stringify(chapterBody));
+    });
+
+    test('标题回落成「第 N 章」', () => {
+      assert.equal(chapterTitle, '第 4 章', chapterTitle);
     });
 
     test('序号仍是全书唯一的下一个', () => {
@@ -375,17 +396,20 @@ describe('fileOps.ts', () => {
     });
 
     test('落点越界的章节退回 chapters/', () => {
-      assert.equal(escaped, 'chapters/005-越界的章.md', escaped);
+      assert.equal(escaped, 'chapters/005.md', escaped);
     });
 
     test('落点跨区的章节退回 chapters/', () => {
-      assert.equal(crossed, 'chapters/006-跨区的章.md', crossed);
+      assert.equal(crossed, 'chapters/006.md', crossed);
     });
   });
 
   describe('重命名', () => {
     let renamed;
     let renamedBody;
+    let renamedTitle;
+    let renamedAgain;
+    let renamedAgainBody;
     let keptBody;
     let dirRenamed;
     let dirExists;
@@ -402,9 +426,19 @@ describe('fileOps.ts', () => {
     let outsideErred;
 
     before(async () => {
-      h.expect('新的一章改名');
-      renamed = await fileOps.renameEntry(project, 'chapters/第三卷/004-新的一章.md');
+      // 纯序号名（新建出来的样子）第一次命名：序号后面没有分隔符，得补一个 `-`。
+      h.expect('新的一章');
+      renamed = await fileOps.renameEntry(project, 'chapters/第三卷/004.md');
       renamedBody = read(renamed);
+      project.invalidate();
+      const named = (await project.listChapters()).find((c) => c.relPath === renamed);
+      renamedTitle = named && named.title;
+
+      // 再改一次：这一次旧标题非空，走的是 H1 同步那条路（此时没有 H1 可同步，
+      // 正文仍该一字不动）。
+      h.expect('新的一章改名');
+      renamedAgain = await fileOps.renameEntry(project, renamed);
+      renamedAgainBody = read(renamedAgain);
 
       // 作者手写过的 H1 不该被改名顺手改掉。
       write('chapters/008-占位.md', '# 作者自己写的标题\n\n正文。\n');
@@ -447,12 +481,27 @@ describe('fileOps.ts', () => {
       outsideErred = h.erred();
     });
 
-    test('保留序号前缀', () => {
-      assert.equal(renamed, 'chapters/第三卷/004-新的一章改名.md', renamed);
+    test('纯序号名改名补上分隔符', () => {
+      assert.equal(renamed, 'chapters/第三卷/004-新的一章.md', renamed);
     });
 
-    test('正文 H1 同步更新', () => {
-      assert.ok(renamedBody.startsWith('# 新的一章改名'), renamedBody.slice(0, 20));
+    // 本来没有 H1 的章节**不该被凭空塞进一行**：那会改动正文，contentHash
+    // 一变这一章的摘要立刻过期，而作者只是给它起了个名字。标题从文件名取
+    // 就够了（listChapters 的回落链本来就这么做）。
+    test('无 H1 的章节改名后正文仍是空的', () => {
+      assert.equal(renamedBody.trim(), '', JSON.stringify(renamedBody));
+    });
+
+    test('标题跟着文件名走', () => {
+      assert.equal(renamedTitle, '新的一章', renamedTitle);
+    });
+
+    test('保留序号前缀', () => {
+      assert.equal(renamedAgain, 'chapters/第三卷/004-新的一章改名.md', renamedAgain);
+    });
+
+    test('没有 H1 时不会凭空补出一行', () => {
+      assert.equal(renamedAgainBody.trim(), '', JSON.stringify(renamedAgainBody));
     });
 
     test('与文件名不一致的 H1 不动', () => {

@@ -17,7 +17,7 @@ import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { CharacterAction, ProjectAction } from '../protocol';
-import { focusWithTarget } from './chat';
+import { focusWithTarget, selectChapter } from './chat';
 
 const log = scoped('面板');
 
@@ -48,9 +48,14 @@ export async function projectAction(
       break;
     case 'refresh':
       break; // pushState 本身就是刷新
-    case 'newChapter':
-      await newChapterFlow(c.project, dir);
+    case 'newChapter': {
+      const rel = await newChapterFlow(c.project, dir);
+      // 建完**进入这一章**，落在哪一层由状态机决定（空章节 → 待写细纲 →
+      // 主按钮「生成细纲」）。走 selectChapter 而不是自己拼 target：
+      // 只有后端知道那一章处于什么状态，这与点章节名同一条路。
+      await selectChapter(c, rel);
       break;
+    }
     case 'newCharacter':
       await newCharacter(c.project, dir);
       break;

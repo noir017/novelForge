@@ -1,9 +1,10 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getHost } from '../host';
-import { scoped } from '../runtime/logger';
-import { isMarkdownPath } from '../model/chapterFile';
+import { describeError, scoped } from '../runtime/logger';
+import { isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
 import { exists, readText, sanitizeFileName, writeText } from '../model/fs';
+import { rewriteFrontmatter, asString, parseMarkdown } from '../model/markdown';
 import { NovelProject } from '../model/project';
 
 const log = scoped('文件');
@@ -186,13 +187,18 @@ async function renameEntryImpl(
   const base = path.basename(rel);
   const ext = isDir ? '' : path.extname(base);
   const stem = isDir ? base : base.slice(0, base.length - ext.length);
+  const isChapterFile = !isDir && target.info?.section === 'chapters';
   // 章节的序号前缀单独拆出来，让用户只编辑标题部分。
-  const prefixMatch = !isDir && target.info?.section === 'chapters' ? /^(\d{1,5}[-_.\s]*)(.*)$/.exec(stem) : null;
+  const prefixMatch = isChapterFile ? /^(\d{1,5}[-_.\s]*)(.*)$/.exec(stem) : null;
   const prefix = prefixMatch ? prefixMatch[1] : '';
   const editable = prefixMatch ? prefixMatch[2] : stem;
+  // 序号写进对话框标题：「重命名第 12 章」比「重命名文件」更认得出改的是谁。
+  // 未命名的章节（纯序号名 `007.md`）走的正是这条路，那时 editable 是空串，
+  // 对话框等于「给这一章起个名字」——流水线新建之后的第一次命名。
+  const order = isChapterFile ? parseChapterFileName(base)?.order : undefined;
 
   const input = await getHost().input({
-    title: isDir ? '重命名文件夹' : '重命名文件',
+    title: order !== undefined ? `重命名第 ${order} 章` : isDir ? '重命名文件夹' : '重命名文件',
     prompt: prefix ? `序号前缀「${prefix}」会保留` : `当前：${rel}`,
     value: editable,
     validate: (v) => validateName(v),
@@ -202,7 +208,10 @@ async function renameEntryImpl(
   }
 
   const nextStem = sanitizeFileName(input);
-  const nextRel = `${path.posix.dirname(rel)}/${prefix}${nextStem}${ext}`;
+  // 序号后面没有分隔符（纯序号名 `007.md`）时补一个 `-`，不然拼出来是
+  // `007夜入青云.md`——解析得出来，但与插件自己建章节的命名规矩不一致。
+  const sep = prefix && nextStem && !/[-_.\s]$/.test(prefix) ? '-' : '';
+  const nextRel = `${path.posix.dirname(rel)}/${prefix}${sep}${nextStem}${ext}`;
   if (nextRel === rel) {
     return undefined;
   }
@@ -212,6 +221,15 @@ async function renameEntryImpl(
     getHost().toast(`已存在同名项：${nextRel}`, 'error');
     return undefined;
   }
+
+  // 改名前这一章在系统眼里叫什么。**必须在下面动正文之前取**（H1 一改，
+  // 这一章的标题当场就变了），也**不能用文件名词干**：伴生文件里的 `title:`
+  // 是当初按 `Chapter.title` 写下的，而那是「H1 → 文件名词干 → 第 N 章」这条
+  // 回落链的结果。未命名的章节（纯序号名）的 title 是「第 12 章」，拿空词干
+  // 去比永远不匹配，于是给它起名之后细纲里还写着「第 12 章」。
+  const titleBefore = isChapterFile
+    ? (await project.listChapters()).find((c) => c.relPath === rel)?.title
+    : undefined;
 
   // 先改内容再改名：改名成功后内容一定是对的，反过来则可能留下半吊子状态。
   // 用清洗后的 nextStem 而不是用户原样输入，H1 才会继续与文件名一致，
@@ -235,6 +253,19 @@ async function renameEntryImpl(
     await carrySummary(project, rel, nextRel, isDir);
     await carryPlan(project, rel, nextRel, isDir);
     await carryScenes(project, rel, nextRel, isDir);
+    // 伴生文件已经搬到新路径了，里面写着的旧路径与旧标题也得跟上。
+    // 新标题同样从章节列表取——作者手写过的 H1 不会被改名动，那时新旧标题
+    // 相等，`carryChapterRefs` 自己会跳过标题那一半。
+    const titleAfter = (await project.listChapters()).find((c) => c.relPath === nextRel)?.title;
+    await carryChapterRefs(
+      project,
+      rel,
+      nextRel,
+      isDir,
+      titleBefore !== undefined && titleAfter !== undefined
+        ? { oldTitle: titleBefore, newTitle: titleAfter }
+        : undefined
+    );
     await project.syncManifest();
   }
   log.info(`已重命名${isDir ? '文件夹' : ''}`, `${rel} → ${nextRel}`);
@@ -321,6 +352,8 @@ export async function moveEntry(
     await carrySummary(project, rel, nextRel, isDir);
     await carryPlan(project, rel, nextRel, isDir);
     await carryScenes(project, rel, nextRel, isDir);
+    // 标题没变，只有路径变了——伴生文件里的 chapter: 要重指。
+    await carryChapterRefs(project, rel, nextRel, isDir);
     // 路径变了但序号没变，syncManifest 会按 order 兜底找回 summaryHash / beatsHash。
     await project.syncManifest();
   }
@@ -428,6 +461,177 @@ export async function carryScenes(
   isDir: boolean
 ): Promise<void> {
   await carryMirror(project, '场景', (rel, dir) => project.sceneMirrorRelPath(rel, dir), fromRel, toRel, isDir);
+}
+
+// ------------------------------------------------- 伴生文件里的引用
+
+/**
+ * 章节改名/移动后，把细纲 / 场景 / 摘要**内容里**那几处指回章节的字段跟着改。
+ *
+ * 四套镜像文件已经由上面的 carry* 搬到了新路径，但它们里面还写着旧的：
+ * `plans/` 与 `scenes/` 下那些文件的 frontmatter `chapter:` 指向一个已经不
+ * 存在的文件，`title:` 与那行 `# 第12章 夜入 · 细纲` 还是旧标题。代码不靠
+ * 这几个字段查找（一切都按镜像路径推导），所以不改也不会功能性出错——但
+ * 作者打开文件一看就是错的，而这几个字段存在的唯一理由就是让他手工核对。
+ *
+ * 三条约束：
+ *
+ * 1. **只动 frontmatter 与那一行 H1**（走 `rewriteFrontmatter`），正文一个
+ *    字节不碰——作者可能在细纲里加过自定义小节，整份重渲染会把它们抹平。
+ * 2. **`title` 只在它等于旧标题时才覆盖**，判据与 `renamedBody` 同源：不一致
+ *    说明作者单独改过，那是他手写的东西。`chapter:` 无条件重指——它是机器
+ *    引用，不存在「本来就想指向别处」这回事。
+ * 3. **绝不碰参与哈希的东西**：`planContentHash` 只哈希五个小节、`beatsHashFor`
+ *    只哈希场号与七个小节（都不含 frontmatter），所以这一趟写入不会让刚写好
+ *    的场景或正文凭空显示「上游已变更」。摘要的 `sourceHash` / `cast` 同理
+ *    一律不动——改个名不该让全书摘要一起过期。
+ *
+ * **绝不抛**：改名本身已经成功了，这里失败只该留一条 warn。
+ *
+ * `oldTitle` / `newTitle` 只在改的是**单个章节文件**时有意义；目录改名/移动
+ * 时标题没变，留空即可，此时只重指目录下每一章的 `chapter:`。
+ */
+export async function carryChapterRefs(
+  project: NovelProject,
+  fromRel: string,
+  toRel: string,
+  isDir: boolean,
+  titles?: { oldTitle: string; newTitle: string }
+): Promise<void> {
+  try {
+    if (!isDir) {
+      await retargetCompanions(project, fromRel, toRel, titles);
+      return;
+    }
+    // 目录搬过去了，里面每一章的路径都变了。逐章重指——标题没变，只改 chapter:。
+    project.invalidate();
+    const moved = (await project.listChapters()).filter(
+      (c) => c.relPath === toRel || c.relPath.startsWith(`${toRel}/`)
+    );
+    for (const chapter of moved) {
+      // 章节在目录内的相对位置没变，把新路径的前缀换回旧目录就是它从前的路径。
+      const before = `${fromRel}${chapter.relPath.slice(toRel.length)}`;
+      await retargetCompanions(project, before, chapter.relPath, undefined);
+    }
+  } catch (err) {
+    log.warn(`伴生文件里的章节引用未能更新`, describeError(err));
+  }
+}
+
+/** 一章的细纲、全部场景、摘要各打一次补丁。 */
+async function retargetCompanions(
+  project: NovelProject,
+  fromRel: string,
+  toRel: string,
+  titles?: { oldTitle: string; newTitle: string }
+): Promise<void> {
+  const renamed = titles && titles.oldTitle !== titles.newTitle ? titles : undefined;
+
+  const plan = project.planMirrorRelPath(toRel, false);
+  if (plan) {
+    await patchCompanion(project, plan, { chapter: toRel }, renamed, '细纲');
+  }
+
+  const summary = project.summaryMirrorRelPath(toRel, false);
+  if (summary) {
+    // 摘要的 frontmatter 里没有 chapter 字段（它按序号 + 镜像路径定位），
+    // 只有 title 要跟着改。
+    await patchCompanion(project, summary, {}, renamed, '摘要');
+  }
+
+  const sceneDir = project.sceneMirrorRelPath(toRel, false);
+  if (sceneDir) {
+    for (const rel of await listScenePaths(project, sceneDir)) {
+      // 场景的 H1 是「# 场景 N 标题」，与章节标题无关，所以不传 renamed。
+      await patchCompanion(project, rel, { chapter: toRel }, undefined, '场景');
+    }
+  }
+  if (fromRel !== toRel) {
+    log.debug(`伴生文件里的章节引用已重指`, `${fromRel} → ${toRel}`);
+  }
+}
+
+/** 场景目录下的 `.md`（一层，写场景时就是平铺的）。目录不存在返回空。 */
+async function listScenePaths(project: NovelProject, dirRel: string): Promise<string[]> {
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = await fs.readdir(project.pathOf(dirRel), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((e) => e.isFile() && /\.(md|markdown)$/i.test(e.name))
+    .map((e) => `${dirRel}/${e.name}`);
+}
+
+/**
+ * 给一份伴生文件打补丁：frontmatter 按 `patch` 改，`title` 与首行 H1 只在
+ * 它们还等于旧标题时跟着改。内容没变就不写盘。
+ */
+async function patchCompanion(
+  project: NovelProject,
+  rel: string,
+  patch: Record<string, string>,
+  renamed: { oldTitle: string; newTitle: string } | undefined,
+  what: string
+): Promise<void> {
+  const abs = project.pathOf(rel);
+  if (!(await exists(abs))) {
+    return;
+  }
+  let text: string;
+  try {
+    text = await readText(abs);
+  } catch (err) {
+    log.warn(`${what} ${rel} 读不出来，里面的章节引用未更新`, describeError(err));
+    return;
+  }
+
+  const full: Record<string, string> = { ...patch };
+  const { frontmatter, body } = parseMarkdown(text);
+  // 标题：只有它与旧标题一致（说明从没被单独改过）才跟着走。
+  if (renamed && asString(frontmatter.title) === renamed.oldTitle) {
+    full.title = renamed.newTitle;
+  }
+  let next = Object.keys(full).length > 0 ? (rewriteFrontmatter(text, full) ?? text) : text;
+  if (renamed) {
+    next = renamedHeading(next, body, renamed.oldTitle, renamed.newTitle);
+  }
+  if (next === text) {
+    return;
+  }
+  try {
+    await writeText(abs, next);
+  } catch (err) {
+    log.warn(`${what} ${rel} 写不回去，里面的章节引用未更新`, describeError(err));
+  }
+}
+
+/**
+ * 伴生文件那行 `# 第12章 夜入 · 细纲` 里的章节标题跟着改。
+ *
+ * 与 `renamedBody` 同两条判据：**只看正文首行**（与 `extractH1` 一致，正文
+ * 中段任何一行 `# 第N章 …` 都不是标题），且**只在它还是旧标题时才动**——
+ * 作者手工改过那一行的话，那是他写的东西，改名不该动它。
+ *
+ * 旧标题是「第 12 章」这种回落值（章节当时还没起名）时，那一行长的是
+ * `# 第12章 第 12 章 · 细纲` 或 `# 第12章  · 细纲`（`renderPlanFile` 按当时的
+ * `title` 拼，空标题会留下两个空格），两种都要认。所以标题那一段整体可选，
+ * 但**后面必须紧跟 `·` 或行尾**：少了这道锚，`# 第12章 作者手写的标题 · 细纲`
+ * 会被当成「标题缺席」，凭空插进一个新名字，变成两个标题并排。
+ */
+function renamedHeading(text: string, body: string, oldTitle: string, newTitle: string): string {
+  if (oldTitle === newTitle) {
+    return text;
+  }
+  const escaped = oldTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const head = new RegExp(`^(#[ \\t]+第\\d+章)(?:[ \\t]+${escaped})?[ \\t]*(?=·|$)`).exec(body);
+  if (!head) {
+    return text;
+  }
+  // 在整份文本里换掉正文首行那一段。`body` 是 trim 过的，因此这个片段在
+  // frontmatter 之后唯一——直接替换第一处即可。
+  return text.replace(head[0], `${head[1]} ${newTitle} `);
 }
 
 async function pickDestination(

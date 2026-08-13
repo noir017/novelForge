@@ -131,7 +131,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!target) {
       return;
     }
-    await newChapterFlow(target);
+    // 有面板就走面板那条路：建完会落到这一章的当前步骤（多半是「写细纲」）。
+    // 没有面板（无工作区时 controller 不存在）只建文件。
+    if (chat) {
+      await chat.newChapterFromCommand();
+    } else {
+      await newChapterFlow(target);
+    }
     await refresh();
   });
 

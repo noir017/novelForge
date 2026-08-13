@@ -430,15 +430,25 @@ export class NovelProject {
    *
    * `ext` 默认 `.md`：扫描时认任意扩展名，但插件自己建的东西仍然出 markdown，
    * 免得同一个工程里格式随建随变。非 markdown 家族不写标题行。
+   *
+   * **`title` 留空是合法的**，落成纯序号名 `001.md`：走流水线新建一章时还没有
+   * 标题可言（它是写完细纲才定下来的东西）。`parseChapterFileName` 认这种名
+   * （词干为空），`listChapters` 的标题回落链会给出「第 N 章」。
+   *
+   * 标题行写的是**清洗后**的词干而不是原样 `title`：两者一致，改名时
+   * `renamedBody` 才认得出「这个 H1 是跟着文件名走的」，同步才不会从第一天
+   * 就断掉。无标题时干脆不写标题行——凭空塞一行 `# ` 是同一个毛病。
    */
   async createChapter(order: number, title: string, content = '', dir?: string, ext = '.md'): Promise<string> {
-    const fileName = `${pad3(order)}-${sanitizeFileName(title)}${ext}`;
+    const stem = title.trim() ? sanitizeFileName(title) : '';
+    const fileName = stem ? `${pad3(order)}-${stem}${ext}` : `${pad3(order)}${ext}`;
     const parent = dir ? this.pathOf(dir) : this.chaptersDir;
     const abs = path.join(parent, fileName);
     if (await exists(abs)) {
       throw new Error(`章节文件已存在：${this.relPath(abs)}`);
     }
-    const text = isMarkdownExt(ext) ? `# ${title}\n\n${content.trim()}\n` : `${content.trim()}\n`;
+    const text =
+      isMarkdownExt(ext) && stem ? `# ${stem}\n\n${content.trim()}\n` : `${content.trim()}\n`;
     await writeText(abs, text);
     this.invalidate();
     return this.relPath(abs);

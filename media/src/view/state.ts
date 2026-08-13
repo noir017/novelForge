@@ -133,6 +133,9 @@ export function setBusy(value: boolean): void {
   el.atBtn.disabled = value;
   el.selBtn.disabled = value;
   el.newSessionBtn.disabled = value;
+  // 生成期间不给改名：改名会动这一章的路径，而正在跑的那一轮攥着旧路径，
+  // 采纳时会写到一个已经不存在的地方去。
+  el.renameChapterBtn.disabled = value;
   // 主按钮与命令面板在生成期间都禁用：两者都会发起新的一轮。面板要是正开着
   // 也一并收掉——一个点不动的候选列表挂在输入框上方只会挡住消息流。
   el.nextStepBtn.disabled = value;

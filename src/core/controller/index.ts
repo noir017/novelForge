@@ -579,4 +579,17 @@ export class ChatController {
       host.reveal();
     }
   }
+
+  /**
+   * 供命令直接调用：新建一章并进入它当前该做的那一步。
+   *
+   * 复用工程页那条 `projectAction` 分支而不是直接调 `newChapterFlow`：
+   * 「建完落到细纲层」是这个动作的一部分，命令面板与页面按钮不该分叉。
+   */
+  async newChapterFromCommand(): Promise<void> {
+    await projectAction(this, 'newChapter');
+    for (const host of this.hosts) {
+      host.reveal();
+    }
+  }
 }

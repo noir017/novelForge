@@ -5,6 +5,7 @@ import { copyInto, moveInto, renameAny } from '../files/projectFiles';
 import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
 import { FileOpResult, InMessage } from '../protocol';
+import { retargetChapter } from './chat';
 
 const log = scoped('面板');
 
@@ -68,10 +69,16 @@ export async function fileAction(
       .join('｜') || undefined
   );
   let results: FileOpResult[] | undefined;
+  // 改名/移动过的路径。当前创作目标正指着其中某一条时要跟着走，否则创作页
+  // 会拿到一份「这一章找不到」的空壳。
+  const moved: { from: string; to: string }[] = [];
   switch (action) {
     case 'rename':
       if (relPath) {
-        await renameEntry(c.project, relPath);
+        const to = await renameEntry(c.project, relPath);
+        if (to) {
+          moved.push({ from: relPath, to });
+        }
       }
       break;
     case 'renameAny':
@@ -81,7 +88,10 @@ export async function fileAction(
       break;
     case 'move':
       if (relPath) {
-        await moveEntry(c.project, relPath, targetDir);
+        const to = await moveEntry(c.project, relPath, targetDir);
+        if (to) {
+          moved.push({ from: relPath, to });
+        }
       }
       break;
     case 'delete':
@@ -95,6 +105,17 @@ export async function fileAction(
           ? await copyInto(c.project, relPaths ?? [], targetDir ?? '')
           : await moveInto(c.project, relPaths ?? [], targetDir ?? '');
       break;
+  }
+  // 复制不动原路径，目标照旧指着原来那一章，不必跟。
+  if (results && op !== 'copy') {
+    for (const r of results) {
+      if (r.ok && r.to) {
+        moved.push({ from: r.from, to: r.to });
+      }
+    }
+  }
+  for (const m of moved) {
+    await retargetChapter(c, m.from, m.to);
   }
   if (results && results.length > 0) {
     c.post({

@@ -194,6 +194,40 @@ describe('pipeline.ts · Target', () => {
   test('没有章节信息时退回路径', () => {
     assert.ok(pipeline.describeTarget(plan).includes('012-夜入青云.md'));
   });
+
+  // 流水线新建出来的章节是纯序号名，标题回落成「第 N 章」。套进模板会变成
+  // 「第 7 章《第 7 章》」，看起来像出了 bug。
+  test('未命名的章节只报序号', () => {
+    assert.equal(
+      pipeline.describeTarget(plan, { order: 7, title: '第 7 章' }),
+      '第 7 章 · 细纲',
+      pipeline.describeTarget(plan, { order: 7, title: '第 7 章' })
+    );
+  });
+});
+
+describe('pipeline.ts · chapterLabel', () => {
+  test('有标题时带书名号', () => {
+    assert.equal(pipeline.chapterLabel(12, '夜入青云'), '第 12 章《夜入青云》');
+  });
+
+  test('标题为空时只报序号', () => {
+    assert.equal(pipeline.chapterLabel(7, ''), '第 7 章');
+  });
+
+  test('标题缺席时只报序号', () => {
+    assert.equal(pipeline.chapterLabel(7), '第 7 章');
+  });
+
+  // 「第 7 章」正是 listChapters 对未命名章节给出的回落标题，它不是真标题。
+  test('标题恰好是回落值时只报序号', () => {
+    assert.equal(pipeline.chapterLabel(7, '第 7 章'), '第 7 章');
+  });
+
+  // 但作者手工把某一章命名成「第 8 章」（序号不同）就是真标题，照常显示。
+  test('别的序号写在标题里仍算真标题', () => {
+    assert.equal(pipeline.chapterLabel(7, '第 8 章'), '第 7 章《第 8 章》');
+  });
 });
 
 describe('pipeline.ts · Target 归一（容错）', () => {
