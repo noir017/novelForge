@@ -15,6 +15,7 @@ import {
 } from '../model/project';
 import { Chapter, LoreEntry } from '../model/types';
 import { runTask } from '../progress';
+import { LORE_EXTRACT_SYSTEM, LORE_SYNTHESIS_SYSTEM } from './lorePrompt';
 import { extractJson, stringArray, stripCodeFence, unique, uniqueNumbers } from './parse';
 
 const log = scoped('设定');
@@ -708,34 +709,3 @@ function singleLineValue(value: unknown, maxLength: number): string {
 function normalizeTitle(value: string): string {
   return value.toLocaleLowerCase('zh-Hans-CN').replace(/[\s\p{P}\p{S}]/gu, '');
 }
-
-const LORE_EXTRACT_SYSTEM = `你是长篇小说的世界观设定编辑。阅读单章正文，识别值得在后续写作中反复引用的稳定设定。
-
-只提取世界规则、地理地点、组织势力、社会制度、能力体系、关键物件、历史背景等设定。不要把剧情梗概、人物性格或一次性动作当成设定；不确定的内容不要脑补。
-
-请输出 JSON 数组，除 JSON 外不要输出任何文字：
-[
-  {
-    "title": "简短且可复用的设定标题；同一对象必须沿用用户给出的目录标题",
-    "category": "世界观|地理|势力|制度|能力|物件|历史|其他",
-    "keywords": ["正文和纲要中可能出现的名称、别称或触发词"],
-    "facts": ["本章明确建立或更新的原子事实，每条都能脱离本章剧情单独理解"]
-  }
-]
-
-同一对象只输出一项；没有可复用设定时输出 []。`;
-
-const LORE_SYNTHESIS_SYSTEM = `你是长篇小说的设定集编辑。把跨章节事实整理为一条精炼、可直接注入后续写作上下文的设定。
-
-请输出一个 JSON 对象，除 JSON 外不要输出任何文字：
-{
-  "keywords": ["3-10 个高辨识度名称、别称或触发词"],
-  "body": "Markdown 正文，不含 frontmatter 和一级标题"
-}
-
-要求：
-1. 只写正文明确建立的事实，不补完、不推测；冲突或尚不确定的信息明确标注。
-2. 合并重复事实，保留随剧情发生的有效更新；不要写逐章剧情摘要。
-3. 若提供了作者现有内容，把它视为权威资料；只在正文明确更新时调整，不得无故删除。
-4. 用简短小节或项目符号组织，重点写规则、边界、代价、关系和当前有效状态，控制在 800 字以内。
-5. keywords 必须能在续写纲要中准确命中，避免“世界”“地方”“组织”等泛词。`;
