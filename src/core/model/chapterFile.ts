@@ -4,7 +4,7 @@ import * as path from 'node:path';
  * 「什么文件算章节」的唯一定义。
  *
  * 纯函数、无 I/O，因此扫描器（model/project.ts）、内置编辑器的可编辑判定
- * （core/fileEditing.ts）、独立版的文件监听（standalone/fileHost.ts）
+ * （core/files/fileEditing.ts）、独立版的文件监听（standalone/fileHost.ts）
  * 三处共用同一份规则，不会各写一遍再慢慢跑偏。
  *
  * 规则：**数字前缀 + 扩展名不在二进制黑名单里**。

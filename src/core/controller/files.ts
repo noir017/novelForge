@@ -53,7 +53,7 @@ export async function openDraft(c: ChatController, chapterRelPath: string): Prom
 
 /**
  * 类文件操作。工程页的 rename/move/delete 走 core/files/fileOps（三区锁定），
- * 文件页的 renameAny/paste 走 core/projectFiles（根范围）。
+ * 文件页的 renameAny/paste 走 core/files/projectFiles（根范围）。
  * 有逐项结果的动作额外推 filesOpDone，前端据此 remap 编辑器标签。
  */
 export async function fileAction(
