@@ -10,8 +10,8 @@ import { NovelProject, emptyCharacterSections, exists, readText, renderCharacter
 import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections, Chapter } from '../model/types';
 import { sanitizeAliases } from '../naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
+import { extractJsonArray, stringArray, stripCodeFence, unique } from './parse';
 import { pickChaptersByInput } from './pickChapters';
-import { stripCodeFence } from './summarize';
 
 const log = scoped('角色卡');
 
@@ -361,35 +361,12 @@ export function parseCharacterResponse(raw: string): ParsedCharacter[] {
     }
     out.push({
       name,
-      aliases: sanitizeAliases(toStringArray(obj.aliases), name),
-      tags: toStringArray(obj.tags),
+      aliases: sanitizeAliases(unique(stringArray(obj.aliases)), name),
+      tags: unique(stringArray(obj.tags)),
       sections,
     });
   }
   return out;
-}
-
-function extractJsonArray(text: string): string | undefined {
-  const start = text.indexOf('[');
-  const end = text.lastIndexOf(']');
-  if (start === -1 || end === -1 || end <= start) {
-    return undefined;
-  }
-  return text.slice(start, end + 1);
-}
-
-function toStringArray(v: unknown): string[] {
-  if (Array.isArray(v)) {
-    return unique(v.filter((x): x is string => typeof x === 'string').map((s) => s.trim()).filter(Boolean));
-  }
-  if (typeof v === 'string' && v.trim()) {
-    return unique(v.split(/[,，、]/).map((s) => s.trim()).filter(Boolean));
-  }
-  return [];
-}
-
-function unique(arr: string[]): string[] {
-  return [...new Set(arr.filter(Boolean))];
 }
 
 /** 在某个区目录下找一个没被占用的 slug。slug 可以带子目录前缀。 */

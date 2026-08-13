@@ -6,8 +6,8 @@ import { elapsed, scoped } from '../logger';
 import { runTask } from '../progress';
 import { NovelProject } from '../model/project';
 import { estimateTokens, takeHead } from '../context/tokenizer';
+import { stripCodeFence } from './parse';
 import { pickChaptersByInput } from './pickChapters';
-import { stripCodeFence } from './summarize';
 
 const log = scoped('文风');
 

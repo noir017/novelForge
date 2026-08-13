@@ -33,7 +33,8 @@ import {
   renderList,
 } from '../model/sceneFile';
 import { CreationAction } from '../model/pipeline';
-import { extractJsonObject, stripCodeFence, toSectionText } from './summarize';
+import { extractJsonObject, stripCodeFence } from './parse';
+import { toSectionText } from './summarize';
 
 // ---------------------------------------------------------------- 产物形状
 

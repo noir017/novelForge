@@ -21,7 +21,7 @@ import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } fro
 import { describeTaskModels } from '../model/tiers';
 import { explainDroppedAliases, sanitizeAliases } from '../naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
-import { stripCodeFence } from './summarize';
+import { extractJsonObject, stringArray, stripCodeFence, unique, uniqueNumbers } from './parse';
 
 const log = scoped('角色卡');
 
@@ -784,7 +784,7 @@ async function runCardUpdate(
       droppedAliases.map((d) => `${d.alias}（${d.reason}）`).join('、')
     );
   }
-  const appearances = unique2(
+  const appearances = uniqueNumbers(
     opts.scope === 'incremental' ? [...card.appearsIn, ...opts.allAppearances] : opts.allAppearances
   );
   // 水位线只推进到第一个失败章节之前——越过去的话那几章再也不会被重读。
@@ -792,7 +792,7 @@ async function runCardUpdate(
   const covered = analyzed.filter((o) => o < firstFailure);
   const updatedThrough = Math.max(card.updatedThrough ?? 0, ...covered, 0);
   if (failed.length > 0) {
-    const detail = `失败章节：${describeChapters(unique2(failed))}｜下次更新会从这里重来`;
+    const detail = `失败章节：${describeChapters(uniqueNumbers(failed))}｜下次更新会从这里重来`;
     log.warn(`${failed.length} 章解析失败，「已读到」只推进到第 ${updatedThrough} 章`, detail);
     // 这一条以前只有日志：卡确实更新了一部分，界面上完全看不出还缺一块。
     await recordFailure(project, {
@@ -1033,14 +1033,13 @@ async function askScope(
  */
 export function parseCardResponse(raw: string): ParsedCard | undefined {
   const text = stripCodeFence(raw);
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
+  const jsonText = extractJsonObject(text);
+  if (!jsonText) {
     return undefined;
   }
   let data: unknown;
   try {
-    data = JSON.parse(text.slice(start, end + 1));
+    data = JSON.parse(jsonText);
   } catch {
     return undefined;
   }
@@ -1068,25 +1067,11 @@ export function parseCardResponse(raw: string): ParsedCard | undefined {
   if (!any) {
     return undefined;
   }
-  return { sections, aliases: sanitizeAliases(toStringArray(obj.aliases)), tags: toStringArray(obj.tags) };
-}
-
-function toStringArray(v: unknown): string[] {
-  if (Array.isArray(v)) {
-    return unique(v.filter((x): x is string => typeof x === 'string').map((s) => s.trim()).filter(Boolean));
-  }
-  if (typeof v === 'string' && v.trim()) {
-    return unique(v.split(/[,，、]/).map((s) => s.trim()).filter(Boolean));
-  }
-  return [];
-}
-
-function unique(arr: string[]): string[] {
-  return [...new Set(arr.filter(Boolean))];
-}
-
-function unique2(arr: number[]): number[] {
-  return [...new Set(arr)].sort((a, b) => a - b);
+  return {
+    sections,
+    aliases: sanitizeAliases(unique(stringArray(obj.aliases))),
+    tags: unique(stringArray(obj.tags)),
+  };
 }
 
 async function uniqueSlug(dirAbs: string, base: string): Promise<string> {

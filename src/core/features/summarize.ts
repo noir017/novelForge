@@ -13,6 +13,7 @@ import { describeTaskModels } from '../model/tiers';
 import { Chapter, SUMMARY_SECTION_KEYS, SummaryCast, SummarySections } from '../model/types';
 import { sanitizeAliases } from '../naming';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
+import { extractJsonObject, stripCodeFence } from './parse';
 
 const log = scoped('摘要');
 
@@ -667,22 +668,6 @@ export function toSectionText(v: unknown): string {
   return '';
 }
 
-/**
- * 从可能夹杂废话的文本里抠出最外层 JSON 对象。
- *
- * 与 characters.ts 的 `extractJsonArray` 同思路，但要防一件事：正文摘要里
- * 常有 `}` 出现在中文标点之间，直接取 `lastIndexOf('}')` 没问题，取第一个
- * `}` 就会截断。所以取第一个 `{` 到最后一个 `}`。
- */
-export function extractJsonObject(text: string): string | undefined {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
-    return undefined;
-  }
-  return text.slice(start, end + 1);
-}
-
 /** 从 Markdown 抽出六个固定小节。允许模型多写、少写，缺的留空。 */
 function parseSummarySections(cleaned: string): SummarySections {
   const picked = pickSections<keyof SummarySections>(cleaned, SUMMARY_SECTION_KEYS);
@@ -703,11 +688,6 @@ function parseSummarySections(cleaned: string): SummarySections {
     sections.梗概 = cleaned.trim();
   }
   return sections;
-}
-
-export function stripCodeFence(text: string): string {
-  const m = /^\s*```(?:\w+)?\r?\n([\s\S]*?)\r?\n?```\s*$/.exec(text.trim());
-  return (m ? m[1] : text).trim();
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {

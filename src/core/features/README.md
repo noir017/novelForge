@@ -8,6 +8,7 @@
 |---|---|
 | [creation.ts](creation.ts) | ★ `CreationSession`：创作编排——装配上下文 → 流式生成 → **由用户点了采纳才落盘**。`acceptArtifact` 按 target 分派到六条落盘路径（大纲/拆章/细纲/拆场景/场景卡/正文）。含 `preview()`（只装配不调用模型）、取消、输出清洗与连接测试。 |
 | [artifact.ts](artifact.ts) | ★ 模型输出 → 可采纳的结构化产物。三层降级（JSON → Markdown 小节 → 全文兜底），与摘要同一套。**只解析，一个字都不写盘。** |
+| [parse.ts](parse.ts) | 模型输出解析小工具：剥代码围栏、提取 JSON、字符串与数字去重、字符串数组归一。 |
 | [pipelineBatch.ts](pipelineBatch.ts) | ★ 工程页的批量流水线动作：给缺细纲的章节批量生成细纲、给已有细纲的章节批量拆场景。**只补不改**，走 runTask + runPool，失败挂在那一章上。 |
 | [summarize.ts](summarize.ts) | 单章摘要（**模型输出 JSON**，解析成六个固定小节 + 结构化出场人物，temperature 固定 0.3）、批量同步过期摘要（各章并发）、map-reduce 重建全书摘要（每 N 章一批 reduce 再合并，map 阶段并发）。 |
 | [characters.ts](characters.ts) | 从选定章节**批量**提取/更新角色卡（一次扒出一批人）。**绝不静默覆盖作者手写的角色卡**——已存在的角色一律经 `Host.reviewReplace` 审阅确认，新角色直接创建。另含 `newCharacter` / `newLore` 的新建模板。 |

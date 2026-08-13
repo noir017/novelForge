@@ -18,7 +18,7 @@ import {
 } from '../model/project';
 import { Chapter, LoreEntry } from '../model/types';
 import { runTask } from '../progress';
-import { stripCodeFence } from './summarize';
+import { extractJson, stringArray, stripCodeFence, unique, uniqueNumbers } from './parse';
 
 const log = scoped('设定');
 
@@ -709,42 +709,12 @@ function parseLoreDocument(raw: string): { keywords: string[]; body: string } | 
   return { keywords: unique(stringArray(obj.keywords)), body };
 }
 
-function extractJson(text: string): string | undefined {
-  const arrayStart = text.indexOf('[');
-  const objectStart = text.indexOf('{');
-  const starts = [arrayStart, objectStart].filter((n) => n >= 0);
-  if (starts.length === 0) {
-    return undefined;
-  }
-  const start = Math.min(...starts);
-  const end = text[start] === '[' ? text.lastIndexOf(']') : text.lastIndexOf('}');
-  return end > start ? text.slice(start, end + 1) : undefined;
-}
-
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
 function singleLineValue(value: unknown, maxLength: number): string {
   return stringValue(value).replace(/\s+/g, ' ').slice(0, maxLength).trim();
-}
-
-function stringArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((v): v is string => typeof v === 'string').map((v) => v.trim()).filter(Boolean);
-  }
-  if (typeof value === 'string') {
-    return value.split(/[，,、\n]/).map((v) => v.trim()).filter(Boolean);
-  }
-  return [];
-}
-
-function unique(values: string[]): string[] {
-  return [...new Set(values.map((v) => v.trim()).filter(Boolean))];
-}
-
-function uniqueNumbers(values: number[]): number[] {
-  return [...new Set(values)].sort((a, b) => a - b);
 }
 
 function normalizeTitle(value: string): string {
