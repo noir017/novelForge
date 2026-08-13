@@ -129,9 +129,10 @@ describe('没有「我是哪个壳」的分支', () => {
   });
 
   test('ViewState 里没有按壳命名的开关', () => {
-    const protocol = code(path.join(ROOT, 'src', 'core', 'protocol.ts'));
+    const protocolDir = path.join(ROOT, 'src', 'core', 'protocol');
+    const protocol = listTsFiles(protocolDir).map(code).join('\n');
     for (const word of ['standalone?:', 'vscode?:', 'desktop?:']) {
-      assert.ok(!protocol.includes(word), `protocol.ts 里出现了 ${word}`);
+      assert.ok(!protocol.includes(word), `protocol/ 里出现了 ${word}`);
     }
   });
 });
