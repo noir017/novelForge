@@ -1,4 +1,4 @@
-import type { DirListing } from '../fileTree';
+import type { DirListing } from '../files/fileTree';
 import type { LogEntry } from '../logger';
 import type { TaskSnapshot } from '../progress';
 import type {

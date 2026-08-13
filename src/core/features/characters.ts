@@ -3,7 +3,7 @@ import { getHost } from '../host';
 import { collectStream, ChatOptions } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { readConfig } from '../config';
-import { resolveSectionDir } from '../fileOps';
+import { resolveSectionDir } from '../files/fileOps';
 import { elapsed, scoped } from '../logger';
 import { runTask } from '../progress';
 import { readText, slugify, uniqueSlug, writeText } from '../model/fs';

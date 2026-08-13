@@ -34,7 +34,7 @@ describe('fileOps.ts', () => {
       host: './src/core/host.ts',
       project: './src/core/model/project.ts',
       projectView: './src/core/projectView.ts',
-      fileOps: './src/core/fileOps.ts',
+      fileOps: './src/core/files/fileOps.ts',
       characters: './src/core/features/characters.ts',
       actions: './src/core/actions.ts',
     });

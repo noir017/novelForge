@@ -40,7 +40,7 @@ export function baseMenuItems(): MenuItem[] {
 
 /**
  * 三个可管理区各自的差异：新建什么、菜单上怎么称呼、文件行用什么图标。
- * 与 core/fileOps.ts 的 Section 一一对应。
+ * 与 core/files/fileOps.ts 的 Section 一一对应。
  */
 export interface Section {
   newAction: ProjectAction;

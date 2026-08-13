@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { buildCastIndex, readCastChapters } from '../cast';
 import { buildIdentityGroups } from '../model/identity';
-import { trashPathFor } from '../fileOps';
+import { trashPathFor } from '../files/fileOps';
 import { getHost } from '../host';
 import { elapsed, scoped } from '../logger';
 import { rewriteFrontmatter } from '../model/markdown';

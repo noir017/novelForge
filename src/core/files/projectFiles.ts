@@ -10,11 +10,11 @@ import {
   renameEntryInRoot,
   sectionOf,
 } from './fileOps';
-import { getHost } from './host';
-import { describeError, scoped } from './logger';
-import { exists } from './model/fs';
-import { NovelProject } from './model/project';
-import { FileOpResult } from './protocol';
+import { getHost } from '../host';
+import { describeError, scoped } from '../logger';
+import { exists } from '../model/fs';
+import { NovelProject } from '../model/project';
+import { FileOpResult } from '../protocol';
 
 const log = scoped('文件页');
 

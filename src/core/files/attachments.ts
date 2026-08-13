@@ -1,6 +1,6 @@
-import { PickChoice } from './host';
-import { NovelProject } from './model/project';
-import { Attachment, AttachmentKind } from './model/session';
+import { PickChoice } from '../host';
+import { NovelProject } from '../model/project';
+import { Attachment, AttachmentKind } from '../model/session';
 
 /**
  * 构建 @ 引用的候选列表；展示与选择交给 Host.pick。

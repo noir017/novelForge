@@ -22,7 +22,7 @@ before(async () => {
     project: './src/core/model/project.ts',
     planFile: './src/core/model/planFile.ts',
     sceneFile: './src/core/model/sceneFile.ts',
-    fileOps: './src/core/fileOps.ts',
+    fileOps: './src/core/files/fileOps.ts',
     pipe: './src/core/pipeline.ts',
     workbench: './src/core/workbench.ts',
   });

@@ -39,9 +39,9 @@ describe('草稿', () => {
       markdown: './src/core/model/markdown.ts',
       project: './src/core/model/project.ts',
       projectView: './src/core/projectView.ts',
-      fileOps: './src/core/fileOps.ts',
-      fileEditing: './src/core/fileEditing.ts',
-      attachments: './src/core/attachments.ts',
+      fileOps: './src/core/files/fileOps.ts',
+      fileEditing: './src/core/files/fileEditing.ts',
+      attachments: './src/core/files/attachments.ts',
     });
     ({ projectView, fileOps, attachments } = bundle);
     // 原脚本的 host 字面量里没有 reviewReplace，显式抹掉，别走进 diff 审阅分支。

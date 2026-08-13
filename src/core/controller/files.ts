@@ -1,7 +1,7 @@
 import type { ChatController } from './index';
-import { deleteEntry, moveEntry, renameEntry } from '../fileOps';
-import { listDirs } from '../fileTree';
-import { copyInto, moveInto, renameAny } from '../projectFiles';
+import { deleteEntry, moveEntry, renameEntry } from '../files/fileOps';
+import { listDirs } from '../files/fileTree';
+import { copyInto, moveInto, renameAny } from '../files/projectFiles';
 import { getHost } from '../host';
 import { scoped } from '../logger';
 import { FileOpResult, InMessage } from '../protocol';
@@ -52,7 +52,7 @@ export async function openDraft(c: ChatController, chapterRelPath: string): Prom
 }
 
 /**
- * 类文件操作。工程页的 rename/move/delete 走 core/fileOps（三区锁定），
+ * 类文件操作。工程页的 rename/move/delete 走 core/files/fileOps（三区锁定），
  * 文件页的 renameAny/paste 走 core/projectFiles（根范围）。
  * 有逐项结果的动作额外推 filesOpDone，前端据此 remap 编辑器标签。
  */

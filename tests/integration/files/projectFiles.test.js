@@ -32,8 +32,8 @@ describe('projectFiles.ts', () => {
     const bundle = loadBundle({
       host: './src/core/host.ts',
       project: './src/core/model/project.ts',
-      fileOps: './src/core/fileOps.ts',
-      projectFiles: './src/core/projectFiles.ts',
+      fileOps: './src/core/files/fileOps.ts',
+      projectFiles: './src/core/files/projectFiles.ts',
     });
     pf = bundle.projectFiles;
     // 原脚本的 host 字面量里没有 reviewReplace，显式抹掉，别走进 diff 审阅分支。

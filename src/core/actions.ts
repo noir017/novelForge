@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { resolveSectionDir } from './fileOps';
+import { resolveSectionDir } from './files/fileOps';
 import { getHost } from './host';
 import { NovelProject } from './model/project';
 

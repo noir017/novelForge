@@ -1,10 +1,10 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { getHost } from './host';
-import { scoped } from './logger';
-import { isMarkdownPath } from './model/chapterFile';
-import { exists, readText, sanitizeFileName, writeText } from './model/fs';
-import { NovelProject } from './model/project';
+import { getHost } from '../host';
+import { scoped } from '../logger';
+import { isMarkdownPath } from '../model/chapterFile';
+import { exists, readText, sanitizeFileName, writeText } from '../model/fs';
+import { NovelProject } from '../model/project';
 
 const log = scoped('文件');
 

@@ -1,4 +1,4 @@
-import { listAttachmentChoices } from '../attachments';
+import { listAttachmentChoices } from '../files/attachments';
 import { readConfig } from '../config';
 import { closeDatabase, installLogPersistence, readLogHistory } from '../db';
 import { CreationSession } from '../features/creation';

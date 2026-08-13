@@ -46,7 +46,7 @@ export type {
 
 export type { LogEntry, LogLevel } from '../logger';
 export type { TaskSnapshot } from '../progress';
-export type { DirListing, FsEntry } from '../fileTree';
+export type { DirListing, FsEntry } from '../files/fileTree';
 export type {
   Capability,
   ChapterStage,

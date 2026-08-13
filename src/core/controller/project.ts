@@ -1,6 +1,6 @@
 import type { ChatController } from './index';
 import { dirBaseName, initProjectFlow, newChapterFlow } from '../actions';
-import { newFolder, Section, sectionOf, sectionRoots } from '../fileOps';
+import { newFolder, Section, sectionOf, sectionRoots } from '../files/fileOps';
 import {
   createCardForCast,
   createCardsForAllCast,

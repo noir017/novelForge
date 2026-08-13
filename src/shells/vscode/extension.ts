@@ -6,7 +6,7 @@ import { promoteModel, setLegacyConfigReader } from '../../core/config';
 import { extractCharacters, newCharacter, newLore } from '../../core/features/characters';
 import { updateCharacterCard } from '../../core/features/characterCard';
 import { generateLore } from '../../core/features/lore';
-import { newFolder, sectionRoots } from '../../core/fileOps';
+import { newFolder, sectionRoots } from '../../core/files/fileOps';
 import { extractStyle } from '../../core/features/style';
 import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../../core/features/summarize';
 import { getHost, initHost } from '../../core/host';

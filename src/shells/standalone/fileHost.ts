@@ -8,7 +8,7 @@ import {
   isEditablePath,
   readFileForEditor,
   writeFileFromEditor,
-} from '../../core/fileEditing';
+} from '../../core/files/fileEditing';
 import { Disposable, Host, InputOptions, PickChoice } from '../../core/host';
 import { isChapterFileName } from '../../core/model/chapterFile';
 import { NovelProject } from '../../core/model/project';
