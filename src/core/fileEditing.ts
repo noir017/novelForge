@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { scoped } from './logger';
 import { isChapterFileName } from './model/chapterFile';
-import { hash } from './model/project';
+import { hash } from './model/fs';
 
 const log = scoped('编辑器');
 

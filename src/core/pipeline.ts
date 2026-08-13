@@ -23,7 +23,8 @@
  * 由作者显式触发，不在这里自动跑。
  */
 import { scoped } from './logger';
-import { NovelProject, hash } from './model/project';
+import { hash } from './model/fs';
+import { NovelProject } from './model/project';
 import { ChapterPlan } from './model/planFile';
 import { isPlanFilled } from './model/planFile';
 import { Scene } from './model/sceneFile';

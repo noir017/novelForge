@@ -1,4 +1,3 @@
-import * as path from 'node:path';
 import { readConfig } from '../config';
 import { runPool, Settled } from '../concurrency';
 import { clearFailures, recordFailure } from '../errorLog';
@@ -7,14 +6,12 @@ import { getHost } from '../host';
 import { collectStream, ChatOptions } from '../llm/provider';
 import { budgetForTask, createModelPool, ModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../logger';
+import { readText, slugify, uniqueSlug } from '../model/fs';
 import { parseMarkdown, stripH1 } from '../model/markdown';
 import { describeTaskModels } from '../model/tiers';
 import {
-  exists,
   NovelProject,
-  readText,
   renderLoreEntry,
-  slugify,
 } from '../model/project';
 import { Chapter, LoreEntry } from '../model/types';
 import { runTask } from '../progress';
@@ -561,7 +558,7 @@ async function applyGeneratedLore(
     } else {
       const category = slugify(item.draft.category);
       const base = `${category}/${slugify(item.draft.title)}`;
-      const slug = await uniqueLoreSlug(project, base);
+      const slug = await uniqueSlug(project.loreDir, base);
       const relPath = await project.writeLore({
         slug,
         title: item.draft.title,
@@ -627,15 +624,6 @@ async function reviewExisting(
     `${existing.relPath}｜${currentText.length} 字 → ${proposedText.length} 字`
   );
   return 'updated';
-}
-
-async function uniqueLoreSlug(project: NovelProject, base: string): Promise<string> {
-  let slug = base;
-  let suffix = 2;
-  while (await exists(path.join(project.loreDir, `${slug}.md`))) {
-    slug = `${base}-${suffix++}`;
-  }
-  return slug;
 }
 
 /** 容错解析逐章识别结果；坏条目忽略，不让一章的脏输出带崩全书任务。 */

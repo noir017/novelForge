@@ -3,19 +3,15 @@ import { readConfig } from '../config';
 import { runPool, serialize } from '../concurrency';
 import { clearFailures, recordFailure } from '../errorLog';
 import { getHost } from '../host';
-import * as path from 'node:path';
 import { collectStream, ChatOptions } from '../llm/provider';
 import { budgetForTask, createModelPool, ModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../logger';
 import { runTask } from '../progress';
+import { readText, slugify, uniqueSlug, writeText } from '../model/fs';
 import {
   NovelProject,
   emptyCharacterSections,
-  exists,
-  readText,
   renderCharacterCard,
-  slugify,
-  writeText,
 } from '../model/project';
 import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
 import { describeTaskModels } from '../model/tiers';
@@ -1072,15 +1068,6 @@ export function parseCardResponse(raw: string): ParsedCard | undefined {
     aliases: sanitizeAliases(unique(stringArray(obj.aliases))),
     tags: unique(stringArray(obj.tags)),
   };
-}
-
-async function uniqueSlug(dirAbs: string, base: string): Promise<string> {
-  let slug = base;
-  let i = 2;
-  while (await exists(path.join(dirAbs, `${slug}.md`))) {
-    slug = `${base}-${i++}`;
-  }
-  return slug;
 }
 
 // ---------------------------------------------------------------- 提示词

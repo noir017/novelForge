@@ -18,6 +18,7 @@ let project;
 before(async () => {
   bundle = loadBundle({
     host: './src/core/host.ts',
+    fs: './src/core/model/fs.ts',
     project: './src/core/model/project.ts',
     planFile: './src/core/model/planFile.ts',
     sceneFile: './src/core/model/sceneFile.ts',
@@ -289,7 +290,7 @@ describe('新鲜度链', () => {
 
   before(async () => {
     t.write('.novelforge/outline.md', '# 大纲\n\n第一幕：入局');
-    const outlineHash = bundle.project.hash(await project.readOutline());
+    const outlineHash = bundle.fs.hash(await project.readOutline());
 
     // 细纲记下当时的大纲指纹。
     await project.writePlan(ch, {

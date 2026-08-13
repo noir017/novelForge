@@ -43,7 +43,8 @@
 
 import * as path from 'node:path';
 import { addLogSink, LogEntry, LogLevel, recentLogs, scoped, Unsubscribe } from './logger';
-import { exists, NovelProject } from './model/project';
+import { exists } from './model/fs';
+import { NovelProject } from './model/project';
 
 const log = scoped('数据库');
 

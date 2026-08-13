@@ -12,7 +12,8 @@ import {
 } from './fileOps';
 import { getHost } from './host';
 import { describeError, scoped } from './logger';
-import { NovelProject, exists } from './model/project';
+import { exists } from './model/fs';
+import { NovelProject } from './model/project';
 import { FileOpResult } from './protocol';
 
 const log = scoped('文件页');

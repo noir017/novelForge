@@ -6,7 +6,8 @@ import { readConfig } from '../config';
 import { resolveSectionDir } from '../fileOps';
 import { elapsed, scoped } from '../logger';
 import { runTask } from '../progress';
-import { NovelProject, emptyCharacterSections, exists, readText, renderCharacterCard, slugify, writeText } from '../model/project';
+import { readText, slugify, uniqueSlug, writeText } from '../model/fs';
+import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../model/project';
 import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections, Chapter } from '../model/types';
 import { sanitizeAliases } from '../naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
@@ -367,16 +368,6 @@ export function parseCharacterResponse(raw: string): ParsedCharacter[] {
     });
   }
   return out;
-}
-
-/** 在某个区目录下找一个没被占用的 slug。slug 可以带子目录前缀。 */
-async function uniqueSlug(dirAbs: string, base: string): Promise<string> {
-  let slug = base;
-  let i = 2;
-  while (await exists(path.join(dirAbs, `${slug}.md`))) {
-    slug = `${base}-${i++}`;
-  }
-  return slug;
 }
 
 async function buildCorpus(project: NovelProject, chapters: Chapter[], budget: number): Promise<string> {

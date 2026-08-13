@@ -13,7 +13,8 @@
 import { estimateTokens, takeHead, takeTail } from './tokenizer';
 import { BuildRequest, ContextItem, LayerId, LayerSpec } from './types';
 import { buildSystemPrompt } from './prompts';
-import { NovelProject, exists, readText } from '../model/project';
+import { exists, readText } from '../model/fs';
+import { NovelProject } from '../model/project';
 import { stringifySections } from '../model/markdown';
 import { ChapterPlan, PLAN_SECTION_KEYS } from '../model/planFile';
 import { SCENE_SECTION_KEYS, Scene, describeScene } from '../model/sceneFile';

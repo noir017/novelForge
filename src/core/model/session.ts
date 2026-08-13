@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { NovelProject, exists, readText, writeText } from './project';
+import { exists, readText, writeText } from './fs';
+import { NovelProject } from './project';
 import {
   Capability,
   CreationStage,

@@ -18,7 +18,8 @@
  * 大纲同理只给预览——它可能有几千字。
  */
 import { scoped } from './logger';
-import { NovelProject, hash } from './model/project';
+import { hash } from './model/fs';
+import { NovelProject } from './model/project';
 import { PLAN_SECTION_KEYS } from './model/planFile';
 import { CreationTarget, STAGE_LABEL } from './model/pipeline';
 import { SCENE_SECTION_KEYS } from './model/sceneFile';
