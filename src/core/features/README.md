@@ -10,12 +10,18 @@
 | [artifact.ts](artifact.ts) | ★ 模型输出 → 可采纳的结构化产物。三层降级（JSON → Markdown 小节 → 全文兜底），与摘要同一套。**只解析，一个字都不写盘。** |
 | [parse.ts](parse.ts) | 模型输出解析小工具：剥代码围栏、提取 JSON、字符串与数字去重、字符串数组归一。 |
 | [pipelineBatch.ts](pipelineBatch.ts) | ★ 工程页的批量流水线动作：给缺细纲的章节批量生成细纲、给已有细纲的章节批量拆场景。**只补不改**，走 runTask + runPool，失败挂在那一章上。 |
-| [summarize.ts](summarize.ts) | 单章摘要（**模型输出 JSON**，解析成六个固定小节 + 结构化出场人物，temperature 固定 0.3）、批量同步过期摘要（各章并发）、map-reduce 重建全书摘要（每 N 章一批 reduce 再合并，map 阶段并发）。 |
-| [characters.ts](characters.ts) | 从选定章节**批量**提取/更新角色卡（一次扒出一批人）。**绝不静默覆盖作者手写的角色卡**——已存在的角色一律经 `Host.reviewReplace` 审阅确认，新角色直接创建。另含 `newCharacter` / `newLore` 的新建模板。 |
-| [lore.ts](lore.ts) | **从全书正文自动生成设定**：逐章识别可复用的世界观事实，再按设定整合跨章内容；新条目按分类创建，已有条目逐条审阅后才覆盖。 |
-| [characterCard.ts](characterCard.ts) | ★ **单个角色**的档案更新：自动关联出场章节、按预算分批调用、增量/全量两种范围。工程页角色行右键的「更新角色卡」走这里。另含批量更新全部角色卡与「给未建卡的人全部建卡」，两者都按卡并发。 |
+| [summarize.ts](summarize.ts) | 单章摘要编排（解析、批量同步、全书 map-reduce）。系统提示词在 [summarizePrompt.ts](summarizePrompt.ts)。 |
+| [summarizePrompt.ts](summarizePrompt.ts) | 单章摘要 / 阶段摘要 / 全书摘要三条系统提示。 |
+| [characters.ts](characters.ts) | 从选定章节**批量**提取/更新角色卡。系统提示词在 [charactersPrompt.ts](charactersPrompt.ts)。 |
+| [charactersPrompt.ts](charactersPrompt.ts) | 批量提取角色卡的系统提示。 |
+| [lore.ts](lore.ts) | 从全书正文自动生成设定。系统提示词在 [lorePrompt.ts](lorePrompt.ts)。 |
+| [lorePrompt.ts](lorePrompt.ts) | 逐章识别与条目整合两条系统提示。 |
+| [characterCard.ts](characterCard.ts) | ★ **单个角色**的档案更新编排。解析见 [characterCardParse.ts](characterCardParse.ts)，控篇幅提示词见 [characterCardPrompt.ts](characterCardPrompt.ts)。 |
+| [characterCardParse.ts](characterCardParse.ts) | 角色卡更新的 JSON 解析（`parseCardResponse`）。 |
+| [characterCardPrompt.ts](characterCardPrompt.ts) | 更新角色卡的系统提示（字数上限与「性格 / 语言习惯」优先）。 |
 | [characterMaintenance.ts](characterMaintenance.ts) | ★ 两条**不调模型**的整理动作：`cleanCharacterAliases` 删掉不是专属称呼的别名（含被误填成别名的**其他角色的名字**），`mergeDuplicateCharacterCards` 把同一个人的多张卡并成一张。只改 frontmatter（`rewriteFrontmatter`），作者手写的正文一个字节不动；被合并的卡搬进 `.novelforge/.trash/`。 |
-| [style.ts](style.ts) | 从 1~3 章样章归纳文风指南写入 `.novelforge/style.md`，覆盖前先确认（style.md 常被作者手工调过）。 |
+| [style.ts](style.ts) | 从 1~3 章样章归纳文风指南写入 `.novelforge/style.md`。系统提示词在 [stylePrompt.ts](stylePrompt.ts)。 |
+| [stylePrompt.ts](stylePrompt.ts) | 文风提取的系统提示。 |
 | [pickChapters.ts](pickChapters.ts) | 多章选择：Host.pick 只支持单选，需要多章时改为输入序号列表（如 `1,2,3`）。 |
 
 ## 创作的四层与两条路
