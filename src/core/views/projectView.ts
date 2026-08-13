@@ -1,10 +1,10 @@
 import { buildCastIndex, describeChapters } from './cast';
-import { listActiveFailures } from './errorLog';
-import { scoped } from './logger';
-import { SECTION_PLACEHOLDER } from './model/markdown';
-import { NovelProject } from './model/project';
-import { describeScene } from './model/sceneFile';
-import { SUMMARY_SECTION_KEYS } from './model/types';
+import { listActiveFailures } from '../errorLog';
+import { scoped } from '../logger';
+import { SECTION_PLACEHOLDER } from '../model/markdown';
+import { NovelProject } from '../model/project';
+import { describeScene } from '../model/sceneFile';
+import { SUMMARY_SECTION_KEYS } from '../model/types';
 import { ChapterPipeline, buildChapterPipeline, buildPipelineIndex } from './pipeline';
 import {
   CastConflictView,
@@ -17,7 +17,7 @@ import {
   ProjectFileNode,
   ProjectNode,
   ProjectTree,
-} from './protocol';
+} from '../protocol';
 
 const log = scoped('角色卡');
 

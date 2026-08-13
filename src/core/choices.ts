@@ -1,4 +1,4 @@
-import { appearancesOf, buildCastIndex, describeChapters } from './cast';
+import { appearancesOf, buildCastIndex, describeChapters } from './views/cast';
 import { PickChoice } from './host';
 import { NovelProject } from './model/project';
 

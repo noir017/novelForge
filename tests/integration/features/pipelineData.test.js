@@ -23,8 +23,8 @@ before(async () => {
     planFile: './src/core/model/planFile.ts',
     sceneFile: './src/core/model/sceneFile.ts',
     fileOps: './src/core/files/fileOps.ts',
-    pipe: './src/core/pipeline.ts',
-    workbench: './src/core/workbench.ts',
+    pipe: './src/core/views/pipeline.ts',
+    workbench: './src/core/views/workbench.ts',
   });
   // 原脚本的假宿主没有 reviewReplace，摘掉它才与原行为一致。
   h = makeFakeHost({ settings: () => ({}), overrides: { reviewReplace: undefined } });

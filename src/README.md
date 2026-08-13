@@ -11,12 +11,10 @@ src/
 │   ├── llm/         LlmProvider 接口与 OpenAI / Anthropic 实现
 │   ├── protocol/    webview ↔ 扩展消息协议（前后端唯一契约；对外仍是 core/protocol）
 │   ├── controller/  ★ ChatController：宿主无关的面板逻辑
+│   ├── views/       ★ 只读聚合：工程树、I/O 流水线、工作区卡、出场人物索引
 │   ├── logger.ts    ★ 运行日志：环形缓冲 + sink（脱敏、不记 prompt 全文）
 │   ├── progress.ts  ★ 长任务登记处：runTask（宿主进度 + 网页进度条 + 日志三合一）
-│   ├── pipeline.ts  ★ 章节流水线的读取聚合：四层产物 + 四段新鲜度链
-│   ├── fileOps.ts   类文件操作：建文件夹/重命名/移动/删除（区内、不覆盖、进回收站）
-│   ├── fileEditing.ts 内置编辑器的文件读写（路径校验 + hash 乐观锁）
-│   └── projectView.ts 工程页可序列化快照（任意深度的 ProjectNode 目录树）
+│   └── stores.ts    文件后端的配置与密钥存储
 └── shells/      三个宿主壳，并排放（见 shells/README.md 的壳契约）
     ├── shared/      两个以上壳共用的页面骨架（所有 pane 的 DOM 唯一来源）
     ├── vscode/      VS Code 壳：extension 入口、两个 webview 宿主、vscode-lm
@@ -30,6 +28,9 @@ src/
 - [core/model/README.md](core/model/README.md) · [core/context/README.md](core/context/README.md) · [core/features/README.md](core/features/README.md) · [core/llm/README.md](core/llm/README.md)
 - [shells/README.md](shells/README.md) —— 壳的契约（三件事该做、三件事不该做）
 - [shells/vscode/README.md](shells/vscode/README.md) · [shells/standalone/README.md](shells/standalone/README.md) · [shells/desktop/README.md](shells/desktop/README.md)
+
+`core/views/pipeline.ts` 是读取磁盘产物的 I/O 聚合器；`core/model/pipeline.ts` 仍是零 I/O
+的纯领域模型与状态机，不属于 `views/`。
 
 ## 一条创作请求的完整链路
 

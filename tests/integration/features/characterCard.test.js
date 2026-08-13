@@ -77,7 +77,7 @@ before(async () => {
   bundle = loadBundle({
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
-    cast: './src/core/cast.ts',
+    cast: './src/core/views/cast.ts',
     characterCard: './src/core/features/characterCard.ts',
     registry: './src/core/llm/registry.ts',
     // 失败记录会落进工程库；这里要能读回来断言，收尾还要关掉连接。

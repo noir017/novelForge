@@ -381,7 +381,7 @@ export const CHAPTER_STAGE_LABEL: Record<ChapterStage, string> = {
   done: '已完成',
 };
 
-/** 推导所需的全部事实。取数在 core/pipeline.ts，判断在这里，便于单测。 */
+/** 推导所需的全部事实。取数在 core/views/pipeline.ts，判断在这里，便于单测。 */
 export interface PipelineFacts {
   hasPlan: boolean;
   /** 细纲有实质内容（不是一份全空的骨架）。 */

@@ -3,7 +3,7 @@
  *
  * 与 [cast.ts](cast.ts) 同级、同类——那边把各章摘要反向聚合成出场索引，
  * 这边把大纲/细纲/场景/正文/摘要聚合成流水线状态。判断逻辑全在纯函数
- * [model/pipeline.ts](model/pipeline.ts) 里，这里只负责取数。
+ * [model/pipeline.ts](../model/pipeline.ts) 里，这里只负责取数。
  *
  * ## 新鲜度链：把「变更影响」做成传播，而不是一次模型调用
  *
@@ -22,12 +22,12 @@
  * 的影响清单。真正需要语义判断的跨章影响（「第 15 章提到他曾翻越侧峰」）只能
  * 由作者显式触发，不在这里自动跑。
  */
-import { scoped } from './logger';
-import { hash } from './model/fs';
-import { NovelProject } from './model/project';
-import { ChapterPlan } from './model/planFile';
-import { isPlanFilled } from './model/planFile';
-import { Scene } from './model/sceneFile';
+import { scoped } from '../logger';
+import { hash } from '../model/fs';
+import { NovelProject } from '../model/project';
+import { ChapterPlan } from '../model/planFile';
+import { isPlanFilled } from '../model/planFile';
+import { Scene } from '../model/sceneFile';
 import {
   ChapterStage,
   PipelineFacts,
@@ -35,8 +35,8 @@ import {
   deriveProgress,
   deriveStage,
   emptyFacts,
-} from './model/pipeline';
-import { Chapter, ProjectManifest } from './model/types';
+} from '../model/pipeline';
+import { Chapter, ProjectManifest } from '../model/types';
 
 const log = scoped('流水线');
 

@@ -1,4 +1,4 @@
-import { appearancesOf, buildCastIndex, CastMember, describeChapters } from '../cast';
+import { appearancesOf, buildCastIndex, CastMember, describeChapters } from '../views/cast';
 import { readConfig } from '../config';
 import { runPool, serialize } from '../concurrency';
 import { clearFailures, recordFailure } from '../errorLog';

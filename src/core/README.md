@@ -9,6 +9,7 @@
 | [features/](features/README.md) | 功能编排：续写、摘要、角色卡、设定、文风提取 |
 | [llm/](llm/README.md) | 模型接入：`LlmProvider` 接口、OpenAI / Anthropic 协议实现、provider 注册表 |
 | [files/](files/) | ★ 工程文件能力：三区类文件操作、工程根范围移动/复制、内置编辑器路径守卫、资源管理器目录列举，以及 `@` 引用候选。`fileOps.ts` 与 `projectFiles.ts` 都坚持不越界、不静默覆盖；删除只搬进 `.novelforge/.trash/`。 |
+| [views/](views/README.md) | ★ 只读聚合与界面快照：工程树、章节流水线、创作工作区卡与出场人物索引。只从磁盘取数，不写盘。`views/pipeline.ts` 是 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，不迁入 `views/`。 |
 
 依赖方向自上而下：`features/` → `context/` / `llm/` → `model/`，反向不允许。
 
@@ -27,10 +28,6 @@
 | [actions.ts](actions.ts) | 工程级交互流程（初始化、新建章节），命令面板与网页共用。 |
 | [config.ts](config.ts) | `readConfig` / `readBudgetFallback` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |
 | [stores.ts](stores.ts) | 文件后端的配置/密钥存储（`~/.novelforge/`），双壳共用。 |
-| [projectView.ts](projectView.ts) | 工程页的数据来源：把数据层给的扁平文件清单折成 `ProjectNode` 目录树（章节、角色、设定、摘要新鲜度、草稿有无、流水线徽章），展开/折叠状态留在前端。另有 `buildChapterSummaryView`（悬停浮窗要看的单章摘要）与 `buildChapterPipelineView`（创作页的流水线条），两者都按需单取——它们数据大、只在用到时要一次，不塞进每次文件变动都全量重推的树里。 |
-| [pipeline.ts](pipeline.ts) | ★ 章节流水线的读取聚合：把散落在 `plans/` `scenes/` `chapters/` `summaries/` 的四层产物合成一份「这一章现在到哪一步了」，并算出四段新鲜度。与 cast.ts 同级同类——那边把摘要反向聚合成出场索引，这边聚合成流水线状态。判断逻辑全在纯函数 `model/pipeline.ts` 里，这里只负责取数。 |
-| [workbench.ts](workbench.ts) | ★ 创作页工作区卡的内容：**当前这一层的产物本身**（细纲的五节、场景的七节、正文的字数与场景进度、大纲的预览）。与 pipeline.ts 同级同类——那边聚合「走到哪一步了」，这边取出「我正在改的那份东西写了什么」。正文层刻意只给统计不给全文：三千字塞进一张常驻卡片既读不下去，又把消息流挤没了。**绝不抛**：章节刚被改名时给一张说得清情况的空卡，不让整条推送失败。 |
-| [cast.ts](cast.ts) | ★ 出场人物索引：把各章摘要的 `cast` 反向聚合成「谁在哪些章出现过」。工程页的角色区、「更新角色卡」取语料、角色卡的 `appearsIn` 都吃它。 |
 
 ## 已知约定
 
@@ -46,8 +43,8 @@
 - **草稿不是可管理区**：`drafts/` 不在 `files/fileOps.ts` 的三个区里（工程页上也没有它的节点），但它是**可打开的**——`files/fileEditing.ts` 只看工程根包含 + 扩展名/章节规则 + 大小，草稿天然满足。草稿路径由 `NovelProject.draftRelPathFor` 从章节路径推导，别在别处另拼一份。
 - **草稿永不自动注入**：`context/builder.ts` 里没有任何一处读 `drafts/`，草稿只能经 `resolveAttachment`（作者显式 `@` 引用）进 prompt。加功能时别打破这条——它是「不偷偷烧 token」的一部分。
 - **`openDraft` 会写盘**：`controller/files.ts` 里那句 `listChapters().find(...)` 是它没变成「往 `drafts/<任意路径>` 写文件」的原语的唯一原因。别为了省一次扫描就信任前端传来的路径。
-- **摘要是出场人物的唯一真相**：角色卡 frontmatter 里的 `appearsIn` / `updatedThrough` **只是缓存**。想知道谁在哪出场，一律经 `cast.ts` 的 `buildCastIndex()` 从摘要重算，别读角色卡的字段——摘要重跑之后那里就旧了。索引按 `name ∪ aliases` 匹配（摘要里的名字是模型写的，角色卡文件名是作者起的，两者没有硬关联）。
-- **别名只收专属称呼，正式名压过别名**：aliases 是「谁是谁」的判据（`cast.ts` / `model/identity.ts` 都吃它），泛称会把几个角色串成一个，别人的名字会让出场章节整批记错人。所以模型产出的别名一律经 `model/naming.ts` 过滤，索引两趟建表（先占正式名再登记别名）。抢名的情况记进 `CastIndex.conflicts`，由工程页与日志说出来——出场统计必然有一张卡是错的，而这件事从界面上看不出来。
+- **摘要是出场人物的唯一真相**：角色卡 frontmatter 里的 `appearsIn` / `updatedThrough` **只是缓存**。想知道谁在哪出场，一律经 `views/cast.ts` 的 `buildCastIndex()` 从摘要重算，别读角色卡的字段——摘要重跑之后那里就旧了。索引按 `name ∪ aliases` 匹配（摘要里的名字是模型写的，角色卡文件名是作者起的，两者没有硬关联）。
+- **别名只收专属称呼，正式名压过别名**：aliases 是「谁是谁」的判据（`views/cast.ts` / `model/identity.ts` 都吃它），泛称会把几个角色串成一个，别人的名字会让出场章节整批记错人。所以模型产出的别名一律经 `model/naming.ts` 过滤，索引两趟建表（先占正式名再登记别名）。抢名的情况记进 `CastIndex.conflicts`，由工程页与日志说出来——出场统计必然有一张卡是错的，而这件事从界面上看不出来。
 - **判定两个称呼是同一个人，只信同章共现**：`model/identity.ts` 里同一章 cast 中各自出场的两个称呼是硬约束，永不合并；别的都只是证据。把两个角色错并成一个远比多建一张卡难收拾——此后所有出场统计与角色卡语料都是错的，而界面上一切正常。
 - **`characterAction` 与 `fileAction` 不能合并**：前者的作用对象是**一个角色**（用名字标识），未建卡的人物根本没有文件，走 `fileAction` 那套区守卫无从谈起。
 - **资源管理器只列不改，写走 projectFiles**：`files/fileTree.ts` 是纯读取，没有新建/删除/改名。「文件」页的写入口只有 `files/projectFiles.ts`（重命名/移动/复制，工程根范围，固定目录受保护，同名不覆盖）；删除入口仍然只在工程页（`files/fileOps.ts`，搬进 `.trash/`）。往文件页加新写操作前，先想清楚它绕过了这里的哪一条约束。

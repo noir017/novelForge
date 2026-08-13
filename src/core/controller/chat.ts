@@ -29,9 +29,9 @@ import {
   SendPayload,
   SerializedArtifact,
 } from '../protocol';
-import { buildChapterPipelineView } from '../projectView';
-import { buildChapterPipeline } from '../pipeline';
-import { buildWorkbench } from '../workbench';
+import { buildChapterPipelineView } from '../views/projectView';
+import { buildChapterPipeline } from '../views/pipeline';
+import { buildWorkbench } from '../views/workbench';
 import { persist } from './session';
 import {
   factsOf,

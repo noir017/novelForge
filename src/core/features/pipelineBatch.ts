@@ -29,7 +29,7 @@ import { describeTaskModels } from '../model/tiers';
 import { buildContext } from '../context/builder';
 import { Chapter } from '../model/types';
 import { runTask } from '../progress';
-import { planContentHash } from '../pipeline';
+import { planContentHash } from '../views/pipeline';
 import { parsePlanStrict, parseSceneList } from './artifact';
 
 const log = scoped('流水线');

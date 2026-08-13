@@ -48,7 +48,7 @@ import {
 } from '../model/providers';
 import { Chapter } from '../model/types';
 import { Artifact, describeArtifact, isArtifactEmpty, parseArtifact } from './artifact';
-import { planContentHash } from '../pipeline';
+import { planContentHash } from '../views/pipeline';
 
 const log = scoped('创作');
 

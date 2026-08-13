@@ -98,8 +98,8 @@ before(async () => {
     project: './src/core/model/project.ts',
     builder: './src/core/context/builder.ts',
     tokenizer: './src/core/context/tokenizer.ts',
-    projectView: './src/core/projectView.ts',
-    cast: './src/core/cast.ts',
+    projectView: './src/core/views/projectView.ts',
+    cast: './src/core/views/cast.ts',
   });
   projectMod = bundle.project;
   builderMod = bundle.builder;

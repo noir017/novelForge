@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { buildCastIndex, readCastChapters } from '../cast';
+import { buildCastIndex, readCastChapters } from '../views/cast';
 import { buildIdentityGroups } from '../model/identity';
 import { trashPathFor } from '../files/fileOps';
 import { getHost } from '../host';

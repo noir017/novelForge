@@ -33,7 +33,7 @@ describe('fileOps.ts', () => {
     const bundle = loadBundle({
       host: './src/core/host.ts',
       project: './src/core/model/project.ts',
-      projectView: './src/core/projectView.ts',
+      projectView: './src/core/views/projectView.ts',
       fileOps: './src/core/files/fileOps.ts',
       characters: './src/core/features/characters.ts',
       actions: './src/core/actions.ts',

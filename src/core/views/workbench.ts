@@ -17,14 +17,14 @@
  * 常驻卡片，既读不下去又把消息流挤没了；真要读，「打开」按钮就在旁边。
  * 大纲同理只给预览——它可能有几千字。
  */
-import { scoped } from './logger';
-import { hash } from './model/fs';
-import { NovelProject } from './model/project';
-import { PLAN_SECTION_KEYS } from './model/planFile';
-import { CreationTarget, STAGE_LABEL } from './model/pipeline';
-import { SCENE_SECTION_KEYS } from './model/sceneFile';
+import { scoped } from '../logger';
+import { hash } from '../model/fs';
+import { NovelProject } from '../model/project';
+import { PLAN_SECTION_KEYS } from '../model/planFile';
+import { CreationTarget, STAGE_LABEL } from '../model/pipeline';
+import { SCENE_SECTION_KEYS } from '../model/sceneFile';
 import { planContentHash } from './pipeline';
-import { WorkbenchSection, WorkbenchView } from './protocol';
+import { WorkbenchSection, WorkbenchView } from '../protocol';
 
 const log = scoped('工作区');
 

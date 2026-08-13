@@ -27,7 +27,7 @@ before(async () => {
     project: './src/core/model/project.ts',
     artifact: './src/core/features/artifact.ts',
     creation: './src/core/features/creation.ts',
-    pipe: './src/core/pipeline.ts',
+    pipe: './src/core/views/pipeline.ts',
   });
   A = bundle.artifact;
   // 原脚本的假宿主**没有** reviewReplace，于是 acceptArtifact 走 confirm 那条分支

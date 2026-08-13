@@ -12,7 +12,7 @@
  *
  * 场景列表是 `scenes/` 目录的派生数据。写进细纲文件就会漂移：作者删了一个
  * 场景文件，细纲里那一行还在，而界面上看不出哪份是真的。要看场景列表就现算
- * （core/pipeline.ts）。这与「摘要是出场人物的唯一真相、角色卡的 appearsIn
+ * （core/views/pipeline.ts）。这与「摘要是出场人物的唯一真相、角色卡的 appearsIn
  * 只是缓存」是同一个取舍——只是这次连缓存都不落盘。
  */
 import { asNumber, asString, parseMarkdown, pickSections, stringifyFrontmatter, stringifySections } from './markdown';

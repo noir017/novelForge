@@ -12,7 +12,7 @@
  * `position: sticky` 是这两者之间唯一的解：它在消息流里（跟着一起滚），
  * 但滚不出视野——聊到第十轮回头看「这一场到底不能发生什么」，它还在。
  *
- * 内容全部由后端生成（[core/workbench.ts](../../../src/core/workbench.ts)），
+ * 内容全部由后端生成（[core/views/workbench.ts](../../../src/core/views/workbench.ts)），
  * 这里只负责画。正文层刻意只有字数与场景进度，没有全文：三千字塞进一张
  * 常驻卡片既读不下去，又把消息流挤没了。
  */

@@ -27,7 +27,7 @@ import {
   Tab,
   ViewState,
 } from '../protocol';
-import { buildChapterSummaryView, buildProjectTree } from '../projectView';
+import { buildChapterSummaryView, buildProjectTree } from '../views/projectView';
 import {
   accept,
   acceptArtifact,

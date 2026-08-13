@@ -38,7 +38,7 @@ describe('草稿', () => {
       chapterFile: './src/core/model/chapterFile.ts',
       markdown: './src/core/model/markdown.ts',
       project: './src/core/model/project.ts',
-      projectView: './src/core/projectView.ts',
+      projectView: './src/core/views/projectView.ts',
       fileOps: './src/core/files/fileOps.ts',
       fileEditing: './src/core/files/fileEditing.ts',
       attachments: './src/core/files/attachments.ts',

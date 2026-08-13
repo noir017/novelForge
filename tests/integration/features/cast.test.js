@@ -56,7 +56,7 @@ before(() => {
     host: './src/core/host.ts',
     naming: './src/core/model/naming.ts',
     identity: './src/core/model/identity.ts',
-    cast: './src/core/cast.ts',
+    cast: './src/core/views/cast.ts',
     markdown: './src/core/model/markdown.ts',
     project: './src/core/model/project.ts',
     maintenance: './src/core/features/characterMaintenance.ts',

@@ -44,7 +44,7 @@ describe('errorLog · db', () => {
       project: './src/core/model/project.ts',
       db: './src/core/db.ts',
       errorLog: './src/core/errorLog.ts',
-      projectView: './src/core/projectView.ts',
+      projectView: './src/core/views/projectView.ts',
     });
     ({ logger, project: projectMod, db, errorLog, projectView } = bundle);
     // 原脚本的 host 字面量里没有 reviewReplace，显式抹掉，与原 host 形状一致。
