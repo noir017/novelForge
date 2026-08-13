@@ -22,7 +22,7 @@
     // platform: 'browser' 打包，import 'node:path' 会直接解析失败。
     "types": ["node"]
   },
-  // ../src/core/protocol.ts 由 src/protocol.ts 以 `import type` 引入，
+  // ../src/core/protocol/index.ts 由 src/protocol.ts 以 `import type` 引入，
   // tsc 会顺着解析进去，不必在 include 里点名。
   "include": ["src/**/*.ts", "src/**/*.d.ts"]
 }

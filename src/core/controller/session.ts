@@ -1,22 +1,10 @@
 import type { ChatController } from './index';
 import { getHost } from '../host';
-import { nowIso } from '../model/session';
 import { serializeSession } from './serialize';
 import { restoreTarget, pushPipeline } from './chat';
+import { persist } from './persist';
 
 /** 会话落盘与会话列表操作。接收 ChatController，字段只给 controller/ 同包用。 */
-
-export async function persist(c: ChatController): Promise<void> {
-  // 空会话不落盘——历史列表里不该出现一堆没说过话的占位。
-  if (c.current.turns.length === 0) {
-    return;
-  }
-  c.current.updatedAt = nowIso();
-  await c.store.write(c.current);
-  if (c.tab === 'history') {
-    await c.pushSessions();
-  }
-}
 
 export async function newSession(c: ChatController): Promise<void> {
   if (c.busy) {

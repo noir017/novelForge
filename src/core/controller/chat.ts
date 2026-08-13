@@ -32,7 +32,7 @@ import {
 import { buildChapterPipelineView } from '../views/projectView';
 import { buildChapterPipeline } from '../views/pipeline';
 import { buildWorkbench } from '../views/workbench';
-import { persist } from './session';
+import { persist } from './persist';
 import {
   factsOf,
   serializeDigest,

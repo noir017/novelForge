@@ -44,9 +44,9 @@ import {
   deleteSession,
   newSession,
   openSession,
-  persist,
   renameSession,
 } from './session';
+import { persist } from './persist';
 import {
   describeProvider,
   serializeAttachment,
