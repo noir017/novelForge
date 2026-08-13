@@ -19,12 +19,53 @@
 
 /* ---------------------------------------------------------------- 章名信息条（只读） */
 
+/*
+ * 第一行：面包屑 + 「开始新对话」。
+ * 面包屑占满剩余宽度，按钮固定在右侧——新对话是随时想得起的一档操作，
+ * 放在这一步行的右上角，不与任何层按钮抢注意力。
+ */
+.pipeline-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .pipeline-crumb {
   display: flex;
   align-items: center;
   gap: 3px;
   flex-wrap: wrap;
   font-size: 0.82em;
+  flex: 1;
+  min-width: 0;
+}
+
+.pipeline-new {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  border-radius: 4px;
+  background: none;
+  color: var(--vscode-foreground);
+  font-size: 0.9em;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.pipeline-new:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+  opacity: 1;
+}
+
+.pipeline-new:disabled {
+  cursor: default;
 }
 
 .crumb {

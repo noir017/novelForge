@@ -26,7 +26,7 @@ import {
 } from './messages';
 import { applySummary, installProject, invalidateSummaries, renderProject } from './project';
 import { baseMenuItems } from './project/actions';
-import { bindNextStepRunner, renderPipeline } from './pipeline';
+import { bindNextStepRunner, installNewSession, renderPipeline } from './pipeline';
 import { renderWorkbench, installWorkbench } from './workbench';
 import { renderPrompt } from './prompt';
 import { installSettings, renderSettings } from './settings';
@@ -47,6 +47,7 @@ bindPayload(payload);
 // 主按钮走 composer 的发送路径（它管附件、草稿、busy）；`/` 面板挑中的命令
 // 变成待执行 chip。两条线都不在各自模块里另起一套发送逻辑。
 bindNextStepRunner(runNextStep);
+installNewSession();
 bindCommandPick(setPendingCommand);
 installProject();
 installLogs();

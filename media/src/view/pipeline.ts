@@ -55,6 +55,16 @@ export function bindNextStepRunner(fn: (step: NextStepView) => void): void {
   runNextStep = fn;
 }
 
+/** 「开始新对话」：清空消息流，从同一目标重新起一段对话。 */
+export function installNewSession(): void {
+  el.newSessionBtn.addEventListener('click', () => {
+    if (store.busy) {
+      return;
+    }
+    vscode.postMessage({ type: 'newSession' });
+  });
+}
+
 export function renderPipeline(pipeline: ChapterPipelineView | undefined, step: NextStepView | undefined): void {
   current = pipeline ?? null;
   next = step ?? null;

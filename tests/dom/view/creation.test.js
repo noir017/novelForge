@@ -156,6 +156,35 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.sent.filter((m) => m.type === 'setTarget').length, before);
   });
 
+  // ---- 「开始新对话」按钮：面包屑右侧那个 ＋ ----
+  test('开始新对话按钮在面包屑右侧', () => {
+    const btn = ui.doc.getElementById('newSessionBtn');
+    assert.ok(btn, '没有 newSessionBtn');
+    assert.equal(btn.parentElement?.id, 'pipelineTop');
+    assert.ok(btn.textContent.includes('＋'), btn.textContent);
+  });
+
+  test('点开始新对话发出 newSession', () => {
+    ui.clickEl(ui.doc.getElementById('newSessionBtn'));
+    const msg = [...ui.sent].reverse().find((m) => m.type === 'newSession');
+    assert.ok(msg, JSON.stringify(ui.sent));
+  });
+
+  test('生成中点开始新对话不发 newSession', () => {
+    ui.post({ type: 'busy', value: true });
+    const before = ui.sent.filter((m) => m.type === 'newSession').length;
+    ui.clickEl(ui.doc.getElementById('newSessionBtn'));
+    assert.equal(ui.sent.filter((m) => m.type === 'newSession').length, before);
+    ui.post({ type: 'busy', value: false });
+  });
+
+  test('生成中禁用开始新对话按钮', () => {
+    ui.post({ type: 'busy', value: true });
+    assert.ok(ui.doc.getElementById('newSessionBtn').disabled);
+    ui.post({ type: 'busy', value: false });
+    assert.ok(!ui.doc.getElementById('newSessionBtn').disabled);
+  });
+
   test('点细纲段发出 setTarget', () => {
     ui.clickEl(stages().find((n) => n.textContent.includes('细纲')));
     assert.equal(lastSetTarget()?.target.kind, 'plan', JSON.stringify(lastSetTarget()));

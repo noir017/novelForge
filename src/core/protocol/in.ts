@@ -45,6 +45,7 @@ export type InMessage =
   | { type: 'editTurn'; turnId: string; text: string }
   | { type: 'deleteTurn'; turnId: string }
   | { type: 'openSession'; id: string }
+  | { type: 'newSession' }
   | { type: 'deleteSession'; id: string }
   | { type: 'renameSession'; id: string }
   | { type: 'pickAttachment' }

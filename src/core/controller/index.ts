@@ -268,6 +268,10 @@ export class ChatController {
         await openSession(this, msg.id);
         return;
 
+      case 'newSession':
+        await newSession(this);
+        return;
+
       case 'deleteSession':
         await deleteSession(this, msg.id);
         return;

@@ -132,6 +132,7 @@ export function setBusy(value: boolean): void {
   setHidden(el.stopBtn, !value);
   el.atBtn.disabled = value;
   el.selBtn.disabled = value;
+  el.newSessionBtn.disabled = value;
   // 主按钮与命令面板在生成期间都禁用：两者都会发起新的一轮。面板要是正开着
   // 也一并收掉——一个点不动的候选列表挂在输入框上方只会挡住消息流。
   el.nextStepBtn.disabled = value;

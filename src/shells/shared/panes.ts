@@ -98,7 +98,10 @@ export function chatPane(opts: PaneOptions = {}): string {
   <!-- 流水线条：这一章走到哪一步了。点任一段切到那一层。
        目标是全书大纲时只剩面包屑，四段隐藏。 -->
   <div class="pipeline" id="pipeline">
-    <div class="pipeline-crumb" id="pipelineCrumb"></div>
+    <div class="pipeline-top" id="pipelineTop">
+      <div class="pipeline-crumb" id="pipelineCrumb"></div>
+      <button class="pipeline-new" id="newSessionBtn" title="开始新对话" aria-label="开始新对话">＋</button>
+    </div>
     <div class="pipeline-stages" id="pipelineStages"></div>
     <div class="pipeline-scenes hidden" id="pipelineScenes"></div>
     <!-- 「当前产物」的入口：一行标题。悬停浮出这一层的产物，点击钉住。

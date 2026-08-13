@@ -14,6 +14,7 @@ export const el = {
   syncBtn: byId('syncBtn'),
   messages: byId('messages'),
   emptyHint: byId('emptyHint'),
+  newSessionBtn: byId<HTMLButtonElement>('newSessionBtn'),
   workbench: byId<HTMLButtonElement>('workbench'),
   nextStep: byId('nextStep'),
   nextStepHint: byId('nextStepHint'),
