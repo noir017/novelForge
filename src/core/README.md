@@ -15,8 +15,8 @@
 
 | 文件 | 职责 |
 |---|---|
-| [protocol.ts](protocol.ts) | 前端 ↔ 后端的消息协议（`InMessage` / `OutMessage` / `ViewState`）。插件 webview 与独立版网页共用，是前后端的唯一契约。 |
-| [controller.ts](controller.ts) | ★ `ChatController`：全部面板逻辑。收 `InMessage` → 调度 `CreationSession` / 会话存储 / 创作目标切换 / 设置读写 → 广播 `OutMessage`。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。 |
+| [protocol/](protocol/index.ts) | 前端 ↔ 后端的消息协议（`InMessage` / `OutMessage` / `ViewState`）。对外入口仍是 `core/protocol`。插件 webview 与独立版网页共用，是前后端的唯一契约。 |
+| [controller/](controller/index.ts) | ★ `ChatController`：全部面板逻辑，按消息域拆在同目录模块里。收 `InMessage` → 调度 `CreationSession` / 会话存储 / 创作目标切换 / 设置读写 → 广播 `OutMessage`。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。 |
 | [logger.ts](logger.ts) | ★ 运行日志：环形缓冲（上限 `MAX_ENTRIES`）+ 若干 sink。`scoped('摘要')` 取一个带来源的记录器。**零依赖**（连 host.ts 都不引），core 任何模块都能直接用。历史持久化不在这里——见 db.ts 的 `installLogPersistence`（反向 import 会成环）。 |
 | [db.ts](db.ts) | ★ 工程库（`.novelforge/novelforge.db`）：失败记录 `errors` + 日志历史 `logs` 两张表，外加日志的攒批落盘（`installLogPersistence` / `flushPendingLogs` / `readLogHistory`）。**两个壳两个驱动**（Node 侧 `node:sqlite`、Bun 侧 `bun:sqlite`），模块名拼接后 `await import` 运行时探测。开不开得起来都不影响功能：失败一律吞掉并只 warn 一次。 |
 | [errorLog.ts](errorLog.ts) | ★ 失败记录门面：`recordFailure` / `clearFailures` / `listActiveFailures`。工程页行上那个红色感叹号的数据源。features 只碰这三个函数，不写 SQL。 |
@@ -51,7 +51,7 @@
 - **摘要正文不进 `ProjectTree`**：那棵树每次文件变动都全量重推（`pushState` → `buildProjectTree`），一本两百章的书每章带上千字摘要，等于每保存一次正文就推几百 KB。悬停浮窗要的摘要走单独的 `requestSummary` / `summary` 一问一答（`buildChapterSummaryView`），前端按 order 缓存、收到新树即作废。往树上加字段前先想想它会不会把这条推送撑爆。（`failures` 是有意的例外：一条几十字，**且只有出错的目标才有**，正常工程是空对象。）
 - **草稿不是可管理区**：`drafts/` 不在 `fileOps.ts` 的三个区里（工程页上也没有它的节点），但它是**可打开的**——`fileEditing.ts` 只看工程根包含 + 扩展名/章节规则 + 大小，草稿天然满足。草稿路径由 `NovelProject.draftRelPathFor` 从章节路径推导，别在别处另拼一份。
 - **草稿永不自动注入**：`context/builder.ts` 里没有任何一处读 `drafts/`，草稿只能经 `resolveAttachment`（作者显式 `@` 引用）进 prompt。加功能时别打破这条——它是「不偷偷烧 token」的一部分。
-- **`openDraft` 会写盘**：`controller.ts` 里那句 `listChapters().find(...)` 是它没变成「往 `drafts/<任意路径>` 写文件」的原语的唯一原因。别为了省一次扫描就信任前端传来的路径。
+- **`openDraft` 会写盘**：`controller/files.ts` 里那句 `listChapters().find(...)` 是它没变成「往 `drafts/<任意路径>` 写文件」的原语的唯一原因。别为了省一次扫描就信任前端传来的路径。
 - **摘要是出场人物的唯一真相**：角色卡 frontmatter 里的 `appearsIn` / `updatedThrough` **只是缓存**。想知道谁在哪出场，一律经 `cast.ts` 的 `buildCastIndex()` 从摘要重算，别读角色卡的字段——摘要重跑之后那里就旧了。索引按 `name ∪ aliases` 匹配（摘要里的名字是模型写的，角色卡文件名是作者起的，两者没有硬关联）。
 - **别名只收专属称呼，正式名压过别名**：aliases 是「谁是谁」的判据（`cast.ts` / `identity.ts` 都吃它），泛称会把几个角色串成一个，别人的名字会让出场章节整批记错人。所以模型产出的别名一律经 `naming.ts` 过滤，索引两趟建表（先占正式名再登记别名）。抢名的情况记进 `CastIndex.conflicts`，由工程页与日志说出来——出场统计必然有一张卡是错的，而这件事从界面上看不出来。
 - **判定两个称呼是同一个人，只信同章共现**：`identity.ts` 里同一章 cast 中各自出场的两个称呼是硬约束，永不合并；别的都只是证据。把两个角色错并成一个远比多建一张卡难收拾——此后所有出场统计与角色卡语料都是错的，而界面上一切正常。

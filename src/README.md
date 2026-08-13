@@ -9,8 +9,8 @@ src/
 │   ├── context/     ★ 分阶段装配（配方 × 层）+ 身份化提示词 + token 粗估
 │   ├── features/    创作（四层产物）/ 批量流水线 / 摘要 / 角色卡 / 设定 / 文风提取
 │   ├── llm/         LlmProvider 接口与 OpenAI / Anthropic 实现
-│   ├── protocol.ts  webview ↔ 扩展消息协议（前后端唯一契约）
-│   ├── controller.ts ★ ChatController：宿主无关的面板逻辑
+│   ├── protocol/    webview ↔ 扩展消息协议（前后端唯一契约；对外仍是 core/protocol）
+│   ├── controller/  ★ ChatController：宿主无关的面板逻辑
 │   ├── logger.ts    ★ 运行日志：环形缓冲 + sink（脱敏、不记 prompt 全文）
 │   ├── progress.ts  ★ 长任务登记处：runTask（宿主进度 + 网页进度条 + 日志三合一）
 │   ├── pipeline.ts  ★ 章节流水线的读取聚合：四层产物 + 四段新鲜度链

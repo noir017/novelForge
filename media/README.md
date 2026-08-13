@@ -29,7 +29,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 | `src/bridge/` | bridge.js | 仅独立版 | 把 WebSocket 伪装成 webview API |
 | `src/css/view/` | view.css | 两者 | 面板样式，全部走 `--vscode-*` 变量 |
 | `src/css/standalone/` | standalone.css | 仅独立版 | 主题变量（深/浅两套）+ 工作台布局 |
-| `src/protocol.ts` | — | — | 从 `core/protocol.ts` 转出全部消息类型 |
+| `src/protocol.ts` | — | — | 从 `core/protocol` 转出全部消息类型 |
 | `src/globals.ts` | — | — | 三个产物之间的全部交集（就三样，见下） |
 | `src/dom.ts` / `src/vscodeApi.ts` | — | — | 建 DOM 的小工具、取 webview API 与收消息 |
 | [icon.svg](icon.svg) | —（静态文件，不经构建） | 两者 | 活动栏与编辑器标签页图标。`stroke="currentColor"`，跟随主题色 |
@@ -42,7 +42,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 
 ## 类型是真的会被检查的
 
-`src/protocol.ts` 用 `import type` 直接从 [../src/core/protocol.ts](../src/core/protocol.ts) 转出 `InMessage` / `OutMessage` 等全部类型（只有类型跨过这条边界，一行运行时代码都不会被打包进来）。**改协议后端加了字段、改了名字，前端对不上会直接编译不过**——这以前只是一句「记得同时改 view.js」的注释约定。
+`src/protocol.ts` 用 `import type` 直接从 [../src/core/protocol/](../src/core/protocol/index.ts) 转出 `InMessage` / `OutMessage` 等全部类型（只有类型跨过这条边界，一行运行时代码都不会被打包进来）。**改协议后端加了字段、改了名字，前端对不上会直接编译不过**——这以前只是一句「记得同时改 view.js」的注释约定。
 
 `media/tsconfig.json` 是独立的一份（`lib` 带 DOM，`moduleResolution: Bundler`），`npm run typecheck` 会连它一起跑。
 

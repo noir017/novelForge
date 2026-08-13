@@ -2,7 +2,7 @@
  * 上下文装配器。
  *
  * 这里只剩三件事：**算预算、按配方跑一遍层、把存活的条目拼成 messages**。
- * 「带什么」在 [recipes.ts](recipes.ts)，「怎么取」在 [layers.ts](layers.ts)。
+ * 「带什么」在 [recipes.ts](recipes.ts)，「怎么取」在 [layers/](layers/index.ts)。
  *
  * 装配顺序即优先级：配方靠前的层先拿预算，靠后的可能被降级或丢弃。
  * 任何装不下的条目都会以 dropped/degraded 的形式留在 items 里——

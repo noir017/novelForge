@@ -6,7 +6,7 @@
  * webview 销毁重建后一条 `ready` 就能完整恢复；展开/折叠等纯 UI 状态
  * 留在前端各自的模块里。
  *
- * 消息契约是 [core/protocol.ts](../../../src/core/protocol.ts) 的
+ * 消息契约是 [core/protocol](../../../src/core/protocol/index.ts) 的
  * `InMessage` / `OutMessage`，经 src/protocol.ts 引进来——改协议这边
  * 对不上会直接编译不过。
  */

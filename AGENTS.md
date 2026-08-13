@@ -32,7 +32,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 | 模块 | 一句话职责 | README |
 |---|---|---|
 | `src/` | 两层架构总览与一条创作请求的完整链路 | [src/README.md](src/README.md) |
-| `src/core/` | 核心逻辑层入口（含协议 protocol.ts、工程页快照 projectView.ts、章节流水线聚合 pipeline.ts、出场人物索引 cast.ts、资源管理器目录列举 fileTree.ts、三区类文件操作 fileOps.ts、工程根范围文件操作 projectFiles.ts、日志 logger.ts、失败记录 errorLog.ts、工程库 db.ts、长任务 progress.ts） | [src/core/README.md](src/core/README.md) |
+| `src/core/` | 核心逻辑层入口（含协议 `protocol/`、工程页快照 projectView.ts、章节流水线聚合 pipeline.ts、出场人物索引 cast.ts、资源管理器目录列举 fileTree.ts、三区类文件操作 fileOps.ts、工程根范围文件操作 projectFiles.ts、日志 logger.ts、失败记录 errorLog.ts、工程库 db.ts、长任务 progress.ts） | [src/core/README.md](src/core/README.md) |
 | `src/core/model/` | 数据层：NovelProject、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**、细纲 planFile.ts、场景 sceneFile.ts、服务商配置、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/features/` | 功能编排：创作（四层产物）、批量流水线、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
@@ -55,9 +55,9 @@ npm run test:e2e         # 独立版服务（需 Bun）
 
 ## 架构要点
 
-- **两层、单向依赖**：`core/`（数据、逻辑与宿主无关的面板逻辑 `controller.ts`）→ `shells/`（三个宿主壳 + 它们共用的 `shared/`），反向依赖不允许，**壳与壳之间也不许互相 import**（桌面壳复用独立版靠的是把它当 sidecar 起）。`core/` 零 vscode 依赖，新代码不要给 `core/` 增加 `vscode` import。两条都由测试守着：[tests/contract/corePurity.test.js](tests/contract/corePurity.test.js) 与 [tests/contract/shellPurity.test.js](tests/contract/shellPurity.test.js)。
+- **两层、单向依赖**：`core/`（数据、逻辑与宿主无关的面板逻辑 `controller/`）→ `shells/`（三个宿主壳 + 它们共用的 `shared/`），反向依赖不允许，**壳与壳之间也不许互相 import**（桌面壳复用独立版靠的是把它当 sidecar 起）。`core/` 零 vscode 依赖，新代码不要给 `core/` 增加 `vscode` import。两条都由测试守着：[tests/contract/corePurity.test.js](tests/contract/corePurity.test.js) 与 [tests/contract/shellPurity.test.js](tests/contract/shellPurity.test.js)。
 - **壳只做三件事**：实现 `Host`、传输与生命周期、平台专属入口（命令 / 菜单 / CLI 参数）。业务逻辑、页面内容、以及**任何「我是哪个壳」的分支**都不属于壳——差异一律表达成「宿主有没有这个能力」（`Host` 上的可选方法，或渲染页面时的选项）。详见 [src/shells/README.md](src/shells/README.md)。`Host.name` 只用于日志与诊断，拿它做分支会被契约测试拦下。
-- **消息协议是前后端唯一契约**：[src/core/protocol.ts](src/core/protocol.ts) 的 `InMessage` / `OutMessage`。前端经 [media/src/protocol.ts](media/src/protocol.ts) 以 `import type` 直接引用同一份定义，所以**改协议后前端对不上会编译不过**（`npm run typecheck` 覆盖 `media/`），不再靠人记得同步改。
+- **消息协议是前后端唯一契约**：[src/core/protocol/](src/core/protocol/index.ts) 的 `InMessage` / `OutMessage`（对外入口仍是 `core/protocol`）。前端经 [media/src/protocol.ts](media/src/protocol.ts) 以 `import type` 直接引用同一份定义，所以**改协议后前端对不上会编译不过**（`npm run typecheck` 覆盖 `media/`），不再靠人记得同步改。
 - **一个 controller，多个宿主**：侧边栏与编辑器标签页挂同一个 `ChatController`，同一会话双开实时同步。
 - **前端无状态**：webview 靠 `ViewState` 全量推送重建，展开/折叠等 UI 状态留在前端。
 - **两形态的前端隔离**：`media/src/css/standalone/` 与 `media/src/editor/` `media/src/explorer/` 只由 [src/shells/standalone/page.ts](src/shells/standalone/page.ts) 加载，插件的 `webviewHtml.ts` 里没有它们。改独立版的样式/布局只动那几处，别为独立版去改 `media/src/css/view/`（会连带影响插件）；区分形态用能力探测（`#wbEditor` 存不存在、`maybeById` 取不到就跳过），不要判断环境字符串。

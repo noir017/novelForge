@@ -10,7 +10,7 @@
 | [tokenizer.ts](tokenizer.ts) | 门面：`estimateTokens`（= `countTokens`）与按预算截取的 `takeHead` / `takeTail`。全仓库几十处调用点都走这里。 |
 | [types.ts](types.ts) | `BuildRequest` / `BuiltContext` / `ContextItem` / `LayerId` / `LayerSpec`。单独成文件是为了打断 recipes 与 layers 的循环引用。 |
 | [recipes.ts](recipes.ts) | ★ 四个阶段各带哪些层、优先级多少。**改装配策略只改这一张表。** |
-| [layers.ts](layers.ts) | ★ 每一层的取数与注入，外加 `resolveFocus`（按配方只读用得上的文件）。 |
+| [layers/](layers/index.ts) | ★ 每一层的取数与注入，外加 `resolveFocus`（按配方只读用得上的文件）。`LAYERS` 注册表在 index，实现按 dialog / artifacts / background 拆开。 |
 | [prompts.ts](prompts.ts) | ★ 身份（Stage）× 任务（Capability）× 输出契约。 |
 | [builder.ts](builder.ts) | ★ `buildContext()`：算预算 → 按配方跑一遍层 → 拼 messages。 |
 

@@ -1,7 +1,7 @@
 /**
  * 装配器的公共类型。
  *
- * 单独成文件是为了打断 `recipes.ts`（配方引用层名）与 `layers.ts`（层实现
+ * 单独成文件是为了打断 `recipes.ts`（配方引用层名）与 `layers/`（层实现
  * 引用配方里的 cap/force）之间的循环引用——两边都只依赖这里，谁也不依赖谁。
  */
 import { ChatMessage } from '../llm/provider';

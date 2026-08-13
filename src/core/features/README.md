@@ -92,4 +92,4 @@
 
 ## 依赖关系
 
-依赖 `model/`、`context/`、`llm/`、`host.ts`。被 `vscode/extension.ts`（命令）与 `core/controller.ts`（对话面板）调用；插件命令面板与独立版网页共用同一批流程。
+依赖 `model/`、`context/`、`llm/`、`host.ts`。被 `vscode/extension.ts`（命令）与 `core/controller/`（对话面板）调用；插件命令面板与独立版网页共用同一批流程。

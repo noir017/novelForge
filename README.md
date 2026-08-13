@@ -694,14 +694,14 @@ node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
 src/
 ├── core/                  ★ 宿主无关核心（永不 import vscode）
 │   ├── host.ts            Host 窄接口（弹窗/进度/监听/打开文件），双壳各实现一份
-│   ├── controller.ts      ★ ChatController：面板逻辑，经 ViewHost 与视图解耦
+│   ├── controller/        ★ ChatController：面板逻辑，经 ViewHost 与视图解耦
 │   ├── config.ts          readConfig/updateSettings，数据源由 ConfigStore 注入
 │   ├── stores.ts          FileConfigStore/FileSecretStore（~/.novelforge/）
 │   ├── actions.ts         初始化/新建章节等工程级流程
 │   ├── fileOps.ts         类文件操作：建文件夹/重命名/移动/删除（区内、不覆盖、进回收站）
 │   ├── attachments.ts     @ 引用候选列表构建
 │   ├── fileEditing.ts     内置编辑器的文件读写（路径包含校验 + hash 乐观锁）
-│   ├── protocol.ts        前后端消息协议（+ 独立版 prompt/promptResult、编辑器消息）
+│   ├── protocol/          前后端消息协议（+ 独立版 prompt/promptResult、编辑器消息）
 │   ├── projectView.ts     工程页快照：把扁平文件清单折成 ProjectNode 目录树
 │   ├── fileTree.ts        「文件」页的目录列举（懒加载一层，含点开头的文件夹，只读）
 │   ├── db.ts              工程库（.novelforge/novelforge.db）：失败记录 + 日志历史
@@ -733,7 +733,7 @@ src/
     └── desktop/           桌面壳（Tauri / Rust，见 shells/desktop/README.md）
 ```
 
-面板逻辑集中在 `core/controller.ts`，两个视图宿主（侧边栏 / 编辑器）与独立版 WebSocket 各自只负责收发消息，因此同一个会话能在多处同时打开且保持同步。
+面板逻辑集中在 `core/controller/`，两个视图宿主（侧边栏 / 编辑器）与独立版 WebSocket 各自只负责收发消息，因此同一个会话能在多处同时打开且保持同步。
 
 界面不使用 VS Code 自带的 TreeView 等控件，全部由 webview 渲染：一套 UI 同时供侧边栏和编辑器标签页使用，工程页与对话页共享同一个 tabbar，不再上下分栏。`projectView.ts` 只产出一份可序列化快照（任意深度的 `ProjectNode` 目录树），展开/折叠状态留在前端。
 
