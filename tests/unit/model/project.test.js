@@ -1,6 +1,6 @@
 /**
  * `cast` 字段的序列化往返与小节文本反解。
- * 迁自 scripts/smoke.js 的 `== project.ts · 出场人物字段 ==` 一节。
+ * 迁自 scripts/smoke.js 的 `== castParse.ts · 出场人物字段 ==` 一节。
  *
  * 摘要是出场人物的唯一真相：frontmatter 里的 `林昭(阿昭、昭儿)` 与结构化条目
  * 必须互为逆运算，否则「谁是谁」会在一次读写之间漂移。
@@ -9,10 +9,10 @@ const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
 const { loadModule } = require('../../helpers/load');
 
-describe('project.ts · 出场人物字段', () => {
+describe('castParse.ts · 出场人物字段', () => {
   let p;
   before(() => {
-    p = loadModule('src/core/model/project.ts');
+    p = loadModule('src/core/model/castParse.ts');
   });
 
   describe('parseCastEntry / renderCastEntry', () => {

@@ -51,7 +51,7 @@
 2. **Markdown 小节**：0.2.x 之前的格式、模型忽略 JSON 要求、作者手改过的文件都走这条。
 3. **全文进梗概**：信息密度低，但比丢掉整章强。
 
-只有第 1 条有结构化 `cast`，后两条从「出场人物」小节的文本反解（见 model/project.ts 的 `castFromText`）。
+只有第 1 条有结构化 `cast`，后两条从「出场人物」小节的文本反解（见 [../model/castParse.ts](../model/castParse.ts) 的 `castFromText`）。
 
 ## 两条角色流程的分工
 
