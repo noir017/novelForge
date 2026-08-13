@@ -56,7 +56,7 @@ npm run sidecar:all  # 连 Windows 的一起编（Bun 交叉编译）
    `path.resolve(root)`，而 sidecar 的 cwd 由系统决定、不可控。
 
 2. **退出时必须 kill sidecar。** Windows 上的孤儿进程会占着端口，还会占着
-   `.novelforge/novelforge.db`（[db.ts](../../core/db.ts) 里记过这个 EBUSY 坑）。
+   `.novelforge/novelforge.db`（[db.ts](../../core/runtime/db.ts) 里记过这个 EBUSY 坑）。
 
 3. **绝不开 `dangerousRemoteDomainIpcAccess`。** 导航到 `http://127.0.0.1:PORT` 之后
    页面属于远程内容，[capabilities/default.json](capabilities/default.json) 刻意没有
