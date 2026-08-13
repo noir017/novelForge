@@ -1,6 +1,6 @@
 import { emptyCharacterSections } from '../model/project';
 import { CHARACTER_SECTION_KEYS, CharacterSections } from '../model/types';
-import { sanitizeAliases } from '../naming';
+import { sanitizeAliases } from '../model/naming';
 import { extractJsonObject, stringArray, stripCodeFence, unique } from './parse';
 
 export interface ParsedCard {

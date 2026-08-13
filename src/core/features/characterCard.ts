@@ -15,7 +15,7 @@ import {
 } from '../model/project';
 import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
 import { describeTaskModels } from '../model/tiers';
-import { explainDroppedAliases, sanitizeAliases } from '../naming';
+import { explainDroppedAliases, sanitizeAliases } from '../model/naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { parseCardResponse, ParsedCard } from './characterCardParse';
 import { UPDATE_SYSTEM } from './characterCardPrompt';
@@ -774,7 +774,7 @@ async function runCardUpdate(
 
   ctx.report('写入角色卡', batches.length, steps);
   // 别名在这里收一次口：并集是只进不出的，模型吐出的 `她`/`姐姐`/`少女` 一旦
-  // 混进来就再也出不去，而别名是「谁是谁」的判据（cast.ts / identity.ts 都吃它），
+  // 混进来就再也出不去，而别名是「谁是谁」的判据（cast.ts / model/identity.ts 都吃它），
   // 泛称会把几个角色串成一个。顺带把存量脏别名一并清掉——差异走 diff 审阅，看得见。
   const droppedAliases = explainDroppedAliases(aliases, card.name);
   aliases = sanitizeAliases(aliases, card.name);

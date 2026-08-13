@@ -10,6 +10,8 @@
 |---|---|
 | [types.ts](types.ts) | 全部数据结构：`Chapter` / `ChapterSummary` / `SummaryCast` / `CharacterCard` / `LoreEntry` / `NovelConfig`，以及摘要与角色卡的**固定小节**定义（`SUMMARY_SECTION_KEYS`、`CHARACTER_SECTION_KEYS`）。 |
 | [chapterFile.ts](chapterFile.ts) | ★ 「什么文件算章节」的唯一定义：数字前缀 + 扩展名不在二进制黑名单里。纯函数无 I/O，扫描器、编辑器可编辑判定、独立版文件监听三处共用。 |
+| [naming.ts](naming.ts) | ★ 称呼学（纯函数、零 I/O）：`isGenericAppellation` 判断一个词是不是泛称（代词、亲属称谓、`少女`/`丫头` 这类谁都能用的词、带修饰语的描述短语），`sanitizeAliases` 据此过滤别名。**只过滤 aliases，绝不过滤 name**——`店小二`、`家老`、`房东` 这类以泛称当正式名的角色确实存在。 |
+| [identity.ts](identity.ts) | ★ 同一人聚类（纯函数）：把摘要里散落的称呼归并成人。判据是**同章共现作硬约束的贪心聚类**——同一章 cast 里各自出场的两个称呼永不合并，候选链接按「多少章这么写过」计票贪心处理。朴素并查集在这里是错的：一条幻觉别名会顺着传递闭包把主角和她孪生弟弟并成一个人。 |
 | [pipeline.ts](pipeline.ts) | ★ **创作流水线的领域模型**：`Stage × Capability × Target` 三元组、每阶段的身份与可用能力、`CreationTarget` 与它的稳定字符串键、章节流水线状态的推导（`deriveStage` / `deriveProgress`），以及界面直接吃的两样——`commandsFor`（`/` 命令面板的命令表）与 `deriveNextStep`（状态机 → 主按钮上那一个动作，判据与 `deriveStage` 同源）。**纯类型 + 纯函数，零 import**，所以前端可以直接 import 同一份表。 |
 | [planFile.ts](planFile.ts) | 章节细纲（`.novelforge/plans/<镜像章节路径>.md`）的格式：五个固定小节 + frontmatter 的 `upstreamHash`。纯函数无 I/O。 |
 | [sceneFile.ts](sceneFile.ts) | 场景卡（`.novelforge/scenes/<镜像章节路径>/NN-标题.md`）的格式：七个固定小节 + 场号来自文件名前缀。纯函数无 I/O。**只认 `.md`**——它是插件自己的数据格式，与「章节不认扩展名」相反。 |
@@ -42,4 +44,4 @@
 
 ## 依赖关系
 
-本层是依赖的最底层，只依赖 Node API（`fs` / `path` / `crypto`）与 `vscode`（仅用于读配置与消息提示）。`context/`、`features/`、`llm/`、`ui/` 都依赖本层，反向不允许。
+本层只依赖 Node API 与 core 内更底层模块；`context/`、`features/`、`llm/` 依赖本层，反向不允许。

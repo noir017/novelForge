@@ -1,7 +1,7 @@
-import { buildIdentityGroups, IdentityChapter, RejectedLink } from './identity';
+import { buildIdentityGroups, IdentityChapter, RejectedLink } from './model/identity';
 import { NovelProject } from './model/project';
 import { CharacterCard, SummaryCast } from './model/types';
-import { normalizeName, sanitizeAliases } from './naming';
+import { normalizeName, sanitizeAliases } from './model/naming';
 
 /**
  * 出场人物索引：把各章摘要里的 `cast` 反向聚合成「谁在哪些章出现过」。
@@ -20,9 +20,9 @@ import { normalizeName, sanitizeAliases } from './naming';
  * - **正式名压过别名**。两趟登记：先把所有卡的 `name` 占上，再登记别名，
  *   别名抢不走别人的正式名。实战里模型给方源的卡挂过一条 `方正` 别名
  *   （那是她孪生弟弟），先到先得会让方正的出场章节整批记到方源头上。
- * - **卡上的别名先过泛称过滤**（[naming.ts](naming.ts)）。`姐姐`、`她` 这类
+ * - **卡上的别名先过泛称过滤**（[model/naming.ts](model/naming.ts)）。`姐姐`、`她` 这类
  *   称呼谁都能用，拿去匹配会把几个角色串成一个。只影响匹配，不改文件。
- * - **未建卡的人物经 [identity.ts](identity.ts) 聚类**，不再按主名硬分——
+ * - **未建卡的人物经 [model/identity.ts](model/identity.ts) 聚类**，不再按主名硬分——
  *   摘要里 `方源` 与 `古月方源` 交替出现，只按主名分会各建一张卡。
  * - 一个名字被两张卡同时声明时先到先得，并在 `conflicts` 里留下记录，
  *   由工程页提示作者（出场统计必然有一张是错的）。

@@ -1,4 +1,4 @@
-import { sanitizeAliases } from '../naming';
+import { sanitizeAliases } from './naming';
 import { SummaryCast } from './types';
 
 /**

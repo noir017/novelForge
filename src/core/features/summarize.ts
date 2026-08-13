@@ -12,7 +12,7 @@ import { castFromText, parseCastEntry, renderCastEntry } from '../model/castPars
 import { NovelProject, emptySummarySections } from '../model/project';
 import { describeTaskModels } from '../model/tiers';
 import { Chapter, SUMMARY_SECTION_KEYS, SummaryCast, SummarySections } from '../model/types';
-import { sanitizeAliases } from '../naming';
+import { sanitizeAliases } from '../model/naming';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
 import { extractJsonObject, stripCodeFence } from './parse';
 import { GLOBAL_SYSTEM, STAGE_SYSTEM, SUMMARY_SYSTEM } from './summarizePrompt';
@@ -630,7 +630,7 @@ function parseCastField(v: unknown): SummaryCast[] {
         ? obj.aliases.split(/[、,，/]/).map((a) => a.trim()).filter(Boolean)
         : [];
     // 泛称在这里就挡住，不落进摘要 frontmatter：`姐姐`/`她`/`少女` 是好几个
-    // 角色的共同称呼，而 cast 的别名是 identity.ts 判断「谁是谁」的依据。
+    // 角色的共同称呼，而 cast 的别名是 model/identity.ts 判断「谁是谁」的依据。
     push({ name, aliases: sanitizeAliases(aliases, name) });
   }
   return out;

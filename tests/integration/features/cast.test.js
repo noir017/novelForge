@@ -54,8 +54,8 @@ function makeCard(name, aliases, extra = {}) {
 before(() => {
   bundle = loadBundle({
     host: './src/core/host.ts',
-    naming: './src/core/naming.ts',
-    identity: './src/core/identity.ts',
+    naming: './src/core/model/naming.ts',
+    identity: './src/core/model/identity.ts',
     cast: './src/core/cast.ts',
     markdown: './src/core/model/markdown.ts',
     project: './src/core/model/project.ts',

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { buildCastIndex, readCastChapters } from '../cast';
-import { buildIdentityGroups } from '../identity';
+import { buildIdentityGroups } from '../model/identity';
 import { trashPathFor } from '../fileOps';
 import { getHost } from '../host';
 import { elapsed, scoped } from '../logger';
@@ -9,7 +9,7 @@ import { rewriteFrontmatter } from '../model/markdown';
 import { readText, writeText } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { CharacterCard } from '../model/types';
-import { DroppedAlias, explainDroppedAliases, normalizeName, sanitizeAliases } from '../naming';
+import { DroppedAlias, explainDroppedAliases, normalizeName, sanitizeAliases } from '../model/naming';
 import { runTask } from '../progress';
 
 const log = scoped('角色卡');
