@@ -66,11 +66,11 @@ describe('模型分档的配置容错', () => {
     });
 
     test('空档位的任务沿用 models', () => {
-      assert.equal(tiersMod.refsForTask(none, 'chapterSummary').refs.join(','), 'glm/glm-4-plus');
+      assert.equal(tiersMod.refsForTask(none, 'plotSummary').refs.join(','), 'glm/glm-4-plus');
     });
 
     test('沿用时标出 inherited', () => {
-      assert.equal(tiersMod.refsForTask(none, 'chapterSummary').inherited, true);
+      assert.equal(tiersMod.refsForTask(none, 'plotSummary').inherited, true);
     });
 
     test('tierModels 不是对象时不崩', () => {
@@ -135,13 +135,13 @@ describe('模型分档的配置容错', () => {
       settings = {
         providers,
         models: ['glm/glm-4-plus'],
-        taskTiers: { chapterSummary: 'quality', extractStyle: '超级档', nosuchTask: 'fast', loreScan: 7 },
+        taskTiers: { plotSummary: 'quality', extractStyle: '超级档', nosuchTask: 'fast', loreScan: 7 },
       };
       tiers = configMod.readConfig();
     });
 
     test('合法的覆盖被保留', () => {
-      assert.equal(tiers.taskTiers.chapterSummary, 'quality', JSON.stringify(tiers.taskTiers));
+      assert.equal(tiers.taskTiers.plotSummary, 'quality', JSON.stringify(tiers.taskTiers));
     });
 
     test('非法档位名被丢弃', () => {
@@ -157,7 +157,7 @@ describe('模型分档的配置容错', () => {
     });
 
     test('覆盖优先于内置默认', () => {
-      assert.equal(tiersMod.tierOf(tiers, 'chapterSummary'), 'quality');
+      assert.equal(tiersMod.tierOf(tiers, 'plotSummary'), 'quality');
     });
 
     test('丢弃后回落内置默认', () => {

@@ -95,15 +95,15 @@ export function chatPane(opts: PaneOptions = {}): string {
     <button class="link" id="syncBtn">立即同步</button>
   </div>
 
-  <!-- 流水线条：这一章走到哪一步了。点任一段切到那一层。
+  <!-- 流水线条：这一段走到哪一步了。点任一层切到那一层。
        目标是全书大纲时只剩面包屑，四段隐藏。 -->
   <div class="pipeline" id="pipeline">
     <div class="pipeline-top" id="pipelineTop">
       <div class="pipeline-crumb" id="pipelineCrumb"></div>
-      <!-- 给当前这一章起名 / 改名。新建出来的章节是纯序号名（标题要等细纲
+      <!-- 给当前这一段起名 / 改名。新建出来的段是纯序号名（标题要等剧情
            写完才定得下来），所以命名是主流程的一步，得有个常驻入口。
            目标是全书大纲时前端把它藏起来。 -->
-      <button class="pipeline-new hidden" id="renameChapterBtn" title="重命名当前章节" aria-label="重命名当前章节">✎</button>
+      <button class="pipeline-new hidden" id="renamePlotBtn" title="重命名当前剧情段" aria-label="重命名当前剧情段">✎</button>
       <button class="pipeline-new" id="newSessionBtn" title="开始新对话" aria-label="开始新对话">＋</button>
     </div>
     <div class="pipeline-stages" id="pipelineStages"></div>
@@ -116,9 +116,9 @@ export function chatPane(opts: PaneOptions = {}): string {
 
   <div class="messages" id="messages">
     <div class="empty" id="emptyHint">
-      <p><strong>先挑一章，从它当前该做的那一步接着做</strong></p>
-      <p>在「工程」页点任意章节，或用下面的下拉框选一章——界面会自动落到它的当前阶段：还没细纲就去写细纲，细纲写好了就去拆场景。</p>
-      <p>用 <kbd>@</kbd> 引用章节、角色卡或任意文件；在输入框里打 <kbd>/</kbd> 可以挑其它命令。</p>${editorHint}
+      <p><strong>先挑一段剧情，从它当前该做的那一步接着做</strong></p>
+      <p>在「工程」页点任意剧情段，或用下面的下拉框选一段——界面会自动落到它的当前阶段：还没排剧情就去写剧情，剧情排好了就去拆场景。</p>
+      <p>用 <kbd>@</kbd> 引用正文、角色卡或任意文件；在输入框里打 <kbd>/</kbd> 可以挑其它命令。</p>${editorHint}
     </div>
   </div>
 
@@ -140,7 +140,7 @@ export function chatPane(opts: PaneOptions = {}): string {
       <textarea id="input" rows="3" placeholder="补充要求（可留空）…（Enter 发送，Shift+Enter 换行）"></textarea>
     </div>
     <div class="composer-bar">
-      <button class="composer-tool" id="atBtn" title="引用文件或章节"><span class="tool-key">@</span>引用</button>
+      <button class="composer-tool" id="atBtn" title="引用文件或正文"><span class="tool-key">@</span>引用</button>
       <button class="composer-tool" id="selBtn" title="${selTitle}">加入选区</button>
       <button class="composer-tool" id="cmdBtn" title="其它命令（在输入框里直接打 / 也一样）"><span class="tool-key">/</span>命令</button>
       <select id="modelSelect" title="使用哪个模型"></select>
@@ -159,7 +159,7 @@ export function chatPane(opts: PaneOptions = {}): string {
 export function projectPane(): string {
   return `<section class="pane" id="pane-project">
   <div class="project-toolbar" id="projectToolbar">
-    <button class="chip-btn" data-action="newChapter">＋ 新建章节</button>
+    <button class="chip-btn" data-action="newPlot">＋ 新建剧情段</button>
     <button class="chip-btn" data-action="newCharacter">＋ 角色卡</button>
     <button class="chip-btn" data-action="newLore">＋ 设定</button>
     <button class="chip-btn" data-action="newFolder">＋ 文件夹</button>
@@ -312,16 +312,16 @@ export function settingsPane(opts: PaneOptions = {}): string {
 
   <div class="settings-panel" id="settingsPanelContext" data-settings-panel="context" role="tabpanel" aria-labelledby="settingsTabContext">
     <div class="pane-head"><span>续写上下文</span></div>
-    <div class="hint">控制续写时自动装配的近期原文。预算不足时，完整原文仍会按明细中说明的顺序降级为摘要或省略。</div>
+    <div class="hint">控制写正文时自动装配的近期原文。预算不足时，完整原文仍会按明细中说明的顺序降级为摘要或省略。</div>
     <div class="grid">
-      <label class="field"><span>注入完整原文章数</span><input type="number" id="setRecentChaptersFullText" min="0" max="10"></label>
-      <label class="field"><span>上一章结尾字数</span><input type="number" id="setPrevChapterTailChars" min="0" step="100"></label>
+      <label class="field"><span>注入完整原文段数</span><input type="number" id="setRecentChaptersFullText" min="0" max="10"></label>
+      <label class="field"><span>上一段结尾字数</span><input type="number" id="setPrevChapterTailChars" min="0" step="100"></label>
     </div>
 
     <div class="pane-head"><span>全书摘要</span></div>
-    <div class="hint">重建全书摘要时，单章摘要先按此数量分批汇总，再合并成全书摘要。</div>
+    <div class="hint">重建全书摘要时，单段摘要先按此数量分批汇总，再合并成全书摘要。</div>
     <div class="grid">
-      <label class="field"><span>每批章节数</span><input type="number" id="setSummaryBatchSize" min="3"></label>
+      <label class="field"><span>每批段数</span><input type="number" id="setSummaryBatchSize" min="3"></label>
     </div>
   </div>
 

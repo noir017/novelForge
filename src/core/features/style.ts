@@ -5,9 +5,10 @@ import { readConfig } from '../config';
 import { elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { NovelProject } from '../model/project';
+import { Plot } from '../model/plotFile';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { stripCodeFence } from './parse';
-import { pickChaptersByInput } from './pickChapters';
+import { pickPlotsByInput } from './pickPlots';
 import { STYLE_SYSTEM } from './stylePrompt';
 
 const log = scoped('文风');
@@ -17,27 +18,33 @@ const log = scoped('文风');
  * 覆盖前先确认——style.md 常被作者手工调过。
  */
 export async function extractStyle(project: NovelProject): Promise<void> {
-  const chapters = await project.listChapters();
-  if (chapters.length === 0) {
-    log.warn('还没有章节，无法提取文风');
-    getHost().toast('还没有章节，无法提取文风。');
+  // 只有写过正文的段才当得了样章——文风是从成稿里看出来的。
+  const written: Plot[] = [];
+  for (const plot of await project.listPlots()) {
+    if ((await project.readManuscriptText(plot.relPath)).trim()) {
+      written.push(plot);
+    }
+  }
+  if (written.length === 0) {
+    log.warn('还没有写过正文，无法提取文风');
+    getHost().toast('还没有写过正文，无法提取文风。');
     return;
   }
 
-  // 默认拿前两章当样章，用户可改成写得最顺手的章节。
-  const picked = await pickChaptersByInput(
-    chapters,
-    '选取 1~3 章最能代表文风的样章',
-    '输入章节序号，逗号分隔，如 1,2,3',
-    chapters.slice(0, 2).map((c) => c.order)
+  // 默认拿前两段当样章，用户可改成写得最顺手的那几段。
+  const picked = await pickPlotsByInput(
+    written,
+    '选取 1~3 段最能代表文风的样章',
+    '输入段号，逗号分隔，如 1,2,3',
+    written.slice(0, 2).map((p) => p.no)
   );
   if (!picked || picked.length === 0) {
     log.info('用户取消了样章选择');
     return;
   }
   if (picked.length > 3) {
-    log.warn(`选了 ${picked.length} 章，只取前 3 章`);
-    getHost().toast('最多选 3 章，只取前 3 章。');
+    log.warn(`选了 ${picked.length} 段，只取前 3 段`);
+    getHost().toast('最多选 3 段，只取前 3 段。');
   }
 
   const existing = await project.readStyleGuide();
@@ -63,8 +70,8 @@ export async function extractStyle(project: NovelProject): Promise<void> {
   const config = readConfig();
   const samples = picked.slice(0, 3);
   log.info(
-    `准备从 ${samples.length} 章样章提取文风`,
-    `章节 ${samples.map((c) => c.order).join('、')}｜模型 ${pool.label}`
+    `准备从 ${samples.length} 段样章提取文风`,
+    `段落 ${samples.map((p) => p.no).join('、')}｜模型 ${pool.label}`
   );
 
   await runTask(
@@ -73,8 +80,10 @@ export async function extractStyle(project: NovelProject): Promise<void> {
       const startedAt = Date.now();
       report({ message: '读取样章', current: 0, total: 2 });
       const parts: string[] = [];
-      for (const chapter of samples) {
-        parts.push(`【样章：第${chapter.order}章 ${chapter.title}】\n${await project.readChapterText(chapter)}`);
+      for (const plot of samples) {
+        parts.push(
+          `【样章：第${plot.no}段 ${plot.title}】\n${await project.readManuscriptText(plot.relPath)}`
+        );
       }
       const joined = parts.join('\n\n');
       const budget = Math.max(
@@ -85,7 +94,7 @@ export async function extractStyle(project: NovelProject): Promise<void> {
       if (corpus.length < joined.length) {
         log.warn(
           '样章正文超出输入预算，已截断',
-          `${joined.length} 字 → ${corpus.length} 字（预算 ${budget} token）。少选一章可让归纳更完整。`
+          `${joined.length} 字 → ${corpus.length} 字（预算 ${budget} token）。少选一段可让归纳更完整。`
         );
       }
       log.debug('样章已读取', `${corpus.length} 字（约 ${estimateTokens(corpus)} token）`);

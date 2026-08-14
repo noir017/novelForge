@@ -1,5 +1,5 @@
 /**
- * 三个悬停浮窗：章节摘要、行内副标题（别名）、失败标记。
+ * 三个悬停浮窗：剧情段摘要、行内副标题（别名）、失败标记。
  *
  * 迁自 scripts/smoke-view.js 的这三节：
  *   == 章节摘要的悬停浮窗 ==（1893） == 行内副标题（别名）的悬停浮窗 ==（2170）
@@ -20,11 +20,13 @@ const { mount, JSDOM_SKIP, sampleTree } = require('../../helpers/dom');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
+describe('剧情段摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
   let ui;
   const tip = () => ui.doc.querySelector('.summary-tip');
+  // 浮窗只挂在**剧情行**上。剧情段与发布章节同名（「楔子」两组各一行），
+  // 按 .row 取会撞上章节那一行，而章节行根本没有 data-plot。
   const rowWith = (text) =>
-    [...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes(text));
+    [...ui.doc.querySelectorAll('#projectBody .row-plot')].find((n) => n.textContent.includes(text));
   const hover = (node) => node.dispatchEvent(new ui.window.MouseEvent('mouseover', { bubbles: true }));
   /** 等过悬停延迟（view.js 里是 450ms）。 */
   const settle = () => wait(600);
@@ -33,14 +35,14 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
   /** 鼠标进/出浮窗。这两个事件不冒泡，得直接派到浮窗上。 */
   const enterTip = () => tip().dispatchEvent(new ui.window.MouseEvent('mouseenter'));
   const leaveTip = () => tip().dispatchEvent(new ui.window.MouseEvent('mouseleave'));
-  /** 移开鼠标并等过宽限期：悬停到分组标题栏（不是章节行）即可。 */
+  /** 移开鼠标并等过宽限期：悬停到分组标题栏（不是剧情行）即可。 */
   const moveAway = async () => {
     hover(ui.doc.querySelector('#projectBody .group-head'));
     await grace();
   };
 
   // jsdom 里所有尺寸都是 0，定位逻辑会全程退化成「贴光标」，量不出东西来。
-  // 给浮窗与章节行装上可控的几何，才验得了「不许跑到窗口外面去」。
+  // 给浮窗与剧情行装上可控的几何，才验得了「不许跑到窗口外面去」。
   const VIEWPORT = { w: 800, h: 600 };
   /** 浮窗的自然高度（不受行内 maxHeight 限制时的高度）。 */
   let tipNaturalHeight = 200;
@@ -63,8 +65,8 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
   const summaryOf = (extra) =>
     Object.assign(
       {
-        order: 1, title: '楔子', exists: true, stale: false,
-        relPath: '.novelforge/summaries/001.md',
+        no: 1, title: '楔子', exists: true, stale: false,
+        relPath: '.novelforge/summaries/001-楔子.md',
         sections: [
           { name: '梗概', text: '雨下了三天，林昭进入青崖镇。' },
           { name: '关键事件', text: '- 以旧牌子代替过所\n- 李叔放行' },
@@ -99,7 +101,7 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
       },
     });
     ui.window.Element.prototype.getBoundingClientRect = function () {
-      if (this.classList && this.classList.contains('row-chapter')) {
+      if (this.classList && this.classList.contains('row-plot')) {
         return {
           top: rowRect.top, bottom: rowRect.bottom, left: rowRect.left,
           right: rowRect.left + 200, width: 200, height: rowRect.bottom - rowRect.top,
@@ -115,14 +117,14 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(!tip());
   });
 
-  // 只有章节行有浮窗，角色行没有。
+  // 只有剧情行有浮窗，角色行没有。
   test('角色行不弹浮窗', async () => {
-    hover(rowWith('林昭'));
+    hover([...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes('林昭')));
     await settle();
     assert.ok(!tip());
   });
 
-  // ---- 悬停在章节行上
+  // ---- 悬停在剧情行上
   test('悬停后不立刻弹出（有延迟，免得划过时闪）', () => {
     ui.sent.length = 0;
     hover(rowWith('楔子'));
@@ -146,10 +148,12 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(tip().textContent.includes('读取摘要'), tip().textContent);
   });
 
-  test('向后端要这一章的摘要', () => {
+  test('向后端要这一段的摘要', () => {
     const req = ui.last('requestSummary');
     assert.ok(req, '没发出 requestSummary');
-    assert.equal(req.order, 1, JSON.stringify(req));
+    // 要的是**段路径**，不是序号：摘要文件名跟着段标题走，
+    // 只有路径能唯一定位到一份摘要。
+    assert.equal(req.plotRelPath, '.novelforge/plots/001-楔子.md', JSON.stringify(req));
   });
 
   test('浮窗挂在 body 上（工程页有内部滚动，挂在行里会被裁掉）', () => {
@@ -162,8 +166,8 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(!tip().textContent.includes('读取摘要'), tip().textContent);
   });
 
-  test('浮窗带章号与标题', () => {
-    assert.ok(tip().textContent.includes('第 1 章 楔子'), tip().textContent);
+  test('浮窗带段号与标题', () => {
+    assert.ok(tip().textContent.includes('第 1 段 楔子'), tip().textContent);
   });
 
   test('显示小节名', () => {
@@ -223,12 +227,12 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(tip());
   });
 
-  test('移到非章节行、且没进浮窗时收起', async () => {
+  test('移到非剧情行、且没进浮窗时收起', async () => {
     await moveAway();
     assert.ok(!tip());
   });
 
-  // ---- 缓存：同一章再悬停不再发请求
+  // ---- 缓存：同一段再悬停不再发请求
   test('命中缓存时直接显示，不再请求', async () => {
     ui.sent.length = 0;
     hover(rowWith('楔子'));
@@ -283,13 +287,13 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     await moveAway();
   });
 
-  // ---- 没生成过摘要的章节：说清楚，不给空浮窗
+  // ---- 没生成过摘要的段：说清楚，不给空浮窗
   test('未总结时给出说明而非空白', async () => {
     hover(rowWith('楔子'));
     await settle();
     ui.post({
       type: 'summary',
-      summary: { order: 1, title: '楔子', exists: false, stale: true, relPath: '', sections: [] },
+      summary: { no: 1, title: '楔子', exists: false, stale: true, relPath: '', sections: [] },
     });
     assert.ok(tip().textContent.includes('还没有摘要'), tip().textContent);
   });
@@ -523,7 +527,7 @@ describe('行内副标题（别名）的悬停浮窗', { skip: JSDOM_SKIP }, () 
 describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
   let ui;
   let cardMark;
-  let chapterMark;
+  let plotMark;
   let box;
   let multiBox;
   const tip = () => ui.doc.querySelector('.failure-tip');
@@ -540,7 +544,9 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
   const grace = () => wait(320);
 
   const CARD = '.novelforge/characters/林昭.md';
-  const CHAPTER = 'chapters/001-楔子.md';
+  // 失败一律挂在**剧情段**上（recordFailure 的 targetKey 就是段路径）。
+  // 章节是纯文件行，没有失败标记——工具不在那上面跑任何东西。
+  const PLOT = '.novelforge/plots/001-楔子.md';
 
   before(() => {
     ui = mount();
@@ -581,8 +587,8 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
           detail: '模型没有按要求返回 JSON。换个模型或稍后重试。',
         },
       ],
-      [CHAPTER]: [
-        { at: '2026-08-10T11:20:00.000Z', severity: 'warn', message: '3 章解析失败，「已读到」只推进到第 2 章' },
+      [PLOT]: [
+        { at: '2026-08-10T11:20:00.000Z', severity: 'warn', message: '3 段解析失败，「已读到」只推进到第 2 段' },
       ],
     };
     ui.post({ type: 'project', tree });
@@ -605,13 +611,23 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(cardMark.title.includes('未改动'), cardMark.title);
   });
 
-  test('出错的章节行也挂上感叹号', () => {
-    chapterMark = markIn('楔子');
-    assert.ok(chapterMark);
+  test('出错的剧情行也挂上感叹号', () => {
+    // 按剧情行取：剧情段与发布章节同名，按 .row 取会撞上章节那一行。
+    const row = [...ui.doc.querySelectorAll('#projectBody .row-plot')]
+      .find((n) => n.textContent.includes('楔子'));
+    plotMark = row ? row.querySelector('.row-failure') : null;
+    assert.ok(plotMark);
   });
 
   test('部分完成标黄而非标红', () => {
-    assert.ok(chapterMark && chapterMark.classList.contains('is-warn'), chapterMark && chapterMark.className);
+    assert.ok(plotMark && plotMark.classList.contains('is-warn'), plotMark && plotMark.className);
+  });
+
+  // 章节是纯文件行：同名的那一章不该跟着挂标记。
+  test('同名的章节行不挂感叹号', () => {
+    const row = [...ui.doc.querySelectorAll('#projectBody .row-chapter')]
+      .find((n) => n.textContent.includes('楔子'));
+    assert.ok(row && !row.querySelector('.row-failure'), row && row.outerHTML);
   });
 
   // ---- 悬停：延迟后弹浮窗，说清「改没改」与原因

@@ -134,15 +134,17 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
     assert.ok(taskRows().length >= 10, `${taskRows().length} 行`);
   });
 
-  test('流水线的两个任务在表里', () => {
-    assert.ok(taskNames().includes('章节细纲') && taskNames().includes('拆分场景'), taskNames().join('|'));
+  // 流水线在设置页上是三条：写剧情 / 拆场景 / 批量写正文。
+  test('流水线的三个任务在表里', () => {
+    assert.ok(['剧情细纲', '拆分场景', '批量写正文'].every((n) => taskNames().includes(n)),
+      taskNames().join('|'));
   });
 
-  test('第一行是单章摘要', () => {
-    assert.equal(nameOf(0), '单章摘要', nameOf(0));
+  test('第一行是单段摘要', () => {
+    assert.equal(nameOf(0), '单段摘要', nameOf(0));
   });
 
-  test('单章摘要默认落在快速档', () => {
+  test('单段摘要默认落在快速档', () => {
     assert.equal(selOf(0).value, 'fast', selOf(0).value);
   });
 
@@ -156,7 +158,7 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
     selOf(0).value = 'quality';
     selOf(0).dispatchEvent(new ui.window.Event('change', { bubbles: true }));
     sent = save();
-    assert.equal(sent.settings.taskTiers.chapterSummary, 'quality', JSON.stringify(sent.settings.taskTiers));
+    assert.equal(sent.settings.taskTiers.plotSummary, 'quality', JSON.stringify(sent.settings.taskTiers));
   });
 
   test('没改过的任务不写进配置', () => {

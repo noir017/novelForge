@@ -388,7 +388,13 @@ describe('草稿', () => {
     });
   });
 
-  describe('manifest 认得非 .md 章节', () => {
+  /**
+   * 草稿不进 manifest。
+   *
+   * manifest 现在只索引剧情段（章节退出流水线，见 chapters.test.js 末尾），
+   * 所以这条比从前更强：`drafts/` 与 `chapters/` 都不该出现在里面。
+   */
+  describe('草稿不进 manifest', () => {
     let manifest;
 
     before(async () => {
@@ -396,9 +402,18 @@ describe('草稿', () => {
       manifest = await project.syncManifest();
     });
 
-    // 另两条（.txt 进了 manifest / 记录了 order 与 hash）在 chapters.test.js。
     test('manifest 里没有草稿', () => {
-      assert.ok(!manifest.chapters.some((c) => c.file.startsWith('drafts/')));
+      assert.ok(
+        !manifest.plots.some((p) => p.file.startsWith('drafts/')),
+        JSON.stringify(manifest.plots.map((p) => p.file))
+      );
+    });
+
+    test('manifest 里也没有章节', () => {
+      assert.ok(
+        !manifest.plots.some((p) => p.file.startsWith('chapters/')),
+        JSON.stringify(manifest.plots.map((p) => p.file))
+      );
     });
   });
 });

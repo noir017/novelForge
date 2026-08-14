@@ -27,14 +27,21 @@ let maintenance;
 let h;
 let t;
 
-/** 造一章正文 + 一份带 cast 的摘要。cast 用 `名(别名、别名)` 的写法。 */
-function makeChapter(order, cast) {
-  const n = String(order).padStart(3, '0');
-  t.write(`chapters/${n}-第${order}章.md`, `# 第${order}章\n\n雨下了三天。\n`);
+/**
+ * 造一段剧情 + 它的正文 + 一份带 cast 的摘要。cast 用 `名(别名、别名)` 的写法。
+ *
+ * 出场索引扫的是**剧情段**（`buildCastIndex` 走 `listPlots()` 再按段读摘要），
+ * 所以段文件必须在——只写摘要的话它一份都扫不到。
+ */
+function makePlot(no, cast) {
+  const n = String(no).padStart(3, '0');
+  const stem = `${n}-第${no}段`;
+  t.write(`.novelforge/plots/${stem}.md`, `## 目标\n\n略。\n\n## 剧情脉络\n\n甲乙丙。\n`);
+  t.write(`.novelforge/manuscripts/${stem}.md`, `# 第${no}段 · 正文\n\n雨下了三天。\n`);
   t.write(
-    `.novelforge/summaries/${n}-第${order}章.md`,
-    `---\norder: ${order}\ntitle: 第${order}章\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
-      `# 第${order}章 · 摘要\n\n## 梗概\n\n略。\n\n## 出场人物\n\n${cast.join('、')}\n`
+    `.novelforge/summaries/${stem}.md`,
+    `---\nplot: ${no}\ntitle: 第${no}段\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
+      `# 第${no}段 · 摘要\n\n## 梗概\n\n略。\n\n## 出场人物\n\n${cast.join('、')}\n`
   );
 }
 
@@ -214,11 +221,10 @@ describe('出场索引', () => {
 
   before(async () => {
     t.remove('.novelforge');
-    t.remove('chapters');
     t.write('.novelforge/project.md', '---\ntitle: 测\n---\n\n# 测\n');
-    makeChapter(1, ['方源(古月方源、姐姐)', '方正']);
-    makeChapter(2, ['古月方源(方源)', '方正']);
-    makeChapter(3, ['古月方源']);
+    makePlot(1, ['方源(古月方源、姐姐)', '方正']);
+    makePlot(2, ['古月方源(方源)', '方正']);
+    makePlot(3, ['古月方源']);
     const project = new projectMod.NovelProject(t.dir);
 
     // ---- 一张卡都没有：两种写法只该冒出一个「未建卡」的人。
@@ -249,10 +255,10 @@ describe('出场索引', () => {
     assert.equal(fangyuan.length, 1, unknownNames.join('、'));
   });
 
-  test('出场章节合到一起', () => {
+  test('出场段合到一起', () => {
     assert.ok(
-      fangyuan[0] && fangyuan[0].chapters.join(',') === '1,2,3',
-      fangyuan[0] && fangyuan[0].chapters.join(',')
+      fangyuan[0] && fangyuan[0].plots.join(',') === '1,2,3',
+      fangyuan[0] && fangyuan[0].plots.join(',')
     );
   });
 
@@ -260,12 +266,12 @@ describe('出场索引', () => {
     assert.ok(unknownNames.includes('方正'));
   });
 
-  test('方正的章节记在方正名下', () => {
-    assert.equal(byName.方正.chapters.join(','), '1,2', byName.方正.chapters.join(','));
+  test('方正的段记在方正名下', () => {
+    assert.equal(byName.方正.plots.join(','), '1,2', byName.方正.plots.join(','));
   });
 
-  test('方源不多吃方正的章节', () => {
-    assert.equal(byName.方源.chapters.join(','), '1,2,3', byName.方源.chapters.join(','));
+  test('方源不多吃方正的段', () => {
+    assert.equal(byName.方源.plots.join(','), '1,2,3', byName.方源.plots.join(','));
   });
 
   test('别名撞正式名记进 conflicts', () => {

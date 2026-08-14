@@ -45,11 +45,11 @@ node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
 | `model/project.test.js` | `cast` 条目的序列化往返（含全角括号、别名去重）、小节文本反解出场人物 |
 | `model/providers.test.js` | 模型引用解析（含嵌套斜杠 `openrouter/z-ai/glm-4.6`）、服务商配置容错、按模型覆盖窗口、0.1.x 单服务商兜底；默认模型列表的归一化与旧配置升级；`concurrency` / `fallbackAttempts` 的默认值与 clamp |
 | `model/tiers.test.js` | 模型分档的配置容错：三档各自归一化、非对象不崩、裸字符串收成单元素、认不出的任务名与非法档位名回落内置默认，以及「每个任务都有内置默认档位与中文名」 |
-| `model/pipeline.test.js` | 四个阶段的可用/默认能力、输出形态判定、`CreationTarget` 的稳定键（同序号不同文件不撞）、action/target 容错归一 |
-| `context/tokenizer.test.js` | token 估算（中英文比例）、`takeTail`/`takeHead` 的预算与截断标记 |
+| `model/pipeline.test.js` | 四个阶段（大纲/剧情/细节/正文）的可用/默认能力（`settle` **只有剧情层有**）、输出形态判定、`CreationTarget` 的稳定键（同段号不同文件不撞）、action/target 容错归一、`plotLabel`/`chapterLabel`、剧情段与全书两个状态机、命令表；以及 `plotFile.ts` 的文件名规则与解析/渲染往返——**四个小节、不再有「开头」「结尾」**，`isPlotFilled` 只认「剧情脉络」 |
+| `context/tokenizer.test.js` | token 估算（中英文比例）、`takeTail`/`takeHead` 的预算与截断标记（样本取 `manuscripts/` 里的真实正文） |
 | `context/tokenCounter.test.js` | 可替换计数器的注册/切换、`prepare` 抛错时不带崩、用量校准统计只收真实用量 |
 | `features/creation.test.js` | 模型输出清洗（去代码块/开场白/标题/字数统计，正文不误伤）、标题推断 |
-| `features/summarize.test.js` | **摘要解析的三层降级**：JSON → Markdown 小节 → 全文进梗概；不相干的 JSON 不被当成摘要 |
+| `features/summarize.test.js` | **摘要解析的三层降级**：JSON → Markdown 小节 → 全文进梗概；不相干的 JSON 不被当成摘要；真实示例摘要（无 `cast` 字段那份）走小节反解 |
 | `features/characters.test.js` | 角色 JSON 解析的容错：坏 JSON 返回空数组而非抛错、无 name 条目被丢弃 |
 | `runtime/concurrency.test.js` | `runPool`：并发峰值不超 limit、结果按 index 对齐、单项失败不拖累其余、取消后不起新任务、`onSettled` 计数单调不重复；`serialize` 的串行与不卡死 |
 | `runtime/pool.test.js` | 模型池：并发轮转均摊、串行恒用首选、失败换人、重试不超 `fallbackAttempts`、取消不 fallback、剔除备选**不弹 API Key 输入框**；**分档**：空档位继承 `models`、**fallback 绝不跨档**、`primaryBudget` 取该档首选窗口 |
@@ -60,17 +60,17 @@ node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
 
 | 文件 | 覆盖 |
 |---|---|
-| `files/fileOps.test.js` | 层级目录与类文件操作：递归扫描（含 `.trash/` 排除）、`ProjectTree` 折叠、路径越界守卫、新建/重命名（保留序号前缀、H1 同步）/移动（跨区/自嵌套/同名拒绝）/删除（搬回收站、不覆盖）、挪动章节后摘要仍算新鲜；`buildChapterSummaryView` |
+| `files/fileOps.test.js` | 层级目录与类文件操作：递归扫描（含 `.trash/` 排除）、`ProjectTree` 折叠、路径越界守卫、新建/重命名（保留序号前缀、H1 同步）/移动（跨区/自嵌套/同名拒绝）/删除（搬回收站、不覆盖）；**剧情段走另一条路**——改名/删除连带搬走场景目录、正文与摘要，且没有「移动到…」；摘要按段名镜像（同号不同名互不覆盖）；`buildPlotSummaryView` |
 | `files/projectFiles.test.js` | 工程根范围的文件操作：重命名/移动/复制、固定目录保护、同名拒绝、垃圾箱豁免、章节联动 |
 | `files/chapters.test.js` | 非 markdown 章节不解析 H1、角色区仍只认 `.md`、`isEditablePath` 放行无扩展名章节 |
 | `files/drafts.test.js` | 草稿路径镜像、按需创建且第二次不覆盖、不混进章节树与 manifest、`@` 引用、跟随改名/移动、删章节不删草稿 |
-| `context/builder.test.js` | 完整上下文装配：优先级、预算、降级链、手动排除、附件截断、多轮历史封顶、四阶段配方与身份、provider 配额压缩；工程页快照与出场人物索引。**写入类用例跑夹具的临时副本**，`sample-novel/` 只读 |
-| `features/creation.test.js` | 创作编排层：产物解析的三层降级与 `parsePlanStrict` 的不兜底版本；六条采纳落盘路径——覆盖前必须审阅且**拒绝时一字不写**、二次拆场景不动原有场景、目标不存在时抛错 |
-| `features/pipelineData.test.js` | 细纲与场景的解析/渲染往返、场景文件名规则、四套镜像路径与改名跟随、**四段新鲜度链**（改大纲→细纲脏→场景脏→正文脏）、**手写的产物永不标脏** |
-| `features/pipelineBatch.test.js` | 工程页批量流水线：**只补不改**、缺上游不生成下游、解析不出**不写盘**、失败挂 errorLog 且继续跑完、用户取消时一次模型都不调；装配走同一个 `buildContext` |
-| `features/cast.test.js` | 别名的泛称过滤；同一人聚类——**同章共现的两人绝不合并**；出场索引的正式名优先与 `conflicts`；维护命令（清理别名不动正文、合并重复卡、水位线退回） |
-| `features/characterCard.test.js` | 更新角色卡：分批与「预计调用 M 次」、只装该角色的出场章节、增量无新章时**一次模型都不调**、部分失败时**水位线停在第一个失败章节之前**、取消/放弃不落盘；**并发**下模型请求重叠但 **diff 审阅仍一次只弹一张** |
-| `features/lore.test.js` | 自动生成设定：逐章识别次数、跨章合并、分类目录落盘、已有设定必须经审阅 |
+| `context/builder.test.js` | 完整上下文装配：优先级、预算、降级链、手动排除、附件截断、多轮历史封顶、四阶段配方与身份、provider 配额压缩；**`settle` 时历史保得住**（cap 60% + P0，且输出契约与 `generate` 一字不差）、**没写正文的段退化成只带「目标」并注明原因**；工程页快照与出场人物索引。**写入类用例跑夹具的临时副本**，`sample-novel/` 只读 |
+| `features/creation.test.js` | 创作编排层：产物解析的三层降级与 `parsePlotStrict` 的不兜底版本；六条采纳落盘路径——覆盖前必须审阅且**拒绝时一字不写**、二次拆场景不动原有场景、目标不存在时抛错；拆剧情段**不建空章节** |
+| `features/pipelineData.test.js` | 剧情与场景的解析/渲染往返、场景文件名规则、三套伴生文件的镜像与改名跟随、**四段新鲜度链**（改大纲→剧情脏→场景脏→正文脏）、**手写的产物永不标脏** |
+| `features/pipelineBatch.test.js` | 工程页的三条批量流水线（写剧情 / 拆场景 / 写正文）：**只补不改**、缺上游不生成下游、解析不出**不写盘**、失败挂 errorLog 且继续跑完、用户取消时一次模型都不调；装配走同一个 `buildContext` |
+| `features/cast.test.js` | 别名的泛称过滤；同一人聚类——**同段共现的两人绝不合并**；出场索引的正式名优先与 `conflicts`；维护命令（清理别名不动正文、合并重复卡、水位线退回） |
+| `features/characterCard.test.js` | 更新角色卡：分批与「预计调用 M 次」、只装该角色的出场段落、增量无新段时**一次模型都不调**、部分失败时**水位线停在第一个失败段之前**、取消/放弃不落盘；**并发**下模型请求重叠但 **diff 审阅仍一次只弹一张** |
+| `features/lore.test.js` | 自动生成设定：逐段识别次数、跨段合并、分类目录落盘、已有设定必须经审阅 |
 | `storage/errorLog.test.js` | 工程库与失败记录：驱动适配层、**关库之后删得掉目录**、纯读取不建库、失败记录生命周期、日志持久化与挂 sink 前的补写、**库不可用时全线静默降级** |
 | `storage/session.test.js` | 会话读写往返、损坏文件容错、列表排序、重命名/删除、id 唯一性、`.novel` → `.novelforge` 迁移 |
 | `llm/streaming.test.js` | 起本地假服务器模拟 SSE：流式解析（跨块切分、CRLF、心跳、非 JSON 行）、取消、超时、HTTP 401/404/429，Anthropic 的 system 提取与消息合并 |
@@ -85,13 +85,13 @@ node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
 | 文件 | 覆盖 |
 |---|---|
 | `view/chat.test.js` | 流式逐段显示、生成中不可编辑、结束后可编辑、中断与报错、气泡 ... 菜单、空输入、产物采纳卡片、思考过程 |
-| `view/creation.test.js` | 创作流水线条与下一步、工作区卡、`/` 命令面板、选中章节进入当前阶段、独立版壳上的创作页 |
-| `view/projectTree.test.js` | 目录树折叠/展开与缩进、空文件夹提示、重推后保持展开；右键菜单的菜单项与消息负载、通用行为 |
-| `view/cast.test.js` | 角色行的「出场 N 章」与「＋N 待更新」、增量/全量分别发 `updateCard`/`rebuildCard`、「出场人物 · 未建卡」分组、旧后端的树不让前端崩 |
+| `view/creation.test.js` | 创作流水线条与下一步、工作区卡、`/` 命令面板（剧情层**八条**，含 `/落定剧情`）、选中剧情段进入当前阶段（点章节名只打开文件）、独立版壳上的创作页 |
+| `view/projectTree.test.js` | 目录树折叠/展开与缩进、空文件夹提示、重推后保持展开；右键菜单——**剧情行有三层入口与总结，章节行只有文件操作**、剧情组标题的四个批量动作、通用行为 |
+| `view/cast.test.js` | 角色行的「出场 N 段」与「＋N 待更新」、增量/全量分别发 `updateCard`/`rebuildCard`、「出场人物 · 未建卡」分组、旧后端的树不让前端崩 |
 | `view/progress.test.js` | 摘要进度横幅（已总结 N/M + 进度条）、长任务进度条（n/N、计时、停止） |
 | `view/logs.test.js` | 级别与关键字过滤、detail 折叠、增量追加也走过滤；**「加载更早」**——默认不查库、点了才发 `requestLogHistory`、历史不冲掉本次会话 |
 | `view/settings.test.js` | 模型分档三档渲染、八行任务表与内置默认标记、只把**改过的项**写进 `taskTiers`、指向已删模型的引用摘掉且摘空了保持为空；「高级设置」折叠开关 |
-| `view/hover.test.js` | 三组悬停浮窗（章节摘要 / 行内别名 / 失败标记）：延迟才弹、缓存与作废、可进入（能选中复制）、**夹进视口**（下方放不下翻上方、贴右收左、超长压 `max-height`）、失败标记按最严重的算 |
+| `view/hover.test.js` | 三组悬停浮窗（剧情段摘要 / 行内别名 / 失败标记）：延迟才弹、缓存与作废、可进入（能选中复制）、**夹进视口**（下方放不下翻上方、贴右收左、超长压 `max-height`）、失败标记挂在剧情行上、按最严重的算 |
 | `standalone/editor.test.js` | 内置编辑器：草稿区惰性创建、`pane` 分派、「草稿」按钮可见性与 `openDraft` 负载、保存回执不冲掉 `draftPath`、右键菜单与标签搬家 |
 | `standalone/explorer.test.js` | 资源管理器：点开头目录列得出来且压暗、目录排在文件前、懒展开、折叠连带子目录、可编辑与否走不同消息、截断如实告知、读失败降级；文件页剪贴板与右键菜单 |
 
@@ -99,10 +99,10 @@ node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
 
 | 文件 | 覆盖 |
 |---|---|
-| `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、WS 首条消息、`Origin` 校验；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返 |
+| `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、WS 首条消息、`Origin` 校验；**唯一一条跑真控制器状态机的用例**——`selectPlot` 由后端算落在哪一层，且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返 |
 | `contract/corePurity.test.js` | `src/core/` 零 vscode 依赖——分层架构的硬约束，也是 `external: ['vscode']` 成立的前提 |
 | `contract/shellPurity.test.js` | 壳的契约（[src/shells/README.md](../src/shells/README.md)）：`shells/shared/` 零宿主依赖（不碰 vscode / node: / bun:）、三个壳互不 import、全仓库没有 `host.name ===` 这类按身份分支的写法。三条都是**能悄悄长回来**的东西，只能靠断言守 |
-| `contract/sampleNovel.test.js` | `sample-novel/` 自洽：manifest 章节数与磁盘一致、每章 `contentHash` / `summaryHash` / 摘要 `sourceHash` 对得上、示例纲要能命中 3 个角色 |
+| `contract/sampleNovel.test.js` | `sample-novel/` 自洽：manifest 段数与磁盘一致（v2 结构、没有 `chapters` 字段）、每段 `contentHash` / `summaryHash` / 摘要 `sourceHash` 对得上、正文 frontmatter 指回剧情段、**发布区不参与指纹链**、示例纲要能命中 3 个角色 |
 
 ## helpers/
 

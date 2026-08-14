@@ -62,14 +62,24 @@ function setReplies(items) {
   fake.reset(items);
 }
 
-/** 造一章 `words` 字的正文，并写一份带 cast 的摘要。 */
-function makeChapter(order, title, cast, words = 400) {
+/**
+ * 造一段剧情：段文件 + `words` 字的正文 + 一份带 cast 的摘要。
+ *
+ * 角色卡通读的是 `manuscripts/` 里的正文、出场统计来自按段的摘要——
+ * `chapters/` 已经退出流水线，这条链上一个字都不读它。
+ */
+function makePlot(no, title, cast, words = 400) {
   const pad = '雨下了三天，石板路泡得发白。'.repeat(Math.ceil(words / 14)).slice(0, words);
-  t.write(`chapters/${String(order).padStart(3, '0')}-${title}.md`, `# ${title}\n\n${pad}\n`);
+  const stem = `${String(no).padStart(3, '0')}-${title}`;
   t.write(
-    `.novelforge/summaries/${String(order).padStart(3, '0')}.md`,
-    `---\norder: ${order}\ntitle: ${title}\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
-      `# 第${order}章 ${title} · 摘要\n\n## 梗概\n\n略。\n\n## 出场人物\n\n${cast.join('、')}\n`
+    `.novelforge/plots/${stem}.md`,
+    `---\nplot: ${no}\ntitle: ${title}\n---\n\n## 目标\n\n略。\n\n## 剧情脉络\n\n甲乙丙。\n`
+  );
+  t.write(`.novelforge/manuscripts/${stem}.md`, `# 第${no}段 ${title} · 正文\n\n${pad}\n`);
+  t.write(
+    `.novelforge/summaries/${stem}.md`,
+    `---\nplot: ${no}\ntitle: ${title}\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
+      `# 第${no}段 ${title} · 摘要\n\n## 梗概\n\n略。\n\n## 出场人物\n\n${cast.join('、')}\n`
   );
 }
 
@@ -104,11 +114,11 @@ before(async () => {
   project = t.project;
 
   // 林昭出场 1、2、4、5 章；沈氏只在第 3 章；「客栈掌柜」全程没有角色卡。
-  makeChapter(1, '楔子', ['林昭', '客栈掌柜']);
-  makeChapter(2, '入镇', ['林昭']);
-  makeChapter(3, '夜谈', ['沈氏', '客栈掌柜']);
-  makeChapter(4, '追兵', ['林昭']);
-  makeChapter(5, '渡口', ['林昭']);
+  makePlot(1, '楔子', ['林昭', '客栈掌柜']);
+  makePlot(2, '入镇', ['林昭']);
+  makePlot(3, '夜谈', ['沈氏', '客栈掌柜']);
+  makePlot(4, '追兵', ['林昭']);
+  makePlot(5, '渡口', ['林昭']);
   t.write(CARD, '---\nname: 林昭\naliases: [阿昭]\ntags: [主角]\n---\n\n# 林昭\n\n## 身份\n\n（待补充）\n');
   project.invalidate();
 });
@@ -221,7 +231,7 @@ describe('增量更新', () => {
 
   before(async () => {
     project.invalidate();
-    makeChapter(6, '新章', ['林昭']);
+    makePlot(6, '新章', ['林昭']);
     project.invalidate();
 
     expect('开始');
@@ -293,8 +303,8 @@ describe('解析失败与取消', () => {
     // 某一批解析失败：其余批的成果照样写回，但 updatedThrough 不能跳过失败的章。
     // 这里让第一批失败、后面成功——若把 updatedThrough 推到最后一章，
     // 第 1、2 章就再也不会被读到了。
-    makeChapter(7, '第七', ['林昭']);
-    makeChapter(8, '第八', ['林昭']);
+    makePlot(7, '第七', ['林昭']);
+    makePlot(8, '第八', ['林昭']);
     project.invalidate();
     fs.writeFileSync(
       t.rel(CARD),
@@ -736,8 +746,8 @@ describe('给未建卡的人全部建卡', () => {
 
   before(async () => {
     // 造两个还没有卡的人物，各出场两章。
-    makeChapter(9, '渡船', ['艄公', '货郎']);
-    makeChapter(10, '雨歇', ['艄公', '货郎']);
+    makePlot(9, '渡船', ['艄公', '货郎']);
+    makePlot(10, '雨歇', ['艄公', '货郎']);
     project.invalidate();
 
     // ---- 取消：一次模型都不调。

@@ -124,7 +124,7 @@ describe('projectFiles.ts', () => {
     let bothKept;
     let intoSub;
     let draftFollowed;
-    let manifestPath;
+    let landedInSub;
     let outOfChapters;
     let draftStayed;
     let fixedDir;
@@ -153,7 +153,9 @@ describe('projectFiles.ts', () => {
       bothKept =
         read('archive/撞名.txt').includes('先来的') && read('notes/撞名.txt').includes('后来的');
 
-      // 章节移进 chapters 子目录：manifest 与草稿跟着走。
+      // 章节移进 chapters 子目录：草稿跟着走。
+      // manifest 已经不索引章节了（章节退出流水线，见 chapters.test.js 末尾），
+      // 所以这里只验磁盘：文件到了新位置、草稿也跟过去了。
       fs.mkdirSync(rel('chapters/卷一'), { recursive: true });
       fs.mkdirSync(rel('drafts'), { recursive: true });
       write('drafts/001-新的标题.md', '# 草稿\n');
@@ -162,8 +164,7 @@ describe('projectFiles.ts', () => {
       intoSub = results[0];
       draftFollowed = fs.existsSync(rel('drafts/卷一/001-新的标题.md'));
       project.invalidate();
-      const manifest = await project.readManifest();
-      manifestPath = manifest.chapters.find((c) => c.order === 1).file;
+      landedInSub = fs.existsSync(rel('chapters/卷一/001-新的标题.md'));
 
       // 章节移出 chapters/：允许，但草稿留在原处（日志会 warn，这里只验磁盘状态）。
       results = await pf.moveInto(project, ['chapters/卷一/001-新的标题.md'], 'archive');
@@ -227,8 +228,8 @@ describe('projectFiles.ts', () => {
       assert.ok(draftFollowed);
     });
 
-    test('manifest 记新路径', () => {
-      assert.equal(manifestPath, 'chapters/卷一/001-新的标题.md');
+    test('文件确实到了子目录', () => {
+      assert.ok(landedInSub);
     });
 
     test('章节可移出 chapters', () => {

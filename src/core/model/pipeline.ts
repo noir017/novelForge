@@ -7,7 +7,7 @@
  * 这里替换掉的是旧的 `mode: 'write' | 'discuss'`。那个开关是按 **AI 的输出形式**
  * 划分的，而不是按作者真实的创作流程划分：
  *
- * - 「讨论」不是一个模式——大纲、细纲、场景、正文四个阶段都会讨论；
+ * - 「讨论」不是一个模式——大纲、剧情、场景、正文四个阶段都会讨论；
  * - 「续写」不是一个阶段——它只是正文阶段的一个动作。
  *
  * 所以拆成三个正交维度：
@@ -15,19 +15,26 @@
  * - **Stage**：我在哪一层（决定 AI 的身份、装配配方、产物落到哪）
  * - **Capability**：我要它干什么（任何阶段都能用，只是可用集合不同）
  * - **Target**：我在改哪一个具体产物
+ *
+ * ## 单位是剧情段，不是章节
+ *
+ * 流水线的第二层从前是「章节细纲」，现在是「剧情段」（见 model/plotFile.ts）。
+ * 创作单位与发布单位分开：生成时按剧情的自然长度走，正文出来之后由作者自己
+ * 切成 `chapters/` 下的发布章节。`chapters/` 因此不在这条流水线上——它是成品区，
+ * 工具只提供文件操作，不分析、不提示、不挂状态。
  */
 
 // ---------------------------------------------------------------- Stage
 
-/** 创作阶段。四层，自上而下：故事讲什么 → 这章发生什么 → 这幕怎么发生 → 怎么写出来。 */
-export type CreationStage = 'outline' | 'plan' | 'scene' | 'manuscript';
+/** 创作阶段。四层，自上而下：故事讲什么 → 这段发生什么 → 这幕怎么发生 → 怎么写出来。 */
+export type CreationStage = 'outline' | 'plot' | 'scene' | 'manuscript';
 
-export const CREATION_STAGES: CreationStage[] = ['outline', 'plan', 'scene', 'manuscript'];
+export const CREATION_STAGES: CreationStage[] = ['outline', 'plot', 'scene', 'manuscript'];
 
 /** 阶段的中文名。前端按钮、日志、确认框共用这一份，不在前端另写。 */
 export const STAGE_LABEL: Record<CreationStage, string> = {
   outline: '大纲',
-  plan: '细纲',
+  plot: '剧情',
   scene: '细节',
   manuscript: '正文',
 };
@@ -35,7 +42,7 @@ export const STAGE_LABEL: Record<CreationStage, string> = {
 /** 每个阶段回答的那个问题。前端的流水线条用它做 tooltip。 */
 export const STAGE_QUESTION: Record<CreationStage, string> = {
   outline: '故事讲什么？',
-  plan: '这一章发生什么？',
+  plot: '这一段发生什么？',
   scene: '这一幕具体怎么发生？',
   manuscript: '怎么把它写出来？',
 };
@@ -44,13 +51,13 @@ export const STAGE_QUESTION: Record<CreationStage, string> = {
  * AI 在该阶段的身份。
  *
  * 这比提示词技巧更要紧：同一句「这里冲突太弱」，策划编辑会去动故事结构，
- * 剧情导演会去调这一章的节奏，编剧会去想这一幕的画面，作者会去改措辞。
+ * 剧情编剧会去调这一段的事件与因果，编剧会去想这一幕的画面，作者会去改措辞。
  * 不说清身份，四个阶段会得到同一种泛泛而谈的回答。
  */
 export const STAGE_ROLE: Record<CreationStage, string> = {
   outline: '资深长篇小说策划编辑',
-  plan: '剧情导演',
-  scene: '编剧',
+  plot: '剧情编剧',
+  scene: '分镜编剧',
   manuscript: '资深中文长篇小说作者',
 };
 
@@ -60,7 +67,7 @@ export function isCreationStage(value: unknown): value is CreationStage {
 
 // ---------------------------------------------------------------- Capability
 
-/** 通用能力。与阶段正交——「讨论」不再是一个模式，而是七个能力之一。 */
+/** 通用能力。与阶段正交——「讨论」不再是一个模式，而是八个能力之一。 */
 export type Capability =
   | 'discuss'
   | 'expand'
@@ -68,6 +75,7 @@ export type Capability =
   | 'check'
   | 'split'
   | 'generate'
+  | 'settle'
   | 'rewrite';
 
 export const CAPABILITIES: Capability[] = [
@@ -77,6 +85,7 @@ export const CAPABILITIES: Capability[] = [
   'check',
   'split',
   'generate',
+  'settle',
   'rewrite',
 ];
 
@@ -87,6 +96,7 @@ export const CAPABILITY_LABEL: Record<Capability, string> = {
   check: '检查',
   split: '拆分',
   generate: '生成',
+  settle: '落定',
   rewrite: '改写',
 };
 
@@ -96,8 +106,9 @@ export const CAPABILITY_HINT: Record<Capability, string> = {
   expand: '在现有产物上补充内容，产出建议而非直接覆盖',
   critique: '找逻辑漏洞、冲突太弱、节奏问题',
   check: '与既有设定、伏笔、时间线对账',
-  split: '拆成下一层：大纲拆成章，细纲拆成场景',
-  generate: '产出本阶段的完整产物，可采纳写入',
+  split: '拆成下一层：大纲拆成剧情段，剧情拆成场景',
+  generate: '按你描述的走向产出本阶段的产物，可采纳写入',
+  settle: '把刚才讨论出的结论整理成产物，可采纳写入',
   rewrite: '拿着修改意见重做一版，可采纳写入',
 };
 
@@ -109,12 +120,12 @@ export function isCapability(value: unknown): value is Capability {
  * 能力在某个阶段的**具体说法**。`CAPABILITY_LABEL` 是通用说法，日志与确认框
  * 用它是对的；界面上有阶段做上下文，说得具体些更好懂。
  *
- * 只覆盖差别大到会让人误解的那几处：`split` 在大纲拆的是章、在细纲拆的是场；
- * `generate` 在四层产出的是四种完全不同的东西。其余沿用通用说法。
+ * 只覆盖差别大到会让人误解的那几处：`split` 在大纲拆的是剧情段、在剧情层拆的
+ * 是场景；`generate` 在四层产出的是四种完全不同的东西。其余沿用通用说法。
  */
 const CAPABILITY_LABEL_IN: Partial<Record<CreationStage, Partial<Record<Capability, string>>>> = {
-  outline: { split: '拆成章节', generate: '生成大纲', rewrite: '重写大纲' },
-  plan: { split: '拆成场景', generate: '生成细纲', rewrite: '重写细纲' },
+  outline: { split: '拆成剧情段', generate: '生成大纲', rewrite: '重写大纲' },
+  plot: { split: '拆成场景', generate: '写剧情', settle: '落定剧情', rewrite: '重写剧情' },
   scene: { generate: '设计这一场', rewrite: '重做这一场' },
   manuscript: { generate: '写正文', rewrite: '重写正文' },
 };
@@ -127,15 +138,19 @@ export function labelOf(stage: CreationStage, capability: Capability): string {
 /**
  * 每个阶段合法的能力。**前端的按钮组直接读它**，不在前端另写一份。
  *
- * 两处刻意的缺席：
+ * 三处刻意的缺席与一处刻意的独有：
  * - `scene` 没有 `split`：场景已经是最小的可采纳单位，再往下拆就是一句一句的
  *   动作，那是正文的事，不单独成文件。
  * - `manuscript` 没有 `split` / `expand`：正文阶段要的是重写整段，
  *   而不是往里插东西——插出来的段落接不上上下文的语气。
+ * - **只有 `plot` 有 `settle`**：剧情是唯一一层「先跟人聊、聊出结论再落文件」
+ *   的东西。大纲通常一次成型，场景与正文都是从上一层展开而不是从对话展开。
+ *   把 `settle` 铺到四层，另外三层会得到一个几乎没人点、点了也不知道该沉淀
+ *   什么的按钮。
  */
 export const STAGE_CAPABILITIES: Record<CreationStage, Capability[]> = {
   outline: ['discuss', 'expand', 'critique', 'check', 'split', 'generate', 'rewrite'],
-  plan: ['discuss', 'expand', 'critique', 'check', 'split', 'generate', 'rewrite'],
+  plot: ['discuss', 'settle', 'generate', 'expand', 'critique', 'check', 'split', 'rewrite'],
   scene: ['discuss', 'expand', 'critique', 'check', 'generate', 'rewrite'],
   manuscript: ['discuss', 'critique', 'check', 'generate', 'rewrite'],
 };
@@ -148,7 +163,7 @@ export const STAGE_CAPABILITIES: Record<CreationStage, Capability[]> = {
  */
 export const DEFAULT_CAPABILITY: Record<CreationStage, Capability> = {
   outline: 'discuss',
-  plan: 'discuss',
+  plot: 'discuss',
   scene: 'discuss',
   manuscript: 'discuss',
 };
@@ -192,6 +207,7 @@ export type OutputKind = 'text' | 'artifact';
 
 export function outputKindOf(action: CreationAction): OutputKind {
   return action.capability === 'generate' ||
+    action.capability === 'settle' ||
     action.capability === 'rewrite' ||
     action.capability === 'split'
     ? 'artifact'
@@ -205,7 +221,7 @@ export function outputKindOf(action: CreationAction): OutputKind {
  *
  * 取代了原来那排七个平铺的能力按钮。平铺的问题不是不好看，是**七个等重的
  * 按钮看不出该点哪个**——而在任何一个具体时刻，作者真正要按的只有一个
- * （由状态机算出来，见 `deriveNextStep`），其余六个是「偶尔要用」。
+ * （由状态机算出来，见 `deriveNextStep`），其余的是「偶尔要用」。
  * 偶尔要用的东西该收进命令面板，不该常驻占地方。
  */
 export interface StageCommand {
@@ -219,8 +235,11 @@ export interface StageCommand {
    * 必须有输入才有意义。
    *
    * **只有 `discuss`**：讨论的全部内容就是作者那句话，没有话就没有讨论。
-   * 其余六个的输入是可选的补充要求——「生成细纲」不需要作者说任何话，
-   * 逼他先写一句才能点，是旧界面最没道理的一处。
+   * 其余的输入是可选的补充要求——「写剧情」不需要作者说任何话（大纲与前后
+   * 段里都写着），逼他先写一句才能点，是旧界面最没道理的一处。
+   *
+   * `settle` 尤其不能要求输入：它要沉淀的是**已经发生过的对话**，
+   * 此刻输入框本来就该是空的。
    */
   needsText: boolean;
   /** `/` 面板的过滤键。中文标签之外再给 ascii 别名，免得为了打一个命令切输入法。 */
@@ -235,6 +254,7 @@ const CAPABILITY_KEYS: Record<Capability, string[]> = {
   check: ['check', 'jc'],
   split: ['split', 'cf'],
   generate: ['generate', 'sc'],
+  settle: ['settle', 'ld'],
   rewrite: ['rewrite', 'gx'],
 };
 
@@ -243,11 +263,30 @@ export function commandsFor(stage: CreationStage): StageCommand[] {
   return (STAGE_CAPABILITIES[stage] ?? []).map((capability) => ({
     capability,
     label: labelOf(stage, capability),
-    hint: CAPABILITY_HINT[capability],
+    hint: hintOf(stage, capability),
     writes: outputKindOf({ stage, capability }) === 'artifact',
     needsText: capability === 'discuss',
     keys: CAPABILITY_KEYS[capability],
   }));
+}
+
+/**
+ * 某阶段下某能力的 tooltip。
+ *
+ * 只有剧情层的 `settle` / `generate` 需要具体化：这两条是同一层里**唯二**
+ * 产出同一种产物的命令，通用文案说不清它们的差别，而那个差别（以讨论为准
+ * 还是以你这句话为准）正是作者要选的东西。
+ */
+function hintOf(stage: CreationStage, capability: Capability): string {
+  if (stage === 'plot') {
+    if (capability === 'settle') {
+      return '把刚才讨论出的剧情整理成细纲，以讨论里的结论为准';
+    }
+    if (capability === 'generate') {
+      return '按你在输入框里描述的走向填成细纲';
+    }
+  }
+  return CAPABILITY_HINT[capability];
 }
 
 /** 某阶段的某个能力对应的命令；不支持时 undefined。 */
@@ -256,15 +295,34 @@ export function commandOf(stage: CreationStage, capability: Capability): StageCo
 }
 
 /**
- * 「第 12 章《夜入青云》」——章节在界面、日志、上下文标签里的统一说法。
+ * 「第 12 章《夜入青云》」——章节在界面、日志里的统一说法。
  *
- * **未命名的章节只报序号。** 新建一章走流水线时文件名是纯序号（`007.md`，
- * 标题要等细纲写完才定），`listChapters` 的标题回落链会给出「第 7 章」，
+ * **未命名的章节只报序号。** `listChapters` 的标题回落链会给出「第 7 章」，
  * 于是模板一套就成了「第 7 章《第 7 章》」——读起来像出了 bug。判据就是
  * 「标题恰好等于那个回落值」，因为那正是「没有标题」在数据里的样子。
  *
- * 四处共用同一份（创作页面包屑、工作区卡、装配器的条目标签、`describeTarget`），
- * 各写一遍的话同一章在四个地方会有四种叫法。
+ * 章节已经退出流水线，只在工程页的发布区出现。
+ */
+
+/**
+ * 「第 12 段《入宗风波》」——剧情段在界面、日志、上下文标签里的统一说法。
+ *
+ * **未命名的段只报序号。** 拆段时标题可能还没定（`007.md`），模板一套就成了
+ * 「第 7 段《第 7 段》」——读起来像出了 bug。判据就是「标题恰好等于那个回落值」。
+ *
+ * 住在这里而不是 plotFile.ts，是因为**这个模块零 import**：前端直接打包它
+ * （见 media/src/protocol.ts），而 plotFile.ts 要 `node:path`，带进浏览器会炸。
+ */
+export function plotLabel(no: number, title?: string): string {
+  const named = title?.trim();
+  return named && named !== `第 ${no} 段` ? `第 ${no} 段《${named}》` : `第 ${no} 段`;
+}
+
+/**
+ * 「第 12 章《夜入青云》」——章节在界面、日志里的统一说法。
+ *
+ * **未命名的章节只报序号。** `listChapters` 的标题回落链会给出「第 7 章」，
+ * 于是模板一套就成了「第 7 章《第 7 章》」——读起来像出了 bug。
  */
 export function chapterLabel(order: number, title?: string): string {
   const named = title?.trim();
@@ -276,28 +334,27 @@ export function chapterLabel(order: number, title?: string): string {
 /**
  * 当前在改哪个产物。
  *
- * **一律用 `chapterRelPath` 而不是 order**：序号会撞（`001 序.txt` 与
- * `001 正文.txt` 并存是允许的，见 AGENTS.md 第 8 条），路径不会。这与摘要
- * （`summaryPathForChapter`）、草稿（`draftRelPathFor`）、失败记录
- * （`targetKey` 一律用 relPath）三处既有取舍完全一致。
+ * **一律用 `plotRelPath` 而不是段号**：号会撞（作者手改文件名时 `007-a.md` 与
+ * `007-b.md` 并存是允许的），路径不会。这与摘要、场景、失败记录三处既有取舍
+ * 完全一致。
  *
- * `manuscript` 的 `sceneNo` 可选：给了就是「写这一场」，不给就是「写整章」。
- * 于是「场景 → 写正文 → 采纳 → 写入第 12 章」与整章续写共用一条路。
+ * `manuscript` 的 `sceneNo` 可选：给了就是「写这一场」，不给就是「写整段」。
+ * 于是「场景 → 写正文 → 采纳 → 写入第 12 段」与整段续写共用一条路。
  */
 export type CreationTarget =
   | { kind: 'outline' }
-  | { kind: 'plan'; chapterRelPath: string }
-  | { kind: 'scene'; chapterRelPath: string; sceneNo: number }
-  | { kind: 'manuscript'; chapterRelPath: string; sceneNo?: number };
+  | { kind: 'plot'; plotRelPath: string }
+  | { kind: 'scene'; plotRelPath: string; sceneNo: number }
+  | { kind: 'manuscript'; plotRelPath: string; sceneNo?: number };
 
 /** target 属于哪个阶段。两者不是同一件事：target 是名词，stage 是动词的所在层。 */
 export function stageOfTarget(target: CreationTarget): CreationStage {
   return target.kind;
 }
 
-/** 该 target 归属的章节路径；全书大纲没有归属章节。 */
-export function chapterOfTarget(target: CreationTarget): string | undefined {
-  return target.kind === 'outline' ? undefined : target.chapterRelPath;
+/** 该 target 归属的剧情段路径；全书大纲没有归属段。 */
+export function plotOfTarget(target: CreationTarget): string | undefined {
+  return target.kind === 'outline' ? undefined : target.plotRelPath;
 }
 
 /**
@@ -308,14 +365,14 @@ export function targetKey(target: CreationTarget): string {
   switch (target.kind) {
     case 'outline':
       return 'outline';
-    case 'plan':
-      return `plan:${target.chapterRelPath}`;
+    case 'plot':
+      return `plot:${target.plotRelPath}`;
     case 'scene':
-      return `scene:${target.chapterRelPath}#${target.sceneNo}`;
+      return `scene:${target.plotRelPath}#${target.sceneNo}`;
     case 'manuscript':
       return target.sceneNo === undefined
-        ? `manuscript:${target.chapterRelPath}`
-        : `manuscript:${target.chapterRelPath}#${target.sceneNo}`;
+        ? `manuscript:${target.plotRelPath}`
+        : `manuscript:${target.plotRelPath}#${target.sceneNo}`;
   }
 }
 
@@ -324,23 +381,23 @@ export function isSameTarget(a: CreationTarget, b: CreationTarget): boolean {
 }
 
 /**
- * 人类可读的位置描述，如「第 12 章《夜入青云》· 场景 2」。
+ * 人类可读的位置描述，如「第 12 段《入宗风波》· 场景 2」。
  *
  * 后端生成、前端直接显示：文案只有一份，气泡里、历史页、日志里不会分叉。
  */
 export function describeTarget(
   target: CreationTarget,
-  info?: { order?: number; title?: string; sceneTitle?: string }
+  info?: { no?: number; title?: string; sceneTitle?: string }
 ): string {
   if (target.kind === 'outline') {
     return '全书大纲';
   }
-  const head = info?.order !== undefined ? chapterLabel(info.order, info.title) : target.chapterRelPath;
+  const head = info?.no !== undefined ? plotLabel(info.no, info.title) : target.plotRelPath;
   const scene = (no: number) => ` · 场景 ${no}${info?.sceneTitle ? ` ${info.sceneTitle}` : ''}`;
 
   switch (target.kind) {
-    case 'plan':
-      return `${head} · 细纲`;
+    case 'plot':
+      return `${head} · 剧情`;
     case 'scene':
       return `${head}${scene(target.sceneNo)}`;
     case 'manuscript':
@@ -350,44 +407,44 @@ export function describeTarget(
 
 /**
  * 容错归一。认不出的一律回落到 `{ kind: 'outline' }`——它是唯一一个
- * 不依赖任何章节就一定存在的产物，因此是安全的落点。**绝不抛**：
+ * 不依赖任何剧情段就一定存在的产物，因此是安全的落点。**绝不抛**：
  * 这条路上的输入来自会话 JSON（作者可能手改过）与前端消息。
  */
 export function normalizeTarget(raw: unknown): CreationTarget {
   const o = (raw ?? {}) as Record<string, unknown>;
-  const chapterRelPath = typeof o.chapterRelPath === 'string' ? o.chapterRelPath.trim() : '';
+  const plotRelPath = typeof o.plotRelPath === 'string' ? o.plotRelPath.trim() : '';
   const sceneNo =
     typeof o.sceneNo === 'number' && Number.isInteger(o.sceneNo) && o.sceneNo > 0 ? o.sceneNo : undefined;
 
   switch (o.kind) {
-    case 'plan':
-      return chapterRelPath ? { kind: 'plan', chapterRelPath } : { kind: 'outline' };
+    case 'plot':
+      return plotRelPath ? { kind: 'plot', plotRelPath } : { kind: 'outline' };
     case 'scene':
-      return chapterRelPath && sceneNo !== undefined
-        ? { kind: 'scene', chapterRelPath, sceneNo }
-        : chapterRelPath
-          ? { kind: 'plan', chapterRelPath }
+      return plotRelPath && sceneNo !== undefined
+        ? { kind: 'scene', plotRelPath, sceneNo }
+        : plotRelPath
+          ? { kind: 'plot', plotRelPath }
           : { kind: 'outline' };
     case 'manuscript':
-      return chapterRelPath ? { kind: 'manuscript', chapterRelPath, sceneNo } : { kind: 'outline' };
+      return plotRelPath ? { kind: 'manuscript', plotRelPath, sceneNo } : { kind: 'outline' };
     default:
       return { kind: 'outline' };
   }
 }
 
-// ---------------------------------------------------------------- 章节流水线状态
+// ---------------------------------------------------------------- 剧情段流水线状态
 
 /**
- * 一章当前该做哪一步。
+ * 一段剧情当前该做哪一步。
  *
  * **全部由磁盘推导，不落盘**。存一个 `status: writing` 字段的话，作者手删
- * 半章正文之后它就在撒谎；而 `wordCount` 与 hash 永远诚实。这与
+ * 半段正文之后它就在撒谎；而 `wordCount` 与 hash 永远诚实。这与
  * 「摘要新鲜度看 sourceHash 而不是看某个标记位」是同一个取舍。
  */
-export type ChapterStage = 'plan' | 'scene' | 'manuscript' | 'review' | 'done';
+export type PlotStage = 'plot' | 'scene' | 'manuscript' | 'review' | 'done';
 
-export const CHAPTER_STAGE_LABEL: Record<ChapterStage, string> = {
-  plan: '待写细纲',
+export const PLOT_STAGE_LABEL: Record<PlotStage, string> = {
+  plot: '待写剧情',
   scene: '待拆场景',
   manuscript: '待写正文',
   review: '待审阅',
@@ -396,9 +453,8 @@ export const CHAPTER_STAGE_LABEL: Record<ChapterStage, string> = {
 
 /** 推导所需的全部事实。取数在 core/views/pipeline.ts，判断在这里，便于单测。 */
 export interface PipelineFacts {
-  hasPlan: boolean;
-  /** 细纲有实质内容（不是一份全空的骨架）。 */
-  planFilled: boolean;
+  /** 剧情段有实质内容（「剧情脉络」非空，不是一份只有目标的骨架）。 */
+  plotFilled: boolean;
   sceneCount: number;
   /** 已经备好素材的场景数——只有这样的场景才写得出正文。 */
   sceneReady: number;
@@ -406,12 +462,12 @@ export interface PipelineFacts {
   sceneWritten: number;
   /** 正文字数。 */
   words: number;
-  /** 正文所依据的场景已经变过（manifest.beatsHash 对不上）。 */
+  /** 正文所依据的场景已经变过（正文 frontmatter 的 beatsHash 对不上）。 */
   beatsStale: boolean;
   summaryExists: boolean;
   summaryStale: boolean;
   /**
-   * 细纲 frontmatter 里的 `status: done`——作者手工宣布这一章过了。
+   * 剧情段 frontmatter 里的 `status: done`——作者手工宣布这一段过了。
    * **只允许向前覆盖**：推导说 done 时不接受被标成未完成，
    * 否则会出现「文件明明变了但界面说完成」。
    */
@@ -420,8 +476,7 @@ export interface PipelineFacts {
 
 export function emptyFacts(): PipelineFacts {
   return {
-    hasPlan: false,
-    planFilled: false,
+    plotFilled: false,
     sceneCount: 0,
     sceneReady: 0,
     sceneWritten: 0,
@@ -436,13 +491,13 @@ export function emptyFacts(): PipelineFacts {
 /**
  * 当前阶段。判据自上而下取第一个不满足的：
  *
- * 没细纲 → 写细纲；细纲有了没场景（或场景没填够） → 拆场景；
+ * 剧情没排 → 写剧情；剧情有了没场景（或场景没填够） → 拆场景；
  * 场景齐了正文没写完（或场景变过） → 写正文；正文齐了摘要过期 → 审阅；
  * 都齐了 → 完成。
  */
-export function deriveStage(f: PipelineFacts): ChapterStage {
-  if (!f.hasPlan || !f.planFilled) {
-    return 'plan';
+export function deriveStage(f: PipelineFacts): PlotStage {
+  if (!f.plotFilled) {
+    return 'plot';
   }
   if (f.sceneCount === 0 || f.sceneReady < f.sceneCount) {
     return 'scene';
@@ -451,14 +506,14 @@ export function deriveStage(f: PipelineFacts): ChapterStage {
     return 'manuscript';
   }
   if (!f.summaryExists || f.summaryStale) {
-    // 作者说过这一章过了就不再催审阅——但只在正文与场景都齐了之后才认这句话。
+    // 作者说过这一段过了就不再催审阅——但只在正文与场景都齐了之后才认这句话。
     return f.markedDone ? 'done' : 'review';
   }
   return 'done';
 }
 
 export interface PipelineProgress {
-  plan: number;
+  plot: number;
   scene: number;
   manuscript: number;
   summary: number;
@@ -471,12 +526,12 @@ export interface PipelineProgress {
  * 「有 4 个场景但其中 1 个还没备素材」和「一个场景都没有」不是一回事。
  */
 export function deriveProgress(f: PipelineFacts): PipelineProgress {
-  const plan = f.hasPlan ? (f.planFilled ? 1 : 0.5) : 0;
+  const plot = f.plotFilled ? 1 : 0;
   const scene = f.sceneCount === 0 ? 0 : f.sceneReady / f.sceneCount;
   const manuscript =
     f.words === 0 ? 0 : f.sceneCount === 0 ? 1 : Math.min(1, f.sceneWritten / f.sceneCount);
   const summary = f.summaryExists && !f.summaryStale ? 1 : 0;
-  return { plan, scene, manuscript, summary };
+  return { plot, scene, manuscript, summary };
 }
 
 // ---------------------------------------------------------------- 下一步
@@ -486,7 +541,7 @@ export function deriveProgress(f: PipelineFacts): PipelineProgress {
  *
  * 这是整套流水线在界面上的落点。四层产物、四段进度、⟳ 标记都只是**信息**；
  * 作者真正要的是一句「所以我现在该点什么」。旧界面把这个判断留给了作者：
- * 七个能力按钮平铺，选中一个章节一律落到正文层——哪怕那一章连细纲都没有。
+ * 七个能力按钮平铺，选中一段一律落到正文层——哪怕那一段连剧情都没排。
  *
  * **与 `deriveStage` 共用同一套判据**，不另发明一套：那边算出停在哪一层，
  * 这边把那一层翻译成一个具体动作。两处如果各判各的，界面上就会出现
@@ -505,9 +560,9 @@ export interface NextStepPlan {
    * 这一步不是一次模型对话，而是一个工程动作。
    *
    * 只有审阅阶段用得上：正文齐了之后要做的是更新摘要，那是既有的
-   * `summarizeChapter`，不该假装成一轮对话。
+   * `summarizePlot`，不该假装成一轮对话。
    */
-  projectAction?: 'summarizeChapter';
+  projectAction?: 'summarizePlot';
 }
 
 /** 推导下一步所需的事实。比 `PipelineFacts` 多两个「第一个没做完的是哪一场」。 */
@@ -520,24 +575,24 @@ export interface NextStepFacts {
   beatsStale: boolean;
 }
 
-export function deriveNextStep(stage: ChapterStage, f: NextStepFacts): NextStepPlan | undefined {
+export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan | undefined {
   switch (stage) {
-    case 'plan':
+    case 'plot':
       return {
-        stage: 'plan',
+        stage: 'plot',
         capability: 'generate',
-        label: labelOf('plan', 'generate'),
-        hint: '先定下这一章要达成什么、主冲突是什么。后面几层都从它展开。',
+        label: labelOf('plot', 'generate'),
+        hint: '先把这一段的剧情脉络排出来：发生什么、因果怎么串、收在什么局面上。',
       };
 
     case 'scene':
       // 一场都没有 → 先拆；拆过了但有场没填满 → 去填第一个没填的。
       if (f.sceneCount === 0) {
         return {
-          stage: 'plan',
+          stage: 'plot',
           capability: 'split',
-          label: labelOf('plan', 'split'),
-          hint: '把这一章拆成 3~6 个能独立开写的场景。',
+          label: labelOf('plot', 'split'),
+          hint: '把这一段拆成几个能独立开写的场景。',
         };
       }
       return {
@@ -571,13 +626,63 @@ export function deriveNextStep(stage: ChapterStage, f: NextStepFacts): NextStepP
       return {
         stage: 'manuscript',
         capability: 'generate',
-        projectAction: 'summarizeChapter',
-        label: '总结本章',
-        hint: '正文齐了。摘要是后面几百章唯一能记住这一章的东西。',
+        projectAction: 'summarizePlot',
+        label: '总结这一段',
+        hint: '正文齐了。摘要是后面几百段唯一能记住这一段的东西。',
       };
 
     // 都做完了就不催。给一个「下一步」等于逼作者一直有事可做。
     case 'done':
+      return undefined;
+  }
+}
+
+// ---------------------------------------------------------------- 全书状态
+
+/**
+ * 整本书走到哪一步。与 `PlotStage` 同构，只是粒度是全书。
+ *
+ * 需要它是因为 `plots/` 是一条有序序列，而「还没有大纲」「有大纲但一段都没拆」
+ * 这两种状态不属于任何一段——从前这个判断手写在 controller 里（`outlineNextStep`），
+ * 判据落在 I/O 层就测不到，也没法与 `deriveStage` 保持同一套写法。
+ */
+export type BookStage = 'outline' | 'plots' | 'working';
+
+export interface BookFacts {
+  /** `outline.md` 去掉模板占位后有内容。 */
+  outlineFilled: boolean;
+  plotCount: number;
+}
+
+/** 判据自上而下取第一个不满足的：没大纲 → 写大纲；有大纲没段 → 拆段；有段 → 交给按段流水线。 */
+export function deriveBookStage(f: BookFacts): BookStage {
+  if (!f.outlineFilled) {
+    return 'outline';
+  }
+  return f.plotCount === 0 ? 'plots' : 'working';
+}
+
+/**
+ * 全书级的下一步。段已经有了就返回 undefined——那时该做什么由**选中的那一段**
+ * 决定（`deriveNextStep`），而挑哪一段是作者的选择，不是系统能替他定的。
+ */
+export function deriveBookNextStep(stage: BookStage): NextStepPlan | undefined {
+  switch (stage) {
+    case 'outline':
+      return {
+        stage: 'outline',
+        capability: 'generate',
+        label: labelOf('outline', 'generate'),
+        hint: '先定下这个故事讲什么。后面三层都从它展开。',
+      };
+    case 'plots':
+      return {
+        stage: 'outline',
+        capability: 'split',
+        label: labelOf('outline', 'split'),
+        hint: '把大纲切成一段一段的剧情，每段有一个能判断达成没达成的目标。',
+      };
+    case 'working':
       return undefined;
   }
 }

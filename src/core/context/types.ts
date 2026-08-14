@@ -23,16 +23,18 @@ export type ItemKind =
   | 'history'
   /** 全书大纲原文。与 `ask` 分开：一个是产物，一个是这一轮的指令。 */
   | 'outlineDoc'
-  /** 章节细纲。 */
-  | 'plan'
+  /** 剧情段。 */
+  | 'plot'
   /** 场景卡。 */
   | 'scene'
   | 'prevTail'
   | 'style'
   | 'globalSummary'
   | 'character'
-  | 'chapterFull'
-  | 'chapterSummary'
+  /** 前面某段的正文全文。 */
+  | 'manuscriptFull'
+  /** 前面某段的摘要。 */
+  | 'plotSummary'
   | 'lore'
   | 'revision';
 
@@ -71,8 +73,11 @@ export type LayerId =
   | 'history'
   // 产物
   | 'outlineDoc'
-  | 'planSelf'
-  | 'planPrev'
+  | 'plotSelf'
+  /** 前几段的剧情原文（上文）。 */
+  | 'plotPrev'
+  /** 后一段的剧情原文（下文）。有了它，这一段的收尾才接得上已经排好的下一段。 */
+  | 'plotNext'
   | 'sceneSelf'
   | 'sceneSiblings'
   // 背景
@@ -81,8 +86,8 @@ export type LayerId =
   | 'characters'
   | 'lore'
   | 'prevTail'
-  | 'chapterFull'
-  | 'chapterSummary'
+  | 'manuscriptFull'
+  | 'plotSummary'
   | 'revision';
 
 export interface LayerSpec {
@@ -107,10 +112,10 @@ export interface BuildRequest {
   /** 用户这一轮写的内容。正文阶段是剧情纲要，其余阶段是一句要求。 */
   ask: string;
   /**
-   * 目标章节**尚未落盘**时用它定位「前文」的边界（要写第 4 章，磁盘上只有 3 章）。
-   * 章节已经存在时以磁盘上的序号为准，这个字段被忽略；全书大纲阶段也忽略它。
+   * 目标剧情段**尚未落盘**时用它定位「前文」的边界（要写第 4 段，磁盘上只有 3 段）。
+   * 段已经存在时以磁盘上的段号为准，这个字段被忽略；全书大纲阶段也忽略它。
    */
-  targetOrder?: number;
+  targetNo?: number;
   /** 目标字数，写进 prompt 指令。 */
   targetWords?: number;
   /** 额外写作指令，如「加强对白」。 */

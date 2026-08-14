@@ -21,7 +21,7 @@ export interface Assembly {
   /** 装不下 / 被排除：登记原因，不扣余额。**绝不静默丢弃。** */
   reject(item: Omit<ContextItem, 'tokens' | 'status'>, status: 'dropped' | 'excluded', note: string): void;
   /** 跨层协调的便签，只有两处用得上。 */
-  scratch: { prevTail?: ContextItem; fullTextOrders: Set<number> };
+  scratch: { prevTail?: ContextItem; fullTextNos: Set<number> };
 }
 
 export type LayerFn = (a: Assembly, spec: LayerSpec) => Promise<void>;

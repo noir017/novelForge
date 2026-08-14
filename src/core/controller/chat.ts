@@ -1,5 +1,5 @@
 import type { ChatController } from './index';
-import { describeArtifact, suggestTitle } from '../features/creation';
+import { describeArtifact } from '../features/creation';
 import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
 import {
@@ -15,13 +15,15 @@ import {
   CreationTarget,
   DEFAULT_CAPABILITY,
   STAGE_CAPABILITIES,
-  chapterOfTarget,
   commandOf,
-  describeTarget,
+  deriveBookNextStep,
+  deriveBookStage,
   deriveNextStep,
+  describeTarget,
   isCreationStage,
   normalizeTarget,
   outputKindOf,
+  plotOfTarget,
   stageOfTarget,
 } from '../model/pipeline';
 import {
@@ -29,9 +31,10 @@ import {
   SendPayload,
   SerializedArtifact,
 } from '../protocol';
-import { buildChapterPipelineView } from '../views/projectView';
-import { buildChapterPipeline } from '../views/pipeline';
+import { buildPlotPipelineView } from '../views/projectView';
+import { buildPlotPipeline } from '../views/pipeline';
 import { buildWorkbench } from '../views/workbench';
+import { isPlotFilled } from '../model/plotFile';
 import { persist } from './persist';
 import {
   factsOf,
@@ -52,8 +55,8 @@ export async function send(c: ChatController, payload: SendPayload): Promise<voi
   }
   // 空输入只挡「讨论」。
   //
-  // 旧界面一律要求先写点什么才能发送，而「生成细纲」「拆成场景」「写这一场」
-  // 本来就不需要作者说任何话——该说的都在细纲和场景卡里了。逼他先编一句
+  // 旧界面一律要求先写点什么才能发送，而「落定剧情」「拆成场景」「写这一场」
+  // 本来就不需要作者说任何话——该说的都在剧情和场景卡里了。逼他先编一句
   // 「请生成」，那句话还会被当成要求装进 prompt。
   //
   // 讨论例外：它的全部内容就是作者那句话，没有话就没有讨论。
@@ -69,7 +72,7 @@ export async function send(c: ChatController, payload: SendPayload): Promise<voi
     content: payload.text.trim(),
     at: nowIso(),
     // 点命令时输入框可以是空的，气泡里就只剩一片空白。记下这一轮下的是哪个
-    // 命令，界面才说得出「刚才那一下是 /生成细纲」。「讨论」是默认动作，不记。
+    // 命令，界面才说得出「刚才那一下是 /落定剧情」。「讨论」是默认动作，不记。
     command: payload.capability === 'discuss' ? undefined : command?.label,
     attachments: c.pending.length > 0 ? [...c.pending] : undefined,
     excludedIds: payload.excludedIds.length > 0 ? payload.excludedIds : undefined,
@@ -79,7 +82,7 @@ export async function send(c: ChatController, payload: SendPayload): Promise<voi
     c.current.title = deriveTitle(turnPreview(userTurn));
   }
   applyAction(c, payload);
-  c.current.targetOrder = payload.targetOrder;
+  c.current.targetNo = payload.targetNo;
   c.current.targetWords = payload.targetWords;
   c.pending = [];
 
@@ -132,7 +135,7 @@ export async function runTurn(c: ChatController, payload: SendPayload, userTurn:
     {
       action,
       target: c.current.target,
-      targetOrder: payload.targetOrder,
+      targetNo: payload.targetNo,
       ask: userTurn.content,
       targetWords: payload.targetWords > 0 ? payload.targetWords : undefined,
       excludedIds: userTurn.excludedIds,
@@ -211,15 +214,18 @@ export async function describeArtifactOf(
  */
 export async function targetHasContent(c: ChatController): Promise<boolean> {
   const { stage } = c.current;
-  const relPath = chapterOfTarget(c.current.target);
+  const relPath = plotOfTarget(c.current.target);
   if (stage === 'outline') {
     return c.current.capability !== 'split' && (await c.project.readOutline()).trim().length > 0;
   }
   if (!relPath || c.current.capability === 'split') {
     return false;
   }
-  if (stage === 'plan') {
-    return !!(await c.project.readPlan(relPath));
+  if (stage === 'plot') {
+    // 只有**排过剧情**才算有内容。一份只带「目标」的骨架（拆段那一步产出的）
+    // 说「会覆盖」是吓唬人——那正是接下来要填的东西。
+    const plot = await c.project.readPlot(relPath);
+    return !!plot && isPlotFilled(plot.sections);
   }
   if (stage === 'scene') {
     const sceneNo = c.current.target.kind === 'scene' ? c.current.target.sceneNo : undefined;
@@ -229,56 +235,8 @@ export async function targetHasContent(c: ChatController): Promise<boolean> {
   return false;
 }
 
-export async function accept(
-  c: ChatController,
-  turnId: string,
-  mode: 'append' | 'new',
-  order: number,
-  title: string,
-  text: string
-): Promise<void> {
-  const turn = c.current.turns.find((t) => t.id === turnId);
-  if (!turn) {
-    return;
-  }
-  if (!text.trim()) {
-    c.toast('内容是空的。', 'error');
-    return;
-  }
-  // 前端可能改过草稿，以传上来的为准。
-  turn.content = text;
-
-  // 协议层的 target 在第四阶段接入，这里先按旧的 append/new 桥接。
-  let result;
-  if (mode === 'append') {
-    const chapter = await c.project.getChapter(order);
-    if (!chapter) {
-      c.toast(`第 ${order} 章不存在。`, 'error');
-      return;
-    }
-    result = await c.session.acceptArtifact(
-      { kind: 'manuscript', chapterRelPath: chapter.relPath },
-      { kind: 'manuscript', text }
-    );
-  } else {
-    result = await c.session.acceptAsNewChapter(text, order, title.trim() || suggestTitle(text, order));
-  }
-  if (!result.relPath) {
-    c.toast(result.message, 'error');
-    return;
-  }
-
-  turn.acceptedTo = result.relPath;
-  await persist(c);
-  c.post({ type: 'turnDone', turn: serializeTurn(turn) });
-  c.toast(result.message);
-
-  await getHost().openFile(turn.acceptedTo);
-  await c.pushState();
-}
-
 /**
- * 采纳一份结构化产物（细纲、场景卡、章节清单、场景清单、大纲）。
+ * 采纳一份结构化产物（剧情、场景卡、剧情段清单、场景清单、大纲、正文）。
  *
  * **重新解析一遍**而不是用生成时缓存的那份：用户可能在气泡里改过。
  * 落盘与否由 creation.ts 决定——目标已有内容时它会先弹审阅。
@@ -327,7 +285,7 @@ export async function acceptArtifact(
  * 切换当前在改哪个产物。
  *
  * 阶段跟着 target 走，能力回落到该阶段的默认值（一律 discuss）——
- * 从「正文·生成」切到细纲还留着「生成」，等于点一下就花钱重写一份细纲。
+ * 从「正文·生成」切到剧情还留着「生成」，等于点一下就花钱重写一段剧情。
  */
 export async function setTarget(c: ChatController, target: CreationTarget): Promise<void> {
   if (c.busy) {
@@ -337,13 +295,13 @@ export async function setTarget(c: ChatController, target: CreationTarget): Prom
   c.current.target = target;
   c.current.stage = stageOfTarget(target);
   c.current.capability = DEFAULT_CAPABILITY[c.current.stage];
-  // 章节已落盘时把序号同步过来：装配器在章节尚未落盘时靠它定位前文边界，
+  // 段已落盘时把段号同步过来：装配器在段尚未落盘时靠它定位前文边界，
   // 而这里正好知道答案。
-  const relPath = chapterOfTarget(target);
+  const relPath = plotOfTarget(target);
   if (relPath) {
-    const chapter = (await c.project.listChapters()).find((ch) => ch.relPath === relPath);
-    if (chapter) {
-      c.current.targetOrder = chapter.order;
+    const plot = await c.project.readPlot(relPath);
+    if (plot) {
+      c.current.targetNo = plot.no;
     }
   }
   log.info(`创作目标切到 ${await describeCurrentTarget(c)}`);
@@ -354,66 +312,50 @@ export async function setTarget(c: ChatController, target: CreationTarget): Prom
 }
 
 /**
- * 进入某一章：**由状态机决定落在哪一层**。
+ * 进入某一段：**由状态机决定落在哪一层**。
  *
- * 这是「选中章节 = 进入它当前该做的那一步」的实现。改造前前端一律发
- * `setTarget({kind:'manuscript'})`，于是点开一个连细纲都没有的章节，
+ * 这是「选中一段 = 进入它当前该做的那一步」的实现。改造前前端一律发
+ * `setTarget({kind:'manuscript'})`，于是点开一个连剧情都没排的段，
  * 界面直接把作者丢进正文层——四层流水线在创作页上等于不存在。
  *
- * 判断必须在后端：前端手上只有当前那一章的 pipeline，不知道别的章
+ * 判断必须在后端：前端手上只有当前那一段的 pipeline，不知道别的段
  * 处于什么状态。
  */
-export async function selectChapter(c: ChatController, chapterRelPath: string): Promise<void> {
-  const chapter = (await c.project.listChapters()).find((ch) => ch.relPath === chapterRelPath);
-  if (!chapter) {
-    c.toast('这一章不存在，可能刚被改名或删除。', 'error');
+export async function selectPlot(c: ChatController, plotRelPath: string): Promise<void> {
+  const plot = await c.project.readPlot(plotRelPath);
+  if (!plot) {
+    c.toast('这一段不存在，可能刚被改名或删除。', 'error');
     return;
   }
-  const pipeline = await buildChapterPipeline(c.project, chapter);
+  const pipeline = await buildPlotPipeline(c.project, plot);
   const next = deriveNextStep(pipeline.stage, factsOf(pipeline));
 
-  // 全做完了（next 为空）就停在正文——那是这一章的终点，也是最可能
+  // 全做完了（next 为空）就停在正文——那是这一段的终点，也是最可能
   // 要回头改的一层。
-  await setTarget(
-    c,
-    next ? targetOf(next, chapterRelPath) : { kind: 'manuscript', chapterRelPath }
-  );
+  await setTarget(c, next ? targetOf(next, plotRelPath) : { kind: 'manuscript', plotRelPath });
 }
 
 /**
- * 章节改名/移动后，把当前会话的目标指到新路径。
+ * 剧情段改名后，把当前会话的目标指到新路径。
  *
- * 少了这一步，`current.target.chapterRelPath` 还指着旧路径，创作页会拿到
- * 一份「这一章找不到」的空壳 pipeline——徽章回落成「待写细纲」、三层进度全
- * 归零、工作区卡说这一章不存在。而作者刚做的只是给它起个名字。
- *
- * `from`/`to` 也可能是**目录**（改名一整卷）：那时目标章节在它下面，按前缀
- * 换一段就是新路径。不认这一条的话，「把卷一改名」会把作者正在写的那一章
- * 从界面上弄丢。
+ * 少了这一步，`current.target.plotRelPath` 还指着旧路径，创作页会拿到一份
+ * 「这一段找不到」的空壳 pipeline——徽章回落成「待写剧情」、进度全归零、
+ * 工作区卡说这一段不存在。而作者刚做的只是给它起个名字。
  *
  * **不走 `setTarget`**：那会把 capability 重置成 discuss、把页签切到创作页。
  * 改个名不该让他刚挑好的命令消失，也不该把他从工程页拽走。
  */
-export async function retargetChapter(
+export async function retargetPlot(
   c: ChatController,
   fromRel: string,
   toRel: string
 ): Promise<void> {
-  const current = chapterOfTarget(c.current.target);
-  if (!current || fromRel === toRel) {
+  const current = plotOfTarget(c.current.target);
+  if (!current || fromRel === toRel || current !== fromRel) {
     return;
   }
-  const next =
-    current === fromRel
-      ? toRel
-      : current.startsWith(`${fromRel}/`)
-        ? `${toRel}${current.slice(fromRel.length)}`
-        : undefined;
-  if (next === undefined) {
-    return;
-  }
-  c.current.target = { ...c.current.target, chapterRelPath: next } as CreationTarget;
-  log.info(`创作目标跟随改名`, `${current} → ${next}`);
+  c.current.target = { ...c.current.target, plotRelPath: toRel } as CreationTarget;
+  log.info(`创作目标跟随改名`, `${current} → ${toRel}`);
   c.post({ type: 'session', session: serializeSession(c.current) });
   await pushPipeline(c);
 }
@@ -443,22 +385,18 @@ export function applyAction(c: ChatController, payload: SendPayload): void {
 
 /** 当前目标的人话描述。日志、采纳卡片、面包屑共用。 */
 export async function describeCurrentTarget(c: ChatController): Promise<string> {
-  const relPath = chapterOfTarget(c.current.target);
+  const relPath = plotOfTarget(c.current.target);
   if (!relPath) {
     return describeTarget(c.current.target);
   }
-  const chapter = (await c.project.listChapters()).find((ch) => ch.relPath === relPath);
+  const plot = await c.project.readPlot(relPath);
   const sceneNo =
     c.current.target.kind === 'scene' || c.current.target.kind === 'manuscript'
       ? c.current.target.sceneNo
       : undefined;
   const sceneTitle =
     sceneNo === undefined ? undefined : (await c.project.readScene(relPath, sceneNo))?.title;
-  return describeTarget(c.current.target, {
-    order: chapter?.order,
-    title: chapter?.title,
-    sceneTitle,
-  });
+  return describeTarget(c.current.target, { no: plot?.no, title: plot?.title, sceneTitle });
 }
 
 /**
@@ -469,86 +407,53 @@ export async function describeCurrentTarget(c: ChatController): Promise<string> 
  */
 export async function pushPipeline(c: ChatController): Promise<void> {
   const target = c.current.target;
-  const relPath = chapterOfTarget(target);
+  const relPath = plotOfTarget(target);
   const workbench = await buildWorkbench(c.project, target);
 
   if (!relPath) {
-    c.post({ type: 'pipeline', workbench, next: await outlineNextStep(c) });
+    c.post({ type: 'pipeline', workbench, next: await bookNextStep(c) });
     return;
   }
-  const pipeline = await buildChapterPipelineView(c.project, relPath);
-  const plan = deriveNextStep(pipeline.stage, factsOf(pipeline));
+  const pipeline = await buildPlotPipelineView(c.project, relPath);
+  const step = deriveNextStep(pipeline.stage, factsOf(pipeline));
   c.post({
     type: 'pipeline',
     pipeline,
     workbench,
-    next: plan ? { ...plan, target: targetOf(plan, relPath), order: pipeline.order } : undefined,
+    next: step ? { ...step, target: targetOf(step, relPath), no: pipeline.no } : undefined,
   });
 }
 
 /**
  * 全书大纲那一层的下一步。
  *
- * 没有状态机可用（`deriveStage` 是按章算的），判据只有两条，都很直白：
- * 没有大纲就写大纲，有大纲但一章都还没有就拆成章节。都齐了就不催——
- * 此时该做的是挑一章进去，而那是用户的选择，不是系统能替他定的。
+ * 判据在纯函数层（`deriveBookStage` / `deriveBookNextStep`），这里只取数：
+ * 没有大纲就写大纲，有大纲但一段都还没拆就去拆段。都齐了就不催——
+ * 此时该做的是挑一段进去，而那是用户的选择，不是系统能替他定的。
  */
-export async function outlineNextStep(c: ChatController): Promise<NextStepView | undefined> {
-  const outline = (await c.project.readOutline()).trim();
-  if (!outline) {
-    return {
-      stage: 'outline',
-      capability: 'generate',
-      label: '生成大纲',
-      hint: '先定下这个故事讲什么。后面三层都从它展开。',
-      target: { kind: 'outline' },
-    };
-  }
-  if ((await c.project.listChapters()).length === 0) {
-    return {
-      stage: 'outline',
-      capability: 'split',
-      label: '拆成章节',
-      hint: '把大纲拆成一章一章的清单，每章有一个能判断达成没达成的目标。',
-      target: { kind: 'outline' },
-    };
-  }
-  return undefined;
+export async function bookNextStep(c: ChatController): Promise<NextStepView | undefined> {
+  const stage = deriveBookStage({
+    outlineFilled: (await c.project.readOutline()).trim().length > 0,
+    plotCount: (await c.project.listPlots()).length,
+  });
+  const step = deriveBookNextStep(stage);
+  return step ? { ...step, target: { kind: 'outline' } } : undefined;
 }
 
 /**
  * 打开旧会话时把 target 补齐。
  *
- * 0.2.x 的会话只有 `targetOrder`，`normalize` 把它们一律落到全书大纲
- * （那个函数是纯的，查不了章节列表）。这里手上有章节列表，能把它还原成
- * 「正文 · 第 N 章」——那正是旧版唯一做得到的事。
+ * `normalize` 是纯函数，查不了磁盘，所以只记得 `targetNo` 的会话会一律落到
+ * 全书大纲。这里手上能读盘，把它还原成「正文 · 第 N 段」。
  */
 export async function restoreTarget(c: ChatController, session: ChatSession): Promise<void> {
-  if (session.target.kind !== 'outline' || session.targetOrder === undefined) {
+  if (session.target.kind !== 'outline' || session.targetNo === undefined) {
     return;
   }
-  const chapter = await c.project.getChapter(session.targetOrder);
-  if (chapter) {
-    session.target = { kind: 'manuscript', chapterRelPath: chapter.relPath };
+  const plot = await c.project.getPlot(session.targetNo);
+  if (plot) {
+    session.target = { kind: 'manuscript', plotRelPath: plot.relPath };
     session.stage = 'manuscript';
     session.capability = DEFAULT_CAPABILITY.manuscript;
-  }
-}
-
-/**
- * 供命令直接调用：预设创作目标并聚焦。
- *
- * 命令面板给的是序号（它只有这个）；查不到那一章时退回大纲——
- * 拿一个空 relPath 去装配，等于把「前文」的边界搞错。
- */
-export async function focusWithTarget(c: ChatController, order: number): Promise<void> {
-  const chapter = await c.project.getChapter(order);
-  await setTarget(
-    c,
-    chapter ? { kind: 'manuscript', chapterRelPath: chapter.relPath } : { kind: 'outline' }
-  );
-  c.current.targetOrder = order;
-  for (const host of c.hosts) {
-    host.reveal();
   }
 }

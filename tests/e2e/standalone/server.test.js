@@ -143,7 +143,9 @@ describe('内置编辑器：只读用例', () => {
   let json;
 
   before(async () => {
-    conn.send({ type: 'openEditor', path: 'chapters/001-楔子.md' });
+    // 取剧情段的正文：`chapters/` 是作者的发布区，示例工程里是空的
+    // （只有一份没有序号前缀的 README.md）。
+    conn.send({ type: 'openEditor', path: '.novelforge/manuscripts/001-楔子.md' });
     opened = await conn.waitFor((m) => m.type === 'editorOpen', 'editorOpen');
 
     conn.send({ type: 'openEditor', path: '../../../package.json' });
@@ -153,7 +155,7 @@ describe('内置编辑器：只读用例', () => {
     json = await conn.waitFor((m) => m.type === 'editorOpen', 'json editorOpen');
   });
 
-  test('打开章节返回内容', () => {
+  test('打开正文返回内容', () => {
     assert.ok(opened.file.text.length > 0);
   });
 
@@ -262,9 +264,9 @@ describe('资源管理器：目录列举', () => {
 
 // ---------------------------------------------------------------------------
 
-// 这是**唯一一条**跑真控制器状态机的用例：前端只知道「我点了第 3 章」，
+// 这是**唯一一条**跑真控制器状态机的用例：前端只知道「我点了第 3 段」，
 // 落在哪一层由后端算。别的用例要么测纯函数、要么测前端。
-describe('选中章节 → 状态机决定落在哪一层', () => {
+describe('选中剧情段 → 状态机决定落在哪一层', () => {
   let session;
   let pipe;
   let outlinePipe;
@@ -274,54 +276,61 @@ describe('选中章节 → 状态机决定落在哪一层', () => {
     // 连上时后端推过一轮全量状态，里面就有一条 session。不清掉的话
     // 下面的 waitFor 会立刻拿到那条旧的，而不是这次切目标的结果。
     conn.drain();
-    conn.send({ type: 'selectChapter', chapterRelPath: 'chapters/003-夜访.md' });
+    conn.send({ type: 'selectPlot', plotRelPath: '.novelforge/plots/003-夜访.md' });
     session = await conn.waitFor((m) => m.type === 'session', 'session');
     pipe = await conn.waitFor((m) => m.type === 'pipeline', 'pipeline');
 
-    // 全书大纲层没有「这一章的四段」，但一样要有工作区卡与下一步。
+    // 全书大纲层没有「这一段的三层」，但一样要有工作区卡与下一步。
     conn.send({ type: 'setTarget', target: { kind: 'outline' } });
     await conn.waitFor((m) => m.type === 'session', 'session（大纲）');
     outlinePipe = await conn.waitFor((m) => m.type === 'pipeline', 'pipeline（大纲）');
 
-    // 章节刚被改名/删掉时不能让整条推送失败。
-    conn.send({ type: 'selectChapter', chapterRelPath: 'chapters/不存在.md' });
+    // 段刚被改名/删掉时不能让整条推送失败。
+    conn.send({ type: 'selectPlot', plotRelPath: '.novelforge/plots/不存在.md' });
     toasted = await conn.waitFor((m) => m.type === 'toast', 'toast');
   });
 
-  // sample-novel 没有 plans/，所以每一章都停在「待写细纲」——
-  // 旧版这里一律落到 manuscript，作者一进来就被丢进正文层。
-  test('没细纲的章节落到细纲层', () => {
-    assert.equal(session.session.stage, 'plan');
+  // sample-novel 的剧情排好了、但一个场景都没拆，所以状态机给的下一步是
+  // 「拆成场景」——那个动作**挂在剧情层**（拆的是这一段），于是落点是 plot。
+  // 旧版一律落到 manuscript，连剧情都没排的段也照样把人丢进正文层。
+  test('落到状态机算出的那一层', () => {
+    assert.equal(session.session.stage, 'plot');
   });
 
-  test('目标指向那一章', () => {
-    assert.equal(session.session.target.chapterRelPath, 'chapters/003-夜访.md');
+  // 切层一律把能力重置成 discuss：**默认动作不该是花钱产出一份要不要都不
+  // 知道的产物**（DEFAULT_CAPABILITY）。要跑哪一步由下面那个 next 推荐，
+  // 作者点主按钮才执行。
+  test('切层不预置花钱的能力', () => {
+    assert.equal(session.session.capability, 'discuss', session.session.capability);
+  });
+
+  test('目标指向那一段', () => {
+    assert.equal(session.session.target.plotRelPath, '.novelforge/plots/003-夜访.md');
   });
 
   test('推来流水线', () => {
-    assert.equal(pipe.pipeline?.order, 3);
+    assert.equal(pipe.pipeline?.no, 3);
   });
 
   test('推来工作区卡', () => {
     assert.ok(!!pipe.workbench, JSON.stringify(pipe.workbench));
   });
 
-  test('没细纲时工作区卡说明缺什么', () => {
-    assert.ok(!!pipe.workbench.empty, JSON.stringify(pipe.workbench));
+  test('工作区卡摊开这一层的产物', () => {
+    assert.ok(pipe.workbench.sections.length > 0 || !!pipe.workbench.empty,
+      JSON.stringify(pipe.workbench));
   });
 
-  test('下一步是生成细纲', () => {
-    assert.ok(
-      pipe.next?.stage === 'plan' && pipe.next?.capability === 'generate',
-      JSON.stringify(pipe.next)
-    );
+  test('下一步是拆成场景', () => {
+    assert.ok(pipe.next?.stage === 'plot' && pipe.next?.capability === 'split',
+      JSON.stringify(pipe.next));
   });
 
   test('下一步带上落点', () => {
-    assert.equal(pipe.next?.target.chapterRelPath, 'chapters/003-夜访.md');
+    assert.equal(pipe.next?.target.plotRelPath, '.novelforge/plots/003-夜访.md');
   });
 
-  test('大纲层不带章节流水线', () => {
+  test('大纲层不带剧情段流水线', () => {
     assert.equal(outlinePipe.pipeline, undefined);
   });
 
@@ -329,7 +338,7 @@ describe('选中章节 → 状态机决定落在哪一层', () => {
     assert.equal(outlinePipe.workbench?.stage, 'outline');
   });
 
-  test('选不存在的章节给提示而非崩', () => {
+  test('选不存在的段给提示而非崩', () => {
     assert.equal(toasted.level, 'error', JSON.stringify(toasted));
   });
 });

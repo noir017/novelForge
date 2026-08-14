@@ -37,7 +37,7 @@ export async function buildContext(
   const budgetClampedByProvider =
     request.providerMaxInputTokens !== undefined && request.providerMaxInputTokens < config.contextWindow;
 
-  const recipe = recipeFor(request.action.stage);
+  const recipe = recipeFor(request.action.stage, request.action.capability);
   const focus = await resolveFocus(project, request, recipe);
 
   const assembly: Assembly = {
@@ -84,7 +84,7 @@ export async function buildContext(
       items.push({ ...item, text: '', tokens: 0, status, note });
     },
 
-    scratch: { fullTextOrders: new Set<number>() },
+    scratch: { fullTextNos: new Set<number>() },
   };
 
   // 强制项可能已经吃掉全部预算，后续条目自然会被判 dropped——这是有意的：
@@ -145,27 +145,27 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
   section('# 全书大纲', pick('outlineDoc'));
   section('# 相关角色设定', pick('character'));
   section('# 相关世界观设定', pick('lore'));
-  // 章节摘要与正文都由远及近排列，读起来是正序的时间线。
-  section('# 早前章节摘要（由远及近）', pick('chapterSummary').slice().sort(byOrderAsc));
+  // 摘要与正文都由远及近排列，读起来是正序的时间线。
+  section('# 早前剧情摘要（由远及近）', pick('plotSummary').slice().sort(byNoAsc));
 
-  const fullChapters = pick('chapterFull').slice().sort(byOrderAsc);
-  section('# 最近章节正文', fullChapters);
+  const fullText = pick('manuscriptFull').slice().sort(byNoAsc);
+  section('# 前文正文', fullText);
 
   const prevTail = pick('prevTail')[0];
   if (prevTail) {
     sections.push(
       writing
-        ? `# 上一章结尾原文（你要从这里无缝接下去）\n\n${prevTail.text}`
-        : `# 上一章结尾原文\n\n${prevTail.text}`
+        ? `# 上一段结尾原文（你要从这里无缝接下去）\n\n${prevTail.text}`
+        : `# 上一段结尾原文\n\n${prevTail.text}`
     );
-  } else if (writing && fullChapters.length > 0) {
-    // 结尾片段被整章原文取代时，仍要点明接续位置。
-    const last = fullChapters[fullChapters.length - 1];
-    sections.push(`你要从上面「${last.label.replace(' · 原文', '')}」的结尾处无缝接下去。`);
+  } else if (writing && fullText.length > 0) {
+    // 结尾片段被整段正文取代时，仍要点明接续位置。
+    const last = fullText[fullText.length - 1];
+    sections.push(`你要从上面「${last.label.replace(' · 正文', '')}」的结尾处无缝接下去。`);
   }
 
-  // 本层产物紧挨着指令：这一章的细纲、这一幕的场景卡才是这一轮真正要动的东西。
-  section('# 章节细纲', pick('plan'));
+  // 本层产物紧挨着指令：这一段的剧情、这一幕的场景卡才是这一轮真正要动的东西。
+  section('# 剧情', pick('plot'));
   section('# 场景设计', pick('scene'));
 
   // 用户 @ 的引用也紧挨着他的指令放——他多半正是要针对这些内容提要求。
@@ -196,11 +196,11 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
   return messages;
 }
 
-function byOrderAsc(a: ContextItem, b: ContextItem): number {
-  return orderOf(a) - orderOf(b);
+function byNoAsc(a: ContextItem, b: ContextItem): number {
+  return noOf(a) - noOf(b);
 }
 
-function orderOf(item: ContextItem): number {
+function noOf(item: ContextItem): number {
   const m = /:(\d+)$/.exec(item.id);
   return m ? Number(m[1]) : 0;
 }

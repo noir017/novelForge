@@ -7,10 +7,15 @@
 import type { ProjectTree } from '../../protocol';
 
 /**
- * 四个顶层分组默认展开；文件夹默认折叠——一进工程页就摊开整棵树反而看不清。
+ * 顶层分组默认展开；文件夹默认折叠——一进工程页就摊开整棵树反而看不清。
  * 放在模块级，重渲染后不会把用户折叠的东西又展开。
+ *
+ * `plots` 必须在这里：它是流水线在工程页上的落点，默认折叠等于一进来
+ * 什么都看不见。分组 id 与 index.ts 里 `buildGroup` 的第一个参数一一对应，
+ * 漏一个不会报错，只会静默收起来。
  */
 export const openGroups: Record<string, boolean> = {
+  plots: true,
   chapters: true,
   characters: true,
   cast: true,

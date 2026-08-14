@@ -111,7 +111,7 @@ describe('模型池：构造', () => {
     before(async () => {
       setBehavior({});
       configure(['p/a', 'p/b', 'p/c']);
-      pool = await createModelPool({ task: 'chapterSummary', concurrent: true });
+      pool = await createModelPool({ task: 'plotSummary', concurrent: true });
     });
 
     test('三个模型都进了池', () => {
@@ -135,7 +135,7 @@ describe('模型池：构造', () => {
     before(async () => {
       setBehavior({ 'p/b': 'unavailable' });
       configure(['p/a', 'p/b', 'p/c']);
-      pool = await createModelPool({ task: 'chapterSummary' });
+      pool = await createModelPool({ task: 'plotSummary' });
       warnText = warns.join(' | ');
       inputCount = host.inputs.length;
     });
@@ -160,7 +160,7 @@ describe('模型池：构造', () => {
     before(async () => {
       setBehavior({});
       configure(['p/a', 'nosuch/x', 'p/c']);
-      pool = await createModelPool({ task: 'chapterSummary' });
+      pool = await createModelPool({ task: 'plotSummary' });
       warnText = warns.join(' | ');
     });
 
@@ -179,7 +179,7 @@ describe('模型池：构造', () => {
     before(async () => {
       setBehavior({ 'p/a': 'unavailable' });
       configure(['p/a']);
-      pool = await createModelPool({ task: 'chapterSummary' });
+      pool = await createModelPool({ task: 'plotSummary' });
     });
 
     test('一个可用模型都没有时返回 undefined', () => {
@@ -194,7 +194,7 @@ describe('模型池：并发轮转（负载均衡）', () => {
   before(async () => {
     setBehavior({});
     configure(['p/a', 'p/b', 'p/c']);
-    const pool = await createModelPool({ task: 'chapterSummary', concurrent: true });
+    const pool = await createModelPool({ task: 'plotSummary', concurrent: true });
     for (let i = 0; i < 6; i++) {
       await pool.run(`第 ${i} 项`, useModel);
     }
@@ -219,7 +219,7 @@ describe('模型池：串行恒用首选', () => {
   before(async () => {
     setBehavior({});
     configure(['p/a', 'p/b', 'p/c']);
-    const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
+    const pool = await createModelPool({ task: 'plotSummary', concurrent: false });
     for (let i = 0; i < 4; i++) {
       await pool.run('x', useModel);
     }
@@ -238,7 +238,7 @@ describe('模型池：随机 fallback', () => {
     before(async () => {
       setBehavior({ 'p/a': 'fail' });
       configure(['p/a', 'p/b', 'p/c'], { fallbackAttempts: 2 });
-      const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
+      const pool = await createModelPool({ task: 'plotSummary', concurrent: false });
       text = await pool.run('第 1 章', useModel);
       warnText = warns.join(' | ');
     });
@@ -267,7 +267,7 @@ describe('模型池：随机 fallback', () => {
     before(async () => {
       setBehavior({ 'p/a': 'fail', 'p/b': 'fail', 'p/c': 'fail' });
       configure(['p/a', 'p/b', 'p/c'], { fallbackAttempts: 1 });
-      const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
+      const pool = await createModelPool({ task: 'plotSummary', concurrent: false });
       try {
         await pool.run('第 1 章', useModel);
       } catch (e) {
@@ -288,7 +288,7 @@ describe('模型池：随机 fallback', () => {
     before(async () => {
       setBehavior({ 'p/a': 'fail', 'p/b': 'fail', 'p/c': 'fail' });
       configure(['p/a', 'p/b', 'p/c'], { fallbackAttempts: 5 });
-      const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
+      const pool = await createModelPool({ task: 'plotSummary', concurrent: false });
       await pool.run('第 1 章', useModel).catch(() => {});
     });
 
@@ -305,7 +305,7 @@ describe('模型池：随机 fallback', () => {
     before(async () => {
       setBehavior({ 'p/a': 'fail' });
       configure(['p/a'], { fallbackAttempts: 3 });
-      const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
+      const pool = await createModelPool({ task: 'plotSummary', concurrent: false });
       await pool.run('第 1 章', useModel).catch(() => {});
     });
 
@@ -320,7 +320,7 @@ describe('模型池：随机 fallback', () => {
     before(async () => {
       setBehavior({ 'p/a': 'cancel' });
       configure(['p/a', 'p/b'], { fallbackAttempts: 3 });
-      const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
+      const pool = await createModelPool({ task: 'plotSummary', concurrent: false });
       try {
         await pool.run('第 1 章', useModel);
       } catch (e) {
@@ -341,7 +341,7 @@ describe('模型池：随机 fallback', () => {
     before(async () => {
       setBehavior({});
       configure(['p/a', 'p/b'], { fallbackAttempts: 0 });
-      const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
+      const pool = await createModelPool({ task: 'plotSummary', concurrent: false });
       // 逐字迁自 smoke-pool.js:426-432，包括这一行的位置。
       setBehavior({ 'p/a': 'fail' });
       await pool.run('第 1 章', useModel).catch(() => {});
@@ -369,7 +369,7 @@ describe('模型分档：档位生效', () => {
       models: ['p/writer'],
       tierModels: { fast: ['p/cheap'], balanced: ['p/mid'], quality: ['p/smart'] },
     });
-    fast = await createModelPool({ task: 'chapterSummary' });
+    fast = await createModelPool({ task: 'plotSummary' });
     merge = await createModelPool({ task: 'globalSummaryMerge' });
     card = await createModelPool({ task: 'characterCard' });
   });
@@ -402,7 +402,7 @@ describe('模型分档：空档位继承默认模型', () => {
     before(async () => {
       setBehavior({});
       configureTiers({ models: ['p/a', 'p/b'], tierModels: {} });
-      pool = await createModelPool({ task: 'chapterSummary', concurrent: true });
+      pool = await createModelPool({ task: 'plotSummary', concurrent: true });
       // 分档之前的行为：并发轮转、失败换人，一条都不能少。
       setBehavior({});
       for (let i = 0; i < 4; i++) {
@@ -431,7 +431,7 @@ describe('模型分档：空档位继承默认模型', () => {
       // 只配了快速档：其余两档的任务仍走默认模型，不该被快速档顺手接管。
       setBehavior({});
       configureTiers({ models: ['p/writer'], tierModels: { fast: ['p/cheap'] } });
-      fast = await createModelPool({ task: 'chapterSummary' });
+      fast = await createModelPool({ task: 'plotSummary' });
       merge = await createModelPool({ task: 'globalSummaryMerge' });
     });
 
@@ -455,16 +455,16 @@ describe('模型分档：任务归档的覆盖', () => {
       models: ['p/writer'],
       tierModels: { fast: ['p/cheap'], quality: ['p/smart'] },
       // 内置默认里单章摘要是快速档，这里改成精标。
-      taskTiers: { chapterSummary: 'quality' },
+      taskTiers: { plotSummary: 'quality' },
     });
-    pool = await createModelPool({ task: 'chapterSummary' });
+    pool = await createModelPool({ task: 'plotSummary' });
 
     configureTiers({
       models: ['p/writer'],
       tierModels: { fast: ['p/cheap'], quality: ['p/smart'] },
-      taskTiers: { chapterSummary: '超级档', nosuchTask: 'fast' },
+      taskTiers: { plotSummary: '超级档', nosuchTask: 'fast' },
     });
-    fallbackPool = await createModelPool({ task: 'chapterSummary' });
+    fallbackPool = await createModelPool({ task: 'plotSummary' });
   });
 
   test('覆盖优先于内置默认', () => {
@@ -488,7 +488,7 @@ describe('模型分档：fallback 不跨档', () => {
         tierModels: { fast: ['p/cheap', 'p/cheap2'], quality: ['p/smart'] },
         fallbackAttempts: 5,
       });
-      const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
+      const pool = await createModelPool({ task: 'plotSummary', concurrent: false });
       await pool.run('第 1 章', useModel).catch(() => {});
       used = usedRefs();
     });
@@ -513,7 +513,7 @@ describe('模型分档：fallback 不跨档', () => {
         tierModels: { fast: ['p/cheap'], quality: ['p/smart'] },
         fallbackAttempts: 5,
       });
-      const pool = await createModelPool({ task: 'chapterSummary', concurrent: false });
+      const pool = await createModelPool({ task: 'plotSummary', concurrent: false });
       try {
         await pool.run('第 1 章', useModel);
       } catch (e) {
@@ -550,7 +550,7 @@ describe('模型分档：Key 输入框与预算', () => {
         models: ['p/writer'],
         tierModels: { fast: ['p/cheap', 'p/cheap2'] },
       });
-      pool = await createModelPool({ task: 'chapterSummary' });
+      pool = await createModelPool({ task: 'plotSummary' });
       inputCount = host.inputs.length;
       warnText = warns.join(' | ');
     });
@@ -584,7 +584,7 @@ describe('模型分档：Key 输入框与预算', () => {
         contextWindow: 128000,
         maxOutputTokens: 4096,
       });
-      fast = await createModelPool({ task: 'chapterSummary' });
+      fast = await createModelPool({ task: 'plotSummary' });
       merge = await createModelPool({ task: 'globalSummaryMerge' });
     });
 

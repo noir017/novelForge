@@ -73,8 +73,8 @@ describe('session.ts · SessionStore', () => {
 
     before(async () => {
       s = store.create({
-        target: { kind: 'manuscript', chapterRelPath: 'chapters/004-夜访.md' },
-        targetOrder: 4,
+        target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/004-夜访.md' },
+        targetNo: 4,
       });
       // 「新会话无轮次」「新建不落盘」都必须在 push / write 之前取值。
       turnsAtCreate = s.turns.length;
@@ -105,11 +105,11 @@ describe('session.ts · SessionStore', () => {
     });
 
     test('新会话记住写入目标', () => {
-      assert.equal(s.targetOrder, 4);
+      assert.equal(s.targetNo, 4);
     });
 
     test('新会话继承创作目标', () => {
-      assert.equal(s.target.chapterRelPath, 'chapters/004-夜访.md');
+      assert.equal(s.target.plotRelPath, '.novelforge/plots/004-夜访.md');
     });
 
     test('阶段跟着目标走', () => {
@@ -161,12 +161,12 @@ describe('session.ts · SessionStore', () => {
       assert.equal(back.title, '青崖镇的夜');
     });
 
-    test('读回 targetOrder', () => {
-      assert.equal(back.targetOrder, 4);
+    test('读回 targetNo', () => {
+      assert.equal(back.targetNo, 4);
     });
 
     test('读回创作目标', () => {
-      assert.equal(back.target.chapterRelPath, 'chapters/004-夜访.md');
+      assert.equal(back.target.plotRelPath, '.novelforge/plots/004-夜访.md');
     });
 
     test('读回阶段与能力', () => {
@@ -264,23 +264,23 @@ describe('session.ts · SessionStore', () => {
       fs.writeFileSync(path.join(sessionsDir, 'notjson.txt'), 'ignore me');
       listAfterNotJson = await store.list();
 
-      // 旧会话（0.2.x 只有 targetOrder，没有 target/stage/capability）。
+      // 旧会话（0.2.x 只有 targetNo，没有 target/stage/capability）。
       // 这条路每个升级上来的用户都会走一遍，读不出来等于整个历史凭空消失。
       fs.writeFileSync(path.join(sessionsDir, 'legacy.json'), JSON.stringify({
-        title: '旧对话', createdAt: '2026-01-01T00:00:00.000Z', targetOrder: 7,
+        title: '旧对话', createdAt: '2026-01-01T00:00:00.000Z', targetNo: 7,
         turns: [{ role: 'user', content: '续写第七章' }],
       }));
       legacy = await store.read('legacy');
 
       // 手改坏的 target/能力：认不出的一律回落，绝不抛。
       fs.writeFileSync(path.join(sessionsDir, 'weird.json'), JSON.stringify({
-        target: { kind: '天知道', chapterRelPath: 'x' }, stage: 'nope', capability: 'nope', turns: [],
+        target: { kind: '天知道', plotRelPath: 'x' }, stage: 'nope', capability: 'nope', turns: [],
       }));
       weird = await store.read('weird');
 
       // 该阶段不支持的能力也要回落——正文阶段没有 split。
       fs.writeFileSync(path.join(sessionsDir, 'badcap.json'), JSON.stringify({
-        target: { kind: 'manuscript', chapterRelPath: 'chapters/001-x.md' },
+        target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/001-x.md' },
         stage: 'manuscript', capability: 'split', turns: [],
       }));
       badcap = await store.read('badcap');
@@ -325,8 +325,8 @@ describe('session.ts · SessionStore', () => {
       assert.equal(legacy.target.kind, 'outline', JSON.stringify(legacy.target));
     });
 
-    test('旧会话保留 targetOrder 供 controller 还原', () => {
-      assert.equal(legacy.targetOrder, 7);
+    test('旧会话保留 targetNo 供 controller 还原', () => {
+      assert.equal(legacy.targetNo, 7);
     });
 
     test('旧会话有合法的阶段与能力', () => {
@@ -351,7 +351,7 @@ describe('session.ts · SessionStore', () => {
     });
 
     test('但目标本身保留', () => {
-      assert.equal(badcap.target.chapterRelPath, 'chapters/001-x.md');
+      assert.equal(badcap.target.plotRelPath, '.novelforge/plots/001-x.md');
     });
   });
 

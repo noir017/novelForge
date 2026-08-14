@@ -18,8 +18,8 @@ import {
 /**
  * 流水线 → `deriveNextStep` 要的那几个事实。
  *
- * 参数写成结构类型而不是 `ChapterPipeline`：数据层的 `ChapterPipeline` 与
- * 线上的 `ChapterPipelineView` 在这几个字段上同形，两处调用共用一份。
+ * 参数写成结构类型而不是 `PlotPipeline`：数据层的 `PlotPipeline` 与
+ * 线上的 `PlotPipelineView` 在这几个字段上同形，两处调用共用一份。
  */
 export function factsOf(p: {
   scenes: { no: number; ready: boolean; status: string }[];
@@ -36,19 +36,19 @@ export function factsOf(p: {
 /**
  * 下一步落在哪个具体产物上。
  *
- * 纯函数那边只说「细节层、第 2 场」，拼成 target 要知道章节路径，
- * 而那是 I/O 层的事——`deriveNextStep` 不该也不能查章节列表。
+ * 纯函数那边只说「细节层、第 2 场」，拼成 target 要知道剧情段的路径，
+ * 而那是 I/O 层的事——`deriveNextStep` 不该也不能查段落列表。
  */
-export function targetOf(plan: NextStepPlan, chapterRelPath: string): CreationTarget {
-  switch (plan.stage) {
+export function targetOf(step: NextStepPlan, plotRelPath: string): CreationTarget {
+  switch (step.stage) {
     case 'outline':
       return { kind: 'outline' };
-    case 'plan':
-      return { kind: 'plan', chapterRelPath };
+    case 'plot':
+      return { kind: 'plot', plotRelPath };
     case 'scene':
-      return { kind: 'scene', chapterRelPath, sceneNo: plan.sceneNo ?? 1 };
+      return { kind: 'scene', plotRelPath, sceneNo: step.sceneNo ?? 1 };
     case 'manuscript':
-      return { kind: 'manuscript', chapterRelPath, sceneNo: plan.sceneNo };
+      return { kind: 'manuscript', plotRelPath, sceneNo: step.sceneNo };
   }
 }
 
@@ -59,7 +59,7 @@ export function serializeSession(s: ChatSession): SerializedSession {
     target: s.target,
     stage: s.stage,
     capability: s.capability,
-    targetOrder: s.targetOrder,
+    targetNo: s.targetNo,
     targetWords: s.targetWords,
     turns: s.turns.map(serializeTurn),
   };

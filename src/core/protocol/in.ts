@@ -13,7 +13,7 @@ export interface SendPayload {
   stage: CreationStage;
   capability: Capability;
   target: CreationTarget;
-  targetOrder: number;
+  targetNo: number;
   targetWords: number;
   attachments: SerializedAttachment[];
   excludedIds: string[];
@@ -37,11 +37,10 @@ export type InMessage =
   | { type: 'send'; payload: SendPayload }
   | { type: 'stop' }
   | { type: 'retry'; turnId: string; payload: SendPayload }
-  | { type: 'accept'; turnId: string; mode: 'append' | 'new'; order: number; title: string; text: string }
   | { type: 'acceptArtifact'; turnId: string; target: CreationTarget; text: string }
   | { type: 'setTarget'; target: CreationTarget }
-  | { type: 'selectChapter'; chapterRelPath: string }
-  | { type: 'requestPipeline'; chapterRelPath?: string }
+  | { type: 'selectPlot'; plotRelPath: string }
+  | { type: 'requestPipeline'; plotRelPath?: string }
   | { type: 'editTurn'; turnId: string; text: string }
   | { type: 'deleteTurn'; turnId: string }
   | { type: 'openSession'; id: string }
@@ -58,8 +57,8 @@ export type InMessage =
   | { type: 'listDir'; dirs: string[] }
   | { type: 'openExternal'; path: string }
   | { type: 'syncSummaries' }
-  | { type: 'requestSummary'; order: number }
-  | { type: 'projectAction'; action: ProjectAction; order?: number; dir?: string }
+  | { type: 'requestSummary'; plotRelPath: string }
+  | { type: 'projectAction'; action: ProjectAction; relPath?: string; dir?: string }
   | { type: 'characterAction'; action: CharacterAction; name: string; relPath?: string }
   | {
       type: 'fileAction';
@@ -84,16 +83,17 @@ export type InMessage =
 export type ProjectAction =
   | 'initProject'
   | 'refresh'
+  | 'newPlot'
   | 'newChapter'
   | 'newCharacter'
   | 'newLore'
   | 'newFolder'
-  | 'continueFrom'
-  | 'summarizeChapter'
+  | 'summarizePlot'
   | 'syncSummaries'
   | 'rebuildGlobalSummary'
-  | 'generatePlans'
+  | 'generatePlots'
   | 'breakdownScenes'
+  | 'writeManuscripts'
   | 'extractCharacters'
   | 'generateLore'
   | 'extractStyle';

@@ -18,7 +18,7 @@ import {
   SessionStore,
 } from '../model/session';
 import {
-  chapterOfTarget,
+  plotOfTarget,
   normalizeTarget,
 } from '../model/pipeline';
 import {
@@ -27,14 +27,12 @@ import {
   Tab,
   ViewState,
 } from '../protocol';
-import { buildChapterSummaryView, buildProjectTree } from '../views/projectView';
+import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
 import {
-  accept,
   acceptArtifact,
-  focusWithTarget as focusWithTargetFn,
   pushPipeline,
   retry,
-  selectChapter,
+  selectPlot,
   send,
   setTarget,
 } from './chat';
@@ -215,10 +213,6 @@ export class ChatController {
         this.session.stop();
         return;
 
-      case 'accept':
-        await accept(this, msg.turnId, msg.mode, msg.order, msg.title, msg.text);
-        return;
-
       case 'acceptArtifact':
         await acceptArtifact(this, msg.turnId, normalizeTarget(msg.target), msg.text);
         return;
@@ -227,15 +221,15 @@ export class ChatController {
         await setTarget(this, normalizeTarget(msg.target));
         return;
 
-      case 'selectChapter':
-        await selectChapter(this, msg.chapterRelPath);
+      case 'selectPlot':
+        await selectPlot(this, msg.plotRelPath);
         return;
 
       case 'requestPipeline':
-        // 指名要某一章的，就先切过去（那正是「点开另一章」的意思）；
+        // 指名要某一段的，就先切过去（那正是「点开另一段」的意思）；
         // 不指名的是纯刷新，照当前目标推一份。
-        if (msg.chapterRelPath && msg.chapterRelPath !== chapterOfTarget(this.current.target)) {
-          await selectChapter(this, msg.chapterRelPath);
+        if (msg.plotRelPath && msg.plotRelPath !== plotOfTarget(this.current.target)) {
+          await selectPlot(this, msg.plotRelPath);
         } else {
           await pushPipeline(this);
         }
@@ -349,11 +343,11 @@ export class ChatController {
       case 'requestSummary':
         // 只回给发问的那个前端就够了，但 post 是广播——多开一个面板时
         // 另一边收到一份用不上的摘要，代价只是一次无害的缓存写入。
-        this.post({ type: 'summary', summary: await buildChapterSummaryView(this.project, msg.order) });
+        this.post({ type: 'summary', summary: await buildPlotSummaryView(this.project, msg.plotRelPath) });
         return;
 
       case 'projectAction':
-        await projectAction(this, msg.action, msg.order, msg.dir);
+        await projectAction(this, msg.action, msg.relPath, msg.dir);
         return;
 
       case 'fileAction':
@@ -442,8 +436,8 @@ export class ChatController {
     if (!initialized) {
       return {
         initialized: false,
-        chapters: [],
-        nextOrder: 1,
+        plots: [],
+        nextNo: 1,
         staleCount: 0,
         model: config.model,
         modelLabel: '',
@@ -452,17 +446,21 @@ export class ChatController {
         maxOutputTokens: 0,
       };
     }
-    const chapters = await this.project.listChapters();
+    const plots = await this.project.listPlots();
+    const rows: ViewState['plots'] = [];
+    for (const plot of plots) {
+      rows.push({
+        no: plot.no,
+        title: plot.title,
+        wordCount: (await this.project.readManuscript(plot.relPath))?.wordCount ?? 0,
+        relPath: plot.relPath,
+      });
+    }
     return {
       initialized: true,
-      chapters: chapters.map((ch) => ({
-        order: ch.order,
-        title: ch.title,
-        wordCount: ch.wordCount,
-        relPath: ch.relPath,
-      })),
-      nextOrder: await this.project.nextChapterOrder(),
-      staleCount: (await this.project.staleChapters()).length,
+      plots: rows,
+      nextNo: await this.project.nextPlotNo(),
+      staleCount: (await this.project.stalePlots()).length,
       model: config.model,
       modelLabel: describeProvider(config),
       // 只在解析失败时给出说明——正常情况下不要在输入框下方堆红字。
@@ -552,16 +550,6 @@ export class ChatController {
     return true;
   }
 
-  /**
-   * 供命令直接调用：预设创作目标并聚焦。
-   *
-   * 命令面板给的是序号（它只有这个）；查不到那一章时退回大纲——
-   * 拿一个空 relPath 去装配，等于把「前文」的边界搞错。
-   */
-  async focusWithTarget(order: number): Promise<void> {
-    await focusWithTargetFn(this, order);
-  }
-
   /** 供命令直接调用：切到某个页签。 */
   async showTab(tab: Tab): Promise<void> {
     this.tab = tab;
@@ -581,13 +569,13 @@ export class ChatController {
   }
 
   /**
-   * 供命令直接调用：新建一章并进入它当前该做的那一步。
+   * 供命令直接调用：新建一段剧情并进入它当前该做的那一步。
    *
-   * 复用工程页那条 `projectAction` 分支而不是直接调 `newChapterFlow`：
-   * 「建完落到细纲层」是这个动作的一部分，命令面板与页面按钮不该分叉。
+   * 复用工程页那条 `projectAction` 分支而不是直接调 `newPlotFlow`：
+   * 「建完落到剧情层」是这个动作的一部分，命令面板与页面按钮不该分叉。
    */
-  async newChapterFromCommand(): Promise<void> {
-    await projectAction(this, 'newChapter');
+  async newPlotFromCommand(): Promise<void> {
+    await projectAction(this, 'newPlot');
     for (const host of this.hosts) {
       host.reveal();
     }

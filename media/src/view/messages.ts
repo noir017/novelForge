@@ -157,9 +157,9 @@ function buildBody(turn: SerializedTurn): HTMLElement {
 /**
  * 用户气泡：命令标签 +（可选的）补充要求。
  *
- * 命令类的轮次 content 本来就是空的——「生成细纲」不需要作者说什么，该说的
- * 都在大纲和细纲里（见 `StageCommand.needsText`）。但**空气泡不能就这么空着**：
- * 翻回去看时认不出刚才点的是哪一下。所以把命令本身画成一枚 `/生成细纲` 标签。
+ * 命令类的轮次 content 本来就是空的——「写剧情」不需要作者说什么，该说的
+ * 都在大纲和前后段里（见 `StageCommand.needsText`）。但**空气泡不能就这么空着**：
+ * 翻回去看时认不出刚才点的是哪一下。所以把命令本身画成一枚 `/写剧情` 标签。
  */
 function fillUserBody(body: HTMLElement, turn: SerializedTurn): HTMLElement {
   if (turn.command) {
@@ -223,22 +223,11 @@ function buildActions(turn: SerializedTurn): HTMLElement {
       })
     );
     bar.appendChild(accept);
-  } else {
-    // 正文（或一段讨论——用户仍可能想把它塞进某一章）。
-    const accept = mk('button', 'chip-btn', '采纳写入');
-    accept.addEventListener('click', () => {
-      const opt = el.targetSelect.selectedOptions[0];
-      vscode.postMessage({
-        type: 'accept',
-        turnId: turn.id,
-        mode: opt && opt.dataset.mode === 'new' ? 'new' : 'append',
-        order: Number(el.targetSelect.value),
-        title: '',
-        text: currentText(),
-      });
-    });
-    bar.appendChild(accept);
   }
+  // 没有 artifact 就没有采纳按钮：**讨论型的回答不该能写文件**。
+  // 从前这里给一个「采纳写入」把任意一段文字追加进当前章节的正文，那是旧的
+  // 单一产物时代留下的入口——四层产物之下，落点必须由后端算出来
+  // （`describeArtifactOf`），前端猜不出这段话该写到哪一层。
 
   bar.appendChild(
     linkBtn('复制', () => {

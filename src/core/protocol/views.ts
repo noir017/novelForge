@@ -1,17 +1,19 @@
 import type {
+  BookStage,
   Capability,
-  ChapterStage,
   CreationStage,
   CreationTarget,
   NextStepPlan,
   PipelineProgress,
+  PlotStage,
 } from '../model/pipeline';
 import type { SerializedAttachment } from './in';
 
 export interface ViewState {
   initialized: boolean;
-  chapters: { order: number; title: string; wordCount: number; relPath: string }[];
-  nextOrder: number;
+  /** 创作页目标下拉框里的候选：剧情段，不是发布章节。 */
+  plots: { no: number; title: string; wordCount: number; relPath: string }[];
+  nextNo: number;
   staleCount: number;
   model: string;
   modelLabel: string;
@@ -25,10 +27,17 @@ export interface ProjectTree {
   initialized: boolean;
   title: string;
   author: string;
+  /** 剧情段数。工程页分组标题上那个数字。 */
+  plotCount: number;
+  /** 发布区的章节数。 */
   chapterCount: number;
+  /** 已写正文的总字数（按剧情段算，不是按章节）。 */
   totalWords: number;
   staleCount: number;
   summarizedCount: number;
+  /** 创作流水线那一组。 */
+  plots: ProjectPlotNode[];
+  /** 发布区，纯文件列表。 */
   chapters: ProjectNode[];
   characters: ProjectNode[];
   lore: ProjectNode[];
@@ -37,6 +46,7 @@ export interface ProjectTree {
   summaryCount: number;
   failures: Record<string, FailureView[]>;
   castConflicts: CastConflictView[];
+  plotsRoot: string;
   chaptersRoot: string;
   charactersRoot: string;
   loreRoot: string;
@@ -44,6 +54,29 @@ export interface ProjectTree {
   styleGuidePath: string;
   outlinePath: string;
   globalSummaryPath: string;
+  /** 全书走到哪一步（还没大纲 / 还没拆段 / 已经在写）。主按钮吃它。 */
+  bookStage: BookStage;
+}
+
+/**
+ * 工程页「剧情」组里的一行。
+ *
+ * 扁平列表，不折目录——`plots/` 本身就是扁平的（分卷靠 frontmatter 的 `arc`），
+ * 而流水线的顺序恰恰是这一层最要紧的信息，折进目录反而看不出来。
+ */
+export interface ProjectPlotNode {
+  no: number;
+  title: string;
+  relPath: string;
+  /** 这一段正文的字数。没写就是 0。 */
+  wordCount: number;
+  /** 摘要缺失或过期。 */
+  stale: boolean;
+  summaryPath: string;
+  manuscriptPath: string;
+  stage: PlotStage;
+  progress: PipelineProgress;
+  upstreamStale: boolean;
 }
 
 export type ProjectNode = ProjectDirNode | ProjectChapterNode | ProjectFileNode;
@@ -64,29 +97,30 @@ export interface ProjectFileNode extends ProjectFile {
   kind: 'file';
 }
 
+/**
+ * 发布区的一章。
+ *
+ * **没有流水线字段**：章节是作者从 `manuscripts/` 切出来的成品，工具只提供
+ * 文件操作（打开/改名/移动/删除/草稿），不分析内容、不生成摘要、不挂状态。
+ */
 export interface ProjectChapter {
   order: number;
   title: string;
   relPath: string;
   wordCount: number;
-  stale: boolean;
-  summaryPath: string;
   draftPath: string;
   hasDraft: boolean;
-  stage: ChapterStage;
-  progress: PipelineProgress;
-  upstreamStale: boolean;
 }
 
-export interface ChapterPipelineView {
-  chapterRelPath: string;
-  order: number;
+export interface PlotPipelineView {
+  plotRelPath: string;
+  no: number;
   title: string;
-  plan?: { relPath: string; filled: boolean; upstreamStale: boolean };
+  plot: { relPath: string; filled: boolean; upstreamStale: boolean };
   scenes: ScenePipelineView[];
-  manuscript: { words: number; beatsStale: boolean };
+  manuscript: { relPath: string; words: number; beatsStale: boolean };
   summary: { exists: boolean; stale: boolean };
-  stage: ChapterStage;
+  stage: PlotStage;
   progress: PipelineProgress;
 }
 
@@ -102,7 +136,7 @@ export interface ScenePipelineView {
 
 export interface NextStepView extends NextStepPlan {
   target: CreationTarget;
-  order?: number;
+  no?: number;
 }
 
 export interface WorkbenchSection {
@@ -128,12 +162,14 @@ export interface ProjectFile {
 export interface CastEntry {
   name: string;
   aliases: string[];
-  chapters: number[];
+  /** 出场段号。 */
+  plots: number[];
   detail: string;
 }
 
 export interface CastSummary {
-  chapters: number[];
+  /** 出场段号。 */
+  plots: number[];
   detail: string;
   updatedThrough: number;
   pending: number;
@@ -152,8 +188,8 @@ export interface CastConflictView {
   cards: { name: string; relPath: string }[];
 }
 
-export interface ChapterSummaryView {
-  order: number;
+export interface PlotSummaryView {
+  no: number;
   title: string;
   exists: boolean;
   stale: boolean;
@@ -167,7 +203,7 @@ export interface SerializedSession {
   target: CreationTarget;
   stage: CreationStage;
   capability: Capability;
-  targetOrder?: number;
+  targetNo?: number;
   targetWords?: number;
   turns: SerializedTurn[];
 }

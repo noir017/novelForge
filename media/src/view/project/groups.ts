@@ -102,11 +102,13 @@ export function buildInitPrompt(): HTMLElement {
 export function buildProjectHead(tree: ProjectTree): HTMLElement {
   const head = mk('div', 'project-head');
   head.appendChild(mk('div', 'project-title', tree.title || '未命名'));
+  // 字数报的是**剧情段**的正文总量：那是工具写出来的东西。章节是作者从
+  // 正文切出来的成品，两边的字数本该一致，报剧情段这一侧才与下面的进度同源。
   head.appendChild(
     mk(
       'div',
       'meta',
-      [tree.author, `${tree.chapterCount} 章`, formatWords(tree.totalWords)].filter(Boolean).join(' · ')
+      [tree.author, `${tree.plotCount} 段`, formatWords(tree.totalWords)].filter(Boolean).join(' · ')
     )
   );
   if (tree.staleCount > 0) {
@@ -118,26 +120,31 @@ export function buildProjectHead(tree: ProjectTree): HTMLElement {
 /**
  * 摘要进度横幅。
  *
- * 只说「76 章摘要缺失或已过期」的话，用户不知道分母，也看不出同步跑到哪了。
- * 这里给出「已完成 N/M」与一条进度条，同步过程中每章刷新一次
+ * 只说「76 段摘要缺失或已过期」的话，用户不知道分母，也看不出同步跑到哪了。
+ * 这里给出「已完成 N/M」与一条进度条，同步过程中每段刷新一次
  * （后端 pushState 会重推整棵树）。
+ *
+ * 分母是**写过正文的段**（`summarizedCount + staleCount`），不是全部段：
+ * 还没写正文的段没有摘要是正常的，算进分母会让进度条永远到不了头。
  */
 function buildSummaryBanner(tree: ProjectTree): HTMLElement {
   const banner = mk('div', 'banner banner-summary');
 
   const line = mk('div', 'banner-line');
   line.appendChild(
-    mk('span', undefined, `${tree.staleCount} 章摘要缺失或已过期，这些章节的剧情不会进入上下文。`)
+    mk('span', undefined, `${tree.staleCount} 段摘要缺失或已过期，这些段的剧情不会进入上下文。`)
   );
   line.appendChild(spacer());
   // 同步在跑时不再显示「立即同步」——点第二次只会撞上「已有任务在进行」。
-  if (!hasTask('同步章节摘要')) {
+  // 任务名与 features/summarize.ts 的 runTask 名字必须一字不差，否则这里
+  // 永远匹配不上，横幅上会一直挂着一个点了就报错的按钮。
+  if (!hasTask('同步剧情摘要')) {
     line.appendChild(linkBtn('立即同步', () => projectAction('syncSummaries')));
   }
   banner.appendChild(line);
 
   const done = tree.summarizedCount;
-  const total = tree.chapterCount;
+  const total = done + tree.staleCount;
   if (total > 0) {
     const percent = Math.round((done / total) * 100);
     const bar = mk('div', 'sum-bar');
@@ -145,19 +152,20 @@ function buildSummaryBanner(tree: ProjectTree): HTMLElement {
     fill.style.width = `${percent}%`;
     bar.appendChild(fill);
     banner.appendChild(bar);
-    banner.appendChild(mk('div', 'meta sum-meta', `已总结 ${done} / ${total} 章（${percent}%）`));
+    banner.appendChild(mk('div', 'meta sum-meta', `已总结 ${done} / ${total} 段（${percent}%）`));
   }
   return banner;
 }
 
 /** 分组副标题：待办数与总量一起给，不必展开就知道摘要覆盖到什么程度。 */
 export function summaryGroupLabel(tree: ProjectTree): string {
-  if (tree.chapterCount === 0) {
-    return '还没有章节';
+  const total = tree.summarizedCount + tree.staleCount;
+  if (total === 0) {
+    return tree.plotCount === 0 ? '还没有剧情段' : '还没有正文';
   }
   return tree.staleCount > 0
-    ? `已总结 ${tree.summarizedCount}/${tree.chapterCount} 章 · ${tree.staleCount} 章待总结`
-    : `${tree.chapterCount} 章已全部同步`;
+    ? `已总结 ${tree.summarizedCount}/${total} 段 · ${tree.staleCount} 段待总结`
+    : `${total} 段已全部同步`;
 }
 
 /** 顶层分组的副标题：文件总数（含子文件夹里的）。 */
@@ -191,10 +199,13 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
     {
       label: '全书摘要',
       relPath: tree.globalSummaryPath,
+      // `globalSummaryThrough` 记的是**段号**（重建全书摘要按段推进），
+      // 所以落后与否要跟段数比，不能跟章数比——章节是作者后来切的，
+      // 数目与段数没有固定关系。
       detail:
         tree.globalSummaryThrough > 0
-          ? `覆盖至第 ${tree.globalSummaryThrough} 章${
-              tree.globalSummaryThrough < tree.chapterCount ? ' ⚠ 落后于正文' : ''
+          ? `覆盖至第 ${tree.globalSummaryThrough} 段${
+              tree.globalSummaryThrough < tree.plotCount ? ' ⚠ 落后于正文' : ''
             }`
           : '未生成',
     },
@@ -219,13 +230,14 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   ]);
   rows.push(style);
 
-  // 大纲是整条流水线的源头：拆章、生成细纲都从它出发，所以两个批量动作
+  // 大纲是整条流水线的源头：拆段、写剧情都从它出发，所以三个批量动作
   // 挂在这一行上，而不是散在工具栏里。
   const outline = buildFileRow({ label: '全书大纲', relPath: tree.outlinePath, detail: '人工维护' }, '🗂');
   onContextMenu(outline, () => [
     { label: '打开', run: () => openPath(tree.outlinePath) },
-    { label: '为缺细纲的章节批量生成细纲', run: () => projectAction('generatePlans') },
-    { label: '为已有细纲的章节批量拆场景', run: () => projectAction('breakdownScenes') },
+    { label: '为缺剧情的段批量写剧情', run: () => projectAction('generatePlots') },
+    { label: '为已有剧情的段批量拆场景', run: () => projectAction('breakdownScenes') },
+    { label: '为场景齐了的段批量写正文', run: () => projectAction('writeManuscripts') },
     { sep: true },
     ...baseMenuItems(),
   ]);
@@ -234,7 +246,7 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   const tools = mk('div', 'row row-tools');
   tools.appendChild(
     linkBtn(
-      tree.staleCount > 0 ? `同步 ${tree.staleCount} 章过期摘要` : '同步过期摘要',
+      tree.staleCount > 0 ? `同步 ${tree.staleCount} 段过期摘要` : '同步过期摘要',
       () => projectAction('syncSummaries')
     )
   );
@@ -243,10 +255,11 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
     { label: '同步过期摘要', run: () => projectAction('syncSummaries') },
     { label: '提取/更新角色卡', run: () => projectAction('extractCharacters') },
     { sep: true },
-    // 两个批量动作都「只补不改」：已经有产物的章节一律跳过。批量路径上
+    // 三个批量动作都「只补不改」：已经有产物的段一律跳过。批量路径上
     // 没有逐个审阅的余地，跳过是唯一安全的做法。
-    { label: '批量生成细纲（只补缺）', run: () => projectAction('generatePlans') },
+    { label: '批量写剧情（只补缺）', run: () => projectAction('generatePlots') },
     { label: '批量拆分场景（只补缺）', run: () => projectAction('breakdownScenes') },
+    { label: '批量写正文（只补缺）', run: () => projectAction('writeManuscripts') },
     { sep: true },
     ...baseMenuItems(),
   ]);

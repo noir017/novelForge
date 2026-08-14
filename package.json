@@ -57,8 +57,8 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "novel.newChapter",
-        "title": "Novel: 新建章节",
+        "command": "novel.newPlot",
+        "title": "Novel: 新建剧情段",
         "icon": "$(add)"
       },
       {
@@ -112,17 +112,12 @@
         "title": "Novel: 显示输出面板日志"
       },
       {
-        "command": "novel.continueFromChapter",
-        "title": "在此续写",
-        "icon": "$(sparkle)"
-      },
-      {
         "command": "novel.quickContinue",
         "title": "Novel: 快速续写（不开面板）"
       },
       {
-        "command": "novel.summarizeChapter",
-        "title": "Novel: 总结本章",
+        "command": "novel.summarizePlot",
+        "title": "Novel: 总结这一段",
         "icon": "$(book)"
       },
       {
@@ -139,7 +134,7 @@
       },
       {
         "command": "novel.generateLore",
-        "title": "Novel: 从全部章节生成/更新设定"
+        "title": "Novel: 从已写正文生成/更新设定"
       },
       {
         "command": "novel.updateCharacterCard",
@@ -190,10 +185,6 @@
         }
       ],
       "commandPalette": [
-        {
-          "command": "novel.continueFromChapter",
-          "when": "false"
-        },
         {
           "command": "novel.openFile",
           "when": "false"

@@ -25,12 +25,12 @@ describe('摘要进度显示', { skip: JSDOM_SKIP }, () => {
     assert.ok(banner());
   });
 
-  test('横幅说明有几章过期', () => {
-    assert.ok(banner().textContent.includes('1 章摘要缺失或已过期'), banner().textContent);
+  test('横幅说明有几段过期', () => {
+    assert.ok(banner().textContent.includes('1 段摘要缺失或已过期'), banner().textContent);
   });
 
   test('横幅给出已完成／总数', () => {
-    assert.ok(banner().textContent.includes('已总结 2 / 3 章'), banner().textContent);
+    assert.ok(banner().textContent.includes('已总结 2 / 3 段'), banner().textContent);
   });
 
   test('横幅给出百分比', () => {
@@ -51,14 +51,14 @@ describe('摘要进度显示', { skip: JSDOM_SKIP }, () => {
   });
 
   test('分组副标题带进度', () => {
-    assert.ok(groupMeta('文风与摘要').includes('已总结 2/3 章'), groupMeta('文风与摘要'));
+    assert.ok(groupMeta('文风与摘要').includes('已总结 2/3 段'), groupMeta('文风与摘要'));
   });
 
   // 同步跑起来后，重复点只会撞上「已有任务」，所以按钮撤掉。
   test('同步进行中不再显示「立即同步」', () => {
     ui.post({
       type: 'tasks',
-      tasks: [{ id: 't1', title: '同步章节摘要', message: '第 3 章', current: 0, total: 1, elapsedMs: 0 }],
+      tasks: [{ id: 't1', title: '同步剧情摘要', message: '第 3 段', current: 0, total: 1, elapsedMs: 0 }],
     });
     ui.post({ type: 'project', tree: sampleTree() });
     assert.ok(![...banner().querySelectorAll('button')].some((b) => b.textContent === '立即同步'));
@@ -93,7 +93,7 @@ describe('长任务进度条', { skip: JSDOM_SKIP }, () => {
   test('有任务时露出来', () => {
     ui.post({
       type: 'tasks',
-      tasks: [{ id: 't1', title: '同步章节摘要', message: '第 12 章《夜访》', current: 11, total: 76, elapsedMs: 65000 }],
+      tasks: [{ id: 't1', title: '同步剧情摘要', message: '第 12 段《夜访》', current: 11, total: 76, elapsedMs: 65000 }],
     });
     assert.ok(!taskList().classList.contains('hidden'));
   });
@@ -103,11 +103,11 @@ describe('长任务进度条', { skip: JSDOM_SKIP }, () => {
   });
 
   test('显示标题', () => {
-    assert.ok(textOf(0).includes('同步章节摘要'), textOf(0));
+    assert.ok(textOf(0).includes('同步剧情摘要'), textOf(0));
   });
 
   test('显示当前在做什么', () => {
-    assert.ok(textOf(0).includes('第 12 章《夜访》'), textOf(0));
+    assert.ok(textOf(0).includes('第 12 段《夜访》'), textOf(0));
   });
 
   test('显示 n/N 与百分比', () => {

@@ -26,7 +26,7 @@ import {
 } from './messages';
 import { applySummary, installProject, invalidateSummaries, renderProject } from './project';
 import { baseMenuItems } from './project/actions';
-import { bindNextStepRunner, installNewSession, installRenameChapter, renderPipeline } from './pipeline';
+import { bindNextStepRunner, installNewSession, installRenamePlot, renderPipeline } from './pipeline';
 import { renderWorkbench, installWorkbench } from './workbench';
 import { renderPrompt } from './prompt';
 import { installSettings, renderSettings } from './settings';
@@ -48,7 +48,7 @@ bindPayload(payload);
 // 变成待执行 chip。两条线都不在各自模块里另起一套发送逻辑。
 bindNextStepRunner(runNextStep);
 installNewSession();
-installRenameChapter();
+installRenamePlot();
 bindCommandPick(setPendingCommand);
 installProject();
 installLogs();
@@ -75,7 +75,7 @@ onMessage((msg) => {
       break;
 
     case 'project':
-      // 后端推树 = 磁盘上有东西变了（可能正是某一章的正文或摘要）。
+      // 后端推树 = 磁盘上有东西变了（可能正是某一段的正文或摘要）。
       // 摘要缓存一律作废，宁可再取一次也不拿旧摘要糊弄人。折叠文件夹走的是
       // rerenderProject()，不经这里，缓存留着。
       invalidateSummaries();

@@ -34,7 +34,7 @@ export function renderState(state: ViewState): void {
   renderTargetSelect(state);
 
   if (state.staleCount > 0) {
-    el.staleText.textContent = `有 ${state.staleCount} 章摘要缺失或已过期，这些章节的剧情不会进入上下文。`;
+    el.staleText.textContent = `有 ${state.staleCount} 段摘要缺失或已过期，这些段的剧情不会进入上下文。`;
   }
   setHidden(el.staleBanner, state.staleCount === 0);
 
@@ -46,40 +46,43 @@ export function renderState(state: ViewState): void {
 }
 
 /**
- * 当前创作目标那一章。
+ * 当前创作目标那一段剧情。
  *
  * 它不只是「采纳写到哪」了——装配的每一层都跟着它走，所以选项里带上
- * `relPath`（目标一律按路径标识，序号会撞）。「新建第 N 章」那一项没有
- * relPath：那一章还不存在。
+ * `relPath`（目标一律按路径标识，段号会撞）。「新建第 N 段」那一项没有
+ * relPath：那一段还不存在。
+ *
+ * 列的是**剧情段**而不是 `chapters/` 里的发布章节：章节不在流水线上，
+ * 拿它当创作目标等于对着成品写。
  */
 function renderTargetSelect(state: ViewState): void {
   el.targetSelect.innerHTML = '';
 
   const newOpt = document.createElement('option');
-  newOpt.value = String(state.nextOrder);
-  newOpt.textContent = `新建第 ${state.nextOrder} 章`;
+  newOpt.value = String(state.nextNo);
+  newOpt.textContent = `新建第 ${state.nextNo} 段`;
   newOpt.dataset.mode = 'new';
   el.targetSelect.appendChild(newOpt);
 
-  for (const c of [...state.chapters].reverse()) {
+  for (const p of [...state.plots].reverse()) {
     const opt = document.createElement('option');
-    opt.value = String(c.order);
-    opt.textContent = `第 ${c.order} 章《${c.title}》`;
+    opt.value = String(p.no);
+    opt.textContent = p.title ? `第 ${p.no} 段《${p.title}》` : `第 ${p.no} 段`;
     opt.dataset.mode = 'append';
-    opt.dataset.rel = c.relPath;
+    opt.dataset.rel = p.relPath;
     el.targetSelect.appendChild(opt);
   }
 
-  // 以会话里的目标为准（后端是唯一真相），它指向的那一章不在列表里
-  // （刚被删/改名）时退回「新建下一章」。
+  // 以会话里的目标为准（后端是唯一真相），它指向的那一段不在列表里
+  // （刚被删/改名）时退回「新建下一段」。
   const target = store.session.target;
-  const relPath = target.kind === 'outline' ? undefined : target.chapterRelPath;
+  const relPath = target.kind === 'outline' ? undefined : target.plotRelPath;
   const matched = relPath
     ? [...el.targetSelect.options].find((o) => o.dataset.rel === relPath)
     : undefined;
-  el.targetSelect.value = matched?.value ?? String(store.session.targetOrder ?? state.nextOrder);
-  if (!matched && !state.chapters.some((c) => c.order === store.session.targetOrder)) {
-    el.targetSelect.value = String(state.nextOrder);
+  el.targetSelect.value = matched?.value ?? String(store.session.targetNo ?? state.nextNo);
+  if (!matched && !state.plots.some((p) => p.no === store.session.targetNo)) {
+    el.targetSelect.value = String(state.nextNo);
   }
 }
 
@@ -133,9 +136,9 @@ export function setBusy(value: boolean): void {
   el.atBtn.disabled = value;
   el.selBtn.disabled = value;
   el.newSessionBtn.disabled = value;
-  // 生成期间不给改名：改名会动这一章的路径，而正在跑的那一轮攥着旧路径，
+  // 生成期间不给改名：改名会动这一段的路径，而正在跑的那一轮攥着旧路径，
   // 采纳时会写到一个已经不存在的地方去。
-  el.renameChapterBtn.disabled = value;
+  el.renamePlotBtn.disabled = value;
   // 主按钮与命令面板在生成期间都禁用：两者都会发起新的一轮。面板要是正开着
   // 也一并收掉——一个点不动的候选列表挂在输入框上方只会挡住消息流。
   el.nextStepBtn.disabled = value;

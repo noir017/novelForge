@@ -5,9 +5,12 @@ import type { CharacterAction, ProjectAction } from '../../protocol';
 import type { MenuItem } from '../../globals';
 import { vscode } from '../store';
 
-/** `dir` 给新建类动作指定落点目录，缺省落在该区的根目录。 */
-export function projectAction(action: ProjectAction, order?: number, dir?: string): void {
-  vscode.postMessage({ type: 'projectAction', action, order, dir });
+/**
+ * `relPath` 是动作的作用对象（如要总结哪一段）；`dir` 给新建类动作指定落点
+ * 目录，缺省落在该区的根目录。
+ */
+export function projectAction(action: ProjectAction, relPath?: string, dir?: string): void {
+  vscode.postMessage({ type: 'projectAction', action, relPath, dir });
 }
 
 export function fileAction(action: 'rename' | 'move' | 'delete', relPath: string): void {

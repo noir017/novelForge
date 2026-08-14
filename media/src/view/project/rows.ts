@@ -11,13 +11,14 @@
  */
 import { el as mk } from '../../dom';
 import type { MenuItem } from '../../globals';
-import { CHAPTER_STAGE_LABEL } from '../../protocol';
+import { PLOT_STAGE_LABEL } from '../../protocol';
 import type {
   CastConflictView,
   CastEntry,
   CreationTarget,
   FailureView,
   ProjectChapterNode,
+  ProjectPlotNode,
   ProjectDirNode,
   ProjectFile,
   ProjectNode,
@@ -30,6 +31,7 @@ import {
   baseMenuItems,
   characterAction,
   entryItems,
+  fileAction,
   newItemsIn,
   openDraft,
   projectAction,
@@ -139,91 +141,136 @@ function buildFolderRow(node: ProjectDirNode, depth: number, section: Section): 
   return row;
 }
 
-function buildChapterRow(c: ProjectChapterNode, depth: number): HTMLElement {
-  // row-chapter + data-order 是悬停浮窗的抓手：事件委托在 projectBody 上，
+/**
+ * 剧情行：创作流水线在工程页上的落点。
+ *
+ * 徽章、四段进度、⟳ 全在这里——它们说的是「这一段现在该做哪一步」，
+ * 而那正是作者扫一眼全书要找的东西。章节行（发布区）不再有这些。
+ */
+function buildPlotRow(p: ProjectPlotNode): HTMLElement {
+  // row-plot + data-plot 是悬停浮窗的抓手：事件委托在 projectBody 上，
   // 行被重渲染丢弃也不会留下失效的监听器。
-  const row = mk('div', 'row row-chapter');
-  row.dataset.order = String(c.order);
-  row.style.paddingLeft = `${indentOf(depth)}px`;
+  const row = mk('div', 'row row-plot');
+  row.dataset.plot = p.relPath;
+  row.style.paddingLeft = `${indentOf(0)}px`;
 
-  const dot = mk('span', `dot${c.stale ? ' stale' : ''}`, c.stale ? '○' : '●');
-  dot.title = c.stale ? '摘要缺失或已过期' : '摘要为最新';
+  // 还没写正文的段没有摘要是正常的——那不是「过期」，是还没到那一步。
+  // 给它一个空心点会让整列看起来全是待办。
+  const hasText = p.wordCount > 0;
+  const dot = mk('span', `dot${hasText && p.stale ? ' stale' : ''}`, hasText && p.stale ? '○' : '●');
+  dot.title = !hasText ? '还没有正文' : p.stale ? '摘要缺失或已过期' : '摘要为最新';
   row.appendChild(dot);
 
-  // 摘要生成失败过：与「过期」是两回事——过期只说明该重跑，这个说明跑过但没成。
-  const mark = failureMark(c.relPath);
+  // 生成失败过：与「过期」是两回事——过期只说明该重跑，这个说明跑过但没成。
+  const mark = failureMark(p.relPath);
   if (mark) {
     row.appendChild(mark);
   }
 
-  const label = mk('span', 'row-label', `${String(c.order).padStart(3, '0')} ${c.title}`);
-  label.title = `${c.relPath}\n点击进入这一章当前该做的那一步`;
-  // 点章节名 = **进入这一章**，由后端的状态机决定落在哪一层。
-  // 从前这里是「打开文件」，但作者点一章十次里有九次是想接着写它，
+  const label = mk('span', 'row-label', `${String(p.no).padStart(3, '0')} ${p.title || '（未命名）'}`);
+  label.title = `${p.relPath}\n点击进入这一段当前该做的那一步`;
+  // 点名字 = **进入这一段**，由后端的状态机决定落在哪一层。
+  // 从前这里是「打开文件」，但作者点一段十次里有九次是想接着写它，
   // 不是想读它——要读走右键的「打开」。
-  label.addEventListener('click', () => vscode.postMessage({ type: 'selectChapter', chapterRelPath: c.relPath }));
+  label.addEventListener('click', () => vscode.postMessage({ type: 'selectPlot', plotRelPath: p.relPath }));
   row.appendChild(label);
 
-  // 流水线徽章：这一章现在该做哪一步。全书扫一眼就知道卡在哪里，
-  // 不必逐章点开——这是四层流水线在工程页上唯一的落点。
-  const stage = mk('span', `row-stage stage-${c.stage}`, CHAPTER_STAGE_LABEL[c.stage]);
-  stage.title = describeProgress(c);
+  // 流水线徽章：这一段现在该做哪一步。全书扫一眼就知道卡在哪里，
+  // 不必逐段点开。
+  const stage = mk('span', `row-stage stage-${p.stage}`, PLOT_STAGE_LABEL[p.stage]);
+  stage.title = describeProgress(p);
   row.appendChild(stage);
 
-  // 上游变过（大纲/细纲/场景改了）。用 ⟳ 而不是感叹号：这不是错误，
+  // 上游变过（大纲/剧情/场景改了）。用 ⟳ 而不是感叹号：这不是错误，
   // 是「回头看一眼」——与失败标记要分得开。
-  if (c.upstreamStale) {
+  if (p.upstreamStale) {
     const stale = mk('span', 'row-upstream', '⟳');
-    stale.title = '上游产物改过，这一章的下游可能需要重做';
+    stale.title = '上游产物改过，这一段的下游可能需要重做';
     row.appendChild(stale);
   }
 
-  // 「有草稿」跟在字数后面，不新增 DOM——树行一律不挂行内按钮。
-  row.appendChild(
-    mk('span', 'meta', formatWords(c.wordCount) + (c.hasDraft ? ' · 草稿' : ''))
-  );
+  row.appendChild(mk('span', 'meta', hasText ? formatWords(p.wordCount) : '未写'));
 
   onContextMenu(row, () => {
     const items: MenuItem[] = [
-      { label: '进入这一章', run: () => vscode.postMessage({ type: 'selectChapter', chapterRelPath: c.relPath }) },
-      { label: '打开正文', run: () => openPath(c.relPath) },
+      { label: '进入这一段', run: () => vscode.postMessage({ type: 'selectPlot', plotRelPath: p.relPath }) },
+      { label: '打开剧情', run: () => openPath(p.relPath) },
       { sep: true },
-      // 四层入口。点哪一层就把创作页切到那一层——状态机给的是「该做的
+      // 三层入口。点哪一层就把创作页切到那一层——状态机给的是「该做的
       // 下一步」，而作者常常要回头改上一层（设计文档里的「反向流动」）。
-      { label: `细纲（${pct(c.progress.plan)}）`, run: () => setTarget({ kind: 'plan', chapterRelPath: c.relPath }) },
+      { label: `剧情（${pct(p.progress.plot)}）`, run: () => setTarget({ kind: 'plot', plotRelPath: p.relPath }) },
       {
-        label: `场景（${pct(c.progress.scene)}）`,
-        run: () => setTarget({ kind: 'scene', chapterRelPath: c.relPath, sceneNo: 1 }),
+        label: `场景（${pct(p.progress.scene)}）`,
+        run: () => setTarget({ kind: 'scene', plotRelPath: p.relPath, sceneNo: 1 }),
       },
       {
-        label: `正文（${pct(c.progress.manuscript)}）`,
-        run: () => setTarget({ kind: 'manuscript', chapterRelPath: c.relPath }),
+        label: `正文（${pct(p.progress.manuscript)}）`,
+        run: () => setTarget({ kind: 'manuscript', plotRelPath: p.relPath }),
       },
       { sep: true },
-      // 从第 N 章续写意味着写第 N+1 章。
-      { label: '在此续写', run: () => projectAction('continueFrom', c.order) },
-      // 草稿按需创建：没有就建一个再打开，文案据此区分。
-      { label: c.hasDraft ? '打开草稿' : '新建草稿', run: () => openDraft(c.relPath) },
-      {
-        label: c.stale ? '总结本章' : '重新总结',
-        run: () => projectAction('summarizeChapter', c.order),
-      },
     ];
-    if (c.summaryPath) {
-      items.push({ label: '看摘要', run: () => openPath(c.summaryPath) });
+    if (hasText) {
+      items.push({ label: '打开正文', run: () => openPath(p.manuscriptPath) });
+      items.push({
+        label: p.stale ? '总结这一段' : '重新总结',
+        run: () => projectAction('summarizePlot', p.relPath),
+      });
+      if (p.summaryPath) {
+        items.push({ label: '看摘要', run: () => openPath(p.summaryPath) });
+      }
     }
-    items.push({ sep: true }, ...entryItems(c.relPath));
+    // 只给重命名与删除，**没有「移动到…」**：`plots/` 是扁平的，顺序由
+    // 序号决定，把一段挪进子目录只会让它从流水线上消失。
+    items.push(
+      { sep: true },
+      { label: '重命名', run: () => fileAction('rename', p.relPath) },
+      { label: '删除（移到回收站）', danger: true, run: () => fileAction('delete', p.relPath) }
+    );
     return items;
   });
   return row;
 }
 
+/** 剧情组的全部行。扁平列表——`plots/` 本身扁平，顺序即写作顺序。 */
+export function buildPlotRows(plots: ProjectPlotNode[]): HTMLElement[] {
+  return plots.map(buildPlotRow);
+}
+
+/**
+ * 章节行：**发布区，纯文件**。
+ *
+ * 没有徽章、没有进度、没有 ⟳——章节是作者从 `manuscripts/` 切出来的成品，
+ * 工具不分析它的内容，也就没有任何「该做什么」可说。
+ */
+function buildChapterRow(c: ProjectChapterNode, depth: number): HTMLElement {
+  const row = mk('div', 'row row-chapter');
+  row.style.paddingLeft = `${indentOf(depth)}px`;
+  row.appendChild(mk('span', 'dot', '·'));
+
+  const label = mk('span', 'row-label', `${String(c.order).padStart(3, '0')} ${c.title}`);
+  label.title = c.relPath;
+  label.addEventListener('click', () => openPath(c.relPath));
+  row.appendChild(label);
+
+  // 「有草稿」跟在字数后面，不新增 DOM——树行一律不挂行内按钮。
+  row.appendChild(mk('span', 'meta', formatWords(c.wordCount) + (c.hasDraft ? ' · 草稿' : '')));
+
+  onContextMenu(row, () => [
+    { label: '打开', run: () => openPath(c.relPath) },
+    // 草稿按需创建：没有就建一个再打开，文案据此区分。
+    { label: c.hasDraft ? '打开草稿' : '新建草稿', run: () => openDraft(c.relPath) },
+    { sep: true },
+    ...entryItems(c.relPath),
+  ]);
+  return row;
+}
+
 /** 四段完成度，鼠标移上去看得见。 */
-function describeProgress(c: ProjectChapterNode): string {
+function describeProgress(p: ProjectPlotNode): string {
   return (
-    `${CHAPTER_STAGE_LABEL[c.stage]}\n` +
-    `细纲 ${pct(c.progress.plan)}｜场景 ${pct(c.progress.scene)}｜` +
-    `正文 ${pct(c.progress.manuscript)}｜摘要 ${pct(c.progress.summary)}`
+    `${PLOT_STAGE_LABEL[p.stage]}\n` +
+    `剧情 ${pct(p.progress.plot)}｜场景 ${pct(p.progress.scene)}｜` +
+    `正文 ${pct(p.progress.manuscript)}｜摘要 ${pct(p.progress.summary)}`
   );
 }
 
@@ -274,35 +321,35 @@ export function buildFileRow(f: ProjectFile, icon: string, depth?: number): HTML
 }
 
 /**
- * 角色行。比普通文件行多两样东西：出场章节副标题，以及「更新角色卡」菜单。
+ * 角色行。比普通文件行多两样东西：出场段落副标题，以及「更新角色卡」菜单。
  *
  * 出场统计来自后端的 `castByCard`（按摘要聚合），前端不自己算——
- * 「第 3、7、12 章」这句话在日志里也要出现，两处文案必须一致。
+ * 「第 3、7、12 段」这句话在日志里也要出现，两处文案必须一致。
  */
 function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): HTMLElement {
   const stats = tree?.castByCard?.[f.relPath] ?? null;
-  const detail = [f.detail, stats && stats.chapters.length > 0 ? `出场 ${stats.chapters.length} 章` : '']
+  const detail = [f.detail, stats && stats.plots.length > 0 ? `出场 ${stats.plots.length} 段` : '']
     .filter(Boolean)
     .join(' · ');
   const row = buildFileRow({ ...f, detail }, SECTIONS.characters.icon, depth);
 
-  // 上次更新之后又出场了若干章：给个小标记，作者一眼看出这张卡该刷了。
+  // 上次更新之后又出场了若干段：给个小标记，作者一眼看出这张卡该刷了。
   if (stats && stats.pending > 0) {
     const flag = mk('span', 'meta cast-pending', `＋${stats.pending}`);
-    flag.title = `上次更新覆盖到第 ${stats.updatedThrough} 章，此后新增 ${stats.pending} 章出场`;
+    flag.title = `上次更新覆盖到第 ${stats.updatedThrough} 段，此后新增 ${stats.pending} 段出场`;
     row.appendChild(flag);
   }
 
   onContextMenu(row, () => {
     const items: MenuItem[] = [{ label: '打开', run: () => openPath(f.relPath) }, { sep: true }];
-    if (stats && stats.chapters.length > 0) {
+    if (stats && stats.plots.length > 0) {
       items.push(
         {
-          label: stats.pending > 0 ? `更新角色卡（新增 ${stats.pending} 章）` : '更新角色卡',
+          label: stats.pending > 0 ? `更新角色卡（新增 ${stats.pending} 段）` : '更新角色卡',
           run: () => characterAction('updateCard', f.label, f.relPath),
         },
         {
-          label: `重新通读全部 ${stats.chapters.length} 章`,
+          label: `重新通读全部 ${stats.plots.length} 段`,
           run: () => characterAction('rebuildCard', f.label, f.relPath),
         },
         { label: `出场：${stats.detail}`, disabled: true }
@@ -318,7 +365,7 @@ function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): H
 
 /**
  * 「出场人物 · 未建卡」的一行。
- * 只有一个动作：建卡（建完立刻用它的出场章节跑一次提取）。
+ * 只有一个动作：建卡（建完立刻用它的出场段落跑一次提取）。
  */
 export function buildCastRow(c: CastEntry): HTMLElement {
   const row = mk('div', 'row row-cast');
@@ -340,7 +387,7 @@ export function buildCastRow(c: CastEntry): HTMLElement {
   label.addEventListener('click', create);
 
   onContextMenu(row, () => [
-    { label: '创建角色卡（通读出场章节）', run: create },
+    { label: '创建角色卡（通读出场段落）', run: create },
     { label: `出场：${c.detail}`, disabled: true },
     { sep: true },
     ...baseMenuItems(),

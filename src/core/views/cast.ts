@@ -4,11 +4,11 @@ import { CharacterCard, SummaryCast } from '../model/types';
 import { normalizeName, sanitizeAliases } from '../model/naming';
 
 /**
- * 出场人物索引：把各章摘要里的 `cast` 反向聚合成「谁在哪些章出现过」。
+ * 出场人物索引：把各段摘要里的 `cast` 反向聚合成「谁在哪几段出现过」。
  *
  * 这是「摘要 → 角色」这条链路的中枢，三处在用：
- * - 工程页的角色区：已建卡的角色补出场章数，未建卡的单列一组等待建卡；
- * - 「更新角色卡」：拿某个角色的出场章节去装配语料；
+ * - 工程页的角色区：已建卡的角色补出场段数，未建卡的单列一组等待建卡；
+ * - 「更新角色卡」：拿某个角色的出场段去装配语料；
  * - 角色卡的 `appearsIn` 字段：写卡时从这里取。
  *
  * 关键约定：
@@ -34,8 +34,8 @@ export interface CastMember {
   name: string;
   /** 摘要里见过的其它称呼（不含 name 本身）。 */
   aliases: string[];
-  /** 出场章节序号，升序去重。 */
-  chapters: number[];
+  /** 出场段号，升序去重。 */
+  plots: number[];
   /** 已建卡时给出那张卡；未建卡为 undefined。 */
   card?: CharacterCard;
 }
@@ -72,26 +72,26 @@ export interface CastIndex {
 /**
  * 扫全部摘要，建出场索引。
  *
- * 代价是一次全量读摘要（几百章约几百次小文件读）。工程页每次刷新都调它，
- * 与既有的 `staleChapters()` / `buildProjectTree` 同一量级，没有额外放大：
- * 那两处本来就逐章读过一遍摘要。
+ * 代价是一次全量读摘要（几百段约几百次小文件读）。工程页每次刷新都调它，
+ * 与既有的 `stalePlots()` / `buildProjectTree` 同一量级，没有额外放大：
+ * 那两处本来就逐段读过一遍摘要。
  */
 export async function buildCastIndex(project: NovelProject): Promise<CastIndex> {
   const cards = await project.listCharacters();
-  const chapters = await project.listChapters();
+  const plots = await project.listPlots();
 
   const { cardByName, conflicts } = indexCards(cards);
 
-  /** slug → 出场章节。 */
-  const chaptersOf = new Map<string, Set<number>>();
+  /** slug → 出场段号。 */
+  const plotsOf = new Map<string, Set<number>>();
   /** slug → 摘要里见过的别称。 */
   const aliasesOf = new Map<string, Set<string>>();
-  /** 没能归到任何一张卡的条目，按章收着，稍后整体聚类。 */
-  const orphanChapters: IdentityChapter[] = [];
+  /** 没能归到任何一张卡的条目，按段收着，稍后整体聚类。 */
+  const orphanPlots: IdentityChapter[] = [];
 
   let summaryCount = 0;
-  for (const chapter of chapters) {
-    const summary = await project.readSummary(chapter);
+  for (const plot of plots) {
+    const summary = await project.readSummary(plot.relPath);
     if (!summary) {
       continue;
     }
@@ -100,7 +100,7 @@ export async function buildCastIndex(project: NovelProject): Promise<CastIndex> 
 
     for (const entry of summary.cast) {
       const aliases = sanitizeAliases(entry.aliases, entry.name);
-      // 名字与别名都拿去找卡：模型这一章写的是「阿昭」，也该记到林昭头上。
+      // 名字与别名都拿去找卡：模型这一段写的是「阿昭」，也该记到林昭头上。
       const card =
         cardByName.get(normalizeName(entry.name)) ??
         aliases.map((a) => cardByName.get(normalizeName(a))).find(Boolean);
@@ -109,8 +109,8 @@ export async function buildCastIndex(project: NovelProject): Promise<CastIndex> 
         continue;
       }
 
-      const set = chaptersOf.get(card.slug) ?? chaptersOf.set(card.slug, new Set()).get(card.slug)!;
-      set.add(chapter.order);
+      const set = plotsOf.get(card.slug) ?? plotsOf.set(card.slug, new Set()).get(card.slug)!;
+      set.add(plot.no);
       const known = aliasesOf.get(card.slug) ?? aliasesOf.set(card.slug, new Set()).get(card.slug)!;
       for (const alias of [entry.name, ...aliases]) {
         known.add(alias);
@@ -118,7 +118,7 @@ export async function buildCastIndex(project: NovelProject): Promise<CastIndex> 
     }
 
     if (orphans.length > 0) {
-      orphanChapters.push({ order: chapter.order, cast: orphans });
+      orphanPlots.push({ order: plot.no, cast: orphans });
     }
   }
 
@@ -127,18 +127,18 @@ export async function buildCastIndex(project: NovelProject): Promise<CastIndex> 
     aliases: [...(aliasesOf.get(card.slug) ?? [])].filter(
       (a) => a !== card.name && !card.aliases.includes(a)
     ),
-    chapters: sortedChapters(chaptersOf.get(card.slug)),
+    plots: sortedNos(plotsOf.get(card.slug)),
     card,
   }));
 
-  const identity = buildIdentityGroups(orphanChapters);
+  const identity = buildIdentityGroups(orphanPlots);
   const unknown: CastMember[] = identity.groups.map((group) => ({
     name: group.primary,
     aliases: group.names.slice(1),
-    chapters: group.chapters,
+    plots: group.chapters,
   }));
   // 戏份重的排前面：作者要建的卡多半是这些。
-  unknown.sort((a, b) => b.chapters.length - a.chapters.length || a.name.localeCompare(b.name, 'zh-Hans-CN'));
+  unknown.sort((a, b) => b.plots.length - a.plots.length || a.name.localeCompare(b.name, 'zh-Hans-CN'));
 
   return { known, unknown, conflicts, rejectedLinks: identity.rejected, summaryCount };
 }
@@ -207,9 +207,9 @@ function indexCards(cards: readonly CharacterCard[]): {
   return { cardByName, conflicts };
 }
 
-/** 某个角色的出场章节。找不到（名字对不上任何摘要）时返回空数组。 */
+/** 某个角色的出场段号。找不到（名字对不上任何摘要）时返回空数组。 */
 export function appearancesOf(index: CastIndex, card: CharacterCard): number[] {
-  return index.known.find((m) => m.card?.slug === card.slug)?.chapters ?? [];
+  return index.known.find((m) => m.card?.slug === card.slug)?.plots ?? [];
 }
 
 /**
@@ -219,15 +219,15 @@ export function appearancesOf(index: CastIndex, card: CharacterCard): number[] {
  * 这里不分卡，全量给出去——维护命令要问的恰恰是「已建的这几张卡是不是同一个人」，
  * 先按卡分开就什么也看不出来了。
  */
-export async function readCastChapters(project: NovelProject): Promise<IdentityChapter[]> {
+export async function readCastPlots(project: NovelProject): Promise<IdentityChapter[]> {
   const out: IdentityChapter[] = [];
-  for (const chapter of await project.listChapters()) {
-    const summary = await project.readSummary(chapter);
+  for (const plot of await project.listPlots()) {
+    const summary = await project.readSummary(plot.relPath);
     if (!summary || summary.cast.length === 0) {
       continue;
     }
     out.push({
-      order: chapter.order,
+      order: plot.no,
       cast: summary.cast.map((entry) => ({
         name: entry.name,
         aliases: sanitizeAliases(entry.aliases, entry.name),
@@ -237,18 +237,18 @@ export async function readCastChapters(project: NovelProject): Promise<IdentityC
   return out;
 }
 
-function sortedChapters(set: Set<number> | undefined): number[] {
+function sortedNos(set: Set<number> | undefined): number[] {
   return set ? [...set].sort((a, b) => a - b) : [];
 }
 
 /**
- * `第 3、7、12 章` / `第 3、7、12 章等 20 章`——章节列表太长时只列前几个。
+ * `第 3、7、12 段` / `第 3、7、12 段等 20 段`——列表太长时只列前几个。
  * 前端与日志共用，保证同一份数据在两处说法一致。
  */
-export function describeChapters(chapters: number[], max = 6): string {
-  if (chapters.length === 0) {
+export function describePlots(nos: number[], max = 6): string {
+  if (nos.length === 0) {
     return '未在摘要中出现';
   }
-  const head = chapters.slice(0, max).join('、');
-  return chapters.length > max ? `第 ${head} 章等 ${chapters.length} 章` : `第 ${head} 章`;
+  const head = nos.slice(0, max).join('、');
+  return nos.length > max ? `第 ${head} 段等 ${nos.length} 段` : `第 ${head} 段`;
 }

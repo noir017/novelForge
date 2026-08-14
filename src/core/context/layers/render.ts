@@ -1,33 +1,40 @@
 import { exists, readText } from '../../model/fs';
 import { stringifySections } from '../../model/markdown';
-import { chapterLabel as labelOfChapter } from '../../model/pipeline';
-import { ChapterPlan, PLAN_SECTION_KEYS } from '../../model/planFile';
+import { plotLabel } from '../../model/pipeline';
+import { Plot, PLOT_SECTION_KEYS } from '../../model/plotFile';
 import { NovelProject } from '../../model/project';
 import { describeScene, Scene, SCENE_SECTION_KEYS } from '../../model/sceneFile';
 import { Attachment } from '../../model/session';
 import {
   CHARACTER_ESSENTIAL_KEYS,
   CHARACTER_SECTION_KEYS,
-  Chapter,
   CharacterCard,
 } from '../../model/types';
 import type { Focus } from './focus';
 
-/**
- * 装配条目标签里的章节说法。序号与标题以磁盘上的章节为准，章节还没落盘
- * （拆章之前）时退回细纲 frontmatter 里记的那一份。
- *
- * 拼字符串这件事交给 `model/pipeline.ts` 的 `chapterLabel`——未命名章节
- * 该怎么说（只报序号，不写成「第 7 章《第 7 章》」）只有一处判据。
- */
-export function chapterLabel(chapter: Chapter | undefined, plan: ChapterPlan): string {
-  return labelOfChapter(chapter?.order ?? plan.order, chapter?.title || plan.title);
+export function renderPlot(plot: Plot): string {
+  const head = `【${plotLabel(plot.no, plot.title)} · 剧情${plot.arc ? ` ｜ ${plot.arc}` : ''}】`;
+  const body = stringifySections(
+    plot.sections as unknown as Record<string, string>,
+    PLOT_SECTION_KEYS as readonly string[]
+  );
+  return `${head}\n${body || '（尚未填写）'}`;
 }
 
-export function renderPlan(plan: ChapterPlan): string {
-  const head = `【第${plan.order}章 ${plan.title} · 细纲${plan.arc ? ` ｜ ${plan.arc}` : ''}】`;
-  const body = stringifySections(plan.sections as unknown as Record<string, string>, PLAN_SECTION_KEYS as readonly string[]);
-  return `${head}\n${body || '（尚未填写）'}`;
+/**
+ * 前后段只注入「目标 / 剧情脉络」——够让排这一段的人知道上文停在哪个局面、
+ * 下文要接到哪。不铺开「冲突与转折」「伏笔与回收」：那是那一段自己的账，
+ * 摊在这里只会挤掉本段的预算，还容易被误当成本段要处理的东西。
+ */
+export function renderPlotBrief(plot: Plot, relation: string): string {
+  const lines = [`【${plotLabel(plot.no, plot.title)} · ${relation}】`];
+  for (const key of ['目标', '剧情脉络'] as const) {
+    const value = plot.sections[key]?.trim();
+    if (value) {
+      lines.push(`${key}：${value}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 export function renderScene(scene: Scene): string {
@@ -64,8 +71,8 @@ export function focusText(focus: Focus): string {
     parts.push(focus.scene.place, focus.scene.time, focus.scene.characters.join('、'));
     parts.push(...Object.values(focus.scene.sections));
   }
-  if (focus.plan) {
-    parts.push(...Object.values(focus.plan.sections));
+  if (focus.plot) {
+    parts.push(...Object.values(focus.plot.sections));
   }
   return parts.filter(Boolean).join('\n');
 }
@@ -127,7 +134,7 @@ export interface CharacterHit {
   reason: string;
 }
 
-/** 场景人物、提及人物、近章人物与主角的有序并集。 */
+/** 场景人物、提及人物、近段人物与主角的有序并集。 */
 export async function selectCharacters(
   project: NovelProject,
   cards: CharacterCard[],
@@ -157,8 +164,8 @@ export async function selectCharacters(
     }
   }
 
-  for (const chapter of focus.previous.slice(-2)) {
-    const summary = await project.readSummary(chapter);
+  for (const plot of focus.previous.slice(-2)) {
+    const summary = await project.readSummary(plot.relPath);
     const cast = summary?.sections.出场人物 ?? '';
     if (!cast.trim()) {
       continue;
@@ -168,7 +175,7 @@ export async function selectCharacters(
         continue;
       }
       if (matchesKeywords(cast, [card.name, ...card.aliases])) {
-        hits.set(card.slug, { card, reason: `第 ${chapter.order} 章出场` });
+        hits.set(card.slug, { card, reason: `第 ${plot.no} 段出场` });
       }
     }
   }

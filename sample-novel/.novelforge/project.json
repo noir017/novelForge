@@ -1,31 +1,31 @@
 {
-  "version": 1,
+  "version": 2,
   "title": "青崖记",
   "author": "示例",
-  "chapters": [
+  "plots": [
     {
-      "file": "chapters/001-楔子.md",
-      "order": 1,
+      "file": ".novelforge/plots/001-楔子.md",
+      "no": 1,
       "title": "楔子",
-      "wordCount": 375,
-      "contentHash": "f6142df08cec2b18",
-      "summaryHash": "f6142df08cec2b18"
+      "wordCount": 259,
+      "contentHash": "95018e1052f638e8",
+      "summaryHash": "95018e1052f638e8"
     },
     {
-      "file": "chapters/002-客栈里的女人.md",
-      "order": 2,
+      "file": ".novelforge/plots/002-客栈里的女人.md",
+      "no": 2,
       "title": "客栈里的女人",
-      "wordCount": 610,
-      "contentHash": "a26b6dc8fb924aa7",
-      "summaryHash": "a26b6dc8fb924aa7"
+      "wordCount": 402,
+      "contentHash": "cea3f0d957735934",
+      "summaryHash": "cea3f0d957735934"
     },
     {
-      "file": "chapters/003-夜访.md",
-      "order": 3,
+      "file": ".novelforge/plots/003-夜访.md",
+      "no": 3,
       "title": "夜访",
-      "wordCount": 620,
-      "contentHash": "3c0beb4bf5829790",
-      "summaryHash": "3c0beb4bf5829790"
+      "wordCount": 424,
+      "contentHash": "3f7dd21d91d57252",
+      "summaryHash": "3f7dd21d91d57252"
     }
   ],
   "globalSummaryThrough": 3

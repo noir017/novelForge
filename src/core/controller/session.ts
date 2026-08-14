@@ -15,7 +15,7 @@ export async function newSession(c: ChatController): Promise<void> {
   c.current = c.store.create({
     target: c.current.target,
     stage: c.current.stage,
-    targetOrder: c.current.targetOrder,
+    targetNo: c.current.targetNo,
   });
   c.pending = [];
   c.tab = 'chat';
@@ -61,7 +61,7 @@ export async function deleteSession(c: ChatController, id: string): Promise<void
     c.current = c.store.create({
       target: c.current.target,
       stage: c.current.stage,
-      targetOrder: c.current.targetOrder,
+      targetNo: c.current.targetNo,
     });
     c.post({ type: 'session', session: serializeSession(c.current) });
   }
