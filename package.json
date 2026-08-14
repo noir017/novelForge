@@ -1,7 +1,7 @@
 {
   "name": "novel-forge",
-  "displayName": "Novel Forge — 长篇小说上下文管理",
-  "description": "为长篇小说写作提供上下文注入、纲要扩写与角色/剧情整合总结的 VS Code 插件。",
+  "displayName": "Novel Forge — 从脑洞到成书",
+  "description": "帮作者把一个脑洞逐层展开成一本完整的书：大纲 / 细纲 / 场景 / 正文四层流水线，分阶段上下文装配，摘要与角色卡整合。",
   "version": "0.1.0",
   "publisher": "novel-forge",
   "license": "AGPL-3.0",
@@ -16,7 +16,10 @@
     "writing",
     "llm",
     "context",
-    "小说"
+    "outline",
+    "小说",
+    "小说创作",
+    "大纲"
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
