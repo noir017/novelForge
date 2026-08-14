@@ -82,10 +82,8 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     };
   }
 
-  const [manifest, outline, chapters, characters, lore, chapterDirs, characterDirs, loreDirs, draftPaths, pipelines] =
+  const [chapters, characters, lore, chapterDirs, characterDirs, loreDirs, draftPaths, pipelineIndex] =
     await Promise.all([
-      project.readManifest(),
-      project.readOutline(),
       project.listChapters(),
       project.listCharacters(),
       project.listLore(),
@@ -94,9 +92,11 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       project.listFolders(project.loreDir),
       // 一次遍历拿到全部已存在的草稿，胜过每章一次 stat。
       project.listDraftPaths(),
-      // 全书流水线索引：大纲只读一次摊给所有段。
+      // 全书流水线索引：大纲、manifest 与全书摘要都只读一次摊给所有段。
       buildPipelineIndex(project),
     ]);
+  // manifest、全书摘要与大纲原文都用流水线那一趟读到的同一份，不再单独读一次。
+  const { pipelines, summaries, manifest, outline } = pipelineIndex;
 
   const plotRows: ProjectPlotNode[] = [...pipelines.values()]
     .sort((a, b) => a.no - b.no || a.plotRelPath.localeCompare(b.plotRelPath))
@@ -113,7 +113,8 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       upstreamStale: isUpstreamStale(p),
     }));
 
-  // 章节区只列文件。没有摘要、没有徽章、没有进度——它是成品，不是待办。
+  // 章节区只列文件。没有摘要、没有徽章、没有进度——它是成品，不是待办，
+  // 所以这里一次摘要都不用读。
   const chapterLeaves: ProjectChapterNode[] = chapters.map((chapter) => {
     const draftPath = project.draftRelPathFor(chapter.relPath) ?? '';
     return {
@@ -143,7 +144,8 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
 
   // 出场人物索引：已建卡的补出场统计，未建卡的单列一组。
   // 与角色树分开——那是文件树，这些人还没有文件。
-  const castIndex = await buildCastIndex(project);
+  // 摘要复用流水线那一趟读到的索引：同一次刷新里这已经是第三个要它的人了。
+  const castIndex = await buildCastIndex(project, summaries);
   const castByCard: Record<string, CastSummary> = {};
   for (const member of castIndex.known) {
     if (!member.card) {

@@ -2,6 +2,7 @@ import { buildIdentityGroups, IdentityChapter, RejectedLink } from '../model/ide
 import { NovelProject } from '../model/project';
 import { CharacterCard, SummaryCast } from '../model/types';
 import { normalizeName, sanitizeAliases } from '../model/naming';
+import { SummaryIndex, summaryOf } from './summaryIndex';
 
 /**
  * 出场人物索引：把各段摘要里的 `cast` 反向聚合成「谁在哪几段出现过」。
@@ -72,11 +73,14 @@ export interface CastIndex {
 /**
  * 扫全部摘要，建出场索引。
  *
- * 代价是一次全量读摘要（几百段约几百次小文件读）。工程页每次刷新都调它，
- * 与既有的 `stalePlots()` / `buildProjectTree` 同一量级，没有额外放大：
- * 那两处本来就逐段读过一遍摘要。
+ * 代价是一次全量读摘要（几百段约几百次小文件读）。`summaries` 传进来就不再读盘——
+ * 工程页刷新时流水线那一趟已经把全书摘要读过一遍了，同一次刷新里再读一遍纯属浪费。
+ * 单独调用（角色卡维护等）不传即可，行为与从前一致。
  */
-export async function buildCastIndex(project: NovelProject): Promise<CastIndex> {
+export async function buildCastIndex(
+  project: NovelProject,
+  summaries?: SummaryIndex
+): Promise<CastIndex> {
   const cards = await project.listCharacters();
   const plots = await project.listPlots();
 
@@ -91,7 +95,7 @@ export async function buildCastIndex(project: NovelProject): Promise<CastIndex> 
 
   let summaryCount = 0;
   for (const plot of plots) {
-    const summary = await project.readSummary(plot.relPath);
+    const summary = await summaryOf(project, plot.relPath, summaries);
     if (!summary) {
       continue;
     }

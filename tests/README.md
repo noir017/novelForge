@@ -43,6 +43,7 @@ node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
 | `model/markdown.test.js` | frontmatter 解析（行内/块状数组、畸形行不抛错）、小节抽取、`extractH1`/`stripH1` 互逆、序列化往返 |
 | `model/chapterFile.test.js` | 章节文件名规则：任意非二进制扩展名 / 无扩展名算章节、二进制黑名单被挡、`extractH1` 只看首行 |
 | `model/project.test.js` | `cast` 条目的序列化往返（含全角括号、别名去重）、小节文本反解出场人物 |
+| `model/fs.test.js` | 磁盘与字符串小工具：hash 统一 CRLF、中英文计数、文件名净化、slug 冲突追加；`readTextIfExists` 读不到给 undefined（不存在与同名目录对调用方是同一件事——这一章没有这份产物），权限之类的错误照常上抛 |
 | `model/providers.test.js` | 模型引用解析（含嵌套斜杠 `openrouter/z-ai/glm-4.6`）、服务商配置容错、按模型覆盖窗口、0.1.x 单服务商兜底；默认模型列表的归一化与旧配置升级；`concurrency` / `fallbackAttempts` 的默认值与 clamp |
 | `model/tiers.test.js` | 模型分档的配置容错：三档各自归一化、非对象不崩、裸字符串收成单元素、认不出的任务名与非法档位名回落内置默认，以及「每个任务都有内置默认档位与中文名」 |
 | `model/pipeline.test.js` | 四个阶段（大纲/剧情/细节/正文）的可用/默认能力（`settle` **只有剧情层有**）、输出形态判定、`CreationTarget` 的稳定键（同段号不同文件不撞）、action/target 容错归一、`plotLabel`/`chapterLabel`、剧情段与全书两个状态机、命令表；以及 `plotFile.ts` 的文件名规则与解析/渲染往返——**四个小节、不再有「开头」「结尾」**，`isPlotFilled` 只认「剧情脉络」 |
@@ -63,6 +64,8 @@ node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
 | `files/fileOps.test.js` | 层级目录与类文件操作：递归扫描（含 `.trash/` 排除）、`ProjectTree` 折叠、路径越界守卫、新建/重命名（保留序号前缀、H1 同步）/移动（跨区/自嵌套/同名拒绝）/删除（搬回收站、不覆盖）；**剧情段走另一条路**——改名/删除连带搬走场景目录、正文与摘要，且没有「移动到…」；摘要按段名镜像（同号不同名互不覆盖）；`buildPlotSummaryView` |
 | `files/projectFiles.test.js` | 工程根范围的文件操作：重命名/移动/复制、固定目录保护、同名拒绝、垃圾箱豁免、章节联动 |
 | `files/chapters.test.js` | 非 markdown 章节不解析 H1、角色区仍只认 `.md`、`isEditablePath` 放行无扩展名章节 |
+| `files/listCache.test.js` | 章节与**剧情段**两份列表缓存的并发语义：并发调用只扫一遍全书、`invalidate` 后重扫、**扫描途中失效的那一轮不回填缓存**（否则界面会停在变更之前的字数与过期标记）；外加 `writePlot`/`deletePlot` 自己让缓存失效（否则新建的段不出现在工程页上，且不报错） |
+| `views/projectTreeReads.test.js` | 工程页刷新的**读盘次数**：同一个文件一次刷新至多读一次、每段 fs 调用有上限、段数翻倍不超过线性增长。这条路由文件监听触发，作者每存一次盘就跑一次，重复读盘不报错只变慢，只能靠断言守 |
 | `files/drafts.test.js` | 草稿路径镜像、按需创建且第二次不覆盖、不混进章节树与 manifest、`@` 引用、跟随改名/移动、删章节不删草稿 |
 | `context/builder.test.js` | 完整上下文装配：优先级、预算、降级链、手动排除、附件截断、多轮历史封顶、四阶段配方与身份、provider 配额压缩；**`settle` 时历史保得住**（cap 60% + P0，且输出契约与 `generate` 一字不差）、**没写正文的段退化成只带「目标」并注明原因**；工程页快照与出场人物索引。**写入类用例跑夹具的临时副本**，`sample-novel/` 只读 |
 | `features/creation.test.js` | 创作编排层：产物解析的三层降级与 `parsePlotStrict` 的不兜底版本；六条采纳落盘路径——覆盖前必须审阅且**拒绝时一字不写**、二次拆场景不动原有场景、目标不存在时抛错；拆剧情段**不建空章节** |

@@ -750,7 +750,7 @@ describe('选中剧情段进入当前阶段', { skip: JSDOM_SKIP }, () => {
     assert.equal(toOutline?.target.kind, 'outline', JSON.stringify(toOutline));
   });
 
-  // 工程页点段名也是「进入这一段」，不是打开文件。
+  // 工程页点段名是「进入这一段」——剧情段是流水线上的活。
   test('工程页点段名进入这一段', () => {
     ui.post({ type: 'project', tree: sampleTree() });
     const row = ui.doc.querySelector('#projectBody .row-plot .row-label');
@@ -759,8 +759,9 @@ describe('选中剧情段进入当前阶段', { skip: JSDOM_SKIP }, () => {
     assert.equal(fromTree?.plotRelPath, '.novelforge/plots/001-楔子.md', JSON.stringify(fromTree));
   });
 
-  // 章节行是**纯文件**：点它只是打开文件，不进流水线。
-  test('工程页点章节名只打开文件', () => {
+  // 章节行**刻意相反**：它是纯文件，点了就打开正文编辑，不进流水线。
+  // 成品多半是想读/改那段文字；想接着写就走剧情组。
+  test('工程页点章节名打开正文', () => {
     ui.sent.length = 0;
     ui.clickEl(ui.doc.querySelector('#projectBody .row-chapter .row-label'));
     assert.ok(!ui.sent.some((m) => m.type === 'selectPlot'), JSON.stringify(ui.sent));

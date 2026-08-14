@@ -6,7 +6,7 @@
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
-const { mount, JSDOM_SKIP, sampleTree } = require('../../helpers/dom');
+const { mount, JSDOM_SKIP, sampleTree, viewState } = require('../../helpers/dom');
 
 describe('摘要进度显示', { skip: JSDOM_SKIP }, () => {
   let ui;
@@ -73,6 +73,40 @@ describe('摘要进度显示', { skip: JSDOM_SKIP }, () => {
 
   test('分组副标题改为已同步', () => {
     assert.ok(groupMeta('文风与摘要').includes('已全部同步'), groupMeta('文风与摘要'));
+  });
+});
+
+/**
+ * 过期摘要的提示只长在工程页。
+ *
+ * 对话页从前也挂着一份纯文字横幅（`#staleBanner`），说的是同一句话，却常年
+ * 占着消息流本就不宽裕的宽度；要处理这件事也只能去工程页。切走时由活动栏
+ * 「工程」上的小圆点留记号。
+ */
+describe('过期摘要提示只在工程页', { skip: JSDOM_SKIP }, () => {
+  let ui;
+
+  before(() => {
+    ui = mount({ body: 'standalone' });
+    ui.post({ type: 'state', state: viewState({ staleCount: 3 }) });
+    ui.post({ type: 'project', tree: sampleTree() });
+  });
+
+  test('对话页里没有横幅', () => {
+    assert.equal(ui.doc.querySelector('#pane-chat .banner'), null);
+  });
+
+  test('工程页里有横幅', () => {
+    assert.ok(ui.doc.querySelector('#pane-project .banner-summary'));
+  });
+
+  test('活动栏「工程」上的小圆点亮着', () => {
+    assert.ok(!ui.doc.getElementById('projectStaleDot').classList.contains('hidden'));
+  });
+
+  test('全部同步后小圆点灭掉', () => {
+    ui.post({ type: 'state', state: viewState({ staleCount: 0 }) });
+    assert.ok(ui.doc.getElementById('projectStaleDot').classList.contains('hidden'));
   });
 });
 

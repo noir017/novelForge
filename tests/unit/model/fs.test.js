@@ -46,4 +46,23 @@ describe('model/fs.ts · 磁盘与字符串工具', () => {
     fs.writeFileSync(path.join(tempDir, 'hero.md'), '');
     assert.equal(await utils.uniqueSlug(tempDir, 'hero'), 'hero-2');
   });
+
+  // readTextIfExists 取代了「exists() 再 readText()」两步走：省一次 stat，
+  // 也堵掉「查到了、读之前文件被删掉」的竞态（作者随时在手改文件）。
+  test('readTextIfExists 读得到已有文件', async () => {
+    const p = path.join(tempDir, '有的.md');
+    fs.writeFileSync(p, '内容', 'utf8');
+    assert.equal(await utils.readTextIfExists(p), '内容');
+  });
+
+  test('readTextIfExists 对不存在的文件给 undefined 而不抛', async () => {
+    assert.equal(await utils.readTextIfExists(path.join(tempDir, '没有的.md')), undefined);
+  });
+
+  test('readTextIfExists 把目录当读不到，不把异常漏给调用方', async () => {
+    // 「不存在」与「这不是个文件」对调用方是同一件事：这一章没有细纲。
+    const dir = path.join(tempDir, '一个目录');
+    fs.mkdirSync(dir, { recursive: true });
+    await assert.doesNotReject(() => utils.readTextIfExists(dir));
+  });
 });

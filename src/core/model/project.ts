@@ -48,7 +48,17 @@ import {
   renderSceneFile,
   sceneFileName,
 } from './sceneFile';
-import { countWords, exists, hash, isIgnoredDir, pad3, readText, sanitizeFileName, writeText } from './fs';
+import {
+  countWords,
+  exists,
+  hash,
+  isIgnoredDir,
+  pad3,
+  readText,
+  readTextIfExists,
+  sanitizeFileName,
+  writeText,
+} from './fs';
 import { castFromText, parseCast, renderCastEntry } from './castParse';
 
 const NOVEL_DIR = '.novelforge';
@@ -79,6 +89,29 @@ const MAX_TREE_DEPTH = 8;
  */
 export class NovelProject {
   private chapterCache: Chapter[] | undefined;
+  private plotCache: Plot[] | undefined;
+
+  /**
+   * 正在进行的 `listChapters()` / `listPlots()`。
+   *
+   * 缓存只在扫完之后才填得上，所以**并发**的两个调用方都会看到空缓存，
+   * 各扫一遍全书。`buildProjectTree` 正是这样：`Promise.all` 里
+   * `listChapters()` 与 `buildPipelineIndex()` 同时起跑，五百段工程于是
+   * 把 `plots/` 读了两遍（流水线一遍、出场索引一遍）。记住这个在途的
+   * promise，让后来者搭同一班车。
+   */
+  private chapterScan: Promise<Chapter[]> | undefined;
+  private plotScan: Promise<Plot[]> | undefined;
+
+  /**
+   * 缓存的世代号。`invalidate()` 让它 +1。
+   *
+   * 光把 `*Scan` 清空不够：在途的那一轮**仍会跑完**，然后把变更之前的
+   * 结果写进缓存，于是刚改过的东西又被旧数据盖回去。扫描结束时比一下世代号，
+   * 对不上就只把结果给等它的人，不落缓存。两条轴共用一个号：`invalidate()`
+   * 本来就是「磁盘变过了」这一件事，分开记没有意义。
+   */
+  private generation = 0;
 
   private constructor(public readonly root: string) {}
 
@@ -257,6 +290,12 @@ export class NovelProject {
 
   invalidate(): void {
     this.chapterCache = undefined;
+    this.plotCache = undefined;
+    // 在途的那一轮扫的是**变更之前**的磁盘状态：不能再让新调用方搭它的车，
+    // 世代号 +1 也让它扫完后不要回填缓存（见 generation）。
+    this.chapterScan = undefined;
+    this.plotScan = undefined;
+    this.generation++;
   }
 
   // ---------------------------------------------------------------- 初始化
@@ -309,7 +348,21 @@ export class NovelProject {
     if (this.chapterCache) {
       return this.chapterCache;
     }
+    // 已经有人在扫了就等它，别再扫一遍。invalidate() 会把这个句柄一起清掉，
+    // 所以「扫到一半磁盘变了」的那一轮不会被后来者当成新鲜结果。
+    if (this.chapterScan) {
+      return this.chapterScan;
+    }
+    this.chapterScan = this.scanChapters();
+    try {
+      return await this.chapterScan;
+    } finally {
+      this.chapterScan = undefined;
+    }
+  }
 
+  private async scanChapters(): Promise<Chapter[]> {
+    const generation = this.generation;
     const chapters: Chapter[] = [];
     for (const abs of await listFilesDeep(this.chaptersDir, isChapterFileName, this.chapterSkipDirs())) {
       const parsed = parseChapterFileName(path.basename(abs));
@@ -334,7 +387,11 @@ export class NovelProject {
     }
 
     chapters.sort((a, b) => a.order - b.order || a.relPath.localeCompare(b.relPath));
-    this.chapterCache = chapters;
+    // 扫的过程中磁盘变过（invalidate 被调用）：结果照样交给等它的人——那是他们
+    // 请求时的状态，不算错——但不进缓存，否则下一次读会拿到已经过时的全书列表。
+    if (generation === this.generation) {
+      this.chapterCache = chapters;
+    }
     return chapters;
   }
 
@@ -561,6 +618,24 @@ export class NovelProject {
    * `arc` 表达。少一层目录，场景/正文/摘要三套伴生路径也就少一层要镜像的东西。
    */
   async listPlots(): Promise<Plot[]> {
+    if (this.plotCache) {
+      return this.plotCache;
+    }
+    // 与 listChapters 同构：已经有人在扫了就搭它的车。工程页刷新时
+    // 流水线索引与出场索引会同时要这份列表，各扫一遍等于把 plots/ 读两遍。
+    if (this.plotScan) {
+      return this.plotScan;
+    }
+    this.plotScan = this.scanPlots();
+    try {
+      return await this.plotScan;
+    } finally {
+      this.plotScan = undefined;
+    }
+  }
+
+  private async scanPlots(): Promise<Plot[]> {
+    const generation = this.generation;
     const files = await listFilesDeep(this.plotsDir, isPlotFileName);
     const plots: Plot[] = [];
     for (const abs of files) {
@@ -572,18 +647,25 @@ export class NovelProject {
       }
     }
     plots.sort((a, b) => a.no - b.no || a.relPath.localeCompare(b.relPath));
+    // 扫的过程中磁盘变过：结果照样交给等它的人（那是他们请求时的状态），
+    // 但不进缓存——否则下一次读会拿到已经过时的全书列表。
+    if (generation === this.generation) {
+      this.plotCache = plots;
+    }
     return plots;
   }
 
   /** 读一段剧情。没有不是错误——那个路径可能刚被改名或删除。 */
   async readPlot(plotRelPath: string): Promise<Plot | undefined> {
     const abs = this.pathOf(plotRelPath);
-    if (!(await exists(abs))) {
-      return undefined;
-    }
     try {
-      return parsePlotFile(await readText(abs), plotRelPath);
+      // 直接读、读不到才当没有：省掉一次 stat，也堵掉「查到了、读之前被
+      // 改名了」的竞态——作者随时在手改文件，那条竞态是真会发生的。
+      const raw = await readTextIfExists(abs);
+      return raw === undefined ? undefined : parsePlotFile(raw, plotRelPath);
     } catch {
+      // 读盘本身失败（权限、编码）当作没有这一段：解析失败在 parsePlotFile
+      // 里已经退化过一层了，能走到这里的只有 I/O 异常。
       return undefined;
     }
   }
@@ -619,6 +701,9 @@ export class NovelProject {
       await this.carryPlotCompanions(previous.relPath, this.relPath(abs));
       await fs.unlink(this.pathOf(previous.relPath)).catch(() => undefined);
     }
+    // 段列表有缓存，写完不失效的话下一次读到的还是写之前那份——新建的段
+    // 不出现在工程页上，改过标题的段还挂着旧名字。
+    this.invalidate();
     return this.relPath(abs);
   }
 
@@ -639,6 +724,7 @@ export class NovelProject {
     ]) {
       await this.trash(rel);
     }
+    this.invalidate();
     return true;
   }
 
@@ -686,10 +772,13 @@ export class NovelProject {
    */
   async readManuscript(plotRelPath: string): Promise<Manuscript | undefined> {
     const abs = this.manuscriptPathForPlot(plotRelPath);
-    if (!(await exists(abs))) {
+    // 直接读、读不到才当没写过：省掉一次 stat（全书刷新时那是每段一次），
+    // 与 readSummary 同一条取舍。
+    const found = await readTextIfExists(abs);
+    if (found === undefined) {
       return undefined;
     }
-    const raw = (await readText(abs)).trim();
+    const raw = found.trim();
     const { frontmatter, body } = parseMarkdown(raw);
     const text = stripH1(body);
     return {
@@ -747,10 +836,14 @@ export class NovelProject {
    */
   async readSummary(plotRelPath: string): Promise<PlotSummary | undefined> {
     const abs = this.summaryPathForPlot(plotRelPath);
-    if (!(await exists(abs))) {
+    // 直接读、读不到才当没有：省掉一次 stat（全书刷新时那是每段一次），
+    // 也避开「查到了、读之前被删掉」的竞态。作者手里真会出现一个叫
+    // `001-楔子.md` 的**目录**，`readTextIfExists` 把那种情况也当成「没有」。
+    const raw = await readTextIfExists(abs);
+    if (raw === undefined) {
       return undefined;
     }
-    const { frontmatter, body } = parseMarkdown(await readText(abs));
+    const { frontmatter, body } = parseMarkdown(raw);
     const sections = pickSections<keyof SummarySections>(body, SUMMARY_SECTION_KEYS) as SummarySections;
     return {
       no: parsePlotFileName(path.basename(plotRelPath))?.no ?? asNumber(frontmatter.plot) ?? 0,
@@ -849,19 +942,12 @@ export class NovelProject {
    *
    * 参与哈希的只有场景号与七个小节，不含 `status`——采纳正文时会把场景标成
    * `written`，那一次写入不该反过来让刚写好的正文立刻显示「上游已变更」。
+   *
+   * `scenes` 传进来就不再读盘：调用方多半刚 `listScenes()` 过（流水线聚合就是
+   * 这样），不复用的话全书刷新会把每段的场景各读两遍。
    */
-  async beatsHashFor(plotRelPath: string): Promise<string> {
-    const scenes = await this.listScenes(plotRelPath);
-    if (scenes.length === 0) {
-      return '';
-    }
-    return hash(
-      scenes
-        .map((s) =>
-          [`#${s.no}`, s.title, s.place, s.time, ...SCENE_SECTION_KEYS.map((k) => s.sections[k])].join('\n')
-        )
-        .join('\n---\n')
-    );
+  async beatsHashFor(plotRelPath: string, scenes?: Scene[]): Promise<string> {
+    return beatsHashOf(scenes ?? (await this.listScenes(plotRelPath)));
   }
 
   /**
@@ -882,7 +968,8 @@ export class NovelProject {
     }
   }
 
-  async readGlobalSummary(): Promise<string> {    if (!(await exists(this.globalSummaryPath))) {
+  async readGlobalSummary(): Promise<string> {
+    if (!(await exists(this.globalSummaryPath))) {
       return '';
     }
     return stripH1(parseMarkdown(await readText(this.globalSummaryPath)).body);
@@ -1012,6 +1099,26 @@ export class NovelProject {
     }
     return stripH1(parseMarkdown(await readText(this.outlinePath)).body);
   }
+}
+
+/**
+ * 一组场景的指纹。纯函数，便于**已经拿到场景**的调用方直接算，不必再读一遍盘。
+ *
+ * 口径就是 `beatsHashFor` 的那一份，只有一处定义：参与哈希的是场景号、标题、
+ * 地点、时间与七个小节，**不含 `status`**（采纳正文会把场景标成 `written`，
+ * 那次写入不该让刚写好的正文立刻显示「上游已变更」）。
+ */
+export function beatsHashOf(scenes: Scene[]): string {
+  if (scenes.length === 0) {
+    return '';
+  }
+  return hash(
+    scenes
+      .map((s) =>
+        [`#${s.no}`, s.title, s.place, s.time, ...SCENE_SECTION_KEYS.map((k) => s.sections[k])].join('\n')
+      )
+      .join('\n---\n')
+  );
 }
 
 // ---------------------------------------------------------------- 渲染模板

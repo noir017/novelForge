@@ -46,6 +46,30 @@ export async function readText(absPath: string): Promise<string> {
   return fs.readFile(absPath, 'utf8');
 }
 
+/**
+ * 读一个**可能不存在**的文件：读不到就给 undefined，不抛。
+ *
+ * 取代 `exists()` + `readText()` 两步走：那样每个文件要两次系统调用（工程页
+ * 刷新时每章的细纲与摘要各占一次多余的 stat），而且中间那一瞬文件被删掉的话
+ * 仍然会抛——作者随时在手改文件，这条竞态是真的会发生的。
+ *
+ * 「读不到」包含三种：不存在（ENOENT）、路径中间那一段不是目录（ENOTDIR）、
+ * 目标本身是个目录（EISDIR）。对调用方它们是同一件事——**这一章没有这份产物**，
+ * 而作者手里真的可能出现一个叫 `001-楔子.md` 的目录。其余错误（权限、编码）
+ * 照常上抛：那些是调用方该知道的事，不该被悄悄当成「没有」。
+ */
+export async function readTextIfExists(absPath: string): Promise<string | undefined> {
+  try {
+    return await fs.readFile(absPath, 'utf8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'EISDIR') {
+      return undefined;
+    }
+    throw err;
+  }
+}
+
 export async function writeText(absPath: string, text: string): Promise<void> {
   await fs.mkdir(path.dirname(absPath), { recursive: true });
   await fs.writeFile(absPath, text, 'utf8');

@@ -170,8 +170,8 @@ function buildPlotRow(p: ProjectPlotNode): HTMLElement {
   const label = mk('span', 'row-label', `${String(p.no).padStart(3, '0')} ${p.title || '（未命名）'}`);
   label.title = `${p.relPath}\n点击进入这一段当前该做的那一步`;
   // 点名字 = **进入这一段**，由后端的状态机决定落在哪一层。
-  // 从前这里是「打开文件」，但作者点一段十次里有九次是想接着写它，
-  // 不是想读它——要读走右键的「打开」。
+  // 与章节行刻意相反：章节是成品，点它多半是想读/改那段文字，所以那边点了
+  // 就开文件；剧情段是流水线上的活，点它十次里有九次是想接着往下做。
   label.addEventListener('click', () => vscode.postMessage({ type: 'selectPlot', plotRelPath: p.relPath }));
   row.appendChild(label);
 

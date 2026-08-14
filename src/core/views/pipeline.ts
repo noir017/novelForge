@@ -37,6 +37,8 @@ import {
   deriveStage,
   emptyFacts,
 } from '../model/pipeline';
+import { ProjectManifest } from '../model/types';
+import { SummaryIndex, buildSummaryIndex, summaryOf } from './summaryIndex';
 
 const log = scoped('流水线');
 
@@ -81,19 +83,19 @@ export interface PlotPipeline {
 /**
  * 一段的流水线状态。
  *
- * `outlineHash` 由调用方传入：批量构建（工程页要为几百段各算一份）时大纲
- * 只读一次，否则每段都去读一遍同一个文件。
+ * `outlineHash` / `summaries` 由调用方传入：批量构建（工程页要为几百段各算一份）
+ * 时大纲只读一次、摘要整体读一次，否则每段都去读一遍同样的文件。
  */
 export async function buildPlotPipeline(
   project: NovelProject,
   plot: Plot,
-  context?: { outlineHash?: string }
+  context?: { outlineHash?: string; summaries?: SummaryIndex }
 ): Promise<PlotPipeline> {
   const outlineHash = context?.outlineHash ?? hash(await project.readOutline());
 
   const scenes = await project.listScenes(plot.relPath);
   const manuscript = await project.readManuscript(plot.relPath);
-  const summary = await project.readSummary(plot.relPath);
+  const summary = await summaryOf(project, plot.relPath, context?.summaries);
 
   // 剧情段的上游是全书大纲。upstreamHash 为空 = 这一段是作者手写的
   // （或来自还没记录指纹的旧版本）——**不标脏**：手写的东西没有「上游」，
@@ -113,7 +115,9 @@ export async function buildPlotPipeline(
     upstreamStale: !!s.upstreamHash && !!plotHash && s.upstreamHash !== plotHash,
   }));
 
-  const beatsHash = await project.beatsHashFor(plot.relPath);
+  // 场景上面刚读过，复用它——`beatsHashFor` 不给场景就会再 listScenes 一遍，
+  // 全书刷新时那是每段多读一整个场景目录。
+  const beatsHash = await project.beatsHashFor(plot.relPath, scenes);
   // 同理：没记录过 beatsHash（正文是作者自己贴进来的）不标脏。
   // 只有「记录过一次、现在对不上」才说明场景确实改过。
   const beatsStale = !!manuscript?.beatsHash && !!beatsHash && manuscript.beatsHash !== beatsHash;
@@ -151,15 +155,31 @@ export async function buildPlotPipeline(
 /**
  * 全书的流水线索引，按剧情段 relPath 索引。
  *
- * 大纲只读一次，摊给所有段——五百段工程逐段重读同一个文件会把工程页刷新
- * 变成几百次多余的读盘。
+ * 大纲、manifest 与全书摘要都只读一次，摊给所有段——五百段工程逐段重读这些
+ * 文件会把工程页刷新变成几百次多余的读盘。
+ *
+ * 建好的摘要索引与 manifest 一并返回：工程树与出场索引要的是同一批摘要、同一份
+ * manifest，让它们接着用这一份，而不是各自再读一遍。**manifest 这一趟只是替
+ * 工程页读的**——流水线自己用不上它（`beatsHash` 落在正文的 frontmatter 里，
+ * 不在 manifest 中），放在这里是因为工程页那次 `Promise.all` 已经在等这个函数了。
  */
 export async function buildPipelineIndex(
   project: NovelProject
-): Promise<Map<string, PlotPipeline>> {
+): Promise<{
+  pipelines: Map<string, PlotPipeline>;
+  summaries: SummaryIndex;
+  manifest: ProjectManifest;
+  /** 大纲原文。工程页要用它判全书阶段（有没有大纲），不必自己再读一遍。 */
+  outline: string;
+}> {
   const startedAt = Date.now();
-  const [plots, outline] = await Promise.all([project.listPlots(), project.readOutline()]);
-  const context = { outlineHash: hash(outline) };
+  const [plots, outline, manifest] = await Promise.all([
+    project.listPlots(),
+    project.readOutline(),
+    project.readManifest(),
+  ]);
+  const summaries = await buildSummaryIndex(project, plots);
+  const context = { outlineHash: hash(outline), summaries };
 
   const out = new Map<string, PlotPipeline>();
   for (const plot of plots) {
@@ -176,7 +196,7 @@ export async function buildPipelineIndex(
       `${stale.map((p) => `第 ${p.no} 段`).join('、')}｜耗时 ${Date.now() - startedAt}ms`
     );
   }
-  return out;
+  return { pipelines: out, summaries, manifest, outline };
 }
 
 /**
