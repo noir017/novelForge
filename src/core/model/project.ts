@@ -39,7 +39,17 @@ import {
   renderSceneFile,
   sceneFileName,
 } from './sceneFile';
-import { countWords, exists, hash, isIgnoredDir, pad3, readText, sanitizeFileName, writeText } from './fs';
+import {
+  countWords,
+  exists,
+  hash,
+  isIgnoredDir,
+  pad3,
+  readText,
+  readTextIfExists,
+  sanitizeFileName,
+  writeText,
+} from './fs';
 import { castFromText, parseCast, renderCastEntry } from './castParse';
 
 const NOVEL_DIR = '.novelforge';
@@ -63,6 +73,25 @@ const MAX_TREE_DEPTH = 8;
  */
 export class NovelProject {
   private chapterCache: Chapter[] | undefined;
+
+  /**
+   * 正在进行的 `listChapters()`。
+   *
+   * 缓存只在扫完之后才填得上，所以**并发**的两个调用方都会看到空缓存，
+   * 各扫一遍全书正文。`buildProjectTree` 正是这样：`Promise.all` 里
+   * `listChapters()` 与 `buildPipelineIndex()` 同时起跑，五百章工程于是
+   * 读了一千次正文。记住这个在途的 promise，让后来者搭同一班车。
+   */
+  private chapterScan: Promise<Chapter[]> | undefined;
+
+  /**
+   * 缓存的世代号。`invalidate()` 让它 +1。
+   *
+   * 光把 `chapterScan` 清空不够：在途的那一轮**仍会跑完**，然后把变更之前的
+   * 结果写进缓存，于是刚改过的章节又被旧数据盖回去。扫描结束时比一下世代号，
+   * 对不上就只把结果给等它的人，不落缓存。
+   */
+  private chapterGeneration = 0;
 
   private constructor(public readonly root: string) {}
 
@@ -316,6 +345,10 @@ export class NovelProject {
 
   invalidate(): void {
     this.chapterCache = undefined;
+    // 在途的那一轮扫的是**变更之前**的磁盘状态：不能再让新调用方搭它的车，
+    // 世代号 +1 也让它扫完后不要回填缓存（见 chapterGeneration）。
+    this.chapterScan = undefined;
+    this.chapterGeneration++;
   }
 
   // ---------------------------------------------------------------- 初始化
@@ -363,7 +396,21 @@ export class NovelProject {
     if (this.chapterCache) {
       return this.chapterCache;
     }
+    // 已经有人在扫了就等它，别再扫一遍。invalidate() 会把这个句柄一起清掉，
+    // 所以「扫到一半磁盘变了」的那一轮不会被后来者当成新鲜结果。
+    if (this.chapterScan) {
+      return this.chapterScan;
+    }
+    this.chapterScan = this.scanChapters();
+    try {
+      return await this.chapterScan;
+    } finally {
+      this.chapterScan = undefined;
+    }
+  }
 
+  private async scanChapters(): Promise<Chapter[]> {
+    const generation = this.chapterGeneration;
     const chapters: Chapter[] = [];
     for (const abs of await listFilesDeep(this.chaptersDir, isChapterFileName, this.chapterSkipDirs())) {
       const parsed = parseChapterFileName(path.basename(abs));
@@ -388,7 +435,11 @@ export class NovelProject {
     }
 
     chapters.sort((a, b) => a.order - b.order || a.relPath.localeCompare(b.relPath));
-    this.chapterCache = chapters;
+    // 扫的过程中磁盘变过（invalidate 被调用）：结果照样交给等它的人——那是他们
+    // 请求时的状态，不算错——但不进缓存，否则下一次读会拿到已经过时的全书列表。
+    if (generation === this.chapterGeneration) {
+      this.chapterCache = chapters;
+    }
     return chapters;
   }
 
@@ -614,17 +665,16 @@ export class NovelProject {
    * 重新生成后落到新路径，不再互相覆盖。
    */
   async readSummary(chapter: Chapter): Promise<ChapterSummary | undefined> {
-    // 新式：按文件名与路径映射。
+    // 新式：按文件名与路径映射。直接读、不存在再回退，省掉一次 stat
+    // （全书刷新时那是每章一次），也避开「查到了、读之前被删掉」的竞态。
     const abs = this.summaryPathForChapter(chapter.relPath);
-    let raw: string | undefined;
     let readFrom = abs;
-    if (await exists(abs)) {
-      raw = await readText(abs);
-    } else {
+    let raw = await readTextIfExists(abs);
+    if (raw === undefined) {
       // 旧式回退：按序号。升级前的摘要是这种命名。
       const legacy = this.summaryPath(chapter.order);
-      if (await exists(legacy)) {
-        raw = await readText(legacy);
+      raw = await readTextIfExists(legacy);
+      if (raw !== undefined) {
         readFrom = legacy;
       }
     }
@@ -688,11 +738,13 @@ export class NovelProject {
    */
   async readPlan(chapterRelPath: string): Promise<ChapterPlan | undefined> {
     const abs = this.planPathForChapter(chapterRelPath);
-    if (!abs || !(await exists(abs))) {
+    if (!abs) {
       return undefined;
     }
     try {
-      return parsePlanFile(await readText(abs), this.relPath(abs));
+      // 直接读，省掉一次 stat（全书刷新时每章一次）。
+      const raw = await readTextIfExists(abs);
+      return raw === undefined ? undefined : parsePlanFile(raw, this.relPath(abs));
     } catch {
       // 读盘本身失败（权限、编码）也当作没有细纲——解析失败在 parsePlanFile
       // 里已经退化过一层了，能走到这里的只有 I/O 异常。
@@ -784,19 +836,12 @@ export class NovelProject {
    *
    * 参与哈希的只有场景号与七个小节，不含 `status`——采纳正文时会把场景标成
    * `written`，那一次写入不该反过来让刚写好的正文立刻显示「上游已变更」。
+   *
+   * `scenes` 传进来就不再读盘：调用方多半刚 `listScenes()` 过（流水线聚合就是
+   * 这样），不复用的话全书刷新会把每章的场景各读两遍。
    */
-  async beatsHashFor(chapterRelPath: string): Promise<string> {
-    const scenes = await this.listScenes(chapterRelPath);
-    if (scenes.length === 0) {
-      return '';
-    }
-    return hash(
-      scenes
-        .map((s) =>
-          [`#${s.no}`, s.title, s.place, s.time, ...SCENE_SECTION_KEYS.map((k) => s.sections[k])].join('\n')
-        )
-        .join('\n---\n')
-    );
+  async beatsHashFor(chapterRelPath: string, scenes?: Scene[]): Promise<string> {
+    return beatsHashOf(scenes ?? (await this.listScenes(chapterRelPath)));
   }
 
   /** 记录某章正文所依据的场景指纹。写完正文后调用，与 markSummarized 同构。 */
@@ -939,6 +984,26 @@ export class NovelProject {
     }
     return stripH1(parseMarkdown(await readText(this.outlinePath)).body);
   }
+}
+
+/**
+ * 一组场景的指纹。纯函数，便于**已经拿到场景**的调用方直接算，不必再读一遍盘。
+ *
+ * 口径就是 `beatsHashFor` 的那一份，只有一处定义：参与哈希的是场景号、标题、
+ * 地点、时间与七个小节，**不含 `status`**（采纳正文会把场景标成 `written`，
+ * 那次写入不该让刚写好的正文立刻显示「上游已变更」）。
+ */
+export function beatsHashOf(scenes: Scene[]): string {
+  if (scenes.length === 0) {
+    return '';
+  }
+  return hash(
+    scenes
+      .map((s) =>
+        [`#${s.no}`, s.title, s.place, s.time, ...SCENE_SECTION_KEYS.map((k) => s.sections[k])].join('\n')
+      )
+      .join('\n---\n')
+  );
 }
 
 // ---------------------------------------------------------------- 渲染模板

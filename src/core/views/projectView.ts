@@ -72,9 +72,8 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     };
   }
 
-  const [manifest, chapters, characters, lore, chapterDirs, characterDirs, loreDirs, draftPaths, pipelines] =
+  const [chapters, characters, lore, chapterDirs, characterDirs, loreDirs, draftPaths, pipelineIndex] =
     await Promise.all([
-      project.readManifest(),
       project.listChapters(),
       project.listCharacters(),
       project.listLore(),
@@ -83,14 +82,17 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       project.listFolders(project.loreDir),
       // 一次遍历拿到全部已存在的草稿，胜过每章一次 stat。
       project.listDraftPaths(),
-      // 全书流水线索引：大纲与 manifest 只读一次摊给所有章节。
+      // 全书流水线索引：大纲、manifest 与全书摘要都只读一次摊给所有章节。
       buildPipelineIndex(project),
     ]);
+  // manifest 用流水线那一趟读到的同一份，不再单独读一次。
+  const { pipelines, summaries, manifest } = pipelineIndex;
 
   const chapterLeaves: ProjectChapterNode[] = [];
   for (const chapter of chapters) {
     // 以摘要文件里的 sourceHash 为准，与 staleChapters() 同一套判据。
-    const summary = await project.readSummary(chapter);
+    // 摘要走流水线那一趟已经读过的索引，不再逐章重读。
+    const summary = summaries.get(chapter.relPath);
     const draftPath = project.draftRelPathFor(chapter.relPath) ?? '';
     const pipeline = pipelines.get(chapter.relPath);
     chapterLeaves.push({
@@ -127,7 +129,8 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
 
   // 出场人物索引：已建卡的补出场统计，未建卡的单列一组。
   // 与角色树分开——那是文件树，这些人还没有文件。
-  const castIndex = await buildCastIndex(project);
+  // 摘要复用流水线那一趟读到的索引：同一次刷新里这已经是第三个要它的人了。
+  const castIndex = await buildCastIndex(project, summaries);
   const castByCard: Record<string, CastSummary> = {};
   for (const member of castIndex.known) {
     if (!member.card) {

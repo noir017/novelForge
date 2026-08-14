@@ -510,7 +510,9 @@ describe('流水线索引', () => {
   let handwritten;
 
   before(async () => {
-    index = await bundle.pipe.buildPipelineIndex(project);
+    // buildPipelineIndex 现在连摘要索引与 manifest 一起返回（同一次刷新里
+    // 工程树与出场索引要的是同一批摘要），流水线本身在 .pipelines 上。
+    ({ pipelines: index } = await bundle.pipe.buildPipelineIndex(project));
     chapterCount = (await project.listChapters()).length;
     handwritten = index.get('chapters/020-手写.md');
   });
