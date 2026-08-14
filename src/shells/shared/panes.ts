@@ -90,10 +90,10 @@ export function chatPane(opts: PaneOptions = {}): string {
     : '';
   const selTitle = opts.selectionFromEditor ? '把编辑器中选中的文字加入上下文' : '粘贴一段原文加入上下文';
   return `<section class="pane active" id="pane-chat">
-  <div class="banner hidden" id="staleBanner">
-    <span id="staleText"></span>
-    <button class="link" id="syncBtn">立即同步</button>
-  </div>
+  <!-- 过期摘要的横幅只长在工程页（那边还带进度条与分母）。对话页从前也挂着
+       一份纯文字版，说的是同一句话，却常年占着本就不宽裕的消息流；这里要提示
+       的那件事本身也只能在工程页上处理。活动栏「工程」上的小圆点负责在别的
+       页面上留个记号。 -->
 
   <!-- 流水线条：这一章走到哪一步了。点任一段切到那一层。
        目标是全书大纲时只剩面包屑，四段隐藏。 -->

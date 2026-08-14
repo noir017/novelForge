@@ -1,5 +1,5 @@
 /**
- * `ViewState` 的渲染：输入框旁的模型下拉、写入目标下拉、过期摘要横幅，
+ * `ViewState` 的渲染：输入框旁的模型下拉、写入目标下拉、活动栏上的待办圆点，
  * 以及生成中的按钮状态。
  *
  * 后端全量推 state，这里整块重画——数据量只有几十行，增量更新换来的那点
@@ -33,11 +33,8 @@ export function renderState(state: ViewState): void {
 
   renderTargetSelect(state);
 
-  if (state.staleCount > 0) {
-    el.staleText.textContent = `有 ${state.staleCount} 章摘要缺失或已过期，这些章节的剧情不会进入上下文。`;
-  }
-  setHidden(el.staleBanner, state.staleCount === 0);
-
+  // 过期摘要的提示只在工程页出现（那份横幅由 project/groups.ts 画，还带进度条）。
+  // 对话页不再挂一份纯文字版——同一句话说两遍，占的却是消息流的地方。
   // 独立版的活动栏上给「工程」挂一个小圆点，切走了也看得见待办。
   const dot = maybeById('projectStaleDot');
   if (dot) {

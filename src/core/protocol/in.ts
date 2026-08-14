@@ -57,7 +57,6 @@ export type InMessage =
   | { type: 'reloadFile'; path: string }
   | { type: 'listDir'; dirs: string[] }
   | { type: 'openExternal'; path: string }
-  | { type: 'syncSummaries' }
   | { type: 'requestSummary'; order: number }
   | { type: 'projectAction'; action: ProjectAction; order?: number; dir?: string }
   | { type: 'characterAction'; action: CharacterAction; name: string; relPath?: string }
