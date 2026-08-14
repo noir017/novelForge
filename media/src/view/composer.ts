@@ -157,7 +157,6 @@ export function installComposer(): void {
   el.stopBtn.addEventListener('click', () => vscode.postMessage({ type: 'stop' }));
   el.atBtn.addEventListener('click', () => vscode.postMessage({ type: 'pickAttachment' }));
   el.selBtn.addEventListener('click', () => vscode.postMessage({ type: 'addSelection' }));
-  el.syncBtn.addEventListener('click', () => vscode.postMessage({ type: 'syncSummaries' }));
   el.cmdBtn.addEventListener('click', toggleCommands);
 
   // 面板的开合是**输入框内容的函数**（见 commands.ts）：打 `/` 就开、删掉

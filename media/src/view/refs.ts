@@ -9,9 +9,6 @@ import { byId } from '../dom';
 
 export const el = {
   tabbar: byId('tabbar'),
-  staleBanner: byId('staleBanner'),
-  staleText: byId('staleText'),
-  syncBtn: byId('syncBtn'),
   messages: byId('messages'),
   emptyHint: byId('emptyHint'),
   newSessionBtn: byId<HTMLButtonElement>('newSessionBtn'),
