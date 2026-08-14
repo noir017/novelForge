@@ -24,14 +24,7 @@
  */
 import { pickSections } from '../model/markdown';
 import { PLAN_SECTION_KEYS, PlanSections, emptyPlanSections } from '../model/planFile';
-import {
-  SCENE_SECTION_KEYS,
-  SceneSectionKey,
-  SceneSections,
-  emptySceneSections,
-  parseList,
-  renderList,
-} from '../model/sceneFile';
+import { SCENE_SECTION_KEYS, SceneSections, emptySceneSections } from '../model/sceneFile';
 import { CreationAction } from '../model/pipeline';
 import { extractJsonObject, stripCodeFence } from './parse';
 import { toSectionText } from './summarize';
@@ -184,7 +177,7 @@ function parseSceneCard(text: string): Extract<Artifact, { kind: 'scene' }> {
 
   if (obj) {
     for (const key of SCENE_SECTION_KEYS) {
-      sections[key] = sectionValue(key, obj[key]);
+      sections[key] = toSectionText(obj[key]);
     }
     if (Object.values(sections).some((v) => v.trim())) {
       return {
@@ -198,32 +191,14 @@ function parseSceneCard(text: string): Extract<Artifact, { kind: 'scene' }> {
     }
   }
 
+  // 第三层兜底：一段没有结构的散文。塞进「环境」而不是「目的」——
+  // 「目的」不算 ready（拆场景那一步就填上了，见 isSceneReady），
+  // 兜底进那一节的话，这一场采纳后会显示成「还没有素材」的空壳。
   const picked = pickSections(text, SCENE_SECTION_KEYS) as SceneSections;
   const merged = Object.values(picked).some((v) => v.trim())
     ? { ...sections, ...picked }
-    : { ...sections, 必须发生: text.trim() };
+    : { ...sections, 环境: text.trim() };
   return { kind: 'scene', place: '', time: '', characters: [], sections: merged };
-}
-
-/**
- * 「必须发生」「不能发生」是列表，其余是散文。
- *
- * 模型给这两节的形状最不稳定：有时数组、有时带 `-` 的多行字符串、有时一行
- * 顿号分隔。统一归一成 Markdown 列表，因为落盘的小节格式是列表，而
- * `parseList` 读回来时三种写法都认。
- */
-function sectionValue(key: SceneSectionKey, v: unknown): string {
-  const text = toSectionText(v);
-  if (key !== '必须发生' && key !== '不能发生') {
-    return text;
-  }
-  const items = parseList(text);
-  // 单行顿号分隔的写法（`翻墙、被发现、逃走`）拆成三条，否则「3~6 条骨架」
-  // 会变成一条又臭又长的。
-  const expanded = items.length === 1 && /[、；;]/.test(items[0])
-    ? items[0].split(/[、；;]/).map((s) => s.trim()).filter(Boolean)
-    : items;
-  return renderList(expanded);
 }
 
 // ---------------------------------------------------------------- 清单类

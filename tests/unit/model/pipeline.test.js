@@ -445,12 +445,11 @@ describe('sceneFile.ts · 解析与渲染', () => {
       status: 'ready',
       sections: {
         目的: '进入青云宗',
-        前置: '林昭无法伪造身份玉牌',
-        必须发生: sceneFile.renderList(['林昭决定翻墙', '差点被巡逻弟子发现', '使用轻身术']),
-        不能发生: sceneFile.renderList(['不能暴露真实身份', '不能遇见沈月']),
-        情绪曲线: '紧张 → 危险 → 庆幸',
-        人物状态: '林昭：疲惫、警惕',
-        伏笔: '墙内发现奇怪的血迹',
+        环境: '子时，雨下了两个时辰。青石墙泡胀了，墙头的灯每隔一丈一盏。',
+        人物状态: '林昭：疲惫、警惕，还不知道墙内有人守夜。',
+        动作: '把湿透的外衣搭在墙头防划手，赤脚踩上砖沿，数到第三盏灯才动。',
+        对话: '巡逻弟子甲：「这雨下得，鬼都不来。」',
+        细节与意象: '墙内的血迹，被雨泡开一角。',
       },
     });
     back = sceneFile.parseSceneFile(rendered, '.novelforge/scenes/卷一/012-夜入青云/02-翻越侧峰.md');
@@ -489,12 +488,12 @@ describe('sceneFile.ts · 解析与渲染', () => {
     assert.equal(back.status, 'ready');
   });
 
-  test('场景往返 · 必须发生', () => {
-    assert.equal(sceneFile.parseList(back.sections.必须发生).length, 3);
+  test('场景往返 · 环境', () => {
+    assert.ok(back.sections.环境.includes('青石墙泡胀了'), back.sections.环境);
   });
 
-  test('场景往返 · 不能发生', () => {
-    assert.equal(sceneFile.parseList(back.sections.不能发生)[1], '不能遇见沈月');
+  test('场景往返 · 对话', () => {
+    assert.ok(back.sections.对话.includes('鬼都不来'), back.sections.对话);
   });
 
   test('文件名的场景号压过 frontmatter', () => {
@@ -506,63 +505,44 @@ describe('sceneFile.ts · 解析与渲染', () => {
   });
 
   // ---- 状态推导 ----
-  test('填了必须发生就 ready', () => {
-    assert.equal(sceneFile.parseSceneFile('## 必须发生\n\n- 甲\n- 乙', 'scenes/x/01-a.md').status, 'ready');
+  // 判据是「除目的以外任意一节有素材」。目的排除在外是因为拆场景那一步就把它
+  // 填上了——拿它当判据，刚拆出来的空壳会全部立刻显示「可以写了」。
+  test('有素材就 ready', () => {
+    assert.equal(sceneFile.parseSceneFile('## 动作\n\n翻墙', 'scenes/x/01-a.md').status, 'ready');
   });
 
-  test('没填必须发生就 draft', () => {
+  test('只有目的不算 ready', () => {
     assert.equal(sceneFile.parseSceneFile('## 目的\n\n进入宗门', 'scenes/x/01-a.md').status, 'draft');
   });
 
   test('认不出的状态按内容推', () => {
     assert.equal(
-      sceneFile.parseSceneFile('---\nstatus: 乱写\n---\n\n## 必须发生\n\n- 甲', 'scenes/x/01-a.md').status,
+      sceneFile.parseSceneFile('---\nstatus: 乱写\n---\n\n## 环境\n\n下雨', 'scenes/x/01-a.md').status,
       'ready'
     );
   });
 
   test('written 状态被保留', () => {
     assert.equal(
-      sceneFile.parseSceneFile('---\nstatus: written\n---\n\n## 必须发生\n\n- 甲', 'scenes/x/01-a.md').status,
+      sceneFile.parseSceneFile('---\nstatus: written\n---\n\n## 环境\n\n下雨', 'scenes/x/01-a.md').status,
       'written'
     );
   });
 
   test('isSceneReady', () => {
-    assert.ok(sceneFile.isSceneReady({ ...sceneFile.emptySceneSections(), 必须发生: '- 甲' }));
+    assert.ok(sceneFile.isSceneReady({ ...sceneFile.emptySceneSections(), 对话: '「走。」' }));
   });
 
-  test('空必须发生不 ready', () => {
+  test('空场景不 ready', () => {
     assert.ok(!sceneFile.isSceneReady(sceneFile.emptySceneSections()));
   });
 
+  test('只填目的不 ready', () => {
+    assert.ok(!sceneFile.isSceneReady({ ...sceneFile.emptySceneSections(), 目的: '进入宗门' }));
+  });
+
   test('占位不算 ready', () => {
-    assert.ok(!sceneFile.isSceneReady({ ...sceneFile.emptySceneSections(), 必须发生: '（待补充）' }));
-  });
-
-  // ---- 列表往返 ----
-  test('列表渲染', () => {
-    assert.equal(sceneFile.renderList(['甲', '乙']), '- 甲\n- 乙');
-  });
-
-  test('列表渲染跳过空条目', () => {
-    assert.equal(sceneFile.renderList(['甲', '  ', '']), '- 甲');
-  });
-
-  test('列表解析 · 星号', () => {
-    assert.equal(sceneFile.parseList('* 甲\n* 乙').length, 2);
-  });
-
-  test('列表解析 · 数字', () => {
-    assert.equal(sceneFile.parseList('1. 甲\n2) 乙').join('|'), '甲|乙');
-  });
-
-  test('列表解析 · 裸文本每行一条', () => {
-    assert.equal(sceneFile.parseList('甲\n乙').length, 2);
-  });
-
-  test('列表解析跳过占位', () => {
-    assert.equal(sceneFile.parseList('（待补充）').length, 0);
+    assert.ok(!sceneFile.isSceneReady({ ...sceneFile.emptySceneSections(), 动作: '（待补充）' }));
   });
 
   test('一行摘要', () => {

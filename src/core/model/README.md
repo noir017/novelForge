@@ -14,7 +14,7 @@
 | [identity.ts](identity.ts) | ★ 同一人聚类（纯函数）：把摘要里散落的称呼归并成人。判据是**同章共现作硬约束的贪心聚类**——同一章 cast 里各自出场的两个称呼永不合并，候选链接按「多少章这么写过」计票贪心处理。朴素并查集在这里是错的：一条幻觉别名会顺着传递闭包把主角和她孪生弟弟并成一个人。 |
 | [pipeline.ts](pipeline.ts) | ★ **创作流水线的领域模型**：`Stage × Capability × Target` 三元组、每阶段的身份与可用能力、`CreationTarget` 与它的稳定字符串键、章节流水线状态的推导（`deriveStage` / `deriveProgress`），以及界面直接吃的两样——`commandsFor`（`/` 命令面板的命令表）与 `deriveNextStep`（状态机 → 主按钮上那一个动作，判据与 `deriveStage` 同源）。**纯类型 + 纯函数，零 import**，所以前端可以直接 import 同一份表。它继续留在 `model/`；读磁盘的聚合器是 [`../views/pipeline.ts`](../views/pipeline.ts)，不要混为一处。 |
 | [planFile.ts](planFile.ts) | 章节细纲（`.novelforge/plans/<镜像章节路径>.md`）的格式：五个固定小节 + frontmatter 的 `upstreamHash`。纯函数无 I/O。 |
-| [sceneFile.ts](sceneFile.ts) | 场景卡（`.novelforge/scenes/<镜像章节路径>/NN-标题.md`）的格式：七个固定小节 + 场号来自文件名前缀。纯函数无 I/O。**只认 `.md`**——它是插件自己的数据格式，与「章节不认扩展名」相反。 |
+| [sceneFile.ts](sceneFile.ts) | 场景卡（`.novelforge/scenes/<镜像章节路径>/NN-标题.md`）的格式：六个固定小节（目的 / 环境 / 人物状态 / 动作 / 对话 / 细节与意象）+ 场号来自文件名前缀。**这一层产的是正文可以直接取用的素材，不是对正文的约束**——该发生什么、不该发生什么归上一层的细纲管。纯函数无 I/O。**只认 `.md`**——它是插件自己的数据格式，与「章节不认扩展名」相反。 |
 | [markdown.ts](markdown.ts) | 轻量 Markdown 结构工具：YAML frontmatter 与「## 小节」的解析/序列化，以及四个 frontmatter 取值兜底（`asString` / `asArray` / `asNumber` / `asNumberArray`）。刻意不引入 yaml 依赖，解析失败退化为忽略该行而非抛错。 |
 | [fs.ts](fs.ts) | 磁盘与字符串小工具：文本读写、稳定哈希、字数统计、文件名清理、slug 生成与扫描目录忽略规则。 |
 | [castParse.ts](castParse.ts) | 出场人物字段的序列化、frontmatter 解析与旧摘要小节文本反解。 |

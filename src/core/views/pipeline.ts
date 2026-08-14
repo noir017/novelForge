@@ -49,7 +49,7 @@ export interface SceneView {
   time: string;
   characters: string[];
   status: Scene['status'];
-  /** 「必须发生」已填，可以写正文了。 */
+  /** 已经有素材了，可以写正文。 */
   ready: boolean;
   /** 生成这一场之后，本章细纲改过——前置条件可能已经失效。 */
   upstreamStale: boolean;

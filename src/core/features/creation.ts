@@ -28,7 +28,7 @@ import { describeError, elapsed, scoped } from '../runtime/logger';
 import { exists, hash, readText, sanitizeFileName, writeText } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { renderPlanFile, PlanSections } from '../model/planFile';
-import { renderSceneFile, sceneFileName } from '../model/sceneFile';
+import { emptySceneSections, isSceneReady, renderSceneFile, sceneFileName } from '../model/sceneFile';
 import type { ChapterOutlineItem, SceneOutlineItem } from './artifact';
 import {
   CAPABILITY_LABEL,
@@ -336,7 +336,7 @@ export class CreationSession {
   /**
    * 细纲拆场景：为每一场建一个场景文件。
    *
-   * 与拆章一样**不覆盖**：已经存在的场号跳过。作者花时间填过的「必须发生」
+   * 与拆章一样**不覆盖**：已经存在的场号跳过。作者花时间设计过的场景
    * 被一次重新拆分抹掉，是这条路上最贵的错误。
    */
   private async acceptSceneList(
@@ -365,16 +365,11 @@ export class CreationSession {
         characters: item.characters,
         targetWords: item.targetWords,
         upstreamHash,
-        // 刚拆出来的是壳，「必须发生」还没填——status 如实说 draft。
+        // 刚拆出来的是壳，还没设计过——status 如实说 draft。
         status: 'draft',
         sections: {
+          ...emptySceneSections(),
           目的: item.goal,
-          前置: '',
-          必须发生: '',
-          不能发生: '',
-          情绪曲线: '',
-          人物状态: '',
-          伏笔: '',
         },
       });
       created.push(rel);
@@ -413,8 +408,8 @@ export class CreationSession {
       characters: artifact.characters.length > 0 ? artifact.characters : (existing?.characters ?? []),
       targetWords: artifact.targetWords ?? existing?.targetWords,
       upstreamHash: plan ? planContentHash(plan) : (existing?.upstreamHash ?? ''),
-      // 「必须发生」填上了就是可以开写了——状态由内容推，不靠调用方记得传。
-      status: (artifact.sections.必须发生.trim() ? 'ready' : 'draft') as 'ready' | 'draft',
+      // 设计过了就是可以开写了——状态由内容推，不靠调用方记得传。
+      status: (isSceneReady(artifact.sections) ? 'ready' : 'draft') as 'ready' | 'draft',
       sections: artifact.sections,
     };
 

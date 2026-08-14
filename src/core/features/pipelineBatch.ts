@@ -25,6 +25,7 @@ import { describeError, elapsed, formatDuration, scoped } from '../runtime/logge
 import { hash, sanitizeFileName } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { isPlanFilled } from '../model/planFile';
+import { emptySceneSections } from '../model/sceneFile';
 import { describeTaskModels } from '../model/tiers';
 import { buildContext } from '../context/builder';
 import { Chapter } from '../model/types';
@@ -219,16 +220,11 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
           characters: item.characters,
           targetWords: item.targetWords,
           upstreamHash,
-          // 刚拆出来的是壳，「必须发生」还没填。
+          // 刚拆出来的是壳，还没有素材。
           status: 'draft',
           sections: {
+            ...emptySceneSections(),
             目的: item.goal,
-            前置: '',
-            必须发生: '',
-            不能发生: '',
-            情绪曲线: '',
-            人物状态: '',
-            伏笔: '',
           },
         });
       }

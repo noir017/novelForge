@@ -41,10 +41,14 @@ export function renderScene(scene: Scene): string {
   return `${head}${who}${words}\n${body || '（尚未填写）'}`;
 }
 
-/** 邻居场景只注入「目的 / 必须发生 / 不能发生」。 */
+/**
+ * 邻居场景只注入「目的 / 环境」——够让写这一场的人知道上一场停在哪、
+ * 下一场要接到哪。不铺开动作与对话：那是那一场自己的素材，摊在这里只会
+ * 挤掉本场的预算，还容易被误当成本场要写的东西。
+ */
 export function renderSceneBrief(scene: Scene, relation: string): string {
   const lines = [`【场景 ${describeScene(scene)}${relation}】`];
-  for (const key of ['目的', '必须发生', '不能发生'] as const) {
+  for (const key of ['目的', '环境'] as const) {
     const value = scene.sections[key]?.trim();
     if (value) {
       lines.push(`${key}：${value}`);

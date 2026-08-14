@@ -3,7 +3,7 @@
  * 迁自 scripts/smoke-creation.js（73 条断言）。
  *
  * 这一层最贵的失败方式不是崩溃，而是**静默写错地方或静默覆盖**——
- * 拆场景把作者填了三天的「必须发生」抹掉、采纳细纲把手写的那份顶掉。
+ * 拆场景把作者攒了三天的场景素材抹掉、采纳细纲把手写的那份顶掉。
  * 所以这里的重点不是「能不能写进去」，而是「不该写的时候有没有拦住」。
  */
 const { describe, test, before, after } = require('node:test');
@@ -16,6 +16,7 @@ const { cleanup } = require('../../helpers/teardown');
 
 let bundle;
 let A;
+let sceneFile;
 let h;
 let t;
 let project;
@@ -27,9 +28,11 @@ before(async () => {
     project: './src/core/model/project.ts',
     artifact: './src/core/features/artifact.ts',
     creation: './src/core/features/creation.ts',
+    sceneFile: './src/core/model/sceneFile.ts',
     pipe: './src/core/views/pipeline.ts',
   });
   A = bundle.artifact;
+  sceneFile = bundle.sceneFile;
   // 原脚本的假宿主**没有** reviewReplace，于是 acceptArtifact 走 confirm 那条分支
   // （creation.ts:611 `host.reviewReplace ? … : host.confirm(…)`）。helper 默认带
   // reviewReplace，不摘掉的话「保留原样」这条路根本走不到。
@@ -132,7 +135,6 @@ describe('artifact.ts · 细纲三层降级', () => {
 describe('artifact.ts · 场景卡', () => {
   const act = { stage: 'scene', capability: 'generate' };
   let scene;
-  let inline;
   let md;
 
   before(() => {
@@ -142,12 +144,11 @@ describe('artifact.ts · 场景卡', () => {
       characters: ['林昭', '守卫'],
       targetWords: 1200,
       目的: '进入宗门',
-      必须发生: ['第一次翻墙失手', '守卫换岗', '林昭翻过去'],
-      不能发生: '不能让人看见他的脸',
+      环境: '雨下了两个时辰，墙头的灯只剩一团黄。',
+      动作: ['第一次翻墙失手', '守卫换岗', '林昭翻过去'],
+      对话: '守卫：「这雨下得，鬼都不来。」',
     }));
-    // 模型把三条骨架写成一行顿号分隔——拆开，否则「3~6 条」变成一条又臭又长的。
-    inline = A.parseArtifact(act, JSON.stringify({ 目的: 'x', 必须发生: '翻墙、被发现、逃走' }));
-    md = A.parseArtifact(act, '## 目的\n\n进入宗门\n\n## 必须发生\n\n- 翻墙\n- 被发现');
+    md = A.parseArtifact(act, '## 目的\n\n进入宗门\n\n## 动作\n\n翻墙，落地时崴了脚');
   });
 
   test('场景 frontmatter 字段', () => {
@@ -164,34 +165,35 @@ describe('artifact.ts · 场景卡', () => {
     assert.equal(scene.targetWords, 1200);
   });
 
-  // 「必须发生」是骨架，必须归一成 Markdown 列表——落盘的格式是列表。
-  test('必须发生渲染成列表', () => {
+  test('散文小节原样收下', () => {
+    assert.ok(scene.sections.环境.includes('只剩一团黄'), scene.sections.环境);
+    assert.ok(scene.sections.对话.includes('鬼都不来'), scene.sections.对话);
+  });
+
+  // 模型爱给数组。小节存的是 Markdown，所以数组归一成列表行而不是 `[object]`。
+  test('数组小节归一成 Markdown 列表', () => {
     assert.equal(
-      scene.sections.必须发生,
+      scene.sections.动作,
       '- 第一次翻墙失手\n- 守卫换岗\n- 林昭翻过去',
-      JSON.stringify(scene.sections.必须发生)
-    );
-  });
-
-  test('单条也渲染成列表', () => {
-    assert.equal(scene.sections.不能发生, '- 不能让人看见他的脸');
-  });
-
-  test('顿号分隔的一行拆成三条', () => {
-    assert.equal(
-      inline.sections.必须发生,
-      '- 翻墙\n- 被发现\n- 逃走',
-      JSON.stringify(inline.sections.必须发生)
+      JSON.stringify(scene.sections.动作)
     );
   });
 
   test('场景卡也能走 Markdown 路径', () => {
     assert.equal(md.sections.目的, '进入宗门');
+    assert.equal(md.sections.动作, '翻墙，落地时崴了脚');
   });
 
   test('Markdown 路径没有 frontmatter 字段也不炸', () => {
     assert.equal(md.place, '');
     assert.equal(md.characters.length, 0);
+  });
+
+  // 第三层兜底不能落在「目的」上：那一节不算 ready（拆场景时就填上了），
+  // 兜底进去的话这一场采纳后会显示成「还没有素材」的空壳。
+  test('无结构散文兜底进算 ready 的小节', () => {
+    const prose = A.parseArtifact(act, '雨下了两个时辰，墙头的灯只剩一团黄。');
+    assert.ok(sceneFile.isSceneReady(prose.sections), JSON.stringify(prose.sections));
   });
 });
 
@@ -447,7 +449,7 @@ describe('采纳 · 细纲拆场景', () => {
     assert.ok(first.includes('place: 山门外') && first.includes('time: 戌时'));
   });
 
-  // 刚拆出来的是壳，「必须发生」还没填——status 得如实说 draft。
+  // 刚拆出来的是壳，还没有素材——status 得如实说 draft。
   test('新拆的场景是 draft', () => {
     assert.ok(first.includes('status: draft'));
   });
@@ -484,12 +486,11 @@ describe('采纳 · 单张场景卡', () => {
       targetWords: 900,
       sections: {
         目的: '摸清换岗',
-        前置: '林昭刚到镇上',
-        必须发生: '- 看见换岗\n- 被狗叫惊动',
-        不能发生: '- 不能被认出',
-        情绪曲线: '警觉 → 紧张',
+        环境: '戌时的小雨，巷口的灯笼被风吹得晃。',
         人物状态: '他还不知道令牌在藏书阁',
-        伏笔: '狗',
+        动作: '蹲在巷口数换岗的人数，被狗叫惊动，退回墙根',
+        对话: '守卫甲：「谁在那儿？」',
+        细节与意象: '那条拴在门柱上的黄狗',
       },
     });
     text = t.read('.novelforge/scenes/001-夜入青云/01-踩点.md');
@@ -499,8 +500,8 @@ describe('采纳 · 单张场景卡', () => {
     assert.equal(result.relPath, '.novelforge/scenes/001-夜入青云/01-踩点.md', result.message);
   });
 
-  // 「必须发生」填上了就是可以开写——状态由内容推，不靠调用方记得传。
-  test('填了必须发生就转 ready', () => {
+  // 有素材就是可以开写——状态由内容推，不靠调用方记得传。
+  test('有素材就转 ready', () => {
     assert.ok(text.includes('status: ready'));
   });
 

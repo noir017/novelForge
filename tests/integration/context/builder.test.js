@@ -929,7 +929,7 @@ describe('装配：discuss 模式', () => {
   });
 
   test('系统提示写明本层职责', () => {
-    assert.ok(d.messages[0].content.includes('剧情不由你决定'));
+    assert.ok(d.messages[0].content.includes('剧情走向不由你决定'));
   });
 
   test('discuss 不强制只输出正文', () => {
@@ -975,14 +975,13 @@ describe('装配：四阶段配方', () => {
     冲突与节奏: '三拍：试探、摊牌、被打断。第二拍最危险。',
     伏笔与回收: '埋：沈氏袖口的烧痕。收：楔子里那半枚令牌的来路。',
   });
-  const sceneSections = (goal, must) => ({
+  const sceneSections = (goal, action) => ({
     目的: goal,
-    前置: '林昭已经进了客栈，天还没亮。',
-    必须发生: must,
-    不能发生: '不能提前说破沈氏的身份。',
-    情绪曲线: '警惕 → 试探 → 短暂的信任',
+    环境: '寅时的客栈，天还没亮，楼下的灯芯结了灯花。',
     人物状态: '林昭不知道沈氏见过他母亲。',
-    伏笔: '袖口的烧痕一闪而过。',
+    动作: action,
+    对话: '沈氏：「你这个姓，在这一带不该说出口。」',
+    细节与意象: '袖口的烧痕一闪而过。',
   });
 
   let fixture;
@@ -1170,8 +1169,8 @@ describe('装配：四阶段配方', () => {
     assert.ok(sIds.get(sceneRel(1)).label.includes('上一场') && sIds.get(sceneRel(3)).label.includes('下一场'));
   });
 
-  test('邻居只给约束不给整张卡', () => {
-    assert.ok(!sIds.get(sceneRel(1)).text.includes('情绪曲线'), sIds.get(sceneRel(1)).text.slice(0, 60));
+  test('邻居只给定位不给整张卡', () => {
+    assert.ok(!sIds.get(sceneRel(1)).text.includes('细节与意象'), sIds.get(sceneRel(1)).text.slice(0, 60));
   });
 
   test('细节阶段带本章细纲', () => {
@@ -1197,7 +1196,7 @@ describe('装配：四阶段配方', () => {
   });
 
   test('细节阶段的输出契约是场景 JSON', () => {
-    assert.ok(sc.messages[1].content.includes('"不能发生"') && sc.messages[1].content.includes('只输出 JSON'));
+    assert.ok(sc.messages[1].content.includes('"细节与意象"') && sc.messages[1].content.includes('只输出 JSON'));
   });
 
   test('正文阶段仍带整章原文', () => {

@@ -66,6 +66,7 @@ before(async () => {
     registry: './src/core/llm/registry.ts',
     provider: './src/core/llm/provider.ts',
     batch: './src/core/features/pipelineBatch.ts',
+    sceneFile: './src/core/model/sceneFile.ts',
     errorLog: './src/core/runtime/errorLog.ts',
     db: './src/core/runtime/db.ts',
     logger: './src/core/runtime/logger.ts',
@@ -287,7 +288,7 @@ describe('批量拆分场景', () => {
       characters: [],
       upstreamHash: '',
       status: 'ready',
-      sections: { 目的: '', 前置: '', 必须发生: '- 手写的骨架', 不能发生: '', 情绪曲线: '', 人物状态: '', 伏笔: '' },
+      sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '手写的骨架' },
     });
 
     replyFn = () => SCENES_JSON;
@@ -315,7 +316,7 @@ describe('批量拆分场景', () => {
     assert.ok(t.has('.novelforge/scenes/002-入镇/01-踩点.md'));
   });
 
-  // 只补不改：作者花时间填过的「必须发生」被一次批量拆分抹掉，
+  // 只补不改：作者花时间攒的场景素材被一次批量拆分抹掉，
   // 是这条路上最贵的错误。
   test('手工拆的场景原样保留', () => {
     assert.ok(t.read('.novelforge/scenes/003-夜访/01-作者手拆的.md').includes('手写的骨架'));

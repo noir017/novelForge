@@ -44,7 +44,7 @@ export const STAGE_QUESTION: Record<CreationStage, string> = {
  * AI 在该阶段的身份。
  *
  * 这比提示词技巧更要紧：同一句「这里冲突太弱」，策划编辑会去动故事结构，
- * 剧情导演会去调这一章的节奏，编剧会去改这一幕的胜负条件，作者会去改措辞。
+ * 剧情导演会去调这一章的节奏，编剧会去想这一幕的画面，作者会去改措辞。
  * 不说清身份，四个阶段会得到同一种泛泛而谈的回答。
  */
 export const STAGE_ROLE: Record<CreationStage, string> = {
@@ -128,8 +128,8 @@ export function labelOf(stage: CreationStage, capability: Capability): string {
  * 每个阶段合法的能力。**前端的按钮组直接读它**，不在前端另写一份。
  *
  * 两处刻意的缺席：
- * - `scene` 没有 `split`：场景已经是最小的可采纳单位，再拆就是 beat，
- *   而 beat 现在是场景里「必须发生」的列表项，不单独成文件。
+ * - `scene` 没有 `split`：场景已经是最小的可采纳单位，再往下拆就是一句一句的
+ *   动作，那是正文的事，不单独成文件。
  * - `manuscript` 没有 `split` / `expand`：正文阶段要的是重写整段，
  *   而不是往里插东西——插出来的段落接不上上下文的语气。
  */
@@ -400,7 +400,7 @@ export interface PipelineFacts {
   /** 细纲有实质内容（不是一份全空的骨架）。 */
   planFilled: boolean;
   sceneCount: number;
-  /** 「必须发生」非空的场景数——只有这样的场景才写得出正文。 */
+  /** 已经备好素材的场景数——只有这样的场景才写得出正文。 */
   sceneReady: number;
   /** 已标记 `status: written` 的场景数。 */
   sceneWritten: number;
@@ -468,7 +468,7 @@ export interface PipelineProgress {
  * 四段完成度，各自 0..1。工程页的徽章与创作页的流水线条直接渲染它。
  *
  * 用比例而不是布尔，是因为设计要的是「剧情细节 80%」这种粒度——
- * 「有 4 个场景但其中 1 个还没填必须发生」和「一个场景都没有」不是一回事。
+ * 「有 4 个场景但其中 1 个还没备素材」和「一个场景都没有」不是一回事。
  */
 export function deriveProgress(f: PipelineFacts): PipelineProgress {
   const plan = f.hasPlan ? (f.planFilled ? 1 : 0.5) : 0;
@@ -513,7 +513,7 @@ export interface NextStepPlan {
 /** 推导下一步所需的事实。比 `PipelineFacts` 多两个「第一个没做完的是哪一场」。 */
 export interface NextStepFacts {
   sceneCount: number;
-  /** 第一个「必须发生」还没填的场景号。 */
+  /** 第一个还没备素材的场景号。 */
   firstUnreadyScene?: number;
   /** 第一个还没写正文的场景号。 */
   firstUnwrittenScene?: number;
@@ -545,7 +545,7 @@ export function deriveNextStep(stage: ChapterStage, f: NextStepFacts): NextStepP
         capability: 'generate',
         sceneNo: f.firstUnreadyScene,
         label: f.firstUnreadyScene === undefined ? '设计场景' : `设计场景 ${f.firstUnreadyScene}`,
-        hint: '填「必须发生」——它是这一场的骨架，也是写正文的前提。',
+        hint: '把这一幕想具体：环境、动作、对话。写正文时直接取用。',
       };
 
     case 'manuscript':

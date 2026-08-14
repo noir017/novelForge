@@ -66,7 +66,7 @@
 
    与 .summary-tip 同一套取舍：z-index 25（低于 toast 30 与右键菜单 40，那两个
    都是用户主动要的）；60vh 是可读性上限，放不下时 tip.ts 再压一次行内
-   max-height；**没有** pointer-events: none——「必须发生」是要抄进正文的，
+   max-height；**没有** pointer-events: none——场景素材是要抄进正文的，
    鼠标得进得来，能滚、能选中复制（收起的宽限期在 workbench.ts）。 */
 
 .workbench-tip {
@@ -126,10 +126,10 @@
 /* ---- 小节 */
 
 /*
- * 「必须发生」这类小节。左边一列固定宽的键，右边是内容。
+ * 「动作」「对话」这类小节。左边一列固定宽的键，右边是内容。
  *
- * `white-space: pre-line` 让「必须发生」那种 Markdown 列表保持分行——
- * 三条并成一行读起来就完全不像三个独立的动作了。
+ * `white-space: pre-line` 让多行素材保持分行——几条动作并成一行读起来
+ * 就完全不像几个独立的动作了，对话更是必须一句一行。
  */
 .wbt-row {
   display: flex;

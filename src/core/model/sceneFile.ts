@@ -5,8 +5,26 @@
  * 怎么解析、怎么渲染，只在这里定义一次。
  *
  * 场景是「细纲 → 正文」之间缺的那一层。细纲说「林昭翻墙进入青云宗」，
- * 场景说清：什么时间、下不下雨、为什么翻、怕不怕、守卫在哪、第一次失败没有、
- * 这一幕埋什么伏笔、**不能**发生什么。到这一步才真正「可以写了」。
+ * 场景把它变成能直接下笔的东西：子时下着雨、青石墙泡胀了、巡逻的灯每隔一丈
+ * 一盏、林昭赤脚踩上砖沿、墙那边两个弟子在说什么。到这一步才真正「可以写了」。
+ *
+ * ## 场景层产素材，不下约束
+ *
+ * 这一层**只提供正文可以直接用的材料**：环境、动作、对话、细节与意象。
+ * 它不规定正文必须写到什么、不许写到什么——那种「这一幕一定要出现 A、绝不
+ * 能出现 B」的清单曾经在这里，已经删掉，理由有两条：
+ *
+ * 1. **写小说不需要那么在乎逻辑严丝合缝。** 一张勾选表会压掉模型自己找到的
+ *    好写法，换来一段逐条打钩、读着像施工验收的正文。
+ * 2. **约束该在上一层。** 该发生什么、不该发生什么是**细纲**的事（谁在这一章
+ *    达成什么、埋什么收什么）。细纲已经定了走向，场景层的活是把那个走向
+ *    落成可感的画面，不是把它重述一遍再加几条禁令。
+ *
+ * 所以这六节的写法是**具体、可感、能抄进正文**，而不是抽象的要求：
+ * 「雨里只剩一团黄」是素材，「要营造压抑氛围」不是。
+ *
+ * 各节**都不是必填**：有些场就是一段过渡，环境与动作定了就能开写，硬逼作者
+ * 填满六个格子只会让他去填废话。判「设计过没有」的规则见 {@link isSceneReady}。
  *
  * ## 序号规则
  *
@@ -32,15 +50,14 @@ import {
   stringifySections,
 } from './markdown';
 
-export const SCENE_SECTION_KEYS = [
-  '目的',
-  '前置',
-  '必须发生',
-  '不能发生',
-  '情绪曲线',
-  '人物状态',
-  '伏笔',
-] as const;
+/**
+ * 六节素材。顺序即「写这一幕时读它们的顺序」：先知道为什么写（目的）、
+ * 站在哪里（环境）、此刻各人什么状态，再看做什么、说什么、抓哪些细节。
+ *
+ * 「目的」是唯一一节**不是素材**的：它由拆场景那一步从细纲带过来，只用来
+ * 定位这一幕在本章的位置。判 ready 时因此把它排除在外，见 {@link isSceneReady}。
+ */
+export const SCENE_SECTION_KEYS = ['目的', '环境', '人物状态', '动作', '对话', '细节与意象'] as const;
 
 export type SceneSectionKey = (typeof SCENE_SECTION_KEYS)[number];
 
@@ -49,11 +66,11 @@ export type SceneSections = Record<SceneSectionKey, string>;
 /**
  * 场景的写作状态。
  *
- * - `draft`：刚拆出来的壳，还没填 beats
- * - `ready`：「必须发生」已填，可以写正文了
+ * - `draft`：刚拆出来的壳，还没有素材
+ * - `ready`：有素材了，可以写正文了
  * - `written`：正文已采纳写入章节
  *
- * 只有 `written` 是需要落盘的——前两个能从「必须发生」空不空推出来，但
+ * 只有 `written` 是需要落盘的——前两个能由 {@link isSceneReady} 推出来，但
  * 落一份显式的状态让作者能手工把某一场标回 draft 重做，成本只有一行。
  */
 export type SceneStatus = 'draft' | 'ready' | 'written';
@@ -131,17 +148,21 @@ export function sceneFileName(no: number, safeTitle: string): string {
 }
 
 export function emptySceneSections(): SceneSections {
-  return { 目的: '', 前置: '', 必须发生: '', 不能发生: '', 情绪曲线: '', 人物状态: '', 伏笔: '' };
+  return { 目的: '', 环境: '', 人物状态: '', 动作: '', 对话: '', 细节与意象: '' };
 }
 
 /**
- * 这一场能不能写了。
+ * 这一场有没有素材可写了。
  *
- * 判据只有「必须发生」非空——它是唯一一节，缺了模型就只能自由发挥，
- * 而整个流水线的目的正是让模型只负责展开下一层。其余各节都是加分项。
+ * 判据是**除「目的」以外任意一节有内容**。不看「目的」是因为拆场景那一步
+ * 就把细纲里的一句话填进去了，每一场一出生就带着它——拿它当判据的话，
+ * 刚拆出来的空壳会全部立刻显示「可以写了」，进度条从此撒谎。
+ *
+ * 反过来也不指定某一节必填：有些场只需要环境与动作，有些场几乎全是对话。
+ * 有任意一节素材就够正文层开工了。
  */
 export function isSceneReady(sections: SceneSections): boolean {
-  return meaningful(sections.必须发生);
+  return SCENE_SECTION_KEYS.some((key) => key !== '目的' && meaningful(sections[key]));
 }
 
 /**
@@ -166,7 +187,7 @@ export function parseSceneFile(text: string, relPath: string): Scene {
     characters: asArray(frontmatter.characters),
     targetWords: asNumber(frontmatter.targetWords),
     upstreamHash: asString(frontmatter.upstreamHash),
-    // 认不出的状态按内容推：填了「必须发生」就是 ready，否则 draft。
+    // 认不出的状态按内容推：有素材就是 ready，否则 draft。
     status:
       status === 'written' || status === 'ready' || status === 'draft'
         ? (status as SceneStatus)
@@ -207,23 +228,6 @@ export function describeScene(scene: Pick<Scene, 'no' | 'title' | 'place' | 'tim
   return [`${scene.no}. ${scene.title || '（未命名）'}`, scene.place, scene.time]
     .filter((s) => s && s.trim())
     .join(' · ');
-}
-
-/** `['a','b']` ↔ `- a\n- b`。模型爱输出数组，小节里存的是 Markdown 列表。 */
-export function renderList(items: string[]): string {
-  return items
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((s) => `- ${s}`)
-    .join('\n');
-}
-
-/** 列表小节 → 条目数组。认 `-` / `*` / `1.` 三种写法，也认每行一条的裸文本。 */
-export function parseList(text: string): string[] {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^\s*(?:[-*+]|\d+[.)])\s*/, '').trim())
-    .filter((line) => line.length > 0 && line !== '（待补充）' && line !== '(待补充)');
 }
 
 function meaningful(text: string): boolean {

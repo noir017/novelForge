@@ -135,7 +135,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.equal(scenes().length, 2, String(scenes().length));
   });
 
-  test('没填必须发生的场景标成 draft', () => {
+  test('没有素材的场景标成 draft', () => {
     assert.ok(scenes()[1].classList.contains('draft'));
   });
 
@@ -354,7 +354,7 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
         relPath: '.novelforge/scenes/012-夜入青云/02-翻越侧峰.md',
         sections: [
           { key: '这一幕', text: '青云宗侧峰 · 子时，暴雨 · 林昭' },
-          { key: '必须发生', text: '- 林昭决定翻墙\n- 差点被巡逻弟子发现' },
+          { key: '动作', text: '林昭把外衣搭在墙头\n数到第三盏灯才翻过去' },
         ],
       }),
     });
@@ -414,11 +414,11 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
     assert.equal(rows().length, 2, rows().join('|'));
   });
 
-  test('「必须发生」逐条可见', () => {
-    assert.ok(rows()[1].includes('林昭决定翻墙') && rows()[1].includes('差点被'), rows()[1]);
+  test('素材逐行可见', () => {
+    assert.ok(rows()[1].includes('搭在墙头') && rows()[1].includes('第三盏灯'), rows()[1]);
   });
 
-  // 「必须发生」是要抄进正文的，鼠标得进得来——所以收起有宽限期。
+  // 场景素材是要抄进正文的，鼠标得进得来——所以收起有宽限期。
   test('移开后有宽限期，浮窗还在', () => {
     leaveEntry();
     assert.ok(tip());
@@ -429,7 +429,7 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(!tip());
   });
 
-  // ---- 点一下钉住：照着「必须发生」写正文时鼠标要回输入框
+  // ---- 点一下钉住：照着场景素材写正文时鼠标要回输入框
   test('点击立刻浮出来，不等延迟', () => {
     ui.clickEl(entry());
     assert.ok(tip());

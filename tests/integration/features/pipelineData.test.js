@@ -146,7 +146,7 @@ describe('数据层 · 细纲与场景读写', () => {
       await project.writeScene(ch, {
         chapterRelPath: ch, no, title, place: '青云宗', time: '子时', characters: ['林昭'],
         upstreamHash: 'PLAN_A', status: 'ready',
-        sections: { ...bundle.sceneFile.emptySceneSections(), 必须发生: '- 甲\n- 乙' },
+        sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲、乙' },
       });
     }
     // 下面的改名会删掉这个文件，所以在原脚本断言的那一刻就抓下来。
@@ -158,7 +158,7 @@ describe('数据层 · 细纲与场景读写', () => {
     await project.writeScene(ch, {
       chapterRelPath: ch, no: 2, title: '翻墙', place: '', time: '', characters: [],
       upstreamHash: 'PLAN_A', status: 'ready',
-      sections: { ...bundle.sceneFile.emptySceneSections(), 必须发生: '- 甲' },
+      sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
     });
     oldFileGone = !t.has('.novelforge/scenes/卷一/012-夜入青云/02-翻越侧峰.md');
     newFileThere = t.has('.novelforge/scenes/卷一/012-夜入青云/02-翻墙.md');
@@ -418,7 +418,7 @@ describe('新鲜度链', () => {
       await project.writeScene(ch, {
         chapterRelPath: ch, no, title: `场景${no}`, place: '', time: '', characters: [],
         upstreamHash: planHash, status: 'ready',
-        sections: { ...bundle.sceneFile.emptySceneSections(), 必须发生: '- 甲' },
+        sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
       });
     }
     pScenesFresh = await bundle.pipe.buildChapterPipeline(project, await project.getChapter(12));
@@ -443,7 +443,7 @@ describe('新鲜度链', () => {
     pManuscriptFresh = await bundle.pipe.buildChapterPipeline(project, await project.getChapter(12));
 
     const s2 = await project.readScene(ch, 2);
-    s2.sections.必须发生 = '- 甲\n- 乙\n- 丙';
+    s2.sections.动作 = '甲、乙、丙';
     await project.writeScene(ch, { ...s2, chapterRelPath: ch });
     pManuscriptStale = await bundle.pipe.buildChapterPipeline(project, await project.getChapter(12));
   });
@@ -556,7 +556,7 @@ describe('工作区卡', () => {
     await project.writeScene(ch, {
       chapterRelPath: ch, no: 2, title: '翻墙', place: '青云宗侧峰', time: '子时，暴雨',
       characters: ['林昭'], upstreamHash: 'X', status: 'ready',
-      sections: { ...bundle.sceneFile.emptySceneSections(), 必须发生: '- 甲' },
+      sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
     });
     withMeta = await wb({ kind: 'scene', chapterRelPath: ch, sceneNo: 2 });
     meta = withMeta.sections.find((s) => s.key === '这一幕');
@@ -612,9 +612,9 @@ describe('工作区卡', () => {
     );
   });
 
-  test('场景卡带必须发生', () => {
+  test('场景卡带素材小节', () => {
     assert.ok(
-      scene.sections.some((s) => s.key === '必须发生'),
+      scene.sections.some((s) => s.key === '动作'),
       JSON.stringify(scene.sections.map((s) => s.key))
     );
   });
@@ -627,7 +627,7 @@ describe('工作区卡', () => {
     );
   });
 
-  // 上一段刚改过场景的「必须发生」，但没重算 upstreamHash → 与细纲对不上。
+  // 上一段刚改过场景的「动作」，但没重算 upstreamHash → 与细纲对不上。
   test('场景卡说出上游变更', () => {
     assert.ok(!!scene.warning, scene.warning);
   });
@@ -672,8 +672,8 @@ describe('工作区卡', () => {
     );
   });
 
-  test('空壳场景提示还没设计', () => {
-    assert.ok(shell.warning?.includes('必须发生'), shell.warning);
+  test('空壳场景提示还没有素材', () => {
+    assert.ok(shell.warning?.includes('素材'), shell.warning);
   });
 
   test('章节不存在时给空卡而非抛', () => {

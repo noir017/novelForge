@@ -288,8 +288,8 @@ function renderScenes(): void {
     btn.classList.toggle('active', activeNo === scene.no);
     btn.textContent = scene.detail;
     btn.title = [
-      scene.ready ? '「必须发生」已填，可以写正文' : '还没填「必须发生」，写正文前先补上',
-      scene.upstreamStale ? '本章细纲改过，这一场的前置条件可能已失效' : '',
+      scene.ready ? '素材已备，可以写正文' : '还没有素材，写正文前先想出来',
+      scene.upstreamStale ? '本章细纲改过，这一场的素材可能已经用不上' : '',
     ]
       .filter(Boolean)
       .join('\n');
