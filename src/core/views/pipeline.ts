@@ -37,6 +37,7 @@ import {
   emptyFacts,
 } from '../model/pipeline';
 import { Chapter, ProjectManifest } from '../model/types';
+import { SummaryIndex, buildSummaryIndex, summaryOf } from './summaryIndex';
 
 const log = scoped('流水线');
 
@@ -79,20 +80,21 @@ export interface ChapterPipeline {
 /**
  * 一章的流水线状态。
  *
- * `outlineHash` / `manifest` 由调用方传入：批量构建（工程页要为几百章各算一份）
- * 时大纲只读一次、manifest 只读一次，否则每章都去读一遍同样的两个文件。
+ * `outlineHash` / `manifest` / `summaries` 由调用方传入：批量构建（工程页要为几百章
+ * 各算一份）时大纲只读一次、manifest 只读一次、摘要整体读一次，否则每章都去读一遍
+ * 同样的文件。
  */
 export async function buildChapterPipeline(
   project: NovelProject,
   chapter: Chapter,
-  context?: { outlineHash?: string; manifest?: ProjectManifest }
+  context?: { outlineHash?: string; manifest?: ProjectManifest; summaries?: SummaryIndex }
 ): Promise<ChapterPipeline> {
   const outlineHash = context?.outlineHash ?? hash(await project.readOutline());
   const manifest = context?.manifest ?? (await project.readManifest());
 
   const plan = await project.readPlan(chapter.relPath);
   const scenes = await project.listScenes(chapter.relPath);
-  const summary = await project.readSummary(chapter);
+  const summary = await summaryOf(project, chapter, context?.summaries);
 
   // 细纲的上游是全书大纲。upstreamHash 为空 = 这份细纲是作者手写的
   // （或来自还没记录指纹的旧版本）——**不标脏**：手写的东西没有「上游」，
@@ -113,7 +115,9 @@ export async function buildChapterPipeline(
   }));
 
   const entry = manifest.chapters.find((c) => c.file === chapter.relPath);
-  const beatsHash = await project.beatsHashFor(chapter.relPath);
+  // 场景上面刚读过，复用它——`beatsHashFor` 不给场景就会再 listScenes 一遍，
+  // 全书刷新时那是每章多读一整个场景目录。
+  const beatsHash = await project.beatsHashFor(chapter.relPath, scenes);
   // 同理：没记录过 beatsHash（正文是作者自己写的、或流水线之前就有的章节）
   // 不标脏。只有「记录过一次、现在对不上」才说明场景确实改过。
   const beatsStale = !!entry?.beatsHash && !!beatsHash && entry.beatsHash !== beatsHash;
@@ -148,19 +152,27 @@ export async function buildChapterPipeline(
 /**
  * 全书的流水线索引，按章节 relPath 索引。
  *
- * 大纲与 manifest 只读一次，摊给所有章节——五百章工程逐章重读这两个文件
- * 会把工程页刷新变成几百次多余的读盘。
+ * 大纲、manifest 与全书摘要都只读一次，摊给所有章节——五百章工程逐章重读这些
+ * 文件会把工程页刷新变成几百次多余的读盘。
+ *
+ * 建好的摘要索引与 manifest 一并返回：工程树与出场索引要的是同一批摘要、同一份
+ * manifest，让它们接着用这一份，而不是各自再读一遍。
  */
 export async function buildPipelineIndex(
   project: NovelProject
-): Promise<Map<string, ChapterPipeline>> {
+): Promise<{
+  pipelines: Map<string, ChapterPipeline>;
+  summaries: SummaryIndex;
+  manifest: ProjectManifest;
+}> {
   const startedAt = Date.now();
   const [chapters, outline, manifest] = await Promise.all([
     project.listChapters(),
     project.readOutline(),
     project.readManifest(),
   ]);
-  const context = { outlineHash: hash(outline), manifest };
+  const summaries = await buildSummaryIndex(project, chapters);
+  const context = { outlineHash: hash(outline), manifest, summaries };
 
   const out = new Map<string, ChapterPipeline>();
   for (const chapter of chapters) {
@@ -177,7 +189,7 @@ export async function buildPipelineIndex(
       `${stale.map((p) => `第 ${p.order} 章`).join('、')}｜耗时 ${Date.now() - startedAt}ms`
     );
   }
-  return out;
+  return { pipelines: out, summaries, manifest };
 }
 
 /**
