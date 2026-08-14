@@ -741,13 +741,13 @@ describe('选中章节进入当前阶段', { skip: JSDOM_SKIP }, () => {
     assert.equal(toOutline?.target.kind, 'outline', JSON.stringify(toOutline));
   });
 
-  // 工程页点章节名也是「进入这一章」，不是打开文件。
-  test('工程页点章节名进入这一章', () => {
+  // 工程页点章节名 = 打开文件编辑，不是进入创作页（那走右键菜单）。
+  test('工程页点章节名打开正文', () => {
     ui.post({ type: 'project', tree: sampleTree() });
     const row = ui.doc.querySelector('#projectBody .row-chapter .row-label');
     ui.clickEl(row);
-    const fromTree = [...ui.sent].reverse().find((m) => m.type === 'selectChapter');
-    assert.equal(fromTree?.chapterRelPath, 'chapters/001-楔子.md', JSON.stringify(fromTree));
+    const opened = [...ui.sent].reverse().find((m) => m.type === 'openFile' || m.type === 'openEditor');
+    assert.equal(opened?.path, 'chapters/001-楔子.md', JSON.stringify(opened));
   });
 });
 
