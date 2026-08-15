@@ -3,7 +3,7 @@
  *
  * provider 吐的是 `StreamEvent`，而 13 个既有调用点要的只是一段文本。
  * 这里把「传一个流，拿一段文本」那个形状保住，同时让想听 reasoning /
- * usage / toolCall 的调用方各取所需——它们从前挂在 `ChatOptions` 上，
+ * usage / toolCall 的调用方各取所需——它们从前挂在 provider 的 options 上，
  * 那是「调用方想不想听决定 provider 发不发」，方向反了。
  */
 import { StreamEvent, TokenUsage, ToolCall } from './provider';
@@ -72,7 +72,7 @@ export async function collect(
   return { text, reasoning, toolCalls, usage };
 }
 
-/** 只要文本那一份。既有调用点用这个替代 collectStream。 */
+/** 只要文本那一份。既有的 13 个调用点用这个。 */
 export async function collectText(
   stream: AsyncIterable<StreamEvent>,
   handlers?: CollectHandlers

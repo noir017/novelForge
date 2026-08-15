@@ -1,5 +1,6 @@
 import { getHost } from '../host';
-import { collectStream, CancelledError, ChatOptions, LlmProvider, TokenUsage } from '../llm/provider';
+import { collectText, mergeUsage } from '../llm/collect';
+import { CancelledError, LlmProvider, StreamOptions, TokenUsage } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { resolveProvider } from '../llm/registry';
 import { runPool } from '../runtime/concurrency';
@@ -75,19 +76,11 @@ export async function summarizeChapter(
   }
 
   const usage: TokenUsage = {};
-  const options: ChatOptions = {
+  const options: StreamOptions = {
     maxOutputTokens: Math.min(window.maxOutputTokens, 1500),
     temperature: 0.3, // 摘要要稳定、可复现，压低温度
     timeoutMs: config.requestTimeoutMs,
     signal,
-    onUsage: (u) => {
-      if (u.inputTokens !== undefined) {
-        usage.inputTokens = u.inputTokens;
-      }
-      if (u.outputTokens !== undefined) {
-        usage.outputTokens = u.outputTokens;
-      }
-    },
   };
 
   const startedAt = Date.now();
@@ -104,14 +97,15 @@ export async function summarizeChapter(
   // 否则这条样本会系统性地偏低，把 tokenCounter 的比值带歪。
   const estimated = estimateTokens(SUMMARY_SYSTEM) + estimateTokens(userPrompt);
 
-  const raw = await collectStream(
-    llm.chatStream(
+  const raw = await collectText(
+    llm.stream(
       [
         { role: 'system', content: SUMMARY_SYSTEM },
         { role: 'user', content: userPrompt },
       ],
       options
-    )
+    ),
+    { onUsage: (u) => mergeUsage(usage, u) }
   );
 
   const { sections, cast } = parseSummaryResponse(raw);
@@ -401,7 +395,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
     '重建全书摘要',
     async ({ signal, report }) => {
       const startedAt = Date.now();
-      const options: ChatOptions = {
+      const options: StreamOptions = {
         maxOutputTokens: Math.min(stagePool.primaryBudget.maxOutputTokens, 2000),
         temperature: 0.3,
         timeoutMs: config.requestTimeoutMs,
@@ -427,8 +421,8 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
           const each = Date.now();
           log.debug(`汇总 ${range}`, `${batch.length} 章摘要，约 ${estimateTokens(joined)} token`);
           const text = await stagePool.run(range, (llm) =>
-            collectStream(
-              llm.chatStream(
+            collectText(
+              llm.stream(
                 [
                   { role: 'system', content: STAGE_SYSTEM },
                   { role: 'user', content: `以下是${range}的逐章摘要，请汇总成阶段摘要。\n\n${joined}` },
@@ -496,8 +490,8 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
         const mergeStart = Date.now();
         log.debug(`合并 ${stageSummaries.length} 份阶段摘要`, `约 ${estimateTokens(clipped)} token`);
         finalText = await mergePool.run('合并全书摘要', (llm) =>
-          collectStream(
-            llm.chatStream(
+          collectText(
+            llm.stream(
               [
                 { role: 'system', content: GLOBAL_SYSTEM },
                 {

@@ -1,8 +1,6 @@
 import { describeHttpError, hostOf, parseToolArgs } from './openaiProvider';
 import {
   AgentMessage,
-  ChatMessage,
-  ChatOptions,
   LlmError,
   LlmProvider,
   StreamEvent,
@@ -29,22 +27,6 @@ export class AnthropicProvider implements LlmProvider {
 
   async maxInputTokens(): Promise<number | undefined> {
     return undefined;
-  }
-
-  /**
-   * 迁移期的过渡桥：老调用点还在要「一串字符串」。Task 5 连同 `ChatMessage` /
-   * `ChatOptions` 一起删掉，届时 `stream` 是唯一原语。
-   */
-  async *chatStream(messages: ChatMessage[], options: ChatOptions): AsyncIterable<string> {
-    for await (const ev of this.stream(messages, options)) {
-      if (ev.type === 'text') {
-        yield ev.text;
-      } else if (ev.type === 'reasoning') {
-        options.onReasoning?.(ev.text);
-      } else if (ev.type === 'usage') {
-        options.onUsage?.(ev.usage);
-      }
-    }
   }
 
   async *stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {

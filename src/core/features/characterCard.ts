@@ -3,7 +3,8 @@ import { readConfig } from '../config';
 import { runPool, serialize } from '../runtime/concurrency';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { getHost } from '../host';
-import { collectStream, ChatOptions } from '../llm/provider';
+import { collectText } from '../llm/collect';
+import { StreamOptions } from '../llm/provider';
 import { budgetForTask, createModelPool, ModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
@@ -920,7 +921,7 @@ async function analyzeBatch(
     signal: AbortSignal;
   }
 ): Promise<ParsedCard | undefined> {
-  const options: ChatOptions = {
+  const options: StreamOptions = {
     // 输出上限跟着实际干活的模型走（pool 就在手边），不是对话页那个。
     maxOutputTokens: Math.min(pool.primaryBudget.maxOutputTokens, 2000),
     temperature: 0.3,
@@ -934,8 +935,8 @@ async function analyzeBatch(
     ctx.total > 1 ? `这是第 ${ctx.index + 1}/${ctx.total} 批（${range}）。\n` : `本次分析 ${range}。\n`;
 
   const raw = await pool.run(`角色卡「${card.name}」${range}`, (llm) =>
-    collectStream(
-      llm.chatStream(
+    collectText(
+      llm.stream(
         [
           { role: 'system', content: UPDATE_SYSTEM },
           {

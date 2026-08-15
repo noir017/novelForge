@@ -19,7 +19,8 @@
  */
 import { BuildRequest, BuiltContext, buildContext } from '../context/builder';
 import { describeUsage, recordUsage } from '../context/tokenizer';
-import { CancelledError, ChatOptions, TokenUsage } from '../llm/provider';
+import { mergeUsage } from '../llm/collect';
+import { CancelledError, StreamOptions, TokenUsage } from '../llm/provider';
 import { buildProvider, resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
@@ -137,37 +138,30 @@ export class CreationSession {
     let reasoning = '';
     // 服务商分多次回报用量（Anthropic 输入/输出分开给），按字段合并成一份。
     const usage: TokenUsage = {};
-    const options: ChatOptions = {
+    const options: StreamOptions = {
       maxOutputTokens: config.maxOutputTokens,
       temperature: config.temperature,
       timeoutMs: config.requestTimeoutMs,
       signal: abort.signal,
-      onUsage: (u) => {
-        if (u.inputTokens !== undefined) {
-          usage.inputTokens = u.inputTokens;
-        }
-        if (u.outputTokens !== undefined) {
-          usage.outputTokens = u.outputTokens;
-        }
-      },
-      onReasoning: handlers.onReasoning
-        ? (text) => {
-            reasoning += text;
-            handlers.onReasoning?.(text, reasoning);
-          }
-        : undefined,
     };
 
     try {
       let full = '';
       let firstDeltaAt = 0;
-      for await (const delta of provider.chatStream(built.messages, options)) {
-        if (!firstDeltaAt) {
-          firstDeltaAt = Date.now();
-          log.debug('首个分片已到达', `首字延迟 ${elapsed(startedAt, firstDeltaAt)}`);
+      for await (const ev of provider.stream(built.messages, options)) {
+        if (ev.type === 'text') {
+          if (!firstDeltaAt) {
+            firstDeltaAt = Date.now();
+            log.debug('首个分片已到达', `首字延迟 ${elapsed(startedAt, firstDeltaAt)}`);
+          }
+          full += ev.text;
+          handlers.onDelta(ev.text, full);
+        } else if (ev.type === 'reasoning') {
+          reasoning += ev.text;
+          handlers.onReasoning?.(ev.text, reasoning);
+        } else if (ev.type === 'usage') {
+          mergeUsage(usage, ev.usage);
         }
-        full += delta;
-        handlers.onDelta(delta, full);
       }
       // 清理只对正文做：JSON 产物里的 ``` 由 stripCodeFence 在解析时处理，
       // 在这里剥会把「去掉开场白」那几条正则用到 JSON 上，可能切坏结构。
@@ -476,11 +470,14 @@ export class CreationSession {
     const abort = new AbortController();
     try {
       let reply = '';
-      for await (const delta of provider.chatStream(
+      for await (const ev of provider.stream(
         [{ role: 'user', content: '回复两个字：收到' }],
         { maxOutputTokens: 16, temperature: 0, timeoutMs: 30000, signal: abort.signal }
       )) {
-        reply += delta;
+        if (ev.type !== 'text') {
+          continue;
+        }
+        reply += ev.text;
         // 拿到任何内容就算通了，不必等它说完。
         if (reply.trim().length >= 2) {
           break;

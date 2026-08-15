@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { getHost } from '../host';
-import { collectStream, ChatOptions } from '../llm/provider';
+import { collectText } from '../llm/collect';
+import { StreamOptions } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { readConfig } from '../config';
 import { resolveSectionDir } from '../files/fileOps';
@@ -77,7 +78,7 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
           : '（暂无已有角色卡）';
 
       report({ message: '调用模型分析人物', current: 1, total: 3 });
-      const options: ChatOptions = {
+      const options: StreamOptions = {
         maxOutputTokens: pool.primaryBudget.maxOutputTokens,
         temperature: 0.3,
         timeoutMs: config.requestTimeoutMs,
@@ -85,8 +86,8 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
       };
       const modelStart = Date.now();
       const raw = await pool.run('提取角色', (llm) =>
-        collectStream(
-          llm.chatStream(
+        collectText(
+          llm.stream(
             [
               { role: 'system', content: CHARACTER_SYSTEM },
               {

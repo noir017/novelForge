@@ -103,7 +103,7 @@ before(async () => {
   h.setReviewDelay(6);
   bundle.host.initHost(h.host);
   // `replies.length > 1 ? shift() : replies[0]` = repeatLast；`?? cardJson()` = fallback；
-  // chatStream 里的 sleep(4) = delayMs（不留延时的话并发与串行跑出来一样）。
+  // stream 里的 sleep(4) = delayMs（不留延时的话并发与串行跑出来一样）。
   fake = installFakeProvider(bundle.registry, {
     repeatLast: true,
     fallback: cardJson(),

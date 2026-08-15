@@ -2,8 +2,6 @@ import * as vscode from 'vscode';
 import {
   AgentMessage,
   CancelledError,
-  ChatMessage,
-  ChatOptions,
   LlmError,
   LlmProvider,
   StreamEvent,
@@ -62,21 +60,6 @@ export class VsCodeLmProvider implements LlmProvider {
       return (await this.resolveModel()).maxInputTokens;
     } catch {
       return undefined;
-    }
-  }
-
-  /**
-   * 迁移期的过渡桥：老调用点还在要「一串字符串」。core 侧的调用点迁完之后
-   * 连同 `ChatMessage` / `ChatOptions` 一起删掉，届时 `stream` 是唯一原语。
-   */
-  async *chatStream(messages: ChatMessage[], options: ChatOptions): AsyncIterable<string> {
-    for await (const ev of this.stream(messages, options)) {
-      if (ev.type === 'text') {
-        yield ev.text;
-      } else if (ev.type === 'reasoning') {
-        options.onReasoning?.(ev.text);
-      }
-      // vscode-lm 不给 usage，这里也就没有 usage 事件可转发。
     }
   }
 

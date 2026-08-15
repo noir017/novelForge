@@ -8,7 +8,7 @@
  * 任何装不下的条目都会以 dropped/degraded 的形式留在 items 里——
  * **绝不静默丢弃**，作者需要知道这次没带上什么。
  */
-import { ChatMessage } from '../llm/provider';
+import { AgentMessage } from '../llm/provider';
 import { NovelProject } from '../model/project';
 import { NovelConfig } from '../model/types';
 import { estimateTokens } from './tokenizer';
@@ -108,7 +108,7 @@ export async function buildContext(
  * 与输出契约压在最后——模型对末尾的指令最敏感，把「现在请你做什么」放在
  * 十万字前文之前，等于让它读完全书再回头猜要干嘛。
  */
-function assembleMessages(items: ContextItem[], request: BuildRequest, config: NovelConfig): ChatMessage[] {
+function assembleMessages(items: ContextItem[], request: BuildRequest, config: NovelConfig): AgentMessage[] {
   const live = items.filter((i) => (i.status === 'included' || i.status === 'degraded') && i.text.trim());
   const pick = (kind: ItemKind): ContextItem[] => live.filter((i) => i.kind === kind);
   const join = (list: ContextItem[]): string => list.map((i) => i.text.trim()).join('\n\n');
@@ -117,7 +117,7 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
   /** 正文出稿：只有这一种情况才谈「接下去写」「目标字数」。 */
   const writing = stage === 'manuscript' && (capability === 'generate' || capability === 'rewrite');
 
-  const messages: ChatMessage[] = [];
+  const messages: AgentMessage[] = [];
   const system = pick('system')[0];
   if (system) {
     messages.push({ role: 'system', content: system.text });

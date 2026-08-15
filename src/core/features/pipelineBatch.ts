@@ -19,7 +19,8 @@ import { runPool } from '../runtime/concurrency';
 import { readConfig } from '../config';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { getHost } from '../host';
-import { collectStream, CancelledError, ChatMessage } from '../llm/provider';
+import { collectText } from '../llm/collect';
+import { AgentMessage, CancelledError } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { describeError, elapsed, formatDuration, scoped } from '../runtime/logger';
 import { hash } from '../model/fs';
@@ -92,8 +93,8 @@ export async function generatePlots(project: NovelProject): Promise<void> {
     run: async (plot, signal) => {
       const messages = await buildContextFor(project, plot, config, 'generate');
       const raw = await pool.run(`第 ${plot.no} 章`, (llm) =>
-        collectStream(
-          llm.chatStream(messages, {
+        collectText(
+          llm.stream(messages, {
             maxOutputTokens: pool.primaryBudget.maxOutputTokens,
             temperature: config.temperature,
             timeoutMs: config.requestTimeoutMs,
@@ -184,8 +185,8 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
     run: async (plot, signal) => {
       const messages = await buildContextFor(project, plot, config, 'split');
       const raw = await pool.run(`第 ${plot.no} 章`, (llm) =>
-        collectStream(
-          llm.chatStream(messages, {
+        collectText(
+          llm.stream(messages, {
             maxOutputTokens: pool.primaryBudget.maxOutputTokens,
             temperature: config.temperature,
             timeoutMs: config.requestTimeoutMs,
@@ -320,8 +321,8 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
           config
         );
         const raw = await pool.run(`第 ${plot.no} 章 · 场景 ${scene.no}`, (llm) =>
-          collectStream(
-            llm.chatStream(built.messages, {
+          collectText(
+            llm.stream(built.messages, {
               maxOutputTokens: pool.primaryBudget.maxOutputTokens,
               temperature: config.temperature,
               timeoutMs: config.requestTimeoutMs,
@@ -363,7 +364,7 @@ async function buildContextFor(
   plot: Plot,
   config: ReturnType<typeof readConfig>,
   capability: Extract<Capability, 'generate' | 'split'>
-): Promise<ChatMessage[]> {
+): Promise<AgentMessage[]> {
   const built = await buildContext(
     project,
     {

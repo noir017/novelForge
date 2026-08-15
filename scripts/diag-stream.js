@@ -83,15 +83,17 @@ function readJson(file) {
   const marks = [];
   let full = '';
   try {
-    for await (const delta of provider.chatStream(
+    for await (const ev of provider.stream(
       [{ role: 'user', content: prompt }],
       // temperature 拉高一点，进一步降低命中语义缓存的可能。
       { maxOutputTokens: 800, temperature: 0.9, timeoutMs: 180000 }
     )) {
-      marks.push({ at: Date.now() - t0, len: delta.length });
-      full += delta;
+      // 这个脚本只看正文的到达节奏，思考与用量事件不计入分块统计。
+      if (ev.type !== 'text') continue;
+      marks.push({ at: Date.now() - t0, len: ev.text.length });
+      full += ev.text;
       // 实时打印，直观看到是不是一段段来的
-      process.stdout.write(delta);
+      process.stdout.write(ev.text);
     }
   } catch (err) {
     console.log(`\n\n请求失败：${err && err.message ? err.message : err}`);
