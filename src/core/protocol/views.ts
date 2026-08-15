@@ -237,6 +237,24 @@ export interface SerializedTurn {
    * **只有展示摘要，没有完整返回值**——那可能是几万字。
    */
   toolCalls?: SerializedToolCall[];
+  /**
+   * 仅 assistant 轮：这一轮 agent 跑下来的花销。气泡末尾那一行。
+   *
+   * **必须留在会话里**（第 4 条：不偷偷烧 token）：只在跑的时候闪一下，
+   * 作者第二天回来翻这一轮就看不出它花了多少。
+   */
+  agentRun?: SerializedAgentRun;
+}
+
+/** 一轮 agent 的花销与结局。只够画一行，不够回放。 */
+export interface SerializedAgentRun {
+  steps: number;
+  /** 花钱的调用次数（generate 与 run 的批量动作都记在这里）。 */
+  calls: number;
+  tokens: number;
+  /** `done` 之外的都要在那一行上说清为什么停。 */
+  stopReason: string;
+  message?: string;
 }
 
 export interface SerializedToolCall {

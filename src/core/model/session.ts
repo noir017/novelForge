@@ -127,6 +127,22 @@ export interface ChatTurn {
    * 展示摘要（「142 行」「2 处命中」），够重开面板时把那串折叠条画回来。
    */
   toolCalls?: TurnToolCall[];
+  /**
+   * 仅 assistant 轮：这一轮 agent 的花销与结局。
+   *
+   * **落盘**（第 4 条）：只在跑的时候闪一下的话，作者第二天回来翻这一轮
+   * 就看不出它花了多少钱。
+   */
+  agentRun?: TurnAgentRun;
+}
+
+/** 一轮 agent 的花销与结局。只够画一行。 */
+export interface TurnAgentRun {
+  steps: number;
+  calls: number;
+  tokens: number;
+  stopReason: string;
+  message?: string;
 }
 
 /** 一次工具调用在会话里留下的痕迹。只够画一行，不够回放。 */

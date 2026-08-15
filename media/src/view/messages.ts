@@ -7,7 +7,7 @@
  * 判据是 `store.streamingId`，由 index.ts 在 turnDone 那一刻定下来。
  */
 import { el as mk, spacer } from '../dom';
-import type { SerializedDigest, SerializedTurn } from '../protocol';
+import type { SerializedAgentRun, SerializedDigest, SerializedTurn } from '../protocol';
 import { linkBtn } from './buttons';
 import { countWords, fmt, timeLabel } from './format';
 import { toggleButtonMenu } from './menu';
@@ -105,6 +105,12 @@ function buildTurn(turn: SerializedTurn): HTMLElement {
   }
 
   wrap.appendChild(buildBody(turn));
+
+  // agent 那一轮的花销：几步、几次生成、大约多少 token。第 4 条要求它
+  // 看得见，而且要留得住——所以画的是会话里存的那一份，不是实时消息。
+  if (turn.agentRun) {
+    wrap.appendChild(buildAgentRunRow(turn.agentRun));
+  }
 
   if (turn.context) {
     wrap.appendChild(buildContextDetails(turn.context));
@@ -360,6 +366,40 @@ function formatElapsed(ms: number): string {
     return '';
   }
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+/**
+ * agent 那一轮末尾的花销行。
+ *
+ * ```
+ * ─────────────────────────────────
+ * 5 步 · 1 次生成 · 约 1.8 万 token
+ * ```
+ *
+ * **非正常结束时把原因写在同一行**（触顶、原地打转、作者叫停）：那句话是
+ * 「为什么只做到这里」的唯一去处，toast 五秒就没了。
+ */
+export function buildAgentRunRow(run: SerializedAgentRun): HTMLElement {
+  const row = mk('div', 'agent-run');
+  const parts = [`${run.steps} 步`];
+  if (run.calls > 0) {
+    parts.push(`${run.calls} 次生成`);
+  }
+  if (run.tokens > 0) {
+    parts.push(`约 ${formatTokens(run.tokens)} token`);
+  }
+  row.appendChild(mk('span', 'agent-run-cost', parts.join(' · ')));
+  if (run.stopReason !== 'done' && run.message) {
+    const why = mk('span', 'agent-run-why', run.message);
+    row.appendChild(why);
+    row.classList.add('agent-run-stopped');
+  }
+  return row;
+}
+
+/** 与日志的口径一致：上万就报「万」，几千的照实说。 */
+function formatTokens(n: number): string {
+  return n >= 10000 ? `${(n / 10000).toFixed(1)} 万` : String(n);
 }
 
 /** 上下文明细：装配器放进去了什么、各占多少 token、降级或丢弃的原因。 */

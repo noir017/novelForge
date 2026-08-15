@@ -17,6 +17,7 @@ import { appendLog, installLogs, prependLogHistory, renderLogs } from './logs';
 import { installMenus } from './menu';
 import {
   bindPayload,
+  buildAgentRunRow,
   buildContextDetails,
   buildPendingToolRow,
   buildReasoningDetails,
@@ -132,7 +133,10 @@ onMessage((msg) => {
       break;
 
     case 'agentDone':
-      // 结论由随后的 turnDone 整体重建，这里只补一句「为什么停」。
+      // 花销那一行立刻画出来（随后的 turnDone 会用会话里存的那份重建同一行）。
+      settleAgentRun(msg.turnId, msg);
+      // 非正常结束再补一句 toast——那一行上也写着，两处都有是有意的：
+      // 正在看的人立刻知道，第二天回来翻的人也查得到。
       if (msg.stopReason !== 'done' && msg.message) {
         toast(msg.message, msg.stopReason === 'error');
       }
@@ -240,6 +244,30 @@ function appendToolRow(turnId: string, callId: string, title: string, detail?: s
     node.insertBefore(strip, node.querySelector('.msg-body'));
   }
   strip.appendChild(buildPendingToolRow(callId, title, detail));
+  scrollToBottom();
+}
+
+/**
+ * 一轮 agent 结束：在气泡末尾画上花销那一行。
+ *
+ * 就地插入而不是重建气泡——重建会把正在流的正文冲掉（`.msg-body` 是纯文本
+ * 节点），与工具条那一串同一条理由。
+ */
+function settleAgentRun(
+  turnId: string,
+  run: { steps: number; calls: number; tokens: number; stopReason: string; message: string }
+): void {
+  const node = bubbleOf(turnId);
+  if (!node) {
+    return;
+  }
+  const row = buildAgentRunRow({ ...run, message: run.message || undefined });
+  const existing = node.querySelector('.agent-run');
+  if (existing) {
+    existing.replaceWith(row);
+  } else {
+    node.insertBefore(row, node.querySelector('.ctx') ?? node.querySelector('.msg-actions'));
+  }
   scrollToBottom();
 }
 

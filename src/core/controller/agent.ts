@@ -179,6 +179,15 @@ export async function sendAgent(
 
     assistantTurn.content = outcome.text;
     assistantTurn.toolCalls = toolCalls.length > 0 ? toolCalls : undefined;
+    // 第 4 条：花了多少必须留在会话里。只在跑的时候闪一下的话，作者第二天
+    // 回来翻这一轮就看不出它花了多少。
+    assistantTurn.agentRun = {
+      steps: outcome.steps,
+      calls: outcome.calls,
+      tokens: outcome.tokens,
+      stopReason: outcome.stopReason,
+      message: outcome.message || undefined,
+    };
     // 作者叫停与点停止是同一回事：气泡上都标「已中断」，翻回去看得出没跑完。
     if (outcome.stopReason === 'cancelled' || outcome.stopReason === 'declined') {
       assistantTurn.interrupted = true;

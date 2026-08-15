@@ -71,6 +71,7 @@ export function serializeTurn(t: ChatTurn): SerializedTurn {
     draftId: t.draftId,
     artifact: t.artifact,
     toolCalls: t.toolCalls,
+    agentRun: t.agentRun,
   };
 }
 

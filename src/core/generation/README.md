@@ -43,7 +43,7 @@ draftId → draft.target → accept(project, target, parseArtifact(action, 气�
 「已有一个生成任务在进行中」是**调度**的责任：
 
 - 对话页 → `controller/index.ts` 的 `beginGeneration()` / `stopGeneration()`，`busy` 就是 `currentAbort !== undefined`（两个独立状态迟早对不上，而对不上的表现是「停止按钮点了没反应」）
-- agent 循环（三期）→ 它自己管自己那一份
+- agent 循环 → 它自己管自己那一份
 
 `generate` 只收一个 `signal` 往下透传。这正是它能被 agent 并发调用的前提。
 

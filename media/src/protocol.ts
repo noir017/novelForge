@@ -36,6 +36,7 @@ export type {
   ProjectTree,
   ScenePipelineView,
   SendPayload,
+  SerializedAgentRun,
   SerializedArtifact,
   SerializedAttachment,
   SerializedDigest,

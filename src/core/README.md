@@ -8,7 +8,7 @@
 | [workspace/](workspace/README.md) | ★ **工程的唯一读写网关**：`list` / `read` / `write` / `edit` / `move` / `remove` / `search`。路径 → 种类 → 八条守卫 → 解析/渲染/记账/伴生。**新代码不许绕过 `guard.ts` 直接 `fs.writeFile`** |
 | [context/](context/README.md) | ★ 上下文装配：token 粗估与分层预算装配器 |
 | [generation/](generation/README.md) | ★ 创作的一次单步：`generate.ts` **无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，不管并发）、`accept.ts` 六条落盘分派、`drafts.ts` 让未采纳的产物活过一次刷新。**`cleanOutput` 只对正文层做**，采纳时拿气泡里当下的文本重新解析 |
-| [agent/](agent/README.md) | ★ 多步：循环、工具注册表、状态注入、预算闸门。**三期只有只读四件套**（`list` / `read` / `search` / `generate`），一个字都不写磁盘——落盘仍走作者点的采纳卡片。「下一步该做什么」由 `deriveNextStep` 每回合注入，agent 不另做判断 |
+| [agent/](agent/README.md) | ★ 多步：循环、工具注册表、状态注入、预算闸门、策略与确认闸门。七个工具（读三件 + `generate` + `write` / `edit` / `run`），**没有删除/改名/移动**；写入走的是与「采纳写入」同一条 `workspace.write`，没有新的保护代码。「下一步该做什么」由 `deriveNextStep` 每回合注入，agent 不另做判断 |
 | [features/](features/README.md) | 功能编排：续写、摘要、角色卡、设定、文风提取 |
 | [llm/](llm/README.md) | 模型接入：`LlmProvider` 接口、OpenAI / Anthropic 协议实现、provider 注册表 |
 | [files/](files/) | ★ 工程文件能力的**交互流程**：三区界限判断、弹输入框、拼 toast 文案，以及资源管理器目录列举与 `@` 引用候选。落盘一律转调 `workspace/`——不越界、不静默覆盖、删除搬进 `.trash/` 那几条守卫在网关里做一次。 |
