@@ -1,9 +1,12 @@
 /**
- * 创作编排层：产物解析的三层降级 + 六条采纳落盘路径。
+ * 产物解析的三层降级 + 六条采纳落盘路径。
  *
  * 这一层最贵的失败方式不是崩溃，而是**静默写错地方或静默覆盖**——
  * 拆场景把作者攒了三天的场景素材抹掉、采纳剧情把手写的那份顶掉。
  * 所以这里的重点不是「能不能写进去」，而是「不该写的时候有没有拦住」。
+ *
+ * 采纳的六条分支现在在 `generation/accept.ts`（`CreationSession` 那个类没了，
+ * 四件事各自搬了家）；落盘的守卫在 `workspace/`。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -19,14 +22,15 @@ let plotFile;
 let h;
 let t;
 let project;
-let session;
+/** `accept(target, artifact)`——绑好 project 的采纳入口。 */
+let accept;
 
 before(async () => {
   bundle = loadBundle({
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
     artifact: './src/core/features/artifact.ts',
-    creation: './src/core/features/creation.ts',
+    accept: './src/core/generation/accept.ts',
     plotFile: './src/core/model/plotFile.ts',
     sceneFile: './src/core/model/sceneFile.ts',
     pipe: './src/core/views/pipeline.ts',
@@ -34,7 +38,7 @@ before(async () => {
   A = bundle.artifact;
   sceneFile = bundle.sceneFile;
   plotFile = bundle.plotFile;
-  // 假宿主**没有** reviewReplace，于是 acceptArtifact 走 confirm 那条分支。
+  // 假宿主**没有** reviewReplace，于是采纳走 confirm 那条分支。
   // helper 默认带 reviewReplace，不摘掉的话「保留原样」这条路根本走不到。
   h = makeFakeHost({ settings: () => ({}), overrides: { reviewReplace: undefined } });
   bundle.host.initHost(h.host);
@@ -44,7 +48,7 @@ before(async () => {
     keepExamples: true,
   });
   project = t.project;
-  session = new bundle.creation.CreationSession(project);
+  accept = (target, artifact) => bundle.accept.acceptArtifact(project, target, artifact);
 });
 
 after(() => {
@@ -329,7 +333,7 @@ describe('采纳 · 大纲拆成章节', () => {
   let chapterCount;
 
   before(async () => {
-    result = await session.acceptArtifact(
+    result = await accept(
       { kind: 'outline' },
       {
         kind: 'plotList',
@@ -342,7 +346,7 @@ describe('采纳 · 大纲拆成章节', () => {
     plotCount = (await project.listPlots()).length;
     chapterCount = (await project.listChapters()).length;
     // 已存在的段号一律跳过，绝不覆盖。
-    again = await session.acceptArtifact(
+    again = await accept(
       { kind: 'outline' },
       { kind: 'plotList', plots: [{ no: 1, title: '换个名', goal: '不该写进去', arc: '' }] }
     );
@@ -415,16 +419,16 @@ describe('采纳 · 剧情（覆盖要审阅）', () => {
   before(async () => {
     // 已有一份（拆段时建的骨架），内容不同 → 必须问。答「保留原样」就不能写。
     h.answers.push('保留原样');
-    kept = await session.acceptArtifact(target, { kind: 'plot', sections });
+    kept = await accept(target, { kind: 'plot', sections });
     // 下一步就会把内容覆盖掉，所以先抓快照。
     afterKept = t.read('.novelforge/plots/001-夜入青云.md');
 
     h.answers.push('覆盖');
-    written = await session.acceptArtifact(target, { kind: 'plot', sections });
+    written = await accept(target, { kind: 'plot', sections });
 
     // 一字未变时不该弹框——弹了只会让人以为自己点错了。answers 空着，
     // 真弹框的话 confirm 返回 undefined，会被当成取消而 skipped。
-    same = await session.acceptArtifact(target, { kind: 'plot', sections });
+    same = await accept(target, { kind: 'plot', sections });
   });
 
   test('拒绝覆盖时不写盘', () => {
@@ -457,7 +461,7 @@ describe('采纳 · 剧情（覆盖要审阅）', () => {
   test('落定产出的剧情走同一条落盘路', async () => {
     const settled = { ...sections, 冲突与转折: '讨论里定下的：两拍' };
     h.answers.push('覆盖');
-    const r = await session.acceptArtifact(target, { kind: 'plot', sections: settled });
+    const r = await accept(target, { kind: 'plot', sections: settled });
     assert.equal(r.relPath, '.novelforge/plots/001-夜入青云.md', r.message);
     assert.ok(t.read('.novelforge/plots/001-夜入青云.md').includes('讨论里定下的'));
   });
@@ -470,7 +474,7 @@ describe('采纳 · 剧情拆场景', () => {
   let again;
 
   before(async () => {
-    result = await session.acceptArtifact(target, {
+    result = await accept(target, {
       kind: 'sceneList',
       scenes: [
         { title: '踩点', place: '山门外', time: '戌时', characters: ['林昭'], goal: '摸清换岗' },
@@ -480,7 +484,7 @@ describe('采纳 · 剧情拆场景', () => {
     first = t.read('.novelforge/scenes/001-夜入青云/01-踩点.md');
 
     // 再拆一次：已有的两场绝不覆盖，新的接着往后排。
-    again = await session.acceptArtifact(target, {
+    again = await accept(target, {
       kind: 'sceneList',
       scenes: [{ title: '追兵', place: '后山', time: '丑时', characters: [], goal: '甩掉追兵' }],
     });
@@ -535,7 +539,7 @@ describe('采纳 · 单张场景卡', () => {
   before(async () => {
     const target = { kind: 'scene', plotRelPath: '.novelforge/plots/001-夜入青云.md', sceneNo: 1 };
     h.answers.push('覆盖');
-    result = await session.acceptArtifact(target, {
+    result = await accept(target, {
       kind: 'scene',
       place: '山门外',
       time: '戌时，小雨',
@@ -585,7 +589,7 @@ describe('采纳 · 正文', () => {
     const target = { kind: 'manuscript', plotRelPath, sceneNo: 1 };
     beatsBefore = await project.beatsHashFor(plotRelPath);
 
-    result = await session.acceptArtifact(target, {
+    result = await accept(target, {
       kind: 'manuscript',
       text: '雨下了三天，青云宗的石阶泡得发白。',
     });
@@ -646,7 +650,7 @@ describe('采纳 · 正文', () => {
 
   // 一章正文按场景分几次写，顺序拼起来才是完整的一章——所以是追加不是覆盖。
   test('再写一场是追加，不覆盖前一场', async () => {
-    await session.acceptArtifact(
+    await accept(
       { kind: 'manuscript', plotRelPath, sceneNo: 2 },
       { kind: 'manuscript', text: '他数到第三盏灯才动。' }
     );
@@ -661,7 +665,7 @@ describe('采纳 · 大纲整篇替换', () => {
 
   before(async () => {
     h.answers.push('覆盖');
-    result = await session.acceptArtifact(
+    result = await accept(
       { kind: 'outline' },
       { kind: 'outlineDoc', text: '## 第一幕 · 入局\n\n- 林昭进宗门' }
     );
@@ -682,7 +686,7 @@ describe('采纳 · 目标不存在时报错而不是乱写', () => {
 
   before(async () => {
     try {
-      await session.acceptArtifact(
+      await accept(
         { kind: 'manuscript', plotRelPath: '.novelforge/plots/999-不存在.md' },
         { kind: 'manuscript', text: 'x' }
       );

@@ -1,7 +1,8 @@
 import { listAttachmentChoices } from '../files/attachments';
 import { readConfig } from '../config';
 import { closeDatabase, installLogPersistence, readLogHistory } from '../runtime/db';
-import { CreationSession } from '../features/creation';
+import { DraftStore } from '../generation/drafts';
+import { CancelledError } from '../llm/provider';
 import { getHost } from '../host';
 import { addLogSink, clearLogs, describeError, recentLogs, scoped } from '../runtime/logger';
 import { activeTasks, cancelTask, onTasksChanged } from '../runtime/progress';
@@ -78,14 +79,26 @@ export class ChatController {
   readonly project: NovelProject;
   /** @internal controller/ 同包用；壳不要读。 */
   readonly store: SessionStore;
-  /** @internal controller/ 同包用；壳不要读。 */
-  readonly session: CreationSession;
+  /**
+   * 尚未采纳的产物。**并发控制与它无关**——那是 `currentAbort` 的活。
+   * @internal controller/ 同包用；壳不要读。
+   */
+  readonly drafts = new DraftStore();
   /** @internal controller/ 同包用；壳不要读。 */
   current: ChatSession;
   /** @internal controller/ 同包用；壳不要读。 */
   tab: Tab = 'chat';
-  /** @internal controller/ 同包用；壳不要读。 */
-  busy = false;
+  /**
+   * 正在跑的那次生成。
+   *
+   * **并发控制是调度的责任**，不是生成的责任——从前它是 `CreationSession`
+   * 的私有字段，于是同一个类既管「有没有在生成」又管装配与解析。搬到这里
+   * 之后 `generation/` 整层无状态，agent 循环（三期）自己管自己那一份。
+   *
+   * 与从前的 `busy` 合成一个：两个独立状态（一个给前端画忙碌标记、一个控
+   * 真正的取消）迟早会对不上，而对不上的表现是「停止按钮点了没反应」。
+   */
+  private currentAbort?: AbortController;
   /** 尚未落盘的附件（用户已经 @ 了，但还没发送）。@internal 同包用。 */
   pending: Attachment[] = [];
   /** @internal controller/ 同包用；壳不要读。 */
@@ -108,7 +121,6 @@ export class ChatController {
   constructor(project: NovelProject) {
     this.project = project;
     this.store = new SessionStore(project);
-    this.session = new CreationSession(project);
     this.current = this.store.create();
 
     // 日志实时推给前端：日志页在跑长任务时要跟着滚，不能只在切页时拉一次。
@@ -136,9 +148,53 @@ export class ChatController {
     this.hosts.delete(host);
   }
 
+  // ---------------------------------------------------------------- 并发控制
+
+  /**
+   * 正在生成。前端的忙碌标记与「已有一个生成任务在进行中」都看这一个。
+   * @internal controller/ 同包用；壳不要读。
+   */
+  get busy(): boolean {
+    return this.currentAbort !== undefined;
+  }
+
+  /**
+   * 占住生成位。已经有一个在跑就返回 undefined——调用方据此拒掉本次请求。
+   *
+   * 返回的 `release` 必须在 finally 里调：漏了的话这个 controller 从此
+   * 再也发不出第二条消息，而界面上只是一句莫名其妙的「已有一个生成任务
+   * 在进行中」。
+   * @internal controller/ 同包用；壳不要读。
+   */
+  beginGeneration(): { signal: AbortSignal; release: () => void } | undefined {
+    if (this.currentAbort) {
+      return undefined;
+    }
+    const abort = new AbortController();
+    this.currentAbort = abort;
+    return {
+      signal: abort.signal,
+      release: () => {
+        // 只清自己那一份：release 晚到时（上一次生成的收尾）不该把
+        // 刚开始的下一次取消掉。
+        if (this.currentAbort === abort) {
+          this.currentAbort = undefined;
+        }
+      },
+    };
+  }
+
+  /** 用户点了停止。没有在跑的就什么也不做。 */
+  stopGeneration(): void {
+    if (this.currentAbort) {
+      log.info('用户点了停止');
+    }
+    this.currentAbort?.abort(new CancelledError());
+  }
+
   dispose(): void {
     this.disposed = true;
-    this.session.dispose();
+    this.currentAbort?.abort(new CancelledError());
     for (const sub of this.subscriptions) {
       sub.dispose();
     }
@@ -166,7 +222,10 @@ export class ChatController {
     try {
       await this.dispatch(msg);
     } catch (err) {
-      this.busy = false;
+      // 兜底解锁：`runTurn` 自己有 finally，走到这里说明是它之外的地方炸了。
+      // 不解的话这个面板从此发不出第二条消息，界面上只剩一句莫名其妙的
+      // 「已有一个生成任务在进行中」。
+      this.currentAbort = undefined;
       this.post({ type: 'busy', value: false });
       // 未被下层接住的异常一律进日志：toast 五秒就没了，日志页留得住。
       log.error(`处理消息 ${msg.type} 时出错：${describeError(err)}`, err);
@@ -209,7 +268,7 @@ export class ChatController {
         return;
 
       case 'stop':
-        this.session.stop();
+        this.stopGeneration();
         return;
 
       case 'acceptArtifact':

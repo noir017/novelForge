@@ -1,6 +1,8 @@
 import type { ChatController } from './index';
 import { basename } from 'node:path';
-import { describeArtifact } from '../features/creation';
+import { describeArtifact } from '../features/artifact';
+import { acceptArtifact as writeArtifact } from '../generation/accept';
+import { Draft, generate, parseDraftArtifact } from '../generation/generate';
 import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
 import {
@@ -118,7 +120,12 @@ export async function retry(c: ChatController, turnId: string, payload: SendPayl
 }
 
 export async function runTurn(c: ChatController, payload: SendPayload, userTurn: ChatTurn): Promise<void> {
-  c.busy = true;
+  // 并发控制在 controller：生成那一层是无状态的，「有没有在跑」是调度的事。
+  const lease = c.beginGeneration();
+  if (!lease) {
+    c.toast('已有一个生成任务在进行中。', 'error');
+    return;
+  }
   c.post({ type: 'busy', value: true });
 
   const assistantTurn: ChatTurn = {
@@ -135,38 +142,45 @@ export async function runTurn(c: ChatController, payload: SendPayload, userTurn:
   const history = c.current.turns.slice(0, -2).filter((t) => t.content.trim());
 
   const action = { stage: c.current.stage, capability: c.current.capability };
-  const built = await c.session.generate(
-    {
-      action,
-      target: c.current.target,
-      targetNo: payload.targetNo,
-      ask: userTurn.content,
-      targetWords: payload.targetWords > 0 ? payload.targetWords : undefined,
-      excludedIds: userTurn.excludedIds,
-      attachments: userTurn.attachments,
-      history,
-    },
-    {
-      onDelta: (delta) => c.post({ type: 'delta', turnId: assistantTurn.id, text: delta }),
-      // 推理模型可能先思考几十秒才开始吐正文。把思考也推给前端，
-      // 否则那段时间气泡是空的，看起来就像卡住、最后一次性蹦出来。
-      onReasoning: (delta, full) => {
-        assistantTurn.reasoning = full;
-        c.post({ type: 'reasoning', turnId: assistantTurn.id, text: delta });
+  let built;
+  let draft: Draft | undefined;
+  try {
+    ({ built, draft } = await generate(
+      c.project,
+      {
+        action,
+        target: c.current.target,
+        targetNo: payload.targetNo,
+        ask: userTurn.content,
+        targetWords: payload.targetWords > 0 ? payload.targetWords : undefined,
+        excludedIds: userTurn.excludedIds,
+        attachments: userTurn.attachments,
+        history,
       },
-      onDone: (full) => {
-        assistantTurn.content = full;
+      {
+        onDelta: (delta) => c.post({ type: 'delta', turnId: assistantTurn.id, text: delta }),
+        // 推理模型可能先思考几十秒才开始吐正文。把思考也推给前端，
+        // 否则那段时间气泡是空的，看起来就像卡住、最后一次性蹦出来。
+        onReasoning: (delta, full) => {
+          assistantTurn.reasoning = full;
+          c.post({ type: 'reasoning', turnId: assistantTurn.id, text: delta });
+        },
+        onDone: (full) => {
+          assistantTurn.content = full;
+        },
+        onError: (message) => {
+          assistantTurn.error = message;
+        },
+        onCancelled: () => {
+          assistantTurn.interrupted = true;
+        },
       },
-      onError: (message) => {
-        assistantTurn.error = message;
-      },
-      onCancelled: () => {
-        assistantTurn.interrupted = true;
-      },
-    }
-  );
+      { signal: lease.signal }
+    ));
+  } finally {
+    lease.release();
+  }
 
-  c.busy = false;
   c.post({ type: 'busy', value: false });
 
   if (built) {
@@ -175,7 +189,19 @@ export async function runTurn(c: ChatController, payload: SendPayload, userTurn:
   }
   // 产出的是可采纳的东西时，把落点与形状一起带给前端——它才画得出
   // 「拆出了 4 场，采纳？」而不是一个光秃秃的按钮。
-  assistantTurn.artifact = await describeArtifactOf(c, assistantTurn.content);
+  //
+  // **不再重新解析一遍**：draft 出厂就带 artifact 与 summary。从前这里
+  // 是三次解析里多余的那一次。
+  if (draft?.artifact) {
+    c.drafts.put(draft, c.current.id);
+    c.current.drafts = c.drafts.bySession(c.current.id);
+    assistantTurn.draftId = draft.id;
+    assistantTurn.artifact = {
+      where: await describeCurrentTarget(c),
+      summary: draft.summary ?? describeArtifact(draft.artifact),
+      overwrites: await targetHasContent(c),
+    };
+  }
   if (assistantTurn.error) {
     c.toast(assistantTurn.error, 'error');
   }
@@ -188,8 +214,9 @@ export async function runTurn(c: ChatController, payload: SendPayload, userTurn:
 /**
  * 这一轮的回复能不能采纳，以及采纳到哪里。
  *
- * 解析在这里跑一遍只是为了**画界面**（几场？覆盖谁？），真正落盘时
- * `acceptArtifact` 会拿气泡里当时的文本重新解析——用户可能改过。
+ * 只在**重开旧会话**这类拿不到 draft 的路上用（生成路径直接读
+ * `draft.artifact`）。解析在这里跑一遍只是为了**画界面**（几场？覆盖谁？），
+ * 真正落盘时 `acceptArtifact` 会拿气泡里当时的文本重新解析——用户可能改过。
  */
 export async function describeArtifactOf(
   c: ChatController,
@@ -199,7 +226,7 @@ export async function describeArtifactOf(
   if (outputKindOf(action) !== 'artifact' || !content.trim()) {
     return undefined;
   }
-  const artifact = c.session.parse(action, content);
+  const artifact = parseDraftArtifact(action, content);
   if (!artifact) {
     return undefined;
   }
@@ -262,7 +289,7 @@ export async function acceptArtifact(
   turn.content = text;
 
   const action = { stage: c.current.stage, capability: c.current.capability };
-  const artifact = c.session.parse(action, text);
+  const artifact = parseDraftArtifact(action, text);
   if (!artifact) {
     // 解析不出来时**不写**。写一个空产物比不写更糟：作者会以为存下了。
     log.warn('产物解析不出内容，未写入', `阶段 ${action.stage}·${action.capability}`);
@@ -270,7 +297,7 @@ export async function acceptArtifact(
     return;
   }
 
-  const result = await c.session.acceptArtifact(target, artifact);
+  const result = await writeArtifact(c.project, target, artifact);
   if (result.skipped || !result.relPath) {
     c.toast(result.message);
     return;

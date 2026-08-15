@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CreationSession } from '../../core/features/creation';
+import { generate } from '../../core/generation/generate';
 import { NovelProject } from '../../core/model/project';
 
 /** 供命令面板走的极简续写（不开 Webview），结果流式写入新文档。 */
@@ -15,15 +15,17 @@ export async function quickContinue(project: NovelProject): Promise<void> {
   }
 
   const no = await project.nextPlotNo();
-  const session = new CreationSession(project);
   const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: '' });
   const editor = await vscode.window.showTextDocument(doc, { preview: false });
+  // 这条路不开面板，也就没有 controller 替它管并发——自带一个 abort 即可。
+  const abort = new AbortController();
 
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Novel Forge：生成中', cancellable: true },
     async (_progress, token) => {
-      token.onCancellationRequested(() => session.stop());
-      await session.generate(
+      token.onCancellationRequested(() => abort.abort());
+      await generate(
+        project,
         {
           action: { stage: 'manuscript', capability: 'generate' },
           // 快速续写永远写「下一章」，那一章还不存在，relPath 留空。
@@ -41,7 +43,8 @@ export async function quickContinue(project: NovelProject): Promise<void> {
           onDone: () => void vscode.window.showInformationMessage('Novel Forge：生成完成。'),
           onError: (msg) => void vscode.window.showErrorMessage(`Novel Forge：${msg}`),
           onCancelled: () => void vscode.window.showInformationMessage('Novel Forge：已取消。'),
-        }
+        },
+        { signal: abort.signal }
       );
     }
   );

@@ -40,6 +40,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 | `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**、细纲 plotFile.ts、场景 sceneFile.ts、服务商配置、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/workspace/` | ★ **工程的唯一读写网关**：路径 → 种类（`kind.ts`）→ 八条守卫（`guard.ts`）→ 解析/渲染/记账/伴生（`handlers/`）。写盘从前散在六处、各带一部分保护，现在收成一处；`upstreamHash` / `beatsHash` 的记账下沉到写入路径本身，谁写都记 | [src/core/workspace/README.md](src/core/workspace/README.md) |
 | `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
+| `src/core/generation/` | ★ 创作的一次单步：**无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，并发控制在 controller）、六条采纳落盘分派、Draft store（随会话落盘，刷新网页后采纳按钮还在） | [src/core/generation/README.md](src/core/generation/README.md) |
 | `src/core/features/` | 功能编排：创作（四层产物）、批量流水线、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
 | `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
 | `src/shells/` | ★ 三个壳并排放这里，外加 `shared/panes.ts`（所有 pane 的 DOM 唯一来源）。**壳的契约在这份 README 里**：壳只做实现 Host、传输与生命周期、平台专属入口三件事 | [src/shells/README.md](src/shells/README.md) |

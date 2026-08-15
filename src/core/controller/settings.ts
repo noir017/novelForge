@@ -15,6 +15,7 @@ import {
   resolveModelRef,
 } from '../model/providers';
 import { SerializedProvider, SettingsPayload } from '../protocol';
+import { testConnection as runConnectionTest } from '../features/creation';
 import { scoped } from '../runtime/logger';
 
 const log = scoped('面板');
@@ -134,7 +135,7 @@ export async function testConnection(
   // 设置页传来的草稿同样走一遍容错归一化——手改过的字段不该让测试崩掉。
   const draft = provider ? normalizeProviders([provider])[0] : undefined;
   c.toast(`正在测试 ${target}…`);
-  const result = await c.session.testConnection(ref, draft);
+  const result = await runConnectionTest(ref, draft);
   c.toast(result.message, result.ok ? 'info' : 'error');
   await c.pushState();
 }
