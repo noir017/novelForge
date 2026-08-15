@@ -8,9 +8,18 @@
  *
  * 每个工具体都是前三期成果的**薄包装**（不超过 50 行）。这一层真正的活是
  * 把返回值压成模型读得动的形状——`Workspace.list` 给的是结构化数组，模型要
- * 的是一屏能扫完的文本。
+ * 的是一屏能扫完的文本；`generate` 产出的是三千字正文，模型该拿到的只有
+ * 「已生成，620 字，draftId d-3f2a」。
  */
 import type { ToolDef } from '../registry';
+import { listTool } from './list';
+import { readTool } from './read';
+import { searchTool } from './search';
 
-/** 只读四件套 + 生成。顺序即模型看到的顺序（先查后写，读在前）。 */
-export const READ_ONLY_TOOLS: ToolDef[] = [];
+export { listTool, readTool, searchTool };
+
+/**
+ * 三期注册的全部工具。顺序即模型看到的顺序：**读在前、写在后**，
+ * 让它先形成「先看一眼再动手」的路径。
+ */
+export const READ_ONLY_TOOLS: ToolDef[] = [listTool, readTool, searchTool];
