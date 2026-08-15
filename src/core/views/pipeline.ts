@@ -108,10 +108,16 @@ export interface PlotPipeline {
  *
  * `outlineHash` / `summaries` 由调用方传入：批量构建（工程页要为几百章各算一份）
  * 时大纲只读一次、摘要整体读一次，否则每章都去读一遍同样的文件。
+ *
+ * `entry` 上那个 `sections?: never` 是防呆：`Plot` 自己就有 `no`，另外两个字段
+ * 又是可选的，所以**直接把一份 `Plot` 递进来是编译得过的**，代价是 plot 与
+ * chapter 双双 undefined、整章按空事实推导——界面于是一律说「待写剧情」，
+ * 而这条路正是「选中一章 = 进入它当前该做的那一步」的判据。这种错不会报错，
+ * 只会安静地说谎，所以拿一个 `Plot` 有、这里绝不该有的字段把它挡在编译期。
  */
 export async function buildPlotPipeline(
   project: NovelProject,
-  entry: { no: number; plot?: Plot; chapter?: Chapter },
+  entry: { no: number; plot?: Plot; chapter?: Chapter; sections?: never },
   context?: { outlineHash?: string; summaries?: SummaryIndex }
 ): Promise<PlotPipeline> {
   const { no, plot, chapter } = entry;

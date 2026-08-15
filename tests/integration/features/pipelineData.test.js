@@ -489,7 +489,11 @@ describe('新鲜度链 · 手写产物不标脏', () => {
     // 比不标更糟——他会学会无视所有标记。
     t.write('.novelforge/plots/020-手写.md', '## 目标\n\n我自己写的\n\n## 剧情脉络\n\nx');
     t.write('.novelforge/manuscripts/020-手写.md', '# 第20段 手写 · 正文\n\n正文');
-    p = await bundle.pipe.buildPlotPipeline(project, await project.readPlot('.novelforge/plots/020-手写.md'));
+    const plot = await project.readPlot('.novelforge/plots/020-手写.md');
+    // 收的是「一章」（章号 + 细纲 + 成品）。直接把 `Plot` 递进去也**编译得过**
+    // （它恰好有 `no`，另两个字段可选），但 plot/chapter 会双双是 undefined，
+    // 于是整章按空事实推导——断言看着绿，测的却不是这一章。
+    p = await bundle.pipe.buildPlotPipeline(project, { no: plot.no, plot });
   });
 
   test('手写剧情（无 upstreamHash）不标脏', () => {

@@ -374,10 +374,10 @@ describe('采纳 · 大纲拆成章节', () => {
   });
 
   test('骨架的流水线停在待写剧情', async () => {
-    const p = await bundle.pipe.buildPlotPipeline(
-      project,
-      await project.readPlot('.novelforge/plots/001-夜入青云.md')
-    );
+    const plot = await project.readPlot('.novelforge/plots/001-夜入青云.md');
+    // 传「一章」而不是光秃的 `Plot`：后者编译得过，但 plot/chapter 会是
+    // undefined，整章按空事实推导——那样这条断言测的不是这个骨架。
+    const p = await bundle.pipe.buildPlotPipeline(project, { no: plot.no, plot });
     assert.equal(p.stage, 'plot', p.stage);
   });
 

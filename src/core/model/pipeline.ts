@@ -315,7 +315,18 @@ export function commandOf(stage: CreationStage, capability: Capability): StageCo
  */
 export function chapterLabel(order: number, title?: string): string {
   const named = title?.trim();
-  return named && named !== `第 ${order} 章` ? `第 ${order} 章《${named}》` : `第 ${order} 章`;
+  return named && !isFallbackChapterTitle(order, named) ? `第 ${order} 章《${named}》` : `第 ${order} 章`;
+}
+
+/**
+ * 这个标题就是「没有标题」在数据里的样子。
+ *
+ * 无标题的章（`009.md`）在 `listChapters` 的回落链里会拿到「第 9 章」——
+ * 那不是作者起的名字，是没有名字。凡是要拿标题去**造东西**的地方都得先问一句：
+ * 拿它拼细纲文件名会得到 `009-第-9-章.md`，一个假标题就此进了磁盘。
+ */
+export function isFallbackChapterTitle(order: number, title?: string): boolean {
+  return (title?.trim() ?? '') === `第 ${order} 章`;
 }
 
 /** {@link chapterLabel} 在细纲那一侧的别名。输出完全一致。 */

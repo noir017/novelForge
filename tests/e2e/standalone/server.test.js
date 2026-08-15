@@ -263,8 +263,9 @@ describe('资源管理器：目录列举', () => {
 
 // ---------------------------------------------------------------------------
 
-// 这是**唯一一条**跑真控制器状态机的用例：前端只知道「我点了第 3 段」，
-// 落在哪一层由后端算。别的用例要么测纯函数、要么测前端。
+// 这条跑的是**真控制器 + 真传输**：前端只知道「我点了第 3 章」，落在哪一层
+// 由后端算。判定本身另有一组更细的用例（tests/integration/features/selectPlot.test.js
+// 覆盖三种路径形状），这里守的是它经 WS 走一遭之后还对。
 describe('选中一章 → 状态机决定落在哪一层', () => {
   let session;
   let pipe;
@@ -289,11 +290,17 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
     toasted = await conn.waitFor((m) => m.type === 'toast', 'toast');
   });
 
-  // sample-novel 的三章都写完、拆分发布、也总结过了 → 状态机说「已完成」。
-  // 已完成的章落在剧情层：那是回头改这一章最自然的入口（`deriveNextStep`
-  // 不给下一步，界面因此不催任何事）。
+  // sample-novel 的三章都写完、拆分发布、也总结过了 → 状态机说「已完成」，
+  // 不给下一步，于是落在**正文层**：那是这一章的终点，也是最可能回头改的一层
+  // （见 selectPlot 尾部那行）。
+  //
+  // 这条从前断言的是 `plot`，而那是个 bug 的回声：`selectPlot` 把一份 `Plot`
+  // 直接喂给了收 `{no, plot, chapter}` 的 `buildPlotPipeline`——`Plot` 恰好也有
+  // `no`，另外两个字段又是可选的，于是**类型检查过得去**，而 plot/chapter 全是
+  // undefined。每一章都按空事实推导，状态机于是永远答「待写剧情」。四层流水线
+  // 在这个入口上等于不存在，而这正是 selectPlot 存在的理由。
   test('落到状态机算出的那一层', () => {
-    assert.equal(session.session.stage, 'plot');
+    assert.equal(session.session.stage, 'manuscript');
   });
 
   // 切层一律把能力重置成 discuss：**默认动作不该是花钱产出一份要不要都不

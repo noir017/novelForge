@@ -1,4 +1,5 @@
 import type { ChatController } from './index';
+import { basename } from 'node:path';
 import { describeArtifact } from '../features/creation';
 import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
@@ -34,7 +35,10 @@ import {
 import { buildPlotPipelineView } from '../views/projectView';
 import { buildPlotPipeline } from '../views/pipeline';
 import { buildWorkbench } from '../views/workbench';
-import { isPlotFilled } from '../model/plotFile';
+import { Plot, isPlotFilled, parsePlotFileName } from '../model/plotFile';
+import { parseChapterFileName } from '../model/chapterFile';
+import { isPlotPath } from '../files/fileOps';
+import { Chapter } from '../model/types';
 import { persist } from './persist';
 import {
   factsOf,
@@ -320,19 +324,68 @@ export async function setTarget(c: ChatController, target: CreationTarget): Prom
  *
  * 判断必须在后端：前端手上只有当前那一章的 pipeline，不知道别的章
  * 处于什么状态。
+ *
+ * **收的是「哪一章」，不是「哪个细纲文件」。** 界面上三个入口给的路径形状
+ * 各不相同，而它们指的都是同一件事：
+ *
+ * - 工程页点章名 → **主路径**：已发布的章给 `chapters/003-夜访.md`
+ * - 对话页下拉框 → 细纲路径，这一章还没规划过时那个文件**并不存在**
+ * - 流水线/新建 → 真实的细纲路径
+ *
+ * 所以这里按**章号**去认（`resolvePlotTarget`），只有章号是两侧共同的身份。
+ * 从前它只 `readPlot` 一次、读不到就报「这一章不存在」——于是老工程里每一章、
+ * 以及拆分出来的没有细纲的章，一点开就是那句话。而那些章明明就在磁盘上。
  */
 export async function selectPlot(c: ChatController, plotRelPath: string): Promise<void> {
-  const plot = await c.project.readPlot(plotRelPath);
-  if (!plot) {
+  const entry = await resolvePlotTarget(c, plotRelPath);
+  if (!entry) {
     c.toast('这一章不存在，可能刚被改名或删除。', 'error');
     return;
   }
-  const pipeline = await buildPlotPipeline(c.project, plot);
+  const pipeline = await buildPlotPipeline(c.project, entry);
   const next = deriveNextStep(pipeline.stage, factsOf(pipeline));
+  // 细纲还没有时落点用它**应该**在的位置（`plotPathForNo`）：选中它就是
+  // 「去规划这一章」，装配器与工作区卡都能如实退化成空壳。
+  const target = entry.plot?.relPath ?? c.project.plotPathForNo(entry.no, entry.chapter?.title ?? '');
 
   // 全做完了（next 为空）就停在正文——那是这一章的终点，也是最可能
   // 要回头改的一层。
-  await setTarget(c, next ? targetOf(next, plotRelPath) : { kind: 'manuscript', plotRelPath });
+  await setTarget(c, next ? targetOf(next, target) : { kind: 'manuscript', plotRelPath: target });
+}
+
+/**
+ * 前端给的路径 → 这一章的两面（细纲与成品）。两边都没有才算「不存在」。
+ *
+ * 章号从三处依次找：细纲文件本身、成品文件本身、文件名的数字前缀。最后那条
+ * 是关键——它让一个**还不存在**的细纲路径（`plots/009.md`）也定位得到第 9 章。
+ *
+ * 只有落在 `plots/` 之下的路径才当细纲读：`readPlot` 是纯解析，喂它一个章节
+ * 文件也会**解析成功**（数字前缀 + `# 标题` 一样认得出），于是 target 会指进
+ * `chapters/` 去，而场景目录与中转站正文都是按细纲路径镜像的——那一章的
+ * 三层产物从此各找各的位置。
+ */
+async function resolvePlotTarget(
+  c: ChatController,
+  relPath: string
+): Promise<{ no: number; plot?: Plot; chapter?: Chapter } | undefined> {
+  const plot = isPlotPath(c.project, relPath) ? await c.project.readPlot(relPath) : undefined;
+  const chapters = await c.project.listChapters();
+  const direct = chapters.find((ch) => ch.relPath === relPath);
+  const no =
+    plot?.no ??
+    direct?.order ??
+    parsePlotFileName(basename(relPath))?.no ??
+    parseChapterFileName(basename(relPath))?.order;
+  if (no === undefined || no <= 0) {
+    return undefined;
+  }
+  // 传的是章节路径时优先用那一份：同号多个文件（作者手改文件名撞了号）时，
+  // 点哪一行就该进哪一行。
+  const chapter = direct ?? chapters.find((ch) => ch.order === no);
+  // 传的是细纲路径、但那份文件不在时，按章号回查一次：拆分之后新出来的章
+  // 只有成品，下拉框给的却是细纲路径。
+  const resolved = plot ?? (await c.project.getPlot(no));
+  return resolved || chapter ? { no, plot: resolved, chapter } : undefined;
 }
 
 /**

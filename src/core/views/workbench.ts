@@ -18,9 +18,10 @@
  * 真要读，「打开」按钮就在旁边。大纲同理只给预览——它可能有几千字。
  */
 import { scoped } from '../runtime/logger';
+import { basename } from 'node:path';
 import { hash } from '../model/fs';
 import { NovelProject } from '../model/project';
-import { PLOT_SECTION_KEYS } from '../model/plotFile';
+import { PLOT_SECTION_KEYS, parsePlotFileName } from '../model/plotFile';
 import { CreationTarget, STAGE_LABEL, plotLabel } from '../model/pipeline';
 import { SCENE_SECTION_KEYS } from '../model/sceneFile';
 import { plotContentHash } from './pipeline';
@@ -62,14 +63,23 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
   }
 
   const plot = await project.readPlot(target.plotRelPath);
-  // 细纲刚被改名/删掉。给一张说得清情况的空卡，不要抛。
   if (!plot) {
+    // 细纲不在有两种情况，说法必须分开：
+    //
+    // - **成品在**（老工程的章、拆分出来的章）：这一章好好地躺在 `chapters/` 里，
+    //   只是从没经过流水线。说它「可能刚被改名或删除」是撒谎，作者会去找一个
+    //   根本没丢的东西。它真正的状态是「还没排剧情」。
+    // - **两边都没有**：那才是刚被改名或删掉。
+    const no = parsePlotFileName(basename(target.plotRelPath))?.no ?? 0;
+    const chapter = no > 0 ? (await project.listChapters()).find((c) => c.order === no) : undefined;
     return {
       stage: target.kind,
-      title: STAGE_LABEL[target.kind],
-      relPath: '',
+      title: chapter ? `${STAGE_LABEL[target.kind]} · ${plotLabel(chapter.order, chapter.title)}` : STAGE_LABEL[target.kind],
+      relPath: chapter?.relPath ?? '',
       sections: [],
-      empty: `找不到细纲 ${target.plotRelPath}，它可能刚被改名或删除。`,
+      empty: chapter
+        ? '这一章已经有正文了，但没有经过流水线——还没排剧情。'
+        : `找不到细纲 ${target.plotRelPath}，它可能刚被改名或删除。`,
     };
   }
   const head = plotLabel(plot.no, plot.title);

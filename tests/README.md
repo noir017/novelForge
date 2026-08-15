@@ -107,6 +107,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `features/creation.test.js` | 创作编排层：产物解析的三层降级与 `parsePlotStrict` 的不兜底版本；六条采纳落盘路径——覆盖前必须审阅且**拒绝时一字不写**、二次拆场景不动原有场景、目标不存在时抛错；大纲拆章**不建空章节** |
 | `features/pipelineData.test.js` | 细纲与场景的解析/渲染往返、场景文件名规则、伴生文件的镜像与改名跟随、**新鲜度链**（改大纲→细纲脏→场景脏→中转站正文脏）、**已发布的章不被拉回「待写正文」**、**手写的产物永不标脏** |
 | `features/splitChapter.test.js` | 拆成章节：按 `---` 切出 N 章落进 `chapters/`、中转站原件进 `.trash/`、第一章沿用原标题其余留纯序号名、后面待写的细纲号顺延且**场景目录跟着改名**、N===1 时不弹确认也不重编号、**零次模型调用** |
+| `features/selectPlot.test.js` | 「选中一章」这个入口：三种路径形状（工程页的主路径 / 下拉框那个**并不存在**的细纲路径 / 真实细纲路径）都认到同一章，目标一律归到细纲那一侧；**拆分出来的、只有成品的章不再报「这一章不存在」**，也不被倒回「待写剧情」；两边都没有时才提示；状态机仍决定落在哪一层且不预置花钱的能力 |
 | `features/pipelineBatch.test.js` | 工程页的三条批量流水线（写剧情 / 拆场景 / 写正文）：**只补不改**、缺上游不生成下游、解析不出**不写盘**、失败挂 errorLog 且继续跑完、用户取消时一次模型都不调；装配走同一个 `buildContext` |
 | `features/cast.test.js` | 别名的泛称过滤；同一人聚类——**同章共现的两人绝不合并**；出场索引的正式名优先与 `conflicts`；维护命令（清理别名不动正文、合并重复卡、水位线退回） |
 | `features/characterCard.test.js` | 更新角色卡：分批与「预计调用 M 次」、只装该角色的出场章、增量无新章时**一次模型都不调**、部分失败时**水位线停在第一个失败章之前**、取消/放弃不落盘；**并发**下模型请求重叠但 **diff 审阅仍一次只弹一张** |
@@ -139,7 +140,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 
 | 文件 | 覆盖 |
 |---|---|
-| `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、WS 首条消息、`Origin` 校验；**唯一一条跑真控制器状态机的用例**——`selectPlot` 由后端算落在哪一层，且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返 |
+| `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、WS 首条消息、`Origin` 校验；`selectPlot` 由后端算落在哪一层（已完成的章落正文层、不给下一步），且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返 |
 | `contract/corePurity.test.js` | `src/core/` 零 vscode 依赖——分层架构的硬约束，也是 `external: ['vscode']` 成立的前提 |
 | `contract/shellPurity.test.js` | 壳的契约（[src/shells/README.md](../src/shells/README.md)）：`shells/shared/` 零宿主依赖（不碰 vscode / node: / bun:）、三个壳互不 import、全仓库没有 `host.name ===` 这类按身份分支的写法。三条都是**能悄悄长回来**的东西，只能靠断言守 |
 | `contract/sampleNovel.test.js` | `sample-novel/` 自洽：manifest 章数与磁盘一致（v1 结构，索引的是 `chapters`）、每章 `contentHash` / `summaryHash` / 摘要 `sourceHash` 对得上、摘要 frontmatter 指回章号、**每一章都有同号的细纲**、**拆分之后中转站是空的**、示例纲要能命中 3 个角色 |

@@ -45,6 +45,7 @@ import {
   plotFileName,
   renderPlotFile,
 } from './plotFile';
+import { isFallbackChapterTitle } from './pipeline';
 import {
   SCENE_SECTION_KEYS,
   Scene,
@@ -251,9 +252,15 @@ export class NovelProject {
    *
    * 给「这一章只有成品、还没有细纲」那种情况用（老工程里每一章都是）：
    * 界面上仍要能选中它、切到细纲层去补规划，那就需要一个稳定的落点路径。
+   *
+   * **回落标题不进文件名**：没有名字的章（`009.md`）在 `listChapters` 那边会
+   * 拿到「第 9 章」，那是「没有标题」的样子而不是标题——拼进去会得到
+   * `009-第-9-章.md`，一个凭空的假名字，而作者哪天真去补规划时，`writePlot`
+   * 按真标题落的又是另一个文件名，同一章于是有了两份细纲。
    */
   plotPathForNo(no: number, title: string): string {
-    return this.relPath(path.join(this.plotsDir, plotFileName(no, safeStem(title))));
+    const stem = isFallbackChapterTitle(no, title) ? '' : safeStem(title);
+    return this.relPath(path.join(this.plotsDir, plotFileName(no, stem)));
   }
 
   // ------------------------------------------------- 章节（发布区）的路径
