@@ -47,6 +47,7 @@ export type WsErrorCode =
   | 'exists'
   | 'notFound'
   | 'notFile'
+  | 'notUnique'
   | 'conflict';
 
 /** 守卫拒绝的统一形状。`code` 是给调用方分支用的，`message` 直接进 toast。 */

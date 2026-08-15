@@ -1,0 +1,444 @@
+/**
+ * Workspace —— 工程的**唯一读写网关**。
+ *
+ * ## 为什么要有它
+ *
+ * 写盘从前散在六处（`model/project.ts`、`features/creation.ts` 的
+ * `acceptArtifact`、`files/fileOps.ts`、`files/fileEditing.ts`、
+ * `files/projectFiles.ts`、`features/splitChapter.ts`），**每处各带一部分
+ * 保护，谁也不认识谁**。既有落盘路径背着一批不变量，绕过任何一条都会安静地
+ * 损坏工程：
+ *
+ * - 细纲改名要连带搬走场景目录与中转站正文，当普通文件搬会把它们变成孤儿
+ * - 场景文件名由「场号 + 标题」决定，改标题要清掉旧文件名
+ * - 写正文要记 `beatsHash`，写细纲要记 `upstreamHash`，漏了新鲜度链就断
+ * - 删除一律进 `.trash/`；同名目标一律报错退出
+ *
+ * 所以 `write` 不是「往这个路径写字节」，而是「按这个路径**应有的种类**写一份
+ * 合法产物」——种类判定（`kind.ts`）、守卫（`guard.ts`）、渲染/记账/伴生
+ * （`handlers/`）在这一层各做一次。
+ *
+ * ## 记账下沉
+ *
+ * `upstreamHash` / `beatsHash` 从前**只在采纳路径上记**。作者在内置编辑器里
+ * 改一份细纲，指纹链就断了——那一章从此再也不挂 ⟳。下沉到写入路径本身之后，
+ * **谁写都记**。
+ *
+ * ## 新代码不许绕过这里
+ *
+ * 不要在别处 `fs.writeFile`。八条守卫（见 `guard.ts`）只在这条路上做，
+ * 绕过去等于给自己开一个后门，而后门在界面上看不出来。
+ */
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { scoped } from '../runtime/logger';
+import { countWords, hash, readText, writeText } from '../model/fs';
+import { NovelProject } from '../model/project';
+import { Artifact } from '../features/artifact';
+import { ArtifactKind, PathKind, kindOfPath, normalizeRel } from './kind';
+import {
+  MAX_EDITABLE_BYTES,
+  WsError,
+  guardMutate,
+  guardRead,
+  guardWrite,
+  reviewOverwrite,
+} from './guard';
+import { Handler, HandlerCtx, handlerFor } from './handlers';
+
+const log = scoped('工作区');
+
+export interface WsEntry {
+  name: string;
+  rel: string;
+  type: 'file' | 'dir';
+  kind: ArtifactKind;
+  /** 文本文件给字数，其余给字节数。 */
+  words?: number;
+  bytes: number;
+}
+
+export interface WsFile {
+  rel: string;
+  text: string;
+  hash: string;
+  bytes: number;
+  kind: ArtifactKind;
+  /** 按 offset/limit 截过。**必须说出来**（AGENTS 第 2 条：不静默截断）。 */
+  truncated?: { from: number; total: number };
+}
+
+export type WriteInput = { text: string } | { artifact: Artifact };
+
+export interface WriteOptions {
+  /** 缺省 `create`（同名报错）。 */
+  mode?: 'create' | 'overwrite' | 'append';
+  /**
+   * 覆盖前是否审阅。缺省 true。
+   *
+   * **agent 路径不允许传 false**——「不静默覆盖」是产品承诺，不是偏好设置
+   * （AGENTS 第 3 / 19 条）。留这个开关只给两种调用方：批量路径（它跳过已有
+   * 产物，根本走不到覆盖）与内置编辑器（乐观锁已经是它自己那道闸）。
+   */
+  review?: boolean;
+  /** 乐观锁基线。给了就比对，磁盘变过报冲突。 */
+  baseHash?: string;
+  /** 覆盖审阅框里显示的名字，如「第 12 章的细纲」。 */
+  what?: string;
+}
+
+export interface WriteResult {
+  rel: string;
+  skipped?: boolean;
+  message: string;
+  /** 这次写入连带做了什么（记了哪个 hash、搬了哪个伴生目录）。进日志用。 */
+  side?: string[];
+}
+
+export interface TextEdit {
+  old: string;
+  new: string;
+  /** 命中多处时是否全替换。缺省 false——不唯一就报错，不猜作者要改哪一处。 */
+  all?: boolean;
+}
+
+export class Workspace {
+  constructor(private readonly project: NovelProject) {}
+
+  // ---------------------------------------------------------------- list
+
+  /**
+   * 列一个目录的直接子项（不递归）。缺省列工程根。
+   *
+   * **不抛**：越界、不存在、读不动都给空数组。这是常驻界面的取数路径，
+   * 作者在别处删掉一个正展开的目录时整页不该跟着炸。
+   */
+  async list(relDir?: string): Promise<WsEntry[]> {
+    const rel = (relDir ?? '').trim() === '' ? '' : normalizeRel(relDir!);
+    if (rel === undefined) {
+      return [];
+    }
+    const abs = rel === '' ? this.project.root : this.project.pathOf(rel);
+
+    let dirents: import('node:fs').Dirent[];
+    try {
+      dirents = await fs.readdir(abs, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+
+    const out: WsEntry[] = [];
+    for (const dirent of dirents) {
+      const childRel = rel === '' ? dirent.name : `${rel}/${dirent.name}`;
+      const childAbs = path.join(abs, dirent.name);
+      let isDir = dirent.isDirectory();
+      let bytes = 0;
+      try {
+        const stat = await fs.stat(childAbs);
+        isDir = stat.isDirectory();
+        bytes = stat.isFile() ? stat.size : 0;
+      } catch {
+        if (!isDir && !dirent.isFile()) {
+          continue;
+        }
+      }
+      const kind = kindOfPath(this.project, childRel).kind;
+      out.push({
+        name: dirent.name,
+        rel: childRel,
+        type: isDir ? 'dir' : 'file',
+        kind: isDir ? 'other' : kind,
+        // 大文件不为了报个字数去整份读盘——那是全量遍历时的几百次多余 I/O。
+        words: !isDir && bytes <= MAX_EDITABLE_BYTES ? await wordsOf(childAbs) : undefined,
+        bytes,
+      });
+    }
+    out.sort((a, b) => (a.type !== b.type ? (a.type === 'dir' ? -1 : 1) : a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true })));
+    return out;
+  }
+
+  // ---------------------------------------------------------------- read
+
+  /**
+   * 读一份文件。
+   *
+   * `offset` / `limit` 按**行**切。截过必须在 `truncated` 里说出来——
+   * 三期的 agent 工具会把它转述给模型，模型不知道自己只看了一半的话，
+   * 会拿着半份正文去下结论。
+   */
+  async read(rel: string, opts?: { offset?: number; limit?: number }): Promise<WsFile> {
+    const abs = await guardRead(this.project, rel);
+    const normalized = normalizeRel(rel)!;
+    const full = await readText(abs);
+    const kind = kindOfPath(this.project, normalized).kind;
+
+    const offset = Math.max(0, Math.trunc(opts?.offset ?? 0));
+    const limit = opts?.limit === undefined ? undefined : Math.max(0, Math.trunc(opts.limit));
+    if (offset === 0 && limit === undefined) {
+      return {
+        rel: normalized,
+        text: full,
+        hash: hash(full),
+        bytes: Buffer.byteLength(full, 'utf8'),
+        kind,
+      };
+    }
+
+    const lines = full.split(/\r?\n/);
+    const sliced = lines.slice(offset, limit === undefined ? undefined : offset + limit);
+    const text = sliced.join('\n');
+    const truncated = sliced.length < lines.length ? { from: offset, total: lines.length } : undefined;
+    return {
+      rel: normalized,
+      text,
+      // hash 恒是**整份文件**的 hash：它是乐观锁基线，按半份算就永远对不上。
+      hash: hash(full),
+      bytes: Buffer.byteLength(text, 'utf8'),
+      kind,
+      truncated,
+    };
+  }
+
+  // ---------------------------------------------------------------- write
+
+  /**
+   * 写一份产物。
+   *
+   * 五步，顺序不能换：
+   *
+   * 1. `kindOfPath` 判种类 → 取 handler
+   * 2. handler 定最终落点（场景的文件名由磁盘上那份的标题决定）
+   * 3. `guardWrite` 过八条守卫（越界 / 回收站 / 大小 / 同名 / 乐观锁）
+   * 4. 覆盖前审阅（`mode: 'overwrite'` 且目标已有不同内容时）
+   * 5. 落盘 → handler 记账与伴生
+   */
+  async write(rel: string, input: WriteInput, opts: WriteOptions = {}): Promise<WriteResult> {
+    const mode = opts.mode ?? 'create';
+    const normalized = normalizeRel(rel);
+    if (normalized === undefined) {
+      throw new WsError('outOfRoot', `路径超出工程目录：${rel}`);
+    }
+
+    const artifact = 'artifact' in input ? input.artifact : undefined;
+    let ctx = this.ctxOf(normalized);
+    const handler = handlerFor(ctx.path.kind);
+
+    // 步骤 2：落点最终由 handler 说了算。场景的文件名带标题，标题在磁盘上。
+    if (handler.resolve) {
+      const resolved = await handler.resolve(ctx, artifact);
+      if (resolved !== normalized) {
+        ctx = this.ctxOf(resolved);
+      }
+    }
+    const target = ctx.rel;
+
+    const text = artifact ? await this.render(handler, ctx, artifact) : (input as { text: string }).text;
+
+    const guarded = await guardWrite(this.project, target, {
+      mode,
+      baseHash: opts.baseHash,
+      text: mode === 'append' ? undefined : text,
+    });
+
+    // 步骤 4：覆盖前审阅。**append 不走这一条**——追加不覆盖任何东西。
+    if (mode === 'overwrite' && guarded.existed && opts.review !== false) {
+      const ok = await reviewOverwrite(opts.what ?? target, target, guarded.current ?? '', text);
+      if (!ok) {
+        return { rel: target, skipped: true, message: `没有改动 ${target}。` };
+      }
+    }
+
+    const final = mode === 'append' ? await appendText(guarded, text, handler, ctx) : text;
+    await writeText(guarded.abs, final);
+    this.project.invalidate();
+
+    const side = handler.after ? await handler.after(ctx, final) : [];
+    if (side.length > 0) {
+      log.debug(`写入 ${target} 时连带`, side.join('｜'));
+    }
+    return { rel: target, message: `已写入 ${target}`, side };
+  }
+
+  // ---------------------------------------------------------------- edit
+
+  /**
+   * 定点替换。
+   *
+   * **要么全成要么全不成**：多条编辑里有一条对不上就整批不落盘。半截状态
+   * （前两条改了、第三条没改）比报错难收拾得多——作者看不出改到哪了。
+   *
+   * `old` 命中多处且没给 `all` 时报错，不猜他要改哪一处。
+   */
+  async edit(rel: string, edits: TextEdit[]): Promise<WriteResult> {
+    const abs = await guardRead(this.project, rel);
+    const normalized = normalizeRel(rel)!;
+    let text = await readText(abs);
+    let replaced = 0;
+
+    for (const edit of edits) {
+      const count = countOccurrences(text, edit.old);
+      if (count === 0) {
+        throw new WsError('notFound', `找不到要替换的内容：${clip(edit.old)}`);
+      }
+      if (count > 1 && !edit.all) {
+        throw new WsError(
+          'notUnique',
+          `「${clip(edit.old)}」在 ${normalized} 里出现 ${count} 处，没有指定 all 就不猜改哪一处。`
+        );
+      }
+      text = edit.all ? text.split(edit.old).join(edit.new) : text.replace(edit.old, edit.new);
+      replaced += edit.all ? count : 1;
+    }
+
+    // 走 write 而不是直接落盘：记账与伴生对 edit 一样要做（作者在编辑器里
+    // 改一份细纲，指纹链现在会断——这一期修的正是它）。
+    // review: false 是安全的：edit 本来就是「在这份内容上改几个字」，
+    // 拿它和自己 diff 一遍没有意义。
+    const r = await this.write(normalized, { text }, { mode: 'overwrite', review: false });
+    return { ...r, message: `已替换 ${replaced} 处：${normalized}` };
+  }
+
+  // ---------------------------------------------------------------- move
+
+  /**
+   * 改名/移动。**目标已存在一律拒绝**（第 3 条：不静默覆盖）。
+   *
+   * 伴生搬迁交给 handler：细纲带走场景目录与中转站正文，章节带走草稿。
+   */
+  async move(from: string, to: string): Promise<WriteResult> {
+    const fromAbs = await guardMutate(this.project, from);
+    const fromRel = normalizeRel(from)!;
+    const toRel = normalizeRel(to);
+    if (toRel === undefined) {
+      throw new WsError('outOfRoot', `路径超出工程目录：${to}`);
+    }
+    // 落点也要过保护与回收站两条：把一份细纲搬成 `.novelforge/plots` 本身，
+    // 或者搬进回收站装作删掉，都不该放行。
+    await guardWrite(this.project, toRel, { mode: 'create' });
+
+    const ctx = this.ctxOf(fromRel);
+    const handler = handlerFor(ctx.path.kind);
+
+    await fs.mkdir(path.dirname(this.project.pathOf(toRel)), { recursive: true });
+    await fs.rename(fromAbs, this.project.pathOf(toRel));
+    this.project.invalidate();
+
+    const side = handler.companions ? await handler.companions(ctx, fromRel, toRel) : [];
+    if (side.length > 0) {
+      log.info(`${fromRel} → ${toRel} 时连带`, side.join('｜'));
+    }
+    return { rel: toRel, message: `已移动到 ${toRel}`, side };
+  }
+
+  // ---------------------------------------------------------------- remove
+
+  /**
+   * 删除：**搬进 `.novelforge/.trash/` 并保留原相对路径**，不真删
+   * （AGENTS 第 6 条）。同名冲突时加序号，不覆盖之前删掉的东西。
+   */
+  async remove(rel: string): Promise<WriteResult> {
+    const abs = await guardMutate(this.project, rel);
+    const normalized = normalizeRel(rel)!;
+    const ctx = this.ctxOf(normalized);
+    const handler = handlerFor(ctx.path.kind);
+
+    // 伴生先搬：细纲的场景目录与中转站正文得跟着进回收站，
+    // 主文件删完再搬的话，中途失败会留下一堆孤儿。
+    const side = handler.onRemove ? await handler.onRemove(ctx, normalized) : [];
+
+    const dest = await trashPathFor(this.project, normalized);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await fs.rename(abs, dest);
+    this.project.invalidate();
+
+    log.info(`已移到回收站：${normalized}`, `落点 ${this.project.relPath(dest)}`);
+    return { rel: normalized, message: `已移到回收站：${normalized}`, side };
+  }
+
+  // ---------------------------------------------------------------- 内部
+
+  private ctxOf(rel: string): HandlerCtx {
+    const path: PathKind = kindOfPath(this.project, rel);
+    return { project: this.project, rel, path };
+  }
+
+  private async render(handler: Handler, ctx: HandlerCtx, artifact: Artifact): Promise<string> {
+    if (!handler.render) {
+      throw new Error(`「${ctx.rel}」不接结构化产物`);
+    }
+    return handler.render(ctx, artifact);
+  }
+}
+
+/** 出现次数。用 split 而不是全局正则：`old` 是字面量，不该被当正则解释。 */
+function countOccurrences(text: string, needle: string): number {
+  if (!needle) {
+    return 0;
+  }
+  return text.split(needle).length - 1;
+}
+
+function clip(text: string): string {
+  const one = text.replace(/\s+/g, ' ').trim();
+  return one.length > 30 ? `${one.slice(0, 30)}…` : one;
+}
+
+/**
+ * 追加时拼出最终内容。首次写入直接用新文本，之后在两段之间插一行 `---`。
+ *
+ * 那一行是**默认的拆分候选点**（AGENTS 第 23 条）：模型按场景分几次写，
+ * 场景边界正是最可能的章节边界；给一个能改的默认，比让作者从头自己标要好。
+ * 非中转站的普通文本不插标记——那是正文才有的约定。
+ */
+async function appendText(
+  guarded: { existed: boolean; current?: string },
+  text: string,
+  handler: Handler,
+  ctx: HandlerCtx
+): Promise<string> {
+  if (!guarded.existed) {
+    return handler.render ? text : `${text.trim()}\n`;
+  }
+  const existing = (guarded.current ?? '').replace(/\s+$/, '');
+  const separator = ctx.path.kind === 'manuscript' ? '\n\n---\n\n' : '\n\n';
+  return `${existing}${separator}${text.trim()}\n`;
+}
+
+/** 垃圾箱里保留原相对路径；同名冲突时加序号，不覆盖之前删掉的东西。 */
+export async function trashPathFor(project: NovelProject, rel: string): Promise<string> {
+  const base = path.join(project.trashDir, rel);
+  if (!(await pathExists(base))) {
+    return base;
+  }
+  const ext = path.extname(base);
+  const stem = base.slice(0, base.length - ext.length);
+  for (let i = 2; ; i++) {
+    const candidate = `${stem}-${i}${ext}`;
+    if (!(await pathExists(candidate))) {
+      return candidate;
+    }
+  }
+}
+
+async function pathExists(abs: string): Promise<boolean> {
+  try {
+    await fs.stat(abs);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function wordsOf(abs: string): Promise<number | undefined> {
+  try {
+    return countWords(await fs.readFile(abs, 'utf8'));
+  } catch {
+    // 二进制/权限问题：不给字数，也不因此让整次列举失败。
+    return undefined;
+  }
+}
+
+export { WsError, WsConflictError, MAX_EDITABLE_BYTES } from './guard';
+export type { WsErrorCode } from './guard';
+export { kindOfPath, pathOfTarget } from './kind';
+export type { ArtifactKind, PathKind } from './kind';
