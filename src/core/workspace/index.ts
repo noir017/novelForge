@@ -32,9 +32,26 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { scoped } from '../runtime/logger';
-import { countWords, hash, readText, sanitizeFileName, writeText } from '../model/fs';
+import {
+  countWords,
+  hash,
+  pad3,
+  readText,
+  readTextIfExists,
+  sanitizeFileName,
+  writeText,
+} from '../model/fs';
+import {
+  SUMMARY_SECTION_KEYS,
+  Chapter,
+  SummaryCast,
+  SummarySections,
+} from '../model/types';
+import { stringifyFrontmatter, stringifySections } from '../model/markdown';
+import { renderCastEntry } from '../model/castParse';
+import { isMarkdownExt, isMarkdownPath, splitByMark } from '../model/chapterFile';
 import { NovelProject } from '../model/project';
-import { WritablePlot, renderPlotFile } from '../model/plotFile';
+import { WritablePlot, parsePlotFileName, renderPlotFile } from '../model/plotFile';
 import { WritableScene, renderSceneFile } from '../model/sceneFile';
 import { Artifact } from '../features/artifact';
 import { ArtifactKind, PathKind, kindOfPath, normalizeRel, plotRelPathFor } from './kind';
@@ -49,6 +66,7 @@ import {
 import { Handler, HandlerCtx, handlerFor } from './handlers';
 import { carryPlotCompanions, trashPlotCompanions, trashRel } from './handlers/plot';
 import { sceneRelPathFor } from './handlers/scene';
+import { manuscriptHead } from './handlers/manuscript';
 
 const log = scoped('工作区');
 
@@ -450,6 +468,159 @@ export class Workspace {
     }
     await trashRel(this.project, scene.relPath);
     return true;
+  }
+
+  /**
+   * 把文本追加到中转站里那一章的正文末尾，返回工作区相对路径。
+   *
+   * 正文是**追加**而不是覆盖：一章按场景分几次写，顺序拼起来才是完整的一章。
+   * 这也是唯一一条不走覆盖审阅的落盘路径——追加不覆盖任何东西。
+   *
+   * 两次追加之间插一行 `---`：那是**默认的拆分候选点**（第 23 条）。模型按
+   * 场景分几次写，场景边界正是最可能的章节边界；给一个能改的默认，比让作者
+   * 从头自己标要好。他可以删掉、也可以另加——拆分只认这一行标记。
+   *
+   * 写完记 `beatsHash`（正文所依据的场景指纹）。少了这一步，这一章会永远
+   * 显示「正文与场景对不上」或永远不显示，两种都是错的。
+   */
+  async appendToManuscript(plotRelPath: string, text: string): Promise<string> {
+    const rel = this.project.manuscriptMirrorRelPath(plotRelPath);
+    const abs = this.project.pathOf(rel);
+    const existing = await readTextIfExists(abs);
+
+    const next =
+      existing === undefined
+        ? `${await manuscriptHead(this.project, plotRelPath)}${text.trim()}\n`
+        : `${existing.replace(/\s+$/, '')}\n\n---\n\n${text.trim()}\n`;
+    await writeText(abs, next);
+
+    const ctx = this.ctxOf(rel);
+    await handlerFor('manuscript').after?.(ctx, next);
+    return rel;
+  }
+
+  /**
+   * 把中转站里的一章正文按 `---` 拆成若干章，写进 `chapters/`，
+   * 然后把中转站那份搬进回收站。返回建好的章节相对路径。
+   *
+   * `titles[i]` 对应第 i 片；给空串就落成纯序号名（`101.md`）。
+   *
+   * 章号从这一章自己的号开始往后连排。**调用方负责先把后面撞号的细纲挪开**
+   * （features/splitChapter.ts）——顺序是先移号再落盘，反过来会留下
+   * 「章节已建但细纲还撞着号」的中间态。这里只管落盘，撞上已存在的章节文件时
+   * `createChapter` 会抛，不覆盖任何东西。
+   */
+  async splitManuscript(plotRelPath: string, titles: string[]): Promise<string[]> {
+    const manuscript = await this.project.readManuscript(plotRelPath);
+    if (!manuscript) {
+      throw new Error(`这一章还没有正文可拆：${plotRelPath}`);
+    }
+    const pieces = splitByMark(manuscript.text);
+    if (pieces.length === 0) {
+      throw new Error(`这一章的正文是空的，没有可拆的内容：${manuscript.relPath}`);
+    }
+    const startNo = parsePlotFileName(path.basename(plotRelPath))?.no ?? 0;
+
+    const created: string[] = [];
+    for (const [i, piece] of pieces.entries()) {
+      created.push(await this.createChapter(startNo + i, titles[i] ?? '', piece));
+    }
+    // 全部落盘成功才动原件。中途抛出的话中转站那份还在，作者可以重来。
+    await trashRel(this.project, manuscript.relPath);
+    this.project.invalidate();
+    await this.project.syncManifest();
+    return created;
+  }
+
+  /**
+   * 新建章节文件，返回工作区相对路径。
+   *
+   * `dir` 是工作区相对的落点目录（如 `chapters/第一卷`），缺省落在 chapters/ 根下。
+   * `ext` 默认 `.md`：扫描时认任意扩展名，但插件自己建的东西仍然出 markdown。
+   * 非 markdown 家族不写标题行。
+   *
+   * **`title` 留空是合法的**，落成纯序号名 `001.md`——拆分出来的第 2 章往后
+   * 就是这个样子（标题等作者自己改）。
+   *
+   * 标题行写的是**清洗后**的词干而不是原样 `title`：两者一致，改名时
+   * `renamedBody` 才认得出「这个 H1 是跟着文件名走的」。无标题时干脆不写
+   * 标题行——凭空塞一行 `# ` 是同一个毛病。
+   */
+  async createChapter(
+    order: number,
+    title: string,
+    content = '',
+    dir?: string,
+    ext = '.md'
+  ): Promise<string> {
+    const stem = safeStem(title);
+    const fileName = stem ? `${pad3(order)}-${stem}${ext}` : `${pad3(order)}${ext}`;
+    const parent = dir ? normalizeRel(dir) : this.project.relPath(this.project.chaptersDir);
+    const rel = parent ? `${parent}/${fileName}` : fileName;
+    const text = isMarkdownExt(ext) && stem ? `# ${stem}\n\n${content.trim()}\n` : `${content.trim()}\n`;
+
+    // 走 write：同名一律报错退出（第 3 条），manifest 由 chapter handler 同步。
+    await this.write(rel, { text }, { mode: 'create' });
+    return rel;
+  }
+
+  /**
+   * 按需创建草稿，返回它的工作区相对路径。
+   *
+   * **已存在就原样返回，绝不覆盖**——第二次点「打开草稿」不能把上次写的
+   * 东西抹掉。这是「不静默覆盖」在草稿上的落法。
+   */
+  async ensureDraft(chapter: Chapter): Promise<string> {
+    const rel = this.project.draftRelPathFor(chapter.relPath);
+    if (!rel) {
+      throw new Error(
+        `这一章不在 ${this.project.config.chaptersDir}/ 下，无法建草稿：${chapter.relPath}`
+      );
+    }
+    const abs = this.project.pathOf(rel);
+    if ((await readTextIfExists(abs)) === undefined) {
+      // markdown 家族给一行标题好认；其余（.txt / 无扩展名 / .json）留空文件，
+      // 往里塞 markdown 语法只会碍事。
+      await writeText(abs, isMarkdownPath(rel) ? `# ${chapter.title} · 草稿\n\n` : '');
+    }
+    return rel;
+  }
+
+  /**
+   * 写一章的摘要。落点镜像**章节**路径（`summaryPathForChapter`）。
+   *
+   * `sourceHash` 记的是**成品**的 `contentHash`——摘要描述的是已发布的那一章
+   * （指纹链的最后一环）。
+   *
+   * 落盘仍是 Markdown（第 14 条：作者要手改），结构化的出场人物写进
+   * frontmatter 的 `cast`。
+   */
+  async writeSummary(
+    chapter: Chapter,
+    sourceHash: string,
+    sections: SummarySections,
+    cast: SummaryCast[] = []
+  ): Promise<string> {
+    const rel = this.project.relPath(this.project.summaryPathForChapter(chapter.relPath));
+    const fm = stringifyFrontmatter({
+      chapter: chapter.order,
+      title: chapter.title,
+      sourceHash,
+      // 机器可读的出场人物。别名跟在名字后的括号里：`林昭(阿昭)`——
+      // frontmatter 解析器只认字符串数组，不要为此引入嵌套 YAML。
+      cast: cast.map(renderCastEntry),
+      generatedBy: 'novel-forge',
+    });
+    const body = stringifySections(
+      sections as unknown as Record<string, string>,
+      SUMMARY_SECTION_KEYS,
+      { keepEmpty: true }
+    );
+    const text = `${fm}\n\n# 第${chapter.order}章${chapter.title ? ` ${chapter.title}` : ''} · 摘要\n\n${body}\n`;
+
+    await writeText(this.project.pathOf(rel), text);
+    await this.project.markSummarized(chapter.relPath, sourceHash);
+    return rel;
   }
 
   // ---------------------------------------------------------------- 内部

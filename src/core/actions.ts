@@ -87,7 +87,7 @@ export async function newPlotFlow(project: NovelProject): Promise<string> {
 export async function newChapterFlow(project: NovelProject, dir?: string): Promise<string> {
   const target = resolveSectionDir(project, 'chapters', dir);
   const order = await project.nextChapterOrder();
-  const relPath = await project.createChapter(order, '', '', target);
+  const relPath = await new Workspace(project).createChapter(order, '', '', target);
   getHost().toast(`已新建第 ${order} 章：${relPath}`);
   return relPath;
 }

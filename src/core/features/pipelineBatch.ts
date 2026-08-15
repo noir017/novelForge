@@ -340,7 +340,7 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
         }
         // 一场一写盘：中途取消时前面几场留得住（与摘要同步「停在第 30 章
         // 就有 30 章摘要」同一条取舍）。
-        await project.appendToManuscript(plot.relPath, text);
+        await ws.appendToManuscript(plot.relPath, text);
         if (scene.status !== 'written') {
           await ws.writeScene(plot.relPath, { ...scene, status: 'written' });
         }

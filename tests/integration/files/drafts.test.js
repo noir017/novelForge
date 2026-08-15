@@ -20,6 +20,15 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
+/**
+ * 产物写入搬进了 `core/workspace/`：正文追加要插分隔标记与记 beatsHash、
+ * 建章节要同名报错并同步 manifest、草稿按需创建但绝不覆盖。`NovelProject`
+ * 这一层只留领域查询。
+ */
+let wsMod;
+const wsOf = (p) => new wsMod.Workspace(p);
+
+
 describe('草稿', () => {
   let projectView;
   let fileOps;
@@ -38,11 +47,13 @@ describe('草稿', () => {
       chapterFile: './src/core/model/chapterFile.ts',
       markdown: './src/core/model/markdown.ts',
       project: './src/core/model/project.ts',
+      ws: './src/core/workspace/index.ts',
       projectView: './src/core/views/projectView.ts',
       fileOps: './src/core/files/fileOps.ts',
       fileEditing: './src/core/files/fileEditing.ts',
       attachments: './src/core/files/attachments.ts',
     });
+    wsMod = bundle.ws;
     ({ projectView, fileOps, attachments } = bundle);
     // 原脚本的 host 字面量里没有 reviewReplace，显式抹掉，别走进 diff 审阅分支。
     h = makeFakeHost({ overrides: { reviewReplace: undefined } });
@@ -116,17 +127,17 @@ describe('草稿', () => {
 
     before(async () => {
       const md = await project.getChapter(1);
-      first = await project.ensureDraft(md);
+      first = await wsOf(project).ensureDraft(md);
       firstExists = has(first);
       firstHead = read(first);
 
       // 作者往草稿里写了东西，再点一次「打开草稿」不能被抹掉。
       write(first, '# 楔子 · 草稿\n\n这段是我自己写的，不能丢。\n');
-      const second = await project.ensureDraft(md);
+      const second = await wsOf(project).ensureDraft(md);
       secondBody = read(second);
 
       const txt = await project.getChapter(2);
-      const txtDraft = await project.ensureDraft(txt);
+      const txtDraft = await wsOf(project).ensureDraft(txt);
       txtDraftBody = read(txtDraft);
 
       paths = await project.listDraftPaths();
@@ -337,7 +348,7 @@ describe('草稿', () => {
       write('chapters/007-甲.md', '# 甲\n\n正文\n');
       project.invalidate();
       const seven = await project.getChapter(7);
-      await project.ensureDraft(seven);
+      await wsOf(project).ensureDraft(seven);
       write('drafts/007-甲.md', '旧草稿');
       // 提前占位：改名后的目标草稿已经存在。
       write('drafts/007-乙.md', '占位的新草稿');

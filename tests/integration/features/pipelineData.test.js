@@ -270,11 +270,11 @@ describe('数据层 · 段改名时三套伴生文件跟随', () => {
     // 改个名就会让这一段的下游全部凭空标脏（AGENTS.md 第 18 条 (b)）。
     plotHashBefore = bundle.pipe.plotContentHash(await project.readPlot(from));
     beatsBefore = await project.beatsHashFor(from);
-    await project.appendToManuscript(from, '正文若干字。');
+    await wsOf(project).appendToManuscript(from, '正文若干字。');
     // 摘要挂在**成品**上，所以先造一章发布文件再总结它。
     t.write('chapters/012-夜入青云.md', '# 夜入青云\n\n正文若干字。\n');
     project.invalidate();
-    await project.writeSummary(
+    await wsOf(project).writeSummary(
       (await project.listChapters()).find((c) => c.order === 12),
       'HASH_X',
       { 梗概: '略', 出场人物: '林昭', 时间地点: '', 关键事件: '', 新增伏笔: '', 状态变更: '' },
@@ -354,7 +354,7 @@ describe('数据层 · 给未命名的段起名', () => {
       no: 30, title: '', arc: '', upstreamHash: '', done: false,
       sections: filledSections({ 目标: '起个名字。' }),
     });
-    await project.appendToManuscript(bare, '未命名时就写了的正文。');
+    await wsOf(project).appendToManuscript(bare, '未命名时就写了的正文。');
 
     const plot = await project.readPlot(bare);
     named = await wsOf(project).writePlot({ ...plot, title: '风起' });

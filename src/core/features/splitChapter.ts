@@ -87,7 +87,7 @@ export async function splitManuscript(project: NovelProject, plotRelPath: string
   // **不调模型拟标题**：那要么多花一次调用，要么在拆分这个纯机械的动作里
   // 插进一次可能失败的网络请求。作者右键重命名一下就好。
   const titles = pieces.map((_, i) => (i === 0 ? plot.title : ''));
-  const created = await project.splitManuscript(plotRelPath, titles);
+  const created = await ws.splitManuscript(plotRelPath, titles);
 
   log.info(`第 ${plot.no} 章已拆成 ${created.length} 章`, created.join('、'));
   getHost().toast(

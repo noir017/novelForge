@@ -100,9 +100,9 @@ describe('拆成三章', () => {
     await makePlot(11, '风起', { scene: true });
     await makePlot(12, '雪落');
 
-    await project.appendToManuscript(plotRel, '他回到山门。');
-    await project.appendToManuscript(plotRel, '师父在等他。');
-    await project.appendToManuscript(plotRel, '雪落了一夜。');
+    await wsOf(project).appendToManuscript(plotRel, '他回到山门。');
+    await wsOf(project).appendToManuscript(plotRel, '师父在等他。');
+    await wsOf(project).appendToManuscript(plotRel, '雪落了一夜。');
 
     h.expect('拆分');
     created = await bundle.split.splitManuscript(project, plotRel);
@@ -210,7 +210,7 @@ describe('只切出一章', () => {
   before(async () => {
     await makePlot(20, '独章');
     await makePlot(21, '后一章');
-    await project.appendToManuscript(plotRel, '整章一气呵成，没有断点。');
+    await wsOf(project).appendToManuscript(plotRel, '整章一气呵成，没有断点。');
 
     h.expect(); // 一个答案都不排：真弹了确认就会当成取消，用例随即变红
     created = await bundle.split.splitManuscript(project, plotRel);
@@ -246,8 +246,8 @@ describe('用户取消', () => {
   before(async () => {
     await makePlot(30, '反悔');
     await makePlot(31, '不该被挪');
-    await project.appendToManuscript(plotRel, '甲。');
-    await project.appendToManuscript(plotRel, '乙。');
+    await wsOf(project).appendToManuscript(plotRel, '甲。');
+    await wsOf(project).appendToManuscript(plotRel, '乙。');
 
     h.expect(undefined); // 用户按了 Esc
     created = await bundle.split.splitManuscript(project, plotRel);
@@ -282,8 +282,8 @@ describe('已发布的章不顺延', () => {
     t.write('chapters/041-已发布.md', '# 已发布\n\n早就发出去的文字。\n');
     project.invalidate();
 
-    await project.appendToManuscript(plotRel, '甲。');
-    await project.appendToManuscript(plotRel, '乙。');
+    await wsOf(project).appendToManuscript(plotRel, '甲。');
+    await wsOf(project).appendToManuscript(plotRel, '乙。');
 
     h.expect('拆分');
     await bundle.split.splitManuscript(project, plotRel);

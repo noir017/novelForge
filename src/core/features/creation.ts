@@ -421,7 +421,7 @@ export class CreationSession {
    */
   private async acceptManuscript(target: CreationTarget, text: string): Promise<AcceptResult> {
     const plot = await this.requirePlot(target);
-    const relPath = await this.project.appendToManuscript(plot.relPath, text);
+    const relPath = await this.ws.appendToManuscript(plot.relPath, text);
 
     const beatsHash = await this.project.beatsHashFor(plot.relPath);
     if (beatsHash) {

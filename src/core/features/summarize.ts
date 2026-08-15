@@ -17,6 +17,7 @@ import { sanitizeAliases } from '../model/naming';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
 import { extractJsonObject, stripCodeFence } from './parse';
 import { GLOBAL_SYSTEM, STAGE_SYSTEM, SUMMARY_SYSTEM } from './summarizePrompt';
+import { Workspace } from '../workspace';
 
 const log = scoped('摘要');
 
@@ -130,7 +131,12 @@ export async function summarizeChapter(
     });
     throw new Error(`第 ${chapter.order} 章摘要解析失败，模型返回内容无法解析。`);
   }
-  const relPath = await project.writeSummary(chapter, chapter.contentHash, sections, cast);
+  const relPath = await new Workspace(project).writeSummary(
+    chapter,
+    chapter.contentHash,
+    sections,
+    cast
+  );
   // 这一章好了：把它挂着的旧感叹号收掉（上次可能是超时/解析失败）。
   await clearFailures(project, 'chapter', chapter.relPath, 'summarize');
   // 批量同步一次要跑几十章，是最烧 token 的动作之一；有实测用量就记一笔，

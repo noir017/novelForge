@@ -786,8 +786,8 @@ describe('fileOps.ts', () => {
       const listed = await project.listChapters();
       chA = listed.find((c) => c.relPath === 'chapters/020-序.md');
       chB = listed.find((c) => c.relPath === 'chapters/020-正文.md');
-      await project.writeSummary(chA, 'HASH_A', sections('序章的梗概。'), []);
-      await project.writeSummary(chB, 'HASH_B', sections('正文的梗概。'), []);
+      await wsOf(project).writeSummary(chA, 'HASH_A', sections('序章的梗概。'), []);
+      await wsOf(project).writeSummary(chB, 'HASH_B', sections('正文的梗概。'), []);
 
       seqSaved = has('.novelforge/summaries/020-序.md');
       bodySaved = has('.novelforge/summaries/020-正文.md');
@@ -851,7 +851,7 @@ describe('fileOps.ts', () => {
       project.invalidate();
       const secs = projectMod.emptySummarySections();
       secs.梗概 = '摘要正文。';
-      await project.writeSummary(await chapterOf(30), (await chapterOf(30)).contentHash, secs, []);
+      await wsOf(project).writeSummary(await chapterOf(30), (await chapterOf(30)).contentHash, secs, []);
       project.invalidate();
       view = await projectView.buildPlotSummaryView(project, PLOT);
 
@@ -875,7 +875,7 @@ describe('fileOps.ts', () => {
       // 作者手改摘要、把小节标题全删了 → 退回全文，不给空浮窗。
       const secs2 = projectMod.emptySummarySections();
       secs2.梗概 = '会被覆盖掉。';
-      await project.writeSummary(await chapterOf(31), 'H', secs2, []);
+      await wsOf(project).writeSummary(await chapterOf(31), 'H', secs2, []);
       const summaryFile = rel('.novelforge/summaries/031-没摘要.md');
       const raw = fs.readFileSync(summaryFile, 'utf8');
       // 留下 frontmatter 与 H1，正文改成没有任何 `## 小节` 的大白话。
@@ -887,7 +887,7 @@ describe('fileOps.ts', () => {
       handEdited = await projectView.buildPlotSummaryView(project, bare);
 
       // 六个小节全是占位的空摘要：不退回全文，否则浮窗里摊六行「（待补充）」。
-      await project.writeSummary(await chapterOf(31), 'H', projectMod.emptySummarySections(), []);
+      await wsOf(project).writeSummary(await chapterOf(31), 'H', projectMod.emptySummarySections(), []);
       project.invalidate();
       allPlaceholder = await projectView.buildPlotSummaryView(project, bare);
     });
@@ -1007,7 +1007,7 @@ describe('fileOps.ts', () => {
         place: '', time: '', characters: [],
         sections: sceneFile.emptySceneSections(),
       });
-      await project.appendToManuscript(created, '正文内容。');
+      await wsOf(project).appendToManuscript(created, '正文内容。');
       await project.syncManifest();
       project.invalidate();
 

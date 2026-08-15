@@ -6,6 +6,7 @@ import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
 import { FileOpResult, InMessage } from '../protocol';
 import { retargetPlot } from './chat';
+import { Workspace } from '../workspace';
 
 const log = scoped('面板');
 
@@ -40,7 +41,7 @@ export async function openDraft(c: ChatController, chapterRelPath: string): Prom
     await c.pushState();
     return;
   }
-  const rel = await c.project.ensureDraft(chapter);
+  const rel = await new Workspace(c.project).ensureDraft(chapter);
   log.info(`打开第 ${chapter.order} 章的草稿`, rel);
   const host = getHost();
   if (host.openBeside) {
