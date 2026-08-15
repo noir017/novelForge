@@ -37,6 +37,56 @@ export interface TokenUsage {
   outputTokens?: number;
 }
 
+/** 一次工具调用。args 已解析成对象；解析失败时是空对象。 */
+export interface ToolCall {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  /** 参数原文。解析失败时上层要把它回显给模型看。 */
+  raw: string;
+}
+
+/**
+ * provider 吐出的唯一原语。
+ *
+ * 思考（reasoning）与正文（text）分成两种事件而不是两个回调：思考不该被
+ * 写入章节，但它可能先跑几十秒才开始吐正文，界面在这期间必须有反馈。
+ * usage 同理是一等公民——它是校准 tokenCounter 的唯一实测来源。
+ */
+export type StreamEvent =
+  | { type: 'text'; text: string }
+  | { type: 'reasoning'; text: string }
+  | { type: 'toolCall'; call: ToolCall }
+  | { type: 'usage'; usage: TokenUsage };
+
+export interface ToolSpec {
+  name: string;
+  description: string;
+  /** JSON Schema object，原样透传给各家 API。 */
+  parameters: Record<string, unknown>;
+}
+
+export type ToolChoice = 'auto' | 'none' | 'required';
+
+export type AgentMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
+  | { role: 'tool'; toolCallId: string; name: string; content: string };
+
+export interface StreamOptions {
+  maxOutputTokens: number;
+  temperature: number;
+  /** 请求超时（毫秒）。 */
+  timeoutMs: number;
+  /** 外部取消（用户点「停止」）。超时仍由本模块内部处理。 */
+  signal?: AbortSignal;
+  /** 本轮可用的工具。不给就不带 tools 字段——有些兼容实现见到未知字段会 400。 */
+  tools?: ToolSpec[];
+  /** 缺省 auto。 */
+  toolChoice?: ToolChoice;
+}
+
 export interface LlmProvider {
   readonly id: 'openai' | 'anthropic' | 'vscode-lm';
   /** 展示给用户的模型标识，例如 `deepseek-chat @ api.deepseek.com`。 */
@@ -48,6 +98,8 @@ export interface LlmProvider {
   maxInputTokens(): Promise<number | undefined>;
   /** 流式对话。逐段 yield 增量文本。 */
   chatStream(messages: ChatMessage[], options: ChatOptions): AsyncIterable<string>;
+  /** 事件流。三个 provider 分 Task 迁移期间先可选，迁完转必需。 */
+  stream?(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent>;
 }
 
 /** 用户主动取消时抛出，调用方据此静默处理而非报错。 */
@@ -83,7 +135,10 @@ export async function collectStream(
  * 把外部取消信号与超时统一成一个 AbortSignal。
  * 返回的 dispose 必须在请求结束后调用，否则定时器会泄漏。
  */
-export function makeAbortSignal(options: ChatOptions): { signal: AbortSignal; dispose: () => void } {
+export function makeAbortSignal(options: {
+  timeoutMs: number;
+  signal?: AbortSignal;
+}): { signal: AbortSignal; dispose: () => void } {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('timeout')), options.timeoutMs);
   const onAbort = () => controller.abort(options.signal?.reason ?? new CancelledError());
