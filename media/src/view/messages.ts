@@ -7,7 +7,7 @@
  * 判据是 `store.streamingId`，由 index.ts 在 turnDone 那一刻定下来。
  */
 import { el as mk, spacer } from '../dom';
-import type { SerializedDigest, SerializedTurn } from '../protocol';
+import type { SerializedAgentRun, SerializedDigest, SerializedTurn } from '../protocol';
 import { linkBtn } from './buttons';
 import { countWords, fmt, timeLabel } from './format';
 import { toggleButtonMenu } from './menu';
@@ -94,8 +94,23 @@ function buildTurn(turn: SerializedTurn): HTMLElement {
   if (turn.reasoning) {
     wrap.appendChild(buildReasoningDetails(turn.reasoning));
   }
+  // agent 调过的工具画成一串折叠条，也在正文上方——那是它得出结论的过程，
+  // 读起来的顺序就是「先查了什么，然后说了什么」。
+  if (turn.toolCalls && turn.toolCalls.length > 0) {
+    const strip = buildToolStrip();
+    for (const call of turn.toolCalls) {
+      strip.appendChild(buildToolRow(call));
+    }
+    wrap.appendChild(strip);
+  }
 
   wrap.appendChild(buildBody(turn));
+
+  // agent 那一轮的花销：几步、几次生成、大约多少 token。第 4 条要求它
+  // 看得见，而且要留得住——所以画的是会话里存的那一份，不是实时消息。
+  if (turn.agentRun) {
+    wrap.appendChild(buildAgentRunRow(turn.agentRun));
+  }
 
   if (turn.context) {
     wrap.appendChild(buildContextDetails(turn.context));
@@ -211,23 +226,31 @@ function buildActions(turn: SerializedTurn): HTMLElement {
     // 这一下点下去会写到哪、会不会盖掉什么。
     const a = turn.artifact;
     bar.appendChild(mk('span', 'artifact-where', `${a.where} · ${a.summary}`));
-    const accept = mk('button', 'chip-btn', a.overwrites ? '覆盖并写入' : '采纳写入');
-    accept.classList.toggle('danger', a.overwrites);
-    accept.title = a.overwrites ? `${a.where} 已有内容，写入前会让你先对比一遍。` : `写入 ${a.where}`;
-    accept.addEventListener('click', () =>
-      vscode.postMessage({
-        type: 'acceptArtifact',
-        turnId: turn.id,
-        target: store.session.target,
-        text: currentText(),
-      })
-    );
-    bar.appendChild(accept);
+    // 草稿还在才给按钮。`artifact` 是展示快照，会话很老时它还在而草稿已经
+    // 没了——那时仍然看得出「这一轮产出过一份 4 场的场景清单」，只是采纳
+    // 不了（落点在草稿身上，猜一个出来会把产物写到别的章去）。
+    const draftId = turn.draftId;
+    if (draftId) {
+      const accept = mk('button', 'chip-btn', a.overwrites ? '覆盖并写入' : '采纳写入');
+      accept.classList.toggle('danger', a.overwrites);
+      accept.title = a.overwrites ? `${a.where} 已有内容，写入前会让你先对比一遍。` : `写入 ${a.where}`;
+      accept.addEventListener('click', () =>
+        vscode.postMessage({
+          type: 'acceptArtifact',
+          turnId: turn.id,
+          // **不带 target**：落点由后端从 draft 里取。从前这里发的是当下
+          // 选中的目标，用户生成完切了一章再点采纳就写错地方。
+          draftId,
+          text: currentText(),
+        })
+      );
+      bar.appendChild(accept);
+    }
   }
   // 没有 artifact 就没有采纳按钮：**讨论型的回答不该能写文件**。
   // 从前这里给一个「采纳写入」把任意一段文字追加进当前章节的正文，那是旧的
   // 单一产物时代留下的入口——四层产物之下，落点必须由后端算出来
-  // （`describeArtifactOf`），前端猜不出这段话该写到哪一层。
+  // （`draft.target`），前端猜不出这段话该写到哪一层。
 
   bar.appendChild(
     linkBtn('复制', () => {
@@ -290,6 +313,93 @@ export function buildReasoningDetails(text: string): HTMLDetailsElement {
   det.appendChild(mk('summary', undefined, `思考过程 · ${countWords(text)} 字`));
   det.appendChild(mk('div', 'reasoning-body', text));
   return det;
+}
+
+/**
+ * agent 工具调用的那一串折叠条。
+ *
+ * ```
+ * 🔧 search「北境」        2 处命中   0.3s
+ * 🔧 read chapters/009…   142 行     0.1s
+ * ✨ generate 剧情         620 字     12.4s
+ * ```
+ *
+ * **只画摘要，不画返回值**：`read` 一章正文是几千字，摊在气泡里会把作者真正
+ * 要看的那段回答挤到屏幕外。要看内容点开那个文件就是了。
+ */
+export function buildToolStrip(): HTMLElement {
+  return mk('div', 'tools');
+}
+
+export function buildToolRow(call: {
+  callId: string;
+  name: string;
+  title: string;
+  ok: boolean;
+  summary: string;
+  elapsedMs: number;
+}): HTMLElement {
+  const row = mk('div', `tool-row${call.ok ? '' : ' tool-failed'}`);
+  row.dataset.call = call.callId;
+  // 花钱的那个用另一个图标：作者一眼要能看出这一串里哪几下是收费的。
+  row.appendChild(mk('span', 'tool-icon', call.name === 'generate' ? '✨' : '🔧'));
+  row.appendChild(mk('span', 'tool-title', call.title));
+  row.appendChild(mk('span', 'tool-summary', call.summary));
+  row.appendChild(mk('span', 'tool-elapsed', formatElapsed(call.elapsedMs)));
+  return row;
+}
+
+/** 一次工具调用刚开始，还没有结果。收到 `toolResult` 时就地补上。 */
+export function buildPendingToolRow(callId: string, title: string, detail?: string): HTMLElement {
+  return buildToolRow({
+    callId,
+    name: title.split(' ')[0],
+    title,
+    ok: true,
+    summary: detail ?? '进行中…',
+    elapsedMs: -1,
+  });
+}
+
+function formatElapsed(ms: number): string {
+  if (ms < 0) {
+    return '';
+  }
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+/**
+ * agent 那一轮末尾的花销行。
+ *
+ * ```
+ * ─────────────────────────────────
+ * 5 步 · 1 次生成 · 约 1.8 万 token
+ * ```
+ *
+ * **非正常结束时把原因写在同一行**（触顶、原地打转、作者叫停）：那句话是
+ * 「为什么只做到这里」的唯一去处，toast 五秒就没了。
+ */
+export function buildAgentRunRow(run: SerializedAgentRun): HTMLElement {
+  const row = mk('div', 'agent-run');
+  const parts = [`${run.steps} 步`];
+  if (run.calls > 0) {
+    parts.push(`${run.calls} 次生成`);
+  }
+  if (run.tokens > 0) {
+    parts.push(`约 ${formatTokens(run.tokens)} token`);
+  }
+  row.appendChild(mk('span', 'agent-run-cost', parts.join(' · ')));
+  if (run.stopReason !== 'done' && run.message) {
+    const why = mk('span', 'agent-run-why', run.message);
+    row.appendChild(why);
+    row.classList.add('agent-run-stopped');
+  }
+  return row;
+}
+
+/** 与日志的口径一致：上万就报「万」，几千的照实说。 */
+function formatTokens(n: number): string {
+  return n >= 10000 ? `${(n / 10000).toFixed(1)} 万` : String(n);
 }
 
 /** 上下文明细：装配器放进去了什么、各占多少 token、降级或丢弃的原因。 */

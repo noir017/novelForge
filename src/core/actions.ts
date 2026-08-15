@@ -3,6 +3,7 @@ import { resolveSectionDir } from './files/fileOps';
 import { getHost } from './host';
 import { emptyPlotSections } from './model/plotFile';
 import { NovelProject } from './model/project';
+import { Workspace } from './workspace';
 
 /**
  * 工程级交互流程的宿主无关实现。
@@ -57,7 +58,7 @@ export async function initProjectFlow(project: NovelProject, defaultTitle: strin
  */
 export async function newPlotFlow(project: NovelProject): Promise<string> {
   const no = await project.nextPlotNo();
-  const relPath = await project.writePlot({
+  const relPath = await new Workspace(project).writePlot({
     no,
     title: '',
     arc: '',
@@ -86,7 +87,7 @@ export async function newPlotFlow(project: NovelProject): Promise<string> {
 export async function newChapterFlow(project: NovelProject, dir?: string): Promise<string> {
   const target = resolveSectionDir(project, 'chapters', dir);
   const order = await project.nextChapterOrder();
-  const relPath = await project.createChapter(order, '', '', target);
+  const relPath = await new Workspace(project).createChapter(order, '', '', target);
   getHost().toast(`已新建第 ${order} 章：${relPath}`);
   return relPath;
 }

@@ -1,8 +1,16 @@
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { scoped } from '../runtime/logger';
 import { isChapterFileName } from '../model/chapterFile';
 import { hash } from '../model/fs';
+import { NovelProject } from '../model/project';
+import { Workspace } from '../workspace';
+import {
+  MAX_EDITABLE_BYTES,
+  WsConflictError,
+  WsError,
+  resolveInRoot,
+  toRelPosix,
+} from '../workspace/guard';
 
 const log = scoped('编辑器');
 
@@ -10,10 +18,20 @@ const log = scoped('编辑器');
  * 内置编辑器的文件读写。宿主无关：独立版把它接到网页编辑器上，
  * 插件壳不用（那边直接开 VS Code 的编辑器 tab）。
  *
- * 三条硬约束，全部在这里兜住，调用方不必重复检查：
- * 1. 路径必须落在工程根目录内（前端传上来的路径不可信）；
- * 2. 只碰纯文本（扩展名白名单 ∪ 章节文件名规则），且有大小上限；
- * 3. 保存时比对内容 hash，磁盘上被人改过就报冲突，绝不静默覆盖。
+ * ## 只剩两件事
+ *
+ * 三条硬约束（工程根包含、大小上限、内容 hash 乐观锁）已经搬进
+ * `workspace/guard.ts`，这里只留：
+ *
+ * 1. **可编辑判定**（扩展名白名单 ∪ 章节文件名规则）——那是**这个编辑器**
+ *    的口径，不是网关的：网关照样读写 `.rtf`，只是网页里的 textarea 不该
+ *    去打开一个 `.png`。
+ * 2. **`EditorFile` 的形状转换**——前端要的是 `{path, name, text, hash, bytes}`，
+ *    网关给的是 `WsFile`。
+ *
+ * 落盘因此**经网关**：作者在内置编辑器里改一份细纲，`upstreamHash` 现在会
+ * 跟着更新（记账下沉，见 workspace/README.md）。从前那条路直接
+ * `fs.writeFile`，指纹链就断在那儿。
  */
 
 /**
@@ -22,8 +40,7 @@ const log = scoped('编辑器');
  */
 export const EDITABLE_EXTENSIONS = ['.md', '.markdown', '.txt', '.json', '.yml', '.yaml'];
 
-/** 单文件大小上限。再大就不进编辑器了——一个 textarea 装不下，也不是这个工具该干的事。 */
-export const MAX_EDITABLE_BYTES = 2 * 1024 * 1024;
+export { MAX_EDITABLE_BYTES, resolveInRoot, toRelPosix };
 
 /** 不可编辑（越界 / 扩展名不符 / 太大 / 不是文件）。调用方据此决定是否回落到系统程序。 */
 export class FileEditError extends Error {
@@ -53,27 +70,6 @@ export interface EditorFile {
   bytes: number;
 }
 
-/**
- * 相对路径 → 绝对路径，并保证不逃出工程根目录。
- *
- * 只做逻辑路径包含检查（不解析 symlink）：本机单用户场景下，
- * 扩展名白名单 + 目录包含已经够了，realpath 会让每次打开多一次系统调用。
- */
-export function resolveInRoot(root: string, relPath: string): string {
-  const base = path.resolve(root);
-  const abs = path.resolve(base, relPath);
-  const rel = path.relative(base, abs);
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new FileEditError(`路径超出工程目录：${relPath}`);
-  }
-  return abs;
-}
-
-/** 绝对路径 → 工程内相对路径（正斜杠，跨平台一致）。 */
-export function toRelPosix(root: string, absPath: string): string {
-  return path.relative(path.resolve(root), absPath).replace(/\\/g, '/');
-}
-
 export function isEditablePath(relPath: string): boolean {
   const ext = path.extname(relPath).toLowerCase();
   if (EDITABLE_EXTENSIONS.includes(ext)) {
@@ -90,35 +86,17 @@ export function isEditablePath(relPath: string): boolean {
  * 越界、扩展名不符、体积过大、不是普通文件都抛 FileEditError。
  */
 export async function readFileForEditor(root: string, relPath: string): Promise<EditorFile> {
-  const abs = resolveInRoot(root, relPath);
-  if (!isEditablePath(abs)) {
+  if (!isEditablePath(relPath)) {
     throw new FileEditError(`不是可编辑的文本文件：${relPath}`);
   }
-
-  let stat: import('node:fs').Stats;
+  const ws = new Workspace(NovelProject.open(root));
   try {
-    stat = await fs.stat(abs);
-  } catch {
-    throw new FileEditError(`文件不存在：${relPath}`);
+    const file = await ws.read(relPath);
+    log.debug(`打开 ${relPath}`, `${file.bytes} 字节`);
+    return { path: file.rel, name: path.basename(file.rel), text: file.text, hash: file.hash, bytes: file.bytes };
+  } catch (err) {
+    throw asEditError(err, relPath);
   }
-  if (!stat.isFile()) {
-    throw new FileEditError(`不是文件：${relPath}`);
-  }
-  if (stat.size > MAX_EDITABLE_BYTES) {
-    throw new FileEditError(
-      `文件超过 ${Math.round(MAX_EDITABLE_BYTES / 1024 / 1024)} MB，内置编辑器不打开：${relPath}`
-    );
-  }
-
-  const text = await fs.readFile(abs, 'utf8');
-  log.debug(`打开 ${relPath}`, `${stat.size} 字节`);
-  return {
-    path: toRelPosix(root, abs),
-    name: path.basename(abs),
-    text,
-    hash: hash(text),
-    bytes: stat.size,
-  };
 }
 
 /**
@@ -127,6 +105,9 @@ export async function readFileForEditor(root: string, relPath: string): Promise<
  * `baseHash` 是前端拿到这份文件时的 hash：磁盘上的当前 hash 与它不一致，
  * 说明作者在别处改过（或另一个标签页存过），此时抛 FileConflictError 而不是覆盖。
  * 传空 baseHash 表示放弃乐观锁（用户已在冲突提示里明确选择「强制覆盖」）。
+ *
+ * **`review: false` 是有意的**：乐观锁已经是这条路自己那道闸，作者手里的
+ * 那份就是他要写的东西，再拿它和自己 diff 一遍没有意义。
  */
 export async function writeFileFromEditor(
   root: string,
@@ -134,44 +115,47 @@ export async function writeFileFromEditor(
   text: string,
   baseHash?: string
 ): Promise<EditorFile> {
-  const abs = resolveInRoot(root, relPath);
-  if (!isEditablePath(abs)) {
+  if (!isEditablePath(relPath)) {
     throw new FileEditError(`不是可编辑的文本文件：${relPath}`);
   }
-  if (Buffer.byteLength(text, 'utf8') > MAX_EDITABLE_BYTES) {
-    throw new FileEditError('内容超过大小上限，未保存。');
+  // 越界先拦：`../escape.md` 也是 `.md`，可编辑判定放它过。放到后面的话，
+  // 下面那句「强制保存」会先落进日志，而这次保存根本没发生。
+  try {
+    resolveInRoot(root, relPath);
+  } catch (err) {
+    throw asEditError(err, relPath);
   }
-
-  if (baseHash) {
-    let diskText: string | undefined;
-    try {
-      diskText = await fs.readFile(abs, 'utf8');
-    } catch {
-      // 文件被删了：当作新建处理，不拦。
-      diskText = undefined;
-    }
-    if (diskText !== undefined) {
-      const diskHash = hash(diskText);
-      if (diskHash !== baseHash) {
-        log.warn(
-          `保存被拒：${relPath} 在磁盘上已被改过`,
-          `编辑器基线 ${baseHash}，磁盘 ${diskHash}。已把磁盘版本交回前端由用户取舍，未覆盖。`
-        );
-        throw new FileConflictError(diskText, diskHash);
-      }
-    }
-  } else {
+  if (!baseHash) {
     log.warn(`强制保存 ${relPath}（用户已确认覆盖磁盘版本）`);
   }
 
-  await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, text, 'utf8');
-  log.info(`已保存 ${relPath}`, `${Buffer.byteLength(text, 'utf8')} 字节`);
-  return {
-    path: toRelPosix(root, abs),
-    name: path.basename(abs),
-    text,
-    hash: hash(text),
-    bytes: Buffer.byteLength(text, 'utf8'),
-  };
+  const ws = new Workspace(NovelProject.open(root));
+  try {
+    const r = await ws.write(relPath, { text }, { mode: 'overwrite', review: false, baseHash });
+    const bytes = Buffer.byteLength(text, 'utf8');
+    log.info(`已保存 ${relPath}`, `${bytes} 字节${r.side?.length ? `｜${r.side.join('｜')}` : ''}`);
+    return { path: r.rel, name: path.basename(r.rel), text, hash: hash(text), bytes };
+  } catch (err) {
+    throw asEditError(err, relPath);
+  }
+}
+
+/**
+ * 网关的错误 → 编辑器的错误。
+ *
+ * 两类要分开：冲突带着磁盘版本回前端由用户取舍，其余一律是「打不开/存不下」。
+ * 不是 `WsError` 的（真正的 I/O 异常）原样上抛——那些是调用方该知道的事。
+ */
+function asEditError(err: unknown, relPath: string): unknown {
+  if (err instanceof WsConflictError) {
+    log.warn(
+      `保存被拒：${relPath} 在磁盘上已被改过`,
+      `磁盘 ${err.diskHash}。已把磁盘版本交回前端由用户取舍，未覆盖。`
+    );
+    return new FileConflictError(err.diskText, err.diskHash);
+  }
+  if (err instanceof WsError) {
+    return new FileEditError(err.message);
+  }
+  return err;
 }

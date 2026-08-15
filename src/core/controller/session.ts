@@ -12,6 +12,9 @@ export async function newSession(c: ChatController): Promise<void> {
     return;
   }
   await persist(c);
+  // 走掉的那个会话的草稿留在它自己的 JSON 里，内存这份扔掉——不然开一天
+  // 面板会攒下几十份没人再看的正文。
+  c.drafts.dropBySession(c.current.id);
   c.current = c.store.create({
     target: c.current.target,
     stage: c.current.stage,
@@ -37,7 +40,12 @@ export async function openSession(c: ChatController, id: string): Promise<void> 
   }
   await persist(c);
   await restoreTarget(c, loaded);
+  c.drafts.dropBySession(c.current.id);
   c.current = loaded;
+  // 把落盘的那批草稿装回内存：**刷新网页后采纳按钮还在**就是它们落盘的
+  // 全部理由，不装回来的话按钮会在（`ChatTurn.draftId` 还在），点下去
+  // 却报「已经过期」。
+  c.drafts.load(loaded.id, loaded.drafts);
   c.pending = [];
   c.tab = 'chat';
   c.post({ type: 'tab', tab: 'chat' });

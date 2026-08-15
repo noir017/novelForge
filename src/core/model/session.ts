@@ -4,12 +4,14 @@ import { exists, readText, writeText } from './fs';
 import { NovelProject } from './project';
 import {
   Capability,
+  CreationAction,
   CreationStage,
   CreationTarget,
   DEFAULT_CAPABILITY,
   STAGE_CAPABILITIES,
   isCapability,
   isCreationStage,
+  normalizeAction,
   normalizeTarget,
 } from './pipeline';
 
@@ -96,16 +98,87 @@ export interface ChatTurn {
    */
   reasoning?: string;
   /**
+   * 仅 assistant 轮：这一轮产出的那份草稿的 id。
+   *
+   * **身份**。采纳时凭它取出 draft，落点从 `draft.target` 来——前端猜不出
+   * 一段讨论该写到哪一层（第 19 条最后一句）。
+   *
+   * 认不出的（会话文件被手改、草稿被挤掉）在 `normalize()` 里一律丢弃：
+   * 采纳按钮收起来，下面那份展示快照仍在。
+   */
+  draftId?: string;
+  /**
    * 仅 assistant 轮：这一轮产出的是可采纳的产物时，它的落点与形状。
    *
-   * 存进会话是为了**重开面板后采纳按钮还在**——不然刷新一次网页，
-   * 刚生成的四个场景就只剩一段谁也用不上的 JSON。
+   * **展示快照**，与 draft 一起持久化，重开面板不必重新解析。即使 draft
+   * 被清掉（会话很老了），气泡上仍然看得出「这一轮产出过一份 4 场的场景
+   * 清单」，只是采纳按钮收起来。
    */
   artifact?: {
     where: string;
     summary: string;
     overwrites: boolean;
   };
+  /**
+   * 仅 assistant 轮：这一轮 agent 调了哪些工具。
+   *
+   * **不存工具的完整返回值**——`read` 一章正文就是几千字，一轮下来几万字，
+   * 会话文件会被它撑爆（与 `MAX_DRAFTS_PER_SESSION` 是同一条理由）。这里只存
+   * 展示摘要（「142 行」「2 处命中」），够重开面板时把那串折叠条画回来。
+   */
+  toolCalls?: TurnToolCall[];
+  /**
+   * 仅 assistant 轮：这一轮 agent 的花销与结局。
+   *
+   * **落盘**（第 4 条）：只在跑的时候闪一下的话，作者第二天回来翻这一轮
+   * 就看不出它花了多少钱。
+   */
+  agentRun?: TurnAgentRun;
+}
+
+/** 一轮 agent 的花销与结局。只够画一行。 */
+export interface TurnAgentRun {
+  steps: number;
+  calls: number;
+  tokens: number;
+  stopReason: string;
+  message?: string;
+}
+
+/** 一次工具调用在会话里留下的痕迹。只够画一行，不够回放。 */
+export interface TurnToolCall {
+  callId: string;
+  name: string;
+  /** 界面上那一行的标题，如 `search「北境」`。 */
+  title: string;
+  ok: boolean;
+  /** 展示摘要，如「2 处命中」。**不是完整返回值。** */
+  summary: string;
+  elapsedMs: number;
+}
+
+/**
+ * 一份随会话落盘的草稿。
+ *
+ * 与 `generation/drafts.ts` 的 `Draft` 同形，只是 `artifact` 在这一层是
+ * **不透明的**：数据层不认识 `Artifact`（那是 `features/artifact.ts` 的类型，
+ * 依赖方向不允许反过来），而这份快照只用于画卡片——采纳时会拿气泡里当下的
+ * 文本重新解析。
+ */
+export interface SessionDraft {
+  id: string;
+  action: CreationAction;
+  target: CreationTarget;
+  /** 模型原样输出（正文层已过 `cleanOutput`）。 */
+  raw: string;
+  /** 解析出的结构化产物。text 类能力（discuss / critique / …）没有。 */
+  artifact?: unknown;
+  /** 一句话形状描述，如「剧情 · 4/4 节」。 */
+  summary?: string;
+  words: number;
+  /** 推理模型的思考过程。不是正文，采纳时不取。 */
+  reasoning?: string;
+  createdAt: string;
 }
 
 export interface ChatSession {
@@ -127,6 +200,14 @@ export interface ChatSession {
   /** 目标字数，跟着会话走，省得每次重填。 */
   targetWords?: number;
   turns: ChatTurn[];
+  /**
+   * 本会话里尚未采纳的草稿。
+   *
+   * 跟着会话落盘的理由与 `ChatTurn.artifact` 是同一条：**刷新网页后采纳
+   * 按钮还在**，不然刚生成的四个场景就只剩一段谁也用不上的 JSON。
+   * 不进 SQLite（第 17 条：库只放可丢弃的痕迹）。
+   */
+  drafts: SessionDraft[];
 }
 
 /** 列表视图用的轻量摘要，不含 turns 全文。 */
@@ -228,6 +309,7 @@ export class SessionStore {
       capability: DEFAULT_CAPABILITY[stage],
       targetNo: seed?.targetNo,
       turns: [],
+      drafts: [],
     };
   }
 }
@@ -316,6 +398,10 @@ function summarize(session: ChatSession): SessionSummary {
  * 认不出的 target 一律回落到全书大纲——它是唯一一个不依赖任何细纲就一定
  * 存在的产物。换轴之前的会话记的是章节路径，那些路径现在指不到任何东西，
  * 归一化时会落回大纲；作者重新选一章就好，比把它指到一个错的章上强。
+ *
+ * **对不上草稿的 `draftId` 一律丢弃**：会话文件可能被手改，草稿也可能因为
+ * 超出上限被挤掉。丢掉之后采纳按钮收起来，但 `artifact` 那份展示快照仍在，
+ * 气泡上仍看得出这一轮产出过什么。
  */
 function normalize(id: string, raw: unknown): ChatSession {
   const o = (raw ?? {}) as Partial<ChatSession>;
@@ -327,6 +413,8 @@ function normalize(id: string, raw: unknown): ChatSession {
     isCapability(o.capability) && STAGE_CAPABILITIES[stage].includes(o.capability)
       ? o.capability
       : DEFAULT_CAPABILITY[stage];
+  const drafts = normalizeDrafts(o.drafts);
+  const known = new Set(drafts.map((d) => d.id));
   return {
     id,
     title: typeof o.title === 'string' && o.title.trim() ? o.title : '未命名对话',
@@ -337,8 +425,49 @@ function normalize(id: string, raw: unknown): ChatSession {
     capability,
     targetNo: typeof o.targetNo === 'number' ? o.targetNo : undefined,
     targetWords: typeof o.targetWords === 'number' ? o.targetWords : undefined,
-    turns: Array.isArray(o.turns) ? o.turns.filter(isTurn) : [],
+    turns: Array.isArray(o.turns)
+      ? o.turns.filter(isTurn).map((t) => (t.draftId && !known.has(t.draftId) ? { ...t, draftId: undefined } : t))
+      : [],
+    drafts,
   };
+}
+
+/**
+ * 会话文件的 `drafts` 字段 → 一批草稿。不是数组就当空。
+ *
+ * **只要 `id` 在就不整体作废**：坏掉的字段按默认值补，气泡上那一轮至少还
+ * 认得出产出过什么。`target` 走 `normalizeTarget`（认不出回落全书大纲），
+ * `action` 走 `normalizeAction`，两者都不抛。
+ *
+ * `artifact` 原样收下不重新校验：它只是生成那一刻的展示快照，采纳时会拿
+ * 气泡里当下的文本重新解析（用户可能改过）。
+ */
+function normalizeDrafts(raw: unknown): SessionDraft[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: SessionDraft[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const o = entry as Partial<SessionDraft>;
+    if (typeof o.id !== 'string' || !o.id.trim()) {
+      continue;
+    }
+    out.push({
+      id: o.id,
+      action: normalizeAction(o.action),
+      target: normalizeTarget(o.target),
+      raw: typeof o.raw === 'string' ? o.raw : '',
+      artifact: o.artifact,
+      summary: typeof o.summary === 'string' ? o.summary : undefined,
+      words: typeof o.words === 'number' && Number.isFinite(o.words) ? o.words : 0,
+      reasoning: typeof o.reasoning === 'string' ? o.reasoning : undefined,
+      createdAt: typeof o.createdAt === 'string' ? o.createdAt : new Date(0).toISOString(),
+    });
+  }
+  return out;
 }
 
 function isTurn(t: unknown): t is ChatTurn {

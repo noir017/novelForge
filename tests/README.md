@@ -76,6 +76,10 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 
 | 文件 | 覆盖 |
 |---|---|
+| `agent/registry.test.js` | 工具注册表：`toolSpecs` 只透传 name/description/parameters（`run` 漏进去会炸 API）、重名与非法名直接抛、**参数必须扁平**（嵌套对象与对象数组一律拒——那是模型最容易填错的地方）、工具与每个参数都必须有描述、`required` ⊆ `properties` |
+| `agent/budget.test.js` | 三条上限（回合 / 生成次数 / token）各一条、**无进展检测**的两连（提示）与三连（停）、换参数换工具与「中间隔了别的动作」都不算重复、键序不同但内容相同算重复；以及第 11 条——**日志只有工具名与参数键名，没有参数值** |
+| `agent/context.test.js` | agent 上下文压缩：装得下就一个字不动、超预算时 system 与最后 6 轮完整保留而更早的工具结果只剩第一行、压缩时打 warn、压不下去时给停下的信号且**用户最初那句要求还在** |
+| `workspace/kind.test.js` | 路径 → 种类的一张表：细纲/场景/中转站/章节/摘要/角色/设定/草稿各自的判定与章号反推；**章节不认扩展名**（无扩展名、`.txt` 都算，`.png` 不算）而角色/细纲/场景仍只认 `.md`；`summaries/global.md` 不被当成第 0 章的摘要；越界一律 `other` 且 `rel: undefined`、绝不抛；`pathOfTarget` 与 `kindOfPath` 四支往返 |
 | `model/markdown.test.js` | frontmatter 解析（行内/块状数组、畸形行不抛错）、小节抽取、`extractH1`/`stripH1` 互逆、序列化往返 |
 | `model/chapterFile.test.js` | 章节文件名规则：任意非二进制扩展名 / 无扩展名算章节、二进制黑名单被挡、`extractH1` 只看首行 |
 | `model/project.test.js` | `cast` 条目的序列化往返（含全角括号、别名去重）、小节文本反解出场人物 |
@@ -97,6 +101,15 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 
 | 文件 | 覆盖 |
 |---|---|
+| `agent/readTools.test.js` | 只读三件套：list 的 60 项上限与「还有 N 项未列出」、read 的行号与「第 X–Y 行未读」（含接着读的 offset）、search 的章号升序与 `dropped > 0` 时那行 ⚠；**越界与不存在一律给 `error` 不抛**（模型看得到才换得了路）；跑完三个工具磁盘 mtime 一个都不变 |
+| `agent/generateTool.test.js` | `generate` 工具：draft 落进 store 而**返回文本里没有正文**（三千字塞回循环，每走一步重烧一遍）、层与能力的组合问 `STAGE_CAPABILITIES`、`settle` 明确不支持并指路对话页、认不出的路径给 error 且一次模型都不调、`history` 恒为空、正文层走 `config.active`、失败也记 budget |
+| `agent/stateBrief.test.js` | 状态注入：**label 与 hint 与 `deriveNextStep` 一字不差**（第 20 条的硬断言）、老工程说「已发布 99 章」而不说「待写剧情」、成品路径与细纲路径认到同一章、⟳ 超 5 章写「等 N 章」、状态机不催时明说「不要自己挑一章开工」 |
+| `agent/loop.test.js` | agent 循环（脚本化假 provider）：不调工具时一个回合结束、tool 消息形状、连续两次同工具同参数收到提示且**不真跑**、三次停下并仍给一轮总结、预算触顶时最后一轮**不带 tools**、取消停在工具边界且已产出的 draft 保留、工具抛异常变成 error 回给模型、日志里没有 prompt 全文/参数值/正文 |
+| `workspace/guard.test.js` | **八条入口守卫**各至少一条：越界（含归一化后仍逃出去的）、工程根包含、固定目录保护、回收站不可改（但读得到）、2MB 上限、同名不覆盖、覆盖审阅（两种宿主 + 文案逐字）、内容 hash 乐观锁 |
+| `workspace/basic.test.js` | `Workspace` 门面：write 的三种 mode、审阅拒绝时一字未改、乐观锁冲突、read 的 `truncated`（不静默截断）、edit 的「old 不唯一就报错」与「要么全成要么全不成」、remove 进 `.trash/` 且同名加序号、move 不覆盖、list 带 `kind` |
+| `workspace/hashChain.test.js` | **记账下沉**：改大纲后直接 `write` / `edit` 细纲文本，`upstreamHash` 跟着更新（修的那个缺陷）；场景同理；`plotContentHash` 只哈希四个小节、标 done 不动指纹；`beatsHashFor` 排除 `status`；**手写的产物永不标脏**；细纲改名带走场景与中转站、目标已存在时不覆盖；删细纲不碰 `chapters/` 与摘要 |
+| `workspace/split.test.js` | 正文追加插 `---` 与记 `beatsHash`、章节新建与 manifest、章节改名带草稿而删章节不删草稿、草稿按需创建不覆盖、摘要 `sourceHash` 记成品；**拆分先移号再落盘**（后面待写的细纲连同场景目录与中转站正文整体顺延） |
+| `workspace/search.test.js` | 全文检索：单章命中带章号、跨章按**章号**升序、`kinds`/`path` 限定、回收站与二进制不命中、`perFile`/`limit` 超限时 `dropped > 0`、正则与坏正则降级 |
 | `files/fileOps.test.js` | 层级目录与类文件操作：递归扫描（含 `.trash/` 排除）、`ProjectTree` 折叠、路径越界守卫、新建/重命名（保留序号前缀、H1 同步）/移动（跨区/自嵌套/同名拒绝）/删除（搬回收站、不覆盖）；**细纲走另一条路**——改名/删除连带搬走场景目录与中转站正文，且没有「移动到…」；摘要按**章节**名镜像（同号不同名互不覆盖）；`buildPlotSummaryView` |
 | `files/projectFiles.test.js` | 工程根范围的文件操作：重命名/移动/复制、固定目录保护、同名拒绝、垃圾箱豁免、章节联动 |
 | `files/chapters.test.js` | 非 markdown 章节不解析 H1、角色区仍只认 `.md`、`isEditablePath` 放行无扩展名章节 |
@@ -125,6 +138,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 
 | 文件 | 覆盖 |
 |---|---|
+| `view/agentTurn.test.js` | agent 那一轮的气泡：`toolCall` 先挂「进行中…」、`toolResult` 就地换成带耗时的最终形态（**不重建气泡**，重建会冲掉正在流的正文）、工具条排在正文上方、重开面板时靠 `turn.toolCalls` 回放、气泡里只有摘要没有工具的完整返回值；Agent 开关缺省关着、开着时发 `sendAgent` 且**不带 stage/capability** |
 | `view/chat.test.js` | 流式逐段显示、生成中不可编辑、结束后可编辑、中断与报错、气泡 ... 菜单、空输入、产物采纳卡片、思考过程 |
 | `view/creation.test.js` | 创作流水线条与下一步、工作区卡、`/` 命令面板（剧情层**八条**，含 `/落定剧情`）、选中一章进入当前阶段、独立版壳上的创作页 |
 | `view/projectTree.test.js` | 目录树折叠/展开与缩进、空文件夹提示、重推后保持展开；右键菜单——**章节行按三种状态（已发布 / 只有规划 / 待拆分）增减条目**、章节组标题的四个批量动作、通用行为 |

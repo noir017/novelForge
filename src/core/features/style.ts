@@ -1,11 +1,13 @@
 import { getHost } from '../host';
-import { ChatOptions, collectStream } from '../llm/provider';
+import { collectText } from '../llm/collect';
+import { StreamOptions } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { readConfig } from '../config';
 import { elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { NovelProject } from '../model/project';
 import { estimateTokens, takeHead } from '../context/tokenizer';
+import { Workspace } from '../workspace';
 import { stripCodeFence } from './parse';
 import { pickPlotsByInput } from './pickPlots';
 import { STYLE_SYSTEM } from './stylePrompt';
@@ -95,7 +97,7 @@ export async function extractStyle(project: NovelProject): Promise<void> {
       log.debug('样章已读取', `${corpus.length} 字（约 ${estimateTokens(corpus)} token）`);
 
       report({ message: '分析文风特征', current: 1, total: 2 });
-      const options: ChatOptions = {
+      const options: StreamOptions = {
         maxOutputTokens: Math.min(pool.primaryBudget.maxOutputTokens, 2000),
         temperature: 0.3,
         timeoutMs: config.requestTimeoutMs,
@@ -103,8 +105,8 @@ export async function extractStyle(project: NovelProject): Promise<void> {
       };
       const modelStart = Date.now();
       const raw = await pool.run('提取文风', (llm) =>
-        collectStream(
-          llm.chatStream(
+        collectText(
+          llm.stream(
             [
               { role: 'system', content: STYLE_SYSTEM },
               { role: 'user', content: corpus },
@@ -119,7 +121,7 @@ export async function extractStyle(project: NovelProject): Promise<void> {
         return;
       }
 
-      const relPath = await project.writeStyleGuide(stripCodeFence(raw));
+      const relPath = await new Workspace(project).writeStyleGuide(stripCodeFence(raw));
       report({ message: '完成', current: 2, total: 2 });
       log.info('文风指南已写入', `${relPath}｜总耗时 ${elapsed(startedAt)}`);
       getHost().toast('文风指南已生成，建议人工过一遍再用。');

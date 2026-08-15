@@ -19,6 +19,14 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
+/**
+ * 细纲与场景的写入搬进了 `core/workspace/`：改名要连带搬走场景目录与中转站
+ * 正文、写入要记上游指纹、删除要进 `.trash/`，那些是网关的活。`NovelProject`
+ * 这一层只留领域查询。
+ */
+let wsMod;
+const wsOf = (p) => new wsMod.Workspace(p);
+
 let bundle;
 let h;
 let t;
@@ -33,7 +41,7 @@ const filled = (goal) => ({
 
 /** 建一章的细纲（可选带一场景），返回细纲相对路径。 */
 async function makePlot(no, title, { scene = false } = {}) {
-  const relPath = await project.writePlot({
+  const relPath = await wsOf(project).writePlot({
     no,
     title,
     arc: '',
@@ -42,7 +50,7 @@ async function makePlot(no, title, { scene = false } = {}) {
     sections: filled(`第 ${no} 章要达成的事。`),
   });
   if (scene) {
-    await project.writeScene(relPath, {
+    await wsOf(project).writeScene(relPath, {
       plotRelPath: relPath,
       no: 1,
       title: '开场',
@@ -61,10 +69,12 @@ before(async () => {
   bundle = loadBundle({
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
+    ws: './src/core/workspace/index.ts',
     plotFile: './src/core/model/plotFile.ts',
     sceneFile: './src/core/model/sceneFile.ts',
     split: './src/core/features/splitChapter.ts',
   });
+  wsMod = bundle.ws;
   h = makeFakeHost();
   bundle.host.initHost(h.host);
   t = await makeTempProject(bundle.project, { prefix: 'split', title: '拆分测试' });
@@ -90,9 +100,9 @@ describe('拆成三章', () => {
     await makePlot(11, '风起', { scene: true });
     await makePlot(12, '雪落');
 
-    await project.appendToManuscript(plotRel, '他回到山门。');
-    await project.appendToManuscript(plotRel, '师父在等他。');
-    await project.appendToManuscript(plotRel, '雪落了一夜。');
+    await wsOf(project).appendToManuscript(plotRel, '他回到山门。');
+    await wsOf(project).appendToManuscript(plotRel, '师父在等他。');
+    await wsOf(project).appendToManuscript(plotRel, '雪落了一夜。');
 
     h.expect('拆分');
     created = await bundle.split.splitManuscript(project, plotRel);
@@ -200,7 +210,7 @@ describe('只切出一章', () => {
   before(async () => {
     await makePlot(20, '独章');
     await makePlot(21, '后一章');
-    await project.appendToManuscript(plotRel, '整章一气呵成，没有断点。');
+    await wsOf(project).appendToManuscript(plotRel, '整章一气呵成，没有断点。');
 
     h.expect(); // 一个答案都不排：真弹了确认就会当成取消，用例随即变红
     created = await bundle.split.splitManuscript(project, plotRel);
@@ -236,8 +246,8 @@ describe('用户取消', () => {
   before(async () => {
     await makePlot(30, '反悔');
     await makePlot(31, '不该被挪');
-    await project.appendToManuscript(plotRel, '甲。');
-    await project.appendToManuscript(plotRel, '乙。');
+    await wsOf(project).appendToManuscript(plotRel, '甲。');
+    await wsOf(project).appendToManuscript(plotRel, '乙。');
 
     h.expect(undefined); // 用户按了 Esc
     created = await bundle.split.splitManuscript(project, plotRel);
@@ -272,8 +282,8 @@ describe('已发布的章不顺延', () => {
     t.write('chapters/041-已发布.md', '# 已发布\n\n早就发出去的文字。\n');
     project.invalidate();
 
-    await project.appendToManuscript(plotRel, '甲。');
-    await project.appendToManuscript(plotRel, '乙。');
+    await wsOf(project).appendToManuscript(plotRel, '甲。');
+    await wsOf(project).appendToManuscript(plotRel, '乙。');
 
     h.expect('拆分');
     await bundle.split.splitManuscript(project, plotRel);

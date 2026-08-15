@@ -42,6 +42,7 @@ import { NovelProject } from '../model/project';
 import { Plot, PLOT_SECTION_KEYS, isPlotFilled } from '../model/plotFile';
 import { Scene } from '../model/sceneFile';
 import {
+  NextStepFacts,
   PipelineFacts,
   PipelineProgress,
   PlotStage,
@@ -255,6 +256,30 @@ export async function buildPipelineIndex(
     );
   }
   return { pipelines: out, summaries, manifest, outline };
+}
+
+/**
+ * 流水线 → `deriveNextStep` 要的那几个事实。
+ *
+ * **只有一份**：创作页的主按钮（`controller/chat.ts`）与 agent 每回合的状态注入
+ * （`agent/context.ts`）都吃它。看着只是个字段搬运，其实带着两条判据——
+ * 「第一个还没备素材的场景」与「第一个还没写正文的场景」。各写一遍的话，
+ * 界面上的主按钮会说「设计场景 2」而 agent 去写了场景 3，而这种分叉没有
+ * 任何测试拦得住（AGENTS 第 20 条）。
+ *
+ * 参数写成结构类型而不是 `PlotPipeline`：数据层的 `PlotPipeline` 与线上的
+ * `PlotPipelineView` 在这几个字段上同形，两处调用共用一份。
+ */
+export function factsOf(p: {
+  scenes: { no: number; ready: boolean; status: string }[];
+  manuscript: { beatsStale: boolean };
+}): NextStepFacts {
+  return {
+    sceneCount: p.scenes.length,
+    firstUnreadyScene: p.scenes.find((s) => !s.ready)?.no,
+    firstUnwrittenScene: p.scenes.find((s) => s.status !== 'written')?.no,
+    beatsStale: p.manuscript.beatsStale,
+  };
 }
 
 /**

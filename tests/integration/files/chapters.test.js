@@ -17,6 +17,15 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
+/**
+ * 产物写入搬进了 `core/workspace/`：正文追加要插分隔标记与记 beatsHash、
+ * 建章节要同名报错并同步 manifest、草稿按需创建但绝不覆盖。`NovelProject`
+ * 这一层只留领域查询。
+ */
+let wsMod;
+const wsOf = (p) => new wsMod.Workspace(p);
+
+
 describe('章节文件规则（磁盘）', () => {
   let projectView;
   let fileEditing;
@@ -33,11 +42,13 @@ describe('章节文件规则（磁盘）', () => {
       chapterFile: './src/core/model/chapterFile.ts',
       markdown: './src/core/model/markdown.ts',
       project: './src/core/model/project.ts',
+      ws: './src/core/workspace/index.ts',
       projectView: './src/core/views/projectView.ts',
       fileOps: './src/core/files/fileOps.ts',
       fileEditing: './src/core/files/fileEditing.ts',
       attachments: './src/core/files/attachments.ts',
     });
+    wsMod = bundle.ws;
     ({ projectView, fileEditing } = bundle);
     // 原脚本的 host 字面量里没有 reviewReplace，显式抹掉，别走进 diff 审阅分支。
     bundle.host.initHost(makeFakeHost({ overrides: { reviewReplace: undefined } }).host);
@@ -149,12 +160,12 @@ describe('章节文件规则（磁盘）', () => {
     let bareWords;
 
     before(async () => {
-      created = await project.createChapter(9, '新章', '', undefined);
+      created = await wsOf(project).createChapter(9, '新章', '', undefined);
       createdHead = read(created);
-      txt = await project.createChapter(10, '纯文本章', '正文', undefined, '.txt');
+      txt = await wsOf(project).createChapter(10, '纯文本章', '正文', undefined, '.txt');
       txtBody = read(txt);
       // 流水线新建那条路：还没有标题可言，落成纯序号名。
-      bare = await project.createChapter(11, '', '', undefined);
+      bare = await wsOf(project).createChapter(11, '', '', undefined);
       bareBody = read(bare);
       project.invalidate();
       const scanned = (await project.listChapters()).find((c) => c.relPath === bare);

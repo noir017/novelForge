@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { getHost } from '../host';
-import { collectStream, ChatOptions } from '../llm/provider';
+import { collectText } from '../llm/collect';
+import { StreamOptions } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { readConfig } from '../config';
 import { resolveSectionDir } from '../files/fileOps';
@@ -11,6 +12,7 @@ import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../mo
 import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
 import { sanitizeAliases } from '../model/naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
+import { Workspace } from '../workspace';
 import { CHARACTER_SYSTEM } from './charactersPrompt';
 import { extractJsonArray, stringArray, stripCodeFence, unique } from './parse';
 import { pickPlotsByInput } from './pickPlots';
@@ -77,7 +79,7 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
           : '（暂无已有角色卡）';
 
       report({ message: '调用模型分析人物', current: 1, total: 3 });
-      const options: ChatOptions = {
+      const options: StreamOptions = {
         maxOutputTokens: pool.primaryBudget.maxOutputTokens,
         temperature: 0.3,
         timeoutMs: config.requestTimeoutMs,
@@ -85,8 +87,8 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
       };
       const modelStart = Date.now();
       const raw = await pool.run('提取角色', (llm) =>
-        collectStream(
-          llm.chatStream(
+        collectText(
+          llm.stream(
             [
               { role: 'system', content: CHARACTER_SYSTEM },
               {
@@ -164,7 +166,7 @@ async function mergeCharacters(
     }
     // 新角色：直接创建，没有可覆盖的人工内容。
     const slug = await uniqueSlug(project.charactersDir, slugify(item.name));
-    const relPath = await project.writeCharacter({
+    const relPath = await new Workspace(project).writeCharacter({
       slug,
       name: item.name,
       aliases: item.aliases,
@@ -289,7 +291,7 @@ export async function newCharacter(project: NovelProject, dir?: string): Promise
   // slug 带上子目录前缀，writeCharacter 会连中间目录一起建出来。
   const prefix = target === root ? '' : `${target.slice(root.length + 1)}/`;
   const slug = await uniqueSlug(project.charactersDir, `${prefix}${slugify(name)}`);
-  const relPath = await project.writeCharacter({
+  const relPath = await new Workspace(project).writeCharacter({
     slug,
     name: name.trim(),
     aliases: [],

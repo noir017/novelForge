@@ -1,5 +1,6 @@
 import type { ChatController } from './index';
 import {
+  normalizeAgentPolicy,
   normalizeModelList,
   normalizeTaskTiers,
   normalizeTierModels,
@@ -8,6 +9,7 @@ import {
   readConfig,
 } from '../config';
 import { describeTierConfig } from '../model/tiers';
+import { AGENT_POLICY_LABEL } from '../model/agentPolicy';
 import { apiKeyStatus, pruneApiKeys } from '../llm/registry';
 import {
   describeModelIssue,
@@ -15,6 +17,7 @@ import {
   resolveModelRef,
 } from '../model/providers';
 import { SerializedProvider, SettingsPayload } from '../protocol';
+import { testConnection as runConnectionTest } from '../features/creation';
 import { scoped } from '../runtime/logger';
 
 const log = scoped('面板');
@@ -37,6 +40,7 @@ export async function pushSettings(c: ChatController, ack?: 'saved' | 'rejected'
           label: m.label,
           contextWindow: m.contextWindow,
           maxOutputTokens: m.maxOutputTokens,
+          supportsTools: m.supportsTools,
         })),
       })),
       models: cfg.models,
@@ -49,6 +53,7 @@ export async function pushSettings(c: ChatController, ack?: 'saved' | 'rejected'
       requestTimeoutMs: cfg.requestTimeoutMs,
       concurrency: cfg.concurrency,
       fallbackAttempts: cfg.fallbackAttempts,
+      agentPolicy: cfg.agentPolicy,
     },
     keys: await apiKeyStatus(cfg.providers),
   });
@@ -86,6 +91,8 @@ export async function saveSettings(c: ChatController, s: SettingsPayload): Promi
     requestTimeoutMs: s.requestTimeoutMs,
     concurrency: s.concurrency,
     fallbackAttempts: s.fallbackAttempts,
+    // 认不出的策略名回落默认，与其它字段一样容错。
+    agentPolicy: normalizeAgentPolicy(s.agentPolicy),
   });
 
   // 删掉的服务商不该在钥匙串里留下孤儿 Key。
@@ -96,7 +103,8 @@ export async function saveSettings(c: ChatController, s: SettingsPayload): Promi
     `${providers.length} 个服务商｜默认模型 ${models.join('、') || '（未选）'}｜` +
       `${describeTierConfig(tierModels, taskTiers)}｜` +
       `温度 ${s.temperature}｜超时 ${s.requestTimeoutMs}ms｜` +
-      `并发 ${s.concurrency}｜换模型重试 ${s.fallbackAttempts} 次`
+      `并发 ${s.concurrency}｜换模型重试 ${s.fallbackAttempts} 次｜` +
+      `Agent 策略 ${AGENT_POLICY_LABEL[normalizeAgentPolicy(s.agentPolicy)]}`
   );
   await pushSettings(c, 'saved');
   await c.pushState();
@@ -134,7 +142,7 @@ export async function testConnection(
   // 设置页传来的草稿同样走一遍容错归一化——手改过的字段不该让测试崩掉。
   const draft = provider ? normalizeProviders([provider])[0] : undefined;
   c.toast(`正在测试 ${target}…`);
-  const result = await c.session.testConnection(ref, draft);
+  const result = await runConnectionTest(ref, draft);
   c.toast(result.message, result.ok ? 'info' : 'error');
   await c.pushState();
 }

@@ -1,5 +1,7 @@
 import { getHost } from '../host';
-import { collectStream, CancelledError, ChatOptions, LlmProvider, TokenUsage } from '../llm/provider';
+import { basename } from 'node:path';
+import { collectText, mergeUsage } from '../llm/collect';
+import { CancelledError, LlmProvider, StreamOptions, TokenUsage } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { resolveProvider } from '../llm/registry';
 import { runPool } from '../runtime/concurrency';
@@ -10,12 +12,14 @@ import { describeError, elapsed, formatDuration, scoped } from '../runtime/logge
 import { runTask } from '../runtime/progress';
 import { castFromText, parseCastEntry, renderCastEntry } from '../model/castParse';
 import { NovelProject, emptySummarySections } from '../model/project';
+import { parsePlotFileName } from '../model/plotFile';
 import { describeTaskModels } from '../model/tiers';
 import { SUMMARY_SECTION_KEYS, Chapter, SummaryCast, SummarySections } from '../model/types';
 import { sanitizeAliases } from '../model/naming';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
 import { extractJsonObject, stripCodeFence } from './parse';
 import { GLOBAL_SYSTEM, STAGE_SYSTEM, SUMMARY_SYSTEM } from './summarizePrompt';
+import { Workspace } from '../workspace';
 
 const log = scoped('摘要');
 
@@ -75,19 +79,11 @@ export async function summarizeChapter(
   }
 
   const usage: TokenUsage = {};
-  const options: ChatOptions = {
+  const options: StreamOptions = {
     maxOutputTokens: Math.min(window.maxOutputTokens, 1500),
     temperature: 0.3, // 摘要要稳定、可复现，压低温度
     timeoutMs: config.requestTimeoutMs,
     signal,
-    onUsage: (u) => {
-      if (u.inputTokens !== undefined) {
-        usage.inputTokens = u.inputTokens;
-      }
-      if (u.outputTokens !== undefined) {
-        usage.outputTokens = u.outputTokens;
-      }
-    },
   };
 
   const startedAt = Date.now();
@@ -104,14 +100,15 @@ export async function summarizeChapter(
   // 否则这条样本会系统性地偏低，把 tokenCounter 的比值带歪。
   const estimated = estimateTokens(SUMMARY_SYSTEM) + estimateTokens(userPrompt);
 
-  const raw = await collectStream(
-    llm.chatStream(
+  const raw = await collectText(
+    llm.stream(
       [
         { role: 'system', content: SUMMARY_SYSTEM },
         { role: 'user', content: userPrompt },
       ],
       options
-    )
+    ),
+    { onUsage: (u) => mergeUsage(usage, u) }
   );
 
   const { sections, cast } = parseSummaryResponse(raw);
@@ -136,7 +133,12 @@ export async function summarizeChapter(
     });
     throw new Error(`第 ${chapter.order} 章摘要解析失败，模型返回内容无法解析。`);
   }
-  const relPath = await project.writeSummary(chapter, chapter.contentHash, sections, cast);
+  const relPath = await new Workspace(project).writeSummary(
+    chapter,
+    chapter.contentHash,
+    sections,
+    cast
+  );
   // 这一章好了：把它挂着的旧感叹号收掉（上次可能是超时/解析失败）。
   await clearFailures(project, 'chapter', chapter.relPath, 'summarize');
   // 批量同步一次要跑几十章，是最烧 token 的动作之一；有实测用量就记一笔，
@@ -173,8 +175,13 @@ async function knownNamesHint(project: NovelProject): Promise<string> {
 }
 
 
-/** 批量补齐所有缺失/过期的摘要，带进度，可取消。各章之间无先后，按配置并发。 */
-export async function syncSummaries(project: NovelProject): Promise<void> {
+/**
+ * 批量补齐所有缺失/过期的摘要，带进度，可取消。各章之间无先后，按配置并发。
+ *
+ * 返回**这一次计划调用几次模型**（确认框里那个数字；取消或无事可做时是 0）。
+ * 只在这里算一次——agent 的 `run` 工具拿它记进预算。
+ */
+export async function syncSummaries(project: NovelProject): Promise<number> {
   log.info('开始检查摘要新鲜度');
   const scanStart = Date.now();
   const stale = await project.staleChapters();
@@ -186,7 +193,7 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
 
   if (stale.length === 0) {
     getHost().toast('所有摘要都是最新的。');
-    return;
+    return 0;
   }
 
   const config = readConfig();
@@ -203,13 +210,13 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
   );
   if (confirm !== '开始同步') {
     log.info('用户取消了同步');
-    return;
+    return 0;
   }
 
   const pool = await createModelPool({ task: 'plotSummary', concurrent: lanes > 1 });
   if (!pool) {
     log.error('没有可用的模型，同步中止');
-    return;
+    return 0;
   }
   log.info(`使用模型 ${pool.label}`, lanes > 1 ? `并发 ${lanes} 路，轮转负载均衡` : '串行');
 
@@ -309,6 +316,31 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
     },
     { scope: '摘要' }
   );
+  return stale.length;
+}
+
+/**
+ * 「细纲路径或章节路径」→ 那一章的成品。
+ *
+ * 摘要挂在**成品**上，而作者点过来的路径可能是任意一侧：工程页那一行同时
+ * 代表规划与成品。先按路径直接找，找不到再按文件名里的章号找——后者覆盖
+ * 「传的是细纲、成品另有其名」这种正常情况。还没拆分（没有成品）时返回
+ * undefined，调用方据此提示作者先去拆分。
+ *
+ * 放在这里而不是各调用方各写一份：工程页、命令面板与 agent 的 `run` 工具
+ * 都要问同一个问题，答案分叉了就会出现「工程页总结得了、agent 说找不到」。
+ */
+export async function chapterForSummary(
+  project: NovelProject,
+  relPath: string
+): Promise<Chapter | undefined> {
+  const chapters = await project.listChapters();
+  const direct = chapters.find((ch) => ch.relPath === relPath);
+  if (direct) {
+    return direct;
+  }
+  const no = parsePlotFileName(basename(relPath))?.no;
+  return no === undefined ? undefined : chapters.find((ch) => ch.order === no);
 }
 
 /** `1、2、3…（共 76 章）`——待办列表太长时只列前几个。 */
@@ -401,7 +433,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
     '重建全书摘要',
     async ({ signal, report }) => {
       const startedAt = Date.now();
-      const options: ChatOptions = {
+      const options: StreamOptions = {
         maxOutputTokens: Math.min(stagePool.primaryBudget.maxOutputTokens, 2000),
         temperature: 0.3,
         timeoutMs: config.requestTimeoutMs,
@@ -427,8 +459,8 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
           const each = Date.now();
           log.debug(`汇总 ${range}`, `${batch.length} 章摘要，约 ${estimateTokens(joined)} token`);
           const text = await stagePool.run(range, (llm) =>
-            collectStream(
-              llm.chatStream(
+            collectText(
+              llm.stream(
                 [
                   { role: 'system', content: STAGE_SYSTEM },
                   { role: 'user', content: `以下是${range}的逐章摘要，请汇总成阶段摘要。\n\n${joined}` },
@@ -496,8 +528,8 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
         const mergeStart = Date.now();
         log.debug(`合并 ${stageSummaries.length} 份阶段摘要`, `约 ${estimateTokens(clipped)} token`);
         finalText = await mergePool.run('合并全书摘要', (llm) =>
-          collectStream(
-            llm.chatStream(
+          collectText(
+            llm.stream(
               [
                 { role: 'system', content: GLOBAL_SYSTEM },
                 {
@@ -513,7 +545,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
       }
 
       const through = units[units.length - 1].no;
-      const relPath = await project.writeGlobalSummary(finalText.trim(), through);
+      const relPath = await new Workspace(project).writeGlobalSummary(finalText.trim(), through);
       report({ message: '完成', current: steps, total: steps });
       log.info(
         `全书摘要已重建，覆盖至第 ${through} 章`,

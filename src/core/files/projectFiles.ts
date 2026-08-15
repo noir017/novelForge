@@ -1,16 +1,11 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import {
-  carryDraft,
-  isProtectedPath,
-  normalizeRel,
-  renameEntryInRoot,
-  sectionOf,
-} from './fileOps';
+import { isProtectedPath, normalizeRel, renameEntryInRoot, sectionOf } from './fileOps';
 import { getHost } from '../host';
 import { describeError, scoped } from '../runtime/logger';
 import { exists } from '../model/fs';
 import { NovelProject } from '../model/project';
+import { Workspace } from '../workspace';
 import { FileOpResult } from '../protocol';
 
 const log = scoped('文件页');
@@ -159,27 +154,17 @@ async function pasteOne(
 
   try {
     if (copy) {
+      // **复制没有伴生**：复制一章不该顺手把草稿也复制一份——那份草稿是
+      // 作者对原章写的笔记，跟着副本走会变成两份各自漂移的东西。
       await fs.cp(abs, nextAbs, { recursive: true });
     } else {
-      await fs.rename(abs, nextAbs);
+      // 经网关搬：草稿跟随、manifest 同步、章节被移出 chapters/ 时的提示
+      // 都在 chapter handler 里做一次。
+      await new Workspace(project).move(rel, nextRel);
     }
   } catch (err) {
     log.warn(`粘贴失败：${rel} → ${nextRel}`, describeError(err));
     return { from: rel, ok: false, error: describeError(err) };
-  }
-
-  if (!copy && sectionOf(project, rel)?.section === 'chapters') {
-    // 章节这边的伴生文件是草稿与摘要（细纲、场景与中转站正文挂在细纲上）。
-    // 移出 chapters/ 时新镜像路径推导不出，草稿留在原处——**要说出来**，
-    // 不说的话作者会以为它跟着走了，而界面上正好也看不出区别。
-    if (project.draftRelPathFor(nextRel)) {
-      await carryDraft(project, rel, nextRel, isDir);
-    } else {
-      const from = project.draftRelPathFor(rel);
-      if (from && (await exists(project.pathOf(from)))) {
-        log.warn(`章节被移出 chapters/，草稿留在原处`, `草稿仍在 ${from}`);
-      }
-    }
   }
 
   log.info(`${copy ? '已复制' : '已移动'}${isDir ? '文件夹' : ''}`, `${rel} → ${nextRel}`);

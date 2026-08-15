@@ -1,40 +1,58 @@
-export type Role = 'system' | 'user' | 'assistant';
-
-export interface ChatMessage {
-  role: Role;
-  content: string;
+/** 一次请求的真实 token 用量。字段缺席表示该服务商没给这一项。 */
+export interface TokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
-export interface ChatOptions {
+/** 一次工具调用。args 已解析成对象；解析失败时是空对象。 */
+export interface ToolCall {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  /** 参数原文。解析失败时上层要把它回显给模型看。 */
+  raw: string;
+}
+
+/**
+ * provider 吐出的唯一原语。
+ *
+ * 思考（reasoning）与正文（text）分成两种事件而不是两个回调：思考不该被
+ * 写入章节，但它可能先跑几十秒才开始吐正文，界面在这期间必须有反馈。
+ * usage 同理是一等公民——它是校准 tokenCounter 的唯一实测来源，没有
+ * 「调用方想不想听」这回事。
+ */
+export type StreamEvent =
+  | { type: 'text'; text: string }
+  | { type: 'reasoning'; text: string }
+  | { type: 'toolCall'; call: ToolCall }
+  | { type: 'usage'; usage: TokenUsage };
+
+export interface ToolSpec {
+  name: string;
+  description: string;
+  /** JSON Schema object，原样透传给各家 API。 */
+  parameters: Record<string, unknown>;
+}
+
+export type ToolChoice = 'auto' | 'none' | 'required';
+
+export type AgentMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
+  | { role: 'tool'; toolCallId: string; name: string; content: string };
+
+export interface StreamOptions {
   maxOutputTokens: number;
   temperature: number;
   /** 请求超时（毫秒）。 */
   timeoutMs: number;
   /** 外部取消（用户点「停止」）。超时仍由本模块内部处理。 */
   signal?: AbortSignal;
-  /**
-   * 推理模型的思考内容（DeepSeek reasoner、Gemma/Gemini thinking 等）。
-   *
-   * 思考不是正文，不能混进 chatStream 的产出——它不该被写入章节。
-   * 但它可能先跑几十秒才开始吐正文，界面在这期间必须有反馈，
-   * 否则看起来就像「卡住了，最后一次性蹦出来」。
-   */
-  onReasoning?: (text: string) => void;
-  /**
-   * 服务商回报的真实 token 用量。
-   *
-   * 只有服务商确实给了才回调——没给就什么都不发，绝不用估算值冒充实测
-   * （那会污染 tokenCounter 的校准比值）。同一次请求可能回调多次
-   * （Anthropic 在 message_start 给输入、message_delta 给输出），
-   * 调用方按字段合并即可。
-   */
-  onUsage?: (usage: TokenUsage) => void;
-}
-
-/** 一次请求的真实 token 用量。字段缺席表示该服务商没给这一项。 */
-export interface TokenUsage {
-  inputTokens?: number;
-  outputTokens?: number;
+  /** 本轮可用的工具。不给就不带 tools 字段——有些兼容实现见到未知字段会 400。 */
+  tools?: ToolSpec[];
+  /** 缺省 auto。 */
+  toolChoice?: ToolChoice;
 }
 
 export interface LlmProvider {
@@ -46,8 +64,8 @@ export interface LlmProvider {
    * contextWindow 为准（自建 API 通常如此）。
    */
   maxInputTokens(): Promise<number | undefined>;
-  /** 流式对话。逐段 yield 增量文本。 */
-  chatStream(messages: ChatMessage[], options: ChatOptions): AsyncIterable<string>;
+  /** 流式对话。逐个 yield 事件，文本用 `collect.ts` 的 collectText 收。 */
+  stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent>;
 }
 
 /** 用户主动取消时抛出，调用方据此静默处理而非报错。 */
@@ -66,24 +84,14 @@ export class LlmError extends Error {
   }
 }
 
-/** 把整个流收集成字符串，途中可通过 onDelta 观察增量。 */
-export async function collectStream(
-  stream: AsyncIterable<string>,
-  onDelta?: (delta: string, full: string) => void
-): Promise<string> {
-  let full = '';
-  for await (const delta of stream) {
-    full += delta;
-    onDelta?.(delta, full);
-  }
-  return full;
-}
-
 /**
  * 把外部取消信号与超时统一成一个 AbortSignal。
  * 返回的 dispose 必须在请求结束后调用，否则定时器会泄漏。
  */
-export function makeAbortSignal(options: ChatOptions): { signal: AbortSignal; dispose: () => void } {
+export function makeAbortSignal(options: {
+  timeoutMs: number;
+  signal?: AbortSignal;
+}): { signal: AbortSignal; dispose: () => void } {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('timeout')), options.timeoutMs);
   const onAbort = () => controller.abort(options.signal?.reason ?? new CancelledError());

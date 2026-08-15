@@ -20,7 +20,7 @@ const behavior = {};
 const warns = [];
 
 let createModelPool;
-let collectStream;
+let collectText;
 let fake;
 let host;
 
@@ -31,11 +31,12 @@ before(() => {
     pool: './src/core/llm/pool.ts',
     registry: './src/core/llm/registry.ts',
     provider: './src/core/llm/provider.ts',
+    collect: './src/core/llm/collect.ts',
     logger: './src/core/runtime/logger.ts',
   });
 
   ({ createModelPool } = bundle.pool);
-  ({ collectStream } = bundle.provider);
+  ({ collectText } = bundle.collect);
 
   host = makeFakeHost({ supportsVscodeLm: true, settings: () => settings });
   bundle.host.initHost(host.host);
@@ -100,7 +101,7 @@ function configureTiers({ models = [], tierModels = {}, taskTiers = {}, windows 
 }
 
 /** 让 pool.run 的回调「调一次模型」。 */
-const useModel = (llm) => collectStream(llm.chatStream([], {}));
+const useModel = (llm) => collectText(llm.stream([], {}));
 /** 这一轮实际调过的模型引用。 */
 const usedRefs = () => fake.calls.map((c) => c.ref);
 

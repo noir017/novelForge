@@ -57,7 +57,8 @@ export type LlmTask =
   | 'loreSynthesis'
   | 'characterCard'
   | 'extractCharacters'
-  | 'extractStyle';
+  | 'extractStyle'
+  | 'agent';
 
 export const LLM_TASKS: LlmTask[] = [
   'plotSummary',
@@ -71,6 +72,7 @@ export const LLM_TASKS: LlmTask[] = [
   'characterCard',
   'extractCharacters',
   'extractStyle',
+  'agent',
 ];
 
 /** 任务的中文名。确认框与日志里出现的就是它。 */
@@ -86,6 +88,7 @@ export const TASK_LABEL: Record<LlmTask, string> = {
   characterCard: '角色卡 · 更新 / 建卡',
   extractCharacters: '提取角色',
   extractStyle: '提取文风',
+  agent: 'Agent 调度',
 };
 
 /** 设置页那张表里每行的补充说明：这活为什么归在这一档。 */
@@ -101,6 +104,7 @@ export const TASK_HINT: Record<LlmTask, string> = {
   characterCard: '按出场章分批精炼，产物每次续写都注入上下文',
   extractCharacters: '一次调用定「谁是谁」，判错会污染整个角色体系',
   extractStyle: '一次调用，产出的文风指南每次续写都注入',
+  agent: '每走一步都要调一次，只做决策不产文本；**必须支持工具调用**',
 };
 
 /**
@@ -130,6 +134,11 @@ export const DEFAULT_TASK_TIERS: Record<LlmTask, ModelTier> = {
   globalSummaryMerge: 'quality',
   extractCharacters: 'quality',
   extractStyle: 'quality',
+  // agent 归均衡档：它一轮要调十几次，但每一次只做「下一步调哪个工具」的
+  // 判断、不产正文——压到快速档常常填错参数（一次白花的往返），抬到精标档
+  // 则是拿最贵的模型去做调度。真正决定成品质量的是 generate 内部那次调用，
+  // 它走的是各自那一层的档位。
+  agent: 'balanced',
 };
 
 /** 三档的模型清单，归一化后的完整形状（每档都在，可能是空数组）。 */

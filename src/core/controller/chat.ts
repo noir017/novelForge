@@ -1,6 +1,8 @@
 import type { ChatController } from './index';
 import { basename } from 'node:path';
-import { describeArtifact } from '../features/creation';
+import { describeArtifact } from '../features/artifact';
+import { acceptArtifact as writeArtifact } from '../generation/accept';
+import { Draft, generate, parseDraftArtifact } from '../generation/generate';
 import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
 import {
@@ -13,6 +15,7 @@ import {
 } from '../model/session';
 import {
   Capability,
+  CreationStage,
   CreationTarget,
   DEFAULT_CAPABILITY,
   STAGE_CAPABILITIES,
@@ -118,7 +121,12 @@ export async function retry(c: ChatController, turnId: string, payload: SendPayl
 }
 
 export async function runTurn(c: ChatController, payload: SendPayload, userTurn: ChatTurn): Promise<void> {
-  c.busy = true;
+  // 并发控制在 controller：生成那一层是无状态的，「有没有在跑」是调度的事。
+  const lease = c.beginGeneration();
+  if (!lease) {
+    c.toast('已有一个生成任务在进行中。', 'error');
+    return;
+  }
   c.post({ type: 'busy', value: true });
 
   const assistantTurn: ChatTurn = {
@@ -135,38 +143,45 @@ export async function runTurn(c: ChatController, payload: SendPayload, userTurn:
   const history = c.current.turns.slice(0, -2).filter((t) => t.content.trim());
 
   const action = { stage: c.current.stage, capability: c.current.capability };
-  const built = await c.session.generate(
-    {
-      action,
-      target: c.current.target,
-      targetNo: payload.targetNo,
-      ask: userTurn.content,
-      targetWords: payload.targetWords > 0 ? payload.targetWords : undefined,
-      excludedIds: userTurn.excludedIds,
-      attachments: userTurn.attachments,
-      history,
-    },
-    {
-      onDelta: (delta) => c.post({ type: 'delta', turnId: assistantTurn.id, text: delta }),
-      // 推理模型可能先思考几十秒才开始吐正文。把思考也推给前端，
-      // 否则那段时间气泡是空的，看起来就像卡住、最后一次性蹦出来。
-      onReasoning: (delta, full) => {
-        assistantTurn.reasoning = full;
-        c.post({ type: 'reasoning', turnId: assistantTurn.id, text: delta });
+  let built;
+  let draft: Draft | undefined;
+  try {
+    ({ built, draft } = await generate(
+      c.project,
+      {
+        action,
+        target: c.current.target,
+        targetNo: payload.targetNo,
+        ask: userTurn.content,
+        targetWords: payload.targetWords > 0 ? payload.targetWords : undefined,
+        excludedIds: userTurn.excludedIds,
+        attachments: userTurn.attachments,
+        history,
       },
-      onDone: (full) => {
-        assistantTurn.content = full;
+      {
+        onDelta: (delta) => c.post({ type: 'delta', turnId: assistantTurn.id, text: delta }),
+        // 推理模型可能先思考几十秒才开始吐正文。把思考也推给前端，
+        // 否则那段时间气泡是空的，看起来就像卡住、最后一次性蹦出来。
+        onReasoning: (delta, full) => {
+          assistantTurn.reasoning = full;
+          c.post({ type: 'reasoning', turnId: assistantTurn.id, text: delta });
+        },
+        onDone: (full) => {
+          assistantTurn.content = full;
+        },
+        onError: (message) => {
+          assistantTurn.error = message;
+        },
+        onCancelled: () => {
+          assistantTurn.interrupted = true;
+        },
       },
-      onError: (message) => {
-        assistantTurn.error = message;
-      },
-      onCancelled: () => {
-        assistantTurn.interrupted = true;
-      },
-    }
-  );
+      { signal: lease.signal }
+    ));
+  } finally {
+    lease.release();
+  }
 
-  c.busy = false;
   c.post({ type: 'busy', value: false });
 
   if (built) {
@@ -175,7 +190,19 @@ export async function runTurn(c: ChatController, payload: SendPayload, userTurn:
   }
   // 产出的是可采纳的东西时，把落点与形状一起带给前端——它才画得出
   // 「拆出了 4 场，采纳？」而不是一个光秃秃的按钮。
-  assistantTurn.artifact = await describeArtifactOf(c, assistantTurn.content);
+  //
+  // **不再重新解析一遍**：draft 出厂就带 artifact 与 summary。从前这里
+  // 是三次解析里多余的那一次。
+  if (draft?.artifact) {
+    c.drafts.put(draft, c.current.id);
+    c.current.drafts = c.drafts.bySession(c.current.id);
+    assistantTurn.draftId = draft.id;
+    assistantTurn.artifact = {
+      where: await describeCurrentTarget(c),
+      summary: draft.summary ?? describeArtifact(draft.artifact),
+      overwrites: await targetHasContent(c),
+    };
+  }
   if (assistantTurn.error) {
     c.toast(assistantTurn.error, 'error');
   }
@@ -188,25 +215,35 @@ export async function runTurn(c: ChatController, payload: SendPayload, userTurn:
 /**
  * 这一轮的回复能不能采纳，以及采纳到哪里。
  *
+ * 两条路进来：
+ *
+ * - **重开旧会话**这类拿不到 draft 的（单步生成路径直接读 `draft.artifact`）——
+ *   那时按会话当下的 stage/capability/target 算；
+ * - **agent 那条路**：draft 的 action 与 target 是它自己定的（agent 可能在
+ *   作者选着第 12 章时去改了第 9 章），所以**必须以 draft 为准**，拿
+ *   `c.current` 顶上会把落点说成另一章。
+ *
  * 解析在这里跑一遍只是为了**画界面**（几场？覆盖谁？），真正落盘时
  * `acceptArtifact` 会拿气泡里当时的文本重新解析——用户可能改过。
  */
 export async function describeArtifactOf(
   c: ChatController,
-  content: string
+  content: string,
+  draft?: Pick<Draft, 'action' | 'target'>
 ): Promise<SerializedArtifact | undefined> {
-  const action = { stage: c.current.stage, capability: c.current.capability };
+  const action = draft?.action ?? { stage: c.current.stage, capability: c.current.capability };
+  const target = draft?.target ?? c.current.target;
   if (outputKindOf(action) !== 'artifact' || !content.trim()) {
     return undefined;
   }
-  const artifact = c.session.parse(action, content);
+  const artifact = parseDraftArtifact(action, content);
   if (!artifact) {
     return undefined;
   }
   return {
-    where: await describeCurrentTarget(c),
+    where: await describeTargetOf(c, target),
     summary: describeArtifact(artifact),
-    overwrites: await targetHasContent(c),
+    overwrites: await targetHasContent(c, action, target),
   };
 }
 
@@ -216,13 +253,20 @@ export async function describeArtifactOf(
  * 只看**这一层自己的产物**：拆章/拆场景本来就跳过已存在的，
  * 说「会覆盖」是吓唬人。
  */
-export async function targetHasContent(c: ChatController): Promise<boolean> {
-  const { stage } = c.current;
-  const relPath = plotOfTarget(c.current.target);
+export async function targetHasContent(
+  c: ChatController,
+  action: { stage: CreationStage; capability: Capability } = {
+    stage: c.current.stage,
+    capability: c.current.capability,
+  },
+  target: CreationTarget = c.current.target
+): Promise<boolean> {
+  const { stage, capability } = action;
+  const relPath = plotOfTarget(target);
   if (stage === 'outline') {
-    return c.current.capability !== 'split' && (await c.project.readOutline()).trim().length > 0;
+    return capability !== 'split' && (await c.project.readOutline()).trim().length > 0;
   }
-  if (!relPath || c.current.capability === 'split') {
+  if (!relPath || capability === 'split') {
     return false;
   }
   if (stage === 'plot') {
@@ -232,7 +276,7 @@ export async function targetHasContent(c: ChatController): Promise<boolean> {
     return !!plot && isPlotFilled(plot.sections);
   }
   if (stage === 'scene') {
-    const sceneNo = c.current.target.kind === 'scene' ? c.current.target.sceneNo : undefined;
+    const sceneNo = target.kind === 'scene' ? target.sceneNo : undefined;
     return sceneNo !== undefined && !!(await c.project.readScene(relPath, sceneNo));
   }
   // 正文是追加，不覆盖任何东西。
@@ -242,35 +286,51 @@ export async function targetHasContent(c: ChatController): Promise<boolean> {
 /**
  * 采纳一份结构化产物（细纲、场景卡、章节清单、场景清单、大纲、正文）。
  *
- * **重新解析一遍**而不是用生成时缓存的那份：用户可能在气泡里改过。
- * 落盘与否由 creation.ts 决定——目标已有内容时它会先弹审阅。
+ * **落点从 draft 里取，不由前端传**：前端猜不出一段讨论该写到哪一层
+ * （第 19 条最后一句）。从前它发的是 `store.session.target`——那是**当下**
+ * 选中的目标，用户在生成完之后切了一章再点采纳，产物就写到别的地方去了。
+ *
+ * **文本仍然重新解析一遍**而不是用 `draft.artifact`：用户可能在气泡里改过。
+ * `draft.raw` 只是兜底（前端没给文本时）。
+ *
+ * 落盘与否由 `generation/accept.ts` 经 workspace 网关决定——目标已有内容
+ * 时会先弹审阅。
  */
 export async function acceptArtifact(
   c: ChatController,
   turnId: string,
-  target: CreationTarget,
+  draftId: string,
   text: string
 ): Promise<void> {
   const turn = c.current.turns.find((t) => t.id === turnId);
   if (!turn) {
     return;
   }
-  if (!text.trim()) {
+  const draft = c.drafts.get(draftId);
+  if (!draft) {
+    // 草稿没了（会话很老、被挤掉、或者手改过会话文件）。这时**不猜落点**：
+    // 拿当下选中的 target 顶上，会把一份剧情写到别的章去。
+    log.warn('找不到这一轮的草稿，未写入', `draftId ${draftId}`);
+    c.toast('这一轮的产物已经过期了（会话太久或已被清理），请重新生成一次。', 'error');
+    return;
+  }
+  // 前端给的是气泡里当下那份；空了就退回生成时那份原文。
+  const raw = text.trim() ? text : draft.raw;
+  if (!raw.trim()) {
     c.toast('内容是空的。', 'error');
     return;
   }
-  turn.content = text;
+  turn.content = raw;
 
-  const action = { stage: c.current.stage, capability: c.current.capability };
-  const artifact = c.session.parse(action, text);
+  const artifact = parseDraftArtifact(draft.action, raw);
   if (!artifact) {
     // 解析不出来时**不写**。写一个空产物比不写更糟：作者会以为存下了。
-    log.warn('产物解析不出内容，未写入', `阶段 ${action.stage}·${action.capability}`);
+    log.warn('产物解析不出内容，未写入', `阶段 ${draft.action.stage}·${draft.action.capability}`);
     c.toast('这段内容解析不出可采纳的产物，没有写入任何文件。', 'error');
     return;
   }
 
-  const result = await c.session.acceptArtifact(target, artifact);
+  const result = await writeArtifact(c.project, draft.target, artifact);
   if (result.skipped || !result.relPath) {
     c.toast(result.message);
     return;
@@ -438,18 +498,26 @@ export function applyAction(c: ChatController, payload: SendPayload): void {
 
 /** 当前目标的人话描述。日志、采纳卡片、面包屑共用。 */
 export async function describeCurrentTarget(c: ChatController): Promise<string> {
-  const relPath = plotOfTarget(c.current.target);
+  return describeTargetOf(c, c.current.target);
+}
+
+/**
+ * 任意 target 的人话描述。
+ *
+ * 与 `describeCurrentTarget` 分开是因为 agent 那条路上的落点由 draft 决定，
+ * 未必是作者当下选中的那一章——拿 `c.current` 顶上会把落点说成另一章。
+ */
+export async function describeTargetOf(c: ChatController, target: CreationTarget): Promise<string> {
+  const relPath = plotOfTarget(target);
   if (!relPath) {
-    return describeTarget(c.current.target);
+    return describeTarget(target);
   }
   const plot = await c.project.readPlot(relPath);
   const sceneNo =
-    c.current.target.kind === 'scene' || c.current.target.kind === 'manuscript'
-      ? c.current.target.sceneNo
-      : undefined;
+    target.kind === 'scene' || target.kind === 'manuscript' ? target.sceneNo : undefined;
   const sceneTitle =
     sceneNo === undefined ? undefined : (await c.project.readScene(relPath, sceneNo))?.title;
-  return describeTarget(c.current.target, { no: plot?.no, title: plot?.title, sceneTitle });
+  return describeTarget(target, { no: plot?.no, title: plot?.title, sceneTitle });
 }
 
 /**

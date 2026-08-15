@@ -6,7 +6,7 @@
 
 | 文件 | 职责 |
 |---|---|
-| [creation.ts](creation.ts) | ★ `CreationSession`：创作编排——装配上下文 → 流式生成 → **由用户点了采纳才落盘**。`acceptArtifact` 按 target 分派到六条落盘路径（大纲/拆章/细纲/拆场景/场景卡/正文）。含 `preview()`（只装配不调用模型）、取消、输出清洗与连接测试。 |
+| [creation.ts](creation.ts) | 设置页的连接测试（`testConnection`——严格用指定的那个模型，不走分档池）+ 两个纯文本工具：`cleanOutput`（**只对正文层用**，在 JSON 产物上跑会切坏结构）与 `suggestTitle`。从前的 `CreationSession` 类没了，四件事各自搬了家，见下表。 |
 | [artifact.ts](artifact.ts) | ★ 模型输出 → 可采纳的结构化产物。三层降级（JSON → Markdown 小节 → 全文兜底），与摘要同一套。**只解析，一个字都不写盘。** |
 | [parse.ts](parse.ts) | 模型输出解析小工具：剥代码围栏、提取 JSON、字符串与数字去重、字符串数组归一。 |
 | [pipelineBatch.ts](pipelineBatch.ts) | ★ 工程页的三条批量流水线动作：给缺剧情的章批量写剧情、给已有剧情的章批量拆场景、给场景齐了的章批量写正文。**只补不改**，走 runTask + runPool，失败挂在那一章上。 |
@@ -29,17 +29,18 @@
 
 创作按 `Stage × Capability × Target` 展开（定义在 [../model/pipeline.ts](../model/pipeline.ts)）：大纲 → 剧情 → 细节 → 正文。同一层可以被讨论、挑刺、检查，也可以被生成、改写、拆成下一层；剧情层另有一个 `settle`（落定剧情），把刚才那段讨论里**已经达成的结论**沉淀成细纲。
 
-**生成与落盘是两步**，这是本层最要紧的一条：
+**创作编排本身已经不在本层了**——它是 [../generation/](../generation/README.md)：`generate.ts` 无状态地装配 → 调模型 → 解析成 `Draft`，`accept.ts` 按 target 分派到六条落盘路径，`drafts.ts` 让草稿活过一次刷新。并发控制在 `controller/`（那是调度的责任）。本层留下的是 `artifact.ts`（解析）与 `pipelineBatch.ts`（工程页批量）。
 
-1. `generate()` 只把文本交回调用方，**一个字都不写盘**；
-2. `parse()` 把它变成结构化产物（不写盘）；
-3. `acceptArtifact()` 才写，且只在用户点了采纳之后。
+**生成与落盘是两步**，这是这条路上最要紧的一条：
 
-中间那两步是用户看着产物决定要不要的机会——少了它，「不静默覆盖」无从谈起。
+1. `generate()` 只把文本交回调用方，**一个字都不写盘**，产出一份带 `artifact` 的 `Draft`；
+2. `acceptArtifact()` 才写，且只在用户点了采纳之后——**采纳时拿气泡里当下的文本重新解析**（用户可能改过），`draft.artifact` 只是生成那一刻的展示快照。
 
-`creation.ts`（创作页，一次一份）与 `pipelineBatch.ts`（工程页，一次几十份）的失败模型完全不同，所以是两条路：
+中间那一步是用户看着产物决定要不要的机会——少了它，「不静默覆盖」无从谈起。
 
-| | `creation.ts` | `pipelineBatch.ts` |
+`generation/`（创作页，一次一份）与 `pipelineBatch.ts`（工程页，一次几十份）的失败模型完全不同，所以是两条路：
+
+| | `generation/` | `pipelineBatch.ts` |
 |---|---|---|
 | 一次处理 | 一份产物 | 几十段 |
 | 覆盖已有产物 | 走 `reviewReplace` 逐份审阅 | **一律跳过**——一次弹 63 个 diff 没人看得完 |
@@ -81,7 +82,7 @@
 - **回调而非返回**：生成类操作通过 `GenerateHandlers`（onDelta / onDone / onError / onCancelled）汇报进度，UI 层决定怎么展示流式内容。
 - **长任务走 `runTask`，不直调 `Host.progress`**：本层除创作页的单次生成（它在对话页有流式气泡）以外的批量活一律经 [../runtime/progress.ts](../runtime/progress.ts)。`report({ message, current, total })` 里的 `total` 决定网页上画不画进度条——摘要同步是 `stale.length`，重建全书摘要是「批数 + 合并那一步」，角色/文风是固定三步/两步，设定生成是「逐段扫描 + 设定整合 + 写入/审阅」，流水线批量是待处理的段数。
 - **无先后依赖的条目并发跑**：各章摘要之间、角色卡之间、全书摘要的各阶段批次之间都没有依赖，一律经 [../runtime/concurrency.ts](../runtime/concurrency.ts) 的 `runPool`（并发量取 `config.concurrency`）。**有依赖的绝不并发**——同一张角色卡内部的分批必须串行，后一批要看到前一批的产出；全书摘要的 reduce 合并要等全部 map 到齐。并发下 `current` 只在项结束时 +1，`message` 报「已完成 n/N + 正在跑哪几项」。
-- **模型经 `llm/pool.ts` 取，并且要报出档位**：建池时必须传 `task`（如 `createModelPool({ task: 'plotSummary' })`），这样才有分档、「同档失败随机换模型」与并发轮转。本层唯一的例外是创作页的单次生成（`creation.ts`），它必须用用户在对话页选定的那个模型。同一个功能里难度不同的阶段要**各建一个池**——`rebuildGlobalSummary` 的分批汇总（`globalSummaryStage`）与最终合并（`globalSummaryMerge`）、`generateLore` 的逐段识别（`loreScan`）与条目整合（`loreSynthesis`）都是两档，串行时也不能图省事复用同一个池（那会把后一阶段悄悄降级到前一阶段的档）。流水线批量的三条同理：`plotOutline`（均衡）、`sceneBreakdown`（快速）、`manuscript`（均衡）各建各的池。
+- **模型经 `llm/pool.ts` 取，并且要报出档位**：建池时必须传 `task`（如 `createModelPool({ task: 'plotSummary' })`），这样才有分档、「同档失败随机换模型」与并发轮转。唯一的例外是创作页的单次生成（[../generation/generate.ts](../generation/README.md)）与设置页的连接测试（`creation.ts`），两者都必须用用户选定的那个模型。同一个功能里难度不同的阶段要**各建一个池**——`rebuildGlobalSummary` 的分批汇总（`globalSummaryStage`）与最终合并（`globalSummaryMerge`）、`generateLore` 的逐段识别（`loreScan`）与条目整合（`loreSynthesis`）都是两档，串行时也不能图省事复用同一个池（那会把后一阶段悄悄降级到前一阶段的档）。流水线批量的三条同理：`plotOutline`（均衡）、`sceneBreakdown`（快速）、`manuscript`（均衡）各建各的池。
 - **切批与预算用 `pool.primaryBudget`，不用 `config.contextWindow`**：后者是对话页选定模型的窗口，分档后与干活的模型无关。确认框之前就要算的批数/片段数（它们就是「预计调用 N 次」那个数字）用 `budgetForTask(task)`，它不构造 provider，不会在用户点确认前弹 Key 输入框。
 - **确认框里的「模型」一行走 `describeTaskModels(config, task)`**：档位、实际清单、会不会换人、是不是继承默认模型，四件事一次说清。**不要再打印 `config.models`**——弹窗写着一个模型、实际跑另一个，是「不偷偷烧 token」的反面。
 - **每一步都留痕**：批量任务逐项打一条 `info`（含刚完成的项、用时、平均速度、预计剩余），失败项打 `error` 并**继续跑完剩下的**，结束时汇总说明哪几项失败。日志里绝不出现 API Key（`logger.redact` 统一处理），也不记 prompt 全文。

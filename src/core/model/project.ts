@@ -13,7 +13,6 @@ import {
   PlotSummary,
   ProjectManifest,
   SUMMARY_SECTION_KEYS,
-  SummaryCast,
   SummarySections,
 } from './types';
 import {
@@ -29,31 +28,14 @@ import {
   stringifySections,
   stripH1,
 } from './markdown';
-import {
-  isChapterFileName,
-  isMarkdownExt,
-  isMarkdownPath,
-  parseChapterFileName,
-  splitByMark,
-} from './chapterFile';
-import {
-  Plot,
-  WritablePlot,
-  isPlotFileName,
-  parsePlotFile,
-  parsePlotFileName,
-  plotFileName,
-  renderPlotFile,
-} from './plotFile';
+import { isChapterFileName, isMarkdownExt, isMarkdownPath, parseChapterFileName } from './chapterFile';
+import { Plot, isPlotFileName, parsePlotFile, plotFileName } from './plotFile';
 import { isFallbackChapterTitle } from './pipeline';
 import {
   SCENE_SECTION_KEYS,
   Scene,
-  WritableScene,
   isSceneFileName,
   parseSceneFile,
-  renderSceneFile,
-  sceneFileName,
 } from './sceneFile';
 import {
   countWords,
@@ -66,7 +48,7 @@ import {
   sanitizeFileName,
   writeText,
 } from './fs';
-import { castFromText, parseCast, renderCastEntry } from './castParse';
+import { castFromText, parseCast } from './castParse';
 
 const NOVEL_DIR = '.novelforge';
 /** 0.1.x 用的目录名。检测到就提示迁移，不静默改动用户文件。 */
@@ -497,34 +479,8 @@ export class NovelProject {
     return chapters.length === 0 ? 1 : Math.max(...chapters.map((c) => c.order)) + 1;
   }
 
-  /**
-   * 新建章节文件，返回工作区相对路径。
-   * `dir` 是工作区相对的落点目录（如 `chapters/卷一`），缺省落在 chapters/ 根下。
-   *
-   * `ext` 默认 `.md`：扫描时认任意扩展名，但插件自己建的东西仍然出 markdown，
-   * 免得同一个工程里格式随建随变。非 markdown 家族不写标题行。
-   *
-   * **`title` 留空是合法的**，落成纯序号名 `001.md`。`parseChapterFileName`
-   * 认这种名（词干为空），`listChapters` 的标题回落链会给出「第 N 章」。
-   *
-   * 标题行写的是**清洗后**的词干而不是原样 `title`：两者一致，改名时
-   * `renamedBody` 才认得出「这个 H1 是跟着文件名走的」，同步才不会从第一天
-   * 就断掉。无标题时干脆不写标题行——凭空塞一行 `# ` 是同一个毛病。
-   */
-  async createChapter(order: number, title: string, content = '', dir?: string, ext = '.md'): Promise<string> {
-    const stem = safeStem(title);
-    const fileName = stem ? `${pad3(order)}-${stem}${ext}` : `${pad3(order)}${ext}`;
-    const parent = dir ? this.pathOf(dir) : this.chaptersDir;
-    const abs = path.join(parent, fileName);
-    if (await exists(abs)) {
-      throw new Error(`章节文件已存在：${this.relPath(abs)}`);
-    }
-    const text =
-      isMarkdownExt(ext) && stem ? `# ${stem}\n\n${content.trim()}\n` : `${content.trim()}\n`;
-    await writeText(abs, text);
-    this.invalidate();
-    return this.relPath(abs);
-  }
+  // 新建章节（createChapter）搬进了 `core/workspace/`：同名一律报错退出、
+  // 落盘后要 syncManifest，那些是网关的活。这一层只留领域查询。
 
   // ---------------------------------------------------------------- 草稿
 
@@ -547,25 +503,9 @@ export class NovelProject {
     return this.relPath(path.join(this.draftsDir, under));
   }
 
-  /**
-   * 按需创建草稿，返回它的工作区相对路径。
-   *
-   * **已存在就原样返回，绝不覆盖**——第二次点「打开草稿」不能把上次写的
-   * 东西抹掉。这是「不静默覆盖」在草稿上的落法。
-   */
-  async ensureDraft(chapter: Chapter): Promise<string> {
-    const rel = this.draftRelPathFor(chapter.relPath);
-    if (!rel) {
-      throw new Error(`这一章不在 ${this.config.chaptersDir}/ 下，无法建草稿：${chapter.relPath}`);
-    }
-    const abs = this.pathOf(rel);
-    if (!(await exists(abs))) {
-      // markdown 家族给一行标题好认；其余（.txt / 无扩展名 / .json）留空文件，
-      // 往里塞 markdown 语法只会碍事。
-      await writeText(abs, isMarkdownPath(rel) ? `# ${chapter.title} · 草稿\n\n` : '');
-    }
-    return rel;
-  }
+  // 草稿的按需创建（ensureDraft）搬进了 `core/workspace/`：它是**写盘**，
+  // 而这一层只留领域查询。路径推导（draftRelPathFor）留在这里——
+  // 调用方常常只是想知道「草稿该在哪」，而不是「草稿在不在」。
 
   /**
    * 磁盘上已存在的草稿路径集合（工作区相对路径）。
@@ -756,100 +696,10 @@ export class NovelProject {
     return nos.length === 0 ? 1 : Math.max(...nos) + 1;
   }
 
-  /**
-   * 写一章的细纲，返回工作区相对路径。
-   *
-   * 文件名由**章号与标题**共同决定，所以改标题会改文件名，改章号也会。旧文件
-   * 必须删掉并把伴生文件搬过去，否则 `007-入宗.md` 与 `007-入宗风波.md` 并存
-   * 会变成两章。
-   *
-   * 「旧文件是哪一份」有两种问法：
-   *
-   * - **改标题**（章号没变）：按 `plot.no` 就找得到，这是绝大多数调用。
-   * - **改章号**（拆分之后的顺延）：新号上根本没有旧文件，必须由调用方把
-   *   原路径经 `fromRelPath` 传进来。不传的话旧文件会留在原地成为孤儿，
-   *   而它的场景目录与中转站正文也不会跟着走。
-   *
-   * 伴生文件在这里搬而不是交给调用方：场景目录与中转站正文的身份都是细纲的
-   * 文件名词干，改名不带走它们，作者会看到「这一章还没拆场景」——而那几个
-   * 场景就躺在旁边一个孤儿目录里。
-   *
-   * @param fromRelPath 改章号时传原细纲路径；改标题或新建时不必传。
-   */
-  async writePlot(plot: WritablePlot, fromRelPath?: string): Promise<string> {
-    const abs = path.join(this.plotsDir, plotFileName(plot.no, safeStem(plot.title)));
-    // 换号时新号上是空的，只有调用方知道原来那份在哪。
-    const previous = fromRelPath ? await this.readPlot(fromRelPath) : await this.getPlot(plot.no);
-    await writeText(abs, renderPlotFile(plot));
-
-    if (previous && this.pathOf(previous.relPath) !== abs) {
-      await this.carryPlotCompanions(previous.relPath, this.relPath(abs));
-      await fs.unlink(this.pathOf(previous.relPath)).catch(() => undefined);
-    }
-    // 细纲列表有缓存，写完不失效的话下一次读到的还是写之前那份——新建的章
-    // 不出现在工程页上，改过标题的章还挂着旧名字。
-    this.invalidate();
-    return this.relPath(abs);
-  }
-
-  /**
-   * 删一章的细纲：连同场景目录与中转站里的正文一起搬进 `.trash/`，不真删
-   * （AGENTS.md 第 6 条）。返回是否确实删掉了。
-   *
-   * **不碰 `chapters/` 与摘要**：那两样描述的是已经发布的成品。删掉细纲
-   * 只是放弃这一章的规划稿，不该顺手把作者已经拆出去的正文一起带走。
-   */
-  async deletePlot(plotRelPath: string): Promise<boolean> {
-    const plot = await this.readPlot(plotRelPath);
-    if (!plot) {
-      return false;
-    }
-    for (const rel of [
-      this.sceneMirrorRelPath(plotRelPath),
-      this.manuscriptMirrorRelPath(plotRelPath),
-      plotRelPath,
-    ]) {
-      await this.trash(rel);
-    }
-    this.invalidate();
-    return true;
-  }
-
-  /**
-   * 细纲改名（或改号）后，把场景目录与中转站正文跟着搬过去。
-   *
-   * 目标已存在时不动（不静默覆盖）——那说明磁盘上已经有一份叫这个名字的，
-   * 覆盖会把它的东西吞掉。
-   *
-   * 摘要不在此列：它挂在 `chapters/` 上，跟着章节文件改名走（见 fileOps 的
-   * `carrySummary`）。
-   */
-  private async carryPlotCompanions(fromRel: string, toRel: string): Promise<void> {
-    const pairs: [string, string][] = [
-      [this.sceneMirrorRelPath(fromRel), this.sceneMirrorRelPath(toRel)],
-      [this.manuscriptMirrorRelPath(fromRel), this.manuscriptMirrorRelPath(toRel)],
-    ];
-    for (const [from, to] of pairs) {
-      const fromAbs = this.pathOf(from);
-      const toAbs = this.pathOf(to);
-      if (from === to || !(await exists(fromAbs)) || (await exists(toAbs))) {
-        continue;
-      }
-      await fs.mkdir(path.dirname(toAbs), { recursive: true });
-      await fs.rename(fromAbs, toAbs);
-    }
-  }
-
-  /** 把某个工作区相对路径搬进 `.trash/`（保留原相对路径）。不存在就跳过。 */
-  private async trash(relPath: string): Promise<void> {
-    const abs = this.pathOf(relPath);
-    if (!(await exists(abs))) {
-      return;
-    }
-    const target = path.join(this.trashDir, relPath);
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.rename(abs, target).catch(() => undefined);
-  }
+  // 细纲的写入（writePlot / deletePlot / carryPlotCompanions）搬进了
+  // `core/workspace/`：改名要连带搬走场景目录与中转站正文，写入要记
+  // `upstreamHash`，删除要进 `.trash/`——那些是网关的活，不是数据访问的活。
+  // 这一层只留领域查询。
 
   // ---------------------------------------------------------------- 正文
 
@@ -892,63 +742,9 @@ export class NovelProject {
     return (await this.readManuscript(plotRelPath))?.text ?? '';
   }
 
-  /**
-   * 把文本追加到中转站里那一章的正文末尾，返回工作区相对路径。
-   *
-   * 正文是**追加**而不是覆盖：一章按场景分几次写，顺序拼起来才是完整的一章。
-   * 这也是唯一一条不走 `confirmOverwrite` 的落盘路径——追加不覆盖任何东西。
-   *
-   * 两次追加之间插一行 `---`：那是**默认的拆分候选点**。模型按场景分几次写，
-   * 场景边界正是最可能的章节边界；给一个能改的默认，比让作者从头自己标要好。
-   * 他可以删掉、也可以另加——拆分只认这一行标记（见 `SPLIT_MARK`）。
-   */
-  async appendToManuscript(plotRelPath: string, text: string): Promise<string> {
-    const abs = this.manuscriptPathForPlot(plotRelPath);
-    const plot = await this.readPlot(plotRelPath);
-    const heading = `# 第${plot?.no ?? 0}章${plot?.title ? ` ${plot.title}` : ''} · 正文`;
-
-    if (!(await exists(abs))) {
-      const fm = stringifyFrontmatter({ plot: plotRelPath, generatedBy: 'novel-forge' });
-      await writeText(abs, `${fm}\n\n${heading}\n\n${text.trim()}\n`);
-      return this.relPath(abs);
-    }
-    const existing = (await readText(abs)).replace(/\s+$/, '');
-    await writeText(abs, `${existing}\n\n---\n\n${text.trim()}\n`);
-    return this.relPath(abs);
-  }
-
-  /**
-   * 把中转站里的一章正文按 `---` 拆成若干章，写进 `chapters/`，
-   * 然后把中转站那份搬进回收站。返回建好的章节相对路径。
-   *
-   * `titles[i]` 对应第 i 片；给空串就落成纯序号名（`101.md`），
-   * `listChapters` 的标题回落链会显示成「第 101 章」。
-   *
-   * 章号从这一章自己的号开始往后连排。调用方（features/splitChapter.ts）
-   * 负责先把后面撞号的细纲挪开——这里只管落盘，撞上已存在的章节文件时
-   * `createChapter` 会抛，不覆盖任何东西。
-   */
-  async splitManuscript(plotRelPath: string, titles: string[]): Promise<string[]> {
-    const manuscript = await this.readManuscript(plotRelPath);
-    if (!manuscript) {
-      throw new Error(`这一章还没有正文可拆：${plotRelPath}`);
-    }
-    const pieces = splitByMark(manuscript.text);
-    if (pieces.length === 0) {
-      throw new Error(`这一章的正文是空的，没有可拆的内容：${manuscript.relPath}`);
-    }
-    const startNo = parsePlotFileName(path.basename(plotRelPath))?.no ?? 0;
-
-    const created: string[] = [];
-    for (const [i, piece] of pieces.entries()) {
-      created.push(await this.createChapter(startNo + i, titles[i] ?? '', piece));
-    }
-    // 全部落盘成功才动原件。中途抛出的话中转站那份还在，作者可以重来。
-    await this.trash(manuscript.relPath);
-    this.invalidate();
-    await this.syncManifest();
-    return created;
-  }
+  // 正文的追加与拆分（appendToManuscript / splitManuscript）搬进了
+  // `core/workspace/`：追加要插分隔标记、要记 beatsHash，拆分要建章节、
+  // 要把原件搬进 `.trash/`。这一层只留读取。
 
   // ---------------------------------------------------------------- 摘要
 
@@ -986,35 +782,9 @@ export class NovelProject {
     };
   }
 
-  /**
-   * 写一章的摘要。落点镜像**章节**路径（见 `summaryPathForChapter`）。
-   */
-  async writeSummary(
-    chapter: Chapter,
-    sourceHash: string,
-    sections: SummarySections,
-    cast: SummaryCast[] = []
-  ): Promise<string> {
-    const abs = this.summaryPathForChapter(chapter.relPath);
-    const fm = stringifyFrontmatter({
-      chapter: chapter.order,
-      title: chapter.title,
-      sourceHash,
-      // 机器可读的出场人物。别名跟在名字后的括号里：`林昭(阿昭)`——
-      // frontmatter 解析器只认字符串数组，不要为此引入嵌套 YAML。
-      cast: cast.map(renderCastEntry),
-      generatedBy: 'novel-forge',
-    });
-    const body = stringifySections(sections as unknown as Record<string, string>, SUMMARY_SECTION_KEYS, {
-      keepEmpty: true,
-    });
-    await writeText(
-      abs,
-      `${fm}\n\n# 第${chapter.order}章${chapter.title ? ` ${chapter.title}` : ''} · 摘要\n\n${body}\n`
-    );
-    await this.markSummarized(chapter.relPath, sourceHash);
-    return this.relPath(abs);
-  }
+  // 摘要的写入（writeSummary）搬进了 `core/workspace/`：它要渲染 frontmatter、
+  // 记 sourceHash、同步 manifest。这一层只留读取与 markSummarized
+  // （那是 manifest 的索引维护，不是产物写入）。
 
   // ---------------------------------------------------------------- 场景
 
@@ -1040,37 +810,9 @@ export class NovelProject {
     return (await this.listScenes(plotRelPath)).find((s) => s.no === sceneNo);
   }
 
-  /**
-   * 写一场，返回工作区相对路径。
-   *
-   * 文件名由场景号与标题决定，所以**改标题会改文件名**：先按场景号找到旧
-   * 文件，路径不同就删掉旧的，避免 `02-翻墙.md` 与 `02-翻越侧峰.md` 并存
-   * 变成两场。这与章节改名走 `renameEntry` 是两回事——那边是作者在管文件，
-   * 这边是产物按自己的命名规则落盘。
-   */
-  async writeScene(plotRelPath: string, scene: WritableScene): Promise<string> {
-    const dir = this.sceneDirForPlot(plotRelPath);
-    const abs = path.join(dir, sceneFileName(scene.no, safeStem(scene.title)));
-    const previous = await this.readScene(plotRelPath, scene.no);
-    await writeText(abs, renderSceneFile(scene));
-    if (previous && this.pathOf(previous.relPath) !== abs) {
-      await fs.unlink(this.pathOf(previous.relPath)).catch(() => undefined);
-    }
-    return this.relPath(abs);
-  }
-
-  /**
-   * 删一场：搬进 `.trash/`，不真删（AGENTS.md 第 6 条）。
-   * 返回是否确实删掉了一场。
-   */
-  async deleteScene(plotRelPath: string, sceneNo: number): Promise<boolean> {
-    const scene = await this.readScene(plotRelPath, sceneNo);
-    if (!scene) {
-      return false;
-    }
-    await this.trash(scene.relPath);
-    return true;
-  }
+  // 场景的写入（writeScene / deleteScene）搬进了 `core/workspace/`：
+  // 改标题会改文件名（要清掉旧的），写入要记 `upstreamHash`，删除要进
+  // `.trash/`。这一层只留领域查询。
 
   /**
    * 一段全部场景拼起来的 hash——正文的上游指纹。
@@ -1110,15 +852,6 @@ export class NovelProject {
     return stripH1(parseMarkdown(await readText(this.globalSummaryPath)).body);
   }
 
-  async writeGlobalSummary(content: string, through: number): Promise<string> {
-    const fm = stringifyFrontmatter({ through, generatedBy: 'novel-forge' });
-    await writeText(this.globalSummaryPath, `${fm}\n\n# 全书滚动摘要\n\n${content.trim()}\n`);
-    const manifest = await this.readManifest();
-    manifest.globalSummaryThrough = through;
-    await this.writeManifest(manifest);
-    return this.relPath(this.globalSummaryPath);
-  }
-
   // ---------------------------------------------------------------- 角色 / 设定 / 文风
 
   async listCharacters(): Promise<CharacterCard[]> {
@@ -1146,13 +879,6 @@ export class NovelProject {
     return cards;
   }
 
-  async writeCharacter(card: WritableCharacterCard): Promise<string> {
-    // slug 可以带子目录（如 `主角/林昭`），writeText 会补齐中间目录。
-    const abs = path.join(this.charactersDir, `${card.slug}.md`);
-    await writeText(abs, renderCharacterCard(card));
-    return this.relPath(abs);
-  }
-
   async listLore(): Promise<LoreEntry[]> {
     const files = await listMarkdownDeep(this.loreDir);
     const entries: LoreEntry[] = [];
@@ -1169,12 +895,6 @@ export class NovelProject {
       });
     }
     return entries;
-  }
-
-  async writeLore(entry: WritableLoreEntry): Promise<string> {
-    const abs = path.join(this.loreDir, `${entry.slug}.md`);
-    await writeText(abs, renderLoreEntry(entry));
-    return this.relPath(abs);
   }
 
   /**
@@ -1221,11 +941,6 @@ export class NovelProject {
       return '';
     }
     return stripH1(parseMarkdown(await readText(this.stylePath)).body);
-  }
-
-  async writeStyleGuide(content: string): Promise<string> {
-    await writeText(this.stylePath, `# 文风指南\n\n${content.trim()}\n`);
-    return this.relPath(this.stylePath);
   }
 
   async readOutline(): Promise<string> {

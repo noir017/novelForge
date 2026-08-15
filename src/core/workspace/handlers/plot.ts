@@ -1,0 +1,189 @@
+/**
+ * `plot` handler：细纲。
+ *
+ * 三件事：
+ *
+ * 1. **渲染**：`Artifact{kind:'plot'}` → `renderPlotFile`，四个小节换新，
+ *    **标题 / 幕 / 目标字数 / done 沿用磁盘那份**——「重写剧情」改的是剧情，
+ *    不该顺手把作者起的标题或标的完成状态一起抹掉。
+ * 2. **记账**：`upstreamHash = hash(await project.readOutline())`。
+ *    **从前只在采纳路径上做**，作者在内置编辑器里改一份细纲，指纹链就断了——
+ *    那一章从此再也不挂 ⟳。下沉到这里之后谁写都记。
+ * 3. **伴生**：改名/改号时搬走 `scenes/<stem>/` 与 `manuscripts/<stem>.md`
+ *    （原 `carryPlotCompanions`），删除时把两者一起搬进 `.trash/`。
+ *
+ * ## 三条不能碰的取舍
+ *
+ * - **手写的产物永不标脏**（第 18a 条）：**没有 frontmatter 的细纲不补
+ *   `upstreamHash`**。`upstreamHash` 为空说明它不是这条链生出来的，拿一个
+ *   凭空的过期标记去催作者重做，他会学会无视所有标记。
+ * - **`plotContentHash` 只哈希四个小节，不含 frontmatter**（第 18b 条）：
+ *   `upstreamHash` 自己就在 frontmatter 里，算进去会让「排一次剧情」立刻
+ *   使全部场景过期。那个哈希在 `views/pipeline.ts` 里定义，这里只是引用它。
+ * - **删细纲不碰 `chapters/` 与摘要**：那两样描述的是已经发布的成品。
+ *   删掉细纲只是放弃这一章的规划稿。
+ */
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { hash, readTextIfExists } from '../../model/fs';
+import { rewriteFrontmatter } from '../../model/markdown';
+import { NovelProject } from '../../model/project';
+import { parsePlotFile, renderPlotFile } from '../../model/plotFile';
+import { Handler, HandlerCtx } from './types';
+
+export const plotHandler: Handler = {
+  /**
+   * 四个小节换新，其余字段沿用磁盘那份。
+   *
+   * 细纲文件不存在时（拆章那一步为每章建骨架）就用产物自己的空壳，
+   * 标题等由调用方走 `writePlot` 那条路给。
+   */
+  async render(ctx: HandlerCtx, artifact) {
+    if (artifact.kind !== 'plot') {
+      throw new Error(`「${ctx.rel}」不接 ${artifact.kind} 产物`);
+    }
+    const current = await ctx.project.readPlot(ctx.rel);
+    return renderPlotFile({
+      no: current?.no ?? ctx.path.no ?? 0,
+      title: current?.title ?? '',
+      arc: current?.arc ?? '',
+      targetWords: current?.targetWords,
+      upstreamHash: await outlineHash(ctx.project),
+      done: current?.done ?? false,
+      sections: artifact.sections,
+    });
+  },
+
+  /**
+   * 记账：把当前大纲的指纹落进 frontmatter。
+   *
+   * `rewriteFrontmatter` 只改 `---` 之间那一段，**正文一个字节不动**——
+   * 作者可能加过自定义小节，整份重渲染会把它们悄悄抹平。
+   * 没有 frontmatter 时返回 undefined，那正是「手写的产物」，不补。
+   */
+  async after(ctx: HandlerCtx, text: string) {
+    return recordUpstream(ctx, text, await outlineHash(ctx.project), '大纲指纹');
+  },
+
+  async companions(ctx: HandlerCtx, from: string, to: string) {
+    return carryPlotCompanions(ctx.project, from, to);
+  },
+
+  async onRemove(ctx: HandlerCtx, rel: string) {
+    return trashPlotCompanions(ctx.project, rel);
+  },
+};
+
+/** 全书大纲的内容指纹——细纲的上游。 */
+export async function outlineHash(project: NovelProject): Promise<string> {
+  return hash(await project.readOutline());
+}
+
+/**
+ * 把上游指纹记进这份产物的 frontmatter。返回 `side` 说明（没记就是空数组）。
+ *
+ * **两种情况不记**：
+ * - 文件没有 frontmatter（作者手写的）——补一个凭空的指纹等于凭空标脏
+ * - 算出来的指纹是空串（大纲还是空的）——同上
+ */
+async function recordUpstream(
+  ctx: HandlerCtx,
+  text: string,
+  upstream: string,
+  label: string
+): Promise<string[]> {
+  if (!upstream) {
+    return [];
+  }
+  const next = rewriteFrontmatter(text, { upstreamHash: upstream });
+  if (next === undefined) {
+    // 手写的产物：没有 frontmatter，就没有这条链。不给它补一个。
+    return [];
+  }
+  if (next === text) {
+    return [];
+  }
+  await fs.writeFile(ctx.project.pathOf(ctx.rel), next, 'utf8');
+  ctx.project.invalidate();
+  return [`记下${label} ${upstream}`];
+}
+
+/**
+ * 细纲改名（或改号）后，把场景目录与中转站正文跟着搬过去。
+ *
+ * 目标已存在时**不动**（不静默覆盖）——那说明磁盘上已经有一份叫这个名字的，
+ * 覆盖会把它的东西吞掉。搬不过去的那份留在原处，不凭空消失。
+ *
+ * 摘要不在此列：它挂在 `chapters/` 上，跟着章节文件改名走（见 fileOps 的
+ * `carrySummary`）。
+ */
+export async function carryPlotCompanions(
+  project: NovelProject,
+  fromRel: string,
+  toRel: string
+): Promise<string[]> {
+  const pairs: [string, string][] = [
+    [project.sceneMirrorRelPath(fromRel), project.sceneMirrorRelPath(toRel)],
+    [project.manuscriptMirrorRelPath(fromRel), project.manuscriptMirrorRelPath(toRel)],
+  ];
+  const side: string[] = [];
+  for (const [from, to] of pairs) {
+    const fromAbs = project.pathOf(from);
+    const toAbs = project.pathOf(to);
+    if (from === to || !(await pathExists(fromAbs)) || (await pathExists(toAbs))) {
+      continue;
+    }
+    await fs.mkdir(path.dirname(toAbs), { recursive: true });
+    await fs.rename(fromAbs, toAbs);
+    side.push(`${from} → ${to}`);
+  }
+  return side;
+}
+
+/** 删细纲时把场景目录与中转站正文一起搬进 `.trash/`（保留原相对路径）。 */
+export async function trashPlotCompanions(
+  project: NovelProject,
+  plotRelPath: string
+): Promise<string[]> {
+  const side: string[] = [];
+  for (const rel of [
+    project.sceneMirrorRelPath(plotRelPath),
+    project.manuscriptMirrorRelPath(plotRelPath),
+  ]) {
+    if (await trashRel(project, rel)) {
+      side.push(`${rel} → .trash/`);
+    }
+  }
+  return side;
+}
+
+/** 把某个工作区相对路径搬进 `.trash/`（保留原相对路径）。不存在就跳过。 */
+export async function trashRel(project: NovelProject, relPath: string): Promise<boolean> {
+  const abs = project.pathOf(relPath);
+  if (!(await pathExists(abs))) {
+    return false;
+  }
+  const target = path.join(project.trashDir, relPath);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.rename(abs, target).catch(() => undefined);
+  return true;
+}
+
+/** 磁盘上那份细纲的解析结果；没有就 undefined。零信任地读，绝不抛。 */
+export async function readPlotAt(project: NovelProject, rel: string) {
+  try {
+    const raw = await readTextIfExists(project.pathOf(rel));
+    return raw === undefined ? undefined : parsePlotFile(raw, rel);
+  } catch {
+    return undefined;
+  }
+}
+
+async function pathExists(abs: string): Promise<boolean> {
+  try {
+    await fs.stat(abs);
+    return true;
+  } catch {
+    return false;
+  }
+}

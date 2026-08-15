@@ -27,6 +27,7 @@ export const el = {
   modelSelect: byId<HTMLSelectElement>('modelSelect'),
   targetSelect: byId<HTMLSelectElement>('targetSelect'),
   targetWords: byId<HTMLInputElement>('targetWords'),
+  agentToggle: byId<HTMLInputElement>('agentToggle'),
   sendBtn: byId<HTMLButtonElement>('sendBtn'),
   stopBtn: byId<HTMLButtonElement>('stopBtn'),
   providerMeta: byId('providerMeta'),

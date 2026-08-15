@@ -230,3 +230,80 @@ details.ctx li.degraded .label {
   color: var(--vscode-errorForeground);
   font-weight: 600;
 }
+
+/* agent 的工具调用条。
+   一行一次调用，只有名字、结果摘要与耗时——工具的完整返回值（一章正文几千字）
+   不画在这里，摊出来会把作者真正要看的那段回答挤到屏幕外。 */
+
+.tools {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.82em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.05));
+}
+
+.tool-row.tool-failed {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.tool-icon {
+  flex: 0 0 auto;
+}
+
+.tool-title {
+  flex: 0 1 auto;
+  font-family: var(--vscode-editor-font-family);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 摘要吃掉中间的空间，耗时贴右——扫一列就看得出哪一步慢。 */
+.tool-summary {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-elapsed {
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+
+/* 一轮 agent 的花销：几步、几次生成、大约多少 token（第 4 条）。
+   一条细分隔线把它与回答分开——它是账单，不是话。 */
+.agent-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  font-size: 0.82em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.agent-run-cost {
+  flex: 0 0 auto;
+}
+
+/* 「为什么只做到这里」——toast 五秒就没了，这一行留得住。 */
+.agent-run-why {
+  flex: 1 1 auto;
+}
+
+.agent-run-stopped .agent-run-why {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}

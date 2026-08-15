@@ -1,4 +1,5 @@
 import type { LlmTask, ModelTier } from '../model/tiers';
+import type { AgentPolicy } from '../model/agentPolicy';
 import type {
   Capability,
   CreationStage,
@@ -35,9 +36,24 @@ export type InMessage =
   | { type: 'ready' }
   | { type: 'switchTab'; tab: Tab }
   | { type: 'send'; payload: SendPayload }
+  /**
+   * 让 agent 跑一轮：它自己决定查什么、生成什么。
+   *
+   * 与 `send` 并存而不是取代它——点「写剧情」是**确定性单步**，多一次调度调用
+   * 只是加钱加延迟（设计文档的第一条决策）。`limits` 留给日后的设置页，
+   * 缺省走 `budget.ts` 的三条。
+   */
+  | { type: 'sendAgent'; text: string; limits?: { steps?: number; calls?: number; tokens?: number } }
   | { type: 'stop' }
   | { type: 'retry'; turnId: string; payload: SendPayload }
-  | { type: 'acceptArtifact'; turnId: string; target: CreationTarget; text: string }
+  /**
+   * 采纳这一轮的产物。
+   *
+   * **不带 target**：落点从 `draft.target` 取，前端猜不出一段讨论该写到
+   * 哪一层（第 19 条）。带 `text` 是因为用户可能在气泡里改过，采纳时以
+   * 气泡里当下那份为准重新解析。
+   */
+  | { type: 'acceptArtifact'; turnId: string; draftId: string; text: string }
   | { type: 'setTarget'; target: CreationTarget }
   | { type: 'selectPlot'; plotRelPath: string }
   | { type: 'requestPipeline'; plotRelPath?: string }
@@ -123,4 +139,6 @@ export interface SettingsPayload {
   requestTimeoutMs: number;
   concurrency: number;
   fallbackAttempts: number;
+  /** Agent 的确认策略：careful / default / bold。 */
+  agentPolicy: AgentPolicy;
 }

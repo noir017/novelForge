@@ -21,6 +21,7 @@
 | [project.ts](project.ts) | ★ `NovelProject`：数据访问层，所有 read*/write* 都在这里。含初始化模板、**章节**索引（manifest v1）、场景与中转站正文两套按细纲名镜像的路径推导、摘要与草稿按章节路径镜像、`nextPlotNo()`（跨两个目录取最大号 +1）、`splitManuscript()`（按 `---` 把中转站正文拆成发布章）、摘要与场景的新鲜度指纹（`beatsHashFor`）、`.novel` → `.novelforge` 迁移检测，以及各区目录的**递归扫描**。 |
 | [providers.ts](providers.ts) | ★ 多服务商/多模型的数据模型。「前缀/模型名」引用只在**第一个**斜杠处切分（OpenRouter 的模型名本就含斜杠）；含 0.1.x 单服务商配置的兼容兜底。 |
 | [tiers.ts](tiers.ts) | ★ **模型分档**：三档（快速 / 均衡 / 精标）与十项后台任务的归属。纯数据 + 纯函数（`tierOf` / `refsForTask` / `describeTaskModels`），无 I/O 也无 Node 依赖——所以设置页可以直接 import 同一份标签与默认映射，界面上写的和跑起来的必然一致。 |
+| [agentPolicy.ts](agentPolicy.ts) | ★ **Agent 的确认策略**（谨慎 / 默认 / 放手）的类型、可选值与界面说法。与 `tiers.ts` 同一套理由：纯数据 + 纯函数，所以 `config.ts`、`protocol/` 与设置页可以共用同一份，不必依赖 agent 层。**策略只管「要不要先问」，管不着保护**——八条守卫、覆盖前审阅、批量动作的「预计调用 N 次」在任何模式下都在（判定在 [agent/policy.ts](../agent/policy.ts)）。 |
 | [session.ts](session.ts) | 对话会话存储：`.novelforge/sessions/<id>.json`。含当前创作目标（`target` / `stage` / `capability`）、`Attachment`（@ 引用）、`ContextDigest`（上下文明细快照）的序列化，以及旧会话的容错归一。`ChatTurn.command` 记这一轮下的是哪个命令（**按阶段具体化过的标签**，只在不是「讨论」时记），`turnPreview()` 是「这一轮说了什么」的唯一口径——命令类的轮次 `content` 本来就是空的（该说的都在产物里），气泡与历史列表都拿它，否则一片空白配一排「新对话」。 |
 
 ## 关键设计

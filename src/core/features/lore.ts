@@ -3,7 +3,8 @@ import { runPool, Settled } from '../runtime/concurrency';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { getHost } from '../host';
-import { collectStream, ChatOptions } from '../llm/provider';
+import { collectText } from '../llm/collect';
+import { StreamOptions } from '../llm/provider';
 import { budgetForTask, createModelPool, ModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { readText, slugify, uniqueSlug } from '../model/fs';
@@ -15,6 +16,7 @@ import {
 } from '../model/project';
 import { LoreEntry, Chapter } from '../model/types';
 import { runTask } from '../runtime/progress';
+import { Workspace } from '../workspace';
 import { LORE_EXTRACT_SYSTEM, LORE_SYNTHESIS_SYSTEM } from './lorePrompt';
 import { extractJson, stringArray, stripCodeFence, unique, uniqueNumbers } from './parse';
 
@@ -278,7 +280,7 @@ async function scanChapters(
   const config = readConfig();
   const budget = pool.primaryBudget;
   const inputBudget = Math.max(2000, budget.contextWindow - budget.maxOutputTokens - 2500);
-  const options: ChatOptions = {
+  const options: StreamOptions = {
     maxOutputTokens: budget.maxOutputTokens,
     temperature: 0.2,
     timeoutMs: config.requestTimeoutMs,
@@ -309,8 +311,8 @@ async function scanChapters(
         );
       }
       const raw = await pool.run(`第 ${chapter.order} 章设定识别`, (llm) =>
-        collectStream(
-          llm.chatStream(
+        collectText(
+          llm.stream(
             [
               { role: 'system', content: LORE_EXTRACT_SYSTEM },
               {
@@ -503,7 +505,7 @@ async function synthesizeOne(draft: LoreDraft, pool: ModelPool, signal: AbortSig
     );
   }
 
-  const options: ChatOptions = {
+  const options: StreamOptions = {
     maxOutputTokens: budget.maxOutputTokens,
     temperature: 0.2,
     timeoutMs: config.requestTimeoutMs,
@@ -511,8 +513,8 @@ async function synthesizeOne(draft: LoreDraft, pool: ModelPool, signal: AbortSig
   };
   const startedAt = Date.now();
   const raw = await pool.run(`设定「${draft.title}」`, (llm) =>
-    collectStream(
-      llm.chatStream(
+    collectText(
+      llm.stream(
         [
           { role: 'system', content: LORE_SYNTHESIS_SYSTEM },
           {
@@ -573,7 +575,7 @@ async function applyGeneratedLore(
       const category = slugify(item.draft.category);
       const base = `${category}/${slugify(item.draft.title)}`;
       const slug = await uniqueSlug(project.loreDir, base);
-      const relPath = await project.writeLore({
+      const relPath = await new Workspace(project).writeLore({
         slug,
         title: item.draft.title,
         keywords: item.keywords,
@@ -625,7 +627,7 @@ async function reviewExisting(
     log.info(`停止后不再写入设定「${existing.title}」`);
     return 'skipped';
   }
-  await project.writeLore({
+  await new Workspace(project).writeLore({
     slug: existing.slug,
     title: existing.title,
     keywords: item.keywords,

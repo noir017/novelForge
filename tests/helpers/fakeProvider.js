@@ -45,7 +45,7 @@ function installFakeProvider(registry, opts = {}) {
       id: 'vscode-lm',
       label: (active && active.ref) || '假模型',
       maxInputTokens: async () => undefined,
-      chatStream: async function* (messages) {
+      stream: async function* (messages) {
         calls.push(messages);
         if (active) calls[calls.length - 1].ref = active.ref;
         inFlight++;
@@ -59,11 +59,11 @@ function installFakeProvider(registry, opts = {}) {
           }
           if (delayMs) await sleep(delayMs);
           if (reply) {
-            yield reply(messages, calls.length - 1);
+            yield { type: 'text', text: reply(messages, calls.length - 1) };
             return;
           }
           const next = repeatLast && queue.length <= 1 ? queue[0] : queue.shift();
-          yield next ?? fallback;
+          yield { type: 'text', text: next ?? fallback };
         } finally {
           inFlight--;
         }

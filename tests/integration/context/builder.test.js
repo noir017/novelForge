@@ -26,6 +26,14 @@ const { installVscodeStub } = require('../../helpers/vscodeStub');
 const { SAMPLE, copyFixture } = require('../../helpers/tmpProject');
 const { cleanup } = require('../../helpers/teardown');
 
+/**
+ * 细纲与场景的写入搬进了 `core/workspace/`：改名要连带搬走场景目录与中转站
+ * 正文、写入要记上游指纹、删除要进 `.trash/`，那些是网关的活。`NovelProject`
+ * 这一层只留领域查询。
+ */
+let wsMod;
+const wsOf = (p) => new wsMod.Workspace(p);
+
 // 装配请求带 action（阶段 × 能力）与 target（在改哪个产物）。
 const WRITE = { stage: 'manuscript', capability: 'generate' };
 const DISCUSS = { stage: 'manuscript', capability: 'discuss' };
@@ -100,11 +108,13 @@ before(async () => {
   // builder / projectView / cast 拿到的就不是同一个类了。
   const bundle = loadBundle({
     project: './src/core/model/project.ts',
+    ws: './src/core/workspace/index.ts',
     builder: './src/core/context/builder.ts',
     tokenizer: './src/core/context/tokenizer.ts',
     projectView: './src/core/views/projectView.ts',
     cast: './src/core/views/cast.ts',
   });
+  wsMod = bundle.ws;
   projectMod = bundle.project;
   builderMod = bundle.builder;
   tokenizerMod = bundle.tokenizer;
@@ -1004,7 +1014,7 @@ describe('装配：四阶段配方', () => {
       [2, '摊牌', ['林昭', '沈氏'], '- 沈氏拿出半枚令牌\n- 林昭承认自己是谁'],
       [3, '被打断', ['林昭', '沈氏', '客栈掌柜'], '- 掌柜敲门，谈话中断'],
     ]) {
-      await stageProject.writeScene(PLOT3, {
+      await wsOf(stageProject).writeScene(PLOT3, {
         plotRelPath: PLOT3, no, title, place: '青崖客栈', time: '寅时',
         characters: who, targetWords: 1000, upstreamHash: '', status: 'ready',
         sections: sceneSections(`把「${title}」这一拍演完`, must),
@@ -1353,7 +1363,7 @@ describe('装配：没写正文的段退化成只带目标', () => {
     fixture = copyFixture('builder-goalonly');
     degProject = projectMod.NovelProject.open(fixture.dir);
     // 建一段只排了剧情、没写正文的第 4 章，然后从第 5 章的位置装配。
-    await degProject.writePlot({
+    await wsOf(degProject).writePlot({
       no: 4,
       title: '第三块令牌',
       arc: '第一卷 · 停舟',

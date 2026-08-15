@@ -102,6 +102,34 @@ const httpServer = http.createServer((req, res) => {
         // 不结束，用于测试取消与超时
         return;
       }
+      case 'openai-tool-calls': {
+        sse();
+        // 真实分片形状：id 只在第一片给，arguments 逐片拼；两个并行调用交错到达。
+        res.write('data: {"choices":[{"delta":{"content":"我先读一下"}}]}\n\n');
+        res.write(
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"read","arguments":"{\\"pa"}}]}}]}\n\n'
+        );
+        res.write(
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_b","type":"function","function":{"name":"search","arguments":"{\\"q\\":\\"北境\\"}"}}]}}]}\n\n'
+        );
+        res.write(
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\\":\\"plots/001.md\\"}"}}]}}]}\n\n'
+        );
+        res.write('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n');
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+      case 'openai-tool-calls-bad-json': {
+        sse();
+        res.write(
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"read","arguments":"{\\"path\\":"}}]}}]}\n\n'
+        );
+        res.write('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n');
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
       case 'anthropic-ok': {
         sse();
         res.write('event: message_start\ndata: {"type":"message_start"}\n\n');
@@ -131,8 +159,17 @@ const opts = (extra = {}) => ({
   ...extra,
 });
 
+/** 一份最小可用的工具声明，只用来看透传形状。 */
+const TOOL = {
+  name: 'read',
+  description: '读一个工程内的文件',
+  parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+};
+
 let vs;
 let providerMod;
+let collectText;
+let collect;
 let OpenAiProvider;
 let openai;
 let anthropic;
@@ -167,8 +204,10 @@ before(async () => {
     openai: './src/core/llm/openaiProvider.ts',
     anthropic: './src/core/llm/anthropicProvider.ts',
     provider: './src/core/llm/provider.ts',
+    collect: './src/core/llm/collect.ts',
   });
   providerMod = bundle.provider;
+  ({ collectText, collect } = bundle.collect);
   OpenAiProvider = bundle.openai.OpenAiProvider;
 
   await new Promise((r) => httpServer.listen(0, '127.0.0.1', r));
@@ -196,7 +235,7 @@ describe('OpenAI provider · 正常流', () => {
 
   before(async () => {
     server.mode = 'openai-ok';
-    text = await providerMod.collectStream(openai.chatStream(
+    text = await collectText(openai.stream(
       [{ role: 'system', content: '你是作者' }, { role: 'user', content: '续写' }],
       opts()
     ));
@@ -207,7 +246,7 @@ describe('OpenAI provider · 正常流', () => {
     // 的模型名本就是 `渠道/厂商/模型`，任何一段被吃掉，上游都会回
     // 「has no provider supported」，而那个报错看起来像是模型不存在。
     const nested = new OpenAiProvider(base, 'ms/deepseek-ai/DeepSeek-V4-Flash', 'sk-test');
-    await providerMod.collectStream(nested.chatStream([], opts()));
+    await collectText(nested.stream([], opts()));
     nestedModel = server.lastRequest.body.model;
   });
 
@@ -270,16 +309,16 @@ describe('OpenAI provider · 边界情况', () => {
 
   before(async () => {
     server.mode = 'openai-crlf';
-    crlf = await providerMod.collectStream(openai.chatStream([], opts()));
+    crlf = await collectText(openai.stream([], opts()));
 
     server.mode = 'openai-reasoning';
-    reasoning = await providerMod.collectStream(openai.chatStream([], opts()));
+    reasoning = await collectText(openai.stream([], opts()));
 
     server.mode = 'openai-garbage';
-    garbage = await providerMod.collectStream(openai.chatStream([], opts()));
+    garbage = await collectText(openai.stream([], opts()));
 
     server.mode = 'openai-mid-error';
-    caught = await catchError(() => providerMod.collectStream(openai.chatStream([], opts())));
+    caught = await catchError(() => collectText(openai.stream([], opts())));
   });
 
   test('CRLF 分隔的 SSE', () => {
@@ -316,7 +355,7 @@ describe('OpenAI provider · HTTP 错误', () => {
 
       before(async () => {
         server.mode = mode;
-        err = await catchError(() => providerMod.collectStream(openai.chatStream([], opts())));
+        err = await catchError(() => collectText(openai.stream([], opts())));
       });
 
       test(`${mode} 抛出 LlmError`, () => {
@@ -342,7 +381,7 @@ describe('OpenAI provider · 取消与超时', () => {
     server.mode = 'slow';
     {
       const src = makeCancelSource();
-      const stream = openai.chatStream([], opts({ signal: src.signal }));
+      const stream = openai.stream([], opts({ signal: src.signal }));
       const iter = stream[Symbol.asyncIterator]();
       first = await iter.next();
       src.cancel();
@@ -351,7 +390,7 @@ describe('OpenAI provider · 取消与超时', () => {
 
     server.mode = 'slow';
     timeoutErr = await catchError(() =>
-      providerMod.collectStream(openai.chatStream([], opts({ timeoutMs: 300 })))
+      collectText(openai.stream([], opts({ timeoutMs: 300 })))
     );
 
     // 已取消的 signal 传进来时应立刻失败，不发请求
@@ -359,12 +398,12 @@ describe('OpenAI provider · 取消与超时', () => {
     const src = makeCancelSource();
     src.cancel();
     preCancelledErr = await catchError(() =>
-      providerMod.collectStream(openai.chatStream([], opts({ signal: src.signal })))
+      collectText(openai.stream([], opts({ signal: src.signal })))
     );
   });
 
   test('取消前已收到首个分片', () => {
-    assert.equal(first.value, '慢');
+    assert.deepEqual(first.value, { type: 'text', text: '慢' });
   });
 
   test('取消后抛 CancelledError', () => {
@@ -393,7 +432,7 @@ describe('Anthropic provider', () => {
 
   before(async () => {
     server.mode = 'anthropic-ok';
-    aText = await providerMod.collectStream(anthropic.chatStream(
+    aText = await collectText(anthropic.stream(
       [
         { role: 'system', content: '系统提示A' },
         { role: 'system', content: '系统提示B' },
@@ -407,7 +446,7 @@ describe('Anthropic provider', () => {
 
     server.mode = 'anthropic-error';
     aErr = await catchError(() =>
-      providerMod.collectStream(anthropic.chatStream([{ role: 'user', content: 'x' }], opts()))
+      collectText(anthropic.stream([{ role: 'user', content: 'x' }], opts()))
     );
   });
 
@@ -458,16 +497,18 @@ describe('Anthropic provider', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('collectStream onDelta 回调', () => {
+describe('collectText onDelta 回调', () => {
   const deltas = [];
   const fulls = [];
   let result;
 
   before(async () => {
     server.mode = 'openai-ok';
-    result = await providerMod.collectStream(openai.chatStream([], opts()), (d, f) => {
-      deltas.push(d);
-      fulls.push(f);
+    result = await collectText(openai.stream([], opts()), {
+      onDelta: (d, f) => {
+        deltas.push(d);
+        fulls.push(f);
+      },
     });
   });
 
@@ -481,5 +522,77 @@ describe('collectStream onDelta 回调', () => {
 
   test('full 逐步增长', () => {
     assert.ok(fulls.every((f, i) => i === 0 || f.length > fulls[i - 1].length));
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('OpenAI provider · tool_calls', () => {
+  let ok;
+  let bad;
+
+  before(async () => {
+    server.mode = 'openai-tool-calls';
+    ok = await collect(openai.stream([], opts({ tools: [TOOL], toolChoice: 'auto' })));
+
+    server.mode = 'openai-tool-calls-bad-json';
+    bad = await collect(openai.stream([], opts({ tools: [TOOL] })));
+  });
+
+  test('正文与工具调用分开：text 里没有参数片段', () => {
+    assert.equal(ok.text, '我先读一下');
+  });
+
+  test('分片按 index 拼成完整参数（id 只在第一片给）', () => {
+    assert.deepEqual(ok.toolCalls[0], {
+      id: 'call_a',
+      name: 'read',
+      args: { path: 'plots/001.md' },
+      raw: '{"path":"plots/001.md"}',
+    });
+  });
+
+  test('两个并行调用各自拼对，不串味', () => {
+    assert.deepEqual(ok.toolCalls[1], {
+      id: 'call_b',
+      name: 'search',
+      args: { q: '北境' },
+      raw: '{"q":"北境"}',
+    });
+  });
+
+  test('tools 与 tool_choice 透传给上游', () => {
+    const body = server.lastRequest.body;
+    assert.deepEqual(body.tools, [
+      { type: 'function', function: { name: TOOL.name, description: TOOL.description, parameters: TOOL.parameters } },
+    ]);
+  });
+
+  test('坏 JSON 不抛：args 为空对象，raw 保留原文', () => {
+    assert.deepEqual(bad.toolCalls, [
+      { id: 'call_a', name: 'read', args: {}, raw: '{"path":' },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('OpenAI provider · 没有 tools 时不带这两个字段', () => {
+  before(async () => {
+    server.mode = 'openai-ok';
+    await collectText(openai.stream([], opts()));
+  });
+
+  // 有些兼容实现见到未知字段会直接 400，stream_options 上已经踩过这个坑。
+  test('请求体里没有 tools', () => {
+    assert.equal('tools' in server.lastRequest.body, false);
+  });
+
+  test('请求体里没有 tool_choice', () => {
+    assert.equal('tool_choice' in server.lastRequest.body, false);
+  });
+
+  test('stream_options 恒开', () => {
+    assert.deepEqual(server.lastRequest.body.stream_options, { include_usage: true });
   });
 });

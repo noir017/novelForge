@@ -14,12 +14,19 @@
  * 三个批量动作都**跳过已经有产物的章**，不问、不覆盖。批量路径上没有
  * 「逐个审阅」的余地——一次弹 63 个 diff 没有人看得完——所以唯一安全的
  * 做法是只处理空白的那些。要重做某一章，去创作页单独重做。
+ *
+ * ## 返回值是「这一次计划调用几次模型」
+ *
+ * 就是确认框里那个数字（用户取消、没有可做的、没有可用模型时是 0）。
+ * **只在这里算一次**：agent 的 `run` 工具拿它记进预算，工程页那条路不看它。
+ * 让调用方各算一遍，弹窗写着 7 次、账上记 1 次，正是第 4 条要防的事。
  */
 import { runPool } from '../runtime/concurrency';
 import { readConfig } from '../config';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { getHost } from '../host';
-import { collectStream, CancelledError, ChatMessage } from '../llm/provider';
+import { collectText } from '../llm/collect';
+import { AgentMessage, CancelledError } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { describeError, elapsed, formatDuration, scoped } from '../runtime/logger';
 import { hash } from '../model/fs';
@@ -33,6 +40,7 @@ import { plotContentHash } from '../views/pipeline';
 import { cleanOutput } from './creation';
 import { parsePlotStrict, parseSceneList } from './artifact';
 import { Capability } from '../model/pipeline';
+import { Workspace } from '../workspace';
 
 const log = scoped('流水线');
 
@@ -43,19 +51,19 @@ const log = scoped('流水线');
  * 会把前后章的原文一起带上，所以仍然可以并发——并发改变的只是完成顺序，
  * 不改变每次调用看到的上下文。
  */
-export async function generatePlots(project: NovelProject): Promise<void> {
+export async function generatePlots(project: NovelProject): Promise<number> {
   const pending = (await project.listPlots()).filter((p) => !isPlotFilled(p.sections));
 
   if (pending.length === 0) {
     getHost().toast('每一章都已经排过剧情了。');
-    return;
+    return 0;
   }
   const outline = await project.readOutline();
   if (!outline.trim()) {
     // 没有大纲就写剧情，等于让模型凭空编四十章——那不是作者要的。
     log.warn('全书大纲是空的，批量写剧情已中止');
     getHost().toast('全书大纲还是空的。先写一份大纲，剧情才有依据。', 'error');
-    return;
+    return 0;
   }
 
   const config = readConfig();
@@ -73,13 +81,14 @@ export async function generatePlots(project: NovelProject): Promise<void> {
   );
   if (confirm !== '开始生成') {
     log.info('用户取消了批量写剧情');
-    return;
+    return 0;
   }
 
+  const ws = new Workspace(project);
   const pool = await createModelPool({ task: 'plotOutline', concurrent: lanes > 1 });
   if (!pool) {
     log.error('没有可用的模型，批量写剧情中止');
-    return;
+    return 0;
   }
   const outlineHash = hash(outline);
 
@@ -92,8 +101,8 @@ export async function generatePlots(project: NovelProject): Promise<void> {
     run: async (plot, signal) => {
       const messages = await buildContextFor(project, plot, config, 'generate');
       const raw = await pool.run(`第 ${plot.no} 章`, (llm) =>
-        collectStream(
-          llm.chatStream(messages, {
+        collectText(
+          llm.stream(messages, {
             maxOutputTokens: pool.primaryBudget.maxOutputTokens,
             temperature: config.temperature,
             timeoutMs: config.requestTimeoutMs,
@@ -108,7 +117,7 @@ export async function generatePlots(project: NovelProject): Promise<void> {
       if (!sections || !isPlotFilled(sections)) {
         throw new Error('模型返回的内容里解析不出剧情');
       }
-      await project.writePlot({
+      await ws.writePlot({
         no: plot.no,
         title: plot.title,
         arc: plot.arc,
@@ -119,6 +128,7 @@ export async function generatePlots(project: NovelProject): Promise<void> {
       });
     },
   });
+  return pending.length;
 }
 
 /**
@@ -127,7 +137,7 @@ export async function generatePlots(project: NovelProject): Promise<void> {
  * 判据是**剧情已排**：没有剧情就拆场景，模型只能照着标题瞎编，
  * 拆出来的东西作者一场都留不下。
  */
-export async function breakdownScenes(project: NovelProject): Promise<void> {
+export async function breakdownScenes(project: NovelProject): Promise<number> {
   const plots = await project.listPlots();
   const pending: Plot[] = [];
   let noPlot = 0;
@@ -147,7 +157,7 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
         ? `没有可拆的章。还有 ${noPlot} 章没排剧情——先写剧情再来拆场景。`
         : '每一章都已经拆过场景了。'
     );
-    return;
+    return 0;
   }
 
   const config = readConfig();
@@ -166,13 +176,14 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
   );
   if (confirm !== '开始拆分') {
     log.info('用户取消了批量拆分场景');
-    return;
+    return 0;
   }
 
+  const ws = new Workspace(project);
   const pool = await createModelPool({ task: 'sceneBreakdown', concurrent: lanes > 1 });
   if (!pool) {
     log.error('没有可用的模型，批量拆分场景中止');
-    return;
+    return 0;
   }
 
   await runBatch(project, {
@@ -184,8 +195,8 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
     run: async (plot, signal) => {
       const messages = await buildContextFor(project, plot, config, 'split');
       const raw = await pool.run(`第 ${plot.no} 章`, (llm) =>
-        collectStream(
-          llm.chatStream(messages, {
+        collectText(
+          llm.stream(messages, {
             maxOutputTokens: pool.primaryBudget.maxOutputTokens,
             temperature: config.temperature,
             timeoutMs: config.requestTimeoutMs,
@@ -201,7 +212,7 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
       let no = 0;
       for (const item of scenes) {
         no++;
-        await project.writeScene(plot.relPath, {
+        await ws.writeScene(plot.relPath, {
           plotRelPath: plot.relPath,
           no,
           // 标题原样交给 writeScene（它自己负责清洗成文件名）。在这里先洗
@@ -223,6 +234,7 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
       }
     },
   });
+  return pending.length;
 }
 
 /**
@@ -235,7 +247,7 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
  * **一章内部逐场串行**：第 2 场的正文要接着第 1 场的结尾写，并发跑会得到
  * 几章互相接不上的文字。章与章之间才并发。
  */
-export async function writeManuscripts(project: NovelProject): Promise<void> {
+export async function writeManuscripts(project: NovelProject): Promise<number> {
   const plots = await project.listPlots();
   const pending: Plot[] = [];
   let notReady = 0;
@@ -258,7 +270,7 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
         ? `没有可写的章。还有 ${notReady} 章的场景没备好素材——先把场景设计完。`
         : '每一章都已经写过正文了。'
     );
-    return;
+    return 0;
   }
 
   // 预计字数：场景卡上标了目标字数就用它，没标按一场 1000 字估。
@@ -290,13 +302,14 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
   );
   if (confirm !== '开始写作') {
     log.info('用户取消了批量写正文');
-    return;
+    return 0;
   }
 
+  const ws = new Workspace(project);
   const pool = await createModelPool({ task: 'manuscript', concurrent: lanes > 1 });
   if (!pool) {
     log.error('没有可用的模型，批量写正文中止');
-    return;
+    return 0;
   }
 
   await runBatch(project, {
@@ -320,8 +333,8 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
           config
         );
         const raw = await pool.run(`第 ${plot.no} 章 · 场景 ${scene.no}`, (llm) =>
-          collectStream(
-            llm.chatStream(built.messages, {
+          collectText(
+            llm.stream(built.messages, {
               maxOutputTokens: pool.primaryBudget.maxOutputTokens,
               temperature: config.temperature,
               timeoutMs: config.requestTimeoutMs,
@@ -335,9 +348,9 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
         }
         // 一场一写盘：中途取消时前面几场留得住（与摘要同步「停在第 30 章
         // 就有 30 章摘要」同一条取舍）。
-        await project.appendToManuscript(plot.relPath, text);
+        await ws.appendToManuscript(plot.relPath, text);
         if (scene.status !== 'written') {
-          await project.writeScene(plot.relPath, { ...scene, status: 'written' });
+          await ws.writeScene(plot.relPath, { ...scene, status: 'written' });
         }
       }
       const beatsHash = await project.beatsHashFor(plot.relPath);
@@ -347,6 +360,7 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
       await project.syncManifest();
     },
   });
+  return scenesTotal;
 }
 
 // ---------------------------------------------------------------- 共用
@@ -363,7 +377,7 @@ async function buildContextFor(
   plot: Plot,
   config: ReturnType<typeof readConfig>,
   capability: Extract<Capability, 'generate' | 'split'>
-): Promise<ChatMessage[]> {
+): Promise<AgentMessage[]> {
   const built = await buildContext(
     project,
     {

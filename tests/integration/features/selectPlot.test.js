@@ -22,6 +22,14 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
+/**
+ * 细纲与场景的写入搬进了 `core/workspace/`：改名要连带搬走场景目录与中转站
+ * 正文、写入要记上游指纹、删除要进 `.trash/`，那些是网关的活。`NovelProject`
+ * 这一层只留领域查询。
+ */
+let wsMod;
+const wsOf = (p) => new wsMod.Workspace(p);
+
 let bundle;
 let h;
 let t;
@@ -44,15 +52,17 @@ before(async () => {
   bundle = loadBundle({
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
+    ws: './src/core/workspace/index.ts',
     controller: './src/core/controller/index.ts',
   });
+  wsMod = bundle.ws;
   h = makeFakeHost({ settings: () => ({}) });
   bundle.host.initHost(h.host);
   t = await makeTempProject(bundle.project, { prefix: 'selectplot', title: '选章测试' });
   project = t.project;
 
   // 第 8 章：规划过，正文也拆分发布了 —— 两面俱全。
-  await project.writePlot({
+  await wsOf(project).writePlot({
     no: 8, title: '夜访', arc: '', upstreamHash: '', done: false,
     sections: { ...bundle.project.emptyPlotSections?.() ?? {}, 目标: '暴露令牌', 剧情脉络: '甲、乙、丙。', 冲突与转折: '', 伏笔与回收: '' },
   });
@@ -158,7 +168,7 @@ describe('状态机仍然在管落在哪一层', () => {
 
   before(async () => {
     // 一个连剧情都没排的新章：状态机该把作者留在剧情层，而不是丢进正文。
-    await project.writePlot({
+    await wsOf(project).writePlot({
       no: 20, title: '', arc: '', upstreamHash: '', done: false,
       sections: { 目标: '还没想好', 剧情脉络: '', 冲突与转折: '', 伏笔与回收: '' },
     });

@@ -25,6 +25,7 @@ import { Plot } from '../model/plotFile';
 import { chapterLabel } from '../model/pipeline';
 import { splitByMark } from '../model/chapterFile';
 import { scoped } from '../runtime/logger';
+import { Workspace } from '../workspace';
 
 const log = scoped('拆分');
 
@@ -69,10 +70,11 @@ export async function splitManuscript(project: NovelProject, plotRelPath: string
   // 先移号失败则什么都没变，重来一次即可。
   //
   // 从大到小遍历：从小到大改会撞上还没让开的那一份。
+  const ws = new Workspace(project);
   for (const p of [...following].sort((a, b) => b.no - a.no)) {
     // 换号时新号上没有旧文件，必须把原路径传进去——`writePlot` 据此把
     // 场景目录与中转站正文一起改名（carryPlotCompanions），并删掉旧的那份。
-    await project.writePlot({ ...p, no: p.no + shift }, p.relPath);
+    await ws.writePlot({ ...p, no: p.no + shift }, p.relPath);
   }
   if (following.length > 0) {
     log.info(
@@ -85,7 +87,7 @@ export async function splitManuscript(project: NovelProject, plotRelPath: string
   // **不调模型拟标题**：那要么多花一次调用，要么在拆分这个纯机械的动作里
   // 插进一次可能失败的网络请求。作者右键重命名一下就好。
   const titles = pieces.map((_, i) => (i === 0 ? plot.title : ''));
-  const created = await project.splitManuscript(plotRelPath, titles);
+  const created = await ws.splitManuscript(plotRelPath, titles);
 
   log.info(`第 ${plot.no} 章已拆成 ${created.length} 章`, created.join('、'));
   getHost().toast(
