@@ -1,4 +1,5 @@
 import { getHost } from '../host';
+import { basename } from 'node:path';
 import { collectText, mergeUsage } from '../llm/collect';
 import { CancelledError, LlmProvider, StreamOptions, TokenUsage } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
@@ -11,6 +12,7 @@ import { describeError, elapsed, formatDuration, scoped } from '../runtime/logge
 import { runTask } from '../runtime/progress';
 import { castFromText, parseCastEntry, renderCastEntry } from '../model/castParse';
 import { NovelProject, emptySummarySections } from '../model/project';
+import { parsePlotFileName } from '../model/plotFile';
 import { describeTaskModels } from '../model/tiers';
 import { SUMMARY_SECTION_KEYS, Chapter, SummaryCast, SummarySections } from '../model/types';
 import { sanitizeAliases } from '../model/naming';
@@ -173,8 +175,13 @@ async function knownNamesHint(project: NovelProject): Promise<string> {
 }
 
 
-/** 批量补齐所有缺失/过期的摘要，带进度，可取消。各章之间无先后，按配置并发。 */
-export async function syncSummaries(project: NovelProject): Promise<void> {
+/**
+ * 批量补齐所有缺失/过期的摘要，带进度，可取消。各章之间无先后，按配置并发。
+ *
+ * 返回**这一次计划调用几次模型**（确认框里那个数字；取消或无事可做时是 0）。
+ * 只在这里算一次——agent 的 `run` 工具拿它记进预算。
+ */
+export async function syncSummaries(project: NovelProject): Promise<number> {
   log.info('开始检查摘要新鲜度');
   const scanStart = Date.now();
   const stale = await project.staleChapters();
@@ -186,7 +193,7 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
 
   if (stale.length === 0) {
     getHost().toast('所有摘要都是最新的。');
-    return;
+    return 0;
   }
 
   const config = readConfig();
@@ -203,13 +210,13 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
   );
   if (confirm !== '开始同步') {
     log.info('用户取消了同步');
-    return;
+    return 0;
   }
 
   const pool = await createModelPool({ task: 'plotSummary', concurrent: lanes > 1 });
   if (!pool) {
     log.error('没有可用的模型，同步中止');
-    return;
+    return 0;
   }
   log.info(`使用模型 ${pool.label}`, lanes > 1 ? `并发 ${lanes} 路，轮转负载均衡` : '串行');
 
@@ -309,6 +316,31 @@ export async function syncSummaries(project: NovelProject): Promise<void> {
     },
     { scope: '摘要' }
   );
+  return stale.length;
+}
+
+/**
+ * 「细纲路径或章节路径」→ 那一章的成品。
+ *
+ * 摘要挂在**成品**上，而作者点过来的路径可能是任意一侧：工程页那一行同时
+ * 代表规划与成品。先按路径直接找，找不到再按文件名里的章号找——后者覆盖
+ * 「传的是细纲、成品另有其名」这种正常情况。还没拆分（没有成品）时返回
+ * undefined，调用方据此提示作者先去拆分。
+ *
+ * 放在这里而不是各调用方各写一份：工程页、命令面板与 agent 的 `run` 工具
+ * 都要问同一个问题，答案分叉了就会出现「工程页总结得了、agent 说找不到」。
+ */
+export async function chapterForSummary(
+  project: NovelProject,
+  relPath: string
+): Promise<Chapter | undefined> {
+  const chapters = await project.listChapters();
+  const direct = chapters.find((ch) => ch.relPath === relPath);
+  if (direct) {
+    return direct;
+  }
+  const no = parsePlotFileName(basename(relPath))?.no;
+  return no === undefined ? undefined : chapters.find((ch) => ch.order === no);
 }
 
 /** `1、2、3…（共 76 章）`——待办列表太长时只列前几个。 */

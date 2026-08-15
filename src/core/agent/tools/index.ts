@@ -1,6 +1,6 @@
 /**
- * 工具集：`list` / `read` / `search` / `generate` / `write` / `edit`
- * （`run` 随后加进来）。
+ * 工具集。**读三件 + generate + 写三件**：`list` / `read` / `search` /
+ * `generate` / `write` / `edit` / `run`。
  *
  * 三期只注册前四个，一个字都不写磁盘；四期把写工具接上——而**没有加一行新的
  * 保护代码**：一期把六处写盘收敛进 `workspace/` 的八条守卫，二期把落盘从
@@ -23,10 +23,11 @@ import { editTool } from './edit';
 import { generateTool } from './generate';
 import { listTool } from './list';
 import { readTool } from './read';
+import { runTool } from './run';
 import { searchTool } from './search';
 import { writeTool } from './write';
 
-export { editTool, generateTool, listTool, readTool, searchTool, writeTool };
+export { editTool, generateTool, listTool, readTool, runTool, searchTool, writeTool };
 
 /**
  * 只读四件套。**不写磁盘的那一半**，单独导出供测试与「只让它查一查」的场景用。
@@ -44,4 +45,5 @@ export const ALL_TOOLS: ToolDef[] = [
   generateTool,
   writeTool,
   editTool,
+  runTool,
 ];
