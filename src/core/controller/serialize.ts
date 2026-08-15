@@ -7,7 +7,6 @@ import {
   CreationTarget,
 } from '../model/pipeline';
 import {
-  NextStepFacts,
   NextStepPlan,
   SerializedAttachment,
   SerializedDigest,
@@ -18,20 +17,11 @@ import {
 /**
  * 流水线 → `deriveNextStep` 要的那几个事实。
  *
- * 参数写成结构类型而不是 `PlotPipeline`：数据层的 `PlotPipeline` 与
- * 线上的 `PlotPipelineView` 在这几个字段上同形，两处调用共用一份。
+ * 实现搬去了 [views/pipeline.ts](../views/pipeline.ts)：agent 的状态注入
+ * （`agent/context.ts`）也要用它，而 `agent/` 不能反向依赖 `controller/`。
+ * 这里保留转发，同包的调用点不必改。
  */
-export function factsOf(p: {
-  scenes: { no: number; ready: boolean; status: string }[];
-  manuscript: { beatsStale: boolean };
-}): NextStepFacts {
-  return {
-    sceneCount: p.scenes.length,
-    firstUnreadyScene: p.scenes.find((s) => !s.ready)?.no,
-    firstUnwrittenScene: p.scenes.find((s) => s.status !== 'written')?.no,
-    beatsStale: p.manuscript.beatsStale,
-  };
-}
+export { factsOf } from '../views/pipeline';
 
 /**
  * 下一步落在哪个具体产物上。

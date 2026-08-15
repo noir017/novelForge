@@ -26,12 +26,7 @@ const brief = (target) => bundle.context.buildStateBrief(project, target);
 /** 直接问状态机：注入的那句必须与它一字不差。 */
 async function nextStepOf(plotRelPath) {
   const view = await bundle.views.buildPlotPipelineView(project, plotRelPath);
-  return bundle.pipeline.deriveNextStep(view.stage, {
-    sceneCount: view.scenes.length,
-    firstUnreadyScene: view.scenes.find((s) => !s.ready)?.no,
-    firstUnwrittenScene: view.scenes.find((s) => s.status !== 'written')?.no,
-    beatsStale: view.manuscript.beatsStale,
-  });
+  return bundle.pipeline.deriveNextStep(view.stage, bundle.viewsPipeline.factsOf(view));
 }
 
 before(async () => {
@@ -42,6 +37,8 @@ before(async () => {
     context: './src/core/agent/context.ts',
     pipeline: './src/core/model/pipeline.ts',
     views: './src/core/views/projectView.ts',
+    viewsPipeline: './src/core/views/pipeline.ts',
+    serialize: './src/core/controller/serialize.ts',
     plotFile: './src/core/model/plotFile.ts',
     db: './src/core/runtime/db.ts',
   });
@@ -232,5 +229,14 @@ describe('整段的体量', () => {
   test('状态注入不超过十来行', async () => {
     const text = await brief({ kind: 'plot', plotRelPath: '.novelforge/plots/100-北行.md' });
     assert.ok(text.split('\n').length <= 12, `${text.split('\n').length} 行：\n${text}`);
+  });
+});
+
+// 「第一个还没备素材的场景」「第一个还没写正文的场景」是两条判据，不是字段搬运。
+// 各写一遍的话，创作页主按钮会说「设计场景 2」而 agent 去写了场景 3——
+// 这种分叉没有任何测试拦得住，只能靠「只有一份」来防。
+describe('主按钮与状态注入吃的是同一个 factsOf', () => {
+  test('controller 那一侧转发到 views/pipeline 的同一份实现', () => {
+    assert.equal(bundle.serialize.factsOf, bundle.viewsPipeline.factsOf);
   });
 });

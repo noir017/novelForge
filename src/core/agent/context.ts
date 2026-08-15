@@ -48,7 +48,7 @@ import {
   deriveNextStep,
   plotOfTarget,
 } from '../model/pipeline';
-import { buildPipelineIndex } from '../views/pipeline';
+import { buildPipelineIndex, factsOf } from '../views/pipeline';
 import type { PlotPipeline } from '../views/pipeline';
 
 const log = scoped('Agent');
@@ -93,12 +93,7 @@ export async function buildStateBrief(
     lines.push(`当前目标：${chapterLabel(current.no, current.title)}（${where}）`);
     lines.push(`本章状态：${PLOT_STAGE_LABEL[current.stage]}`);
 
-    const next = deriveNextStep(current.stage, {
-      sceneCount: current.scenes.length,
-      firstUnreadyScene: current.scenes.find((s) => !s.ready)?.no,
-      firstUnwrittenScene: current.scenes.find((s) => s.status !== 'written')?.no,
-      beatsStale: current.manuscript.beatsStale,
-    });
+    const next = deriveNextStep(current.stage, factsOf(current));
     lines.push(
       ...describeNext(next, '这一章都做完了，不必再往下推进——需要改动的话作者会说。')
     );
