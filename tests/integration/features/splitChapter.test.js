@@ -19,6 +19,14 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
+/**
+ * 细纲与场景的写入搬进了 `core/workspace/`：改名要连带搬走场景目录与中转站
+ * 正文、写入要记上游指纹、删除要进 `.trash/`，那些是网关的活。`NovelProject`
+ * 这一层只留领域查询。
+ */
+let wsMod;
+const wsOf = (p) => new wsMod.Workspace(p);
+
 let bundle;
 let h;
 let t;
@@ -33,7 +41,7 @@ const filled = (goal) => ({
 
 /** 建一章的细纲（可选带一场景），返回细纲相对路径。 */
 async function makePlot(no, title, { scene = false } = {}) {
-  const relPath = await project.writePlot({
+  const relPath = await wsOf(project).writePlot({
     no,
     title,
     arc: '',
@@ -42,7 +50,7 @@ async function makePlot(no, title, { scene = false } = {}) {
     sections: filled(`第 ${no} 章要达成的事。`),
   });
   if (scene) {
-    await project.writeScene(relPath, {
+    await wsOf(project).writeScene(relPath, {
       plotRelPath: relPath,
       no: 1,
       title: '开场',
@@ -61,10 +69,12 @@ before(async () => {
   bundle = loadBundle({
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
+    ws: './src/core/workspace/index.ts',
     plotFile: './src/core/model/plotFile.ts',
     sceneFile: './src/core/model/sceneFile.ts',
     split: './src/core/features/splitChapter.ts',
   });
+  wsMod = bundle.ws;
   h = makeFakeHost();
   bundle.host.initHost(h.host);
   t = await makeTempProject(bundle.project, { prefix: 'split', title: '拆分测试' });

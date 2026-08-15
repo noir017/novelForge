@@ -38,22 +38,17 @@ import {
 } from './chapterFile';
 import {
   Plot,
-  WritablePlot,
   isPlotFileName,
   parsePlotFile,
   parsePlotFileName,
   plotFileName,
-  renderPlotFile,
 } from './plotFile';
 import { isFallbackChapterTitle } from './pipeline';
 import {
   SCENE_SECTION_KEYS,
   Scene,
-  WritableScene,
   isSceneFileName,
   parseSceneFile,
-  renderSceneFile,
-  sceneFileName,
 } from './sceneFile';
 import {
   countWords,
@@ -756,89 +751,10 @@ export class NovelProject {
     return nos.length === 0 ? 1 : Math.max(...nos) + 1;
   }
 
-  /**
-   * 写一章的细纲，返回工作区相对路径。
-   *
-   * 文件名由**章号与标题**共同决定，所以改标题会改文件名，改章号也会。旧文件
-   * 必须删掉并把伴生文件搬过去，否则 `007-入宗.md` 与 `007-入宗风波.md` 并存
-   * 会变成两章。
-   *
-   * 「旧文件是哪一份」有两种问法：
-   *
-   * - **改标题**（章号没变）：按 `plot.no` 就找得到，这是绝大多数调用。
-   * - **改章号**（拆分之后的顺延）：新号上根本没有旧文件，必须由调用方把
-   *   原路径经 `fromRelPath` 传进来。不传的话旧文件会留在原地成为孤儿，
-   *   而它的场景目录与中转站正文也不会跟着走。
-   *
-   * 伴生文件在这里搬而不是交给调用方：场景目录与中转站正文的身份都是细纲的
-   * 文件名词干，改名不带走它们，作者会看到「这一章还没拆场景」——而那几个
-   * 场景就躺在旁边一个孤儿目录里。
-   *
-   * @param fromRelPath 改章号时传原细纲路径；改标题或新建时不必传。
-   */
-  async writePlot(plot: WritablePlot, fromRelPath?: string): Promise<string> {
-    const abs = path.join(this.plotsDir, plotFileName(plot.no, safeStem(plot.title)));
-    // 换号时新号上是空的，只有调用方知道原来那份在哪。
-    const previous = fromRelPath ? await this.readPlot(fromRelPath) : await this.getPlot(plot.no);
-    await writeText(abs, renderPlotFile(plot));
-
-    if (previous && this.pathOf(previous.relPath) !== abs) {
-      await this.carryPlotCompanions(previous.relPath, this.relPath(abs));
-      await fs.unlink(this.pathOf(previous.relPath)).catch(() => undefined);
-    }
-    // 细纲列表有缓存，写完不失效的话下一次读到的还是写之前那份——新建的章
-    // 不出现在工程页上，改过标题的章还挂着旧名字。
-    this.invalidate();
-    return this.relPath(abs);
-  }
-
-  /**
-   * 删一章的细纲：连同场景目录与中转站里的正文一起搬进 `.trash/`，不真删
-   * （AGENTS.md 第 6 条）。返回是否确实删掉了。
-   *
-   * **不碰 `chapters/` 与摘要**：那两样描述的是已经发布的成品。删掉细纲
-   * 只是放弃这一章的规划稿，不该顺手把作者已经拆出去的正文一起带走。
-   */
-  async deletePlot(plotRelPath: string): Promise<boolean> {
-    const plot = await this.readPlot(plotRelPath);
-    if (!plot) {
-      return false;
-    }
-    for (const rel of [
-      this.sceneMirrorRelPath(plotRelPath),
-      this.manuscriptMirrorRelPath(plotRelPath),
-      plotRelPath,
-    ]) {
-      await this.trash(rel);
-    }
-    this.invalidate();
-    return true;
-  }
-
-  /**
-   * 细纲改名（或改号）后，把场景目录与中转站正文跟着搬过去。
-   *
-   * 目标已存在时不动（不静默覆盖）——那说明磁盘上已经有一份叫这个名字的，
-   * 覆盖会把它的东西吞掉。
-   *
-   * 摘要不在此列：它挂在 `chapters/` 上，跟着章节文件改名走（见 fileOps 的
-   * `carrySummary`）。
-   */
-  private async carryPlotCompanions(fromRel: string, toRel: string): Promise<void> {
-    const pairs: [string, string][] = [
-      [this.sceneMirrorRelPath(fromRel), this.sceneMirrorRelPath(toRel)],
-      [this.manuscriptMirrorRelPath(fromRel), this.manuscriptMirrorRelPath(toRel)],
-    ];
-    for (const [from, to] of pairs) {
-      const fromAbs = this.pathOf(from);
-      const toAbs = this.pathOf(to);
-      if (from === to || !(await exists(fromAbs)) || (await exists(toAbs))) {
-        continue;
-      }
-      await fs.mkdir(path.dirname(toAbs), { recursive: true });
-      await fs.rename(fromAbs, toAbs);
-    }
-  }
+  // 细纲的写入（writePlot / deletePlot / carryPlotCompanions）搬进了
+  // `core/workspace/`：改名要连带搬走场景目录与中转站正文，写入要记
+  // `upstreamHash`，删除要进 `.trash/`——那些是网关的活，不是数据访问的活。
+  // 这一层只留领域查询。
 
   /** 把某个工作区相对路径搬进 `.trash/`（保留原相对路径）。不存在就跳过。 */
   private async trash(relPath: string): Promise<void> {
@@ -1040,37 +956,9 @@ export class NovelProject {
     return (await this.listScenes(plotRelPath)).find((s) => s.no === sceneNo);
   }
 
-  /**
-   * 写一场，返回工作区相对路径。
-   *
-   * 文件名由场景号与标题决定，所以**改标题会改文件名**：先按场景号找到旧
-   * 文件，路径不同就删掉旧的，避免 `02-翻墙.md` 与 `02-翻越侧峰.md` 并存
-   * 变成两场。这与章节改名走 `renameEntry` 是两回事——那边是作者在管文件，
-   * 这边是产物按自己的命名规则落盘。
-   */
-  async writeScene(plotRelPath: string, scene: WritableScene): Promise<string> {
-    const dir = this.sceneDirForPlot(plotRelPath);
-    const abs = path.join(dir, sceneFileName(scene.no, safeStem(scene.title)));
-    const previous = await this.readScene(plotRelPath, scene.no);
-    await writeText(abs, renderSceneFile(scene));
-    if (previous && this.pathOf(previous.relPath) !== abs) {
-      await fs.unlink(this.pathOf(previous.relPath)).catch(() => undefined);
-    }
-    return this.relPath(abs);
-  }
-
-  /**
-   * 删一场：搬进 `.trash/`，不真删（AGENTS.md 第 6 条）。
-   * 返回是否确实删掉了一场。
-   */
-  async deleteScene(plotRelPath: string, sceneNo: number): Promise<boolean> {
-    const scene = await this.readScene(plotRelPath, sceneNo);
-    if (!scene) {
-      return false;
-    }
-    await this.trash(scene.relPath);
-    return true;
-  }
+  // 场景的写入（writeScene / deleteScene）搬进了 `core/workspace/`：
+  // 改标题会改文件名（要清掉旧的），写入要记 `upstreamHash`，删除要进
+  // `.trash/`。这一层只留领域查询。
 
   /**
    * 一段全部场景拼起来的 hash——正文的上游指纹。

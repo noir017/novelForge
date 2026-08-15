@@ -12,6 +12,14 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
+/**
+ * 细纲与场景的写入搬进了 `core/workspace/`：改名要连带搬走场景目录与中转站
+ * 正文、写入要记上游指纹、删除要进 `.trash/`，那些是网关的活。`NovelProject`
+ * 这一层只留领域查询。
+ */
+let wsMod;
+const wsOf = (p) => new wsMod.Workspace(p);
+
 let bundle;
 let h;
 let t;
@@ -30,12 +38,14 @@ before(async () => {
     host: './src/core/host.ts',
     fs: './src/core/model/fs.ts',
     project: './src/core/model/project.ts',
+    ws: './src/core/workspace/index.ts',
     plotFile: './src/core/model/plotFile.ts',
     sceneFile: './src/core/model/sceneFile.ts',
     fileOps: './src/core/files/fileOps.ts',
     pipe: './src/core/views/pipeline.ts',
     workbench: './src/core/views/workbench.ts',
   });
+  wsMod = bundle.ws;
   h = makeFakeHost({ settings: () => ({}), overrides: { reviewReplace: undefined } });
   bundle.host.initHost(h.host);
   t = await makeTempProject(bundle.project, {
@@ -125,7 +135,7 @@ describe('数据层 · 细纲与场景读写', () => {
     noScenes = await project.listScenes('.novelforge/plots/012-夜入青云.md');
     nextNo = await project.nextPlotNo();
 
-    plotRel = await project.writePlot({
+    plotRel = await wsOf(project).writePlot({
       no: 12,
       title: '夜入青云',
       arc: '第一幕',
@@ -138,7 +148,7 @@ describe('数据层 · 细纲与场景读写', () => {
     listed = await project.listPlots();
 
     for (const [no, title] of [[1, '山门观察'], [2, '翻越侧峰'], [3, '初见沈月']]) {
-      await project.writeScene(plotRel, {
+      await wsOf(project).writeScene(plotRel, {
         plotRelPath: plotRel, no, title, place: '青云宗', time: '子时', characters: ['林昭'],
         upstreamHash: 'PLOT_A', status: 'ready',
         sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲、乙' },
@@ -149,7 +159,7 @@ describe('数据层 · 细纲与场景读写', () => {
     sceneTwo = await project.readScene(plotRel, 2);
 
     // 改标题会改文件名——旧文件必须删掉，否则一场变两场。
-    await project.writeScene(plotRel, {
+    await wsOf(project).writeScene(plotRel, {
       plotRelPath: plotRel, no: 2, title: '翻墙', place: '', time: '', characters: [],
       upstreamHash: 'PLOT_A', status: 'ready',
       sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
@@ -159,10 +169,10 @@ describe('数据层 · 细纲与场景读写', () => {
     countAfterRename = (await project.listScenes(plotRel)).length;
 
     // 删除是搬进 .trash/，不真删（AGENTS.md 第 6 条）。
-    deleted3 = await project.deleteScene(plotRel, 3);
+    deleted3 = await wsOf(project).deleteScene(plotRel, 3);
     countAfterDelete = (await project.listScenes(plotRel)).length;
     inTrash = t.has('.novelforge/.trash/.novelforge/scenes/012-夜入青云/03-初见沈月.md');
-    deleted9 = await project.deleteScene(plotRel, 9);
+    deleted9 = await wsOf(project).deleteScene(plotRel, 9);
   });
 
   test('没写过时读不出细纲', () => {
@@ -272,7 +282,7 @@ describe('数据层 · 段改名时三套伴生文件跟随', () => {
     );
 
     const plot = await project.readPlot(from);
-    renamed = await project.writePlot({ ...plot, title: '夜入' });
+    renamed = await wsOf(project).writePlot({ ...plot, title: '夜入' });
 
     plotRead = await project.readPlot(to);
     sceneCount = (await project.listScenes(to)).length;
@@ -340,14 +350,14 @@ describe('数据层 · 给未命名的段起名', () => {
   let manuscriptAfter;
 
   before(async () => {
-    bare = await project.writePlot({
+    bare = await wsOf(project).writePlot({
       no: 30, title: '', arc: '', upstreamHash: '', done: false,
       sections: filledSections({ 目标: '起个名字。' }),
     });
     await project.appendToManuscript(bare, '未命名时就写了的正文。');
 
     const plot = await project.readPlot(bare);
-    named = await project.writePlot({ ...plot, title: '风起' });
+    named = await wsOf(project).writePlot({ ...plot, title: '风起' });
     plotRead = await project.readPlot(named);
     plotText = t.read('.novelforge/plots/030-风起.md');
     manuscriptAfter = (await project.readManuscript(named))?.text ?? '';
@@ -403,7 +413,7 @@ describe('新鲜度链', () => {
 
     // 细纲记下当时的大纲指纹。
     const plot = await project.readPlot(plotRel);
-    await project.writePlot({ ...plot, upstreamHash: outlineHash });
+    await wsOf(project).writePlot({ ...plot, upstreamHash: outlineHash });
     pFresh = await build();
 
     // 改大纲 → 细纲标脏。零模型调用。
@@ -413,7 +423,7 @@ describe('新鲜度链', () => {
     // 场景记下当时的剧情指纹。
     const plotHash = bundle.pipe.plotContentHash(await project.readPlot(plotRel));
     for (const no of [1, 2]) {
-      await project.writeScene(plotRel, {
+      await wsOf(project).writeScene(plotRel, {
         plotRelPath: plotRel, no, title: `场景${no}`, place: '', time: '', characters: [],
         upstreamHash: plotHash, status: 'ready',
         sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
@@ -424,12 +434,12 @@ describe('新鲜度链', () => {
     // 改剧情 → 该段全部场景标脏。
     const p = await project.readPlot(plotRel);
     p.sections.冲突与转折 = '改成三拍';
-    await project.writePlot(p);
+    await wsOf(project).writePlot(p);
     pPlotChanged = await build();
 
     // 只改 status 不该让下游标脏——采纳正文时会把场景标 written。
     beatsBefore = await project.beatsHashFor(plotRel);
-    await project.writeScene(plotRel, {
+    await wsOf(project).writeScene(plotRel, {
       ...(await project.readScene(plotRel, 1)), plotRelPath: plotRel, status: 'written',
     });
     beatsAfterStatus = await project.beatsHashFor(plotRel);
@@ -440,7 +450,7 @@ describe('新鲜度链', () => {
 
     const s2 = await project.readScene(plotRel, 2);
     s2.sections.动作 = '甲、乙、丙';
-    await project.writeScene(plotRel, { ...s2, plotRelPath: plotRel });
+    await wsOf(project).writeScene(plotRel, { ...s2, plotRelPath: plotRel });
     pManuscriptStale = await build();
   });
 
@@ -556,7 +566,7 @@ describe('工作区卡', () => {
     scene = await wb({ kind: 'scene', plotRelPath: plotRel, sceneNo: 2 });
 
     // 填了地点时间就该合成一行「这一幕」——那是这一层最要紧的三样元信息。
-    await project.writeScene(plotRel, {
+    await wsOf(project).writeScene(plotRel, {
       plotRelPath: plotRel, no: 2, title: '翻墙', place: '青云宗侧峰', time: '子时，暴雨',
       characters: ['林昭'], upstreamHash: 'X', status: 'ready',
       sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
@@ -569,7 +579,7 @@ describe('工作区卡', () => {
 
     // 「文件在但一节都没填」与「文件不在」对作者是同一件事：这一层还没做。
     // 只判文件在不在的话，一份只有目标的骨架会渲染成一张几乎空的卡。
-    const bare = await project.writePlot({
+    const bare = await wsOf(project).writePlot({
       no: 40, title: '空骨架', arc: '', upstreamHash: '', done: false,
       sections: bundle.plotFile.emptyPlotSections(),
     });
@@ -577,7 +587,7 @@ describe('工作区卡', () => {
 
     // 刚拆出来的场景只有元信息，小节全空。这时用 warning 而不是 empty——
     // empty 会连「这一幕」一起藏掉，而地点时间恰恰是这时唯一有的东西。
-    await project.writeScene(plotRel, {
+    await wsOf(project).writeScene(plotRel, {
       plotRelPath: plotRel, no: 5, title: '空壳', place: '山门', time: '黄昏',
       characters: [], upstreamHash: '', status: 'draft',
       sections: bundle.sceneFile.emptySceneSections(),

@@ -8,6 +8,8 @@ import { ArtifactKind } from '../kind';
 import { Handler } from './types';
 import { docHandler } from './doc';
 import { plainHandler } from './plain';
+import { plotHandler } from './plot';
+import { sceneHandler } from './scene';
 
 const REGISTRY: Partial<Record<ArtifactKind, Handler>> = {
   outline: docHandler,
@@ -15,6 +17,8 @@ const REGISTRY: Partial<Record<ArtifactKind, Handler>> = {
   globalSummary: docHandler,
   character: docHandler,
   lore: docHandler,
+  plot: plotHandler,
+  scene: sceneHandler,
   other: plainHandler,
   draft: plainHandler,
 };

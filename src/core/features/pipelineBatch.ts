@@ -34,6 +34,7 @@ import { plotContentHash } from '../views/pipeline';
 import { cleanOutput } from './creation';
 import { parsePlotStrict, parseSceneList } from './artifact';
 import { Capability } from '../model/pipeline';
+import { Workspace } from '../workspace';
 
 const log = scoped('流水线');
 
@@ -77,6 +78,7 @@ export async function generatePlots(project: NovelProject): Promise<void> {
     return;
   }
 
+  const ws = new Workspace(project);
   const pool = await createModelPool({ task: 'plotOutline', concurrent: lanes > 1 });
   if (!pool) {
     log.error('没有可用的模型，批量写剧情中止');
@@ -109,7 +111,7 @@ export async function generatePlots(project: NovelProject): Promise<void> {
       if (!sections || !isPlotFilled(sections)) {
         throw new Error('模型返回的内容里解析不出剧情');
       }
-      await project.writePlot({
+      await ws.writePlot({
         no: plot.no,
         title: plot.title,
         arc: plot.arc,
@@ -170,6 +172,7 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
     return;
   }
 
+  const ws = new Workspace(project);
   const pool = await createModelPool({ task: 'sceneBreakdown', concurrent: lanes > 1 });
   if (!pool) {
     log.error('没有可用的模型，批量拆分场景中止');
@@ -202,7 +205,7 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
       let no = 0;
       for (const item of scenes) {
         no++;
-        await project.writeScene(plot.relPath, {
+        await ws.writeScene(plot.relPath, {
           plotRelPath: plot.relPath,
           no,
           // 标题原样交给 writeScene（它自己负责清洗成文件名）。在这里先洗
@@ -294,6 +297,7 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
     return;
   }
 
+  const ws = new Workspace(project);
   const pool = await createModelPool({ task: 'manuscript', concurrent: lanes > 1 });
   if (!pool) {
     log.error('没有可用的模型，批量写正文中止');
@@ -338,7 +342,7 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
         // 就有 30 章摘要」同一条取舍）。
         await project.appendToManuscript(plot.relPath, text);
         if (scene.status !== 'written') {
-          await project.writeScene(plot.relPath, { ...scene, status: 'written' });
+          await ws.writeScene(plot.relPath, { ...scene, status: 'written' });
         }
       }
       const beatsHash = await project.beatsHashFor(plot.relPath);

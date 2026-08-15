@@ -7,6 +7,7 @@ import { exists, readText, sanitizeFileName, writeText } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { kindOfPath, normalizeRel } from '../workspace/kind';
 import { isProtectedPath } from '../workspace/guard';
+import { Workspace } from '../workspace';
 
 const log = scoped('文件');
 
@@ -165,9 +166,9 @@ export async function renamePlot(project: NovelProject, relPath: string): Promis
     return undefined;
   }
 
-  // 走 writePlot 而不是 fs.rename：它会把场景目录、正文、摘要一起搬过去，
-  // 且目标已存在时不动（不静默覆盖）。
-  const to = await project.writePlot({ ...plot, title: input.trim() });
+  // 走 workspace.writePlot 而不是 fs.rename：它会把场景目录与中转站正文一起
+  // 搬过去，且目标已存在时不动（不静默覆盖）。
+  const to = await new Workspace(project).writePlot({ ...plot, title: input.trim() });
   await project.syncManifest();
   project.invalidate();
   log.info(`已重命名第 ${plot.no} 章`, `${relPath} → ${to}`);
@@ -210,7 +211,7 @@ export async function deletePlot(project: NovelProject, relPath: string): Promis
     return false;
   }
 
-  await project.deletePlot(relPath);
+  await new Workspace(project).deletePlot(relPath);
   await project.syncManifest();
   project.invalidate();
   log.info(`已移到回收站：第 ${plot.no} 章`, [relPath, ...present].join('｜'));

@@ -32,10 +32,12 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { scoped } from '../runtime/logger';
-import { countWords, hash, readText, writeText } from '../model/fs';
+import { countWords, hash, readText, sanitizeFileName, writeText } from '../model/fs';
 import { NovelProject } from '../model/project';
+import { WritablePlot, renderPlotFile } from '../model/plotFile';
+import { WritableScene, renderSceneFile } from '../model/sceneFile';
 import { Artifact } from '../features/artifact';
-import { ArtifactKind, PathKind, kindOfPath, normalizeRel } from './kind';
+import { ArtifactKind, PathKind, kindOfPath, normalizeRel, plotRelPathFor } from './kind';
 import {
   MAX_EDITABLE_BYTES,
   WsError,
@@ -45,6 +47,8 @@ import {
   reviewOverwrite,
 } from './guard';
 import { Handler, HandlerCtx, handlerFor } from './handlers';
+import { carryPlotCompanions, trashPlotCompanions, trashRel } from './handlers/plot';
+import { sceneRelPathFor } from './handlers/scene';
 
 const log = scoped('工作区');
 
@@ -355,6 +359,99 @@ export class Workspace {
     return { rel: normalized, message: `已移到回收站：${normalized}`, side };
   }
 
+  // ---------------------------------------------------------------- 领域写入器
+  //
+  // 上面六个方法收的是**路径**。下面这几个收的是**领域对象**（一份细纲、
+  // 一场戏），因为它们的落点由内容决定：细纲的文件名是「章号 + 标题」，
+  // 场景的是「场号 + 标题」，改标题就是改文件名。调用方手里只有对象，
+  // 让它自己去拼路径等于把命名规则复制一份出去。
+  //
+  // 它们仍然经同一套 handler 记账与伴生，只是路径由这一层算出来。
+
+  /**
+   * 写一章的细纲，返回工作区相对路径。
+   *
+   * 文件名由**章号与标题**共同决定，所以改标题会改文件名，改章号也会。旧文件
+   * 必须删掉并把伴生文件搬过去，否则 `007-入宗.md` 与 `007-入宗风波.md` 并存
+   * 会变成两章。
+   *
+   * 「旧文件是哪一份」有两种问法：
+   *
+   * - **改标题**（章号没变）：按 `plot.no` 就找得到，这是绝大多数调用。
+   * - **改章号**（拆分之后的顺延）：新号上根本没有旧文件，必须由调用方把
+   *   原路径经 `fromRelPath` 传进来。不传的话旧文件会留在原地成为孤儿，
+   *   而它的场景目录与中转站正文也不会跟着走。
+   *
+   * **`upstreamHash` 以调用方给的为准**，不在这里补：手工新建的章
+   * （`actions.ts` 的 `newPlotFlow`）传的就是空串，它才永远不会挂 ⟳。
+   *
+   * @param fromRelPath 改章号时传原细纲路径；改标题或新建时不必传。
+   */
+  async writePlot(plot: WritablePlot, fromRelPath?: string): Promise<string> {
+    const rel = plotRelPathFor(this.project, plot.no, safeStem(plot.title));
+    // 换号时新号上是空的，只有调用方知道原来那份在哪。
+    const previous = fromRelPath
+      ? await this.project.readPlot(fromRelPath)
+      : await this.project.getPlot(plot.no);
+
+    await writeText(this.project.pathOf(rel), renderPlotFile(plot));
+
+    if (previous && previous.relPath !== rel) {
+      await carryPlotCompanions(this.project, previous.relPath, rel);
+      await fs.unlink(this.project.pathOf(previous.relPath)).catch(() => undefined);
+    }
+    // 细纲列表有缓存，写完不失效的话下一次读到的还是写之前那份——新建的章
+    // 不出现在工程页上，改过标题的章还挂着旧名字。
+    this.project.invalidate();
+    return rel;
+  }
+
+  /**
+   * 删一章的细纲：连同场景目录与中转站里的正文一起搬进 `.trash/`，不真删
+   * （AGENTS 第 6 条）。返回是否确实删掉了。
+   *
+   * **不碰 `chapters/` 与摘要**：那两样描述的是已经发布的成品。删掉细纲
+   * 只是放弃这一章的规划稿，不该顺手把作者已经拆出去的正文一起带走。
+   */
+  async deletePlot(plotRelPath: string): Promise<boolean> {
+    const plot = await this.project.readPlot(plotRelPath);
+    if (!plot) {
+      return false;
+    }
+    await trashPlotCompanions(this.project, plotRelPath);
+    await trashRel(this.project, plotRelPath);
+    this.project.invalidate();
+    return true;
+  }
+
+  /**
+   * 写一场，返回工作区相对路径。
+   *
+   * 文件名由场景号与标题决定，所以**改标题会改文件名**：先按场景号找到旧
+   * 文件，路径不同就删掉旧的，避免 `02-翻墙.md` 与 `02-翻越侧峰.md` 并存
+   * 变成两场。这与章节改名走 `renameEntry` 是两回事——那边是作者在管文件，
+   * 这边是产物按自己的命名规则落盘。
+   */
+  async writeScene(plotRelPath: string, scene: WritableScene): Promise<string> {
+    const rel = sceneRelPathFor(this.project, plotRelPath, scene.no, scene.title);
+    const previous = await this.project.readScene(plotRelPath, scene.no);
+    await writeText(this.project.pathOf(rel), renderSceneFile(scene));
+    if (previous && previous.relPath !== rel) {
+      await fs.unlink(this.project.pathOf(previous.relPath)).catch(() => undefined);
+    }
+    return rel;
+  }
+
+  /** 删一场：搬进 `.trash/`，不真删。返回是否确实删掉了一场。 */
+  async deleteScene(plotRelPath: string, sceneNo: number): Promise<boolean> {
+    const scene = await this.project.readScene(plotRelPath, sceneNo);
+    if (!scene) {
+      return false;
+    }
+    await trashRel(this.project, scene.relPath);
+    return true;
+  }
+
   // ---------------------------------------------------------------- 内部
 
   private ctxOf(rel: string): HandlerCtx {
@@ -436,6 +533,19 @@ async function wordsOf(abs: string): Promise<number | undefined> {
     // 二进制/权限问题：不给字数，也不因此让整次列举失败。
     return undefined;
   }
+}
+
+/**
+ * 标题 → 文件名词干。**空标题给空串，不给「未命名」**。
+ *
+ * `sanitizeFileName` 的兜底名是「未命名」，那是给「作者输了一串全是非法
+ * 字符的名字」用的。但细纲与场景都允许**没有标题**——流水线新建出来的章
+ * 就是纯序号名 `030.md`（标题要等剧情排完才定得下来）。直接套 sanitize 会
+ * 得到 `030-未命名.md`：那是个假标题，而且它会进文件名、进段落说法、进
+ * 上下文，作者还得手动去掉。
+ */
+function safeStem(title: string): string {
+  return title.trim() ? sanitizeFileName(title) : '';
 }
 
 export { WsError, WsConflictError, MAX_EDITABLE_BYTES } from './guard';

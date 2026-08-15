@@ -49,6 +49,7 @@ import {
 } from '../model/providers';
 import { Artifact, describeArtifact, isArtifactEmpty, parseArtifact } from './artifact';
 import { plotContentHash } from '../views/pipeline';
+import { Workspace } from '../workspace';
 
 const log = scoped('创作');
 
@@ -71,8 +72,12 @@ export interface AcceptResult {
 
 export class CreationSession {
   private currentAbort: AbortController | undefined;
+  /** 落盘一律经网关：守卫、渲染、记账、伴生搬迁都在那一层做一次。 */
+  private readonly ws: Workspace;
 
-  constructor(private readonly project: NovelProject) {}
+  constructor(private readonly project: NovelProject) {
+    this.ws = new Workspace(project);
+  }
 
   get isGenerating(): boolean {
     return this.currentAbort !== undefined;
@@ -279,7 +284,7 @@ export class CreationSession {
         continue;
       }
       taken.add(no);
-      const rel = await this.project.writePlot({
+      const rel = await this.ws.writePlot({
         no,
         // 标题原样存进 frontmatter，**不预先清洗**：清洗是为了拼文件名，
         // 由 `writePlot` 自己做。在这里洗一遍的话，标题里的空格会变成短横线，
@@ -340,7 +345,7 @@ export class CreationSession {
         no++;
       } while (taken.has(no));
       taken.add(no);
-      const rel = await this.project.writeScene(plot.relPath, {
+      const rel = await this.ws.writeScene(plot.relPath, {
         plotRelPath: plot.relPath,
         no,
         title: item.title,
@@ -400,7 +405,7 @@ export class CreationSession {
     }
     // 经 writeScene 落盘（而不是直接 writeText）：改了标题时它会清掉旧文件名，
     // 否则同一场会以两个文件名并存。
-    const written = await this.project.writeScene(plot.relPath, scene);
+    const written = await this.ws.writeScene(plot.relPath, scene);
     log.info(`第 ${plot.no} 章场景 ${sceneNo} 已写入`, written);
     return { relPath: written, message: `已写入 ${written}` };
   }
@@ -427,7 +432,7 @@ export class CreationSession {
     if (sceneNo !== undefined) {
       const scene = await this.project.readScene(plot.relPath, sceneNo);
       if (scene && scene.status !== 'written') {
-        await this.project.writeScene(plot.relPath, { ...scene, status: 'written' });
+        await this.ws.writeScene(plot.relPath, { ...scene, status: 'written' });
       }
     }
     await this.project.syncManifest();

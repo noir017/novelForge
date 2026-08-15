@@ -16,6 +16,14 @@ const { makeFakeHost, sleep } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 
+/**
+ * 细纲与场景的写入搬进了 `core/workspace/`：改名要连带搬走场景目录与中转站
+ * 正文、写入要记上游指纹、删除要进 `.trash/`，那些是网关的活。`NovelProject`
+ * 这一层只留领域查询。
+ */
+let wsMod;
+const wsOf = (p) => new wsMod.Workspace(p);
+
 const PLOT_JSON = JSON.stringify({
   目标: '进入宗门',
   剧情脉络: '踩点、失手、翻墙；收在藏书阁门口。',
@@ -59,7 +67,7 @@ function configure(extra = {}) {
 
 /** 建一段只有「目标」的骨架——正是大纲 split 产出的形状。 */
 async function skeleton(no, title) {
-  return project.writePlot({
+  return wsOf(project).writePlot({
     no,
     title,
     arc: '',
@@ -73,6 +81,7 @@ before(async () => {
   bundle = loadBundle({
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
+    ws: './src/core/workspace/index.ts',
     registry: './src/core/llm/registry.ts',
     provider: './src/core/llm/provider.ts',
     batch: './src/core/features/pipelineBatch.ts',
@@ -82,6 +91,7 @@ before(async () => {
     db: './src/core/runtime/db.ts',
     logger: './src/core/runtime/logger.ts',
   });
+  wsMod = bundle.ws;
 
   // 假宿主没有 reviewReplace——批量路径本来就不该逐份弹 diff。
   h = makeFakeHost({
@@ -156,7 +166,7 @@ describe('批量写剧情', () => {
     configure();
 
     // 先给第 2 段一份手写剧情——它必须原样保留。
-    await project.writePlot({
+    await wsOf(project).writePlot({
       no: 2,
       title: '入镇',
       arc: '',
@@ -305,7 +315,7 @@ describe('批量拆分场景', () => {
 
     configure();
     // 先给第 3 段手工拆一场——它必须原样保留。
-    await project.writeScene('.novelforge/plots/003-夜访.md', {
+    await wsOf(project).writeScene('.novelforge/plots/003-夜访.md', {
       plotRelPath: '.novelforge/plots/003-夜访.md',
       no: 1,
       title: '作者手拆的',
@@ -417,7 +427,7 @@ describe('批量写正文', () => {
     // 场景得先备好素材才写得出正文。给第 1 段的两场都填上。
     for (const no of [1, 2]) {
       const scene = await project.readScene('.novelforge/plots/001-楔子.md', no);
-      await project.writeScene('.novelforge/plots/001-楔子.md', {
+      await wsOf(project).writeScene('.novelforge/plots/001-楔子.md', {
         ...scene,
         plotRelPath: '.novelforge/plots/001-楔子.md',
         status: 'ready',

@@ -21,6 +21,14 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
+/**
+ * 细纲与场景的写入搬进了 `core/workspace/`：改名要连带搬走场景目录与中转站
+ * 正文、写入要记上游指纹、删除要进 `.trash/`，那些是网关的活。`NovelProject`
+ * 这一层只留领域查询。
+ */
+let wsMod;
+const wsOf = (p) => new wsMod.Workspace(p);
+
 /** 造多少段。与章节数分开，断言里就看得出读的是哪一批。 */
 const PLOTS = 7;
 
@@ -52,7 +60,10 @@ before(async () => {
   bundle = loadBundle({
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
+    ws: './src/core/workspace/index.ts',
   });
+
+  wsMod = bundle.ws;
   bundle.host.initHost(makeFakeHost({ settings: () => ({}) }).host);
   t = await makeTempProject(bundle.project, { prefix: 'chapter-cache', title: '缓存' });
   project = t.project;
@@ -188,7 +199,7 @@ describe('细纲列表缓存', () => {
   test('writePlot 之后读得到新段', async () => {
     await project.listPlots();
     try {
-      await project.writePlot({ no: 99, title: '新写的', sections: { 剧情脉络: '脉络' } });
+      await wsOf(project).writePlot({ no: 99, title: '新写的', sections: { 剧情脉络: '脉络' } });
       const plots = await project.listPlots();
       assert.ok(plots.some((p) => p.no === 99), plots.map((p) => p.no).join('|'));
     } finally {
@@ -199,9 +210,9 @@ describe('细纲列表缓存', () => {
 
   test('改标题之后读到的是新文件名', async () => {
     try {
-      await project.writePlot({ no: 99, title: '初名', sections: { 剧情脉络: '脉络' } });
+      await wsOf(project).writePlot({ no: 99, title: '初名', sections: { 剧情脉络: '脉络' } });
       await project.listPlots();
-      await project.writePlot({ no: 99, title: '改过的名字', sections: { 剧情脉络: '脉络' } });
+      await wsOf(project).writePlot({ no: 99, title: '改过的名字', sections: { 剧情脉络: '脉络' } });
       const found = (await project.listPlots()).find((p) => p.no === 99);
       assert.equal(found?.relPath, '.novelforge/plots/099-改过的名字.md', found?.relPath);
     } finally {
@@ -211,9 +222,9 @@ describe('细纲列表缓存', () => {
   });
 
   test('deletePlot 之后读不到了', async () => {
-    await project.writePlot({ no: 99, title: '待删', sections: { 剧情脉络: '脉络' } });
+    await wsOf(project).writePlot({ no: 99, title: '待删', sections: { 剧情脉络: '脉络' } });
     await project.listPlots();
-    await project.deletePlot('.novelforge/plots/099-待删.md');
+    await wsOf(project).deletePlot('.novelforge/plots/099-待删.md');
     const plots = await project.listPlots();
     assert.ok(!plots.some((p) => p.no === 99), plots.map((p) => p.no).join('|'));
   });
