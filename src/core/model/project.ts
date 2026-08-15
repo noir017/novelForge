@@ -852,15 +852,6 @@ export class NovelProject {
     return stripH1(parseMarkdown(await readText(this.globalSummaryPath)).body);
   }
 
-  async writeGlobalSummary(content: string, through: number): Promise<string> {
-    const fm = stringifyFrontmatter({ through, generatedBy: 'novel-forge' });
-    await writeText(this.globalSummaryPath, `${fm}\n\n# 全书滚动摘要\n\n${content.trim()}\n`);
-    const manifest = await this.readManifest();
-    manifest.globalSummaryThrough = through;
-    await this.writeManifest(manifest);
-    return this.relPath(this.globalSummaryPath);
-  }
-
   // ---------------------------------------------------------------- 角色 / 设定 / 文风
 
   async listCharacters(): Promise<CharacterCard[]> {
@@ -888,13 +879,6 @@ export class NovelProject {
     return cards;
   }
 
-  async writeCharacter(card: WritableCharacterCard): Promise<string> {
-    // slug 可以带子目录（如 `主角/林昭`），writeText 会补齐中间目录。
-    const abs = path.join(this.charactersDir, `${card.slug}.md`);
-    await writeText(abs, renderCharacterCard(card));
-    return this.relPath(abs);
-  }
-
   async listLore(): Promise<LoreEntry[]> {
     const files = await listMarkdownDeep(this.loreDir);
     const entries: LoreEntry[] = [];
@@ -911,12 +895,6 @@ export class NovelProject {
       });
     }
     return entries;
-  }
-
-  async writeLore(entry: WritableLoreEntry): Promise<string> {
-    const abs = path.join(this.loreDir, `${entry.slug}.md`);
-    await writeText(abs, renderLoreEntry(entry));
-    return this.relPath(abs);
   }
 
   /**
@@ -963,11 +941,6 @@ export class NovelProject {
       return '';
     }
     return stripH1(parseMarkdown(await readText(this.stylePath)).body);
-  }
-
-  async writeStyleGuide(content: string): Promise<string> {
-    await writeText(this.stylePath, `# 文风指南\n\n${content.trim()}\n`);
-    return this.relPath(this.stylePath);
   }
 
   async readOutline(): Promise<string> {

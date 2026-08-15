@@ -513,7 +513,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
       }
 
       const through = units[units.length - 1].no;
-      const relPath = await project.writeGlobalSummary(finalText.trim(), through);
+      const relPath = await new Workspace(project).writeGlobalSummary(finalText.trim(), through);
       report({ message: '完成', current: steps, total: steps });
       log.info(
         `全书摘要已重建，覆盖至第 ${through} 章`,

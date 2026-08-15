@@ -16,6 +16,7 @@ import {
 } from '../model/project';
 import { LoreEntry, Chapter } from '../model/types';
 import { runTask } from '../runtime/progress';
+import { Workspace } from '../workspace';
 import { LORE_EXTRACT_SYSTEM, LORE_SYNTHESIS_SYSTEM } from './lorePrompt';
 import { extractJson, stringArray, stripCodeFence, unique, uniqueNumbers } from './parse';
 
@@ -574,7 +575,7 @@ async function applyGeneratedLore(
       const category = slugify(item.draft.category);
       const base = `${category}/${slugify(item.draft.title)}`;
       const slug = await uniqueSlug(project.loreDir, base);
-      const relPath = await project.writeLore({
+      const relPath = await new Workspace(project).writeLore({
         slug,
         title: item.draft.title,
         keywords: item.keywords,
@@ -626,7 +627,7 @@ async function reviewExisting(
     log.info(`停止后不再写入设定「${existing.title}」`);
     return 'skipped';
   }
-  await project.writeLore({
+  await new Workspace(project).writeLore({
     slug: existing.slug,
     title: existing.title,
     keywords: item.keywords,

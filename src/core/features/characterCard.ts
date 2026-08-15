@@ -18,6 +18,7 @@ import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } fro
 import { describeTaskModels } from '../model/tiers';
 import { explainDroppedAliases, sanitizeAliases } from '../model/naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
+import { Workspace } from '../workspace';
 import { parseCardResponse, ParsedCard } from './characterCardParse';
 import { UPDATE_SYSTEM } from './characterCardPrompt';
 import { unique, uniqueNumbers } from './parse';
@@ -562,7 +563,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
  */
 async function seedEmptyCard(project: NovelProject, member: CastMember): Promise<CharacterCard | undefined> {
   const slug = await uniqueSlug(project.charactersDir, slugify(member.name));
-  const relPath = await project.writeCharacter({
+  const relPath = await new Workspace(project).writeCharacter({
     slug,
     name: member.name,
     aliases: sanitizeAliases(member.aliases, member.name),

@@ -7,6 +7,7 @@ import { elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { NovelProject } from '../model/project';
 import { estimateTokens, takeHead } from '../context/tokenizer';
+import { Workspace } from '../workspace';
 import { stripCodeFence } from './parse';
 import { pickPlotsByInput } from './pickPlots';
 import { STYLE_SYSTEM } from './stylePrompt';
@@ -120,7 +121,7 @@ export async function extractStyle(project: NovelProject): Promise<void> {
         return;
       }
 
-      const relPath = await project.writeStyleGuide(stripCodeFence(raw));
+      const relPath = await new Workspace(project).writeStyleGuide(stripCodeFence(raw));
       report({ message: '完成', current: 2, total: 2 });
       log.info('文风指南已写入', `${relPath}｜总耗时 ${elapsed(startedAt)}`);
       getHost().toast('文风指南已生成，建议人工过一遍再用。');

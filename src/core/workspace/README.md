@@ -129,10 +129,18 @@ workspace/
 
 ## 领域写入器
 
-上面七个方法收的是**路径**。另有几个收**领域对象**（`writePlot` / `writeScene` /
-`appendToManuscript` / `createChapter` / `writeSummary` / `ensureDraft` /
-`splitManuscript` / `deletePlot` / `deleteScene`），因为它们的落点由内容决定：
-细纲的文件名是「章号 + 标题」，场景的是「场号 + 标题」，改标题就是改文件名。
+上面七个方法收的是**路径**。另有一批收**领域对象**：
+
+| 方法 | 落点由什么决定 |
+|---|---|
+| `writePlot` / `deletePlot` | 章号 + 标题（改标题就是改文件名） |
+| `writeScene` / `deleteScene` | 场号 + 标题 |
+| `appendToManuscript` / `splitManuscript` | 细纲的文件名词干 |
+| `createChapter` / `ensureDraft` | 章号 + 标题 / 章节路径的镜像 |
+| `writeSummary` | 章节路径的镜像 |
+| `writeCharacter` / `writeLore` | slug（可带子目录） |
+| `writeStyleGuide` / `writeGlobalSummary` | 固定路径 |
+
 调用方手里只有对象，让它自己去拼路径等于把命名规则复制一份出去。
 
 它们仍然经同一套 handler 记账与伴生，只是路径由这一层算出来。

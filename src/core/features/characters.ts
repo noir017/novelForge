@@ -12,6 +12,7 @@ import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../mo
 import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
 import { sanitizeAliases } from '../model/naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
+import { Workspace } from '../workspace';
 import { CHARACTER_SYSTEM } from './charactersPrompt';
 import { extractJsonArray, stringArray, stripCodeFence, unique } from './parse';
 import { pickPlotsByInput } from './pickPlots';
@@ -165,7 +166,7 @@ async function mergeCharacters(
     }
     // 新角色：直接创建，没有可覆盖的人工内容。
     const slug = await uniqueSlug(project.charactersDir, slugify(item.name));
-    const relPath = await project.writeCharacter({
+    const relPath = await new Workspace(project).writeCharacter({
       slug,
       name: item.name,
       aliases: item.aliases,
@@ -290,7 +291,7 @@ export async function newCharacter(project: NovelProject, dir?: string): Promise
   // slug 带上子目录前缀，writeCharacter 会连中间目录一起建出来。
   const prefix = target === root ? '' : `${target.slice(root.length + 1)}/`;
   const slug = await uniqueSlug(project.charactersDir, `${prefix}${slugify(name)}`);
-  const relPath = await project.writeCharacter({
+  const relPath = await new Workspace(project).writeCharacter({
     slug,
     name: name.trim(),
     aliases: [],

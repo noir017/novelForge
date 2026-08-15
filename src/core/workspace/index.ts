@@ -50,7 +50,13 @@ import {
 import { stringifyFrontmatter, stringifySections } from '../model/markdown';
 import { renderCastEntry } from '../model/castParse';
 import { isMarkdownExt, isMarkdownPath, splitByMark } from '../model/chapterFile';
-import { NovelProject } from '../model/project';
+import {
+  NovelProject,
+  WritableCharacterCard,
+  WritableLoreEntry,
+  renderCharacterCard,
+  renderLoreEntry,
+} from '../model/project';
 import { WritablePlot, parsePlotFileName, renderPlotFile } from '../model/plotFile';
 import { WritableScene, renderSceneFile } from '../model/sceneFile';
 import { Artifact } from '../features/artifact';
@@ -627,6 +633,51 @@ export class Workspace {
 
     await writeText(this.project.pathOf(rel), text);
     await this.project.markSummarized(chapter.relPath, sourceHash);
+    return rel;
+  }
+
+  /**
+   * 写一张角色卡。slug 可以带子目录前缀（如 `主角/林昭`），中间目录自动补齐。
+   *
+   * 角色卡**不在生产链上**：它是横切的记忆，被装配进 prompt，但不由某一层
+   * 产物「生出来」，所以没有上游指纹要记。
+   */
+  async writeCharacter(card: WritableCharacterCard): Promise<string> {
+    const rel = `${this.project.relPath(this.project.charactersDir)}/${card.slug}.md`;
+    await writeText(this.project.pathOf(rel), renderCharacterCard(card));
+    return rel;
+  }
+
+  /** 写一条设定。与角色卡同类：链外的横切知识，无上游指纹。 */
+  async writeLore(entry: WritableLoreEntry): Promise<string> {
+    const rel = `${this.project.relPath(this.project.loreDir)}/${entry.slug}.md`;
+    await writeText(this.project.pathOf(rel), renderLoreEntry(entry));
+    return rel;
+  }
+
+  /** 写文风指南。同样在链外——它约束怎么写，不由任何一层产物生出来。 */
+  async writeStyleGuide(content: string): Promise<string> {
+    const rel = this.project.relPath(this.project.stylePath);
+    await writeText(this.project.pathOf(rel), `# 文风指南\n\n${content.trim()}\n`);
+    return rel;
+  }
+
+  /**
+   * 写全书滚动摘要，并把水位线记进 manifest。
+   *
+   * 它的上游是全部单章摘要，但那是一次显式的重建动作（`through` 水位线），
+   * 不是 hash 传播——所以没有 `upstreamHash`。
+   */
+  async writeGlobalSummary(content: string, through: number): Promise<string> {
+    const rel = this.project.relPath(this.project.globalSummaryPath);
+    const fm = stringifyFrontmatter({ through, generatedBy: 'novel-forge' });
+    await writeText(
+      this.project.pathOf(rel),
+      `${fm}\n\n# 全书滚动摘要\n\n${content.trim()}\n`
+    );
+    const manifest = await this.project.readManifest();
+    manifest.globalSummaryThrough = through;
+    await this.project.writeManifest(manifest);
     return rel;
   }
 
