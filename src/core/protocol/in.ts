@@ -1,4 +1,5 @@
 import type { LlmTask, ModelTier } from '../model/tiers';
+import type { AgentPolicy } from '../model/agentPolicy';
 import type {
   Capability,
   CreationStage,
@@ -138,4 +139,6 @@ export interface SettingsPayload {
   requestTimeoutMs: number;
   concurrency: number;
   fallbackAttempts: number;
+  /** Agent 的确认策略：careful / default / bold。 */
+  agentPolicy: AgentPolicy;
 }

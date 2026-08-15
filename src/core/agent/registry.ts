@@ -73,7 +73,13 @@ export interface ToolDef {
   parameters: Record<string, unknown>;
   /** 会花钱。预算闸门与策略据此分类。 */
   costly?: boolean;
-  /** 会写盘。**三期一个都没有**——写权限等四期。 */
+  /**
+   * 会写盘。策略闸门（`policy.ts`）据此分类：读工具任何模式下都自动，
+   * 写工具在谨慎/默认模式下动手前先问一句。
+   *
+   * **它不是保护**：八条守卫与覆盖前审阅在 `workspace/` 那一层，
+   * 和这个标记、和策略都无关。
+   */
   mutating?: boolean;
   run(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult>;
 }

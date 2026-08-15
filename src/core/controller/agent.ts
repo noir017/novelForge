@@ -156,7 +156,8 @@ export async function sendAgent(
 
     assistantTurn.content = outcome.text;
     assistantTurn.toolCalls = toolCalls.length > 0 ? toolCalls : undefined;
-    if (outcome.stopReason === 'cancelled') {
+    // 作者叫停与点停止是同一回事：气泡上都标「已中断」，翻回去看得出没跑完。
+    if (outcome.stopReason === 'cancelled' || outcome.stopReason === 'declined') {
       assistantTurn.interrupted = true;
     } else if (outcome.stopReason === 'error') {
       assistantTurn.error = outcome.message;
@@ -193,7 +194,7 @@ export async function sendAgent(
   c.post({ type: 'turnDone', turn: serializeTurn(assistantTurn) });
   await persist(c);
   log.info('agent 这一轮结束', `调了 ${toolCalls.length} 个工具`);
-  // 三期的工具不写盘，但 generate 可能已经改过失败记录，流水线照样刷一遍。
+  // 四期的 write / edit / run 会真的改磁盘，流水线必须刷。
   await pushPipeline(c);
   c.post({ type: 'session', session: serializeSession(c.current) });
 }

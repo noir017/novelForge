@@ -192,9 +192,19 @@ describe('系统提示里带着状态注入', () => {
     assert.ok(fake.calls[0].messages[1].content.includes('北境'), fake.calls[0].messages[1].content);
   });
 
+  // 顺序即模型看到的顺序：读在前、生成居中、写在后，让它先形成
+  // 「先看一眼再动手」的路径。
   test('带上了工具清单', () => {
     const names = fake.calls[0].options.tools.map((s) => s.name);
-    assert.deepEqual(names, ['list', 'read', 'search', 'generate']);
+    assert.deepEqual(names, ['list', 'read', 'search', 'generate', 'write', 'edit', 'run']);
+  });
+
+  // 删除/改名/移动收益接近零，一次误操作的收拾成本极高。
+  test('清单里没有删除 / 改名 / 移动', () => {
+    const names = fake.calls[0].options.tools.map((s) => s.name);
+    for (const bad of ['delete', 'remove', 'rename', 'move', 'bash']) {
+      assert.ok(!names.includes(bad), `${bad} 不该在工具清单里：${names.join(',')}`);
+    }
   });
 });
 

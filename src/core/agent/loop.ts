@@ -11,6 +11,8 @@
  *    `deriveNextStep`，不可能分叉（AGENTS 第 20 条）。
  * 2. **压缩自己的历史**（`buildAgentMessages`）——工具结果会一条条涨起来。
  * 3. **看着预算**（`budget.ts`）——三条上限 + 无进展检测。
+ * 4. **过闸门**（`policy.ts`）——写盘之前要不要先问作者一句。**闸门不是保护**：
+ *    八条守卫与覆盖前审阅在 `workspace/` 那一层，任何策略下都在。
  *
  * ## 一个回合
  *
@@ -20,7 +22,7 @@
  * 3. provider.stream(messages, { tools })
  * 4. 收流：text → 推气泡；toolCall → 收集；usage → 记账
  * 5. 没有 toolCall → 模型给出了最终回答，结束
- * 6. 有 toolCall → 逐个执行，结果作为 role:'tool' 追加，回到 1
+ * 6. 有 toolCall → 逐个过闸门、执行，结果作为 role:'tool' 追加，回到 1
  * ```
  *
  * ## 取消停在工具边界
@@ -38,6 +40,7 @@
  */
 import { AgentMessage, LlmProvider, StreamOptions, ToolCall } from '../llm/provider';
 import { collect } from '../llm/collect';
+import { getHost } from '../host';
 import { readConfig } from '../config';
 import { CancelledError } from '../llm/provider';
 import { describeError, elapsed, scoped } from '../runtime/logger';
@@ -47,8 +50,17 @@ import { Workspace } from '../workspace';
 import { DraftStore } from '../generation/drafts';
 import { Budget, BudgetLimits } from './budget';
 import { buildAgentMessages, buildStateBrief } from './context';
+import {
+  AgentPolicy,
+  Gate,
+  GateVerdict,
+  SKIP_ACTION,
+  STOP_ACTION,
+  declinedText,
+  gateFor,
+} from './policy';
 import { ToolContext, ToolDef, ToolResult, toolSpecs } from './registry';
-import { READ_ONLY_TOOLS } from './tools';
+import { ALL_TOOLS } from './tools';
 
 const log = scoped('Agent');
 
@@ -106,6 +118,8 @@ export type StopReason =
   | 'stalled'
   /** 上下文压到底仍然超预算。 */
   | 'overBudget'
+  /** 作者在确认框里选了「停止 agent」。 */
+  | 'declined'
   | 'cancelled'
   | 'error';
 
@@ -135,16 +149,23 @@ export interface RunAgentOptions {
   target?: CreationTarget;
   limits?: Partial<BudgetLimits>;
   signal: AbortSignal;
-  /** 注册哪些工具。缺省只读四件套——三期一个写工具都没有。 */
+  /** 注册哪些工具。缺省七件套（含 write / edit / run）。 */
   tools?: ToolDef[];
+  /**
+   * 哪些动作动手前先问一句。缺省读配置。
+   *
+   * **只管「要不要先问」**：覆盖前审阅与批量动作的确认框在任何模式下都在。
+   */
+  policy?: AgentPolicy;
   on?: AgentHandlers;
 }
 
 export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
   const { project, signal, on = {} } = opts;
-  const tools = opts.tools ?? READ_ONLY_TOOLS;
+  const tools = opts.tools ?? ALL_TOOLS;
   const budget = new Budget(opts.limits);
   const config = readConfig();
+  const policy = opts.policy ?? config.agentPolicy;
   const startedAt = Date.now();
 
   const draftIds: string[] = [];
@@ -247,6 +268,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
       turns.push({ role: 'assistant', content: round, toolCalls: result.toolCalls });
 
       let stalledOut = false;
+      let declined = false;
       let done = 0;
       for (const call of result.toolCalls) {
         if (signal.aborted) {
@@ -265,7 +287,30 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
           on.onNote?.(`它在重复同一个动作（${call.name}），已经提示换个思路。`);
           continue;
         }
-        turns.push(toolMessage(call, await runTool(byName.get(call.name), call, ctx, on, draftIds)));
+
+        // 闸门：这一步要不要先问作者一句（`policy.ts`）。守卫与覆盖审阅在
+        // 下面两层，与策略无关——这里只决定「动手之前问不问」。
+        const tool = byName.get(call.name);
+        const gate = tool ? gateFor(policy, tool, call.args ?? {}, project) : { confirm: false };
+        const verdict = await askGate(gate, on, call.name);
+        if (verdict !== 'proceed') {
+          turns.push(toolMessage(call, declinedText(verdict, gate)));
+          on.onToolCall?.({ callId: call.id, name: call.name, display: { title: `${call.name}（未执行）` } });
+          on.onToolResult?.({
+            callId: call.id,
+            name: call.name,
+            ok: false,
+            summary: verdict === 'skip' ? '作者跳过了这一步' : '作者叫停',
+            elapsedMs: 0,
+          });
+          if (verdict === 'stop') {
+            declined = true;
+            break;
+          }
+          continue;
+        }
+
+        turns.push(toolMessage(call, await runTool(tool, call, ctx, on, draftIds, [...byName.keys()])));
       }
 
       // 中途停下（取消 / 原地打转）时**剩下的调用也要各回一条**：
@@ -279,6 +324,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
         finalRound = true;
         stopReason = 'stalled';
         message = '它在重复同一个动作，已经停下。换个说法再问一次多半就好了。';
+        on.onNote?.(message);
+      }
+      if (declined) {
+        // 作者叫停：**不掐断**，照旧给最后一轮说清做到哪了（第 24 条的
+        // 「触顶不静默停」在这条路上同样成立）。
+        finalRound = true;
+        stopReason = 'declined';
+        message = '已按你的选择停下。已经写下的都在，没执行的那一步什么都没改。';
         on.onNote?.(message);
       }
     }
@@ -323,14 +376,16 @@ async function runTool(
   call: ToolCall,
   ctx: ToolContext,
   on: AgentHandlers,
-  draftIds: string[]
+  draftIds: string[],
+  available: string[]
 ): Promise<string> {
   const startedAt = Date.now();
   // 第 11 条：**只记工具名与参数的键名**，不记值——值里可能有正文片段。
   log.debug(`调用工具 ${call.name}`, `参数键：${Object.keys(call.args ?? {}).join(', ') || '（无）'}`);
 
   if (!tool) {
-    const error = `没有叫 ${call.name} 的工具。可用的是：list / read / search / generate。`;
+    // 名单从**实际注册的那一份**来。写死一串名字，加了工具之后这句话就在撒谎。
+    const error = `没有叫 ${call.name} 的工具。可用的是：${available.join(' / ')}。`;
     on.onToolCall?.({ callId: call.id, name: call.name });
     on.onToolResult?.({ callId: call.id, name: call.name, ok: false, summary: error, elapsedMs: 0 });
     return error;
@@ -363,6 +418,30 @@ async function runTool(
     elapsedMs: Date.now() - startedAt,
   });
   return result.error ?? result.text;
+}
+
+/**
+ * 问作者那一句。**三个选项，不是两个**：跳过这一步 / 停止 agent / 同意。
+ *
+ * 关掉对话框（Esc / 点外面）当**停止**：他被问「要不要动你的磁盘」而没有回答，
+ * 不该替他答「继续」。停止不丢东西——已经写下的还在，模型还有最后一轮说明。
+ */
+async function askGate(gate: Gate, on: AgentHandlers, toolName: string): Promise<GateVerdict> {
+  if (!gate.confirm) {
+    return 'proceed';
+  }
+  const proceed = gate.proceed ?? '继续';
+  const pick = await getHost().confirm(gate.message ?? `Agent 要执行 ${toolName}。`, [proceed, SKIP_ACTION, STOP_ACTION], {
+    modal: true,
+    detail: gate.detail,
+  });
+  if (pick === proceed) {
+    return 'proceed';
+  }
+  const verdict: GateVerdict = pick === SKIP_ACTION ? 'skip' : 'stop';
+  log.info(`作者${verdict === 'skip' ? '跳过了' : '叫停了'} ${toolName}`, gate.message);
+  on.onNote?.(verdict === 'skip' ? `已跳过这一步（${toolName}）。` : '已叫停这一轮。');
+  return verdict;
 }
 
 function toolMessage(call: ToolCall, content: string): AgentMessage {

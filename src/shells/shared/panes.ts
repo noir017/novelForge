@@ -274,6 +274,22 @@ export function settingsPane(opts: PaneOptions = {}): string {
     </div>
     <div id="defaultModelList"></div>
 
+    <div class="pane-head"><span>Agent</span></div>
+    <div class="hint">
+      Agent 是对话页输入框旁那个开关：开着时它自己查资料、分几步做完一件事。下面这一项只管
+      <b>它动手之前要不要先问你一句</b>——<b>覆盖已有内容永远会先让你逐行过目</b>，
+      批量动作永远会先告诉你要调几次模型，三种模式完全一样，关不掉。
+    </div>
+    <div class="grid">
+      <label class="field"><span>确认策略</span>
+        <select id="setAgentPolicy">
+          <option value="careful">谨慎 · 每次调模型、每次落盘都先问你一句</option>
+          <option value="default">默认 · 查资料与生成自动跑，落盘前问你一句</option>
+          <option value="bold">放手 · 除了覆盖已有内容，都不打断你</option>
+        </select>
+      </label>
+    </div>
+
     <button type="button" class="settings-advanced-toggle" id="settingsAdvancedToggle" aria-expanded="false" aria-controls="settingsAdvanced">
       <span class="caret">▸</span>
       <span class="settings-advanced-title">高级设置</span>

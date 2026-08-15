@@ -2,6 +2,7 @@ import { firstModelRef, normalizeProviders, resolveModelRef, seedFromLegacy } fr
 import { scoped } from './runtime/logger';
 import { NovelConfig } from './model/types';
 import { isLlmTask, isModelTier, LlmTask, MODEL_TIERS, ModelTier, TierModels } from './model/tiers';
+import { AgentPolicy, DEFAULT_AGENT_POLICY, isAgentPolicy } from './model/agentPolicy';
 
 const log = scoped('配置');
 
@@ -42,6 +43,8 @@ export interface PersistedSettings {
   concurrency?: number;
   /** 一次调用失败后，换模型重试的次数上限。 */
   fallbackAttempts?: number;
+  /** Agent 的确认策略（careful / default / bold）。认不出的值回落默认。 */
+  agentPolicy?: string;
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
   contextWindow?: number;
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
@@ -127,7 +130,15 @@ export function readConfig(): NovelConfig {
     requestTimeoutMs: c.requestTimeoutMs ?? 300000,
     concurrency: clamp('并发请求数', c.concurrency, CONCURRENCY_RANGE),
     fallbackAttempts: clamp('换模型重试次数', c.fallbackAttempts, FALLBACK_RANGE),
+    // 手改配置文件写错、旧版本留下的值一律回落默认，不抛：一个认不出的
+    // 策略名不该让 agent 整个跑不起来。
+    agentPolicy: normalizeAgentPolicy(c.agentPolicy),
   };
+}
+
+/** 策略名的容错读取。认不出一律回落 `DEFAULT_AGENT_POLICY`。 */
+export function normalizeAgentPolicy(raw: unknown): AgentPolicy {
+  return isAgentPolicy(raw) ? raw : DEFAULT_AGENT_POLICY;
 }
 
 /**

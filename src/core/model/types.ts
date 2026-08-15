@@ -1,5 +1,6 @@
 import { ActiveModel, ProviderProfile } from './providers';
 import { LlmTask, ModelTier, TierModels } from './tiers';
+import { AgentPolicy } from './agentPolicy';
 
 /**
  * 章节：chapters/NNN-标题.md 中的一篇正文。
@@ -243,4 +244,11 @@ export interface NovelConfig {
   concurrency: number;
   /** 一次调用失败后，换用列表里其它模型重试的次数上限。0 表示不重试。 */
   fallbackAttempts: number;
+  /**
+   * Agent 的确认策略：哪些动作动手前先问一句。
+   *
+   * **只管「要不要先问」，管不着保护**——八条守卫、覆盖前审阅、批量动作的
+   * 「预计调用 N 次」确认框在任何模式下都在（见 model/agentPolicy.ts）。
+   */
+  agentPolicy: AgentPolicy;
 }
