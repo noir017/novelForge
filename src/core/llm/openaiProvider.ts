@@ -1,8 +1,12 @@
 import {
+  AgentMessage,
   ChatMessage,
   ChatOptions,
   LlmError,
   LlmProvider,
+  StreamEvent,
+  StreamOptions,
+  ToolCall,
   iterateSse,
   makeAbortSignal,
   normalizeError,
@@ -29,7 +33,23 @@ export class OpenAiProvider implements LlmProvider {
     return undefined; // 以用户设置的 contextWindow 为准
   }
 
+  /**
+   * 迁移期的过渡桥：老调用点还在要「一串字符串」。Task 5 连同 `ChatMessage` /
+   * `ChatOptions` 一起删掉，届时 `stream` 是唯一原语。
+   */
   async *chatStream(messages: ChatMessage[], options: ChatOptions): AsyncIterable<string> {
+    for await (const ev of this.stream(messages, options)) {
+      if (ev.type === 'text') {
+        yield ev.text;
+      } else if (ev.type === 'reasoning') {
+        options.onReasoning?.(ev.text);
+      } else if (ev.type === 'usage') {
+        options.onUsage?.(ev.usage);
+      }
+    }
+  }
+
+  async *stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
     const { signal, dispose } = makeAbortSignal(options);
     try {
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -40,14 +60,24 @@ export class OpenAiProvider implements LlmProvider {
         },
         body: JSON.stringify({
           model: this.model,
-          messages: messages.map((m) => ({ role: m.role, content: m.content })),
+          messages: toOpenAiMessages(messages),
           max_tokens: options.maxOutputTokens,
           temperature: options.temperature,
           stream: true,
           // 要真实用量必须显式开这个开关，否则流式响应里没有 usage 字段。
-          // 只有调用方想听（给了 onUsage）时才带上——有些兼容实现见到未知
-          // 字段会直接 400，不该让所有请求都冒这个风险。
-          ...(options.onUsage ? { stream_options: { include_usage: true } } : {}),
+          // 事件流里 usage 是一等公民，没有「调用方想不想听」这回事。
+          stream_options: { include_usage: true },
+          // 没有 tools 时这两个字段一律不带——有些兼容实现见到未知字段
+          // 会直接 400（stream_options 上就踩过这个坑）。
+          ...(options.tools && options.tools.length > 0
+            ? {
+                tools: options.tools.map((s) => ({
+                  type: 'function',
+                  function: { name: s.name, description: s.description, parameters: s.parameters },
+                })),
+                ...(options.toolChoice ? { tool_choice: options.toolChoice } : {}),
+              }
+            : {}),
         }),
         signal,
       });
@@ -55,6 +85,9 @@ export class OpenAiProvider implements LlmProvider {
       if (!response.ok || !response.body) {
         throw new LlmError(await describeHttpError(response, this.label));
       }
+
+      // tool_calls 是分片来的，一整条流结束才拼得完，因此先攒着。
+      const toolChunks: OpenAiToolCallDelta[][] = [];
 
       for await (const payload of iterateSse(response.body, signal)) {
         let chunk: OpenAiChunk;
@@ -68,22 +101,33 @@ export class OpenAiProvider implements LlmProvider {
         }
         // usage 通常在最后一个（choices 为空的）chunk 里。
         if (chunk.usage) {
-          options.onUsage?.({
-            inputTokens: chunk.usage.prompt_tokens,
-            outputTokens: chunk.usage.completion_tokens,
-          });
+          yield {
+            type: 'usage',
+            usage: {
+              inputTokens: chunk.usage.prompt_tokens,
+              outputTokens: chunk.usage.completion_tokens,
+            },
+          };
         }
         const delta = chunk.choices?.[0]?.delta;
         // 思考内容不能混进正文——它不该被采纳写入章节。但推理模型
         // （gemma/gemini thinking、DeepSeek reasoner 等）可能先想几十秒
-        // 才开始吐正文，这段时间界面不能是空的，所以单独回调出去。
+        // 才开始吐正文，这段时间界面不能是空的，所以走单独的事件。
         const reasoning = delta?.reasoning_content ?? delta?.reasoning;
         if (reasoning) {
-          options.onReasoning?.(reasoning);
+          yield { type: 'reasoning', text: reasoning };
         }
         if (delta?.content) {
-          yield delta.content;
+          yield { type: 'text', text: delta.content };
         }
+        if (delta?.tool_calls) {
+          toolChunks.push(delta.tool_calls);
+        }
+      }
+
+      // 流结束（含 finish_reason === 'tool_calls'）才把每个槽发出去。
+      for (const call of accumulateToolCalls(toolChunks)) {
+        yield { type: 'toolCall', call };
       }
     } catch (err) {
       throw normalizeError(err, signal, this.label);
@@ -93,10 +137,100 @@ export class OpenAiProvider implements LlmProvider {
   }
 }
 
+/** OpenAI 流式响应里 `delta.tool_calls` 的一片。 */
+export interface OpenAiToolCallDelta {
+  index: number;
+  id?: string;
+  type?: string;
+  function?: { name?: string; arguments?: string };
+}
+
 interface OpenAiChunk {
-  choices?: { delta?: { content?: string; reasoning_content?: string; reasoning?: string } }[];
+  choices?: {
+    delta?: {
+      content?: string;
+      reasoning_content?: string;
+      reasoning?: string;
+      tool_calls?: OpenAiToolCallDelta[];
+    };
+  }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number };
   error?: { message?: string };
+}
+
+/** `AgentMessage[]` → OpenAI 的 `messages[]`。 */
+export function toOpenAiMessages(messages: AgentMessage[]): unknown[] {
+  return messages.map((m) => {
+    if (m.role === 'tool') {
+      return { role: 'tool', tool_call_id: m.toolCallId, content: m.content };
+    }
+    if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+      return {
+        role: 'assistant',
+        // 只发工具调用、一个字都没说时 content 必须是 null，空串会被部分实现拒掉。
+        content: m.content || null,
+        tool_calls: m.toolCalls.map((c) => ({
+          id: c.id,
+          type: 'function',
+          function: { name: c.name, arguments: c.raw },
+        })),
+      };
+    }
+    return { role: m.role, content: m.content };
+  });
+}
+
+/**
+ * 把一整条流里的 `delta.tool_calls` 分片拼成完整的工具调用。
+ *
+ * **按 `index` 累积，不是按 `id`**——`id` 只在第一片给，`name` 通常也只给
+ * 一次，后续分片只有 `function.arguments` 的片段。按 id 累积会让后面每一片
+ * 各开一个空 id 的槽，参数永远拼不起来。多个并行调用各占一个 index。
+ *
+ * `JSON.parse` 失败**绝不抛**：发一个 `args: {}` 的调用，`raw` 保留原文交给
+ * 上层回显给模型看。抛异常会炸掉整轮对话。
+ */
+export function accumulateToolCalls(chunks: OpenAiToolCallDelta[][]): ToolCall[] {
+  const slots = new Map<number, { id: string; name: string; args: string }>();
+  for (const chunk of chunks) {
+    for (const tc of chunk) {
+      const slot = slots.get(tc.index) ?? { id: '', name: '', args: '' };
+      if (tc.id) {
+        slot.id = tc.id;
+      }
+      if (tc.function?.name) {
+        slot.name = tc.function.name;
+      }
+      if (tc.function?.arguments) {
+        slot.args += tc.function.arguments;
+      }
+      slots.set(tc.index, slot);
+    }
+  }
+  return [...slots.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, slot]) => ({
+      id: slot.id,
+      name: slot.name,
+      args: parseToolArgs(slot.args),
+      raw: slot.args,
+    }));
+}
+
+/** 解析工具参数。失败或解析出非对象一律退成空对象，绝不抛。 */
+export function parseToolArgs(raw: string): Record<string, unknown> {
+  if (!raw.trim()) {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* 坏 JSON 不抛：由上层报「参数解析失败」给模型看，让它重试 */
+  }
+  return {};
 }
 
 export function hostOf(url: string): string {
