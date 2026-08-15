@@ -17,7 +17,14 @@ import {
   countLabel,
   summaryGroupLabel,
 } from './groups';
-import { bindRerender, buildCastRow, buildConflictRow, emptyRow, renderNodes } from './rows';
+import {
+  bindRerender,
+  buildCastRow,
+  buildConflictRow,
+  buildPlotRows,
+  emptyRow,
+  renderNodes,
+} from './rows';
 import { hideDetailTip, installDetailTip } from './detailTip';
 import { hideFailureTip, installFailureTip } from './errorTip';
 import { hideSummaryTip, installSummaryTip } from './summaryTip';
@@ -30,7 +37,7 @@ export function renderProject(tree: ProjectTree): void {
   hideSummaryTip();
   hideDetailTip();
   hideFailureTip();
-  // 还不是小说工程时，工具栏上的「新建章节」等按钮点了只会报错。
+  // 还不是小说工程时，工具栏上的「新建剧情段」等按钮点了只会报错。
   setHidden(el.projectToolbar, !tree.initialized);
 
   if (!tree.initialized) {
@@ -40,13 +47,34 @@ export function renderProject(tree: ProjectTree): void {
 
   el.projectBody.appendChild(buildProjectHead(tree));
 
+  // 创作流水线那一组：徽章、进度、⟳ 都在这里。
   el.projectBody.appendChild(
-    buildGroup('chapters', '章节', `${tree.chapterCount} 章 · ${formatWords(tree.totalWords)}`, {
+    buildGroup('plots', '剧情', `${tree.plotCount} 段 · ${formatWords(tree.totalWords)}`, {
+      extraItems: () => [
+        { label: '新建剧情段', run: () => projectAction('newPlot') },
+        { sep: true },
+        // 三个批量动作都「只补不改」：已经有产物的段一律跳过。
+        { label: '批量写剧情（只补缺）', run: () => projectAction('generatePlots') },
+        { label: '批量拆分场景（只补缺）', run: () => projectAction('breakdownScenes') },
+        { label: '批量写正文（只补缺）', run: () => projectAction('writeManuscripts') },
+        { sep: true },
+      ],
+      build: () =>
+        tree.plots.length === 0
+          ? [emptyRow('还没有剧情段。先在创作页写大纲，再用「拆成剧情段」切出来。')]
+          : buildPlotRows(tree.plots),
+    })
+  );
+
+  // 发布区：作者把正文切成一篇篇章节的地方。**纯文件列表**，
+  // 不带任何流水线状态——工具不分析它的内容。
+  el.projectBody.appendChild(
+    buildGroup('chapters', '章节', `${tree.chapterCount} 篇 · 发布区`, {
       section: SECTIONS.chapters,
       root: tree.chaptersRoot,
       build: () =>
         tree.chapters.length === 0
-          ? [emptyRow('还没有章节。点上方「＋ 新建章节」开始。')]
+          ? [emptyRow('还没有章节。正文写好后，从 manuscripts/ 里切成章节放到这里。')]
           : renderNodes(tree.chapters, 0, SECTIONS.chapters),
     })
   );
@@ -92,7 +120,7 @@ export function renderProject(tree: ProjectTree): void {
       section: SECTIONS.lore,
       root: tree.loreRoot,
       extraItems: () => [
-        { label: '从全部章节生成/更新设定', run: () => projectAction('generateLore') },
+        { label: '从已写正文生成/更新设定', run: () => projectAction('generateLore') },
         { sep: true },
       ],
       build: () =>

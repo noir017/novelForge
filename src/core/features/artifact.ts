@@ -3,15 +3,15 @@
  *
  * ## 为什么要单独一层
  *
- * `generate` / `rewrite` / `split` 三个能力产出的是**要写进文件的东西**，
- * 不是聊天气泡。写进文件就意味着解析失败＝这一次生成白花钱，而且用户看着
- * 一段像模像样的回答却点不了「采纳」，只会以为是插件坏了。
+ * `generate` / `settle` / `rewrite` / `split` 四个能力产出的是**要写进文件的
+ * 东西**，不是聊天气泡。写进文件就意味着解析失败＝这一次生成白花钱，而且用户
+ * 看着一段像模像样的回答却点不了「采纳」，只会以为是插件坏了。
  *
  * 所以沿用摘要那一套**三层降级**（summarize.ts 的 parseSummaryResponse）：
  *
  * 1. **JSON**——提示词要求的形状。字段缺失、类型不对、数组/字符串混用逐个兜住，
  *    不整体作废。
- * 2. **Markdown 小节**——模型忽略 JSON 要求、改用 `## 本章目标` 时走这条。
+ * 2. **Markdown 小节**——模型忽略 JSON 要求、改用 `## 剧情脉络` 时走这条。
  *    作者手改过的产物重新解析时也走这条。
  * 3. **全文塞进主字段**——信息密度低，但比让这次生成彻底作废强。
  *
@@ -23,7 +23,7 @@
  * 他改两个字再采纳。
  */
 import { pickSections } from '../model/markdown';
-import { PLAN_SECTION_KEYS, PlanSections, emptyPlanSections } from '../model/planFile';
+import { PLOT_SECTION_KEYS, PlotSections, emptyPlotSections } from '../model/plotFile';
 import { SCENE_SECTION_KEYS, SceneSections, emptySceneSections } from '../model/sceneFile';
 import { CreationAction } from '../model/pipeline';
 import { extractJsonObject, stripCodeFence } from './parse';
@@ -31,15 +31,15 @@ import { toSectionText } from './summarize';
 
 // ---------------------------------------------------------------- 产物形状
 
-/** 大纲拆章的一项。`order` 缺席时由调用方按现有章数续号。 */
-export interface ChapterOutlineItem {
-  order?: number;
+/** 大纲拆段的一项。`no` 缺席时由调用方按现有段数续号。 */
+export interface PlotOutlineItem {
+  no?: number;
   title: string;
   goal: string;
   arc: string;
 }
 
-/** 细纲拆场景的一项。 */
+/** 剧情拆场景的一项。 */
 export interface SceneOutlineItem {
   title: string;
   place: string;
@@ -51,12 +51,12 @@ export interface SceneOutlineItem {
 
 /**
  * 解析出来的产物。`kind` 与 `CreationTarget.kind` 不完全对应——
- * `split` 产出的是**下一层**的东西（大纲 split 出章节清单，细纲 split 出场景清单）。
+ * `split` 产出的是**下一层**的东西（大纲 split 出剧情段清单，剧情 split 出场景清单）。
  */
 export type Artifact =
   | { kind: 'outlineDoc'; text: string }
-  | { kind: 'chapterList'; chapters: ChapterOutlineItem[] }
-  | { kind: 'plan'; sections: PlanSections }
+  | { kind: 'plotList'; plots: PlotOutlineItem[] }
+  | { kind: 'plot'; sections: PlotSections }
   | { kind: 'sceneList'; scenes: SceneOutlineItem[] }
   | {
       kind: 'scene';
@@ -81,15 +81,15 @@ export function parseArtifact(action: CreationAction, raw: string): Artifact {
   }
   if (capability === 'split') {
     return stage === 'outline'
-      ? { kind: 'chapterList', chapters: parseChapterList(text) }
+      ? { kind: 'plotList', plots: parsePlotList(text) }
       : { kind: 'sceneList', scenes: parseSceneList(text) };
   }
   switch (stage) {
     case 'outline':
       // 大纲本来就是 Markdown，没有 JSON 可解——原样收下。
       return { kind: 'outlineDoc', text };
-    case 'plan':
-      return { kind: 'plan', sections: parsePlanSections(text) };
+    case 'plot':
+      return { kind: 'plot', sections: parsePlotSections(text) };
     case 'scene':
       return parseSceneCard(text);
   }
@@ -101,27 +101,27 @@ export function isArtifactEmpty(artifact: Artifact): boolean {
     case 'outlineDoc':
     case 'manuscript':
       return !artifact.text.trim();
-    case 'chapterList':
-      return artifact.chapters.length === 0;
+    case 'plotList':
+      return artifact.plots.length === 0;
     case 'sceneList':
       return artifact.scenes.length === 0;
-    case 'plan':
+    case 'plot':
       return !Object.values(artifact.sections).some((v) => v.trim());
     case 'scene':
       return !Object.values(artifact.sections).some((v) => v.trim());
   }
 }
 
-/** 一句话描述，给采纳卡片的标题用（「4 个场景」「细纲 · 5 节」）。 */
+/** 一句话描述，给采纳卡片的标题用（「4 个场景」「剧情 · 3/4 节」）。 */
 export function describeArtifact(artifact: Artifact): string {
   switch (artifact.kind) {
     case 'outlineDoc':
       return `全书大纲 · ${artifact.text.length} 字`;
-    case 'chapterList':
-      return `${artifact.chapters.length} 章`;
-    case 'plan': {
+    case 'plotList':
+      return `${artifact.plots.length} 段剧情`;
+    case 'plot': {
       const filled = Object.values(artifact.sections).filter((v) => v.trim()).length;
-      return `细纲 · ${filled}/${PLAN_SECTION_KEYS.length} 节`;
+      return `剧情 · ${filled}/${PLOT_SECTION_KEYS.length} 节`;
     }
     case 'sceneList':
       return `${artifact.scenes.length} 场`;
@@ -134,39 +134,45 @@ export function describeArtifact(artifact: Artifact): string {
   }
 }
 
-// ---------------------------------------------------------------- 细纲
+// ---------------------------------------------------------------- 剧情段
 
-/** 五个小节。JSON → Markdown 小节 → 全文塞进「本章目标」。 */
-export function parsePlanSections(text: string): PlanSections {
-  return parsePlanStrict(text) ?? { ...emptyPlanSections(), 本章目标: text.trim() };
+/**
+ * 四个小节。JSON → Markdown 小节 → 全文塞进「剧情脉络」。
+ *
+ * 兜底落到「剧情脉络」而不是「目标」，与场景卡兜底落「环境」不落「目的」
+ * 是同一条理由：**「目标」不算 filled**（`isPlotFilled` 只看剧情脉络），
+ * 兜底进那一节的话，这一段采纳后会显示成「还没排剧情」的空壳。
+ */
+export function parsePlotSections(text: string): PlotSections {
+  return parsePlotStrict(text) ?? { ...emptyPlotSections(), 剧情脉络: text.trim() };
 }
 
 /**
  * 只走前两层，**不做全文兜底**。解析不出结构就返回 undefined。
  *
- * 批量路径（工程页一次给几十章生成细纲）必须用这个：那里没有人逐份过目，
- * 而全文兜底会把模型的一句「我不太确定这一章写什么」变成一份「已规划」的
- * 细纲——流水线状态从此开始撒谎，紧接着的批量拆场景会照着这份垃圾往下拆。
+ * 批量路径（工程页一次给几十段写剧情）必须用这个：那里没有人逐份过目，
+ * 而全文兜底会把模型的一句「我不太确定这一段写什么」变成一份「已规划」的
+ * 剧情——流水线状态从此开始撒谎，紧接着的批量拆场景会照着这份垃圾往下拆。
  *
- * 创作页反过来该用 {@link parsePlanSections}：那里产物就摊在屏幕上，
+ * 创作页反过来该用 {@link parsePlotSections}：那里产物就摊在屏幕上，
  * 用户看得见它是什么，兜底至少留住了这次调用的钱。
  */
-export function parsePlanStrict(text: string): PlanSections | undefined {
+export function parsePlotStrict(text: string): PlotSections | undefined {
   const fromJson = objectOf(text);
   if (fromJson) {
-    const sections = emptyPlanSections();
-    for (const key of PLAN_SECTION_KEYS) {
+    const sections = emptyPlotSections();
+    for (const key of PLOT_SECTION_KEYS) {
       sections[key] = toSectionText(fromJson[key]);
     }
     // 判据与摘要同源：语法合法但完全不相干的 JSON（`{"text":"..."}`）
-    // 认下来会得到一份空细纲**并且不再降级**，比解析失败更糟。
+    // 认下来会得到一份空剧情**并且不再降级**，比解析失败更糟。
     if (Object.values(sections).some((v) => v.trim())) {
       return sections;
     }
   }
 
-  const picked = pickSections(text, PLAN_SECTION_KEYS) as PlanSections;
-  return Object.values(picked).some((v) => v.trim()) ? { ...emptyPlanSections(), ...picked } : undefined;
+  const picked = pickSections(text, PLOT_SECTION_KEYS) as PlotSections;
+  return Object.values(picked).some((v) => v.trim()) ? { ...emptyPlotSections(), ...picked } : undefined;
 }
 
 // ---------------------------------------------------------------- 场景卡
@@ -203,10 +209,10 @@ function parseSceneCard(text: string): Extract<Artifact, { kind: 'scene' }> {
 
 // ---------------------------------------------------------------- 清单类
 
-/** 大纲拆章。JSON `{chapters:[…]}` → 裸数组 → Markdown 列表逐行。 */
-export function parseChapterList(text: string): ChapterOutlineItem[] {
-  const rows = listOf(text, 'chapters', '章节');
-  const out: ChapterOutlineItem[] = [];
+/** 大纲拆剧情段。JSON `{plots:[…]}` → 裸数组 → Markdown 列表逐行。 */
+export function parsePlotList(text: string): PlotOutlineItem[] {
+  const rows = listOf(text, 'plots', 'chapters', '剧情', '章节');
+  const out: PlotOutlineItem[] = [];
   for (const row of rows) {
     if (typeof row === 'string') {
       const title = cleanListLine(row);
@@ -225,7 +231,7 @@ export function parseChapterList(text: string): ChapterOutlineItem[] {
       continue;
     }
     out.push({
-      order: num(o.order ?? o.序号 ?? o.chapter),
+      no: num(o.no ?? o.序号 ?? o.order ?? o.plot),
       title: clipTitle(title || goal),
       goal,
       arc: str(o.arc ?? o.幕 ?? o.卷),
@@ -234,7 +240,7 @@ export function parseChapterList(text: string): ChapterOutlineItem[] {
   return out;
 }
 
-/** 细纲拆场景。 */
+/** 剧情拆场景。 */
 export function parseSceneList(text: string): SceneOutlineItem[] {
   const rows = listOf(text, 'scenes', '场景');
   const out: SceneOutlineItem[] = [];
@@ -286,10 +292,10 @@ function objectOf(text: string): Record<string, unknown> | undefined {
 }
 
 /**
- * 清单：`{chapters:[…]}` → `[…]` 裸数组 → Markdown 逐行。
+ * 清单：`{plots:[…]}` → `[…]` 裸数组 → Markdown 逐行。
  *
  * 三条路都要留。模型漏掉外层键、或整个忘了 JSON 直接列了一串
- * `1. 夜入青云 —— 林昭进入宗门`，都是每天都会遇到的事。
+ * `1. 入宗风波 —— 林昭进入宗门`，都是每天都会遇到的事。
  */
 function listOf(text: string, ...keys: string[]): unknown[] {
   const obj = objectOf(text);

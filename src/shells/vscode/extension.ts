@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { initProjectFlow, newChapterFlow } from '../../core/actions';
-import { characterChoices, chapterChoices } from '../../core/choices';
+import { initProjectFlow, newPlotFlow } from '../../core/actions';
+import { characterChoices, plotChoices } from '../../core/choices';
 import { ChatController } from '../../core/controller';
 import { promoteModel, setLegacyConfigReader } from '../../core/config';
 import { extractCharacters, newCharacter, newLore } from '../../core/features/characters';
@@ -8,14 +8,14 @@ import { updateCharacterCard } from '../../core/features/characterCard';
 import { generateLore } from '../../core/features/lore';
 import { newFolder, sectionRoots } from '../../core/files/fileOps';
 import { extractStyle } from '../../core/features/style';
-import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../../core/features/summarize';
+import { rebuildGlobalSummary, summarizePlot, syncSummaries } from '../../core/features/summarize';
 import { getHost, initHost } from '../../core/host';
 import { addLogSink, describeError, formatLogEntry, recentLogs, scoped } from '../../core/runtime/logger';
 import { runTask } from '../../core/runtime/progress';
 import { clearApiKey, initSecrets, pickModelRef, promptForApiKey, registerProviderFactory } from '../../core/llm/registry';
 import { NovelProject } from '../../core/model/project';
 import { providerLabel } from '../../core/model/providers';
-import { Chapter } from '../../core/model/types';
+import { Plot } from '../../core/model/plotFile';
 import { ChatPanel } from './chatPanel';
 import { ChatViewProvider } from './chatViewProvider';
 import { quickContinue } from './quickContinue';
@@ -126,17 +126,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   });
 
-  register('novel.newChapter', async () => {
+  register('novel.newPlot', async () => {
     const target = await requireProject();
     if (!target) {
       return;
     }
-    // 有面板就走面板那条路：建完会落到这一章的当前步骤（多半是「写细纲」）。
+    // 有面板就走面板那条路：建完会落到这一段的当前步骤（多半是「写剧情」）。
     // 没有面板（无工作区时 controller 不存在）只建文件。
     if (chat) {
-      await chat.newChapterFromCommand();
+      await chat.newPlotFromCommand();
     } else {
-      await newChapterFlow(target);
+      await newPlotFlow(target);
     }
     await refresh();
   });
@@ -243,17 +243,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   });
 
-  register('novel.continueFromChapter', async (node?: { chapterOrder?: number }) => {
-    const target = await requireProject();
-    if (!target || !chat) {
-      return;
-    }
-    // 从某章右键进来时，默认写「下一章」。
-    const order = node?.chapterOrder !== undefined ? node.chapterOrder + 1 : await target.nextChapterOrder();
-    await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
-    await chat.focusWithTarget(order);
-  });
-
   register('novel.quickContinue', async () => {
     const target = await requireProject();
     if (target) {
@@ -264,26 +253,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ---------------------------------------------------------------- 总结
 
-  register('novel.summarizeChapter', async (arg?: number | { chapterOrder?: number }) => {
+  register('novel.summarizePlot', async (arg?: number | { plotNo?: number }) => {
     const target = await requireProject();
     if (!target) {
       return;
     }
 
-    const order = typeof arg === 'number' ? arg : arg?.chapterOrder;
-    const chapter = order !== undefined ? await target.getChapter(order) : await pickChapter(target);
-    if (!chapter) {
+    const no = typeof arg === 'number' ? arg : arg?.plotNo;
+    const plot = no !== undefined ? await target.getPlot(no) : await pickPlot(target);
+    if (!plot) {
       return;
     }
 
     await runTask(
-      `总结第 ${chapter.order} 章`,
+      `总结第 ${plot.no} 段`,
       async ({ signal, report }) => {
-        report({ message: `《${chapter.title}》`, current: 0, total: 1 });
-        const ok = await summarizeChapter(target, chapter, undefined, signal);
+        report({ message: `《${plot.title}》`, current: 0, total: 1 });
+        const ok = await summarizePlot(target, plot, undefined, signal);
         report({ message: ok ? '完成' : '未生成', current: 1, total: 1 });
         if (ok) {
-          getHost().toast(`第 ${chapter.order} 章摘要已生成。`);
+          getHost().toast(`第 ${plot.no} 段摘要已生成。`);
           await refresh();
         }
       },
@@ -475,27 +464,29 @@ async function setInitializedContext(project: NovelProject): Promise<void> {
 }
 
 /**
- * 挑一章。清单构造在 core（`chapterChoices`）；这里只多做一件宿主专属的事：
- * 当前编辑器正好是某一章时不问，直接用它。
+ * 挑一段。清单构造在 core（`plotChoices`）；这里只多做一件宿主专属的事：
+ * 当前编辑器正好开着某一段（或它的正文）时不问，直接用它。
  */
-async function pickChapter(project: NovelProject): Promise<Chapter | undefined> {
-  const chapters = await project.listChapters();
-  if (chapters.length === 0) {
-    getHost().toast('还没有章节。');
+async function pickPlot(project: NovelProject): Promise<Plot | undefined> {
+  const plots = await project.listPlots();
+  if (plots.length === 0) {
+    getHost().toast('还没有剧情段。');
     return undefined;
   }
 
   const active = vscode.window.activeTextEditor?.document.uri;
   if (active) {
     const rel = project.relPath(active.fsPath);
-    const match = chapters.find((c) => c.relPath === rel);
+    const match = plots.find(
+      (p) => p.relPath === rel || project.manuscriptMirrorRelPath(p.relPath) === rel
+    );
     if (match) {
       return match;
     }
   }
 
-  const order = await getHost().pick(await chapterChoices(project), '选择要总结的章节');
-  return order === undefined ? undefined : chapters.find((c) => c.order === order);
+  const no = await getHost().pick(await plotChoices(project), '选择要总结的剧情段');
+  return no === undefined ? undefined : plots.find((p) => p.no === no);
 }
 
 function workspaceName(): string {

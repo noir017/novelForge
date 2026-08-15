@@ -1,4 +1,4 @@
-import { appearancesOf, buildCastIndex, CastMember, describeChapters } from '../views/cast';
+import { appearancesOf, buildCastIndex, CastMember, describePlots } from '../views/cast';
 import { readConfig } from '../config';
 import { runPool, serialize } from '../runtime/concurrency';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
@@ -13,7 +13,8 @@ import {
   emptyCharacterSections,
   renderCharacterCard,
 } from '../model/project';
-import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
+import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections } from '../model/types';
+import { Plot } from '../model/plotFile';
 import { describeTaskModels } from '../model/tiers';
 import { explainDroppedAliases, sanitizeAliases } from '../model/naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
@@ -49,7 +50,7 @@ export type UpdateScope =
   | 'full';
 
 export interface Batch {
-  chapters: Chapter[];
+  plots: Plot[];
   /** 这一批的语料（已按预算截断）。 */
   corpus: string;
 }
@@ -106,16 +107,16 @@ export async function updateCharacterCard(
     log.info('用户取消了更新');
     return;
   }
-  const orders = picked === 'incremental' && fresh.length > 0 ? fresh : all;
+  const nos = picked === 'incremental' && fresh.length > 0 ? fresh : all;
 
-  const chapters = (await project.listChapters()).filter((c) => orders.includes(c.order));
-  if (chapters.length === 0) {
-    log.warn(`「${card.name}」的出场章节都已不在磁盘上`, `摘要记录：${describeChapters(orders)}`);
-    getHost().toast('这些出场章节的正文已不存在。', 'error');
+  const plots = (await project.listPlots()).filter((p) => nos.includes(p.no));
+  if (plots.length === 0) {
+    log.warn(`「${card.name}」的出场段都已不在磁盘上`, `摘要记录：${describePlots(nos)}`);
+    getHost().toast('这些出场段的正文已不存在。', 'error');
     return;
   }
 
-  await runUpdate(project, card, chapters, {
+  await runUpdate(project, card, plots, {
     scope: picked,
     // 全量重来时 lastSeen/appearsIn 以完整清单为准；增量只补新的。
     allAppearances: all,
@@ -125,12 +126,12 @@ export async function updateCharacterCard(
 /** 批量计划里的一张卡。 */
 export interface CardUpdatePlan {
   card: CharacterCard;
-  /** 本次要读的出场章节序号。 */
-  orders: number[];
+  /** 本次要读的出场段号。 */
+  nos: number[];
   /** 预先算好的分批（总确认报调用次数用，执行时不重算）。 */
   batches: Batch[];
-  /** 真正参与分析的章节数（空章节已剔除）。 */
-  chapters: number;
+  /** 真正参与分析的段数（没有正文的段已剔除）。 */
+  plots: number;
 }
 
 export interface BatchUpdatePlan {
@@ -149,7 +150,7 @@ export async function planAllUpdates(project: NovelProject, scope: UpdateScope):
   // 分批用**角色卡那一档**的窗口：批数就是确认框里那句「预计调用 N 次」，
   // 拿对话页模型的窗口来算，跑起来会超窗且数字对不上账。
   const budget = budgetForTask('characterCard');
-  const allChapters = await project.listChapters();
+  const allPlots = await project.listPlots();
   const result: BatchUpdatePlan = { plans: [], skipped: [] };
 
   for (const card of cards) {
@@ -158,26 +159,26 @@ export async function planAllUpdates(project: NovelProject, scope: UpdateScope):
       result.skipped.push({ card, reason: '未在摘要中出现' });
       continue;
     }
-    const orders = scope === 'incremental' ? all.filter((o) => o > (card.updatedThrough ?? 0)) : all;
-    if (orders.length === 0) {
+    const nos = scope === 'incremental' ? all.filter((n) => n > (card.updatedThrough ?? 0)) : all;
+    if (nos.length === 0) {
       result.skipped.push({ card, reason: '没有新的出场章节' });
       continue;
     }
-    const chapters = allChapters.filter((c) => orders.includes(c.order));
-    if (chapters.length === 0) {
+    const plots = allPlots.filter((p) => nos.includes(p.no));
+    if (plots.length === 0) {
       result.skipped.push({ card, reason: '出场章节已不在磁盘上' });
       continue;
     }
-    const batches = await planBatches(project, chapters, budget);
+    const batches = await planBatches(project, plots, budget);
     if (batches.length === 0) {
       result.skipped.push({ card, reason: '章节正文都为空' });
       continue;
     }
     result.plans.push({
       card,
-      orders,
+      nos,
       batches,
-      chapters: batches.reduce((sum, b) => sum + b.chapters.length, 0),
+      plots: batches.reduce((sum, b) => sum + b.plots.length, 0),
     });
   }
   return result;
@@ -205,11 +206,11 @@ export async function updateAllCharacterCards(project: NovelProject, scope: Upda
   }
 
   const totalBatches = plans.reduce((sum, p) => sum + p.batches.length, 0);
-  const totalChapters = plans.reduce((sum, p) => sum + p.chapters, 0);
+  const totalPlots = plans.reduce((sum, p) => sum + p.plots, 0);
   const lanes = Math.min(config.concurrency, plans.length);
   const label = scope === 'incremental' ? '更新' : '从头重建';
   const pick = await getHost().confirm(
-    `${label} ${plans.length} 张角色卡：共需通读 ${totalChapters} 章，` +
+    `${label} ${plans.length} 张角色卡：共需通读 ${totalPlots} 段，` +
       `分 ${totalBatches} 批，预计调用模型 ${totalBatches} 次。现在开始？`,
     ['逐张确认后开始', '全部直接采纳并开始'],
     {
@@ -241,7 +242,7 @@ export async function updateAllCharacterCards(project: NovelProject, scope: Upda
 
   log.info(
     `开始批量${label}角色卡`,
-    `${plans.length} 张｜${totalChapters} 章分 ${totalBatches} 批｜模型 ${pool.label}｜` +
+    `${plans.length} 张｜${totalPlots} 段分 ${totalBatches} 批｜模型 ${pool.label}｜` +
       (lanes > 1 ? `并发 ${lanes} 路｜` : '') +
       (autoApply ? '全部直接采纳' : '逐张确认')
   );
@@ -273,7 +274,7 @@ export async function updateAllCharacterCards(project: NovelProject, scope: Upda
           const outcome = await runCardUpdate(
             project,
             plan.card,
-            { scope, allAppearances: plan.orders, batches: plan.batches, skipReview: autoApply },
+            { scope, allAppearances: plan.nos, batches: plan.batches, skipReview: autoApply },
             {
               signal,
               report: (message, current) =>
@@ -355,8 +356,8 @@ export async function createCardForCast(project: NovelProject, name: string): Pr
     return;
   }
 
-  const chapters = (await project.listChapters()).filter((c) => member.chapters.includes(c.order));
-  if (chapters.length === 0) {
+  const plots = (await project.listPlots()).filter((p) => member.plots.includes(p.no));
+  if (plots.length === 0) {
     getHost().toast('这些出场章节的正文已不存在。', 'error');
     return;
   }
@@ -365,9 +366,9 @@ export async function createCardForCast(project: NovelProject, name: string): Pr
   if (!card) {
     return;
   }
-  await runUpdate(project, card, chapters, {
+  await runUpdate(project, card, plots, {
     scope: 'full',
-    allAppearances: member.chapters,
+    allAppearances: member.plots,
     // 刚建出来的空卡没有可覆盖的人工内容，不必走 diff 审阅。
     skipReview: true,
   });
@@ -392,22 +393,22 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
 
   const config = readConfig();
   const cardBudget = budgetForTask('characterCard');
-  const allChapters = await project.listChapters();
-  const plans: { member: CastMember; chapters: Chapter[]; batches: Batch[] }[] = [];
+  const allPlots = await project.listPlots();
+  const plans: { member: CastMember; plots: Plot[]; batches: Batch[] }[] = [];
   const skipped: { name: string; reason: string }[] = [];
 
   for (const member of index.unknown) {
-    const chapters = allChapters.filter((c) => member.chapters.includes(c.order));
-    if (chapters.length === 0) {
+    const plots = allPlots.filter((p) => member.plots.includes(p.no));
+    if (plots.length === 0) {
       skipped.push({ name: member.name, reason: '出场章节已不在磁盘上' });
       continue;
     }
-    const batches = await planBatches(project, chapters, cardBudget);
+    const batches = await planBatches(project, plots, cardBudget);
     if (batches.length === 0) {
       skipped.push({ name: member.name, reason: '章节正文都为空' });
       continue;
     }
-    plans.push({ member, chapters, batches });
+    plans.push({ member, plots, batches });
   }
 
   if (plans.length === 0) {
@@ -417,10 +418,10 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
   }
 
   const totalBatches = plans.reduce((sum, p) => sum + p.batches.length, 0);
-  const totalChapters = plans.reduce((sum, p) => sum + p.batches.reduce((n, b) => n + b.chapters.length, 0), 0);
+  const totalPlots = plans.reduce((sum, p) => sum + p.batches.reduce((n, b) => n + b.plots.length, 0), 0);
   const lanes = Math.min(config.concurrency, plans.length);
   const confirm = await getHost().confirm(
-    `给 ${plans.length} 位未建卡的人物建卡：共需通读 ${totalChapters} 章，` +
+    `给 ${plans.length} 位未建卡的人物建卡：共需通读 ${totalPlots} 段，` +
       `分 ${totalBatches} 批，预计调用模型 ${totalBatches} 次。现在开始？`,
     ['开始建卡'],
     {
@@ -450,7 +451,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
   }
   log.info(
     `开始批量建卡`,
-    `${plans.length} 位｜${totalChapters} 章分 ${totalBatches} 批｜模型 ${pool.label}｜` +
+    `${plans.length} 位｜${totalPlots} 段分 ${totalBatches} 批｜模型 ${pool.label}｜` +
       (lanes > 1 ? `并发 ${lanes} 路` : '串行')
   );
 
@@ -490,7 +491,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
             card,
             {
               scope: 'full',
-              allAppearances: plan.member.chapters,
+              allAppearances: plan.member.plots,
               batches: plan.batches,
               skipReview: true,
             },
@@ -565,12 +566,12 @@ async function seedEmptyCard(project: NovelProject, member: CastMember): Promise
     name: member.name,
     aliases: sanitizeAliases(member.aliases, member.name),
     tags: [],
-    firstAppear: member.chapters[0],
-    lastSeen: member.chapters[member.chapters.length - 1],
-    appearsIn: member.chapters,
+    firstAppear: member.plots[0],
+    lastSeen: member.plots[member.plots.length - 1],
+    appearsIn: member.plots,
     sections: emptyCharacterSections(),
   });
-  log.info(`新建角色卡「${member.name}」`, `${relPath}｜出场 ${describeChapters(member.chapters)}`);
+  log.info(`新建角色卡「${member.name}」`, `${relPath}｜出场 ${describePlots(member.plots)}`);
   return (await project.listCharacters()).find((c) => c.relPath === relPath);
 }
 
@@ -586,11 +587,11 @@ export interface CardUpdateOutcome {
 async function runUpdate(
   project: NovelProject,
   card: CharacterCard,
-  chapters: Chapter[],
+  plots: Plot[],
   opts: { scope: UpdateScope; allAppearances: number[]; skipReview?: boolean }
 ): Promise<void> {
   const config = readConfig();
-  const batches = await planBatches(project, chapters, budgetForTask('characterCard'));
+  const batches = await planBatches(project, plots, budgetForTask('characterCard'));
   if (batches.length === 0) {
     log.warn(`「${card.name}」的出场章节都是空的`);
     getHost().toast('这些章节都是空的，没有可分析的内容。', 'error');
@@ -599,8 +600,8 @@ async function runUpdate(
 
   // 空章节在 planBatches 里被剔掉了，报数以真正要读的为准——
   // 说「通读 12 章」却只读了 9 章，作者对不上账。
-  const willRead = batches.reduce((sum, b) => sum + b.chapters.length, 0);
-  const skipped = chapters.length - willRead;
+  const willRead = batches.reduce((sum, b) => sum + b.plots.length, 0);
+  const skipped = plots.length - willRead;
   if (skipped > 0) {
     log.warn(`${skipped} 章正文为空，不参与分析`);
   }
@@ -640,8 +641,8 @@ async function runUpdate(
 
   log.info(
     `开始${scopeLabel}「${card.name}」`,
-    `${willRead} 章分 ${batches.length} 批｜章节 ${describeChapters(
-      batches.flatMap((b) => b.chapters.map((c) => c.order))
+    `${willRead} 章分 ${batches.length} 批｜章节 ${describePlots(
+      batches.flatMap((b) => b.plots.map((p) => p.no))
     )}｜模型 ${pool.label}`
   );
 
@@ -716,7 +717,7 @@ async function runCardUpdate(
       return { status: 'cancelled' };
     }
     const batch = batches[i];
-    const range = describeChapters(batch.chapters.map((c) => c.order));
+    const range = describePlots(batch.plots.map((p) => p.no));
     ctx.report(`分析 ${range}`, i, steps);
 
     const each = Date.now();
@@ -728,7 +729,7 @@ async function runCardUpdate(
     });
     if (!parsed) {
       // 单批解析失败不放弃整次更新：已归纳出的内容仍然值得写回。
-      failed.push(...batch.chapters.map((c) => c.order));
+      failed.push(...batch.plots.map((p) => p.no));
       log.warn(
         `第 ${i + 1}/${batches.length} 批解析失败，跳过`,
         `范围 ${range}｜这几章不计入「已读到」，下次更新会重试`
@@ -738,10 +739,10 @@ async function runCardUpdate(
     sections = parsed.sections;
     aliases = unique([...aliases, ...parsed.aliases]);
     tags = unique([...tags, ...parsed.tags]);
-    analyzed.push(...batch.chapters.map((c) => c.order));
+    analyzed.push(...batch.plots.map((p) => p.no));
     log.info(
       `第 ${i + 1}/${batches.length} 批完成（${range}）`,
-      `${batch.chapters.length} 章，用时 ${elapsed(each)}`
+      `${batch.plots.length} 段，用时 ${elapsed(each)}`
     );
   }
 
@@ -754,7 +755,7 @@ async function runCardUpdate(
   // 更不能推进 updatedThrough（那等于宣称读过了这些章）。
   if (analyzed.length === 0) {
     const detail =
-      `范围 ${describeChapters(batches.flatMap((b) => b.chapters.map((c) => c.order)))}｜` +
+      `范围 ${describePlots(batches.flatMap((b) => b.plots.map((p) => p.no)))}｜` +
       '模型没有按要求返回 JSON。可在日志页看到每批的失败记录；换个模型或稍后重试。';
     log.error(`「${card.name}」的 ${batches.length} 批全部解析失败，角色卡未改动`, detail);
     getHost().toast(`模型返回无法解析，「${card.name}」未改动。`, 'error');
@@ -792,7 +793,7 @@ async function runCardUpdate(
   const covered = analyzed.filter((o) => o < firstFailure);
   const updatedThrough = Math.max(card.updatedThrough ?? 0, ...covered, 0);
   if (failed.length > 0) {
-    const detail = `失败章节：${describeChapters(uniqueNumbers(failed))}｜下次更新会从这里重来`;
+    const detail = `失败章节：${describePlots(uniqueNumbers(failed))}｜下次更新会从这里重来`;
     log.warn(`${failed.length} 章解析失败，「已读到」只推进到第 ${updatedThrough} 章`, detail);
     // 这一条以前只有日志：卡确实更新了一部分，界面上完全看不出还缺一块。
     await recordFailure(project, {
@@ -850,32 +851,32 @@ async function runCardUpdate(
  */
 async function planBatches(
   project: NovelProject,
-  chapters: Chapter[],
+  plots: Plot[],
   /** 干活那个模型的窗口（`budgetForTask('characterCard')` / `pool.primaryBudget`）。 */
   window: { contextWindow: number; maxOutputTokens: number }
 ): Promise<Batch[]> {
   // 留出角色卡本体、提示词与输出的余量。
   const budget = Math.max(2000, window.contextWindow - window.maxOutputTokens - 3000);
   const batches: Batch[] = [];
-  let current: { chapters: Chapter[]; parts: string[]; tokens: number } = {
-    chapters: [],
+  let current: { plots: Plot[]; parts: string[]; tokens: number } = {
+    plots: [],
     parts: [],
     tokens: 0,
   };
 
   const flush = () => {
-    if (current.chapters.length > 0) {
-      batches.push({ chapters: current.chapters, corpus: current.parts.join('\n\n') });
+    if (current.plots.length > 0) {
+      batches.push({ plots: current.plots, corpus: current.parts.join('\n\n') });
     }
-    current = { chapters: [], parts: [], tokens: 0 };
+    current = { plots: [], parts: [], tokens: 0 };
   };
 
-  for (const chapter of chapters) {
-    const text = await project.readChapterText(chapter);
+  for (const plot of plots) {
+    const text = await project.readManuscriptText(plot.relPath);
     if (!text.trim()) {
       continue;
     }
-    const block = `【第${chapter.order}章 ${chapter.title}】\n${text}`;
+    const block = `【第${plot.no}段 ${plot.title}】\n${text}`;
     const tokens = estimateTokens(block);
 
     if (tokens > budget) {
@@ -883,16 +884,16 @@ async function planBatches(
       flush();
       const clipped = takeHead(block, budget);
       log.warn(
-        `第 ${chapter.order} 章正文超出单批预算，已截断`,
+        `第 ${plot.no} 段正文超出单批预算，已截断`,
         `${block.length} 字 → ${clipped.length} 字（预算 ${budget} token）`
       );
-      batches.push({ chapters: [chapter], corpus: clipped });
+      batches.push({ plots: [plot], corpus: clipped });
       continue;
     }
     if (current.tokens + tokens > budget) {
       flush();
     }
-    current.chapters.push(chapter);
+    current.plots.push(plot);
     current.parts.push(block);
     current.tokens += tokens;
   }
@@ -928,7 +929,7 @@ async function analyzeBatch(
   };
 
   const currentCard = CHARACTER_SECTION_KEYS.map((k) => `${k}：${current[k]?.trim() || '（空）'}`).join('\n');
-  const range = describeChapters(batch.chapters.map((c) => c.order));
+  const range = describePlots(batch.plots.map((p) => p.no));
   const progress =
     ctx.total > 1 ? `这是第 ${ctx.index + 1}/${ctx.total} 批（${range}）。\n` : `本次分析 ${range}。\n`;
 
@@ -1008,8 +1009,8 @@ async function askScope(
     {
       modal: true,
       detail:
-        `新增出场：${describeChapters(fresh)}\n` +
-        `全部出场：${describeChapters(all)}\n\n` +
+        `新增出场：${describePlots(fresh)}\n` +
+        `全部出场：${describePlots(all)}\n\n` +
         '只读新增更省 token；全部重读更完整，适合角色卡被改乱或想彻底重来时。',
     }
   );

@@ -8,38 +8,47 @@ import { elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { readText, slugify, uniqueSlug, writeText } from '../model/fs';
 import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../model/project';
-import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections, Chapter } from '../model/types';
+import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections } from '../model/types';
+import { Plot } from '../model/plotFile';
 import { sanitizeAliases } from '../model/naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { CHARACTER_SYSTEM } from './charactersPrompt';
 import { extractJsonArray, stringArray, stripCodeFence, unique } from './parse';
-import { pickChaptersByInput } from './pickChapters';
+import { pickPlotsByInput } from './pickPlots';
 
 const log = scoped('角色卡');
 
 /**
- * 从选定章节提取/更新角色卡。
+ * 从选定的剧情段提取/更新角色卡。
+ *
+ * 读的是 `manuscripts/` 里的正文——人物怎么说话、什么脾气只有成稿里看得出，
+ * 剧情脉络里没有。所以没写过正文的段不在候选里。
  *
  * 关键约束：**绝不静默覆盖作者手写的角色卡**。已存在的角色一律经
  * 宿主审阅（插件开 diff 编辑器，独立版弹确认框）；新角色则直接创建。
  */
 export async function extractCharacters(project: NovelProject): Promise<void> {
-  const chapters = await project.listChapters();
-  if (chapters.length === 0) {
-    log.warn('还没有章节，无法提取角色');
-    getHost().toast('还没有章节。');
+  const written: Plot[] = [];
+  for (const plot of await project.listPlots()) {
+    if ((await project.readManuscriptText(plot.relPath)).trim()) {
+      written.push(plot);
+    }
+  }
+  if (written.length === 0) {
+    log.warn('还没有写过正文，无法提取角色');
+    getHost().toast('还没有写过正文。');
     return;
   }
 
-  // 默认勾最近三章；选得越多越准，但消耗的 token 也越多。
-  const picked = await pickChaptersByInput(
-    chapters,
-    '从哪些章节提取角色信息？',
-    '输入章节序号，逗号分隔，如 1,2,3',
-    chapters.slice(-3).map((c) => c.order)
+  // 默认勾最近三段；选得越多越准，但消耗的 token 也越多。
+  const picked = await pickPlotsByInput(
+    written,
+    '从哪几段提取角色信息？',
+    '输入段号，逗号分隔，如 1,2,3',
+    written.slice(-3).map((p) => p.no)
   );
   if (!picked || picked.length === 0) {
-    log.info('用户取消了章节选择');
+    log.info('用户取消了段落选择');
     return;
   }
 
@@ -52,8 +61,8 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
   const config = readConfig();
   const existing = await project.listCharacters();
   log.info(
-    `准备从 ${picked.length} 章提取角色`,
-    `章节 ${picked.map((c) => c.order).join('、')}｜已有角色卡 ${existing.length} 张｜模型 ${pool.label}`
+    `准备从 ${picked.length} 段提取角色`,
+    `段落 ${picked.map((p) => p.no).join('、')}｜已有角色卡 ${existing.length} 张｜模型 ${pool.label}`
   );
 
   await runTask(
@@ -61,8 +70,8 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
     async ({ signal, report }) => {
       const startedAt = Date.now();
       // 三步：读正文 → 调模型 → 合并。给 total 才画得出进度条。
-      report({ message: '读取章节正文', current: 0, total: 3 });
-      const selected = [...picked].sort((a, b) => a.order - b.order);
+      report({ message: '读取正文', current: 0, total: 3 });
+      const selected = [...picked].sort((a, b) => a.no - b.no);
       // 预算跟着实际干活的模型走，不是对话页选的那个。
       const budget = pool.primaryBudget.contextWindow - pool.primaryBudget.maxOutputTokens - 2000;
       const corpus = await buildCorpus(project, selected, budget);
@@ -111,12 +120,10 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
 
       report({ message: `解析出 ${parsed.length} 个角色，正在合并`, current: 2, total: 3 });
       log.info(`解析出 ${parsed.length} 个角色`, parsed.map((p) => p.name).join('、'));
-      const lastOrder = selected[selected.length - 1].order;
-      const firstOrder = selected[0].order;
       await mergeCharacters(project, parsed, existing, {
-        firstOrder,
-        lastOrder,
-        orders: selected.map((c) => c.order),
+        firstNo: selected[0].no,
+        lastNo: selected[selected.length - 1].no,
+        nos: selected.map((p) => p.no),
       });
       report({ message: '完成', current: 3, total: 3 });
       log.info('提取结束', `总耗时 ${elapsed(startedAt)}`);
@@ -136,7 +143,7 @@ async function mergeCharacters(
   project: NovelProject,
   parsed: ParsedCharacter[],
   existing: CharacterCard[],
-  range: { firstOrder: number; lastOrder: number; orders: number[] }
+  range: { firstNo: number; lastNo: number; nos: number[] }
 ): Promise<void> {
   const byName = new Map<string, CharacterCard>();
   // 正式名先占位，别名后补：一张卡上写错的别名（模型给方源挂过 `方正`）
@@ -168,12 +175,12 @@ async function mergeCharacters(
       name: item.name,
       aliases: item.aliases,
       tags: item.tags,
-      firstAppear: range.firstOrder,
-      lastSeen: range.lastOrder,
+      firstAppear: range.firstNo,
+      lastSeen: range.lastNo,
       // 这一批章节就是目前已知的出场记录。摘要索引之后会给出更完整的清单，
       // 这里先落一份，免得新卡在角色页上显示「未在摘要中出现」。
-      appearsIn: range.orders,
-      updatedThrough: range.lastOrder,
+      appearsIn: range.nos,
+      updatedThrough: range.lastNo,
       sections: item.sections,
     });
     log.info(`新建角色卡「${item.name}」`, relPath);
@@ -217,7 +224,7 @@ async function reviewCharacterUpdate(
   project: NovelProject,
   existing: CharacterCard,
   proposed: ParsedCharacter,
-  range: { lastOrder: number; orders: number[] }
+  range: { lastNo: number; nos: number[] }
 ): Promise<void> {
   // 合并策略：模型有内容的小节覆盖，模型留空的保留原文；别名/标签取并集。
   const merged: CharacterSections = { ...existing.sections };
@@ -228,17 +235,17 @@ async function reviewCharacterUpdate(
     }
   }
 
-  const appearsIn = [...new Set([...existing.appearsIn, ...range.orders])].sort((a, b) => a - b);
+  const appearsIn = [...new Set([...existing.appearsIn, ...range.nos])].sort((a, b) => a - b);
   const mergedCard = {
     slug: existing.slug,
     name: existing.name,
     aliases: unique(sanitizeAliases([...existing.aliases, ...proposed.aliases], existing.name)),
     tags: unique([...existing.tags, ...proposed.tags]),
     firstAppear: existing.firstAppear ?? appearsIn[0],
-    lastSeen: Math.max(existing.lastSeen ?? 0, range.lastOrder) || range.lastOrder,
+    lastSeen: Math.max(existing.lastSeen ?? 0, range.lastNo) || range.lastNo,
     appearsIn,
     // 这次读到了哪一章，下次「更新角色卡」的增量从这里接着走。
-    updatedThrough: Math.max(existing.updatedThrough ?? 0, range.lastOrder),
+    updatedThrough: Math.max(existing.updatedThrough ?? 0, range.lastNo),
     sections: merged,
   };
 
@@ -371,19 +378,19 @@ export function parseCharacterResponse(raw: string): ParsedCharacter[] {
   return out;
 }
 
-async function buildCorpus(project: NovelProject, chapters: Chapter[], budget: number): Promise<string> {
+async function buildCorpus(project: NovelProject, plots: Plot[], budget: number): Promise<string> {
   const parts: string[] = [];
-  for (const chapter of chapters) {
-    const text = await project.readChapterText(chapter);
-    parts.push(`【第${chapter.order}章 ${chapter.title}】\n${text}`);
+  for (const plot of plots) {
+    const text = await project.readManuscriptText(plot.relPath);
+    parts.push(`【第${plot.no}段 ${plot.title}】\n${text}`);
   }
   const joined = parts.join('\n\n');
   const clipped = takeHead(joined, Math.max(2000, budget));
   if (clipped.length < joined.length) {
-    // 「不静默截断」：选了五章却只读进去两章半，作者必须知道。
+    // 「不静默截断」：选了五段却只读进去两段半，作者必须知道。
     log.warn(
-      '选中章节的正文超出输入预算，已截断',
-      `${joined.length} 字 → ${clipped.length} 字。少选几章可让提取更完整。`
+      '选中段落的正文超出输入预算，已截断',
+      `${joined.length} 字 → ${clipped.length} 字。少选几段可让提取更完整。`
     );
   }
   return clipped;

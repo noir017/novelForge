@@ -118,7 +118,14 @@ describe('气泡右上角的 ... 菜单', { skip: JSDOM_SKIP }, () => {
     ui = mount();
     ui.post({ type: 'session', session: emptySession() });
     ui.post({ type: 'turnDone', turn: turn('u1', 'user', '写一段') });
-    ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '正文') });
+    // 带产物：没有 artifact 的回复**行内根本不该有采纳按钮**
+    // （落点由后端算，前端猜不出这段话该写到哪一层）。
+    ui.post({
+      type: 'turnDone',
+      turn: turn('a1', 'assistant', '正文', {
+        artifact: { where: '第 12 段《夜入青云》 · 正文', summary: '正文 · 1 场', overwrites: false },
+      }),
+    });
   });
 
   test('用户气泡有 ... 按钮', () => {
@@ -230,8 +237,8 @@ describe('空输入', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'plan', chapterRelPath: 'chapters/012-夜入青云.md' },
-        stage: 'plan',
+        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
+        stage: 'plot',
         capability: 'discuss',
       }),
     });
@@ -240,13 +247,13 @@ describe('空输入', { skip: JSDOM_SKIP }, () => {
     assert.equal(sends(), 0);
   });
 
-  // 而「生成细纲」不需要作者再说什么——该说的都在大纲里了。
+  // 而「写剧情」不需要作者再说什么——该说的都在大纲里了。
   test('生成类命令允许空输入', () => {
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'plan', chapterRelPath: 'chapters/012-夜入青云.md' },
-        stage: 'plan',
+        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
+        stage: 'plot',
         capability: 'generate',
       }),
     });
@@ -267,32 +274,40 @@ describe('产物采纳卡片', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'plan', chapterRelPath: 'chapters/012-夜入青云.md' },
-        stage: 'plan',
+        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
+        stage: 'plot',
         capability: 'generate',
       }),
     });
   });
 
-  // 讨论型回复：只有普通的「采纳写入」（写进某一章的正文）。
-  test('无产物时是普通采纳', () => {
+  // 讨论型回复**不给采纳按钮**：落点由后端算（describeArtifactOf），
+  // 前端猜不出这段话该写到哪一层。从前它会被追加进当前章节的正文，
+  // 那是单一产物时代留下的入口。
+  test('无产物时没有采纳按钮', () => {
     ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '我建议把冲突提前。') });
-    assert.equal(acceptBtn('a1').textContent, '采纳写入', acceptBtn('a1').textContent);
+    assert.ok(!acceptBtn('a1'),
+      [...ui.bubble('a1').querySelectorAll('.msg-actions button')].map((b) => b.textContent).join('|'));
+  });
+
+  test('无产物时仍能复制', () => {
+    assert.ok([...ui.bubble('a1').querySelectorAll('.msg-actions button')]
+      .some((b) => b.textContent === '复制'));
   });
 
   // 产物型回复：说清落点与形状。
   test('产物卡片说明落点', () => {
     ui.post({
       type: 'turnDone',
-      turn: turn('a2', 'assistant', '{"本章目标":"进宗门"}', {
-        artifact: { where: '第 12 章《夜入青云》 · 细纲', summary: '细纲 · 5/5 节', overwrites: false },
+      turn: turn('a2', 'assistant', '{"目标":"进宗门"}', {
+        artifact: { where: '第 12 段《夜入青云》 · 剧情', summary: '剧情 · 4/4 节', overwrites: false },
       }),
     });
-    assert.ok(where() && where().textContent.includes('第 12 章'), where()?.textContent);
+    assert.ok(where() && where().textContent.includes('第 12 段'), where()?.textContent);
   });
 
   test('产物卡片说明形状', () => {
-    assert.ok(where().textContent.includes('5/5 节'), where().textContent);
+    assert.ok(where().textContent.includes('4/4 节'), where().textContent);
   });
 
   test('未覆盖时按钮是「采纳写入」', () => {
@@ -306,12 +321,12 @@ describe('产物采纳卡片', { skip: JSDOM_SKIP }, () => {
   });
 
   test('带上当前目标', () => {
-    assert.equal(acceptSent.target.kind, 'plan');
-    assert.equal(acceptSent.target.chapterRelPath, 'chapters/012-夜入青云.md');
+    assert.equal(acceptSent.target.kind, 'plot');
+    assert.equal(acceptSent.target.plotRelPath, '.novelforge/plots/012-夜入青云.md');
   });
 
   test('带上气泡里的文本', () => {
-    assert.equal(acceptSent.text, '{"本章目标":"进宗门"}', acceptSent.text);
+    assert.equal(acceptSent.text, '{"目标":"进宗门"}', acceptSent.text);
   });
 
   // 会覆盖已有内容时按钮必须说出来——一个光秃秃的「采纳写入」在四层产物
@@ -319,8 +334,8 @@ describe('产物采纳卡片', { skip: JSDOM_SKIP }, () => {
   test('会覆盖时按钮改文案', () => {
     ui.post({
       type: 'turnDone',
-      turn: turn('a3', 'assistant', '{"本章目标":"换一版"}', {
-        artifact: { where: '第 12 章《夜入青云》 · 细纲', summary: '细纲 · 5/5 节', overwrites: true },
+      turn: turn('a3', 'assistant', '{"目标":"换一版"}', {
+        artifact: { where: '第 12 段《夜入青云》 · 剧情', summary: '剧情 · 4/4 节', overwrites: true },
       }),
     });
     assert.equal(acceptBtn('a3').textContent, '覆盖并写入', acceptBtn('a3').textContent);
@@ -415,7 +430,10 @@ describe('思考过程（推理模型）', { skip: JSDOM_SKIP }, () => {
   test('收尾后思考块还在（从 turn.reasoning 重建）', () => {
     ui.post({
       type: 'turnDone',
-      turn: turn('a1', 'assistant', '灯昏。', { reasoning: '先确定场景：夜里的旧书店。再补细节。' }),
+      turn: turn('a1', 'assistant', '灯昏。', {
+        reasoning: '先确定场景：夜里的旧书店。再补细节。',
+        artifact: { where: '第 12 段《夜入青云》 · 正文', summary: '正文 · 1 场', overwrites: false },
+      }),
     });
     ui.post({ type: 'busy', value: false });
     assert.ok(det());
@@ -429,18 +447,18 @@ describe('思考过程（推理模型）', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.bodyOf('a1').getAttribute('contenteditable'), 'true');
   });
 
-  // 最关键的一条：采纳写入章节时绝不能带上思考内容。
+  // 最关键的一条：采纳落盘时绝不能带上思考内容。
   test('采纳的文本不含思考内容', () => {
     const accept = [...ui.bubble('a1').querySelectorAll('.msg-actions button')]
       .find((b) => b.textContent === '采纳写入');
     ui.clickEl(accept);
-    acceptSent = ui.sent.filter((m) => m.type === 'accept').pop();
+    acceptSent = ui.sent.filter((m) => m.type === 'acceptArtifact').pop();
     assert.ok(acceptSent && !acceptSent.text.includes('先确定场景'),
-      acceptSent ? JSON.stringify(acceptSent.text) : '没发出 accept');
+      acceptSent ? JSON.stringify(acceptSent.text) : '没发出 acceptArtifact');
   });
 
   test('采纳的文本就是正文', () => {
-    assert.ok(acceptSent, '没发出 accept');
+    assert.ok(acceptSent, '没发出 acceptArtifact');
     assert.equal(acceptSent.text, '灯昏。');
   });
 

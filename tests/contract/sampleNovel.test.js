@@ -4,6 +4,10 @@
  *
  * 这是**只读**断言：任何写入类用例都不许碰 sample-novel（写了这里就会红），
  * 需要写盘的先经 helpers/tmpProject.js 的 copyFixture 复制一份。
+ *
+ * 指纹链的轴是**剧情段**：`plots/NNN-标题.md` 是身份，正文与摘要按同一个
+ * 词干镜像到 `manuscripts/` 与 `summaries/`。`chapters/` 是作者的发布区，
+ * 不进 manifest、不参与任何指纹——这里连它「没被算进去」一起验。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -23,8 +27,13 @@ function contentHash(raw) {
     .slice(0, 16);
 }
 
-/** 章节清单要在收集用例时就读到（每章生成四条用例），所以放在模块顶层。 */
-const manifest = JSON.parse(fs.readFileSync(path.join(SAMPLE, '.novelforge/project.json'), 'utf8'));
+const read = (rel) => fs.readFileSync(path.join(SAMPLE, rel), 'utf8');
+
+/** 剧情段清单要在收集用例时就读到（每段生成好几条用例），所以放在模块顶层。 */
+const manifest = JSON.parse(read('.novelforge/project.json'));
+
+/** 段路径 → 镜像词干（`.novelforge/plots/001-楔子.md` → `001-楔子`）。 */
+const stemOf = (file) => path.basename(file, path.extname(file));
 
 describe('示例工程数据一致性', () => {
   let md;
@@ -33,42 +42,68 @@ describe('示例工程数据一致性', () => {
     md = loadModule('src/core/model/markdown.ts');
   });
 
-  test('manifest 章节数与磁盘一致', () => {
-    // 用真实的章节判定规则过滤，而不是写死 .md——章节可以是任意非二进制扩展名，
-    // 这条断言要跟着规则走，不然示例工程里加一份 .txt 章节它就误报。
-    const chapterFile = loadModule('src/core/model/chapterFile.ts');
-    const files = fs
-      .readdirSync(path.join(SAMPLE, 'chapters'))
-      .filter((f) => chapterFile.isChapterFileName(f));
-    assert.equal(manifest.chapters.length, files.length);
+  test('manifest 段数与磁盘一致', () => {
+    const files = fs.readdirSync(path.join(SAMPLE, '.novelforge/plots')).filter((f) => f.endsWith('.md'));
+    assert.equal(manifest.plots.length, files.length);
   });
 
-  describe('每章的指纹链', () => {
-    for (const entry of manifest.chapters) {
-      test(`第 ${entry.order} 章 contentHash 正确`, () => {
-        const h = contentHash(fs.readFileSync(path.join(SAMPLE, entry.file), 'utf8'));
-        assert.equal(h, entry.contentHash);
+  // 版本号跟着 manifest 结构走：读到旧版本号的代码会重扫一遍磁盘，
+  // 而不是拿着 `chapters` 字段当剧情段用。
+  test('manifest 是新版结构', () => {
+    assert.equal(manifest.version, 2, JSON.stringify(manifest.version));
+    assert.ok(Array.isArray(manifest.plots), typeof manifest.plots);
+    assert.equal(manifest.chapters, undefined);
+  });
+
+  // 发布区不进 manifest：章节是作者从 manuscripts/ 切出来的成品，
+  // 工具不分析它的内容，也就没有指纹可言。示例工程里那一份 README.md
+  // 没有数字前缀，按章节判定规则本来就不算章节。
+  test('发布区不参与指纹链', () => {
+    const chapterFile = loadModule('src/core/model/chapterFile.ts');
+    const chapters = fs
+      .readdirSync(path.join(SAMPLE, 'chapters'))
+      .filter((f) => chapterFile.isChapterFileName(f));
+    assert.deepEqual(chapters, [], chapters.join('|'));
+  });
+
+  describe('每段的指纹链', () => {
+    for (const entry of manifest.plots) {
+      const stem = stemOf(entry.file);
+      const manuscriptRel = `.novelforge/manuscripts/${stem}.md`;
+      const summaryRel = `.novelforge/summaries/${stem}.md`;
+
+      test(`第 ${entry.no} 段有剧情文件`, () => {
+        assert.ok(fs.existsSync(path.join(SAMPLE, entry.file)), entry.file);
       });
 
-      test(`第 ${entry.order} 章摘要标记为最新`, () => {
-        const h = contentHash(fs.readFileSync(path.join(SAMPLE, entry.file), 'utf8'));
-        assert.equal(entry.summaryHash, h);
+      test(`第 ${entry.no} 段有正文`, () => {
+        assert.ok(fs.existsSync(path.join(SAMPLE, manuscriptRel)), manuscriptRel);
       });
 
-      test(`第 ${entry.order} 章摘要文件存在`, () => {
-        const sumPath = path.join(
-          SAMPLE, '.novelforge/summaries', `${String(entry.order).padStart(3, '0')}.md`
-        );
-        assert.ok(fs.existsSync(sumPath), sumPath);
+      // 哈希的是**正文本身**：不含 frontmatter、不含标题行——与
+      // `readManuscript` 一字对齐（写一次 beatsHash 不该让摘要立刻过期）。
+      test(`第 ${entry.no} 段 contentHash 正确`, () => {
+        const body = md.parseMarkdown(read(manuscriptRel).trim()).body;
+        assert.equal(contentHash(md.stripH1(body)), entry.contentHash);
       });
 
-      test(`第 ${entry.order} 章摘要 sourceHash 匹配正文`, () => {
-        const h = contentHash(fs.readFileSync(path.join(SAMPLE, entry.file), 'utf8'));
-        const sumPath = path.join(
-          SAMPLE, '.novelforge/summaries', `${String(entry.order).padStart(3, '0')}.md`
-        );
-        const sumFm = md.parseMarkdown(fs.readFileSync(sumPath, 'utf8')).frontmatter;
-        assert.equal(sumFm.sourceHash, h);
+      test(`第 ${entry.no} 段摘要标记为最新`, () => {
+        assert.equal(entry.summaryHash, entry.contentHash);
+      });
+
+      test(`第 ${entry.no} 段摘要文件存在`, () => {
+        assert.ok(fs.existsSync(path.join(SAMPLE, summaryRel)), summaryRel);
+      });
+
+      test(`第 ${entry.no} 段摘要 sourceHash 匹配正文`, () => {
+        const sumFm = md.parseMarkdown(read(summaryRel)).frontmatter;
+        assert.equal(sumFm.sourceHash, entry.contentHash);
+      });
+
+      // 正文的 frontmatter 指回它属于哪一段：改名时靠它认亲。
+      test(`第 ${entry.no} 段正文指回剧情段`, () => {
+        const fm = md.parseMarkdown(read(manuscriptRel)).frontmatter;
+        assert.equal(fm.plot, entry.file, JSON.stringify(fm.plot));
       });
     }
   });

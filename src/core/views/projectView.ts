@@ -1,21 +1,23 @@
-import { buildCastIndex, describeChapters } from './cast';
+import { buildCastIndex, describePlots } from './cast';
 import { listActiveFailures } from '../runtime/errorLog';
 import { scoped } from '../runtime/logger';
 import { SECTION_PLACEHOLDER } from '../model/markdown';
+import { deriveBookStage } from '../model/pipeline';
 import { NovelProject } from '../model/project';
 import { describeScene } from '../model/sceneFile';
 import { SUMMARY_SECTION_KEYS } from '../model/types';
-import { ChapterPipeline, buildChapterPipeline, buildPipelineIndex } from './pipeline';
+import { PlotPipeline, buildPlotPipeline, buildPipelineIndex } from './pipeline';
 import {
   CastConflictView,
   CastEntry,
   CastSummary,
-  ChapterPipelineView,
-  ChapterSummaryView,
+  PlotPipelineView,
+  PlotSummaryView,
   ProjectChapterNode,
   ProjectDirNode,
   ProjectFileNode,
   ProjectNode,
+  ProjectPlotNode,
   ProjectTree,
 } from '../protocol';
 
@@ -30,17 +32,21 @@ let lastConflictSignature = '';
 /**
  * 工程页的数据来源。
  *
- * 0.2.x 之前这里是一个 TreeDataProvider，靠 VS Code 的树控件渲染。
- * 改成 webview 后只需要一份可序列化的快照——树控件那套
- * getChildren/TreeItem/ThemeIcon 全部不再需要，展开状态由前端自己管。
+ * ## 两组，两种职责
  *
- * 章节 / 角色 / 设定三个区都是任意深度的目录树：数据层给出扁平的
- * 文件清单（含各级子目录里的），这里按 relPath 折成层级。
+ * - **剧情**：创作流水线在界面上的落点。每一行带阶段徽章、四段进度、⟳ 标记，
+ *   右键能切进任意一层。扁平列表（`plots/` 本身扁平），顺序即写作顺序。
+ * - **章节**：作者从 `manuscripts/` 切出来的发布成品。**纯文件列表**——
+ *   打开、改名、移动、删除、草稿，没有任何流水线状态。工具不分析它的内容。
+ *
+ * 角色 / 设定两个区仍是任意深度的目录树：数据层给出扁平的文件清单（含各级
+ * 子目录里的），这里按 relPath 折成层级。
  */
 export async function buildProjectTree(project: NovelProject): Promise<ProjectTree> {
   const styleGuidePath = project.relPath(project.stylePath);
   const outlinePath = project.relPath(project.outlinePath);
   const globalSummaryPath = project.relPath(project.globalSummaryPath);
+  const plotsRoot = project.relPath(project.plotsDir);
   const chaptersRoot = project.relPath(project.chaptersDir);
   const charactersRoot = project.relPath(project.charactersDir);
   const loreRoot = project.relPath(project.loreDir);
@@ -50,10 +56,12 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       initialized: false,
       title: '',
       author: '',
+      plotCount: 0,
       chapterCount: 0,
       totalWords: 0,
       staleCount: 0,
       summarizedCount: 0,
+      plots: [],
       chapters: [],
       characters: [],
       lore: [],
@@ -62,6 +70,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       castConflicts: [],
       failures: {},
       summaryCount: 0,
+      plotsRoot,
       chaptersRoot,
       charactersRoot,
       loreRoot,
@@ -69,6 +78,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       styleGuidePath,
       outlinePath,
       globalSummaryPath,
+      bookStage: 'outline',
     };
   }
 
@@ -82,36 +92,41 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       project.listFolders(project.loreDir),
       // 一次遍历拿到全部已存在的草稿，胜过每章一次 stat。
       project.listDraftPaths(),
-      // 全书流水线索引：大纲、manifest 与全书摘要都只读一次摊给所有章节。
+      // 全书流水线索引：大纲、manifest 与全书摘要都只读一次摊给所有段。
       buildPipelineIndex(project),
     ]);
-  // manifest 用流水线那一趟读到的同一份，不再单独读一次。
-  const { pipelines, summaries, manifest } = pipelineIndex;
+  // manifest、全书摘要与大纲原文都用流水线那一趟读到的同一份，不再单独读一次。
+  const { pipelines, summaries, manifest, outline } = pipelineIndex;
 
-  const chapterLeaves: ProjectChapterNode[] = [];
-  for (const chapter of chapters) {
-    // 以摘要文件里的 sourceHash 为准，与 staleChapters() 同一套判据。
-    // 摘要走流水线那一趟已经读过的索引，不再逐章重读。
-    const summary = summaries.get(chapter.relPath);
+  const plotRows: ProjectPlotNode[] = [...pipelines.values()]
+    .sort((a, b) => a.no - b.no || a.plotRelPath.localeCompare(b.plotRelPath))
+    .map((p) => ({
+      no: p.no,
+      title: p.title,
+      relPath: p.plotRelPath,
+      wordCount: p.manuscript.words,
+      stale: p.summary.stale,
+      summaryPath: project.summaryMirrorRelPath(p.plotRelPath),
+      manuscriptPath: p.manuscript.relPath,
+      stage: p.stage,
+      progress: p.progress,
+      upstreamStale: isUpstreamStale(p),
+    }));
+
+  // 章节区只列文件。没有摘要、没有徽章、没有进度——它是成品，不是待办，
+  // 所以这里一次摘要都不用读。
+  const chapterLeaves: ProjectChapterNode[] = chapters.map((chapter) => {
     const draftPath = project.draftRelPathFor(chapter.relPath) ?? '';
-    const pipeline = pipelines.get(chapter.relPath);
-    chapterLeaves.push({
+    return {
       kind: 'chapter',
       order: chapter.order,
       title: chapter.title,
       relPath: chapter.relPath,
       wordCount: chapter.wordCount,
-      stale: !summary || summary.sourceHash !== chapter.contentHash,
-      summaryPath: summary?.relPath ?? '',
       draftPath,
       hasDraft: draftPath !== '' && draftPaths.has(draftPath),
-      // 流水线只带这两个精简字段：完整视图（含场景清单）走 requestPipeline，
-      // 五百章各带一份会把每次全量推树变成几百 KB。
-      stage: pipeline?.stage ?? 'plan',
-      progress: pipeline?.progress ?? { plan: 0, scene: 0, manuscript: 0, summary: 0 },
-      upstreamStale: !!pipeline && isUpstreamStale(pipeline),
-    });
-  }
+    };
+  });
 
   const characterLeaves = characters.map<ProjectFileNode>((card) => ({
     kind: 'file',
@@ -138,18 +153,18 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     }
     const updatedThrough = member.card.updatedThrough ?? 0;
     castByCard[member.card.relPath] = {
-      chapters: member.chapters,
-      detail: describeChapters(member.chapters),
+      plots: member.plots,
+      detail: describePlots(member.plots),
       updatedThrough,
-      // 上次更新之后又出场了几章——角色行上的「有新章节可更新」提示吃这个数。
-      pending: member.chapters.filter((o) => o > updatedThrough).length,
+      // 上次更新之后又出场了几段——角色行上的「有新内容可更新」提示吃这个数。
+      pending: member.plots.filter((n) => n > updatedThrough).length,
     };
   }
   const cast: CastEntry[] = castIndex.unknown.map((member) => ({
     name: member.name,
     aliases: member.aliases,
-    chapters: member.chapters,
-    detail: describeChapters(member.chapters),
+    plots: member.plots,
+    detail: describePlots(member.plots),
   }));
 
   const bySlug = new Map(characters.map((c) => [c.slug, c]));
@@ -163,18 +178,23 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   }));
   reportConflicts(castConflicts);
 
-  const staleCount = chapterLeaves.filter((r) => r.stale).length;
-  // 未解决的失败记录，一次查询拿全部（按 relPath 索引，三个区共用一张表）。
+  // 摘要新鲜度只算**写过正文**的段：没写正文的段没有摘要是正常的，
+  // 算进来会让顶部黄条报一个永远清不掉的待办数。
+  const withText = plotRows.filter((p) => p.wordCount > 0);
+  const staleCount = withText.filter((p) => p.stale).length;
+  // 未解决的失败记录，一次查询拿全部（按 relPath 索引，各区共用一张表）。
   // 库不可用时是空对象——工程页照常渲染，只是没有感叹号。
   const failures = await listActiveFailures(project);
   return {
     initialized: true,
     title: manifest.title,
     author: manifest.author,
+    plotCount: plotRows.length,
     chapterCount: chapters.length,
-    totalWords: chapters.reduce((sum, c) => sum + c.wordCount, 0),
+    totalWords: plotRows.reduce((sum, p) => sum + p.wordCount, 0),
     staleCount,
-    summarizedCount: chapterLeaves.length - staleCount,
+    summarizedCount: withText.length - staleCount,
+    plots: plotRows,
     chapters: nest(chaptersRoot, chapterLeaves, chapterDirs),
     characters: nest(charactersRoot, characterLeaves, characterDirs),
     lore: nest(loreRoot, loreLeaves, loreDirs),
@@ -183,6 +203,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     castConflicts,
     failures,
     summaryCount: castIndex.summaryCount,
+    plotsRoot,
     chaptersRoot,
     charactersRoot,
     loreRoot,
@@ -190,47 +211,52 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     styleGuidePath,
     outlinePath,
     globalSummaryPath,
+    bookStage: deriveBookStage({
+      outlineFilled: outline.trim().length > 0,
+      plotCount: plotRows.length,
+    }),
   };
 }
 
 /**
- * 一章流水线的完整视图（创作页的流水线条与场景列表）。
+ * 一段流水线的完整视图（创作页的流水线条与场景列表）。
  *
- * 与 `buildChapterSummaryView` 同一套取舍：数据小、只在切目标时取一次，
+ * 与 `buildPlotSummaryView` 同一套取舍：数据小、只在切目标时取一次，
  * 所以单独一条消息，不塞进每次文件变动都全量重推的 `ProjectTree`。
  *
- * 章节不存在时给一份空壳而不是抛——作者可能刚把那一章改了名，
- * 界面该显示「这一章没了」而不是崩掉。
+ * 段不存在时给一份空壳而不是抛——作者可能刚把那一段改了名，
+ * 界面该显示「这一段没了」而不是崩掉。
  */
-export async function buildChapterPipelineView(
+export async function buildPlotPipelineView(
   project: NovelProject,
-  chapterRelPath: string
-): Promise<ChapterPipelineView> {
-  const chapter = (await project.listChapters()).find((c) => c.relPath === chapterRelPath);
-  if (!chapter) {
+  plotRelPath: string
+): Promise<PlotPipelineView> {
+  const plot = await project.readPlot(plotRelPath);
+  if (!plot) {
     return {
-      chapterRelPath,
-      order: 0,
+      plotRelPath,
+      no: 0,
       title: '',
+      plot: { relPath: plotRelPath, filled: false, upstreamStale: false },
       scenes: [],
-      manuscript: { words: 0, beatsStale: false },
+      manuscript: { relPath: '', words: 0, beatsStale: false },
       summary: { exists: false, stale: true },
-      stage: 'plan',
-      progress: { plan: 0, scene: 0, manuscript: 0, summary: 0 },
+      stage: 'plot',
+      progress: { plot: 0, scene: 0, manuscript: 0, summary: 0 },
     };
   }
-  const p = await buildChapterPipeline(project, chapter);
+  const p = await buildPlotPipeline(project, plot);
   return {
-    chapterRelPath: p.chapterRelPath,
-    order: p.order,
+    plotRelPath: p.plotRelPath,
+    no: p.no,
     title: p.title,
-    plan: p.plan,
+    plot: p.plot,
     scenes: p.scenes.map((s) => ({
       no: s.no,
       title: s.title,
       relPath: s.relPath,
       // 一行摘要在后端生成：创作页的场景列表、工程页的场景子节点、
-      // 细纲阶段装配进 prompt 的场景一览，三处共用同一份文案。
+      // 装配进 prompt 的场景一览，三处共用同一份文案。
       detail: describeScene(s),
       status: s.status,
       ready: s.ready,
@@ -244,8 +270,8 @@ export async function buildChapterPipelineView(
 }
 
 /** 有任何一层的上游变过。工程页那一行据此挂提示点。 */
-function isUpstreamStale(p: ChapterPipeline): boolean {
-  return !!p.plan?.upstreamStale || p.manuscript.beatsStale || p.scenes.some((s) => s.upstreamStale);
+function isUpstreamStale(p: PlotPipeline): boolean {
+  return p.plot.upstreamStale || p.manuscript.beatsStale || p.scenes.some((s) => s.upstreamStale);
 }
 
 /**
@@ -274,29 +300,30 @@ function reportConflicts(conflicts: CastConflictView[]): void {
 }
 
 /**
- * 单章摘要的浮窗视图。工程页鼠标悬停在章节行上时按需取一次。
+ * 单段摘要的浮窗视图。工程页鼠标悬停在剧情行上时按需取一次。
  *
- * 与 `buildProjectTree` 分开是有意的：摘要正文一章上千字，而那棵树每次
+ * 与 `buildProjectTree` 分开是有意的：摘要正文上千字，而那棵树每次
  * 文件变动都全量重推，把摘要塞进去等于每保存一次正文就多推几百 KB。
  *
- * 摘要不存在不是错误——章节可以还没总结过。这时给 `exists: false`，
+ * 摘要不存在不是错误——那一段可以还没总结过。这时给 `exists: false`，
  * 让前端说清「还没有摘要」，而不是弹一个空浮窗或报错。
  */
-export async function buildChapterSummaryView(
+export async function buildPlotSummaryView(
   project: NovelProject,
-  order: number
-): Promise<ChapterSummaryView> {
-  const chapter = (await project.listChapters()).find((c) => c.order === order);
-  // 摘要按章节身份（文件名+路径）读取；章节不存在（幽灵章号）时无摘要可读。
-  const summary = chapter ? await project.readSummary(chapter) : undefined;
-  const title = chapter?.title ?? '';
+  plotRelPath: string
+): Promise<PlotSummaryView> {
+  const plot = await project.readPlot(plotRelPath);
+  const summary = plot ? await project.readSummary(plot.relPath) : undefined;
+  const title = plot?.title ?? '';
+  const no = plot?.no ?? 0;
 
   if (!summary) {
-    return { order, title, exists: false, stale: true, relPath: '', sections: [] };
+    return { no, title, exists: false, stale: true, relPath: '', sections: [] };
   }
-  // 与 staleChapters() / buildProjectTree 同一套判据：以 sourceHash 为准。
-  // 章节本身没了（摘要成了孤儿）也算过期——浮窗里那句提示总比默认「新鲜」诚实。
-  const stale = !chapter || summary.sourceHash !== chapter.contentHash;
+  // 与 stalePlots() / buildProjectTree 同一套判据：以 sourceHash 为准。
+  // 段本身没了（摘要成了孤儿）也算过期——浮窗里那句提示总比默认「新鲜」诚实。
+  const manuscript = plot ? await project.readManuscript(plot.relPath) : undefined;
+  const stale = !manuscript || summary.sourceHash !== manuscript.contentHash;
 
   const parsed = SUMMARY_SECTION_KEYS.map((name) => ({
     name: name as string,
@@ -314,7 +341,7 @@ export async function buildChapterSummaryView(
   if (sections.length === 0 && parsed.every((s) => s.text === '') && summary.content.trim() !== '') {
     sections.push({ name: '摘要', text: summary.content.trim() });
   }
-  return { order, title, exists: true, stale, relPath: summary.relPath, sections };
+  return { no, title, exists: true, stale, relPath: summary.relPath, sections };
 }
 
 /**

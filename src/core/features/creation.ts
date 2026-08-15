@@ -10,12 +10,12 @@
  * 1. **生成与落盘分开**。`generate` 只把文本交给调用方，一个字都不写磁盘；
  *    `acceptArtifact` 才写，且只在用户点了采纳之后。中间那一步是用户看着
  *    产物决定要不要的机会——少了它，「不静默覆盖」无从谈起。
- * 2. **覆盖已有产物前必须审阅**。改写一份写了三天的细纲和写一份新的，
+ * 2. **覆盖已有产物前必须审阅**。改写一份写了三天的剧情和写一份新的，
  *    在界面上是同一个按钮，差别只有磁盘上有没有东西。所以 `acceptArtifact`
  *    在目标已存在且内容不同时走 `reviewReplace`（插件开 diff，独立版弹确认），
  *    与角色卡更新同一套。
  * 3. **失败留在出错的东西身上**。生成失败往 `errorLog` 记一条挂在目标
- *    章节上，成功时清掉。只有一条 toast 的话，用户扭头就看不见了。
+ *    剧情段上，成功时清掉。只有一条 toast 的话，用户扭头就看不见了。
  */
 import { BuildRequest, BuiltContext, buildContext } from '../context/builder';
 import { describeUsage, recordUsage } from '../context/tokenizer';
@@ -27,17 +27,17 @@ import { getHost } from '../host';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { exists, hash, readText, sanitizeFileName, writeText } from '../model/fs';
 import { NovelProject } from '../model/project';
-import { renderPlanFile, PlanSections } from '../model/planFile';
+import { Plot, PlotSections, emptyPlotSections, renderPlotFile } from '../model/plotFile';
 import { emptySceneSections, isSceneReady, renderSceneFile, sceneFileName } from '../model/sceneFile';
-import type { ChapterOutlineItem, SceneOutlineItem } from './artifact';
+import type { PlotOutlineItem, SceneOutlineItem } from './artifact';
 import {
   CAPABILITY_LABEL,
   CreationAction,
   CreationTarget,
   STAGE_LABEL,
-  chapterOfTarget,
   describeTarget,
   outputKindOf,
+  plotOfTarget,
 } from '../model/pipeline';
 import {
   describeModelIssue,
@@ -46,9 +46,8 @@ import {
   resolveModelRef,
   withDraftProvider,
 } from '../model/providers';
-import { Chapter } from '../model/types';
 import { Artifact, describeArtifact, isArtifactEmpty, parseArtifact } from './artifact';
-import { planContentHash } from '../views/pipeline';
+import { plotContentHash } from '../views/pipeline';
 
 const log = scoped('创作');
 
@@ -236,10 +235,10 @@ export class CreationSession {
     switch (artifact.kind) {
       case 'outlineDoc':
         return this.acceptOutline(artifact.text);
-      case 'chapterList':
-        return this.acceptChapterList(artifact.chapters);
-      case 'plan':
-        return this.acceptPlan(target, artifact.sections);
+      case 'plotList':
+        return this.acceptPlotList(artifact.plots);
+      case 'plot':
+        return this.acceptPlot(target, artifact.sections);
       case 'sceneList':
         return this.acceptSceneList(target, artifact.scenes);
       case 'scene':
@@ -261,92 +260,83 @@ export class CreationSession {
   }
 
   /**
-   * 大纲拆章：为每一章**建一个空章节文件 + 一份细纲**。
+   * 大纲拆段：为每一段建一份只有「目标」的剧情文件。
    *
-   * 建空章节而不是只建细纲，是因为「这一章存在但还没写」在这个项目里的
-   * 表示就是一个 0 字的章节文件——细纲、场景、草稿、摘要四套镜像路径全都
-   * 挂在章节的 relPath 上（见 project.ts 的 underChapters）。没有章节文件，
-   * 细纲就无处安放。
+   * **不建章节文件**。从前这里会顺手为每一章建一个 0 字的正文文件，因为那时
+   * 细纲/场景/摘要三套镜像路径全挂在章节的 relPath 上，没有章节文件产物就
+   * 无处安放。现在伴生路径挂在剧情段自己身上，`chapters/` 是作者切好正文之后
+   * 才会有东西的发布区——拆个段就往那里塞几十个空文件，只会让他以为工具替他
+   * 分好了章。
    *
-   * **已存在的序号一律跳过，绝不覆盖。**
+   * **已存在的段号一律跳过，绝不覆盖。**
    */
-  private async acceptChapterList(chapters: ChapterOutlineItem[]): Promise<AcceptResult> {
+  private async acceptPlotList(plots: PlotOutlineItem[]): Promise<AcceptResult> {
     const outlineHash = await this.outlineHash();
-    let next = await this.project.nextChapterOrder();
+    let next = await this.project.nextPlotNo();
+    const taken = new Set((await this.project.listPlots()).map((p) => p.no));
     const created: string[] = [];
     const skipped: number[] = [];
 
-    for (const item of chapters) {
-      const order = item.order && item.order > 0 ? item.order : next;
-      if (await this.project.getChapter(order)) {
-        skipped.push(order);
-        next = Math.max(next, order + 1);
+    for (const item of plots) {
+      const no = item.no && item.no > 0 ? item.no : next;
+      if (taken.has(no)) {
+        skipped.push(no);
+        next = Math.max(next, no + 1);
         continue;
       }
-      const title = sanitizeFileName(item.title) || `第${order}章`;
-      const chapterRel = await this.project.createChapter(order, title);
-      await this.project.writePlan(chapterRel, {
-        chapterRelPath: chapterRel,
-        order,
-        title,
+      taken.add(no);
+      const rel = await this.project.writePlot({
+        no,
+        // 标题原样存进 frontmatter，**不预先清洗**：清洗是为了拼文件名，
+        // 由 `writePlot` 自己做。在这里洗一遍的话，标题里的空格会变成短横线，
+        // 而空标题会变成「未命名」四个字——那是个假标题，还会进上下文。
+        title: item.title,
         arc: item.arc,
         upstreamHash: outlineHash,
         done: false,
-        sections: { 本章目标: item.goal, 开头: '', 结尾: '', 冲突与节奏: '', 伏笔与回收: '' },
+        // 只填「目标」：这一步产出的是骨架，剧情脉络要另外一次调用才排得出。
+        // 「目标」不算 filled（isPlotFilled 只看剧情脉络），所以流水线会如实
+        // 停在「待写剧情」，不会因为骨架存在就显示已规划。
+        sections: { ...emptyPlotSections(), 目标: item.goal },
       });
-      created.push(chapterRel);
-      next = Math.max(next, order + 1);
+      created.push(rel);
+      next = Math.max(next, no + 1);
     }
 
     await this.project.syncManifest();
-    // 跳过的必须说出来。默默少建三章，作者要到写到那里才发现。
-    const note = skipped.length > 0 ? `，跳过已存在的第 ${skipped.join('、')} 章` : '';
-    log.info(`已建 ${created.length} 章`, `${created.join('、') || '（无）'}${note}`);
+    // 跳过的必须说出来。默默少建三段，作者要到写到那里才发现。
+    const note = skipped.length > 0 ? `，跳过已存在的第 ${skipped.join('、')} 段` : '';
+    log.info(`已建 ${created.length} 段剧情`, `${created.join('、') || '（无）'}${note}`);
     return {
       relPath: created[0],
-      message: `已新建 ${created.length} 章（含细纲）${note}。`,
+      message: `已新建 ${created.length} 段剧情${note}。`,
     };
   }
 
-  /** 章节细纲：整份替换，覆盖前审阅。 */
-  private async acceptPlan(target: CreationTarget, sections: PlanSections): Promise<AcceptResult> {
-    const chapter = await this.requireChapter(target);
-    const rel = this.project.planMirrorRelPath(chapter.relPath, false);
-    if (!rel) {
-      throw new Error(`这一章不在章节目录下，无法建细纲：${chapter.relPath}`);
+  /** 一段剧情：整份替换，覆盖前审阅。 */
+  private async acceptPlot(target: CreationTarget, sections: PlotSections): Promise<AcceptResult> {
+    const plot = await this.requirePlot(target);
+    const next = renderPlotFileFor(plot, sections, await this.outlineHash());
+    if (!(await confirmOverwrite(this.project, `第 ${plot.no} 段的剧情`, plot.relPath, next))) {
+      return { skipped: true, message: '没有改动这一段。' };
     }
-    const existing = await this.project.readPlan(chapter.relPath);
-    const next = renderPlanFile({
-      chapterRelPath: chapter.relPath,
-      order: chapter.order,
-      title: chapter.title,
-      arc: existing?.arc ?? '',
-      targetWords: existing?.targetWords,
-      upstreamHash: await this.outlineHash(),
-      done: existing?.done ?? false,
-      sections,
-    });
-    if (!(await confirmOverwrite(this.project, `第 ${chapter.order} 章的细纲`, rel, next))) {
-      return { skipped: true, message: '没有改动细纲。' };
-    }
-    log.info(`第 ${chapter.order} 章细纲已写入`, rel);
-    return { relPath: rel, message: `已写入 ${rel}` };
+    log.info(`第 ${plot.no} 段剧情已写入`, plot.relPath);
+    return { relPath: plot.relPath, message: `已写入 ${plot.relPath}` };
   }
 
   /**
-   * 细纲拆场景：为每一场建一个场景文件。
+   * 剧情拆场景：为每一场建一个场景文件。
    *
-   * 与拆章一样**不覆盖**：已经存在的场号跳过。作者花时间设计过的场景
+   * 与拆段一样**不覆盖**：已经存在的场号跳过。作者花时间设计过的场景
    * 被一次重新拆分抹掉，是这条路上最贵的错误。
    */
   private async acceptSceneList(
     target: CreationTarget,
     scenes: SceneOutlineItem[]
   ): Promise<AcceptResult> {
-    const chapter = await this.requireChapter(target);
-    const plan = await this.project.readPlan(chapter.relPath);
-    const upstreamHash = plan ? planContentHash(plan) : '';
-    const existing = await this.project.listScenes(chapter.relPath);
+    const plot = await this.requirePlot(target);
+    const upstreamHash = plotContentHash(plot);
+    const existing = await this.project.listScenes(plot.relPath);
     const taken = new Set(existing.map((s) => s.no));
 
     let no = 0;
@@ -356,8 +346,8 @@ export class CreationSession {
         no++;
       } while (taken.has(no));
       taken.add(no);
-      const rel = await this.project.writeScene(chapter.relPath, {
-        chapterRelPath: chapter.relPath,
+      const rel = await this.project.writeScene(plot.relPath, {
+        plotRelPath: plot.relPath,
         no,
         title: item.title,
         place: item.place,
@@ -376,7 +366,7 @@ export class CreationSession {
     }
 
     const note = existing.length > 0 ? `，原有 ${existing.length} 场未动` : '';
-    log.info(`第 ${chapter.order} 章拆出 ${created.length} 场`, `${created.join('、')}${note}`);
+    log.info(`第 ${plot.no} 段拆出 ${created.length} 场`, `${created.join('、')}${note}`);
     return { relPath: created[0], message: `已拆出 ${created.length} 场${note}。` };
   }
 
@@ -385,86 +375,73 @@ export class CreationSession {
     target: CreationTarget,
     artifact: Extract<Artifact, { kind: 'scene' }>
   ): Promise<AcceptResult> {
-    const chapter = await this.requireChapter(target);
+    const plot = await this.requirePlot(target);
     const sceneNo = target.kind === 'scene' ? target.sceneNo : undefined;
     if (sceneNo === undefined) {
       throw new Error('没有指定是哪一场。');
     }
-    const dir = this.project.sceneDirForChapter(chapter.relPath);
-    if (!dir) {
-      throw new Error(`这一章不在章节目录下，无法建场景：${chapter.relPath}`);
-    }
 
-    const existing = await this.project.readScene(chapter.relPath, sceneNo);
-    const plan = await this.project.readPlan(chapter.relPath);
+    const existing = await this.project.readScene(plot.relPath, sceneNo);
     // 标题不在场景卡的产出契约里（它决定文件名，由拆场景那一步定下来）。
     // 改写一张卡不该顺手改掉文件名，否则同一场在磁盘上会换个位置。
     const scene = {
-      chapterRelPath: chapter.relPath,
+      plotRelPath: plot.relPath,
       no: sceneNo,
       title: existing?.title || `场景${sceneNo}`,
       place: artifact.place || existing?.place || '',
       time: artifact.time || existing?.time || '',
       characters: artifact.characters.length > 0 ? artifact.characters : (existing?.characters ?? []),
       targetWords: artifact.targetWords ?? existing?.targetWords,
-      upstreamHash: plan ? planContentHash(plan) : (existing?.upstreamHash ?? ''),
+      upstreamHash: plotContentHash(plot),
       // 设计过了就是可以开写了——状态由内容推，不靠调用方记得传。
       status: (isSceneReady(artifact.sections) ? 'ready' : 'draft') as 'ready' | 'draft',
       sections: artifact.sections,
     };
 
     // 场景文件名由「场号 + 标题」决定，所以要审阅的是那个具体路径。
-    const rel = `${this.project.relPath(dir)}/${sceneFileName(scene.no, sanitizeFileName(scene.title))}`;
-    if (!(await confirmOverwrite(this.project, `第 ${chapter.order} 章 · 场景 ${sceneNo}`, rel, renderSceneFile(scene)))) {
+    const dir = this.project.sceneMirrorRelPath(plot.relPath);
+    const rel = `${dir}/${sceneFileName(scene.no, sanitizeFileName(scene.title))}`;
+    if (!(await confirmOverwrite(this.project, `第 ${plot.no} 段 · 场景 ${sceneNo}`, rel, renderSceneFile(scene)))) {
       return { skipped: true, message: '没有改动这一场。' };
     }
     // 经 writeScene 落盘（而不是直接 writeText）：改了标题时它会清掉旧文件名，
     // 否则同一场会以两个文件名并存。
-    const written = await this.project.writeScene(chapter.relPath, scene);
-    log.info(`第 ${chapter.order} 章场景 ${sceneNo} 已写入`, written);
+    const written = await this.project.writeScene(plot.relPath, scene);
+    log.info(`第 ${plot.no} 段场景 ${sceneNo} 已写入`, written);
     return { relPath: written, message: `已写入 ${written}` };
   }
 
   /**
-   * 正文：追加到章节末尾。
+   * 正文：追加到这一段的正文末尾。
    *
    * 写完顺手记一笔 `beatsHash`——正文所依据的场景指纹。少了这一步，
-   * 这一章会永远显示「正文与场景对不上」或永远不显示，两种都是错的。
+   * 这一段会永远显示「正文与场景对不上」或永远不显示，两种都是错的。
+   *
+   * **落在 `manuscripts/`，不是 `chapters/`。** 切成发布章节是作者的活，
+   * 工具不代劳（见 model/plotFile.ts 的文件头）。
    */
   private async acceptManuscript(target: CreationTarget, text: string): Promise<AcceptResult> {
-    const chapter = await this.requireChapter(target);
-    const relPath = await this.project.appendToChapter(chapter, text);
-    await this.project.syncManifest();
+    const plot = await this.requirePlot(target);
+    const relPath = await this.project.appendToManuscript(plot.relPath, text);
 
-    const beatsHash = await this.project.beatsHashFor(chapter.relPath);
+    const beatsHash = await this.project.beatsHashFor(plot.relPath);
     if (beatsHash) {
-      await this.project.markBeatsWritten(chapter.relPath, beatsHash);
+      await this.project.markBeatsWritten(plot.relPath, beatsHash);
     }
     // 写的是某一场时，把那一场标成 written，流水线进度才走得动。
     const sceneNo = target.kind === 'manuscript' ? target.sceneNo : undefined;
     if (sceneNo !== undefined) {
-      const scene = await this.project.readScene(chapter.relPath, sceneNo);
+      const scene = await this.project.readScene(plot.relPath, sceneNo);
       if (scene && scene.status !== 'written') {
-        await this.project.writeScene(chapter.relPath, { ...scene, status: 'written' });
+        await this.project.writeScene(plot.relPath, { ...scene, status: 'written' });
       }
     }
+    await this.project.syncManifest();
 
     log.info(
-      `已追加 ${text.length} 字到第 ${chapter.order} 章`,
-      `${relPath}｜该章摘要将变为过期${sceneNo !== undefined ? `｜场景 ${sceneNo} 已标记写完` : ''}`
+      `已追加 ${text.length} 字到第 ${plot.no} 段`,
+      `${relPath}｜该段摘要将变为过期${sceneNo !== undefined ? `｜场景 ${sceneNo} 已标记写完` : ''}`
     );
-    return { relPath, message: `已写入 ${relPath}` };
-  }
-
-  /**
-   * 采纳到一个**新章节**。与 acceptArtifact 分开：新建要问标题，
-   * 而 target 指的是「现在在改哪个产物」，说不出「要新建哪一章」。
-   */
-  async acceptAsNewChapter(text: string, order: number, title: string): Promise<AcceptResult> {
-    const safe = title.trim() || suggestTitle(text, order);
-    const relPath = await this.project.createChapter(order, safe, text);
-    await this.project.syncManifest();
-    log.info(`已新建第 ${order} 章《${safe}》`, `${relPath}｜${text.length} 字`);
     return { relPath, message: `已写入 ${relPath}` };
   }
 
@@ -523,17 +500,17 @@ export class CreationSession {
 
   // ---------------------------------------------------------------- 内部
 
-  /** target 指向的章节。找不到就抛——采纳路径上，写到一个不存在的地方比报错更糟。 */
-  private async requireChapter(target: CreationTarget): Promise<Chapter> {
-    const relPath = chapterOfTarget(target);
+  /** target 指向的剧情段。找不到就抛——采纳路径上，写到一个不存在的地方比报错更糟。 */
+  private async requirePlot(target: CreationTarget): Promise<Plot> {
+    const relPath = plotOfTarget(target);
     if (!relPath) {
-      throw new Error('这个产物不属于任何章节。');
+      throw new Error('这个产物不属于任何剧情段。');
     }
-    const chapter = (await this.project.listChapters()).find((c) => c.relPath === relPath);
-    if (!chapter) {
-      throw new Error(`找不到章节 ${relPath}，可能刚被改名或删除。`);
+    const plot = await this.project.readPlot(relPath);
+    if (!plot) {
+      throw new Error(`找不到剧情段 ${relPath}，可能刚被改名或删除。`);
     }
-    return chapter;
+    return plot;
   }
 
   private async outlineHash(): Promise<string> {
@@ -542,23 +519,23 @@ export class CreationSession {
 
   /** 目标的人话描述，日志与失败记录共用。 */
   private async describe(target: CreationTarget): Promise<string> {
-    const relPath = chapterOfTarget(target);
+    const relPath = plotOfTarget(target);
     if (!relPath) {
       return describeTarget(target);
     }
-    const chapter = (await this.project.listChapters()).find((c) => c.relPath === relPath);
-    return describeTarget(target, { order: chapter?.order, title: chapter?.title });
+    const plot = await this.project.readPlot(relPath);
+    return describeTarget(target, { no: plot?.no, title: plot?.title });
   }
 
-  /** 失败挂在**章节**上（工程页那一行）。大纲没有归属行，只进日志。 */
+  /** 失败挂在**剧情段**上（工程页那一行）。大纲没有归属行，只进日志。 */
   private async recordFailure(target: CreationTarget, message: string, detail: string): Promise<void> {
-    const relPath = chapterOfTarget(target);
+    const relPath = plotOfTarget(target);
     if (!relPath) {
       return;
     }
     await recordFailure(this.project, {
       scope: '创作',
-      targetKind: 'chapter',
+      targetKind: 'plot',
       targetKey: relPath,
       severity: 'error',
       op: 'creation',
@@ -568,11 +545,29 @@ export class CreationSession {
   }
 
   private async clearFailure(target: CreationTarget): Promise<void> {
-    const relPath = chapterOfTarget(target);
+    const relPath = plotOfTarget(target);
     if (relPath) {
-      await clearFailures(this.project, 'chapter', relPath, 'creation');
+      await clearFailures(this.project, 'plot', relPath, 'creation');
     }
   }
+}
+
+/**
+ * 把新小节套进一段现有剧情，渲染成待写入的文件内容。
+ *
+ * 只换四个小节与 `upstreamHash`，标题/幕/目标字数/done 全部沿用磁盘上那一份——
+ * 「重写剧情」改的是剧情，不该顺手把作者起的标题或标的完成状态一起抹掉。
+ */
+function renderPlotFileFor(plot: Plot, sections: PlotSections, upstreamHash: string): string {
+  return renderPlotFile({
+    no: plot.no,
+    title: plot.title,
+    arc: plot.arc,
+    targetWords: plot.targetWords,
+    upstreamHash,
+    done: plot.done,
+    sections,
+  });
 }
 
 // ---------------------------------------------------------------- 覆盖保护

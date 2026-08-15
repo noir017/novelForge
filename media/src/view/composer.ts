@@ -40,7 +40,7 @@ export function payload(): SendPayload {
     stage: pending?.stage ?? store.session.stage,
     capability: pending?.capability ?? store.session.capability,
     target: store.session.target,
-    targetOrder: Number(el.targetSelect.value) || 1,
+    targetNo: Number(el.targetSelect.value) || 1,
     targetWords: Number(el.targetWords.value) || 0,
     attachments: store.attachments,
     excludedIds: [...store.excluded],
@@ -108,7 +108,7 @@ function send(): void {
     return;
   }
   const p = payload();
-  // 空输入只挡「讨论」——讨论的全部内容就是你那句话。其余命令（生成细纲、
+  // 空输入只挡「讨论」——讨论的全部内容就是你那句话。其余命令（写剧情、
   // 拆场景、写这一场）本来就不需要作者再说什么。后端也有同一道判断。
   if (!p.text.trim() && (commandOf(p.stage, p.capability)?.needsText ?? true)) {
     toast(`「${CAPABILITY_LABEL[p.capability]}」需要先说点什么。`, true);
@@ -127,7 +127,7 @@ function send(): void {
 /**
  * 执行状态机算出的下一步。
  *
- * 工程动作（审阅阶段的「总结本章」）不是一轮对话，走 projectAction；
+ * 工程动作（审阅阶段的「总结这一段」）不是一轮对话，走 projectAction；
  * 其余都当成一次带 stage/capability 的普通发送。
  */
 export function runNextStep(step: NextStepView): void {
@@ -135,9 +135,11 @@ export function runNextStep(step: NextStepView): void {
     return;
   }
   if (step.projectAction) {
-    // 序号由后端随 next 一起给。会话里的 targetOrder 可能还没同步
-    // （旧会话、刚改过名），而工程动作收到 undefined 会静默什么都不做。
-    vscode.postMessage({ type: 'projectAction', action: step.projectAction, order: step.order });
+    // 落点由后端随 next 一起给（target 里就是那一段的路径）。会话里的
+    // targetNo 可能还没同步（旧会话、刚改过名），而工程动作拿不到对象
+    // 会静默什么都不做。
+    const relPath = step.target.kind === 'outline' ? undefined : step.target.plotRelPath;
+    vscode.postMessage({ type: 'projectAction', action: step.projectAction, relPath });
     return;
   }
   setBusy(true);
@@ -167,17 +169,17 @@ export function installComposer(): void {
     syncCommandPalette();
   });
   el.targetWords.addEventListener('input', persistDraft);
-  // 目标下拉框换了一章 → **进入那一章当前该做的那一步**（由后端的状态机判定）。
-  // 旧版一律落到正文层，于是选中一个连细纲都没有的章节，界面直接把作者
+  // 目标下拉框换了一段 → **进入那一段当前该做的那一步**（由后端的状态机判定）。
+  // 旧版一律落到正文层，于是选中一个连剧情都没排的段，界面直接把作者
   // 丢进正文——四层流水线在创作页上等于不存在。
   el.targetSelect.addEventListener('change', () => {
     const relPath = el.targetSelect.selectedOptions[0]?.dataset.rel;
     if (relPath) {
-      vscode.postMessage({ type: 'selectChapter', chapterRelPath: relPath });
+      vscode.postMessage({ type: 'selectPlot', plotRelPath: relPath });
       return;
     }
-    // 没有 relPath 说明选的是「新建第 N 章」——那一章还不存在，
-    // 只能落到大纲；真正新建走工程页或采纳时的「新建章节」。
+    // 没有 relPath 说明选的是「新建第 N 段」——那一段还不存在，
+    // 只能落到大纲；真正新建走工程页的「新建剧情段」。
     vscode.postMessage({ type: 'setTarget', target: { kind: 'outline' } });
   });
   el.modelSelect.addEventListener('change', () =>

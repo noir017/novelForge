@@ -31,8 +31,14 @@ import { openDatabase } from './db';
 import { NovelProject } from '../model/project';
 import { FailureView } from '../protocol';
 
-/** 失败挂在什么东西上。与工程页的三个区一一对应。 */
-export type FailureTargetKind = 'character' | 'chapter' | 'lore';
+/**
+ * 失败挂在什么东西上。与工程页的分区一一对应。
+ *
+ * `plot` 是创作流水线那一区（剧情段）；`chapter` 留着是因为库里可能还躺着
+ * 换轴之前记下的行——它们指向 `chapters/` 下的路径，读出来只是挂不到任何
+ * 一行上，不该因此让整张表读不出来。
+ */
+export type FailureTargetKind = 'character' | 'plot' | 'chapter' | 'lore';
 
 /**
  * - `error`：这次动作整体没成，目标**一字未改**。

@@ -66,14 +66,14 @@ export interface ChatTurn {
   /** ISO 时间戳。 */
   at: string;
   /**
-   * 仅 user 轮：这一轮下的是哪个命令，如 `生成细纲`。**只在不是「讨论」时记**——
+   * 仅 user 轮：这一轮下的是哪个命令，如 `落定剧情`。**只在不是「讨论」时记**——
    * 讨论是默认动作，每条消息都挂一枚「/讨论」的标签是纯噪声。
    *
-   * 存的是标签而不是能力名：`labelOf` 是按阶段具体化过的（细纲阶段的 `split`
+   * 存的是标签而不是能力名：`labelOf` 是按阶段具体化过的（剧情阶段的 `split`
    * 叫「拆成场景」），而历史里那一轮当时在哪个阶段，事后未必还推得出来。
    *
    * 为什么不干脆写进 `content`：那句话会被当成作者的要求装进 prompt。
-   * 「生成细纲」这类命令本来就不需要作者说什么，凭空塞一句「请生成细纲」
+   * 「写剧情」这类命令本来就不需要作者说什么，凭空塞一句「请写剧情」
    * 进上下文，与旧界面逼他手打一句是同一个毛病。界面要显示的东西和要发给
    * 模型的东西是两件事。
    */
@@ -115,15 +115,15 @@ export interface ChatSession {
   createdAt: string;
   updatedAt: string;
   /**
-   * 当前在改哪个产物。会话跟着目标走——切到另一章的细纲通常意味着
+   * 当前在改哪个产物。会话跟着目标走——切到另一段的剧情通常意味着
    * 换个话题，但**不强制新建会话**：作者可能正想拿这一章跟上一章比。
    */
   target: CreationTarget;
   /** 当前阶段与能力。切阶段时能力回落到该阶段的默认值（一律 discuss）。 */
   stage: CreationStage;
   capability: Capability;
-  /** 本会话默认写入的章节序号。目标章节尚未落盘时用它定位「前文」边界。 */
-  targetOrder?: number;
+  /** 本会话默认写入的段号。目标段尚未落盘时用它定位「前文」边界。 */
+  targetNo?: number;
   /** 目标字数，跟着会话走，省得每次重填。 */
   targetWords?: number;
   turns: ChatTurn[];
@@ -214,7 +214,7 @@ export class SessionStore {
    * `seed` 让新会话继承上一个的落点：作者点「新对话」多半是想换个话题
    * 接着在**同一个地方**写，把他弹回全书大纲纯属添乱。
    */
-  create(seed?: { target?: CreationTarget; stage?: CreationStage; targetOrder?: number }): ChatSession {
+  create(seed?: { target?: CreationTarget; stage?: CreationStage; targetNo?: number }): ChatSession {
     const at = nowIso();
     const target = seed?.target ?? { kind: 'outline' };
     const stage = seed?.stage ?? target.kind;
@@ -226,7 +226,7 @@ export class SessionStore {
       target,
       stage,
       capability: DEFAULT_CAPABILITY[stage],
-      targetOrder: seed?.targetOrder,
+      targetNo: seed?.targetNo,
       turns: [],
     };
   }
@@ -286,7 +286,7 @@ export function deriveTitle(text: string): string {
 /**
  * 一轮对话拿什么当「它说了什么」——历史列表的预览与会话标题都用这一份。
  *
- * 命令类的轮次（生成细纲、拆成场景）content 本来就是空的：该说的都在细纲和
+ * 命令类的轮次（写剧情、拆成场景）content 本来就是空的：该说的都在剧情和
  * 大纲里了，作者一个字都不必打。空串会让历史列表出现一排「新对话」，也让
  * 消息流里出现一个空白气泡——两处都得能说出这一轮到底干了什么。
  */
@@ -313,10 +313,9 @@ function summarize(session: ChatSession): SessionSummary {
 /**
  * 容错读取：字段缺失或类型不对时补默认值，绝不抛。
  *
- * **旧会话没有 target/stage/capability**（0.2.x 的会话只有 `targetOrder`），
- * 这里一律回落到全书大纲——它是唯一一个不依赖任何章节就一定存在的产物。
- * 序号 → 章节路径要读盘，而这个函数是纯的；那一步由 controller 在打开会话时
- * 补（见 `restoreTarget`），它手上才有章节列表。
+ * 认不出的 target 一律回落到全书大纲——它是唯一一个不依赖任何剧情段就一定
+ * 存在的产物。换轴之前的会话记的是章节路径，那些路径现在指不到任何东西，
+ * 归一化时会落回大纲；作者重新选一段就好，比把它指到一个错的段上强。
  */
 function normalize(id: string, raw: unknown): ChatSession {
   const o = (raw ?? {}) as Partial<ChatSession>;
@@ -336,7 +335,7 @@ function normalize(id: string, raw: unknown): ChatSession {
     target,
     stage,
     capability,
-    targetOrder: typeof o.targetOrder === 'number' ? o.targetOrder : undefined,
+    targetNo: typeof o.targetNo === 'number' ? o.targetNo : undefined,
     targetWords: typeof o.targetWords === 'number' ? o.targetWords : undefined,
     turns: Array.isArray(o.turns) ? o.turns.filter(isTurn) : [],
   };

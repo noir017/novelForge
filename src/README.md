@@ -33,7 +33,7 @@ src/
 
 ## 一条创作请求的完整链路
 
-以「在细纲阶段点生成」为例，四个阶段走的是同一条路，差别只在配方与提示词：
+以「在剧情阶段点写剧情」为例，四个阶段走的是同一条路，差别只在配方与提示词：
 
 1. webview 前端（[media/src/view/](../media/src/view/)）发 `send` 消息，带上 `stage` / `capability` / `target` → 宿主（`shells/vscode/chatViewProvider` 或 `chatPanel`）转给 `core/ChatController`。
 2. `ChatController` 校验一遍这个能力在这个阶段合不合法（对不上就回落到 `discuss` 并 warn），记进会话，交给 `core/features/CreationSession.generate()`。
@@ -50,10 +50,10 @@ src/
 与上面那条并列，是「长任务」的样板——新加批量功能照着这条接：
 
 1. 前端在工程页点「立即同步」发 `projectAction: 'syncSummaries'` → `ChatController` 调 `core/features/summarize.syncSummaries()`。
-2. 先扫一遍新鲜度并**记进日志**（共几章、缺几章、哪几章），再弹确认框——不偷偷烧 token。
-3. `core/runtime/progress.runTask('同步章节摘要', …)` 起任务。它一次做三件事：包住 `Host.progress` 拿到宿主原生进度与取消信号；把 `report({ message, current, total })` 登记进任务表；开始/结束进日志附耗时。
+2. 先扫一遍新鲜度并**记进日志**（共几段、缺几段、哪几段），再弹确认框——不偷偷烧 token。
+3. `core/runtime/progress.runTask('同步剧情摘要', …)` 起任务。它一次做三件事：包住 `Host.progress` 拿到宿主原生进度与取消信号；把 `report({ message, current, total })` 登记进任务表；开始/结束进日志附耗时。
 4. 任务表一变，`ChatController` 构造时挂的 `onTasksChanged` 就把 `tasks` 快照广播给所有前端 → 工程页顶部的进度条动起来。
-5. 逐章 `summarizeChapter`，每章一条 `info`（用时、平均速度、预计剩余）。**失败不中断整批**，记 `error` 后继续；`signal.aborted` 则停在当前章，已写的摘要保留。
+5. 逐段 `summarizePlot`（读的是 `manuscripts/` 里的正文），每段一条 `info`（用时、平均速度、预计剩余）。**失败不中断整批**，记 `error` 后继续；`signal.aborted` 则停在当前段，已写的摘要保留。
 6. 每条日志同时经 `addLogSink` 推成 `log` 消息 → 日志页实时追加。
 
 ## 构建

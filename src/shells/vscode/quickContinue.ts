@@ -14,7 +14,7 @@ export async function quickContinue(project: NovelProject): Promise<void> {
     return;
   }
 
-  const order = await project.nextChapterOrder();
+  const no = await project.nextPlotNo();
   const session = new CreationSession(project);
   const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: '' });
   const editor = await vscode.window.showTextDocument(doc, { preview: false });
@@ -26,9 +26,9 @@ export async function quickContinue(project: NovelProject): Promise<void> {
       await session.generate(
         {
           action: { stage: 'manuscript', capability: 'generate' },
-          // 快速续写永远写「下一章」，那一章还不存在，relPath 留空。
-          target: { kind: 'manuscript', chapterRelPath: '' },
-          targetOrder: order,
+          // 快速续写永远写「下一段」，那一段还不存在，relPath 留空。
+          target: { kind: 'manuscript', plotRelPath: '' },
+          targetNo: no,
           ask: outline,
         },
         {

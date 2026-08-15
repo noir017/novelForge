@@ -1,5 +1,5 @@
 /**
- * 自动生成设定：逐章识别、跨章合并、分类落盘与已有条目审阅。
+ * 自动生成设定：逐段识别、跨段合并、分类落盘与已有条目审阅。
  * 迁自 scripts/smoke-lore.js（11 条断言）。
  *
  * 与原脚本的一处**有意偏差**：原脚本从不删自己的临时目录，每跑一次泄漏一个
@@ -23,12 +23,19 @@ let settings;
 
 /**
  * 原脚本每轮只重赋 `answers`，**不清** `reviews` / `calls`——
- * 「审阅 ≥ 2 条」与「长章新增了几次调用」都是跨轮累计的。
+ * 「审阅 ≥ 2 条」与「长段新增了几次调用」都是跨轮累计的。
  * 所以这里不能用 h.expect()（它会清掉录制器），只清答案队列。
  */
 function queueAnswer(...values) {
   h.answers.length = 0;
   h.answers.push(...values);
+}
+
+/** 造一段剧情 + 它的正文。设定扫描按段遍历 `plots/`，读 `manuscripts/`。 */
+function makePlot(no, title, text) {
+  const stem = `${String(no).padStart(3, '0')}-${title}`;
+  t.write(`.novelforge/plots/${stem}.md`, '## 目标\n\n略。\n\n## 剧情脉络\n\n甲乙丙。\n');
+  t.write(`.novelforge/manuscripts/${stem}.md`, `# 第${no}段 ${title} · 正文\n\n${text}\n`);
 }
 
 before(async () => {
@@ -68,15 +75,17 @@ after(() => {
   if (t) cleanup(t.dir);
 });
 
-describe('逐章识别与跨章合并', () => {
+describe('逐段识别与跨段合并', () => {
   let lore;
   let firstConfirm;
   let callCount;
 
   before(async () => {
-    t.write('chapters/001-镇.md', '# 镇\n\n青崖镇在断崖下。');
-    t.write('chapters/002-盐道.md', '# 盐道\n\n盐道通往北境。');
-    t.write('chapters/003-宗门.md', '# 宗门\n\n玄门有七宗。');
+    // 设定扫描读的是 `manuscripts/` 里的正文，按 `plots/` 逐段遍历——
+    // `chapters/` 已经退出流水线，这条链上一个字都不读它。
+    makePlot(1, '镇', '青崖镇在断崖下。');
+    makePlot(2, '盐道', '盐道通往北境。');
+    makePlot(3, '宗门', '玄门有七宗。');
     project.invalidate();
 
     queueAnswer('开始生成');
@@ -86,7 +95,7 @@ describe('逐章识别与跨章合并', () => {
     callCount = fake.calls.length;
   });
 
-  test('确认框说明逐章调用与后续调用', () => {
+  test('确认框说明逐段调用与后续调用', () => {
     assert.ok(
       firstConfirm.message.includes('固定调用模型 3 次') &&
         firstConfirm.message.includes('每发现一条设定再调用 1 次'),
@@ -94,17 +103,17 @@ describe('逐章识别与跨章合并', () => {
     );
   });
 
-  // 名字说「每章各调用一次」而断言是 5：3 次逐章识别 + 2 次成文。
+  // 名字说「每段各调用一次」而断言是 5：3 次逐段识别 + 2 次成文。
   // 原样迁移，不改断言。
-  test('每章各调用一次识别', () => {
+  test('每段各调用一次识别', () => {
     assert.equal(callCount, 5, `实际 ${callCount} 次`);
   });
 
-  test('同一设定跨章合并为一条', () => {
+  test('同一设定跨段合并为一条', () => {
     assert.equal(lore.filter((x) => x.title === '青崖镇').length, 1);
   });
 
-  test('合并结果保留跨章事实', () => {
+  test('合并结果保留跨段事实', () => {
     assert.ok(lore.find((x) => x.title === '青崖镇')?.body.includes('盐道'));
   });
 
@@ -171,13 +180,13 @@ describe('审阅放弃不覆盖', () => {
   });
 });
 
-describe('长章完整分片', () => {
-  const marker = '长章末尾唯一标记';
+describe('长段完整分片', () => {
+  const marker = '长段末尾唯一标记';
   let longRunCalls;
 
   before(async () => {
     settings.contextWindow = 4000;
-    t.write('chapters/004-长章.md', `# 长章\n\n${'这是一段需要完整扫描的正文。'.repeat(1200)}${marker}`);
+    makePlot(4, '长段', `${'这是一段需要完整扫描的正文。'.repeat(1200)}${marker}`);
     project.invalidate();
     queueAnswer('开始生成');
     fake.push(...Array(40).fill('[]'));
@@ -186,7 +195,7 @@ describe('长章完整分片', () => {
     longRunCalls = fake.calls.slice(callsBefore);
   });
 
-  test('长章会拆成额外调用而非截断', () => {
+  test('长段会拆成额外调用而非截断', () => {
     assert.ok(longRunCalls.length > 4, `扫描 ${longRunCalls.length} 个片段`);
   });
 

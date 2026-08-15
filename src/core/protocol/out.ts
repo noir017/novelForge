@@ -8,8 +8,8 @@ import type {
   Tab,
 } from './in';
 import type {
-  ChapterPipelineView,
-  ChapterSummaryView,
+  PlotPipelineView,
+  PlotSummaryView,
   NextStepView,
   ProjectTree,
   SerializedDigest,
@@ -34,10 +34,10 @@ export type OutMessage =
   | { type: 'busy'; value: boolean }
   | { type: 'attachments'; items: SerializedAttachment[] }
   | { type: 'project'; tree: ProjectTree }
-  | { type: 'summary'; summary: ChapterSummaryView }
+  | { type: 'summary'; summary: PlotSummaryView }
   | {
       type: 'pipeline';
-      pipeline?: ChapterPipelineView;
+      pipeline?: PlotPipelineView;
       next?: NextStepView;
       workbench: WorkbenchView;
     }

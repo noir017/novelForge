@@ -22,12 +22,13 @@ export type {
   CastConflictView,
   CastEntry,
   CastSummary,
-  ChapterPipelineView,
-  ChapterSummaryView,
+  PlotPipelineView,
+  PlotSummaryView,
   FailureView,
   NextStepView,
   ProjectChapter,
   ProjectChapterNode,
+  ProjectPlotNode,
   ProjectDirNode,
   ProjectFile,
   ProjectFileNode,
@@ -48,14 +49,15 @@ export type { LogEntry, LogLevel } from '../runtime/logger';
 export type { TaskSnapshot } from '../runtime/progress';
 export type { DirListing, FsEntry } from '../files/fileTree';
 export type {
+  BookStage,
   Capability,
-  ChapterStage,
   CreationAction,
   CreationStage,
   CreationTarget,
   NextStepFacts,
   NextStepPlan,
   PipelineProgress,
+  PlotStage,
   StageCommand,
 } from '../model/pipeline';
 

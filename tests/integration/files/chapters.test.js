@@ -6,9 +6,9 @@
  * - 本脚本前两节（`== 章节文件名规则 ==` 18 条、`== extractH1 只看首行 ==` 3 条）是纯函数，
  *   不在本文件，另见 unit 侧。
  * - 草稿相关各节（40 条）在同目录的 drafts.test.js。
- * - 原 `== manifest 认得非 .md 章节 ==` 共 3 条：前两条属章节议题留在本文件，
- *   第三条「manifest 里没有草稿」只有草稿真的存在时才有意义，放在 drafts.test.js。
- *   3 = 2 + 1，不重不漏。
+ * - 原 `== manifest 认得非 .md 章节 ==` 那一节已随「章节退出流水线」改写：manifest
+ *   现在只索引剧情段，见本文件末尾那一节。
+ *   「manifest 里没有草稿」那一条只有草稿真的存在时才有意义，放在 drafts.test.js。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -199,24 +199,34 @@ describe('章节文件规则（磁盘）', () => {
     });
   });
 
-  describe('manifest 认得非 .md 章节', () => {
+  /**
+   * 章节退出流水线之后，manifest 只索引**剧情段**。
+   *
+   * 这一节从前钉的是「.txt 章节也进 manifest」——那时章节是创作单位。现在
+   * `chapters/` 是作者切好的发布区，工具不分析它的内容，也就没有什么可索引的：
+   * 它的字数、hash、摘要新鲜度全都无从谈起（一章可能是两段拼的）。
+   */
+  describe('manifest 不索引章节', () => {
     let manifest;
-    let txt;
 
     before(async () => {
       project.invalidate();
       manifest = await project.syncManifest();
-      txt = manifest.chapters.find((c) => c.file.endsWith('.txt'));
     });
 
-    test('.txt 章节进了 manifest', () => {
-      assert.ok(txt, manifest.chapters.map((c) => c.file).join(','));
+    test('manifest 里是 plots 而不是 chapters', () => {
+      assert.ok(Array.isArray(manifest.plots), JSON.stringify(Object.keys(manifest)));
+      assert.equal(manifest.chapters, undefined);
     });
 
-    test('记录了 order 与 hash', () => {
-      assert.ok(txt);
-      assert.equal(txt.order, 2);
-      assert.equal(typeof txt.contentHash, 'string');
+    // 这个工程只有 chapters/ 下的文件，一段剧情都没有。
+    test('只有章节没有剧情段时 plots 为空', () => {
+      assert.equal(manifest.plots.length, 0, JSON.stringify(manifest.plots));
+    });
+
+    // 章节仍然扫得到、列得出、能改名/移动/删除——只是不进索引。
+    test('章节仍然列得出来', async () => {
+      assert.ok((await project.listChapters()).length > 0);
     });
   });
 });

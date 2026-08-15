@@ -1,17 +1,18 @@
 import { LayerId } from '../types';
 import {
   outlineDoc,
-  planPrev,
-  planSelf,
+  plotNext,
+  plotPrev,
+  plotSelf,
   sceneSelf,
   sceneSiblings,
 } from './artifacts';
 import {
-  chapterFull,
-  chapterSummary,
   characters,
   globalSummary,
   lore,
+  manuscriptFull,
+  plotSummary,
   prevTail,
   revision,
   style,
@@ -25,8 +26,9 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   attachments,
   history,
   outlineDoc,
-  planSelf,
-  planPrev,
+  plotSelf,
+  plotPrev,
+  plotNext,
   sceneSelf,
   sceneSiblings,
   style,
@@ -34,8 +36,8 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   characters,
   lore,
   prevTail,
-  chapterFull,
-  chapterSummary,
+  manuscriptFull,
+  plotSummary,
   revision,
 };
 

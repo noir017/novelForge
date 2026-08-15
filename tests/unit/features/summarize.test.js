@@ -147,7 +147,7 @@ describe('summarize.ts · parseSummaryResponse', () => {
   describe('真实示例摘要文件', () => {
     let realParsed;
     before(() => {
-      const real = fs.readFileSync(path.join(SAMPLE, '.novelforge/summaries/002.md'), 'utf8');
+      const real = fs.readFileSync(path.join(SAMPLE, '.novelforge/summaries/002-客栈里的女人.md'), 'utf8');
       const md = loadModule('src/core/model/markdown.ts');
       realParsed = sum.parseSummaryResponse(md.parseMarkdown(real).body);
     });

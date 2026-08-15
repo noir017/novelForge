@@ -1,12 +1,7 @@
 import { describeScene } from '../../model/sceneFile';
+import { plotLabel } from '../../model/pipeline';
 import type { LayerFn } from './assembly';
-import {
-  chapterLabel,
-  isPlaceholder,
-  renderPlan,
-  renderScene,
-  renderSceneBrief,
-} from './render';
+import { isPlaceholder, renderPlot, renderPlotBrief, renderScene, renderSceneBrief } from './render';
 
 export const outlineDoc: LayerFn = async (a, spec) => {
   const outline = await a.project.readOutline();
@@ -26,41 +21,62 @@ export const outlineDoc: LayerFn = async (a, spec) => {
   );
 };
 
-export const planSelf: LayerFn = async (a, spec) => {
-  const plan = a.focus.plan;
-  if (!plan) {
+export const plotSelf: LayerFn = async (a, spec) => {
+  const plot = a.focus.plot;
+  if (!plot) {
     return;
   }
   a.admit(
     {
-      id: `plan:${plan.chapterRelPath}`,
-      kind: 'plan',
+      id: `plot:${plot.relPath}`,
+      kind: 'plot',
       priority: spec.priority,
-      label: `${chapterLabel(a.focus.chapter, plan)} · 细纲`,
-      source: plan.relPath,
-      text: renderPlan(plan),
+      label: `${plotLabel(plot.no, plot.title)} · 剧情`,
+      source: plot.relPath,
+      text: renderPlot(plot),
     },
     { force: spec.force }
   );
 };
 
-export const planPrev: LayerFn = async (a, spec) => {
-  const plan = a.focus.prevPlan;
-  if (!plan) {
-    return;
-  }
-  const prev = a.focus.previous[a.focus.previous.length - 1];
-  a.admit(
-    {
-      id: `plan:${plan.chapterRelPath}`,
-      kind: 'plan',
+/**
+ * 前几段的剧情原文（上文）。
+ *
+ * 带**原文**而不是摘要：摘要说「林昭进了宗门」，原文说「他是靠那半枚令牌
+ * 被破例放进去的，代价是必须说出令牌的来路」——接着往下写的人要的是后者。
+ * 更早的段才降级成摘要（`plotSummary` 层）。
+ */
+export const plotPrev: LayerFn = async (a, spec) => {
+  for (const plot of a.focus.prevPlots) {
+    a.admit({
+      id: `plot:${plot.relPath}`,
+      kind: 'plot',
       priority: spec.priority,
-      label: `${chapterLabel(prev, plan)} · 细纲`,
-      source: plan.relPath,
-      text: renderPlan(plan),
-    },
-    { force: spec.force }
-  );
+      label: `${plotLabel(plot.no, plot.title)} · 剧情（上文）`,
+      source: plot.relPath,
+      text: renderPlotBrief(plot, '上文'),
+    });
+  }
+};
+
+/**
+ * 后一段的剧情原文（下文）。
+ *
+ * 只在它已经排过的时候才有——多数时候是在往后写，这一层就是空的。但改中间
+ * 某一段时它是关键：不知道后面已经定了什么，模型会把收尾写到一个下一段接不上
+ * 的局面，读起来就是「转折突兀」。
+ */
+export const plotNext: LayerFn = async (a, spec) => {
+  for (const plot of a.focus.nextPlots) {
+    a.admit({
+      id: `plot:${plot.relPath}`,
+      kind: 'plot',
+      priority: spec.priority,
+      label: `${plotLabel(plot.no, plot.title)} · 剧情（下文）`,
+      source: plot.relPath,
+      text: renderPlotBrief(plot, '下文'),
+    });
+  }
 };
 
 export const sceneSelf: LayerFn = async (a, spec) => {
