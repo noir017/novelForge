@@ -10,6 +10,7 @@ npm run test:integration
 npm run test:dom         # 会先构建 dist/media
 npm run test:contract
 npm run test:e2e         # 需要 Bun
+npm run test:verbose     # 出问题时看 node 原样输出
 ```
 
 单跑一个文件或一条用例：
@@ -21,6 +22,41 @@ node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
 
 > **glob 必须带引号**——`node --test <目录>` 在当前 Node 版本会把目录当成模块入口报
 > `MODULE_NOT_FOUND`。引号让 glob 交给 node 自己展开，PowerShell 与 sh 下行为一致。
+
+## 输出：只报失败
+
+四组 `node --test` 都走 `reporters/quiet.mjs`——**只吐失败与一行总计**。全绿时输出就一行：
+
+```
+✓ 通过 2197，2197 条，30.5s
+```
+
+有失败时每条三行：位置、用例全名（含祖先套件）、期望与实际。
+
+```
+✗ tests/unit/model/markdown.test.js:84
+  markdown.ts › H1 处理 › stripH1 去掉标题
+  实际 "\n雨下了三天。"
+  期望 "雨下了三天。"（strictEqual）
+```
+
+默认 reporter 每条失败带十几行 YAML（`duration_ms`、`location`、完整 stack），全量跑一轮
+接近 400 KB；换掉之后全绿 36 字节，一条失败也就百来字节。**人往回翻不动、塞进 agent
+上下文更是纯浪费**，这是换掉它的唯一理由——判定逻辑一点没动，退出码照旧。
+
+想看原样输出用 `npm run test:verbose`。三个开关按需加：
+
+| 环境变量 | 作用 |
+|---|---|
+| `NF_TEST_LOGS=1` | 连带打印失败文件里的 `console` 输出（默认丢弃） |
+| `NF_TEST_STACK=1` | 每条失败附一行仓库内的调用位置 |
+| `NF_TEST_MAX_FAILS=n` | 最多展开几条，超出只计数（默认 25，`0` 表示不限） |
+
+两处刻意的取舍：**套件层的失败不报**（`failureType: 'subtestsFailed'` 只是子用例失败的回声，
+叶子那条已经报过），所以总计里的失败数是**叶子数**，与展开的条数对得上，不等于
+`counts.failed`；**两个长字符串只报第一处分歧**的位置与前后文，不把两份全文都印出来。
+
+e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但它本来就只有一千多字节，不用管。
 
 ## 按测试类型分目录
 
