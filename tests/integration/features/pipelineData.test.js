@@ -1,8 +1,9 @@
 /**
- * 创作流水线的数据层：镜像路径、剧情段与场景读写、改名跟随、新鲜度链、工作区卡。
+ * 创作流水线的数据层：镜像路径、细纲与场景读写、改名跟随、新鲜度链、工作区卡。
  *
- * 轴是**剧情段**（`.novelforge/plots/NNN-标题.md`），不是章节——`chapters/`
- * 已经退出流水线，它的读写另见 tests/integration/files/chapters.test.js。
+ * 生产那一段的轴是**细纲**（`.novelforge/plots/NNN-标题.md`）：场景与中转站正文
+ * 都按它的文件名词干镜像。拆分之后一切按章，摘要与草稿挂在 `chapters/` 上——
+ * 那一侧的读写另见 tests/integration/files/chapters.test.js。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -74,8 +75,18 @@ describe('数据层 · 目录与镜像路径', () => {
     assert.equal(project.manuscriptMirrorRelPath(plot), '.novelforge/manuscripts/012-夜入青云.md');
   });
 
-  test('摘要与段同名', () => {
-    assert.equal(project.summaryMirrorRelPath(plot), '.novelforge/summaries/012-夜入青云.md');
+  // 摘要镜像的是**章节**：`chapters/012-夜入青云.md` → `summaries/012-夜入青云.md`。
+  test('摘要与章节同名', () => {
+    assert.equal(
+      project.summaryMirrorRelPath('chapters/012-夜入青云.md'),
+      '.novelforge/summaries/012-夜入青云.md'
+    );
+  });
+
+  // 细纲不在 chapters/ 之下，问它的摘要路径应当得到 undefined——
+  // 那正是 `carrySummary` 判断「搬出发布区了」的依据。
+  test('细纲路径问不出摘要镜像', () => {
+    assert.equal(project.summaryMirrorRelPath(plot), undefined);
   });
 
   // 同序号不同文件名的两段各有独立的三套伴生文件——这正是不能用段号当键的理由。
@@ -91,7 +102,7 @@ describe('数据层 · 目录与镜像路径', () => {
   });
 });
 
-describe('数据层 · 剧情段与场景读写', () => {
+describe('数据层 · 细纲与场景读写', () => {
   let plotRel;
   let noPlot;
   let noScenes;
@@ -154,7 +165,7 @@ describe('数据层 · 剧情段与场景读写', () => {
     deleted9 = await project.deleteScene(plotRel, 9);
   });
 
-  test('没写过时读不出剧情段', () => {
+  test('没写过时读不出细纲', () => {
     assert.equal(noPlot, undefined);
   });
 
@@ -166,11 +177,11 @@ describe('数据层 · 剧情段与场景读写', () => {
     assert.equal(nextNo, 1);
   });
 
-  test('剧情段落在 plots/ 下，名字带三位序号', () => {
+  test('细纲落在 plots/ 下，名字带三位序号', () => {
     assert.equal(plotRel, '.novelforge/plots/012-夜入青云.md', plotRel);
   });
 
-  test('剧情段读得回来', () => {
+  test('细纲读得回来', () => {
     assert.equal(plotBack.sections.目标, '林昭成功进入青云宗。');
   });
 
@@ -250,8 +261,11 @@ describe('数据层 · 段改名时三套伴生文件跟随', () => {
     plotHashBefore = bundle.pipe.plotContentHash(await project.readPlot(from));
     beatsBefore = await project.beatsHashFor(from);
     await project.appendToManuscript(from, '正文若干字。');
+    // 摘要挂在**成品**上，所以先造一章发布文件再总结它。
+    t.write('chapters/012-夜入青云.md', '# 夜入青云\n\n正文若干字。\n');
+    project.invalidate();
     await project.writeSummary(
-      await project.readPlot(from),
+      (await project.listChapters()).find((c) => c.order === 12),
       'HASH_X',
       { 梗概: '略', 出场人物: '林昭', 时间地点: '', 关键事件: '', 新增伏笔: '', 状态变更: '' },
       []
@@ -291,12 +305,9 @@ describe('数据层 · 段改名时三套伴生文件跟随', () => {
     assert.ok(!t.has('.novelforge/manuscripts/012-夜入青云.md'));
   });
 
-  test('摘要跟着改名', () => {
-    assert.ok(t.has('.novelforge/summaries/012-夜入.md'));
-  });
-
-  test('旧摘要不再存在', () => {
-    assert.ok(!t.has('.novelforge/summaries/012-夜入青云.md'));
+  // 摘要挂在成品上，改细纲的名字动不到它——那是 `carrySummary` 的活。
+  test('改细纲的名字不搬摘要', () => {
+    assert.ok(t.has('.novelforge/summaries/012-夜入青云.md'));
   });
 
   test('改名后场景仍读得到', () => {
@@ -359,7 +370,7 @@ describe('数据层 · 给未命名的段起名', () => {
   });
 
   test('H1 跟着换成真标题', () => {
-    assert.ok(plotText.includes('# 第30段 风起 · 剧情'), plotText.slice(0, 300));
+    assert.ok(plotText.includes('# 第30章 风起 · 剧情'), plotText.slice(0, 300));
   });
 
   // 起名前写的正文不能丢——它跟着段名走，起名时必须一起搬。
@@ -379,18 +390,23 @@ describe('新鲜度链', () => {
   let pManuscriptFresh;
   let pManuscriptStale;
 
-  const build = async () => bundle.pipe.buildPlotPipeline(project, await project.readPlot(plotRel));
+  // buildPlotPipeline 收的是「一章」（章号 + 细纲 + 成品），不再是光秃的细纲。
+  const build = async () => {
+    const plot = await project.readPlot(plotRel);
+    const chapter = (await project.listChapters()).find((c) => c.order === plot.no);
+    return bundle.pipe.buildPlotPipeline(project, { no: plot.no, plot, chapter });
+  };
 
   before(async () => {
     t.write('.novelforge/outline.md', '# 大纲\n\n第一幕：入局');
     const outlineHash = bundle.fs.hash(await project.readOutline());
 
-    // 剧情段记下当时的大纲指纹。
+    // 细纲记下当时的大纲指纹。
     const plot = await project.readPlot(plotRel);
     await project.writePlot({ ...plot, upstreamHash: outlineHash });
     pFresh = await build();
 
-    // 改大纲 → 剧情段标脏。零模型调用。
+    // 改大纲 → 细纲标脏。零模型调用。
     t.write('.novelforge/outline.md', '# 大纲\n\n第一幕：入局（改了）');
     pOutlineChanged = await build();
 
@@ -457,9 +473,11 @@ describe('新鲜度链', () => {
     assert.equal(pManuscriptStale.manuscript.beatsStale, true);
   });
 
-  // 上游一变，状态就退回「待写正文」——这就是变更影响在状态机上的落法。
-  test('正文标脏后阶段退回待写正文', () => {
-    assert.equal(pManuscriptStale.stage, 'manuscript', pManuscriptStale.stage);
+  // **已经发布的章不被拉回去**：中转站那份拆分时就删了，把作者已经发出去的
+  // 文字标成「待写正文」是在撺掇他重写。工程页那一行仍会挂 ⟳ 提醒，够了。
+  // （未发布的章退回「待写正文」那一条在 tests/unit/model/pipeline.test.js 里守。）
+  test('已发布的章：正文标脏也不退回待写正文', () => {
+    assert.notEqual(pManuscriptStale.stage, 'manuscript', pManuscriptStale.stage);
   });
 });
 
@@ -467,7 +485,7 @@ describe('新鲜度链 · 手写产物不标脏', () => {
   let p;
 
   before(async () => {
-    // 作者手写的剧情段没有 upstreamHash。拿一个凭空的过期标记去催他重做，
+    // 作者手写的细纲没有 upstreamHash。拿一个凭空的过期标记去催他重做，
     // 比不标更糟——他会学会无视所有标记。
     t.write('.novelforge/plots/020-手写.md', '## 目标\n\n我自己写的\n\n## 剧情脉络\n\nx');
     t.write('.novelforge/manuscripts/020-手写.md', '# 第20段 手写 · 正文\n\n正文');
@@ -493,18 +511,20 @@ describe('流水线索引', () => {
     // 工程树与出场索引要的是同一批摘要），流水线本身在 .pipelines 上。
     ({ pipelines: index } = await bundle.pipe.buildPipelineIndex(project));
     plotCount = (await project.listPlots()).length;
-    handwritten = index.get('.novelforge/plots/020-手写.md');
+    handwritten = index.get(20);
   });
 
-  test('索引按 relPath 索引', () => {
-    assert.ok(index.has('.novelforge/plots/012-夜入.md'), [...index.keys()].join('|'));
+  // 索引按**章号**索引：一章可能只有细纲、只有成品，或两者都有，
+  // 只有章号是两侧共同的身份。
+  test('索引按章号索引', () => {
+    assert.ok(index.has(12), [...index.keys()].join('|'));
   });
 
-  test('索引覆盖全部剧情段', () => {
+  test('索引覆盖全部章', () => {
     assert.equal(index.size, plotCount);
   });
 
-  test('没拆场景的段停在待拆场景', () => {
+  test('没拆场景的章停在待拆场景', () => {
     assert.equal(handwritten.stage, 'scene', handwritten.stage);
   });
 
@@ -569,11 +589,11 @@ describe('工作区卡', () => {
     assert.ok(plotCard.sections.length > 0, JSON.stringify(plotCard.sections));
   });
 
-  test('剧情卡标题带段号', () => {
-    assert.ok(plotCard.title.includes('第 12 段'), plotCard.title);
+  test('剧情卡标题带章号', () => {
+    assert.ok(plotCard.title.includes('第 12 章'), plotCard.title);
   });
 
-  test('剧情卡指向剧情段文件', () => {
+  test('剧情卡指向细纲文件', () => {
     assert.ok(plotCard.relPath.includes('plots/'), plotCard.relPath);
   });
 

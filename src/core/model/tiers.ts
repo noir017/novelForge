@@ -75,13 +75,13 @@ export const LLM_TASKS: LlmTask[] = [
 
 /** 任务的中文名。确认框与日志里出现的就是它。 */
 export const TASK_LABEL: Record<LlmTask, string> = {
-  plotSummary: '单段摘要',
+  plotSummary: '单章摘要',
   globalSummaryStage: '全书摘要 · 分批汇总',
   globalSummaryMerge: '全书摘要 · 最终合并',
   plotOutline: '剧情细纲',
   sceneBreakdown: '拆分场景',
   manuscript: '批量写正文',
-  loreScan: '设定 · 逐段识别',
+  loreScan: '设定 · 逐章识别',
   loreSynthesis: '设定 · 条目整合',
   characterCard: '角色卡 · 更新 / 建卡',
   extractCharacters: '提取角色',
@@ -90,15 +90,15 @@ export const TASK_LABEL: Record<LlmTask, string> = {
 
 /** 设置页那张表里每行的补充说明：这活为什么归在这一档。 */
 export const TASK_HINT: Record<LlmTask, string> = {
-  plotSummary: '一段一次调用，几十上百次；输入只有单段正文，输出是固定结构',
+  plotSummary: '一章一次调用，几十上百次；输入只有单章正文，输出是固定结构',
   globalSummaryStage: '每批一次调用，批数多且各批独立',
   globalSummaryMerge: '全书只调一次，要跨几十万字取舍主线',
-  plotOutline: '一段一次调用；要在大纲与前后段之间排出剧情脉络，写歪了后面全歪',
-  sceneBreakdown: '一段一次调用，把剧情切成几场；结构活，判据明确',
+  plotOutline: '一章一次调用；要在大纲与前后章之间排出剧情脉络，写歪了后面全歪',
+  sceneBreakdown: '一章一次调用，把剧情切成几场；结构活，判据明确',
   manuscript: '一场一次调用，是最烧 token 的活；文风与语气全看它',
-  loreScan: '逐段通读一遍，只做事实摘录',
-  loreSynthesis: '每条设定一次调用，要合并跨段事实且不能推翻作者已写的内容',
-  characterCard: '按出场段分批精炼，产物每次续写都注入上下文',
+  loreScan: '逐章通读一遍，只做事实摘录',
+  loreSynthesis: '每条设定一次调用，要合并跨章事实且不能推翻作者已写的内容',
+  characterCard: '按出场章分批精炼，产物每次续写都注入上下文',
   extractCharacters: '一次调用定「谁是谁」，判错会污染整个角色体系',
   extractStyle: '一次调用，产出的文风指南每次续写都注入',
 };
@@ -111,8 +111,8 @@ export const TASK_HINT: Record<LlmTask, string> = {
  *
  * 两处需要解释：
  *
- * - **剧情归均衡档而拆场景归快速档**：两者调用量相同（都是一段一次），但剧情
- *   决定这一段讲什么、怎么转，**写歪了后面每一场、每一段正文都跟着歪**；
+ * - **剧情归均衡档而拆场景归快速档**：两者调用量相同（都是一章一次），但剧情
+ *   决定这一章讲什么、怎么转，**写歪了后面每一场、每一章正文都跟着歪**；
  *   拆场景是在已经定好的剧情上切几刀，判据明确得多。
  * - **批量写正文归均衡档**：它是量最大也最贵的一项，但正文的文风与语气直接
  *   决定成品质量，压到快速档等于用便宜模型写整本书。归均衡是折中——真要

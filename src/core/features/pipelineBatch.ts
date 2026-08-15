@@ -1,9 +1,9 @@
 /**
- * 工程页的流水线批量动作：**一次给几十段写剧情 / 拆场景 / 写正文**。
+ * 工程页的流水线批量动作：**一次给几十章写剧情 / 拆场景 / 写正文**。
  *
  * 与创作页的单次生成（features/creation.ts）是两条路，理由是它们的失败模型
  * 完全不同：创作页一次一份，出错就重来；这里一次几十份，**必须允许部分失败
- * 并跑完剩下的**——第 12 段拆不出场景不该让另外 63 段白等。
+ * 并跑完剩下的**——第 12 章拆不出场景不该让另外 63 章白等。
  *
  * 结构与 `syncSummaries` 逐字对齐（同一套 runTask + runPool + recordFailure +
  * 分档确认框），因为作者对这类批量动作已经有了预期：先说清要调几次模型、
@@ -11,9 +11,9 @@
  *
  * ## 只补不改
  *
- * 三个批量动作都**跳过已经有产物的段**，不问、不覆盖。批量路径上没有
+ * 三个批量动作都**跳过已经有产物的章**，不问、不覆盖。批量路径上没有
  * 「逐个审阅」的余地——一次弹 63 个 diff 没有人看得完——所以唯一安全的
- * 做法是只处理空白的那些。要重做某一段，去创作页单独重做。
+ * 做法是只处理空白的那些。要重做某一章，去创作页单独重做。
  */
 import { runPool } from '../runtime/concurrency';
 import { readConfig } from '../config';
@@ -37,22 +37,22 @@ import { Capability } from '../model/pipeline';
 const log = scoped('流水线');
 
 /**
- * 给所有还没排剧情的段各写一份。
+ * 给所有还没排剧情的章各写一份。
  *
- * 每段一次调用。段与段之间**有**先后关系（后一段接着前一段的局面），但装配器
- * 会把前后段的原文一起带上，所以仍然可以并发——并发改变的只是完成顺序，
+ * 每章一次调用。章与章之间**有**先后关系（后一章接着前一章的局面），但装配器
+ * 会把前后章的原文一起带上，所以仍然可以并发——并发改变的只是完成顺序，
  * 不改变每次调用看到的上下文。
  */
 export async function generatePlots(project: NovelProject): Promise<void> {
   const pending = (await project.listPlots()).filter((p) => !isPlotFilled(p.sections));
 
   if (pending.length === 0) {
-    getHost().toast('每一段都已经排过剧情了。');
+    getHost().toast('每一章都已经排过剧情了。');
     return;
   }
   const outline = await project.readOutline();
   if (!outline.trim()) {
-    // 没有大纲就写剧情，等于让模型凭空编四十段——那不是作者要的。
+    // 没有大纲就写剧情，等于让模型凭空编四十章——那不是作者要的。
     log.warn('全书大纲是空的，批量写剧情已中止');
     getHost().toast('全书大纲还是空的。先写一份大纲，剧情才有依据。', 'error');
     return;
@@ -61,14 +61,14 @@ export async function generatePlots(project: NovelProject): Promise<void> {
   const config = readConfig();
   const lanes = Math.min(config.concurrency, pending.length);
   const confirm = await getHost().confirm(
-    `有 ${pending.length} 段还没排剧情，需要调用 ${pending.length} 次模型。现在写？`,
+    `有 ${pending.length} 章还没排剧情，需要调用 ${pending.length} 次模型。现在写？`,
     ['开始生成'],
     {
       modal: true,
       detail:
         `${describeTaskModels(config, 'plotOutline')}\n` +
-        (lanes > 1 ? `并发 ${lanes} 路。` : '串行逐段处理（并发数为 1）。') +
-        '\n已经排过剧情的段不会被改动。',
+        (lanes > 1 ? `并发 ${lanes} 路。` : '串行逐章处理（并发数为 1）。') +
+        '\n已经排过剧情的章不会被改动。',
     }
   );
   if (confirm !== '开始生成') {
@@ -91,7 +91,7 @@ export async function generatePlots(project: NovelProject): Promise<void> {
     what: '剧情',
     run: async (plot, signal) => {
       const messages = await buildContextFor(project, plot, config, 'generate');
-      const raw = await pool.run(`第 ${plot.no} 段`, (llm) =>
+      const raw = await pool.run(`第 ${plot.no} 章`, (llm) =>
         collectStream(
           llm.chatStream(messages, {
             maxOutputTokens: pool.primaryBudget.maxOutputTokens,
@@ -102,7 +102,7 @@ export async function generatePlots(project: NovelProject): Promise<void> {
         )
       );
       // 严格解析：批量路径上没有人逐份过目，全文兜底会把模型的一句
-      // 「我不太确定这一段写什么」变成一份「已规划」的剧情，紧接着的
+      // 「我不太确定这一章写什么」变成一份「已规划」的剧情，紧接着的
       // 批量拆场景还会照着它往下拆。
       const sections = parsePlotStrict(raw);
       if (!sections || !isPlotFilled(sections)) {
@@ -122,7 +122,7 @@ export async function generatePlots(project: NovelProject): Promise<void> {
 }
 
 /**
- * 给所有「剧情排好了但还没拆场景」的段各拆一次。
+ * 给所有「剧情排好了但还没拆场景」的章各拆一次。
  *
  * 判据是**剧情已排**：没有剧情就拆场景，模型只能照着标题瞎编，
  * 拆出来的东西作者一场都留不下。
@@ -144,8 +144,8 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
   if (pending.length === 0) {
     getHost().toast(
       noPlot > 0
-        ? `没有可拆的段。还有 ${noPlot} 段没排剧情——先写剧情再来拆场景。`
-        : '每一段都已经拆过场景了。'
+        ? `没有可拆的章。还有 ${noPlot} 章没排剧情——先写剧情再来拆场景。`
+        : '每一章都已经拆过场景了。'
     );
     return;
   }
@@ -153,15 +153,15 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
   const config = readConfig();
   const lanes = Math.min(config.concurrency, pending.length);
   const confirm = await getHost().confirm(
-    `有 ${pending.length} 段的剧情已排好但还没拆场景，需要调用 ${pending.length} 次模型。现在拆？`,
+    `有 ${pending.length} 章的剧情已排好但还没拆场景，需要调用 ${pending.length} 次模型。现在拆？`,
     ['开始拆分'],
     {
       modal: true,
       detail:
         `${describeTaskModels(config, 'sceneBreakdown')}\n` +
-        (lanes > 1 ? `并发 ${lanes} 路，各段之间没有先后依赖。` : '串行逐段处理（并发数为 1）。') +
-        '\n已经拆过场景的段不会被改动。' +
-        (noPlot > 0 ? `\n另有 ${noPlot} 段还没排剧情，这次跳过。` : ''),
+        (lanes > 1 ? `并发 ${lanes} 路，各章之间没有先后依赖。` : '串行逐章处理（并发数为 1）。') +
+        '\n已经拆过场景的章不会被改动。' +
+        (noPlot > 0 ? `\n另有 ${noPlot} 章还没排剧情，这次跳过。` : ''),
     }
   );
   if (confirm !== '开始拆分') {
@@ -183,7 +183,7 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
     what: '场景',
     run: async (plot, signal) => {
       const messages = await buildContextFor(project, plot, config, 'split');
-      const raw = await pool.run(`第 ${plot.no} 段`, (llm) =>
+      const raw = await pool.run(`第 ${plot.no} 章`, (llm) =>
         collectStream(
           llm.chatStream(messages, {
             maxOutputTokens: pool.primaryBudget.maxOutputTokens,
@@ -226,14 +226,14 @@ export async function breakdownScenes(project: NovelProject): Promise<void> {
 }
 
 /**
- * 给所有「场景都备好素材了但还没写正文」的段各写一遍正文。
+ * 给所有「场景都备好素材了但还没写正文」的章各写一遍正文。
  *
- * 这是三个批量动作里最贵的一个（一段几千字输出，一次几十段），所以确认框里
+ * 这是三个批量动作里最贵的一个（一章几千字输出，一次几十章），所以确认框里
  * 除了调用次数还报出预计总字数——那个数字比「40 次调用」更能让人意识到
  * 这一下要花多少钱。
  *
- * **一段内部逐场串行**：第 2 场的正文要接着第 1 场的结尾写，并发跑会得到
- * 几段互相接不上的文字。段与段之间才并发。
+ * **一章内部逐场串行**：第 2 场的正文要接着第 1 场的结尾写，并发跑会得到
+ * 几章互相接不上的文字。章与章之间才并发。
  */
 export async function writeManuscripts(project: NovelProject): Promise<void> {
   const plots = await project.listPlots();
@@ -246,7 +246,7 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
       continue;
     }
     const manuscript = await project.readManuscript(plot.relPath);
-    // 只补空白：已经写过正文的段一律跳过，哪怕上游变了。
+    // 只补空白：已经写过正文的章一律跳过，哪怕上游变了。
     if (!manuscript || !manuscript.text.trim()) {
       pending.push(plot);
     }
@@ -255,8 +255,8 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
   if (pending.length === 0) {
     getHost().toast(
       notReady > 0
-        ? `没有可写的段。还有 ${notReady} 段的场景没备好素材——先把场景设计完。`
-        : '每一段都已经写过正文了。'
+        ? `没有可写的章。还有 ${notReady} 章的场景没备好素材——先把场景设计完。`
+        : '每一章都已经写过正文了。'
     );
     return;
   }
@@ -274,7 +274,7 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
   const config = readConfig();
   const lanes = Math.min(config.concurrency, pending.length);
   const confirm = await getHost().confirm(
-    `有 ${pending.length} 段的场景已备好但还没写正文，需要调用 ${scenesTotal} 次模型。现在写？`,
+    `有 ${pending.length} 章的场景已备好但还没写正文，需要调用 ${scenesTotal} 次模型。现在写？`,
     ['开始写作'],
     {
       modal: true,
@@ -282,10 +282,10 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
         `${describeTaskModels(config, 'manuscript')}\n` +
         `共 ${scenesTotal} 场，预计产出约 ${Math.round(wordsTotal / 1000)} 千字。\n` +
         (lanes > 1
-          ? `并发 ${lanes} 段，每段内部逐场串行（后一场要接着前一场写）。`
-          : '串行逐段处理（并发数为 1）。') +
-        '\n已经写过正文的段不会被改动。' +
-        (notReady > 0 ? `\n另有 ${notReady} 段的场景还没备好素材，这次跳过。` : ''),
+          ? `并发 ${lanes} 章，每章内部逐场串行（后一场要接着前一场写）。`
+          : '串行逐章处理（并发数为 1）。') +
+        '\n已经写过正文的章不会被改动。' +
+        (notReady > 0 ? `\n另有 ${notReady} 章的场景还没备好素材，这次跳过。` : ''),
     }
   );
   if (confirm !== '开始写作') {
@@ -315,11 +315,11 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
             target: { kind: 'manuscript', plotRelPath: plot.relPath, sceneNo: scene.no },
             targetNo: plot.no,
             targetWords: scene.targetWords,
-            ask: `写第 ${plot.no} 段的场景 ${scene.no}${scene.title ? `《${scene.title}》` : ''}。`,
+            ask: `写第 ${plot.no} 章的场景 ${scene.no}${scene.title ? `《${scene.title}》` : ''}。`,
           },
           config
         );
-        const raw = await pool.run(`第 ${plot.no} 段 · 场景 ${scene.no}`, (llm) =>
+        const raw = await pool.run(`第 ${plot.no} 章 · 场景 ${scene.no}`, (llm) =>
           collectStream(
             llm.chatStream(built.messages, {
               maxOutputTokens: pool.primaryBudget.maxOutputTokens,
@@ -352,10 +352,10 @@ export async function writeManuscripts(project: NovelProject): Promise<void> {
 // ---------------------------------------------------------------- 共用
 
 /**
- * 装配某一段**剧情层**的上下文。
+ * 装配某一章**剧情层**的上下文。
  *
  * 走**同一个装配器**而不是在这里手拼 prompt：分阶段配方、预算封顶、
- * 角色卡降级、前后段与附件的处理全都一致。批量与单次生成产出的东西
+ * 角色卡降级、前后章与附件的处理全都一致。批量与单次生成产出的东西
  * 因此是同一个质量，作者不会发现「工程页批量写的剧情比创作页的差一截」。
  */
 async function buildContextFor(
@@ -371,12 +371,12 @@ async function buildContextFor(
       target: { kind: 'plot', plotRelPath: plot.relPath },
       targetNo: plot.no,
       targetWords: plot.targetWords,
-      // 批量路径上没有用户输入那一句话。用这一段的「目标」当锚点——它正是
-      // 拆段那一步定下的「这一段要达成什么」，比拿标题当输入具体得多。
+      // 批量路径上没有用户输入那一句话。用这一章的「目标」当锚点——它正是
+      // 拆章那一步定下的「这一章要达成什么」，比拿标题当输入具体得多。
       ask:
         capability === 'split'
-          ? `把第 ${plot.no} 段的剧情拆成场景。`
-          : `排出第 ${plot.no} 段的剧情。${plot.sections.目标.trim() || plot.title}`,
+          ? `把第 ${plot.no} 章的剧情拆成场景。`
+          : `排出第 ${plot.no} 章的剧情。${plot.sections.目标.trim() || plot.title}`,
     },
     config
   );
@@ -397,8 +397,8 @@ interface BatchSpec {
 /**
  * 批量执行的外壳：进度、取消、逐项失败记录、收尾汇报。
  *
- * 抽出来是因为三个批量动作的这一段一字不差，而它们要保证的东西恰恰在这里：
- * **失败一项不影响其余**、失败挂在那一段上、取消时说清跑到哪了。
+ * 抽出来是因为三个批量动作的这一章一字不差，而它们要保证的东西恰恰在这里：
+ * **失败一项不影响其余**、失败挂在那一章上、取消时说清跑到哪了。
  */
 async function runBatch(project: NovelProject, spec: BatchSpec): Promise<void> {
   const { items, lanes } = spec;
@@ -416,7 +416,7 @@ async function runBatch(project: NovelProject, spec: BatchSpec): Promise<void> {
         lanes > 1
           ? `已完成 ${done}/${items.length} · ${running.size} 路进行中（第 ${[...running]
               .sort((a, b) => a - b)
-              .join('、')} 段）`
+              .join('、')} 章）`
           : '';
 
       await runPool(items, lanes, (plot) => spec.run(plot, signal), {
@@ -424,7 +424,7 @@ async function runBatch(project: NovelProject, spec: BatchSpec): Promise<void> {
         onStart: (plot) => {
           running.add(plot.no);
           report({
-            message: lanes > 1 ? describeRunning() : `第 ${plot.no} 段《${plot.title}》`,
+            message: lanes > 1 ? describeRunning() : `第 ${plot.no} 章《${plot.title}》`,
             current: done,
             total: items.length,
           });
@@ -440,9 +440,9 @@ async function runBatch(project: NovelProject, spec: BatchSpec): Promise<void> {
             if (!(err instanceof CancelledError || err?.name === 'CancelledError')) {
               const reason = describeError(err);
               failed.push({ no: plot.no, reason });
-              log.error(`第 ${plot.no} 段《${plot.title}》失败：${reason}`, err);
-              // toast 五秒就没了，而一次跑几十段、失败三段是常态。
-              // 挂到那一行上，第二天回来还看得出是哪几段没成。
+              log.error(`第 ${plot.no} 章《${plot.title}》失败：${reason}`, err);
+              // toast 五秒就没了，而一次跑几十章、失败三章是常态。
+              // 挂到那一行上，第二天回来还看得出是哪几章没成。
               void recordFailure(project, {
                 scope: '流水线',
                 targetKind: 'plot',
@@ -450,18 +450,18 @@ async function runBatch(project: NovelProject, spec: BatchSpec): Promise<void> {
                 severity: 'error',
                 op: spec.op,
                 message: `${spec.what}生成失败：${reason}`,
-                detail: `这一段的${spec.what}未完成。可在创作页单独重试。`,
+                detail: `这一章的${spec.what}未完成。可在创作页单独重试。`,
               });
             }
           }
           const perItem = (Date.now() - startedAt) / done;
           log.info(
             `进度 ${done}/${items.length}`,
-            `刚完成第 ${plot.no} 段；平均 ${formatDuration(perItem)}/段，` +
+            `刚完成第 ${plot.no} 章；平均 ${formatDuration(perItem)}/章，` +
               `预计剩余 ${formatDuration(perItem * (items.length - done))}`
           );
           report({
-            message: lanes > 1 ? describeRunning() : `第 ${plot.no} 段《${plot.title}》`,
+            message: lanes > 1 ? describeRunning() : `第 ${plot.no} 章《${plot.title}》`,
             current: done,
             total: items.length,
           });
@@ -469,22 +469,22 @@ async function runBatch(project: NovelProject, spec: BatchSpec): Promise<void> {
       });
 
       if (signal.aborted) {
-        log.warn(`${spec.title}被取消，已完成 ${done}/${items.length} 段`);
+        log.warn(`${spec.title}被取消，已完成 ${done}/${items.length} 章`);
       }
       report({ message: '收尾', current: done, total: items.length });
-      // 完成顺序是乱的，汇报前排回来——「第 7、3、12 段失败」没法读。
+      // 完成顺序是乱的，汇报前排回来——「第 7、3、12 章失败」没法读。
       failed.sort((a, b) => a.no - b.no);
       if (failed.length > 0) {
         log.warn(
-          `${spec.title}结束：成功 ${okCount} 段，失败 ${failed.length} 段`,
-          failed.map((f) => `第 ${f.no} 段：${f.reason}`).join('\n')
+          `${spec.title}结束：成功 ${okCount} 章，失败 ${failed.length} 章`,
+          failed.map((f) => `第 ${f.no} 章：${f.reason}`).join('\n')
         );
         getHost().toast(
-          `完成 ${okCount} 段，第 ${failed.map((f) => f.no).join('、')} 段失败，可在日志页看原因。`
+          `完成 ${okCount} 章，第 ${failed.map((f) => f.no).join('、')} 章失败，可在日志页看原因。`
         );
       } else if (okCount > 0) {
-        log.info(`${spec.title}结束：${okCount} 段全部成功`, `总耗时 ${elapsed(startedAt)}`);
-        getHost().toast(`已为 ${okCount} 段生成${spec.what}。`);
+        log.info(`${spec.title}结束：${okCount} 章全部成功`, `总耗时 ${elapsed(startedAt)}`);
+        getHost().toast(`已为 ${okCount} 章生成${spec.what}。`);
       }
     },
     { scope: '流水线' }

@@ -311,7 +311,7 @@ describe('artifact.ts · 空产物与描述', () => {
   });
 
   test('描述带得出条数', () => {
-    assert.equal(A.describeArtifact({ kind: 'plotList', plots: [1, 2, 3] }), '3 段剧情');
+    assert.equal(A.describeArtifact({ kind: 'plotList', plots: [1, 2, 3] }), '3 章的细纲');
   });
 
   test('剧情描述带填了几节', () => {
@@ -322,7 +322,7 @@ describe('artifact.ts · 空产物与描述', () => {
 
 // ================================================================ 采纳落盘
 
-describe('采纳 · 大纲拆成剧情段', () => {
+describe('采纳 · 大纲拆成章节', () => {
   let result;
   let again;
   let plotCount;
@@ -352,7 +352,7 @@ describe('采纳 · 大纲拆成剧情段', () => {
     assert.equal(plotCount, 2, result.message);
   });
 
-  test('剧情段文件按段号命名', () => {
+  test('细纲文件按章号命名', () => {
     assert.ok(t.has('.novelforge/plots/001-夜入青云.md') && t.has('.novelforge/plots/002-藏书阁.md'));
   });
 
@@ -362,7 +362,7 @@ describe('采纳 · 大纲拆成剧情段', () => {
     assert.equal(chapterCount, 0, String(chapterCount));
   });
 
-  test('剧情段里带上了大纲给的目标', () => {
+  test('细纲里带上了大纲给的目标', () => {
     assert.ok(t.read('.novelforge/plots/001-夜入青云.md').includes('林昭进入宗门'));
   });
 
@@ -381,8 +381,8 @@ describe('采纳 · 大纲拆成剧情段', () => {
     assert.equal(p.stage, 'plot', p.stage);
   });
 
-  // 剧情段记下了大纲的指纹——改了大纲，这一段才标得出脏。
-  test('剧情段记下上游指纹', () => {
+  // 细纲记下了大纲的指纹——改了大纲，这一章才标得出脏。
+  test('细纲记下上游指纹', () => {
     assert.ok(/upstreamHash: \w+/.test(t.read('.novelforge/plots/001-夜入青云.md')));
   });
 
@@ -390,11 +390,11 @@ describe('采纳 · 大纲拆成剧情段', () => {
     assert.ok(again.message.includes('跳过'), again.message);
   });
 
-  test('原剧情段没被改名', () => {
+  test('原细纲没被改名', () => {
     assert.ok(t.has('.novelforge/plots/001-夜入青云.md') && !t.has('.novelforge/plots/001-换个名.md'));
   });
 
-  test('原剧情段没被覆盖', () => {
+  test('原细纲没被覆盖', () => {
     assert.ok(!t.read('.novelforge/plots/001-夜入青云.md').includes('不该写进去'));
   });
 });
@@ -511,7 +511,7 @@ describe('采纳 · 剧情拆场景', () => {
     assert.ok(/upstreamHash: \w+/.test(first));
   });
 
-  test('场景的 plot: 指向剧情段', () => {
+  test('场景的 plot: 指向细纲', () => {
     assert.ok(first.includes('plot: .novelforge/plots/001-夜入青云.md'), first.slice(0, 200));
   });
 
@@ -592,20 +592,21 @@ describe('采纳 · 正文', () => {
 
     // 写完要记一笔 beatsHash，否则这一段会永远显示（或永远不显示）「与场景对不上」。
     manuscript = await project.readManuscript(plotRelPath);
-    const manifest = await project.readManifest();
-    entry = manifest.plots.find((p) => p.file === plotRelPath);
     // 写的是某一场 → 那一场标 written，流水线进度才走得动。
     scene = await project.readScene(plotRelPath, 1);
     chapterCount = (await project.listChapters()).length;
+    const manifest = await project.readManifest();
+    entry = manifest.chapters.find((c) => c.order === 1);
 
-    pipe = await bundle.pipe.buildPlotPipeline(project, await project.readPlot(plotRelPath));
+    const plot = await project.readPlot(plotRelPath);
+    pipe = await bundle.pipe.buildPlotPipeline(project, { no: plot.no, plot });
   });
 
   test('场景齐了就算得出 beatsHash', () => {
     assert.ok(beatsBefore.length > 0);
   });
 
-  // 正文落在 manuscripts/，**不是 chapters/**：切成发布章节是作者的活。
+  // 正文先落在中转站 manuscripts/，**不是 chapters/**：在哪儿断章由作者定。
   test('正文追加到 manuscripts/', () => {
     assert.equal(result.relPath, '.novelforge/manuscripts/001-夜入青云.md', result.message);
   });
@@ -614,6 +615,7 @@ describe('采纳 · 正文', () => {
     assert.ok(t.read('.novelforge/manuscripts/001-夜入青云.md').includes('石阶泡得发白'));
   });
 
+  // 采纳正文这一步不碰发布区：拆分是另一个动作（features/splitChapter.ts）。
   test('不往 chapters/ 里写任何东西', () => {
     assert.equal(chapterCount, 0, String(chapterCount));
   });
@@ -624,12 +626,10 @@ describe('采纳 · 正文', () => {
     assert.equal(manuscript.beatsHash, beatsBefore, manuscript.beatsHash);
   });
 
-  test('manifest 只记索引，不记 beatsHash', () => {
-    assert.equal(entry?.beatsHash, undefined, JSON.stringify(entry));
-  });
-
-  test('manifest 记下这一段的字数', () => {
-    assert.ok(entry?.wordCount > 0, JSON.stringify(entry));
+  // manifest 索引的是 `chapters/` 里的成品。中转站那份是半成品，拆分时就删了，
+  // 进索引只会留下一堆指向已删文件的条目。
+  test('中转站的正文不进 manifest', () => {
+    assert.equal(entry, undefined, JSON.stringify(entry));
   });
 
   test('对应场景标记为 written', () => {
@@ -644,7 +644,7 @@ describe('采纳 · 正文', () => {
     assert.ok(Math.abs(pipe.progress.manuscript - 1 / 3) < 1e-9, String(pipe.progress.manuscript));
   });
 
-  // 一段剧情按场景分几次写，顺序拼起来才是完整的一段——所以是追加不是覆盖。
+  // 一章正文按场景分几次写，顺序拼起来才是完整的一章——所以是追加不是覆盖。
   test('再写一场是追加，不覆盖前一场', async () => {
     await session.acceptArtifact(
       { kind: 'manuscript', plotRelPath, sceneNo: 2 },
@@ -691,8 +691,8 @@ describe('采纳 · 目标不存在时报错而不是乱写', () => {
     }
   });
 
-  test('找不到剧情段时抛错', () => {
-    assert.ok(message.includes('找不到剧情段'), message);
+  test('找不到细纲时抛错', () => {
+    assert.ok(message.includes('找不到细纲'), message);
   });
 
   test('没有凭空造出正文', () => {

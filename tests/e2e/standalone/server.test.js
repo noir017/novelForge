@@ -143,9 +143,8 @@ describe('内置编辑器：只读用例', () => {
   let json;
 
   before(async () => {
-    // 取剧情段的正文：`chapters/` 是作者的发布区，示例工程里是空的
-    // （只有一份没有序号前缀的 README.md）。
-    conn.send({ type: 'openEditor', path: '.novelforge/manuscripts/001-楔子.md' });
+    // 取正文：示例工程的三章都已经拆分发布，正文在 `chapters/` 里。
+    conn.send({ type: 'openEditor', path: 'chapters/001-楔子.md' });
     opened = await conn.waitFor((m) => m.type === 'editorOpen', 'editorOpen');
 
     conn.send({ type: 'openEditor', path: '../../../package.json' });
@@ -266,7 +265,7 @@ describe('资源管理器：目录列举', () => {
 
 // 这是**唯一一条**跑真控制器状态机的用例：前端只知道「我点了第 3 段」，
 // 落在哪一层由后端算。别的用例要么测纯函数、要么测前端。
-describe('选中剧情段 → 状态机决定落在哪一层', () => {
+describe('选中一章 → 状态机决定落在哪一层', () => {
   let session;
   let pipe;
   let outlinePipe;
@@ -290,9 +289,9 @@ describe('选中剧情段 → 状态机决定落在哪一层', () => {
     toasted = await conn.waitFor((m) => m.type === 'toast', 'toast');
   });
 
-  // sample-novel 的剧情排好了、但一个场景都没拆，所以状态机给的下一步是
-  // 「拆成场景」——那个动作**挂在剧情层**（拆的是这一段），于是落点是 plot。
-  // 旧版一律落到 manuscript，连剧情都没排的段也照样把人丢进正文层。
+  // sample-novel 的三章都写完、拆分发布、也总结过了 → 状态机说「已完成」。
+  // 已完成的章落在剧情层：那是回头改这一章最自然的入口（`deriveNextStep`
+  // 不给下一步，界面因此不催任何事）。
   test('落到状态机算出的那一层', () => {
     assert.equal(session.session.stage, 'plot');
   });
@@ -321,16 +320,17 @@ describe('选中剧情段 → 状态机决定落在哪一层', () => {
       JSON.stringify(pipe.workbench));
   });
 
-  test('下一步是拆成场景', () => {
-    assert.ok(pipe.next?.stage === 'plot' && pipe.next?.capability === 'split',
-      JSON.stringify(pipe.next));
+  // **全做完了就不催**：给一个假的「下一步」等于逼作者一直有事可做。
+  // 这一章正文发布了、摘要也新鲜，状态机因此不返回下一步。
+  test('已完成的章没有下一步', () => {
+    assert.equal(pipe.next, undefined, JSON.stringify(pipe.next));
   });
 
-  test('下一步带上落点', () => {
-    assert.equal(pipe.next?.target.plotRelPath, '.novelforge/plots/003-夜访.md');
+  test('已完成的章徽章是已完成', () => {
+    assert.equal(pipe.pipeline?.stage, 'done', JSON.stringify(pipe.pipeline?.stage));
   });
 
-  test('大纲层不带剧情段流水线', () => {
+  test('大纲层不带单章流水线', () => {
     assert.equal(outlinePipe.pipeline, undefined);
   });
 

@@ -1,14 +1,14 @@
 /**
- * 剧情段摘要的悬停浮窗。
+ * 章节摘要的悬停浮窗。
  *
  * 摘要此前只能在 `.novelforge/summaries/` 里手动翻，或右键「看摘要」开一个
- * 编辑器标签页——想快速回忆「第 37 段讲了什么」代价太大。悬停浮窗把这件事
+ * 编辑器标签页——想快速回忆「第 37 章讲了什么」代价太大。悬停浮窗把这件事
  * 变成不打断写作的一瞥。
  *
  * 四条设计取舍：
- * - **摘要正文不进 `ProjectTree`**：那棵树每次文件变动都全量重推，两百段
- *   每段上千字等于每保存一次就推几百 KB。改成悬停时按路径单段去取。
- * - **前端缓存、收到新树即作废**：同一段反复扫过去只请求一次；正文一改
+ * - **摘要正文不进 `ProjectTree`**：那棵树每次文件变动都全量重推，两百章
+ *   每章上千字等于每保存一次就推几百 KB。改成悬停时按路径单章去取。
+ * - **前端缓存、收到新树即作废**：同一章反复扫过去只请求一次；正文一改
  *   （后端会重推树）缓存整体清掉，不会拿旧摘要糊弄人。
  * - **半秒延迟**：鼠标从工具栏划到某一行的路上会扫过好几行，立刻弹会闪。
  * - **浮窗可以进得去**：摘要有六个小节、可能上千字，一瞥看不完。鼠标移上去
@@ -29,9 +29,9 @@ const HOVER_DELAY_MS = 450;
 /** 收起的宽限期：够鼠标从行跨到浮窗，又不至于让它赖着不走。 */
 const CLOSE_DELAY_MS = 200;
 
-/** 剧情段路径 -> PlotSummaryView。收到新的树时整体作废。 */
+/** 章节路径 -> PlotSummaryView。收到新的树时整体作废。 */
 const summaryCache = new Map<string, PlotSummaryView>();
-/** 已经发出请求、还没等到回音的路径，避免同一段连发好几次。 */
+/** 已经发出请求、还没等到回音的路径，避免同一章连发好几次。 */
 const summaryPending = new Set<string>();
 
 let hoverTimer: ReturnType<typeof setTimeout> | null = null;
@@ -132,7 +132,7 @@ function buildBody(view?: PlotSummaryView): DocumentFragment {
   }
 
   const head = mk('div', 'summary-tip-head');
-  head.appendChild(mk('span', 'summary-tip-title', `第 ${view.no} 段 ${view.title}`.trim()));
+  head.appendChild(mk('span', 'summary-tip-title', `第 ${view.no} 章 ${view.title}`.trim()));
   // 过期必须说出来：照着一份写于三次修改之前的摘要做判断比没有摘要更糟。
   if (view.exists && view.stale) {
     head.appendChild(mk('span', 'summary-tip-stale', '已过期'));
@@ -140,7 +140,7 @@ function buildBody(view?: PlotSummaryView): DocumentFragment {
   frag.appendChild(head);
 
   if (!view.exists) {
-    frag.appendChild(mk('div', 'hint', '这一段还没有摘要。右键「总结这一段」可以生成。'));
+    frag.appendChild(mk('div', 'hint', '这一章还没有摘要。右键「总结这一章」可以生成。'));
     return frag;
   }
 
@@ -158,8 +158,8 @@ function buildBody(view?: PlotSummaryView): DocumentFragment {
 /**
  * 摘要到了：填进缓存，正开着的浮窗就地换掉内容（不重建，免得闪）。
  *
- * 摘要文件的路径与剧情段的路径不同（一个在 summaries/，一个在 plots/），
- * 所以按**当前开着的那一段**回填——同一时刻只可能有一个浮窗。
+ * 摘要文件的路径与章节的路径不同（一个在 summaries/，一个在 plots/），
+ * 所以按**当前开着的那一章**回填——同一时刻只可能有一个浮窗。
  */
 export function applySummary(view: PlotSummaryView): void {
   const relPath = hoverTip?.relPath;

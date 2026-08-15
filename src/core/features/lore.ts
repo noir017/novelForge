@@ -13,8 +13,7 @@ import {
   NovelProject,
   renderLoreEntry,
 } from '../model/project';
-import { LoreEntry } from '../model/types';
-import { Plot } from '../model/plotFile';
+import { LoreEntry, Chapter } from '../model/types';
 import { runTask } from '../runtime/progress';
 import { LORE_EXTRACT_SYSTEM, LORE_SYNTHESIS_SYSTEM } from './lorePrompt';
 import { extractJson, stringArray, stripCodeFence, unique, uniqueNumbers } from './parse';
@@ -43,7 +42,7 @@ interface GeneratedLore {
 }
 
 interface PlotScanUnit {
-  plot: Plot;
+  chapter: Chapter;
   text: string;
   part: number;
   parts: number;
@@ -52,39 +51,42 @@ interface PlotScanUnit {
 /**
  * 从全书正文生成/更新世界观设定。
  *
- * 第一阶段严格按段落顺序逐段分析：后一段会看到此前已经发现的设定目录，
+ * 读的是 `chapters/` 里的成稿：设定要从正文里认，剧情脉络里那句
+ * 「他去了后山」认不出「后山是什么地方」。
+ *
+ * 第一阶段严格按章节顺序逐章分析：后一章会看到此前已经发现的设定目录，
  * 尽量沿用同一个标题，避免同一地点或势力被拆成多条。第二阶段按设定并发
- * 精炼跨段事实。新条目直接创建，已有条目必须经过宿主审阅才会覆盖。
+ * 精炼跨章事实。新条目直接创建，已有条目必须经过宿主审阅才会覆盖。
  */
 export async function generateLore(project: NovelProject): Promise<void> {
-  const plots = await project.listPlots();
-  if (plots.length === 0) {
-    log.warn('还没有剧情段，无法生成设定');
-    getHost().toast('还没有剧情段。');
+  const chapters = await project.listChapters();
+  if (chapters.length === 0) {
+    log.warn('还没有章节，无法生成设定');
+    getHost().toast('还没有章节。写完正文先拆成章节，才能生成设定。');
     return;
   }
 
   const existing = await project.listLore();
   const config = readConfig();
-  // 切扫描片段用**逐段识别那一档**的窗口：片段数 = 确认框里那句「调用 N 次」，
+  // 切扫描片段用**逐章识别那一档**的窗口：片段数 = 确认框里那句「调用 N 次」，
   // 拿错窗口既会让那个数字失真，也会让每个片段超出干活模型的窗口。
   const scanBudget = budgetForTask('loreScan');
   const inputBudget = Math.max(2000, scanBudget.contextWindow - scanBudget.maxOutputTokens - 2500);
-  const scanUnits = await prepareScanUnits(project, plots, Math.max(1000, Math.floor(inputBudget * 0.7)));
+  const scanUnits = await prepareScanUnits(project, chapters, Math.max(1000, Math.floor(inputBudget * 0.7)));
   if (scanUnits.length === 0) {
     log.error('没有可读的正文，设定生成中止');
     getHost().toast('还没有写过正文，或正文都无法读取（详见日志页）。', 'error');
     return;
   }
   const confirmed = await getHost().confirm(
-    `将通读已写的正文生成设定：逐段识别固定调用模型 ${scanUnits.length} 次，` +
-      '之后每发现一条设定再调用 1 次完成跨段整合。现在开始？',
+    `将通读已写的正文生成设定：逐章识别固定调用模型 ${scanUnits.length} 次，` +
+      '之后每发现一条设定再调用 1 次完成跨章整合。现在开始？',
     ['开始生成'],
     {
       modal: true,
       detail: [
         `预计调用次数：${scanUnits.length} + 识别出的设定条数。` +
-          `${scanUnits.length > plots.length ? `长段按输入预算拆成了多个完整片段，不会截掉后半部分。` : ''}` +
+          `${scanUnits.length > chapters.length ? `长章按输入预算拆成了多个完整片段，不会截掉后半部分。` : ''}` +
           '扫描结束后会在进度与日志中给出实际总数。',
         existing.length > 0
           ? `现有 ${existing.length} 条设定只会生成修改建议，逐条确认后才覆盖。`
@@ -92,7 +94,7 @@ export async function generateLore(project: NovelProject): Promise<void> {
         describeTaskModels(config, 'loreScan'),
         describeTaskModels(config, 'loreSynthesis'),
         config.concurrency > 1
-          ? `逐段识别保持串行；设定整合最多 ${config.concurrency} 路并发。`
+          ? `逐章识别保持串行；设定整合最多 ${config.concurrency} 路并发。`
           : '全部串行处理（并发数为 1）。',
       ].join('\n\n'),
     }
@@ -102,13 +104,13 @@ export async function generateLore(project: NovelProject): Promise<void> {
     return;
   }
 
-  // 逐段识别有前后依赖，恒用首选模型；第二阶段的设定彼此独立，可轮转负载均衡。
+  // 逐章识别有前后依赖，恒用首选模型；第二阶段的设定彼此独立，可轮转负载均衡。
   const scanPool = await createModelPool({ task: 'loreScan', concurrent: false });
   if (!scanPool) {
     log.error('没有可用的模型，设定生成中止');
     return;
   }
-  // 两阶段是**两档**（逐段识别只做事实摘录，整合要合并跨段事实且不能推翻
+  // 两阶段是**两档**（逐章识别只做事实摘录，整合要合并跨章事实且不能推翻
   // 作者已写的内容），所以哪怕串行也各建一个池——串行时复用扫描池会把
   // 整合悄悄降级到快速档。只有两档解析到同一份清单时才是同一批模型。
   const synthesisPool = await createModelPool({
@@ -122,8 +124,8 @@ export async function generateLore(project: NovelProject): Promise<void> {
 
   log.info(
     '开始从正文生成设定',
-    `${plots.length} 段分 ${scanUnits.length} 个扫描片段｜已有 ${existing.length} 条｜` +
-      `逐段识别 ${scanPool.label}｜设定整合 ${synthesisPool.label}｜` +
+    `${chapters.length} 章分 ${scanUnits.length} 个扫描片段｜已有 ${existing.length} 条｜` +
+      `逐章识别 ${scanPool.label}｜设定整合 ${synthesisPool.label}｜` +
       (config.concurrency > 1 ? `整合并发 ${config.concurrency} 路` : '串行')
   );
 
@@ -150,7 +152,7 @@ export async function generateLore(project: NovelProject): Promise<void> {
         total: totalSteps,
       });
       log.info(
-        `逐段扫描完成，识别出 ${drafts.length} 条设定`,
+        `逐章扫描完成，识别出 ${drafts.length} 条设定`,
         `实际计划调用模型 ${modelCalls} 次（扫描 ${scanUnits.length} + 整合 ${drafts.length}）`
       );
 
@@ -198,30 +200,32 @@ export async function generateLore(project: NovelProject): Promise<void> {
   );
 }
 
-/** 在确认前读盘并按输入预算切片，保证长段的后半部分也会被模型看到。 */
+/** 在确认前读盘并按输入预算切片，保证长章的后半部分也会被模型看到。 */
 async function prepareScanUnits(
   project: NovelProject,
-  plots: Plot[],
+  chapters: Chapter[],
   maxTokens: number
 ): Promise<PlotScanUnit[]> {
   const units: PlotScanUnit[] = [];
-  for (const plot of plots) {
+  for (const chapter of chapters) {
     try {
-      const text = await project.readManuscriptText(plot.relPath);
-      // 还没写正文的段直接跳过：设定要从成稿里认，剧情脉络里那句「他去了后山」
-      // 认不出「后山是什么地方」。
+      const text = await project.readChapterText(chapter);
+      // 空章直接跳过。
       if (!text.trim()) {
         continue;
       }
       const chunks = splitForBudget(text, maxTokens);
       if (chunks.length > 1) {
-        log.info(`第 ${plot.no} 段正文拆分为 ${chunks.length} 个设定识别片段`, `${estimateTokens(text)} token`);
+        log.info(
+          `第 ${chapter.order} 章正文拆分为 ${chunks.length} 个设定识别片段`,
+          `${estimateTokens(text)} token`
+        );
       }
       chunks.forEach((chunk, index) => {
-        units.push({ plot, text: chunk, part: index + 1, parts: chunks.length });
+        units.push({ chapter, text: chunk, part: index + 1, parts: chunks.length });
       });
     } catch (err) {
-      log.error(`第 ${plot.no} 段正文读取失败，跳过该段`, describeError(err));
+      log.error(`第 ${chapter.order} 章正文读取失败，跳过该章`, describeError(err));
     }
   }
   return units;
@@ -286,10 +290,10 @@ async function scanChapters(
     if (signal.aborted) {
       break;
     }
-    const { plot } = unit;
+    const { chapter } = unit;
     const partLabel = unit.parts > 1 ? `（片段 ${unit.part}/${unit.parts}）` : '';
     report({
-      message: `识别第 ${plot.no} 段《${plot.title}》${partLabel}`,
+      message: `识别第 ${chapter.order} 章《${chapter.title}》${partLabel}`,
       current: scanned,
       total: units.length,
     });
@@ -300,11 +304,11 @@ async function scanChapters(
       const clippedCatalog = takeHead(catalog, catalogBudget);
       if (clippedCatalog.length < catalog.length) {
         log.warn(
-          `第 ${plot.no} 段识别时，设定目录超出输入预算，已截断`,
+          `第 ${chapter.order} 章识别时，设定目录超出输入预算，已截断`,
           `${catalog.length} 字 → ${clippedCatalog.length} 字（目录预算 ${catalogBudget} token）`
         );
       }
-      const raw = await pool.run(`第 ${plot.no} 段设定识别`, (llm) =>
+      const raw = await pool.run(`第 ${chapter.order} 章设定识别`, (llm) =>
         collectStream(
           llm.chatStream(
             [
@@ -315,7 +319,7 @@ async function scanChapters(
                   `已有及此前发现的设定目录（同一对象必须沿用这里的标题）：\n${clippedCatalog || '（暂无）'}` +
                   `
 
-【第 ${plot.no} 段 ${plot.title}${partLabel}】
+【第 ${chapter.order} 章 ${chapter.title}${partLabel}】
 ${unit.text}`,
               },
             ],
@@ -324,16 +328,16 @@ ${unit.text}`,
         )
       );
       const parsed = parseLoreCandidates(raw);
-      mergeCandidates(drafts, existing, parsed, plot.no);
+      mergeCandidates(drafts, existing, parsed, chapter.order);
       log.info(
-        `第 ${plot.no} 段${partLabel}设定识别完成`,
+        `第 ${chapter.order} 章${partLabel}设定识别完成`,
         `识别 ${parsed.length} 项｜累计 ${drafts.length} 条｜产出 ${raw.length} 字｜用时 ${elapsed(startedAt)}`
       );
     } catch (err) {
       if (signal.aborted) {
         break;
       }
-      log.error(`第 ${plot.no} 段设定识别失败，继续下一段`, describeError(err));
+      log.error(`第 ${chapter.order} 章设定识别失败，继续下一章`, describeError(err));
     } finally {
       scanned++;
       report({ current: scanned, total: units.length });
@@ -459,13 +463,13 @@ async function synthesizeDrafts(
               severity: 'error',
               op: 'generateLore',
               message: `整合失败：${describeError(result.reason)}`,
-              detail: `依据第 ${draft.chapters.join('、')} 段｜这一条未改动，可重新运行「从已写正文生成/更新设定」`,
+              detail: `依据第 ${draft.chapters.join('、')} 章｜这一条未改动，可重新运行「从已写正文生成/更新设定」`,
             });
           }
         } else {
           log.info(
             `设定「${draft.title}」生成完成`,
-            `依据 ${draft.chapters.length} 段｜正文 ${result.value.body.length} 字`
+            `依据 ${draft.chapters.length} 章｜正文 ${result.value.body.length} 字`
           );
         }
         report({
@@ -487,7 +491,7 @@ async function synthesizeOne(draft: LoreDraft, pool: ModelPool, signal: AbortSig
   const inputBudget = Math.max(2000, budget.contextWindow - budget.maxOutputTokens - 2500);
   const source = [
     draft.existing?.body ? `作者现有内容（视为权威，除非正文明确更新，不得删除或改写其事实）：\n${draft.existing.body}` : '',
-    `正文中提取的事实（来自第 ${draft.chapters.join('、')} 段）：\n${draft.facts.map((f) => `- ${f}`).join('\n')}`,
+    `正文中提取的事实（来自第 ${draft.chapters.join('、')} 章）：\n${draft.facts.map((f) => `- ${f}`).join('\n')}`,
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -636,7 +640,7 @@ async function reviewExisting(
   return 'updated';
 }
 
-/** 容错解析逐段识别结果；坏条目忽略，不让一段的脏输出带崩全书任务。 */
+/** 容错解析逐章识别结果；坏条目忽略，不让一章的脏输出带崩全书任务。 */
 export function parseLoreCandidates(raw: string): ParsedLoreCandidate[] {
   const cleaned = stripCodeFence(raw);
   const json = extractJson(cleaned);

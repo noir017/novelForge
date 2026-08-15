@@ -1,4 +1,5 @@
 import type { ChatController } from './index';
+import { basename } from 'node:path';
 import { dirBaseName, initProjectFlow, newChapterFlow, newPlotFlow } from '../actions';
 import { newFolder, Section, sectionOf, sectionRoots } from '../files/fileOps';
 import {
@@ -12,8 +13,11 @@ import { extractCharacters, newCharacter, newLore } from '../features/characters
 import { generateLore } from '../features/lore';
 import { breakdownScenes, generatePlots, writeManuscripts } from '../features/pipelineBatch';
 import { extractStyle } from '../features/style';
-import { rebuildGlobalSummary, summarizePlot, syncSummaries } from '../features/summarize';
+import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../features/summarize';
+import { splitManuscript } from '../features/splitChapter';
 import { getHost } from '../host';
+import { parsePlotFileName } from '../model/plotFile';
+import { Chapter } from '../model/types';
 import { scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { CharacterAction, ProjectAction } from '../protocol';
@@ -27,7 +31,7 @@ const log = scoped('面板');
  * 工程页的按钮直调 core 流程，webview 不直接碰文件系统。
  * 插件的命令面板也复用同一批 core 流程，行为不会分叉。
  *
- * `relPath` 是动作的作用对象（如要总结哪一段）；`dir` 是「在某个文件夹上点＋」
+ * `relPath` 是动作的作用对象（如要总结哪一章）；`dir` 是「在某个文件夹上点＋」
  * 时的落点目录，从工具栏点则不带，落在区根目录。
  */
 export async function projectAction(
@@ -83,23 +87,33 @@ export async function projectAction(
       if (!relPath) {
         break;
       }
-      const plot = await c.project.readPlot(relPath);
-      if (!plot) {
-        log.warn(`找不到 ${relPath}，可能刚被改名或删除`);
+      // 传进来的可能是细纲路径（从流水线那一侧点的），也可能是章节路径
+      // （从工程页那一行点的）。摘要挂在成品上，所以统一解析成章节。
+      const chapter = await resolveChapter(c, relPath);
+      if (!chapter) {
+        log.warn(`找不到 ${relPath} 对应的章节，可能还没拆分或刚被改名`);
+        getHost().toast('这一章还没有拆分成发布章节，无法总结。', 'error');
         break;
       }
       await runTask(
-        `总结第 ${plot.no} 段`,
+        `总结第 ${chapter.order} 章`,
         async ({ signal, report }) => {
-          report({ message: `《${plot.title}》`, current: 0, total: 1 });
-          const ok = await summarizePlot(c.project, plot, undefined, signal);
+          report({ message: `《${chapter.title}》`, current: 0, total: 1 });
+          const ok = await summarizeChapter(c.project, chapter, undefined, signal);
           report({ message: ok ? '完成' : '未生成', current: 1, total: 1 });
           if (ok) {
-            getHost().toast(`第 ${plot.no} 段摘要已生成。`);
+            getHost().toast(`第 ${chapter.order} 章摘要已生成。`);
           }
         },
         { scope: '摘要' }
       );
+      break;
+    }
+    case 'splitManuscript': {
+      if (!relPath) {
+        break;
+      }
+      await splitManuscript(c.project, relPath);
       break;
     }
     case 'syncSummaries':
@@ -139,6 +153,25 @@ export async function pickSection(c: ChatController): Promise<Section | undefine
     sectionRoots(c.project).map((s) => ({ label: s.label, detail: `${s.root}/`, value: s.section })),
     '在哪个区新建文件夹？'
   );
+}
+
+/**
+ * 把「细纲路径或章节路径」统一解析成章节。
+ *
+ * 工程页那一行同时代表规划与成品，点它发上来的可能是任意一侧的路径；
+ * 而摘要挂在成品上。先按路径直接找，找不到再按文件名里的章号找——
+ * 后者覆盖「传的是细纲、成品另有其名」这种正常情况。
+ *
+ * 还没拆分（没有成品）时返回 undefined，调用方据此提示作者先去拆分。
+ */
+async function resolveChapter(c: ChatController, relPath: string): Promise<Chapter | undefined> {
+  const chapters = await c.project.listChapters();
+  const direct = chapters.find((ch) => ch.relPath === relPath);
+  if (direct) {
+    return direct;
+  }
+  const no = parsePlotFileName(basename(relPath))?.no;
+  return no === undefined ? undefined : chapters.find((ch) => ch.order === no);
 }
 
 /**

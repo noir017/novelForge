@@ -189,6 +189,15 @@
   opacity: 0.75;
 }
 
+/*
+ * 待拆分：正文写完了，等作者标断点。这是唯一一个「活儿在作者手上、
+ * 不花 token」的阶段，用醒目一点的颜色——它是流水线上最容易被忘掉的一步。
+ */
+.row-stage.stage-split {
+  color: var(--vscode-charts-blue, #4daafc);
+  border-color: currentColor;
+}
+
 /* 上游变过。暖色而非红色：这不是错误，是「回头看一眼」。 */
 .row-upstream {
   flex: 0 0 auto;

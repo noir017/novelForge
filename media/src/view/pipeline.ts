@@ -3,7 +3,7 @@
  *
  * 界面要回答三个问题，这里管前两个（第三个是工作区卡，见 workbench.ts）：
  *
- * - **我现在在哪一层？** —— 段名信息条 + 状态徽章 + 三层状态点
+ * - **我现在在哪一层？** —— 章名信息条 + 状态徽章 + 三层状态点
  * - **我接下来该干什么？** —— 下一步条（一个主按钮 + 一个 `/ 命令`）
  *
  * ## 为什么是一个按钮而不是七个
@@ -15,7 +15,7 @@
  *
  * ## 为什么主按钮点了就跑
  *
- * 它是状态机替你选的，没有参数可填：这一段该排什么剧情，大纲与前后段里都写着。
+ * 它是状态机替你选的，没有参数可填：这一章该排什么剧情，大纲与前后章里都写着。
  * 旧界面逼作者先编一句「请生成」才肯发送，而那句废话还会被当成要求装进
  * prompt。输入框里有字就当补充要求带上，没有就不带。
  */
@@ -40,9 +40,9 @@ import { store, vscode } from './store';
 
 // ---------------------------------------------------------------- 状态
 
-/** 当前这一段的流水线。切目标或产物落盘后由后端重推。 */
+/** 当前这一章的流水线。切目标或产物落盘后由后端重推。 */
 let current: PlotPipelineView | null = null;
-/** 状态机算出的下一步。全书大纲阶段也有（去写大纲 / 去拆剧情段）。 */
+/** 状态机算出的下一步。全书大纲阶段也有（去写大纲 / 去拆章节）。 */
 let next: NextStepView | null = null;
 
 const crumb = () => maybeById('pipelineCrumb');
@@ -67,11 +67,11 @@ export function installNewSession(): void {
 }
 
 /**
- * 「重命名当前剧情段」。
+ * 「重命名当前章节」。
  *
  * 复用工程页右键那条 `fileAction: 'rename'`——后端的 `writePlot` 已经会保留
  * 序号前缀、把场景目录/正文/摘要三套伴生文件跟着搬走。这里只负责说清
- * 「改的是哪一段」，不新增协议。
+ * 「改的是哪一章」，不新增协议。
  */
 export function installRenamePlot(): void {
   el.renamePlotBtn.addEventListener('click', () => {
@@ -92,8 +92,8 @@ export function renderPipeline(pipeline: PlotPipelineView | undefined, step: Nex
 /**
  * 会话变了（切目标、开历史会话）时重画。
  *
- * 目标换到另一段时手上这份 pipeline 就过期了——先丢掉再等后端推新的，
- * **不要留着显示**：拿上一段的状态配这一段的名字，比什么都不显示更糟。
+ * 目标换到另一章时手上这份 pipeline 就过期了——先丢掉再等后端推新的，
+ * **不要留着显示**：拿上一章的状态配这一章的名字，比什么都不显示更糟。
  */
 export function onSessionChanged(): void {
   if (current && current.plotRelPath !== plotOfTarget(store.session.target)) {
@@ -113,10 +113,10 @@ function redraw(): void {
 }
 
 /**
- * 「重命名当前剧情段」按钮的显隐与 tooltip。
+ * 「重命名当前章节」按钮的显隐与 tooltip。
  *
- * 目标是全书大纲时藏起来——那一层没有段可改名，留一个点了会报错的按钮
- * 比没有更糟。tooltip 里带上段名，作者才看得出改的是哪一段。
+ * 目标是全书大纲时藏起来——那一层没有章可改名，留一个点了会报错的按钮
+ * 比没有更糟。tooltip 里带上章名，作者才看得出改的是哪一章。
  */
 function renderRenameBtn(): void {
   const relPath = plotOfTarget(store.session.target);
@@ -128,12 +128,12 @@ function renderRenameBtn(): void {
     current && current.no > 0 ? `重命名${plotLabel(current.no, current.title)}` : `重命名 ${relPath}`;
 }
 
-// ---------------------------------------------------------------- 段名信息条（只读）
+// ---------------------------------------------------------------- 章名信息条（只读）
 
 /**
- * 顶部只报「在哪一段 / 哪一场」，不负责导航。
+ * 顶部只报「在哪一章 / 哪一场」，不负责导航。
  *
- * 切层靠下面的剧情/细节/正文按钮；切段靠工程页。这里做成可点只会多一个
+ * 切层靠下面的剧情/细节/正文按钮；切章靠工程页。这里做成可点只会多一个
  * 几乎没人用的入口，还让人以为点了会有什么深层动作。
  */
 function renderCrumb(): void {
@@ -145,14 +145,14 @@ function renderCrumb(): void {
   const target = store.session.target;
   const relPath = plotOfTarget(target);
 
-  // 大纲阶段没有段可报，整条收起。
+  // 大纲阶段没有章可报，整条收起。
   setHidden(box, !relPath);
   if (!relPath) {
     return;
   }
 
-  // `no` 为 0 是后端给的「这一段找不到」空壳（刚被改名或删掉），
-  // 那时报文件名比报「第 0 段」有用。
+  // `no` 为 0 是后端给的「这一章找不到」空壳（刚被改名或删掉），
+  // 那时报文件名比报「第 0 章」有用。
   const title =
     current && current.no > 0
       ? plotLabel(current.no, current.title)
@@ -165,12 +165,12 @@ function renderCrumb(): void {
     box.appendChild(mk('span', 'crumb', scene ? `场景 ${scene.no} ${scene.title}` : `场景 ${target.sceneNo}`));
   }
 
-  // 段的状态徽章，与工程页那一列同一份文案（PLOT_STAGE_LABEL）。
-  // 它是「这一段整体走到哪了」，与下面三层各自的状态点不重复。
+  // 章的状态徽章，与工程页那一列同一份文案（PLOT_STAGE_LABEL）。
+  // 它是「这一章整体走到哪了」，与下面三层各自的状态点不重复。
   if (current) {
     box.appendChild(mk('span', 'spacer'));
     const badge = mk('span', `cstage cstage-${current.stage}`, PLOT_STAGE_LABEL[current.stage]);
-    badge.title = '这一段当前所处的阶段。由磁盘上的四层产物推导，不落盘。';
+    badge.title = '这一章当前所处的阶段。由磁盘上的四层产物推导，不落盘。';
     box.appendChild(badge);
   }
 }
@@ -184,7 +184,7 @@ function renderCrumb(): void {
  * 表达的是状态机走到哪，不是「完成了百分之几」。
  *
  * 「上游变过」的标记（⟳）是这套流水线最有价值的一格信息：改了大纲之后，
- * 哪几段的剧情需要回头看，光靠人脑记不住。它由 hash 链算出来，零模型调用。
+ * 哪几章的剧情需要回头看，光靠人脑记不住。它由 hash 链算出来，零模型调用。
  */
 function renderStages(): void {
   const box = stagesBox();
@@ -194,7 +194,7 @@ function renderStages(): void {
   clear(box);
 
   const relPath = plotOfTarget(store.session.target);
-  // 全书大纲阶段没有「这一段的三层」可言，整条收起来。
+  // 全书大纲阶段没有「这一章的三层」可言，整条收起来。
   setHidden(box, !relPath);
   if (!relPath) {
     return;
@@ -288,7 +288,7 @@ function renderScenes(): void {
     btn.textContent = scene.detail;
     btn.title = [
       scene.ready ? '素材已备，可以写正文' : '还没有素材，写正文前先想出来',
-      scene.upstreamStale ? '本段剧情改过，这一场的素材可能已经用不上' : '',
+      scene.upstreamStale ? '本章剧情改过，这一场的素材可能已经用不上' : '',
     ]
       .filter(Boolean)
       .join('\n');
@@ -311,7 +311,7 @@ function renderScenes(): void {
 /**
  * 下一步条：一句「为什么是这一步」 + 一个主按钮。
  *
- * 没有下一步（这一段全做完了）时主按钮收起——**不造一个假的下一步**。
+ * 没有下一步（这一章全做完了）时主按钮收起——**不造一个假的下一步**。
  * 给一个「下一步」等于逼作者一直有事可做，而写完就是写完了。其余命令在
  * 输入框里打 `/` 就有（或点工具行上的「/ 命令」）。
  */
@@ -320,8 +320,8 @@ function renderNextStep(): void {
 
   if (!next) {
     el.nextStepHint.textContent = current
-      ? '这一段各层都齐了。要改哪一层就点上面对应的那一层。'
-      : '挑一段开始，或在输入框里打 / 挑一个命令。';
+      ? '这一章各层都齐了。要改哪一层就点上面对应的那一层。'
+      : '挑一章开始，或在输入框里打 / 挑一个命令。';
     setHidden(el.nextStepBtn, true);
     return;
   }
@@ -349,7 +349,7 @@ function renderNextStep(): void {
 function updatePlaceholder(): void {
   const { stage, capability } = store.session;
   if (stage === 'manuscript' && (capability === 'generate' || capability === 'rewrite')) {
-    el.input.placeholder = '描述这一段要写什么剧情…（可留空，Enter 发送）';
+    el.input.placeholder = '描述这一章要写什么剧情…（可留空，Enter 发送）';
     return;
   }
   el.input.placeholder = `${STAGE_LABEL[stage]}：${STAGE_QUESTION[stage]}（可留空，打 / 挑命令）`;
@@ -364,7 +364,7 @@ function go(target: CreationTarget): void {
   vscode.postMessage({ type: 'setTarget', target });
 }
 
-/** 切到某一层时保留当前剧情段（与场号，如果那一层认它）。 */
+/** 切到某一层时保留当前章节（与场号，如果那一层认它）。 */
 function targetFor(stage: CreationStage, plotRelPath: string): CreationTarget {
   const target = store.session.target;
   const sceneNo = target.kind === 'scene' || target.kind === 'manuscript' ? target.sceneNo : undefined;
@@ -375,7 +375,7 @@ function targetFor(stage: CreationStage, plotRelPath: string): CreationTarget {
       return { kind: 'plot', plotRelPath };
     case 'scene':
       // 还没选具体哪一场时落到第一场——「细节阶段」但不指着任何一场，
-      // 装配器只能给整段的场景一览，多数时候不是用户想要的。
+      // 装配器只能给整章的场景一览，多数时候不是用户想要的。
       return { kind: 'scene', plotRelPath, sceneNo: sceneNo ?? current?.scenes[0]?.no ?? 1 };
     case 'manuscript':
       return { kind: 'manuscript', plotRelPath, sceneNo };

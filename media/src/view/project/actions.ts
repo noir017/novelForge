@@ -6,7 +6,7 @@ import type { MenuItem } from '../../globals';
 import { vscode } from '../store';
 
 /**
- * `relPath` 是动作的作用对象（如要总结哪一段）；`dir` 给新建类动作指定落点
+ * `relPath` 是动作的作用对象（如要总结哪一章）；`dir` 给新建类动作指定落点
  * 目录，缺省落在该区的根目录。
  */
 export function projectAction(action: ProjectAction, relPath?: string, dir?: string): void {

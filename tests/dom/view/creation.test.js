@@ -1,5 +1,5 @@
 /**
- * 创作页：流水线条与下一步、当前产物浮窗、/ 命令面板、进剧情段、独立版壳。
+ * 创作页：流水线条与下一步、当前产物浮窗、/ 命令面板、进入某一章、独立版壳。
  *
  * 迁自 scripts/smoke-view.js 的这几节：
  *   == 创作流水线条与下一步 ==（389） == 工作区卡 ==（544）
@@ -98,8 +98,8 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.equal(stages().length, 3, String(stages().length));
   });
 
-  // 剧情段的状态徽章：与工程页那一列同一份文案。
-  test('信息条带剧情段状态徽章', () => {
+  // 这一章的状态徽章：与工程页那一列同一份文案。
+  test('信息条带这一章的状态徽章', () => {
     const badge = ui.doc.querySelector('#pipelineCrumb .cstage');
     assert.ok(badge, '没有徽章');
     assert.equal(badge.textContent, '待写正文', badge?.textContent);
@@ -128,7 +128,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.ok(manuscriptStage.querySelector('.pstage-stale'));
   });
 
-  test('剧情段没有变更标记', () => {
+  test('这一章没有变更标记', () => {
     assert.ok(!stages().find((n) => n.textContent.includes('剧情')).querySelector('.pstage-stale'));
   });
 
@@ -192,7 +192,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.ok(!ui.doc.getElementById('newSessionBtn').disabled);
   });
 
-  // ---- 「重命名当前剧情段」按钮：面包屑右侧那支笔 ----
+  // ---- 「重命名当前这一章」按钮：面包屑右侧那支笔 ----
   // 新建出来的段是纯序号名（标题要等剧情排完才定），所以命名是主流程的一步。
   test('重命名按钮在面包屑右侧', () => {
     const btn = ui.doc.getElementById('renamePlotBtn');
@@ -200,7 +200,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.equal(btn.parentElement?.id, 'pipelineTop');
   });
 
-  test('目标是剧情段时按钮可见', () => {
+  test('目标是某一章时按钮可见', () => {
     assert.ok(!ui.doc.getElementById('renamePlotBtn').classList.contains('hidden'));
   });
 
@@ -238,7 +238,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.equal(lastSetTarget()?.target.kind, 'plot', JSON.stringify(lastSetTarget()));
   });
 
-  test('切层保留当前剧情段', () => {
+  test('切层保留当前这一章', () => {
     assert.equal(lastSetTarget()?.target.plotRelPath, '.novelforge/plots/012-夜入青云.md');
   });
 
@@ -711,7 +711,7 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   });
 });
 
-describe('选中剧情段进入当前阶段', { skip: JSDOM_SKIP }, () => {
+describe('选中一章进入当前阶段', { skip: JSDOM_SKIP }, () => {
   let ui;
   let select;
 
@@ -731,7 +731,7 @@ describe('选中剧情段进入当前阶段', { skip: JSDOM_SKIP }, () => {
   // 下拉框选一段 = 进入那一段当前该做的那一步，由后端的状态机判定。
   // 旧版一律发 setTarget({kind:'manuscript'})，于是选中一个连剧情都没排的
   // 段，界面直接把作者丢进正文层。
-  test('选剧情段发 selectPlot', () => {
+  test('选一章发 selectPlot', () => {
     select.value = '12';
     select.dispatchEvent(new ui.window.Event('change', { bubbles: true }));
     const picked = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
@@ -742,7 +742,7 @@ describe('选中剧情段进入当前阶段', { skip: JSDOM_SKIP }, () => {
     assert.ok(![...ui.sent].some((m) => m.type === 'setTarget' && m.target.kind === 'manuscript'));
   });
 
-  // 「新建第 N 段」那一项没有 relPath——那一段还不存在，只能落到大纲。
+  // 「新建第 N 章」那一项没有 relPath——那一章还不存在，只能落到大纲。
   test('新建项落到大纲', () => {
     select.value = '13';
     select.dispatchEvent(new ui.window.Event('change', { bubbles: true }));
@@ -750,23 +750,22 @@ describe('选中剧情段进入当前阶段', { skip: JSDOM_SKIP }, () => {
     assert.equal(toOutline?.target.kind, 'outline', JSON.stringify(toOutline));
   });
 
-  // 工程页点段名是「进入这一段」——剧情段是流水线上的活。
-  test('工程页点段名进入这一段', () => {
+  // 工程页点章名是「进入这一章」——由后端的状态机决定落在哪一层。
+  // 带的是**主路径**：已发布的章指成品，只有规划的章指细纲。
+  test('工程页点已发布的章名进入这一章', () => {
     ui.post({ type: 'project', tree: sampleTree() });
     const row = ui.doc.querySelector('#projectBody .row-plot .row-label');
     ui.clickEl(row);
     const fromTree = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
-    assert.equal(fromTree?.plotRelPath, '.novelforge/plots/001-楔子.md', JSON.stringify(fromTree));
+    assert.equal(fromTree?.plotRelPath, 'chapters/001-楔子.md', JSON.stringify(fromTree));
   });
 
-  // 章节行**刻意相反**：它是纯文件，点了就打开正文编辑，不进流水线。
-  // 成品多半是想读/改那段文字；想接着写就走剧情组。
-  test('工程页点章节名打开正文', () => {
+  test('工程页点只有规划的章名带细纲路径', () => {
     ui.sent.length = 0;
-    ui.clickEl(ui.doc.querySelector('#projectBody .row-chapter .row-label'));
-    assert.ok(!ui.sent.some((m) => m.type === 'selectPlot'), JSON.stringify(ui.sent));
-    const opened = [...ui.sent].reverse().find((m) => m.type === 'openFile' || m.type === 'openEditor');
-    assert.equal(opened?.path, 'chapters/001-楔子.md', JSON.stringify(ui.sent));
+    const rows = [...ui.doc.querySelectorAll('#projectBody .row-plot .row-label')];
+    ui.clickEl(rows.find((n) => n.textContent.includes('入镇')));
+    const fromTree = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
+    assert.equal(fromTree?.plotRelPath, '.novelforge/plots/002-入镇.md', JSON.stringify(fromTree));
   });
 });
 

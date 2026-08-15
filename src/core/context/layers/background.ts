@@ -1,7 +1,7 @@
 import { plotLabel } from '../../model/pipeline';
 import { estimateTokens, takeTail } from '../tokenizer';
 import type { LayerFn } from './assembly';
-import { readPrevManuscript } from './focus';
+import { readChapterText, readPrevManuscript } from './focus';
 import {
   focusText,
   isPlaceholder,
@@ -131,9 +131,9 @@ export const prevTail: LayerFn = async (a, spec) => {
 };
 
 /**
- * 前面几段的**正文全文**。只有正文阶段带（配方里只有那一张有这一层）。
+ * 前面几章的**正文全文**。只有正文阶段带（配方里只有那一张有这一层）。
  *
- * 放不下时降级为该段摘要，再放不下才丢弃——三档都要留在明细里说清原因
+ * 放不下时降级为该章摘要，再放不下才丢弃——三档都要留在明细里说清原因
  * （AGENTS.md 第 2 条：不静默截断）。
  */
 export const manuscriptFull: LayerFn = async (a, spec) => {
@@ -142,7 +142,8 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
   const fullTextCount = Math.max(0, a.config.recentChaptersFullText);
   const fullTextPlots = previous.slice(-fullTextCount);
 
-  for (const plot of [...fullTextPlots].reverse()) {
+  for (const ref of [...fullTextPlots].reverse()) {
+    const plot = ref;
     const id = `manuscriptFull:${plot.no}`;
     const label = plotLabel(plot.no, plot.title);
     const base = {
@@ -150,7 +151,7 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
       kind: 'manuscriptFull' as const,
       priority: spec.priority,
       label: `${label} · 正文`,
-      source: plot.relPath,
+      source: ref.chapter?.relPath ?? ref.plot?.relPath ?? '',
     };
     if (a.excluded.has(id)) {
       a.scratch.fullTextNos.add(plot.no);
@@ -158,9 +159,9 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
       continue;
     }
 
-    const manuscript = await a.project.readManuscript(plot.relPath);
+    const manuscript = await readChapterText(a.project, ref);
     if (!manuscript?.text.trim()) {
-      // 只排了剧情、还没写正文——这不是错误，是这一段还没到那一步。
+      // 只排了剧情、还没写正文——这不是错误，是这一章还没到那一步。
       // **不认领它**（不进 fullTextNos）：认领了摘要那一层就会跳过它，
       // 而它既没有正文也没有摘要，于是从上下文里凭空消失，明细上还看不出
       // 少了什么。留给摘要层，那里会退化成只带「目标」并说明原因。
@@ -175,7 +176,7 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
       if (tokens - tail.tokens <= a.remaining) {
         a.remaining += tail.tokens - tokens;
         tail.status = 'dropped';
-        tail.note = '整段正文已完整注入，无需重复结尾片段';
+        tail.note = '整章正文已完整注入，无需重复结尾片段';
         tail.tokens = 0;
         tail.text = '';
         a.items.push({
@@ -184,7 +185,7 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
           text: block,
           tokens,
           status: 'included',
-          note: '含上一段结尾，续写将从此处接续',
+          note: '含上一章结尾，续写将从此处接续',
         });
         continue;
       }
@@ -195,7 +196,7 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
       continue;
     }
 
-    const summary = await a.project.readSummary(plot.relPath);
+    const summary = ref.chapter ? await a.project.readSummary(ref.chapter.relPath) : undefined;
     if (summary?.content.trim()) {
       const summaryBlock = `【${label} · 摘要】\n${summary.content}`;
       const summaryTokens = estimateTokens(summaryBlock);
@@ -216,51 +217,52 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
     a.reject(
       { ...base, text: '' },
       'dropped',
-      summary ? '正文与摘要都放不下' : `正文需 ${tokens} token 放不下，且这一段尚无摘要`
+      summary ? '正文与摘要都放不下' : `正文需 ${tokens} token 放不下，且这一章尚无摘要`
     );
   }
 };
 
 /**
- * 更早那些段的摘要，由近及远填充。
+ * 更早那些章的摘要，由近及远填充。
  *
- * **还没写正文的段退化成只带「目标」**，并在明细里注明原因。这是「不静默截断」
- * 在这条链上最要紧的一处：作者常常先把一百段剧情排完再回头写，那些段没有正文
- * 也就没有摘要——直接跳过的话，排第 60 段时模型对前 59 段一无所知，却看不出
+ * **还没写正文的章退化成只带「目标」**，并在明细里注明原因。这是「不静默截断」
+ * 在这条链上最要紧的一处：作者常常先把一百章剧情排完再回头写，那些章没有正文
+ * 也就没有摘要——直接跳过的话，排第 60 章时模型对前 59 章一无所知，却看不出
  * 少了什么。带一行目标很便宜，而且诚实。
  */
 export const plotSummary: LayerFn = async (a, spec) => {
   const candidates = a.focus.previous.filter((p) => !a.scratch.fullTextNos.has(p.no)).reverse();
-  for (const plot of candidates) {
-    const id = `plotSummary:${plot.no}`;
-    const label = plotLabel(plot.no, plot.title);
+  for (const ref of candidates) {
+    const id = `plotSummary:${ref.no}`;
+    const label = plotLabel(ref.no, ref.title);
     const base = {
       id,
       kind: 'plotSummary' as const,
       priority: spec.priority,
       label: `${label} · 摘要`,
-      source: plot.relPath,
+      source: ref.chapter?.relPath ?? ref.plot?.relPath ?? '',
     };
     if (a.excluded.has(id)) {
       a.admit({ ...base, source: undefined, text: '' });
       continue;
     }
 
-    const summary = await a.project.readSummary(plot.relPath);
+    // 摘要挂在成品上；还没拆分的章自然没有。
+    const summary = ref.chapter ? await a.project.readSummary(ref.chapter.relPath) : undefined;
     if (!summary?.content.trim()) {
-      const goal = plot.sections.目标.trim();
+      const goal = ref.plot?.sections.目标.trim() ?? '';
       if (!goal) {
-        a.reject({ ...base, text: '' }, 'dropped', '这一段还没写正文，也没有目标可带');
+        a.reject({ ...base, text: '' }, 'dropped', '这一章还没写正文，也没有目标可带');
         continue;
       }
       const block = `【${label}】\n${goal}`;
       const tokens = estimateTokens(block);
       if (tokens > a.remaining) {
-        a.reject({ ...base, text: '' }, 'dropped', '预算已满，更早的段不再注入');
+        a.reject({ ...base, text: '' }, 'dropped', '预算已满，更早的章不再注入');
         continue;
       }
       a.accept(
-        { ...base, text: block, status: 'degraded', note: '这一段还没写正文，只带目标' },
+        { ...base, text: block, status: 'degraded', note: '这一章还没写正文，只带目标' },
         tokens
       );
       continue;
@@ -269,10 +271,9 @@ export const plotSummary: LayerFn = async (a, spec) => {
     const block = `【${label}】\n${summary.content}`;
     const tokens = estimateTokens(block);
     if (tokens > a.remaining) {
-      a.reject({ ...base, source: summary.relPath, text: '' }, 'dropped', '预算已满，更早的段不再注入');
+      a.reject({ ...base, source: summary.relPath, text: '' }, 'dropped', '预算已满，更早的章不再注入');
       continue;
     }
-    const manuscript = await a.project.readManuscript(plot.relPath);
     a.accept(
       {
         ...base,
@@ -280,7 +281,8 @@ export const plotSummary: LayerFn = async (a, spec) => {
         text: block,
         status: 'included',
         note:
-          manuscript && summary.sourceHash !== manuscript.contentHash
+          // 摘要的上游是成品，直接比它的 hash——不必再读一遍正文。
+          ref.chapter && summary.sourceHash !== ref.chapter.contentHash
             ? '⚠ 该摘要已过期（正文有改动）'
             : undefined,
       },

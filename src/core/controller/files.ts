@@ -57,9 +57,9 @@ export async function openDraft(c: ChatController, chapterRelPath: string): Prom
  * 文件页的 renameAny/paste 走 core/files/projectFiles（根范围）。
  * 有逐项结果的动作额外推 filesOpDone，前端据此 remap 编辑器标签。
  *
- * **剧情段单独分流**：它的改名/删除要连带搬走场景目录、正文与摘要，
+ * **细纲单独分流**：它的改名/删除要连带搬走场景目录与中转站正文，
  * 而 `plots/` 根本不是三个可管理区之一，照走 fileOps 会被区守卫直接拒掉
- * （新建出来的段是纯序号名，第一次命名走的正是这条路）。
+ * （新建出来的细纲是纯序号名，第一次命名走的正是这条路）。
  */
 export async function fileAction(
   c: ChatController,
@@ -74,7 +74,7 @@ export async function fileAction(
   );
   let results: FileOpResult[] | undefined;
   // 改名/移动过的路径。当前创作目标正指着其中某一条时要跟着走，否则创作页
-  // 会拿到一份「这一段找不到」的空壳。
+  // 会拿到一份「这一章找不到」的空壳。
   const moved: { from: string; to: string }[] = [];
   const isPlot = !!relPath && isPlotPath(c.project, relPath);
   switch (action) {
@@ -92,7 +92,7 @@ export async function fileAction(
       }
       break;
     case 'move':
-      // 剧情段没有「移动到…」：`plots/` 是扁平的，顺序由序号决定，
+      // 细纲没有「移动到…」：`plots/` 是扁平的，顺序由序号决定，
       // 挪进子目录只会让它从流水线上消失。前端不给这一项，这里兜一层。
       if (relPath && !isPlot) {
         const to = await moveEntry(c.project, relPath, targetDir);

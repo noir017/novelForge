@@ -7,7 +7,7 @@
  *   不在本文件，另见 unit 侧。
  * - 草稿相关各节（40 条）在同目录的 drafts.test.js。
  * - 原 `== manifest 认得非 .md 章节 ==` 那一节已随「章节退出流水线」改写：manifest
- *   现在只索引剧情段，见本文件末尾那一节。
+ *   索引的是发布章节，见本文件末尾那一节。
  *   「manifest 里没有草稿」那一条只有草稿真的存在时才有意义，放在 drafts.test.js。
  */
 const { describe, test, before, after } = require('node:test');
@@ -200,13 +200,12 @@ describe('章节文件规则（磁盘）', () => {
   });
 
   /**
-   * 章节退出流水线之后，manifest 只索引**剧情段**。
+   * manifest 索引的是**发布章节**：字数、正文 hash、摘要 hash 描述的全是成品。
+   * 中转站（`manuscripts/`）里那份是等着拆分的半成品，随时会被删掉，不进索引。
    *
-   * 这一节从前钉的是「.txt 章节也进 manifest」——那时章节是创作单位。现在
-   * `chapters/` 是作者切好的发布区，工具不分析它的内容，也就没有什么可索引的：
-   * 它的字数、hash、摘要新鲜度全都无从谈起（一章可能是两段拼的）。
+   * 任意扩展名都算章节（`.txt` / 无扩展名 / `.json`），所以它们也都要进。
    */
-  describe('manifest 不索引章节', () => {
+  describe('manifest 索引章节', () => {
     let manifest;
 
     before(async () => {
@@ -214,19 +213,21 @@ describe('章节文件规则（磁盘）', () => {
       manifest = await project.syncManifest();
     });
 
-    test('manifest 里是 plots 而不是 chapters', () => {
-      assert.ok(Array.isArray(manifest.plots), JSON.stringify(Object.keys(manifest)));
-      assert.equal(manifest.chapters, undefined);
+    test('manifest 里是 chapters', () => {
+      assert.ok(Array.isArray(manifest.chapters), JSON.stringify(Object.keys(manifest)));
+      assert.equal(manifest.plots, undefined);
     });
 
-    // 这个工程只有 chapters/ 下的文件，一段剧情都没有。
-    test('只有章节没有剧情段时 plots 为空', () => {
-      assert.equal(manifest.plots.length, 0, JSON.stringify(manifest.plots));
+    test('磁盘上有几章就索引几章', async () => {
+      assert.equal(manifest.chapters.length, (await project.listChapters()).length);
     });
 
-    // 章节仍然扫得到、列得出、能改名/移动/删除——只是不进索引。
-    test('章节仍然列得出来', async () => {
-      assert.ok((await project.listChapters()).length > 0);
+    // 非 markdown 的章一样要进——它们照样是正文。
+    test('.txt 章节也进索引', () => {
+      assert.ok(
+        manifest.chapters.some((c) => c.file.endsWith('.txt')),
+        JSON.stringify(manifest.chapters.map((c) => c.file))
+      );
     });
   });
 });

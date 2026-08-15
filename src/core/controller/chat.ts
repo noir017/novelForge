@@ -222,7 +222,7 @@ export async function targetHasContent(c: ChatController): Promise<boolean> {
     return false;
   }
   if (stage === 'plot') {
-    // 只有**排过剧情**才算有内容。一份只带「目标」的骨架（拆段那一步产出的）
+    // 只有**排过剧情**才算有内容。一份只带「目标」的骨架（拆章那一步产出的）
     // 说「会覆盖」是吓唬人——那正是接下来要填的东西。
     const plot = await c.project.readPlot(relPath);
     return !!plot && isPlotFilled(plot.sections);
@@ -236,7 +236,7 @@ export async function targetHasContent(c: ChatController): Promise<boolean> {
 }
 
 /**
- * 采纳一份结构化产物（剧情、场景卡、剧情段清单、场景清单、大纲、正文）。
+ * 采纳一份结构化产物（细纲、场景卡、章节清单、场景清单、大纲、正文）。
  *
  * **重新解析一遍**而不是用生成时缓存的那份：用户可能在气泡里改过。
  * 落盘与否由 creation.ts 决定——目标已有内容时它会先弹审阅。
@@ -285,7 +285,7 @@ export async function acceptArtifact(
  * 切换当前在改哪个产物。
  *
  * 阶段跟着 target 走，能力回落到该阶段的默认值（一律 discuss）——
- * 从「正文·生成」切到剧情还留着「生成」，等于点一下就花钱重写一段剧情。
+ * 从「正文·生成」切到剧情还留着「生成」，等于点一下就花钱重写一章的细纲。
  */
 export async function setTarget(c: ChatController, target: CreationTarget): Promise<void> {
   if (c.busy) {
@@ -295,7 +295,7 @@ export async function setTarget(c: ChatController, target: CreationTarget): Prom
   c.current.target = target;
   c.current.stage = stageOfTarget(target);
   c.current.capability = DEFAULT_CAPABILITY[c.current.stage];
-  // 段已落盘时把段号同步过来：装配器在段尚未落盘时靠它定位前文边界，
+  // 细纲已落盘时把章号同步过来：装配器在细纲尚未落盘时靠它定位前文边界，
   // 而这里正好知道答案。
   const relPath = plotOfTarget(target);
   if (relPath) {
@@ -312,35 +312,35 @@ export async function setTarget(c: ChatController, target: CreationTarget): Prom
 }
 
 /**
- * 进入某一段：**由状态机决定落在哪一层**。
+ * 进入某一章：**由状态机决定落在哪一层**。
  *
- * 这是「选中一段 = 进入它当前该做的那一步」的实现。改造前前端一律发
- * `setTarget({kind:'manuscript'})`，于是点开一个连剧情都没排的段，
+ * 这是「选中一章 = 进入它当前该做的那一步」的实现。改造前前端一律发
+ * `setTarget({kind:'manuscript'})`，于是点开一个连细纲都没排的章，
  * 界面直接把作者丢进正文层——四层流水线在创作页上等于不存在。
  *
- * 判断必须在后端：前端手上只有当前那一段的 pipeline，不知道别的段
+ * 判断必须在后端：前端手上只有当前那一章的 pipeline，不知道别的章
  * 处于什么状态。
  */
 export async function selectPlot(c: ChatController, plotRelPath: string): Promise<void> {
   const plot = await c.project.readPlot(plotRelPath);
   if (!plot) {
-    c.toast('这一段不存在，可能刚被改名或删除。', 'error');
+    c.toast('这一章不存在，可能刚被改名或删除。', 'error');
     return;
   }
   const pipeline = await buildPlotPipeline(c.project, plot);
   const next = deriveNextStep(pipeline.stage, factsOf(pipeline));
 
-  // 全做完了（next 为空）就停在正文——那是这一段的终点，也是最可能
+  // 全做完了（next 为空）就停在正文——那是这一章的终点，也是最可能
   // 要回头改的一层。
   await setTarget(c, next ? targetOf(next, plotRelPath) : { kind: 'manuscript', plotRelPath });
 }
 
 /**
- * 剧情段改名后，把当前会话的目标指到新路径。
+ * 细纲改名后，把当前会话的目标指到新路径。
  *
  * 少了这一步，`current.target.plotRelPath` 还指着旧路径，创作页会拿到一份
- * 「这一段找不到」的空壳 pipeline——徽章回落成「待写剧情」、进度全归零、
- * 工作区卡说这一段不存在。而作者刚做的只是给它起个名字。
+ * 「这一章找不到」的空壳 pipeline——徽章回落成「待写剧情」、进度全归零、
+ * 工作区卡说这一章不存在。而作者刚做的只是给它起个名字。
  *
  * **不走 `setTarget`**：那会把 capability 重置成 discuss、把页签切到创作页。
  * 改个名不该让他刚挑好的命令消失，也不该把他从工程页拽走。
@@ -428,8 +428,8 @@ export async function pushPipeline(c: ChatController): Promise<void> {
  * 全书大纲那一层的下一步。
  *
  * 判据在纯函数层（`deriveBookStage` / `deriveBookNextStep`），这里只取数：
- * 没有大纲就写大纲，有大纲但一段都还没拆就去拆段。都齐了就不催——
- * 此时该做的是挑一段进去，而那是用户的选择，不是系统能替他定的。
+ * 没有大纲就写大纲，有大纲但一章都还没拆就去拆章。都齐了就不催——
+ * 此时该做的是挑一章进去，而那是用户的选择，不是系统能替他定的。
  */
 export async function bookNextStep(c: ChatController): Promise<NextStepView | undefined> {
   const stage = deriveBookStage({
@@ -444,7 +444,7 @@ export async function bookNextStep(c: ChatController): Promise<NextStepView | un
  * 打开旧会话时把 target 补齐。
  *
  * `normalize` 是纯函数，查不了磁盘，所以只记得 `targetNo` 的会话会一律落到
- * 全书大纲。这里手上能读盘，把它还原成「正文 · 第 N 段」。
+ * 全书大纲。这里手上能读盘，把它还原成「正文 · 第 N 章」。
  */
 export async function restoreTarget(c: ChatController, session: ChatSession): Promise<void> {
   if (session.target.kind !== 'outline' || session.targetNo === undefined) {

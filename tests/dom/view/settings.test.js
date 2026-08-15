@@ -140,11 +140,11 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
       taskNames().join('|'));
   });
 
-  test('第一行是单段摘要', () => {
-    assert.equal(nameOf(0), '单段摘要', nameOf(0));
+  test('第一行是单章摘要', () => {
+    assert.equal(nameOf(0), '单章摘要', nameOf(0));
   });
 
-  test('单段摘要默认落在快速档', () => {
+  test('单章摘要默认落在快速档', () => {
     assert.equal(selOf(0).value, 'fast', selOf(0).value);
   });
 

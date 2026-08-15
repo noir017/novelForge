@@ -225,7 +225,7 @@ export class ChatController {
         return;
 
       case 'requestPipeline':
-        // 指名要某一段的，就先切过去（那正是「点开另一段」的意思）；
+        // 指名要某一章的，就先切过去（那正是「点开另一章」的意思）；
         // 不指名的是纯刷新，照当前目标推一份。
         if (msg.plotRelPath && msg.plotRelPath !== plotOfTarget(this.current.target)) {
           await selectPlot(this, msg.plotRelPath);
@@ -440,21 +440,36 @@ export class ChatController {
         maxOutputTokens: 0,
       };
     }
-    const plots = await this.project.listPlots();
-    const rows: ViewState['plots'] = [];
-    for (const plot of plots) {
-      rows.push({
-        no: plot.no,
-        title: plot.title,
-        wordCount: (await this.project.readManuscript(plot.relPath))?.wordCount ?? 0,
-        relPath: plot.relPath,
+    // 目标下拉框列的是**全书各章**：既有规划中的（`plots/`），也有已经写完的
+    // （`chapters/`）。只列前者的话，老工程打开后下拉框是空的。
+    const [plots, chapters] = await Promise.all([
+      this.project.listPlots(),
+      this.project.listChapters(),
+    ]);
+    const byNo = new Map<number, ViewState['plots'][number]>();
+    for (const chapter of chapters) {
+      byNo.set(chapter.order, {
+        no: chapter.order,
+        title: chapter.title,
+        wordCount: chapter.wordCount,
+        // 成品没有细纲时，relPath 指向细纲**应该**在的位置：选中它就是
+        // 「去规划这一章」，而 `readPlot` 读不到会如实退化成空壳。
+        relPath: this.project.plotPathForNo(chapter.order, chapter.title),
       });
     }
+    for (const plot of plots) {
+      const words =
+        byNo.get(plot.no)?.wordCount ||
+        (await this.project.readManuscript(plot.relPath))?.wordCount ||
+        0;
+      byNo.set(plot.no, { no: plot.no, title: plot.title, wordCount: words, relPath: plot.relPath });
+    }
+    const rows = [...byNo.values()].sort((a, b) => a.no - b.no);
     return {
       initialized: true,
       plots: rows,
       nextNo: await this.project.nextPlotNo(),
-      staleCount: (await this.project.stalePlots()).length,
+      staleCount: (await this.project.staleChapters()).length,
       model: config.model,
       modelLabel: describeProvider(config),
       // 只在解析失败时给出说明——正常情况下不要在输入框下方堆红字。
@@ -563,7 +578,7 @@ export class ChatController {
   }
 
   /**
-   * 供命令直接调用：新建一段剧情并进入它当前该做的那一步。
+   * 供命令直接调用：新建一章并进入它当前该做的那一步。
    *
    * 复用工程页那条 `projectAction` 分支而不是直接调 `newPlotFlow`：
    * 「建完落到剧情层」是这个动作的一部分，命令面板与页面按钮不该分叉。

@@ -5,11 +5,11 @@ import { normalizeName, sanitizeAliases } from '../model/naming';
 import { SummaryIndex, summaryOf } from './summaryIndex';
 
 /**
- * 出场人物索引：把各段摘要里的 `cast` 反向聚合成「谁在哪几段出现过」。
+ * 出场人物索引：把各章摘要里的 `cast` 反向聚合成「谁在哪几章出现过」。
  *
  * 这是「摘要 → 角色」这条链路的中枢，三处在用：
- * - 工程页的角色区：已建卡的角色补出场段数，未建卡的单列一组等待建卡；
- * - 「更新角色卡」：拿某个角色的出场段去装配语料；
+ * - 工程页的角色区：已建卡的角色补出场章数，未建卡的单列一组等待建卡；
+ * - 「更新角色卡」：拿某个角色的出场章去装配语料；
  * - 角色卡的 `appearsIn` 字段：写卡时从这里取。
  *
  * 关键约定：
@@ -35,7 +35,7 @@ export interface CastMember {
   name: string;
   /** 摘要里见过的其它称呼（不含 name 本身）。 */
   aliases: string[];
-  /** 出场段号，升序去重。 */
+  /** 出场章号，升序去重。 */
   plots: number[];
   /** 已建卡时给出那张卡；未建卡为 undefined。 */
   card?: CharacterCard;
@@ -73,7 +73,7 @@ export interface CastIndex {
 /**
  * 扫全部摘要，建出场索引。
  *
- * 代价是一次全量读摘要（几百段约几百次小文件读）。`summaries` 传进来就不再读盘——
+ * 代价是一次全量读摘要（几百章约几百次小文件读）。`summaries` 传进来就不再读盘——
  * 工程页刷新时流水线那一趟已经把全书摘要读过一遍了，同一次刷新里再读一遍纯属浪费。
  * 单独调用（角色卡维护等）不传即可，行为与从前一致。
  */
@@ -82,19 +82,20 @@ export async function buildCastIndex(
   summaries?: SummaryIndex
 ): Promise<CastIndex> {
   const cards = await project.listCharacters();
-  const plots = await project.listPlots();
+  // 摘要挂在发布章节上，出场索引自然也读那一侧。
+  const chapters = await project.listChapters();
 
   const { cardByName, conflicts } = indexCards(cards);
 
-  /** slug → 出场段号。 */
+  /** slug → 出场章号。 */
   const plotsOf = new Map<string, Set<number>>();
   /** slug → 摘要里见过的别称。 */
   const aliasesOf = new Map<string, Set<string>>();
-  /** 没能归到任何一张卡的条目，按段收着，稍后整体聚类。 */
+  /** 没能归到任何一张卡的条目，按章收着，稍后整体聚类。 */
   const orphanPlots: IdentityChapter[] = [];
 
   let summaryCount = 0;
-  for (const plot of plots) {
+  for (const plot of chapters) {
     const summary = await summaryOf(project, plot.relPath, summaries);
     if (!summary) {
       continue;
@@ -104,7 +105,7 @@ export async function buildCastIndex(
 
     for (const entry of summary.cast) {
       const aliases = sanitizeAliases(entry.aliases, entry.name);
-      // 名字与别名都拿去找卡：模型这一段写的是「阿昭」，也该记到林昭头上。
+      // 名字与别名都拿去找卡：模型这一章写的是「阿昭」，也该记到林昭头上。
       const card =
         cardByName.get(normalizeName(entry.name)) ??
         aliases.map((a) => cardByName.get(normalizeName(a))).find(Boolean);
@@ -114,7 +115,7 @@ export async function buildCastIndex(
       }
 
       const set = plotsOf.get(card.slug) ?? plotsOf.set(card.slug, new Set()).get(card.slug)!;
-      set.add(plot.no);
+      set.add(plot.order);
       const known = aliasesOf.get(card.slug) ?? aliasesOf.set(card.slug, new Set()).get(card.slug)!;
       for (const alias of [entry.name, ...aliases]) {
         known.add(alias);
@@ -122,7 +123,7 @@ export async function buildCastIndex(
     }
 
     if (orphans.length > 0) {
-      orphanPlots.push({ order: plot.no, cast: orphans });
+      orphanPlots.push({ order: plot.order, cast: orphans });
     }
   }
 
@@ -211,7 +212,7 @@ function indexCards(cards: readonly CharacterCard[]): {
   return { cardByName, conflicts };
 }
 
-/** 某个角色的出场段号。找不到（名字对不上任何摘要）时返回空数组。 */
+/** 某个角色的出场章号。找不到（名字对不上任何摘要）时返回空数组。 */
 export function appearancesOf(index: CastIndex, card: CharacterCard): number[] {
   return index.known.find((m) => m.card?.slug === card.slug)?.plots ?? [];
 }
@@ -225,13 +226,13 @@ export function appearancesOf(index: CastIndex, card: CharacterCard): number[] {
  */
 export async function readCastPlots(project: NovelProject): Promise<IdentityChapter[]> {
   const out: IdentityChapter[] = [];
-  for (const plot of await project.listPlots()) {
-    const summary = await project.readSummary(plot.relPath);
+  for (const chapter of await project.listChapters()) {
+    const summary = await project.readSummary(chapter.relPath);
     if (!summary || summary.cast.length === 0) {
       continue;
     }
     out.push({
-      order: plot.no,
+      order: chapter.order,
       cast: summary.cast.map((entry) => ({
         name: entry.name,
         aliases: sanitizeAliases(entry.aliases, entry.name),
@@ -246,7 +247,7 @@ function sortedNos(set: Set<number> | undefined): number[] {
 }
 
 /**
- * `第 3、7、12 段` / `第 3、7、12 段等 20 段`——列表太长时只列前几个。
+ * `第 3、7、12 章` / `第 3、7、12 章等 20 章`——列表太长时只列前几个。
  * 前端与日志共用，保证同一份数据在两处说法一致。
  */
 export function describePlots(nos: number[], max = 6): string {
@@ -254,5 +255,5 @@ export function describePlots(nos: number[], max = 6): string {
     return '未在摘要中出现';
   }
   const head = nos.slice(0, max).join('、');
-  return nos.length > max ? `第 ${head} 段等 ${nos.length} 段` : `第 ${head} 段`;
+  return nos.length > max ? `第 ${head} 章等 ${nos.length} 章` : `第 ${head} 章`;
 }

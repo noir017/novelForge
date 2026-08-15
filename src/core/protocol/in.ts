@@ -89,6 +89,7 @@ export type ProjectAction =
   | 'newLore'
   | 'newFolder'
   | 'summarizePlot'
+  | 'splitManuscript'
   | 'syncSummaries'
   | 'rebuildGlobalSummary'
   | 'generatePlots'

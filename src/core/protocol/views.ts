@@ -11,7 +11,7 @@ import type { SerializedAttachment } from './in';
 
 export interface ViewState {
   initialized: boolean;
-  /** 创作页目标下拉框里的候选：剧情段，不是发布章节。 */
+  /** 创作页目标下拉框里的候选：全书各章。 */
   plots: { no: number; title: string; wordCount: number; relPath: string }[];
   nextNo: number;
   staleCount: number;
@@ -27,18 +27,16 @@ export interface ProjectTree {
   initialized: boolean;
   title: string;
   author: string;
-  /** 剧情段数。工程页分组标题上那个数字。 */
+  /** 章数（规划的与写完的合起来去重）。工程页分组标题上那个数字。 */
   plotCount: number;
-  /** 发布区的章节数。 */
+  /** 已经拆分发布的章数。 */
   chapterCount: number;
-  /** 已写正文的总字数（按剧情段算，不是按章节）。 */
+  /** 已写正文的总字数。 */
   totalWords: number;
   staleCount: number;
   summarizedCount: number;
-  /** 创作流水线那一组。 */
+  /** 全书各章。**一条列表**——规划与成品是同一章的两副面孔。 */
   plots: ProjectPlotNode[];
-  /** 发布区，纯文件列表。 */
-  chapters: ProjectNode[];
   characters: ProjectNode[];
   lore: ProjectNode[];
   cast: CastEntry[];
@@ -54,32 +52,53 @@ export interface ProjectTree {
   styleGuidePath: string;
   outlinePath: string;
   globalSummaryPath: string;
-  /** 全书走到哪一步（还没大纲 / 还没拆段 / 已经在写）。主按钮吃它。 */
+  /** 全书走到哪一步（还没大纲 / 还没规划章节 / 已经在写）。主按钮吃它。 */
   bookStage: BookStage;
 }
 
 /**
- * 工程页「剧情」组里的一行。
+ * 工程页「章节」组里的一行。
  *
- * 扁平列表，不折目录——`plots/` 本身就是扁平的（分卷靠 frontmatter 的 `arc`），
- * 而流水线的顺序恰恰是这一层最要紧的信息，折进目录反而看不出来。
+ * 扁平列表，不折目录——流水线的顺序恰恰是这一层最要紧的信息，折进目录反而
+ * 看不出来。`chapters/` 下的分卷子目录因此不体现在这里（作者仍可以建，
+ * 文件操作照常）。
+ *
+ * 一行可能只有规划（还没写完）、只有成品（老工程里的章），或两者都有。
  */
 export interface ProjectPlotNode {
   no: number;
   title: string;
+  /**
+   * 这一行的**主路径**：有成品就是成品，否则是细纲。点行、右键「打开」
+   * 都落在它上面——作者想看的永远是这一章目前最实在的那份东西。
+   */
   relPath: string;
-  /** 这一段正文的字数。没写就是 0。 */
+  /** 细纲路径。这一章还没规划过（老工程）时是空串。 */
+  plotPath: string;
+  /** 成品路径。还没拆分时是空串。 */
+  chapterPath: string;
+  /** 中转站里等着拆分的正文路径。没有就是空串。 */
+  manuscriptPath: string;
+  /** 这一章的字数。成品优先，其次是中转站里那份。 */
   wordCount: number;
   /** 摘要缺失或过期。 */
   stale: boolean;
   summaryPath: string;
-  manuscriptPath: string;
   stage: PlotStage;
   progress: PipelineProgress;
   upstreamStale: boolean;
+  /** 有草稿文件。只有成品才有草稿。 */
+  hasDraft: boolean;
+  draftPath: string;
 }
 
-export type ProjectNode = ProjectDirNode | ProjectChapterNode | ProjectFileNode;
+/**
+ * 角色 / 设定两个区的树节点。
+ *
+ * **没有「章节节点」**：章节不在这棵树里——它与细纲合成了 `ProjectPlotNode`
+ * 那一条扁平列表（见上）。这两个区仍是任意深度的目录树。
+ */
+export type ProjectNode = ProjectDirNode | ProjectFileNode;
 
 export interface ProjectDirNode {
   kind: 'dir';
@@ -89,36 +108,20 @@ export interface ProjectDirNode {
   fileCount: number;
 }
 
-export interface ProjectChapterNode extends ProjectChapter {
-  kind: 'chapter';
-}
-
 export interface ProjectFileNode extends ProjectFile {
   kind: 'file';
-}
-
-/**
- * 发布区的一章。
- *
- * **没有流水线字段**：章节是作者从 `manuscripts/` 切出来的成品，工具只提供
- * 文件操作（打开/改名/移动/删除/草稿），不分析内容、不生成摘要、不挂状态。
- */
-export interface ProjectChapter {
-  order: number;
-  title: string;
-  relPath: string;
-  wordCount: number;
-  draftPath: string;
-  hasDraft: boolean;
 }
 
 export interface PlotPipelineView {
   plotRelPath: string;
   no: number;
   title: string;
-  plot: { relPath: string; filled: boolean; upstreamStale: boolean };
+  plot: { relPath: string; exists: boolean; filled: boolean; upstreamStale: boolean };
   scenes: ScenePipelineView[];
+  /** 中转站里等着拆分的正文。 */
   manuscript: { relPath: string; words: number; beatsStale: boolean };
+  /** 发布区里的成品。拆分之后才有。 */
+  chapter: { exists: boolean; relPath: string; words: number };
   summary: { exists: boolean; stale: boolean };
   stage: PlotStage;
   progress: PipelineProgress;
@@ -162,13 +165,13 @@ export interface ProjectFile {
 export interface CastEntry {
   name: string;
   aliases: string[];
-  /** 出场段号。 */
+  /** 出场章号。 */
   plots: number[];
   detail: string;
 }
 
 export interface CastSummary {
-  /** 出场段号。 */
+  /** 出场章号。 */
   plots: number[];
   detail: string;
   updatedThrough: number;

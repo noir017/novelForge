@@ -22,9 +22,9 @@ export function renderPlot(plot: Plot): string {
 }
 
 /**
- * 前后段只注入「目标 / 剧情脉络」——够让排这一段的人知道上文停在哪个局面、
- * 下文要接到哪。不铺开「冲突与转折」「伏笔与回收」：那是那一段自己的账，
- * 摊在这里只会挤掉本段的预算，还容易被误当成本段要处理的东西。
+ * 前后章只注入「目标 / 剧情脉络」——够让排这一章的人知道上文停在哪个局面、
+ * 下文要接到哪。不铺开「冲突与转折」「伏笔与回收」：那是那一章自己的账，
+ * 摊在这里只会挤掉本章的预算，还容易被误当成本章要处理的东西。
  */
 export function renderPlotBrief(plot: Plot, relation: string): string {
   const lines = [`【${plotLabel(plot.no, plot.title)} · ${relation}】`];
@@ -134,7 +134,7 @@ export interface CharacterHit {
   reason: string;
 }
 
-/** 场景人物、提及人物、近段人物与主角的有序并集。 */
+/** 场景人物、提及人物、近邻章人物与主角的有序并集。 */
 export async function selectCharacters(
   project: NovelProject,
   cards: CharacterCard[],
@@ -164,8 +164,9 @@ export async function selectCharacters(
     }
   }
 
-  for (const plot of focus.previous.slice(-2)) {
-    const summary = await project.readSummary(plot.relPath);
+  for (const ref of focus.previous.slice(-2)) {
+    // 摘要挂在成品上；还没拆分的章没有摘要，也就无从取出场人物。
+    const summary = ref.chapter ? await project.readSummary(ref.chapter.relPath) : undefined;
     const cast = summary?.sections.出场人物 ?? '';
     if (!cast.trim()) {
       continue;
@@ -175,7 +176,7 @@ export async function selectCharacters(
         continue;
       }
       if (matchesKeywords(cast, [card.name, ...card.aliases])) {
-        hits.set(card.slug, { card, reason: `第 ${plot.no} 段出场` });
+        hits.set(card.slug, { card, reason: `第 ${ref.no} 章出场` });
       }
     }
   }

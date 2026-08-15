@@ -194,16 +194,22 @@ const emptySession = (extra) =>
     extra
   );
 
-/** 一份剧情段流水线视图，字段与 `PlotPipelineView` 一致。 */
+/** 一份单章流水线视图，字段与 `PlotPipelineView` 一致。 */
 const pipelineView = (extra) =>
   Object.assign(
     {
       plotRelPath: '.novelforge/plots/012-夜入青云.md',
       no: 12,
       title: '夜入青云',
-      plot: { relPath: '.novelforge/plots/012-夜入青云.md', filled: true, upstreamStale: false },
+      plot: {
+        relPath: '.novelforge/plots/012-夜入青云.md',
+        exists: true,
+        filled: true,
+        upstreamStale: false,
+      },
       scenes: [],
       manuscript: { relPath: '.novelforge/manuscripts/012-夜入青云.md', words: 0, beatsStale: false },
+      chapter: { exists: false, relPath: '', words: 0 },
       summary: { exists: false, stale: true },
       stage: 'scene',
       progress: { plot: 1, scene: 0, manuscript: 0, summary: 0 },
@@ -230,7 +236,7 @@ const workbenchView = (extra) =>
   Object.assign(
     {
       stage: 'plot',
-      title: '剧情 · 第 12 段《夜入青云》',
+      title: '剧情 · 第 12 章《夜入青云》',
       relPath: '.novelforge/plots/012-夜入青云.md',
       sections: [{ key: '目标', text: '林昭成功进入青云宗' }],
     },
@@ -242,7 +248,7 @@ const viewState = (extra) =>
   Object.assign(
     {
       initialized: true,
-      // 创作目标下拉列的是**剧情段**，不是 chapters/ 里的发布章节。
+      // 创作目标下拉列的是**全书各章**。
       plots: [],
       nextNo: 1,
       staleCount: 0,
@@ -256,11 +262,11 @@ const viewState = (extra) =>
   );
 
 /**
- * 造一棵工程页快照：扁平的剧情组 + 三层深的章节树 + 角色 + 空文件夹。
+ * 造一棵工程页快照：扁平的章节列表 + 角色树 + 空文件夹。
  *
- * **两组两种职责**：剧情是流水线的落点（徽章、进度、⟳ 都在那一组），
- * 章节是作者切好的发布区（纯文件列表，工具不分析它的内容）。
- * 它被 5 个目标文件的 20 处用到。
+ * **一条列表**：规划（`plots/`）与成品（`chapters/`）是同一章的两副面孔，
+ * 徽章、进度、⟳ 都挂在这一行上。三种组合都要有样本：两边都有、只有规划、
+ * 只有成品（老工程里的章）。它被 5 个目标文件的 20 处用到。
  */
 function sampleTree() {
   return {
@@ -271,40 +277,38 @@ function sampleTree() {
     chaptersRoot: 'chapters', charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
     globalSummaryThrough: 2, styleGuidePath: '.novelforge/style.md',
     outlinePath: '.novelforge/outline.md', globalSummaryPath: '.novelforge/summaries/global.md',
-    // 剧情组是扁平的：`plots/` 本身扁平，顺序即写作顺序。
+    // 章节列表是扁平的：顺序即写作顺序，分卷子目录不体现在这里。
     plots: [
-      { no: 1, title: '楔子', relPath: '.novelforge/plots/001-楔子.md',
+      // 第 1 章：走完整条流水线、已发布、摘要新鲜，还带一份草稿。
+      { no: 1, title: '楔子',
+        relPath: 'chapters/001-楔子.md',
+        plotPath: '.novelforge/plots/001-楔子.md',
+        chapterPath: 'chapters/001-楔子.md',
+        manuscriptPath: '',
         wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/001-楔子.md',
-        manuscriptPath: '.novelforge/manuscripts/001-楔子.md',
         stage: 'done', upstreamStale: false,
+        draftPath: 'drafts/001-楔子.md', hasDraft: true,
         progress: { plot: 1, scene: 1, manuscript: 1, summary: 1 } },
-      { no: 2, title: '入镇', relPath: '.novelforge/plots/002-入镇.md',
-        wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/002-入镇.md',
-        manuscriptPath: '.novelforge/manuscripts/002-入镇.md',
-        // 场景拆了一半，且剧情的上游（全书大纲）改过。
+      // 第 2 章：只有规划，场景拆了一半，且上游（全书大纲）改过。
+      { no: 2, title: '入镇',
+        relPath: '.novelforge/plots/002-入镇.md',
+        plotPath: '.novelforge/plots/002-入镇.md',
+        chapterPath: '',
+        manuscriptPath: '',
+        wordCount: 0, stale: true, summaryPath: '',
         stage: 'scene', upstreamStale: true,
+        draftPath: '', hasDraft: false,
         progress: { plot: 1, scene: 0.5, manuscript: 0, summary: 1 } },
-      { no: 3, title: '夜访', relPath: '.novelforge/plots/003-夜访.md',
-        wordCount: 300, stale: true, summaryPath: '',
+      // 第 3 章：正文写完了还躺在中转站里，等着作者标断点 → 待拆分。
+      { no: 3, title: '夜访',
+        relPath: '.novelforge/plots/003-夜访.md',
+        plotPath: '.novelforge/plots/003-夜访.md',
+        chapterPath: '',
         manuscriptPath: '.novelforge/manuscripts/003-夜访.md',
-        // 场景拆了、正文写了，但摘要还没跟上 → 待审阅。
-        stage: 'review', upstreamStale: false,
+        wordCount: 300, stale: true, summaryPath: '',
+        stage: 'split', upstreamStale: false,
+        draftPath: '', hasDraft: false,
         progress: { plot: 1, scene: 1, manuscript: 1, summary: 0 } },
-    ],
-    // 章节区是**纯文件**：没有 stage / progress / upstreamStale / stale / summaryPath。
-    // 仍保留三层深度——分卷收纳是作者常用的整理方式，缩进与折叠要测得到。
-    chapters: [
-      { kind: 'dir', label: '第一卷', relPath: 'chapters/第一卷', fileCount: 2, children: [
-        { kind: 'dir', label: '深处', relPath: 'chapters/第一卷/深处', fileCount: 1, children: [
-          { kind: 'chapter', order: 3, title: '夜访', relPath: 'chapters/第一卷/深处/003-夜访.md',
-            wordCount: 300, draftPath: 'drafts/第一卷/深处/003-夜访.md', hasDraft: false },
-        ] },
-        { kind: 'chapter', order: 2, title: '入镇', relPath: 'chapters/第一卷/002-入镇.md',
-          wordCount: 300, draftPath: 'drafts/第一卷/002-入镇.md', hasDraft: false },
-      ] },
-      { kind: 'dir', label: '第二卷', relPath: 'chapters/第二卷', fileCount: 0, children: [] },
-      { kind: 'chapter', order: 1, title: '楔子', relPath: 'chapters/001-楔子.md',
-        wordCount: 300, draftPath: 'drafts/001-楔子.md', hasDraft: true },
     ],
     characters: [
       { kind: 'dir', label: '配角', relPath: '.novelforge/characters/配角', fileCount: 1, children: [
@@ -319,15 +323,15 @@ function sampleTree() {
     // 林昭出场三段、上次只更新到第 1 段 → 待更新 2 段；李叔从没在摘要里出现。
     castByCard: {
       '.novelforge/characters/林昭.md': {
-        plots: [1, 2, 3], detail: '第 1、2、3 段', updatedThrough: 1, pending: 2,
+        plots: [1, 2, 3], detail: '第 1、2、3 章', updatedThrough: 1, pending: 2,
       },
       '.novelforge/characters/配角/李叔.md': {
         plots: [], detail: '未在摘要中出现', updatedThrough: 0, pending: 0,
       },
     },
     cast: [
-      { name: '客栈掌柜', aliases: ['掌柜'], plots: [2, 3], detail: '第 2、3 段' },
-      { name: '老周', aliases: [], plots: [3], detail: '第 3 段' },
+      { name: '客栈掌柜', aliases: ['掌柜'], plots: [2, 3], detail: '第 2、3 章' },
+      { name: '老周', aliases: [], plots: [3], detail: '第 3 章' },
     ],
   };
 }

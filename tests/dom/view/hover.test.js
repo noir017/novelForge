@@ -1,5 +1,5 @@
 /**
- * 三个悬停浮窗：剧情段摘要、行内副标题（别名）、失败标记。
+ * 三个悬停浮窗：章节摘要、行内副标题（别名）、失败标记。
  *
  * 迁自 scripts/smoke-view.js 的这三节：
  *   == 章节摘要的悬停浮窗 ==（1893） == 行内副标题（别名）的悬停浮窗 ==（2170）
@@ -20,10 +20,10 @@ const { mount, JSDOM_SKIP, sampleTree } = require('../../helpers/dom');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-describe('剧情段摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
+describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
   let ui;
   const tip = () => ui.doc.querySelector('.summary-tip');
-  // 浮窗只挂在**剧情行**上。剧情段与发布章节同名（「楔子」两组各一行），
+  // 浮窗只挂在**章节行**上。夹具里同名的行不止一处，
   // 按 .row 取会撞上章节那一行，而章节行根本没有 data-plot。
   const rowWith = (text) =>
     [...ui.doc.querySelectorAll('#projectBody .row-plot')].find((n) => n.textContent.includes(text));
@@ -148,12 +148,12 @@ describe('剧情段摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(tip().textContent.includes('读取摘要'), tip().textContent);
   });
 
-  test('向后端要这一段的摘要', () => {
+  test('向后端要这一章的摘要', () => {
     const req = ui.last('requestSummary');
     assert.ok(req, '没发出 requestSummary');
-    // 要的是**段路径**，不是序号：摘要文件名跟着段标题走，
-    // 只有路径能唯一定位到一份摘要。
-    assert.equal(req.plotRelPath, '.novelforge/plots/001-楔子.md', JSON.stringify(req));
+    // 要的是**路径**，不是序号：摘要文件名跟着标题走，只有路径能唯一
+    // 定位到一份摘要。这一章已经发布，主路径因此指成品。
+    assert.equal(req.plotRelPath, 'chapters/001-楔子.md', JSON.stringify(req));
   });
 
   test('浮窗挂在 body 上（工程页有内部滚动，挂在行里会被裁掉）', () => {
@@ -166,8 +166,8 @@ describe('剧情段摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(!tip().textContent.includes('读取摘要'), tip().textContent);
   });
 
-  test('浮窗带段号与标题', () => {
-    assert.ok(tip().textContent.includes('第 1 段 楔子'), tip().textContent);
+  test('浮窗带章号与标题', () => {
+    assert.ok(tip().textContent.includes('第 1 章 楔子'), tip().textContent);
   });
 
   test('显示小节名', () => {
@@ -544,7 +544,7 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
   const grace = () => wait(320);
 
   const CARD = '.novelforge/characters/林昭.md';
-  // 失败一律挂在**剧情段**上（recordFailure 的 targetKey 就是段路径）。
+  // 失败挂在出错那份文件上（recordFailure 的 targetKey 就是它的路径）。
   // 章节是纯文件行，没有失败标记——工具不在那上面跑任何东西。
   const PLOT = '.novelforge/plots/001-楔子.md';
 
@@ -612,7 +612,7 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
   });
 
   test('出错的剧情行也挂上感叹号', () => {
-    // 按剧情行取：剧情段与发布章节同名，按 .row 取会撞上章节那一行。
+    // 按章节行取：夹具里同名的行不止一处，按 .row 取会撞上别的那一行。
     const row = [...ui.doc.querySelectorAll('#projectBody .row-plot')]
       .find((n) => n.textContent.includes('楔子'));
     plotMark = row ? row.querySelector('.row-failure') : null;
@@ -623,10 +623,10 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(plotMark && plotMark.classList.contains('is-warn'), plotMark && plotMark.className);
   });
 
-  // 章节是纯文件行：同名的那一章不该跟着挂标记。
-  test('同名的章节行不挂感叹号', () => {
-    const row = [...ui.doc.querySelectorAll('#projectBody .row-chapter')]
-      .find((n) => n.textContent.includes('楔子'));
+  // 失败记录按路径挂：别的章不该跟着挂标记。
+  test('别的章不挂感叹号', () => {
+    const row = [...ui.doc.querySelectorAll('#projectBody .row-plot')]
+      .find((n) => n.textContent.includes('入镇'));
     assert.ok(row && !row.querySelector('.row-failure'), row && row.outerHTML);
   });
 

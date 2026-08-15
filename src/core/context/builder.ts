@@ -155,16 +155,16 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
   if (prevTail) {
     sections.push(
       writing
-        ? `# 上一段结尾原文（你要从这里无缝接下去）\n\n${prevTail.text}`
-        : `# 上一段结尾原文\n\n${prevTail.text}`
+        ? `# 上一章结尾原文（你要从这里无缝接下去）\n\n${prevTail.text}`
+        : `# 上一章结尾原文\n\n${prevTail.text}`
     );
   } else if (writing && fullText.length > 0) {
-    // 结尾片段被整段正文取代时，仍要点明接续位置。
+    // 结尾片段被整章正文取代时，仍要点明接续位置。
     const last = fullText[fullText.length - 1];
     sections.push(`你要从上面「${last.label.replace(' · 正文', '')}」的结尾处无缝接下去。`);
   }
 
-  // 本层产物紧挨着指令：这一段的剧情、这一幕的场景卡才是这一轮真正要动的东西。
+  // 本层产物紧挨着指令：这一章的细纲、这一幕的场景卡才是这一轮真正要动的东西。
   section('# 剧情', pick('plot'));
   section('# 场景设计', pick('scene'));
 

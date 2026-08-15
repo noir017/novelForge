@@ -28,20 +28,20 @@ let h;
 let t;
 
 /**
- * 造一段剧情 + 它的正文 + 一份带 cast 的摘要。cast 用 `名(别名、别名)` 的写法。
+ * 造一章 + 它的成品正文 + 一份带 cast 的摘要。cast 用 `名(别名、别名)` 的写法。
  *
- * 出场索引扫的是**剧情段**（`buildCastIndex` 走 `listPlots()` 再按段读摘要），
- * 所以段文件必须在——只写摘要的话它一份都扫不到。
+ * 出场索引扫的是**发布章节**（`buildCastIndex` 走 `listChapters()` 再按章读摘要），
+ * 所以章节文件必须在——只写摘要的话它一份都扫不到。
  */
 function makePlot(no, cast) {
   const n = String(no).padStart(3, '0');
-  const stem = `${n}-第${no}段`;
+  const stem = `${n}-第${no}章`;
   t.write(`.novelforge/plots/${stem}.md`, `## 目标\n\n略。\n\n## 剧情脉络\n\n甲乙丙。\n`);
-  t.write(`.novelforge/manuscripts/${stem}.md`, `# 第${no}段 · 正文\n\n雨下了三天。\n`);
+  t.write(`chapters/${stem}.md`, `# 第${no}章\n\n雨下了三天。\n`);
   t.write(
     `.novelforge/summaries/${stem}.md`,
-    `---\nplot: ${no}\ntitle: 第${no}段\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
-      `# 第${no}段 · 摘要\n\n## 梗概\n\n略。\n\n## 出场人物\n\n${cast.join('、')}\n`
+    `---\nchapter: ${no}\ntitle: 第${no}章\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
+      `# 第${no}章 · 摘要\n\n## 梗概\n\n略。\n\n## 出场人物\n\n${cast.join('、')}\n`
   );
 }
 

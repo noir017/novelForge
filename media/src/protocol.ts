@@ -28,7 +28,6 @@ export type {
   NextStepView,
   OutMessage,
   ProjectAction,
-  ProjectChapterNode,
   ProjectPlotNode,
   ProjectDirNode,
   ProjectFile,

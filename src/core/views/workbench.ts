@@ -1,7 +1,7 @@
 /**
  * 工作区卡的内容：**当前这一层的产物本身**。
  *
- * 与 [pipeline.ts](pipeline.ts) 同级同类——那边聚合「这一段走到哪一步了」，
+ * 与 [pipeline.ts](pipeline.ts) 同级同类——那边聚合「这一章走到哪一步了」，
  * 这边取出「我现在正在改的那份东西写了什么」。取数在这里，判断在纯函数层。
  *
  * ## 为什么需要它
@@ -34,7 +34,7 @@ const OUTLINE_PREVIEW = 400;
 /**
  * 当前目标那一层的产物。
  *
- * **绝不抛**：作者可能刚把某一段改名或删掉，而界面上的 target 还指着它。
+ * **绝不抛**：作者可能刚把某一章改名或删掉，而界面上的 target 还指着它。
  * 那种时候给一张「找不到」的卡，比让整条推送失败强。
  */
 export async function buildWorkbench(
@@ -62,14 +62,14 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
   }
 
   const plot = await project.readPlot(target.plotRelPath);
-  // 段刚被改名/删掉。给一张说得清情况的空卡，不要抛。
+  // 细纲刚被改名/删掉。给一张说得清情况的空卡，不要抛。
   if (!plot) {
     return {
       stage: target.kind,
       title: STAGE_LABEL[target.kind],
       relPath: '',
       sections: [],
-      empty: `找不到剧情段 ${target.plotRelPath}，它可能刚被改名或删除。`,
+      empty: `找不到细纲 ${target.plotRelPath}，它可能刚被改名或删除。`,
     };
   }
   const head = plotLabel(plot.no, plot.title);
@@ -82,15 +82,15 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
         title: `剧情 · ${head}`,
         relPath: plot.relPath,
         sections,
-        // 上游变更在这里是一句人话，不只是流水线条上那个 ⟳。作者正在看这一段，
+        // 上游变更在这里是一句人话，不只是流水线条上那个 ⟳。作者正在看这一章，
         // 此刻正是告诉他「它依据的大纲已经改了」最有用的时机。
         warning:
           plot.upstreamHash && hash(await project.readOutline()) !== plot.upstreamHash
-            ? '全书大纲在这一段之后改过，两者可能已经对不上。'
+            ? '全书大纲在这一章之后改过，两者可能已经对不上。'
             : undefined,
         // 「文件在但一节都没填」与「文件不在」对作者是同一件事：这一层还没做。
         // 只判文件存在的话，一份只有目标的骨架会渲染成一张几乎空的卡。
-        empty: sections.length > 0 ? undefined : '这一段还没排剧情。',
+        empty: sections.length > 0 ? undefined : '这一章还没排剧情。',
       };
     }
 
@@ -102,7 +102,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
           title: `场景 ${target.sceneNo} · ${head}`,
           relPath: '',
           sections: [],
-          empty: `第 ${target.sceneNo} 场还不存在。先把这一段拆成场景。`,
+          empty: `第 ${target.sceneNo} 场还不存在。先把这一章拆成场景。`,
         };
       }
       const meta = [scene.place, scene.time, scene.characters.join('、')].filter(Boolean).join(' · ');
@@ -120,7 +120,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
         // 这时的 warning 说清它还没准备过素材——**不用 `empty`**：那会连
         // 「这一幕」一起藏掉，而地点时间人物恰恰是这时候唯一有的东西。
         warning: stale
-          ? '本段剧情在这一场之后改过，这里的素材可能已经用不上了。'
+          ? '本章细纲在这一场之后改过，这里的素材可能已经用不上了。'
           : designed.length === 0
             ? '这一场还只是个壳，没有素材——写正文之前先把环境、动作、对话想出来。'
             : undefined,
@@ -144,7 +144,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
           { key: '篇幅', text: words > 0 ? `${words} 字` : '还没有正文' },
           ...(scenes.length > 0
             ? [{ key: '场景', text: `${written}/${scenes.length} 场已写入` }]
-            : [{ key: '场景', text: '这一段没有拆过场景，正文将整段生成' }]),
+            : [{ key: '场景', text: '这一章没有拆过场景，正文将整章生成' }]),
         ],
         warning: beatsStale ? '场景在正文写完之后改过，现有正文可能已经与细节对不上。' : undefined,
       };
