@@ -29,6 +29,38 @@ export type OutMessage =
   | { type: 'sessions'; list: SessionListItem[] }
   | { type: 'delta'; turnId: string; text: string }
   | { type: 'reasoning'; turnId: string; text: string }
+  /**
+   * agent 循环开了新的一步。前端画一行「第 N 步」。
+   *
+   * 与 `runTask` 的进度条不冲突：那个说的是「这个长任务跑了多久」，
+   * 这个说的是「它现在在做第几件事」。
+   */
+  | { type: 'agentStep'; turnId: string; step: number; message: string }
+  /** agent 要调一个工具了。前端在气泡里挂一条折叠条。 */
+  | { type: 'toolCall'; turnId: string; callId: string; name: string; title?: string; detail?: string }
+  /**
+   * 工具跑完了。`summary` 是**展示摘要**（几行、几处命中），
+   * **不是工具的完整返回值**——那可能是几万字。
+   */
+  | {
+      type: 'toolResult';
+      turnId: string;
+      callId: string;
+      name: string;
+      ok: boolean;
+      summary: string;
+      elapsedMs: number;
+    }
+  /** 一次 agent 循环结束。`message` 在非正常结束时说明为什么停。 */
+  | {
+      type: 'agentDone';
+      turnId: string;
+      stopReason: string;
+      message: string;
+      steps: number;
+      calls: number;
+      tokens: number;
+    }
   | { type: 'turnDone'; turn: SerializedTurn }
   | { type: 'context'; turnId: string; digest: SerializedDigest }
   | { type: 'busy'; value: boolean }

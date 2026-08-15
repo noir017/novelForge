@@ -18,7 +18,10 @@ import { installMenus } from './menu';
 import {
   bindPayload,
   buildContextDetails,
+  buildPendingToolRow,
   buildReasoningDetails,
+  buildToolRow,
+  buildToolStrip,
   bubbleOf,
   renderSession,
   scrollToBottom,
@@ -114,6 +117,27 @@ onMessage((msg) => {
       appendReasoning(msg.turnId, msg.text);
       break;
 
+    // ---- agent 的三条：步数、工具调用、工具结果
+    case 'agentStep':
+      // 步数只进进度条（工程页顶部那条）与日志，气泡里不画——每一步一行
+      // 「第 3 步」会把真正有信息量的工具调用挤散。
+      break;
+
+    case 'toolCall':
+      appendToolRow(msg.turnId, msg.callId, msg.title ?? msg.name, msg.detail);
+      break;
+
+    case 'toolResult':
+      settleToolRow(msg.turnId, msg);
+      break;
+
+    case 'agentDone':
+      // 结论由随后的 turnDone 整体重建，这里只补一句「为什么停」。
+      if (msg.stopReason !== 'done' && msg.message) {
+        toast(msg.message, msg.stopReason === 'error');
+      }
+      break;
+
     case 'turnDone':
       // 生成开始时控制器先插一条空回复，后续 delta 都挂在它上面。
       // 必须在这一刻就标成 streaming：否则气泡会以「可编辑」建出来，
@@ -196,6 +220,40 @@ function appendReasoning(turnId: string, text: string): void {
       box.scrollTop = box.scrollHeight;
     }
   }
+  scrollToBottom();
+}
+
+/**
+ * 工具调用开始：在气泡里挂一条「进行中…」的行。
+ *
+ * **就地追加而不是重建气泡**：重建会把正在流的正文冲掉（`.msg-body` 是
+ * 纯文本节点，delta 靠 `textContent +=` 追加）。
+ */
+function appendToolRow(turnId: string, callId: string, title: string, detail?: string): void {
+  const node = bubbleOf(turnId);
+  if (!node) {
+    return;
+  }
+  let strip = node.querySelector<HTMLElement>('.tools');
+  if (!strip) {
+    strip = buildToolStrip();
+    node.insertBefore(strip, node.querySelector('.msg-body'));
+  }
+  strip.appendChild(buildPendingToolRow(callId, title, detail));
+  scrollToBottom();
+}
+
+/** 工具跑完了：把那一行换成带耗时与结果摘要的最终形态。 */
+function settleToolRow(
+  turnId: string,
+  result: { callId: string; name: string; ok: boolean; summary: string; elapsedMs: number }
+): void {
+  const row = bubbleOf(turnId)?.querySelector<HTMLElement>(`.tool-row[data-call="${result.callId}"]`);
+  if (!row) {
+    return;
+  }
+  const title = row.querySelector('.tool-title')?.textContent ?? result.name;
+  row.replaceWith(buildToolRow({ ...result, title }));
   scrollToBottom();
 }
 

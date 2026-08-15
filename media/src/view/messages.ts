@@ -94,6 +94,15 @@ function buildTurn(turn: SerializedTurn): HTMLElement {
   if (turn.reasoning) {
     wrap.appendChild(buildReasoningDetails(turn.reasoning));
   }
+  // agent 调过的工具画成一串折叠条，也在正文上方——那是它得出结论的过程，
+  // 读起来的顺序就是「先查了什么，然后说了什么」。
+  if (turn.toolCalls && turn.toolCalls.length > 0) {
+    const strip = buildToolStrip();
+    for (const call of turn.toolCalls) {
+      strip.appendChild(buildToolRow(call));
+    }
+    wrap.appendChild(strip);
+  }
 
   wrap.appendChild(buildBody(turn));
 
@@ -298,6 +307,59 @@ export function buildReasoningDetails(text: string): HTMLDetailsElement {
   det.appendChild(mk('summary', undefined, `思考过程 · ${countWords(text)} 字`));
   det.appendChild(mk('div', 'reasoning-body', text));
   return det;
+}
+
+/**
+ * agent 工具调用的那一串折叠条。
+ *
+ * ```
+ * 🔧 search「北境」        2 处命中   0.3s
+ * 🔧 read chapters/009…   142 行     0.1s
+ * ✨ generate 剧情         620 字     12.4s
+ * ```
+ *
+ * **只画摘要，不画返回值**：`read` 一章正文是几千字，摊在气泡里会把作者真正
+ * 要看的那段回答挤到屏幕外。要看内容点开那个文件就是了。
+ */
+export function buildToolStrip(): HTMLElement {
+  return mk('div', 'tools');
+}
+
+export function buildToolRow(call: {
+  callId: string;
+  name: string;
+  title: string;
+  ok: boolean;
+  summary: string;
+  elapsedMs: number;
+}): HTMLElement {
+  const row = mk('div', `tool-row${call.ok ? '' : ' tool-failed'}`);
+  row.dataset.call = call.callId;
+  // 花钱的那个用另一个图标：作者一眼要能看出这一串里哪几下是收费的。
+  row.appendChild(mk('span', 'tool-icon', call.name === 'generate' ? '✨' : '🔧'));
+  row.appendChild(mk('span', 'tool-title', call.title));
+  row.appendChild(mk('span', 'tool-summary', call.summary));
+  row.appendChild(mk('span', 'tool-elapsed', formatElapsed(call.elapsedMs)));
+  return row;
+}
+
+/** 一次工具调用刚开始，还没有结果。收到 `toolResult` 时就地补上。 */
+export function buildPendingToolRow(callId: string, title: string, detail?: string): HTMLElement {
+  return buildToolRow({
+    callId,
+    name: title.split(' ')[0],
+    title,
+    ok: true,
+    summary: detail ?? '进行中…',
+    elapsedMs: -1,
+  });
+}
+
+function formatElapsed(ms: number): string {
+  if (ms < 0) {
+    return '';
+  }
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
 /** 上下文明细：装配器放进去了什么、各占多少 token、降级或丢弃的原因。 */

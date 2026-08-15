@@ -119,6 +119,26 @@ export interface ChatTurn {
     summary: string;
     overwrites: boolean;
   };
+  /**
+   * 仅 assistant 轮：这一轮 agent 调了哪些工具。
+   *
+   * **不存工具的完整返回值**——`read` 一章正文就是几千字，一轮下来几万字，
+   * 会话文件会被它撑爆（与 `MAX_DRAFTS_PER_SESSION` 是同一条理由）。这里只存
+   * 展示摘要（「142 行」「2 处命中」），够重开面板时把那串折叠条画回来。
+   */
+  toolCalls?: TurnToolCall[];
+}
+
+/** 一次工具调用在会话里留下的痕迹。只够画一行，不够回放。 */
+export interface TurnToolCall {
+  callId: string;
+  name: string;
+  /** 界面上那一行的标题，如 `search「北境」`。 */
+  title: string;
+  ok: boolean;
+  /** 展示摘要，如「2 处命中」。**不是完整返回值。** */
+  summary: string;
+  elapsedMs: number;
 }
 
 /**

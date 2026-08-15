@@ -8,20 +8,21 @@
 | [workspace/](workspace/README.md) | ★ **工程的唯一读写网关**：`list` / `read` / `write` / `edit` / `move` / `remove` / `search`。路径 → 种类 → 八条守卫 → 解析/渲染/记账/伴生。**新代码不许绕过 `guard.ts` 直接 `fs.writeFile`** |
 | [context/](context/README.md) | ★ 上下文装配：token 粗估与分层预算装配器 |
 | [generation/](generation/README.md) | ★ 创作的一次单步：`generate.ts` **无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，不管并发）、`accept.ts` 六条落盘分派、`drafts.ts` 让未采纳的产物活过一次刷新。**`cleanOutput` 只对正文层做**，采纳时拿气泡里当下的文本重新解析 |
+| [agent/](agent/README.md) | ★ 多步：循环、工具注册表、状态注入、预算闸门。**三期只有只读四件套**（`list` / `read` / `search` / `generate`），一个字都不写磁盘——落盘仍走作者点的采纳卡片。「下一步该做什么」由 `deriveNextStep` 每回合注入，agent 不另做判断 |
 | [features/](features/README.md) | 功能编排：续写、摘要、角色卡、设定、文风提取 |
 | [llm/](llm/README.md) | 模型接入：`LlmProvider` 接口、OpenAI / Anthropic 协议实现、provider 注册表 |
 | [files/](files/) | ★ 工程文件能力的**交互流程**：三区界限判断、弹输入框、拼 toast 文案，以及资源管理器目录列举与 `@` 引用候选。落盘一律转调 `workspace/`——不越界、不静默覆盖、删除搬进 `.trash/` 那几条守卫在网关里做一次。 |
 | [views/](views/README.md) | ★ 只读聚合与界面快照：工程树、单章流水线、创作工作区卡与出场人物索引。只从磁盘取数，不写盘。`views/pipeline.ts` 是 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，不迁入 `views/`。 |
 | [runtime/](runtime/) | ★ 宿主无关的运行时设施：日志、SQLite 痕迹库、失败记录、长任务登记与有界并发。`logger.ts` 保持零依赖；日志持久化由 `db.ts` 订阅 logger sink，依赖方向不可反转。 |
 
-依赖方向自上而下：`features/` / `generation/` → `context/` / `llm/` → `workspace/` → `model/`，反向不允许。
+依赖方向自上而下：`features/` / `generation/` → `context/` / `llm/` → `workspace/` → `model/`，反向不允许。`agent/` 坐在最上面（它调 `generation/` 与 `workspace/`），**不认识 `controller/`**——反过来会成环。
 
 本目录根下只保留入口胶水与跨子目录契约：
 
 | 文件 | 职责 |
 |---|---|
 | [protocol/](protocol/index.ts) | 前端 ↔ 后端的消息协议（`InMessage` / `OutMessage` / `ViewState`）。对外入口仍是 `core/protocol`。插件 webview 与独立版网页共用，是前后端的唯一契约。 |
-| [controller/](controller/index.ts) | ★ `ChatController`：全部面板逻辑，按消息域拆在同目录模块里。收 `InMessage` → 调度 `generation/` / 会话存储 / 创作目标切换 / 设置读写 → 广播 `OutMessage`。**并发控制在这一层**（`beginGeneration` / `stopGeneration`，`busy` 就是 `currentAbort !== undefined`）——生成那一层是无状态的，「有没有在跑」是调度的事。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。 |
+| [controller/](controller/index.ts) | ★ `ChatController`：全部面板逻辑，按消息域拆在同目录模块里。收 `InMessage` → 调度 `generation/` / `agent/` / 会话存储 / 创作目标切换 / 设置读写 → 广播 `OutMessage`。**并发控制在这一层**（`beginGeneration` / `stopGeneration`，`busy` 就是 `currentAbort !== undefined`）——生成那一层是无状态的，「有没有在跑」是调度的事，单步与 agent 共用同一把锁。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。 |
 | [host.ts](host.ts) | core 对宿主的唯一依赖面（窄接口）：弹窗/选择/进度/文件监听/打开文件等，两个壳各实现一份。 |
 | [actions.ts](actions.ts) | 工程级交互流程（初始化、新建一章、直接建一个发布章节文件），命令面板与网页共用。新建只落一个纯序号名的空细纲（标题等剧情排完再改名定），**不问标题也不打开它**；章号取 `plots/` 与 `chapters/` 两边的最大号 +1，所以老工程的 99 章之后建出来的就是第 100 章。「建完去哪」由调用方决定，面板走 `selectPlot` 落到这一章的当前步骤。正常路径上的发布章节是**拆分**出来的，`newChapterFlow` 只留给「手里已有一章现成的文字要粘进来」。 |
 | [config.ts](config.ts) | `readConfig` / `readBudgetFallback` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |

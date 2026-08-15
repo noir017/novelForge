@@ -107,6 +107,24 @@ function send(): void {
   if (store.busy) {
     return;
   }
+  // Agent 那条路只吃一句话：它没有 stage/capability 的概念，「下一步该做什么」
+  // 由后端每回合注入的状态机结论说了算（第 20 条）。所以这里**不带 payload**——
+  // 把当前选的能力捎过去，等于让前端也参与判断，两处迟早分叉。
+  if (el.agentToggle.checked) {
+    const text = el.input.value.trim();
+    if (!text) {
+      toast('先说说你要它做什么。', true);
+      el.input.focus();
+      return;
+    }
+    setBusy(true);
+    vscode.postMessage({ type: 'sendAgent', text });
+    el.input.value = '';
+    clearPendingCommand();
+    persistDraft();
+    return;
+  }
+
   const p = payload();
   // 空输入只挡「讨论」——讨论的全部内容就是你那句话。其余命令（写剧情、
   // 拆场景、写这一场）本来就不需要作者再说什么。后端也有同一道判断。

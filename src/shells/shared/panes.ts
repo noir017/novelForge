@@ -147,6 +147,13 @@ export function chatPane(opts: PaneOptions = {}): string {
       <select id="targetSelect" title="当前创作目标"></select>
       <input type="number" id="targetWords" value="2000" min="0" step="100" title="目标字数（0 为不限）">
       <span class="spacer"></span>
+      <!-- Agent 开关。它与创作是同一件事，只是执行方式不同——所以是输入框旁的
+           一个开关，不是新页签。开着时发送走 sendAgent：模型自己决定查什么、
+           生成什么；关着时还是确定性的单步（点「写剧情」多一次调度调用只是
+           加钱加延迟）。 -->
+      <label class="composer-toggle" id="agentToggleWrap" title="让 AI 自己查资料、跨章对账、分几步做完。它产出的内容仍然要你点采纳才落盘。">
+        <input type="checkbox" id="agentToggle">Agent
+      </label>
       <button class="primary" id="sendBtn">发送</button>
       <button class="danger hidden" id="stopBtn">停止</button>
     </div>

@@ -80,6 +80,7 @@ export function serializeTurn(t: ChatTurn): SerializedTurn {
     reasoning: t.reasoning,
     draftId: t.draftId,
     artifact: t.artifact,
+    toolCalls: t.toolCalls,
   };
 }
 

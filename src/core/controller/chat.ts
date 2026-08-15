@@ -15,6 +15,7 @@ import {
 } from '../model/session';
 import {
   Capability,
+  CreationStage,
   CreationTarget,
   DEFAULT_CAPABILITY,
   STAGE_CAPABILITIES,
@@ -214,15 +215,24 @@ export async function runTurn(c: ChatController, payload: SendPayload, userTurn:
 /**
  * 这一轮的回复能不能采纳，以及采纳到哪里。
  *
- * 只在**重开旧会话**这类拿不到 draft 的路上用（生成路径直接读
- * `draft.artifact`）。解析在这里跑一遍只是为了**画界面**（几场？覆盖谁？），
- * 真正落盘时 `acceptArtifact` 会拿气泡里当时的文本重新解析——用户可能改过。
+ * 两条路进来：
+ *
+ * - **重开旧会话**这类拿不到 draft 的（单步生成路径直接读 `draft.artifact`）——
+ *   那时按会话当下的 stage/capability/target 算；
+ * - **agent 那条路**：draft 的 action 与 target 是它自己定的（agent 可能在
+ *   作者选着第 12 章时去改了第 9 章），所以**必须以 draft 为准**，拿
+ *   `c.current` 顶上会把落点说成另一章。
+ *
+ * 解析在这里跑一遍只是为了**画界面**（几场？覆盖谁？），真正落盘时
+ * `acceptArtifact` 会拿气泡里当时的文本重新解析——用户可能改过。
  */
 export async function describeArtifactOf(
   c: ChatController,
-  content: string
+  content: string,
+  draft?: Pick<Draft, 'action' | 'target'>
 ): Promise<SerializedArtifact | undefined> {
-  const action = { stage: c.current.stage, capability: c.current.capability };
+  const action = draft?.action ?? { stage: c.current.stage, capability: c.current.capability };
+  const target = draft?.target ?? c.current.target;
   if (outputKindOf(action) !== 'artifact' || !content.trim()) {
     return undefined;
   }
@@ -231,9 +241,9 @@ export async function describeArtifactOf(
     return undefined;
   }
   return {
-    where: await describeCurrentTarget(c),
+    where: await describeTargetOf(c, target),
     summary: describeArtifact(artifact),
-    overwrites: await targetHasContent(c),
+    overwrites: await targetHasContent(c, action, target),
   };
 }
 
@@ -243,13 +253,20 @@ export async function describeArtifactOf(
  * 只看**这一层自己的产物**：拆章/拆场景本来就跳过已存在的，
  * 说「会覆盖」是吓唬人。
  */
-export async function targetHasContent(c: ChatController): Promise<boolean> {
-  const { stage } = c.current;
-  const relPath = plotOfTarget(c.current.target);
+export async function targetHasContent(
+  c: ChatController,
+  action: { stage: CreationStage; capability: Capability } = {
+    stage: c.current.stage,
+    capability: c.current.capability,
+  },
+  target: CreationTarget = c.current.target
+): Promise<boolean> {
+  const { stage, capability } = action;
+  const relPath = plotOfTarget(target);
   if (stage === 'outline') {
-    return c.current.capability !== 'split' && (await c.project.readOutline()).trim().length > 0;
+    return capability !== 'split' && (await c.project.readOutline()).trim().length > 0;
   }
-  if (!relPath || c.current.capability === 'split') {
+  if (!relPath || capability === 'split') {
     return false;
   }
   if (stage === 'plot') {
@@ -259,7 +276,7 @@ export async function targetHasContent(c: ChatController): Promise<boolean> {
     return !!plot && isPlotFilled(plot.sections);
   }
   if (stage === 'scene') {
-    const sceneNo = c.current.target.kind === 'scene' ? c.current.target.sceneNo : undefined;
+    const sceneNo = target.kind === 'scene' ? target.sceneNo : undefined;
     return sceneNo !== undefined && !!(await c.project.readScene(relPath, sceneNo));
   }
   // 正文是追加，不覆盖任何东西。
@@ -481,18 +498,26 @@ export function applyAction(c: ChatController, payload: SendPayload): void {
 
 /** 当前目标的人话描述。日志、采纳卡片、面包屑共用。 */
 export async function describeCurrentTarget(c: ChatController): Promise<string> {
-  const relPath = plotOfTarget(c.current.target);
+  return describeTargetOf(c, c.current.target);
+}
+
+/**
+ * 任意 target 的人话描述。
+ *
+ * 与 `describeCurrentTarget` 分开是因为 agent 那条路上的落点由 draft 决定，
+ * 未必是作者当下选中的那一章——拿 `c.current` 顶上会把落点说成另一章。
+ */
+export async function describeTargetOf(c: ChatController, target: CreationTarget): Promise<string> {
+  const relPath = plotOfTarget(target);
   if (!relPath) {
-    return describeTarget(c.current.target);
+    return describeTarget(target);
   }
   const plot = await c.project.readPlot(relPath);
   const sceneNo =
-    c.current.target.kind === 'scene' || c.current.target.kind === 'manuscript'
-      ? c.current.target.sceneNo
-      : undefined;
+    target.kind === 'scene' || target.kind === 'manuscript' ? target.sceneNo : undefined;
   const sceneTitle =
     sceneNo === undefined ? undefined : (await c.project.readScene(relPath, sceneNo))?.title;
-  return describeTarget(c.current.target, { no: plot?.no, title: plot?.title, sceneTitle });
+  return describeTarget(target, { no: plot?.no, title: plot?.title, sceneTitle });
 }
 
 /**

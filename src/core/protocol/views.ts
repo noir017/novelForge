@@ -231,6 +231,21 @@ export interface SerializedTurn {
    */
   draftId?: string;
   artifact?: SerializedArtifact;
+  /**
+   * 仅 assistant 轮：这一轮 agent 调过的工具。重开面板要能把那串折叠条画回来。
+   *
+   * **只有展示摘要，没有完整返回值**——那可能是几万字。
+   */
+  toolCalls?: SerializedToolCall[];
+}
+
+export interface SerializedToolCall {
+  callId: string;
+  name: string;
+  title: string;
+  ok: boolean;
+  summary: string;
+  elapsedMs: number;
 }
 
 export interface SerializedArtifact {

@@ -8,6 +8,7 @@ import { addLogSink, clearLogs, describeError, recentLogs, scoped } from '../run
 import { activeTasks, cancelTask, onTasksChanged } from '../runtime/progress';
 import { clearApiKey, promptForApiKey } from '../llm/registry';
 import { NovelProject } from '../model/project';
+import { Workspace } from '../workspace';
 import {
   describeModelIssue,
   listModelChoices,
@@ -36,6 +37,7 @@ import {
   send,
   setTarget,
 } from './chat';
+import { sendAgent } from './agent';
 import { fileAction, openDraft, pushDirListings } from './files';
 import { characterAction, projectAction } from './project';
 import {
@@ -77,6 +79,15 @@ const LOG_HISTORY_PAGE = 200;
 export class ChatController {
   /** @internal controller/ 同包用；壳不要读。 */
   readonly project: NovelProject;
+  /**
+   * 工程的唯一读写网关。agent 的只读工具吃它。
+   *
+   * 一个 controller 一份而不是每次现造：`Workspace` 本身无状态（它只是
+   * `NovelProject` 的门面），但造一份要传 project，散在各处等于把这层依赖
+   * 又复制了几遍。
+   * @internal controller/ 同包用；壳不要读。
+   */
+  readonly workspace: Workspace;
   /** @internal controller/ 同包用；壳不要读。 */
   readonly store: SessionStore;
   /**
@@ -120,6 +131,7 @@ export class ChatController {
 
   constructor(project: NovelProject) {
     this.project = project;
+    this.workspace = new Workspace(project);
     this.store = new SessionStore(project);
     this.current = this.store.create();
 
@@ -166,7 +178,7 @@ export class ChatController {
    * 在进行中」。
    * @internal controller/ 同包用；壳不要读。
    */
-  beginGeneration(): { signal: AbortSignal; release: () => void } | undefined {
+  beginGeneration(): { signal: AbortSignal; abort: () => void; release: () => void } | undefined {
     if (this.currentAbort) {
       return undefined;
     }
@@ -174,6 +186,9 @@ export class ChatController {
     this.currentAbort = abort;
     return {
       signal: abort.signal,
+      // 让占位方自己也能中断（agent 那条路要把 runTask 进度条上的「停止」
+      // 转接进来）。只 abort 自己那一份，不碰别人的。
+      abort: () => abort.abort(new CancelledError()),
       release: () => {
         // 只清自己那一份：release 晚到时（上一次生成的收尾）不该把
         // 刚开始的下一次取消掉。
@@ -261,6 +276,10 @@ export class ChatController {
 
       case 'send':
         await send(this, msg.payload);
+        return;
+
+      case 'sendAgent':
+        await sendAgent(this, msg.text, msg.limits);
         return;
 
       case 'retry':

@@ -37,6 +37,7 @@ export type {
   SerializedDigest,
   SerializedSession,
   SerializedTurn,
+  SerializedToolCall,
   SessionListItem,
   ViewState,
   WorkbenchSection,
