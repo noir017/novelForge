@@ -17,13 +17,10 @@
  * 3. **失败留在出错的东西身上**。生成失败往 `errorLog` 记一条挂在目标
  *    细纲上，成功时清掉。只有一条 toast 的话，用户扭头就看不见了。
  */
-import { BuildRequest, BuiltContext, buildContext } from '../context/builder';
-import { describeUsage, recordUsage } from '../context/tokenizer';
-import { mergeUsage } from '../llm/collect';
-import { CancelledError, StreamOptions, TokenUsage } from '../llm/provider';
-import { buildProvider, resolveProvider } from '../llm/registry';
+import { BuildRequest, BuiltContext } from '../context/builder';
+import { CancelledError } from '../llm/provider';
+import { buildProvider } from '../llm/registry';
 import { readConfig } from '../config';
-import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { hash, sanitizeFileName } from '../model/fs';
 import { NovelProject } from '../model/project';
@@ -31,12 +28,8 @@ import { Plot, PlotSections, emptyPlotSections } from '../model/plotFile';
 import { emptySceneSections } from '../model/sceneFile';
 import type { PlotOutlineItem, SceneOutlineItem } from './artifact';
 import {
-  CAPABILITY_LABEL,
   CreationAction,
   CreationTarget,
-  STAGE_LABEL,
-  describeTarget,
-  outputKindOf,
   plotOfTarget,
 } from '../model/pipeline';
 import {
@@ -46,20 +39,19 @@ import {
   resolveModelRef,
   withDraftProvider,
 } from '../model/providers';
-import { Artifact, describeArtifact, isArtifactEmpty, parseArtifact } from './artifact';
+import { Artifact, describeArtifact, isArtifactEmpty } from './artifact';
+import {
+  GenerateHandlers,
+  generate as generateDraft,
+  parseDraftArtifact,
+  previewContext,
+} from '../generation/generate';
 import { plotContentHash } from '../views/pipeline';
 import { Workspace, pathOfTarget } from '../workspace';
 
 const log = scoped('创作');
 
-export interface GenerateHandlers {
-  onDelta(delta: string, full: string): void;
-  /** 推理模型的思考增量。正文之前可能先想很久，界面靠它给出反馈。 */
-  onReasoning?(delta: string, full: string): void;
-  onDone(full: string): void;
-  onError(message: string): void;
-  onCancelled(): void;
-}
+export type { GenerateHandlers };
 
 /** 采纳的结果。`relPath` 是落盘位置，`skipped` 表示用户在审阅时放弃了。 */
 export interface AcceptResult {
@@ -84,14 +76,7 @@ export class CreationSession {
 
   /** 只装配上下文，不调用模型——用于面板里的「预览上下文」。 */
   async preview(request: Omit<BuildRequest, 'providerMaxInputTokens'>): Promise<BuiltContext> {
-    const config = readConfig();
-    let providerMaxInputTokens: number | undefined;
-    // vscode-lm 有硬配额，预览时也要按真实上限算，否则预览与实际不符。
-    if (config.active?.profile.kind === 'vscode-lm') {
-      const provider = await resolveProvider();
-      providerMaxInputTokens = await provider?.maxInputTokens();
-    }
-    return buildContext(this.project, { ...request, providerMaxInputTokens }, config);
+    return previewContext(this.project, request);
   }
 
   async generate(
@@ -103,97 +88,14 @@ export class CreationSession {
       handlers.onError('已有一个生成任务在进行中。');
       return undefined;
     }
-
-    const config = readConfig();
-    if (!config.active) {
-      const issue = describeModelIssue(config.providers, config.model);
-      log.error(`模型引用无效：${issue}`, `当前引用 ${config.model || '（空）'}`);
-      handlers.onError(issue);
-      return undefined;
-    }
-    const provider = await buildProvider(config.active);
-    if (!provider) {
-      log.error(`未配置「${providerLabel(config.active.profile)}」的 API Key`);
-      handlers.onError(
-        `未配置「${providerLabel(config.active.profile)}」的 API Key。可在设置页录入，或换一个已配置好的模型。`
-      );
-      return undefined;
-    }
-
-    const startedAt = Date.now();
-    const { stage, capability } = request.action;
-    const what = `${STAGE_LABEL[stage]}·${CAPABILITY_LABEL[capability]}`;
-    const where = await this.describe(request.target);
-    log.info(
-      `开始${what}：${where}`,
-      `模型 ${provider.label}${request.targetWords ? `｜目标 ${request.targetWords} 字` : ''}` +
-        `${request.attachments?.length ? `｜引用 ${request.attachments.length} 项` : ''}` +
-        `${request.history?.length ? `｜历史 ${request.history.length} 轮` : ''}`
-    );
-
-    const providerMaxInputTokens = await provider.maxInputTokens();
-    const buildStart = Date.now();
-    const built = await buildContext(this.project, { ...request, providerMaxInputTokens }, config);
-    logAssembly(built, buildStart);
-
     const abort = new AbortController();
     this.currentAbort = abort;
-
-    let reasoning = '';
-    // 服务商分多次回报用量（Anthropic 输入/输出分开给），按字段合并成一份。
-    const usage: TokenUsage = {};
-    const options: StreamOptions = {
-      maxOutputTokens: config.maxOutputTokens,
-      temperature: config.temperature,
-      timeoutMs: config.requestTimeoutMs,
-      signal: abort.signal,
-    };
-
     try {
-      let full = '';
-      let firstDeltaAt = 0;
-      for await (const ev of provider.stream(built.messages, options)) {
-        if (ev.type === 'text') {
-          if (!firstDeltaAt) {
-            firstDeltaAt = Date.now();
-            log.debug('首个分片已到达', `首字延迟 ${elapsed(startedAt, firstDeltaAt)}`);
-          }
-          full += ev.text;
-          handlers.onDelta(ev.text, full);
-        } else if (ev.type === 'reasoning') {
-          reasoning += ev.text;
-          handlers.onReasoning?.(ev.text, reasoning);
-        } else if (ev.type === 'usage') {
-          mergeUsage(usage, ev.usage);
-        }
-      }
-      // 清理只对正文做：JSON 产物里的 ``` 由 stripCodeFence 在解析时处理，
-      // 在这里剥会把「去掉开场白」那几条正则用到 JSON 上，可能切坏结构。
-      handlers.onDone(request.action.stage === 'manuscript' ? cleanOutput(full) : full.trim());
-      // 有实测用量就记一笔：估算准不准，只有对着服务商的账单才看得出来。
-      recordUsage('创作', built.usedTokens, usage);
-      const usageNote = describeUsage(built.usedTokens, usage);
-      log.info(
-        `${what}完成`,
-        `产出 ${full.length} 字，用时 ${elapsed(startedAt)}` +
-          `${reasoning ? `；另有思考 ${reasoning.length} 字` : ''}` +
-          `${usageNote ? `；${usageNote}` : ''}`
-      );
-      await this.clearFailure(request.target);
-    } catch (err) {
-      if (err instanceof CancelledError || abort.signal.aborted) {
-        log.warn('生成被取消', `已产出内容，用时 ${elapsed(startedAt)}`);
-        handlers.onCancelled();
-      } else {
-        log.error(`${what}失败：${describeError(err)}`, err);
-        handlers.onError(describeError(err));
-        await this.recordFailure(request.target, `${what}失败：${describeError(err)}`, `位置 ${where}`);
-      }
+      const { built } = await generateDraft(this.project, request, handlers, { signal: abort.signal });
+      return built;
     } finally {
       this.currentAbort = undefined;
     }
-
-    return built;
   }
 
   stop(): void {
@@ -216,11 +118,7 @@ export class CreationSession {
    * 「拆出了 4 场，第 3 场的标题我改一下再采纳」。
    */
   parse(action: CreationAction, raw: string): Artifact | undefined {
-    if (outputKindOf(action) !== 'artifact') {
-      return undefined;
-    }
-    const artifact = parseArtifact(action, raw);
-    return isArtifactEmpty(artifact) ? undefined : artifact;
+    return parseDraftArtifact(action, raw);
   }
 
   /**
@@ -520,40 +418,6 @@ export class CreationSession {
   private async outlineHash(): Promise<string> {
     return hash(await this.project.readOutline());
   }
-
-  /** 目标的人话描述，日志与失败记录共用。 */
-  private async describe(target: CreationTarget): Promise<string> {
-    const relPath = plotOfTarget(target);
-    if (!relPath) {
-      return describeTarget(target);
-    }
-    const plot = await this.project.readPlot(relPath);
-    return describeTarget(target, { no: plot?.no, title: plot?.title });
-  }
-
-  /** 失败挂在**细纲**上（工程页那一行）。大纲没有归属行，只进日志。 */
-  private async recordFailure(target: CreationTarget, message: string, detail: string): Promise<void> {
-    const relPath = plotOfTarget(target);
-    if (!relPath) {
-      return;
-    }
-    await recordFailure(this.project, {
-      scope: '创作',
-      targetKind: 'plot',
-      targetKey: relPath,
-      severity: 'error',
-      op: 'creation',
-      message,
-      detail,
-    });
-  }
-
-  private async clearFailure(target: CreationTarget): Promise<void> {
-    const relPath = plotOfTarget(target);
-    if (relPath) {
-      await clearFailures(this.project, 'plot', relPath, 'creation');
-    }
-  }
 }
 
 // ---------------------------------------------------------------- 输出清理
@@ -596,35 +460,6 @@ export function suggestTitle(outline: string, order: number): string {
   }
   const clipped = firstLine.split(/[。！？；,，.!?;]/)[0].trim().slice(0, 18);
   return sanitizeFileName(clipped) || `第${order}章`;
-}
-
-/**
- * 把这次装配的结果写进日志。
- *
- * 只记条目名与 token 数，**绝不记 prompt 全文**——那是十万字级的东西，
- * 一次就能把整个日志缓冲挤空。降级/丢弃的条目单列一段，对应
- * 「不静默截断」那条承诺：界面上的明细折叠着，日志里得看得见。
- */
-function logAssembly(built: BuiltContext, startedAtMs: number): void {
-  const kept = built.items.filter((i) => i.status === 'included' || i.status === 'degraded');
-  const lost = built.items.filter((i) => i.status === 'dropped' || i.status === 'degraded');
-  const percent = built.budget > 0 ? Math.round((built.usedTokens / built.budget) * 100) : 0;
-
-  log.info(
-    `上下文已装配：${built.usedTokens}/${built.budget} token（${percent}%），${kept.length} 项`,
-    `${built.messages.length} 条消息，用时 ${elapsed(startedAtMs)}` +
-      `${built.budgetClampedByProvider ? '｜预算被服务商配额压低' : ''}`
-  );
-  if (lost.length > 0) {
-    log.warn(
-      `${lost.length} 项被降级或丢弃`,
-      lost.map((i) => `${statusLabel(i.status)} ${i.label}${i.note ? `——${i.note}` : ''}`).join('\n')
-    );
-  }
-}
-
-function statusLabel(status: string): string {
-  return status === 'degraded' ? '[降级]' : status === 'dropped' ? '[丢弃]' : `[${status}]`;
 }
 
 export { describeArtifact, isArtifactEmpty };
