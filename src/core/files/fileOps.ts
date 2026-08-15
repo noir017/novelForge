@@ -5,6 +5,7 @@ import { scoped } from '../runtime/logger';
 import { isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
 import { exists, readText, sanitizeFileName, writeText } from '../model/fs';
 import { NovelProject } from '../model/project';
+import { kindOfPath, normalizeRel } from '../workspace/kind';
 
 const log = scoped('文件');
 
@@ -71,18 +72,11 @@ export function resolveSectionDir(project: NovelProject, section: Section, dir?:
 /**
  * 把用户/前端给来的相对路径收敛为「工程内的、用正斜杠的」相对路径。
  * 绝对路径、`..` 逃逸、空路径一律返回 undefined。
+ *
+ * 实现搬进了 `workspace/kind.ts`（网关的第一条守卫要用同一份口径），
+ * 这里保留导出名，调用方不动。
  */
-export function normalizeRel(relPath: string): string | undefined {
-  const trimmed = (relPath ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
-  if (!trimmed || path.posix.isAbsolute(trimmed) || /^[A-Za-z]:/.test(trimmed)) {
-    return undefined;
-  }
-  const resolved = path.posix.normalize(trimmed);
-  if (resolved === '..' || resolved.startsWith('../') || resolved === '.') {
-    return undefined;
-  }
-  return resolved;
-}
+export { normalizeRel };
 
 /**
  * 工程的固定目录：改名/搬走会让工程结构散架（章节索引、草稿镜像、
@@ -158,11 +152,14 @@ export async function newFolder(
 // （两者的身份都是细纲文件名的词干），当成普通文件搬会把它们变成孤儿。
 // 所以这两件事绕开 resolveTarget 那套区守卫，交给 NovelProject 自己做。
 
-/** 这个路径是不是一份细纲。工程页的 rename/move/delete 据此分流。 */
+/**
+ * 这个路径是不是一份细纲。工程页的 rename/move/delete 据此分流。
+ *
+ * 判定搬进了 `workspace/kind.ts` 的种类表（细纲/场景/章节/摘要的路径判定
+ * 从前散在四处，各认一半），这里只转发。
+ */
 export function isPlotPath(project: NovelProject, relPath: string): boolean {
-  const rel = normalizeRel(relPath);
-  const root = project.relPath(project.plotsDir);
-  return !!rel && rel.startsWith(`${root}/`) && isMarkdownPath(rel);
+  return kindOfPath(project, relPath).kind === 'plot';
 }
 
 /**
