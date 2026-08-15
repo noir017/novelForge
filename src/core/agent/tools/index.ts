@@ -12,14 +12,15 @@
  * 「已生成，620 字，draftId d-3f2a」。
  */
 import type { ToolDef } from '../registry';
+import { generateTool } from './generate';
 import { listTool } from './list';
 import { readTool } from './read';
 import { searchTool } from './search';
 
-export { listTool, readTool, searchTool };
+export { generateTool, listTool, readTool, searchTool };
 
 /**
- * 三期注册的全部工具。顺序即模型看到的顺序：**读在前、写在后**，
+ * 三期注册的全部工具。顺序即模型看到的顺序：**读在前、生成在后**，
  * 让它先形成「先看一眼再动手」的路径。
  */
-export const READ_ONLY_TOOLS: ToolDef[] = [listTool, readTool, searchTool];
+export const READ_ONLY_TOOLS: ToolDef[] = [listTool, readTool, searchTool, generateTool];
