@@ -6,6 +6,7 @@ import { isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
 import { exists, readText, sanitizeFileName, writeText } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { kindOfPath, normalizeRel } from '../workspace/kind';
+import { isProtectedPath } from '../workspace/guard';
 
 const log = scoped('文件');
 
@@ -82,31 +83,9 @@ export { normalizeRel };
  * 工程的固定目录：改名/搬走会让工程结构散架（章节索引、草稿镜像、
  * 元数据与会话）。文件页的根范围操作对这些路径一律拒绝。
  *
- * `.novelforge/` 下的每一个目录名都被代码写死在某处查找逻辑里：剧情、场景、
- * 正文、摘要四套路径与会话存储都是按目录名拼出来的，改了名就等于那批数据凭空
- * 消失，**而界面上只会显示「还没生成过」**。所以这里列的是全部固定子目录，
- * 不只是作者常看见的那几个。
+ * 实现搬进了 `workspace/guard.ts`（守卫第 3 条），这里保留导出名。
  */
-export function isProtectedPath(project: NovelProject, relPath: string): boolean {
-  const rel = normalizeRel(relPath);
-  if (!rel) {
-    return true;
-  }
-  const fixed = [
-    project.relPath(project.chaptersDir),
-    project.relPath(project.draftsDir),
-    '.novelforge',
-    '.novelforge/characters',
-    '.novelforge/lore',
-    '.novelforge/summaries',
-    '.novelforge/plots',
-    '.novelforge/scenes',
-    '.novelforge/manuscripts',
-    '.novelforge/sessions',
-    '.novelforge/.trash',
-  ];
-  return fixed.includes(rel);
-}
+export { isProtectedPath };
 
 // ---------------------------------------------------------------- 新建文件夹
 
