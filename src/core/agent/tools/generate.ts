@@ -9,9 +9,18 @@
  * 2. **`history` 传空数组**。agent 的工具调用不是作者的讨论，混进装配器会被
  *    当成创作要求装进 prompt（「用户刚才说：list .novelforge/plots」）。唯一
  *    该带历史的能力是 `settle`——它要沉淀的就是一段讨论，而**这一期不支持它**。
- * 3. **不传 provider**，走缺省（`config.active`，对话页选定的那个模型）。
- *    AGENTS 第 12 条：正文层中途换人会让文风断掉。非正文层将来可以走分档池，
- *    但那是四期的事，这一期全部走缺省。
+ * 3. **哪一层用哪个模型**，AGENTS 第 12 条的延伸：
+ *
+ *    | 层 | 用哪个模型 | 为什么 |
+ *    |---|---|---|
+ *    | `manuscript` | **对话页选定的那个**，不走池 | 中途换人会让文风断掉 |
+ *    | `outline` | 同上 | 一次定调，而且没有对应档位 |
+ *    | `plot` | `plotOutline` 档 | 与工程页「批量写剧情」同一个模型 |
+ *    | `scene` | `sceneBreakdown` 档 | 同上 |
+ *
+ *    走池时**必须把池的 `primaryBudget` 一起传下去**（第 13 条）：
+ *    `config.contextWindow` 跟着对话页那个模型走，拿 200k 的窗口给快速档的
+ *    32k 模型装配上下文会稳定超窗。
  * 4. **流式内容照旧推给前端**：作者看得见 agent 在写什么，而不是盯着一个
  *    「正在生成」转十几秒（第 11 条：不闷着干活）。
  * 5. **`costly: true`**，每次调用记进 budget（第 4 条：不偷偷烧 token）。
@@ -24,16 +33,32 @@
  */
 import { ToolContext, ToolDef, ToolResult, int, objectSchema, str } from '../registry';
 import { generate } from '../../generation/generate';
+import { createModelPool } from '../../llm/pool';
+import type { LlmProvider } from '../../llm/provider';
+import { scoped } from '../../runtime/logger';
+import type { LlmTask } from '../../model/tiers';
 import { kindOfPath } from '../../workspace';
 import {
   CAPABILITIES,
   CAPABILITY_LABEL,
   Capability,
+  CreationStage,
   STAGE_CAPABILITIES,
   STAGE_LABEL,
   isCapability,
   isValidAction,
 } from '../../model/pipeline';
+
+const log = scoped('Agent');
+
+/**
+ * 哪一层走哪一档。**列在这里的才走池**——不在表里的（正文、大纲）严格用
+ * 对话页选定的那个模型，不走池、不 fallback（第 12 条）。
+ */
+const TIER_TASK: Partial<Record<CreationStage, LlmTask>> = {
+  plot: 'plotOutline',
+  scene: 'sceneBreakdown',
+};
 
 export const generateTool: ToolDef = {
   name: 'generate',
@@ -107,6 +132,7 @@ export const generateTool: ToolDef = {
 
     ctx.budget.calls += 1;
     let failure: string | undefined;
+    const picked = await pickModel(path.stage);
 
     const { draft } = await generate(
       ctx.project,
@@ -131,7 +157,7 @@ export const generateTool: ToolDef = {
         },
       },
       // provider 留空 = 用对话页选定的那个模型（第 12 条）。
-      { signal: ctx.signal }
+      { signal: ctx.signal, ...picked }
     );
 
     if (!draft) {
@@ -155,6 +181,33 @@ export const generateTool: ToolDef = {
     };
   },
 };
+
+/**
+ * 这一层该用哪个模型。
+ *
+ * 返回空对象 = 用对话页选定的那个（`generate` 的缺省）。这也是池建不出来时的
+ * 退路：报一条 warn 然后照常跑，好过让 agent 在这里硬失败——作者已经在对话页
+ * 选了一个能用的模型。
+ *
+ * **只取 `pool.primary`，不用 `pool.run` 的失败换人**：`generate` 是流式的，
+ * 换一个模型重跑会把半份产物再冲一遍进作者的气泡。串行恒用该档首选本来就是
+ * 池的行为，这里少的只有 fallback 那一半，而且**绝不跨档**。
+ */
+async function pickModel(
+  stage: CreationStage
+): Promise<{ provider?: LlmProvider; budget?: { contextWindow: number; maxOutputTokens: number } }> {
+  const task = TIER_TASK[stage];
+  if (!task) {
+    return {};
+  }
+  const pool = await createModelPool({ task });
+  if (!pool) {
+    log.warn(`${STAGE_LABEL[stage]}层没有可用的分档模型，改用对话页选定的那个`);
+    return {};
+  }
+  // 窗口必须跟着干活那个模型走（第 13 条）。
+  return { provider: pool.primary, budget: pool.primaryBudget };
+}
 
 function describeCapabilities(): string {
   return CAPABILITIES.map((c) => `${c}=${CAPABILITY_LABEL[c]}`).join('，');

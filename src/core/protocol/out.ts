@@ -111,6 +111,8 @@ export interface SerializedModel {
   label?: string;
   contextWindow?: number;
   maxOutputTokens?: number;
+  /** 作者勾过「支持工具调用」。只有勾了的才进 agent 的调度模型选择器。 */
+  supportsTools?: boolean;
 }
 
 export interface FileOpResult {

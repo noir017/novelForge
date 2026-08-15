@@ -40,6 +40,7 @@ export async function pushSettings(c: ChatController, ack?: 'saved' | 'rejected'
           label: m.label,
           contextWindow: m.contextWindow,
           maxOutputTokens: m.maxOutputTokens,
+          supportsTools: m.supportsTools,
         })),
       })),
       models: cfg.models,

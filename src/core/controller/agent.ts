@@ -20,7 +20,8 @@ import { readConfig } from '../config';
 import { buildProvider } from '../llm/registry';
 import { runTask } from '../runtime/progress';
 import { scoped } from '../runtime/logger';
-import { describeModelIssue, providerLabel } from '../model/providers';
+import { describeModelIssue, providerLabel, resolveModelRef, toolCapableRefs } from '../model/providers';
+import { refsForTask } from '../model/tiers';
 import { ChatTurn, TurnToolCall, deriveTitle, makeTurnId, nowIso, turnPreview } from '../model/session';
 import { runAgent } from '../agent/loop';
 import type { BudgetLimits } from '../agent/budget';
@@ -29,6 +30,23 @@ import { persist } from './persist';
 import { serializeSession, serializeTurn } from './serialize';
 
 const log = scoped('面板');
+
+/**
+ * 调度模型：「Agent 调度」档里第一个勾了「支持工具调用」的。
+ *
+ * 一个都没勾就回落到对话页选定的那个——**不是硬失败**：那个模型八成也支持
+ * 工具调用，只是作者还没去勾。硬失败会让「打开 Agent 开关」变成一条要先读
+ * 文档才走得通的路。
+ */
+function pickDispatchModel(config: ReturnType<typeof readConfig>) {
+  for (const ref of toolCapableRefs(config.providers, refsForTask(config, 'agent').refs)) {
+    const active = resolveModelRef(config.providers, ref);
+    if (active) {
+      return active;
+    }
+  }
+  return config.active;
+}
 
 /**
  * 让 agent 跑一轮。
@@ -51,18 +69,23 @@ export async function sendAgent(
   }
 
   const config = readConfig();
-  if (!config.active) {
+  // 调度模型取「Agent 调度」那一档里**标记过支持工具调用**的第一个；一个都没
+  // 标记时沿用对话页选定的那个（那是分档之前的行为，能跑）。**不做自动探测**：
+  // 探测要真发一次带 tools 的请求，那是在作者没点任何东西的时候花钱（第 4 条）。
+  const dispatch = pickDispatchModel(config);
+  if (!dispatch) {
     c.toast(describeModelIssue(config.providers, config.model), 'error');
     return;
   }
-  const provider = await buildProvider(config.active);
+  const provider = await buildProvider(dispatch);
   if (!provider) {
     c.toast(
-      `未配置「${providerLabel(config.active.profile)}」的 API Key。可在设置页录入，或换一个已配置好的模型。`,
+      `未配置「${providerLabel(dispatch.profile)}」的 API Key。可在设置页录入，或换一个已配置好的模型。`,
       'error'
     );
     return;
   }
+  log.info(`Agent 调度模型 ${dispatch.ref}`, config.agentPolicy);
 
   const userTurn: ChatTurn = {
     id: makeTurnId(),

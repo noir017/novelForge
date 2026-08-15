@@ -289,6 +289,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
         </select>
       </label>
     </div>
+    <div class="hint" id="agentModelHint"></div>
 
     <button type="button" class="settings-advanced-toggle" id="settingsAdvancedToggle" aria-expanded="false" aria-controls="settingsAdvanced">
       <span class="caret">▸</span>

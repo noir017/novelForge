@@ -84,9 +84,17 @@ export interface GenerateOptions {
    * 用哪个模型。缺省用对话页选定的那个（`config.active`）。
    *
    * **正文层永远不许传别的**（AGENTS 第 12 条：中途换人会让文风断掉）。
-   * 这个参数留给三期的 agent 让非正文层走分档池。
+   * 这个参数给 agent 的 `generate` 工具让非正文层走分档池。
    */
   provider?: LlmProvider;
+  /**
+   * 装配与输出的 token 预算。缺省用 `config` 里那一份（对话页选定模型的窗口）。
+   *
+   * **传了 `provider` 就必须一起传它**（AGENTS 第 13 条）：`config.contextWindow`
+   * 跟着对话页选定的模型走，拿 200k 写作模型的窗口去给快速档的 32k 模型装配
+   * 上下文会稳定超窗。分档池的 `primaryBudget` 正是这一份。
+   */
+  budget?: { contextWindow: number; maxOutputTokens: number };
 }
 
 export interface GenerateResult {
@@ -137,7 +145,9 @@ export async function generate(
   handlers: GenerateHandlers,
   options: GenerateOptions
 ): Promise<GenerateResult> {
-  const config = readConfig();
+  // 干活那个模型的窗口优先：换了 provider 却拿对话页那个模型的窗口切上下文，
+  // 是第 13 条明确点名的错法。
+  const config = options.budget ? { ...readConfig(), ...options.budget } : readConfig();
   let provider = options.provider;
   if (!provider) {
     if (!config.active) {

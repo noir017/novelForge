@@ -30,6 +30,28 @@ export function compactField(
   return wrap;
 }
 
+/**
+ * 勾选框。**不勾就是 undefined 而不是 false**：配置里只留作者真的勾过的项，
+ * 与档位覆盖同一套做法（没动过的跟着日后的默认值走）。
+ */
+export function compactCheck(
+  label: string,
+  value: boolean | undefined,
+  title: string,
+  onChange: (value: boolean | undefined) => void
+): HTMLLabelElement {
+  const wrap = mk('label', 'field compact check');
+  wrap.title = title;
+
+  const input = mk('input');
+  input.type = 'checkbox';
+  input.checked = value === true;
+  input.addEventListener('change', () => onChange(input.checked ? true : undefined));
+  wrap.appendChild(input);
+  wrap.appendChild(mk('span', undefined, label));
+  return wrap;
+}
+
 /** 数字输入。留空 / 填了非正数都当「用默认值」，回调收到 undefined。 */
 export function compactNumber(
   label: string,

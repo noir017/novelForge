@@ -62,11 +62,34 @@ export function renderSettings(
   }
   renderProviders();
   renderTaskTiers();
+  renderAgentModelHint();
   refreshProviderModal();
 }
 
 /** 设置页上那个策略下拉框的 id。读、写、绑事件三处共用。 */
 const AGENT_POLICY_FIELD = 'setAgentPolicy';
+
+/**
+ * 「哪些模型能给 Agent 当调度」那一行。
+ *
+ * 一个都没勾时**说清楚该去哪勾**，而不是只报一句「没有可用模型」——那句话
+ * 作者读完还是不知道要做什么。回落行为也一并说明：它会用对话页那个模型，
+ * 所以 Agent 现在就能跑，勾选只是让他能挑一个更合适的。
+ */
+function renderAgentModelHint(): void {
+  const box = maybeById<HTMLElement>('agentModelHint');
+  if (!box) {
+    return;
+  }
+  const capable = draft.providers.flatMap((p) =>
+    p.models.filter((m) => m.supportsTools === true).map((m) => `${p.id}/${m.name}`)
+  );
+  box.textContent =
+    capable.length > 0
+      ? `可用作 Agent 调度的模型：${capable.join('、')}。实际用哪个由「任务档位」里的「Agent 调度」那一档决定。`
+      : '还没有标记为支持工具调用的模型。在上面的服务商配置里给模型勾上「支持工具调用」，Agent 才能挑它当调度模型；' +
+        '在此之前 Agent 会沿用对话页选定的那个模型。';
+}
 
 function save(): void {
   const settings = {
