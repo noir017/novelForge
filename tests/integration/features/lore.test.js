@@ -31,11 +31,11 @@ function queueAnswer(...values) {
   h.answers.push(...values);
 }
 
-/** 造一段剧情 + 它的正文。设定扫描按段遍历 `plots/`，读 `manuscripts/`。 */
+/** 造一章 + 它的成品正文。设定扫描按章遍历 `chapters/`。 */
 function makePlot(no, title, text) {
   const stem = `${String(no).padStart(3, '0')}-${title}`;
   t.write(`.novelforge/plots/${stem}.md`, '## 目标\n\n略。\n\n## 剧情脉络\n\n甲乙丙。\n');
-  t.write(`.novelforge/manuscripts/${stem}.md`, `# 第${no}段 ${title} · 正文\n\n${text}\n`);
+  t.write(`chapters/${stem}.md`, `# ${title}\n\n${text}\n`);
 }
 
 before(async () => {

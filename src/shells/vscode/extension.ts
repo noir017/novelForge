@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'node:path';
 import { initProjectFlow, newPlotFlow } from '../../core/actions';
 import { characterChoices, plotChoices } from '../../core/choices';
 import { ChatController } from '../../core/controller';
@@ -8,14 +9,15 @@ import { updateCharacterCard } from '../../core/features/characterCard';
 import { generateLore } from '../../core/features/lore';
 import { newFolder, sectionRoots } from '../../core/files/fileOps';
 import { extractStyle } from '../../core/features/style';
-import { rebuildGlobalSummary, summarizePlot, syncSummaries } from '../../core/features/summarize';
+import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../../core/features/summarize';
 import { getHost, initHost } from '../../core/host';
 import { addLogSink, describeError, formatLogEntry, recentLogs, scoped } from '../../core/runtime/logger';
 import { runTask } from '../../core/runtime/progress';
 import { clearApiKey, initSecrets, pickModelRef, promptForApiKey, registerProviderFactory } from '../../core/llm/registry';
 import { NovelProject } from '../../core/model/project';
 import { providerLabel } from '../../core/model/providers';
-import { Plot } from '../../core/model/plotFile';
+import { parsePlotFileName } from '../../core/model/plotFile';
+import { Chapter } from '../../core/model/types';
 import { ChatPanel } from './chatPanel';
 import { ChatViewProvider } from './chatViewProvider';
 import { quickContinue } from './quickContinue';
@@ -131,7 +133,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!target) {
       return;
     }
-    // 有面板就走面板那条路：建完会落到这一段的当前步骤（多半是「写剧情」）。
+    // 有面板就走面板那条路：建完会落到这一章的当前步骤（多半是「写剧情」）。
     // 没有面板（无工作区时 controller 不存在）只建文件。
     if (chat) {
       await chat.newPlotFromCommand();
@@ -260,19 +262,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     const no = typeof arg === 'number' ? arg : arg?.plotNo;
-    const plot = no !== undefined ? await target.getPlot(no) : await pickPlot(target);
-    if (!plot) {
+    const chapter = no !== undefined ? await target.getChapter(no) : await pickChapter(target);
+    if (!chapter) {
       return;
     }
 
     await runTask(
-      `总结第 ${plot.no} 段`,
+      `总结第 ${chapter.order} 章`,
       async ({ signal, report }) => {
-        report({ message: `《${plot.title}》`, current: 0, total: 1 });
-        const ok = await summarizePlot(target, plot, undefined, signal);
+        report({ message: `《${chapter.title}》`, current: 0, total: 1 });
+        const ok = await summarizeChapter(target, chapter, undefined, signal);
         report({ message: ok ? '完成' : '未生成', current: 1, total: 1 });
         if (ok) {
-          getHost().toast(`第 ${plot.no} 段摘要已生成。`);
+          getHost().toast(`第 ${chapter.order} 章摘要已生成。`);
           await refresh();
         }
       },
@@ -464,29 +466,33 @@ async function setInitializedContext(project: NovelProject): Promise<void> {
 }
 
 /**
- * 挑一段。清单构造在 core（`plotChoices`）；这里只多做一件宿主专属的事：
- * 当前编辑器正好开着某一段（或它的正文）时不问，直接用它。
+ * 挑一章。清单构造在 core（`plotChoices`）；这里只多做一件宿主专属的事：
+ * 当前编辑器正好开着某一章（正文、细纲或中转站那份）时不问，直接用它。
  */
-async function pickPlot(project: NovelProject): Promise<Plot | undefined> {
-  const plots = await project.listPlots();
-  if (plots.length === 0) {
-    getHost().toast('还没有剧情段。');
+async function pickChapter(project: NovelProject): Promise<Chapter | undefined> {
+  const chapters = await project.listChapters();
+  if (chapters.length === 0) {
+    getHost().toast('还没有章节。写完正文先拆成章节，才能总结。');
     return undefined;
   }
 
   const active = vscode.window.activeTextEditor?.document.uri;
   if (active) {
     const rel = project.relPath(active.fsPath);
-    const match = plots.find(
-      (p) => p.relPath === rel || project.manuscriptMirrorRelPath(p.relPath) === rel
-    );
-    if (match) {
-      return match;
+    // 正开着成品就用它；开着细纲或中转站正文时按章号找回成品。
+    const direct = chapters.find((c) => c.relPath === rel);
+    if (direct) {
+      return direct;
+    }
+    const no = parsePlotFileName(path.basename(rel))?.no;
+    const byNo = no === undefined ? undefined : chapters.find((c) => c.order === no);
+    if (byNo) {
+      return byNo;
     }
   }
 
-  const no = await getHost().pick(await plotChoices(project), '选择要总结的剧情段');
-  return no === undefined ? undefined : plots.find((p) => p.no === no);
+  const no = await getHost().pick(await plotChoices(project), '选择要总结的章节');
+  return no === undefined ? undefined : chapters.find((c) => c.order === no);
 }
 
 function workspaceName(): string {

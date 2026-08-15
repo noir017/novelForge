@@ -58,7 +58,7 @@
       },
       {
         "command": "novel.newPlot",
-        "title": "Novel: 新建剧情段",
+        "title": "Novel: 新建章节",
         "icon": "$(add)"
       },
       {
@@ -117,7 +117,7 @@
       },
       {
         "command": "novel.summarizePlot",
-        "title": "Novel: 总结这一段",
+        "title": "Novel: 总结这一章",
         "icon": "$(book)"
       },
       {

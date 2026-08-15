@@ -1,8 +1,8 @@
 /**
  * 「让用户挑一个」的清单构造（`src/core/choices.ts`）。
  *
- * 这两份清单原先长在插件壳的 extension.ts 里，其中「＋N 段待读」是算出来的：
- * 出场段（由摘要关联）里段号大于卡上 `updatedThrough` 的有几段。壳里抄一份这种
+ * 这两份清单原先长在插件壳的 extension.ts 里，其中「＋N 章待读」是算出来的：
+ * 出场章（由摘要关联）里章号大于卡上 `updatedThrough` 的有几章。壳里抄一份这种
  * 计算，迟早与工程页上的同一行说明分叉，所以它回到了 core，并且有了这份测试。
  */
 const { describe, test, before, after } = require('node:test');
@@ -15,15 +15,15 @@ const { cleanup } = require('../../helpers/teardown');
 let choices;
 let t;
 
-/** 一段剧情 + 它的正文 + 一份带 cast 的摘要。 */
+/** 一章：细纲 + 成品正文 + 一份带 cast 的摘要。 */
 function makePlot(no, title, text, cast) {
   const n = String(no).padStart(3, '0');
   const stem = `${n}-${title}`;
   t.write(`.novelforge/plots/${stem}.md`, `## 目标\n\n略。\n\n## 剧情脉络\n\n甲乙丙。\n`);
-  t.write(`.novelforge/manuscripts/${stem}.md`, `# 第${no}段 ${title} · 正文\n\n${text}\n`);
+  t.write(`chapters/${stem}.md`, `# ${title}\n\n${text}\n`);
   t.write(
     `.novelforge/summaries/${stem}.md`,
-    `---\nplot: ${no}\ntitle: ${title}\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
+    `---\nchapter: ${no}\ntitle: ${title}\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
       `# ${title} · 摘要\n\n## 梗概\n\n略。\n`
   );
 }
@@ -54,7 +54,7 @@ describe('plotChoices', () => {
     list = await choices.plotChoices(t.project);
   });
 
-  test('每段一条，按段序', () => {
+  test('每章一条，按章序', () => {
     assert.deepEqual(
       list.map((c) => c.value),
       [1, 2]
@@ -77,7 +77,7 @@ describe('plotChoices', () => {
     assert.equal(withEmpty.find((c) => c.value === 3).description, '还没有正文');
   });
 
-  test('空工程给空清单，不抛（「还没有剧情段」由调用方说）', async () => {
+  test('空工程给空清单，不抛（「还没有章」由调用方说）', async () => {
     const empty = await makeTempProject(loadBundle({ project: './src/core/model/project.ts' }).project, {
       prefix: 'choices-empty',
     });
@@ -90,7 +90,7 @@ describe('plotChoices', () => {
 });
 
 describe('characterChoices', () => {
-  /** 一张卡：读到第 `updatedThrough` 段为止。 */
+  /** 一张卡：读到第 `updatedThrough` 章为止。 */
   function makeCard(name, updatedThrough) {
     t.write(
       `.novelforge/characters/${name}.md`,
@@ -113,11 +113,11 @@ describe('characterChoices', () => {
     assert.equal(list.find((c) => c.label === '林昭').description, undefined);
   });
 
-  test('落后几段就挂「＋N 段待读」', async () => {
-    makeCard('沈砚', 1); // 出场在第 2 段，只读到第 1 段
+  test('落后几章就挂「＋N 章待读」', async () => {
+    makeCard('沈砚', 1); // 出场在第 2 章，只读到第 1 章
     t.project.invalidate();
     const list = await choices.characterChoices(t.project);
-    assert.equal(list.find((c) => c.label === '沈砚').description, '＋1 段待读');
+    assert.equal(list.find((c) => c.label === '沈砚').description, '＋1 章待读');
   });
 
   test('没在任何摘要里出现过的卡：不挂待读，detail 说「未在摘要中出现」', async () => {
@@ -130,10 +130,10 @@ describe('characterChoices', () => {
     assert.equal(anon.detail, '未在摘要中出现');
   });
 
-  test('detail 是出场段的人话描述', async () => {
+  test('detail 是出场章的人话描述', async () => {
     t.project.invalidate();
     const list = await choices.characterChoices(t.project);
-    assert.equal(list.find((c) => c.label === '林昭').detail, '第 1、2 段');
+    assert.equal(list.find((c) => c.label === '林昭').detail, '第 1、2 章');
   });
 
   test('没有角色卡时给空清单', async () => {

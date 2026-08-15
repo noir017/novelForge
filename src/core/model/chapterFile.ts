@@ -83,3 +83,53 @@ export function isMarkdownExt(ext: string): boolean {
 export function isMarkdownPath(relPath: string): boolean {
   return isMarkdownExt(path.extname(relPath));
 }
+
+// ---------------------------------------------------------------- 拆分标记
+
+/**
+ * 正文里的拆分标记：**单独占一行的 `---`**（前后允许空白）。
+ *
+ * 选它而不是别的符号，是因为它在 Markdown 里本来就是分隔线：作者在编辑器里
+ * 看到的就是一条横线，所见即所得，而且不认识这个约定的人也不会觉得碍眼。
+ *
+ * 三个及以上的短横（`----`）同样算——Markdown 本身就允许，作者顺手多打
+ * 一个不该让拆分静默失效。
+ */
+const SPLIT_MARK = /^[ \t]*-{3,}[ \t]*$/;
+
+/**
+ * 把一章的正文按拆分标记切成若干片。**纯函数，绝不抛。**
+ *
+ * 规则：
+ * - 逐行扫描，遇到标记行就断开，标记行本身不进任何一片；
+ * - 每一片首尾的空白去掉；
+ * - **空片直接丢弃**——连着两条 `---`、或首尾各有一条，都不该产出一个空章节。
+ *
+ * 于是「没有任何标记」返回一片（原文），「整篇只有标记」返回零片。
+ * 调用方据此判断要不要重编号（一片就不必）、以及能不能拆（零片是错误）。
+ *
+ * 传进来的应当是**去掉 frontmatter 与 `# 标题` 行之后**的正文
+ * （`Manuscript.text` 正是那个），否则第一片会带上标题行。
+ */
+export function splitByMark(text: string): string[] {
+  const pieces: string[] = [];
+  let current: string[] = [];
+
+  const flush = () => {
+    const piece = current.join('\n').trim();
+    if (piece) {
+      pieces.push(piece);
+    }
+    current = [];
+  };
+
+  for (const line of text.split(/\r?\n/)) {
+    if (SPLIT_MARK.test(line)) {
+      flush();
+    } else {
+      current.push(line);
+    }
+  }
+  flush();
+  return pieces;
+}

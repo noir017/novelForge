@@ -3,7 +3,7 @@
  *
  * 这三条路的失败方式和单次生成完全不同——一次跑几十段，所以要钉住的是：
  * 1. **只补不改**：已经有产物的段一律跳过，不问、不覆盖。
- * 2. **部分失败不影响其余**：第 12 段拆不出场景，另外 63 段照样跑完。
+ * 2. **部分失败不影响其余**：第 12 章拆不出场景，另外 63 章照样跑完。
  * 3. **失败留在那一段上**：toast 五秒就没了。
  * 4. **没有前置产物就不跑**：没有大纲还写剧情，等于让模型凭空编四十段。
  */
@@ -65,7 +65,7 @@ async function skeleton(no, title) {
     arc: '',
     upstreamHash: '',
     done: false,
-    sections: { ...bundle.plotFile.emptyPlotSections(), 目标: `第 ${no} 段要达成的事` },
+    sections: { ...bundle.plotFile.emptyPlotSections(), 目标: `第 ${no} 章要达成的事` },
   });
 }
 
@@ -138,7 +138,7 @@ describe('批量写剧情 · 前置检查', () => {
     assert.ok(toasts.some((x) => x.includes('大纲')), toasts.join('|'));
   });
 
-  test('大纲为空时一段剧情都没写', async () => {
+  test('大纲为空时一章的剧情都没写', async () => {
     const plot = await project.readPlot('.novelforge/plots/001-楔子.md');
     assert.ok(!bundle.plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
   });
@@ -279,14 +279,14 @@ describe('批量写剧情 · 部分失败', () => {
   });
 
   test('失败进日志', () => {
-    assert.ok(warnsSnapshot.some((w) => w.includes('第 1 段')), warnsSnapshot.join('|'));
+    assert.ok(warnsSnapshot.some((w) => w.includes('第 1 章')), warnsSnapshot.join('|'));
   });
 
   test('失败也给出汇总 toast', () => {
     assert.ok(toastsSnapshot.some((x) => x.includes('失败')), toastsSnapshot.join('|'));
   });
 
-  test('失败记录挂在剧情段上', () => {
+  test('失败记录挂在细纲上', () => {
     assert.ok(!!failures['.novelforge/plots/001-楔子.md'], JSON.stringify(Object.keys(failures)));
   });
 });
@@ -297,7 +297,7 @@ describe('批量拆分场景', () => {
   let user;
 
   before(async () => {
-    // 补回第 1 段的剧情，三段齐活。
+    // 补回第 1 章的剧情，三章齐活。
     configure();
     replyFn = () => PLOT_JSON;
     h.answers.push('开始生成');

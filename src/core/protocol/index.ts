@@ -26,8 +26,6 @@ export type {
   PlotSummaryView,
   FailureView,
   NextStepView,
-  ProjectChapter,
-  ProjectChapterNode,
   ProjectPlotNode,
   ProjectDirNode,
   ProjectFile,

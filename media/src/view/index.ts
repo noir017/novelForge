@@ -75,7 +75,7 @@ onMessage((msg) => {
       break;
 
     case 'project':
-      // 后端推树 = 磁盘上有东西变了（可能正是某一段的正文或摘要）。
+      // 后端推树 = 磁盘上有东西变了（可能正是某一章的正文或摘要）。
       // 摘要缓存一律作废，宁可再取一次也不拿旧摘要糊弄人。折叠文件夹走的是
       // rerenderProject()，不经这里，缓存留着。
       invalidateSummaries();

@@ -172,13 +172,12 @@ describe('草稿', () => {
       project.invalidate();
       chapters = await project.listChapters();
 
+      // 工程树只有一条章节列表（规划与成品合在一起），本身就是扁平的。
       const tree = await projectView.buildProjectTree(project);
-      flat = [];
-      const walk = (nodes) => nodes.forEach((n) => (n.kind === 'dir' ? walk(n.children) : flat.push(n)));
-      walk(tree.chapters);
+      flat = tree.plots;
 
-      withDraft = flat.find((n) => n.order === 1);
-      noDraft = flat.find((n) => n.order === 3);
+      withDraft = flat.find((n) => n.no === 1);
+      noDraft = flat.find((n) => n.no === 3);
     });
 
     test('drafts/ 里的文件不算章节', () => {
@@ -391,8 +390,8 @@ describe('草稿', () => {
   /**
    * 草稿不进 manifest。
    *
-   * manifest 现在只索引剧情段（章节退出流水线，见 chapters.test.js 末尾），
-   * 所以这条比从前更强：`drafts/` 与 `chapters/` 都不该出现在里面。
+   * manifest 索引的是 `chapters/` 里的成品；`drafts/` 是它的镜像目录，
+   * 与正文一一同名，扫岔一层就会让每一章凭空多出一条索引。
    */
   describe('草稿不进 manifest', () => {
     let manifest;
@@ -404,15 +403,16 @@ describe('草稿', () => {
 
     test('manifest 里没有草稿', () => {
       assert.ok(
-        !manifest.plots.some((p) => p.file.startsWith('drafts/')),
-        JSON.stringify(manifest.plots.map((p) => p.file))
+        !manifest.chapters.some((c) => c.file.startsWith('drafts/')),
+        JSON.stringify(manifest.chapters.map((c) => c.file))
       );
     });
 
-    test('manifest 里也没有章节', () => {
+    // 反过来也要守：章节必须在，否则「不进草稿」可以靠索引全空来蒙混过关。
+    test('manifest 里有章节', () => {
       assert.ok(
-        !manifest.plots.some((p) => p.file.startsWith('chapters/')),
-        JSON.stringify(manifest.plots.map((p) => p.file))
+        manifest.chapters.every((c) => c.file.startsWith('chapters/')) && manifest.chapters.length > 0,
+        JSON.stringify(manifest.chapters.map((c) => c.file))
       );
     });
   });

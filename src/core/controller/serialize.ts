@@ -36,7 +36,7 @@ export function factsOf(p: {
 /**
  * 下一步落在哪个具体产物上。
  *
- * 纯函数那边只说「细节层、第 2 场」，拼成 target 要知道剧情段的路径，
+ * 纯函数那边只说「细节层、第 2 场」，拼成 target 要知道细纲的路径，
  * 而那是 I/O 层的事——`deriveNextStep` 不该也不能查段落列表。
  */
 export function targetOf(step: NextStepPlan, plotRelPath: string): CreationTarget {

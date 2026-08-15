@@ -21,7 +21,7 @@ const log = scoped('文件');
  * 章节改名/移动时，`drafts/` 里对应的草稿一并搬走（见 carryDraft）——
  * 草稿不是可管理区，但它的位置由章节路径推导，章节动了就必须跟着动。
  *
- * **剧情段走另一条路**（见下面的 `renamePlot` / `deletePlot`）：它的改名与
+ * **细纲走另一条路**（见下面的 `renamePlot` / `deletePlot`）：它的改名与
  * 删除要连带搬走场景目录、正文与摘要，那不是「改个文件名」能表达的事。
  */
 
@@ -152,13 +152,13 @@ export async function newFolder(
   return rel;
 }
 
-// ---------------------------------------------------------------- 剧情段
+// ---------------------------------------------------------------- 细纲
 //
-// 剧情段**不是**可管理区：它的改名与删除要连带搬走场景目录、正文与摘要
-// （三者的身份都是段文件名的词干），当成普通文件搬会把它们变成孤儿。
+// 细纲**不是**可管理区：它的改名与删除要连带搬走场景目录与中转站正文
+// （两者的身份都是细纲文件名的词干），当成普通文件搬会把它们变成孤儿。
 // 所以这两件事绕开 resolveTarget 那套区守卫，交给 NovelProject 自己做。
 
-/** 这个路径是不是一段剧情。工程页的 rename/move/delete 据此分流。 */
+/** 这个路径是不是一份细纲。工程页的 rename/move/delete 据此分流。 */
 export function isPlotPath(project: NovelProject, relPath: string): boolean {
   const rel = normalizeRel(relPath);
   const root = project.relPath(project.plotsDir);
@@ -166,21 +166,21 @@ export function isPlotPath(project: NovelProject, relPath: string): boolean {
 }
 
 /**
- * 重命名一段剧情：改的是**标题**，序号前缀由 `writePlot` 保留。
+ * 重命名一份细纲：改的是**标题**，序号前缀由 `writePlot` 保留。
  *
- * 流水线新建出来的段是纯序号名（`007.md`，标题要等剧情排完才定），
- * 所以这条路也是「给这一段起个名字」的第一次命名入口。
+ * 流水线新建出来的细纲是纯序号名（`007.md`，标题要等剧情排完才定），
+ * 所以这条路也是「给这一章起个名字」的第一次命名入口。
  */
 export async function renamePlot(project: NovelProject, relPath: string): Promise<string | undefined> {
   const plot = await project.readPlot(relPath);
   if (!plot) {
-    log.warn(`重命名被拒：找不到剧情段 ${relPath}`);
-    getHost().toast('找不到这一段，可能刚被改名或删除。', 'error');
+    log.warn(`重命名被拒：找不到细纲 ${relPath}`);
+    getHost().toast('找不到这一章，可能刚被改名或删除。', 'error');
     return undefined;
   }
 
   const input = await getHost().input({
-    title: `重命名第 ${plot.no} 段`,
+    title: `重命名第 ${plot.no} 章`,
     prompt: `序号前缀会保留｜当前：${relPath}`,
     value: plot.title,
     validate: (v) => validateName(v),
@@ -194,27 +194,23 @@ export async function renamePlot(project: NovelProject, relPath: string): Promis
   const to = await project.writePlot({ ...plot, title: input.trim() });
   await project.syncManifest();
   project.invalidate();
-  log.info(`已重命名第 ${plot.no} 段`, `${relPath} → ${to}`);
+  log.info(`已重命名第 ${plot.no} 章`, `${relPath} → ${to}`);
   getHost().toast(`已重命名：${to}`);
   return to;
 }
 
-/** 删一段剧情：连同场景目录、正文、摘要一起搬进 `.trash/`。 */
+/** 删一章的细纲：连同场景目录与中转站正文一起搬进 `.trash/`。 */
 export async function deletePlot(project: NovelProject, relPath: string): Promise<boolean> {
   const plot = await project.readPlot(relPath);
   if (!plot) {
-    log.warn(`删除被拒：找不到剧情段 ${relPath}`);
-    getHost().toast('找不到这一段，可能刚被改名或删除。', 'error');
+    log.warn(`删除被拒：找不到细纲 ${relPath}`);
+    getHost().toast('找不到这一章的细纲，可能刚被改名或删除。', 'error');
     return false;
   }
 
-  // 一段剧情不只是一个文件：说清会连带删掉什么，别让作者事后才发现
-  // 场景与正文一起没了。
-  const companions = [
-    project.sceneMirrorRelPath(relPath),
-    project.manuscriptMirrorRelPath(relPath),
-    project.summaryMirrorRelPath(relPath),
-  ];
+  // 细纲不只是一个文件：说清会连带删掉什么，别让作者事后才发现
+  // 场景与还没拆分的正文一起没了。
+  const companions = [project.sceneMirrorRelPath(relPath), project.manuscriptMirrorRelPath(relPath)];
   const present: string[] = [];
   for (const rel of companions) {
     if (await exists(project.pathOf(rel))) {
@@ -222,10 +218,12 @@ export async function deletePlot(project: NovelProject, relPath: string): Promis
     }
   }
 
-  const pick = await getHost().confirm(`删除第 ${plot.no} 段${plot.title ? `《${plot.title}》` : ''}？`, ['删除'], {
+  const pick = await getHost().confirm(`删除第 ${plot.no} 章的细纲${plot.title ? `《${plot.title}》` : ''}？`, ['删除'], {
     modal: true,
     detail: [
-      present.length > 0 ? `场景、正文与摘要也会一起删除：\n${present.join('\n')}` : '',
+      present.length > 0 ? `场景与还没拆分的正文也会一起删除：\n${present.join('\n')}` : '',
+      // 已经拆分发布的正文不在此列，说出来免得作者以为整章都没了。
+      '已经拆分到 chapters/ 的正文与摘要不受影响。',
       '会移到 .novelforge/.trash/，可手动找回。',
     ]
       .filter(Boolean)
@@ -239,7 +237,7 @@ export async function deletePlot(project: NovelProject, relPath: string): Promis
   await project.deletePlot(relPath);
   await project.syncManifest();
   project.invalidate();
-  log.info(`已移到回收站：第 ${plot.no} 段`, [relPath, ...present].join('｜'));
+  log.info(`已移到回收站：第 ${plot.no} 章`, [relPath, ...present].join('｜'));
   getHost().toast(`已移到回收站：${relPath}`);
   return true;
 }
@@ -335,7 +333,7 @@ async function renameEntryImpl(
   await fs.rename(abs, nextAbs);
   project.invalidate();
   if (target.info?.section === 'chapters') {
-    // 章节现在只有草稿一个伴生文件——摘要、剧情、场景全挂在剧情段上，
+    // 章节这边的伴生文件是草稿与摘要；细纲、场景与中转站正文挂在细纲上，
     // 与 chapters/ 无关（见 model/plotFile.ts 的文件头）。
     await carryDraft(project, rel, nextRel, isDir);
   }

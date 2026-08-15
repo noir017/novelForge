@@ -74,14 +74,17 @@ async function measure() {
   }
 }
 
-/** 一段「四层都齐了」的剧情：剧情 + 场景 + 正文 + 摘要，四条取数路径都会走到。 */
+/**
+ * 一章「全都齐了」的内容：细纲 + 场景 + 中转站正文 + 成品 + 摘要，
+ * 五条取数路径都会走到。
+ */
 async function writePlot(i, { full = true } = {}) {
   const n = String(i).padStart(3, '0');
-  const stem = `${n}-第${i}段`;
+  const stem = `${n}-第${i}章`;
   const plotRel = `.novelforge/plots/${stem}.md`;
   t.write(
     plotRel,
-    `---\nno: ${i}\ntitle: 第${i}段\nupstreamHash: h\n---\n\n## 目标\n目标\n\n## 剧情脉络\n脉络\n` +
+    `---\nno: ${i}\ntitle: 第${i}章\nupstreamHash: h\n---\n\n## 目标\n目标\n\n## 剧情脉络\n脉络\n` +
       (full ? '\n## 冲突与转折\n冲突\n\n## 伏笔与回收\n伏笔\n' : '')
   );
   for (let s = 1; s <= SCENES; s++) {
@@ -92,15 +95,20 @@ async function writePlot(i, { full = true } = {}) {
     );
   }
   // beatsHash 用真的算法算：随手写一个 `b` 会让正文永远显示「上游已变更」，
-  // 这一段就卡在 manuscript 阶段，摘要那条取数路径根本走不到——那样这份
+  // 这一章就卡在 manuscript 阶段，后面几条取数路径根本走不到——那样这份
   // 读盘计数就挡不住它回潮了。
   const beatsHash = await project.beatsHashFor(plotRel);
   t.write(
     `.novelforge/manuscripts/${stem}.md`,
-    `---\nplot: ${plotRel}\nbeatsHash: ${beatsHash}\n---\n\n# 第${i}段 · 正文\n\n${'正文。'.repeat(50)}`
+    `---\nplot: ${plotRel}\nbeatsHash: ${beatsHash}\n---\n\n# 第${i}章 · 正文\n\n${'正文。'.repeat(50)}`
   );
-  // 摘要的 sourceHash 要对上正文，否则停在 review，同样走不到「已完成」。
-  const sourceHash = (await project.readManuscript(plotRel))?.contentHash ?? '';
+  // 成品：拆分之后才有。没有它这一章停在 split，摘要那条路走不到。
+  const chapterRel = `chapters/${stem}.md`;
+  t.write(chapterRel, `# 第${i}章\n\n${'正文。'.repeat(50)}`);
+  project.invalidate();
+  // 摘要的 sourceHash 要对上**成品**，否则停在 review，同样走不到「已完成」。
+  const sourceHash =
+    (await project.listChapters()).find((c) => c.relPath === chapterRel)?.contentHash ?? '';
   t.write(
     `.novelforge/summaries/${stem}.md`,
     `---\nsourceHash: ${sourceHash}\ncast: []\n---\n\n## 梗概\n梗概\n`
@@ -129,14 +137,14 @@ after(() => {
 });
 
 describe('工程页刷新 · 读盘次数', () => {
-  test('夹具确实建出了全部剧情段（否则下面的计数没有意义）', async () => {
+  test('夹具确实建出了全部章（否则下面的计数没有意义）', async () => {
     const tree = await measure();
     assert.equal(tree.plotCount, PLOTS);
   });
 
-  // 四层齐了才说明四条取数路径都真的走到了：只建段不写正文的话，
+  // 全齐了才说明各条取数路径都真的走到了：只建细纲不发布的话，
   // 摘要那一层会被跳过，这份计数就挡不住它回潮。
-  test('夹具的四层都齐了', async () => {
+  test('夹具的各层都齐了', async () => {
     const tree = await measure();
     assert.ok(
       tree.plots.every((p) => p.stage === 'done'),
@@ -156,31 +164,34 @@ describe('工程页刷新 · 读盘次数', () => {
     );
   });
 
-  test('每段的 fs 调用数不超过 9 次', async () => {
+  test('每章的 fs 调用数不超过 10 次', async () => {
     await measure();
-    // 一段的下限是 8：剧情 1 + 正文 1 + 摘要 1 + 场景 4 + 场景目录 readdir 1，
-    // 每份文件恰好读一次，再少就得砍功能了。上限留 9 是给全书那几次常数开销
-    // （大纲、manifest、章节/角色/设定/草稿目录）摊下来的余量——它们不随段数
-    // 增长，段数越多这个比值越贴近 8。
+    // 一章的下限是 9：细纲 1 + 成品 1 + 中转站正文 1 + 摘要 1 + 场景 4 +
+    // 场景目录 readdir 1，每份文件恰好读一次，再少就得砍功能了。
     //
-    // 真正要挡的是「每段再多读一个文件」那类回潮：那会让这个数直接跳到 9 以上。
+    // 这个夹具把中转站那份也留着（真实工程里拆分之后就删了，那时是 8）——
+    // 留着才测得到「两侧都读到了」。上限留 10 是给全书那几次常数开销
+    // （大纲、manifest、角色/设定/草稿目录）摊下来的余量，它们不随章数增长，
+    // 章数越多这个比值越贴近 9。
+    //
+    // 真正要挡的是「每章再多读一个文件」那类回潮：那会让这个数直接跳过 10。
     const perPlot = calls / PLOTS;
     assert.ok(
-      perPlot <= 9,
-      `每段 ${perPlot.toFixed(1)} 次 fs 调用（共 ${calls} 次 / ${PLOTS} 段），上限 9`
+      perPlot <= 10,
+      `每章 ${perPlot.toFixed(1)} 次 fs 调用（共 ${calls} 次 / ${PLOTS} 章），上限 10`
     );
   });
 
-  test('段数翻倍时读盘次数不超过线性增长', async () => {
+  test('章数翻倍时读盘次数不超过线性增长', async () => {
     const before = calls;
     for (let i = PLOTS + 1; i <= PLOTS * 2; i++) {
       await writePlot(i, { full: false });
     }
     await measure();
-    // 二次项（每段都去扫一遍全书）会让这个比值远超 2。
+    // 二次项（每章都去扫一遍全书）会让这个比值远超 2。
     assert.ok(
       calls <= before * 2.2,
-      `${PLOTS} 段 ${before} 次 → ${PLOTS * 2} 段 ${calls} 次，超出线性增长`
+      `${PLOTS} 章 ${before} 次 → ${PLOTS * 2} 章 ${calls} 次，超出线性增长`
     );
   });
 });

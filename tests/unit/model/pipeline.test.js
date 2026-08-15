@@ -1,5 +1,5 @@
 /**
- * 创作流水线纯函数：Stage × Capability × Target、剧情段与场景的文件格式、
+ * 创作流水线纯函数：Stage × Capability × Target、细纲与场景的文件格式、
  * 单段流水线状态推导、全书状态推导。
  *
  * 这三个模块是整条流水线的地基，且全部零 I/O——所以它们能被单独 bundle 出来直接调，
@@ -61,7 +61,7 @@ describe('pipeline.ts · Stage × Capability', () => {
     assert.ok(!pipeline.STAGE_CAPABILITIES.scene.includes('split'));
   });
 
-  test('大纲阶段可以拆成剧情段', () => {
+  test('大纲阶段可以拆成章节', () => {
     assert.ok(pipeline.STAGE_CAPABILITIES.outline.includes('split'));
   });
 
@@ -160,11 +160,11 @@ describe('pipeline.ts · Target', () => {
     assert.equal(pipeline.stageOfTarget(scene), 'scene');
   });
 
-  test('大纲没有归属剧情段', () => {
+  test('大纲没有归属的章', () => {
     assert.equal(pipeline.plotOfTarget(outline), undefined);
   });
 
-  test('剧情有归属剧情段', () => {
+  test('剧情有归属的章', () => {
     assert.ok(pipeline.plotOfTarget(plot).endsWith('012-夜入青云.md'));
   });
 
@@ -199,7 +199,7 @@ describe('pipeline.ts · Target', () => {
   test('描述剧情', () => {
     assert.equal(
       pipeline.describeTarget(plot, { no: 12, title: '夜入青云' }),
-      '第 12 段《夜入青云》 · 剧情',
+      '第 12 章《夜入青云》 · 剧情',
       pipeline.describeTarget(plot, { no: 12, title: '夜入青云' })
     );
   });
@@ -207,53 +207,53 @@ describe('pipeline.ts · Target', () => {
   test('描述场景', () => {
     assert.equal(
       pipeline.describeTarget(scene, { no: 12, title: '夜入青云', sceneTitle: '翻越侧峰' }),
-      '第 12 段《夜入青云》 · 场景 2 翻越侧峰'
+      '第 12 章《夜入青云》 · 场景 2 翻越侧峰'
     );
   });
 
-  test('描述整段正文', () => {
+  test('描述整章正文', () => {
     assert.equal(
       pipeline.describeTarget(whole, { no: 12, title: '夜入青云' }),
-      '第 12 段《夜入青云》 · 正文'
+      '第 12 章《夜入青云》 · 正文'
     );
   });
 
-  test('没有剧情段信息时退回路径', () => {
+  test('没有章节信息时退回路径', () => {
     assert.ok(pipeline.describeTarget(plot).includes('012-夜入青云.md'));
   });
 
-  // 流水线新建出来的段是纯序号名，标题回落成「第 N 段」。套进模板会变成
-  // 「第 7 段《第 7 段》」，看起来像出了 bug。
-  test('未命名的剧情段只报序号', () => {
+  // 流水线新建出来的章是纯序号名，标题回落成「第 N 章」。套进模板会变成
+  // 「第 7 章《第 7 章》」，看起来像出了 bug。
+  test('未命名的章只报序号', () => {
     assert.equal(
-      pipeline.describeTarget(plot, { no: 7, title: '第 7 段' }),
-      '第 7 段 · 剧情',
-      pipeline.describeTarget(plot, { no: 7, title: '第 7 段' })
+      pipeline.describeTarget(plot, { no: 7, title: '第 7 章' }),
+      '第 7 章 · 剧情',
+      pipeline.describeTarget(plot, { no: 7, title: '第 7 章' })
     );
   });
 });
 
 describe('pipeline.ts · plotLabel', () => {
   test('有标题时带书名号', () => {
-    assert.equal(pipeline.plotLabel(12, '夜入青云'), '第 12 段《夜入青云》');
+    assert.equal(pipeline.plotLabel(12, '夜入青云'), '第 12 章《夜入青云》');
   });
 
   test('标题为空时只报序号', () => {
-    assert.equal(pipeline.plotLabel(7, ''), '第 7 段');
+    assert.equal(pipeline.plotLabel(7, ''), '第 7 章');
   });
 
   test('标题缺席时只报序号', () => {
-    assert.equal(pipeline.plotLabel(7), '第 7 段');
+    assert.equal(pipeline.plotLabel(7), '第 7 章');
   });
 
-  // 「第 7 段」正是未命名剧情段的回落标题，它不是真标题。
+  // 「第 7 章」正是未命名章节的回落标题，它不是真标题。
   test('标题恰好是回落值时只报序号', () => {
-    assert.equal(pipeline.plotLabel(7, '第 7 段'), '第 7 段');
+    assert.equal(pipeline.plotLabel(7, '第 7 章'), '第 7 章');
   });
 
-  // 但作者手工把某一段命名成「第 8 段」（序号不同）就是真标题，照常显示。
+  // 但作者手工把某一章命名成「第 8 章」（序号不同）就是真标题，照常显示。
   test('别的序号写在标题里仍算真标题', () => {
-    assert.equal(pipeline.plotLabel(7, '第 8 段'), '第 7 段《第 8 段》');
+    assert.equal(pipeline.plotLabel(7, '第 8 章'), '第 7 章《第 8 章》');
   });
 });
 
@@ -273,7 +273,7 @@ describe('pipeline.ts · Target 归一（容错）', () => {
     assert.equal(pipeline.normalizeTarget({ kind: 'scene', plotRelPath: 'a.md', sceneNo: 3 }).sceneNo, 3);
   });
 
-  // 认不出的一律回落到大纲：它是唯一不依赖任何剧情段就一定存在的产物。
+  // 认不出的一律回落到大纲：它是唯一不依赖任何细纲就一定存在的产物。
   test('undefined 回落到大纲', () => {
     assert.equal(pipeline.normalizeTarget(undefined).kind, 'outline');
   });
@@ -308,15 +308,15 @@ describe('pipeline.ts · Target 归一（容错）', () => {
 describe('plotFile.ts · 文件名规则', () => {
   const yes = ['001-入宗风波.md', '007.md', '012-夜入青云.markdown', '0100-末章.md', '3_临时.md'];
   for (const name of yes) {
-    test(`「${name}」算剧情段`, () => {
+    test(`「${name}」算细纲`, () => {
       assert.ok(plotFile.isPlotFileName(name), name);
     });
   }
 
-  // 剧情段是插件自己的格式，只认 md——与角色卡/场景一致，与「章节不认扩展名」相反。
+  // 细纲是插件自己的格式，只认 md——与角色卡/场景一致，与「章节不认扩展名」相反。
   const no = ['001-入宗风波.txt', '入宗风波.md', '000-零号.md', 'README.md', '001.png'];
   for (const name of no) {
-    test(`「${name}」不算剧情段`, () => {
+    test(`「${name}」不算细纲`, () => {
       assert.ok(!plotFile.isPlotFileName(name), name);
     });
   }
@@ -436,11 +436,11 @@ describe('plotFile.ts · 解析与渲染', () => {
   });
 
   test('渲染带标题行', () => {
-    assert.ok(rendered.includes('# 第12段 夜入青云 · 剧情'), rendered.split('\n').slice(0, 12).join('\n'));
+    assert.ok(rendered.includes('# 第12章 夜入青云 · 剧情'), rendered.split('\n').slice(0, 12).join('\n'));
   });
 
   // 四节都在，且**没有「开头」「结尾」**——这是整次重构的落点：细纲不再
-  // 规定这一段从哪句话开始、到哪句话结束，那是写正文时才定的东西。
+  // 规定这一章从哪句话开始、到哪句话结束，那是写正文时才定的东西。
   test('只有四节', () => {
     assert.equal(plotFile.PLOT_SECTION_KEYS.join(), '目标,剧情脉络,冲突与转折,伏笔与回收');
   });
@@ -599,7 +599,7 @@ describe('sceneFile.ts · 解析与渲染', () => {
     conflict = sceneFile.parseSceneFile('---\nscene: 9\n---\n\n## 目的\n\nx', 'scenes/x/03-甲.md');
   });
 
-  test('场景往返 · 剧情段路径', () => {
+  test('场景往返 · 细纲路径', () => {
     assert.equal(back.plotRelPath, '.novelforge/plots/012-夜入青云.md');
   });
 
@@ -722,10 +722,18 @@ describe('sceneFile.ts · 解析与渲染', () => {
   });
 });
 
-describe('pipeline.ts · 剧情段流水线状态推导', () => {
+describe('pipeline.ts · 单章流水线状态推导', () => {
   const F = (patch) => ({ ...pipeline.emptyFacts(), ...patch });
   const stage = (patch) => pipeline.deriveStage(F(patch));
-  const done = { plotFilled: true, sceneCount: 4, sceneReady: 4, sceneWritten: 4, words: 3000 };
+  // 正文写完、也已经拆成发布章节（chapterExists）才轮得到审阅。
+  const done = {
+    plotFilled: true,
+    sceneCount: 4,
+    sceneReady: 4,
+    sceneWritten: 4,
+    words: 3000,
+    chapterExists: true,
+  };
 
   test('什么都没有 → 待写剧情', () => {
     assert.equal(stage({}), 'plot');
@@ -756,6 +764,21 @@ describe('pipeline.ts · 剧情段流水线状态推导', () => {
     );
   });
 
+  // 中转站里有正文、chapters/ 里还没有：活儿在作者手上，不花 token。
+  test('正文齐了还没拆分 → 待拆分', () => {
+    assert.equal(stage({ ...done, chapterExists: false }), 'split');
+  });
+
+  // 老工程：只有 chapters/ 里的成品，从没走过这条流水线。
+  // 成品在就不该倒回去要求补细纲——那是「原有的章节天生就算数」的落点。
+  test('只有成品、没有细纲 → 待审阅（不回到写剧情）', () => {
+    assert.equal(stage({ chapterExists: true }), 'review');
+  });
+
+  test('只有成品且摘要新鲜 → 已完成', () => {
+    assert.equal(stage({ chapterExists: true, summaryExists: true, summaryStale: false }), 'done');
+  });
+
   test('正文齐了摘要没有 → 待审阅', () => {
     assert.equal(stage(done), 'review');
   });
@@ -770,9 +793,16 @@ describe('pipeline.ts · 剧情段流水线状态推导', () => {
 
   // 上游改过必须把状态拉回来——这就是「变更影响」在状态机上的落法。
   test('场景改过 → 正文重新变成待写', () => {
+    assert.equal(stage({ ...done, chapterExists: false, beatsStale: true }), 'manuscript');
+  });
+
+  // 但已经发布的章不被拉回去：中转站那份拆分时就删了，
+  // 把作者已经发出去的文字标成「待写正文」是在擒人重写。
+  // 工程页那一行仍会挂 ⟳（isUpstreamStale 认 beatsStale），提醒到位就够了。
+  test('已发布的章：场景改过不拉回待写正文', () => {
     assert.equal(
       stage({ ...done, summaryExists: true, summaryStale: false, beatsStale: true }),
-      'manuscript'
+      'done'
     );
   });
 
@@ -902,7 +932,7 @@ describe('pipeline.ts · 下一步（状态机 → 一个动作）', () => {
   });
 });
 
-describe('pipeline.ts · 全书状态（大纲 → 剧情段 → 按段推进）', () => {
+describe('pipeline.ts · 全书状态（大纲 → 章节 → 按章推进）', () => {
   const B = (patch) => ({ outlineFilled: false, plotCount: 0, ...patch });
   const stage = (patch) => pipeline.deriveBookStage(B(patch));
 
@@ -916,7 +946,7 @@ describe('pipeline.ts · 全书状态（大纲 → 剧情段 → 按段推进）
     assert.equal(stage({ plotCount: 5 }), 'outline');
   });
 
-  test('有大纲没段 → 拆成剧情段', () => {
+  test('有大纲没章 → 拆成章节', () => {
     assert.equal(stage({ outlineFilled: true }), 'plots');
   });
 
@@ -937,8 +967,8 @@ describe('pipeline.ts · 全书状态（大纲 → 剧情段 → 按段推进）
     assert.equal(step('plots').capability, 'split');
   });
 
-  test('拆段的按钮写着「拆成剧情段」', () => {
-    assert.equal(step('plots').label, '拆成剧情段');
+  test('拆章的按钮写着「拆成章节」', () => {
+    assert.equal(step('plots').label, '拆成章节');
   });
 
   // 段已经有了：该做什么由**选中的那一段**决定，挑哪一段是作者的选择。
@@ -1005,8 +1035,8 @@ describe('pipeline.ts · 命令表', () => {
   });
 
   // 同一个能力在不同阶段的说法不同——split 在大纲拆的是段，在剧情层拆的是场。
-  test('大纲的 split 叫拆成剧情段', () => {
-    assert.equal(pipeline.labelOf('outline', 'split'), '拆成剧情段');
+  test('大纲的 split 叫拆成章节', () => {
+    assert.equal(pipeline.labelOf('outline', 'split'), '拆成章节');
   });
 
   test('剧情的 split 叫拆成场景', () => {

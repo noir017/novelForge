@@ -169,7 +169,7 @@ async function pasteOne(
   }
 
   if (!copy && sectionOf(project, rel)?.section === 'chapters') {
-    // 章节现在只有草稿一个伴生文件（摘要、剧情、场景全挂在剧情段上）。
+    // 章节这边的伴生文件是草稿与摘要（细纲、场景与中转站正文挂在细纲上）。
     // 移出 chapters/ 时新镜像路径推导不出，草稿留在原处——**要说出来**，
     // 不说的话作者会以为它跟着走了，而界面上正好也看不出区别。
     if (project.draftRelPathFor(nextRel)) {

@@ -115,14 +115,14 @@ export interface ChatSession {
   createdAt: string;
   updatedAt: string;
   /**
-   * 当前在改哪个产物。会话跟着目标走——切到另一段的剧情通常意味着
+   * 当前在改哪个产物。会话跟着目标走——切到另一章的细纲通常意味着
    * 换个话题，但**不强制新建会话**：作者可能正想拿这一章跟上一章比。
    */
   target: CreationTarget;
   /** 当前阶段与能力。切阶段时能力回落到该阶段的默认值（一律 discuss）。 */
   stage: CreationStage;
   capability: Capability;
-  /** 本会话默认写入的段号。目标段尚未落盘时用它定位「前文」边界。 */
+  /** 本会话默认写入的章号。目标章尚未落盘时用它定位「前文」边界。 */
   targetNo?: number;
   /** 目标字数，跟着会话走，省得每次重填。 */
   targetWords?: number;
@@ -313,9 +313,9 @@ function summarize(session: ChatSession): SessionSummary {
 /**
  * 容错读取：字段缺失或类型不对时补默认值，绝不抛。
  *
- * 认不出的 target 一律回落到全书大纲——它是唯一一个不依赖任何剧情段就一定
+ * 认不出的 target 一律回落到全书大纲——它是唯一一个不依赖任何细纲就一定
  * 存在的产物。换轴之前的会话记的是章节路径，那些路径现在指不到任何东西，
- * 归一化时会落回大纲；作者重新选一段就好，比把它指到一个错的段上强。
+ * 归一化时会落回大纲；作者重新选一章就好，比把它指到一个错的章上强。
  */
 function normalize(id: string, raw: unknown): ChatSession {
   const o = (raw ?? {}) as Partial<ChatSession>;

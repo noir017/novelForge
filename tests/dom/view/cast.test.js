@@ -29,35 +29,35 @@ describe('角色的出场统计与更新菜单', { skip: JSDOM_SKIP }, () => {
     linRow = rowWith('林昭');
   });
 
-  // ---- 已建卡的角色行：出场段数进副标题，待更新段数单独标记。
-  test('角色行显示出场段数', () => {
-    assert.ok(linRow.textContent.includes('出场 3 段'), linRow.textContent);
+  // ---- 已建卡的角色行：出场章数进副标题，待更新章数单独标记。
+  test('角色行显示出场章数', () => {
+    assert.ok(linRow.textContent.includes('出场 3 章'), linRow.textContent);
   });
 
   test('角色行保留原有副标题（标签）', () => {
     assert.ok(linRow.textContent.includes('主角'), linRow.textContent);
   });
 
-  test('待更新段数有标记', () => {
+  test('待更新章数有标记', () => {
     assert.ok(linRow.textContent.includes('＋2'), linRow.textContent);
   });
 
   test('标记带解释性 title', () => {
-    assert.ok(linRow.querySelector('.cast-pending').title.includes('第 1 段'),
+    assert.ok(linRow.querySelector('.cast-pending').title.includes('第 1 章'),
       linRow.querySelector('.cast-pending').title);
   });
 
-  test('菜单含带段数的「更新角色卡」', () => {
+  test('菜单含带章数的「更新角色卡」', () => {
     linItems = ui.itemsOf(ui.rightClick(linRow));
-    assert.ok(linItems.includes('更新角色卡（新增 2 段）'), JSON.stringify(linItems));
+    assert.ok(linItems.includes('更新角色卡（新增 2 章）'), JSON.stringify(linItems));
   });
 
   test('菜单含「重新通读全部」', () => {
-    assert.ok(linItems.includes('重新通读全部 3 段'), JSON.stringify(linItems));
+    assert.ok(linItems.includes('重新通读全部 3 章'), JSON.stringify(linItems));
   });
 
-  test('菜单里能看到出场段落', () => {
-    assert.ok(linItems.includes('出场：第 1、2、3 段'), JSON.stringify(linItems));
+  test('菜单里能看到出场章节', () => {
+    assert.ok(linItems.includes('出场：第 1、2、3 章'), JSON.stringify(linItems));
   });
 
   test('角色行仍有类文件操作', () => {
@@ -68,7 +68,7 @@ describe('角色的出场统计与更新菜单', { skip: JSDOM_SKIP }, () => {
 
   // 增量走 updateCard，全量走 rebuildCard——两个动作不能混。
   test('「更新角色卡」发 updateCard 并带卡路径', () => {
-    ui.pick(ui.rightClick(rowWith('林昭')), '更新角色卡（新增 2 段）');
+    ui.pick(ui.rightClick(rowWith('林昭')), '更新角色卡（新增 2 章）');
     const inc = ui.last('characterAction');
     assert.ok(inc, '没发出 characterAction');
     assert.equal(inc.action, 'updateCard', JSON.stringify(inc));
@@ -77,7 +77,7 @@ describe('角色的出场统计与更新菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   test('「重新通读」发 rebuildCard', () => {
-    ui.pick(ui.rightClick(rowWith('林昭')), '重新通读全部 3 段');
+    ui.pick(ui.rightClick(rowWith('林昭')), '重新通读全部 3 章');
     const full = ui.last('characterAction');
     assert.ok(full, '没发出 characterAction');
     assert.equal(full.action, 'rebuildCard', JSON.stringify(full));
@@ -115,9 +115,9 @@ describe('角色的出场统计与更新菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(castGroup.textContent.includes('2 人'), castGroup.textContent);
   });
 
-  test('未建卡的人也列出出场段落', () => {
+  test('未建卡的人也列出出场章节', () => {
     castRow = rowWith('客栈掌柜');
-    assert.ok(castRow.textContent.includes('第 2、3 段'), castRow.textContent);
+    assert.ok(castRow.textContent.includes('第 2、3 章'), castRow.textContent);
   });
 
   test('未建卡的行有独立样式', () => {

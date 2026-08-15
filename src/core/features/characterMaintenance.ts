@@ -41,7 +41,7 @@ interface AliasCleanup {
  * 扫全部角色卡，删掉不是「专属称呼」的别名。
  *
  * 判据有两条：[../naming.ts](../naming.ts) 的泛称过滤，外加「这个别名是另一张卡
- * 的正式名」——后者是最有害的一种，它会让两个角色的出场段互相串。
+ * 的正式名」——后者是最有害的一种，它会让两个角色的出场章互相串。
  */
 export async function cleanCharacterAliases(project: NovelProject): Promise<void> {
   const cards = await project.listCharacters();
@@ -154,11 +154,11 @@ export interface DuplicateGroup {
  *
  * 两类候选，强度不同：
  *
- * - **摘要证据**：几段摘要互相声明这几个称呼是同一个人，且从没在同一段里
+ * - **摘要证据**：几章摘要互相声明这几个称呼是同一个人，且从没在同一章里
  *   各自出场。这是 [../identity.ts](../identity.ts) 的聚类结论，可靠。
  * - **名字包含**：一张卡的名字是另一张的后缀（`古月赤城` ⊃ `赤城`）。
  *   只能算提示——`学堂家老 / 刑堂家老` 也满足，那是两个人。所以凡是被
- *   同段共现否掉的一律不列，剩下的也标明「只是名字像」。
+ *   同章共现否掉的一律不列，剩下的也标明「只是名字像」。
  */
 export async function findDuplicateCards(project: NovelProject): Promise<DuplicateGroup[]> {
   const cards = await project.listCharacters();
@@ -200,7 +200,7 @@ export async function findDuplicateCards(project: NovelProject): Promise<Duplica
       groups.push({
         cards: owners,
         strength: 'summary',
-        evidence: `摘要里 ${group.names.slice(0, 5).join('、')} 指的是同一个人（共 ${group.chapters.length} 段），却分成了 ${owners.length} 张卡。`,
+        evidence: `摘要里 ${group.names.slice(0, 5).join('、')} 指的是同一个人（共 ${group.chapters.length} 章），却分成了 ${owners.length} 张卡。`,
       });
     }
   }
@@ -312,14 +312,14 @@ export async function mergeDuplicateCharacterCards(project: NovelProject): Promi
         sorted
           .map(
             (c) =>
-              `「${c.name}」：${c.relPath}｜出场 ${c.appearsIn.length} 段｜已读到第 ${c.updatedThrough ?? 0} 段｜` +
+              `「${c.name}」：${c.relPath}｜出场 ${c.appearsIn.length} 章｜已读到第 ${c.updatedThrough ?? 0} 章｜` +
               `别名 ${c.aliases.length > 0 ? c.aliases.join('、') : '无'}`
           )
           .join('\n'),
         sorted.length > choices.length
           ? `本组有 ${sorted.length} 张卡，按钮只列出出场最多的 ${choices.length} 张；选中哪一张，其余 ${sorted.length - 1} 张都会并进去。`
           : '',
-        '选中的那张保留并吸收其余卡的别名/标签/出场段；其余卡搬进回收站。取消则跳过这一组。',
+        '选中的那张保留并吸收其余卡的别名/标签/出场章；其余卡搬进回收站。取消则跳过这一组。',
       ]
         .filter(Boolean)
         .join('\n\n'),
@@ -355,9 +355,9 @@ async function mergeInto(project: NovelProject, keeper: CharacterCard, losers: C
   );
 
   /**
-   * 「已读到」是一条水位线，越过去的段永远不会被重读。keeper 从没读过
-   * loser 那些段，所以水位线必须退回**第一段没读过的之前**，否则合进来的
-   * 出场段会被增量更新整批跳过，而界面上看不出任何异常。
+   * 「已读到」是一条水位线，越过去的章永远不会被重读。keeper 从没读过
+   * loser 那些章，所以水位线必须退回**第一章没读过的之前**，否则合进来的
+   * 出场章会被增量更新整批跳过，而界面上看不出任何异常。
    */
   const unread = appearsIn.filter((o) => !keeper.appearsIn.includes(o));
   const updatedThrough = Math.min(keeper.updatedThrough ?? 0, unread.length > 0 ? Math.min(...unread) - 1 : Number.POSITIVE_INFINITY);
@@ -388,8 +388,8 @@ async function mergeInto(project: NovelProject, keeper: CharacterCard, losers: C
 
   log.info(
     `「${keeper.name}」合并完成`,
-    `别名 ${aliases.length} 个｜出场 ${appearsIn.length} 段｜「已读到」退回第 ${updatedThrough} 段` +
-      `${unread.length > 0 ? `（新并入 ${unread.length} 段未读，建议跑一次更新）` : ''}`
+    `别名 ${aliases.length} 个｜出场 ${appearsIn.length} 章｜「已读到」退回第 ${updatedThrough} 章` +
+      `${unread.length > 0 ? `（新并入 ${unread.length} 章未读，建议跑一次更新）` : ''}`
   );
   return true;
 }

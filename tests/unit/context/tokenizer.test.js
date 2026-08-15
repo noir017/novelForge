@@ -17,7 +17,7 @@ describe('tokenizer.ts', () => {
     tk = loadModule('src/core/context/tokenizer.ts');
     // 取一段真实正文（`manuscripts/` 是工具写出来的产物，也是装配器实际
     // 要按预算截的那一份），而不是 chapters/ 里作者切好的发布章节。
-    text = fs.readFileSync(path.join(SAMPLE, '.novelforge/manuscripts/002-客栈里的女人.md'), 'utf8');
+    text = fs.readFileSync(path.join(SAMPLE, 'chapters/002-客栈里的女人.md'), 'utf8');
   });
 
   test('空串为 0', () => {

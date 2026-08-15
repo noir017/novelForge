@@ -31,7 +31,7 @@ import { toSectionText } from './summarize';
 
 // ---------------------------------------------------------------- 产物形状
 
-/** 大纲拆段的一项。`no` 缺席时由调用方按现有段数续号。 */
+/** 大纲拆章的一项。`no` 缺席时由调用方按现有章数续号。 */
 export interface PlotOutlineItem {
   no?: number;
   title: string;
@@ -51,7 +51,7 @@ export interface SceneOutlineItem {
 
 /**
  * 解析出来的产物。`kind` 与 `CreationTarget.kind` 不完全对应——
- * `split` 产出的是**下一层**的东西（大纲 split 出剧情段清单，剧情 split 出场景清单）。
+ * `split` 产出的是**下一层**的东西（大纲 split 出章节清单，剧情 split 出场景清单）。
  */
 export type Artifact =
   | { kind: 'outlineDoc'; text: string }
@@ -118,7 +118,7 @@ export function describeArtifact(artifact: Artifact): string {
     case 'outlineDoc':
       return `全书大纲 · ${artifact.text.length} 字`;
     case 'plotList':
-      return `${artifact.plots.length} 段剧情`;
+      return `${artifact.plots.length} 章的细纲`;
     case 'plot': {
       const filled = Object.values(artifact.sections).filter((v) => v.trim()).length;
       return `剧情 · ${filled}/${PLOT_SECTION_KEYS.length} 节`;
@@ -134,14 +134,14 @@ export function describeArtifact(artifact: Artifact): string {
   }
 }
 
-// ---------------------------------------------------------------- 剧情段
+// ---------------------------------------------------------------- 细纲
 
 /**
  * 四个小节。JSON → Markdown 小节 → 全文塞进「剧情脉络」。
  *
  * 兜底落到「剧情脉络」而不是「目标」，与场景卡兜底落「环境」不落「目的」
  * 是同一条理由：**「目标」不算 filled**（`isPlotFilled` 只看剧情脉络），
- * 兜底进那一节的话，这一段采纳后会显示成「还没排剧情」的空壳。
+ * 兜底进那一节的话，这一章采纳后会显示成「还没排剧情」的空壳。
  */
 export function parsePlotSections(text: string): PlotSections {
   return parsePlotStrict(text) ?? { ...emptyPlotSections(), 剧情脉络: text.trim() };
@@ -150,8 +150,8 @@ export function parsePlotSections(text: string): PlotSections {
 /**
  * 只走前两层，**不做全文兜底**。解析不出结构就返回 undefined。
  *
- * 批量路径（工程页一次给几十段写剧情）必须用这个：那里没有人逐份过目，
- * 而全文兜底会把模型的一句「我不太确定这一段写什么」变成一份「已规划」的
+ * 批量路径（工程页一次给几十章写剧情）必须用这个：那里没有人逐份过目，
+ * 而全文兜底会把模型的一句「我不太确定这一章写什么」变成一份「已规划」的
  * 剧情——流水线状态从此开始撒谎，紧接着的批量拆场景会照着这份垃圾往下拆。
  *
  * 创作页反过来该用 {@link parsePlotSections}：那里产物就摊在屏幕上，
@@ -209,7 +209,7 @@ function parseSceneCard(text: string): Extract<Artifact, { kind: 'scene' }> {
 
 // ---------------------------------------------------------------- 清单类
 
-/** 大纲拆剧情段。JSON `{plots:[…]}` → 裸数组 → Markdown 列表逐行。 */
+/** 大纲拆章。JSON `{plots:[…]}` → 裸数组 → Markdown 列表逐行。 */
 export function parsePlotList(text: string): PlotOutlineItem[] {
   const rows = listOf(text, 'plots', 'chapters', '剧情', '章节');
   const out: PlotOutlineItem[] = [];

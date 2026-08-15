@@ -22,14 +22,14 @@ export interface Chapter {
 }
 
 /**
- * 一段剧情的正文（`.novelforge/manuscripts/NNN-标题.md`）。
+ * 一章的生成正文（`.novelforge/manuscripts/NNN-标题.md`，中转站）。
  *
  * 与 `Chapter` 的关系：正文是**创作产物**，章节是**发布产物**。作者最后把
  * manuscripts 里的内容切成 chapters 下的一篇篇章节，那一步由他自己做，
  * 工具不参与（见 model/plotFile.ts 的文件头）。
  */
 export interface Manuscript {
-  /** 归属剧情段的工作区相对路径。 */
+  /** 归属细纲的工作区相对路径。 */
   plotRelPath: string;
   /** 正文文件的工作区相对路径。 */
   relPath: string;
@@ -48,9 +48,9 @@ export interface Manuscript {
   beatsHash: string;
 }
 
-/** 一段剧情的摘要，存于 .novelforge/summaries/ 下，与剧情段同名。 */
+/** 一章的摘要，存于 .novelforge/summaries/ 下，与**发布章节**同名。 */
 export interface PlotSummary {
-  /** 段号。 */
+  /** 章号。 */
   no: number;
   relPath: string;
   /** 生成该摘要时所依据的正文 hash。与当前正文 contentHash 不同即为过期。 */
@@ -73,11 +73,11 @@ export interface PlotSummary {
 export interface SummaryCast {
   /** 正式姓名（模型被要求沿用已有角色卡的名字）。 */
   name: string;
-  /** 本段出现的别名/称呼。 */
+  /** 本章出现的别名/称呼。 */
   aliases: string[];
 }
 
-/** 单段摘要的固定小节。缺失的小节为空字符串。 */
+/** 单章摘要的固定小节。缺失的小节为空字符串。 */
 export interface SummarySections {
   梗概: string;
   出场人物: string;
@@ -104,22 +104,22 @@ export interface CharacterCard {
   name: string;
   aliases: string[];
   tags: string[];
-  /** 首次出场的剧情段号。 */
+  /** 首次出场的章号。 */
   firstAppear?: number;
-  /** 最后出场的剧情段号。 */
+  /** 最后出场的章号。 */
   lastSeen?: number;
   /**
-   * 该角色出场的全部剧情段号（升序）。
+   * 该角色出场的全部章号（升序）。
    *
    * 由摘要的 `cast` 反向聚合后写回 frontmatter，**是缓存而非真相**——
-   * 真相始终是各段摘要。落在卡里是为了两件事：不读全部摘要就能在角色页上
-   * 显示「出场 12 段」，以及日后按人物检索。摘要重算后这里会跟着更新。
+   * 真相始终是各章摘要。落在卡里是为了两件事：不读全部摘要就能在角色页上
+   * 显示「出场 12 章」，以及日后按人物检索。摘要重算后这里会跟着更新。
    */
   appearsIn: number[];
   /**
-   * 上次「更新角色卡」时读到了第几段。
+   * 上次「更新角色卡」时读到了第几章。
    *
-   * 增量更新的依据：只关联这一段之后的出场段。undefined 表示从未更新过
+   * 增量更新的依据：只关联这一章之后的出场章。undefined 表示从未更新过
    * （手写的卡也是这个状态），此时增量等于全量。
    */
   updatedThrough?: number;
@@ -167,42 +167,44 @@ export interface ProjectManifest {
   version: number;
   title: string;
   author: string;
-  /** 剧情段索引。summaryHash 为生成摘要时的正文 hash。 */
-  plots: ManifestPlot[];
-  /** 上次重建全书摘要时，已覆盖到的最大段号。 */
+  /** 章节索引。summaryHash 为生成摘要时的正文 hash。 */
+  chapters: ManifestChapter[];
+  /** 上次重建全书摘要时，已覆盖到的最大章号。 */
   globalSummaryThrough?: number;
 }
 
 /**
- * manifest 里的一段。
+ * manifest 里的一章。
  *
- * **只放可以重算的索引信息**：真相在 `plots/` / `manuscripts/` / `summaries/`
- * 三处的文件里，这里是为了「不必读几百个文件就能画出工程页」。
- * 注意 `beatsHash` **不在这里**——它跟着正文文件的 frontmatter 走，
- * 理由见 `Manuscript.beatsHash`。
+ * 索引的是**发布章节**（`chapters/`）而不是细纲：这里的四个字段——字数、
+ * 正文 hash、摘要 hash——描述的全是成品。中转站（`manuscripts/`）里那份
+ * 是半成品，随时会被拆掉删掉，不该进索引。
+ *
+ * **只放可以重算的索引信息**：真相在 `chapters/` 与 `summaries/` 的文件里，
+ * 这里是为了「不必读几百个文件就能画出工程页」。注意 `beatsHash` **不在
+ * 这里**——它跟着中转站正文文件的 frontmatter 走，理由见 `Manuscript.beatsHash`。
  */
-export interface ManifestPlot {
-  /** 剧情段文件的工作区相对路径。 */
+export interface ManifestChapter {
+  /** 章节文件的工作区相对路径。 */
   file: string;
-  no: number;
+  order: number;
   title: string;
-  /** 这一段正文的字数。没写正文时为 0。 */
   wordCount: number;
-  /** 这一段正文的 hash。没写正文时为空串。 */
+  /** 这一章正文的 hash。 */
   contentHash: string;
-  /** 该段摘要所依据的正文 hash；无摘要则为 undefined。 */
+  /** 该章摘要所依据的正文 hash；无摘要则为 undefined。 */
   summaryHash?: string;
 }
 
 /**
  * 数据格式版本。
  *
- * 2：流水线的单位从「章节」换成「剧情段」——`chapters` 字段换成 `plots`，
- * 细纲 `plans/` 换成 `plots/`，正文落进 `manuscripts/`。老 manifest（version 1）
- * 读进来 `plots` 为空，等于「这个工程还没有剧情段」，工程页照常显示章节区。
- * **不自动迁移**：老工程的 `plans/` 与按章摘要原样留在磁盘，作者自己决定去留。
+ * 1：`chapters` 索引发布章节。曾经短暂改成过 `plots`（流水线换轴到「剧情段」
+ * 那一版），但那一版把创作单位与发布单位拆成了两套并存的编号，随即被推翻——
+ * 一份细纲对应一章，索引自然回到章节这一侧。老 manifest 无论哪一版，
+ * `syncManifest()` 每次都从磁盘重算，读不出 `chapters` 就是空数组。
  */
-export const MANIFEST_VERSION = 2;
+export const MANIFEST_VERSION = 1;
 
 /** 从设置读出的运行时配置。 */
 export interface NovelConfig {

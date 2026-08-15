@@ -2,8 +2,8 @@
  * 上下文装配全链路：优先级、预算、降级链、手动排除、附件截断、多轮历史封顶、
  * 四阶段配方与身份、provider 配额压缩，外加工程页快照与出场人物索引。
  *
- * 轴是**剧情段**：`plots/` 是创作单位，`manuscripts/` 是它的正文，`chapters/`
- * 已经退出流水线（装配器一个字都不读它）。
+ * 轴是**章**：`plots/` 是一章的细纲，`chapters/` 是成品正文（装配器读它），
+ * `manuscripts/` 只是等着拆分的中转站。
  *
  * ## 写盘用例一律跑临时副本
  *
@@ -54,10 +54,13 @@ const baseConfig = {
 const PLOT1 = '.novelforge/plots/001-楔子.md';
 const PLOT2 = '.novelforge/plots/002-客栈里的女人.md';
 const PLOT3 = '.novelforge/plots/003-夜访.md';
+// 摘要与正文都挂在**成品**上（见 model/project.ts 的路径分界）。
+const CH1 = 'chapters/001-楔子.md';
+const CH3 = 'chapters/003-夜访.md';
 
 /**
- * 默认目标是「第 4 段」——它还没落盘，所以 plotRelPath 留空，
- * 由 targetNo 定位「前文」边界。这正是往下写新一段的真实情形。
+ * 默认目标是「第 4 章」——它还没落盘，所以 plotRelPath 留空，
+ * 由 targetNo 定位「前文」边界。这正是往下写新一章的真实情形。
  */
 function req(ask, extra = {}) {
   return {
@@ -117,8 +120,8 @@ before(async () => {
   const sumTokens = (pred) => built.items.filter(pred).reduce((s, i) => s + i.tokens, 0);
   upToP2Tokens = sumTokens((i) => i.priority <= 2);
   p3Full = built.items.find((i) => i.id === 'manuscriptFull:3').tokens;
-  const p3Summary = (await project.readSummary(PLOT3)).content;
-  p3SummaryTokens = tokenizerMod.estimateTokens(`【第 3 段《夜访》 · 摘要】\n${p3Summary}`);
+  const p3Summary = (await project.readSummary(CH3)).content;
+  p3SummaryTokens = tokenizerMod.estimateTokens(`【第 3 章《夜访》 · 摘要】\n${p3Summary}`);
 });
 
 after(() => vs.restore());
@@ -138,21 +141,23 @@ describe('NovelProject 读取示例工程', () => {
 
   before(async () => {
     plots = await project.listPlots();
-    stale = await project.stalePlots();
+    stale = await project.staleChapters();
     cards = await project.listCharacters();
     lin = cards.find((c) => c.name === '林昭');
     lore = await project.listLore();
     style = await project.readStyleGuide();
     global = await project.readGlobalSummary();
     nextNo = await project.nextPlotNo();
-    manuscript = await project.readManuscript(PLOT1);
+    manuscript = await project.readChapterText(
+      (await project.listChapters()).find((c) => c.order === 1)
+    );
   });
 
-  test('扫描到 3 段剧情', () => {
+  test('扫描到 3 章细纲', () => {
     assert.equal(plots.length, 3);
   });
 
-  test('剧情段按段号排序', () => {
+  test('细纲按章号排序', () => {
     assert.equal(plots.map((p) => p.no).join(','), '1,2,3');
   });
 
@@ -160,16 +165,16 @@ describe('NovelProject 读取示例工程', () => {
     assert.equal(plots[1].title, '客栈里的女人');
   });
 
-  test('剧情脉络非空（示例工程的段都排过）', () => {
+  test('剧情脉络非空（示例工程的章都排过）', () => {
     assert.ok(plots.every((p) => p.sections.剧情脉络.trim()), plots.map((p) => p.no).join(','));
   });
 
   test('正文读得到，字数统计合理', () => {
-    assert.ok(manuscript.wordCount > 200 && manuscript.wordCount < 600, String(manuscript.wordCount));
+    assert.ok(manuscript.length > 200 && manuscript.length < 600, String(manuscript.length));
   });
 
   test('示例工程无过期摘要', () => {
-    assert.equal(stale.length, 0, `stale: ${stale.map((p) => p.no).join(',')}`);
+    assert.equal(stale.length, 0, `stale: ${stale.map((c) => c.order).join(',')}`);
   });
 
   test('读到 4 张角色卡', () => {
@@ -228,15 +233,15 @@ describe('装配：预算充裕（128k）', () => {
     assert.ok(inc('globalSummary'));
   });
 
-  test('P3 第 3 段正文已注入', () => {
+  test('P3 第 3 章正文已注入', () => {
     assert.ok(inc('manuscriptFull:3'));
   });
 
-  test('P3 第 2 段正文已注入', () => {
+  test('P3 第 2 章正文已注入', () => {
     assert.ok(inc('manuscriptFull:2'));
   });
 
-  test('P4 第 1 段降级为摘要注入', () => {
+  test('P4 第 1 章降级为摘要注入', () => {
     assert.ok(inc('plotSummary:1'));
   });
 
@@ -249,7 +254,7 @@ describe('装配：预算充裕（128k）', () => {
     assert.ok(byId.get('prevTail:3').note.includes('无需重复'));
   });
 
-  test('第 3 段正文标注为接续点', () => {
+  test('第 3 章正文标注为接续点', () => {
     assert.ok(byId.get('manuscriptFull:3').note.includes('续写将从此处接续'));
   });
 
@@ -327,12 +332,12 @@ describe('装配：预算充裕（128k）', () => {
   });
 
   test('正文原文确实在 user 里', () => {
-    assert.ok(built.messages[1].content.includes('三更，林昭醒了'), '第 3 段正文');
+    assert.ok(built.messages[1].content.includes('三更，林昭醒了'), '第 3 章正文');
   });
 
   test('前文正文按由远及近排列', () => {
     const user = built.messages[1].content;
-    assert.ok(user.indexOf('【第 2 段') < user.indexOf('【第 3 段'));
+    assert.ok(user.indexOf('【第 2 章') < user.indexOf('【第 3 章'));
   });
 });
 
@@ -359,7 +364,7 @@ describe('装配：预算刚好放不下整段正文（应降级为摘要）', (
     assert.ok(!dById.has('prevTail:3'));
   });
 
-  test('第 3 段正文降级为摘要', () => {
+  test('第 3 章正文降级为摘要', () => {
     assert.equal(
       item.status,
       'degraded',
@@ -419,7 +424,7 @@ describe('装配：预算极小（P0 之外几乎全丢）', () => {
   });
 
   test('user 含上一段结尾段', () => {
-    assert.ok(small.messages[1].content.includes('上一段结尾原文'));
+    assert.ok(small.messages[1].content.includes('上一章结尾原文'));
   });
 
   test('预算不足时整段正文不与结尾片段合并', () => {
@@ -488,7 +493,7 @@ describe('装配：手动排除条目', () => {
     assert.equal(eById.get('character:沈氏').status, 'excluded');
   });
 
-  test('第 2 段正文被标记 excluded', () => {
+  test('第 2 章正文被标记 excluded', () => {
     assert.equal(eById.get('manuscriptFull:2').status, 'excluded');
   });
 
@@ -571,7 +576,7 @@ describe('装配：带修改意见重写', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('装配：从第 1 段开始写（无前文）', () => {
+describe('装配：从第 1 章开始写（无前文）', () => {
   let first;
   let fById;
 
@@ -607,11 +612,11 @@ describe('装配：从第 1 段开始写（无前文）', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('装配：追加到第 3 段（target 指向它自己）', () => {
+describe('装配：追加到第 3 章（target 指向它自己）', () => {
   let aById;
 
   before(async () => {
-    // 追加到已经落盘的第 3 段：target 指向它自己，段号由磁盘决定。
+    // 追加到已经落盘的第 3 章：target 指向它自己，段号由磁盘决定。
     const append = await builderMod.buildContext(
       project,
       req('接着写下去。', { target: { kind: 'manuscript', plotRelPath: PLOT3 } }),
@@ -620,11 +625,11 @@ describe('装配：追加到第 3 段（target 指向它自己）', () => {
     aById = ids(append);
   });
 
-  test('前文只取到第 2 段', () => {
+  test('前文只取到第 2 章', () => {
     assert.ok(aById.has('prevTail:2') && !aById.has('prevTail:3'));
   });
 
-  test('第 3 段自身不作为前文注入', () => {
+  test('第 3 章自身不作为前文注入', () => {
     assert.ok(!aById.has('manuscriptFull:3'));
   });
 });
@@ -1105,11 +1110,11 @@ describe('装配：四阶段配方', () => {
     assert.ok(pc.messages[0].content.includes('自成起讫'), pc.messages[0].content.slice(0, 500));
   });
 
-  test('剧情阶段注入本段剧情', () => {
+  test('剧情阶段注入本章细纲', () => {
     assert.ok(alive(pIds, `plot:${PLOT3}`));
   });
 
-  test('剧情阶段注入上一段剧情', () => {
+  test('剧情阶段注入上一章细纲', () => {
     assert.ok(alive(pIds, `plot:${PLOT2}`));
   });
 
@@ -1131,7 +1136,7 @@ describe('装配：四阶段配方', () => {
     );
   });
 
-  test('剧情阶段前文只到第 2 段', () => {
+  test('剧情阶段前文只到第 2 章', () => {
     assert.ok(alive(pIds, 'plotSummary:2') && !pIds.has('plotSummary:3'));
   });
 
@@ -1165,7 +1170,7 @@ describe('装配：四阶段配方', () => {
     assert.ok(!sIds.get(sceneRel(1)).text.includes('细节与意象'), sIds.get(sceneRel(1)).text.slice(0, 60));
   });
 
-  test('细节阶段带本段剧情', () => {
+  test('细节阶段带本章细纲', () => {
     assert.ok(alive(sIds, `plot:${PLOT3}`));
   });
 
@@ -1297,9 +1302,9 @@ describe('装配：落定剧情时历史保得住', () => {
     );
   });
 
-  // 不抬到 100%：大纲与本段剧情仍然要带，不然模型会把讨论里没提到的
+  // 不抬到 100%：大纲与本章细纲仍然要带，不然模型会把讨论里没提到的
   // 既有设定重新发明一遍。
-  test('落定仍带上本段剧情', () => {
+  test('落定仍带上本章细纲', () => {
     assert.notEqual(ids(settle).get(`plot:${PLOT3}`).status, 'dropped');
   });
 
@@ -1334,8 +1339,8 @@ describe('装配：落定剧情时历史保得住', () => {
 /**
  * 没写正文的早期段退化成「只带目标」。
  *
- * 作者常常先把一百段剧情排完再回头写，那些段没有正文也就没有摘要——直接跳过
- * 的话，排第 60 段时模型对前 59 段一无所知，却看不出少了什么（AGENTS.md 第 2 条：
+ * 作者常常先把一百章的细纲排完再回头写，那些章没有正文也就没有摘要——直接跳过
+ * 的话，排第 60 章时模型对前 59 章一无所知，却看不出少了什么（AGENTS.md 第 2 条：
  * 不静默截断）。
  */
 describe('装配：没写正文的段退化成只带目标', () => {
@@ -1347,7 +1352,7 @@ describe('装配：没写正文的段退化成只带目标', () => {
   before(async () => {
     fixture = copyFixture('builder-goalonly');
     degProject = projectMod.NovelProject.open(fixture.dir);
-    // 建一段只排了剧情、没写正文的第 4 段，然后从第 5 段的位置装配。
+    // 建一段只排了剧情、没写正文的第 4 章，然后从第 5 章的位置装配。
     await degProject.writePlot({
       no: 4,
       title: '第三块令牌',
@@ -1402,7 +1407,6 @@ describe('装配：没写正文的段退化成只带目标', () => {
 describe('工程页数据', () => {
   let tree;
   let plots;
-  let chapters;
   let characters;
   let lore;
   let lin2;
@@ -1411,8 +1415,6 @@ describe('工程页数据', () => {
   before(async () => {
     tree = await projectViewMod.buildProjectTree(project);
     plots = tree.plots;
-    // 示例工程的 chapters/ 是空的：正文在 manuscripts/ 里，切章是作者的活。
-    chapters = flat(tree.chapters);
     characters = flat(tree.characters);
     lore = flat(tree.lore);
     lin2 = characters.find((c) => c.label === '林昭');
@@ -1427,36 +1429,38 @@ describe('工程页数据', () => {
     assert.ok(tree.title.length > 0, tree.title);
   });
 
-  test('剧情段数与磁盘一致', () => {
+  test('章数与磁盘一致', () => {
     assert.equal(plots.length, 3);
   });
 
-  test('剧情组是扁平列表', () => {
+  test('章节组是扁平列表', () => {
     assert.ok(plots.every((p) => typeof p.no === 'number' && !!p.relPath));
   });
 
-  // 工程页正序展示（第 1 段在上），与文件名顺序一致。
-  test('剧情段按段号正序', () => {
+  // 工程页正序展示（第 1 章在上），与文件名顺序一致。
+  test('章按章号正序', () => {
     assert.equal(plots.map((p) => p.no).join(','), '1,2,3');
   });
 
-  test('每一段都带阶段徽章', () => {
+  test('每一章都带阶段徽章', () => {
     assert.ok(plots.every((p) => !!p.stage), JSON.stringify(plots.map((p) => p.stage)));
   });
 
-  test('每一段都带四段进度', () => {
+  test('每一章都带四段进度', () => {
     assert.ok(
       plots.every((p) => p.progress && typeof p.progress.plot === 'number'),
       JSON.stringify(plots.map((p) => p.progress))
     );
   });
 
-  // 示例工程排过剧情、写过正文、总结过，但没拆场景 → 停在待拆场景。
-  test('没拆场景的段停在待拆场景', () => {
-    assert.equal(plots[0].stage, 'scene', plots[0].stage);
+  // 示例工程的三章都已经拆分发布、也总结过 → 已完成。
+  // **成品在就不倒回生产链**：没拆过场景不该让一章显示「待拆场景」，
+  // 那是「原有的章节天生就算数」在状态机上的落点。
+  test('已发布且摘要新鲜的章 → 已完成', () => {
+    assert.equal(plots[0].stage, 'done', plots[0].stage);
   });
 
-  test('总字数为各段之和', () => {
+  test('总字数为各章之和', () => {
     assert.equal(tree.totalWords, plots.reduce((s, p) => s + p.wordCount, 0));
   });
 
@@ -1464,9 +1468,9 @@ describe('工程页数据', () => {
     assert.ok(tree.staleCount === 0 && plots.every((p) => !p.stale));
   });
 
-  // 前端画进度条要分母：staleCount + summarizedCount 必须等于写过正文的段数。
+  // 前端画进度条要分母：staleCount + summarizedCount 必须等于已发布的章数。
   test('已总结数与过期数互补', () => {
-    const withText = plots.filter((p) => p.wordCount > 0).length;
+    const withText = plots.filter((p) => p.chapterPath !== '').length;
     assert.equal(
       tree.staleCount + tree.summarizedCount,
       withText,
@@ -1474,20 +1478,25 @@ describe('工程页数据', () => {
     );
   });
 
-  test('新鲜的段带摘要路径', () => {
+  test('新鲜的章带摘要路径', () => {
     assert.ok(plots[0].summaryPath.endsWith('001-楔子.md'), plots[0].summaryPath);
   });
 
-  test('段带正文相对路径', () => {
-    assert.ok(plots[0].manuscriptPath.startsWith('.novelforge/manuscripts/'), plots[0].manuscriptPath);
+  test('已发布的章带成品路径', () => {
+    assert.ok(plots[0].chapterPath.startsWith('chapters/'), plots[0].chapterPath);
   });
 
-  // chapters/ 是发布区：示例工程还没切过章，所以是空的。
-  test('章节区是空的（还没切过章）', () => {
-    assert.equal(chapters.length, 0, JSON.stringify(chapters.map((c) => c.relPath)));
+  // 拆分之后中转站那份就删了，所以这里应当是空串。
+  test('已发布的章没有待拆分的中转站正文', () => {
+    assert.equal(plots[0].manuscriptPath, '', plots[0].manuscriptPath);
   });
 
-  test('全书阶段是「按段推进」', () => {
+  // 主路径指成品：点这一行打开的是作者真正在读的那份文字。
+  test('主路径指向成品', () => {
+    assert.equal(plots[0].relPath, plots[0].chapterPath);
+  });
+
+  test('全书阶段是「按章推进」', () => {
     assert.equal(tree.bookStage, 'working', tree.bookStage);
   });
 
@@ -1526,12 +1535,12 @@ describe('工程页数据', () => {
 
   test('出场统计带人类可读描述', () => {
     assert.ok(
-      linStats && linStats.detail.startsWith('第') && linStats.detail.endsWith('段'),
+      linStats && linStats.detail.startsWith('第') && linStats.detail.endsWith('章'),
       linStats && linStats.detail
     );
   });
 
-  // 示例工程的角色卡没有 updatedThrough，因此全部出场段都算「待更新」。
+  // 示例工程的角色卡没有 updatedThrough，因此全部出场章都算「待更新」。
   test('从未更新过的卡 updatedThrough 为 0', () => {
     assert.ok(linStats && linStats.updatedThrough === 0);
   });
@@ -1580,7 +1589,8 @@ describe('工程页数据', () => {
       fixture = copyFixture('builder-stale');
       const staleProject = projectMod.NovelProject.open(fixture.dir);
       const base = await projectViewMod.buildProjectTree(staleProject);
-      const target = path.join(fixture.dir, byNo(base.plots, 3).manuscriptPath);
+      // 改的是**成品**：摘要的上游是 chapters/，改中转站那份不会让摘要过期。
+      const target = path.join(fixture.dir, byNo(base.plots, 3).chapterPath);
       const backup = fs.readFileSync(target, 'utf8');
 
       fs.writeFileSync(target, `${backup}\n\n临时追加的一句话。\n`);
@@ -1623,9 +1633,9 @@ describe('工程页数据', () => {
 // ---------------------------------------------------------------------------
 
 describe('出场人物索引', () => {
-  // 示例工程刻意混了两种摘要：第 3 段带 frontmatter.cast（新格式），
-  // 第 1、2 段没有（旧格式）。真实工程升级后就是这个样子，索引必须同时
-  // 吃下两种，否则老段落的人会在角色页上凭空消失。
+  // 示例工程刻意混了两种摘要：第 3 章带 frontmatter.cast（新格式），
+  // 第 1、2 章没有（旧格式）。真实工程升级后就是这个样子，索引必须同时
+  // 吃下两种，否则老章节的人会在角色页上凭空消失。
   let s3;
   let s1;
   let index;
@@ -1633,8 +1643,8 @@ describe('出场人物索引', () => {
   let linCard;
 
   before(async () => {
-    s3 = await project.readSummary(PLOT3);
-    s1 = await project.readSummary(PLOT1);
+    s3 = await project.readSummary(CH3);
+    s1 = await project.readSummary(CH1);
     index = await castMod.buildCastIndex(project);
     lin = index.known.find((m) => m.card && m.card.name === '林昭');
     linCard = (await project.listCharacters()).find((c) => c.name === '林昭');
@@ -1712,11 +1722,11 @@ describe('出场人物索引', () => {
   });
 
   test('describePlots 短列表全列', () => {
-    assert.equal(castMod.describePlots([1, 2, 3]), '第 1、2、3 段');
+    assert.equal(castMod.describePlots([1, 2, 3]), '第 1、2、3 章');
   });
 
   test('describePlots 长列表折叠', () => {
-    assert.equal(castMod.describePlots([1, 2, 3, 4, 5, 6, 7, 8]), '第 1、2、3、4、5、6 段等 8 段');
+    assert.equal(castMod.describePlots([1, 2, 3, 4, 5, 6, 7, 8]), '第 1、2、3、4、5、6 章等 8 章');
   });
 
   test('describePlots 空列表有说法', () => {

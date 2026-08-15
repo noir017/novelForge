@@ -76,3 +76,87 @@ describe('extractH1 只看首行', () => {
     assert.equal(markdown.stripH1('第一行\n\n# 后面的'), '第一行\n\n# 后面的');
   });
 });
+
+/**
+ * `splitByMark`：把中转站正文按单独一行 `---` 切成若干章。
+ *
+ * 这是拆分动作的判据。它**绝不抛**——作者会在正文里手打各种东西，
+ * 一个畸形的分隔符不该让「拆成章节」这个按钮报错。
+ *
+ * 空片一律丢弃：连着两条 `---`、首尾各有一条，都不该产出一个空章节文件。
+ */
+describe('正文按 --- 拆分', () => {
+  let chapterFile;
+  const split = (text) => chapterFile.splitByMark(text);
+
+  before(() => {
+    chapterFile = loadModule('src/core/model/chapterFile.ts');
+  });
+
+  // 没有标记 = 一整章。这是「不标断点就直接发布」那条路。
+  test('没有标记时是一整片', () => {
+    assert.deepEqual(split('上半段。\n\n下半段。'), ['上半段。\n\n下半段。']);
+  });
+
+  test('一条标记切成两片', () => {
+    assert.deepEqual(split('甲。\n\n---\n\n乙。'), ['甲。', '乙。']);
+  });
+
+  test('两条标记切成三片', () => {
+    assert.deepEqual(split('甲。\n---\n乙。\n---\n丙。'), ['甲。', '乙。', '丙。']);
+  });
+
+  test('标记行本身不进任何一片', () => {
+    assert.ok(!split('甲。\n---\n乙。').some((p) => p.includes('---')));
+  });
+
+  // 连着两条 = 作者手抖，不该多出一个空章。
+  test('连续标记不产出空片', () => {
+    assert.deepEqual(split('甲。\n---\n---\n乙。'), ['甲。', '乙。']);
+  });
+
+  test('开头的标记不产出空片', () => {
+    assert.deepEqual(split('---\n甲。'), ['甲。']);
+  });
+
+  test('结尾的标记不产出空片', () => {
+    assert.deepEqual(split('甲。\n---\n'), ['甲。']);
+  });
+
+  test('每片首尾空白被去掉', () => {
+    assert.deepEqual(split('\n\n甲。\n\n---\n\n\n乙。\n\n'), ['甲。', '乙。']);
+  });
+
+  // 零片是「整篇只有分隔线」——调用方据此报错，而不是建一批空文件。
+  test('整篇只有标记时零片', () => {
+    assert.deepEqual(split('---\n---\n'), []);
+  });
+
+  test('空正文零片', () => {
+    assert.deepEqual(split(''), []);
+  });
+
+  // Markdown 本身允许三个以上短横，顺手多打一个不该让拆分静默失效。
+  test('四个以上短横同样算标记', () => {
+    assert.deepEqual(split('甲。\n-----\n乙。'), ['甲。', '乙。']);
+  });
+
+  test('标记行前后的空白不影响识别', () => {
+    assert.deepEqual(split('甲。\n  ---\t\n乙。'), ['甲。', '乙。']);
+  });
+
+  // 两个短横不是 Markdown 分隔线，也不该被当成断点。
+  test('两个短横不算标记', () => {
+    assert.deepEqual(split('甲。\n--\n乙。'), ['甲。\n--\n乙。']);
+  });
+
+  // 行内出现的横线是正文（西式破折号、图表），切开它等于毁掉一章。
+  test('行内的横线不算标记', () => {
+    assert.deepEqual(split('他顿了顿 --- 然后走了。'), ['他顿了顿 --- 然后走了。']);
+  });
+
+  test('CRLF 正文照样切得开', () => {
+    assert.deepEqual(split('甲。\r\n---\r\n乙。'), ['甲。', '乙。']);
+  });
+});
+
