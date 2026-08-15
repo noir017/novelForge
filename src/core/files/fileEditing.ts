@@ -118,6 +118,13 @@ export async function writeFileFromEditor(
   if (!isEditablePath(relPath)) {
     throw new FileEditError(`不是可编辑的文本文件：${relPath}`);
   }
+  // 越界先拦：`../escape.md` 也是 `.md`，可编辑判定放它过。放到后面的话，
+  // 下面那句「强制保存」会先落进日志，而这次保存根本没发生。
+  try {
+    resolveInRoot(root, relPath);
+  } catch (err) {
+    throw asEditError(err, relPath);
+  }
   if (!baseHash) {
     log.warn(`强制保存 ${relPath}（用户已确认覆盖磁盘版本）`);
   }

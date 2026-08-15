@@ -36,8 +36,9 @@ npm run test:e2e         # 独立版服务（需 Bun）
 | 模块 | 一句话职责 | README |
 |---|---|---|
 | `src/` | 两层架构总览与一条创作请求的完整链路 | [src/README.md](src/README.md) |
-| `src/core/` | 核心逻辑层入口（含协议 `protocol/`、文件能力 `files/`、只读聚合与界面快照 `views/`、运行时设施 `runtime/`）。`views/pipeline.ts` 是磁盘 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，绝不搬进 `views/`。 | [src/core/README.md](src/core/README.md) |
-| `src/core/model/` | 数据层：NovelProject、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**、细纲 plotFile.ts、场景 sceneFile.ts、服务商配置、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
+| `src/core/` | 核心逻辑层入口（含协议 `protocol/`、读写网关 `workspace/`、文件能力 `files/`、只读聚合与界面快照 `views/`、运行时设施 `runtime/`）。`views/pipeline.ts` 是磁盘 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，绝不搬进 `views/`。 | [src/core/README.md](src/core/README.md) |
+| `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**、细纲 plotFile.ts、场景 sceneFile.ts、服务商配置、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
+| `src/core/workspace/` | ★ **工程的唯一读写网关**：路径 → 种类（`kind.ts`）→ 八条守卫（`guard.ts`）→ 解析/渲染/记账/伴生（`handlers/`）。写盘从前散在六处、各带一部分保护，现在收成一处；`upstreamHash` / `beatsHash` 的记账下沉到写入路径本身，谁写都记 | [src/core/workspace/README.md](src/core/workspace/README.md) |
 | `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/features/` | 功能编排：创作（四层产物）、批量流水线、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
 | `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
@@ -78,7 +79,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 4. **不偷偷烧 token**：摘要不自动生成，只提示过期。要分多次调模型的动作（更新角色卡可能分十几批、批量建卡可能是几十个人）必须在动手前的确认框里写明预计调用次数。并发不改变总次数，这个数在并发下依然要对得上账。
 5. **模型引用只在第一个斜杠处切分**：`openrouter/z-ai/glm-4.6` 中服务商前缀是 `openrouter`。
 6. **不真删**：工程页的删除（以及会话删除）一律搬进 `.novelforge/.trash/` 并保留原相对路径。
-7. **文件访问不越界**：工程页的类文件操作锁在章节/角色/设定三个区内（`core/files/fileOps.ts` 的 `normalizeRel` / `sectionOf`）；`plots/` **不是**其中之一——细纲的改名/删除走 `NovelProject.writePlot` / `deletePlot`，因为那两件事要**连带**搬走场景目录与中转站正文（`carryPlotCompanions`），当成普通文件搬会把它们变成孤儿。独立版的读写另有一层——路径落在工程根内、大小上限、以及「纯文本扩展名白名单 ∪ 章节文件名规则」，全在 `core/files/fileEditing.ts` 里兜住。独立版「文件」页的写入口只经 `core/files/projectFiles.ts`（重命名/移动/复制锁在工程根内，`chapters/`、`drafts/`、`.novelforge` 及其下 `plots/`、`scenes/`、`manuscripts/`、`summaries/` 等固定目录受 `isProtectedPath` 保护，同名绝不覆盖，`.trash` 内容不可操作），目录列举（`core/files/fileTree.ts`）仍只读。服务无鉴权（只绑 127.0.0.1），别在别处绕过这几处直接读写。
+7. **文件访问不越界**：**所有写盘经 `core/workspace/` 这一个网关**（八条守卫在 `workspace/guard.ts` 做一次，新代码不许绕过它直接 `fs.writeFile`）。工程页的类文件操作在此之上再锁一层，只认章节/角色/设定三个区（`core/files/fileOps.ts` 的 `sectionOf`——那条比工程根更严，先判区再调网关）；`plots/` **不是**其中之一——细纲的改名/删除走 `NovelProject.writePlot` / `deletePlot`，因为那两件事要**连带**搬走场景目录与中转站正文（`carryPlotCompanions`），当成普通文件搬会把它们变成孤儿。独立版的读写另有一层——路径落在工程根内、大小上限、以及「纯文本扩展名白名单 ∪ 章节文件名规则」，全在 `core/files/fileEditing.ts` 里兜住。独立版「文件」页的写入口只经 `core/files/projectFiles.ts`（重命名/移动/复制锁在工程根内，`chapters/`、`drafts/`、`.novelforge` 及其下 `plots/`、`scenes/`、`manuscripts/`、`summaries/` 等固定目录受 `isProtectedPath` 保护，同名绝不覆盖，`.trash` 内容不可操作），目录列举（`core/files/fileTree.ts`）仍只读。服务无鉴权（只绑 127.0.0.1），别在别处绕过这几处直接读写。
 8. **层级只是收纳**：章节顺序永远由文件名数字前缀决定，与所在目录层级无关；分卷不重置编号。细纲（`.novelforge/plots/`）则是**扁平**的，与章同号——`nextPlotNo()` 取 `plots/` 与 `chapters/` 两边的最大号 +1，所以已有 99 章的老工程新建的就是第 100 章，不需要任何迁移。摘要的轴是**章节**（`summaries/` 镜像 `chapters/` 下的相对路径），上下文装配的正文也优先取 `chapters/`，还没拆分的才回落到中转站。草稿按章节在章节根之下的相对路径镜像存放，文件名（含扩展名）原样沿用。
 9. **章节不认扩展名**：章节根下「数字前缀 + 扩展名不在二进制黑名单里」的文件都是章节（`001-楔子.txt`、`001-楔子`、`004.json` 都算，`.png/.docx/.zip` 不算），规则只在 [src/core/model/chapterFile.ts](src/core/model/chapterFile.ts) 里定义一次。`.md`/`.markdown` 之外的章节**不解析 `# 标题`**，标题只取文件名——`extractH1` 与 `stripH1` 都只看首行，两者必须保持互逆。角色/设定区不跟着放宽，仍然只认 `.md`。
 10. **草稿不进上下文**：`drafts/` 只有作者显式 `@` 引用才进 prompt，装配器永不自动读它。按需创建（首次点「打开草稿」），已存在绝不覆盖；章节改名/移动时草稿跟着走，删章节不删草稿（确认框里会说明）。

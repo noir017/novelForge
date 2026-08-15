@@ -66,6 +66,7 @@ import {
 import { Handler, HandlerCtx, handlerFor } from './handlers';
 import { carryPlotCompanions, trashPlotCompanions, trashRel } from './handlers/plot';
 import { sceneRelPathFor } from './handlers/scene';
+import { SearchOptions, SearchResult, search } from './search';
 
 const log = scoped('工作区');
 
@@ -379,6 +380,18 @@ export class Workspace {
 
     log.info(`已移到回收站：${normalized}`, `落点 ${this.project.relPath(dest)}`);
     return { rel: normalized, message: `已移到回收站：${normalized}`, side };
+  }
+
+  // ---------------------------------------------------------------- search
+
+  /**
+   * 全文检索。**零模型调用的朴素扫描**，实现在 `search.ts`。
+   *
+   * 跳过 `.trash/` 与二进制、单文件读入有上限、超上限的条数在 `dropped` 里
+   * 报出来、默认按章号排序——作者问「他前面说过吗」，时间线顺序才有意义。
+   */
+  async search(pattern: string, opts?: SearchOptions): Promise<SearchResult> {
+    return search(this.project, pattern, opts);
   }
 
   // ---------------------------------------------------------------- 领域写入器
@@ -717,3 +730,7 @@ export { WsError, WsConflictError, MAX_EDITABLE_BYTES } from './guard';
 export type { WsErrorCode } from './guard';
 export { kindOfPath, pathOfTarget } from './kind';
 export type { ArtifactKind, PathKind } from './kind';
+// 检索既是 `Workspace` 上的一个方法，也直接导出：三期的 agent 工具手里只有
+// 一个 `NovelProject`，不必为了搜一次而先造一个门面。
+export { search } from './search';
+export type { SearchHit, SearchOptions, SearchResult } from './search';

@@ -90,22 +90,49 @@ manuscript 路径都记**。三条配套约束一条没变：
 - **`beatsHashFor` 排除场景的 `status`**——采纳正文时会把场景标成 `written`，
   那一次写入不该让刚写好的正文立刻显示「上游已变更」
 
+## 全文检索（`search.ts`）
+
+**零模型调用的朴素扫描**。作者问「主角前面说过他没去过北境吗」，从前只能靠手动
+`@` 引用几章原文；把它做成 AI 功能等于每问一句烧一次钱，而且会给出看起来很像但
+没有依据的答案——与「新鲜度只靠 hash 传播，不调模型」是同一条取舍。
+
+四条实现约束：
+
+1. **跳过 `.trash/` 与二进制**——回收站里躺着刚删掉的东西，搜出来等于没删。
+2. **单文件读入有上限**（复用 `MAX_EDITABLE_BYTES`），超了跳过并计入 `dropped`。
+3. **`dropped > 0` 必须在返回值里说出来**（第 2 条）——三期的工具会把它转述给
+   模型，模型不知道自己只看了一半会拿半份证据下结论。
+4. **默认按章号排序**，不按文件系统顺序：作者问「他前面说过吗」，时间线顺序才有意义。
+
+坏正则**不抛**，降级成字面量并在 `note` 里说明。缺省就是字面量——作者搜的是人名
+地名，不是正则。
+
 ## 目录
 
 ```
 workspace/
-├── index.ts        Workspace 门面：list / read / write / edit / move / remove
+├── index.ts        Workspace 门面：list / read / write / edit / move / remove / search
 ├── kind.ts         ★ 路径 → 种类（纯函数，零 I/O，绝不抛）
 ├── guard.ts        ★ 统一入口守卫（八条）
 ├── search.ts       全文检索（朴素扫描，零模型调用）
 └── handlers/
     ├── index.ts    种类 → handler 注册表（认不出落 plain，绝不抛）
-    ├── types.ts    Handler 的三件事：render / after / companions
+    ├── types.ts    Handler 的四件事：render / resolve / after / companions
     ├── plot.ts     渲染 + 记 upstreamHash + 伴生搬迁
-    ├── scene.ts    渲染 + 记 upstreamHash + 改标题清旧文件名
-    ├── manuscript.ts 追加 + 记 beatsHash
-    ├── chapter.ts  草稿跟随 + manifest 同步
-    ├── summary.ts  sourceHash
+    ├── scene.ts    落点裁决 + 渲染 + 记 upstreamHash + 改标题清旧文件名
+    ├── manuscript.ts 追加（插 `---`）+ 记 beatsHash
+    ├── chapter.ts  草稿跟随 + manifest 同步（删章节不删草稿）
+    ├── summary.ts  manifest 同步
     ├── doc.ts      outline / style / globalSummary / character / lore
     └── plain.ts    other / draft（纯文本，无记账）
 ```
+
+## 领域写入器
+
+上面七个方法收的是**路径**。另有几个收**领域对象**（`writePlot` / `writeScene` /
+`appendToManuscript` / `createChapter` / `writeSummary` / `ensureDraft` /
+`splitManuscript` / `deletePlot` / `deleteScene`），因为它们的落点由内容决定：
+细纲的文件名是「章号 + 标题」，场景的是「场号 + 标题」，改标题就是改文件名。
+调用方手里只有对象，让它自己去拼路径等于把命名规则复制一份出去。
+
+它们仍然经同一套 handler 记账与伴生，只是路径由这一层算出来。

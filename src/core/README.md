@@ -4,15 +4,16 @@
 
 | 目录 | 职责 |
 |---|---|
-| [model/](model/README.md) | 数据层：数据结构、Markdown 解析、`NovelProject` 全部文件读写、服务商配置模型、会话存储 |
+| [model/](model/README.md) | 数据层：数据结构、Markdown 解析、`NovelProject` 的**领域查询**（列表、读取、路径推导、缓存）、服务商配置模型、会话存储。写盘全在 `workspace/` |
+| [workspace/](workspace/README.md) | ★ **工程的唯一读写网关**：`list` / `read` / `write` / `edit` / `move` / `remove` / `search`。路径 → 种类 → 八条守卫 → 解析/渲染/记账/伴生。**新代码不许绕过 `guard.ts` 直接 `fs.writeFile`** |
 | [context/](context/README.md) | ★ 上下文装配：token 粗估与分层预算装配器 |
 | [features/](features/README.md) | 功能编排：续写、摘要、角色卡、设定、文风提取 |
 | [llm/](llm/README.md) | 模型接入：`LlmProvider` 接口、OpenAI / Anthropic 协议实现、provider 注册表 |
-| [files/](files/) | ★ 工程文件能力：三区类文件操作、工程根范围移动/复制、内置编辑器路径守卫、资源管理器目录列举，以及 `@` 引用候选。`fileOps.ts` 与 `projectFiles.ts` 都坚持不越界、不静默覆盖；删除只搬进 `.novelforge/.trash/`。 |
+| [files/](files/) | ★ 工程文件能力的**交互流程**：三区界限判断、弹输入框、拼 toast 文案，以及资源管理器目录列举与 `@` 引用候选。落盘一律转调 `workspace/`——不越界、不静默覆盖、删除搬进 `.trash/` 那几条守卫在网关里做一次。 |
 | [views/](views/README.md) | ★ 只读聚合与界面快照：工程树、单章流水线、创作工作区卡与出场人物索引。只从磁盘取数，不写盘。`views/pipeline.ts` 是 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，不迁入 `views/`。 |
 | [runtime/](runtime/) | ★ 宿主无关的运行时设施：日志、SQLite 痕迹库、失败记录、长任务登记与有界并发。`logger.ts` 保持零依赖；日志持久化由 `db.ts` 订阅 logger sink，依赖方向不可反转。 |
 
-依赖方向自上而下：`features/` → `context/` / `llm/` → `model/`，反向不允许。
+依赖方向自上而下：`features/` → `context/` / `llm/` → `workspace/` → `model/`，反向不允许。
 
 本目录根下只保留入口胶水与跨子目录契约：
 
