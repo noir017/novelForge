@@ -1,12 +1,22 @@
 import * as vscode from 'vscode';
-import { CancelledError, ChatMessage, ChatOptions, LlmError, LlmProvider } from '../../core/llm/provider';
+import {
+  AgentMessage,
+  CancelledError,
+  ChatMessage,
+  ChatOptions,
+  LlmError,
+  LlmProvider,
+  StreamEvent,
+  StreamOptions,
+} from '../../core/llm/provider';
 
 /**
  * 基于 VS Code Language Model API（复用 Copilot 订阅）。
  *
- * 两点与自建 API 不同：
+ * 三点与自建 API 不同：
  * 1. 没有独立的 system 角色，系统提示会并入首条 user 消息；
- * 2. 有硬性的 maxInputTokens 配额，装配器需要据此收紧预算。
+ * 2. 有硬性的 maxInputTokens 配额，装配器需要据此收紧预算；
+ * 3. 工具参数**已经是解析好的对象**，不必像另外两家那样累积分片。
  */
 export class VsCodeLmProvider implements LlmProvider {
   readonly id = 'vscode-lm' as const;
@@ -55,7 +65,22 @@ export class VsCodeLmProvider implements LlmProvider {
     }
   }
 
+  /**
+   * 迁移期的过渡桥：老调用点还在要「一串字符串」。core 侧的调用点迁完之后
+   * 连同 `ChatMessage` / `ChatOptions` 一起删掉，届时 `stream` 是唯一原语。
+   */
   async *chatStream(messages: ChatMessage[], options: ChatOptions): AsyncIterable<string> {
+    for await (const ev of this.stream(messages, options)) {
+      if (ev.type === 'text') {
+        yield ev.text;
+      } else if (ev.type === 'reasoning') {
+        options.onReasoning?.(ev.text);
+      }
+      // vscode-lm 不给 usage，这里也就没有 usage 事件可转发。
+    }
+  }
+
+  async *stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
     const model = await this.resolveModel();
     const source = new vscode.CancellationTokenSource();
     // core 侧已统一为 AbortSignal，这里桥接回语言模型 API 需要的 token。
@@ -70,12 +95,44 @@ export class VsCodeLmProvider implements LlmProvider {
     const timer = setTimeout(() => source.cancel(), options.timeoutMs);
 
     try {
-      const response = await model.sendRequest(toLmMessages(messages), {
-        justification: 'Novel Forge 需要调用语言模型续写小说正文。',
-      }, source.token);
+      const response = await model.sendRequest(
+        toLmMessages(messages),
+        {
+          justification: 'Novel Forge 需要调用语言模型续写小说正文。',
+          // 没有工具时一律不带这两个字段，与另外两家一致。
+          ...(options.tools && options.tools.length > 0 && options.toolChoice !== 'none'
+            ? {
+                tools: options.tools.map((s) => ({
+                  name: s.name,
+                  description: s.description,
+                  inputSchema: s.parameters,
+                })),
+                toolMode:
+                  options.toolChoice === 'required'
+                    ? vscode.LanguageModelChatToolMode.Required
+                    : vscode.LanguageModelChatToolMode.Auto,
+              }
+            : {}),
+        },
+        source.token
+      );
 
-      for await (const fragment of response.text) {
-        yield fragment;
+      // 走 response.stream 而不是 response.text：后者把工具调用整段滤掉了。
+      for await (const part of response.stream) {
+        if (part instanceof vscode.LanguageModelTextPart) {
+          yield { type: 'text', text: part.value };
+        } else if (part instanceof vscode.LanguageModelToolCallPart) {
+          // input 已经是解析好的对象，不用累积、也没有坏 JSON 这一说。
+          yield {
+            type: 'toolCall',
+            call: {
+              id: part.callId,
+              name: part.name,
+              args: part.input as Record<string, unknown>,
+              raw: JSON.stringify(part.input),
+            },
+          };
+        }
       }
     } catch (err) {
       if (err instanceof vscode.CancellationError || source.token.isCancellationRequested) {
@@ -93,7 +150,17 @@ export class VsCodeLmProvider implements LlmProvider {
   }
 }
 
-function toLmMessages(messages: ChatMessage[]): vscode.LanguageModelChatMessage[] {
+/**
+ * `AgentMessage[]` → VS Code 的消息数组。
+ *
+ * **系统提示并进首条 user** 是这个 provider 的特点而不是缺陷：LM API 根本
+ * 没有 system 角色，不并进去这段提示就丢了。
+ *
+ * `tool` 消息走 User + `LanguageModelToolResultPart`（与 Anthropic 同一个
+ * 道理：工具结果属于用户那一侧），`assistant` 的工具调用走 Assistant +
+ * `LanguageModelToolCallPart`。
+ */
+function toLmMessages(messages: AgentMessage[]): vscode.LanguageModelChatMessage[] {
   const systemText = messages
     .filter((m) => m.role === 'system')
     .map((m) => m.content)
@@ -103,8 +170,29 @@ function toLmMessages(messages: ChatMessage[]): vscode.LanguageModelChatMessage[
 
   let systemMerged = !systemText;
   for (const m of rest) {
+    if (m.role === 'tool') {
+      out.push(
+        vscode.LanguageModelChatMessage.User([
+          new vscode.LanguageModelToolResultPart(m.toolCallId, [
+            new vscode.LanguageModelTextPart(m.content),
+          ]),
+        ])
+      );
+      continue;
+    }
     if (m.role === 'assistant') {
-      out.push(vscode.LanguageModelChatMessage.Assistant(m.content));
+      if (m.toolCalls && m.toolCalls.length > 0) {
+        const parts: (vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart)[] = [];
+        if (m.content) {
+          parts.push(new vscode.LanguageModelTextPart(m.content));
+        }
+        for (const c of m.toolCalls) {
+          parts.push(new vscode.LanguageModelToolCallPart(c.id, c.name, c.args));
+        }
+        out.push(vscode.LanguageModelChatMessage.Assistant(parts));
+      } else {
+        out.push(vscode.LanguageModelChatMessage.Assistant(m.content));
+      }
       continue;
     }
     if (!systemMerged) {
