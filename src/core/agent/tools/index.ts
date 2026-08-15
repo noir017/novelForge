@@ -1,6 +1,6 @@
 /**
- * 工具集：`list` / `read` / `search` / `generate` / `write`（`edit` / `run`
- * 随后加进来）。
+ * 工具集：`list` / `read` / `search` / `generate` / `write` / `edit`
+ * （`run` 随后加进来）。
  *
  * 三期只注册前四个，一个字都不写磁盘；四期把写工具接上——而**没有加一行新的
  * 保护代码**：一期把六处写盘收敛进 `workspace/` 的八条守卫，二期把落盘从
@@ -19,13 +19,14 @@
  * 什么。同理没有 `bash`、没有工程根之外的路径、没有裸 `fs`。
  */
 import type { ToolDef } from '../registry';
+import { editTool } from './edit';
 import { generateTool } from './generate';
 import { listTool } from './list';
 import { readTool } from './read';
 import { searchTool } from './search';
 import { writeTool } from './write';
 
-export { generateTool, listTool, readTool, searchTool, writeTool };
+export { editTool, generateTool, listTool, readTool, searchTool, writeTool };
 
 /**
  * 只读四件套。**不写磁盘的那一半**，单独导出供测试与「只让它查一查」的场景用。
@@ -36,4 +37,11 @@ export const READ_ONLY_TOOLS: ToolDef[] = [listTool, readTool, searchTool, gener
  * 四期注册的全部工具。顺序即模型看到的顺序：**读在前、生成居中、写在后**，
  * 让它先形成「先看一眼再动手」的路径。
  */
-export const ALL_TOOLS: ToolDef[] = [listTool, readTool, searchTool, generateTool, writeTool];
+export const ALL_TOOLS: ToolDef[] = [
+  listTool,
+  readTool,
+  searchTool,
+  generateTool,
+  writeTool,
+  editTool,
+];
