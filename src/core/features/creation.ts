@@ -24,12 +24,11 @@ import { CancelledError, StreamOptions, TokenUsage } from '../llm/provider';
 import { buildProvider, resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
-import { getHost } from '../host';
 import { describeError, elapsed, scoped } from '../runtime/logger';
-import { exists, hash, readText, sanitizeFileName, writeText } from '../model/fs';
+import { hash, sanitizeFileName } from '../model/fs';
 import { NovelProject } from '../model/project';
-import { Plot, PlotSections, emptyPlotSections, renderPlotFile } from '../model/plotFile';
-import { emptySceneSections, isSceneReady, renderSceneFile, sceneFileName } from '../model/sceneFile';
+import { Plot, PlotSections, emptyPlotSections } from '../model/plotFile';
+import { emptySceneSections } from '../model/sceneFile';
 import type { PlotOutlineItem, SceneOutlineItem } from './artifact';
 import {
   CAPABILITY_LABEL,
@@ -49,7 +48,7 @@ import {
 } from '../model/providers';
 import { Artifact, describeArtifact, isArtifactEmpty, parseArtifact } from './artifact';
 import { plotContentHash } from '../views/pipeline';
-import { Workspace } from '../workspace';
+import { Workspace, pathOfTarget } from '../workspace';
 
 const log = scoped('创作');
 
@@ -250,8 +249,12 @@ export class CreationSession {
   /** 全书大纲：整篇替换，覆盖前审阅。 */
   private async acceptOutline(text: string): Promise<AcceptResult> {
     const rel = this.project.relPath(this.project.outlinePath);
-    const ok = await confirmOverwrite(this.project, '全书大纲', rel, `# 全书大纲\n\n${text.trim()}\n`);
-    if (!ok) {
+    const r = await this.ws.write(
+      rel,
+      { artifact: { kind: 'outlineDoc', text } },
+      { mode: 'overwrite', what: '全书大纲' }
+    );
+    if (r.skipped) {
       return { skipped: true, message: '没有改动大纲。' };
     }
     log.info('全书大纲已更新', `${rel}｜${text.length} 字`);
@@ -312,11 +315,20 @@ export class CreationSession {
     };
   }
 
-  /** 一章的细纲：整份替换，覆盖前审阅。 */
+  /**
+   * 一章的细纲：整份替换，覆盖前审阅。
+   *
+   * 渲染与记 `upstreamHash` 都在网关的 plot handler 里——四个小节换新，
+   * 标题/幕/目标字数/done 沿用磁盘那份（「重写剧情」不该抹掉作者起的标题）。
+   */
   private async acceptPlot(target: CreationTarget, sections: PlotSections): Promise<AcceptResult> {
     const plot = await this.requirePlot(target);
-    const next = renderPlotFileFor(plot, sections, await this.outlineHash());
-    if (!(await confirmOverwrite(this.project, `第 ${plot.no} 章的细纲`, plot.relPath, next))) {
+    const r = await this.ws.write(
+      plot.relPath,
+      { artifact: { kind: 'plot', sections } },
+      { mode: 'overwrite', what: `第 ${plot.no} 章的细纲` }
+    );
+    if (r.skipped) {
       return { skipped: true, message: '没有改动这一章。' };
     }
     log.info(`第 ${plot.no} 章的细纲已写入`, plot.relPath);
@@ -369,7 +381,13 @@ export class CreationSession {
     return { relPath: created[0], message: `已拆出 ${created.length} 场${note}。` };
   }
 
-  /** 单张场景卡：整张替换，覆盖前审阅。 */
+  /**
+   * 单张场景卡：整张替换，覆盖前审阅。
+   *
+   * 落点、渲染与记 `upstreamHash` 都在网关的 scene handler 里：标题沿用磁盘
+   * 那份（标题决定文件名，改写一张卡不该顺手改文件名），status 由
+   * `isSceneReady` 推，改了标题时清掉旧文件名。
+   */
   private async acceptScene(
     target: CreationTarget,
     artifact: Extract<Artifact, { kind: 'scene' }>
@@ -380,53 +398,37 @@ export class CreationSession {
       throw new Error('没有指定是哪一场。');
     }
 
-    const existing = await this.project.readScene(plot.relPath, sceneNo);
-    // 标题不在场景卡的产出契约里（它决定文件名，由拆场景那一步定下来）。
-    // 改写一张卡不该顺手改掉文件名，否则同一场在磁盘上会换个位置。
-    const scene = {
-      plotRelPath: plot.relPath,
-      no: sceneNo,
-      title: existing?.title || `场景${sceneNo}`,
-      place: artifact.place || existing?.place || '',
-      time: artifact.time || existing?.time || '',
-      characters: artifact.characters.length > 0 ? artifact.characters : (existing?.characters ?? []),
-      targetWords: artifact.targetWords ?? existing?.targetWords,
-      upstreamHash: plotContentHash(plot),
-      // 设计过了就是可以开写了——状态由内容推，不靠调用方记得传。
-      status: (isSceneReady(artifact.sections) ? 'ready' : 'draft') as 'ready' | 'draft',
-      sections: artifact.sections,
-    };
-
-    // 场景文件名由「场号 + 标题」决定，所以要审阅的是那个具体路径。
-    const dir = this.project.sceneMirrorRelPath(plot.relPath);
-    const rel = `${dir}/${sceneFileName(scene.no, sanitizeFileName(scene.title))}`;
-    if (!(await confirmOverwrite(this.project, `第 ${plot.no} 章 · 场景 ${sceneNo}`, rel, renderSceneFile(scene)))) {
+    const r = await this.ws.write(
+      pathOfTarget(this.project, { kind: 'scene', plotRelPath: plot.relPath, sceneNo }),
+      { artifact },
+      { mode: 'overwrite', what: `第 ${plot.no} 章 · 场景 ${sceneNo}` }
+    );
+    if (r.skipped) {
       return { skipped: true, message: '没有改动这一场。' };
     }
-    // 经 writeScene 落盘（而不是直接 writeText）：改了标题时它会清掉旧文件名，
-    // 否则同一场会以两个文件名并存。
-    const written = await this.ws.writeScene(plot.relPath, scene);
-    log.info(`第 ${plot.no} 章场景 ${sceneNo} 已写入`, written);
-    return { relPath: written, message: `已写入 ${written}` };
+    log.info(`第 ${plot.no} 章场景 ${sceneNo} 已写入`, r.rel);
+    return { relPath: r.rel, message: `已写入 ${r.rel}` };
   }
 
   /**
    * 正文：追加到这一章的中转站正文末尾。
    *
-   * 写完顺手记一笔 `beatsHash`——正文所依据的场景指纹。少了这一步，
-   * 这一章会永远显示「正文与场景对不上」或永远不显示，两种都是错的。
+   * `beatsHash` 由网关的 manuscript handler 记——正文所依据的场景指纹。
+   * 少了它这一章会永远显示「正文与场景对不上」或永远不显示，两种都是错的。
    *
    * **落在 `manuscripts/`，不是 `chapters/`。** 切成发布章节是作者的活，
    * 工具不代劳（见 model/plotFile.ts 的文件头）。
+   *
+   * 追加是唯一不走覆盖审阅的落盘路径——它不覆盖任何东西。
    */
   private async acceptManuscript(target: CreationTarget, text: string): Promise<AcceptResult> {
     const plot = await this.requirePlot(target);
-    const relPath = await this.ws.appendToManuscript(plot.relPath, text);
+    const r = await this.ws.write(
+      pathOfTarget(this.project, { kind: 'manuscript', plotRelPath: plot.relPath }),
+      { artifact: { kind: 'manuscript', text } },
+      { mode: 'append' }
+    );
 
-    const beatsHash = await this.project.beatsHashFor(plot.relPath);
-    if (beatsHash) {
-      await this.project.markBeatsWritten(plot.relPath, beatsHash);
-    }
     // 写的是某一场时，把那一场标成 written，流水线进度才走得动。
     const sceneNo = target.kind === 'manuscript' ? target.sceneNo : undefined;
     if (sceneNo !== undefined) {
@@ -439,9 +441,9 @@ export class CreationSession {
 
     log.info(
       `已追加 ${text.length} 字到第 ${plot.no} 章`,
-      `${relPath}｜该章摘要将变为过期${sceneNo !== undefined ? `｜场景 ${sceneNo} 已标记写完` : ''}`
+      `${r.rel}｜该章摘要将变为过期${sceneNo !== undefined ? `｜场景 ${sceneNo} 已标记写完` : ''}`
     );
-    return { relPath, message: `已写入 ${relPath}` };
+    return { relPath: r.rel, message: `已写入 ${r.rel}` };
   }
 
   // ---------------------------------------------------------------- 测试连接
@@ -552,70 +554,6 @@ export class CreationSession {
       await clearFailures(this.project, 'plot', relPath, 'creation');
     }
   }
-}
-
-/**
- * 把新小节套进一份现有细纲，渲染成待写入的文件内容。
- *
- * 只换四个小节与 `upstreamHash`，标题/幕/目标字数/done 全部沿用磁盘上那一份——
- * 「重写剧情」改的是剧情，不该顺手把作者起的标题或标的完成状态一起抹掉。
- */
-function renderPlotFileFor(plot: Plot, sections: PlotSections, upstreamHash: string): string {
-  return renderPlotFile({
-    no: plot.no,
-    title: plot.title,
-    arc: plot.arc,
-    targetWords: plot.targetWords,
-    upstreamHash,
-    done: plot.done,
-    sections,
-  });
-}
-
-// ---------------------------------------------------------------- 覆盖保护
-
-/**
- * 写之前先问。目标不存在、或内容一模一样时不问，直接写。
- *
- * 有 `reviewReplace` 的宿主（插件）开 diff 编辑器，作者能逐行看清改了什么；
- * 没有的（独立版目前）退化成一个带字数对比的确认框。**都没有确认就不写。**
- *
- * 返回是否已写入。
- */
-async function confirmOverwrite(
-  project: NovelProject,
-  what: string,
-  relPath: string,
-  nextText: string
-): Promise<boolean> {
-  const abs = project.pathOf(relPath);
-
-  if (!(await exists(abs))) {
-    await writeText(abs, nextText);
-    return true;
-  }
-  const current = await readText(abs);
-  if (current.trim() === nextText.trim()) {
-    // 一字未变还弹个框，只会让人以为自己点错了。
-    return true;
-  }
-
-  const host = getHost();
-  const verdict = host.reviewReplace
-    ? await host.reviewReplace(what, current, nextText)
-    : await host
-        .confirm(`「${what}」已经有内容了，用新版本覆盖？`, ['覆盖', '保留原样'], {
-          modal: true,
-          detail: `现有 ${current.length} 字，新版 ${nextText.length} 字。\n${relPath}`,
-        })
-        .then((pick) => (pick === '覆盖' ? 'apply' : pick === '保留原样' ? 'discard' : undefined));
-
-  if (verdict !== 'apply') {
-    log.info(`未覆盖${what}`, verdict === 'discard' ? '用户选择保留原样' : '用户取消');
-    return false;
-  }
-  await writeText(abs, nextText);
-  return true;
 }
 
 // ---------------------------------------------------------------- 输出清理

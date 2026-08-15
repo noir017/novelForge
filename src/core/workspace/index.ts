@@ -66,7 +66,6 @@ import {
 import { Handler, HandlerCtx, handlerFor } from './handlers';
 import { carryPlotCompanions, trashPlotCompanions, trashRel } from './handlers/plot';
 import { sceneRelPathFor } from './handlers/scene';
-import { manuscriptHead } from './handlers/manuscript';
 
 const log = scoped('工作区');
 
@@ -485,18 +484,8 @@ export class Workspace {
    */
   async appendToManuscript(plotRelPath: string, text: string): Promise<string> {
     const rel = this.project.manuscriptMirrorRelPath(plotRelPath);
-    const abs = this.project.pathOf(rel);
-    const existing = await readTextIfExists(abs);
-
-    const next =
-      existing === undefined
-        ? `${await manuscriptHead(this.project, plotRelPath)}${text.trim()}\n`
-        : `${existing.replace(/\s+$/, '')}\n\n---\n\n${text.trim()}\n`;
-    await writeText(abs, next);
-
-    const ctx = this.ctxOf(rel);
-    await handlerFor('manuscript').after?.(ctx, next);
-    return rel;
+    const r = await this.write(rel, { text }, { mode: 'append' });
+    return r.rel;
   }
 
   /**
@@ -652,11 +641,11 @@ function clip(text: string): string {
 }
 
 /**
- * 追加时拼出最终内容。首次写入直接用新文本，之后在两段之间插一行 `---`。
+ * 追加时拼出最终内容。
  *
- * 那一行是**默认的拆分候选点**（AGENTS 第 23 条）：模型按场景分几次写，
- * 场景边界正是最可能的章节边界；给一个能改的默认，比让作者从头自己标要好。
- * 非中转站的普通文本不插标记——那是正文才有的约定。
+ * 首次写入带上 handler 给的头（正文是 frontmatter + `# 第N章… · 正文`），
+ * 之后在两段之间插 handler 给的分隔符——正文那一行 `---` 是**默认的拆分
+ * 候选点**（第 23 条），其余种类只空一行。
  */
 async function appendText(
   guarded: { existed: boolean; current?: string },
@@ -665,11 +654,11 @@ async function appendText(
   ctx: HandlerCtx
 ): Promise<string> {
   if (!guarded.existed) {
-    return handler.render ? text : `${text.trim()}\n`;
+    const head = handler.appendHead ? await handler.appendHead(ctx) : '';
+    return `${head}${text.trim()}\n`;
   }
   const existing = (guarded.current ?? '').replace(/\s+$/, '');
-  const separator = ctx.path.kind === 'manuscript' ? '\n\n---\n\n' : '\n\n';
-  return `${existing}${separator}${text.trim()}\n`;
+  return `${existing}${handler.appendSeparator ?? '\n\n'}${text.trim()}\n`;
 }
 
 /** 垃圾箱里保留原相对路径；同名冲突时加序号，不覆盖之前删掉的东西。 */

@@ -43,6 +43,15 @@ export interface Handler {
    * 不实现就用调用方给的路径。
    */
   resolve?(ctx: HandlerCtx, artifact?: Artifact): Promise<string>;
+  /** 首次 append 到一个还不存在的文件时，正文前面要带的那一段（frontmatter + 标题行）。 */
+  appendHead?(ctx: HandlerCtx): Promise<string>;
+  /**
+   * 两段 append 之间的分隔符。
+   *
+   * 正文用 `\n\n---\n\n`：那一行是**默认的拆分候选点**（第 23 条）。
+   * 其余种类不该有这个约定，缺省只空一行。
+   */
+  readonly appendSeparator?: string;
   /** 写入之后的记账与伴生动作。返回补进 `side` 的说明。 */
   after?(ctx: HandlerCtx, text: string): Promise<string[]>;
   /** 改名/移动时要连带搬走什么。返回补进 `side` 的说明。 */

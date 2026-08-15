@@ -32,6 +32,18 @@ export const manuscriptHandler: Handler = {
     return artifact.text;
   },
 
+  /** 首次写入时的 frontmatter + `# 第N章… · 正文` 标题行。 */
+  async appendHead(ctx: HandlerCtx) {
+    return ctx.path.plotRelPath ? manuscriptHead(ctx.project, ctx.path.plotRelPath) : '';
+  },
+
+  /**
+   * 两次追加之间那一行 `---` 是**默认的拆分候选点**（第 23 条）：
+   * 模型按场景分几次写，场景边界正是最可能的章节边界。给一个能改的默认，
+   * 比让作者从头自己标要好——他可以删掉、也可以另加。
+   */
+  appendSeparator: '\n\n---\n\n',
+
   /**
    * 记账：把这一章当前的场景指纹落进正文的 frontmatter。
    *
