@@ -18,6 +18,7 @@
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { getHost } from '../../host';
 import { scoped } from '../../runtime/logger';
 import { NovelProject } from '../../model/project';
 import { Handler, HandlerCtx } from './types';
@@ -32,7 +33,9 @@ export const chapterHandler: Handler = {
   },
 
   async companions(ctx: HandlerCtx, from: string, to: string) {
-    const side = await carryDraft(ctx.project, from, to);
+    // 目录也要搬：移动 `chapters/卷一/` 时 `drafts/卷一/` 得跟着走。
+    const isDir = ctx.path.kind === 'other';
+    const side = await carryDraft(ctx.project, from, to, isDir);
     await ctx.project.syncManifest();
     return side;
   },
@@ -59,7 +62,8 @@ export const chapterHandler: Handler = {
 export async function carryDraft(
   project: NovelProject,
   fromRel: string,
-  toRel: string
+  toRel: string,
+  isDir = false
 ): Promise<string[]> {
   const from = project.draftRelPathFor(fromRel);
   const to = project.draftRelPathFor(toRel);
@@ -79,11 +83,15 @@ export async function carryDraft(
   }
   const toAbs = project.pathOf(to);
   if (await pathExists(toAbs)) {
+    // **不覆盖**：两份都留着，提示作者自己去合（AGENTS 第 3 条）。
+    // 只打日志不够——日志要用户主动去翻，而这一刻他正盯着工程页。
     log.warn(`新位置已有草稿，旧草稿未动`, `目标 ${to}｜旧草稿仍在 ${from}`);
+    getHost().toast(`新位置已有草稿${isDir ? '目录' : ''}：${to}，旧草稿留在 ${from} 未动。`, 'error');
     return [`新位置已有草稿 ${to}，旧草稿留在 ${from} 未动`];
   }
   await fs.mkdir(path.dirname(toAbs), { recursive: true });
   await fs.rename(fromAbs, toAbs);
+  log.info(`草稿已跟随移动`, `${from} → ${to}`);
   return [`草稿 ${from} → ${to}`];
 }
 

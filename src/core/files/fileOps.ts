@@ -1,12 +1,13 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getHost } from '../host';
-import { scoped } from '../runtime/logger';
+import { describeError, scoped } from '../runtime/logger';
 import { isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
 import { exists, readText, sanitizeFileName, writeText } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { kindOfPath, normalizeRel } from '../workspace/kind';
-import { isProtectedPath } from '../workspace/guard';
+import { WsError, isProtectedPath } from '../workspace/guard';
+import { trashPathFor } from '../workspace';
 import { Workspace } from '../workspace';
 
 const log = scoped('文件');
@@ -21,7 +22,7 @@ const log = scoped('文件');
  * 2. **不静默覆盖**：目标已存在就报错退出，绝不覆盖作者的文件。
  * 3. **不真删**：删除是搬进 `.novelforge/.trash/`，与会话删除同一套做法。
  *
- * 章节改名/移动时，`drafts/` 里对应的草稿一并搬走（见 carryDraft）——
+ * 章节改名/移动时，`drafts/` 里对应的草稿一并搬走（由网关的 chapter handler 做）——
  * 草稿不是可管理区，但它的位置由章节路径推导，章节动了就必须跟着动。
  *
  * **细纲走另一条路**（见下面的 `renamePlot` / `deletePlot`）：它的改名与
@@ -285,13 +286,6 @@ async function renameEntryImpl(
   if (nextRel === rel) {
     return undefined;
   }
-  const nextAbs = project.pathOf(nextRel);
-  if (await exists(nextAbs)) {
-    log.warn(`重命名被拒：已存在同名项 ${nextRel}`);
-    getHost().toast(`已存在同名项：${nextRel}`, 'error');
-    return undefined;
-  }
-
   // 先改内容再改名：改名成功后内容一定是对的，反过来则可能留下半吊子状态。
   // 用清洗后的 nextStem 而不是用户原样输入，H1 才会继续与文件名一致，
   // 下次改名时仍然认得出「这个 H1 是跟着文件名走的」。
@@ -307,16 +301,30 @@ async function renameEntryImpl(
     }
   }
 
-  await fs.rename(abs, nextAbs);
-  project.invalidate();
-  if (target.info?.section === 'chapters') {
-    // 章节这边的伴生文件是草稿与摘要；细纲、场景与中转站正文挂在细纲上，
-    // 与 chapters/ 无关（见 model/plotFile.ts 的文件头）。
-    await carryDraft(project, rel, nextRel, isDir);
+  // 经网关搬：同名不覆盖、固定目录保护、草稿跟随、manifest 同步都在那一层。
+  try {
+    await new Workspace(project).move(rel, nextRel);
+  } catch (err) {
+    log.warn(`重命名被拒：${describeWsError(err)}`, `${rel} → ${nextRel}`);
+    getHost().toast(describeWsError(err), 'error');
+    return undefined;
   }
   log.info(`已重命名${isDir ? '文件夹' : ''}`, `${rel} → ${nextRel}`);
   getHost().toast(`已重命名为 ${nextRel}`);
   return nextRel;
+}
+
+/**
+ * 网关的拒绝 → 工程页的一句人话。
+ *
+ * 逐字保留原来那几条文案：`已存在同名项：X` 是作者最常撞见的一条，
+ * 换了措辞他会以为是另一个毛病。
+ */
+function describeWsError(err: unknown): string {
+  if (err instanceof WsError) {
+    return err.code === 'exists' ? `已存在同名项：${err.message.replace(/^已存在：/, '')}` : err.message;
+  }
+  return describeError(err);
 }
 
 /**
@@ -351,7 +359,7 @@ export async function moveEntry(
   if (!target) {
     return undefined;
   }
-  const { abs, rel, info, isDir } = target;
+  const { rel, info, isDir } = target;
 
   let destRel = targetDir === undefined ? undefined : resolveDirWithin(info, targetDir);
   if (targetDir !== undefined && destRel === undefined) {
@@ -391,75 +399,20 @@ export async function moveEntry(
     return undefined;
   }
 
-  await fs.rename(abs, nextAbs);
-  project.invalidate();
-  if (info.section === 'chapters') {
-    await carryDraft(project, rel, nextRel, isDir);
+  try {
+    await new Workspace(project).move(rel, nextRel);
+  } catch (err) {
+    log.warn(`移动被拒：${describeWsError(err)}`, `${rel} → ${nextRel}`);
+    getHost().toast(describeWsError(err), 'error');
+    return undefined;
   }
   log.info(`已移动${isDir ? '文件夹' : ''}`, `${rel} → ${nextRel}`);
   getHost().toast(`已移动到 ${nextRel}`);
   return nextRel;
 }
 
-/**
- * 章节改名/移动后，把它在某个镜像目录下的伴生文件一并搬过去。
- *
- * 草稿镜像用这一条——
- * 按章节在 `chapters/` 之下的相对路径镜像，章节路径一变归属路径就跟着变。
- * 不搬的话旧位置的东西成了孤儿，新位置又读不到，**而界面上一切正常**：
- * 原本能找到的草稿凭空成为孤儿。
- *
- * 目标位置已有同名的东西时**不覆盖**：两份都留着，提示作者自己去合
- * （AGENTS.md 第 3 条）。
- */
-async function carryMirror(
-  project: NovelProject,
-  what: string,
-  mirror: (rel: string, isDir: boolean) => string | undefined,
-  fromRel: string,
-  toRel: string,
-  isDir: boolean
-): Promise<void> {
-  const from = mirror(fromRel, isDir);
-  const to = mirror(toRel, isDir);
-  if (!from || !to || from === to) {
-    return;
-  }
-  const fromAbs = project.pathOf(from);
-  if (!(await exists(fromAbs))) {
-    return;
-  }
-  const toAbs = project.pathOf(to);
-  if (await exists(toAbs)) {
-    log.warn(`新位置已有${what}${isDir ? '目录' : ''}，旧${what}未动`, `目标 ${to}｜旧${what}仍在 ${from}`);
-    getHost().toast(
-      `新位置已有${what}${isDir ? '目录' : ''}：${to}，旧${what}留在 ${from} 未动。`,
-      'error'
-    );
-    return;
-  }
-  await fs.mkdir(path.dirname(toAbs), { recursive: true });
-  await fs.rename(fromAbs, toAbs);
-  log.info(`${what}已跟随移动`, `${from} → ${to}`);
-}
-
-/**
- * 章节改名/移动后，把它的草稿一并搬过去。
- *
- * 不搬的话草稿就成了孤儿：下次点「打开草稿」会在新位置静默新建一个空文件，
- * 之前写的东西还躺在旧路径下，没人告诉作者。文件与目录都要搬——
- * 移动 `chapters/卷一/` 时 `drafts/卷一/` 得跟着走。
- */
-export async function carryDraft(
-  project: NovelProject,
-  fromRel: string,
-  toRel: string,
-  isDir: boolean
-): Promise<void> {
-  // 草稿的镜像不分文件/目录：文件名（含扩展名）原样沿用。
-  await carryMirror(project, '草稿', (rel) => project.draftRelPathFor(rel), fromRel, toRel, isDir);
-}
-
+// 草稿跟随搬进了 `core/workspace/handlers/chapter.ts` 的 `carryDraft`：
+// 章节改名/移动经网关走，伴生动作由 handler 做一次，不再在这里各做一份。
 
 async function pickDestination(
   project: NovelProject,
@@ -495,7 +448,7 @@ export async function deleteEntry(project: NovelProject, relPath: string): Promi
   if (!target) {
     return false;
   }
-  const { abs, rel, info, isDir } = target;
+  const { rel, info, isDir } = target;
 
   const detail = isDir ? await describeFolder(project, rel) : undefined;
   // 草稿不跟着删——那是作者另写的东西，删正文不代表要连草稿一起丢。
@@ -510,14 +463,16 @@ export async function deleteEntry(project: NovelProject, relPath: string): Promi
     return false;
   }
 
-  const dest = await trashPathFor(project, rel);
-  await fs.mkdir(path.dirname(dest), { recursive: true });
-  await fs.rename(abs, dest);
-  project.invalidate();
-  if (info.section === 'chapters') {
-    await project.syncManifest();
+  // 经网关删：搬进 `.trash/` 并保留原相对路径、章节还要 syncManifest，
+  // 都在那一层。**草稿不跟着删**（第 10 条）——上面的确认框已经说过了。
+  try {
+    await new Workspace(project).remove(rel);
+  } catch (err) {
+    log.warn(`删除被拒：${describeWsError(err)}`, rel);
+    getHost().toast(describeWsError(err), 'error');
+    return false;
   }
-  log.info(`已移到回收站：${rel}`, `落点 ${project.relPath(dest)}${detail ? `｜${detail}` : ''}`);
+  log.info(`已移到回收站：${rel}`, detail ?? '');
   getHost().toast(`已移到回收站：${rel}`);
   return true;
 }
@@ -565,21 +520,9 @@ async function describeFolder(project: NovelProject, rel: string): Promise<strin
   return `里面有 ${files} 个文件${dirs > 0 ? `、${dirs} 个子文件夹` : ''}，会一并移走。`;
 }
 
-/** 垃圾箱里保留原相对路径；同名冲突时加序号，不覆盖之前删掉的东西。 */
-export async function trashPathFor(project: NovelProject, rel: string): Promise<string> {
-  const base = path.join(project.trashDir, rel);
-  if (!(await exists(base))) {
-    return base;
-  }
-  const ext = path.extname(base);
-  const stem = base.slice(0, base.length - ext.length);
-  for (let i = 2; ; i++) {
-    const candidate = `${stem}-${i}${ext}`;
-    if (!(await exists(candidate))) {
-      return candidate;
-    }
-  }
-}
+// 垃圾箱落点的计算（trashPathFor）搬进了 `core/workspace/`：删除一律经网关，
+// 「保留原相对路径、同名加序号」这条规则只该有一份。
+export { trashPathFor };
 
 // ---------------------------------------------------------------- 内部工具
 

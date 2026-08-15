@@ -338,7 +338,12 @@ export class Workspace {
     await guardWrite(this.project, toRel, { mode: 'create' });
 
     const ctx = this.ctxOf(fromRel);
-    const handler = handlerFor(ctx.path.kind);
+    // 目录不进种类表（`chapters/第一卷` 没有数字前缀），但草稿镜像跟着**整棵
+    // 子树**走——移动 `chapters/卷一/` 时 `drafts/卷一/` 得跟着。所以落在
+    // 章节根之下的目录也按章节处理。
+    const handler = handlerFor(
+      ctx.path.kind === 'other' && this.project.draftRelPathFor(fromRel) ? 'chapter' : ctx.path.kind
+    );
 
     await fs.mkdir(path.dirname(this.project.pathOf(toRel)), { recursive: true });
     await fs.rename(fromAbs, this.project.pathOf(toRel));

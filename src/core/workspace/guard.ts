@@ -124,19 +124,27 @@ export function isInTrash(project: NovelProject, rel: string): boolean {
  * 这里挡的是**归一化之后仍然逃出去**的（`a/../../b`）与工程根自己。
  * 只做逻辑路径包含检查（不解析 symlink）：本机单用户场景下够了，
  * realpath 会让每次读写多一次系统调用。
+ *
+ * 只收 `root` 而不是整个 `NovelProject`：目录列举（`files/fileTree.ts`）
+ * 手里只有一个路径字符串，它要的也正是这一条判据。
  */
-export function resolveInRoot(project: NovelProject, relPath: string): string {
+export function resolveInRoot(root: string, relPath: string): string {
   const rel = normalizeRel(relPath);
   if (rel === undefined) {
     throw new WsError('outOfRoot', `路径超出工程目录：${relPath}`);
   }
-  const base = path.resolve(project.root);
+  const base = path.resolve(root);
   const abs = path.resolve(base, rel);
   const back = path.relative(base, abs);
   if (back === '' || back.startsWith('..') || path.isAbsolute(back)) {
     throw new WsError('outOfRoot', `路径超出工程目录：${relPath}`);
   }
   return abs;
+}
+
+/** 绝对路径 → 工程内相对路径（正斜杠，跨平台一致）。 */
+export function toRelPosix(root: string, absPath: string): string {
+  return path.relative(path.resolve(root), absPath).replace(/\\/g, '/');
 }
 
 /**
@@ -146,7 +154,7 @@ export function resolveInRoot(project: NovelProject, relPath: string): string {
  * 改名/删除/写入，见 `guardMutate` / `guardWrite`。
  */
 export async function guardRead(project: NovelProject, relPath: string): Promise<string> {
-  const abs = resolveInRoot(project, relPath);
+  const abs = resolveInRoot(project.root, relPath);
 
   let stat: import('node:fs').Stats;
   try {
@@ -192,7 +200,7 @@ export async function guardWrite(
   relPath: string,
   opts: GuardWriteOptions
 ): Promise<GuardWriteResult> {
-  const abs = resolveInRoot(project, relPath);
+  const abs = resolveInRoot(project.root, relPath);
   const rel = normalizeRel(relPath)!;
 
   if (isInTrash(project, rel)) {
@@ -242,7 +250,7 @@ export async function guardWrite(
  * 目录也是合法对象（搬 `chapters/卷一/` 是正常操作），所以不判 `isFile`。
  */
 export async function guardMutate(project: NovelProject, relPath: string): Promise<string> {
-  const abs = resolveInRoot(project, relPath);
+  const abs = resolveInRoot(project.root, relPath);
   const rel = normalizeRel(relPath)!;
 
   if (isProtectedPath(project, rel)) {
