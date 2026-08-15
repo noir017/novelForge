@@ -269,35 +269,51 @@ export async function targetHasContent(c: ChatController): Promise<boolean> {
 /**
  * 采纳一份结构化产物（细纲、场景卡、章节清单、场景清单、大纲、正文）。
  *
- * **重新解析一遍**而不是用生成时缓存的那份：用户可能在气泡里改过。
- * 落盘与否由 creation.ts 决定——目标已有内容时它会先弹审阅。
+ * **落点从 draft 里取，不由前端传**：前端猜不出一段讨论该写到哪一层
+ * （第 19 条最后一句）。从前它发的是 `store.session.target`——那是**当下**
+ * 选中的目标，用户在生成完之后切了一章再点采纳，产物就写到别的地方去了。
+ *
+ * **文本仍然重新解析一遍**而不是用 `draft.artifact`：用户可能在气泡里改过。
+ * `draft.raw` 只是兜底（前端没给文本时）。
+ *
+ * 落盘与否由 `generation/accept.ts` 经 workspace 网关决定——目标已有内容
+ * 时会先弹审阅。
  */
 export async function acceptArtifact(
   c: ChatController,
   turnId: string,
-  target: CreationTarget,
+  draftId: string,
   text: string
 ): Promise<void> {
   const turn = c.current.turns.find((t) => t.id === turnId);
   if (!turn) {
     return;
   }
-  if (!text.trim()) {
+  const draft = c.drafts.get(draftId);
+  if (!draft) {
+    // 草稿没了（会话很老、被挤掉、或者手改过会话文件）。这时**不猜落点**：
+    // 拿当下选中的 target 顶上，会把一份剧情写到别的章去。
+    log.warn('找不到这一轮的草稿，未写入', `draftId ${draftId}`);
+    c.toast('这一轮的产物已经过期了（会话太久或已被清理），请重新生成一次。', 'error');
+    return;
+  }
+  // 前端给的是气泡里当下那份；空了就退回生成时那份原文。
+  const raw = text.trim() ? text : draft.raw;
+  if (!raw.trim()) {
     c.toast('内容是空的。', 'error');
     return;
   }
-  turn.content = text;
+  turn.content = raw;
 
-  const action = { stage: c.current.stage, capability: c.current.capability };
-  const artifact = parseDraftArtifact(action, text);
+  const artifact = parseDraftArtifact(draft.action, raw);
   if (!artifact) {
     // 解析不出来时**不写**。写一个空产物比不写更糟：作者会以为存下了。
-    log.warn('产物解析不出内容，未写入', `阶段 ${action.stage}·${action.capability}`);
+    log.warn('产物解析不出内容，未写入', `阶段 ${draft.action.stage}·${draft.action.capability}`);
     c.toast('这段内容解析不出可采纳的产物，没有写入任何文件。', 'error');
     return;
   }
 
-  const result = await writeArtifact(c.project, target, artifact);
+  const result = await writeArtifact(c.project, draft.target, artifact);
   if (result.skipped || !result.relPath) {
     c.toast(result.message);
     return;

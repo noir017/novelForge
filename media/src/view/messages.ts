@@ -211,23 +211,31 @@ function buildActions(turn: SerializedTurn): HTMLElement {
     // 这一下点下去会写到哪、会不会盖掉什么。
     const a = turn.artifact;
     bar.appendChild(mk('span', 'artifact-where', `${a.where} · ${a.summary}`));
-    const accept = mk('button', 'chip-btn', a.overwrites ? '覆盖并写入' : '采纳写入');
-    accept.classList.toggle('danger', a.overwrites);
-    accept.title = a.overwrites ? `${a.where} 已有内容，写入前会让你先对比一遍。` : `写入 ${a.where}`;
-    accept.addEventListener('click', () =>
-      vscode.postMessage({
-        type: 'acceptArtifact',
-        turnId: turn.id,
-        target: store.session.target,
-        text: currentText(),
-      })
-    );
-    bar.appendChild(accept);
+    // 草稿还在才给按钮。`artifact` 是展示快照，会话很老时它还在而草稿已经
+    // 没了——那时仍然看得出「这一轮产出过一份 4 场的场景清单」，只是采纳
+    // 不了（落点在草稿身上，猜一个出来会把产物写到别的章去）。
+    const draftId = turn.draftId;
+    if (draftId) {
+      const accept = mk('button', 'chip-btn', a.overwrites ? '覆盖并写入' : '采纳写入');
+      accept.classList.toggle('danger', a.overwrites);
+      accept.title = a.overwrites ? `${a.where} 已有内容，写入前会让你先对比一遍。` : `写入 ${a.where}`;
+      accept.addEventListener('click', () =>
+        vscode.postMessage({
+          type: 'acceptArtifact',
+          turnId: turn.id,
+          // **不带 target**：落点由后端从 draft 里取。从前这里发的是当下
+          // 选中的目标，用户生成完切了一章再点采纳就写错地方。
+          draftId,
+          text: currentText(),
+        })
+      );
+      bar.appendChild(accept);
+    }
   }
   // 没有 artifact 就没有采纳按钮：**讨论型的回答不该能写文件**。
   // 从前这里给一个「采纳写入」把任意一段文字追加进当前章节的正文，那是旧的
   // 单一产物时代留下的入口——四层产物之下，落点必须由后端算出来
-  // （`describeArtifactOf`），前端猜不出这段话该写到哪一层。
+  // （`draft.target`），前端猜不出这段话该写到哪一层。
 
   bar.appendChild(
     linkBtn('复制', () => {

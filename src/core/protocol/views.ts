@@ -223,6 +223,13 @@ export interface SerializedTurn {
   interrupted?: boolean;
   error?: string;
   reasoning?: string;
+  /**
+   * 这一轮产出的那份草稿的 id。采纳按钮带着它发回来——落点由后端从
+   * `draft.target` 取，前端猜不出一段讨论该写到哪一层。
+   *
+   * 缺席时不给采纳按钮，即使 `artifact` 那份展示快照还在（草稿过期了）。
+   */
+  draftId?: string;
   artifact?: SerializedArtifact;
 }
 

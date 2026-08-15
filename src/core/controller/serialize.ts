@@ -78,6 +78,7 @@ export function serializeTurn(t: ChatTurn): SerializedTurn {
     interrupted: t.interrupted,
     error: t.error,
     reasoning: t.reasoning,
+    draftId: t.draftId,
     artifact: t.artifact,
   };
 }

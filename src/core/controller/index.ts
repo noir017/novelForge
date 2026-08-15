@@ -272,7 +272,7 @@ export class ChatController {
         return;
 
       case 'acceptArtifact':
-        await acceptArtifact(this, msg.turnId, normalizeTarget(msg.target), msg.text);
+        await acceptArtifact(this, msg.turnId, msg.draftId, msg.text);
         return;
 
       case 'setTarget':

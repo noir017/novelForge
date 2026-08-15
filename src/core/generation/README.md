@@ -54,6 +54,7 @@ draftId → draft.target → accept(project, target, parseArtifact(action, 气�
 - **存哪里**：内存为主（`Map`，按会话分桶），随会话 JSON 一起落盘（`.novelforge/sessions/<id>.json`）
 - **不进 SQLite**：第 17 条，库只放可丢弃的痕迹。draft 是未落盘的内容，但它跟着会话走，会话本来就是 JSON
 - **留多少**：一个会话 20 份（`MAX_DRAFTS_PER_SESSION`）。`draft.raw` 与 `ChatTurn.content` 是同一段文字，全留着等于把会话文件写两遍
+- **谁装回内存**：`controller/session.ts` 的 `openSession` —— 不装回来的话按钮会在（`ChatTurn.draftId` 还在），点下去却报「已经过期」。换会话时 `dropBySession` 掉上一个，不然开一天面板会攒下几十份没人再看的正文
 - **容错**：认不出的草稿在 `model/session.ts` 的 `normalize()` 里丢掉；对不上草稿的 `draftId` 也丢掉——采纳按钮收起来，但 `ChatTurn.artifact` 那份展示快照仍在，气泡上仍看得出「这一轮产出过一份 4 场的场景清单」
 
 ## 一个字都不改装配器

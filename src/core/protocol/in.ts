@@ -37,7 +37,14 @@ export type InMessage =
   | { type: 'send'; payload: SendPayload }
   | { type: 'stop' }
   | { type: 'retry'; turnId: string; payload: SendPayload }
-  | { type: 'acceptArtifact'; turnId: string; target: CreationTarget; text: string }
+  /**
+   * 采纳这一轮的产物。
+   *
+   * **不带 target**：落点从 `draft.target` 取，前端猜不出一段讨论该写到
+   * 哪一层（第 19 条）。带 `text` 是因为用户可能在气泡里改过，采纳时以
+   * 气泡里当下那份为准重新解析。
+   */
+  | { type: 'acceptArtifact'; turnId: string; draftId: string; text: string }
   | { type: 'setTarget'; target: CreationTarget }
   | { type: 'selectPlot'; plotRelPath: string }
   | { type: 'requestPipeline'; plotRelPath?: string }

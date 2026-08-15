@@ -123,6 +123,7 @@ describe('气泡右上角的 ... 菜单', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'turnDone',
       turn: turn('a1', 'assistant', '正文', {
+        draftId: 'd1',
         artifact: { where: '第 12 段《夜入青云》 · 正文', summary: '正文 · 1 场', overwrites: false },
       }),
     });
@@ -281,7 +282,7 @@ describe('产物采纳卡片', { skip: JSDOM_SKIP }, () => {
     });
   });
 
-  // 讨论型回复**不给采纳按钮**：落点由后端算（describeArtifactOf），
+  // 讨论型回复**不给采纳按钮**：落点由后端从 draft.target 取，
   // 前端猜不出这段话该写到哪一层。从前它会被追加进当前章节的正文，
   // 那是单一产物时代留下的入口。
   test('无产物时没有采纳按钮', () => {
@@ -300,6 +301,7 @@ describe('产物采纳卡片', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'turnDone',
       turn: turn('a2', 'assistant', '{"目标":"进宗门"}', {
+        draftId: 'd2',
         artifact: { where: '第 12 段《夜入青云》 · 剧情', summary: '剧情 · 4/4 节', overwrites: false },
       }),
     });
@@ -320,9 +322,14 @@ describe('产物采纳卡片', { skip: JSDOM_SKIP }, () => {
     assert.ok(acceptSent, JSON.stringify(ui.sent.slice(-1)));
   });
 
-  test('带上当前目标', () => {
-    assert.equal(acceptSent.target.kind, 'plot');
-    assert.equal(acceptSent.target.plotRelPath, '.novelforge/plots/012-夜入青云.md');
+  // 带的是 draftId 而不是 target：落点在草稿身上。从前发的是**当下**选中的
+  // 目标，用户生成完切了一章再点采纳，产物就写到别的章去了。
+  test('带上 draftId', () => {
+    assert.equal(acceptSent.draftId, 'd2', JSON.stringify(acceptSent));
+  });
+
+  test('不带 target', () => {
+    assert.equal(acceptSent.target, undefined, JSON.stringify(acceptSent.target));
   });
 
   test('带上气泡里的文本', () => {
@@ -335,6 +342,7 @@ describe('产物采纳卡片', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'turnDone',
       turn: turn('a3', 'assistant', '{"目标":"换一版"}', {
+        draftId: 'd3',
         artifact: { where: '第 12 段《夜入青云》 · 剧情', summary: '剧情 · 4/4 节', overwrites: true },
       }),
     });
@@ -343,6 +351,25 @@ describe('产物采纳卡片', { skip: JSDOM_SKIP }, () => {
 
   test('会覆盖时按钮标红', () => {
     assert.ok(acceptBtn('a3').classList.contains('danger'));
+  });
+
+  // 草稿过期了（会话很老、被挤掉、手改过会话文件）：卡片还在——那一轮
+  // 产出过什么仍然看得见——但采纳不了。落点在草稿身上，猜一个出来会把
+  // 这份剧情写到别的章去。
+  test('草稿没了就不给采纳按钮', () => {
+    ui.post({
+      type: 'turnDone',
+      turn: turn('a4', 'assistant', '{"目标":"很久以前"}', {
+        artifact: { where: '第 12 段《夜入青云》 · 剧情', summary: '剧情 · 4/4 节', overwrites: false },
+      }),
+    });
+    assert.ok(!acceptBtn('a4'),
+      [...ui.bubble('a4').querySelectorAll('.msg-actions button')].map((b) => b.textContent).join('|'));
+  });
+
+  test('草稿没了卡片还在', () => {
+    const w = ui.bubble('a4').querySelector('.artifact-where');
+    assert.ok(w && w.textContent.includes('4/4 节'), w?.textContent);
   });
 
   // 已采纳过的那一轮不再给按钮，只给「打开」。
@@ -432,6 +459,7 @@ describe('思考过程（推理模型）', { skip: JSDOM_SKIP }, () => {
       type: 'turnDone',
       turn: turn('a1', 'assistant', '灯昏。', {
         reasoning: '先确定场景：夜里的旧书店。再补细节。',
+        draftId: 'd1',
         artifact: { where: '第 12 段《夜入青云》 · 正文', summary: '正文 · 1 场', overwrites: false },
       }),
     });
