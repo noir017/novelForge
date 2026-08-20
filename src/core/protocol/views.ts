@@ -7,6 +7,7 @@ import type {
   PipelineProgress,
   PlotStage,
 } from '../model/pipeline';
+import type { ThinkingDepth } from '../model/thinking';
 import type { SerializedAttachment } from './in';
 
 export interface ViewState {
@@ -286,6 +287,8 @@ export interface SerializedSession {
   capability: Capability;
   targetNo?: number;
   targetWords?: number;
+  /** 这个会话让模型想多深。输入框旁那个下拉框回显它。 */
+  thinking: ThinkingDepth;
   turns: SerializedTurn[];
 }
 

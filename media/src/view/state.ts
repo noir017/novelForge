@@ -6,7 +6,7 @@
  * 开销不值得多维护一份状态。
  */
 import { maybeById, setHidden } from '../dom';
-import { plotOfTarget } from '../protocol';
+import { THINKING_DEPTHS, THINKING_HINT, THINKING_LABEL, plotOfTarget } from '../protocol';
 import type { ViewState } from '../protocol';
 import { setCommandsDisabled } from './commands';
 import { fmt } from './format';
@@ -19,6 +19,7 @@ export function renderState(state: ViewState): void {
   // 改一改」。现在那两处差异由壳在渲染页面时决定要不要产出（见
   // src/shells/shared/panes.ts 的 nativeSettings），前端不再认得环境。
   renderModelSelect(state);
+  renderThinkingSelect();
 
   el.input.disabled = !hasWorkspace();
   if (!hasWorkspace()) {
@@ -134,6 +135,30 @@ function renderModelSelect(state: ViewState): void {
     el.modelSelect.appendChild(opt);
   }
   el.modelSelect.value = state.model || models[0].ref;
+}
+
+/**
+ * 输入框旁的思考深度下拉框。
+ *
+ * 选项是**固定五档**（后端那张表，前端直接打包同一份），所以只在首次渲染
+ * 时建；当前值跟着会话走，由 `syncThinkingSelect` 在每次收到 session 时回填。
+ */
+function renderThinkingSelect(): void {
+  if (el.thinkSelect.options.length === 0) {
+    for (const depth of THINKING_DEPTHS) {
+      const opt = document.createElement('option');
+      opt.value = depth;
+      opt.textContent = THINKING_LABEL[depth];
+      opt.title = THINKING_HINT[depth];
+      el.thinkSelect.appendChild(opt);
+    }
+  }
+  syncThinkingSelect();
+}
+
+/** 把会话里那一档回显到下拉框上。后端是唯一真相，这里只是画它。 */
+export function syncThinkingSelect(): void {
+  el.thinkSelect.value = store.session.thinking;
 }
 
 export function setBusy(value: boolean): void {

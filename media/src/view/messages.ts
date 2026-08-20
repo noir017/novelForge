@@ -16,7 +16,7 @@ import { countWords, fmt, timeLabel } from './format';
 import { toggleButtonMenu } from './menu';
 import { onSessionChanged } from './pipeline';
 import { el } from './refs';
-import { renderState } from './state';
+import { renderState, syncThinkingSelect } from './state';
 import { openPath, store, vscode } from './store';
 import { toast } from './toast';
 import type { SendPayload } from '../protocol';
@@ -43,6 +43,7 @@ export function renderSession(session: typeof store.session): void {
     el.messages.appendChild(buildTurn(turn));
   }
 
+  syncThinkingSelect();
   if (session.targetWords) {
     el.targetWords.value = String(session.targetWords);
   }

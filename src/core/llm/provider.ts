@@ -1,3 +1,5 @@
+import { ThinkingDepth } from '../model/thinking';
+
 /** 一次请求的真实 token 用量。字段缺席表示该服务商没给这一项。 */
 export interface TokenUsage {
   inputTokens?: number;
@@ -25,7 +27,30 @@ export type StreamEvent =
   | { type: 'text'; text: string }
   | { type: 'reasoning'; text: string }
   | { type: 'toolCall'; call: ToolCall }
-  | { type: 'usage'; usage: TokenUsage };
+  | { type: 'usage'; usage: TokenUsage }
+  /**
+   * 一整块思考收完了，带着回填下一轮要用的凭据。**不是给界面看的**
+   * （给界面看的是上面那条 `reasoning`），而是给多轮工具调用回填用。
+   */
+  | { type: 'reasoningTrace'; trace: ReasoningTrace };
+
+/**
+ * 一块思考的**原样凭据**，下一轮请求要把它交回去。
+ *
+ * 两家都要求这件事，理由也一样：工具结果在协议上是一条新的 user 消息，
+ * 但它与上一步的思考属于同一段推理。不交回去，Anthropic 会静默把这一轮的
+ * 思考关掉（文档明说是 graceful degradation，不报错——所以漏了这件事只会
+ * 表现为「开了深思考但 agent 从第二步起就不想了」，很难查），OpenAI 那边则
+ * 是白丢一次推理缓存。
+ *
+ * 载荷**对本层不透明**：`payload` 是那家协议里的原始块，由产生它的 provider
+ * 自己解释。`kind` 是必需的——作者可以在一轮对话中间换模型，另一家的凭据
+ * 拿过去只会 400，认不出的 kind 一律丢掉。
+ */
+export interface ReasoningTrace {
+  kind: 'anthropic' | 'openai';
+  payload: unknown;
+}
 
 export interface ToolSpec {
   name: string;
@@ -39,7 +64,7 @@ export type ToolChoice = 'auto' | 'none' | 'required';
 export type AgentMessage =
   | { role: 'system'; content: string }
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
+  | { role: 'assistant'; content: string; toolCalls?: ToolCall[]; traces?: ReasoningTrace[] }
   | { role: 'tool'; toolCallId: string; name: string; content: string };
 
 export interface StreamOptions {
@@ -56,6 +81,14 @@ export interface StreamOptions {
   tools?: ToolSpec[];
   /** 缺省 auto。 */
   toolChoice?: ToolChoice;
+  /**
+   * 这一轮让模型想多深。缺席或 `off` = 不带任何思考参数（服务商默认）。
+   *
+   * 只有作者选定的那个模型的调用带它（对话页续写与 agent 循环）——工程页
+   * 的后台批量任务不带，理由与第 12 条同源：那一档模型是作者按成本挑的，
+   * 替他把每一章的摘要都升级成深思考，等于绕过他的成本决定。
+   */
+  thinking?: ThinkingDepth;
 }
 
 export interface LlmProvider {

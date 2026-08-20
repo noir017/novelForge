@@ -15,6 +15,7 @@ import {
   normalizeTarget,
   stageOfTarget,
 } from './pipeline';
+import { ThinkingDepth, isThinkingDepth } from './thinking';
 
 /**
  * 会话存储：`.novelforge/sessions/<id>.json`。
@@ -207,6 +208,15 @@ export interface ChatSession {
   targetNo?: number;
   /** 目标字数，跟着会话走，省得每次重填。 */
   targetWords?: number;
+  /**
+   * 这个会话让模型想多深。
+   *
+   * **跟着会话走而不是全局设置**：想多深是「这件事有多难」的函数，不是偏好。
+   * 排一卷的走向值得让它想透，改一个错别字不值得——而这两件事往往就是相邻
+   * 的两个会话。缺席 = 不思考（`DEFAULT_THINKING_DEPTH`），也就是这个字段
+   * 出现之前的行为，老会话读进来一个字都不用改。
+   */
+  thinking?: ThinkingDepth;
   turns: ChatTurn[];
   /**
    * 本会话里尚未采纳的草稿。
@@ -303,7 +313,12 @@ export class SessionStore {
    * `seed` 让新会话继承上一个的落点：作者点「新对话」多半是想换个话题
    * 接着在**同一个地方**写，把他弹回全书大纲纯属添乱。
    */
-  create(seed?: { target?: CreationTarget; stage?: CreationStage; targetNo?: number }): ChatSession {
+  create(seed?: {
+    target?: CreationTarget;
+    stage?: CreationStage;
+    targetNo?: number;
+    thinking?: ThinkingDepth;
+  }): ChatSession {
     const at = nowIso();
     const target = seed?.target ?? { kind: 'outline' };
     const stage = seed?.stage ?? stageOfTarget(target);
@@ -316,6 +331,9 @@ export class SessionStore {
       stage,
       capability: DEFAULT_CAPABILITY[stage],
       targetNo: seed?.targetNo,
+      // 思考深度跟着继承：点「新对话」多半是换个话题接着做同样难的事，
+      // 把它弹回「不思考」等于每次都要重新选一遍。
+      thinking: seed?.thinking,
       turns: [],
       drafts: [],
     };
@@ -428,6 +446,8 @@ function normalize(id: string, raw: unknown): ChatSession {
     capability,
     targetNo: typeof o.targetNo === 'number' ? o.targetNo : undefined,
     targetWords: typeof o.targetWords === 'number' ? o.targetWords : undefined,
+    // 认不出的档位当没设过（= 不思考），不抛：手改坏一个字段不该让整个会话读不出来。
+    thinking: isThinkingDepth(o.thinking) ? o.thinking : undefined,
     turns: Array.isArray(o.turns) ? o.turns.filter(isTurn) : [],
     drafts,
   };

@@ -1,5 +1,6 @@
 import type { LlmTask, ModelTier } from '../model/tiers';
 import type { AgentPolicy } from '../model/agentPolicy';
+import type { ThinkingDepth } from '../model/thinking';
 import type {
   Capability,
   CreationStage,
@@ -77,6 +78,11 @@ export type InMessage =
       targetDir?: string;
     }
   | { type: 'selectModel'; ref: string }
+  /**
+   * 换这个会话的思考深度。**跟着会话走**（见 model/session.ts），所以不是
+   * 设置项：它与「这件事有多难」绑在一起，而那是每个会话各自的事。
+   */
+  | { type: 'setThinking'; depth: ThinkingDepth }
   | { type: 'saveSettings'; settings: SettingsPayload }
   | { type: 'setApiKey'; providerId: string }
   | { type: 'clearApiKey'; providerId: string }

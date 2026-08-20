@@ -1,11 +1,33 @@
 import type { ChatController } from './index';
 import { getHost } from '../host';
+import { THINKING_LABEL, ThinkingDepth, normalizeThinkingDepth } from '../model/thinking';
+import { scoped } from '../runtime/logger';
 import { serializeSession } from './serialize';
 import { restoreTarget, pushPipeline } from './chat';
 import { cancelGates } from './gate';
 import { persist } from './persist';
 
+const log = scoped('面板');
+
 /** 会话落盘与会话列表操作。接收 ChatController，字段只给 controller/ 同包用。 */
+
+/**
+ * 换这个会话的思考深度。
+ *
+ * 落在会话上而不是配置里（见 model/session.ts）。**当场落盘**：作者选完
+ * 「深思考」就去泡茶，回来发现面板重开后又变回不思考，是最容易让人以为
+ * 「这个开关没用」的一种表现。
+ */
+export async function setThinking(c: ChatController, depth: ThinkingDepth): Promise<void> {
+  const next = normalizeThinkingDepth(depth);
+  if ((c.current.thinking ?? 'off') === next) {
+    return;
+  }
+  c.current.thinking = next;
+  log.info(`思考深度改为「${THINKING_LABEL[next]}」`, `会话 ${c.current.id}`);
+  await persist(c);
+  c.post({ type: 'session', session: serializeSession(c.current) });
+}
 
 export async function newSession(c: ChatController): Promise<void> {
   if (c.busy) {
@@ -22,6 +44,7 @@ export async function newSession(c: ChatController): Promise<void> {
     target: c.current.target,
     stage: c.current.stage,
     targetNo: c.current.targetNo,
+    thinking: c.current.thinking,
   });
   c.pending = [];
   c.tab = 'chat';
@@ -74,6 +97,7 @@ export async function deleteSession(c: ChatController, id: string): Promise<void
       target: c.current.target,
       stage: c.current.stage,
       targetNo: c.current.targetNo,
+      thinking: c.current.thinking,
     });
     c.post({ type: 'session', session: serializeSession(c.current) });
   }

@@ -182,7 +182,9 @@ export async function runTurn(c: ChatController, payload: SendPayload, userTurn:
           assistantTurn.interrupted = true;
         },
       },
-      { signal: lease.signal }
+      // 作者在这个会话上选的那一档。第 12 条的另一面：**只有对话页选定的
+      // 那个模型**吃它，工程页的批量任务不吃。
+      { signal: lease.signal, thinking: c.current.thinking }
     ));
   } finally {
     lease.release();

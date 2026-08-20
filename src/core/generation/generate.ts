@@ -33,6 +33,7 @@ import { mergeUsage } from '../llm/collect';
 import { CancelledError, LlmProvider, StreamOptions, TokenUsage } from '../llm/provider';
 import { buildProvider, resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
+import { ThinkingDepth } from '../model/thinking';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { countWords } from '../model/fs';
@@ -95,6 +96,14 @@ export interface GenerateOptions {
    * 上下文会稳定超窗。分档池的 `primaryBudget` 正是这一份。
    */
   budget?: { contextWindow: number; maxOutputTokens: number };
+  /**
+   * 让模型想多深。缺省不带思考参数（服务商默认）。
+   *
+   * 对话页把作者在会话里选的那一档递进来；工程页的批量任务不递——第 12 条
+   * 那条理由的同一面：那一档模型是作者按成本挑的，替他把七十六章的摘要
+   * 都升级成深思考，账单上看不出是谁决定的。
+   */
+  thinking?: ThinkingDepth;
 }
 
 export interface GenerateResult {
@@ -196,6 +205,7 @@ export async function generate(
     temperature: config.temperature,
     timeoutMs: config.requestTimeoutMs,
     signal: options.signal,
+    ...(options.thinking ? { thinking: options.thinking } : {}),
   };
 
   let draft: Draft | undefined;

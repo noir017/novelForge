@@ -246,6 +246,9 @@ export async function sendAgent(
           ask: foldAttachments(userTurn.content, attachments),
           target: c.current.target,
           limits,
+          // 与对话页的单次生成同一档：作者调的是「这件事让它想多深」，
+          // 而 agent 的每一回合都是这件事的一部分。
+          thinking: c.current.thinking,
           signal: lease.signal,
           on: {
             onStep: (step, message) => {

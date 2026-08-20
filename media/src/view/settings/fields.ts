@@ -53,3 +53,26 @@ export function compactNumber(
   wrap.appendChild(input);
   return wrap;
 }
+
+/** 下拉选择。选项是 [值, 说法] 对，选中项按 value 匹配。 */
+export function selectField(
+  label: string,
+  value: string,
+  options: [string, string][],
+  onChange: (value: string) => void
+): HTMLLabelElement {
+  const wrap = mk('label', 'field');
+  wrap.appendChild(mk('span', undefined, label));
+
+  const select = mk('select') as HTMLSelectElement;
+  for (const [v, text] of options) {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = text;
+    select.appendChild(opt);
+  }
+  select.value = value;
+  select.addEventListener('change', () => onChange(select.value));
+  wrap.appendChild(select);
+  return wrap;
+}

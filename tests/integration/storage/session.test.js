@@ -250,6 +250,8 @@ describe('session.ts · SessionStore', () => {
     let legacy;
     let weird;
     let badcap;
+    let badThinking;
+    let goodThinking;
 
     before(async () => {
       fs.writeFileSync(path.join(sessionsDir, 'broken.json'), '{ 这不是 JSON');
@@ -284,6 +286,20 @@ describe('session.ts · SessionStore', () => {
         stage: 'manuscript', capability: 'split', turns: [],
       }));
       badcap = await store.read('badcap');
+
+      // 思考深度：认不出的档位当没设过（= 不思考），一个手改坏的字段
+      // 不该让整个会话读不出来。
+      fs.writeFileSync(path.join(sessionsDir, 'thinking.json'), JSON.stringify({
+        target: { kind: 'outline' }, stage: 'outline', capability: 'discuss',
+        thinking: '想很久', turns: [],
+      }));
+      badThinking = await store.read('thinking');
+
+      fs.writeFileSync(path.join(sessionsDir, 'thinking2.json'), JSON.stringify({
+        target: { kind: 'outline' }, stage: 'outline', capability: 'discuss',
+        thinking: 'high', turns: [],
+      }));
+      goodThinking = await store.read('thinking2');
     });
 
     test('损坏文件读出 undefined', () => {
@@ -292,6 +308,14 @@ describe('session.ts · SessionStore', () => {
 
     test('损坏文件不影响列表', () => {
       assert.equal(listAfterBroken.length, 2, '坏文件应被跳过');
+    });
+
+    test('认不出的思考深度当没设过', () => {
+      assert.equal(badThinking.thinking, undefined);
+    });
+
+    test('合法的思考深度原样读回', () => {
+      assert.equal(goodThinking.thinking, 'high');
     });
 
     test('缺字段时补默认标题', () => {

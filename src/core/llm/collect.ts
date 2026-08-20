@@ -6,7 +6,7 @@
  * usage / toolCall 的调用方各取所需——它们从前挂在 provider 的 options 上，
  * 那是「调用方想不想听决定 provider 发不发」，方向反了。
  */
-import { StreamEvent, TokenUsage, ToolCall } from './provider';
+import { ReasoningTrace, StreamEvent, TokenUsage, ToolCall } from './provider';
 
 export interface CollectHandlers {
   onDelta?(delta: string, full: string): void;
@@ -20,6 +20,11 @@ export interface CollectResult {
   reasoning: string;
   toolCalls: ToolCall[];
   usage: TokenUsage;
+  /**
+   * 这一轮的思考凭据，按到达顺序。**多轮工具调用要把它原样交回去**
+   * （见 provider.ts 的 `ReasoningTrace`）；单次生成用不着，忽略即可。
+   */
+  traces: ReasoningTrace[];
 }
 
 /**
@@ -47,6 +52,7 @@ export async function collect(
   let reasoning = '';
   const toolCalls: ToolCall[] = [];
   const usage: TokenUsage = {};
+  const traces: ReasoningTrace[] = [];
 
   for await (const ev of stream) {
     switch (ev.type) {
@@ -66,10 +72,13 @@ export async function collect(
         mergeUsage(usage, ev.usage);
         handlers?.onUsage?.(ev.usage);
         break;
+      case 'reasoningTrace':
+        traces.push(ev.trace);
+        break;
     }
   }
 
-  return { text, reasoning, toolCalls, usage };
+  return { text, reasoning, toolCalls, usage, traces };
 }
 
 /** 只要文本那一份。既有的 13 个调用点用这个。 */
