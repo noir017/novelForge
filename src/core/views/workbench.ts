@@ -16,13 +16,20 @@
  * `manuscript` 只给统计（字数、写了几场、场景变没变过）。上万字塞进界面上
  * 那只浮窗，既读不下去，又把「这一层齐没齐」这个真正要看的信息埋掉了；
  * 真要读，「打开」按钮就在旁边。大纲同理只给预览——它可能有几千字。
+ *
+ * ## 卷借用 `outline` 这一档
+ *
+ * 卷不是独立的创作阶段（见 model/pipeline.ts 的文件头），所以卡片的 `stage`
+ * 报 `outline`——界面上那条流水线条只有四层，凭空多一格会让四段进度错位。
+ * 标题里写清是哪一卷，读的人不会混。
  */
 import { scoped } from '../runtime/logger';
 import { basename } from 'node:path';
 import { hash } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { PLOT_SECTION_KEYS, parsePlotFileName } from '../model/plotFile';
-import { CreationTarget, STAGE_LABEL, plotLabel } from '../model/pipeline';
+import { CreationTarget, STAGE_LABEL, plotLabel, stageOfTarget, volumeLabel } from '../model/pipeline';
+import { VOLUME_SECTION_KEYS } from '../model/volumeFile';
 import { SCENE_SECTION_KEYS } from '../model/sceneFile';
 import { plotContentHash } from './pipeline';
 import { WorkbenchSection, WorkbenchView } from '../protocol';
@@ -46,7 +53,8 @@ export async function buildWorkbench(
     return await build(project, target);
   } catch (err) {
     log.warn('工作区卡取数失败', String(err));
-    return { stage: target.kind, title: STAGE_LABEL[target.kind], relPath: '', sections: [] };
+    const stage = stageOfTarget(target);
+    return { stage, title: STAGE_LABEL[stage], relPath: '', sections: [] };
   }
 }
 
@@ -62,6 +70,36 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
     };
   }
 
+  if (target.kind === 'volume') {
+    const volume = await project.readVolume(target.volumeRelPath);
+    if (!volume) {
+      return {
+        stage: 'outline',
+        title: '卷纲',
+        relPath: '',
+        sections: [],
+        empty: `找不到卷纲 ${target.volumeRelPath}，它可能刚被改名或删除。`,
+      };
+    }
+    const sections = sectionsOf(volume.sections, VOLUME_SECTION_KEYS);
+    const segments = await project.listPlotsOfVolume(volume.relPath);
+    return {
+      stage: 'outline',
+      title: `卷纲 · ${volumeLabel(volume.no, volume.title)}`,
+      relPath: volume.relPath,
+      sections: [
+        ...sections,
+        { key: '已拆出', text: segments.length > 0 ? `${segments.length} 个剧情段` : '还没拆出剧情段' },
+      ],
+      // 与细纲那一侧同一条判据：记录过上游指纹、且现在对不上，才算脏。
+      warning:
+        volume.upstreamHash && hash(await project.readOutline()) !== volume.upstreamHash
+          ? '全书大纲在这一卷之后改过，两者可能已经对不上。'
+          : undefined,
+      empty: sections.length > 0 ? undefined : '这一卷还没排走向。先把这一卷讲什么写出来，剧情段从它拆。',
+    };
+  }
+
   const plot = await project.readPlot(target.plotRelPath);
   if (!plot) {
     // 细纲不在有两种情况，说法必须分开：
@@ -72,9 +110,10 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
     // - **两边都没有**：那才是刚被改名或删掉。
     const no = parsePlotFileName(basename(target.plotRelPath))?.no ?? 0;
     const chapter = no > 0 ? (await project.listChapters()).find((c) => c.order === no) : undefined;
+    const stage = stageOfTarget(target);
     return {
-      stage: target.kind,
-      title: chapter ? `${STAGE_LABEL[target.kind]} · ${plotLabel(chapter.order, chapter.title)}` : STAGE_LABEL[target.kind],
+      stage,
+      title: chapter ? `${STAGE_LABEL[stage]} · ${plotLabel(chapter.order, chapter.title)}` : STAGE_LABEL[stage],
       relPath: chapter?.relPath ?? '',
       sections: [],
       empty: chapter

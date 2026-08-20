@@ -11,13 +11,14 @@
  */
 import { el as mk } from '../../dom';
 import type { MenuItem } from '../../globals';
-import { PLOT_STAGE_LABEL } from '../../protocol';
+import { PLOT_STAGE_LABEL, volumeLabel } from '../../protocol';
 import type {
   CastConflictView,
   CastEntry,
   CreationTarget,
   FailureView,
   ProjectPlotNode,
+  ProjectVolumeNode,
   ProjectDirNode,
   ProjectFile,
   ProjectNode,
@@ -151,24 +152,25 @@ function openTargetOf(p: ProjectPlotNode): string {
 }
 
 /**
- * 章节行：创作流水线在工程页上的落点。
+ * 章节组的一行：**一个已发布的章，或一个还没交付的剧情段**。
  *
- * 徽章、四段进度、⟳ 全在这里——它们说的是「这一章现在该做哪一步」，
- * 而那正是作者扫一眼全书要找的东西。
+ * 两种行长得像但说的不是一回事，所以文案由后端给（`p.label`：「第 12 章《夜访》」
+ * / 「剧情 4《楼道》」）——前端按 `no` 自己拼会把每个剧情段都叫成「第 N 章」，
+ * 而一个剧情段可以拆成三章。
  *
- * 一行同时代表规划（`plots/`）与成品（`chapters/`）：两边都可能缺席，
- * 菜单据此增减。老工程里只有成品的章走的也是这一条路。
+ * 徽章、四段进度、⟳ 只对**剧情段**有意义：它们说的是「这一段现在该做哪一步」。
+ * 已发布的章那一行报的是摘要状态与草稿——造它的那一段早就做完了。
  */
 function buildPlotRow(p: ProjectPlotNode): HTMLElement {
   // row-plot + data-plot 是悬停浮窗的抓手：事件委托在 projectBody 上，
   // 行被重渲染丢弃也不会留下失效的监听器。
-  const row = mk('div', 'row row-plot');
+  const row = mk('div', `row row-plot${p.kind === 'segment' ? ' row-segment' : ''}`);
   row.dataset.plot = p.relPath;
   row.style.paddingLeft = `${indentOf(0)}px`;
 
-  // 摘要挂在成品上：还没拆分发布的章没有摘要是正常的，那不是「过期」，
+  // 摘要挂在成品上：还没交付的剧情段没有摘要是正常的，那不是「过期」，
   // 是还没到那一步。给它一个空心点会让整列看起来全是待办。
-  const published = p.chapterPath !== '';
+  const published = p.kind === 'chapter';
   const dot = mk('span', `dot${published && p.stale ? ' stale' : ''}`, published && p.stale ? '○' : '●');
   dot.title = !published ? '还没拆成发布章节' : p.stale ? '摘要缺失或已过期' : '摘要为最新';
   row.appendChild(dot);
@@ -181,8 +183,12 @@ function buildPlotRow(p: ProjectPlotNode): HTMLElement {
   }
 
   const opens = openTargetOf(p);
-  const label = mk('span', 'row-label', `${String(p.no).padStart(3, '0')} ${p.title || '（未命名）'}`);
-  label.title = `${opens}\n点击在编辑器里打开；右键「进入这一章」去做下一步`;
+  // 说法由后端给：这一行可能是已发布的章，也可能是还没交付的剧情段
+  // （「第 12 章《夜访》」/「剧情 4《楼道》」）。前端按 `no` 自己拼会把每个
+  // 剧情段都叫成「第 N 章」，而一个剧情段可以拆成三章。
+  const label = mk('span', 'row-label', p.label);
+  label.title =
+    `${opens}\n点击在编辑器里打开；右键「${p.kind === 'segment' ? '进入这一段' : '进入这一章'}」去做下一步`;
   // 点名字 = **打开这一章的文件**（独立版开内置编辑器的标签页，插件形态开
   // VS Code 的 tab）。从前点名字是「进入这一章」——那会把人从工程页弹到对话页，
   // 而在工程页上扫章节列表时，想看的多半就是这一章写成了什么样。
@@ -190,17 +196,19 @@ function buildPlotRow(p: ProjectPlotNode): HTMLElement {
   label.addEventListener('click', () => openPath(opens));
   row.appendChild(label);
 
-  // 流水线徽章：这一章现在该做哪一步。全书扫一眼就知道卡在哪里，
-  // 不必逐章点开。
-  const stage = mk('span', `row-stage stage-${p.stage}`, PLOT_STAGE_LABEL[p.stage]);
-  stage.title = describeProgress(p);
-  row.appendChild(stage);
+  // 流水线徽章：这一段现在该做哪一步。全书扫一眼就知道卡在哪里，不必逐段点开。
+  // **已发布的章不挂**：它的进度永远是满格，一列「已完成」只是噪声。
+  if (p.kind === 'segment') {
+    const stage = mk('span', `row-stage stage-${p.stage}`, PLOT_STAGE_LABEL[p.stage]);
+    stage.title = describeProgress(p);
+    row.appendChild(stage);
+  }
 
-  // 上游变过（大纲/细纲/场景改了）。用 ⟳ 而不是感叹号：这不是错误，
+  // 上游变过（卷纲/细纲/场景改了）。用 ⟳ 而不是感叹号：这不是错误，
   // 是「回头看一眼」——与失败标记要分得开。
   if (p.upstreamStale) {
     const stale = mk('span', 'row-upstream', '⟳');
-    stale.title = '上游产物改过，这一章的下游可能需要重做';
+    stale.title = '上游产物改过，这一段的下游可能需要重做';
     row.appendChild(stale);
   }
 
@@ -227,12 +235,15 @@ function buildPlotRow(p: ProjectPlotNode): HTMLElement {
     items.push(
       { sep: true },
       // 点名字不再做这件事了，它是这一行唯一「会切页」的动作，单独一段。
-      { label: '进入这一章', run: () => vscode.postMessage({ type: 'selectPlot', plotRelPath: p.relPath }) },
+      {
+        label: p.kind === 'segment' ? '进入这一段' : '进入这一章',
+        run: () => vscode.postMessage({ type: 'selectPlot', plotRelPath: p.relPath }),
+      },
       { sep: true }
     );
 
     // 正文写完、还没拆成发布章节：把那一步放在最显眼的位置。
-    if (p.stage === 'split') {
+    if (p.kind === 'segment' && p.stage === 'split') {
       items.push(
         { label: '拆成章节', run: () => projectAction('splitManuscript', p.plotPath) },
         { sep: true }
@@ -241,18 +252,23 @@ function buildPlotRow(p: ProjectPlotNode): HTMLElement {
 
     // 三层入口。点哪一层就把创作页切到那一层——状态机给的是「该做的
     // 下一步」，而作者常常要回头改上一层（设计文档里的「反向流动」）。
-    items.push(
-      { label: `剧情（${pct(p.progress.plot)}）`, run: () => setTarget({ kind: 'plot', plotRelPath: p.relPath }) },
-      {
-        label: `场景（${pct(p.progress.scene)}）`,
-        run: () => setTarget({ kind: 'scene', plotRelPath: p.relPath, sceneNo: 1 }),
-      },
-      {
-        label: `正文（${pct(p.progress.manuscript)}）`,
-        run: () => setTarget({ kind: 'manuscript', plotRelPath: p.relPath }),
-      },
-      { sep: true }
-    );
+    //
+    // 只有**手上有细纲**才给：已发布的章找不到来源段时（老工程里每一章都是）
+    // 这三项会指到一个不存在的落点上。
+    if (p.plotPath) {
+      items.push(
+        { label: `剧情（${pct(p.progress.plot)}）`, run: () => setTarget({ kind: 'plot', plotRelPath: p.plotPath }) },
+        {
+          label: `场景（${pct(p.progress.scene)}）`,
+          run: () => setTarget({ kind: 'scene', plotRelPath: p.plotPath, sceneNo: 1 }),
+        },
+        {
+          label: `正文（${pct(p.progress.manuscript)}）`,
+          run: () => setTarget({ kind: 'manuscript', plotRelPath: p.plotPath }),
+        },
+        { sep: true }
+      );
+    }
 
     // 总结、看摘要、草稿都只对已发布的章成立——三者读的都是成品。
     if (published) {
@@ -280,9 +296,83 @@ function buildPlotRow(p: ProjectPlotNode): HTMLElement {
   return row;
 }
 
-/** 章节组的全部行。扁平列表——顺序即写作顺序。 */
+/**
+ * 章节组的全部行。扁平列表——顺序即写作顺序（已发布的章在前，待写的剧情段在后）。
+ *
+ * 两段之间插一条分隔：那正是「写到哪了」的位置，扫一眼就看得见。
+ */
 export function buildPlotRows(plots: ProjectPlotNode[]): HTMLElement[] {
-  return plots.map(buildPlotRow);
+  const rows: HTMLElement[] = [];
+  let inserted = false;
+  for (const p of plots) {
+    if (!inserted && p.kind === 'segment' && rows.length > 0) {
+      rows.push(mk('div', 'row-divider hint', '以下是还没拆成章的剧情段'));
+      inserted = true;
+    }
+    rows.push(buildPlotRow(p));
+  }
+  return rows;
+}
+
+/**
+ * 卷组的一行。**复用章节行的骨架**：序号 + 名字 + 徽章 + 字数 + 右键菜单。
+ *
+ * 卷上能做的事比段少得多——它只有一份卷纲，没有场景也没有正文。所以徽章报的是
+ * 「拆出几段、交付了几段」，而不是四段进度。
+ */
+function buildVolumeRow(v: ProjectVolumeNode): HTMLElement {
+  const row = mk('div', 'row row-plot row-volume');
+  row.style.paddingLeft = `${indentOf(0)}px`;
+
+  const dot = mk('span', `dot${v.filled ? '' : ' stale'}`, v.filled ? '●' : '○');
+  dot.title = v.filled ? '卷纲已排过走向' : '卷纲还是空壳——先把这一卷讲什么写出来，再拆剧情段';
+  row.appendChild(dot);
+
+  const mark = failureMark(v.relPath);
+  if (mark) {
+    row.appendChild(mark);
+  }
+
+  const label = mk('span', 'row-label', volumeLabel(v.no, v.title));
+  label.title = `${v.relPath}\n点击在编辑器里打开卷纲；右键「进入这一卷」去拆剧情段`;
+  label.addEventListener('click', () => openPath(v.relPath));
+  row.appendChild(label);
+
+  const badge = mk(
+    'span',
+    'row-stage stage-plot',
+    v.segmentCount === 0 ? '待拆剧情段' : `${v.deliveredCount}/${v.segmentCount} 段已交付`
+  );
+  badge.title = '这一卷拆出了多少剧情段，其中多少已经拆成发布章节。';
+  row.appendChild(badge);
+
+  if (v.upstreamStale) {
+    const stale = mk('span', 'row-upstream', '⟳');
+    stale.title = '全书大纲在这一卷之后改过，这一卷可能需要回头看一眼';
+    row.appendChild(stale);
+  }
+
+  row.appendChild(mk('span', 'meta', v.wordCount > 0 ? formatWords(v.wordCount) : '未写'));
+
+  onContextMenu(row, () => [
+    { label: '打开卷纲', run: () => openPath(v.relPath) },
+    { sep: true },
+    // 卷上唯一的创作动作：进去拆下一个剧情段（主按钮会是「拆出剧情段」）。
+    {
+      label: '进入这一卷',
+      run: () => setTarget({ kind: 'volume', volumeRelPath: v.relPath }),
+    },
+    { sep: true },
+    // **没有「移动到…」**：卷的落点由卷号决定，挪走只会让它收纳的段变成孤儿。
+    { label: '重命名', run: () => fileAction('rename', v.relPath) },
+    { label: '删除（移到回收站）', danger: true, run: () => fileAction('delete', v.relPath) },
+  ]);
+  return row;
+}
+
+/** 卷组的全部行。扁平列表——顺序即卷号。 */
+export function buildVolumeRows(volumes: ProjectVolumeNode[]): HTMLElement[] {
+  return volumes.map(buildVolumeRow);
 }
 
 /** 四段完成度，鼠标移上去看得见。 */

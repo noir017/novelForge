@@ -25,17 +25,26 @@
 import { pickSections } from '../model/markdown';
 import { PLOT_SECTION_KEYS, PlotSections, emptyPlotSections } from '../model/plotFile';
 import { SCENE_SECTION_KEYS, SceneSections, emptySceneSections } from '../model/sceneFile';
-import { CreationAction } from '../model/pipeline';
+import { CreationAction, CreationTarget } from '../model/pipeline';
 import { extractJsonObject, stripCodeFence } from './parse';
 import { toSectionText } from './summarize';
 
 // ---------------------------------------------------------------- 产物形状
 
-/** 大纲拆章的一项。`no` 缺席时由调用方按现有章数续号。 */
+/** 卷纲拆出的一个剧情段。`no` 缺席时由调用方按现有段数续号。 */
 export interface PlotOutlineItem {
   no?: number;
   title: string;
   goal: string;
+  arc: string;
+}
+
+/** 大纲拆卷的一项。`no` 缺席时由调用方按现有卷数续号。 */
+export interface VolumeOutlineItem {
+  no?: number;
+  title: string;
+  goal: string;
+  /** 这一卷的剧情走向。卷纲的主体那一节，`isVolumeFilled` 只看它。 */
   arc: string;
 }
 
@@ -51,11 +60,20 @@ export interface SceneOutlineItem {
 
 /**
  * 解析出来的产物。`kind` 与 `CreationTarget.kind` 不完全对应——
- * `split` 产出的是**下一层**的东西（大纲 split 出章节清单，剧情 split 出场景清单）。
+ * `split` 产出的是**下一层**的东西（大纲 split 出分卷清单，卷 split 出一个
+ * 剧情段，剧情 split 出场景清单）。
  */
 export type Artifact =
   | { kind: 'outlineDoc'; text: string }
-  | { kind: 'plotList'; plots: PlotOutlineItem[] }
+  | { kind: 'volumeList'; volumes: VolumeOutlineItem[] }
+  /**
+   * 从一卷里拆出来的**一个**剧情段。
+   *
+   * 刻意不是列表：一次吐五段只会得到一串彼此没有因果的骨架（那正是「大纲直接
+   * 拆章」的老毛病）。一次一段，模型手上有卷纲、也有这一卷已经排到哪了，
+   * 「接下来该发生什么」才答得准。
+   */
+  | { kind: 'plotSegment'; segment: PlotOutlineItem }
   | { kind: 'plot'; sections: PlotSections }
   | { kind: 'sceneList'; scenes: SceneOutlineItem[] }
   | {
@@ -72,21 +90,31 @@ export type Artifact =
  * 按 action 解析。**绝不抛**：解析这一步出异常，用户丢的是刚花掉的那次调用。
  * 实在认不出就退回一个「全文塞进主字段」的产物，让他至少能手工取用。
  */
-export function parseArtifact(action: CreationAction, raw: string): Artifact {
+export function parseArtifact(
+  action: CreationAction,
+  target: CreationTarget,
+  raw: string
+): Artifact {
   const text = stripCodeFence(raw).trim();
   const { stage, capability } = action;
 
   if (stage === 'manuscript') {
     return { kind: 'manuscript', text };
   }
+  // 大纲这一层有两种 target，`split` 在两者上产出的东西完全不同：全书大纲拆出
+  // 分卷清单，一卷拆出一个剧情段。**只看 stage 是分不开的**——那正是为什么
+  // 这个函数要收 target（卷不是独立阶段，见 model/pipeline.ts 的文件头）。
   if (capability === 'split') {
-    return stage === 'outline'
-      ? { kind: 'plotList', plots: parsePlotList(text) }
-      : { kind: 'sceneList', scenes: parseSceneList(text) };
+    if (stage === 'outline') {
+      return target.kind === 'volume'
+        ? { kind: 'plotSegment', segment: parsePlotSegment(text) }
+        : { kind: 'volumeList', volumes: parseVolumeList(text) };
+    }
+    return { kind: 'sceneList', scenes: parseSceneList(text) };
   }
   switch (stage) {
     case 'outline':
-      // 大纲本来就是 Markdown，没有 JSON 可解——原样收下。
+      // 卷纲与全书大纲都是 Markdown，没有 JSON 可解——原样收下。
       return { kind: 'outlineDoc', text };
     case 'plot':
       return { kind: 'plot', sections: parsePlotSections(text) };
@@ -101,8 +129,10 @@ export function isArtifactEmpty(artifact: Artifact): boolean {
     case 'outlineDoc':
     case 'manuscript':
       return !artifact.text.trim();
-    case 'plotList':
-      return artifact.plots.length === 0;
+    case 'volumeList':
+      return artifact.volumes.length === 0;
+    case 'plotSegment':
+      return !artifact.segment.title.trim() && !artifact.segment.goal.trim();
     case 'sceneList':
       return artifact.scenes.length === 0;
     case 'plot':
@@ -117,8 +147,10 @@ export function describeArtifact(artifact: Artifact): string {
   switch (artifact.kind) {
     case 'outlineDoc':
       return `全书大纲 · ${artifact.text.length} 字`;
-    case 'plotList':
-      return `${artifact.plots.length} 章的细纲`;
+    case 'volumeList':
+      return `${artifact.volumes.length} 卷`;
+    case 'plotSegment':
+      return `1 个剧情段 · ${artifact.segment.title || '（未命名）'}`;
     case 'plot': {
       const filled = Object.values(artifact.sections).filter((v) => v.trim()).length;
       return `剧情 · ${filled}/${PLOT_SECTION_KEYS.length} 节`;
@@ -209,7 +241,65 @@ function parseSceneCard(text: string): Extract<Artifact, { kind: 'scene' }> {
 
 // ---------------------------------------------------------------- 清单类
 
-/** 大纲拆章。JSON `{plots:[…]}` → 裸数组 → Markdown 列表逐行。 */
+/**
+ * 大纲拆卷。JSON `{volumes:[…]}` → 裸数组 → Markdown 列表逐行。
+ *
+ * 三层降级与 `parsePlotList` 逐条同构：一行纯文本也收下（当卷名兼目标），
+ * 因为解析失败等于这一次调用白花钱。
+ */
+export function parseVolumeList(text: string): VolumeOutlineItem[] {
+  const rows = listOf(text, 'volumes', '分卷', '卷');
+  const out: VolumeOutlineItem[] = [];
+  for (const row of rows) {
+    if (typeof row === 'string') {
+      const title = cleanListLine(row);
+      if (title) {
+        out.push({ title: clipTitle(title), goal: title, arc: '' });
+      }
+      continue;
+    }
+    if (typeof row !== 'object' || row === null) {
+      continue;
+    }
+    const o = row as Record<string, unknown>;
+    const title = str(o.title ?? o.标题 ?? o.name ?? o.卷名);
+    const goal = str(o.goal ?? o.目标 ?? o.summary ?? o.梗概);
+    if (!title && !goal) {
+      continue;
+    }
+    out.push({
+      no: num(o.no ?? o.序号 ?? o.order ?? o.volume ?? o.卷号),
+      title: clipTitle(title || goal),
+      goal,
+      arc: toSectionText(o.arc ?? o.剧情走向 ?? o.走向 ?? o.脉络),
+    });
+  }
+  return out;
+}
+
+/**
+ * 卷纲拆出**一个**剧情段。
+ *
+ * 模型仍然可能吐一个列表（提示词说了一次一段，但它不总听）。那时**只取第一项**
+ * 而不是全收：契约是一次一段，收下三段会让「一次只拆一段」这条设计在数据这一侧
+ * 悄悄失效，而作者以为自己点的是「拆一段」。
+ *
+ * 一项都解析不出来时退回「全文当目标」的兜底——与 `parsePlotSections` 同一条
+ * 理由：至少留住这次调用。
+ */
+export function parsePlotSegment(text: string): PlotOutlineItem {
+  const first = parsePlotList(text)[0];
+  if (first) {
+    return first;
+  }
+  const obj = objectOf(text);
+  const title = obj ? str(obj.title ?? obj.标题 ?? obj.name) : '';
+  const goal = obj ? str(obj.goal ?? obj.目标 ?? obj.summary) : '';
+  const fallback = (goal || text).trim();
+  return { title: clipTitle(title || fallback), goal: fallback, arc: obj ? str(obj.arc ?? obj.幕) : '' };
+}
+
+/** 卷纲拆段（多项形态）。JSON `{plots:[…]}` → 裸数组 → Markdown 列表逐行。 */
 export function parsePlotList(text: string): PlotOutlineItem[] {
   const rows = listOf(text, 'plots', 'chapters', '剧情', '章节');
   const out: PlotOutlineItem[] = [];

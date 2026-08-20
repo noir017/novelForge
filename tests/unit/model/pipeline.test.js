@@ -61,7 +61,7 @@ describe('pipeline.ts · Stage × Capability', () => {
     assert.ok(!pipeline.STAGE_CAPABILITIES.scene.includes('split'));
   });
 
-  test('大纲阶段可以拆成章节', () => {
+  test('大纲阶段可以拆分', () => {
     assert.ok(pipeline.STAGE_CAPABILITIES.outline.includes('split'));
   });
 
@@ -365,6 +365,7 @@ describe('plotFile.ts · 解析与渲染', () => {
       targetWords: 3000,
       upstreamHash: '3f2a1c0000000000',
       done: false,
+      chapters: [],
       sections: {
         目标: '林昭拿到入宗名额，同时被沈砚盯上。',
         剧情脉络:
@@ -383,6 +384,7 @@ describe('plotFile.ts · 解析与渲染', () => {
       title: 'x',
       arc: '',
       done: false,
+      chapters: [],
       sections: plotFile.emptyPlotSections(),
     });
 
@@ -435,8 +437,10 @@ describe('plotFile.ts · 解析与渲染', () => {
     assert.equal(back.done, false);
   });
 
+  // 标题行说「剧情段」而不是「第 N 章」：段号只是 `plots/` 里的排序键，
+  // 一段可以拆成三章，写成「第 12 章」会在文件里留下一个假承诺。
   test('渲染带标题行', () => {
-    assert.ok(rendered.includes('# 第12章 夜入青云 · 剧情'), rendered.split('\n').slice(0, 12).join('\n'));
+    assert.ok(rendered.includes('# 剧情段 12 夜入青云'), rendered.split('\n').slice(0, 12).join('\n'));
   });
 
   // 四节都在，且**没有「开头」「结尾」**——这是整次重构的落点：细纲不再
@@ -932,8 +936,8 @@ describe('pipeline.ts · 下一步（状态机 → 一个动作）', () => {
   });
 });
 
-describe('pipeline.ts · 全书状态（大纲 → 章节 → 按章推进）', () => {
-  const B = (patch) => ({ outlineFilled: false, plotCount: 0, ...patch });
+describe('pipeline.ts · 全书状态（大纲 → 卷 → 剧情段 → 按段推进）', () => {
+  const B = (patch) => ({ outlineFilled: false, volumeCount: 0, plotCount: 0, ...patch });
   const stage = (patch) => pipeline.deriveBookStage(B(patch));
 
   test('没大纲 → 写大纲', () => {
@@ -941,17 +945,26 @@ describe('pipeline.ts · 全书状态（大纲 → 章节 → 按章推进）', 
   });
 
   // 有段但大纲空着（作者先手写了几段再回头补大纲）仍然先催大纲：
-  // 后面三层都从它展开，空着的话每一段的上下文都少一块。
+  // 后面几层都从它展开，空着的话每一段的上下文都少一块。
   test('大纲空着时段数不算数', () => {
     assert.equal(stage({ plotCount: 5 }), 'outline');
   });
 
-  test('有大纲没章 → 拆成章节', () => {
-    assert.equal(stage({ outlineFilled: true }), 'plots');
+  test('有大纲没卷 → 拆成卷', () => {
+    assert.equal(stage({ outlineFilled: true }), 'volumes');
+  });
+
+  test('有卷没段 → 拆剧情段', () => {
+    assert.equal(stage({ outlineFilled: true, volumeCount: 2 }), 'plots');
   });
 
   test('有段 → 交给按段流水线', () => {
-    assert.equal(stage({ outlineFilled: true, plotCount: 1 }), 'working');
+    assert.equal(stage({ outlineFilled: true, volumeCount: 1, plotCount: 1 }), 'working');
+  });
+
+  // 老工程一份卷纲都没有，但它写了 99 章——把它拉回「先把大纲拆成卷」是荒唐的。
+  test('老工程（有章没卷）直接算在写', () => {
+    assert.equal(stage({ outlineFilled: true, volumeCount: 0, plotCount: 99 }), 'working');
   });
 
   // ---- 全书下一步 ----
@@ -962,13 +975,23 @@ describe('pipeline.ts · 全书状态（大纲 → 章节 → 按章推进）', 
     assert.equal(step('outline').capability, 'generate');
   });
 
-  test('拆段阶段 → 大纲的 split', () => {
-    assert.equal(step('plots').stage, 'outline');
-    assert.equal(step('plots').capability, 'split');
+  test('拆卷阶段 → 大纲的 split', () => {
+    assert.equal(step('volumes').stage, 'outline');
+    assert.equal(step('volumes').capability, 'split');
   });
 
-  test('拆章的按钮写着「拆成章节」', () => {
-    assert.equal(step('plots').label, '拆成章节');
+  test('拆卷的按钮写着「拆成卷」', () => {
+    assert.equal(step('volumes').label, '拆成卷');
+  });
+
+  // 同一个 stage×capability，落在一卷上时说法必须变——它拆出来的是一个剧情段。
+  test('拆段的按钮写着「拆出剧情段」', () => {
+    assert.equal(step('plots').label, '拆出剧情段');
+  });
+
+  test('拆段阶段仍是大纲的 split', () => {
+    assert.equal(step('plots').stage, 'outline');
+    assert.equal(step('plots').capability, 'split');
   });
 
   // 段已经有了：该做什么由**选中的那一段**决定，挑哪一段是作者的选择。
@@ -976,8 +999,8 @@ describe('pipeline.ts · 全书状态（大纲 → 章节 → 按章推进）', 
     assert.equal(step('working'), undefined);
   });
 
-  test('两个全书下一步的能力都合法', () => {
-    for (const s of ['outline', 'plots']) {
+  test('全书下一步的能力都合法', () => {
+    for (const s of ['outline', 'volumes', 'plots']) {
       const next = step(s);
       assert.ok(
         pipeline.STAGE_CAPABILITIES[next.stage].includes(next.capability),
@@ -1035,8 +1058,19 @@ describe('pipeline.ts · 命令表', () => {
   });
 
   // 同一个能力在不同阶段的说法不同——split 在大纲拆的是段，在剧情层拆的是场。
-  test('大纲的 split 叫拆成章节', () => {
-    assert.equal(pipeline.labelOf('outline', 'split'), '拆成章节');
+  test('大纲的 split 叫拆成卷', () => {
+    assert.equal(pipeline.labelOf('outline', 'split'), '拆成卷');
+  });
+
+  // 大纲这一层有两种 target，同一个 split 的说法必须跟着 target 变。
+  test('落在一卷上时 split 叫拆出剧情段', () => {
+    assert.equal(pipeline.labelOf('outline', 'split', 'volume'), '拆出剧情段');
+  });
+
+  test('命令表也跟着 target 变', () => {
+    const onVolume = pipeline.commandsFor('outline', 'volume').find((c) => c.capability === 'split');
+    assert.equal(onVolume.label, '拆出剧情段');
+    assert.match(onVolume.hint, /一次只拆一段/);
   });
 
   test('剧情的 split 叫拆成场景', () => {

@@ -23,7 +23,9 @@ export type ItemKind =
   | 'history'
   /** 全书大纲原文。与 `ask` 分开：一个是产物，一个是这一轮的指令。 */
   | 'outlineDoc'
-  /** 一章的细纲。 */
+  /** 一卷的卷纲，或全书分卷一览。 */
+  | 'volume'
+  /** 一个剧情段的细纲。 */
   | 'plot'
   /** 场景卡。 */
   | 'scene'
@@ -73,6 +75,12 @@ export type LayerId =
   | 'history'
   // 产物
   | 'outlineDoc'
+  /** 全书分卷一览（每卷一行目标）。拆卷时它是「已经有哪些卷」，拆段时是「我在哪一卷」。 */
+  | 'volumeList'
+  /** 目标那一卷的卷纲原文。从这一卷拆剧情段时的主要依据。 */
+  | 'volumeSelf'
+  /** 这一卷已经拆出来的剧情段（每段一行目标）。下一段要接着它们往下走。 */
+  | 'volumeSegments'
   | 'plotSelf'
   /** 前几章的细纲原文（上文）。 */
   | 'plotPrev'

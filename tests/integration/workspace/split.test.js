@@ -255,26 +255,31 @@ describe('摘要 · sourceHash 记的是成品的 contentHash', () => {
   });
 });
 
-describe('拆分 · 先移号再落盘', () => {
+describe('拆分 · 只拆自己，不动别人', () => {
   const plotRel = '.novelforge/plots/012-入宗.md';
   let created;
+  let startNo;
 
   before(async () => {
-    // 后面还有两章已规划、没拆分的，拆成 3 章之后它们要整体顺延 2 位。
+    // 后面还有两段已规划、没拆分的。从前它们要整体顺延 2 位（连带搬走场景目录
+    // 与中转站正文）；段号与章号成了两条轴之后，那一步整个不需要了。
     for (const [no, title] of [[13, '甲'], [14, '乙']]) {
       const rel = await ws.writePlot({
-        no, title, arc: '', upstreamHash: '', done: false, sections: filled(),
+        no, title, arc: '', upstreamHash: '', done: false, chapters: [], sections: filled(),
       });
       await ws.writeScene(rel, {
         plotRelPath: rel, no: 1, title: '一场', place: '', time: '', characters: [],
         upstreamHash: '', status: 'ready',
         sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
       });
-      await ws.appendToManuscript(rel, `第 ${no} 章的正文。`);
+      await ws.appendToManuscript(rel, `第 ${no} 段的正文。`);
     }
-    // 第 12 章此刻已有两段正文，再补一段，拆出来就是三章。
+    // 第 12 段此刻已有两段正文，再补一段，拆出来就是三章。
     await ws.appendToManuscript(plotRel, '他推开了藏书阁的门。');
     project.invalidate();
+    // 章号接在**最大章号**之后（`nextChapterNo`），不是「章数 + 1」——
+    // 老工程里章号可能本来就不连续。
+    startNo = await project.nextChapterNo();
 
     h.expect('拆分');
     created = await bundle.split.splitManuscript(project, plotRel);
@@ -284,14 +289,15 @@ describe('拆分 · 先移号再落盘', () => {
     assert.equal(created.length, 3, JSON.stringify(created));
   });
 
-  test('第一章沿用原标题', () => {
-    assert.equal(created[0], 'chapters/012-入宗.md', created[0]);
+  // 章号接在**现有最后一章**之后，与这一段的段号（12）无关。
+  test('章号接在现有最后一章之后', () => {
+    assert.equal(created[0], `chapters/${String(startNo).padStart(3, '0')}-入宗.md`, created[0]);
   });
 
   // 不调模型拟标题：那要么多花一次调用，要么在纯机械的动作里插一次网络请求。
   test('其余落成纯序号名', () => {
-    assert.equal(created[1], 'chapters/013.md', created[1]);
-    assert.equal(created[2], 'chapters/014.md', created[2]);
+    assert.equal(created[1], `chapters/${String(startNo + 1).padStart(3, '0')}.md`, created[1]);
+    assert.equal(created[2], `chapters/${String(startNo + 2).padStart(3, '0')}.md`, created[2]);
   });
 
   test('中转站那份进了回收站', () => {
@@ -299,26 +305,31 @@ describe('拆分 · 先移号再落盘', () => {
     assert.ok(t.has('.novelforge/.trash/.novelforge/manuscripts/012-入宗.md'));
   });
 
-  // **先移号再落盘**：反过来的话，落盘之后重编号失败会留下
-  // 「章节已建好、后面的细纲还撞着号」的中间态。
-  test('后面已规划的章号整体顺延 2 位', async () => {
+  // 这是这次改动的落点：**一个别的文件都不动**。
+  test('后面已规划的段号没被挪', async () => {
     const nos = (await project.listPlots()).map((p) => p.no).sort((a, b) => a - b);
-    assert.ok(nos.includes(15) && nos.includes(16), nos.join('|'));
+    assert.ok(nos.includes(13) && nos.includes(14), nos.join('|'));
   });
 
-  test('顺延后旧号上没有留下孤儿细纲', () => {
-    assert.ok(!t.has('.novelforge/plots/013-甲.md'));
-    assert.ok(!t.has('.novelforge/plots/014-乙.md'));
+  test('它们的细纲还在原路径上', () => {
+    assert.ok(t.has('.novelforge/plots/013-甲.md'));
+    assert.ok(t.has('.novelforge/plots/014-乙.md'));
   });
 
-  test('顺延的章的场景目录跟着改名', () => {
-    assert.ok(t.has('.novelforge/scenes/015-甲/01-一场.md'));
-    assert.ok(t.has('.novelforge/scenes/016-乙/01-一场.md'));
+  test('它们的场景目录没被搬走', () => {
+    assert.ok(t.has('.novelforge/scenes/013-甲/01-一场.md'));
+    assert.ok(t.has('.novelforge/scenes/014-乙/01-一场.md'));
   });
 
-  test('顺延的章的中转站正文跟着改名', () => {
-    assert.ok(t.has('.novelforge/manuscripts/015-甲.md'));
-    assert.ok(t.has('.novelforge/manuscripts/016-乙.md'));
+  test('它们的中转站正文没被搬走', () => {
+    assert.ok(t.has('.novelforge/manuscripts/013-甲.md'));
+    assert.ok(t.has('.novelforge/manuscripts/014-乙.md'));
+  });
+
+  // 「段 → 章」的链是显式的：拆完把落点记进这一段的 frontmatter。
+  test('落点记进了这一段的 frontmatter', async () => {
+    const plot = await project.readPlot(plotRel);
+    assert.deepEqual(plot.chapters, created, JSON.stringify(plot.chapters));
   });
 
   test('拆出来的章进了 manifest', async () => {

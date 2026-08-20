@@ -18,15 +18,24 @@
  *   一边把整份剧情重写一遍，而用户根本不知道该采纳哪一个。
  * - `artifact`：产出结构化的产物，可以采纳落盘。
  */
-import { Capability, CreationAction, CreationStage, STAGE_ROLE, outputKindOf } from '../model/pipeline';
+import {
+  Capability,
+  CreationAction,
+  CreationStage,
+  CreationTarget,
+  STAGE_ROLE,
+  outputKindOf,
+} from '../model/pipeline';
 import { PLOT_SECTION_KEYS } from '../model/plotFile';
+import { VOLUME_SECTION_KEYS } from '../model/volumeFile';
 import { SCENE_SECTION_KEYS } from '../model/sceneFile';
 import { NovelConfig } from '../model/types';
 
 /** 每个阶段管什么、**不管**什么。后半句同样要紧：越界是这套设计最主要的失败方式。 */
 const STAGE_DUTY: Record<CreationStage, string> = {
   outline:
-    '你负责整个故事的结构：主线走向、幕与幕的因果、冲突的升级曲线、伏笔的埋与收。' +
+    '你负责整个故事的结构：主线走向、分卷与分卷的因果、冲突的升级曲线、伏笔的埋与收。' +
+    '这一层也管**分卷**——把全书切成若干卷，以及把一卷切成一个个剧情段。\n' +
     '你不写具体场景，也不写正文——那是后面几层的事。',
   // 这一层是整套设计最容易被写歪的地方，所以把「不做什么」写得比「做什么」更细。
   // 从前它要求给出这一章的开头与结尾画面——那既抢了场景层的活，又逼着每一章
@@ -61,7 +70,9 @@ const CAPABILITY_TASK: Record<Capability, string> = {
   check:
     '作者要你对账：把当前内容与已给出的设定、角色、伏笔、时间线逐条比对，找出**冲突**。' +
     '每条都要指出与什么冲突、依据是上面哪一段。没有冲突就明确说没有。',
-  split: '作者要你把当前这一层拆成下一层。拆出来的每一项都要能独立成立，不要留「后面再说」的空档。',
+  split:
+    '作者要你把当前这一层拆成下一层。拆出来的每一项都要能独立成立，不要留「后面再说」的空档。' +
+    '**要拆成几项由下面的输出契约说**——它说只给一项时就只给一项。',
   generate:
     '作者已经描述了他想要的走向（见下面「我的要求」）。**按他说的产出**，不要另起炉灶改走向；' +
     '他没说到的地方，顺着已有设定与前后文补上，别停在半截。',
@@ -128,12 +139,62 @@ export function buildSystemPrompt(action: CreationAction, config: NovelConfig, t
 }
 
 /**
+ * 大纲 → 分卷清单。
+ *
+ * 从前这一步直接拆成「一章一章的剧情」。跨度太大：全书大纲那一两千字里没有
+ * 足够的信息去决定第 7 章该发生什么，模型只能一次吐五章骨架，而那五章彼此的
+ * 因果薄得像一份目录。中间插一层卷，每一卷是一条完整的中等弧线。
+ */
+const SPLIT_OUTLINE_INTO_VOLUMES = [
+  '请把上面的大纲拆成若干卷，只输出 JSON，不要有任何其它文字：',
+  '',
+  '```json',
+  '{"volumes":[{"no":1,"title":"觉醒之日","goal":"林昭活着走出青云镇，并知道自己身上那道印记是什么",' +
+    '"arc":"从她在客栈发烧醒来开始……最后收在她决定往北走。"}]}',
+  '```',
+  '',
+  '一卷是一条完整的中等弧线：有自己的开局、升级与收束，通常十几到几十万字。',
+  'goal 必须是一个能判断「达成没达成」的具体结果，不要写「继续推进剧情」这种。',
+  'arc 写这一卷的剧情走向：从什么局面开始、经过哪些事、收在什么局面上，几句话即可，' +
+    '细的走向留给「写这一卷的卷纲」那一步。',
+  '**不要在这里切剧情段**——那是下一步的事，而且一次只切一段。',
+].join('\n');
+
+/**
+ * 卷纲 → **一个**剧情段。
+ *
+ * 一次一段是刻意的。一次吐五段只会得到一串彼此没有因果的骨架（那正是「大纲直接
+ * 拆章」的老毛病）；一次一段时，模型手上有卷纲、也有这一卷已经排到哪了，
+ * 「接下来该发生什么」才答得准。上下文里那两层（`volumeSelf` / `volumeSegments`）
+ * 就是为这一步铺的。
+ */
+const SPLIT_VOLUME_INTO_SEGMENT = [
+  '请从这一卷里拆出**下一个**剧情段，只输出 JSON，不要有任何其它文字：',
+  '',
+  '```json',
+  '{"plots":[{"title":"楼道","goal":"林昭拿到三楼那把钥匙，同时被邻居认出来",' +
+    '"arc":"第一幕 · 入局"}]}',
+  '```',
+  '',
+  '**只给一段。** 上面已经列出这一卷排到哪了（若还没有，这就是第一段）——' +
+  '你要给的是紧接着它往下的那一段，不是重复已有的，也不是跳到后面去的。',
+  '一段是一段按剧情自然长度展开的内容：它不必正好凑成一章，写出来之后由作者' +
+  '决定在哪里断章。所以不要为了凑一章而注水，也不要为了收在一章之内而强行收束。',
+  'goal 必须是一个能判断「达成没达成」的具体结果，不要写「继续推进剧情」这种。',
+  'arc 可选，写它属于这一卷的哪一幕；说不清就留空字符串。',
+].join('\n');
+
+/**
  * 输出契约：附在 user 消息末尾的那段「现在请你产出什么」。
  *
  * 结构化产物一律要求 JSON。解析侧必须三层降级（JSON → Markdown 小节 → 全文），
  * 与单章摘要同一套——模型不听话是常态，而解析失败等于这一次生成白花钱。
  */
-export function buildOutputContract(action: CreationAction, targetWords?: number): string {
+export function buildOutputContract(
+  action: CreationAction,
+  targetWords?: number,
+  targetKind?: CreationTarget['kind']
+): string {
   const { stage, capability } = action;
 
   if (outputKindOf(action) === 'text') {
@@ -146,21 +207,29 @@ export function buildOutputContract(action: CreationAction, targetWords?: number
 
   switch (stage) {
     case 'outline':
-      return capability === 'split'
+      // 大纲这一层有两种 target，`split` 在两者上要的东西完全不同：全书大纲拆出
+      // 分卷清单，一卷拆出**一个**剧情段。判据与 `parseArtifact` 同源。
+      if (capability === 'split') {
+        return targetKind === 'volume' ? SPLIT_VOLUME_INTO_SEGMENT : SPLIT_OUTLINE_INTO_VOLUMES;
+      }
+      return targetKind === 'volume'
         ? [
-            '请把上面的大纲拆成一章一章的剧情，只输出 JSON，不要有任何其它文字：',
+            '请输出这一卷完整的卷纲，用 Markdown 小节书写，小节名就用下面这四个：',
             '',
-            '```json',
-            '{"plots":[{"no":1,"title":"入宗风波","goal":"林昭拿到入宗名额，同时被沈砚盯上",' +
-              '"arc":"第一幕 · 入局"}]}',
-            '```',
+            ...VOLUME_SECTION_KEYS.map((k) => `## ${k}`),
             '',
-            '每一章是一个完整的事件或一次转折，展开后约三千字正文的体量。',
-            'goal 必须是一个能判断「达成没达成」的具体结果，不要写「继续推进剧情」这种。',
+            '「目标」一句话说清这一卷要达成什么，必须是能判断「达成没达成」的具体结果。',
+            '「剧情走向」是主体：这一卷从什么局面开始、经过哪些事、收在什么局面上，' +
+              '按因果顺序写。它是拆剧情段的依据，写到「能据此判断下一段该发生什么」为止。',
+            '「关键转折」说清这一卷的主冲突是什么、在哪一步翻转、谁付出什么代价。',
+            '「伏笔与回收」分别写清这一卷埋下什么、兑现了前面哪一处。',
+            '**不要写具体画面、天气、动作细节或台词**，也不要把这一卷预先切成段——' +
+              '切段是下一步的事，一次一段地做。',
+            '只输出卷纲本身，不要解释你改了什么。',
           ].join('\n')
         : [
-            '请输出修订后的完整大纲，用 Markdown 分幕书写（`## 第一幕 · 入局`）。',
-            '每一幕下列出若干剧情节点，每个节点一行，说清「谁做了什么、导致什么」。',
+            '请输出修订后的完整大纲，用 Markdown 分卷书写（`## 第一卷 · 觉醒之日`）。',
+            '每一卷下列出若干剧情节点，每个节点一行，说清「谁做了什么、导致什么」。',
             '只输出大纲本身，不要解释你改了什么。',
           ].join('\n');
 

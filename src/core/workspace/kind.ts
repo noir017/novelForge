@@ -14,29 +14,34 @@
  *
  * ## 三条必须记住的取舍
  *
- * 1. **`scene` / `manuscript` / `summary` 的归属靠镜像目录名反推**，
- *    `scenes/012-入宗/02-翻越侧峰.md` → 细纲是 `plots/012-入宗.md`。反推是
- *    `project.plotStem` 的逆运算；**找不到对应的细纲文件时仍然返回
- *    `kind: 'scene'`**（那个文件确实在那儿），只是 `plotRelPath` 指向那个
- *    「应该存在」的位置。零 I/O 的代价与好处都在这里：不查盘，所以判定稳定。
+ * 1. **`scene` / `manuscript` / `summary` 的归属靠镜像路径反推**，
+ *    `scenes/01-觉醒之日/012-入宗/02-翻越侧峰.md` → 细纲是
+ *    `plots/01-觉醒之日/012-入宗.md`。反推是 `project.plotStem` 的逆运算——
+ *    镜像的是段在 `plots/` 之下的**整段路径**，所以卷那一层原样带着；
+ *    **找不到对应的细纲文件时仍然返回 `kind: 'scene'`**（那个文件确实在那儿），
+ *    只是 `plotRelPath` 指向那个「应该存在」的位置。零 I/O 的代价与好处都在
+ *    这里：不查盘，所以判定稳定。
  * 2. **`chapter` 与 `other` 的边界不看是不是 `.md`**（AGENTS 第 9 条：章节
  *    不认扩展名）。章节根之下 + 数字前缀 + 扩展名不在二进制黑名单 → `chapter`。
  *    角色 / 设定 / 细纲 / 场景**不**跟着放宽，它们是插件自己的数据格式。
  * 3. **规则各自只定义一次**：章节名规则在 `model/chapterFile.ts`，细纲名在
- *    `model/plotFile.ts`，场景名在 `model/sceneFile.ts`。这里只 import，
- *    绝不复制一份正则出来——复制的那份会慢慢跑偏。
+ *    `model/plotFile.ts`，卷纲名在 `model/volumeFile.ts`，场景名在
+ *    `model/sceneFile.ts`。这里只 import，绝不复制一份正则出来——复制的那份
+ *    会慢慢跑偏。
  */
 import * as path from 'node:path';
 import { NovelProject } from '../model/project';
 import { CreationStage, CreationTarget } from '../model/pipeline';
 import { parseChapterFileName } from '../model/chapterFile';
 import { parsePlotFileName, plotFileName } from '../model/plotFile';
+import { parseVolumeFileName, volumeFileName } from '../model/volumeFile';
 import { parseSceneFileName } from '../model/sceneFile';
 
 export type ArtifactKind =
   | 'outline'
   | 'style'
   | 'globalSummary'
+  | 'volume'
   | 'plot'
   | 'scene'
   | 'manuscript'
@@ -55,7 +60,7 @@ export interface PathKind {
   stage?: CreationStage;
   /** 该路径对应的创作目标，供 generate 直接用。 */
   target?: CreationTarget;
-  /** 章号。章节 / 细纲 / 场景 / 中转站正文 / 摘要都有。 */
+  /** 序号。章节的是章号，细纲的是段号，卷纲的是卷号，场景的是场号所属那一段的段号。 */
   no?: number;
   /** 场号，只有 `scene` 有。 */
   sceneNo?: number;
@@ -86,6 +91,7 @@ export function normalizeRel(relPath: string): string | undefined {
 interface Dirs {
   chapters: string;
   drafts: string;
+  volumes: string;
   plots: string;
   scenes: string;
   manuscripts: string;
@@ -101,6 +107,7 @@ function dirsOf(project: NovelProject): Dirs {
   return {
     chapters: project.relPath(project.chaptersDir),
     drafts: project.relPath(project.draftsDir),
+    volumes: project.relPath(project.volumesDir),
     plots: project.relPath(project.plotsDir),
     scenes: project.relPath(project.scenesDir),
     manuscripts: project.relPath(project.manuscriptsDir),
@@ -155,12 +162,31 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
     return { kind: 'globalSummary', rel };
   }
 
-  // ---- 细纲。扁平目录，只认 markdown 家族。
+  // ---- 卷纲。扁平目录（词干要当 `plots/` 下的目录名用），只认 markdown 家族。
+  const inVolumes = under(rel, d.volumes);
+  if (inVolumes !== undefined && inVolumes) {
+    const parsed = parseVolumeFileName(path.posix.basename(inVolumes));
+    if (parsed && !inVolumes.includes('/')) {
+      return {
+        kind: 'volume',
+        rel,
+        no: parsed.no,
+        // 卷不是一个独立的创作阶段：分卷与拆段都是「策划编辑」的活，
+        // 所以 stage 归到 outline，只是 target 换成这一卷（见 model/pipeline.ts）。
+        stage: 'outline',
+        target: { kind: 'volume', volumeRelPath: rel },
+      };
+    }
+    return { kind: 'other', rel };
+  }
+
+  // ---- 细纲（剧情段）。**按卷分子目录**，只认 markdown 家族。
   const inPlots = under(rel, d.plots);
   if (inPlots !== undefined && inPlots) {
     const parsed = parsePlotFileName(path.posix.basename(inPlots));
-    // 扁平：`plots/卷一/012.md` 不是细纲（listPlots 也扫不到它那一层的语义）。
-    if (parsed && !inPlots.includes('/')) {
+    // 一层子目录（卷）或直接躺在根下（未分卷）都算；再深就不是段了——
+    // `listPlots` 递归扫得到它，但那一层没有任何语义。
+    if (parsed && inPlots.split('/').length <= 2) {
       return {
         kind: 'plot',
         rel,
@@ -173,13 +199,15 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
     return { kind: 'other', rel };
   }
 
-  // ---- 场景。`scenes/<细纲词干>/NN-标题.md`，归属靠目录名反推。
+  // ---- 场景。`scenes/<细纲镜像键>/NN-标题.md`，归属靠目录名反推。
+  // 镜像键可能带一层卷目录（`01-觉醒之日/007-入宗`），所以按**最后一个** `/`
+  // 切：前面全是键，后面是场景文件名。
   const inScenes = under(rel, d.scenes);
   if (inScenes !== undefined && inScenes) {
-    const slash = inScenes.indexOf('/');
+    const slash = inScenes.lastIndexOf('/');
     const stem = slash < 0 ? '' : inScenes.slice(0, slash);
     const name = slash < 0 ? inScenes : inScenes.slice(slash + 1);
-    const parsed = stem && !name.includes('/') ? parseSceneFileName(name) : undefined;
+    const parsed = stem ? parseSceneFileName(name) : undefined;
     if (parsed) {
       const plotRelPath = plotPathOfStem(project, stem);
       return {
@@ -195,12 +223,12 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
     return { kind: 'other', rel };
   }
 
-  // ---- 中转站正文。与细纲同名同层。
+  // ---- 中转站正文。镜像细纲在 `plots/` 之下的整段路径（可能带一层卷目录）。
   const inManuscripts = under(rel, d.manuscripts);
   if (inManuscripts !== undefined && inManuscripts) {
     const parsed = parsePlotFileName(path.posix.basename(inManuscripts));
-    if (parsed && !inManuscripts.includes('/')) {
-      const plotRelPath = plotPathOfStem(project, stemOf(inManuscripts));
+    if (parsed && inManuscripts.split('/').length <= 2) {
+      const plotRelPath = plotPathOfStem(project, stripExt(inManuscripts));
       return {
         kind: 'manuscript',
         rel,
@@ -255,21 +283,22 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
   return { kind: 'other', rel };
 }
 
-/** `.novelforge/manuscripts/012-入宗.md` → `012-入宗`。 */
-function stemOf(relOrName: string): string {
-  return path.posix.basename(relOrName, path.posix.extname(relOrName));
-}
-
 /**
- * 镜像目录/文件的词干 → 它所属细纲的路径。`project.plotStem` 的逆运算。
+ * 镜像目录/文件的**镜像键** → 它所属细纲的路径。`project.plotStem` 的逆运算。
  *
- * **不查盘**：返回的是「那份细纲应该在哪」。词干本身就带着序号与标题
- * （`012-入宗`），所以直接拼回 `plots/<词干>.md` 即可——`plotFileName` 那条
- * 拼装规则的产物正是这个形状。
+ * **不查盘**：返回的是「那份细纲应该在哪」。键本身就是段在 `plots/` 之下的
+ * 那段路径（`01-觉醒之日/012-入宗`，未分卷时就是 `012-入宗`），所以直接拼回
+ * `plots/<键>.md` 即可。
  */
 function plotPathOfStem(project: NovelProject, stem: string): string {
   const plotsRoot = project.relPath(project.plotsDir);
   return `${plotsRoot}/${stem}.md`;
+}
+
+/** 去掉扩展名，路径分隔符原样保留（`01-卷/012-入宗.md` → `01-卷/012-入宗`）。 */
+function stripExt(rel: string): string {
+  const ext = path.posix.extname(rel);
+  return ext ? rel.slice(0, rel.length - ext.length) : rel;
 }
 
 /**
@@ -286,6 +315,8 @@ export function pathOfTarget(project: NovelProject, target: CreationTarget): str
   switch (target.kind) {
     case 'outline':
       return project.relPath(project.outlinePath);
+    case 'volume':
+      return target.volumeRelPath;
     case 'plot':
       return target.plotRelPath;
     case 'scene':
@@ -309,7 +340,23 @@ export function isPlotPath(project: NovelProject, relPath: string): boolean {
   return kindOfPath(project, relPath).kind === 'plot';
 }
 
-/** 章号 + 标题 → 细纲**应该**落在哪。`plotFileName` 的薄包装，供网关内部拼路径。 */
-export function plotRelPathFor(project: NovelProject, no: number, safeTitle: string): string {
-  return `${project.relPath(project.plotsDir)}/${plotFileName(no, safeTitle)}`;
+/**
+ * 段号 + 标题 → 细纲**应该**落在哪。`plotFileName` 的薄包装，供网关内部拼路径。
+ *
+ * `dir` 给这一段所属那一卷的段目录（`plots/01-觉醒之日`）；不给就落在
+ * `plots/` 根下，那是「未分卷」。
+ */
+export function plotRelPathFor(
+  project: NovelProject,
+  no: number,
+  safeTitle: string,
+  dir?: string
+): string {
+  const parent = (dir && normalizeRel(dir)) || project.relPath(project.plotsDir);
+  return `${parent}/${plotFileName(no, safeTitle)}`;
+}
+
+/** 卷号 + 标题 → 卷纲**应该**落在哪。`volumeFileName` 的薄包装。 */
+export function volumeRelPathFor(project: NovelProject, no: number, safeTitle: string): string {
+  return `${project.relPath(project.volumesDir)}/${volumeFileName(no, safeTitle)}`;
 }

@@ -1,5 +1,5 @@
 /**
- * 采纳：把一份产物写进磁盘。按 target 分派到六条落盘路径。
+ * 采纳：把一份产物写进磁盘。按 target 分派到七条落盘路径。
  *
  * ## 与生成分开的那一步
  *
@@ -19,9 +19,15 @@ import { hash } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { Plot, PlotSections, emptyPlotSections } from '../model/plotFile';
 import { emptySceneSections } from '../model/sceneFile';
-import { CreationTarget, plotOfTarget } from '../model/pipeline';
-import { Artifact, PlotOutlineItem, SceneOutlineItem } from '../features/artifact';
-import { plotContentHash } from '../views/pipeline';
+import { emptyVolumeSections } from '../model/volumeFile';
+import { CreationTarget, plotOfTarget, volumeLabel, volumeOfTarget } from '../model/pipeline';
+import {
+  Artifact,
+  PlotOutlineItem,
+  SceneOutlineItem,
+  VolumeOutlineItem,
+} from '../features/artifact';
+import { plotContentHash, volumeContentHash } from '../views/pipeline';
 import { Workspace, pathOfTarget } from '../workspace';
 
 const log = scoped('创作');
@@ -48,9 +54,15 @@ export async function acceptArtifact(
   const ws = new Workspace(project);
   switch (artifact.kind) {
     case 'outlineDoc':
-      return acceptOutline(project, ws, artifact.text);
-    case 'plotList':
-      return acceptPlotList(project, ws, artifact.plots);
+      // 大纲这一层有两种 target：全书大纲，或某一卷的卷纲。两者都是整篇替换、
+      // 覆盖前审阅，只是落点不同。
+      return target.kind === 'volume'
+        ? acceptVolumeDoc(project, ws, target.volumeRelPath, artifact.text)
+        : acceptOutline(project, ws, artifact.text);
+    case 'volumeList':
+      return acceptVolumeList(project, ws, artifact.volumes);
+    case 'plotSegment':
+      return acceptPlotSegment(project, ws, target, artifact.segment);
     case 'plot':
       return acceptPlot(project, ws, target, artifact.sections);
     case 'sceneList':
@@ -82,28 +94,49 @@ async function acceptOutline(
 }
 
 /**
- * 大纲拆章：为每一章建一份只有「目标」的细纲文件。
+ * 卷纲：整篇替换，覆盖前审阅。
  *
- * **不建章节文件**。从前这里会顺手为每一章建一个 0 字的正文文件，因为那时
- * 细纲/场景/摘要三套镜像路径全挂在章节的 relPath 上，没有章节文件产物就
- * 无处安放。现在伴生路径挂在细纲自己身上，`chapters/` 是作者拆好正文之后
- * 才会有东西的发布区——拆个章就往那里塞几十个空文件，只会让他以为工具替他
- * 分好了章。
- *
- * **已存在的章号一律跳过，绝不覆盖。**
+ * 卷不是独立的创作阶段，所以它没有自己的结构化产物——「写这一卷的卷纲」产出的
+ * 就是一段 Markdown（`outlineDoc`），落点由 target 决定。四个小节由
+ * `parseVolumeFile` 从落盘的文本里再读回来，作者手改的那份也一样读得回来。
  */
-async function acceptPlotList(
+async function acceptVolumeDoc(
   project: NovelProject,
   ws: Workspace,
-  plots: PlotOutlineItem[]
+  volumeRelPath: string,
+  text: string
+): Promise<AcceptResult> {
+  const volume = await project.readVolume(volumeRelPath);
+  const what = volume ? `${volumeLabel(volume.no, volume.title)}的卷纲` : '这一卷的卷纲';
+  const r = await ws.write(volumeRelPath, { text: `${text.trim()}\n` }, { mode: 'overwrite', what });
+  if (r.skipped) {
+    return { skipped: true, message: '没有改动这一卷。' };
+  }
+  log.info(`${what}已写入`, r.rel);
+  return { relPath: r.rel, message: `已写入 ${r.rel}` };
+}
+
+/**
+ * 大纲拆卷：为每一卷建一份卷纲。
+ *
+ * **已存在的卷号一律跳过，绝不覆盖**——作者可能已经把第一卷的卷纲改得很细，
+ * 再拆一次大纲不该把它抹掉。跳过的必须说出来。
+ *
+ * **不建剧情段**：段由「从这一卷拆出剧情段」一次一个地拆出来。拆卷那一步顺手
+ * 铺几十个空段，只会让作者以为工具替他排好了剧情。
+ */
+async function acceptVolumeList(
+  project: NovelProject,
+  ws: Workspace,
+  volumes: VolumeOutlineItem[]
 ): Promise<AcceptResult> {
   const outlineHash = hash(await project.readOutline());
-  let next = await project.nextPlotNo();
-  const taken = new Set((await project.listPlots()).map((p) => p.no));
+  let next = await project.nextVolumeNo();
+  const taken = new Set((await project.listVolumes()).map((v) => v.no));
   const created: string[] = [];
   const skipped: number[] = [];
 
-  for (const item of plots) {
+  for (const item of volumes) {
     const no = item.no && item.no > 0 ? item.no : next;
     if (taken.has(no)) {
       skipped.push(no);
@@ -111,32 +144,75 @@ async function acceptPlotList(
       continue;
     }
     taken.add(no);
-    const rel = await ws.writePlot({
+    const rel = await ws.writeVolume({
       no,
       // 标题原样存进 frontmatter，**不预先清洗**：清洗是为了拼文件名，
-      // 由 `writePlot` 自己做。在这里洗一遍的话，标题里的空格会变成短横线，
-      // 而空标题会变成「未命名」四个字——那是个假标题，还会进上下文。
+      // 由 `writeVolume` 自己做。
       title: item.title,
-      arc: item.arc,
       upstreamHash: outlineHash,
       done: false,
-      // 只填「目标」：这一步产出的是骨架，剧情脉络要另外一次调用才排得出。
-      // 「目标」不算 filled（isPlotFilled 只看剧情脉络），所以流水线会如实
-      // 停在「待写剧情」，不会因为骨架存在就显示已规划。
-      sections: { ...emptyPlotSections(), 目标: item.goal },
+      // 「目标」+「剧情走向」两节：拆卷这一步能答的就这两样，另两节留空等
+      // 作者或下一次「写这一卷的卷纲」补。`isVolumeFilled` 只看「剧情走向」，
+      // 所以只给目标时流水线会如实说这一卷还没排。
+      sections: { ...emptyVolumeSections(), 目标: item.goal, 剧情走向: item.arc },
     });
     created.push(rel);
     next = Math.max(next, no + 1);
   }
 
-  await project.syncManifest();
-  // 跳过的必须说出来。默默少建三章，作者要到写到那里才发现。
-  const note = skipped.length > 0 ? `，跳过已存在的第 ${skipped.join('、')} 章` : '';
-  log.info(`已建 ${created.length} 章的细纲`, `${created.join('、') || '（无）'}${note}`);
+  const note = skipped.length > 0 ? `，跳过已存在的第 ${skipped.join('、')} 卷` : '';
+  log.info(`已建 ${created.length} 卷的卷纲`, `${created.join('、') || '（无）'}${note}`);
   return {
     relPath: created[0],
-    message: `已新建 ${created.length} 章${note}。`,
+    message: `已新建 ${created.length} 卷${note}。`,
   };
+}
+
+/**
+ * 卷纲拆段：在这一卷里建**一个**只有「目标」的剧情段。
+ *
+ * 段号取全书下一个可用号（`nextPlotNo`），落点是这一卷的段目录
+ * （`plots/<卷词干>/`）——归属靠目录，不落 frontmatter。
+ *
+ * **一次一段**是这条路的全部意义（见 features/artifact.ts 的 `plotSegment`）。
+ * 只填「目标」：这一步产出的是骨架，剧情脉络要另外一次调用才排得出。
+ * 「目标」不算 filled（`isPlotFilled` 只看剧情脉络），所以流水线会如实停在
+ * 「待写剧情」，不会因为骨架存在就显示已规划。
+ */
+async function acceptPlotSegment(
+  project: NovelProject,
+  ws: Workspace,
+  target: CreationTarget,
+  item: PlotOutlineItem
+): Promise<AcceptResult> {
+  const volumeRelPath = volumeOfTarget(target);
+  if (!volumeRelPath) {
+    throw new Error('这个剧情段不属于任何一卷。请先选中要拆的那一卷。');
+  }
+  const volume = await project.readVolume(volumeRelPath);
+  if (!volume) {
+    throw new Error(`找不到卷纲 ${volumeRelPath}，可能刚被改名或删除。`);
+  }
+
+  const rel = await ws.writePlot(
+    {
+      no: await project.nextPlotNo(),
+      title: item.title,
+      arc: item.arc,
+      // 上游是**这一卷**，不是全书大纲：改一卷的走向只该让那一卷的段标脏。
+      upstreamHash: volumeContentHash(volume),
+      done: false,
+      chapters: [],
+      sections: { ...emptyPlotSections(), 目标: item.goal },
+    },
+    undefined,
+    project.plotsMirrorRelPathForVolume(volumeRelPath)
+  );
+
+  await project.syncManifest();
+  const count = (await project.listPlotsOfVolume(volumeRelPath)).length;
+  log.info(`${volumeLabel(volume.no, volume.title)}拆出一个剧情段`, `${rel}｜本卷已有 ${count} 段`);
+  return { relPath: rel, message: `已新建剧情段 ${rel}。` };
 }
 
 /**

@@ -219,6 +219,7 @@ const pipelineView = (extra) =>
     {
       plotRelPath: '.novelforge/plots/012-夜入青云.md',
       no: 12,
+      displayNo: 12,
       title: '夜入青云',
       plot: {
         relPath: '.novelforge/plots/012-夜入青云.md',
@@ -228,7 +229,7 @@ const pipelineView = (extra) =>
       },
       scenes: [],
       manuscript: { relPath: '.novelforge/manuscripts/012-夜入青云.md', words: 0, beatsStale: false },
-      chapter: { exists: false, relPath: '', words: 0 },
+      chapter: { exists: false, relPath: '', words: 0, chapterPaths: [] },
       summary: { exists: false, stale: true },
       stage: 'scene',
       progress: { plot: 1, scene: 0, manuscript: 0, summary: 0 },
@@ -267,7 +268,7 @@ const viewState = (extra) =>
   Object.assign(
     {
       initialized: true,
-      // 创作目标下拉列的是**全书各章**。
+      // 创作目标下拉列的是**已发布的章 + 还没交付的剧情段**，说法由后端给。
       plots: [],
       nextNo: 1,
       staleCount: 0,
@@ -281,50 +282,85 @@ const viewState = (extra) =>
   );
 
 /**
- * 造一棵工程页快照：扁平的章节列表 + 角色树 + 空文件夹。
+ * 造一棵工程页快照：卷 + 扁平的章节列表 + 角色树 + 空文件夹。
  *
- * **一条列表**：规划（`plots/`）与成品（`chapters/`）是同一章的两副面孔，
- * 徽章、进度、⟳ 都挂在这一行上。三种组合都要有样本：两边都有、只有规划、
- * 只有成品（老工程里的章）。它被 5 个目标文件的 20 处用到。
+ * 章节组里有**两种行**：已发布的章（`kind: 'chapter'`）在前，还没交付的剧情段
+ * （`kind: 'segment'`）在后。两者的说法完全不同（「第 1 章《楔子》」/
+ * 「剧情 2《入镇》」），所以 `label` 由后端给，前端只渲染。
+ *
+ * 三种样本都要有：已发布的章、还在排的段、正文写完等着拆分的段。
+ * 它被 5 个目标文件的 20 处用到。
  */
 function sampleTree() {
   return {
     initialized: true, title: '测试', author: '甲',
-    plotCount: 3, chapterCount: 3, totalWords: 900, staleCount: 1,
+    volumeCount: 2, segmentCount: 2,
+    plotCount: 5, chapterCount: 3, totalWords: 1200, staleCount: 1,
     summarizedCount: 2, bookStage: 'working',
+    volumesRoot: '.novelforge/volumes',
     plotsRoot: '.novelforge/plots',
     chaptersRoot: 'chapters', charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
     globalSummaryThrough: 2, styleGuidePath: '.novelforge/style.md',
     outlinePath: '.novelforge/outline.md', globalSummaryPath: '.novelforge/summaries/global.md',
-    // 章节列表是扁平的：顺序即写作顺序，分卷子目录不体现在这里。
+    // 分卷。前端复用章节行的组件渲染它，所以字段与下面那些同形。
+    volumes: [
+      { no: 1, title: '觉醒之日', relPath: '.novelforge/volumes/01-觉醒之日.md',
+        segmentCount: 5, deliveredCount: 3, wordCount: 1200, filled: true, upstreamStale: false },
+      // 第 2 卷还是空壳（卷纲没排过走向），且全书大纲在它之后改过。
+      { no: 2, title: '', relPath: '.novelforge/volumes/02.md',
+        segmentCount: 0, deliveredCount: 0, wordCount: 0, filled: false, upstreamStale: true },
+    ],
+    // 章节列表是扁平的：顺序即时间线——**已发布的章在前，还没交付的剧情段在后**。
     plots: [
-      // 第 1 章：走完整条流水线、已发布、摘要新鲜，还带一份草稿。
-      { no: 1, title: '楔子',
+      // 第 1 章：已发布，摘要新鲜，还带一份草稿。它由一个剧情段拆出来，
+      // 所以 plotPath 指得回那份规划稿。
+      { kind: 'chapter', no: 1, label: '第 1 章《楔子》', title: '楔子',
         relPath: 'chapters/001-楔子.md',
-        plotPath: '.novelforge/plots/001-楔子.md',
+        plotPath: '.novelforge/plots/01-觉醒之日/001-楔子.md',
         chapterPath: 'chapters/001-楔子.md',
         manuscriptPath: '',
         wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/001-楔子.md',
         stage: 'done', upstreamStale: false,
         draftPath: 'drafts/001-楔子.md', hasDraft: true,
         progress: { plot: 1, scene: 1, manuscript: 1, summary: 1 } },
-      // 第 2 章：只有规划，场景拆了一半，且上游（全书大纲）改过。
-      { no: 2, title: '入镇',
-        relPath: '.novelforge/plots/002-入镇.md',
-        plotPath: '.novelforge/plots/002-入镇.md',
+      // 第 2 章：摘要过期。**老工程里的章**——找不到来源段，plotPath 为空。
+      { kind: 'chapter', no: 2, label: '第 2 章《入镇》', title: '入镇',
+        relPath: 'chapters/002-入镇.md',
+        plotPath: '',
+        chapterPath: 'chapters/002-入镇.md',
+        manuscriptPath: '',
+        wordCount: 300, stale: true, summaryPath: '.novelforge/summaries/002-入镇.md',
+        stage: 'done', upstreamStale: false,
+        draftPath: 'drafts/002-入镇.md', hasDraft: false,
+        progress: { plot: 1, scene: 1, manuscript: 1, summary: 0 } },
+      // 第 3 章：已发布、摘要新鲜。
+      { kind: 'chapter', no: 3, label: '第 3 章《夜访》', title: '夜访',
+        relPath: 'chapters/003-夜访.md',
+        plotPath: '.novelforge/plots/01-觉醒之日/003-夜访.md',
+        chapterPath: 'chapters/003-夜访.md',
+        manuscriptPath: '',
+        wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/003-夜访.md',
+        stage: 'done', upstreamStale: false,
+        draftPath: '', hasDraft: false,
+        progress: { plot: 1, scene: 1, manuscript: 1, summary: 1 } },
+      // 剧情 4：场景拆了一半，且上游（本卷卷纲）改过。
+      // 位次 = 最新章号 3 + 在未交付的段里排第 1。
+      { kind: 'segment', no: 4, label: '剧情 4《北行》', title: '北行',
+        relPath: '.novelforge/plots/01-觉醒之日/004-北行.md',
+        plotPath: '.novelforge/plots/01-觉醒之日/004-北行.md',
         chapterPath: '',
         manuscriptPath: '',
-        wordCount: 0, stale: true, summaryPath: '',
+        wordCount: 0, stale: false, summaryPath: '',
         stage: 'scene', upstreamStale: true,
         draftPath: '', hasDraft: false,
-        progress: { plot: 1, scene: 0.5, manuscript: 0, summary: 1 } },
-      // 第 3 章：正文写完了还躺在中转站里，等着作者标断点 → 待拆分。
-      { no: 3, title: '夜访',
-        relPath: '.novelforge/plots/003-夜访.md',
-        plotPath: '.novelforge/plots/003-夜访.md',
+        progress: { plot: 1, scene: 0.5, manuscript: 0, summary: 0 } },
+      // 剧情 5：正文写完了还躺在中转站里，等着作者标断点 → 待拆分。
+      { kind: 'segment', no: 5, label: '剧情 5《赤星》', title: '赤星',
+        relPath: '.novelforge/plots/01-觉醒之日/005-赤星.md',
+        plotPath: '.novelforge/plots/01-觉醒之日/005-赤星.md',
         chapterPath: '',
-        manuscriptPath: '.novelforge/manuscripts/003-夜访.md',
-        wordCount: 300, stale: true, summaryPath: '',
+        manuscriptPath: '.novelforge/manuscripts/01-觉醒之日/005-赤星.md',
+        wordCount: 300, stale: false, summaryPath: '',
         stage: 'split', upstreamStale: false,
         draftPath: '', hasDraft: false,
         progress: { plot: 1, scene: 1, manuscript: 1, summary: 0 } },

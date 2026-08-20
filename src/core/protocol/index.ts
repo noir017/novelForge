@@ -30,6 +30,7 @@ export type {
   FailureView,
   NextStepView,
   ProjectPlotNode,
+  ProjectVolumeNode,
   ProjectDirNode,
   ProjectFile,
   ProjectFileNode,

@@ -6,6 +6,9 @@ import {
   plotSelf,
   sceneSelf,
   sceneSiblings,
+  volumeList,
+  volumeSegments,
+  volumeSelf,
 } from './artifacts';
 import {
   characters,
@@ -26,6 +29,9 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   attachments,
   history,
   outlineDoc,
+  volumeList,
+  volumeSelf,
+  volumeSegments,
   plotSelf,
   plotPrev,
   plotNext,

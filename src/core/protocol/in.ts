@@ -112,6 +112,7 @@ export type InMessage =
 export type ProjectAction =
   | 'initProject'
   | 'refresh'
+  | 'newVolume'
   | 'newPlot'
   | 'newChapter'
   | 'newCharacter'

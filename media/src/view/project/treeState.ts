@@ -15,6 +15,7 @@ import type { ProjectTree } from '../../protocol';
  * 漏一个不会报错，只会静默收起来。
  */
 export const openGroups: Record<string, boolean> = {
+  volumes: true,
   plots: true,
   chapters: true,
   characters: true,

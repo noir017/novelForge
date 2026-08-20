@@ -379,8 +379,10 @@ describe('数据层 · 给未命名的段起名', () => {
     assert.equal(plotRead.title, '风起', plotRead.title);
   });
 
+  // 标题行说「剧情段」而不是「第 N 章」：一段可以拆成三章，写成「第 30 章」
+  // 会在文件里留下一个假承诺。
   test('H1 跟着换成真标题', () => {
-    assert.ok(plotText.includes('# 第30章 风起 · 剧情'), plotText.slice(0, 300));
+    assert.ok(plotText.includes('# 剧情段 30 风起'), plotText.slice(0, 300));
   });
 
   // 起名前写的正文不能丢——它跟着段名走，起名时必须一起搬。
@@ -525,25 +527,37 @@ describe('流水线索引', () => {
     // 工程树与出场索引要的是同一批摘要），流水线本身在 .pipelines 上。
     ({ pipelines: index } = await bundle.pipe.buildPipelineIndex(project));
     plotCount = (await project.listPlots()).length;
-    handwritten = index.get(20);
+    handwritten = index.get('.novelforge/plots/020-手写.md');
   });
 
-  // 索引按**章号**索引：一章可能只有细纲、只有成品，或两者都有，
-  // 只有章号是两侧共同的身份。
-  test('索引按章号索引', () => {
-    assert.ok(index.has(12), [...index.keys()].join('|'));
+  // 索引按**细纲路径**索引：段号与章号是两条轴（一段可以拆成三章），
+  // 拿号当键会让两条轴上毫不相干的东西撞在一起。路径是段唯一的身份。
+  test('索引按细纲路径索引', () => {
+    assert.ok(index.has('.novelforge/plots/012-夜入.md'), [...index.keys()].join('|'));
   });
 
-  test('索引覆盖全部章', () => {
+  test('索引覆盖全部段', () => {
     assert.equal(index.size, plotCount);
   });
 
-  test('没拆场景的章停在待拆场景', () => {
+  test('没拆场景的段停在待拆场景', () => {
     assert.equal(handwritten.stage, 'scene', handwritten.stage);
   });
 
   test('没拆场景时场景完成度为 0', () => {
     assert.equal(handwritten.progress.scene, 0);
+  });
+
+  // 位次是推导出来的：最新章号 + 在未交付的段里排第几。它与文件名前缀
+  // （段号）不是一回事，界面上那个「剧情 N」认的是这个。
+  test('未交付的段带上了显示位次', async () => {
+    const { segments, chapters } = await bundle.pipe.buildPipelineIndex(project);
+    const max = chapters.reduce((m, c) => Math.max(m, c.order), 0);
+    assert.deepEqual(
+      segments.map((p) => p.displayNo),
+      segments.map((_, i) => max + i + 1),
+      JSON.stringify(segments.map((p) => [p.no, p.displayNo]))
+    );
   });
 });
 

@@ -1,5 +1,11 @@
 import type { ChatController } from './index';
-import { dirBaseName, initProjectFlow, newChapterFlow, newPlotFlow } from '../actions';
+import {
+  dirBaseName,
+  initProjectFlow,
+  newChapterFlow,
+  newPlotFlow,
+  newVolumeFlow,
+} from '../actions';
 import { newFolder, Section, sectionOf, sectionRoots } from '../files/fileOps';
 import {
   createCardForCast,
@@ -18,7 +24,7 @@ import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { CharacterAction, ProjectAction } from '../protocol';
-import { selectPlot } from './chat';
+import { selectPlot, setTarget } from './chat';
 
 const log = scoped('面板');
 
@@ -50,6 +56,15 @@ export async function projectAction(
       break;
     case 'refresh':
       break; // pushState 本身就是刷新
+    case 'newVolume': {
+      const rel = await newVolumeFlow(c.project);
+      if (rel) {
+        // 建完**进入这一卷**：接下来要做的是把这一卷的走向写出来
+        // （主按钮会是「写这一卷的卷纲」），再从它拆剧情段。
+        await setTarget(c, { kind: 'volume', volumeRelPath: rel });
+      }
+      break;
+    }
     case 'newPlot': {
       const rel = await newPlotFlow(c.project);
       if (rel) {

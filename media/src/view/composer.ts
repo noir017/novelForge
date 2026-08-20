@@ -10,7 +10,7 @@
  * 三条都走同一个 `send()`：附件、草稿、busy 只在一处管。
  */
 import { el as mk, setHidden } from '../dom';
-import { CAPABILITY_LABEL, commandOf } from '../protocol';
+import { CAPABILITY_LABEL, commandOf , plotOfTarget} from '../protocol';
 import type { Capability, CreationStage, NextStepView, SendPayload, StageCommand } from '../protocol';
 import {
   handleCommandKey,
@@ -132,7 +132,7 @@ function send(): void {
   const p = payload();
   // 空输入只挡「讨论」——讨论的全部内容就是你那句话。其余命令（写剧情、
   // 拆场景、写这一场）本来就不需要作者再说什么。后端也有同一道判断。
-  if (!p.text.trim() && (commandOf(p.stage, p.capability)?.needsText ?? true)) {
+  if (!p.text.trim() && (commandOf(p.stage, p.capability, store.session.target.kind)?.needsText ?? true)) {
     toast(`「${CAPABILITY_LABEL[p.capability]}」需要先说点什么。`, true);
     el.input.focus();
     return;
@@ -160,7 +160,7 @@ export function runNextStep(step: NextStepView): void {
     // 落点由后端随 next 一起给（target 里就是那一章的路径）。会话里的
     // targetNo 可能还没同步（旧会话、刚改过名），而工程动作拿不到对象
     // 会静默什么都不做。
-    const relPath = step.target.kind === 'outline' ? undefined : step.target.plotRelPath;
+    const relPath = plotOfTarget(step.target);
     vscode.postMessage({ type: 'projectAction', action: step.projectAction, relPath });
     return;
   }

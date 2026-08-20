@@ -30,6 +30,7 @@ import {
 } from './markdown';
 import { isChapterFileName, isMarkdownExt, isMarkdownPath, parseChapterFileName } from './chapterFile';
 import { Plot, isPlotFileName, parsePlotFile, plotFileName } from './plotFile';
+import { Volume, isVolumeFileName, parseVolumeFile } from './volumeFile';
 import { isFallbackChapterTitle } from './pipeline';
 import {
   SCENE_SECTION_KEYS,
@@ -155,9 +156,30 @@ export class NovelProject {
     return path.join(this.novelDir, 'summaries');
   }
 
-  /** 每一章的细纲（`.novelforge/plots/`）。扁平目录，`NNN-标题.md`，序号即章号。 */
+  /** 分卷的卷纲（`.novelforge/volumes/`）。扁平目录，`NN-卷名.md`，序号即卷号。 */
+  get volumesDir(): string {
+    return path.join(this.novelDir, 'volumes');
+  }
+
+  /**
+   * 剧情段的细纲（`.novelforge/plots/`）。**按卷分子目录**：
+   * `plots/01-觉醒之日/003-楼道.md` 属于 `volumes/01-觉醒之日.md` 这一卷。
+   *
+   * 根下直接放的段是合法的「未分卷」——本层出现之前的工程全长这样，
+   * 不需要迁移。
+   */
   get plotsDir(): string {
     return path.join(this.novelDir, 'plots');
+  }
+
+  /** 一卷的剧情段目录（`plots/<卷词干>/`）绝对路径。纯计算，不碰磁盘。 */
+  plotsDirForVolume(volumeRelPath: string): string {
+    return path.join(this.plotsDir, path.parse(volumeRelPath).name);
+  }
+
+  /** 一卷的剧情段目录在工作区里的相对路径（正斜杠）。 */
+  plotsMirrorRelPathForVolume(volumeRelPath: string): string {
+    return this.relPath(this.plotsDirForVolume(volumeRelPath));
   }
 
   /** 剧情细节（`.novelforge/scenes/`）。每段一个同名目录，里面按 `NN-标题.md` 放场景。 */
@@ -195,18 +217,33 @@ export class NovelProject {
 
   // ------------------------------------------------- 细纲的伴生路径
   //
-  // 场景与正文都以细纲的**文件名词干**为身份，规则只有一条：
+  // 场景与正文都以细纲**在 `plots/` 之下的那段路径**为身份，规则只有一条：
   //
-  //   plots/007-入宗风波.md
-  //     → scenes/007-入宗风波/        （目录：一章有若干场，要能整体跟着走）
-  //     → manuscripts/007-入宗风波.md （中转站，拆分之后就删掉）
+  //   plots/01-觉醒之日/007-入宗风波.md
+  //     → scenes/01-觉醒之日/007-入宗风波/        （目录：一段有若干场，要能整体跟着走）
+  //     → manuscripts/01-觉醒之日/007-入宗风波.md （中转站，拆分之后就删掉）
+  //
+  // 未分卷的段（根下那些）镜像出来自然就是扁的，与本层出现之前完全一致——
+  // 所以老工程一个文件都不用搬。这与「摘要镜像 chapters/ 下的相对路径、
+  // 分卷子目录照样带上」是同一条规则，只是轴换成了 plots/。
   //
   // **摘要不在这里**：它描述的是成品，挂在 `chapters/` 上（见下一节）。
   // 分界就是拆分那一刻——拆分之前正文还在中转站，摘要无从生成。
 
-  /** 细纲路径 → 它的文件名词干（`plots/007-入宗风波.md` → `007-入宗风波`）。 */
+  /**
+   * 细纲路径 → 它的镜像键：**在 `plots/` 之下的相对路径，去掉扩展名**
+   * （`plots/01-觉醒/007-入宗.md` → `01-觉醒/007-入宗`）。
+   *
+   * 落在 `plots/` 之外时退化成纯文件名词干——那条路上来的只有手改出来的
+   * 怪路径，退化比抛错好（容错优先），而且镜像目录本来就只是个落点。
+   */
   private plotStem(plotRelPath: string): string {
-    return path.parse(plotRelPath).name;
+    const under = path.relative(this.plotsDir, this.pathOf(plotRelPath));
+    if (!under || under.startsWith('..') || path.isAbsolute(under)) {
+      return path.parse(plotRelPath).name;
+    }
+    const ext = path.extname(under);
+    return (ext ? under.slice(0, under.length - ext.length) : under).split(path.sep).join('/');
   }
 
   /** 细纲 → 它的场景**目录**绝对路径。一章有若干场，所以多开一层同名目录。 */
@@ -357,6 +394,7 @@ export class NovelProject {
     await fs.mkdir(this.charactersDir, { recursive: true });
     await fs.mkdir(this.loreDir, { recursive: true });
     await fs.mkdir(this.summariesDir, { recursive: true });
+    await fs.mkdir(this.volumesDir, { recursive: true });
     await fs.mkdir(this.plotsDir, { recursive: true });
     await fs.mkdir(this.scenesDir, { recursive: true });
     await fs.mkdir(this.manuscriptsDir, { recursive: true });
@@ -610,6 +648,78 @@ export class NovelProject {
       }
     }
     return stale;
+  }
+
+  // ---------------------------------------------------------------- 卷纲
+
+  /**
+   * 列出全部卷纲，按卷号升序。
+   *
+   * 扁平扫描（`volumes/` 不设子目录）。号码撞车（手改重名）时按路径稳定排序，
+   * 两条都留在列表里，让作者看得见冲突——与 `listPlots` / `listChapters` 一致。
+   *
+   * **不缓存**：一本书的卷是十几个量级，读一遍的代价与 `readOutline` 相当，
+   * 而多一份缓存就多一处要记得失效的地方。
+   */
+  async listVolumes(): Promise<Volume[]> {
+    const files = await listFilesDeep(this.volumesDir, isVolumeFileName);
+    const volumes: Volume[] = [];
+    for (const abs of files) {
+      // 只认直接子文件：卷词干要当 `plots/` 下的目录名用，`volumes/x/01-a.md`
+      // 与 `volumes/01-a.md` 会指向同一个段目录。
+      if (path.dirname(abs) !== this.volumesDir) {
+        continue;
+      }
+      try {
+        volumes.push(parseVolumeFile(await readText(abs), this.relPath(abs)));
+      } catch {
+        // 读盘失败（权限、编码）当作这一卷不存在。解析失败在 parseVolumeFile
+        // 里已经退化过一层了，能走到这里的只有 I/O 异常。
+      }
+    }
+    volumes.sort((a, b) => a.no - b.no || a.relPath.localeCompare(b.relPath));
+    return volumes;
+  }
+
+  /** 读一卷的卷纲。没有不是错误——那个路径可能刚被改名或删除。 */
+  async readVolume(volumeRelPath: string): Promise<Volume | undefined> {
+    try {
+      const raw = await readTextIfExists(this.pathOf(volumeRelPath));
+      return raw === undefined ? undefined : parseVolumeFile(raw, volumeRelPath);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * 下一个可用**章号**。只看 `chapters/`——发布区自己一条轴，章号必须连续
+   * （读者按章追），与段号无关。空工程给 1。
+   */
+  async nextChapterNo(): Promise<number> {
+    const nos = (await this.listChapters()).map((c) => c.order);
+    return nos.length === 0 ? 1 : Math.max(...nos) + 1;
+  }
+
+  /** 下一个可用卷号。只看 `volumes/`——卷是独立一条轴，不与章号/段号相干。 */
+  async nextVolumeNo(): Promise<number> {
+    const nos = (await this.listVolumes()).map((v) => v.no);
+    return nos.length === 0 ? 1 : Math.max(...nos) + 1;
+  }
+
+  /**
+   * 这一卷收纳的剧情段，按段号升序。
+   *
+   * 归属**只看目录**（`plots/<卷词干>/`），不看 frontmatter：目录已经说了，
+   * 再记一份就会漂移。`volumeRelPath` 传空串时给出「未分卷」那些——
+   * 直接躺在 `plots/` 根下的段，老工程全长这样。
+   */
+  async listPlotsOfVolume(volumeRelPath: string): Promise<Plot[]> {
+    const dir = volumeRelPath
+      ? `${this.plotsMirrorRelPathForVolume(volumeRelPath)}/`
+      : `${this.relPath(this.plotsDir)}/`;
+    return (await this.listPlots()).filter(
+      (p) => p.relPath.startsWith(dir) && !p.relPath.slice(dir.length).includes('/')
+    );
   }
 
   // ---------------------------------------------------------------- 细纲

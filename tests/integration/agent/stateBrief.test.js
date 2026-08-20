@@ -111,8 +111,8 @@ describe('老工程 · 99 章成品、一份细纲都没有', () => {
   });
 
   // 第 20 条 (c)：做完了就不给下一步。造一个假的出来，agent 会自作主张挑一章开始烧钱。
-  test('不催的时候明说「不要自己挑一章开工」', () => {
-    assert.ok(text.includes('不要自己挑一章开工'), text);
+  test('不催的时候明说「不要自己挑一段开工」', () => {
+    assert.ok(text.includes('不要自己挑一段开工'), text);
   });
 });
 
@@ -128,6 +128,7 @@ describe('选中一章 · 注入的下一步与状态机一字不差', () => {
       arc: '',
       upstreamHash: '',
       done: false,
+      chapters: [],
       sections: { ...bundle.plotFile.emptyPlotSections(), 目标: '林昭北上' },
     });
     project.invalidate();
@@ -135,15 +136,17 @@ describe('选中一章 · 注入的下一步与状态机一字不差', () => {
     text = await brief({ kind: 'plot', plotRelPath: plotRel });
   });
 
-  test('报出当前目标那一章', () => {
-    assert.ok(text.includes('第 100 章《北行》'), text);
+  // 还没交付的段报「剧情 N」而不是「第 N 章」：一段可以拆成三章，说成章会让
+  // agent 与作者都以为它将来就是第 N 章。位次 = 最新章号 + 位次 = 99 + 1。
+  test('报出当前目标那一段（说的是「剧情」）', () => {
+    assert.ok(text.includes('剧情 100《北行》'), text);
   });
 
   test('报出目标的路径', () => {
     assert.ok(text.includes(plotRel), text);
   });
 
-  test('本章状态用的是状态机的说法', () => {
+  test('状态用的是状态机的说法', () => {
     assert.ok(text.includes('待写剧情'), text);
   });
 
@@ -163,6 +166,7 @@ describe('选中一章 · 注入的下一步与状态机一字不差', () => {
       arc: '',
       upstreamHash: '',
       done: false,
+      chapters: [],
       sections: {
         ...bundle.plotFile.emptyPlotSections(),
         目标: '林昭北上',
@@ -176,46 +180,52 @@ describe('选中一章 · 注入的下一步与状态机一字不差', () => {
     assert.ok(after.includes('待拆场景'), after);
   });
 
-  // 工程页点章名给的是成品路径，对话页下拉给的是细纲路径，说的是同一章。
-  test('用成品路径也认得到同一章', async () => {
+  // 老工程的章没有来源段（`chapters` 记录为空、也不在任何段的落点里），
+  // 所以按成品路径找不到流水线——那时**照实说「还没选定」**，而不是按号
+  // 猜一个毫不相干的段。段号与章号是两条轴，猜出来的那个段会是错的。
+  test('成品路径找不到来源段时不乱认', async () => {
     const byChapter = await brief({ kind: 'plot', plotRelPath: 'chapters/099-第99章.md' });
-    assert.ok(byChapter.includes('第 99 章'), byChapter);
+    assert.ok(byChapter.includes('还没选定'), byChapter);
   });
 });
 
 describe('⟳ 上游变更提醒', () => {
-  test('改过大纲之后点名列出受影响的章', async () => {
+  test('改过上游之后点名列出受影响的段', async () => {
     // 细纲记了 upstreamHash 才会标脏（手写的产物永不标脏）。
-    for (const no of [11, 12, 13]) {
+    // 段号取 200 起：低于 99 的号会与已发布的章同号，那时它算「老口径下已经
+    // 交付过的段」，不再是待做项（见 views/pipeline.ts 的 `chaptersOfSegment`）。
+    for (const no of [201, 202, 203]) {
       await ws.writePlot({
         no,
-        title: `第${no}章`,
+        title: `段${no}`,
         arc: '',
         upstreamHash: 'old-hash',
         done: false,
+        chapters: [],
         sections: { ...bundle.plotFile.emptyPlotSections(), 目标: 'x', 剧情脉络: 'y' },
       });
     }
     project.invalidate();
     const text = await brief();
-    assert.ok(text.includes('第 11 章'), text);
+    assert.ok(/剧情 \d+/.test(text), text);
     assert.ok(text.includes('⟳'), text);
   });
 
-  test('超过 5 章时写「等 N 章」，不把全书列一遍', async () => {
-    for (let no = 20; no <= 30; no++) {
+  test('超过 5 段时写「等 N 段」，不把全书列一遍', async () => {
+    for (let no = 220; no <= 230; no++) {
       await ws.writePlot({
         no,
-        title: `第${no}章`,
+        title: `段${no}`,
         arc: '',
         upstreamHash: 'old-hash',
         done: false,
+        chapters: [],
         sections: { ...bundle.plotFile.emptyPlotSections(), 目标: 'x', 剧情脉络: 'y' },
       });
     }
     project.invalidate();
     const text = await brief();
-    assert.ok(/等 \d+ 章/.test(text), text);
+    assert.ok(/等 \d+ 段/.test(text), text);
   });
 
   test('提醒那一行不会长到把状态挤掉', async () => {

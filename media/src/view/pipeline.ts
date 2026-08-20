@@ -25,8 +25,11 @@ import {
   PLOT_STAGE_LABEL,
   STAGE_LABEL,
   STAGE_QUESTION,
-  plotLabel,
+  chapterLabel,
   plotOfTarget,
+  segmentLabel,
+  volumeLabel,
+  volumeOfTarget,
 } from '../protocol';
 import type {
   CreationStage,
@@ -42,7 +45,7 @@ import { store, vscode } from './store';
 
 /** 当前这一章的流水线。切目标或产物落盘后由后端重推。 */
 let current: PlotPipelineView | null = null;
-/** 状态机算出的下一步。全书大纲阶段也有（去写大纲 / 去拆章节）。 */
+/** 状态机算出的下一步。全书那一层也有（去写大纲 / 去拆卷 / 去拆剧情段）。 */
 let next: NextStepView | null = null;
 
 const crumb = () => maybeById('pipelineCrumb');
@@ -119,13 +122,33 @@ function redraw(): void {
  * 比没有更糟。tooltip 里带上章名，作者才看得出改的是哪一章。
  */
 function renderRenameBtn(): void {
-  const relPath = plotOfTarget(store.session.target);
+  // 卷也能改名（改的是卷名，卷号前缀保留），所以两种落点都给。
+  const relPath = plotOfTarget(store.session.target) ?? volumeOfTarget(store.session.target);
   setHidden(el.renamePlotBtn, !relPath);
   if (!relPath) {
     return;
   }
-  el.renamePlotBtn.title =
-    current && current.no > 0 ? `重命名${plotLabel(current.no, current.title)}` : `重命名 ${relPath}`;
+  el.renamePlotBtn.title = current && current.no > 0 ? `重命名${headLabel()}` : `重命名 ${relPath}`;
+}
+
+/**
+ * 当前目标那一行的说法。
+ *
+ * 三种：一卷、一个已交付的段（它就是那几章）、一个还没交付的段。**说法不能混**
+ * ——把剧情段叫成「第 N 章」会让作者以为它将来就是第 N 章，而一段可以拆成三章。
+ * 与工程页、与后端日志同一份文案（`model/pipeline.ts`）。
+ */
+function headLabel(): string {
+  const target = store.session.target;
+  if (target.kind === 'volume') {
+    return current && current.no > 0 ? volumeLabel(current.no, current.title) : '这一卷';
+  }
+  if (!current) {
+    return '';
+  }
+  return current.chapter.exists
+    ? chapterLabel(current.no, current.title)
+    : segmentLabel(current.displayNo, current.title);
 }
 
 // ---------------------------------------------------------------- 章名信息条（只读）
@@ -143,20 +166,18 @@ function renderCrumb(): void {
   }
   clear(box);
   const target = store.session.target;
-  const relPath = plotOfTarget(target);
+  const relPath = plotOfTarget(target) ?? volumeOfTarget(target);
 
-  // 大纲阶段没有章可报，整条收起。
+  // 全书大纲那一层没有具体落点可报，整条收起。
   setHidden(box, !relPath);
   if (!relPath) {
     return;
   }
 
-  // `no` 为 0 是后端给的「这一章找不到」空壳（刚被改名或删掉），
+  // `no` 为 0 是后端给的「找不到」空壳（刚被改名或删掉），
   // 那时报文件名比报「第 0 章」有用。
   const title =
-    current && current.no > 0
-      ? plotLabel(current.no, current.title)
-      : relPath.slice(relPath.lastIndexOf('/') + 1);
+    current && current.no > 0 ? headLabel() : relPath.slice(relPath.lastIndexOf('/') + 1);
   box.appendChild(mk('span', 'crumb', title));
 
   if (target.kind === 'scene') {
@@ -165,12 +186,13 @@ function renderCrumb(): void {
     box.appendChild(mk('span', 'crumb', scene ? `场景 ${scene.no} ${scene.title}` : `场景 ${target.sceneNo}`));
   }
 
-  // 章的状态徽章，与工程页那一列同一份文案（PLOT_STAGE_LABEL）。
-  // 它是「这一章整体走到哪了」，与下面三层各自的状态点不重复。
-  if (current) {
+  // 段的状态徽章，与工程页那一列同一份文案（PLOT_STAGE_LABEL）。
+  // 它是「这一段整体走到哪了」，与下面三层各自的状态点不重复。
+  // 卷没有这条流水线（它只有一份卷纲），不挂。
+  if (current && target.kind !== 'volume') {
     box.appendChild(mk('span', 'spacer'));
     const badge = mk('span', `cstage cstage-${current.stage}`, PLOT_STAGE_LABEL[current.stage]);
-    badge.title = '这一章当前所处的阶段。由磁盘上的四层产物推导，不落盘。';
+    badge.title = '这一段当前所处的阶段。由磁盘上的四层产物推导，不落盘。';
     box.appendChild(badge);
   }
 }

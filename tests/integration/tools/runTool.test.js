@@ -297,9 +297,15 @@ describe('newPlot 不花钱', () => {
     assert.equal(fake.calls.length, 0, String(fake.calls.length));
   });
 
-  test('新建的章号接在最大号之后（拆分让后面的号让过路）', async () => {
-    const plots = await project.listPlots();
-    assert.ok(plots.some((p) => p.no === 4), JSON.stringify(plots.map((p) => p.no)));
+  // 段号跨 `plots/` 与 `chapters/` 取最大号 +1：它只是 `plots/` 里的排序键，
+  // 但仍把已发布的章算进来，好让新建的段在文件名上排在最后。
+  test('新建的段号接在最大号之后', async () => {
+    const [plots, chapters] = await Promise.all([project.listPlots(), project.listChapters()]);
+    const max = Math.max(0, ...plots.map((p) => p.no), ...chapters.map((c) => c.order));
+    assert.ok(
+      plots.some((p) => p.no === max),
+      JSON.stringify(plots.map((p) => p.no))
+    );
   });
 });
 

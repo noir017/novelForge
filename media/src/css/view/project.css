@@ -205,6 +205,27 @@
   font-size: 0.9em;
 }
 
+/*
+ * 「以下是还没拆成章的剧情段」那条分界。
+ *
+ * 章节组是一条时间线：前面是写完的，后面是待写的。分界线正落在「我写到哪了」
+ * 那个位置——一行淡字比把两者拆成两组好，拆开了作者就得在两边之间来回找。
+ */
+.row-divider {
+  padding: 6px 8px 2px 16px;
+  font-size: 0.78em;
+  border-top: 1px dashed var(--vscode-panel-border, rgba(128, 128, 128, 0.3));
+  margin-top: 4px;
+}
+
+/*
+ * 卷行。**复用章节行的全套样式**（同样的 .row-plot / .row-stage / .row-label），
+ * 这里只把名字加粗一点——卷是章节的上游，扫一眼要先看见它。
+ */
+.row-volume .row-label {
+  font-weight: 600;
+}
+
 /* 摘要里出现、还没建卡的人物：整行压暗，与真正的角色卡区分开。 */
 .row-cast .row-label {
   color: var(--vscode-descriptionForeground);
