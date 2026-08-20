@@ -179,7 +179,7 @@ export interface SessionDraft {
   target: CreationTarget;
   /** 模型原样输出（正文层已过 `cleanOutput`）。 */
   raw: string;
-  /** 解析出的结构化产物。text 类能力（discuss / critique / …）没有。 */
+  /** 解析出的结构化产物。讨论（唯一的 text 类能力）没有。 */
   artifact?: unknown;
   /** 一句话形状描述，如「剧情 · 4/4 节」。 */
   summary?: string;

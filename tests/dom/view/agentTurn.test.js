@@ -240,9 +240,9 @@ describe('直接发送就是 agent', { skip: JSDOM_SKIP }, () => {
     ui.post({ type: 'busy', value: false });
     input().value = '/';
     input().dispatchEvent(new ui.window.Event('input', { bubbles: true }));
-    ui.clickEl([...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('挑刺')));
-    input().value = '这里冲突太弱';
+    ui.clickEl([...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('拆成场景')));
+    input().value = '拆细一点';
     ui.clickEl(sendBtn());
-    assert.equal(ui.last('send').payload.capability, 'critique', JSON.stringify(ui.last('send').payload));
+    assert.equal(ui.last('send').payload.capability, 'split', JSON.stringify(ui.last('send').payload));
   });
 });

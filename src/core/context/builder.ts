@@ -115,7 +115,7 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
 
   const { stage, capability } = request.action;
   /** 正文出稿：只有这一种情况才谈「接下去写」「目标字数」。 */
-  const writing = stage === 'manuscript' && (capability === 'generate' || capability === 'rewrite');
+  const writing = stage === 'manuscript' && capability === 'generate';
 
   const messages: AgentMessage[] = [];
   const system = pick('system')[0];

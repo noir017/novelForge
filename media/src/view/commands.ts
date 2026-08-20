@@ -177,11 +177,10 @@ function redraw(): void {
     const line = mk('span', 'cmd-line');
     // 名字前面带上斜杠：面板里挑的和输入框里打的是同一样东西。
     line.appendChild(mk('span', 'cmd-label', `/${cmd.label}`));
-    // 会写文件的命令单独标一下：点了会花钱，而且会在磁盘上留下东西。
-    if (cmd.writes) {
-      row.classList.add('cmd-writes');
-      line.appendChild(mk('span', 'cmd-tag', '写文件'));
-    }
+    // 面板里的命令全都会写文件（讨论不是命令，打字就是）——每条都标出来：
+    // 点了会花钱，而且会在磁盘上留下东西。
+    row.classList.add('cmd-writes');
+    line.appendChild(mk('span', 'cmd-tag', '写文件'));
     row.appendChild(line);
     row.appendChild(mk('span', 'cmd-hint', cmd.hint));
 

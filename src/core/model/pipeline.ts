@@ -83,49 +83,33 @@ export function isCreationStage(value: unknown): value is CreationStage {
 
 // ---------------------------------------------------------------- Capability
 
-/** 通用能力。与阶段正交——「讨论」不再是一个模式，而是八个能力之一。 */
-export type Capability =
-  | 'discuss'
-  | 'expand'
-  | 'critique'
-  | 'check'
-  | 'split'
-  | 'generate'
-  | 'settle'
-  | 'rewrite';
+/**
+ * 通用能力。与阶段正交——「讨论」不再是一个模式，而是四个能力之一。
+ *
+ * 从前这里有八个。扩展 / 挑刺 / 检查（expand / critique / check）只是
+ * 「换一段提示词的讨论」——想挑刺直接打字说，模型听得懂，不需要作者先猜
+ * 这句话归哪个命令；改写（rewrite）是「目标已有内容时的生成」——已有一版
+ * 加上作者的意见，本来就是改写，不需要他自己分辨。四个都删了。
+ * 留下来的每一个都有**提示词之外**的结构差异：输出契约、解析、装配配方、
+ * 采纳流程，那才是值得作者显式挑一下的东西。
+ */
+export type Capability = 'discuss' | 'split' | 'generate' | 'settle';
 
-export const CAPABILITIES: Capability[] = [
-  'discuss',
-  'expand',
-  'critique',
-  'check',
-  'split',
-  'generate',
-  'settle',
-  'rewrite',
-];
+export const CAPABILITIES: Capability[] = ['discuss', 'split', 'generate', 'settle'];
 
 export const CAPABILITY_LABEL: Record<Capability, string> = {
   discuss: '讨论',
-  expand: '扩展',
-  critique: '挑刺',
-  check: '检查',
   split: '拆分',
   generate: '生成',
   settle: '落定',
-  rewrite: '改写',
 };
 
 /** 按钮的 tooltip。说清「点了会发生什么」，尤其是会不会产出可采纳的东西。 */
 export const CAPABILITY_HINT: Record<Capability, string> = {
   discuss: '就当前产物提问，AI 只回答，不改动任何文件',
-  expand: '在现有产物上补充内容，产出建议而非直接覆盖',
-  critique: '找逻辑漏洞、冲突太弱、节奏问题',
-  check: '与既有设定、伏笔、时间线对账',
   split: '拆成下一层：大纲拆成卷，卷拆成剧情段，剧情拆成场景',
-  generate: '按你描述的走向产出本阶段的产物，可采纳写入',
+  generate: '按你描述的走向产出本阶段的产物，可采纳写入；目标已有内容时，你的话就是修改意见',
   settle: '把刚才讨论出的结论整理成产物，可采纳写入',
-  rewrite: '拿着修改意见重做一版，可采纳写入',
 };
 
 export function isCapability(value: unknown): value is Capability {
@@ -141,10 +125,10 @@ export function isCapability(value: unknown): value is Capability {
  * 东西。其余沿用通用说法。
  */
 const CAPABILITY_LABEL_IN: Partial<Record<CreationStage, Partial<Record<Capability, string>>>> = {
-  outline: { split: '拆成卷', generate: '生成大纲', rewrite: '重写大纲' },
-  plot: { split: '拆成场景', generate: '写剧情', settle: '落定剧情', rewrite: '重写剧情' },
-  scene: { generate: '设计这一场', rewrite: '重做这一场' },
-  manuscript: { generate: '写正文', rewrite: '重写正文' },
+  outline: { split: '拆成卷', generate: '生成大纲' },
+  plot: { split: '拆成场景', generate: '写剧情', settle: '落定剧情' },
+  scene: { generate: '设计这一场' },
+  manuscript: { generate: '写正文' },
 };
 
 /**
@@ -158,7 +142,6 @@ const CAPABILITY_LABEL_IN: Partial<Record<CreationStage, Partial<Record<Capabili
 const CAPABILITY_LABEL_ON_VOLUME: Partial<Record<Capability, string>> = {
   split: '拆出剧情段',
   generate: '写这一卷的卷纲',
-  rewrite: '重写这一卷',
 };
 
 /** 某阶段（可再按 target 具体化）下某能力在按钮上的说法。 */
@@ -174,23 +157,23 @@ export function labelOf(
 }
 
 /**
- * 每个阶段合法的能力。**前端的按钮组直接读它**，不在前端另写一份。
+ * 每个阶段合法的能力。**前端的命令面板经 `commandsFor` 读它**，不在前端另写一份。
  *
- * 三处刻意的缺席与一处刻意的独有：
+ * 两处刻意的缺席与一处刻意的独有：
  * - `scene` 没有 `split`：场景已经是最小的可采纳单位，再往下拆就是一句一句的
  *   动作，那是正文的事，不单独成文件。
- * - `manuscript` 没有 `split` / `expand`：正文阶段要的是重写整章，
- *   而不是往里插东西——插出来的段落接不上上下文的语气。
+ * - `manuscript` 没有 `split`：正文拆成章是工程动作（作者标 `---` 后点
+ *   「拆成章节」），不是一次模型调用。
  * - **只有 `plot` 有 `settle`**：剧情是唯一一层「先跟人聊、聊出结论再落文件」
  *   的东西。大纲通常一次成型，场景与正文都是从上一层展开而不是从对话展开。
  *   把 `settle` 铺到四层，另外三层会得到一个几乎没人点、点了也不知道该沉淀
  *   什么的按钮。
  */
 export const STAGE_CAPABILITIES: Record<CreationStage, Capability[]> = {
-  outline: ['discuss', 'expand', 'critique', 'check', 'split', 'generate', 'rewrite'],
-  plot: ['discuss', 'settle', 'generate', 'expand', 'critique', 'check', 'split', 'rewrite'],
-  scene: ['discuss', 'expand', 'critique', 'check', 'generate', 'rewrite'],
-  manuscript: ['discuss', 'critique', 'check', 'generate', 'rewrite'],
+  outline: ['discuss', 'generate', 'split'],
+  plot: ['discuss', 'settle', 'generate', 'split'],
+  scene: ['discuss', 'generate'],
+  manuscript: ['discuss', 'generate'],
 };
 
 /**
@@ -219,17 +202,24 @@ export function isValidAction(action: CreationAction): boolean {
   );
 }
 
+/** 删掉的能力在老会话里的落点：改写并进了生成，其余三个都是讨论的变体。 */
+const LEGACY_CAPABILITY: Record<string, Capability> = {
+  rewrite: 'generate',
+  expand: 'discuss',
+  critique: 'discuss',
+  check: 'discuss',
+};
+
 /**
  * 容错归一：认不出的阶段回落到 `manuscript`（老会话最可能是在续写），
  * 认不出或该阶段不支持的能力回落到该阶段的默认能力。**绝不抛**。
  */
 export function normalizeAction(raw: unknown): CreationAction {
-  const o = (raw ?? {}) as Partial<CreationAction>;
+  const o = (raw ?? {}) as { stage?: unknown; capability?: unknown };
   const stage: CreationStage = isCreationStage(o.stage) ? o.stage : 'manuscript';
+  const raw2 = typeof o.capability === 'string' ? LEGACY_CAPABILITY[o.capability] ?? o.capability : o.capability;
   const capability =
-    isCapability(o.capability) && STAGE_CAPABILITIES[stage].includes(o.capability)
-      ? o.capability
-      : DEFAULT_CAPABILITY[stage];
+    isCapability(raw2) && STAGE_CAPABILITIES[stage].includes(raw2) ? raw2 : DEFAULT_CAPABILITY[stage];
   return { stage, capability };
 }
 
@@ -244,12 +234,7 @@ export function normalizeAction(raw: unknown): CreationAction {
 export type OutputKind = 'text' | 'artifact';
 
 export function outputKindOf(action: CreationAction): OutputKind {
-  return action.capability === 'generate' ||
-    action.capability === 'settle' ||
-    action.capability === 'rewrite' ||
-    action.capability === 'split'
-    ? 'artifact'
-    : 'text';
+  return action.capability === 'discuss' ? 'text' : 'artifact';
 }
 
 // ---------------------------------------------------------------- 命令表
@@ -267,19 +252,6 @@ export interface StageCommand {
   /** 按钮/菜单项上的说法，已按阶段具体化。 */
   label: string;
   hint: string;
-  /** 点了会写文件（产出可采纳的产物）。界面上要与「只是聊聊」分得开。 */
-  writes: boolean;
-  /**
-   * 必须有输入才有意义。
-   *
-   * **只有 `discuss`**：讨论的全部内容就是作者那句话，没有话就没有讨论。
-   * 其余的输入是可选的补充要求——「写剧情」不需要作者说任何话（大纲与前后
-   * 章里都写着），逼他先写一句才能点，是旧界面最没道理的一处。
-   *
-   * `settle` 尤其不能要求输入：它要沉淀的是**已经发生过的对话**，
-   * 此刻输入框本来就该是空的。
-   */
-  needsText: boolean;
   /** `/` 面板的过滤键。中文标签之外再给 ascii 别名，免得为了打一个命令切输入法。 */
   keys: string[];
 }
@@ -287,17 +259,19 @@ export interface StageCommand {
 /** 各能力的 ascii 别名。全拼 + 拼音首字母，两种都认。 */
 const CAPABILITY_KEYS: Record<Capability, string[]> = {
   discuss: ['discuss', 'tl'],
-  expand: ['expand', 'kz'],
-  critique: ['critique', 'tc'],
-  check: ['check', 'jc'],
   split: ['split', 'cf'],
   generate: ['generate', 'sc'],
   settle: ['settle', 'ld'],
-  rewrite: ['rewrite', 'gx'],
 };
 
 /**
  * 这个阶段能下哪些命令。顺序即面板里的顺序。
+ *
+ * **`discuss` 不进面板**：讨论是默认动作——打字就是在讨论，不需要一条命令。
+ * 于是面板里剩下的每一条都产出可采纳的产物（会花钱、会问一次落盘），
+ * 这正是它们值得显式挑一下的原因。也因此命令都**不要求输入**：输入是可选的
+ * 补充要求，「写剧情」不需要作者说任何话（大纲与前后段里都写着）；`settle`
+ * 尤其不能要求输入——它要沉淀的是已经发生过的对话，此刻输入框本来就该是空的。
  *
  * `targetKind` 只影响文案（大纲层的两种 target 说法不同，见
  * `CAPABILITY_LABEL_ON_VOLUME`），不影响可用集合——能力集合是按阶段定的。
@@ -306,14 +280,14 @@ export function commandsFor(
   stage: CreationStage,
   targetKind?: CreationTarget['kind']
 ): StageCommand[] {
-  return (STAGE_CAPABILITIES[stage] ?? []).map((capability) => ({
-    capability,
-    label: labelOf(stage, capability, targetKind),
-    hint: hintOf(stage, capability, targetKind),
-    writes: outputKindOf({ stage, capability }) === 'artifact',
-    needsText: capability === 'discuss',
-    keys: CAPABILITY_KEYS[capability],
-  }));
+  return (STAGE_CAPABILITIES[stage] ?? [])
+    .filter((capability) => capability !== 'discuss')
+    .map((capability) => ({
+      capability,
+      label: labelOf(stage, capability, targetKind),
+      hint: hintOf(stage, capability, targetKind),
+      keys: CAPABILITY_KEYS[capability],
+    }));
 }
 
 /**
@@ -756,11 +730,12 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
 
     case 'manuscript':
       // 场景改过而正文没跟上：要的是拿新场景重做一版，不是往后接着写。
+      // 改写不是独立能力（并进了 generate），但按钮上要说的仍是「重写」。
       if (f.beatsStale) {
         return {
           stage: 'manuscript',
-          capability: 'rewrite',
-          label: labelOf('manuscript', 'rewrite'),
+          capability: 'generate',
+          label: '重写正文',
           hint: '场景改过，现有正文可能已经与细节对不上。',
         };
       }

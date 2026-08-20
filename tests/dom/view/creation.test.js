@@ -80,7 +80,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
       workbench: workbenchView({ stage: 'manuscript', title: '正文 · 第 12 段《夜入青云》' }),
       next: {
         stage: 'manuscript',
-        capability: 'rewrite',
+        capability: 'generate',
         label: '重写正文',
         hint: '场景改过，现有正文可能已经与细节对不上。',
         target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
@@ -152,7 +152,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
 
   test('主按钮带上状态机给的能力', () => {
     assert.equal(sentStep.payload.stage, 'manuscript', JSON.stringify(sentStep.payload));
-    assert.equal(sentStep.payload.capability, 'rewrite', JSON.stringify(sentStep.payload));
+    assert.equal(sentStep.payload.capability, 'generate', JSON.stringify(sentStep.payload));
     ui.post({ type: 'busy', value: false });
   });
 
@@ -563,10 +563,14 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     assert.ok(ui.doc.querySelector('#composerInput .cmd-panel'));
   });
 
-  // 剧情层比另外三层多一条 `/落定剧情`——它是唯一「先跟人聊、聊出结论
-  // 再落文件」的一层，所以是八条而不是七条。
-  test('剧情阶段八个命令', () => {
-    assert.equal(items().length, 8, items().join('|'));
+  // 讨论不进面板（打字就是在讨论）。剧情层比另外两层多一条 `/落定剧情`——
+  // 它是唯一「先跟人聊、聊出结论再落文件」的一层，所以是三条。
+  test('剧情阶段三个命令', () => {
+    assert.equal(items().length, 3, items().join('|'));
+  });
+
+  test('面板里没有讨论', () => {
+    assert.ok(!items().some((s) => s.includes('讨论')), items().join('|'));
   });
 
   test('剧情阶段有「落定剧情」', () => {
@@ -583,15 +587,14 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     assert.ok(items().includes('/拆成场景'), items().join('|'));
   });
 
-  // 会写文件的命令与「只是聊聊」必须分得开。
-  // 剧情层四条产物型命令：落定 / 写剧情 / 拆成场景 / 重写剧情。
-  test('写文件的命令单独标记', () => {
+  // 面板里剩下的每一条都会写文件（讨论不是命令），每条都标出来。
+  test('每条命令都标记写文件', () => {
     const writes = [...ui.doc.querySelectorAll('.cmd-item')].filter((n) => n.classList.contains('cmd-writes'));
-    assert.equal(writes.length, 4, String(writes.length));
+    assert.equal(writes.length, 3, String(writes.length));
   });
 
-  test('写文件的命令挂「写文件」标签', () => {
-    assert.equal(ui.doc.querySelectorAll('.cmd-item .cmd-tag').length, 4);
+  test('每条命令都挂「写文件」标签', () => {
+    assert.equal(ui.doc.querySelectorAll('.cmd-item .cmd-tag').length, 3);
   });
 
   // 键入过滤：ascii 别名与中文标签都认。
@@ -608,7 +611,7 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   test('退格恢复全部', () => {
     backspace();
     backspace();
-    assert.equal(items().length, 8, items().join('|'));
+    assert.equal(items().length, 3, items().join('|'));
   });
 
   // 退到 `/` 之前就不是在下命令了，面板该收。
@@ -623,7 +626,7 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   test('选中后收起面板', () => {
     type('/');
     beforePick = ui.sent.length;
-    ui.clickEl([...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('挑刺')));
+    ui.clickEl([...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('落定剧情')));
     assert.ok(!panel());
   });
 
@@ -634,7 +637,7 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   test('选中变成待执行 chip', () => {
     const chip = ui.doc.querySelector('#pendingCmd .cmd-chip');
     assert.ok(chip, '没有 chip');
-    assert.ok(chip.textContent.includes('挑刺'), chip?.textContent);
+    assert.ok(chip.textContent.includes('落定剧情'), chip?.textContent);
   });
 
   // chip 长在输入框**里面**：发送时用的是它的能力，它就是输入内容的一部分。
@@ -649,10 +652,10 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
 
   // chip 在时发送用它，而不是会话当前的能力。
   test('发送用挑中的命令', () => {
-    input.value = '这里冲突太弱';
+    input.value = '按刚才聊的来';
     ui.clickEl(ui.doc.getElementById('sendBtn'));
     const sent = [...ui.sent].reverse().find((m) => m.type === 'send');
-    assert.equal(sent.payload.capability, 'critique', JSON.stringify(sent.payload));
+    assert.equal(sent.payload.capability, 'settle', JSON.stringify(sent.payload));
   });
 
   test('发完清掉 chip', () => {

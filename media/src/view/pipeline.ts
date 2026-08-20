@@ -370,7 +370,7 @@ function renderNextStep(): void {
  */
 function updatePlaceholder(): void {
   const { stage, capability } = store.session;
-  if (stage === 'manuscript' && (capability === 'generate' || capability === 'rewrite')) {
+  if (stage === 'manuscript' && capability === 'generate') {
     el.input.placeholder = '描述这一章要写什么剧情…（可留空，Enter 发送）';
     return;
   }

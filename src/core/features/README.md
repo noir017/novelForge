@@ -27,7 +27,7 @@
 
 ## 创作的四层与两条路
 
-创作按 `Stage × Capability × Target` 展开（定义在 [../model/pipeline.ts](../model/pipeline.ts)）：大纲 →（卷，借大纲那一层）→ 剧情 → 细节 → 正文。同一层可以被讨论、挑刺、检查，也可以被生成、改写、拆成下一层；剧情层另有一个 `settle`（落定剧情），把刚才那段讨论里**已经达成的结论**沉淀成细纲。
+创作按 `Stage × Capability × Target` 展开（定义在 [../model/pipeline.ts](../model/pipeline.ts)）：大纲 →（卷，借大纲那一层）→ 剧情 → 细节 → 正文。同一层可以被讨论（默认动作，挑刺、检查设定都靠直接打字说），也可以被生成、拆成下一层；剧情层另有一个 `settle`（落定剧情），把刚才那段讨论里**已经达成的结论**沉淀成细纲。改写不是独立能力：目标已有内容时的生成就是改写，作者那句话就是修改意见。
 
 **创作编排本身已经不在本层了**——它是 [../generation/](../generation/README.md)：`generate.ts` 无状态地装配 → 调模型 → 解析成 `Draft`，`accept.ts` 按 target 分派到六条落盘路径，`drafts.ts` 让草稿活过一次刷新。并发控制在 `controller/`（那是调度的责任）。本层留下的是 `artifact.ts`（解析）与 `pipelineBatch.ts`（工程页批量）。
 

@@ -61,29 +61,22 @@ const STAGE_DUTY: Record<CreationStage, string> = {
 /** 每种能力要模型做什么。与阶段无关的那一半。 */
 const CAPABILITY_TASK: Record<Capability, string> = {
   discuss: '作者要和你讨论。他问什么你答什么：要建议给建议，要分析给分析，要判断给判断。',
-  expand:
-    '作者要你在现有产物上补充内容。只补该补的地方，明确说出你加了什么、加在哪一节，' +
-    '不要把已经写好的部分重述一遍。',
-  critique:
-    '作者要你挑刺。找逻辑漏洞、动机不足、冲突太弱、节奏平、巧合过多、人物做了不像他会做的事。' +
-    '**只说问题和改法，不要顺手替他改写。** 挑不出真问题就直说没有，不要为了凑数编。',
-  check:
-    '作者要你对账：把当前内容与已给出的设定、角色、伏笔、时间线逐条比对，找出**冲突**。' +
-    '每条都要指出与什么冲突、依据是上面哪一段。没有冲突就明确说没有。',
   split:
     '作者要你把当前这一层拆成下一层。拆出来的每一项都要能独立成立，不要留「后面再说」的空档。' +
     '**要拆成几项由下面的输出契约说**——它说只给一项时就只给一项。',
+  // 改写不是独立能力：上面已经给出这一层的现成产物时，作者那句话就是修改意见。
   generate:
     '作者已经描述了他想要的走向（见下面「我的要求」）。**按他说的产出**，不要另起炉灶改走向；' +
-    '他没说到的地方，顺着已有设定与前后文补上，别停在半截。',
-  // 这一条与 generate 的差别就是这次改动要的两条路：一条从作者的描述出发，
+    '他没说到的地方，顺着已有设定与前后文补上，别停在半截。\n' +
+    '上面已经给出这一层的现成产物时，作者的话就是对它的修改意见：在那一版的基础上重做，' +
+    '采纳他的意见，同时保留上一版里写得好的部分。',
+  // 这一条与 generate 的差别就是两条路：一条从作者的描述出发，
   // 一条从刚发生过的讨论出发。说不清「以哪边为准」，模型会把两者混着编。
   settle:
     '你和作者刚讨论完这一章（完整对话就在上面）。把讨论中**已经达成的结论**整理成产物。\n' +
     '以讨论里定下的为准：**不要塞进讨论中被否掉的方案**，也不要临时发明谁都没提过的新走向。\n' +
     '讨论中悬而未决的地方，按最接近的结论写或留空，并在产物之外用一两句话说明哪几处还没定——' +
     '那正是作者接下来要接着聊的东西。',
-  rewrite: '作者要你拿着他的修改意见重做一版。采纳他的意见，同时保留上一版里写得好的部分。',
 };
 
 /**
@@ -96,7 +89,7 @@ export function buildSystemPrompt(action: CreationAction, config: NovelConfig, t
   const { stage, capability } = action;
 
   // 正文 + 出稿：沿用原有的写作提示词，一字不改。
-  if (stage === 'manuscript' && (capability === 'generate' || capability === 'rewrite')) {
+  if (stage === 'manuscript' && capability === 'generate') {
     const lines = [
       '你是一位资深中文长篇小说作者，正在为一部已连载的作品续写新的章节。',
       '',
@@ -198,11 +191,7 @@ export function buildOutputContract(
   const { stage, capability } = action;
 
   if (outputKindOf(action) === 'text') {
-    return capability === 'critique'
-      ? '请直接给出你发现的问题，每条说明「问题是什么 / 为什么是问题 / 可以怎么改」。不要输出改写后的完整产物。'
-      : capability === 'check'
-        ? '请逐条列出你发现的冲突，每条注明与上面哪一段设定/前文冲突。没有冲突就明确说明没有。'
-        : '请直接回答上面的问题。若我要的是建议或分析，就给建议或分析，不必写成小说正文。';
+    return '请直接回答上面的问题。若我要的是建议或分析，就给建议或分析，不必写成小说正文。';
   }
 
   switch (stage) {
@@ -302,7 +291,7 @@ export function buildOutputContract(
  * 用户输入的是要求而不是纲要，照搬会让模型以为要把那句话扩写成正文。
  */
 export function askHeading(action: CreationAction): string {
-  if (action.stage === 'manuscript' && (action.capability === 'generate' || action.capability === 'rewrite')) {
+  if (action.stage === 'manuscript' && action.capability === 'generate') {
     return '# 本章剧情纲要（必须完整覆盖，按顺序推进）';
   }
   return '# 我的要求';

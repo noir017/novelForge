@@ -63,7 +63,7 @@ export async function send(c: ChatController, payload: SendPayload): Promise<voi
     c.toast('已有一个生成任务在进行中。', 'error');
     return;
   }
-  // 空输入只挡「讨论」。
+  // 空输入只挡「讨论」（它不是命令，`commandOf` 查不到它）。
   //
   // 旧界面一律要求先写点什么才能发送，而「落定剧情」「拆成场景」「写这一场」
   // 本来就不需要作者说任何话——该说的都在剧情和场景卡里了。逼他先编一句
@@ -71,7 +71,7 @@ export async function send(c: ChatController, payload: SendPayload): Promise<voi
   //
   // 讨论例外：它的全部内容就是作者那句话，没有话就没有讨论。
   const command = commandOf(payload.stage, payload.capability, c.current.target.kind);
-  if (!payload.text.trim() && (command?.needsText ?? true)) {
+  if (!payload.text.trim() && !command) {
     c.toast('请先输入内容。', 'error');
     return;
   }

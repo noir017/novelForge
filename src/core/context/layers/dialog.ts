@@ -23,7 +23,7 @@ export const system: LayerFn = async (a, spec) => {
 
 export const ask: LayerFn = async (a, spec) => {
   const { stage, capability } = a.request.action;
-  const isDraftOrder = stage === 'manuscript' && (capability === 'generate' || capability === 'rewrite');
+  const isDraftOrder = stage === 'manuscript' && capability === 'generate';
   a.admit(
     {
       id: 'ask',

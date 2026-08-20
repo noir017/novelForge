@@ -59,7 +59,7 @@ export interface Draft {
   target: CreationTarget;
   /** 模型原样输出（正文层已过 `cleanOutput`）。 */
   raw: string;
-  /** 解析出的结构化产物。text 类能力（discuss / critique / …）没有。 */
+  /** 解析出的结构化产物。讨论（唯一的 text 类能力）没有。 */
   artifact?: Artifact;
   /** 一句话形状描述，如「剧情 · 4/4 节」。有 artifact 才有。 */
   summary?: string;
@@ -122,7 +122,7 @@ export async function previewContext(
 /**
  * 把一次生成的输出解析成产物。**不写盘。**
  *
- * text 类能力（讨论、挑刺、检查）没有可采纳的东西，返回 undefined；
+ * 讨论（唯一的 text 类能力）没有可采纳的东西，返回 undefined；
  * 解析出来是空的也返回 undefined——写一个空产物比不写更糟，作者会以为存下了。
  */
 export function parseDraftArtifact(

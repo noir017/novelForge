@@ -19,7 +19,7 @@
  *    （第 3 / 19 条：不静默覆盖）。三种策略模式下都一样，这是产品承诺不是
  *    偏好设置。
  * 2. **`draftId` 找不到时 `error`，不静默降级成写空文件。**
- * 3. **draft 没有 `artifact`（讨论 / 挑刺这类 text 产出）时 `error`**——
+ * 3. **draft 没有 `artifact`（讨论这类 text 产出）时 `error`**——
  *    一段批评意见不该被写成一份细纲。
  * 4. **作者在审阅里拒绝 → 明说「作者没有采纳」**，让它别原地重试（重试同一个
  *    动作是最常见的烧钱方式）。
@@ -135,7 +135,7 @@ export const writeTool: ToolDef = {
         return {
           text: '',
           error:
-            `${draftId} 那次是讨论类产出（挑刺 / 检查 / 讨论），没有可落盘的结构化产物，不能写成一份产物。` +
+            `${draftId} 那次是讨论类产出，没有可落盘的结构化产物，不能写成一份产物。` +
             '结论说给作者听就行；要落盘得先用 capability=generate 生成一份真正的产物。',
         };
       }
@@ -187,7 +187,7 @@ const MODE_LABEL: Record<WriteMode, string> = {
   append: '追加',
 };
 
-/** draft 上那份结构化产物。text 类能力（discuss / critique / check）没有。 */
+/** draft 上那份结构化产物。讨论（唯一的 text 类能力）没有。 */
 function artifactOf(draft: { artifact?: unknown }): Artifact | undefined {
   return draft.artifact as Artifact | undefined;
 }

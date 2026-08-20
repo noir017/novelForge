@@ -100,7 +100,7 @@ describe('pipeline.ts · Stage × Capability', () => {
 });
 
 describe('pipeline.ts · 输出形态', () => {
-  const artifact = ['generate', 'rewrite', 'split', 'settle'];
+  const artifact = ['generate', 'split', 'settle'];
 
   for (const capability of pipeline.CAPABILITIES) {
     const expected = artifact.includes(capability) ? 'artifact' : 'text';
@@ -123,7 +123,18 @@ describe('pipeline.ts · 输出形态', () => {
 
 describe('pipeline.ts · 动作归一（容错）', () => {
   test('认得出合法动作', () => {
-    assert.equal(pipeline.normalizeAction({ stage: 'scene', capability: 'critique' }).capability, 'critique');
+    assert.equal(pipeline.normalizeAction({ stage: 'scene', capability: 'generate' }).capability, 'generate');
+  });
+
+  // 删掉的能力在老会话里各有落点：改写并进了生成，其余三个都是讨论的变体。
+  test('老会话的 rewrite 落到 generate', () => {
+    assert.equal(pipeline.normalizeAction({ stage: 'scene', capability: 'rewrite' }).capability, 'generate');
+  });
+
+  test('老会话的挑刺/检查/扩展落到讨论', () => {
+    for (const legacy of ['critique', 'check', 'expand']) {
+      assert.equal(pipeline.normalizeAction({ stage: 'plot', capability: legacy }).capability, 'discuss', legacy);
+    }
   });
 
   // 旧会话没有这两个字段：回落到正文阶段的讨论，而不是直接开始烧 token 写正文。
@@ -913,9 +924,11 @@ describe('pipeline.ts · 下一步（状态机 → 一个动作）', () => {
   });
 
   // 场景改过而正文没跟上：要的是拿新场景重做一版，不是往后接着写。
+  // 改写不是独立能力（并进了 generate），但按钮上要说的仍是「重写」。
   test('场景变过 → 重写正文', () => {
     const stale = step('manuscript', { sceneCount: 2, beatsStale: true });
-    assert.equal(stale.capability, 'rewrite', stale.capability);
+    assert.equal(stale.capability, 'generate', stale.capability);
+    assert.equal(stale.label, '重写正文', stale.label);
   });
 
   test('正文没写完 → 写第一场没写的', () => {
@@ -1016,10 +1029,15 @@ describe('pipeline.ts · 命令表', () => {
       assert.ok(pipeline.commandsFor(stage).length > 0);
     });
 
-    test(`${stage} 的命令与 STAGE_CAPABILITIES 一致`, () => {
+    // 讨论不是命令——打字就是在讨论。面板里是 STAGE_CAPABILITIES 去掉 discuss。
+    test(`${stage} 的命令与 STAGE_CAPABILITIES 一致（不含讨论）`, () => {
       const cmds = pipeline.commandsFor(stage);
-      assert.equal(cmds.length, pipeline.STAGE_CAPABILITIES[stage].length);
+      assert.equal(cmds.length, pipeline.STAGE_CAPABILITIES[stage].length - 1);
       assert.ok(cmds.every((c) => pipeline.STAGE_CAPABILITIES[stage].includes(c.capability)));
+    });
+
+    test(`${stage} 的面板里没有讨论`, () => {
+      assert.ok(pipeline.commandsFor(stage).every((c) => c.capability !== 'discuss'));
     });
 
     test(`${stage} 的命令名不重复`, () => {
@@ -1031,31 +1049,16 @@ describe('pipeline.ts · 命令表', () => {
       assert.ok(pipeline.commandsFor(stage).every((c) => c.hint && c.keys.length > 0));
     });
 
-    // 只有讨论必须先输入——它的全部内容就是作者那句话。其余命令（写剧情、
-    // 拆场景、写这一场）不该逼作者先编一句「请生成」。
-    test(`${stage} 只有讨论需要输入`, () => {
-      const cmds = pipeline.commandsFor(stage);
-      assert.equal(
-        cmds.filter((c) => c.needsText).map((c) => c.capability).join(),
-        'discuss',
-        cmds.filter((c) => c.needsText).map((c) => c.capability).join()
-      );
-    });
-
-    test(`${stage} 的写文件标记与 outputKindOf 一致`, () => {
+    // 面板里剩下的每一条都产出可采纳的产物（会花钱、会问一次落盘），
+    // 这正是它们值得显式挑一下的原因。
+    test(`${stage} 的命令都产出产物`, () => {
       assert.ok(
         pipeline.commandsFor(stage).every(
-          (c) => c.writes === (pipeline.outputKindOf({ stage, capability: c.capability }) === 'artifact')
+          (c) => pipeline.outputKindOf({ stage, capability: c.capability }) === 'artifact'
         )
       );
     });
   }
-
-  // 落定尤其不能要求输入：它要沉淀的是**已经发生过的对话**，
-  // 此刻输入框本来就该是空的。
-  test('落定不需要输入', () => {
-    assert.equal(pipeline.commandOf('plot', 'settle').needsText, false);
-  });
 
   // 同一个能力在不同阶段的说法不同——split 在大纲拆的是段，在剧情层拆的是场。
   test('大纲的 split 叫拆成卷', () => {
@@ -1087,7 +1090,7 @@ describe('pipeline.ts · 命令表', () => {
 
   // 没有专门说法的沿用通用标签（日志与确认框用的就是它）。
   test('没覆盖的沿用通用说法', () => {
-    assert.equal(pipeline.labelOf('plot', 'critique'), pipeline.CAPABILITY_LABEL.critique);
+    assert.equal(pipeline.labelOf('scene', 'discuss'), pipeline.CAPABILITY_LABEL.discuss);
   });
 
   // 落定与写剧情产出的是同一种产物，通用文案说不清它们的差别——

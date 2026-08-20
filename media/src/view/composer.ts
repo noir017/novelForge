@@ -130,9 +130,10 @@ function send(): void {
   }
 
   const p = payload();
-  // 空输入只挡「讨论」——讨论的全部内容就是你那句话。其余命令（写剧情、
-  // 拆场景、写这一场）本来就不需要作者再说什么。后端也有同一道判断。
-  if (!p.text.trim() && (commandOf(p.stage, p.capability, store.session.target.kind)?.needsText ?? true)) {
+  // 空输入只挡「讨论」——讨论的全部内容就是你那句话，而它不是命令，
+  // `commandOf` 查不到它。命令（写剧情、拆场景、写这一场）本来就不需要
+  // 作者再说什么。后端也有同一道判断。
+  if (!p.text.trim() && !commandOf(p.stage, p.capability, store.session.target.kind)) {
     toast(`「${CAPABILITY_LABEL[p.capability]}」需要先说点什么。`, true);
     el.input.focus();
     return;

@@ -110,7 +110,7 @@ before(async () => {
       'd-talk',
       {
         id: 'd-talk',
-        action: { stage: 'plot', capability: 'critique' },
+        action: { stage: 'plot', capability: 'discuss' },
         target: { kind: 'plot', plotRelPath: PLOT_REL },
         raw: '这一章的动机不够。',
         words: 9,
