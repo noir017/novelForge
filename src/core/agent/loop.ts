@@ -54,6 +54,7 @@ import { CancelledError } from '../llm/provider';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import { CreationTarget } from '../model/pipeline';
+import { ThinkingDepth } from '../model/thinking';
 import type { ToolInvocation, ToolInvoker } from '../tools/types';
 import { Budget, BudgetLimits } from './budget';
 import { buildAgentMessages, buildStateBrief } from './context';
@@ -220,6 +221,8 @@ export interface RunAgentOptions {
    */
   brief?: () => Promise<string>;
   limits?: Partial<BudgetLimits>;
+  /** 让模型想多深。缺省不带思考参数（服务商默认）。 */
+  thinking?: ThinkingDepth;
   signal: AbortSignal;
   /**
    * 哪些动作动手前先问一句。缺省读配置。
@@ -300,6 +303,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
         temperature: config.temperature,
         timeoutMs: config.requestTimeoutMs,
         signal,
+        // 作者在对话页选的那一档。agent 的每一回合都按它跑——一轮里有的步骤
+        // 深想有的浅想，是让「这次它为什么变笨了」查无可查。
+        ...(opts.thinking ? { thinking: opts.thinking } : {}),
         // 最后一轮不给工具：`toolChoice: 'none'` 之外还得真的把 tools 摘掉，
         // 有些兼容实现见到 tools 就还会调。
         ...(finalRound ? {} : { tools: specs, toolChoice: 'auto' as const }),
@@ -336,7 +342,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
         break;
       }
 
-      turns.push({ role: 'assistant', content: round, toolCalls: result.toolCalls });
+      // 思考凭据跟着这一轮的助手消息走：下一轮由 provider 原样发回去，模型
+      // 才接得上「上一步为什么调这个工具」（见 provider.ts 的 ReasoningTrace）。
+      turns.push({
+        role: 'assistant',
+        content: round,
+        toolCalls: result.toolCalls,
+        ...(result.traces.length > 0 ? { traces: result.traces } : {}),
+      });
 
       let stalledOut = false;
       let declined = false;

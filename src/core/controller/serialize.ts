@@ -3,6 +3,7 @@ import { BuiltContext, ContextItem } from '../context/builder';
 import { Attachment, ChatSession, ChatTurn } from '../model/session';
 import { NovelConfig } from '../model/types';
 import { modelLabel, providerLabel } from '../model/providers';
+import { DEFAULT_THINKING_DEPTH } from '../model/thinking';
 import {
   CreationTarget,
 } from '../model/pipeline';
@@ -51,6 +52,8 @@ export function serializeSession(s: ChatSession): SerializedSession {
     capability: s.capability,
     targetNo: s.targetNo,
     targetWords: s.targetWords,
+    // 前端只回显，不猜默认值：缺席归一成「不思考」这件事在后端做一次。
+    thinking: s.thinking ?? DEFAULT_THINKING_DEPTH,
     turns: s.turns.map(serializeTurn),
   };
 }

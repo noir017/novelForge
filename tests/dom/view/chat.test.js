@@ -9,7 +9,7 @@
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
-const { mount, JSDOM_SKIP, turn, emptySession } = require('../../helpers/dom');
+const { mount, JSDOM_SKIP, turn, emptySession, viewState } = require('../../helpers/dom');
 
 describe('流式输出', { skip: JSDOM_SKIP }, () => {
   let ui;
@@ -508,5 +508,43 @@ describe('命令类消息的气泡', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.bodyOf('a1').children.length, 0, ui.bodyOf('a1').innerHTML);
     assert.equal(ui.bodyOf('a1').textContent, '第一段。');
     ui.post({ type: 'busy', value: false });
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+
+describe('思考深度下拉框', { skip: JSDOM_SKIP }, () => {
+  let ui;
+
+  before(() => {
+    ui = mount();
+    // 档位选项在 renderState 里建（跟模型下拉同一处），所以要先来一条 state。
+    ui.post({ type: 'init', state: viewState() });
+    ui.post({ type: 'session', session: emptySession() });
+  });
+
+  test('五个档位都在，缺省停在「不思考」', () => {
+    const select = ui.doc.getElementById('thinkSelect');
+    assert.deepEqual(
+      [...select.options].map((o) => o.value),
+      ['off', 'low', 'medium', 'high', 'max']
+    );
+    assert.equal(select.value, 'off');
+  });
+
+  // 它是会话的属性，所以前端只发意图，值等后端那条 session 消息回填。
+  test('换一档发 setThinking，不自己改状态', () => {
+    const select = ui.doc.getElementById('thinkSelect');
+    select.value = 'high';
+    select.dispatchEvent(new ui.window.Event('change'));
+    assert.equal(ui.last('setThinking').depth, 'high');
+  });
+
+  test('收到会话就回显它那一档（换会话不会串味）', () => {
+    ui.post({ type: 'session', session: emptySession({ id: 's2', thinking: 'max' }) });
+    assert.equal(ui.doc.getElementById('thinkSelect').value, 'max');
+    ui.post({ type: 'session', session: emptySession({ id: 's3', thinking: 'off' }) });
+    assert.equal(ui.doc.getElementById('thinkSelect').value, 'off');
   });
 });

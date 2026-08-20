@@ -10,8 +10,21 @@
  * 三条都走同一个 `send()`：附件、草稿、busy 只在一处管。
  */
 import { el as mk, setHidden } from '../dom';
-import { CAPABILITY_LABEL, commandOf , plotOfTarget} from '../protocol';
-import type { Capability, CreationStage, NextStepView, SendPayload, StageCommand } from '../protocol';
+import {
+  CAPABILITY_LABEL,
+  DEFAULT_THINKING_DEPTH,
+  commandOf,
+  isThinkingDepth,
+  plotOfTarget,
+} from '../protocol';
+import type {
+  Capability,
+  CreationStage,
+  NextStepView,
+  SendPayload,
+  StageCommand,
+  ThinkingDepth,
+} from '../protocol';
 import {
   handleCommandKey,
   isCommandPaletteOpen,
@@ -177,6 +190,11 @@ export function runNextStep(step: NextStepView): void {
   persistDraft();
 }
 
+/** 下拉框的值是字符串；认不出一律当「不思考」，与后端的容错读取同规矩。 */
+function asDepth(value: string): ThinkingDepth {
+  return isThinkingDepth(value) ? value : DEFAULT_THINKING_DEPTH;
+}
+
 export function installComposer(): void {
   el.sendBtn.addEventListener('click', send);
   el.stopBtn.addEventListener('click', () => vscode.postMessage({ type: 'stop' }));
@@ -207,6 +225,11 @@ export function installComposer(): void {
   });
   el.modelSelect.addEventListener('change', () =>
     vscode.postMessage({ type: 'selectModel', ref: el.modelSelect.value })
+  );
+  // 思考深度落在会话上（后端当场落盘），所以这里只发意图、不改本地状态——
+  // 值由回来的那条 session 消息回填（前端无状态那条基本盘）。
+  el.thinkSelect.addEventListener('change', () =>
+    vscode.postMessage({ type: 'setThinking', depth: asDepth(el.thinkSelect.value) })
   );
 
   el.input.addEventListener('keydown', (e) => {

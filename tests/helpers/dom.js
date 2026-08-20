@@ -209,7 +209,16 @@ const turn = (id, role, content, extra) =>
  */
 const emptySession = (extra) =>
   Object.assign(
-    { id: 's', title: '', target: { kind: 'outline' }, stage: 'outline', capability: 'discuss', turns: [] },
+    {
+      id: 's',
+      title: '',
+      target: { kind: 'outline' },
+      stage: 'outline',
+      capability: 'discuss',
+      // 思考深度也在会话上（后端 serializeSession 恒给，缺省 off）。
+      thinking: 'off',
+      turns: [],
+    },
     extra
   );
 

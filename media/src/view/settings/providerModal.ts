@@ -15,9 +15,19 @@ import { el } from '../refs';
 import { vscode } from '../store';
 import { toast } from '../toast';
 import { draft, touch, uniqueId, validateProviders } from './draft';
-import { compactField, compactNumber, textField } from './fields';
+import { compactField, compactNumber, selectField, textField } from './fields';
 import { KIND_LABEL, PRESETS } from './presets';
 import { renderProviders } from './providerList';
+
+/**
+ * 换协议时填进去的默认接口地址。与后端 `defaultBaseUrl` 同源的三个值——
+ * 那边是兜底（留空时用它），这边是**填给作者看**，好让他知道该往哪改。
+ */
+const DEFAULT_BASE_URL: Record<SerializedProvider['kind'], string | undefined> = {
+  openai: 'https://api.openai.com/v1',
+  anthropic: 'https://api.anthropic.com',
+  'vscode-lm': undefined,
+};
 
 type ModalMode = 'edit' | 'add' | null;
 
@@ -174,6 +184,27 @@ function buildProviderEditor(p: SerializedProvider): HTMLElement {
   };
 
   const row = mk('div', 'grid');
+  row.appendChild(
+    // 协议类型：从前只能由预设决定，手工添加的服务商永远是 openai——想接
+    // Anthropic 只能去手改配置文件。它换了以后 baseUrl / API Key 那几块也要
+    // 跟着变，所以整块重画。
+    selectField(
+      '协议类型',
+      p.kind,
+      [
+        ['openai', KIND_LABEL.openai],
+        ['anthropic', KIND_LABEL.anthropic],
+        ['vscode-lm', KIND_LABEL['vscode-lm']],
+      ],
+      (v) => {
+        p.kind = v as SerializedProvider['kind'];
+        // 接口地址跟着协议走：换了协议还留着上一家的地址，一定 404。
+        p.baseUrl = DEFAULT_BASE_URL[p.kind];
+        editorTouch();
+        fill(p);
+      }
+    )
+  );
   row.appendChild(
     textField('前缀 id', p.id, '不能含斜杠', (v) => {
       p.id = v.trim();

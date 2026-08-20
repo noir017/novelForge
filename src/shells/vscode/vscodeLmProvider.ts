@@ -65,6 +65,12 @@ export class VsCodeLmProvider implements LlmProvider {
     }
   }
 
+  /**
+   * `options.thinking` 在这里**没有落点**：VS Code 语言模型 API 不暴露思考深度
+   * （请求体由 Copilot 那侧拼），所以对话页选的那一档对这种服务商无效。不报错
+   * 也不警告——作者选一个 Copilot 模型时要的就是「用订阅额度」，为一个这条路上
+   * 压根不存在的旋钮弹提示只是噪声。
+   */
   async *stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
     const model = await this.resolveModel();
     const { signal, dispose, poke } = makeAbortSignal(options);

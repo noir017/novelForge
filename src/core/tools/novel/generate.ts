@@ -186,6 +186,11 @@ export const generateTool: ToolDef = {
         },
       },
       // provider 留空 = 用对话页选定的那个模型（第 12 条）。
+      //
+      // **不带 thinking**（第 26 条）：作者选的那一档是给「他自己在跟模型讨论
+      // 这件事」的，而这里是 agent 在一轮里顺手产出一份产物——它可能一轮里调
+      // 好几次，每次都按极限档想一遍，等于把那个下拉框变成一个倍率不明的开关。
+      // 循环本身仍然按那一档想（`controller/agent.ts` 递给 runAgent）。
       { signal: ctx.signal, ...picked }
     );
 

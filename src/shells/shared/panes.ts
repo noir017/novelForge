@@ -144,6 +144,8 @@ export function chatPane(opts: PaneOptions = {}): string {
       <button class="composer-tool" id="selBtn" title="${selTitle}">加入选区</button>
       <button class="composer-tool" id="cmdBtn" title="其它命令（在输入框里直接打 / 也一样）"><span class="tool-key">/</span>命令</button>
       <select id="modelSelect" title="使用哪个模型"></select>
+      <!-- 思考深度：跟着**会话**走，不是设置项（见 core/model/session.ts）。 -->
+      <select id="thinkSelect" title="让模型想多深"></select>
       <select id="targetSelect" title="当前创作目标"></select>
       <input type="number" id="targetWords" value="2000" min="0" step="100" title="目标字数（0 为不限）">
       <span class="spacer"></span>

@@ -176,6 +176,7 @@ function syncComposerLock(): void {
   el.selBtn.disabled = !on || store.busy;
   el.cmdBtn.disabled = !on || store.busy;
   el.modelSelect.disabled = !on;
+  el.thinkSelect.disabled = !on;
   el.targetSelect.disabled = !on;
   el.targetWords.disabled = !on;
   el.newSessionBtn.disabled = !on || store.busy;

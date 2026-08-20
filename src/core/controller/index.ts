@@ -49,6 +49,7 @@ import {
   newSession,
   openSession,
   renameSession,
+  setThinking,
 } from './session';
 import { persist } from './persist';
 import {
@@ -446,6 +447,10 @@ export class ChatController {
 
       case 'selectModel':
         await selectModel(this, msg.ref);
+        return;
+
+      case 'setThinking':
+        await setThinking(this, msg.depth);
         return;
 
       case 'saveSettings':

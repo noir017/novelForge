@@ -5,6 +5,7 @@
  * 的全量推送，webview 销毁重建后一条 `ready` 就能完整恢复。这里留下的只是
  * 纯 UI 的东西——没发出去的草稿、正在流式接收的是哪一条。
  */
+import { DEFAULT_THINKING_DEPTH } from '../protocol';
 import type { SerializedAttachment, SerializedSession, ViewState } from '../protocol';
 import { acquireApi } from '../vscodeApi';
 import { el } from './refs';
@@ -36,7 +37,15 @@ export const store: {
   state: null,
   // 会话的初值与后端 `SessionStore.create()` 对齐：全书大纲 · 讨论。
   // 它一定会被第一条 `session` 消息覆盖，这里只是让首帧有东西可画。
-  session: { id: '', title: '', target: { kind: 'outline' }, stage: 'outline', capability: 'discuss', turns: [] },
+  session: {
+    id: '',
+    title: '',
+    target: { kind: 'outline' },
+    stage: 'outline',
+    capability: 'discuss',
+    thinking: DEFAULT_THINKING_DEPTH,
+    turns: [],
+  },
   attachments: [],
   busy: false,
   streamingId: null,

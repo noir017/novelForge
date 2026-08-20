@@ -25,6 +25,7 @@ export const el = {
   atBtn: byId<HTMLButtonElement>('atBtn'),
   selBtn: byId<HTMLButtonElement>('selBtn'),
   modelSelect: byId<HTMLSelectElement>('modelSelect'),
+  thinkSelect: byId<HTMLSelectElement>('thinkSelect'),
   targetSelect: byId<HTMLSelectElement>('targetSelect'),
   targetWords: byId<HTMLInputElement>('targetWords'),
   sendBtn: byId<HTMLButtonElement>('sendBtn'),

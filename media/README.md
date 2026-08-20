@@ -49,6 +49,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 ## 关键约定
 
 - **前端无状态**：一切数据来自 `ViewState` / `ProjectTree` 全量推送，前端只保留 UI 状态（草稿、展开/折叠、正在编辑的回复）。webview 销毁重建后一条 `ready` 就能完整恢复。
+- **输入框旁那三个下拉框各归各的真相**（`view/composer.ts` + `view/state.ts`）：**模型**是全局设置（`ViewState.model`，选一下等于把它提到默认模型列表首位），**思考深度**与**当前章**是**会话的属性**（`SerializedSession.thinking` / `.target`）。所以思考深度的 change 只 `postMessage({type:'setThinking'})`、不改本地状态——值由回来的那条 `session` 消息回填（`syncThinkingSelect`）。五个档位的说法直接打包后端那份零 import 的 `model/thinking.ts`，界面上写的和跑起来的必然一致。
 - **进度与日志各有一条推送路径**：长任务用 `tasks`（**全量替换**，列表最多两三项，增量协议不值得），日志用 `log`（增量一条）+ `logs`（全量，切到日志页或清空后）+ `logHistory`（**只有点「加载更早」才发**，那是唯一会查工程库的路径，默认进日志页零开销）。两者都在 `resendFullState` 里补推，刷新页面时正在跑的任务不会凭空消失。
   - **计时由前端自己走**（`view/tasks.ts`）：后端只在有进度时才推快照，一次模型调用能安静一分钟，那期间计时停住会让人以为卡死。收到快照时记下 `Date.now() - elapsedMs` 当基线，之后每秒**只改计时文本**——重建 DOM 会打断「停止」按钮上的点击。
   - **日志增量不重画整表**（`view/logs.ts`）：长任务每秒好几条，重画会让滚动位置乱跳。只在原本就贴着底时才跟着滚，用户翻上去看东西时不该被拽回来。

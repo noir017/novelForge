@@ -113,7 +113,24 @@ describe('llm/collect', () => {
 
   test('空流产出空字符串与空 usage', async () => {
     const r = await c.collect(streamOf([]));
-    assert.deepEqual(r, { text: '', reasoning: '', toolCalls: [], usage: {} });
+    assert.deepEqual(r, { text: '', reasoning: '', toolCalls: [], usage: {}, traces: [] });
+  });
+
+  // 思考凭据要按到达顺序原样收着：下一轮请求把它交回去，模型才接得上
+  // 「上一步为什么调那个工具」。它不是给界面看的，所以不进 reasoning。
+  test('reasoningTrace 按顺序收进 traces，不混进 reasoning', async () => {
+    const r = await c.collect(
+      streamOf([
+        { type: 'reasoning', text: '想' },
+        { type: 'reasoningTrace', trace: { kind: 'anthropic', payload: { signature: 'a' } } },
+        { type: 'reasoningTrace', trace: { kind: 'anthropic', payload: { signature: 'b' } } },
+      ])
+    );
+    assert.equal(r.reasoning, '想');
+    assert.deepEqual(
+      r.traces.map((t) => t.payload.signature),
+      ['a', 'b']
+    );
   });
 
   test('mergeUsage 就地按字段合并，undefined 不覆盖已有值', () => {
