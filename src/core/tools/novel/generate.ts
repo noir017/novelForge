@@ -23,7 +23,10 @@
  *    32k 模型装配上下文会稳定超窗。
  * 4. **流式内容照旧推给前端**：作者看得见 agent 在写什么，而不是盯着一个
  *    「正在生成」转十几秒（第 11 条：不闷着干活）。
- * 5. **`costly: true`**，每次调用记进 budget（第 4 条：不偷偷烧 token）。
+ * 5. **发请求之前先 `usage.record(1)`**（第 4 条：不偷偷烧 token）。记在前面是
+ *    因为**请求发出去钱就花了**——中途抛异常、被取消，那一次照样收费。等函数
+ *    返回再记，异常那条路上的钱就丢账了。**这里只报数，不判断触没触顶**：
+ *    上限是调用方的事，工具连「上限是多少」都不知道。
  *
  * ## 层与目标从路径反推
  *
@@ -31,7 +34,9 @@
  * sceneNo}` 那种嵌套结构——路径是产物在这个工程里的身份，作者在文件管理器里
  * 看到的就是它。
  */
-import { ToolContext, ToolDef, ToolResult, int, objectSchema, str } from '../registry';
+import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
+import { int, objectSchema, str } from '../schema';
+import { clip, describePath, text } from './naming';
 import { generate } from '../../generation/generate';
 import { createModelPool } from '../../llm/pool';
 import type { LlmProvider } from '../../llm/provider';
@@ -64,6 +69,24 @@ export const generateTool: ToolDef = {
   name: 'generate',
   costly: true,
 
+  /**
+   * 花钱但不写盘 → `costly`。调用方据此决定问不问（谨慎模式问，平时不问）。
+   *
+   * 框上必须写清**会花钱**与**产出仍然要点采纳**：「Agent 想调用 generate，
+   * 允许吗」作者答不上来，他不知道会写到哪、花多少。
+   */
+  intent(args, project): ToolIntent {
+    const target = text(args.target);
+    return {
+      gate: 'costly',
+      title: `为「${describePath(target, project)}」调一次创作模型`,
+      detail: [target, text(args.ask) && `要求：${clip(text(args.ask))}`, '这一步会花钱。产出仍然要你点采纳才落盘。']
+        .filter(Boolean)
+        .join('\n'),
+      proceed: '生成',
+    };
+  },
+
   description:
     '调用创作模型，为某一份产物生成内容。target 是那份产物的工程内相对路径，' +
     '层由路径决定：.novelforge/plots/ 下是剧情层，.novelforge/scenes/<细纲名>/ 下是细节层，' +
@@ -76,7 +99,7 @@ export const generateTool: ToolDef = {
     '**返回的只有形状与 draftId，没有正文**——正文会直接流给作者看；' +
     '你要看内容就等作者采纳后再 read。' +
     '产物不会自动写盘：作者点了采纳卡片才落盘。' +
-    '这个工具会真的调模型花钱，每次调用都记在预算里，不要重复生成同一份东西。',
+    '这个工具会真的调模型花钱，每次调用都会记账，不要重复生成同一份东西。',
 
   parameters: objectSchema(
     {
@@ -130,7 +153,8 @@ export const generateTool: ToolDef = {
       };
     }
 
-    ctx.budget.calls += 1;
+    // 记在发请求之前：请求发出去钱就花了，抛异常也一样。
+    ctx.usage.record(1);
     let failure: string | undefined;
     const picked = await pickModel(path.stage);
 
@@ -167,9 +191,11 @@ export const generateTool: ToolDef = {
 
     const what = `${STAGE_LABEL[path.stage]}·${CAPABILITY_LABEL[action.capability]}`;
     const shape = draft.summary ?? `${draft.words} 字`;
-    ctx.report(`已生成 ${what}：${shape}（已用 ${ctx.budget.calls}/${ctx.budget.limits.calls} 次生成）`);
+    // 只说发生了什么。「已用 3/10 次生成」那半句是调用方的账，它才知道上限。
+    ctx.report(`已生成 ${what}：${shape}`);
 
     return {
+      draftIds: [draft.id],
       // 只有形状与 id。**这里出现正文就是 bug。**
       text:
         `已生成：${what} · ${shape}，${draft.words} 字\n` +

@@ -15,7 +15,8 @@
  * 能扫完、又装得下一本书的章节目录的前半」定的：真要找具体某一章，`search`
  * 比翻页快得多。
  */
-import { ToolContext, ToolDef, ToolResult, objectSchema, str } from '../registry';
+import type { ToolContext, ToolDef, ToolResult } from '../types';
+import { objectSchema, str } from '../schema';
 
 /** 一次最多列几项。 */
 export const LIST_LIMIT = 60;

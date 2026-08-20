@@ -25,6 +25,7 @@ import { refsForTask } from '../model/tiers';
 import { ChatTurn, TurnToolCall, deriveTitle, makeTurnId, nowIso, turnPreview } from '../model/session';
 import { runAgent } from '../agent/loop';
 import type { BudgetLimits } from '../agent/budget';
+import { createNovelTools } from '../tools/novel';
 import { describeArtifactOf, pushPipeline } from './chat';
 import { persist } from './persist';
 import { serializeSession, serializeTurn } from './serialize';
@@ -133,9 +134,14 @@ export async function sendAgent(
         }
         return runAgent({
           project: c.project,
-          workspace: c.workspace,
-          drafts: c.drafts,
-          sessionId: c.current.id,
+          // 工具在这里绑环境：循环自己碰不到 workspace 与 draft store
+          // （`core/tools/README.md` 的分层）。
+          tools: createNovelTools({
+            project: c.project,
+            workspace: c.workspace,
+            drafts: c.drafts,
+            sessionId: c.current.id,
+          }),
           provider,
           ask: userTurn.content,
           target: c.current.target,

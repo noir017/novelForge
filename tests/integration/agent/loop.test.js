@@ -81,15 +81,32 @@ function recorder() {
 }
 
 function run(extra) {
+  const { tools, drafts, ...rest } = extra ?? {};
   return bundle.loop.runAgent({
     project,
-    workspace: new bundle.ws.Workspace(project),
-    drafts: new bundle.drafts.DraftStore(),
-    sessionId: 's1',
+    tools: toolset(tools, drafts),
     ask: '第 9 章里主角说过他没去过北境吗？',
     signal: new AbortController().signal,
-    ...extra,
+    ...rest,
   });
+}
+
+/**
+ * 绑一份环境，得到循环手上那个 `ToolInvoker`。
+ *
+ * 循环自己**不认识** workspace 与 draft store——它们只到工具这一层为止，
+ * 所以这份 harness 也照着分层来：环境在这里绑，`runAgent` 那边只收一个工具集。
+ */
+function toolset(defs, drafts) {
+  return bundle.tools.createNovelTools(
+    {
+      project,
+      workspace: new bundle.ws.Workspace(project),
+      drafts: drafts ?? new bundle.drafts.DraftStore(),
+      sessionId: 's1',
+    },
+    defs ?? bundle.tools.NOVEL_TOOLS
+  );
 }
 
 before(async () => {
@@ -99,7 +116,8 @@ before(async () => {
     ws: './src/core/workspace/index.ts',
     drafts: './src/core/generation/drafts.ts',
     loop: './src/core/agent/loop.ts',
-    registry: './src/core/agent/registry.ts',
+    tools: './src/core/tools/novel/index.ts',
+    schema: './src/core/tools/schema.ts',
     logger: './src/core/runtime/logger.ts',
     provider: './src/core/llm/provider.ts',
     db: './src/core/runtime/db.ts',
@@ -366,14 +384,17 @@ describe('预算触顶', () => {
   });
 
   test('生成次数上限同样拦得住', async () => {
-    // 一个假的「花钱工具」：每次调用把 calls +1，与真 generate 一样。
+    // 一个假的「花钱工具」：每次调用报一次账，与真 generate 一样。
     const fakeGenerate = {
       name: 'generate',
       description: '假生成',
       costly: true,
-      parameters: bundle.registry.objectSchema({ target: bundle.registry.str('落点') }, ['target']),
+      // 与真 generate 一样归 costly：默认模式下不问，所以这一条验的是预算而
+      // 不是闸门。
+      intent: () => ({ gate: 'costly', title: '假生成' }),
+      parameters: bundle.schema.objectSchema({ target: bundle.schema.str('落点') }, ['target']),
       run: async (c) => {
-        c.budget.calls += 1;
+        c.usage.record(1);
         return { text: '已生成，draftId: d1' };
       },
     };
@@ -393,19 +414,23 @@ describe('取消', () => {
   let abort;
   let drafts;
 
-  /** 一个假的生成工具：往 store 里放一份草稿，模拟「已经花过钱的产出」。 */
+  /**
+   * 一个假的生成工具：往 store 里放一份草稿，模拟「已经花过钱的产出」，
+   * 并按新契约把 draftId 报回去（循环不再自己去翻 store）。
+   */
   const fakeGenerate = () => ({
     name: 'generate',
     description: '假生成',
     costly: true,
-    parameters: bundle.registry.objectSchema({ target: bundle.registry.str('落点') }, ['target']),
+    intent: () => ({ gate: 'costly', title: '假生成' }),
+    parameters: bundle.schema.objectSchema({ target: bundle.schema.str('落点') }, ['target']),
     run: async (c) => {
-      c.budget.calls += 1;
+      c.usage.record(1);
       c.drafts.put(
         { id: 'd-已经生成的', action: {}, target: {}, raw: '正文', words: 2, createdAt: '' },
         c.sessionId
       );
-      return { text: '已生成：剧情 · 4/4 节\ndraftId: d-已经生成的' };
+      return { text: '已生成：剧情 · 4/4 节\ndraftId: d-已经生成的', draftIds: ['d-已经生成的'] };
     },
   });
 
@@ -423,13 +448,10 @@ describe('取消', () => {
     rec = recorder();
     out = await bundle.loop.runAgent({
       project,
-      workspace: new bundle.ws.Workspace(project),
-      drafts,
-      sessionId: 's1',
+      tools: toolset([fakeGenerate()], drafts),
       ask: 'x',
       signal: abort.signal,
       provider: fake.provider,
-      tools: [fakeGenerate()],
       on: rec.on,
     });
   });
@@ -461,9 +483,7 @@ describe('取消', () => {
     const f = scriptedProvider([say('不该被调用')]);
     const r = await bundle.loop.runAgent({
       project,
-      workspace: new bundle.ws.Workspace(project),
-      drafts: new bundle.drafts.DraftStore(),
-      sessionId: 's1',
+      tools: toolset(),
       ask: 'x',
       signal: dead.signal,
       provider: f.provider,
@@ -482,7 +502,7 @@ describe('工具抛异常', () => {
     const boom = {
       name: 'boom',
       description: '一定会炸',
-      parameters: bundle.registry.objectSchema({ x: bundle.registry.str('随便') }),
+      parameters: bundle.schema.objectSchema({ x: bundle.schema.str('随便') }),
       run: async () => {
         throw new Error('磁盘着火了');
       },

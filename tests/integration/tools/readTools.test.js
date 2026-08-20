@@ -33,7 +33,7 @@ before(async () => {
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
     ws: './src/core/workspace/index.ts',
-    tools: './src/core/agent/tools/index.ts',
+    tools: './src/core/tools/novel/index.ts',
   });
   bundle.host.initHost(makeFakeHost({ settings: () => ({}) }).host);
   t = await makeTempProject(bundle.project, { prefix: 'agenttools' });
@@ -61,7 +61,7 @@ before(async () => {
     drafts: { put() {} },
     sessionId: 's1',
     signal: new AbortController().signal,
-    budget: { calls: 0, tokens: 0, limits: { calls: 10, tokens: 200000 } },
+    usage: { calls: 0, record(n) { this.calls += n; } },
     report() {},
   };
 });
@@ -70,7 +70,7 @@ after(() => {
   if (t) cleanup(t.dir);
 });
 
-const toolOf = (name) => bundle.tools.READ_ONLY_TOOLS.find((x) => x.name === name);
+const toolOf = (name) => bundle.tools.NOVEL_TOOLS.find((x) => x.name === name);
 
 describe('list', () => {
   test('列得出章节目录里的文件', async () => {

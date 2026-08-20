@@ -32,7 +32,7 @@ const SCENE_REL = '.novelforge/scenes/001-夜入青云/01-踩点.md';
 const MANUSCRIPT_REL = '.novelforge/manuscripts/001-夜入青云.md';
 const OUTLINE_REL = '.novelforge/outline.md';
 
-const tool = () => bundle.tools.ALL_TOOLS.find((x) => x.name === 'generate');
+const tool = () => bundle.tools.NOVEL_TOOLS.find((x) => x.name === 'generate');
 const run = (args) => tool().run(ctx, args);
 
 function resetCtx() {
@@ -42,7 +42,7 @@ function resetCtx() {
     drafts: { get: () => undefined, put: () => {}, bySession: () => [] },
     sessionId: 's1',
     signal: new AbortController().signal,
-    budget: { calls: 0, tokens: 0, limits: { calls: 10, tokens: 200000 } },
+    usage: { calls: 0, record(n) { this.calls += n; } },
     report: () => {},
     onDelta: () => {},
   };
@@ -59,7 +59,7 @@ before(async () => {
     tiers: './src/core/model/tiers.ts',
     registry: './src/core/llm/registry.ts',
     provider: './src/core/llm/provider.ts',
-    tools: './src/core/agent/tools/index.ts',
+    tools: './src/core/tools/novel/index.ts',
     db: './src/core/runtime/db.ts',
   });
 

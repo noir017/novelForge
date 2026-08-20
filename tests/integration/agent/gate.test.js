@@ -64,14 +64,22 @@ function recorder() {
 }
 
 function run(extra) {
+  const { tools, ...rest } = extra ?? {};
   return bundle.loop.runAgent({
     project,
-    workspace: new bundle.ws.Workspace(project),
-    drafts: new bundle.drafts.DraftStore(),
-    sessionId: 's1',
+    // 工具在这里绑环境：循环手上只有一个 `ToolInvoker`。
+    tools: bundle.tools.createNovelTools(
+      {
+        project,
+        workspace: new bundle.ws.Workspace(project),
+        drafts: new bundle.drafts.DraftStore(),
+        sessionId: 's1',
+      },
+      tools
+    ),
     ask: '把门派那条设定改一下',
     signal: new AbortController().signal,
-    ...extra,
+    ...rest,
   });
 }
 
@@ -82,6 +90,7 @@ before(async () => {
     ws: './src/core/workspace/index.ts',
     drafts: './src/core/generation/drafts.ts',
     loop: './src/core/agent/loop.ts',
+    tools: './src/core/tools/novel/index.ts',
     db: './src/core/runtime/db.ts',
   });
   h = makeFakeHost({ settings: () => ({ contextWindow: 100000, maxOutputTokens: 2000 }) });
@@ -297,4 +306,26 @@ describe('读工具在任何模式下都不打断', () => {
       assert.equal(h.confirms.length, 0, JSON.stringify(h.confirms));
     });
   }
+});
+
+// 为一个根本不存在的动作弹框，作者只会莫名其妙——而且他答「继续」也没有用。
+describe('模型瞎编一个工具名', () => {
+  let rec;
+
+  before(async () => {
+    h.expect();
+    rec = recorder();
+    const fake = scriptedProvider([useTool('c1', '删除全部章节', { path: NOTE_REL }), say('那我换个办法。')]);
+    await run({ provider: fake.provider, policy: 'careful', on: rec.on });
+  });
+
+  test('不弹框', () => {
+    assert.equal(h.confirms.length, 0, JSON.stringify(h.confirms));
+  });
+
+  test('回给模型的是「没有这个工具」，附可用名单', () => {
+    const summary = rec.r.toolResults[0].summary;
+    assert.ok(summary.includes('没有叫'), summary);
+    assert.ok(summary.includes('read'), summary);
+  });
 });

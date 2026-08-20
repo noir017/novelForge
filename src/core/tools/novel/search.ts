@@ -14,7 +14,8 @@
  * 2. **按章号升序**（`search.ts` 已经这么排了，这里只是不去打乱它）。作者问的
  *    是「他**前面**说过吗」，时间线顺序才有意义。
  */
-import { ToolContext, ToolDef, ToolResult, bool, int, objectSchema, str, strArray } from '../registry';
+import type { ToolContext, ToolDef, ToolResult } from '../types';
+import { bool, int, objectSchema, str, strArray } from '../schema';
 import type { ArtifactKind } from '../../workspace';
 
 /** 一次最多返回几条命中。 */

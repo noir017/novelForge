@@ -1,5 +1,9 @@
 # 四期：写工具 + 策略 + 工具流 UI Implementation Plan
 
+> **已合入，本文是当时的记录。** 分层此后调过一次：工具与工具契约从
+> `core/agent/{tools/,registry.ts}` 独立成 [`core/tools/`](../../../src/core/tools/README.md)，
+> 下面提到的这些路径已经不存在。当下的真相以模块 README 为准。
+
 > **接手须知：** 这份计划面向新的 agent，假设你**没有读过**前面的对话。开工前必读：
 > 1. 根目录 [AGENTS.md](../../../AGENTS.md) —— **全部 23 条**。这一期给 agent 开写权限，每一条都在射程内
 > 2. 设计依据 [docs/design/specs/2026-08-15-agent-architecture-design.md](../specs/2026-08-15-agent-architecture-design.md) 的 **L3 一节**

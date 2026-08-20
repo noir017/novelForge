@@ -44,7 +44,7 @@ const PLOT_REL = '.novelforge/plots/001-夜入青云.md';
 const MANUSCRIPT_REL = '.novelforge/manuscripts/001-夜入青云.md';
 
 let replyFn = () => PLOT_JSON;
-const tool = () => bundle.tools.READ_ONLY_TOOLS.find((x) => x.name === 'generate');
+const tool = () => bundle.tools.NOVEL_TOOLS.find((x) => x.name === 'generate');
 const run = (args) => tool().run(ctx, args);
 
 function resetCtx() {
@@ -57,7 +57,7 @@ function resetCtx() {
     drafts: { put: (draft, sessionId) => stored.push({ draft, sessionId }) },
     sessionId: 's1',
     signal: new AbortController().signal,
-    budget: { calls: 0, tokens: 0, limits: { calls: 10, tokens: 200000 } },
+    usage: { calls: 0, record(n) { this.calls += n; } },
     report: (m) => reports.push(m),
     onDelta: (d) => deltas.push(d),
   };
@@ -72,7 +72,7 @@ before(async () => {
     registry: './src/core/llm/registry.ts',
     provider: './src/core/llm/provider.ts',
     plotFile: './src/core/model/plotFile.ts',
-    tools: './src/core/agent/tools/index.ts',
+    tools: './src/core/tools/novel/index.ts',
     db: './src/core/runtime/db.ts',
   });
 
@@ -160,13 +160,19 @@ describe('对细纲调 generate', () => {
     assert.ok(!bundle.plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
   });
 
-  test('调用一次记一次 budget.calls', () => {
-    assert.equal(ctx.budget.calls, 1);
+  test('调用一次报一次', () => {
+    assert.equal(ctx.usage.calls, 1);
   });
 
-  // 第 4 条：花了多少必须让作者看见。
-  test('用量在气泡里说出来了', () => {
-    assert.ok(reports.some((m) => m.includes('1/10')), JSON.stringify(reports));
+  // 第 4 条：花了多少必须让作者看见。工具说「生成了什么」，
+  // 「已用 1/10 次生成」那半句由调用方补——上限只有它知道。
+  test('产出了什么在气泡里说出来了', () => {
+    assert.ok(reports.some((m) => m.includes('已生成')), JSON.stringify(reports));
+  });
+
+  // 工具不该知道上限是多少，说出「1/10」就是又把预算耦合回来了。
+  test('工具自己不提上限', () => {
+    assert.ok(!reports.join('|').includes('/10'), JSON.stringify(reports));
   });
 
   test('正文流给了前端', () => {
@@ -252,8 +258,8 @@ describe('settle 明确不支持', () => {
     assert.equal(fake.calls.length, 0, String(fake.calls.length));
   });
 
-  test('不记 budget', () => {
-    assert.equal(ctx.budget.calls, 0);
+  test('一次调用都不报', () => {
+    assert.equal(ctx.usage.calls, 0);
   });
 });
 
@@ -338,8 +344,8 @@ describe('模型失败', () => {
   });
 
   // 钱已经花出去了（请求发出去了），账要记上。
-  test('仍然记了一次 budget.calls', () => {
-    assert.equal(ctx.budget.calls, 1);
+  test('仍然报了一次', () => {
+    assert.equal(ctx.usage.calls, 1);
   });
 });
 

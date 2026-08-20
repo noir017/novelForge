@@ -16,7 +16,7 @@
  *
  * 批量动作自带的确认框（写明「有 N 章还没排剧情，需要调用 N 次模型」）在
  * agent 这条路上**照样弹**（第 4 条）。**这一期没有为 agent 加任何一条绕过它
- * 的路。** 那些数字同时记进 `budget.calls`——弹窗写着 7 次、账上记 1 次，
+ * 的路。** 那些数字同时经 `usage.record` 报给调用方——弹窗写着 7 次、账上记 1 次，
  * 正是第 4 条要防的事，所以次数只在 feature 自己那里算一次，由返回值带回来。
  *
  * ## 明确不给的动作
@@ -28,7 +28,9 @@
  * | `initProject` | 一个空工程被 agent 初始化一遍，作者的配置就没了 |
  * | `newChapter` | 正常路径上发布章节是**拆分**出来的（第 23 条），不该由 agent 直接建 |
  */
-import { ToolContext, ToolDef, ToolResult, objectSchema, str } from '../registry';
+import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
+import { objectSchema, str } from '../schema';
+import { text } from './naming';
 import { newPlotFlow } from '../../actions';
 import { splitManuscript } from '../../features/splitChapter';
 import { breakdownScenes, generatePlots, writeManuscripts } from '../../features/pipelineBatch';
@@ -43,7 +45,7 @@ import type { NovelProject } from '../../model/project';
 /** 一次动作的结果：说给模型听的一句话 + 这一下花了几次模型调用。 */
 interface ActionResult {
   text: string;
-  /** 记进 `budget.calls` 的次数。0 = 一次模型都没调（取消 / 无事可做）。 */
+  /** 报给调用方记账的次数。0 = 一次模型都没调（取消 / 无事可做）。 */
   calls: number;
 }
 
@@ -206,9 +208,27 @@ const REFUSED: Record<string, string> = {
 
 export const runTool: ToolDef = {
   name: 'run',
-  // 大多数动作会调模型（而且是几十次那种）。策略据此归类。
+  // 大多数动作会调模型（而且是几十次那种）。
   costly: true,
   mutating: true,
+
+  /**
+   * 常规的「动手前问一句」。**框里要提醒他后面还有一个框**：批量动作自带的
+   * 那个写着「预计调用 N 次」，在任何策略下都弹（第 25 条），作者在那一步
+   * 仍然可以不同意。
+   */
+  intent(args): ToolIntent {
+    const action = text(args.action);
+    const target = text(args.path) || text(args.name);
+    return {
+      gate: 'mutating',
+      title: `执行工程动作 ${action}`,
+      detail: [target, '要调模型的动作随后还会告诉你预计调用几次，那一步你也可以不同意。']
+        .filter(Boolean)
+        .join('\n'),
+      proceed: '执行',
+    };
+  },
 
   description:
     '执行一个工程动作。这些动作背着一批固定流程（拆分要先顺延后面的章号、' +
@@ -264,11 +284,11 @@ export const runTool: ToolDef = {
 
     try {
       const r = await spec.run(ctx, runArgs);
-      ctx.budget.calls += r.calls;
+      // 次数由 feature 自己算一次再报回来。弹窗写着 7 次、账上记 1 次，
+      // 正是第 4 条要防的事。
+      ctx.usage.record(r.calls);
       if (r.calls > 0) {
-        ctx.report(
-          `${spec.label}：调用模型 ${r.calls} 次（已用 ${ctx.budget.calls}/${ctx.budget.limits.calls} 次生成）`
-        );
+        ctx.report(`${spec.label}：调用模型 ${r.calls} 次`);
       }
       return {
         text: r.text,
