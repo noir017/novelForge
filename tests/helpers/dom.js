@@ -165,9 +165,21 @@ function mount({
 
   // ---- 原脚本里每个小节各抄一遍的小工具
   const clickEl = (node) => node.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  // cancelable: true——真实的右键事件是可取消的，菜单引擎正是靠
+  // preventDefault() 压住原生菜单，合成事件不带这个就测不到那件事。
   const rightClick = (node, x = 40, y = 60) => {
-    node.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, clientX: x, clientY: y }));
+    node.dispatchEvent(
+      new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y })
+    );
     return doc.querySelector('.ctx-menu');
+  };
+  /** 触控板双指点击在部分环境里只发 auxclick（副键 = button 2）。 */
+  const auxClick = (node, x = 40, y = 60) => {
+    const ev = new window.MouseEvent('auxclick', {
+      bubbles: true, cancelable: true, button: 2, clientX: x, clientY: y,
+    });
+    node.dispatchEvent(ev);
+    return ev;
   };
   const itemsOf = (menu) => [...menu.querySelectorAll('button')].map((b) => b.textContent);
   const pick = (menu, label) =>
@@ -181,7 +193,7 @@ function mount({
     bubble, bodyOf,
     panes,
     rows, names, click,
-    clickEl, rightClick, itemsOf, pick, last, closeMenu,
+    clickEl, rightClick, auxClick, itemsOf, pick, last, closeMenu,
   };
 }
 

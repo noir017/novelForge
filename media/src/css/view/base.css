@@ -21,6 +21,10 @@ body {
   font-size: var(--vscode-font-size);
   color: var(--vscode-foreground);
   background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  /* 触摸长按弹出的原生 callout（复制/查询那一条）走的不是 contextmenu 事件，
+     JS 的 preventDefault 压不住它，只能在这里关。右键菜单一律由我们自己出
+     （见 view/menu.ts）。**不动 user-select**：那会连正文都选不中。 */
+  -webkit-touch-callout: none;
 }
 
 .hidden {

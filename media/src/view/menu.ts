@@ -9,6 +9,25 @@
  * （菜单风格统一），代价是那几处的编辑项要自己实现（见 editor/clipboard.ts）。
  * 插件形态另需 webviewHtml.ts 里 body 上的 `data-vscode-context`——
  * VS Code 给 webview 加的菜单由宿主渲染，JS 的 preventDefault 压不住。
+ *
+ * **接管要接得够早、够全**，否则原生菜单会漏出来——触控板双指点击尤其容易
+ * （它经过的事件序列与按实体右键并不完全一样）。两处防线：
+ *
+ * 1. `contextmenu` 挂在 **window 的捕获阶段**，也就是这个事件在页面里最早
+ *    到得了的地方。挂在 document 的冒泡阶段会被中途任何一处 `stopPropagation()`
+ *    挡住，那时 `preventDefault()` 根本没机会调用，原生菜单就照常弹出来。
+ * 2. `auxclick`（副键的「点击」）兜底：这一次手势里 `contextmenu` 压根没来过，
+ *    就用它弹我们的菜单，并把它自己的默认行为也挡掉。双指点击在部分浏览器/
+ *    驱动上走的就是这一路。落点没动、又紧挨着刚弹过的那一次，则只挡不弹——
+ *    那是同一次点击的尾巴。
+ *
+ * **不碰 `pointerdown` / `mousedown` 的默认行为**：按规范取消 `pointerdown`
+ * 拦不住 `contextmenu`（`click` / `auxclick` / `contextmenu` 明确不在被压制的
+ * 兼容事件之列），却会顺手把 `mousedown` 吃掉——于是文本域里右键不再挪光标，
+ * 菜单里的「粘贴」会贴到上一次光标的位置去。得不到好处，只会坏事。
+ *
+ * 触摸长按的 callout 是另一路，JS 管不着，在 CSS 里用
+ * `-webkit-touch-callout: none` 关掉（见 css/view/base.css）。
  */
 import { el as mk } from '../dom';
 import type { ContextMenuRegistrar, MenuItem } from '../globals';
@@ -138,8 +157,29 @@ function resolveMenuItems(target: EventTarget | null): MenuItem[] | null {
 export function installMenus(fallback: () => MenuItem[]): void {
   window.__nfContextMenu = onContextMenu;
 
-  document.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
+  /** 副键（右键 / 触控板双指点击 / 长按）。主键与中键不接管。 */
+  const isSecondary = (e: MouseEvent): boolean => e.button === 2;
+
+  /**
+   * 上一次弹菜单的时刻与落点。一次右键在 Chromium 里是
+   * pointerdown → contextmenu → auxclick，后两个都会落到这儿；`auxclick`
+   * 据此认出「这是刚才那一下的尾巴」，不重复弹。
+   *
+   * 认的是**时刻 + 落点**而不是一个「这一次手势里弹过没有」的布尔量：那个量
+   * 要靠某个事件来复位，而这里的前提恰恰是**不知道哪些事件会来**（不同浏览器 /
+   * 驱动发的序列不一样）。复位的那一发没来，布尔量就永远卡在 true，右键从此
+   * 失灵。只看时刻也不够：只发 auxclick 的环境里，300ms 内在别处再点一下
+   * 会被无声吃掉。
+   */
+  let served = { at: 0, x: NaN, y: NaN };
+
+  /** 同一次点击的尾巴：紧挨着、且落点没动。 */
+  const isSameClick = (e: MouseEvent): boolean =>
+    Date.now() - served.at <= 300 && e.clientX === served.x && e.clientY === served.y;
+
+  /** 在事件的落点弹出菜单。`contextmenu` 与兜底的 `auxclick` 共用。 */
+  const openAt = (e: MouseEvent): void => {
+    served = { at: Date.now(), x: e.clientX, y: e.clientY };
     // 在已弹出的菜单上右键：收起就好，不要再叠一层兜底菜单。
     if (openMenu?.menu.contains(e.target as Node)) {
       closeMenu();
@@ -154,7 +194,32 @@ export function installMenus(fallback: () => MenuItem[]): void {
       y = rect.bottom;
     }
     showContextMenu(resolveMenuItems(e.target) ?? fallback(), x, y);
-  });
+  };
+
+  // window 的捕获阶段：页面里最早的一站，谁都没机会先把它拦掉。
+  window.addEventListener(
+    'contextmenu',
+    (e) => {
+      e.preventDefault();
+      openAt(e);
+    },
+    true
+  );
+
+  // 兜底：双指点击只发了 auxclick、没发 contextmenu 的那些环境。
+  window.addEventListener(
+    'auxclick',
+    (e) => {
+      if (!isSecondary(e)) {
+        return;
+      }
+      e.preventDefault();
+      if (!isSameClick(e)) {
+        openAt(e);
+      }
+    },
+    true
+  );
 
   // 点别处、按 Esc 都要收起菜单。
   document.addEventListener('click', closeMenu);

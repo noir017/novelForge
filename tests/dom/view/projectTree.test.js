@@ -496,3 +496,71 @@ describe('右键菜单的通用行为', { skip: JSDOM_SKIP }, () => {
     ui.closeMenu();
   });
 });
+
+/*
+ * 原生右键菜单一律不许出现。
+ *
+ * 触控板双指点击走的事件序列与按实体右键不一样：有的环境发 contextmenu，
+ * 有的只发 auxclick；页面里任何一处 stopPropagation() 又能让冒泡阶段的监听
+ * 根本轮不到。三样都得挡住，漏一样就是「弹出原生右键菜单」。
+ */
+describe('接管原生右键菜单', { skip: JSDOM_SKIP }, () => {
+  let ui;
+
+  before(() => {
+    ui = mount();
+  });
+
+  test('contextmenu 的默认行为被挡掉', () => {
+    const ev = new ui.window.MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, clientX: 40, clientY: 60,
+    });
+    ui.doc.getElementById('pane-history').dispatchEvent(ev);
+    assert.ok(ev.defaultPrevented, '没有 preventDefault，原生菜单会弹出来');
+    ui.closeMenu();
+  });
+
+  // 监听挂在 window 的捕获阶段，所以中途 stopPropagation 也拦不住它。
+  test('半路 stopPropagation 仍挡得住', () => {
+    const pane = ui.doc.getElementById('pane-history');
+    const swallow = (e) => e.stopPropagation();
+    pane.addEventListener('contextmenu', swallow);
+    const ev = new ui.window.MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, clientX: 40, clientY: 60,
+    });
+    pane.dispatchEvent(ev);
+    pane.removeEventListener('contextmenu', swallow);
+    assert.ok(ev.defaultPrevented, '被 stopPropagation 挡掉了，原生菜单会弹出来');
+    assert.ok(ui.doc.querySelector('.ctx-menu'), '菜单也没弹出来');
+    ui.closeMenu();
+  });
+
+  // 只发 auxclick 的环境（部分浏览器/驱动下的双指点击）。落点与上一发不同，
+  // 所以不会被「同一次点击的尾巴」那条规则吃掉。
+  test('只发 auxclick 也弹自己的菜单', () => {
+    const ev = ui.auxClick(ui.doc.getElementById('pane-history'), 100, 120);
+    assert.ok(ev.defaultPrevented, 'auxclick 的默认行为没挡');
+    assert.ok(ui.doc.querySelector('.ctx-menu'), '没弹出菜单');
+  });
+
+  // 同一次点击的尾巴：contextmenu 之后紧跟的那发 auxclick 不该再弹一遍。
+  test('contextmenu 之后的 auxclick 不重复弹', () => {
+    ui.closeMenu();
+    const menu = ui.rightClick(ui.doc.getElementById('pane-history'));
+    ui.auxClick(ui.doc.getElementById('pane-history'));
+    const now = ui.doc.querySelectorAll('.ctx-menu');
+    assert.equal(now.length, 1, `弹了 ${now.length} 个`);
+    assert.equal(now[0], menu, '菜单被重建了一遍');
+    ui.closeMenu();
+  });
+
+  // 中键（button 1）不接管：那是「新标签页打开」之类的默认行为，不是右键。
+  test('中键的 auxclick 不弹菜单', () => {
+    const ev = new ui.window.MouseEvent('auxclick', {
+      bubbles: true, cancelable: true, button: 1, clientX: 40, clientY: 60,
+    });
+    ui.doc.getElementById('pane-history').dispatchEvent(ev);
+    assert.ok(!ev.defaultPrevented);
+    assert.ok(!ui.doc.querySelector('.ctx-menu'));
+  });
+});
