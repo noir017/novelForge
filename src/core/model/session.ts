@@ -13,6 +13,7 @@ import {
   isCreationStage,
   normalizeAction,
   normalizeTarget,
+  stageOfTarget,
 } from './pipeline';
 
 /**
@@ -305,7 +306,7 @@ export class SessionStore {
   create(seed?: { target?: CreationTarget; stage?: CreationStage; targetNo?: number }): ChatSession {
     const at = nowIso();
     const target = seed?.target ?? { kind: 'outline' };
-    const stage = seed?.stage ?? target.kind;
+    const stage = seed?.stage ?? stageOfTarget(target);
     return {
       id: makeSessionId(),
       title: '新对话',
@@ -411,7 +412,7 @@ function normalize(id: string, raw: unknown): ChatSession {
   const at = typeof o.createdAt === 'string' ? o.createdAt : nowIso();
   const target = normalizeTarget(o.target);
   // 阶段认不出、或该阶段不支持记下来的那个能力时，都回落到该阶段的默认值。
-  const stage: CreationStage = isCreationStage(o.stage) ? o.stage : target.kind;
+  const stage: CreationStage = isCreationStage(o.stage) ? o.stage : stageOfTarget(target);
   const capability: Capability =
     isCapability(o.capability) && STAGE_CAPABILITIES[stage].includes(o.capability)
       ? o.capability

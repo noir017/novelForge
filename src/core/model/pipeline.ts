@@ -16,17 +16,29 @@
  * - **Capability**：我要它干什么（任何阶段都能用，只是可用集合不同）
  * - **Target**：我在改哪一个具体产物
  *
- * ## 单位是章，但生成时不受「一章」束缚
+ * ## 规划的单位是剧情段，管理的单位是章
  *
- * 流水线的每一格就是**一章**：第 99 章之后规划的就是第 100 章，编号跨
- * `plots/` 与 `chapters/` 连续（`nextPlotNo()`）。界面上一律称「章」。
+ * 展开的链是五环：
  *
- * 但生成正文时**不要求它正好凑成一章**——那是这一层与旧版最大的区别。模型按
- * 剧情的自然长度写，正文先落在中转站 `manuscripts/`；作者在里面用 `---` 标出
- * 断点，一份正文可以拆成两章、三章。拆完中转站那份就删掉，此后一切按
- * `chapters/` 管理（见 model/plotFile.ts 的文件头）。
+ * ```
+ * outline.md ──拆卷──▶ volumes/ ──拆段──▶ plots/ ──拆场景──▶ scenes/ ──▶ manuscripts/ ──拆章──▶ chapters/
+ * ```
  *
- * 所以 `PlotStage` 比四层产物多一档 `split`：正文写完、还没拆分。
+ * **卷不是一个创作阶段**，所以 `CreationStage` 仍然是四个。它只做收纳与拆分：
+ * 段按卷落进 `plots/<卷词干>/`，而「从这一卷拆出下一段」与「把大纲拆成卷」都
+ * 是同一个身份（策划编辑）的活。所以 `CreationTarget` 多一个 `volume`，而
+ * `stageOfTarget` 把它归到 `outline`——少一个阶段就少一套配方、一套提示词、
+ * 一组能力按钮，而卷纲要的恰恰就是大纲那一套上下文。
+ *
+ * 生成正文时**不要求它正好凑成一章**：模型按剧情的自然长度写，正文先落在
+ * 中转站 `manuscripts/`；作者在里面用 `---` 标出断点，一段正文可以拆成两章、
+ * 三章。拆完中转站那份就删掉，此后那一段的正文按 `chapters/` 管理
+ * （见 model/plotFile.ts 的文件头）。
+ *
+ * 所以段号与章号是**两条轴**：段号只是 `plots/` 里的排序键，章号必须连续。
+ * 界面上剧情段称「剧情 N」，那个 N 是推导出来的位次（`segmentDisplayNo`）。
+ *
+ * `PlotStage` 比四层产物多一档 `split`：正文写完、还没拆分。
  */
 
 // ---------------------------------------------------------------- Stage
@@ -110,7 +122,7 @@ export const CAPABILITY_HINT: Record<Capability, string> = {
   expand: '在现有产物上补充内容，产出建议而非直接覆盖',
   critique: '找逻辑漏洞、冲突太弱、节奏问题',
   check: '与既有设定、伏笔、时间线对账',
-  split: '拆成下一层：大纲拆成各章，剧情拆成场景',
+  split: '拆成下一层：大纲拆成卷，卷拆成剧情段，剧情拆成场景',
   generate: '按你描述的走向产出本阶段的产物，可采纳写入',
   settle: '把刚才讨论出的结论整理成产物，可采纳写入',
   rewrite: '拿着修改意见重做一版，可采纳写入',
@@ -124,18 +136,40 @@ export function isCapability(value: unknown): value is Capability {
  * 能力在某个阶段的**具体说法**。`CAPABILITY_LABEL` 是通用说法，日志与确认框
  * 用它是对的；界面上有阶段做上下文，说得具体些更好懂。
  *
- * 只覆盖差别大到会让人误解的那几处：`split` 在大纲拆的是一章章的细纲、在剧情层
- * 拆的是场景；`generate` 在四层产出的是四种完全不同的东西。其余沿用通用说法。
+ * 只覆盖差别大到会让人误解的那几处：`split` 在大纲拆的是卷、在卷里拆的是
+ * 一个剧情段、在剧情层拆的是场景；`generate` 在四层产出的是四种完全不同的
+ * 东西。其余沿用通用说法。
  */
 const CAPABILITY_LABEL_IN: Partial<Record<CreationStage, Partial<Record<Capability, string>>>> = {
-  outline: { split: '拆成章节', generate: '生成大纲', rewrite: '重写大纲' },
+  outline: { split: '拆成卷', generate: '生成大纲', rewrite: '重写大纲' },
   plot: { split: '拆成场景', generate: '写剧情', settle: '落定剧情', rewrite: '重写剧情' },
   scene: { generate: '设计这一场', rewrite: '重做这一场' },
   manuscript: { generate: '写正文', rewrite: '重写正文' },
 };
 
-/** 某阶段下某能力在按钮上的说法。 */
-export function labelOf(stage: CreationStage, capability: Capability): string {
+/**
+ * 大纲这一层有**两种 target**，说法必须分开。
+ *
+ * `outline` 阶段既管全书大纲，也管一卷的卷纲（卷不是独立阶段，见文件头）。
+ * 同一个 `split` 在两种 target 上做的是完全不同的事：拆出全书的分卷 / 从这一卷
+ * 拆出下一个剧情段。只按 stage 取标签的话，选中一卷时按钮会写「拆成卷」，
+ * 而它拆出来的是一个剧情段。
+ */
+const CAPABILITY_LABEL_ON_VOLUME: Partial<Record<Capability, string>> = {
+  split: '拆出剧情段',
+  generate: '写这一卷的卷纲',
+  rewrite: '重写这一卷',
+};
+
+/** 某阶段（可再按 target 具体化）下某能力在按钮上的说法。 */
+export function labelOf(
+  stage: CreationStage,
+  capability: Capability,
+  targetKind?: CreationTarget['kind']
+): string {
+  if (stage === 'outline' && targetKind === 'volume') {
+    return CAPABILITY_LABEL_ON_VOLUME[capability] ?? CAPABILITY_LABEL[capability];
+  }
   return CAPABILITY_LABEL_IN[stage]?.[capability] ?? CAPABILITY_LABEL[capability];
 }
 
@@ -262,12 +296,20 @@ const CAPABILITY_KEYS: Record<Capability, string[]> = {
   rewrite: ['rewrite', 'gx'],
 };
 
-/** 这个阶段能下哪些命令。顺序即面板里的顺序。 */
-export function commandsFor(stage: CreationStage): StageCommand[] {
+/**
+ * 这个阶段能下哪些命令。顺序即面板里的顺序。
+ *
+ * `targetKind` 只影响文案（大纲层的两种 target 说法不同，见
+ * `CAPABILITY_LABEL_ON_VOLUME`），不影响可用集合——能力集合是按阶段定的。
+ */
+export function commandsFor(
+  stage: CreationStage,
+  targetKind?: CreationTarget['kind']
+): StageCommand[] {
   return (STAGE_CAPABILITIES[stage] ?? []).map((capability) => ({
     capability,
-    label: labelOf(stage, capability),
-    hint: hintOf(stage, capability),
+    label: labelOf(stage, capability, targetKind),
+    hint: hintOf(stage, capability, targetKind),
     writes: outputKindOf({ stage, capability }) === 'artifact',
     needsText: capability === 'discuss',
     keys: CAPABILITY_KEYS[capability],
@@ -281,7 +323,15 @@ export function commandsFor(stage: CreationStage): StageCommand[] {
  * 产出同一种产物的命令，通用文案说不清它们的差别，而那个差别（以讨论为准
  * 还是以你这句话为准）正是作者要选的东西。
  */
-function hintOf(stage: CreationStage, capability: Capability): string {
+function hintOf(
+  stage: CreationStage,
+  capability: Capability,
+  targetKind?: CreationTarget['kind']
+): string {
+  if (stage === 'outline' && targetKind === 'volume' && capability === 'split') {
+    return '从这一卷的卷纲里拆出下一个剧情段。一次只拆一段——有了卷纲当参照，' +
+      '「接下来该发生什么」才答得准，一次吐五段只会得到一串彼此没有因果的骨架。';
+  }
   if (stage === 'plot') {
     if (capability === 'settle') {
       return '把刚才讨论出的剧情整理成细纲，以讨论里的结论为准';
@@ -294,8 +344,12 @@ function hintOf(stage: CreationStage, capability: Capability): string {
 }
 
 /** 某阶段的某个能力对应的命令；不支持时 undefined。 */
-export function commandOf(stage: CreationStage, capability: Capability): StageCommand | undefined {
-  return commandsFor(stage).find((c) => c.capability === capability);
+export function commandOf(
+  stage: CreationStage,
+  capability: Capability,
+  targetKind?: CreationTarget['kind']
+): StageCommand | undefined {
+  return commandsFor(stage, targetKind).find((c) => c.capability === capability);
 }
 
 /**
@@ -332,6 +386,45 @@ export function isFallbackChapterTitle(order: number, title?: string): boolean {
 /** {@link chapterLabel} 在细纲那一侧的别名。输出完全一致。 */
 export const plotLabel = chapterLabel;
 
+/** 「第 2 卷《觉醒之日》」——一卷在界面、日志、上下文标签里的统一说法。 */
+export function volumeLabel(no: number, title?: string): string {
+  const named = title?.trim();
+  return named ? `第 ${no} 卷《${named}》` : `第 ${no} 卷`;
+}
+
+/**
+ * 「剧情 4《楼道》」——一个**还没拆成章**的剧情段在界面上的统一说法。
+ *
+ * 为什么不叫「第 4 章」：一个剧情段可以拆成三章。管理的单位是章，但**规划的
+ * 单位是段**，两者不是一对一的，把段叫成章会在两处骗人——它会让作者以为
+ * 「剧情 4」将来就是第 4 章，也会让「一段拆成三章」之后后面每一段的编号都
+ * 对不上。
+ *
+ * 这里的 `no` 是 {@link segmentDisplayNo} 推出来的**位次**，不是文件名里的段号。
+ */
+export function segmentLabel(no: number, title?: string): string {
+  const named = title?.trim();
+  return named && !isFallbackChapterTitle(no, named) ? `剧情 ${no}《${named}》` : `剧情 ${no}`;
+}
+
+/**
+ * 一个未拆分的剧情段显示成「剧情 几」。
+ *
+ * **位次而不是文件名里的段号**：`最新章号 + 在未拆分的段里排第几`（从 1 数）。
+ *
+ * 举例。拆出 5 段、一章都还没有：显示剧情 1~5。作者把第 1 段写完、拆成了 3 章
+ * （第 1~3 章）：那一段从待做列表里消失，剩下 4 段接着往下数——剧情 4~7。
+ * 老工程写了 99 章、现在开始规划：第一段就是剧情 100。
+ *
+ * 三条好处：编号永远接在已发布的正文后面（作者要的是「接下来写第几篇」）；
+ * 一段拆成三章之后不必把后面几十份细纲**整体改名顺延**（从前正是那样做的，
+ * 一次重命名风暴要连带搬走场景目录与中转站正文）；段号于是退回成一个纯粹的
+ * 排序键，与章号彻底解耦。
+ */
+export function segmentDisplayNo(maxChapterNo: number, index: number): number {
+  return Math.max(0, maxChapterNo) + index + 1;
+}
+
 // ---------------------------------------------------------------- Target
 
 /**
@@ -346,18 +439,29 @@ export const plotLabel = chapterLabel;
  */
 export type CreationTarget =
   | { kind: 'outline' }
+  | { kind: 'volume'; volumeRelPath: string }
   | { kind: 'plot'; plotRelPath: string }
   | { kind: 'scene'; plotRelPath: string; sceneNo: number }
   | { kind: 'manuscript'; plotRelPath: string; sceneNo?: number };
 
-/** target 属于哪个阶段。两者不是同一件事：target 是名词，stage 是动词的所在层。 */
+/**
+ * target 属于哪个阶段。两者不是同一件事：target 是名词，stage 是动词的所在层。
+ *
+ * **`volume` 归到 `outline`**：卷不是一个独立的创作阶段（见文件头）。分卷与
+ * 从卷里拆段都是策划编辑的活，用的也是大纲那一套上下文。
+ */
 export function stageOfTarget(target: CreationTarget): CreationStage {
-  return target.kind;
+  return target.kind === 'volume' ? 'outline' : target.kind;
 }
 
-/** 该 target 归属的细纲路径；全书大纲没有归属章。 */
+/** 该 target 归属的细纲路径；全书大纲与卷纲都没有归属段。 */
 export function plotOfTarget(target: CreationTarget): string | undefined {
-  return target.kind === 'outline' ? undefined : target.plotRelPath;
+  return target.kind === 'outline' || target.kind === 'volume' ? undefined : target.plotRelPath;
+}
+
+/** 该 target 归属的卷纲路径；只有 `volume` 有。 */
+export function volumeOfTarget(target: CreationTarget): string | undefined {
+  return target.kind === 'volume' ? target.volumeRelPath : undefined;
 }
 
 /**
@@ -368,6 +472,8 @@ export function targetKey(target: CreationTarget): string {
   switch (target.kind) {
     case 'outline':
       return 'outline';
+    case 'volume':
+      return `volume:${target.volumeRelPath}`;
     case 'plot':
       return `plot:${target.plotRelPath}`;
     case 'scene':
@@ -395,6 +501,11 @@ export function describeTarget(
   if (target.kind === 'outline') {
     return '全书大纲';
   }
+  if (target.kind === 'volume') {
+    return info?.no !== undefined
+      ? `${volumeLabel(info.no, info.title)} · 卷纲`
+      : `${target.volumeRelPath} · 卷纲`;
+  }
   const head = info?.no !== undefined ? plotLabel(info.no, info.title) : target.plotRelPath;
   const scene = (no: number) => ` · 场景 ${no}${info?.sceneTitle ? ` ${info.sceneTitle}` : ''}`;
 
@@ -416,10 +527,13 @@ export function describeTarget(
 export function normalizeTarget(raw: unknown): CreationTarget {
   const o = (raw ?? {}) as Record<string, unknown>;
   const plotRelPath = typeof o.plotRelPath === 'string' ? o.plotRelPath.trim() : '';
+  const volumeRelPath = typeof o.volumeRelPath === 'string' ? o.volumeRelPath.trim() : '';
   const sceneNo =
     typeof o.sceneNo === 'number' && Number.isInteger(o.sceneNo) && o.sceneNo > 0 ? o.sceneNo : undefined;
 
   switch (o.kind) {
+    case 'volume':
+      return volumeRelPath ? { kind: 'volume', volumeRelPath } : { kind: 'outline' };
     case 'plot':
       return plotRelPath ? { kind: 'plot', plotRelPath } : { kind: 'outline' };
     case 'scene':
@@ -619,7 +733,7 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
         stage: 'plot',
         capability: 'generate',
         label: labelOf('plot', 'generate'),
-        hint: '先把这一章的剧情脉络排出来：发生什么、因果怎么串、收在什么局面上。',
+        hint: '先把这一段的剧情脉络排出来：发生什么、因果怎么串、收在什么局面上。',
       };
 
     case 'scene':
@@ -629,7 +743,7 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
           stage: 'plot',
           capability: 'split',
           label: labelOf('plot', 'split'),
-          hint: '把这一章拆成几个能独立开写的场景。',
+          hint: '把这一段拆成几个能独立开写的场景。',
         };
       }
       return {
@@ -675,7 +789,7 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
         capability: 'generate',
         projectAction: 'summarizePlot',
         label: '总结这一章',
-        hint: '正文齐了。摘要是后面几百章唯一能记住这一章的东西。',
+        hint: '正文齐了。摘要是后面几百章唯一能记住这些内容的东西。',
       };
 
     // 都做完了就不催。给一个「下一步」等于逼作者一直有事可做。
@@ -689,35 +803,50 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
 /**
  * 整本书走到哪一步。与 `PlotStage` 同构，只是粒度是全书。
  *
- * 需要它是因为 `plots/` 是一条有序序列，而「还没有大纲」「有大纲但一章都没规划」
- * 这两种状态不属于任何一章——从前这个判断手写在 controller 里（`outlineNextStep`），
- * 判据落在 I/O 层就测不到，也没法与 `deriveStage` 保持同一套写法。
+ * 需要它是因为 `plots/` 是一条有序序列，而「还没有大纲」「有大纲但一卷都没拆」
+ * 「有卷但一段都没拆」这三种状态不属于任何一段——从前这个判断手写在 controller
+ * 里（`outlineNextStep`），判据落在 I/O 层就测不到，也没法与 `deriveStage`
+ * 保持同一套写法。
  */
-export type BookStage = 'outline' | 'plots' | 'working';
+export type BookStage = 'outline' | 'volumes' | 'plots' | 'working';
 
 export interface BookFacts {
   /** `outline.md` 去掉模板占位后有内容。 */
   outlineFilled: boolean;
+  /** `volumes/` 里有卷纲。 */
+  volumeCount: number;
   /**
-   * 有细纲的章数**加上**已经写完的章数。
+   * 剧情段数**加上**已经发布的章数。
    *
    * 两者都要算：只有 `chapters/` 的老工程（写了 99 章、从没用过这个工具）
-   * 一样是「已经在写了」，不该被叫回去从拆章开始。
+   * 一样是「已经在写了」，不该被叫回去从头拆。
    */
   plotCount: number;
 }
 
-/** 判据自上而下取第一个不满足的：没大纲 → 写大纲；有大纲没章 → 拆章；有章 → 交给按章流水线。 */
+/**
+ * 判据自上而下取第一个不满足的：没大纲 → 写大纲；有大纲没卷 → 拆卷；
+ * 有卷没段 → 拆段；有段（或已经有章）→ 交给按段的流水线。
+ *
+ * **`plotCount` 先判**：老工程一份卷纲都没有，但它写了 99 章——把它拉回
+ * 「先把大纲拆成卷」是荒唐的。已发布的正文天生就算数（第 8 条）。
+ */
 export function deriveBookStage(f: BookFacts): BookStage {
   if (!f.outlineFilled) {
     return 'outline';
   }
-  return f.plotCount === 0 ? 'plots' : 'working';
+  if (f.plotCount > 0) {
+    return 'working';
+  }
+  return f.volumeCount === 0 ? 'volumes' : 'plots';
 }
 
 /**
- * 全书级的下一步。章已经有了就返回 undefined——那时该做什么由**选中的那一章**
- * 决定（`deriveNextStep`），而挑哪一章是作者的选择，不是系统能替他定的。
+ * 全书级的下一步。段已经有了就返回 undefined——那时该做什么由**选中的那一段**
+ * 决定（`deriveNextStep`），而挑哪一段是作者的选择，不是系统能替他定的。
+ *
+ * `plots` 那一档要落在**某一卷**上，而挑哪一卷这里定不了（它是纯函数，手上
+ * 没有卷列表）。调用方（controller）拿到这一步之后把 target 指向第一卷。
  */
 export function deriveBookNextStep(stage: BookStage): NextStepPlan | undefined {
   switch (stage) {
@@ -726,14 +855,21 @@ export function deriveBookNextStep(stage: BookStage): NextStepPlan | undefined {
         stage: 'outline',
         capability: 'generate',
         label: labelOf('outline', 'generate'),
-        hint: '先定下这个故事讲什么。后面三层都从它展开。',
+        hint: '先定下这个故事讲什么。后面几层都从它展开。',
+      };
+    case 'volumes':
+      return {
+        stage: 'outline',
+        capability: 'split',
+        label: labelOf('outline', 'split'),
+        hint: '把大纲切成几卷，每卷是一条完整的中等弧线，有自己的开局、升级与收束。',
       };
     case 'plots':
       return {
         stage: 'outline',
         capability: 'split',
-        label: labelOf('outline', 'split'),
-        hint: '把大纲切成一章一章的剧情，每章有一个能判断达成没达成的目标。',
+        label: labelOf('outline', 'split', 'volume'),
+        hint: '从第一卷的卷纲里拆出第一个剧情段。一次只拆一段，接着往下写。',
       };
     case 'working':
       return undefined;

@@ -6,6 +6,7 @@
  * 开销不值得多维护一份状态。
  */
 import { maybeById, setHidden } from '../dom';
+import { plotOfTarget } from '../protocol';
 import type { ViewState } from '../protocol';
 import { setCommandsDisabled } from './commands';
 import { fmt } from './format';
@@ -54,22 +55,27 @@ export function renderState(state: ViewState): void {
  * `relPath`（目标一律按路径标识，章号会撞）。「新建第 N 章」那一项没有
  * relPath：那一章还不存在。
  *
- * 列的是**章节**而不是 `chapters/` 里的发布章节：章节不在流水线上，
- * 拿它当创作目标等于对着成品写。
+ * 列的是**已发布的章 + 还没交付的剧情段**，顺序即时间线的倒序（最近的在上面）。
+ * 说法由后端给（`p.label`）——两种行的叫法完全不同，前端按 `no` 自己拼会把每个
+ * 剧情段都叫成「第 N 章」。
  */
 function renderTargetSelect(state: ViewState): void {
   el.targetSelect.innerHTML = '';
 
   const newOpt = document.createElement('option');
   newOpt.value = String(state.nextNo);
-  newOpt.textContent = `新建第 ${state.nextNo} 章`;
+  // **不报序号**：新建出来的是一个剧情段，它显示成「剧情 几」是推导出来的
+  // 位次（最新章号 + 位次），与 `nextNo` 那个文件名前缀不是一回事。
+  newOpt.textContent = '新建剧情段';
   newOpt.dataset.mode = 'new';
   el.targetSelect.appendChild(newOpt);
 
   for (const p of [...state.plots].reverse()) {
     const opt = document.createElement('option');
     opt.value = String(p.no);
-    opt.textContent = p.title ? `第 ${p.no} 章《${p.title}》` : `第 ${p.no} 章`;
+    // 文案由后端给：一行可能是已发布的章，也可能是还没交付的剧情段，
+    // 两者的说法完全不同（「第 12 章《夜访》」/「剧情 4《楼道》」）。
+    opt.textContent = p.label;
     opt.dataset.mode = 'append';
     opt.dataset.rel = p.relPath;
     el.targetSelect.appendChild(opt);
@@ -77,8 +83,7 @@ function renderTargetSelect(state: ViewState): void {
 
   // 以会话里的目标为准（后端是唯一真相），它指向的那一章不在列表里
   // （刚被删/改名）时退回「新建下一章」。
-  const target = store.session.target;
-  const relPath = target.kind === 'outline' ? undefined : target.plotRelPath;
+  const relPath = plotOfTarget(store.session.target);
   const matched = relPath
     ? [...el.targetSelect.options].find((o) => o.dataset.rel === relPath)
     : undefined;

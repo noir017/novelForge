@@ -755,19 +755,25 @@ describe('选中一章进入当前阶段', { skip: JSDOM_SKIP }, () => {
   test('工程页点章名打开文件，不发 selectPlot', () => {
     ui.post({ type: 'project', tree: sampleTree() });
     ui.sent.length = 0;
-    const row = ui.doc.querySelector('#projectBody .row-plot .row-label');
+    // 排掉卷那一组的行：它们刻意复用同一套样式类（`.row-plot`）。
+    const row = ui.doc.querySelector('#projectBody .row-plot:not(.row-volume) .row-label');
     ui.clickEl(row);
     assert.ok(![...ui.sent].some((m) => m.type === 'selectPlot'), JSON.stringify(ui.sent));
     const open = [...ui.sent].reverse().find((m) => m.type === 'openFile');
     assert.equal(open?.path, 'chapters/001-楔子.md', JSON.stringify(open));
   });
 
-  test('工程页右键「进入这一章」仍带主路径', () => {
+  // 剧情段那一行说的是「进入这一段」——它不是一章，一段可以拆成三章。
+  test('工程页右键「进入这一段」带细纲路径', () => {
     ui.sent.length = 0;
-    const rows = [...ui.doc.querySelectorAll('#projectBody .row-plot')];
-    ui.pick(ui.rightClick(rows.find((n) => n.textContent.includes('入镇'))), '进入这一章');
+    const rows = [...ui.doc.querySelectorAll('#projectBody .row-plot:not(.row-volume)')];
+    ui.pick(ui.rightClick(rows.find((n) => n.textContent.includes('北行'))), '进入这一段');
     const fromTree = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
-    assert.equal(fromTree?.plotRelPath, '.novelforge/plots/002-入镇.md', JSON.stringify(fromTree));
+    assert.equal(
+      fromTree?.plotRelPath,
+      '.novelforge/plots/01-觉醒之日/004-北行.md',
+      JSON.stringify(fromTree)
+    );
   });
 });
 

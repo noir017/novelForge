@@ -125,11 +125,17 @@ export async function previewContext(
  * text 类能力（讨论、挑刺、检查）没有可采纳的东西，返回 undefined；
  * 解析出来是空的也返回 undefined——写一个空产物比不写更糟，作者会以为存下了。
  */
-export function parseDraftArtifact(action: CreationAction, raw: string): Artifact | undefined {
+export function parseDraftArtifact(
+  action: CreationAction,
+  target: CreationTarget,
+  raw: string
+): Artifact | undefined {
   if (outputKindOf(action) !== 'artifact') {
     return undefined;
   }
-  const artifact = parseArtifact(action, raw);
+  // **target 也要**：大纲这一层的 `split` 在全书大纲上拆出分卷清单，在一卷上
+  // 拆出一个剧情段。只看 action 分不开（卷不是独立阶段，见 model/pipeline.ts）。
+  const artifact = parseArtifact(action, target, raw);
   return isArtifactEmpty(artifact) ? undefined : artifact;
 }
 
@@ -215,7 +221,7 @@ export async function generate(
     // 在这里剥会把「去掉开场白」那几条正则用到 JSON 上，可能切坏结构。
     const raw = stage === 'manuscript' ? cleanOutput(full) : full.trim();
     handlers.onDone(raw);
-    const artifact = parseDraftArtifact(request.action, raw);
+    const artifact = parseDraftArtifact(request.action, request.target, raw);
     draft = {
       id: makeDraftId(),
       action: request.action,

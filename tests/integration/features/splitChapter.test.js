@@ -6,11 +6,13 @@
  *
  * 1. 切出来的章确实落进了 `chapters/`，中转站原件进了 `.trash/`（不真删）；
  * 2. 第一章沿用原标题，其余留纯序号名——**不调模型拟标题**；
- * 3. 一章拆成 N 章后，后面**还没发布**的细纲号整体顺延，场景目录跟着改名；
- * 4. 只切出一章时不弹确认、不重编号——那等于「把这一章发布出去」。
+ * 3. 章号接在**现有最后一章**之后（`nextChapterNo`），与这一段的段号无关；
+ * 4. **一个别的文件都不动**：后面还没拆的剧情段不改名、不挪场景目录；
+ * 5. 落点记进这一段的 frontmatter（`chapters:`）——那是「段 → 章」唯一的链。
  *
- * 顺序上还有一条：**先移号再落盘**。反过来的话，重编号失败会留下
- * 「章节已建、细纲还撞着号」的中间态。
+ * 第 3、4 条是这次改动的落点。从前章号从段号起排，于是「一段拆成三章」必须把
+ * 后面几十份细纲整体改名让路，连带搬走各自的场景目录与中转站正文。段号与章号
+ * 现在是两条轴（界面上的「剧情 N」是推导出来的位次），那一步整个不需要了。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -39,7 +41,7 @@ const filled = (goal) => ({
   剧情脉络: '甲、乙、丙。',
 });
 
-/** 建一章的细纲（可选带一场景），返回细纲相对路径。 */
+/** 建一段的细纲（可选带一场景），返回细纲相对路径。 */
 async function makePlot(no, title, { scene = false } = {}) {
   const relPath = await wsOf(project).writePlot({
     no,
@@ -47,7 +49,8 @@ async function makePlot(no, title, { scene = false } = {}) {
     arc: '',
     upstreamHash: '',
     done: false,
-    sections: filled(`第 ${no} 章要达成的事。`),
+    chapters: [],
+    sections: filled(`第 ${no} 段要达成的事。`),
   });
   if (scene) {
     await wsOf(project).writeScene(relPath, {
@@ -86,7 +89,7 @@ after(() => {
 });
 
 /**
- * 主路径：一章正文里插了两条 `---`，拆成三章，后面两章的规划顺延。
+ * 主路径：一段正文里插了两条 `---`，拆成三章。后面两段一个字节都不动。
  */
 describe('拆成三章', () => {
   const plotRel = '.novelforge/plots/010-归山.md';
@@ -96,7 +99,7 @@ describe('拆成三章', () => {
 
   before(async () => {
     await makePlot(10, '归山');
-    // 后面两章已经规划过（其中一章拆过场景），拆分之后要整体让路。
+    // 后面两段已经规划过（其中一段拆过场景）。从前它们要整体让路，现在不必。
     await makePlot(11, '风起', { scene: true });
     await makePlot(12, '雪落');
 
@@ -125,19 +128,21 @@ describe('拆成三章', () => {
   });
 
   test('第一章沿用原标题', () => {
-    assert.equal(created[0], 'chapters/010-归山.md', created[0]);
+    assert.equal(created[0], 'chapters/001-归山.md', created[0]);
   });
 
   // **不调模型拟标题**：那要么多花一次调用，要么在一个纯机械的动作里
   // 插进一次可能失败的网络请求。作者右键重命名一下就好。
   test('其余章落成纯序号名', () => {
-    assert.deepEqual(created.slice(1), ['chapters/011.md', 'chapters/012.md']);
+    assert.deepEqual(created.slice(1), ['chapters/002.md', 'chapters/003.md']);
   });
 
-  test('章号从原章号往后接', () => {
+  // 章号接在**现有最后一章**之后，与这一段的段号（10）无关：段号只是
+  // `plots/` 里的排序键，一段可以拆成三章，两条轴各排各的。
+  test('章号从现有最后一章往后接', () => {
     assert.deepEqual(
       chapters.map((c) => c.order),
-      [10, 11, 12]
+      [1, 2, 3]
     );
   });
 
@@ -162,35 +167,43 @@ describe('拆成三章', () => {
     assert.ok(t.has('.novelforge/.trash/.novelforge/manuscripts/010-归山.md'));
   });
 
-  // 一章变三章，后面还没发布的规划整体 +2，否则会与新建的 11、12 撞号。
-  test('后面待写的细纲顺延', () => {
+  // 这是这次改动最要紧的一条：段号不再让路，所以**一个文件都不改名**。
+  // 从前这里会把 11、12 整体 +2，连带搬走它们的场景目录与中转站正文——
+  // 一次几十份文件的重命名风暴，只为维持「细纲与章同号」那条已经不存在的
+  // 不变量。
+  test('后面待写的段号不动', () => {
     assert.deepEqual(
       plots.map((p) => p.no),
-      [10, 13, 14]
+      [10, 11, 12]
     );
   });
 
-  test('顺延后细纲的内容没丢', async () => {
-    const moved = await project.readPlot('.novelforge/plots/013-风起.md');
-    assert.equal(moved?.sections.目标, '第 11 章要达成的事。', JSON.stringify(moved?.sections));
+  test('后面那段的内容与路径都没动', async () => {
+    const untouched = await project.readPlot('.novelforge/plots/011-风起.md');
+    assert.equal(untouched?.sections.目标, '第 11 段要达成的事。', JSON.stringify(untouched?.sections));
   });
 
-  // 场景目录的身份是细纲文件名的词干，不跟着搬就成了孤儿——
-  // 界面上会说「这一章还没拆场景」，而那一场就躺在旁边。
-  test('场景目录跟着改名', () => {
-    assert.ok(t.has('.novelforge/scenes/013-风起/01-开场.md'));
+  test('场景目录没被搬走', () => {
+    assert.ok(t.has('.novelforge/scenes/011-风起/01-开场.md'));
   });
 
-  test('旧的场景目录不在了', () => {
-    assert.ok(!t.has('.novelforge/scenes/011-风起'));
+  // 「段 → 章」的链现在是显式的：`chapters/` 下的文件是作者的东西，
+  // 拆分之后插件一个字节都不往里改，所以这条链只能记在段这一侧。
+  test('落点记进了这一段的 frontmatter', async () => {
+    const plot = await project.readPlot(plotRel);
+    assert.deepEqual(plot.chapters, created, JSON.stringify(plot.chapters));
   });
 
   test('拆成多章要先弹确认', () => {
     assert.equal(h.confirms.length, 1, JSON.stringify(h.confirms));
   });
 
-  test('确认框说清顺延到哪', () => {
-    assert.ok(h.confirms[0].detail.includes('第 11 章 → 第 13 章'), h.confirms[0].detail);
+  test('确认框说清落到哪几章', () => {
+    assert.ok(h.confirms[0].detail.includes('第 1 章'), h.confirms[0].detail);
+  });
+
+  test('确认框说清后面的段不受影响', () => {
+    assert.ok(h.confirms[0].detail.includes('一个文件都不会改名'), h.confirms[0].detail);
   });
 
   test('没有报错', () => {
@@ -199,8 +212,7 @@ describe('拆成三章', () => {
 });
 
 /**
- * 不标断点 = 「把这一章原样发布出去」。没有可商量的取舍，也动不到别的东西，
- * 所以不弹确认、不重编号。
+ * 不标断点 = 「把这一段原样发布出去」。没有可商量的取舍，所以不弹确认。
  */
 describe('只切出一章', () => {
   const plotRel = '.novelforge/plots/020-独章.md';
@@ -218,15 +230,16 @@ describe('只切出一章', () => {
     plotsAfter = await project.listPlots();
   });
 
+  // 章号接在上一组拆出来的第 3 章之后。
   test('只建一章', () => {
-    assert.deepEqual(created, ['chapters/020-独章.md']);
+    assert.deepEqual(created, ['chapters/004-独章.md']);
   });
 
   test('不弹确认框', () => {
     assert.equal(h.confirms.length, 0, JSON.stringify(h.confirms));
   });
 
-  test('后面的细纲号不动', () => {
+  test('后面的段号不动', () => {
     assert.ok(
       plotsAfter.some((p) => p.no === 21),
       plotsAfter.map((p) => p.no).join('|')
@@ -238,7 +251,7 @@ describe('只切出一章', () => {
   });
 });
 
-/** 取消 = 一个字节都不动。确认框里说了要建文件、要删原件、要挪号，反悔就得全反悔。 */
+/** 取消 = 一个字节都不动。确认框里说了要建文件、要删原件，反悔就得全反悔。 */
 describe('用户取消', () => {
   const plotRel = '.novelforge/plots/030-反悔.md';
   let created;
@@ -262,22 +275,22 @@ describe('用户取消', () => {
     assert.ok(t.has('.novelforge/manuscripts/030-反悔.md'));
   });
 
-  test('后面的细纲号没被挪', () => {
+  test('后面的段号没被挪', () => {
     assert.ok(t.has('.novelforge/plots/031-不该被挪.md'));
   });
 });
 
 /**
- * 已经发布的章不参与顺延。它是成品，作者已经发出去了；
- * 因为前面插进几章就给它改号，等于打乱读者看到的顺序。
+ * 已经发布的章一个字节都不动。它是成品，作者已经发出去了；因为别处拆了几章
+ * 就给它改号，等于打乱读者看到的顺序。
  */
-describe('已发布的章不顺延', () => {
+describe('已发布的章不受影响', () => {
   const plotRel = '.novelforge/plots/040-插队.md';
   let published;
+  let publishedText;
 
   before(async () => {
     await makePlot(40, '插队');
-    // 第 41 章既有细纲也有成品——它已经拆分发布过了。
     await makePlot(41, '已发布');
     t.write('chapters/041-已发布.md', '# 已发布\n\n早就发出去的文字。\n');
     project.invalidate();
@@ -289,14 +302,19 @@ describe('已发布的章不顺延', () => {
     await bundle.split.splitManuscript(project, plotRel);
     project.invalidate();
     published = await project.readPlot('.novelforge/plots/041-已发布.md');
+    publishedText = t.read('chapters/041-已发布.md');
   });
 
-  test('已发布那一章的细纲号没变', () => {
+  test('那一段的段号没变', () => {
     assert.equal(published?.no, 41, JSON.stringify(published?.no));
   });
 
   test('它的成品文件也没被改名', () => {
     assert.ok(t.has('chapters/041-已发布.md'));
+  });
+
+  test('成品内容一个字节都没动', () => {
+    assert.ok(publishedText.includes('早就发出去的文字'), publishedText);
   });
 });
 
@@ -319,7 +337,7 @@ describe('拆不动的情况', () => {
     assert.ok(h.erred(), h.toasts.join('|'));
   });
 
-  test('细纲不存在时报错', async () => {
+  test('段不存在时报错', async () => {
     h.expect('拆分');
     const created = await bundle.split.splitManuscript(project, '.novelforge/plots/999-查无此章.md');
     assert.deepEqual(created, []);

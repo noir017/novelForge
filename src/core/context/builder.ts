@@ -185,7 +185,9 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
     sections.push(`# 修订要求\n\n${revision.text}\n\n请基于上一版重写，采纳修改意见，保留其中写得好的部分。`);
   }
 
-  const contract = buildOutputContract(request.action, request.targetWords);
+  // target 也要给：大纲这一层的 `split` 在全书大纲上要分卷清单、在一卷上要
+  // 一个剧情段（卷不是独立阶段，见 model/pipeline.ts 的文件头）。
+  const contract = buildOutputContract(request.action, request.targetWords, request.target.kind);
   sections.push(
     writing && config.recentChaptersFullText > 0
       ? `${contract}注意与上文的语气、称谓、时态保持一致。`

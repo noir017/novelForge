@@ -63,12 +63,13 @@ describe('工程页目录树', { skip: JSDOM_SKIP }, () => {
     assert.equal(padOf('李叔'), 30, String(padOf('李叔')));
   });
 
-  // 章节列表不折目录：三章一律 16px，与它们在 chapters/ 下的层级无关。
+  // 章节列表不折目录：五行（3 章 + 2 段）一律 16px，与它们在 chapters/ 或
+  // plots/<卷>/ 下的层级无关。
   test('章节行一律是第 0 层缩进', () => {
-    const rows = [...ui.doc.querySelectorAll('#projectBody .row-plot')];
+    const rows = [...ui.doc.querySelectorAll('#projectBody .row-plot:not(.row-volume)')];
     assert.ok(
-      rows.length === 3 && rows.every((r) => parseInt(r.style.paddingLeft, 10) === 16),
-      rows.map((r) => r.style.paddingLeft).join('|')
+      rows.length === 5 && rows.every((r) => parseInt(r.style.paddingLeft, 10) === 16),
+      `${rows.length} 行：${rows.map((r) => r.style.paddingLeft).join('|')}`
     );
   });
 
@@ -89,8 +90,14 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   let groupHead;
   const rowWith = (text) =>
     [...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes(text));
+  // 卷那一组的行也带 .row-plot（前端刻意复用同一套样式与骨架），所以这里
+  // 排掉 .row-volume——否则「章节行有几行」之类的断言会连卷一起数。
   const plotRow = (text) =>
-    [...ui.doc.querySelectorAll('#projectBody .row-plot')].find((n) => n.textContent.includes(text));
+    [...ui.doc.querySelectorAll('#projectBody .row-plot:not(.row-volume)')].find((n) =>
+      n.textContent.includes(text)
+    );
+  const volumeRow = (text) =>
+    [...ui.doc.querySelectorAll('#projectBody .row-volume')].find((n) => n.textContent.includes(text));
   const dirLabel = (name) =>
     [...ui.doc.querySelectorAll('#projectBody .row-dir-label')].find((n) => n.textContent.includes(name));
 
@@ -158,19 +165,19 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.equal(open.path, 'chapters/001-楔子.md', JSON.stringify(open));
   });
 
-  // 只有规划的章：没有正文可开，落到细纲。
-  test('点只有规划的章名打开细纲', () => {
+  // 剧情段：没有正文可开，落到细纲。
+  test('点剧情段的名字打开细纲', () => {
     ui.closeMenu();
-    ui.clickEl(plotRow('入镇').querySelector('.row-label'));
-    assert.equal(ui.last('openFile').path, '.novelforge/plots/002-入镇.md');
+    ui.clickEl(plotRow('北行').querySelector('.row-label'));
+    assert.equal(ui.last('openFile').path, '.novelforge/plots/01-觉醒之日/004-北行.md');
   });
 
-  // 正文写完还躺在中转站里：打开的是那份正文，而不是主路径指的细纲——
-  // 主路径只在成品与细纲之间二选一，会把几千字的正文漏掉。
-  test('点待拆分的章名打开中转站正文', () => {
+  // 正文写完还躺在中转站里：打开的是那份正文，而不是细纲——
+  // 那时磁盘上明明躺着几千字的正文。
+  test('点待拆分的段名打开中转站正文', () => {
     ui.closeMenu();
-    ui.clickEl(plotRow('夜访').querySelector('.row-label'));
-    assert.equal(ui.last('openFile').path, '.novelforge/manuscripts/003-夜访.md');
+    ui.clickEl(plotRow('赤星').querySelector('.row-label'));
+    assert.equal(ui.last('openFile').path, '.novelforge/manuscripts/01-觉醒之日/005-赤星.md');
   });
 
   test('点章节名不再切到对话页', () => {
@@ -180,20 +187,21 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(!ui.sent.some((m) => m.type === 'selectPlot'), JSON.stringify(ui.sent));
   });
 
-  test('「进入这一章」发 selectPlot', () => {
-    ui.pick(ui.rightClick(plotRow('入镇')), '进入这一章');
+  // 剧情段那一行说的是「进入这一段」——它不是一章。
+  test('「进入这一段」发 selectPlot', () => {
+    ui.pick(ui.rightClick(plotRow('北行')), '进入这一段');
     const sel = ui.last('selectPlot');
-    assert.equal(sel.plotRelPath, '.novelforge/plots/002-入镇.md', JSON.stringify(sel));
+    assert.equal(sel.plotRelPath, '.novelforge/plots/01-觉醒之日/004-北行.md', JSON.stringify(sel));
   });
 
-  test('三层入口发 setTarget，带的是主路径', () => {
-    ui.pick(ui.rightClick(plotRow('入镇')), '场景（50%）');
+  test('三层入口发 setTarget，带的是细纲路径', () => {
+    ui.pick(ui.rightClick(plotRow('北行')), '场景（50%）');
     const t = ui.last('setTarget');
     assert.ok(t, '没发出 setTarget');
     // 逐字段比：target 是在 jsdom 那个 realm 里造的，原型不是本 realm 的
     // Object.prototype，deepStrictEqual 会因此判不等。
     assert.equal(t.target.kind, 'scene', JSON.stringify(t));
-    assert.equal(t.target.plotRelPath, '.novelforge/plots/002-入镇.md', JSON.stringify(t));
+    assert.equal(t.target.plotRelPath, '.novelforge/plots/01-觉醒之日/004-北行.md', JSON.stringify(t));
     assert.equal(t.target.sceneNo, 1, JSON.stringify(t));
   });
 
@@ -234,55 +242,94 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.last('fileAction').action, 'rename');
   });
 
-  // ---- 只有规划的章（第 2 章）：还没写正文，也就没有成品那几项。
-  test('只有规划的章菜单只给「打开细纲」', () => {
-    planningItems = ui.itemsOf(ui.rightClick(plotRow('入镇')));
+  // ---- 还在排的剧情段（剧情 4）：还没写正文，也就没有成品那几项。
+  test('剧情段菜单只给「打开细纲」', () => {
+    planningItems = ui.itemsOf(ui.rightClick(plotRow('北行')));
     assert.ok(planningItems.includes('打开细纲'), JSON.stringify(planningItems));
     assert.ok(!planningItems.includes('打开正文'), JSON.stringify(planningItems));
   });
 
   for (const label of ['重新总结', '总结这一章', '看摘要', '打开草稿', '新建草稿']) {
-    test(`只有规划的章菜单不含「${label}」`, () => {
+    test(`剧情段菜单不含「${label}」`, () => {
       assert.ok(!planningItems.includes(label), JSON.stringify(planningItems));
     });
   }
 
-  test('只有规划的章行不带草稿标记', () => {
-    assert.ok(!plotRow('入镇').textContent.includes('· 草稿'));
+  test('剧情段那一行不带草稿标记', () => {
+    assert.ok(!plotRow('北行').textContent.includes('· 草稿'));
     ui.closeMenu();
   });
 
-  // ---- 待拆分的章（第 3 章）：正文写完躺在中转站里，等作者标断点。
-  test('待拆分的章菜单含「拆成章节」', () => {
-    splitItems = ui.itemsOf(ui.rightClick(plotRow('夜访')));
+  // ---- 待拆分的剧情段（剧情 5）：正文写完躺在中转站里，等作者标断点。
+  test('待拆分的段菜单含「拆成章节」', () => {
+    splitItems = ui.itemsOf(ui.rightClick(plotRow('赤星')));
     assert.ok(splitItems.includes('拆成章节'), JSON.stringify(splitItems));
   });
 
-  test('待拆分的章能打开中转站里的正文', () => {
+  test('待拆分的段能打开中转站里的正文', () => {
     assert.ok(splitItems.includes('打开正文（待拆分）'), JSON.stringify(splitItems));
   });
 
   // 摘要挂在成品上，还没拆分就无从总结。
-  test('待拆分的章没有总结项', () => {
+  test('待拆分的段没有总结项', () => {
     assert.ok(!splitItems.some((l) => l.includes('总结')), JSON.stringify(splitItems));
     ui.closeMenu();
   });
 
   test('「拆成章节」发 splitManuscript，带的是细纲路径', () => {
-    ui.pick(ui.rightClick(plotRow('夜访')), '拆成章节');
+    ui.pick(ui.rightClick(plotRow('赤星')), '拆成章节');
     const msg = ui.last('projectAction');
     assert.ok(msg, '没发出 projectAction');
     assert.equal(msg.action, 'splitManuscript', JSON.stringify(msg));
-    assert.equal(msg.relPath, '.novelforge/plots/003-夜访.md', JSON.stringify(msg));
+    assert.equal(msg.relPath, '.novelforge/plots/01-觉醒之日/005-赤星.md', JSON.stringify(msg));
   });
 
-  test('待拆分的章带「待拆分」徽章', () => {
-    const badge = plotRow('夜访').querySelector('.row-stage');
+  test('待拆分的段带「待拆分」徽章', () => {
+    const badge = plotRow('赤星').querySelector('.row-stage');
     assert.ok(badge && badge.textContent === '待拆分', badge && badge.textContent);
   });
 
-  test('上游变过的章挂 ⟳', () => {
-    assert.ok(plotRow('入镇').querySelector('.row-upstream'), plotRow('入镇').outerHTML);
+  // 已发布的章不挂阶段徽章：它的进度永远是满格，一列「已完成」只是噪声。
+  test('已发布的章不挂阶段徽章', () => {
+    assert.equal(plotRow('楔子').querySelector('.row-stage'), null, plotRow('楔子').outerHTML);
+  });
+
+  test('上游变过的段挂 ⟳', () => {
+    assert.ok(plotRow('北行').querySelector('.row-upstream'), plotRow('北行').outerHTML);
+  });
+
+  // ---- 卷那一组：前端复用章节行的组件，所以样式类相同、字段同形。
+  test('卷行报拆出/交付了几段', () => {
+    const badge = volumeRow('觉醒之日').querySelector('.row-stage');
+    assert.ok(badge && badge.textContent === '3/5 段已交付', badge && badge.textContent);
+  });
+
+  test('空壳的卷报「待拆剧情段」', () => {
+    const badge = volumeRow('第 2 卷').querySelector('.row-stage');
+    assert.ok(badge && badge.textContent === '待拆剧情段', badge && badge.textContent);
+  });
+
+  test('点卷名打开卷纲', () => {
+    ui.closeMenu();
+    ui.clickEl(volumeRow('觉醒之日').querySelector('.row-label'));
+    assert.equal(ui.last('openFile').path, '.novelforge/volumes/01-觉醒之日.md');
+  });
+
+  // 卷上唯一的创作动作：进去拆下一个剧情段。
+  test('「进入这一卷」发 setTarget，带的是卷纲路径', () => {
+    ui.pick(ui.rightClick(volumeRow('觉醒之日')), '进入这一卷');
+    const t = ui.last('setTarget');
+    assert.ok(t, '没发出 setTarget');
+    assert.equal(t.target.kind, 'volume', JSON.stringify(t));
+    assert.equal(t.target.volumeRelPath, '.novelforge/volumes/01-觉醒之日.md', JSON.stringify(t));
+    ui.closeMenu();
+  });
+
+  // 卷的落点由卷号决定，挪走只会让它收纳的段变成孤儿。
+  test('卷菜单没有「移动到…」', () => {
+    const items = ui.itemsOf(ui.rightClick(volumeRow('觉醒之日')));
+    assert.ok(!items.includes('移动到…'), JSON.stringify(items));
+    ui.closeMenu();
   });
 
   // ---- 文件夹行：「在此新建」的落点必须是这个文件夹，不是区根目录。
@@ -414,9 +461,20 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     plotHead = [...ui.doc.querySelectorAll('#projectBody .group-head')]
       .find((n) => n.querySelector('.group-name').textContent === '章节');
     plotGroupItems = ui.itemsOf(ui.rightClick(plotHead));
-    for (const label of ['新建章节', '批量写剧情（只补缺）', '批量拆分场景（只补缺）', '批量写正文（只补缺）']) {
+    for (const label of ['新建剧情段', '批量写剧情（只补缺）', '批量拆分场景（只补缺）', '批量写正文（只补缺）']) {
       assert.ok(plotGroupItems.includes(label), JSON.stringify(plotGroupItems));
     }
+  });
+
+  // 卷组只有一个新建项：卷上没有批量动作可言。
+  test('卷分组菜单含「新建卷」', () => {
+    const head = [...ui.doc.querySelectorAll('#projectBody .group-head')]
+      .find((n) => n.querySelector('.group-name').textContent === '卷');
+    const items = ui.itemsOf(ui.rightClick(head));
+    assert.ok(items.includes('新建卷'), JSON.stringify(items));
+    ui.pick(ui.rightClick(head), '新建卷');
+    assert.equal(ui.last('projectAction').action, 'newVolume');
+    ui.closeMenu();
   });
 
   test('章节分组菜单没有「在此新建文件夹」', () => {
@@ -424,7 +482,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   for (const [label, action] of [
-    ['新建章节', 'newPlot'],
+    ['新建剧情段', 'newPlot'],
     ['批量写剧情（只补缺）', 'generatePlots'],
     ['批量拆分场景（只补缺）', 'breakdownScenes'],
     ['批量写正文（只补缺）', 'writeManuscripts'],

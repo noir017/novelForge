@@ -57,10 +57,18 @@ import {
   renderCharacterCard,
   renderLoreEntry,
 } from '../model/project';
-import { WritablePlot, parsePlotFileName, renderPlotFile } from '../model/plotFile';
+import { WritablePlot, renderPlotFile } from '../model/plotFile';
+import { WritableVolume, renderVolumeFile } from '../model/volumeFile';
 import { WritableScene, renderSceneFile } from '../model/sceneFile';
 import { Artifact } from '../features/artifact';
-import { ArtifactKind, PathKind, kindOfPath, normalizeRel, plotRelPathFor } from './kind';
+import {
+  ArtifactKind,
+  PathKind,
+  kindOfPath,
+  normalizeRel,
+  plotRelPathFor,
+  volumeRelPathFor,
+} from './kind';
 import {
   MAX_EDITABLE_BYTES,
   WsError,
@@ -71,6 +79,7 @@ import {
 } from './guard';
 import { Handler, HandlerCtx, handlerFor } from './handlers';
 import { carryPlotCompanions, trashPlotCompanions, trashRel } from './handlers/plot';
+import { carryVolumeCompanions, trashVolumeCompanions } from './handlers/volume';
 import { sceneRelPathFor } from './handlers/scene';
 import { SearchOptions, SearchResult, search } from './search';
 
@@ -410,30 +419,79 @@ export class Workspace {
   // 它们仍然经同一套 handler 记账与伴生，只是路径由这一层算出来。
 
   /**
-   * 写一章的细纲，返回工作区相对路径。
+   * 写一卷的卷纲，返回工作区相对路径。
    *
-   * 文件名由**章号与标题**共同决定，所以改标题会改文件名，改章号也会。旧文件
+   * 与 `writePlot` 同构：文件名由**卷号与标题**共同决定，所以改标题会改文件名。
+   * 旧文件必须删掉并把三棵伴生目录（段、场景、中转站正文）搬过去，否则
+   * `01-觉醒.md` 与 `01-觉醒之日.md` 并存会变成两卷，而其中一卷的段全成孤儿。
+   *
+   * @param fromRelPath 改卷号时传原卷纲路径；改标题或新建时不必传。
+   */
+  async writeVolume(volume: WritableVolume, fromRelPath?: string): Promise<string> {
+    const rel = volumeRelPathFor(this.project, volume.no, safeStem(volume.title));
+    const previous = fromRelPath
+      ? await this.project.readVolume(fromRelPath)
+      : (await this.project.listVolumes()).find((v) => v.no === volume.no);
+
+    await writeText(this.project.pathOf(rel), renderVolumeFile(volume));
+
+    if (previous && previous.relPath !== rel) {
+      await carryVolumeCompanions(this.project, previous.relPath, rel);
+      await fs.unlink(this.project.pathOf(previous.relPath)).catch(() => undefined);
+    }
+    this.project.invalidate();
+    return rel;
+  }
+
+  /**
+   * 删一卷的卷纲：连同它收纳的剧情段、那些段的场景与中转站正文一起搬进
+   * `.trash/`，不真删（AGENTS 第 6 条）。返回是否确实删掉了。
+   *
+   * **不碰 `chapters/` 与摘要**：与 `deletePlot` 同一条理由——那是作者已经
+   * 发布出去的成品，删一份规划稿不该顺手带走它。
+   */
+  async deleteVolume(volumeRelPath: string): Promise<boolean> {
+    const volume = await this.project.readVolume(volumeRelPath);
+    if (!volume) {
+      return false;
+    }
+    await trashVolumeCompanions(this.project, volumeRelPath);
+    await trashRel(this.project, volumeRelPath);
+    this.project.invalidate();
+    return true;
+  }
+
+  /**
+   * 写一段的细纲，返回工作区相对路径。
+   *
+   * 文件名由**段号与标题**共同决定，所以改标题会改文件名，改段号也会。旧文件
    * 必须删掉并把伴生文件搬过去，否则 `007-入宗.md` 与 `007-入宗风波.md` 并存
-   * 会变成两章。
+   * 会变成两段。
    *
    * 「旧文件是哪一份」有两种问法：
    *
-   * - **改标题**（章号没变）：按 `plot.no` 就找得到，这是绝大多数调用。
-   * - **改章号**（拆分之后的顺延）：新号上根本没有旧文件，必须由调用方把
-   *   原路径经 `fromRelPath` 传进来。不传的话旧文件会留在原地成为孤儿，
-   *   而它的场景目录与中转站正文也不会跟着走。
+   * - **改标题**（段号没变）：按 `plot.no` 就找得到，这是绝大多数调用。
+   * - **改段号**：新号上根本没有旧文件，必须由调用方把原路径经 `fromRelPath`
+   *   传进来。不传的话旧文件会留在原地成为孤儿，而它的场景目录与中转站正文
+   *   也不会跟着走。
    *
-   * **`upstreamHash` 以调用方给的为准**，不在这里补：手工新建的章
+   * **`upstreamHash` 以调用方给的为准**，不在这里补：手工新建的段
    * （`actions.ts` 的 `newPlotFlow`）传的就是空串，它才永远不会挂 ⟳。
    *
-   * @param fromRelPath 改章号时传原细纲路径；改标题或新建时不必传。
+   * **落在哪一卷**由 `dir` 说（`plots/01-觉醒之日`）；不给就落在 `plots/` 根下，
+   * 那是「未分卷」。改标题时缺省沿用**磁盘上那份所在的目录**——不然给一段改个
+   * 名字会把它从它那一卷里搬出来。
+   *
+   * @param fromRelPath 改段号时传原细纲路径；改标题或新建时不必传。
+   * @param dir 落点目录（工作区相对）。不给则沿用旧文件所在目录，再退到 `plots/` 根。
    */
-  async writePlot(plot: WritablePlot, fromRelPath?: string): Promise<string> {
-    const rel = plotRelPathFor(this.project, plot.no, safeStem(plot.title));
+  async writePlot(plot: WritablePlot, fromRelPath?: string, dir?: string): Promise<string> {
     // 换号时新号上是空的，只有调用方知道原来那份在哪。
     const previous = fromRelPath
       ? await this.project.readPlot(fromRelPath)
       : await this.project.getPlot(plot.no);
+    const parent = dir ?? (previous ? dirOf(previous.relPath) : undefined);
+    const rel = plotRelPathFor(this.project, plot.no, safeStem(plot.title), parent);
 
     await writeText(this.project.pathOf(rel), renderPlotFile(plot));
 
@@ -518,10 +576,16 @@ export class Workspace {
    *
    * `titles[i]` 对应第 i 片；给空串就落成纯序号名（`101.md`）。
    *
-   * 章号从这一章自己的号开始往后连排。**调用方负责先把后面撞号的细纲挪开**
-   * （features/splitChapter.ts）——顺序是先移号再落盘，反过来会留下
-   * 「章节已建但细纲还撞着号」的中间态。这里只管落盘，撞上已存在的章节文件时
-   * `createChapter` 会抛，不覆盖任何东西。
+   * **章号从「现有最大章号 + 1」往后连排**，与这一段自己的段号无关：段号只是
+   * `plots/` 里的排序键，一段可以拆成三章，两条轴各排各的（见 model/plotFile.ts
+   * 的文件头）。从前是从段号起排，于是「一段拆成三章」必须把后面几十段整体
+   * 改名让路——那次重命名风暴连带搬场景目录与中转站正文，一次失败就留下一地
+   * 孤儿。现在两条轴不再撞号，那一步整个不需要了。
+   *
+   * 落盘之后把建好的章节路径记进这一段的 frontmatter（`chapters`）：这是
+   * 「段 → 章」唯一的链，界面据此知道这一段已经交付，也据此从任一章回到
+   * 它的规划稿。`chapters/` 下的文件是作者的东西，拆分之后一个字节都不改，
+   * 所以这条链只能记在段这一侧。
    */
   async splitManuscript(plotRelPath: string, titles: string[]): Promise<string[]> {
     const manuscript = await this.project.readManuscript(plotRelPath);
@@ -532,7 +596,7 @@ export class Workspace {
     if (pieces.length === 0) {
       throw new Error(`这一章的正文是空的，没有可拆的内容：${manuscript.relPath}`);
     }
-    const startNo = parsePlotFileName(path.basename(plotRelPath))?.no ?? 0;
+    const startNo = (await this.project.nextChapterNo()) ?? 1;
 
     const created: string[] = [];
     for (const [i, piece] of pieces.entries()) {
@@ -541,6 +605,16 @@ export class Workspace {
     // 全部落盘成功才动原件。中途抛出的话中转站那份还在，作者可以重来。
     await trashRel(this.project, manuscript.relPath);
     this.project.invalidate();
+
+    // 记下「这一段交付到了哪几章」。**追加而不是覆盖**：作者可能把一段的正文
+    // 分两次拆（先拆前半段、又往中转站续写后半段再拆一次）。
+    const plot = await this.project.readPlot(plotRelPath);
+    if (plot) {
+      await this.writePlot(
+        { ...plot, chapters: [...plot.chapters, ...created.filter((c) => !plot.chapters.includes(c))] },
+        plot.relPath
+      );
+    }
     await this.project.syncManifest();
     return created;
   }
@@ -785,3 +859,12 @@ export type { ArtifactKind, PathKind } from './kind';
 // 一个 `NovelProject`，不必为了搜一次而先造一个门面。
 export { search } from './search';
 export type { SearchHit, SearchOptions, SearchResult } from './search';
+
+/**
+ * 一个工作区相对路径所在的目录（`plots/01-卷/003-x.md` → `plots/01-卷`）。
+ * 根下的文件给空串——`plotRelPathFor` 收到空就落回 `plots/` 根。
+ */
+function dirOf(rel: string): string {
+  const slash = rel.lastIndexOf('/');
+  return slash < 0 ? '' : rel.slice(0, slash);
+}

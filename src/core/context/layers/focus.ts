@@ -1,5 +1,12 @@
-import { plotOfTarget, CreationTarget } from '../../model/pipeline';
+import {
+  plotOfTarget,
+  segmentDisplayNo,
+  volumeOfTarget,
+  CreationTarget,
+} from '../../model/pipeline';
 import { Plot, parsePlotFileName } from '../../model/plotFile';
+import { Volume } from '../../model/volumeFile';
+import { isConsumedSegment, maxChapterNo } from '../../views/pipeline';
 import { NovelProject } from '../../model/project';
 import { Scene } from '../../model/sceneFile';
 import { Chapter, Manuscript } from '../../model/types';
@@ -28,6 +35,17 @@ export interface ChapterRef {
 /** 这一次装配围绕哪个产物转。 */
 export interface Focus {
   target: CreationTarget;
+  /** 目标那一卷的卷纲。target 不是 `volume` 时为 undefined。 */
+  volume?: Volume;
+  /**
+   * 这一卷已经拆出来的剧情段，按段号升序，**连同它们的显示位次**。
+   *
+   * 位次要在这里算：`segmentDisplayNo` 要知道全书最新章号，而那是这一层
+   * 刚读过的东西。层实现里再算一遍等于把 `listChapters` 又读一次。
+   */
+  volumeSegments: { plot: Plot; displayNo: number }[];
+  /** 全书分卷，按卷号升序。拆卷与拆段两条路都要看它。 */
+  volumes: Volume[];
   /** 目标章的细纲。尚未落盘时为 undefined（正要写全书的下一章）。 */
   plot?: Plot;
   /** 「前文」的边界章号。全书大纲阶段为 +∞，即全书都算前文。 */
@@ -55,6 +73,19 @@ export async function resolveFocus(
   const wants = (id: LayerId): boolean => recipe.some((s) => s.layer === id);
   const target = request.target;
   const [plots, chapters] = await Promise.all([project.listPlots(), project.listChapters()]);
+
+  // 卷这三层只有大纲那张配方要，而那张配方在四层里最便宜——多读一遍
+  // `volumes/`（十几个小文件）换掉「拆段时不知道这一卷排到哪了」，值得。
+  const volumes =
+    wants('volumeList') || wants('volumeSelf') || wants('volumeSegments')
+      ? await project.listVolumes()
+      : [];
+  const volumeRelPath = volumeOfTarget(target);
+  const volume = volumeRelPath ? volumes.find((v) => v.relPath === volumeRelPath) : undefined;
+  const volumeSegments =
+    volume && wants('volumeSegments')
+      ? segmentsOfVolume(project, volume.relPath, plots, chapters)
+      : [];
 
   // 两边按章号并起来。老工程只有右边，新规划的章只有左边，正常走完
   // 流水线的章两边都有。
@@ -99,6 +130,9 @@ export async function resolveFocus(
 
   return {
     target,
+    volume,
+    volumeSegments,
+    volumes,
     plot,
     no,
     previous,
@@ -153,4 +187,28 @@ export async function readPrevManuscript(
 ): Promise<Manuscript | undefined> {
   const prev = focus.previous[focus.previous.length - 1];
   return prev ? readChapterText(project, prev) : undefined;
+}
+
+/**
+ * 这一卷里**还没拆成章**的剧情段，带上它们在界面上的位次。
+ *
+ * 已经交付的段不列：拆下一段要知道的是「还没写的那几段各自要做什么」，
+ * 而已交付的内容在摘要与前文里（那是别的层的活）。位次与工程页显示的完全
+ * 一致——两处对不上，作者会以为模型看的不是他看的那份。
+ */
+function segmentsOfVolume(
+  project: NovelProject,
+  volumeRelPath: string,
+  plots: Plot[],
+  chapters: Chapter[]
+): { plot: Plot; displayNo: number }[] {
+  const dir = `${project.plotsMirrorRelPathForVolume(volumeRelPath)}/`;
+  const live = plots.filter((p) => !isConsumedSegment(project, p, chapters));
+  const max = maxChapterNo(chapters);
+  return live
+    .map((plot, i) => ({ plot, displayNo: segmentDisplayNo(max, i) }))
+    .filter(
+      ({ plot }) =>
+        plot.relPath.startsWith(dir) && !plot.relPath.slice(dir.length).includes('/')
+    );
 }

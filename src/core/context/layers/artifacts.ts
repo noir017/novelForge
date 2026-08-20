@@ -1,7 +1,16 @@
 import { describeScene } from '../../model/sceneFile';
-import { plotLabel } from '../../model/pipeline';
+import { plotLabel, volumeLabel } from '../../model/pipeline';
 import type { LayerFn } from './assembly';
-import { isPlaceholder, renderPlot, renderPlotBrief, renderScene, renderSceneBrief } from './render';
+import {
+  isPlaceholder,
+  renderPlot,
+  renderPlotBrief,
+  renderScene,
+  renderSceneBrief,
+  renderSegmentBrief,
+  renderVolume,
+  renderVolumeBrief,
+} from './render';
 
 export const outlineDoc: LayerFn = async (a, spec) => {
   const outline = await a.project.readOutline();
@@ -16,6 +25,72 @@ export const outlineDoc: LayerFn = async (a, spec) => {
       label: '全书大纲',
       source: a.project.relPath(a.project.outlinePath),
       text: outline,
+    },
+    { force: spec.force }
+  );
+};
+
+/**
+ * 全书分卷一览。拆卷时它是「已经有哪些卷」，拆段时是「我这一卷排第几」。
+ *
+ * 一卷一行，整本书十几行——比把每卷的走向都铺开便宜两个数量级，而这一层要的
+ * 只是位置感。
+ */
+export const volumeList: LayerFn = async (a, spec) => {
+  if (a.focus.volumes.length === 0) {
+    return;
+  }
+  a.admit(
+    {
+      id: 'volumeList',
+      kind: 'volume',
+      priority: spec.priority,
+      label: `分卷一览（${a.focus.volumes.length} 卷）`,
+      text: `【全书分卷】\n${a.focus.volumes.map(renderVolumeBrief).join('\n')}`,
+    },
+    { force: spec.force }
+  );
+};
+
+/** 目标那一卷的卷纲原文。从这一卷拆剧情段时的主要依据。 */
+export const volumeSelf: LayerFn = async (a, spec) => {
+  const volume = a.focus.volume;
+  if (!volume) {
+    return;
+  }
+  a.admit(
+    {
+      id: `volume:${volume.relPath}`,
+      kind: 'volume',
+      priority: spec.priority,
+      label: `${volumeLabel(volume.no, volume.title)} · 卷纲`,
+      source: volume.relPath,
+      text: renderVolume(volume),
+    },
+    { force: spec.force }
+  );
+};
+
+/**
+ * 这一卷已经拆出来、还没交付的剧情段（每段一行目标）。
+ *
+ * 少了它，「再拆一段」会把已经排过的那几段重新发明一遍——那是「一次只拆一段」
+ * 这条设计能不能成立的前提。
+ */
+export const volumeSegments: LayerFn = async (a, spec) => {
+  const segments = a.focus.volumeSegments;
+  if (segments.length === 0) {
+    return;
+  }
+  a.admit(
+    {
+      id: 'volumeSegments',
+      kind: 'volume',
+      priority: spec.priority,
+      label: `本卷已排的剧情段（${segments.length} 段）`,
+      text:
+        '【本卷已经排到这里】\n' +
+        segments.map(({ plot, displayNo }) => renderSegmentBrief(plot, displayNo)).join('\n'),
     },
     { force: spec.force }
   );

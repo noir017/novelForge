@@ -91,7 +91,10 @@ export const generateTool: ToolDef = {
   description:
     '调用创作模型，为某一份产物生成内容。target 是那份产物的工程内相对路径，' +
     '层由路径决定：.novelforge/plots/ 下是剧情层，.novelforge/scenes/<细纲名>/ 下是细节层，' +
-    '.novelforge/manuscripts/ 与已发布的章是正文层，.novelforge/outline.md 是大纲层。' +
+    '.novelforge/manuscripts/ 与已发布的章是正文层，' +
+    '.novelforge/outline.md 与 .novelforge/volumes/ 下的卷纲都算大纲层。' +
+    '大纲层的 split 看给的是哪一份：给 outline.md 拆出**分卷清单**，' +
+    '给某一卷的卷纲拆出**一个剧情段**（一次只拆一段，拆下一段就再调一次）。' +
     '各层可用的 capability 不同：' +
     Object.entries(STAGE_CAPABILITIES)
       .map(([stage, caps]) => `${stage}=${caps.join('/')}`)
@@ -137,9 +140,10 @@ export const generateTool: ToolDef = {
         text: '',
         error:
           `认不出「${rel}」是哪一层的产物。` +
-          '剧情层给 .novelforge/plots/<章号>-<标题>.md，' +
-          '细节层给 .novelforge/scenes/<细纲文件名去掉扩展名>/<场号>-<标题>.md，' +
-          '正文层给 .novelforge/manuscripts/<章号>-<标题>.md，大纲给 .novelforge/outline.md。' +
+          '剧情层给 .novelforge/plots/<卷词干>/<段号>-<标题>.md，' +
+          '细节层给 .novelforge/scenes/<细纲在 plots/ 之下的整段路径去掉扩展名>/<场号>-<标题>.md，' +
+          '正文层给 .novelforge/manuscripts/<同上>.md，' +
+          '大纲给 .novelforge/outline.md，卷纲给 .novelforge/volumes/<卷号>-<卷名>.md。' +
           '可以先用 list 看看那个目录下实际有什么。',
       };
     }

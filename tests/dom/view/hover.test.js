@@ -65,7 +65,7 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
   const summaryOf = (extra) =>
     Object.assign(
       {
-        no: 1, title: '楔子', exists: true, stale: false,
+        no: 1, title: '楔子', label: '第 1 章《楔子》', exists: true, stale: false,
         relPath: '.novelforge/summaries/001-楔子.md',
         sections: [
           { name: '梗概', text: '雨下了三天，林昭进入青崖镇。' },
@@ -166,8 +166,10 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(!tip().textContent.includes('读取摘要'), tip().textContent);
   });
 
-  test('浮窗带章号与标题', () => {
-    assert.ok(tip().textContent.includes('第 1 章 楔子'), tip().textContent);
+  // 说法由后端给（`PlotSummaryView.label`）：这一行可能是已发布的章，也可能是
+  // 还没交付的剧情段，前端按 `no` 自己拼会把每个剧情段都叫成「第 N 章」。
+  test('浮窗带后端给的说法', () => {
+    assert.ok(tip().textContent.includes('第 1 章《楔子》'), tip().textContent);
   });
 
   test('显示小节名', () => {
@@ -546,7 +548,7 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
   const CARD = '.novelforge/characters/林昭.md';
   // 失败挂在出错那份文件上（recordFailure 的 targetKey 就是它的路径）。
   // 章节是纯文件行，没有失败标记——工具不在那上面跑任何东西。
-  const PLOT = '.novelforge/plots/001-楔子.md';
+  const PLOT = '.novelforge/plots/01-觉醒之日/001-楔子.md';
 
   before(() => {
     ui = mount();
@@ -611,9 +613,9 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(cardMark.title.includes('未改动'), cardMark.title);
   });
 
-  test('出错的剧情行也挂上感叹号', () => {
-    // 按章节行取：夹具里同名的行不止一处，按 .row 取会撞上别的那一行。
-    const row = [...ui.doc.querySelectorAll('#projectBody .row-plot')]
+  test('出错的章节行也挂上感叹号', () => {
+    // 按章节行取（排掉卷那一组）：夹具里同名的行不止一处，按 .row 取会撞上别的。
+    const row = [...ui.doc.querySelectorAll('#projectBody .row-plot:not(.row-volume)')]
       .find((n) => n.textContent.includes('楔子'));
     plotMark = row ? row.querySelector('.row-failure') : null;
     assert.ok(plotMark);
@@ -625,7 +627,7 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
 
   // 失败记录按路径挂：别的章不该跟着挂标记。
   test('别的章不挂感叹号', () => {
-    const row = [...ui.doc.querySelectorAll('#projectBody .row-plot')]
+    const row = [...ui.doc.querySelectorAll('#projectBody .row-plot:not(.row-volume)')]
       .find((n) => n.textContent.includes('入镇'));
     assert.ok(row && !row.querySelector('.row-failure'), row && row.outerHTML);
   });

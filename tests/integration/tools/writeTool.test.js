@@ -179,8 +179,10 @@ describe('覆盖已有内容一定先请作者过目', () => {
     assert.equal(h.reviewed.length, 1, JSON.stringify(h.reviewed.map((x) => x.name)));
   });
 
-  test('审阅框上写的是「第 1 章的细纲」而不是路径', () => {
-    assert.equal(h.reviewed[0].name, '第 1 章的细纲');
+  // 报的是**段号**（文件名前缀），不是界面上那个「剧情 N」位次：框里紧接着
+  // 还要显示路径，两者对得上作者才认得出是同一份文件。
+  test('审阅框上写的是「剧情段 1 的细纲」而不是路径', () => {
+    assert.equal(h.reviewed[0].name, '剧情段 1 的细纲');
   });
 
   let rejected;

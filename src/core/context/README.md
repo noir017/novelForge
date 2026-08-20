@@ -9,7 +9,7 @@
 | [tokenCounter.ts](tokenCounter.ts) | ★ `TokenCounter` 接口 + 注册表 + 默认的字符加权实现（中文 ≈ 1.5 token/字，拉丁 ≈ 1/4）。另含真实用量的校准统计。 |
 | [tokenizer.ts](tokenizer.ts) | 门面：`estimateTokens`（= `countTokens`）与按预算截取的 `takeHead` / `takeTail`。全仓库几十处调用点都走这里。 |
 | [types.ts](types.ts) | `BuildRequest` / `BuiltContext` / `ContextItem` / `LayerId` / `LayerSpec`。单独成文件是为了打断 recipes 与 layers 的循环引用。 |
-| [recipes.ts](recipes.ts) | ★ 四个阶段各带哪些层、优先级多少。**改装配策略只改这一张表。** |
+| [recipes.ts](recipes.ts) | ★ 四个阶段各带哪些层、优先级多少（**卷借大纲那一张**）。**改装配策略只改这一张表。** |
 | [layers/](layers/index.ts) | ★ 每一层的取数与注入，外加 `resolveFocus`（按配方只读用得上的文件）。`LAYERS` 注册表在 index，实现按 dialog / artifacts / background 拆开。 |
 | [prompts.ts](prompts.ts) | ★ 身份（Stage）× 任务（Capability）× 输出契约。 |
 | [builder.ts](builder.ts) | ★ `buildContext()`：算预算 → 按配方跑一遍层 → 拼 messages。 |
@@ -33,6 +33,7 @@
 | 阶段 | 身份 | 带什么 | 明确不带 |
 |---|---|---|---|
 | **大纲** | 策划编辑 | 大纲全文（P0 force）、全书摘要、各段摘要 | 正文原文 |
+| **卷**（借大纲那一张） | 策划编辑 | **目标卷的卷纲 + 本卷已排的剧情段一览（两层都是 P0 force）**、大纲全文、分卷一览 | 正文原文 |
 | **剧情** | 剧情编剧 | 本段剧情（P0 force）、大纲、**前 3 段与后 1 段的剧情原文**、更早段的正文摘要 | 正文原文 |
 | **细节** | 编剧 | 本场场景卡 + 本段剧情（P0 force）、前后两场、**角色卡 P1** | 正文原文 |
 | **正文** | 作者 | **文风指南 P0 force**、场景卡、上一章结尾、近 N 章正文…全套 | —— |
@@ -42,6 +43,8 @@
 - **正文阶段文风指南升到 P0 force**。它是「读者感觉不到换人执笔」的唯一保障，不该跟一段长对话抢预算——改之前它在 P1，一段长对话（封顶 30%）加几张角色卡就能把它挤掉。
 - **细节阶段角色卡按场景 frontmatter 的 `characters` 精确取**，不再靠在用户那一句话里做子串匹配。用户说「把这一场写扎实点」时一个人名都没有，旧筛选会把在场的人全漏掉。
 - **`settle`（落定剧情）时历史 cap 从 30% 抬到 60%、优先级提到 P0**（`recipeFor(stage, capability)` 唯一一处按能力改配方的地方）。这条命令要沉淀的就是那段讨论，按常规由远及近截掉等于把结论截没了。
+
+**卷不另开一张配方**：`volumeSelf` / `volumeSegments` / `volumeList` 三层在 target 不是某一卷时**自然是空的**（它们先看 `focus.volume`），所以直接挂进大纲那一张。复制一份出来，下次改大纲层的装配策略就会漏掉一边——与 `settle` 只微调既有配方是同一条理由。前两层是 P0 force：从一卷里拆下一段时，这两层就是全部依据；少了后者，模型会把已经排过的那几段重新发明一遍，而「一次只拆一段」正是靠它才成立的。
 
 **剧情阶段带前后文而不是只带上一章**：前 3 章的细纲原文让这一章接得上，后 1 章（若有）让它不至于把下一章要用的东西提前用掉，更早的章以正文摘要形式带。**还没写正文的早期章带不出摘要，退化成只带「目标」一行**并 `accept(..., 'degraded', '这一章还没写正文，只带目标')`——不是悄悄少带（AGENTS.md 第 2 条）。
 

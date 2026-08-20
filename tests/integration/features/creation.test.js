@@ -57,6 +57,12 @@ after(() => {
 
 // ================================================================ 产物解析
 
+// 三种落点。`parseArtifact` 要看 target：大纲这一层有两种（全书大纲 / 某一卷），
+// 同一个 `split` 在两者上产出的东西完全不同（分卷清单 / 一个剧情段）。
+const OUTLINE_T = { kind: 'outline' };
+const VOLUME_T = { kind: 'volume', volumeRelPath: '.novelforge/volumes/01-觉醒之日.md' };
+const PLOT_T = { kind: 'plot', plotRelPath: '.novelforge/plots/01-觉醒之日/012-夜入青云.md' };
+
 describe('artifact.ts · 剧情三层降级', () => {
   const act = { stage: 'plot', capability: 'generate' };
   let json;
@@ -65,18 +71,18 @@ describe('artifact.ts · 剧情三层降级', () => {
   let irrelevant;
 
   before(() => {
-    json = A.parseArtifact(act, JSON.stringify({
+    json = A.parseArtifact(act, PLOT_T, JSON.stringify({
       目标: '林昭进入青云宗',
       剧情脉络: '他踩点、失手、翻墙；收在藏书阁门口。',
       冲突与转折: '主冲突是守卫换岗；在他被狗惊动那一步翻转',
       伏笔与回收: '埋下第三块令牌',
     }));
     // 模型忘了 JSON，改回 Markdown 小节——这是最常见的不听话方式。
-    md = A.parseArtifact(act, '## 目标\n\n林昭进入青云宗\n\n## 剧情脉络\n\n踩点、失手、翻墙');
+    md = A.parseArtifact(act, PLOT_T, '## 目标\n\n林昭进入青云宗\n\n## 剧情脉络\n\n踩点、失手、翻墙');
     // 什么结构都没有：全文塞进主字段，好过整次生成作废。
-    plain = A.parseArtifact(act, '这一段讲林昭翻墙进宗门。');
+    plain = A.parseArtifact(act, PLOT_T, '这一段讲林昭翻墙进宗门。');
     // 语法合法但完全不相干的 JSON 不能认下来——认了会得到一份空剧情**且不再降级**。
-    irrelevant = A.parseArtifact(act, '{"text":"林昭翻墙进宗门"}');
+    irrelevant = A.parseArtifact(act, PLOT_T, '{"text":"林昭翻墙进宗门"}');
   });
 
   test('第一层 JSON', () => {
@@ -127,21 +133,21 @@ describe('artifact.ts · 剧情三层降级', () => {
 
   test('代码块包裹能剥掉', () => {
     assert.equal(
-      A.parseArtifact(act, '```json\n{"剧情脉络":"进宗门"}\n```').sections.剧情脉络,
+      A.parseArtifact(act, PLOT_T, '```json\n{"剧情脉络":"进宗门"}\n```').sections.剧情脉络,
       '进宗门'
     );
   });
 
   test('JSON 前后的废话不影响解析', () => {
     assert.equal(
-      A.parseArtifact(act, '好的，以下是剧情：\n{"剧情脉络":"进宗门"}\n希望有帮助').sections.剧情脉络,
+      A.parseArtifact(act, PLOT_T, '好的，以下是剧情：\n{"剧情脉络":"进宗门"}\n希望有帮助').sections.剧情脉络,
       '进宗门'
     );
   });
 
   // 落定与写剧情产出的是同一种产物，走的是同一条解析路。
   test('落定与写剧情解析成同一种产物', () => {
-    const settled = A.parseArtifact({ stage: 'plot', capability: 'settle' }, '{"剧情脉络":"进宗门"}');
+    const settled = A.parseArtifact({ stage: 'plot', capability: 'settle' }, PLOT_T, '{"剧情脉络":"进宗门"}');
     assert.equal(settled.kind, 'plot');
     assert.equal(settled.sections.剧情脉络, '进宗门');
   });
@@ -153,7 +159,7 @@ describe('artifact.ts · 场景卡', () => {
   let md;
 
   before(() => {
-    scene = A.parseArtifact(act, JSON.stringify({
+    scene = A.parseArtifact(act, PLOT_T, JSON.stringify({
       place: '青云宗侧峰',
       time: '子时，暴雨',
       characters: ['林昭', '守卫'],
@@ -163,7 +169,7 @@ describe('artifact.ts · 场景卡', () => {
       动作: ['第一次翻墙失手', '守卫换岗', '林昭翻过去'],
       对话: '守卫：「这雨下得，鬼都不来。」',
     }));
-    md = A.parseArtifact(act, '## 目的\n\n进入宗门\n\n## 动作\n\n翻墙，落地时崴了脚');
+    md = A.parseArtifact(act, PLOT_T, '## 目的\n\n进入宗门\n\n## 动作\n\n翻墙，落地时崴了脚');
   });
 
   test('场景 frontmatter 字段', () => {
@@ -207,80 +213,114 @@ describe('artifact.ts · 场景卡', () => {
   // 第三层兜底不能落在「目的」上：那一节不算 ready（拆场景时就填上了），
   // 兜底进去的话这一场采纳后会显示成「还没有素材」的空壳。
   test('无结构散文兜底进算 ready 的小节', () => {
-    const prose = A.parseArtifact(act, '雨下了两个时辰，墙头的灯只剩一团黄。');
+    const prose = A.parseArtifact(act, PLOT_T, '雨下了两个时辰，墙头的灯只剩一团黄。');
     assert.ok(sceneFile.isSceneReady(prose.sections), JSON.stringify(prose.sections));
   });
 });
 
 describe('artifact.ts · 拆分清单', () => {
+  // 大纲这一层有两种 target。同一个 `split`：在全书大纲上拆出**分卷清单**，
+  // 在某一卷上拆出**一个剧情段**。只看 stage 是分不开的，所以解析要收 target。
   const outlineSplit = { stage: 'outline', capability: 'split' };
-  let list;
-  let bare;
-  let mdList;
-  let prose;
+  let volumes;
+  let bareVolumes;
+  let mdVolumes;
+  let proseVolumes;
+  let segment;
+  let segmentFromList;
   let longTitle;
-  let sceneSplit;
   let legacyKey;
+  let sceneSplit;
 
   before(() => {
-    list = A.parseArtifact(outlineSplit, JSON.stringify({
-      plots: [
-        { no: 12, title: '夜入青云', goal: '林昭进入宗门', arc: '第一幕 · 入局' },
-        { title: '藏书阁', goal: '找到第三块令牌' },
+    volumes = A.parseArtifact(outlineSplit, OUTLINE_T, JSON.stringify({
+      volumes: [
+        { no: 1, title: '觉醒之日', goal: '林昭活着走出青云镇', arc: '从客栈发烧醒来开始……' },
+        { title: '北行', goal: '找到第三块令牌' },
       ],
     }));
     // 模型漏掉外层键，直接给数组。
-    bare = A.parseArtifact(outlineSplit, '[{"title":"夜入青云","goal":"进宗门"}]');
+    bareVolumes = A.parseArtifact(outlineSplit, OUTLINE_T, '[{"title":"觉醒之日","goal":"走出青云镇"}]');
     // 模型整个忘了 JSON，列了一串 Markdown。
-    mdList = A.parseArtifact(outlineSplit, '1. 夜入青云\n2. 藏书阁夜谈\n3. 沈氏来访');
-    // 一段说明文字不该被拆成几十项。
-    prose = A.parseArtifact(outlineSplit, '这本书大致分三幕。\n第一幕讲入局。\n第二幕讲反转。');
+    mdVolumes = A.parseArtifact(outlineSplit, OUTLINE_T, '1. 觉醒之日\n2. 北行\n3. 赤星');
+    // 一段说明文字不该被拆成几十卷。
+    proseVolumes = A.parseArtifact(outlineSplit, OUTLINE_T, '这本书大致分三卷。\n第一卷讲入局。\n第二卷讲反转。');
+
+    // 一卷上的 split：一个剧情段。
+    segment = A.parseArtifact(outlineSplit, VOLUME_T, JSON.stringify({
+      plots: [{ title: '夜入青云', goal: '林昭进入宗门', arc: '第一幕 · 入局' }],
+    }));
+    // 模型不听话，一次给了三段：**只取第一段**。契约是一次一段，
+    // 收下三段会让「一次只拆一段」这条设计在数据这一侧悄悄失效。
+    segmentFromList = A.parseArtifact(outlineSplit, VOLUME_T, JSON.stringify({
+      plots: [
+        { title: '夜入青云', goal: '进宗门' },
+        { title: '藏书阁', goal: '找到令牌' },
+        { title: '沈氏来访', goal: '被盯上' },
+      ],
+    }));
     // 标题会变成文件名，模型很爱把一整句梗概当标题。
-    longTitle = A.parseArtifact(outlineSplit,
+    longTitle = A.parseArtifact(outlineSplit, VOLUME_T,
       '[{"title":"林昭在暴雨的深夜翻越青云宗的侧峰围墙并且成功进入了藏书阁"}]');
     // 模型跟着旧提示词给了 `chapters` 键——照收，别因为一个键名丢掉整次调用。
-    legacyKey = A.parseArtifact(outlineSplit, '{"chapters":[{"title":"夜入青云","goal":"进宗门"}]}');
-    sceneSplit = A.parseArtifact({ stage: 'plot', capability: 'split' }, JSON.stringify({
+    legacyKey = A.parseArtifact(outlineSplit, VOLUME_T, '{"chapters":[{"title":"夜入青云","goal":"进宗门"}]}');
+
+    sceneSplit = A.parseArtifact({ stage: 'plot', capability: 'split' }, PLOT_T, JSON.stringify({
       scenes: [{ title: '翻越侧峰', place: '侧峰', time: '子时', characters: ['林昭'], targetWords: 1000 }],
     }));
   });
 
-  test('拆段走 plots 键', () => {
-    assert.equal(list.kind, 'plotList');
-    assert.equal(list.plots.length, 2);
+  test('大纲拆卷走 volumes 键', () => {
+    assert.equal(volumes.kind, 'volumeList');
+    assert.equal(volumes.volumes.length, 2);
   });
 
-  test('带序号的保留序号', () => {
-    assert.equal(list.plots[0].no, 12);
+  test('带卷号的保留卷号', () => {
+    assert.equal(volumes.volumes[0].no, 1);
   });
 
-  test('不带序号的留空由调用方续号', () => {
-    assert.equal(list.plots[1].no, undefined);
+  test('不带卷号的留空由调用方续号', () => {
+    assert.equal(volumes.volumes[1].no, undefined);
+  });
+
+  test('卷的剧情走向进 arc', () => {
+    assert.ok(volumes.volumes[0].arc.includes('客栈'), volumes.volumes[0].arc);
   });
 
   test('裸数组也认', () => {
-    assert.equal(bare.plots.length, 1);
-    assert.equal(bare.plots[0].title, '夜入青云');
-  });
-
-  test('旧的 chapters 键也认', () => {
-    assert.equal(legacyKey.plots.length, 1, JSON.stringify(legacyKey.plots));
+    assert.equal(bareVolumes.volumes.length, 1);
+    assert.equal(bareVolumes.volumes[0].title, '觉醒之日');
   });
 
   test('Markdown 列表兜底', () => {
-    assert.equal(mdList.plots.length, 3, JSON.stringify(mdList.plots));
+    assert.equal(mdVolumes.volumes.length, 3, JSON.stringify(mdVolumes.volumes));
   });
 
   test('列表项的序号前缀被剥掉', () => {
-    assert.equal(mdList.plots[0].title, '夜入青云', mdList.plots[0].title);
+    assert.equal(mdVolumes.volumes[0].title, '觉醒之日', mdVolumes.volumes[0].title);
   });
 
   test('散文不被误拆成清单', () => {
-    assert.equal(prose.plots.length, 0, JSON.stringify(prose.plots));
+    assert.equal(proseVolumes.volumes.length, 0, JSON.stringify(proseVolumes.volumes));
+  });
+
+  test('一卷上的 split 产出一个剧情段', () => {
+    assert.equal(segment.kind, 'plotSegment');
+    assert.equal(segment.segment.title, '夜入青云');
+    assert.equal(segment.segment.goal, '林昭进入宗门');
+  });
+
+  test('模型一次给三段时只取第一段', () => {
+    assert.equal(segmentFromList.kind, 'plotSegment');
+    assert.equal(segmentFromList.segment.title, '夜入青云');
+  });
+
+  test('旧的 chapters 键也认', () => {
+    assert.equal(legacyKey.segment.title, '夜入青云', JSON.stringify(legacyKey));
   });
 
   test('过长的标题被收口', () => {
-    assert.ok(longTitle.plots[0].title.length <= 18, longTitle.plots[0].title);
+    assert.ok(longTitle.segment.title.length <= 18, longTitle.segment.title);
   });
 
   test('拆场景走 scenes 键', () => {
@@ -297,7 +337,7 @@ describe('artifact.ts · 拆分清单', () => {
 describe('artifact.ts · 空产物与描述', () => {
   test('正文原样收下', () => {
     assert.equal(
-      A.parseArtifact({ stage: 'manuscript', capability: 'generate' }, '雨下了三天。').text,
+      A.parseArtifact({ stage: 'manuscript', capability: 'generate' }, PLOT_T, '雨下了三天。').text,
       '雨下了三天。'
     );
   });
@@ -306,105 +346,185 @@ describe('artifact.ts · 空产物与描述', () => {
     assert.ok(A.isArtifactEmpty({ kind: 'manuscript', text: '   ' }));
   });
 
-  test('空清单算空产物', () => {
-    assert.ok(A.isArtifactEmpty({ kind: 'plotList', plots: [] }));
+  test('空的分卷清单算空产物', () => {
+    assert.ok(A.isArtifactEmpty({ kind: 'volumeList', volumes: [] }));
+  });
+
+  test('没有标题也没有目标的剧情段算空产物', () => {
+    assert.ok(A.isArtifactEmpty({ kind: 'plotSegment', segment: { title: ' ', goal: '', arc: '' } }));
   });
 
   test('有内容的不算空', () => {
-    assert.ok(!A.isArtifactEmpty(A.parseArtifact({ stage: 'plot', capability: 'generate' }, '{"剧情脉络":"x"}')));
+    assert.ok(!A.isArtifactEmpty(A.parseArtifact({ stage: 'plot', capability: 'generate' }, PLOT_T, '{"剧情脉络":"x"}')));
   });
 
-  test('描述带得出条数', () => {
-    assert.equal(A.describeArtifact({ kind: 'plotList', plots: [1, 2, 3] }), '3 章的细纲');
+  test('描述带得出卷数', () => {
+    assert.equal(A.describeArtifact({ kind: 'volumeList', volumes: [1, 2, 3] }), '3 卷');
+  });
+
+  // 「一个剧情段」在描述里就要说是一个：作者点的是「拆出剧情段」，
+  // 卡片上写「3 章的细纲」会让他以为工具又替他铺了一片骨架。
+  test('剧情段的描述报一个', () => {
+    assert.equal(
+      A.describeArtifact({ kind: 'plotSegment', segment: { title: '楼道', goal: 'x', arc: '' } }),
+      '1 个剧情段 · 楼道'
+    );
   });
 
   test('剧情描述带填了几节', () => {
-    const a = A.parseArtifact({ stage: 'plot', capability: 'generate' }, '{"目标":"x","剧情脉络":"y"}');
+    const a = A.parseArtifact({ stage: 'plot', capability: 'generate' }, PLOT_T, '{"目标":"x","剧情脉络":"y"}');
     assert.equal(A.describeArtifact(a), '剧情 · 2/4 节');
   });
 });
 
 // ================================================================ 采纳落盘
 
-describe('采纳 · 大纲拆成章节', () => {
+describe('采纳 · 大纲拆成卷', () => {
   let result;
   let again;
+  let volumeCount;
   let plotCount;
-  let chapterCount;
 
   before(async () => {
     result = await accept(
       { kind: 'outline' },
       {
-        kind: 'plotList',
-        plots: [
-          { title: '夜入青云', goal: '林昭进入宗门', arc: '第一幕' },
-          { title: '藏书阁', goal: '找到令牌', arc: '第一幕' },
+        kind: 'volumeList',
+        volumes: [
+          { title: '觉醒之日', goal: '走出青云镇', arc: '从客栈发烧醒来开始……' },
+          { title: '北行', goal: '找到第三块令牌', arc: '' },
         ],
       }
     );
+    volumeCount = (await project.listVolumes()).length;
     plotCount = (await project.listPlots()).length;
-    chapterCount = (await project.listChapters()).length;
-    // 已存在的段号一律跳过，绝不覆盖。
+    // 已存在的卷号一律跳过，绝不覆盖。
     again = await accept(
       { kind: 'outline' },
-      { kind: 'plotList', plots: [{ no: 1, title: '换个名', goal: '不该写进去', arc: '' }] }
+      { kind: 'volumeList', volumes: [{ no: 1, title: '换个名', goal: '不该写进去', arc: '' }] }
     );
   });
 
-  test('建出两段', () => {
-    assert.equal(plotCount, 2, result.message);
+  test('建出两卷', () => {
+    assert.equal(volumeCount, 2, result.message);
   });
 
-  test('细纲文件按章号命名', () => {
-    assert.ok(t.has('.novelforge/plots/001-夜入青云.md') && t.has('.novelforge/plots/002-藏书阁.md'));
+  // 卷号两位数：一本书几百章是常态，几百卷不是；而这个词干还要当 `plots/`
+  // 下的目录名用，三位数只会让目录名比它收纳的东西还长。
+  test('卷纲文件按卷号命名（两位数前缀）', () => {
+    assert.ok(
+      t.has('.novelforge/volumes/01-觉醒之日.md') && t.has('.novelforge/volumes/02-北行.md'),
+      t.read('.novelforge/volumes/01-觉醒之日.md') ?? ''
+    );
   });
 
-  // 拆段**不建章节文件**：`chapters/` 是作者切好正文之后才有东西的发布区，
-  // 拆个段就往那里塞几十个空文件，只会让他以为工具替他分好了章。
-  test('不往 chapters/ 里塞空文件', () => {
-    assert.equal(chapterCount, 0, String(chapterCount));
+  // 拆卷**不铺剧情段**：段由「从这一卷拆出剧情段」一次一个地拆出来。
+  // 顺手铺几十个空段只会让作者以为工具替他排好了剧情。
+  test('不顺手铺剧情段', () => {
+    assert.equal(plotCount, 0, String(plotCount));
   });
 
-  test('细纲里带上了大纲给的目标', () => {
-    assert.ok(t.read('.novelforge/plots/001-夜入青云.md').includes('林昭进入宗门'));
+  test('卷纲里带上了大纲给的目标与走向', () => {
+    const text = t.read('.novelforge/volumes/01-觉醒之日.md');
+    assert.ok(text.includes('走出青云镇'), text);
+    assert.ok(text.includes('客栈'), text);
+  });
+
+  // 卷纲记下了大纲的指纹——改了大纲，这一卷才标得出脏。
+  test('卷纲记下上游指纹', () => {
+    assert.ok(/upstreamHash: \w+/.test(t.read('.novelforge/volumes/01-觉醒之日.md')));
+  });
+
+  test('已存在的卷号被跳过', () => {
+    assert.ok(again.message.includes('跳过'), again.message);
+  });
+
+  test('原卷纲没被改名', () => {
+    assert.ok(
+      t.has('.novelforge/volumes/01-觉醒之日.md') && !t.has('.novelforge/volumes/01-换个名.md')
+    );
+  });
+
+  test('原卷纲没被覆盖', () => {
+    assert.ok(!t.read('.novelforge/volumes/01-觉醒之日.md').includes('不该写进去'));
+  });
+});
+
+describe('采纳 · 卷纲拆出剧情段（一次一个）', () => {
+  const target = { kind: 'volume', volumeRelPath: '.novelforge/volumes/01-觉醒之日.md' };
+  let first;
+  let second;
+  let paths;
+
+  before(async () => {
+    first = await accept(target, {
+      kind: 'plotSegment',
+      segment: { title: '夜入青云', goal: '林昭进入宗门', arc: '第一幕' },
+    });
+    second = await accept(target, {
+      kind: 'plotSegment',
+      segment: { title: '藏书阁', goal: '找到令牌', arc: '第一幕' },
+    });
+    paths = (await project.listPlots()).map((p) => p.relPath);
+  });
+
+  // 归属靠**目录**，不落 frontmatter：目录已经说了，再记一份就会漂移。
+  test('落进这一卷的段目录', () => {
+    assert.ok(t.has('.novelforge/plots/01-觉醒之日/001-夜入青云.md'), paths.join('、'));
+  });
+
+  test('一次只建一个', () => {
+    assert.equal(paths.length, 2, paths.join('、'));
+  });
+
+  test('段号往后连排', () => {
+    assert.ok(t.has('.novelforge/plots/01-觉醒之日/002-藏书阁.md'), paths.join('、'));
+  });
+
+  test('消息说的是一个剧情段', () => {
+    assert.ok(first.message.includes('剧情段'), first.message);
+    assert.ok(second.relPath.endsWith('002-藏书阁.md'), second.relPath);
+  });
+
+  // 上游是**这一卷**而不是全书大纲：改一卷的走向只该让那一卷的段标脏，
+  // 否则改一句立意换来一屏 ⟳。
+  test('细纲记下的是卷纲的指纹', async () => {
+    const plot = await project.readPlot('.novelforge/plots/01-觉醒之日/001-夜入青云.md');
+    const volume = await project.readVolume(target.volumeRelPath);
+    assert.equal(plot.upstreamHash, bundle.pipe.volumeContentHash(volume));
+  });
+
+  test('细纲里带上了拆分给的目标', () => {
+    assert.ok(t.read('.novelforge/plots/01-觉醒之日/001-夜入青云.md').includes('林昭进入宗门'));
   });
 
   // 只填「目标」的骨架**不算排过剧情**：拿它当 filled 的话，刚拆出来的段
-  // 会全部立刻显示「已规划」，紧接着的批量拆场景还会照着空壳往下拆。
+  // 会立刻显示「已规划」，紧接着的批量拆场景还会照着空壳往下拆。
   test('只有目标的骨架不算排过剧情', async () => {
-    const plot = await project.readPlot('.novelforge/plots/001-夜入青云.md');
+    const plot = await project.readPlot('.novelforge/plots/01-觉醒之日/001-夜入青云.md');
     assert.ok(!plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
   });
 
   test('骨架的流水线停在待写剧情', async () => {
-    const plot = await project.readPlot('.novelforge/plots/001-夜入青云.md');
-    // 传「一章」而不是光秃的 `Plot`：后者编译得过，但 plot/chapter 会是
-    // undefined，整章按空事实推导——那样这条断言测的不是这个骨架。
+    const plot = await project.readPlot('.novelforge/plots/01-觉醒之日/001-夜入青云.md');
     const p = await bundle.pipe.buildPlotPipeline(project, { no: plot.no, plot });
     assert.equal(p.stage, 'plot', p.stage);
   });
 
-  // 细纲记下了大纲的指纹——改了大纲，这一章才标得出脏。
-  test('细纲记下上游指纹', () => {
-    assert.ok(/upstreamHash: \w+/.test(t.read('.novelforge/plots/001-夜入青云.md')));
-  });
-
-  test('已存在的段号被跳过', () => {
-    assert.ok(again.message.includes('跳过'), again.message);
-  });
-
-  test('原细纲没被改名', () => {
-    assert.ok(t.has('.novelforge/plots/001-夜入青云.md') && !t.has('.novelforge/plots/001-换个名.md'));
-  });
-
-  test('原细纲没被覆盖', () => {
-    assert.ok(!t.read('.novelforge/plots/001-夜入青云.md').includes('不该写进去'));
+  test('没有卷时拒绝落盘', async () => {
+    await assert.rejects(
+      () =>
+        accept(
+          { kind: 'outline' },
+          { kind: 'plotSegment', segment: { title: 'x', goal: 'y', arc: '' } }
+        ),
+      /不属于任何一卷/
+    );
   });
 });
 
 describe('采纳 · 剧情（覆盖要审阅）', () => {
-  const target = { kind: 'plot', plotRelPath: '.novelforge/plots/001-夜入青云.md' };
+  const target = { kind: 'plot', plotRelPath: '.novelforge/plots/01-觉醒之日/001-夜入青云.md' };
   const sections = {
     目标: '林昭进入青云宗',
     剧情脉络: '踩点、失手、翻墙；收在藏书阁门口。',
@@ -421,7 +541,7 @@ describe('采纳 · 剧情（覆盖要审阅）', () => {
     h.answers.push('保留原样');
     kept = await accept(target, { kind: 'plot', sections });
     // 下一步就会把内容覆盖掉，所以先抓快照。
-    afterKept = t.read('.novelforge/plots/001-夜入青云.md');
+    afterKept = t.read('.novelforge/plots/01-觉醒之日/001-夜入青云.md');
 
     h.answers.push('覆盖');
     written = await accept(target, { kind: 'plot', sections });
@@ -440,11 +560,11 @@ describe('采纳 · 剧情（覆盖要审阅）', () => {
   });
 
   test('确认后才写', () => {
-    assert.equal(written.relPath, '.novelforge/plots/001-夜入青云.md', written.message);
+    assert.equal(written.relPath, '.novelforge/plots/01-觉醒之日/001-夜入青云.md', written.message);
   });
 
   test('新内容已落盘', () => {
-    assert.ok(t.read('.novelforge/plots/001-夜入青云.md').includes('三拍推进'));
+    assert.ok(t.read('.novelforge/plots/01-觉醒之日/001-夜入青云.md').includes('三拍推进'));
   });
 
   test('内容相同不弹框直接通过', () => {
@@ -462,13 +582,13 @@ describe('采纳 · 剧情（覆盖要审阅）', () => {
     const settled = { ...sections, 冲突与转折: '讨论里定下的：两拍' };
     h.answers.push('覆盖');
     const r = await accept(target, { kind: 'plot', sections: settled });
-    assert.equal(r.relPath, '.novelforge/plots/001-夜入青云.md', r.message);
-    assert.ok(t.read('.novelforge/plots/001-夜入青云.md').includes('讨论里定下的'));
+    assert.equal(r.relPath, '.novelforge/plots/01-觉醒之日/001-夜入青云.md', r.message);
+    assert.ok(t.read('.novelforge/plots/01-觉醒之日/001-夜入青云.md').includes('讨论里定下的'));
   });
 });
 
 describe('采纳 · 剧情拆场景', () => {
-  const target = { kind: 'plot', plotRelPath: '.novelforge/plots/001-夜入青云.md' };
+  const target = { kind: 'plot', plotRelPath: '.novelforge/plots/01-觉醒之日/001-夜入青云.md' };
   let result;
   let first;
   let again;
@@ -481,7 +601,7 @@ describe('采纳 · 剧情拆场景', () => {
         { title: '翻越侧峰', place: '侧峰', time: '子时', characters: ['林昭'], goal: '进入宗门' },
       ],
     });
-    first = t.read('.novelforge/scenes/001-夜入青云/01-踩点.md');
+    first = t.read('.novelforge/scenes/01-觉醒之日/001-夜入青云/01-踩点.md');
 
     // 再拆一次：已有的两场绝不覆盖，新的接着往后排。
     again = await accept(target, {
@@ -495,11 +615,11 @@ describe('采纳 · 剧情拆场景', () => {
   });
 
   test('场景落在按段名开的目录里，两位数前缀', () => {
-    assert.ok(t.has('.novelforge/scenes/001-夜入青云/01-踩点.md'));
+    assert.ok(t.has('.novelforge/scenes/01-觉醒之日/001-夜入青云/01-踩点.md'));
   });
 
   test('第二场按序排下去', () => {
-    assert.ok(t.has('.novelforge/scenes/001-夜入青云/02-翻越侧峰.md'));
+    assert.ok(t.has('.novelforge/scenes/01-觉醒之日/001-夜入青云/02-翻越侧峰.md'));
   });
 
   test('场景卡带上地点时间', () => {
@@ -516,7 +636,7 @@ describe('采纳 · 剧情拆场景', () => {
   });
 
   test('场景的 plot: 指向细纲', () => {
-    assert.ok(first.includes('plot: .novelforge/plots/001-夜入青云.md'), first.slice(0, 200));
+    assert.ok(first.includes('plot: .novelforge/plots/01-觉醒之日/001-夜入青云.md'), first.slice(0, 200));
   });
 
   test('二次拆分不动原有场景', () => {
@@ -524,11 +644,11 @@ describe('采纳 · 剧情拆场景', () => {
   });
 
   test('新场景排在后面', () => {
-    assert.ok(t.has('.novelforge/scenes/001-夜入青云/03-追兵.md'));
+    assert.ok(t.has('.novelforge/scenes/01-觉醒之日/001-夜入青云/03-追兵.md'));
   });
 
   test('原场景内容还在', () => {
-    assert.ok(t.read('.novelforge/scenes/001-夜入青云/01-踩点.md').includes('摸清换岗'));
+    assert.ok(t.read('.novelforge/scenes/01-觉醒之日/001-夜入青云/01-踩点.md').includes('摸清换岗'));
   });
 });
 
@@ -537,7 +657,7 @@ describe('采纳 · 单张场景卡', () => {
   let text;
 
   before(async () => {
-    const target = { kind: 'scene', plotRelPath: '.novelforge/plots/001-夜入青云.md', sceneNo: 1 };
+    const target = { kind: 'scene', plotRelPath: '.novelforge/plots/01-觉醒之日/001-夜入青云.md', sceneNo: 1 };
     h.answers.push('覆盖');
     result = await accept(target, {
       kind: 'scene',
@@ -554,11 +674,11 @@ describe('采纳 · 单张场景卡', () => {
         细节与意象: '那条拴在门柱上的黄狗',
       },
     });
-    text = t.read('.novelforge/scenes/001-夜入青云/01-踩点.md');
+    text = t.read('.novelforge/scenes/01-觉醒之日/001-夜入青云/01-踩点.md');
   });
 
   test('场景卡写回原文件', () => {
-    assert.equal(result.relPath, '.novelforge/scenes/001-夜入青云/01-踩点.md', result.message);
+    assert.equal(result.relPath, '.novelforge/scenes/01-觉醒之日/001-夜入青云/01-踩点.md', result.message);
   });
 
   // 有素材就是可以开写——状态由内容推，不靠调用方记得传。
@@ -571,12 +691,12 @@ describe('采纳 · 单张场景卡', () => {
   });
 
   test('改写不改文件名', () => {
-    assert.ok(!t.has('.novelforge/scenes/001-夜入青云/01-摸清换岗.md'));
+    assert.ok(!t.has('.novelforge/scenes/01-觉醒之日/001-夜入青云/01-摸清换岗.md'));
   });
 });
 
 describe('采纳 · 正文', () => {
-  const plotRelPath = '.novelforge/plots/001-夜入青云.md';
+  const plotRelPath = '.novelforge/plots/01-觉醒之日/001-夜入青云.md';
   let beatsBefore;
   let result;
   let entry;
@@ -612,11 +732,11 @@ describe('采纳 · 正文', () => {
 
   // 正文先落在中转站 manuscripts/，**不是 chapters/**：在哪儿断章由作者定。
   test('正文追加到 manuscripts/', () => {
-    assert.equal(result.relPath, '.novelforge/manuscripts/001-夜入青云.md', result.message);
+    assert.equal(result.relPath, '.novelforge/manuscripts/01-觉醒之日/001-夜入青云.md', result.message);
   });
 
   test('正文确实写进去了', () => {
-    assert.ok(t.read('.novelforge/manuscripts/001-夜入青云.md').includes('石阶泡得发白'));
+    assert.ok(t.read('.novelforge/manuscripts/01-觉醒之日/001-夜入青云.md').includes('石阶泡得发白'));
   });
 
   // 采纳正文这一步不碰发布区：拆分是另一个动作（features/splitChapter.ts）。
@@ -654,7 +774,7 @@ describe('采纳 · 正文', () => {
       { kind: 'manuscript', plotRelPath, sceneNo: 2 },
       { kind: 'manuscript', text: '他数到第三盏灯才动。' }
     );
-    const text = t.read('.novelforge/manuscripts/001-夜入青云.md');
+    const text = t.read('.novelforge/manuscripts/01-觉醒之日/001-夜入青云.md');
     assert.ok(text.includes('石阶泡得发白') && text.includes('第三盏灯'), text);
   });
 });

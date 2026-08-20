@@ -22,14 +22,18 @@ export function describeForReview(path: PathKind, rel: string): string {
       return '文风指南';
     case 'globalSummary':
       return '全书滚动摘要';
+    case 'volume':
+      return no === undefined ? '这一卷的卷纲' : `第 ${no} 卷的卷纲`;
+    // 这里报的是**段号**（文件名前缀），不是界面上那个「剧情 N」位次——
+    // 框里紧接着还要显示路径，两者对得上作者才认得出是同一份文件。
     case 'plot':
-      return no === undefined ? '这一章的细纲' : `第 ${no} 章的细纲`;
+      return no === undefined ? '这一段的细纲' : `剧情段 ${no} 的细纲`;
     case 'scene':
       return no === undefined
         ? `场景 ${path.sceneNo}`
-        : `第 ${no} 章 · 场景 ${path.sceneNo}`;
+        : `剧情段 ${no} · 场景 ${path.sceneNo}`;
     case 'manuscript':
-      return no === undefined ? '这一章的正文' : `第 ${no} 章的正文`;
+      return no === undefined ? '这一段的正文' : `剧情段 ${no} 的正文`;
     case 'chapter':
       return no === undefined ? '这一章' : `第 ${no} 章`;
     case 'summary':

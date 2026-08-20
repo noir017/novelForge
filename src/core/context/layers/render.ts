@@ -1,6 +1,7 @@
 import { exists, readText } from '../../model/fs';
 import { stringifySections } from '../../model/markdown';
-import { plotLabel } from '../../model/pipeline';
+import { plotLabel, segmentLabel, volumeLabel } from '../../model/pipeline';
+import { Volume, VOLUME_SECTION_KEYS } from '../../model/volumeFile';
 import { Plot, PLOT_SECTION_KEYS } from '../../model/plotFile';
 import { NovelProject } from '../../model/project';
 import { describeScene, Scene, SCENE_SECTION_KEYS } from '../../model/sceneFile';
@@ -11,6 +12,45 @@ import {
   CharacterCard,
 } from '../../model/types';
 import type { Focus } from './focus';
+
+export function renderVolume(volume: Volume): string {
+  const head = `【${volumeLabel(volume.no, volume.title)} · 卷纲】`;
+  const body = stringifySections(
+    volume.sections as unknown as Record<string, string>,
+    VOLUME_SECTION_KEYS as readonly string[]
+  );
+  return `${head}\n${body || '（尚未填写）'}`;
+}
+
+/**
+ * 分卷一览：每卷只给一行目标。
+ *
+ * 拆卷时它回答「已经有哪些卷」（免得再拆出一个重复的），拆段时回答「我这一卷
+ * 在全书里排第几、前后两卷各要做什么」。不铺开各卷的走向——那是几千字，
+ * 而这一层要的只是位置感。
+ */
+export function renderVolumeBrief(volume: Volume): string {
+  const goal = volume.sections.目标?.trim() || volume.sections.剧情走向?.trim() || '（尚未填写）';
+  return `- ${volumeLabel(volume.no, volume.title)}：${clipLine(goal)}`;
+}
+
+/**
+ * 一个剧情段的一行摘要。这一卷已经拆到哪了，靠这几行说清。
+ *
+ * 只给「目标」，与 `renderVolumeBrief` 同一条理由：拆下一段要的是「前面几段
+ * 各自达成了什么」，不是它们的完整脉络（那是 `plotPrev` 的活，而且它按段
+ * 取原文）。
+ */
+export function renderSegmentBrief(plot: Plot, displayNo: number): string {
+  const goal = plot.sections.目标?.trim() || plot.sections.剧情脉络?.trim() || '（尚未填写）';
+  return `- ${segmentLabel(displayNo, plot.title)}：${clipLine(goal)}`;
+}
+
+/** 一览类的一行最多这么长。再长就该去看那一层的原文了。 */
+function clipLine(text: string): string {
+  const one = text.replace(/\s+/g, ' ').trim();
+  return one.length <= 120 ? one : `${one.slice(0, 120)}…`;
+}
 
 export function renderPlot(plot: Plot): string {
   const head = `【${plotLabel(plot.no, plot.title)} · 剧情${plot.arc ? ` ｜ ${plot.arc}` : ''}】`;

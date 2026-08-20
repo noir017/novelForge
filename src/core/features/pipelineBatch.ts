@@ -29,7 +29,6 @@ import { collectText } from '../llm/collect';
 import { AgentMessage, CancelledError } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { describeError, elapsed, formatDuration, scoped } from '../runtime/logger';
-import { hash } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { Plot, isPlotFilled } from '../model/plotFile';
 import { emptySceneSections, isSceneReady } from '../model/sceneFile';
@@ -41,6 +40,7 @@ import { cleanOutput } from './creation';
 import { parsePlotStrict, parseSceneList } from './artifact';
 import { Capability } from '../model/pipeline';
 import { Workspace } from '../workspace';
+import { plotUpstreamHash } from '../workspace/handlers/plot';
 
 const log = scoped('流水线');
 
@@ -90,8 +90,6 @@ export async function generatePlots(project: NovelProject): Promise<number> {
     log.error('没有可用的模型，批量写剧情中止');
     return 0;
   }
-  const outlineHash = hash(outline);
-
   await runBatch(project, {
     title: '批量写剧情',
     items: pending,
@@ -122,8 +120,13 @@ export async function generatePlots(project: NovelProject): Promise<number> {
         title: plot.title,
         arc: plot.arc,
         targetWords: plot.targetWords,
-        upstreamHash: outlineHash,
-        done: false,
+        // 上游是**这一段所属那一卷**（未分卷的段退回全书大纲），不是一律的
+        // 大纲指纹：分卷之后拿大纲指纹去记，改一卷的走向就再也标不出脏。
+        upstreamHash: await plotUpstreamHash(project, plot.relPath),
+        // done / chapters 沿用磁盘那份：批量写剧情改的是四个小节，不该把作者
+        // 标的完成状态或「这一段交付到哪几章」抹掉。
+        done: plot.done,
+        chapters: plot.chapters,
         sections,
       });
     },

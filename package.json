@@ -58,7 +58,7 @@
       },
       {
         "command": "novel.newPlot",
-        "title": "Novel: 新建章节",
+        "title": "Novel: 新建剧情段",
         "icon": "$(add)"
       },
       {

@@ -159,7 +159,8 @@ export function chatPane(opts: PaneOptions = {}): string {
 export function projectPane(): string {
   return `<section class="pane" id="pane-project">
   <div class="project-toolbar" id="projectToolbar">
-    <button class="chip-btn" data-action="newPlot">＋ 新建章节</button>
+    <button class="chip-btn" data-action="newVolume">＋ 新建卷</button>
+    <button class="chip-btn" data-action="newPlot">＋ 新建剧情段</button>
     <button class="chip-btn" data-action="newCharacter">＋ 角色卡</button>
     <button class="chip-btn" data-action="newLore">＋ 设定</button>
     <button class="chip-btn" data-action="newFolder">＋ 文件夹</button>

@@ -11,8 +11,21 @@ import type { SerializedAttachment } from './in';
 
 export interface ViewState {
   initialized: boolean;
-  /** 创作页目标下拉框里的候选：全书各章。 */
-  plots: { no: number; title: string; wordCount: number; relPath: string }[];
+  /**
+   * 创作页目标下拉框里的候选：已发布的章 + 还没交付的剧情段。
+   *
+   * `label` 由后端给（「第 12 章《夜访》」/「剧情 4《楼道》」）——两种行的说法
+   * 完全不同，让前端按 `no` 自己拼会拼错一半（见 model/pipeline.ts 的
+   * `segmentLabel`）。
+   */
+  plots: {
+    kind: 'chapter' | 'segment';
+    no: number;
+    label: string;
+    title: string;
+    wordCount: number;
+    relPath: string;
+  }[];
   nextNo: number;
   staleCount: number;
   model: string;
@@ -27,15 +40,21 @@ export interface ProjectTree {
   initialized: boolean;
   title: string;
   author: string;
-  /** 章数（规划的与写完的合起来去重）。工程页分组标题上那个数字。 */
+  /** 卷数。工程页「卷」那一组的标题上那个数字。 */
+  volumeCount: number;
+  /** 还没交付的剧情段数。工程页「章节」组标题里那个「+N 剧情」。 */
+  segmentCount: number;
+  /** 章节组的行数（已发布的章 + 未交付的剧情段）。 */
   plotCount: number;
-  /** 已经拆分发布的章数。 */
+  /** 已发布的章数。 */
   chapterCount: number;
   /** 已写正文的总字数。 */
   totalWords: number;
   staleCount: number;
   summarizedCount: number;
-  /** 全书各章。**一条列表**——规划与成品是同一章的两副面孔。 */
+  /** 全书分卷。**前端复用章节行组件**渲染它。 */
+  volumes: ProjectVolumeNode[];
+  /** 章节组的全部行：已发布的章在前，还没交付的剧情段在后。 */
   plots: ProjectPlotNode[];
   characters: ProjectNode[];
   lore: ProjectNode[];
@@ -44,6 +63,7 @@ export interface ProjectTree {
   summaryCount: number;
   failures: Record<string, FailureView[]>;
   castConflicts: CastConflictView[];
+  volumesRoot: string;
   plotsRoot: string;
   chaptersRoot: string;
   charactersRoot: string;
@@ -57,16 +77,52 @@ export interface ProjectTree {
 }
 
 /**
- * 工程页「章节」组里的一行。
+ * 工程页「卷」组里的一行。
  *
- * 扁平列表，不折目录——流水线的顺序恰恰是这一层最要紧的信息，折进目录反而
- * 看不出来。`chapters/` 下的分卷子目录因此不体现在这里（作者仍可以建，
+ * 前端复用章节行的组件渲染它（`buildPlotRow` 那一套：序号 + 名字 + 徽章 +
+ * 右键菜单），所以字段刻意与 `ProjectPlotNode` 同形——同一个组件读两种数据时，
+ * 字段对不上就得在前端写分支。
+ */
+export interface ProjectVolumeNode {
+  no: number;
+  title: string;
+  /** 卷纲路径。这一行的身份。 */
+  relPath: string;
+  /** 这一卷收纳了几个剧情段（含已交付的）。 */
+  segmentCount: number;
+  /** 其中已经交付（拆成章）的有几个。 */
+  deliveredCount: number;
+  /** 这一卷的剧情段加起来多少字（成品优先，其次中转站）。 */
+  wordCount: number;
+  /** 卷纲有实质内容（「剧情走向」非空）。空壳的卷拆不出像样的段。 */
+  filled: boolean;
+  /** 生成这一卷之后，全书大纲改过。 */
+  upstreamStale: boolean;
+}
+
+/**
+ * 工程页「章节」组里的一行：**一个已发布的章，或一个还没交付的剧情段**。
+ *
+ * 扁平列表，不折目录——顺序恰恰是这一层最要紧的信息，折进目录反而看不出来。
+ * `chapters/` 与 `plots/` 下的分卷子目录因此不体现在这里（作者仍可以建，
  * 文件操作照常）。
  *
- * 一行可能只有规划（还没写完）、只有成品（老工程里的章），或两者都有。
+ * 从前一行同时代表规划与成品（两者同号）。现在两者是两条轴：一段可以拆成三章，
+ * 拆完那一段就不再是待做项，由它拆出来的几章各自成行。
  */
 export interface ProjectPlotNode {
+  /**
+   * 这一行是什么。**界面上的说法完全不同**：章说「第 12 章」，段说「剧情 4」，
+   * 而段还带阶段徽章与四段进度。
+   */
+  kind: 'chapter' | 'segment';
+  /**
+   * 序号：章的是章号，段的是**推导出来的位次**（最新章号 + 在未交付的段里排第几，
+   * 见 model/pipeline.ts 的 `segmentDisplayNo`）——不是段的文件名前缀。
+   */
   no: number;
+  /** 界面上那一行的完整说法（「第 12 章《夜访》」/「剧情 4《楼道》」）。 */
+  label: string;
   title: string;
   /**
    * 这一行的**主路径**：有成品就是成品，否则是细纲。它是这一章在协议上的
@@ -77,9 +133,9 @@ export interface ProjectPlotNode {
    * 「正文写完、还没拆成章节」那一档。
    */
   relPath: string;
-  /** 细纲路径。这一章还没规划过（老工程）时是空串。 */
+  /** 细纲路径。已发布的章找不到它的来源段时是空串（老工程里每一章都是）。 */
   plotPath: string;
-  /** 成品路径。还没拆分时是空串。 */
+  /** 成品路径。剧情段行永远是空串。 */
   chapterPath: string;
   /** 中转站里等着拆分的正文路径。没有就是空串。 */
   manuscriptPath: string;
@@ -99,7 +155,7 @@ export interface ProjectPlotNode {
 /**
  * 角色 / 设定两个区的树节点。
  *
- * **没有「章节节点」**：章节不在这棵树里——它与细纲合成了 `ProjectPlotNode`
+ * **没有「章节节点」**：章节不在这棵树里——它与剧情段合成了 `ProjectPlotNode`
  * 那一条扁平列表（见上）。这两个区仍是任意深度的目录树。
  */
 export type ProjectNode = ProjectDirNode | ProjectFileNode;
@@ -118,14 +174,17 @@ export interface ProjectFileNode extends ProjectFile {
 
 export interface PlotPipelineView {
   plotRelPath: string;
+  /** 段号（文件名前缀）。只是 `plots/` 里的排序键，不是章号。 */
   no: number;
+  /** 界面上那个「剧情 N」的 N：最新章号 + 在未交付的段里排第几。 */
+  displayNo: number;
   title: string;
   plot: { relPath: string; exists: boolean; filled: boolean; upstreamStale: boolean };
   scenes: ScenePipelineView[];
   /** 中转站里等着拆分的正文。 */
   manuscript: { relPath: string; words: number; beatsStale: boolean };
-  /** 发布区里的成品。拆分之后才有。 */
-  chapter: { exists: boolean; relPath: string; words: number };
+  /** 这一段交付到的发布章。`relPath` 是第一章，`words` 是几章的总字数。 */
+  chapter: { exists: boolean; relPath: string; words: number; chapterPaths: string[] };
   summary: { exists: boolean; stale: boolean };
   stage: PlotStage;
   progress: PipelineProgress;
@@ -198,10 +257,25 @@ export interface CastConflictView {
 export interface PlotSummaryView {
   no: number;
   title: string;
+  /**
+   * 浮窗标题里那一行（「第 12 章《夜访》」/「剧情 4《楼道》」）。
+   *
+   * 由后端给：一行可能是已发布的章，也可能是还没交付的剧情段，两者的说法
+   * 完全不同（见 model/pipeline.ts 的 `segmentLabel`）。前端按 `no` 自己拼
+   * 会把每一个剧情段都叫成「第 N 章」。
+   */
+  label: string;
   exists: boolean;
   stale: boolean;
   relPath: string;
   sections: { name: string; text: string }[];
+  /**
+   * 没有摘要时那句话。
+   *
+   * 章与段的原因不同：章是「还没总结」（右键就能总结），段是「还没拆成章，
+   * 摘要挂在成品上」——对段说「右键总结这一章」是在指一条走不通的路。
+   */
+  emptyHint?: string;
 }
 
 export interface SerializedSession {

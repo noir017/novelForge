@@ -47,6 +47,7 @@ import {
   deriveBookStage,
   deriveNextStep,
   plotOfTarget,
+  segmentLabel,
 } from '../model/pipeline';
 import { buildPipelineIndex, factsOf } from '../views/pipeline';
 import type { PlotPipeline } from '../views/pipeline';
@@ -75,51 +76,61 @@ export async function buildStateBrief(
   project: NovelProject,
   target?: CreationTarget
 ): Promise<string> {
-  const { pipelines, manifest, outline } = await buildPipelineIndex(project);
+  const { pipelines, segments, chapters, volumes, manifest, outline } =
+    await buildPipelineIndex(project);
   const all = [...pipelines.values()];
 
-  const published = all.filter((p) => p.chapter.exists);
-  const words = all.reduce((sum, p) => sum + (p.chapter.exists ? p.chapter.words : p.manuscript.words), 0);
+  const words =
+    chapters.reduce((sum, c) => sum + c.wordCount, 0) +
+    segments.reduce((sum, p) => sum + p.manuscript.words, 0);
 
   const lines: string[] = ['# 当前工程'];
   lines.push(
-    `《${manifest.title || '未命名'}》· 已发布 ${published.length} 章 · ${formatWords(words)}` +
-      `（规划中 ${all.length - published.length} 章）`
+    `《${manifest.title || '未命名'}》· ${volumes.length} 卷 · 已发布 ${chapters.length} 章 · ` +
+      `${formatWords(words)}（还没交付的剧情段 ${segments.length} 个）`
   );
 
   const current = target ? findPipeline(all, target) : undefined;
   if (current) {
-    const where = current.chapter.relPath || current.plot.relPath || plotOfTarget(target!) || '';
-    lines.push(`当前目标：${chapterLabel(current.no, current.title)}（${where}）`);
-    lines.push(`本章状态：${PLOT_STAGE_LABEL[current.stage]}`);
+    const where = current.plot.relPath || current.chapter.relPath || plotOfTarget(target!) || '';
+    // 已经交付的段报「第 N 章」（它就是那几章），还没交付的报「剧情 N」——
+    // 与工程页、与主按钮同一份说法（第 20 条：文案只有一份）。
+    const head = current.consumed
+      ? chapterLabel(current.no, current.title)
+      : segmentLabel(current.displayNo, current.title);
+    lines.push(`当前目标：${head}（${where}）`);
+    lines.push(`状态：${PLOT_STAGE_LABEL[current.stage]}`);
 
     const next = deriveNextStep(current.stage, factsOf(current));
     lines.push(
-      ...describeNext(next, '这一章都做完了，不必再往下推进——需要改动的话作者会说。')
+      ...describeNext(next, '这一段都做完了，不必再往下推进——需要改动的话作者会说。')
     );
   } else {
-    // 还没选章：走全书那一层。没有大纲就写大纲，有大纲没章就拆章，
-    // 都齐了 `deriveBookNextStep` 就不给下一步——那时该挑哪一章是**作者的
-    // 选择**，不是系统能替他定的，所以照实说，不要造一个假的下一步出来。
+    // 还没选：走全书那一层。没有大纲就写大纲，有大纲没卷就拆卷，有卷没段就
+    // 去拆段，都齐了 `deriveBookNextStep` 就不给下一步——那时该挑哪一段是
+    // **作者的选择**，不是系统能替他定的，所以照实说，不要造一个假的下一步。
     const bookStage = deriveBookStage({
       outlineFilled: outline.trim().length > 0,
-      plotCount: all.length,
+      volumeCount: volumes.length,
+      // **已发布的章也算数**：老工程写了 99 章、一份卷纲都没有，把它拉回
+      // 「先把大纲拆成卷」是荒唐的（第 8 条：已发布的正文天生就算数）。
+      plotCount: segments.length + chapters.length,
     });
-    lines.push('当前目标：还没选定某一章');
+    lines.push('当前目标：还没选定某一段');
     lines.push(
       ...describeNext(
         deriveBookNextStep(bookStage),
-        '大纲与章节都有了。具体做哪一章要看作者这一轮说的是什么，不要自己挑一章开工。'
+        '大纲、分卷与剧情段都有了。具体做哪一段要看作者这一轮说的是什么，不要自己挑一段开工。'
       )
     );
   }
 
-  const stale = all.filter(
+  const stale = segments.filter(
     (p) => p.plot.upstreamStale || p.manuscript.beatsStale || p.scenes.some((s) => s.upstreamStale)
   );
   if (stale.length > 0) {
-    const named = stale.slice(0, STALE_LIST_LIMIT).map((p) => `第 ${p.no} 章`).join('、');
-    const rest = stale.length > STALE_LIST_LIMIT ? `等 ${stale.length} 章` : '';
+    const named = stale.slice(0, STALE_LIST_LIMIT).map((p) => `剧情 ${p.displayNo}`).join('、');
+    const rest = stale.length > STALE_LIST_LIMIT ? `等 ${stale.length} 段` : '';
     lines.push(`提醒：${named}${rest}的上游产物改过，现有内容可能已经对不上（⟳）`);
   }
   return lines.join('\n');
@@ -141,27 +152,21 @@ function describeNext(next: { label: string; hint: string } | undefined, done: s
 }
 
 /**
- * target → 它属于哪一章的流水线。
+ * target → 它属于哪一段的流水线。
  *
- * 按**章号**认，不按路径：作者点开的可能是 `chapters/003-夜访.md`，而 target
- * 里记的是细纲路径 `.novelforge/plots/003-夜访.md`，两者说的是同一章
- * （与 `selectPlot` 同一条判据）。
+ * **按路径认**：细纲路径是段的身份。target 里记的可能是一份还不存在的细纲
+ * （老工程里选中某一章那条路），那时退回「这一段拆出来的章里有它」——
+ * 与 `selectPlot` 同一条判据。
+ *
+ * 从前这里还有一条「按章号兜底」：段号与章号同源时它成立，现在两者是两条轴，
+ * 拿号去猜会指到一个毫不相干的段上。
  */
 function findPipeline(all: PlotPipeline[], target: CreationTarget): PlotPipeline | undefined {
   const rel = plotOfTarget(target);
   if (!rel) {
     return undefined;
   }
-  return (
-    all.find((p) => p.plot.relPath === rel || p.chapter.relPath === rel) ??
-    all.find((p) => p.no === numberIn(rel))
-  );
-}
-
-/** 路径里的章号前缀。`.novelforge/plots/012-入宗.md` → 12。 */
-function numberIn(rel: string): number | undefined {
-  const m = /(?:^|\/)(\d+)/.exec(rel.slice(rel.lastIndexOf('/') + 1));
-  return m ? Number(m[1]) : undefined;
+  return all.find((p) => p.plot.relPath === rel || p.chapter.chapterPaths.includes(rel));
 }
 
 function formatWords(words: number): string {

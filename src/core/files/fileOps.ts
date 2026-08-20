@@ -127,14 +127,99 @@ export async function newFolder(
   return rel;
 }
 
-// ---------------------------------------------------------------- 细纲
+// ---------------------------------------------------------------- 卷纲 / 细纲
 //
-// 细纲**不是**可管理区：它的改名与删除要连带搬走场景目录与中转站正文
-// （两者的身份都是细纲文件名的词干），当成普通文件搬会把它们变成孤儿。
-// 所以这两件事绕开 resolveTarget 那套区守卫，交给 NovelProject 自己做。
+// 两者都**不是**可管理区：改名与删除要连带搬走伴生的目录树，当成普通文件搬会
+// 把它们变成孤儿。所以这几件事绕开 resolveTarget 那套区守卫，交给网关的领域
+// 写入器做。
+//
+// - **卷纲**：连带 `plots/<卷词干>/`、`scenes/<卷词干>/`、`manuscripts/<卷词干>/`
+//   三棵树（卷词干就是它收纳的段的目录名）。
+// - **细纲**：连带 `scenes/<段镜像键>/` 与 `manuscripts/<段镜像键>.md`。
+
+/** 这个路径是不是一份卷纲。工程页的 rename/delete 据此分流。 */
+export function isVolumePath(project: NovelProject, relPath: string): boolean {
+  return kindOfPath(project, relPath).kind === 'volume';
+}
 
 /**
- * 这个路径是不是一份细纲。工程页的 rename/move/delete 据此分流。
+ * 重命名一卷：改的是**卷名**，卷号前缀由 `writeVolume` 保留。
+ *
+ * 卷词干是它收纳的段的目录名，所以这一步会搬三棵目录树——`writeVolume` 做，
+ * 这里只负责问名字。
+ */
+export async function renameVolume(
+  project: NovelProject,
+  relPath: string
+): Promise<string | undefined> {
+  const volume = await project.readVolume(relPath);
+  if (!volume) {
+    log.warn(`重命名被拒：找不到卷纲 ${relPath}`);
+    getHost().toast('找不到这一卷，可能刚被改名或删除。', 'error');
+    return undefined;
+  }
+
+  const input = await getHost().input({
+    title: `重命名第 ${volume.no} 卷`,
+    prompt: `卷号前缀会保留，这一卷的剧情段会跟着改目录名｜当前：${relPath}`,
+    value: volume.title,
+    validate: (v) => validateName(v),
+  });
+  if (input === undefined || input.trim() === volume.title) {
+    return undefined;
+  }
+
+  const to = await new Workspace(project).writeVolume({ ...volume, title: input.trim() });
+  project.invalidate();
+  log.info(`已重命名第 ${volume.no} 卷`, `${relPath} → ${to}`);
+  getHost().toast(`已重命名：${to}`);
+  return to;
+}
+
+/** 删一卷：连同它的剧情段、那些段的场景与中转站正文一起搬进 `.trash/`。 */
+export async function deleteVolume(project: NovelProject, relPath: string): Promise<boolean> {
+  const volume = await project.readVolume(relPath);
+  if (!volume) {
+    log.warn(`删除被拒：找不到卷纲 ${relPath}`);
+    getHost().toast('找不到这一卷的卷纲，可能刚被改名或删除。', 'error');
+    return false;
+  }
+
+  // 一卷不只是一个文件：说清会连带删掉多少段，别让作者事后才发现
+  // 整卷的规划稿都没了。
+  const segments = await project.listPlotsOfVolume(relPath);
+  const pick = await getHost().confirm(
+    `删除第 ${volume.no} 卷${volume.title ? `《${volume.title}》` : ''}？`,
+    ['删除'],
+    {
+      modal: true,
+      detail: [
+        segments.length > 0
+          ? `这一卷的 ${segments.length} 个剧情段、它们的场景与还没拆分的正文都会一起删除。`
+          : '这一卷还没有剧情段。',
+        // 已经拆分发布的正文不在此列，说出来免得作者以为整卷的正文都没了。
+        '已经拆分到 chapters/ 的正文与摘要不受影响。',
+        '会移到 .novelforge/.trash/，可手动找回。',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    }
+  );
+  if (pick !== '删除') {
+    log.info(`用户取消了删除 ${relPath}`);
+    return false;
+  }
+
+  await new Workspace(project).deleteVolume(relPath);
+  await project.syncManifest();
+  project.invalidate();
+  log.info(`已移到回收站：第 ${volume.no} 卷`, `${relPath}｜${segments.length} 段`);
+  getHost().toast(`已移到回收站：${relPath}`);
+  return true;
+}
+
+/**
+ * 这个路径是不是一份细纲（剧情段）。工程页的 rename/move/delete 据此分流。
  *
  * 判定搬进了 `workspace/kind.ts` 的种类表（细纲/场景/章节/摘要的路径判定
  * 从前散在四处，各认一半），这里只转发。
@@ -144,22 +229,22 @@ export function isPlotPath(project: NovelProject, relPath: string): boolean {
 }
 
 /**
- * 重命名一份细纲：改的是**标题**，序号前缀由 `writePlot` 保留。
+ * 重命名一份细纲：改的是**标题**，序号前缀与所在的卷目录由 `writePlot` 保留。
  *
  * 流水线新建出来的细纲是纯序号名（`007.md`，标题要等剧情排完才定），
- * 所以这条路也是「给这一章起个名字」的第一次命名入口。
+ * 所以这条路也是「给这一段起个名字」的第一次命名入口。
  */
 export async function renamePlot(project: NovelProject, relPath: string): Promise<string | undefined> {
   const plot = await project.readPlot(relPath);
   if (!plot) {
     log.warn(`重命名被拒：找不到细纲 ${relPath}`);
-    getHost().toast('找不到这一章，可能刚被改名或删除。', 'error');
+    getHost().toast('找不到这个剧情段，可能刚被改名或删除。', 'error');
     return undefined;
   }
 
   const input = await getHost().input({
-    title: `重命名第 ${plot.no} 章`,
-    prompt: `序号前缀会保留｜当前：${relPath}`,
+    title: '重命名这个剧情段',
+    prompt: `序号前缀与所在的卷都会保留｜当前：${relPath}`,
     value: plot.title,
     validate: (v) => validateName(v),
   });
@@ -172,17 +257,17 @@ export async function renamePlot(project: NovelProject, relPath: string): Promis
   const to = await new Workspace(project).writePlot({ ...plot, title: input.trim() });
   await project.syncManifest();
   project.invalidate();
-  log.info(`已重命名第 ${plot.no} 章`, `${relPath} → ${to}`);
+  log.info(`已重命名剧情段 ${plot.no}`, `${relPath} → ${to}`);
   getHost().toast(`已重命名：${to}`);
   return to;
 }
 
-/** 删一章的细纲：连同场景目录与中转站正文一起搬进 `.trash/`。 */
+/** 删一段的细纲：连同场景目录与中转站正文一起搬进 `.trash/`。 */
 export async function deletePlot(project: NovelProject, relPath: string): Promise<boolean> {
   const plot = await project.readPlot(relPath);
   if (!plot) {
     log.warn(`删除被拒：找不到细纲 ${relPath}`);
-    getHost().toast('找不到这一章的细纲，可能刚被改名或删除。', 'error');
+    getHost().toast('找不到这个剧情段的细纲，可能刚被改名或删除。', 'error');
     return false;
   }
 
@@ -196,11 +281,11 @@ export async function deletePlot(project: NovelProject, relPath: string): Promis
     }
   }
 
-  const pick = await getHost().confirm(`删除第 ${plot.no} 章的细纲${plot.title ? `《${plot.title}》` : ''}？`, ['删除'], {
+  const pick = await getHost().confirm(`删除这个剧情段${plot.title ? `《${plot.title}》` : ''}？`, ['删除'], {
     modal: true,
     detail: [
       present.length > 0 ? `场景与还没拆分的正文也会一起删除：\n${present.join('\n')}` : '',
-      // 已经拆分发布的正文不在此列，说出来免得作者以为整章都没了。
+      // 已经拆分发布的正文不在此列，说出来免得作者以为正文也没了。
       '已经拆分到 chapters/ 的正文与摘要不受影响。',
       '会移到 .novelforge/.trash/，可手动找回。',
     ]
@@ -215,7 +300,7 @@ export async function deletePlot(project: NovelProject, relPath: string): Promis
   await new Workspace(project).deletePlot(relPath);
   await project.syncManifest();
   project.invalidate();
-  log.info(`已移到回收站：第 ${plot.no} 章`, [relPath, ...present].join('｜'));
+  log.info(`已移到回收站：剧情段 ${plot.no}`, [relPath, ...present].join('｜'));
   getHost().toast(`已移到回收站：${relPath}`);
   return true;
 }

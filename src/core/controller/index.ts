@@ -19,8 +19,10 @@ import {
   SessionStore,
 } from '../model/session';
 import {
+  chapterLabel,
   plotOfTarget,
   normalizeTarget,
+  segmentLabel,
 } from '../model/pipeline';
 import {
   InMessage,
@@ -29,6 +31,7 @@ import {
   ViewState,
 } from '../protocol';
 import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
+import { buildPipelineIndex } from '../views/pipeline';
 import {
   pushPipeline,
   retry,
@@ -546,31 +549,35 @@ export class ChatController {
         maxOutputTokens: 0,
       };
     }
-    // 目标下拉框列的是**全书各章**：既有规划中的（`plots/`），也有已经写完的
-    // （`chapters/`）。只列前者的话，老工程打开后下拉框是空的。
-    const [plots, chapters] = await Promise.all([
-      this.project.listPlots(),
-      this.project.listChapters(),
-    ]);
-    const byNo = new Map<number, ViewState['plots'][number]>();
-    for (const chapter of chapters) {
-      byNo.set(chapter.order, {
+    // 目标下拉框列的是**已发布的章 + 还没交付的剧情段**，顺序即时间线：
+    // 前面是写完的，后面是待写的。只列后者的话，老工程打开后下拉框是空的。
+    //
+    // 两种行的说法完全不同（「第 12 章」/「剧情 4」），所以 `label` 由后端给，
+    // 位次也由后端算——前端按 `no` 自己拼会拼错一半。
+    const { segments, chapters } = await buildPipelineIndex(this.project);
+    const rows: ViewState['plots'] = [
+      ...chapters.map((chapter) => ({
+        kind: 'chapter' as const,
         no: chapter.order,
+        label: chapterLabel(chapter.order, chapter.title),
         title: chapter.title,
         wordCount: chapter.wordCount,
-        // 成品没有细纲时，relPath 指向细纲**应该**在的位置：选中它就是
-        // 「去规划这一章」，而 `readPlot` 读不到会如实退化成空壳。
-        relPath: this.project.plotPathForNo(chapter.order, chapter.title),
-      });
-    }
-    for (const plot of plots) {
-      const words =
-        byNo.get(plot.no)?.wordCount ||
-        (await this.project.readManuscript(plot.relPath))?.wordCount ||
-        0;
-      byNo.set(plot.no, { no: plot.no, title: plot.title, wordCount: words, relPath: plot.relPath });
-    }
-    const rows = [...byNo.values()].sort((a, b) => a.no - b.no);
+        // 已发布的章选中时落在**它的来源段**上（拆分时记下的落点）；找不到
+        // 来源（老工程里每一章都是）就指向细纲**应该**在的位置——选中它就是
+        // 「去给这一章补规划」，而 `readPlot` 读不到会如实退化成空壳。
+        relPath:
+          segments.find((p) => p.chapter.chapterPaths.includes(chapter.relPath))?.plot.relPath ||
+          this.project.plotPathForNo(chapter.order, chapter.title),
+      })),
+      ...segments.map((p) => ({
+        kind: 'segment' as const,
+        no: p.displayNo,
+        label: segmentLabel(p.displayNo, p.title),
+        title: p.title,
+        wordCount: p.manuscript.words,
+        relPath: p.plot.relPath,
+      })),
+    ];
     return {
       initialized: true,
       plots: rows,

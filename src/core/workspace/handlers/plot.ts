@@ -6,9 +6,9 @@
  * 1. **渲染**：`Artifact{kind:'plot'}` → `renderPlotFile`，四个小节换新，
  *    **标题 / 幕 / 目标字数 / done 沿用磁盘那份**——「重写剧情」改的是剧情，
  *    不该顺手把作者起的标题或标的完成状态一起抹掉。
- * 2. **记账**：`upstreamHash = hash(await project.readOutline())`。
- *    **从前只在采纳路径上做**，作者在内置编辑器里改一份细纲，指纹链就断了——
- *    那一章从此再也不挂 ⟳。下沉到这里之后谁写都记。
+ * 2. **记账**：`upstreamHash` = **这一段所属那一卷**的卷纲指纹（未分卷的段
+ *    退回全书大纲的指纹）。**从前只在采纳路径上做**，作者在内置编辑器里改一份
+ *    细纲，指纹链就断了——那一段从此再也不挂 ⟳。下沉到这里之后谁写都记。
  * 3. **伴生**：改名/改号时搬走 `scenes/<stem>/` 与 `manuscripts/<stem>.md`
  *    （原 `carryPlotCompanions`），删除时把两者一起搬进 `.trash/`。
  *
@@ -29,6 +29,7 @@ import { hash, readTextIfExists } from '../../model/fs';
 import { rewriteFrontmatter } from '../../model/markdown';
 import { NovelProject } from '../../model/project';
 import { parsePlotFile, renderPlotFile } from '../../model/plotFile';
+import { volumeContentHash } from '../../views/pipeline';
 import { Handler, HandlerCtx } from './types';
 
 export const plotHandler: Handler = {
@@ -48,8 +49,11 @@ export const plotHandler: Handler = {
       title: current?.title ?? '',
       arc: current?.arc ?? '',
       targetWords: current?.targetWords,
-      upstreamHash: await outlineHash(ctx.project),
+      upstreamHash: await plotUpstreamHash(ctx.project, ctx.rel),
       done: current?.done ?? false,
+      // 已经拆出去的落点沿用磁盘那份：「重写剧情」改的是规划稿，
+      // 不该把「这一段交付到哪几章」抹掉。
+      chapters: current?.chapters ?? [],
       sections: artifact.sections,
     });
   },
@@ -62,7 +66,13 @@ export const plotHandler: Handler = {
    * 没有 frontmatter 时返回 undefined，那正是「手写的产物」，不补。
    */
   async after(ctx: HandlerCtx, text: string) {
-    return recordUpstream(ctx, text, await outlineHash(ctx.project), '大纲指纹');
+    const inVolume = await volumeOfPlot(ctx.project, ctx.rel);
+    return recordUpstream(
+      ctx,
+      text,
+      await plotUpstreamHash(ctx.project, ctx.rel),
+      inVolume ? '卷纲指纹' : '大纲指纹'
+    );
   },
 
   async companions(ctx: HandlerCtx, from: string, to: string) {
@@ -74,9 +84,36 @@ export const plotHandler: Handler = {
   },
 };
 
-/** 全书大纲的内容指纹——细纲的上游。 */
+/** 全书大纲的内容指纹——卷纲的上游，也是未分卷的段的上游。 */
 export async function outlineHash(project: NovelProject): Promise<string> {
   return hash(await project.readOutline());
+}
+
+/**
+ * 这一段的上游指纹：**所属那一卷的卷纲**，未分卷时退回全书大纲。
+ *
+ * 上游是谁由**目录**决定，与 `listPlotsOfVolume` 同一条判据——段的归属不落
+ * frontmatter，目录已经说了。找不到那一卷的文件（作者手删了卷纲、或手工把段
+ * 放进了一个没有对应卷纲的目录）时也退回大纲：一个凭空的指纹会让整卷立刻
+ * 标脏，而那不是真的。
+ */
+export async function plotUpstreamHash(project: NovelProject, plotRelPath: string): Promise<string> {
+  const volume = await volumeOfPlot(project, plotRelPath);
+  return volume ? volumeContentHash(volume) : outlineHash(project);
+}
+
+/** 这一段所属的那一卷；未分卷（段直接躺在 `plots/` 根下）时 undefined。 */
+export async function volumeOfPlot(project: NovelProject, plotRelPath: string) {
+  const root = `${project.relPath(project.plotsDir)}/`;
+  const under = plotRelPath.startsWith(root) ? plotRelPath.slice(root.length) : '';
+  const slash = under.lastIndexOf('/');
+  if (slash < 0) {
+    return undefined;
+  }
+  const stem = under.slice(0, slash);
+  return (await project.listVolumes()).find(
+    (v) => project.plotsMirrorRelPathForVolume(v.relPath) === `${root}${stem}`
+  );
 }
 
 /**

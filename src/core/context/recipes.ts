@@ -31,20 +31,32 @@ const HISTORY_CAP = 0.3;
 const SETTLE_HISTORY_CAP = 0.6;
 
 /**
- * 四张配方。**顺序即填充顺序**：靠前的先拿预算，靠后的可能被降级或丢弃。
+ * 四张配方（卷借大纲那一张）。**顺序即填充顺序**：靠前的先拿预算，靠后的
+ * 可能被降级或丢弃。
  *
  * 每张的前四层都一样（系统提示 / 用户输入 / 引用 / 历史）——那是「这一轮
  * 对话本身」，任何阶段都不能少。差别从第五层开始。
  */
 export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
-  // ---------------------------------------------------------------- 大纲
-  // 策划编辑要看全局：现有大纲全文 + 全书摘要。**不看正文原文**——
+  // ---------------------------------------------------------------- 大纲（含卷）
+  // 策划编辑要看全局：现有大纲全文 + 分卷一览 + 全书摘要。**不看正文原文**——
   // 讨论故事结构时读三章原文既没用又昂贵。
+  //
+  // 卷不是独立的阶段（见 model/pipeline.ts 的文件头），所以它借这张配方。三层
+  // 与卷相关的层在 target 不是某一卷时**自然是空的**（`volumeSelf` /
+  // `volumeSegments` 都先看 `focus.volume`），不必为此另写一张配方——复制一份，
+  // 下次改大纲层的装配策略就会漏掉一边（与 `settle` 只微调既有配方同一条理由）。
+  //
+  // ★ `volumeSelf` 与 `volumeSegments` 是 P0 force：从一卷里拆下一段时，这两层
+  //   就是全部依据。少了后者，模型会把已经排过的那几段重新发明一遍。
   outline: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
     { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
+    { layer: 'volumeSelf', priority: 0, force: true },
+    { layer: 'volumeSegments', priority: 0, force: true },
     { layer: 'outlineDoc', priority: 0, force: true },
+    { layer: 'volumeList', priority: 1 },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'globalSummary', priority: 1 },
     { layer: 'characters', priority: 2 },
