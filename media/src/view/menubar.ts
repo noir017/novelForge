@@ -1,5 +1,5 @@
 /**
- * 独立版标题栏 File / Edit / Help。没有 `#wbMenubar` 就直接 return（插件）。
+ * 独立版标题栏「文件 / 编辑 / 帮助」。没有 `#wbMenubar` 就直接 return（插件）。
  *
  * 不复用右键菜单引擎：缺悬停切菜单和子菜单。
  */

@@ -83,7 +83,7 @@ npm run sidecar:all  # 连 Windows 的一起编（Bun 交叉编译）
 
 sidecar 的全部 stdout / stderr 都落在 `<app_log_dir>/sidecar.log`（每次启动截断重来），
 失败闪屏上的「查看日志」打开它所在的目录。起不来的时候那是第一站。导航进页面之后，
-Help → 打开日志目录打开的是 `~/.novelforge/`（配置与 window.json）。
+帮助 → 打开日志目录打开的是 `~/.novelforge/`（配置与 window.json）。
 
 注意这与网页里那个「日志」页是两回事：那一页是 sidecar 内部的业务日志（还会进
 SQLite），这个文件是**壳看到的进程输出**——服务压根没起来时，只有这里有线索。

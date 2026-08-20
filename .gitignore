@@ -16,6 +16,7 @@ sample-novel/.novelforge/sessions
 *.db-shm
 
 .claude/
+.cursor/
 temp/
 local/
 

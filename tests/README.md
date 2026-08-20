@@ -151,7 +151,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `view/hover.test.js` | 三组悬停浮窗（章节摘要 / 行内别名 / 失败标记）：延迟才弹、缓存与作废、可进入（能选中复制）、**夹进视口**（下方放不下翻上方、贴右收左、超长压 `max-height`）、失败标记挂在章节行上、按最严重的算 |
 | `standalone/editor.test.js` | 内置编辑器：草稿区惰性创建、`pane` 分派、「草稿」按钮可见性与 `openDraft` 负载、保存回执不冲掉 `draftPath`、右键菜单与标签搬家 |
 | `standalone/explorer.test.js` | 资源管理器：点开头目录列得出来且压暗、目录排在文件前、懒展开、折叠连带子目录、可编辑与否走不同消息、截断如实告知、读失败降级；文件页剪贴板与右键菜单 |
-| `standalone/menubar.test.js` | File / Edit / Help 菜单栏：点击打开、hover 隔壁切换、Esc / 点外面关闭；空窗口时部分项 disabled |
+| `standalone/menubar.test.js` | 文件 / 编辑 / 帮助菜单栏：点击打开、hover 隔壁切换、Esc / 点外面关闭；空窗口时部分项 disabled |
 | `standalone/welcome.test.js` | 空窗口 Get Started：Start / Recent、打开文件夹与新建工程入口 |
 | `standalone/picker.test.js` | 远程风目录选择器：本机列一层、进子目录、新建文件夹；打开文件走工程内 `listDir` |
 | `standalone/find.test.js` | 内置编辑器查找条：Ctrl+F、Enter 下一处 / Shift+Enter 上一处 |

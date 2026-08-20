@@ -1,5 +1,5 @@
 /**
- * 独立版标题栏 File / Edit / Help：结构、点开、悬停切隔壁。
+ * 独立版标题栏「文件 / 编辑 / 帮助」：结构、点开、悬停切隔壁。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -23,7 +23,7 @@ describe('独立版标题栏菜单', { skip: JSDOM_SKIP }, () => {
     assert.equal(btns.length, 3);
     assert.deepEqual(
       btns.map((b) => b.textContent),
-      ['File', 'Edit', 'Help']
+      ['文件', '编辑', '帮助']
     );
   });
 
@@ -32,7 +32,7 @@ describe('独立版标题栏菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(title?.dataset.version);
   });
 
-  test('点 File 打开下拉', () => {
+  test('点「文件」打开下拉', () => {
     const file = ui.doc.querySelector('[data-menu="file"]');
     ui.clickEl(file);
     const drop = ui.doc.querySelector('.wb-menu-drop');
@@ -42,7 +42,7 @@ describe('独立版标题栏菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(labels.some((t) => t.includes('关闭文件夹')));
   });
 
-  test('已打开时悬停 Help 切过去', () => {
+  test('已打开时悬停「帮助」切过去', () => {
     const help = ui.doc.querySelector('[data-menu="help"]');
     help.dispatchEvent(new ui.window.MouseEvent('mouseover', { bubbles: true }));
     const drop = ui.doc.querySelector('.wb-menu-drop');

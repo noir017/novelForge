@@ -17,7 +17,7 @@
 | [fileHost.ts](fileHost.ts) | `Host` 的实现：弹窗经 `PromptHub` 变成网页 modal；`fs.watch` 监听工程（失败退化为轮询，带 250ms 去抖）；`openFile` 走内置编辑器；`openBeside` 开在第二块编辑区。`progress` 只提供 signal——进度由 `core/runtime/progress.ts` 结构化推给网页。`bind` / `unbind` 随 Hub 热换工程根。 |
 | [promptHub.ts](promptHub.ts) | 未决网页弹窗的登记与回执匹配。WS 全部断开时一律按取消处理。 |
 | [terminalHost.ts](terminalHost.ts) | `Host` 的终端实现，只给 `novelforge init` 用：问答走 readline，`openFile` 报一句路径。有了它，CLI 只是「第三个宿主」，「初始化工程」这条流程仍然只有一份实现。 |
-| [page.ts](page.ts) | **布局**：标题栏（File / Edit / Help）+ 活动栏 + 侧栏 + 内置编辑器；无工程时编辑器区是 Get Started。六个 pane 的 DOM 全部取自 [../shared/panes.ts](../shared/panes.ts)（含只有这里装配的「文件」页），这里没有第二份。 |
+| [page.ts](page.ts) | **布局**：标题栏（文件 / 编辑 / 帮助）+ 活动栏 + 侧栏 + 内置编辑器；无工程时编辑器区是 Get Started。六个 pane 的 DOM 全部取自 [../shared/panes.ts](../shared/panes.ts)（含只有这里装配的「文件」页），这里没有第二份。 |
 | [assets.ts](assets.ts) | `/media/*` 的字节来源（内嵌资源表）。与 `page.ts` 分开：拼一段 HTML 不该牵进那个几十 MB 的生成文件。 |
 | [systemOpen.ts](systemOpen.ts) | 交给系统默认程序打开（`explorer` / `open` / `xdg-open`）。开浏览器与编辑器的「外部打开」共用这一份。 |
 | `mediaAssets.ts` | **生成文件**（已 gitignore）。由 [../../scripts/embed-media.js](../../../scripts/embed-media.js) 把前端资源 base64 内嵌（`.js` / `.css` 取自构建产物 `dist/media/`，`icon.svg` 取自 `media/`），使单文件可执行不依赖外部资源。`npm run typecheck` / `test:e2e` / `dist` 前会自动生成。 |

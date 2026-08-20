@@ -234,7 +234,7 @@ Hub 里最多一份。`打开文件夹` 若已有工程：先处理未保存 →
 2. `openFolder` + `replace`：校验路径是存在的目录 → dispose 旧运行时 → `NovelProject.open` → 新 controller、新 watcher、`FileHost.bind` → 写 `window.json` → 推 `workspaces` → `resendFullState`。
 3. 已在 Hub 里的路径：只激活。
 4. `closeFolder`：dispose → `lastOpen = null`（recents 保留）→ 推空 `workspaces`。前端清编辑器标签、回到 Get Started。
-5. 无激活工作区时，创作/工程/文件类消息由 Hub 拦住。下列消息在空窗口仍可用：`ready`、选择器消息、工作区生命周期、`openLogDir`、`saveSettings` / `setApiKey` / `clearApiKey` / `testConnection` / `openNativeSettings`（独立版无操作）、`switchTab`、日志三条、`cancelTask`、`promptResult`。
+5. 无激活工作区时，创作/工程/文件类消息由 Hub 拦住。下列消息在空窗口仍可用：`ready`、选择器消息、工作区生命周期、`openLogDir`、`openReadme`、`saveSettings` / `setApiKey` / `clearApiKey` / `testConnection` / `openNativeSettings`（独立版无操作）、`switchTab`、日志三条、`cancelTask`、`promptResult`。`createFile` 无工程时 toast「请先打开文件夹」。
 
 设置读写抽成不依赖 `NovelProject` 的函数（配置本就在 `~/.novelforge`）。独立版无论有没有工程，设置类消息都走 Hub → 这些函数，避免空窗口去构造 controller。插件壳仍走现有 `ChatController` 分支（那边一定有工作区）。
 
