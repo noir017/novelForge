@@ -29,7 +29,8 @@
  * ## 顺序是硬约束
  *
  * `startServer` 里调的 `initHost()` 是模块级单例：3998 的服务一起，全局 host
- * 就被换掉。所以 3999 的用例必须**全部跑完**，才能进临时工程那两节。
+ * 就被换掉。所以 3999 的用例必须**全部跑完**，才能进临时工程那两节；
+ * 空窗口（3997）必须再排在临时工程 after 之后。
  * describe 按源码顺序执行，setup 放各自的 before()，这条约束自然成立。
  */
 import { describe, test, before, after } from 'node:test';
@@ -44,6 +45,8 @@ const PORT = 3999;
 // 写入类用例不能碰 sample-novel（tests/contract/sampleNovel.test.js 对它有 hash
 // 断言），另开临时工程。
 const EDIT_PORT = 3998;
+/** 空窗口必须排在 3999/3998 之后：initHost 是进程单例。 */
+const EMPTY_PORT = 3997;
 const root = path.join(import.meta.dir, '..', '..', '..', 'sample-novel');
 const base = `http://127.0.0.1:${PORT}`;
 
@@ -531,3 +534,93 @@ describe('临时工程（写入类用例）', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+
+// 空窗口必须放在 3999/3998 都跑完之后：startServer 的 initHost 是单例。
+// 不传 root，并用独立的 windowDir，避免捡到前面两节写进 window.json 的 lastOpen。
+describe('空窗口', () => {
+  let empty;
+  let firstWorkspaces;
+  let sawInitBeforeOpen;
+  let hostListing;
+  let opened;
+  let openedInit;
+  let addToast;
+  let afterAdd;
+  let closed;
+  let extraDir;
+
+  before(async () => {
+    const emptyWin = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-e2e-empty-'));
+    extraDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-e2e-extra-'));
+    await startServer({ port: EMPTY_PORT, windowDir: emptyWin });
+    empty = connect(EMPTY_PORT);
+    await empty.ready;
+
+    firstWorkspaces = await empty.waitFor((m) => m.type === 'workspaces', 'empty workspaces');
+    await empty.waitFor((m) => m.type === 'settings', 'empty settings');
+    sawInitBeforeOpen = empty.has((m) => m.type === 'init');
+
+    empty.send({ type: 'listHostDir', path: os.homedir() });
+    hostListing = await empty.waitFor((m) => m.type === 'hostDir', 'hostDir');
+
+    empty.drain();
+    empty.send({ type: 'openFolder', path: root });
+    opened = await empty.waitFor((m) => m.type === 'workspaces' && m.currentId, 'opened workspaces');
+    openedInit = await empty.waitFor((m) => m.type === 'init' || m.type === 'state', 'init after open');
+
+    empty.drain();
+    empty.send({ type: 'openFolder', path: extraDir, mode: 'add' });
+    addToast = await empty.waitFor((m) => m.type === 'toast' && m.level === 'error', 'add toast');
+    empty.send({ type: 'ready' });
+    afterAdd = await empty.waitFor((m) => m.type === 'workspaces', 'workspaces after add');
+
+    empty.drain();
+    empty.send({ type: 'closeFolder' });
+    closed = await empty.waitFor(
+      (m) => m.type === 'workspaces' && m.currentId === null,
+      'closed workspaces'
+    );
+  });
+
+  after(() => {
+    empty?.ws.close();
+    if (extraDir) {
+      fs.rmSync(extraDir, { recursive: true, force: true });
+    }
+  });
+
+  test('ready 后 currentId 为空', () => {
+    assert.equal(firstWorkspaces.currentId, null);
+    assert.deepEqual(firstWorkspaces.items, []);
+    assert.ok(Array.isArray(firstWorkspaces.recents));
+  });
+
+  test('绑定前没有假 init', () => {
+    assert.equal(sawInitBeforeOpen, false);
+  });
+
+  test('listHostDir 回一层目录、条目没有正文', () => {
+    assert.ok(Array.isArray(hostListing.entries));
+    assert.ok(hostListing.entries.every((e) => !('text' in e) && !('content' in e)));
+  });
+
+  test('openFolder 后 currentId 非空且有 init', () => {
+    assert.ok(opened.currentId);
+    assert.equal(opened.items.length, 1);
+    assert.ok(openedInit.type === 'init' || openedInit.type === 'state', openedInit.type);
+  });
+
+  test('mode add 不换成第二份工作区', () => {
+    assert.ok(addToast.message.includes('一个工作区'), addToast.message);
+    assert.equal(afterAdd.items.length, 1);
+    assert.equal(afterAdd.currentId, opened.currentId);
+  });
+
+  test('closeFolder 后 currentId 为空', () => {
+    assert.equal(closed.currentId, null);
+    assert.equal(closed.items.length, 0);
+  });
+});
+
