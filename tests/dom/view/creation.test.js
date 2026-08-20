@@ -750,20 +750,22 @@ describe('选中一章进入当前阶段', { skip: JSDOM_SKIP }, () => {
     assert.equal(toOutline?.target.kind, 'outline', JSON.stringify(toOutline));
   });
 
-  // 工程页点章名是「进入这一章」——由后端的状态机决定落在哪一层。
-  // 带的是**主路径**：已发布的章指成品，只有规划的章指细纲。
-  test('工程页点已发布的章名进入这一章', () => {
+  // 工程页点章名是**打开文件**，不切页——「进入这一章」挪进了右键菜单。
+  // 在工程页上扫章节列表时，要看的多半就是这一章写成了什么样。
+  test('工程页点章名打开文件，不发 selectPlot', () => {
     ui.post({ type: 'project', tree: sampleTree() });
+    ui.sent.length = 0;
     const row = ui.doc.querySelector('#projectBody .row-plot .row-label');
     ui.clickEl(row);
-    const fromTree = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
-    assert.equal(fromTree?.plotRelPath, 'chapters/001-楔子.md', JSON.stringify(fromTree));
+    assert.ok(![...ui.sent].some((m) => m.type === 'selectPlot'), JSON.stringify(ui.sent));
+    const open = [...ui.sent].reverse().find((m) => m.type === 'openFile');
+    assert.equal(open?.path, 'chapters/001-楔子.md', JSON.stringify(open));
   });
 
-  test('工程页点只有规划的章名带细纲路径', () => {
+  test('工程页右键「进入这一章」仍带主路径', () => {
     ui.sent.length = 0;
-    const rows = [...ui.doc.querySelectorAll('#projectBody .row-plot .row-label')];
-    ui.clickEl(rows.find((n) => n.textContent.includes('入镇')));
+    const rows = [...ui.doc.querySelectorAll('#projectBody .row-plot')];
+    ui.pick(ui.rightClick(rows.find((n) => n.textContent.includes('入镇'))), '进入这一章');
     const fromTree = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
     assert.equal(fromTree?.plotRelPath, '.novelforge/plots/002-入镇.md', JSON.stringify(fromTree));
   });

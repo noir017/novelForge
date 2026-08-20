@@ -139,6 +139,18 @@ function buildFolderRow(node: ProjectDirNode, depth: number, section: Section): 
 }
 
 /**
+ * 点这一行（或右键第一项）打开哪一份文件：成品 → 待拆分的正文 → 细纲，
+ * 取第一个存在的。
+ *
+ * 为什么不直接用 `relPath`（主路径）：主路径只在成品与细纲之间二选一，
+ * 于是「正文写完、还没拆成章节」那一档会打开细纲——那时磁盘上明明躺着
+ * 几千字的正文。`relPath` 兜最后一手，理论上三个都空进不来这里。
+ */
+function openTargetOf(p: ProjectPlotNode): string {
+  return p.chapterPath || p.manuscriptPath || p.plotPath || p.relPath;
+}
+
+/**
  * 章节行：创作流水线在工程页上的落点。
  *
  * 徽章、四段进度、⟳ 全在这里——它们说的是「这一章现在该做哪一步」，
@@ -168,11 +180,14 @@ function buildPlotRow(p: ProjectPlotNode): HTMLElement {
     row.appendChild(mark);
   }
 
+  const opens = openTargetOf(p);
   const label = mk('span', 'row-label', `${String(p.no).padStart(3, '0')} ${p.title || '（未命名）'}`);
-  label.title = `${p.relPath}\n点击进入这一章当前该做的那一步`;
-  // 点名字 = **进入这一章**，由后端的状态机决定落在哪一层。已经完成的章也一样：
-  // 那时状态机把它送到「已完成」，界面不会催任何事。
-  label.addEventListener('click', () => vscode.postMessage({ type: 'selectPlot', plotRelPath: p.relPath }));
+  label.title = `${opens}\n点击在编辑器里打开；右键「进入这一章」去做下一步`;
+  // 点名字 = **打开这一章的文件**（独立版开内置编辑器的标签页，插件形态开
+  // VS Code 的 tab）。从前点名字是「进入这一章」——那会把人从工程页弹到对话页，
+  // 而在工程页上扫章节列表时，想看的多半就是这一章写成了什么样。
+  // 「进入这一章」没有消失，它挪进了右键菜单。
+  label.addEventListener('click', () => openPath(opens));
   row.appendChild(label);
 
   // 流水线徽章：这一章现在该做哪一步。全书扫一眼就知道卡在哪里，
@@ -194,10 +209,9 @@ function buildPlotRow(p: ProjectPlotNode): HTMLElement {
   row.appendChild(mk('span', 'meta', words + (p.hasDraft ? ' · 草稿' : '')));
 
   onContextMenu(row, () => {
-    const items: MenuItem[] = [
-      { label: '进入这一章', run: () => vscode.postMessage({ type: 'selectPlot', plotRelPath: p.relPath }) },
-    ];
-    // 打开哪一份：有成品先给成品，等着拆分的中转站正文单列一行。
+    // 打开哪一份：与点名字同序（成品 → 待拆分的正文 → 细纲），
+    // 点行做的那件事在菜单里排第一，不必猜它去了哪儿。
+    const items: MenuItem[] = [];
     if (published) {
       items.push({ label: '打开正文', run: () => openPath(p.chapterPath) });
     }
@@ -210,7 +224,12 @@ function buildPlotRow(p: ProjectPlotNode): HTMLElement {
     if (p.plotPath) {
       items.push({ label: '打开细纲', run: () => openPath(p.plotPath) });
     }
-    items.push({ sep: true });
+    items.push(
+      { sep: true },
+      // 点名字不再做这件事了，它是这一行唯一「会切页」的动作，单独一段。
+      { label: '进入这一章', run: () => vscode.postMessage({ type: 'selectPlot', plotRelPath: p.relPath }) },
+      { sep: true }
+    );
 
     // 正文写完、还没拆成发布章节：把那一步放在最显眼的位置。
     if (p.stage === 'split') {

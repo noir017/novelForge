@@ -149,12 +149,35 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(!doneItems.includes('拆成章节'), JSON.stringify(doneItems));
   });
 
-  test('点章节名发 selectPlot', () => {
+  // 点章名 = 打开这一章的文件（这份 body 是插件壳，没有 #wbEditor → openFile）。
+  test('点章节名打开成品正文', () => {
     ui.closeMenu();
     ui.clickEl(plotRow('楔子').querySelector('.row-label'));
-    const sel = ui.last('selectPlot');
-    assert.ok(sel, '没发出 selectPlot');
-    assert.equal(sel.plotRelPath, 'chapters/001-楔子.md', JSON.stringify(sel));
+    const open = ui.last('openFile');
+    assert.ok(open, '没发出 openFile');
+    assert.equal(open.path, 'chapters/001-楔子.md', JSON.stringify(open));
+  });
+
+  // 只有规划的章：没有正文可开，落到细纲。
+  test('点只有规划的章名打开细纲', () => {
+    ui.closeMenu();
+    ui.clickEl(plotRow('入镇').querySelector('.row-label'));
+    assert.equal(ui.last('openFile').path, '.novelforge/plots/002-入镇.md');
+  });
+
+  // 正文写完还躺在中转站里：打开的是那份正文，而不是主路径指的细纲——
+  // 主路径只在成品与细纲之间二选一，会把几千字的正文漏掉。
+  test('点待拆分的章名打开中转站正文', () => {
+    ui.closeMenu();
+    ui.clickEl(plotRow('夜访').querySelector('.row-label'));
+    assert.equal(ui.last('openFile').path, '.novelforge/manuscripts/003-夜访.md');
+  });
+
+  test('点章节名不再切到对话页', () => {
+    ui.closeMenu();
+    ui.sent.length = 0;
+    ui.clickEl(plotRow('楔子').querySelector('.row-label'));
+    assert.ok(!ui.sent.some((m) => m.type === 'selectPlot'), JSON.stringify(ui.sent));
   });
 
   test('「进入这一章」发 selectPlot', () => {
