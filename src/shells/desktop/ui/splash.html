@@ -8,7 +8,8 @@
   http://127.0.0.1:PORT/ —— 那之后这一页就退场了，正常情况下只闪一下。
 
   它存在的唯一理由是：spawn 进程 + 起服务要 0.5~1.5 秒，那段时间窗口不能是白的；
-  以及起不来的时候得有个地方说清楚原因、给个重试的按钮。
+  以及起不来的时候得有个地方说清楚原因、给个重试的按钮。打开文件夹在 sidecar
+  页面里做，这一页不再选目录。
 
   取值对齐 media/src/css/standalone/theme.css 的深色主题，但刻意不引用那边的
   CSS —— 那些文件在 sidecar 里，这一页在壳里，两边不该有构建期依赖。
@@ -112,8 +113,6 @@
 
   <div class="actions" id="actions" hidden>
     <button class="primary" id="btnRetry" hidden>重试</button>
-    <button class="primary" id="btnPick" hidden>选择工程目录…</button>
-    <button id="btnPickAgain" hidden>换一个工程目录…</button>
     <button id="btnLogs" hidden>查看日志</button>
   </div>
 </main>

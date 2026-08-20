@@ -96,7 +96,44 @@ export type OutMessage =
       password?: boolean;
       multiline?: boolean;
       options?: string[];
+    }
+  /**
+   * 当前打开的工作区。独立版空窗口 `currentId` 为 null。
+   * `recents` 给欢迎页；没有记忆时是空数组。
+   */
+  | {
+      type: 'workspaces';
+      currentId: string | null;
+      items: WorkspaceItem[];
+      recents: WorkspaceRecent[];
+    }
+  /** 本机一层目录的列举结果。失败不另造消息，原因写在 `error`。 */
+  | {
+      type: 'hostDir';
+      path: string;
+      parent?: string;
+      entries: HostDirEntry[];
+      truncated: number;
+      error?: string;
+      roots?: boolean;
     };
+
+export interface WorkspaceItem {
+  id: string;
+  root: string;
+  name: string;
+}
+
+export interface WorkspaceRecent {
+  root: string;
+  name: string;
+}
+
+export interface HostDirEntry {
+  name: string;
+  kind: 'dir' | 'file';
+  absPath: string;
+}
 
 export interface SerializedProvider {
   id: string;

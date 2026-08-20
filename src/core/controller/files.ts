@@ -18,8 +18,15 @@ const log = scoped('面板');
  * 顺带把 `dirs` 记成新的关注集合——工程有变动时 `pushTabData` 会照着
  * 再推一遍。空数组是合法输入（前端把树全折叠了），此时只更新集合。
  */
-export async function pushDirListings(c: ChatController, dirs: string[]): Promise<void> {
-  c.watchedDirs = dirs;
+export async function pushDirListings(
+  c: ChatController,
+  dirs: string[],
+  ephemeral?: boolean
+): Promise<void> {
+  // 选择器一次性列举不能改掉资源管理器的关注集合，否则展开着的树会被冲掉。
+  if (!ephemeral) {
+    c.watchedDirs = dirs;
+  }
   if (dirs.length === 0) {
     return;
   }

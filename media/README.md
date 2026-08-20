@@ -30,13 +30,13 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 | `src/css/view/` | view.css | 两者 | 面板样式，全部走 `--vscode-*` 变量 |
 | `src/css/standalone/` | standalone.css | 仅独立版 | 主题变量（深/浅两套）+ 工作台布局 |
 | `src/protocol.ts` | — | — | 从 `core/protocol` 转出全部消息类型 |
-| `src/globals.ts` | — | — | 三个产物之间的全部交集（就三样，见下） |
+| `src/globals.ts` | — | — | 三个产物之间的交集（toast、右键菜单、自定义事件） |
 | `src/dom.ts` / `src/vscodeApi.ts` | — | — | 建 DOM 的小工具、取 webview API 与收消息 |
 | [icon.svg](icon.svg) | —（静态文件，不经构建） | 两者 | 活动栏与编辑器标签页图标。`stroke="currentColor"`，跟随主题色 |
 
 各子目录的划分：
 
-- **`src/view/`** —— `refs`（页面上固定 id 的节点）、`store`（运行时状态与草稿存取）、`format` / `buttons` / `toast` / `menu` / `tip`（通用件，`tip` 是四只悬停浮窗共用的定位）、`tabs` / `state` / `messages` / `composer` / `history` / `tasks` / `logs` / `prompt`（各块）、`pipeline` / `workbench` / `commands`（创作页的三块：流水线条与下一步、当前产物浮窗、`/` 命令面板），外加 `project/`（工程页：`actions` `treeState` `rows` `groups` `summaryTip` `detailTip` `errorTip`）与 `settings/`（设置页：`presets` `draft` `fields` `modelList` `providerList` `providerModal`）两个子目录。`index.ts` 只做装配与消息分发。
+- **`src/view/`** —— `refs`（页面上固定 id 的节点）、`store`（运行时状态与草稿存取）、`format` / `buttons` / `toast` / `menu` / `menubar` / `welcome` / `folderPicker` / `tip`（通用件；`menubar` / `welcome` / `folderPicker` 探测不到 `#wbMenubar` 就 return，插件不受影响）、`tabs` / `state` / `messages` / `composer` / `history` / `tasks` / `logs` / `prompt`（各块）、`pipeline` / `workbench` / `commands`（创作页的三块：流水线条与下一步、当前产物浮窗、`/` 命令面板），外加 `project/` 与 `settings/` 两个子目录。`index.ts` 只做装配与消息分发。
 - **`src/editor/`** —— `paneElements`（一块编辑区的类型与 DOM）、`pane`（工厂，两块编辑区是它的两个实例）、`store`（两块之间共享的状态与 localStorage）、`shell`（主题/拖拽/窄屏）、`preview` / `clipboard` / `words`。
 - **`src/explorer/`** —— `state`（展开集合、剪贴板、高亮）、`actions`（发消息）、`rows`（建行与菜单）。
 

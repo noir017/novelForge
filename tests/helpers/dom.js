@@ -70,7 +70,7 @@ function bodyHtml() {
 /** 独立版的 body（含 #wbEditor 等工作台结构）。 */
 function standaloneBodyHtml() {
   const { standalonePage } = loadModule('src/shells/standalone/page.ts');
-  return extractBody(standalonePage('/tmp/示例工程'), 'standalonePage');
+  return extractBody(standalonePage(), 'standalonePage');
 }
 
 // ---------------------------------------------------------------- 挂载
@@ -111,14 +111,21 @@ function readArtifact(name) {
  * @param {'webview'|'standalone'} [opts.body] 用哪份 body 模板
  * @param {string[]} [opts.scripts] 注入哪些产物（按顺序 eval）
  * @param {Array<keyof SHIMS>} [opts.shims] 补哪些 jsdom 缺的 API
+ * @param {boolean} [opts.empty] 独立版空窗口（`no-workspace`）。默认按已打开工程挂，
+ *   这样创作页 / 编辑器 / 资源管理器用例不必每条都先推一条 `workspaces`。
  */
-function mount({ body = 'webview', scripts = ['view.js'], shims = ['clipboard', 'scrollIntoView'] } = {}) {
+function mount({
+  body = 'webview',
+  scripts = ['view.js'],
+  shims = ['clipboard', 'scrollIntoView'],
+  empty = false,
+} = {}) {
   if (!hasJsdom) throw new Error('未安装 jsdom');
 
   // 独立版的 body 上带 class="workbench"，editor.js / explorer.js 认这个。
   const html =
     body === 'standalone'
-      ? `<!DOCTYPE html><html><body class="workbench">${standaloneBodyHtml()}</body></html>`
+      ? `<!DOCTYPE html><html><body class="workbench${empty ? ' no-workspace' : ''}">${standaloneBodyHtml()}</body></html>`
       : `<!DOCTYPE html><html><body>${bodyHtml()}</body></html>`;
 
   const dom = new JSDOM(html, { runScripts: 'outside-only' });

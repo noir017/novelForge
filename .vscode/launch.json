@@ -43,6 +43,14 @@
       "cwd": "${workspaceFolder}"
     },
     {
+      // 不带工程目录。上次关窗口时若已关闭文件夹，则进 Get Started。
+      "name": "起独立 Web 版（空窗口）",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run standalone -- --verbose",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       // 相对路径按仓库根解析（cli.ts 会 path.resolve），绝对路径也认。
       "name": "起独立 Web 版（自选工程目录）",
       "type": "node-terminal",

@@ -22,10 +22,11 @@ async function main(): Promise<void> {
     // 这里只是换了个把问答接到终端上的 Host。
     const host = new TerminalHost(new FileConfigStore());
     initHost(host);
-    const project = NovelProject.open(opts.root);
+    const root = opts.root ?? path.resolve('.');
+    const project = NovelProject.open(root);
     try {
       if (await initProjectFlow(project, dirBaseName(project))) {
-        console.log(`已初始化：${path.join(opts.root, '.novelforge')}`);
+        console.log(`已初始化：${path.join(root, '.novelforge')}`);
       }
     } finally {
       host.close();
@@ -33,7 +34,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (!fs.existsSync(path.join(opts.root, '.novelforge', 'project.json'))) {
+  if (opts.root && !fs.existsSync(path.join(opts.root, '.novelforge', 'project.json'))) {
     console.log(`提示：目录还不是小说工程：${opts.root}`);
     console.log('可先跑 novelforge init，或在网页上点「初始化工程」。');
   }
@@ -42,7 +43,7 @@ async function main(): Promise<void> {
   let port = opts.port;
   for (let i = 0; ; i++) {
     try {
-      port = startServer({ root: opts.root, port, verbose: opts.verbose });
+      port = await startServer({ root: opts.root, port, verbose: opts.verbose });
       break;
     } catch (err) {
       if (i >= 20) {

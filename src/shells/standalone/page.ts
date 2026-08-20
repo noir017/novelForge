@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   chatPane,
@@ -16,7 +17,9 @@ import {
  * 独立版的页面。
  *
  * pane 的 DOM 全部来自 [../shared/panes.ts](../shared/panes.ts)，与插件壳同一份；
- * 这里只剩**布局**——一套 VS Code 式工作台：标题栏 + 活动栏 + 侧栏 + 内置编辑器。
+ * 这里只剩**布局**——一套 VS Code 式工作台：标题栏（File / Edit / Help）+ 活动栏 + 侧栏 + 内置编辑器。
+ * 无工程时 body 带 `no-workspace`，编辑器区是 Get Started；工程名不写进首屏 HTML，
+ * 由前端跟 `workspaces` 更新。
  * 布局本来就该按宿主分叉，内容不该。
  *
  * 这个模块刻意不牵进内嵌资源表（那在 [assets.ts](assets.ts)）：页面拼装是纯字符串
@@ -29,11 +32,30 @@ const LOGO_SVG =
   '<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H19v18H6.5A2.5 2.5 0 0 0 4 22z"/>' +
   '<path d="M8 6.5h7M8 10h7M8 13.5h4"/></svg>';
 
+function productVersion(): string {
+  const candidates = [
+    path.join(__dirname, '../../../package.json'),
+    path.join(process.cwd(), 'package.json'),
+  ];
+  for (const file of candidates) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(file, 'utf8')) as { version?: string };
+      if (typeof pkg.version === 'string' && pkg.version) {
+        return pkg.version;
+      }
+    } catch {
+      // 下一处
+    }
+  }
+  return '0.0.0';
+}
+
 export function standalonePage(root?: string): string {
-  const projectName = root ? path.basename(path.resolve(root)) || root : '';
+  const version = productVersion();
   // 有内置编辑器、但取不到原生编辑器选区（「加入选区」在这里是粘贴框），
   // 也没有原生设置界面可跳——三个能力位就是这个壳与插件壳的全部界面差异。
   const caps = { builtinEditor: true, selectionFromEditor: false, nativeSettings: false };
+  const bodyClass = root ? 'workbench' : 'workbench no-workspace';
   return `<!DOCTYPE html>
 <html lang="zh-CN" data-theme="dark">
 <head>
@@ -42,15 +64,19 @@ export function standalonePage(root?: string): string {
 <link href="/media/view.css" rel="stylesheet">
 <link href="/media/standalone.css" rel="stylesheet">
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
-<title>Novel Forge${projectName ? ` — ${escapeHtml(projectName)}` : ''}</title>
+<title>Novel Forge</title>
 </head>
-<body class="workbench">
+<body class="${bodyClass}">
 
 <!-- ------------------------------------------------------------ 标题栏 -->
-<header class="wb-title">
+<header class="wb-title" id="wbTitle" data-version="${escapeHtml(version)}">
   <span class="wb-logo">${LOGO_SVG}</span>
-  <span class="wb-name">Novel Forge</span>
-  <span class="wb-project meta" id="wbProject" title="${escapeHtml(root ?? '')}">${escapeHtml(projectName)}</span>
+  <nav class="wb-menubar" id="wbMenubar">
+    <button type="button" class="wb-menu-btn" data-menu="file">File</button>
+    <button type="button" class="wb-menu-btn" data-menu="edit">Edit</button>
+    <button type="button" class="wb-menu-btn" data-menu="help">Help</button>
+  </nav>
+  <span class="wb-title-text" id="wbTitleText">Novel Forge</span>
   <span class="spacer"></span>
   <button class="icon-btn" id="wbEditorToggle" title="显示/隐藏编辑器">▤</button>
   <button class="icon-btn" id="wbThemeBtn" title="切换主题">☀</button>
@@ -109,7 +135,35 @@ ${settingsPane(caps)}
       <button class="chip-btn" id="edConflictForce">用编辑器内容强制保存</button>
     </div>
 
+    <div class="ed-find hidden" id="edFind">
+      <input type="search" id="edFindInput" placeholder="查找">
+      <span class="ed-find-count" id="edFindCount"></span>
+      <button type="button" class="chip-btn" id="edFindPrev">上一个</button>
+      <button type="button" class="chip-btn" id="edFindNext">下一个</button>
+      <button type="button" class="chip-btn" id="edFindClose" title="关闭查找">×</button>
+    </div>
+
     <div class="ed-stage">
+      <div class="nf-welcome" id="nfWelcome">
+        <div class="nf-welcome-col">
+          <h2>Start</h2>
+          <button type="button" class="nf-welcome-link" data-welcome="newProject">新建工程…</button>
+          <button type="button" class="nf-welcome-link" data-welcome="openFolder">打开文件夹…</button>
+        </div>
+        <div class="nf-welcome-col">
+          <h2>Recent</h2>
+          <ul class="nf-recent" id="nfRecentList"></ul>
+        </div>
+        <div class="nf-welcome-col nf-welcome-copy">
+          <h2>Novel Forge</h2>
+          <p>从一句念头开始，逐层填成大纲、剧情、场景，最后写成正文。</p>
+          <dl>
+            <dt><kbd>Ctrl</kbd>+<kbd>O</kbd></dt><dd>打开文件夹</dd>
+            <dt><kbd>Ctrl</kbd>+<kbd>S</kbd></dt><dd>保存当前文件</dd>
+            <dt><kbd>Enter</kbd></dt><dd>在左侧发送消息</dd>
+          </dl>
+        </div>
+      </div>
       <div class="ed-welcome" id="edWelcome">
         <span class="ed-welcome-logo">${LOGO_SVG}</span>
         <h2>还没有打开文件</h2>

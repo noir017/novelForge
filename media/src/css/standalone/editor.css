@@ -245,6 +245,33 @@
   color: var(--vscode-foreground);
 }
 
+/* ---- 查找条：仅当前 textarea，不做工作区搜索。 */
+
+.ed-find {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editorWidget-background);
+}
+
+.ed-find.hidden {
+  display: none;
+}
+
+.ed-find input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.ed-find-count {
+  flex: 0 0 auto;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
 /* ---- 冲突提示：绝不静默覆盖，把取舍摆在用户面前。 */
 
 .ed-conflict {

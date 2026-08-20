@@ -1,4 +1,10 @@
-import { ChatController } from '../../core/controller';
+/**
+ * 独立版 Web 服务：Bun.serve 提供静态页 + /ws WebSocket。
+ * 仅绑定 127.0.0.1，无鉴权——设计上只服务本机作者。
+ *
+ * 工程目录由 WorkspaceHub 持有，可空、可在运行时热换。ChatController
+ * 仍然一对一绑一份 NovelProject，没有工程时不造假实例。
+ */
 import { initHost } from '../../core/host';
 import { initSecrets } from '../../core/llm/registry';
 import {
@@ -8,12 +14,12 @@ import {
   scoped,
   setSinkLevel,
 } from '../../core/runtime/logger';
-import { NovelProject } from '../../core/model/project';
 import { InMessage, OutMessage } from '../../core/protocol';
 import { FileConfigStore, FileSecretStore } from '../../core/stores';
 import { assetBytes } from './assets';
 import { FileHost } from './fileHost';
 import { standalonePage } from './page';
+import { WorkspaceHub } from './workspaceHub';
 
 const log = scoped('服务');
 
@@ -21,20 +27,17 @@ const log = scoped('服务');
  *  每次都挂会让同一条日志打印好几遍。 */
 let consoleSinkAttached = false;
 
-/**
- * 独立版 Web 服务：Bun.serve 提供静态页 + /ws WebSocket。
- * 仅绑定 127.0.0.1，无鉴权——设计上只服务本机作者。
- */
-
 export interface ServeOptions {
-  /** 小说工程目录（绝对路径）。 */
-  root: string;
+  /** 小说工程目录。不传则按 window.json 恢复，或进空窗口。 */
+  root?: string;
   port: number;
   /** 终端里也打 debug 级日志。网页的日志页始终收全量，不受这里影响。 */
   verbose?: boolean;
+  /** window.json 所在目录。测试注入，缺省为 ~/.novelforge。 */
+  windowDir?: string;
 }
 
-export function startServer(opts: ServeOptions): number {
+export async function startServer(opts: ServeOptions): Promise<number> {
   // 终端只转 info 及以上（--verbose 时放开 debug）：debug 里有逐章进度，
   // 跑一次同步会刷屏，而网页的日志页本来就看得到那些。
   setSinkLevel(opts.verbose ? 'debug' : 'info');
@@ -43,7 +46,6 @@ export function startServer(opts: ServeOptions): number {
     addLogSink((entry) => console.log(formatLogEntry(entry)));
   }
 
-  const project = NovelProject.open(opts.root);
   const clients = new Set<BunServerWebSocket>();
 
   const broadcast = (msg: OutMessage) => {
@@ -53,23 +55,11 @@ export function startServer(opts: ServeOptions): number {
     }
   };
 
-  const host = new FileHost(new FileConfigStore(), broadcast, opts.root);
+  const host = new FileHost(new FileConfigStore(), broadcast);
   initHost(host);
   initSecrets(new FileSecretStore());
-  const chat = new ChatController(project);
-
-  // controller 只向已挂接的 ViewHost 广播；独立版把广播函数包成一个 ViewHost 挂上去，
-  // 这样 pushState / session / settings 等消息才能流到所有 WebSocket 客户端。
-  chat.attach({
-    kind: 'editor',
-    post: (msg) => broadcast(msg),
-    reveal: () => undefined,
-  });
-
-  host.watch(project, () => {
-    project.invalidate();
-    void chat.pushState();
-  });
+  const hub = new WorkspaceHub({ broadcast, host, windowDir: opts.windowDir });
+  await hub.bootstrap(opts.root);
 
   const server = Bun.serve({
     port: opts.port,
@@ -91,7 +81,7 @@ export function startServer(opts: ServeOptions): number {
         return new Response('WebSocket upgrade failed', { status: 400 });
       }
       if (url.pathname === '/' || url.pathname === '/index.html') {
-        return new Response(standalonePage(opts.root), {
+        return new Response(standalonePage(hub.snapshot().items[0]?.root), {
           headers: { 'content-type': 'text/html; charset=utf-8' },
         });
       }
@@ -120,13 +110,21 @@ export function startServer(opts: ServeOptions): number {
         log.debug(`网页已连接（当前 ${clients.size} 个客户端）`);
         // 重连时 view.js 不会再发 ready，这里主动推一遍全量状态；
         // 首次加载时前端还没挂监听，view.js 加载完会发 ready 再推一遍。
-        void chat.resendFullState();
+        void hub.pushReady();
       },
       async message(_ws, raw) {
         try {
           const msg = JSON.parse(String(raw)) as InMessage;
           if (msg.type === 'promptResult') {
             host.prompts.resolve(msg.requestId, msg.value);
+            return;
+          }
+          if (await hub.handle(msg)) {
+            return;
+          }
+          const chat = hub.activeController();
+          if (!chat) {
+            broadcast({ type: 'toast', message: '请先打开文件夹', level: 'error' });
             return;
           }
           await chat.handle(msg);
@@ -150,7 +148,8 @@ export function startServer(opts: ServeOptions): number {
   });
 
   // 走日志而不是裸 console.log：终端 sink 会把它打出来，网页的日志页也留一条。
-  log.info(`服务已启动：http://127.0.0.1:${server.port}/`, `工程根 ${opts.root}`);
+  const rootLabel = hub.snapshot().items[0]?.root ?? '未打开工程';
+  log.info(`服务已启动：http://127.0.0.1:${server.port}/`, `工程根 ${rootLabel}`);
   return server.port;
 }
 

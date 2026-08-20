@@ -6,7 +6,7 @@
 | 壳 | 是什么 | README |
 |---|---|---|
 | [vscode/](vscode/README.md) | VS Code 插件：命令、两个 webview 宿主、vscode-lm | [vscode/README.md](vscode/README.md) |
-| [standalone/](standalone/README.md) | 独立 Web 服务（Bun）：HTTP/WS + 浏览器界面 | [standalone/README.md](standalone/README.md) |
+| [standalone/](standalone/README.md) | 独立 Web 服务（Bun）：HTTP/WS + 浏览器界面；工程可空、运行时热换 | [standalone/README.md](standalone/README.md) |
 | [desktop/](desktop/README.md) | 桌面 app（Tauri / Rust）：把独立版当 sidecar 装进一个窗口 | [desktop/README.md](desktop/README.md) |
 | [shared/](shared/panes.ts) | 两个以上壳共用的页面骨架（**所有 pane 的 DOM 唯一来源**） | 见下 |
 

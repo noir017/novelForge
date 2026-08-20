@@ -19,7 +19,7 @@ import {
   toggleCommands,
 } from './commands';
 import { el } from './refs';
-import { persistDraft, store, vscode } from './store';
+import { persistDraft, store, vscode, hasWorkspace } from './store';
 import { setBusy } from './state';
 import { toast } from './toast';
 
@@ -104,7 +104,7 @@ function renderPending(): void {
 // ---------------------------------------------------------------- 发送
 
 function send(): void {
-  if (store.busy) {
+  if (store.busy || !hasWorkspace()) {
     return;
   }
   // Agent 那条路只吃一句话：它没有 stage/capability 的概念，「下一步该做什么」
@@ -149,7 +149,7 @@ function send(): void {
  * 其余都当成一次带 stage/capability 的普通发送。
  */
 export function runNextStep(step: NextStepView): void {
-  if (store.busy) {
+  if (store.busy || !hasWorkspace()) {
     return;
   }
   if (step.projectAction) {

@@ -71,5 +71,7 @@ export function connect(port) {
     send: (m) => ws.send(JSON.stringify(m)),
     /** 丢掉堆积的旧消息——切目标前必须清，否则 waitFor 会立刻拿到上一轮的。 */
     drain: () => (inbox.length = 0),
+    /** inbox 里是否已有匹配的消息（不等待）。用来断言「没有 init」。 */
+    has: (match) => inbox.some(match),
   };
 }

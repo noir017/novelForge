@@ -29,6 +29,8 @@ export interface Pane {
   closeSilently(path: string): CarriedDraft | boolean;
   upsertFile(incoming: EditorFileView, carried?: CarriedDraft): void;
   save(force: boolean): void;
+  savePath(path: string, force: boolean): void;
+  showFind(): void;
   applySaved(incoming: EditorFileView): void;
   applyConflict(path: string, diskText: string, diskHash: string): void;
 }
@@ -140,6 +142,9 @@ export function schedulePersist(): void {
  * 不拿旧内容盖新内容。
  */
 export function restore(): void {
+  if (document.body.classList.contains('no-workspace')) {
+    return;
+  }
   let saved: unknown;
   try {
     saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');

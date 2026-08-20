@@ -16,17 +16,23 @@ import {
   normalizeProviders,
   resolveModelRef,
 } from '../model/providers';
-import { SerializedProvider, SettingsPayload } from '../protocol';
+import { OutMessage, SerializedProvider, SettingsPayload } from '../protocol';
 import { testConnection as runConnectionTest } from '../features/creation';
 import { scoped } from '../runtime/logger';
 
 const log = scoped('面板');
 
+/** 设置读写不依赖 NovelProject：空窗口也能打开设置页。 */
+export interface SettingsSink {
+  post(message: OutMessage): void;
+  toast(message: string, level?: 'info' | 'error'): void;
+}
+
 /** 设置页。字段只给 controller/ 同包用。 */
 
-export async function pushSettings(c: ChatController, ack?: 'saved' | 'rejected'): Promise<void> {
+export async function pushSettingsTo(sink: SettingsSink, ack?: 'saved' | 'rejected'): Promise<void> {
   const cfg = readConfig();
-  c.post({
+  sink.post({
     type: 'settings',
     ack,
     settings: {
@@ -59,7 +65,15 @@ export async function pushSettings(c: ChatController, ack?: 'saved' | 'rejected'
   });
 }
 
-export async function saveSettings(c: ChatController, s: SettingsPayload): Promise<void> {
+export async function pushSettings(c: ChatController, ack?: 'saved' | 'rejected'): Promise<void> {
+  await pushSettingsTo(c, ack);
+}
+
+export async function saveSettingsFrom(
+  s: SettingsPayload,
+  sink: SettingsSink,
+  afterSave?: () => Promise<void>
+): Promise<void> {
   const before = readConfig().providers.map((p) => p.id);
   const providers = normalizeProviders(s.providers);
   if (s.providers.length > 0 && providers.length === 0) {
@@ -67,9 +81,9 @@ export async function saveSettings(c: ChatController, s: SettingsPayload): Promi
       '设置未保存：服务商配置不合法',
       'id 不能为空或含斜杠，且每个服务商至少要有一个模型。前端已收到 rejected 回执，编辑内容保留。'
     );
-    c.toast('服务商配置不合法：id 不能为空或含斜杠，且每个服务商至少要有一个模型。', 'error');
+    sink.toast('服务商配置不合法：id 不能为空或含斜杠，且每个服务商至少要有一个模型。', 'error');
     // 回执必须发——前端据此知道这次没落盘，从而保住未保存的编辑。
-    await pushSettings(c, 'rejected');
+    await pushSettingsTo(sink, 'rejected');
     return;
   }
 
@@ -106,9 +120,15 @@ export async function saveSettings(c: ChatController, s: SettingsPayload): Promi
       `并发 ${s.concurrency}｜换模型重试 ${s.fallbackAttempts} 次｜` +
       `Agent 策略 ${AGENT_POLICY_LABEL[normalizeAgentPolicy(s.agentPolicy)]}`
   );
-  await pushSettings(c, 'saved');
-  await c.pushState();
-  c.toast('设置已保存。');
+  await pushSettingsTo(sink, 'saved');
+  if (afterSave) {
+    await afterSave();
+  }
+  sink.toast('设置已保存。');
+}
+
+export async function saveSettings(c: ChatController, s: SettingsPayload): Promise<void> {
+  await saveSettingsFrom(s, c, () => c.pushState());
 }
 
 /**
@@ -138,11 +158,21 @@ export async function testConnection(
   ref?: string,
   provider?: SerializedProvider
 ): Promise<void> {
+  await testConnectionTo(c, ref, provider, () => c.pushState());
+}
+
+export async function testConnectionTo(
+  sink: SettingsSink,
+  ref?: string,
+  provider?: SerializedProvider,
+  after?: () => Promise<void>
+): Promise<void> {
   const target = ref ?? readConfig().model;
-  // 设置页传来的草稿同样走一遍容错归一化——手改过的字段不该让测试崩掉。
   const draft = provider ? normalizeProviders([provider])[0] : undefined;
-  c.toast(`正在测试 ${target}…`);
+  sink.toast(`正在测试 ${target}…`);
   const result = await runConnectionTest(ref, draft);
-  c.toast(result.message, result.ok ? 'info' : 'error');
-  await c.pushState();
+  sink.toast(result.message, result.ok ? 'info' : 'error');
+  if (after) {
+    await after();
+  }
 }

@@ -10,7 +10,7 @@ import type { ViewState } from '../protocol';
 import { setCommandsDisabled } from './commands';
 import { fmt } from './format';
 import { el } from './refs';
-import { store } from './store';
+import { store, hasWorkspace } from './store';
 
 export function renderState(state: ViewState): void {
   store.state = state;
@@ -19,13 +19,18 @@ export function renderState(state: ViewState): void {
   // src/shells/shared/panes.ts 的 nativeSettings），前端不再认得环境。
   renderModelSelect(state);
 
+  el.input.disabled = !hasWorkspace();
+  if (!hasWorkspace()) {
+    el.sendBtn.disabled = true;
+  }
+
   if (!state.initialized) {
     el.providerMeta.textContent = '当前工作区还不是小说工程，先运行「Novel: 初始化小说工程」。';
     el.sendBtn.disabled = true;
     return;
   }
 
-  el.sendBtn.disabled = store.busy;
+  el.sendBtn.disabled = store.busy || !hasWorkspace();
   el.providerMeta.textContent = state.modelIssue
     ? state.modelIssue
     : `${state.modelLabel} · 窗口 ${fmt(state.contextWindow)} / 输出 ${fmt(state.maxOutputTokens)}`;
@@ -130,14 +135,16 @@ export function setBusy(value: boolean): void {
   store.busy = value;
   setHidden(el.sendBtn, value);
   setHidden(el.stopBtn, !value);
-  el.atBtn.disabled = value;
-  el.selBtn.disabled = value;
-  el.newSessionBtn.disabled = value;
+  const locked = !hasWorkspace();
+  el.sendBtn.disabled = value || locked;
+  el.atBtn.disabled = value || locked;
+  el.selBtn.disabled = value || locked;
+  el.newSessionBtn.disabled = value || locked;
   // 生成期间不给改名：改名会动这一章的路径，而正在跑的那一轮攥着旧路径，
   // 采纳时会写到一个已经不存在的地方去。
-  el.renamePlotBtn.disabled = value;
+  el.renamePlotBtn.disabled = value || locked;
   // 主按钮与命令面板在生成期间都禁用：两者都会发起新的一轮。面板要是正开着
   // 也一并收掉——一个点不动的候选列表挂在输入框上方只会挡住消息流。
-  el.nextStepBtn.disabled = value;
-  setCommandsDisabled(value);
+  el.nextStepBtn.disabled = value || locked;
+  setCommandsDisabled(value || locked);
 }

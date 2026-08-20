@@ -14,6 +14,9 @@
 @import './standalone/theme.css';
 @import './standalone/scrollbar.css';
 @import './standalone/workbench.css';
+@import './standalone/menubar.css';
+@import './standalone/welcome.css';
+@import './standalone/picker.css';
 
 /* 内置编辑器与资源管理器（这两块 DOM 只有独立版才有） */
 @import './standalone/editor.css';
