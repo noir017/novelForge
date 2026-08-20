@@ -317,7 +317,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
       <div id="taskTierTable"></div>
 
       <div class="pane-head"><span>请求与调度</span></div>
-      <div class="hint">并发与重试只作用于工程页批量任务；对话页续写始终单请求、严格使用当前选中的模型。</div>
+      <div class="hint">并发与重试只作用于工程页批量任务；对话页续写始终单请求、严格使用当前选中的模型。超时按「多久没收到数据」计，流式输出期间不会触发。</div>
       <div class="grid">
         <label class="field"><span>温度</span><input type="number" id="setTemperature" min="0" max="2" step="0.1"></label>
         <label class="field"><span>请求超时（毫秒）</span><input type="number" id="setRequestTimeoutMs" min="10000" step="10000"></label>

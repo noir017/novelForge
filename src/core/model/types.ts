@@ -239,6 +239,7 @@ export interface NovelConfig {
   /** 草稿根目录（相对工作区根）。镜像章节在 chaptersDir 之下的相对路径。 */
   draftsDir: string;
   summaryBatchSize: number;
+  /** 空闲超时（毫秒）：流式还在吐字时不计时，卡住这么久没数据才中止。 */
   requestTimeoutMs: number;
   /** 工程页批量任务的并发请求数。1 表示串行。 */
   concurrency: number;

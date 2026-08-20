@@ -1,6 +1,7 @@
 /**
  * LLM provider 的流式解析：跨块切分、CRLF、心跳注释、非 JSON 行、流中错误、
- * 取消、超时、HTTP 错误信息，以及 Anthropic 的 system 抽取与相邻消息合并。
+ * 取消、超时、流式输出期间不超时、HTTP 错误信息，以及 Anthropic 的 system
+ * 抽取与相邻消息合并。
  * 迁自 scripts/smoke-llm.js（38 个 check 调用点 → 42 条用例，HTTP 错误那两条在
  * 三个 mode 上循环）。
  *
@@ -100,6 +101,30 @@ const httpServer = http.createServer((req, res) => {
         sse();
         res.write('data: {"choices":[{"delta":{"content":"慢"}}]}\n\n');
         // 不结束，用于测试取消与超时
+        return;
+      }
+      case 'slow-stream': {
+        // 持续吐字，总时长超过 timeoutMs；空闲超时不应打断。
+        sse();
+        let i = 0;
+        let closed = false;
+        res.on('close', () => {
+          closed = true;
+        });
+        const tick = () => {
+          if (closed || res.writableEnded) {
+            return;
+          }
+          if (i >= 6) {
+            res.write('data: [DONE]\n\n');
+            res.end();
+            return;
+          }
+          res.write(`data: {"choices":[{"delta":{"content":"${i}"}}]}\n\n`);
+          i += 1;
+          setTimeout(tick, 150);
+        };
+        tick();
         return;
       }
       case 'openai-tool-calls': {
@@ -420,6 +445,22 @@ describe('OpenAI provider · 取消与超时', () => {
 
   test('预先取消的 signal 立即抛 CancelledError', () => {
     assert.equal(preCancelledErr && preCancelledErr.name, 'CancelledError');
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('OpenAI provider · 流式输出期间不超时', () => {
+  let text;
+
+  before(async () => {
+    server.mode = 'slow-stream';
+    // 6 片 × 150ms ≈ 900ms，大于 400ms 空闲超时；一直有数据就不该中止。
+    text = await collectText(openai.stream([], opts({ timeoutMs: 400 })));
+  });
+
+  test('总时长超过 timeoutMs 仍收齐全文', () => {
+    assert.equal(text, '012345');
   });
 });
 

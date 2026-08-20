@@ -6,6 +6,8 @@ import {
   LlmProvider,
   StreamEvent,
   StreamOptions,
+  makeAbortSignal,
+  normalizeError,
 } from '../../core/llm/provider';
 
 /**
@@ -65,17 +67,15 @@ export class VsCodeLmProvider implements LlmProvider {
 
   async *stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
     const model = await this.resolveModel();
+    const { signal, dispose, poke } = makeAbortSignal(options);
     const source = new vscode.CancellationTokenSource();
     // core 侧已统一为 AbortSignal，这里桥接回语言模型 API 需要的 token。
     const onAbort = () => source.cancel();
-    if (options.signal) {
-      if (options.signal.aborted) {
-        onAbort();
-      } else {
-        options.signal.addEventListener('abort', onAbort, { once: true });
-      }
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener('abort', onAbort, { once: true });
     }
-    const timer = setTimeout(() => source.cancel(), options.timeoutMs);
 
     try {
       const response = await model.sendRequest(
@@ -99,9 +99,11 @@ export class VsCodeLmProvider implements LlmProvider {
         },
         source.token
       );
+      poke();
 
       // 走 response.stream 而不是 response.text：后者把工具调用整段滤掉了。
       for await (const part of response.stream) {
+        poke();
         if (part instanceof vscode.LanguageModelTextPart) {
           yield { type: 'text', text: part.value };
         } else if (part instanceof vscode.LanguageModelToolCallPart) {
@@ -118,6 +120,9 @@ export class VsCodeLmProvider implements LlmProvider {
         }
       }
     } catch (err) {
+      if (signal.aborted) {
+        throw normalizeError(err, signal, this.label);
+      }
       if (err instanceof vscode.CancellationError || source.token.isCancellationRequested) {
         throw new CancelledError();
       }
@@ -126,8 +131,8 @@ export class VsCodeLmProvider implements LlmProvider {
       }
       throw new LlmError(`VS Code 语言模型请求失败：${err instanceof Error ? err.message : String(err)}`, err);
     } finally {
-      clearTimeout(timer);
-      options.signal?.removeEventListener('abort', onAbort);
+      dispose();
+      signal.removeEventListener('abort', onAbort);
       source.dispose();
     }
   }

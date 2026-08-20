@@ -45,7 +45,10 @@ export type AgentMessage =
 export interface StreamOptions {
   maxOutputTokens: number;
   temperature: number;
-  /** 请求超时（毫秒）。 */
+  /**
+   * 空闲超时（毫秒）：多久没收到数据才中止。
+   * 流式还在吐字时不计时——整段请求可以远长于这个值。
+   */
   timeoutMs: number;
   /** 外部取消（用户点「停止」）。超时仍由本模块内部处理。 */
   signal?: AbortSignal;
@@ -84,16 +87,39 @@ export class LlmError extends Error {
   }
 }
 
+export interface AbortHandle {
+  signal: AbortSignal;
+  /** 收到数据时调用，把空闲计时器拨回满。dispose 之后是空操作。 */
+  poke: () => void;
+  /** 请求结束后必须调用，否则定时器会泄漏。 */
+  dispose: () => void;
+}
+
 /**
- * 把外部取消信号与超时统一成一个 AbortSignal。
- * 返回的 dispose 必须在请求结束后调用，否则定时器会泄漏。
+ * 把外部取消信号与空闲超时统一成一个 AbortSignal。
+ *
+ * `timeoutMs` 是「多久没收到数据」而不是整段请求的上限——流式还在吐字
+ * 时调用 poke() 重置计时器。返回的 dispose 必须在请求结束后调用。
  */
 export function makeAbortSignal(options: {
   timeoutMs: number;
   signal?: AbortSignal;
-}): { signal: AbortSignal; dispose: () => void } {
+}): AbortHandle {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('timeout')), options.timeoutMs);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let disposed = false;
+
+  const arm = () => {
+    if (disposed || controller.signal.aborted) {
+      return;
+    }
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(() => controller.abort(new Error('timeout')), options.timeoutMs);
+  };
+  arm();
+
   const onAbort = () => controller.abort(options.signal?.reason ?? new CancelledError());
   if (options.signal) {
     if (options.signal.aborted) {
@@ -104,8 +130,13 @@ export function makeAbortSignal(options: {
   }
   return {
     signal: controller.signal,
+    poke: arm,
     dispose: () => {
-      clearTimeout(timer);
+      disposed = true;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
       options.signal?.removeEventListener('abort', onAbort);
     },
   };
@@ -114,7 +145,8 @@ export function makeAbortSignal(options: {
 /** 解析 SSE 响应体，逐条 yield `data:` 后的原始字符串（已跳过 [DONE]）。 */
 export async function* iterateSse(
   body: ReadableStream<Uint8Array>,
-  signal: AbortSignal
+  signal: AbortSignal,
+  poke: () => void
 ): AsyncGenerator<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder('utf-8');
@@ -129,6 +161,8 @@ export async function* iterateSse(
       if (done) {
         break;
       }
+      // 收到任意字节都算「还在输出」：心跳注释、半截事件都算。
+      poke();
       buffer += decoder.decode(value, { stream: true });
 
       // SSE 事件以空行分隔；一个事件里可能有多行 data:。

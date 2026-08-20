@@ -17,7 +17,7 @@
 
 ## 关键设计
 
-- **`StreamEvent` 是唯一原语**：`stream(messages, options): AsyncIterable<StreamEvent>`，四种事件 `text` / `reasoning` / `toolCall` / `usage`。取消经 `AbortSignal`，超时经 `timeoutMs`。**没有第二条路**——从前 reasoning 与 usage 挂在 options 的回调上，那是「调用方想不想听决定 provider 发不发」，方向反了：usage 是校准 tokenCounter 的唯一实测来源，thinking 是「正文还没开始吐」这段时间界面上唯一的反馈，都不该由调用方开关。要文本的调用点一律走 `collectText`，形状仍是「传一个流，拿一段文本」。
+- **`StreamEvent` 是唯一原语**：`stream(messages, options): AsyncIterable<StreamEvent>`，四种事件 `text` / `reasoning` / `toolCall` / `usage`。取消经 `AbortSignal`，超时经 `timeoutMs`（**空闲超时**：流式还在吐字时重置，卡住这么久没数据才中止）。**没有第二条路**——从前 reasoning 与 usage 挂在 options 的回调上，那是「调用方想不想听决定 provider 发不发」，方向反了：usage 是校准 tokenCounter 的唯一实测来源，thinking 是「正文还没开始吐」这段时间界面上唯一的反馈，都不该由调用方开关。要文本的调用点一律走 `collectText`，形状仍是「传一个流，拿一段文本」。
 - **usage 按字段合并**：同一次请求会回报多次（Anthropic 在 `message_start` 给输入、`message_delta` 给输出），所以 `mergeUsage` 是**后到的覆盖同名字段、缺席的字段保留**。整份覆盖会让先到的输入用量被后一条抹掉，估算/实测比值就废了。
 - **错误说人话**：HTTP 401/404/429 等都在 provider 内整理成面向作者的中文提示后以 `LlmError` 抛出；用户主动取消抛 `CancelledError`，调用方静默处理。
 - **API Key 按服务商 id 分开存**：同一种协议可以并存多个服务商（智谱官方、OpenRouter、本地 Ollama 都是 openai 兼容），各有各的 Key。`vscode-lm` 走 Copilot 授权，不需要 Key。

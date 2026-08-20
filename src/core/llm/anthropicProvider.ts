@@ -30,7 +30,7 @@ export class AnthropicProvider implements LlmProvider {
   }
 
   async *stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
-    const { signal, dispose } = makeAbortSignal(options);
+    const { signal, dispose, poke } = makeAbortSignal(options);
     try {
       const system = messages
         .filter((m) => m.role === 'system')
@@ -71,11 +71,12 @@ export class AnthropicProvider implements LlmProvider {
       if (!response.ok || !response.body) {
         throw new LlmError(await describeHttpError(response, this.label));
       }
+      poke();
 
       // 工具调用分三个事件到达，按 event.index 攒着，stop 之后才完整。
       const slots = new Map<number, ToolUseSlot>();
 
-      for await (const payload of iterateSse(response.body, signal)) {
+      for await (const payload of iterateSse(response.body, signal, poke)) {
         let event: AnthropicEvent;
         try {
           event = JSON.parse(payload) as AnthropicEvent;

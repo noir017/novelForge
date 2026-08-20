@@ -668,7 +668,7 @@ API Key 按服务商 id 分开存。本地 Ollama 随便填一个非空值即可
 | `novel.chaptersDir` | `chapters` | 发布章节目录（相对工作区根） |
 | `novel.draftsDir` | `drafts` | 章节草稿目录（相对工作区根） |
 | `novel.summaryBatchSize` | `15` | 上下文管理：重建全书摘要的批大小（多少段一批） |
-| `novel.requestTimeoutMs` | `300000` | |
+| `novel.requestTimeoutMs` | `300000` | 空闲超时：流式还在吐字时不计时，卡住这么久没数据才中止 |
 
 ### 默认模型列表、并发与 fallback
 

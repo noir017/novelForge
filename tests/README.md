@@ -132,7 +132,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `features/lore.test.js` | 自动生成设定：逐章识别次数、跨章合并、分类目录落盘、已有设定必须经审阅 |
 | `storage/errorLog.test.js` | 工程库与失败记录：驱动适配层、**关库之后删得掉目录**、纯读取不建库、失败记录生命周期、日志持久化与挂 sink 前的补写、**库不可用时全线静默降级** |
 | `storage/session.test.js` | 会话读写往返、损坏文件容错、列表排序、重命名/删除、id 唯一性、`.novel` → `.novelforge` 迁移 |
-| `llm/streaming.test.js` | 起本地假服务器模拟 SSE：流式解析（跨块切分、CRLF、心跳、非 JSON 行）、取消、超时、HTTP 401/404/429，Anthropic 的 system 提取与消息合并 |
+| `llm/streaming.test.js` | 起本地假服务器模拟 SSE：流式解析（跨块切分、CRLF、心跳、非 JSON 行）、取消、超时、**流式还在吐字时不超时**、HTTP 401/404/429，Anthropic 的 system 提取与消息合并 |
 
 ### `dom/`
 

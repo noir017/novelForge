@@ -461,7 +461,7 @@
           "type": "number",
           "default": 300000,
           "minimum": 10000,
-          "description": "单次 LLM 请求超时（毫秒）。",
+          "description": "单次 LLM 请求的空闲超时（毫秒）。流式还在吐字时不计时，卡住这么久没数据才中止。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.provider": {

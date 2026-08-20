@@ -32,7 +32,7 @@ export class OpenAiProvider implements LlmProvider {
   }
 
   async *stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
-    const { signal, dispose } = makeAbortSignal(options);
+    const { signal, dispose, poke } = makeAbortSignal(options);
     try {
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
@@ -67,11 +67,12 @@ export class OpenAiProvider implements LlmProvider {
       if (!response.ok || !response.body) {
         throw new LlmError(await describeHttpError(response, this.label));
       }
+      poke();
 
       // tool_calls 是分片来的，一整条流结束才拼得完，因此先攒着。
       const toolChunks: OpenAiToolCallDelta[][] = [];
 
-      for await (const payload of iterateSse(response.body, signal)) {
+      for await (const payload of iterateSse(response.body, signal, poke)) {
         let chunk: OpenAiChunk;
         try {
           chunk = JSON.parse(payload) as OpenAiChunk;
