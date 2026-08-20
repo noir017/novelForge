@@ -1,7 +1,7 @@
 # 空窗口启动页与标题栏菜单设计
 
 日期：2026-08-20
-状态：待评审
+状态：已评审通过
 
 ## 背景与目标
 
@@ -81,10 +81,10 @@ Hub 里最多一份。`打开文件夹` 若已有工程：先处理未保存 →
 下行（bind / unbind / 刷新 / `ready` 都推）：
 
 ```ts
-{ type: 'workspaces'; currentId: string | null; items: { id: string; root: string; name: string }[] }
+{ type: 'workspaces'; currentId: string | null; items: { id: string; root: string; name: string }[]; recents: { root: string; name: string }[] }
 ```
 
-空窗口是 `{ currentId: null, items: [] }`。前端只凭 `currentId` 切欢迎页/工作台，不猜。
+空窗口是 `{ currentId: null, items: [], recents }`。`recents` 来自 `window.json`，欢迎页 Recent 列表吃它，不另造消息。前端只凭 `currentId` 切欢迎页/工作台，不猜。
 
 这些消息由 Hub 在进入 `ChatController` 之前处理。插件不会发。core 的 `dispatch` 给它们空分支，避免 `InMessage` 联合类型漏网。
 
@@ -208,6 +208,8 @@ Hub 里最多一份。`打开文件夹` 若已有工程：先处理未保存 →
 { type: 'listHostDir'; path: string }           // '' = 根层
 { type: 'createHostDir'; parent: string; name: string }
 { type: 'openLogDir' }
+{ type: 'openReadme' }
+{ type: 'createFile'; relPath: string }         // 仅有工程；经 workspace 写空文件，已存在拒绝
 ```
 
 下行：
