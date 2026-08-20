@@ -17,7 +17,7 @@ src/
 └── shells/      三个宿主壳，并排放（见 shells/README.md 的壳契约）
     ├── shared/      两个以上壳共用的页面骨架（所有 pane 的 DOM 唯一来源）
     ├── vscode/      VS Code 壳：extension 入口、两个 webview 宿主、vscode-lm
-    ├── standalone/  独立 Web 服务壳：Bun 服务 + FileHost + 页面装配
+    ├── standalone/  独立 Web 服务壳：Bun 服务 + WorkspaceHub（工程可空）+ 页面装配
     └── desktop/     桌面壳（Tauri，Rust）：把独立版当 sidecar 装进一个窗口
 ```
 

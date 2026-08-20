@@ -17,7 +17,9 @@ import {
  * 独立版的页面。
  *
  * pane 的 DOM 全部来自 [../shared/panes.ts](../shared/panes.ts)，与插件壳同一份；
- * 这里只剩**布局**——一套 VS Code 式工作台：标题栏 + 活动栏 + 侧栏 + 内置编辑器。
+ * 这里只剩**布局**——一套 VS Code 式工作台：标题栏（File / Edit / Help）+ 活动栏 + 侧栏 + 内置编辑器。
+ * 无工程时 body 带 `no-workspace`，编辑器区是 Get Started；工程名不写进首屏 HTML，
+ * 由前端跟 `workspaces` 更新。
  * 布局本来就该按宿主分叉，内容不该。
  *
  * 这个模块刻意不牵进内嵌资源表（那在 [assets.ts](assets.ts)）：页面拼装是纯字符串

@@ -64,22 +64,25 @@ npm run compile
 
 ```bash
 # 方式一：源码直接跑（需要 Bun）
-npm run standalone -- [目录]                         # 默认当前目录、端口 3680、自动开浏览器
+npm run standalone                                   # 空窗口；上次没关文件夹则恢复
+npm run standalone -- sample-novel                   # 打开该目录
 npm run standalone -- sample-novel --no-open --port 4000
 npm run standalone -- sample-novel --verbose         # 终端也打调试级日志
-npm run standalone -- init [目录]                    # 终端交互式初始化
+npm run standalone -- init [目录]                    # 终端交互式初始化（缺省才是当前目录）
 
 # 方式二：编译成单文件可执行
 npm run dist                                   # 产出 dist/novelforge（当前平台）
+./dist/novelforge                              # 空窗口
 ./dist/novelforge sample-novel
 
 # 方式三：npm 包
-npm i -g novel-forge && novelforge [目录]
+npm i -g novel-forge && novelforge             # 空窗口
+novelforge sample-novel                        # 打开该目录
 ```
 
 服务只绑定 `127.0.0.1`，无鉴权——设计上只服务本机作者。WebSocket 额外校验 `Origin`（只认本机同端口），挡住恶意网页跨源写入。配置与 API Key 存在 `~/.novelforge/config.json` / `secrets.json`（不再用 VS Code 的 settings.json / SecretStorage；插件壳首次激活时会把旧配置一次性迁移过去）。
 
-独立版是一个 VS Code 式的工作台：左边活动栏切「对话 / 工程 / 文件 / 历史 / 日志 / 设置」，右边是**内置文件编辑器**，中间的分隔条可拖拽（双击复位）。深浅主题用标题栏右上角的按钮切换，选择记在浏览器里。
+独立版是一个 VS Code 式的工作台：左边活动栏切「对话 / 工程 / 文件 / 历史 / 日志 / 设置」，右边是**内置文件编辑器**，中间的分隔条可拖拽（双击复位）。深浅主题用标题栏右上角的按钮切换，选择记在浏览器里。不带目录启动时是空窗口（Get Started + File / Edit / Help）；File → 打开文件夹在同一进程里换工程，不必重启服务。上次关窗口时工程还开着，下次会恢复；先「关闭文件夹」再退出则仍进空窗口。记忆在 `~/.novelforge/window.json`。
 
 ### 文件（资源管理器）
 
@@ -129,8 +132,9 @@ npm i -g novel-forge && novelforge [目录]
 
 ## 桌面 App（Windows / Linux）
 
-不想开终端、不想面对浏览器地址栏的话，还有一个桌面壳：双击图标就是一个普通桌面应用，
-首次启动选一个工程目录，之后直接进上次的工程。
+不想开终端、不想面对浏览器地址栏的话，还有一个桌面壳：双击图标就是一个普通桌面应用。
+不带工程也能启动（空窗口 Get Started）；上次关窗口时工程还开着则恢复。打开/关闭文件夹
+走页面里的 File 菜单，不重启窗口、不杀 sidecar。
 
 ```bash
 npm run app:dev      # 开发运行（需要 Rust 工具链）
@@ -141,7 +145,7 @@ npm run app:build    # 出安装包（Linux: AppImage / deb，Windows: NSIS）
 把窗口导航过去、退出时收掉。所以界面、功能、数据落点与独立 Web 版**完全一致**——
 文件仍是工作区里的普通 Markdown，仍然可以用你自己的编辑器改、用 Git 管。
 
-换工程用菜单「文件 → 打开其他工程」。服务起不来时窗口上会给出原因和「查看日志」
+换工程用标题栏「文件 → 打开文件夹…」。服务起不来时闪屏给出原因和「查看日志」
 （壳看到的进程输出在 `<应用日志目录>/sidecar.log`，与网页里那个「日志」页不是一回事）。
 
 Windows 安装包必须在 Windows 上构建（sidecar 能交叉编译，Tauri 的 Rust 壳不能），
@@ -766,8 +770,11 @@ src/
     │   ├── webview.ts         webview 接线：localResourceRoots 与 asWebviewUri
     │   └── vscodeLmProvider.ts、chatViewProvider.ts、chatPanel.ts
     ├── standalone/        独立壳（Bun）
-    │   ├── main.ts / cli.ts   入口与参数解析
+    │   ├── main.ts / cli.ts   入口与参数解析（目录可空）
     │   ├── server.ts          Bun.serve：静态页 + /ws WebSocket
+    │   ├── workspaceHub.ts    0 或 1 个工程，热换 ChatController
+    │   ├── windowState.ts     ~/.novelforge/window.json
+    │   ├── hostFs.ts          本机列目录（打开文件夹用，不进 core）
     │   ├── fileHost.ts        Host 的文件/网页实现（弹窗经 PromptHub，openFile 走内置编辑器）
     │   ├── terminalHost.ts    Host 的终端实现，`novelforge init` 用它
     │   ├── promptHub.ts       未决网页弹窗管理

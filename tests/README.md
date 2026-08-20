@@ -149,12 +149,16 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `view/hover.test.js` | 三组悬停浮窗（章节摘要 / 行内别名 / 失败标记）：延迟才弹、缓存与作废、可进入（能选中复制）、**夹进视口**（下方放不下翻上方、贴右收左、超长压 `max-height`）、失败标记挂在章节行上、按最严重的算 |
 | `standalone/editor.test.js` | 内置编辑器：草稿区惰性创建、`pane` 分派、「草稿」按钮可见性与 `openDraft` 负载、保存回执不冲掉 `draftPath`、右键菜单与标签搬家 |
 | `standalone/explorer.test.js` | 资源管理器：点开头目录列得出来且压暗、目录排在文件前、懒展开、折叠连带子目录、可编辑与否走不同消息、截断如实告知、读失败降级；文件页剪贴板与右键菜单 |
+| `standalone/menubar.test.js` | File / Edit / Help 菜单栏：点击打开、hover 隔壁切换、Esc / 点外面关闭；空窗口时部分项 disabled |
+| `standalone/welcome.test.js` | 空窗口 Get Started：Start / Recent、打开文件夹与新建工程入口 |
+| `standalone/picker.test.js` | 远程风目录选择器：本机列一层、进子目录、新建文件夹；打开文件走工程内 `listDir` |
+| `standalone/find.test.js` | 内置编辑器查找条：Ctrl+F、Enter 下一处 / Shift+Enter 上一处 |
 
 ### `e2e/` 与 `contract/`
 
 | 文件 | 覆盖 |
 |---|---|
-| `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、WS 首条消息、`Origin` 校验；`selectPlot` 由后端算落在哪一层（已完成的章落正文层、不给下一步），且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返 |
+| `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、WS 首条消息、`Origin` 校验；`selectPlot` 由后端算落在哪一层（已完成的章落正文层、不给下一步），且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返；**空窗口** ready 后无假工程、`openFolder` 热换、`mode: 'add'` 仍一份工作区、`closeFolder` 卸掉 |
 | `contract/corePurity.test.js` | `src/core/` 零 vscode 依赖——分层架构的硬约束，也是 `external: ['vscode']` 成立的前提 |
 | `contract/shellPurity.test.js` | 壳的契约（[src/shells/README.md](../src/shells/README.md)）：`shells/shared/` 零宿主依赖（不碰 vscode / node: / bun:）、三个壳互不 import、全仓库没有 `host.name ===` 这类按身份分支的写法。三条都是**能悄悄长回来**的东西，只能靠断言守 |
 | `contract/sampleNovel.test.js` | `sample-novel/` 自洽：manifest 章数与磁盘一致（v1 结构，索引的是 `chapters`）、每章 `contentHash` / `summaryHash` / 摘要 `sourceHash` 对得上、摘要 frontmatter 指回章号、**每一章都有同号的细纲**、**拆分之后中转站是空的**、示例纲要能命中 3 个角色 |

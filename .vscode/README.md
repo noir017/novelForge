@@ -13,6 +13,7 @@
 | **运行插件（示例小说工作区）** | Extension Development Host，自动打开 `sample-novel/` | ✅ TS 源码 |
 | **运行插件（自选工程目录）** | 同上，但问你要打开哪个目录 | ✅ TS 源码 |
 | **起独立 Web 版（示例小说工作区）** | `npm run standalone -- sample-novel --verbose` | ❌ 见下 |
+| **起独立 Web 版（空窗口）** | `npm run standalone -- --verbose`（不带工程目录） | ❌ |
 | **起独立 Web 版（自选工程目录）** | 同上，目录来自输入框 | ❌ |
 | **独立版 CLI：初始化工程（自选目录）** | `novelforge init`，终端问答 | ❌ |
 | **跑单文件可执行（dist/novelforge）** | 先 `npm run dist`，再跑产物 | ❌ |
@@ -40,8 +41,8 @@
 - **桌面壳的 Rust 那半边要 CodeLLDB，这里刻意没配。** `npm run app:dev` 由 Tauri CLI
   编译并启动 Rust 壳，想在 `src/main.rs` 上停就得让调试器去 attach 它编出来的
   可执行文件，那是另一条链路（`vadimcn.vscode-lldb` + 手写 `cargo` 构建配置）。
-  而这层壳一共三百来行、只做"起 sidecar / 等就绪 / 导航 / 收尸"四件事，
-  它的排查依据是 `<应用日志目录>/sidecar.log`（菜单「帮助 → 打开日志目录」）。
+  而这层壳一共三百来行、只做"起 sidecar / 等就绪 / 导航 / 收尸"，
+  它的排查依据是 `<应用日志目录>/sidecar.log`（失败闪屏上的「查看日志」）。
   真要 Rust 断点，装 CodeLLDB 后自己加一条 `lldb` 配置，别把它写进仓库当默认路径。
   窗口里那张**页面**是独立版，网页那半边照旧用浏览器开发者工具（Tauri 窗口右键 → 检查元素）。
 
@@ -49,8 +50,8 @@
 
 - **插件壳的 `${input:extensionRoot}` 必须给绝对路径。** 那个参数是交给 VS Code
   「打开文件夹」的，不经 [cli.ts](../src/shells/standalone/cli.ts) 的 `path.resolve`。
-  独立版那两条的 `${input:projectDir}` 反过来——相对路径按仓库根解析，因为 `parseArgs`
-  会 resolve。
+  独立版「自选工程目录」的 `${input:projectDir}` 反过来——相对路径按仓库根解析，因为 `parseArgs`
+  会 resolve。空窗口那条不带目录。
 
 - **独立版走 `npm run standalone` 而不是直接 `bun run src/shells/standalone/main.ts`。**
   npm 脚本里带了 `embed-media` 那一步；少了它 `mediaAssets.ts` 根本不存在，页面全 404。
