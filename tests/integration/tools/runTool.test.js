@@ -6,7 +6,7 @@
  * 1. **白名单之外一律拒绝**，删除/改名/移动单独回一句「这是有意的」。
  * 2. **确认框照弹**——作者不同意就一次模型都不调，且回给模型的话要说清
  *    「不要重试同一个动作」。
- * 3. **预计次数记进 budget**：弹窗写着 N 次、账上记 1 次，正是第 4 条要防的。
+ * 3. **预计次数报给调用方记账**：弹窗写着 N 次、账上记 1 次，正是第 4 条要防的。
  * 4. **split 走既有流程**：中转站正文进回收站、后面的细纲顺延。
  */
 const { describe, test, before, after } = require('node:test');
@@ -29,7 +29,7 @@ let settings;
 const PLOT1 = '.novelforge/plots/001-夜入青云.md';
 const PLOT2 = '.novelforge/plots/002-藏书阁.md';
 
-const tool = () => bundle.tools.ALL_TOOLS.find((x) => x.name === 'run');
+const tool = () => bundle.tools.NOVEL_TOOLS.find((x) => x.name === 'run');
 const run = (args) => tool().run(ctx, args);
 
 function resetCtx() {
@@ -40,7 +40,7 @@ function resetCtx() {
     drafts: { get: () => undefined, put: () => {}, bySession: () => [] },
     sessionId: 's1',
     signal: new AbortController().signal,
-    budget: { calls: 0, tokens: 0, limits: { calls: 10, tokens: 200000 } },
+    usage: { calls: 0, record(n) { this.calls += n; } },
     report: (m) => reports.push(m),
     onDelta: () => {},
   };
@@ -57,7 +57,7 @@ before(async () => {
     plotFile: './src/core/model/plotFile.ts',
     registry: './src/core/llm/registry.ts',
     provider: './src/core/llm/provider.ts',
-    tools: './src/core/agent/tools/index.ts',
+    tools: './src/core/tools/novel/index.ts',
     db: './src/core/runtime/db.ts',
   });
 
@@ -173,8 +173,8 @@ describe('批量动作：作者不同意就什么都不做', () => {
     assert.equal(fake.calls.length, 0, String(fake.calls.length));
   });
 
-  test('没有记进 budget', () => {
-    assert.equal(ctx.budget.calls, 0);
+  test('没有报调用次数', () => {
+    assert.equal(ctx.usage.calls, 0);
   });
 
   test('回给模型的话说清了没调模型', () => {
@@ -211,8 +211,8 @@ describe('批量动作：作者同意', () => {
   });
 
   // ★ 弹窗写着 2 次，账上就得记 2 次。
-  test('预计次数记进了 budget', () => {
-    assert.equal(ctx.budget.calls, 2);
+  test('预计次数报了出去', () => {
+    assert.equal(ctx.usage.calls, 2);
   });
 
   test('用量在气泡里说出来了', () => {
@@ -228,7 +228,7 @@ describe('批量动作：作者同意', () => {
     h.expect('开始生成');
     const again = await run({ action: 'batchPlots' });
     assert.equal(fake.calls.length, 0, String(fake.calls.length));
-    assert.equal(ctx.budget.calls, 0);
+    assert.equal(ctx.usage.calls, 0);
     assert.ok(again.text.includes('没有调用模型'), again.text);
   });
 });
@@ -264,8 +264,8 @@ describe('split 走既有流程', () => {
     assert.equal(fake.calls.length, 0, String(fake.calls.length));
   });
 
-  test('不记 budget', () => {
-    assert.equal(ctx.budget.calls, 0);
+  test('一次调用都不报', () => {
+    assert.equal(ctx.usage.calls, 0);
   });
 
   test('认不出属于哪一章的路径给 error', async () => {

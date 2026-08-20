@@ -3,9 +3,9 @@
  *
  * ## 它只有一件事要做：把回合串起来
  *
- * 循环本身很短，因为**工具体全是前三期成果的薄包装**，状态判断全在
- * `model/pipeline.ts`，装配全在 `context/`。这里剩下的只有三件真正属于
- * 「调度」的事：
+ * 循环本身很短，因为**工具全在 [`core/tools/`](../tools/README.md) 那一层**，
+ * 状态判断全在 `model/pipeline.ts`，装配全在 `context/`。这里剩下的只有四件
+ * 真正属于「调度」的事：
  *
  * 1. **每回合注入状态**（`buildStateBrief`）——agent 与界面主按钮读的是同一个
  *    `deriveNextStep`，不可能分叉（AGENTS 第 20 条）。
@@ -13,6 +13,15 @@
  * 3. **看着预算**（`budget.ts`）——三条上限 + 无进展检测。
  * 4. **过闸门**（`policy.ts`）——写盘之前要不要先问作者一句。**闸门不是保护**：
  *    八条守卫与覆盖前审阅在 `workspace/` 那一层，任何策略下都在。
+ *
+ * ## 它不认识任何一个具体工具
+ *
+ * 手上只有一个 {@link ToolInvoker}：清单、意图、执行。**没有 `Workspace`、
+ * 没有 `DraftStore`、没有 `ToolDef`**——那些是工具层的事，由调用方绑好了递
+ * 进来。于是：
+ *
+ * - 换一套工具（另一个领域、将来某个 MCP 客户端）循环一行都不用改；
+ * - 工具层可以单独端出去对外提供服务，不必把 agent 的预算对象一起端走。
  *
  * ## 一个回合
  *
@@ -28,9 +37,8 @@
  * ## 取消停在工具边界
  *
  * `signal.aborted` 时不再发起下一次模型调用，也不再执行下一个工具；**正在跑的
- * `generate` 靠它自己的 signal 停**（`ToolContext.signal` 就是同一个）。已经
- * 产出的 draft 保留——那是花过钱的东西，取消的是「接着往下做」，不是「刚才
- * 做的作废」。
+ * `generate` 靠它自己的 signal 停**（`ToolRun.signal` 就是同一个）。已经产出的
+ * draft 保留——那是花过钱的东西，取消的是「接着往下做」，不是「刚才做的作废」。
  *
  * ## 不静默停
  *
@@ -46,8 +54,7 @@ import { CancelledError } from '../llm/provider';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import { CreationTarget } from '../model/pipeline';
-import { Workspace } from '../workspace';
-import { DraftStore } from '../generation/drafts';
+import type { ToolInvocation, ToolInvoker } from '../tools/types';
 import { Budget, BudgetLimits } from './budget';
 import { buildAgentMessages, buildStateBrief } from './context';
 import {
@@ -59,8 +66,6 @@ import {
   declinedText,
   gateFor,
 } from './policy';
-import { ToolContext, ToolDef, ToolResult, toolSpecs } from './registry';
-import { ALL_TOOLS } from './tools';
 
 const log = scoped('Agent');
 
@@ -73,12 +78,17 @@ const log = scoped('Agent');
  * 会红，只有产出会一点点变味。
  *
  * 这里要说清的是**它在这套流程里是什么角色**：调度者，不是作者。
+ *
+ * **也不列工具清单。** 工具能干什么由每个工具自己的 `description` 说，模型每
+ * 一轮都收得到；在这里再写一份，加一个工具就会漏掉一处——原先那句「你有四个
+ * 工具」正是这么变成假话的（注册的其实有七个）。
+ *
+ * 整段可以由调用方经 `RunAgentOptions.system` 换掉。
  */
 export const AGENT_SYSTEM = [
   '你是 Novel Forge 的助手，帮一位中文长篇小说作者在他的工程里做事。',
   '',
-  '工程里的一切都是普通 Markdown 文件，路径就是产物的身份。你有四个工具：',
-  'list / read / search 查询，generate 调用模型创作产出内容。',
+  '工程里的一切都是普通 Markdown 文件，路径就是产物的身份。',
   '',
   '几条要守住的：',
   '- **「下一步该做什么」由状态机算，下面会告诉你结论，你拿着它去执行，不要另做判断。**',
@@ -137,20 +147,28 @@ export interface AgentOutcome {
 }
 
 export interface RunAgentOptions {
+  /** 状态注入要用（`buildStateBrief`）。**循环对工程的全部依赖就是它。** */
   project: NovelProject;
-  workspace: Workspace;
-  drafts: DraftStore;
-  sessionId: string;
+  /**
+   * 这一轮能用哪些工具。由调用方绑好环境递进来
+   * （`tools/novel` 的 `createNovelTools`）。
+   */
+  tools: ToolInvoker;
   /** 必须支持工具调用。 */
   provider: LlmProvider;
   /** 作者这一轮说的话。 */
   ask: string;
   /** 当前选中的那一章，用于状态注入。没选就不给。 */
   target?: CreationTarget;
+  /** 身份提示词。缺省 {@link AGENT_SYSTEM}。 */
+  system?: string;
+  /**
+   * 每回合注入的现场描述。缺省按 `project` / `target` 算
+   * （与创作页主按钮同一个 `deriveNextStep`，第 20 条）。
+   */
+  brief?: () => Promise<string>;
   limits?: Partial<BudgetLimits>;
   signal: AbortSignal;
-  /** 注册哪些工具。缺省七件套（含 write / edit / run）。 */
-  tools?: ToolDef[];
   /**
    * 哪些动作动手前先问一句。缺省读配置。
    *
@@ -161,8 +179,7 @@ export interface RunAgentOptions {
 }
 
 export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
-  const { project, signal, on = {} } = opts;
-  const tools = opts.tools ?? ALL_TOOLS;
+  const { project, tools, signal, on = {} } = opts;
   const budget = new Budget(opts.limits);
   const config = readConfig();
   const policy = opts.policy ?? config.agentPolicy;
@@ -170,18 +187,21 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
 
   const draftIds: string[] = [];
   const turns: AgentMessage[] = [{ role: 'user', content: opts.ask }];
-  const specs = toolSpecs(tools);
-  const byName = new Map(tools.map((t) => [t.name, t]));
+  const specs = tools.specs();
+  const brief = opts.brief ?? (() => buildStateBrief(project, opts.target));
+  const system = opts.system ?? AGENT_SYSTEM;
 
-  const ctx: ToolContext = {
-    project,
-    workspace: opts.workspace,
-    drafts: opts.drafts,
-    sessionId: opts.sessionId,
+  /**
+   * 递给工具的那一面：能不能停、说给谁听、账记到哪。
+   *
+   * **工具拿到的就这些**——工程那一面（project / workspace / drafts）在
+   * `tools` 里绑好了，循环碰不到，也不需要碰。
+   */
+  const toolRun = {
     signal,
-    budget,
-    report: (m) => on.onNote?.(m),
-    onDelta: (d) => on.onDelta?.(d),
+    usage: budget.meter(),
+    report: (m: string) => on.onNote?.(m),
+    onDelta: (d: string) => on.onDelta?.(d),
   };
 
   // 输入预算：与创作那一层同源（对话页选定模型的窗口减去输出预留）。
@@ -211,8 +231,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
         on.onNote?.(`${over.message} 让它先说明一下做到哪了。`);
       }
 
-      const brief = await buildStateBrief(project, opts.target);
-      const built = buildAgentMessages(`${AGENT_SYSTEM}\n\n${brief}`, turns, inputBudget);
+      const built = buildAgentMessages(`${system}\n\n${await brief()}`, turns, inputBudget);
       if (built.overBudget && !finalRound) {
         // 压到底还超：停下来说清楚，好过默默丢掉一半上下文再给一个看着正常的答案。
         finalRound = true;
@@ -288,10 +307,13 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
           continue;
         }
 
-        // 闸门：这一步要不要先问作者一句（`policy.ts`）。守卫与覆盖审阅在
-        // 下面两层，与策略无关——这里只决定「动手之前问不问」。
-        const tool = byName.get(call.name);
-        const gate = tool ? gateFor(policy, tool, call.args ?? {}, project) : { confirm: false };
+        // 闸门：这一步要不要先问作者一句（`policy.ts`）。工具自报性质与说辞，
+        // 这里只按策略查表。守卫与覆盖审阅在下面两层，与策略无关。
+        //
+        // 认不出的名字**不问**：`invoke` 会回一句「没有叫 X 的工具」，为一个
+        // 根本不存在的动作弹框，作者只会莫名其妙。
+        const known = tools.names().includes(call.name);
+        const gate = known ? gateFor(policy, tools.intent(call.name, call.args ?? {})) : { confirm: false };
         const verdict = await askGate(gate, on, call.name);
         if (verdict !== 'proceed') {
           turns.push(toolMessage(call, declinedText(verdict, gate)));
@@ -310,7 +332,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
           continue;
         }
 
-        turns.push(toolMessage(call, await runTool(tool, call, ctx, on, draftIds, [...byName.keys()])));
+        turns.push(toolMessage(call, await runOne(tools, call, budget, toolRun, on, draftIds)));
       }
 
       // 中途停下（取消 / 原地打转）时**剩下的调用也要各回一条**：
@@ -366,58 +388,43 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
 // ---------------------------------------------------------------- 内部
 
 /**
- * 跑一个工具。**绝不抛**——工具抛异常时变成 `error` 回给模型，循环继续。
+ * 跑一个工具，把结果翻译成「回给模型的那段文本」，顺手把账与草稿收下。
  *
- * 一个工具炸掉不该带走整轮对话：模型看到错误说明会换条路，而抛出去的话作者
- * 只得到一句「处理消息时出错」，之前几步的成果全丢。
+ * **不需要 try/catch**：`invoke` 绝不抛（工具抛了也会变成一条 `error` 结果）。
+ * 那一层在 `tools/registry.ts`——换个调用方也不会漏掉它。
  */
-async function runTool(
-  tool: ToolDef | undefined,
+async function runOne(
+  tools: ToolInvoker,
   call: ToolCall,
-  ctx: ToolContext,
+  budget: Budget,
+  run: Parameters<ToolInvoker['invoke']>[2],
   on: AgentHandlers,
-  draftIds: string[],
-  available: string[]
+  draftIds: string[]
 ): Promise<string> {
-  const startedAt = Date.now();
-  // 第 11 条：**只记工具名与参数的键名**，不记值——值里可能有正文片段。
-  log.debug(`调用工具 ${call.name}`, `参数键：${Object.keys(call.args ?? {}).join(', ') || '（无）'}`);
+  on.onToolCall?.({ callId: call.id, name: call.name });
 
-  if (!tool) {
-    // 名单从**实际注册的那一份**来。写死一串名字，加了工具之后这句话就在撒谎。
-    const error = `没有叫 ${call.name} 的工具。可用的是：${available.join(' / ')}。`;
-    on.onToolCall?.({ callId: call.id, name: call.name });
-    on.onToolResult?.({ callId: call.id, name: call.name, ok: false, summary: error, elapsedMs: 0 });
-    return error;
+  const spentBefore = budget.calls;
+  const result: ToolInvocation = await tools.invoke(call.name, call.args ?? {}, run);
+
+  // 花过钱的那一步单独报一句账（第 4 条）。工具只说「已生成 4/4 节」——
+  // 上限是多少只有这里知道。
+  if (budget.calls > spentBefore) {
+    on.onNote?.(budget.describe());
   }
-
-  let result: ToolResult;
-  try {
-    on.onToolCall?.({ callId: call.id, name: call.name });
-    result = await tool.run(ctx, call.args ?? {});
-  } catch (err) {
-    result = { text: '', error: `工具执行失败：${describeError(err)}` };
-    log.warn(`工具 ${call.name} 抛异常`, describeError(err));
-  }
-
-  // 草稿 id 从返回文本里认出来太脏，让工具自己在 display 里说不合适——
-  // 直接看 store 里这一次多出来什么最实在。
-  const latest = ctx.drafts.bySession(ctx.sessionId);
-  for (const draft of latest) {
-    if (!draftIds.includes(draft.id)) {
-      draftIds.push(draft.id);
+  for (const id of result.draftIds) {
+    if (!draftIds.includes(id)) {
+      draftIds.push(id);
     }
   }
 
-  const ok = !result.error;
   on.onToolResult?.({
     callId: call.id,
     name: call.name,
-    ok,
+    ok: result.ok,
     summary: result.error ?? result.display?.detail ?? firstLine(result.text),
-    elapsedMs: Date.now() - startedAt,
+    elapsedMs: result.elapsedMs,
   });
-  return result.error ?? result.text;
+  return result.text;
 }
 
 /**

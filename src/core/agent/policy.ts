@@ -13,22 +13,31 @@
  * 这里管的只是「动手之前要不要先问一句」。所以最放手的模式也**不会**让
  * agent 静默覆盖作者写过的东西：那是产品承诺（第 3 / 19 条），不是偏好设置。
  *
- * ## 矩阵
+ * ## 一张表，不认识任何一个工具
  *
- * | 模式 | list/read/search | generate | write 新建/追加 | write 覆盖 | edit | run |
- * |---|---|---|---|---|---|---|
- * | 谨慎 | 自动 | **每次确认** | 确认 | 审阅 | 确认 | 确认 |
- * | **默认** | 自动 | 预算内自动 | 确认 | 审阅 | 确认 | 确认 |
- * | 放手 | 自动 | 预算内自动 | 自动 | 审阅 | 确认 | 自动（批量动作自带的框仍然弹） |
+ * 从前这里是 `switch (tool.name)`：generate 怎么问、write 怎么问、edit 怎么问，
+ * 连「第 12 章的细纲」这个名字都是在这儿拼的。于是**加一个工具就要回来改一次**，
+ * 而忘了改不会红——只会在某一天静默地少问一句。
  *
- * 两列**三种模式完全一样，且不可配置**：
+ * 现在工具自报 {@link ToolIntent}（性质 + 说辞），这里只剩一张五行的表：
  *
- * - **`write` 覆盖**——交给网关的覆盖审阅。在它之前再弹一个「确定吗」是纯噪声：
- *   diff 本身就同时回答了「要不要动」与「改了什么」，而后者是前者的依据。
- * - **`edit`**——它改的也是已有内容，但 `ws.edit` 走的是「拿这份内容和自己
- *   diff」那条路（`review: false`，理由见 `workspace/index.ts`），所以覆盖审阅
- *   在这里落成**确认框**：框里写清 old → new 两段原文，那就是它的 diff。
- *   放手模式也不放开——否则「覆盖已有内容一律过一遍人」就有了一个例外。
+ * | gate | 谨慎 | 默认 | 放手 | 谁是这一档 |
+ * |---|---|---|---|---|
+ * | `auto` | 自动 | 自动 | 自动 | list / read / search |
+ * | `costly` | **确认** | 自动 | 自动 | generate |
+ * | `mutating` | 确认 | 确认 | 自动 | write 新建/追加、run |
+ * | `reviewed` | 自动 | 自动 | 自动 | write 覆盖（下游带 diff 请人过目） |
+ * | `always` | 确认 | 确认 | **确认** | edit（下游不过目，这一句就是它的 diff） |
+ *
+ * 后两行**三种模式完全一样，且不可配置**（第 25(a) 条）：
+ *
+ * - **`reviewed`**——在覆盖审阅之前再弹一个「确定吗」是纯噪声：diff 本身就同时
+ *   回答了「要不要动」与「改了什么」，而后者是前者的依据。
+ * - **`always`**——`ws.edit` 走的是「拿这份内容和自己 diff」那条路，覆盖审阅在
+ *   这里落成确认框。放手模式也不放开，否则「覆盖已有内容一律过一遍人」就有了
+ *   一个例外。
+ *
+ * 哪个工具归哪一档由**工具自己**声明——只有它知道自己随后会不会走审阅。
  *
  * ## 三个选项，不是两个
  *
@@ -39,11 +48,8 @@
  * 回答，那就不该替他答「继续」。停止不丢任何东西——已经写下的还在，模型还会
  * 得到最后一轮说明做到哪了。
  */
-import type { NovelProject } from '../model/project';
 import type { AgentPolicy } from '../model/agentPolicy';
-import { kindOfPath } from '../workspace';
-import type { ToolDef } from './registry';
-import { describeForReview } from './tools/write';
+import type { GateKind, ToolIntent } from '../tools/types';
 
 // 类型、可选值与界面说法在数据层定义一次（`config.ts` 与 `protocol/` 要用，
 // 它们不该依赖 agent 层）；这里只做判定。
@@ -79,102 +85,39 @@ export const SKIP_ACTION = '跳过这一步';
 export const STOP_ACTION = '停止 agent';
 
 /**
+ * 判定表。**这是这个文件的全部判断**，其余都是拼字符串。
+ */
+const CONFIRM_AT: Record<GateKind, ReadonlySet<AgentPolicy>> = {
+  auto: new Set(),
+  costly: new Set<AgentPolicy>(['careful']),
+  mutating: new Set<AgentPolicy>(['careful', 'default']),
+  reviewed: new Set(),
+  always: new Set<AgentPolicy>(['careful', 'default', 'bold']),
+};
+
+/**
  * 这一步要不要先问一句。
  *
- * **零 I/O**：只看策略、工具定义与参数。目标叫什么由 `kindOfPath` 算
- * （那也是纯函数），所以确认框上的名字与随后 diff 上的名字**逐字一致**——
- * 作者不该在两个框里看到同一份东西的两个名字。
+ * **零 I/O**：只看策略与工具自报的意图。意图本身也是纯函数算出来的，所以确认框
+ * 上的名字与随后 diff 上的名字**逐字一致**——作者不该在两个框里看到同一份东西的
+ * 两个名字。
+ *
+ * `intent` 缺席（工具名认不出来）时按 `mutating` 判：宁可多问，也不要有一条
+ * 没人想过的路。真正认不出的名字压根走不到这里——注册表会直接回一句
+ * 「没有叫 X 的工具」。
  */
-export function gateFor(
-  policy: AgentPolicy,
-  tool: ToolDef,
-  args: Record<string, unknown>,
-  project?: NovelProject
-): Gate {
-  // 读工具在任何模式下都自动：它们不花钱、不改任何东西，问一句只是让人麻木。
-  if (!tool.mutating && !tool.costly) {
+export function gateFor(policy: AgentPolicy, intent?: ToolIntent): Gate {
+  const kind: GateKind = intent?.gate ?? 'mutating';
+  if (!CONFIRM_AT[kind]?.has(policy)) {
     return NO_GATE;
   }
-
-  switch (tool.name) {
-    case 'generate':
-      return policy === 'careful' ? generateGate(args, project) : NO_GATE;
-    case 'write':
-      return writeGate(policy, args, project);
-    case 'edit':
-      // ★ 三种模式一样。它改的是已有内容。
-      return editGate(args, project);
-    case 'run':
-      return policy === 'bold' ? NO_GATE : runGate(args);
-    default:
-      // 没登记的工具：花钱或写盘就问一句。宁可多问，也不要有一条没人想过的路。
-      return policy === 'bold' ? NO_GATE : { confirm: true, message: `Agent 要执行 ${tool.name}。`, proceed: '执行' };
-  }
-}
-
-// ---------------------------------------------------------------- 各工具的文案
-
-function generateGate(args: Record<string, unknown>, project?: NovelProject): Gate {
-  const target = str(args.target);
   return {
     confirm: true,
-    message: `Agent 要为「${nameOf(target, project)}」调一次创作模型`,
-    detail: [target, str(args.ask) && `要求：${clip(str(args.ask))}`, '这一步会花钱。产出仍然要你点采纳才落盘。']
-      .filter(Boolean)
-      .join('\n'),
-    proceed: '生成',
-  };
-}
-
-function writeGate(policy: AgentPolicy, args: Record<string, unknown>, project?: NovelProject): Gate {
-  const mode = str(args.mode) || 'create';
-  // 覆盖：交给网关的覆盖审阅，三种模式一样，这里不再问一遍。
-  if (mode === 'overwrite') {
-    return NO_GATE;
-  }
-  if (policy === 'bold') {
-    return NO_GATE;
-  }
-  const target = str(args.path);
-  return {
-    confirm: true,
-    message: `Agent 要写入「${nameOf(target, project)}」`,
-    detail: `${target}（${mode === 'append' ? '追加到末尾' : '新建'}）`,
-    proceed: '写入',
-  };
-}
-
-function editGate(args: Record<string, unknown>, project?: NovelProject): Gate {
-  const target = str(args.path);
-  return {
-    confirm: true,
-    message: `Agent 要改「${nameOf(target, project)}」里的一段文字`,
-    // old → new 两段原文就是这一次编辑的 diff。不写出来，作者只能凭工具名点确定。
-    detail: [
-      target,
-      `原文：${clip(str(args.old))}`,
-      `改成：${clip(str(args.new)) || '（删掉）'}`,
-      args.all === true ? '文件里所有出现的地方都改。' : '',
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    proceed: '替换',
-  };
-}
-
-function runGate(args: Record<string, unknown>): Gate {
-  const action = str(args.action);
-  const target = str(args.path) || str(args.name);
-  return {
-    confirm: true,
-    message: `Agent 要执行工程动作 ${action}`,
-    detail: [
-      target,
-      '要调模型的动作随后还会告诉你预计调用几次，那一步你也可以不同意。',
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    proceed: '执行',
+    // 主语在这里加：工具不知道是谁在调它（agent？将来某个远端？），
+    // 而作者要知道现在是谁要动他的磁盘。
+    message: `Agent 要${intent?.title ?? '执行一个动作'}`,
+    detail: intent?.detail,
+    proceed: intent?.proceed ?? '执行',
   };
 }
 
@@ -190,26 +133,4 @@ export function declinedText(verdict: 'skip' | 'stop', gate: Gate): string {
     ? `作者跳过了这一步（${what}），它没有执行，磁盘上什么都没变。` +
         '**不要重试同一个动作**——换个做法，或者问问他想怎么做。'
     : `作者选择停止（${what}）。不要再发起新的动作，把已经做到哪、还差什么说清楚就行。`;
-}
-
-// ---------------------------------------------------------------- 小工具
-
-function str(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-/**
- * 路径 → 人话名字。`describeForReview` 是覆盖审阅框用的那一份，共用它，
- * 两个框上的说法就不会分叉。拿不到 project（纯单测）时退回路径本身。
- */
-function nameOf(rel: string, project?: NovelProject): string {
-  if (!rel) {
-    return '（没给路径）';
-  }
-  return project ? describeForReview(kindOfPath(project, rel), rel) : rel;
-}
-
-function clip(text: string): string {
-  const one = text.replace(/\s+/g, ' ').trim();
-  return one.length > 60 ? `${one.slice(0, 60)}…` : one;
 }

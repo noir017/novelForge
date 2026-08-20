@@ -1,4 +1,4 @@
-# core/agent — 循环、工具、预算、闸门
+# core/agent — 循环、预算、闸门
 
 **把 AI 从「执行一条命令」改成「拿着工具达成一个目标」。**
 
@@ -9,25 +9,31 @@
 | 文件 | 职责 |
 |---|---|
 | [loop.ts](loop.ts) | ★ 对话循环。一个回合 = 注入状态 → 压缩历史 → 调模型 → 过闸门 → 执行工具 |
-| [registry.ts](registry.ts) | `ToolDef[]` → `ToolSpec[]`，外加把「描述与 schema 该怎么写」钉死的校验 |
 | [context.ts](context.ts) | ★ 状态注入（每回合把状态机的结论拼进 system）+ 工具结果压缩 |
 | [budget.ts](budget.ts) | ★ 步数 / 调用次数 / token 三条上限 + 无进展检测 |
-| [policy.ts](policy.ts) | ★ 哪些动作自动、哪些先问一句、问的时候说什么 |
-| [tools/](tools/index.ts) | 七个工具，全是 L1/L2 的薄包装（每个不超过 60 行） |
+| [policy.ts](policy.ts) | ★ 三种模式 × 五档意图那张表：哪些动作自动、哪些先问一句 |
+
+## 工具不在这一层
+
+工具在 [`core/tools/`](../tools/README.md)。循环手上只有一个 `ToolInvoker`——四个方法（`specs` / `names` / `intent` / `invoke`），**没有 `Workspace`、没有 `DraftStore`、没有 `ToolDef`**。绑环境是调用方的事：
+
+```ts
+runAgent({
+  project,                                   // 只为状态注入
+  tools: createNovelTools({ project, workspace, drafts, sessionId }),
+  provider, ask, signal,
+})
+```
+
+这么分的理由是两件将来要做的事：**工具要能端出去（MCP）**，而**循环要能换掉**（同一套工具换一个更轻的调度实现）。两层缠在一起时哪件都做不成——细账记在 `tools/README.md` 开头那张表里。
+
+于是这一层还剩三件事，全是调度：**注入状态**、**看着预算**、**过闸门**。加一个工具不必回来改这里的任何一行；`AGENT_SYSTEM` 里也不列工具能干什么（那是每个工具自己的 `description`，模型每一轮都收得到）。
+
+`system` 与每回合的现场描述（`brief`）都可以由调用方替换，缺省是 Novel Forge 那一套。
 
 ## 七个工具，没有第八个
 
-| 工具 | 干什么 | 底座 |
-|---|---|---|
-| `list` / `read` / `search` | 查 | `Workspace.list` / `.read` / `.search` |
-| `generate` | 调创作模型产出内容（花钱） | `generation.generate` |
-| `write` | 落盘（吃 `draftId` 或 `content`） | `Workspace.write` |
-| `edit` | 定点替换一段文字 | `Workspace.edit` |
-| `run` | 工程动作（拆分 / 批量 / 摘要…） | 既有的 `features/*` |
-
-前三个 + `edit` 是标准四件套，任何支持工具调用的模型都见过。**工具数是硬约束**：每多一个都要在每一轮里发一遍描述，而且模型选错工具的概率随数量上升。
-
-**明确不给**：删除、改名、移动（`workspace` 上都有，就是不暴露）、`bash`、工程根之外的路径、裸 `fs`。理由见 AGENTS 第 25(c) 条。
+清单与理由在 [tools/README.md](../tools/README.md) 与 [tools/novel/index.ts](../tools/novel/index.ts)：`list` / `read` / `search` 查，`generate` 产出，`write` / `edit` 落盘，`run` 走既有的工程动作。**明确不给**删除、改名、移动、`bash`、工程根之外的路径、裸 `fs`（AGENTS 第 25(c) 条）。
 
 ### 为什么没有 `read_draft`
 
@@ -88,7 +94,7 @@ draftId: d3f2a-1
 只记**工具名与参数的键名**（第 11 条）：
 
 ```
-[12:03:41] DEBUG Agent｜调用工具 generate
+[12:03:41] DEBUG Tools｜调用工具 generate
     参数键：target, capability, ask
 ```
 
@@ -104,15 +110,19 @@ agent 的工具调用不是作者的讨论。混进装配器，`buildContext` �
 
 真正的保护在下面两层，而且**与策略无关**：`workspace/guard.ts` 的八条守卫、覆盖前审阅（`reviewOverwrite`）、批量动作自带的「预计调用 N 次」确认框——任何模式下都在。
 
-`policy.ts` 管的只是「动手之前要不要先问一句」：
+`policy.ts` 管的只是「动手之前要不要先问一句」。它**不认识任何一个工具的名字**——性质与说辞由工具自报（`ToolIntent`），这里只按五档查表：
 
-| 模式 | list/read/search | generate | write 新建/追加 | write 覆盖 | edit | run |
-|---|---|---|---|---|---|---|
-| 谨慎 | 自动 | **每次确认** | 确认 | 审阅 | 确认 | 确认 |
-| **默认** | 自动 | 预算内自动 | 确认 | 审阅 | 确认 | 确认 |
-| 放手 | 自动 | 预算内自动 | 自动 | 审阅 | 确认 | 自动（批量动作自带的框仍然弹） |
+| gate | 谨慎 | 默认 | 放手 | 谁是这一档 |
+|---|---|---|---|---|
+| `auto` | 自动 | 自动 | 自动 | list / read / search |
+| `costly` | **每次确认** | 预算内自动 | 预算内自动 | generate |
+| `mutating` | 确认 | 确认 | 自动 | write 新建/追加、run（批量动作自带的框仍然弹） |
+| `reviewed` | 审阅 | 审阅 | 审阅 | write 覆盖 |
+| `always` | 确认 | 确认 | **确认** | edit |
 
-两列**三种模式完全一样，且不可配置**：`write` 覆盖交给网关的覆盖审阅（diff 本身就同时回答了「要不要动」与「改了什么」）；`edit` 一律确认，因为 `ws.edit` 走的是 `review: false` 那条路，框里写出的 old → new 就是它的 diff。
+后两档**三种模式完全一样，且不可配置**：`write` 覆盖交给网关的覆盖审阅（diff 本身就同时回答了「要不要动」与「改了什么」）；`edit` 一律确认，因为 `ws.edit` 走的是 `review: false` 那条路，框里写出的 old → new 就是它的 diff。
+
+**认不出的工具名不弹框**：`invoke` 会回一句「没有叫 X 的工具」，为一个根本不存在的动作问作者，他只会莫名其妙——而且答「继续」也没有用。
 
 确认框给**三个选项**：执行 / 跳过这一步 / 停止 agent。只给「是/否」的话，作者想拒绝某一步就只能连整轮一起掐掉。**关掉对话框当停止处理**——他被问「要不要动你的磁盘」而没有回答，不该替他答「继续」。
 
@@ -137,11 +147,13 @@ agent 的工具调用不是作者的讨论。混进装配器，`buildContext` �
 
 直接掐断的话作者只看到一段没头没尾的输出，不知道该从哪接着做。上下文压不下去（`buildAgentMessages` 的 `overBudget`）也走这条路。
 
-缺省上限：20 个回合 / 10 次生成 / 20 万 token。**`run` 的批量动作按 feature 报回来的「计划调用几次」记账**——弹窗写着 7 次、账上记 1 次，正是第 4 条要防的事。
+缺省上限：20 个回合 / 10 次生成 / 20 万 token。
+
+**账在这一层，报数在工具那一层**：工具只 `usage.record(n)` 说「我调了 n 次模型」，连上限是多少都不知道；「已用 3/10 次生成，约 1.2 万 token」那句话由循环在工具跑完后补一条（`budget.describe()`）。`run` 的批量动作报的是 feature 算出来的「计划调用几次」——弹窗写着 7 次、账上记 1 次，正是第 4 条要防的事。
 
 ## 取消停在工具边界
 
-`signal.aborted` 时不再发起下一次模型调用，也不再执行下一个工具；**正在跑的 `generate` 靠它自己的 signal 停**（`ToolContext.signal` 就是同一个）。
+`signal.aborted` 时不再发起下一次模型调用，也不再执行下一个工具；**正在跑的 `generate` 靠它自己的 signal 停**（`ToolRun.signal` 就是同一个）。
 
 **已经产出的 draft 保留**——那是花过钱的东西。取消的是「接着往下做」，不是「刚才做的作废」。
 
@@ -196,6 +208,8 @@ agent 自己的历史会涨（工具结果一条条累积）。四条策略：
 
 ## 依赖关系
 
-`agent/`（L3）→ `generation/`（L2）→ `workspace/`（L1）→ `model/`。严格自下而上：**L1 不认识 L2，L2 不认识 L3**。
+`tools/`（L3）→ `generation/`（L2）→ `workspace/`（L1）→ `model/`。严格自下而上：**L1 不认识 L2，L2 不认识 L3**。
 
-`controller/agent.ts` 是它在面板那一侧的入口（占生成位、走 `runTask`、把循环事件翻译成协议消息）。agent 层**不认识 controller**——反过来会成环。
+`agent/` 与 `tools/` **并列**，不是上下级：agent 只 `import type` 那一份契约（`tools/types.ts`），tools 一行都不 import agent。由 [tests/contract/layerBoundary.test.js](../../../tests/contract/layerBoundary.test.js) 守着。
+
+`controller/agent.ts` 是它在面板那一侧的入口（绑工具环境、占生成位、走 `runTask`、把循环事件翻译成协议消息）。agent 层**不认识 controller**——反过来会成环。

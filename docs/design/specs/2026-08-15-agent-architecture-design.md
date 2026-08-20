@@ -61,7 +61,8 @@
 core/llm/         L0  事件流 provider（含 tool calling）
 core/workspace/   L1  唯一读写网关：路径 → 种类 → 解析/渲染/记账/授权
 core/generation/  L2  装配 + 调模型 + 产物解析（无状态）
-core/agent/       L3  循环、工具注册表、预算、策略
+core/tools/       L3  工具：契约、注册表、novel/ 那七个（后来从 agent/ 独立出来）
+core/agent/       L3  调度：循环、状态注入、预算、策略（与 tools/ 并列，只认 ToolInvoker）
 ```
 
 依赖方向严格自下而上。L1 不认识 L2，L2 不认识 L3。
@@ -319,11 +320,14 @@ Draft store 持久化的理由与现在 `ChatTurn.artifact` 存进会话是同�
 ## L3 · agent
 
 ```
+core/tools/                （当时在 core/agent/ 里，后来独立出来）
+  types.ts       契约：ToolDef / ToolIntent / ToolInvoker
+  schema.ts      参数 schema 的写法与校验
+  registry.ts    注册表 → ToolSpec[]，外加执行与兜异常
+  novel/         7 个工具，全是 L1/L2 的薄包装
 core/agent/
-  loop.ts        对话循环
-  tools/         7 个工具，全是 L1/L2 的薄包装
-  registry.ts    工具注册表 → ToolSpec[]
-  policy.ts      哪些工具要确认
+  loop.ts        对话循环（只认 ToolInvoker）
+  policy.ts      哪些工具要确认（按工具自报的 gate 查表）
   budget.ts      步数 / 调用次数 / token 上限 + 无进展检测
   context.ts     状态注入 + 工具结果压缩
 ```

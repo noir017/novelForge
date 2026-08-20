@@ -8,14 +8,17 @@
 | [workspace/](workspace/README.md) | ★ **工程的唯一读写网关**：`list` / `read` / `write` / `edit` / `move` / `remove` / `search`。路径 → 种类 → 八条守卫 → 解析/渲染/记账/伴生。**新代码不许绕过 `guard.ts` 直接 `fs.writeFile`** |
 | [context/](context/README.md) | ★ 上下文装配：token 粗估与分层预算装配器 |
 | [generation/](generation/README.md) | ★ 创作的一次单步：`generate.ts` **无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，不管并发）、`accept.ts` 六条落盘分派、`drafts.ts` 让未采纳的产物活过一次刷新。**`cleanOutput` 只对正文层做**，采纳时拿气泡里当下的文本重新解析 |
-| [agent/](agent/README.md) | ★ 多步：循环、工具注册表、状态注入、预算闸门、策略与确认闸门。七个工具（读三件 + `generate` + `write` / `edit` / `run`），**没有删除/改名/移动**；写入走的是与「采纳写入」同一条 `workspace.write`，没有新的保护代码。「下一步该做什么」由 `deriveNextStep` 每回合注入，agent 不另做判断 |
+| [tools/](tools/README.md) | ★ **工具层**：契约（`ToolDef` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那七个工具（读三件 + `generate` + `write` / `edit` / `run`），**没有删除/改名/移动**；写入走的是与「采纳写入」同一条 `workspace.write`，没有新的保护代码。**不认识 `agent/`**——将来要能单独端出去做 MCP |
+| [agent/](agent/README.md) | ★ 多步调度：循环、状态注入、预算闸门、策略与确认闸门。手上只有一个 `ToolInvoker`，**不认识 `Workspace` / `DraftStore` / 具体工具**。「下一步该做什么」由 `deriveNextStep` 每回合注入，agent 不另做判断 |
 | [features/](features/README.md) | 功能编排：续写、摘要、角色卡、设定、文风提取 |
 | [llm/](llm/README.md) | 模型接入：`LlmProvider` 接口、OpenAI / Anthropic 协议实现、provider 注册表 |
 | [files/](files/) | ★ 工程文件能力的**交互流程**：三区界限判断、弹输入框、拼 toast 文案，以及资源管理器目录列举与 `@` 引用候选。落盘一律转调 `workspace/`——不越界、不静默覆盖、删除搬进 `.trash/` 那几条守卫在网关里做一次。 |
 | [views/](views/README.md) | ★ 只读聚合与界面快照：工程树、单章流水线、创作工作区卡与出场人物索引。只从磁盘取数，不写盘。`views/pipeline.ts` 是 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，不迁入 `views/`。 |
 | [runtime/](runtime/) | ★ 宿主无关的运行时设施：日志、SQLite 痕迹库、失败记录、长任务登记与有界并发。`logger.ts` 保持零依赖；日志持久化由 `db.ts` 订阅 logger sink，依赖方向不可反转。 |
 
-依赖方向自上而下：`features/` / `generation/` → `context/` / `llm/` → `workspace/` → `model/`，反向不允许。`agent/` 坐在最上面（它调 `generation/` 与 `workspace/`），**不认识 `controller/`**——反过来会成环。
+依赖方向自上而下：`features/` / `generation/` → `context/` / `llm/` → `workspace/` → `model/`，反向不允许。`tools/` 坐在最上面（它调 `generation/`、`workspace/` 与 `features/`），**不认识 `controller/`**——反过来会成环。
+
+`agent/` 与 `tools/` **并列而不是上下级**：agent 只 `import type` 那一份契约（`tools/types.ts`），tools 一行都不 import agent。绑在一起的是 `controller/agent.ts`——它给工具绑好环境，再把工具集递给循环。这条边由 [tests/contract/layerBoundary.test.js](../../tests/contract/layerBoundary.test.js) 守着，两个理由：**工具将来要能端出去做 MCP**，**循环要能换成更轻的实现**。
 
 本目录根下只保留入口胶水与跨子目录契约：
 

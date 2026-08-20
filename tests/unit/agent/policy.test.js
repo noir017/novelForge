@@ -1,10 +1,15 @@
 /**
- * 策略与确认闸门。
+ * 策略与确认闸门：**三种模式 × 五档意图的那张表**。
  *
- * 三种模式 × 五类工具的矩阵，外加两条**不可配置**的：
+ * 这个文件从前有两半：判定表，以及每个工具的确认框该写什么话。后一半跟着
+ * 工具搬走了（`tests/unit/tools/intent.test.js`）——**这里不认识任何一个工具
+ * 的名字**，加一个工具不该回来改这个文件。
  *
- * 1. **`write` 覆盖**在任何模式下都不预先确认——交给网关的覆盖审阅（diff）。
- * 2. **`edit`** 在任何模式下都要确认，包括「放手」——它改的是已有内容，
+ * 两档是产品承诺，不是偏好设置：
+ *
+ * 1. **`reviewed`**（write 覆盖）在任何模式下都不预先确认——交给下游的覆盖审阅
+ *    （diff 本身就同时回答了「要不要动」与「改了什么」）。
+ * 2. **`always`**（edit）在任何模式下都要确认，包括「放手」——它改的是已有内容，
  *    而 `ws.edit` 不走 diff，所以那一句确认就是它的审阅。
  *
  * 还有一条：**拒绝之后回给模型的话要有信息量**，否则它会原地重试烧钱。
@@ -16,167 +21,75 @@ const { loadModule } = require('../../helpers/load');
 const policy = loadModule('src/core/agent/policy.ts');
 const { gateFor, declinedText, AGENT_POLICIES, DEFAULT_AGENT_POLICY, isAgentPolicy } = policy;
 
-/** 工具定义的最小替身：闸门只看 name / mutating / costly。 */
-const T = {
-  list: { name: 'list' },
-  read: { name: 'read' },
-  search: { name: 'search' },
-  generate: { name: 'generate', costly: true },
-  write: { name: 'write', mutating: true },
-  edit: { name: 'edit', mutating: true },
-  run: { name: 'run', mutating: true, costly: true },
+/** 五档意图的最小替身。闸门只看 `gate`，说辞原样转述。 */
+const intent = (gate, extra = {}) => ({ gate, title: '做一件事', ...extra });
+
+const confirms = (mode, gate) => gateFor(mode, intent(gate)).confirm;
+
+/** 期望矩阵。改这张表之前先想清楚它对应的是哪一条产品承诺。 */
+const MATRIX = {
+  //        careful default bold
+  auto: [false, false, false],
+  costly: [true, false, false],
+  mutating: [true, true, false],
+  reviewed: [false, false, false],
+  always: [true, true, true],
 };
 
-const gate = (mode, tool, args = {}) => gateFor(mode, tool, args);
-const confirms = (mode, tool, args) => gate(mode, tool, args).confirm;
-
-describe('读工具在任何模式下都自动', () => {
-  for (const mode of AGENT_POLICIES) {
-    for (const name of ['list', 'read', 'search']) {
-      test(`${mode} × ${name} 不问`, () => {
-        assert.equal(confirms(mode, T[name], { path: 'x' }), false);
+describe('三种模式 × 五档', () => {
+  for (const [gate, expected] of Object.entries(MATRIX)) {
+    AGENT_POLICIES.forEach((mode, i) => {
+      test(`${mode} × ${gate} ${expected[i] ? '要确认' : '自动'}`, () => {
+        assert.equal(confirms(mode, gate), expected[i]);
       });
-    }
-  }
-});
-
-describe('generate：只有谨慎模式每次确认', () => {
-  test('谨慎要确认', () => {
-    assert.equal(confirms('careful', T.generate, { target: '.novelforge/plots/012.md' }), true);
-  });
-
-  test('默认不问（预算内自动）', () => {
-    assert.equal(confirms('default', T.generate, { target: '.novelforge/plots/012.md' }), false);
-  });
-
-  test('放手不问', () => {
-    assert.equal(confirms('bold', T.generate, { target: '.novelforge/plots/012.md' }), false);
-  });
-
-  // 「Agent 想调用 generate，允许吗」作者答不上来——他不知道会写到哪、花多少。
-  test('问的时候说清了会花钱', () => {
-    const g = gate('careful', T.generate, { target: '.novelforge/plots/012.md' });
-    assert.ok(g.detail.includes('花钱'), g.detail);
-  });
-
-  test('问的时候说清了产出仍然要点采纳', () => {
-    const g = gate('careful', T.generate, { target: '.novelforge/plots/012.md' });
-    assert.ok(g.detail.includes('采纳'), g.detail);
-  });
-});
-
-describe('write 新建 / 追加：谨慎与默认确认，放手自动', () => {
-  const args = { path: '.novelforge/plots/012-入宗.md' };
-
-  test('谨慎要确认', () => {
-    assert.equal(confirms('careful', T.write, args), true);
-  });
-
-  test('默认要确认', () => {
-    assert.equal(confirms('default', T.write, args), true);
-  });
-
-  test('放手自动', () => {
-    assert.equal(confirms('bold', T.write, args), false);
-  });
-
-  test('追加与新建同一档', () => {
-    assert.equal(confirms('default', T.write, { ...args, mode: 'append' }), true);
-    assert.equal(confirms('bold', T.write, { ...args, mode: 'append' }), false);
-  });
-
-  test('确认框上写清了写到哪、是新建还是追加', () => {
-    const g = gate('default', T.write, args);
-    assert.ok(g.message.includes('写入'), g.message);
-    assert.ok(g.detail.includes('.novelforge/plots/012-入宗.md'), g.detail);
-    assert.ok(g.detail.includes('新建'), g.detail);
-  });
-
-  test('同意那颗按钮上写的是「写入」而不是「确定」', () => {
-    assert.equal(gate('default', T.write, args).proceed, '写入');
-  });
-});
-
-// ★ 这一组是产品承诺，不是偏好设置。
-describe('write 覆盖：三种模式完全一样', () => {
-  const args = { path: '.novelforge/plots/012-入宗.md', mode: 'overwrite' };
-
-  for (const mode of AGENT_POLICIES) {
-    test(`${mode} 下都不预先确认（交给网关的覆盖审阅）`, () => {
-      assert.equal(confirms(mode, T.write, args), false);
     });
   }
-
-  test('三种模式给出的闸门逐字相同', () => {
-    const gates = AGENT_POLICIES.map((m) => JSON.stringify(gate(m, T.write, args)));
-    assert.equal(new Set(gates).size, 1, gates.join(' | '));
-  });
 });
 
-// ★ 同上：edit 改的也是已有内容，而 ws.edit 不走 diff。
-describe('edit：三种模式都要确认', () => {
-  const args = { path: '.novelforge/plots/012-入宗.md', old: '林昭', new: '林昀' };
-
-  for (const mode of AGENT_POLICIES) {
-    test(`${mode} 下都要确认`, () => {
-      assert.equal(confirms(mode, T.edit, args), true);
+// ★ 这两组是产品承诺：三种模式给出的闸门必须逐字相同，不可配置。
+describe('不可配置的两档', () => {
+  for (const gate of ['reviewed', 'always']) {
+    test(`${gate} 在三种模式下逐字相同`, () => {
+      const gates = AGENT_POLICIES.map((m) => JSON.stringify(gateFor(m, intent(gate))));
+      assert.equal(new Set(gates).size, 1, gates.join(' | '));
     });
   }
+});
 
-  test('三种模式给出的闸门逐字相同', () => {
-    const gates = AGENT_POLICIES.map((m) => JSON.stringify(gate(m, T.edit, args)));
-    assert.equal(new Set(gates).size, 1, gates.join(' | '));
+describe('说辞原样来自工具，只补一个主语', () => {
+  const g = gateFor('default', {
+    gate: 'mutating',
+    title: '写入「第 12 章的细纲」',
+    detail: '.novelforge/plots/012-入宗.md（新建）',
+    proceed: '写入',
   });
 
-  // 不写出 old → new，作者只能凭工具名点确定，那不叫过目。
-  test('框里写出了原文与改成什么', () => {
-    const g = gate('bold', T.edit, args);
-    assert.ok(g.detail.includes('林昭'), g.detail);
-    assert.ok(g.detail.includes('林昀'), g.detail);
+  // 作者要知道现在是谁要动他的磁盘；工具不知道自己被谁调，所以主语在这里加。
+  test('加了主语', () => {
+    assert.equal(g.message, 'Agent 要写入「第 12 章的细纲」');
   });
 
-  test('删掉一段时说「删掉」而不是留空', () => {
-    const g = gate('default', T.edit, { ...args, new: '' });
-    assert.ok(g.detail.includes('删掉'), g.detail);
+  test('detail 原样透传，不在这里改写', () => {
+    assert.equal(g.detail, '.novelforge/plots/012-入宗.md（新建）');
   });
 
-  test('all=true 时说清全文都改', () => {
-    const g = gate('default', T.edit, { ...args, all: true });
-    assert.ok(g.detail.includes('所有出现的地方'), g.detail);
+  test('按钮上的字用工具那一份', () => {
+    assert.equal(g.proceed, '写入');
+  });
+
+  test('工具没说按钮写什么时兜一个「执行」', () => {
+    assert.equal(gateFor('default', intent('mutating')).proceed, '执行');
   });
 });
 
-describe('run：谨慎与默认确认，放手自动', () => {
-  const args = { action: 'batchPlots' };
-
-  test('谨慎要确认', () => {
-    assert.equal(confirms('careful', T.run, args), true);
-  });
-
-  test('默认要确认', () => {
-    assert.equal(confirms('default', T.run, args), true);
-  });
-
-  test('放手自动', () => {
-    assert.equal(confirms('bold', T.run, args), false);
-  });
-
-  // 放手模式下这里不问，但 pipelineBatch 自己那个「预计调用 N 次」照弹。
-  test('确认框里提醒了随后还会告诉他调几次', () => {
-    const g = gate('default', T.run, args);
-    assert.ok(g.detail.includes('预计调用几次'), g.detail);
-  });
-});
-
-describe('认不出的工具', () => {
-  const unknown = { name: '未来的某个工具', mutating: true };
-
-  test('默认模式下宁可多问一句', () => {
-    assert.equal(confirms('default', unknown, {}), true);
-  });
-
-  test('读类的没登记也不问（不花钱不写盘）', () => {
-    assert.equal(confirms('default', { name: '某个只读工具' }, {}), false);
+describe('没有意图的一步', () => {
+  // 认不出的**名字**由循环挡在前面（不弹框，直接让 invoke 回「没有叫 X 的
+  // 工具」）。走到这里的是「有这个工具，但它没说自己是什么性质」——
+  // 宁可多问，也不要有一条没人想过的路。
+  test('按 mutating 判', () => {
+    assert.equal(gateFor('careful', undefined).confirm, true);
+    assert.equal(gateFor('default', undefined).confirm, true);
+    assert.equal(gateFor('bold', undefined).confirm, false);
   });
 });
 

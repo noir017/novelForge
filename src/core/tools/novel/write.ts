@@ -25,7 +25,9 @@
  *    动作是最常见的烧钱方式）。
  * 5. **写失败 `recordFailure` 挂在对应细纲上，成功 `clearFailures`**（第 16 条）。
  */
-import { ToolContext, ToolDef, ToolResult, objectSchema, str } from '../registry';
+import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
+import { objectSchema, str } from '../schema';
+import { describeForReview, describePath, text } from './naming';
 import { WsError, kindOfPath } from '../../workspace';
 import type { PathKind, WriteInput } from '../../workspace';
 import type { Artifact } from '../../features/artifact';
@@ -43,6 +45,28 @@ export const WRITE_OP = 'agentWrite';
 export const writeTool: ToolDef = {
   name: 'write',
   mutating: true,
+
+  /**
+   * **覆盖那一档是 `reviewed`，不是 `mutating`**：`ws.write` 会带着 diff 去请
+   * 作者过目，在它之前再弹一个「确定吗」是纯噪声——diff 本身就同时回答了
+   * 「要不要动」与「改了什么」，而后者是前者的依据。
+   *
+   * 这条不受策略影响（第 25(a) 条），所以它写在**工具**这一侧：只有工具知道
+   * 自己随后会不会走审阅那条路。
+   */
+  intent(args, project): ToolIntent {
+    const mode = text(args.mode) || 'create';
+    const target = text(args.path);
+    if (mode === 'overwrite') {
+      return { gate: 'reviewed', title: `覆盖「${describePath(target, project)}」`, proceed: '写入' };
+    }
+    return {
+      gate: 'mutating',
+      title: `写入「${describePath(target, project)}」`,
+      detail: `${target}（${mode === 'append' ? '追加到末尾' : '新建'}）`,
+      proceed: '写入',
+    };
+  },
 
   description:
     '把内容写进工程里的一份文件。path 是工程内相对路径、用正斜杠。' +
@@ -166,44 +190,6 @@ const MODE_LABEL: Record<WriteMode, string> = {
 /** draft 上那份结构化产物。text 类能力（discuss / critique / check）没有。 */
 function artifactOf(draft: { artifact?: unknown }): Artifact | undefined {
   return draft.artifact as Artifact | undefined;
-}
-
-/**
- * 覆盖审阅框上显示的名字。
- *
- * 措辞逐字沿用采纳路径（`generation/accept.ts`）：作者从对话页采纳与让 agent
- * 写，看到的应该是同一句话——「第 12 章的细纲」已经有内容了，用新版本覆盖？
- */
-export function describeForReview(path: PathKind, rel: string): string {
-  const no = path.no;
-  switch (path.kind) {
-    case 'outline':
-      return '全书大纲';
-    case 'style':
-      return '文风指南';
-    case 'globalSummary':
-      return '全书滚动摘要';
-    case 'plot':
-      return no === undefined ? '这一章的细纲' : `第 ${no} 章的细纲`;
-    case 'scene':
-      return no === undefined
-        ? `场景 ${path.sceneNo}`
-        : `第 ${no} 章 · 场景 ${path.sceneNo}`;
-    case 'manuscript':
-      return no === undefined ? '这一章的正文' : `第 ${no} 章的正文`;
-    case 'chapter':
-      return no === undefined ? '这一章' : `第 ${no} 章`;
-    case 'summary':
-      return no === undefined ? '这一章的摘要' : `第 ${no} 章的摘要`;
-    case 'character':
-      return `角色卡 ${rel}`;
-    case 'lore':
-      return `设定 ${rel}`;
-    case 'draft':
-      return `草稿 ${rel}`;
-    default:
-      return rel;
-  }
 }
 
 /**

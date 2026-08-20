@@ -30,7 +30,7 @@ let reports;
 const PLOT_REL = '.novelforge/plots/001-夜入青云.md';
 const PLOT2_REL = '.novelforge/plots/002-藏书阁.md';
 
-const tool = () => bundle.tools.ALL_TOOLS.find((x) => x.name === 'write');
+const tool = () => bundle.tools.NOVEL_TOOLS.find((x) => x.name === 'write');
 const run = (args) => tool().run(ctx, args);
 
 /** 一份「已解析出结构化产物」的草稿。 */
@@ -65,7 +65,7 @@ function resetCtx() {
     drafts: { get: (id) => drafts.get(id), put: () => {}, bySession: () => [] },
     sessionId: 's1',
     signal: new AbortController().signal,
-    budget: { calls: 0, tokens: 0, limits: { calls: 10, tokens: 200000 } },
+    usage: { calls: 0, record(n) { this.calls += n; } },
     report: (m) => reports.push(m),
     onDelta: () => {},
   };
@@ -77,7 +77,7 @@ before(async () => {
     project: './src/core/model/project.ts',
     ws: './src/core/workspace/index.ts',
     plotFile: './src/core/model/plotFile.ts',
-    tools: './src/core/agent/tools/index.ts',
+    tools: './src/core/tools/novel/index.ts',
     errorLog: './src/core/runtime/errorLog.ts',
     db: './src/core/runtime/db.ts',
   });

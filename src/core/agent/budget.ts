@@ -30,6 +30,7 @@
  * （先看细纲、再看场景、回头核对细纲）。真正该拦的是原地打转。
  */
 import { scoped } from '../runtime/logger';
+import type { UsageMeter } from '../tools/types';
 
 const log = scoped('Agent');
 
@@ -92,6 +93,23 @@ export class Budget {
     if (Number.isFinite(n) && n > 0) {
       this.tokens += Math.trunc(n);
     }
+  }
+
+  /**
+   * 记 n 次花钱的调用。**工具报数，这里记账**——工具连上限是多少都不知道
+   * （`tools/types.ts` 的 `UsageMeter`）。
+   *
+   * 0 与负数一律忽略：批量动作「一次模型都没调」时报的就是 0。
+   */
+  addCalls(n: number): void {
+    if (Number.isFinite(n) && n > 0) {
+      this.calls += Math.trunc(n);
+    }
+  }
+
+  /** 拿去当 `ToolRun.usage` 的那一面。 */
+  meter(): UsageMeter {
+    return { record: (n) => this.addCalls(n) };
   }
 
   /**

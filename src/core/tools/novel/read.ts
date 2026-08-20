@@ -11,7 +11,8 @@
  * **越界与不存在都返回 `error` 而不是抛**：模型看得到 error，据此换个路径
  * 重试；抛出去只会让这一轮循环炸掉，而它本来只是猜错了一个文件名。
  */
-import { ToolContext, ToolDef, ToolResult, int, objectSchema, str } from '../registry';
+import type { ToolContext, ToolDef, ToolResult } from '../types';
+import { int, objectSchema, str } from '../schema';
 import { WsError } from '../../workspace';
 
 /** 一次最多读几行。 */
