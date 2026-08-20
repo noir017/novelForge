@@ -37,7 +37,7 @@ const PROBE_AFTER_TICKS: u32 = 80;
 /// 30 秒仍不就绪就认定失败——比 sidecar 自己顺延 20 次端口的最坏情况还宽。
 const GIVE_UP_TICKS: u32 = 300;
 
-/// 持有正在跑的 sidecar 子进程。切换工程与退出时都从这里取。
+/// 持有正在跑的 sidecar 子进程。退出时从这里取。
 #[derive(Default)]
 pub struct Sidecar {
     child: Mutex<Option<CommandChild>>,
@@ -68,15 +68,15 @@ fn log_path(app: &AppHandle) -> Option<PathBuf> {
 
 /// 起一个 sidecar，等它就绪，返回该访问的 URL。
 ///
-/// 会先收掉已有的 sidecar，所以「切换工程」直接调它即可。
-pub async fn start(app: AppHandle, root: PathBuf) -> Result<String, String> {
+/// 会先收掉已有的 sidecar，所以失败后点「重试」直接调它即可。
+pub async fn start(app: AppHandle) -> Result<String, String> {
     kill(&app);
 
     let port = free_port()?;
     let log = log_path(&app);
     // 每次启动截断重来：这是「上次为什么起不来」的排查依据，不需要历史。
     if let Some(path) = &log {
-        reset_log(path, &root, port);
+        reset_log(path, port);
     }
 
     let (mut rx, child) = app
@@ -84,9 +84,6 @@ pub async fn start(app: AppHandle, root: PathBuf) -> Result<String, String> {
         .sidecar(BIN)
         .map_err(|e| format!("找不到内置服务程序：{e}"))?
         .args([
-            // 必须是绝对路径：cli.ts 的 parseArgs 会 path.resolve(root)，
-            // 而 sidecar 的 cwd 由系统决定，不可控。
-            root.to_string_lossy().to_string(),
             "--no-open".to_string(),
             "--port".to_string(),
             port.to_string(),
@@ -190,13 +187,13 @@ fn parse_url(line: &str) -> Option<String> {
     Some(format!("{URL_PREFIX}{digits}/"))
 }
 
-fn reset_log(path: &Path, root: &Path, port: u16) {
+fn reset_log(path: &Path, port: u16) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(
         path,
-        format!("[壳] 启动内置服务：工程 {} ，预挑端口 {port}\n", root.display()),
+        format!("[壳] 启动内置服务，预挑端口 {port}\n"),
     );
 }
 
