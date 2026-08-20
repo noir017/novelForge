@@ -510,3 +510,77 @@ describe('命令类消息的气泡', { skip: JSDOM_SKIP }, () => {
     ui.post({ type: 'busy', value: false });
   });
 });
+
+/**
+ * 流式输出时消息流会变高。只在原本贴着底时才跟着滚——翻上去看前面的
+ * 气泡不该被每来一段的 delta 拽回底部。
+ *
+ * jsdom 没有布局，scrollHeight / clientHeight 恒为 0，要自己装一套尺寸。
+ */
+describe('流式输出时滚动跟随', { skip: JSDOM_SKIP }, () => {
+  let ui;
+  let box;
+  const HEIGHT = 5000;
+  const VIEW = 400;
+  const BOTTOM = HEIGHT - VIEW;
+
+  function layout(top) {
+    Object.defineProperty(box, 'scrollHeight', { configurable: true, get: () => HEIGHT });
+    Object.defineProperty(box, 'clientHeight', { configurable: true, get: () => VIEW });
+    box.scrollTop = top;
+  }
+
+  function scrollTo(top) {
+    box.scrollTop = top;
+    box.dispatchEvent(new ui.window.Event('scroll'));
+  }
+
+  before(() => {
+    ui = mount();
+    box = ui.doc.getElementById('messages');
+    ui.post({ type: 'session', session: emptySession() });
+    ui.post({ type: 'turnDone', turn: turn('u1', 'user', '写一段') });
+    ui.post({ type: 'busy', value: true });
+    ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '') });
+    layout(BOTTOM);
+  });
+
+  test('贴着底时 delta 跟着滚到底', () => {
+    ui.post({ type: 'delta', turnId: 'a1', text: '第一段。' });
+    assert.equal(box.scrollTop, HEIGHT);
+  });
+
+  test('翻上去之后 delta 不再拽回来', () => {
+    scrollTo(200);
+    ui.post({ type: 'delta', turnId: 'a1', text: '第二段。' });
+    assert.equal(box.scrollTop, 200);
+  });
+
+  test('思考增量也不拽回来', () => {
+    ui.post({ type: 'reasoning', turnId: 'a1', text: '我在想。' });
+    assert.equal(box.scrollTop, 200);
+  });
+
+  test('再贴回底之后继续跟随', () => {
+    scrollTo(BOTTOM);
+    ui.post({ type: 'delta', turnId: 'a1', text: '第三段。' });
+    assert.equal(box.scrollTop, HEIGHT);
+  });
+
+  test('切会话即使翻上去也滚到底', () => {
+    scrollTo(200);
+    ui.post({
+      type: 'session',
+      session: emptySession({ turns: [turn('u2', 'user', '另一段')] }),
+    });
+    assert.equal(box.scrollTop, HEIGHT);
+  });
+
+  test('发送即使翻上去也滚到底', () => {
+    ui.post({ type: 'busy', value: false });
+    scrollTo(200);
+    ui.doc.getElementById('input').value = '再说一句';
+    ui.clickEl(ui.doc.getElementById('sendBtn'));
+    assert.equal(box.scrollTop, HEIGHT);
+  });
+});

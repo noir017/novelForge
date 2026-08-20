@@ -24,6 +24,7 @@ import {
   buildReasoningDetails,
   buildToolRow,
   bubbleOf,
+  installMessages,
   renderSession,
   scrollToBottom,
   toolStripOf,
@@ -51,6 +52,7 @@ exposeToast();
 installMenus(baseMenuItems);
 installTabs();
 installComposer();
+installMessages();
 bindPayload(payload);
 // 主按钮走 composer 的发送路径（它管附件、草稿、busy）；`/` 面板挑中的命令
 // 变成待执行 chip。两条线都不在各自模块里另起一套发送逻辑。

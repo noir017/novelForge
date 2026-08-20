@@ -5,6 +5,9 @@
  * **生成中不可编辑**是这里最要紧的一条：contentEditable 的光标会被后续
  * delta 追加冲掉，用户改到一半的内容也会被 turnDone 的整体重建覆盖。
  * 判据是 `store.streamingId`，由 index.ts 在 turnDone 那一刻定下来。
+ *
+ * **流式时只在贴着底才跟滚**：每来一段 delta 都会 `scrollToBottom()`，
+ * 翻上去看前面的气泡时不该被拽回来（与日志页同一条理由）。
  */
 import { el as mk, spacer } from '../dom';
 import type { SerializedAgentRun, SerializedDigest, SerializedTurn } from '../protocol';
@@ -48,7 +51,8 @@ export function renderSession(session: typeof store.session): void {
     renderState(store.state);
   }
   onSessionChanged();
-  scrollToBottom();
+  // 切会话 / 重放整份：人是要看最新的，强制贴底。
+  scrollToBottom(true);
 }
 
 export function upsertTurn(turn: SerializedTurn): void {
@@ -94,8 +98,42 @@ export function toolStripOf(turnId: string): HTMLElement | null {
   return strip;
 }
 
-export function scrollToBottom(): void {
+/** 离底多近算「贴着底」。与日志页同一档。 */
+const AT_BOTTOM_SLACK = 40;
+
+/**
+ * 用户贴着底时跟着新内容滚；翻上去看前面的气泡时不该被拽回来。
+ *
+ * 用滚动事件记账，而不是在 `scrollToBottom` 里当场量距离：delta 是先
+ * 追加正文再滚，量的时候内容已经变高，贴着底的人会被算成「离底好远」
+ * 从而掉队。
+ */
+let follow = true;
+
+function isAtBottom(): boolean {
+  const box = el.messages;
+  return box.scrollHeight - box.scrollTop - box.clientHeight < AT_BOTTOM_SLACK;
+}
+
+/**
+ * 滚到消息流底部。
+ *
+ * 流式输出每来一段都会调这里；**只在原本就贴着底时才跟着滚**——
+ * 用户翻上去看前面的气泡时不该被拽回来（日志页同一条理由）。
+ * `force` 给切会话、主动发送：那是人自己起的头，应当看到最新。
+ */
+export function scrollToBottom(force = false): void {
+  if (!force && !follow) {
+    return;
+  }
   el.messages.scrollTop = el.messages.scrollHeight;
+  follow = true;
+}
+
+export function installMessages(): void {
+  el.messages.addEventListener('scroll', () => {
+    follow = isAtBottom();
+  });
 }
 
 function buildTurn(turn: SerializedTurn): HTMLElement {

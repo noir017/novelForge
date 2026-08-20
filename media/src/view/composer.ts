@@ -18,6 +18,7 @@ import {
   syncCommandPalette,
   toggleCommands,
 } from './commands';
+import { scrollToBottom } from './messages';
 import { el } from './refs';
 import { persistDraft, store, vscode, hasWorkspace } from './store';
 import { setBusy } from './state';
@@ -126,6 +127,7 @@ function send(): void {
     clearPendingCommand();
     renderChips();
     persistDraft();
+    scrollToBottom(true);
     return;
   }
 
@@ -145,6 +147,7 @@ function send(): void {
   clearPendingCommand();
   renderChips();
   persistDraft();
+  scrollToBottom(true);
 }
 
 /**
@@ -175,6 +178,7 @@ export function runNextStep(step: NextStepView): void {
   clearPendingCommand();
   renderChips();
   persistDraft();
+  scrollToBottom(true);
 }
 
 export function installComposer(): void {

@@ -557,8 +557,8 @@ describe('右键菜单的通用行为', { skip: JSDOM_SKIP }, () => {
     assert.ok(!ui.doc.querySelector('.ctx-menu'));
   });
 
-  // ⋯ 菜单挂在气泡里、跟着一起滚，不该被滚动关掉——否则流式输出时
-  // 每来一段都 scrollToBottom()，菜单刚点开就没了。
+  // ⋯ 菜单挂在气泡里、跟着一起滚，不该被滚动关掉——否则流式输出贴着底
+  // 跟滚时每来一段都 scrollToBottom()，菜单刚点开就没了。
   test('滚动不关闭 ⋯ 菜单', () => {
     ui.doc.getElementById('messages').dispatchEvent(new ui.window.Event('scroll', { bubbles: true }));
     assert.ok(ui.doc.querySelector('.msg-menu'));

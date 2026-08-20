@@ -230,9 +230,9 @@ export function installMenus(fallback: () => MenuItem[]): void {
   });
 
   // 右键菜单是 fixed 定位的，内容一滚它就和目标行脱节了，收起来。
-  // **只收右键菜单**：⋯ 菜单挂在气泡里会跟着滚，而且流式输出每来一段都会
-  // scrollToBottom()，一起收会让它刚点开就消失。捕获阶段才收得到内部容器
-  // （.messages / .project-body）的滚动。
+  // **只收右键菜单**：⋯ 菜单挂在气泡里会跟着滚，而且流式输出贴着底跟滚时
+  // 每来一段都会 scrollToBottom()，一起收会让它刚点开就消失。捕获阶段才
+  // 收得到内部容器（.messages / .project-body）的滚动。
   document.addEventListener(
     'scroll',
     () => {
