@@ -1,0 +1,176 @@
+/* Get Started 与无工程空态。只影响独立版（插件不加载 standalone.css）。 */
+
+.nf-welcome {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: auto;
+  padding: 48px 40px;
+  gap: 48px;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+}
+
+body.no-workspace #nfWelcome,
+body.show-welcome #nfWelcome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+body.no-workspace #edWelcome {
+  display: none !important;
+}
+
+.nf-welcome-col {
+  min-width: 200px;
+  max-width: 280px;
+}
+
+.nf-welcome-col h2 {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+}
+
+.nf-welcome-link {
+  display: block;
+  width: 100%;
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--vscode-textLink-foreground);
+  font: inherit;
+  text-align: left;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.nf-welcome-link:hover {
+  text-decoration: underline;
+}
+
+.nf-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nf-recent li {
+  margin: 0 0 8px;
+}
+
+.nf-recent button {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--vscode-textLink-foreground);
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+
+.nf-recent button:hover {
+  text-decoration: underline;
+}
+
+.nf-recent .nf-recent-path {
+  display: block;
+  margin-top: 2px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.nf-recent-empty {
+  color: var(--vscode-descriptionForeground);
+  font-size: 13px;
+}
+
+.nf-welcome-copy p {
+  margin: 0 0 16px;
+  max-width: 36ch;
+  line-height: 1.7;
+  color: var(--vscode-descriptionForeground);
+}
+
+.nf-welcome-copy dl {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px 14px;
+  margin: 0;
+  font-size: 0.85em;
+}
+
+.nf-welcome-copy dt {
+  color: var(--vscode-descriptionForeground);
+}
+
+.ws-empty {
+  display: none;
+}
+
+body.no-workspace #pane-chat,
+body.no-workspace #pane-project,
+body.no-workspace #pane-files,
+body.no-workspace #pane-history {
+  position: relative;
+}
+
+body.no-workspace .ws-empty {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--vscode-sideBar-background);
+  color: var(--vscode-descriptionForeground);
+  text-align: center;
+  font-size: 13px;
+}
+
+.nf-about {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.nf-about.open {
+  display: flex;
+}
+
+.nf-about-card {
+  min-width: 280px;
+  max-width: 420px;
+  padding: 20px 24px;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-panel-border);
+  box-shadow: var(--nf-shadow);
+}
+
+.nf-about-card h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.nf-about-card p {
+  margin: 0 0 8px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.nf-about-card button {
+  margin-top: 12px;
+}

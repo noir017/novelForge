@@ -26,6 +26,12 @@ export const store: {
   streamingId: string | null;
   /** turnId -> 该轮被取消勾选的上下文条目 id 集合。 */
   excluded: Set<string>;
+  /**
+   * 当前工作区 id。`null` 是独立版空窗口；`undefined` 是还没收到
+   * `workspaces`（插件永远不会发这条，当成「有工程」）。
+   */
+  currentId: string | null | undefined;
+  recents: { root: string; name: string }[];
 } = {
   state: null,
   // 会话的初值与后端 `SessionStore.create()` 对齐：全书大纲 · 讨论。
@@ -35,7 +41,14 @@ export const store: {
   busy: false,
   streamingId: null,
   excluded: new Set(),
+  currentId: undefined,
+  recents: [],
 };
+
+/** 独立版空窗口为 false；插件与已打开的工程为 true。 */
+export function hasWorkspace(): boolean {
+  return store.currentId !== null;
+}
 
 export function restoreDraft(): void {
   const saved = vscode.getState();

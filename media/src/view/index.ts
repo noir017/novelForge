@@ -14,6 +14,7 @@ import { installComposer, payload, renderChips, runNextStep, setPendingCommand }
 import { bindCommandPick } from './commands';
 import { renderSessions } from './history';
 import { appendLog, installLogs, prependLogHistory, renderLogs } from './logs';
+import { installMenubar } from './menubar';
 import { installMenus } from './menu';
 import {
   bindPayload,
@@ -40,6 +41,7 @@ import { installTabs, showTab } from './tabs';
 import { renderTasks } from './tasks';
 import { countWords } from './format';
 import { exposeToast, toast } from './toast';
+import { applyWorkspaces, installWelcome } from './welcome';
 import { onMessage } from '../vscodeApi';
 
 restoreDraft();
@@ -58,6 +60,8 @@ installProject();
 installLogs();
 installSettings();
 installWorkbench();
+installMenubar();
+installWelcome();
 
 onMessage((msg) => {
   switch (msg.type) {
@@ -192,6 +196,10 @@ onMessage((msg) => {
 
     case 'prompt':
       renderPrompt(msg);
+      break;
+
+    case 'workspaces':
+      applyWorkspaces(msg);
       break;
   }
 });

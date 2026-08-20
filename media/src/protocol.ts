@@ -48,6 +48,8 @@ export type {
   SettingsPayload,
   Tab,
   TaskSnapshot,
+  WorkspaceItem,
+  WorkspaceRecent,
   ViewState,
   WorkbenchSection,
   WorkbenchView,

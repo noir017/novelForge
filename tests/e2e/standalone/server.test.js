@@ -99,8 +99,8 @@ describe('静态资源', () => {
     assert.ok(html.includes('id="filesBody"'));
   });
 
-  test('首页标题带工程名', () => {
-    assert.ok(html.includes('sample-novel'));
+  test('首页标题是产品名', () => {
+    assert.ok(html.includes('<title>Novel Forge</title>'), html.slice(0, 800));
   });
 
   for (const asset of assets) {
