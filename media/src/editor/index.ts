@@ -30,11 +30,13 @@ import {
 } from './shell';
 import {
   activePane,
+  announceActive,
   bindStore,
   paneOwning,
   panes,
   pendingActive,
   pendingDrafts,
+  persist,
   registerPane,
   rekeyStorage,
   restore,
@@ -81,11 +83,51 @@ function start(stage: HTMLElement): void {
       if (activePane.activeFile()) {
         activePane.save(false);
       }
+    } else if (key === 'f') {
+      e.preventDefault();
+      activePane.showFind();
     } else if (key === 'w' && activePane.activeFile()) {
       // Chrome 不允许拦 Ctrl+W，能拦到就顺手关标签页。
       e.preventDefault();
       activePane.closeFile(activePane.activePath!);
     }
+  });
+
+  window.addEventListener('nf-editor-query', (e) => {
+    const file = activePane?.activeFile();
+    e.detail.hasFile = !!file;
+    e.detail.dirtyCurrent = !!file && file.draft !== file.text;
+    e.detail.dirtyAny = Object.values(panes).some((p) => p.hasDirty());
+    e.detail.path = file?.path ?? null;
+    e.detail.text = file?.draft ?? '';
+  });
+
+  window.addEventListener('nf-editor-command', (e) => {
+    const name = e.detail.name;
+    if (name === 'save') {
+      activePane.save(false);
+    } else if (name === 'saveAll') {
+      for (const pane of Object.values(panes)) {
+        for (const file of pane.files.values()) {
+          pane.savePath(file.path, false);
+        }
+      }
+    } else if (name === 'close' && activePane.activePath) {
+      activePane.closeFile(activePane.activePath);
+    } else if (name === 'find') {
+      activePane.showFind();
+    }
+  });
+
+  window.addEventListener('nf-workspace-reset', () => {
+    for (const pane of Object.values(panes)) {
+      for (const path of [...pane.files.keys()]) {
+        pane.closeSilently(path);
+      }
+    }
+    persist();
+    announceActive();
+    syncDraftVisibility();
   });
 
   window.addEventListener('beforeunload', (e) => {

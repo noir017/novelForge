@@ -70,7 +70,7 @@ export type InMessage =
   | { type: 'openDraft'; path: string }
   | { type: 'saveFile'; path: string; text: string; baseHash?: string }
   | { type: 'reloadFile'; path: string }
-  | { type: 'listDir'; dirs: string[] }
+  | { type: 'listDir'; dirs: string[]; ephemeral?: boolean }
   | { type: 'openExternal'; path: string }
   | { type: 'syncSummaries' }
   | { type: 'requestSummary'; plotRelPath: string }
@@ -104,7 +104,11 @@ export type InMessage =
   | { type: 'openFolder'; path: string; mode?: 'replace' | 'add' }
   | { type: 'closeFolder'; id?: string }
   | { type: 'activateWorkspace'; id: string }
-  | { type: 'openLogDir' };
+  | { type: 'openLogDir' }
+  /** 有工程时经 workspace 写文件；已存在拒绝。`text` 缺省为空。 */
+  | { type: 'createFile'; relPath: string; text?: string }
+  /** 打开使用说明：工程内 README，否则仓库根 README。 */
+  | { type: 'openReadme' };
 
 export type ProjectAction =
   | 'initProject'

@@ -1,6 +1,9 @@
+import * as fsSync from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { ChatController, ViewHost } from '../../core/controller';
+import type { NovelProject } from '../../core/model/project';
+import { Workspace } from '../../core/workspace';
 import {
   pushSettingsTo,
   saveSettingsFrom,
@@ -36,6 +39,7 @@ interface BoundRuntime {
   id: string;
   root: string;
   name: string;
+  project: NovelProject;
   controller: ChatController;
   watch: Disposable;
 }
@@ -158,6 +162,12 @@ export class WorkspaceHub {
         return true;
       case 'openLogDir':
         openWithSystem(homeDir());
+        return true;
+      case 'createFile':
+        await this.createFile(msg.relPath, msg.text);
+        return true;
+      case 'openReadme':
+        await this.openReadme();
         return true;
       case 'saveSettings':
         await saveSettingsFrom(
@@ -314,6 +324,7 @@ export class WorkspaceHub {
         id: resolved,
         root: resolved,
         name: path.basename(resolved) || resolved,
+        project,
         controller,
         watch,
       };
@@ -349,4 +360,79 @@ export class WorkspaceHub {
     }
     this.host.unbind();
   }
+
+  /** 经 workspace 网关新建文件；已存在拒绝，不覆盖。 */
+  private async createFile(relPath: string, text?: string): Promise<void> {
+    if (!this.current) {
+      this.host.toast('请先打开文件夹', 'error');
+      return;
+    }
+    const rel = (relPath ?? '').trim();
+    if (!rel) {
+      this.host.toast('路径不能为空', 'error');
+      return;
+    }
+    try {
+      await new Workspace(this.current.project).write(rel, { text: text ?? '' }, { mode: 'create', review: false });
+      await this.host.openInEditor(rel);
+    } catch (err) {
+      this.host.toast(describeError(err), 'error');
+    }
+  }
+
+  /**
+   * 有工程且根下有 README → 内置编辑器打开。
+   * 否则找产品仓库根的 README 交给系统打开。都没有则 toast。
+   */
+  private async openReadme(): Promise<void> {
+    if (this.current) {
+      for (const name of README_NAMES) {
+        const abs = path.join(this.current.root, name);
+        try {
+          const st = await fsp.stat(abs);
+          if (st.isFile()) {
+            await this.host.openInEditor(name);
+            return;
+          }
+        } catch {
+          // 下一候选
+        }
+      }
+    }
+    const product = findProductReadme();
+    if (product) {
+      openWithSystem(product);
+      return;
+    }
+    this.host.toast('找不到使用说明', 'error');
+  }
+}
+
+const README_NAMES = ['README.md', 'README.markdown'];
+
+function findProductReadme(): string | undefined {
+  const starts = [__dirname, process.cwd(), path.dirname(process.execPath)];
+  for (const start of starts) {
+    let dir = start;
+    for (let i = 0; i < 8; i++) {
+      try {
+        if (fsSync.existsSync(path.join(dir, 'package.json'))) {
+          for (const name of README_NAMES) {
+            const readme = path.join(dir, name);
+            if (fsSync.existsSync(readme)) {
+              return readme;
+            }
+          }
+        }
+      } catch {
+        // 下一层
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) {
+        break;
+      }
+      dir = parent;
+    }
+  }
+  return undefined;
 }

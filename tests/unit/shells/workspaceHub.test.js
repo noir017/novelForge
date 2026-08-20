@@ -163,6 +163,30 @@ describe('WorkspaceHub', () => {
     assert.equal(await hub.handle({ type: 'stop' }), false);
   });
 
+  test('createFile 写空文件，已存在则拒绝', async () => {
+    await hub.open(projA);
+    messages.length = 0;
+    assert.equal(await hub.handle({ type: 'createFile', relPath: 'fresh.md' }), true);
+    assert.equal(fs.readFileSync(path.join(projA, 'fresh.md'), 'utf8'), '');
+    assert.ok(ofType('editorOpen').some((m) => m.file.path === 'fresh.md'));
+    messages.length = 0;
+    await hub.handle({ type: 'createFile', relPath: 'fresh.md' });
+    assert.ok(ofType('toast').some((m) => /已存在/.test(m.message)));
+  });
+
+  test('createFile 无工程则 toast', async () => {
+    assert.equal(await hub.handle({ type: 'createFile', relPath: 'x.md' }), true);
+    assert.ok(ofType('toast').some((m) => /打开文件夹/.test(m.message)));
+  });
+
+  test('openReadme 打开工程根 README', async () => {
+    fs.writeFileSync(path.join(projA, 'README.md'), '# hi', 'utf8');
+    await hub.open(projA);
+    messages.length = 0;
+    assert.equal(await hub.handle({ type: 'openReadme' }), true);
+    assert.ok(ofType('editorOpen').some((m) => m.file.path === 'README.md'));
+  });
+
   test('bootstrap 恢复 lastOpen', async () => {
     rememberOpen(projA, windowDir);
     await hub.bootstrap();

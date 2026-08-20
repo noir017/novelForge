@@ -4,6 +4,7 @@
  * 没有 `#nfWelcome` 就直接 return（插件）。不判断壳名。
  */
 import { el as mk } from '../dom';
+import { confirmProceedIfDirty, resetEditor } from '../globals';
 import type { WorkspaceItem, WorkspaceRecent } from '../protocol';
 import { el } from './refs';
 import { hasWorkspace, store, vscode } from './store';
@@ -13,6 +14,12 @@ const SIDE_PANES = ['pane-chat', 'pane-project', 'pane-files', 'pane-history'];
 
 let fileName: string | null = null;
 let about: HTMLElement | undefined;
+/** 新建工程：打开成功且换了工作区之后再跑初始化。 */
+let pendingInit = false;
+
+export function markPendingInit(): void {
+  pendingInit = true;
+}
 
 export function requestOpenFolder(): void {
   pickFolder('open', '打开文件夹');
@@ -22,25 +29,45 @@ export function requestNewProject(): void {
   pickFolder('new', '新建工程：选择一个空目录');
 }
 
-function pickFolder(intent: 'open' | 'new', title: string): void {
+export function requestOpenFile(): void {
+  if (!hasWorkspace()) {
+    return;
+  }
+  pickFolder('file', '打开文件：工程内相对路径');
+}
+
+function pickFolder(intent: 'open' | 'new' | 'file', title: string): void {
   const ev = new CustomEvent('nf-pick-folder', { detail: { intent }, cancelable: true });
   window.dispatchEvent(ev);
   if (ev.defaultPrevented) {
     return;
   }
-  // 目录选择器在下一期接上；在那之前先用路径框，Recent 条目仍直接打开。
   const path = window.prompt(title, '');
-  if (path?.trim()) {
-    openRecent(path.trim());
+  if (!path?.trim()) {
+    return;
   }
+  if (intent === 'file') {
+    vscode.postMessage({ type: 'openEditor', path: path.trim() });
+    return;
+  }
+  if (intent === 'new') {
+    markPendingInit();
+  }
+  openRecent(path.trim());
 }
 
 export function openRecent(root: string): void {
+  if (!confirmProceedIfDirty()) {
+    return;
+  }
   vscode.postMessage({ type: 'openFolder', path: root, mode: 'replace' });
 }
 
 export function closeFolder(): void {
   if (!hasWorkspace()) {
+    return;
+  }
+  if (!confirmProceedIfDirty()) {
     return;
   }
   vscode.postMessage({ type: 'closeFolder' });
@@ -83,6 +110,7 @@ export function applyWorkspaces(msg: {
   items: WorkspaceItem[];
   recents: WorkspaceRecent[];
 }): void {
+  const prev = store.currentId;
   store.currentId = msg.currentId;
   store.recents = msg.recents ?? [];
   const empty = msg.currentId === null;
@@ -90,6 +118,15 @@ export function applyWorkspaces(msg: {
   if (empty) {
     document.body.classList.remove('show-welcome');
     fileName = null;
+  }
+  if (prev !== undefined && msg.currentId !== prev) {
+    resetEditor();
+  }
+  if (pendingInit) {
+    if (msg.currentId && msg.currentId !== prev) {
+      vscode.postMessage({ type: 'projectAction', action: 'initProject' });
+    }
+    pendingInit = false;
   }
   updateTitle(msg.items[0]);
   renderRecents();

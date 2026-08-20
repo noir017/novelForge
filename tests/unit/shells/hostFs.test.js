@@ -61,6 +61,12 @@ describe('listHostDir', () => {
     assert.match(listing.error, /不存在/);
   });
 
+  test('~ 列举家目录', async () => {
+    const listing = await listHostDir('~');
+    assert.equal(listing.error, undefined);
+    assert.equal(listing.path, os.homedir());
+  });
+
   test('空路径在 Unix 列举根且没有 parent', async () => {
     if (process.platform === 'win32') {
       return;

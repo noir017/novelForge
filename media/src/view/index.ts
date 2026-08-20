@@ -41,6 +41,7 @@ import { installTabs, showTab } from './tabs';
 import { renderTasks } from './tasks';
 import { countWords } from './format';
 import { exposeToast, toast } from './toast';
+import { installFolderPicker } from './folderPicker';
 import { applyWorkspaces, installWelcome } from './welcome';
 import { onMessage } from '../vscodeApi';
 
@@ -62,6 +63,7 @@ installSettings();
 installWorkbench();
 installMenubar();
 installWelcome();
+installFolderPicker();
 
 onMessage((msg) => {
   switch (msg.type) {

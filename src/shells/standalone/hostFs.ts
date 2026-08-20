@@ -58,8 +58,11 @@ function bad(pathShown: string, error: string, extra?: Partial<HostDirListing>):
   return { path: pathShown, entries: [], truncated: 0, error, ...extra };
 }
 
-/** `path === ''` 在 Unix 列举 `/`，在 Windows 列举盘符。 */
+/** `path === ''` 在 Unix 列举 `/`，在 Windows 列举盘符。`~` 是家目录。 */
 export async function listHostDir(absPath: string): Promise<HostDirListing> {
+  if (absPath === '~') {
+    return listHostDir(os.homedir());
+  }
   if (process.platform === 'win32' && (absPath === '' || absPath === '/' || absPath === '\\')) {
     return winDrives();
   }

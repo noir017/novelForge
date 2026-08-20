@@ -4,11 +4,13 @@
  * 不复用右键菜单引擎：缺悬停切菜单和子菜单。
  */
 import { el as mk } from '../dom';
+import { commandEditor, queryEditor } from '../globals';
 import {
   closeFolder,
   hideWelcome,
   openRecent,
   requestNewProject,
+  requestOpenFile,
   requestOpenFolder,
   showAbout,
   showWelcome,
@@ -73,6 +75,21 @@ export function installMenubar(): void {
       closeMenubar();
       hideWelcome();
     }
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) {
+      return;
+    }
+    const key = e.key.toLowerCase();
+    if (key === 'o') {
+      e.preventDefault();
+      requestOpenFolder();
+      closeMenubar();
+    } else if (key === 'n') {
+      e.preventDefault();
+      if (hasWorkspace()) {
+        run('newFile');
+      }
+      closeMenubar();
+    }
   });
 }
 
@@ -101,6 +118,7 @@ function closeMenubar(): void {
 function entriesOf(key: string): MenuEntry[] {
   const ws = hasWorkspace();
   const editing = isEditing();
+  const ed = queryEditor();
   if (key === 'file') {
     return [
       { label: '新建文件', action: 'newFile', disabled: !ws, kbd: 'Ctrl+N' },
@@ -110,11 +128,11 @@ function entriesOf(key: string): MenuEntry[] {
       { label: '打开文件夹…', action: 'openFolder', kbd: 'Ctrl+O' },
       { label: '打开最近打开的', submenu: recentEntries() },
       { label: 'sep' },
-      { label: '保存', action: 'save', disabled: true, kbd: 'Ctrl+S' },
-      { label: '另存为…', action: 'saveAs', disabled: true },
-      { label: '全部保存', action: 'saveAll', disabled: true },
+      { label: '保存', action: 'save', disabled: !ed.dirtyCurrent, kbd: 'Ctrl+S' },
+      { label: '另存为…', action: 'saveAs', disabled: !ed.hasFile },
+      { label: '全部保存', action: 'saveAll', disabled: !ed.dirtyAny },
       { label: 'sep' },
-      { label: '关闭编辑器', action: 'closeEditor', disabled: true },
+      { label: '关闭编辑器', action: 'closeEditor', disabled: !ed.hasFile },
       { label: '关闭文件夹', action: 'closeFolder', disabled: !ws },
       { label: 'sep' },
       { label: '退出', action: 'quit' },
@@ -234,11 +252,29 @@ function hideSubmenu(): void {
 
 function run(action: MenuAction): void {
   switch (action) {
+    case 'newFile':
+      newFile();
+      return;
     case 'newProject':
       requestNewProject();
       return;
+    case 'openFile':
+      requestOpenFile();
+      return;
     case 'openFolder':
       requestOpenFolder();
+      return;
+    case 'save':
+      commandEditor('save');
+      return;
+    case 'saveAs':
+      saveAs();
+      return;
+    case 'saveAll':
+      commandEditor('saveAll');
+      return;
+    case 'closeEditor':
+      commandEditor('close');
       return;
     case 'closeFolder':
       closeFolder();
@@ -254,8 +290,14 @@ function run(action: MenuAction): void {
     case 'selectAll':
       document.execCommand(action === 'selectAll' ? 'selectAll' : action);
       return;
+    case 'find':
+      commandEditor('find');
+      return;
     case 'welcome':
       showWelcome();
+      return;
+    case 'readme':
+      vscode.postMessage({ type: 'openReadme' });
       return;
     case 'openLogDir':
       vscode.postMessage({ type: 'openLogDir' });
@@ -266,6 +308,28 @@ function run(action: MenuAction): void {
     default:
       return;
   }
+}
+
+function newFile(): void {
+  if (!hasWorkspace()) {
+    return;
+  }
+  const rel = window.prompt('工程内相对路径（已存在则拒绝）', '');
+  if (rel?.trim()) {
+    vscode.postMessage({ type: 'createFile', relPath: rel.trim() });
+  }
+}
+
+function saveAs(): void {
+  const ed = queryEditor();
+  if (!ed.hasFile) {
+    return;
+  }
+  const rel = window.prompt('另存为（工程内相对路径，不覆盖已有）', '');
+  if (!rel?.trim()) {
+    return;
+  }
+  vscode.postMessage({ type: 'createFile', relPath: rel.trim(), text: ed.text });
 }
 
 function isEditing(): boolean {

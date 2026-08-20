@@ -59,6 +59,8 @@ export function createPane(
     closeSilently,
     upsertFile,
     save,
+    savePath,
+    showFind,
     applySaved,
     applyConflict,
   };
@@ -378,7 +380,11 @@ export function createPane(
   // ---------------------------------------------------------------- 保存
 
   function save(force: boolean): void {
-    const file = activeFile();
+    savePath(pane.activePath ?? '', force);
+  }
+
+  function savePath(path: string, force: boolean): void {
+    const file = files.get(path);
     if (!file || (file.draft === file.text && !force)) {
       return;
     }
@@ -386,10 +392,71 @@ export function createPane(
       type: 'saveFile',
       path: file.path,
       text: file.draft,
-      // 空 baseHash = 放弃乐观锁，仅在用户明确选择「强制覆盖」时发生。
       baseHash: force ? undefined : file.hash,
     });
   }
+
+  function showFind(): void {
+    setHidden(el.find, false);
+    el.findInput.focus();
+    el.findInput.select();
+  }
+
+  function hideFind(): void {
+    setHidden(el.find, true);
+  }
+
+  function findStep(dir: 1 | -1): void {
+    const q = el.findInput.value;
+    const hay = el.area.value;
+    if (!q) {
+      el.findCount.textContent = '';
+      return;
+    }
+    const from = dir === 1 ? el.area.selectionEnd : Math.max(0, el.area.selectionStart - q.length);
+    let idx = dir === 1 ? hay.indexOf(q, from) : hay.lastIndexOf(q, Math.max(0, from - 1));
+    if (idx === -1) {
+      idx = dir === 1 ? hay.indexOf(q) : hay.lastIndexOf(q);
+    }
+    if (idx === -1) {
+      el.findCount.textContent = '无结果';
+      return;
+    }
+    el.area.focus();
+    el.area.setSelectionRange(idx, idx + q.length);
+    let n = 0;
+    let current = 0;
+    let at = 0;
+    while (at <= hay.length) {
+      const next = hay.indexOf(q, at);
+      if (next === -1) {
+        break;
+      }
+      n++;
+      if (next === idx) {
+        current = n;
+      }
+      at = next + (q.length || 1);
+    }
+    el.findCount.textContent = `${current}/${n}`;
+  }
+
+  el.findPrev.addEventListener('click', () => findStep(-1));
+  el.findNext.addEventListener('click', () => findStep(1));
+  el.findClose.addEventListener('click', hideFind);
+  el.findInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      findStep(e.shiftKey ? -1 : 1);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      hideFind();
+    }
+  });
+  el.findInput.addEventListener('input', () => {
+    el.area.selectionStart = el.area.selectionEnd = 0;
+    findStep(1);
+  });
 
   function applySaved(incoming: EditorFileView): void {
     const file = files.get(incoming.path);

@@ -409,7 +409,7 @@ export class ChatController {
         return;
 
       case 'listDir':
-        await pushDirListings(this, msg.dirs);
+        await pushDirListings(this, msg.dirs, msg.ephemeral);
         return;
 
       case 'requestSummary':
@@ -493,6 +493,8 @@ export class ChatController {
       case 'closeFolder':
       case 'activateWorkspace':
       case 'openLogDir':
+      case 'createFile':
+      case 'openReadme':
         return;
     }
   }

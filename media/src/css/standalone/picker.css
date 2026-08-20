@@ -1,0 +1,94 @@
+/* 远程风目录选择器：路径框 + 一层列表 + 确定当前路径。 */
+
+.nf-picker {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.nf-picker.open {
+  display: flex;
+}
+
+.nf-picker-card {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(520px, calc(100vh - 32px));
+  padding: 16px 18px;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-panel-border);
+  box-shadow: var(--nf-shadow);
+}
+
+.nf-picker-card h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.nf-picker-card > input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+}
+
+.nf-picker-list {
+  flex: 1;
+  min-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editor-background);
+}
+
+.nf-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 4px 10px;
+  cursor: default;
+}
+
+.nf-picker-row:hover,
+.nf-picker-row.selected {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.nf-picker-row.selected {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+}
+
+.nf-picker-kind {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+.nf-picker-error,
+.nf-picker-more {
+  padding: 8px 10px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.nf-picker-error {
+  color: var(--vscode-errorForeground);
+}
+
+.nf-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
