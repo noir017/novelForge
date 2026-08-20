@@ -46,7 +46,6 @@ export async function pushSettingsTo(sink: SettingsSink, ack?: 'saved' | 'reject
           label: m.label,
           contextWindow: m.contextWindow,
           maxOutputTokens: m.maxOutputTokens,
-          supportsTools: m.supportsTools,
         })),
       })),
       models: cfg.models,

@@ -324,8 +324,10 @@ export function buildReasoningDetails(text: string): HTMLDetailsElement {
  * ✨ generate 剧情         620 字     12.4s
  * ```
  *
- * **只画摘要，不画返回值**：`read` 一章正文是几千字，摊在气泡里会把作者真正
- * 要看的那段回答挤到屏幕外。要看内容点开那个文件就是了。
+ * **那一行上只画摘要**：`read` 一章正文是几千字，摊在气泡里会把作者真正要看的
+ * 那段回答挤到屏幕外。参数与返回文本收在折叠里——想核对「它读的是哪一章、
+ * 看到的是什么」点开就有，不想看时它一行都不占（后端已经截过，见
+ * `controller/agent.ts`）。
  */
 export function buildToolStrip(): HTMLElement {
   return mk('div', 'tools');
@@ -338,19 +340,61 @@ export function buildToolRow(call: {
   ok: boolean;
   summary: string;
   elapsedMs: number;
+  argsText?: string;
+  resultText?: string;
+  open?: boolean;
 }): HTMLElement {
-  const row = mk('div', `tool-row${call.ok ? '' : ' tool-failed'}`);
-  row.dataset.call = call.callId;
+  const line = mk('summary', 'tool-line');
   // 花钱的那个用另一个图标：作者一眼要能看出这一串里哪几下是收费的。
-  row.appendChild(mk('span', 'tool-icon', call.name === 'generate' ? '✨' : '🔧'));
-  row.appendChild(mk('span', 'tool-title', call.title));
-  row.appendChild(mk('span', 'tool-summary', call.summary));
-  row.appendChild(mk('span', 'tool-elapsed', formatElapsed(call.elapsedMs)));
+  line.appendChild(mk('span', 'tool-icon', call.name === 'generate' ? '✨' : '🔧'));
+  line.appendChild(mk('span', 'tool-title', call.title));
+  line.appendChild(mk('span', 'tool-summary', call.summary));
+  line.appendChild(mk('span', 'tool-elapsed', formatElapsed(call.elapsedMs)));
+
+  const parts: [string, string][] = [];
+  if (call.argsText) {
+    parts.push(['参数', call.argsText]);
+  }
+  if (call.resultText) {
+    parts.push(['返回', call.resultText]);
+  }
+
+  // 没有明细可看（老会话里存的那些）就还是一行普通的条：给一个点开之后
+  // 空空如也的三角，比不给更让人火大。
+  if (parts.length === 0) {
+    const flat = mk('div', `tool-row tool-flat${call.ok ? '' : ' tool-failed'}`);
+    flat.dataset.call = call.callId;
+    for (const child of [...line.childNodes]) {
+      flat.appendChild(child);
+    }
+    return flat;
+  }
+
+  const row = mk('details', `tool-row${call.ok ? '' : ' tool-failed'}`);
+  row.dataset.call = call.callId;
+  row.open = call.open === true;
+  row.appendChild(line);
+  const body = mk('div', 'tool-detail');
+  for (const [label, text] of parts) {
+    body.appendChild(mk('div', 'tool-detail-label', label));
+    body.appendChild(mk('pre', 'tool-detail-text', text));
+  }
+  row.appendChild(body);
   return row;
 }
 
-/** 一次工具调用刚开始，还没有结果。收到 `toolResult` 时就地补上。 */
-export function buildPendingToolRow(callId: string, title: string, detail?: string): HTMLElement {
+/**
+ * 一次工具调用刚开始，还没有结果。收到 `toolResult` 时就地补上。
+ *
+ * 参数这时就有了，所以这一条已经能展开——它正在读哪个路径，是「它卡在
+ * 哪一步」最先要看的东西。
+ */
+export function buildPendingToolRow(
+  callId: string,
+  title: string,
+  detail?: string,
+  argsText?: string
+): HTMLElement {
   return buildToolRow({
     callId,
     name: title.split(' ')[0],
@@ -358,6 +402,7 @@ export function buildPendingToolRow(callId: string, title: string, detail?: stri
     ok: true,
     summary: detail ?? '进行中…',
     elapsedMs: -1,
+    argsText,
   });
 }
 

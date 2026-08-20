@@ -232,8 +232,8 @@ details.ctx li.degraded .label {
 }
 
 /* agent 的工具调用条。
-   一行一次调用，只有名字、结果摘要与耗时——工具的完整返回值（一章正文几千字）
-   不画在这里，摊出来会把作者真正要看的那段回答挤到屏幕外。 */
+   一行一次调用，行上只有名字、结果摘要与耗时；参数与返回文本收在折叠里，
+   点开才画——摊出来会把作者真正要看的那段回答挤到屏幕外。 */
 
 .tools {
   display: flex;
@@ -244,16 +244,78 @@ details.ctx li.degraded .label {
 }
 
 .tool-row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 2px 6px;
   border-radius: 4px;
   background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.05));
 }
 
+/* 一行的排布：能展开的那一条排在 summary 上，没明细的老会话排在条本身上。 */
+.tool-line,
+.tool-row.tool-flat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 6px;
+}
+
+details.tool-row > summary.tool-line {
+  cursor: pointer;
+  /* 默认那个三角会把图标顶开半格，自己在左边留出位置画一个更淡的。 */
+  list-style: none;
+}
+
+details.tool-row > summary.tool-line::-webkit-details-marker {
+  display: none;
+}
+
+details.tool-row > summary.tool-line::before {
+  content: '▸';
+  flex: 0 0 auto;
+  opacity: 0.55;
+  font-size: 0.9em;
+}
+
+details.tool-row[open] > summary.tool-line::before {
+  content: '▾';
+}
+
+details.tool-row > summary.tool-line:hover {
+  background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+  border-radius: 4px;
+}
+
+/* 没明细的那一条左边空出三角的位置，一串条的图标才对得齐。 */
+.tool-row.tool-flat {
+  padding-left: 21px;
+}
+
 .tool-row.tool-failed {
   color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+/* 明细：参数与返回各一段。限高滚动——返回文本后端截到两千字，仍然比
+   一条摘要长得多，铺开会把回答顶出屏幕。 */
+.tool-detail {
+  margin: 2px 6px 6px 20px;
+  padding-left: 8px;
+  border-left: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.3));
+}
+
+.tool-detail-label {
+  margin-top: 4px;
+  opacity: 0.8;
+}
+
+.tool-detail-text {
+  margin: 2px 0 0;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.95em;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow: auto;
+  color: var(--vscode-foreground);
+  opacity: 0.85;
 }
 
 .tool-icon {

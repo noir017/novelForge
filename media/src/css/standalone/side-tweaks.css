@@ -40,9 +40,15 @@
   line-height: 1.7;
 }
 
-/* 模型回复是小说正文，用衬线族按行距铺开，比等宽字体好读得多。 */
+/*
+ * 模型回复是小说正文，用衬线族按行距铺开，比等宽字体好读得多。
+ *
+ * 字号跟住界面基准（13px）：比周围大一号的那一版在窄侧栏里像另一个应用的
+ * 弹窗——同一屏上活动栏、输入框、工具条都是基准字号，只有它是放大的。
+ * 行距仍留得比别处宽，那一条是为了读长段文字，与字号无关。
+ */
 .workbench .msg.assistant .msg-body {
   font-family: var(--nf-prose-font-family);
-  font-size: 14.5px;
-  line-height: 1.95;
+  font-size: var(--vscode-font-size);
+  line-height: 1.85;
 }

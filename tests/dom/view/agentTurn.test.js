@@ -1,5 +1,5 @@
 /**
- * agent 那一轮在气泡里长什么样：工具调用的折叠条 + Agent 开关。
+ * agent 那一轮在气泡里长什么样：工具调用的折叠条 + 「直接发送就是 agent」。
  *
  * 两条路都要验：
  *
@@ -192,10 +192,9 @@ describe('工具调用流（重开面板时回放）', { skip: JSDOM_SKIP }, () 
   });
 });
 
-describe('Agent 开关', { skip: JSDOM_SKIP }, () => {
+describe('直接发送就是 agent', { skip: JSDOM_SKIP }, () => {
   let ui;
   const input = () => ui.doc.getElementById('input');
-  const toggle = () => ui.doc.getElementById('agentToggle');
   const sendBtn = () => ui.doc.getElementById('sendBtn');
 
   before(() => {
@@ -203,24 +202,13 @@ describe('Agent 开关', { skip: JSDOM_SKIP }, () => {
     ui.post({ type: 'session', session: emptySession() });
   });
 
-  test('页面上有这个开关', () => {
-    assert.ok(toggle(), '缺少 #agentToggle');
+  // 从前这里是输入框旁一个「Agent」开关，缺省关着。现在 agent 就是默认的那条
+  // 路：不挑命令直接说话，走的就是它。
+  test('页面上没有 Agent 开关了', () => {
+    assert.equal(ui.doc.getElementById('agentToggle'), null);
   });
 
-  test('缺省关着——多一次调度调用只是加钱加延迟', () => {
-    assert.equal(toggle().checked, false);
-  });
-
-  test('关着时发的是 send', () => {
-    input().value = '接着写';
-    ui.clickEl(sendBtn());
-    assert.equal(ui.last('send').payload.text, '接着写');
-  });
-
-  test('开着时发的是 sendAgent', () => {
-    // 上一次发送把界面置成了忙碌，后端会推 busy:false 解锁。
-    ui.post({ type: 'busy', value: false });
-    toggle().checked = true;
+  test('没挑命令时发的是 sendAgent', () => {
     input().value = '第 9 章里他说过没去过北境吗？';
     ui.clickEl(sendBtn());
     assert.equal(ui.last('sendAgent').text, '第 9 章里他说过没去过北境吗？');
@@ -232,7 +220,7 @@ describe('Agent 开关', { skip: JSDOM_SKIP }, () => {
     assert.deepEqual(Object.keys(ui.last('sendAgent')).sort(), ['text', 'type']);
   });
 
-  test('开着时空输入不发送', () => {
+  test('空输入不发送', () => {
     ui.post({ type: 'busy', value: false });
     const before = ui.sent.filter((m) => m.type === 'sendAgent').length;
     input().value = '   ';
@@ -242,9 +230,19 @@ describe('Agent 开关', { skip: JSDOM_SKIP }, () => {
 
   test('发送后清空输入框', () => {
     ui.post({ type: 'busy', value: false });
-    toggle().checked = true;
     input().value = '再问一句';
     ui.clickEl(sendBtn());
     assert.equal(input().value, '');
+  });
+
+  // 挑了 `/命令`（写剧情、拆成场景）才回到确定性的单步。
+  test('挑了命令时发的还是 send', () => {
+    ui.post({ type: 'busy', value: false });
+    input().value = '/';
+    input().dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+    ui.clickEl([...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('挑刺')));
+    input().value = '这里冲突太弱';
+    ui.clickEl(sendBtn());
+    assert.equal(ui.last('send').payload.capability, 'critique', JSON.stringify(ui.last('send').payload));
   });
 });

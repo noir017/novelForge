@@ -228,13 +228,17 @@ describe('生成中的限制', { skip: JSDOM_SKIP }, () => {
 describe('空输入', { skip: JSDOM_SKIP }, () => {
   let ui;
   const sends = () => ui.sent.filter((m) => m.type === 'send').length;
+  const agentSends = () => ui.sent.filter((m) => m.type === 'sendAgent').length;
+  /** 从 `/` 面板挑一个命令，挑完输入框是空的。 */
+  const pickCommand = (label) => {
+    const input = ui.doc.getElementById('input');
+    input.value = '/';
+    input.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+    ui.clickEl([...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes(label)));
+  };
 
   before(() => {
     ui = mount();
-  });
-
-  // 讨论的全部内容就是作者那句话，没有话就没有讨论。
-  test('讨论仍然要求先输入', () => {
     ui.post({
       type: 'session',
       session: emptySession({
@@ -243,23 +247,21 @@ describe('空输入', { skip: JSDOM_SKIP }, () => {
         capability: 'discuss',
       }),
     });
-    ui.doc.getElementById('input').value = '';
-    ui.clickEl(ui.doc.getElementById('sendBtn'));
-    assert.equal(sends(), 0);
   });
 
-  // 而「写剧情」不需要作者再说什么——该说的都在大纲里了。
+  // 直接发送走的是 agent，而 agent 的全部输入就是作者那句话——没有话就没得跑。
+  test('直接发送仍然要求先输入', () => {
+    ui.doc.getElementById('input').value = '';
+    ui.clickEl(ui.doc.getElementById('sendBtn'));
+    assert.equal(sends() + agentSends(), 0);
+  });
+
+  // 而 `/写剧情` 不需要作者再说什么——该说的都在大纲里了。
   test('生成类命令允许空输入', () => {
-    ui.post({
-      type: 'session',
-      session: emptySession({
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
-        stage: 'plot',
-        capability: 'generate',
-      }),
-    });
+    pickCommand('写剧情');
     ui.clickEl(ui.doc.getElementById('sendBtn'));
     assert.equal(sends(), 1, String(sends()));
+    assert.equal(ui.last('send').payload.capability, 'generate', JSON.stringify(ui.last('send').payload));
   });
 });
 

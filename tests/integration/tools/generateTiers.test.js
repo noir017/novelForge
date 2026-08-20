@@ -1,6 +1,5 @@
 /**
- * agent 的 `generate` 用哪个模型（AGENTS 第 12 / 13 条的延伸），以及
- * 「支持工具调用」这个标记怎么筛调度模型。
+ * agent 的 `generate` 用哪个模型（AGENTS 第 12 / 13 条的延伸）。
  *
  * | 层 | 用哪个 | 为什么 |
  * |---|---|---|
@@ -68,7 +67,7 @@ before(async () => {
       {
         id: 'chat',
         kind: 'vscode-lm',
-        models: [{ name: 'big', contextWindow: 200000, maxOutputTokens: 4000, supportsTools: true }],
+        models: [{ name: 'big', contextWindow: 200000, maxOutputTokens: 4000 }],
       },
       {
         id: 'cheap',
@@ -176,35 +175,6 @@ describe('档位没配模型时沿用默认模型清单', () => {
   });
 });
 
-describe('supportsTools：调度模型的筛子', () => {
-  const capable = () => bundle.providers.toolCapableRefs(bundle.providers.normalizeProviders(settings.providers));
-
-  test('只列勾过的', () => {
-    assert.deepEqual(capable(), ['chat/big']);
-  });
-
-  test('没勾的不算（缺席不当成 true）', () => {
-    assert.ok(!capable().includes('cheap/plotter'), capable().join(','));
-  });
-
-  // 一个都没勾时返回空数组，由调用方决定是提示还是回落——不在这里替它决定。
-  test('一个都没勾时是空数组', () => {
-    const none = settings.providers.map((p) => ({ ...p, models: p.models.map((m) => ({ ...m, supportsTools: undefined })) }));
-    assert.deepEqual(bundle.providers.toolCapableRefs(bundle.providers.normalizeProviders(none)), []);
-  });
-
-  test('只认 true，字符串 "yes" 之类不算', () => {
-    const fuzzy = [{ id: 'x', kind: 'vscode-lm', models: [{ name: 'm', supportsTools: 'yes' }] }];
-    assert.deepEqual(bundle.providers.toolCapableRefs(bundle.providers.normalizeProviders(fuzzy)), []);
-  });
-
-  test('可以限定在某一批引用里挑', () => {
-    const providers = bundle.providers.normalizeProviders(settings.providers);
-    assert.deepEqual(bundle.providers.toolCapableRefs(providers, ['cheap/plotter']), []);
-    assert.deepEqual(bundle.providers.toolCapableRefs(providers, ['cheap/plotter', 'chat/big']), ['chat/big']);
-  });
-});
-
 describe('Agent 调度是一项独立的任务档位', () => {
   test('在任务清单里', () => {
     assert.ok(bundle.tiers.LLM_TASKS.includes('agent'), bundle.tiers.LLM_TASKS.join(','));
@@ -212,7 +182,7 @@ describe('Agent 调度是一项独立的任务档位', () => {
 
   test('有中文名与说明（设置页那张表要用）', () => {
     assert.ok(bundle.tiers.TASK_LABEL.agent, bundle.tiers.TASK_LABEL.agent);
-    assert.ok(bundle.tiers.TASK_HINT.agent.includes('工具调用'), bundle.tiers.TASK_HINT.agent);
+    assert.ok(bundle.tiers.TASK_HINT.agent, bundle.tiers.TASK_HINT.agent);
   });
 
   // 一轮十几次调用，但每次只做「下一步调哪个工具」的判断，不产正文。

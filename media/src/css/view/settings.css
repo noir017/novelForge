@@ -141,20 +141,6 @@ button.settings-subtab.active {
   font-size: 0.9em;
 }
 
-/* 勾选框那一格：标签在右、不拉伸，与旁边几个输入框底对齐。 */
-.model-row .field.compact.check {
-  flex: 0 0 auto;
-  flex-direction: row;
-  align-items: center;
-  gap: 4px;
-  padding-bottom: 4px;
-}
-
-.model-row .field.compact.check input {
-  width: auto;
-  margin: 0;
-}
-
 .model-tail {
   display: flex;
   align-items: baseline;

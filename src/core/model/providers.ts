@@ -22,17 +22,6 @@ export interface ModelEntry {
   contextWindow?: number;
   /** 该模型的最大输出 token；留空则用内置兼容值。 */
   maxOutputTokens?: number;
-  /**
-   * 这个模型支持工具调用（function calling）吗。**由作者手动勾选**。
-   *
-   * 只有勾了的模型才会出现在 agent 的调度模型档位里——不支持工具调用的模型
-   * 在 agent 那条路上只会一言不发地失败，而错误信息各家都不一样，作者根本
-   * 看不出是模型的问题。
-   *
-   * **不做自动探测**：探测要真发一次带 tools 的请求，那是在作者没点任何东西
-   * 的时候花钱（第 4 条）。
-   */
-  supportsTools?: boolean;
 }
 
 /** 一个服务商（一组共享 baseUrl 与 API Key 的模型）。 */
@@ -116,20 +105,6 @@ export function parseModelRef(ref: string): { providerId: string; model: string 
  * settings.json 是手写的，什么都可能出现。非法条目直接跳过而不是抛错——
  * 一个写错的服务商不该让整个插件用不了。
  */
-/**
- * 从一批引用里挑出**作者标记过支持工具调用**的那些，保序。
- *
- * agent 的调度模型只能从这里挑：不支持工具调用的模型在 agent 那条路上只会
- * 一言不发地失败，而各家的错误信息都不一样，作者根本看不出是模型的问题。
- *
- * `refs` 缺席时看全部已配置的模型。**一个都没勾时返回空数组**——调用方据此
- * 决定是提示作者去勾，还是沿用对话页那个模型，不在这里替它决定。
- */
-export function toolCapableRefs(providers: ProviderProfile[], refs?: string[]): string[] {
-  const all = refs ?? providers.flatMap((p) => p.models.map((m) => `${p.id}/${m.name}`));
-  return all.filter((ref) => resolveModelRef(providers, ref)?.model.supportsTools === true);
-}
-
 export function normalizeProviders(raw: unknown): ProviderProfile[] {
   if (!Array.isArray(raw)) {
     return [];
@@ -186,8 +161,6 @@ function normalizeModels(raw: unknown): ModelEntry[] {
       label: typeof o.label === 'string' && o.label.trim() ? o.label.trim() : undefined,
       contextWindow: positive(o.contextWindow),
       maxOutputTokens: positive(o.maxOutputTokens),
-      // 只认 true。缺席 / 认不出 = 没勾过，agent 的模型选择器里就不出现它。
-      supportsTools: o.supportsTools === true ? true : undefined,
     });
   }
   return out;

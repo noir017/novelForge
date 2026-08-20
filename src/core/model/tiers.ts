@@ -104,7 +104,7 @@ export const TASK_HINT: Record<LlmTask, string> = {
   characterCard: '按出场章分批精炼，产物每次续写都注入上下文',
   extractCharacters: '一次调用定「谁是谁」，判错会污染整个角色体系',
   extractStyle: '一次调用，产出的文风指南每次续写都注入',
-  agent: '每走一步都要调一次，只做决策不产文本；**必须支持工具调用**',
+  agent: '每走一步都要调一次，只做决策不产文本；对话页直接说话走的就是它',
 };
 
 /**

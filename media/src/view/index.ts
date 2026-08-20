@@ -131,7 +131,7 @@ onMessage((msg) => {
       break;
 
     case 'toolCall':
-      appendToolRow(msg.turnId, msg.callId, msg.title ?? msg.name, msg.detail);
+      appendToolRow(msg.turnId, msg.callId, msg.title ?? msg.name, msg.detail, msg.argsText);
       break;
 
     case 'toolResult':
@@ -243,7 +243,13 @@ function appendReasoning(turnId: string, text: string): void {
  * **就地追加而不是重建气泡**：重建会把正在流的正文冲掉（`.msg-body` 是
  * 纯文本节点，delta 靠 `textContent +=` 追加）。
  */
-function appendToolRow(turnId: string, callId: string, title: string, detail?: string): void {
+function appendToolRow(
+  turnId: string,
+  callId: string,
+  title: string,
+  detail?: string,
+  argsText?: string
+): void {
   const node = bubbleOf(turnId);
   if (!node) {
     return;
@@ -253,7 +259,7 @@ function appendToolRow(turnId: string, callId: string, title: string, detail?: s
     strip = buildToolStrip();
     node.insertBefore(strip, node.querySelector('.msg-body'));
   }
-  strip.appendChild(buildPendingToolRow(callId, title, detail));
+  strip.appendChild(buildPendingToolRow(callId, title, detail, argsText));
   scrollToBottom();
 }
 
@@ -281,17 +287,31 @@ function settleAgentRun(
   scrollToBottom();
 }
 
-/** 工具跑完了：把那一行换成带耗时与结果摘要的最终形态。 */
+/**
+ * 工具跑完了：把那一行换成带耗时与结果摘要的最终形态。
+ *
+ * **展开状态要跟过去**：作者点开这一条是想盯着它看，整条重建时把它合回去，
+ * 等于每次有结果就把他刚翻开的东西合上。
+ */
 function settleToolRow(
   turnId: string,
-  result: { callId: string; name: string; ok: boolean; summary: string; elapsedMs: number }
+  result: {
+    callId: string;
+    name: string;
+    ok: boolean;
+    summary: string;
+    elapsedMs: number;
+    argsText?: string;
+    resultText?: string;
+  }
 ): void {
   const row = bubbleOf(turnId)?.querySelector<HTMLElement>(`.tool-row[data-call="${result.callId}"]`);
   if (!row) {
     return;
   }
   const title = row.querySelector('.tool-title')?.textContent ?? result.name;
-  row.replaceWith(buildToolRow({ ...result, title }));
+  const open = row instanceof HTMLDetailsElement && row.open;
+  row.replaceWith(buildToolRow({ ...result, title, open }));
   scrollToBottom();
 }
 

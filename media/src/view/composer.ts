@@ -4,8 +4,8 @@
  * ## 三条发送路径，一个出口
  *
  * - **主按钮**（状态机算出的下一步）：点了就跑，输入框可空
- * - **`/` 命令**：挑一个 → 变成一枚 chip → Enter/发送时用它
- * - **直接发送**：不挑就用会话当前的 stage/capability（多半是讨论）
+ * - **`/` 命令**：挑一个 → 变成一枚 chip → Enter/发送时用它，确定性的单步
+ * - **直接发送**：不挑命令就走 Agent——它自己决定查什么、分几步做完
  *
  * 三条都走同一个 `send()`：附件、草稿、busy 只在一处管。
  */
@@ -107,10 +107,11 @@ function send(): void {
   if (store.busy || !hasWorkspace()) {
     return;
   }
-  // Agent 那条路只吃一句话：它没有 stage/capability 的概念，「下一步该做什么」
-  // 由后端每回合注入的状态机结论说了算（第 20 条）。所以这里**不带 payload**——
-  // 把当前选的能力捎过去，等于让前端也参与判断，两处迟早分叉。
-  if (el.agentToggle.checked) {
+  // 没挑命令就是 Agent——**它是默认的那条路**，不再是一个开关。Agent 只吃一句
+  // 话：它没有 stage/capability 的概念，「下一步该做什么」由后端每回合注入的
+  // 状态机结论说了算（第 20 条）。所以这里**不带 payload**——把当前选的能力捎
+  // 过去，等于让前端也参与判断，两处迟早分叉。
+  if (!pending) {
     const text = el.input.value.trim();
     if (!text) {
       toast('先说说你要它做什么。', true);
@@ -120,7 +121,10 @@ function send(): void {
     setBusy(true);
     vscode.postMessage({ type: 'sendAgent', text });
     el.input.value = '';
+    // 引用与单步那条路同一套：发出去就清空（后端也清它那份 pending）。
+    store.attachments = [];
     clearPendingCommand();
+    renderChips();
     persistDraft();
     return;
   }

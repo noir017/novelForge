@@ -36,11 +36,27 @@ export type OutMessage =
    * 这个说的是「它现在在做第几件事」。
    */
   | { type: 'agentStep'; turnId: string; step: number; message: string }
-  /** agent 要调一个工具了。前端在气泡里挂一条折叠条。 */
-  | { type: 'toolCall'; turnId: string; callId: string; name: string; title?: string; detail?: string }
   /**
-   * 工具跑完了。`summary` 是**展示摘要**（几行、几处命中），
-   * **不是工具的完整返回值**——那可能是几万字。
+   * agent 要调一个工具了。前端在气泡里挂一条折叠条。
+   *
+   * `argsText` 是模型填的参数（JSON 文本，已截断）：展开那一条就能看到它这一步
+   * 到底动的是哪个路径、搜的是哪个词。还没有结果，所以这时只有参数。
+   */
+  | {
+      type: 'toolCall';
+      turnId: string;
+      callId: string;
+      name: string;
+      title?: string;
+      detail?: string;
+      argsText?: string;
+    }
+  /**
+   * 工具跑完了。`summary` 是那一行上的**展示摘要**（几行、几处命中）。
+   *
+   * `argsText` / `resultText` 是展开后才画的明细，**都已截断**——工具的完整
+   * 返回值可能是几万字，直接摊在气泡里会把作者要看的那段回答挤出屏幕。
+   * 参数在这里再带一遍，是因为前端拿到结果时会整条重建那一行。
    */
   | {
       type: 'toolResult';
@@ -50,6 +66,8 @@ export type OutMessage =
       ok: boolean;
       summary: string;
       elapsedMs: number;
+      argsText?: string;
+      resultText?: string;
     }
   /** 一次 agent 循环结束。`message` 在非正常结束时说明为什么停。 */
   | {
@@ -148,8 +166,6 @@ export interface SerializedModel {
   label?: string;
   contextWindow?: number;
   maxOutputTokens?: number;
-  /** 作者勾过「支持工具调用」。只有勾了的才进 agent 的调度模型选择器。 */
-  supportsTools?: boolean;
 }
 
 export interface FileOpResult {

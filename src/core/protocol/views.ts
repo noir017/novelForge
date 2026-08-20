@@ -234,7 +234,8 @@ export interface SerializedTurn {
   /**
    * 仅 assistant 轮：这一轮 agent 调过的工具。重开面板要能把那串折叠条画回来。
    *
-   * **只有展示摘要，没有完整返回值**——那可能是几万字。
+   * 那一行上只有摘要；参数与返回文本在**展开之后**才画，且都是截断过的
+   * ——完整返回值可能是几万字，摊在气泡里会把回答挤出屏幕。
    */
   toolCalls?: SerializedToolCall[];
   /**
@@ -264,6 +265,10 @@ export interface SerializedToolCall {
   ok: boolean;
   summary: string;
   elapsedMs: number;
+  /** 模型填的参数（JSON 文本，已截断）。折叠条展开后画。 */
+  argsText?: string;
+  /** 回给模型的那段文本（已截断）。折叠条展开后画。 */
+  resultText?: string;
 }
 
 export interface SerializedArtifact {

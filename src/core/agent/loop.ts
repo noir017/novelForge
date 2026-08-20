@@ -104,15 +104,33 @@ export interface AgentHandlers {
   onStep?(step: number, message: string): void;
   /** 模型的文字增量（含 `generate` 内部那次调用的正文）。进气泡。 */
   onDelta?(text: string): void;
-  /** 要调一个工具了。 */
-  onToolCall?(call: { callId: string; name: string; display?: { title: string; detail?: string } }): void;
-  /** 工具跑完了。 */
+  /**
+   * 要调一个工具了。
+   *
+   * `args` 是模型这一次填的参数原样。**给界面看的**（作者要能查「它到底读了哪个
+   * 路径、搜的是哪个词」），循环自己不解释它——认不认识某个字段是工具的事。
+   */
+  onToolCall?(call: {
+    callId: string;
+    name: string;
+    args?: Record<string, unknown>;
+    display?: { title: string; detail?: string };
+  }): void;
+  /**
+   * 工具跑完了。
+   *
+   * `summary` 是那一行上的摘要；`text` 是**回给模型的那段原文**——同样只给界面
+   * 看，让作者能核对「模型看到的是什么」。它按契约本就该短（[tools/types.ts]
+   * 的 `ToolResult.text`），真长了由调用方截，循环不替它决定截多少。
+   */
   onToolResult?(result: {
     callId: string;
     name: string;
     ok: boolean;
     summary: string;
     elapsedMs: number;
+    args?: Record<string, unknown>;
+    text?: string;
   }): void;
   /** 工具或循环想说点什么给作者看（用量、提示）。**不进 agent 上下文。** */
   onNote?(message: string): void;
@@ -317,13 +335,19 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
         const verdict = await askGate(gate, on, call.name);
         if (verdict !== 'proceed') {
           turns.push(toolMessage(call, declinedText(verdict, gate)));
-          on.onToolCall?.({ callId: call.id, name: call.name, display: { title: `${call.name}（未执行）` } });
+          on.onToolCall?.({
+            callId: call.id,
+            name: call.name,
+            args: call.args,
+            display: { title: `${call.name}（未执行）` },
+          });
           on.onToolResult?.({
             callId: call.id,
             name: call.name,
             ok: false,
             summary: verdict === 'skip' ? '作者跳过了这一步' : '作者叫停',
             elapsedMs: 0,
+            args: call.args,
           });
           if (verdict === 'stop') {
             declined = true;
@@ -401,7 +425,7 @@ async function runOne(
   on: AgentHandlers,
   draftIds: string[]
 ): Promise<string> {
-  on.onToolCall?.({ callId: call.id, name: call.name });
+  on.onToolCall?.({ callId: call.id, name: call.name, args: call.args });
 
   const spentBefore = budget.calls;
   const result: ToolInvocation = await tools.invoke(call.name, call.args ?? {}, run);
@@ -423,6 +447,8 @@ async function runOne(
     ok: result.ok,
     summary: result.error ?? result.display?.detail ?? firstLine(result.text),
     elapsedMs: result.elapsedMs,
+    args: call.args,
+    text: result.text,
   });
   return result.text;
 }

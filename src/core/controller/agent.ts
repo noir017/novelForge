@@ -11,7 +11,7 @@
  * 1. **占生成位**（`beginGeneration`）——与单步共用同一把锁，两条路不会同时跑；
  * 2. **走 `runTask`**（第 11 条）——工程页顶部有进度条、看得见、能停；
  * 3. **把循环的事件翻译成协议消息**——工具调用画成气泡里的折叠条；
- * 4. **把这一轮的痕迹存进会话**——只存展示摘要，不存工具的完整返回值。
+ * 4. **把这一轮的痕迹存进会话**——摘要，加上截断过的参数与返回文本。
  *
  * 判断、装配、预算全在 `core/agent/` 里，这里一条都不重复。
  */
@@ -20,9 +20,9 @@ import { readConfig } from '../config';
 import { buildProvider } from '../llm/registry';
 import { runTask } from '../runtime/progress';
 import { scoped } from '../runtime/logger';
-import { describeModelIssue, providerLabel, resolveModelRef, toolCapableRefs } from '../model/providers';
+import { describeModelIssue, providerLabel, resolveModelRef } from '../model/providers';
 import { refsForTask } from '../model/tiers';
-import { ChatTurn, TurnToolCall, deriveTitle, makeTurnId, nowIso, turnPreview } from '../model/session';
+import { Attachment, ChatTurn, TurnToolCall, deriveTitle, makeTurnId, nowIso, turnPreview } from '../model/session';
 import { runAgent } from '../agent/loop';
 import type { BudgetLimits } from '../agent/budget';
 import { createNovelTools } from '../tools/novel';
@@ -32,21 +32,81 @@ import { serializeSession, serializeTurn } from './serialize';
 
 const log = scoped('面板');
 
+/** 参数那一段的上限。路径与查询词都短，几百字够看，一大段内嵌文本没必要全留。 */
+const ARGS_LIMIT = 800;
+/** 返回那一段的上限。工具按契约本就回短文本，这道闸只防写坏了的那一个。 */
+const RESULT_LIMIT = 2000;
+
 /**
- * 调度模型：「Agent 调度」档里第一个勾了「支持工具调用」的。
+ * 截一段给界面看的文本。**说出自己截了**（第 2 条：不静默截断）——
+ * 作者展开明细就是为了核对，看不出后面还有内容的话，他会把半截当全部。
+ */
+function clip(text: string, limit: number): string {
+  const trimmed = text.trimEnd();
+  return trimmed.length <= limit
+    ? trimmed
+    : `${trimmed.slice(0, limit)}\n…（还有 ${trimmed.length - limit} 字，已截断）`;
+}
+
+/**
+ * 模型这一次填的参数，排成折叠条里那一段 JSON。
  *
- * 一个都没勾就回落到对话页选定的那个——**不是硬失败**：那个模型八成也支持
- * 工具调用，只是作者还没去勾。硬失败会让「打开 Agent 开关」变成一条要先读
- * 文档才走得通的路。
+ * 没参数的工具（`status` 那类）回 undefined 而不是 `{}`——空花括号只是让作者
+ * 多点开一次才发现没东西可看。
+ */
+function describeArgs(args: Record<string, unknown> | undefined): string | undefined {
+  if (!args || Object.keys(args).length === 0) {
+    return undefined;
+  }
+  try {
+    return clip(JSON.stringify(args, null, 2), ARGS_LIMIT);
+  } catch {
+    // 循环引用之类的怪东西：明细不是关键路径，画不出来就不画。
+    return undefined;
+  }
+}
+
+/**
+ * 调度模型：「Agent 调度」档里第一个解析得出的模型。
+ *
+ * 那一档没配（或配的引用全都认不出来）就回落到对话页选定的那个——**不是硬
+ * 失败**：对话本身现在就走这条路，硬失败会让「发一句话」变成一条要先读文档
+ * 才走得通的路。
  */
 function pickDispatchModel(config: ReturnType<typeof readConfig>) {
-  for (const ref of toolCapableRefs(config.providers, refsForTask(config, 'agent').refs)) {
+  for (const ref of refsForTask(config, 'agent').refs) {
     const active = resolveModelRef(config.providers, ref);
     if (active) {
       return active;
     }
   }
   return config.active;
+}
+
+/**
+ * 把 `@ 引用` 折进作者那句话。
+ *
+ * agent 没有装配器（第 20 条：上下文由它一步步自己读出来），引用没法像单步
+ * 那条路一样交给装配器——但也不能就这么丢掉：作者点了「@ 引用」就是在说
+ * 「先看这个」。所以整文件只给**路径**（它手里有 `read`，自己读比把几万字
+ * 塞进第一条消息便宜得多），选区则必须**内联**：那份快照只存在会话里，
+ * 磁盘上的文件可能早就改了。
+ */
+function foldAttachments(text: string, attachments: Attachment[]): string {
+  if (attachments.length === 0) {
+    return text;
+  }
+  const lines = [text, '', '# 作者引用的材料'];
+  for (const a of attachments) {
+    if (a.text) {
+      lines.push(`## ${a.label}${a.relPath ? `（${a.relPath}）` : ''}`, '```', a.text.trim(), '```');
+    } else if (a.relPath) {
+      lines.push(`- ${a.relPath}（需要就用 read 读它）`);
+    } else {
+      lines.push(`- ${a.label}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -70,9 +130,8 @@ export async function sendAgent(
   }
 
   const config = readConfig();
-  // 调度模型取「Agent 调度」那一档里**标记过支持工具调用**的第一个；一个都没
-  // 标记时沿用对话页选定的那个（那是分档之前的行为，能跑）。**不做自动探测**：
-  // 探测要真发一次带 tools 的请求，那是在作者没点任何东西的时候花钱（第 4 条）。
+  // 调度模型取「Agent 调度」那一档里第一个解析得出的；那一档没配时沿用对话页
+  // 选定的那个（那是分档之前的行为，能跑）。
   const dispatch = pickDispatchModel(config);
   if (!dispatch) {
     c.toast(describeModelIssue(config.providers, config.model), 'error');
@@ -88,19 +147,23 @@ export async function sendAgent(
   }
   log.info(`Agent 调度模型 ${dispatch.ref}`, config.agentPolicy);
 
+  const attachments = [...c.pending];
   const userTurn: ChatTurn = {
     id: makeTurnId(),
     role: 'user',
     content: text.trim(),
     at: nowIso(),
-    // 气泡上标一枚 `/Agent`，翻回去看得出这一轮走的是哪条路。
-    command: 'Agent',
+    attachments: attachments.length > 0 ? attachments : undefined,
   };
   c.current.turns.push(userTurn);
   if (c.current.turns.length === 1) {
     c.current.title = deriveTitle(turnPreview(userTurn));
   }
+  // 引用是一次性的，与单步那条路同一套：发出去就清空，下一句话不会莫名其妙
+  // 又带上刚才那份文件。
+  c.pending = [];
   c.post({ type: 'turnDone', turn: serializeTurn(userTurn) });
+  c.post({ type: 'attachments', items: [] });
   await persist(c);
 
   // 并发控制与单步共用同一把锁：两条路同时跑会让 draft 与流式内容互相盖。
@@ -115,7 +178,7 @@ export async function sendAgent(
   c.current.turns.push(assistantTurn);
   c.post({ type: 'turnDone', turn: serializeTurn(assistantTurn) });
 
-  /** 这一轮调过的工具。**只记展示摘要**——完整返回值可能是几万字。 */
+  /** 这一轮调过的工具。摘要 + 截断过的参数与返回——完整返回值可能是几万字。 */
   const toolCalls: TurnToolCall[] = [];
   const titles = new Map<string, string>();
 
@@ -143,7 +206,7 @@ export async function sendAgent(
             sessionId: c.current.id,
           }),
           provider,
-          ask: userTurn.content,
+          ask: foldAttachments(userTurn.content, attachments),
           target: c.current.target,
           limits,
           signal: lease.signal,
@@ -163,9 +226,14 @@ export async function sendAgent(
                 name: call.name,
                 title,
                 detail: call.display?.detail,
+                argsText: describeArgs(call.args),
               });
             },
             onToolResult: (r) => {
+              // 明细在这里截一次，界面与会话里存的是同一份——两处不一样的话，
+              // 作者当场看到的和第二天翻回来看到的就对不上。
+              const argsText = describeArgs(r.args);
+              const resultText = r.text ? clip(r.text, RESULT_LIMIT) : undefined;
               toolCalls.push({
                 callId: r.callId,
                 name: r.name,
@@ -173,8 +241,20 @@ export async function sendAgent(
                 ok: r.ok,
                 summary: r.summary,
                 elapsedMs: r.elapsedMs,
+                argsText,
+                resultText,
               });
-              c.post({ type: 'toolResult', turnId: assistantTurn.id, ...r });
+              c.post({
+                type: 'toolResult',
+                turnId: assistantTurn.id,
+                callId: r.callId,
+                name: r.name,
+                ok: r.ok,
+                summary: r.summary,
+                elapsedMs: r.elapsedMs,
+                argsText,
+                resultText,
+              });
             },
             onNote: (message) => c.toast(message),
           },

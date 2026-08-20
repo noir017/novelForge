@@ -152,25 +152,3 @@
   color: var(--vscode-editorWarning-foreground, #cca700);
 }
 
-/* Agent 开关。与旁边那几个下拉框同高，不抢主按钮的位置。 */
-.composer-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  min-height: var(--nf-ctl-height);
-  padding: 0 6px;
-  font-size: 0.82em;
-  color: var(--vscode-descriptionForeground);
-  cursor: pointer;
-  user-select: none;
-}
-
-.composer-toggle:hover {
-  color: var(--vscode-foreground);
-}
-
-.composer-toggle input {
-  margin: 0;
-  cursor: pointer;
-}

@@ -147,13 +147,6 @@ export function chatPane(opts: PaneOptions = {}): string {
       <select id="targetSelect" title="当前创作目标"></select>
       <input type="number" id="targetWords" value="2000" min="0" step="100" title="目标字数（0 为不限）">
       <span class="spacer"></span>
-      <!-- Agent 开关。它与创作是同一件事，只是执行方式不同——所以是输入框旁的
-           一个开关，不是新页签。开着时发送走 sendAgent：模型自己决定查什么、
-           生成什么；关着时还是确定性的单步（点「写剧情」多一次调度调用只是
-           加钱加延迟）。 -->
-      <label class="composer-toggle" id="agentToggleWrap" title="让 AI 自己查资料、跨章对账、分几步做完。它产出的内容仍然要你点采纳才落盘。">
-        <input type="checkbox" id="agentToggle">Agent
-      </label>
       <button class="primary" id="sendBtn">发送</button>
       <button class="danger hidden" id="stopBtn">停止</button>
     </div>
@@ -276,8 +269,8 @@ export function settingsPane(opts: PaneOptions = {}): string {
 
     <div class="pane-head"><span>Agent</span></div>
     <div class="hint">
-      Agent 是对话页输入框旁那个开关：开着时它自己查资料、分几步做完一件事。下面这一项只管
-      <b>它动手之前要不要先问你一句</b>——<b>覆盖已有内容永远会先让你逐行过目</b>，
+      对话页直接说话就是 Agent：它自己查资料、分几步做完一件事（挑了 <b>/命令</b> 才是确定性的单步）。
+      下面这一项只管 <b>它动手之前要不要先问你一句</b>——<b>覆盖已有内容永远会先让你逐行过目</b>，
       批量动作永远会先告诉你要调几次模型，三种模式完全一样，关不掉。
     </div>
     <div class="grid">
@@ -289,7 +282,6 @@ export function settingsPane(opts: PaneOptions = {}): string {
         </select>
       </label>
     </div>
-    <div class="hint" id="agentModelHint"></div>
 
     <button type="button" class="settings-advanced-toggle" id="settingsAdvancedToggle" aria-expanded="false" aria-controls="settingsAdvanced">
       <span class="caret">▸</span>

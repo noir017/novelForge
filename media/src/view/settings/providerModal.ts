@@ -15,7 +15,7 @@ import { el } from '../refs';
 import { vscode } from '../store';
 import { toast } from '../toast';
 import { draft, touch, uniqueId, validateProviders } from './draft';
-import { compactCheck, compactField, compactNumber, textField } from './fields';
+import { compactField, compactNumber, textField } from './fields';
 import { KIND_LABEL, PRESETS } from './presets';
 import { renderProviders } from './providerList';
 
@@ -283,19 +283,6 @@ function buildModelRow(
       m.maxOutputTokens = v;
       editorTouch();
     })
-  );
-  // Agent 的调度模型只从勾过这一项的模型里挑。不做自动探测——探测要真发一次
-  // 带 tools 的请求，那是在你没点任何东西的时候花钱。
-  row.appendChild(
-    compactCheck(
-      '支持工具调用',
-      m.supportsTools,
-      '勾上这个模型才会被 Agent 用作调度模型。不支持工具调用的模型在 Agent 那条路上只会莫名其妙地失败。',
-      (v) => {
-        m.supportsTools = v;
-        editorTouch();
-      }
-    )
   );
 
   const tail = mk('div', 'model-tail');
