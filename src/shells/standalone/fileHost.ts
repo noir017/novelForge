@@ -33,16 +33,32 @@ export class FileHost implements Host {
    * 用来回答「这份文件是不是某一章、它的草稿在哪」。
    * 只做纯路径推导，不缓存章节列表——那份缓存归 controller 持有的实例管。
    */
-  private readonly project: NovelProject | undefined;
+  private project: NovelProject | undefined;
+  /** 小说工程根目录；openFile 据此解析相对路径。空窗口时没有。 */
+  private root: string | undefined;
 
   constructor(
     public readonly config: ConfigStore,
     private readonly broadcastMsg: (msg: OutMessage) => void,
-    /** 小说工程根目录；openFile 据此解析相对路径。 */
-    private readonly root?: string
+    root?: string
   ) {
     this.prompts = new PromptHub(broadcastMsg);
-    this.project = root ? NovelProject.open(root) : undefined;
+    if (root) {
+      this.bind(root);
+    }
+  }
+
+  /** 绑到一个工程目录。热换时由 WorkspaceHub 调用。 */
+  bind(root: string): NovelProject {
+    this.root = root;
+    this.project = NovelProject.open(root);
+    return this.project;
+  }
+
+  /** 卸掉当前工程。空窗口。 */
+  unbind(): void {
+    this.root = undefined;
+    this.project = undefined;
   }
 
   async input(opts: InputOptions): Promise<string | undefined> {
@@ -164,8 +180,12 @@ export class FileHost implements Host {
 
   /** 读一份快照广播给前端，网页里开标签页。失败只报错，不抛给 controller。 */
   async openInEditor(relPath: string, pane?: EditorPane): Promise<void> {
+    if (!this.root) {
+      this.broadcastMsg({ type: 'editorError', path: relPath, message: '请先打开文件夹' });
+      return;
+    }
     try {
-      const file = await readFileForEditor(this.root ?? '.', relPath);
+      const file = await readFileForEditor(this.root, relPath);
       this.broadcastMsg({
         type: 'editorOpen',
         file: { ...file, draftPath: this.draftPathOf(file.path) },
@@ -208,8 +228,12 @@ export class FileHost implements Host {
 
   /** 保存编辑器内容。冲突不覆盖，改为把磁盘版本回给前端让用户取舍。 */
   async saveFromEditor(relPath: string, text: string, baseHash?: string): Promise<void> {
+    if (!this.root) {
+      this.broadcastMsg({ type: 'editorError', path: relPath, message: '请先打开文件夹' });
+      return;
+    }
     try {
-      const file = await writeFileFromEditor(this.root ?? '.', relPath, text, baseHash);
+      const file = await writeFileFromEditor(this.root, relPath, text, baseHash);
       // draftPath 要一并带回：前端的保存分支只更新 text/hash，
       // 这里漏掉的话工具栏上的「草稿」按钮会在首次保存后消失。
       this.broadcastMsg({ type: 'editorSaved', file: { ...file, draftPath: this.draftPathOf(file.path) } });
@@ -234,7 +258,11 @@ export class FileHost implements Host {
   /** 用系统默认程序打开（用户自己的编辑器 / 图片查看器）。 */
   async openExternal(relPath: string): Promise<void> {
     try {
-      openWithSystem(path.resolve(this.root ?? '.', relPath));
+      if (!this.root) {
+        this.toast('请先打开文件夹', 'error');
+        return;
+      }
+      openWithSystem(path.resolve(this.root, relPath));
       this.toast(`已用系统程序打开：${relPath}`);
     } catch {
       this.toast(`无法打开：${relPath}，请手动打开。`);

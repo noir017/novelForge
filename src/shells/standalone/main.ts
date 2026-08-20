@@ -34,10 +34,8 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // 解析已允许 root 为空；空窗口起服务要等 WorkspaceHub 接上后再去掉 cwd 回落。
-  const serverRoot = opts.root ?? path.resolve('.');
-  if (!fs.existsSync(path.join(serverRoot, '.novelforge', 'project.json'))) {
-    console.log(`提示：目录还不是小说工程：${serverRoot}`);
+  if (opts.root && !fs.existsSync(path.join(opts.root, '.novelforge', 'project.json'))) {
+    console.log(`提示：目录还不是小说工程：${opts.root}`);
     console.log('可先跑 novelforge init，或在网页上点「初始化工程」。');
   }
 
@@ -45,7 +43,7 @@ async function main(): Promise<void> {
   let port = opts.port;
   for (let i = 0; ; i++) {
     try {
-      port = startServer({ root: serverRoot, port, verbose: opts.verbose });
+      port = await startServer({ root: opts.root, port, verbose: opts.verbose });
       break;
     } catch (err) {
       if (i >= 20) {

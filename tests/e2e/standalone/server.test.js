@@ -50,9 +50,10 @@ const base = `http://127.0.0.1:${PORT}`;
 const nameOf = (list) => list.map((e) => e.name);
 
 let conn;
+const e2eWindowDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-e2e-win-'));
 
 before(async () => {
-  startServer({ root, port: PORT });
+  await startServer({ root, port: PORT, windowDir: e2eWindowDir });
   conn = connect(PORT);
   await conn.ready;
 });
@@ -366,7 +367,7 @@ describe('临时工程（写入类用例）', () => {
     work = fs.mkdtempSync(path.join(os.tmpdir(), 'novelforge-server-'));
     fs.mkdirSync(path.join(work, 'chapters'), { recursive: true });
     fs.writeFileSync(path.join(work, rel), '# 测试\n\n初始内容。\n', 'utf8');
-    startServer({ root: work, port: EDIT_PORT });
+    await startServer({ root: work, port: EDIT_PORT, windowDir: e2eWindowDir });
 
     edit = connect(EDIT_PORT);
     await edit.ready;
