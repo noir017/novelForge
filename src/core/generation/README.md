@@ -1,20 +1,22 @@
-# core/generation — 装配 + 调模型 + 解析 + 采纳
+# core/generation — 装配 + 调模型 + 解析 + 落盘
 
-创作的一次单步：**装配上下文 → 调模型 → 解析成产物 → 由用户点了采纳才落盘**。
+创作的一次单步：**装配上下文 → 调模型 → 解析成产物 → 当场问一句，作者点头才落盘**。
 
 从前这四件事挤在 `features/creation.ts` 的 `CreationSession` 一个类里，外加第五件——「当前有没有在生成」。落盘搬进 [`workspace/`](../workspace/README.md) 之后，剩下的应该是纯函数，所以这一层**没有类、没有字段、没有单例**。
 
 | 文件 | 职责 |
 |---|---|
 | [generate.ts](generate.ts) | ★ **无状态**：装配（`buildContext`）→ 调模型 → 解析 → 产出一份 `Draft`。收 `signal`，不自己管并发。另有 `previewContext`（只装配不调模型，面板的「预览上下文」）与 `parseDraftArtifact`（解析，不写盘）。 |
-| [accept.ts](accept.ts) | ★ 采纳：按 target 分派到六条落盘路径（大纲 / 拆章 / 细纲 / 拆场景 / 场景卡 / 正文）。守卫、渲染、记账、伴生搬迁全在 `workspace/` 做一次，这里只做分派与人话消息。 |
-| [drafts.ts](drafts.ts) | ★ `DraftStore`：未采纳的产物，内存按会话分桶 + 随会话 JSON 落盘。 |
+| [accept.ts](accept.ts) | ★ 落盘：按 target 分派到六条落盘路径（大纲 / 拆章 / 细纲 / 拆场景 / 场景卡 / 正文）。守卫、渲染、记账、伴生搬迁全在 `workspace/` 做一次，这里只做分派与人话消息。 |
+| [drafts.ts](drafts.ts) | ★ `DraftStore`：还没落盘的产物，内存按会话分桶 + 随会话 JSON 落盘。 |
 
 ## 三条硬约束
 
 ### 1. 一个字都不写磁盘（生成那一半）
 
-`generate` 只把文本交回界面，`accept` 才写，且只在用户点了采纳之后（AGENTS 第 19 条）。中间那一步是用户看着产物决定要不要的机会——少了它，「不静默覆盖」无从谈起。
+`generate` 只把文本交回界面，`accept` 才写，且只在用户在那张落盘卡片上点了「写入」之后（AGENTS 第 19 条）。中间那一步是用户看着产物决定要不要的机会——少了它，「不静默覆盖」无从谈起。
+
+**那一问在产出的当下**（`controller/chat.ts` 的 `askArtifact` → `controller/gate.ts`），不是气泡末尾一颗可以永远不点的按钮：拖着不点的话，「过一遍人」就成了一件可以无限拖延的事，而 agent 早接着往下做了。
 
 唯一的例外是失败记账（`recordFailure` / `clearFailures`），它写的是痕迹库不是内容（第 17 条）。
 
@@ -26,15 +28,15 @@ const raw = stage === 'manuscript' ? cleanOutput(full) : full.trim();
 
 那几条正则是为正文写的（剥开场白、剥章节标题、剥结尾字数统计）。跑在 JSON 产物上会切坏结构——产物里的 ``` 由 `features/parse.ts` 的 `stripCodeFence` 在**解析时**处理，不在这里剥。
 
-### 3. 采纳时重新解析，不用 `draft.artifact`
+### 3. 落盘时重新解析，不用 `draft.artifact`
 
-`Draft` 出厂就带 `artifact` 与 `summary`（省掉了从前三次解析里多余的那次：生成时 → 后端画卡片时 → 采纳时）。但**采纳走的是气泡里当下那份文本**：
+`Draft` 出厂就带 `artifact` 与 `summary`（省掉了从前三次解析里多余的那次：生成时 → 后端画卡片时 → 落盘时）。但**落盘走的是气泡里当下那份文本**：
 
 ```
-draftId → draft.target → accept(project, target, parseArtifact(action, 气泡里的文本))
+draft.target → accept(project, target, parseArtifact(action, 气泡里的文本))
 ```
 
-用户可能在气泡里改过两个字再点采纳。`draft.artifact` 只是生成那一刻的展示快照，`draft.raw` 只是兜底。
+用户可能在气泡里改过两个字再点「写入」（那份改动经 `editTurn` 已经落在 `turn.content` 上，所以那份文本**答完才取**——取早了拿到的是他改之前那版）。`draft.artifact` 只是生成那一刻的展示快照，`draft.raw` 只是兜底。
 
 **`target` 从 draft 里取，不由前端传**——前端猜不出一段讨论该写到哪一层（第 19 条最后一句）。
 
@@ -49,13 +51,13 @@ draftId → draft.target → accept(project, target, parseArtifact(action, 气�
 
 ## Draft 为什么要落盘
 
-与从前 `ChatTurn.artifact` 存进会话是同一条理由：**刷新网页后采纳按钮还在**，不然刚生成的四个场景就只剩一段谁也用不上的 JSON。
+`generate` 产出的那份东西一个字都没写盘，而它至少要活到作者在落盘卡片上点头那一刻；agent 手里的 `draftId` 还可能被它稍后用 `write draftId=…` 拿去写——翻回一个旧会话接着让它干活时，那几份草稿还得在。
 
 - **存哪里**：内存为主（`Map`，按会话分桶），随会话 JSON 一起落盘（`.novelforge/sessions/<id>.json`）
 - **不进 SQLite**：第 17 条，库只放可丢弃的痕迹。draft 是未落盘的内容，但它跟着会话走，会话本来就是 JSON
 - **留多少**：一个会话 20 份（`MAX_DRAFTS_PER_SESSION`）。`draft.raw` 与 `ChatTurn.content` 是同一段文字，全留着等于把会话文件写两遍
-- **谁装回内存**：`controller/session.ts` 的 `openSession` —— 不装回来的话按钮会在（`ChatTurn.draftId` 还在），点下去却报「已经过期」。换会话时 `dropBySession` 掉上一个，不然开一天面板会攒下几十份没人再看的正文
-- **容错**：认不出的草稿在 `model/session.ts` 的 `normalize()` 里丢掉；对不上草稿的 `draftId` 也丢掉——采纳按钮收起来，但 `ChatTurn.artifact` 那份展示快照仍在，气泡上仍看得出「这一轮产出过一份 4 场的场景清单」
+- **谁装回内存**：`controller/session.ts` 的 `openSession`。换会话时 `dropBySession` 掉上一个，不然开一天面板会攒下几十份没人再看的正文
+- **容错**：认不出的草稿在 `model/session.ts` 的 `normalize()` 里丢掉。气泡上那份 `ChatTurn.artifact` 是**回放用的记录**（产出过什么、落到哪儿了 / 未采纳），与草稿在不在无关——它不再驱动任何按钮
 
 ## 一个字都不改装配器
 

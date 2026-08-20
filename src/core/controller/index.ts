@@ -30,7 +30,6 @@ import {
 } from '../protocol';
 import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
 import {
-  acceptArtifact,
   pushPipeline,
   retry,
   selectPlot,
@@ -38,6 +37,8 @@ import {
   setTarget,
 } from './chat';
 import { sendAgent } from './agent';
+import type { PendingGate } from './gate';
+import { cancelGates, resendGates, resolveGate } from './gate';
 import { fileAction, openDraft, pushDirListings } from './files';
 import { characterAction, projectAction } from './project';
 import {
@@ -114,6 +115,15 @@ export class ChatController {
   pending: Attachment[] = [];
   /** @internal controller/ 同包用；壳不要读。 */
   readonly hosts = new Set<ViewHost>();
+  /**
+   * 等着作者点头的权限询问（agent 那条路的闸门，见 [gate.ts](gate.ts)）。
+   *
+   * 记在后端而不是前端，是因为**前端无状态**：网页刷新、webview 重建之后，
+   * 这几张卡片要靠 `resendFullState` 原样再推一遍——不然循环就停在一个谁也
+   * 看不见的等待上，界面只剩一个转不完的忙碌标记。
+   * @internal controller/ 同包用；壳不要读。
+   */
+  readonly gates = new Map<string, PendingGate>();
   /** 日志与任务的订阅，dispose 时要解掉——否则重开面板会留下往死通道推的 sink。 */
   private readonly subscriptions: { dispose(): void }[] = [];
   /**
@@ -210,6 +220,8 @@ export class ChatController {
   dispose(): void {
     this.disposed = true;
     this.currentAbort?.abort(new CancelledError());
+    // 还在等回答的权限卡片：面板都没了，没人答得了它。
+    cancelGates(this);
     for (const sub of this.subscriptions) {
       sub.dispose();
     }
@@ -260,6 +272,9 @@ export class ChatController {
     this.post({ type: 'busy', value: this.busy });
     // 刷新页面时长任务多半还在跑，进度条必须立刻接上，别让人以为任务没了。
     this.post({ type: 'tasks', tasks: activeTasks() });
+    // 还没答的权限卡片也要跟着回来：它挂在会话的气泡上（上面那条 session 已经
+    // 把气泡带回来了），循环这会儿正卡在那里等回答。
+    resendGates(this);
     await this.pushTabData();
   }
 
@@ -288,10 +303,6 @@ export class ChatController {
 
       case 'stop':
         this.stopGeneration();
-        return;
-
-      case 'acceptArtifact':
-        await acceptArtifact(this, msg.turnId, msg.draftId, msg.text);
         return;
 
       case 'setTarget':
@@ -483,6 +494,11 @@ export class ChatController {
 
       case 'promptResult':
         // 由独立版壳在进入 controller 前截获（解弹窗）；插件永远不会收到。
+        return;
+
+      case 'gateResult':
+        // 作者在气泡里那张权限卡片上点了一颗按钮。认不出的 requestId 静默丢弃。
+        resolveGate(this, msg.requestId, msg.verdict);
         return;
 
       // 工作区生命周期与本机目录：独立版由 WorkspaceHub 在进 controller

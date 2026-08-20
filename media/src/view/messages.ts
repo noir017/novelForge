@@ -73,6 +73,27 @@ export function bubbleOf(turnId: string): HTMLElement | null {
   return el.messages.querySelector(`[data-turn="${turnId}"]`);
 }
 
+/**
+ * 气泡里那条工具串：没有就现建一个，挂在正文上方。
+ *
+ * 工具条与**动手前那张权限卡片**都往这里追加——它们是同一件事的两半
+ * （先问，再做），排在一起读起来才是「问了、答了、然后做了什么」。
+ * 就地追加而不是重建气泡：重建会把正在流的正文冲掉（`.msg-body` 是纯文本
+ * 节点，delta 靠 `textContent +=` 追加）。
+ */
+export function toolStripOf(turnId: string): HTMLElement | null {
+  const node = bubbleOf(turnId);
+  if (!node) {
+    return null;
+  }
+  let strip = node.querySelector<HTMLElement>('.tools');
+  if (!strip) {
+    strip = buildToolStrip();
+    node.insertBefore(strip, node.querySelector('.msg-body'));
+  }
+  return strip;
+}
+
 export function scrollToBottom(): void {
   el.messages.scrollTop = el.messages.scrollHeight;
 }
@@ -207,50 +228,35 @@ function buildAttachments(attachments: NonNullable<SerializedTurn['attachments']
   return box;
 }
 
-/** 采纳/复制这类常用动作留在行内，其余进 ⋯ 菜单。 */
+/**
+ * 气泡末尾那一行：这一轮产出的东西**落到哪儿了**，加一颗「复制」。
+ *
+ * **这里没有任何能写文件的按钮。** 写不写在产出的当下就问过了——那是气泡
+ * 里的一张权限卡片（`view/gate.ts`），和 agent 动手前那一问长一个样。从前
+ * 这里是「采纳写入 / 覆盖并写入」：一颗**可以永远不点的按钮**，于是「产物
+ * 落盘前必须过一遍人」在界面上成了一件可以无限拖延的事，作者手里攒着三份
+ * 没落地的产物，谁也说不清哪份写过。
+ *
+ * 留下的是记录：写了的说写到哪（可点开），没写的标一句「未采纳」。
+ */
 function buildActions(turn: SerializedTurn): HTMLElement {
   const bar = mk('div', 'msg-actions');
   if (turn.role !== 'assistant' || !turn.content || turn.error) {
     return bar;
   }
 
-  /** 采纳与复制取的都是**气泡里当下的文本**（可能被就地改过），不是 turn.content。 */
+  /** 复制取的是**气泡里当下的文本**（可能被就地改过），不是 turn.content。 */
   const currentText = () => bubbleOf(turn.id)?.querySelector('.msg-body')?.textContent ?? turn.content;
 
   if (turn.acceptedTo) {
     bar.appendChild(mk('span', 'accepted', `✓ 已写入 ${turn.acceptedTo}`));
     bar.appendChild(linkBtn('打开', () => openPath(turn.acceptedTo!)));
   } else if (turn.artifact) {
-    // 结构化产物：说清落点与形状，覆盖时把「覆盖」两个字写在按钮上。
-    // 一个光秃秃的「采纳写入」在四层产物之下已经不够——用户得知道
-    // 这一下点下去会写到哪、会不会盖掉什么。
+    // 产出过一份结构化产物，但没落盘：说清是什么、本来要写到哪。
     const a = turn.artifact;
-    bar.appendChild(mk('span', 'artifact-where', `${a.where} · ${a.summary}`));
-    // 草稿还在才给按钮。`artifact` 是展示快照，会话很老时它还在而草稿已经
-    // 没了——那时仍然看得出「这一轮产出过一份 4 场的场景清单」，只是采纳
-    // 不了（落点在草稿身上，猜一个出来会把产物写到别的章去）。
-    const draftId = turn.draftId;
-    if (draftId) {
-      const accept = mk('button', 'chip-btn', a.overwrites ? '覆盖并写入' : '采纳写入');
-      accept.classList.toggle('danger', a.overwrites);
-      accept.title = a.overwrites ? `${a.where} 已有内容，写入前会让你先对比一遍。` : `写入 ${a.where}`;
-      accept.addEventListener('click', () =>
-        vscode.postMessage({
-          type: 'acceptArtifact',
-          turnId: turn.id,
-          // **不带 target**：落点由后端从 draft 里取。从前这里发的是当下
-          // 选中的目标，用户生成完切了一章再点采纳就写错地方。
-          draftId,
-          text: currentText(),
-        })
-      );
-      bar.appendChild(accept);
-    }
+    const line = `${a.where} · ${a.summary}${a.declined ? ' · 未采纳' : ''}`;
+    bar.appendChild(mk('span', 'artifact-where', line));
   }
-  // 没有 artifact 就没有采纳按钮：**讨论型的回答不该能写文件**。
-  // 从前这里给一个「采纳写入」把任意一段文字追加进当前章节的正文，那是旧的
-  // 单一产物时代留下的入口——四层产物之下，落点必须由后端算出来
-  // （`draft.target`），前端猜不出这段话该写到哪一层。
 
   bar.appendChild(
     linkBtn('复制', () => {

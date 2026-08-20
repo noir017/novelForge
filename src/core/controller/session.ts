@@ -2,6 +2,7 @@ import type { ChatController } from './index';
 import { getHost } from '../host';
 import { serializeSession } from './serialize';
 import { restoreTarget, pushPipeline } from './chat';
+import { cancelGates } from './gate';
 import { persist } from './persist';
 
 /** 会话落盘与会话列表操作。接收 ChatController，字段只给 controller/ 同包用。 */
@@ -12,6 +13,8 @@ export async function newSession(c: ChatController): Promise<void> {
     return;
   }
   await persist(c);
+  // 换会话 = 上一条气泡走出视野，挂在它上面那张还没答的落盘卡片一并作废。
+  cancelGates(c);
   // 走掉的那个会话的草稿留在它自己的 JSON 里，内存这份扔掉——不然开一天
   // 面板会攒下几十份没人再看的正文。
   c.drafts.dropBySession(c.current.id);
@@ -39,12 +42,13 @@ export async function openSession(c: ChatController, id: string): Promise<void> 
     return;
   }
   await persist(c);
+  cancelGates(c);
   await restoreTarget(c, loaded);
   c.drafts.dropBySession(c.current.id);
   c.current = loaded;
-  // 把落盘的那批草稿装回内存：**刷新网页后采纳按钮还在**就是它们落盘的
-  // 全部理由，不装回来的话按钮会在（`ChatTurn.draftId` 还在），点下去
-  // 却报「已经过期」。
+  // 把落盘的那批草稿装回内存：`write draftId=…` 认的是它们，翻回一个旧会话
+  // 接着让 agent 干活时，那几份草稿还得在。
+  // （**落盘不再靠它**：写不写在产出的当下就问过了，气泡上没有采纳按钮。）
   c.drafts.load(loaded.id, loaded.drafts);
   c.pending = [];
   c.tab = 'chat';

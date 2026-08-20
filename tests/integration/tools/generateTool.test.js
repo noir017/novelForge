@@ -151,8 +151,9 @@ describe('对细纲调 generate', () => {
     assert.ok(!r.text.includes('第三块令牌'), r.text);
   });
 
-  test('返回文本明说了没写盘', () => {
-    assert.ok(r.text.includes('没有写进磁盘') || r.text.includes('采纳'), r.text);
+  // 工具自己不落盘：写不写由调用方当场问作者（`controller` 的落盘卡片）。
+  test('返回文本说清了落盘是另一回事', () => {
+    assert.ok(r.text.includes('落盘'), r.text);
   });
 
   test('确实没写盘', async () => {

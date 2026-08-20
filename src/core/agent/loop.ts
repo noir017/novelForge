@@ -95,7 +95,8 @@ export const AGENT_SYSTEM = [
   '  作者问的如果是别的事，就答别的事，不必硬往下一步上靠。',
   '- 动手之前先看清楚：跨章的问题用 search，具体内容用 read。凭印象回答会编出看着很像的细节。',
   '- generate 会调用llm。同一份产物不要重复生成；作者没要你写东西时不要主动写。',
-  '- 你产出的内容**不会自动写盘**，作者点采纳卡片才落盘。所以不必问「要不要保存」。',
+  '- generate 产出之后会**当场请作者点头**，同意才落盘；结果就写在那一步的返回里。',
+  '  已经写进去的不要再用 write 写一遍，作者没同意的也不要重新生成一份一样的。',
   '- 说结论时给出依据在哪一章哪一行——作者要能自己去核对。',
 ].join('\n');
 
@@ -132,8 +133,41 @@ export interface AgentHandlers {
     args?: Record<string, unknown>;
     text?: string;
   }): void;
+  /**
+   * 这一步产出了可落盘的产物（`generate` 的 draft）。
+   *
+   * **产物落盘前必须过一遍人**（第 19 条），所以这一句与策略无关：三种模式
+   * 下都问，包括「放手」。那是产品承诺，不是偏好设置。循环自己不认识 draft
+   * 是什么——它只知道有几个 id，问什么、写不写、写到哪全在调用方。
+   *
+   * 回一句**给模型看的话**（「已写入 X」/「作者没采纳，别重复生成」）与
+   * 「要不要就此停下」。没实现这个回调 = 没人管落盘，循环照常往下走。
+   */
+  onArtifact?(req: {
+    callId: string;
+    name: string;
+    draftIds: string[];
+  }): Promise<{ note: string; stop?: boolean }>;
   /** 工具或循环想说点什么给作者看（用量、提示）。**不进 agent 上下文。** */
   onNote?(message: string): void;
+  /**
+   * 这一步要先问作者一句。**问在哪儿由调用方定**——面板那条路把它画成对话里
+   * 的一张卡片（就在这一轮的工具串上），无人值守的调用方可以直接回一个结论。
+   *
+   * 没实现就退回 `Host.confirm` 那个全局框：命令行式的宿主（`init` 那条路）
+   * 与测试都还走它，循环不该因为少一个回调就不问了。
+   */
+  onGate?(req: {
+    callId: string;
+    name: string;
+    /** 问什么。已经带上主语（「Agent 要…」），照原样画。 */
+    title: string;
+    detail?: string;
+    /** 模型这一次填的参数原样。给界面画明细用。 */
+    args?: Record<string, unknown>;
+    /** 同意那颗按钮上的字。 */
+    proceed: string;
+  }): Promise<GateVerdict>;
 }
 
 export type StopReason =
@@ -160,7 +194,7 @@ export interface AgentOutcome {
   steps: number;
   calls: number;
   tokens: number;
-  /** 本次产出的草稿 id，按产生顺序。采纳按钮吃它们。 */
+  /** 本次产出的草稿 id，按产生顺序。写没写盘看 `onArtifact` 那一问的结论。 */
   draftIds: string[];
 }
 
@@ -332,7 +366,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
         // 根本不存在的动作弹框，作者只会莫名其妙。
         const known = tools.names().includes(call.name);
         const gate = known ? gateFor(policy, tools.intent(call.name, call.args ?? {})) : { confirm: false };
-        const verdict = await askGate(gate, on, call.name);
+        const verdict = await askGate(gate, on, call);
         if (verdict !== 'proceed') {
           turns.push(toolMessage(call, declinedText(verdict, gate)));
           on.onToolCall?.({
@@ -356,7 +390,13 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
           continue;
         }
 
-        turns.push(toolMessage(call, await runOne(tools, call, budget, toolRun, on, draftIds)));
+        const ran = await runOne(tools, call, budget, toolRun, on, draftIds);
+        turns.push(toolMessage(call, ran.text));
+        if (ran.stop) {
+          // 作者在「这份产物要不要落盘」那张卡上按了「停止 agent」。
+          declined = true;
+          break;
+        }
       }
 
       // 中途停下（取消 / 原地打转）时**剩下的调用也要各回一条**：
@@ -424,7 +464,7 @@ async function runOne(
   run: Parameters<ToolInvoker['invoke']>[2],
   on: AgentHandlers,
   draftIds: string[]
-): Promise<string> {
+): Promise<{ text: string; stop?: boolean }> {
   on.onToolCall?.({ callId: call.id, name: call.name, args: call.args });
 
   const spentBefore = budget.calls;
@@ -450,7 +490,16 @@ async function runOne(
     args: call.args,
     text: result.text,
   });
-  return result.text;
+
+  // 产出了东西就当场问一句「写不写」（第 19 条）。**在工具条落定之后**：
+  // 作者先看到「已生成 4/4 节」，再被问要不要落盘，顺序就是他读到的顺序。
+  if (result.draftIds.length > 0 && on.onArtifact) {
+    const verdict = await on.onArtifact({ callId: call.id, name: call.name, draftIds: result.draftIds });
+    // 结论要回给模型：不说的话它不知道那份产物到底落没落盘，下一步多半是
+    // 再生成一遍（一整轮上下文的钱）或者去 read 一个根本不存在的文件。
+    return { text: verdict.note ? `${result.text}\n\n${verdict.note}` : result.text, stop: verdict.stop };
+  }
+  return { text: result.text };
 }
 
 /**
@@ -458,23 +507,44 @@ async function runOne(
  *
  * 关掉对话框（Esc / 点外面）当**停止**：他被问「要不要动你的磁盘」而没有回答，
  * 不该替他答「继续」。停止不丢东西——已经写下的还在，模型还有最后一轮说明。
+ *
+ * **问在哪儿不是这一层的事**：有 `onGate` 就交给调用方（面板画成对话里的卡片），
+ * 没有才退回宿主那个全局框。循环只管拿到三个结论中的一个。
  */
-async function askGate(gate: Gate, on: AgentHandlers, toolName: string): Promise<GateVerdict> {
+async function askGate(gate: Gate, on: AgentHandlers, call: ToolCall): Promise<GateVerdict> {
   if (!gate.confirm) {
     return 'proceed';
   }
   const proceed = gate.proceed ?? '继续';
-  const pick = await getHost().confirm(gate.message ?? `Agent 要执行 ${toolName}。`, [proceed, SKIP_ACTION, STOP_ACTION], {
+  const title = gate.message ?? `Agent 要执行 ${call.name}。`;
+  const verdict = on.onGate
+    ? await on.onGate({
+        callId: call.id,
+        name: call.name,
+        title,
+        detail: gate.detail,
+        args: call.args,
+        proceed,
+      })
+    : await askHost(title, gate.detail, proceed);
+  if (verdict === 'proceed') {
+    return 'proceed';
+  }
+  log.info(`作者${verdict === 'skip' ? '跳过了' : '叫停了'} ${call.name}`, gate.message);
+  on.onNote?.(verdict === 'skip' ? `已跳过这一步（${call.name}）。` : '已叫停这一轮。');
+  return verdict;
+}
+
+/** 宿主那个全局确认框。没有 `onGate` 的调用方（命令行宿主、测试）走这条。 */
+async function askHost(title: string, detail: string | undefined, proceed: string): Promise<GateVerdict> {
+  const pick = await getHost().confirm(title, [proceed, SKIP_ACTION, STOP_ACTION], {
     modal: true,
-    detail: gate.detail,
+    detail,
   });
   if (pick === proceed) {
     return 'proceed';
   }
-  const verdict: GateVerdict = pick === SKIP_ACTION ? 'skip' : 'stop';
-  log.info(`作者${verdict === 'skip' ? '跳过了' : '叫停了'} ${toolName}`, gate.message);
-  on.onNote?.(verdict === 'skip' ? `已跳过这一步（${toolName}）。` : '已叫停这一轮。');
-  return verdict;
+  return pick === SKIP_ACTION ? 'skip' : 'stop';
 }
 
 function toolMessage(call: ToolCall, content: string): AgentMessage {

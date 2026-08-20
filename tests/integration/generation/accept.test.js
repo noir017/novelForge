@@ -1,13 +1,21 @@
 /**
- * 采纳走 draftId 这条路：从生成到落盘的一整趟。
+ * 产物落盘走的是**当场问的那张卡片**：从生成到落盘的一整趟。
  *
- * 这一组守的是「**落点从 draft 里取，不由前端传**」（AGENTS 第 19 条最后
- * 一句）。从前前端发的是 `store.session.target`——那是**当下**选中的目标，
- * 用户生成完切了一章再点采纳，这份剧情就写到别的章去了，而界面上一切正常。
+ * 这一组从前叫「采纳」：气泡末尾一颗「采纳写入」按钮，可以拖到第二天再点。
+ * 现在它和 agent 动手前那一问长一个样——`generate` 一产出就问，答了才落盘
+ * （AGENTS 第 19 条：产物落盘前必须过一遍人。**当场过**，不是留一颗按钮）。
  *
- * 另外两条同样要钉住：采纳时以**气泡里当下的文本**为准重新解析（用户可能
- * 改过），以及并发控制搬到 controller 之后「已有一个生成任务在进行中」
- * 那句话与它的行为原样还在。
+ * 三条老约束原样还在，只是触发它们的那一下从「点按钮」变成了「点卡片」：
+ *
+ * | 用例 | 钉的是什么 |
+ * |---|---|
+ * | 生成一轮 | 卡片当场就来，说得出写到哪、是什么形状；**还没答时磁盘没动静** |
+ * | 答之前切了一章 | 落点从 draft 取，**不看当下选中的那一章**（从前会写错地方） |
+ * | 先改再点写入 | 落盘的是气泡里当下那份（经 `editTurn`），不是模型原样那份 |
+ * | 答「不采纳」 | 一个字都不写，气泡上留一行「未采纳」 |
+ * | 讨论型回复 | 没有产物，也就没有卡片 |
+ * | 刷新网页 | 没答的那张卡随全量状态重推，答了照样落盘 |
+ * | 面板销毁 | 卡片作废，产物记成「未采纳」——不留一个永远悬着的等待 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -38,9 +46,44 @@ let posted;
 let settings = {};
 let replyFn = () => PLOT_JSON;
 
-/** 发一轮「写剧情」，回收这一轮推给前端的消息。 */
+/**
+ * 落盘卡片来了怎么答。
+ *
+ * 返回 verdict（`proceed` / `skip` / `stop`），或 undefined 表示**不答**
+ * ——那时 `send()` 会一直等着，用例得自己去把它收掉（换会话 / 销毁面板）。
+ * 答之前想干点别的（切章、改气泡里的文本）就在这个函数里干：真实的次序
+ * 也是这样——那些动作都发生在作者点下按钮之前。
+ */
+let onGate = async () => 'proceed';
+/** 收到过的卡片，按顺序。 */
+let gates = [];
+
+function attach() {
+  posted = [];
+  controller.attach({
+    kind: 'sidebar',
+    post: (m) => {
+      posted.push(m);
+      if (m.type === 'gate') {
+        gates.push(m);
+        // 不在 post 里同步重入 controller：真实的回答也是下一个事件循环里
+        // 从前端发回来的。
+        void (async () => {
+          const verdict = await onGate(m);
+          if (verdict) {
+            await controller.handle({ type: 'gateResult', requestId: m.requestId, verdict });
+          }
+        })();
+      }
+    },
+    reveal() {},
+  });
+}
+
+/** 发一轮「写剧情」，回收这一轮推给前端的消息（含落盘那一问的往返）。 */
 async function send(target, extra = {}) {
   posted.length = 0;
+  gates = [];
   await controller.handle({
     type: 'send',
     payload: {
@@ -59,16 +102,8 @@ async function send(target, extra = {}) {
   return {
     turns,
     assistant: [...turns].reverse().find((x) => x.role === 'assistant'),
+    gate: gates[0],
     toasts: posted.filter((m) => m.type === 'toast'),
-  };
-}
-
-async function accept(turnId, draftId, text) {
-  posted.length = 0;
-  await controller.handle({ type: 'acceptArtifact', turnId, draftId, text });
-  return {
-    toasts: posted.filter((m) => m.type === 'toast').map((m) => `${m.level ?? 'info'}: ${m.message}`),
-    turn: posted.filter((m) => m.type === 'turnDone').pop()?.turn,
   };
 }
 
@@ -108,8 +143,7 @@ before(async () => {
   await project.syncManifest();
 
   controller = new bundle.controller.ChatController(project);
-  posted = [];
-  controller.attach({ kind: 'sidebar', post: (m) => posted.push(m), reveal() {} });
+  attach();
 });
 
 after(() => {
@@ -117,11 +151,17 @@ after(() => {
   if (t) cleanup(t.dir, bundle?.db);
 });
 
-describe('生成一轮 → 气泡上挂着 draftId', () => {
+describe('生成一轮 → 当场问一句', () => {
   let r;
+  let diskWhenAsked;
 
   before(async () => {
     replyFn = () => PLOT_JSON;
+    onGate = async () => {
+      // ★ 答之前磁盘上不该有任何动静：写在「同意」之后，不在生成之后。
+      diskWhenAsked = await project.readPlot(P1);
+      return 'proceed';
+    };
     r = await send({ kind: 'plot', plotRelPath: P1 });
   });
 
@@ -129,54 +169,70 @@ describe('生成一轮 → 气泡上挂着 draftId', () => {
     assert.ok(r.assistant, JSON.stringify(r.turns.map((x) => x.role)));
   });
 
-  test('回复带 draftId', () => {
-    assert.ok(r.assistant.draftId, JSON.stringify(r.assistant));
+  test('问了这一句', () => {
+    assert.ok(r.gate, JSON.stringify(posted.map((m) => m.type)));
   });
 
-  // 展示快照仍在：即使草稿日后被清掉，气泡上还看得出产出过什么。
-  test('回复带展示快照', () => {
-    assert.equal(r.assistant.artifact.summary, '剧情 · 4/4 节', JSON.stringify(r.assistant.artifact));
+  test('卡片挂在这一轮的气泡上', () => {
+    assert.equal(r.gate.turnId, r.assistant.id);
   });
 
-  test('快照说得出落点', () => {
-    assert.ok(r.assistant.artifact.where.includes('夜入青云'), r.assistant.artifact.where);
+  test('说得出写到哪、是什么形状', () => {
+    assert.ok(r.gate.title.includes('夜入青云'), r.gate.title);
+    assert.ok(r.gate.detail.includes('4/4 节'), r.gate.detail);
   });
 
-  // 一个字都不写磁盘：落盘只在用户点了采纳之后。
-  test('还没采纳时磁盘上没动静', async () => {
-    const plot = await project.readPlot(P1);
-    assert.ok(!bundle.plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
-  });
-});
-
-describe('落点从 draft 里取，不看当下选中的那一章', () => {
-  let draftId;
-  let turnId;
-  let r;
-
-  before(async () => {
-    replyFn = () => PLOT_JSON;
-    const gen = await send({ kind: 'plot', plotRelPath: P1 });
-    draftId = gen.assistant.draftId;
-    turnId = gen.assistant.id;
-
-    // 生成完之后**切到另一章**——这正是从前会写错地方的那一下。
-    posted.length = 0;
-    await controller.handle({ type: 'setTarget', target: { kind: 'plot', plotRelPath: P2 } });
-
-    r = await accept(turnId, draftId, PLOT_JSON);
+  // 单步创作这条路没有循环可停，多一颗「停止 agent」只会让人以为在跟 agent 说话。
+  test('只有两颗按钮', () => {
+    assert.equal(r.gate.proceed, '写入');
+    assert.equal(r.gate.skip, '不采纳');
+    assert.equal(r.gate.stop, undefined, r.gate.stop);
   });
 
-  test('采纳成功', () => {
-    assert.ok(!r.toasts.some((x) => x.startsWith('error:')), r.toasts.join('|'));
+  test('还没答时磁盘上没动静', () => {
+    assert.ok(!bundle.plotFile.isPlotFilled(diskWhenAsked.sections), JSON.stringify(diskWhenAsked.sections));
   });
 
-  test('写进了生成时那一章', async () => {
+  test('答了才写进去', async () => {
     const plot = await project.readPlot(P1);
     assert.ok(bundle.plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
   });
 
-  test('内容正是那一份', () => {
+  test('气泡上记下写到哪了', () => {
+    assert.equal(r.assistant.acceptedTo, P1, JSON.stringify(r.assistant));
+  });
+
+  // 展示快照仍在：翻回来看得出这一轮产出过什么。
+  test('展示快照还在', () => {
+    assert.equal(r.assistant.artifact.summary, '剧情 · 4/4 节', JSON.stringify(r.assistant.artifact));
+  });
+});
+
+describe('落点从 draft 里取，不看当下选中的那一章', () => {
+  let r;
+
+  before(async () => {
+    t.remove(P2);
+    await new bundle.ws.Workspace(project).writePlot({
+      no: 2, title: '藏书阁', arc: '', upstreamHash: '', done: false,
+      sections: { ...bundle.plotFile.emptyPlotSections(), 目标: '第 2 章要达成的事' },
+    });
+    project.invalidate();
+    replyFn = () => PLOT_JSON;
+    h.answers.push('覆盖');
+    onGate = async () => {
+      // 生成完、还没点写入之前**切到另一章**——这正是从前会写错地方的那一下。
+      await controller.handle({ type: 'setTarget', target: { kind: 'plot', plotRelPath: P2 } });
+      return 'proceed';
+    };
+    r = await send({ kind: 'plot', plotRelPath: P1 });
+  });
+
+  test('写成功了', () => {
+    assert.ok(!r.toasts.some((x) => x.level === 'error'), JSON.stringify(r.toasts));
+  });
+
+  test('写进了生成时那一章', () => {
     assert.ok(t.read('.novelforge/plots/001-夜入青云.md').includes('三拍推进'));
   });
 
@@ -185,34 +241,37 @@ describe('落点从 draft 里取，不看当下选中的那一章', () => {
     const other = await project.readPlot(P2);
     assert.ok(!bundle.plotFile.isPlotFilled(other.sections), JSON.stringify(other.sections));
   });
-
-  test('气泡上记下写到哪了', () => {
-    assert.equal(r.turn?.acceptedTo, P1, JSON.stringify(r.turn?.acceptedTo));
-  });
 });
 
-describe('采纳以气泡里当下的文本为准', () => {
+describe('落盘的是气泡里当下那份', () => {
   let r;
 
   before(async () => {
     replyFn = () => PLOT_JSON;
-    const gen = await send({ kind: 'plot', plotRelPath: P2 });
-    // 用户在气泡里把「三拍推进」改成了别的再点采纳。
-    const edited = JSON.stringify({
-      目标: '进入宗门',
-      剧情脉络: '踩点、失手、翻墙；收在藏书阁门口。',
-      冲突与转折: '我自己改成了两拍',
-      伏笔与回收: '第三块令牌',
-    });
     h.answers.push('覆盖');
-    r = await accept(gen.assistant.id, gen.assistant.draftId, edited);
+    onGate = async (msg) => {
+      // 作者在气泡里改了两个字再点写入：真实次序也是这样——contenteditable
+      // 失焦时先发 `editTurn`，然后那一下点击才发出去。
+      await controller.handle({
+        type: 'editTurn',
+        turnId: msg.turnId,
+        text: JSON.stringify({
+          目标: '进入宗门',
+          剧情脉络: '踩点、失手、翻墙；收在藏书阁门口。',
+          冲突与转折: '我自己改成了两拍',
+          伏笔与回收: '第三块令牌',
+        }),
+      });
+      return 'proceed';
+    };
+    r = await send({ kind: 'plot', plotRelPath: P2 });
   });
 
-  test('采纳成功', () => {
-    assert.ok(!r.toasts.some((x) => x.startsWith('error:')), r.toasts.join('|'));
+  test('写成功了', () => {
+    assert.ok(!r.toasts.some((x) => x.level === 'error'), JSON.stringify(r.toasts));
   });
 
-  // 用 draft.artifact 的话，用户改的那两个字就没了——而他改完才点的采纳。
+  // 用 draft.raw 的话，作者改的那两个字就没了——而他改完才点的写入。
   test('落盘的是改过的那一版', () => {
     assert.ok(t.read('.novelforge/plots/002-藏书阁.md').includes('我自己改成了两拍'));
   });
@@ -222,97 +281,135 @@ describe('采纳以气泡里当下的文本为准', () => {
   });
 });
 
-describe('草稿过期了', () => {
+describe('答「不采纳」', () => {
   let r;
 
   before(async () => {
+    t.remove(P1);
+    await new bundle.ws.Workspace(project).writePlot({
+      no: 1, title: '夜入青云', arc: '', upstreamHash: '', done: false,
+      sections: { ...bundle.plotFile.emptyPlotSections(), 目标: '第 1 章要达成的事' },
+    });
+    project.invalidate();
     replyFn = () => PLOT_JSON;
-    const gen = await send({ kind: 'plot', plotRelPath: P1 });
-    r = await accept(gen.assistant.id, '这份草稿从来没有过', PLOT_JSON);
+    onGate = async () => 'skip';
+    r = await send({ kind: 'plot', plotRelPath: P1 });
   });
 
-  // **不猜落点**：拿当下选中的 target 顶上，会把一份剧情写到别的章去。
-  test('报错而不是乱写', () => {
-    assert.ok(r.toasts.some((x) => x.startsWith('error:')), r.toasts.join('|'));
+  test('一个字都没写', async () => {
+    const plot = await project.readPlot(P1);
+    assert.ok(!bundle.plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
   });
 
-  test('说得出为什么', () => {
-    assert.ok(r.toasts.some((x) => x.includes('过期')), r.toasts.join('|'));
+  // 翻回来要看得出「这一轮产出过一份剧情，我没要」。
+  test('气泡上留了一行「未采纳」', () => {
+    assert.equal(r.assistant.artifact.declined, true, JSON.stringify(r.assistant.artifact));
+    assert.equal(r.assistant.acceptedTo, undefined, r.assistant.acceptedTo);
   });
 });
 
-describe('讨论型回复不给采纳的东西', () => {
-  let assistant;
+describe('讨论型回复没有产物，也就没有卡片', () => {
+  let r;
 
   before(async () => {
     replyFn = () => '我觉得这一章的冲突可以提前。';
-    const gen = await send({ kind: 'plot', plotRelPath: P1 }, { capability: 'discuss' });
-    assistant = gen.assistant;
+    onGate = async () => 'proceed';
+    r = await send({ kind: 'plot', plotRelPath: P1 }, { capability: 'discuss' });
   });
 
-  test('没有 draftId', () => {
-    assert.equal(assistant.draftId, undefined, assistant.draftId);
+  test('没问', () => {
+    assert.equal(r.gate, undefined, JSON.stringify(r.gate));
   });
 
   test('也没有展示快照', () => {
-    assert.equal(assistant.artifact, undefined, JSON.stringify(assistant.artifact));
+    assert.equal(r.assistant.artifact, undefined, JSON.stringify(r.assistant.artifact));
   });
 });
 
 /**
- * 二期唯一一处**有意的行为变化**：刷新网页后，未采纳的产物仍然可以采纳。
- *
- * 从前只有 `ChatTurn.artifact` 那份摘要活着（原文靠气泡里的文本重新解析、
- * 落点靠当下选中的 target 猜）。draft 落盘之后这条路才真的走得通。
+ * 前端无状态：网页刷新 / webview 重建之后，还没答的那张卡要跟着回来——
+ * 不重推的话，作者眼前什么都没有，而后端还在等他回答。
  */
-describe('刷新网页之后还能采纳', () => {
-  let sessionId;
-  let turnId;
-  let draftId;
-  let reopened;
+describe('刷新网页：没答的卡片跟着回来', () => {
+  let pending;
+  let requestId;
+  let resent;
+
+  before(async () => {
+    t.remove(P2);
+    await new bundle.ws.Workspace(project).writePlot({
+      no: 2, title: '藏书阁', arc: '', upstreamHash: '', done: false,
+      sections: { ...bundle.plotFile.emptyPlotSections(), 目标: '第 2 章要达成的事' },
+    });
+    project.invalidate();
+    replyFn = () => PLOT_JSON;
+    onGate = async (msg) => {
+      requestId = msg.requestId;
+      return undefined; // 先不答：模拟作者还没点，网页就刷新了
+    };
+    pending = send({ kind: 'plot', plotRelPath: P2 });
+    // 等这一问发出来。
+    while (!requestId) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    // 「刷新网页」= 前端重连后发一条 ready，后端重放全量状态。
+    posted.length = 0;
+    onGate = async () => 'proceed';
+    await controller.handle({ type: 'ready' });
+    resent = posted.filter((m) => m.type === 'gate');
+    await pending;
+  });
+
+  test('那张卡被重推了一遍', () => {
+    assert.equal(resent.length, 1, JSON.stringify(posted.map((m) => m.type)));
+    assert.equal(resent[0].requestId, requestId);
+  });
+
+  test('重推的那张答了照样落盘', () => {
+    assert.ok(t.read('.novelforge/plots/002-藏书阁.md').includes('三拍推进'));
+  });
+});
+
+/**
+ * 面板销毁（关掉整个窗口）时那张卡没人答得了：**按「没采纳」结算**，
+ * 不留一个永远悬着的等待。产物不落盘，作者重新生成一次即可。
+ */
+describe('面板销毁：卡片作废，产物不落盘', () => {
   let r;
 
   before(async () => {
+    t.remove(P1);
+    await new bundle.ws.Workspace(project).writePlot({
+      no: 1, title: '夜入青云', arc: '', upstreamHash: '', done: false,
+      sections: { ...bundle.plotFile.emptyPlotSections(), 目标: '第 1 章要达成的事' },
+    });
+    project.invalidate();
     replyFn = () => PLOT_JSON;
-    // 新开一个会话，免得跟前面几组的历史搅在一起。
-    await controller.handle({ type: 'newSession' });
-    const gen = await send({ kind: 'plot', plotRelPath: P2 });
-    sessionId = controller.current.id;
-    turnId = gen.assistant.id;
-    draftId = gen.assistant.draftId;
-
-    // 「刷新网页」= 换一个 controller 从磁盘把会话读回来。
+    let asked = false;
+    onGate = async () => {
+      asked = true;
+      return undefined;
+    };
+    const pending = send({ kind: 'plot', plotRelPath: P1 });
+    while (!asked) {
+      await new Promise((x) => setTimeout(x, 5));
+    }
     controller.dispose();
+    r = await pending;
+
+    // 后面的用例还要用 controller：换一个新的接着跑。
     controller = new bundle.controller.ChatController(project);
-    posted = [];
-    controller.attach({ kind: 'sidebar', post: (m) => posted.push(m), reveal() {} });
-    await controller.handle({ type: 'openSession', id: sessionId });
-    reopened = posted.filter((m) => m.type === 'session').pop()?.session;
-
-    h.answers.push('覆盖');
-    r = await accept(turnId, draftId, PLOT_JSON);
+    attach();
   });
 
-  test('会话读回来了', () => {
-    assert.ok(reopened, JSON.stringify(posted.map((m) => m.type)));
+  test('没写进去', async () => {
+    const plot = await project.readPlot(P1);
+    assert.ok(!bundle.plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
   });
 
-  test('气泡上的 draftId 还在', () => {
-    const turn = reopened.turns.find((x) => x.id === turnId);
-    assert.equal(turn?.draftId, draftId, JSON.stringify(turn));
-  });
-
-  test('展示快照也还在', () => {
-    const turn = reopened.turns.find((x) => x.id === turnId);
-    assert.equal(turn?.artifact?.summary, '剧情 · 4/4 节', JSON.stringify(turn?.artifact));
-  });
-
-  test('采纳成功，没报「已经过期」', () => {
-    assert.ok(!r.toasts.some((x) => x.startsWith('error:')), r.toasts.join('|'));
-  });
-
-  test('内容写进了生成时那一章', () => {
-    assert.ok(t.read('.novelforge/plots/002-藏书阁.md').includes('三拍推进'));
+  test('记成「未采纳」', () => {
+    assert.equal(r.assistant.artifact.declined, true, JSON.stringify(r.assistant.artifact));
   });
 });
 
@@ -322,6 +419,7 @@ describe('并发控制搬到 controller 之后', () => {
 
   before(async () => {
     replyFn = () => PLOT_JSON;
+    onGate = async () => 'skip';
     fake.reset();
     // 不 await 第一条：`runTurn` 一进来就占住生成位（在任何 I/O 之前），
     // 所以此刻第二条一定撞得上。
@@ -346,6 +444,6 @@ describe('并发控制搬到 controller 之后', () => {
 
   test('第一条跑完之后又能发了', async () => {
     const again = await send({ kind: 'plot', plotRelPath: P1 });
-    assert.ok(again.assistant?.draftId, JSON.stringify(again.toasts));
+    assert.ok(again.assistant?.artifact, JSON.stringify(again.toasts));
   });
 });

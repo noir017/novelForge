@@ -220,18 +220,11 @@ describe('会话文件被手改坏', () => {
     assert.equal(d9.raw, '', JSON.stringify(d9.raw));
   });
 
-  // 指着一份不存在的草稿的 draftId 一律丢弃：采纳按钮收起来，
-  // 气泡上的展示快照仍在——「这一轮产出过一份剧情」看得出来。
-  test('对不上草稿的 draftId 被丢掉', () => {
-    assert.equal(reloaded.turns[0].draftId, undefined, reloaded.turns[0].draftId);
-  });
-
-  test('丢了 draftId 展示快照还在', () => {
+  // 气泡上的展示快照留着——「这一轮产出过一份剧情」翻回来看得出来。
+  // 草稿在不在已经与它无关了：写不写盘在产出的当下就问过了，气泡上没有
+  // 任何能触发写入的按钮，也就没有「草稿过期了怎么办」这回事。
+  test('展示快照留着', () => {
     assert.equal(reloaded.turns[0].artifact.summary, '剧情 · 1/4 节');
-  });
-
-  test('对得上的 draftId 留着', () => {
-    assert.equal(reloaded.turns[1].draftId, 'd1');
   });
 });
 

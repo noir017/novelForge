@@ -1,12 +1,13 @@
 /**
- * Draft store：未采纳的产物存哪里。
+ * Draft store：还没落盘的产物存哪里。
  *
  * ## 为什么要有它
  *
- * `generate` 产出的 `Draft` 一个字都没写盘。它必须活到用户点采纳那一刻，
- * 而那一刻可能在**刷新网页之后**——从前只有 `ChatTurn.artifact` 那份摘要
- * 活着，原文靠气泡里的文本重新解析。所以：内存为主（`Map`），
- * **随会话 JSON 一起落盘**（`.novelforge/sessions/<id>.json`）。
+ * `generate` 产出的 `Draft` 一个字都没写盘。它至少要活到作者在那张落盘卡片
+ * 上点头的那一刻（`controller/gate.ts`），而 agent 手里的 draftId 还可能被
+ * 它稍后用 `write draftId=…` 拿去写。所以：内存为主（`Map`），**随会话 JSON
+ * 一起落盘**（`.novelforge/sessions/<id>.json`）——翻回一个旧会话接着让 agent
+ * 干活时，那几份草稿还得在。
  *
  * ## 不进 SQLite
  *
@@ -29,7 +30,7 @@ export type { Draft };
  *
  * `draft.raw` 与 `ChatTurn.content` 是同一段文字，全留着等于把会话文件
  * 写两遍——一场几十轮的正文对话就是几十万字。留最近的若干份足够：
- * 更早那些轮次的采纳按钮，用户早就点过或早就不想点了。
+ * 更早那些轮次写不写盘，早就当场问过了。
  */
 export const MAX_DRAFTS_PER_SESSION = 20;
 

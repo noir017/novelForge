@@ -227,13 +227,6 @@ export interface SerializedTurn {
   interrupted?: boolean;
   error?: string;
   reasoning?: string;
-  /**
-   * 这一轮产出的那份草稿的 id。采纳按钮带着它发回来——落点由后端从
-   * `draft.target` 取，前端猜不出一段讨论该写到哪一层。
-   *
-   * 缺席时不给采纳按钮，即使 `artifact` 那份展示快照还在（草稿过期了）。
-   */
-  draftId?: string;
   artifact?: SerializedArtifact;
   /**
    * 仅 assistant 轮：这一轮 agent 调过的工具。重开面板要能把那串折叠条画回来。
@@ -275,10 +268,16 @@ export interface SerializedToolCall {
   resultText?: string;
 }
 
+/**
+ * 这一轮产出过什么、落到哪儿了。**只是回放用的记录**——写不写盘在产出的
+ * 当下就问过了（`gate`），气泡上不再有任何能触发写入的按钮。
+ */
 export interface SerializedArtifact {
   where: string;
   summary: string;
   overwrites: boolean;
+  /** 作者当时没同意写。写了的那一份记在 `acceptedTo` 上。 */
+  declined?: boolean;
 }
 
 export interface SerializedDigest {

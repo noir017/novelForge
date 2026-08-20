@@ -5,7 +5,7 @@
  *
  * `generate` / `settle` / `rewrite` / `split` 四个能力产出的是**要写进文件的
  * 东西**，不是聊天气泡。写进文件就意味着解析失败＝这一次生成白花钱，而且用户
- * 看着一段像模像样的回答却点不了「采纳」，只会以为是插件坏了。
+ * 看着一段像模像样的回答却等不来那张「写入吗」的卡片，只会以为是插件坏了。
  *
  * 所以沿用摘要那一套**三层降级**（summarize.ts 的 parseSummaryResponse）：
  *
@@ -17,10 +17,10 @@
  *
  * ## 解析不落盘
  *
- * 这里只把文本变成对象，**一个字都不写磁盘**。落盘在 creation.ts 的
- * `acceptArtifact`，且必须由用户点了「采纳」才发生（AGENTS.md 第 3 条：
- * 不静默覆盖）。分开还有一个好处：前端可以先把解析结果摊开给用户看，
- * 他改两个字再采纳。
+ * 这里只把文本变成对象，**一个字都不写磁盘**。落盘在 `generation/accept.ts`，
+ * 且必须由用户在那张权限卡片上点了「写入」才发生（AGENTS.md 第 3 / 19 条：
+ * 不静默覆盖、产物落盘前必须过一遍人）。分开还有一个好处：产出先摊在气泡里
+ * 给他看，他改两个字再点写入。
  */
 import { pickSections } from '../model/markdown';
 import { PLOT_SECTION_KEYS, PlotSections, emptyPlotSections } from '../model/plotFile';
@@ -95,7 +95,7 @@ export function parseArtifact(action: CreationAction, raw: string): Artifact {
   }
 }
 
-/** 产物是不是空的。空产物不该给「采纳」按钮——点了只会写出一个空文件。 */
+/** 产物是不是空的。空产物不必问「写不写」——写下去只会得到一个空文件。 */
 export function isArtifactEmpty(artifact: Artifact): boolean {
   switch (artifact.kind) {
     case 'outlineDoc':
@@ -112,7 +112,7 @@ export function isArtifactEmpty(artifact: Artifact): boolean {
   }
 }
 
-/** 一句话描述，给采纳卡片的标题用（「4 个场景」「剧情 · 3/4 节」）。 */
+/** 一句话描述，给落盘卡片与气泡末尾那一行用（「4 个场景」「剧情 · 3/4 节」）。 */
 export function describeArtifact(artifact: Artifact): string {
   switch (artifact.kind) {
     case 'outlineDoc':

@@ -46,14 +46,6 @@ export type InMessage =
   | { type: 'sendAgent'; text: string; limits?: { steps?: number; calls?: number; tokens?: number } }
   | { type: 'stop' }
   | { type: 'retry'; turnId: string; payload: SendPayload }
-  /**
-   * 采纳这一轮的产物。
-   *
-   * **不带 target**：落点从 `draft.target` 取，前端猜不出一段讨论该写到
-   * 哪一层（第 19 条）。带 `text` 是因为用户可能在气泡里改过，采纳时以
-   * 气泡里当下那份为准重新解析。
-   */
-  | { type: 'acceptArtifact'; turnId: string; draftId: string; text: string }
   | { type: 'setTarget'; target: CreationTarget }
   | { type: 'selectPlot'; plotRelPath: string }
   | { type: 'requestPipeline'; plotRelPath?: string }
@@ -95,6 +87,13 @@ export type InMessage =
   | { type: 'requestLogHistory'; before?: string }
   | { type: 'clearLogs' }
   | { type: 'promptResult'; requestId: string; value?: string }
+  /**
+   * 作者在对话页那张权限卡片上点了一颗按钮（`gate` 的回答）。
+   *
+   * 认不出的 `requestId` 静默丢弃：重连之后前端可能还留着一张早就结束了的
+   * 卡片，为它报错只会让作者莫名其妙。
+   */
+  | { type: 'gateResult'; requestId: string; verdict: 'proceed' | 'skip' | 'stop' }
   /**
    * 本机列一层目录（绝对路径）。独立版空窗口选工程用；插件不会发。
    * `path` 为空表示根层（Unix 的 `/`，Windows 的盘符列表）。

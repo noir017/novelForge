@@ -43,8 +43,8 @@ src/
 3. `CreationSession` 先经 `core/llm/registry` 拿到 provider，再调 `core/context/builder.buildContext()` 装配上下文。
 4. 装配器按 `action.stage` 取一张配方（[core/context/recipes.ts](core/context/recipes.ts)），**只读这一层用得上的文件**，按优先级填预算，产出 messages + 明细。系统提示由 `stage`（身份）× `capability`（任务）拼出。
 5. provider 流式返回增量文本，经 `GenerateHandlers` 回到 `ChatController`，以 `OutMessage` 广播给所有挂接的宿主。
-6. 收尾时若这次的输出形态是 `artifact`，后端解析一遍并回一份「落点 + 形状 + 会不会覆盖」，前端据此画采纳卡片。
-7. 用户改完点「采纳写入」→ `acceptArtifact` **重新解析气泡里当下的文本**（用户可能改过），目标已有内容时先走 `reviewReplace`，确认后才落盘。
+6. 收尾时若这次的输出形态是 `artifact`，后端算出「落点 + 形状 + 会不会覆盖」，**当场在对话里问一句「写不写」**（`controller/gate.ts` 推一条 `gate`，前端画成气泡里的一张权限卡片，与 agent 动手前那一问同一副样子）。
+7. 用户可以先在气泡里改，改完点「写入」→ 后端**重新解析气泡里当下的文本**（经 `editTurn` 落在 `turn.content` 上），目标已有内容时再走 `reviewReplace`，两层都过了才落盘；点「不采纳」则一个字不写，气泡末尾记一行「未采纳」。
 
 全程 `core/runtime/logger.ts` 记下：阶段·能力与目标产物、装配用了多少 token / 哪几项被降级丢弃、首字延迟、产出字数与总耗时、最终写到哪个文件。
 

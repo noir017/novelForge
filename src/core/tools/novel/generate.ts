@@ -72,15 +72,16 @@ export const generateTool: ToolDef = {
   /**
    * 花钱但不写盘 → `costly`。调用方据此决定问不问（谨慎模式问，平时不问）。
    *
-   * 框上必须写清**会花钱**与**产出仍然要点采纳**：「Agent 想调用 generate，
-   * 允许吗」作者答不上来，他不知道会写到哪、花多少。
+   * 卡片上必须写清**会花钱**与**产出还会再问一次**：「Agent 想调用 generate，
+   * 允许吗」作者答不上来，他不知道会写到哪、花多少。**这一问是「要不要花钱
+   * 生成」，落盘是另一问**——产出之后当场还有一张卡（第 19 条）。
    */
   intent(args, project): ToolIntent {
     const target = text(args.target);
     return {
       gate: 'costly',
       title: `为「${describePath(target, project)}」调一次创作模型`,
-      detail: [target, text(args.ask) && `要求：${clip(text(args.ask))}`, '这一步会花钱。产出仍然要你点采纳才落盘。']
+      detail: [target, text(args.ask) && `要求：${clip(text(args.ask))}`, '这一步会花钱。产出之后还会再问你一次要不要落盘。']
         .filter(Boolean)
         .join('\n'),
       proceed: '生成',
@@ -97,8 +98,8 @@ export const generateTool: ToolDef = {
       .join('；') +
     '。' +
     '**返回的只有形状与 draftId，没有正文**——正文会直接流给作者看；' +
-    '你要看内容就等作者采纳后再 read。' +
-    '产物不会自动写盘：作者点了采纳卡片才落盘。' +
+    '你要看内容就等它落盘之后再 read。' +
+    '产出之后会当场请作者点头，同意才落盘，结果写在返回里；不必也不要再用 write 写同一份。' +
     '这个工具会真的调模型花钱，每次调用都会记账，不要重复生成同一份东西。',
 
   parameters: objectSchema(
@@ -201,7 +202,7 @@ export const generateTool: ToolDef = {
         `已生成：${what} · ${shape}，${draft.words} 字\n` +
         `draftId: ${draft.id}\n` +
         `落点：${rel}\n` +
-        `内容已经流给作者看了，没有写进磁盘——要落盘得由作者点采纳卡片。` +
+        `内容已经流给作者看了。要不要落盘正在问他，结论就在下面。` +
         `你不需要复述它的内容。`,
       display: { title: `generate ${what}`, detail: `${shape} · ${draft.words} 字` },
     };

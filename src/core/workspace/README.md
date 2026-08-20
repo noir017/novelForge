@@ -10,7 +10,7 @@
 | 位置 | 管什么 | 带哪些保护 |
 |---|---|---|
 | `model/project.ts` | 所有产物的读写 | 路径推导、frontmatter 渲染、伴生搬迁 |
-| `features/creation.ts` 的 `acceptArtifact` | 六条采纳落盘路径 | `confirmOverwrite`、记 `upstreamHash` / `beatsHash` |
+| `features/creation.ts` 的 `acceptArtifact` | 六条落盘路径 | `confirmOverwrite`、记 `upstreamHash` / `beatsHash` |
 | `files/fileOps.ts` | 三区类文件操作 | 区界限、同名不覆盖、`.trash` |
 | `files/fileEditing.ts` | 内置编辑器读写 | 工程根包含、扩展名白名单、大小上限、乐观锁 |
 | `files/projectFiles.ts` | 文件页的移动/复制/改名 | 工程根包含、`isProtectedPath`、同名不覆盖 |

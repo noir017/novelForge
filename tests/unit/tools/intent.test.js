@@ -56,8 +56,9 @@ describe('generate：花钱但不写盘', () => {
     assert.ok(g().detail.includes('花钱'), g().detail);
   });
 
-  test('说清了产出仍然要点采纳', () => {
-    assert.ok(g().detail.includes('采纳'), g().detail);
+  // 这一问是「要不要花钱生成」，落盘是另一问——产出之后当场还有一张卡。
+  test('说清了产出之后还会再问一次落盘', () => {
+    assert.ok(g().detail.includes('落盘'), g().detail);
   });
 
   test('说清了动的是哪一份', () => {

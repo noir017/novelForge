@@ -56,7 +56,7 @@ export interface ToolEnv {
   project: NovelProject;
   workspace: Workspace;
   drafts: DraftStore;
-  /** 草稿按会话分桶存，采纳按钮靠它找回来。 */
+  /** 草稿按会话分桶存：`write draftId=…` 与产出后那一问都靠它找回来。 */
   sessionId: string;
 }
 
@@ -102,7 +102,7 @@ export interface ToolResult {
   display?: ToolDisplay;
   /** 出错了。**模型看得到**，据此重试或换路——所以要写成它能照着改的话。 */
   error?: string;
-  /** 这一次产出的草稿 id。调用方据此画采纳按钮，不必去翻 store。 */
+  /** 这一次产出的草稿 id。调用方据此当场问一句「写不写」，不必去翻 store。 */
   draftIds?: string[];
 }
 

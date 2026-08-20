@@ -150,9 +150,10 @@ describe('气泡右上角的 ... 菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(!linkTexts('u1').includes('重新生成'), JSON.stringify(linkTexts('u1')));
   });
 
-  // 采纳/复制是常用动作，仍留在行内。
-  test('「采纳写入」仍在行内', () => {
-    assert.ok(linkTexts('a1').includes('采纳写入'), JSON.stringify(linkTexts('a1')));
+  // 「复制」是常用动作，仍留在行内。写文件的按钮一个都没有——那一问在
+  // 产出的当下就问过了（气泡里的权限卡片）。
+  test('「复制」仍在行内', () => {
+    assert.ok(linkTexts('a1').includes('复制'), JSON.stringify(linkTexts('a1')));
   });
 
   test('菜单默认不显示', () => {
@@ -265,12 +266,17 @@ describe('空输入', { skip: JSDOM_SKIP }, () => {
   });
 });
 
-describe('产物采纳卡片', { skip: JSDOM_SKIP }, () => {
+describe('产物那一行', { skip: JSDOM_SKIP }, () => {
   let ui;
-  let acceptSent;
-  const acceptBtn = (id) =>
-    [...ui.bubble(id).querySelectorAll('.msg-actions .chip-btn')].find((n) => /采纳|覆盖/.test(n.textContent));
-  const where = () => ui.bubble('a2').querySelector('.artifact-where');
+  /**
+   * 气泡上**任何能写文件的按钮**。一个都不该有——写不写在产出的当下就问过了
+   * （气泡里那张权限卡片，见 `view/gate.test.js`）。从前这里是「采纳写入 /
+   * 覆盖并写入」：一颗可以永远不点的按钮，于是「产物落盘前必须过一遍人」
+   * 成了一件可以无限拖延的事。
+   */
+  const writeBtn = (id) =>
+    [...ui.bubble(id).querySelectorAll('.msg-actions button')].find((n) => /采纳|写入|覆盖/.test(n.textContent));
+  const where = (id) => ui.bubble(id).querySelector('.artifact-where');
 
   before(() => {
     ui = mount();
@@ -282,112 +288,55 @@ describe('产物采纳卡片', { skip: JSDOM_SKIP }, () => {
         capability: 'generate',
       }),
     });
-  });
-
-  // 讨论型回复**不给采纳按钮**：落点由后端从 draft.target 取，
-  // 前端猜不出这段话该写到哪一层。从前它会被追加进当前章节的正文，
-  // 那是单一产物时代留下的入口。
-  test('无产物时没有采纳按钮', () => {
     ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '我建议把冲突提前。') });
-    assert.ok(!acceptBtn('a1'),
-      [...ui.bubble('a1').querySelectorAll('.msg-actions button')].map((b) => b.textContent).join('|'));
+    ui.post({
+      type: 'turnDone',
+      turn: turn('a2', 'assistant', '{"目标":"进宗门"}', {
+        artifact: { where: '第 12 段《夜入青云》 · 剧情', summary: '剧情 · 4/4 节', overwrites: false },
+      }),
+    });
   });
 
-  test('无产物时仍能复制', () => {
+  test('无产物时只有「复制」', () => {
+    assert.ok(!writeBtn('a1'),
+      [...ui.bubble('a1').querySelectorAll('.msg-actions button')].map((b) => b.textContent).join('|'));
     assert.ok([...ui.bubble('a1').querySelectorAll('.msg-actions button')]
       .some((b) => b.textContent === '复制'));
   });
 
-  // 产物型回复：说清落点与形状。
-  test('产物卡片说明落点', () => {
-    ui.post({
-      type: 'turnDone',
-      turn: turn('a2', 'assistant', '{"目标":"进宗门"}', {
-        draftId: 'd2',
-        artifact: { where: '第 12 段《夜入青云》 · 剧情', summary: '剧情 · 4/4 节', overwrites: false },
-      }),
-    });
-    assert.ok(where() && where().textContent.includes('第 12 段'), where()?.textContent);
+  // 产出过什么仍然看得见：翻回来要认得出「这一轮产出过一份 4 场的场景清单」。
+  test('产出过的说清落点与形状', () => {
+    assert.ok(where('a2') && where('a2').textContent.includes('第 12 段'), where('a2')?.textContent);
+    assert.ok(where('a2').textContent.includes('4/4 节'), where('a2').textContent);
   });
 
-  test('产物卡片说明形状', () => {
-    assert.ok(where().textContent.includes('4/4 节'), where().textContent);
+  // ★ 这条就是这次改动本身。
+  test('有产物也没有任何写入按钮', () => {
+    assert.ok(!writeBtn('a2'),
+      [...ui.bubble('a2').querySelectorAll('.msg-actions button')].map((b) => b.textContent).join('|'));
   });
 
-  test('未覆盖时按钮是「采纳写入」', () => {
-    assert.equal(acceptBtn('a2').textContent, '采纳写入');
-  });
-
-  test('采纳产物发 acceptArtifact', () => {
-    ui.clickEl(acceptBtn('a2'));
-    acceptSent = [...ui.sent].reverse().find((m) => m.type === 'acceptArtifact');
-    assert.ok(acceptSent, JSON.stringify(ui.sent.slice(-1)));
-  });
-
-  // 带的是 draftId 而不是 target：落点在草稿身上。从前发的是**当下**选中的
-  // 目标，用户生成完切了一章再点采纳，产物就写到别的章去了。
-  test('带上 draftId', () => {
-    assert.equal(acceptSent.draftId, 'd2', JSON.stringify(acceptSent));
-  });
-
-  test('不带 target', () => {
-    assert.equal(acceptSent.target, undefined, JSON.stringify(acceptSent.target));
-  });
-
-  test('带上气泡里的文本', () => {
-    assert.equal(acceptSent.text, '{"目标":"进宗门"}', acceptSent.text);
-  });
-
-  // 会覆盖已有内容时按钮必须说出来——一个光秃秃的「采纳写入」在四层产物
-  // 之下已经不够，用户得知道这一下会盖掉什么。
-  test('会覆盖时按钮改文案', () => {
+  test('作者当时没同意的标一句「未采纳」', () => {
     ui.post({
       type: 'turnDone',
       turn: turn('a3', 'assistant', '{"目标":"换一版"}', {
-        draftId: 'd3',
-        artifact: { where: '第 12 段《夜入青云》 · 剧情', summary: '剧情 · 4/4 节', overwrites: true },
+        artifact: { where: '第 12 段《夜入青云》 · 剧情', summary: '剧情 · 4/4 节', overwrites: true, declined: true },
       }),
     });
-    assert.equal(acceptBtn('a3').textContent, '覆盖并写入', acceptBtn('a3').textContent);
+    assert.ok(where('a3').textContent.includes('未采纳'), where('a3').textContent);
+    assert.ok(!writeBtn('a3'), '未采纳的那一轮更不该有写入按钮');
   });
 
-  test('会覆盖时按钮标红', () => {
-    assert.ok(acceptBtn('a3').classList.contains('danger'));
-  });
-
-  // 草稿过期了（会话很老、被挤掉、手改过会话文件）：卡片还在——那一轮
-  // 产出过什么仍然看得见——但采纳不了。落点在草稿身上，猜一个出来会把
-  // 这份剧情写到别的章去。
-  test('草稿没了就不给采纳按钮', () => {
-    ui.post({
-      type: 'turnDone',
-      turn: turn('a4', 'assistant', '{"目标":"很久以前"}', {
-        artifact: { where: '第 12 段《夜入青云》 · 剧情', summary: '剧情 · 4/4 节', overwrites: false },
-      }),
-    });
-    assert.ok(!acceptBtn('a4'),
-      [...ui.bubble('a4').querySelectorAll('.msg-actions button')].map((b) => b.textContent).join('|'));
-  });
-
-  test('草稿没了卡片还在', () => {
-    const w = ui.bubble('a4').querySelector('.artifact-where');
-    assert.ok(w && w.textContent.includes('4/4 节'), w?.textContent);
-  });
-
-  // 已采纳过的那一轮不再给按钮，只给「打开」。
-  test('已采纳的不再显示采纳按钮', () => {
+  test('写进去了的说落点、给「打开」', () => {
     ui.post({
       type: 'turnDone',
       turn: turn('a4', 'assistant', 'x', {
         artifact: { where: 'y', summary: 'z', overwrites: false },
-        acceptedTo: '.novelforge/plans/012-夜入青云.md',
+        acceptedTo: '.novelforge/plots/012-夜入青云.md',
       }),
     });
-    assert.ok(!acceptBtn('a4'));
-  });
-
-  test('已采纳的显示落点', () => {
     assert.ok(ui.bubble('a4').querySelector('.accepted'));
+    assert.ok([...ui.bubble('a4').querySelectorAll('.msg-actions button')].some((b) => b.textContent === '打开'));
   });
 });
 
@@ -477,19 +426,15 @@ describe('思考过程（推理模型）', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.bodyOf('a1').getAttribute('contenteditable'), 'true');
   });
 
-  // 最关键的一条：采纳落盘时绝不能带上思考内容。
-  test('采纳的文本不含思考内容', () => {
-    const accept = [...ui.bubble('a1').querySelectorAll('.msg-actions button')]
-      .find((b) => b.textContent === '采纳写入');
-    ui.clickEl(accept);
-    acceptSent = ui.sent.filter((m) => m.type === 'acceptArtifact').pop();
-    assert.ok(acceptSent && !acceptSent.text.includes('先确定场景'),
-      acceptSent ? JSON.stringify(acceptSent.text) : '没发出 acceptArtifact');
+  // 最关键的一条：思考内容不是正文——落盘的、复制的都只该是正文。
+  // 落盘那一份由后端从 draft 取（前端连文本都不发了），这里守住它的孪生兄弟：
+  // 气泡正文里没有思考内容。
+  test('气泡正文不含思考内容', () => {
+    assert.ok(!ui.bodyOf('a1').textContent.includes('先确定场景'), ui.bodyOf('a1').textContent);
   });
 
-  test('采纳的文本就是正文', () => {
-    assert.ok(acceptSent, '没发出 acceptArtifact');
-    assert.equal(acceptSent.text, '灯昏。');
+  test('气泡正文就是正文', () => {
+    assert.equal(ui.bodyOf('a1').textContent, '灯昏。');
   });
 
   // 复制同理。

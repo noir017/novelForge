@@ -4,6 +4,8 @@ import { describeArtifact } from '../features/artifact';
 import { acceptArtifact as writeArtifact } from '../generation/accept';
 import { Draft, generate, parseDraftArtifact } from '../generation/generate';
 import { getHost } from '../host';
+import type { GateVerdict } from '../agent/policy';
+import { askGate, cancelGates } from './gate';
 import { scoped } from '../runtime/logger';
 import {
   ChatSession,
@@ -121,6 +123,9 @@ export async function retry(c: ChatController, turnId: string, payload: SendPayl
 }
 
 export async function runTurn(c: ChatController, payload: SendPayload, userTurn: ChatTurn): Promise<void> {
+  // 上一轮那张还没答的落盘卡片就此作废：它挂在上一条气泡上，点下去写的是
+  // 一份作者已经翻篇的产物。
+  cancelGates(c);
   // 并发控制在 controller：生成那一层是无状态的，「有没有在跑」是调度的事。
   const lease = c.beginGeneration();
   if (!lease) {
@@ -188,15 +193,14 @@ export async function runTurn(c: ChatController, payload: SendPayload, userTurn:
     assistantTurn.context = serializeDigest(built);
     c.post({ type: 'context', turnId: assistantTurn.id, digest: assistantTurn.context });
   }
-  // 产出的是可采纳的东西时，把落点与形状一起带给前端——它才画得出
-  // 「拆出了 4 场，采纳？」而不是一个光秃秃的按钮。
+  // 产出的是可落盘的东西时，把落点与形状一起记下——卡片上要说清
+  // 「拆出了 4 场，写到哪」，而不是一句光秃秃的「确定吗」。
   //
   // **不再重新解析一遍**：draft 出厂就带 artifact 与 summary。从前这里
   // 是三次解析里多余的那一次。
   if (draft?.artifact) {
     c.drafts.put(draft, c.current.id);
     c.current.drafts = c.drafts.bySession(c.current.id);
-    assistantTurn.draftId = draft.id;
     assistantTurn.artifact = {
       where: await describeCurrentTarget(c),
       summary: draft.summary ?? describeArtifact(draft.artifact),
@@ -210,6 +214,27 @@ export async function runTurn(c: ChatController, payload: SendPayload, userTurn:
   await persist(c);
   // 这一轮可能把某一层的产物写过（正文追加）——刷新流水线条。
   await pushPipeline(c);
+
+  // 第 19 条：产物落盘前必须过一遍人。**在这里问，不是留一颗按钮**——
+  // 先推完 turnDone（气泡定稿、可以就地改）再问，作者要改完再写得来及。
+  if (draft?.artifact && assistantTurn.artifact && !assistantTurn.error && !assistantTurn.interrupted) {
+    const r = await askArtifact(c, {
+      turnId: assistantTurn.id,
+      draft,
+      art: assistantTurn.artifact,
+      // 气泡里当下那份：作者在卡片上点写入之前可能刚改过（blur 时经
+      // `editTurn` 落在这里），改了的那份才是他要的。
+      raw: () => assistantTurn.content,
+    });
+    if (r.relPath) {
+      assistantTurn.acceptedTo = r.relPath;
+    } else {
+      // 没写成也要留痕：翻回来看得出这一轮产出过什么、以及它没落盘。
+      assistantTurn.artifact = { ...assistantTurn.artifact, declined: true };
+    }
+    await persist(c);
+    c.post({ type: 'turnDone', turn: serializeTurn(assistantTurn) });
+  }
 }
 
 /**
@@ -284,65 +309,101 @@ export async function targetHasContent(
 }
 
 /**
- * 采纳一份结构化产物（细纲、场景卡、章节清单、场景清单、大纲、正文）。
+ * 产物落盘前那一句问，以及同意之后的落盘。**第 19 条的落点。**
  *
- * **落点从 draft 里取，不由前端传**：前端猜不出一段讨论该写到哪一层
- * （第 19 条最后一句）。从前它发的是 `store.session.target`——那是**当下**
- * 选中的目标，用户在生成完之后切了一章再点采纳，产物就写到别的地方去了。
+ * ## 为什么是一张卡片，不是一颗按钮
  *
- * **文本仍然重新解析一遍**而不是用 `draft.artifact`：用户可能在气泡里改过。
- * `draft.raw` 只是兜底（前端没给文本时）。
+ * 从前这里是气泡末尾那颗「采纳写入」：它可以拖到第二天再点，于是
+ * 「产物落盘前必须过一遍人」在界面上是一颗**可以永远不点的按钮**——而
+ * agent 早就接着往下做了，作者手上攒着三份没落地的产物，谁也说不清哪份
+ * 已经写过。现在它和别的动手请求（写文件、改一段字）长一个样、在同一个
+ * 位置、**产出的当下就问**（[gate.ts](gate.ts)）。
  *
- * 落盘与否由 `generation/accept.ts` 经 workspace 网关决定——目标已有内容
- * 时会先弹审阅。
+ * ## 与策略无关
+ *
+ * `agent/policy.ts` 那张五档表管的是「动手之前要不要先问一句」，三种模式
+ * 各有各的松紧。这一问不在那张表里：**任何模式下都问**，包括「放手」。
+ * 那是产品承诺（第 19 条），不是偏好设置。
+ *
+ * ## 落点从 draft 里取，不由前端传
+ *
+ * 前端猜不出一段讨论该写到哪一层。从前采纳按钮发的是 `store.session.target`
+ * ——那是**当下**选中的目标，作者生成完切了一章再点采纳，产物就写到别的
+ * 地方去了。
+ *
+ * `raw` 缺省用 `draft.raw`（模型产出的原文）。单步创作那条路传的是气泡里
+ * 当下的文本：作者可以先在气泡里改完再点写入，那份改动经 `editTurn` 已经
+ * 落在 `turn.content` 上。
+ *
+ * 目标已有内容时，落盘那一步还会走 workspace 网关的覆盖审阅（插件开 diff）
+ * ——那是另一层，与这一问无关，两层都过了才真的改磁盘。
  */
-export async function acceptArtifact(
+export async function askArtifact(
   c: ChatController,
-  turnId: string,
-  draftId: string,
-  text: string
-): Promise<void> {
-  const turn = c.current.turns.find((t) => t.id === turnId);
-  if (!turn) {
-    return;
+  ask: {
+    turnId: string;
+    draft: Draft;
+    art: SerializedArtifact;
+    /** 谁在要求写。agent 那条路多一颗「停止 agent」，主语也不一样。 */
+    byAgent?: boolean;
+    callId?: string;
+    /**
+     * 要落盘的那份文本，**答完之后才取**（所以是个函数）：作者在卡片上点写入
+     * 之前可能刚在气泡里改过，取早了拿到的是他改之前那份。
+     */
+    raw?: () => string;
+    /** 写完要不要顺手打开它。单步创作打开（作者正盯着这一份），agent 不打开——它可能连着写好几份。 */
+    open?: boolean;
+    signal?: AbortSignal;
   }
-  const draft = c.drafts.get(draftId);
-  if (!draft) {
-    // 草稿没了（会话很老、被挤掉、或者手改过会话文件）。这时**不猜落点**：
-    // 拿当下选中的 target 顶上，会把一份剧情写到别的章去。
-    log.warn('找不到这一轮的草稿，未写入', `draftId ${draftId}`);
-    c.toast('这一轮的产物已经过期了（会话太久或已被清理），请重新生成一次。', 'error');
-    return;
+): Promise<{ verdict: GateVerdict; relPath?: string; message: string }> {
+  const { art, draft } = ask;
+  const what = art.overwrites ? '覆盖' : '写入';
+  const verdict = await askGate(
+    c,
+    {
+      turnId: ask.turnId,
+      callId: ask.callId,
+      name: 'artifact',
+      title: `${ask.byAgent ? 'Agent 要把生成的产物' : '把这份产物'}${what}到「${art.where}」`,
+      detail: art.overwrites ? `${art.summary}\n那里已经有内容了，写入前会让你先对比一遍。` : art.summary,
+      proceed: art.overwrites ? '覆盖并写入' : '写入',
+      skip: '不采纳',
+      stoppable: ask.byAgent,
+    },
+    ask.signal
+  );
+  if (verdict !== 'proceed') {
+    return { verdict, message: '作者没有采纳这份产物，磁盘上什么都没变。' };
   }
-  // 前端给的是气泡里当下那份；空了就退回生成时那份原文。
-  const raw = text.trim() ? text : draft.raw;
+
+  // 气泡里当下那份优先（作者可能改过），空了退回生成时那份原文。
+  const edited = ask.raw?.();
+  const raw = edited?.trim() ? edited : draft.raw;
   if (!raw.trim()) {
     c.toast('内容是空的。', 'error');
-    return;
+    return { verdict, message: '内容是空的，没有写入任何文件。' };
   }
-  turn.content = raw;
-
+  // **重新解析一遍**而不是用 `draft.artifact`：作者可能在气泡里改过。
   const artifact = parseDraftArtifact(draft.action, raw);
   if (!artifact) {
     // 解析不出来时**不写**。写一个空产物比不写更糟：作者会以为存下了。
     log.warn('产物解析不出内容，未写入', `阶段 ${draft.action.stage}·${draft.action.capability}`);
     c.toast('这段内容解析不出可采纳的产物，没有写入任何文件。', 'error');
-    return;
+    return { verdict, message: '这段内容解析不出可写入的产物，没有写入任何文件。' };
   }
 
   const result = await writeArtifact(c.project, draft.target, artifact);
-  if (result.skipped || !result.relPath) {
-    c.toast(result.message);
-    return;
-  }
-  turn.acceptedTo = result.relPath;
-  await persist(c);
-  c.post({ type: 'turnDone', turn: serializeTurn(turn) });
   c.toast(result.message);
-
-  await getHost().openFile(result.relPath);
+  if (result.skipped || !result.relPath) {
+    return { verdict, message: result.message };
+  }
+  if (ask.open !== false) {
+    await getHost().openFile(result.relPath);
+  }
   await c.pushState();
   await pushPipeline(c);
+  return { verdict, relPath: result.relPath, message: result.message };
 }
 
 /**
@@ -388,7 +449,7 @@ export async function setTarget(c: ChatController, target: CreationTarget): Prom
  * **收的是「哪一章」，不是「哪个细纲文件」。** 界面上三个入口给的路径形状
  * 各不相同，而它们指的都是同一件事：
  *
- * - 工程页点章名 → **主路径**：已发布的章给 `chapters/003-夜访.md`
+ * - 工程页右键「进入这一章」 → **主路径**：已发布的章给 `chapters/003-夜访.md`
  * - 对话页下拉框 → 细纲路径，这一章还没规划过时那个文件**并不存在**
  * - 流水线/新建 → 真实的细纲路径
  *
@@ -496,7 +557,7 @@ export function applyAction(c: ChatController, payload: SendPayload): void {
   c.current.target = normalizeTarget(payload.target);
 }
 
-/** 当前目标的人话描述。日志、采纳卡片、面包屑共用。 */
+/** 当前目标的人话描述。日志、落盘卡片、面包屑共用。 */
 export async function describeCurrentTarget(c: ChatController): Promise<string> {
   return describeTargetOf(c, c.current.target);
 }

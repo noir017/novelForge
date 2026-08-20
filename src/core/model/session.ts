@@ -98,26 +98,18 @@ export interface ChatTurn {
    */
   reasoning?: string;
   /**
-   * 仅 assistant 轮：这一轮产出的那份草稿的 id。
+   * 仅 assistant 轮：这一轮产出的是可落盘的产物时，它的落点与形状。
    *
-   * **身份**。采纳时凭它取出 draft，落点从 `draft.target` 来——前端猜不出
-   * 一段讨论该写到哪一层（第 19 条最后一句）。
-   *
-   * 认不出的（会话文件被手改、草稿被挤掉）在 `normalize()` 里一律丢弃：
-   * 采纳按钮收起来，下面那份展示快照仍在。
-   */
-  draftId?: string;
-  /**
-   * 仅 assistant 轮：这一轮产出的是可采纳的产物时，它的落点与形状。
-   *
-   * **展示快照**，与 draft 一起持久化，重开面板不必重新解析。即使 draft
-   * 被清掉（会话很老了），气泡上仍然看得出「这一轮产出过一份 4 场的场景
-   * 清单」，只是采纳按钮收起来。
+   * **只是回放用的记录**：写不写盘在产出的当下就问过了（`controller/gate.ts`
+   * 那张卡片），气泡上不再有任何能触发写入的按钮。写了的记在 `acceptedTo`
+   * 上，作者当时没同意的这里标 `declined`——两样都留着，翻回来才看得出
+   * 「这一轮产出过一份 4 场的场景清单，我没要」。
    */
   artifact?: {
     where: string;
     summary: string;
     overwrites: boolean;
+    declined?: boolean;
   };
   /**
    * 仅 assistant 轮：这一轮 agent 调了哪些工具。
@@ -413,10 +405,6 @@ function summarize(session: ChatSession): SessionSummary {
  * 认不出的 target 一律回落到全书大纲——它是唯一一个不依赖任何细纲就一定
  * 存在的产物。换轴之前的会话记的是章节路径，那些路径现在指不到任何东西，
  * 归一化时会落回大纲；作者重新选一章就好，比把它指到一个错的章上强。
- *
- * **对不上草稿的 `draftId` 一律丢弃**：会话文件可能被手改，草稿也可能因为
- * 超出上限被挤掉。丢掉之后采纳按钮收起来，但 `artifact` 那份展示快照仍在，
- * 气泡上仍看得出这一轮产出过什么。
  */
 function normalize(id: string, raw: unknown): ChatSession {
   const o = (raw ?? {}) as Partial<ChatSession>;
@@ -429,7 +417,6 @@ function normalize(id: string, raw: unknown): ChatSession {
       ? o.capability
       : DEFAULT_CAPABILITY[stage];
   const drafts = normalizeDrafts(o.drafts);
-  const known = new Set(drafts.map((d) => d.id));
   return {
     id,
     title: typeof o.title === 'string' && o.title.trim() ? o.title : '未命名对话',
@@ -440,9 +427,7 @@ function normalize(id: string, raw: unknown): ChatSession {
     capability,
     targetNo: typeof o.targetNo === 'number' ? o.targetNo : undefined,
     targetWords: typeof o.targetWords === 'number' ? o.targetWords : undefined,
-    turns: Array.isArray(o.turns)
-      ? o.turns.filter(isTurn).map((t) => (t.draftId && !known.has(t.draftId) ? { ...t, draftId: undefined } : t))
-      : [],
+    turns: Array.isArray(o.turns) ? o.turns.filter(isTurn) : [],
     drafts,
   };
 }

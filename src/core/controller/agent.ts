@@ -10,7 +10,8 @@
  *
  * 1. **占生成位**（`beginGeneration`）——与单步共用同一把锁，两条路不会同时跑；
  * 2. **走 `runTask`**（第 11 条）——工程页顶部有进度条、看得见、能停；
- * 3. **把循环的事件翻译成协议消息**——工具调用画成气泡里的折叠条；
+ * 3. **把循环的事件翻译成协议消息**——工具调用画成气泡里的折叠条，动手前那一句
+ *    问也画在同一串上（[gate.ts](gate.ts)），不弹全局模态框；
  * 4. **把这一轮的痕迹存进会话**——摘要，加上截断过的参数与返回文本。
  *
  * 判断、装配、预算全在 `core/agent/` 里，这里一条都不重复。
@@ -26,7 +27,8 @@ import { Attachment, ChatTurn, TurnToolCall, deriveTitle, makeTurnId, nowIso, tu
 import { runAgent } from '../agent/loop';
 import type { BudgetLimits } from '../agent/budget';
 import { createNovelTools } from '../tools/novel';
-import { describeArtifactOf, pushPipeline } from './chat';
+import { askArtifact, describeArtifactOf, pushPipeline } from './chat';
+import { askGate, cancelGates } from './gate';
 import { persist } from './persist';
 import { serializeSession, serializeTurn } from './serialize';
 
@@ -64,6 +66,38 @@ function describeArgs(args: Record<string, unknown> | undefined): string | undef
     // 循环引用之类的怪东西：明细不是关键路径，画不出来就不画。
     return undefined;
   }
+}
+
+/**
+ * 把落盘的结论补到那条工具条上。
+ *
+ * **一次调用一行**：一轮 agent 可能生成三份产物，写了两份、拒了一份——挂在
+ * 气泡上的单个「产物」字段说不清这件事，而工具条本来就是一次一行、随会话
+ * 留得住。就地重推一条 `toolResult`，前端按 callId 换掉那一行。
+ */
+function noteOnToolRow(
+  c: ChatController,
+  turnId: string,
+  rows: TurnToolCall[],
+  callId: string | undefined,
+  note: string
+): void {
+  const row = rows.find((r) => r.callId === callId);
+  if (!row) {
+    return;
+  }
+  row.summary = `${row.summary} · ${note}`;
+  c.post({
+    type: 'toolResult',
+    turnId,
+    callId: row.callId,
+    name: row.name,
+    ok: row.ok,
+    summary: row.summary,
+    elapsedMs: row.elapsedMs,
+    argsText: row.argsText,
+    resultText: row.resultText,
+  });
 }
 
 /**
@@ -146,6 +180,9 @@ export async function sendAgent(
     return;
   }
   log.info(`Agent 调度模型 ${dispatch.ref}`, config.agentPolicy);
+
+  // 上一轮那张还没答的落盘卡片就此作废（同 `runTurn`）。
+  cancelGates(c);
 
   const attachments = [...c.pending];
   const userTurn: ChatTurn = {
@@ -256,6 +293,57 @@ export async function sendAgent(
                 resultText,
               });
             },
+            // 闸门那一句问在对话页里（`gate.ts`），不是一个盖住窗口的模态框——
+            // 作者要判断的上下文（它刚读了什么、正要写哪个文件）就在气泡里。
+            onGate: (req) =>
+              askGate(
+                c,
+                {
+                  turnId: assistantTurn.id,
+                  callId: req.callId,
+                  name: req.name,
+                  title: req.title,
+                  detail: req.detail,
+                  // 参数与工具条上展开看到的是同一份截断（同一个 describeArgs）：
+                  // 两处不一样的话，作者点头时看到的和随后核对的就对不上。
+                  argsText: describeArgs(req.args),
+                  proceed: req.proceed,
+                  stoppable: true,
+                },
+                lease.signal
+              ),
+            // 产出了可落盘的产物：**当场问一句**（第 19 条，与策略无关）。
+            // 从前这是气泡末尾那颗「采纳写入」，可以拖到第二天再点，而
+            // agent 早就接着往下做了。
+            onArtifact: async (req) => {
+              const draftId = req.draftIds[req.draftIds.length - 1];
+              const draft = draftId ? c.drafts.get(draftId) : undefined;
+              const art = draft?.artifact ? await describeArtifactOf(c, draft.raw, draft) : undefined;
+              if (!draft || !art) {
+                // 解析不出可落盘的形状（讨论类的产出）：没什么可写的，不问。
+                return { note: '' };
+              }
+              c.current.drafts = c.drafts.bySession(c.current.id);
+              const r = await askArtifact(c, {
+                turnId: assistantTurn.id,
+                draft,
+                art,
+                byAgent: true,
+                callId: req.callId,
+                // **不打开文件**：一轮里它可能连着写好几份，一次次抢编辑器。
+                open: false,
+                signal: lease.signal,
+              });
+              // 决定记在那条工具条上（一次调用一行），随会话留住——
+              // 翻回来看得出「这一份我当时没要」。
+              noteOnToolRow(c, assistantTurn.id, toolCalls, req.callId, r.relPath ? `已写入 ${r.relPath}` : '未采纳');
+              return {
+                note: r.relPath
+                  ? `${r.message}这份产物已经落盘，**不要再写一遍**。`
+                  : `${r.message}**不要重复生成同一份**——问问作者要改什么。`,
+                stop: r.verdict === 'stop',
+              };
+            },
             onNote: (message) => c.toast(message),
           },
         });
@@ -281,16 +369,9 @@ export async function sendAgent(
       assistantTurn.error = outcome.message;
     }
 
-    // 最后一份草稿就是它给作者的那份产物——采纳按钮吃它。
-    // 一轮里生成多次时只挂最后那一份：更早的那些是它自己迭代的中间稿，
-    // 摊在一个气泡上给三个采纳按钮，作者分不清该点哪个。
-    const draftId = outcome.draftIds[outcome.draftIds.length - 1];
-    const draft = draftId ? c.drafts.get(draftId) : undefined;
-    if (draft?.artifact) {
-      c.current.drafts = c.drafts.bySession(c.current.id);
-      assistantTurn.draftId = draft.id;
-      assistantTurn.artifact = await describeArtifactOf(c, draft.raw, draft);
-    }
+    // 这一轮的产物落没落盘，在产出的当下就问过了（`onArtifact`），结论记在
+    // 各自那条工具条上。所以气泡上**没有**一个「最后那份产物」——一轮里
+    // 它可能写了三份，也可能三份都被拒了。
 
     c.post({
       type: 'agentDone',
