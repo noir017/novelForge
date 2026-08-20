@@ -22,10 +22,11 @@ async function main(): Promise<void> {
     // 这里只是换了个把问答接到终端上的 Host。
     const host = new TerminalHost(new FileConfigStore());
     initHost(host);
-    const project = NovelProject.open(opts.root);
+    const root = opts.root ?? path.resolve('.');
+    const project = NovelProject.open(root);
     try {
       if (await initProjectFlow(project, dirBaseName(project))) {
-        console.log(`已初始化：${path.join(opts.root, '.novelforge')}`);
+        console.log(`已初始化：${path.join(root, '.novelforge')}`);
       }
     } finally {
       host.close();
@@ -33,8 +34,10 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (!fs.existsSync(path.join(opts.root, '.novelforge', 'project.json'))) {
-    console.log(`提示：目录还不是小说工程：${opts.root}`);
+  // 解析已允许 root 为空；空窗口起服务要等 WorkspaceHub 接上后再去掉 cwd 回落。
+  const serverRoot = opts.root ?? path.resolve('.');
+  if (!fs.existsSync(path.join(serverRoot, '.novelforge', 'project.json'))) {
+    console.log(`提示：目录还不是小说工程：${serverRoot}`);
     console.log('可先跑 novelforge init，或在网页上点「初始化工程」。');
   }
 
@@ -42,7 +45,7 @@ async function main(): Promise<void> {
   let port = opts.port;
   for (let i = 0; ; i++) {
     try {
-      port = startServer({ root: opts.root, port, verbose: opts.verbose });
+      port = startServer({ root: serverRoot, port, verbose: opts.verbose });
       break;
     } catch (err) {
       if (i >= 20) {
