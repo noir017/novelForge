@@ -484,6 +484,16 @@ export class ChatController {
       case 'promptResult':
         // 由独立版壳在进入 controller 前截获（解弹窗）；插件永远不会收到。
         return;
+
+      // 工作区生命周期与本机目录：独立版由 WorkspaceHub 在进 controller
+      // 之前拦下。插件不会发这些消息。空分支避免 InMessage 联合漏网。
+      case 'listHostDir':
+      case 'createHostDir':
+      case 'openFolder':
+      case 'closeFolder':
+      case 'activateWorkspace':
+      case 'openLogDir':
+        return;
     }
   }
 

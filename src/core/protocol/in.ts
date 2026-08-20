@@ -94,7 +94,17 @@ export type InMessage =
   | { type: 'requestLogs' }
   | { type: 'requestLogHistory'; before?: string }
   | { type: 'clearLogs' }
-  | { type: 'promptResult'; requestId: string; value?: string };
+  | { type: 'promptResult'; requestId: string; value?: string }
+  /**
+   * 本机列一层目录（绝对路径）。独立版空窗口选工程用；插件不会发。
+   * `path` 为空表示根层（Unix 的 `/`，Windows 的盘符列表）。
+   */
+  | { type: 'listHostDir'; path: string }
+  | { type: 'createHostDir'; parent: string; name: string }
+  | { type: 'openFolder'; path: string; mode?: 'replace' | 'add' }
+  | { type: 'closeFolder'; id?: string }
+  | { type: 'activateWorkspace'; id: string }
+  | { type: 'openLogDir' };
 
 export type ProjectAction =
   | 'initProject'

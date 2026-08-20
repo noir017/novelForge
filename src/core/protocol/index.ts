@@ -13,9 +13,12 @@ export type {
 export type {
   EditorFileView,
   FileOpResult,
+  HostDirEntry,
   OutMessage,
   SerializedModel,
   SerializedProvider,
+  WorkspaceItem,
+  WorkspaceRecent,
 } from './out';
 
 export type {
