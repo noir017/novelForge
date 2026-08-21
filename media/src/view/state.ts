@@ -6,7 +6,16 @@
  * 开销不值得多维护一份状态。
  */
 import { maybeById, setHidden } from '../dom';
-import { THINKING_DEPTHS, THINKING_HINT, THINKING_LABEL, plotOfTarget } from '../protocol';
+import { THINKING_DEPTHS, THINKING_HINT, ThinkingDepth, plotOfTarget } from '../protocol';
+
+/** 下拉框只在这里用英文短标签，日志那边的中文说法（THINKING_LABEL）不受影响。 */
+const THINKING_LABEL_DISPLAY: Record<ThinkingDepth, string> = {
+  off: 'None',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  max: 'Max',
+};
 import type { ViewState } from '../protocol';
 import { setCommandsDisabled } from './commands';
 import { fmt } from './format';
@@ -148,7 +157,7 @@ function renderThinkingSelect(): void {
     for (const depth of THINKING_DEPTHS) {
       const opt = document.createElement('option');
       opt.value = depth;
-      opt.textContent = THINKING_LABEL[depth];
+      opt.textContent = THINKING_LABEL_DISPLAY[depth];
       opt.title = THINKING_HINT[depth];
       el.thinkSelect.appendChild(opt);
     }
