@@ -20,11 +20,12 @@ import { KIND_LABEL, PRESETS } from './presets';
 import { renderProviders } from './providerList';
 
 /**
- * 换协议时填进去的默认接口地址。与后端 `defaultBaseUrl` 同源的三个值——
+ * 换协议时填进去的默认接口地址。与后端 `defaultBaseUrl` 同源的四个值——
  * 那边是兜底（留空时用它），这边是**填给作者看**，好让他知道该往哪改。
  */
 const DEFAULT_BASE_URL: Record<SerializedProvider['kind'], string | undefined> = {
   openai: 'https://api.openai.com/v1',
+  'openai-responses': 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com',
   'vscode-lm': undefined,
 };
@@ -193,6 +194,7 @@ function buildProviderEditor(p: SerializedProvider): HTMLElement {
       p.kind,
       [
         ['openai', KIND_LABEL.openai],
+        ['openai-responses', KIND_LABEL['openai-responses']],
         ['anthropic', KIND_LABEL.anthropic],
         ['vscode-lm', KIND_LABEL['vscode-lm']],
       ],
