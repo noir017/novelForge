@@ -1,0 +1,243 @@
+# 正式发布：手动点击，一次出齐三条发布路径的产物。
+#
+# 与 app.yml 的分工：app.yml 是 tag 推送时的桌面壳构建（日常验证「还能编出来」），
+# 这个文件是**人工决定发版**时才跑的一条完整流水线——桌面安装包 + VS Code 扩展
+# .vsix + 独立版单文件可执行，最后汇总成一个 GitHub Release 草稿。
+#
+# 只有 workflow_dispatch 一个触发器：这条流水线要编两次 Rust 壳、跑两遍全量测试，
+# 是仓库里最贵的一个 job，不该由 push 自动引发。
+#
+# 注意：手动触发的按钮**只有当这个文件在默认分支上时才会出现**。仓库 origin 是
+# 局域网 Gitea，要在 GitHub 上点这个按钮，得先把 main 推到 github 远端
+# （项目约定里开源同步走 squash，见 .claude/CLAUDE.md）。
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（不带 v 前缀，如 0.2.0）。留空则用 package.json 里的当前值。'
+        required: false
+        type: string
+      draft:
+        description: '发布成草稿（不勾选则直接公开）'
+        required: false
+        default: true
+        type: boolean
+      prerelease:
+        description: '标记为预发布'
+        required: false
+        default: false
+        type: boolean
+
+# 同一分支上重复点按钮时，掐掉旧的那次——两次发布跑在一起只会互相踩。
+# 这里不设 cancel-in-progress: false，因为发布本身是幂等的重跑。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # 创建 Release 要写权限
+
+jobs:
+  # ── 1) 版本号定板 ───────────────────────────────────────────────
+  # 三个 job 都要知道版本号，各自去读 package.json 会重复三遍逻辑，
+  # 所以先在一个轻量 job 里定下来，后面统一引用。
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+      tag: v${{ steps.pick.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 定板版本号
+        id: pick
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            v="${{ inputs.version }}"
+          else
+            v="$(node -p "require('./package.json').version")"
+          fi
+          # 手滑写成 v0.2.0 的话去掉前缀，免得后面拼出 vv0.2.0 这种 tag。
+          v="${v#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "本次发布版本：$v"
+
+  # ── 2) VS Code 扩展 + 独立版可执行 ──────────────────────────────
+  # 这两样合成一个 job：都只依赖 Node/Bun，不需要 Rust，也不需要原生 Windows
+  # ——Bun 能交叉编译出 .exe。合在一起省一次 npm ci 和一遍测试。
+  bundles:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: npm ci
+
+      # 闸门：测试挂了就不该有产物流出去。
+      - name: 跑测试
+        run: npm test
+
+      - name: 对齐版本号
+        if: inputs.version != ''
+        run: npm version "${{ needs.version.outputs.version }}" --no-git-tag-version
+
+      # 独立版：两个平台都由 Bun 交叉编译，产物带平台后缀便于区分。
+      - name: 构建独立版（linux + windows）
+        run: |
+          node scripts/embed-media.js
+          bun build src/shells/standalone/main.ts --compile \
+            --target=bun-linux-x64 --outfile dist/novelforge-linux-x64
+          bun build src/shells/standalone/main.ts --compile \
+            --target=bun-windows-x64 --outfile dist/novelforge-windows-x64.exe
+
+      # .vsix 必须在独立版**之后**打，且靠 .vscodeignore 把 dist/novelforge*
+      # 排除掉——否则 113 MB 的可执行会被塞进扩展包。
+      - name: 打包 .vsix
+        run: npx --yes @vscode/vsce@latest package --no-dependencies --out novel-forge-${{ needs.version.outputs.version }}.vsix
+
+      # 防呆闸门：.claude/ 与 local/ 是本机私有目录，绝不能进公开产物。
+      # vsce 一旦看到 .vscodeignore 就完全无视 .gitignore，所以这里实测一遍
+      # 包内清单，而不是信任配置。
+      - name: 校验 .vsix 未夹带私有文件
+        run: |
+          list="$(unzip -Z1 novel-forge-${{ needs.version.outputs.version }}.vsix)"
+          echo "$list"
+          if echo "$list" | grep -Ei '(^|/)(\.claude|\.cursor|\.worktrees|local|temp)/'; then
+            echo "::error::.vsix 里夹带了私有目录，检查 .vscodeignore"
+            exit 1
+          fi
+          if echo "$list" | grep -E 'dist/novelforge'; then
+            echo "::error::.vsix 里夹带了独立版可执行（应由 .vscodeignore 排除）"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundles
+          path: |
+            *.vsix
+            dist/novelforge-linux-x64
+            dist/novelforge-windows-x64.exe
+          if-no-files-found: error
+
+  # ── 3) 桌面安装包 ───────────────────────────────────────────────
+  # Rust 壳不能交叉编译，所以每个平台一台原生 runner。
+  desktop:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ubuntu-22.04 而不是 latest：链接的 glibc 越低，能装的发行版越多。
+          - os: ubuntu-22.04
+            name: linux
+          - os: windows-latest
+            name: windows
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: 跑测试
+        run: npm test
+
+      - name: 对齐版本号
+        if: inputs.version != ''
+        shell: bash
+        run: |
+          v="${{ needs.version.outputs.version }}"
+          npm version "$v" --no-git-tag-version
+          # tauri.conf.json 的 version 是安装包上显示的版本，与 package.json
+          # 各记一份，不同步的话装出来的包版本号是旧的。
+          node -e "
+            const fs=require('fs'),f='src/shells/desktop/tauri.conf.json';
+            const c=JSON.parse(fs.readFileSync(f,'utf8'));
+            c.version=process.argv[1];
+            fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n');
+          " "$v"
+
+      - name: Linux 构建依赖
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            librsvg2-dev patchelf libayatana-appindicator3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # 编 Rust 壳很慢，缓存能把重复构建从几分钟压到几十秒。
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src/shells/desktop
+
+      # sidecar 由 tauri.conf.json 的 beforeBuildCommand 自动构建，不必单独跑。
+      - uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: src/shells/desktop
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}
+          # 只收安装包，不收 90 MB 的 sidecar 中间产物。targets 是 "all"，
+          # 各平台产出什么由 Tauri 决定，所以用通配而不写死目录名。
+          path: |
+            src/shells/desktop/target/release/bundle/*/*.AppImage
+            src/shells/desktop/target/release/bundle/*/*.deb
+            src/shells/desktop/target/release/bundle/*/*.rpm
+            src/shells/desktop/target/release/bundle/*/*.exe
+            src/shells/desktop/target/release/bundle/*/*.msi
+          if-no-files-found: error
+
+  # ── 4) 汇总成 Release ───────────────────────────────────────────
+  release:
+    needs: [version, bundles, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # 三个 job 的产物散在各自子目录里，摊平到一层好上传。
+      - name: 摊平产物
+        run: |
+          mkdir -p out
+          find artifacts -type f \
+            \( -name '*.vsix' -o -name '*.AppImage' -o -name '*.deb' \
+               -o -name '*.rpm' -o -name '*.exe' -o -name '*.msi' \
+               -o -name 'novelforge-linux-x64' \) \
+            -exec cp {} out/ \;
+          ls -lh out
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: Novel Forge ${{ needs.version.outputs.tag }}
+          draft: ${{ inputs.draft }}
+          prerelease: ${{ inputs.prerelease }}
+          files: out/*
+          fail_on_unmatched_files: true

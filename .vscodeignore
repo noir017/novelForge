@@ -17,6 +17,22 @@ media/src/**
 .vscode/**
 bin/**
 
+# 本机私有目录（.gitignore / .git/info/exclude 里已排除，CI 的干净 checkout 不会有）。
+# 必须显式写在这里：**vsce 一旦发现 .vscodeignore 就完全不看 .gitignore**，
+# 少了这几行，.claude/（含 CLAUDE.md 与 worktree）会被原样打进扩展包发出去。
+.claude/**
+.cursor/**
+.worktrees/**
+local/**
+temp/**
+
+# 独立版的单文件可执行（113 MB/个）。它是另一条发布路径的产物，不属于扩展。
+# 用通配是因为 release workflow 出的是带平台后缀的名字
+# （novelforge-linux-x64 / novelforge-windows-x64.exe），而 `npm run dist`
+# 出的是不带后缀的 novelforge/novelforge.exe——两种都要挡住。
+# dist/ 其余内容（extension.js 与 media/）是扩展本体，不能一起排除。
+dist/novelforge*
+
 esbuild.js
 tsconfig.json
 package-lock.json
