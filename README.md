@@ -345,7 +345,7 @@ chapters/005-手记.txt       →  drafts/005-手记.txt
 
 缺省是**不思考**：思考的 token 按输出计费，一句「帮我看看这段」可能因此贵好几倍，所以得你主动选。选了之后模型想的那段过程会流进气泡上方的「思考过程」折叠块——它**不是正文**，采纳写入章节时只取正文。
 
-同一个档位在两家的接口上是两套字段（OpenAI 的 `reasoning.effort`、Anthropic 的 `output_config.effort` 或老模型的思考预算），插件替你映射；某个模型不认最高那一档时会自动降一档重发，而不是给你一句报错。**只有对话页这条路吃这个档位**——工程页的批量任务（摘要、角色卡、设定）一律不带，不然一次同步七十六章的账单会翻好几倍。
+同一个档位在三条协议上是三套字段（通用 `/chat/completions` 的 `reasoning_effort` 那四种写法、OpenAI Responses 的 `reasoning.effort`、Anthropic 的 `output_config.effort` 或老模型的思考预算），插件替你映射；某个模型不认最高那一档时会自动降一档重发、不认那种写法时会换一种再发，而不是给你一句报错。**只有对话页这条路吃这个档位**——工程页的批量任务（摘要、角色卡、设定）一律不带，不然一次同步七十六章的账单会翻好几倍。
 
 #### 落盘：当场问你一句
 
@@ -613,9 +613,9 @@ generatedBy: novel-forge
 
 ### 服务商与模型
 
-**两种协议，各认一条路**：`kind: "openai"` 走 OpenAI 的 **Responses 接口**（`/responses`，也就是 Codex 用的那一套），`kind: "anthropic"` 走 Anthropic 的 **Messages 接口**。这是「思考深度」这个开关唯一的落点——老的 `/chat/completions` 里「想多深」不是一个字段。
+**四种协议**：`kind: "openai"` 走**通用 `/chat/completions`**（生态里说「OpenAI 兼容」指的就是它，DeepSeek、智谱、Kimi、通义、本地 Ollama、OpenRouter 几乎只认这一条）；`kind: "openai-responses"` 走 OpenAI 的 **Responses 接口**（`/responses`，Codex 用的那一套，目前基本只有官方与少数网关有）；`kind: "anthropic"` 走 Anthropic 的 **Messages 接口**；`kind: "vscode-lm"` 复用 Copilot 订阅。
 
-> **只认 `/chat/completions` 的服务商（DeepSeek、智谱、Kimi、通义、本地 Ollama 等）在 `openai` 这种 kind 下会 404**，报错里会点明这一点。要用它们，得在 `baseUrl` 填一个自己那侧的 `/responses` 兼容网关。
+> **「思考深度」在前三种协议上都有落点**，只是通用那条上各家的字段名不统一（`reasoning_effort` / `thinking` 对象 / `enable_thinking` / `reasoning` 对象）。缺省**自动协商**：按顺序试，被拒就换下一种，结论只记在内存里，每个模型一生最多吃几次 400。网关的报错措辞认不出来时，服务商配置弹窗里的「思考字段」下拉可以钉死用哪一套。
 
 可以同时配置多个服务商，每个服务商下挂多个模型。模型用 **`前缀/模型名`** 引用，前缀就是服务商的 id：
 
@@ -624,8 +624,9 @@ generatedBy: novel-forge
   {
     "id": "glm",                                              // 引用前缀
     "label": "智谱 GLM",
-    "kind": "openai",                                         // openai / anthropic / vscode-lm
+    "kind": "openai",                                         // openai / openai-responses / anthropic / vscode-lm
     "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+    "thinkingStyle": "thinking",                              // 仅 openai：思考字段用哪一套，缺省 auto
     "models": [
       { "name": "glm-4-plus", "contextWindow": 128000 },
       { "name": "glm-4-air" }
@@ -657,7 +658,7 @@ generatedBy: novel-forge
 
 **窗口与输出上限按模型单独设置**。同一家的 32k 和 200k 模型常常并存，装配器按真正执行任务的模型计算预算，所以切模型或切档位时预算会跟着变。设置页不再提供全局默认预算；模型留空时使用内置兼容值（窗口 128000、输出 4096）。旧配置里已有的 `novel.contextWindow` / `novel.maxOutputTokens` 仍作为兼容兜底读取，但不再作为新配置项展示。
 
-设置页备了 3 个预设（OpenAI / Anthropic / Copilot），点一下**添加一整个服务商**（含常用模型和窗口大小），不会覆盖已有的。只认 `/chat/completions` 的那几家不再列进预设——点了就 404 的按钮比找不到更让人恼火，但手工添加仍然可以（填自己那侧的网关地址）。**协议类型在服务商配置弹窗里可以直接改**（从前只能由预设决定，手工加的服务商永远是 openai），换协议时接口地址会跟着填成对应的默认值。每个模型行右边有「测试」，当场发一个最小请求验证——比写半段才发现 Key 填错强。
+设置页备了 9 个预设（OpenAI / Anthropic / DeepSeek / 智谱 / Kimi / 通义 / OpenRouter / 本地 Ollama / Copilot），点一下**添加一整个服务商**（含常用模型、窗口大小，以及那一家认哪套思考字段），不会覆盖已有的。**协议类型在服务商配置弹窗里可以直接改**，换协议时接口地址会跟着填成对应的默认值；选了「OpenAI 通用」时下面多一个「思考字段」下拉（缺省自动协商）。每个模型行右边有「测试」，当场发一个最小请求验证——比写半段才发现 Key 填错强。
 
 API Key 按服务商 id 分开存。本地 Ollama 随便填一个非空值即可；`vscode-lm`（Copilot）不需要 Key，但模型有硬性输入配额，装配器会自动按其 `maxInputTokens` 收紧预算，明细里会标注「已按模型配额压缩」。
 
@@ -794,7 +795,7 @@ src/
 │   ├── choices.ts         「让用户挑一个」的清单构造（角色卡 / 章节）
 │   ├── watchPolicy.ts     哪些文件改动值得刷新界面（策略在这里，机制在壳里）
 │   ├── model/             types / markdown / providers / session / project
-│   ├── llm/               provider / openai / anthropic / registry（vscode-lm 经工厂钩子）
+│   ├── llm/               provider / http / chatCompletions / responses / anthropic / registry（vscode-lm 经工厂钩子）
 │   ├── context/           tokenizer + 分层预算装配
 │   └── features/          创作 / 批量流水线 / 摘要 / 角色 / 文风（交互全走 Host）
 └── shells/                三个壳

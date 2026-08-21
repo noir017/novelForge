@@ -51,7 +51,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 | `src/core/tools/` | ★ **工具层**：契约（`ToolDef` / `ToolIntent` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那七个工具：读三件 + `generate` + `write` / `edit` / `run`，**没有删除/改名/移动**。**不认识 `agent/`**（形状照 MCP 的 `tools/list` + `tools/call` 摆，将来能单独端出去） | [src/core/tools/README.md](src/core/tools/README.md) |
 | `src/core/agent/` | ★ 多步调度：对话循环、状态注入、预算闸门与无进展检测、**策略与确认闸门**（`policy.ts`）。手上只有一个 `ToolInvoker`，**不认识 `Workspace` / `DraftStore` / 具体工具**；「下一步该做什么」由 `deriveNextStep` 每回合注入，agent 拿着它去执行而不是另做判断 | [src/core/agent/README.md](src/core/agent/README.md) |
 | `src/core/features/` | 功能编排：创作（四层产物）、批量流水线、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
-| `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
+| `src/core/llm/` | LlmProvider 接口、三条 HTTP 协议的实现（通用 `/chat/completions`、OpenAI Responses、Anthropic Messages）、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
 | `src/shells/` | ★ 三个壳并排放这里，外加 `shared/panes.ts`（所有 pane 的 DOM 唯一来源）。**壳的契约在这份 README 里**：壳只做实现 Host、传输与生命周期、平台专属入口三件事 | [src/shells/README.md](src/shells/README.md) |
 | `src/shells/vscode/` | VS Code 壳：extension 入口、命令、两个 webview 宿主、vscode-lm | [src/shells/vscode/README.md](src/shells/vscode/README.md) |
 | `src/shells/standalone/` | 独立 Web 服务壳（Bun）：HTTP/WS、WorkspaceHub 热换工程、本机列目录、页面装配、CLI 的 TerminalHost | [src/shells/standalone/README.md](src/shells/standalone/README.md) |
