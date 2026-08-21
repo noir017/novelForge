@@ -25,7 +25,8 @@ npm run compile          # esbuild 打包到 dist/extension.js + dist/media/ 的
 npm run watch            # 监听构建（两边都监听）
 npm run media            # 只构建前端资源（media/src → dist/media/）
 npm run typecheck        # tsc --noEmit，含 media/tsconfig.json，必须零错误
-npm test                 # typecheck + 全部测试（node:test），不需要 API Key
+npm test                 # typecheck + 全部测试（node:test），四件事并行，不需要 API Key
+npm run test:node        # 只跑 node 那两组（dom + unit/integration/contract）
 npm run test:unit        # 只跑纯函数那档，毫秒级
 npm run test:integration # 真临时工程 + 假模型
 npm run test:dom         # jsdom 跑 dist/media 前端产物
@@ -35,6 +36,8 @@ npm run test:e2e         # 独立版服务（需 Bun）
 改了 `src/core/**` 后必须跑 `npm test`；改了任何 TS（含 `media/src/**`）都要过 `npm run typecheck`。手动验证 UI 时按 `F5` 启动 Extension Development Host（自动打开 `sample-novel/`）；独立版与桌面壳也各有 F5 配置，见 [.vscode/README.md](.vscode/README.md)。
 
 测试按类型分目录放在 [`tests/`](tests/README.md)（`unit` / `integration` / `dom` / `e2e` / `contract`），运行器是 Node 自带的 `node:test`，零新增依赖。单跑一条：`node --test --test-name-pattern="关键字" "tests/unit/**/*.test.js"`——**glob 要带引号**，`node --test <目录>` 会把目录当模块入口报错。
+
+全量跑的是 [scripts/run-tests.js](scripts/run-tests.js)：**分组并行**，各组用对它最省的进程策略（`dom/` 整组一个进程省掉十七次多余的 jsdom 加载；其余每文件一进程因为它们依赖隔离），外加两层缓存（`NODE_COMPILE_CACHE` 与 `helpers/load.js` 的磁盘 bundle 缓存）。理由与失效规则见 [tests/README.md](tests/README.md#全量为什么是分组并行的)。
 
 ## 模块地图
 

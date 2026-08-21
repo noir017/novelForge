@@ -12,7 +12,16 @@
  * 之后，顺序约束与吞异常一并消失。
  *
  * 但等待本身是真的：settle/grace 量的是实现里的防抖与收起宽限，不是抖动，
- * 所以时长原样保留。这个文件大约要跑十几秒。
+ * 所以时长原样保留。
+ *
+ * 这个文件曾是全量测试里最慢的一个（十八秒，其中十四秒纯粹在睡）。三只浮窗
+ * **各有各的 jsdom 与各自的实现模块**，彼此没有共享状态，所以外面套一层
+ * `concurrency: 3` 让三段的等待重叠——墙上时间从此是最慢那一段，不是三段之和。
+ *
+ * 但**每一段内部必须保持串行**（`concurrency: 1`）：同一段里的用例共用一个
+ * `mount()`，而浮窗在实现里是模块级单例（一个 hoverTimer、一个 hoverTip）。
+ * 并发跑同一段会让两条用例抢同一只浮窗，症状是 `tip()` 随机取到 null。
+ * `concurrency` 不显式写就跟着父级走，所以这两行是一对，删掉任何一行都会挂。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -20,7 +29,10 @@ const { mount, JSDOM_SKIP, sampleTree } = require('../../helpers/dom');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
+/** 三段的等待重叠跑；段内串行见文件头。 */
+describe('悬停浮窗', { concurrency: 3 }, () => {
+
+describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP, concurrency: 1 }, () => {
   let ui;
   const tip = () => ui.doc.querySelector('.summary-tip');
   // 浮窗只挂在**章节行**上。夹具里同名的行不止一处，
@@ -407,7 +419,7 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
   });
 });
 
-describe('行内副标题（别名）的悬停浮窗', { skip: JSDOM_SKIP }, () => {
+describe('行内副标题（别名）的悬停浮窗', { skip: JSDOM_SKIP, concurrency: 1 }, () => {
   let ui;
   let tree;
   let detail;
@@ -526,7 +538,7 @@ describe('行内副标题（别名）的悬停浮窗', { skip: JSDOM_SKIP }, () 
  * 这是「解析失败只有日志、用户看不到」那个 bug 的界面出口：卡一字未改，
  * 而树上那一行此前与更新成功的一模一样。所以要验的是**看得见**与**说得清**。
  */
-describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
+describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP, concurrency: 1 }, () => {
   let ui;
   let cardMark;
   let plotMark;
@@ -723,3 +735,5 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(!markIn('林昭'));
   });
 });
+
+})

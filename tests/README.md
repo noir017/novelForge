@@ -4,13 +4,15 @@
 独立版服务那一组由 **Bun** 跑同一套 `node:test` API。
 
 ```bash
-npm test                 # typecheck + 全部
+npm test                 # typecheck + 全部测试，四件事并行（见下）
+npm run test:node        # 只跑 node 那两组（dom + unit/integration/contract）
 npm run test:unit        # 只跑快的（毫秒级）
 npm run test:integration
 npm run test:dom         # 会先构建 dist/media
 npm run test:contract
 npm run test:e2e         # 需要 Bun
 npm run test:verbose     # 出问题时看 node 原样输出
+npm run test:node:plain  # 一条朴素的 node --test，不并行、不分组（对照用）
 ```
 
 单跑一个文件或一条用例：
@@ -22,6 +24,33 @@ node --test --test-name-pattern="stripH1" "tests/unit/**/*.test.js"
 
 > **glob 必须带引号**——`node --test <目录>` 在当前 Node 版本会把目录当成模块入口报
 > `MODULE_NOT_FOUND`。引号让 glob 交给 node 自己展开，PowerShell 与 sh 下行为一致。
+
+## 全量为什么是分组并行的
+
+调度器是 [scripts/run-tests.js](../scripts/run-tests.js)，`npm test` 与 `npm run test:node`
+都走它。四件事并行（`npm test` 是四件，`test:node` 是前两件），墙上时间取最慢的那个：
+
+| 组 | 进程策略 | 为什么 |
+|---|---|---|
+| `dom/` | **整组一个进程**（`--experimental-test-isolation=none`） | 每个文件 `require('jsdom')` 要 1.9 秒，默认每文件一进程等于把这笔钱付十八遍。dom 用例只读 `dist/media/` 的产物、各自 `mount()` 出独立 jsdom，没有跨文件的进程级状态 |
+| `unit/` `integration/` `contract/` | 每文件一进程，并发 = 核数 - 1 | 反过来**依赖隔离**：`loadBundle` 出来的 `host.ts` / `registry.ts` 是模块级单例，合进一个进程会互相踩（试过，六条挂） |
+| `typecheck` | 独立进程 | 只读源码，与测试无依赖 |
+| `e2e` | 独立进程（Bun） | 起自己的服务 |
+
+另外两笔省下来的开销：
+
+- **`NODE_COMPILE_CACHE`**（落在 `node_modules/.cache/`）——省掉每个进程重复编译
+  node 内部模块与依赖的字节码。
+- **`helpers/load.js` 的磁盘 bundle 缓存**——七十多个进程从前各自跑一遍 esbuild
+  （合计近二十秒 CPU）。缓存按**输入文件的 mtime + 体积**校验，改一个 `src/` 下的
+  文件，凡是 bundle 到它的条目全部自动失效，不会拿旧产物跑出假绿。
+  `NF_TEST_NO_BUNDLE_CACHE=1` 可整个关掉。
+
+前端资源由调度器**开跑前统一生成一次**（`embed-media`），各段因此都带
+`--ignore-scripts`：那些 pre 钩子会重写 `dist/media/`，而 dom 那组正拿着它跑。
+
+`NF_TEST_CONCURRENCY=n` 手动指定非 dom 那组的并发数。核多不见得越快——几组本就在
+抢同一批核，压太满反而慢。
 
 ## 输出：只报失败
 
