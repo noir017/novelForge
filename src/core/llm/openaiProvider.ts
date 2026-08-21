@@ -6,7 +6,6 @@ import {
   responsesEffort,
 } from '../model/thinking';
 import { scoped } from '../runtime/logger';
-import { describeHttpBody, hostOf, parseToolArgs, readBody } from './http';
 import {
   AgentMessage,
   LlmError,
@@ -24,21 +23,20 @@ const log = scoped('模型');
 /**
  * OpenAI 的 **Responses API**（`/responses`）流式实现——Codex 走的那一套。
  *
- * ## 它与「OpenAI 通用」是两条路，不是一条路的两种写法
+ * ## 为什么不是 /chat/completions
  *
- * 这条协议独有的三样东西，`/chat/completions` 那边表达不出来：**system 走
- * `instructions`**、**推理块能原样交回**（`store: false` + `include`，于是多轮
- * 工具调用之间的推理不白丢）、**工具调用在 item 收完时一次给全**（不必按
- * index 拼分片）。所以它值得单独一条 kind，而不是在一个 provider 里判「现在
- * 是哪一条」——那种分支每加一个字段就要判一次。
+ * 思考深度（`reasoning.effort`）只在这条协议上。老的 `/chat/completions` 里
+ * 推理档位是模型名的一部分或者干脆没有，界面上给作者一个「想多深」的下拉框
+ * 就无处落地。既然这个功能是本层存在的理由，openai 这种 kind 一律走
+ * `/responses`，不再保留两条协议——两条并存意味着每个字段都要判一次「现在是
+ * 哪一条」，而作者在设置页也要先答一道自己答不上来的题。
  *
- * **只认 `/chat/completions` 的服务商（DeepSeek、智谱、Kimi、通义、本地
- * Ollama、OpenRouter）在这条路上会 404**，它们的落点是 `kind: 'openai'`
- * （见 [chatCompletionsProvider.ts](chatCompletionsProvider.ts)）。404 的提示里
- * 点了这件事。
+ * **代价说清楚**：只认 `/chat/completions` 的服务商（DeepSeek、智谱、Kimi、
+ * 通义、本地 Ollama 等）在这条路上会 404。它们的落点是配一个自己那侧的
+ * 兼容网关，或者用 Anthropic 那种 kind。404 的提示里点了这件事。
  */
-export class ResponsesProvider implements LlmProvider {
-  readonly id = 'openai-responses' as const;
+export class OpenAiProvider implements LlmProvider {
+  readonly id = 'openai' as const;
 
   constructor(
     private readonly baseUrl: string,
@@ -283,7 +281,7 @@ export function toResponsesInput(messages: AgentMessage[]): {
     if (m.role === 'assistant') {
       for (const trace of m.traces ?? []) {
         // 别家协议的凭据交给 OpenAI 只会 400——换过模型的会话里会出现这种事。
-        if (trace.kind === 'openai-responses') {
+        if (trace.kind === 'openai') {
           input.push(trace.payload);
         }
       }
@@ -353,7 +351,7 @@ export function readResponsesEvent(event: ResponsesEvent, label: string): Stream
         out.push({ type: 'toolCall', call: toolCallOf(item) });
       } else if (item?.type === 'reasoning') {
         // 原样收着，下一轮交回去（store: false，上游那边不留）。
-        out.push({ type: 'reasoningTrace', trace: { kind: 'openai-responses', payload: item } });
+        out.push({ type: 'reasoningTrace', trace: { kind: 'openai', payload: item } });
       }
       return out;
     }
@@ -397,3 +395,72 @@ function toolCallOf(item: { call_id?: string; name?: string; arguments?: string 
   return { id: item.call_id ?? '', name: item.name ?? '', args: parseToolArgs(raw), raw };
 }
 
+/** 解析工具参数。失败或解析出非对象一律退成空对象，绝不抛。 */
+export function parseToolArgs(raw: string): Record<string, unknown> {
+  if (!raw.trim()) {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* 坏 JSON 不抛：由上层报「参数解析失败」给模型看，让它重试 */
+  }
+  return {};
+}
+
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+export async function describeHttpError(response: Response, label: string): Promise<string> {
+  return describeHttpBody(response.status, await readBody(response), label);
+}
+
+/** 响应体读一次就没了，所以读它的地方只有这一个。读不出来当空字符串。 */
+export async function readBody(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return '';
+  }
+}
+
+/** 已经读出来的响应体 → 一句人话。两家 provider 共用。 */
+export function describeHttpBody(
+  status: number,
+  body: string,
+  label: string,
+  /**
+   * 这一家打的是哪个接口。404 那句提示要指名道姓——两条协议共用这个函数，
+   * 而对着 Anthropic 那条路说「没有 /responses 接口」会把人往反方向带。
+   */
+  endpoint = '/responses'
+): string {
+  let detail = body;
+  try {
+    const json = JSON.parse(body) as { error?: { message?: string }; message?: string };
+    detail = json.error?.message ?? json.message ?? body;
+  } catch {
+    /* 不是 JSON 就原样用 */
+  }
+  detail = detail.slice(0, 400);
+
+  const hint =
+    status === 401 || status === 403
+      ? '（API Key 可能无效，可在设置页重新录入该服务商的 Key）'
+      : status === 404
+        ? `（接口地址或模型名可能填错了；也可能是这个服务商没有 ${endpoint} 接口——` +
+          '只认 /chat/completions 的服务商请配它自己那侧的兼容网关）'
+        : status === 429
+          ? '（触发限流，稍后再试）'
+          : '';
+
+  return `${label} 返回 HTTP ${status}${hint}${detail ? `：${detail}` : ''}`;
+}

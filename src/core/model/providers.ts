@@ -10,18 +10,7 @@
  * 斜杠处切分。
  */
 
-import { ChatThinkingStyle, normalizeChatThinkingStyle } from './thinking';
-
-/**
- * 接口协议。四种，其中两种都是 OpenAI 的：
- *
- * - `openai` —— 通用 `/chat/completions`。生态里说「OpenAI 兼容」指的就是它，
- *   第三方服务商（DeepSeek / 智谱 / Kimi / 通义 / Ollama / OpenRouter）几乎
- *   只认这一条，所以这个名字归它。
- * - `openai-responses` —— OpenAI 的 Responses（`/responses`，Codex 那一套）。
- *   目前基本只有 OpenAI 官方与少数网关有。
- */
-export type ProviderKind = 'openai' | 'openai-responses' | 'anthropic' | 'vscode-lm';
+export type ProviderKind = 'openai' | 'anthropic' | 'vscode-lm';
 
 /** 某个服务商下的一个模型。 */
 export interface ModelEntry {
@@ -43,13 +32,6 @@ export interface ProviderProfile {
   kind: ProviderKind;
   /** 留空时按 kind 取默认值。vscode-lm 不用。 */
   baseUrl?: string;
-  /**
-   * 只有 `kind: 'openai'` 用得上：这个网关的思考字段是哪一套。
-   *
-   * 挂在**服务商**而不是模型上：它是「对面那台服务器认哪个字段名」的属性，
-   * 同一个网关下的模型一律相同；而换模型时作者不该被要求重答一次。
-   */
-  thinkingStyle?: ChatThinkingStyle;
   models: ModelEntry[];
 }
 
@@ -81,7 +63,6 @@ export function defaultBaseUrl(kind: ProviderKind): string {
     case 'vscode-lm':
       return '';
     default:
-      // 两条 OpenAI 协议同一个地址：官方两个接口都挂在 /v1 下。
       return 'https://api.openai.com/v1';
   }
 }
@@ -140,12 +121,8 @@ export function normalizeProviders(raw: unknown): ProviderProfile[] {
     if (!id || !PROVIDER_ID_RE.test(id) || seen.has(id)) {
       continue;
     }
-    // 认不出的一律落 openai：那是兼容性最好的一条协议（通用
-    // /chat/completions），写错 kind 的配置至少还能用。
     const kind: ProviderKind =
-      o.kind === 'anthropic' || o.kind === 'vscode-lm' || o.kind === 'openai-responses'
-        ? o.kind
-        : 'openai';
+      o.kind === 'anthropic' || o.kind === 'vscode-lm' ? o.kind : 'openai';
     const models = normalizeModels(o.models);
     if (models.length === 0) {
       continue;
@@ -156,8 +133,6 @@ export function normalizeProviders(raw: unknown): ProviderProfile[] {
       label: typeof o.label === 'string' && o.label.trim() ? o.label.trim() : undefined,
       kind,
       baseUrl: typeof o.baseUrl === 'string' && o.baseUrl.trim() ? trimSlash(o.baseUrl) : undefined,
-      // 只有通用 chat/completions 用得上它，别的 kind 存着也是噪音。
-      thinkingStyle: kind === 'openai' ? normalizeChatThinkingStyle(o.thinkingStyle) : undefined,
       models,
     });
   }

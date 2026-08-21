@@ -7,7 +7,7 @@ import {
   thinkingBudget,
 } from '../model/thinking';
 import { scoped } from '../runtime/logger';
-import { describeHttpBody, hostOf, parseToolArgs, readBody } from './http';
+import { describeHttpBody, hostOf, parseToolArgs, readBody } from './openaiProvider';
 import {
   AgentMessage,
   LlmError,

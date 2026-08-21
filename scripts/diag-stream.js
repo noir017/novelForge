@@ -30,29 +30,11 @@ function loadModule(relPath) {
   return m.exports;
 }
 
-const { ResponsesProvider } = loadModule('src/core/llm/responsesProvider.ts');
-const { ChatCompletionsProvider } = loadModule('src/core/llm/chatCompletionsProvider.ts');
+const { OpenAiProvider } = loadModule('src/core/llm/openaiProvider.ts');
 const { AnthropicProvider } = loadModule('src/core/llm/anthropicProvider.ts');
 const P = loadModule('src/core/model/providers.ts');
 
 const HOME = path.join(os.homedir(), '.novelforge');
-
-/** 与 core/llm/registry.ts 的分发同源：一条协议一个分支，不写「不是 A 就是 B」。 */
-function buildProvider(active, baseUrl, key) {
-  switch (active.profile.kind) {
-    case 'anthropic':
-      return new AnthropicProvider(baseUrl, active.model.name, key);
-    case 'openai-responses':
-      return new ResponsesProvider(baseUrl, active.model.name, key);
-    default:
-      return new ChatCompletionsProvider(
-        baseUrl,
-        active.model.name,
-        key,
-        active.profile.thinkingStyle
-      );
-  }
-}
 
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return undefined; }
@@ -81,7 +63,9 @@ function readJson(file) {
   }
 
   const baseUrl = active.profile.baseUrl || P.defaultBaseUrl(active.profile.kind);
-  const provider = buildProvider(active, baseUrl, key);
+  const provider = active.profile.kind === 'anthropic'
+    ? new AnthropicProvider(baseUrl, active.model.name, key)
+    : new OpenAiProvider(baseUrl, active.model.name, key);
 
   // 上游会按提示词缓存：同一句话第二次问就是瞬间返回整段，
   // 那不是「不流式」，是根本没跑模型。每次塞一个唯一串避开缓存。

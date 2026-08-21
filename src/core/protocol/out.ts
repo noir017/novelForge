@@ -209,10 +209,8 @@ export interface HostDirEntry {
 export interface SerializedProvider {
   id: string;
   label?: string;
-  kind: 'openai' | 'openai-responses' | 'anthropic' | 'vscode-lm';
+  kind: 'openai' | 'anthropic' | 'vscode-lm';
   baseUrl?: string;
-  /** 只有 `kind: 'openai'` 用得上：这个网关的思考字段是哪一套。 */
-  thinkingStyle?: string;
   models: SerializedModel[];
 }
 
