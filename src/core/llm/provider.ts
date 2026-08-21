@@ -50,14 +50,9 @@ export type StreamEvent =
  * 载荷**对本层不透明**：`payload` 是那家协议里的原始块，由产生它的 provider
  * 自己解释。`kind` 是必需的——作者可以在一轮对话中间换模型，另一家的凭据
  * 拿过去只会 400，认不出的 kind 一律丢掉。
- *
- * **只有两条协议发它**：Responses 与 Messages。通用 `/chat/completions` 那条
- * 一个都不发，因为同一个 kind 底下各家要求正好相反——DeepSeek 把上一轮的
- * `reasoning_content` 交回去是直接 400，Kimi 的文档却要求在一次工具循环里交
- * 回去。400 比「白丢一次推理缓存」严重得多，所以那条路一律不交。
  */
 export interface ReasoningTrace {
-  kind: 'anthropic' | 'openai-responses';
+  kind: 'anthropic' | 'openai';
   payload: unknown;
 }
 
@@ -120,7 +115,7 @@ export interface StreamOptions {
 }
 
 export interface LlmProvider {
-  readonly id: 'openai' | 'openai-responses' | 'anthropic' | 'vscode-lm';
+  readonly id: 'openai' | 'anthropic' | 'vscode-lm';
   /** 展示给用户的模型标识，例如 `deepseek-chat @ api.deepseek.com`。 */
   readonly label: string;
   /**
