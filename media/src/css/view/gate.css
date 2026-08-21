@@ -87,8 +87,8 @@
   max-height: 120px;
 }
 
-/* 同意贴最右（离「发送」最近的那一侧就是「继续」），拒绝挨着它；
-   「停止 agent」摆到最左，它掐的是整轮，不与那两颗同类。 */
+/* 只有两颗：同意贴最右（离「发送」最近的那一侧就是「继续」），拒绝挨着它。
+   前面那个 spacer 把它们推到右边。 */
 .gate-actions {
   display: flex;
   align-items: center;
@@ -99,31 +99,6 @@
 
 .gate-actions .spacer {
   flex: 1;
-}
-
-/* 一颗文字按钮：平时只有字，hover 才浮起底色（与输入框下面那排工具按钮同一
-   档）。不画成实心红：它不是「删除」那种终局动作，作者随时可以再发一句话
-   接着做。 */
-button.gate-quiet {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--nf-ctl-height);
-  padding: 0 7px;
-  font-size: 0.8em;
-  line-height: 1.2;
-  border: 1px solid transparent;
-  background: none;
-  color: var(--vscode-descriptionForeground);
-  white-space: nowrap;
-}
-
-button.gate-quiet:hover:not(:disabled) {
-  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
-}
-
-button.gate-stop:hover:not(:disabled) {
-  color: var(--vscode-errorForeground);
 }
 
 /* ---------------------------------------------------------------- 答完那一行 */

@@ -34,7 +34,6 @@ const ASK = {
   title: 'Agent 要写入设定「北境雪原」',
   detail: '.novelforge/lore/北境雪原.md · 新建',
   argsText: '{ "path": "…" }',
-  proceed: '写入',
 };
 
 const gateMsg = (c) => c.posted.find((m) => m.type === 'gate');
@@ -42,7 +41,7 @@ const doneMsgs = (c) => c.posted.filter((m) => m.type === 'gateDone');
 
 describe('问出去', () => {
   const c = fakeController();
-  const pending = askGate(c, { ...ASK, stoppable: true }, new AbortController().signal);
+  const pending = askGate(c, ASK, new AbortController().signal);
 
   test('推了一条 gate', () => {
     assert.ok(gateMsg(c), JSON.stringify(c.posted));
@@ -53,12 +52,12 @@ describe('问出去', () => {
     assert.equal(gateMsg(c).callId, 'c1');
   });
 
-  // 「写入」「替换」「执行」是工具自报的说辞；跳过/停止与循环里判定用的是
-  // 同一份常量。前端各写一遍的话，改了文案两边就对不上。
-  test('三颗按钮上的字都从后端来', () => {
-    assert.equal(gateMsg(c).proceed, '写入');
-    assert.equal(gateMsg(c).skip, '跳过这一步');
-    assert.equal(gateMsg(c).stop, '停止 agent');
+  // 两颗字都与循环里判定用的是同一份常量。前端各写一遍的话，改了文案两边
+  // 就对不上。
+  test('两颗按钮上的字都从后端来', () => {
+    assert.equal(gateMsg(c).proceed, '确认');
+    assert.equal(gateMsg(c).skip, '跳过');
+    assert.equal(gateMsg(c).stop, undefined);
   });
 
   test('等着回答（还没落地）', async () => {
@@ -147,13 +146,14 @@ describe('取消', () => {
   });
 });
 
-// 单步创作那条路没有循环可停：多一颗「停止 agent」只会让作者以为自己在跟
-// agent 说话。
-test('不 stoppable 时没有第三颗按钮', () => {
+// 落盘那一问的拒绝那颗写「不采纳」——那不是「跳过一步」，是「这份产物我不要」。
+// 叫停整轮任何时候都不在这张卡上（那是输入框旁边那颗「停止」）。
+test('调用方能改按钮上的字，但改不出第三颗', () => {
   const c = fakeController();
-  askGate(c, { ...ASK, proceed: '写入', skip: '不采纳' });
+  askGate(c, { ...ASK, skip: '不采纳' });
+  assert.equal(gateMsg(c).proceed, '确认');
   assert.equal(gateMsg(c).skip, '不采纳');
-  assert.equal(gateMsg(c).stop, undefined, gateMsg(c).stop);
+  assert.equal(Object.keys(gateMsg(c)).includes('stop'), false, JSON.stringify(gateMsg(c)));
 });
 
 // 落盘那张卡没有 signal（生成早结束了、锁也放了）。作者不理它、直接开了

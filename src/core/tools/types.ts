@@ -128,9 +128,12 @@ export interface ToolIntent {
   title: string;
   /** 展开说这一步会发生什么。`edit` 的 old → new 两段原文就写在这里。 */
   detail?: string;
-  /** 同意那颗按钮上的字（「写入」「替换」「执行」「生成」）。 */
-  proceed?: string;
 }
+
+// 从前这里还有一个 `proceed`（「写入」/「替换」/「执行」/「生成」）：同意那颗
+// 按钮上的字由工具自报。取消了——`title` 已经把动词说在按钮上方了，按钮再说
+// 一遍是重复，而一颗每次换一个字的主按钮反倒要作者先读一遍才敢点。现在闸门
+// 上一律是「确认」（`agent/policy.ts` 的 `PROCEED_ACTION`）。
 
 /**
  * 这一步的性质。**五个值，判定表在调用方**（agent 的

@@ -69,8 +69,10 @@ describe('generate：花钱但不写盘', () => {
     assert.ok(!g().title.startsWith('Agent'), g().title);
   });
 
-  test('按钮上写的是「生成」而不是「确定」', () => {
-    assert.equal(g().proceed, '生成');
+  // 按钮上一律是「确认」（`policy.ts` 的 `PROCEED_ACTION`）：动词已经在
+  // title 上了，工具不必再各报一个。
+  test('不再自报按钮上的字', () => {
+    assert.equal(g().proceed, undefined);
   });
 });
 
@@ -91,8 +93,8 @@ describe('write 新建 / 追加：常规的动手前问一句', () => {
     assert.ok(intentOf('write', { path: PLOT, mode: 'append' }).detail.includes('追加'), 'append');
   });
 
-  test('按钮上写的是「写入」', () => {
-    assert.equal(intentOf('write', { path: PLOT }).proceed, '写入');
+  test('不再自报按钮上的字', () => {
+    assert.equal(intentOf('write', { path: PLOT }).proceed, undefined);
   });
 });
 
@@ -126,8 +128,8 @@ describe('edit：任何模式都要问', () => {
     assert.ok(intentOf('edit', { ...args, all: true }).detail.includes('所有出现的地方'));
   });
 
-  test('按钮上写的是「替换」', () => {
-    assert.equal(intentOf('edit', args).proceed, '替换');
+  test('不再自报按钮上的字', () => {
+    assert.equal(intentOf('edit', args).proceed, undefined);
   });
 });
 

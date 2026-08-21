@@ -7,7 +7,7 @@
  * │ Agent 要把生成的产物覆盖到「全书大纲」      │
  * │ 全书大纲 · 6104 字 · 那里已经有内容了       │
  * │ ▸ 参数                                    │
- * │ 停止 agent            不采纳  覆盖并写入   │
+ * │                        不采纳       确认   │
  * └──────────────────────────────────────────┘
  * ┌ 大纲：故事讲什么？ ──────────────────────┐
  * ```
@@ -27,8 +27,12 @@
  * 补一行 `.gate-note`。这一轮结束时气泡按会话重建，那一行自然消失（决定本身已
  * 经记在工具条上了）。
  *
- * 三颗按钮上的字全部由后端给（`agentGate`）：「写入」「替换」「执行」是工具
- * 自报的说辞，前端写死一份的话，改了文案两边就对不上。
+ * **只有两颗按钮**：叫停整轮是输入框旁边那颗「停止」，不在这张卡上——它与
+ * 「这一个文件要不要动」是两件事，摆进闸门只会被误当成「跳过」，而两者的后果
+ * 差着一整轮。
+ *
+ * 两颗按钮上的字都由后端给（`agentGate`）：闸门上是「确认 / 跳过」，落盘那
+ * 一问是「确认 / 不采纳」，前端写死一份的话，改了文案两边就对不上。
  */
 import { el as mk, setHidden, spacer } from '../dom';
 import type { OutMessage } from '../protocol';
@@ -37,13 +41,12 @@ import { el } from './refs';
 import { vscode } from './store';
 
 type GateMessage = Extract<OutMessage, { type: 'gate' }>;
-type Verdict = 'proceed' | 'skip' | 'stop' | 'cancelled';
+type Verdict = 'proceed' | 'skip' | 'cancelled';
 
 /** 结算之后那一行上的说法。取消是「这一轮停了」，不是作者答的。 */
 const SETTLED: Record<Verdict, string> = {
   proceed: '已允许',
-  skip: '已跳过这一步',
-  stop: '已停止 agent',
+  skip: '已跳过',
   cancelled: '已取消，没有执行',
 };
 
@@ -117,24 +120,16 @@ function buildGateCard(msg: GateMessage): HTMLElement {
     card.appendChild(det);
   }
 
-  const answer = (verdict: 'proceed' | 'skip' | 'stop') => {
-    // 先就地撤卡：慢一点的后端回话之前，作者不该能把三颗都点一遍。
+  const answer = (verdict: 'proceed' | 'skip') => {
+    // 先就地撤卡：慢一点的后端回话之前，作者不该能把两颗都点一遍。
     if (settleGate(msg.requestId, verdict)) {
       vscode.postMessage({ type: 'gateResult', requestId: msg.requestId, verdict });
     }
   };
 
   // 同意贴最右（离「发送」最近的那一侧就是「继续」），拒绝挨着它压成次级按钮。
-  // 三颗一样重的话，作者会下意识点最左边那颗——而这一下是「动我的磁盘」。
-  //
-  // 「停止 agent」掐的是整轮，单独摆到最左边、画成一颗文字按钮：它与另外两颗
-  // 不是同一类选择（那两颗答的是「这一步」）。**它可能根本没有**——单步创作
-  // （点「写剧情」）产出后那张落盘卡片背后没有循环可停，多一颗只会让作者以为
-  // 自己在跟 agent 说话。
+  // 两颗一样重的话，作者会下意识点左边那颗——而这一下是「动我的磁盘」。
   const actions = mk('div', 'gate-actions');
-  if (msg.stop) {
-    actions.appendChild(gateBtn(msg.stop, 'gate-quiet gate-stop', () => answer('stop')));
-  }
   actions.appendChild(spacer());
   actions.appendChild(gateBtn(msg.skip, 'secondary', () => answer('skip')));
   actions.appendChild(gateBtn(msg.proceed, 'primary', () => answer('proceed')));

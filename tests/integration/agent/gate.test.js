@@ -1,14 +1,13 @@
 /**
- * 闸门在循环里的落点：`policy.ts` 的判定 → 宿主那个三选一的框 → 循环怎么走。
+ * 闸门在循环里的落点：`policy.ts` 的判定 → 宿主那个二选一的框 → 循环怎么走。
  *
  * 纯判定由 `tests/unit/agent/policy.test.js` 守着，这里验的是串起来之后：
  *
  * | 用例 | 钉的是什么 |
  * |---|---|
  * | 默认模式 + write | 弹框，且框上写清了写到哪 |
- * | 作者选「跳过这一步」 | **工具不执行**，磁盘没变，循环接着跑别的 |
- * | 作者选「停止 agent」 | 循环停下，仍然给最后一轮总结（不静默掐断） |
- * | 作者关掉对话框 | 当停止处理，不替他答「继续」 |
+ * | 作者选「跳过」 | **工具不执行**，磁盘没变，循环接着跑别的 |
+ * | 作者关掉对话框 | 当停止处理（循环停下，仍然给最后一轮总结），不替他答「继续」 |
  * | 放手模式 + write 新建 | 不弹框 |
  * | 任何模式 + read | 不弹框 |
  */
@@ -111,7 +110,7 @@ describe('默认模式：新建一份文件要先问一句', () => {
   let rec;
 
   before(async () => {
-    h.expect('写入');
+    h.expect('确认');
     rec = recorder();
     const fake = scriptedProvider([
       useTool('c1', 'write', { path: NEW_REL, content: '# 新条目\n\n北境有雪。\n' }),
@@ -130,8 +129,10 @@ describe('默认模式：新建一份文件要先问一句', () => {
     assert.ok(h.confirms[0].detail.includes(NEW_REL), h.confirms[0].detail);
   });
 
-  test('三个选项，不是两个', () => {
-    assert.deepEqual(h.confirms[0].actions, ['写入', '跳过这一步', '停止 agent']);
+  // 叫停整轮不在这一问里：它与「这一个文件要不要动」是两件事，摆在闸门里
+  // 只会被误当成「跳过」，而两者的后果差着一整轮。
+  test('两个选项：确认 / 跳过', () => {
+    assert.deepEqual(h.confirms[0].actions, ['确认', '跳过']);
   });
 
   test('同意之后真的写了', () => {
@@ -143,7 +144,7 @@ describe('默认模式：新建一份文件要先问一句', () => {
   });
 });
 
-describe('作者选「跳过这一步」', () => {
+describe('作者选「跳过」', () => {
   let out;
   let rec;
   let fake;
@@ -151,7 +152,7 @@ describe('作者选「跳过这一步」', () => {
   before(async () => {
     t.remove(NEW_REL);
     project.invalidate();
-    h.expect('跳过这一步');
+    h.expect('跳过');
     rec = recorder();
     fake = scriptedProvider([
       useTool('c1', 'write', { path: NEW_REL, content: '不该落盘的内容' }),
@@ -184,12 +185,15 @@ describe('作者选「跳过这一步」', () => {
   });
 });
 
-describe('作者选「停止 agent」', () => {
+// 卡片上没有「停止 agent」那一颗，所以「停下」只有这一条来路：他被问「要不要
+// 动你的磁盘」而没有回答（Esc / 点外面 / 这一轮被取消）。不替他答「继续」。
+describe('作者关掉对话框（没有回答）', () => {
   let out;
   let fake;
 
   before(async () => {
-    h.expect('停止 agent');
+    // 队列为空 = confirm 返回 undefined = 用户 Esc 掉了。
+    h.expect();
     fake = scriptedProvider([
       useTool('c1', 'write', { path: NEW_REL, content: 'x' }),
       say('做到这里，第 12 章的细纲还没写。'),
@@ -197,7 +201,7 @@ describe('作者选「停止 agent」', () => {
     out = await run({ provider: fake.provider, policy: 'default' });
   });
 
-  test('stopReason 是 declined', () => {
+  test('当停止处理，stopReason 是 declined', () => {
     assert.equal(out.stopReason, 'declined', `${out.stopReason}｜${out.message}`);
   });
 
@@ -217,29 +221,6 @@ describe('作者选「停止 agent」', () => {
 
   test('给了一句人话说明为什么停', () => {
     assert.ok(out.message.includes('停'), out.message);
-  });
-});
-
-describe('作者关掉对话框', () => {
-  let out;
-
-  before(async () => {
-    // 队列为空 = confirm 返回 undefined = 用户 Esc 掉了。
-    h.expect();
-    const fake = scriptedProvider([
-      useTool('c1', 'write', { path: NEW_REL, content: 'x' }),
-      say('好的。'),
-    ]);
-    out = await run({ provider: fake.provider, policy: 'default' });
-  });
-
-  // 他被问「要不要动你的磁盘」而没有回答，不该替他答「继续」。
-  test('当停止处理', () => {
-    assert.equal(out.stopReason, 'declined', `${out.stopReason}｜${out.message}`);
-  });
-
-  test('什么都没写', () => {
-    assert.ok(!t.has(NEW_REL));
   });
 });
 
@@ -373,9 +354,9 @@ describe('有 onGate 时不弹宿主的框', () => {
     assert.ok(asked[0].detail.includes(NEW_REL), asked[0].detail);
   });
 
-  // 卡片上那颗按钮写「写入」而不是「确定」，靠的就是这一份说辞。
+  // 按钮上的字也从这一问里带过去：前端写死一份的话，改了文案两边就对不上。
   test('带上了按钮上的字与这一次的参数', () => {
-    assert.equal(asked[0].proceed, '写入');
+    assert.equal(asked[0].proceed, '确认');
     assert.equal(asked[0].callId, 'c1');
     assert.equal(asked[0].name, 'write');
     assert.equal(asked[0].args.path, NEW_REL);
@@ -402,7 +383,7 @@ describe('产出之后当场问一句', () => {
   const fakeGenerate = {
     name: 'generate',
     costly: true,
-    intent: () => ({ gate: 'costly', title: '调一次创作模型', proceed: '生成' }),
+    intent: () => ({ gate: 'costly', title: '调一次创作模型' }),
     description: '假的 generate',
     parameters: { type: 'object', properties: {}, required: [] },
     async run() {
@@ -439,7 +420,7 @@ describe('产出之后当场问一句', () => {
   // ★ 三种模式一样：这是产品承诺，不是偏好设置。
   for (const policy of ['careful', 'default', 'bold']) {
     test(`${policy} 模式下照样问`, async () => {
-      h.expect('生成');
+      h.expect('确认');
       let asked = 0;
       const { out } = runWithArtifact(async () => {
         asked += 1;
@@ -462,7 +443,7 @@ describe('产出之后当场问一句', () => {
     assert.ok(toolMsg.content.includes('没有采纳'), toolMsg.content);
   });
 
-  test('作者在卡片上按「停止 agent」就停下，且仍给最后一轮总结', async () => {
+  test('落盘那一问没人答（换了会话 / 取消）就停下，且仍给最后一轮总结', async () => {
     h.expect();
     const { fake, out } = runWithArtifact(async () => ({ note: '作者选择停止。', stop: true }));
     const outcome = await out;

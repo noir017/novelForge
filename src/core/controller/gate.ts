@@ -25,8 +25,11 @@
  *
  * | 谁在问 | 什么时候 | 按钮 |
  * |---|---|---|
- * | agent 的闸门（`policy.ts`） | 动手前，按策略查表 | 三颗（还能叫停整轮） |
- * | 产物落盘（第 19 条） | `generate` 一产出就问，**与策略无关** | agent 那条路三颗，单步创作两颗 |
+ * | agent 的闸门（`policy.ts`） | 动手前，按策略查表 | 确认 / 跳过 |
+ * | 产物落盘（第 19 条） | `generate` 一产出就问，**与策略无关** | 确认 / 不采纳 |
+ *
+ * 两种都只有两颗：**叫停整轮不在这张卡上**——那是输入框旁边那颗「停止」，
+ * 与「这一个文件要不要动」是两件事，混进闸门只会被误当成「跳过」。
  *
  * 后一种从前是气泡末尾那颗「采纳写入」——它可以拖到第二天再点，于是
  * 「产物落盘前必须过一遍人」在界面上是一颗**可以永远不点的按钮**，而 agent
@@ -43,17 +46,23 @@
  *    signal 一断就按「停止」结算，不留一个永远悬着的 Promise。
  */
 import type { GateVerdict } from '../agent/policy';
-import { SKIP_ACTION, STOP_ACTION } from '../agent/policy';
+import { PROCEED_ACTION, SKIP_ACTION } from '../agent/policy';
 import type { OutMessage } from '../protocol';
 import type { ChatController } from './index';
 
 type GateMessage = Extract<OutMessage, { type: 'gate' }>;
 
+/**
+ * 一次询问能有的结论。**卡片上只有前两颗按钮**，`cancelled` 是没人回答
+ * （这一轮被取消、换了会话）时替作者记下的那一笔——它对循环等于「停止」。
+ */
+export type GateSettlement = 'proceed' | 'skip' | 'cancelled';
+
 /** 一次还没答的询问。`msg` 留着是为了重连时能原样再推一遍。 */
 export interface PendingGate {
   readonly msg: GateMessage;
   /** 结算这一次询问。**只有第一次算数**（作者点了，同时这一轮又被取消）。 */
-  settle(verdict: GateVerdict | 'cancelled'): void;
+  settle(verdict: GateSettlement): void;
 }
 
 /**
@@ -77,15 +86,10 @@ export interface GateAsk {
   detail?: string;
   /** 模型这一次填的参数（已截断的 JSON 文本）。卡片里折叠着，点开才看。 */
   argsText?: string;
-  /** 同意那颗按钮上的字（「写入」「替换」「执行」「生成」）。 */
-  proceed: string;
-  /** 拒绝那颗按钮上的字。缺省是「跳过这一步」。 */
+  /** 同意那颗按钮上的字。缺省是「确认」。 */
+  proceed?: string;
+  /** 拒绝那颗按钮上的字。缺省是「跳过」。 */
   skip?: string;
-  /**
-   * 有没有第三颗「停止 agent」。**单步创作那条路没有**：那里没有循环可停，
-   * 多一颗只会让作者以为自己在跟 agent 说话。
-   */
-  stoppable?: boolean;
 }
 
 /**
@@ -106,16 +110,15 @@ export function askGate(c: ChatController, ask: GateAsk, signal?: AbortSignal): 
     title: ask.title,
     detail: ask.detail,
     argsText: ask.argsText,
-    proceed: ask.proceed,
-    // 按钮上的字都从后端来：跳过/停止那两个与循环里判定用的是同一份常量，
-    // 前端自己写一遍的话，改了文案就对不上了。
+    // 按钮上的字都从后端来：与循环里判定用的是同一份常量，前端自己写一遍的
+    // 话，改了文案就对不上了。
+    proceed: ask.proceed ?? PROCEED_ACTION,
     skip: ask.skip ?? SKIP_ACTION,
-    stop: ask.stoppable ? STOP_ACTION : undefined,
   };
 
   return new Promise<GateVerdict>((resolve) => {
     const onAbort = () => c.gates.get(requestId)?.settle('cancelled');
-    const settle = (verdict: GateVerdict | 'cancelled') => {
+    const settle = (verdict: GateSettlement) => {
       // 先从表里摘掉：这既是「只结算一次」的判据，也让重连不再推它。
       if (!c.gates.delete(requestId)) {
         return;
@@ -147,7 +150,7 @@ export function askGate(c: ChatController, ask: GateAsk, signal?: AbortSignal): 
  * **认不出的 requestId 静默丢弃**：重连之后前端可能还留着一张早就结束了的
  * 卡片（另一个视图上答过了），为它报错只会让作者莫名其妙。
  */
-export function resolveGate(c: ChatController, requestId: string, verdict: GateVerdict): void {
+export function resolveGate(c: ChatController, requestId: string, verdict: 'proceed' | 'skip'): void {
   c.gates.get(requestId)?.settle(verdict);
 }
 

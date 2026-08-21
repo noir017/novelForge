@@ -61,7 +61,6 @@ describe('说辞原样来自工具，只补一个主语', () => {
     gate: 'mutating',
     title: '写入「第 12 章的细纲」',
     detail: '.novelforge/plots/012-入宗.md（新建）',
-    proceed: '写入',
   });
 
   // 作者要知道现在是谁要动他的磁盘；工具不知道自己被谁调，所以主语在这里加。
@@ -73,12 +72,11 @@ describe('说辞原样来自工具，只补一个主语', () => {
     assert.equal(g.detail, '.novelforge/plots/012-入宗.md（新建）');
   });
 
-  test('按钮上的字用工具那一份', () => {
-    assert.equal(g.proceed, '写入');
-  });
-
-  test('工具没说按钮写什么时兜一个「执行」', () => {
-    assert.equal(gateFor('default', intent('mutating')).proceed, '执行');
+  // 动词已经在按钮上方那句话里了（「Agent 要写入「第 12 章的细纲」」），按钮
+  // 再说一遍是重复；每个工具各报一个动词的话，同一颗主按钮每次换一个字。
+  test('按钮上一律是「确认」', () => {
+    assert.equal(g.proceed, '确认');
+    assert.equal(gateFor('default', intent('mutating')).proceed, '确认');
   });
 });
 

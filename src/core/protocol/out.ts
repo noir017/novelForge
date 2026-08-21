@@ -95,13 +95,13 @@ export type OutMessage =
    * 下面）补一行「已跳过/已允许」当记录。
    *
    * **两种问法共用这一条**：agent 动手前的闸门（`agent/policy.ts`），以及
-   * **产物落盘前那一句**（第 19 条，任何模式下都问）。区别只在按钮：前者
-   * 三颗（还能叫停整轮），后者在单步创作那条路上只有两颗——那里没有循环
-   * 可停，多一颗「停止 agent」只会让人以为自己在跟 agent 说话。
+   * **产物落盘前那一句**（第 19 条，任何模式下都问）。两种都只有两颗按钮
+   * ——**叫停整轮不在这张卡上**，那是输入框旁边那颗「停止」；与「这一个
+   * 文件要不要动」是两件事，混进闸门只会被误当成「跳过」。
    *
    * `requestId` 是这次询问的身份（不是 `callId`：同一次调用在重连后会重发
-   * 同一条询问，回答要认得出是哪一次）。按钮上的字一律由后端给——「写入」
-   * 「替换」「执行」是工具自报的说辞，前端不猜。
+   * 同一条询问，回答要认得出是哪一次）。按钮上的字一律由后端给，前端不写死
+   * ——改一次文案两边就对不上。
    */
   | {
       type: 'gate';
@@ -114,8 +114,6 @@ export type OutMessage =
       argsText?: string;
       proceed: string;
       skip: string;
-      /** 「停止 agent」。缺席就不画第三颗——单步创作那条路没有循环可停。 */
-      stop?: string;
     }
   /**
    * 那张卡片可以收了：作者在另一个视图上答了，或者这一轮被取消/结束了。
@@ -123,7 +121,7 @@ export type OutMessage =
    * 两个视图（侧边栏与编辑器标签页）挂的是同一个 controller，只在被点的那
    * 一边收卡片的话，另一边会留着一张点了没反应的卡。
    */
-  | { type: 'gateDone'; requestId: string; verdict: 'proceed' | 'skip' | 'stop' | 'cancelled' }
+  | { type: 'gateDone'; requestId: string; verdict: 'proceed' | 'skip' | 'cancelled' }
   /** 一次 agent 循环结束。`message` 在非正常结束时说明为什么停。 */
   | {
       type: 'agentDone';

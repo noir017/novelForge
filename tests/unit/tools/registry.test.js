@@ -254,8 +254,8 @@ describe('意图：工具不报时兜一个通用的', () => {
   });
 
   test('工具自己报了就用它那一份', () => {
-    const d = def({ intent: () => ({ gate: 'always', title: '改一段文字', proceed: '替换' }) });
-    assert.deepEqual(intentOf(d), { gate: 'always', title: '改一段文字', proceed: '替换' });
+    const d = def({ intent: () => ({ gate: 'always', title: '改一段文字', detail: '原文：甲 → 乙' }) });
+    assert.deepEqual(intentOf(d), { gate: 'always', title: '改一段文字', detail: '原文：甲 → 乙' });
   });
 
   test('认不出的名字没有意图', () => {

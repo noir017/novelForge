@@ -59,7 +59,6 @@ export const editTool: ToolDef = {
       ]
         .filter(Boolean)
         .join('\n'),
-      proceed: '替换',
     };
   },
 

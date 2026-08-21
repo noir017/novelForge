@@ -182,9 +182,10 @@ describe('生成一轮 → 当场问一句', () => {
     assert.ok(r.gate.detail.includes('4/4 节'), r.gate.detail);
   });
 
-  // 单步创作这条路没有循环可停，多一颗「停止 agent」只会让人以为在跟 agent 说话。
-  test('只有两颗按钮', () => {
-    assert.equal(r.gate.proceed, '写入');
+  // 叫停整轮不在这张卡上（那是输入框旁边那颗「停止」）；拒绝那颗写的是
+  // 「不采纳」——这一问不是「跳过一步」，是「这份产物我不要」。
+  test('两颗按钮：确认 / 不采纳', () => {
+    assert.equal(r.gate.proceed, '确认');
     assert.equal(r.gate.skip, '不采纳');
     assert.equal(r.gate.stop, undefined, r.gate.stop);
   });

@@ -12,7 +12,7 @@
  * | 用例 | 钉的是什么 |
  * |---|---|
  * | `gate` 到了 | 卡片进 `#gateDock`（输入框上方），**不进气泡**，遮罩层一动不动 |
- * | 三颗按钮 | 字全部来自后端，同意贴最右，「停止 agent」在最左 |
+ * | 两颗按钮 | 字全部来自后端，同意贴最右；**叫停整轮不在这张卡上** |
  * | 点一颗 | 发回 `gateResult`，卡片撤下，格子收起，消息流里补一行记录 |
  * | 重连重推同一条 | 不画出两张 |
  * | 认不出的 turnId | 卡片照样画（丢掉等于留一个没人看得见的死等） |
@@ -31,9 +31,8 @@ const GATE = {
   title: 'Agent 要写入设定「北境雪原」',
   detail: '.novelforge/lore/北境雪原.md · 新建 · 约 320 字',
   argsText: '{\n  "path": ".novelforge/lore/北境雪原.md"\n}',
-  proceed: '写入',
-  skip: '跳过这一步',
-  stop: '停止 agent',
+  proceed: '确认',
+  skip: '跳过',
 };
 
 const dock = (ui) => ui.doc.getElementById('gateDock');
@@ -92,10 +91,11 @@ describe('权限请求固定在输入框上方', { skip: JSDOM_SKIP }, () => {
     assert.equal(det.open, false);
   });
 
-  // 同意贴最右（离「发送」最近的那一侧就是「继续」），「停止 agent」摆最左：
-  // 它掐的是整轮，与另外两颗不是同一类选择。
-  test('三颗按钮，字来自后端，同意在最右', () => {
-    assert.deepEqual(buttons(ui).map((b) => b.textContent), ['停止 agent', '跳过这一步', '写入']);
+  // 同意贴最右（离「发送」最近的那一侧就是「继续」）。叫停整轮是输入框旁边
+  // 那颗「停止」，不在这张卡上——摆进闸门只会被误当成「跳过」，而两者的后果
+  // 差着一整轮。
+  test('两颗按钮，字来自后端，同意在最右', () => {
+    assert.deepEqual(buttons(ui).map((b) => b.textContent), ['跳过', '确认']);
   });
 
   test('正文没被冲掉', () => {
@@ -129,7 +129,7 @@ describe('点下去', { skip: JSDOM_SKIP }, () => {
   before(() => {
     ui = running();
     ui.post(GATE);
-    ui.clickEl(buttons(ui)[2]);
+    ui.clickEl(buttons(ui)[1]);
   });
 
   test('把结论发回后端', () => {
@@ -138,7 +138,7 @@ describe('点下去', { skip: JSDOM_SKIP }, () => {
     assert.equal(sent.verdict, 'proceed');
   });
 
-  // 后端回话之前不撤的话，作者能把三颗都点一遍，而只有第一下算数。
+  // 后端回话之前不撤的话，作者能把两颗都点一遍，而只有第一下算数。
   test('卡片撤下，格子空了就收起来', () => {
     assert.equal(card(ui), null);
     assert.ok(dock(ui).classList.contains('hidden'));
@@ -159,22 +159,14 @@ describe('点下去', { skip: JSDOM_SKIP }, () => {
   });
 });
 
-describe('跳过与停止', { skip: JSDOM_SKIP }, () => {
-  test('跳过这一步', () => {
-    const ui = running();
-    ui.post(GATE);
-    ui.clickEl(buttons(ui)[1]);
-    assert.equal(ui.last('gateResult').verdict, 'skip');
-    assert.ok(note(ui).textContent.includes('已跳过'), note(ui).textContent);
-    assert.ok(note(ui).classList.contains('declined'), note(ui).className);
-  });
-
-  test('停止 agent', () => {
+describe('跳过', { skip: JSDOM_SKIP }, () => {
+  test('发回 skip，并标成「拒绝了」那一档', () => {
     const ui = running();
     ui.post(GATE);
     ui.clickEl(buttons(ui)[0]);
-    assert.equal(ui.last('gateResult').verdict, 'stop');
-    assert.ok(note(ui).textContent.includes('已停止'), note(ui).textContent);
+    assert.equal(ui.last('gateResult').verdict, 'skip');
+    assert.ok(note(ui).textContent.includes('已跳过'), note(ui).textContent);
+    assert.ok(note(ui).classList.contains('declined'), note(ui).className);
   });
 });
 
@@ -194,7 +186,7 @@ describe('另一个视图上答了 / 这一轮被取消', { skip: JSDOM_SKIP }, 
     assert.ok(dock(ui).classList.contains('hidden'));
   });
 
-  test('说的是「取消」，不是作者答的那三个', () => {
+  test('说的是「取消」，不是作者答的那两个', () => {
     assert.ok(note(ui).textContent.includes('已取消'), note(ui).textContent);
   });
 
@@ -203,12 +195,13 @@ describe('另一个视图上答了 / 这一轮被取消', { skip: JSDOM_SKIP }, 
   });
 
   test('认不出的 requestId 不炸', () => {
-    assert.doesNotThrow(() => ui.post({ type: 'gateDone', requestId: '并不存在', verdict: 'stop' }));
+    assert.doesNotThrow(() => ui.post({ type: 'gateDone', requestId: '并不存在', verdict: 'skip' }));
   });
 });
 
-// 单步创作（点「写剧情」）产出之后那张落盘卡片：背后没有循环可停，答完那一行
-// 也挂在正文**下面**——那份产物就是作者做判断的依据。
+// 产出之后那张落盘卡片：拒绝那颗写的不是「跳过」而是「不采纳」（这一问不是
+// 「跳过一步」，是「这份产物我不要」），答完那一行也挂在正文**下面**——那份
+// 产物就是作者做判断的依据。
 describe('产物落盘那一张', { skip: JSDOM_SKIP }, () => {
   let ui;
 
@@ -217,18 +210,17 @@ describe('产物落盘那一张', { skip: JSDOM_SKIP }, () => {
     ui.post({
       ...GATE,
       callId: undefined,
-      stop: undefined,
       name: 'artifact',
       title: '把这份产物写入到「第 12 章《夜入青云》 · 剧情」',
       detail: '剧情 · 4/4 节',
       argsText: undefined,
-      proceed: '写入',
+      proceed: '确认',
       skip: '不采纳',
     });
   });
 
-  test('只画两颗按钮', () => {
-    assert.deepEqual(buttons(ui).map((b) => b.textContent), ['不采纳', '写入']);
+  test('拒绝那颗写「不采纳」', () => {
+    assert.deepEqual(buttons(ui).map((b) => b.textContent), ['不采纳', '确认']);
   });
 
   test('点「不采纳」照样发回结论', () => {

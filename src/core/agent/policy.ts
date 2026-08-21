@@ -39,14 +39,15 @@
  *
  * 哪个工具归哪一档由**工具自己**声明——只有它知道自己随后会不会走审阅。
  *
- * ## 三个选项，不是两个
+ * ## 两颗按钮：确认 / 跳过
  *
- * 「跳过这一步」让 agent 继续跑别的，「停止 agent」结束整轮。只给「是/否」
- * 的话，作者想拒绝某一步就只能连整轮一起掐掉。
+ * 「跳过」只否掉这一步，agent 接着跑别的。**叫停整轮不放在这张卡上**——那是
+ * 输入框旁边那颗「停止」，一个与「要不要动这个文件」无关的动作；混在闸门里
+ * 的第三颗按钮只会让作者以为自己在跟 agent 说话，还常被误当成「跳过」。
  *
- * 关掉对话框（Esc / 点外面）当**停止**处理：他被问「要不要动你的磁盘」而没有
- * 回答，那就不该替他答「继续」。停止不丢任何东西——已经写下的还在，模型还会
- * 得到最后一轮说明做到哪了。
+ * 关掉对话框（Esc / 点外面）仍按**停止**处理：他被问「要不要动你的磁盘」而
+ * 没有回答，那就不该替他答「继续」。停止不丢任何东西——已经写下的还在，模型
+ * 还会得到最后一轮说明做到哪了。
  */
 import type { AgentPolicy } from '../model/agentPolicy';
 import type { GateKind, ToolIntent } from '../tools/types';
@@ -62,7 +63,10 @@ export {
 } from '../model/agentPolicy';
 export type { AgentPolicy };
 
-/** 作者在确认框里的三个选择。 */
+/**
+ * 一次询问的结论。作者只点得到前两个：**停止**是没人回答（取消 / Esc）时替
+ * 他记下的那一笔，不是卡片上的一颗按钮。
+ */
 export type GateVerdict = 'proceed' | 'skip' | 'stop';
 
 export interface Gate {
@@ -74,15 +78,21 @@ export interface Gate {
    */
   message?: string;
   detail?: string;
-  /** 同意那颗按钮上的字（「写入」「替换」「执行」「生成」）。 */
+  /** 同意那颗按钮上的字。一律是 {@link PROCEED_ACTION}。 */
   proceed?: string;
 }
 
 const NO_GATE: Gate = { confirm: false };
 
-/** 跳过与停止那两颗按钮上的字。三处（构造、判定、文案）共用一份。 */
-export const SKIP_ACTION = '跳过这一步';
-export const STOP_ACTION = '停止 agent';
+/**
+ * 两颗按钮上的字。三处（构造、判定、文案）共用一份。
+ *
+ * **同意那颗不写动词**：「Agent 要写入「第 12 章」」这句话就在按钮上方，
+ * 按钮再说一遍「写入」是重复；而每个工具各报一个动词（写入 / 替换 / 执行 /
+ * 生成）的话，同一颗按钮每次换一个字，作者反而要先读按钮才敢点。
+ */
+export const PROCEED_ACTION = '确认';
+export const SKIP_ACTION = '跳过';
 
 /**
  * 判定表。**这是这个文件的全部判断**，其余都是拼字符串。
@@ -117,7 +127,7 @@ export function gateFor(policy: AgentPolicy, intent?: ToolIntent): Gate {
     // 而作者要知道现在是谁要动他的磁盘。
     message: `Agent 要${intent?.title ?? '执行一个动作'}`,
     detail: intent?.detail,
-    proceed: intent?.proceed ?? '执行',
+    proceed: PROCEED_ACTION,
   };
 }
 
