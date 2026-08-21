@@ -86,6 +86,36 @@ const log = scoped('Agent');
  *
  * 整段可以由调用方经 `RunAgentOptions.system` 换掉。
  */
+/**
+ * 「说要调工具却没给」这种自相矛盾的响应，同一回合最多原样重发几次。
+ *
+ * ## 为什么要重发，而不是直接报错
+ *
+ * 这不是模型的判断，是**链路上掉了一半**：`stop_reason: "tool_use"` 与
+ * 「零个 tool_use 块」不可能同时为真。抓到的现场是一个 OpenAI 协议转 Anthropic
+ * 协议的网关，同一份请求连发八次，五次丢了 `tool_use` 块、三次正常——纯抖动，
+ * 重发大概率就过去了。
+ *
+ * ## 为什么是 3
+ *
+ * 实测那条链路的丢失率约六成（十八次里丢了十一次）。重发三次是四次机会，
+ * 一个回合彻底失败的概率降到 0.6⁴ ≈ 14%；只重发一次是 36%，一轮里走五步就
+ * 几乎跑不完。再往上加收益开始平；而每一次重发都是一整轮上下文的钱（第 4 条），
+ * 所以不能一直加。
+ *
+ * 值得说清的是：**被丢掉的那一回合本来就已经花过钱了**，而且什么都没换回来。
+ * 重发不是「多花一次」，是把已经花掉的那次救回来——真正不该做的是无声地把它
+ * 当成「模型说完了」（从前就是这样）。
+ *
+ * 连着四次都缺，说明不是抖动而是这条链路压根不支持工具调用，那时该做的是把话
+ * 说清楚（`stopReason: 'protocol'`），不是继续烧。
+ *
+ * 重发的代价里还有一件事看得见：那一轮模型已经说出口的话已经流到界面上了，
+ * 重发之后它会再说一遍类似的话。所以每次重发都在气泡里留一句 `onNote`——
+ * 重复得有个解释，否则看起来像 agent 在自言自语。
+ */
+export const PROTOCOL_RETRIES = 3;
+
 export const AGENT_SYSTEM = [
   '你是 Novel Forge 的助手，帮一位中文长篇小说作者在他的工程里做事。',
   '',
@@ -198,6 +228,11 @@ export type StopReason =
   | 'overBudget'
   /** 闸门那一问没有得到回答（卡片被取消 / 宿主的框被关掉），按停止处理。 */
   | 'declined'
+  /**
+   * 上游连着几轮都说「我要调工具」却没把调用给出来（见 `PROTOCOL_RETRIES`）。
+   * 不是模型的问题，也不是这里的问题——重发也没用，只能把话说清楚。
+   */
+  | 'protocol'
   | 'cancelled'
   | 'error';
 
@@ -285,6 +320,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
   let message = '';
   /** 下一回合是最后一轮：不给工具，只让它总结。 */
   let finalRound = false;
+  /** 这一回合已经因为「说要调却没给」原样重发了几次（见 PROTOCOL_RETRIES）。 */
+  let protocolRetries = 0;
 
   try {
     for (;;) {
@@ -353,10 +390,33 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
         break;
       }
       if (result.toolCalls.length === 0) {
+        // 「这一轮没调工具」通常就是「模型给出了最终回答」。但上游还在
+        // `stop_reason` 上说它要调工具的话，这两件事不可能同时为真——响应缺了
+        // 一半（见 provider.ts 的 StopSignal）。当成最终回答收工是最坏的处理：
+        // 界面上是 agent 说一句「我先看看工程状态」就停，没有工具、没有报错，
+        // 查不出任何原因。
+        if (result.stopReason === 'toolUse') {
+          protocolRetries += 1;
+          const what = `上游说这一步要调工具，却没把调用发过来（第 ${protocolRetries} 次）`;
+          if (protocolRetries <= PROTOCOL_RETRIES) {
+            log.warn(what, '原样重发这一回合');
+            on.onNote?.(`${what}。重新问一次。`);
+            // 这一回合什么都不往 turns 里推：重发的是同一份上下文。
+            continue;
+          }
+          log.warn(what, '连着几次都缺，停下来说清楚');
+          stopReason = 'protocol';
+          message =
+            '模型说它要调用工具，但接口没有把调用内容发回来，连试几次都一样。' +
+            '这通常是中转/兼容网关在转换协议时丢了这一段，换一个服务商或模型再试。';
+          break;
+        }
         // 没有工具调用 = 模型给出了最终回答。
         stopReason = 'done';
         break;
       }
+      // 这一回合正常拿到了调用：重试计数归零，下一回合的抖动重新有两次机会。
+      protocolRetries = 0;
 
       // 思考凭据跟着这一轮的助手消息走：下一轮由 provider 原样发回去，模型
       // 才接得上「上一步为什么调这个工具」（见 provider.ts 的 ReasoningTrace）。

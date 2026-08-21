@@ -29,6 +29,10 @@ export type StreamEvent =
   | { type: 'toolCall'; call: ToolCall }
   | { type: 'usage'; usage: TokenUsage }
   /**
+   * 上游自己报的收尾原因。**不是给界面看的**，是用来判断这一轮回答自不自洽。
+   */
+  | { type: 'stop'; reason: StopSignal }
+  /**
    * 一整块思考收完了，带着回填下一轮要用的凭据。**不是给界面看的**
    * （给界面看的是上面那条 `reasoning`），而是给多轮工具调用回填用。
    */
@@ -60,6 +64,25 @@ export interface ToolSpec {
 }
 
 export type ToolChoice = 'auto' | 'none' | 'required';
+
+/**
+ * 上游报的收尾原因，归一成四档。
+ *
+ * ## 它存在的唯一理由：一轮回答可能自相矛盾
+ *
+ * 「这一轮没有工具调用」在 agent 循环里就等于「模型给出了最终回答，收工」。
+ * 这个等号有一个前提：**上游没在别处说过它想调工具**。而经手过的兼容网关
+ * （OpenAI 协议转 Anthropic 协议的那一类）会破坏这个前提——上游模型明明返回了
+ * tool_calls，网关把 `stop_reason: "tool_use"` 照抄过来了，却把 `tool_use` 内容块
+ * 整个漏掉。抓到过的一次是同一份请求连发八次、五次这样，三次正常。
+ *
+ * 那种响应落到循环里，长得和「模型说完了」一模一样：agent 说一句「我先看看
+ * 工程状态」就停，一个工具都没调，也没有任何报错。有了这一档，循环才分得清
+ * 「它不想调」和「它想调但那一半没到」——见 `loop.ts` 的 `PROTOCOL_RETRIES`。
+ *
+ * `maxTokens` 目前只是记下来（截断本身已经由界面上的字数体现），循环不据此分支。
+ */
+export type StopSignal = 'end' | 'toolUse' | 'maxTokens' | 'other';
 
 export type AgentMessage =
   | { role: 'system'; content: string }

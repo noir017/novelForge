@@ -6,7 +6,7 @@
  * usage / toolCall 的调用方各取所需——它们从前挂在 provider 的 options 上，
  * 那是「调用方想不想听决定 provider 发不发」，方向反了。
  */
-import { ReasoningTrace, StreamEvent, TokenUsage, ToolCall } from './provider';
+import { ReasoningTrace, StopSignal, StreamEvent, TokenUsage, ToolCall } from './provider';
 
 export interface CollectHandlers {
   onDelta?(delta: string, full: string): void;
@@ -25,6 +25,13 @@ export interface CollectResult {
    * （见 provider.ts 的 `ReasoningTrace`）；单次生成用不着，忽略即可。
    */
   traces: ReasoningTrace[];
+  /**
+   * 上游报的收尾原因。`undefined` = 它没说（有些兼容实现压根不发这一条）。
+   *
+   * agent 循环拿它跟 `toolCalls` 对账：`'toolUse'` 而 `toolCalls` 是空的，
+   * 说明这一轮的响应缺了一半，不能当成「模型说完了」。
+   */
+  stopReason?: StopSignal;
 }
 
 /**
@@ -53,6 +60,7 @@ export async function collect(
   const toolCalls: ToolCall[] = [];
   const usage: TokenUsage = {};
   const traces: ReasoningTrace[] = [];
+  let stopReason: StopSignal | undefined;
 
   for await (const ev of stream) {
     switch (ev.type) {
@@ -75,10 +83,13 @@ export async function collect(
       case 'reasoningTrace':
         traces.push(ev.trace);
         break;
+      case 'stop':
+        stopReason = ev.reason;
+        break;
     }
   }
 
-  return { text, reasoning, toolCalls, usage, traces };
+  return { text, reasoning, toolCalls, usage, traces, stopReason };
 }
 
 /** 只要文本那一份。既有的 13 个调用点用这个。 */

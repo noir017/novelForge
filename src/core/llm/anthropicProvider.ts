@@ -13,6 +13,7 @@ import {
   LlmError,
   LlmProvider,
   ReasoningTrace,
+  StopSignal,
   StreamEvent,
   StreamOptions,
   ToolCall,
@@ -131,7 +132,7 @@ export class AnthropicProvider implements LlmProvider {
         if (plan && attempt < 2 && negotiate(response.status, detail, quirk, this.label)) {
           continue;
         }
-        throw new LlmError(describeHttpBody(response.status, detail, this.label));
+        throw new LlmError(describeHttpBody(response.status, detail, this.label, '/v1/messages'));
       }
       poke();
 
@@ -179,12 +180,38 @@ export class AnthropicProvider implements LlmProvider {
         if (call) {
           yield { type: 'toolCall', call };
         }
+        // 收尾原因在 `message_delta` 上，**排在所有内容块之后**。上层拿它跟手里
+        // 攒到的工具调用对一下：说了 tool_use 却一个都没给，就是这一轮的响应
+        // 缺了一半（见 provider.ts 的 StopSignal）。
+        if (event.type === 'message_delta' && event.delta?.stop_reason) {
+          yield { type: 'stop', reason: stopSignalOf(event.delta.stop_reason) };
+        }
       }
     } catch (err) {
       throw normalizeError(err, signal, this.label);
     } finally {
       dispose();
     }
+  }
+}
+
+/**
+ * Anthropic 的 `stop_reason` → 归一的四档。
+ *
+ * 认不出的一律 `other`：这个字段上游还在加值（`pause_turn`、`refusal`），
+ * 报错会让循环因为一个不认识的字符串就断掉。
+ */
+function stopSignalOf(reason: string): StopSignal {
+  switch (reason) {
+    case 'tool_use':
+      return 'toolUse';
+    case 'end_turn':
+    case 'stop_sequence':
+      return 'end';
+    case 'max_tokens':
+      return 'maxTokens';
+    default:
+      return 'other';
   }
 }
 
@@ -309,6 +336,8 @@ export interface AnthropicEvent {
     thinking?: string;
     signature?: string;
     partial_json?: string;
+    /** 只在 `message_delta` 上：`end_turn` / `tool_use` / `max_tokens` / … */
+    stop_reason?: string;
   };
   message?: { usage?: AnthropicUsage };
   usage?: AnthropicUsage;

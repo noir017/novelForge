@@ -315,6 +315,8 @@ export interface ResponsesEvent {
   response?: {
     usage?: { input_tokens?: number; output_tokens?: number };
     error?: { message?: string };
+    /** 只在 `response.incomplete` 上：`max_output_tokens` / `content_filter`。 */
+    incomplete_details?: { reason?: string };
   };
   message?: string;
   error?: { message?: string };
@@ -361,6 +363,14 @@ export function readResponsesEvent(event: ResponsesEvent, label: string): Stream
           type: 'usage',
           usage: { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens },
         });
+      }
+      // 这条协议里**没有** `tool_use` 这一档收尾原因：工具调用是输出项
+      // （`function_call`），不是一个需要另行声明的状态，所以「说要调却没给」
+      // 那种自相矛盾在这条路上表达不出来（见 provider.ts 的 StopSignal）。
+      // 能报的只有截断。
+      if (event.type === 'response.incomplete') {
+        const reason = event.response?.incomplete_details?.reason;
+        out.push({ type: 'stop', reason: reason === 'max_output_tokens' ? 'maxTokens' : 'other' });
       }
       return out;
     }
@@ -423,7 +433,16 @@ export async function readBody(response: Response): Promise<string> {
 }
 
 /** 已经读出来的响应体 → 一句人话。两家 provider 共用。 */
-export function describeHttpBody(status: number, body: string, label: string): string {
+export function describeHttpBody(
+  status: number,
+  body: string,
+  label: string,
+  /**
+   * 这一家打的是哪个接口。404 那句提示要指名道姓——两条协议共用这个函数，
+   * 而对着 Anthropic 那条路说「没有 /responses 接口」会把人往反方向带。
+   */
+  endpoint = '/responses'
+): string {
   let detail = body;
   try {
     const json = JSON.parse(body) as { error?: { message?: string }; message?: string };
@@ -437,7 +456,7 @@ export function describeHttpBody(status: number, body: string, label: string): s
     status === 401 || status === 403
       ? '（API Key 可能无效，可在设置页重新录入该服务商的 Key）'
       : status === 404
-        ? '（接口地址或模型名可能填错了；也可能是这个服务商没有 /responses 接口——' +
+        ? `（接口地址或模型名可能填错了；也可能是这个服务商没有 ${endpoint} 接口——` +
           '只认 /chat/completions 的服务商请配它自己那侧的兼容网关）'
         : status === 429
           ? '（触发限流，稍后再试）'

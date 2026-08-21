@@ -13,6 +13,7 @@
  * | 预算触顶 | 最后一轮不带 tools，仍然出总结 |
  * | 取消 | 停在工具边界，已产出的 draft 保留 |
  * | 工具抛异常 | 变成 error 回给模型，循环继续 |
+ * | 说要调却没给 | 原样重发这一回合；连着几次都缺就停下来说清楚 |
  * | 全程 | 日志里没有 prompt 全文、没有参数值 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -682,5 +683,95 @@ describe('产出的正文另走一条通道', () => {
   // ★ 这一条就是这次改动本身：产物不许再混进模型说的话里。
   test('onDelta 里只有模型自己说的话', () => {
     assert.deepEqual(rec.r.deltas, ['我来排一下。', '排好了。']);
+  });
+});
+
+/**
+ * 「上游说这一步要调工具，却一个调用都没发过来」。
+ *
+ * 这不是模型的判断，是链路上掉了一半：`stop_reason: "tool_use"` 与「零个
+ * tool_use 块」不可能同时为真。抓到的现场是一个 OpenAI 协议转 Anthropic 协议的
+ * 网关，同一份请求连发八次、五次这样。从前循环把它当成「模型给出了最终回答」
+ * 收工——界面上是 agent 说一句「我先看看工程状态」就停，没有工具、没有报错、
+ * 没有任何可查的原因。
+ */
+describe('说要调工具却没给（上游丢了那一半）', () => {
+  /** 缺了一半的那种响应：有话、有收尾原因，就是没有调用。 */
+  const dropped = (text) => [{ type: 'text', text }, { type: 'stop', reason: 'toolUse' }];
+
+  test('抖动一次：原样重发，这一轮照样走完', async () => {
+    const f = scriptedProvider([
+      dropped('我先看看工程状态。'),
+      useTool('c1', 'read', { path: 'chapters/009-北行.md' }),
+      say('看完了，他说过。'),
+    ]);
+    const rec = recorder();
+    const out = await run({ provider: f.provider, on: rec.on });
+    assert.equal(out.stopReason, 'done', `${out.stopReason}｜${out.message}`);
+    assert.equal(rec.r.toolCalls.length, 1, JSON.stringify(rec.r.toolCalls));
+  });
+
+  // 重发的是**同一份上下文**：那一回合什么都不该往 turns 里推，否则模型会
+  // 看到一条自己没调过工具的助手消息，下一轮跟着跑偏。
+  test('重发的是同一份上下文，不掺进那一轮的话', async () => {
+    const f = scriptedProvider([dropped('我先看看工程状态。'), say('看完了。')]);
+    await run({ provider: f.provider });
+    assert.deepEqual(
+      f.calls[1].messages.map((m) => m.role),
+      f.calls[0].messages.map((m) => m.role),
+      JSON.stringify(f.calls[1].messages.map((m) => m.role))
+    );
+  });
+
+  // 那一轮模型已经说出口的话早流到界面上了，重发之后它会再说一遍类似的话。
+  // 重复得有个解释，否则看起来像 agent 在自言自语。
+  test('气泡里留一句解释', async () => {
+    const f = scriptedProvider([dropped('我先看看。'), say('看完了。')]);
+    const rec = recorder();
+    await run({ provider: f.provider, on: rec.on });
+    assert.ok(
+      rec.r.notes.some((n) => n.includes('没把调用发过来')),
+      JSON.stringify(rec.r.notes)
+    );
+  });
+
+  // 连着三次都缺，说明不是抖动而是这条链路压根不支持工具调用。继续重发只是
+  // 烧钱（第 4 条），该做的是把话说清楚。
+  test('连着几次都缺：停下来，说清楚是接口丢了这一段', async () => {
+    const f = scriptedProvider(() => dropped('我先看看工程状态。'));
+    const out = await run({ provider: f.provider });
+    assert.equal(out.stopReason, 'protocol', `${out.stopReason}｜${out.message}`);
+    assert.ok(out.message.includes('没有把调用内容发回来'), out.message);
+    // 一次原始 + PROTOCOL_RETRIES 次重发，不许无限重发下去。
+    assert.equal(f.calls.length, bundle.loop.PROTOCOL_RETRIES + 1, String(f.calls.length));
+  });
+
+  // 上游没说 stop_reason（很多兼容实现压根不发这一条），或者说的是「说完了」，
+  // 那「没有工具调用」就还是它原来的意思：模型给出了最终回答。
+  test('没有收尾原因时照旧当成最终回答', async () => {
+    const f = scriptedProvider([say('他说过，在第 9 章。')]);
+    const out = await run({ provider: f.provider });
+    assert.equal(out.stopReason, 'done', out.stopReason);
+    assert.equal(f.calls.length, 1, String(f.calls.length));
+  });
+
+  test('收尾原因是 end 时也照旧', async () => {
+    const f = scriptedProvider([[{ type: 'text', text: '说过。' }, { type: 'stop', reason: 'end' }]]);
+    const out = await run({ provider: f.provider });
+    assert.equal(out.stopReason, 'done', out.stopReason);
+    assert.equal(f.calls.length, 1, String(f.calls.length));
+  });
+
+  // 重试的额度是**每回合**的：第 3 步抖一次，不该受第 1 步抖过一次的影响。
+  test('重试额度按回合归零', async () => {
+    const f = scriptedProvider([
+      dropped('先看看。'),
+      useTool('c1', 'read', { path: 'chapters/009-北行.md' }),
+      dropped('再看看。'),
+      useTool('c2', 'list', { path: 'chapters' }),
+      say('看完了。'),
+    ]);
+    const out = await run({ provider: f.provider });
+    assert.equal(out.stopReason, 'done', `${out.stopReason}｜${out.message}`);
   });
 });

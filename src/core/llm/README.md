@@ -77,6 +77,19 @@
 - **`args` 解析失败绝不抛**。发一个 `args: {}` 的 `toolCall`，`raw` 保留原文，由上层报「参数解析失败」给模型看让它重试。抛异常会炸掉整轮对话——模型少写一个右花括号，用户丢的是整段生成。解析出数组或字符串也按同样的方式退成空对象：下游拿 `args.path` 会得到 `undefined`，那比 `[1,2].path` 更容易报出人话。
 - **没有工具时一律不带 `tools` / `tool_choice`**。有些兼容实现见到未知字段会直接 400（`/chat/completions` 时代的 `stream_options` 上已经踩过这个坑）。
 
+### 上游会说一套做一套：`StopSignal`
+
+Anthropic 那条路上还有一件事必须往上报：**收尾原因**（`stop_reason`）。它的唯一用处是判断这一轮的响应自不自洽。
+
+`stop_reason: "tool_use"` 与「零个 `tool_use` 内容块」不可能同时为真。但抓到过的中转网关（OpenAI 协议转 Anthropic 协议）就这么干：上游模型明明返回了 tool_calls，它把 `stop_reason` 照抄过来，却把 `tool_use` 块整个漏掉。同一份请求连发八次，五次这样。
+
+这一层不做判断，只把事实归一成 `StopSignal`（`end` / `toolUse` / `maxTokens` / `other`）交上去，由 agent 循环对账并决定重发（见 [core/agent](../agent/README.md) 的「『没调工具』不一定等于『说完了』」）。两条硬规矩：
+
+- **`stop` 事件排在所有 `toolCall` 之后**（它在 `message_delta` 上，天然在所有内容块之后）。先到的话，对账时上层手里还是空的。
+- **上游不发就一个都不交**（`undefined` 意为「它没说」）。补一个默认值等于替它编一句话，而循环会照着那句话决定要不要重发。
+
+Responses 那条协议里**没有** `tool_use` 这一档：工具调用是输出项（`function_call`），不是一个需要另行声明的状态，所以这种自相矛盾在那条路上表达不出来。它那边能报的只有截断（`response.incomplete` 的 `incomplete_details.reason`）。
+
 ## 模型池的五条规矩
 
 模型分为**三档**（快速 / 均衡 / 精标，见 [../model/tiers.ts](../model/tiers.ts)），每档各是一份有序清单。`createModelPool({ task })` 按任务所属的档取清单，把它变成一个能换人的池，但**只有工程页的后台任务**（摘要、角色卡、设定、文风、角色提取）走它——对话页续写与连接测试必须严格用用户选定的那个模型，中途换人会让文风断掉。

@@ -480,7 +480,11 @@ export async function sendAgent(
     // 作者叫停与点停止是同一回事：气泡上都标「已中断」，翻回去看得出没跑完。
     if (outcome.stopReason === 'cancelled' || outcome.stopReason === 'declined') {
       assistantTurn.interrupted = true;
-    } else if (outcome.stopReason === 'error') {
+    } else if (outcome.stopReason === 'error' || outcome.stopReason === 'protocol') {
+      // `protocol` 是「接口把工具调用那一段丢了」（见 loop.ts 的 PROTOCOL_RETRIES）。
+      // 归到 error 那一档：它跟别的停因不一样，**不换服务商就一直是这样**，
+      // 提示条得是红的，气泡上也要留住这句话——不然作者第二天回来只看到
+      // 「agent 说了一句就停」，又要从头查一遍。
       assistantTurn.error = outcome.message;
     }
 
@@ -498,7 +502,10 @@ export async function sendAgent(
       tokens: outcome.tokens,
     });
     if (outcome.message && outcome.stopReason !== 'done') {
-      c.toast(outcome.message, outcome.stopReason === 'error' ? 'error' : 'info');
+      c.toast(
+        outcome.message,
+        outcome.stopReason === 'error' || outcome.stopReason === 'protocol' ? 'error' : 'info'
+      );
     }
   } finally {
     lease.release();

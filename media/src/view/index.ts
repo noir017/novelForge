@@ -167,7 +167,9 @@ onMessage((msg) => {
       // 非正常结束再补一句 toast——那一行上也写着，两处都有是有意的：
       // 正在看的人立刻知道，第二天回来翻的人也查得到。
       if (msg.stopReason !== 'done' && msg.message) {
-        toast(msg.message, msg.stopReason === 'error');
+        // `protocol`（接口把工具调用那一段丢了）跟 error 同一档：不换服务商
+        // 就一直是这样，提示条得是红的。
+        toast(msg.message, msg.stopReason === 'error' || msg.stopReason === 'protocol');
       }
       break;
 

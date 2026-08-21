@@ -9,6 +9,7 @@
 | [build-sidecar.js](build-sidecar.js) | 把独立版编译成**带 target triple 后缀**的单文件可执行，落到 `src/shells/desktop/binaries/`，供桌面壳（Tauri）当 sidecar 打包。与 `npm run dist` 同源同产物，只有文件名和落点不同——Tauri 的 `externalBin` 认「同名 + `-<triple>`」这个约定。用法 `npm run sidecar`（当前平台）/ `npm run sidecar:all`（连 Windows 一起，Bun 交叉编译）。由 `tauri.conf.json` 的 `beforeDevCommand` / `beforeBuildCommand` 自动触发，一般不必手动跑。**加平台**要在 `TARGETS` 里加一行，同时给 CI 的 matrix 加一台 runner（sidecar 能交叉编译，Rust 壳不能）。 |
 | [verify-css.js](verify-css.js) | 比对两份 CSS 是否等价：规则集合一条不多一条不少，且「同选择器 + 同属性」的相对顺序没被改变（那才影响层叠）。拆分或重排 `media/src/css/` 的片段后拿它对着旧产物验一遍。用法 `node scripts/verify-css.js <旧> <新>`。 |
 | [diag-stream.js](diag-stream.js) | 诊断用：对着真实服务商跑一次流式请求，把分块与解析结果打出来。需要真实 API Key，不进任何自动化流程。 |
+| [diag-tools.js](diag-tools.js) | 诊断用：排查「agent 一步就停、一个工具都不调」。走**真实**那条路（真实 provider、真实 `AGENT_SYSTEM`、真实的七个工具规格），劫持 `fetch` 打印请求体里到底带没带 `tools` / `tool_choice`，同时把 SSE 原样计数（有几个内容块、什么类型、`stop_reason` 是什么），把三种同形的成因分开：**我们没发**（本地 bug）／**上游吞了**（网关转协议丢了 `tool_use` 块）／**我们没解析出来**（`feedToolUse`）。`NF_DIAG_RAW=1` 连原始 SSE 一起打。会真的花钱（每档一次请求），需要真实 API Key，不进任何自动化流程。 |
 
 > `check-core-purity.js` 已迁去 [`tests/contract/corePurity.test.js`](../tests/contract/corePurity.test.js)——它是一条架构断言，属于测试。
 > 十九个 `smoke-*.js` 已迁去 `tests/`，按测试类型分目录，见 [tests/README.md](../tests/README.md)。

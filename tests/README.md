@@ -92,6 +92,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `model/tiers.test.js` | 模型分档的配置容错：三档各自归一化、非对象不崩、裸字符串收成单元素、认不出的任务名与非法档位名回落内置默认，以及「每个任务都有内置默认档位与中文名」 |
 | `model/pipeline.test.js` | 四个阶段（大纲/卷纲/剧情/正文）的可用/默认能力（`settle` **只有剧情层有**、`split` **只有前两层有**）、输出形态判定、`CreationTarget` 的稳定键（同章号不同文件不撞）、action/target 容错归一（**老会话里的 `scene` 落到剧情层**，两处判断一致）、`plotLabel`/`chapterLabel`、单段（含「待拆分」）与全书两个状态机、**正文写够没有看 `targetWords`**（到八成算完、缺席时有字就算、进度与状态机同源）、命令表；以及 `splitByMark` 按 `---` 切分（连续标记、首尾标记、无标记、只有标记）；以及 `plotFile.ts` 的文件名规则与解析/渲染往返——**四个小节、不再有「开头」「结尾」**，`isPlotFilled` 只认「剧情脉络」 |
 | `context/tokenizer.test.js` | token 估算（中英文比例）、`takeTail`/`takeHead` 的预算与截断标记（样本取 `manuscripts/` 里的真实正文） |
+| `llm/stopSignal.test.js` | 收尾原因（`StopSignal`）：喂一段**照抄现场**的 SSE——兼容网关说了 `stop_reason: "tool_use"` 却把 `tool_use` 块整个漏掉——断言 provider 交出 `stop: toolUse` 且零个 `toolCall`（循环据此重发）；正常那一份两者都在；`stop` **排在所有 `toolCall` 之后**；上游不发这一条时**一个 stop 都不交**（`undefined` 意为「它没说」）；认不出的原因归 `other`、截断归 `maxTokens` |
 | `context/tokenCounter.test.js` | 可替换计数器的注册/切换、`prepare` 抛错时不带崩、用量校准统计只收真实用量 |
 | `features/creation.test.js` | 模型输出清洗（去代码块/开场白/标题/字数统计，正文不误伤）、标题推断 |
 | `features/summarize.test.js` | **摘要解析的三层降级**：JSON → Markdown 小节 → 全文进梗概；不相干的 JSON 不被当成摘要；真实示例摘要（无 `cast` 字段那份）走小节反解 |
@@ -108,7 +109,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `tools/readTools.test.js` | 只读三件套：list 的 60 项上限与「还有 N 项未列出」、read 的行号与「第 X–Y 行未读」（含接着读的 offset）、search 的章号升序与 `dropped > 0` 时那行 ⚠；**越界与不存在一律给 `error` 不抛**（模型看得到才换得了路）；跑完三个工具磁盘 mtime 一个都不变 |
 | `tools/generateTool.test.js` | `generate` 工具：draft 落进 store 而**返回文本里没有正文**（三千字塞回循环，每走一步重烧一遍）、层与能力的组合问 `STAGE_CAPABILITIES`、`settle` 明确不支持并指路对话页、认不出的路径给 error 且一次模型都不调、`history` 恒为空、正文层走 `config.active`、**失败也照样报一次账**（请求发出去钱就花了）、**工具自己不提上限**（「已用 1/10」那句是调用方的） |
 | `agent/stateBrief.test.js` | 状态注入：**label 与 hint 与 `deriveNextStep` 一字不差**（第 20 条的硬断言）、老工程说「已发布 99 章」而不说「待写剧情」、成品路径与细纲路径认到同一章、⟳ 超 5 章写「等 N 章」、状态机不催时明说「不要自己挑一章开工」 |
-| `agent/loop.test.js` | agent 循环（脚本化假 provider）：不调工具时一个回合结束、tool 消息形状、连续两次同工具同参数收到提示且**不真跑**、三次停下并仍给一轮总结、预算触顶时最后一轮**不带 tools**、取消停在工具边界且已产出的 draft 保留、工具抛异常变成 error 回给模型、**工具产出的正文走 `onToolDelta`（带 callId）而 `onDelta` 里只剩模型自己说的话**、日志里没有 prompt 全文/参数值/正文 |
+| `agent/loop.test.js` | agent 循环（脚本化假 provider）：不调工具时一个回合结束、tool 消息形状、连续两次同工具同参数收到提示且**不真跑**、三次停下并仍给一轮总结、预算触顶时最后一轮**不带 tools**、取消停在工具边界且已产出的 draft 保留、工具抛异常变成 error 回给模型、**工具产出的正文走 `onToolDelta`（带 callId）而 `onDelta` 里只剩模型自己说的话**、**上游说要调工具却没把调用发过来时原样重发这一回合**（同一份上下文、气泡里留一句解释、额度按回合归零；连着几次都缺就停在 `stopReason: 'protocol'` 并说清是接口丢了这一段，而「上游没说收尾原因」照旧当成最终回答）、日志里没有 prompt 全文/参数值/正文 |
 | `generation/accept.test.js` | 产物落盘走的是**当场问的那张卡片**：卡片说得出写到哪、只有两颗按钮、**没答时磁盘没动静**；落点从 draft 取（答之前切了一章也写对）、落盘的是气泡里当下那份（先 `editTurn` 再点写入）、答「不采纳」一个字不写且气泡上留一行；讨论型回复不问；刷新网页时没答的卡片重推、面板销毁时按「未采纳」结算；并发控制那三条 |
 | `agent/gate.test.js` | 闸门串起来之后：默认模式下 write 弹一句且**说清写到哪**、两个选项（确认 / 跳过）、跳过则不执行而循环接着跑、**没回答当停止**且仍给最后一轮总结、放手模式新建不问、**覆盖审阅任何模式都在**、读工具从不打断、瞎编的工具名不问；**有 `onGate` 时不弹宿主的框**（面板那条路把这一句画进对话）；以及**产出之后当场问一句落盘**——三种模式都问（第 19 条，不是偏好设置）、结论回给模型、那一问没人答就停下且仍给最后一轮总结、没实现 `onArtifact` 就不问 |
 | `workspace/guard.test.js` | **八条入口守卫**各至少一条：越界（含归一化后仍逃出去的）、工程根包含、固定目录保护、回收站不可改（但读得到）、2MB 上限、同名不覆盖、覆盖审阅（两种宿主 + 文案逐字）、内容 hash 乐观锁 |

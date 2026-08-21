@@ -113,7 +113,14 @@ describe('llm/collect', () => {
 
   test('空流产出空字符串与空 usage', async () => {
     const r = await c.collect(streamOf([]));
-    assert.deepEqual(r, { text: '', reasoning: '', toolCalls: [], usage: {}, traces: [] });
+    assert.deepEqual(r, {
+      text: '',
+      reasoning: '',
+      toolCalls: [],
+      usage: {},
+      traces: [],
+      stopReason: undefined,
+    });
   });
 
   // 思考凭据要按到达顺序原样收着：下一轮请求把它交回去，模型才接得上
@@ -131,6 +138,23 @@ describe('llm/collect', () => {
       r.traces.map((t) => t.payload.signature),
       ['a', 'b']
     );
+  });
+
+  // 循环拿它跟 toolCalls 对账：说了 toolUse 却一个调用都没有，就是这一轮的
+  // 响应缺了一半（兼容网关转协议时丢了那一段）。
+  test('收尾原因收进 stopReason', async () => {
+    const r = await c.collect(
+      streamOf([{ type: 'text', text: '我先看看。' }, { type: 'stop', reason: 'toolUse' }])
+    );
+    assert.equal(r.stopReason, 'toolUse');
+    assert.deepEqual(r.toolCalls, []);
+  });
+
+  // undefined 有它自己的意思：「上游没说」。补一个默认值等于替它编一句话，而
+  // 循环会照着那句话决定要不要重发。
+  test('上游没说时是 undefined，不补默认值', async () => {
+    const r = await c.collect(streamOf([{ type: 'text', text: '好的。' }]));
+    assert.equal(r.stopReason, undefined);
   });
 
   test('mergeUsage 就地按字段合并，undefined 不覆盖已有值', () => {
