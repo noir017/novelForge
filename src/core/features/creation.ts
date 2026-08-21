@@ -9,7 +9,6 @@
  * | `currentAbort` 并发控制 | `controller/index.ts`（那是**调度**的责任） |
  * | 装配 + 调模型 + 解析 | `generation/generate.ts`（无状态，收 signal） |
  * | `acceptArtifact` 六条分支 | `generation/accept.ts`（守卫在 `workspace/`） |
- * | `preview()` | `generation/generate.ts` 的 `previewContext` |
  *
  * 留在这里的三样东西都跟创作编排没关系：`testConnection` 是设置页的活，
  * `cleanOutput` / `suggestTitle` 是纯文本工具（前者还被 `pipelineBatch.ts`

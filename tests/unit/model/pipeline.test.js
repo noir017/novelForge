@@ -1,12 +1,13 @@
 /**
- * 创作流水线纯函数：Stage × Capability × Target、细纲的文件格式、
- * 单段流水线状态推导、全书状态推导。
+ * 创作流水线纯函数：Job × Target、细纲的文件格式、单段流水线状态推导、
+ * 全书状态推导。
  *
  * 这两个模块是整条流水线的地基，且全部零 I/O——所以它们能被单独 bundle 出来直接调，
  * 不需要建工程、不需要 host、不需要模型。
  *
- * 模块在文件顶层同步加载（而不是在 before() 里）：有四处用例要按模块常量
- * （CREATION_STAGES / CAPABILITIES）展开成一批 test，describe 体在收集阶段就要读到它们。
+ * 模块在文件顶层同步加载（而不是在 before() 里）：有几处用例要按模块常量
+ * （CREATION_STAGES / CREATION_JOBS）展开成一批 test，describe 体在收集阶段
+ * 就要读到它们。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -15,7 +16,7 @@ const { loadModule } = require('../../helpers/load');
 const pipeline = loadModule('src/core/model/pipeline.ts');
 const plotFile = loadModule('src/core/model/plotFile.ts');
 
-describe('pipeline.ts · Stage × Capability', () => {
+describe('pipeline.ts · Stage', () => {
   test('四个阶段', () => {
     assert.equal(pipeline.CREATION_STAGES.length, 4);
   });
@@ -28,155 +29,66 @@ describe('pipeline.ts · Stage × Capability', () => {
     assert.ok(pipeline.CREATION_STAGES.every((s) => pipeline.STAGE_LABEL[s]));
   });
 
-  test('每个能力都有中文名', () => {
-    assert.ok(pipeline.CAPABILITIES.every((c) => pipeline.CAPABILITY_LABEL[c]));
-  });
-
-  // 每个阶段的可用能力必须是 CAPABILITIES 的子集——前端的按钮组直接读这张表，
-  // 混进一个不存在的能力会渲染出一个点了什么都不会发生的按钮。
-  for (const stage of pipeline.CREATION_STAGES) {
-    test(`${stage} 的能力集非空且合法`, () => {
-      const caps = pipeline.STAGE_CAPABILITIES[stage];
-      assert.ok(caps.length > 0 && caps.every((c) => pipeline.isCapability(c)), JSON.stringify(caps));
-    });
-
-    test(`${stage} 的默认能力在可用集合里`, () => {
-      const caps = pipeline.STAGE_CAPABILITIES[stage];
-      assert.ok(caps.includes(pipeline.DEFAULT_CAPABILITY[stage]), pipeline.DEFAULT_CAPABILITY[stage]);
-    });
-  }
-
-  // 默认动作永远是「讨论」——默认就花钱产出一份要不要都不知道的产物，
-  // 是「不偷偷烧 token」的反面。
-  test('默认能力一律是讨论', () => {
-    assert.ok(pipeline.CREATION_STAGES.every((s) => pipeline.DEFAULT_CAPABILITY[s] === 'discuss'));
-  });
-
-  test('正文阶段不能拆分', () => {
-    assert.ok(!pipeline.STAGE_CAPABILITIES.manuscript.includes('split'));
-  });
-
-  // 剧情段就是最小的规划单位：从前它拆的是场景，而那一层已经删掉了。
-  test('剧情阶段不能拆分', () => {
-    assert.ok(!pipeline.STAGE_CAPABILITIES.plot.includes('split'));
-  });
-
-  test('卷纲阶段可以拆分', () => {
-    assert.ok(pipeline.STAGE_CAPABILITIES.volume.includes('split'));
-  });
-
-  test('大纲阶段可以拆分', () => {
-    assert.ok(pipeline.STAGE_CAPABILITIES.outline.includes('split'));
-  });
-
-  test('四个阶段都能讨论', () => {
-    assert.ok(pipeline.CREATION_STAGES.every((s) => pipeline.STAGE_CAPABILITIES[s].includes('discuss')));
-  });
-
-  // 「落定」只给剧情层：它是唯一一层「先跟人聊、聊出结论再落文件」的东西。
-  // 铺到四层会得到三个几乎没人点、点了也不知道该沉淀什么的按钮。
-  test('只有剧情层能落定', () => {
-    assert.equal(
-      pipeline.CREATION_STAGES.filter((s) => pipeline.STAGE_CAPABILITIES[s].includes('settle')).join(),
-      'plot'
-    );
-  });
-
-  test('合法动作', () => {
-    assert.ok(pipeline.isValidAction({ stage: 'volume', capability: 'split' }));
-  });
-
-  test('落定是剧情层的合法动作', () => {
-    assert.ok(pipeline.isValidAction({ stage: 'plot', capability: 'settle' }));
-  });
-
-  test('非法组合被拒', () => {
-    assert.ok(!pipeline.isValidAction({ stage: 'manuscript', capability: 'split' }));
-  });
-
-  // 剧情层的 split 随场景层一起没了，老会话里存着它的要被拒。
-  test('剧情层的 split 被拒', () => {
-    assert.ok(!pipeline.isValidAction({ stage: 'plot', capability: 'split' }));
-  });
-
-  test('大纲不能落定', () => {
-    assert.ok(!pipeline.isValidAction({ stage: 'outline', capability: 'settle' }));
-  });
-
-  test('乱填的阶段被拒', () => {
-    assert.ok(!pipeline.isValidAction({ stage: 'nope', capability: 'discuss' }));
+  test('每个阶段都有要回答的问题', () => {
+    assert.ok(pipeline.CREATION_STAGES.every((s) => pipeline.STAGE_QUESTION[s]));
   });
 });
 
-describe('pipeline.ts · 输出形态', () => {
-  const artifact = ['generate', 'split', 'settle'];
-
-  for (const capability of pipeline.CAPABILITIES) {
-    const expected = artifact.includes(capability) ? 'artifact' : 'text';
-    test(`${capability} → ${expected}`, () => {
-      const kind = pipeline.outputKindOf({ stage: 'plot', capability });
-      assert.equal(kind, expected, kind);
-    });
-  }
-
-  // 讨论/挑刺/检查绝不能产出可采纳的东西——否则用户会不知道该采纳哪一个。
-  test('讨论不产出产物', () => {
-    assert.equal(pipeline.outputKindOf({ stage: 'scene', capability: 'discuss' }), 'text');
+describe('pipeline.ts · Job', () => {
+  test('六件活', () => {
+    assert.equal(pipeline.CREATION_JOBS.length, 6);
   });
 
-  // 落定的全部意义就是把讨论沉淀成文件，它必须可采纳。
-  test('落定产出产物', () => {
-    assert.equal(pipeline.outputKindOf({ stage: 'plot', capability: 'settle' }), 'artifact');
-  });
-});
-
-describe('pipeline.ts · 动作归一（容错）', () => {
-  test('认得出合法动作', () => {
-    assert.equal(pipeline.normalizeAction({ stage: 'scene', capability: 'generate' }).capability, 'generate');
+  test('每件活都有中文名', () => {
+    assert.ok(pipeline.CREATION_JOBS.every((j) => pipeline.JOB_LABEL[j]));
   });
 
-  // 删掉的能力在老会话里各有落点：改写并进了生成，其余三个都是讨论的变体。
-  test('老会话的 rewrite 落到 generate', () => {
-    assert.equal(pipeline.normalizeAction({ stage: 'scene', capability: 'rewrite' }).capability, 'generate');
+  // 工具描述逐条读它。缺一条，模型就得靠 job 的英文名去猜产出什么。
+  test('每件活都有一句说明', () => {
+    assert.ok(pipeline.CREATION_JOBS.every((j) => pipeline.JOB_HINT[j]));
   });
 
-  test('老会话的挑刺/检查/扩展落到讨论', () => {
-    for (const legacy of ['critique', 'check', 'expand']) {
-      assert.equal(pipeline.normalizeAction({ stage: 'plot', capability: legacy }).capability, 'discuss', legacy);
+  test('每件活都落在一个合法的层上', () => {
+    for (const job of pipeline.CREATION_JOBS) {
+      const stage = pipeline.stageOfJob(job);
+      assert.ok(pipeline.isCreationStage(stage), `${job} → ${stage}`);
     }
   });
 
-  // 旧会话没有这两个字段：回落到正文阶段的讨论，而不是直接开始烧 token 写正文。
-  test('缺字段回落到 manuscript', () => {
-    assert.equal(pipeline.normalizeAction(undefined).stage, 'manuscript');
+  test('认得出合法的 job', () => {
+    assert.ok(pipeline.CREATION_JOBS.every((j) => pipeline.isCreationJob(j)));
   });
 
-  test('缺字段回落到 discuss', () => {
-    assert.equal(pipeline.normalizeAction(undefined).capability, 'discuss');
+  // 这是拍平 capability 换来的东西：从前「剧情层 + split」在类型上说得出口，
+  // 得靠一张表 + 一个校验函数去拦。现在它根本不是一个值。
+  test('认不出来的一律拒掉', () => {
+    for (const bad of ['discuss', 'settle', 'split', 'generate', '', undefined, null, 42]) {
+      assert.equal(pipeline.isCreationJob(bad), false, String(bad));
+    }
   });
 
-  test('阶段不支持的能力被换掉', () => {
-    assert.equal(pipeline.normalizeAction({ stage: 'manuscript', capability: 'split' }).capability, 'discuss');
+  // 两件「拆」归**上一层**：拆卷时模型的身份是策划编辑、手上要的是全书大纲那套
+  // 上下文；拆段时是分卷编剧、要的是这一卷的卷纲。归到产出所在层的话，拆段会
+  // 拿剧情层的配方去装配，而那份配方里根本没有卷纲。
+  test('拆卷算在大纲层', () => {
+    assert.equal(pipeline.stageOfJob('volumeList'), 'outline');
   });
 
-  // 旧会话里存的是重构前的 `plan`，它不再是合法阶段——回落而不是崩。
-  test('旧的 plan 阶段回落', () => {
-    assert.equal(pipeline.normalizeAction({ stage: 'plan' }).stage, 'manuscript');
+  test('拆段算在卷纲层', () => {
+    assert.equal(pipeline.stageOfJob('plotSegment'), 'volume');
   });
 
-  // 场景层删掉之后，老会话里那个 stage 落到剧情层——它记着的是「这一段该
-  // 怎么发生」，接着往下做最可能是回剧情层把它写清楚。与 normalizeTarget 一致。
-  test('老会话的 scene 阶段落到剧情', () => {
-    assert.equal(pipeline.normalizeAction({ stage: 'scene', capability: 'generate' }).stage, 'plot');
+  test('四件「写」各归各层', () => {
+    assert.equal(pipeline.stageOfJob('outline'), 'outline');
+    assert.equal(pipeline.stageOfJob('volume'), 'volume');
+    assert.equal(pipeline.stageOfJob('plot'), 'plot');
+    assert.equal(pipeline.stageOfJob('manuscript'), 'manuscript');
   });
 
-  test('老会话的 scene 阶段能力也归一', () => {
-    const a = pipeline.normalizeAction({ stage: 'scene', capability: 'generate' });
-    assert.ok(pipeline.STAGE_CAPABILITIES[a.stage].includes(a.capability), JSON.stringify(a));
-  });
-
-  test('认不出的阶段回落', () => {
-    assert.equal(pipeline.normalizeAction({ stage: 'beat' }).stage, 'manuscript');
+  // 四个层每一层都至少有一件活，否则那一层在界面上存在、却没有任何办法推进。
+  test('每一层都至少有一件活', () => {
+    const covered = new Set(pipeline.CREATION_JOBS.map((j) => pipeline.stageOfJob(j)));
+    assert.deepEqual([...covered].sort(), [...pipeline.CREATION_STAGES].sort());
   });
 });
 
@@ -743,19 +655,15 @@ describe('pipeline.ts · 下一步（状态机 → 一个动作）', () => {
   const N = (patch) => ({ words: 0, ratio: 0, upstreamStale: false, ...patch });
   const step = (plotStage, patch) => pipeline.deriveNextStep(plotStage, N(patch));
 
-  // 每一档都必须落在一个**该阶段支持**的能力上，否则界面上会出现一个
-  // 后端当场回落掉的主按钮——点了跑出来的不是它写的那件事。
+  // agent 每回合把这两句逐字念给模型听（`agent/context.ts` 的 describeNext），
+  // 缺一句它就得自己编一个下一步。
   for (const s of ['plot', 'manuscript', 'split', 'review']) {
     test(`${s} 有下一步`, () => {
       assert.ok(!!step(s), s);
     });
 
-    test(`${s} 的能力在该阶段合法`, () => {
-      const next = step(s);
-      assert.ok(
-        pipeline.STAGE_CAPABILITIES[next.stage].includes(next.capability),
-        `${next.stage}·${next.capability}`
-      );
+    test(`${s} 的下一步落在合法的层上`, () => {
+      assert.ok(pipeline.isCreationStage(step(s).stage), step(s).stage);
     });
 
     test(`${s} 的下一步有说明`, () => {
@@ -766,27 +674,20 @@ describe('pipeline.ts · 下一步（状态机 → 一个动作）', () => {
 
   test('没剧情 → 写剧情', () => {
     assert.equal(step('plot').stage, 'plot');
-    assert.equal(step('plot').capability, 'generate');
-  });
-
-  // 主按钮永远是「写剧情」而不是「落定剧情」：落定要有讨论才有意义，
-  // 而状态机不知道这一轮会话里聊过没有。想落定就去 `/` 面板挑。
-  test('没剧情时主按钮不是落定', () => {
-    assert.notEqual(step('plot').capability, 'settle');
+    assert.equal(step('plot').label, pipeline.JOB_LABEL.plot);
   });
 
   // 细纲改过而正文没跟上：要的是拿新剧情重做一版，不是往后接着写。
-  // 改写不是独立能力（并进了 generate），但按钮上要说的仍是「重写」。
   test('剧情变过 → 重写正文', () => {
     const stale = step('manuscript', { words: 3000, ratio: 1, upstreamStale: true });
-    assert.equal(stale.capability, 'generate', stale.capability);
+    assert.equal(stale.stage, 'manuscript');
     assert.equal(stale.label, '重写正文', stale.label);
   });
 
   test('一个字都没写 → 写正文', () => {
     const write = step('manuscript');
-    assert.equal(write.capability, 'generate', JSON.stringify(write));
-    assert.equal(write.label, '写正文', write.label);
+    assert.equal(write.stage, 'manuscript');
+    assert.equal(write.label, pipeline.JOB_LABEL.manuscript, JSON.stringify(write));
   });
 
   // 写了一半：落盘走的是追加，按钮上必须说清是「接着写」而不是重来一遍，
@@ -858,29 +759,21 @@ describe('pipeline.ts · 全书状态（大纲 → 卷 → 剧情段 → 按段�
   // ---- 全书下一步 ----
   const step = (s) => pipeline.deriveBookNextStep(s);
 
-  test('大纲阶段 → 生成大纲', () => {
+  test('大纲阶段 → 写大纲', () => {
     assert.equal(step('outline').stage, 'outline');
-    assert.equal(step('outline').capability, 'generate');
+    assert.equal(step('outline').label, pipeline.JOB_LABEL.outline);
   });
 
-  test('拆卷阶段 → 大纲的 split', () => {
+  test('拆卷阶段落在大纲层', () => {
     assert.equal(step('volumes').stage, 'outline');
-    assert.equal(step('volumes').capability, 'split');
+    assert.equal(step('volumes').label, pipeline.JOB_LABEL.volumeList);
   });
 
-  test('拆卷的按钮写着「拆成卷」', () => {
-    assert.equal(step('volumes').label, '拆成卷');
-  });
-
-  test('拆段的按钮写着「拆出剧情段」', () => {
-    assert.equal(step('plots').label, '拆出剧情段');
-  });
-
-  // 拆段是**卷纲层**的活：它从一卷的卷纲里拆，作者点开看的也是那份卷纲。
-  // 从前它挂在 outline 阶段、靠 targetKind 特判换文案。
-  test('拆段落在卷纲层的 split', () => {
+  // 拆段是**卷纲层**的活：它从一卷的卷纲里拆。落错层的话，agent 会拿剧情层
+  // 的配方去装配，而那份配方里根本没有卷纲。
+  test('拆段落在卷纲层', () => {
     assert.equal(step('plots').stage, 'volume');
-    assert.equal(step('plots').capability, 'split');
+    assert.equal(step('plots').label, pipeline.JOB_LABEL.plotSegment);
   });
 
   // 段已经有了：该做什么由**选中的那一段**决定，挑哪一段是作者的选择。
@@ -888,109 +781,11 @@ describe('pipeline.ts · 全书状态（大纲 → 卷 → 剧情段 → 按段�
     assert.equal(step('working'), undefined);
   });
 
-  test('全书下一步的能力都合法', () => {
+  test('全书下一步都落在合法的层上，且都有说明', () => {
     for (const s of ['outline', 'volumes', 'plots']) {
       const next = step(s);
-      assert.ok(
-        pipeline.STAGE_CAPABILITIES[next.stage].includes(next.capability),
-        `${s} → ${next.stage}·${next.capability}`
-      );
+      assert.ok(pipeline.isCreationStage(next.stage), `${s} → ${next.stage}`);
+      assert.ok(!!next.label && !!next.hint, JSON.stringify(next));
     }
-  });
-});
-
-describe('pipeline.ts · 命令表', () => {
-  for (const stage of pipeline.CREATION_STAGES) {
-    test(`${stage} 有命令`, () => {
-      assert.ok(pipeline.commandsFor(stage).length > 0);
-    });
-
-    // 讨论不是命令——打字就是在讨论。面板里是 STAGE_CAPABILITIES 去掉 discuss。
-    test(`${stage} 的命令与 STAGE_CAPABILITIES 一致（不含讨论）`, () => {
-      const cmds = pipeline.commandsFor(stage);
-      assert.equal(cmds.length, pipeline.STAGE_CAPABILITIES[stage].length - 1);
-      assert.ok(cmds.every((c) => pipeline.STAGE_CAPABILITIES[stage].includes(c.capability)));
-    });
-
-    test(`${stage} 的面板里没有讨论`, () => {
-      assert.ok(pipeline.commandsFor(stage).every((c) => c.capability !== 'discuss'));
-    });
-
-    test(`${stage} 的命令名不重复`, () => {
-      const cmds = pipeline.commandsFor(stage);
-      assert.equal(new Set(cmds.map((c) => c.label)).size, cmds.length, cmds.map((c) => c.label).join('|'));
-    });
-
-    test(`${stage} 每个命令都有说明与过滤键`, () => {
-      assert.ok(pipeline.commandsFor(stage).every((c) => c.hint && c.keys.length > 0));
-    });
-
-    // 面板里剩下的每一条都产出可采纳的产物（会花钱、会问一次落盘），
-    // 这正是它们值得显式挑一下的原因。
-    test(`${stage} 的命令都产出产物`, () => {
-      assert.ok(
-        pipeline.commandsFor(stage).every(
-          (c) => pipeline.outputKindOf({ stage, capability: c.capability }) === 'artifact'
-        )
-      );
-    });
-  }
-
-  // 同一个能力在不同阶段的说法不同——split 在大纲拆的是卷，在卷纲层拆的是段。
-  test('大纲的 split 叫拆成卷', () => {
-    assert.equal(pipeline.labelOf('outline', 'split'), '拆成卷');
-  });
-
-  // 从前这条要靠 targetKind 特判（`labelOf('outline','split','volume')`）。
-  // 卷纲独立成阶段之后按 stage 取就够了，少一个会忘记传的参数。
-  test('卷纲的 split 叫拆出剧情段', () => {
-    assert.equal(pipeline.labelOf('volume', 'split'), '拆出剧情段');
-  });
-
-  test('卷纲的 generate 叫写这一卷的卷纲', () => {
-    assert.equal(pipeline.labelOf('volume', 'generate'), '写这一卷的卷纲');
-  });
-
-  test('卷纲的 split 说明写着一次只拆一段', () => {
-    assert.match(pipeline.commandOf('volume', 'split').hint, /一次只拆一段/);
-  });
-
-  test('剧情的 generate 叫写剧情', () => {
-    assert.equal(pipeline.labelOf('plot', 'generate'), '写剧情');
-  });
-
-  test('剧情的 settle 叫落定剧情', () => {
-    assert.equal(pipeline.labelOf('plot', 'settle'), '落定剧情');
-  });
-
-  // 没有专门说法的沿用通用标签（日志与确认框用的就是它）。
-  test('没覆盖的沿用通用说法', () => {
-    assert.equal(pipeline.labelOf('manuscript', 'discuss'), pipeline.CAPABILITY_LABEL.discuss);
-  });
-
-  // 落定与写剧情产出的是同一种产物，通用文案说不清它们的差别——
-  // 而那个差别（以讨论为准还是以你这句话为准）正是作者要选的东西。
-  test('落定与写剧情的说明不同', () => {
-    assert.notEqual(pipeline.commandOf('plot', 'settle').hint, pipeline.commandOf('plot', 'generate').hint);
-  });
-
-  test('落定的说明提到讨论', () => {
-    assert.ok(pipeline.commandOf('plot', 'settle').hint.includes('讨论'), pipeline.commandOf('plot', 'settle').hint);
-  });
-
-  test('查得到某个具体命令', () => {
-    assert.equal(pipeline.commandOf('volume', 'split')?.label, '拆出剧情段');
-  });
-
-  test('剧情层查不到 split（场景那一层没了）', () => {
-    assert.equal(pipeline.commandOf('plot', 'split'), undefined);
-  });
-
-  test('阶段不支持的能力查不到', () => {
-    assert.equal(pipeline.commandOf('manuscript', 'split'), undefined);
-  });
-
-  test('大纲查不到落定', () => {
-    assert.equal(pipeline.commandOf('outline', 'settle'), undefined);
   });
 });

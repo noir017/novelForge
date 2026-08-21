@@ -35,11 +35,9 @@ export type {
   ProjectFileNode,
   ProjectNode,
   ProjectTree,
-  SendPayload,
   SerializedAgentRun,
   SerializedArtifact,
   SerializedAttachment,
-  SerializedDigest,
   SerializedModel,
   SerializedProvider,
   SerializedSegment,
@@ -60,18 +58,13 @@ export type {
 /**
  * 创作流水线的类型与那几张对照表。
  *
- * 与 `tiers.ts` 同一套理由：**标签、命令表、状态机推荐必须与后端同源**。
- * 前端自己抄一份的话，界面上会出现一个后端不认的命令，点了什么都不发生。
+ * 与 `tiers.ts` 同一套理由：**标签必须与后端同源**。前端自己抄一份的话，
+ * 同一样东西在两处会有两个名字，而作者分不清它们是不是一回事。
  * `model/pipeline.ts` 是纯类型 + 纯函数、**零 import**，打进浏览器产物是安全的。
  */
 export {
-  CAPABILITIES,
-  CAPABILITY_HINT,
-  CAPABILITY_LABEL,
   PLOT_STAGE_LABEL,
   CREATION_STAGES,
-  DEFAULT_CAPABILITY,
-  STAGE_CAPABILITIES,
   STAGE_LABEL,
   STAGE_QUESTION,
   chapterLabel,
@@ -81,22 +74,14 @@ export {
   segmentDisplayNo,
   volumeLabel,
   volumeOfTarget,
-  commandOf,
-  commandsFor,
-  labelOf,
-  outputKindOf,
   targetKey,
 } from '../../src/core/model/pipeline';
 export type {
   BookStage,
-  Capability,
-  CreationAction,
   CreationStage,
   CreationTarget,
-  NextStepPlan,
   PipelineProgress,
   PlotStage,
-  StageCommand,
 } from '../../src/core/model/pipeline';
 
 /**

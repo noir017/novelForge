@@ -1,23 +1,13 @@
 /**
- * 创作流水线条与「下一步」。
+ * 创作流水线条：**我现在在哪一层** —— 段名信息条 + 状态徽章 + 三层状态点。
  *
- * 界面要回答三个问题，这里管前两个（第三个是工作区卡，见 workbench.ts）：
+ * 「我接下来该干什么」不在这里回答了。从前这里有一颗主按钮，由状态机
+ * （`deriveNextStep`）算出该做哪一步，点了直接发一次确定性的单步生成。
+ * 现在对话只有 agent 一条路，那个判断由它每回合读到的状态注入自己做
+ * （同一个 `deriveNextStep`，第 20 条）——界面上再放一颗按钮，等于让作者
+ * 和 agent 抢同一个方向盘。
  *
- * - **我现在在哪一层？** —— 段名信息条 + 状态徽章 + 三层状态点
- * - **我接下来该干什么？** —— 下一步条（一个主按钮 + 一个 `/ 命令`）
- *
- * ## 为什么是一个按钮而不是七个
- *
- * 改造前这里是 `STAGE_CAPABILITIES[stage]` 的平铺：七个等重的按钮，
- * 看不出该点哪个。可在任何一个具体时刻，作者真正要按的只有一个——
- * 那一个由状态机算得出来（`deriveNextStep`，判据与 `deriveStage` 同源）。
- * 于是：状态机那一个做主按钮，其余六个收进 `/` 命令面板。
- *
- * ## 为什么主按钮点了就跑
- *
- * 它是状态机替你选的，没有参数可填：这一章该排什么剧情，大纲与前后章里都写着。
- * 旧界面逼作者先编一句「请生成」才肯发送，而那句废话还会被当成要求装进
- * prompt。输入框里有字就当补充要求带上，没有就不带。
+ * 这一条仍然要画：它是**信息**，作者得看得见这一段走到哪了。
  */
 import { el as mk, clear, maybeById, setHidden } from '../dom';
 import {
@@ -34,7 +24,6 @@ import {
 import type {
   CreationStage,
   CreationTarget,
-  NextStepView,
   PipelineProgress,
   PlotPipelineView,
 } from '../protocol';
@@ -45,18 +34,9 @@ import { store, vscode } from './store';
 
 /** 当前这一章的流水线。切目标或产物落盘后由后端重推。 */
 let current: PlotPipelineView | null = null;
-/** 状态机算出的下一步。全书那一层也有（去写大纲 / 去拆卷 / 去拆剧情段）。 */
-let next: NextStepView | null = null;
 
 const crumb = () => maybeById('pipelineCrumb');
 const stagesBox = () => maybeById('pipelineStages');
-
-/** 由 composer 注入：主按钮点下去要走发送那条路（它管附件、草稿、busy）。 */
-let runNextStep: (step: NextStepView) => void = () => {};
-
-export function bindNextStepRunner(fn: (step: NextStepView) => void): void {
-  runNextStep = fn;
-}
 
 /** 「开始新对话」：清空消息流，从同一目标重新起一段对话。 */
 export function installNewSession(): void {
@@ -85,9 +65,8 @@ export function installRenamePlot(): void {
   });
 }
 
-export function renderPipeline(pipeline: PlotPipelineView | undefined, step: NextStepView | undefined): void {
+export function renderPipeline(pipeline: PlotPipelineView | undefined): void {
   current = pipeline ?? null;
-  next = step ?? null;
   redraw();
 }
 
@@ -100,7 +79,6 @@ export function renderPipeline(pipeline: PlotPipelineView | undefined, step: Nex
 export function onSessionChanged(): void {
   if (current && current.plotRelPath !== plotOfTarget(store.session.target)) {
     current = null;
-    next = null;
   }
   redraw();
 }
@@ -109,7 +87,6 @@ function redraw(): void {
   renderCrumb();
   renderRenameBtn();
   renderStages();
-  renderNextStep();
   updatePlaceholder();
 }
 
@@ -300,53 +277,17 @@ const STAGE_STATUS_LABEL = {
   done: '已完成',
 } as const;
 
-// ---------------------------------------------------------------- 下一步
-
 /**
- * 下一步条：一句「为什么是这一步」 + 一个主按钮。
+ * 输入框的提示语跟着当前停在哪一层走。
  *
- * 没有下一步（这一章全做完了）时主按钮收起——**不造一个假的下一步**。
- * 给一个「下一步」等于逼作者一直有事可做，而写完就是写完了。其余命令在
- * 输入框里打 `/` 就有（或点工具行上的「/ 命令」）。
- */
-function renderNextStep(): void {
-  setHidden(el.nextStep, false);
-
-  if (!next) {
-    el.nextStepHint.textContent = current
-      ? '这一段各层都齐了。要改哪一层就点上面对应的那一层。'
-      : '挑一段开始，或在输入框里打 / 挑一个命令。';
-    setHidden(el.nextStepBtn, true);
-    return;
-  }
-
-  el.nextStepHint.textContent = next.hint;
-  setHidden(el.nextStepBtn, false);
-  el.nextStepBtn.textContent = next.label;
-  el.nextStepBtn.title = next.projectAction
-    ? '这一步是工程动作，不消耗对话上下文'
-    : `${STAGE_LABEL[next.stage]} · 点了立即执行，输入框里有字就一起带上`;
-  el.nextStepBtn.disabled = store.busy;
-  el.nextStepBtn.onclick = () => {
-    if (!store.busy && next) {
-      runNextStep(next);
-    }
-  };
-}
-
-/**
- * 输入框的提示语跟着阶段与能力走。
- *
- * 「描述要续写的剧情」在剧情阶段是误导——那一层用户输入的是走向而不是纲要。
- * 而多数命令的输入是**可选**的，提示语要说出这一点。
+ * 「描述要续写的剧情」在剧情层是误导——那一层作者说的是走向而不是纲要。
  */
 function updatePlaceholder(): void {
-  const { stage, capability } = store.session;
-  if (stage === 'manuscript' && capability === 'generate') {
-    el.input.placeholder = '描述这一段要写什么剧情…（可留空，Enter 发送）';
-    return;
-  }
-  el.input.placeholder = `${STAGE_LABEL[stage]}：${STAGE_QUESTION[stage]}（可留空，打 / 挑命令）`;
+  const { stage } = store.session;
+  el.input.placeholder =
+    stage === 'manuscript'
+      ? '要它写什么？（Enter 发送）'
+      : `${STAGE_LABEL[stage]}：${STAGE_QUESTION[stage]}（Enter 发送）`;
 }
 
 // ---------------------------------------------------------------- 工具

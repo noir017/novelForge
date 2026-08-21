@@ -118,7 +118,7 @@ describe('对细纲调 generate', () => {
   before(async () => {
     resetCtx();
     replyFn = () => PLOT_JSON;
-    r = await run({ target: PLOT_REL, capability: 'generate', ask: '排一下这一章' });
+    r = await run({ job: 'plot', target: PLOT_REL, ask: '排一下这一章' });
   });
 
   test('没有 error', () => {
@@ -189,7 +189,7 @@ describe('history 恒为空', () => {
   before(async () => {
     resetCtx();
     replyFn = () => PLOT_JSON;
-    await run({ target: PLOT_REL, capability: 'generate', ask: '排一下' });
+    await run({ job: 'plot', target: PLOT_REL, ask: '排一下' });
   });
 
   // agent 的工具调用不是作者的讨论。混进去，装配器会把 `list .novelforge/plots`
@@ -205,69 +205,55 @@ describe('history 恒为空', () => {
   });
 });
 
-describe('层与能力的组合由 STAGE_CAPABILITIES 说了算', () => {
-  test('正文层不支持 split，给 error', async () => {
+describe('job 与落点必须落在同一层', () => {
+  // 从前这里靠一张 STAGE_CAPABILITIES 表 + isValidAction 去拦「剧情层 + split」
+  // 这类说得出口但不成立的组合。拍平成 job 之后那些组合根本不是一个值，
+  // 剩下要拦的只有一种：job 说的层与路径所在的层对不上。
+  test('拆段配一个细纲路径 → error', async () => {
     resetCtx();
-    const r = await run({ target: MANUSCRIPT_REL, capability: 'split' });
+    const r = await run({ job: 'plotSegment', target: PLOT_REL });
     assert.ok(r.error, JSON.stringify(r));
   });
 
-  test('error 里列出这一层实际能用什么', async () => {
+  // 报错要指一条正确的路，不能只说「不行」。
+  test('error 里说清该给什么路径', async () => {
     resetCtx();
-    const r = await run({ target: MANUSCRIPT_REL, capability: 'split' });
-    assert.ok(r.error.includes('generate'), r.error);
+    const r = await run({ job: 'plotSegment', target: PLOT_REL });
+    assert.ok(r.error.includes('volumes'), r.error);
   });
 
-  test('不支持的组合不调模型', async () => {
+  test('对不上时不调模型', async () => {
     resetCtx();
-    await run({ target: MANUSCRIPT_REL, capability: 'split' });
+    await run({ job: 'plotSegment', target: PLOT_REL });
     assert.equal(fake.calls.length, 0, String(fake.calls.length));
   });
 
-  // 剧情段就是最小的规划单位：从前它拆的是场景，而那一层已经删掉了。
-  // agent 拿着老提示词来试的话，要在这里被拦住并被告知这一层有什么。
-  test('剧情层的 split 不再支持', async () => {
+  test('写正文配一份细纲路径 → error', async () => {
     resetCtx();
-    const r = await run({ target: PLOT_REL, capability: 'split' });
-    assert.ok(r.error && r.error.includes('split'), JSON.stringify(r));
-  });
-
-  test('剧情层的 split 被拦住时不调模型', async () => {
-    resetCtx();
-    await run({ target: PLOT_REL, capability: 'split' });
-    assert.equal(fake.calls.length, 0, String(fake.calls.length));
-  });
-
-  test('认不出的 capability 给 error', async () => {
-    resetCtx();
-    const r = await run({ target: PLOT_REL, capability: '排一下' });
-    assert.ok(r.error && r.error.includes('capability'), JSON.stringify(r));
-  });
-});
-
-describe('settle 明确不支持', () => {
-  let r;
-
-  before(async () => {
-    resetCtx();
-    r = await run({ target: PLOT_REL, capability: 'settle' });
-  });
-
-  test('给 error', () => {
+    const r = await run({ job: 'manuscript', target: PLOT_REL });
     assert.ok(r.error, JSON.stringify(r));
   });
 
-  // 喂它一个空历史，它会凭空编一份「刚才讨论出的结论」——比不支持更糟。
-  test('error 指路到对话页手动执行', () => {
-    assert.ok(r.error.includes('对话页'), r.error);
+  // 拆卷要的是全书大纲，给它一份细纲是矛盾的。
+  test('拆卷配一份细纲 → error', async () => {
+    resetCtx();
+    const r = await run({ job: 'volumeList', target: PLOT_REL });
+    assert.ok(r.error, JSON.stringify(r));
   });
 
-  test('一次模型都没调', () => {
-    assert.equal(fake.calls.length, 0, String(fake.calls.length));
+  test('认不出的 job 给 error', async () => {
+    resetCtx();
+    const r = await run({ job: '排一下', target: PLOT_REL });
+    assert.ok(r.error && r.error.includes('job'), JSON.stringify(r));
   });
 
-  test('一次调用都不报', () => {
-    assert.equal(ctx.usage.calls, 0);
+  // 老提示词里的那几个能力名都不再是合法的 job。
+  test('老的 capability 名一律认不出', async () => {
+    for (const stale of ['generate', 'split', 'settle', 'discuss']) {
+      resetCtx();
+      const r = await run({ job: stale, target: PLOT_REL });
+      assert.ok(r.error, `${stale}: ${JSON.stringify(r)}`);
+    }
   });
 });
 
@@ -276,7 +262,7 @@ describe('认不出的路径', () => {
 
   before(async () => {
     resetCtx();
-    r = await run({ target: '随手写的一个路径.txt', capability: 'generate' });
+    r = await run({ job: 'plot', target: '随手写的一个路径.txt' });
   });
 
   test('给 error 而不是抛', () => {
@@ -294,7 +280,7 @@ describe('认不出的路径', () => {
 
   test('越界路径同样给 error', async () => {
     resetCtx();
-    const bad = await run({ target: '../../etc/passwd', capability: 'generate' });
+    const bad = await run({ job: 'plot', target: '../../etc/passwd' });
     assert.ok(bad.error, JSON.stringify(bad));
   });
 });
@@ -305,7 +291,7 @@ describe('正文层用对话页选定的那个模型', () => {
   before(async () => {
     resetCtx();
     replyFn = () => '雨下了三天。山门在雨里。';
-    r = await run({ target: MANUSCRIPT_REL, capability: 'generate', targetWords: 800 });
+    r = await run({ job: 'manuscript', target: MANUSCRIPT_REL, targetWords: 800 });
   });
 
   // 第 12 条：中途换人会让文风断掉。不传 provider = 走 config.active。
@@ -340,7 +326,7 @@ describe('模型失败', () => {
     replyFn = () => {
       throw new bundle.provider.LlmError('假装 429 限流');
     };
-    r = await run({ target: PLOT_REL, capability: 'generate' });
+    r = await run({ job: 'plot', target: PLOT_REL });
   });
 
   test('给 error 而不是抛', () => {
@@ -378,7 +364,7 @@ describe('工具定义本身', () => {
 
   test('参数是扁平的四个标量', () => {
     const props = tool().parameters.properties;
-    assert.deepEqual(Object.keys(props).sort(), ['ask', 'capability', 'target', 'targetWords']);
+    assert.deepEqual(Object.keys(props).sort(), ['ask', 'job', 'target', 'targetWords']);
     assert.ok(Object.values(props).every((p) => p.type !== 'object'), JSON.stringify(props));
   });
 });

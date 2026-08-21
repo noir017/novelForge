@@ -1,25 +1,10 @@
 import type { LlmTask, ModelTier } from '../model/tiers';
 import type { AgentPolicy } from '../model/agentPolicy';
 import type { ThinkingDepth } from '../model/thinking';
-import type {
-  Capability,
-  CreationStage,
-  CreationTarget,
-} from '../model/pipeline';
+import type { CreationTarget } from '../model/pipeline';
 import type { SerializedProvider } from './out';
 
 export type Tab = 'chat' | 'project' | 'files' | 'history' | 'settings' | 'logs';
-
-export interface SendPayload {
-  text: string;
-  stage: CreationStage;
-  capability: Capability;
-  target: CreationTarget;
-  targetNo: number;
-  targetWords: number;
-  attachments: SerializedAttachment[];
-  excludedIds: string[];
-}
 
 export interface SerializedAttachment {
   id: string;
@@ -36,17 +21,17 @@ export type EditorPane = 'main' | 'draft';
 export type InMessage =
   | { type: 'ready' }
   | { type: 'switchTab'; tab: Tab }
-  | { type: 'send'; payload: SendPayload }
   /**
-   * 让 agent 跑一轮：它自己决定查什么、生成什么。**这是直接发送走的那条路。**
+   * 让 agent 跑一轮：它自己决定查什么、生成什么。**对话只有这一条路。**
    *
-   * 与 `send` 并存而不是取代它——挑了 `/命令`（写剧情、拆成场景）是**确定性
-   * 单步**，多一次调度调用只是加钱加延迟（设计文档的第一条决策）。`limits`
-   * 留给日后的设置页，缺省走 `budget.ts` 的三条。
+   * 只吃作者那一句话——它没有「在哪一层、干什么」的概念，那两件事由它
+   * 自己按每回合注入的状态机结论决定（第 20 条）。前端捎一份过去等于让它
+   * 也参与判断，两处迟早分叉。
+   *
+   * `limits` 留给日后的设置页，缺省走 `budget.ts` 的三条。
    */
   | { type: 'sendAgent'; text: string; limits?: { steps?: number; calls?: number; tokens?: number } }
   | { type: 'stop' }
-  | { type: 'retry'; turnId: string; payload: SendPayload }
   | { type: 'setTarget'; target: CreationTarget }
   | { type: 'selectPlot'; plotRelPath: string }
   | { type: 'requestPipeline'; plotRelPath?: string }

@@ -10,6 +10,7 @@
  */
 import { AgentMessage } from '../llm/provider';
 import { NovelProject } from '../model/project';
+import { stageOfJob } from '../model/pipeline';
 import { NovelConfig } from '../model/types';
 import { estimateTokens } from './tokenizer';
 import { LAYERS, resolveFocus, type Assembly } from './layers';
@@ -37,7 +38,7 @@ export async function buildContext(
   const budgetClampedByProvider =
     request.providerMaxInputTokens !== undefined && request.providerMaxInputTokens < config.contextWindow;
 
-  const recipe = recipeFor(request.action.stage, request.action.capability);
+  const recipe = recipeFor(stageOfJob(request.job));
   const focus = await resolveFocus(project, request, recipe);
 
   const assembly: Assembly = {
@@ -113,9 +114,8 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
   const pick = (kind: ItemKind): ContextItem[] => live.filter((i) => i.kind === kind);
   const join = (list: ContextItem[]): string => list.map((i) => i.text.trim()).join('\n\n');
 
-  const { stage, capability } = request.action;
-  /** 正文出稿：只有这一种情况才谈「接下去写」「目标字数」。 */
-  const writing = stage === 'manuscript' && capability === 'generate';
+  /** 正文出稿：只有这一件活才谈「接下去写」「目标字数」。 */
+  const writing = request.job === 'manuscript';
 
   const messages: AgentMessage[] = [];
   const system = pick('system')[0];
@@ -170,7 +170,7 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
   // 用户 @ 的引用也紧挨着他的指令放——他多半正是要针对这些内容提要求。
   section('# 我引用的内容（请针对这些内容作答）', pick('attachment'));
 
-  const requirements: string[] = [`${askHeading(request.action)}\n\n${pick('ask')[0]?.text ?? request.ask}`];
+  const requirements: string[] = [`${askHeading(request.job)}\n\n${pick('ask')[0]?.text ?? request.ask}`];
   if (writing && request.targetWords && request.targetWords > 0) {
     requirements.push(`目标字数：约 ${request.targetWords} 字（±15% 均可）。`);
   }
@@ -184,9 +184,7 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
     sections.push(`# 修订要求\n\n${revision.text}\n\n请基于上一版重写，采纳修改意见，保留其中写得好的部分。`);
   }
 
-  // target 也要给：大纲这一层的 `split` 在全书大纲上要分卷清单、在一卷上要
-  // 一个剧情段（卷不是独立阶段，见 model/pipeline.ts 的文件头）。
-  const contract = buildOutputContract(request.action, request.targetWords);
+  const contract = buildOutputContract(request.job, request.targetWords);
   sections.push(
     writing && config.recentChaptersFullText > 0
       ? `${contract}注意与上文的语气、称谓、时态保持一致。`

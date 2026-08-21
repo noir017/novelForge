@@ -1,6 +1,6 @@
 # core/generation — 装配 + 调模型 + 解析 + 落盘
 
-创作的一次单步：**装配上下文 → 调模型 → 解析成产物 → 当场问一句，作者点头才落盘**。
+一次创作调用：**装配上下文 → 调模型 → 解析成产物 → 当场问一句，作者点头才落盘**。
 
 从前这四件事挤在 `features/creation.ts` 的 `CreationSession` 一个类里，外加第五件——「当前有没有在生成」。落盘搬进 [`workspace/`](../workspace/README.md) 之后，剩下的应该是纯函数，所以这一层**没有类、没有字段、没有单例**。
 
@@ -76,4 +76,4 @@ draft.target → accept(project, target, parseArtifact(action, 气泡里的文�
 
 ## 依赖关系
 
-依赖 `context/`（装配）、`llm/`（provider）、`workspace/`（落盘）、`features/artifact.ts`（解析）、`model/`、`runtime/`。被 `controller/chat.ts`（对话页）与 `shells/vscode/quickContinue.ts`（命令面板的快速续写）调用。**不认识 `agent/`**——依赖方向严格自下而上。
+依赖 `context/`（装配）、`llm/`（provider）、`workspace/`（落盘）、`features/artifact.ts`（解析）、`model/`、`runtime/`。被 `tools/novel/generate.ts`（agent 的 `generate` 工具）与 `features/pipelineBatch.ts`（工程页批量）调用。**不认识 `agent/`**——依赖方向严格自下而上。

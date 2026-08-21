@@ -127,7 +127,7 @@ describe('剧情层 · 产出 Draft', () => {
     rec = recorder();
     out = await gen.generate(
       project,
-      { action: { stage: 'plot', capability: 'generate' }, target: PLOT_TARGET, ask: '排一下这一章' },
+      { job: 'plot', target: PLOT_TARGET, ask: '排一下这一章' },
       rec.handlers,
       { signal: new AbortController().signal }
     );
@@ -145,8 +145,8 @@ describe('剧情层 · 产出 Draft', () => {
     assert.ok(out.draft.id && typeof out.draft.id === 'string', out.draft.id);
   });
 
-  test('draft 记下了 action 与 target', () => {
-    assert.equal(out.draft.action.capability, 'generate');
+  test('draft 记下了 job 与 target', () => {
+    assert.equal(out.draft.job, 'plot');
     assert.equal(out.draft.target.plotRelPath, PLOT_TARGET.plotRelPath);
   });
 
@@ -198,7 +198,7 @@ describe('正文层 · cleanOutput 只在这一层跑', () => {
       await gen.generate(
         project,
         {
-          action: { stage: 'manuscript', capability: 'generate' },
+          job: 'manuscript',
           target: { kind: 'manuscript', plotRelPath: PLOT_TARGET.plotRelPath },
           ask: '接着写',
         },
@@ -213,7 +213,7 @@ describe('正文层 · cleanOutput 只在这一层跑', () => {
     plotRaw = (
       await gen.generate(
         project,
-        { action: { stage: 'plot', capability: 'generate' }, target: PLOT_TARGET, ask: 'x' },
+        { job: 'plot', target: PLOT_TARGET, ask: 'x' },
         b.handlers,
         { signal: new AbortController().signal }
       )
@@ -240,14 +240,21 @@ describe('正文层 · cleanOutput 只在这一层跑', () => {
 
   test('围栏包着的 JSON 照样解析得出来', async () => {
     const artifact = bundle.generate.parseDraftArtifact(
-      { stage: 'plot', capability: 'generate' },
+      'plot',
       plotRaw
     );
     assert.equal(artifact.sections.冲突与转折, '三拍推进', JSON.stringify(artifact));
   });
 });
 
-describe('讨论类能力 · 没有可采纳的东西', () => {
+/**
+ * 兜底解析：模型没按契约给 JSON 时，全文塞进主字段。
+ *
+ * 这条路留着是为了**不白烧那一次调用**——产物就摊在气泡里，作者看得见它是
+ * 什么，落盘前还要过一遍卡片（第 19 条）。批量路径反过来用严格解析
+ * （`parsePlotStrict`），那里没有人逐份过目。
+ */
+describe('模型没给 JSON 时兜底', () => {
   let draft;
 
   before(async () => {
@@ -257,23 +264,26 @@ describe('讨论类能力 · 没有可采纳的东西', () => {
     draft = (
       await gen.generate(
         project,
-        { action: { stage: 'plot', capability: 'discuss' }, target: PLOT_TARGET, ask: '你怎么看' },
+        { job: 'plot', target: PLOT_TARGET, ask: '你怎么看' },
         rec.handlers,
         { signal: new AbortController().signal }
       )
     ).draft;
   });
 
-  test('仍然产出 draft（文本要留在气泡里）', () => {
-    assert.ok(draft, '讨论也该有 draft');
+  test('产出了 draft', () => {
+    assert.ok(draft);
   });
 
-  test('draft 没有 artifact', () => {
-    assert.equal(draft.artifact, undefined, JSON.stringify(draft.artifact));
+  // 兜底落在「剧情脉络」而不是「目标」：`isPlotFilled` 只看前者，
+  // 兜进「目标」的话这一段采纳后会显示成「还没排剧情」的空壳。
+  test('全文落在剧情脉络那一节', () => {
+    assert.equal(draft.artifact.kind, 'plot');
+    assert.equal(draft.artifact.sections.剧情脉络, '我觉得这一章的冲突可以提前。');
   });
 
-  test('draft 没有 summary', () => {
-    assert.equal(draft.summary, undefined, draft.summary);
+  test('形状描述说得出填了几节', () => {
+    assert.equal(draft.summary, '剧情 · 1/4 节', draft.summary);
   });
 });
 
@@ -291,7 +301,7 @@ describe('模型抛错', () => {
     rec = recorder();
     out = await gen.generate(
       project,
-      { action: { stage: 'plot', capability: 'generate' }, target: PLOT_TARGET, ask: 'x' },
+      { job: 'plot', target: PLOT_TARGET, ask: 'x' },
       rec.handlers,
       { signal: new AbortController().signal }
     );
@@ -327,7 +337,7 @@ describe('成功要清掉失败标记', () => {
     const rec = recorder();
     await gen.generate(
       project,
-      { action: { stage: 'plot', capability: 'generate' }, target: PLOT_TARGET, ask: 'x' },
+      { job: 'plot', target: PLOT_TARGET, ask: 'x' },
       rec.handlers,
       { signal: new AbortController().signal }
     );
@@ -354,7 +364,7 @@ describe('取消', () => {
     const abort = new AbortController();
     await gen.generate(
       project,
-      { action: { stage: 'plot', capability: 'generate' }, target: PLOT_TARGET, ask: 'x' },
+      { job: 'plot', target: PLOT_TARGET, ask: 'x' },
       rec.handlers,
       { signal: abort.signal }
     );
@@ -387,7 +397,7 @@ describe('模型引用无效时不调模型', () => {
     rec = recorder();
     out = await gen.generate(
       project,
-      { action: { stage: 'plot', capability: 'generate' }, target: PLOT_TARGET, ask: 'x' },
+      { job: 'plot', target: PLOT_TARGET, ask: 'x' },
       rec.handlers,
       { signal: new AbortController().signal }
     );
@@ -419,7 +429,7 @@ describe('装配明细 · 降级与丢弃进 warn 日志', () => {
     await gen.generate(
       project,
       {
-        action: { stage: 'plot', capability: 'generate' },
+        job: 'plot',
         target: PLOT_TARGET,
         ask: 'x',
         attachments: [{ id: 'big', kind: 'file', label: '大文件', text: '雨'.repeat(20000) }],
@@ -436,28 +446,5 @@ describe('装配明细 · 降级与丢弃进 warn 日志', () => {
   // 一次正文生成的 prompt 有十万字，进了缓冲会把此前所有日志挤没。
   test('日志里没有 prompt 全文', () => {
     assert.ok(!warns.some((w) => w.includes('雨雨雨雨雨雨雨雨雨雨')), warns.join('|').slice(0, 200));
-  });
-});
-
-describe('previewContext · 只装配不调模型', () => {
-  let built;
-  let callsBefore;
-
-  before(async () => {
-    configure();
-    callsBefore = fake.calls.length;
-    built = await gen.previewContext(project, {
-      action: { stage: 'plot', capability: 'generate' },
-      target: PLOT_TARGET,
-      ask: '预览一下',
-    });
-  });
-
-  test('装出了消息', () => {
-    assert.ok(built.messages.length > 0);
-  });
-
-  test('一次模型都没调', () => {
-    assert.equal(fake.calls.length, callsBefore);
   });
 });

@@ -30,28 +30,17 @@
 import { el as mk, spacer } from '../dom';
 import type {
   SerializedAgentRun,
-  SerializedDigest,
   SerializedToolCall,
   SerializedTurn,
 } from '../protocol';
 import { linkBtn } from './buttons';
-import { countWords, fmt, timeLabel } from './format';
+import { countWords, timeLabel } from './format';
 import { toggleButtonMenu } from './menu';
 import { onSessionChanged } from './pipeline';
 import { el } from './refs';
 import { renderState, syncThinkingSelect } from './state';
 import { openPath, store, vscode } from './store';
 import { toast } from './toast';
-import type { SendPayload } from '../protocol';
-
-/** 由 composer.ts 注入：「重新生成」要带上输入框里当下的那套参数。 */
-let currentPayload: () => SendPayload = () => {
-  throw new Error('messages.bindPayload 还没调用');
-};
-
-export function bindPayload(fn: () => SendPayload): void {
-  currentPayload = fn;
-}
 
 export function renderSession(session: typeof store.session): void {
   store.session = session;
@@ -235,9 +224,6 @@ function buildTurn(turn: SerializedTurn): HTMLElement {
     wrap.appendChild(buildAgentRunRow(turn.agentRun));
   }
 
-  if (turn.context) {
-    wrap.appendChild(buildContextDetails(turn.context));
-  }
   wrap.appendChild(buildActions(turn));
   return wrap;
 }
@@ -297,25 +283,15 @@ function buildBody(turn: SerializedTurn): HTMLElement {
   return body;
 }
 
-/**
- * 用户气泡：命令标签 +（可选的）补充要求。
- *
- * 命令类的轮次 content 本来就是空的——「写剧情」不需要作者说什么，该说的
- * 都在大纲和前后段里（命令一律不要求输入，见 `commandsFor`）。但**空气泡不能就这么空着**：
- * 翻回去看时认不出刚才点的是哪一下。所以把命令本身画成一枚 `/写剧情` 标签。
- */
+/** 用户气泡：他说的那句话。 */
 function fillUserBody(body: HTMLElement, turn: SerializedTurn): HTMLElement {
-  if (turn.command) {
-    body.classList.add('has-command');
-    body.appendChild(mk('span', 'msg-command', `/${turn.command}`));
-  }
   const text = turn.error || turn.content;
   if (text) {
     body.appendChild(mk('span', 'msg-text', text));
-  } else if (!turn.command) {
-    // 既没有话也没有命令：只可能是旧会话里的空轮次（那时命令没被记下来）。
-    // 留一句说明，总比一片看不出所以然的空白好。
-    body.appendChild(mk('span', 'msg-text msg-text-empty', '（没有补充要求）'));
+  } else {
+    // 空轮次只可能来自旧会话（那时点命令不必输入）。留一句说明，
+    // 总比一片看不出所以然的空白好。
+    body.appendChild(mk('span', 'msg-text msg-text-empty', '（没有内容）'));
   }
   return body;
 }
@@ -400,29 +376,21 @@ function buildMenuBtn(turn: SerializedTurn): HTMLElement {
   return btn;
 }
 
-/** 这条消息在 ⋯ 菜单里能做什么。 */
+/**
+ * 这条消息在 ⋯ 菜单里能做什么。
+ *
+ * 没有「重新生成」：那是单步生成才有的动作（同一层、同一份参数再跑一遍）。
+ * 想重来就把话再说一遍——agent 每一轮读的是当下的磁盘状态，重放一句旧话
+ * 本来也不会得到同一个结果。
+ */
 function menuItemsFor(turn: SerializedTurn) {
-  const items = [];
-  // 「重新生成」只对用户消息有意义：重来是从那一条分叉，
-  // 丢掉它之后的所有轮次再跑一遍。
-  if (turn.role === 'user') {
-    items.push({
-      label: '重新生成',
-      run: () => {
-        if (store.busy) {
-          toast('正在生成，请先停止。', true);
-          return;
-        }
-        vscode.postMessage({ type: 'retry', turnId: turn.id, payload: currentPayload() });
-      },
-    });
-  }
-  items.push({
-    label: '删除',
-    danger: true,
-    run: () => vscode.postMessage({ type: 'deleteTurn', turnId: turn.id }),
-  });
-  return items;
+  return [
+    {
+      label: '删除',
+      danger: true,
+      run: () => vscode.postMessage({ type: 'deleteTurn', turnId: turn.id }),
+    },
+  ];
 }
 
 // ---------------------------------------------------------------- 折叠块
@@ -698,37 +666,3 @@ function formatTokens(n: number): string {
   return n >= 10000 ? `${(n / 10000).toFixed(1)} 万` : String(n);
 }
 
-/** 上下文明细：装配器放进去了什么、各占多少 token、降级或丢弃的原因。 */
-export function buildContextDetails(digest: SerializedDigest): HTMLDetailsElement {
-  const det = mk('details', 'ctx');
-
-  const kept = digest.items.filter((i) => i.status === 'included' || i.status === 'degraded').length;
-  const sum = mk(
-    'summary',
-    undefined,
-    `上下文 ${fmt(digest.usedTokens)} / ${fmt(digest.budget)} token${
-      digest.clamped ? '（已按模型配额压缩）' : ''
-    } · ${kept} 项`
-  );
-  if (digest.usedTokens > digest.budget) {
-    sum.classList.add('over-budget');
-  }
-  det.appendChild(sum);
-
-  const ul = mk('ul');
-  for (const item of digest.items) {
-    const li = mk('li', item.status);
-    li.appendChild(mk('span', 'badge', `P${item.priority}`));
-    li.appendChild(mk('span', 'label', item.label));
-    if (item.source) {
-      li.appendChild(linkBtn('打开', () => openPath(item.source!)));
-    }
-    li.appendChild(mk('span', 'tokens', item.tokens > 0 ? `${fmt(item.tokens)} tk` : '—'));
-    if (item.note) {
-      li.appendChild(mk('span', 'note', item.note));
-    }
-    ul.appendChild(li);
-  }
-  det.appendChild(ul);
-  return det;
-}

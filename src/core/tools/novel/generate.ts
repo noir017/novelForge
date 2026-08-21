@@ -7,8 +7,7 @@
  *    正文**。一份三千字的正文塞回循环，agent 每走一步就重烧一遍——十步之后
  *    这一份正文被算了十次钱。要看内容让它显式 `read`。
  * 2. **`history` 传空数组**。agent 的工具调用不是作者的讨论，混进装配器会被
- *    当成创作要求装进 prompt（「用户刚才说：list .novelforge/plots」）。唯一
- *    该带历史的能力是 `settle`——它要沉淀的就是一段讨论，而**这一期不支持它**。
+ *    当成创作要求装进 prompt（「用户刚才说：list .novelforge/plots」）。
  * 3. **哪一层用哪个模型**，AGENTS 第 12 条的延伸：
  *
  *    | 层 | 用哪个模型 | 为什么 |
@@ -17,6 +16,9 @@
  *    | `outline` | 同上 | 一次定调，而且没有对应档位 |
  *    | `volume` | 同上 | 一卷定调，同样没有对应档位 |
  *    | `plot` | `plotOutline` 档 | 与工程页「批量写剧情」同一个模型 |
+ *
+ *    表按**层**列（`stageOfJob` 算出来的那个），不按 job：拆卷与写大纲同属
+ *    大纲层，用哪个模型这件事上它们没有分别。
  *
  *    走池时**必须把池的 `primaryBudget` 一起传下去**（第 13 条）：
  *    `config.contextWindow` 跟着对话页那个模型走，拿 200k 的窗口给快速档的
@@ -28,11 +30,15 @@
  *    返回再记，异常那条路上的钱就丢账了。**这里只报数，不判断触没触顶**：
  *    上限是调用方的事，工具连「上限是多少」都不知道。
  *
- * ## 层与目标从路径反推
+ * ## 落点从路径反推，产出什么由 job 说
  *
  * `kindOfPath` 一次给出 `stage` 与 `target`，不必让模型填 `{kind, chapterNo}`
  * 那种嵌套结构——路径是产物在这个工程里的身份，作者在文件管理器里看到的
  * 就是它。
+ *
+ * 两个参数各管一件事，**并且互相校验**：`job` 说产出什么形状的东西，`target`
+ * 说落在哪。两者必须落在同一层——`job=plotSegment` 是从一卷的卷纲里拆段，
+ * 给它一个细纲路径就是矛盾的，那时报错而不是猜。
  */
 import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
 import { int, objectSchema, str } from '../schema';
@@ -44,14 +50,14 @@ import { scoped } from '../../runtime/logger';
 import type { LlmTask } from '../../model/tiers';
 import { kindOfPath } from '../../workspace';
 import {
-  CAPABILITIES,
-  CAPABILITY_LABEL,
-  Capability,
+  CREATION_JOBS,
+  CreationJob,
   CreationStage,
-  STAGE_CAPABILITIES,
+  JOB_HINT,
+  JOB_LABEL,
   STAGE_LABEL,
-  isCapability,
-  isValidAction,
+  isCreationJob,
+  stageOfJob,
 } from '../../model/pipeline';
 
 const log = scoped('Agent');
@@ -87,16 +93,13 @@ export const generateTool: ToolDef = {
   },
 
   description:
-    '调用创作模型，为某一份产物生成内容。target 是那份产物的工程内相对路径，' +
-    '层由路径决定：.novelforge/outline.md 是大纲层，.novelforge/volumes/ 下是卷纲层，' +
-    '.novelforge/plots/ 下是剧情层，.novelforge/manuscripts/ 与已发布的章是正文层。' +
-    'split 只有前两层有：给 outline.md 拆出**分卷清单**，' +
-    '给某一卷的卷纲拆出**一个剧情段**（一次只拆一段，拆下一段就再调一次）。' +
-    '各层可用的 capability 不同：' +
-    Object.entries(STAGE_CAPABILITIES)
-      .map(([stage, caps]) => `${stage}=${caps.join('/')}`)
-      .join('；') +
-    '。' +
+    '调用创作模型产出一份内容。job 说产出什么，target 说落在哪，两者必须落在同一层。\n' +
+    describeJobs() +
+    '\ntarget 是那份产物的工程内相对路径：.novelforge/outline.md 是全书大纲，' +
+    '.novelforge/volumes/ 下是卷纲，.novelforge/plots/ 下是剧情段的细纲，' +
+    '.novelforge/manuscripts/ 与已发布的章是正文。\n' +
+    'volumeList 要给 outline.md；plotSegment 要给某一卷的卷纲（一次只拆一段，' +
+    '拆下一段就再调一次）。\n' +
     '**返回的只有形状与 draftId，没有正文**——正文会直接流给作者看；' +
     '你要看内容就等它落盘之后再 read。' +
     '产出之后会当场请作者点头，同意才落盘，结果写在返回里；不必也不要再用 write 写同一份。' +
@@ -104,31 +107,20 @@ export const generateTool: ToolDef = {
 
   parameters: objectSchema(
     {
-      target: str('要生成的那份产物的工程内相对路径。'),
-      capability: str(`要它干什么。${describeCapabilities()}`, CAPABILITIES),
+      job: str('要产出什么。', CREATION_JOBS),
+      target: str('落点：那份产物的工程内相对路径。'),
       ask: str('补充要求，可留空。留空时按上一层的产物照常生成。'),
-      targetWords: int('目标字数，只对正文层有意义。留空不限。'),
+      targetWords: int('目标字数，只对 job=manuscript 有意义。留空不限。'),
     },
-    ['target', 'capability']
+    ['job', 'target']
   ),
 
   async run(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
     const rel = typeof args.target === 'string' ? args.target.trim() : '';
-    const capability = args.capability;
+    const job = args.job;
 
-    if (!isCapability(capability)) {
-      return { text: '', error: `capability 只能是：${CAPABILITIES.join(' / ')}。` };
-    }
-    // `settle` 沉淀的是**一段已经发生过的讨论**，而 agent 手里没有那段讨论
-    // （history 恒为空，见文件头第 2 条）。喂它一个空历史，它会凭空编一份
-    // 「刚才讨论出的结论」——那比不支持更糟。
-    if (capability === 'settle') {
-      return {
-        text: '',
-        error:
-          'settle 要沉淀的是作者与模型刚刚讨论出的结论，而你手上没有那段讨论。' +
-          '请让作者在对话页手动执行「落定剧情」；要按你自己的思路排剧情用 capability=generate。',
-      };
+    if (!isCreationJob(job)) {
+      return { text: '', error: `job 只能是：${CREATION_JOBS.join(' / ')}。` };
     }
 
     const path = kindOfPath(ctx.project, rel);
@@ -137,20 +129,25 @@ export const generateTool: ToolDef = {
         text: '',
         error:
           `认不出「${rel}」是哪一层的产物。` +
-          '剧情层给 .novelforge/plots/<卷词干>/<段号>-<标题>.md，' +
-          '正文层给 .novelforge/manuscripts/<细纲在 plots/ 之下的整段路径>.md，' +
-          '大纲给 .novelforge/outline.md，卷纲给 .novelforge/volumes/<卷号>-<卷名>.md。' +
+          '全书大纲给 .novelforge/outline.md，卷纲给 .novelforge/volumes/<卷号>-<卷名>.md，' +
+          '细纲给 .novelforge/plots/<卷词干>/<段号>-<标题>.md，' +
+          '正文给 .novelforge/manuscripts/<细纲在 plots/ 之下的整段路径>.md。' +
           '可以先用 list 看看那个目录下实际有什么。',
       };
     }
 
-    const action = { stage: path.stage, capability: capability as Capability };
-    if (!isValidAction(action)) {
+    // job 与落点必须落在同一层。**报错而不是猜**：`job=plotSegment` 配一个细纲
+    // 路径，猜哪一边都会写错文件——拆段本该往那一卷里加一份新细纲，猜成
+    // 「按 job 走」会去改一份不该动的卷纲，猜成「按路径走」会把作者要的骨架
+    // 变成一份完整细纲盖掉现有内容。
+    const wantStage = stageOfJob(job);
+    if (wantStage !== path.stage) {
       return {
         text: '',
         error:
-          `${STAGE_LABEL[path.stage]}层不支持 ${capability}。` +
-          `这一层可用：${STAGE_CAPABILITIES[path.stage].join(' / ')}。`,
+          `job=${job} 要的是${STAGE_LABEL[wantStage]}层的落点，而「${rel}」是` +
+          `${STAGE_LABEL[path.stage]}层的产物。` +
+          expectedPathHint(job),
       };
     }
 
@@ -162,7 +159,7 @@ export const generateTool: ToolDef = {
     const { draft } = await generate(
       ctx.project,
       {
-        action,
+        job,
         target: path.target,
         targetNo: path.no,
         ask: typeof args.ask === 'string' ? args.ask : '',
@@ -195,7 +192,7 @@ export const generateTool: ToolDef = {
     }
     ctx.drafts.put(draft, ctx.sessionId);
 
-    const what = `${STAGE_LABEL[path.stage]}·${CAPABILITY_LABEL[action.capability]}`;
+    const what = JOB_LABEL[job];
     const shape = draft.summary ?? `${draft.words} 字`;
     // 只说发生了什么。「已用 3/10 次生成」那半句是调用方的账，它才知道上限。
     ctx.report(`已生成 ${what}：${shape}`);
@@ -241,8 +238,25 @@ async function pickModel(
   return { provider: pool.primary, budget: pool.primaryBudget };
 }
 
-function describeCapabilities(): string {
-  return CAPABILITIES.map((c) => `${c}=${CAPABILITY_LABEL[c]}`).join('，');
+/** job 与落点对不上时，指一条正确的路。 */
+function expectedPathHint(job: CreationJob): string {
+  switch (job) {
+    case 'outline':
+    case 'volumeList':
+      return ' 给 .novelforge/outline.md。';
+    case 'volume':
+    case 'plotSegment':
+      return ' 给 .novelforge/volumes/ 下那一卷的卷纲。';
+    case 'plot':
+      return ' 给 .novelforge/plots/ 下那一段的细纲。';
+    case 'manuscript':
+      return ' 给 .novelforge/manuscripts/ 下那一段的正文，或一个已发布的章。';
+  }
+}
+
+/** 六个 job 各一行，说清产出什么。工具描述吃它——模型不该先查表再选。 */
+function describeJobs(): string {
+  return CREATION_JOBS.map((j) => `- ${j}：${JOB_HINT[j]}`).join('\n');
 }
 
 function toPositiveInt(value: unknown): number | undefined {

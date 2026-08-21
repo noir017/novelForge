@@ -1,10 +1,10 @@
 /**
- * 创作页：流水线条与下一步、当前产物浮窗、/ 命令面板、进入某一章、独立版壳。
+ * 创作页：流水线条、当前产物浮窗、进入某一章、独立版壳。
  *
- * 迁自 scripts/smoke-view.js 的这几节：
- *   == 创作流水线条与下一步 ==（389） == 工作区卡 ==（544）
- *   == / 命令面板 ==（617）          == 选中章节进入当前阶段 ==（720）
- *   == 独立版壳上的创作页 ==（770）
+ * **没有「下一步主按钮」与「/ 命令面板」那两节了**：对话只剩 agent 一条路，
+ * 那两个入口都是确定性单步的入口，跟着一起删了。「下一步」这个判断本身还在
+ * （agent 每回合读它），只是不再有界面入口，所以改由
+ * `tests/unit/model/pipeline.test.js` 单独守着。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -15,13 +15,9 @@ const {
 
 describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
   let ui;
-  let sentStep;
-  let act;
   const crumbs = () => [...ui.doc.querySelectorAll('#pipelineCrumb .crumb')].map((n) => n.textContent);
   const stages = () => [...ui.doc.querySelectorAll('#pipelineStages .pstage')];
   const lastSetTarget = () => [...ui.sent].reverse().find((m) => m.type === 'setTarget');
-  const goBtn = () => ui.doc.getElementById('nextStepBtn');
-  const hint = () => ui.doc.getElementById('nextStepHint').textContent;
 
   before(() => {
     ui = mount();
@@ -42,18 +38,13 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.ok(ui.doc.getElementById('renamePlotBtn').classList.contains('hidden'));
   });
 
-  // 全书大纲阶段没有「这一段的三层」，但一样有下一步（去写大纲）。
-  test('大纲阶段也给下一步', () => {
+  // 全书大纲那一层没有「这一段的三层」，但一样有产物要看。
+  test('大纲阶段仍推工作区卡', () => {
     ui.post({
       type: 'pipeline',
       workbench: workbenchView({ stage: 'outline', title: '全书大纲', sections: [], empty: '这部书还没有大纲。' }),
-      next: { stage: 'outline', capability: 'generate', label: '生成大纲', hint: '先定下这个故事讲什么。', target: { kind: 'outline' } },
     });
-    assert.equal(goBtn().textContent, '生成大纲', goBtn().textContent);
-  });
-
-  test('下一步给出理由', () => {
-    assert.ok(hint().includes('先定下'), hint());
+    assert.ok(!ui.doc.getElementById('workbench').classList.contains('hidden'));
   });
 
   // ---- 切到某一段的正文 ----
@@ -63,7 +54,6 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
       session: emptySession({
         target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
         stage: 'manuscript',
-        capability: 'discuss',
       }),
     });
     ui.post({
@@ -81,7 +71,6 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
       workbench: workbenchView({ stage: 'manuscript', title: '正文 · 第 12 段《夜入青云》' }),
       next: {
         stage: 'manuscript',
-        capability: 'generate',
         label: '重写正文',
         hint: '剧情改过，现有正文可能已经与它对不上。',
         target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
@@ -146,21 +135,6 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
 
   test('这一章没有变更标记', () => {
     assert.ok(!stages().find((n) => n.textContent.includes('剧情')).querySelector('.pstage-stale'));
-  });
-
-  // ---- 主按钮：点了就跑，不必先输入 ----
-  test('主按钮空输入也能发', () => {
-    ui.doc.getElementById('input').value = '';
-    const beforeSend = ui.sent.filter((m) => m.type === 'send').length;
-    ui.clickEl(goBtn());
-    sentStep = [...ui.sent].reverse().find((m) => m.type === 'send');
-    assert.equal(ui.sent.filter((m) => m.type === 'send').length, beforeSend + 1);
-  });
-
-  test('主按钮带上状态机给的能力', () => {
-    assert.equal(sentStep.payload.stage, 'manuscript', JSON.stringify(sentStep.payload));
-    assert.equal(sentStep.payload.capability, 'generate', JSON.stringify(sentStep.payload));
-    ui.post({ type: 'busy', value: false });
   });
 
   // ---- 点击切目标（信息条本身不可点，靠下面的层按钮切）----
@@ -276,52 +250,14 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     );
   });
 
-  // ---- 全做完的段不催 ----
-  test('没有下一步时收起主按钮', () => {
+  // ---- 全做完的段：状态点全绿 ----
+  test('全做完时状态徽章说已完成', () => {
     ui.post({
       type: 'pipeline',
       pipeline: pipelineView({ stage: 'done', progress: { plot: 1, manuscript: 1, summary: 1 } }),
       workbench: workbenchView(),
-      next: undefined,
     });
-    assert.ok(goBtn().classList.contains('hidden'));
-  });
-
-  test('没有下一步时说明为什么', () => {
-    assert.ok(hint().includes('各层都齐了'), hint());
-  });
-
-  // ---- 审阅阶段的下一步是工程动作，不是一轮对话 ----
-  let beforeAct;
-  test('审阅走工程动作', () => {
-    ui.post({
-      type: 'pipeline',
-      pipeline: pipelineView({ stage: 'review' }),
-      workbench: workbenchView(),
-      next: {
-        stage: 'manuscript',
-        capability: 'generate',
-        projectAction: 'summarizePlot',
-        label: '总结这一段',
-        hint: '正文齐了。',
-        target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
-        relPath: '.novelforge/plots/012-夜入青云.md',
-      },
-    });
-    beforeAct = ui.sent.filter((m) => m.type === 'send').length;
-    ui.clickEl(goBtn());
-    act = [...ui.sent].reverse().find((m) => m.type === 'projectAction');
-    assert.equal(act?.action, 'summarizePlot', JSON.stringify(act));
-  });
-
-  // 段路径必须来自 next 而不是会话里的目标——后者可能还没同步，
-  // 而 summarizePlot 收到 undefined 会静默什么都不做。
-  test('工程动作带上段路径', () => {
-    assert.equal(act?.relPath, '.novelforge/plots/012-夜入青云.md', JSON.stringify(act));
-  });
-
-  test('工程动作不占对话', () => {
-    assert.equal(ui.sent.filter((m) => m.type === 'send').length, beforeAct);
+    assert.equal(stages().length, 3, stages().map((n) => n.textContent).join('|'));
   });
 
   // ---- 目标换段时，上一段的进度不能留着显示 ----
@@ -332,7 +268,6 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
       session: emptySession({
         target: { kind: 'plot', plotRelPath: '.novelforge/plots/013-另一段.md' },
         stage: 'plot',
-        capability: 'discuss',
       }),
     });
     assert.ok(!crumbs().some((c) => c.includes('夜入青云')), crumbs().join('|'));
@@ -383,7 +318,6 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
       session: emptySession({
         target: { kind: 'scene', chapterRelPath: 'chapters/012-夜入青云.md', sceneNo: 2 },
         stage: 'scene',
-        capability: 'discuss',
       }),
     });
     postScene();
@@ -516,219 +450,6 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
   });
 });
 
-describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
-  let ui;
-  let input;
-  /** 键盘事件。导航键（↑↓/Enter/Esc）走这条，可打印字符走 type()。 */
-  const key = (k) =>
-    input.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
-  /**
-   * 打字：改输入框的值再发 input 事件。
-   *
-   * 面板是**输入框内容的函数**（真实浏览器里 keydown 之后浏览器自己落值、
-   * 再发 input），所以测试也必须照这个顺序模拟——从前面板自己攒过滤串，
-   * 于是测试只发 keydown 就够，那也正是输入法打的中文一个都收不到的原因。
-   */
-  const type = (text) => {
-    input.value += text;
-    input.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
-  };
-  const backspace = () => {
-    input.value = input.value.slice(0, -1);
-    input.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
-  };
-  const setValue = (text) => {
-    input.value = text;
-    input.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
-  };
-  const panel = () => ui.doc.querySelector('.cmd-panel');
-  const items = () => [...ui.doc.querySelectorAll('.cmd-item .cmd-label')].map((n) => n.textContent);
-
-  before(() => {
-    ui = mount();
-    input = ui.doc.getElementById('input');
-    ui.post({
-      type: 'session',
-      session: emptySession({
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
-        stage: 'plot',
-        capability: 'discuss',
-      }),
-    });
-  });
-
-  test('默认不显示命令面板', () => {
-    assert.ok(!panel());
-  });
-
-  // 打 / 唤出。
-  test('打 / 唤出面板', () => {
-    type('/');
-    assert.ok(panel());
-  });
-
-  // Cursor 那一套：命令的字**留在输入框里**，面板只是浮在上方的候选列表。
-  // 从前 `/` 被 keydown 拦下来不落进输入框，过滤串自己攒在模块变量里。
-  test('斜杠留在输入框里', () => {
-    assert.equal(input.value, '/');
-  });
-
-  // 面板浮在输入框那一格上（bottom: 100%），不再挂在下一步条里。
-  test('面板挂在输入框那一格上', () => {
-    assert.ok(ui.doc.querySelector('#composerInput .cmd-panel'));
-  });
-
-  // 讨论不进面板（打字就是在讨论）。剧情层有 `/写剧情` 与 `/落定剧情` 两条——
-  // `split` 随场景层一起没了（剧情段就是最小的规划单位）。
-  test('剧情阶段两个命令', () => {
-    assert.equal(items().length, 2, items().join('|'));
-  });
-
-  test('面板里没有讨论', () => {
-    assert.ok(!items().some((s) => s.includes('讨论')), items().join('|'));
-  });
-
-  test('剧情阶段有「落定剧情」', () => {
-    assert.ok(items().includes('/落定剧情'), items().join('|'));
-  });
-
-  // 面板里的名字带斜杠：挑的和打的是同一样东西。
-  test('命令名带斜杠', () => {
-    assert.ok(items().every((s) => s.startsWith('/')), items().join('|'));
-  });
-
-  // 剧情层没有拆分了：忘记删的话面板里会多一条点了什么都不发生的命令。
-  test('剧情阶段没有拆分命令', () => {
-    assert.ok(!items().some((s) => s.includes('拆')), items().join('|'));
-  });
-
-  // 面板里剩下的每一条都会写文件（讨论不是命令），每条都标出来。
-  test('每条命令都标记写文件', () => {
-    const writes = [...ui.doc.querySelectorAll('.cmd-item')].filter((n) => n.classList.contains('cmd-writes'));
-    assert.equal(writes.length, 2, String(writes.length));
-  });
-
-  test('每条命令都挂「写文件」标签', () => {
-    assert.equal(ui.doc.querySelectorAll('.cmd-item .cmd-tag').length, 2);
-  });
-
-  // 键入过滤：ascii 别名与中文标签都认。
-  test('按拼音首字母过滤', () => {
-    type('ld');
-    assert.equal(items().length, 1, items().join('|'));
-    assert.equal(items()[0], '/落定剧情', items().join('|'));
-  });
-
-  test('过滤串跟着输入框走', () => {
-    assert.equal(input.value, '/ld');
-  });
-
-  test('退格恢复全部', () => {
-    backspace();
-    backspace();
-    assert.equal(items().length, 2, items().join('|'));
-  });
-
-  // 退到 `/` 之前就不是在下命令了，面板该收。
-  test('删掉斜杠收起面板', () => {
-    backspace();
-    assert.ok(!panel());
-    assert.equal(input.value, '');
-  });
-
-  // 选中 → 变成待执行 chip，不立刻发送。
-  let beforePick;
-  test('选中后收起面板', () => {
-    type('/');
-    beforePick = ui.sent.length;
-    ui.clickEl([...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('落定剧情')));
-    assert.ok(!panel());
-  });
-
-  test('选中不立刻发送', () => {
-    assert.equal(ui.sent.length, beforePick);
-  });
-
-  test('选中变成待执行 chip', () => {
-    const chip = ui.doc.querySelector('#pendingCmd .cmd-chip');
-    assert.ok(chip, '没有 chip');
-    assert.ok(chip.textContent.includes('落定剧情'), chip?.textContent);
-  });
-
-  // chip 长在输入框**里面**：发送时用的是它的能力，它就是输入内容的一部分。
-  test('chip 在输入框那一格里', () => {
-    assert.ok(ui.doc.querySelector('#composerInput #pendingCmd .cmd-chip'));
-  });
-
-  // 挑中之后那几个字是用来挑命令的，不该跟着发给模型。
-  test('挑中后清掉输入框里的命令文字', () => {
-    assert.equal(input.value, '');
-  });
-
-  // chip 在时发送用它，而不是会话当前的能力。
-  test('发送用挑中的命令', () => {
-    input.value = '按刚才聊的来';
-    ui.clickEl(ui.doc.getElementById('sendBtn'));
-    const sent = [...ui.sent].reverse().find((m) => m.type === 'send');
-    assert.equal(sent.payload.capability, 'settle', JSON.stringify(sent.payload));
-  });
-
-  test('发完清掉 chip', () => {
-    assert.ok(ui.doc.getElementById('pendingCmd').classList.contains('hidden'));
-    ui.post({ type: 'busy', value: false });
-  });
-
-  // `/` 在中文正文里是普通字符（日期、比值、网址），只有「整个输入框就是一个
-  // /词」才算在下命令。
-  test('正文里的 / 不唤出面板', () => {
-    setValue('子时 3/4 刻');
-    assert.ok(!panel());
-  });
-
-  test('斜杠后带空格不算命令', () => {
-    setValue('/ 这是一句话');
-    assert.ok(!panel());
-  });
-
-  // 「/ 命令」按钮：与键盘走同一条路——输入框为空时顺手把 / 打进去。
-  test('按钮唤出面板', () => {
-    setValue('');
-    ui.clickEl(ui.doc.getElementById('cmdBtn'));
-    assert.ok(panel());
-    assert.equal(input.value, '/');
-  });
-
-  test('按钮再点一次收起', () => {
-    ui.clickEl(ui.doc.getElementById('cmdBtn'));
-    assert.ok(!panel());
-  });
-
-  // Esc 收起，且不会因为输入框里那个 / 还在就立刻弹回来。
-  test('Esc 收起面板', () => {
-    setValue('');
-    type('/');
-    assert.ok(panel());
-    key('Escape');
-    assert.ok(!panel());
-  });
-
-  test('Esc 之后继续打字不再弹回来', () => {
-    type('c');
-    assert.ok(!panel());
-  });
-
-  // 生成中面板该收起：一个点不动的候选列表挂在那儿只会挡住消息流。
-  test('生成中收起面板并禁用按钮', () => {
-    setValue('');
-    type('/');
-    assert.ok(panel());
-    ui.post({ type: 'busy', value: true });
-    assert.ok(!panel());
-    assert.ok(ui.doc.getElementById('cmdBtn').disabled);
-    ui.post({ type: 'busy', value: false });
-  });
-});
-
 describe('选中一章进入当前阶段', { skip: JSDOM_SKIP }, () => {
   let ui;
   let select;
@@ -813,21 +534,9 @@ describe('独立版壳上的创作页', { skip: JSDOM_SKIP }, () => {
       session: emptySession({
         target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
         stage: 'plot',
-        capability: 'discuss',
       }),
     });
-    ui.post({
-      type: 'pipeline',
-      pipeline: pipelineView(),
-      workbench: workbenchView(),
-      next: {
-        stage: 'plot',
-        capability: 'split',
-        label: '拆成场景',
-        hint: '把这一段拆成 3~6 个能独立开写的场景。',
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
-      },
-    });
+    ui.post({ type: 'pipeline', pipeline: pipelineView(), workbench: workbenchView() });
   });
 
   test('独立版渲染当前产物入口', () => {
@@ -843,22 +552,13 @@ describe('独立版壳上的创作页', { skip: JSDOM_SKIP }, () => {
     ui.doc.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   });
 
-  test('独立版渲染主按钮', () => {
-    assert.equal(ui.doc.getElementById('nextStepBtn').textContent, '拆成场景',
-      ui.doc.getElementById('nextStepBtn').textContent);
-  });
-
-  test('独立版能唤出命令面板', () => {
+  // 独立版是另一份模板（工作台结构、活动栏、内置编辑器），输入框那一格的
+  // id 漏掉一个的话，只有真把独立版开起来才看得见。
+  test('独立版能发出这一句', () => {
     const input = ui.doc.getElementById('input');
-    input.value = '/';
-    input.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
-    assert.ok(ui.doc.querySelector('#composerInput .cmd-panel'));
-  });
-
-  test('独立版主按钮可发', () => {
-    ui.doc.getElementById('input').value = '';
-    ui.clickEl(ui.doc.getElementById('nextStepBtn'));
-    const sentStep = [...ui.sent].reverse().find((m) => m.type === 'send');
-    assert.equal(sentStep?.payload.capability, 'split', JSON.stringify(sentStep));
+    input.value = '第 9 章里他说过没去过北境吗？';
+    ui.clickEl(ui.doc.getElementById('sendBtn'));
+    const sent = [...ui.sent].reverse().find((m) => m.type === 'sendAgent');
+    assert.equal(sent?.text, '第 9 章里他说过没去过北境吗？', JSON.stringify(sent));
   });
 });

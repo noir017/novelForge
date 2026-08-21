@@ -57,37 +57,11 @@
   border-color: var(--vscode-input-border, rgba(128, 128, 128, 0.25));
 }
 
-/*
- * 命令类的轮次（写剧情、拆成场景）作者一个字都不必打，于是气泡是空的。
- * 那一枚 `/写剧情` 标签就是这条消息的全部内容——翻回去看时，它是唯一能
- * 说出「刚才点的是哪一下」的东西。
- *
- * `pre-wrap` 会把标签与后面文字之间的换行原样留着，所以这里改 flex 排：
- * 有补充要求时标签在上、正文在下；没有时只有标签，不多出一行空白。
- */
-.msg.user .msg-body.has-command {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-  white-space: normal;
-}
-
-.msg-command {
-  font-family: var(--vscode-editor-font-family);
-  font-size: 0.85em;
-  padding: 0 6px;
-  border-radius: 9px;
-  background: var(--vscode-badge-background);
-  color: var(--vscode-badge-foreground);
-}
-
-/* 正文那一段自己管换行：外层 has-command 时是 normal（见上）。 */
 .msg-text {
   white-space: pre-wrap;
 }
 
-/* 旧会话里既没话也没记下命令的空轮次。 */
+/* 旧会话里那种没有内容的空轮次。 */
 .msg-text-empty {
   color: var(--vscode-descriptionForeground);
   font-style: italic;
@@ -162,78 +136,6 @@ details.reasoning > summary {
 }
 
 /* 上下文明细折叠区 */
-
-details.ctx {
-  font-size: 0.82em;
-  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
-  border-radius: 4px;
-  padding: 4px 8px;
-}
-
-details.ctx > summary {
-  cursor: pointer;
-  color: var(--vscode-descriptionForeground);
-  list-style: revert;
-}
-
-details.ctx ul {
-  list-style: none;
-  margin: 6px 0 2px;
-  padding: 0;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-details.ctx li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px;
-  padding: 2px 0;
-}
-
-details.ctx li .label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-details.ctx li .tokens {
-  color: var(--vscode-descriptionForeground);
-  font-variant-numeric: tabular-nums;
-}
-
-details.ctx li .note {
-  flex: 0 0 100%;
-  padding-left: 22px;
-  color: var(--vscode-descriptionForeground);
-}
-
-details.ctx li.dropped .label,
-details.ctx li.excluded .label {
-  text-decoration: line-through;
-  opacity: 0.6;
-}
-
-details.ctx li.degraded .label {
-  color: var(--vscode-editorWarning-foreground, #cca700);
-}
-
-.badge {
-  font-size: 0.9em;
-  padding: 0 4px;
-  border-radius: 3px;
-  background: var(--vscode-badge-background);
-  color: var(--vscode-badge-foreground);
-}
-
-.over-budget {
-  color: var(--vscode-errorForeground);
-  font-weight: 600;
-}
-
 /* agent 的工具调用条。
    一行一次调用，行上只有名字、结果摘要与耗时；参数与返回文本收在折叠里，
    点开才画——摊出来会把作者真正要看的那段回答挤到屏幕外。 */

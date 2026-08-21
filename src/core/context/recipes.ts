@@ -11,24 +11,13 @@
  *
  * 所以有几处刻意的抬高，见下面的 ★。
  */
-import { Capability, CreationStage } from '../model/pipeline';
+import { CreationStage } from '../model/pipeline';
 import { LayerSpec } from './types';
 
 /** 单条附件最多吃掉多少预算——用户 @ 一个大文件不该把前文全挤掉。 */
 const ATTACHMENT_CAP = 0.35;
 /** 全部历史对话最多吃掉多少预算。 */
 const HISTORY_CAP = 0.3;
-/**
- * 「落定剧情」时历史对话的封顶。
- *
- * `settle` 要沉淀的**就是那段对话**。按常规的 30% 装，一段聊了十几轮的讨论会
- * 被由远及近截掉开头——而开头往往正是定调子的地方（「这一章主角不能赢」）。
- * 抬到 60% 并把优先级提到 0，是这条命令能不能成立的前提。
- *
- * 不抬到 100%：大纲、前后章、角色卡仍然要带，不然模型会把讨论里没提到的
- * 既有设定重新发明一遍。
- */
-const SETTLE_HISTORY_CAP = 0.6;
 
 /**
  * 四张配方，一个阶段一张。**顺序即填充顺序**：靠前的先拿预算，靠后的
@@ -133,19 +122,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   ],
 };
 
-/**
- * 取某阶段的配方。
- *
- * `capability` 只影响一处：`settle` 要把历史对话抬成 P0 并放宽封顶。做成
- * 「按能力微调既有配方」而不是再写一张完整配方，是因为其余十一层与
- * `generate` 一模一样——复制一份，下次改剧情层的装配策略就会漏掉一边。
- */
-export function recipeFor(stage: CreationStage, capability?: Capability): LayerSpec[] {
-  const recipe = STAGE_RECIPES[stage] ?? STAGE_RECIPES.manuscript;
-  if (capability !== 'settle') {
-    return recipe;
-  }
-  return recipe.map((spec) =>
-    spec.layer === 'history' ? { ...spec, priority: 0 as const, cap: SETTLE_HISTORY_CAP } : spec
-  );
+/** 取某阶段的配方。认不出的阶段回落到正文那一张。 */
+export function recipeFor(stage: CreationStage): LayerSpec[] {
+  return STAGE_RECIPES[stage] ?? STAGE_RECIPES.manuscript;
 }

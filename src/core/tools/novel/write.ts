@@ -134,8 +134,8 @@ export const writeTool: ToolDef = {
         return {
           text: '',
           error:
-            `${draftId} 那次是讨论类产出，没有可落盘的结构化产物，不能写成一份产物。` +
-            '结论说给作者听就行；要落盘得先用 capability=generate 生成一份真正的产物。',
+            `${draftId} 那一次没有解析出可落盘的结构化产物，写不成一份产物。` +
+            '结论说给作者听就行；要落盘得先用 generate 产出一份真正的产物。',
         };
       }
       input = { artifact };

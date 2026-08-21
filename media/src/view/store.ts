@@ -42,7 +42,6 @@ export const store: {
     title: '',
     target: { kind: 'outline' },
     stage: 'outline',
-    capability: 'discuss',
     thinking: DEFAULT_THINKING_DEPTH,
     turns: [],
   },

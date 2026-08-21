@@ -31,7 +31,7 @@ import { BuildRequest, BuiltContext, buildContext } from '../context/builder';
 import { describeUsage, recordUsage } from '../context/tokenizer';
 import { mergeUsage } from '../llm/collect';
 import { CancelledError, LlmProvider, StreamOptions, TokenUsage } from '../llm/provider';
-import { buildProvider, resolveProvider } from '../llm/registry';
+import { buildProvider } from '../llm/registry';
 import { readConfig } from '../config';
 import { ThinkingDepth } from '../model/thinking';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
@@ -39,12 +39,10 @@ import { describeError, elapsed, scoped } from '../runtime/logger';
 import { countWords } from '../model/fs';
 import { NovelProject } from '../model/project';
 import {
-  CAPABILITY_LABEL,
-  CreationAction,
+  CreationJob,
   CreationTarget,
-  STAGE_LABEL,
+  JOB_LABEL,
   describeTarget,
-  outputKindOf,
   plotOfTarget,
 } from '../model/pipeline';
 import { describeModelIssue, providerLabel } from '../model/providers';
@@ -56,11 +54,11 @@ const log = scoped('创作');
 /** 一次生成的产出。**尚未落盘**，采纳时才写。 */
 export interface Draft {
   id: string;
-  action: CreationAction;
+  job: CreationJob;
   target: CreationTarget;
-  /** 模型原样输出（正文层已过 `cleanOutput`）。 */
+  /** 模型原样输出（正文已过 `cleanOutput`）。 */
   raw: string;
-  /** 解析出的结构化产物。讨论（唯一的 text 类能力）没有。 */
+  /** 解析出的结构化产物。解析不出内容时缺席。 */
   artifact?: Artifact;
   /** 一句话形状描述，如「剧情 · 4/4 节」。有 artifact 才有。 */
   summary?: string;
@@ -113,34 +111,13 @@ export interface GenerateResult {
   built?: BuiltContext;
 }
 
-/** 只装配上下文，不调用模型——面板里的「预览上下文」。 */
-export async function previewContext(
-  project: NovelProject,
-  request: Omit<BuildRequest, 'providerMaxInputTokens'>
-): Promise<BuiltContext> {
-  const config = readConfig();
-  let providerMaxInputTokens: number | undefined;
-  // vscode-lm 有硬配额，预览时也要按真实上限算，否则预览与实际不符。
-  if (config.active?.profile.kind === 'vscode-lm') {
-    const provider = await resolveProvider();
-    providerMaxInputTokens = await provider?.maxInputTokens();
-  }
-  return buildContext(project, { ...request, providerMaxInputTokens }, config);
-}
-
 /**
  * 把一次生成的输出解析成产物。**不写盘。**
  *
- * 讨论（唯一的 text 类能力）没有可采纳的东西，返回 undefined；
- * 解析出来是空的也返回 undefined——写一个空产物比不写更糟，作者会以为存下了。
+ * 解析出来是空的返回 undefined——写一个空产物比不写更糟，作者会以为存下了。
  */
-export function parseDraftArtifact(action: CreationAction, raw: string): Artifact | undefined {
-  if (outputKindOf(action) !== 'artifact') {
-    return undefined;
-  }
-  // 只看 action 就够了：卷纲成为独立阶段之后，「拆出分卷清单」与「拆出一个
-  // 剧情段」分属两个 stage（见 model/pipeline.ts 的 `CreationStage`）。
-  const artifact = parseArtifact(action, raw);
+export function parseDraftArtifact(job: CreationJob, raw: string): Artifact | undefined {
+  const artifact = parseArtifact(job, raw);
   return isArtifactEmpty(artifact) ? undefined : artifact;
 }
 
@@ -178,8 +155,7 @@ export async function generate(
   }
 
   const startedAt = Date.now();
-  const { stage, capability } = request.action;
-  const what = `${STAGE_LABEL[stage]}·${CAPABILITY_LABEL[capability]}`;
+  const what = JOB_LABEL[request.job];
   const where = await describe(project, request.target);
   log.info(
     `开始${what}：${where}`,
@@ -225,12 +201,12 @@ export async function generate(
     }
     // 清理只对正文做：JSON 产物里的 ``` 由 stripCodeFence 在解析时处理，
     // 在这里剥会把「去掉开场白」那几条正则用到 JSON 上，可能切坏结构。
-    const raw = stage === 'manuscript' ? cleanOutput(full) : full.trim();
+    const raw = request.job === 'manuscript' ? cleanOutput(full) : full.trim();
     handlers.onDone(raw);
-    const artifact = parseDraftArtifact(request.action, raw);
+    const artifact = parseDraftArtifact(request.job, raw);
     draft = {
       id: makeDraftId(),
-      action: request.action,
+      job: request.job,
       target: request.target,
       raw,
       artifact,

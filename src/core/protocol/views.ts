@@ -1,6 +1,5 @@
 import type {
   BookStage,
-  Capability,
   CreationStage,
   CreationTarget,
   NextStepPlan,
@@ -296,7 +295,6 @@ export interface SerializedSession {
   title: string;
   target: CreationTarget;
   stage: CreationStage;
-  capability: Capability;
   targetNo?: number;
   targetWords?: number;
   /** 这个会话让模型想多深。输入框旁那个下拉框回显它。 */
@@ -309,9 +307,7 @@ export interface SerializedTurn {
   role: 'user' | 'assistant';
   content: string;
   at: string;
-  command?: string;
   attachments?: SerializedAttachment[];
-  context?: SerializedDigest;
   acceptedTo?: string;
   interrupted?: boolean;
   error?: string;
@@ -383,22 +379,6 @@ export interface SerializedArtifact {
   overwrites: boolean;
   /** 作者当时没同意写。写了的那一份记在 `acceptedTo` 上。 */
   declined?: boolean;
-}
-
-export interface SerializedDigest {
-  usedTokens: number;
-  budget: number;
-  clamped: boolean;
-  items: {
-    id: string;
-    label: string;
-    kind: string;
-    priority: number;
-    tokens: number;
-    status: string;
-    note?: string;
-    source?: string;
-  }[];
 }
 
 export interface SessionListItem {

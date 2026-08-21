@@ -434,10 +434,7 @@ export async function sendAgent(
                 turnId: assistantTurn.id,
                 draft,
                 art,
-                byAgent: true,
                 callId: req.callId,
-                // **不打开文件**：一轮里它可能连着写好几份，一次次抢编辑器。
-                open: false,
                 signal: lease.signal,
               });
               // 决定记在那条工具条上（一次调用一行），随会话留住——

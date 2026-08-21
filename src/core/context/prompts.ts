@@ -1,29 +1,26 @@
 /**
- * 提示词：**身份（Stage）× 任务（Capability）× 输出契约**。
+ * 提示词：**身份（Stage）+ 这一件活（Job）+ 输出契约**。
  *
- * 旧的 `mode: 'write' | 'discuss'` 只能表达两种提示词。但同一句「这里冲突太弱」，
- * 四个阶段该给出完全不同的回答：策划编辑去动故事结构，分卷编剧去调这一卷的
- * 弧线，剧情编剧去调这一段的事件与因果，作者去改措辞。不说清身份，四个阶段会
- * 得到同一种泛泛而谈的回答。
+ * 身份来自 job 所在的层：同一句「这里冲突太弱」，四个阶段该给出完全不同的
+ * 回答——策划编辑去动故事结构，分卷编剧去调这一卷的弧线，剧情编剧去调这一段
+ * 的事件与因果，作者去改措辞。不说清身份，四个阶段会得到同一种泛泛而谈的回答。
  *
  * 三段拼起来：
  *
- * 1. **身份**（来自 stage）：你是谁，这一层要解决什么问题，不要越界去干下一层的活
- * 2. **任务**（来自 capability）：这一次要你做什么
- * 3. **输出契约**（来自两者）：产出什么形状的东西
+ * 1. **身份**（`stageOfJob` → `STAGE_ROLE` / `STAGE_DUTY`）：你是谁，这一层要
+ *    解决什么问题，不要越界去干下一层的活
+ * 2. **任务**（`JOB_TASK`）：这一次要你产出什么
+ * 3. **输出契约**（`buildOutputContract`）：那样东西长什么形状
  *
- * 输出契约分两类，由 `outputKindOf` 决定：
- *
- * - `text`：自由作答，**明确禁止直接改写产物**。不写这一条，模型会一边回答
- *   一边把整份剧情重写一遍，而用户根本不知道该采纳哪一个。
- * - `artifact`：产出结构化的产物，可以采纳落盘。
+ * 六个 job 各自一段任务描述、各自一份输出契约。从前这里是
+ * `stage × capability` 两维交叉，于是每处都要分岔一次（`capability === 'split'`
+ * 问两遍），而八个组合里有两个不成立。现在是一层 switch，穷举六个。
  */
 import {
-  Capability,
-  CreationAction,
+  CreationJob,
   CreationStage,
   STAGE_ROLE,
-  outputKindOf,
+  stageOfJob,
 } from '../model/pipeline';
 import { PLOT_SECTION_KEYS } from '../model/plotFile';
 import { VOLUME_SECTION_KEYS } from '../model/volumeFile';
@@ -58,40 +55,53 @@ const STAGE_DUTY: Record<CreationStage, string> = {
     '是这一层的活。你要交出的是读起来像小说的文字。',
 };
 
-/** 每种能力要模型做什么。与阶段无关的那一半。 */
-const CAPABILITY_TASK: Record<Capability, string> = {
-  discuss: '作者要和你讨论。他问什么你答什么：要建议给建议，要分析给分析，要判断给判断。',
-  split:
-    '作者要你把当前这一层拆成下一层：大纲拆成卷，一卷拆出剧情段。' +
-    '拆出来的每一项都要能独立成立，不要留「后面再说」的空档。' +
-    '**要拆成几项由下面的输出契约说**——它说只给一项时就只给一项。',
-  // 改写不是独立能力：上面已经给出这一层的现成产物时，作者那句话就是修改意见。
-  generate:
-    '作者已经描述了他想要的走向（见下面「我的要求」）。**按他说的产出**，不要另起炉灶改走向；' +
-    '他没说到的地方，顺着已有设定与前后文补上，别停在半截。\n' +
-    '上面已经给出这一层的现成产物时，作者的话就是对它的修改意见：在那一版的基础上重做，' +
+/**
+ * 每件活要模型做什么。
+ *
+ * 两件「拆」（`volumeList` / `plotSegment`）的共同点是**产出下一层的骨架**，
+ * 每一项都要能独立成立，不许留「后面再说」的空档；差别在拆成几项，那由输出
+ * 契约说。四件「写」的共同点是作者可能已经描述了走向，也可能什么都没说——
+ * 没说时顺着上一层的产物照常写，不要停下来问。
+ */
+const JOB_TASK: Record<CreationJob, string> = {
+  outline:
+    '作者要你写或改全书大纲。他描述了想要的走向时（见下面「我的要求」）**按他说的产出**，' +
+    '不要另起炉灶改走向；他没说到的地方，顺着已有设定补上，别停在半截。\n' +
+    '上面已经给出现成的大纲时，作者的话就是对它的修改意见：在那一版的基础上重做，' +
     '采纳他的意见，同时保留上一版里写得好的部分。',
-  // 这一条与 generate 的差别就是两条路：一条从作者的描述出发，
-  // 一条从刚发生过的讨论出发。说不清「以哪边为准」，模型会把两者混着编。
-  settle:
-    '你和作者刚讨论完这一章（完整对话就在上面）。把讨论中**已经达成的结论**整理成产物。\n' +
-    '以讨论里定下的为准：**不要塞进讨论中被否掉的方案**，也不要临时发明谁都没提过的新走向。\n' +
-    '讨论中悬而未决的地方，按最接近的结论写或留空，并在产物之外用一两句话说明哪几处还没定——' +
-    '那正是作者接下来要接着聊的东西。',
+  volumeList:
+    '作者要你把全书大纲拆成若干卷。每一卷都要能独立成立——有自己的开局、升级与收束，' +
+    '不要留「后面再说」的空档。',
+  volume:
+    '作者要你写或改这一卷的卷纲。他描述了想要的走向时**按他说的产出**；' +
+    '他没说到的地方，顺着大纲与这一卷已有的内容补上。\n' +
+    '上面已经给出现成的卷纲时，作者的话就是对它的修改意见：在那一版的基础上重做。',
+  plotSegment:
+    '作者要你从这一卷里拆出**下一个**剧情段。它要接着这一卷已经排好的那几段往下走，' +
+    '不是重复已有的，也不是跳到后面去的。**只拆一段。**',
+  plot:
+    '作者要你排这一段的剧情脉络。他描述了想要的走向时**按他说的产出**，不要另起炉灶；' +
+    '他没说到的地方，顺着卷纲与前后段补上。\n' +
+    '上面已经给出现成的细纲时，作者的话就是对它的修改意见：在那一版的基础上重做，' +
+    '采纳他的意见，同时保留上一版里写得好的部分。',
+  manuscript:
+    '作者要你把已经定好的剧情写成正文。剧情走向不由你决定——那在本段的细纲里已经定了。',
 };
 
 /**
  * 系统提示词。
  *
- * 正文阶段的六条硬性要求逐字保留——它们是这个项目跑了很久、调出来的东西
+ * 正文的六条硬性要求逐字保留——它们是这个项目跑了很久、调出来的东西
  * （不复述前情、不写章节标题、不强行收束…），换个说法就等于重新试错一遍。
  */
-export function buildSystemPrompt(action: CreationAction, config: NovelConfig, targetWords?: number): string {
-  const { stage, capability } = action;
-
-  // 正文 + 出稿：沿用原有的写作提示词。那六条是这个项目跑了很久调出来的，
-  // 只改了第 3 条里「本章剧情纲要」的说法——依据从场景素材换成了本段细纲。
-  if (stage === 'manuscript' && capability === 'generate') {
+export function buildSystemPrompt(
+  job: CreationJob,
+  config: NovelConfig,
+  targetWords?: number
+): string {
+  // 正文：沿用原有的写作提示词，与上面那张表里的一句话并存——那一句是给
+  // 「你要干什么」，这六条是「怎么写才算合格」。
+  if (job === 'manuscript') {
     const lines = [
       '你是一位资深中文长篇小说作者，正在为一部已连载的作品续写新的章节。',
       '',
@@ -110,27 +120,21 @@ export function buildSystemPrompt(action: CreationAction, config: NovelConfig, t
     return lines.join('\n');
   }
 
-  const lines = [
+  const stage = stageOfJob(job);
+  return [
     `你是一位${STAGE_ROLE[stage]}，正在协助作者推进一部长篇中文小说。`,
     '',
     STAGE_DUTY[stage],
     '',
-    CAPABILITY_TASK[capability],
+    JOB_TASK[job],
     '',
     '通用要求：',
     '1. 一切判断建立在已给出的文风指南、设定、角色卡与前文之上，不要凭空发明设定。',
     '2. 发现作者的想法与既有设定冲突（人物性格、已收伏笔、时间线）时必须直说，并给出可行的调整方案。',
     '3. 具体，不要泛泛而谈。能引用上面给出的原文就引用。',
-  ];
-
-  if (outputKindOf(action) === 'text') {
-    // 这一条是「讨论型能力」的边界。少了它，模型会一边回答一边把整份产物
-    // 重写一遍，而界面上那一版是不能采纳的，用户只会困惑。
-    lines.push('4. **只回答，不要输出改写后的完整产物。** 需要落到文件上的改动由作者另行发起。');
-  }
-
-  lines.push('', '语言：简体中文。');
-  return lines.join('\n');
+    '',
+    '语言：简体中文。',
+  ].join('\n');
 }
 
 /**
@@ -185,47 +189,38 @@ const SPLIT_VOLUME_INTO_SEGMENT = [
  * 结构化产物一律要求 JSON。解析侧必须三层降级（JSON → Markdown 小节 → 全文），
  * 与单章摘要同一套——模型不听话是常态，而解析失败等于这一次生成白花钱。
  */
-export function buildOutputContract(action: CreationAction, targetWords?: number): string {
-  const { stage, capability } = action;
-
-  if (outputKindOf(action) === 'text') {
-    return '请直接回答上面的问题。若我要的是建议或分析，就给建议或分析，不必写成小说正文。';
-  }
-
-  switch (stage) {
+export function buildOutputContract(job: CreationJob, targetWords?: number): string {
+  switch (job) {
     case 'outline':
-      // 从前这里要按 target 分岔（全书大纲 / 某一卷的卷纲），因为两者共用
-      // `outline` 这一个阶段。卷纲独立成阶段之后各归各的 case，判据与
-      // `parseArtifact` 同源。
-      return capability === 'split'
-        ? SPLIT_OUTLINE_INTO_VOLUMES
-        : [
-            '请输出修订后的完整大纲，用 Markdown 分卷书写（`## 第一卷 · 觉醒之日`）。',
-            '每一卷下列出若干剧情节点，每个节点一行，说清「谁做了什么、导致什么」。',
-            '只输出大纲本身，不要解释你改了什么。',
-          ].join('\n');
+      return [
+        '请输出修订后的完整大纲，用 Markdown 分卷书写（`## 第一卷 · 觉醒之日`）。',
+        '每一卷下列出若干剧情节点，每个节点一行，说清「谁做了什么、导致什么」。',
+        '只输出大纲本身，不要解释你改了什么。',
+      ].join('\n');
+
+    case 'volumeList':
+      return SPLIT_OUTLINE_INTO_VOLUMES;
 
     case 'volume':
-      return capability === 'split'
-        ? SPLIT_VOLUME_INTO_SEGMENT
-        : [
-            '请输出这一卷完整的卷纲，用 Markdown 小节书写，小节名就用下面这四个：',
-            '',
-            ...VOLUME_SECTION_KEYS.map((k) => `## ${k}`),
-            '',
-            '「目标」一句话说清这一卷要达成什么，必须是能判断「达成没达成」的具体结果。',
-            '「剧情走向」是主体：这一卷从什么局面开始、经过哪些事、收在什么局面上，' +
-              '按因果顺序写。它是拆剧情段的依据，写到「能据此判断下一段该发生什么」为止。',
-            '「关键转折」说清这一卷的主冲突是什么、在哪一步翻转、谁付出什么代价。',
-            '「伏笔与回收」分别写清这一卷埋下什么、兑现了前面哪一处。',
-            '**不要写具体画面、天气、动作细节或台词**，也不要把这一卷预先切成段——' +
-              '切段是下一步的事，一次一段地做。',
-            '只输出卷纲本身，不要解释你改了什么。',
-          ].join('\n');
+      return [
+        '请输出这一卷完整的卷纲，用 Markdown 小节书写，小节名就用下面这四个：',
+        '',
+        ...VOLUME_SECTION_KEYS.map((k) => `## ${k}`),
+        '',
+        '「目标」一句话说清这一卷要达成什么，必须是能判断「达成没达成」的具体结果。',
+        '「剧情走向」是主体：这一卷从什么局面开始、经过哪些事、收在什么局面上，' +
+          '按因果顺序写。它是拆剧情段的依据，写到「能据此判断下一段该发生什么」为止。',
+        '「关键转折」说清这一卷的主冲突是什么、在哪一步翻转、谁付出什么代价。',
+        '「伏笔与回收」分别写清这一卷埋下什么、兑现了前面哪一处。',
+        '**不要写具体画面、天气、动作细节或台词**，也不要把这一卷预先切成段——' +
+          '切段是下一步的事，一次一段地做。',
+        '只输出卷纲本身，不要解释你改了什么。',
+      ].join('\n');
+
+    case 'plotSegment':
+      return SPLIT_VOLUME_INTO_SEGMENT;
 
     case 'plot':
-      // 剧情层没有 `split`（场景那一层已经删掉，见 model/pipeline.ts 的文件头），
-      // 所以这里只有一种产物：那一段的细纲。
       return [
         '请输出这一段的剧情细纲，只输出 JSON，不要有任何其它文字：',
         '',
@@ -243,19 +238,16 @@ export function buildOutputContract(action: CreationAction, targetWords?: number
       ].join('\n');
 
     case 'manuscript':
-      return `现在开始写作。只输出小说正文，不要输出任何标题、序号、解释、总结或「以下是」之类的话。`;
+      return '现在开始写作。只输出小说正文，不要输出任何标题、序号、解释、总结或「以下是」之类的话。';
   }
 }
 
 /**
  * 用户输入那一段的小标题。
  *
- * 「本段剧情纲要（必须完整覆盖）」这种说法只在正文阶段成立——在剧情阶段
- * 用户输入的是要求而不是纲要，照搬会让模型以为要把那句话扩写成正文。
+ * 「本段剧情纲要（必须完整覆盖）」这种说法只在正文成立——别的活里作者输入的
+ * 是要求而不是纲要，照搬会让模型以为要把那句话扩写成正文。
  */
-export function askHeading(action: CreationAction): string {
-  if (action.stage === 'manuscript' && action.capability === 'generate') {
-    return '# 本段剧情纲要（必须完整覆盖，按顺序推进）';
-  }
-  return '# 我的要求';
+export function askHeading(job: CreationJob): string {
+  return job === 'manuscript' ? '# 本段剧情纲要（必须完整覆盖，按顺序推进）' : '# 我的要求';
 }

@@ -165,10 +165,12 @@ describe('气泡右上角的 ... 菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(ui.doc.querySelector('.msg-menu'));
   });
 
-  test('用户消息菜单含「重新生成」与「删除」', () => {
+  // 没有「重新生成」：那是单步生成才有的动作（同一层、同一份参数再跑一遍）。
+  // agent 每一轮读的是当下的磁盘状态，重放一句旧话本来也得不到同一个结果。
+  test('用户消息菜单只有「删除」', () => {
     const menu = ui.doc.querySelector('.msg-menu');
     const items = [...menu.querySelectorAll('button')].map((b) => b.textContent);
-    assert.ok(items.includes('重新生成') && items.includes('删除'), JSON.stringify(items));
+    assert.deepEqual(items, ['删除'], JSON.stringify(items));
   });
 
   // 原样保留：这一条靠 `button:last-child` 取「删除」项，而不是按文案找。
@@ -228,15 +230,7 @@ describe('生成中的限制', { skip: JSDOM_SKIP }, () => {
 
 describe('空输入', { skip: JSDOM_SKIP }, () => {
   let ui;
-  const sends = () => ui.sent.filter((m) => m.type === 'send').length;
   const agentSends = () => ui.sent.filter((m) => m.type === 'sendAgent').length;
-  /** 从 `/` 面板挑一个命令，挑完输入框是空的。 */
-  const pickCommand = (label) => {
-    const input = ui.doc.getElementById('input');
-    input.value = '/';
-    input.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
-    ui.clickEl([...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes(label)));
-  };
 
   before(() => {
     ui = mount();
@@ -245,24 +239,30 @@ describe('空输入', { skip: JSDOM_SKIP }, () => {
       session: emptySession({
         target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
         stage: 'plot',
-        capability: 'discuss',
       }),
     });
   });
 
-  // 直接发送走的是 agent，而 agent 的全部输入就是作者那句话——没有话就没得跑。
-  test('直接发送仍然要求先输入', () => {
+  // agent 的全部输入就是作者那句话——没有话就没得跑。从前这里还有一支
+  // 「挑了 /写剧情 就不必输入」，那条路（确定性单步）已经没了。
+  test('空输入不发送', () => {
     ui.doc.getElementById('input').value = '';
     ui.clickEl(ui.doc.getElementById('sendBtn'));
-    assert.equal(sends() + agentSends(), 0);
+    assert.equal(agentSends(), 0);
   });
 
-  // 而 `/写剧情` 不需要作者再说什么——该说的都在大纲里了。
-  test('生成类命令允许空输入', () => {
-    pickCommand('写剧情');
+  test('空输入时提示先说点什么', () => {
+    assert.ok(
+      ui.doc.querySelector('#toast')?.textContent.includes('先说说'),
+      ui.doc.querySelector('#toast')?.textContent
+    );
+  });
+
+  test('有话就发得出去', () => {
+    ui.doc.getElementById('input').value = '排一下这一段';
     ui.clickEl(ui.doc.getElementById('sendBtn'));
-    assert.equal(sends(), 1, String(sends()));
-    assert.equal(ui.last('send').payload.capability, 'generate', JSON.stringify(ui.last('send').payload));
+    assert.equal(agentSends(), 1, String(agentSends()));
+    assert.equal(ui.last('sendAgent').text, '排一下这一段');
   });
 });
 
@@ -285,7 +285,6 @@ describe('产物那一行', { skip: JSDOM_SKIP }, () => {
       session: emptySession({
         target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
         stage: 'plot',
-        capability: 'generate',
       }),
     });
     ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '我建议把冲突提前。') });
@@ -451,50 +450,33 @@ describe('思考过程（推理模型）', { skip: JSDOM_SKIP }, () => {
   });
 });
 
-describe('命令类消息的气泡', { skip: JSDOM_SKIP }, () => {
+describe('用户气泡', { skip: JSDOM_SKIP }, () => {
   let ui;
-  const cmdTag = (id) => ui.bubble(id).querySelector('.msg-command');
 
   before(() => {
     ui = mount();
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'plan', chapterRelPath: 'chapters/012-夜入青云.md' },
-        stage: 'plan',
-        capability: 'generate',
+        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
+        stage: 'plot',
       }),
     });
   });
 
-  // 「生成细纲」不需要作者说什么（该说的都在大纲里），于是 content 是空的。
-  // 但气泡不能就这么空着——翻回去看时认不出刚才点的是哪一下。
-  test('空输入的命令轮次显示命令名', () => {
-    ui.post({ type: 'turnDone', turn: turn('u1', 'user', '', { command: '生成细纲' }) });
-    assert.ok(cmdTag('u1'), '没有命令标签');
-    assert.equal(cmdTag('u1').textContent, '/生成细纲', cmdTag('u1')?.textContent);
+  // 每一轮的输入就是作者那句话——没有「点了个命令、一个字都不必打」那种轮次了，
+  // 于是也不再有那枚 `/写剧情` 标签。
+  test('说的话就是气泡内容', () => {
+    ui.post({ type: 'turnDone', turn: turn('u1', 'user', '这里冲突太弱') });
+    assert.equal(ui.bodyOf('u1').textContent, '这里冲突太弱');
   });
 
-  test('气泡不再是一片空白', () => {
-    assert.ok(ui.bodyOf('u1').textContent.trim().length > 0, JSON.stringify(ui.bodyOf('u1').textContent));
+  test('不再有命令标签', () => {
+    assert.ok(!ui.bubble('u1').querySelector('.msg-command'));
   });
 
-  // 有补充要求时两样都在：命令一枚标签，正文跟在后面。
-  test('带补充要求时命令与正文都显示', () => {
-    ui.post({ type: 'turnDone', turn: turn('u2', 'user', '这一章要慢一点', { command: '生成细纲' }) });
-    assert.equal(cmdTag('u2').textContent, '/生成细纲');
-    assert.equal(ui.bubble('u2').querySelector('.msg-text').textContent, '这一章要慢一点');
-  });
-
-  // 讨论是默认动作，后端不给 command——每条消息都挂一枚「/讨论」是纯噪声。
-  test('讨论轮次不挂命令标签', () => {
-    ui.post({ type: 'turnDone', turn: turn('u3', 'user', '这里冲突太弱') });
-    assert.ok(!cmdTag('u3'));
-    assert.equal(ui.bodyOf('u3').textContent, '这里冲突太弱');
-  });
-
-  // 旧会话里的空轮次（那时命令没被记下来）：留一句说明，别留一片空白。
-  test('既无话也无命令时给一句说明', () => {
+  // 旧会话里的空轮次（那时点命令不必输入）：留一句说明，别留一片空白。
+  test('没有内容时给一句说明', () => {
     ui.post({ type: 'turnDone', turn: turn('u4', 'user', '') });
     assert.ok(ui.bubble('u4').querySelector('.msg-text-empty'), ui.bodyOf('u4')?.textContent);
   });

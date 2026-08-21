@@ -1,20 +1,24 @@
 /**
- * 创作流水线的领域模型：`Stage × Capability × Target`。
+ * 创作流水线的领域模型：`Job × Target`。
  *
  * **纯类型 + 纯函数，零 I/O**（与 naming.ts / identity.ts / chapterFile.ts 同类），
  * 因此前端、装配器、编排层、工程页共用同一份定义，不会各写一遍再慢慢跑偏。
  *
- * 这里替换掉的是旧的 `mode: 'write' | 'discuss'`。那个开关是按 **AI 的输出形式**
- * 划分的，而不是按作者真实的创作流程划分：
+ * ## 为什么是一维的 Job，不是 `Stage × Capability`
  *
- * - 「讨论」不是一个模式——大纲、卷纲、剧情、正文四个阶段都会讨论；
- * - 「续写」不是一个阶段——它只是正文阶段的一个动作。
+ * 从前这里是两个正交维度：在哪一层（stage）× 要它干什么（capability）。摆成
+ * 表是八个格子，而**只有六个成立**——`split`（拆出下一层）只在大纲与卷纲上
+ * 有意义，剧情层与正文层没有下一层可拆。
  *
- * 所以拆成三个正交维度：
+ * 那两个空格子是要付代价的：「剧情层 + split」在类型上说得出口，于是必须有
+ * 一张 `STAGE_CAPABILITIES` 表、一个 `isValidAction` 去拦它，agent 的工具里还
+ * 要有一段「这一层不支持 split」的错误提示。三处代码存在的全部理由，是防一个
+ * 说得出口但不成立的组合。
  *
- * - **Stage**：我在哪一层（决定 AI 的身份、装配配方、产物落到哪）
- * - **Capability**：我要它干什么（任何阶段都能用，只是可用集合不同）
- * - **Target**：我在改哪一个具体产物
+ * 拍平成六个 job 之后，非法组合**打都打不出来**，那三处随之消失。
+ *
+ * 两个维度还剩下的那点用处仍然保留：`stage` 决定 AI 的身份（`STAGE_ROLE`）、
+ * 装配配方（`recipeFor`）与流水线上的位置，由 `stageOfJob` 从 job 映射得出。
  *
  * ## 规划的单位是剧情段，管理的单位是章
  *
@@ -93,234 +97,92 @@ export function isCreationStage(value: unknown): value is CreationStage {
   return typeof value === 'string' && (CREATION_STAGES as string[]).includes(value);
 }
 
-// ---------------------------------------------------------------- Capability
+// ---------------------------------------------------------------- Job
 
 /**
- * 通用能力。与阶段正交——「讨论」不再是一个模式，而是四个能力之一。
+ * 一件创作活。**六个值穷举了这套流水线上所有能让模型干的事。**
  *
- * 从前这里有八个。扩展 / 挑刺 / 检查（expand / critique / check）只是
- * 「换一段提示词的讨论」——想挑刺直接打字说，模型听得懂，不需要作者先猜
- * 这句话归哪个命令；改写（rewrite）是「目标已有内容时的生成」——已有一版
- * 加上作者的意见，本来就是改写，不需要他自己分辨。四个都删了。
- * 留下来的每一个都有**提示词之外**的结构差异：输出契约、解析、装配配方、
- * 采纳流程，那才是值得作者显式挑一下的东西。
+ * 名字按「产出什么」取，不按「在哪一层干什么」取——因为落点是路径的事，
+ * 而这个枚举要回答的是「产出什么形状的东西」。两件事分开之后，解析
+ * （`features/artifact.ts`）与输出契约（`context/prompts.ts`）都只需要看这一个值。
+ *
+ * 六个里有两个是**拆出下一层的骨架**（`volumeList` / `plotSegment`），产出的
+ * 是下一层的空壳而不是本层的内容——这正是从前 `split` 那个能力干的事。它只在
+ * 大纲与卷纲上成立，剧情段已经是最小的规划单位（场景那一层早删了，见文件头），
+ * 正文拆成章是工程动作而不是一次模型调用。
+ *
+ * `plotSegment` **一次只拆一段**：一次吐五段只会得到一串彼此没有因果的骨架，
+ * 那正是「大纲直接拆章」的老毛病。一次一段时模型手上有卷纲、也知道这一卷排到
+ * 哪了，「接下来该发生什么」才答得准。
  */
-export type Capability = 'discuss' | 'split' | 'generate' | 'settle';
+export type CreationJob =
+  /** 写全书大纲。产出整篇 Markdown。 */
+  | 'outline'
+  /** 大纲 → 分卷清单。产出若干卷的空壳卷纲。 */
+  | 'volumeList'
+  /** 写某一卷的卷纲。产出整篇 Markdown。 */
+  | 'volume'
+  /** 卷纲 → **一个**剧情段。产出一份空壳细纲。 */
+  | 'plotSegment'
+  /** 写某一段的剧情细纲。产出四个小节。 */
+  | 'plot'
+  /** 写正文。 */
+  | 'manuscript';
 
-export const CAPABILITIES: Capability[] = ['discuss', 'split', 'generate', 'settle'];
+export const CREATION_JOBS: CreationJob[] = [
+  'outline',
+  'volumeList',
+  'volume',
+  'plotSegment',
+  'plot',
+  'manuscript',
+];
 
-export const CAPABILITY_LABEL: Record<Capability, string> = {
-  discuss: '讨论',
-  split: '拆分',
-  generate: '生成',
-  settle: '落定',
+/** 人话说法。日志、gate 卡片、工具返回共用这一份。 */
+export const JOB_LABEL: Record<CreationJob, string> = {
+  outline: '全书大纲',
+  volumeList: '分卷清单',
+  volume: '卷纲',
+  plotSegment: '剧情段',
+  plot: '剧情细纲',
+  manuscript: '正文',
 };
 
-/** 按钮的 tooltip。说清「点了会发生什么」，尤其是会不会产出可采纳的东西。 */
-export const CAPABILITY_HINT: Record<Capability, string> = {
-  discuss: '就当前产物提问，AI 只回答，不改动任何文件',
-  split: '拆成下一层：大纲拆成卷，卷拆成剧情段',
-  generate: '按你描述的走向产出本阶段的产物，可采纳写入；目标已有内容时，你的话就是修改意见',
-  settle: '把刚才讨论出的结论整理成产物，可采纳写入',
+/** 一句话说清这件活干什么。工具描述与 gate 卡片吃它。 */
+export const JOB_HINT: Record<CreationJob, string> = {
+  outline: '写或改全书大纲：主线走向、分卷因果、冲突升级曲线、伏笔的埋与收',
+  volumeList: '把大纲拆成若干卷，每卷是一条完整的中等弧线',
+  volume: '写这一卷的卷纲：从什么局面开始、经过哪些事、收在什么局面上',
+  plotSegment: '从这一卷的卷纲里拆出下一个剧情段。一次只拆一段',
+  plot: '排这一段的剧情脉络：发生什么、因果怎么串、收在什么局面上',
+  manuscript: '把已经定好的剧情写成正文',
 };
 
-export function isCapability(value: unknown): value is Capability {
-  return typeof value === 'string' && (CAPABILITIES as string[]).includes(value);
+export function isCreationJob(value: unknown): value is CreationJob {
+  return typeof value === 'string' && (CREATION_JOBS as string[]).includes(value);
 }
 
 /**
- * 能力在某个阶段的**具体说法**。`CAPABILITY_LABEL` 是通用说法，日志与确认框
- * 用它是对的；界面上有阶段做上下文，说得具体些更好懂。
+ * 这件活属于哪一层。
  *
- * 只覆盖差别大到会让人误解的那几处：`split` 在大纲拆的是卷、在卷里拆的是
- * 一个剧情段；`generate` 在四层产出的是四种完全不同的东西。其余沿用通用说法。
+ * `stage` 仍然是个有用的概念，只是不再由调用方指定：它决定 AI 的身份
+ * （`STAGE_ROLE`）、装配配方（`recipeFor`）以及在流水线条上的位置。
  *
- * **不再按 target 特判**。从前 `outline` 阶段兼管全书大纲与卷纲，同一个
- * `split` 在两种 target 上做的是完全不同的事，于是有一张
- * `CAPABILITY_LABEL_ON_VOLUME` 和一路传下来的 `targetKind` 参数。卷纲成为
- * 独立阶段之后，按 stage 取就够了——少一个参数，也少一处「忘了传 targetKind
- * 于是按钮写着拆成卷、拆出来的是一个剧情段」的机会。
+ * 两处「拆」归**上一层**而不是产出所在的那一层：拆卷时模型的身份是策划编辑、
+ * 手上要的是全书大纲那套上下文；拆段时是分卷编剧、要的是这一卷的卷纲。
+ * 归到产出所在层的话，拆段会拿剧情层的配方去装配，而那份配方里根本没有卷纲。
  */
-const CAPABILITY_LABEL_IN: Partial<Record<CreationStage, Partial<Record<Capability, string>>>> = {
-  outline: { split: '拆成卷', generate: '生成大纲' },
-  volume: { split: '拆出剧情段', generate: '写这一卷的卷纲' },
-  plot: { generate: '写剧情', settle: '落定剧情' },
-  manuscript: { generate: '写正文' },
+const JOB_STAGE: Record<CreationJob, CreationStage> = {
+  outline: 'outline',
+  volumeList: 'outline',
+  volume: 'volume',
+  plotSegment: 'volume',
+  plot: 'plot',
+  manuscript: 'manuscript',
 };
 
-/** 某阶段下某能力在按钮上的说法。 */
-export function labelOf(stage: CreationStage, capability: Capability): string {
-  return CAPABILITY_LABEL_IN[stage]?.[capability] ?? CAPABILITY_LABEL[capability];
-}
-
-/**
- * 每个阶段合法的能力。**前端的命令面板经 `commandsFor` 读它**，不在前端另写一份。
- *
- * 两处刻意的缺席与一处刻意的独有：
- * - `plot` 没有 `split`：剧情段就是最小的规划单位。从前它拆的是场景，而场景
- *   那一层已经删掉了（见文件头）——一段要分几次写正文，直接写就是了。
- * - `manuscript` 没有 `split`：正文拆成章是工程动作（作者标 `---` 后点
- *   「拆成章节」），不是一次模型调用。
- * - **只有 `plot` 有 `settle`**：剧情是唯一一层「先跟人聊、聊出结论再落文件」
- *   的东西。大纲与卷纲通常一次成型，正文是从上一层展开而不是从对话展开。
- *   把 `settle` 铺到四层，另外三层会得到一个几乎没人点、点了也不知道该沉淀
- *   什么的按钮。
- */
-export const STAGE_CAPABILITIES: Record<CreationStage, Capability[]> = {
-  outline: ['discuss', 'generate', 'split'],
-  volume: ['discuss', 'generate', 'split'],
-  plot: ['discuss', 'settle', 'generate'],
-  manuscript: ['discuss', 'generate'],
-};
-
-/**
- * 切到某阶段时默认高亮哪个能力。
- *
- * 一律是 `discuss`：默认动作不该是花钱产出一份要不要都不知道的产物。
- * 这是「不偷偷烧 token」在交互上的落法——用户得主动点「生成」。
- */
-export const DEFAULT_CAPABILITY: Record<CreationStage, Capability> = {
-  outline: 'discuss',
-  volume: 'discuss',
-  plot: 'discuss',
-  manuscript: 'discuss',
-};
-
-export interface CreationAction {
-  stage: CreationStage;
-  capability: Capability;
-}
-
-export function isValidAction(action: CreationAction): boolean {
-  return (
-    isCreationStage(action.stage) &&
-    isCapability(action.capability) &&
-    STAGE_CAPABILITIES[action.stage].includes(action.capability)
-  );
-}
-
-/** 删掉的能力在老会话里的落点：改写并进了生成，其余三个都是讨论的变体。 */
-const LEGACY_CAPABILITY: Record<string, Capability> = {
-  rewrite: 'generate',
-  expand: 'discuss',
-  critique: 'discuss',
-  check: 'discuss',
-};
-
-/**
- * 删掉的阶段在老会话里的落点。
- *
- * `scene`（细节层）落到 `plot` 而不是 `manuscript`：与 `normalizeTarget` 同一条
- * 判断——那一层的会话记的是「这一段该怎么发生」，接着往下做最可能是回剧情层
- * 把它写清楚。两处必须一致，否则老会话打开时 stage 说剧情、target 指正文。
- */
-const LEGACY_STAGE: Record<string, CreationStage> = {
-  scene: 'plot',
-};
-
-/**
- * 容错归一：认不出的阶段回落到 `manuscript`（老会话最可能是在续写），
- * 认不出或该阶段不支持的能力回落到该阶段的默认能力。**绝不抛**。
- */
-export function normalizeAction(raw: unknown): CreationAction {
-  const o = (raw ?? {}) as { stage?: unknown; capability?: unknown };
-  const rawStage = typeof o.stage === 'string' ? LEGACY_STAGE[o.stage] ?? o.stage : o.stage;
-  const stage: CreationStage = isCreationStage(rawStage) ? rawStage : 'manuscript';
-  const raw2 = typeof o.capability === 'string' ? LEGACY_CAPABILITY[o.capability] ?? o.capability : o.capability;
-  const capability =
-    isCapability(raw2) && STAGE_CAPABILITIES[stage].includes(raw2) ? raw2 : DEFAULT_CAPABILITY[stage];
-  return { stage, capability };
-}
-
-// ---------------------------------------------------------------- 输出形态
-
-/**
- * 输出形态。决定要不要解析成结构化产物、要不要给「采纳」按钮。
- *
- * - `text`：自由作答，只出现在对话气泡里，不碰任何文件。
- * - `artifact`：产出本阶段的产物，可以采纳落盘。
- */
-export type OutputKind = 'text' | 'artifact';
-
-export function outputKindOf(action: CreationAction): OutputKind {
-  return action.capability === 'discuss' ? 'text' : 'artifact';
-}
-
-// ---------------------------------------------------------------- 命令表
-
-/**
- * 一条可执行的命令。创作页的 `/` 命令面板吃这一份。
- *
- * 取代了原来那排七个平铺的能力按钮。平铺的问题不是不好看，是**七个等重的
- * 按钮看不出该点哪个**——而在任何一个具体时刻，作者真正要按的只有一个
- * （由状态机算出来，见 `deriveNextStep`），其余的是「偶尔要用」。
- * 偶尔要用的东西该收进命令面板，不该常驻占地方。
- */
-export interface StageCommand {
-  capability: Capability;
-  /** 按钮/菜单项上的说法，已按阶段具体化。 */
-  label: string;
-  hint: string;
-  /** `/` 面板的过滤键。中文标签之外再给 ascii 别名，免得为了打一个命令切输入法。 */
-  keys: string[];
-}
-
-/** 各能力的 ascii 别名。全拼 + 拼音首字母，两种都认。 */
-const CAPABILITY_KEYS: Record<Capability, string[]> = {
-  discuss: ['discuss', 'tl'],
-  split: ['split', 'cf'],
-  generate: ['generate', 'sc'],
-  settle: ['settle', 'ld'],
-};
-
-/**
-/**
- * 这个阶段能下哪些命令。顺序即面板里的顺序。
- *
- * **`discuss` 不进面板**：讨论是默认动作——打字就是在讨论，不需要一条命令。
- * 于是面板里剩下的每一条都产出可采纳的产物（会花钱、会问一次落盘），
- * 这正是它们值得显式挑一下的原因。也因此命令都**不要求输入**：输入是可选的
- * 补充要求，「写剧情」不需要作者说任何话（卷纲与前后段里都写着）；`settle`
- * 尤其不能要求输入——它要沉淀的是已经发生过的对话，此刻输入框本来就该是空的。
- */
-export function commandsFor(stage: CreationStage): StageCommand[] {
-  return (STAGE_CAPABILITIES[stage] ?? [])
-    .filter((capability) => capability !== 'discuss')
-    .map((capability) => ({
-      capability,
-      label: labelOf(stage, capability),
-      hint: hintOf(stage, capability),
-      keys: CAPABILITY_KEYS[capability],
-    }));
-}
-
-/**
- * 某阶段下某能力的 tooltip。
- *
- * 两处需要具体化。**卷纲的 `split`**：一次只拆一段这条设计得说出理由，
- * 否则作者会以为按钮坏了。**剧情层的 `settle` / `generate`**：这两条是同一层里
- * 唯二产出同一种产物的命令，通用文案说不清它们的差别，而那个差别（以讨论为准
- * 还是以你这句话为准）正是作者要选的东西。
- */
-function hintOf(stage: CreationStage, capability: Capability): string {
-  if (stage === 'volume' && capability === 'split') {
-    return '从这一卷的卷纲里拆出下一个剧情段。一次只拆一段——有了卷纲当参照，' +
-      '「接下来该发生什么」才答得准，一次吐五段只会得到一串彼此没有因果的骨架。';
-  }
-  if (stage === 'plot') {
-    if (capability === 'settle') {
-      return '把刚才讨论出的剧情整理成细纲，以讨论里的结论为准';
-    }
-    if (capability === 'generate') {
-      return '按你在输入框里描述的走向填成细纲';
-    }
-  }
-  return CAPABILITY_HINT[capability];
-}
-
-/** 某阶段的某个能力对应的命令；不支持时 undefined。 */
-export function commandOf(stage: CreationStage, capability: Capability): StageCommand | undefined {
-  return commandsFor(stage).find((c) => c.capability === capability);
+export function stageOfJob(job: CreationJob): CreationStage {
+  return JOB_STAGE[job];
 }
 
 /**
@@ -669,29 +531,41 @@ export function deriveProgress(f: PipelineFacts): PipelineProgress {
 // ---------------------------------------------------------------- 下一步
 
 /**
- * 状态机算出来的「现在该干什么」。创作页的主按钮吃这一份。
+ * 状态机算出来的「现在该干什么」。**agent 每回合的状态注入吃这一份。**
  *
- * 这是整套流水线在界面上的落点。四层产物、三段进度、⟳ 标记都只是**信息**；
- * 作者真正要的是一句「所以我现在该点什么」。旧界面把这个判断留给了作者：
- * 七个能力按钮平铺，选中一章一律落到正文层——哪怕那一章连剧情都没排。
+ * 这是整套流水线在判断上的落点。四层产物、三段进度、⟳ 标记都只是**信息**；
+ * 真正要的是一句「所以现在该做什么」。
+ *
+ * 从前这还兼着创作页那颗主按钮。按钮删掉之后**判据一个字都没变**——agent 与
+ * 界面本来就共用同一份输出（第 20 条），少的只是那个入口。
  *
  * **与 `deriveStage` 共用同一套判据**，不另发明一套：那边算出停在哪一层，
- * 这边把那一层翻译成一个具体动作。两处如果各判各的，界面上就会出现
- * 「徽章说待写正文，按钮让你去拆章节」。
+ * 这边把那一层翻译成一个具体动作。两处如果各判各的，agent 就会说出
+ * 「状态是待写正文，下一步去拆章节」这种自相矛盾的话。
  */
 export interface NextStepPlan {
+  /**
+   * 这一步落在哪一层。
+   *
+   * 留着不是为了说给谁听，而是 `targetOf` 要拿它算落点——选中一章时
+   * 「进入它当前该做的那一步」正是靠这个字段定的（见 `controller/chat.ts`
+   * 的 `selectPlot`）。
+   */
   stage: CreationStage;
-  capability: Capability;
-  /** 主按钮上的字，如「写正文」。 */
+  /** 一句话说清是哪一步，如「写正文」。 */
   label: string;
-  /** 按钮下面那句话：为什么是这一步。 */
+  /** 为什么是这一步。 */
   hint: string;
   /**
-   * 这一步不是一次模型对话，而是一个工程动作。
+   * 这一步不是一次模型调用，而是一个工程动作。
    *
    * 有两处用得上：正文写完要拆成发布章节（`splitManuscript`），
    * 拆完要更新摘要（`summarizePlot`）。两者都是既有的工程动作，
-   * 不该假装成一轮对话。
+   * 不该假装成一次生成。
+   *
+   * **agent 靠它知道该用 `run` 工具而不是 `generate`**（见
+   * `agent/context.ts` 的 `describeNext`）。少了这一句，它会拿一次
+   * 花钱的生成去干一件不花钱的活。
    */
   projectAction?: 'summarizePlot' | 'splitManuscript';
 }
@@ -717,28 +591,24 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
     case 'plot':
       return {
         stage: 'plot',
-        capability: 'generate',
-        label: labelOf('plot', 'generate'),
+        label: JOB_LABEL.plot,
         hint: '先把这一段的剧情脉络排出来：发生什么、因果怎么串、收在什么局面上。',
       };
 
     case 'manuscript':
       // 细纲改过而正文没跟上：要的是拿新剧情重做一版，不是往后接着写。
-      // 改写不是独立能力（并进了 generate），但按钮上要说的仍是「重写」。
       if (f.upstreamStale) {
         return {
           stage: 'manuscript',
-          capability: 'generate',
           label: '重写正文',
           hint: '剧情改过，现有正文可能已经与它对不上。',
         };
       }
       // 写过一部分但还没写够：说清是「接着写」而不是「重新写一遍」——
-      // 落盘走的是追加，作者点下去不会丢掉前面那几千字。
+      // 落盘走的是追加，不会丢掉前面那几千字。
       if (f.words > 0) {
         return {
           stage: 'manuscript',
-          capability: 'generate',
           label: '接着写',
           hint: `这一段的正文写了 ${f.words} 字，还没写够（约 ${Math.round(f.ratio * 100)}%）。` +
             '接着往下写，新的一段会追加在末尾。',
@@ -746,16 +616,14 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
       }
       return {
         stage: 'manuscript',
-        capability: 'generate',
-        label: labelOf('manuscript', 'generate'),
+        label: JOB_LABEL.manuscript,
         hint: '剧情已经定好了，这一步只负责把它写成小说。',
       };
 
     case 'split':
       return {
-        // 停在正文层：拆分改的是正文的落点，作者点开看的也是那份正文。
+        // 停在正文层：拆分改的是正文的落点，要看的也是那份正文。
         stage: 'manuscript',
-        capability: 'generate',
         projectAction: 'splitManuscript',
         label: '拆成章节',
         hint: '正文写好了。在编辑器里用单独一行 --- 标出断点，再拆成发布章节。',
@@ -764,7 +632,6 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
     case 'review':
       return {
         stage: 'manuscript',
-        capability: 'generate',
         projectAction: 'summarizePlot',
         label: '总结这一章',
         hint: '正文齐了。摘要是后面几百章唯一能记住这些内容的东西。',
@@ -831,23 +698,20 @@ export function deriveBookNextStep(stage: BookStage): NextStepPlan | undefined {
     case 'outline':
       return {
         stage: 'outline',
-        capability: 'generate',
-        label: labelOf('outline', 'generate'),
+        label: JOB_LABEL.outline,
         hint: '先定下这个故事讲什么。后面几层都从它展开。',
       };
     case 'volumes':
       return {
         stage: 'outline',
-        capability: 'split',
-        label: labelOf('outline', 'split'),
+        label: JOB_LABEL.volumeList,
         hint: '把大纲切成几卷，每卷是一条完整的中等弧线，有自己的开局、升级与收束。',
       };
     case 'plots':
       return {
-        // 落在卷纲层：拆段是从一卷的卷纲里拆，作者点开看的也是那份卷纲。
+        // 落在卷纲层：拆段是从一卷的卷纲里拆，要看的也是那份卷纲。
         stage: 'volume',
-        capability: 'split',
-        label: labelOf('volume', 'split'),
+        label: JOB_LABEL.plotSegment,
         hint: '从第一卷的卷纲里拆出第一个剧情段。一次只拆一段，接着往下写。',
       };
     case 'working':

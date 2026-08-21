@@ -10,16 +10,13 @@
  * `InMessage` / `OutMessage`，经 src/protocol.ts 引进来——改协议这边
  * 对不上会直接编译不过。
  */
-import { installComposer, payload, renderChips, runNextStep, setPendingCommand } from './composer';
-import { bindCommandPick } from './commands';
+import { installComposer, renderChips } from './composer';
 import { renderSessions } from './history';
 import { appendLog, installLogs, prependLogHistory, renderLogs } from './logs';
 import { installMenubar } from './menubar';
 import { installMenus } from './menu';
 import {
-  bindPayload,
   buildAgentRunRow,
-  buildContextDetails,
   buildGenCard,
   buildPendingToolRow,
   buildReasoningDetails,
@@ -38,7 +35,7 @@ import {
 import { settleGate, showGate } from './gate';
 import { applySummary, installProject, invalidateSummaries, renderProject } from './project';
 import { baseMenuItems } from './project/actions';
-import { bindNextStepRunner, installNewSession, installRenamePlot, renderPipeline } from './pipeline';
+import { installNewSession, installRenamePlot, renderPipeline } from './pipeline';
 import { renderWorkbench, installWorkbench } from './workbench';
 import { renderPrompt } from './prompt';
 import { installSettings, renderSettings } from './settings';
@@ -58,13 +55,8 @@ installMenus(baseMenuItems);
 installTabs();
 installComposer();
 installMessages();
-bindPayload(payload);
-// 主按钮走 composer 的发送路径（它管附件、草稿、busy）；`/` 面板挑中的命令
-// 变成待执行 chip。两条线都不在各自模块里另起一套发送逻辑。
-bindNextStepRunner(runNextStep);
 installNewSession();
 installRenamePlot();
-bindCommandPick(setPendingCommand);
 installProject();
 installLogs();
 installSettings();
@@ -105,7 +97,7 @@ onMessage((msg) => {
       break;
 
     case 'pipeline':
-      renderPipeline(msg.pipeline, msg.next);
+      renderPipeline(msg.pipeline);
       renderWorkbench(msg.workbench);
       break;
 
@@ -184,14 +176,6 @@ onMessage((msg) => {
           : null;
       upsertTurn(msg.turn);
       break;
-
-    case 'context': {
-      const node = bubbleOf(msg.turnId);
-      if (node && !node.querySelector('details.ctx')) {
-        node.insertBefore(buildContextDetails(msg.digest), node.querySelector('.msg-actions'));
-      }
-      break;
-    }
 
     case 'busy':
       setBusy(msg.value);

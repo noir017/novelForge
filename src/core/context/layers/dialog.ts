@@ -1,4 +1,4 @@
-import { STAGE_ROLE } from '../../model/pipeline';
+import { STAGE_ROLE, stageOfJob } from '../../model/pipeline';
 import { buildSystemPrompt } from '../prompts';
 import { estimateTokens, takeHead, takeTail } from '../tokenizer';
 import { ContextItem } from '../types';
@@ -14,16 +14,15 @@ export const system: LayerFn = async (a, spec) => {
       id: 'system',
       kind: 'system',
       priority: spec.priority,
-      label: `系统提示 · ${STAGE_ROLE[a.request.action.stage]}`,
-      text: buildSystemPrompt(a.request.action, a.config, a.request.targetWords),
+      label: `系统提示 · ${STAGE_ROLE[stageOfJob(a.request.job)]}`,
+      text: buildSystemPrompt(a.request.job, a.config, a.request.targetWords),
     },
     { force: spec.force }
   );
 };
 
 export const ask: LayerFn = async (a, spec) => {
-  const { stage, capability } = a.request.action;
-  const isDraftOrder = stage === 'manuscript' && capability === 'generate';
+  const isDraftOrder = a.request.job === 'manuscript';
   a.admit(
     {
       id: 'ask',

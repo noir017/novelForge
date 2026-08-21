@@ -128,11 +128,6 @@ describe('session.ts · SessionStore', () => {
       assert.equal(s.stage, 'manuscript', s.stage);
     });
 
-    // 默认能力永远是讨论——默认就花钱产出一份要不要都不知道的产物是不对的。
-    test('默认能力是讨论', () => {
-      assert.equal(s.capability, 'discuss', s.capability);
-    });
-
     test('新会话无轮次', () => {
       assert.equal(turnsAtCreate, 0);
     });
@@ -181,9 +176,8 @@ describe('session.ts · SessionStore', () => {
       assert.equal(back.target.plotRelPath, '.novelforge/plots/004-夜访.md');
     });
 
-    test('读回阶段与能力', () => {
+    test('读回阶段', () => {
       assert.equal(back.stage, 'manuscript');
-      assert.equal(back.capability, 'discuss');
     });
 
     test('读回三轮', () => {
@@ -295,7 +289,7 @@ describe('session.ts · SessionStore', () => {
       fs.writeFileSync(path.join(sessionsDir, 'notjson.txt'), 'ignore me');
       listAfterNotJson = await store.list();
 
-      // 旧会话（0.2.x 只有 targetNo，没有 target/stage/capability）。
+      // 旧会话（0.2.x 只有 targetNo，没有 target/stage）。
       // 这条路每个升级上来的用户都会走一遍，读不出来等于整个历史凭空消失。
       fs.writeFileSync(path.join(sessionsDir, 'legacy.json'), JSON.stringify({
         title: '旧对话', createdAt: '2026-01-01T00:00:00.000Z', targetNo: 7,
@@ -303,13 +297,14 @@ describe('session.ts · SessionStore', () => {
       }));
       legacy = await store.read('legacy');
 
-      // 手改坏的 target/能力：认不出的一律回落，绝不抛。
+      // 手改坏的 target / 阶段：认不出的一律回落，绝不抛。
       fs.writeFileSync(path.join(sessionsDir, 'weird.json'), JSON.stringify({
-        target: { kind: '天知道', plotRelPath: 'x' }, stage: 'nope', capability: 'nope', turns: [],
+        target: { kind: '天知道', plotRelPath: 'x' }, stage: 'nope', turns: [],
       }));
       weird = await store.read('weird');
 
-      // 该阶段不支持的能力也要回落——正文阶段没有 split。
+      // 老会话里那个 capability 字段现在没人认了：**多余的字段不该让它读不出来**，
+      // 目标本身要照样保留。
       fs.writeFileSync(path.join(sessionsDir, 'badcap.json'), JSON.stringify({
         target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/001-x.md' },
         stage: 'manuscript', capability: 'split', turns: [],
@@ -319,14 +314,12 @@ describe('session.ts · SessionStore', () => {
       // 思考深度：认不出的档位当没设过（= 不思考），一个手改坏的字段
       // 不该让整个会话读不出来。
       fs.writeFileSync(path.join(sessionsDir, 'thinking.json'), JSON.stringify({
-        target: { kind: 'outline' }, stage: 'outline', capability: 'discuss',
-        thinking: '想很久', turns: [],
+        target: { kind: 'outline' }, stage: 'outline', thinking: '想很久', turns: [],
       }));
       badThinking = await store.read('thinking');
 
       fs.writeFileSync(path.join(sessionsDir, 'thinking2.json'), JSON.stringify({
-        target: { kind: 'outline' }, stage: 'outline', capability: 'discuss',
-        thinking: 'high', turns: [],
+        target: { kind: 'outline' }, stage: 'outline', thinking: 'high', turns: [],
       }));
       goodThinking = await store.read('thinking2');
     });
@@ -382,9 +375,8 @@ describe('session.ts · SessionStore', () => {
       assert.equal(legacy.targetNo, 7);
     });
 
-    test('旧会话有合法的阶段与能力', () => {
+    test('旧会话有合法的阶段', () => {
       assert.equal(legacy.stage, 'outline');
-      assert.equal(legacy.capability, 'discuss');
     });
 
     test('认不出的 target 回落到大纲', () => {
@@ -395,12 +387,10 @@ describe('session.ts · SessionStore', () => {
       assert.equal(weird.stage, 'outline');
     });
 
-    test('认不出的能力回落到默认', () => {
-      assert.equal(weird.capability, 'discuss');
-    });
-
-    test('阶段不支持的能力回落', () => {
-      assert.equal(badcap.capability, 'discuss', badcap.capability);
+    // 老会话里的 capability 已经没人认了：不再读它，也不该因为它读不出会话。
+    test('老会话里多余的 capability 字段不影响读取', () => {
+      assert.equal(badcap.capability, undefined, String(badcap.capability));
+      assert.equal(badcap.stage, 'manuscript');
     });
 
     test('但目标本身保留', () => {
@@ -483,30 +473,21 @@ describe('session.ts · SessionStore', () => {
     });
   });
 
-  // 命令类的轮次（生成细纲、拆成场景）content 本来就是空的：该说的都在大纲和
-  // 细纲里，作者一个字都不必打。空串会让历史列表出现一排「新对话」。
+  // 每一轮的输入就是作者那句话——agent 是唯一的对话路径，没有「点了个命令、
+  // 一个字都不必打」那种轮次了。
   describe('轮次预览', () => {
-    const t = (content, command) => ({ id: 'p1', role: 'user', content, at: sessionMod.nowIso(), command });
+    const t = (content) => ({ id: 'p1', role: 'user', content, at: sessionMod.nowIso() });
 
     test('有话就用那句话', () => {
       assert.equal(sessionMod.turnPreview(t('林昭夜访沈氏。')), '林昭夜访沈氏。');
     });
 
-    test('空输入的命令轮次用命令名', () => {
-      assert.equal(sessionMod.turnPreview(t('', '生成细纲')), '/生成细纲');
+    test('两边留白去掉', () => {
+      assert.equal(sessionMod.turnPreview(t('  林昭夜访沈氏。  ')), '林昭夜访沈氏。');
     });
 
-    test('两样都有时话优先', () => {
-      assert.equal(sessionMod.turnPreview(t('慢一点', '生成细纲')), '慢一点');
-    });
-
-    test('两样都没有时给空串', () => {
+    test('没有话时给空串', () => {
       assert.equal(sessionMod.turnPreview(t('   ')), '');
-    });
-
-    // 于是标题推导也跟着能说出这一轮干了什么，不再落到「新对话」。
-    test('命令轮次的标题不再是「新对话」', () => {
-      assert.equal(sessionMod.deriveTitle(sessionMod.turnPreview(t('', '拆成场景'))), '/拆成场景');
     });
   });
 

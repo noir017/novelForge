@@ -116,10 +116,6 @@
         "title": "Novel: 显示输出面板日志"
       },
       {
-        "command": "novel.quickContinue",
-        "title": "Novel: 快速续写（不开面板）"
-      },
-      {
         "command": "novel.summarizePlot",
         "title": "Novel: 总结这一章",
         "icon": "$(book)"
