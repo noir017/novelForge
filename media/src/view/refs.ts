@@ -17,6 +17,7 @@ export const el = {
   nextStep: byId('nextStep'),
   nextStepHint: byId('nextStepHint'),
   nextStepBtn: byId<HTMLButtonElement>('nextStepBtn'),
+  gateDock: byId('gateDock'),
   cmdBtn: byId<HTMLButtonElement>('cmdBtn'),
   pendingCmd: byId('pendingCmd'),
   chips: byId('chips'),

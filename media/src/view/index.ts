@@ -30,7 +30,7 @@ import {
   toolStripOf,
   upsertTurn,
 } from './messages';
-import { buildGateCard, gateCardOf, settleGateCard } from './gate';
+import { settleGate, showGate } from './gate';
 import { applySummary, installProject, invalidateSummaries, renderProject } from './project';
 import { baseMenuItems } from './project/actions';
 import { bindNextStepRunner, installNewSession, installRenamePlot, renderPipeline } from './pipeline';
@@ -141,42 +141,25 @@ onMessage((msg) => {
       settleToolRow(msg.turnId, msg);
       break;
 
-    // ---- 动手之前那一句问：画在气泡里，不弹全局模态框
-    case 'gate': {
-      // **挂哪儿看它属于哪条线**：带 callId 的是某一次工具调用的事，排进工具
-      // 串（问了、答了、然后做了什么，读起来是一条线）；不带的是单步创作产出
-      // 之后那一问，挂在正文**下面**——作者要先读完这份产物才决定写不写。
-      const host = msg.callId ? toolStripOf(msg.turnId) : bubbleOf(msg.turnId);
-      if (!host) {
-        break;
-      }
-      // 重连时后端会把还没答的这几条原样再推一遍，已经画着的不再画第二张。
-      if (!gateCardOf(host, msg.requestId)) {
-        const card = buildGateCard(msg);
-        if (msg.callId) {
-          host.appendChild(card);
-        } else {
-          // 末尾那一行（复制/落点）之后没有意义，插在它前面。
-          host.insertBefore(card, host.querySelector('.msg-actions'));
-        }
-      }
+    // ---- 动手之前那一句问：卡片固定在输入框上方，不弹全局模态框
+    case 'gate':
+      // 位置在 gate.ts 里定：**不在消息流里**——循环正卡在这一问上，一张跟着
+      // 内容滚出视野的卡片等于没人看见。
+      showGate(msg);
+      // 顺手把消息流滚到底：作者要判断的依据（它刚读了什么、刚生成了什么）
+      // 就在最后那几行上。
       scrollToBottom();
-      // 人在别的页签上时卡片看不见，而循环正卡在这里等他——喊一声。
+      // 人在别的页签上时那一格看不见，而循环正卡在这里等他——喊一声。
       // 不替他切页：他多半正是去工程页翻那个文件，好决定点不点头。
       if (!isTabActive('chat')) {
         toast('Agent 在等你点头，去对话页看看。');
       }
       break;
-    }
 
-    case 'gateDone': {
+    case 'gateDone':
       // 另一个视图上答了，或者这一轮被取消了。两处的卡片都要收。
-      const card = gateCardOf(document, msg.requestId);
-      if (card) {
-        settleGateCard(card, msg.verdict);
-      }
+      settleGate(msg.requestId, msg.verdict);
       break;
-    }
 
     case 'agentDone':
       // 花销那一行立刻画出来（随后的 turnDone 会用会话里存的那份重建同一行）。

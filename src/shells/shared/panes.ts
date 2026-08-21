@@ -133,6 +133,10 @@ export function chatPane(opts: PaneOptions = {}): string {
   <!-- 输入区。「/」命令面板由前端挂进 #composerInput（它是 position: relative），
        从输入框上沿浮出来——命令本身留在输入框里当普通文字，与 Cursor 一致。 -->
   <div class="composer" id="composer">
+    <!-- 动手之前那一句问。**固定在输入框上方**，不跟着消息流滚：循环正卡在这里
+         等回答，一张会滚出视野的卡片等于没人看见（Cursor 那一套）。答完卡片就
+         走，只在消息流里留一行「已跳过/已允许」当记录。 -->
+    <div class="gate-dock hidden" id="gateDock"></div>
     <div class="chips" id="chips"></div>
     <div class="composer-input" id="composerInput">
       <!-- 已挑好、待执行的命令。它长在输入框**里面**，发送时用它，不用状态机那一个。 -->

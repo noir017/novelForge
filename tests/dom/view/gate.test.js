@@ -1,16 +1,21 @@
 /**
- * 权限请求卡片：**画在对话里，不是一个盖住窗口的模态框。**
+ * 权限请求：**固定在输入框上方那一格**，不是模态框，也不是消息流里的一张卡片。
  *
- * 从前它走 `host.confirm({ modal: true })`——VS Code 里是窗口正中一个把界面
- * 锁死的框，独立版里是遮罩层弹窗。作者要判断的恰恰是「这一步动的是哪个文件」，
- * 而那串上下文（前几条工具调用、刚生成的那段话）就在被盖住的气泡里。
+ * 最早它走 `host.confirm({ modal: true })`——VS Code 里是窗口正中一个把界面锁死
+ * 的框。作者要判断的恰恰是「这一步动的是哪个文件」，而那串上下文就在被盖住的
+ * 气泡里。于是改成画在对话里的一张卡片。
+ *
+ * 这一版把它从消息流里挪出来：挂在气泡上就会跟着内容滚——agent 随后还在说话、
+ * 还在调工具，几行之后那张卡就滚出视野了，而循环正卡在它上面等回答。现在它贴
+ * 在输入框上沿（`#gateDock`），不滚；答完卡片就撤，消息流里留一行记录。
  *
  * | 用例 | 钉的是什么 |
  * |---|---|
- * | `gate` 到了 | 卡片进气泡的工具串，**遮罩层一动不动** |
- * | 三颗按钮 | 字全部来自后端（工具自报的说辞），前端不写死 |
- * | 点一颗 | 发回 `gateResult`，卡片就地锁上，不能再点第二颗 |
+ * | `gate` 到了 | 卡片进 `#gateDock`（输入框上方），**不进气泡**，遮罩层一动不动 |
+ * | 三颗按钮 | 字全部来自后端，同意贴最右，「停止 agent」在最左 |
+ * | 点一颗 | 发回 `gateResult`，卡片撤下，格子收起，消息流里补一行记录 |
  * | 重连重推同一条 | 不画出两张 |
+ * | 认不出的 turnId | 卡片照样画（丢掉等于留一个没人看得见的死等） |
  * | `gateDone` | 另一个视图上答的，这边也收 |
  */
 const { describe, test, before } = require('node:test');
@@ -31,8 +36,10 @@ const GATE = {
   stop: '停止 agent',
 };
 
-const card = (ui) => ui.bubble('a1') && ui.bubble('a1').querySelector('.tool-gate');
+const dock = (ui) => ui.doc.getElementById('gateDock');
+const card = (ui) => dock(ui).querySelector('.gate');
 const buttons = (ui) => [...card(ui).querySelectorAll('button')];
+const note = (ui) => ui.bubble('a1') && ui.bubble('a1').querySelector('.gate-note');
 
 function running() {
   const ui = mount();
@@ -44,7 +51,7 @@ function running() {
   return ui;
 }
 
-describe('权限请求画在气泡里', { skip: JSDOM_SKIP }, () => {
+describe('权限请求固定在输入框上方', { skip: JSDOM_SKIP }, () => {
   let ui;
 
   before(() => {
@@ -52,12 +59,24 @@ describe('权限请求画在气泡里', { skip: JSDOM_SKIP }, () => {
     ui.post(GATE);
   });
 
-  test('卡片挂在这一轮的工具串上', () => {
-    assert.ok(card(ui), ui.bubble('a1').innerHTML);
-    assert.ok(card(ui).closest('.tools'), card(ui).parentElement.className);
+  test('卡片进输入框上方那一格，格子跟着露出来', () => {
+    assert.ok(card(ui), dock(ui).innerHTML);
+    assert.equal(dock(ui).classList.contains('hidden'), false);
   });
 
-  // ★ 这条测试就是这次改动本身：全局模态框不该再出现。
+  // ★ 这一版的改动本身：它不该再挂在气泡上跟着内容滚。
+  test('不在消息流里', () => {
+    assert.equal(ui.bubble('a1').querySelector('.gate'), null);
+    assert.equal(card(ui).closest('.messages'), null);
+  });
+
+  // 位置就是它的全部意义：在输入框**上面**，且与输入框在同一块（.composer）里。
+  test('就在输入框上沿', () => {
+    assert.ok(dock(ui).closest('.composer'), dock(ui).parentElement.className);
+    const kids = [...dock(ui).parentElement.children];
+    assert.ok(kids.indexOf(dock(ui)) < kids.findIndex((n) => n.id === 'composerInput'));
+  });
+
   test('遮罩层一动不动', () => {
     assert.ok(ui.doc.getElementById('providerModal').classList.contains('hidden'));
   });
@@ -67,27 +86,40 @@ describe('权限请求画在气泡里', { skip: JSDOM_SKIP }, () => {
     assert.ok(card(ui).textContent.includes('北境雪原.md'), card(ui).textContent);
   });
 
-  test('参数收在折叠里，不摊开占满气泡', () => {
-    const det = card(ui).querySelector('details.tool-gate-args');
+  test('参数收在折叠里，不摊开把输入框顶下去', () => {
+    const det = card(ui).querySelector('details.gate-args');
     assert.ok(det);
     assert.equal(det.open, false);
   });
 
-  test('三颗按钮，字来自后端', () => {
-    assert.deepEqual(buttons(ui).map((b) => b.textContent), ['写入', '跳过这一步', '停止 agent']);
+  // 同意贴最右（离「发送」最近的那一侧就是「继续」），「停止 agent」摆最左：
+  // 它掐的是整轮，与另外两颗不是同一类选择。
+  test('三颗按钮，字来自后端，同意在最右', () => {
+    assert.deepEqual(buttons(ui).map((b) => b.textContent), ['停止 agent', '跳过这一步', '写入']);
   });
 
-  test('正文没被冲掉（就地插入，不重建气泡）', () => {
+  test('正文没被冲掉', () => {
     assert.equal(ui.bodyOf('a1').textContent, '我来写一条设定。');
   });
 
   test('重连重推同一条不会画出两张', () => {
     ui.post(GATE);
-    assert.equal(ui.bubble('a1').querySelectorAll('.tool-gate').length, 1);
+    assert.equal(dock(ui).querySelectorAll('.gate').length, 1);
   });
 
-  test('认不出的 turnId 不炸', () => {
-    assert.doesNotThrow(() => ui.post({ ...GATE, requestId: 'g9', turnId: '并不存在' }));
+  // 卡片不再挂在气泡上，认不出的 turnId 也照样有地方画——丢掉那一张等于让
+  // 循环停在一个没人看得见的等待上。
+  test('认不出的 turnId 照样画得出来', () => {
+    ui.post({ ...GATE, requestId: 'g9', turnId: '并不存在' });
+    assert.equal(dock(ui).querySelectorAll('.gate').length, 2);
+  });
+
+  // 一格里叠着好几张时，作者得知道自己在答哪一张。
+  test('叠了两张才编号', () => {
+    assert.deepEqual(
+      [...dock(ui).querySelectorAll('.gate-count')].map((n) => n.textContent),
+      ['1 / 2', '2 / 2']
+    );
   });
 });
 
@@ -97,7 +129,7 @@ describe('点下去', { skip: JSDOM_SKIP }, () => {
   before(() => {
     ui = running();
     ui.post(GATE);
-    ui.clickEl(buttons(ui)[0]);
+    ui.clickEl(buttons(ui)[2]);
   });
 
   test('把结论发回后端', () => {
@@ -106,14 +138,24 @@ describe('点下去', { skip: JSDOM_SKIP }, () => {
     assert.equal(sent.verdict, 'proceed');
   });
 
-  // 后端回话之前不锁的话，作者能把三颗都点一遍，而只有第一下算数。
-  test('卡片就地锁上，按钮没了', () => {
-    assert.ok(card(ui).classList.contains('settled'), card(ui).className);
-    assert.equal(card(ui).querySelector('button'), null);
+  // 后端回话之前不撤的话，作者能把三颗都点一遍，而只有第一下算数。
+  test('卡片撤下，格子空了就收起来', () => {
+    assert.equal(card(ui), null);
+    assert.ok(dock(ui).classList.contains('hidden'));
   });
 
-  test('留下一行说明答了什么', () => {
-    assert.ok(card(ui).textContent.includes('已允许'), card(ui).textContent);
+  // 紧跟着的那条工具条只会说「未执行」，「因为我按了跳过」得有地方讲。
+  test('消息流里留一行记录，排在工具串里', () => {
+    assert.ok(note(ui), ui.bubble('a1').innerHTML);
+    assert.ok(note(ui).textContent.includes('已允许'), note(ui).textContent);
+    assert.ok(note(ui).textContent.includes('要写入设定'), note(ui).textContent);
+    assert.ok(note(ui).closest('.tools'), note(ui).parentElement.className);
+  });
+
+  // 后端随后会广播 gateDone（两个视图都要收卡）——这边已经答过了，不能再补一行。
+  test('后端广播回来不再补第二行', () => {
+    ui.post({ type: 'gateDone', requestId: 'g1', verdict: 'proceed' });
+    assert.equal(ui.bubble('a1').querySelectorAll('.gate-note').length, 1);
   });
 });
 
@@ -123,15 +165,16 @@ describe('跳过与停止', { skip: JSDOM_SKIP }, () => {
     ui.post(GATE);
     ui.clickEl(buttons(ui)[1]);
     assert.equal(ui.last('gateResult').verdict, 'skip');
-    assert.ok(card(ui).textContent.includes('已跳过'), card(ui).textContent);
+    assert.ok(note(ui).textContent.includes('已跳过'), note(ui).textContent);
+    assert.ok(note(ui).classList.contains('declined'), note(ui).className);
   });
 
   test('停止 agent', () => {
     const ui = running();
     ui.post(GATE);
-    ui.clickEl(buttons(ui)[2]);
+    ui.clickEl(buttons(ui)[0]);
     assert.equal(ui.last('gateResult').verdict, 'stop');
-    assert.ok(card(ui).classList.contains('declined'), card(ui).className);
+    assert.ok(note(ui).textContent.includes('已停止'), note(ui).textContent);
   });
 });
 
@@ -147,12 +190,16 @@ describe('另一个视图上答了 / 这一轮被取消', { skip: JSDOM_SKIP }, 
   });
 
   test('这边的卡片也收了', () => {
-    assert.ok(card(ui).classList.contains('settled'), card(ui).className);
-    assert.equal(card(ui).querySelector('button'), null);
+    assert.equal(card(ui), null);
+    assert.ok(dock(ui).classList.contains('hidden'));
   });
 
   test('说的是「取消」，不是作者答的那三个', () => {
-    assert.ok(card(ui).textContent.includes('已取消'), card(ui).textContent);
+    assert.ok(note(ui).textContent.includes('已取消'), note(ui).textContent);
+  });
+
+  test('没往后端发东西——不是作者答的', () => {
+    assert.equal(ui.last('gateResult'), undefined);
   });
 
   test('认不出的 requestId 不炸', () => {
@@ -160,8 +207,8 @@ describe('另一个视图上答了 / 这一轮被取消', { skip: JSDOM_SKIP }, 
   });
 });
 
-// 单步创作（点「写剧情」）产出之后那张落盘卡片：背后没有循环可停，位置也
-// 不一样——它挂在正文**下面**，作者要先读完这份产物才决定写不写。
+// 单步创作（点「写剧情」）产出之后那张落盘卡片：背后没有循环可停，答完那一行
+// 也挂在正文**下面**——那份产物就是作者做判断的依据。
 describe('产物落盘那一张', { skip: JSDOM_SKIP }, () => {
   let ui;
 
@@ -181,18 +228,18 @@ describe('产物落盘那一张', { skip: JSDOM_SKIP }, () => {
   });
 
   test('只画两颗按钮', () => {
-    assert.deepEqual(buttons(ui).map((b) => b.textContent), ['写入', '不采纳']);
-  });
-
-  // 排进工具串的话它会跑到正文上面去——那时作者还没读到这份产物。
-  test('挂在正文下面，不在工具串里', () => {
-    assert.equal(card(ui).closest('.tools'), null, card(ui).parentElement.className);
-    const kids = [...ui.bubble('a1').children];
-    assert.ok(kids.indexOf(card(ui)) > kids.findIndex((n) => n.classList.contains('msg-body')));
+    assert.deepEqual(buttons(ui).map((b) => b.textContent), ['不采纳', '写入']);
   });
 
   test('点「不采纳」照样发回结论', () => {
-    ui.clickEl(buttons(ui)[1]);
+    ui.clickEl(buttons(ui)[0]);
     assert.equal(ui.last('gateResult').verdict, 'skip');
+  });
+
+  // 排进工具串的话它会跑到正文上面去——那一行说的是「这份产物没落地」。
+  test('那一行记录挂在正文下面，不在工具串里', () => {
+    assert.equal(note(ui).closest('.tools'), null, note(ui).parentElement.className);
+    const kids = [...ui.bubble('a1').children];
+    assert.ok(kids.indexOf(note(ui)) > kids.findIndex((n) => n.classList.contains('msg-body')));
   });
 });

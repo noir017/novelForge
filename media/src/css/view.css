@@ -22,6 +22,7 @@
 @import './view/workbench.css';
 @import './view/pipeline.css';
 @import './view/composer.css';
+@import './view/gate.css';
 @import './view/history.css';
 @import './view/settings.css';
 

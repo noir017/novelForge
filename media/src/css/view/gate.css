@@ -1,0 +1,161 @@
+/*
+ * 权限请求：**输入框上方那一格**，不在消息流里跟着滚。
+ *
+ * ## 为什么长在这儿
+ *
+ * 从前这是气泡里的一张卡片。卡片挂在气泡上就跟着内容滚——agent 随后还在说话、
+ * 还在调工具，几行之后那张卡就滚出视野了，而循环正卡在它上面等回答；作者看到
+ * 的是一个「不动了」的界面，要往上翻才找得到原因。现在它固定贴在输入框上沿：
+ * 那里不滚、离手最近，而且「要不要让它动我的磁盘」与「要不要发这句话」本来就
+ * 是同一个位置上的同一类决定（Cursor / Claude Code 那一套）。
+ *
+ * ## 为什么这么素
+ *
+ * 从前是黄底 + 左侧粗竖条 + 🔒，一张卡占掉半屏对话，在侧栏里像一片警告。它要
+ * 的其实只是「看得见、答得掉」：现在走 VS Code 自己那套浮层配色
+ * （`editorWidget-*` + 一道 1px 描边），主次按钮用 `button-*`，颜色只花在
+ * 「同意」那一颗上。它长在输入框正上方、位置固定，不必靠颜色喊人。
+ */
+
+/* 整格。空了就 `.hidden`（前端 syncDock 管），免得输入框上方常年多一道边。 */
+.gate-dock {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gate {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px 5px;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.3)));
+  border-radius: var(--nf-ctl-radius);
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.06));
+  color: var(--vscode-foreground);
+}
+
+/* 头一行：一个淡淡的名分，右边是「第几张」（只有叠了两张以上才有字）。 */
+.gate-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.gate-head .spacer {
+  flex: 1;
+}
+
+.gate-kind {
+  letter-spacing: 0.05em;
+}
+
+.gate-title {
+  font-size: 0.9em;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+/* 写到哪、写多少——他做判断的依据，不能挤成一行省略号。
+   **换行要留住**：`edit` 的说辞是「原文：… / 改成：…」两行，那两行就是它的
+   diff，折成一行等于把要对比的两半拼在一起。限高滚动：这一格再高就把输入框
+   顶下去了。 */
+.gate-detail {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.8em;
+  line-height: 1.5;
+  color: var(--vscode-descriptionForeground);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 96px;
+  overflow: auto;
+}
+
+.gate-args {
+  font-size: 0.8em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.gate-args > summary {
+  cursor: pointer;
+}
+
+.gate-args .tool-detail-text {
+  max-height: 120px;
+}
+
+/* 同意贴最右（离「发送」最近的那一侧就是「继续」），拒绝挨着它；
+   「停止 agent」摆到最左，它掐的是整轮，不与那两颗同类。 */
+.gate-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.gate-actions .spacer {
+  flex: 1;
+}
+
+/* 一颗文字按钮：平时只有字，hover 才浮起底色（与输入框下面那排工具按钮同一
+   档）。不画成实心红：它不是「删除」那种终局动作，作者随时可以再发一句话
+   接着做。 */
+button.gate-quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--nf-ctl-height);
+  padding: 0 7px;
+  font-size: 0.8em;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+button.gate-quiet:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+}
+
+button.gate-stop:hover:not(:disabled) {
+  color: var(--vscode-errorForeground);
+}
+
+/* ---------------------------------------------------------------- 答完那一行 */
+
+/*
+ * 卡片答完就撤，消息流里留这一行。
+ *
+ * 紧跟着的那条工具条只会说「未执行」，而「因为我按了跳过」这件事只有这一行
+ * 讲得出。排在工具串里时跟着 `.tools` 那档字号——它就是那串流水账的一条。
+ */
+.gate-note {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 6px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* 排在工具串里时左边空出三角的位置，一串条的图标才对得齐（与 tool-flat 同）。 */
+.tools .gate-note {
+  padding-left: 21px;
+}
+
+.gate-note.declined {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.gate-note-icon {
+  flex: 0 0 auto;
+}
+
+.gate-note-text {
+  flex: 1 1 auto;
+  word-break: break-word;
+}
