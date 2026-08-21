@@ -41,6 +41,7 @@ export async function pushSettingsTo(sink: SettingsSink, ack?: 'saved' | 'reject
         label: p.label,
         kind: p.kind,
         baseUrl: p.baseUrl,
+        thinkingStyle: p.thinkingStyle,
         models: p.models.map((m) => ({
           name: m.name,
           label: m.label,

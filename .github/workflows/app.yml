@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ubuntu-22.04 而不是 latest：AppImage / deb 链接的 glibc 版本越低，
+          # ubuntu-22.04 而不是 latest：deb / rpm 链接的 glibc 版本越低，
           # 能装的发行版越多。
           - os: ubuntu-22.04
             name: linux
@@ -66,20 +66,24 @@ jobs:
 
       # projectPath 指向桌面壳所在目录（Tauri 工程根就是它自己，里面直接放着
       # tauri.conf.json）。不给这个参数的话 action 会从仓库根去找 src-tauri/。
+      #
+      # Linux 只出 deb + rpm：AppImage 由 linuxdeploy 打，而它会对包进去的每个
+      # 可执行跑 patchelf 改 ELF 头——sidecar 是 Bun --compile 出来的单文件，
+      # ELF 后面粘着 JS 运行时，一改就坏。详见 release.yml 里同一处的注释。
       - uses: tauri-apps/tauri-action@v0
         with:
           projectPath: src/shells/desktop
+          args: ${{ matrix.name == 'linux' && '--bundles deb,rpm' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NO_STRIP: true
 
       - uses: actions/upload-artifact@v4
         with:
           name: novelforge-${{ matrix.name }}
-          # 只收安装包，不收 90 MB 的 sidecar 中间产物。tauri.conf.json 里
-          # targets 是 "all"，各平台产出什么由 Tauri 按平台决定，所以这里用通配
-          # 而不是写死目录名。
+          # 只收安装包，不收 90 MB 的 sidecar 中间产物。各平台产出什么由 Tauri
+          # 按平台决定，所以这里用通配而不是写死目录名。
           path: |
-            src/shells/desktop/target/release/bundle/*/*.AppImage
             src/shells/desktop/target/release/bundle/*/*.deb
             src/shells/desktop/target/release/bundle/*/*.rpm
             src/shells/desktop/target/release/bundle/*/*.exe
