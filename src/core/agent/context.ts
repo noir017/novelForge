@@ -126,7 +126,7 @@ export async function buildStateBrief(
   }
 
   const stale = segments.filter(
-    (p) => p.plot.upstreamStale || p.manuscript.beatsStale || p.scenes.some((s) => s.upstreamStale)
+    (p) => p.plot.upstreamStale || p.manuscript.upstreamStale
   );
   if (stale.length > 0) {
     const named = stale.slice(0, STALE_LIST_LIMIT).map((p) => `剧情 ${p.displayNo}`).join('、');

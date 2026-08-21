@@ -11,7 +11,7 @@
  * ## 描述怎么写：三条原则
  *
  * 1. **说清坐标系**。工程里的东西全是普通 Markdown，路径就是它们的身份：
- *    细纲在 `.novelforge/plots/`，场景在 `.novelforge/scenes/<细纲名>/`，
+ *    细纲在 `.novelforge/plots/`，中转站正文在 `.novelforge/manuscripts/`，
  *    中转站正文在 `.novelforge/manuscripts/`，已发布的章在章节根（默认
  *    `chapters/`）。不说清楚，模型会去猜一个不存在的路径然后反复重试。
  * 2. **说清限制**。「一次最多返回 400 行，超出会截断并告诉你截了多少」——
@@ -24,7 +24,7 @@
  *
  * ## 参数尽量扁平
  *
- * `{path, offset, limit}` 好过 `{target: {kind, chapterNo, sceneNo}}`。嵌套
+ * `{path, offset, limit}` 好过 `{target: {kind, chapterNo}}`。嵌套
  * 对象是模型最容易填错的地方，而填错的表现是一次白花的往返。所以
  * {@link validateToolDef} **直接拒绝嵌套对象属性**，不是靠人记得。
  */

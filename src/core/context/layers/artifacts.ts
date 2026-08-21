@@ -1,12 +1,9 @@
-import { describeScene } from '../../model/sceneFile';
 import { plotLabel, volumeLabel } from '../../model/pipeline';
 import type { LayerFn } from './assembly';
 import {
   isPlaceholder,
   renderPlot,
   renderPlotBrief,
-  renderScene,
-  renderSceneBrief,
   renderSegmentBrief,
   renderVolume,
   renderVolumeBrief,
@@ -159,42 +156,6 @@ export const plotNext: LayerFn = async (a, spec) => {
       label: `${plotLabel(plot.no, plot.title)} · 剧情（下文）`,
       source: plot.relPath,
       text: renderPlotBrief(plot, '下文'),
-    });
-  }
-};
-
-export const sceneSelf: LayerFn = async (a, spec) => {
-  const scene = a.focus.scene;
-  if (!scene) {
-    return;
-  }
-  a.admit(
-    {
-      id: `scene:${scene.relPath}`,
-      kind: 'scene',
-      priority: spec.priority,
-      label: `场景 ${describeScene(scene)}`,
-      source: scene.relPath,
-      text: renderScene(scene),
-    },
-    { force: spec.force }
-  );
-};
-
-export const sceneSiblings: LayerFn = async (a, spec) => {
-  const self = a.focus.scene;
-  const siblings = self
-    ? a.focus.scenes.filter((s) => s.no === self.no - 1 || s.no === self.no + 1)
-    : a.focus.scenes;
-  for (const scene of siblings) {
-    const relation = !self ? '' : scene.no < self.no ? '（上一场）' : '（下一场）';
-    a.admit({
-      id: `scene:${scene.relPath}`,
-      kind: 'scene',
-      priority: spec.priority,
-      label: `场景 ${describeScene(scene)}${relation}`,
-      source: scene.relPath,
-      text: renderSceneBrief(scene, relation),
     });
   }
 };

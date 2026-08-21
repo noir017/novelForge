@@ -181,24 +181,36 @@ export interface PlotPipelineView {
   displayNo: number;
   title: string;
   plot: { relPath: string; exists: boolean; filled: boolean; upstreamStale: boolean };
-  scenes: ScenePipelineView[];
+  /**
+   * 这一段所属那一卷。**未分卷的段没有**（`plots/` 根下那些，老工程全是）。
+   *
+   * 对话页那一排状态点的第一个（卷纲）读它：点了要能切到那一卷，而前端手上
+   * 只有段路径，算不出卷路径——那是目录规则，只有后端知道（见
+   * `workspace/handlers/plot.ts` 的 `volumeOfPlot`）。
+   */
+  volume?: {
+    relPath: string;
+    no: number;
+    title: string;
+    /** 卷纲有实质内容（「剧情走向」非空）。 */
+    filled: boolean;
+    /** 写过这一卷之后，全书大纲改过。 */
+    upstreamStale: boolean;
+  };
   /** 中转站里等着拆分的正文。 */
-  manuscript: { relPath: string; words: number; beatsStale: boolean };
+  manuscript: {
+    relPath: string;
+    words: number;
+    /** 这一段预计写多少字。没写就 undefined，那时「有字就算写完」。 */
+    targetWords?: number;
+    /** 写完正文之后，这一段的细纲改过。 */
+    upstreamStale: boolean;
+  };
   /** 这一段交付到的发布章。`relPath` 是第一章，`words` 是几章的总字数。 */
   chapter: { exists: boolean; relPath: string; words: number; chapterPaths: string[] };
   summary: { exists: boolean; stale: boolean };
   stage: PlotStage;
   progress: PipelineProgress;
-}
-
-export interface ScenePipelineView {
-  no: number;
-  title: string;
-  relPath: string;
-  detail: string;
-  status: 'draft' | 'ready' | 'written';
-  ready: boolean;
-  upstreamStale: boolean;
 }
 
 export interface NextStepView extends NextStepPlan {

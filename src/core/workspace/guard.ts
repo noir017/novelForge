@@ -103,6 +103,9 @@ export function isProtectedPath(project: NovelProject, relPath: string): boolean
     '.novelforge/lore',
     '.novelforge/summaries',
     '.novelforge/plots',
+    // 场景那一层已经删掉（见 model/pipeline.ts 的文件头），但老工程磁盘上
+    // 那个目录还在，而且是作者的文件。留在这张表里，免得哪条文件操作把它
+    // 整棵删掉——代码不再读它，不等于可以替作者处置它。
     '.novelforge/scenes',
     '.novelforge/manuscripts',
     '.novelforge/sessions',

@@ -27,8 +27,6 @@ export type ItemKind =
   | 'volume'
   /** 一个剧情段的细纲。 */
   | 'plot'
-  /** 场景卡。 */
-  | 'scene'
   | 'prevTail'
   | 'style'
   | 'globalSummary'
@@ -65,7 +63,7 @@ export interface ContextItem {
 /**
  * 可装配的层。**配方从这里选，层实现按这个名字注册**，两边对不上编译就报错。
  *
- * 前四层是「这一轮对话本身」，任何阶段都有；中间五层是各阶段的产物；
+ * 前四层是「这一轮对话本身」，任何阶段都有；中间几层是各阶段的产物；
  * 后面是共享的背景知识。
  */
 export type LayerId =
@@ -86,8 +84,6 @@ export type LayerId =
   | 'plotPrev'
   /** 后一章的细纲原文（下文）。有了它，这一章的收尾才接得上已经排好的下一章。 */
   | 'plotNext'
-  | 'sceneSelf'
-  | 'sceneSiblings'
   // 背景
   | 'style'
   | 'globalSummary'

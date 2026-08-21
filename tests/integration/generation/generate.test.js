@@ -241,7 +241,6 @@ describe('正文层 · cleanOutput 只在这一层跑', () => {
   test('围栏包着的 JSON 照样解析得出来', async () => {
     const artifact = bundle.generate.parseDraftArtifact(
       { stage: 'plot', capability: 'generate' },
-      { kind: 'plot', plotRelPath: '.novelforge/plots/001-x.md' },
       plotRaw
     );
     assert.equal(artifact.sections.冲突与转折, '三拍推进', JSON.stringify(artifact));

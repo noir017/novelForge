@@ -31,31 +31,53 @@ const HISTORY_CAP = 0.3;
 const SETTLE_HISTORY_CAP = 0.6;
 
 /**
- * 四张配方（卷借大纲那一张）。**顺序即填充顺序**：靠前的先拿预算，靠后的
+ * 四张配方，一个阶段一张。**顺序即填充顺序**：靠前的先拿预算，靠后的
  * 可能被降级或丢弃。
  *
  * 每张的前四层都一样（系统提示 / 用户输入 / 引用 / 历史）——那是「这一轮
  * 对话本身」，任何阶段都不能少。差别从第五层开始。
+ *
+ * **卷纲有了自己的一张。** 从前它借大纲那一张，于是那张里三层与卷相关的层
+ * （`volumeSelf` / `volumeSegments`）在 target 是全书大纲时全程空跑，而
+ * `volumeList` 在拆卷与拆段两种完全不同的用途上共用同一个优先级。分成两张
+ * 之后各自只带自己要的东西——这正是把 `volume` 提升为独立阶段换来的第一样
+ * 实际好处（见 model/pipeline.ts 的 `CreationStage`）。
  */
 export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
-  // ---------------------------------------------------------------- 大纲（含卷）
+  // ---------------------------------------------------------------- 大纲
   // 策划编辑要看全局：现有大纲全文 + 分卷一览 + 全书摘要。**不看正文原文**——
   // 讨论故事结构时读三章原文既没用又昂贵。
   //
-  // 卷不是独立的阶段（见 model/pipeline.ts 的文件头），所以它借这张配方。三层
-  // 与卷相关的层在 target 不是某一卷时**自然是空的**（`volumeSelf` /
-  // `volumeSegments` 都先看 `focus.volume`），不必为此另写一张配方——复制一份，
-  // 下次改大纲层的装配策略就会漏掉一边（与 `settle` 只微调既有配方同一条理由）。
+  // ★ `volumeList` 在这一层是「已经有哪些卷」：少了它，「拆成卷」会把已经拆过
+  //   的卷重新发明一遍。
+  outline: [
+    { layer: 'system', priority: 0, force: true },
+    { layer: 'ask', priority: 0, force: true },
+    { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
+    { layer: 'outlineDoc', priority: 0, force: true },
+    { layer: 'volumeList', priority: 0, force: true },
+    { layer: 'history', priority: 1, cap: HISTORY_CAP },
+    { layer: 'globalSummary', priority: 1 },
+    { layer: 'characters', priority: 2 },
+    { layer: 'lore', priority: 2 },
+    { layer: 'plotSummary', priority: 3 },
+  ],
+
+  // ---------------------------------------------------------------- 卷纲
+  // 分卷编剧要看：这一卷的卷纲现在的样子、它已经拆到哪一段了、它在全书里
+  // 排第几。**不看正文原文**，与大纲层同理。
   //
   // ★ `volumeSelf` 与 `volumeSegments` 是 P0 force：从一卷里拆下一段时，这两层
   //   就是全部依据。少了后者，模型会把已经排过的那几段重新发明一遍。
-  outline: [
+  // ★ `outlineDoc` 只到 P1：写一卷的卷纲要以全书大纲为准，但真正贴身的依据是
+  //   这一卷自己那几节；预算紧时先保住后者。
+  volume: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
     { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
     { layer: 'volumeSelf', priority: 0, force: true },
     { layer: 'volumeSegments', priority: 0, force: true },
-    { layer: 'outlineDoc', priority: 0, force: true },
+    { layer: 'outlineDoc', priority: 1 },
     { layer: 'volumeList', priority: 1 },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'globalSummary', priority: 1 },
@@ -65,12 +87,12 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   ],
 
   // ---------------------------------------------------------------- 剧情
-  // 剧情编剧要看：这一章在大纲里的位置、它现在的样子、前几章发生了什么、
-  // 下一章要接到哪。**不看正文原文**：一章三千字 × 三章，够装下整本书的摘要
+  // 剧情编剧要看：这一段在大纲里的位置、它现在的样子、前几段发生了什么、
+  // 下一段要接到哪。**不看正文原文**：一段三千字 × 三段，够装下整本书的摘要
   // 还有富余；而排剧情要的是脉络，不是措辞。
   //
-  // ★ `plotNext` 是这次新加的一层。少了它，改中间某一章时模型不知道后面已经
-  //   排好了什么，收尾会与下一章的开头撞车或断裂——「转折突兀」多半出在这里。
+  // ★ `plotNext` 少了它，改中间某一段时模型不知道后面已经排好了什么，收尾会与
+  //   下一段的开头撞车或断裂——「转折突兀」多半出在这里。
   plot: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
@@ -86,37 +108,20 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'plotSummary', priority: 3 },
   ],
 
-  // ---------------------------------------------------------------- 细节
-  // 分镜编剧要看：本章细纲（这一场在整章里的位置）、这一场现在的样子、前后两场
-  // （前置条件与不能提前发生的事都来自邻居）。
-  // ★ 角色卡升到 P1：场景 frontmatter 里明写了这一幕有谁，比在用户那一句话里
-  //   做子串匹配准得多，而「人物此刻知道什么」正是这一层的核心产出。
-  scene: [
-    { layer: 'system', priority: 0, force: true },
-    { layer: 'ask', priority: 0, force: true },
-    { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
-    { layer: 'sceneSelf', priority: 0, force: true },
-    { layer: 'plotSelf', priority: 0, force: true },
-    { layer: 'sceneSiblings', priority: 1 },
-    { layer: 'characters', priority: 1 },
-    { layer: 'history', priority: 1, cap: HISTORY_CAP },
-    { layer: 'prevTail', priority: 2 },
-    { layer: 'lore', priority: 2 },
-    { layer: 'globalSummary', priority: 3 },
-    { layer: 'plotSummary', priority: 4 },
-  ],
-
   // ---------------------------------------------------------------- 正文
   // 唯一保留全套装配的阶段。
   // ★ 文风指南升到 P0 force：它决定读者感不感觉到换人执笔，不该跟一段长对话
   //   抢预算。这是分阶段装配最直接的质量收益。
+  // ★ `plotSelf` 升到 P0 force。从前这一格是 `sceneSelf`（这一场的素材卡），
+  //   细纲只到 P0 不 force——因为写的是「这一场」，本段细纲只是背景。场景那一层
+  //   删掉之后，细纲**就是**写正文的依据：少了它，模型手上只有文风与前文尾巴，
+  //   会自己编一段剧情出来。
   manuscript: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
     { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
     { layer: 'style', priority: 0, force: true },
-    { layer: 'sceneSelf', priority: 0, force: true },
-    { layer: 'plotSelf', priority: 0 },
+    { layer: 'plotSelf', priority: 0, force: true },
     { layer: 'prevTail', priority: 0, force: true },
     { layer: 'revision', priority: 0, force: true },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },

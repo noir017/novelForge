@@ -15,8 +15,8 @@
  *    |---|---|---|
  *    | `manuscript` | **对话页选定的那个**，不走池 | 中途换人会让文风断掉 |
  *    | `outline` | 同上 | 一次定调，而且没有对应档位 |
+ *    | `volume` | 同上 | 一卷定调，同样没有对应档位 |
  *    | `plot` | `plotOutline` 档 | 与工程页「批量写剧情」同一个模型 |
- *    | `scene` | `sceneBreakdown` 档 | 同上 |
  *
  *    走池时**必须把池的 `primaryBudget` 一起传下去**（第 13 条）：
  *    `config.contextWindow` 跟着对话页那个模型走，拿 200k 的窗口给快速档的
@@ -30,9 +30,9 @@
  *
  * ## 层与目标从路径反推
  *
- * `kindOfPath` 一次给出 `stage` 与 `target`，不必让模型填 `{kind, chapterNo,
- * sceneNo}` 那种嵌套结构——路径是产物在这个工程里的身份，作者在文件管理器里
- * 看到的就是它。
+ * `kindOfPath` 一次给出 `stage` 与 `target`，不必让模型填 `{kind, chapterNo}`
+ * 那种嵌套结构——路径是产物在这个工程里的身份，作者在文件管理器里看到的
+ * 就是它。
  */
 import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
 import { int, objectSchema, str } from '../schema';
@@ -57,12 +57,11 @@ import {
 const log = scoped('Agent');
 
 /**
- * 哪一层走哪一档。**列在这里的才走池**——不在表里的（正文、大纲）严格用
+ * 哪一层走哪一档。**列在这里的才走池**——不在表里的（正文、大纲、卷纲）严格用
  * 对话页选定的那个模型，不走池、不 fallback（第 12 条）。
  */
 const TIER_TASK: Partial<Record<CreationStage, LlmTask>> = {
   plot: 'plotOutline',
-  scene: 'sceneBreakdown',
 };
 
 export const generateTool: ToolDef = {
@@ -90,10 +89,9 @@ export const generateTool: ToolDef = {
 
   description:
     '调用创作模型，为某一份产物生成内容。target 是那份产物的工程内相对路径，' +
-    '层由路径决定：.novelforge/plots/ 下是剧情层，.novelforge/scenes/<细纲名>/ 下是细节层，' +
-    '.novelforge/manuscripts/ 与已发布的章是正文层，' +
-    '.novelforge/outline.md 与 .novelforge/volumes/ 下的卷纲都算大纲层。' +
-    '大纲层的 split 看给的是哪一份：给 outline.md 拆出**分卷清单**，' +
+    '层由路径决定：.novelforge/outline.md 是大纲层，.novelforge/volumes/ 下是卷纲层，' +
+    '.novelforge/plots/ 下是剧情层，.novelforge/manuscripts/ 与已发布的章是正文层。' +
+    'split 只有前两层有：给 outline.md 拆出**分卷清单**，' +
     '给某一卷的卷纲拆出**一个剧情段**（一次只拆一段，拆下一段就再调一次）。' +
     '各层可用的 capability 不同：' +
     Object.entries(STAGE_CAPABILITIES)
@@ -141,8 +139,7 @@ export const generateTool: ToolDef = {
         error:
           `认不出「${rel}」是哪一层的产物。` +
           '剧情层给 .novelforge/plots/<卷词干>/<段号>-<标题>.md，' +
-          '细节层给 .novelforge/scenes/<细纲在 plots/ 之下的整段路径去掉扩展名>/<场号>-<标题>.md，' +
-          '正文层给 .novelforge/manuscripts/<同上>.md，' +
+          '正文层给 .novelforge/manuscripts/<细纲在 plots/ 之下的整段路径>.md，' +
           '大纲给 .novelforge/outline.md，卷纲给 .novelforge/volumes/<卷号>-<卷名>.md。' +
           '可以先用 list 看看那个目录下实际有什么。',
       };

@@ -6,19 +6,17 @@
  * 编辑器保存那一条，那条本来就是 `{text}`）：
  *
  * 1. **记账**：`upstreamHash = hash(outline.md)`。卷纲的上游是全书大纲，
- *    与细纲从前那条一样——只是链现在多了一环
- *    （`outline.md → volumes/ → plots/ → scenes/ → manuscripts/`）。
+ *    链是 `outline.md → volumes/ → plots/ → manuscripts/`。
  *    下沉到这里，作者在编辑器里手改一份卷纲也照样记，指纹链不会断。
  * 2. **伴生**：卷词干就是它收纳的剧情段的目录名，所以改名/删除必须连带
- *    `plots/<词干>/`，以及那些段的两套镜像 `scenes/<词干>/` 与
- *    `manuscripts/<词干>/`。
+ *    `plots/<词干>/`，以及那些段的中转站正文 `manuscripts/<词干>/`。
  *
- * ## 为什么伴生是三棵目录树而不是一棵
+ * ## 为什么伴生是两棵目录树而不是一棵
  *
- * 段的归属靠目录（`plots/01-觉醒之日/003-楼道.md`），而段的场景与中转站正文
+ * 段的归属靠目录（`plots/01-觉醒之日/003-楼道.md`），而段的中转站正文
  * 又镜像段在 `plots/` 之下的**整段路径**（见 model/project.ts 的 `plotStem`）。
- * 所以卷改名会同时改掉三处的第一级目录名。只搬 `plots/` 那一棵的话，一卷改名
- * 之后每一段都会显示「还没拆场景」，而那些场景就躺在旁边一个孤儿目录里。
+ * 所以卷改名会同时改掉两处的第一级目录名。只搬 `plots/` 那一棵的话，一卷改名
+ * 之后每一段都会显示「还没写正文」，而那些正文就躺在旁边一个孤儿目录里。
  *
  * **不碰 `chapters/` 与摘要**：与 `deletePlot` 同一条理由——那是作者已经发布
  * 出去的成品，删一份规划稿不该顺手带走它。
@@ -56,22 +54,21 @@ export const volumeHandler: Handler = {
 };
 
 /**
- * 一卷的三棵伴生目录（工作区相对路径）：剧情段、它们的场景、它们的中转站正文。
+ * 一卷的两棵伴生目录（工作区相对路径）：剧情段、它们的中转站正文。
  *
- * 三者同名同结构，这是 `plots/` 那条镜像规则的直接结果。只有一个地方定义它，
+ * 两者同名同结构，这是 `plots/` 那条镜像规则的直接结果。只有一个地方定义它，
  * 改名与删除两条路共用。
  */
 function volumeDirs(project: NovelProject, volumeRelPath: string): string[] {
   const stem = path.parse(volumeRelPath).name;
   return [
     project.relPath(path.join(project.plotsDir, stem)),
-    project.relPath(path.join(project.scenesDir, stem)),
     project.relPath(path.join(project.manuscriptsDir, stem)),
   ];
 }
 
 /**
- * 卷纲改名（或改号）后，把三棵伴生目录跟着搬过去。
+ * 卷纲改名（或改号）后，把两棵伴生目录跟着搬过去。
  *
  * 目标已存在时**不动**（不静默覆盖）：那说明磁盘上已经有一棵叫这个名字的，
  * 覆盖会把它的东西吞掉。搬不过去的那棵留在原处，不凭空消失。
@@ -98,7 +95,7 @@ export async function carryVolumeCompanions(
   return side;
 }
 
-/** 删卷纲时把三棵伴生目录一起搬进 `.trash/`（保留原相对路径）。 */
+/** 删卷纲时把两棵伴生目录一起搬进 `.trash/`（保留原相对路径）。 */
 export async function trashVolumeCompanions(
   project: NovelProject,
   volumeRelPath: string

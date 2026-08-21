@@ -1,7 +1,7 @@
 /**
  * 一卷的卷纲（`.novelforge/volumes/NN-卷名.md`）的格式定义。
  *
- * **纯函数、零 I/O**，与 plotFile.ts / sceneFile.ts / chapterFile.ts 同类；
+ * **纯函数、零 I/O**，与 plotFile.ts / chapterFile.ts 同类；
  * 路径规则与读写在 model/project.ts，解析与渲染只在这里定义一次。
  *
  * ## 为什么要有这一层

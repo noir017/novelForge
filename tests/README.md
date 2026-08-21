@@ -82,14 +82,14 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `agent/gateAsk.test.js` | 权限询问的收发（`controller/gate.ts`，闸门与产物落盘共用）：卡片的身份与按钮上的字都从后端来、答了才落地、**广播 `gateDone`**（两个视图都要收卡）、答第二次不算数、认不出的 requestId 静默丢弃、**重连时还没答的原样重推**（前端无状态）、取消按「停止」结算、`cancelGates` 收掉没答的那些；单步创作那条路**没有第三颗「停止 agent」** |
 | `agent/budget.test.js` | 三条上限（回合 / 生成次数 / token）各一条、**无进展检测**的两连（提示）与三连（停）、换参数换工具与「中间隔了别的动作」都不算重复、键序不同但内容相同算重复；以及第 11 条——**日志只有工具名与参数键名，没有参数值** |
 | `agent/context.test.js` | agent 上下文压缩：装得下就一个字不动、超预算时 system 与最后 6 轮完整保留而更早的工具结果只剩第一行、压缩时打 warn、压不下去时给停下的信号且**用户最初那句要求还在** |
-| `workspace/kind.test.js` | 路径 → 种类的一张表：细纲/场景/中转站/章节/摘要/角色/设定/草稿各自的判定与章号反推；**章节不认扩展名**（无扩展名、`.txt` 都算，`.png` 不算）而角色/细纲/场景仍只认 `.md`；`summaries/global.md` 不被当成第 0 章的摘要；越界一律 `other` 且 `rel: undefined`、绝不抛；`pathOfTarget` 与 `kindOfPath` 四支往返 |
+| `workspace/kind.test.js` | 路径 → 种类的一张表：卷纲/细纲/中转站/章节/摘要/角色/设定/草稿各自的判定与段号反推；**章节不认扩展名**（无扩展名、`.txt` 都算，`.png` 不算）而角色/细纲仍只认 `.md`；`summaries/global.md` 不被当成第 0 章的摘要；**老工程留下的 `scenes/` 判成 `other`**（磁盘不动、代码不认）；越界一律 `other` 且 `rel: undefined`、绝不抛；`pathOfTarget` 与 `kindOfPath` 三支往返 |
 | `model/markdown.test.js` | frontmatter 解析（行内/块状数组、畸形行不抛错）、小节抽取、`extractH1`/`stripH1` 互逆、序列化往返 |
 | `model/chapterFile.test.js` | 章节文件名规则：任意非二进制扩展名 / 无扩展名算章节、二进制黑名单被挡、`extractH1` 只看首行 |
 | `model/project.test.js` | `cast` 条目的序列化往返（含全角括号、别名去重）、小节文本反解出场人物 |
 | `model/fs.test.js` | 磁盘与字符串小工具：hash 统一 CRLF、中英文计数、文件名净化、slug 冲突追加；`readTextIfExists` 读不到给 undefined（不存在与同名目录对调用方是同一件事——这一章没有这份产物），权限之类的错误照常上抛 |
 | `model/providers.test.js` | 模型引用解析（含嵌套斜杠 `openrouter/z-ai/glm-4.6`）、服务商配置容错、按模型覆盖窗口、0.1.x 单服务商兜底；默认模型列表的归一化与旧配置升级；`concurrency` / `fallbackAttempts` 的默认值与 clamp |
 | `model/tiers.test.js` | 模型分档的配置容错：三档各自归一化、非对象不崩、裸字符串收成单元素、认不出的任务名与非法档位名回落内置默认，以及「每个任务都有内置默认档位与中文名」 |
-| `model/pipeline.test.js` | 四个阶段（大纲/剧情/细节/正文）的可用/默认能力（`settle` **只有剧情层有**）、输出形态判定、`CreationTarget` 的稳定键（同章号不同文件不撞）、action/target 容错归一、`plotLabel`/`chapterLabel`、单章（含「待拆分」）与全书两个状态机、命令表；以及 `splitByMark` 按 `---` 切分（连续标记、首尾标记、无标记、只有标记）；以及 `plotFile.ts` 的文件名规则与解析/渲染往返——**四个小节、不再有「开头」「结尾」**，`isPlotFilled` 只认「剧情脉络」 |
+| `model/pipeline.test.js` | 四个阶段（大纲/卷纲/剧情/正文）的可用/默认能力（`settle` **只有剧情层有**、`split` **只有前两层有**）、输出形态判定、`CreationTarget` 的稳定键（同章号不同文件不撞）、action/target 容错归一（**老会话里的 `scene` 落到剧情层**，两处判断一致）、`plotLabel`/`chapterLabel`、单段（含「待拆分」）与全书两个状态机、**正文写够没有看 `targetWords`**（到八成算完、缺席时有字就算、进度与状态机同源）、命令表；以及 `splitByMark` 按 `---` 切分（连续标记、首尾标记、无标记、只有标记）；以及 `plotFile.ts` 的文件名规则与解析/渲染往返——**四个小节、不再有「开头」「结尾」**，`isPlotFilled` 只认「剧情脉络」 |
 | `context/tokenizer.test.js` | token 估算（中英文比例）、`takeTail`/`takeHead` 的预算与截断标记（样本取 `manuscripts/` 里的真实正文） |
 | `context/tokenCounter.test.js` | 可替换计数器的注册/切换、`prepare` 抛错时不带崩、用量校准统计只收真实用量 |
 | `features/creation.test.js` | 模型输出清洗（去代码块/开场白/标题/字数统计，正文不误伤）、标题推断 |
@@ -112,21 +112,21 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `agent/gate.test.js` | 闸门串起来之后：默认模式下 write 弹一句且**说清写到哪**、三个选项不是两个、跳过则不执行而循环接着跑、停止仍给最后一轮总结、没回答当停止、放手模式新建不问、**覆盖审阅任何模式都在**、读工具从不打断、瞎编的工具名不问；**有 `onGate` 时不弹宿主的框**（面板那条路把这一句画进对话）；以及**产出之后当场问一句落盘**——三种模式都问（第 19 条，不是偏好设置）、结论回给模型、卡片上按「停止 agent」就停下且仍给最后一轮总结、没实现 `onArtifact` 就不问 |
 | `workspace/guard.test.js` | **八条入口守卫**各至少一条：越界（含归一化后仍逃出去的）、工程根包含、固定目录保护、回收站不可改（但读得到）、2MB 上限、同名不覆盖、覆盖审阅（两种宿主 + 文案逐字）、内容 hash 乐观锁 |
 | `workspace/basic.test.js` | `Workspace` 门面：write 的三种 mode、审阅拒绝时一字未改、乐观锁冲突、read 的 `truncated`（不静默截断）、edit 的「old 不唯一就报错」与「要么全成要么全不成」、remove 进 `.trash/` 且同名加序号、move 不覆盖、list 带 `kind` |
-| `workspace/hashChain.test.js` | **记账下沉**：改大纲后直接 `write` / `edit` 细纲文本，`upstreamHash` 跟着更新（修的那个缺陷）；场景同理；`plotContentHash` 只哈希四个小节、标 done 不动指纹；`beatsHashFor` 排除 `status`；**手写的产物永不标脏**；细纲改名带走场景与中转站、目标已存在时不覆盖；删细纲不碰 `chapters/` 与摘要 |
-| `workspace/split.test.js` | 正文追加插 `---` 与记 `beatsHash`、章节新建与 manifest、章节改名带草稿而删章节不删草稿、草稿按需创建不覆盖、摘要 `sourceHash` 记成品；**拆分先移号再落盘**（后面待写的细纲连同场景目录与中转站正文整体顺延） |
+| `workspace/hashChain.test.js` | **记账下沉**：改大纲后直接 `write` / `edit` 细纲文本，`upstreamHash` 跟着更新（修的那个缺陷）；正文同理（上游是它那一段的细纲，**老工程的 `beatsHash` 照样读得出来**）；`plotContentHash` 只哈希四个小节、标 done 不动指纹；**手写的产物永不标脏**；细纲改名带走中转站正文、目标已存在时不覆盖；删细纲不碰 `chapters/` 与摘要 |
+| `workspace/split.test.js` | 正文追加插 `---` 与记细纲指纹、章节新建与 manifest、章节改名带草稿而删章节不删草稿、草稿按需创建不覆盖、摘要 `sourceHash` 记成品；**拆分只拆自己**（章号接在现有最后一章之后，后面待写的段一个文件都不动） |
 | `workspace/search.test.js` | 全文检索：单章命中带章号、跨章按**章号**升序、`kinds`/`path` 限定、回收站与二进制不命中、`perFile`/`limit` 超限时 `dropped > 0`、正则与坏正则降级 |
-| `files/fileOps.test.js` | 层级目录与类文件操作：递归扫描（含 `.trash/` 排除）、`ProjectTree` 折叠、路径越界守卫、新建/重命名（保留序号前缀、H1 同步）/移动（跨区/自嵌套/同名拒绝）/删除（搬回收站、不覆盖）；**细纲走另一条路**——改名/删除连带搬走场景目录与中转站正文，且没有「移动到…」；摘要按**章节**名镜像（同号不同名互不覆盖）；`buildPlotSummaryView` |
+| `files/fileOps.test.js` | 层级目录与类文件操作：递归扫描（含 `.trash/` 排除）、`ProjectTree` 折叠、路径越界守卫、新建/重命名（保留序号前缀、H1 同步）/移动（跨区/自嵌套/同名拒绝）/删除（搬回收站、不覆盖）；**细纲走另一条路**——改名/删除连带搬走中转站正文，且没有「移动到…」；摘要按**章节**名镜像（同号不同名互不覆盖）；`buildPlotSummaryView` |
 | `files/projectFiles.test.js` | 工程根范围的文件操作：重命名/移动/复制、固定目录保护、同名拒绝、垃圾箱豁免、章节联动 |
 | `files/chapters.test.js` | 非 markdown 章节不解析 H1、角色区仍只认 `.md`、`isEditablePath` 放行无扩展名章节 |
 | `files/listCache.test.js` | 章节与**细纲**两份列表缓存的并发语义：并发调用只扫一遍全书、`invalidate` 后重扫、**扫描途中失效的那一轮不回填缓存**（否则界面会停在变更之前的字数与过期标记）；外加 `writePlot`/`deletePlot` 自己让缓存失效（否则新建的章不出现在工程页上，且不报错） |
 | `views/projectTreeReads.test.js` | 工程页刷新的**读盘次数**：同一个文件一次刷新至多读一次、每章 fs 调用有上限、章数翻倍不超过线性增长。这条路由文件监听触发，作者每存一次盘就跑一次，重复读盘不报错只变慢，只能靠断言守 |
 | `files/drafts.test.js` | 草稿路径镜像、按需创建且第二次不覆盖、不混进章节树与 manifest、`@` 引用、跟随改名/移动、删章节不删草稿 |
 | `context/builder.test.js` | 完整上下文装配：优先级、预算、降级链、手动排除、附件截断、多轮历史封顶、四阶段配方与身份、provider 配额压缩；**`settle` 时历史保得住**（cap 60% + P0，且输出契约与 `generate` 一字不差）、**没写正文的章退化成只带「目标」并注明原因**、**正文优先读 `chapters/`**；工程页快照与出场人物索引。**写入类用例跑夹具的临时副本**，`sample-novel/` 只读 |
-| `features/creation.test.js` | 创作编排层：产物解析的三层降级与 `parsePlotStrict` 的不兜底版本；六条落盘路径——覆盖前必须审阅且**拒绝时一字不写**、二次拆场景不动原有场景、目标不存在时抛错；大纲拆章**不建空章节** |
-| `features/pipelineData.test.js` | 细纲与场景的解析/渲染往返、场景文件名规则、伴生文件的镜像与改名跟随、**新鲜度链**（改大纲→细纲脏→场景脏→中转站正文脏）、**已发布的章不被拉回「待写正文」**、**手写的产物永不标脏** |
-| `features/splitChapter.test.js` | 拆成章节：按 `---` 切出 N 章落进 `chapters/`、中转站原件进 `.trash/`、第一章沿用原标题其余留纯序号名、后面待写的细纲号顺延且**场景目录跟着改名**、N===1 时不弹确认也不重编号、**零次模型调用** |
+| `features/creation.test.js` | 创作编排层：产物解析的三层降级与 `parsePlotStrict` 的不兜底版本（**解析只看 stage，不看 target**）；各条落盘路径——覆盖前必须审阅且**拒绝时一字不写**、正文是追加且两次之间插 `---`、目标不存在时抛错；大纲拆卷**不覆盖已有卷纲** |
+| `features/pipelineData.test.js` | 细纲的解析/渲染往返、伴生正文的镜像与改名跟随、**新鲜度链**（改大纲→细纲脏；改细纲→中转站正文脏）、**已发布的章不被拉回「待写正文」**、**手写的产物永不标脏**、工作区卡（正文卡报出目标字数那条判据） |
+| `features/splitChapter.test.js` | 拆成章节：按 `---` 切出 N 章落进 `chapters/`、中转站原件进 `.trash/`、第一章沿用原标题其余留纯序号名、**后面待写的段一个文件都不动**、N===1 时不弹确认也不重编号、**零次模型调用** |
 | `features/selectPlot.test.js` | 「选中一章」这个入口：三种路径形状（工程页的主路径 / 下拉框那个**并不存在**的细纲路径 / 真实细纲路径）都认到同一章，目标一律归到细纲那一侧；**拆分出来的、只有成品的章不再报「这一章不存在」**，也不被倒回「待写剧情」；两边都没有时才提示；状态机仍决定落在哪一层且不预置花钱的能力 |
-| `features/pipelineBatch.test.js` | 工程页的三条批量流水线（写剧情 / 拆场景 / 写正文）：**只补不改**、缺上游不生成下游、解析不出**不写盘**、失败挂 errorLog 且继续跑完、用户取消时一次模型都不调；装配走同一个 `buildContext` |
+| `features/pipelineBatch.test.js` | 工程页的两条批量流水线（写剧情 / 写正文）：**只补不改**（手写的正文原样保留）、缺上游不生成下游（没排剧情就不写正文）、解析不出**不写盘**、失败挂 errorLog 且继续跑完、用户取消时一次模型都不调；装配走同一个 `buildContext` |
 | `features/cast.test.js` | 别名的泛称过滤；同一人聚类——**同章共现的两人绝不合并**；出场索引的正式名优先与 `conflicts`；维护命令（清理别名不动正文、合并重复卡、水位线退回） |
 | `features/characterCard.test.js` | 更新角色卡：分批与「预计调用 M 次」、只装该角色的出场章、增量无新章时**一次模型都不调**、部分失败时**水位线停在第一个失败章之前**、取消/放弃不落盘；**并发**下模型请求重叠但 **diff 审阅仍一次只弹一张** |
 | `features/lore.test.js` | 自动生成设定：逐章识别次数、跨章合并、分类目录落盘、已有设定必须经审阅 |

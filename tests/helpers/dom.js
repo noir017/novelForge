@@ -236,26 +236,25 @@ const pipelineView = (extra) =>
         filled: true,
         upstreamStale: false,
       },
-      scenes: [],
-      manuscript: { relPath: '.novelforge/manuscripts/012-夜入青云.md', words: 0, beatsStale: false },
+      // 这一段落在第 1 卷里，所以卷纲那一格有东西可点。未分卷的段没有它，
+      // 那时对话页把那一格整个收起来（见 media/src/view/pipeline.ts）。
+      volume: {
+        relPath: '.novelforge/volumes/01-觉醒之日.md',
+        no: 1,
+        title: '觉醒之日',
+        filled: true,
+        upstreamStale: false,
+      },
+      manuscript: {
+        relPath: '.novelforge/manuscripts/012-夜入青云.md',
+        words: 0,
+        targetWords: undefined,
+        upstreamStale: false,
+      },
       chapter: { exists: false, relPath: '', words: 0, chapterPaths: [] },
       summary: { exists: false, stale: true },
-      stage: 'scene',
-      progress: { plot: 1, scene: 0, manuscript: 0, summary: 0 },
-    },
-    extra
-  );
-
-const sceneView = (no, title, extra) =>
-  Object.assign(
-    {
-      no,
-      title,
-      relPath: `.novelforge/scenes/012-夜入青云/0${no}-${title}.md`,
-      detail: `${no}. ${title}`,
-      status: 'ready',
-      ready: true,
-      upstreamStale: false,
+      stage: 'manuscript',
+      progress: { plot: 1, manuscript: 0, summary: 0 },
     },
     extra
   );
@@ -331,7 +330,7 @@ function sampleTree() {
         wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/001-楔子.md',
         stage: 'done', upstreamStale: false,
         draftPath: 'drafts/001-楔子.md', hasDraft: true,
-        progress: { plot: 1, scene: 1, manuscript: 1, summary: 1 } },
+        progress: { plot: 1, manuscript: 1, summary: 1 } },
       // 第 2 章：摘要过期。**老工程里的章**——找不到来源段，plotPath 为空。
       { kind: 'chapter', no: 2, label: '第 2 章《入镇》', title: '入镇',
         relPath: 'chapters/002-入镇.md',
@@ -341,7 +340,7 @@ function sampleTree() {
         wordCount: 300, stale: true, summaryPath: '.novelforge/summaries/002-入镇.md',
         stage: 'done', upstreamStale: false,
         draftPath: 'drafts/002-入镇.md', hasDraft: false,
-        progress: { plot: 1, scene: 1, manuscript: 1, summary: 0 } },
+        progress: { plot: 1, manuscript: 1, summary: 0 } },
       // 第 3 章：已发布、摘要新鲜。
       { kind: 'chapter', no: 3, label: '第 3 章《夜访》', title: '夜访',
         relPath: 'chapters/003-夜访.md',
@@ -351,18 +350,18 @@ function sampleTree() {
         wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/003-夜访.md',
         stage: 'done', upstreamStale: false,
         draftPath: '', hasDraft: false,
-        progress: { plot: 1, scene: 1, manuscript: 1, summary: 1 } },
-      // 剧情 4：场景拆了一半，且上游（本卷卷纲）改过。
+        progress: { plot: 1, manuscript: 1, summary: 1 } },
+      // 剧情 4：正文写了一半（目标 3000 字，写了 900），且上游（本卷卷纲）改过。
       // 位次 = 最新章号 3 + 在未交付的段里排第 1。
       { kind: 'segment', no: 4, label: '剧情 4《北行》', title: '北行',
         relPath: '.novelforge/plots/01-觉醒之日/004-北行.md',
         plotPath: '.novelforge/plots/01-觉醒之日/004-北行.md',
         chapterPath: '',
         manuscriptPath: '',
-        wordCount: 0, stale: false, summaryPath: '',
-        stage: 'scene', upstreamStale: true,
+        wordCount: 900, stale: false, summaryPath: '',
+        stage: 'manuscript', upstreamStale: true,
         draftPath: '', hasDraft: false,
-        progress: { plot: 1, scene: 0.5, manuscript: 0, summary: 0 } },
+        progress: { plot: 1, manuscript: 0.375, summary: 0 } },
       // 剧情 5：正文写完了还躺在中转站里，等着作者标断点 → 待拆分。
       { kind: 'segment', no: 5, label: '剧情 5《赤星》', title: '赤星',
         relPath: '.novelforge/plots/01-觉醒之日/005-赤星.md',
@@ -372,7 +371,7 @@ function sampleTree() {
         wordCount: 300, stale: false, summaryPath: '',
         stage: 'split', upstreamStale: false,
         draftPath: '', hasDraft: false,
-        progress: { plot: 1, scene: 1, manuscript: 1, summary: 0 } },
+        progress: { plot: 1, manuscript: 1, summary: 0 } },
     ],
     characters: [
       { kind: 'dir', label: '配角', relPath: '.novelforge/characters/配角', fileCount: 1, children: [
@@ -427,6 +426,6 @@ module.exports = {
   hasJsdom, JSDOM_SKIP,
   extractBody, bodyHtml, standaloneBodyHtml,
   mount,
-  turn, emptySession, pipelineView, sceneView, workbenchView, viewState, sampleTree,
+  turn, emptySession, pipelineView, workbenchView, viewState, sampleTree,
   file, listing,
 };

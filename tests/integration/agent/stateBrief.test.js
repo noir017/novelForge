@@ -177,7 +177,8 @@ describe('选中一章 · 注入的下一步与状态机一字不差', () => {
     const after = await brief({ kind: 'plot', plotRelPath: plotRel });
     const now = await nextStepOf(plotRel);
     assert.ok(after.includes(now.label), `${after}\n期望含「${now.label}」`);
-    assert.ok(after.includes('待拆场景'), after);
+    // 场景那一层删掉之后，剧情排好的下一步直接是写正文。
+    assert.ok(after.includes('待写正文'), after);
   });
 
   // 老工程的章没有来源段（`chapters` 记录为空、也不在任何段的落点里），

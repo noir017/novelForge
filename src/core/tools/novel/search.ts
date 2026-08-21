@@ -28,8 +28,8 @@ const KINDS: ArtifactKind[] = [
   'outline',
   'style',
   'globalSummary',
+  'volume',
   'plot',
-  'scene',
   'manuscript',
   'chapter',
   'summary',
@@ -45,7 +45,7 @@ export const searchTool: ToolDef = {
     '在工程里全文检索，返回命中的行（带路径与行号），**按章号升序**。' +
     '默认按字面量搜（作者搜的多半是人名地名），regex=true 才当正则。' +
     'path 可限定目录，kinds 可限定产物种类（chapter=已发布的章，manuscript=尚未拆分的正文，' +
-    'plot=细纲，scene=场景卡，summary=单章摘要，character=角色卡，lore=设定）。' +
+    'plot=细纲，volume=卷纲，summary=单章摘要，character=角色卡，lore=设定）。' +
     `一次最多返回 ${SEARCH_LIMIT} 条、每个文件最多 ${SEARCH_PER_FILE} 条；` +
     '有命中因为超上限被丢掉时会明确告诉你丢了几条——那时不要断言「全书只有这几处」。',
   parameters: objectSchema(

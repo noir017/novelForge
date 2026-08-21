@@ -224,11 +224,18 @@ describe('层与能力的组合由 STAGE_CAPABILITIES 说了算', () => {
     assert.equal(fake.calls.length, 0, String(fake.calls.length));
   });
 
-  test('剧情层的 split（拆场景）是支持的', async () => {
+  // 剧情段就是最小的规划单位：从前它拆的是场景，而那一层已经删掉了。
+  // agent 拿着老提示词来试的话，要在这里被拦住并被告知这一层有什么。
+  test('剧情层的 split 不再支持', async () => {
     resetCtx();
-    replyFn = () => JSON.stringify({ 场景: [{ 序号: 1, 标题: '踩点', 目的: '摸清位置' }] });
     const r = await run({ target: PLOT_REL, capability: 'split' });
-    assert.equal(r.error, undefined, r.error);
+    assert.ok(r.error && r.error.includes('split'), JSON.stringify(r));
+  });
+
+  test('剧情层的 split 被拦住时不调模型', async () => {
+    resetCtx();
+    await run({ target: PLOT_REL, capability: 'split' });
+    assert.equal(fake.calls.length, 0, String(fake.calls.length));
   });
 
   test('认不出的 capability 给 error', async () => {

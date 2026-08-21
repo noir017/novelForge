@@ -4,7 +4,7 @@
  * ## 这里为什么没有任何保护代码
  *
  * 越界、回收站、大小上限、同名不覆盖、覆盖前审阅、乐观锁——八条守卫全在
- * `workspace/guard.ts` 里做过一次，渲染、`upstreamHash` / `beatsHash` 记账、
+ * `workspace/guard.ts` 里做过一次，渲染、`upstreamHash` 记账、
  * 伴生搬迁在 handler 里做过一次。这一层要做的只有三件**属于 agent 的**事：
  *
  * 1. **把 draftId 换成 artifact**（等价于作者在那张落盘卡片上点了「写入」）；

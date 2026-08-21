@@ -4,7 +4,6 @@ import { plotLabel, segmentLabel, volumeLabel } from '../../model/pipeline';
 import { Volume, VOLUME_SECTION_KEYS } from '../../model/volumeFile';
 import { Plot, PLOT_SECTION_KEYS } from '../../model/plotFile';
 import { NovelProject } from '../../model/project';
-import { describeScene, Scene, SCENE_SECTION_KEYS } from '../../model/sceneFile';
 import { Attachment } from '../../model/session';
 import {
   CHARACTER_ESSENTIAL_KEYS,
@@ -77,39 +76,11 @@ export function renderPlotBrief(plot: Plot, relation: string): string {
   return lines.join('\n');
 }
 
-export function renderScene(scene: Scene): string {
-  const head = `【场景 ${describeScene(scene)}】`;
-  const who = scene.characters.length > 0 ? `\n在场人物：${scene.characters.join('、')}` : '';
-  const words = scene.targetWords ? `\n目标篇幅：约 ${scene.targetWords} 字` : '';
-  const body = stringifySections(
-    scene.sections as unknown as Record<string, string>,
-    SCENE_SECTION_KEYS as readonly string[]
-  );
-  return `${head}${who}${words}\n${body || '（尚未填写）'}`;
-}
-
-/**
- * 邻居场景只注入「目的 / 环境」——够让写这一场的人知道上一场停在哪、
- * 下一场要接到哪。不铺开动作与对话：那是那一场自己的素材，摊在这里只会
- * 挤掉本场的预算，还容易被误当成本场要写的东西。
- */
-export function renderSceneBrief(scene: Scene, relation: string): string {
-  const lines = [`【场景 ${describeScene(scene)}${relation}】`];
-  for (const key of ['目的', '环境'] as const) {
-    const value = scene.sections[key]?.trim();
-    if (value) {
-      lines.push(`${key}：${value}`);
-    }
-  }
-  return lines.join('\n');
-}
-
 /** 本层产物的文本，供设定关键词匹配。 */
 export function focusText(focus: Focus): string {
   const parts: string[] = [];
-  if (focus.scene) {
-    parts.push(focus.scene.place, focus.scene.time, focus.scene.characters.join('、'));
-    parts.push(...Object.values(focus.scene.sections));
+  if (focus.volume) {
+    parts.push(...Object.values(focus.volume.sections));
   }
   if (focus.plot) {
     parts.push(...Object.values(focus.plot.sections));
@@ -174,7 +145,14 @@ export interface CharacterHit {
   reason: string;
 }
 
-/** 场景人物、提及人物、近邻章人物与主角的有序并集。 */
+/**
+ * 提及人物、近邻章人物与主角的有序并集。
+ *
+ * 从前第一条是「本场出场人物」——场景卡的 frontmatter 里明写了这一幕有谁，
+ * 那比在用户那句话里做子串匹配准得多。场景那一层删掉之后这条依据没有了
+ * （细纲不记出场人物：那是**计划**出场，与摘要里的实际出场混在一起会污染
+ * 出场统计，见 AGENTS 第 14 条），所以现在从这一轮的输入与前两章的摘要里认。
+ */
 export async function selectCharacters(
   project: NovelProject,
   cards: CharacterCard[],
@@ -182,17 +160,6 @@ export async function selectCharacters(
   focus: Focus
 ): Promise<CharacterHit[]> {
   const hits = new Map<string, CharacterHit>();
-
-  for (const name of focus.castNames) {
-    const needle = name.trim();
-    if (!needle) {
-      continue;
-    }
-    const card = cards.find((c) => c.name === needle || c.aliases.includes(needle));
-    if (card && !hits.has(card.slug)) {
-      hits.set(card.slug, { card, reason: '本场出场人物' });
-    }
-  }
 
   for (const card of cards) {
     if (hits.has(card.slug)) {

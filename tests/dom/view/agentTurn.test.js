@@ -235,13 +235,20 @@ describe('直接发送就是 agent', { skip: JSDOM_SKIP }, () => {
     assert.equal(input().value, '');
   });
 
-  // 挑了 `/命令`（写剧情、拆成场景）才回到确定性的单步。
+  // 挑了 `/命令`（拆成卷、生成大纲…）才回到确定性的单步。
+  //
+  // 挑的命令必须**属于当前会话那一层**：面板读的是 `commandsFor(session.stage)`，
+  // 而这个会话停在大纲层（`emptySession` 的缺省）。挑一条别的层的命令，
+  // `find` 会返回 undefined，用例炸在 clickEl 上而不是在断言上——从前这里
+  // 挑的正是剧情层的命令，所以它一直是红的。
   test('挑了命令时发的还是 send', () => {
     ui.post({ type: 'busy', value: false });
     input().value = '/';
     input().dispatchEvent(new ui.window.Event('input', { bubbles: true }));
-    ui.clickEl([...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('拆成场景')));
-    input().value = '拆细一点';
+    const pick = [...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('拆成卷'));
+    assert.ok(pick, [...ui.doc.querySelectorAll('.cmd-item')].map((n) => n.textContent).join('|'));
+    ui.clickEl(pick);
+    input().value = '切成三卷';
     ui.clickEl(sendBtn());
     assert.equal(ui.last('send').payload.capability, 'split', JSON.stringify(ui.last('send').payload));
   });

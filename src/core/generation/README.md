@@ -7,7 +7,7 @@
 | 文件 | 职责 |
 |---|---|
 | [generate.ts](generate.ts) | ★ **无状态**：装配（`buildContext`）→ 调模型 → 解析 → 产出一份 `Draft`。收 `signal`，不自己管并发。另有 `previewContext`（只装配不调模型，面板的「预览上下文」）与 `parseDraftArtifact`（解析，不写盘）。 |
-| [accept.ts](accept.ts) | ★ 落盘：按 target 分派到七条落盘路径（大纲 / 卷纲 / 拆卷 / 拆出剧情段 / 细纲 / 拆场景 / 场景卡 / 正文）。**大纲那一层有两种 target**：`outlineDoc` 落到 `outline.md` 还是某一卷的卷纲，由 target 决定。守卫、渲染、记账、伴生搬迁全在 `workspace/` 做一次，这里只做分派与人话消息。 |
+| [accept.ts](accept.ts) | ★ 落盘：按 target 分派到五条落盘路径（大纲 / 卷纲 / 拆卷 / 拆出剧情段 / 细纲 / 正文）。**`outlineDoc` 有两种落点**：全书大纲还是某一卷的卷纲，由 target 决定（解析只看 stage，落盘才看 target）。守卫、渲染、记账、伴生搬迁全在 `workspace/` 做一次，这里只做分派与人话消息。 |
 | [drafts.ts](drafts.ts) | ★ `DraftStore`：还没落盘的产物，内存按会话分桶 + 随会话 JSON 落盘。 |
 
 ## 三条硬约束

@@ -40,7 +40,6 @@ before(() => {
     split: './src/core/features/splitChapter.ts',
     plotFile: './src/core/model/plotFile.ts',
     volumeFile: './src/core/model/volumeFile.ts',
-    sceneFile: './src/core/model/sceneFile.ts',
   });
   h = makeFakeHost();
   bundle.host.initHost(h.host);
@@ -253,17 +252,6 @@ describe('分卷层 · 卷改名搬三棵目录树', () => {
       undefined,
       project.plotsMirrorRelPathForVolume(V)
     );
-    await ws.writeScene(P, {
-      plotRelPath: P,
-      no: 1,
-      title: '开场',
-      place: '',
-      time: '',
-      characters: [],
-      upstreamHash: '',
-      status: 'ready',
-      sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
-    });
     await ws.appendToManuscript(P, '正文一段。');
 
     const volume = await project.readVolume(V);
@@ -275,7 +263,6 @@ describe('分卷层 · 卷改名搬三棵目录树', () => {
   for (const rel of [
     '.novelforge/volumes/01-觉醒之日.md',
     '.novelforge/plots/01-觉醒之日/001-高烧.md',
-    '.novelforge/scenes/01-觉醒之日/001-高烧/01-开场.md',
     '.novelforge/manuscripts/01-觉醒之日/001-高烧.md',
   ]) {
     test(`改名后 ${rel} 在新位置`, () => {
@@ -286,7 +273,6 @@ describe('分卷层 · 卷改名搬三棵目录树', () => {
   for (const rel of [
     '.novelforge/volumes/01-觉醒.md',
     '.novelforge/plots/01-觉醒',
-    '.novelforge/scenes/01-觉醒',
     '.novelforge/manuscripts/01-觉醒',
   ]) {
     test(`旧的 ${rel} 不再留下孤儿`, () => {

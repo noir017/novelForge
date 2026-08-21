@@ -35,7 +35,6 @@ export type {
   ProjectFileNode,
   ProjectNode,
   ProjectTree,
-  ScenePipelineView,
   SendPayload,
   SerializedAgentRun,
   SerializedArtifact,

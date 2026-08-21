@@ -10,7 +10,7 @@
 | 位置 | 管什么 | 带哪些保护 |
 |---|---|---|
 | `model/project.ts` | 所有产物的读写 | 路径推导、frontmatter 渲染、伴生搬迁 |
-| `features/creation.ts` 的 `acceptArtifact` | 七条落盘路径 | `confirmOverwrite`、记 `upstreamHash` / `beatsHash` |
+| `features/creation.ts` 的 `acceptArtifact` | 五条落盘路径 | `confirmOverwrite`、记 `upstreamHash` |
 | `files/fileOps.ts` | 三区类文件操作 | 区界限、同名不覆盖、`.trash` |
 | `files/fileEditing.ts` | 内置编辑器读写 | 工程根包含、扩展名白名单、大小上限、乐观锁 |
 | `files/projectFiles.ts` | 文件页的移动/复制/改名 | 工程根包含、`isProtectedPath`、同名不覆盖 |
@@ -18,11 +18,10 @@
 
 既有落盘路径背着一批不变量，绕过任何一条都会**安静地**损坏工程：
 
-- 细纲改名要连带搬走场景目录与中转站正文（`carryPlotCompanions`），当普通文件搬会把它们变成孤儿
-- **卷纲**改名要连带搬走三棵目录树（`plots/<卷词干>/`、`scenes/<卷词干>/`、`manuscripts/<卷词干>/`，见 `carryVolumeCompanions`）——卷词干是三处的第一级目录名，只搬 `plots/` 那一棵会让整卷的场景变成孤儿
+- 细纲改名要连带搬走中转站正文（`carryPlotCompanions`），当普通文件搬会把它变成孤儿
+- **卷纲**改名要连带搬走两棵目录树（`plots/<卷词干>/`、`manuscripts/<卷词干>/`，见 `carryVolumeCompanions`）——卷词干是两处的第一级目录名，只搬 `plots/` 那一棵会让整卷的正文变成孤儿
 - 拆分要把落点记回段的 frontmatter（`chapters:`），那是「段 → 章」唯一的链
-- 场景文件名由「场号 + 标题」决定，改标题要清掉旧文件名，否则同一场以两个文件名并存
-- 写正文要记 `beatsHash`，写细纲要记 `upstreamHash`，漏了新鲜度链就断
+- 写正文与写细纲都要记 `upstreamHash`（正文的上游是它那一段的细纲），漏了新鲜度链就断
 - 删除一律进 `.trash/`；同名目标一律报错退出——**会话删除走的是同一套**（`trashPathFor`），不真删不是文件独有的行为（AGENTS 第 6 条）
 
 所以 **`write` 不是「往这个路径写字节」**，而是「按这个路径**应有的种类**写一份
@@ -56,9 +55,8 @@
 | 种类 | 判定 | 解析 / 渲染 | 上游指纹 | 伴生 |
 |---|---|---|---|---|
 | `outline` / `style` / `globalSummary` | 固定路径 | 纯文本 | — | — |
-| `plot` | `plots/` 下 + 数字前缀 + markdown | `plotFile.ts` | 写入记 `hash(outline)` | 改名连带场景目录 + 中转站正文 |
-| `scene` | `scenes/<plotStem>/` 下 | `sceneFile.ts` | 写入记 `plotContentHash(plot)` | 改标题时清掉旧文件名 |
-| `manuscript` | `manuscripts/` 下 | 正文 + frontmatter | 追加记 `beatsHash` | — |
+| `plot` | `plots/` 下 + 数字前缀 + markdown | `plotFile.ts` | 写入记所属卷纲的指纹（未分卷退回 `hash(outline)`） | 改名连带中转站正文 |
+| `manuscript` | `manuscripts/` 下 | 正文 + frontmatter | 追加记 `plotContentHash(plot)` | — |
 | `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | — | 改名/移动带草稿；写后 `syncManifest` |
 | `summary` | `summaries/` 镜像 | frontmatter + 小节 | `sourceHash` | 写后 `markSummarized` |
 | `volume` | `volumes/` 下（扁平）+ `.md` | frontmatter + 四个小节 | `outline.md` 的 hash | 改名/删除带三棵目录树 |
@@ -70,29 +68,33 @@
 
 1. **`chapter` 不看是不是 `.md`**（AGENTS 第 9 条：章节不认扩展名）。
    `001-楔子.txt`、`001-楔子`（无扩展名）、`004.json` 都算章节；
-   角色 / 设定 / 细纲 / 场景**不**跟着放宽，它们是插件自己的数据格式。
+   角色 / 设定 / 细纲**不**跟着放宽，它们是插件自己的数据格式。
 2. **镜像产物的归属靠镜像路径反推**，零 I/O：
-   `scenes/01-觉醒之日/012-入宗/02-翻越侧峰.md` → `plots/01-觉醒之日/012-入宗.md`。
+   `manuscripts/01-觉醒之日/012-入宗.md` → `plots/01-觉醒之日/012-入宗.md`。
    镜像的是段在 `plots/` 之下的**整段路径**，所以卷那一层原样带着（未分卷的段
-   镜像出来自然就是扁的）。找不到对应细纲时**仍然返回 `kind: 'scene'`**（那个
-   文件确实在那儿），只是 `plotRelPath` 指向那个「应该存在」的位置。
+   镜像出来自然就是扁的）。找不到对应细纲时**仍然返回 `kind: 'manuscript'`**
+   （那个文件确实在那儿），只是 `plotRelPath` 指向那个「应该存在」的位置。
 3. **`summaries/global.md` 排在单章摘要之前判**，否则会被当成第 0 章的摘要。
+4. **老工程留下的 `.novelforge/scenes/` 判成 `other`**：场景那一层已经删掉
+   （见 `model/pipeline.ts` 的文件头）。那个目录里的文件是作者的东西，磁盘上
+   一个字节都不动，但代码里彻底不认——`guard.ts` 的 `isProtectedPath` 仍然把它
+   列为受保护目录，免得哪条文件操作把它整棵删掉。
 
 ## 记账下沉（这一期唯一有意的行为变化）
 
-`upstreamHash` / `beatsHash` 从前**只在采纳路径上记**（`features/creation.ts` 的
-`acceptPlot` / `acceptSceneList` / `acceptScene` / `acceptManuscript`）。作者在
+`upstreamHash` 从前**只在采纳路径上记**（`features/creation.ts` 的
+`acceptPlot` / `acceptManuscript`）。作者在
 内置编辑器里改一份细纲，指纹链就断了——那一章从此再也不挂 ⟳。
 
-下沉到写入路径本身之后，**任何一次 `workspace.write` 到 volume / plot / scene /
+下沉到写入路径本身之后，**任何一次 `workspace.write` 到 volume / plot /
 manuscript 路径都记**。细纲的上游是**它所属那一卷**（`plotUpstreamHash`，未分卷的
 段退回全书大纲）——改一卷的走向只该让那一卷的段标脏，拿一律的大纲指纹去记，
 改一句立意会换来一屏 ⟳。三条配套约束一条没变：
 
 - **手写的产物永不标脏**：`upstreamHash` 为空 = 不是这条链生出来的，不给它补一个
 - **`plotContentHash` 只哈希四个小节**，不含 frontmatter——`upstreamHash` 自己就在
-  frontmatter 里，算进去会让「排一次剧情」立刻使全部场景过期
-- **`beatsHashFor` 排除场景的 `status`**——采纳正文时会把场景标成 `written`，
+  frontmatter 里，算进去会让「排一次剧情」立刻使这一段的正文过期
+- **不哈希状态位**——作者把某一段标成 `done`（`status: done` 在 frontmatter 里），
   那一次写入不该让刚写好的正文立刻显示「上游已变更」
 
 ## 全文检索（`search.ts`）
@@ -124,11 +126,10 @@ workspace/
     ├── index.ts    种类 → handler 注册表（认不出落 plain，绝不抛）
     ├── types.ts    Handler 的四件事：render / resolve / after / companions
     ├── plot.ts     渲染 + 记 upstreamHash + 伴生搬迁
-    ├── scene.ts    落点裁决 + 渲染 + 记 upstreamHash + 改标题清旧文件名
-    ├── manuscript.ts 追加（插 `---`）+ 记 beatsHash
+    ├── manuscript.ts 追加（插 `---`）+ 记 upstreamHash
     ├── chapter.ts  草稿跟随 + manifest 同步（删章节不删草稿）
     ├── summary.ts  manifest 同步
-    ├── volume.ts   卷纲（记大纲指纹、改名/删除带三棵目录树）
+    ├── volume.ts   卷纲（记大纲指纹、改名/删除带两棵目录树）
     ├── doc.ts      outline / style / globalSummary / character / lore
     └── plain.ts    other / draft（纯文本，无记账）
 ```

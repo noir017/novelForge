@@ -1,5 +1,5 @@
 /**
- * 采纳：把一份产物写进磁盘。按 target 分派到七条落盘路径。
+ * 采纳：把一份产物写进磁盘。按 target 分派到五条落盘路径。
  *
  * ## 与生成分开的那一步
  *
@@ -10,24 +10,18 @@
  * ## 守卫不在这里
  *
  * 落盘一律经 `workspace/` 网关：越界、同名、大小、乐观锁、覆盖审阅、
- * `.trash`、伴生搬迁、`upstreamHash` / `beatsHash` 记账，全在那一层做一次。
- * 本模块只做**分派**与**人话消息**——每条路径的「跳过了哪几章」「原有几场
- * 未动」必须说出来，默默少建三章，作者要到写到那里才发现。
+ * `.trash`、伴生搬迁、`upstreamHash` 记账，全在那一层做一次。
+ * 本模块只做**分派**与**人话消息**——每条路径的「跳过了哪几卷」「原有几段
+ * 未动」必须说出来，默默少建三卷，作者要到写到那里才发现。
  */
 import { scoped } from '../runtime/logger';
 import { hash } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { Plot, PlotSections, emptyPlotSections } from '../model/plotFile';
-import { emptySceneSections } from '../model/sceneFile';
 import { emptyVolumeSections } from '../model/volumeFile';
 import { CreationTarget, plotOfTarget, volumeLabel, volumeOfTarget } from '../model/pipeline';
-import {
-  Artifact,
-  PlotOutlineItem,
-  SceneOutlineItem,
-  VolumeOutlineItem,
-} from '../features/artifact';
-import { plotContentHash, volumeContentHash } from '../views/pipeline';
+import { Artifact, PlotOutlineItem, VolumeOutlineItem } from '../features/artifact';
+import { volumeContentHash } from '../views/pipeline';
 import { Workspace, pathOfTarget } from '../workspace';
 
 const log = scoped('创作');
@@ -54,8 +48,8 @@ export async function acceptArtifact(
   const ws = new Workspace(project);
   switch (artifact.kind) {
     case 'outlineDoc':
-      // 大纲这一层有两种 target：全书大纲，或某一卷的卷纲。两者都是整篇替换、
-      // 覆盖前审阅，只是落点不同。
+      // 两个阶段都产出 `outlineDoc`：全书大纲、或某一卷的卷纲。两者都是整篇
+      // 替换、覆盖前审阅，只是落点不同——落点看 target，不看 stage。
       return target.kind === 'volume'
         ? acceptVolumeDoc(project, ws, target.volumeRelPath, artifact.text)
         : acceptOutline(project, ws, artifact.text);
@@ -65,10 +59,6 @@ export async function acceptArtifact(
       return acceptPlotSegment(project, ws, target, artifact.segment);
     case 'plot':
       return acceptPlot(project, ws, target, artifact.sections);
-    case 'sceneList':
-      return acceptSceneList(project, ws, target, artifact.scenes);
-    case 'scene':
-      return acceptScene(project, ws, target, artifact);
     case 'manuscript':
       return acceptManuscript(project, ws, target, artifact.text);
   }
@@ -96,9 +86,9 @@ async function acceptOutline(
 /**
  * 卷纲：整篇替换，覆盖前审阅。
  *
- * 卷不是独立的创作阶段，所以它没有自己的结构化产物——「写这一卷的卷纲」产出的
- * 就是一段 Markdown（`outlineDoc`），落点由 target 决定。四个小节由
- * `parseVolumeFile` 从落盘的文本里再读回来，作者手改的那份也一样读得回来。
+ * 卷纲没有自己的结构化产物——「写这一卷的卷纲」产出的就是一段 Markdown
+ * （`outlineDoc`），落点由 target 决定。四个小节由 `parseVolumeFile` 从落盘的
+ * 文本里再读回来，作者手改的那份也一样读得回来。
  */
 async function acceptVolumeDoc(
   project: NovelProject,
@@ -241,88 +231,9 @@ async function acceptPlot(
 }
 
 /**
- * 剧情拆场景：为每一场建一个场景文件。
- *
- * 与拆章一样**不覆盖**：已经存在的场号跳过。作者花时间设计过的场景
- * 被一次重新拆分抹掉，是这条路上最贵的错误。
- */
-async function acceptSceneList(
-  project: NovelProject,
-  ws: Workspace,
-  target: CreationTarget,
-  scenes: SceneOutlineItem[]
-): Promise<AcceptResult> {
-  const plot = await requirePlot(project, target);
-  const upstreamHash = plotContentHash(plot);
-  const existing = await project.listScenes(plot.relPath);
-  const taken = new Set(existing.map((s) => s.no));
-
-  let no = 0;
-  const created: string[] = [];
-  for (const item of scenes) {
-    do {
-      no++;
-    } while (taken.has(no));
-    taken.add(no);
-    const rel = await ws.writeScene(plot.relPath, {
-      plotRelPath: plot.relPath,
-      no,
-      title: item.title,
-      place: item.place,
-      time: item.time,
-      characters: item.characters,
-      targetWords: item.targetWords,
-      upstreamHash,
-      // 刚拆出来的是壳，还没设计过——status 如实说 draft。
-      status: 'draft',
-      sections: {
-        ...emptySceneSections(),
-        目的: item.goal,
-      },
-    });
-    created.push(rel);
-  }
-
-  const note = existing.length > 0 ? `，原有 ${existing.length} 场未动` : '';
-  log.info(`第 ${plot.no} 章拆出 ${created.length} 场`, `${created.join('、')}${note}`);
-  return { relPath: created[0], message: `已拆出 ${created.length} 场${note}。` };
-}
-
-/**
- * 单张场景卡：整张替换，覆盖前审阅。
- *
- * 落点、渲染与记 `upstreamHash` 都在网关的 scene handler 里：标题沿用磁盘
- * 那份（标题决定文件名，改写一张卡不该顺手改文件名），status 由
- * `isSceneReady` 推，改了标题时清掉旧文件名。
- */
-async function acceptScene(
-  project: NovelProject,
-  ws: Workspace,
-  target: CreationTarget,
-  artifact: Extract<Artifact, { kind: 'scene' }>
-): Promise<AcceptResult> {
-  const plot = await requirePlot(project, target);
-  const sceneNo = target.kind === 'scene' ? target.sceneNo : undefined;
-  if (sceneNo === undefined) {
-    throw new Error('没有指定是哪一场。');
-  }
-
-  const r = await ws.write(
-    pathOfTarget(project, { kind: 'scene', plotRelPath: plot.relPath, sceneNo }),
-    { artifact },
-    { mode: 'overwrite', what: `第 ${plot.no} 章 · 场景 ${sceneNo}` }
-  );
-  if (r.skipped) {
-    return { skipped: true, message: '没有改动这一场。' };
-  }
-  log.info(`第 ${plot.no} 章场景 ${sceneNo} 已写入`, r.rel);
-  return { relPath: r.rel, message: `已写入 ${r.rel}` };
-}
-
-/**
  * 正文：追加到这一章的中转站正文末尾。
  *
- * `beatsHash` 由网关的 manuscript handler 记——正文所依据的场景指纹。
+ * `upstreamHash` 由网关的 manuscript handler 记——正文所依据的细纲指纹。
  * 少了它这一章会永远显示「正文与场景对不上」或永远不显示，两种都是错的。
  *
  * **落在 `manuscripts/`，不是 `chapters/`。** 切成发布章节是作者的活，
@@ -342,21 +253,9 @@ async function acceptManuscript(
     { artifact: { kind: 'manuscript', text } },
     { mode: 'append' }
   );
-
-  // 写的是某一场时，把那一场标成 written，流水线进度才走得动。
-  const sceneNo = target.kind === 'manuscript' ? target.sceneNo : undefined;
-  if (sceneNo !== undefined) {
-    const scene = await project.readScene(plot.relPath, sceneNo);
-    if (scene && scene.status !== 'written') {
-      await ws.writeScene(plot.relPath, { ...scene, status: 'written' });
-    }
-  }
   await project.syncManifest();
 
-  log.info(
-    `已追加 ${text.length} 字到第 ${plot.no} 章`,
-    `${r.rel}｜该章摘要将变为过期${sceneNo !== undefined ? `｜场景 ${sceneNo} 已标记写完` : ''}`
-  );
+  log.info(`已追加 ${text.length} 字到剧情段 ${plot.no}`, `${r.rel}｜该段摘要将变为过期`);
   return { relPath: r.rel, message: `已写入 ${r.rel}` };
 }
 

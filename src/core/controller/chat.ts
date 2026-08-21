@@ -65,12 +65,12 @@ export async function send(c: ChatController, payload: SendPayload): Promise<voi
   }
   // 空输入只挡「讨论」（它不是命令，`commandOf` 查不到它）。
   //
-  // 旧界面一律要求先写点什么才能发送，而「落定剧情」「拆成场景」「写这一场」
-  // 本来就不需要作者说任何话——该说的都在剧情和场景卡里了。逼他先编一句
+  // 旧界面一律要求先写点什么才能发送，而「落定剧情」「拆出剧情段」「写正文」
+  // 本来就不需要作者说任何话——该说的都在大纲、卷纲与细纲里了。逼他先编一句
   // 「请生成」，那句话还会被当成要求装进 prompt。
   //
   // 讨论例外：它的全部内容就是作者那句话，没有话就没有讨论。
-  const command = commandOf(payload.stage, payload.capability, c.current.target.kind);
+  const command = commandOf(payload.stage, payload.capability);
   if (!payload.text.trim() && !command) {
     c.toast('请先输入内容。', 'error');
     return;
@@ -264,7 +264,7 @@ export async function describeArtifactOf(
   if (outputKindOf(action) !== 'artifact' || !content.trim()) {
     return undefined;
   }
-  const artifact = parseDraftArtifact(action, target, content);
+  const artifact = parseDraftArtifact(action, content);
   if (!artifact) {
     return undefined;
   }
@@ -311,10 +311,6 @@ export async function targetHasContent(
     // 说「会覆盖」是吓唬人——那正是接下来要填的东西。
     const plot = await c.project.readPlot(relPath);
     return !!plot && isPlotFilled(plot.sections);
-  }
-  if (stage === 'scene') {
-    const sceneNo = target.kind === 'scene' ? target.sceneNo : undefined;
-    return sceneNo !== undefined && !!(await c.project.readScene(relPath, sceneNo));
   }
   // 正文是追加，不覆盖任何东西。
   return false;
@@ -397,7 +393,7 @@ export async function askArtifact(
     return { verdict, message: '内容是空的，没有写入任何文件。' };
   }
   // **重新解析一遍**而不是用 `draft.artifact`：作者可能在气泡里改过。
-  const artifact = parseDraftArtifact(draft.action, draft.target, raw);
+  const artifact = parseDraftArtifact(draft.action, raw);
   if (!artifact) {
     // 解析不出来时**不写**。写一个空产物比不写更糟：作者会以为存下了。
     log.warn('产物解析不出内容，未写入', `阶段 ${draft.action.stage}·${draft.action.capability}`);
@@ -596,11 +592,7 @@ export async function describeTargetOf(c: ChatController, target: CreationTarget
     return describeTarget(target);
   }
   const plot = await c.project.readPlot(relPath);
-  const sceneNo =
-    target.kind === 'scene' || target.kind === 'manuscript' ? target.sceneNo : undefined;
-  const sceneTitle =
-    sceneNo === undefined ? undefined : (await c.project.readScene(relPath, sceneNo))?.title;
-  return describeTarget(target, { no: plot?.no, title: plot?.title, sceneTitle });
+  return describeTarget(target, { no: plot?.no, title: plot?.title });
 }
 
 /**

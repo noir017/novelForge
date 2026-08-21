@@ -1,9 +1,9 @@
 /**
  * 路径 → 种类。**纯函数、零 I/O、绝不抛**——它会被前端传上来的路径调用。
  *
- * 判定逻辑从前散在四处（fileOps 的 sectionOf / isPlotPath、plotFile 的
- * parsePlotFileName、sceneFile 的 parseSceneFileName、chapterFile 的
- * parseChapterFileName），各认一半。这组用例守的是「收成一张表之后口径一字未变」。
+ * 判定逻辑从前散在三处（fileOps 的 sectionOf / isPlotPath、plotFile 的
+ * parsePlotFileName、chapterFile 的 parseChapterFileName），各认一半。
+ * 这组用例守的是「收成一张表之后口径一字未变」。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -91,37 +91,29 @@ describe('kindOfPath · 细纲', () => {
   });
 });
 
-describe('kindOfPath · 场景', () => {
-  const rel = '.novelforge/scenes/012-入宗/02-翻越侧峰.md';
-
-  test('镜像目录下的 .md 是场景', () => {
-    assert.equal(kindOf(rel).kind, 'scene');
+// 场景那一层已经删掉（见 core/model/pipeline.ts 的文件头）。老工程磁盘上那个
+// 目录还在、而且是作者的文件——代码里彻底不认它，判成 `other`：工程页不显示、
+// 装配器不读、网关按普通文本处理。**判成 other 而不是抛错**，因为它确实存在。
+describe('kindOfPath · 老工程留下的 scenes/', () => {
+  test('镜像目录下的 .md 不再是产物', () => {
+    assert.equal(kindOf('.novelforge/scenes/012-入宗/02-翻越侧峰.md').kind, 'other');
   });
 
-  test('章号从镜像目录名反推', () => {
-    assert.equal(kindOf(rel).no, 12);
+  test('不认它属于哪一层', () => {
+    assert.equal(kindOf('.novelforge/scenes/012-入宗/02-翻越侧峰.md').stage, undefined);
   });
 
-  test('场号从文件名前缀取', () => {
-    assert.equal(kindOf(rel).sceneNo, 2);
+  test('也不给它一个创作目标', () => {
+    assert.equal(kindOf('.novelforge/scenes/012-入宗/02-翻越侧峰.md').target, undefined);
   });
 
-  // 反推靠 plotStem 的逆运算：scenes/012-入宗/ → plots/012-入宗.md。
-  test('反推得出所属细纲的路径', () => {
-    assert.equal(kindOf(rel).plotRelPath, '.novelforge/plots/012-入宗.md');
-  });
-
-  test('场景的创作目标带场号', () => {
-    assert.deepEqual(kindOf(rel).target, {
-      kind: 'scene',
-      plotRelPath: '.novelforge/plots/012-入宗.md',
-      sceneNo: 2,
-    });
-  });
-
-  // 镜像目录里没有数字前缀的文件不是场景（同一条规则：前缀决定顺序）。
-  test('场景目录里没有数字前缀的文件不是场景', () => {
-    assert.equal(kindOf('.novelforge/scenes/012-入宗/说明.md').kind, 'other');
+  // 越界才不给 rel。它没越界，只是不再是产物——`rel` 照给，调用方仍然认得出
+  // 这是工程内的一个普通文件。
+  test('仍然给出规范化的相对路径', () => {
+    assert.equal(
+      kindOf('.novelforge/scenes/012-入宗/02-翻越侧峰.md').rel,
+      '.novelforge/scenes/012-入宗/02-翻越侧峰.md'
+    );
   });
 });
 
@@ -242,7 +234,6 @@ describe('pathOfTarget · 与 kindOfPath 往返', () => {
   const targets = [
     { kind: 'outline' },
     { kind: 'plot', plotRelPath: '.novelforge/plots/012-入宗.md' },
-    { kind: 'scene', plotRelPath: '.novelforge/plots/012-入宗.md', sceneNo: 2 },
     { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-入宗.md' },
   ];
 

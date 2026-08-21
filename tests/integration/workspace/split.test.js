@@ -44,7 +44,7 @@ before(async () => {
     fs: './src/core/model/fs.ts',
     project: './src/core/model/project.ts',
     plotFile: './src/core/model/plotFile.ts',
-    sceneFile: './src/core/model/sceneFile.ts',
+    pipe: './src/core/views/pipeline.ts',
     ws: './src/core/workspace/index.ts',
     split: './src/core/features/splitChapter.ts',
   });
@@ -59,18 +59,13 @@ after(() => {
   if (t) cleanup(t.dir);
 });
 
-describe('中转站正文 · 追加与 beatsHash', () => {
+describe('中转站正文 · 追加与 upstreamHash', () => {
   const plotRel = '.novelforge/plots/012-入宗.md';
   const msRel = '.novelforge/manuscripts/012-入宗.md';
 
   before(async () => {
     await ws.writePlot({
       no: 12, title: '入宗', arc: '', upstreamHash: '', done: false, sections: filled(),
-    });
-    await ws.writeScene(plotRel, {
-      plotRelPath: plotRel, no: 1, title: '踩点', place: '', time: '', characters: [],
-      upstreamHash: '', status: 'ready',
-      sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '他蹲了两个时辰。' },
     });
     await ws.appendToManuscript(plotRel, '他在山门外等到天黑。');
   });
@@ -88,12 +83,16 @@ describe('中转站正文 · 追加与 beatsHash', () => {
     assert.ok(t.read(msRel).includes('# 第12章 入宗 · 正文'), t.read(msRel));
   });
 
-  // **记账下沉**：从前只在 acceptManuscript 里记。
-  test('写正文就记 beatsHash', async () => {
-    assert.equal(fm(msRel, 'beatsHash'), await project.beatsHashFor(plotRel));
+  // **记账下沉**：从前只在 acceptManuscript 里记。上游是这一段的细纲
+  // （从前是它的场景集合，那一层已经删掉）。
+  test('写正文就记细纲指纹', async () => {
+    assert.equal(
+      fm(msRel, 'upstreamHash'),
+      bundle.pipe.plotContentHash(await project.readPlot(plotRel))
+    );
   });
 
-  // 那一行是默认的拆分候选点（第 23 条）：场景边界最可能就是章节边界。
+  // 那一行是默认的拆分候选点（第 23 条）：一次写作的边界最可能就是章节边界。
   test('两次追加之间插一行 ---', async () => {
     await ws.appendToManuscript(plotRel, '墙那边有人说话。');
     assert.ok(/\n---\n/.test(t.read(msRel)), t.read(msRel));
@@ -104,29 +103,29 @@ describe('中转站正文 · 追加与 beatsHash', () => {
     assert.ok(text.includes('等到天黑') && text.includes('有人说话'), text);
   });
 
-  // 第 18b 条：contentHash 只哈希正文本身，写一次 beatsHash 不该让摘要立刻过期。
+  // 第 18b 条：contentHash 只哈希正文本身，写一次 upstreamHash 不该让摘要立刻过期。
   test('contentHash 不含 frontmatter 与标题行', async () => {
     const before = (await project.readManuscript(plotRel)).contentHash;
-    const beatsBefore = fm(msRel, 'beatsHash');
-    const s1 = await project.readScene(plotRel, 1);
-    s1.sections.动作 = '他蹲了整整一夜。';
-    await ws.writeScene(plotRel, { ...s1, plotRelPath: plotRel });
-    // 正文原样重写一遍：handler 会把新的 beatsHash 记进 frontmatter，
+    const hashBefore = fm(msRel, 'upstreamHash');
+    const p = await project.readPlot(plotRel);
+    p.sections.剧情脉络 = '改成三拍：等、翻、被撞见。';
+    await ws.writePlot(p);
+    // 正文原样重写一遍：handler 会把新的 upstreamHash 记进 frontmatter，
     // 而正文一个字节没动。
     await ws.write(msRel, { text: t.read(msRel) }, { mode: 'overwrite', review: false });
-    assert.notEqual(fm(msRel, 'beatsHash'), beatsBefore, '前置：beatsHash 确实变了');
+    assert.notEqual(fm(msRel, 'upstreamHash'), hashBefore, '前置：细纲指纹确实变了');
     assert.equal((await project.readManuscript(plotRel)).contentHash, before);
   });
 
-  // 手写的正文（作者自己贴进来的）没有 beatsHash，不该被凭空补一个。
-  test('没有 frontmatter 的正文不被补 beatsHash', async () => {
+  // 手写的正文（作者自己贴进来的）没有指纹，不该被凭空补一个。
+  test('没有 frontmatter 的正文不被补指纹', async () => {
     const bare = '.novelforge/manuscripts/099-手贴.md';
     t.write(bare, '我自己贴进来的正文。\n');
     project.invalidate();
     await ws.write(bare, { text: '我自己贴进来的正文，改过。\n' }, {
       mode: 'overwrite', review: false,
     });
-    assert.ok(!t.read(bare).includes('beatsHash'), t.read(bare));
+    assert.ok(!t.read(bare).includes('upstreamHash'), t.read(bare));
   });
 });
 
@@ -261,16 +260,11 @@ describe('拆分 · 只拆自己，不动别人', () => {
   let startNo;
 
   before(async () => {
-    // 后面还有两段已规划、没拆分的。从前它们要整体顺延 2 位（连带搬走场景目录
-    // 与中转站正文）；段号与章号成了两条轴之后，那一步整个不需要了。
+    // 后面还有两段已规划、没拆分的。从前它们要整体顺延 2 位（连带搬走中转站
+    // 正文）；段号与章号成了两条轴之后，那一步整个不需要了。
     for (const [no, title] of [[13, '甲'], [14, '乙']]) {
       const rel = await ws.writePlot({
         no, title, arc: '', upstreamHash: '', done: false, chapters: [], sections: filled(),
-      });
-      await ws.writeScene(rel, {
-        plotRelPath: rel, no: 1, title: '一场', place: '', time: '', characters: [],
-        upstreamHash: '', status: 'ready',
-        sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
       });
       await ws.appendToManuscript(rel, `第 ${no} 段的正文。`);
     }
@@ -314,11 +308,6 @@ describe('拆分 · 只拆自己，不动别人', () => {
   test('它们的细纲还在原路径上', () => {
     assert.ok(t.has('.novelforge/plots/013-甲.md'));
     assert.ok(t.has('.novelforge/plots/014-乙.md'));
-  });
-
-  test('它们的场景目录没被搬走', () => {
-    assert.ok(t.has('.novelforge/scenes/013-甲/01-一场.md'));
-    assert.ok(t.has('.novelforge/scenes/014-乙/01-一场.md'));
   });
 
   test('它们的中转站正文没被搬走', () => {

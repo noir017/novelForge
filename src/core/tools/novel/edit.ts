@@ -18,7 +18,7 @@
  * 3. **仍然走 `ws.edit` → guard**：越界、回收站、保护路径、大小上限照样拦。
  *    这里一行新的路径检查都没有。
  * 4. **编辑产物类文件后照样记账**：`ws.edit` 内部走 `write` → handler 的
- *    `after`，`upstreamHash` / `beatsHash` 一期就下沉到写入路径本身了。
+ *    `after`，`upstreamHash` 一期就下沉到写入路径本身了。
  *
  * ## 不做多处批量编辑
  *

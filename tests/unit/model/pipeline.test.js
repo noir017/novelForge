@@ -1,8 +1,8 @@
 /**
- * 创作流水线纯函数：Stage × Capability × Target、细纲与场景的文件格式、
+ * 创作流水线纯函数：Stage × Capability × Target、细纲的文件格式、
  * 单段流水线状态推导、全书状态推导。
  *
- * 这三个模块是整条流水线的地基，且全部零 I/O——所以它们能被单独 bundle 出来直接调，
+ * 这两个模块是整条流水线的地基，且全部零 I/O——所以它们能被单独 bundle 出来直接调，
  * 不需要建工程、不需要 host、不需要模型。
  *
  * 模块在文件顶层同步加载（而不是在 before() 里）：有四处用例要按模块常量
@@ -14,7 +14,6 @@ const { loadModule } = require('../../helpers/load');
 
 const pipeline = loadModule('src/core/model/pipeline.ts');
 const plotFile = loadModule('src/core/model/plotFile.ts');
-const sceneFile = loadModule('src/core/model/sceneFile.ts');
 
 describe('pipeline.ts · Stage × Capability', () => {
   test('四个阶段', () => {
@@ -57,8 +56,13 @@ describe('pipeline.ts · Stage × Capability', () => {
     assert.ok(!pipeline.STAGE_CAPABILITIES.manuscript.includes('split'));
   });
 
-  test('场景阶段不能拆分', () => {
-    assert.ok(!pipeline.STAGE_CAPABILITIES.scene.includes('split'));
+  // 剧情段就是最小的规划单位：从前它拆的是场景，而那一层已经删掉了。
+  test('剧情阶段不能拆分', () => {
+    assert.ok(!pipeline.STAGE_CAPABILITIES.plot.includes('split'));
+  });
+
+  test('卷纲阶段可以拆分', () => {
+    assert.ok(pipeline.STAGE_CAPABILITIES.volume.includes('split'));
   });
 
   test('大纲阶段可以拆分', () => {
@@ -79,7 +83,7 @@ describe('pipeline.ts · Stage × Capability', () => {
   });
 
   test('合法动作', () => {
-    assert.ok(pipeline.isValidAction({ stage: 'plot', capability: 'split' }));
+    assert.ok(pipeline.isValidAction({ stage: 'volume', capability: 'split' }));
   });
 
   test('落定是剧情层的合法动作', () => {
@@ -88,6 +92,11 @@ describe('pipeline.ts · Stage × Capability', () => {
 
   test('非法组合被拒', () => {
     assert.ok(!pipeline.isValidAction({ stage: 'manuscript', capability: 'split' }));
+  });
+
+  // 剧情层的 split 随场景层一起没了，老会话里存着它的要被拒。
+  test('剧情层的 split 被拒', () => {
+    assert.ok(!pipeline.isValidAction({ stage: 'plot', capability: 'split' }));
   });
 
   test('大纲不能落定', () => {
@@ -155,6 +164,17 @@ describe('pipeline.ts · 动作归一（容错）', () => {
     assert.equal(pipeline.normalizeAction({ stage: 'plan' }).stage, 'manuscript');
   });
 
+  // 场景层删掉之后，老会话里那个 stage 落到剧情层——它记着的是「这一段该
+  // 怎么发生」，接着往下做最可能是回剧情层把它写清楚。与 normalizeTarget 一致。
+  test('老会话的 scene 阶段落到剧情', () => {
+    assert.equal(pipeline.normalizeAction({ stage: 'scene', capability: 'generate' }).stage, 'plot');
+  });
+
+  test('老会话的 scene 阶段能力也归一', () => {
+    const a = pipeline.normalizeAction({ stage: 'scene', capability: 'generate' });
+    assert.ok(pipeline.STAGE_CAPABILITIES[a.stage].includes(a.capability), JSON.stringify(a));
+  });
+
   test('认不出的阶段回落', () => {
     assert.equal(pipeline.normalizeAction({ stage: 'beat' }).stage, 'manuscript');
   });
@@ -162,29 +182,43 @@ describe('pipeline.ts · 动作归一（容错）', () => {
 
 describe('pipeline.ts · Target', () => {
   const outline = { kind: 'outline' };
+  const volume = { kind: 'volume', volumeRelPath: '.novelforge/volumes/01-觉醒之日.md' };
   const plot = { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' };
-  const scene = { kind: 'scene', plotRelPath: '.novelforge/plots/012-夜入青云.md', sceneNo: 2 };
   const whole = { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-夜入青云.md' };
-  const oneScene = { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-夜入青云.md', sceneNo: 2 };
 
+  // 卷纲成为独立阶段之后，四种 target 与四个阶段一一对应。
   test('target 的阶段', () => {
-    assert.equal(pipeline.stageOfTarget(scene), 'scene');
+    assert.equal(pipeline.stageOfTarget(plot), 'plot');
+  });
+
+  test('卷纲的阶段是 volume（不再借 outline）', () => {
+    assert.equal(pipeline.stageOfTarget(volume), 'volume');
+  });
+
+  test('每种 target 的阶段都是合法阶段', () => {
+    for (const t of [outline, volume, plot, whole]) {
+      assert.ok(pipeline.CREATION_STAGES.includes(pipeline.stageOfTarget(t)), t.kind);
+    }
   });
 
   test('大纲没有归属的章', () => {
     assert.equal(pipeline.plotOfTarget(outline), undefined);
   });
 
+  test('卷纲没有归属的段', () => {
+    assert.equal(pipeline.plotOfTarget(volume), undefined);
+  });
+
   test('剧情有归属的章', () => {
     assert.ok(pipeline.plotOfTarget(plot).endsWith('012-夜入青云.md'));
   });
 
-  test('key 稳定', () => {
-    assert.equal(pipeline.targetKey(scene), pipeline.targetKey({ ...scene }));
+  test('正文也有归属的段', () => {
+    assert.ok(pipeline.plotOfTarget(whole).endsWith('012-夜入青云.md'));
   });
 
-  test('写整段与写某一场是不同的 key', () => {
-    assert.notEqual(pipeline.targetKey(whole), pipeline.targetKey(oneScene));
+  test('key 稳定', () => {
+    assert.equal(pipeline.targetKey(plot), pipeline.targetKey({ ...plot }));
   });
 
   test('剧情与正文是不同的 key', () => {
@@ -192,8 +226,8 @@ describe('pipeline.ts · Target', () => {
   });
 
   test('isSameTarget', () => {
-    assert.ok(pipeline.isSameTarget(scene, { ...scene }));
-    assert.ok(!pipeline.isSameTarget(scene, plot));
+    assert.ok(pipeline.isSameTarget(plot, { ...plot }));
+    assert.ok(!pipeline.isSameTarget(plot, whole));
   });
 
   // 同序号不同文件的两段必须是不同的 target——用段号做键就会在这里撞车。
@@ -215,14 +249,11 @@ describe('pipeline.ts · Target', () => {
     );
   });
 
-  test('描述场景', () => {
-    assert.equal(
-      pipeline.describeTarget(scene, { no: 12, title: '夜入青云', sceneTitle: '翻越侧峰' }),
-      '第 12 章《夜入青云》 · 场景 2 翻越侧峰'
-    );
+  test('描述卷纲', () => {
+    assert.equal(pipeline.describeTarget(volume, { no: 1, title: '觉醒之日' }), '第 1 卷《觉醒之日》 · 卷纲');
   });
 
-  test('描述整章正文', () => {
+  test('描述整段正文', () => {
     assert.equal(
       pipeline.describeTarget(whole, { no: 12, title: '夜入青云' }),
       '第 12 章《夜入青云》 · 正文'
@@ -281,7 +312,7 @@ describe('pipeline.ts · chapterLabel（发布区）', () => {
 
 describe('pipeline.ts · Target 归一（容错）', () => {
   test('认得出合法 target', () => {
-    assert.equal(pipeline.normalizeTarget({ kind: 'scene', plotRelPath: 'a.md', sceneNo: 3 }).sceneNo, 3);
+    assert.equal(pipeline.normalizeTarget({ kind: 'plot', plotRelPath: 'a.md' }).plotRelPath, 'a.md');
   });
 
   // 认不出的一律回落到大纲：它是唯一不依赖任何细纲就一定存在的产物。
@@ -302,17 +333,34 @@ describe('pipeline.ts · Target 归一（容错）', () => {
     assert.equal(pipeline.normalizeTarget({ kind: 'plot', plotRelPath: '  ' }).kind, 'outline');
   });
 
-  // 场景号丢了但段还在——退到该段的剧情比退回全书大纲更接近用户本意。
-  test('缺场景号的场景退到该段剧情', () => {
-    assert.equal(pipeline.normalizeTarget({ kind: 'scene', plotRelPath: 'a.md' }).kind, 'plot');
+  // 场景那一层删掉了，但老会话里还存着它。段路径仍然有效，落回那一段的
+  // 剧情层——与 normalizeAction 把 stage 落到 plot 是同一条判断，两处必须一致。
+  test('老会话的 scene target 落到该段剧情', () => {
+    assert.equal(pipeline.normalizeTarget({ kind: 'scene', plotRelPath: 'a.md', sceneNo: 3 }).kind, 'plot');
   });
 
-  test('场景号为 0 不认', () => {
-    assert.equal(pipeline.normalizeTarget({ kind: 'scene', plotRelPath: 'a.md', sceneNo: 0 }).kind, 'plot');
+  test('老会话的 scene target 保住段路径', () => {
+    assert.equal(pipeline.normalizeTarget({ kind: 'scene', plotRelPath: 'a.md', sceneNo: 3 }).plotRelPath, 'a.md');
   });
 
-  test('整段正文允许没有场景号', () => {
-    assert.equal(pipeline.normalizeTarget({ kind: 'manuscript', plotRelPath: 'a.md' }).sceneNo, undefined);
+  test('scene 的场号被丢掉（新模型里没有落点）', () => {
+    assert.equal(pipeline.normalizeTarget({ kind: 'scene', plotRelPath: 'a.md', sceneNo: 3 }).sceneNo, undefined);
+  });
+
+  test('缺路径的 scene 回落到大纲', () => {
+    assert.equal(pipeline.normalizeTarget({ kind: 'scene', sceneNo: 3 }).kind, 'outline');
+  });
+
+  // 老会话里的正文 target 可能带 sceneNo，新模型不认它。
+  test('正文的场号被丢掉', () => {
+    assert.equal(
+      pipeline.normalizeTarget({ kind: 'manuscript', plotRelPath: 'a.md', sceneNo: 2 }).sceneNo,
+      undefined
+    );
+  });
+
+  test('卷纲 target 认得出', () => {
+    assert.equal(pipeline.normalizeTarget({ kind: 'volume', volumeRelPath: 'v.md' }).kind, 'volume');
   });
 });
 
@@ -540,215 +588,11 @@ describe('plotFile.ts · 解析与渲染', () => {
   });
 });
 
-describe('sceneFile.ts · 文件名规则', () => {
-  const yes = ['01-山门观察.md', '02-翻越侧峰.md', '03.md', '10-初见沈月.markdown', '2_临时.md'];
-  for (const name of yes) {
-    test(`「${name}」算场景`, () => {
-      assert.ok(sceneFile.isSceneFileName(name));
-    });
-  }
-
-  // 场景是插件自己的格式，只认 md——与角色卡/设定一致，与「章节不认扩展名」相反。
-  const no = ['01-山门观察.txt', '山门观察.md', '00-零号.md', 'README.md', '01.png'];
-  for (const name of no) {
-    test(`「${name}」不算场景`, () => {
-      assert.ok(!sceneFile.isSceneFileName(name));
-    });
-  }
-
-  test('解析场景号与词干', () => {
-    const parsed = sceneFile.parseSceneFileName('02-翻越侧峰.md');
-    assert.equal(parsed.no, 2, JSON.stringify(parsed));
-    assert.equal(parsed.stem, '翻越侧峰', JSON.stringify(parsed));
-  });
-
-  // 与 parseChapterFileName 同一个坑：必须先剥扩展名，否则 `03.md` 会被吃成词干 md。
-  test('`03.md` 的词干为空', () => {
-    assert.equal(sceneFile.parseSceneFileName('03.md').stem, '');
-  });
-
-  test('拼文件名补两位', () => {
-    assert.equal(sceneFile.sceneFileName(2, '翻越侧峰'), '02-翻越侧峰.md');
-  });
-
-  test('拼文件名 · 无标题', () => {
-    assert.equal(sceneFile.sceneFileName(3, ''), '03.md');
-  });
-
-  test('拼文件名 · 两位数场景', () => {
-    assert.equal(sceneFile.sceneFileName(12, 'x'), '12-x.md');
-  });
-
-  test('文件名与解析互逆', () => {
-    assert.equal(sceneFile.parseSceneFileName(sceneFile.sceneFileName(7, '灵兽园')).no, 7);
-  });
-});
-
-describe('sceneFile.ts · 解析与渲染', () => {
-  let back;
-  let conflict;
-
-  before(() => {
-    const rendered = sceneFile.renderSceneFile({
-      plotRelPath: '.novelforge/plots/012-夜入青云.md',
-      no: 2,
-      title: '翻越侧峰',
-      place: '青云宗侧峰',
-      time: '子时，暴雨',
-      characters: ['林昭'],
-      targetWords: 1000,
-      upstreamHash: '9b4e7d0000000000',
-      status: 'ready',
-      sections: {
-        目的: '进入青云宗',
-        环境: '子时，雨下了两个时辰。青石墙泡胀了，墙头的灯每隔一丈一盏。',
-        人物状态: '林昭：疲惫、警惕，还不知道墙内有人守夜。',
-        动作: '把湿透的外衣搭在墙头防划手，赤脚踩上砖沿，数到第三盏灯才动。',
-        对话: '巡逻弟子甲：「这雨下得，鬼都不来。」',
-        细节与意象: '墙内的血迹，被雨泡开一角。',
-      },
-    });
-    back = sceneFile.parseSceneFile(rendered, '.novelforge/scenes/012-夜入青云/02-翻越侧峰.md');
-
-    // 场景号以**文件名**为准：作者重排顺序的方式就是改文件名前缀。
-    conflict = sceneFile.parseSceneFile('---\nscene: 9\n---\n\n## 目的\n\nx', 'scenes/x/03-甲.md');
-  });
-
-  test('场景往返 · 细纲路径', () => {
-    assert.equal(back.plotRelPath, '.novelforge/plots/012-夜入青云.md');
-  });
-
-  test('场景往返 · 场景号', () => {
-    assert.equal(back.no, 2);
-  });
-
-  test('场景往返 · 标题', () => {
-    assert.equal(back.title, '翻越侧峰');
-  });
-
-  test('场景往返 · 地点时间', () => {
-    assert.equal(back.place, '青云宗侧峰');
-    assert.equal(back.time, '子时，暴雨');
-  });
-
-  test('场景往返 · 人物', () => {
-    assert.equal(back.characters.length, 1);
-    assert.equal(back.characters[0], '林昭');
-  });
-
-  test('场景往返 · upstreamHash', () => {
-    assert.equal(back.upstreamHash, '9b4e7d0000000000');
-  });
-
-  test('场景往返 · 状态', () => {
-    assert.equal(back.status, 'ready');
-  });
-
-  test('场景往返 · 环境', () => {
-    assert.ok(back.sections.环境.includes('青石墙泡胀了'), back.sections.环境);
-  });
-
-  test('场景往返 · 对话', () => {
-    assert.ok(back.sections.对话.includes('鬼都不来'), back.sections.对话);
-  });
-
-  test('文件名的场景号压过 frontmatter', () => {
-    assert.equal(conflict.no, 3, String(conflict.no));
-  });
-
-  test('无 frontmatter 标题时用文件名词干', () => {
-    assert.equal(conflict.title, '甲');
-  });
-
-  // ---- 状态推导 ----
-  // 判据是「除目的以外任意一节有素材」。目的排除在外是因为拆场景那一步就把它
-  // 填上了——拿它当判据，刚拆出来的空壳会全部立刻显示「可以写了」。
-  test('有素材就 ready', () => {
-    assert.equal(sceneFile.parseSceneFile('## 动作\n\n翻墙', 'scenes/x/01-a.md').status, 'ready');
-  });
-
-  test('只有目的不算 ready', () => {
-    assert.equal(sceneFile.parseSceneFile('## 目的\n\n进入宗门', 'scenes/x/01-a.md').status, 'draft');
-  });
-
-  test('认不出的状态按内容推', () => {
-    assert.equal(
-      sceneFile.parseSceneFile('---\nstatus: 乱写\n---\n\n## 环境\n\n下雨', 'scenes/x/01-a.md').status,
-      'ready'
-    );
-  });
-
-  test('written 状态被保留', () => {
-    assert.equal(
-      sceneFile.parseSceneFile('---\nstatus: written\n---\n\n## 环境\n\n下雨', 'scenes/x/01-a.md').status,
-      'written'
-    );
-  });
-
-  test('isSceneReady', () => {
-    assert.ok(sceneFile.isSceneReady({ ...sceneFile.emptySceneSections(), 对话: '「走。」' }));
-  });
-
-  test('空场景不 ready', () => {
-    assert.ok(!sceneFile.isSceneReady(sceneFile.emptySceneSections()));
-  });
-
-  test('只填目的不 ready', () => {
-    assert.ok(!sceneFile.isSceneReady({ ...sceneFile.emptySceneSections(), 目的: '进入宗门' }));
-  });
-
-  test('占位不算 ready', () => {
-    assert.ok(!sceneFile.isSceneReady({ ...sceneFile.emptySceneSections(), 动作: '（待补充）' }));
-  });
-
-  test('一行摘要', () => {
-    assert.equal(
-      sceneFile.describeScene({ no: 2, title: '翻越侧峰', place: '侧峰', time: '子时' }),
-      '2. 翻越侧峰 · 侧峰 · 子时'
-    );
-  });
-
-  test('一行摘要 · 缺字段不留空段', () => {
-    assert.equal(sceneFile.describeScene({ no: 1, title: '山门观察', place: '', time: '' }), '1. 山门观察');
-  });
-
-  // ---- 容错 ----
-  test('空文件不抛错', () => {
-    assert.equal(sceneFile.parseSceneFile('', 'scenes/x/01-a.md').no, 1);
-  });
-
-  test('大白话不抛错', () => {
-    assert.equal(sceneFile.parseSceneFile('随便写点什么', 'scenes/x/01-a.md').status, 'draft');
-  });
-
-  // characters 忘了写方括号也要收下——作者手改 frontmatter 是常态。
-  test('characters 写成单行也解析', () => {
-    assert.equal(
-      sceneFile.parseSceneFile('---\ncharacters: 林昭、沈月\n---\nx', 'scenes/x/01-a.md').characters.length,
-      2
-    );
-  });
-
-  test('targetWords 写成汉字时不产生 NaN', () => {
-    assert.equal(
-      sceneFile.parseSceneFile('---\ntargetWords: 三千\n---\nx', 'scenes/x/01-a.md').targetWords,
-      undefined
-    );
-  });
-});
-
 describe('pipeline.ts · 单章流水线状态推导', () => {
   const F = (patch) => ({ ...pipeline.emptyFacts(), ...patch });
   const stage = (patch) => pipeline.deriveStage(F(patch));
   // 正文写完、也已经拆成发布章节（chapterExists）才轮得到审阅。
-  const done = {
-    plotFilled: true,
-    sceneCount: 4,
-    sceneReady: 4,
-    sceneWritten: 4,
-    words: 3000,
-    chapterExists: true,
-  };
+  const done = { plotFilled: true, words: 3000, chapterExists: true };
 
   test('什么都没有 → 待写剧情', () => {
     assert.equal(stage({}), 'plot');
@@ -760,23 +604,33 @@ describe('pipeline.ts · 单章流水线状态推导', () => {
     assert.equal(stage({ plotFilled: false }), 'plot');
   });
 
-  test('剧情排好但没场景 → 待拆场景', () => {
-    assert.equal(stage({ plotFilled: true }), 'scene');
+  // 场景那一层删掉之后，剧情排好的下一步直接是写正文——链上少一个闸口。
+  test('剧情排好但正文空 → 待写正文', () => {
+    assert.equal(stage({ plotFilled: true }), 'manuscript');
   });
 
-  test('场景没填够 → 待拆场景', () => {
-    assert.equal(stage({ plotFilled: true, sceneCount: 4, sceneReady: 3 }), 'scene');
+  // ---- 「写够没有」的判据：targetWords × MANUSCRIPT_DONE_RATIO ----
+
+  test('目标字数缺席时有字就算写完 → 待拆分', () => {
+    assert.equal(stage({ plotFilled: true, words: 500 }), 'split');
   });
 
-  test('场景齐了正文空 → 待写正文', () => {
-    assert.equal(stage({ plotFilled: true, sceneCount: 4, sceneReady: 4 }), 'manuscript');
+  test('写到目标字数的一半 → 还在待写正文', () => {
+    assert.equal(stage({ plotFilled: true, words: 1500, targetWords: 3000 }), 'manuscript');
   });
 
-  test('正文写了但场景没写完 → 待写正文', () => {
-    assert.equal(
-      stage({ plotFilled: true, sceneCount: 4, sceneReady: 4, sceneWritten: 2, words: 800 }),
-      'manuscript'
-    );
+  test('写到目标字数的八成 → 待拆分', () => {
+    assert.equal(stage({ plotFilled: true, words: 2400, targetWords: 3000 }), 'split');
+  });
+
+  // 模型不会正好停在目标字数上。卡在 0.97 会让「待写正文」永远消不掉，
+  // 而那是个假的待做项。
+  test('略微超出八成也算写完', () => {
+    assert.equal(stage({ plotFilled: true, words: 2900, targetWords: 3000 }), 'split');
+  });
+
+  test('目标字数为 0 视同没写', () => {
+    assert.equal(stage({ plotFilled: true, words: 100, targetWords: 0 }), 'split');
   });
 
   // 中转站里有正文、chapters/ 里还没有：活儿在作者手上，不花 token。
@@ -807,34 +661,32 @@ describe('pipeline.ts · 单章流水线状态推导', () => {
   });
 
   // 上游改过必须把状态拉回来——这就是「变更影响」在状态机上的落法。
-  test('场景改过 → 正文重新变成待写', () => {
-    assert.equal(stage({ ...done, chapterExists: false, beatsStale: true }), 'manuscript');
+  // 正文的上游现在是**细纲本身**（从前是那一段的场景集合）。
+  test('细纲改过 → 正文重新变成待写', () => {
+    assert.equal(stage({ ...done, chapterExists: false, upstreamStale: true }), 'manuscript');
   });
 
   // 但已经发布的章不被拉回去：中转站那份拆分时就删了，
-  // 把作者已经发出去的文字标成「待写正文」是在擒人重写。
-  // 工程页那一行仍会挂 ⟳（isUpstreamStale 认 beatsStale），提醒到位就够了。
-  test('已发布的章：场景改过不拉回待写正文', () => {
+  // 把作者已经发出去的文字标成「待写正文」是在撺掇他重写。
+  // 工程页那一行仍会挂 ⟳（isUpstreamStale 认它），提醒到位就够了。
+  test('已发布的章：细纲改过不拉回待写正文', () => {
     assert.equal(
-      stage({ ...done, summaryExists: true, summaryStale: false, beatsStale: true }),
+      stage({ ...done, summaryExists: true, summaryStale: false, upstreamStale: true }),
       'done'
     );
   });
 
-  // 作者手工宣布完成：只在正文与场景都齐了之后才认，且只能向前。
+  // 作者手工宣布完成：只在正文齐了之后才认，且只能向前。
   test('手工标记完成可以跳过审阅', () => {
     assert.equal(stage({ ...done, markedDone: true }), 'done');
   });
 
   test('手工标记不能跳过没写的正文', () => {
-    assert.equal(
-      stage({ plotFilled: true, sceneCount: 2, sceneReady: 2, markedDone: true }),
-      'manuscript'
-    );
+    assert.equal(stage({ plotFilled: true, markedDone: true }), 'manuscript');
   });
 
-  test('手工标记不能跳过没拆的场景', () => {
-    assert.equal(stage({ plotFilled: true, markedDone: true }), 'scene');
+  test('手工标记不能跳过没排的剧情', () => {
+    assert.equal(stage({ markedDone: true }), 'plot');
   });
 
   // ---- 完成度 ----
@@ -842,46 +694,64 @@ describe('pipeline.ts · 单章流水线状态推导', () => {
 
   test('全空的完成度是 0', () => {
     assert.equal(p({}).plot, 0);
-    assert.equal(p({}).scene, 0);
+    assert.equal(p({}).manuscript, 0);
+  });
+
+  test('只有三段（场景那一段没了）', () => {
+    assert.deepEqual(Object.keys(p({})).sort(), ['manuscript', 'plot', 'summary']);
   });
 
   test('剧情排好算 1', () => {
     assert.equal(p({ plotFilled: true }).plot, 1);
   });
 
-  test('场景 3/4 → 0.75', () => {
-    assert.equal(p({ sceneCount: 4, sceneReady: 3 }).scene, 0.75);
+  // 正文那一段用比例：「目标三千字、写了一千八」和「一个字都没写」不是一回事。
+  test('正文按目标字数算比例', () => {
+    assert.equal(p({ words: 1200, targetWords: 3000 }).manuscript, 0.5);
   });
 
-  test('正文按已写场景数算', () => {
-    assert.equal(p({ sceneCount: 4, sceneWritten: 2, words: 1000 }).manuscript, 0.5);
-  });
-
-  // 没有场景但正文写了（作者跳过流水线直接写）——不该报 0%，那会让界面显得很蠢。
-  test('没有场景时正文有字就算满', () => {
+  // 没有目标字数时退化成布尔——不拿一个猜出来的阈值骗人。
+  test('没有目标字数时正文有字就算满', () => {
     assert.equal(p({ words: 1000 }).manuscript, 1);
+  });
+
+  // 进度与状态机必须同源：到 1 的那一刻正是它判「写完了」的那一刻。
+  test('进度到 1 与状态机说写完是同一刻', () => {
+    const f = F({ plotFilled: true, words: 2400, targetWords: 3000 });
+    assert.equal(pipeline.deriveProgress(f).manuscript, 1);
+    assert.equal(pipeline.deriveStage(f), 'split');
+  });
+
+  test('比例不会超过 1', () => {
+    assert.equal(p({ words: 99999, targetWords: 3000 }).manuscript, 1);
   });
 
   test('摘要新鲜才算 1', () => {
     assert.equal(p({ summaryExists: true, summaryStale: false }).summary, 1);
     assert.equal(p({ summaryExists: true, summaryStale: true }).summary, 0);
   });
+
+  // 老工程的 99 章明明写完了，只是没经过这条流水线。
+  test('成品在就前两段满格', () => {
+    const r = p({ chapterExists: true });
+    assert.equal(r.plot, 1);
+    assert.equal(r.manuscript, 1);
+  });
 });
 
 describe('pipeline.ts · 下一步（状态机 → 一个动作）', () => {
-  const N = (patch) => ({ sceneCount: 0, beatsStale: false, ...patch });
+  const N = (patch) => ({ words: 0, ratio: 0, upstreamStale: false, ...patch });
   const step = (plotStage, patch) => pipeline.deriveNextStep(plotStage, N(patch));
 
   // 每一档都必须落在一个**该阶段支持**的能力上，否则界面上会出现一个
   // 后端当场回落掉的主按钮——点了跑出来的不是它写的那件事。
-  for (const s of ['plot', 'scene', 'manuscript', 'review']) {
+  for (const s of ['plot', 'manuscript', 'split', 'review']) {
     test(`${s} 有下一步`, () => {
-      const next = step(s, { sceneCount: 2, firstUnreadyScene: 1 });
-      assert.ok(!!next, s);
+      assert.ok(!!step(s), s);
     });
 
     test(`${s} 的能力在该阶段合法`, () => {
-      const next = step(s, { sceneCount: 2, firstUnreadyScene: 1 });
+      const next = step(s);
       assert.ok(
         pipeline.STAGE_CAPABILITIES[next.stage].includes(next.capability),
         `${next.stage}·${next.capability}`
@@ -889,7 +759,7 @@ describe('pipeline.ts · 下一步（状态机 → 一个动作）', () => {
     });
 
     test(`${s} 的下一步有说明`, () => {
-      const next = step(s, { sceneCount: 2, firstUnreadyScene: 1 });
+      const next = step(s);
       assert.ok(!!next.label && !!next.hint, JSON.stringify(next));
     });
   }
@@ -905,42 +775,48 @@ describe('pipeline.ts · 下一步（状态机 → 一个动作）', () => {
     assert.notEqual(step('plot').capability, 'settle');
   });
 
-  // 一场都没有就先拆；这一步归**剧情**阶段（拆的是剧情），不是场景阶段。
-  test('没场景 → 剧情拆场景', () => {
-    const split = step('scene', { sceneCount: 0 });
-    assert.equal(split.stage, 'plot', `${split.stage}·${split.capability}`);
-    assert.equal(split.capability, 'split', `${split.stage}·${split.capability}`);
-  });
-
-  test('有场没填满 → 去填第一个没填的', () => {
-    const design = step('scene', { sceneCount: 4, firstUnreadyScene: 3 });
-    assert.equal(design.stage, 'scene', JSON.stringify(design));
-    assert.equal(design.sceneNo, 3, JSON.stringify(design));
-  });
-
-  test('下一步的标题带上场号', () => {
-    const design = step('scene', { sceneCount: 4, firstUnreadyScene: 3 });
-    assert.ok(design.label.includes('3'), design.label);
-  });
-
-  // 场景改过而正文没跟上：要的是拿新场景重做一版，不是往后接着写。
+  // 细纲改过而正文没跟上：要的是拿新剧情重做一版，不是往后接着写。
   // 改写不是独立能力（并进了 generate），但按钮上要说的仍是「重写」。
-  test('场景变过 → 重写正文', () => {
-    const stale = step('manuscript', { sceneCount: 2, beatsStale: true });
+  test('剧情变过 → 重写正文', () => {
+    const stale = step('manuscript', { words: 3000, ratio: 1, upstreamStale: true });
     assert.equal(stale.capability, 'generate', stale.capability);
     assert.equal(stale.label, '重写正文', stale.label);
   });
 
-  test('正文没写完 → 写第一场没写的', () => {
-    const write = step('manuscript', { sceneCount: 2, firstUnwrittenScene: 2 });
+  test('一个字都没写 → 写正文', () => {
+    const write = step('manuscript');
     assert.equal(write.capability, 'generate', JSON.stringify(write));
-    assert.equal(write.sceneNo, 2, JSON.stringify(write));
+    assert.equal(write.label, '写正文', write.label);
+  });
+
+  // 写了一半：落盘走的是追加，按钮上必须说清是「接着写」而不是重来一遍，
+  // 否则作者会以为点下去会丢掉前面那几千字。
+  test('写了一半 → 接着写', () => {
+    const more = step('manuscript', { words: 1500, ratio: 0.5 });
+    assert.equal(more.label, '接着写', more.label);
+  });
+
+  test('接着写的说明报出已写字数', () => {
+    assert.ok(step('manuscript', { words: 1500, ratio: 0.5 }).hint.includes('1500'));
+  });
+
+  test('接着写的说明报出百分比', () => {
+    assert.ok(step('manuscript', { words: 1500, ratio: 0.5 }).hint.includes('50%'));
+  });
+
+  // 上游变过优先于「接着写」：拿新剧情重做一版才是对的，往后接只会接歪。
+  test('上游变过时不说接着写', () => {
+    assert.equal(step('manuscript', { words: 1500, ratio: 0.5, upstreamStale: true }).label, '重写正文');
+  });
+
+  // 拆分是作者的活（标 `---`），不是一次模型调用。
+  test('待拆分 → 拆成章节（工程动作）', () => {
+    assert.equal(step('split').projectAction, 'splitManuscript');
   });
 
   // 审阅要的是更新摘要，那是工程动作，不该假装成一轮对话。
-  test('待审阅 → 总结这一段（工程动作）', () => {
-    const review = step('review');
-    assert.equal(review.projectAction, 'summarizePlot', JSON.stringify(review));
+  test('待审阅 → 总结这一章（工程动作）', () => {
+    assert.equal(step('review').projectAction, 'summarizePlot');
   });
 
   // 写完就是写完了。造一个假的下一步等于逼作者一直有事可做。
@@ -948,7 +824,6 @@ describe('pipeline.ts · 下一步（状态机 → 一个动作）', () => {
     assert.equal(pipeline.deriveNextStep('done', N()), undefined);
   });
 });
-
 describe('pipeline.ts · 全书状态（大纲 → 卷 → 剧情段 → 按段推进）', () => {
   const B = (patch) => ({ outlineFilled: false, volumeCount: 0, plotCount: 0, ...patch });
   const stage = (patch) => pipeline.deriveBookStage(B(patch));
@@ -997,13 +872,14 @@ describe('pipeline.ts · 全书状态（大纲 → 卷 → 剧情段 → 按段�
     assert.equal(step('volumes').label, '拆成卷');
   });
 
-  // 同一个 stage×capability，落在一卷上时说法必须变——它拆出来的是一个剧情段。
   test('拆段的按钮写着「拆出剧情段」', () => {
     assert.equal(step('plots').label, '拆出剧情段');
   });
 
-  test('拆段阶段仍是大纲的 split', () => {
-    assert.equal(step('plots').stage, 'outline');
+  // 拆段是**卷纲层**的活：它从一卷的卷纲里拆，作者点开看的也是那份卷纲。
+  // 从前它挂在 outline 阶段、靠 targetKind 特判换文案。
+  test('拆段落在卷纲层的 split', () => {
+    assert.equal(step('plots').stage, 'volume');
     assert.equal(step('plots').capability, 'split');
   });
 
@@ -1060,24 +936,23 @@ describe('pipeline.ts · 命令表', () => {
     });
   }
 
-  // 同一个能力在不同阶段的说法不同——split 在大纲拆的是段，在剧情层拆的是场。
+  // 同一个能力在不同阶段的说法不同——split 在大纲拆的是卷，在卷纲层拆的是段。
   test('大纲的 split 叫拆成卷', () => {
     assert.equal(pipeline.labelOf('outline', 'split'), '拆成卷');
   });
 
-  // 大纲这一层有两种 target，同一个 split 的说法必须跟着 target 变。
-  test('落在一卷上时 split 叫拆出剧情段', () => {
-    assert.equal(pipeline.labelOf('outline', 'split', 'volume'), '拆出剧情段');
+  // 从前这条要靠 targetKind 特判（`labelOf('outline','split','volume')`）。
+  // 卷纲独立成阶段之后按 stage 取就够了，少一个会忘记传的参数。
+  test('卷纲的 split 叫拆出剧情段', () => {
+    assert.equal(pipeline.labelOf('volume', 'split'), '拆出剧情段');
   });
 
-  test('命令表也跟着 target 变', () => {
-    const onVolume = pipeline.commandsFor('outline', 'volume').find((c) => c.capability === 'split');
-    assert.equal(onVolume.label, '拆出剧情段');
-    assert.match(onVolume.hint, /一次只拆一段/);
+  test('卷纲的 generate 叫写这一卷的卷纲', () => {
+    assert.equal(pipeline.labelOf('volume', 'generate'), '写这一卷的卷纲');
   });
 
-  test('剧情的 split 叫拆成场景', () => {
-    assert.equal(pipeline.labelOf('plot', 'split'), '拆成场景');
+  test('卷纲的 split 说明写着一次只拆一段', () => {
+    assert.match(pipeline.commandOf('volume', 'split').hint, /一次只拆一段/);
   });
 
   test('剧情的 generate 叫写剧情', () => {
@@ -1090,7 +965,7 @@ describe('pipeline.ts · 命令表', () => {
 
   // 没有专门说法的沿用通用标签（日志与确认框用的就是它）。
   test('没覆盖的沿用通用说法', () => {
-    assert.equal(pipeline.labelOf('scene', 'discuss'), pipeline.CAPABILITY_LABEL.discuss);
+    assert.equal(pipeline.labelOf('manuscript', 'discuss'), pipeline.CAPABILITY_LABEL.discuss);
   });
 
   // 落定与写剧情产出的是同一种产物，通用文案说不清它们的差别——
@@ -1104,7 +979,11 @@ describe('pipeline.ts · 命令表', () => {
   });
 
   test('查得到某个具体命令', () => {
-    assert.equal(pipeline.commandOf('plot', 'split')?.label, '拆成场景');
+    assert.equal(pipeline.commandOf('volume', 'split')?.label, '拆出剧情段');
+  });
+
+  test('剧情层查不到 split（场景那一层没了）', () => {
+    assert.equal(pipeline.commandOf('plot', 'split'), undefined);
   });
 
   test('阶段不支持的能力查不到', () => {

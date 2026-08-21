@@ -23,7 +23,6 @@ import {
   extractH1,
   parseMarkdown,
   pickSections,
-  rewriteFrontmatter,
   stringifyFrontmatter,
   stringifySections,
   stripH1,
@@ -32,12 +31,6 @@ import { isChapterFileName, isMarkdownExt, isMarkdownPath, parseChapterFileName 
 import { Plot, isPlotFileName, parsePlotFile, plotFileName } from './plotFile';
 import { Volume, isVolumeFileName, parseVolumeFile } from './volumeFile';
 import { isFallbackChapterTitle } from './pipeline';
-import {
-  SCENE_SECTION_KEYS,
-  Scene,
-  isSceneFileName,
-  parseSceneFile,
-} from './sceneFile';
 import {
   countWords,
   exists,
@@ -67,8 +60,8 @@ const MAX_TREE_DEPTH = 8;
  *
  * ## 两条互不相干的轴
  *
- * - **创作轴**（流水线）：`plots/` → `scenes/<段>/` → `manuscripts/` → `summaries/`。
- *   前三者一一对应、都以细纲的文件名为身份；`summaries/` 挂在 `chapters/` 上。
+ * - **创作轴**（流水线）：`plots/` → `manuscripts/` → `summaries/`。
+ *   前两者一一对应、都以细纲的文件名为身份；`summaries/` 挂在 `chapters/` 上。
  * - **发布轴**：`chapters/`。作者把正文切成一篇篇章节以便发布。这里只做文件
  *   操作（列出、改名、移动、删除、草稿），**不解析、不生成、不挂状态**。
  *
@@ -182,11 +175,6 @@ export class NovelProject {
     return this.relPath(this.plotsDirForVolume(volumeRelPath));
   }
 
-  /** 剧情细节（`.novelforge/scenes/`）。每段一个同名目录，里面按 `NN-标题.md` 放场景。 */
-  get scenesDir(): string {
-    return path.join(this.novelDir, 'scenes');
-  }
-
   /**
    * 生成的正文（`.novelforge/manuscripts/`）。**中转站**：与细纲一一对应、同名，拆成发布章节之后就删掉。
    *
@@ -217,10 +205,9 @@ export class NovelProject {
 
   // ------------------------------------------------- 细纲的伴生路径
   //
-  // 场景与正文都以细纲**在 `plots/` 之下的那段路径**为身份，规则只有一条：
+  // 中转站正文以细纲**在 `plots/` 之下的那段路径**为身份，规则只有一条：
   //
   //   plots/01-觉醒之日/007-入宗风波.md
-  //     → scenes/01-觉醒之日/007-入宗风波/        （目录：一段有若干场，要能整体跟着走）
   //     → manuscripts/01-觉醒之日/007-入宗风波.md （中转站，拆分之后就删掉）
   //
   // 未分卷的段（根下那些）镜像出来自然就是扁的，与本层出现之前完全一致——
@@ -244,16 +231,6 @@ export class NovelProject {
     }
     const ext = path.extname(under);
     return (ext ? under.slice(0, under.length - ext.length) : under).split(path.sep).join('/');
-  }
-
-  /** 细纲 → 它的场景**目录**绝对路径。一章有若干场，所以多开一层同名目录。 */
-  sceneDirForPlot(plotRelPath: string): string {
-    return path.join(this.scenesDir, this.plotStem(plotRelPath));
-  }
-
-  /** 细纲 → 它的场景目录在工作区里的相对路径（正斜杠）。纯计算，不碰磁盘。 */
-  sceneMirrorRelPath(plotRelPath: string): string {
-    return this.relPath(this.sceneDirForPlot(plotRelPath));
   }
 
   /** 细纲 → 它在中转站里那份正文的绝对路径。 */
@@ -290,7 +267,7 @@ export class NovelProject {
   //     → .novelforge/summaries/007-入宗风波.md
   //     → drafts/007-入宗风波.md
   //
-  // 细纲那一侧（scenes/ 与 manuscripts/）挂在 `plots/` 上，见上一节。
+  // 细纲那一侧（manuscripts/）挂在 `plots/` 上，见上一节。
   // 分界就是拆分那一刻：拆分之前正文在中转站，拆分之后一切按章。
 
   /**
@@ -396,7 +373,6 @@ export class NovelProject {
     await fs.mkdir(this.summariesDir, { recursive: true });
     await fs.mkdir(this.volumesDir, { recursive: true });
     await fs.mkdir(this.plotsDir, { recursive: true });
-    await fs.mkdir(this.scenesDir, { recursive: true });
     await fs.mkdir(this.manuscriptsDir, { recursive: true });
     await fs.mkdir(this.sessionsDir, { recursive: true });
 
@@ -424,7 +400,7 @@ export class NovelProject {
    *
    * **章节不在创作流水线上**：这里只是把作者切好的发布章节列出来，供工程页
    * 显示与文件操作（改名/移动/删除/草稿）。不读它们的内容做任何分析——
-   * 摘要、角色卡、设定、文风全都读 `manuscripts/`。
+   * 摘要、角色卡、设定、文风全都读 `chapters/` 与 `manuscripts/`。
    *
    * 「什么算章节」由 model/chapterFile.ts 定义：数字前缀 + 扩展名不在
    * 二进制黑名单里。`001-楔子.md`、`001-楔子.txt`、`001-楔子`（无扩展名）、
@@ -807,7 +783,7 @@ export class NovelProject {
   }
 
   // 细纲的写入（writePlot / deletePlot / carryPlotCompanions）搬进了
-  // `core/workspace/`：改名要连带搬走场景目录与中转站正文，写入要记
+  // `core/workspace/`：改名要连带搬走中转站正文，写入要记
   // `upstreamHash`，删除要进 `.trash/`——那些是网关的活，不是数据访问的活。
   // 这一层只留领域查询。
 
@@ -816,8 +792,8 @@ export class NovelProject {
   /**
    * 读一段的正文。还没写过就返回 undefined。
    *
-   * `beatsHash` 从 frontmatter 里取——正文文件是插件自己产出的 `.md`，
-   * 可以带 frontmatter（章节不行，见 `Manuscript.beatsHash`）。
+   * `upstreamHash` 从 frontmatter 里取——正文文件是插件自己产出的 `.md`，
+   * 可以带 frontmatter（章节不行，见 `Manuscript.upstreamHash`）。
    */
   async readManuscript(plotRelPath: string): Promise<Manuscript | undefined> {
     const abs = this.manuscriptPathForPlot(plotRelPath);
@@ -835,10 +811,13 @@ export class NovelProject {
       relPath: this.relPath(abs),
       text,
       wordCount: countWords(text),
-      // 哈希的是**正文本身**（不含 frontmatter 与标题行）：写一次 beatsHash
+      // 哈希的是**正文本身**（不含 frontmatter 与标题行）：写一次 upstreamHash
       // 不该让摘要立刻过期。与 `plotContentHash` 只哈希小节是同一条取舍。
       contentHash: hash(text),
-      beatsHash: asString(frontmatter.beatsHash),
+      // 老工程的正文里这一行叫 `beatsHash`（上游是场景集合）。场景层删掉之后
+      // 上游换成了细纲本身，名字随之统一成 `upstreamHash`——**两个都认**，
+      // 不认老名字的话，那些正文会一夜之间全部变成「手写的」而永不标脏。
+      upstreamHash: asString(frontmatter.upstreamHash) || asString(frontmatter.beatsHash),
     };
   }
 
@@ -853,7 +832,7 @@ export class NovelProject {
   }
 
   // 正文的追加与拆分（appendToManuscript / splitManuscript）搬进了
-  // `core/workspace/`：追加要插分隔标记、要记 beatsHash，拆分要建章节、
+  // `core/workspace/`：追加要插分隔标记、要记 `upstreamHash`，拆分要建章节、
   // 要把原件搬进 `.trash/`。这一层只留读取。
 
   // ---------------------------------------------------------------- 摘要
@@ -895,65 +874,6 @@ export class NovelProject {
   // 摘要的写入（writeSummary）搬进了 `core/workspace/`：它要渲染 frontmatter、
   // 记 sourceHash、同步 manifest。这一层只留读取与 markSummarized
   // （那是 manifest 的索引维护，不是产物写入）。
-
-  // ---------------------------------------------------------------- 场景
-
-  /**
-   * 列一段的全部场景，按场景号升序。
-   *
-   * 顺序由**文件名的数字前缀**决定，与细纲同一套规则——作者重排场景顺序
-   * 的方式就是改文件名前缀。号码撞车（手改重名）时按路径稳定排序，两条都
-   * 留在列表里，让作者看得见冲突。
-   */
-  async listScenes(plotRelPath: string): Promise<Scene[]> {
-    const files = await listFilesDeep(this.sceneDirForPlot(plotRelPath), isSceneFileName);
-    const scenes: Scene[] = [];
-    for (const abs of files) {
-      scenes.push(parseSceneFile(await readText(abs), this.relPath(abs)));
-    }
-    scenes.sort((a, b) => a.no - b.no || a.relPath.localeCompare(b.relPath));
-    return scenes;
-  }
-
-  /** 取某一场。找不到返回 undefined。 */
-  async readScene(plotRelPath: string, sceneNo: number): Promise<Scene | undefined> {
-    return (await this.listScenes(plotRelPath)).find((s) => s.no === sceneNo);
-  }
-
-  // 场景的写入（writeScene / deleteScene）搬进了 `core/workspace/`：
-  // 改标题会改文件名（要清掉旧的），写入要记 `upstreamHash`，删除要进
-  // `.trash/`。这一层只留领域查询。
-
-  /**
-   * 一段全部场景拼起来的 hash——正文的上游指纹。
-   *
-   * 参与哈希的只有场景号与七个小节，不含 `status`——采纳正文时会把场景标成
-   * `written`，那一次写入不该反过来让刚写好的正文立刻显示「上游已变更」。
-   *
-   * `scenes` 传进来就不再读盘：调用方多半刚 `listScenes()` 过（流水线聚合就是
-   * 这样），不复用的话全书刷新会把每段的场景各读两遍。
-   */
-  async beatsHashFor(plotRelPath: string, scenes?: Scene[]): Promise<string> {
-    return beatsHashOf(scenes ?? (await this.listScenes(plotRelPath)));
-  }
-
-  /**
-   * 记录某段正文所依据的场景指纹。写完正文后调用。
-   *
-   * 落在正文文件自己的 frontmatter 里（只改 frontmatter，正文一个字节不动），
-   * 而不是 manifest——真相跟着文件走，作者手工搬动文件时不会与中央索引失联。
-   */
-  async markBeatsWritten(plotRelPath: string, beatsHash: string): Promise<void> {
-    const abs = this.manuscriptPathForPlot(plotRelPath);
-    if (!(await exists(abs))) {
-      return;
-    }
-    const raw = await readText(abs);
-    const next = rewriteFrontmatter(raw, { beatsHash: beatsHash || undefined });
-    if (next !== undefined) {
-      await writeText(abs, next);
-    }
-  }
 
   async readGlobalSummary(): Promise<string> {
     if (!(await exists(this.globalSummaryPath))) {
@@ -1059,26 +979,6 @@ export class NovelProject {
     }
     return stripH1(parseMarkdown(await readText(this.outlinePath)).body);
   }
-}
-
-/**
- * 一组场景的指纹。纯函数，便于**已经拿到场景**的调用方直接算，不必再读一遍盘。
- *
- * 口径就是 `beatsHashFor` 的那一份，只有一处定义：参与哈希的是场景号、标题、
- * 地点、时间与七个小节，**不含 `status`**（采纳正文会把场景标成 `written`，
- * 那次写入不该让刚写好的正文立刻显示「上游已变更」）。
- */
-export function beatsHashOf(scenes: Scene[]): string {
-  if (scenes.length === 0) {
-    return '';
-  }
-  return hash(
-    scenes
-      .map((s) =>
-        [`#${s.no}`, s.title, s.place, s.time, ...SCENE_SECTION_KEYS.map((k) => s.sections[k])].join('\n')
-      )
-      .join('\n---\n')
-  );
 }
 
 // ---------------------------------------------------------------- 渲染模板

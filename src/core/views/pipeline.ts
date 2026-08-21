@@ -2,7 +2,7 @@
  * 单章流水线的读取聚合：把磁盘上散落的产物合成一份「这一章现在到哪一步了」。
  *
  * 与 [cast.ts](cast.ts) 同级、同类——那边把各章摘要反向聚合成出场索引，
- * 这边把大纲/细纲/场景/正文/摘要聚合成流水线状态。判断逻辑全在纯函数
+ * 这边把大纲/卷纲/细纲/正文/摘要聚合成流水线状态。判断逻辑全在纯函数
  * [model/pipeline.ts](../model/pipeline.ts) 里，这里只负责取数。
  *
  * ## 两条轴，不再按号合并
@@ -12,8 +12,8 @@
  * 分别遍历它们，**不再按号把两边并成一行**。
  *
  * 从前是并的：一份细纲对应一章，两者同号。那条不变量随「一段拆成几章」一起
- * 没了——拆分不再把后面几十份细纲整体改名顺延（那是一次要连带搬走场景目录与
- * 中转站正文的重命名风暴），于是段号会与章号撞车，而撞车的两者根本不是同一
+ * 没了——拆分不再把后面几十份细纲整体改名顺延（那是一次要连带搬走中转站
+ * 正文的重命名风暴），于是段号会与章号撞车，而撞车的两者根本不是同一
  * 件东西。
  *
  * 「这一段交付到了哪几章」现在**显式记在细纲的 frontmatter 里**
@@ -24,7 +24,7 @@
  *
  * - **已发布的章**（`chapters/`）：包括老工程里那些从没经过本工具的章。
  *   它们照旧能总结、能进上下文。
- * - **未交付的剧情段**（`plots/` 里还没记下落点的那些）：带阶段徽章与四段进度，
+ * - **未交付的剧情段**（`plots/` 里还没记下落点的那些）：带阶段徽章与三段进度，
  *   界面上称「剧情 N」，那个 N 是推导出来的位次（`segmentDisplayNo`）。
  *
  * ## 新鲜度链：把「变更影响」做成传播，而不是一次模型调用
@@ -32,14 +32,17 @@
  * ```
  * outline.md ───hash──▶ volumes/*.md      (frontmatter.upstreamHash)
  * volumes/V.md ─hash──▶ plots/V/*.md      (frontmatter.upstreamHash)
- * plots/X.md ───hash──▶ scenes/X/*.md     (frontmatter.upstreamHash)
- * scenes/X/* ───hash──▶ manuscripts/X.md  (frontmatter.beatsHash)
+ * plots/X.md ───hash──▶ manuscripts/X.md  (frontmatter.upstreamHash)
  * chapters/X ───hash──▶ summaries/X.md    (frontmatter.sourceHash)
  * ```
  *
  * 改了全书大纲，所有卷纲标脏；改了某一卷，**那一卷的**剧情段标脏（从前是
- * 改大纲让全书每一段都标脏——粒度太粗，改一句立意换来一屏 ⟳）；改了某一段，
- * 该段全部场景标脏；改了某一场，该段正文标脏；改了正文，摘要过期。
+ * 改大纲让全书每一段都标脏——粒度太粗，改一句立意换来一屏 ⟳）；改了某一段的
+ * 细纲，该段的正文标脏；改了正文，摘要过期。
+ *
+ * 从前链上多一环（`plots/ → scenes/ → manuscripts/`）。场景那一层删掉之后
+ * 正文的上游就是细纲本身，`beatsHash` 随之改名成 `upstreamHash`——四层
+ * 产物用同一个词，`readManuscript` 两个名字都认（见 model/types.ts）。
  *
  * **代价是零次模型调用、零幻觉、零 token。** 这是有意的取舍：把「变更影响」
  * 做成 AI 功能，等于每改一行剧情就烧一次钱，而且会给出看起来很像但没有依据
@@ -53,7 +56,6 @@ import { hash } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { Plot, PLOT_SECTION_KEYS, isPlotFilled } from '../model/plotFile';
 import { VOLUME_SECTION_KEYS, Volume } from '../model/volumeFile';
-import { Scene } from '../model/sceneFile';
 import {
   NextStepFacts,
   PipelineFacts,
@@ -62,27 +64,13 @@ import {
   deriveProgress,
   deriveStage,
   emptyFacts,
+  manuscriptRatio,
   segmentDisplayNo,
 } from '../model/pipeline';
 import { Chapter, ProjectManifest } from '../model/types';
 import { SummaryIndex, buildSummaryIndex, summaryOf } from './summaryIndex';
 
 const log = scoped('流水线');
-
-/** 一场在流水线视图里的样子。比 Scene 少了正文全文，多了新鲜度。 */
-export interface SceneView {
-  no: number;
-  title: string;
-  relPath: string;
-  place: string;
-  time: string;
-  characters: string[];
-  status: Scene['status'];
-  /** 已经有素材了，可以写正文。 */
-  ready: boolean;
-  /** 生成这一场之后，本章细纲改过——前置条件可能已经失效。 */
-  upstreamStale: boolean;
-}
 
 export interface PlotPipeline {
   /**
@@ -115,13 +103,14 @@ export interface PlotPipeline {
     upstreamStale: boolean;
     filled: boolean;
   };
-  scenes: SceneView[];
   /** 中转站里的正文（等着拆分那份）。拆完就没有了。 */
   manuscript: {
     relPath: string;
     words: number;
-    /** 写完正文之后，场景改过——正文可能已经与细节对不上。 */
-    beatsStale: boolean;
+    /** 这一段预计写多少字（细纲 frontmatter 的 `targetWords`）。没写就 undefined。 */
+    targetWords?: number;
+    /** 写完正文之后，这一段的细纲改过——正文可能已经与剧情对不上。 */
+    upstreamStale: boolean;
   };
   /**
    * 发布区里的成品。拆分之后才有。
@@ -166,9 +155,8 @@ export async function buildPlotPipeline(
   const { no, plot } = entry;
   const outlineHash = context?.outlineHash ?? hash(await project.readOutline());
 
-  // 只有成品的章（老工程）没有细纲，也就没有场景与中转站正文可读——
-  // 那几次读盘直接省掉，五百章的老工程刷新一次能省一千多次。
-  const scenes = plot ? await project.listScenes(plot.relPath) : [];
+  // 只有成品的章（老工程）没有细纲，也就没有中转站正文可读——
+  // 这次读盘直接省掉，五百章的老工程刷新一次能省五百次。
   const manuscript = plot ? await project.readManuscript(plot.relPath) : undefined;
 
   // 这一段交付到了哪几章。调用方给了单章（选中一个只有成品的老章那条路）时
@@ -191,24 +179,10 @@ export async function buildPlotPipeline(
   const plotStale = !!plot?.upstreamHash && plot.upstreamHash !== upstream;
   const plotHash = plot ? plotContentHash(plot) : '';
 
-  const sceneViews = scenes.map<SceneView>((s) => ({
-    no: s.no,
-    title: s.title,
-    relPath: s.relPath,
-    place: s.place,
-    time: s.time,
-    characters: s.characters,
-    status: s.status,
-    ready: s.status === 'ready' || s.status === 'written',
-    upstreamStale: !!s.upstreamHash && !!plotHash && s.upstreamHash !== plotHash,
-  }));
-
-  // 场景上面刚读过，复用它——`beatsHashFor` 不给场景就会再 listScenes 一遍，
-  // 全书刷新时那是每章多读一整个场景目录。
-  const beatsHash = plot ? await project.beatsHashFor(plot.relPath, scenes) : '';
-  // 同理：没记录过 beatsHash（正文是作者自己贴进来的）不标脏。
-  // 只有「记录过一次、现在对不上」才说明场景确实改过。
-  const beatsStale = !!manuscript?.beatsHash && !!beatsHash && manuscript.beatsHash !== beatsHash;
+  // 正文的上游就是这一段的细纲。同理：没记录过指纹（正文是作者自己贴进来的）
+  // 不标脏——只有「记录过一次、现在对不上」才说明剧情确实改过（第 18a 条）。
+  const manuscriptStale =
+    !!manuscript?.upstreamHash && !!plotHash && manuscript.upstreamHash !== plotHash;
 
   // 摘要按**这一段拆出来的每一章**算：全都总结过、且都不过期才算齐。
   // 只看第一章的话，一段拆成三章之后作者总结了第一章就会显示「已完成」。
@@ -221,12 +195,10 @@ export async function buildPlotPipeline(
   const facts: PipelineFacts = {
     ...emptyFacts(),
     plotFilled: !!plot && isPlotFilled(plot.sections),
-    sceneCount: sceneViews.length,
-    sceneReady: sceneViews.filter((s) => s.ready).length,
-    sceneWritten: sceneViews.filter((s) => s.status === 'written').length,
     // 字数以成品为准，还没交付就报中转站里那份——两者说的是同一批文字。
     words: produced.length > 0 ? producedWords : (manuscript?.wordCount ?? 0),
-    beatsStale,
+    targetWords: plot?.targetWords,
+    upstreamStale: manuscriptStale,
     chapterExists: produced.length > 0,
     summaryExists,
     summaryStale,
@@ -245,11 +217,11 @@ export async function buildPlotPipeline(
       upstreamStale: plotStale,
       filled: facts.plotFilled,
     },
-    scenes: sceneViews,
     manuscript: {
       relPath: manuscript?.relPath ?? (plot ? project.manuscriptMirrorRelPath(plot.relPath) : ''),
       words: facts.words,
-      beatsStale,
+      targetWords: plot?.targetWords,
+      upstreamStale: manuscriptStale,
     },
     chapter: {
       exists: produced.length > 0,
@@ -327,9 +299,7 @@ export async function buildPipelineIndex(
     }
   }
 
-  const stale = live.filter(
-    (p) => p.plot.upstreamStale || p.manuscript.beatsStale || p.scenes.some((s) => s.upstreamStale)
-  );
+  const stale = live.filter((p) => p.plot.upstreamStale || p.manuscript.upstreamStale);
   if (stale.length > 0) {
     // 上游变更是「作者需要知道但不会主动去翻」的那类事，进日志才留得住。
     log.debug(
@@ -397,32 +367,32 @@ function dirOf(rel: string): string {
  * 流水线 → `deriveNextStep` 要的那几个事实。
  *
  * **只有一份**：创作页的主按钮（`controller/chat.ts`）与 agent 每回合的状态注入
- * （`agent/context.ts`）都吃它。看着只是个字段搬运，其实带着两条判据——
- * 「第一个还没备素材的场景」与「第一个还没写正文的场景」。各写一遍的话，
- * 界面上的主按钮会说「设计场景 2」而 agent 去写了场景 3，而这种分叉没有
- * 任何测试拦得住（AGENTS 第 20 条）。
+ * （`agent/context.ts`）都吃它。看着只是个字段搬运，其实带着一条判据——
+ * 正文写到几成（`manuscriptRatio`，与 `deriveStage` 同源）。各写一遍的话，
+ * 界面上的主按钮会说「接着写」而 agent 去拆章节了，而这种分叉没有任何测试
+ * 拦得住（AGENTS 第 20 条）。
  *
  * 参数写成结构类型而不是 `PlotPipeline`：数据层的 `PlotPipeline` 与线上的
  * `PlotPipelineView` 在这几个字段上同形，两处调用共用一份。
  */
 export function factsOf(p: {
-  scenes: { no: number; ready: boolean; status: string }[];
-  manuscript: { beatsStale: boolean };
+  manuscript: { words: number; targetWords?: number; upstreamStale: boolean };
 }): NextStepFacts {
+  const { words, targetWords, upstreamStale } = p.manuscript;
   return {
-    sceneCount: p.scenes.length,
-    firstUnreadyScene: p.scenes.find((s) => !s.ready)?.no,
-    firstUnwrittenScene: p.scenes.find((s) => s.status !== 'written')?.no,
-    beatsStale: p.manuscript.beatsStale,
+    words,
+    // 比例的算法只有一处（纯函数那边），这里只是把事实喂给它。
+    ratio: manuscriptRatio({ ...emptyFacts(), words, targetWords }),
+    upstreamStale,
   };
 }
 
 /**
- * 细纲的内容指纹——场景的上游。
+ * 细纲的内容指纹——**这一段正文的上游**。
  *
  * 只哈希**四个小节**，不含 frontmatter：`upstreamHash` 自己就在 frontmatter 里，
- * 把它算进去会让「排一次剧情」立刻使全部场景过期。同理不含 `status`——
- * 作者把这一章标成 done 不该让四个场景一起标脏。
+ * 把它算进去会让「排一次剧情」立刻使刚写好的正文过期。同理不含 `status`——
+ * 作者把这一段标成 done 不该让它的正文标脏。
  */
 export function plotContentHash(plot: Plot): string {
   return hash(PLOT_SECTION_KEYS.map((key) => plot.sections[key]).join('\n---\n'));

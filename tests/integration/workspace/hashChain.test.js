@@ -1,13 +1,16 @@
 /**
  * 指纹链的记账**下沉到写入路径本身**。
  *
- * 这是本期唯一有意的行为变化：`upstreamHash` / `beatsHash` 从前只在
- * `features/creation.ts` 的采纳路径上记，作者在内置编辑器里改一份细纲，
- * 指纹链就断了——那一章从此再也不挂 ⟳。现在**谁写都记**。
+ * 这是本期唯一有意的行为变化：`upstreamHash` 从前只在 `features/creation.ts`
+ * 的采纳路径上记，作者在内置编辑器里改一份细纲，指纹链就断了——那一段从此
+ * 再也不挂 ⟳。现在**谁写都记**。
  *
- * 三条不能碰的既有取舍（AGENTS 第 18 条）也在这里守：
+ * 链上四环，每一环的上游都记在下游的 frontmatter 里：
+ * `outline.md → volumes/ → plots/ → manuscripts/`。场景那一层删掉之后，
+ * 正文的上游就是细纲本身（从前叫 `beatsHash`，上游是那一段的场景集合）。
+ *
+ * 两条不能碰的既有取舍（AGENTS 第 18 条）也在这里守：
  * - `plotContentHash` 只哈希四个小节，不含 frontmatter
- * - `beatsHashFor` 排除场景的 `status`
  * - 手写的产物永不标脏
  */
 const { describe, test, before, after } = require('node:test');
@@ -32,7 +35,7 @@ async function codeOf(fn) {
   return '（没抛）';
 }
 
-/** 从磁盘上那份细纲/场景的 frontmatter 里抠一个字段。 */
+/** 从磁盘上那份细纲/正文的 frontmatter 里抠一个字段。 */
 function fm(relPath, key) {
   const m = new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(t.read(relPath));
   return m ? m[1].trim() : undefined;
@@ -51,7 +54,6 @@ before(async () => {
     fs: './src/core/model/fs.ts',
     project: './src/core/model/project.ts',
     plotFile: './src/core/model/plotFile.ts',
-    sceneFile: './src/core/model/sceneFile.ts',
     pipe: './src/core/views/pipeline.ts',
     ws: './src/core/workspace/index.ts',
   });
@@ -160,44 +162,54 @@ describe('细纲 · 手写的产物永不标脏（第 18a 条）', () => {
   });
 });
 
-describe('场景 · 写入就记 upstreamHash', () => {
+describe('正文 · 写入就记 upstreamHash', () => {
   const plotRel = '.novelforge/plots/012-入宗.md';
+  const msRel = '.novelforge/manuscripts/012-入宗.md';
   let plotHash;
 
   before(async () => {
     plotHash = bundle.pipe.plotContentHash(await project.readPlot(plotRel));
-    await ws.writeScene(plotRel, {
-      plotRelPath: plotRel, no: 1, title: '山门观察', place: '山门', time: '黄昏',
-      characters: ['林昭'], upstreamHash: plotHash, status: 'ready',
-      sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '他蹲了两个时辰。' },
-    });
+    await ws.appendToManuscript(plotRel, '他蹲了两个时辰。');
   });
 
-  test('场景落在按细纲名开的目录里', () => {
-    assert.ok(t.has('.novelforge/scenes/012-入宗/01-山门观察.md'));
+  test('正文落在中转站，与段同名', () => {
+    assert.ok(t.has(msRel));
   });
 
-  test('场景的 upstreamHash 是细纲的内容指纹', () => {
-    assert.equal(fm('.novelforge/scenes/012-入宗/01-山门观察.md', 'upstreamHash'), plotHash);
+  // 从前这一格叫 `beatsHash`，上游是那一段的场景集合。场景层删掉之后
+  // 上游就是细纲本身，名字随之统一成 `upstreamHash`（与卷纲、细纲两层同名）。
+  test('正文的 upstreamHash 是细纲的内容指纹', () => {
+    assert.equal(fm(msRel, 'upstreamHash'), plotHash);
   });
 
-  test('改细纲后直接 write 场景文本，upstreamHash 跟着更新', async () => {
+  test('改细纲后直接 write 正文文本，upstreamHash 跟着更新', async () => {
     const p = await project.readPlot(plotRel);
     p.sections.冲突与转折 = '改成三拍';
     await ws.writePlot(p);
     const nextPlotHash = bundle.pipe.plotContentHash(await project.readPlot(plotRel));
     assert.notEqual(nextPlotHash, plotHash, '前置：细纲指纹变了');
 
-    const sceneRel = '.novelforge/scenes/012-入宗/01-山门观察.md';
-    await ws.write(sceneRel, { text: t.read(sceneRel).replace('两个时辰', '三个时辰') }, {
+    await ws.write(msRel, { text: t.read(msRel).replace('两个时辰', '三个时辰') }, {
       mode: 'overwrite',
       review: false,
     });
-    assert.equal(fm(sceneRel, 'upstreamHash'), nextPlotHash);
+    assert.equal(fm(msRel, 'upstreamHash'), nextPlotHash);
+  });
+
+  // 老工程的正文里这一行叫 `beatsHash`。不认它的话，那些正文会一夜之间
+  // 全部变成「手写的」而永不标脏。
+  test('老工程的 beatsHash 照样读得出来', async () => {
+    t.write(
+      '.novelforge/manuscripts/099-老段.md',
+      '---\nplot: .novelforge/plots/099-老段.md\nbeatsHash: OLD_HASH\n---\n\n正文\n'
+    );
+    project.invalidate();
+    const ms = await project.readManuscript('.novelforge/plots/099-老段.md');
+    assert.equal(ms.upstreamHash, 'OLD_HASH', JSON.stringify(ms));
   });
 
   // **第 18b 条**：把 frontmatter 算进 plotContentHash，会让「排一次剧情」
-  // 立刻使全部场景过期。
+  // 立刻使这一段的正文过期。
   test('plotContentHash 只哈希四个小节，改 frontmatter 不动它', async () => {
     const before = bundle.pipe.plotContentHash(await project.readPlot(plotRel));
     const p = await project.readPlot(plotRel);
@@ -205,7 +217,7 @@ describe('场景 · 写入就记 upstreamHash', () => {
     assert.equal(bundle.pipe.plotContentHash(await project.readPlot(plotRel)), before);
   });
 
-  // 同上：把这一章标成 done 不该让四个场景一起标脏。
+  // 同上：把这一段标成 done 不该让它的正文标脏。
   test('把细纲标 done 不改变它的内容指纹', async () => {
     const before = bundle.pipe.plotContentHash(await project.readPlot(plotRel));
     const p = await project.readPlot(plotRel);
@@ -214,66 +226,10 @@ describe('场景 · 写入就记 upstreamHash', () => {
     assert.equal(bundle.pipe.plotContentHash(await project.readPlot(plotRel)), before);
   });
 
-  test('把细纲标 done 之后场景不标脏', async () => {
+  test('把细纲标 done 之后正文不标脏', async () => {
     const plot = await project.readPlot(plotRel);
     const p = await bundle.pipe.buildPlotPipeline(project, { no: plot.no, plot });
-    assert.ok(p.scenes.every((s) => !s.upstreamStale), JSON.stringify(p.scenes));
-  });
-});
-
-describe('场景 · 改标题清掉旧文件名', () => {
-  const plotRel = '.novelforge/plots/012-入宗.md';
-
-  before(async () => {
-    await ws.writeScene(plotRel, {
-      plotRelPath: plotRel, no: 2, title: '翻越侧峰', place: '', time: '', characters: [],
-      upstreamHash: '', status: 'ready',
-      sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
-    });
-    await ws.writeScene(plotRel, {
-      plotRelPath: plotRel, no: 2, title: '翻墙', place: '', time: '', characters: [],
-      upstreamHash: '', status: 'ready',
-      sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
-    });
-  });
-
-  test('新文件名在', () => {
-    assert.ok(t.has('.novelforge/scenes/012-入宗/02-翻墙.md'));
-  });
-
-  // 不清掉的话同一场以两个文件名并存，一场变两场。
-  test('旧文件名没了', () => {
-    assert.ok(!t.has('.novelforge/scenes/012-入宗/02-翻越侧峰.md'));
-  });
-
-  test('仍然只有两场', async () => {
-    assert.equal((await project.listScenes(plotRel)).length, 2);
-  });
-});
-
-describe('beatsHash · 排除场景的 status（第 18b 条）', () => {
-  const plotRel = '.novelforge/plots/012-入宗.md';
-  let beatsBefore;
-  let afterStatus;
-
-  before(async () => {
-    beatsBefore = await project.beatsHashFor(plotRel);
-    const s1 = await project.readScene(plotRel, 1);
-    // 采纳正文时会把场景标成 written——那一次写入不该让刚写好的正文
-    // 立刻显示「上游已变更」。
-    await ws.writeScene(plotRel, { ...s1, plotRelPath: plotRel, status: 'written' });
-    afterStatus = await project.beatsHashFor(plotRel);
-  });
-
-  test('只改 status 不改变 beats 指纹', () => {
-    assert.equal(afterStatus, beatsBefore);
-  });
-
-  test('改小节才改变 beats 指纹', async () => {
-    const s1 = await project.readScene(plotRel, 1);
-    s1.sections.动作 = '他蹲了整整一夜。';
-    await ws.writeScene(plotRel, { ...s1, plotRelPath: plotRel });
-    assert.notEqual(await project.beatsHashFor(plotRel), beatsBefore);
+    assert.equal(p.manuscript.upstreamStale, false);
   });
 });
 
@@ -300,14 +256,6 @@ describe('细纲改名 · 伴生跟随', () => {
     assert.ok(!t.has(from));
   });
 
-  test('场景目录跟着搬', () => {
-    assert.ok(t.has('.novelforge/scenes/012-入宗风波/01-山门观察.md'));
-  });
-
-  test('旧场景目录没了', () => {
-    assert.ok(!t.has('.novelforge/scenes/012-入宗'));
-  });
-
   test('中转站正文跟着搬', () => {
     assert.ok(t.has('.novelforge/manuscripts/012-入宗风波.md'));
   });
@@ -328,8 +276,7 @@ describe('细纲改名 · 伴生跟随', () => {
 
 describe('细纲改名到已存在的目标 · 伴生不动', () => {
   before(async () => {
-    // 先造一个占着 `030-占位` 这个名字的场景目录与中转站正文。
-    t.write('.novelforge/scenes/030-占位/01-别人的.md', '别人的场景');
+    // 先造一个占着 `030-占位` 这个名字的中转站正文。
     t.write('.novelforge/manuscripts/030-占位.md', '别人的正文');
     await ws.writePlot({
       no: 30, title: '原名', arc: '', upstreamHash: '', done: false, sections: filled(),
@@ -346,10 +293,6 @@ describe('细纲改名到已存在的目标 · 伴生不动', () => {
   });
 
   // 目标已存在时不动（不静默覆盖）——覆盖会把它的东西吞掉。
-  test('目标位置原有的场景没被覆盖', () => {
-    assert.equal(t.read('.novelforge/scenes/030-占位/01-别人的.md'), '别人的场景');
-  });
-
   test('目标位置原有的正文没被覆盖', () => {
     assert.equal(t.read('.novelforge/manuscripts/030-占位.md'), '别人的正文');
   });
@@ -359,7 +302,7 @@ describe('细纲改名到已存在的目标 · 伴生不动', () => {
   });
 });
 
-describe('删细纲 · 连带场景与中转站，不碰 chapters/ 与摘要', () => {
+describe('删细纲 · 连带中转站正文，不碰 chapters/ 与摘要', () => {
   const rel = '.novelforge/plots/012-入宗风波.md';
   let deleted;
   let missing;
@@ -375,10 +318,6 @@ describe('删细纲 · 连带场景与中转站，不碰 chapters/ 与摘要', (
 
   test('细纲进了回收站', () => {
     assert.ok(t.has('.novelforge/.trash/.novelforge/plots/012-入宗风波.md'));
-  });
-
-  test('场景目录进了回收站', () => {
-    assert.ok(t.has('.novelforge/.trash/.novelforge/scenes/012-入宗风波/01-山门观察.md'));
   });
 
   test('中转站正文进了回收站', () => {
@@ -400,30 +339,7 @@ describe('删细纲 · 连带场景与中转站，不碰 chapters/ 与摘要', (
   });
 });
 
-describe('删场景 · 搬进回收站', () => {
-  const plotRel = '.novelforge/plots/030-占位.md';
-
-  before(async () => {
-    await ws.writeScene(plotRel, {
-      plotRelPath: plotRel, no: 1, title: '待删', place: '', time: '', characters: [],
-      upstreamHash: '', status: 'draft', sections: bundle.sceneFile.emptySceneSections(),
-    });
-  });
-
-  test('删掉返回 true', async () => {
-    assert.equal(await ws.deleteScene(plotRel, 1), true);
-  });
-
-  test('进了回收站，不真删', () => {
-    assert.ok(t.has('.novelforge/.trash/.novelforge/scenes/030-占位/01-待删.md'));
-  });
-
-  test('删不存在的场景返回 false', async () => {
-    assert.equal(await ws.deleteScene(plotRel, 9), false);
-  });
-});
-
-describe('细纲 / 场景照样过八条守卫', () => {
+describe('细纲 / 正文照样过八条守卫', () => {
   test('往越界路径写细纲被拒', async () => {
     assert.equal(await codeOf(() => ws.write('../plots/001.md', { text: 'x' })), 'outOfRoot');
   });

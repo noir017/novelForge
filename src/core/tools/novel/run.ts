@@ -33,7 +33,7 @@ import { objectSchema, str } from '../schema';
 import { text } from './naming';
 import { newPlotFlow } from '../../actions';
 import { splitManuscript } from '../../features/splitChapter';
-import { breakdownScenes, generatePlots, writeManuscripts } from '../../features/pipelineBatch';
+import { generatePlots, writeManuscripts } from '../../features/pipelineBatch';
 import { chapterForSummary, summarizeChapter, syncSummaries } from '../../features/summarize';
 import { createCardForCast, updateCharacterCard } from '../../features/characterCard';
 import { extractStyle } from '../../features/style';
@@ -132,21 +132,14 @@ const ACTIONS: Record<string, ActionSpec> = {
     },
   },
   batchPlots: {
-    label: '给所有还没排剧情的章各排一次',
+    label: '给所有还没排剧情的剧情段各排一次',
     costly: true,
     async run(ctx) {
       return countedBy(await generatePlots(ctx.project), '批量写剧情');
     },
   },
-  batchScenes: {
-    label: '给所有剧情已排、还没拆场景的章各拆一次',
-    costly: true,
-    async run(ctx) {
-      return countedBy(await breakdownScenes(ctx.project), '批量拆场景');
-    },
-  },
   batchManuscripts: {
-    label: '给所有场景已备好、还没写正文的章各写一遍',
+    label: '给所有剧情已排、还没写正文的剧情段各写一遍',
     costly: true,
     async run(ctx) {
       return countedBy(await writeManuscripts(ctx.project), '批量写正文');
@@ -239,8 +232,8 @@ export const runTool: ToolDef = {
     '要参数的几个：' +
     ACTION_NAMES.filter((a) => ACTIONS[a].needs).map((a) => `${a} 要 ${ACTIONS[a].needs}`).join('；') +
     '。' +
-    '**连续多章的同类工作用这里的批量动作**（batchPlots / batchScenes / batchManuscripts），' +
-    '比一章一章 generate 省钱，而且有进度条、能停、失败的会挂在那一章上。' +
+    '**连续多段的同类工作用这里的批量动作**（batchPlots / batchManuscripts），' +
+    '比一段一段 generate 省钱，而且有进度条、能停、失败的会挂在那一段上。' +
     '调模型的动作会先弹一个确认框告诉作者要调用几次，他可以不同意。' +
     '删除、改名、移动、新建发布章节都没有——那些由作者自己做。',
 

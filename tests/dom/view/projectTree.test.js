@@ -140,12 +140,18 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(!doneItems.includes('移动到…'), JSON.stringify(doneItems));
   });
 
-  // 三层入口：状态机只给「该做的下一步」，而作者常要回头改上一层。
-  for (const label of ['剧情（100%）', '场景（100%）', '正文（100%）']) {
-    test(`章节菜单含三层入口「${label}」`, () => {
+  // 两层入口：状态机只给「该做的下一步」，而作者常要回头改上一层。
+  // 卷纲不在这里——它是段的上游、不属于这一行，入口在卷那一行与创作页
+  // 那一排状态点上。
+  for (const label of ['剧情（100%）', '正文（100%）']) {
+    test(`章节菜单含两层入口「${label}」`, () => {
       assert.ok(doneItems.includes(label), JSON.stringify(doneItems));
     });
   }
+
+  test('章节菜单不再有场景入口', () => {
+    assert.ok(!doneItems.some((x) => x.includes('场景')), JSON.stringify(doneItems));
+  });
 
   // 已经拆分发布了，中转站那份就删了，不该再给「打开待拆分的正文」。
   test('已发布的章没有待拆分的正文项', () => {
@@ -194,15 +200,14 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.equal(sel.plotRelPath, '.novelforge/plots/01-觉醒之日/004-北行.md', JSON.stringify(sel));
   });
 
-  test('三层入口发 setTarget，带的是细纲路径', () => {
-    ui.pick(ui.rightClick(plotRow('北行')), '场景（50%）');
+  test('两层入口发 setTarget，带的是细纲路径', () => {
+    ui.pick(ui.rightClick(plotRow('北行')), '正文（38%）');
     const t = ui.last('setTarget');
     assert.ok(t, '没发出 setTarget');
     // 逐字段比：target 是在 jsdom 那个 realm 里造的，原型不是本 realm 的
     // Object.prototype，deepStrictEqual 会因此判不等。
-    assert.equal(t.target.kind, 'scene', JSON.stringify(t));
+    assert.equal(t.target.kind, 'manuscript', JSON.stringify(t));
     assert.equal(t.target.plotRelPath, '.novelforge/plots/01-觉醒之日/004-北行.md', JSON.stringify(t));
-    assert.equal(t.target.sceneNo, 1, JSON.stringify(t));
   });
 
   // 总结读的是成品，所以带的必须是 chapters/ 那条路径。
@@ -457,13 +462,18 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   // 所以它的菜单全部来自 extraItems，分隔线要自己写。
   let plotHead;
   let plotGroupItems;
-  test('章节分组菜单含新建与三个批量动作', () => {
+  test('章节分组菜单含新建与两个批量动作', () => {
     plotHead = [...ui.doc.querySelectorAll('#projectBody .group-head')]
       .find((n) => n.querySelector('.group-name').textContent === '章节');
     plotGroupItems = ui.itemsOf(ui.rightClick(plotHead));
-    for (const label of ['新建剧情段', '批量写剧情（只补缺）', '批量拆分场景（只补缺）', '批量写正文（只补缺）']) {
+    for (const label of ['新建剧情段', '批量写剧情（只补缺）', '批量写正文（只补缺）']) {
       assert.ok(plotGroupItems.includes(label), JSON.stringify(plotGroupItems));
     }
+  });
+
+  // 批量拆场景随场景层一起删掉了。忘记删的话菜单里会多一条点了会炸的项。
+  test('章节分组菜单不再有批量拆场景', () => {
+    assert.ok(!plotGroupItems.some((x) => x.includes('拆分场景')), JSON.stringify(plotGroupItems));
   });
 
   // 卷组只有一个新建项：卷上没有批量动作可言。
@@ -484,7 +494,6 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   for (const [label, action] of [
     ['新建剧情段', 'newPlot'],
     ['批量写剧情（只补缺）', 'generatePlots'],
-    ['批量拆分场景（只补缺）', 'breakdownScenes'],
     ['批量写正文（只补缺）', 'writeManuscripts'],
   ]) {
     test(`「${label}」发 ${action}`, () => {

@@ -41,8 +41,8 @@ const filled = (goal) => ({
   剧情脉络: '甲、乙、丙。',
 });
 
-/** 建一段的细纲（可选带一场景），返回细纲相对路径。 */
-async function makePlot(no, title, { scene = false } = {}) {
+/** 建一段的细纲（可选带一份中转站正文），返回细纲相对路径。 */
+async function makePlot(no, title, { manuscript = false } = {}) {
   const relPath = await wsOf(project).writePlot({
     no,
     title,
@@ -52,18 +52,8 @@ async function makePlot(no, title, { scene = false } = {}) {
     chapters: [],
     sections: filled(`第 ${no} 段要达成的事。`),
   });
-  if (scene) {
-    await wsOf(project).writeScene(relPath, {
-      plotRelPath: relPath,
-      no: 1,
-      title: '开场',
-      place: '',
-      time: '',
-      characters: [],
-      upstreamHash: '',
-      status: 'ready',
-      sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
-    });
+  if (manuscript) {
+    await wsOf(project).appendToManuscript(relPath, `第 ${no} 段还没拆的正文。`);
   }
   return relPath;
 }
@@ -74,7 +64,6 @@ before(async () => {
     project: './src/core/model/project.ts',
     ws: './src/core/workspace/index.ts',
     plotFile: './src/core/model/plotFile.ts',
-    sceneFile: './src/core/model/sceneFile.ts',
     split: './src/core/features/splitChapter.ts',
   });
   wsMod = bundle.ws;
@@ -100,7 +89,7 @@ describe('拆成三章', () => {
   before(async () => {
     await makePlot(10, '归山');
     // 后面两段已经规划过（其中一段拆过场景）。从前它们要整体让路，现在不必。
-    await makePlot(11, '风起', { scene: true });
+    await makePlot(11, '风起', { manuscript: true });
     await makePlot(12, '雪落');
 
     await wsOf(project).appendToManuscript(plotRel, '他回到山门。');
@@ -183,8 +172,9 @@ describe('拆成三章', () => {
     assert.equal(untouched?.sections.目标, '第 11 段要达成的事。', JSON.stringify(untouched?.sections));
   });
 
-  test('场景目录没被搬走', () => {
-    assert.ok(t.has('.novelforge/scenes/011-风起/01-开场.md'));
+  // 拆分**一个别的文件都不动**：后面那段的中转站正文留在原路径上。
+  test('后面那段的中转站正文没被搬走', () => {
+    assert.ok(t.has('.novelforge/manuscripts/011-风起.md'));
   });
 
   // 「段 → 章」的链现在是显式的：`chapters/` 下的文件是作者的东西，

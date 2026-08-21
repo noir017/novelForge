@@ -166,7 +166,6 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
 
   // 本层产物紧挨着指令：这一章的细纲、这一幕的场景卡才是这一轮真正要动的东西。
   section('# 剧情', pick('plot'));
-  section('# 场景设计', pick('scene'));
 
   // 用户 @ 的引用也紧挨着他的指令放——他多半正是要针对这些内容提要求。
   section('# 我引用的内容（请针对这些内容作答）', pick('attachment'));
@@ -187,7 +186,7 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
 
   // target 也要给：大纲这一层的 `split` 在全书大纲上要分卷清单、在一卷上要
   // 一个剧情段（卷不是独立阶段，见 model/pipeline.ts 的文件头）。
-  const contract = buildOutputContract(request.action, request.targetWords, request.target.kind);
+  const contract = buildOutputContract(request.action, request.targetWords);
   sections.push(
     writing && config.recentChaptersFullText > 0
       ? `${contract}注意与上文的语气、称谓、时态保持一致。`

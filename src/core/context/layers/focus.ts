@@ -8,7 +8,6 @@ import { Plot, parsePlotFileName } from '../../model/plotFile';
 import { Volume } from '../../model/volumeFile';
 import { isConsumedSegment, maxChapterNo } from '../../views/pipeline';
 import { NovelProject } from '../../model/project';
-import { Scene } from '../../model/sceneFile';
 import { Chapter, Manuscript } from '../../model/types';
 import { BuildRequest, LayerId, LayerSpec } from '../types';
 import { basename } from 'node:path';
@@ -56,12 +55,6 @@ export interface Focus {
   prevPlots: ChapterRef[];
   /** 紧邻的后一章（`plotNext` 用）。它已经排好时，本章的收尾要接得上它的开头。 */
   nextPlots: ChapterRef[];
-  /** 目标章的全部场景，按 no 升序。 */
-  scenes: Scene[];
-  /** 当前这一场。target 没指定场号时为 undefined。 */
-  scene?: Scene;
-  /** 场景 frontmatter 里写明的出场人物——角色卡据此精确取，不靠子串匹配。 */
-  castNames: string[];
 }
 
 /** 按配方只读用得上的文件。 */
@@ -74,7 +67,7 @@ export async function resolveFocus(
   const target = request.target;
   const [plots, chapters] = await Promise.all([project.listPlots(), project.listChapters()]);
 
-  // 卷这三层只有大纲那张配方要，而那张配方在四层里最便宜——多读一遍
+  // 卷这三层由大纲与卷纲两张配方要，而它们在四层里最便宜——多读一遍
   // `volumes/`（十几个小文件）换掉「拆段时不知道这一卷排到哪了」，值得。
   const volumes =
     wants('volumeList') || wants('volumeSelf') || wants('volumeSegments')
@@ -120,14 +113,6 @@ export async function resolveFocus(
   // 后文只在这一章确实有定位时才有意义：`no` 是 +∞ 时「后面」是空的。
   const following = Number.isFinite(no) ? all.filter((c) => c.no > no) : [];
 
-  const scenes =
-    plotRelPath && (wants('sceneSelf') || wants('sceneSiblings'))
-      ? await project.listScenes(plotRelPath)
-      : [];
-
-  const sceneNo = target.kind === 'scene' || target.kind === 'manuscript' ? target.sceneNo : undefined;
-  const scene = sceneNo === undefined ? undefined : scenes.find((s) => s.no === sceneNo);
-
   return {
     target,
     volume,
@@ -139,9 +124,6 @@ export async function resolveFocus(
     // 「上文」只在有细纲时才有内容可带（那一层渲染的是四个小节）。
     prevPlots: wants('plotPrev') ? previous.filter((c) => c.plot).slice(-PREV_PLOTS) : [],
     nextPlots: wants('plotNext') ? following.filter((c) => c.plot).slice(0, NEXT_PLOTS) : [],
-    scenes,
-    scene,
-    castNames: scene ? scene.characters : [],
   };
 }
 
@@ -167,7 +149,7 @@ export async function readChapterText(
           text,
           wordCount: ref.chapter.wordCount,
           contentHash: ref.chapter.contentHash,
-          beatsHash: '',
+          upstreamHash: '',
         }
       : undefined;
   }

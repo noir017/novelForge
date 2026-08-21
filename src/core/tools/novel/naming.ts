@@ -28,10 +28,6 @@ export function describeForReview(path: PathKind, rel: string): string {
     // 框里紧接着还要显示路径，两者对得上作者才认得出是同一份文件。
     case 'plot':
       return no === undefined ? '这一段的细纲' : `剧情段 ${no} 的细纲`;
-    case 'scene':
-      return no === undefined
-        ? `场景 ${path.sceneNo}`
-        : `剧情段 ${no} · 场景 ${path.sceneNo}`;
     case 'manuscript':
       return no === undefined ? '这一段的正文' : `剧情段 ${no} 的正文`;
     case 'chapter':

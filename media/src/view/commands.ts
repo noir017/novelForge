@@ -125,7 +125,7 @@ export function toggleCommands(): void {
 
 export function openCommands(): void {
   closeCommands();
-  if (commandsFor(store.session.stage, store.session.target.kind).length === 0) {
+  if (commandsFor(store.session.stage).length === 0) {
     return;
   }
 
@@ -160,7 +160,7 @@ function redraw(): void {
   clear(panel);
 
   const filter = slashQuery(el.input.value) ?? '';
-  items = matching(commandsFor(store.session.stage, store.session.target.kind), filter);
+  items = matching(commandsFor(store.session.stage), filter);
   active = Math.min(active, Math.max(0, items.length - 1));
 
   const head = mk('div', 'cmd-head');

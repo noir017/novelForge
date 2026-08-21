@@ -8,10 +8,9 @@ import { hash } from '../model/fs';
 import { isVolumeFilled } from '../model/volumeFile';
 import { NovelProject } from '../model/project';
 import { parsePlotFileName } from '../model/plotFile';
-import { describeScene } from '../model/sceneFile';
 import { SUMMARY_SECTION_KEYS } from '../model/types';
 import { PlotPipeline, buildPlotPipeline, buildPipelineIndex, chaptersOfSegment } from './pipeline';
-import { plotUpstreamHash } from '../workspace/handlers/plot';
+import { outlineHash, plotUpstreamHash, volumeOfPlot } from '../workspace/handlers/plot';
 import {
   CastConflictView,
   CastEntry,
@@ -163,7 +162,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       stale: c.wordCount > 0 && (!summary || summary.sourceHash !== c.contentHash),
       summaryPath: project.summaryMirrorRelPath(c.relPath) ?? '',
       stage: 'done',
-      progress: { plot: 1, scene: 1, manuscript: 1, summary: summary ? 1 : 0 },
+      progress: { plot: 1, manuscript: 1, summary: summary ? 1 : 0 },
       upstreamStale: false,
       draftPath,
       hasDraft: draftPath !== '' && draftPaths.has(draftPath),
@@ -315,12 +314,11 @@ export async function buildPlotPipelineView(
       displayNo: 0,
       title: '',
       plot: { relPath: plotRelPath, exists: false, filled: false, upstreamStale: false },
-      scenes: [],
-      manuscript: { relPath: '', words: 0, beatsStale: false },
+      manuscript: { relPath: '', words: 0, upstreamStale: false },
       chapter: { exists: false, relPath: '', words: 0, chapterPaths: [] },
       summary: { exists: false, stale: true },
       stage: 'plot',
-      progress: { plot: 0, scene: 0, manuscript: 0, summary: 0 },
+      progress: { plot: 0, manuscript: 0, summary: 0 },
     };
   }
   // 单段取数算不出位次（那要全书未交付段的顺序），交给流水线索引算的那一份。
@@ -336,17 +334,7 @@ export async function buildPlotPipelineView(
     displayNo: p.displayNo,
     title: p.title,
     plot: p.plot,
-    scenes: p.scenes.map((s) => ({
-      no: s.no,
-      title: s.title,
-      relPath: s.relPath,
-      // 一行摘要在后端生成：创作页的场景列表、工程页的场景子节点、
-      // 装配进 prompt 的场景一览，三处共用同一份文案。
-      detail: describeScene(s),
-      status: s.status,
-      ready: s.ready,
-      upstreamStale: s.upstreamStale,
-    })),
+    volume: plot ? await volumeViewOf(project, plot.relPath) : undefined,
     manuscript: p.manuscript,
     chapter: p.chapter,
     summary: p.summary,
@@ -355,9 +343,35 @@ export async function buildPlotPipelineView(
   };
 }
 
+/**
+ * 这一段所属那一卷，摊成前端能直接渲染的样子。未分卷时 undefined。
+ *
+ * 对话页那一排状态点的第一个（卷纲）读它。**卷路径只有后端算得出**：段的
+ * 归属靠目录（见 `volumeOfPlot`），前端手上只有段路径，自己拼一份规则出来
+ * 就会在「未分卷的老工程」上拼出一个不存在的卷。
+ */
+async function volumeViewOf(
+  project: NovelProject,
+  plotRelPath: string
+): Promise<PlotPipelineView['volume']> {
+  const volume = await volumeOfPlot(project, plotRelPath);
+  if (!volume) {
+    return undefined;
+  }
+  // 与细纲同一条判据：没记录过指纹的（作者手写的卷纲）不标脏，第 18a 条。
+  const upstream = await outlineHash(project);
+  return {
+    relPath: volume.relPath,
+    no: volume.no,
+    title: volume.title,
+    filled: isVolumeFilled(volume.sections),
+    upstreamStale: !!volume.upstreamHash && !!upstream && volume.upstreamHash !== upstream,
+  };
+}
+
 /** 有任何一层的上游变过。工程页那一行据此挂提示点。 */
 function isUpstreamStale(p: PlotPipeline): boolean {
-  return p.plot.upstreamStale || p.manuscript.beatsStale || p.scenes.some((s) => s.upstreamStale);
+  return p.plot.upstreamStale || p.manuscript.upstreamStale;
 }
 
 /**

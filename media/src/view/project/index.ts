@@ -77,9 +77,8 @@ export function renderProject(tree: ProjectTree): void {
           { label: '新建剧情段', run: () => projectAction('newPlot') },
           { label: '新建章节（直接建成品）', run: () => projectAction('newChapter') },
           { sep: true },
-          // 三个批量动作都「只补不改」：已经有产物的段一律跳过。
+          // 两个批量动作都「只补不改」：已经有产物的段一律跳过。
           { label: '批量写剧情（只补缺）', run: () => projectAction('generatePlots') },
-          { label: '批量拆分场景（只补缺）', run: () => projectAction('breakdownScenes') },
           { label: '批量写正文（只补缺）', run: () => projectAction('writeManuscripts') },
           { sep: true },
         ],

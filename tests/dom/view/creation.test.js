@@ -10,7 +10,7 @@ const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   mount, JSDOM_SKIP,
-  turn, emptySession, pipelineView, sceneView, workbenchView, viewState, sampleTree,
+  turn, emptySession, pipelineView, workbenchView, viewState, sampleTree,
 } = require('../../helpers/dom');
 
 describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
@@ -19,7 +19,6 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
   let act;
   const crumbs = () => [...ui.doc.querySelectorAll('#pipelineCrumb .crumb')].map((n) => n.textContent);
   const stages = () => [...ui.doc.querySelectorAll('#pipelineStages .pstage')];
-  const scenes = () => [...ui.doc.querySelectorAll('#pipelineScenes .pscene')];
   const lastSetTarget = () => [...ui.sent].reverse().find((m) => m.type === 'setTarget');
   const goBtn = () => ui.doc.getElementById('nextStepBtn');
   const hint = () => ui.doc.getElementById('nextStepHint').textContent;
@@ -70,19 +69,21 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'pipeline',
       pipeline: pipelineView({
-        scenes: [sceneView(1, '踩点'), sceneView(2, '翻越侧峰', { status: 'draft', ready: false })],
         manuscript: {
-          relPath: '.novelforge/manuscripts/012-夜入青云.md', words: 1200, beatsStale: true,
+          relPath: '.novelforge/manuscripts/012-夜入青云.md',
+          words: 1200,
+          targetWords: 3000,
+          upstreamStale: true,
         },
         stage: 'manuscript',
-        progress: { plot: 1, scene: 0.5, manuscript: 0.5, summary: 0 },
+        progress: { plot: 1, manuscript: 0.5, summary: 0 },
       }),
       workbench: workbenchView({ stage: 'manuscript', title: '正文 · 第 12 段《夜入青云》' }),
       next: {
         stage: 'manuscript',
         capability: 'generate',
         label: '重写正文',
-        hint: '场景改过，现有正文可能已经与细节对不上。',
+        hint: '剧情改过，现有正文可能已经与它对不上。',
         target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
       },
     });
@@ -94,8 +95,21 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.ok([...ui.doc.querySelectorAll('#pipelineCrumb .crumb')].every((n) => n.tagName === 'SPAN'));
   });
 
-  test('展开三层状态（剧情/细节/正文）', () => {
-    assert.equal(stages().length, 3, String(stages().length));
+  // 这三格是**当前这一段的上游链**：所属那一卷的卷纲 → 它的细纲 → 它的正文。
+  // 从前第一格是「细节」（那一段拆出来的场景），那一层已经删掉。
+  test('展开三层状态（卷纲/剧情/正文）', () => {
+    assert.equal(stages().length, 3, stages().map((n) => n.textContent).join('|'));
+  });
+
+  test('第一格是卷纲', () => {
+    assert.ok(stages()[0].textContent.includes('卷纲'), stages().map((n) => n.textContent).join('|'));
+  });
+
+  test('不再有「细节」那一格', () => {
+    assert.ok(
+      !stages().some((n) => n.textContent.includes('细节')),
+      stages().map((n) => n.textContent).join('|')
+    );
   });
 
   // 这一章的状态徽章：与工程页那一列同一份文案。
@@ -105,13 +119,15 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.equal(badge.textContent, '待写正文', badge?.textContent);
   });
 
-  // 三态圆点：剧情完成、细节/正文进行中——不是百分比条。
+  // 三态圆点：卷纲与剧情完成、正文进行中——不是百分比条。
   test('剧情标成已完成', () => {
     assert.ok(stages().find((n) => n.textContent.includes('剧情')).querySelector('.pstage-mark.done'));
   });
 
-  test('细节标成进行中', () => {
-    assert.ok(stages().find((n) => n.textContent.includes('细节')).querySelector('.pstage-mark.partial'));
+  // 卷纲那一格不在 `PipelineProgress` 里（那份进度按段算，卷纲是段的上游），
+  // 单独取：有卷纲且写过走向就算齐。
+  test('卷纲标成已完成', () => {
+    assert.ok(stages().find((n) => n.textContent.includes('卷纲')).querySelector('.pstage-mark.done'));
   });
 
   test('正文标成进行中', () => {
@@ -130,15 +146,6 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
 
   test('这一章没有变更标记', () => {
     assert.ok(!stages().find((n) => n.textContent.includes('剧情')).querySelector('.pstage-stale'));
-  });
-
-  // 正文阶段展开场景列表：写哪一场是这一层的核心选择。
-  test('正文阶段列出场景', () => {
-    assert.equal(scenes().length, 2, String(scenes().length));
-  });
-
-  test('没有素材的场景标成 draft', () => {
-    assert.ok(scenes()[1].classList.contains('draft'));
   });
 
   // ---- 主按钮：点了就跑，不必先输入 ----
@@ -242,30 +249,38 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.equal(lastSetTarget()?.target.plotRelPath, '.novelforge/plots/012-夜入青云.md');
   });
 
-  test('点场景带上场号', () => {
-    ui.clickEl(scenes()[1]);
-    assert.equal(lastSetTarget()?.target.sceneNo, 2, JSON.stringify(lastSetTarget()));
+  // 卷路径只有后端算得出（段的归属靠目录），前端从推来的那份流水线里拿。
+  test('点卷纲层发出 setTarget，带的是卷路径', () => {
+    ui.clickEl(stages().find((n) => n.textContent.includes('卷纲')));
+    assert.equal(lastSetTarget()?.target.kind, 'volume', JSON.stringify(lastSetTarget()));
+    assert.equal(
+      lastSetTarget()?.target.volumeRelPath,
+      '.novelforge/volumes/01-觉醒之日.md',
+      JSON.stringify(lastSetTarget())
+    );
   });
 
-  // ---- 剧情阶段 ----
-  // 场景列表在剧情阶段是噪声——这一层要决定的是整段怎么走。
-  test('剧情阶段不展开场景列表', () => {
+  // ---- 未分卷的段（`plots/` 根下那些，老工程全是） ----
+  // 卷纲那一格对它们本来就不存在。**收起来而不是摆一个点了报错的按钮。**
+  test('未分卷的段不显示卷纲那一格', () => {
     ui.post({
-      type: 'session',
-      session: emptySession({
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
-        stage: 'plot',
-        capability: 'discuss',
-      }),
+      type: 'pipeline',
+      pipeline: pipelineView({ volume: undefined }),
+      workbench: workbenchView(),
+      next: undefined,
     });
-    assert.ok(ui.doc.getElementById('pipelineScenes').classList.contains('hidden'));
+    assert.equal(stages().length, 2, stages().map((n) => n.textContent).join('|'));
+    assert.ok(
+      !stages().some((n) => n.textContent.includes('卷纲')),
+      stages().map((n) => n.textContent).join('|')
+    );
   });
 
   // ---- 全做完的段不催 ----
   test('没有下一步时收起主按钮', () => {
     ui.post({
       type: 'pipeline',
-      pipeline: pipelineView({ stage: 'done', progress: { plot: 1, scene: 1, manuscript: 1, summary: 1 } }),
+      pipeline: pipelineView({ stage: 'done', progress: { plot: 1, manuscript: 1, summary: 1 } }),
       workbench: workbenchView(),
       next: undefined,
     });
@@ -563,10 +578,10 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     assert.ok(ui.doc.querySelector('#composerInput .cmd-panel'));
   });
 
-  // 讨论不进面板（打字就是在讨论）。剧情层比另外两层多一条 `/落定剧情`——
-  // 它是唯一「先跟人聊、聊出结论再落文件」的一层，所以是三条。
-  test('剧情阶段三个命令', () => {
-    assert.equal(items().length, 3, items().join('|'));
+  // 讨论不进面板（打字就是在讨论）。剧情层有 `/写剧情` 与 `/落定剧情` 两条——
+  // `split` 随场景层一起没了（剧情段就是最小的规划单位）。
+  test('剧情阶段两个命令', () => {
+    assert.equal(items().length, 2, items().join('|'));
   });
 
   test('面板里没有讨论', () => {
@@ -582,36 +597,36 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     assert.ok(items().every((s) => s.startsWith('/')), items().join('|'));
   });
 
-  // split 在剧情阶段拆的是场景，命令名上直说。
-  test('剧情的拆分写成「拆成场景」', () => {
-    assert.ok(items().includes('/拆成场景'), items().join('|'));
+  // 剧情层没有拆分了：忘记删的话面板里会多一条点了什么都不发生的命令。
+  test('剧情阶段没有拆分命令', () => {
+    assert.ok(!items().some((s) => s.includes('拆')), items().join('|'));
   });
 
   // 面板里剩下的每一条都会写文件（讨论不是命令），每条都标出来。
   test('每条命令都标记写文件', () => {
     const writes = [...ui.doc.querySelectorAll('.cmd-item')].filter((n) => n.classList.contains('cmd-writes'));
-    assert.equal(writes.length, 3, String(writes.length));
+    assert.equal(writes.length, 2, String(writes.length));
   });
 
   test('每条命令都挂「写文件」标签', () => {
-    assert.equal(ui.doc.querySelectorAll('.cmd-item .cmd-tag').length, 3);
+    assert.equal(ui.doc.querySelectorAll('.cmd-item .cmd-tag').length, 2);
   });
 
   // 键入过滤：ascii 别名与中文标签都认。
   test('按拼音首字母过滤', () => {
-    type('cf');
+    type('ld');
     assert.equal(items().length, 1, items().join('|'));
-    assert.equal(items()[0], '/拆成场景', items().join('|'));
+    assert.equal(items()[0], '/落定剧情', items().join('|'));
   });
 
   test('过滤串跟着输入框走', () => {
-    assert.equal(input.value, '/cf');
+    assert.equal(input.value, '/ld');
   });
 
   test('退格恢复全部', () => {
     backspace();
     backspace();
-    assert.equal(items().length, 3, items().join('|'));
+    assert.equal(items().length, 2, items().join('|'));
   });
 
   // 退到 `/` 之前就不是在下命令了，面板该收。

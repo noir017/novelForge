@@ -11,7 +11,7 @@
  *
  * - 细纲改名要连带搬走场景目录与中转站正文，当普通文件搬会把它们变成孤儿
  * - 场景文件名由「场号 + 标题」决定，改标题要清掉旧文件名
- * - 写正文要记 `beatsHash`，写细纲要记 `upstreamHash`，漏了新鲜度链就断
+ * - 写正文与写细纲都要记 `upstreamHash`，漏了新鲜度链就断
  * - 删除一律进 `.trash/`；同名目标一律报错退出
  *
  * 所以 `write` 不是「往这个路径写字节」，而是「按这个路径**应有的种类**写一份
@@ -20,7 +20,7 @@
  *
  * ## 记账下沉
  *
- * `upstreamHash` / `beatsHash` 从前**只在采纳路径上记**。作者在内置编辑器里
+ * `upstreamHash` 从前**只在采纳路径上记**。作者在内置编辑器里
  * 改一份细纲，指纹链就断了——那一章从此再也不挂 ⟳。下沉到写入路径本身之后，
  * **谁写都记**。
  *
@@ -59,7 +59,6 @@ import {
 } from '../model/project';
 import { WritablePlot, renderPlotFile } from '../model/plotFile';
 import { WritableVolume, renderVolumeFile } from '../model/volumeFile';
-import { WritableScene, renderSceneFile } from '../model/sceneFile';
 import { Artifact } from '../features/artifact';
 import {
   ArtifactKind,
@@ -80,7 +79,6 @@ import {
 import { Handler, HandlerCtx, handlerFor } from './handlers';
 import { carryPlotCompanions, trashPlotCompanions, trashRel } from './handlers/plot';
 import { carryVolumeCompanions, trashVolumeCompanions } from './handlers/volume';
-import { sceneRelPathFor } from './handlers/scene';
 import { SearchOptions, SearchResult, search } from './search';
 
 const log = scoped('工作区');
@@ -506,7 +504,7 @@ export class Workspace {
   }
 
   /**
-   * 删一章的细纲：连同场景目录与中转站里的正文一起搬进 `.trash/`，不真删
+   * 删一章的细纲：连同中转站里的正文一起搬进 `.trash/`，不真删
    * （AGENTS 第 6 条）。返回是否确实删掉了。
    *
    * **不碰 `chapters/` 与摘要**：那两样描述的是已经发布的成品。删掉细纲
@@ -524,45 +522,17 @@ export class Workspace {
   }
 
   /**
-   * 写一场，返回工作区相对路径。
-   *
-   * 文件名由场景号与标题决定，所以**改标题会改文件名**：先按场景号找到旧
-   * 文件，路径不同就删掉旧的，避免 `02-翻墙.md` 与 `02-翻越侧峰.md` 并存
-   * 变成两场。这与章节改名走 `renameEntry` 是两回事——那边是作者在管文件，
-   * 这边是产物按自己的命名规则落盘。
-   */
-  async writeScene(plotRelPath: string, scene: WritableScene): Promise<string> {
-    const rel = sceneRelPathFor(this.project, plotRelPath, scene.no, scene.title);
-    const previous = await this.project.readScene(plotRelPath, scene.no);
-    await writeText(this.project.pathOf(rel), renderSceneFile(scene));
-    if (previous && previous.relPath !== rel) {
-      await fs.unlink(this.project.pathOf(previous.relPath)).catch(() => undefined);
-    }
-    return rel;
-  }
-
-  /** 删一场：搬进 `.trash/`，不真删。返回是否确实删掉了一场。 */
-  async deleteScene(plotRelPath: string, sceneNo: number): Promise<boolean> {
-    const scene = await this.project.readScene(plotRelPath, sceneNo);
-    if (!scene) {
-      return false;
-    }
-    await trashRel(this.project, scene.relPath);
-    return true;
-  }
-
-  /**
    * 把文本追加到中转站里那一章的正文末尾，返回工作区相对路径。
    *
-   * 正文是**追加**而不是覆盖：一章按场景分几次写，顺序拼起来才是完整的一章。
+   * 正文是**追加**而不是覆盖：一段可以分几次写，顺序拼起来才是完整的一段。
    * 这也是唯一一条不走覆盖审阅的落盘路径——追加不覆盖任何东西。
    *
-   * 两次追加之间插一行 `---`：那是**默认的拆分候选点**（第 23 条）。模型按
-   * 场景分几次写，场景边界正是最可能的章节边界；给一个能改的默认，比让作者
-   * 从头自己标要好。他可以删掉、也可以另加——拆分只认这一行标记。
+   * 两次追加之间插一行 `---`：那是**默认的拆分候选点**（第 23 条）。一次写作
+   * 的边界正是最可能的章节边界；给一个能改的默认，比让作者从头自己标要好。
+   * 他可以删掉、也可以另加——拆分只认这一行标记。
    *
-   * 写完记 `beatsHash`（正文所依据的场景指纹）。少了这一步，这一章会永远
-   * 显示「正文与场景对不上」或永远不显示，两种都是错的。
+   * 写完记 `upstreamHash`（正文所依据的细纲指纹）。少了这一步，这一段会永远
+   * 显示「正文与剧情对不上」或永远不显示，两种都是错的。
    */
   async appendToManuscript(plotRelPath: string, text: string): Promise<string> {
     const rel = this.project.manuscriptMirrorRelPath(plotRelPath);

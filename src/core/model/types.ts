@@ -40,13 +40,18 @@ export interface Manuscript {
   /** 正文内容 hash，用于判断摘要是否过期。 */
   contentHash: string;
   /**
-   * 这份正文所依据的**场景指纹**。与当前场景对不上 = 细节改过、正文可能已失效。
+   * 这份正文所依据的**细纲指纹**。与当前细纲对不上 = 剧情改过、正文可能已失效。
    *
    * 落在正文文件自己的 frontmatter 里（而不是 manifest）：manuscripts 是插件
    * 自己产出的 `.md`，不像章节那样可能是 `.txt` / 无扩展名，加 frontmatter 是
    * 安全的。真相跟着文件走，作者手工搬动文件时不会与一份中央索引失联。
+   *
+   * 老工程里这一行叫 `beatsHash`，上游是那一段的**场景集合**。场景层删掉之后
+   * 上游就是细纲本身，名字随之统一成 `upstreamHash`（与卷纲、细纲两层同名）。
+   * `readManuscript` **两个名字都认**——不认老名字的话，那些正文会一夜之间
+   * 全部变成「手写的」而永不标脏。
    */
-  beatsHash: string;
+  upstreamHash: string;
 }
 
 /** 一章的摘要，存于 .novelforge/summaries/ 下，与**发布章节**同名。 */
@@ -182,8 +187,9 @@ export interface ProjectManifest {
  * 是半成品，随时会被拆掉删掉，不该进索引。
  *
  * **只放可以重算的索引信息**：真相在 `chapters/` 与 `summaries/` 的文件里，
- * 这里是为了「不必读几百个文件就能画出工程页」。注意 `beatsHash` **不在
- * 这里**——它跟着中转站正文文件的 frontmatter 走，理由见 `Manuscript.beatsHash`。
+ * 这里是为了「不必读几百个文件就能画出工程页」。注意正文的 `upstreamHash`
+ * **不在这里**——它跟着中转站正文文件的 frontmatter 走，理由见
+ * `Manuscript.upstreamHash`。
  */
 export interface ManifestChapter {
   /** 章节文件的工作区相对路径。 */

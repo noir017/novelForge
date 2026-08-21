@@ -16,7 +16,7 @@ import {
 import { cleanCharacterAliases, mergeDuplicateCharacterCards } from '../features/characterMaintenance';
 import { extractCharacters, newCharacter, newLore } from '../features/characters';
 import { generateLore } from '../features/lore';
-import { breakdownScenes, generatePlots, writeManuscripts } from '../features/pipelineBatch';
+import { generatePlots, writeManuscripts } from '../features/pipelineBatch';
 import { extractStyle } from '../features/style';
 import { chapterForSummary, rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../features/summarize';
 import { splitManuscript } from '../features/splitChapter';
@@ -136,9 +136,6 @@ export async function projectAction(
       break;
     case 'generatePlots':
       await generatePlots(c.project);
-      break;
-    case 'breakdownScenes':
-      await breakdownScenes(c.project);
       break;
     case 'writeManuscripts':
       await writeManuscripts(c.project);

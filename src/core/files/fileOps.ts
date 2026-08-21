@@ -133,9 +133,9 @@ export async function newFolder(
 // 把它们变成孤儿。所以这几件事绕开 resolveTarget 那套区守卫，交给网关的领域
 // 写入器做。
 //
-// - **卷纲**：连带 `plots/<卷词干>/`、`scenes/<卷词干>/`、`manuscripts/<卷词干>/`
-//   三棵树（卷词干就是它收纳的段的目录名）。
-// - **细纲**：连带 `scenes/<段镜像键>/` 与 `manuscripts/<段镜像键>.md`。
+// - **卷纲**：连带 `plots/<卷词干>/` 与 `manuscripts/<卷词干>/` 两棵树
+//   （卷词干就是它收纳的段的目录名）。
+// - **细纲**：连带 `manuscripts/<段镜像键>.md`。
 
 /** 这个路径是不是一份卷纲。工程页的 rename/delete 据此分流。 */
 export function isVolumePath(project: NovelProject, relPath: string): boolean {
@@ -262,7 +262,7 @@ export async function renamePlot(project: NovelProject, relPath: string): Promis
   return to;
 }
 
-/** 删一段的细纲：连同场景目录与中转站正文一起搬进 `.trash/`。 */
+/** 删一段的细纲：连同中转站正文一起搬进 `.trash/`。 */
 export async function deletePlot(project: NovelProject, relPath: string): Promise<boolean> {
   const plot = await project.readPlot(relPath);
   if (!plot) {
@@ -272,8 +272,8 @@ export async function deletePlot(project: NovelProject, relPath: string): Promis
   }
 
   // 细纲不只是一个文件：说清会连带删掉什么，别让作者事后才发现
-  // 场景与还没拆分的正文一起没了。
-  const companions = [project.sceneMirrorRelPath(relPath), project.manuscriptMirrorRelPath(relPath)];
+  // 还没拆分的正文一起没了。
+  const companions = [project.manuscriptMirrorRelPath(relPath)];
   const present: string[] = [];
   for (const rel of companions) {
     if (await exists(project.pathOf(rel))) {
@@ -284,7 +284,7 @@ export async function deletePlot(project: NovelProject, relPath: string): Promis
   const pick = await getHost().confirm(`删除这个剧情段${plot.title ? `《${plot.title}》` : ''}？`, ['删除'], {
     modal: true,
     detail: [
-      present.length > 0 ? `场景与还没拆分的正文也会一起删除：\n${present.join('\n')}` : '',
+      present.length > 0 ? `还没拆分的正文也会一起删除：\n${present.join('\n')}` : '',
       // 已经拆分发布的正文不在此列，说出来免得作者以为正文也没了。
       '已经拆分到 chapters/ 的正文与摘要不受影响。',
       '会移到 .novelforge/.trash/，可手动找回。',

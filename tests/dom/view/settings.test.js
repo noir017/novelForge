@@ -134,9 +134,9 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
     assert.ok(taskRows().length >= 10, `${taskRows().length} 行`);
   });
 
-  // 流水线在设置页上是三条：写剧情 / 拆场景 / 批量写正文。
+  // 流水线在设置页上是两条：写剧情 / 批量写正文（拆场景那一档随场景层删掉了）。
   test('流水线的三个任务在表里', () => {
-    assert.ok(['剧情细纲', '拆分场景', '批量写正文'].every((n) => taskNames().includes(n)),
+    assert.ok(['剧情细纲', '批量写正文'].every((n) => taskNames().includes(n)),
       taskNames().join('|'));
   });
 

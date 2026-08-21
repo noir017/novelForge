@@ -3,7 +3,7 @@
  *
  * 界面要回答三个问题，这里管前两个（第三个是工作区卡，见 workbench.ts）：
  *
- * - **我现在在哪一层？** —— 章名信息条 + 状态徽章 + 三层状态点
+ * - **我现在在哪一层？** —— 段名信息条 + 状态徽章 + 三层状态点
  * - **我接下来该干什么？** —— 下一步条（一个主按钮 + 一个 `/ 命令`）
  *
  * ## 为什么是一个按钮而不是七个
@@ -50,7 +50,6 @@ let next: NextStepView | null = null;
 
 const crumb = () => maybeById('pipelineCrumb');
 const stagesBox = () => maybeById('pipelineStages');
-const scenesBox = () => maybeById('pipelineScenes');
 
 /** 由 composer 注入：主按钮点下去要走发送那条路（它管附件、草稿、busy）。 */
 let runNextStep: (step: NextStepView) => void = () => {};
@@ -73,8 +72,8 @@ export function installNewSession(): void {
  * 「重命名当前章节」。
  *
  * 复用工程页右键那条 `fileAction: 'rename'`——后端的 `writePlot` 已经会保留
- * 序号前缀、把场景目录/正文/摘要三套伴生文件跟着搬走。这里只负责说清
- * 「改的是哪一章」，不新增协议。
+ * 序号前缀、把中转站正文跟着搬走。这里只负责说清「改的是哪一段」，
+ * 不新增协议。
  */
 export function installRenamePlot(): void {
   el.renamePlotBtn.addEventListener('click', () => {
@@ -110,7 +109,6 @@ function redraw(): void {
   renderCrumb();
   renderRenameBtn();
   renderStages();
-  renderScenes();
   renderNextStep();
   updatePlaceholder();
 }
@@ -154,9 +152,9 @@ function headLabel(): string {
 // ---------------------------------------------------------------- 章名信息条（只读）
 
 /**
- * 顶部只报「在哪一章 / 哪一场」，不负责导航。
+ * 顶部只报「在哪一卷 / 哪一段」，不负责导航。
  *
- * 切层靠下面的剧情/细节/正文按钮；切章靠工程页。这里做成可点只会多一个
+ * 切层靠下面的卷纲/剧情/正文按钮；切段靠工程页。这里做成可点只会多一个
  * 几乎没人用的入口，还让人以为点了会有什么深层动作。
  */
 function renderCrumb(): void {
@@ -180,19 +178,13 @@ function renderCrumb(): void {
     current && current.no > 0 ? headLabel() : relPath.slice(relPath.lastIndexOf('/') + 1);
   box.appendChild(mk('span', 'crumb', title));
 
-  if (target.kind === 'scene') {
-    const scene = current?.scenes.find((s) => s.no === target.sceneNo);
-    box.appendChild(mk('span', 'crumb-sep', '›'));
-    box.appendChild(mk('span', 'crumb', scene ? `场景 ${scene.no} ${scene.title}` : `场景 ${target.sceneNo}`));
-  }
-
   // 段的状态徽章，与工程页那一列同一份文案（PLOT_STAGE_LABEL）。
   // 它是「这一段整体走到哪了」，与下面三层各自的状态点不重复。
   // 卷没有这条流水线（它只有一份卷纲），不挂。
   if (current && target.kind !== 'volume') {
     box.appendChild(mk('span', 'spacer'));
     const badge = mk('span', `cstage cstage-${current.stage}`, PLOT_STAGE_LABEL[current.stage]);
-    badge.title = '这一段当前所处的阶段。由磁盘上的四层产物推导，不落盘。';
+    badge.title = '这一段当前所处的阶段。由磁盘上的产物推导，不落盘。';
     box.appendChild(badge);
   }
 }
@@ -200,13 +192,19 @@ function renderCrumb(): void {
 // ---------------------------------------------------------------- 三层状态
 
 /**
- * 剧情 / 细节 / 正文。每层一个可点的按钮，点了就切到那一层。
+ * 卷纲 / 剧情 / 正文。每层一个可点的按钮，点了就切到那一层。
+ *
+ * 这三格是**当前这一段的上游链**：它所属那一卷的卷纲 → 它自己的细纲 →
+ * 它的正文。从前第一格是「细节」（那一段拆出来的场景），而场景那一层已经
+ * 删掉了（见 core/model/pipeline.ts 的文件头）。换成卷纲是因为作者在段之间
+ * 走动时最常回头看的就是它——「这一卷要往哪去」决定了下一段该发生什么，
+ * 而从前要看它只能去工程页翻。
  *
  * 完成度落成三态圆点（未开始 / 进行中 / 已完成），不用百分比条——这里
  * 表达的是状态机走到哪，不是「完成了百分之几」。
  *
  * 「上游变过」的标记（⟳）是这套流水线最有价值的一格信息：改了大纲之后，
- * 哪几章的剧情需要回头看，光靠人脑记不住。它由 hash 链算出来，零模型调用。
+ * 哪几段的剧情需要回头看，光靠人脑记不住。它由 hash 链算出来，零模型调用。
  */
 function renderStages(): void {
   const box = stagesBox();
@@ -216,25 +214,44 @@ function renderStages(): void {
   clear(box);
 
   const relPath = plotOfTarget(store.session.target);
-  // 全书大纲阶段没有「这一章的三层」可言，整条收起来。
+  // 全书大纲阶段没有「这一段的三层」可言，整条收起来。
   setHidden(box, !relPath);
   if (!relPath) {
     return;
   }
 
-  const progress: PipelineProgress = current?.progress ?? { plot: 0, scene: 0, manuscript: 0, summary: 0 };
+  const progress: PipelineProgress = current?.progress ?? { plot: 0, manuscript: 0, summary: 0 };
+  const volume = current?.volume;
+
+  // 卷纲那一格不在 `PipelineProgress` 里：那份进度是**按段**算的，而卷纲是
+  // 这一段的上游、不属于它。所以单独取——有卷纲且写过走向就算齐。
+  const ratioOf = (stage: CreationStage): number => {
+    switch (stage) {
+      case 'volume':
+        return volume?.filled ? 1 : 0;
+      case 'plot':
+        return progress.plot;
+      default:
+        return progress.manuscript;
+    }
+  };
   const stale: Partial<Record<CreationStage, boolean>> = {
+    volume: !!volume?.upstreamStale,
     plot: !!current?.plot.upstreamStale,
-    scene: !!current?.scenes.some((s) => s.upstreamStale),
-    manuscript: !!current?.manuscript.beatsStale,
+    manuscript: !!current?.manuscript.upstreamStale,
   };
 
   for (const stage of CREATION_STAGES) {
+    // 全书大纲不进这一排：它不属于某一段，入口在工程页。
     if (stage === 'outline') {
       continue;
     }
-    const ratio = progress[stage === 'manuscript' ? 'manuscript' : stage];
-    const status = stageStatus(ratio);
+    // 未分卷的段（`plots/` 根下那些，老工程全是）没有卷纲可切。**收起来而不是
+    // 摆一个点了报错的按钮**——那一格对它们本来就不存在。
+    if (stage === 'volume' && !volume) {
+      continue;
+    }
+    const status = stageStatus(ratioOf(stage));
     const btn = mk('button', 'pstage');
     btn.classList.toggle('active', store.session.stage === stage);
     btn.classList.toggle('done', status === 'done');
@@ -250,7 +267,8 @@ function renderStages(): void {
       dot.title = '上游产物改过，这一层可能需要回头看';
       btn.appendChild(dot);
     }
-    btn.addEventListener('click', () => go(targetFor(stage, relPath)));
+    const target = targetFor(stage, relPath);
+    btn.addEventListener('click', () => go(target));
     box.appendChild(btn);
   }
 
@@ -282,52 +300,6 @@ const STAGE_STATUS_LABEL = {
   done: '已完成',
 } as const;
 
-// ---------------------------------------------------------------- 场景列表
-
-/** 场景列表只在细节/正文阶段展开——大纲和剧情阶段它是噪声。 */
-function renderScenes(): void {
-  const box = scenesBox();
-  if (!box) {
-    return;
-  }
-  clear(box);
-
-  const stage = store.session.stage;
-  const relPath = plotOfTarget(store.session.target);
-  const scenes = current?.scenes ?? [];
-  const show = !!relPath && (stage === 'scene' || stage === 'manuscript') && scenes.length > 0;
-  setHidden(box, !show);
-  if (!show || !relPath) {
-    return;
-  }
-
-  const target = store.session.target;
-  const activeNo = target.kind === 'scene' || target.kind === 'manuscript' ? target.sceneNo : undefined;
-
-  for (const scene of scenes) {
-    const btn = mk('button', `pscene ${scene.status}`);
-    btn.classList.toggle('active', activeNo === scene.no);
-    btn.textContent = scene.detail;
-    btn.title = [
-      scene.ready ? '素材已备，可以写正文' : '还没有素材，写正文前先想出来',
-      scene.upstreamStale ? '本章剧情改过，这一场的素材可能已经用不上' : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-    if (scene.upstreamStale) {
-      btn.appendChild(mk('span', 'pscene-stale', '⟳'));
-    }
-    btn.addEventListener('click', () =>
-      go(
-        stage === 'manuscript'
-          ? { kind: 'manuscript', plotRelPath: relPath, sceneNo: scene.no }
-          : { kind: 'scene', plotRelPath: relPath, sceneNo: scene.no }
-      )
-    );
-    box.appendChild(btn);
-  }
-}
-
 // ---------------------------------------------------------------- 下一步
 
 /**
@@ -342,8 +314,8 @@ function renderNextStep(): void {
 
   if (!next) {
     el.nextStepHint.textContent = current
-      ? '这一章各层都齐了。要改哪一层就点上面对应的那一层。'
-      : '挑一章开始，或在输入框里打 / 挑一个命令。';
+      ? '这一段各层都齐了。要改哪一层就点上面对应的那一层。'
+      : '挑一段开始，或在输入框里打 / 挑一个命令。';
     setHidden(el.nextStepBtn, true);
     return;
   }
@@ -371,7 +343,7 @@ function renderNextStep(): void {
 function updatePlaceholder(): void {
   const { stage, capability } = store.session;
   if (stage === 'manuscript' && capability === 'generate') {
-    el.input.placeholder = '描述这一章要写什么剧情…（可留空，Enter 发送）';
+    el.input.placeholder = '描述这一段要写什么剧情…（可留空，Enter 发送）';
     return;
   }
   el.input.placeholder = `${STAGE_LABEL[stage]}：${STAGE_QUESTION[stage]}（可留空，打 / 挑命令）`;
@@ -386,20 +358,25 @@ function go(target: CreationTarget): void {
   vscode.postMessage({ type: 'setTarget', target });
 }
 
-/** 切到某一层时保留当前章节（与场号，如果那一层认它）。 */
+/**
+ * 切到某一层时保留当前剧情段。
+ *
+ * `volume` 那一档要的是**卷路径**，而它只能从后端推的那份流水线里拿
+ * （`current.volume.relPath`）：段的归属靠目录，前端自己拼一份规则出来，
+ * 在未分卷的老工程上会拼出一个不存在的卷。拿不到就退回剧情层——
+ * 调用方已经把那一格收起来了，这里只是不撒谎。
+ */
 function targetFor(stage: CreationStage, plotRelPath: string): CreationTarget {
-  const target = store.session.target;
-  const sceneNo = target.kind === 'scene' || target.kind === 'manuscript' ? target.sceneNo : undefined;
   switch (stage) {
     case 'outline':
       return { kind: 'outline' };
+    case 'volume': {
+      const volumeRelPath = current?.volume?.relPath;
+      return volumeRelPath ? { kind: 'volume', volumeRelPath } : { kind: 'plot', plotRelPath };
+    }
     case 'plot':
       return { kind: 'plot', plotRelPath };
-    case 'scene':
-      // 还没选具体哪一场时落到第一场——「细节阶段」但不指着任何一场，
-      // 装配器只能给整章的场景一览，多数时候不是用户想要的。
-      return { kind: 'scene', plotRelPath, sceneNo: sceneNo ?? current?.scenes[0]?.no ?? 1 };
     case 'manuscript':
-      return { kind: 'manuscript', plotRelPath, sceneNo };
+      return { kind: 'manuscript', plotRelPath };
   }
 }

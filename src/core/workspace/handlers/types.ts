@@ -17,7 +17,7 @@ export interface HandlerCtx {
   project: NovelProject;
   /** 这次写入的目标路径（工作区相对，正斜杠）。 */
   rel: string;
-  /** `kindOfPath` 的结果。章号、场号、所属细纲都在里面。 */
+  /** `kindOfPath` 的结果。章号、段号、所属细纲都在里面。 */
   path: PathKind;
 }
 
@@ -38,9 +38,8 @@ export interface Handler {
   /**
    * 落盘位置的最终裁决。
    *
-   * 场景的文件名由「场号 + 标题」决定，而标题要读盘才知道——调用方给的
-   * `scenes/012-入宗/02.md` 只是一个占位，真正的落点由 handler 说了算。
-   * 不实现就用调用方给的路径。
+   * 给「文件名要读盘才算得出来」的种类用：调用方给的路径只是一个占位，
+   * 真正的落点由 handler 说了算。不实现就用调用方给的路径。
    */
   resolve?(ctx: HandlerCtx, artifact?: Artifact): Promise<string>;
   /** 首次 append 到一个还不存在的文件时，正文前面要带的那一段（frontmatter + 标题行）。 */

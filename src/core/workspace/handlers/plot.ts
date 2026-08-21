@@ -9,8 +9,8 @@
  * 2. **记账**：`upstreamHash` = **这一段所属那一卷**的卷纲指纹（未分卷的段
  *    退回全书大纲的指纹）。**从前只在采纳路径上做**，作者在内置编辑器里改一份
  *    细纲，指纹链就断了——那一段从此再也不挂 ⟳。下沉到这里之后谁写都记。
- * 3. **伴生**：改名/改号时搬走 `scenes/<stem>/` 与 `manuscripts/<stem>.md`
- *    （原 `carryPlotCompanions`），删除时把两者一起搬进 `.trash/`。
+ * 3. **伴生**：改名/改号时搬走 `manuscripts/<stem>.md`（原 `carryPlotCompanions`），
+ *    删除时把它搬进 `.trash/`。
  *
  * ## 三条不能碰的取舍
  *
@@ -19,7 +19,7 @@
  *   凭空的过期标记去催作者重做，他会学会无视所有标记。
  * - **`plotContentHash` 只哈希四个小节，不含 frontmatter**（第 18b 条）：
  *   `upstreamHash` 自己就在 frontmatter 里，算进去会让「排一次剧情」立刻
- *   使全部场景过期。那个哈希在 `views/pipeline.ts` 里定义，这里只是引用它。
+ *   使这一段的正文过期。那个哈希在 `views/pipeline.ts` 里定义，这里只是引用它。
  * - **删细纲不碰 `chapters/` 与摘要**：那两样描述的是已经发布的成品。
  *   删掉细纲只是放弃这一章的规划稿。
  */
@@ -146,13 +146,14 @@ async function recordUpstream(
 }
 
 /**
- * 细纲改名（或改号）后，把场景目录与中转站正文跟着搬过去。
+ * 细纲改名（或改号）后，把中转站正文跟着搬过去。
  *
  * 目标已存在时**不动**（不静默覆盖）——那说明磁盘上已经有一份叫这个名字的，
  * 覆盖会把它的东西吞掉。搬不过去的那份留在原处，不凭空消失。
  *
  * 摘要不在此列：它挂在 `chapters/` 上，跟着章节文件改名走（见 fileOps 的
- * `carrySummary`）。
+ * `carrySummary`）。**场景目录也不在此列**——那一层已经删掉，老工程里剩下的
+ * 那个目录不再是这一段的伴生物，跟着改名搬只会让人以为它还在用。
  */
 export async function carryPlotCompanions(
   project: NovelProject,
@@ -160,7 +161,6 @@ export async function carryPlotCompanions(
   toRel: string
 ): Promise<string[]> {
   const pairs: [string, string][] = [
-    [project.sceneMirrorRelPath(fromRel), project.sceneMirrorRelPath(toRel)],
     [project.manuscriptMirrorRelPath(fromRel), project.manuscriptMirrorRelPath(toRel)],
   ];
   const side: string[] = [];
@@ -177,16 +177,13 @@ export async function carryPlotCompanions(
   return side;
 }
 
-/** 删细纲时把场景目录与中转站正文一起搬进 `.trash/`（保留原相对路径）。 */
+/** 删细纲时把中转站正文一起搬进 `.trash/`（保留原相对路径）。 */
 export async function trashPlotCompanions(
   project: NovelProject,
   plotRelPath: string
 ): Promise<string[]> {
   const side: string[] = [];
-  for (const rel of [
-    project.sceneMirrorRelPath(plotRelPath),
-    project.manuscriptMirrorRelPath(plotRelPath),
-  ]) {
+  for (const rel of [project.manuscriptMirrorRelPath(plotRelPath)]) {
     if (await trashRel(project, rel)) {
       side.push(`${rel} → .trash/`);
     }

@@ -27,19 +27,23 @@ export { factsOf } from '../views/pipeline';
 /**
  * 下一步落在哪个具体产物上。
  *
- * 纯函数那边只说「细节层、第 2 场」，拼成 target 要知道细纲的路径，
+ * 纯函数那边只说「正文层」，拼成 target 要知道细纲的路径，
  * 而那是 I/O 层的事——`deriveNextStep` 不该也不能查段落列表。
+ *
+ * `volume` 那一档要的是**卷纲**的路径，而这个函数手上只有段路径。
+ * 全书级的下一步（`deriveBookNextStep` 的 `plots` 一档）走的是 controller
+ * 那条路，它自己把 target 指向第一卷；按段的下一步永远不会落在卷纲层，
+ * 所以这里退回那一段的剧情层——**不猜一个卷路径**，猜错会把作者送到别的卷。
  */
 export function targetOf(step: NextStepPlan, plotRelPath: string): CreationTarget {
   switch (step.stage) {
     case 'outline':
       return { kind: 'outline' };
+    case 'volume':
     case 'plot':
       return { kind: 'plot', plotRelPath };
-    case 'scene':
-      return { kind: 'scene', plotRelPath, sceneNo: step.sceneNo ?? 1 };
     case 'manuscript':
-      return { kind: 'manuscript', plotRelPath, sceneNo: step.sceneNo };
+      return { kind: 'manuscript', plotRelPath };
   }
 }
 

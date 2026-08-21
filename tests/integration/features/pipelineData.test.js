@@ -1,9 +1,9 @@
 /**
- * 创作流水线的数据层：镜像路径、细纲与场景读写、改名跟随、新鲜度链、工作区卡。
+ * 创作流水线的数据层：镜像路径、细纲读写、改名跟随、新鲜度链、工作区卡。
  *
- * 生产那一段的轴是**细纲**（`.novelforge/plots/NNN-标题.md`）：场景与中转站正文
- * 都按它的文件名词干镜像。拆分之后一切按章，摘要与草稿挂在 `chapters/` 上——
- * 那一侧的读写另见 tests/integration/files/chapters.test.js。
+ * 生产那一段的轴是**细纲**（`.novelforge/plots/NNN-标题.md`）：中转站正文按它的
+ * 文件名词干镜像。拆分之后一切按章，摘要与草稿挂在 `chapters/` 上——那一侧的
+ * 读写另见 tests/integration/files/chapters.test.js。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -13,9 +13,8 @@ const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
 /**
- * 细纲与场景的写入搬进了 `core/workspace/`：改名要连带搬走场景目录与中转站
- * 正文、写入要记上游指纹、删除要进 `.trash/`，那些是网关的活。`NovelProject`
- * 这一层只留领域查询。
+ * 细纲的写入搬进了 `core/workspace/`：改名要连带搬走中转站正文、写入要记上游
+ * 指纹、删除要进 `.trash/`，那些是网关的活。`NovelProject` 这一层只留领域查询。
  */
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
@@ -40,7 +39,6 @@ before(async () => {
     project: './src/core/model/project.ts',
     ws: './src/core/workspace/index.ts',
     plotFile: './src/core/model/plotFile.ts',
-    sceneFile: './src/core/model/sceneFile.ts',
     fileOps: './src/core/files/fileOps.ts',
     pipe: './src/core/views/pipeline.ts',
     workbench: './src/core/views/workbench.ts',
@@ -67,20 +65,12 @@ describe('数据层 · 目录与镜像路径', () => {
     assert.ok(t.has('.novelforge/plots'));
   });
 
-  test('初始化建出 scenes/', () => {
-    assert.ok(t.has('.novelforge/scenes'));
-  });
-
   test('初始化建出 manuscripts/', () => {
     assert.ok(t.has('.novelforge/manuscripts'));
   });
 
-  // 三套伴生文件的身份都是段文件名的**词干**：改标题会改文件名，
-  // 三者必须一起跟着走（见 carryPlotCompanions）。
-  test('场景目录按段名开一层', () => {
-    assert.equal(project.sceneMirrorRelPath(plot), '.novelforge/scenes/012-夜入青云');
-  });
-
+  // 中转站正文的身份是段文件名的**词干**：改标题会改文件名，它必须跟着走
+  // （见 carryPlotCompanions）。
   test('正文与段同名', () => {
     assert.equal(project.manuscriptMirrorRelPath(plot), '.novelforge/manuscripts/012-夜入青云.md');
   });
@@ -99,7 +89,7 @@ describe('数据层 · 目录与镜像路径', () => {
     assert.equal(project.summaryMirrorRelPath(plot), undefined);
   });
 
-  // 同序号不同文件名的两段各有独立的三套伴生文件——这正是不能用段号当键的理由。
+  // 同序号不同文件名的两段各有独立的伴生文件——这正是不能用段号当键的理由。
   test('同序号不同文件的正文互不覆盖', () => {
     assert.notEqual(
       project.manuscriptPathForPlot('.novelforge/plots/001-甲.md'),
@@ -112,27 +102,15 @@ describe('数据层 · 目录与镜像路径', () => {
   });
 });
 
-describe('数据层 · 细纲与场景读写', () => {
+describe('数据层 · 细纲读写', () => {
   let plotRel;
   let noPlot;
-  let noScenes;
   let plotBack;
   let listed;
   let nextNo;
-  let hadScene02;
-  let scenes;
-  let sceneTwo;
-  let oldFileGone;
-  let newFileThere;
-  let countAfterRename;
-  let deleted3;
-  let countAfterDelete;
-  let inTrash;
-  let deleted9;
 
   before(async () => {
     noPlot = await project.readPlot('.novelforge/plots/012-夜入青云.md');
-    noScenes = await project.listScenes('.novelforge/plots/012-夜入青云.md');
     nextNo = await project.nextPlotNo();
 
     plotRel = await wsOf(project).writePlot({
@@ -146,41 +124,10 @@ describe('数据层 · 细纲与场景读写', () => {
     });
     plotBack = await project.readPlot(plotRel);
     listed = await project.listPlots();
-
-    for (const [no, title] of [[1, '山门观察'], [2, '翻越侧峰'], [3, '初见沈月']]) {
-      await wsOf(project).writeScene(plotRel, {
-        plotRelPath: plotRel, no, title, place: '青云宗', time: '子时', characters: ['林昭'],
-        upstreamHash: 'PLOT_A', status: 'ready',
-        sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲、乙' },
-      });
-    }
-    hadScene02 = t.has('.novelforge/scenes/012-夜入青云/02-翻越侧峰.md');
-    scenes = await project.listScenes(plotRel);
-    sceneTwo = await project.readScene(plotRel, 2);
-
-    // 改标题会改文件名——旧文件必须删掉，否则一场变两场。
-    await wsOf(project).writeScene(plotRel, {
-      plotRelPath: plotRel, no: 2, title: '翻墙', place: '', time: '', characters: [],
-      upstreamHash: 'PLOT_A', status: 'ready',
-      sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
-    });
-    oldFileGone = !t.has('.novelforge/scenes/012-夜入青云/02-翻越侧峰.md');
-    newFileThere = t.has('.novelforge/scenes/012-夜入青云/02-翻墙.md');
-    countAfterRename = (await project.listScenes(plotRel)).length;
-
-    // 删除是搬进 .trash/，不真删（AGENTS.md 第 6 条）。
-    deleted3 = await wsOf(project).deleteScene(plotRel, 3);
-    countAfterDelete = (await project.listScenes(plotRel)).length;
-    inTrash = t.has('.novelforge/.trash/.novelforge/scenes/012-夜入青云/03-初见沈月.md');
-    deleted9 = await wsOf(project).deleteScene(plotRel, 9);
   });
 
   test('没写过时读不出细纲', () => {
     assert.equal(noPlot, undefined);
-  });
-
-  test('没写过时场景列表为空', () => {
-    assert.equal(noScenes.length, 0);
   });
 
   test('空工程的下一段是第 1 段', () => {
@@ -195,6 +142,10 @@ describe('数据层 · 细纲与场景读写', () => {
     assert.equal(plotBack.sections.目标, '林昭成功进入青云宗。');
   });
 
+  test('目标字数读得回来（状态机拿它判「写够没有」）', () => {
+    assert.equal(plotBack.targetWords, 3000);
+  });
+
   test('listPlots 列得到它', () => {
     assert.equal(listed.filter((p) => p.no === 12).length, 1, JSON.stringify(listed.map((p) => p.no)));
   });
@@ -202,74 +153,28 @@ describe('数据层 · 细纲与场景读写', () => {
   test('有第 12 段之后下一段是第 13 段', async () => {
     assert.equal(await project.nextPlotNo(), 13);
   });
-
-  test('场景落在按段名开的目录里', () => {
-    assert.ok(hadScene02);
-  });
-
-  test('列出三场', () => {
-    assert.equal(scenes.length, 3, String(scenes.length));
-  });
-
-  test('场景按号排序', () => {
-    assert.equal(scenes.map((s) => s.no).join(','), '1,2,3');
-  });
-
-  test('按号取单场', () => {
-    assert.equal(sceneTwo.title, '翻越侧峰');
-  });
-
-  test('改标题后旧文件被删', () => {
-    assert.ok(oldFileGone);
-  });
-
-  test('改标题后新文件在', () => {
-    assert.ok(newFileThere);
-  });
-
-  test('改标题后仍是三场', () => {
-    assert.equal(countAfterRename, 3);
-  });
-
-  test('删掉第 3 场', () => {
-    assert.equal(deleted3, true);
-  });
-
-  test('删后只剩两场', () => {
-    assert.equal(countAfterDelete, 2);
-  });
-
-  test('被删的场景进了回收站', () => {
-    assert.ok(inTrash);
-  });
-
-  test('删不存在的场景返回 false', () => {
-    assert.equal(deleted9, false);
-  });
 });
 
 /**
- * 段改标题 = 改文件名。三套伴生文件（场景目录 / 正文 / 摘要）的身份都是段的
- * 文件名词干，不跟着搬的话，作者会看到「这一段还没拆场景」——而那两个场景就
- * 躺在旁边一个孤儿目录里。
+ * 段改标题 = 改文件名。中转站正文的身份就是段的文件名词干，不跟着搬的话，
+ * 作者会看到「这一段还没写正文」——而那份正文就躺在旁边一个孤儿目录里。
+ *
+ * **老工程留下的 `scenes/<段词干>/` 不跟着搬**：那一层已经删掉，它不再是这一段
+ * 的伴生物，跟着改名搬只会让人以为它还在用。
  */
-describe('数据层 · 段改名时三套伴生文件跟随', () => {
+describe('数据层 · 段改名时伴生正文跟随', () => {
   const from = '.novelforge/plots/012-夜入青云.md';
   const to = '.novelforge/plots/012-夜入.md';
   let renamed;
   let plotRead;
-  let sceneCount;
   let manuscriptText;
   let plotHashBefore;
   let plotHashAfter;
-  let beatsBefore;
-  let beatsAfter;
 
   before(async () => {
-    // 改名前的两个上游指纹。改名**绝不能**动它们：一旦哪个字段进了哈希，
-    // 改个名就会让这一段的下游全部凭空标脏（AGENTS.md 第 18 条 (b)）。
+    // 改名前的上游指纹。改名**绝不能**动它：一旦哪个字段进了哈希，
+    // 改个名就会让这一段的下游凭空标脏（AGENTS.md 第 18 条 (b)）。
     plotHashBefore = bundle.pipe.plotContentHash(await project.readPlot(from));
-    beatsBefore = await project.beatsHashFor(from);
     await wsOf(project).appendToManuscript(from, '正文若干字。');
     // 摘要挂在**成品**上，所以先造一章发布文件再总结它。
     t.write('chapters/012-夜入青云.md', '# 夜入青云\n\n正文若干字。\n');
@@ -285,10 +190,8 @@ describe('数据层 · 段改名时三套伴生文件跟随', () => {
     renamed = await wsOf(project).writePlot({ ...plot, title: '夜入' });
 
     plotRead = await project.readPlot(to);
-    sceneCount = (await project.listScenes(to)).length;
     manuscriptText = (await project.readManuscript(to))?.text ?? '';
     plotHashAfter = bundle.pipe.plotContentHash(plotRead);
-    beatsAfter = await project.beatsHashFor(to);
   });
 
   test('改名成功', () => {
@@ -297,14 +200,6 @@ describe('数据层 · 段改名时三套伴生文件跟随', () => {
 
   test('旧的段文件不再存在', () => {
     assert.ok(!t.has(from));
-  });
-
-  test('场景目录跟着改名', () => {
-    assert.ok(t.has('.novelforge/scenes/012-夜入/01-山门观察.md'));
-  });
-
-  test('旧场景目录不再存在', () => {
-    assert.ok(!t.has('.novelforge/scenes/012-夜入青云'));
   });
 
   test('正文跟着改名', () => {
@@ -320,21 +215,13 @@ describe('数据层 · 段改名时三套伴生文件跟随', () => {
     assert.ok(t.has('.novelforge/summaries/012-夜入青云.md'));
   });
 
-  test('改名后场景仍读得到', () => {
-    assert.equal(sceneCount, 2);
-  });
-
   test('改名后正文仍读得到', () => {
     assert.ok(manuscriptText.includes('正文若干字'), manuscriptText);
   });
 
-  // 这两条是防「改个名把整段标脏」的回归线。
+  // 这一条是防「改个名把整段标脏」的回归线。
   test('剧情的内容指纹没变', () => {
     assert.equal(plotHashAfter, plotHashBefore);
-  });
-
-  test('场景的 beatsHash 没变', () => {
-    assert.equal(beatsAfter, beatsBefore);
   });
 });
 
@@ -395,10 +282,6 @@ describe('新鲜度链', () => {
   const plotRel = '.novelforge/plots/012-夜入.md';
   let pFresh;
   let pOutlineChanged;
-  let pScenesFresh;
-  let pPlotChanged;
-  let beatsBefore;
-  let beatsAfterStatus;
   let pManuscriptFresh;
   let pManuscriptStale;
 
@@ -422,37 +305,14 @@ describe('新鲜度链', () => {
     t.write('.novelforge/outline.md', '# 大纲\n\n第一幕：入局（改了）');
     pOutlineChanged = await build();
 
-    // 场景记下当时的剧情指纹。
-    const plotHash = bundle.pipe.plotContentHash(await project.readPlot(plotRel));
-    for (const no of [1, 2]) {
-      await wsOf(project).writeScene(plotRel, {
-        plotRelPath: plotRel, no, title: `场景${no}`, place: '', time: '', characters: [],
-        upstreamHash: plotHash, status: 'ready',
-        sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
-      });
-    }
-    pScenesFresh = await build();
-
-    // 改剧情 → 该段全部场景标脏。
-    const p = await project.readPlot(plotRel);
-    p.sections.冲突与转折 = '改成三拍';
-    await wsOf(project).writePlot(p);
-    pPlotChanged = await build();
-
-    // 只改 status 不该让下游标脏——采纳正文时会把场景标 written。
-    beatsBefore = await project.beatsHashFor(plotRel);
-    await wsOf(project).writeScene(plotRel, {
-      ...(await project.readScene(plotRel, 1)), plotRelPath: plotRel, status: 'written',
-    });
-    beatsAfterStatus = await project.beatsHashFor(plotRel);
-
-    // 写正文 → 记下场景指纹 → 改场景 → 正文标脏。
-    await project.markBeatsWritten(plotRel, await project.beatsHashFor(plotRel));
+    // 写正文 → 网关记下**细纲**指纹（从前是场景集合的指纹）。
+    await wsOf(project).appendToManuscript(plotRel, '又写了一段正文。');
     pManuscriptFresh = await build();
 
-    const s2 = await project.readScene(plotRel, 2);
-    s2.sections.动作 = '甲、乙、丙';
-    await wsOf(project).writeScene(plotRel, { ...s2, plotRelPath: plotRel });
+    // 改剧情 → 那一段的正文标脏。链上少一环，改的就是正文的直接上游。
+    const p = await project.readPlot(plotRel);
+    p.sections.剧情脉络 = '改成三拍：等、翻、被撞见。';
+    await wsOf(project).writePlot(p);
     pManuscriptStale = await build();
   });
 
@@ -464,35 +324,33 @@ describe('新鲜度链', () => {
     assert.equal(pOutlineChanged.plot.upstreamStale, true);
   });
 
-  test('刚生成的场景不脏', () => {
-    assert.ok(pScenesFresh.scenes.every((s) => !s.upstreamStale));
-  });
-
-  test('改剧情后场景全部标脏', () => {
-    assert.equal(pPlotChanged.scenes.length, 2);
-    assert.ok(pPlotChanged.scenes.every((s) => s.upstreamStale));
-  });
-
-  test('只改场景状态不改变 beats 指纹', () => {
-    assert.equal(beatsAfterStatus, beatsBefore);
-  });
-
   test('刚写完的正文不脏', () => {
-    assert.equal(pManuscriptFresh.manuscript.beatsStale, false);
+    assert.equal(pManuscriptFresh.manuscript.upstreamStale, false);
   });
 
-  test('改场景后正文标脏', () => {
-    assert.equal(pManuscriptStale.manuscript.beatsStale, true);
+  test('改剧情后正文标脏', () => {
+    assert.equal(pManuscriptStale.manuscript.upstreamStale, true);
+  });
+
+  // 只改 frontmatter 里的 status 不该让下游标脏——`plotContentHash` 只哈希
+  // 四个小节（第 18b 条）。作者把这一段标成 done 不该让刚写好的正文过期。
+  test('只把细纲标成 done 不让正文标脏', async () => {
+    const p = await project.readPlot(plotRel);
+    await wsOf(project).writePlot({ ...p, done: true });
+    const after = await build();
+    assert.equal(after.manuscript.upstreamStale, true, '（这一段的剧情上一步刚改过，本来就脏）');
+    // 真正要守的是：done 这一位本身没有进哈希。
+    const before = bundle.pipe.plotContentHash(p);
+    assert.equal(bundle.pipe.plotContentHash(await project.readPlot(plotRel)), before);
   });
 
   // **已经发布的章不被拉回去**：中转站那份拆分时就删了，把作者已经发出去的
   // 文字标成「待写正文」是在撺掇他重写。工程页那一行仍会挂 ⟳ 提醒，够了。
-  // （未发布的章退回「待写正文」那一条在 tests/unit/model/pipeline.test.js 里守。）
+  // （未发布的段退回「待写正文」那一条在 tests/unit/model/pipeline.test.js 里守。）
   test('已发布的章：正文标脏也不退回待写正文', () => {
     assert.notEqual(pManuscriptStale.stage, 'manuscript', pManuscriptStale.stage);
   });
 });
-
 describe('新鲜度链 · 手写产物不标脏', () => {
   let p;
 
@@ -512,8 +370,8 @@ describe('新鲜度链 · 手写产物不标脏', () => {
     assert.equal(p.plot.upstreamStale, false);
   });
 
-  test('从没记过 beatsHash 的正文不标脏', () => {
-    assert.equal(p.manuscript.beatsStale, false);
+  test('从没记过指纹的正文不标脏', () => {
+    assert.equal(p.manuscript.upstreamStale, false);
   });
 });
 
@@ -540,12 +398,14 @@ describe('流水线索引', () => {
     assert.equal(index.size, plotCount);
   });
 
-  test('没拆场景的段停在待拆场景', () => {
-    assert.equal(handwritten.stage, 'scene', handwritten.stage);
+  // 剧情排过、正文（手写那份）也在，于是它停在「待拆分」——链上少了场景
+  // 那一环，剧情排好的下一步直接是正文。
+  test('剧情与正文都有的手写段停在待拆分', () => {
+    assert.equal(handwritten.stage, 'split', handwritten.stage);
   });
 
-  test('没拆场景时场景完成度为 0', () => {
-    assert.equal(handwritten.progress.scene, 0);
+  test('完成度只有三段', () => {
+    assert.deepEqual(Object.keys(handwritten.progress).sort(), ['manuscript', 'plot', 'summary']);
   });
 
   // 位次是推导出来的：最新章号 + 在未交付的段里排第几。它与文件名前缀
@@ -564,29 +424,16 @@ describe('流水线索引', () => {
 describe('工作区卡', () => {
   const plotRel = '.novelforge/plots/012-夜入.md';
   let plotCard;
-  let scene;
-  let withMeta;
-  let meta;
   let ms;
   let skeleton;
-  let shell;
   let gone;
   let outline;
+  let volumeCard;
 
   before(async () => {
     const wb = (target) => bundle.workbench.buildWorkbench(project, target);
 
     plotCard = await wb({ kind: 'plot', plotRelPath: plotRel });
-    scene = await wb({ kind: 'scene', plotRelPath: plotRel, sceneNo: 2 });
-
-    // 填了地点时间就该合成一行「这一幕」——那是这一层最要紧的三样元信息。
-    await wsOf(project).writeScene(plotRel, {
-      plotRelPath: plotRel, no: 2, title: '翻墙', place: '青云宗侧峰', time: '子时，暴雨',
-      characters: ['林昭'], upstreamHash: 'X', status: 'ready',
-      sections: { ...bundle.sceneFile.emptySceneSections(), 动作: '甲' },
-    });
-    withMeta = await wb({ kind: 'scene', plotRelPath: plotRel, sceneNo: 2 });
-    meta = withMeta.sections.find((s) => s.key === '这一幕');
 
     // 正文层只给统计。上万字摊进一张浮窗既读不下去，又把「这一层齐没齐」埋掉了。
     ms = await wb({ kind: 'manuscript', plotRelPath: plotRel });
@@ -599,18 +446,10 @@ describe('工作区卡', () => {
     });
     skeleton = await wb({ kind: 'plot', plotRelPath: bare });
 
-    // 刚拆出来的场景只有元信息，小节全空。这时用 warning 而不是 empty——
-    // empty 会连「这一幕」一起藏掉，而地点时间恰恰是这时唯一有的东西。
-    await wsOf(project).writeScene(plotRel, {
-      plotRelPath: plotRel, no: 5, title: '空壳', place: '山门', time: '黄昏',
-      characters: [], upstreamHash: '', status: 'draft',
-      sections: bundle.sceneFile.emptySceneSections(),
-    });
-    shell = await wb({ kind: 'scene', plotRelPath: plotRel, sceneNo: 5 });
-
     // 段刚被改名/删除时给一张说得清情况的空卡，而不是让整条推送失败。
-    gone = await wb({ kind: 'scene', plotRelPath: '.novelforge/plots/999-不存在.md', sceneNo: 1 });
+    gone = await wb({ kind: 'plot', plotRelPath: '.novelforge/plots/999-不存在.md' });
     outline = await wb({ kind: 'outline' });
+    volumeCard = await wb({ kind: 'volume', volumeRelPath: '.novelforge/volumes/99-不存在.md' });
   });
 
   test('剧情卡摊开小节', () => {
@@ -633,42 +472,41 @@ describe('工作区卡', () => {
     );
   });
 
-  test('场景卡带素材小节', () => {
-    assert.ok(
-      scene.sections.some((s) => s.key === '动作'),
-      JSON.stringify(scene.sections.map((s) => s.key))
-    );
-  });
-
-  // 这一场的 place/time/characters 都是空的 → 不画那一行，而不是画一行空的。
-  test('没有地点时间时不画「这一幕」', () => {
-    assert.ok(
-      !scene.sections.some((s) => s.key === '这一幕'),
-      JSON.stringify(scene.sections.map((s) => s.key))
-    );
-  });
-
-  // 上一组刚改过剧情的小节，场景的 upstreamHash 还是旧的 → 与剧情对不上。
-  test('场景卡说出上游变更', () => {
-    assert.ok(!!scene.warning, scene.warning);
-  });
-
-  test('有地点时间时合成「这一幕」', () => {
-    assert.ok(
-      meta && meta.text.includes('侧峰') && meta.text.includes('子时') && meta.text.includes('林昭'),
-      JSON.stringify(withMeta.sections.map((s) => s.key))
-    );
-  });
-
   test('正文卡只给统计', () => {
     assert.ok(
-      ms.sections.every((s) => s.key === '篇幅' || s.key === '场景'),
+      ms.sections.every((s) => s.key === '篇幅' || s.key === '目标篇幅'),
       JSON.stringify(ms.sections.map((s) => s.key))
     );
   });
 
   test('正文卡不摊全文', () => {
     assert.ok(ms.sections.every((s) => s.text.length < 60), JSON.stringify(ms.sections));
+  });
+
+  // 目标字数是状态机判「写够没有」的依据（见 model/pipeline.ts 的
+  // `manuscriptRatio`），所以卡片上必须看得见它——不然作者看不懂为什么
+  // 这一段还停在「待写正文」。这一段的细纲写了 3000。
+  test('有目标字数时篇幅那一行报出它', () => {
+    const words = ms.sections.find((s) => s.key === '篇幅');
+    assert.ok(words && words.text.includes('3000'), JSON.stringify(ms.sections));
+  });
+
+  // 反过来：细纲里没写目标字数时，判据退化成「有正文就算写完」——
+  // 那也得说出来，否则作者看不懂它凭什么已经算完了。
+  test('没有目标字数时卡片说清判据', async () => {
+    const bare = await wsOf(project).writePlot({
+      no: 41, title: '没写字数', arc: '', upstreamHash: '', done: false,
+      sections: filledSections(),
+    });
+    const card = await bundle.workbench.buildWorkbench(project, { kind: 'manuscript', plotRelPath: bare });
+    assert.ok(
+      card.sections.some((s) => s.key === '目标篇幅'),
+      JSON.stringify(card.sections.map((s) => s.key))
+    );
+  });
+
+  test('正文卡说出上游变更', () => {
+    assert.ok(!!ms.warning, ms.warning);
   });
 
   test('空骨架剧情说「还没排剧情」', () => {
@@ -678,22 +516,21 @@ describe('工作区卡', () => {
     );
   });
 
-  test('空壳场景仍显示元信息', () => {
-    assert.ok(
-      shell.sections.some((s) => s.key === '这一幕'),
-      JSON.stringify(shell.sections.map((s) => s.key))
-    );
-  });
-
-  test('空壳场景提示还没有素材', () => {
-    assert.ok(shell.warning?.includes('素材'), shell.warning);
-  });
-
   test('段不存在时给空卡而非抛', () => {
     assert.ok(!!gone.empty, JSON.stringify(gone));
   });
 
   test('大纲卡指向 outline.md', () => {
     assert.ok(outline.relPath.endsWith('outline.md'), outline.relPath);
+  });
+
+  // 卷纲成为独立阶段之后卡片的 `stage` 报 `volume`——从前它借 `outline` 那一档，
+  // 于是界面无从知道自己在看的是全书大纲还是某一卷。
+  test('卷纲卡报的是卷纲那一层', () => {
+    assert.equal(volumeCard.stage, 'volume', volumeCard.stage);
+  });
+
+  test('卷不存在时给空卡而非抛', () => {
+    assert.ok(!!volumeCard.empty, JSON.stringify(volumeCard));
   });
 });

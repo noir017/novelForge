@@ -100,14 +100,14 @@ export function chatPane(opts: PaneOptions = {}): string {
   <div class="pipeline" id="pipeline">
     <div class="pipeline-top" id="pipelineTop">
       <div class="pipeline-crumb" id="pipelineCrumb"></div>
-      <!-- 给当前这一章起名 / 改名。新建出来的章是纯序号名（标题要等剧情
+      <!-- 给当前这一段起名 / 改名。新建出来的段是纯序号名（标题要等剧情
            写完才定得下来），所以命名是主流程的一步，得有个常驻入口。
            目标是全书大纲时前端把它藏起来。 -->
       <button class="pipeline-new hidden" id="renamePlotBtn" title="重命名当前章节" aria-label="重命名当前章节">✎</button>
       <button class="pipeline-new" id="newSessionBtn" title="开始新对话" aria-label="开始新对话">＋</button>
     </div>
+    <!-- 卷纲 / 剧情 / 正文 三个状态点。内容由 view/pipeline.ts 画。 -->
     <div class="pipeline-stages" id="pipelineStages"></div>
-    <div class="pipeline-scenes hidden" id="pipelineScenes"></div>
     <!-- 「当前产物」的入口：一行标题。悬停浮出这一层的产物，点击钉住。
          从前它是消息流顶部一张 sticky 卡片——关不掉、藏不起来，还长期占着
          半屏对话。现在与工程页那三只浮窗同一套路子。 -->

@@ -250,18 +250,17 @@ function buildPlotRow(p: ProjectPlotNode): HTMLElement {
       );
     }
 
-    // 三层入口。点哪一层就把创作页切到那一层——状态机给的是「该做的
+    // 两层入口。点哪一层就把创作页切到那一层——状态机给的是「该做的
     // 下一步」，而作者常常要回头改上一层（设计文档里的「反向流动」）。
     //
     // 只有**手上有细纲**才给：已发布的章找不到来源段时（老工程里每一章都是）
-    // 这三项会指到一个不存在的落点上。
+    // 这两项会指到一个不存在的落点上。
+    //
+    // 卷纲不在这里：它是段的上游、不属于这一行，入口在卷那一行与创作页
+    // 那一排状态点上。
     if (p.plotPath) {
       items.push(
         { label: `剧情（${pct(p.progress.plot)}）`, run: () => setTarget({ kind: 'plot', plotRelPath: p.plotPath }) },
-        {
-          label: `场景（${pct(p.progress.scene)}）`,
-          run: () => setTarget({ kind: 'scene', plotRelPath: p.plotPath, sceneNo: 1 }),
-        },
         {
           label: `正文（${pct(p.progress.manuscript)}）`,
           run: () => setTarget({ kind: 'manuscript', plotRelPath: p.plotPath }),
@@ -375,12 +374,11 @@ export function buildVolumeRows(volumes: ProjectVolumeNode[]): HTMLElement[] {
   return volumes.map(buildVolumeRow);
 }
 
-/** 四段完成度，鼠标移上去看得见。 */
+/** 三段完成度，鼠标移上去看得见。 */
 function describeProgress(p: ProjectPlotNode): string {
   return (
     `${PLOT_STAGE_LABEL[p.stage]}\n` +
-    `剧情 ${pct(p.progress.plot)}｜场景 ${pct(p.progress.scene)}｜` +
-    `正文 ${pct(p.progress.manuscript)}｜摘要 ${pct(p.progress.summary)}`
+    `剧情 ${pct(p.progress.plot)}｜正文 ${pct(p.progress.manuscript)}｜摘要 ${pct(p.progress.summary)}`
   );
 }
 

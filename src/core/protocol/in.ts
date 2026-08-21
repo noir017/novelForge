@@ -129,7 +129,6 @@ export type ProjectAction =
   | 'syncSummaries'
   | 'rebuildGlobalSummary'
   | 'generatePlots'
-  | 'breakdownScenes'
   | 'writeManuscripts'
   | 'extractCharacters'
   | 'generateLore'

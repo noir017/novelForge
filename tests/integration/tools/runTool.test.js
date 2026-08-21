@@ -332,9 +332,9 @@ describe('工具定义本身', () => {
     }
   });
 
-  // 第 5 条端到端验收点的提示词落点：连续多章该走批量动作而不是循环 generate。
-  test('描述里引导「连续多章走批量动作」', () => {
-    assert.ok(tool().description.includes('连续多章'), tool().description);
+  // 第 5 条端到端验收点的提示词落点：连续多段该走批量动作而不是循环 generate。
+  test('描述里引导「连续多段走批量动作」', () => {
+    assert.ok(tool().description.includes('连续多段'), tool().description);
   });
 
   test('描述里说清了会先弹确认框告诉作者调几次', () => {

@@ -27,7 +27,6 @@ describe('fileOps.ts', () => {
   let projectMod;
   let projectView;
   let fileOps;
-  let sceneFile;
   let charactersMod;
   let actionsMod;
   let h;
@@ -45,7 +44,6 @@ describe('fileOps.ts', () => {
       ws: './src/core/workspace/index.ts',
       projectView: './src/core/views/projectView.ts',
       fileOps: './src/core/files/fileOps.ts',
-      sceneFile: './src/core/model/sceneFile.ts',
       characters: './src/core/features/characters.ts',
       actions: './src/core/actions.ts',
     });
@@ -53,7 +51,6 @@ describe('fileOps.ts', () => {
     projectMod = bundle.project;
     projectView = bundle.projectView;
     fileOps = bundle.fileOps;
-    sceneFile = bundle.sceneFile;
     charactersMod = bundle.characters;
     actionsMod = bundle.actions;
     // 原脚本的 host 字面量里没有 reviewReplace，必须显式抹掉：
@@ -974,9 +971,9 @@ describe('fileOps.ts', () => {
    * 细纲的改名与删除**不走区守卫那条路**。
    *
    * `plots/` 不是三个可管理区之一（`sectionOf` 认不出它），而且一段剧情
-   * 不只是一个文件：场景目录、正文、摘要三者的身份都是段文件名的词干，
-   * 当成普通文件搬会把它们变成孤儿——作者会看到「这一段还没拆场景」，
-   * 而那几个场景就躺在旁边一个没人认领的目录里。
+   * 不只是一个文件：中转站正文的身份就是段文件名的词干，当成普通文件搬会把它
+   * 变成孤儿——作者会看到「这一段还没写正文」，而那份正文就躺在旁边一个没人
+   * 认领的目录里。
    */
   describe('细纲的改名与删除', () => {
     const NO = 40;
@@ -984,7 +981,6 @@ describe('fileOps.ts', () => {
     let renamed;
     let renamedExists;
     let oldGone;
-    let sceneFollowed;
     let manuscriptFollowed;
     let summaryFollowed;
     let sectionsKept;
@@ -1002,11 +998,6 @@ describe('fileOps.ts', () => {
         no: NO, title: '', arc: '', upstreamHash: '', done: false,
         sections: { 目标: '进宗门', 剧情脉络: '甲乙丙', 冲突与转折: '', 伏笔与回收: '' },
       });
-      await wsOf(project).writeScene(created, {
-        plotRelPath: created, no: 1, title: '踩点', upstreamHash: '', status: 'ready',
-        place: '', time: '', characters: [],
-        sections: sceneFile.emptySceneSections(),
-      });
       await wsOf(project).appendToManuscript(created, '正文内容。');
       await project.syncManifest();
       project.invalidate();
@@ -1016,7 +1007,6 @@ describe('fileOps.ts', () => {
       renamed = await fileOps.renamePlot(project, created);
       renamedExists = !!renamed && has(renamed);
       oldGone = !has(created);
-      sceneFollowed = has('.novelforge/scenes/040-入宗风波/01-踩点.md');
       manuscriptFollowed = has('.novelforge/manuscripts/040-入宗风波.md');
       project.invalidate();
       const after = await project.readPlot(renamed);
@@ -1049,10 +1039,6 @@ describe('fileOps.ts', () => {
 
     test('旧文件不再并存', () => {
       assert.ok(oldGone);
-    });
-
-    test('场景目录跟着改名', () => {
-      assert.ok(sceneFollowed);
     });
 
     test('正文跟着改名', () => {

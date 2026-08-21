@@ -973,31 +973,26 @@ describe('装配：discuss 模式', () => {
 // ---------------------------------------------------------------------------
 
 /**
- * 四阶段配方：大纲 → 剧情 → 细节 → 正文。
+ * 四阶段配方：大纲 → 卷纲 → 剧情 → 正文。
  *
- * 示例工程没有场景（那一层要另外拆），这里在临时副本上临时造一套——
- * 夹具一个字节都不动。
+ * 从前中间那一档是「细节」（场景层）。删掉它之后：
+ * - **卷纲有了自己的一张配方**（从前它借大纲那张，于是那张里两层与卷相关的
+ *   层在 target 是全书大纲时全程空跑）；
+ * - **正文层的 `plotSelf` 升到 P0 force**（从前那一格是这一场的素材卡，细纲
+ *   只是背景）。少了它，模型手上只有文风与前文尾巴，会自己编一段剧情出来。
+ *
+ * 每一档钉的都是「这一层该带什么、不该带什么」，而不是「装配器能不能跑」。
  */
 describe('装配：四阶段配方', () => {
-  const sceneSections = (goal, action) => ({
-    目的: goal,
-    环境: '寅时的客栈，天还没亮，楼下的灯芯结了灯花。',
-    人物状态: '林昭不知道沈氏见过他母亲。',
-    动作: action,
-    对话: '沈氏：「你这个姓，在这一带不该说出口。」',
-    细节与意象: '袖口的烧痕一闪而过。',
-  });
-
   let fixture;
   let stageProject;
   let oc;
   let oIds;
+  let vc;
+  let vIds;
   let pc;
   let pIds;
   let mcSame;
-  let sc;
-  let sIds;
-  let sceneRel;
   let mc;
   let mIds;
   let squeezed;
@@ -1009,17 +1004,11 @@ describe('装配：四阶段配方', () => {
     fixture = copyFixture('builder-stages');
     stageProject = projectMod.NovelProject.open(fixture.dir);
 
-    for (const [no, title, who, must] of [
-      [1, '楼下的脚步', ['林昭'], '- 林昭听见脚步停在门外'],
-      [2, '摊牌', ['林昭', '沈氏'], '- 沈氏拿出半枚令牌\n- 林昭承认自己是谁'],
-      [3, '被打断', ['林昭', '沈氏', '客栈掌柜'], '- 掌柜敲门，谈话中断'],
-    ]) {
-      await wsOf(stageProject).writeScene(PLOT3, {
-        plotRelPath: PLOT3, no, title, place: '青崖客栈', time: '寅时',
-        characters: who, targetWords: 1000, upstreamHash: '', status: 'ready',
-        sections: sceneSections(`把「${title}」这一拍演完`, must),
-      });
-    }
+    // 一卷 + 一段落进它，卷纲那一档才有东西可装。
+    const V = await wsOf(stageProject).writeVolume({
+      no: 1, title: '青崖', upstreamHash: '', done: false,
+      sections: { 目标: '林昭活着走出青崖镇', 剧情走向: '甲、乙、丙。', 关键转折: '', 伏笔与回收: '' },
+    });
     stageProject.invalidate();
 
     // ------------------------------------------------------------ 大纲阶段
@@ -1030,6 +1019,15 @@ describe('装配：四阶段配方', () => {
       baseConfig
     );
     oIds = ids(oc);
+
+    // ------------------------------------------------------------ 卷纲阶段
+    vc = await builderMod.buildContext(
+      stageProject,
+      { action: { stage: 'volume', capability: 'split' }, target: { kind: 'volume', volumeRelPath: V },
+        ask: '接着往下拆一段。' },
+      baseConfig
+    );
+    vIds = ids(vc);
 
     // ------------------------------------------------------------ 剧情阶段
     pc = await builderMod.buildContext(
@@ -1047,22 +1045,11 @@ describe('装配：四阶段配方', () => {
       baseConfig
     );
 
-    // ------------------------------------------------------------ 细节阶段
-    sc = await builderMod.buildContext(
-      stageProject,
-      { action: { stage: 'scene', capability: 'generate' },
-        target: { kind: 'scene', plotRelPath: PLOT3, sceneNo: 2 },
-        ask: '把这一场写扎实一点。' },
-      baseConfig
-    );
-    sIds = ids(sc);
-    sceneRel = (no) => [...sIds.keys()].find((k) => k.startsWith('scene:') && k.includes(`/0${no}-`));
-
     // ------------------------------------------------------------ 正文阶段
     mc = await builderMod.buildContext(
       stageProject,
-      { action: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT3, sceneNo: 2 },
-        ask: '按这一场写。', targetWords: 1200 },
+      { action: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT3 },
+        ask: '按这一段的剧情写。', targetWords: 1200 },
       baseConfig
     );
     mIds = ids(mc);
@@ -1107,24 +1094,47 @@ describe('装配：四阶段配方', () => {
     assert.ok(!oc.messages[0].content.includes('只输出正文'));
   });
 
+  // ★ 卷纲独立成阶段换来的第一样实际好处：它有自己的身份，也有自己的配方。
+  test('卷纲阶段身份是分卷编剧', () => {
+    assert.ok(vc.messages[0].content.includes('分卷编剧'), vc.messages[0].content.slice(0, 24));
+  });
+
+  test('卷纲阶段注入这一卷的卷纲', () => {
+    assert.ok(alive(vIds, [...vIds.keys()].find((k) => k.startsWith('volume:')) ?? 'volume:?'),
+      [...vIds.keys()].join(','));
+  });
+
+  test('卷纲阶段注入分卷一览', () => {
+    assert.ok(alive(vIds, 'volumeList'), [...vIds.keys()].join(','));
+  });
+
+  // 从这一卷拆下一段时，「这一卷已经排到哪了」是全部依据。
+  test('卷纲阶段的输出契约是一次只拆一段', () => {
+    assert.ok(vc.messages[1].content.includes('只给一段'), vc.messages[1].content.slice(-400));
+  });
+
+  test('卷纲阶段不带正文原文', () => {
+    assert.ok(![...vIds.keys()].some((k) => k.startsWith('manuscriptFull:')));
+  });
+
   test('剧情阶段身份是剧情编剧', () => {
     assert.ok(pc.messages[0].content.includes('剧情编剧'), pc.messages[0].content.slice(0, 24));
   });
 
-  // ★ 整次重构的落点：剧情层交出的是脉络，不是场景，也不规定起讫。
+  // ★ 整次重构的落点：剧情层交出的是脉络，不是正文，也不规定起讫。
   test('剧情阶段明说不写画面台词', () => {
-    assert.ok(pc.messages[0].content.includes('不是场景'), pc.messages[0].content.slice(0, 500));
+    assert.ok(pc.messages[0].content.includes('不是正文'), pc.messages[0].content.slice(0, 500));
   });
 
   test('剧情阶段明说不必自成起讫', () => {
     assert.ok(pc.messages[0].content.includes('自成起讫'), pc.messages[0].content.slice(0, 500));
   });
 
-  test('剧情阶段注入本章细纲', () => {
+  test('剧情阶段注入本段细纲', () => {
     assert.ok(alive(pIds, `plot:${PLOT3}`));
   });
 
-  test('剧情阶段注入上一章细纲', () => {
+  test('剧情阶段注入上一段细纲', () => {
     assert.ok(alive(pIds, `plot:${PLOT2}`));
   });
 
@@ -1160,58 +1170,23 @@ describe('装配：四阶段配方', () => {
     assert.equal(fullTokens(pc), 0);
   });
 
-  test('细节阶段身份是分镜编剧', () => {
-    assert.ok(sc.messages[0].content.includes('编剧'), sc.messages[0].content.slice(0, 24));
-  });
-
-  test('细节阶段注入本场', () => {
-    assert.ok(alive(sIds, sceneRel(2)), sceneRel(2));
-  });
-
-  test('细节阶段注入前后两场', () => {
-    assert.ok(alive(sIds, sceneRel(1)) && alive(sIds, sceneRel(3)));
-  });
-
-  test('邻居场景标注了前后关系', () => {
-    assert.ok(sIds.get(sceneRel(1)).label.includes('上一场') && sIds.get(sceneRel(3)).label.includes('下一场'));
-  });
-
-  test('邻居只给定位不给整张卡', () => {
-    assert.ok(!sIds.get(sceneRel(1)).text.includes('细节与意象'), sIds.get(sceneRel(1)).text.slice(0, 60));
-  });
-
-  test('细节阶段带本章细纲', () => {
-    assert.ok(alive(sIds, `plot:${PLOT3}`));
-  });
-
-  // ★ 这一条是分阶段装配最直接的质量收益：出场人物来自场景 frontmatter，
-  //   而不是在用户那一句话里做子串匹配——用户这句话里一个人名都没有。
-  test('角色按场景在场人物精确取', () => {
-    assert.ok(alive(sIds, 'character:沈氏'));
-  });
-
-  test('取卡原因写明是本场出场', () => {
-    assert.equal(sIds.get('character:沈氏').note, '本场出场人物');
-  });
-
-  test('细节阶段角色卡升到 P1', () => {
-    assert.equal(sIds.get('character:沈氏').priority, 1);
-  });
-
-  test('细节阶段不带正文原文', () => {
-    assert.ok(![...sIds.keys()].some((k) => k.startsWith('manuscriptFull:')));
-  });
-
-  test('细节阶段的输出契约是场景 JSON', () => {
-    assert.ok(sc.messages[1].content.includes('"细节与意象"') && sc.messages[1].content.includes('只输出 JSON'));
-  });
-
   test('正文阶段仍带整段正文', () => {
     assert.ok([...mIds.keys()].some((k) => k.startsWith('manuscriptFull:')));
   });
 
-  test('正文阶段带本场场景卡', () => {
-    assert.ok([...mIds.keys()].some((k) => k.startsWith('scene:')));
+  // ★ 场景层删掉之后，细纲**就是**写正文的依据——所以它升到 P0 force。
+  //   少了它，模型手上只有文风与前文尾巴，会自己编一段剧情出来。
+  test('正文阶段带本段细纲', () => {
+    assert.ok(alive(mIds, `plot:${PLOT3}`), [...mIds.keys()].join(','));
+  });
+
+  test('正文阶段的本段细纲是 P0', () => {
+    assert.equal(mIds.get(`plot:${PLOT3}`).priority, 0);
+  });
+
+  // 预算紧到只剩强制项时它必须仍然在：没有剧情的正文是凭空编的。
+  test('预算极小时本段细纲仍强制注入', () => {
+    assert.equal(qIds.get(`plot:${PLOT3}`).status, 'included', JSON.stringify(qIds.get(`plot:${PLOT3}`)));
   });
 
   test('正文阶段文风指南升到 P0', () => {
@@ -1230,11 +1205,6 @@ describe('装配：四阶段配方', () => {
 
   test('文风指南进了 user 段', () => {
     assert.ok(squeezed.messages[1].content.includes('# 文风指南'));
-  });
-
-  // 场景全程只存在于临时副本里，夹具一个字节都没动过。
-  test('没往夹具里写过场景', () => {
-    assert.ok(!fs.existsSync(path.join(SAMPLE, '.novelforge', 'scenes')));
   });
 });
 

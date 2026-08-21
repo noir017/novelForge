@@ -1,10 +1,12 @@
 # AGENTS.md
 
-Novel Forge 帮作者**把一个脑洞养成一本完整的书**：从一句念头开始，逐层填成大纲、剧情、场景，最后写成正文。三种壳（独立 Web 服务 / 桌面 App / VS Code 插件）共用同一套核心。
+Novel Forge 帮作者**把一个脑洞养成一本完整的书**：从一句念头开始，逐层填成大纲、卷纲、剧情，最后写成正文。三种壳（独立 Web 服务 / 桌面 App / VS Code 插件）共用同一套核心。
 
-实现上分两条主线：**往下展开**——按**创作阶段**（大纲 / 剧情 / 细节 / 正文）分别装配上下文并透明展示，把上一层产物展开成下一层（排细纲、拆场景、写正文，流式预览、当场点头才落盘）；**往回记住**——单章/全书摘要、角色卡与设定整合，让「记忆」有限且可人工校正。所有数据是工作区里的普通 Markdown（`.novelforge/` 目录），可 Git、可手改。
+实现上分两条主线：**往下展开**——按**创作阶段**（大纲 / 卷纲 / 剧情 / 正文）分别装配上下文并透明展示，把上一层产物展开成下一层（拆卷、拆段、排剧情、写正文，流式预览、当场点头才落盘）；**往回记住**——单章/全书摘要、角色卡与设定整合，让「记忆」有限且可人工校正。所有数据是工作区里的普通 Markdown（`.novelforge/` 目录），可 Git、可手改。
 
-**规划的单位是「剧情段」，管理的单位是「章」，两者是两条轴。** 往下展开的链是五环：`outline.md` ──拆卷──▶ `volumes/` ──拆段──▶ `plots/` ──拆场景──▶ `scenes/` ──▶ `manuscripts/` ──拆章──▶ `chapters/`。
+**规划的单位是「剧情段」，管理的单位是「章」，两者是两条轴。** 往下展开的链是四环：`outline.md` ──拆卷──▶ `volumes/` ──拆段──▶ `plots/` ──▶ `manuscripts/` ──拆章──▶ `chapters/`。
+
+**剧情段与正文之间没有中间层。** 从前这里还有一层「细节」（`scenes/`）：把一段拆成几场、每场先备一份素材卡再据此写正文。删掉它的理由是**那一层没有它自己要回答的问题**——「这一幕怎么发生」是写正文时才定的东西，提前落成一份文件只换来三样代价：多一次模型调用、多一层要维护的指纹链、以及一份写正文时多半要被推翻的清单。一个剧情段本来就支持分几次写、落成多个发布章（正文里那一行 `---` 就是断点），粒度已经够用。老工程磁盘上的 `.novelforge/scenes/` **一个字节都不动**（那是作者的文件），但代码里彻底不认它：`kindOfPath` 判成 `other`，工程页不显示、装配器不读。
 
 - **卷**是一条完整的中等弧线（`.novelforge/volumes/NN-卷名.md`）。大纲直接拆成一章章的细纲跨度太大——全书大纲那一两千字里没有足够的信息去决定第 7 章该发生什么，模型只能一次吐五章骨架，而那五章彼此的因果薄得像一份目录。**卷不是一个创作阶段**，只做收纳（段按卷落进 `plots/<卷词干>/`）与拆分。
 - **剧情段**从卷纲里拆，**一次只拆一段**：有了卷纲这个中等尺度的参照，「接下来该发生什么」才答得准。
@@ -42,7 +44,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 |---|---|---|
 | `src/` | 两层架构总览与一条创作请求的完整链路 | [src/README.md](src/README.md) |
 | `src/core/` | 核心逻辑层入口（含协议 `protocol/`、读写网关 `workspace/`、文件能力 `files/`、只读聚合与界面快照 `views/`、运行时设施 `runtime/`）。`views/pipeline.ts` 是磁盘 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，绝不搬进 `views/`。 | [src/core/README.md](src/core/README.md) |
-| `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**、卷纲 volumeFile.ts、细纲 plotFile.ts、场景 sceneFile.ts、服务商配置、思考深度 thinking.ts、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
+| `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**、卷纲 volumeFile.ts、细纲 plotFile.ts、服务商配置、思考深度 thinking.ts、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/workspace/` | ★ **工程的唯一读写网关**：路径 → 种类（`kind.ts`）→ 八条守卫（`guard.ts`）→ 解析/渲染/记账/伴生（`handlers/`）。写盘从前散在六处、各带一部分保护，现在收成一处；`upstreamHash` / `beatsHash` 的记账下沉到写入路径本身，谁写都记 | [src/core/workspace/README.md](src/core/workspace/README.md) |
 | `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/generation/` | ★ 创作的一次单步：**无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，并发控制在 controller）、六条落盘分派、Draft store（随会话落盘，`write draftId=…` 认它） | [src/core/generation/README.md](src/core/generation/README.md) |
@@ -92,7 +94,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 4. **不偷偷烧 token**：摘要不自动生成，只提示过期；要分多次调模型的动作必须在动手前的确认框里写明预计调用次数，并发不改变这个数。见 [src/core/features/README.md](src/core/features/README.md)、[src/core/agent/README.md](src/core/agent/README.md)。
 5. **模型引用只在第一个斜杠处切分**：`openrouter/z-ai/glm-4.6` 中服务商前缀是 `openrouter`。见 [src/core/model/README.md](src/core/model/README.md)。
 6. **不真删**：工程页的删除、会话删除、类文件操作的删除，一律搬进 `.novelforge/.trash/` 并保留原相对路径。见 [src/core/workspace/README.md](src/core/workspace/README.md)。
-7. **文件访问不越界**：所有写盘经 `core/workspace/` 这一个网关，工程页的类文件操作在此之上再锁章节/角色/设定三个区，`plots/`/`volumes/` 的改名删除走专门方法以带走场景目录与中转站正文；独立版的读写另有工程根/大小/白名单一层。见 [src/core/workspace/README.md](src/core/workspace/README.md)、[src/core/README.md](src/core/README.md)。
+7. **文件访问不越界**：所有写盘经 `core/workspace/` 这一个网关，工程页的类文件操作在此之上再锁章节/角色/设定三个区，`plots/`/`volumes/` 的改名删除走专门方法以带走中转站正文；独立版的读写另有工程根/大小/白名单一层。见 [src/core/workspace/README.md](src/core/workspace/README.md)、[src/core/README.md](src/core/README.md)。
 8. **段号与章号是两条轴，界面上的「剧情 N」是推导出来的**：章节顺序永远由文件名数字前缀决定，与所在目录层级无关；细纲的段号只是 `plots/` 里的排序键，一段可以拆成多章；「段 → 章」唯一的链是细纲 frontmatter 的 `chapters:`。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/views/README.md](src/core/views/README.md)、[src/core/workspace/README.md](src/core/workspace/README.md)。
 9. **章节不认扩展名**：章节根下「数字前缀 + 扩展名不在二进制黑名单里」的文件都是章节，规则只在 [src/core/model/chapterFile.ts](src/core/model/chapterFile.ts) 定义一次；角色/设定区仍只认 `.md`。见 [src/core/model/README.md](src/core/model/README.md)。
 10. **草稿不进上下文**：`drafts/` 只有作者显式 `@` 引用才进 prompt，装配器永不自动读它；按需创建，删章节不删草稿。见 [src/core/README.md](src/core/README.md)。
@@ -103,10 +105,10 @@ npm run test:e2e         # 独立版服务（需 Bun）
 15. **角色卡不能无限膨胀**：更新角色卡的提示词给每一节都定了字数上限，加字段或改提示词时别把这条抹掉。见 [src/core/features/README.md](src/core/features/README.md)。
 16. **失败要留在出错的东西身上**：失败经 [src/core/runtime/errorLog.ts](src/core/runtime/errorLog.ts) 挂在对应目标上（红=整体失败，黄=部分完成），成功路径必须 `clearFailures`。见 [src/core/README.md](src/core/README.md)。
 17. **SQLite 只放可丢弃的痕迹**：内容的唯一真相永远是 Markdown，库打不开就静默降级。实现细节（两个驱动、动态 import 写法、finalize 时机）见 [src/core/runtime/README.md](src/core/runtime/README.md)。
-18. **上下游新鲜度只靠 hash 传播，不调模型**：产物串成一条指纹链（大纲 → 卷纲 → 细纲 → 场景 → 中转站正文 → 摘要），拆分是这条链上唯一的人工闸口——已发布的章不会被拉回「待写正文」；流水线状态一律从磁盘推导，绝不落盘。见 [src/core/workspace/README.md](src/core/workspace/README.md)、[src/core/views/README.md](src/core/views/README.md)、[src/core/model/README.md](src/core/model/README.md)。
+18. **上下游新鲜度只靠 hash 传播，不调模型**：产物串成一条指纹链（大纲 → 卷纲 → 细纲 → 中转站正文 → 摘要，每一环的上游指纹记在下游的 frontmatter `upstreamHash` 里；正文那一格从前叫 `beatsHash`、上游是场景集合，`readManuscript` 两个名字都认），拆分是这条链上唯一的人工闸口——已发布的章不会被拉回「待写正文」；流水线状态一律从磁盘推导，绝不落盘。见 [src/core/workspace/README.md](src/core/workspace/README.md)、[src/core/views/README.md](src/core/views/README.md)、[src/core/model/README.md](src/core/model/README.md)。
 19. **产物落盘前必须过一遍人，而且是当场过**：`generate` 只把文本交回界面，作者在对话里那张权限卡片上点了「写入」才落盘；这一问与 agent 的策略无关，三种模式都问，也不做成一颗可以拖延的按钮。批量路径反过来——一律跳过已有产物的目标，不问、不覆盖。见 [src/core/generation/README.md](src/core/generation/README.md)、[src/core/features/README.md](src/core/features/README.md)、[src/core/agent/README.md](src/core/agent/README.md)。
 20. **界面永远只推荐一个下一步，且由状态机算出来**：主按钮来自 `deriveNextStep`，与 `deriveStage` 共用同一套判据；agent 每回合从同一个状态机免费拿到同一份结论，没有 `status` 工具；`selectPlot` 按路径认，绝不在段号与章号两条轴之间按号互认。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/agent/README.md](src/core/agent/README.md)。
-21. **细纲是剧情脉络，不是场景**：`plots/**/*.md` 四节，主体是剧情脉络，不写画面/天气/动作细节/台词，也不规定这一段从哪开头到哪结尾；卷纲另有四节，刻意与细纲不同名。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/context/README.md](src/core/context/README.md)。
+21. **细纲是剧情脉络，不是正文**：`plots/**/*.md` 四节，主体是剧情脉络，不写画面/天气/动作细节/台词（那些是写正文时才定的），也不规定这一段从哪开头到哪结尾；卷纲另有四节，刻意与细纲不同名。**「这一段正文写够了没有」看细纲的 `targetWords`**（到八成算写完，缺席时有字就算）——不拿一个猜出来的阈值骗人。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/context/README.md](src/core/context/README.md)。
 22. **细纲有两个入口，讨论那条不许被截断**：`generate` 按走向填，`settle` 把讨论结论沉淀成细纲，两者输出契约必须一致；`settle` 的历史 cap 抬到 60%。见 [src/core/context/README.md](src/core/context/README.md)。
 23. **拆分是作者的活，工具不猜断点也不起名**：按正文里单独一行 `---` 切，零次模型调用，第一章沿用原标题、其余落成纯序号名；章号接在现有最后一章之后，与段号无关，其余段一个文件都不动。见 [src/core/features/README.md](src/core/features/README.md)。
 24. **agent 是调度者，不是第二个作者**：循环只做「拿着工具达成一个目标」，创作质量仍来自分阶段装配那一层，领域知识只在那里写一份；四条配套约束（产物不回灌、history 传空、无进展检测、触顶不静默停）见 [src/core/agent/README.md](src/core/agent/README.md)。
