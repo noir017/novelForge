@@ -27,6 +27,7 @@ import {
   installMessages,
   lastSegment,
   renderSession,
+  reasoningLabel,
   scrollToBottom,
   segmentAnchor,
   toolStripOf,
@@ -43,7 +44,6 @@ import { renderState, setBusy } from './state';
 import { restoreDraft, store, vscode } from './store';
 import { installTabs, isTabActive, showTab } from './tabs';
 import { renderTasks } from './tasks';
-import { countWords } from './format';
 import { exposeToast, toast } from './toast';
 import { installFolderPicker } from './folderPicker';
 import { applyWorkspaces, installWelcome } from './welcome';
@@ -216,7 +216,12 @@ onMessage((msg) => {
 });
 
 /**
- * 思考增量：气泡里没有折叠块就建一个（默认收起），有就往里追加。
+ * 思考增量：接到**末尾那一块思考**上，末尾不是思考就新开一块。
+ *
+ * 与 `appendText` 是同一条规矩（也是同一个理由）：`想 → 查 → 想 → 说` 是
+ * agent 的常态，第二次思考接到第一块上就等于把顺序抹平——而「它读完那三章
+ * 之后在想什么」正是作者要看的那一段，跟第一回合的胡思乱想拌在一起就没了。
+ *
  * **就地追加而不是重建节点**——重建会把用户展开的状态和滚动位置弄丢。
  */
 function appendReasoning(turnId: string, text: string): void {
@@ -225,20 +230,22 @@ function appendReasoning(turnId: string, text: string): void {
     return;
   }
   node.classList.add('streaming');
+  // 一轮刚开始留的那块空正文（给「它在想」留的位）：思考块就是那个位子的
+  // 主人，留着它等于在思考上方摆一个空盒子。
+  dropEmptyText(node);
 
-  let det = node.querySelector<HTMLDetailsElement>('details.reasoning');
+  const last = lastSegment(node);
+  let det = last?.matches('details.reasoning') ? (last as HTMLDetailsElement) : undefined;
   if (!det) {
     det = buildReasoningDetails('');
-    // 排在**段区之前**：它是正文迟迟不来时的进度反馈，不是流水账里的一条。
-    // 段区可能以工具条或 generate 卡开头（不一定有正文块），所以三样一起找。
-    node.insertBefore(det, node.querySelector('.msg-body, .tools, .gen') ?? segmentAnchor(node));
+    node.insertBefore(det, segmentAnchor(node));
   }
   const box = det.querySelector<HTMLElement>('.reasoning-body');
   if (box) {
-    box.textContent += text;
+    box.textContent = (box.textContent ?? '') + text;
     const summary = det.querySelector('summary');
     if (summary) {
-      summary.textContent = `思考过程 · ${countWords(box.textContent ?? '')} 字`;
+      summary.textContent = reasoningLabel(box.textContent ?? '');
     }
     // 展开着看的时候，让它跟着滚到最新。
     if (det.open) {
@@ -254,6 +261,11 @@ function appendReasoning(turnId: string, text: string): void {
  * 「没有就新开」正是交替：上一段是工具调用（或 generate 卡）时，这句话是新的
  * 一块，接到前一块上就等于把顺序抹平——那是从前所有话挤进同一个文本节点的
  * 由来。就地追加而不重建气泡：重建会冲掉正在流的内容。
+ *
+ * **纯空白的增量不开新块**：模型几乎总在调工具前后吐一两个换行，而
+ * `.msg-body` 是 `pre-wrap` 加 8px 内边距——为一个 `\n` 开一块，画出来就是
+ * 工具条之间一个一行多高的空盒子。同理，块首的空白也抹掉（那一块还什么都
+ * 没有时，前导换行只是把第一行字往下推）。
  */
 function appendText(turnId: string, text: string): void {
   const node = bubbleOf(turnId);
@@ -265,10 +277,14 @@ function appendText(turnId: string, text: string): void {
   const last = blocks[blocks.length - 1];
   // 末尾那一块才接得上；它后面已经排了工具条或卡片的话，得另开一块。
   if (last && last === lastSegment(node)) {
-    last.textContent += text;
+    // 一轮刚开始那块占位（或刚被空白喂过的块）还是空的：别把换行攒在最前面。
+    last.textContent = (last.textContent ?? '').trim() === '' ? text.trimStart() : last.textContent + text;
   } else {
-    const block = buildTextBlock(text);
-    node.insertBefore(block, segmentAnchor(node));
+    const fresh = text.trimStart();
+    if (!fresh) {
+      return;
+    }
+    node.insertBefore(buildTextBlock(fresh), segmentAnchor(node));
   }
   scrollToBottom();
 }

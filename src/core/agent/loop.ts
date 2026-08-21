@@ -144,6 +144,18 @@ export interface AgentHandlers {
    */
   onDelta?(text: string): void;
   /**
+   * 模型**想的**那一段的增量（推理模型的思考过程）。
+   *
+   * **与 `onDelta` 分开是因为思考不是正文**：它不该被采纳写入章节，也不该
+   * 算进这一轮的字数。但它必须送出去——推理模型常常先想几十秒才吐第一个字，
+   * 那段时间界面上要是什么都没有，作者只能猜是不是卡死了（第 11 条：不闷着
+   * 干活）。
+   *
+   * **一轮里会来好几段**：每个回合各想一次。调用方按发生顺序把它们排进段里，
+   * 攒成一整块的话「它读完这三章之后在想什么」就没了，而那正是作者要看的。
+   */
+  onReasoning?(text: string): void;
+  /**
    * 某个工具**产出的正文**增量（目前只有 `generate`）。
    *
    * 带着 `callId`：一轮里可能连着生成好几份，界面各画一张卡。工具自己不知道
@@ -370,6 +382,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
           round += delta;
           on.onDelta?.(delta);
         },
+        // 思考**不进 `round`**：那一段随后要作为 assistant 消息发回给模型，
+        // 把思考混进 content 等于让它把自己想的话当成说过的话（下一轮还要再
+        // 烧一遍那几千字）。跨回合接得上靠的是 `traces`（provider 原样交回的
+        // 思考凭据），不是这段文本。
+        onReasoning: (delta) => on.onReasoning?.(delta),
         onUsage: (usage) => budget.addTokens((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0)),
       });
       // provider 没给用量时按估算记一笔——不记的话 token 上限形同虚设。

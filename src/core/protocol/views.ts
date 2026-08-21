@@ -311,14 +311,21 @@ export interface SerializedTurn {
   acceptedTo?: string;
   interrupted?: boolean;
   error?: string;
+  /**
+   * 仅 assistant 轮：**单步创作那条路**的思考过程（一轮只调一次模型，思考
+   * 自然只有一份，画在正文上方）。
+   *
+   * agent 那一轮的思考**不在这里**——它每个回合各想一次，按发生顺序排进
+   * `segments`（`kind: 'reasoning'`）。两个字段同时有值时界面只画段里那几块，
+   * 否则同一段思考会摆两处。
+   */
   reasoning?: string;
   artifact?: SerializedArtifact;
   /**
-   * 仅 assistant 轮：这一轮**按发生顺序**排下来的段——它说的话与它做的事交替。
+   * 仅 assistant 轮：这一轮**按发生顺序**排下来的段——它想的、说的与做的交替。
    *
-   * 界面认的就是这一个字段：有段就按段画（文字块 / 工具条 / generate 卡交替），
-   * 没有段就是一块正文（单步创作那条路，没有工具可交替）。**旧会话在
-   * `serializeTurn` 里已经归一过**，所以前端不必认第二种形状。
+   * 界面认的就是这一个字段：有段就按段画（思考块 / 文字块 / 工具条 / generate
+   * 卡交替），没有段就是一块正文（单步创作那条路，没有工具可交替）。
    */
   segments?: SerializedSegment[];
   /**
@@ -342,13 +349,18 @@ export interface SerializedAgentRun {
 }
 
 /**
- * 一段。文字是模型自己说的话，工具是它做的一件事。
+ * 一段。文字是模型自己说的话，思考是它想的，工具是它做的一件事。
  *
  * 工具那一段把调用**整个带上**（而不是只给一个 callId 让前端去别处找）：
  * 前端照着数组画一遍就完了，不必再维护一张表。
+ *
+ * 思考**按发生顺序排在段里**，不是气泡顶上那一整块：agent 一轮要调好几次
+ * 模型，每个回合各想一次，攒成一块就看不出「它读完这三章之后在想什么」。
+ * 单步创作那条路仍然用 `SerializedTurn.reasoning`（一轮只想一次）。
  */
 export type SerializedSegment =
   | { kind: 'text'; text: string }
+  | { kind: 'reasoning'; text: string }
   | { kind: 'tool'; call: SerializedToolCall };
 
 export interface SerializedToolCall {

@@ -203,17 +203,19 @@ const turn = (id, role, content, extra) =>
   Object.assign({ id, role, content, at: new Date(0).toISOString() }, extra);
 
 /**
- * 一轮 agent 排下来的段。形状与后端 `serializeTurn` 归一之后的一致——
- * **界面只认这一个字段**（`toolCalls` 是改成段之前的形状，后端读老会话时就归一
- * 掉了，前端不认它）。
+ * 一轮 agent 排下来的段。形状与后端 `serializeTurn` 给出的一致——
+ * **界面只认这一个字段**（旧会话里没有段的那些轮次照旧画成一块正文）。
+ *
+ * 三种段：它想的（`reasoningSeg`）、它说的（`textSeg`）、它做的（`toolSeg`）。
  *
  * ```js
  * turn('a1', 'assistant', '排好了。', {
- *   segments: [toolSeg({ callId: 'c1', name: 'read', … }), textSeg('排好了。')],
+ *   segments: [reasoningSeg('先看看有什么'), toolSeg({ callId: 'c1', … }), textSeg('排好了。')],
  * })
  * ```
  */
 const textSeg = (text) => ({ kind: 'text', text });
+const reasoningSeg = (text) => ({ kind: 'reasoning', text });
 const toolSeg = (call) => ({ kind: 'tool', call });
 
 /**
@@ -439,6 +441,6 @@ module.exports = {
   hasJsdom, JSDOM_SKIP,
   extractBody, bodyHtml, standaloneBodyHtml,
   mount,
-  turn, textSeg, toolSeg, emptySession, pipelineView, workbenchView, viewState, sampleTree,
+  turn, textSeg, reasoningSeg, toolSeg, emptySession, pipelineView, workbenchView, viewState, sampleTree,
   file, listing,
 };

@@ -68,12 +68,21 @@ const useTool = (id, name, args, text = '') => [
 
 /** 收集所有 handler 的回调。 */
 function recorder() {
-  const r = { steps: [], deltas: [], toolDeltas: [], toolCalls: [], toolResults: [], notes: [] };
+  const r = {
+    steps: [],
+    deltas: [],
+    reasonings: [],
+    toolDeltas: [],
+    toolCalls: [],
+    toolResults: [],
+    notes: [],
+  };
   return {
     r,
     on: {
       onStep: (step, message) => r.steps.push(`${step}:${message}`),
       onDelta: (text) => r.deltas.push(text),
+      onReasoning: (text) => r.reasonings.push(text),
       onToolDelta: (d) => r.toolDeltas.push(d),
       onToolCall: (c) => r.toolCalls.push(c),
       onToolResult: (x) => r.toolResults.push(x),
@@ -683,6 +692,74 @@ describe('产出的正文另走一条通道', () => {
   // ★ 这一条就是这次改动本身：产物不许再混进模型说的话里。
   test('onDelta 里只有模型自己说的话', () => {
     assert.deepEqual(rec.r.deltas, ['我来排一下。', '排好了。']);
+  });
+});
+
+/**
+ * 推理模型想的那一段。
+ *
+ * 从前循环压根**不听** `reasoning` 事件（`collect` 那里只挂了 onDelta 与
+ * onUsage）——provider 一路发上来，到这里被丢掉。对话只留 agent 一条路之后，
+ * 这意味着界面上永远看不到思考：开了深思考，等三十秒，气泡里什么都没有。
+ */
+describe('思考流给前端', () => {
+  const think = (text) => ({ type: 'reasoning', text });
+
+  test('思考经 onReasoning 送出去', async () => {
+    const f = scriptedProvider([[think('先看看有什么。'), { type: 'text', text: '他说过。' }]]);
+    const rec = recorder();
+    await run({ provider: f.provider, on: rec.on });
+    assert.deepEqual(rec.r.reasonings, ['先看看有什么。']);
+  });
+
+  // 思考不是正文：它不该被采纳写入章节，也不该算进这一轮的字数。
+  test('思考不混进 onDelta，也不进 outcome.text', async () => {
+    const f = scriptedProvider([[think('先看看有什么。'), { type: 'text', text: '他说过。' }]]);
+    const rec = recorder();
+    const out = await run({ provider: f.provider, on: rec.on });
+    assert.deepEqual(rec.r.deltas, ['他说过。']);
+    assert.equal(out.text, '他说过。');
+  });
+
+  // 一轮里每个回合各想一次——按发生顺序送出去，调用方才排得出「想→查→想」。
+  test('每个回合想的都送出来', async () => {
+    const f = scriptedProvider([
+      [think('先查一下。'), ...useTool('c1', 'read', { path: 'chapters/009-北行.md' })],
+      [think('读完了，他确实说过。'), { type: 'text', text: '在第 3 行。' }],
+    ]);
+    const rec = recorder();
+    await run({ provider: f.provider, on: rec.on });
+    assert.deepEqual(rec.r.reasonings, ['先查一下。', '读完了，他确实说过。']);
+  });
+
+  /**
+   * 思考**不作为 assistant 消息的 content 发回给模型**。
+   *
+   * 把它混进 content 等于让模型把自己想的话当成说过的话，而且下一轮还要再烧
+   * 一遍那几千字。跨回合接得上靠的是 `traces`（provider 原样交回的思考凭据），
+   * 不是这段文本。
+   */
+  test('思考不回灌进下一轮的上下文', async () => {
+    const f = scriptedProvider([
+      [think('这段思考不该被发回去。'), ...useTool('c1', 'read', { path: 'chapters/009-北行.md' }, '我查一下。')],
+      say('看完了。'),
+    ]);
+    await run({ provider: f.provider, on: recorder().on });
+    // 第二次调用带上的历史里，那条 assistant 消息只有它说出口的话。
+    const second = f.calls[1].messages;
+    const assistant = second.find((m) => m.role === 'assistant');
+    assert.equal(assistant.content, '我查一下。');
+    assert.ok(
+      !JSON.stringify(second).includes('不该被发回去'),
+      JSON.stringify(second)
+    );
+  });
+
+  // 没有实现这个回调的调用方（无人值守那条路）不该因此炸掉。
+  test('没挂 onReasoning 也照常跑', async () => {
+    const f = scriptedProvider([[think('嗯……'), { type: 'text', text: '他说过。' }]]);
+    const out = await run({ provider: f.provider, on: {} });
+    assert.equal(out.stopReason, 'done', `${out.stopReason}｜${out.message}`);
   });
 });
 

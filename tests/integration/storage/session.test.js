@@ -96,12 +96,14 @@ describe('session.ts · SessionStore', () => {
           items: [{ id: 'style', label: '文风指南', kind: 'style', priority: 1, tokens: 0, status: 'excluded' }] },
         acceptedTo: 'chapters/004-夜访.md',
       });
-      // agent 那一轮：段（说的话与做的事交替），generate 那一段还带着产出的正文。
+      // agent 那一轮：段（想的、说的与做的交替），generate 那一段还带着产出的正文。
       s.turns.push({
         id: 't3', role: 'assistant', content: '我先看看。\n\n写好了。', at: '2026-08-01T10:02:00.000Z',
         segments: [
+          { kind: 'reasoning', text: '先看看这一章现在有什么。' },
           { kind: 'tool', call: { callId: 'c1', name: 'read', title: 'read', ok: true, summary: '19 行', elapsedMs: 2 } },
           { kind: 'text', text: '我先看看。' },
+          { kind: 'reasoning', text: '读完了，缺的是收尾那一段。' },
           { kind: 'tool', call: { callId: 'c2', name: 'generate', title: 'generate 正文·生成',
             ok: true, summary: '正文 · 620 字', elapsedMs: 12400, output: '三更，林昭醒了。' } },
           { kind: 'text', text: '写好了。' },
@@ -211,14 +213,33 @@ describe('session.ts · SessionStore', () => {
     // 顺序是这一轮唯一存不回来的东西：不落盘的话，重开面板画出来的就是另一副样子。
     test('读回 agent 那一轮的段（顺序原样）', () => {
       assert.deepEqual(
-        back.turns[2].segments.map((seg) => (seg.kind === 'text' ? `文字:${seg.text}` : `工具:${seg.call.callId}`)),
-        ['工具:c1', '文字:我先看看。', '工具:c2', '文字:写好了。']
+        back.turns[2].segments.map((seg) =>
+          seg.kind === 'tool' ? `工具:${seg.call.callId}` : `${seg.kind === 'text' ? '文字' : '思考'}:${seg.text}`
+        ),
+        [
+          '思考:先看看这一章现在有什么。',
+          '工具:c1',
+          '文字:我先看看。',
+          '思考:读完了，缺的是收尾那一段。',
+          '工具:c2',
+          '文字:写好了。',
+        ]
       );
+    });
+
+    // 每个回合各想一次，两段各自留住——攒成一块的话「它读完之后在想什么」就没了。
+    test('读回两段思考（不并成一块）', () => {
+      const think = back.turns[2].segments.filter((seg) => seg.kind === 'reasoning');
+      assert.deepEqual(think.map((seg) => seg.text), [
+        '先看看这一章现在有什么。',
+        '读完了，缺的是收尾那一段。',
+      ]);
     });
 
     // 从前这几千字根本没进会话：刷新一下，作者刚生成的东西就没了。
     test('读回 generate 产出的正文', () => {
-      assert.equal(back.turns[2].segments[2].call.output, '三更，林昭醒了。');
+      const gen = back.turns[2].segments.find((seg) => seg.kind === 'tool' && seg.call.name === 'generate');
+      assert.equal(gen.call.output, '三更，林昭醒了。');
     });
 
     test('读回那一轮的账', () => {

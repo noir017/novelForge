@@ -107,11 +107,21 @@ export interface TurnAgentRun {
 /**
  * assistant 一轮里的一段。**数组顺序就是它发生的顺序。**
  *
- * 两种段就够了：模型自己说的话，与它做的一件事。`generate` 也是「一件事」，
- * 只是那一段的 `call.output` 里还带着它产出的正文（界面上画成一张单独的卡片）。
+ * 三种段：模型**想的**、模型**说的**、它**做的一件事**。`generate` 也是「一件
+ * 事」，只是那一段的 `call.output` 里还带着它产出的正文（界面上画成一张单独的
+ * 卡片）。
+ *
+ * ## 思考为什么是一段，而不是气泡顶上那一块
+ *
+ * `ChatTurn.reasoning` 那个字段是**单步创作**留下的形状：一轮只调一次模型，
+ * 思考自然只有一份，画在正文上方就对了。agent 一轮要调好几次模型，**每一个
+ * 回合各想一次**——攒成一整块的话，「它读完这三章之后在想什么」就没了，而
+ * 那恰恰是作者想看的（第 3 步为什么突然去改别的章）。所以它按发生顺序排在
+ * 段里，和文字、工具条一样。
  */
 export type TurnSegment =
   | { kind: 'text'; text: string }
+  | { kind: 'reasoning'; text: string }
   | { kind: 'tool'; call: TurnToolCall };
 
 /** 一次工具调用在会话里留下的痕迹。只够画一行（generate 多一份产出正文）。 */
@@ -151,6 +161,85 @@ export interface TurnToolCall {
    * 截了会自报（第 2 条）。
    */
   output?: string;
+}
+
+// ---------------------------------------------------------------- 攒段
+
+/**
+ * 往段上追加模型**说的话**：末尾那一段是文字就接上去，否则新开一段。
+ *
+ * 「否则」那一支就是**交替**本身：中间插过一次工具调用（或一段思考）之后，
+ * 模型接着说的话是新的一段，不该和之前那段拼成一块——那正是从前所有话挤进
+ * 同一个文本节点的原因。
+ *
+ * **纯空白开不了新段。** 模型几乎总在调工具前后吐一两个换行（有时一整回合
+ * 只有一个 `\n` 就转头调工具），那几个字符不是它说的话。为它们新开一段，界面
+ * 上就是工具条之间一块**一行多高、什么都没有的盒子**（`.msg-body` 是
+ * `pre-wrap` 还带内边距），而且刷新之后那块空白还随会话回来。段内的换行照旧
+ * 攒着——那是它自己分的行，只有**开头**那几个要抹掉。
+ */
+export function pushTextSegment(segments: TurnSegment[], text: string): void {
+  appendSegment(segments, 'text', text);
+}
+
+/**
+ * 往段上追加模型**想的**那一段。规矩与 {@link pushTextSegment} 一样。
+ *
+ * 分成两个函数而不是带一个 kind 参数：末尾那一段是文字时思考**不能**接上去
+ * （反过来也一样）。一个回合的顺序通常是「想 → 说 → 调工具」，两者拼成一块
+ * 就等于把思考写进正文。
+ */
+export function pushReasoningSegment(segments: TurnSegment[], text: string): void {
+  appendSegment(segments, 'reasoning', text);
+}
+
+function appendSegment(segments: TurnSegment[], kind: 'text' | 'reasoning', text: string): void {
+  const last = segments[segments.length - 1];
+  if (last?.kind === kind) {
+    // 上一片还只是空白时别把换行攒在最前面（那会把第一行字往下推一行）。
+    last.text = last.text.trim() === '' ? text.trimStart() : last.text + text;
+    return;
+  }
+  const fresh = text.trimStart();
+  if (fresh) {
+    segments.push({ kind, text: fresh });
+  }
+}
+
+/**
+ * 收尾时把只剩空白的段清出去，顺手剪掉每段两头的空白。
+ *
+ * 落盘之前走一次：留着的话，第二天翻回来那一轮会凭空多出几块空盒子——而
+ * `pushTextSegment` 只管得住**段首**，段尾那几个换行是流到最后才有的。
+ */
+export function pruneSegments(segments: TurnSegment[]): TurnSegment[] {
+  const out: TurnSegment[] = [];
+  for (const seg of segments) {
+    if (seg.kind === 'tool') {
+      out.push(seg);
+      continue;
+    }
+    const text = seg.text.trim();
+    if (text) {
+      out.push({ kind: seg.kind, text });
+    }
+  }
+  return out;
+}
+
+/**
+ * 这一轮模型**自己说的话**，拼成一份 `content`。
+ *
+ * `content` 仍然是「这一轮的文字」这件事的唯一答案：字数、复制、生成标题、
+ * 单步那条路的采纳都读它。**不含思考**（那不是正文，采纳写入时不该带上它），
+ * 也**不含工具产出的正文**——那是产物，各自在自己那一段里（`call.output`）。
+ */
+export function textOfSegments(segments: TurnSegment[]): string {
+  return segments
+    .filter((seg): seg is Extract<TurnSegment, { kind: 'text' }> => seg.kind === 'text')
+    .map((seg) => seg.text.trim())
+    .filter((text) => text.length > 0)
+    .join('\n\n');
 }
 
 /**

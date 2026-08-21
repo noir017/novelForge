@@ -10,9 +10,10 @@
  *
  * 1. **占生成位**（`beginGeneration`）——与单步共用同一把锁，两条路不会同时跑；
  * 2. **走 `runTask`**（第 11 条）——工程页顶部有进度条、看得见、能停；
- * 3. **把循环的事件翻译成协议消息**——它说的话、它调的工具、它产出的正文各走
- *    各的通道（`delta` / `toolCall` + `toolResult` / `toolDelta`），动手前那一句问
- *    走 [gate.ts](gate.ts)（贴在输入框上方，不弹全局模态框）；
+ * 3. **把循环的事件翻译成协议消息**——它想的、它说的话、它调的工具、它产出的
+ *    正文各走各的通道（`reasoning` / `delta` / `toolCall` + `toolResult` /
+ *    `toolDelta`），动手前那一句问走 [gate.ts](gate.ts)（贴在输入框上方，
+ *    不弹全局模态框）；
  * 4. **把这一轮的痕迹按发生顺序存进会话**——见下面的 `segments`。
  *
  * ## 顺序是这一轮唯一存不回来的东西
@@ -20,8 +21,12 @@
  * 从前这里存的是 `content` 一整块 + `toolCalls` 一整串，于是界面只能画成「所有
  * 工具 / 一整段话」；而 `content` 拿的还是 `outcome.text`——**最后一回合**那段
  * 文字，中间几回合说的话跑完就没了（跑的时候在气泡里见过，刷新之后消失）。
- * 现在改成一边跑一边攒 `segments`：文字段与工具段交替，工具段里那个
+ * 现在改成一边跑一边攒 `segments`：想的、说的与做的交替，工具段里那个
  * `TurnToolCall` 就是 `calls` 里的同一个对象，结果与落盘结论都就地补上去。
+ *
+ * **思考也是一段**（`kind: 'reasoning'`），不是气泡顶上那一整块：`ChatTurn.reasoning`
+ * 那个字段是单步创作的形状（一轮只调一次模型，思考自然只有一份）。agent 一轮
+ * 要调好几次，每个回合各想一次——攒成一块就看不出「它读完这三章之后在想什么」。
  *
  * 判断、装配、预算全在 `core/agent/` 里，这里一条都不重复。
  */
@@ -40,6 +45,10 @@ import {
   deriveTitle,
   makeTurnId,
   nowIso,
+  pruneSegments,
+  pushReasoningSegment,
+  pushTextSegment,
+  textOfSegments,
   turnPreview,
 } from '../model/session';
 import { runAgent } from '../agent/loop';
@@ -125,37 +134,6 @@ function noteOnToolRow(
     argsText: row.argsText,
     resultText: row.resultText,
   });
-}
-
-/**
- * 往段上追加模型说的话：末尾那一段是文字就接上去，否则新开一段。
- *
- * 「否则」那一支就是**交替**本身：中间插过一次工具调用之后，模型接着说的话
- * 是新的一段，不该和之前那段拼成一块——那正是从前所有话挤进同一个文本节点
- * 的原因。
- */
-function pushText(segments: TurnSegment[], text: string): void {
-  const last = segments[segments.length - 1];
-  if (last?.kind === 'text') {
-    last.text += text;
-  } else {
-    segments.push({ kind: 'text', text });
-  }
-}
-
-/**
- * 这一轮模型自己说的话，拼成一份 `content`。
- *
- * `content` 仍然是「这一轮的文字」这件事的唯一答案：字数、复制、生成标题、
- * 单步那条路的采纳都读它。**不含工具产出的正文**——那是产物，各自在自己那
- * 一段里（`call.output`）。
- */
-function textOf(segments: TurnSegment[]): string {
-  return segments
-    .filter((seg): seg is Extract<TurnSegment, { kind: 'text' }> => seg.kind === 'text')
-    .map((seg) => seg.text.trim())
-    .filter((text) => text.length > 0)
-    .join('\n\n');
 }
 
 /**
@@ -274,7 +252,8 @@ export async function sendAgent(
   c.post({ type: 'turnDone', turn: serializeTurn(assistantTurn) });
 
   /**
-   * 这一轮排下来的段：它说的话与它做的事，**按发生顺序**。存进会话的就是这个。
+   * 这一轮排下来的段：它想的、它说的话与它做的事，**按发生顺序**。存进会话的
+   * 就是这个。攒段那几个纯函数在 `model/session.ts`（`pushTextSegment` 等）。
    */
   const segments: TurnSegment[] = [];
   /**
@@ -323,8 +302,15 @@ export async function sendAgent(
               c.post({ type: 'agentStep', turnId: assistantTurn.id, step, message });
             },
             onDelta: (delta) => {
-              pushText(segments, delta);
+              pushTextSegment(segments, delta);
               c.post({ type: 'delta', turnId: assistantTurn.id, text: delta });
+            },
+            // 它想的那一段：**另一段**，不进 `content`（`textOf` 只取文字段）。
+            // 一轮里每个回合各想一次，按发生顺序排进段里——攒成气泡顶上那一整块
+            // 的话，「它读完这三章之后在想什么」就没了，而那正是作者要看的。
+            onReasoning: (delta) => {
+              pushReasoningSegment(segments, delta);
+              c.post({ type: 'reasoning', turnId: assistantTurn.id, text: delta });
             },
             onToolCall: (call) => {
               // 段在**调用开始时**就占上位置：顺序是这一轮唯一存不回来的东西，
@@ -461,10 +447,12 @@ export async function sendAgent(
         call.output = clip(call.output, OUTPUT_LIMIT);
       }
     }
-    assistantTurn.segments = segments.length > 0 ? segments : undefined;
+    // 只剩空白的文字段清出去：留着它们，刷新之后气泡里会凭空多出几块空盒子。
+    const kept = pruneSegments(segments);
+    assistantTurn.segments = kept.length > 0 ? kept : undefined;
     // `content` 是「这一轮说的话」，拼的是那几段文字。回落到 `outcome.text`：
     // 一句话都没说（报错、刚开始就被停）时它至少还有一句「为什么停」。
-    assistantTurn.content = textOf(segments) || outcome.text;
+    assistantTurn.content = textOfSegments(kept) || outcome.text;
     // 第 4 条：花了多少必须留在会话里。只在跑的时候闪一下的话，作者第二天
     // 回来翻这一轮就看不出它花了多少。
     assistantTurn.agentRun = {

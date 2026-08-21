@@ -374,8 +374,12 @@ describe('思考过程（推理模型）', { skip: JSDOM_SKIP }, () => {
     assert.match(det().querySelector('summary').textContent, /思考过程/);
   });
 
-  test('思考不进正文', () => {
-    assert.equal(ui.bodyOf('a1').textContent, '', JSON.stringify(ui.bodyOf('a1').textContent));
+  // 思考块**接管了那块占位**：一轮刚开始留的空正文是给「它在想」留的位，
+  // 思考真的来了之后它就没有意义了——留着就是在思考块上方摆一个空盒子
+  // （`.msg-body` 是 pre-wrap 还带内边距，空着也有一行多高）。
+  test('思考不进正文（那块空占位也让位给它了）', () => {
+    const bodies = [...ui.bubble('a1').querySelectorAll('.msg-body')];
+    assert.deepEqual(bodies, [], bodies.map((b) => JSON.stringify(b.textContent)).join(' '));
   });
 
   test('思考期间也显示流式光标', () => {

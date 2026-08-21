@@ -1,14 +1,16 @@
 /**
  * 消息气泡。一条 turn 对应一个 `.msg`：头部（角色/时刻/字数/⋯ 菜单）、附件、
- * 思考过程、**段区**、花销、上下文明细、行内动作各是一块。
+ * **段区**、花销、上下文明细、行内动作各是一块。
  *
- * ## 段区：说的话与做的事交替
+ * ## 段区：想的、说的与做的交替
  *
  * agent 那一轮画的是 `turn.segments`——**顺序就是它发生的顺序**：
  *
  * ```
+ * ▸ 思考过程 · 82 字        ← 一段思考（默认折叠）
  * 🔧 list 2 项            ┐ 相邻的工具段并进同一串
  * 🔧 read 19 行           ┘
+ * ▸ 思考过程 · 140 字       ← 读完之后它又想了一次，这一段最值钱
  * ┌ 我先看看工程现在的结构。      ← 一段文字
  * ✨ 生成 · 全书大纲 · 6104 字   ← generate 单独一张卡，正文限高滚动
  * ┌ 大纲已经生成并落盘到…        ← 又一段文字
@@ -16,7 +18,8 @@
  *
  * 从前是「所有工具挤在正文上方 + 所有话灌进同一个 `.msg-body`」，作者看不出
  * 哪句话是在哪一步之后说的，而 `generate` 产出的几千字还和模型的话拌在一个
- * 文本节点里。没有段的轮次（单步创作、纯聊天）照旧只有一块正文。
+ * 文本节点里。没有段的轮次（单步创作、纯聊天）照旧只有一块正文，思考也仍是
+ * 顶上那一块（`turn.reasoning`，一轮只调一次模型，思考自然只有一份）。
  *
  * **生成中不可编辑**是这里最要紧的一条：contentEditable 的光标会被后续
  * delta 追加冲掉，用户改到一半的内容也会被 turnDone 的整体重建覆盖。
@@ -118,9 +121,11 @@ export function toolStripOf(turnId: string): HTMLElement | null {
   return strip;
 }
 
-/** 段区里当下的最后一段（工具串 / 文字块 / generate 卡都算）。 */
+/** 段区里当下的最后一段（工具串 / 文字块 / 思考块 / generate 卡都算）。 */
 export function lastSegment(node: ParentNode): HTMLElement | undefined {
-  const segments = node.querySelectorAll<HTMLElement>('.msg-body[data-seg="text"], .tools, .gen');
+  const segments = node.querySelectorAll<HTMLElement>(
+    '.msg-body[data-seg="text"], .tools, .gen, details.reasoning'
+  );
   return segments[segments.length - 1];
 }
 
@@ -130,10 +135,16 @@ export function lastSegment(node: ParentNode): HTMLElement | undefined {
  * 它是一轮刚开始时留的位（见 `buildTurn`）。第一段结果是工具调用时，留着它就是
  * 在工具条上方摆一个空盒子，还会让随后的文字接不上——段区里空的文字块没有任何
  * 意义（后端那边 `textOf` 也把空段滤掉了）。
+ *
+ * **判据是 `trim()` 而不是 `=== ''`**：模型在调工具之前几乎总要先吐一两个换行
+ * （「我来看看。\n\n」那种，或者干脆只有一个 `\n` 就转头调工具）。那几片
+ * `delta` 落进这块占位之后它就不再是空串了，于是 `=== ''` 判不出来——而
+ * `.msg-body` 是 `white-space: pre-wrap` 且带着 8px 上下内边距，一个换行画出来
+ * 就是工具条上方那块**一行多高、什么都没有的空盒子**。空白不是内容，占位该走。
  */
 export function dropEmptyText(node: ParentNode): void {
   for (const block of node.querySelectorAll<HTMLElement>('.msg-body[data-seg="text"]')) {
-    if ((block.textContent ?? '') === '') {
+    if ((block.textContent ?? '').trim() === '') {
       block.remove();
     }
   }
@@ -200,13 +211,16 @@ function buildTurn(turn: SerializedTurn): HTMLElement {
   if (turn.attachments && turn.attachments.length > 0) {
     wrap.appendChild(buildAttachments(turn.attachments));
   }
-  // 思考过程放在正文上方，默认折叠——它不是正文，但正文迟迟不来时
-  // 它是唯一的进度反馈。用户展开后的状态由 details 自己维持。
-  if (turn.reasoning) {
+  // 段区：它想的、说的与做的按发生顺序交替。没有段的轮次就是一块正文。
+  const segments = turn.role === 'assistant' ? (turn.segments ?? []) : [];
+  // 思考过程放在正文上方，默认折叠——它不是正文，但正文迟迟不来时它是唯一的
+  // 进度反馈。**只有没有段的那一轮走这条路**（单步创作：一轮只调一次模型，
+  // 思考自然只有一份）；有段的那一轮它自己就是段里的一块，位置就是它发生的
+  // 位置，在这儿再画一遍等于把同一段思考摆两处。
+  if (turn.reasoning && !segments.some((seg) => seg.kind === 'reasoning')) {
     wrap.appendChild(buildReasoningDetails(turn.reasoning));
   }
-  // 段区：它说的话与它做的事按发生顺序交替。没有段的轮次就是一块正文。
-  if (turn.role === 'assistant' && turn.segments && turn.segments.length > 0) {
+  if (segments.length > 0) {
     for (const node of buildSegments(turn)) {
       wrap.appendChild(node);
     }
@@ -396,25 +410,37 @@ function menuItemsFor(turn: SerializedTurn) {
 // ---------------------------------------------------------------- 折叠块
 
 /**
- * 思考过程的折叠块。
+ * 思考过程的折叠块。**段区里的一块**，位置就是它发生的位置。
  *
  * 推理模型（gemma/gemini thinking、DeepSeek reasoner 等）可能先想几十秒
  * 才开始吐正文。这段内容不是正文——采纳写入时不会带上它——但把它显示
  * 出来，用户才知道模型在动，而不是界面卡住了。
+ *
+ * **一轮里会有好几块**：agent 每个回合各想一次，`想 → 查 → 想 → 说` 是常态。
+ * 全灌进一块的话，「它读完那三章之后在想什么」就和第一回合的胡思乱想拌在
+ * 一起了，而前者才是作者要看的。所以它和文字块、工具条一样按顺序排。
+ *
+ * 默认折叠：它是过程，不是结论。展开状态由 details 自己维持。
  */
 export function buildReasoningDetails(text: string): HTMLDetailsElement {
   const det = mk('details', 'reasoning');
-  det.appendChild(mk('summary', undefined, `思考过程 · ${countWords(text)} 字`));
+  det.dataset.seg = 'reasoning';
+  det.appendChild(mk('summary', undefined, reasoningLabel(text)));
   det.appendChild(mk('div', 'reasoning-body', text));
   return det;
+}
+
+/** 折叠块标题上那一行。字数是「它想了多久」最直观的替代。 */
+export function reasoningLabel(text: string): string {
+  return `思考过程 · ${countWords(text)} 字`;
 }
 
 /**
  * 把一轮的段画成一串节点。
  *
  * **相邻的工具段并进同一个 `.tools` 组**：连着五次 `list` / `read` 仍然读成
- * 一串流水账，散成五块反而比从前更乱。文字段与 generate 卡打断它——那正是
- * 「读了三份 → 说一句 → 生成 → 再说一句」看得出来的地方。
+ * 一串流水账，散成五块反而比从前更乱。文字段、思考块与 generate 卡打断它
+ * ——那正是「读了三份 → 想一下 → 说一句 → 生成 → 再说一句」看得出来的地方。
  */
 function buildSegments(turn: SerializedTurn): HTMLElement[] {
   const nodes: HTMLElement[] = [];
@@ -425,6 +451,11 @@ function buildSegments(turn: SerializedTurn): HTMLElement[] {
     if (seg.kind === 'text') {
       strip = undefined;
       nodes.push(buildTextBlock(seg.text));
+      continue;
+    }
+    if (seg.kind === 'reasoning') {
+      strip = undefined;
+      nodes.push(buildReasoningDetails(seg.text));
       continue;
     }
     if (isGenerate(seg.call)) {
@@ -446,9 +477,12 @@ function buildSegments(turn: SerializedTurn): HTMLElement[] {
  *
  * `data-seg` 标出「这是段区里的一块文字」：流式追加要找的是**最后**那一块，
  * 而气泡里别的地方（用户那一支、错误文本）也叫 `.msg-body`。
+ *
+ * **两端的空白不画**：模型爱在调工具前后吐换行（「我来看看。\n\n」），那几个
+ * 字符在 `pre-wrap` 里就是一块空高度。段内的换行照旧留着——那是它自己分的行。
  */
 export function buildTextBlock(text: string): HTMLElement {
-  const body = mk('div', 'msg-body', text);
+  const body = mk('div', 'msg-body', text.trim());
   body.dataset.seg = 'text';
   return body;
 }
