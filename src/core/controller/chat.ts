@@ -356,7 +356,7 @@ export async function askArtifact(
     turnId: string;
     draft: Draft;
     art: SerializedArtifact;
-    /** 谁在要求写。agent 那条路多一颗「停止 agent」，主语也不一样。 */
+    /** 谁在要求写。只影响那句话的主语（「Agent 要把生成的产物…」）。 */
     byAgent?: boolean;
     callId?: string;
     /**
@@ -379,9 +379,7 @@ export async function askArtifact(
       name: 'artifact',
       title: `${ask.byAgent ? 'Agent 要把生成的产物' : '把这份产物'}${what}到「${art.where}」`,
       detail: art.overwrites ? `${art.summary}\n那里已经有内容了，写入前会让你先对比一遍。` : art.summary,
-      proceed: art.overwrites ? '覆盖并写入' : '写入',
       skip: '不采纳',
-      stoppable: ask.byAgent,
     },
     ask.signal
   );

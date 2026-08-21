@@ -84,7 +84,6 @@ export const generateTool: ToolDef = {
       detail: [target, text(args.ask) && `要求：${clip(text(args.ask))}`, '这一步会花钱。产出之后还会再问你一次要不要落盘。']
         .filter(Boolean)
         .join('\n'),
-      proceed: '生成',
     };
   },
 

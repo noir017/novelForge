@@ -94,12 +94,13 @@ export type InMessage =
   | { type: 'clearLogs' }
   | { type: 'promptResult'; requestId: string; value?: string }
   /**
-   * 作者在对话页那张权限卡片上点了一颗按钮（`gate` 的回答）。
+   * 作者在对话页那张权限卡片上点了一颗按钮（`gate` 的回答）。**只有两个值**
+   * ——叫停整轮走的是 `stop`，不在这张卡上。
    *
    * 认不出的 `requestId` 静默丢弃：重连之后前端可能还留着一张早就结束了的
    * 卡片，为它报错只会让作者莫名其妙。
    */
-  | { type: 'gateResult'; requestId: string; verdict: 'proceed' | 'skip' | 'stop' }
+  | { type: 'gateResult'; requestId: string; verdict: 'proceed' | 'skip' }
   /**
    * 本机列一层目录（绝对路径）。独立版空窗口选工程用；插件不会发。
    * `path` 为空表示根层（Unix 的 `/`，Windows 的盘符列表）。

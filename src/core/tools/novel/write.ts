@@ -58,13 +58,12 @@ export const writeTool: ToolDef = {
     const mode = text(args.mode) || 'create';
     const target = text(args.path);
     if (mode === 'overwrite') {
-      return { gate: 'reviewed', title: `覆盖「${describePath(target, project)}」`, proceed: '写入' };
+      return { gate: 'reviewed', title: `覆盖「${describePath(target, project)}」` };
     }
     return {
       gate: 'mutating',
       title: `写入「${describePath(target, project)}」`,
       detail: `${target}（${mode === 'append' ? '追加到末尾' : '新建'}）`,
-      proceed: '写入',
     };
   },
 

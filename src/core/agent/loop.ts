@@ -62,8 +62,8 @@ import {
   AgentPolicy,
   Gate,
   GateVerdict,
+  PROCEED_ACTION,
   SKIP_ACTION,
-  STOP_ACTION,
   declinedText,
   gateFor,
 } from './policy';
@@ -181,7 +181,7 @@ export type StopReason =
   | 'stalled'
   /** 上下文压到底仍然超预算。 */
   | 'overBudget'
-  /** 作者在确认框里选了「停止 agent」。 */
+  /** 闸门那一问没有得到回答（卡片被取消 / 宿主的框被关掉），按停止处理。 */
   | 'declined'
   | 'cancelled'
   | 'error';
@@ -406,7 +406,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
         const ran = await runOne(tools, call, budget, toolRun, on, draftIds);
         turns.push(toolMessage(call, ran.text));
         if (ran.stop) {
-          // 作者在「这份产物要不要落盘」那张卡上按了「停止 agent」。
+          // 「这份产物要不要落盘」那张卡没人答（换了会话 / 取消了这一轮）。
           declined = true;
           break;
         }
@@ -516,10 +516,12 @@ async function runOne(
 }
 
 /**
- * 问作者那一句。**三个选项，不是两个**：跳过这一步 / 停止 agent / 同意。
+ * 问作者那一句。**两个选项**：确认 / 跳过。
  *
- * 关掉对话框（Esc / 点外面）当**停止**：他被问「要不要动你的磁盘」而没有回答，
- * 不该替他答「继续」。停止不丢东西——已经写下的还在，模型还有最后一轮说明。
+ * 叫停整轮不在这一问里（那是面板上那颗「停止」）：混在闸门里的第三颗按钮只会
+ * 被误当成「跳过」，而两者的后果差着一整轮。但**没有回答仍然当停止**——关掉
+ * 对话框、取消这一轮，他被问「要不要动你的磁盘」而没有回答，不该替他答
+ * 「继续」。停止不丢东西：已经写下的还在，模型还有最后一轮说明。
  *
  * **问在哪儿不是这一层的事**：有 `onGate` 就交给调用方（面板画成对话里的卡片），
  * 没有才退回宿主那个全局框。循环只管拿到三个结论中的一个。
@@ -528,7 +530,7 @@ async function askGate(gate: Gate, on: AgentHandlers, call: ToolCall): Promise<G
   if (!gate.confirm) {
     return 'proceed';
   }
-  const proceed = gate.proceed ?? '继续';
+  const proceed = gate.proceed ?? PROCEED_ACTION;
   const title = gate.message ?? `Agent 要执行 ${call.name}。`;
   const verdict = on.onGate
     ? await on.onGate({
@@ -548,9 +550,14 @@ async function askGate(gate: Gate, on: AgentHandlers, call: ToolCall): Promise<G
   return verdict;
 }
 
-/** 宿主那个全局确认框。没有 `onGate` 的调用方（命令行宿主、测试）走这条。 */
+/**
+ * 宿主那个全局确认框。没有 `onGate` 的调用方（命令行宿主、测试）走这条。
+ *
+ * 两个按钮，和面板上那张卡一样。**关掉框（Esc / 点外面）当停止**：那是这条路
+ * 上唯一的「没有回答」，替他答「继续」是最不该做的事。
+ */
 async function askHost(title: string, detail: string | undefined, proceed: string): Promise<GateVerdict> {
-  const pick = await getHost().confirm(title, [proceed, SKIP_ACTION, STOP_ACTION], {
+  const pick = await getHost().confirm(title, [proceed, SKIP_ACTION], {
     modal: true,
     detail,
   });

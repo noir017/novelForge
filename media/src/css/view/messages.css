@@ -411,12 +411,6 @@ details.tool-row > summary.tool-line:hover {
   margin-top: 8px;
 }
 
-/* 停止那颗掐的是整轮，标成红字（不是实心红底：它不是「删除」那种终局动作，
-   作者随时可以再发一句话接着做）。 */
-.tool-gate-actions button.tool-gate-stop {
-  color: var(--vscode-errorForeground);
-}
-
 /* 答完之后收成一行留在原地：紧跟着的工具条只说「未执行」，
    「因为我按了跳过」这件事只有这一行讲得出。 */
 .tool-gate.settled {

@@ -8,7 +8,7 @@
  * | 用例 | 钉的是什么 |
  * |---|---|
  * | `gate` 到了 | 卡片进气泡的工具串，**遮罩层一动不动** |
- * | 三颗按钮 | 字全部来自后端（工具自报的说辞），前端不写死 |
+ * | 两颗按钮 | 字全部来自后端，前端不写死；**叫停整轮不在这张卡上** |
  * | 点一颗 | 发回 `gateResult`，卡片就地锁上，不能再点第二颗 |
  * | 重连重推同一条 | 不画出两张 |
  * | `gateDone` | 另一个视图上答的，这边也收 |
@@ -26,9 +26,8 @@ const GATE = {
   title: 'Agent 要写入设定「北境雪原」',
   detail: '.novelforge/lore/北境雪原.md · 新建 · 约 320 字',
   argsText: '{\n  "path": ".novelforge/lore/北境雪原.md"\n}',
-  proceed: '写入',
-  skip: '跳过这一步',
-  stop: '停止 agent',
+  proceed: '确认',
+  skip: '跳过',
 };
 
 const card = (ui) => ui.bubble('a1') && ui.bubble('a1').querySelector('.tool-gate');
@@ -73,8 +72,10 @@ describe('权限请求画在气泡里', { skip: JSDOM_SKIP }, () => {
     assert.equal(det.open, false);
   });
 
-  test('三颗按钮，字来自后端', () => {
-    assert.deepEqual(buttons(ui).map((b) => b.textContent), ['写入', '跳过这一步', '停止 agent']);
+  // 叫停整轮是输入框旁边那颗「停止」：与「这一个文件要不要动」是两件事，
+  // 摆在闸门里只会被误当成「跳过」，而两者的后果差着一整轮。
+  test('两颗按钮，字来自后端', () => {
+    assert.deepEqual(buttons(ui).map((b) => b.textContent), ['确认', '跳过']);
   });
 
   test('正文没被冲掉（就地插入，不重建气泡）', () => {
@@ -106,7 +107,7 @@ describe('点下去', { skip: JSDOM_SKIP }, () => {
     assert.equal(sent.verdict, 'proceed');
   });
 
-  // 后端回话之前不锁的话，作者能把三颗都点一遍，而只有第一下算数。
+  // 后端回话之前不锁的话，作者能把两颗都点一遍，而只有第一下算数。
   test('卡片就地锁上，按钮没了', () => {
     assert.ok(card(ui).classList.contains('settled'), card(ui).className);
     assert.equal(card(ui).querySelector('button'), null);
@@ -117,20 +118,13 @@ describe('点下去', { skip: JSDOM_SKIP }, () => {
   });
 });
 
-describe('跳过与停止', { skip: JSDOM_SKIP }, () => {
-  test('跳过这一步', () => {
+describe('跳过', { skip: JSDOM_SKIP }, () => {
+  test('发回 skip，并标成「拒绝了」那一档', () => {
     const ui = running();
     ui.post(GATE);
     ui.clickEl(buttons(ui)[1]);
     assert.equal(ui.last('gateResult').verdict, 'skip');
     assert.ok(card(ui).textContent.includes('已跳过'), card(ui).textContent);
-  });
-
-  test('停止 agent', () => {
-    const ui = running();
-    ui.post(GATE);
-    ui.clickEl(buttons(ui)[2]);
-    assert.equal(ui.last('gateResult').verdict, 'stop');
     assert.ok(card(ui).classList.contains('declined'), card(ui).className);
   });
 });
@@ -151,17 +145,17 @@ describe('另一个视图上答了 / 这一轮被取消', { skip: JSDOM_SKIP }, 
     assert.equal(card(ui).querySelector('button'), null);
   });
 
-  test('说的是「取消」，不是作者答的那三个', () => {
+  test('说的是「取消」，不是作者答的那两个', () => {
     assert.ok(card(ui).textContent.includes('已取消'), card(ui).textContent);
   });
 
   test('认不出的 requestId 不炸', () => {
-    assert.doesNotThrow(() => ui.post({ type: 'gateDone', requestId: '并不存在', verdict: 'stop' }));
+    assert.doesNotThrow(() => ui.post({ type: 'gateDone', requestId: '并不存在', verdict: 'skip' }));
   });
 });
 
-// 单步创作（点「写剧情」）产出之后那张落盘卡片：背后没有循环可停，位置也
-// 不一样——它挂在正文**下面**，作者要先读完这份产物才决定写不写。
+// 产出之后那张落盘卡片：位置不一样——它挂在正文**下面**，作者要先读完这份
+// 产物才决定写不写；拒绝那颗写的也不是「跳过」，而是「不采纳」。
 describe('产物落盘那一张', { skip: JSDOM_SKIP }, () => {
   let ui;
 
@@ -170,18 +164,17 @@ describe('产物落盘那一张', { skip: JSDOM_SKIP }, () => {
     ui.post({
       ...GATE,
       callId: undefined,
-      stop: undefined,
       name: 'artifact',
       title: '把这份产物写入到「第 12 章《夜入青云》 · 剧情」',
       detail: '剧情 · 4/4 节',
       argsText: undefined,
-      proceed: '写入',
+      proceed: '确认',
       skip: '不采纳',
     });
   });
 
-  test('只画两颗按钮', () => {
-    assert.deepEqual(buttons(ui).map((b) => b.textContent), ['写入', '不采纳']);
+  test('拒绝那颗写「不采纳」', () => {
+    assert.deepEqual(buttons(ui).map((b) => b.textContent), ['确认', '不采纳']);
   });
 
   // 排进工具串的话它会跑到正文上面去——那时作者还没读到这份产物。

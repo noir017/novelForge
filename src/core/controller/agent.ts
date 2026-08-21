@@ -311,7 +311,6 @@ export async function sendAgent(
                   // 两处不一样的话，作者点头时看到的和随后核对的就对不上。
                   argsText: describeArgs(req.args),
                   proceed: req.proceed,
-                  stoppable: true,
                 },
                 lease.signal
               ),

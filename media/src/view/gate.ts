@@ -5,7 +5,7 @@
  * 🔒 Agent 要写入设定「北境雪原」
  *    .novelforge/lore/北境雪原.md
  *    ▸ 参数
- *    [ 写入 ]  跳过这一步   停止 agent
+ *    [ 确认 ]  跳过
  * ```
  *
  * **不是模态框**：作者要判断的上下文（它刚读了哪几章、正要写哪个文件）就在
@@ -14,11 +14,13 @@
  * 页面照常能滚、能翻、能点别的。
  *
  * **两种问法长一个样**：agent 动手前的闸门，以及**产物落盘前那一句**——后者
- * 从前是气泡末尾那颗「采纳写入」，一颗可以永远不点的按钮。单步创作那条路的
- * 落盘卡片只有两颗按钮（没有循环可停），靠 `msg.stop` 在不在判断。
+ * 从前是气泡末尾那颗「采纳写入」，一颗可以永远不点的按钮。
  *
- * 三颗按钮上的字全部由后端给（`agentGate`）：「写入」「替换」「执行」是工具
- * 自报的说辞，前端写死一份的话，改了文案两边就对不上。
+ * **只有两颗按钮**：叫停整轮是输入框旁边那颗「停止」，不在这张卡上——它与
+ * 「这一个文件要不要动」是两件事，摆在闸门里只会被误当成「跳过」。
+ *
+ * 两颗按钮上的字都由后端给（`agentGate`）：闸门上是「确认 / 跳过」，落盘那
+ * 一问是「确认 / 不采纳」，前端写死一份的话，改了文案两边就对不上。
  *
  * 答完之后卡片**收成一行**留在原地，不整条抹掉——紧跟着的那条工具条会说
  * 「未执行」，而「因为我按了跳过」这件事只有这一行讲得出。这一轮结束时气泡
@@ -29,13 +31,12 @@ import type { OutMessage } from '../protocol';
 import { vscode } from './store';
 
 type GateMessage = Extract<OutMessage, { type: 'gate' }>;
-type Verdict = 'proceed' | 'skip' | 'stop' | 'cancelled';
+type Verdict = 'proceed' | 'skip' | 'cancelled';
 
 /** 结算之后那一行上的说法。取消是「这一轮停了」，不是作者答的。 */
 const SETTLED: Record<Verdict, string> = {
   proceed: '已允许',
-  skip: '已跳过这一步',
-  stop: '已停止 agent',
+  skip: '已跳过',
   cancelled: '已取消，没有执行',
 };
 
@@ -61,23 +62,17 @@ export function buildGateCard(msg: GateMessage): HTMLElement {
     card.appendChild(det);
   }
 
-  const answer = (verdict: 'proceed' | 'skip' | 'stop') => {
-    // 先就地锁上：慢一点的后端回话之前，作者不该能把三颗都点一遍。
+  const answer = (verdict: 'proceed' | 'skip') => {
+    // 先就地锁上：慢一点的后端回话之前，作者不该能把两颗都点一遍。
     settleGateCard(card, verdict);
     vscode.postMessage({ type: 'gateResult', requestId: msg.requestId, verdict });
   };
 
-  // 同意是主按钮，另外两颗压成描边胶囊：三颗一样重的话，作者会下意识点最左边
-  // 那颗——而这一下是「动我的磁盘」。停止那颗单独标红字，它掐的是整轮。
-  //
-  // **「停止 agent」可能没有**：单步创作（点「写剧情」）产出后那张落盘卡片
-  // 背后没有循环可停，多一颗只会让作者以为自己在跟 agent 说话。
+  // 同意是主按钮，跳过压成描边胶囊：两颗一样重的话，作者会下意识点左边那颗
+  // ——而这一下是「动我的磁盘」。
   const actions = mk('div', 'tool-gate-actions');
   actions.appendChild(gateBtn(msg.proceed, 'primary', () => answer('proceed')));
   actions.appendChild(gateBtn(msg.skip, 'chip-btn', () => answer('skip')));
-  if (msg.stop) {
-    actions.appendChild(gateBtn(msg.stop, 'chip-btn tool-gate-stop', () => answer('stop')));
-  }
   card.appendChild(actions);
   return card;
 }

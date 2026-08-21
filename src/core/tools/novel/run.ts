@@ -226,7 +226,6 @@ export const runTool: ToolDef = {
       detail: [target, '要调模型的动作随后还会告诉你预计调用几次，那一步你也可以不同意。']
         .filter(Boolean)
         .join('\n'),
-      proceed: '执行',
     };
   },
 

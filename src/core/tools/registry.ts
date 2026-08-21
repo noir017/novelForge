@@ -83,7 +83,6 @@ export class ToolRegistry implements ToolInvoker {
     return {
       gate: def.mutating || def.costly ? 'mutating' : 'auto',
       title: `执行 ${def.name}`,
-      proceed: '执行',
     };
   }
 
