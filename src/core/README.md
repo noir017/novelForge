@@ -14,7 +14,7 @@
 | [llm/](llm/README.md) | 模型接入：`LlmProvider` 接口、OpenAI / Anthropic 协议实现、provider 注册表 |
 | [files/](files/) | ★ 工程文件能力的**交互流程**：三区界限判断、弹输入框、拼 toast 文案，以及资源管理器目录列举与 `@` 引用候选。落盘一律转调 `workspace/`——不越界、不静默覆盖、删除搬进 `.trash/` 那几条守卫在网关里做一次。 |
 | [views/](views/README.md) | ★ 只读聚合与界面快照：工程树、单章流水线、创作工作区卡与出场人物索引。只从磁盘取数，不写盘。`views/pipeline.ts` 是 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，不迁入 `views/`。 |
-| [runtime/](runtime/) | ★ 宿主无关的运行时设施：日志、SQLite 痕迹库、失败记录、长任务登记与有界并发。`logger.ts` 保持零依赖；日志持久化由 `db.ts` 订阅 logger sink，依赖方向不可反转。 |
+| [runtime/](runtime/README.md) | ★ 宿主无关的运行时设施：日志、SQLite 痕迹库、失败记录、长任务登记与有界并发。`logger.ts` 保持零依赖；日志持久化由 `db.ts` 订阅 logger sink，依赖方向不可反转。 |
 
 依赖方向自上而下：`features/` / `generation/` → `context/` / `llm/` → `workspace/` → `model/`，反向不允许。`tools/` 坐在最上面（它调 `generation/`、`workspace/` 与 `features/`），**不认识 `controller/`**——反过来会成环。
 
