@@ -9,6 +9,11 @@
  * 与磁盘上的配置无关，标脏了 dirty 就再也清不掉。
  */
 import { el as mk, setHidden } from '../../dom';
+import {
+  CHAT_THINKING_STYLES,
+  CHAT_THINKING_STYLE_LABEL,
+  DEFAULT_CHAT_THINKING_STYLE,
+} from '../../protocol';
 import type { SerializedModel, SerializedProvider } from '../../protocol';
 import { linkBtn, primaryBtn, secondaryBtn } from '../buttons';
 import { el } from '../refs';
@@ -127,6 +132,9 @@ function applyPreset(preset: SerializedProvider): void {
   temp.label = copy.label;
   temp.kind = copy.kind;
   temp.baseUrl = copy.baseUrl;
+  // 预设知道这一家认哪套思考字段，别把它丢在这儿——丢了就要白等几次 400
+  // 重新问一遍。
+  temp.thinkingStyle = copy.thinkingStyle;
   temp.models = copy.models;
   fill(temp);
 }
@@ -202,6 +210,11 @@ function buildProviderEditor(p: SerializedProvider): HTMLElement {
         p.kind = v as SerializedProvider['kind'];
         // 接口地址跟着协议走：换了协议还留着上一家的地址，一定 404。
         p.baseUrl = DEFAULT_BASE_URL[p.kind];
+        // 思考字段只对通用那条有意义，换去别的协议就把它清掉——留着会被
+        // 后端的 normalizeProviders 丢掉，但配置文件里留一个死字段更费解。
+        if (p.kind !== 'openai') {
+          p.thinkingStyle = undefined;
+        }
         editorTouch();
         fill(p);
       }
@@ -234,6 +247,30 @@ function buildProviderEditor(p: SerializedProvider): HTMLElement {
         p.baseUrl = v.trim() || undefined;
         editorTouch();
       })
+    );
+  }
+
+  // 思考字段只有通用 chat/completions 那条路上是个问题：另外两条协议各自
+  // 只有一种写法，摆一个只有一个选项的下拉框纯属添乱。
+  if (p.kind === 'openai') {
+    card.appendChild(
+      selectField(
+        '思考字段',
+        p.thinkingStyle || DEFAULT_CHAT_THINKING_STYLE,
+        CHAT_THINKING_STYLES.map((s) => [s, CHAT_THINKING_STYLE_LABEL[s]]),
+        (v) => {
+          p.thinkingStyle = v;
+          editorTouch();
+        }
+      )
+    );
+    card.appendChild(
+      mk(
+        'div',
+        'hint',
+        '这条协议上「想多深」各家的字段名不一样。缺省自动协商：被拒一次就换下一种，' +
+          '结论只记在内存里。猜错了（比如网关的报错措辞认不出来）就在这里钉死。'
+      )
     );
   }
 
