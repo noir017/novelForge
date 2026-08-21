@@ -66,6 +66,50 @@ describe('model/thinking · 两家的字段映射', () => {
   });
 });
 
+describe('model/thinking · 通用 chat/completions 的 effort', () => {
+  test('不思考那档不带字段', () => {
+    assert.equal(m.chatEffort('off'), undefined);
+  });
+
+  test('低 / 中 / 深原样传', () => {
+    for (const depth of ['low', 'medium', 'high']) {
+      assert.equal(m.chatEffort(depth), depth);
+    }
+  });
+
+  // 这一档与 Responses 不同名：DeepSeek / Kimi 收 max，不收 xhigh。
+  test('极限档发 max 而不是 xhigh', () => {
+    assert.equal(m.chatEffort('max'), 'max');
+  });
+});
+
+describe('model/thinking · 思考字段风格', () => {
+  test('缺省自动协商', () => {
+    assert.equal(m.DEFAULT_CHAT_THINKING_STYLE, 'auto');
+  });
+
+  test('六个风格都有说法', () => {
+    for (const style of m.CHAT_THINKING_STYLES) {
+      assert.ok(m.CHAT_THINKING_STYLE_LABEL[style], style);
+    }
+  });
+
+  // auto 不在梯子里：它是「按梯子逐个试」，不是一种可发的写法。
+  test('梯子从最通用排到最窄，末档是不带字段', () => {
+    assert.deepEqual(m.CHAT_STYLE_LADDER, ['effort', 'thinking', 'enable', 'reasoning', 'none']);
+  });
+
+  test('认不出的风格回落 auto', () => {
+    assert.equal(m.normalizeChatThinkingStyle('胡说'), 'auto');
+    assert.equal(m.normalizeChatThinkingStyle(undefined), 'auto');
+    assert.equal(m.normalizeChatThinkingStyle(7), 'auto');
+  });
+
+  test('合法风格原样读出', () => {
+    assert.equal(m.normalizeChatThinkingStyle('enable'), 'enable');
+  });
+});
+
 describe('model/thinking · 手动预算按输出上限收紧', () => {
   test('上限够时用档位自己的预算', () => {
     assert.equal(m.thinkingBudget('low', 32000), 4096);

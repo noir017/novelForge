@@ -12,10 +12,10 @@ const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
 const { loadModule } = require('../../helpers/load');
 
-describe('llm/openaiProvider · 消息转换', () => {
+describe('llm/responsesProvider · 消息转换', () => {
   let m;
   before(() => {
-    m = loadModule('src/core/llm/openaiProvider.ts');
+    m = loadModule('src/core/llm/responsesProvider.ts');
   });
 
   test('system 合并进 instructions，不留在 input 里', () => {
@@ -71,7 +71,7 @@ describe('llm/openaiProvider · 消息转换', () => {
       {
         role: 'assistant',
         content: '',
-        traces: [{ kind: 'openai', payload: { type: 'reasoning', id: 'rs_1' } }],
+        traces: [{ kind: 'openai-responses', payload: { type: 'reasoning', id: 'rs_1' } }],
         toolCalls: [{ id: 'c1', name: 'read', args: {}, raw: '{}' }],
       },
     ]);
@@ -94,10 +94,10 @@ describe('llm/openaiProvider · 消息转换', () => {
   });
 });
 
-describe('llm/openaiProvider · 事件解析', () => {
+describe('llm/responsesProvider · 事件解析', () => {
   let m;
   before(() => {
-    m = loadModule('src/core/llm/openaiProvider.ts');
+    m = loadModule('src/core/llm/responsesProvider.ts');
   });
 
   const read = (event) => m.readResponsesEvent(event, 'test-model @ 127.0.0.1');
@@ -143,7 +143,7 @@ describe('llm/openaiProvider · 事件解析', () => {
   test('reasoning 项原样收成凭据', () => {
     const item = { type: 'reasoning', id: 'rs_1', encrypted_content: 'xx' };
     assert.deepEqual(read({ type: 'response.output_item.done', item }), [
-      { type: 'reasoningTrace', trace: { kind: 'openai', payload: item } },
+      { type: 'reasoningTrace', trace: { kind: 'openai-responses', payload: item } },
     ]);
   });
 
@@ -183,10 +183,11 @@ describe('llm/openaiProvider · 事件解析', () => {
   });
 });
 
-describe('llm/openaiProvider · 工具参数解析', () => {
+// 三条协议共用这一份，所以它住在 http.ts 而不是某一个 provider 里。
+describe('llm/http · 工具参数解析', () => {
   let m;
   before(() => {
-    m = loadModule('src/core/llm/openaiProvider.ts');
+    m = loadModule('src/core/llm/http.ts');
   });
 
   test('空串与坏 JSON 退成空对象', () => {

@@ -337,9 +337,17 @@ export function negotiate(
     return false;
   }
 
-  // 「这个 effort 值不认」：先降档——梯子上老模型缺的往往只是顶上那一两档，
-  // 不是整套写法。降到底了才换写法。
-  if (detail.includes('effort') && quirk.maxDepth !== 'low') {
+  // 「这个 effort **值**不认」：先降档——梯子上老模型缺的往往只是顶上那一两
+  // 档，不是整套写法。降到底了才换写法。
+  //
+  // 这里必须分清两种抱怨，否则会走错路：
+  //   值不认   Unsupported value: 'reasoning_effort' does not support 'max'
+  //   字段不认 Unrecognized request argument: 'reasoning_effort'
+  // 两句话里都有 "reasoning_effort"（于是都含 "effort" 这个子串），但前者该降
+  // 档、后者该换写法。只按子串判会把「它压根不认识这个字段」当成「这一档太
+  // 高」，于是一路降到 low 都在发同一个它不认识的字段名——四种写法一种都试不
+  // 到，作者看到的是「思考深度这个开关对这家没用」。
+  if (rejectsValue(detail) && quirk.maxDepth !== 'low') {
     quirk.maxDepth = downgradeDepth(quirk.maxDepth);
     log.warn(
       `${label} 不认这一档思考深度，降到「${THINKING_LABEL[quirk.maxDepth]}」再发一次`,
@@ -393,6 +401,37 @@ function mentionsThinking(detail: string): boolean {
     detail.includes('thinking') ||
     detail.includes('effort') ||
     detail.includes('budget')
+  );
+}
+
+/**
+ * 这句抱怨说的是「**值**不对」还是「**字段**不认识」。
+ *
+ * 前者降一档就能过，后者降到底也没用（字段名从头到尾没变）。各家措辞抄自实际
+ * 见过的报错：OpenAI/Kimi 用 `Unsupported value`，智谱用 `invalid value`，
+ * 通义用 `invalid_parameter`；而「不认识这个字段」那一类固定是
+ * `unrecognized` / `unknown field` / `unexpected` / `not supported` 这几种说法。
+ *
+ * 判不准时**宁可当成字段不认**（返回 false → 换写法）：换写法最多多试三次就
+ * 收敛，而在一个它不认识的字段上降档是死路。
+ */
+function rejectsValue(detail: string): boolean {
+  const unknownField =
+    detail.includes('unrecognized') ||
+    detail.includes('unknown field') ||
+    detail.includes('unknown parameter') ||
+    detail.includes('unexpected') ||
+    detail.includes('not supported') ||
+    detail.includes('unsupported parameter');
+  if (unknownField) {
+    return false;
+  }
+  return (
+    detail.includes('unsupported value') ||
+    detail.includes('invalid value') ||
+    detail.includes('invalid_parameter') ||
+    detail.includes('does not support') ||
+    detail.includes('must be one of')
   );
 }
 
