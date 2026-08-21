@@ -85,8 +85,9 @@ provider 里判「现在是哪一条」——那种分支每加一个字段就�
   更是有两代写法（自适应 `thinking: {type:'adaptive'}` + `output_config.effort`，以及 4.5 及
   更早唯一可用的手动预算 `thinking: {type:'enabled', budget_tokens}`，后者在 4.7 以后直接被
   拒）；通用那条则是上面那四种风格。三个 provider 各自按「接口地址 + 模型」把结论记在内存里
-  （`QUIRKS`）：降一档、换一种写法、最后退到不带思考字段，每种模型一生只吃一次 400。
+  ：降一档、换一种写法、最后退到不带思考字段。**结论分两张表记**（通用那条）：哪个**字段名**能用按 `baseUrl` 记（`STYLE`），能到**多高档**、收不收 `temperature` 按 `baseUrl|model` 记（`PER_MODEL`）。认字段名的是网关：一个 OpenRouter 底下挂着 Claude、GPT、DeepSeek、GLM，但收请求的始终是 openrouter.ai 那一层——按模型记的话，挂 20 个模型就要把同一个答案问 20 遍，每遍最多四次重发。而档位相反是模型的属性：同网关下 gpt-4o 只到 high、Claude 能到 max，混在一起记会把所有模型都限在最低那一档上，而作者选的是「极限思考」。代价：网关真按模型分化字段时（少见），第一个模型的结论会先套到其余模型上——套错了照样被 400，然后就地重新协商，不会卡死。
   **记在内存而不是配置里**——这是上游的事实，不是作者的偏好。
+- **协商花多少次**。它是**同一次生成的重发**，不是额外的模型调用——被 400 的那几次上游没跑模型，不出 token，代价是延迟。预设里那几家带了 `thinkingStyle`，**0 次**；自己填地址的网关猜对也是 0 次（梯子第一档 `reasoning_effort` 覆盖 OpenAI / Kimi / Ollama / DeepSeek），要换写法最多 **4 次**；「不思考」那档 0 次（压根不带思考字段）。上限 `MAX_NEGOTIATIONS` **按梯子长度算出来**而不是拍一个数：最长那条路是先把 effort 从 max 降到 low（4 档）、再把四种写法轮一遍退到不带（4 步），写死一个数会在那条路上提前报错——这里真踩过，作者第一次调用会平白吃一次失败。
 - **400 要分清「值不认」与「字段不认」**。`Unsupported value: 'reasoning_effort' does not
   support 'max'` 与 `Unrecognized request argument: 'reasoning_effort'` 里都有 `effort` 这个
   子串，但前者该**降档**、后者该**换写法**。只按子串判会把「它压根不认识这个字段」当成「这一

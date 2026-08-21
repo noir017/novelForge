@@ -2,6 +2,7 @@ import {
   CHAT_STYLE_LADDER,
   CHAT_THINKING_STYLE_LABEL,
   ChatThinkingStyle,
+  THINKING_DEPTHS,
   THINKING_LABEL,
   ThinkingDepth,
   chatEffort,
@@ -25,6 +26,21 @@ import {
 } from './provider';
 
 const log = scoped('模型');
+
+/**
+ * 一次生成里最多协商几回（**不是重试次数**：每一回的请求体都比上一回少一样
+ * 东西或换一种写法，见 stream 里的循环）。
+ *
+ * 按最长路径算出来，不拍脑袋：`THINKING_DEPTHS.length - 1` 是 effort 从 max
+ * 降到 low 的档数，`CHAT_STYLE_LADDER.length - 1` 是四种写法轮完退到不带的步
+ * 数，再加 `stream_options` 与 `temperature` 各一次。
+ *
+ * 之前这里写死 6，而最坏路径要 7 步——于是在「认识 reasoning_effort 这个字段
+ * 名、但抱怨措辞是『值不支持』」的网关上，作者第一次调用会平白吃一次报错，第
+ * 二次才成。数字与梯子长度绑起来，以后往梯子上加一档不会再复发。
+ */
+const MAX_NEGOTIATIONS =
+  THINKING_DEPTHS.length - 1 + (CHAT_STYLE_LADDER.length - 1) + 2;
 
 /**
  * 通用 **OpenAI 兼容** `/chat/completions` 流式实现。
@@ -110,7 +126,14 @@ export class ChatCompletionsProvider implements LlmProvider {
         }
         // 响应体只读一次：字段协商要看它，报错也要看它。
         const detail = await readBody(response);
-        if (attempt < 6 && negotiate(response.status, detail, sent, quirk, this.label)) {
+        // 上游拒了某个字段就换一种写法再发（见 negotiate）——**不是重试同一个
+        // 请求**：每一次的请求体都与上一次不同，而每一次协商都把某样东西**单调
+        // 地往下拨一格**（档位降一档、风格换下一种、去掉一个字段），所以这个
+        // 循环必然收敛。上限按最长路径算出来而不是拍一个数：最坏是先把 effort
+        // 从 max 一路降到 low（4 档），再把四种写法轮一遍退到不带（4 步），外加
+        // stream_options 与 temperature 各一次。写死一个数的话，梯子上加一档就
+        // 会在最坏路径上提前抛错——那正是这里踩过的坑。
+        if (attempt < MAX_NEGOTIATIONS && negotiate(response.status, detail, sent, quirk, this.label)) {
           continue;
         }
         throw new LlmError(
@@ -161,7 +184,12 @@ export class ChatCompletionsProvider implements LlmProvider {
 
 // ---------------------------------------------------------------- 请求体
 
-/** 上游明确拒过的字段。同一个模型只吃一次亏，之后每次请求都不再带它。 */
+/**
+ * 上游明确拒过的字段。同一个模型只吃一次亏，之后每次请求都不再带它。
+ *
+ * **这是两张表拼出来的一个视图**，不是一条记录——见下面 `STYLE` / `PER_MODEL`。
+ * `style` / `pinned` 来自按网关记的那张，其余来自按模型记的那张。
+ */
 export interface Quirks {
   /** 这一次要用哪种思考写法。作者钉死时不动它。 */
   style: Exclude<ChatThinkingStyle, 'auto'>;
@@ -178,29 +206,91 @@ export interface Quirks {
 }
 
 /**
- * 每个「接口地址 + 模型」一份。
+ * 「这个网关认哪个字段名」——**按接口地址记，与模型无关**。
+ *
+ * 认字段名的是**网关**：一个 OpenRouter 底下挂着 Claude、GPT、DeepSeek、GLM，
+ * 但收请求的始终是 openrouter.ai 那一层，它认 `reasoning` 对象这件事对底下每
+ * 个模型都成立。按模型记的话，挂 20 个模型就要把同一个答案问 20 遍，每遍最多
+ * 四次重发——问出来的还是同一个结论。
+ *
+ * 代价：网关真按模型分化字段时（少见），第一个模型的结论会先套到其余模型上。
+ * 那不会卡死——套错了照样被 400，然后就地重新协商，最多多花一轮。
+ */
+const STYLE = new Map<string, { style: Exclude<ChatThinkingStyle, 'auto'>; pinned: boolean }>();
+
+/**
+ * 「这个模型能到多高档」「它收不收 temperature」——**按接口地址 + 模型记**。
+ *
+ * 这几样与字段名相反，是**模型**的属性：同一个网关下 gpt-4o 只到 high、Claude
+ * 能到 max，混在一起记会把所有模型都限在最低那一档上，而作者在界面上选了「极限
+ * 思考」，账单和效果上都看不出是谁把它降下来的。
+ */
+const PER_MODEL = new Map<string, Omit<Quirks, 'style' | 'pinned'>>();
+
+/**
+ * 两张表拼成这一次请求要用的 `Quirks`。
  *
  * 记在内存里而不是配置里：这是**上游的事实**（这个网关认哪个字段名），不是
  * 作者的偏好。进程重启后重新学一遍，代价是几次 400。作者真想固化它，设置页
  * 的「思考字段」下拉就是那个地方——那一档会带上 `pinned`。
  */
-const QUIRKS = new Map<string, Quirks>();
-
 function quirksOf(baseUrl: string, model: string, style: ChatThinkingStyle): Quirks {
-  const key = `${baseUrl}|${model}|${style}`;
-  let q = QUIRKS.get(key);
-  if (!q) {
-    q = {
-      style: style === 'auto' ? CHAT_STYLE_LADDER[0] : style,
-      pinned: style !== 'auto',
-      noStreamOptions: false,
-      noTemperature: false,
-      maxDepth: 'max',
-      warnedRoom: false,
-    };
-    QUIRKS.set(key, q);
+  // 钉死的风格按 baseUrl+style 记：作者改了那个下拉框就该重新试，而不是
+  // 拿着上一档的结论不放。
+  const styleKey = `${baseUrl}|${style}`;
+  let s = STYLE.get(styleKey);
+  if (!s) {
+    s = { style: style === 'auto' ? CHAT_STYLE_LADDER[0] : style, pinned: style !== 'auto' };
+    STYLE.set(styleKey, s);
   }
-  return q;
+
+  const modelKey = `${baseUrl}|${model}`;
+  let pm = PER_MODEL.get(modelKey);
+  if (!pm) {
+    pm = { noStreamOptions: false, noTemperature: false, maxDepth: 'max', warnedRoom: false };
+    PER_MODEL.set(modelKey, pm);
+  }
+
+  // 用取值器把两张表缝成一个对象：negotiate 照常写 `quirk.style = x`，写回的是
+  // 那两张表本身。让它认识「哪个字段属于哪张表」等于把缓存结构漏进协商逻辑。
+  return {
+    get style() {
+      return s.style;
+    },
+    set style(v) {
+      s.style = v;
+    },
+    get pinned() {
+      return s.pinned;
+    },
+    set pinned(v) {
+      s.pinned = v;
+    },
+    get noStreamOptions() {
+      return pm.noStreamOptions;
+    },
+    set noStreamOptions(v) {
+      pm.noStreamOptions = v;
+    },
+    get noTemperature() {
+      return pm.noTemperature;
+    },
+    set noTemperature(v) {
+      pm.noTemperature = v;
+    },
+    get maxDepth() {
+      return pm.maxDepth;
+    },
+    set maxDepth(v) {
+      pm.maxDepth = v;
+    },
+    get warnedRoom() {
+      return pm.warnedRoom;
+    },
+    set warnedRoom(v) {
+      pm.warnedRoom = v;
+    },
+  };
 }
 
 export function buildBody(

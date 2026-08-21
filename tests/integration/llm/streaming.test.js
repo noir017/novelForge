@@ -302,6 +302,75 @@ const httpServer = http.createServer((req, res) => {
         res.end();
         return;
       }
+      /**
+       * 网关只认 `reasoning` 对象（OpenRouter 那套），前三种写法一律拒。
+       *
+       * 用来验**风格结论按网关记而不是按模型记**：同一个 baseUrl 下换一个模型
+       * 名，不该把同一个答案再问一遍。
+       */
+      case 'chat-gateway-style': {
+        const bad = ['reasoning_effort', 'thinking', 'enable_thinking'].find(
+          (k) => k in server.lastRequest.body
+        );
+        if (bad) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: `Unrecognized request argument: '${bad}'` } }));
+          return;
+        }
+        sse();
+        res.write('data: {"choices":[{"delta":{"content":"网关认这一套"}}]}\n\n');
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+      /**
+       * 只有 `depth-picky` 这个模型不认 `max` 那一档，别的模型照收。
+       *
+       * 用来验**档位结论按模型记**：一个模型降了档，同网关的其他模型不该跟着降。
+       */
+      case 'chat-model-depth': {
+        const b = server.lastRequest.body;
+        if (b.model === 'depth-picky' && b.reasoning_effort === 'max') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: { message: "Unsupported value: 'reasoning_effort' does not support 'max'" },
+            })
+          );
+          return;
+        }
+        sse();
+        res.write('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n');
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+      /**
+       * 任何思考字段都拒，且抱怨措辞是「**值**不支持」。
+       *
+       * 这是最长的一条协商路径：先把 effort 从 max 一路降到 low，再把四种写法
+       * 轮一遍退到不带。重试上限写死过 6，于是这条路上作者第一次调用会平白吃
+       * 一次报错——这个 mode 就是那次回归。
+       */
+      case 'chat-longest-path': {
+        const hasThink = ['reasoning_effort', 'thinking', 'enable_thinking', 'reasoning'].some(
+          (k) => k in server.lastRequest.body
+        );
+        if (hasThink) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: { message: "Unsupported value: 'reasoning_effort' does not support that" },
+            })
+          );
+          return;
+        }
+        sse();
+        res.write('data: {"choices":[{"delta":{"content":"退到不带之后成了"}}]}\n\n');
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
       /** 老式兼容实现：见到 stream_options 就 400。 */
       case 'chat-stream-options-400': {
         if (server.requests.length === 1) {
@@ -1226,5 +1295,97 @@ describe('通用 chat/completions provider · HTTP 404 的提示指向这条协�
       collectText(chat.stream([{ role: 'user', content: 'x' }], opts()))
     );
     assert.match(err.message, /\/chat\/completions/);
+  });
+});
+
+/**
+ * 认字段名的是**网关**（一个 OpenRouter 底下挂着四家的模型，收请求的始终是
+ * openrouter.ai 那一层），所以风格结论按 baseUrl 记；而「能到多高档」是**模型**
+ * 的属性，按 baseUrl+model 记。两者混成一把锅的话，要么挂 20 个模型就把同一个
+ * 答案问 20 遍，要么一个模型降了档就把同网关所有模型都限死在最低那一档。
+ */
+describe('通用 chat/completions provider · 风格按网关记，一个网关只问一次', () => {
+  const counts = {};
+  before(async () => {
+    server.mode = 'chat-gateway-style';
+    // 风格结论按 baseUrl 记，所以这组得用一个独立的 base，
+    // 否则会接手前面用例在同一个网关上已经协商好的结论。
+    const gw = `${base}/gateway-a`;
+    // 同一个 baseUrl，四个不同厂商的模型名——像 OpenRouter 那样。
+    for (const model of ['gw/claude-4.5', 'gw/gpt-4o', 'gw/deepseek', 'gw/glm-4.6']) {
+      const n0 = server.requests.length;
+      const chat = new ChatCompletionsProvider(gw, model, 'sk-test');
+      await collectText(chat.stream([{ role: 'user', content: 'x' }], opts({ thinking: 'high' })));
+      counts[model] = server.requests.length - n0;
+    }
+  });
+
+  test('第一个模型把四种写法试到认得的那一种', () => {
+    assert.equal(counts['gw/claude-4.5'], 4);
+  });
+
+  test('同网关的其余模型直接用这个结论，各只发一次', () => {
+    assert.equal(counts['gw/gpt-4o'], 1);
+    assert.equal(counts['gw/deepseek'], 1);
+    assert.equal(counts['gw/glm-4.6'], 1);
+  });
+});
+
+describe('通用 chat/completions provider · 档位按模型记，降档不传染', () => {
+  before(async () => {
+    server.mode = 'chat-model-depth';
+    server.requests = [];
+    // 同上：另一个独立网关，免得与别的用例共用风格结论。
+    const gw = `${base}/gateway-b`;
+    for (const model of ['depth-picky', 'depth-fine']) {
+      const chat = new ChatCompletionsProvider(gw, model, 'sk-test');
+      await collectText(chat.stream([{ role: 'user', content: 'x' }], opts({ thinking: 'max' })));
+    }
+  });
+
+  test('挑剔的那个模型降到 high', () => {
+    const mine = server.requests.filter((r) => r.body.model === 'depth-picky');
+    assert.deepEqual(mine.map((r) => r.body.reasoning_effort), ['max', 'high']);
+  });
+
+  // 拿 200k 那个模型的降档去限住别的模型，作者选了「极限」却静默按深思考发，
+  // 账单和效果上都看不出是谁降的。
+  test('同网关的另一个模型仍然发 max', () => {
+    const other = server.requests.filter((r) => r.body.model === 'depth-fine');
+    assert.deepEqual(other.map((r) => r.body.reasoning_effort), ['max']);
+  });
+});
+
+describe('通用 chat/completions provider · 最长的一条协商路径也不报错', () => {
+  let text;
+  before(async () => {
+    server.mode = 'chat-longest-path';
+    server.requests = [];
+    const chat = new ChatCompletionsProvider(base, 'chat-longest', 'sk-test');
+    text = await collectText(
+      chat.stream([{ role: 'user', content: 'x' }], opts({ thinking: 'max' }))
+    );
+  });
+
+  // 重试上限写死 6 时，这条路上第一次调用会平白抛错，第二次才成。
+  test('作者第一次调用就拿到结果，不是一句报错', () => {
+    assert.equal(text, '退到不带之后成了');
+  });
+
+  test('最后那一次请求已经不带任何思考字段', () => {
+    const last = server.requests[server.requests.length - 1].body;
+    for (const key of ['reasoning_effort', 'thinking', 'enable_thinking', 'reasoning']) {
+      assert.equal(key in last, false, key);
+    }
+  });
+
+  test('结论记住了，同一个模型下一次一发就中', () => {
+    const before = server.requests.length;
+    return collectText(
+      new ChatCompletionsProvider(base, 'chat-longest', 'sk-test').stream(
+        [{ role: 'user', content: 'y' }],
+        opts({ thinking: 'max' })
+      )
+    ).then(() => assert.equal(server.requests.length - before, 1));
   });
 });
