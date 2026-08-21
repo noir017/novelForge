@@ -185,6 +185,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
             librsvg2-dev patchelf libayatana-appindicator3-dev
+          # linuxdeploy 自己就是个 AppImage，跑起来要 FUSE；GitHub 的 runner
+          # 上没有，装 libfuse2 补上（配合下面的 APPIMAGE_EXTRACT_AND_RUN
+          # 双保险）。少了这一层，deb / rpm 都能出，唯独 AppImage 会以
+          # `failed to run linuxdeploy` 失败。
+          sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -199,6 +204,11 @@ jobs:
           projectPath: src/shells/desktop
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 让 linuxdeploy 及其插件解压后再跑，绕开 runner 上没有 FUSE 的问题。
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          # sidecar 是 Bun 编出来的单文件可执行，strip 它会把内嵌的 JS 运行时
+          # 弄坏；linuxdeploy 默认会 strip 所有带进包的二进制，这里关掉。
+          NO_STRIP: true
 
       - uses: actions/upload-artifact@v4
         with:

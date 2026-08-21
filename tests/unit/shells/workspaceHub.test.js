@@ -32,8 +32,13 @@ let messages;
 /** @type {InstanceType<typeof WorkspaceHub>} */
 let hub;
 
+// 必须与生产代码同源：workspaceHub.ts 用的是 **异步** fsp.realpath，而
+// Node 在 Windows 上两者对 8.3 短名的处理相反——fs.realpathSync 原样保留
+// `RUNNER~1`，fsp.realpath 会展开成 `runneradmin`。CI 的 runner 用户名超过
+// 8 字符，os.tmpdir() 就返回短名，用 sync 版对期望值会与实现差一截路径。
+// 本机用户名短，短名不出现，所以这个坑只在 CI 上炸。
 function real(p) {
-  return fs.realpathSync(p);
+  return fs.realpathSync.native(p);
 }
 
 function ofType(type) {
