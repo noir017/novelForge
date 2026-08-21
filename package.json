@@ -230,12 +230,14 @@
                 "type": "string",
                 "enum": [
                   "openai",
+                  "openai-responses",
                   "anthropic",
                   "vscode-lm"
                 ],
                 "default": "openai",
                 "enumDescriptions": [
-                  "OpenAI 兼容接口（OpenAI / DeepSeek / 智谱 / Kimi / 通义 / OpenRouter / Ollama 等）",
+                  "OpenAI 通用 /chat/completions（DeepSeek / 智谱 / Kimi / 通义 / OpenRouter / Ollama 等几乎都是这条）",
+                  "OpenAI Responses API（/responses，Codex 那一套；目前基本只有官方与少数网关有）",
                   "Anthropic Messages API",
                   "VS Code Language Model API（复用 GitHub Copilot 订阅）"
                 ],
@@ -244,6 +246,27 @@
               "baseUrl": {
                 "type": "string",
                 "description": "接口地址，不含末尾斜杠。vscode-lm 无需填写。"
+              },
+              "thinkingStyle": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "effort",
+                  "thinking",
+                  "enable",
+                  "reasoning",
+                  "none"
+                ],
+                "default": "auto",
+                "enumDescriptions": [
+                  "自动协商：按下面的顺序逐个试，被拒就换下一种，结论只记在内存里",
+                  "reasoning_effort（OpenAI / Kimi / Ollama / DeepSeek）",
+                  "thinking:{type:'enabled'} + reasoning_effort（智谱 GLM / DeepSeek）",
+                  "enable_thinking + thinking_budget（通义 Qwen / vLLM 自建）",
+                  "reasoning:{effort}（OpenRouter）",
+                  "什么都不带"
+                ],
+                "description": "只对 kind 为 openai 的服务商有效：这个网关的「思考深度」落成哪个字段。/chat/completions 上各家写法不统一，缺省自动协商，猜错了可以在这里钉死。"
               },
               "models": {
                 "type": "array",

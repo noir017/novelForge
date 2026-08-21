@@ -110,6 +110,7 @@ describe('服务商列表容错', () => {
   let messy;
   let strings;
   let kinds;
+  let styles;
   let nums;
 
   before(() => {
@@ -137,6 +138,14 @@ describe('服务商列表容错', () => {
       { id: 'a', kind: 'anthropic', models: ['m'] },
       { id: 'b', kind: 'vscode-lm', models: ['m'] },
       { id: 'c', kind: '胡说', models: ['m'] },
+      { id: 'd', kind: 'openai-responses', models: ['m'] },
+    ]);
+
+    styles = n([
+      { id: 'a', kind: 'openai', thinkingStyle: 'enable', models: ['m'] },
+      { id: 'b', kind: 'openai', thinkingStyle: '胡说', models: ['m'] },
+      { id: 'c', kind: 'openai', models: ['m'] },
+      { id: 'd', kind: 'anthropic', thinkingStyle: 'enable', models: ['m'] },
     ]);
 
     nums = n([{ id: 'a', models: [{ name: 'm', contextWindow: -5, maxOutputTokens: 'x' }] }]);
@@ -192,6 +201,26 @@ describe('服务商列表容错', () => {
 
   test('非法 kind 退回 openai', () => {
     assert.equal(kinds[2].kind, 'openai');
+  });
+
+  test('openai-responses 是合法 kind，不被退回', () => {
+    assert.equal(kinds[3].kind, 'openai-responses');
+  });
+
+  test('thinkingStyle 原样保留', () => {
+    assert.equal(styles[0].thinkingStyle, 'enable');
+  });
+
+  test('非法 thinkingStyle 退回 auto', () => {
+    assert.equal(styles[1].thinkingStyle, 'auto');
+  });
+
+  test('缺席的 thinkingStyle 补成 auto', () => {
+    assert.equal(styles[2].thinkingStyle, 'auto');
+  });
+
+  test('非 openai 的 kind 不留 thinkingStyle', () => {
+    assert.equal(styles[3].thinkingStyle, undefined);
   });
 
   test('非法数字被忽略', () => {

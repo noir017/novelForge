@@ -249,6 +249,72 @@ const httpServer = http.createServer((req, res) => {
         res.end();
         return;
       }
+      /** 通用 chat/completions：正文分片 + 末尾一个只带 usage 的 chunk。 */
+      case 'chat-ok': {
+        sse();
+        res.write('data: {"choices":[{"delta":{"content":"雨下了"}}]}\n\n');
+        res.write('data: {"choices":[{"delta":{"content":"三天。"}}]}\n\n');
+        res.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
+        res.write('data: {"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":4}}\n\n');
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+      /**
+       * 工具调用分片 + 正文，`finish_reason` 在分片**之后**才到。
+       *
+       * 验的是排序：`stop` 必须排在所有 `toolCall` 之后，而这条协议的工具参数
+       * 要攒到流结束才拼得完。
+       */
+      case 'chat-tool-calls': {
+        sse();
+        res.write('data: {"choices":[{"delta":{"content":"我先读一下"}}]}\n\n');
+        res.write(
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"read","arguments":"{\\"pa"}}]}}]}\n\n'
+        );
+        res.write(
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\\":\\"a.md\\"}"}}]}}]}\n\n'
+        );
+        res.write('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n');
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+      /**
+       * 第一次 400（不认 `reasoning_effort`），第二次才成。
+       *
+       * 验的是**换写法再发**：这条协议上「想多深」各家四个字段名，自动协商
+       * 按梯子逐个试。第二份请求体里应该是 thinking 对象那一套。
+       */
+      case 'chat-style-400': {
+        if (server.requests.length === 1) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: { message: "Unrecognized request argument: 'reasoning_effort'" },
+            })
+          );
+          return;
+        }
+        sse();
+        res.write('data: {"choices":[{"delta":{"content":"换写法后成了"}}]}\n\n');
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+      /** 老式兼容实现：见到 stream_options 就 400。 */
+      case 'chat-stream-options-400': {
+        if (server.requests.length === 1) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: 'unknown field: stream_options' } }));
+          return;
+        }
+        sse();
+        res.write('data: {"choices":[{"delta":{"content":"去掉之后成了"}}]}\n\n');
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
       default:
         res.writeHead(500);
         res.end('unknown mode');
@@ -276,6 +342,7 @@ let collectText;
 let collect;
 let OpenAiProvider;
 let AnthropicProvider;
+let ChatCompletionsProvider;
 let openai;
 let anthropic;
 let base;
@@ -302,19 +369,21 @@ async function catchError(fn) {
 
 before(async () => {
   vs = installVscodeStub({ level: 'minimal' });
-  // 一个 bundle 装全部：两个 provider 与 provider.ts 必须共用同一份
+  // 一个 bundle 装全部：三个 provider 与 provider.ts 必须共用同一份
   // CancelledError / LlmError，否则 normalizeError 的 instanceof 判断落空
   //（它有 err.name 兜底，所以原脚本分开 bundle 也过得去，但共用才是对的）。
   const bundle = loadBundle({
-    openai: './src/core/llm/openaiProvider.ts',
+    openai: './src/core/llm/responsesProvider.ts',
+    chat: './src/core/llm/chatCompletionsProvider.ts',
     anthropic: './src/core/llm/anthropicProvider.ts',
     provider: './src/core/llm/provider.ts',
     collect: './src/core/llm/collect.ts',
   });
   providerMod = bundle.provider;
   ({ collectText, collect } = bundle.collect);
-  OpenAiProvider = bundle.openai.OpenAiProvider;
+  OpenAiProvider = bundle.openai.ResponsesProvider;
   AnthropicProvider = bundle.anthropic.AnthropicProvider;
+  ChatCompletionsProvider = bundle.chat.ChatCompletionsProvider;
 
   await new Promise((r) => httpServer.listen(0, '127.0.0.1', r));
   port = httpServer.address().port;
@@ -711,7 +780,7 @@ describe('OpenAI provider · tool_calls', () => {
   // 多轮工具调用要把它原样交回去，否则模型接不上「上一步为什么调这个工具」。
   test('reasoning item 被收成思考凭据，不进正文', () => {
     assert.deepEqual(ok.traces, [
-      { kind: 'openai', payload: { type: 'reasoning', id: 'rs_1', encrypted_content: 'enc' } },
+      { kind: 'openai-responses', payload: { type: 'reasoning', id: 'rs_1', encrypted_content: 'enc' } },
     ]);
   });
 
@@ -941,5 +1010,221 @@ describe('思考深度 · 老模型不认自适应时换写法', () => {
 
   test('作者拿到的是正常结果，不是一句报错', () => {
     assert.equal(text, '换写法后成了');
+  });
+});
+
+// ---------------------------------------------------------------- 通用 chat/completions
+
+describe('通用 chat/completions provider · 正常流', () => {
+  let text;
+  let usage;
+  before(async () => {
+    server.mode = 'chat-ok';
+    const chat = new ChatCompletionsProvider(base, 'chat-model', 'sk-test');
+    const got = await collect(chat.stream([{ role: 'user', content: '续写' }], opts()));
+    text = got.text;
+    usage = got.usage;
+  });
+
+  test('打的是 /chat/completions 而不是 /responses', () => {
+    assert.equal(server.lastRequest.url, '/v1/chat/completions');
+  });
+
+  test('正文按分片拼全', () => {
+    assert.equal(text, '雨下了三天。');
+  });
+
+  // 没有这个开关，流式响应里压根没有 usage 字段。
+  test('带 stream_options 要真实用量', () => {
+    assert.deepEqual(server.lastRequest.body.stream_options, { include_usage: true });
+  });
+
+  test('usage 按 prompt/completion 映射出来', () => {
+    assert.deepEqual(usage, { inputTokens: 11, outputTokens: 4 });
+  });
+
+  test('system 留在 messages 里，不抽成 instructions', () => {
+    assert.equal('instructions' in server.lastRequest.body, false);
+  });
+
+  test('没开思考时照常带 temperature', () => {
+    assert.equal(server.lastRequest.body.temperature, 0.8);
+  });
+});
+
+describe('通用 chat/completions provider · 没有 tools 时不带这两个字段', () => {
+  before(async () => {
+    server.mode = 'chat-ok';
+    const chat = new ChatCompletionsProvider(base, 'chat-notools', 'sk-test');
+    await collectText(chat.stream([{ role: 'user', content: 'x' }], opts()));
+  });
+
+  // 有些兼容实现见到未知字段会直接 400，stream_options 上已经踩过这个坑。
+  test('不带 tools', () => {
+    assert.equal('tools' in server.lastRequest.body, false);
+  });
+
+  test('不带 tool_choice', () => {
+    assert.equal('tool_choice' in server.lastRequest.body, false);
+  });
+});
+
+describe('通用 chat/completions provider · 工具调用与收尾原因的顺序', () => {
+  let events;
+  before(async () => {
+    server.mode = 'chat-tool-calls';
+    const chat = new ChatCompletionsProvider(base, 'chat-tools', 'sk-test');
+    events = [];
+    for await (const ev of chat.stream(
+      [{ role: 'user', content: '读一下' }],
+      opts({ tools: [TOOL] })
+    )) {
+      events.push(ev);
+    }
+  });
+
+  test('工具声明包在 function 对象里（不像 Responses 那样是平的）', () => {
+    assert.deepEqual(server.lastRequest.body.tools[0], {
+      type: 'function',
+      function: { name: TOOL.name, description: TOOL.description, parameters: TOOL.parameters },
+    });
+  });
+
+  test('分片拼成完整参数', () => {
+    const call = events.find((e) => e.type === 'toolCall').call;
+    assert.deepEqual(call.args, { path: 'a.md' });
+  });
+
+  test('正文与工具调用各走各的', () => {
+    const text = events.filter((e) => e.type === 'text').map((e) => e.text).join('');
+    assert.equal(text, '我先读一下');
+  });
+
+  // 先到的话，上层对账时手里还是空的（见 provider.ts 的 StopSignal）。
+  test('stop 排在所有 toolCall 之后', () => {
+    let lastTool = -1;
+    events.forEach((e, i) => {
+      if (e.type === 'toolCall') {
+        lastTool = i;
+      }
+    });
+    const stop = events.findIndex((e) => e.type === 'stop');
+    assert.ok(stop > lastTool, `stop 在 ${stop}，最后一个 toolCall 在 ${lastTool}`);
+  });
+
+  test('收尾原因归成 toolUse', () => {
+    assert.equal(events.find((e) => e.type === 'stop').reason, 'toolUse');
+  });
+});
+
+describe('通用 chat/completions provider · 思考深度落成字段', () => {
+  test('缺省风格先试 reasoning_effort', async () => {
+    server.mode = 'chat-ok';
+    const chat = new ChatCompletionsProvider(base, 'chat-think-a', 'sk-test');
+    await collectText(chat.stream([{ role: 'user', content: 'x' }], opts({ thinking: 'low' })));
+    assert.equal(server.lastRequest.body.reasoning_effort, 'low');
+  });
+
+  // 极限档在这条协议上是 max，不是 Responses 那边的 xhigh。
+  test('极限档发 max', async () => {
+    server.mode = 'chat-ok';
+    const chat = new ChatCompletionsProvider(base, 'chat-think-b', 'sk-test');
+    await collectText(chat.stream([{ role: 'user', content: 'x' }], opts({ thinking: 'max' })));
+    assert.equal(server.lastRequest.body.reasoning_effort, 'max');
+  });
+
+  test('思考开着时不带 temperature', async () => {
+    server.mode = 'chat-ok';
+    const chat = new ChatCompletionsProvider(base, 'chat-think-c', 'sk-test');
+    await collectText(chat.stream([{ role: 'user', content: 'x' }], opts({ thinking: 'high' })));
+    assert.equal('temperature' in server.lastRequest.body, false);
+  });
+
+  test('不思考那档一个思考字段都不带', async () => {
+    server.mode = 'chat-ok';
+    const chat = new ChatCompletionsProvider(base, 'chat-think-d', 'sk-test');
+    await collectText(chat.stream([{ role: 'user', content: 'x' }], opts({ thinking: 'off' })));
+    const body = server.lastRequest.body;
+    for (const key of ['reasoning_effort', 'thinking', 'enable_thinking', 'reasoning']) {
+      assert.equal(key in body, false, key);
+    }
+  });
+
+  test('作者钉死风格时按那一套发', async () => {
+    server.mode = 'chat-ok';
+    const chat = new ChatCompletionsProvider(base, 'chat-pinned', 'sk-test', 'enable');
+    await collectText(
+      chat.stream(
+        [{ role: 'user', content: 'x' }],
+        opts({ thinking: 'low', maxOutputTokens: 32000 })
+      )
+    );
+    assert.equal(server.lastRequest.body.enable_thinking, true);
+    assert.equal('reasoning_effort' in server.lastRequest.body, false);
+  });
+});
+
+// QUIRKS 按「地址 + 模型」记在模块级状态里，所以协商类用例各用一个模型名。
+describe('通用 chat/completions provider · 上游不认那种写法时换一种再发', () => {
+  let text;
+  before(async () => {
+    server.mode = 'chat-style-400';
+    server.requests = [];
+    const chat = new ChatCompletionsProvider(base, 'chat-nego', 'sk-test');
+    text = await collectText(
+      chat.stream([{ role: 'user', content: 'x' }], opts({ thinking: 'high' }))
+    );
+  });
+
+  test('一共发了两次', () => {
+    assert.equal(server.requests.length, 2);
+  });
+
+  test('第一次试的是 reasoning_effort', () => {
+    assert.equal(server.requests[0].body.reasoning_effort, 'high');
+  });
+
+  test('第二次换成 thinking 对象那一套', () => {
+    assert.deepEqual(server.requests[1].body.thinking, { type: 'enabled' });
+  });
+
+  test('作者拿到的是正常结果，不是一句报错', () => {
+    assert.equal(text, '换写法后成了');
+  });
+
+  test('换过的写法记住了，下一次直接用它', async () => {
+    server.mode = 'chat-ok';
+    const chat = new ChatCompletionsProvider(base, 'chat-nego', 'sk-test');
+    await collectText(chat.stream([{ role: 'user', content: 'y' }], opts({ thinking: 'high' })));
+    assert.deepEqual(server.lastRequest.body.thinking, { type: 'enabled' });
+  });
+});
+
+describe('通用 chat/completions provider · 老式实现不认 stream_options', () => {
+  let text;
+  before(async () => {
+    server.mode = 'chat-stream-options-400';
+    server.requests = [];
+    const chat = new ChatCompletionsProvider(base, 'chat-so', 'sk-test');
+    text = await collectText(chat.stream([{ role: 'user', content: 'x' }], opts()));
+  });
+
+  test('第二次把它去掉了', () => {
+    assert.equal('stream_options' in server.requests[1].body, false);
+  });
+
+  test('作者拿到的是正常结果', () => {
+    assert.equal(text, '去掉之后成了');
+  });
+});
+
+describe('通用 chat/completions provider · HTTP 404 的提示指向这条协议', () => {
+  test('提示里点名 /chat/completions', async () => {
+    server.mode = 'http-404';
+    const chat = new ChatCompletionsProvider(base, 'chat-404', 'sk-test');
+    const err = await catchError(() =>
+      collectText(chat.stream([{ role: 'user', content: 'x' }], opts()))
+    );
+    assert.match(err.message, /\/chat\/completions/);
   });
 });

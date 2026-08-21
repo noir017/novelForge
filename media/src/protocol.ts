@@ -124,13 +124,16 @@ export type { LlmTask, ModelTier } from '../../src/core/model/tiers';
  * 纯函数、零 import，打进浏览器产物是安全的。
  */
 export {
+  CHAT_THINKING_STYLES,
+  CHAT_THINKING_STYLE_LABEL,
+  DEFAULT_CHAT_THINKING_STYLE,
   DEFAULT_THINKING_DEPTH,
   THINKING_DEPTHS,
   THINKING_HINT,
   THINKING_LABEL,
   isThinkingDepth,
 } from '../../src/core/model/thinking';
-export type { ThinkingDepth } from '../../src/core/model/thinking';
+export type { ChatThinkingStyle, ThinkingDepth } from '../../src/core/model/thinking';
 
 /**
  * Agent 的确认策略。与分档同一套理由：设置页上写着「放手」而后端按别的

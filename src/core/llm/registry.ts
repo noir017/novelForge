@@ -13,7 +13,8 @@ import {
 } from '../model/providers';
 import { SecretStore } from '../stores';
 import { AnthropicProvider } from './anthropicProvider';
-import { OpenAiProvider } from './openaiProvider';
+import { ChatCompletionsProvider } from './chatCompletionsProvider';
+import { ResponsesProvider } from './responsesProvider';
 import { LlmProvider } from './provider';
 
 const log = scoped('模型');
@@ -103,9 +104,16 @@ export async function buildProvider(
   }
   const baseUrl = profile.baseUrl || defaultBaseUrl(profile.kind);
   log.debug(`构造 provider ${active.ref}`, `${profile.kind}｜${baseUrl}｜模型 ${model.name}`);
-  return profile.kind === 'anthropic'
-    ? new AnthropicProvider(baseUrl, model.name, key)
-    : new OpenAiProvider(baseUrl, model.name, key);
+  // 三条 HTTP 协议一条一个分支。**不要写成「不是 A 就是 B」**：那样新加的
+  // kind 会静默落到别人的协议上，然后 404，而报错还指着错的方向。
+  switch (profile.kind) {
+    case 'anthropic':
+      return new AnthropicProvider(baseUrl, model.name, key);
+    case 'openai-responses':
+      return new ResponsesProvider(baseUrl, model.name, key);
+    default:
+      return new ChatCompletionsProvider(baseUrl, model.name, key, profile.thinkingStyle);
+  }
 }
 
 export interface BuildProviderOptions {
