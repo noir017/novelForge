@@ -19,6 +19,7 @@
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
@@ -422,8 +423,13 @@ describe('并发控制搬到 controller 之后', () => {
     replyFn = () => PLOT_JSON;
     onGate = async () => 'skip';
     fake.reset();
-    // 不 await 第一条：`runTurn` 一进来就占住生成位（在任何 I/O 之前），
-    // 所以此刻第二条一定撞得上。
+    // 不 await 第一条：`send` 第一行就占住生成位（早于它自己的
+    // `await persist`），所以此刻第二条一定撞得上。
+    //
+    // 从前占位在 runTurn 里，而 send 要先 `await persist(c)` 才走到那儿——
+    // 第一条在落盘处让出事件循环时 currentAbort 还没设，第二条照样过检，
+    // 两条一起烧 token。本机磁盘快，第一条常常一路同步跑完，所以那个竞态
+    // 只在 CI 上现形。
     const first = send({ kind: 'plot', plotRelPath: P1 });
     concurrent = await send({ kind: 'plot', plotRelPath: P1 });
     await first;
@@ -446,5 +452,29 @@ describe('并发控制搬到 controller 之后', () => {
   test('第一条跑完之后又能发了', async () => {
     const again = await send({ kind: 'plot', plotRelPath: P1 });
     assert.ok(again.assistant?.artifact, JSON.stringify(again.toasts));
+  });
+
+  // 上面那两条依赖「第二次 send 恰好撞在第一次让出事件循环的窗口里」，
+  // 磁盘一快就可能整条同步跑完、根本没撞上，于是竞态回归了也照样绿。
+  // 这一条不靠时序：直接查占位发生在 send 的第一个 await **之前**。
+  test('占位早于 send 里任何一次 await（竞态窗口为零）', () => {
+    const src = fs.readFileSync('src/core/controller/chat.ts', 'utf8');
+    const from = src.indexOf('export async function send');
+    const to = src.indexOf('/** 重来一轮', from);
+    assert.ok(from >= 0 && to > from, '找不到 send 的函数体');
+    // 注释里也有「await」二字，按行剔掉注释再找。
+    const code = src
+      .slice(from, to)
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n');
+    const lease = code.indexOf('c.beginGeneration()');
+    const firstAwait = code.indexOf('await ');
+    assert.ok(lease >= 0, 'send 里没有占位');
+    assert.ok(
+      lease < firstAwait,
+      `占位在第一个 await 之后（占位 ${lease} / await ${firstAwait}）：` +
+        '两条并发请求会双双过检、各烧一份 token'
+    );
   });
 });

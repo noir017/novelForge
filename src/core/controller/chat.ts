@@ -59,48 +59,64 @@ const log = scoped('面板');
 /** 创作页：发送、采纳、目标与流水线。字段只给 controller/ 同包用。 */
 
 export async function send(c: ChatController, payload: SendPayload): Promise<void> {
-  if (c.busy) {
+  // 占位必须在**任何 await 之前**：下面 `await persist(c)` 会让出事件循环，
+  // 那一瞬间 currentAbort 还没设，紧跟着进来的第二条请求照样能过 busy 检查，
+  // 于是两条都跑起来、烧两份 token。本机磁盘快，第一条往往一路同步跑完，
+  // 所以这个竞态只在 CI（或慢盘）上现形。
+  const lease = c.beginGeneration();
+  if (!lease) {
     c.toast('已有一个生成任务在进行中。', 'error');
     return;
   }
-  // 空输入只挡「讨论」（它不是命令，`commandOf` 查不到它）。
-  //
-  // 旧界面一律要求先写点什么才能发送，而「落定剧情」「拆出剧情段」「写正文」
-  // 本来就不需要作者说任何话——该说的都在大纲、卷纲与细纲里了。逼他先编一句
-  // 「请生成」，那句话还会被当成要求装进 prompt。
-  //
-  // 讨论例外：它的全部内容就是作者那句话，没有话就没有讨论。
-  const command = commandOf(payload.stage, payload.capability);
-  if (!payload.text.trim() && !command) {
-    c.toast('请先输入内容。', 'error');
-    return;
+  // 从这里往下任何一条提前 return 都要还位，否则这个 controller 从此发不出
+  // 第二条消息。
+  let handedOff = false;
+  try {
+    // 空输入只挡「讨论」（它不是命令，`commandOf` 查不到它）。
+    //
+    // 旧界面一律要求先写点什么才能发送，而「落定剧情」「拆出剧情段」「写正文」
+    // 本来就不需要作者说任何话——该说的都在大纲、卷纲与细纲里了。逼他先编一句
+    // 「请生成」，那句话还会被当成要求装进 prompt。
+    //
+    // 讨论例外：它的全部内容就是作者那句话，没有话就没有讨论。
+    const command = commandOf(payload.stage, payload.capability);
+    if (!payload.text.trim() && !command) {
+      c.toast('请先输入内容。', 'error');
+      return;
+    }
+
+    const userTurn: ChatTurn = {
+      id: makeTurnId(),
+      role: 'user',
+      content: payload.text.trim(),
+      at: nowIso(),
+      // 点命令时输入框可以是空的，气泡里就只剩一片空白。记下这一轮下的是哪个
+      // 命令，界面才说得出「刚才那一下是 /落定剧情」。「讨论」是默认动作，不记。
+      command: payload.capability === 'discuss' ? undefined : command?.label,
+      attachments: c.pending.length > 0 ? [...c.pending] : undefined,
+      excludedIds: payload.excludedIds.length > 0 ? payload.excludedIds : undefined,
+    };
+    c.current.turns.push(userTurn);
+    if (c.current.turns.length === 1) {
+      c.current.title = deriveTitle(turnPreview(userTurn));
+    }
+    applyAction(c, payload);
+    c.current.targetNo = payload.targetNo;
+    c.current.targetWords = payload.targetWords;
+    c.pending = [];
+
+    c.post({ type: 'turnDone', turn: serializeTurn(userTurn) });
+    c.post({ type: 'attachments', items: [] });
+    await persist(c);
+
+    // 位子交给 runTurn，由它在 finally 里还——这里不能再还一次。
+    handedOff = true;
+    await runTurn(c, payload, userTurn, lease);
+  } finally {
+    if (!handedOff) {
+      lease.release();
+    }
   }
-
-  const userTurn: ChatTurn = {
-    id: makeTurnId(),
-    role: 'user',
-    content: payload.text.trim(),
-    at: nowIso(),
-    // 点命令时输入框可以是空的，气泡里就只剩一片空白。记下这一轮下的是哪个
-    // 命令，界面才说得出「刚才那一下是 /落定剧情」。「讨论」是默认动作，不记。
-    command: payload.capability === 'discuss' ? undefined : command?.label,
-    attachments: c.pending.length > 0 ? [...c.pending] : undefined,
-    excludedIds: payload.excludedIds.length > 0 ? payload.excludedIds : undefined,
-  };
-  c.current.turns.push(userTurn);
-  if (c.current.turns.length === 1) {
-    c.current.title = deriveTitle(turnPreview(userTurn));
-  }
-  applyAction(c, payload);
-  c.current.targetNo = payload.targetNo;
-  c.current.targetWords = payload.targetWords;
-  c.pending = [];
-
-  c.post({ type: 'turnDone', turn: serializeTurn(userTurn) });
-  c.post({ type: 'attachments', items: [] });
-  await persist(c);
-
-  await runTurn(c, payload, userTurn);
 }
 
 /** 重来一轮：丢掉旧回复，用同一条用户消息重新生成。 */
@@ -123,12 +139,21 @@ export async function retry(c: ChatController, turnId: string, payload: SendPayl
   await runTurn(c, { ...payload, text: userTurn.content }, userTurn);
 }
 
-export async function runTurn(c: ChatController, payload: SendPayload, userTurn: ChatTurn): Promise<void> {
+export async function runTurn(
+  c: ChatController,
+  payload: SendPayload,
+  userTurn: ChatTurn,
+  held?: ReturnType<ChatController['beginGeneration']>
+): Promise<void> {
   // 上一轮那张还没答的落盘卡片就此作废：它挂在上一条气泡上，点下去写的是
   // 一份作者已经翻篇的产物。
   cancelGates(c);
   // 并发控制在 controller：生成那一层是无状态的，「有没有在跑」是调度的事。
-  const lease = c.beginGeneration();
+  //
+  // `send` 已经在它的第一行占过位了（那里必须早于任何 await，否则两条请求
+  // 会双双过检）。它把位子传进来，这里就不再抢第二次——同一个 controller
+  // 上抢不到，会把自己拒掉。retry 那条路没有前置占位，仍走这里现抢。
+  const lease = held ?? c.beginGeneration();
   if (!lease) {
     c.toast('已有一个生成任务在进行中。', 'error');
     return;
