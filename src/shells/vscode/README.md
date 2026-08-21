@@ -25,7 +25,7 @@
 - **草稿开在旁边一栏**：`openBeside` 用 `ViewColumn.Beside`，它是相对**当前活动编辑器**的。从侧边栏点过来时最后活动的文本编辑器通常就是正文（`openFile` 把它放在第一栏），草稿于是落到第二栏；若此刻活动的是 `ChatPanel` 那个 tab，草稿就开在它旁边。够用，没去纠正。
 - **监听哪些文件不由这里决定**：`VsCodeHost.watch` 只负责机制（`createFileSystemWatcher` + `RelativePattern`），glob 清单来自 [../../core/watchPolicy.ts](../../core/watchPolicy.ts) 的 `watchGlobs`——独立版用同一份策略的另一种形态（事件过滤）。章节能是什么扩展名、草稿在哪，都是 core 的规则。
 - **弹窗与清单一律走 Host**：这一层不再直接调 `window.showQuickPick` / `show*Message`。「更新哪个角色」那份清单（含「＋N 章待读」的计算）在 [../../core/choices.ts](../../core/choices.ts)——它是业务知识，壳里抄一份就会与工程页上的同一行说明分叉。
-- **两处刻意留在壳里的原生流程**：[quickContinue.ts](quickContinue.ts)（流式写进一个 untitled 文档，是彻底的平台专属入口）与 `NO_WORKSPACE_HTML`（无工作区时的宿主占位视图，不加载脚本、CSP 收到最紧）。它们没有第二个壳需要复用，也没有业务判断藏在里面。
+- **一处刻意留在壳里的原生流程**：`NO_WORKSPACE_HTML`（无工作区时的宿主占位视图，不加载脚本、CSP 收到最紧）。它没有第二个壳需要复用，也没有业务判断藏在里面。
 
 ## 依赖关系
 

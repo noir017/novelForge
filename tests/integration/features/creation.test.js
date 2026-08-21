@@ -60,7 +60,7 @@ const VOLUME_T = { kind: 'volume', volumeRelPath: '.novelforge/volumes/01-觉醒
 const PLOT_T = { kind: 'plot', plotRelPath: '.novelforge/plots/01-觉醒之日/012-夜入青云.md' };
 
 describe('artifact.ts · 剧情三层降级', () => {
-  const act = { stage: 'plot', capability: 'generate' };
+  const act = 'plot';
   let json;
   let md;
   let plain;
@@ -141,19 +141,14 @@ describe('artifact.ts · 剧情三层降级', () => {
     );
   });
 
-  // 落定与写剧情产出的是同一种产物，走的是同一条解析路。
-  test('落定与写剧情解析成同一种产物', () => {
-    const settled = A.parseArtifact({ stage: 'plot', capability: 'settle' }, '{"剧情脉络":"进宗门"}');
-    assert.equal(settled.kind, 'plot');
-    assert.equal(settled.sections.剧情脉络, '进宗门');
-  });
 });
 
 describe('artifact.ts · 拆分清单', () => {
-  // 两个阶段各拆一层：大纲拆出**分卷清单**，卷纲拆出**一个剧情段**。
-  // 从前两者同属 `outline` 阶段、靠 target 分辨，现在按 stage 分。
-  const outlineSplit = { stage: 'outline', capability: 'split' };
-  const volumeSplit = { stage: 'volume', capability: 'split' };
+  // 两件「拆」各拆一层：大纲拆出**分卷清单**，卷纲拆出**一个剧情段**。
+  // 从前两者同属 `outline` 阶段、靠 target 分辨；再后来靠 stage × split
+  // 分。现在各自就是一个 job，解析只看它。
+  const outlineSplit = 'volumeList';
+  const volumeSplit = 'plotSegment';
   let volumes;
   let bareVolumes;
   let mdVolumes;
@@ -250,19 +245,12 @@ describe('artifact.ts · 拆分清单', () => {
     assert.ok(longTitle.segment.title.length <= 18, longTitle.segment.title);
   });
 
-  // 剧情层已经没有 `split`（场景那一层删掉了）。解析仍然只按 stage 走，
-  // 于是老会话里那个动作落到「产出这一段的细纲」——不会解析出一个
-  // 新模型里根本无处落盘的产物。
-  test('剧情层的 split 解析成细纲而不是场景清单', () => {
-    const legacy = A.parseArtifact({ stage: 'plot', capability: 'split' }, '{"剧情脉络":"进宗门"}');
-    assert.equal(legacy.kind, 'plot', legacy.kind);
-  });
 });
 
 describe('artifact.ts · 空产物与描述', () => {
   test('正文原样收下', () => {
     assert.equal(
-      A.parseArtifact({ stage: 'manuscript', capability: 'generate' }, '雨下了三天。').text,
+      A.parseArtifact('manuscript', '雨下了三天。').text,
       '雨下了三天。'
     );
   });
@@ -280,7 +268,7 @@ describe('artifact.ts · 空产物与描述', () => {
   });
 
   test('有内容的不算空', () => {
-    assert.ok(!A.isArtifactEmpty(A.parseArtifact({ stage: 'plot', capability: 'generate' }, '{"剧情脉络":"x"}')));
+    assert.ok(!A.isArtifactEmpty(A.parseArtifact('plot', '{"剧情脉络":"x"}')));
   });
 
   test('描述带得出卷数', () => {
@@ -297,7 +285,7 @@ describe('artifact.ts · 空产物与描述', () => {
   });
 
   test('剧情描述带填了几节', () => {
-    const a = A.parseArtifact({ stage: 'plot', capability: 'generate' }, '{"目标":"x","剧情脉络":"y"}');
+    const a = A.parseArtifact('plot', '{"目标":"x","剧情脉络":"y"}');
     assert.equal(A.describeArtifact(a), '剧情 · 2/4 节');
   });
 });

@@ -180,12 +180,9 @@ describe('状态机仍然在管落在哪一层', () => {
     assert.equal(planned.session.stage, 'plot', planned.session.stage);
   });
 
-  // 切层一律把能力重置成 discuss：默认动作不该是花钱产出一份要不要都不知道的产物。
-  test('切层不预置花钱的能力', () => {
-    assert.equal(planned.session.capability, 'discuss', planned.session.capability);
-  });
-
-  test('主按钮是「写剧情」', () => {
-    assert.equal(planned.pipe.next?.capability, 'generate', JSON.stringify(planned.pipe.next));
+  // 切层不再预置任何「要干什么」：那个判断归 agent（它每回合自己读一遍
+  // 同一个状态机）。会话上只记「停在哪一层」。
+  test('会话上只记停在哪一层', () => {
+    assert.equal(planned.session.capability, undefined, String(planned.session.capability));
   });
 });

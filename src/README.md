@@ -36,17 +36,19 @@ src/
 
 ## 一条创作请求的完整链路
 
-以「在剧情阶段点写剧情」为例，四个阶段走的是同一条路，差别只在配方与提示词：
+以「排一下第 12 段的剧情」为例。**对话只有一条路：agent**——作者说什么它自己
+决定读什么、产出什么，六件创作活（`CreationJob`）走的是同一条链，差别只在配方
+与提示词：
 
-1. webview 前端（[media/src/view/](../media/src/view/)）发 `send` 消息，带上 `stage` / `capability` / `target` → 宿主（`shells/vscode/chatViewProvider` 或 `chatPanel`）转给 `core/ChatController`。
-2. `ChatController` 校验一遍这个能力在这个阶段合不合法（对不上就回落到 `discuss` 并 warn），记进会话，交给 `core/features/CreationSession.generate()`。
-3. `CreationSession` 先经 `core/llm/registry` 拿到 provider，再调 `core/context/builder.buildContext()` 装配上下文。
-4. 装配器按 `action.stage` 取一张配方（[core/context/recipes.ts](core/context/recipes.ts)），**只读这一层用得上的文件**，按优先级填预算，产出 messages + 明细。系统提示由 `stage`（身份）× `capability`（任务）拼出。
-5. provider 流式返回增量文本，经 `GenerateHandlers` 回到 `ChatController`，以 `OutMessage` 广播给所有挂接的宿主。
-6. 收尾时若这次的输出形态是 `artifact`，后端算出「落点 + 形状 + 会不会覆盖」，**当场在对话里问一句「写不写」**（`controller/gate.ts` 推一条 `gate`，前端画成气泡里的一张权限卡片，与 agent 动手前那一问同一副样子）。
-7. 用户可以先在气泡里改，改完点「写入」→ 后端**重新解析气泡里当下的文本**（经 `editTurn` 落在 `turn.content` 上），目标已有内容时再走 `reviewReplace`，两层都过了才落盘；点「不采纳」则一个字不写，气泡末尾记一行「未采纳」。
+1. webview 前端（[media/src/view/](../media/src/view/)）发 `sendAgent` 消息，**只带作者那句话**——不带层、不带要干什么（那两样由 agent 自己算，第 20 条）→ 宿主（`shells/vscode/chatViewProvider` 或 `chatPanel`）转给 `core/ChatController`。
+2. `ChatController` 起一轮 `agent/loop.ts`：每回合先把状态机的结论注入 system（`agent/context.ts`），再调模型，模型决定调哪个工具。
+3. 它要产出内容时调 `generate` 工具（[core/tools/novel/generate.ts](core/tools/novel/generate.ts)），参数是 `job`（产出什么）+ `target`（落在哪）；工具校验两者落在同一层，然后调 `core/generation/generate.ts`。
+4. 那一层经 `core/llm/registry` 拿到 provider，调 `core/context/builder.buildContext()` 装配上下文：按 `stageOfJob(job)` 取一张配方（[core/context/recipes.ts](core/context/recipes.ts)），**只读这一层用得上的文件**，按优先级填预算。系统提示 = 身份（层）+ 这一件活（job）+ 输出契约。
+5. provider 流式返回增量文本，经 `ToolContext.onDelta` 回到 `ChatController`，以 `OutMessage` 广播给所有挂接的宿主——作者看得见它正在写什么。
+6. 产出解析成产物之后，后端算出「落点 + 形状 + 会不会覆盖」，**当场在对话里问一句「写不写」**（`controller/gate.ts` 推一条 `gate`，前端画成输入框上方的一张权限卡片，与 agent 动手前那一问同一副样子）。
+7. 点「确认」→ 目标已有内容时再走 `reviewReplace`，两层都过了才落盘；点「不采纳」则一个字不写，那一行工具条上记一笔。结论接在工具返回里告诉 agent，它于是不会重复生成同一份。
 
-全程 `core/runtime/logger.ts` 记下：阶段·能力与目标产物、装配用了多少 token / 哪几项被降级丢弃、首字延迟、产出字数与总耗时、最终写到哪个文件。
+全程 `core/runtime/logger.ts` 记下：这是哪一件活与目标产物、装配用了多少 token / 哪几项被降级丢弃、首字延迟、产出字数与总耗时、最终写到哪个文件。
 
 ## 一次批量摘要同步的链路
 

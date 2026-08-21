@@ -218,7 +218,7 @@ const toolSeg = (call) => ({ kind: 'tool', call });
 
 /**
  * 一个空会话。形状与后端 `serializeSession` 一致——前端把会话当唯一真相
- * （面包屑、能力按钮、目标下拉全读它），缺字段会当场炸，而那正是我们要的：
+ * （面包屑、目标下拉、思考深度全读它），缺字段会当场炸，而那正是我们要的：
  * 协议对不上就该早点发现。
  */
 const emptySession = (extra) =>
@@ -228,7 +228,6 @@ const emptySession = (extra) =>
       title: '',
       target: { kind: 'outline' },
       stage: 'outline',
-      capability: 'discuss',
       // 思考深度也在会话上（后端 serializeSession 恒给，缺省 off）。
       thinking: 'off',
       turns: [],

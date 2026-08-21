@@ -34,9 +34,8 @@ const { cleanup } = require('../../helpers/teardown');
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
 
-// 装配请求带 action（阶段 × 能力）与 target（在改哪个产物）。
-const WRITE = { stage: 'manuscript', capability: 'generate' };
-const DISCUSS = { stage: 'manuscript', capability: 'discuss' };
+// 装配请求带 job（产出什么）与 target（落在哪个产物）。
+const WRITE = 'manuscript';
 
 const baseConfig = {
   providers: [
@@ -72,7 +71,7 @@ const CH3 = 'chapters/003-夜访.md';
  */
 function req(ask, extra = {}) {
   return {
-    action: WRITE,
+    job: WRITE,
     target: { kind: 'manuscript', plotRelPath: '' },
     targetNo: 4,
     ask,
@@ -920,53 +919,45 @@ describe('装配：单轮过长时取结尾', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('装配：discuss 模式', () => {
+describe('装配：正文那一件活', () => {
   let d;
   let last;
-  let writeMode;
 
   before(async () => {
     d = await builderMod.buildContext(
       project,
-      req('林昭这个人物到目前为止立住了吗？', { action: DISCUSS, targetWords: 2000 }),
+      req('接着写。', { job: 'manuscript', targetWords: 2000 }),
       baseConfig
     );
     last = d.messages[d.messages.length - 1].content;
-    writeMode = await builderMod.buildContext(project, req('x'), baseConfig);
   });
 
-  // 正文阶段的讨论对象仍是「作者」这个身份——找编辑聊要切到大纲阶段去，
-  // 那是身份换人的地方（见下面的四阶段配方）。
-  test('系统提示保持正文阶段的身份', () => {
+  test('系统提示是正文那一套身份', () => {
     assert.ok(d.messages[0].content.includes('作者'), d.messages[0].content.slice(0, 30));
   });
 
-  test('系统提示写明本层职责', () => {
-    assert.ok(d.messages[0].content.includes('剧情走向不由你决定'));
+  // 那六条硬性要求是这个项目跑了很久调出来的，换个说法等于重新试错一遍。
+  test('六条硬性要求还在', () => {
+    assert.ok(d.messages[0].content.includes('只输出正文'));
+    assert.ok(d.messages[0].content.includes('不要复述前情'));
   });
 
-  test('discuss 不强制只输出正文', () => {
-    assert.ok(!d.messages[0].content.includes('只输出正文'));
+  test('目标字数进了提示词', () => {
+    assert.ok(d.messages[0].content.includes('2000 字'));
   });
 
-  test('discuss 禁止顺手改写产物', () => {
-    assert.ok(d.messages[0].content.includes('不要输出改写后的完整产物'));
+  test('输出契约要求只出正文', () => {
+    assert.ok(last.includes('只输出小说正文'), last.slice(-200));
   });
 
-  test('末尾指令为「直接回答」', () => {
-    assert.ok(last.includes('请直接回答上面的问题'));
-  });
-
-  test('discuss 忽略目标字数', () => {
-    assert.ok(!last.includes('2000 字'));
-  });
-
-  test('discuss 仍注入文风与角色', () => {
+  test('仍注入文风与角色', () => {
     assert.ok(last.includes('# 文风指南') && last.includes('# 相关角色设定'));
   });
 
-  test('write 模式仍要求只输出正文', () => {
-    assert.ok(writeMode.messages[0].content.includes('只输出正文'));
+  // 正文这一件活的用户输入是**纲要**，别的活是「我的要求」。照搬会让模型
+  // 以为要把那句要求扩写成正文。
+  test('用户输入那一段的小标题是纲要', () => {
+    assert.ok(last.includes('本段剧情纲要'), last.slice(-600));
   });
 });
 
@@ -1014,7 +1005,7 @@ describe('装配：四阶段配方', () => {
     // ------------------------------------------------------------ 大纲阶段
     oc = await builderMod.buildContext(
       stageProject,
-      { action: { stage: 'outline', capability: 'discuss' }, target: { kind: 'outline' },
+      { job: 'outline', target: { kind: 'outline' },
         ask: '第一卷的冲突升级够不够？' },
       baseConfig
     );
@@ -1023,7 +1014,7 @@ describe('装配：四阶段配方', () => {
     // ------------------------------------------------------------ 卷纲阶段
     vc = await builderMod.buildContext(
       stageProject,
-      { action: { stage: 'volume', capability: 'split' }, target: { kind: 'volume', volumeRelPath: V },
+      { job: 'plotSegment', target: { kind: 'volume', volumeRelPath: V },
         ask: '接着往下拆一段。' },
       baseConfig
     );
@@ -1032,7 +1023,7 @@ describe('装配：四阶段配方', () => {
     // ------------------------------------------------------------ 剧情阶段
     pc = await builderMod.buildContext(
       stageProject,
-      { action: { stage: 'plot', capability: 'discuss' },
+      { job: 'plot',
         target: { kind: 'plot', plotRelPath: PLOT3 }, ask: '这一段的节奏是不是太平？' },
       baseConfig
     );
@@ -1040,7 +1031,7 @@ describe('装配：四阶段配方', () => {
     // 同一个问题，正文阶段要为整段正文付钱，剧情阶段一个字都不付。
     mcSame = await builderMod.buildContext(
       stageProject,
-      { action: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT3 },
+      { job: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT3 },
         ask: '这一段的节奏是不是太平？' },
       baseConfig
     );
@@ -1048,14 +1039,14 @@ describe('装配：四阶段配方', () => {
     // ------------------------------------------------------------ 正文阶段
     mc = await builderMod.buildContext(
       stageProject,
-      { action: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT3 },
+      { job: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT3 },
         ask: '按这一段的剧情写。', targetWords: 1200 },
       baseConfig
     );
     mIds = ids(mc);
     squeezed = await builderMod.buildContext(
       stageProject,
-      { action: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT3 }, ask: '继续。' },
+      { job: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT3 }, ask: '继续。' },
       { ...baseConfig, contextWindow: 3000, maxOutputTokens: 2000 }
     );
     qIds = ids(squeezed);
@@ -1217,7 +1208,7 @@ describe('装配：四阶段配方', () => {
  * 被由远及近截掉开头，而开头往往正是定调子的地方。这是本次唯一的按能力
  * 调整装配策略，所以单独钉一条。
  */
-describe('装配：落定剧情时历史保得住', () => {
+describe('装配：历史对话有封顶', () => {
   const many = [];
   for (let i = 1; i <= 40; i++) {
     many.push({
@@ -1228,89 +1219,43 @@ describe('装配：落定剧情时历史保得住', () => {
     });
   }
   const cfg = { ...baseConfig, contextWindow: 40000 };
-  let settle;
-  let generate;
+  let built;
   const historyTokens = (b) =>
     b.items
       .filter((i) => i.kind === 'history' && (i.status === 'included' || i.status === 'degraded'))
       .reduce((s, i) => s + i.tokens, 0);
 
   before(async () => {
-    const base = {
-      target: { kind: 'plot', plotRelPath: PLOT3 },
-      ask: '按刚才讨论的落定。',
-      history: many,
-    };
-    settle = await builderMod.buildContext(
+    built = await builderMod.buildContext(
       project,
-      { ...base, action: { stage: 'plot', capability: 'settle' } },
-      cfg
-    );
-    generate = await builderMod.buildContext(
-      project,
-      { ...base, action: { stage: 'plot', capability: 'generate' } },
+      {
+        job: 'plot',
+        target: { kind: 'plot', plotRelPath: PLOT3 },
+        ask: '按刚才聊的排一下。',
+        history: many,
+      },
       cfg
     );
   });
 
-  test('落定时历史优先级抬到 P0', () => {
-    assert.equal(ids(settle).get('history:s40').priority, 0);
+  test('历史是 P1', () => {
+    assert.equal(ids(built).get('history:s40').priority, 1);
   });
 
-  test('写剧情时历史仍是 P1', () => {
-    assert.equal(ids(generate).get('history:s40').priority, 1);
-  });
-
-  test('落定装进去的历史比写剧情多', () => {
+  // 一段聊了四十轮的讨论不该把大纲、细纲、角色卡全挤掉。
+  test('历史封顶 30%', () => {
     assert.ok(
-      historyTokens(settle) > historyTokens(generate),
-      `settle=${historyTokens(settle)} generate=${historyTokens(generate)}`
+      historyTokens(built) <= Math.floor(built.budget * 0.3) + 5,
+      `${historyTokens(built)} / ${built.budget}`
     );
   });
 
-  test('落定的历史封顶是 60%', () => {
-    assert.ok(
-      historyTokens(settle) <= Math.floor(settle.budget * 0.6) + 5,
-      `${historyTokens(settle)} / ${settle.budget}`
-    );
+  test('本段细纲仍带得上', () => {
+    assert.notEqual(ids(built).get(`plot:${PLOT3}`).status, 'dropped');
   });
 
-  test('写剧情的历史封顶仍是 30%', () => {
-    assert.ok(
-      historyTokens(generate) <= Math.floor(generate.budget * 0.3) + 5,
-      `${historyTokens(generate)} / ${generate.budget}`
-    );
-  });
-
-  // 不抬到 100%：大纲与本章细纲仍然要带，不然模型会把讨论里没提到的
-  // 既有设定重新发明一遍。
-  test('落定仍带上本章细纲', () => {
-    assert.notEqual(ids(settle).get(`plot:${PLOT3}`).status, 'dropped');
-  });
-
-  // 两条路产出的是同一种产物，所以**输出契约相同**；差别在系统提示里的
-  // 「以哪边为准」——一条从作者的描述出发，一条从刚发生过的讨论出发。
-  // 说不清这一点，模型会把两者混着编。
-  test('两条路的输出契约相同（产物是同一种）', () => {
-    const s = settle.messages[settle.messages.length - 1].content;
-    const g = generate.messages[generate.messages.length - 1].content;
-    assert.equal(s.slice(-400), g.slice(-400));
-  });
-
-  test('两条路的系统提示不同', () => {
-    assert.notEqual(settle.messages[0].content, generate.messages[0].content);
-  });
-
-  test('落定的系统提示说「以讨论里定下的为准」', () => {
-    assert.ok(settle.messages[0].content.includes('讨论'), settle.messages[0].content.slice(0, 600));
-  });
-
-  test('落定明说不要塞进被否掉的方案', () => {
-    assert.ok(settle.messages[0].content.includes('否掉'), settle.messages[0].content.slice(0, 600));
-  });
-
-  test('写剧情的系统提示说「按他说的产出」', () => {
-    assert.ok(generate.messages[0].content.includes('按他说的产出'), generate.messages[0].content.slice(0, 600));
+  test('系统提示说「按他说的产出」', () => {
+    assert.ok(built.messages[0].content.includes('按他说的产出'), built.messages[0].content.slice(0, 600));
   });
 });
 
@@ -1349,7 +1294,7 @@ describe('装配：没写正文的段退化成只带目标', () => {
     degProject.invalidate();
     b = await builderMod.buildContext(
       degProject,
-      { action: WRITE, target: { kind: 'manuscript', plotRelPath: '' }, targetNo: 5, ask: '接着写。' },
+      { job: WRITE, target: { kind: 'manuscript', plotRelPath: '' }, targetNo: 5, ask: '接着写。' },
       baseConfig
     );
     item = ids(b).get('plotSummary:4');

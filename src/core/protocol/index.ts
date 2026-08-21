@@ -4,7 +4,6 @@ export type {
   FileAction,
   InMessage,
   ProjectAction,
-  SendPayload,
   SerializedAttachment,
   SettingsPayload,
   Tab,
@@ -38,7 +37,6 @@ export type {
   ProjectTree,
   SerializedAgentRun,
   SerializedArtifact,
-  SerializedDigest,
   SerializedSegment,
   SerializedSession,
   SerializedTurn,
@@ -54,15 +52,13 @@ export type { TaskSnapshot } from '../runtime/progress';
 export type { DirListing, FsEntry } from '../files/fileTree';
 export type {
   BookStage,
-  Capability,
-  CreationAction,
+  CreationJob,
   CreationStage,
   CreationTarget,
   NextStepFacts,
   NextStepPlan,
   PipelineProgress,
   PlotStage,
-  StageCommand,
 } from '../model/pipeline';
 
 /** CSP 用的一次性 nonce。 */

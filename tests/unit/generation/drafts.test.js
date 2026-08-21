@@ -26,7 +26,7 @@ let store;
 function makeDraft(over = {}) {
   return {
     id: 'd1',
-    action: { stage: 'plot', capability: 'generate' },
+    job: 'plot',
     target: { kind: 'plot', plotRelPath: '.novelforge/plots/001-夜入青云.md' },
     raw: '{"剧情脉络":"进宗门"}',
     artifact: { kind: 'plot', sections: { 目标: '', 剧情脉络: '进宗门', 冲突与转折: '', 伏笔与回收: '' } },
@@ -154,7 +154,7 @@ describe('随会话往返一趟', () => {
   });
 
   test('动作跟着一起回来了', () => {
-    assert.equal(reloaded.drafts[0].action.capability, 'generate');
+    assert.equal(reloaded.drafts[0].job, 'plot');
   });
 
   test('原文跟着一起回来了', () => {
@@ -194,7 +194,7 @@ describe('会话文件被手改坏', () => {
       // 认不出的几种：不是对象、没有 id、target 是垃圾。
       null,
       { raw: '没有 id' },
-      { id: 'd9', action: { stage: '瞎写' }, target: '不是对象', raw: 123 },
+      { id: 'd9', job: '瞎写', target: '不是对象', raw: 123 },
     ];
     await store.write(session);
     reloaded = await store.read(session.id);

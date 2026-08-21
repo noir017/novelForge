@@ -125,7 +125,7 @@ after(() => {
 describe('剧情层走 plotOutline 档', () => {
   before(async () => {
     resetCtx();
-    await run({ target: PLOT_REL, capability: 'generate' });
+    await run({ job: 'plot', target: PLOT_REL });
   });
 
   test('用的是那一档的首选，不是对话页那个', () => {
@@ -137,7 +137,7 @@ describe('剧情层走 plotOutline 档', () => {
 describe('正文层严格用对话页选定的那个模型', () => {
   before(async () => {
     resetCtx();
-    await run({ target: MANUSCRIPT_REL, capability: 'generate' });
+    await run({ job: 'manuscript', target: MANUSCRIPT_REL });
   });
 
   test('不走池', () => {
@@ -147,7 +147,7 @@ describe('正文层严格用对话页选定的那个模型', () => {
   test('把那一档配得再满也不换', async () => {
     resetCtx();
     settings.tierModels.balanced = ['cheap/plotter'];
-    await run({ target: MANUSCRIPT_REL, capability: 'generate' });
+    await run({ job: 'manuscript', target: MANUSCRIPT_REL });
     assert.equal(fake.calls[0].ref, 'chat/big', String(fake.calls[0].ref));
   });
 });
@@ -155,7 +155,7 @@ describe('正文层严格用对话页选定的那个模型', () => {
 describe('大纲层也用对话页那个（一次定调，没有对应档位）', () => {
   test('不走池', async () => {
     resetCtx();
-    await run({ target: OUTLINE_REL, capability: 'generate' });
+    await run({ job: 'outline', target: OUTLINE_REL });
     assert.equal(fake.calls[0].ref, 'chat/big', String(fake.calls[0].ref));
   });
 });
@@ -164,7 +164,7 @@ describe('大纲层也用对话页那个（一次定调，没有对应档位）'
 describe('卷纲层也用对话页那个', () => {
   test('不走池', async () => {
     resetCtx();
-    await run({ target: VOLUME_REL, capability: 'generate' });
+    await run({ job: 'volume', target: VOLUME_REL });
     assert.equal(fake.calls[0].ref, 'chat/big', String(fake.calls[0].ref));
   });
 });
@@ -182,7 +182,7 @@ describe('档位没配模型时沿用默认模型清单', () => {
     resetCtx();
     const saved = settings.tierModels.balanced;
     settings.tierModels.balanced = [];
-    await run({ target: PLOT_REL, capability: 'generate' });
+    await run({ job: 'plot', target: PLOT_REL });
     assert.equal(fake.calls[0].ref, 'chat/big', String(fake.calls[0].ref));
     settings.tierModels.balanced = saved;
   });

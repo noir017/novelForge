@@ -5,7 +5,7 @@
  * 引用配方里的 cap/force）之间的循环引用——两边都只依赖这里，谁也不依赖谁。
  */
 import { AgentMessage } from '../llm/provider';
-import { CreationAction, CreationTarget } from '../model/pipeline';
+import { CreationJob, CreationTarget } from '../model/pipeline';
 import { Attachment, ChatTurn } from '../model/session';
 
 /** 上下文条目在 prompt 中的分层，数字越小越先保证。 */
@@ -109,8 +109,8 @@ export interface LayerSpec {
 // ---------------------------------------------------------------- 请求与结果
 
 export interface BuildRequest {
-  /** 这一次要 AI 干什么：哪一层的身份 + 什么能力。决定提示词与装配配方。 */
-  action: CreationAction;
+  /** 这一次要 AI 产出什么。决定身份、提示词、输出契约与装配配方。 */
+  job: CreationJob;
   /** 在改哪一个产物。决定「本层产物」几层取哪个文件。 */
   target: CreationTarget;
   /** 用户这一轮写的内容。正文阶段是剧情纲要，其余阶段是一句要求。 */

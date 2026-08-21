@@ -1,16 +1,12 @@
 /**
  * 一轮 assistant 排下来的段（`serializeTurn` 的那一半）。
  *
- * 界面**只认 `segments`**：文字块、工具条、generate 卡按数组顺序画。老会话文件
- * 里还是改成段之前的形状（`content` 一整块 + `toolCalls` 一整串），所以归一必须在
- * 这里做完——放到前端去做等于让界面长期认两种形状，而第二种迟早会走偏。
+ * 界面**只认 `segments`**：文字块、工具条、generate 卡按数组顺序画。
  *
  * | 用例 | 钉的是什么 |
  * |---|---|
- * | 新会话（有 segments） | 原样带过去，不动它 |
- * | 老会话（只有 toolCalls） | 拼成「工具们 + 正文」，正是旧界面的顺序 |
- * | 老会话但没说话 | 只有工具段，不补一段空文字（界面会画出一个空盒子） |
- * | 普通一问一答 | **没有段**：一块正文就是全部，那一轮照旧可就地编辑 |
+ * | 有 segments | 原样带过去，不动它 |
+ * | 没调工具 | **没有段**：一块正文就是全部，那一轮照旧可就地编辑 |
  */
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -43,33 +39,7 @@ describe('段：新会话原样带过去', () => {
   });
 });
 
-describe('段：老会话归一一次', () => {
-  test('拼成「工具们 + 正文」，正是旧界面的顺序', () => {
-    const turn = assistant({
-      content: '排好了。',
-      toolCalls: [call('c1', 'read'), call('c2', 'generate')],
-    });
-    assert.deepEqual(
-      turn.segments.map((seg) => (seg.kind === 'text' ? `文字:${seg.text}` : `工具:${seg.call.callId}`)),
-      ['工具:c1', '工具:c2', '文字:排好了。']
-    );
-  });
-
-  // 归一之后就不该再有第二种形状流到前端去。
-  test('归一之后不再带着 toolCalls', () => {
-    const turn = assistant({ content: '排好了。', toolCalls: [call('c1', 'read')] });
-    assert.equal(turn.toolCalls, undefined, JSON.stringify(turn));
-  });
-
-  // 一段空文字在界面上是一个空盒子。
-  test('那一轮没说话时不补空的文字段', () => {
-    const turn = assistant({ content: '', toolCalls: [call('c1', 'read')] });
-    assert.equal(turn.segments.length, 1);
-    assert.equal(turn.segments[0].kind, 'tool');
-  });
-});
-
-describe('段：普通一问一答没有段', () => {
+describe('段：没调工具时没有段', () => {
   test('assistant 一块正文', () => {
     assert.equal(assistant({ content: '好的。' }).segments, undefined);
   });

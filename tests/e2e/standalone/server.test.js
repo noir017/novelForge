@@ -307,11 +307,10 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
     assert.equal(session.session.stage, 'manuscript');
   });
 
-  // 切层一律把能力重置成 discuss：**默认动作不该是花钱产出一份要不要都不
-  // 知道的产物**（DEFAULT_CAPABILITY）。要跑哪一步由下面那个 next 推荐，
-  // 作者点主按钮才执行。
-  test('切层不预置花钱的能力', () => {
-    assert.equal(session.session.capability, 'discuss', session.session.capability);
+  // 切层不预置任何「要干什么」：会话上只有「停在哪一层」。要跑哪一步由
+  // agent 每回合自己读一遍状态机得出（第 20 条），界面上没有那个入口。
+  test('会话上只记停在哪一层', () => {
+    assert.equal(session.session.capability, undefined, String(session.session.capability));
   });
 
   test('目标指向那一段', () => {
@@ -331,9 +330,9 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
       JSON.stringify(pipe.workbench));
   });
 
-  // **全做完了就不催**：给一个假的「下一步」等于逼作者一直有事可做。
-  // 这一章正文发布了、摘要也新鲜，状态机因此不返回下一步。
-  test('已完成的章没有下一步', () => {
+  // 「下一步」不再随流水线推给前端：只有 agent 读它（`agent/context.ts`），
+  // 界面上那颗主按钮已经删了，推过去也没人画。
+  test('流水线不带下一步', () => {
     assert.equal(pipe.next, undefined, JSON.stringify(pipe.next));
   });
 

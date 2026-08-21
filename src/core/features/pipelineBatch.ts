@@ -39,7 +39,6 @@ import { buildContext } from '../context/builder';
 import { runTask } from '../runtime/progress';
 import { cleanOutput } from './creation';
 import { parsePlotStrict } from './artifact';
-import { Capability } from '../model/pipeline';
 import { Workspace } from '../workspace';
 import { plotUpstreamHash } from '../workspace/handlers/plot';
 
@@ -98,7 +97,7 @@ export async function generatePlots(project: NovelProject): Promise<number> {
     op: 'plotOutline',
     what: '剧情',
     run: async (plot, signal) => {
-      const messages = await buildContextFor(project, plot, config, 'generate');
+      const messages = await buildContextFor(project, plot, config);
       const raw = await pool.run(`剧情段 ${plot.no}`, (llm) =>
         collectText(
           llm.stream(messages, {
@@ -215,7 +214,7 @@ export async function writeManuscripts(project: NovelProject): Promise<number> {
       const built = await buildContext(
         project,
         {
-          action: { stage: 'manuscript', capability: 'generate' },
+          job: 'manuscript',
           target: { kind: 'manuscript', plotRelPath: plot.relPath },
           targetNo: plot.no,
           targetWords: plot.targetWords,
@@ -260,13 +259,12 @@ export async function writeManuscripts(project: NovelProject): Promise<number> {
 async function buildContextFor(
   project: NovelProject,
   plot: Plot,
-  config: ReturnType<typeof readConfig>,
-  capability: Extract<Capability, 'generate'>
+  config: ReturnType<typeof readConfig>
 ): Promise<AgentMessage[]> {
   const built = await buildContext(
     project,
     {
-      action: { stage: 'plot', capability },
+      job: 'plot',
       target: { kind: 'plot', plotRelPath: plot.relPath },
       targetNo: plot.no,
       targetWords: plot.targetWords,

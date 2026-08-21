@@ -117,21 +117,12 @@ export function chatPane(opts: PaneOptions = {}): string {
   <div class="messages" id="messages">
     <div class="empty" id="emptyHint">
       <p><strong>先挑一章剧情，从它当前该做的那一步接着做</strong></p>
-      <p>在「工程」页点任意章节，或用下面的下拉框选一章——界面会自动落到它的当前阶段：还没排剧情就去写剧情，剧情排好了就去拆场景。</p>
-      <p>用 <kbd>@</kbd> 引用正文、角色卡或任意文件；在输入框里打 <kbd>/</kbd> 可以挑其它命令。</p>${editorHint}
+      <p>在「工程」页点任意章节，或用下面的下拉框选一章——界面会落到它当前停在的那一层。</p>
+      <p>然后直接说你要做什么：查一句设定、排这一段的剧情、写正文，都是同一个输入框。用 <kbd>@</kbd> 引用正文、角色卡或任意文件。</p>${editorHint}
     </div>
   </div>
 
-  <!-- 下一步：状态机算出来的那一个动作。点了就跑，不必先输入什么。 -->
-  <div class="nextstep hidden" id="nextStep">
-    <div class="nextstep-text">
-      <span class="nextstep-label" id="nextStepHint"></span>
-    </div>
-    <button class="primary nextstep-go" id="nextStepBtn"></button>
-  </div>
-
-  <!-- 输入区。「/」命令面板由前端挂进 #composerInput（它是 position: relative），
-       从输入框上沿浮出来——命令本身留在输入框里当普通文字，与 Cursor 一致。 -->
+  <!-- 输入区。 -->
   <div class="composer" id="composer">
     <!-- 动手之前那一句问。**固定在输入框上方**，不跟着消息流滚：循环正卡在这里
          等回答，一张会滚出视野的卡片等于没人看见（Cursor 那一套）。答完卡片就
@@ -139,14 +130,11 @@ export function chatPane(opts: PaneOptions = {}): string {
     <div class="gate-dock hidden" id="gateDock"></div>
     <div class="chips" id="chips"></div>
     <div class="composer-input" id="composerInput">
-      <!-- 已挑好、待执行的命令。它长在输入框**里面**，发送时用它，不用状态机那一个。 -->
-      <div class="pending-cmd hidden" id="pendingCmd"></div>
-      <textarea id="input" rows="3" placeholder="补充要求（可留空）…（Enter 发送，Shift+Enter 换行）"></textarea>
+      <textarea id="input" rows="3" placeholder="要它做什么？（Enter 发送，Shift+Enter 换行）"></textarea>
     </div>
     <div class="composer-bar">
       <button class="composer-tool" id="atBtn" title="引用文件或正文"><span class="tool-key">@</span>引用</button>
       <button class="composer-tool" id="selBtn" title="${selTitle}">加入选区</button>
-      <button class="composer-tool" id="cmdBtn" title="其它命令（在输入框里直接打 / 也一样）"><span class="tool-key">/</span>命令</button>
       <select id="modelSelect" title="使用哪个模型"></select>
       <!-- 思考深度：跟着**会话**走，不是设置项（见 core/model/session.ts）。 -->
       <select id="thinkSelect" title="让模型想多深"></select>

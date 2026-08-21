@@ -47,7 +47,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 | `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**、卷纲 volumeFile.ts、细纲 plotFile.ts、服务商配置、思考深度 thinking.ts、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/workspace/` | ★ **工程的唯一读写网关**：路径 → 种类（`kind.ts`）→ 八条守卫（`guard.ts`）→ 解析/渲染/记账/伴生（`handlers/`）。写盘从前散在六处、各带一部分保护，现在收成一处；`upstreamHash` / `beatsHash` 的记账下沉到写入路径本身，谁写都记 | [src/core/workspace/README.md](src/core/workspace/README.md) |
 | `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
-| `src/core/generation/` | ★ 创作的一次单步：**无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，并发控制在 controller）、六条落盘分派、Draft store（随会话落盘，`write draftId=…` 认它） | [src/core/generation/README.md](src/core/generation/README.md) |
+| `src/core/generation/` | ★ 一次创作调用：**无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，并发控制在 controller）、六条落盘分派、Draft store（随会话落盘，`write draftId=…` 认它） | [src/core/generation/README.md](src/core/generation/README.md) |
 | `src/core/tools/` | ★ **工具层**：契约（`ToolDef` / `ToolIntent` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那七个工具：读三件 + `generate` + `write` / `edit` / `run`，**没有删除/改名/移动**。**不认识 `agent/`**（形状照 MCP 的 `tools/list` + `tools/call` 摆，将来能单独端出去） | [src/core/tools/README.md](src/core/tools/README.md) |
 | `src/core/agent/` | ★ 多步调度：对话循环、状态注入、预算闸门与无进展检测、**策略与确认闸门**（`policy.ts`）。手上只有一个 `ToolInvoker`，**不认识 `Workspace` / `DraftStore` / 具体工具**；「下一步该做什么」由 `deriveNextStep` 每回合注入，agent 拿着它去执行而不是另做判断 | [src/core/agent/README.md](src/core/agent/README.md) |
 | `src/core/features/` | 功能编排：创作（四层产物）、批量流水线、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
@@ -107,13 +107,13 @@ npm run test:e2e         # 独立版服务（需 Bun）
 17. **SQLite 只放可丢弃的痕迹**：内容的唯一真相永远是 Markdown，库打不开就静默降级。实现细节（两个驱动、动态 import 写法、finalize 时机）见 [src/core/runtime/README.md](src/core/runtime/README.md)。
 18. **上下游新鲜度只靠 hash 传播，不调模型**：产物串成一条指纹链（大纲 → 卷纲 → 细纲 → 中转站正文 → 摘要，每一环的上游指纹记在下游的 frontmatter `upstreamHash` 里；正文那一格从前叫 `beatsHash`、上游是场景集合，`readManuscript` 两个名字都认），拆分是这条链上唯一的人工闸口——已发布的章不会被拉回「待写正文」；流水线状态一律从磁盘推导，绝不落盘。见 [src/core/workspace/README.md](src/core/workspace/README.md)、[src/core/views/README.md](src/core/views/README.md)、[src/core/model/README.md](src/core/model/README.md)。
 19. **产物落盘前必须过一遍人，而且是当场过**：`generate` 只把文本交回界面，作者在对话里那张权限卡片上点了「写入」才落盘；这一问与 agent 的策略无关，三种模式都问，也不做成一颗可以拖延的按钮。批量路径反过来——一律跳过已有产物的目标，不问、不覆盖。见 [src/core/generation/README.md](src/core/generation/README.md)、[src/core/features/README.md](src/core/features/README.md)、[src/core/agent/README.md](src/core/agent/README.md)。
-20. **界面永远只推荐一个下一步，且由状态机算出来**：主按钮来自 `deriveNextStep`，与 `deriveStage` 共用同一套判据；agent 每回合从同一个状态机免费拿到同一份结论，没有 `status` 工具；`selectPlot` 按路径认，绝不在段号与章号两条轴之间按号互认。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/agent/README.md](src/core/agent/README.md)。
+20. **「下一步做什么」只有一处判断，且由状态机算出来**：`deriveNextStep` 与 `deriveStage` 共用同一套判据，**唯一的消费者是 agent** 每回合的状态注入（因此没有 `status` 工具）——界面上不再有第二个入口去抢这个判断；`selectPlot` 按路径认，绝不在段号与章号两条轴之间按号互认。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/agent/README.md](src/core/agent/README.md)。
 21. **细纲是剧情脉络，不是正文**：`plots/**/*.md` 四节，主体是剧情脉络，不写画面/天气/动作细节/台词（那些是写正文时才定的），也不规定这一段从哪开头到哪结尾；卷纲另有四节，刻意与细纲不同名。**「这一段正文写够了没有」看细纲的 `targetWords`**（到八成算写完，缺席时有字就算）——不拿一个猜出来的阈值骗人。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/context/README.md](src/core/context/README.md)。
-22. **细纲有两个入口，讨论那条不许被截断**：`generate` 按走向填，`settle` 把讨论结论沉淀成细纲，两者输出契约必须一致；`settle` 的历史 cap 抬到 60%。见 [src/core/context/README.md](src/core/context/README.md)。
+22. **对话只有一条路，就是 agent**：作者打字 → agent 自己决定读什么、产出什么。没有「挑一层 + 挑个能力」的确定性单步，也因此没有 `capability` 这个维度——六个 `CreationJob` 穷举了所有能让模型干的创作活（写大纲 / 拆卷 / 写卷纲 / 拆段 / 写细纲 / 写正文），非法组合在类型上就说不出口。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/agent/README.md](src/core/agent/README.md)。
 23. **拆分是作者的活，工具不猜断点也不起名**：按正文里单独一行 `---` 切，零次模型调用，第一章沿用原标题、其余落成纯序号名；章号接在现有最后一章之后，与段号无关，其余段一个文件都不动。见 [src/core/features/README.md](src/core/features/README.md)。
 24. **agent 是调度者，不是第二个作者**：循环只做「拿着工具达成一个目标」，创作质量仍来自分阶段装配那一层，领域知识只在那里写一份；四条配套约束（产物不回灌、history 传空、无进展检测、触顶不静默停）见 [src/core/agent/README.md](src/core/agent/README.md)。
 25. **agent 不越过既有的闸门**：它的写入走的是与落盘卡片同一条 `workspace.write`，这一层没有任何新的保护代码，`policy.ts` 只决定「动手之前要不要先问一句」；明确不给删除/改名/移动/`bash`/工程根之外的路径/裸 `fs`。见 [src/core/agent/README.md](src/core/agent/README.md)。
-26. **思考深度是会话的属性，只作用于作者选定的那个模型**：落在 `ChatSession.thinking` 上跟着会话走，缺省是「不思考」；只有对话页的单次生成与 agent 循环带它，工程页的后台批量任务一律不带。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/llm/README.md](src/core/llm/README.md)。
+26. **思考深度是会话的属性，只作用于作者选定的那个模型**：落在 `ChatSession.thinking` 上跟着会话走，缺省是「不思考」；只有 agent 循环带它，它一轮里顺手调的 `generate` 与工程页的后台批量任务一律不带。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/llm/README.md](src/core/llm/README.md)。
 
 ## 提交约定
 

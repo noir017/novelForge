@@ -3,9 +3,9 @@
  *
  * ## 为什么要单独一层
  *
- * `generate` / `settle` / `split` 三个能力产出的是**要写进文件的
- * 东西**，不是聊天气泡。写进文件就意味着解析失败＝这一次生成白花钱，而且用户
- * 看着一段像模像样的回答却等不来那张「写入吗」的卡片，只会以为是插件坏了。
+ * 六件创作活产出的都是**要写进文件的东西**，不是聊天气泡。写进文件就意味着
+ * 解析失败＝这一次生成白花钱，而且用户看着一段像模像样的回答却等不来那张
+ * 「写入吗」的卡片，只会以为是插件坏了。
  *
  * 所以沿用摘要那一套**三层降级**（summarize.ts 的 parseSummaryResponse）：
  *
@@ -24,7 +24,7 @@
  */
 import { pickSections } from '../model/markdown';
 import { PLOT_SECTION_KEYS, PlotSections, emptyPlotSections } from '../model/plotFile';
-import { CreationAction } from '../model/pipeline';
+import { CreationJob } from '../model/pipeline';
 import { extractJsonObject, stripCodeFence } from './parse';
 import { toSectionText } from './summarize';
 
@@ -48,9 +48,8 @@ export interface VolumeOutlineItem {
 }
 
 /**
- * 解析出来的产物。`kind` 与 `CreationTarget.kind` 不完全对应——
- * `split` 产出的是**下一层**的东西（大纲 split 出分卷清单，卷 split 出一个
- * 剧情段）。
+ * 解析出来的产物。`kind` 与 `CreationTarget.kind` 不完全对应——两件「拆」
+ * （`volumeList` / `plotSegment`）产出的是**下一层**的东西。
  */
 export type Artifact =
   | { kind: 'outlineDoc'; text: string }
@@ -67,33 +66,29 @@ export type Artifact =
   | { kind: 'manuscript'; text: string };
 
 /**
- * 按 action 解析。**绝不抛**：解析这一步出异常，用户丢的是刚花掉的那次调用。
+ * 按 job 解析。**绝不抛**：解析这一步出异常，用户丢的是刚花掉的那次调用。
  * 实在认不出就退回一个「全文塞进主字段」的产物，让他至少能手工取用。
  *
- * **只看 action，不看 target。** 从前它还要收一份 target：`outline` 阶段兼管
- * 全书大纲与卷纲，同一个 `split` 在两者上产出的东西完全不同，只看 stage 分不开。
- * 卷纲独立成阶段之后 stage 就够了。
+ * **只看 job，不看 target。** job 的名字就是要产出的形状，落点是 target 的事
+ * （见 generation/accept.ts）——两个「写整篇 Markdown」的活（大纲、卷纲）产出
+ * 同一种 `outlineDoc`，写到哪由 target 决定。
  */
-export function parseArtifact(action: CreationAction, raw: string): Artifact {
+export function parseArtifact(job: CreationJob, raw: string): Artifact {
   const text = stripCodeFence(raw).trim();
-  const { stage, capability } = action;
 
-  switch (stage) {
+  switch (job) {
+    // 大纲与卷纲都是整篇 Markdown，没有 JSON 可解——原样收下。
+    case 'outline':
+    case 'volume':
+      return { kind: 'outlineDoc', text };
+    case 'volumeList':
+      return { kind: 'volumeList', volumes: parseVolumeList(text) };
+    case 'plotSegment':
+      return { kind: 'plotSegment', segment: parsePlotSegment(text) };
+    case 'plot':
+      return { kind: 'plot', sections: parsePlotSections(text) };
     case 'manuscript':
       return { kind: 'manuscript', text };
-    case 'outline':
-      return capability === 'split'
-        ? { kind: 'volumeList', volumes: parseVolumeList(text) }
-        // 大纲是 Markdown，没有 JSON 可解——原样收下。
-        : { kind: 'outlineDoc', text };
-    case 'volume':
-      return capability === 'split'
-        ? { kind: 'plotSegment', segment: parsePlotSegment(text) }
-        // 卷纲同样是 Markdown。落点由 target 决定（见 generation/accept.ts）。
-        : { kind: 'outlineDoc', text };
-    case 'plot':
-      // 剧情层没有 `split`，所以不必分岔。
-      return { kind: 'plot', sections: parsePlotSections(text) };
   }
 }
 

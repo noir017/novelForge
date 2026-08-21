@@ -174,14 +174,12 @@ function syncComposerLock(): void {
   el.sendBtn.disabled = !on || store.busy;
   el.atBtn.disabled = !on || store.busy;
   el.selBtn.disabled = !on || store.busy;
-  el.cmdBtn.disabled = !on || store.busy;
   el.modelSelect.disabled = !on;
   el.thinkSelect.disabled = !on;
   el.targetSelect.disabled = !on;
   el.targetWords.disabled = !on;
   el.newSessionBtn.disabled = !on || store.busy;
   el.renamePlotBtn.disabled = !on || store.busy;
-  el.nextStepBtn.disabled = !on || store.busy;
 }
 
 function updateTitle(item?: WorkspaceItem): void {

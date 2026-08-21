@@ -32,13 +32,7 @@ import {
 } from '../protocol';
 import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
 import { buildPipelineIndex } from '../views/pipeline';
-import {
-  pushPipeline,
-  retry,
-  selectPlot,
-  send,
-  setTarget,
-} from './chat';
+import { pushPipeline, selectPlot, setTarget } from './chat';
 import { sendAgent } from './agent';
 import type { PendingGate } from './gate';
 import { cancelGates, resendGates, resolveGate } from './gate';
@@ -293,16 +287,8 @@ export class ChatController {
         await this.pushTabData();
         return;
 
-      case 'send':
-        await send(this, msg.payload);
-        return;
-
       case 'sendAgent':
         await sendAgent(this, msg.text, msg.limits);
-        return;
-
-      case 'retry':
-        await retry(this, msg.turnId, msg.payload);
         return;
 
       case 'stop':

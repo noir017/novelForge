@@ -20,7 +20,6 @@ import { parsePlotFileName } from '../../core/model/plotFile';
 import { Chapter } from '../../core/model/types';
 import { ChatPanel } from './chatPanel';
 import { ChatViewProvider } from './chatViewProvider';
-import { quickContinue } from './quickContinue';
 import { legacySettingsReader, migrateVscodeSettings } from './migrate';
 import { FileConfigStore, FileSecretStore } from '../../core/stores';
 import { VsCodeHost } from './vscodeHost';
@@ -242,14 +241,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     if (!(await chat.addSelectionFromCommand())) {
       getHost().toast('请先在编辑器里选中一段文字。', 'error');
-    }
-  });
-
-  register('novel.quickContinue', async () => {
-    const target = await requireProject();
-    if (target) {
-      await quickContinue(target);
-      await refresh();
     }
   });
 

@@ -11,7 +11,7 @@
 | [types.ts](types.ts) | `BuildRequest` / `BuiltContext` / `ContextItem` / `LayerId` / `LayerSpec`。单独成文件是为了打断 recipes 与 layers 的循环引用。 |
 | [recipes.ts](recipes.ts) | ★ 四个阶段各带哪些层、优先级多少（**卷借大纲那一张**）。**改装配策略只改这一张表。** |
 | [layers/](layers/index.ts) | ★ 每一层的取数与注入，外加 `resolveFocus`（按配方只读用得上的文件）。`LAYERS` 注册表在 index，实现按 dialog / artifacts / background 拆开。 |
-| [prompts.ts](prompts.ts) | ★ 身份（Stage）× 任务（Capability）× 输出契约。 |
+| [prompts.ts](prompts.ts) | ★ 身份（`stageOfJob`）+ 这一件活（`JOB_TASK`）+ 输出契约。六个 job 各一段任务描述、各一份契约，一层 switch 穷举。 |
 | [builder.ts](builder.ts) | ★ `buildContext()`：算预算 → 按配方跑一遍层 → 拼 messages。 |
 
 ## Token 计数是可替换的
@@ -41,7 +41,6 @@
 
 - **正文阶段文风指南升到 P0 force**。它是「读者感觉不到换人执笔」的唯一保障，不该跟一段长对话抢预算——改之前它在 P1，一段长对话（封顶 30%）加几张角色卡就能把它挤掉。
 - **正文阶段本段细纲也升到 P0 force**。从前那一格是这一场的素材卡（`sceneSelf`），细纲只到 P0 不 force——因为写的是「这一场」，本段细纲只是背景。场景那一层删掉之后，细纲**就是**写正文的依据：少了它，模型手上只有文风与前文尾巴，会自己编一段剧情出来。
-- **`settle`（落定剧情）时历史 cap 从 30% 抬到 60%、优先级提到 P0**（`recipeFor(stage, capability)` 唯一一处按能力改配方的地方）。这条命令要沉淀的就是那段讨论，按常规由远及近截掉等于把结论截没了。
 
 **卷纲有自己的一张配方**：从前它借大纲那一张——`volumeSelf` / `volumeSegments` 在 target 不是某一卷时自然是空的，所以挂进去也不会出错。代价是那两层在全书大纲那条路上全程空跑，而 `volumeList` 在「拆卷」与「拆段」两种完全不同的用途上共用同一个优先级。`volume` 提升为独立阶段之后各自只带自己要的东西。卷纲那张里前两层是 P0 force：从一卷里拆下一段时，这两层就是全部依据；少了后者，模型会把已经排过的那几段重新发明一遍，而「一次只拆一段」正是靠它才成立的。
 
@@ -55,7 +54,7 @@
 |---|---|
 | P0 · force | 永远保留（系统提示、用户这一句、本层产物） |
 | 用户 @ 的引用 | 单条封顶预算 35%，超出从头部截断而非丢弃 |
-| 会话历史 | 整体封顶 30%（`settle` 时 60%）、单轮 12%，由近及远保留，更早的整轮丢弃 |
+| 会话历史 | 整体封顶 30%、单轮 12%，由近及远保留，更早的整轮丢弃 |
 | 角色卡 | 降级为「身份 + 当前状态 + 未收伏笔」三节 |
 | 某章正文 | 降级为该章摘要 → 丢弃 |
 | 更早章的摘要 | 由近及远填充，填满即止 |
@@ -73,8 +72,7 @@
 - **正文优先读 `chapters/`**：一章的正文有两处可能——已经拆分发布的在 `chapters/`，还没拆的在中转站 `manuscripts/`。`readChapterText` 先找成品、找不到才回落，所以只有 `chapters/` 的老工程一样带得出前文。
 - **讨论型能力禁止改写产物**：`outputKindOf(action) === 'text'` 时系统提示里明写「只回答，不要输出改写后的完整产物」。少了这一条，模型会一边回答一边把整份剧情细纲重写一遍，而界面上那一版是不能采纳的。
 - **剧情层交的是剧情脉络，不是正文**：`STAGE_DUTY.plot` 与 `buildOutputContract` 里都明写「不要写具体画面、天气、动作细节或台词」「也不要规定这一段的开头与结尾」。前者是写正文时才定的东西，后者是「不按章硬切」那半边——写多长由剧情决定，正文出来后作者自己拆成发布章，细纲先定死起讫等于逼模型为了凑一章而强行收束。
-- **`settle` 与 `generate` 的差别只在系统提示**（`CAPABILITY_TASK`），**输出契约必须一字不差**：同一份细纲不该因为入口不同长得不一样。
 
 ## 依赖关系
 
-依赖 `model/`（读卷纲、细纲、正文、摘要、角色卡、设定；`model/pipeline.ts` 提供 Stage × Capability × Target）与 `llm/`（`ChatMessage` 类型）。被 `features/creation.ts`（创作页单次生成）与 `features/pipelineBatch.ts`（工程页批量）调用——两者走同一个 `buildContext`，因此批量与单次产出的是同一个质量。
+依赖 `model/`（读卷纲、细纲、正文、摘要、角色卡、设定；`model/pipeline.ts` 提供 `CreationJob` × `CreationTarget`）与 `llm/`（`ChatMessage` 类型）。被 `generation/generate.ts`（agent 的 `generate` 工具经它调）与 `features/pipelineBatch.ts`（工程页批量）调用——两者走同一个 `buildContext`，因此批量与单次产出的是同一个质量。

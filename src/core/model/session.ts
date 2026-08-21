@@ -3,15 +3,11 @@ import * as path from 'node:path';
 import { exists, readText, writeText } from './fs';
 import { NovelProject } from './project';
 import {
-  Capability,
-  CreationAction,
+  CreationJob,
   CreationStage,
   CreationTarget,
-  DEFAULT_CAPABILITY,
-  STAGE_CAPABILITIES,
-  isCapability,
+  isCreationJob,
   isCreationStage,
-  normalizeAction,
   normalizeTarget,
   stageOfTarget,
 } from './pipeline';
@@ -44,50 +40,16 @@ export interface Attachment {
   text?: string;
 }
 
-/** 一轮对话中，装配器实际带上了什么——存下来供回看。 */
-export interface ContextDigest {
-  usedTokens: number;
-  budget: number;
-  clamped: boolean;
-  items: DigestItem[];
-}
-
-export interface DigestItem {
-  id: string;
-  label: string;
-  kind: string;
-  priority: number;
-  tokens: number;
-  status: string;
-  note?: string;
-  source?: string;
-}
-
 export interface ChatTurn {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   /** ISO 时间戳。 */
   at: string;
-  /**
-   * 仅 user 轮：这一轮下的是哪个命令，如 `落定剧情`。**只在不是「讨论」时记**——
-   * 讨论是默认动作，每条消息都挂一枚「/讨论」的标签是纯噪声。
-   *
-   * 存的是标签而不是能力名：`labelOf` 是按阶段具体化过的（剧情阶段的 `split`
-   * 叫「拆成场景」），而历史里那一轮当时在哪个阶段，事后未必还推得出来。
-   *
-   * 为什么不干脆写进 `content`：那句话会被当成作者的要求装进 prompt。
-   * 「写剧情」这类命令本来就不需要作者说什么，凭空塞一句「请写剧情」
-   * 进上下文，与旧界面逼他手打一句是同一个毛病。界面要显示的东西和要发给
-   * 模型的东西是两件事。
-   */
-  command?: string;
   /** 仅 user 轮：本轮引用的附件。 */
   attachments?: Attachment[];
   /** 仅 user 轮：本轮被手动取消勾选的上下文条目 id。 */
   excludedIds?: string[];
-  /** 仅 assistant 轮：本次装配明细。 */
-  context?: ContextDigest;
   /** 仅 assistant 轮：已采纳写入的目标路径。 */
   acceptedTo?: string;
   /** 仅 assistant 轮：生成被用户中断。 */
@@ -116,23 +78,14 @@ export interface ChatTurn {
   /**
    * 仅 assistant 轮：这一轮**按发生顺序**排下来的段——它说的话与它做的事交替。
    *
-   * 从前这里是 `content` 一整块 + `toolCalls` 一整串：所有工具挤在正文上方，
-   * 模型每一回合说的话全灌进同一块正文。真实过程是「读了三份 → 说一句 →
-   * 生成 → 再说一句」，画出来却是「所有工具 / 一整段话」，作者看不出哪句话
-   * 是在哪一步之后说的；而 `content` 存的还只是**最后一回合**那段文字，跑的
-   * 时候看到的和第二天翻回来看到的不是一份东西。
+   * 顺序是这一轮唯一存不回来的东西。真实过程是「读了三份 → 说一句 → 生成 →
+   * 再说一句」，只存 `content` 的话画出来是「一整段话」，作者看不出哪句话是在
+   * 哪一步之后说的，而那一块还只是**最后一回合**那段文字——跑的时候看到的和
+   * 第二天翻回来看到的不是一份东西。
    *
-   * 只有 agent 那条路写它。单步创作（写剧情、写正文）没有工具，一块正文就是
-   * 全部——那条路不产生段，气泡照旧画成一块可就地编辑的正文。
+   * 一轮里没调工具时（模型直接答了）只有一段文字。
    */
   segments?: TurnSegment[];
-  /**
-   * 仅 assistant 轮：这一轮 agent 调了哪些工具。**只读旧会话，不再写入。**
-   *
-   * 改成 `segments` 之前的形状。老会话文件里还有它，`serializeTurn` 读到时
-   * 归一成「工具们 + 正文」那几段（正是旧界面的顺序），于是界面只认一条路。
-   */
-  toolCalls?: TurnToolCall[];
   /**
    * 仅 assistant 轮：这一轮 agent 的花销与结局。
    *
@@ -210,11 +163,11 @@ export interface TurnToolCall {
  */
 export interface SessionDraft {
   id: string;
-  action: CreationAction;
+  job: CreationJob;
   target: CreationTarget;
-  /** 模型原样输出（正文层已过 `cleanOutput`）。 */
+  /** 模型原样输出（正文已过 `cleanOutput`）。 */
   raw: string;
-  /** 解析出的结构化产物。讨论（唯一的 text 类能力）没有。 */
+  /** 解析出的结构化产物。解析不出内容时缺席。 */
   artifact?: unknown;
   /** 一句话形状描述，如「剧情 · 4/4 节」。 */
   summary?: string;
@@ -235,9 +188,8 @@ export interface ChatSession {
    * 换个话题，但**不强制新建会话**：作者可能正想拿这一章跟上一章比。
    */
   target: CreationTarget;
-  /** 当前阶段与能力。切阶段时能力回落到该阶段的默认值（一律 discuss）。 */
+  /** 当前停在哪一层。跟着 target 走。 */
   stage: CreationStage;
-  capability: Capability;
   /** 本会话默认写入的章号。目标章尚未落盘时用它定位「前文」边界。 */
   targetNo?: number;
   /** 目标字数，跟着会话走，省得每次重填。 */
@@ -363,7 +315,6 @@ export class SessionStore {
       updatedAt: at,
       target,
       stage,
-      capability: DEFAULT_CAPABILITY[stage],
       targetNo: seed?.targetNo,
       // 思考深度跟着继承：点「新对话」多半是换个话题接着做同样难的事，
       // 把它弹回「不思考」等于每次都要重新选一遍。
@@ -425,19 +376,9 @@ export function deriveTitle(text: string): string {
   return (clipped || line).slice(0, 24);
 }
 
-/**
- * 一轮对话拿什么当「它说了什么」——历史列表的预览与会话标题都用这一份。
- *
- * 命令类的轮次（写剧情、拆成场景）content 本来就是空的：该说的都在剧情和
- * 大纲里了，作者一个字都不必打。空串会让历史列表出现一排「新对话」，也让
- * 消息流里出现一个空白气泡——两处都得能说出这一轮到底干了什么。
- */
+/** 一轮对话拿什么当「它说了什么」——历史列表的预览与会话标题都用这一份。 */
 export function turnPreview(turn: ChatTurn): string {
-  const text = turn.content.trim();
-  if (text) {
-    return text;
-  }
-  return turn.command ? `/${turn.command}` : '';
+  return turn.content.trim();
 }
 
 function summarize(session: ChatSession): SessionSummary {
@@ -463,12 +404,8 @@ function normalize(id: string, raw: unknown): ChatSession {
   const o = (raw ?? {}) as Partial<ChatSession>;
   const at = typeof o.createdAt === 'string' ? o.createdAt : nowIso();
   const target = normalizeTarget(o.target);
-  // 阶段认不出、或该阶段不支持记下来的那个能力时，都回落到该阶段的默认值。
+  // 阶段认不出时按 target 反推。
   const stage: CreationStage = isCreationStage(o.stage) ? o.stage : stageOfTarget(target);
-  const capability: Capability =
-    isCapability(o.capability) && STAGE_CAPABILITIES[stage].includes(o.capability)
-      ? o.capability
-      : DEFAULT_CAPABILITY[stage];
   const drafts = normalizeDrafts(o.drafts);
   return {
     id,
@@ -477,7 +414,6 @@ function normalize(id: string, raw: unknown): ChatSession {
     updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : at,
     target,
     stage,
-    capability,
     targetNo: typeof o.targetNo === 'number' ? o.targetNo : undefined,
     targetWords: typeof o.targetWords === 'number' ? o.targetWords : undefined,
     // 认不出的档位当没设过（= 不思考），不抛：手改坏一个字段不该让整个会话读不出来。
@@ -492,7 +428,7 @@ function normalize(id: string, raw: unknown): ChatSession {
  *
  * **只要 `id` 在就不整体作废**：坏掉的字段按默认值补，气泡上那一轮至少还
  * 认得出产出过什么。`target` 走 `normalizeTarget`（认不出回落全书大纲），
- * `action` 走 `normalizeAction`，两者都不抛。
+ * `job` 认不出时当正文——那是最常见的一种，且只影响卡片上那句形状描述。
  *
  * `artifact` 原样收下不重新校验：它只是生成那一刻的展示快照，采纳时会拿
  * 气泡里当下的文本重新解析（用户可能改过）。
@@ -512,7 +448,7 @@ function normalizeDrafts(raw: unknown): SessionDraft[] {
     }
     out.push({
       id: o.id,
-      action: normalizeAction(o.action),
+      job: isCreationJob(o.job) ? o.job : 'manuscript',
       target: normalizeTarget(o.target),
       raw: typeof o.raw === 'string' ? o.raw : '',
       artifact: o.artifact,

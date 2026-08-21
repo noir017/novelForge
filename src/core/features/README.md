@@ -27,7 +27,7 @@
 
 ## 创作的四层与两条路
 
-创作按 `Stage × Capability × Target` 展开（定义在 [../model/pipeline.ts](../model/pipeline.ts)）：大纲 → 卷纲 → 剧情 → 正文。同一层可以被讨论（默认动作，挑刺、检查设定都靠直接打字说），也可以被生成；大纲与卷纲两层还能拆成下一层（拆卷 / 拆出剧情段），剧情层另有一个 `settle`（落定剧情），把刚才那段讨论里**已经达成的结论**沉淀成细纲。改写不是独立能力：目标已有内容时的生成就是改写，作者那句话就是修改意见。**剧情段是最小的规划单位**——它没有 `split`，从前那一档拆的是场景，而那一层已经删掉。
+创作按 `CreationJob × CreationTarget` 展开（定义在 [../model/pipeline.ts](../model/pipeline.ts)）：六件活穷举了所有能让模型干的事——写大纲 / 拆卷 / 写卷纲 / 拆段 / 写细纲 / 写正文。两件「拆」产出的是**下一层的骨架**（拆卷给出空壳卷纲，拆段给出空壳细纲），其余四件写的是本层内容。改写不是独立的一件活：目标已有内容时的生成就是改写，作者那句话就是修改意见。**剧情段是最小的规划单位**——它没有可拆的下一层，从前那一档拆的是场景，而那一层已经删掉。
 
 **创作编排本身已经不在本层了**——它是 [../generation/](../generation/README.md)：`generate.ts` 无状态地装配 → 调模型 → 解析成 `Draft`，`accept.ts` 按 target 分派到六条落盘路径，`drafts.ts` 让草稿活过一次刷新。并发控制在 `controller/`（那是调度的责任）。本层留下的是 `artifact.ts`（解析）与 `pipelineBatch.ts`（工程页批量）。
 
@@ -94,4 +94,4 @@
 
 ## 依赖关系
 
-依赖 `model/`、`context/`、`llm/`、`host.ts`。被 `vscode/extension.ts`（命令）与 `core/controller/`（对话面板）调用；插件命令面板与独立版网页共用同一批流程。
+依赖 `model/`、`context/`、`llm/`、`host.ts`。被 `vscode/extension.ts`（命令）与 `core/controller/`（工程页动作）调用；插件命令面板与独立版网页共用同一批流程。

@@ -5,7 +5,7 @@
  * `tests/integration/workspace/*.test.js` 守着）：
  *
  * 1. **`review` 永远 true，且不是工具参数**——模型没有关掉审阅的口子。
- * 2. **draftId 找不到 / 是讨论类产出 → error，绝不静默写空文件。**
+ * 2. **draftId 找不到 / 那一次没解析出产物 → error，绝不静默写空文件。**
  * 3. **作者拒绝 → 磁盘一字未改，且回给模型的话要说清「没有采纳」**，
  *    否则它会原地重试同一个动作。
  * 4. **守卫照旧拦**：越界、受保护路径、同名不覆盖，一条都不放行。
@@ -37,7 +37,7 @@ const run = (args) => tool().run(ctx, args);
 function plotDraft(id, sections) {
   return {
     id,
-    action: { stage: 'plot', capability: 'generate' },
+    job: 'plot',
     target: { kind: 'plot', plotRelPath: PLOT_REL },
     raw: '…',
     artifact: { kind: 'plot', sections },
@@ -105,12 +105,12 @@ before(async () => {
   drafts = new Map([
     ['d-plot', plotDraft('d-plot', sections('踩点、失手、翻墙；收在藏书阁门口。'))],
     ['d-plot2', plotDraft('d-plot2', sections('第二版：先探后翻。'))],
-    // 讨论类产出：没有 artifact。
+    // 解析不出结构化产物的那一次：没有 artifact。
     [
       'd-talk',
       {
         id: 'd-talk',
-        action: { stage: 'plot', capability: 'discuss' },
+        job: 'plot',
         target: { kind: 'plot', plotRelPath: PLOT_REL },
         raw: '这一章的动机不够。',
         words: 9,
@@ -234,7 +234,7 @@ describe('draftId 认不出来', () => {
   });
 });
 
-describe('讨论类 draft 不能写成产物', () => {
+describe('解析不出产物的 draft 不能写成产物', () => {
   let r;
 
   before(async () => {
@@ -252,8 +252,8 @@ describe('讨论类 draft 不能写成产物', () => {
     assert.ok(!bundle.plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
   });
 
-  test('error 说清了它是讨论类产出', () => {
-    assert.ok(/讨论|挑刺/.test(r.error), r.error);
+  test('error 说清了它没有可落盘的产物', () => {
+    assert.ok(/没有解析出|可落盘/.test(r.error), r.error);
   });
 });
 

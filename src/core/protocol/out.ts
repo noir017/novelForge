@@ -10,9 +10,7 @@ import type {
 import type {
   PlotPipelineView,
   PlotSummaryView,
-  NextStepView,
   ProjectTree,
-  SerializedDigest,
   SerializedSession,
   SerializedTurn,
   SessionListItem,
@@ -133,7 +131,6 @@ export type OutMessage =
       tokens: number;
     }
   | { type: 'turnDone'; turn: SerializedTurn }
-  | { type: 'context'; turnId: string; digest: SerializedDigest }
   | { type: 'busy'; value: boolean }
   | { type: 'attachments'; items: SerializedAttachment[] }
   | { type: 'project'; tree: ProjectTree }
@@ -141,7 +138,6 @@ export type OutMessage =
   | {
       type: 'pipeline';
       pipeline?: PlotPipelineView;
-      next?: NextStepView;
       workbench: WorkbenchView;
     }
   | { type: 'settings'; settings: SettingsPayload; keys: Record<string, boolean>; ack?: 'saved' | 'rejected' }
