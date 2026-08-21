@@ -96,6 +96,18 @@ describe('session.ts · SessionStore', () => {
           items: [{ id: 'style', label: '文风指南', kind: 'style', priority: 1, tokens: 0, status: 'excluded' }] },
         acceptedTo: 'chapters/004-夜访.md',
       });
+      // agent 那一轮：段（说的话与做的事交替），generate 那一段还带着产出的正文。
+      s.turns.push({
+        id: 't3', role: 'assistant', content: '我先看看。\n\n写好了。', at: '2026-08-01T10:02:00.000Z',
+        segments: [
+          { kind: 'tool', call: { callId: 'c1', name: 'read', title: 'read', ok: true, summary: '19 行', elapsedMs: 2 } },
+          { kind: 'text', text: '我先看看。' },
+          { kind: 'tool', call: { callId: 'c2', name: 'generate', title: 'generate 正文·生成',
+            ok: true, summary: '正文 · 620 字', elapsedMs: 12400, output: '三更，林昭醒了。' } },
+          { kind: 'text', text: '写好了。' },
+        ],
+        agentRun: { steps: 3, calls: 1, tokens: 9000, stopReason: 'done' },
+      });
       await store.write(s);
       raw = fs.readFileSync(path.join(sessionsDir, `${s.id}.json`), 'utf8');
     });
@@ -174,8 +186,8 @@ describe('session.ts · SessionStore', () => {
       assert.equal(back.capability, 'discuss');
     });
 
-    test('读回两轮', () => {
-      assert.equal(back.turns.length, 2);
+    test('读回三轮', () => {
+      assert.equal(back.turns.length, 3);
     });
 
     test('读回用户消息原文', () => {
@@ -200,6 +212,23 @@ describe('session.ts · SessionStore', () => {
 
     test('读回采纳路径', () => {
       assert.equal(back.turns[1].acceptedTo, 'chapters/004-夜访.md');
+    });
+
+    // 顺序是这一轮唯一存不回来的东西：不落盘的话，重开面板画出来的就是另一副样子。
+    test('读回 agent 那一轮的段（顺序原样）', () => {
+      assert.deepEqual(
+        back.turns[2].segments.map((seg) => (seg.kind === 'text' ? `文字:${seg.text}` : `工具:${seg.call.callId}`)),
+        ['工具:c1', '文字:我先看看。', '工具:c2', '文字:写好了。']
+      );
+    });
+
+    // 从前这几千字根本没进会话：刷新一下，作者刚生成的东西就没了。
+    test('读回 generate 产出的正文', () => {
+      assert.equal(back.turns[2].segments[2].call.output, '三更，林昭醒了。');
+    });
+
+    test('读回那一轮的账', () => {
+      assert.equal(back.turns[2].agentRun.steps, 3);
     });
 
     test('不存在的 id 返回 undefined', () => {
@@ -230,7 +259,7 @@ describe('session.ts · SessionStore', () => {
     });
 
     test('列表带轮次数', () => {
-      assert.equal(list[0].turnCount, 2);
+      assert.equal(list[0].turnCount, 3);
     });
 
     test('列表 preview 取最后一条用户消息', () => {

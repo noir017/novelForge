@@ -67,12 +67,13 @@ const useTool = (id, name, args, text = '') => [
 
 /** 收集所有 handler 的回调。 */
 function recorder() {
-  const r = { steps: [], deltas: [], toolCalls: [], toolResults: [], notes: [] };
+  const r = { steps: [], deltas: [], toolDeltas: [], toolCalls: [], toolResults: [], notes: [] };
   return {
     r,
     on: {
       onStep: (step, message) => r.steps.push(`${step}:${message}`),
       onDelta: (text) => r.deltas.push(text),
+      onToolDelta: (d) => r.toolDeltas.push(d),
       onToolCall: (c) => r.toolCalls.push(c),
       onToolResult: (x) => r.toolResults.push(x),
       onNote: (m) => r.notes.push(m),
@@ -628,5 +629,58 @@ describe('每一次 tool_use 都配一条 tool_result', () => {
     for (const call of assistant.toolCalls) {
       assert.ok(answered.includes(call.id), `${call.id} 没有对应的 tool 消息：${JSON.stringify(answered)}`);
     }
+  });
+});
+
+/**
+ * 工具产出的正文与模型自己说的话**走两条通道**。
+ *
+ * 从前 `ToolRun.onDelta` 直接转给 `onDelta`：`generate` 内部那次调用流出来的几千
+ * 字和「我先看看工程结构」挤进同一条流，界面上拼在一个文本节点里，谁也认不出
+ * 边界在哪。现在循环按「当下跑的是哪一次调用」给它贴上 callId 再往外推。
+ *
+ * 工具那一侧一个字都没改——它照旧往 `ctx.onDelta` 里推。
+ */
+describe('产出的正文另走一条通道', () => {
+  let rec;
+  let out;
+
+  /** 一个会流正文的假工具。契约就是 `ctx.onDelta`，与真 generate 同一条。 */
+  const streamer = {
+    name: 'generate',
+    description: '假生成',
+    costly: true,
+    intent: () => ({ gate: 'costly', title: '假生成' }),
+    parameters: bundle.schema.objectSchema({ target: bundle.schema.str('落点') }, ['target']),
+    run: async (c) => {
+      c.onDelta?.('第一节 ');
+      c.onDelta?.('藏书阁门口。');
+      return { text: '已生成：剧情 · 1/1 节' };
+    },
+  };
+
+  before(async () => {
+    const f = scriptedProvider([
+      useTool('c1', 'generate', { target: '.novelforge/plots/012.md' }, '我来排一下。'),
+      say('排好了。'),
+    ]);
+    rec = recorder();
+    out = await run({ provider: f.provider, tools: [streamer], on: rec.on });
+  });
+
+  test('循环正常走完', () => {
+    assert.equal(out.stopReason, 'done', `${out.stopReason}｜${out.message}`);
+  });
+
+  test('产出的正文走 onToolDelta，带着是哪一次调用', () => {
+    assert.deepEqual(rec.r.toolDeltas, [
+      { callId: 'c1', name: 'generate', text: '第一节 ' },
+      { callId: 'c1', name: 'generate', text: '藏书阁门口。' },
+    ]);
+  });
+
+  // ★ 这一条就是这次改动本身：产物不许再混进模型说的话里。
+  test('onDelta 里只有模型自己说的话', () => {
+    assert.deepEqual(rec.r.deltas, ['我来排一下。', '排好了。']);
   });
 });

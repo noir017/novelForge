@@ -23,7 +23,7 @@
 | [tiers.ts](tiers.ts) | ★ **模型分档**：三档（快速 / 均衡 / 精标）与十项后台任务的归属。纯数据 + 纯函数（`tierOf` / `refsForTask` / `describeTaskModels`），无 I/O 也无 Node 依赖——所以设置页可以直接 import 同一份标签与默认映射，界面上写的和跑起来的必然一致。 |
 | [thinking.ts](thinking.ts) | ★ **思考深度**（不思考 / 浅 / 中 / 深 / 极限）的类型、可选值、界面说法，以及两家的字段映射（`responsesEffort` / `anthropicEffort` / `thinkingBudget`）。与 `tiers.ts` 同一套理由：纯数据 + 纯函数、零 import，所以对话页那个下拉框与两个 provider 共用同一份档位表。**「不思考」是不带任何思考参数**（不是显式关掉）——显式关的写法两家都只有部分模型认，而「不带」在所有模型上都合法，且恰好是这个功能出现之前的行为。 |
 | [agentPolicy.ts](agentPolicy.ts) | ★ **Agent 的确认策略**（谨慎 / 默认 / 放手）的类型、可选值与界面说法。与 `tiers.ts` 同一套理由：纯数据 + 纯函数，所以 `config.ts`、`protocol/` 与设置页可以共用同一份，不必依赖 agent 层。**策略只管「要不要先问」，管不着保护**——八条守卫、覆盖前审阅、批量动作的「预计调用 N 次」在任何模式下都在（判定在 [agent/policy.ts](../agent/policy.ts)）。 |
-| [session.ts](session.ts) | 对话会话存储：`.novelforge/sessions/<id>.json`。含当前创作目标（`target` / `stage` / `capability`）、`Attachment`（@ 引用）、`ContextDigest`（上下文明细快照）的序列化，以及旧会话的容错归一。`ChatTurn.command` 记这一轮下的是哪个命令（**按阶段具体化过的标签**，只在不是「讨论」时记），`turnPreview()` 是「这一轮说了什么」的唯一口径——命令类的轮次 `content` 本来就是空的（该说的都在产物里），气泡与历史列表都拿它，否则一片空白配一排「新对话」。 |
+| [session.ts](session.ts) | 对话会话存储：`.novelforge/sessions/<id>.json`。含当前创作目标（`target` / `stage` / `capability`）、`Attachment`（@ 引用）、`ContextDigest`（上下文明细快照）的序列化，以及旧会话的容错归一。`ChatTurn.command` 记这一轮下的是哪个命令（**按阶段具体化过的标签**，只在不是「讨论」时记），`turnPreview()` 是「这一轮说了什么」的唯一口径——命令类的轮次 `content` 本来就是空的（该说的都在产物里），气泡与历史列表都拿它，否则一片空白配一排「新对话」。`ChatTurn.segments` 是 agent 那一轮**按发生顺序**排下来的段（一段文字或一次调用，`generate` 那一次还带着 `TurnToolCall.output`——它产出的正文）：顺序是这一轮唯一存不回来的东西，改造之前存的 `content` + `toolCalls` 只画得出「所有工具 / 一整段话」。`toolCalls` 保留但**不再写入**，老会话由 `controller/serialize.ts` 归一成段。 |
 
 ## 关键设计
 

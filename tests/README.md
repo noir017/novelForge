@@ -88,6 +88,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `model/project.test.js` | `cast` 条目的序列化往返（含全角括号、别名去重）、小节文本反解出场人物 |
 | `model/fs.test.js` | 磁盘与字符串小工具：hash 统一 CRLF、中英文计数、文件名净化、slug 冲突追加；`readTextIfExists` 读不到给 undefined（不存在与同名目录对调用方是同一件事——这一章没有这份产物），权限之类的错误照常上抛 |
 | `model/providers.test.js` | 模型引用解析（含嵌套斜杠 `openrouter/z-ai/glm-4.6`）、服务商配置容错、按模型覆盖窗口、0.1.x 单服务商兜底；默认模型列表的归一化与旧配置升级；`concurrency` / `fallbackAttempts` 的默认值与 clamp |
+| `model/turnSegments.test.js` | 一轮 assistant 排下来的段（`serializeTurn`）：新会话原样带过去（含 `generate` 产出的正文）、**老会话只有 `toolCalls` 时归一成「工具们 + 正文」并不再带着 `toolCalls`**（界面只认段一条路）、那一轮没说话时不补空的文字段、普通一问一答**没有段** |
 | `model/tiers.test.js` | 模型分档的配置容错：三档各自归一化、非对象不崩、裸字符串收成单元素、认不出的任务名与非法档位名回落内置默认，以及「每个任务都有内置默认档位与中文名」 |
 | `model/pipeline.test.js` | 四个阶段（大纲/卷纲/剧情/正文）的可用/默认能力（`settle` **只有剧情层有**、`split` **只有前两层有**）、输出形态判定、`CreationTarget` 的稳定键（同章号不同文件不撞）、action/target 容错归一（**老会话里的 `scene` 落到剧情层**，两处判断一致）、`plotLabel`/`chapterLabel`、单段（含「待拆分」）与全书两个状态机、**正文写够没有看 `targetWords`**（到八成算完、缺席时有字就算、进度与状态机同源）、命令表；以及 `splitByMark` 按 `---` 切分（连续标记、首尾标记、无标记、只有标记）；以及 `plotFile.ts` 的文件名规则与解析/渲染往返——**四个小节、不再有「开头」「结尾」**，`isPlotFilled` 只认「剧情脉络」 |
 | `context/tokenizer.test.js` | token 估算（中英文比例）、`takeTail`/`takeHead` 的预算与截断标记（样本取 `manuscripts/` 里的真实正文） |
@@ -107,7 +108,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `tools/readTools.test.js` | 只读三件套：list 的 60 项上限与「还有 N 项未列出」、read 的行号与「第 X–Y 行未读」（含接着读的 offset）、search 的章号升序与 `dropped > 0` 时那行 ⚠；**越界与不存在一律给 `error` 不抛**（模型看得到才换得了路）；跑完三个工具磁盘 mtime 一个都不变 |
 | `tools/generateTool.test.js` | `generate` 工具：draft 落进 store 而**返回文本里没有正文**（三千字塞回循环，每走一步重烧一遍）、层与能力的组合问 `STAGE_CAPABILITIES`、`settle` 明确不支持并指路对话页、认不出的路径给 error 且一次模型都不调、`history` 恒为空、正文层走 `config.active`、**失败也照样报一次账**（请求发出去钱就花了）、**工具自己不提上限**（「已用 1/10」那句是调用方的） |
 | `agent/stateBrief.test.js` | 状态注入：**label 与 hint 与 `deriveNextStep` 一字不差**（第 20 条的硬断言）、老工程说「已发布 99 章」而不说「待写剧情」、成品路径与细纲路径认到同一章、⟳ 超 5 章写「等 N 章」、状态机不催时明说「不要自己挑一章开工」 |
-| `agent/loop.test.js` | agent 循环（脚本化假 provider）：不调工具时一个回合结束、tool 消息形状、连续两次同工具同参数收到提示且**不真跑**、三次停下并仍给一轮总结、预算触顶时最后一轮**不带 tools**、取消停在工具边界且已产出的 draft 保留、工具抛异常变成 error 回给模型、日志里没有 prompt 全文/参数值/正文 |
+| `agent/loop.test.js` | agent 循环（脚本化假 provider）：不调工具时一个回合结束、tool 消息形状、连续两次同工具同参数收到提示且**不真跑**、三次停下并仍给一轮总结、预算触顶时最后一轮**不带 tools**、取消停在工具边界且已产出的 draft 保留、工具抛异常变成 error 回给模型、**工具产出的正文走 `onToolDelta`（带 callId）而 `onDelta` 里只剩模型自己说的话**、日志里没有 prompt 全文/参数值/正文 |
 | `generation/accept.test.js` | 产物落盘走的是**当场问的那张卡片**：卡片说得出写到哪、只有两颗按钮、**没答时磁盘没动静**；落点从 draft 取（答之前切了一章也写对）、落盘的是气泡里当下那份（先 `editTurn` 再点写入）、答「不采纳」一个字不写且气泡上留一行；讨论型回复不问；刷新网页时没答的卡片重推、面板销毁时按「未采纳」结算；并发控制那三条 |
 | `agent/gate.test.js` | 闸门串起来之后：默认模式下 write 弹一句且**说清写到哪**、三个选项不是两个、跳过则不执行而循环接着跑、停止仍给最后一轮总结、没回答当停止、放手模式新建不问、**覆盖审阅任何模式都在**、读工具从不打断、瞎编的工具名不问；**有 `onGate` 时不弹宿主的框**（面板那条路把这一句画进对话）；以及**产出之后当场问一句落盘**——三种模式都问（第 19 条，不是偏好设置）、结论回给模型、卡片上按「停止 agent」就停下且仍给最后一轮总结、没实现 `onArtifact` 就不问 |
 | `workspace/guard.test.js` | **八条入口守卫**各至少一条：越界（含归一化后仍逃出去的）、工程根包含、固定目录保护、回收站不可改（但读得到）、2MB 上限、同名不覆盖、覆盖审阅（两种宿主 + 文案逐字）、内容 hash 乐观锁 |
@@ -131,7 +132,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `features/characterCard.test.js` | 更新角色卡：分批与「预计调用 M 次」、只装该角色的出场章、增量无新章时**一次模型都不调**、部分失败时**水位线停在第一个失败章之前**、取消/放弃不落盘；**并发**下模型请求重叠但 **diff 审阅仍一次只弹一张** |
 | `features/lore.test.js` | 自动生成设定：逐章识别次数、跨章合并、分类目录落盘、已有设定必须经审阅 |
 | `storage/errorLog.test.js` | 工程库与失败记录：驱动适配层、**关库之后删得掉目录**、纯读取不建库、失败记录生命周期、日志持久化与挂 sink 前的补写、**库不可用时全线静默降级** |
-| `storage/session.test.js` | 会话读写往返、损坏文件容错、列表排序、重命名/删除、id 唯一性、`.novel` → `.novelforge` 迁移 |
+| `storage/session.test.js` | 会话读写往返（含 agent 那一轮的**段**：顺序原样、`generate` 产出的正文也留得住）、损坏文件容错、列表排序、重命名/删除、id 唯一性、`.novel` → `.novelforge` 迁移 |
 | `llm/streaming.test.js` | 起本地假服务器模拟 SSE：流式解析（跨块切分、CRLF、心跳、非 JSON 行）、取消、超时、**流式还在吐字时不超时**、HTTP 401/404/429，Anthropic 的 system 提取与消息合并，以及**思考深度落成请求字段**（两家各自的 effort 字段、思考开着时不带 temperature）与**上游拒了就换写法**（降一档 / 换一代写法，结论记住不再重试） |
 
 ### `dom/`
@@ -143,7 +144,8 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 
 | 文件 | 覆盖 |
 |---|---|
-| `view/agentTurn.test.js` | agent 那一轮的气泡：`toolCall` 先挂「进行中…」、`toolResult` 就地换成带耗时的最终形态（**不重建气泡**，重建会冲掉正在流的正文）、工具条排在正文上方、重开面板时靠 `turn.toolCalls` 回放、那一行上只有摘要；**直接发送就是 agent**（没挑命令时发 `sendAgent` 且**不带 stage/capability**，挑了 `/命令` 才回到 `send`） |
+| `view/agentTurn.test.js` | agent 那一轮的气泡：`toolCall` 先挂「进行中…」、`toolResult` 就地换成带耗时的最终形态（**不重建气泡**，重建会冲掉正在流的内容）、工具调用打断之后两句话各自成块、重开面板时靠 `turn.segments` 回放（`generate` 画成一张卡，不是一行）、那一行上只有摘要；**直接发送就是 agent**（没挑命令时发 `sendAgent` 且**不带 stage/capability**，挑了 `/命令` 才回到 `send`） |
+| `view/agentSegments.test.js` | **说的话与做的事按发生顺序交替**：说 → 查 → 说各自成块、相邻的调用并进同一串、`toolDelta` 只进 generate 那张卡（不进任何一块正文）、卡默认展开、`toolResult` 换掉头与结论而**卡里那份正文不丢**（落盘结论重推一次也不丢）、生成中说「生成中…」、第一段是工具调用时那块空正文占位撤掉、参数收在再一层折叠里、回放（`segments` + `output`）、有段的那一轮只读而一块正文的那一轮照旧可改 |
 | `view/agentTools.test.js` | 工具流那一串：花销行实时画出且**留得住**、非正常结束把原因写在同一行、失败那步标红保留、停止按钮全程可用；**详情点得开**——那一行仍只画摘要，参数与返回在折叠里，老会话没明细就不长出三角，进行中就查得到参数、结果到了展开状态跟着走 |
 | `view/gate.test.js` | 权限请求卡片**固定在输入框上方（`#gateDock`），既不是遮罩层也不进消息流**：卡片在 `.composer` 里、排在输入框之前、说清动的是哪个文件、参数收在折叠里、按钮的字来自后端且同意贴最右、认不出的 turnId 照样画、叠了两张才编号、点下去发回 `gateResult` 并就地撤卡（消息流里补一行 `.gate-note` 记录，广播回来不补第二行）、重连重推不画两张、`gateDone` 让另一个视图也收卡；**落盘那种只有两颗按钮，那一行记录挂在正文下面** |
 | `view/chat.test.js` | 流式逐段显示、生成中不可编辑、结束后可编辑、中断与报错、气泡 ... 菜单、空输入、**产物那一行（气泡上没有任何写文件的按钮**，只有「产出过什么 / 已写入哪儿 / 未采纳」）、思考过程 |

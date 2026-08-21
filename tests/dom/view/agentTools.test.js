@@ -10,7 +10,7 @@
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
-const { mount, JSDOM_SKIP, turn, emptySession } = require('../../helpers/dom');
+const { mount, JSDOM_SKIP, turn, textSeg, toolSeg, emptySession } = require('../../helpers/dom');
 
 const runRow = (ui, id) => ui.bubble(id).querySelector('.agent-run');
 const rows = (ui, id) => [...ui.bubble(id).querySelectorAll('.tool-row')];
@@ -118,9 +118,10 @@ describe('花销留得住（重开面板时回放）', { skip: JSDOM_SKIP }, () 
         turns: [
           turn('u1', 'user', '排一下第 12 章', { command: 'Agent' }),
           turn('a1', 'assistant', '排好了。', {
-            toolCalls: [
-              { callId: 'c1', name: 'read', title: 'read .novelforge/plots/012.md', ok: true, summary: '20 行', elapsedMs: 30 },
-              { callId: 'c2', name: 'write', title: 'write .novelforge/plots/012.md', ok: false, summary: '作者跳过了这一步', elapsedMs: 0 },
+            segments: [
+              toolSeg({ callId: 'c1', name: 'read', title: 'read .novelforge/plots/012.md', ok: true, summary: '20 行', elapsedMs: 30 }),
+              toolSeg({ callId: 'c2', name: 'write', title: 'write .novelforge/plots/012.md', ok: false, summary: '作者跳过了这一步', elapsedMs: 0 }),
+              textSeg('排好了。'),
             ],
             agentRun: { steps: 4, calls: 1, tokens: 12000, stopReason: 'done' },
           }),
@@ -188,8 +189,8 @@ describe('工具调用详情（点开那一条）', { skip: JSDOM_SKIP }, () => 
       session: emptySession({
         turns: [
           turn('a1', 'assistant', '第 9 章里没提过北境。', {
-            toolCalls: [
-              {
+            segments: [
+              toolSeg({
                 callId: 'c1',
                 name: 'read',
                 title: 'read',
@@ -198,9 +199,10 @@ describe('工具调用详情（点开那一条）', { skip: JSDOM_SKIP }, () => 
                 elapsedMs: 1,
                 argsText: '{\n  "path": "chapters/009-北风.md"\n}',
                 resultText: '第九章 北风\n他从没去过那边。',
-              },
+              }),
               // 老会话里存的那些：只有摘要，没有明细。
-              { callId: 'c2', name: 'list', title: 'list', ok: true, summary: '2 项', elapsedMs: 4 },
+              toolSeg({ callId: 'c2', name: 'list', title: 'list', ok: true, summary: '2 项', elapsedMs: 4 }),
+              textSeg('第 9 章里没提过北境。'),
             ],
           }),
         ],

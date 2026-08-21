@@ -20,13 +20,18 @@ import {
   bindPayload,
   buildAgentRunRow,
   buildContextDetails,
+  buildGenCard,
   buildPendingToolRow,
   buildReasoningDetails,
+  buildTextBlock,
   buildToolRow,
   bubbleOf,
+  dropEmptyText,
   installMessages,
+  lastSegment,
   renderSession,
   scrollToBottom,
+  segmentAnchor,
   toolStripOf,
   upsertTurn,
 } from './messages';
@@ -109,19 +114,14 @@ onMessage((msg) => {
       renderChips();
       break;
 
-    case 'delta': {
+    case 'delta':
       store.streamingId = msg.turnId;
-      const node = bubbleOf(msg.turnId);
-      if (node) {
-        node.classList.add('streaming');
-        const body = node.querySelector('.msg-body');
-        if (body) {
-          body.textContent += msg.text;
-        }
-        scrollToBottom();
-      }
+      appendText(msg.turnId, msg.text);
       break;
-    }
+
+    case 'toolDelta':
+      appendGenerated(msg.turnId, msg.callId, msg.text);
+      break;
 
     case 'reasoning':
       appendReasoning(msg.turnId, msg.text);
@@ -134,11 +134,11 @@ onMessage((msg) => {
       break;
 
     case 'toolCall':
-      appendToolRow(msg.turnId, msg.callId, msg.title ?? msg.name, msg.detail, msg.argsText);
+      appendToolCall(msg.turnId, msg.callId, msg.name, msg.title ?? msg.name, msg.detail, msg.argsText);
       break;
 
     case 'toolResult':
-      settleToolRow(msg.turnId, msg);
+      settleToolCall(msg.turnId, msg);
       break;
 
     // ---- 动手之前那一句问：卡片固定在输入框上方，不弹全局模态框
@@ -243,7 +243,9 @@ function appendReasoning(turnId: string, text: string): void {
   let det = node.querySelector<HTMLDetailsElement>('details.reasoning');
   if (!det) {
     det = buildReasoningDetails('');
-    node.insertBefore(det, node.querySelector('.msg-body'));
+    // 排在**段区之前**：它是正文迟迟不来时的进度反馈，不是流水账里的一条。
+    // 段区可能以工具条或 generate 卡开头（不一定有正文块），所以三样一起找。
+    node.insertBefore(det, node.querySelector('.msg-body, .tools, .gen') ?? segmentAnchor(node));
   }
   const box = det.querySelector<HTMLElement>('.reasoning-body');
   if (box) {
@@ -261,18 +263,74 @@ function appendReasoning(turnId: string, text: string): void {
 }
 
 /**
- * 工具调用开始：在气泡里挂一条「进行中…」的行。
+ * 模型说的话又来了一段：追加到**最后那一块文字**上，没有就新开一块。
  *
- * **就地追加而不是重建气泡**：重建会把正在流的正文冲掉（`.msg-body` 是
- * 纯文本节点，delta 靠 `textContent +=` 追加）。
+ * 「没有就新开」正是交替：上一段是工具调用（或 generate 卡）时，这句话是新的
+ * 一块，接到前一块上就等于把顺序抹平——那是从前所有话挤进同一个文本节点的
+ * 由来。就地追加而不重建气泡：重建会冲掉正在流的内容。
  */
-function appendToolRow(
+function appendText(turnId: string, text: string): void {
+  const node = bubbleOf(turnId);
+  if (!node) {
+    return;
+  }
+  node.classList.add('streaming');
+  const blocks = node.querySelectorAll<HTMLElement>('.msg-body[data-seg="text"]');
+  const last = blocks[blocks.length - 1];
+  // 末尾那一块才接得上；它后面已经排了工具条或卡片的话，得另开一块。
+  if (last && last === lastSegment(node)) {
+    last.textContent += text;
+  } else {
+    const block = buildTextBlock(text);
+    node.insertBefore(block, segmentAnchor(node));
+  }
+  scrollToBottom();
+}
+
+/**
+ * `generate` 流出来的正文又来了一段：进它那一张卡。
+ *
+ * **卡内滚动，不动整条对话**：这几千字正在往下涨，要是让它把消息流一路往下顶，
+ * 作者连上面刚说的那句话都看不成了。
+ */
+function appendGenerated(turnId: string, callId: string, text: string): void {
+  const body = bubbleOf(turnId)?.querySelector<HTMLElement>(`.gen[data-call="${callId}"] .gen-body`);
+  if (!body) {
+    return;
+  }
+  body.textContent += text;
+  body.scrollTop = body.scrollHeight;
+}
+
+/**
+ * 工具调用开始：在气泡里挂一条「进行中…」的行，或者给 generate 开一张卡。
+ *
+ * **就地追加而不是重建气泡**：重建会把正在流的内容冲掉（文字块是纯文本节点，
+ * delta 靠 `textContent +=` 追加）。
+ */
+function appendToolCall(
   turnId: string,
   callId: string,
+  name: string,
   title: string,
   detail?: string,
   argsText?: string
 ): void {
+  const node = bubbleOf(turnId);
+  if (!node) {
+    return;
+  }
+  // 一轮刚开始留的那块空正文（给「它在想」留的位）到这里就没意义了。
+  dropEmptyText(node);
+  if (name === 'generate') {
+    // 卡片当场就建：正文马上要顺着 `toolDelta` 流进来，晚一步就没地方放。
+    node.insertBefore(
+      buildGenCard({ callId, name, title, ok: true, summary: '', elapsedMs: -1, argsText, output: '' }),
+      segmentAnchor(node)
+    );
+    scrollToBottom();
+    return;
+  }
   const strip = toolStripOf(turnId);
   if (!strip) {
     return;
@@ -306,12 +364,16 @@ function settleAgentRun(
 }
 
 /**
- * 工具跑完了：把那一行换成带耗时与结果摘要的最终形态。
+ * 工具跑完了：把那一行（或那张卡）换成带耗时与结果摘要的最终形态。
  *
  * **展开状态要跟过去**：作者点开这一条是想盯着它看，整条重建时把它合回去，
  * 等于每次有结果就把他刚翻开的东西合上。
+ *
+ * generate 那张卡还有一件事：**正文不能丢**。它是顺着 `toolDelta` 一段段攒在
+ * 卡里的，而这条 `toolResult` 里根本没有它——重建时得把卡里当下那份带过去。
+ * （落盘的结论随后还会重推一次同样的 `toolResult`，那时同样不能把正文抹掉。）
  */
-function settleToolRow(
+function settleToolCall(
   turnId: string,
   result: {
     callId: string;
@@ -323,7 +385,16 @@ function settleToolRow(
     resultText?: string;
   }
 ): void {
-  const row = bubbleOf(turnId)?.querySelector<HTMLElement>(`.tool-row[data-call="${result.callId}"]`);
+  const node = bubbleOf(turnId);
+  const card = node?.querySelector<HTMLDetailsElement>(`.gen[data-call="${result.callId}"]`);
+  if (card) {
+    const title = card.querySelector('.gen-title')?.textContent ?? result.name;
+    const output = card.querySelector('.gen-body')?.textContent ?? '';
+    card.replaceWith(buildGenCard({ ...result, title, output, open: card.open }));
+    scrollToBottom();
+    return;
+  }
+  const row = node?.querySelector<HTMLElement>(`.tool-row[data-call="${result.callId}"]`);
   if (!row) {
     return;
   }

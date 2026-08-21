@@ -114,11 +114,23 @@ export interface ChatTurn {
     declined?: boolean;
   };
   /**
-   * 仅 assistant 轮：这一轮 agent 调了哪些工具。
+   * 仅 assistant 轮：这一轮**按发生顺序**排下来的段——它说的话与它做的事交替。
    *
-   * **不存工具的完整返回值**——`read` 一章正文就是几千字，一轮下来几万字，
-   * 会话文件会被它撑爆（与 `MAX_DRAFTS_PER_SESSION` 是同一条理由）。这里只存
-   * 展示摘要（「142 行」「2 处命中」），够重开面板时把那串折叠条画回来。
+   * 从前这里是 `content` 一整块 + `toolCalls` 一整串：所有工具挤在正文上方，
+   * 模型每一回合说的话全灌进同一块正文。真实过程是「读了三份 → 说一句 →
+   * 生成 → 再说一句」，画出来却是「所有工具 / 一整段话」，作者看不出哪句话
+   * 是在哪一步之后说的；而 `content` 存的还只是**最后一回合**那段文字，跑的
+   * 时候看到的和第二天翻回来看到的不是一份东西。
+   *
+   * 只有 agent 那条路写它。单步创作（写剧情、写正文）没有工具，一块正文就是
+   * 全部——那条路不产生段，气泡照旧画成一块可就地编辑的正文。
+   */
+  segments?: TurnSegment[];
+  /**
+   * 仅 assistant 轮：这一轮 agent 调了哪些工具。**只读旧会话，不再写入。**
+   *
+   * 改成 `segments` 之前的形状。老会话文件里还有它，`serializeTurn` 读到时
+   * 归一成「工具们 + 正文」那几段（正是旧界面的顺序），于是界面只认一条路。
    */
   toolCalls?: TurnToolCall[];
   /**
@@ -139,7 +151,17 @@ export interface TurnAgentRun {
   message?: string;
 }
 
-/** 一次工具调用在会话里留下的痕迹。只够画一行，不够回放。 */
+/**
+ * assistant 一轮里的一段。**数组顺序就是它发生的顺序。**
+ *
+ * 两种段就够了：模型自己说的话，与它做的一件事。`generate` 也是「一件事」，
+ * 只是那一段的 `call.output` 里还带着它产出的正文（界面上画成一张单独的卡片）。
+ */
+export type TurnSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'tool'; call: TurnToolCall };
+
+/** 一次工具调用在会话里留下的痕迹。只够画一行（generate 多一份产出正文）。 */
 export interface TurnToolCall {
   callId: string;
   name: string;
@@ -164,6 +186,18 @@ export interface TurnToolCall {
    * 「界面要画多长」的地方。
    */
   resultText?: string;
+  /**
+   * 仅 `generate`：它这一次**流出来的正文**（已截断）。
+   *
+   * 与 `resultText` 不是一回事：那是回给模型的一句「已生成 4/4 节」，这是作者
+   * 要读的那几千字。它走的是另一条通道（`ToolRun.onDelta` → 协议 `toolDelta`），
+   * 从前和模型自己说的话混进同一块正文里，刷新之后又整份消失——存下来，气泡
+   * 里那张卡片才画得回来。
+   *
+   * 截断点在 `controller/agent.ts`（那里也是唯一知道界面要画多长的地方），
+   * 截了会自报（第 2 条）。
+   */
+  output?: string;
 }
 
 /**

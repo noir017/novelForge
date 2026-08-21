@@ -203,6 +203,20 @@ const turn = (id, role, content, extra) =>
   Object.assign({ id, role, content, at: new Date(0).toISOString() }, extra);
 
 /**
+ * 一轮 agent 排下来的段。形状与后端 `serializeTurn` 归一之后的一致——
+ * **界面只认这一个字段**（`toolCalls` 是改成段之前的形状，后端读老会话时就归一
+ * 掉了，前端不认它）。
+ *
+ * ```js
+ * turn('a1', 'assistant', '排好了。', {
+ *   segments: [toolSeg({ callId: 'c1', name: 'read', … }), textSeg('排好了。')],
+ * })
+ * ```
+ */
+const textSeg = (text) => ({ kind: 'text', text });
+const toolSeg = (call) => ({ kind: 'tool', call });
+
+/**
  * 一个空会话。形状与后端 `serializeSession` 一致——前端把会话当唯一真相
  * （面包屑、能力按钮、目标下拉全读它），缺字段会当场炸，而那正是我们要的：
  * 协议对不上就该早点发现。
@@ -426,6 +440,6 @@ module.exports = {
   hasJsdom, JSDOM_SKIP,
   extractBody, bodyHtml, standaloneBodyHtml,
   mount,
-  turn, emptySession, pipelineView, workbenchView, viewState, sampleTree,
+  turn, textSeg, toolSeg, emptySession, pipelineView, workbenchView, viewState, sampleTree,
   file, listing,
 };

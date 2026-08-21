@@ -346,6 +346,139 @@ details.tool-row > summary.tool-line:hover {
   opacity: 0.75;
 }
 
+/* ----------------------------------------------------------------- generate 卡
+ *
+ * `generate` 那一次不画成一行流水账，画成一张卡：`read` 回来的东西是它查资料
+ * 的过程，而这几千字是**产物本身**——作者接下来要判断「这份要不要落盘」，读的
+ * 就是它。从前它顺着 `delta` 和模型说的话拌在同一个文本节点里，谁也认不出边界。
+ *
+ * 默认展开、**卡内滚动**：铺开会把整轮对话顶出屏幕，藏起来又等于让作者隔着一
+ * 行摘要去决定要不要写进书里。头两行（在做什么 / 结果如何）长在 `<summary>` 里，
+ * 收起来之后还在，折叠只藏正文。
+ */
+
+.gen {
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.3)));
+  border-radius: var(--radius);
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.06));
+  /* 圆角要切住里面那块 pre 的方角。 */
+  overflow: hidden;
+}
+
+.gen-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 9px;
+  cursor: pointer;
+  /* 默认那个三角会把 ✨ 顶开半格；自己在右边画一个更淡的。 */
+  list-style: none;
+}
+
+.gen-head::-webkit-details-marker {
+  display: none;
+}
+
+.gen-head:hover {
+  background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+}
+
+.gen-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.82em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.gen-line .spacer {
+  flex: 1;
+}
+
+.gen-icon {
+  flex: 0 0 auto;
+}
+
+.gen-title {
+  font-family: var(--vscode-editor-font-family);
+  color: var(--vscode-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gen-elapsed {
+  flex: 0 0 auto;
+}
+
+/* 收起 / 展开：三角贴在耗时后面。 */
+.gen-line::after {
+  content: '▸';
+  flex: 0 0 auto;
+  opacity: 0.55;
+  font-size: 0.9em;
+}
+
+.gen[open] > .gen-head .gen-line::after {
+  content: '▾';
+}
+
+/* 「已生成 4/4 节 · 已写入 .novelforge/outline.md」——单独一行，不挤进上面那行
+   （侧栏那点宽度会把它截成 `已写入 .novelforg…`，而这正是最要看清的一句）。 */
+.gen-state {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 0.82em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.gen-state-icon {
+  flex: 0 0 auto;
+}
+
+.gen-state-text {
+  flex: 1 1 auto;
+  word-break: break-word;
+}
+
+.gen-state-failed {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.gen-body {
+  margin: 0;
+  padding: 8px 11px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.95em;
+  line-height: 1.75;
+}
+
+/* 还没有一个字的时候不留一块空白（也不留那道分隔线）。 */
+.gen-body:empty {
+  display: none;
+}
+
+/* 参数与返回：再一层折叠。花钱那一下更要查得出它动的是哪一章。 */
+.gen-args {
+  font-size: 0.82em;
+  padding: 2px 9px 5px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.gen-args > summary {
+  cursor: pointer;
+}
+
+.gen-args .tool-detail {
+  margin-left: 0;
+}
+
 /* 一轮 agent 的花销：几步、几次生成、大约多少 token（第 4 条）。
    一条细分隔线把它与回答分开——它是账单，不是话。 */
 .agent-run {

@@ -10,9 +10,18 @@
  *
  * 1. **占生成位**（`beginGeneration`）——与单步共用同一把锁，两条路不会同时跑；
  * 2. **走 `runTask`**（第 11 条）——工程页顶部有进度条、看得见、能停；
- * 3. **把循环的事件翻译成协议消息**——工具调用画成气泡里的折叠条，动手前那一句
- *    问也画在同一串上（[gate.ts](gate.ts)），不弹全局模态框；
- * 4. **把这一轮的痕迹存进会话**——摘要，加上截断过的参数与返回文本。
+ * 3. **把循环的事件翻译成协议消息**——它说的话、它调的工具、它产出的正文各走
+ *    各的通道（`delta` / `toolCall` + `toolResult` / `toolDelta`），动手前那一句问
+ *    走 [gate.ts](gate.ts)（贴在输入框上方，不弹全局模态框）；
+ * 4. **把这一轮的痕迹按发生顺序存进会话**——见下面的 `segments`。
+ *
+ * ## 顺序是这一轮唯一存不回来的东西
+ *
+ * 从前这里存的是 `content` 一整块 + `toolCalls` 一整串，于是界面只能画成「所有
+ * 工具 / 一整段话」；而 `content` 拿的还是 `outcome.text`——**最后一回合**那段
+ * 文字，中间几回合说的话跑完就没了（跑的时候在气泡里见过，刷新之后消失）。
+ * 现在改成一边跑一边攒 `segments`：文字段与工具段交替，工具段里那个
+ * `TurnToolCall` 就是 `calls` 里的同一个对象，结果与落盘结论都就地补上去。
  *
  * 判断、装配、预算全在 `core/agent/` 里，这里一条都不重复。
  */
@@ -23,7 +32,16 @@ import { runTask } from '../runtime/progress';
 import { scoped } from '../runtime/logger';
 import { describeModelIssue, providerLabel, resolveModelRef } from '../model/providers';
 import { refsForTask } from '../model/tiers';
-import { Attachment, ChatTurn, TurnToolCall, deriveTitle, makeTurnId, nowIso, turnPreview } from '../model/session';
+import {
+  Attachment,
+  ChatTurn,
+  TurnSegment,
+  TurnToolCall,
+  deriveTitle,
+  makeTurnId,
+  nowIso,
+  turnPreview,
+} from '../model/session';
 import { runAgent } from '../agent/loop';
 import type { BudgetLimits } from '../agent/budget';
 import { createNovelTools } from '../tools/novel';
@@ -38,6 +56,14 @@ const log = scoped('面板');
 const ARGS_LIMIT = 800;
 /** 返回那一段的上限。工具按契约本就回短文本，这道闸只防写坏了的那一个。 */
 const RESULT_LIMIT = 2000;
+/**
+ * `generate` 产出的正文上限。
+ *
+ * 比上面两档宽得多——这不是给作者「核对一下」的明细，而是**产物本身**（一章
+ * 正文三千字，一份全书大纲六千字），截短了那张卡就没意义了。仍然要有个头：
+ * 它随会话落盘，一轮里连着生成五份的话，会话文件不能被它撑爆。
+ */
+const OUTPUT_LIMIT = 20000;
 
 /**
  * 截一段给界面看的文本。**说出自己截了**（第 2 条：不静默截断）——
@@ -69,11 +95,12 @@ function describeArgs(args: Record<string, unknown> | undefined): string | undef
 }
 
 /**
- * 把落盘的结论补到那条工具条上。
+ * 把落盘的结论补到那一次调用上。
  *
  * **一次调用一行**：一轮 agent 可能生成三份产物，写了两份、拒了一份——挂在
- * 气泡上的单个「产物」字段说不清这件事，而工具条本来就是一次一行、随会话
- * 留得住。就地重推一条 `toolResult`，前端按 callId 换掉那一行。
+ * 气泡上的单个「产物」字段说不清这件事，而每一次调用本来就各占一段、随会话
+ * 留得住。就地改那个对象（段里存的是同一个引用），再重推一条 `toolResult`，
+ * 前端按 callId 换掉那一行。
  */
 function noteOnToolRow(
   c: ChatController,
@@ -98,6 +125,37 @@ function noteOnToolRow(
     argsText: row.argsText,
     resultText: row.resultText,
   });
+}
+
+/**
+ * 往段上追加模型说的话：末尾那一段是文字就接上去，否则新开一段。
+ *
+ * 「否则」那一支就是**交替**本身：中间插过一次工具调用之后，模型接着说的话
+ * 是新的一段，不该和之前那段拼成一块——那正是从前所有话挤进同一个文本节点
+ * 的原因。
+ */
+function pushText(segments: TurnSegment[], text: string): void {
+  const last = segments[segments.length - 1];
+  if (last?.kind === 'text') {
+    last.text += text;
+  } else {
+    segments.push({ kind: 'text', text });
+  }
+}
+
+/**
+ * 这一轮模型自己说的话，拼成一份 `content`。
+ *
+ * `content` 仍然是「这一轮的文字」这件事的唯一答案：字数、复制、生成标题、
+ * 单步那条路的采纳都读它。**不含工具产出的正文**——那是产物，各自在自己那
+ * 一段里（`call.output`）。
+ */
+function textOf(segments: TurnSegment[]): string {
+  return segments
+    .filter((seg): seg is Extract<TurnSegment, { kind: 'text' }> => seg.kind === 'text')
+    .map((seg) => seg.text.trim())
+    .filter((text) => text.length > 0)
+    .join('\n\n');
 }
 
 /**
@@ -215,9 +273,18 @@ export async function sendAgent(
   c.current.turns.push(assistantTurn);
   c.post({ type: 'turnDone', turn: serializeTurn(assistantTurn) });
 
-  /** 这一轮调过的工具。摘要 + 截断过的参数与返回——完整返回值可能是几万字。 */
-  const toolCalls: TurnToolCall[] = [];
-  const titles = new Map<string, string>();
+  /**
+   * 这一轮排下来的段：它说的话与它做的事，**按发生顺序**。存进会话的就是这个。
+   */
+  const segments: TurnSegment[] = [];
+  /**
+   * 同样这些工具调用，按 callId 找得到的那一面。
+   *
+   * 里面是**与段里同一个对象**：结果到了、落盘的结论出来了，就地改这一个，
+   * 段不必重建。
+   */
+  const calls: TurnToolCall[] = [];
+  const callOf = (callId: string) => calls.find((call) => call.callId === callId);
 
   try {
     // 第 11 条：任何要调模型的动作都得看得见、能停。取消经 lease.signal 传下去，
@@ -255,18 +322,32 @@ export async function sendAgent(
               task.report({ message, current: step });
               c.post({ type: 'agentStep', turnId: assistantTurn.id, step, message });
             },
-            onDelta: (delta) => c.post({ type: 'delta', turnId: assistantTurn.id, text: delta }),
+            onDelta: (delta) => {
+              pushText(segments, delta);
+              c.post({ type: 'delta', turnId: assistantTurn.id, text: delta });
+            },
             onToolCall: (call) => {
-              const title = call.display?.title ?? call.name;
-              titles.set(call.callId, title);
+              // 段在**调用开始时**就占上位置：顺序是这一轮唯一存不回来的东西，
+              // 等结果到了再记就只剩「所有工具挤在一起」那副样子。
+              const row: TurnToolCall = {
+                callId: call.callId,
+                name: call.name,
+                title: call.display?.title ?? call.name,
+                ok: false,
+                summary: '进行中…',
+                elapsedMs: 0,
+                argsText: describeArgs(call.args),
+              };
+              calls.push(row);
+              segments.push({ kind: 'tool', call: row });
               c.post({
                 type: 'toolCall',
                 turnId: assistantTurn.id,
-                callId: call.callId,
-                name: call.name,
-                title,
+                callId: row.callId,
+                name: row.name,
+                title: row.title,
                 detail: call.display?.detail,
-                argsText: describeArgs(call.args),
+                argsText: row.argsText,
               });
             },
             onToolResult: (r) => {
@@ -274,16 +355,29 @@ export async function sendAgent(
               // 作者当场看到的和第二天翻回来看到的就对不上。
               const argsText = describeArgs(r.args);
               const resultText = r.text ? clip(r.text, RESULT_LIMIT) : undefined;
-              toolCalls.push({
-                callId: r.callId,
-                name: r.name,
-                title: titles.get(r.callId) ?? r.name,
-                ok: r.ok,
-                summary: r.summary,
-                elapsedMs: r.elapsedMs,
-                argsText,
-                resultText,
-              });
+              // 就地补齐 `onToolCall` 那一刻占下的那一段。认不出的 callId 补一段
+              // 在末尾——少画一条不如画在错的位置上（两者都不该发生）。
+              const row = callOf(r.callId);
+              if (row) {
+                row.ok = r.ok;
+                row.summary = r.summary;
+                row.elapsedMs = r.elapsedMs;
+                row.argsText = argsText ?? row.argsText;
+                row.resultText = resultText;
+              } else {
+                const late: TurnToolCall = {
+                  callId: r.callId,
+                  name: r.name,
+                  title: r.name,
+                  ok: r.ok,
+                  summary: r.summary,
+                  elapsedMs: r.elapsedMs,
+                  argsText,
+                  resultText,
+                };
+                calls.push(late);
+                segments.push({ kind: 'tool', call: late });
+              }
               c.post({
                 type: 'toolResult',
                 turnId: assistantTurn.id,
@@ -295,6 +389,16 @@ export async function sendAgent(
                 argsText,
                 resultText,
               });
+            },
+            // `generate` 产出的正文：**另一条通道**，进它自己那一段（界面上是一
+            // 张单独的卡片）。攒的是原文，收尾时才截一次——每来一段就截会把
+            // 「已截断」那句话夹进正文中间。
+            onToolDelta: ({ callId, text: delta }) => {
+              const row = callOf(callId);
+              if (row) {
+                row.output = (row.output ?? '') + delta;
+              }
+              c.post({ type: 'toolDelta', turnId: assistantTurn.id, callId, text: delta });
             },
             // 闸门那一句问在对话页里（`gate.ts`），不是一个盖住窗口的模态框——
             // 作者要判断的上下文（它刚读了什么、正要写哪个文件）就在气泡里。
@@ -339,7 +443,7 @@ export async function sendAgent(
               });
               // 决定记在那条工具条上（一次调用一行），随会话留住——
               // 翻回来看得出「这一份我当时没要」。
-              noteOnToolRow(c, assistantTurn.id, toolCalls, req.callId, r.relPath ? `已写入 ${r.relPath}` : '未采纳');
+              noteOnToolRow(c, assistantTurn.id, calls, req.callId, r.relPath ? `已写入 ${r.relPath}` : '未采纳');
               return {
                 note: r.relPath
                   ? `${r.message}这份产物已经落盘，**不要再写一遍**。`
@@ -354,8 +458,17 @@ export async function sendAgent(
       { scope: 'Agent' }
     );
 
-    assistantTurn.content = outcome.text;
-    assistantTurn.toolCalls = toolCalls.length > 0 ? toolCalls : undefined;
+    // 产出的正文在这里截一次（流的时候攒的是原文）：它随会话落盘，一轮里连着
+    // 生成五份的话，会话文件不能被它撑爆。截了会自报（第 2 条）。
+    for (const call of calls) {
+      if (call.output) {
+        call.output = clip(call.output, OUTPUT_LIMIT);
+      }
+    }
+    assistantTurn.segments = segments.length > 0 ? segments : undefined;
+    // `content` 是「这一轮说的话」，拼的是那几段文字。回落到 `outcome.text`：
+    // 一句话都没说（报错、刚开始就被停）时它至少还有一句「为什么停」。
+    assistantTurn.content = textOf(segments) || outcome.text;
     // 第 4 条：花了多少必须留在会话里。只在跑的时候闪一下的话，作者第二天
     // 回来翻这一轮就看不出它花了多少。
     assistantTurn.agentRun = {
@@ -395,7 +508,7 @@ export async function sendAgent(
 
   c.post({ type: 'turnDone', turn: serializeTurn(assistantTurn) });
   await persist(c);
-  log.info('agent 这一轮结束', `调了 ${toolCalls.length} 个工具`);
+  log.info('agent 这一轮结束', `调了 ${calls.length} 个工具，${segments.length} 段`);
   // 四期的 write / edit / run 会真的改磁盘，流水线必须刷。
   await pushPipeline(c);
   c.post({ type: 'session', session: serializeSession(c.current) });

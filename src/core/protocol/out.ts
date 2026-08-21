@@ -27,7 +27,21 @@ export type OutMessage =
   | { type: 'tab'; tab: Tab }
   | { type: 'session'; session: SerializedSession }
   | { type: 'sessions'; list: SessionListItem[] }
+  /**
+   * 模型**自己说的话**的增量。前端追加到当前那一段文字上。
+   *
+   * 工具产出的正文不走这条（那是 `toolDelta`）：`generate` 内部那次调用会流出
+   * 几千字产物，从前它和这一条挤在同一条通道里，于是「我先看看工程结构」和
+   * 一份 6104 字的大纲拼在同一个文本节点里，谁也认不出边界在哪。
+   */
   | { type: 'delta'; turnId: string; text: string }
+  /**
+   * 某个工具产出的正文增量（目前只有 `generate`）。前端追加到那一次调用的卡片里。
+   *
+   * 认 `callId` 而不认 turnId 就够了那一半：一轮里可能连着生成好几份，各自
+   * 一张卡。
+   */
+  | { type: 'toolDelta'; turnId: string; callId: string; text: string }
   | { type: 'reasoning'; turnId: string; text: string }
   /**
    * agent 循环开了新的一步。前端画一行「第 N 步」。

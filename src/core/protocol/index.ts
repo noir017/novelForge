@@ -39,6 +39,7 @@ export type {
   SerializedAgentRun,
   SerializedArtifact,
   SerializedDigest,
+  SerializedSegment,
   SerializedSession,
   SerializedTurn,
   SerializedToolCall,

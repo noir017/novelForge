@@ -104,8 +104,23 @@ export const AGENT_SYSTEM = [
 export interface AgentHandlers {
   /** 新的一个回合开始。 */
   onStep?(step: number, message: string): void;
-  /** 模型的文字增量（含 `generate` 内部那次调用的正文）。进气泡。 */
+  /**
+   * 模型**自己说的话**的增量。进气泡里当前那一段文字。
+   *
+   * **不含工具产出的正文**：`generate` 内部那次调用流出来的几千字走
+   * {@link AgentHandlers.onToolDelta}。从前两者共用这一个回调，于是界面上
+   * 「我先看看工程结构」和一份 6104 字的大纲拼在同一个文本节点里，作者认不出
+   * 边界在哪，刷新之后产物那一半还整份消失（它没进会话）。
+   */
   onDelta?(text: string): void;
+  /**
+   * 某个工具**产出的正文**增量（目前只有 `generate`）。
+   *
+   * 带着 `callId`：一轮里可能连着生成好几份，界面各画一张卡。工具自己不知道
+   * 这件事——它照旧往 `ToolRun.onDelta` 里推，由这一层按「现在跑的是哪一次
+   * 调用」贴上标签。
+   */
+  onToolDelta?(delta: { callId: string; name: string; text: string }): void;
   /**
    * 要调一个工具了。
    *
@@ -256,7 +271,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
     signal,
     usage: budget.meter(),
     report: (m: string) => on.onNote?.(m),
-    onDelta: (d: string) => on.onDelta?.(d),
+    // `onDelta` **不在这里绑**：工具产出的正文要带上「是哪一次调用」才画得对，
+    // 而那件事只有 `runOne` 知道（它手里有 call.id）。
   };
 
   // 输入预算：与创作那一层同源（对话页选定模型的窗口减去输出预留）。
@@ -481,7 +497,13 @@ async function runOne(
   on.onToolCall?.({ callId: call.id, name: call.name, args: call.args });
 
   const spentBefore = budget.calls;
-  const result: ToolInvocation = await tools.invoke(call.name, call.args ?? {}, run);
+  // 这一次调用产出的正文贴上它自己的 callId 再往外推：界面据此把 `generate`
+  // 的几千字放进**它那一张卡**，而不是拌进模型说的话里。
+  const perCall = {
+    ...run,
+    onDelta: (text: string) => on.onToolDelta?.({ callId: call.id, name: call.name, text }),
+  };
+  const result: ToolInvocation = await tools.invoke(call.name, call.args ?? {}, perCall);
 
   // 花过钱的那一步单独报一句账（第 4 条）。工具只说「已生成 4/4 节」——
   // 上限是多少只有这里知道。

@@ -318,12 +318,13 @@ export interface SerializedTurn {
   reasoning?: string;
   artifact?: SerializedArtifact;
   /**
-   * 仅 assistant 轮：这一轮 agent 调过的工具。重开面板要能把那串折叠条画回来。
+   * 仅 assistant 轮：这一轮**按发生顺序**排下来的段——它说的话与它做的事交替。
    *
-   * 那一行上只有摘要；参数与返回文本在**展开之后**才画，且都是截断过的
-   * ——完整返回值可能是几万字，摊在气泡里会把回答挤出屏幕。
+   * 界面认的就是这一个字段：有段就按段画（文字块 / 工具条 / generate 卡交替），
+   * 没有段就是一块正文（单步创作那条路，没有工具可交替）。**旧会话在
+   * `serializeTurn` 里已经归一过**，所以前端不必认第二种形状。
    */
-  toolCalls?: SerializedToolCall[];
+  segments?: SerializedSegment[];
   /**
    * 仅 assistant 轮：这一轮 agent 跑下来的花销。气泡末尾那一行。
    *
@@ -344,6 +345,16 @@ export interface SerializedAgentRun {
   message?: string;
 }
 
+/**
+ * 一段。文字是模型自己说的话，工具是它做的一件事。
+ *
+ * 工具那一段把调用**整个带上**（而不是只给一个 callId 让前端去别处找）：
+ * 前端照着数组画一遍就完了，不必再维护一张表。
+ */
+export type SerializedSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'tool'; call: SerializedToolCall };
+
 export interface SerializedToolCall {
   callId: string;
   name: string;
@@ -355,6 +366,11 @@ export interface SerializedToolCall {
   argsText?: string;
   /** 回给模型的那段文本（已截断）。折叠条展开后画。 */
   resultText?: string;
+  /**
+   * 仅 `generate`：它这一次流出来的正文（已截断）。气泡里画成一张单独的卡片
+   * ——那是作者要读的产物，不是一行流水账。
+   */
+  output?: string;
 }
 
 /**

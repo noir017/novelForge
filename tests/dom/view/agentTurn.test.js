@@ -5,13 +5,14 @@
  *
  * 1. **实时**——`toolCall` 先挂一条「进行中…」，`toolResult` 到了就地换成
  *    带耗时的最终形态。**就地追加而不是重建气泡**：重建会把正在流的正文冲掉。
- * 2. **回放**——重开面板时靠 `turn.toolCalls` 把那串条重新画出来。
+ * 2. **回放**——重开面板时靠 `turn.segments` 把那一串重新画出来。
  *
  * 还有一条最要紧的：**气泡里只画摘要，不画工具的完整返回值**。
+ * 交替本身（说的话与做的事按发生顺序排）另有一份：`agentSegments.test.js`。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
-const { mount, JSDOM_SKIP, turn, emptySession } = require('../../helpers/dom');
+const { mount, JSDOM_SKIP, turn, textSeg, toolSeg, emptySession } = require('../../helpers/dom');
 
 const rows = (ui, id) => [...ui.bubble(id).querySelectorAll('.tool-row')];
 const textsOf = (row) => ({
@@ -88,18 +89,24 @@ describe('工具调用流（实时）', { skip: JSDOM_SKIP }, () => {
     assert.equal(textsOf(rows(ui, 'a1')[1]).elapsed, '40ms');
   });
 
-  // 就地追加而不是重建气泡：重建会把正在流的正文冲掉（.msg-body 是纯文本节点）。
-  test('正文流不受工具条影响', () => {
+  // 就地追加而不是重建气泡：重建会把正在流的内容冲掉（文字块是纯文本节点）。
+  // **中间插了一次工具调用，后面那句话就是新的一块**——那正是交替。
+  test('工具调用打断之后，两句话各自成块', () => {
     ui.post({ type: 'delta', turnId: 'a1', text: '他在第 9 章说过。' });
     ui.post({ type: 'toolCall', turnId: 'a1', callId: 'c3', name: 'read', title: 'read x' });
     ui.post({ type: 'delta', turnId: 'a1', text: '依据在第 3 行。' });
-    assert.equal(ui.bodyOf('a1').textContent, '他在第 9 章说过。依据在第 3 行。');
+    assert.deepEqual(
+      [...ui.bubble('a1').querySelectorAll('.msg-body')].map((b) => b.textContent),
+      ['他在第 9 章说过。', '依据在第 3 行。']
+    );
   });
 
-  test('工具条排在正文上方（先查后说）', () => {
-    const node = ui.bubble('a1');
-    const kids = [...node.children].map((c) => c.className);
-    assert.ok(kids.indexOf('tools') < kids.indexOf('msg-body'), JSON.stringify(kids));
+  test('顺序就是发生的顺序（先说、再查、再说）', () => {
+    const kinds = [...ui.bubble('a1').children]
+      .map((c) => c.className)
+      .filter((cn) => cn === 'tools' || cn === 'msg-body');
+    // 前面那几次调用在第一串里；delta 之后那次 read 另起一串。
+    assert.deepEqual(kinds, ['tools', 'msg-body', 'tools', 'msg-body']);
   });
 
   test('失败的工具带标记', () => {
@@ -149,9 +156,18 @@ describe('工具调用流（重开面板时回放）', { skip: JSDOM_SKIP }, () 
         turns: [
           turn('u1', 'user', '排一下第 12 章', { command: 'Agent' }),
           turn('a1', 'assistant', '排好了，收在藏书阁门口。', {
-            toolCalls: [
-              { callId: 'c1', name: 'read', title: 'read .novelforge/plots/012.md', ok: true, summary: '20 行', elapsedMs: 30 },
-              { callId: 'c2', name: 'generate', title: 'generate 剧情·生成', ok: true, summary: '剧情 · 4/4 节 · 620 字', elapsedMs: 12400 },
+            segments: [
+              toolSeg({ callId: 'c1', name: 'read', title: 'read .novelforge/plots/012.md', ok: true, summary: '20 行', elapsedMs: 30 }),
+              toolSeg({
+                callId: 'c2',
+                name: 'generate',
+                title: 'generate 剧情·生成',
+                ok: true,
+                summary: '剧情 · 4/4 节 · 620 字',
+                elapsedMs: 12400,
+                output: '第一节 藏书阁门口\n他在门口站了很久。',
+              }),
+              textSeg('排好了，收在藏书阁门口。'),
             ],
           }),
         ],
@@ -159,22 +175,28 @@ describe('工具调用流（重开面板时回放）', { skip: JSDOM_SKIP }, () 
     });
   });
 
-  test('两条工具条都画回来了', () => {
-    assert.equal(rows(ui, 'a1').length, 2);
-  });
-
-  test('摘要与耗时都在', () => {
-    assert.deepEqual(textsOf(rows(ui, 'a1')[1]), {
-      title: 'generate 剧情·生成',
-      summary: '剧情 · 4/4 节 · 620 字',
-      elapsed: '12.4s',
+  test('工具那一条画回来了', () => {
+    assert.equal(rows(ui, 'a1').length, 1);
+    assert.deepEqual(textsOf(rows(ui, 'a1')[0]), {
+      title: 'read .novelforge/plots/012.md',
+      summary: '20 行',
+      elapsed: '30ms',
     });
   });
 
-  // 花钱的那一下要一眼看得出来。
-  test('generate 用另一个图标', () => {
-    assert.equal(rows(ui, 'a1')[0].querySelector('.tool-icon').textContent, '🔧');
-    assert.equal(rows(ui, 'a1')[1].querySelector('.tool-icon').textContent, '✨');
+  // 花钱那一下产出的是**产物本身**，不是它查资料的过程：画成一张卡，
+  // 连正文一起留住（从前那几千字刷新之后整份消失）。
+  test('generate 画成一张卡，不是一行流水账', () => {
+    const card = ui.bubble('a1').querySelector('.gen[data-call="c2"]');
+    assert.ok(card, ui.bubble('a1').innerHTML);
+    assert.equal(card.querySelector('.gen-title').textContent, 'generate 剧情·生成');
+    assert.equal(card.querySelector('.gen-elapsed').textContent, '12.4s');
+    assert.equal(card.querySelector('.gen-state-text').textContent, '剧情 · 4/4 节 · 620 字');
+    assert.ok(card.querySelector('.gen-body').textContent.includes('藏书阁门口'));
+  });
+
+  test('卡默认是展开的（那份产物就是要读的东西）', () => {
+    assert.equal(ui.bubble('a1').querySelector('.gen[data-call="c2"]').open, true);
   });
 
   // 一章正文几千字，摊在气泡里会把作者真正要看的那段回答挤到屏幕外。
@@ -186,7 +208,7 @@ describe('工具调用流（重开面板时回放）', { skip: JSDOM_SKIP }, () 
     assert.equal(ui.bodyOf('a1').textContent, '排好了，收在藏书阁门口。');
   });
 
-  test('没有 toolCalls 的普通轮次不长出空的工具条', () => {
+  test('没有段的普通轮次不长出空的工具条', () => {
     ui.post({ type: 'turnDone', turn: turn('a2', 'assistant', '普通回答') });
     assert.equal(ui.bubble('a2').querySelector('.tools'), null);
   });
