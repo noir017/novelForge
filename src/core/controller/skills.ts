@@ -4,6 +4,24 @@
  * agent 自己读技能走的是 `skill` 工具（`tools/novel/skill.ts`），与这里无关。
  * 这个文件管的是另一半——作者在输入框里打 `/` 挑一份，整份正文随下一句话过去。
  *
+ * ## 挑的那一步在前端，不在宿主的选择器里
+ *
+ * 早一版走的是 `getHost().pick()`（与 `@` 引用同一条路）：插件弹 QuickPick、
+ * 独立版弹网页模态框。改掉的理由是**这两件事不一样**。
+ *
+ * `@` 挑的是一个**文件**：候选是整个工程的树，几百项，要搜、要分组，作者挑完
+ * 回到输入框接着写那句话——中间跳出一个居中的框是合理的，因为那本来就是一次
+ * 独立的检索。
+ *
+ * `/` 挑的是**这句话按哪套方法做**，候选通常不到十项，而且它就是这句话的一部分。
+ * 打 `/` 的时候手在键盘上、光标在输入框里；跳一个居中模态框出来，等于把光标从
+ * 正在写的句子上拽走一次，挑完还要自己找回去。所以它是**贴着输入框上沿浮出来
+ * 的候选列表**（Cursor / Claude Code 那一套，也是这个工程从前那个命令面板的形态）。
+ *
+ * 于是这一层的职责变了：不再是「弹个框问一句」，而是**把名单推给前端**
+ * （{@link pushSkillList}），前端画面板、管键盘，挑中之后发一条 `useSkill`
+ * 回来（{@link useSkill}）。
+ *
  * ## 为什么呼出是「整份正文」，而不是让 agent 自己去 `skill` 一次
  *
  * 「仅用户」这一档的意思是**这份方法论不占每一轮的预算**：名字都不进索引。
@@ -24,8 +42,6 @@
  */
 import type { ChatController } from './index';
 import { readConfig } from '../config';
-import { getHost } from '../host';
-import type { PickChoice } from '../host';
 import { scoped } from '../runtime/logger';
 
 import type { PendingSkill, SkillRow } from '../protocol';
@@ -94,50 +110,40 @@ export async function withDescriptions(
 }
 
 /**
- * 作者打了 `/`：弹宿主的选择器让他挑一份。
+ * 把 `/` 面板的候选推给前端。**「禁用」那些不在里面。**
  *
- * **`off` 那些不在候选里**，其余三档都在——`title` / `full` 是「agent 也看得见」，
- * 不是「作者不能呼」。
+ * `user` / `title` / `full` 三档都在——后两档是「agent 也看得见」，不是「作者
+ * 不能呼」。
+ *
+ * 描述在这里补齐（`withDescriptions`）：面板上那行副标题正是作者判断「是不是
+ * 这一份」的依据，而 `listSkills` 只在 `full` 档读它（那条规矩是为了不让 agent
+ * 的每一轮变贵，与这条人工挑选的路无关）。
+ *
+ * 每次打开面板都重扫一遍盘：作者可能刚在 `.novelforge/skills/` 下写完一份，
+ * 这一刻他要的就是它。
  */
-export async function pickSkill(c: ChatController): Promise<void> {
+export async function pushSkillList(c: ChatController): Promise<void> {
   const all = await listSkills(c.project, readConfig().skillModes);
-  const usable = listInvocableSkills(all);
-  if (usable.length === 0) {
-    c.toast('还没有可用的技能。内置技能可以在设置页里打开，也可以在 .novelforge/skills/ 下自己写一份。', 'error');
-    return;
-  }
-
-  // 描述在这里补：选择器上那一行副标题正是作者判断「是不是这一份」的依据，
-  // 而 `listSkills` 只在 `full` 档读它（那条规矩是为了不让 agent 的每一轮变贵，
-  // 与这条人工挑选的路无关）。
-  const described = await withDescriptions(
-    c.project,
-    usable.map((s) => ({
+  const usable = listInvocableSkills(all).map(
+    (s): SkillRow => ({
       name: s.name,
       source: s.source,
       stem: s.stem,
       description: s.description,
       mode: s.mode,
-    }))
+    })
   );
-
-  const choices: PickChoice<string>[] = described.map((s) => ({
-    label: s.stem,
-    // 没写描述的就不显示副标题，别拼一句「（没有描述）」占一行。
-    description: s.description || undefined,
-    detail: s.name,
-    group: s.source === 'builtin' ? '内置' : '这个工程',
-    value: s.name,
-  }));
-  const picked = await getHost().pick(choices, '呼出技能');
-  if (!picked) {
-    return;
-  }
-  await holdSkill(c, picked);
+  c.post({ type: 'skillList', items: await withDescriptions(c.project, usable) });
 }
 
-/** 把选中的那一份读进来，挂成输入框上方一枚标签。 */
-async function holdSkill(c: ChatController, name: string): Promise<void> {
+/**
+ * 作者在 `/` 面板里挑中了一份：读出正文，挂成输入框上方一枚标签。
+ *
+ * **档位在这里再核一遍**，不信前端那份名单：它可能是几分钟前推的，而作者刚在
+ * 设置页把这一份改成了「禁用」。前端手上的名单是回显，判据仍在后端
+ * （`listInvocableSkills`）。
+ */
+export async function useSkill(c: ChatController, name: string): Promise<void> {
   if (c.pendingSkills.some((s) => s.name === name)) {
     c.toast('已经呼出这一份了。');
     return;
@@ -145,8 +151,8 @@ async function holdSkill(c: ChatController, name: string): Promise<void> {
   const all = await listSkills(c.project, readConfig().skillModes);
   const got = await readSkill(c.project, listInvocableSkills(all), name);
   if (!got.ok) {
-    // 读不到（目录空着、刚被删掉）就照实说。作者刚刚在选择器里看到它，
-    // 不说的话他只会以为点击没生效。
+    // 读不到（目录空着、刚被删掉、刚被改成「禁用」）就照实说。作者刚刚在面板里
+    // 看到它，不说的话他只会以为点击没生效。
     log.warn(`呼出技能失败：${name}`, got.error);
     c.toast(got.error, 'error');
     return;

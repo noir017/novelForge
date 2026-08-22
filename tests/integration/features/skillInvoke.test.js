@@ -1,15 +1,19 @@
 /**
- * 作者用 `/` 呼出技能：**从选择器到那句话里**。
+ * 作者用 `/` 呼出技能：**从面板名单到那句话里**。
  *
  * 这条路与 agent 自己读技能（`skill` 工具）是两件事，测的东西也不一样——
  * 那边验「够不着的档取不到」，这边验四件：
  *
  * | 用例 | 钉的是什么 |
  * |---|---|
- * | 缺省档（仅用户）呼得出来 | 那一档的全部意义：agent 看不见，作者呼得到 |
- * | 「禁用」不在候选里 | 两边都看不到，才叫禁用 |
+ * | 缺省档（仅用户）在名单里 | 那一档的全部意义：agent 看不见，作者呼得到 |
+ * | 「禁用」不在名单里 | 两边都看不到，才叫禁用 |
  * | 正文折进那句话的**前面**，一个字不截 | 半套流程比没有更糟；方法在前、要求在后 |
  * | 发出去就清空，正文不进会话 | 一次性；那几千字已经在 content 里了，存两遍是浪费 |
+ *
+ * 挑的那一步**在前端**（`media/src/view/skillPalette.ts` 那个浮在输入框上方的
+ * 面板，dom 那一组测它），所以这里走的是两条消息：`requestSkills` 要名单、
+ * `useSkill` 递一个名字回来。后端不弹任何框。
  *
  * 走的是真的 controller（`dispatch`），因为这条路的活全在拼接与生命周期上：
  * 挑完记在哪、发送时折进哪、发完清不清。打桩就等于把要测的东西替换掉了。
@@ -33,6 +37,8 @@ let someBuiltin;
 let asks = [];
 /** 后端推给前端的 `pendingSkills` 消息，按顺序。 */
 let pushed = [];
+/** 后端推给前端的 `skillList` 消息，按顺序（`/` 面板的候选）。 */
+let lists = [];
 
 /**
  * 把 agent 循环那次模型调用换成一个不说话的假 provider：这一组不关心它怎么
@@ -87,6 +93,9 @@ before(async () => {
       if (msg.type === 'pendingSkills') {
         pushed.push(msg.items);
       }
+      if (msg.type === 'skillList') {
+        lists.push(msg.items);
+      }
     },
     reveal: () => {},
   });
@@ -97,38 +106,55 @@ after(() => {
   if (t) cleanup(t.dir, bundle?.db);
 });
 
-/** 挑一份技能（假宿主的 pick 从答案队列里取）。 */
-async function pick(name) {
-  h.expect(name);
-  await controller.dispatch({ type: 'pickSkill' });
+/** 要一份 `/` 面板的候选名单。 */
+async function listSkills() {
+  await controller.dispatch({ type: 'requestSkills' });
+  return lists[lists.length - 1];
 }
 
-describe('选择器里有哪些', () => {
-  test('缺省档（仅用户）呼得出来——那一档的全部意义就在这儿', async () => {
+/** 挑一份技能（前端面板挑完发的那一条）。 */
+async function pick(name) {
+  await controller.dispatch({ type: 'useSkill', name });
+}
+
+describe('面板的候选名单', () => {
+  test('缺省档（仅用户）在名单里——那一档的全部意义就在这儿', async () => {
     settings.skillModes = {};
-    h.expect(undefined); // 不选，只看候选列表
-    await controller.dispatch({ type: 'pickSkill' });
-    const choices = h.picks[h.picks.length - 1].choices.map((c) => c.value);
-    assert.ok(choices.includes('project:我的审章流程'), choices.join(' / '));
-    assert.ok(choices.includes(`builtin:${someBuiltin}`), choices.join(' / '));
+    const names = (await listSkills()).map((s) => s.name);
+    assert.ok(names.includes('project:我的审章流程'), names.join(' / '));
+    assert.ok(names.includes(`builtin:${someBuiltin}`), names.join(' / '));
   });
 
-  test('「禁用」的不在候选里', async () => {
+  test('「禁用」的不在名单里', async () => {
     settings.skillModes = { 'project:不想用的': 'off' };
-    h.expect(undefined);
-    await controller.dispatch({ type: 'pickSkill' });
-    const choices = h.picks[h.picks.length - 1].choices.map((c) => c.value);
-    assert.equal(choices.includes('project:不想用的'), false, choices.join(' / '));
+    const names = (await listSkills()).map((s) => s.name);
+    assert.equal(names.includes('project:不想用的'), false, names.join(' / '));
   });
 
-  // 副标题是作者判断「是不是这一份」的唯一依据。`listSkills` 只在 `full` 档
+  // 描述是作者判断「是不是这一份」的唯一依据。`listSkills` 只在 `full` 档
   // 读描述（那条规矩是为了不让 agent 的每一轮变贵），这条人工挑选的路不受它限。
   test('工程技能的描述也读出来了，哪怕它是缺省档', async () => {
     settings.skillModes = {};
-    h.expect(undefined);
-    await controller.dispatch({ type: 'pickSkill' });
-    const row = h.picks[h.picks.length - 1].choices.find((c) => c.value === 'project:我的审章流程');
+    const row = (await listSkills()).find((s) => s.name === 'project:我的审章流程');
     assert.equal(row.description, '我自己那套审章法');
+  });
+
+  // 名单每次重扫：作者可能刚写完一份技能，打 `/` 的这一刻他要的就是它。
+  test('中途新写的技能当场出现在名单里', async () => {
+    settings.skillModes = {};
+    t.write('.novelforge/skills/刚写的/SKILL.md', '# 刚写的');
+    const names = (await listSkills()).map((s) => s.name);
+    assert.ok(names.includes('project:刚写的'), names.join(' / '));
+    t.remove('.novelforge/skills/刚写的/SKILL.md');
+  });
+
+  // 前端那份名单可能是几分钟前推的，而作者刚在设置页把这一份改成了「禁用」。
+  // 判据仍在后端。
+  test('前端递一个「禁用」档的名字过来，后端仍然拒掉', async () => {
+    settings.skillModes = { 'project:不想用的': 'off' };
+    controller.pendingSkills = [];
+    await pick('project:不想用的');
+    assert.deepEqual(controller.pendingSkills, []);
   });
 });
 

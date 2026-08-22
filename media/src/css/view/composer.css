@@ -1,12 +1,12 @@
 /*
- * 输入区：附件标签、输入框、工具行、发送。
+ * 输入区：技能与附件标签、输入框、工具行、发送，以及 `/` 技能面板。
  *
  * ## 一个框，不是「一个框 + 一排零件」
  *
  * 从前这里是三块各自为政的东西：chips、textarea、一排按钮与下拉框。视觉上
  * 输入框有自己的边框，工具行浮在它下面，发送按钮又比周围粗一号——三个层次
  * 争着当主角。现在整块收成 Cursor 那样的**一个输入框**：边框长在外层
- * （`.composer-input`），textarea 自己不画边框，chip 与命令标签长在框里，
+ * （`.composer-input`），textarea 自己不画边框，标签长在框里，
  * 工具行贴在框下沿。焦点落在 textarea 上时高亮的是**整个框**。
  */
 
@@ -65,8 +65,8 @@
 /* ---------------------------------------------------------------- 输入框那一格 */
 
 /*
- * 边框长在这里而不是 textarea 上，为的是把命令 chip 和输入框画成一体，
- * 也给 `/` 命令面板一个 `position: relative` 的锚（它 `bottom: 100%` 往上浮）。
+ * 边框长在这里而不是 textarea 上，为的是把技能标签和输入框画成一体，
+ * 也给 `/` 技能面板一个 `position: relative` 的锚（它 `bottom: 100%` 往上浮）。
  */
 .composer-input {
   position: relative;
@@ -159,4 +159,142 @@
 .chip.skill-chip {
   background: var(--vscode-textLink-foreground, #3794ff);
   color: var(--vscode-editor-background, #1e1e1e);
+}
+
+/* ---------------------------------------------------------------- / 技能面板 */
+
+/*
+ * `/` 技能面板。挂在输入框那一格里（`.composer-input` 是 relative），
+ * 从**输入框上沿**往上浮——斜杠与过滤串就打在下面那个输入框里，候选贴着它，
+ * 视线不用离开正在打字的地方（Cursor / Claude Code 那一套）。
+ *
+ * 早一版走的是宿主的选择器（插件 QuickPick / 独立版居中模态框）。那两个都会把
+ * 光标从正在写的句子上拽走一次，而 `/` 挑的东西**就是这句话的一部分**。
+ *
+ * 几何与从前那个命令面板同一套（`bottom: calc(100% + 5px)`、左右各出 1px 压住
+ * 输入框的边框、限高 320px 内滚）：那一套是照着窄侧栏调出来的，只有 300 来像素
+ * 宽时它仍然读得下去。
+ */
+.skill-panel {
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  bottom: calc(100% + 5px);
+  z-index: 20;
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.36);
+}
+
+.skill-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 7px 6px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  font-size: 0.78em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.skill-panel-title {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+/* 一份技能都没有时那句话。它要说清「去哪儿写一份」，所以会折行。 */
+.skill-panel-empty {
+  padding: 6px 7px;
+  font-size: 0.78em;
+  line-height: 1.5;
+  color: var(--vscode-descriptionForeground);
+}
+
+/*
+ * 一项 = 一行「/名字（+ 来源 + 已呼出）」+ 一行描述。技能比菜单项更需要解释，
+ * 所以是两行；但两行之间只留 1px，整项还是一口能读完的一块。
+ */
+.skill-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 7px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  font-family: inherit;
+  font-size: inherit;
+  max-width: 100%;
+}
+
+.skill-item.active {
+  background: var(--vscode-list-activeSelectionBackground, var(--vscode-menu-selectionBackground));
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+}
+
+.skill-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.skill-item-label {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 内置 / 本工程。同名的两份技能靠它分得清哪一行是哪一份。 */
+.skill-item-src {
+  flex: 0 0 auto;
+  font-size: 0.68em;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  opacity: 0.65;
+}
+
+/*
+ * 已经呼出的那几份。面板浮起来正好盖住输入框上方那几枚标签，不标一下的话
+ * 作者只会再挑一次，然后收到一句「已经呼出这一份了」。
+ */
+.skill-item-held {
+  flex: 0 0 auto;
+  font-size: 0.68em;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--vscode-textLink-foreground, #3794ff);
+  color: var(--vscode-editor-background, #1e1e1e);
+}
+
+.skill-item.active .skill-item-held {
+  background: currentColor;
+  color: var(--vscode-list-activeSelectionBackground, var(--vscode-menu-selectionBackground));
+}
+
+.skill-item-hint {
+  font-size: 0.76em;
+  opacity: 0.75;
+  line-height: 1.35;
+}
+
+/* 面板开着时那颗按钮跟着亮，看得出是它开的。 */
+.composer-tool.active {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+  color: var(--vscode-foreground);
 }

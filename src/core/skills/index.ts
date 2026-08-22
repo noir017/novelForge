@@ -42,7 +42,7 @@
  * | 出口 | 给谁 | 吃哪几档 |
  * |---|---|---|
  * | {@link describeSkills} | agent 每轮的 system | `title` / `full` |
- * | {@link listInvocableSkills} | 作者的 `/` 选择器 | `user` / `title` / `full` |
+ * | {@link listInvocableSkills} | 作者的 `/` 面板 | `user` / `title` / `full` |
  *
  * `off` 两边都不在。而 `user` 与 `off` 在 agent 那一侧完全一样——区别只在作者
  * 那一侧，所以它们是两件事，不是「关」的两种程度。
@@ -265,7 +265,7 @@ export function describeSkills(skills: SkillRef[]): string {
  * 作者 `/` 呼得出来的那些：**除了 `off` 都在**。
  *
  * 包括 `title` / `full`——那两档是「agent 也看得见」，不是「作者看不见」。
- * 顺序沿用 {@link listSkills}（内置在前、各自按名字排），选择器照着画就是了。
+ * 顺序沿用 {@link listSkills}（内置在前、各自按名字排），面板照着画就是了。
  */
 export function listInvocableSkills(skills: SkillRef[]): SkillRef[] {
   return skills.filter((s) => s.mode !== 'off');

@@ -6,7 +6,13 @@
  * 纯 UI 的东西——没发出去的草稿、正在流式接收的是哪一条。
  */
 import { DEFAULT_THINKING_DEPTH } from '../protocol';
-import type { PendingSkill, SerializedAttachment, SerializedSession, ViewState } from '../protocol';
+import type {
+  PendingSkill,
+  SerializedAttachment,
+  SerializedSession,
+  SkillRow,
+  ViewState,
+} from '../protocol';
 import { acquireApi } from '../vscodeApi';
 import { el } from './refs';
 
@@ -28,6 +34,13 @@ export const store: {
    * 就丢几千字」变成可能。
    */
   skills: PendingSkill[];
+  /**
+   * `/` 面板的候选，由后端推（`skillList`）。技能在磁盘上而档位在配置里，
+   * 前端算不出来，只能回显。
+   *
+   * 与 `skills` 是两件事：这一份是「有哪些可以呼」，那一份是「已经呼了哪几份」。
+   */
+  skillList: SkillRow[];
   busy: boolean;
   /** 正在流式接收的那条消息 id。 */
   streamingId: string | null;
@@ -53,6 +66,7 @@ export const store: {
   },
   attachments: [],
   skills: [],
+  skillList: [],
   busy: false,
   streamingId: null,
   excluded: new Set(),

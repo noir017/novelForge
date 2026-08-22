@@ -1,5 +1,5 @@
 /**
- * 输入区：附件标签、发送，以及那几个下拉框的联动。
+ * 输入区：技能标签、附件标签、发送，以及那几个下拉框的联动。
  *
  * **只有一条发送路径**：打字 → 发给 agent，它自己决定查什么、分几步做完。
  *
@@ -7,12 +7,22 @@
  * 单步生成——挑好层与能力，一次调用产出一份产物。删掉它们之后，「在哪一层、
  * 干什么」这个判断只剩一处（agent 每回合读到的状态注入，第 20 条），
  * 前端不再参与，也就不会与它分叉。
+ *
+ * `/` 这个键回来了，但**发送路径仍然只有一条**：它挑的是一份技能（「这类事该怎么
+ * 做」），挑完只是在输入框上方挂一枚标签，发出去的仍是一条 `sendAgent`。面板本身
+ * 在 [skillPalette.ts](skillPalette.ts)。
  */
 import { el as mk } from '../dom';
 import { DEFAULT_THINKING_DEPTH, isThinkingDepth } from '../protocol';
 import type { ThinkingDepth } from '../protocol';
 import { scrollToBottom } from './messages';
 import { el } from './refs';
+import {
+  closeSkillPalette,
+  handleSkillKey,
+  syncSkillPalette,
+  toggleSkillPalette,
+} from './skillPalette';
 import { persistDraft, store, vscode, hasWorkspace } from './store';
 import { setBusy } from './state';
 import { toast } from './toast';
@@ -80,6 +90,9 @@ function send(): void {
   setBusy(true);
   vscode.postMessage({ type: 'sendAgent', text });
   el.input.value = '';
+  // 输入框空了，面板的判据（「整个值只有一个 /词」）不再成立——它由 input 事件
+  // 驱动，而这一下是代码改的值，不发那个事件。
+  closeSkillPalette();
   // 引用是一次性的：发出去就清空（后端也清它那份 pending）。
   // 技能同理，但清的那一下由后端推 `pendingSkills` 回来（正文在它手上）。
   store.attachments = [];
@@ -98,9 +111,15 @@ export function installComposer(): void {
   el.stopBtn.addEventListener('click', () => vscode.postMessage({ type: 'stop' }));
   el.atBtn.addEventListener('click', () => vscode.postMessage({ type: 'pickAttachment' }));
   el.selBtn.addEventListener('click', () => vscode.postMessage({ type: 'addSelection' }));
-  el.skillBtn.addEventListener('click', () => vscode.postMessage({ type: 'pickSkill' }));
+  el.skillBtn.addEventListener('click', toggleSkillPalette);
 
-  el.input.addEventListener('input', persistDraft);
+  // 技能面板的开合是**输入框内容的函数**（见 skillPalette.ts）：打 `/` 就开、
+  // 删掉就关、往后打字就过滤。挂在 input 而不是 keydown 上，输入法打的中文
+  // （composition 结束才落值）才收得到。
+  el.input.addEventListener('input', () => {
+    persistDraft();
+    syncSkillPalette();
+  });
   el.targetWords.addEventListener('input', persistDraft);
   // 目标下拉框换了一章 → **进入那一章当前该做的那一步**（由后端的状态机判定）。
   // 旧版一律落到正文层，于是选中一个连剧情都没排的章，界面直接把作者
@@ -125,22 +144,25 @@ export function installComposer(): void {
   );
 
   el.input.addEventListener('keydown', (e) => {
+    // 面板开着时它先接管键盘：↑↓ 选、Enter/Tab 确认、Esc 关。**可打印字符一律
+    // 放行**（过滤串由 syncSkillPalette 从输入框的值重算），所以这一下必须排在
+    // Enter 发送之前——不然打了 `/` 之后按 Enter 会把 `/审章` 当成一句话发出去。
+    if (handleSkillKey(e)) {
+      e.preventDefault();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       send();
       return;
     }
-    // 输入 @ 直接打开引用选择器，跟 Cursor 一致。
+    // 输入 @ 直接打开引用选择器，跟 Cursor 一致。**那一条走宿主的选择器**：
+    // 候选是整棵工程树（几百项，要搜要分组），那本来就是一次独立的检索。
+    // `/` 不同——它挑的是这句话的一部分，所以是贴着输入框浮起来的面板，由
+    // 上面那个 `input` 监听驱动，这里不拦（`/` 就是输入框里的一个普通字符）。
     if (e.key === '@') {
       e.preventDefault();
       vscode.postMessage({ type: 'pickAttachment' });
-      return;
-    }
-    // 输入 / 呼出技能选择器。**只在空输入框里**：句子中间的斜杠是普通字符
-    // （路径、日期、「他/她」都要打得出来），在那里拦下来会让输入框莫名其妙。
-    if (e.key === '/' && el.input.value === '') {
-      e.preventDefault();
-      vscode.postMessage({ type: 'pickSkill' });
     }
   });
 }

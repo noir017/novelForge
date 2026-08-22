@@ -40,6 +40,7 @@ import { installNewSession, installRenamePlot, renderPipeline } from './pipeline
 import { renderWorkbench, installWorkbench } from './workbench';
 import { renderPrompt } from './prompt';
 import { installSettings, renderSettings } from './settings';
+import { applySkillList } from './skillPalette';
 import { renderState, setBusy } from './state';
 import { restoreDraft, store, vscode } from './store';
 import { installTabs, isTabActive, showTab } from './tabs';
@@ -109,6 +110,12 @@ onMessage((msg) => {
     case 'pendingSkills':
       store.skills = msg.items;
       renderChips();
+      // 面板开着时那几项要跟着标「已呼出」——刚挑完的那一下就是这条消息回来的。
+      applySkillList(store.skillList);
+      break;
+
+    case 'skillList':
+      applySkillList(msg.items);
       break;
 
     case 'delta':

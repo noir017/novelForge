@@ -19,6 +19,7 @@ const THINKING_LABEL_DISPLAY: Record<ThinkingDepth, string> = {
 import type { ViewState } from '../protocol';
 import { fmt } from './format';
 import { el } from './refs';
+import { setSkillPaletteDisabled } from './skillPalette';
 import { store, hasWorkspace } from './store';
 
 export function renderState(state: ViewState): void {
@@ -177,6 +178,9 @@ export function setBusy(value: boolean): void {
   el.sendBtn.disabled = value || locked;
   el.atBtn.disabled = value || locked;
   el.selBtn.disabled = value || locked;
+  // 技能是给**下一句话**用的，生成期间挑一份没有落点——那颗按钮与面板一起停手
+  // （面板开着的话就地收掉，不然它会浮在一个点不动的输入框上方）。
+  setSkillPaletteDisabled(value || locked);
   el.newSessionBtn.disabled = value || locked;
   // 生成期间不给改名：改名会动这一章的路径，而正在跑的那一轮攥着旧路径，
   // 采纳时会写到一个已经不存在的地方去。

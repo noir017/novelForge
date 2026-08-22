@@ -162,6 +162,14 @@ export type OutMessage =
    * 两边的解析规则会互相牵扯。
    */
   | { type: 'pendingSkills'; items: PendingSkill[] }
+  /**
+   * `/` 面板里的候选。**「禁用」那些不在里面**——设置页那张表才列全（`skills`
+   * 字段），那边要列出来才改得回去，这边列出来只是让人点了没反应。
+   *
+   * 与 `settings` 那条上的 `skills` 分开一条：面板要在**作者打 `/` 的那一刻**
+   * 拿到最新名单（他可能刚写完一份技能），而设置那条只在切到设置页时推。
+   */
+  | { type: 'skillList'; items: SkillRow[] }
   | { type: 'toast'; message: string; level: 'info' | 'error' }
   | { type: 'editorOpen'; file: EditorFileView; pane?: EditorPane }
   | { type: 'editorSaved'; file: EditorFileView }

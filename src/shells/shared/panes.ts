@@ -134,7 +134,7 @@ export function chatPane(opts: PaneOptions = {}): string {
     </div>
     <div class="composer-bar">
       <button class="composer-tool" id="atBtn" title="引用文件或正文"><span class="tool-key">@</span>引用</button>
-      <button class="composer-tool" id="skillBtn" title="呼出一份技能：这类事该怎么做的工作流说明（在空输入框里打 / 也行）"><span class="tool-key">/</span>技能</button>
+      <button class="composer-tool" id="skillBtn" title="呼出一份技能：这类事该怎么做的工作流说明（在输入框里打 / 也行）"><span class="tool-key">/</span>技能</button>
       <button class="composer-tool" id="selBtn" title="${selTitle}">加入选区</button>
       <select id="modelSelect" title="使用哪个模型"></select>
       <!-- 思考深度：跟着**会话**走，不是设置项（见 core/model/session.ts）。 -->

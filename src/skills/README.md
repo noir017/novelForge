@@ -27,7 +27,7 @@
 
 「仅用户」与「禁用」在 agent 那一侧完全一样，区别只在作者那一侧——所以它们是两件事，不是「关」的两种程度：一个是「别占我的每轮预算」，一个是「这份先不用了」。
 
-作者呼出时走的是**折进那句话前面**，不是让 agent 自己调一次 `skill`：那一档它连名字都没见过，递个名字过去等于一次白花的往返。机制见 [core/skills/](../core/skills/index.ts) 与 [core/controller/skills.ts](../core/controller/skills.ts)。
+作者呼出时走的是**折进那句话前面**，不是让 agent 自己调一次 `skill`：那一档它连名字都没见过，递个名字过去等于一次白花的往返。挑的那一步是**浮在输入框上方的面板**（不是宿主的选择器——`/` 挑的东西就是这句话的一部分，弹个居中的框会把光标拽走）。机制见 [core/skills/](../core/skills/index.ts) 与 [core/controller/skills.ts](../core/controller/skills.ts)。
 
 机制（两个来源、索引怎么拼、`skill` 工具）在 [src/core/skills/](../core/skills/index.ts)。
 
@@ -54,8 +54,8 @@
 
 三条硬约束：
 
-1. **frontmatter 只写 `description`。** 名字始终是目录名（路径即身份），再从 frontmatter 读一遍就是给同一件事留两个真相。这一行的消费者是「完整」那一档（每轮发给 agent）与 `/` 选择器上那行副标题——**内置技能必须写**，工程技能不写就退化成只显示名字。只支持单行 `description: …`。
-2. **名字必须自带触发力。** 「仅标题」那一档模型只看得到名字，看不到「什么时候该用」。`chapter-review` 好过 `reviewer`，`审章找AI味` 好过 `流程1`。
+1. **frontmatter 只写 `description`。** 名字始终是目录名（路径即身份），再从 frontmatter 读一遍就是给同一件事留两个真相。这一行的消费者是「完整」那一档（每轮发给 agent）与 `/` 面板上那行说明——**内置技能必须写**，工程技能不写就退化成只显示名字。只支持单行 `description: …`。
+2. **名字必须自带触发力。** 「仅标题」那一档模型只看得到名字，看不到「什么时候该用」；`/` 面板里作者也是先扫一眼名字。`chapter-review` 好过 `reviewer`，`审章找AI味` 好过 `流程1`。
 3. **不许有 `references/`。** 附件靠 `read` 取，而 `read` 只认工程根之内的路径——内置技能不在工程里（是烘进产物的常量），链接会断。长内容压进正文，或者拆成两个技能。**工程内的技能不受这条限制**（它们在工程里，`read` 够得着）。
 
 三条都由 [tests/contract/skills.test.js](../../tests/contract/skills.test.js) 守着。

@@ -44,16 +44,22 @@ export type InMessage =
   | { type: 'renameSession'; id: string }
   | { type: 'pickAttachment' }
   /**
-   * 作者在输入框里打了 `/`：**呼出一份技能**。
+   * 重扫一遍技能名单（`/` 面板打开时发一条）。后端回一条 `skillList`。
    *
-   * 走宿主的选择器（与 `pickAttachment` 同一条路：插件是 QuickPick，独立版是
-   * 网页弹窗），选中的记成输入框上方一枚标签，随下一次 `sendAgent` 把**整份
-   * 正文**折进作者那句话里。
-   *
-   * 「禁用」档的技能不在候选里；`仅用户` 档**只在这里出现**——那一档的意思正是
-   * 「agent 别自己去读，等我呼」。
+   * **不搭车在 `pushState` 上**：那条路由文件监听触发（作者每存一次盘就跑一次），
+   * 而补描述要按份读盘。面板打开是个明确的时刻，那时多读几个文件不心疼。
    */
-  | { type: 'pickSkill' }
+  | { type: 'requestSkills' }
+  /**
+   * 呼出一份技能：作者在 `/` 面板里挑中了它。
+   *
+   * 后端读出**整份正文**攒着（`ChatController.pendingSkills`），记成输入框上方
+   * 一枚标签，随下一次 `sendAgent` 折进作者那句话的前面。
+   *
+   * 名字来自前端手上那份名单，但后端仍要自己核一遍档位：那份名单可能是几分钟前
+   * 推的，作者刚在设置页把这一份改成了「禁用」。
+   */
+  | { type: 'useSkill'; name: string }
   /** 摘掉输入框上方那枚技能标签。名字是带前缀的全名。 */
   | { type: 'dropSkill'; name: string }
   | { type: 'addSelection' }

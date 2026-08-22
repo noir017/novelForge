@@ -14,6 +14,10 @@ import { describeError, elapsed, formatDuration, scoped } from './logger';
  * 1. 宿主原生进度（通知条、可取消）照旧；
  * 2. 结构化进度（第几项/共几项）推给网页；
  * 3. 开始 / 每步 / 结束都进日志，附耗时。
+ *
+ * 传 `opts.hidden` 时任务**不进任务表**（工程页进度条不画它），但宿主原生
+ * 进度与日志照旧。agent 那一轮用它：进度在对话页气泡里自己画（步骤、工具、
+ * 花销都有），工程页顶部再挂一块「Agent」进度条反而吵。
  */
 
 export interface TaskSnapshot {
@@ -42,6 +46,8 @@ export interface TaskContext {
 interface TaskState extends TaskSnapshot {
   startedAt: number;
   abort: AbortController;
+  /** 不进任务表（工程页进度条不画），宿主原生进度与日志照旧。 */
+  hidden: boolean;
 }
 
 const log = scoped('任务');
@@ -49,9 +55,10 @@ const tasks = new Map<string, TaskState>();
 const listeners = new Set<() => void>();
 let counter = 0;
 
-/** 当前在跑的任务快照，按开始时间正序。 */
+/** 当前在跑的任务快照（隐藏的不算），按开始时间正序。 */
 export function activeTasks(): TaskSnapshot[] {
   return [...tasks.values()]
+    .filter((t) => !t.hidden)
     .sort((a, b) => a.startedAt - b.startedAt)
     .map((t) => ({
       id: t.id,
@@ -96,11 +103,12 @@ function notify(): void {
  * @param title 展示名，如「同步章节摘要」。
  * @param fn 任务体。拿到 `signal` 与 `report`。
  * @param opts.scope 日志来源名，缺省用 title。
+ * @param opts.hidden 不进任务表（工程页进度条不画），宿主原生进度与日志照旧。
  */
 export async function runTask<T>(
   title: string,
   fn: (ctx: TaskContext) => Promise<T>,
-  opts: { scope?: string } = {}
+  opts: { scope?: string; hidden?: boolean } = {}
 ): Promise<T> {
   const id = `task-${++counter}`;
   const scope = opts.scope ?? title;
@@ -118,7 +126,15 @@ export async function runTask<T>(
       hostSignal.addEventListener('abort', relay, { once: true });
     }
 
-    const state: TaskState = { id, title, message: '准备中…', elapsedMs: 0, startedAt, abort };
+    const state: TaskState = {
+      id,
+      title,
+      message: '准备中…',
+      elapsedMs: 0,
+      startedAt,
+      abort,
+      hidden: opts.hidden ?? false,
+    };
     tasks.set(id, state);
     taskLog.info(`开始：${title}`);
     notify();

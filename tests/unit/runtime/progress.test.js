@@ -207,6 +207,36 @@ describe('长任务：抛异常', () => {
   });
 });
 
+describe('长任务：hidden', () => {
+  let hiddenCount;
+  let hostProgress;
+
+  before(async () => {
+    hostProgressCalls.length = 0;
+    await progress.runTask(
+      'Agent',
+      async ({ report }) => {
+        report({ message: '在跑', current: 0, total: 1 });
+        hiddenCount = progress.activeTasks().length;
+      },
+      { scope: 'Agent', hidden: true }
+    );
+    hostProgress = hostProgressCalls.join(' / ');
+  });
+
+  test('hidden 任务不在 activeTasks 里', () => {
+    assert.equal(hiddenCount, 0, `${hiddenCount}`);
+  });
+
+  test('host 原生进度照旧', () => {
+    assert.ok(hostProgress.includes('Novel Forge：Agent'), hostProgress);
+  });
+
+  test('结束后任务表仍为空', () => {
+    assert.equal(progress.activeTasks().length, 0);
+  });
+});
+
 describe('长任务：并发', () => {
   let both;
 

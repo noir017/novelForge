@@ -38,7 +38,7 @@ import type { PendingGate } from './gate';
 import { cancelGates, resendGates, resolveGate } from './gate';
 import { fileAction, openDraft, pushDirListings } from './files';
 import type { HeldSkill } from './skills';
-import { dropSkill, pickSkill, pushPendingSkills } from './skills';
+import { dropSkill, pushPendingSkills, pushSkillList, useSkill } from './skills';
 import { characterAction, projectAction } from './project';
 import {
   deleteSession,
@@ -375,8 +375,12 @@ export class ChatController {
         return;
       }
 
-      case 'pickSkill':
-        await pickSkill(this);
+      case 'requestSkills':
+        await pushSkillList(this);
+        return;
+
+      case 'useSkill':
+        await useSkill(this, msg.name);
         return;
 
       case 'dropSkill':
