@@ -55,6 +55,7 @@ import { describeError, elapsed, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import { CreationTarget } from '../model/pipeline';
 import { ThinkingDepth } from '../model/thinking';
+import { describeSkills, listSkills } from '../skills';
 import type { ToolInvocation, ToolInvoker } from '../tools/types';
 import { Budget, BudgetLimits } from './budget';
 import { buildAgentMessages, buildStateBrief } from './context';
@@ -82,9 +83,12 @@ const log = scoped('Agent');
  *
  * **也不列工具清单。** 工具能干什么由每个工具自己的 `description` 说，模型每
  * 一轮都收得到；在这里再写一份，加一个工具就会漏掉一处——原先那句「你有四个
- * 工具」正是这么变成假话的（注册的其实有七个）。
+ * 工具」正是这么变成假话的（注册的其实有八个）。
  *
- * 整段可以由调用方经 `RunAgentOptions.system` 换掉。
+ * **技能索引不在这一段里**：它由 `buildStablePrefix` 拼在这一段之后（开局扫一次，
+ * 一轮之内不变）。分开是因为这一段是常量，那一段跟着工程走。
+ *
+ * 整段连同索引可以由调用方经 `RunAgentOptions.system` 换掉。
  */
 /**
  * 「说要调工具却没给」这种自相矛盾的响应，同一回合最多原样重发几次。
@@ -275,7 +279,13 @@ export interface RunAgentOptions {
   ask: string;
   /** 当前选中的那一章，用于状态注入。没选就不给。 */
   target?: CreationTarget;
-  /** 身份提示词。缺省 {@link AGENT_SYSTEM}。 */
+  /**
+   * 身份提示词 + 技能索引，**整段替换**。缺省是 {@link AGENT_SYSTEM} 加开局
+   * 扫出来的那份索引。
+   *
+   * 给了这个就没有索引了——换掉身份的调用方多半也换了工具集，替它硬塞一份
+   * 指向 Novel Forge 技能的清单是错的。
+   */
   system?: string;
   /**
    * 每回合注入的现场描述。缺省按 `project` / `target` 算
@@ -306,7 +316,27 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
   const turns: AgentMessage[] = [{ role: 'user', content: opts.ask }];
   const specs = tools.specs();
   const brief = opts.brief ?? (() => buildStateBrief(project, opts.target));
-  const system = opts.system ?? AGENT_SYSTEM;
+  /**
+   * 稳定前缀 = 身份提示词 + 技能索引。**开局拼一次，一轮之内逐字不变。**
+   *
+   * ```
+   * AGENT_SYSTEM        ← 常量
+   * 技能索引             ← 这里，开局扫一次
+   * brief()             ← 每回合重建（作者可能正在另一个窗口改文件）
+   * ```
+   *
+   * 索引不跟着每回合重建，两条理由：
+   *
+   * 1. **它不该变**。作者中途新建一个技能，本轮不认、下一轮才认——技能是方法论
+   *    不是状态，中途换掉会让 agent 的判据在一轮之内漂移。
+   * 2. **将来接 prompt caching 时断点就在这里**。目前三条 HTTP 协议实现都没发
+   *    `cache_control`，所以现在还没有缓存可省；但把易变的东西排在稳定的东西
+   *    之后，是接缓存的前提。反过来会让这个断点做不出来。
+   *
+   * 扫盘只是一次 `readdir` 加一次 `Object.keys()`，**零文件读取**——正文由
+   * `skill` 工具在模型真要用的时候才取。
+   */
+  const stable = opts.system ?? (await buildStablePrefix(project));
 
   /**
    * 递给工具的那一面：能不能停、说给谁听、账记到哪。
@@ -351,7 +381,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
         on.onNote?.(`${over.message} 让它先说明一下做到哪了。`);
       }
 
-      const built = buildAgentMessages(`${system}\n\n${await brief()}`, turns, inputBudget);
+      const built = buildAgentMessages(`${stable}\n\n${await brief()}`, turns, inputBudget);
       if (built.overBudget && !finalRound) {
         // 压到底还超：停下来说清楚，好过默默丢掉一半上下文再给一个看着正常的答案。
         finalRound = true;
@@ -556,6 +586,25 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
 }
 
 // ---------------------------------------------------------------- 内部
+
+/**
+ * 身份提示词 + 技能索引。**一轮开局调一次。**
+ *
+ * 索引只列名字（`describeSkills`），一个技能都没有时整段不拼——一句「（没有可用
+ * 的技能）」每回合都要发，而它什么都没告诉模型。
+ *
+ * 扫盘失败不影响这一轮：技能是锦上添花，读不到就当没有，不能让它把对话搞挂
+ * （第 1 条：容错优先）。
+ */
+async function buildStablePrefix(project: NovelProject): Promise<string> {
+  let index = '';
+  try {
+    index = describeSkills(await listSkills(project));
+  } catch (err) {
+    log.warn('扫技能失败，这一轮没有技能索引', describeError(err));
+  }
+  return index ? `${AGENT_SYSTEM}\n\n${index}` : AGENT_SYSTEM;
+}
 
 /**
  * 跑一个工具，把结果翻译成「回给模型的那段文本」，顺手把账与草稿收下。

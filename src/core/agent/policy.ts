@@ -23,7 +23,7 @@
  *
  * | gate | 谨慎 | 默认 | 放手 | 谁是这一档 |
  * |---|---|---|---|---|
- * | `auto` | 自动 | 自动 | 自动 | list / read / search |
+ * | `auto` | 自动 | 自动 | 自动 | list / read / search / skill |
  * | `costly` | **确认** | 自动 | 自动 | generate |
  * | `mutating` | 确认 | 确认 | 自动 | write 新建/追加、run |
  * | `reviewed` | 自动 | 自动 | 自动 | write 覆盖（下游带 diff 请人过目） |

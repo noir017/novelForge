@@ -13,7 +13,7 @@
  * `tools` / `tool_choice`，一边把 SSE 原样计数（有几个 `content_block_start`、
  * 是什么类型的块），最后再看 provider 交出来的 `toolCall` 事件有几个。
  *
- * 走的是**真实的那条路**：真实 provider、真实 `AGENT_SYSTEM`、真实的七个工具
+ * 走的是**真实的那条路**：真实 provider、真实 `AGENT_SYSTEM`、真实的八个工具
  * 规格。会真的花钱（每档一次请求，约三千 token 输入）。
  *
  * 用法：node scripts/diag-tools.js [模型引用] [思考深度]
@@ -72,7 +72,7 @@ const readJson = (file) => {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return undefined; }
 };
 
-/** 七个工具的规格，与 `ToolRegistry.specs()` 逐字段一致（不需要 ToolEnv）。 */
+/** 八个工具的规格，与 `ToolRegistry.specs()` 逐字段一致（不需要 ToolEnv）。 */
 const SPECS = NOVEL_TOOLS.map((d) => ({ name: d.name, description: d.description, parameters: d.parameters }));
 
 /**

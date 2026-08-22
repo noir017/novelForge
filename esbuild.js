@@ -1,5 +1,6 @@
 const esbuild = require('esbuild');
 const { buildMedia } = require('./scripts/build-media');
+const { buildSkills } = require('./scripts/build-skills');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -25,6 +26,9 @@ async function main() {
   // 前端资源（media/src → dist/media/）与扩展主体一起构建：
   // F5 调试前只跑 `npm run compile`，漏了这一步 webview 会 404。
   await buildMedia({ watch });
+  // 内置技能烘成 src/core/skills/builtin.ts。它被 core/ import，
+  // 少了这一步 esbuild 直接报「找不到模块」。
+  buildSkills({ quiet: true });
 
   const ctx = await esbuild.context({
     entryPoints: ['src/shells/vscode/extension.ts'],

@@ -90,7 +90,7 @@ describe('agent 只认那一份契约', () => {
     assert.deepEqual(bad, [], 'agent 层拿了工具层的运行时代码');
   });
 
-  // 具体是哪七个工具是调用方（controller）的选择，不是循环的。
+  // 具体是哪几个工具是调用方（controller）的选择，不是循环的。
   test('不 import 任何一个具体工具', () => {
     const bad = files.filter((f) => imports(f).some((i) => /tools\/novel/.test(i.from)));
     assert.deepEqual(bad.map(rel), [], 'agent 层把某一套工具钉死了');

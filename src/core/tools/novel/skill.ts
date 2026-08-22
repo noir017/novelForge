@@ -1,0 +1,60 @@
+/**
+ * `skill` —— 取一份技能的正文。`core/skills/` 的薄包装。
+ *
+ * ## 为什么它值得当第八个工具
+ *
+ * 技能的正文取不到就等于没有技能，而现有七个工具里没有一个能取：`read` 够不着
+ * 内置那一半（它们不在工程根内，甚至不在磁盘上——烘成常量了）。让 `read` 多认
+ * 一个只读来源，就是在网关上开一个「工程之外也能读」的口子，而**第 7 条（文件
+ * 访问不越界）是产品承诺里最不该松的一条**。加一个只读、不写盘、不花钱的工具，
+ * 比在网关上开口子便宜得多。
+ *
+ * ## 三条
+ *
+ * - **`gate: 'auto'`**：不花钱、不写盘、不改任何东西，跟 `list` / `read` / `search`
+ *   同一档。三种策略下都自动执行，不弹框。
+ * - **只回 `SKILL.md` 正文**，不回 `references/`。工程内技能的附件由模型自己用
+ *   `read` 去取（技能正文里写着相对路径）；内置技能没有附件。
+ * - **不做模糊匹配**。猜错时它会拿到一份自己没想要的技能，而且不会知道。
+ *
+ * ## 索引与这里各扫各的
+ *
+ * system 里那份索引由循环开局扫一次（一轮之内不变），这里每次调用**重新扫**。
+ * 两者不共用一份缓存是有意的：工具层不认识「一轮」这个概念（它将来要能端出去
+ * 做 MCP，那条路上没有 agent 的回合），而多一次 `readdir` 是几十微秒。
+ */
+import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
+import { objectSchema, str } from '../schema';
+import { listSkills, readSkill } from '../../skills';
+
+export const skillTool: ToolDef = {
+  name: 'skill',
+  description:
+    '读一份技能：某类事该怎么做的工作流说明（判断标准、步骤、产出落到哪个文件）。' +
+    '可用的技能名列在 system 里的「可用技能」下，**逐字照抄**（含 builtin: / project: 前缀）。' +
+    '判断这一轮要做的事有对应技能时，先读它再动手；没有对应的就直接做，不必勉强套一个。' +
+    '技能只是说明——按它做事仍然走其余那些工具，该问作者的照旧问。',
+  parameters: objectSchema(
+    {
+      name: str('技能名，含 builtin: / project: 前缀。照抄「可用技能」里的那一行。'),
+    },
+    ['name']
+  ),
+
+  intent(): ToolIntent {
+    return { gate: 'auto', title: '读一份技能说明' };
+  },
+
+  async run(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+    const wanted = typeof args.name === 'string' ? args.name.trim() : '';
+    const skills = await listSkills(ctx.project);
+    const got = await readSkill(ctx.project, skills, wanted);
+    if (!got.ok) {
+      return { text: '', error: got.error };
+    }
+    return {
+      text: got.text,
+      display: { title: `skill ${got.ref.name}`, detail: `${got.text.length} 字` },
+    };
+  },
+};

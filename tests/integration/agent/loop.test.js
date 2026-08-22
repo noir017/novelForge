@@ -221,11 +221,20 @@ describe('系统提示里带着状态注入', () => {
     assert.ok(fake.calls[0].messages[1].content.includes('北境'), fake.calls[0].messages[1].content);
   });
 
-  // 顺序即模型看到的顺序：读在前、生成居中、写在后，让它先形成
-  // 「先看一眼再动手」的路径。
+  // 顺序即模型看到的顺序：读在前、`skill`（这件事该怎么做）居中、生成与写在后，
+  // 让它先形成「先看一眼、再想清楚怎么做、才动手」的路径。
   test('带上了工具清单', () => {
     const names = fake.calls[0].options.tools.map((s) => s.name);
-    assert.deepEqual(names, ['list', 'read', 'search', 'generate', 'write', 'edit', 'run']);
+    assert.deepEqual(names, [
+      'list',
+      'read',
+      'search',
+      'skill',
+      'generate',
+      'write',
+      'edit',
+      'run',
+    ]);
   });
 
   // 删除/改名/移动收益接近零，一次误操作的收拾成本极高。
@@ -542,7 +551,7 @@ describe('工具抛异常', () => {
     const r = await run({ provider: f.provider });
     assert.equal(r.stopReason, 'done', `${r.stopReason}｜${r.message}`);
     const tool = f.calls[1].messages.find((m) => m.role === 'tool');
-    assert.ok(tool.content.includes('list / read / search / generate'), tool.content);
+    assert.ok(tool.content.includes('list / read / search / skill'), tool.content);
   });
 });
 

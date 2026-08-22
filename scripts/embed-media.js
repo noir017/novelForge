@@ -7,11 +7,18 @@
  * 构建再读盘——克隆下来直接 `npm run standalone` 的人不该撞上「找不到
  * view.js」，也不该内嵌到一份过期的产物。
  *
+ * **顺手把内置技能也烘一遍**（`build-skills.js`）。它是另一份生成文件、另一批
+ * 输入，本来不该挤在这里；放这儿只是因为这个脚本已经是全部构建路径的公共前置
+ * （`pretypecheck` / `pretest:e2e` / `standalone` / `dist` / `build-sidecar`），
+ * 而 `builtin.ts` **被 `core/` import**——少生成一次不是「资源过期」，是编译
+ * 直接失败。两份各自幂等，跑两遍不会互相踩。
+ *
  * 用法：node scripts/embed-media.js
  */
 const fs = require('fs');
 const path = require('path');
 const { buildMedia, MEDIA_OUT_DIR } = require('./build-media');
+const { buildSkills } = require('./build-skills');
 
 const ROOT = path.join(__dirname, '..');
 const STATIC_DIR = path.join(ROOT, 'media');
@@ -30,6 +37,7 @@ const MIME = {
 
 async function main() {
   await buildMedia({ quiet: true });
+  buildSkills({ quiet: true });
 
   const assets = [
     ...built.map((name) => [name, path.join(MEDIA_OUT_DIR, name)]),

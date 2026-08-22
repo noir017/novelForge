@@ -9,7 +9,7 @@ src/
 │   ├── context/     ★ 分阶段装配（配方 × 层）+ 身份化提示词 + token 粗估
 │   ├── features/    创作（四层产物）/ 批量流水线 / 摘要 / 角色卡 / 设定 / 文风提取
 │   ├── llm/         LlmProvider 接口与 OpenAI / Anthropic 实现
-│   ├── tools/       ★ 工具层：契约 + 注册表 + novel/ 那七个工具（不认识 agent/）
+│   ├── tools/       ★ 工具层：契约 + 注册表 + novel/ 那八个工具（不认识 agent/）
 │   ├── agent/       ★ 多步调度：循环、状态注入、预算、闸门（只认 ToolInvoker）
 │   ├── protocol/    webview ↔ 扩展消息协议（前后端唯一契约；对外仍是 core/protocol）
 │   ├── controller/  ★ ChatController：宿主无关的面板逻辑

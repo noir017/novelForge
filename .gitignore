@@ -7,6 +7,8 @@ out/
 .DS_Store
 
 src/shells/standalone/mediaAssets.ts
+# 内置技能烘出来的常量。源在 src/skills/**/SKILL.md，由 scripts/build-skills.js 生成。
+src/core/skills/builtin.ts
 sample-novel/.novelforge/sessions
 
 # 工程数据库（失败记录 + 日志历史）。它是可丢弃的痕迹，不是内容——

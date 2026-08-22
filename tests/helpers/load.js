@@ -33,6 +33,16 @@ const esbuild = require('esbuild');
 
 const ROOT = path.join(__dirname, '..', '..');
 
+/**
+ * 内置技能那份生成文件（`src/core/skills/builtin.ts`）**被 `core/` import**，
+ * 缺了它这里 bundle 会直接失败。
+ *
+ * 各条 npm 脚本的前置（`embed-media`）盖不到 `node --test <glob>` 这种直接调用
+ * ——而 AGENTS.md 里「单跑一条」写的正是那种。所以在这里再保一次：它幂等，
+ * 内容没变就不碰文件（不顶 mtime，下面那个磁盘缓存照旧命中）。
+ */
+require('../../scripts/build-skills').buildSkills({ quiet: true });
+
 /** bundle 一次要几十毫秒，同一个进程内重复加载同一组入口时直接复用。 */
 const cache = new Map();
 

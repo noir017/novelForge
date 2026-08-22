@@ -106,10 +106,11 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | 文件 | 覆盖 |
 |---|---|
 | `tools/registry.test.js` | 工具注册表：`specs()` 只透传 name/description/parameters（`run` / `intent` 漏进去会炸 API）、重名与非法名直接抛、**参数必须扁平**（嵌套对象与对象数组一律拒——那是模型最容易填错的地方）、工具与每个参数都必须有描述、`required` ⊆ `properties`；**`invoke` 绝不抛**（认不出的名字与工具自己炸掉都变成一条模型读得懂的结果）、工具没报意图时兜的那一档 |
-| `tools/intent.test.js` | 七个工具**自报的意图**：五档归类（读三件 auto、generate costly、write 新建 mutating、**write 覆盖 reviewed**、**edit always**）与确认框上的话——花钱要说、产出之后还会再问一次落盘要说、edit 要写出 old → new。后两档是产品承诺，不是偏好设置 |
+| `tools/intent.test.js` | 八个工具**自报的意图**：五档归类（读三件 auto、generate costly、write 新建 mutating、**write 覆盖 reviewed**、**edit always**）与确认框上的话——花钱要说、产出之后还会再问一次落盘要说、edit 要写出 old → new。后两档是产品承诺，不是偏好设置 |
 | `agent/policy.test.js` | 三种模式 × 五档那张表；`reviewed` 与 `always` 在三种模式下**逐字相同**；说辞原样来自工具、只补一个主语；拒绝之后回给模型的话有信息量（「不要重试同一个动作」）。**这个文件不认识任何一个工具名** |
 | `agent/gateAsk.test.js` | 权限询问的收发（`controller/gate.ts`，闸门与产物落盘共用）：卡片的身份与按钮上的字都从后端来、答了才落地、**广播 `gateDone`**（两个视图都要收卡）、答第二次不算数、认不出的 requestId 静默丢弃、**重连时还没答的原样重推**（前端无状态）、取消按「停止」结算、`cancelGates` 收掉没答的那些；**卡片上只有两颗按钮**（调用方能改字，改不出第三颗） |
 | `agent/budget.test.js` | 三条上限（回合 / 生成次数 / token）各一条、**无进展检测**的两连（提示）与三连（停）、换参数换工具与「中间隔了别的动作」都不算重复、键序不同但内容相同算重复；以及第 11 条——**日志只有工具名与参数键名，没有参数值** |
+| `skills/skills.test.js` | `core/skills/` 那一层：两个来源合并成一份索引（**前缀恒在**，不是撞名了才加；同名时两份都列，各带各的前缀）、顺序稳定（索引要在一轮之内逐字不变）、只列名字不读正文、**取不到只回 error 绝不抛**且名单从实际扫到的那一份来、**不做模糊匹配**（少了前缀不认、大小写不认；前后空白照旧认——那是抄进来时带的） |
 | `agent/context.test.js` | agent 上下文压缩：装得下就一个字不动、超预算时 system 与最后 6 轮完整保留而更早的工具结果只剩第一行、压缩时打 warn、压不下去时给停下的信号且**用户最初那句要求还在** |
 | `workspace/kind.test.js` | 路径 → 种类的一张表：卷纲/细纲/中转站/章节/摘要/角色/设定/草稿各自的判定与段号反推；**章节不认扩展名**（无扩展名、`.txt` 都算，`.png` 不算）而角色/细纲仍只认 `.md`；`summaries/global.md` 不被当成第 0 章的摘要；**老工程留下的 `scenes/` 判成 `other`**（磁盘不动、代码不认）；越界一律 `other` 且 `rel: undefined`、绝不抛；`pathOfTarget` 与 `kindOfPath` 三支往返 |
 | `model/markdown.test.js` | frontmatter 解析（行内/块状数组、畸形行不抛错）、小节抽取、`extractH1`/`stripH1` 互逆、序列化往返 |
@@ -140,6 +141,8 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `agent/stateBrief.test.js` | 状态注入：**label 与 hint 与 `deriveNextStep` 一字不差**（第 20 条的硬断言）、老工程说「已发布 99 章」而不说「待写剧情」、成品路径与细纲路径认到同一章、⟳ 超 5 章写「等 N 章」、状态机不催时明说「不要自己挑一章开工」 |
 | `agent/loop.test.js` | agent 循环（脚本化假 provider）：不调工具时一个回合结束、tool 消息形状、连续两次同工具同参数收到提示且**不真跑**、三次停下并仍给一轮总结、预算触顶时最后一轮**不带 tools**、取消停在工具边界且已产出的 draft 保留、工具抛异常变成 error 回给模型、**工具产出的正文走 `onToolDelta`（带 callId）而 `onDelta` 里只剩模型自己说的话**、**思考经 `onReasoning` 送出去**（每个回合各一段；不混进 `onDelta`、不进 `outcome.text`、**不作为 assistant 消息的 content 回灌下一轮**，没挂这个回调也照常跑）、**上游说要调工具却没把调用发过来时原样重发这一回合**（同一份上下文、气泡里留一句解释、额度按回合归零；连着几次都缺就停在 `stopReason: 'protocol'` 并说清是接口丢了这一段，而「上游没说收尾原因」照旧当成最终回答）、日志里没有 prompt 全文/参数值/正文 |
 | `generation/accept.test.js` | 产物落盘走的是**当场问的那张卡片**：卡片说得出写到哪、只有两颗按钮、**没答时磁盘没动静**；落点从 draft 取（答之前切了一章也写对）、落盘的是气泡里当下那份（先 `editTurn` 再点写入）、答「不采纳」一个字不写且气泡上留一行；讨论型回复不问；刷新网页时没答的卡片重推、面板销毁时按「未采纳」结算；并发控制那三条 |
+| `agent/skills.test.js` | 技能索引在循环里的落点：拼在 `AGENT_SYSTEM` 之后、`brief()` 之前（稳定的排在易变的前面，是将来接 prompt caching 的前提）、**一轮之内逐字不变**（中途新建的技能本轮不认、下一轮才认——技能是方法论不是状态）、只列名字不带正文、调用方自带 `system` 时整段不塞索引 |
+| `tools/skillTool.test.js` | `skill` 工具：注册成第八个且 `gate: 'auto'`（不花钱不写盘，三种策略都不弹框）、内置与工程两个来源各取得到、**只回 `SKILL.md` 不带 `references/`**（附件是 `read` 的活）、取不到时列出实际有哪些、不做模糊匹配、**拿路径当名字穿不出去**（名字只能从扫出来的索引里挑）、作者中途新写的技能工具当场认得 |
 | `agent/gate.test.js` | 闸门串起来之后：默认模式下 write 弹一句且**说清写到哪**、两个选项（确认 / 跳过）、跳过则不执行而循环接着跑、**没回答当停止**且仍给最后一轮总结、放手模式新建不问、**覆盖审阅任何模式都在**、读工具从不打断、瞎编的工具名不问；**有 `onGate` 时不弹宿主的框**（面板那条路把这一句画进对话）；以及**产出之后当场问一句落盘**——三种模式都问（第 19 条，不是偏好设置）、结论回给模型、那一问没人答就停下且仍给最后一轮总结、没实现 `onArtifact` 就不问 |
 | `workspace/guard.test.js` | **八条入口守卫**各至少一条：越界（含归一化后仍逃出去的）、工程根包含、固定目录保护、回收站不可改（但读得到）、2MB 上限、同名不覆盖、覆盖审阅（两种宿主 + 文案逐字）、内容 hash 乐观锁 |
 | `workspace/basic.test.js` | `Workspace` 门面：write 的三种 mode、审阅拒绝时一字未改、乐观锁冲突、read 的 `truncated`（不静默截断）、edit 的「old 不唯一就报错」与「要么全成要么全不成」、remove 进 `.trash/` 且同名加序号、move 不覆盖、list 带 `kind` |
@@ -199,6 +202,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 |---|---|
 | `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、WS 首条消息、`Origin` 校验；`selectPlot` 由后端算落在哪一层（已完成的章落正文层、不给下一步），且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返；**空窗口** ready 后无假工程、`openFolder` 热换、`mode: 'add'` 仍一份工作区、`closeFolder` 卸掉 |
 | `contract/layerBoundary.test.js` | 工具层与 agent 层的边界：`tools/` 一行都不 import `agent/`、`agent/` 引用工具契约一律 `import type`、agent 不 import 任何一个具体工具、工具体里不出现 `ctx.budget`。这条守的是「工具能端出去做 MCP」与「循环可换」两件事，**能悄悄长回来**，只能靠断言守 |
+| `contract/skills.test.js` | 内置技能的三条契约（生成物不入库的代价）：**磁盘上的 `SKILL.md` 与烘出来的常量逐字一致**（改了忘生成当场红）、**不许有 `references/` 或指向仓库路径的相对链接**（产品内的 agent 够不着，那些链接是死的）、名字不是占位名（索引只列名字，模型全靠它判断要不要读） |
 | `contract/corePurity.test.js` | `src/core/` 零 vscode 依赖——分层架构的硬约束，也是 `external: ['vscode']` 成立的前提 |
 | `contract/shellPurity.test.js` | 壳的契约（[src/shells/README.md](../src/shells/README.md)）：`shells/shared/` 零宿主依赖（不碰 vscode / node: / bun:）、三个壳互不 import、全仓库没有 `host.name ===` 这类按身份分支的写法。三条都是**能悄悄长回来**的东西，只能靠断言守 |
 | `contract/sampleNovel.test.js` | `sample-novel/` 自洽：manifest 章数与磁盘一致（v1 结构，索引的是 `chapters`）、每章 `contentHash` / `summaryHash` / 摘要 `sourceHash` 对得上、摘要 frontmatter 指回章号、**每一章都有同号的细纲**、**拆分之后中转站是空的**、示例纲要能命中 3 个角色 |

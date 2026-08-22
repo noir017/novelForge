@@ -24,6 +24,7 @@ npm install              # 依赖
 npm run compile          # esbuild 打包到 dist/extension.js + dist/media/ 的前端产物（F5 调试前必须有）
 npm run watch            # 监听构建（两边都监听）
 npm run media            # 只构建前端资源（media/src → dist/media/）
+npm run skills           # 只烘内置技能（src/skills/**/SKILL.md → src/core/skills/builtin.ts）
 npm run typecheck        # tsc --noEmit，含 media/tsconfig.json，必须零错误
 npm test                 # typecheck + 全部测试（node:test），四件事并行，不需要 API Key
 npm run test:node        # 只跑 node 那两组（dom + unit/integration/contract）
@@ -51,7 +52,8 @@ npm run test:e2e         # 独立版服务（需 Bun）
 | `src/core/workspace/` | ★ **工程的唯一读写网关**：路径 → 种类（`kind.ts`）→ 八条守卫（`guard.ts`）→ 解析/渲染/记账/伴生（`handlers/`）。写盘从前散在六处、各带一部分保护，现在收成一处；`upstreamHash` / `beatsHash` 的记账下沉到写入路径本身，谁写都记 | [src/core/workspace/README.md](src/core/workspace/README.md) |
 | `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/generation/` | ★ 一次创作调用：**无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，并发控制在 controller）、六条落盘分派、Draft store（随会话落盘，`write draftId=…` 认它） | [src/core/generation/README.md](src/core/generation/README.md) |
-| `src/core/tools/` | ★ **工具层**：契约（`ToolDef` / `ToolIntent` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那七个工具：读三件 + `generate` + `write` / `edit` / `run`，**没有删除/改名/移动**。**不认识 `agent/`**（形状照 MCP 的 `tools/list` + `tools/call` 摆，将来能单独端出去） | [src/core/tools/README.md](src/core/tools/README.md) |
+| `src/core/tools/` | ★ **工具层**：契约（`ToolDef` / `ToolIntent` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那八个工具：读三件 + `skill` + `generate` + `write` / `edit` / `run`，**没有删除/改名/移动**。**不认识 `agent/`**（形状照 MCP 的 `tools/list` + `tools/call` 摆，将来能单独端出去） | [src/core/tools/README.md](src/core/tools/README.md) |
+| `src/core/skills/` | 技能：给 agent 的「这类事该怎么做」，**按需读**不占每一轮 token。内置那一半在 `src/skills/**/SKILL.md`，构建时烘成常量（生成文件不入库）；工程那一半是作者写在 `.novelforge/skills/` 的普通文件 | [src/skills/README.md](src/skills/README.md) |
 | `src/core/agent/` | ★ 多步调度：对话循环、状态注入、预算闸门与无进展检测、**策略与确认闸门**（`policy.ts`）。手上只有一个 `ToolInvoker`，**不认识 `Workspace` / `DraftStore` / 具体工具**；「下一步该做什么」由 `deriveNextStep` 每回合注入，agent 拿着它去执行而不是另做判断 | [src/core/agent/README.md](src/core/agent/README.md) |
 | `src/core/features/` | 功能编排：创作（四层产物）、批量流水线、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
 | `src/core/llm/` | LlmProvider 接口、三条 HTTP 协议的实现（通用 `/chat/completions`、OpenAI Responses、Anthropic Messages）、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
@@ -115,7 +117,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 22. **对话只有一条路，就是 agent**：作者打字 → agent 自己决定读什么、产出什么。没有「挑一层 + 挑个能力」的确定性单步，也因此没有 `capability` 这个维度——六个 `CreationJob` 穷举了所有能让模型干的创作活（写大纲 / 拆卷 / 写卷纲 / 拆段 / 写细纲 / 写正文），非法组合在类型上就说不出口。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/agent/README.md](src/core/agent/README.md)。
 23. **拆分是作者的活，工具不猜断点也不起名**：按正文里单独一行 `---` 切，零次模型调用，第一章沿用原标题、其余落成纯序号名；章号接在现有最后一章之后，与段号无关，其余段一个文件都不动。见 [src/core/features/README.md](src/core/features/README.md)。
 24. **agent 是调度者，不是第二个作者**：循环只做「拿着工具达成一个目标」，创作质量仍来自分阶段装配那一层，领域知识只在那里写一份；四条配套约束（产物不回灌、history 传空、无进展检测、触顶不静默停）见 [src/core/agent/README.md](src/core/agent/README.md)。
-25. **agent 不越过既有的闸门**：它的写入走的是与落盘卡片同一条 `workspace.write`，这一层没有任何新的保护代码，`policy.ts` 只决定「动手之前要不要先问一句」；明确不给删除/改名/移动/`bash`/工程根之外的路径/裸 `fs`。见 [src/core/agent/README.md](src/core/agent/README.md)。
+25. **agent 不越过既有的闸门**：它的写入走的是与落盘卡片同一条 `workspace.write`，这一层没有任何新的保护代码，`policy.ts` 只决定「动手之前要不要先问一句」；明确不给删除/改名/移动/`bash`/工程根之外的路径/裸 `fs`。**技能只是一份说明**——读进来之后做什么仍然走那些工具、过原来的闸门（技能里写「然后写入 style.md」，执行的是 `write`，该弹的框照弹）。见 [src/core/agent/README.md](src/core/agent/README.md)。
 26. **思考深度是会话的属性，只作用于作者选定的那个模型**：落在 `ChatSession.thinking` 上跟着会话走，缺省是「不思考」；只有 agent 循环带它，它一轮里顺手调的 `generate` 与工程页的后台批量任务一律不带。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/llm/README.md](src/core/llm/README.md)。
 
 ## 提交约定

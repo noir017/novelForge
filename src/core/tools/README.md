@@ -18,7 +18,7 @@
 | [types.ts](types.ts) | ★ 契约。`ToolDef` / `ToolContext` / `ToolResult` / `ToolIntent` / `ToolInvoker` |
 | [schema.ts](schema.ts) | 参数 schema 的写法与校验（描述怎么写、为什么必须扁平） |
 | [registry.ts](registry.ts) | ★ 一组 `ToolDef` + 一份环境 = 一个能被调用的工具集。执行、兜异常、记日志 |
-| [novel/](novel/index.ts) | Novel Forge 这套：`list` / `read` / `search` / `generate` / `write` / `edit` / `run` |
+| [novel/](novel/index.ts) | Novel Forge 这套：`list` / `read` / `search` / `skill` / `generate` / `write` / `edit` / `run` |
 
 ## 谁绑、谁跑
 
@@ -78,6 +78,19 @@ intent: (args, project) => ({
 越界、回收站、保护目录、大小上限、同名不覆盖、覆盖前审阅、乐观锁——**八条守卫
 全在 `workspace/guard.ts`**。工具体里一行路径检查都没有；哪天要在这里写一段，
 说明绕过了网关，停下来重想（AGENTS 第 7 / 25 条）。
+
+`skill` 看着像个例外（它读的东西不在工程里），其实不是：它够得着的名字只能从
+**扫出来的那一份索引**里挑，模型拿一个路径当名字递进来只会得到「没有叫 X 的
+技能」。**这正是为什么它是第八个工具，而不是给 `read` 多加一个只读来源**——
+后者要在网关上开一个「工程之外也能读」的口子，而第 7 条是产品承诺里最不该松的
+一条。理由写在 [novel/index.ts](novel/index.ts) 的文件头。
+
+## 第八个工具破了「七个」那条约束
+
+从前 `novel/index.ts` 写着「七个，没有第八个」。破它的理由只有一条能站住：
+**技能的正文取不到就等于没有技能，而现有七个里没有一个能取。** 完整的账在那份
+文件头里；这条约束本身没有作废——下一个想加的工具仍然要先回答「它能不能是现有
+工具的一个参数」。
 
 ## 端出去做 MCP：还差什么
 
