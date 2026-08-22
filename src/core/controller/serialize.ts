@@ -66,6 +66,7 @@ export function serializeTurn(t: ChatTurn): SerializedTurn {
     content: t.content,
     at: t.at,
     attachments: t.attachments?.map(serializeAttachment),
+    skills: t.skills,
     acceptedTo: t.acceptedTo,
     interrupted: t.interrupted,
     error: t.error,

@@ -4,7 +4,7 @@
  * `dirty` 是必要的：FileSystemWatcher 一刷新就会推一份新设置过来，
  * 如果无条件重渲染，用户正在填的 baseUrl 会被磁盘上的旧值冲掉。
  */
-import type { LlmTask, ModelTier, SerializedProvider } from '../../protocol';
+import type { LlmTask, ModelTier, SerializedProvider, SkillMode } from '../../protocol';
 
 export const draft: {
   providers: SerializedProvider[];
@@ -14,6 +14,14 @@ export const draft: {
   tierModels: Record<ModelTier, string[]>;
   /** 任务 → 档位的覆盖，只存与内置默认不同的项。 */
   taskTiers: Partial<Record<LlmTask, ModelTier>>;
+  /**
+   * 技能名（带前缀）→ 注入方式，**只存与缺省不同的项**。
+   *
+   * 与 `taskTiers` 同一套理由：日后调整缺省时，作者没动过的技能跟着新缺省走。
+   * 技能**名单**不在这里（那是后端每次重扫推来的 `SkillRow[]`，见 skills.ts）
+   * ——名单会变，而这里只该存作者的选择。
+   */
+  skillModes: Record<string, SkillMode>;
   /** providerId -> 有没有存过 API Key。Key 本身从不回显。 */
   keys: Record<string, boolean>;
   dirty: boolean;
@@ -22,6 +30,7 @@ export const draft: {
   models: [],
   tierModels: { fast: [], balanced: [], quality: [] },
   taskTiers: {},
+  skillModes: {},
   keys: {},
   dirty: false,
 };

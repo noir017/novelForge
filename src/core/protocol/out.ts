@@ -1,6 +1,7 @@
 import type { DirListing } from '../files/fileTree';
 import type { LogEntry } from '../runtime/logger';
 import type { TaskSnapshot } from '../runtime/progress';
+import type { SkillMode } from '../model/skillMode';
 import type {
   EditorPane,
   SerializedAttachment,
@@ -151,7 +152,16 @@ export type OutMessage =
       pipeline?: PlotPipelineView;
       workbench: WorkbenchView;
     }
-  | { type: 'settings'; settings: SettingsPayload; keys: Record<string, boolean>; ack?: 'saved' | 'rejected' }
+  | { type: 'settings'; settings: SettingsPayload; keys: Record<string, boolean>; ack?: 'saved' | 'rejected'; skills?: SkillRow[] }
+  /**
+   * 输入框上方那几枚技能标签（作者用 `/` 呼出的）。
+   *
+   * 与 `attachments` 分开一条而不是塞进同一条：附件走的是装配器那一层
+   * （引用一个文件、一段选区，`resolveAttachment` 按种类解析），技能走的是
+   * **agent 那句话的前面**——一份工作流说明不是「引用的材料」，混成一条之后
+   * 两边的解析规则会互相牵扯。
+   */
+  | { type: 'pendingSkills'; items: PendingSkill[] }
   | { type: 'toast'; message: string; level: 'info' | 'error' }
   | { type: 'editorOpen'; file: EditorFileView; pane?: EditorPane }
   | { type: 'editorSaved'; file: EditorFileView }
@@ -200,6 +210,37 @@ export interface WorkspaceItem {
   id: string;
   root: string;
   name: string;
+}
+
+/**
+ * 设置页那张技能表里的一行。
+ *
+ * **含 `off` 那些**：禁用了也要列出来才改得回去。`description` 可能是空串
+ * （技能没写 frontmatter），那时设置页只显示名字。
+ *
+ * 空窗口（独立版没打开工程）时只有内置那几行——工程技能得有工程才扫得出来。
+ * `source` 让设置页能把这件事说清楚，而不是让作者以为自己的技能丢了。
+ */
+export interface SkillRow {
+  /** 带前缀的全名，配置里的键就是它。 */
+  name: string;
+  source: 'builtin' | 'project';
+  /** 不带前缀的那一半，界面上显示的就是这个。 */
+  stem: string;
+  description: string;
+  /** 当前档位（含缺省回落后的值，不是「配置里存了什么」）。 */
+  mode: SkillMode;
+}
+
+/** 输入框上方那一枚技能标签。 */
+export interface PendingSkill {
+  /** 带前缀的全名。摘掉它、发送时找回正文都靠它。 */
+  name: string;
+  /** 界面上显示的那一半（不带前缀）。 */
+  stem: string;
+  source: 'builtin' | 'project';
+  /** 正文字数。标签的 tooltip 上写着，作者据此知道这一句要带多少东西过去。 */
+  chars: number;
 }
 
 export interface WorkspaceRecent {

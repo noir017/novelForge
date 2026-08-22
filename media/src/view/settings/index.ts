@@ -3,7 +3,7 @@
  */
 import { byId, maybeById } from '../../dom';
 import { DEFAULT_AGENT_POLICY, MODEL_TIERS, isAgentPolicy } from '../../protocol';
-import type { SettingsPayload } from '../../protocol';
+import type { SettingsPayload, SkillRow } from '../../protocol';
 import { vscode } from '../store';
 import { toast } from '../toast';
 import { allRefs, draft, touch, validateProviders } from './draft';
@@ -11,6 +11,7 @@ import { NUMERIC_FIELDS } from './presets';
 import type { NumericField } from './presets';
 import { bindOpenModal, renderProviders } from './providerList';
 import { installProviderModal, openProviderModal, refreshProviderModal } from './providerModal';
+import { renderSkills, setSkillRows } from './skills';
 import { renderTaskTiers } from './taskTiers';
 
 type SettingsCategory = 'models' | 'context';
@@ -20,9 +21,15 @@ const SETTINGS_CATEGORIES: readonly SettingsCategory[] = ['models', 'context'];
 export function renderSettings(
   settings: SettingsPayload,
   keys: Record<string, boolean> | undefined,
-  ack: 'saved' | 'rejected' | undefined
+  ack: 'saved' | 'rejected' | undefined,
+  skills?: SkillRow[]
 ): void {
   const nextKeys = keys || {};
+
+  // 技能名单**先收下**，与 dirty 无关：它是后端重扫出来的事实（作者刚在
+  // .novelforge/skills/ 下加了一份），不是作者正在编辑的东西。他改过的档位
+  // 存在 draft.skillModes 里，渲染时盖在这份名单上。
+  setSkillRows(skills);
 
   // 保存成功的回执：磁盘上已是用户的版本，可以清掉本地编辑状态。
   // 被拒（ack === 'rejected'）则保持 dirty，别把用户刚填的东西冲掉。
@@ -38,6 +45,8 @@ export function renderSettings(
       renderProviders();
       refreshProviderModal();
     }
+    // 名单可能变了（新加了一份技能），而作者改过的档位在 draft 里，不会被冲掉。
+    renderSkills();
     return;
   }
 
@@ -49,6 +58,7 @@ export function renderSettings(
     quality: [...(settings.tierModels?.quality || [])],
   };
   draft.taskTiers = { ...(settings.taskTiers || {}) };
+  draft.skillModes = { ...(settings.skillModes || {}) };
   draft.keys = nextKeys;
   for (const [key, id] of Object.entries(NUMERIC_FIELDS)) {
     const node = maybeById<HTMLInputElement>(id);
@@ -62,6 +72,7 @@ export function renderSettings(
   }
   renderProviders();
   renderTaskTiers();
+  renderSkills();
   refreshProviderModal();
 }
 
@@ -74,6 +85,8 @@ function save(): void {
     models: draft.models,
     tierModels: draft.tierModels,
     taskTiers: draft.taskTiers,
+    // 只带改过的那几项：缺省（仅用户）不落盘，日后调缺省时没动过的跟着走。
+    skillModes: draft.skillModes,
   } as SettingsPayload;
   for (const [key, id] of Object.entries(NUMERIC_FIELDS)) {
     settings[key as NumericField] = Number(byId<HTMLInputElement>(id).value);

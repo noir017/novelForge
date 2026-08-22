@@ -37,6 +37,8 @@ import { sendAgent } from './agent';
 import type { PendingGate } from './gate';
 import { cancelGates, resendGates, resolveGate } from './gate';
 import { fileAction, openDraft, pushDirListings } from './files';
+import type { HeldSkill } from './skills';
+import { dropSkill, pickSkill, pushPendingSkills } from './skills';
 import { characterAction, projectAction } from './project';
 import {
   deleteSession,
@@ -111,6 +113,15 @@ export class ChatController {
   private currentAbort?: AbortController;
   /** 尚未落盘的附件（用户已经 @ 了，但还没发送）。@internal 同包用。 */
   pending: Attachment[] = [];
+  /**
+   * 作者用 `/` 呼出、等着随下一句话发出去的技能。
+   *
+   * **存的是正文快照**（`HeldSkill.text`）：他呼出的是此刻磁盘上那一份，发送时
+   * 再读一遍的话，他若正在另一个窗口改这份技能，发出去的会是改了一半的版本
+   * ——与选区附件存快照同一个理由。
+   * @internal controller/ 同包用；壳不要读。
+   */
+  pendingSkills: HeldSkill[] = [];
   /** @internal controller/ 同包用；壳不要读。 */
   readonly hosts = new Set<ViewHost>();
   /**
@@ -267,6 +278,9 @@ export class ChatController {
     this.post({ type: 'tab', tab: this.tab });
     this.post({ type: 'session', session: serializeSession(this.current) });
     this.post({ type: 'attachments', items: this.pending.map(serializeAttachment) });
+    // 呼出的技能与附件一样是「还没发出去的东西」：刷新之后那几枚标签要回来，
+    // 否则作者以为自己呼过的还在，发出去的却是一句光秃秃的话。
+    pushPendingSkills(this);
     this.post({ type: 'busy', value: this.busy });
     // 刷新页面时长任务多半还在跑，进度条必须立刻接上，别让人以为任务没了。
     this.post({ type: 'tasks', tasks: activeTasks() });
@@ -360,6 +374,14 @@ export class ChatController {
         }
         return;
       }
+
+      case 'pickSkill':
+        await pickSkill(this);
+        return;
+
+      case 'dropSkill':
+        dropSkill(this, msg.name);
+        return;
 
       case 'addSelection': {
         const att = await getHost().selectionAttachment(this.project);

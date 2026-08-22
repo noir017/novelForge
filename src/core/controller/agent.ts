@@ -56,6 +56,7 @@ import type { BudgetLimits } from '../agent/budget';
 import { createNovelTools } from '../tools/novel';
 import { askArtifact, describeArtifactOf, pushPipeline } from './chat';
 import { askGate, cancelGates } from './gate';
+import { foldSkills } from './skills';
 import { persist } from './persist';
 import { serializeSession, serializeTurn } from './serialize';
 
@@ -221,12 +222,16 @@ export async function sendAgent(
   cancelGates(c);
 
   const attachments = [...c.pending];
+  // 呼出的技能与附件同一个生命周期：**一次性**。发出去就清空，下一句话不会
+  // 莫名其妙又带上刚才那几千字（作者会以为它自己记住了这套方法）。
+  const skills = [...c.pendingSkills];
   const userTurn: ChatTurn = {
     id: makeTurnId(),
     role: 'user',
     content: text.trim(),
     at: nowIso(),
     attachments: attachments.length > 0 ? attachments : undefined,
+    skills: skills.length > 0 ? skills.map((s) => s.name) : undefined,
   };
   c.current.turns.push(userTurn);
   if (c.current.turns.length === 1) {
@@ -235,8 +240,10 @@ export async function sendAgent(
   // 引用是一次性的，与单步那条路同一套：发出去就清空，下一句话不会莫名其妙
   // 又带上刚才那份文件。
   c.pending = [];
+  c.pendingSkills = [];
   c.post({ type: 'turnDone', turn: serializeTurn(userTurn) });
   c.post({ type: 'attachments', items: [] });
+  c.post({ type: 'pendingSkills', items: [] });
   await persist(c);
 
   // 并发控制与单步共用同一把锁：两条路同时跑会让 draft 与流式内容互相盖。
@@ -289,7 +296,9 @@ export async function sendAgent(
             sessionId: c.current.id,
           }),
           provider,
-          ask: foldAttachments(userTurn.content, attachments),
+          // 作者那句话 + 他 @ 的材料 + 他用 `/` 呼出的方法论。三样都折进第一条
+          // 消息：agent 没有装配器（第 20 条），上下文由它一步步自己读出来。
+          ask: foldSkills(foldAttachments(userTurn.content, attachments), skills),
           target: c.current.target,
           limits,
           // 与对话页的单次生成同一档：作者调的是「这件事让它想多深」，

@@ -19,6 +19,24 @@ import { toast } from './toast';
 
 export function renderChips(): void {
   el.chips.innerHTML = '';
+  // 技能标签排在附件前面：它决定「怎么做」，附件只是「拿这些材料」。
+  // 顺序与折进那句话时一致（方法在前，要求在后）。
+  for (const skill of store.skills) {
+    const chip = mk('span', 'chip skill-chip');
+
+    const label = mk('span', 'chip-label', `⚡ ${skill.stem}`);
+    label.title = `${skill.name}（${skill.chars} 字，随下一句话一起发出）`;
+    chip.appendChild(label);
+
+    const x = mk('button', 'chip-x', '×');
+    x.title = '不用这份技能了';
+    // **后端说了才算**：前端不先摘掉自己那一份（前端无状态那条基本盘），
+    // 正文攒在后端，摘的必须是同一份。
+    x.addEventListener('click', () => vscode.postMessage({ type: 'dropSkill', name: skill.name }));
+    chip.appendChild(x);
+
+    el.chips.appendChild(chip);
+  }
   for (const att of store.attachments) {
     const chip = mk('span', 'chip');
 
@@ -45,6 +63,9 @@ export function renderChips(): void {
  *
  * 那三样 agent 自己算（每回合注入的状态机结论）。前端捎一份过去等于让它也
  * 参与判断，两处迟早分叉；而作者选中的那一章后端本来就记在会话里。
+ *
+ * 呼出的技能也不在这里拼：**正文攒在后端**（`ChatController.pendingSkills`），
+ * 前端手上只有名字与字数。把几千字放在前端等于让「刷新一次就丢」变成可能。
  */
 function send(): void {
   if (store.busy || !hasWorkspace()) {
@@ -60,6 +81,7 @@ function send(): void {
   vscode.postMessage({ type: 'sendAgent', text });
   el.input.value = '';
   // 引用是一次性的：发出去就清空（后端也清它那份 pending）。
+  // 技能同理，但清的那一下由后端推 `pendingSkills` 回来（正文在它手上）。
   store.attachments = [];
   renderChips();
   persistDraft();
@@ -76,6 +98,7 @@ export function installComposer(): void {
   el.stopBtn.addEventListener('click', () => vscode.postMessage({ type: 'stop' }));
   el.atBtn.addEventListener('click', () => vscode.postMessage({ type: 'pickAttachment' }));
   el.selBtn.addEventListener('click', () => vscode.postMessage({ type: 'addSelection' }));
+  el.skillBtn.addEventListener('click', () => vscode.postMessage({ type: 'pickSkill' }));
 
   el.input.addEventListener('input', persistDraft);
   el.targetWords.addEventListener('input', persistDraft);
@@ -111,6 +134,13 @@ export function installComposer(): void {
     if (e.key === '@') {
       e.preventDefault();
       vscode.postMessage({ type: 'pickAttachment' });
+      return;
+    }
+    // 输入 / 呼出技能选择器。**只在空输入框里**：句子中间的斜杠是普通字符
+    // （路径、日期、「他/她」都要打得出来），在那里拦下来会让输入框莫名其妙。
+    if (e.key === '/' && el.input.value === '') {
+      e.preventDefault();
+      vscode.postMessage({ type: 'pickSkill' });
     }
   });
 }

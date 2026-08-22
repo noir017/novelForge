@@ -308,6 +308,11 @@ export interface SerializedTurn {
   content: string;
   at: string;
   attachments?: SerializedAttachment[];
+  /**
+   * 仅 user 轮：这一轮作者用 `/` 呼出的技能（带前缀的全名）。气泡上画成几枚
+   * 小标签——他要看得出「这一轮我让它按哪套方法做的」。
+   */
+  skills?: string[];
   acceptedTo?: string;
   interrupted?: boolean;
   error?: string;

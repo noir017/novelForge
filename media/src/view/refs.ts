@@ -20,6 +20,7 @@ export const el = {
   input: byId<HTMLTextAreaElement>('input'),
   atBtn: byId<HTMLButtonElement>('atBtn'),
   selBtn: byId<HTMLButtonElement>('selBtn'),
+  skillBtn: byId<HTMLButtonElement>('skillBtn'),
   modelSelect: byId<HTMLSelectElement>('modelSelect'),
   thinkSelect: byId<HTMLSelectElement>('thinkSelect'),
   targetSelect: byId<HTMLSelectElement>('targetSelect'),

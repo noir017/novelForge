@@ -1,5 +1,6 @@
 import type { LlmTask, ModelTier } from '../model/tiers';
 import type { AgentPolicy } from '../model/agentPolicy';
+import type { SkillModes } from '../model/skillMode';
 import type { ThinkingDepth } from '../model/thinking';
 import type { CreationTarget } from '../model/pipeline';
 import type { SerializedProvider } from './out';
@@ -42,6 +43,19 @@ export type InMessage =
   | { type: 'deleteSession'; id: string }
   | { type: 'renameSession'; id: string }
   | { type: 'pickAttachment' }
+  /**
+   * 作者在输入框里打了 `/`：**呼出一份技能**。
+   *
+   * 走宿主的选择器（与 `pickAttachment` 同一条路：插件是 QuickPick，独立版是
+   * 网页弹窗），选中的记成输入框上方一枚标签，随下一次 `sendAgent` 把**整份
+   * 正文**折进作者那句话里。
+   *
+   * 「禁用」档的技能不在候选里；`仅用户` 档**只在这里出现**——那一档的意思正是
+   * 「agent 别自己去读，等我呼」。
+   */
+  | { type: 'pickSkill' }
+  /** 摘掉输入框上方那枚技能标签。名字是带前缀的全名。 */
+  | { type: 'dropSkill'; name: string }
   | { type: 'addSelection' }
   | { type: 'openFile'; path: string }
   | { type: 'openEditor'; path: string; pane?: EditorPane }
@@ -146,4 +160,9 @@ export interface SettingsPayload {
   fallbackAttempts: number;
   /** Agent 的确认策略：careful / default / bold。 */
   agentPolicy: AgentPolicy;
+  /**
+   * 每份技能的注入方式，键是带前缀的全名。**只带与缺省不同的那几项**
+   * （缺省是「仅用户」）。
+   */
+  skillModes: SkillModes;
 }

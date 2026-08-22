@@ -27,6 +27,7 @@ export type {
   LogLevel,
   NextStepView,
   OutMessage,
+  PendingSkill,
   ProjectAction,
   ProjectPlotNode,
   ProjectVolumeNode,
@@ -46,6 +47,7 @@ export type {
   SerializedTurn,
   SessionListItem,
   SettingsPayload,
+  SkillRow,
   Tab,
   TaskSnapshot,
   WorkspaceItem,
@@ -132,3 +134,16 @@ export {
   isAgentPolicy,
 } from '../../src/core/model/agentPolicy';
 export type { AgentPolicy } from '../../src/core/model/agentPolicy';
+
+/**
+ * 技能的注入方式。同一套理由：设置页上写着「仅用户」而后端按别的档跑，
+ * 作者就再也不信这张表了。`skillMode.ts` 是纯数据 + 纯函数、零 import。
+ */
+export {
+  DEFAULT_SKILL_MODE,
+  SKILL_MODES,
+  SKILL_MODE_HINT,
+  SKILL_MODE_LABEL,
+  isSkillMode,
+} from '../../src/core/model/skillMode';
+export type { SkillMode, SkillModes } from '../../src/core/model/skillMode';

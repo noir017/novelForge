@@ -3,6 +3,7 @@ import { scoped } from './runtime/logger';
 import { NovelConfig } from './model/types';
 import { isLlmTask, isModelTier, LlmTask, MODEL_TIERS, ModelTier, TierModels } from './model/tiers';
 import { AgentPolicy, DEFAULT_AGENT_POLICY, isAgentPolicy } from './model/agentPolicy';
+import { SkillModes, normalizeSkillModes } from './model/skillMode';
 
 const log = scoped('配置');
 
@@ -45,6 +46,17 @@ export interface PersistedSettings {
   fallbackAttempts?: number;
   /** Agent 的确认策略（careful / default / bold）。认不出的值回落默认。 */
   agentPolicy?: string;
+  /**
+   * 每份技能的注入方式，键是带前缀的全名（`builtin:character-voice`）。
+   *
+   * 与 `taskTiers` 同一套做法：**只存与缺省不同的那几项**，缺席 =
+   * `DEFAULT_SKILL_MODE`（仅用户）。这样日后调整缺省值时，作者没动过的技能
+   * 会跟着新缺省走。
+   *
+   * 存在全局配置而不是工程里：设置页在空窗口也打得开（独立版），一份工程级的
+   * 表在那时无处可读。代价是两个工程里同名的 `project:审章` 共用一档。
+   */
+  skillModes?: Record<string, unknown>;
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
   contextWindow?: number;
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
@@ -133,6 +145,7 @@ export function readConfig(): NovelConfig {
     // 手改配置文件写错、旧版本留下的值一律回落默认，不抛：一个认不出的
     // 策略名不该让 agent 整个跑不起来。
     agentPolicy: normalizeAgentPolicy(c.agentPolicy),
+    skillModes: normalizeSkillModes(c.skillModes),
   };
 }
 
@@ -140,6 +153,11 @@ export function readConfig(): NovelConfig {
 export function normalizeAgentPolicy(raw: unknown): AgentPolicy {
   return isAgentPolicy(raw) ? raw : DEFAULT_AGENT_POLICY;
 }
+
+// 技能档位的容错读取在数据层定义（`model/skillMode.ts`）；这里接出去，
+// 让设置页那条路与 `readConfig` 用的是同一份。
+export { normalizeSkillModes };
+export type { SkillModes };
 
 /**
  * 默认模型列表的容错读取：去空、去重、保序。

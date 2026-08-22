@@ -106,6 +106,11 @@ onMessage((msg) => {
       renderChips();
       break;
 
+    case 'pendingSkills':
+      store.skills = msg.items;
+      renderChips();
+      break;
+
     case 'delta':
       store.streamingId = msg.turnId;
       appendText(msg.turnId, msg.text);
@@ -182,7 +187,7 @@ onMessage((msg) => {
       break;
 
     case 'settings':
-      renderSettings(msg.settings, msg.keys, msg.ack);
+      renderSettings(msg.settings, msg.keys, msg.ack, msg.skills);
       break;
 
     case 'tasks':

@@ -1,6 +1,7 @@
 import { ActiveModel, ProviderProfile } from './providers';
 import { LlmTask, ModelTier, TierModels } from './tiers';
 import { AgentPolicy } from './agentPolicy';
+import { SkillModes } from './skillMode';
 
 /**
  * 章节：chapters/NNN-标题.md 中的一篇正文。
@@ -258,4 +259,9 @@ export interface NovelConfig {
    * 「预计调用 N 次」确认框在任何模式下都在（见 model/agentPolicy.ts）。
    */
   agentPolicy: AgentPolicy;
+  /**
+   * 每份技能的注入方式（键是带前缀的全名）。缺席的技能走
+   * `DEFAULT_SKILL_MODE`（仅用户：agent 看不见，作者用 `/` 呼得出来）。
+   */
+  skillModes: SkillModes;
 }

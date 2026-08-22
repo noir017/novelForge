@@ -103,21 +103,94 @@ describe('listSkills：两个来源合并', () => {
 });
 
 describe('describeSkills：拼进 system 的那一段', () => {
+  /** 把一批技能全开到某一档。索引与 `/` 两条路各吃哪几档是这一层的判断。 */
+  const modesFor = (names, mode) => Object.fromEntries(names.map((n) => [n, mode]));
+
   test('一个技能都没有时是空串（不拼一句每回合都要发的废话）', () => {
     assert.equal(skills.describeSkills([]), '');
   });
 
+  // **缺省是「仅用户」**，所以什么都不配的工程里索引整段不拼——这是最常见的
+  // 那条路，也是「装一份技能不让每一轮变贵」这个承诺的兑现处。
+  test('缺省全是「仅用户」时索引是空的', async () => {
+    const { project } = projectWith(['我的流程']);
+    const list = await skills.listSkills(project);
+    assert.ok(list.length > 0, '得真的扫到技能，否则这条在空跑');
+    assert.ok(list.every((s) => s.mode === 'user'), JSON.stringify(list.map((s) => s.mode)));
+    assert.equal(skills.describeSkills(list), '');
+  });
+
   test('逐行列出全名，含前缀', async () => {
     const { project } = projectWith(['我的流程']);
-    const text = skills.describeSkills(await skills.listSkills(project));
+    const all = ['project:我的流程', `builtin:${SOME_BUILTIN}`];
+    const list = await skills.listSkills(project, modesFor(all, 'title'));
+    const text = skills.describeSkills(list);
     assert.match(text, /- project:我的流程/);
+    assert.match(text, new RegExp(`- builtin:${SOME_BUILTIN}`));
+  });
+
+  // 「仅标题」只给名字：描述那一行是「完整」档才付的钱。
+  test('「仅标题」不带描述', async () => {
+    const { project } = projectWith([]);
+    const list = await skills.listSkills(project, { [`builtin:${SOME_BUILTIN}`]: 'title' });
+    const text = skills.describeSkills(list);
+    assert.match(text, new RegExp(`- builtin:${SOME_BUILTIN}$`, 'm'));
+  });
+
+  test('「完整」带上那一行描述', async () => {
+    const { project } = projectWith([]);
+    const list = await skills.listSkills(project, { [`builtin:${SOME_BUILTIN}`]: 'full' });
+    const text = skills.describeSkills(list);
+    const desc = skills.BUILTIN_SKILLS[SOME_BUILTIN].description;
+    assert.ok(desc, '这个内置技能得写了 description，否则这条在空跑');
+    assert.ok(text.includes(desc), text);
+  });
+
+  // 「禁用」两边都看不见；「仅用户」只有作者呼得出来。两者在索引里一样缺席，
+  // 但那是两件事——区别在 listInvocableSkills 那一侧。
+  test('「禁用」与「仅用户」都不进索引', async () => {
+    const { project } = projectWith(['甲', '乙']);
+    const list = await skills.listSkills(project, {
+      'project:甲': 'off',
+      'project:乙': 'user',
+      [`builtin:${SOME_BUILTIN}`]: 'title',
+    });
+    const text = skills.describeSkills(list);
+    assert.ok(!text.includes('project:甲'), text);
+    assert.ok(!text.includes('project:乙'), text);
     assert.match(text, new RegExp(`- builtin:${SOME_BUILTIN}`));
   });
 
   // 名字抄错就调不到，而不做模糊匹配是有意的——所以得在索引里把话说清楚。
   test('告诉模型名字要照抄', () => {
-    const text = skills.describeSkills([{ name: 'builtin:x', source: 'builtin', stem: 'x' }]);
+    const text = skills.describeSkills([
+      { name: 'builtin:x', source: 'builtin', stem: 'x', mode: 'title', description: '' },
+    ]);
     assert.match(text, /照抄/);
+  });
+});
+
+describe('listInvocableSkills：作者 / 呼得出来的那些', () => {
+  test('缺省（仅用户）呼得出来——那一档的全部意义就在这儿', async () => {
+    const { project } = projectWith(['我的流程']);
+    const list = await skills.listSkills(project);
+    const names = skills.listInvocableSkills(list).map((s) => s.name);
+    assert.ok(names.includes('project:我的流程'), names.join(' / '));
+  });
+
+  test('「仅标题」/「完整」也呼得出来（那两档是 agent 也看得见，不是作者看不见）', async () => {
+    const { project } = projectWith(['甲', '乙']);
+    const list = await skills.listSkills(project, { 'project:甲': 'title', 'project:乙': 'full' });
+    const names = skills.listInvocableSkills(list).map((s) => s.name);
+    assert.ok(names.includes('project:甲'), names.join(' / '));
+    assert.ok(names.includes('project:乙'), names.join(' / '));
+  });
+
+  test('只有「禁用」不在', async () => {
+    const { project } = projectWith(['甲']);
+    const list = await skills.listSkills(project, { 'project:甲': 'off' });
+    const names = skills.listInvocableSkills(list).map((s) => s.name);
+    assert.ok(!names.includes('project:甲'), names.join(' / '));
   });
 });
 
@@ -127,7 +200,7 @@ describe('readSkill：取正文', () => {
     const list = await skills.listSkills(project);
     const got = await skills.readSkill(project, list, `builtin:${SOME_BUILTIN}`);
     assert.equal(got.ok, true);
-    assert.equal(got.text, skills.BUILTIN_SKILLS[SOME_BUILTIN]);
+    assert.equal(got.text, skills.BUILTIN_SKILLS[SOME_BUILTIN].body);
   });
 
   test('取工程那一半，读的是磁盘上那份 SKILL.md', async () => {
@@ -146,7 +219,7 @@ describe('readSkill：取正文', () => {
     const mine = await skills.readSkill(t.project, list, `project:${SOME_BUILTIN}`);
     const ours = await skills.readSkill(t.project, list, `builtin:${SOME_BUILTIN}`);
     assert.equal(mine.text, '作者自己写的那一份');
-    assert.equal(ours.text, skills.BUILTIN_SKILLS[SOME_BUILTIN]);
+    assert.equal(ours.text, skills.BUILTIN_SKILLS[SOME_BUILTIN].body);
   });
 
   test('目录在但没有 SKILL.md：回 error，不抛', async () => {

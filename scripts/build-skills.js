@@ -21,10 +21,20 @@
  * `tests/contract/skills.test.js` 另比对一遍磁盘与常量，防的是**烘的过程本身失真**
  * （转义写错吃掉了正文里的反引号那一类）。
  *
- * ## 目录名就是技能名，不解析 frontmatter
+ * ## 目录名就是技能名；frontmatter 只认 `description`
  *
- * 一个技能 = 一个子目录 + 里面的 `SKILL.md`。索引只列名字，`description:`
- * 那一行没有消费者——留着解析代码就是留着一个没人读的字段慢慢跑偏。
+ * 一个技能 = 一个子目录 + 里面的 `SKILL.md`，**名字始终是目录名**（路径即身份）。
+ *
+ * `description` 这一行原本是不解析的——那时索引只列名字，它没有消费者，而留着
+ * 一个没人读的字段只会慢慢跑偏。「完整」这一档（名字 + 一句描述都进每一轮）
+ * 给了它消费者，所以现在解析它。**仍然只认这一个键**：`name` 由目录名决定，
+ * 再从 frontmatter 读一遍就是给同一件事留两个真相。
+ *
+ * 只支持单行 `description: …`（可带引号）。写成 YAML 折行的话这里读到空串，
+ * 那一档退化成只显示名字——不报错，因为描述缺席不是错误。
+ *
+ * **`body` 是文件原文**，frontmatter 一并留着：不剥掉，`tests/contract/skills.test.js`
+ * 那条逐字比对才是真的逐字，而模型多读三行元数据没有代价。
  *
  * ## 内置技能不许有 references/
  *
@@ -46,8 +56,35 @@ const OUT = path.join(ROOT, 'src', 'core', 'skills', 'builtin.ts');
 const ENTRY = 'SKILL.md';
 
 /**
- * 扫出全部内置技能。返回 `[名字, 正文]`，**按名字排序**——生成文件的内容
- * 不该随文件系统的返回顺序抖动，否则每次生成都是一份看着改过的 diff。
+ * 从 frontmatter 里抠 `description`。**只认这一个键、只认单行。**
+ *
+ * 刻意不引入 yaml 解析：这里要的就是一行字，而 `core/model/markdown.ts` 那个
+ * 轻量解析器住在 `src/core/` 里——构建脚本是 CommonJS、跑在 TS 编译之前，
+ * import 不动它。两边都只支持 `key: value`，行为是一致的。
+ *
+ * 读不出来回空串：描述缺席不是错误，那一档退化成只显示名字。
+ */
+function readDescription(text) {
+  const fence = /^﻿?---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!fence) {
+    return '';
+  }
+  const line = /^description\s*:\s*(.*)$/m.exec(fence[1]);
+  if (!line) {
+    return '';
+  }
+  const raw = line[1].trim();
+  const unquoted =
+    raw.length >= 2 && ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'")))
+      ? raw.slice(1, -1)
+      : raw;
+  return unquoted.trim();
+}
+
+/**
+ * 扫出全部内置技能。返回 `[名字, { body, description }]`，**按名字排序**——
+ * 生成文件的内容不该随文件系统的返回顺序抖动，否则每次生成都是一份看着改过的
+ * diff。
  */
 function collect() {
   if (!fs.existsSync(SRC_DIR)) {
@@ -74,7 +111,8 @@ function collect() {
         );
       }
     }
-    out.push([dirent.name, fs.readFileSync(entry, 'utf8')]);
+    const body = fs.readFileSync(entry, 'utf8');
+    out.push([dirent.name, { body, description: readDescription(body) }]);
   }
   return out.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }
@@ -95,11 +133,20 @@ function buildSkills({ quiet = false } = {}) {
     '// 改技能改那边的 Markdown，然后 `npm run skills`。',
     '// tests/contract/skills.test.js 会比对两边，烘失真了当场变红。',
     '',
-    '/** 内置技能：目录名 → SKILL.md 正文。 */',
-    'export const BUILTIN_SKILLS: Record<string, string> = {',
+    '/** 一份内置技能：正文原文，以及 frontmatter 里那一行描述（可能是空串）。 */',
+    'export interface BuiltinSkill {',
+    '  body: string;',
+    '  description: string;',
+    '}',
+    '',
+    '/** 内置技能：目录名 → 那一份。 */',
+    'export const BUILTIN_SKILLS: Record<string, BuiltinSkill> = {',
   ];
-  for (const [name, body] of skills) {
-    lines.push(`  ${JSON.stringify(name)}: ${JSON.stringify(body)},`);
+  for (const [name, skill] of skills) {
+    lines.push(
+      `  ${JSON.stringify(name)}: { body: ${JSON.stringify(skill.body)}, ` +
+        `description: ${JSON.stringify(skill.description)} },`
+    );
   }
   lines.push('};');
   const next = lines.join('\n') + '\n';

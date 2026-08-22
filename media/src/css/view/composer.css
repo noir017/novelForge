@@ -152,3 +152,11 @@
   color: var(--vscode-editorWarning-foreground, #cca700);
 }
 
+
+/* 技能标签。与附件 chip 同一个形状，只换个底色——它们都是「这一句要带上的
+ * 东西」，形状不同只会让人以为是两类操作。⚡ 那个字符在标签文本里，不用图标
+ * 字体（三个壳里字体各不相同，缺字时会变成一个方框）。 */
+.chip.skill-chip {
+  background: var(--vscode-textLink-foreground, #3794ff);
+  color: var(--vscode-editor-background, #1e1e1e);
+}

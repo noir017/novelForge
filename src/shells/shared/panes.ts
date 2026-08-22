@@ -118,7 +118,7 @@ export function chatPane(opts: PaneOptions = {}): string {
     <div class="empty" id="emptyHint">
       <p><strong>先挑一章剧情，从它当前该做的那一步接着做</strong></p>
       <p>在「工程」页点任意章节，或用下面的下拉框选一章——界面会落到它当前停在的那一层。</p>
-      <p>然后直接说你要做什么：查一句设定、排这一段的剧情、写正文，都是同一个输入框。用 <kbd>@</kbd> 引用正文、角色卡或任意文件。</p>${editorHint}
+      <p>然后直接说你要做什么：查一句设定、排这一段的剧情、写正文，都是同一个输入框。用 <kbd>@</kbd> 引用正文、角色卡或任意文件，用 <kbd>/</kbd> 呼出一份技能。</p>${editorHint}
     </div>
   </div>
 
@@ -134,6 +134,7 @@ export function chatPane(opts: PaneOptions = {}): string {
     </div>
     <div class="composer-bar">
       <button class="composer-tool" id="atBtn" title="引用文件或正文"><span class="tool-key">@</span>引用</button>
+      <button class="composer-tool" id="skillBtn" title="呼出一份技能：这类事该怎么做的工作流说明（在空输入框里打 / 也行）"><span class="tool-key">/</span>技能</button>
       <button class="composer-tool" id="selBtn" title="${selTitle}">加入选区</button>
       <select id="modelSelect" title="使用哪个模型"></select>
       <!-- 思考深度：跟着**会话**走，不是设置项（见 core/model/session.ts）。 -->
@@ -264,7 +265,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
 
     <div class="pane-head"><span>Agent</span></div>
     <div class="hint">
-      对话页直接说话就是 Agent：它自己查资料、分几步做完一件事（挑了 <b>/命令</b> 才是确定性的单步）。
+      对话页直接说话就是 Agent：它自己查资料、分几步做完一件事（在输入框里打 <b>/</b> 可以指定它按哪份技能做）。
       下面这一项只管 <b>它动手之前要不要先问你一句</b>——<b>覆盖已有内容永远会先让你逐行过目</b>，
       批量动作永远会先告诉你要调几次模型，三种模式完全一样，关不掉。
     </div>
@@ -277,6 +278,17 @@ export function settingsPane(opts: PaneOptions = {}): string {
         </select>
       </label>
     </div>
+
+    <div class="pane-head"><span>技能</span></div>
+    <div class="hint">
+      技能是「这类事该怎么做」的工作流说明——内置几份，也可以在工程的
+      <code>.novelforge/skills/&lt;名字&gt;/SKILL.md</code> 里自己写。
+      下面这一列管的是 <b>每一份让 agent 每轮看到多少</b>：
+      <b>仅用户</b>（缺省）它看不见，你在输入框里打 <kbd>/</kbd> 呼出时整份正文才进那一轮；
+      <b>仅标题</b> / <b>完整</b> 让它每轮看到名字（或名字加一句描述），自己判断要不要读——
+      更容易选对，代价是那几行每一轮都要发一遍。<b>禁用</b> 两边都看不到。
+    </div>
+    <div id="skillList"></div>
 
     <button type="button" class="settings-advanced-toggle" id="settingsAdvancedToggle" aria-expanded="false" aria-controls="settingsAdvanced">
       <span class="caret">▸</span>

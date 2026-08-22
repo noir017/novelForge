@@ -55,6 +55,7 @@ import { describeError, elapsed, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import { CreationTarget } from '../model/pipeline';
 import { ThinkingDepth } from '../model/thinking';
+import type { SkillModes } from '../model/skillMode';
 import { describeSkills, listSkills } from '../skills';
 import type { ToolInvocation, ToolInvoker } from '../tools/types';
 import { Budget, BudgetLimits } from './budget';
@@ -336,7 +337,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
    * 扫盘只是一次 `readdir` 加一次 `Object.keys()`，**零文件读取**——正文由
    * `skill` 工具在模型真要用的时候才取。
    */
-  const stable = opts.system ?? (await buildStablePrefix(project));
+  const stable = opts.system ?? (await buildStablePrefix(project, config.skillModes));
 
   /**
    * 递给工具的那一面：能不能停、说给谁听、账记到哪。
@@ -590,16 +591,19 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
 /**
  * 身份提示词 + 技能索引。**一轮开局调一次。**
  *
- * 索引只列名字（`describeSkills`），一个技能都没有时整段不拼——一句「（没有可用
- * 的技能）」每回合都要发，而它什么都没告诉模型。
+ * 索引只列 `title` / `full` 那几档（`describeSkills`），一个都没有时整段不拼
+ * ——一句「（没有可用的技能）」每回合都要发，而它什么都没告诉模型。**缺省全是
+ * 「仅用户」，所以这是最常见的那条路**：不配置任何东西时技能一个字都不占预算，
+ * 作者用 `/` 呼出的那一份则整份进这一轮的第一条消息（见 `RunAgentOptions.ask`
+ * 那一侧的 `controller/agent.ts`）。
  *
  * 扫盘失败不影响这一轮：技能是锦上添花，读不到就当没有，不能让它把对话搞挂
  * （第 1 条：容错优先）。
  */
-async function buildStablePrefix(project: NovelProject): Promise<string> {
+async function buildStablePrefix(project: NovelProject, modes: SkillModes): Promise<string> {
   let index = '';
   try {
-    index = describeSkills(await listSkills(project));
+    index = describeSkills(await listSkills(project, modes));
   } catch (err) {
     log.warn('扫技能失败，这一轮没有技能索引', describeError(err));
   }

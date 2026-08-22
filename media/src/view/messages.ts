@@ -211,6 +211,11 @@ function buildTurn(turn: SerializedTurn): HTMLElement {
   if (turn.attachments && turn.attachments.length > 0) {
     wrap.appendChild(buildAttachments(turn.attachments));
   }
+  // 这一轮呼出过技能就留几枚标签：作者要看得出「这一轮我让它按哪套方法做的」
+  // ——那正是他判断结果好坏的前提。正文不在会话里（已经折进 content 发出去了）。
+  if (turn.skills && turn.skills.length > 0) {
+    wrap.appendChild(buildSkillChips(turn.skills));
+  }
   // 段区：它想的、说的与做的按发生顺序交替。没有段的轮次就是一块正文。
   const segments = turn.role === 'assistant' ? (turn.segments ?? []) : [];
   // 思考过程放在正文上方，默认折叠——它不是正文，但正文迟迟不来时它是唯一的
@@ -320,6 +325,27 @@ function buildAttachments(attachments: NonNullable<SerializedTurn['attachments']
       chip.title = att.relPath;
       chip.addEventListener('click', () => openPath(att.relPath!));
     }
+    box.appendChild(chip);
+  }
+  return box;
+}
+
+/**
+ * 这一轮呼出过的技能，几枚标签。
+ *
+ * **不可点**：技能的正文不在会话里（发的时候折进那句话了），点开无处可去；
+ * 而工程技能虽然在磁盘上，内置那一半根本没有路径——两种行为不一样的标签摆在
+ * 一起，比都不能点更让人困惑。全名写在 tooltip 上。
+ */
+function buildSkillChips(names: NonNullable<SerializedTurn['skills']>): HTMLElement {
+  const box = mk('div', 'msg-attachments');
+  for (const name of names) {
+    const chip = mk('span', 'chip skill-chip');
+    // 显示不带前缀那一半（前缀是给模型照抄的，作者认的是名字本身）。
+    const stem = name.slice(name.indexOf(':') + 1);
+    const label = mk('span', 'chip-label', `⚡ ${stem}`);
+    label.title = name;
+    chip.appendChild(label);
     box.appendChild(chip);
   }
   return box;

@@ -6,7 +6,7 @@
  * 纯 UI 的东西——没发出去的草稿、正在流式接收的是哪一条。
  */
 import { DEFAULT_THINKING_DEPTH } from '../protocol';
-import type { SerializedAttachment, SerializedSession, ViewState } from '../protocol';
+import type { PendingSkill, SerializedAttachment, SerializedSession, ViewState } from '../protocol';
 import { acquireApi } from '../vscodeApi';
 import { el } from './refs';
 
@@ -22,6 +22,12 @@ export const store: {
   state: ViewState | null;
   session: SerializedSession;
   attachments: SerializedAttachment[];
+  /**
+   * 作者用 `/` 呼出、等着随下一句话发出去的技能。**只有名字与字数**——
+   * 正文攒在后端（`ChatController.pendingSkills`），放在前端等于让「刷新一次
+   * 就丢几千字」变成可能。
+   */
+  skills: PendingSkill[];
   busy: boolean;
   /** 正在流式接收的那条消息 id。 */
   streamingId: string | null;
@@ -46,6 +52,7 @@ export const store: {
     turns: [],
   },
   attachments: [],
+  skills: [],
   busy: false,
   streamingId: null,
   excluded: new Set(),

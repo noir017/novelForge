@@ -14,8 +14,10 @@ export type {
   FileOpResult,
   HostDirEntry,
   OutMessage,
+  PendingSkill,
   SerializedModel,
   SerializedProvider,
+  SkillRow,
   WorkspaceItem,
   WorkspaceRecent,
 } from './out';

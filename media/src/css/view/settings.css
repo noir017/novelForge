@@ -357,3 +357,60 @@ button.settings-subtab.active {
   flex: 0 0 auto;
   max-width: 45%;
 }
+
+/* ---------------------------------------------------------------- 技能那张表
+ *
+ * 「每份技能让 agent 每轮看到多少」。沿用任务档位那一行的形状（左边名字 +
+ * 说明、右边一个下拉框），因为它们是同一类东西：一行一个选择，说明在名字下面。
+ *
+ * 差别只有一处——描述是**作者自己写的**（`SKILL.md` 的 frontmatter），长度
+ * 不可控。所以它折行而不是省略：任务说明是我们写的一句话，技能描述可能是三行，
+ * 省略成一行会把「什么时候该用它」这句话正好切掉。
+ */
+
+.skill-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.08));
+}
+
+.skill-row + .skill-row {
+  margin-top: 4px;
+}
+
+.skill-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skill-name {
+  font-size: 0.9em;
+}
+
+/* 内置 / 这个工程。同名的两份技能靠它分得清哪一行是哪一份。 */
+.skill-source {
+  align-self: flex-start;
+  font-size: 0.72em;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  opacity: 0.8;
+}
+
+.skill-desc {
+  font-size: 0.78em;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.4;
+}
+
+.skill-mode-select {
+  flex: 0 0 auto;
+  max-width: 45%;
+}

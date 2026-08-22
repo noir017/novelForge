@@ -135,6 +135,8 @@ export class WorkspaceHub {
       await this.current.controller.resendFullState();
       return;
     }
+    // 走到这里就是空窗口（有工程那条路上面已经 return 了）：没有工程可扫，
+    // 技能那张表只有内置那几行。
     await pushSettingsTo(this.sink);
     this.broadcast({ type: 'logs', entries: recentLogs() });
     this.broadcast({ type: 'tasks', tasks: activeTasks() });
@@ -173,19 +175,22 @@ export class WorkspaceHub {
         await saveSettingsFrom(
           msg.settings,
           this.sink,
-          this.current ? () => this.current!.controller.pushState() : undefined
+          this.current ? () => this.current!.controller.pushState() : undefined,
+          // 技能那张表要扫工程目录才列得出 `project:` 那几行；空窗口里没有工程，
+          // 那时只有内置技能（设置本身与工程无关，存在 ~/.novelforge 下）。
+          this.current?.project
         );
         return true;
       case 'setApiKey':
         await promptForApiKey(msg.providerId);
-        await pushSettingsTo(this.sink);
+        await pushSettingsTo(this.sink, undefined, this.current?.project);
         if (this.current) {
           await this.current.controller.pushState();
         }
         return true;
       case 'clearApiKey':
         await clearApiKey(msg.providerId);
-        await pushSettingsTo(this.sink);
+        await pushSettingsTo(this.sink, undefined, this.current?.project);
         return true;
       case 'testConnection':
         await testConnectionTo(
@@ -214,6 +219,8 @@ export class WorkspaceHub {
       case 'switchTab':
         this.broadcast({ type: 'tab', tab: msg.tab });
         if (msg.tab === 'settings') {
+          // 这个 switch 只在空窗口里走到（有工程时上面就交给 controller 了），
+          // 所以技能表这时只有内置那几行。
           await pushSettingsTo(this.sink);
         } else if (msg.tab === 'logs') {
           this.broadcast({ type: 'logs', entries: recentLogs() });

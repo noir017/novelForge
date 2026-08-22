@@ -48,6 +48,14 @@ export interface ChatTurn {
   at: string;
   /** 仅 user 轮：本轮引用的附件。 */
   attachments?: Attachment[];
+  /**
+   * 仅 user 轮：本轮作者用 `/` 呼出的技能（带前缀的全名）。
+   *
+   * **只存名字，不存正文**：那几千字已经折进 `content` 发出去了，再存一份就是
+   * 同一段话在会话文件里躺两遍。这一行的用处是让作者翻回来时看得出
+   * 「这一轮我让它按哪套方法做的」——那正是他判断结果好坏的前提。
+   */
+  skills?: string[];
   /** 仅 user 轮：本轮被手动取消勾选的上下文条目 id。 */
   excludedIds?: string[];
   /** 仅 assistant 轮：已采纳写入的目标路径。 */

@@ -26,7 +26,7 @@ const { ROOT, loadModule } = require('../helpers/load');
 const SRC_DIR = path.join(ROOT, 'src', 'skills');
 const ENTRY = 'SKILL.md';
 
-/** 磁盘上的那一份：目录名 → SKILL.md 正文。 */
+/** 磁盘上的那一份：目录名 → { body, description }。 */
 function onDisk() {
   const out = {};
   if (!fs.existsSync(SRC_DIR)) {
@@ -36,10 +36,28 @@ function onDisk() {
     if (!e.isDirectory()) continue;
     const entry = path.join(SRC_DIR, e.name, ENTRY);
     if (fs.existsSync(entry)) {
-      out[e.name] = fs.readFileSync(entry, 'utf8');
+      const body = fs.readFileSync(entry, 'utf8');
+      out[e.name] = { body, description: descriptionOf(body) };
     }
   }
   return out;
+}
+
+/**
+ * frontmatter 里那一行描述。**这里刻意重写一遍**，不 import 生成器里那个
+ * ——两份实现互相对账才叫契约；用同一个函数算两边，恒等式永远成立，测不出
+ * 「烘的时候把描述抠错了」。
+ */
+function descriptionOf(text) {
+  const fence = /^﻿?---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!fence) return '';
+  const line = /^description\s*:\s*(.*)$/m.exec(fence[1]);
+  if (!line) return '';
+  const raw = line[1].trim();
+  const quoted =
+    raw.length >= 2 &&
+    ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'")));
+  return (quoted ? raw.slice(1, -1) : raw).trim();
 }
 
 // helpers/load.js 已经在 require 时保证生成过一次，所以这里读到的常量一定在。
@@ -57,9 +75,30 @@ describe('常量与磁盘一致', () => {
   });
 
   test('每一份正文逐字一致', () => {
-    for (const [name, text] of Object.entries(disk)) {
-      assert.equal(BUILTIN_SKILLS[name], text, `${name}/${ENTRY} 烘出来的与磁盘上的不是同一份`);
+    for (const [name, skill] of Object.entries(disk)) {
+      assert.equal(
+        BUILTIN_SKILLS[name].body,
+        skill.body,
+        `${name}/${ENTRY} 烘出来的与磁盘上的不是同一份`
+      );
     }
+  });
+
+  // 「完整」这一档每轮都要把这一行发给模型，抠错了它会拿着一句错的描述判断
+  // 「这一轮该不该用它」。
+  test('描述与磁盘上那一行一致', () => {
+    for (const [name, skill] of Object.entries(disk)) {
+      assert.equal(BUILTIN_SKILLS[name].description, skill.description, `${name} 的描述抠错了`);
+    }
+  });
+
+  // 内置技能是我们写的，描述必须写——「完整」档没有它就退化成只有名字，
+  // 而作者在设置页里挑档位时也看不出这一份是干什么的。
+  test('每一份都写了描述', () => {
+    const missing = Object.entries(disk)
+      .filter(([, skill]) => !skill.description.trim())
+      .map(([name]) => name);
+    assert.deepEqual(missing, [], '内置技能得在 frontmatter 里写一行 description');
   });
 });
 
@@ -79,8 +118,8 @@ describe('内置技能必须自足', () => {
   // 后者（`../../core/context/prompts.ts`）产品内的 agent 根本够不着。
   test('正文里没有指向仓库路径的相对链接', () => {
     const bad = [];
-    for (const [name, text] of Object.entries(disk)) {
-      for (const m of text.matchAll(/\]\((\.[^)]*)\)/g)) {
+    for (const [name, skill] of Object.entries(disk)) {
+      for (const m of skill.body.matchAll(/\]\((\.[^)]*)\)/g)) {
         bad.push(`${name}: ${m[1]}`);
       }
     }

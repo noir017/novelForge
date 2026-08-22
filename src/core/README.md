@@ -9,7 +9,7 @@
 | [context/](context/README.md) | ★ 上下文装配：token 粗估与分层预算装配器 |
 | [generation/](generation/README.md) | ★ 一次创作调用：`generate.ts` **无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，不管并发）、`accept.ts` 六条落盘分派、`drafts.ts` 让还没落盘的产物活过一次刷新（`write draftId=…` 认它）。**`cleanOutput` 只对正文做**；那一问在产出的当下就问（`controller/gate.ts` 的卡片），不是气泡末尾一颗可以永远不点的按钮 |
 | [tools/](tools/README.md) | ★ **工具层**：契约（`ToolDef` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那八个工具（读三件 + `skill` + `generate` + `write` / `edit` / `run`），**没有删除/改名/移动**；写入走的是与产物落盘同一条 `workspace.write`，没有新的保护代码。**不认识 `agent/`**——将来要能单独端出去做 MCP |
-| [skills/](skills/index.ts) | 技能：给 agent 的「这类事该怎么做」，**按需读**不占每一轮 token。两个来源（内置烘成常量、工程内 `.novelforge/skills/`）合成一份只列名字的索引；正文由 `skill` 工具取 |
+| [skills/](skills/index.ts) | 技能：「这类事该怎么做」的工作流说明。两个来源（内置烘成常量、工程内 `.novelforge/skills/`）合成一份名单，**每份各有一档注入方式**（仅用户 / 仅标题 / 完整 / 禁用，缺省**仅用户**）：开到后两档的才进 agent 每轮那份索引（只有名字与描述，正文由 `skill` 工具取），缺省那一档只有作者用 `/` 呼得出来 |
 | [agent/](agent/README.md) | ★ 多步调度：循环、状态注入、预算闸门、策略与确认闸门。手上只有一个 `ToolInvoker`，**不认识 `Workspace` / `DraftStore` / 具体工具**。「下一步该做什么」由 `deriveNextStep` 每回合注入，agent 不另做判断 |
 | [features/](features/README.md) | 功能编排：续写、摘要、角色卡、设定、文风提取 |
 | [llm/](llm/README.md) | 模型接入：`LlmProvider` 接口、OpenAI / Anthropic 协议实现、provider 注册表 |
