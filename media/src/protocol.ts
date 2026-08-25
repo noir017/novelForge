@@ -141,9 +141,11 @@ export type { AgentPolicy } from '../../src/core/model/agentPolicy';
  */
 export {
   DEFAULT_SKILL_MODE,
+  SKILL_AUDIENCE_HINT,
+  SKILL_AUDIENCE_LABEL,
   SKILL_MODES,
   SKILL_MODE_HINT,
   SKILL_MODE_LABEL,
   isSkillMode,
 } from '../../src/core/model/skillMode';
-export type { SkillMode, SkillModes } from '../../src/core/model/skillMode';
+export type { SkillAudience, SkillMode, SkillModes } from '../../src/core/model/skillMode';

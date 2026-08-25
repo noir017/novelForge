@@ -46,6 +46,7 @@ import { scoped } from '../runtime/logger';
 
 import type { PendingSkill, SkillRow } from '../protocol';
 import { listInvocableSkills, listSkills, readSkill } from '../skills';
+import type { SkillAudience } from '../model/skillMode';
 import type { NovelProject } from '../model/project';
 
 const log = scoped('面板');
@@ -61,6 +62,11 @@ export interface HeldSkill {
   name: string;
   stem: string;
   source: 'builtin' | 'project';
+  audience: SkillAudience;
+  /**
+   * `SKILL.md` 正文。**`generate` 那一类是空串**——它的正文不进 agent 这一轮，
+   * 存一份在这里只是白占内存，而且会诱使日后某个改动把它折进去。
+   */
   text: string;
 }
 
@@ -78,6 +84,7 @@ export async function listSkillRows(
     stem: s.stem,
     description: s.description,
     mode: s.mode,
+    audience: s.audience,
   }));
 }
 
@@ -131,6 +138,7 @@ export async function pushSkillList(c: ChatController): Promise<void> {
       stem: s.stem,
       description: s.description,
       mode: s.mode,
+      audience: s.audience,
     })
   );
   c.post({ type: 'skillList', items: await withDescriptions(c.project, usable) });
@@ -149,7 +157,26 @@ export async function useSkill(c: ChatController, name: string): Promise<void> {
     return;
   }
   const all = await listSkills(c.project, readConfig().skillModes);
-  const got = await readSkill(c.project, listInvocableSkills(all), name);
+  const usable = listInvocableSkills(all);
+
+  // 给创作模型的那一类：**只记名字，不读正文。** 它折进那句话的是一句指令
+  // （见 foldSkills），正文要到 agent 调 generate 时才由工具层读出来注入创作
+  // 上下文。在这里读一遍等于把几万字搬进内存，还会诱使日后某个改动顺手折进去。
+  const forGenerate = usable.find((s) => s.name === name && s.audience === 'generate');
+  if (forGenerate) {
+    c.pendingSkills.push({
+      name: forGenerate.name,
+      stem: forGenerate.stem,
+      source: forGenerate.source,
+      audience: 'generate',
+      text: '',
+    });
+    log.info(`呼出写作方法 ${forGenerate.name}`, '随下一句话带一句指令过去，正文在创作模型那一侧展开');
+    pushPendingSkills(c);
+    return;
+  }
+
+  const got = await readSkill(c.project, usable, name);
   if (!got.ok) {
     // 读不到（目录空着、刚被删掉、刚被改成「禁用」）就照实说。作者刚刚在面板里
     // 看到它，不说的话他只会以为点击没生效。
@@ -161,6 +188,7 @@ export async function useSkill(c: ChatController, name: string): Promise<void> {
     name: got.ref.name,
     stem: got.ref.stem,
     source: got.ref.source,
+    audience: 'agent',
     text: got.text,
   });
   log.info(`呼出技能 ${got.ref.name}`, `${got.text.length} 字，随下一句话一起发出`);
@@ -181,7 +209,13 @@ export function pushPendingSkills(c: ChatController): void {
 }
 
 export function serializePendingSkill(s: HeldSkill): PendingSkill {
-  return { name: s.name, stem: s.stem, source: s.source, chars: s.text.length };
+  return {
+    name: s.name,
+    stem: s.stem,
+    source: s.source,
+    chars: s.text.length,
+    audience: s.audience,
+  };
 }
 
 /**
@@ -191,6 +225,17 @@ export function serializePendingSkill(s: HeldSkill): PendingSkill {
  * 句话会被几千字的说明推到很远的地方，而模型对最近的内容最敏感——要它做的事
  * 该挨着它读到的最后一句。
  *
+ * ## 两类折进去的东西不一样
+ *
+ * | 受众 | 折进去的 | 为什么 |
+ * |---|---|---|
+ * | `agent` | **整份正文** | 「仅用户」那一档的意思正是名字都不进索引，agent 压根不知道它存在——只递一个名字，它得先相信一个索引里没有的名字，还要多一次白花的往返（第 4 条） |
+ * | `generate` | **一句指令** | 正文是给创作模型读的。折进这里，agent 能做的也只是把几万字转述一遍，两头都付钱 |
+ *
+ * 第二类折进去的那句话要**点名到 `skills` 参数**：agent 手上的索引里本来就
+ * 列着这个名字与它的用法，这句话只是把「这一次用哪一份」定死——作者已经替它
+ * 做了那个判断。
+ *
  * **一个字都不截**：截掉一半的工作流比没有更糟（它会照着半套流程做完，还以为
  * 自己做全了）。真的塞不下时由 `buildAgentMessages` 那一层报「压不下去」并停下，
  * 那条路会把话说清楚（第 2 条：不静默截断）。
@@ -199,14 +244,38 @@ export function foldSkills(text: string, skills: HeldSkill[]): string {
   if (skills.length === 0) {
     return text;
   }
-  const lines: string[] = [
-    '# 作者指定了这一轮按哪套方法做',
-    '',
-    '下面是他呼出的技能说明。**按它说的做**，不必再用 skill 工具读一遍。',
-  ];
-  for (const s of skills) {
-    lines.push('', `## 技能 ${s.name}`, '', s.text.trim());
+  const lines: string[] = [];
+
+  const forAgent = skills.filter((s) => s.audience === 'agent');
+  if (forAgent.length > 0) {
+    lines.push(
+      '# 作者指定了这一轮按哪套方法做',
+      '',
+      '下面是他呼出的技能说明。**按它说的做**，不必再用 skill 工具读一遍。'
+    );
+    for (const s of forAgent) {
+      lines.push('', `## 技能 ${s.name}`, '', s.text.trim());
+    }
   }
+
+  const forGenerate = skills.filter((s) => s.audience === 'generate');
+  if (forGenerate.length > 0) {
+    if (lines.length > 0) {
+      lines.push('');
+    }
+    lines.push(
+      '# 作者指定了这一轮的正文按哪套写法写',
+      '',
+      '这一轮**每一次 generate** 都要把下面这几个名字填进 `skills` 参数' +
+        '（逐字照抄，含前缀）：',
+      '',
+      ...forGenerate.map((s) => `- ${s.name}`),
+      '',
+      '它们的正文会直接进创作模型的上下文——你读不到，也不需要读。',
+      '这一次不调 generate 的话就忽略这一段。'
+    );
+  }
+
   lines.push('', '---', '', text);
   return lines.join('\n');
 }

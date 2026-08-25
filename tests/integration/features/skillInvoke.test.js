@@ -85,6 +85,12 @@ before(async () => {
     '---\ndescription: 我自己那套审章法\n---\n\n# 我的审章流程\n\n第一步：先读三遍。\n'
   );
   t.write('.novelforge/skills/不想用的/SKILL.md', '# 不想用的');
+  // 给创作模型的那一类：作者一样呼得出来，但折进那句话的是**一句指令**，
+  // 不是整份正文——正文要到 agent 调 generate 时才在创作模型那一侧展开。
+  t.write(
+    '.novelforge/skills/去AI味/SKILL.md',
+    '---\ndescription: 清 AI 味\naudience: generate\n---\n\n# 去AI味\n\n别写「眼中闪过一丝」。\n'
+  );
 
   controller = new bundle.controller.ChatController(project);
   controller.attach({
@@ -246,5 +252,54 @@ describe('会话里留下的记录', () => {
     // 正文已经折进 content 发出去了，会话里再存一份是同一段话躺两遍。
     assert.equal(userTurn.content, '再核一次');
     assert.equal(JSON.stringify(userTurn).includes('第一步：先读三遍。'), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * 呼出一份**给创作模型**的写作方法。
+ *
+ * 与上面那一类的差别只有一处，但那一处是这一刀的全部意义：**折进去的是一句
+ * 指令，不是几万字正文**。折正文进来的话，agent 能做的也只是转述一遍给创作
+ * 模型，两头都付钱。
+ */
+describe('呼出 generate 类：折的是指令，不是正文', () => {
+  before(async () => {
+    settings.skillModes = {};
+    controller.pendingSkills = [];
+    asks = [];
+    await pick('project:去AI味');
+    await controller.dispatch({ type: 'sendAgent', text: '写第 4 章' });
+  });
+
+  test('正文一个字都没折进去', () => {
+    assert.equal(asks[0].includes('眼中闪过一丝'), false, asks[0]);
+  });
+
+  test('折进去的是「填进 skills 参数」那句指令', () => {
+    assert.match(asks[0], /skills/);
+    assert.match(asks[0], /- project:去AI味/);
+  });
+
+  test('作者那句话仍然在后面', () => {
+    const directive = asks[0].indexOf('project:去AI味');
+    const ask = asks[0].indexOf('写第 4 章');
+    assert.ok(directive >= 0 && ask > directive, asks[0]);
+  });
+
+  // 标签上那个字数是「随这句话一起发出多少」。这一类是 0——正文不在这一轮里，
+  // 后端也没存。界面据 audience 换一句说法，不显示「0 字」。
+  test('标签上不记字数，受众标成 generate', () => {
+    const tag = pushed.flat().find((x) => x.name === 'project:去AI味');
+    assert.equal(tag.audience, 'generate');
+    assert.equal(tag.chars, 0);
+  });
+
+  test('面板名单上认得出它是哪一类', async () => {
+    const rows = await listSkills();
+    const row = rows.find((x) => x.name === 'project:去AI味');
+    assert.equal(row.audience, 'generate');
+    assert.equal(row.description, '清 AI 味');
   });
 });

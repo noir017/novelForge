@@ -1,7 +1,7 @@
 import type { DirListing } from '../files/fileTree';
 import type { LogEntry } from '../runtime/logger';
 import type { TaskSnapshot } from '../runtime/progress';
-import type { SkillMode } from '../model/skillMode';
+import type { SkillAudience, SkillMode } from '../model/skillMode';
 import type {
   EditorPane,
   SerializedAttachment,
@@ -238,6 +238,14 @@ export interface SkillRow {
   description: string;
   /** 当前档位（含缺省回落后的值，不是「配置里存了什么」）。 */
   mode: SkillMode;
+  /**
+   * 写给谁读的。**来自 frontmatter，改不了**——设置页只显示，不给下拉框。
+   *
+   * 界面靠它分辨两件事：`generate` 那一类的档位只有「启用 / 禁用」两种
+   * （见 `model/skillMode.ts` 的 `isIndexed`），而 `/` 面板里挑中它时带过去的
+   * 是一句指令而不是整份正文。
+   */
+  audience: SkillAudience;
 }
 
 /** 输入框上方那一枚技能标签。 */
@@ -247,8 +255,15 @@ export interface PendingSkill {
   /** 界面上显示的那一半（不带前缀）。 */
   stem: string;
   source: 'builtin' | 'project';
-  /** 正文字数。标签的 tooltip 上写着，作者据此知道这一句要带多少东西过去。 */
+  /**
+   * 正文字数。标签的 tooltip 上写着，作者据此知道这一句要带多少东西过去。
+   *
+   * **`generate` 那一类是 0**：它的正文根本不进这一轮，后端手上也没存
+   * （见 `controller/skills.ts` 的 `useSkill`）。界面据 `audience` 换一句说法，
+   * 不要显示「0 字」。
+   */
   chars: number;
+  audience: SkillAudience;
 }
 
 export interface WorkspaceRecent {

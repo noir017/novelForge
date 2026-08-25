@@ -41,7 +41,7 @@
  * 就是它。手上那份旧名单同时照画——等一次往返才出候选，面板就成了「打个斜杠卡半秒」。
  */
 import { el as mk, clear, closestFrom } from '../dom';
-import { SKILL_MODE_LABEL } from '../protocol';
+import { SKILL_AUDIENCE_HINT, SKILL_MODE_LABEL } from '../protocol';
 import type { SkillRow } from '../protocol';
 import { el } from './refs';
 import { store, vscode } from './store';
@@ -240,6 +240,13 @@ function buildRow(row: SkillRow, i: number): HTMLElement {
   line.appendChild(label);
   // 同名的两份（内置一份、工程一份）靠这个徽章分得清哪行是哪份。
   line.appendChild(mk('span', 'skill-item-src', row.source === 'builtin' ? '内置' : '本工程'));
+  // 给创作模型的那一类另标一枚：挑中它带过去的是一句指令而不是整份正文，
+  // 作者该知道自己挑的是哪一种东西。
+  if (row.audience === 'generate') {
+    const badge = mk('span', 'skill-item-src', '给创作模型');
+    badge.title = SKILL_AUDIENCE_HINT.generate;
+    line.appendChild(badge);
+  }
   // 已经呼出的那几份：面板浮起来正好盖住输入框上方那几枚标签，不标一下的话
   // 作者只会再挑一次，然后收到一句「已经呼出这一份了」。
   if (store.skills.some((s) => s.name === row.name)) {
@@ -249,7 +256,9 @@ function buildRow(row: SkillRow, i: number): HTMLElement {
 
   // 描述没写就不占一行——那一行空着比没有更难看。「仅用户」之外的档位额外标一下：
   // 那几档 agent 每轮也看得见，作者改过之后该在这里认得出来。
-  const hint = row.mode === 'user' ? row.description : hintWithMode(row);
+  // `generate` 那一类不标档位：它只有「启用 / 禁用」两种，而列在面板里的
+  // 本来就都是启用的——标一句「agent 每轮可见（仅用户）」是句错话。
+  const hint = row.audience === 'generate' || row.mode === 'user' ? row.description : hintWithMode(row);
   if (hint) {
     node.appendChild(mk('span', 'skill-item-hint', hint));
   }

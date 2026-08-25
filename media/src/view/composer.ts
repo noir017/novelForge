@@ -35,7 +35,11 @@ export function renderChips(): void {
     const chip = mk('span', 'chip skill-chip');
 
     const label = mk('span', 'chip-label', `⚡ ${skill.stem}`);
-    label.title = `${skill.name}（${skill.chars} 字，随下一句话一起发出）`;
+    // 给创作模型的那一类正文不在这一轮里（后端也没存），说「0 字」是句错话。
+    label.title =
+      skill.audience === 'generate'
+        ? `${skill.name}（交给创作模型：这一轮每次生成都按它的写法写）`
+        : `${skill.name}（${skill.chars} 字，随下一句话一起发出）`;
     chip.appendChild(label);
 
     const x = mk('button', 'chip-x', '×');
