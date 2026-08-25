@@ -21,16 +21,20 @@
  * `tests/contract/skills.test.js` 另比对一遍磁盘与常量，防的是**烘的过程本身失真**
  * （转义写错吃掉了正文里的反引号那一类）。
  *
- * ## 目录名就是技能名；frontmatter 只认 `description`
+ * ## 目录名就是技能名；frontmatter 认 `description` 与 `audience`
  *
  * 一个技能 = 一个子目录 + 里面的 `SKILL.md`，**名字始终是目录名**（路径即身份）。
+ *
+ * `audience` 说这一份是写给谁读的（`agent` / `generate`，缺省 `agent`，见
+ * `core/model/skillMode.ts`）。它必须解析：索引要按受众分成两段列，而 `generate`
+ * 那一类的正文一个字都不进 agent 的上下文——不知道受众就分不出这一刀。
  *
  * `description` 这一行原本是不解析的——那时索引只列名字，它没有消费者，而留着
  * 一个没人读的字段只会慢慢跑偏。「完整」这一档（名字 + 一句描述都进每一轮）
  * 给了它消费者，所以现在解析它。**仍然只认这一个键**：`name` 由目录名决定，
  * 再从 frontmatter 读一遍就是给同一件事留两个真相。
  *
- * 只支持单行 `description: …`（可带引号）。写成 YAML 折行的话这里读到空串，
+ * 只支持单行 `key: value`（可带引号）。写成 YAML 折行的话这里读到空串，
  * 那一档退化成只显示名字——不报错，因为描述缺席不是错误。
  *
  * **`body` 是文件原文**，frontmatter 一并留着：不剥掉，`tests/contract/skills.test.js`
@@ -64,12 +68,12 @@ const ENTRY = 'SKILL.md';
  *
  * 读不出来回空串：描述缺席不是错误，那一档退化成只显示名字。
  */
-function readDescription(text) {
-  const fence = /^﻿?---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+function readKey(text, key) {
+  const fence = /^\ufeff?---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   if (!fence) {
     return '';
   }
-  const line = /^description\s*:\s*(.*)$/m.exec(fence[1]);
+  const line = new RegExp(`^${key}\\s*:\\s*(.*)$`, 'm').exec(fence[1]);
   if (!line) {
     return '';
   }
@@ -79,6 +83,19 @@ function readDescription(text) {
       ? raw.slice(1, -1)
       : raw;
   return unquoted.trim();
+}
+
+/**
+ * 受众：`agent`（缺省）或 `generate`。**认不出的值一律当缺省**，不报错——
+ * 拼错一个词不该让整次构建失败，而回落到「给 agent」是两者中较保守的那个
+ * （它至少要 agent 明确去读才生效）。
+ *
+ * 与 `core/skills/index.ts` 那份是同一个规则的两处实现，理由同上：构建脚本是
+ * CommonJS、跑在 TS 编译之前，import 不动 `src/core/`。
+ */
+function readAudience(text) {
+  const raw = readKey(text, 'audience');
+  return raw === 'generate' ? 'generate' : 'agent';
 }
 
 /**
@@ -112,7 +129,10 @@ function collect() {
       }
     }
     const body = fs.readFileSync(entry, 'utf8');
-    out.push([dirent.name, { body, description: readDescription(body) }]);
+    out.push([
+      dirent.name,
+      { body, description: readKey(body, 'description'), audience: readAudience(body) },
+    ]);
   }
   return out.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }
@@ -133,10 +153,13 @@ function buildSkills({ quiet = false } = {}) {
     '// 改技能改那边的 Markdown，然后 `npm run skills`。',
     '// tests/contract/skills.test.js 会比对两边，烘失真了当场变红。',
     '',
-    '/** 一份内置技能：正文原文，以及 frontmatter 里那一行描述（可能是空串）。 */',
+    "import type { SkillAudience } from '../model/skillMode';",
+    '',
+    '/** 一份内置技能：正文原文、frontmatter 里那一行描述（可能是空串）与受众。 */',
     'export interface BuiltinSkill {',
     '  body: string;',
     '  description: string;',
+    '  audience: SkillAudience;',
     '}',
     '',
     '/** 内置技能：目录名 → 那一份。 */',
@@ -145,7 +168,8 @@ function buildSkills({ quiet = false } = {}) {
   for (const [name, skill] of skills) {
     lines.push(
       `  ${JSON.stringify(name)}: { body: ${JSON.stringify(skill.body)}, ` +
-        `description: ${JSON.stringify(skill.description)} },`
+        `description: ${JSON.stringify(skill.description)}, ` +
+        `audience: ${JSON.stringify(skill.audience)} },`
     );
   }
   lines.push('};');

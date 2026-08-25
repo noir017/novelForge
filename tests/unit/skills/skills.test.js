@@ -164,7 +164,7 @@ describe('describeSkills：拼进 system 的那一段', () => {
   // 名字抄错就调不到，而不做模糊匹配是有意的——所以得在索引里把话说清楚。
   test('告诉模型名字要照抄', () => {
     const text = skills.describeSkills([
-      { name: 'builtin:x', source: 'builtin', stem: 'x', mode: 'title', description: '' },
+      { name: 'builtin:x', source: 'builtin', stem: 'x', mode: 'title', audience: 'agent', description: '' },
     ]);
     assert.match(text, /照抄/);
   });
@@ -283,5 +283,129 @@ describe('readSkill：取不到的时候', () => {
     assert.equal(got.ok, false);
     assert.match(got.error, /必填/);
     assert.match(got.error, /project:我的流程/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * 受众：这一份是给 agent 读的，还是给创作模型读的。
+ *
+ * 三件事在这里钉住：
+ *
+ * 1. **来自 frontmatter，不是配置**——受众是技能本身的属性，作者改的是
+ *    `SKILL.md`；认不出的值回落「给 agent」（较保守的那个）。
+ * 2. **索引分两段**，两段的用法各写在段首。合成一段的话 agent 会拿 `skill`
+ *    去读第二类，而那一类的正文进 agent 上下文正是这一刀要避免的事。
+ * 3. **两段进索引的判据不同**：`generate` 那一类只认 `off`，因为少了索引里
+ *    那一行 agent 永远不会把它带给 `generate`——「仅用户」在那一类上等于禁用。
+ */
+describe('受众：agent 类与 generate 类', () => {
+  /** 写一份带 frontmatter 的工程技能。 */
+  function withSkill(name, frontmatter, body = '正文。') {
+    const t = makeTempDir('skills-audience');
+    dirs.push(t.dir);
+    const dir = path.join(t.dir, '.novelforge/skills', name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), `---\n${frontmatter}\n---\n\n${body}`, 'utf8');
+    return projectMod.NovelProject.open(t.dir);
+  }
+
+  const find = (list, name) => list.find((s) => s.name === name);
+
+  test('不写 audience 就是「给 agent」', async () => {
+    const project = withSkill('甲', 'description: 一句话');
+    const list = await skills.listSkills(project);
+    assert.equal(find(list, 'project:甲').audience, 'agent');
+  });
+
+  test('audience: generate 读得出来', async () => {
+    const project = withSkill('去AI味', 'description: 清 AI 味\naudience: generate');
+    const list = await skills.listSkills(project);
+    assert.equal(find(list, 'project:去AI味').audience, 'generate');
+  });
+
+  // 拼错一个词不该让一份技能消失；回落到「给 agent」是较保守的那个——它至少
+  // 要 agent 明确去读才生效，而误判成 generate 会把它塞进创作上下文。
+  test('认不出的 audience 回落「给 agent」', async () => {
+    const project = withSkill('乙', 'audience: 创作模型');
+    const list = await skills.listSkills(project);
+    assert.equal(find(list, 'project:乙').audience, 'agent');
+  });
+
+  // 描述从前只在 `full` 档读盘。受众必须每一份都读，于是描述顺带一起拿到——
+  // 这一条守着那一趟真的读了。
+  test('描述与受众一趟读出来，不再看档位', async () => {
+    const project = withSkill('丙', 'description: 这是描述\naudience: generate');
+    const list = await skills.listSkills(project);
+    assert.equal(find(list, 'project:丙').description, '这是描述');
+  });
+
+  test('generate 类缺省（仅用户）就进索引——那一档在这一类上等于禁用', async () => {
+    const project = withSkill('钩子', 'description: 章尾钩子怎么选\naudience: generate');
+    const text = skills.describeSkills(await skills.listSkills(project));
+    assert.match(text, /# 可交给创作模型的写作方法/);
+    assert.match(text, /- project:钩子 —— 章尾钩子怎么选/);
+  });
+
+  test('generate 类被禁用就两段都没有', async () => {
+    const project = withSkill('钩子', 'audience: generate');
+    const list = await skills.listSkills(project, { 'project:钩子': 'off' });
+    assert.ok(!skills.describeSkills(list).includes('project:钩子'));
+  });
+
+  // agent 类没变：缺省仍然不进索引（作者呼出时整份正文直接进那一轮）。
+  test('agent 类缺省仍然不进索引', async () => {
+    const project = withSkill('我的流程', 'description: 审章');
+    const text = skills.describeSkills(await skills.listSkills(project));
+    assert.ok(!text.includes('project:我的流程'), text);
+  });
+
+  test('两段分开，各自把用法写在段首', async () => {
+    const project = withSkill('写法', 'description: 写法\naudience: generate');
+    const list = await skills.listSkills(project, {
+      [`builtin:${SOME_BUILTIN}`]: 'title',
+    });
+    const text = skills.describeSkills(list);
+    const agentAt = text.indexOf('# 可用技能');
+    const genAt = text.indexOf('# 可交给创作模型的写作方法');
+    assert.ok(agentAt >= 0 && genAt > agentAt, text);
+    // 第二段必须明说别用 skill 工具读，否则 agent 会照着名字去读一遍。
+    assert.match(text.slice(genAt), /skills/);
+    assert.match(text.slice(genAt), /不是给你读的/);
+  });
+
+  // generate 类**总带描述**：正文 agent 读不到，名字又只有几个字，那一行是它
+  // 判断「什么时候该带上」的唯一依据。这与 agent 类按档位给描述是两套规矩。
+  test('generate 类不看档位，描述总在', async () => {
+    const project = withSkill('写法', 'description: 一句描述\naudience: generate');
+    const list = await skills.listSkills(project, { 'project:写法': 'title' });
+    assert.match(skills.describeSkills(list), /project:写法 —— 一句描述/);
+  });
+
+  test('listAgentSkills / listGenerateSkills 各挑各的', async () => {
+    const project = withSkill('写法', 'audience: generate');
+    const list = await skills.listSkills(project, {
+      [`builtin:${SOME_BUILTIN}`]: 'title',
+    });
+    assert.deepEqual(
+      skills.listGenerateSkills(list).map((s) => s.name),
+      ['project:写法']
+    );
+    assert.deepEqual(
+      skills.listAgentSkills(list).map((s) => s.name),
+      [`builtin:${SOME_BUILTIN}`]
+    );
+  });
+
+  // 明细里那一行要能点开；内置技能不在磁盘上，点了也打不开。
+  test('skillRelPath：工程技能有路径，内置没有', async () => {
+    const project = withSkill('写法', 'audience: generate');
+    const list = await skills.listSkills(project);
+    assert.equal(
+      skills.skillRelPath(find(list, 'project:写法')),
+      '.novelforge/skills/写法/SKILL.md'
+    );
+    assert.equal(skills.skillRelPath(find(list, `builtin:${SOME_BUILTIN}`)), undefined);
   });
 });

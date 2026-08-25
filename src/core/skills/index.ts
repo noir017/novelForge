@@ -75,10 +75,13 @@ import * as path from 'node:path';
 import { scoped } from '../runtime/logger';
 import type { NovelProject } from '../model/project';
 import {
+  DEFAULT_SKILL_AUDIENCE,
   DEFAULT_SKILL_MODE,
+  SkillAudience,
   SkillMode,
   SkillModes,
-  isAgentVisible,
+  isIndexed,
+  isSkillAudience,
 } from '../model/skillMode';
 import { BUILTIN_SKILLS } from './builtin';
 
@@ -104,6 +107,12 @@ export interface SkillRef {
   /** 这一份的注入方式。配置里没有它就是缺省档。 */
   mode: SkillMode;
   /**
+   * 写给谁读的（`agent` / `generate`）。**来自 frontmatter，不是配置**——
+   * 受众是技能本身的属性（「去 AI 味」在任何工程里都是给创作模型的写法），
+   * 而档位是作者按成本做的选择。
+   */
+  audience: SkillAudience;
+  /**
    * frontmatter 里那一行描述。**可能是空串**（没写，或者写成了折行 YAML）。
    *
    * 只有 `full` 档的技能才会有值：其余几档谁都不显示描述，为它们读盘是白读。
@@ -117,8 +126,17 @@ export interface SkillRef {
  * 而这个文件会 import `node:fs`。这里只是把名字接出去，省得调用方 import 两处。
  */
 export type { SkillModes };
-export { DEFAULT_SKILL_MODE, SKILL_MODES, SKILL_MODE_LABEL, isSkillMode } from '../model/skillMode';
-export type { SkillMode };
+export {
+  DEFAULT_SKILL_AUDIENCE,
+  DEFAULT_SKILL_MODE,
+  SKILL_AUDIENCES,
+  SKILL_AUDIENCE_LABEL,
+  SKILL_MODES,
+  SKILL_MODE_LABEL,
+  isSkillAudience,
+  isSkillMode,
+} from '../model/skillMode';
+export type { SkillAudience, SkillMode };
 
 /**
  * 扫出这个工程能用的全部技能，**含 `off` 那些**——设置页要列出来才改得动。
@@ -150,6 +168,7 @@ export async function listSkills(
         source: 'builtin',
         stem,
         mode: modeOf(name),
+        audience: BUILTIN_SKILLS[stem].audience,
         description: BUILTIN_SKILLS[stem].description,
       };
     });
@@ -168,57 +187,104 @@ export async function listSkills(
   }
   const own = dirs.sort().map((stem): SkillRef => {
     const name = `project:${stem}`;
-    return { name, source: 'project', stem, mode: modeOf(name), description: '' };
+    return {
+      name,
+      source: 'project',
+      stem,
+      mode: modeOf(name),
+      audience: DEFAULT_SKILL_AUDIENCE,
+      description: '',
+    };
   });
 
   const all = [...builtin, ...own];
-  if (project) {
-    await readProjectDescriptions(project, all);
+  if (own.length > 0 && project) {
+    await readProjectHeads(project, own);
   }
   return all;
 }
 
 /**
- * 把工程技能的 `description` 补上。**只补 `full` 那几个。**
+ * 把工程技能的 `audience` 与 `description` 从 frontmatter 里读出来。
  *
- * 描述只有「完整」这一档显示，而读它要一次真实的文件读取（内置那一半在构建时
- * 就读好了，工程那一半只能读盘）。缺省全是 `user`，于是绝大多数工程里这个函数
- * 一次盘都不读——这正是「索引零文件读取」那条在加了描述之后仍然成立的地方：
- * **代价只落在明确选了 `full` 的那几份上。**
+ * ## 这一趟不能再按档位省掉
  *
- * 读不出来（没有 `SKILL.md`、没写 frontmatter）就留空串，不报错：描述缺席时
- * 那一档退化成只显示名字，与 `title` 一样，这不是错误。
+ * 从前只有 `full` 那一档要描述，于是这里只为那几份读盘——缺省全是 `user` 时
+ * 一次盘都不读，「索引零文件读取」成立。
+ *
+ * **受众打破了它**：索引要按受众分成两段列，而 `generate` 那一类连正文都不进
+ * agent 的上下文——不先知道每一份是哪一类，这一刀就分不出来。所以工程技能
+ * 每一份都要读一次。
+ *
+ * 代价压在两处：
+ *
+ * 1. **只读文件头**（{@link HEAD_BYTES}）。frontmatter 在最开头，几十字节就
+ *    够；一份三万字的技能也只读这么多。
+ * 2. **只有工程技能要读**。内置那一半在构建时就读好了（`BUILTIN_SKILLS`），
+ *    而绝大多数工程一份自己的技能都没有——那时 `own` 是空的，这个函数根本不跑
+ *    （调用方先判了 `own.length > 0`）。
+ *
+ * 读不出来（没有 `SKILL.md`、没写 frontmatter）就留缺省，不报错：`listSkills`
+ * 不 `stat` 就是为了不在这里花钱，读不到照旧列名字，取正文时由 {@link readSkill}
+ * 当场回一句 error。
  */
-async function readProjectDescriptions(project: NovelProject, skills: SkillRef[]): Promise<void> {
-  const wanted = skills.filter((s) => s.source === 'project' && s.mode === 'full');
-  if (wanted.length === 0) {
-    return;
-  }
+async function readProjectHeads(project: NovelProject, own: SkillRef[]): Promise<void> {
   await Promise.all(
-    wanted.map(async (ref) => {
+    own.map(async (ref) => {
       try {
-        const text = await fs.readFile(pathOf(project, ref), 'utf8');
-        ref.description = descriptionOf(text);
+        const head = await readHead(pathOf(project, ref));
+        ref.audience = audienceOf(head);
+        ref.description = descriptionOf(head);
       } catch {
-        // 目录空着。listSkills 不 stat 就是为了不在这里花钱，读不到照旧列名字。
+        // 目录空着。缺省是「给 agent」——两者中较保守的那个：它至少要 agent
+        // 明确去读才生效，而误判成 generate 会让一份根本读不出来的技能被塞进
+        // 创作上下文。
       }
     })
   );
 }
 
 /**
- * 从 frontmatter 里抠 `description`。**只认这一个键、只认单行。**
+ * 读多少字节够看到 frontmatter。
+ *
+ * 4 KiB 是**远超需要**的一个数：frontmatter 通常不到 200 字节，而 oh-story 那批
+ * 最长的 `description` 也就四五百字。取整页的理由只是没必要抠——这一趟本来就
+ * 只在有工程技能时跑。
+ */
+const HEAD_BYTES = 4096;
+
+/**
+ * 读一个文件的开头几字节。
+ *
+ * 按字节截断可能把最后一个多字节字符切成两半，`toString('utf8')` 会在末尾留一个
+ * U+FFFD。**这不影响 frontmatter**：它在最开头，而截断永远发生在 4 KiB 处。
+ * 真有一份技能把 frontmatter 写到 4 KiB 之后，正则匹配不上，两个字段都回落缺省
+ * ——与「没写 frontmatter」同一条路。
+ */
+async function readHead(file: string, bytes = HEAD_BYTES): Promise<string> {
+  const handle = await fs.open(file, 'r');
+  try {
+    const buf = Buffer.alloc(bytes);
+    const { bytesRead } = await handle.read(buf, 0, bytes, 0);
+    return buf.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * 从 frontmatter 里抠一个键。**只认单行 `key: value`**（可带引号）。
  *
  * 与 `scripts/build-skills.js` 里那一份是同一个规则的两处实现——那边是
  * CommonJS、跑在 TS 编译之前，import 不动这里。两处都只支持 `key: value`，
  * 与 `model/markdown.ts` 那个轻量解析器同一套限制。
  */
-export function descriptionOf(text: string): string {
-  const fence = /^﻿?---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+function frontmatterValue(text: string, key: string): string {
+  const fence = /^\ufeff?---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   if (!fence) {
     return '';
   }
-  const line = /^description\s*:\s*(.*)$/m.exec(fence[1]);
+  const line = new RegExp(`^${key}\\s*:\\s*(.*)$`, 'm').exec(fence[1]);
   if (!line) {
     return '';
   }
@@ -231,34 +297,116 @@ export function descriptionOf(text: string): string {
   return unquoted.trim();
 }
 
+/** frontmatter 里那一行描述。**可能是空串**（没写，或者写成了折行 YAML）。 */
+export function descriptionOf(text: string): string {
+  return frontmatterValue(text, 'description');
+}
+
+/**
+ * frontmatter 里那一行受众。**认不出的值一律回落缺省**，不报错。
+ *
+ * 拼错一个词不该让一份技能消失；而回落到「给 agent」是两者中较保守的那个
+ * ——它至少要 agent 明确去读才生效。
+ */
+export function audienceOf(text: string): SkillAudience {
+  const raw = frontmatterValue(text, 'audience');
+  return isSkillAudience(raw) ? raw : DEFAULT_SKILL_AUDIENCE;
+}
+
 /**
  * 索引：拼进 system 的那一段。**一轮只调一次**（`agent/loop.ts` 开局）。
  *
- * **只列 `title` / `full` 那些**：`user` 是作者自己呼出的（呼出时整份正文直接
- * 进这一轮，agent 不必先知道有这么个东西），`off` 谁都看不见。
+ * ## 两段，因为读者是两拨
  *
- * 一个可见的技能都没有时返回空串，调用方据此整段不拼——比拼一句「（没有可用的
- * 技能）」好：那句话每回合都要发，而它什么都没告诉模型。**缺省全是 `user`，
- * 所以这是最常见的那条路**：不配置任何东西时，技能一个字都不占每轮预算。
+ * | 段 | 列的是 | agent 拿它做什么 |
+ * |---|---|---|
+ * | 可用技能 | `agent` 类 | 用 `skill` 工具读进来，按它说的调工具 |
+ * | 可交给创作模型的写作方法 | `generate` 类 | 调 `generate` 时填进 `skills` 参数 |
+ *
+ * 合成一段的话，agent 会拿 `skill` 去读第二类——那正是这一刀要避免的事：
+ * 几千字的写法进 agent 的上下文，它能做的也只是转述一遍给创作模型，中间白烧
+ * 一轮的钱。所以两段分开，各自把用法写在段首。
+ *
+ * ## 各段进不进索引的判据不同
+ *
+ * 见 `model/skillMode.ts` 的 `isIndexed`：`agent` 类只有 `title` / `full` 在
+ * （`user` 是作者呼出的，呼出时整份正文直接进这一轮，agent 不必先知道）；
+ * `generate` 类只要不是 `off` 就在——少了那一行 agent 永远不会把它带给
+ * `generate`，等于装了却关掉。
+ *
+ * 两段都空时返回空串，调用方据此整段不拼——比拼一句「（没有可用的技能）」好：
+ * 那句话每回合都要发，而它什么都没告诉模型。
  */
 export function describeSkills(skills: SkillRef[]): string {
-  const visible = skills.filter((s) => isAgentVisible(s.mode));
-  if (visible.length === 0) {
-    return '';
+  const visible = skills.filter((s) => isIndexed(s.audience, s.mode));
+  const blocks: string[] = [];
+
+  const mine = visible.filter((s) => s.audience === 'agent');
+  if (mine.length > 0) {
+    blocks.push(
+      [
+        '# 可用技能',
+        '',
+        '技能是「这类事该怎么做」的工作流说明。判断这一轮要做的事有对应技能时，' +
+          '先用 skill 工具把它读进来，再按它说的做。名字要**逐字照抄**（含前缀）：',
+        '',
+        // 描述**只有 `full` 那一档带**。判的是档位，不是「有没有描述」——内置技能
+        // 的描述是从常量里白拿的（构建时就读好了），照后者判的话「仅标题」会把
+        // 描述一起发出去，那一档就不存在了，而作者选它正是为了不付这一行的钱。
+        ...mine.map((s) =>
+          s.mode === 'full' && s.description ? `- ${s.name} —— ${s.description}` : `- ${s.name}`
+        ),
+      ].join('\n')
+    );
   }
-  return [
-    '# 可用技能',
-    '',
-    '技能是「这类事该怎么做」的工作流说明。判断这一轮要做的事有对应技能时，' +
-      '先用 skill 工具把它读进来，再按它说的做。名字要**逐字照抄**（含前缀）：',
-    '',
-    // 描述**只有 `full` 那一档带**。判的是档位，不是「有没有描述」——内置技能
-    // 的描述是从常量里白拿的（构建时就读好了），照后者判的话「仅标题」会把
-    // 描述一起发出去，那一档就不存在了，而作者选它正是为了不付这一行的钱。
-    ...visible.map((s) =>
-      s.mode === 'full' && s.description ? `- ${s.name} —— ${s.description}` : `- ${s.name}`
-    ),
-  ].join('\n');
+
+  const forGenerate = visible.filter((s) => s.audience === 'generate');
+  if (forGenerate.length > 0) {
+    blocks.push(
+      [
+        '# 可交给创作模型的写作方法',
+        '',
+        '下面这些**不是给你读的**——它们是落笔那一刻才生效的写法（钩子怎么选、' +
+          'AI 味的句式怎么改、这一类题材的套路是什么），正文很长。' +
+          '`skill` 工具取不到它们。',
+        '',
+        '用法：调 generate 时把名字填进 `skills` 参数，可以填多份，' +
+          '正文会直接进创作模型的上下文，不占你这一轮。',
+        '**按这一次要产出什么挑**——写正文别带排大纲的方法，反过来也一样；' +
+          '没有对得上的就别填，硬凑一份只是让这次生成变贵。',
+        '',
+        // 这一类**总是带描述**（写了的话）。它是 agent 判断「什么时候该带上」的
+        // 唯一依据：正文它读不到，名字又只有几个字。没有描述就只能靠名字自带
+        // 触发力，那正是要在「怎么写一个技能」里写清的一条。
+        ...forGenerate.map((s) =>
+          s.description ? `- ${s.name} —— ${s.description}` : `- ${s.name}`
+        ),
+      ].join('\n')
+    );
+  }
+
+  return blocks.join('\n\n');
+}
+
+/**
+ * agent 自己够得着的那些：`agent` 类里进了索引的。**`skill` 工具的名单。**
+ *
+ * `generate` 类不在里面——它的正文一个字都不该进 agent 的上下文。工具那边
+ * 因此要单独认一下这个名字（「这一份是给创作模型的，用 generate 的 skills
+ * 参数带上它」），否则模型只会照着同一句「没有叫 X 的技能」再试一次。
+ */
+export function listAgentSkills(skills: SkillRef[]): SkillRef[] {
+  return skills.filter((s) => s.audience === 'agent' && isIndexed(s.audience, s.mode));
+}
+
+/**
+ * 能交给创作模型的那些：`generate` 类里没被禁用的。**`generate` 工具的名单。**
+ *
+ * 在工具那一侧再过滤一次而不是只靠「索引里没列它，模型就不会填」：作者可能刚
+ * 把某一份改成了「禁用」，而模型手上还有上一轮的索引。
+ */
+export function listGenerateSkills(skills: SkillRef[]): SkillRef[] {
+  return skills.filter((s) => s.audience === 'generate' && isIndexed(s.audience, s.mode));
 }
 
 /**
@@ -266,6 +414,11 @@ export function describeSkills(skills: SkillRef[]): string {
  *
  * 包括 `title` / `full`——那两档是「agent 也看得见」，不是「作者看不见」。
  * 顺序沿用 {@link listSkills}（内置在前、各自按名字排），面板照着画就是了。
+ *
+ * **两类受众都在。** `generate` 那一类作者一样呼得出来——他知道这一段要按哪套
+ * 写法写。区别在呼出之后发生什么：`agent` 类折进那句话的是**整份正文**，
+ * `generate` 类折进去的只有**一句指令**（「这一轮的 generate 带上这一份」），
+ * 正文仍然只在创作模型那一侧展开。见 `controller/skills.ts` 的 `foldSkills`。
  */
 export function listInvocableSkills(skills: SkillRef[]): SkillRef[] {
   return skills.filter((s) => s.mode !== 'off');
@@ -333,6 +486,15 @@ export async function readSkill(
 /** 工程技能那份 `SKILL.md` 的绝对路径。名字是扫出来的目录名，拼不出越界。 */
 function pathOf(project: NovelProject, ref: SkillRef): string {
   return path.join(project.root, PROJECT_SKILLS_DIR, ref.stem, SKILL_ENTRY);
+}
+
+/**
+ * 工程技能那份 `SKILL.md` 的**工程内相对路径**；内置技能没有，回 undefined。
+ *
+ * 上下文明细里那一行靠它变成可点的链接（内置技能不在磁盘上，点了也打不开）。
+ */
+export function skillRelPath(ref: SkillRef): string | undefined {
+  return ref.source === 'project' ? `${PROJECT_SKILLS_DIR}/${ref.stem}/${SKILL_ENTRY}` : undefined;
 }
 
 /**

@@ -140,3 +140,27 @@ describe('名字要自带触发力', () => {
     assert.deepEqual(bad, [], '名字里有空白或分隔符，模型抄不准');
   });
 });
+
+describe('受众烘对了', () => {
+  // 索引按受众分两段，`skill` 工具只认第一段。烘错一份，那一份要么被 agent
+  // 读进整份正文（贵），要么永远没人带给 generate（等于没装）。
+  test('每一份都带 audience，且是两个合法值之一', () => {
+    const bad = Object.entries(BUILTIN_SKILLS)
+      .filter(([, s]) => s.audience !== 'agent' && s.audience !== 'generate')
+      .map(([n, s]) => `${n}: ${JSON.stringify(s.audience)}`);
+    assert.deepEqual(bad, []);
+  });
+
+  test('与磁盘上那份 frontmatter 对得上', () => {
+    const bad = [];
+    for (const [name, skill] of Object.entries(disk)) {
+      const fence = /^﻿?---\r?\n([\s\S]*?)\r?\n---/.exec(skill.body);
+      const line = fence && /^audience\s*:\s*(.*)$/m.exec(fence[1]);
+      const want = line && line[1].trim() === 'generate' ? 'generate' : 'agent';
+      if (BUILTIN_SKILLS[name].audience !== want) {
+        bad.push(`${name}: 烘成 ${BUILTIN_SKILLS[name].audience}，磁盘上是 ${want}`);
+      }
+    }
+    assert.deepEqual(bad, []);
+  });
+});

@@ -66,6 +66,13 @@ before(async () => {
   t.write('.novelforge/skills/我的审章流程/SKILL.md', '# 我的审章流程\n\n细则见 references/细则.md\n');
   t.write('.novelforge/skills/我的审章流程/references/细则.md', '这是附件，不该出现在 skill 的返回里');
 
+  // 给创作模型的那一份：这个工具**取不到它**，而且回的不是「没有这个名字」
+  // 而是一句指路。缺省档（仅用户）在这一类上就等于启用，所以不必配。
+  t.write(
+    '.novelforge/skills/去AI味/SKILL.md',
+    '---\ndescription: 清 AI 味\naudience: generate\n---\n\n# 去AI味\n'
+  );
+
   // 默认把这两份开到「仅标题」= agent 看得见。取不到那几条用例各自改。
   skillModes = { [`builtin:${someBuiltin}`]: 'title', 'project:我的审章流程': 'title' };
 
@@ -227,5 +234,42 @@ describe('够不着「仅用户」与「禁用」那两档', () => {
     const r = await run({ name: `builtin:${someBuiltin}` });
     assert.equal(r.ok, false);
     assert.match(r.error, /一个技能都没有|没有叫/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * 给创作模型的那一类：**拒绝，而且指条路。**
+ *
+ * 回一句泛泛的「没有叫 X 的技能」会让模型照着索引里明明列着的名字反复再试
+ * ——那一段的名字是它自己刚读到的。所以这里要认出这个名字，说清它该怎么用。
+ */
+describe('generate 类：取不到，但要指条路', () => {
+  test('拒绝，不当成「没有这个名字」', async () => {
+    const r = await run({ name: 'project:去AI味' });
+    assert.equal(r.ok, false);
+    assert.ok(!r.error.includes('没有叫'), r.error);
+  });
+
+  test('错误里点名 generate 与 skills 参数', async () => {
+    const { error } = await run({ name: 'project:去AI味' });
+    assert.match(error, /generate/);
+    assert.match(error, /skills/);
+  });
+
+  // 回给模型的是那句指路的话（registry 把 error 也放进 text），关键是**技能正文
+  // 一个字都不在里面**——这一类的正文进 agent 上下文正是这一刀要避免的事。
+  test('技能正文一个字都不回', async () => {
+    const r = await run({ name: 'project:去AI味' });
+    assert.ok(!r.text.includes('# 去AI味'), r.text);
+  });
+
+  // 「可用的是」那半句是 agent 类的名单，把 generate 类列进去再拒掉它，
+  // 模型只会照着再试一次。
+  test('它不出现在别处的「可用的是」名单里', async () => {
+    const { error } = await run({ name: 'project:并不存在' });
+    assert.match(error, /没有叫/);
+    assert.ok(!error.includes('project:去AI味'), error);
   });
 });

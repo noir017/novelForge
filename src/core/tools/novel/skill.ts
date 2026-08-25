@@ -17,17 +17,22 @@
  *   `read` 去取（技能正文里写着相对路径）；内置技能没有附件。
  * - **不做模糊匹配**。猜错时它会拿到一份自己没想要的技能，而且不会知道。
  *
- * ## 它够得着的就是索引里那些
+ * ## 它只够得着「可用技能」那一段
  *
- * 每份技能各有一档注入方式（`model/skillMode.ts`）。这里**按同一份配置过滤**
- * ——只有 `title` / `full` 那些取得到。
+ * 索引分两段（`skills/describeSkills`）。这个工具只认第一段——`agent` 类里
+ * `title` / `full` 那些。
  *
- * 这一条必须在这里再判一次，不能只靠「索引里没列它，模型就不会要」：作者可能
- * 把某份技能从 `title` 改成了 `user`，而模型手上还有上一轮的索引；更要紧的是
- * `user` 那一档的意思正是**「agent 别自己去读，等作者呼」**，而作者呼出走的是
- * 另一条路（整份正文直接进那一轮）。这里放行的话，那一档就没有意义了。
+ * **第二段（给创作模型的写法）在这里是拒绝，不是「找不到」。** 那一类的正文
+ * 几千上万字，读进来 agent 能做的也只是转述一遍给创作模型，白烧一轮的钱；
+ * 而回一句「没有叫 X 的技能」会让它照着索引里明明列着的名字反复再试。所以
+ * 单独认出这个名字，回一句**指路**的话：调 generate 时用 `skills` 参数带上它。
  *
- * 取不到时回的是同一句「没有叫 X 的技能」，名单是它此刻**真能取到**的那些
+ * 档位那一条同样要在这里再走一遍，不能只靠「索引里没列它，模型就不会要」：
+ * 作者可能把某份技能从 `title` 改成了 `user`，而模型手上还有上一轮的索引；
+ * 更要紧的是 `user` 那一档的意思正是**「agent 别自己去读，等作者呼」**，
+ * 而作者呼出走的是另一条路。这里放行的话，那一档就没有意义了。
+ *
+ * 名字真的不在时回的是「没有叫 X 的技能」，名单是它此刻**真能取到**的那些
  * ——把 `user` 档列进「可用的是」再拒掉它，模型只会照着再试一次。
  *
  * ## 索引与这里各扫各的
@@ -39,8 +44,7 @@
 import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
 import { objectSchema, str } from '../schema';
 import { readConfig } from '../../config';
-import { isAgentVisible } from '../../model/skillMode';
-import { listSkills, readSkill } from '../../skills';
+import { listAgentSkills, listGenerateSkills, listSkills, readSkill } from '../../skills';
 
 export const skillTool: ToolDef = {
   name: 'skill',
@@ -65,8 +69,22 @@ export const skillTool: ToolDef = {
     // 与索引同一份配置。过滤掉「仅用户」与「禁用」那些：前者的意思正是
     // 「等作者呼出」，agent 自己读走了那一档就没有意义了。
     const all = await listSkills(ctx.project, readConfig().skillModes);
-    const reachable = all.filter((s) => isAgentVisible(s.mode));
-    const got = await readSkill(ctx.project, reachable, wanted);
+
+    // 给创作模型的那一类：认出来、指条路，别让它照着索引反复重试。
+    const forGenerate = listGenerateSkills(all);
+    const misdirected = forGenerate.find((s) => s.name === wanted);
+    if (misdirected) {
+      return {
+        text: '',
+        error:
+          `${misdirected.name} 是给创作模型的写作方法，不从这里读——` +
+          '它的正文很长，读进来你也只能转述一遍，白花一轮的钱。' +
+          `要用它就调 generate，把 ${misdirected.name} 填进 skills 参数，` +
+          '正文会直接进创作模型的上下文。',
+      };
+    }
+
+    const got = await readSkill(ctx.project, listAgentSkills(all), wanted);
     if (!got.ok) {
       return { text: '', error: got.error };
     }

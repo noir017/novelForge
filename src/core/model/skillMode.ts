@@ -91,3 +91,71 @@ export function normalizeSkillModes(raw: unknown): SkillModes {
   }
   return out;
 }
+
+// ---------------------------------------------------------------- 受众
+
+/**
+ * 这一份技能是**写给谁读的**。
+ *
+ * ## 为什么它与档位是两件事
+ *
+ * 档位（上面那四档）回答的是「这一份占不占 agent 每一轮的预算」——那是作者
+ * 按成本做的选择。受众回答的是**另一个问题**：这套方法论是给 agent 用的，
+ * 还是给创作模型用的。
+ *
+ * | 受众 | 谁读它的正文 | 怎么用 |
+ * |---|---|---|
+ * | `agent` | agent 自己 | 它用 `skill` 工具读进来，再按说的调那几个工具 |
+ * | `generate` | **被调用的创作模型** | agent 调 `generate` 时把名字填进 `skills`，正文直接进创作上下文 |
+ *
+ * 分这一刀的理由是**这两种方法论根本不是一回事**：
+ *
+ * - 「跨章核对伏笔」是一套**动作**——搜哪几个词、按章号排、结论落到哪个文件。
+ *   它要有工具才做得成，所以读者只能是 agent。
+ * - 「章尾钩子怎么选、AI 味的句式怎么改」是一套**写法**——它要在落笔那一刻
+ *   生效。让 agent 读进来，它能做的也只是把这几千字转述给创作模型，中间还多
+ *   烧一遍 agent 上下文的钱。**该读它的是真正在写的那个模型。**
+ *
+ * 所以 `generate` 那一类的正文**永远不进 agent 的上下文**：索引里只给 agent
+ * 一个名字加一句描述，让它知道有这么一套写法、什么时候该带上；带不带、带哪
+ * 一份，由它按这一次要产出什么来判断（写正文别带排大纲的方法）。
+ *
+ * ## 缺省是 `agent`
+ *
+ * frontmatter 不写 `audience:` 就是 `agent`——现有那两份内置技能正是这一类，
+ * 而「不声明就是给 agent 的」也与 `skill` 工具一直以来的行为一致。
+ */
+export type SkillAudience = 'agent' | 'generate';
+
+export const SKILL_AUDIENCES: SkillAudience[] = ['agent', 'generate'];
+
+export const DEFAULT_SKILL_AUDIENCE: SkillAudience = 'agent';
+
+/** 设置页与日志共用这一份说法，前端不另写。 */
+export const SKILL_AUDIENCE_LABEL: Record<SkillAudience, string> = {
+  agent: '给 agent',
+  generate: '给创作模型',
+};
+
+export const SKILL_AUDIENCE_HINT: Record<SkillAudience, string> = {
+  agent: 'agent 用 skill 工具读进来，按它说的调工具做事',
+  generate: 'agent 不读它，只在调 generate 时把名字带上——正文直接进创作模型的上下文',
+};
+
+export function isSkillAudience(value: unknown): value is SkillAudience {
+  return typeof value === 'string' && (SKILL_AUDIENCES as string[]).includes(value);
+}
+
+/**
+ * 这一份要不要出现在 agent 每轮的索引里。**两类各有一套判据。**
+ *
+ * - `agent` 类沿用 {@link isAgentVisible}：缺省「仅用户」不进索引，作者呼出才用。
+ *   那一档成立的前提是**呼出时整份正文直接进这一轮**，agent 不必先知道它存在。
+ * - `generate` 类只认 `off`。它的正文本来就不进 agent 的上下文（索引里那一行是
+ *   名字加一句描述，几十个 token），而**少了那一行 agent 就永远不会把它带给
+ *   `generate`**——那一档等于把技能装了却关掉。所以这一类不吃「仅用户」：
+ *   作者要收起来，用「禁用」。
+ */
+export function isIndexed(audience: SkillAudience, mode: SkillMode): boolean {
+  return audience === 'generate' ? mode !== 'off' : isAgentVisible(mode);
+}
