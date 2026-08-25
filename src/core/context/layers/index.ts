@@ -19,6 +19,7 @@ import {
   style,
 } from './background';
 import { ask, attachments, history, system } from './dialog';
+import { skills } from './skills';
 import type { LayerFn } from './assembly';
 
 export const LAYERS: Record<LayerId, LayerFn> = {
@@ -41,6 +42,7 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   manuscriptFull,
   plotSummary,
   revision,
+  skills,
 };
 
 export { resolveFocus } from './focus';

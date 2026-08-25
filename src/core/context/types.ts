@@ -36,7 +36,9 @@ export type ItemKind =
   /** 前面某章的摘要。 */
   | 'plotSummary'
   | 'lore'
-  | 'revision';
+  | 'revision'
+  /** 一份交给创作模型的写作方法（`generate` 类技能的正文）。 */
+  | 'skill';
 
 export type ItemStatus = 'included' | 'degraded' | 'dropped' | 'excluded';
 
@@ -92,7 +94,9 @@ export type LayerId =
   | 'prevTail'
   | 'manuscriptFull'
   | 'plotSummary'
-  | 'revision';
+  | 'revision'
+  /** 调用方点名要带的写作方法。见 {@link BuildRequest.skills}。 */
+  | 'skills';
 
 export interface LayerSpec {
   layer: LayerId;
@@ -134,6 +138,29 @@ export interface BuildRequest {
   attachments?: Attachment[];
   /** 本会话之前的对话轮次，按时间正序，不含本轮。 */
   history?: ChatTurn[];
+  /**
+   * 这一次要带上的写作方法（`generate` 受众的技能）。
+   *
+   * **正文由调用方读好递进来，装配器不认识 `core/skills/`。** 两条理由：
+   *
+   * 1. 名字错了要在**花钱之前**就回给 agent 一句「没有叫 X 的写法」，那件事
+   *    只有工具层做得成——装配器这一层已经在一次生成里面了。
+   * 2. `context/` 不该 import 一个会拖进 `node:fs` 与那份烘出来的常量的模块。
+   *
+   * 缺席或空数组 = 这一次不带。**缺省就是不带**：每一份都是几千上万字，
+   * 谁都不该默认付这笔钱。
+   */
+  skills?: SkillText[];
+}
+
+/** 一份要注入创作上下文的写作方法。 */
+export interface SkillText {
+  /** 带前缀的全名，`project:去AI味`。上下文明细里显示的就是它。 */
+  name: string;
+  /** `SKILL.md` 正文。 */
+  text: string;
+  /** 工程内相对路径，工程技能才有——明细里那一行要能点开。 */
+  source?: string;
 }
 
 export interface BuiltContext {

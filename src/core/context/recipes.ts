@@ -10,6 +10,17 @@
  *   就能把它挤掉。而它恰恰是「读者感觉不到换人执笔」的唯一保障。
  *
  * 所以有几处刻意的抬高，见下面的 ★。
+ *
+ * ## `skills` 为什么四张都有、又都排在 force 那一批之后
+ *
+ * 写作方法是**这一次要按哪套写法做**，四层各有各的方法（排大纲有排大纲的结构
+ * 理论，写正文有写正文的钩子与去 AI 味），所以四张都带这一层——带不带、带哪
+ * 一份由调用方点名（`BuildRequest.skills`），缺省是空的，一分钱不花。
+ *
+ * 位置在每张的 **P0 force 那一批之后**：那几层是这一次真正要动的产物
+ * （本层产物、文风指南、上一章结尾）。方法缺席只是写得平庸，产物缺席这一次
+ * 生成直接是错的——`admit` 的 force 会让它们透支余额，排在它们前面等于让方法
+ * 去挤真正的依据。
  */
 import { CreationStage } from '../model/pipeline';
 import { LayerSpec } from './types';
@@ -18,6 +29,17 @@ import { LayerSpec } from './types';
 const ATTACHMENT_CAP = 0.35;
 /** 全部历史对话最多吃掉多少预算。 */
 const HISTORY_CAP = 0.3;
+/**
+ * 这一次带上的写作方法最多吃掉多少预算。
+ *
+ * 有上限是因为它**不由作者一次次过目**：agent 自己判断这一次带哪几份，而
+ * oh-story 那一类的写作方法动辄两三万字——三份下去就能把细纲、前文和文风一起
+ * 挤到丢弃里，而作者只会看到「这一章写得不像我的书」，看不出是什么把它挤掉的。
+ *
+ * 0.35 与附件同一个数，理由也一样：这一类东西可以很大，但它不该压过**这一次
+ * 真正要动的那份产物**。超了的整份丢弃（不截断），明细里写清楚。
+ */
+const SKILL_CAP = 0.35;
 
 /**
  * 四张配方，一个阶段一张。**顺序即填充顺序**：靠前的先拿预算，靠后的
@@ -45,6 +67,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
     { layer: 'outlineDoc', priority: 0, force: true },
     { layer: 'volumeList', priority: 0, force: true },
+    { layer: 'skills', priority: 0, cap: SKILL_CAP },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'globalSummary', priority: 1 },
     { layer: 'characters', priority: 2 },
@@ -66,6 +89,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
     { layer: 'volumeSelf', priority: 0, force: true },
     { layer: 'volumeSegments', priority: 0, force: true },
+    { layer: 'skills', priority: 0, cap: SKILL_CAP },
     { layer: 'outlineDoc', priority: 1 },
     { layer: 'volumeList', priority: 1 },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
@@ -88,6 +112,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
     { layer: 'plotSelf', priority: 0, force: true },
     { layer: 'outlineDoc', priority: 0 },
+    { layer: 'skills', priority: 0, cap: SKILL_CAP },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'plotPrev', priority: 1 },
     { layer: 'plotNext', priority: 1 },
@@ -113,6 +138,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'plotSelf', priority: 0, force: true },
     { layer: 'prevTail', priority: 0, force: true },
     { layer: 'revision', priority: 0, force: true },
+    { layer: 'skills', priority: 0, cap: SKILL_CAP },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'characters', priority: 1 },
     { layer: 'globalSummary', priority: 2 },

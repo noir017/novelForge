@@ -105,6 +105,15 @@ before(async () => {
     sections: { ...bundle.plotFile.emptyPlotSections(), 目标: '林昭进入宗门' },
   });
   await project.syncManifest();
+
+  // 一份给创作模型的写作方法，一份给 agent 自己的。两者在这个工具上的待遇
+  // 完全不同：前者带得上，后者填进来是错的。
+  t.write(
+    '.novelforge/skills/去AI味/SKILL.md',
+    '---\ndescription: 清 AI 味\naudience: generate\n---\n\n# 去AI味\n\n别写「眼中闪过一丝」。\n'
+  );
+  t.write('.novelforge/skills/我的审章流程/SKILL.md', '# 我的审章流程\n\n先 search 再 read。\n');
+
   resetCtx();
 });
 
@@ -362,9 +371,125 @@ describe('工具定义本身', () => {
     assert.ok(!d.includes('画面'), d);
   });
 
-  test('参数是扁平的四个标量', () => {
+  // 五个，且一个嵌套对象都没有。`skills` 是字符串数组——`validateToolDef` 放行
+  // 数组，拒的是对象与对象数组（模型最容易填错的正是那两样）。
+  test('参数是扁平的，没有嵌套对象', () => {
     const props = tool().parameters.properties;
-    assert.deepEqual(Object.keys(props).sort(), ['ask', 'job', 'target', 'targetWords']);
+    assert.deepEqual(Object.keys(props).sort(), ['ask', 'job', 'skills', 'target', 'targetWords']);
     assert.ok(Object.values(props).every((p) => p.type !== 'object'), JSON.stringify(props));
+    assert.equal(props.skills.type, 'array');
+    assert.equal(props.skills.items.type, 'string');
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * `skills`：把写作方法交给创作模型。
+ *
+ * 这一层特有的四件事：
+ *
+ * 1. **正文在这里读、在这里校验**——名字错了要在**花钱之前**说，到了装配器
+ *    这一次生成已经开始了；
+ * 2. **一个对不上就整次拒绝**，不静默丢掉：agent 是刻意点名的，默默不带等于
+ *    让作者付了钱却没用上他要的写法；
+ * 3. **`agent` 类填进来要单独指一句**，回一句泛泛的「没有这个名字」它只会
+ *    照着再试一次；
+ * 4. **正文进的是创作上下文，不是返回值**——与「产物不回灌」是同一条。
+ */
+describe('skills：把写作方法交给创作模型', () => {
+  const userText = () => {
+    const messages = fake.calls[fake.calls.length - 1];
+    return messages.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
+  };
+
+  test('留空时一个字都不带（缺省不花这笔钱）', async () => {
+    resetCtx();
+    replyFn = () => PLOT_JSON;
+    await run({ job: 'plot', target: PLOT_REL, ask: '排一下' });
+    assert.ok(!userText().includes('写作方法'), userText().slice(0, 200));
+  });
+
+  test('点名之后正文进了创作上下文', async () => {
+    resetCtx();
+    replyFn = () => PLOT_JSON;
+    const r = await run({ job: 'plot', target: PLOT_REL, ask: '排一下', skills: ['project:去AI味'] });
+    assert.equal(r.error, undefined, r.error);
+    assert.match(userText(), /# 写作方法（这一次按下面的方法做）/);
+    assert.match(userText(), /眼中闪过一丝/);
+  });
+
+  // 与「产物不回灌」同一条：几千字的方法回到 agent 手上，它每走一步重烧一遍。
+  test('正文不回灌 agent 的返回值', async () => {
+    resetCtx();
+    replyFn = () => PLOT_JSON;
+    const r = await run({ job: 'plot', target: PLOT_REL, ask: '排一下', skills: ['project:去AI味'] });
+    assert.ok(!r.text.includes('眼中闪过一丝'), r.text);
+  });
+
+  test('名字对不上：整次拒绝，且没花钱', async () => {
+    resetCtx();
+    const before = ctx.usage.calls;
+    const r = await run({ job: 'plot', target: PLOT_REL, ask: '排一下', skills: ['project:并不存在'] });
+    assert.match(r.error, /没有叫 project:并不存在/);
+    assert.equal(ctx.usage.calls, before, '拒绝那条路一分钱都不该记');
+    assert.equal(fake.calls.length, 0, '不该发出请求');
+  });
+
+  test('名单从实际扫到的那一份来', async () => {
+    resetCtx();
+    const r = await run({ job: 'plot', target: PLOT_REL, ask: '排一下', skills: ['x'] });
+    assert.match(r.error, /project:去AI味/);
+    // agent 类不在「可交给创作模型的是」里——列进去它只会照着再试一次。
+    assert.ok(!r.error.includes('project:我的审章流程'), r.error);
+  });
+
+  test('填了 agent 类：单独指一句，别让它照着再试', async () => {
+    resetCtx();
+    const r = await run({
+      job: 'plot',
+      target: PLOT_REL,
+      ask: '排一下',
+      skills: ['project:我的审章流程'],
+    });
+    assert.match(r.error, /skill 工具/);
+    assert.ok(!/^没有叫/.test(r.error), r.error);
+  });
+
+  // schema 说的是字符串数组，而模型时不时给一个裸字符串或者一串顿号分隔的名字。
+  // 认下来比让它白跑一次往返便宜。
+  test('裸字符串也认', async () => {
+    resetCtx();
+    replyFn = () => PLOT_JSON;
+    const r = await run({ job: 'plot', target: PLOT_REL, ask: '排一下', skills: 'project:去AI味' });
+    assert.equal(r.error, undefined, r.error);
+    assert.match(userText(), /眼中闪过一丝/);
+  });
+
+  test('顿号分隔也认', async () => {
+    resetCtx();
+    replyFn = () => PLOT_JSON;
+    const r = await run({
+      job: 'plot',
+      target: PLOT_REL,
+      ask: '排一下',
+      skills: ['project:去AI味、project:去AI味'],
+    });
+    assert.equal(r.error, undefined, r.error);
+  });
+
+  // 卡片上要写清带了哪几套写法：它们会进创作上下文、也会占掉预算，
+  // 作者点头之前该看得见（第 4 条）。
+  test('确认卡上写明带了哪几份', () => {
+    const intent = tool().intent(
+      { job: 'plot', target: PLOT_REL, skills: ['project:去AI味'] },
+      project
+    );
+    assert.match(intent.detail, /写作方法：project:去AI味/);
+  });
+
+  test('留空时卡片上不多一行', () => {
+    const intent = tool().intent({ job: 'plot', target: PLOT_REL }, project);
+    assert.ok(!intent.detail.includes('写作方法'), intent.detail);
   });
 });

@@ -141,6 +141,9 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
   };
 
   section('# 文风指南（务必贴合）', pick('style'));
+  // 紧挨着文风指南：两者是同一类东西——都在说「怎么写」，而不是「写什么」。
+  // 排在产物与前文之前，是因为它是读后面那些材料时该带着的框架。
+  section('# 写作方法（这一次按下面的方法做）', pick('skill'));
   section('# 全书前情提要', pick('globalSummary'));
   section('# 全书大纲', pick('outlineDoc'));
   section('# 相关角色设定', pick('character'));

@@ -1658,3 +1658,103 @@ describe('出场人物索引', () => {
     assert.equal(castMod.describePlots([]), '未在摘要中出现');
   });
 });
+
+// ---------------------------------------------------------------------------
+
+/**
+ * `skills` 层：调用方点名的写作方法。
+ *
+ * 三件事：
+ *
+ * 1. **缺省不带**——每一份都是几千上万字，谁都不该默认付这笔钱；
+ * 2. **装不下整份丢，不截断**。照着半套流程写完比没有更糟，而被丢掉这件事
+ *    要留在明细里（第 2 条：不静默截断）；
+ * 3. **段落挨着文风指南**：两者都在说「怎么写」，是读后面那些材料时该带着
+ *    的框架。
+ */
+describe('装配：写作方法（skills 层）', () => {
+  const withSkills = async (skills, config = baseConfig) =>
+    builderMod.buildContext(SAMPLE_PROJECT(), req(outline, { targetWords: 2000, skills }), config);
+
+  // `project` 在 before 里开好了，这里只是取一次，省得每条重开。
+  const SAMPLE_PROJECT = () => project;
+
+  test('缺省不带：没有 skill 条目', async () => {
+    const b = await builderMod.buildContext(project, req(outline), baseConfig);
+    assert.equal(b.items.filter((i) => i.kind === 'skill').length, 0);
+  });
+
+  test('点名之后进了明细，且被采纳', async () => {
+    const b = await withSkills([{ name: 'project:去AI味', text: '别写「眼中闪过一丝」。' }]);
+    const item = b.items.find((i) => i.id === 'skill:project:去AI味');
+    assert.ok(item, JSON.stringify(b.items.map((i) => i.id)));
+    assert.equal(item.status, 'included');
+    assert.ok(item.tokens > 0);
+  });
+
+  test('正文进了 user 消息，段落挨着文风指南', async () => {
+    const b = await withSkills([{ name: 'project:去AI味', text: '别写「眼中闪过一丝」。' }]);
+    const user = b.messages.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
+    assert.match(user, /# 写作方法（这一次按下面的方法做）/);
+    assert.match(user, /眼中闪过一丝/);
+    assert.ok(user.indexOf('# 文风指南') < user.indexOf('# 写作方法'), '文风在前，方法紧随其后');
+  });
+
+  test('一次带几份，各自带上自己的名字', async () => {
+    const b = await withSkills([
+      { name: 'project:甲', text: '甲的写法' },
+      { name: 'project:乙', text: '乙的写法' },
+    ]);
+    const user = b.messages.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
+    // 一次带好几份时，模型要分得清哪条要求出自哪一套方法。
+    assert.match(user, /【写作方法 · project:甲】/);
+    assert.match(user, /【写作方法 · project:乙】/);
+  });
+
+  test('工程技能那一行可以点开', async () => {
+    const b = await withSkills([
+      { name: 'project:去AI味', text: 'x', source: '.novelforge/skills/去AI味/SKILL.md' },
+    ]);
+    assert.equal(
+      b.items.find((i) => i.id === 'skill:project:去AI味').source,
+      '.novelforge/skills/去AI味/SKILL.md'
+    );
+  });
+
+  // 截一半的方法比没有更糟：模型会照着前半套写完，还以为自己做全了。
+  // 附件那一层的做法正相反（超了就截）——附件是材料，半份材料仍然是材料。
+  test('超出上限：整份丢弃，不截断', async () => {
+    const huge = '钩'.repeat(200000);
+    const b = await withSkills([{ name: 'project:巨大', text: huge }]);
+    const item = b.items.find((i) => i.id === 'skill:project:巨大');
+    assert.equal(item.status, 'dropped');
+    assert.equal(item.text, '');
+    assert.match(item.note, /不截断/);
+  });
+
+  test('丢掉的那一份不出现在 user 消息里', async () => {
+    const b = await withSkills([{ name: 'project:巨大', text: '钩'.repeat(200000) }]);
+    const user = b.messages.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
+    assert.ok(!user.includes('钩钩钩钩钩'), '整份丢弃就该一个字都不进去');
+  });
+
+  // 明细里可以取消勾选：作者看见这一次带了什么，也改得动。
+  test('手动排除认得出来', async () => {
+    const b = await builderMod.buildContext(
+      project,
+      req(outline, {
+        skills: [{ name: 'project:去AI味', text: '别写「眼中闪过一丝」。' }],
+        excludedIds: ['skill:project:去AI味'],
+      }),
+      baseConfig
+    );
+    assert.equal(b.items.find((i) => i.id === 'skill:project:去AI味').status, 'excluded');
+  });
+
+  test('空正文报得出来，不静默跳过', async () => {
+    const b = await withSkills([{ name: 'project:空的', text: '   ' }]);
+    const item = b.items.find((i) => i.id === 'skill:project:空的');
+    assert.equal(item.status, 'dropped');
+    assert.match(item.note, /空的/);
+  });
+});

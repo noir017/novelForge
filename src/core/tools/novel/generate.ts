@@ -30,6 +30,12 @@
  *    返回再记，异常那条路上的钱就丢账了。**这里只报数，不判断触没触顶**：
  *    上限是调用方的事，工具连「上限是多少」都不知道。
  *
+ * 6. **写作方法由这里读，不在装配器里读**。`skills` 参数收到的是几个名字，
+ *    正文在这一层读好、递进 `BuildRequest.skills`。放在这里而不是往下推一层，
+ *    是因为**名字错了要在花钱之前就说**：到了装配器，这一次生成已经开始了。
+ *    读不到就整次拒绝，不静默丢掉——agent 是刻意点名的，默默不带等于让作者
+ *    付了钱却没用上他要的写法。
+ *
  * ## 落点从路径反推，产出什么由 job 说
  *
  * `kindOfPath` 一次给出 `stage` 与 `target`，不必让模型填 `{kind, chapterNo}`
@@ -41,9 +47,12 @@
  * 给它一个细纲路径就是矛盾的，那时报错而不是猜。
  */
 import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
-import { int, objectSchema, str } from '../schema';
+import { int, objectSchema, str, strArray } from '../schema';
 import { clip, describePath, text } from './naming';
 import { generate } from '../../generation/generate';
+import type { SkillText } from '../../context/types';
+import { readConfig } from '../../config';
+import { listGenerateSkills, listSkills, readSkill, skillRelPath } from '../../skills';
 import { createModelPool } from '../../llm/pool';
 import type { LlmProvider } from '../../llm/provider';
 import { scoped } from '../../runtime/logger';
@@ -83,10 +92,18 @@ export const generateTool: ToolDef = {
    */
   intent(args, project): ToolIntent {
     const target = text(args.target);
+    const named = toNames(args.skills);
     return {
       gate: 'costly',
       title: `为「${describePath(target, project)}」调一次创作模型`,
-      detail: [target, text(args.ask) && `要求：${clip(text(args.ask))}`, '这一步会花钱。产出之后还会再问你一次要不要落盘。']
+      detail: [
+        target,
+        text(args.ask) && `要求：${clip(text(args.ask))}`,
+        // 卡片上要写清带了哪几套写法：它们会进创作上下文，也会占掉预算，
+        // 作者点头之前该看得见（第 4 条的同一面）。
+        named.length > 0 && `写作方法：${named.join('、')}`,
+        '这一步会花钱。产出之后还会再问你一次要不要落盘。',
+      ]
         .filter(Boolean)
         .join('\n'),
     };
@@ -103,7 +120,10 @@ export const generateTool: ToolDef = {
     '**返回的只有形状与 draftId，没有正文**——正文会直接流给作者看；' +
     '你要看内容就等它落盘之后再 read。' +
     '产出之后会当场请作者点头，同意才落盘，结果写在返回里；不必也不要再用 write 写同一份。' +
-    '这个工具会真的调模型花钱，每次调用都会记账，不要重复生成同一份东西。',
+    '这个工具会真的调模型花钱，每次调用都会记账，不要重复生成同一份东西。\n' +
+    'skills 填 system 里「可交给创作模型的写作方法」下面那些名字（逐字照抄，含前缀）：' +
+    '它们的正文会直接进创作模型的上下文，你不必也读不到。按这一次产出什么挑，' +
+    '对不上就留空。',
 
   parameters: objectSchema(
     {
@@ -111,6 +131,10 @@ export const generateTool: ToolDef = {
       target: str('落点：那份产物的工程内相对路径。'),
       ask: str('补充要求，可留空。留空时按上一层的产物照常生成。'),
       targetWords: int('目标字数，只对 job=manuscript 有意义。留空不限。'),
+      skills: strArray(
+        '这一次要让创作模型按哪几套写法做。名字照抄「可交给创作模型的写作方法」那一段，' +
+          '含 project: / builtin: 前缀。可以填多份，不需要就留空。'
+      ),
     },
     ['job', 'target']
   ),
@@ -151,10 +175,17 @@ export const generateTool: ToolDef = {
       };
     }
 
+    // 写作方法在花钱之前读好。名字错了整次拒绝——这一步不花一分钱，
+    // 而默默不带等于让作者付了钱却没用上他要的写法。
+    const picked = await resolveSkills(ctx, args.skills);
+    if (!picked.ok) {
+      return { text: '', error: picked.error };
+    }
+
     // 记在发请求之前：请求发出去钱就花了，抛异常也一样。
     ctx.usage.record(1);
     let failure: string | undefined;
-    const picked = await pickModel(path.stage);
+    const model = await pickModel(path.stage);
 
     const { draft } = await generate(
       ctx.project,
@@ -166,6 +197,7 @@ export const generateTool: ToolDef = {
         targetWords: toPositiveInt(args.targetWords),
         // 空数组，见文件头第 2 条。**不要改成 ctx 里的什么历史。**
         history: [],
+        skills: picked.skills,
       },
       {
         // 正文流给前端气泡，不进 agent 上下文。
@@ -184,7 +216,7 @@ export const generateTool: ToolDef = {
       // 这件事」的，而这里是 agent 在一轮里顺手产出一份产物——它可能一轮里调
       // 好几次，每次都按极限档想一遍，等于把那个下拉框变成一个倍率不明的开关。
       // 循环本身仍然按那一档想（`controller/agent.ts` 递给 runAgent）。
-      { signal: ctx.signal, ...picked }
+      { signal: ctx.signal, ...model }
     );
 
     if (!draft) {
@@ -197,6 +229,7 @@ export const generateTool: ToolDef = {
     // 只说发生了什么。「已用 3/10 次生成」那半句是调用方的账，它才知道上限。
     ctx.report(`已生成 ${what}：${shape}`);
 
+    const usedSkills = picked.skills.length > 0 ? `｜写作方法 ${picked.skills.map((s) => s.name).join('、')}` : '';
     return {
       draftIds: [draft.id],
       // 只有形状与 id。**这里出现正文就是 bug。**
@@ -206,7 +239,7 @@ export const generateTool: ToolDef = {
         `落点：${rel}\n` +
         `内容已经流给作者看了。要不要落盘正在问他，结论就在下面。` +
         `你不需要复述它的内容。`,
-      display: { title: `generate ${what}`, detail: `${shape} · ${draft.words} 字` },
+      display: { title: `generate ${what}`, detail: `${shape} · ${draft.words} 字${usedSkills}` },
     };
   },
 };
@@ -257,6 +290,71 @@ function expectedPathHint(job: CreationJob): string {
 /** 六个 job 各一行，说清产出什么。工具描述吃它——模型不该先查表再选。 */
 function describeJobs(): string {
   return CREATION_JOBS.map((j) => `- ${j}：${JOB_HINT[j]}`).join('\n');
+}
+
+/**
+ * `skills` 参数 → 几个名字。**容错读一手**：schema 说的是字符串数组，而模型
+ * 时不时会给一个裸字符串或者一串顿号/逗号分隔的名字。这一层认下来比让它
+ * 白跑一次往返便宜。
+ *
+ * 名字本身**不做模糊匹配**（与 `skill` 工具同一条）：猜错时创作模型会拿到一份
+ * 没人想要的写法，而且谁都不会知道。
+ */
+function toNames(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+  return raw
+    .flatMap((item) => (typeof item === 'string' ? item.split(/[、,，]/) : []))
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
+type ResolvedSkills = { ok: true; skills: SkillText[] } | { ok: false; error: string };
+
+/**
+ * 名字 → 正文。**一个对不上就整次拒绝。**
+ *
+ * 判据是「此刻真能带上的那些」（`listGenerateSkills`），不是索引里那一份：
+ * 作者可能刚把某一份改成了「禁用」，而模型手上还有上一轮的索引。
+ *
+ * 把 `agent` 类的名字填进来也走这条错误路径，并且**单独指一句**——那一类
+ * 该用 `skill` 工具自己读，回一句泛泛的「没有这个名字」它只会照着再试一次。
+ */
+async function resolveSkills(ctx: ToolContext, value: unknown): Promise<ResolvedSkills> {
+  const names = toNames(value);
+  if (names.length === 0) {
+    return { ok: true, skills: [] };
+  }
+  const all = await listSkills(ctx.project, readConfig().skillModes);
+  const usable = listGenerateSkills(all);
+
+  const skills: SkillText[] = [];
+  for (const name of names) {
+    if (!usable.some((s) => s.name === name)) {
+      const mine = all.find((s) => s.name === name && s.audience === 'agent');
+      if (mine) {
+        return {
+          ok: false,
+          error:
+            `${name} 是给你自己用的技能，不是给创作模型的写法——用 skill 工具读它。` +
+            available(usable),
+        };
+      }
+      return { ok: false, error: `没有叫 ${name} 的写作方法。${available(usable)}` };
+    }
+    const got = await readSkill(ctx.project, usable, name);
+    if (!got.ok) {
+      return { ok: false, error: got.error };
+    }
+    skills.push({ name: got.ref.name, text: got.text, source: skillRelPath(got.ref) });
+  }
+  return { ok: true, skills };
+}
+
+/** 「可用的是」那半句。名单从**实际扫到的那一份**来，写死一串就会开始撒谎。 */
+function available(usable: { name: string }[]): string {
+  return usable.length > 0
+    ? `可交给创作模型的是：${usable.map((s) => s.name).join(' / ')}。名字要逐字照抄，含前缀。`
+    : '这个工程里没有可交给创作模型的写作方法，把 skills 留空。';
 }
 
 function toPositiveInt(value: unknown): number | undefined {
