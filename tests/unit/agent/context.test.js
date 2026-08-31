@@ -8,7 +8,9 @@
  * 1. 装得下就一个字不动；
  * 2. system 与最后 K 轮永不压缩；
  * 3. 更早的工具结果只留第一行 + 一句「已省略」，且**打一条 warn**（第 2 条）；
- * 4. 压到底仍然超预算时给出停下的信号，**不丢用户最初那句要求**。
+ * 4. 压到底仍然超预算时给出停下的信号，**不丢用户最初那句要求**；
+ * 5. 算输入的时候**工具调用的参数与工具声明都算钱**——它们不在 content 里，
+ *    却与 content 挤同一个窗口。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -189,6 +191,31 @@ describe('边界', () => {
     ];
     const r = ctx.buildAgentMessages('系统提示', turns, 3000);
     assert.equal(toolMessages(r.messages)[0].content, '（空目录）');
+  });
+
+  test('工具调用的参数算进预算（`write` 一整章正文就在参数里）', () => {
+    const body = '雨下了三天。'.repeat(500);
+    const bare = [{ role: 'assistant', content: '我来写这一章。', toolCalls: [] }];
+    const withArgs = [
+      {
+        role: 'assistant',
+        content: '我来写这一章。',
+        toolCalls: [
+          { id: 'c1', name: 'write', args: { path: 'x.md', content: body }, raw: JSON.stringify({ content: body }) },
+        ],
+      },
+    ];
+    const a = ctx.buildAgentMessages('系统提示', bare, 100000).tokens;
+    const b = ctx.buildAgentMessages('系统提示', withArgs, 100000).tokens;
+    // 从前只数 content，这两个数一模一样——几千 token 被数成 0。
+    assert.ok(b > a + 1000, `${a} → ${b}`);
+  });
+
+  test('工具声明的开销由循环传进来，一并算在输入里', () => {
+    const turns = rounds(1, 20);
+    const without = ctx.buildAgentMessages('系统提示', turns, 100000).tokens;
+    const withTools = ctx.buildAgentMessages('系统提示', turns, 100000, 1500).tokens;
+    assert.equal(withTools - without, 1500);
   });
 
   test('轮数不足 K 时全部保留', () => {

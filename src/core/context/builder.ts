@@ -12,7 +12,7 @@ import { AgentMessage } from '../llm/provider';
 import { NovelProject } from '../model/project';
 import { stageOfJob } from '../model/pipeline';
 import { NovelConfig } from '../model/types';
-import { estimateTokens } from './tokenizer';
+import { estimateMessagesTokens, estimateTokens } from './tokenizer';
 import { LAYERS, resolveFocus, type Assembly } from './layers';
 import { askHeading, buildOutputContract } from './prompts';
 import { recipeFor } from './recipes';
@@ -21,6 +21,16 @@ import { BuildRequest, BuiltContext, ContextItem, ItemKind } from './types';
 export * from './types';
 
 const SAFETY_MARGIN = 512;
+
+/**
+ * 装配框架本身要花的 token：十来个小标题、段落之间的 `---`、目标字数那一行。
+ *
+ * 这些字符**不属于任何一条 `ContextItem`**——它们是 `assembleMessages` 拼出来的，
+ * 从前谁都没为它们付过账：层按 `budget` 装满，拼装时再凭空多出几百 token。
+ * 平时无所谓，预算刚好卡满时就是实打实的超窗口。契约那一段能提前算准，
+ * 小标题与分隔符按上限预留一个常数。
+ */
+const SECTION_OVERHEAD = 200;
 
 export async function buildContext(
   project: NovelProject,
@@ -38,6 +48,11 @@ export async function buildContext(
   const budgetClampedByProvider =
     request.providerMaxInputTokens !== undefined && request.providerMaxInputTokens < config.contextWindow;
 
+  // 框架的开销先扣掉，剩下的才是层能分的。`budget` 本身仍是「窗口给了多少」，
+  // 对外报的那个数不变——变的是层能拿到手的额度。
+  const framing =
+    estimateTokens(buildOutputContract(request.job, request.targetWords)) + SECTION_OVERHEAD;
+
   const recipe = recipeFor(stageOfJob(request.job));
   const focus = await resolveFocus(project, request, recipe);
 
@@ -47,7 +62,7 @@ export async function buildContext(
     config,
     focus,
     budget,
-    remaining: budget,
+    remaining: Math.max(0, budget - framing),
     items,
     excluded,
 
@@ -95,7 +110,10 @@ export async function buildContext(
   }
 
   const messages = assembleMessages(items, request, config);
-  const usedTokens = items.reduce((sum, i) => sum + i.tokens, 0);
+  // 报的是**这次请求真正要发出去的输入**，而不是各条目之和：小标题、分隔符、
+  // 输出契约与消息本身的协议开销都算进来。校准回路（`recordUsage`）比的就是
+  // 这个数与服务商回报的实测，口径不一致的话那条比值天生偏低。
+  const usedTokens = estimateMessagesTokens(messages);
 
   return { messages, items, usedTokens, budget, budgetClampedByProvider };
 }

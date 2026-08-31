@@ -36,7 +36,7 @@
  *    丢了的话 agent 会开始回答一个谁也没问过的问题。
  */
 import { AgentMessage } from '../llm/provider';
-import { estimateTokens } from '../context/tokenizer';
+import { estimateMessagesTokens } from '../context/tokenizer';
 import { scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import {
@@ -197,15 +197,19 @@ export interface BuiltAgentMessages {
  * `turns` 是本次 agent 循环里累积的对话（user 的原始要求、assistant 的回复
  * 与工具调用、tool 的结果），**不含 system**——system 每回合重拼（状态会变），
  * 塞进历史里会攒下十几份互相矛盾的旧状态。
+ *
+ * `toolsTokens` 是本回合工具声明的开销，由循环算好传进来：它不在 `messages`
+ * 里，却与 messages 挤同一个窗口。
  */
 export function buildAgentMessages(
   system: string,
   turns: AgentMessage[],
-  budgetTokens: number
+  budgetTokens: number,
+  toolsTokens = 0
 ): BuiltAgentMessages {
   const head: AgentMessage = { role: 'system', content: system };
   const full = [head, ...turns];
-  const fullTokens = tokensOf(full);
+  const fullTokens = tokensOf(full, toolsTokens);
   if (fullTokens <= budgetTokens) {
     return { messages: full, droppedCount: 0, overBudget: false, tokens: fullTokens };
   }
@@ -227,7 +231,7 @@ export function buildAgentMessages(
   });
 
   const messages = [head, ...compressed];
-  const tokens = tokensOf(messages);
+  const tokens = tokensOf(messages, toolsTokens);
   if (droppedCount > 0) {
     log.warn(
       `agent 上下文超预算，省略了 ${droppedCount} 条更早的工具结果`,
@@ -269,6 +273,15 @@ function firstLine(text: string): string {
   return idx === -1 ? text : text.slice(0, idx);
 }
 
-function tokensOf(messages: AgentMessage[]): number {
-  return messages.reduce((sum, m) => sum + estimateTokens(m.content ?? ''), 0);
+/**
+ * 这一回合的输入有多大。
+ *
+ * **工具声明与工具调用的参数都算在内**——从前这里只数 `content`，而 agent 的
+ * 上下文恰恰有一大半不在 content 里：`write` 把整章正文放在调用参数里，
+ * 那几千 token 被数成 0，于是「压缩掉更早的工具结果」这道闸门在真正该开的
+ * 时候没开，反倒是在窗口早就撑破之后才发现。八个工具的 schema 也一样，
+ * 它每回合都随请求发出去。
+ */
+function tokensOf(messages: AgentMessage[], toolsTokens: number): number {
+  return estimateMessagesTokens(messages) + toolsTokens;
 }

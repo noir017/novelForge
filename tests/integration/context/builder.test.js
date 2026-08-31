@@ -100,6 +100,12 @@ let inc;
 let upToP2Tokens;
 let p3Full;
 let p3SummaryTokens;
+/**
+ * 装配框架自己要花的那几百 token（小标题、`---`、输出契约、每条消息的协议
+ * 开销）。它不属于任何一条 ContextItem，但**确实占预算**，所以反推阈值时
+ * 得把它加回去。实测出来，不写死常数。
+ */
+let framingTokens;
 
 before(async () => {
   vs = installVscodeStub({ level: 'full', root: SAMPLE, config: {} });
@@ -131,6 +137,7 @@ before(async () => {
   p3Full = built.items.find((i) => i.id === 'manuscriptFull:3').tokens;
   const p3Summary = (await project.readSummary(CH3)).content;
   p3SummaryTokens = tokenizerMod.estimateTokens(`【第 3 章《夜访》 · 摘要】\n${p3Summary}`);
+  framingTokens = Math.max(0, built.usedTokens - sumTokens((i) => i.tokens > 0));
 });
 
 after(() => vs.restore());
@@ -362,7 +369,7 @@ describe('装配：预算刚好放不下整段正文（应降级为摘要）', (
   before(async () => {
     // 关掉结尾片段，单独考察 manuscriptFull 的降级链。
     const mid = p3SummaryTokens + Math.floor((p3Full - p3SummaryTokens) / 2);
-    const window = upToP2Tokens + mid + 2000 + 512;
+    const window = upToP2Tokens + mid + 2000 + 512 + framingTokens;
     const cfg = { ...baseConfig, prevChapterTailChars: 0, maxOutputTokens: 2000, contextWindow: window };
     deg = await builderMod.buildContext(project, req(outline), cfg);
     dById = ids(deg);

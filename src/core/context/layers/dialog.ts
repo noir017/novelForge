@@ -71,7 +71,9 @@ export const attachments: LayerFn = async (a, spec) => {
       );
       continue;
     }
-    const clipped = `【引用 · ${att.label}】\n${takeHead(body, cap - 40)}`;
+    // 抬头那一行也要占预算；截断标记的开销由 takeHead 自己扣。
+    const head = `【引用 · ${att.label}】\n`;
+    const clipped = `${head}${takeHead(body, cap - estimateTokens(head))}`;
     const clippedTokens = estimateTokens(clipped);
     a.accept(
       {

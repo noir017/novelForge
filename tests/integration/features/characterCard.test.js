@@ -41,7 +41,8 @@ let project;
 
 /**
  * 默认并发 1，让绝大多数用例保持串行行为；并发那一节自己把它调大。
- * 窗口刻意开得小（4000），好让几章正文就撑出多批来。
+ * 窗口刻意开得小（4000，扣掉输出与提示词余量后单批预算 2000），
+ * 好让几章七百字的正文就撑出多批来。
  */
 let settings;
 
@@ -68,7 +69,7 @@ function setReplies(items) {
  * 角色卡通读的是 `chapters/` 里的成品、出场统计来自按章的摘要——
  * 中转站（`manuscripts/`）里那份是等着拆分的半成品，这条链不读它。
  */
-function makePlot(no, title, cast, words = 400) {
+function makePlot(no, title, cast, words = 700) {
   const pad = '雨下了三天，石板路泡得发白。'.repeat(Math.ceil(words / 14)).slice(0, words);
   const stem = `${String(no).padStart(3, '0')}-${title}`;
   t.write(
@@ -156,7 +157,7 @@ describe('分批与「预计调用次数」', () => {
     opened = [...h.opened];
   });
 
-  // 4000 的窗口装不下 4 章 400 字的正文，必须分批。
+  // 2000 的单批预算装不下 4 章 700 字的正文，必须分批。
   test('分成了多批', () => {
     assert.ok(callCount > 1, `只调了 ${callCount} 次`);
   });

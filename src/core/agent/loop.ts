@@ -48,6 +48,7 @@
  */
 import { AgentMessage, LlmProvider, StreamOptions, ToolCall } from '../llm/provider';
 import { collect } from '../llm/collect';
+import { estimateToolsTokens } from '../context/tokenizer';
 import { getHost } from '../host';
 import { readConfig } from '../config';
 import { CancelledError } from '../llm/provider';
@@ -316,6 +317,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
   const draftIds: string[] = [];
   const turns: AgentMessage[] = [{ role: 'user', content: opts.ask }];
   const specs = tools.specs();
+  // 工具声明每回合都发一遍，算进输入预算里。specs 一轮内不变，只数一次。
+  const toolsTokens = estimateToolsTokens(specs);
   const brief = opts.brief ?? (() => buildStateBrief(project, opts.target));
   /**
    * 稳定前缀 = 身份提示词 + 技能索引。**开局拼一次，一轮之内逐字不变。**
@@ -382,7 +385,13 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
         on.onNote?.(`${over.message} 让它先说明一下做到哪了。`);
       }
 
-      const built = buildAgentMessages(`${stable}\n\n${await brief()}`, turns, inputBudget);
+      // 最后一轮不带工具（下面 streamOptions 里也摘了），预算跟着少扣一笔。
+      const built = buildAgentMessages(
+        `${stable}\n\n${await brief()}`,
+        turns,
+        inputBudget,
+        finalRound ? 0 : toolsTokens
+      );
       if (built.overBudget && !finalRound) {
         // 压到底还超：停下来说清楚，好过默默丢掉一半上下文再给一个看着正常的答案。
         finalRound = true;

@@ -6,8 +6,8 @@
 
 | 文件 | 职责 |
 |---|---|
-| [tokenCounter.ts](tokenCounter.ts) | ★ `TokenCounter` 接口 + 注册表 + 默认的字符加权实现（中文 ≈ 1.5 token/字，拉丁 ≈ 1/4）。另含真实用量的校准统计。 |
-| [tokenizer.ts](tokenizer.ts) | 门面：`estimateTokens`（= `countTokens`）与按预算截取的 `takeHead` / `takeTail`。全仓库几十处调用点都走这里。 |
+| [tokenCounter.ts](tokenCounter.ts) | ★ `TokenCounter` 接口 + 注册表 + 默认的**字符段加权**实现（中文 ≈ 1 token/字，英文按词算）与几档分词口径。另含真实用量的校准统计。 |
+| [tokenizer.ts](tokenizer.ts) | 门面：`estimateTokens`（= `countTokens`）、按预算截取的 `takeHead` / `takeTail`、数一次请求输入的 `estimateMessagesTokens` / `estimateToolsTokens`。全仓库几十处调用点都走这里。 |
 | [types.ts](types.ts) | `BuildRequest` / `BuiltContext` / `ContextItem` / `LayerId` / `LayerSpec`。单独成文件是为了打断 recipes 与 layers 的循环引用。 |
 | [recipes.ts](recipes.ts) | ★ 四个阶段各带哪些层、优先级多少（**卷借大纲那一张**）。**改装配策略只改这一张表。** |
 | [layers/](layers/index.ts) | ★ 每一层的取数与注入，外加 `resolveFocus`（按配方只读用得上的文件）。`LAYERS` 注册表在 index，实现按 dialog / artifacts / background 拆开。 |
@@ -18,11 +18,29 @@
 
 改造前 `estimateTokens` 是一个写死的函数，想换更准的算法得改遍全仓库。现在分三层：
 
-1. **`TokenCounter` 接口**——`count(text)` 数 token、`charsFor(tokens)` 反推字符数（截断要用），可选 `prepare()` 供需要加载 wasm/词表的实现。
+1. **`TokenCounter` 接口**——`count(text)` 数 token、`charsFor(tokens)` 给截断搜索一个初值，可选 `prepare()` 供需要加载 wasm/词表的实现。
 2. **注册表**——`registerTokenCounter()` 注册、`useTokenCounter(id)` 切换。切换失败（未注册、`prepare()` 抛错）时**保持原计数器并返回 false**，绝不让「数不了 token」把写作流程带停。
-3. **`HeuristicTokenCounter`**——默认实现，就是原来那套系数，零依赖、同步、永不失败。它是所有降级路径的终点。
+3. **`HeuristicTokenCounter`**——默认实现，零依赖、同步、永不失败。它是所有降级路径的终点。
 
 要接 tiktoken 或服务商的 count_tokens 接口，写一个实现注册进去即可，`builder.ts` 一行都不用改。
+
+### 估算按「字符段」算，不逐字符除系数
+
+原来那版是逐字符折算：中文 ×1.5、拉丁 ÷4、其余 ÷3。三处系统性偏差：
+
+- **中文 1.5 是 GPT-3 时代的数**（字节级 BPE，一个汉字 3 字节）。如今词表里塞满中文词的那批（DeepSeek / Qwen / GLM / Kimi）约 0.6 token/字，GPT 的 cl100k / o200k 约 0.7～0.8，Claude 一档大致 1.0。按 1.5 估，等于把窗口白扔掉三分之一还多——预算明明够，摘要与前文却被判「放不下」。缺省因此改成 **1.0**：对绝大多数服务商仍是高估（安全方向），但不再离谱。
+- **英文按 4 字符 ÷ 1、空格再单收 1/3**。BPE 把前导空格并进词里（`" the"` 是一个 token），空格占英文的七分之一，等于凭空多算 15%。现在**按词算**：一个词至少 1 token，词内每 4 字母 1 token，词间那个空格不计；数字同理按段算（各家都把 ≤3 位并成一个）。
+- **中文逗号「，」压根不在 CJK 区间里**（它是全角形式 U+FF0C，不在 U+3000–303F），于是中文正文里一成多的标点全按「其他 ÷3」算。全角区间、竖排/兼容形式、扩展 B 以上的汉字现在都补上了。
+
+`TOKEN_PROFILES` 另给了 `gpt` / `claude` / `cjkNative` 三档口径，各自注册成 `heuristic-gpt` / `heuristic-claude` / `heuristic-cjk`，宿主可以 `useTokenCounter()` 切过去。**核心不按当前模型自动挑**：计数器是模块级单例，而工程页的批量任务可以并发跑在不同模型上——让它跟着「当前模型」变，等于让同一份上下文在两次装配里得出不同的预算。
+
+### 截断卡在预算上，而不是按系数反推
+
+`takeHead` / `takeTail` 从前是 `text.slice(±charsForTokens(max))`：反推按最贵的中文系数算，一段英文因此只拿到它实际能放的四分之一。现在以反推值为初值、用 `count()` 二分出真正的边界，对任何计数器（包括将来接上的精确实现）都恰好卡在预算上且**永不超**。同时补掉两个洞：**截断标记的开销算在预算之内**（从前是切满再接上标记，必然超十几个 token，调用方只好自己减一个魔数），**一个字都放不下时返回空串**（`text.slice(-0)` 会把整段原样还回来，那正是超预算的来源）。
+
+### 一次请求的输入不只是各条 content 之和
+
+`estimateMessagesTokens` 另算三样：**工具调用的参数**（`write` 一整章正文就在参数里，assistant 那条消息的 content 往往是空的——按 content 数等于把几千 token 数成 0）、**思考凭据**（下一轮要原样交回服务商，占同一个窗口）、**每条消息的协议开销**（各家 3～5，取 4）。`estimateToolsTokens` 数工具声明：它每一回合都随请求发出去。agent 循环的压缩闸门与 `BuiltContext.usedTokens` 都吃这两个函数。
 
 **校准回路**：服务商返回真实用量时（`usage` 事件 → `collect` 的 `onUsage` → `recordUsage`）记下「估算/实测」比值，`usageStats()` 可查。它**只用于日志与展示，不自动修正估算值**——估算必须是纯函数，否则同一份上下文两次装配会得出不同的预算判断，「不静默截断」的明细也就不可复现了。没给 usage 的服务商什么都不记，不拿估算冒充实测。
 
@@ -60,6 +78,8 @@
 | 更早章的摘要 | 由近及远填充，填满即止 |
 
 预算 = `contextWindow - maxOutputTokens - 512`，并与 provider 的 `maxInputTokens` 取小。
+
+**装配框架自己也要花预算**：小标题、段落之间的 `---`、输出契约那一段不属于任何一条 `ContextItem`，从前谁都没为它们付过账——层按 `budget` 装满，拼装时再凭空多出几百 token。现在契约按实测、小标题按常数（`SECTION_OVERHEAD`）先扣掉，层拿到的是扣完之后的额度；对外报的 `budget` 不变，`usedTokens` 则改成**这次真正要发出去的输入**（走 `estimateMessagesTokens`），好让它与服务商回报的实测是同一个口径——校准回路比的就是这两个数。
 
 ## 关键设计
 

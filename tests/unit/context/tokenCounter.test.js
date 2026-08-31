@@ -13,6 +13,9 @@ describe('tokenCounter.ts · 可替换实现', () => {
   let tc;
   /** 切换计数器之前，默认实现对同一段文本给出的结果，供「切回来」时比对。 */
   let before默认;
+  // 探针里带一段英文：纯中文在默认口径下正好是 1 token/字，与「一个字符一个
+  // token」的假计数器撞上，切没切过去就看不出来了。
+  const PROBE = '雨下了三天 abcdefgh';
 
   before(() => {
     tc = loadModule('src/core/context/tokenCounter.ts');
@@ -36,7 +39,7 @@ describe('tokenCounter.ts · 可替换实现', () => {
     let prepared = 0;
 
     before(() => {
-      before默认 = tc.countTokens('雨下了三天');
+      before默认 = tc.countTokens(PROBE);
       // 注册一个「一个字符一个 token」的假计数器，验证切换真的生效。
       tc.registerTokenCounter({
         id: 'test-exact',
@@ -61,7 +64,7 @@ describe('tokenCounter.ts · 可替换实现', () => {
     });
 
     test('切换后计数走新实现', () => {
-      assert.equal(tc.countTokens('雨下了三天'), 5);
+      assert.equal(tc.countTokens(PROBE), PROBE.length);
     });
 
     test('切换后反推字符数也走新实现', () => {
@@ -69,7 +72,7 @@ describe('tokenCounter.ts · 可替换实现', () => {
     });
 
     test('新旧实现给出不同结果（确实切了）', () => {
-      assert.notEqual(before默认, tc.countTokens('雨下了三天'));
+      assert.notEqual(before默认, tc.countTokens(PROBE));
     });
   });
 
@@ -108,7 +111,63 @@ describe('tokenCounter.ts · 可替换实现', () => {
     });
 
     test('reset 后计数恢复', () => {
-      assert.equal(tc.countTokens('雨下了三天'), before默认);
+      assert.equal(tc.countTokens(PROBE), before默认);
+    });
+  });
+
+  // 这一节是「token 数不准」那次修的三处系统性偏差，各钉一条。
+  describe('启发式口径', () => {
+    let h;
+
+    before(() => {
+      tc.resetTokenCounter();
+      h = new tc.HeuristicTokenCounter();
+    });
+
+    test('中文按 1 token/字（默认口径）', () => {
+      assert.equal(h.count('雨下了三天'), 5);
+    });
+
+    // 全角逗号是 U+FF0C，不在 U+3000–303F 里。从前它落进「其他」按 1/3 算，
+    // 中文正文里一成多的字符就这么被少算了。
+    test('全角标点跟着中文算，不落进「其他」', () => {
+      assert.equal(h.count('雨，下，了，'), 6);
+    });
+
+    test('扩展 B 的生僻字也认得（代理对不按 emoji 算）', () => {
+      assert.equal(h.count('\u{20000}\u{20001}'), 2);
+    });
+
+    // 英文按词算：词间那个空格并进后面那个词，不再单收一份。
+    test('英文约每 4 字符 1 token，空格不另计', () => {
+      const text = 'the quick brown fox jumps over the lazy dog';
+      const n = h.count(text);
+      assert.ok(n >= 9 && n <= 12, `got ${n}（9 个词，约 11 token）`);
+    });
+
+    test('短词至少 1 token', () => {
+      assert.equal(h.count('a'), 1);
+    });
+
+    // ≤3 位的数字各家都并成一个 token，不是逐位折算。
+    test('数字按段算', () => {
+      assert.equal(h.count('2026'), 2);
+    });
+
+    test('空串为 0', () => {
+      assert.equal(h.count(''), 0);
+    });
+
+    test('各档口径对中文给出不同的数', () => {
+      const text = '雨下了三天，屋檐下的水线连成一片。';
+      const gpt = new tc.HeuristicTokenCounter(tc.TOKEN_PROFILES.gpt).count(text);
+      const cjk = new tc.HeuristicTokenCounter(tc.TOKEN_PROFILES.cjkNative).count(text);
+      assert.ok(cjk < gpt && gpt < h.count(text), `${cjk} < ${gpt} < ${h.count(text)}`);
+    });
+
+    test('几档口径都注册进了注册表', () => {
+      const ids = tc.listTokenCounters().map((c) => c.id);
+      assert.ok(['heuristic', 'heuristic-gpt', 'heuristic-claude', 'heuristic-cjk'].every((id) => ids.includes(id)));
     });
   });
 
