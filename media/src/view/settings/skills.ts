@@ -68,10 +68,14 @@ function buildRow(row: SkillRow): HTMLElement {
   // 全名（含前缀）是它在配置里的键，也是 agent 那边要照抄的那一行。
   name.title = row.name;
   label.appendChild(name);
-  label.appendChild(mk('span', 'skill-source', row.source === 'builtin' ? '内置' : '这个工程'));
+  // 来源与受众两个徽章并排放在一行里——各占一行时每份技能要四行高，
+  // 窄面板里一屏就只剩两份技能了。
+  const tags = mk('div', 'skill-tags');
+  tags.appendChild(mk('span', 'skill-source', row.source === 'builtin' ? '内置' : '这个工程'));
   const audience = mk('span', 'skill-source', SKILL_AUDIENCE_LABEL[row.audience]);
   audience.title = SKILL_AUDIENCE_HINT[row.audience];
-  label.appendChild(audience);
+  tags.appendChild(audience);
+  label.appendChild(tags);
   // 描述没写就不占一行——那一行空着比没有更难看，也让人以为加载失败了。
   if (row.description) {
     label.appendChild(mk('span', 'skill-desc', row.description));
