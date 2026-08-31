@@ -132,7 +132,9 @@ export class AnthropicProvider implements LlmProvider {
         if (plan && attempt < 2 && negotiate(response.status, detail, quirk, this.label)) {
           continue;
         }
-        throw new LlmError(describeHttpBody(response.status, detail, this.label, '/v1/messages'));
+        throw new LlmError(
+          describeHttpBody(response.status, detail, this.label, '/v1/messages') + gatewayHint(detail)
+        );
       }
       poke();
 
@@ -140,6 +142,11 @@ export class AnthropicProvider implements LlmProvider {
       const slots = new Map<number, ToolUseSlot>();
       // 思考块同理：thinking_delta 逐段来，签名在 stop 之前才给。
       const thinking = new Map<number, ThinkingSlot>();
+      // 这一条流有没有正常收尾，以及有没有交出过任何**能用的**东西。
+      // 用来分辨「模型说完了」和「流在中途断了」——见循环之后那一段。
+      let closed = false;
+      let produced = false;
+      let thought = false;
 
       for await (const payload of iterateSse(stream, signal, poke)) {
         let event: AnthropicEvent;
@@ -148,7 +155,11 @@ export class AnthropicProvider implements LlmProvider {
         } catch {
           continue;
         }
-        if (event.type === 'error') {
+        // 报错有两种形状：规范的 `{type:'error'}`，以及中转网关常给的
+        // 裸 `{"error":{...}}`（没有 type）。后者从前落进「认不出的事件」
+        // 那条路被静默丢掉，于是一次上游错误看起来和「模型什么都没说」
+        // 一模一样。**两种都要抛。**
+        if (event.type === 'error' || (!event.type && event.error)) {
           throw new LlmError(`${this.label} 返回错误：${event.error?.message ?? '未知错误'}`);
         }
         // 用量分两处给：message_start 带输入，message_delta 带输出累计值。
@@ -161,6 +172,7 @@ export class AnthropicProvider implements LlmProvider {
           };
         }
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
+          produced = true;
           yield { type: 'text', text: event.delta.text };
         }
         // 扩展思考（thinking blocks）同样不是正文，走单独的事件给界面展示。
@@ -169,6 +181,7 @@ export class AnthropicProvider implements LlmProvider {
           event.delta?.type === 'thinking_delta' &&
           event.delta.thinking
         ) {
+          thought = true;
           yield { type: 'reasoning', text: event.delta.thinking };
         }
         // 思考块收完了：把它连签名一起交给上层，下一轮原样发回去。
@@ -178,14 +191,41 @@ export class AnthropicProvider implements LlmProvider {
         }
         const call = feedToolUse(slots, event);
         if (call) {
+          produced = true;
           yield { type: 'toolCall', call };
         }
         // 收尾原因在 `message_delta` 上，**排在所有内容块之后**。上层拿它跟手里
         // 攒到的工具调用对一下：说了 tool_use 却一个都没给，就是这一轮的响应
         // 缺了一半（见 provider.ts 的 StopSignal）。
         if (event.type === 'message_delta' && event.delta?.stop_reason) {
+          closed = true;
           yield { type: 'stop', reason: stopSignalOf(event.delta.stop_reason) };
         }
+        if (event.type === 'message_stop') {
+          closed = true;
+        }
+      }
+
+      // 流断在中途：**没有收尾事件，也没交出过任何能用的东西**。
+      //
+      // 抓到过的现场：推理模型经中转网关，吐完一千多字思考就把连接断了——
+      // 没有 message_delta、没有 message_stop、实测输出 0 token。从前这条路
+      // 与「模型正常说完但一个字都没说」完全同形，于是上层拿到一份空产物当
+      // 成功用（见 generation/generate.ts 里那一段）。这里抛出来，才有人能
+      // 把它当失败处理、也才看得出是**断流**而不是模型不想说。
+      //
+      // 只在**什么都没交出**时抛：已经吐了半份正文的话，抛掉等于把那半份
+      // 也扔了；那种情况由上层按内容处理，这里只留一条 warn。
+      if (!closed) {
+        if (!produced) {
+          throw new LlmError(
+            `${this.label} 的响应在中途断开：` +
+              (thought ? '只收到思考，一个字正文都没有' : '一个字都没收到') +
+              '（上游没有给收尾事件）。再试一次；反复如此就换一个模型，' +
+              '或者把这个服务商的思考深度降一档。'
+          );
+        }
+        log.warn(`${this.label} 的响应没有收尾事件`, '内容可能不完整——上游把流断在了中途。');
       }
     } catch (err) {
       throw normalizeError(err, signal, this.label);
@@ -296,11 +336,27 @@ function capDepth(depth: ThinkingDepth | undefined, max: ThinkingDepth): Thinkin
  * 一次。其余情况返回 false，由调用方报 HTTP 错误。**只认 400**：401/404/429
  * 与请求体无关，换写法再发只是白等一次。
  */
-function negotiate(status: number, body: string, quirk: Quirks, label: string): boolean {
+export function negotiate(status: number, body: string, quirk: Quirks, label: string): boolean {
   if (status !== 400 || quirk.mode === 'none') {
     return false;
   }
   const detail = body.toLowerCase();
+  // 「思考原文必须交回去」（新版 DeepSeek 之类经中转网关时的那一句）**不是字段
+  // 名的问题**，沿梯子降一格救不了：手动预算同样是思考模式，而网关在
+  // Anthropic → OpenAI 的转换里把 thinking 块整个丢掉了——我们交回去它也
+  // 变不成 `reasoning_content`（实测：交与不交，同一句 400）。唯一能压住它的
+  // 是让上游这一轮别进思考模式，所以**直接退到不带思考字段**。
+  //
+  // 退到底还这么说，就是这条路真治不了（网关自己让上游思考了，而它把那一半
+  // 丢了）。那时返回 false，由调用方带上 `gatewayHint` 报出去。
+  if (detail.includes('reasoning_content')) {
+    quirk.mode = 'none';
+    log.warn(
+      `${label} 所在的网关丢掉了思考原文，这个模型上不带思考字段再发一次`,
+      '它要求把上一轮的 reasoning_content 交回去，而 Anthropic 协议下交不回去。'
+    );
+    return true;
+  }
   // 「这个 effort 值不认」：先降档，一路降到底才换写法——effort 的梯子上
   // 老模型缺的是顶上那两档，不是整套。
   if (detail.includes('effort') && quirk.maxDepth !== 'low') {
@@ -322,6 +378,33 @@ function negotiate(status: number, body: string, quirk: Quirks, label: string): 
     detail.slice(0, 200)
   );
   return true;
+}
+
+/**
+ * 报错里那句「这不是你填错了什么」的补充说明。
+ *
+ * 只认一种情形，因为它已经吃掉过一整轮：中转网关（new-api 那一类）把
+ * Anthropic 协议转成 OpenAI 协议发给上游，转换时**把思考块丢了**，于是上游
+ * 那边「思考模式下必须交回 reasoning_content」这条规则永远不可能被满足。
+ * 表现是**间歇性**的 400——上游哪一轮真想了事，下一轮就死（自适应思考不是
+ * 每轮都想，所以 agent 常常跑到第三四步才炸）。
+ *
+ * 作者在界面上看到的只有一句「HTTP 400」，而这件事他其实有解：同一个网关的
+ * OpenAI 通用那条路上，思考原文本来就是 `reasoning_content` 字段，我们按模型
+ * 把它原样交回去（见 chatCompletionsProvider 的 MODEL_COMPAT）。所以这里
+ * 直接把那条路指给他。
+ */
+export function gatewayHint(body: string): string {
+  if (!body.toLowerCase().includes('reasoning_content')) {
+    return '';
+  }
+  return (
+    '\n这是中转网关的转换丢了思考原文，不是你填错了什么：' +
+    'Anthropic 协议下没有能交回 reasoning_content 的位置，' +
+    '同一个模型只要哪一轮真的思考了，下一轮就会这样报错。' +
+    '把这个服务商的协议类型改成「OpenAI 通用」（接口地址通常要带上 /v1），' +
+    '那条路上思考原文会按模型原样交回去。'
+  );
 }
 
 // ---------------------------------------------------------------- 事件

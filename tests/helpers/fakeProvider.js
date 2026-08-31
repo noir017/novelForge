@@ -15,6 +15,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * @param {boolean} [opts.repeatLast] 队列见底后重复最后一条（默认 false：改用 fallback）
  * @param {string} [opts.fallback] 队列空时的应答
  * @param {(messages, index) => string} [opts.reply] 直接给一个函数，优先于 replies
+ * @param {(messages, index) => object[]} [opts.events] 直接给一串 StreamEvent，优先于 reply
+ *   （返回空数组/undefined 则退回 reply）——造「只有思考没有正文」这类响应用得上
  * @param {Record<string, 'unavailable'|'fail'|'cancel'>} [opts.behavior] 按模型引用注入异常
  * @param {number} [opts.delayMs] 每次调用的人为延时——不留延时的话并发与串行跑出来一样
  * @param {object} [opts.errors] `{ LlmError, CancelledError }`，用到 behavior 时必须给
@@ -25,6 +27,7 @@ function installFakeProvider(registry, opts = {}) {
     repeatLast = false,
     fallback = '',
     reply,
+    events,
     behavior = {},
     delayMs = 0,
     errors = {},
@@ -58,6 +61,17 @@ function installFakeProvider(registry, opts = {}) {
             throw new errors.CancelledError();
           }
           if (delayMs) await sleep(delayMs);
+          // 直接给一串事件：用来造「只有思考、没有正文」这类**不是一段文本**
+          // 的响应。返回空/undefined 就当没给，照旧走下面的应答队列。
+          if (events) {
+            const evs = events(messages, calls.length - 1);
+            if (evs && evs.length > 0) {
+              for (const ev of evs) {
+                yield ev;
+              }
+              return;
+            }
+          }
           if (reply) {
             yield { type: 'text', text: reply(messages, calls.length - 1) };
             return;

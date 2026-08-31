@@ -491,6 +491,11 @@ export async function sendAgent(
                 // 正在问他，结论就在下面」，一句空 note 会让那句话变成谎话——
                 // 抓到过的现场就是 agent 转头跟作者说「分卷清单已生成，正在等
                 // 你点头」，而作者那边一张卡片都没有。
+                if (draft) {
+                  // 草稿随会话落盘：模型稍后还可能拿这个 draftId 去 write，
+                  // 而作者中途刷新过网页的话，只在内存里的那一份就没了。
+                  c.current.drafts = c.drafts.bySession(c.current.id);
+                }
                 return {
                   note: draft
                     ? '这份产出解析不出可落盘的形状（不是这一层要的结构），' +
