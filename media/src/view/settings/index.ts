@@ -71,6 +71,10 @@ export function renderSettings(
   if (policy) {
     policy.value = isAgentPolicy(settings.agentPolicy) ? settings.agentPolicy : DEFAULT_AGENT_POLICY;
   }
+  const debug = maybeById<HTMLInputElement>(DEBUG_FIELD);
+  if (debug) {
+    debug.checked = settings.debug === true;
+  }
   renderProviders();
   renderTaskTiers();
   renderSkills();
@@ -79,6 +83,8 @@ export function renderSettings(
 
 /** 设置页上那个策略下拉框的 id。读、写、绑事件三处共用。 */
 const AGENT_POLICY_FIELD = 'setAgentPolicy';
+/** 调试开关那个勾选框的 id。同样三处共用。 */
+const DEBUG_FIELD = 'setDebug';
 
 function save(): void {
   const settings = {
@@ -95,6 +101,9 @@ function save(): void {
   // 认不出的值回落默认——后端也会再兜一次，两边都不因为一个手改坏的值而炸。
   const picked = maybeById<HTMLSelectElement>(AGENT_POLICY_FIELD)?.value;
   settings.agentPolicy = isAgentPolicy(picked) ? picked : DEFAULT_AGENT_POLICY;
+  // 勾选框缺席（老壳的页面）时按关处理：调试模式会往工程里写文件，
+  // 「读不出来就当开着」是错的那一边。
+  settings.debug = maybeById<HTMLInputElement>(DEBUG_FIELD)?.checked === true;
   const problem = validateProviders(draft.providers);
   if (problem) {
     toast(problem, true);
@@ -138,6 +147,7 @@ export function installSettings(): void {
     maybeById(id)?.addEventListener('input', touch);
   }
   maybeById(AGENT_POLICY_FIELD)?.addEventListener('change', touch);
+  maybeById(DEBUG_FIELD)?.addEventListener('change', touch);
 
   byId('saveSettingsBtn').addEventListener('click', save);
   // 能力探测：只有带原生设置界面的宿主（VS Code）才渲染这颗按钮，

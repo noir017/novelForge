@@ -216,7 +216,10 @@ export const generateTool: ToolDef = {
       // 这件事」的，而这里是 agent 在一轮里顺手产出一份产物——它可能一轮里调
       // 好几次，每次都按极限档想一遍，等于把那个下拉框变成一个倍率不明的开关。
       // 循环本身仍然按那一档想（`controller/agent.ts` 递给 runAgent）。
-      { signal: ctx.signal, ...model }
+      //
+      // `sessionId` 只给调试模式用：开着时这一次的完整上下文落在那个会话的
+      // 调试目录里，与循环每回合的快照排在一起（按文件名就是发生顺序）。
+      { signal: ctx.signal, ...model, sessionId: ctx.sessionId }
     );
 
     if (!draft) {

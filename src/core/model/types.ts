@@ -264,4 +264,15 @@ export interface NovelConfig {
    * `DEFAULT_SKILL_MODE`（仅用户：agent 看不见，作者用 `/` 呼得出来）。
    */
   skillModes: SkillModes;
+  /**
+   * 调试模式：**留下平时不留的那些东西**。
+   *
+   * 开着的时候多做两件事（见 [src/core/runtime/debug.ts](../runtime/debug.ts)）：
+   * 每一次调模型的**完整上下文**原样落一份文件在会话旁边（日志里只给路径，
+   * 第 11 条那句「日志里绝不出现 prompt 全文」不因此松动），会话文件里那些
+   * 为了不撑爆而截短的字段按调试档的宽度留（参数、工具返回、产出正文）。
+   *
+   * 缺省关。它换来的是磁盘占用与更大的会话文件，不该是长期开着的状态。
+   */
+  debug: boolean;
 }

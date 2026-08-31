@@ -861,3 +861,88 @@ describe('说要调工具却没给（上游丢了那一半）', () => {
     assert.equal(out.stopReason, 'done', `${out.stopReason}｜${out.message}`);
   });
 });
+
+/**
+ * 调试模式：每回合的完整上下文落一份文件，路径交回给调用方。
+ *
+ * 这一段验的是**循环这一侧**的契约：写了几份、路径是不是真交出来了、关掉之后
+ * 一份都不写。文件里长什么样在 tests/unit/runtime/debug.test.js 里验。
+ */
+describe('调试模式', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const dirOf = (id) => path.join(t.dir, '.novelforge', 'sessions', `${id}.debug`);
+  const filesIn = (id) => {
+    try {
+      return fs.readdirSync(dirOf(id));
+    } catch {
+      return [];
+    }
+  };
+
+  after(() => {
+    // 后面（以及重跑时）的用例不该被它影响：调试是显式开关，用完就关。
+    settings.debug = false;
+  });
+
+  describe('开着', () => {
+    let out;
+
+    before(async () => {
+      settings.debug = true;
+      const fake = scriptedProvider([
+        useTool('c1', 'read', { path: 'chapters/009-北行.md' }),
+        say('他说过。'),
+      ]);
+      out = await run({ provider: fake.provider, sessionId: 'dbg-on' });
+    });
+
+    test('每回合各一份', () => {
+      assert.equal(filesIn('dbg-on').length, out.steps, filesIn('dbg-on').join('、'));
+    });
+
+    test('路径随 outcome 交回来（会话要记住它们）', () => {
+      assert.equal(out.contexts.length, out.steps, JSON.stringify(out.contexts));
+    });
+
+    test('交回来的路径真的存在', () => {
+      assert.ok(out.contexts.every((p) => fs.existsSync(p)), JSON.stringify(out.contexts));
+    });
+
+    // 排查时那一串文件要一路读下来，文件名必须能排出发生顺序。
+    test('文件名按回合排得出顺序', () => {
+      assert.deepEqual([...filesIn('dbg-on')].sort(), filesIn('dbg-on').sort());
+      assert.ok(filesIn('dbg-on').some((n) => n.includes('agent-step1')), filesIn('dbg-on').join('、'));
+      assert.ok(filesIn('dbg-on').some((n) => n.includes('agent-step2')), filesIn('dbg-on').join('、'));
+    });
+
+    test('里面是这一回合真发出去的消息', () => {
+      const first = fs.readFileSync(path.join(dirOf('dbg-on'), filesIn('dbg-on').sort()[0]), 'utf8');
+      assert.ok(first.includes('第 9 章里主角说过他没去过北境吗？'), first.slice(0, 300));
+    });
+
+    // 回答补在同一个文件末尾：请求先写、回答后补，卡死的那一回合也留得下上下文。
+    test('模型的回答补在同一份文件里', () => {
+      const second = fs.readFileSync(path.join(dirOf('dbg-on'), filesIn('dbg-on').sort()[1]), 'utf8');
+      assert.ok(second.includes('他说过。'), second.slice(-400));
+    });
+  });
+
+  describe('关着', () => {
+    let out;
+
+    before(async () => {
+      settings.debug = false;
+      const fake = scriptedProvider([say('他说过。')]);
+      out = await run({ provider: fake.provider, sessionId: 'dbg-off' });
+    });
+
+    test('一个文件都不写', () => {
+      assert.deepEqual(filesIn('dbg-off'), []);
+    });
+
+    test('contexts 是空数组', () => {
+      assert.deepEqual(out.contexts, []);
+    });
+  });
+});

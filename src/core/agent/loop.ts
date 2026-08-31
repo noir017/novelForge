@@ -52,6 +52,7 @@ import { estimateToolsTokens } from '../context/tokenizer';
 import { getHost } from '../host';
 import { readConfig } from '../config';
 import { CancelledError } from '../llm/provider';
+import { appendDump, dumpContext } from '../runtime/debug';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import { CreationTarget } from '../model/pipeline';
@@ -265,6 +266,14 @@ export interface AgentOutcome {
   tokens: number;
   /** 本次产出的草稿 id，按产生顺序。写没写盘看 `onArtifact` 那一问的结论。 */
   draftIds: string[];
+  /**
+   * 每回合的完整上下文快照落在哪，按回合顺序。**只有调试模式下才有东西**
+   * （见 runtime/debug.ts），平时是空数组。
+   *
+   * 交出去而不是只写日志：调用方要把它记进会话（`ChatTurn.debug.contexts`），
+   * 不然第二天翻回这一轮，那几个文件就只能靠时间戳去猜是哪一轮的了。
+   */
+  contexts: string[];
 }
 
 export interface RunAgentOptions {
@@ -297,6 +306,12 @@ export interface RunAgentOptions {
   limits?: Partial<BudgetLimits>;
   /** 让模型想多深。缺省不带思考参数（服务商默认）。 */
   thinking?: ThinkingDepth;
+  /**
+   * 这一轮算在哪个会话名下。**只给调试模式用**：开着时每回合的完整上下文
+   * 落在 `.novelforge/sessions/<id>.debug/` 下，路径随 `AgentOutcome.contexts`
+   * 交回给调用方。缺席不影响循环，只是那一轮不留快照。
+   */
+  sessionId?: string;
   signal: AbortSignal;
   /**
    * 哪些动作动手前先问一句。缺省读配置。
@@ -315,6 +330,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
   const startedAt = Date.now();
 
   const draftIds: string[] = [];
+  /** 每回合的完整上下文快照路径。只有调试模式下才会有东西。 */
+  const contexts: string[] = [];
   const turns: AgentMessage[] = [{ role: 'user', content: opts.ask }];
   const specs = tools.specs();
   // 工具声明每回合都发一遍，算进输入预算里。specs 一轮内不变，只数一次。
@@ -416,6 +433,26 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
         ...(finalRound ? {} : { tools: specs, toolChoice: 'auto' as const }),
       };
 
+      // 调试模式：这一回合发出去的全部消息（压缩之后的那一份，也就是模型
+      // 真正看到的）原样落一份。**发请求之前写**——卡死的那一回合最该看它。
+      const dumpAt = await dumpContext(project, {
+        sessionId: opts.sessionId,
+        slug: `agent-step${budget.steps}`,
+        title: `agent 第 ${budget.steps} 步${finalRound ? '（收尾）' : ''}`,
+        facts: [
+          ['模型', opts.provider.label],
+          ['思考深度', opts.thinking],
+          ['策略', policy],
+          ['预算', `${built.tokens}/${inputBudget} token${built.overBudget ? '（已超）' : ''}`],
+          ['带的工具', finalRound ? '（收尾轮不带工具）' : `${specs.length} 个：${specs.map((t) => t.name).join('、')}`],
+          ['已花', `${budget.calls} 次生成，约 ${budget.tokens} token`],
+        ],
+        messages: built.messages,
+      });
+      if (dumpAt) {
+        contexts.push(dumpAt);
+      }
+
       let round = '';
       const result = await collect(opts.provider.stream(built.messages, streamOptions), {
         onDelta: (delta) => {
@@ -433,6 +470,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
       if (result.usage.inputTokens === undefined && result.usage.outputTokens === undefined) {
         budget.addTokens(built.tokens);
       }
+      await appendDump(dumpAt, '这一回合它的回答', describeRound(result));
       text = result.text.trim() || text;
 
       // 取消可能发生在流中间。规矩的 provider 会抛 `CancelledError`，但也有
@@ -592,7 +630,45 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
     calls: budget.calls,
     tokens: budget.tokens,
     draftIds,
+    contexts,
   };
+}
+
+/**
+ * 一回合的回答排成调试快照里那一段。
+ *
+ * 与界面上画的不是一回事：气泡里工具调用只画一行标题，这里要的是**它填的
+ * 每一个参数**——「它为什么去读那一章」的答案就在那几行 JSON 里。
+ */
+function describeRound(result: {
+  text: string;
+  reasoning: string;
+  toolCalls: ToolCall[];
+  usage: { inputTokens?: number; outputTokens?: number };
+  stopReason?: string;
+}): string {
+  const out = [
+    `- 实测用量：入 ${result.usage.inputTokens ?? '—'} / 出 ${result.usage.outputTokens ?? '—'}`,
+    `- 上游报的停因：${result.stopReason ?? '（没说）'}`,
+    '',
+  ];
+  if (result.reasoning) {
+    out.push('### 它想的', '', result.reasoning, '');
+  }
+  out.push('### 它说的', '', result.text || '（这一回合没说话）', '');
+  if (result.toolCalls.length > 0) {
+    out.push(`### 它要调的工具（${result.toolCalls.length} 个）`, '');
+    for (const call of result.toolCalls) {
+      let args: string;
+      try {
+        args = JSON.stringify(call.args ?? {}, null, 2);
+      } catch {
+        args = call.raw;
+      }
+      out.push(`- ${call.name}（${call.id}）`, '', args, '');
+    }
+  }
+  return out.join('\n');
 }
 
 // ---------------------------------------------------------------- 内部

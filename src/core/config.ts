@@ -57,6 +57,11 @@ export interface PersistedSettings {
    * 表在那时无处可读。代价是两个工程里同名的 `project:审章` 共用一档。
    */
   skillModes?: Record<string, unknown>;
+  /**
+   * 调试模式。开着时每次调模型都把完整上下文写进会话旁边的调试目录，
+   * 并且会话里那几个截短的字段按调试档的宽度留。缺省关。
+   */
+  debug?: boolean;
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
   contextWindow?: number;
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
@@ -146,6 +151,9 @@ export function readConfig(): NovelConfig {
     // 策略名不该让 agent 整个跑不起来。
     agentPolicy: normalizeAgentPolicy(c.agentPolicy),
     skillModes: normalizeSkillModes(c.skillModes),
+    // 只认真正的 true：手改成 "false" / 0 / null 的一律当没开。调试模式会往
+    // 磁盘写大量东西，「认不出就当开着」是错的那一边。
+    debug: c.debug === true,
   };
 }
 

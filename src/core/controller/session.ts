@@ -1,6 +1,7 @@
 import type { ChatController } from './index';
 import { getHost } from '../host';
 import { THINKING_LABEL, ThinkingDepth, normalizeThinkingDepth } from '../model/thinking';
+import { trashDebugDir } from '../runtime/debug';
 import { scoped } from '../runtime/logger';
 import { serializeSession } from './serialize';
 import { restoreTarget, pushPipeline } from './chat';
@@ -92,6 +93,9 @@ export async function deleteSession(c: ChatController, id: string): Promise<void
     return;
   }
   await c.store.delete(id);
+  // 调试目录（`<id>.debug/`）跟着走：留在 sessions/ 下就是一堆没人认领的
+  // 上下文快照，而它们里面是这本书的正文。同样不真删，搬进 `.trash/`（第 6 条）。
+  await trashDebugDir(c.project, id);
   if (id === c.current.id) {
     c.current = c.store.create({
       target: c.current.target,

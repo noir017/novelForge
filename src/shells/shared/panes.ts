@@ -320,6 +320,17 @@ export function settingsPane(opts: PaneOptions = {}): string {
         <label class="field"><span>并发请求数</span><input type="number" id="setConcurrency" min="1" max="16"></label>
         <label class="field"><span>换模型重试次数</span><input type="number" id="setFallbackAttempts" min="0" max="5"></label>
       </div>
+
+      <div class="pane-head"><span>调试</span></div>
+      <div class="hint">
+        出问题要提 issue、或者想弄清「它到底看到了什么」时才开。开着的时候，<b>每一次调模型的完整上下文</b>
+        会原样存进 <code>.novelforge/sessions/&lt;会话 id&gt;.debug/</code>，日志里给出可复制的路径；
+        会话文件里那些为了不撑爆而截短的字段（工具参数、返回、产出正文）也按更宽的上限保留。
+        <b>这些文件里有你的正文与设定</b>，贴出去之前请自己看一眼。删除对话时它们会一起进回收站。
+      </div>
+      <div class="grid">
+        <label class="field checkbox"><input type="checkbox" id="setDebug"><span>开启调试模式（会在工程里留下完整上下文文件）</span></label>
+      </div>
     </div>
   </div>
 

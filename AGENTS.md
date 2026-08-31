@@ -65,7 +65,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 | `tests/` | 自动化测试，按类型分目录（也是理解核心行为的最佳入口） | [tests/README.md](tests/README.md) |
 | `scripts/` | 构建与诊断工具（build-media / embed-media / build-sidecar / verify-css / diag-stream） | [scripts/README.md](scripts/README.md) |
 | `sample-novel/` | 示例工程 / 测试夹具，勿随手改正文（hash 断言会挂） | [sample-novel/README.md](sample-novel/README.md) |
-| `src/core/runtime/` | 宿主无关的运行时设施：日志、SQLite 痕迹库、失败记录、长任务登记、有界并发 | [src/core/runtime/README.md](src/core/runtime/README.md) |
+| `src/core/runtime/` | 宿主无关的运行时设施：日志、SQLite 痕迹库、失败记录、长任务登记、有界并发、**调试转储**（`debug.ts`：完整上下文落进会话旁边的 `<id>.debug/`，日志里只给路径） | [src/core/runtime/README.md](src/core/runtime/README.md) |
 | `src/core/views/` | 只读聚合与界面快照：工程树、单章流水线、出场人物索引 | [src/core/views/README.md](src/core/views/README.md) |
 
 其他关键位置：
@@ -103,7 +103,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 8. **段号与章号是两条轴，界面上的「剧情 N」是推导出来的**：章节顺序永远由文件名数字前缀决定，与所在目录层级无关；细纲的段号只是 `plots/` 里的排序键，一段可以拆成多章；「段 → 章」唯一的链是细纲 frontmatter 的 `chapters:`。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/views/README.md](src/core/views/README.md)、[src/core/workspace/README.md](src/core/workspace/README.md)。
 9. **章节不认扩展名**：章节根下「数字前缀 + 扩展名不在二进制黑名单里」的文件都是章节，规则只在 [src/core/model/chapterFile.ts](src/core/model/chapterFile.ts) 定义一次；角色/设定区仍只认 `.md`。见 [src/core/model/README.md](src/core/model/README.md)。
 10. **草稿不进上下文**：`drafts/` 只有作者显式 `@` 引用才进 prompt，装配器永不自动读它；按需创建，删章节不删草稿。见 [src/core/README.md](src/core/README.md)。
-11. **不闷着干活**：任何要调模型或跑几十秒的动作都走 `runTask`（进度条 + 日志），日志里绝不出现 API Key 或 prompt/正文全文。见 [src/core/runtime/README.md](src/core/runtime/README.md)。
+11. **不闷着干活**：任何要调模型或跑几十秒的动作都走 `runTask`（进度条 + 日志），日志里绝不出现 API Key 或 prompt/正文全文。要看完整上下文走**调试模式**（`runtime/debug.ts`：全文进会话旁边的 `<id>.debug/`，日志里只给一条可复制的路径），**不是**放宽这一条。见 [src/core/runtime/README.md](src/core/runtime/README.md)。
 12. **模型引用只在工程页任务里 fallback，且换人只在档内**：串行恒用该档首选、失败随机换同档其余，绝不跨档换人；对话页创作页的单次生成严格用用户选定的模型，不走池。见 [src/core/llm/README.md](src/core/llm/README.md)。
 13. **切批与截断用干活那个模型的窗口**：`config.contextWindow` 只代表对话页选定的模型，走池时用 `pool.primaryBudget`。见 [src/core/llm/README.md](src/core/llm/README.md)。
 14. **摘要是出场人物的唯一真相**：角色卡的 `appearsIn` / `updatedThrough` 只是缓存，要用就经 `buildCastIndex()` 从摘要重算；`cast` 的 aliases 只收专属称呼，判定同一个人只信同章共现。见 [src/core/README.md](src/core/README.md)、[src/core/model/README.md](src/core/model/README.md)。

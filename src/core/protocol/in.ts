@@ -171,4 +171,6 @@ export interface SettingsPayload {
    * （缺省是「仅用户」）。
    */
   skillModes: SkillModes;
+  /** 调试模式：完整上下文落盘 + 会话记更全。缺省关。 */
+  debug: boolean;
 }

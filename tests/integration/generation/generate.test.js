@@ -35,6 +35,8 @@ let project;
 let settings = {};
 /** 第 N 次调用该回什么。 */
 let replyFn = () => '';
+/** 第 N 次调用该吐哪串事件。给了就优先于 `replyFn`。 */
+let eventsFn;
 /** warn / error 级日志。 */
 const warns = [];
 
@@ -48,6 +50,8 @@ function configure(extra = {}) {
   fake.calls.length = 0;
   warns.length = 0;
   h.answers.length = 0;
+  // 每个用例自己决定要不要造事件流：上一段用例留下的钩子不该漏给下一段。
+  eventsFn = undefined;
 }
 
 /** 收一次生成的全部回调。 */
@@ -94,6 +98,9 @@ before(async () => {
   });
   fake = installFakeProvider(bundle.registry, {
     reply: (messages, i) => replyFn(messages, i),
+    // 不是一段文本的响应（只有思考、什么都没有）走这一条。缺省不给，
+    // 于是照旧走 replyFn。
+    events: (messages, i) => (eventsFn ? eventsFn(messages, i) : undefined),
     errors: { LlmError: bundle.provider.LlmError, CancelledError: bundle.provider.CancelledError },
   });
 
@@ -446,5 +453,182 @@ describe('装配明细 · 降级与丢弃进 warn 日志', () => {
   // 一次正文生成的 prompt 有十万字，进了缓冲会把此前所有日志挤没。
   test('日志里没有 prompt 全文', () => {
     assert.ok(!warns.some((w) => w.includes('雨雨雨雨雨雨雨雨雨雨')), warns.join('|').slice(0, 200));
+  });
+});
+
+/**
+ * 调试模式：这一次到底发给模型了什么，原样落一份在会话旁边。
+ *
+ * 这里验的是**生成这一侧**接上没有：给了 sessionId 才写、写的是这一次真发出去
+ * 的消息、装配明细跟着一起留（「它为什么没看见那份细纲」的答案通常就在那张表的
+ * 某一行上）。文件排版本身在 tests/unit/runtime/debug.test.js 里验。
+ */
+describe('调试模式：完整上下文落盘', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const dirOf = (id) => path.join(t.dir, '.novelforge', 'sessions', `${id}.debug`);
+  const filesIn = (id) => {
+    try {
+      return fs.readdirSync(dirOf(id));
+    } catch {
+      return [];
+    }
+  };
+  const textIn = (id) => fs.readFileSync(path.join(dirOf(id), filesIn(id)[0]), 'utf8');
+
+  before(async () => {
+    configure({ debug: true });
+    replyFn = () => PLOT_JSON;
+    const rec = recorder();
+    await gen.generate(
+      project,
+      { job: 'plot', target: PLOT_TARGET, ask: '排一下这一章的剧情' },
+      rec.handlers,
+      { signal: new AbortController().signal, sessionId: 'gen-dbg' }
+    );
+  });
+
+  test('落在那个会话的调试目录里', () => {
+    assert.equal(filesIn('gen-dbg').length, 1, filesIn('gen-dbg').join('、'));
+  });
+
+  test('文件名说得出这是哪一层的活', () => {
+    assert.match(filesIn('gen-dbg')[0], /generate-plot\.md$/);
+  });
+
+  test('里面是这一次真发出去的消息', () => {
+    const sent = fake.calls.at(-1).map((m) => m.content).join('\n');
+    const dumped = textIn('gen-dbg');
+    assert.ok(sent.length > 0);
+    assert.ok(dumped.includes('排一下这一章的剧情'), dumped.slice(0, 400));
+  });
+
+  test('装配明细跟着留下来', () => {
+    assert.ok(textIn('gen-dbg').includes('## 装配明细'), textIn('gen-dbg').slice(0, 600));
+  });
+
+  test('模型的回答补在同一份文件里', () => {
+    assert.ok(textIn('gen-dbg').includes(PLOT_JSON), textIn('gen-dbg').slice(-500));
+  });
+
+  // 工程页的批量任务没有会话：不造落点，工程里不该多出没人认领的目录。
+  describe('没有会话 id', () => {
+    before(async () => {
+      configure({ debug: true });
+      replyFn = () => PLOT_JSON;
+      const rec = recorder();
+      await gen.generate(
+        project,
+        { job: 'plot', target: PLOT_TARGET, ask: 'x' },
+        rec.handlers,
+        { signal: new AbortController().signal }
+      );
+    });
+
+    test('sessions/ 下只有刚才那一个调试目录', () => {
+      const names = fs.readdirSync(path.join(t.dir, '.novelforge', 'sessions'));
+      assert.deepEqual(names, ['gen-dbg.debug'], names.join('、'));
+    });
+  });
+
+  describe('关着', () => {
+    before(async () => {
+      configure();
+      replyFn = () => PLOT_JSON;
+      const rec = recorder();
+      await gen.generate(
+        project,
+        { job: 'plot', target: PLOT_TARGET, ask: 'x' },
+        rec.handlers,
+        { signal: new AbortController().signal, sessionId: 'gen-off' }
+      );
+    });
+
+    test('一个文件都不写', () => {
+      assert.deepEqual(filesIn('gen-off'), []);
+    });
+  });
+});
+
+/**
+ * 空产出：**不造 Draft。**
+ *
+ * 现场（会话 `20260831-161311-a81305`）：推理模型吐完 1893 字思考就把流断了，
+ * 一个字正文都没有。从前这里照样造出一份 `raw: ''` 的草稿，于是一路装成成功
+ * ——工具回「已生成：分卷清单 · 0 字」，agent 转头跟作者说「正在等你点头」，
+ * 而 `onArtifact` 解析不出形状根本没弹卡片。空产物必须在这一层就变成失败。
+ */
+describe('只有思考、没有正文', () => {
+  let out;
+  let rec;
+  let failures;
+
+  before(async () => {
+    configure();
+    fake.reset();
+    eventsFn = () => [
+      { type: 'reasoning', text: '先看看大纲有几条主线……' },
+      { type: 'usage', usage: { inputTokens: 2927, outputTokens: 0 } },
+    ];
+    rec = recorder();
+    out = await gen.generate(
+      project,
+      { job: 'plot', target: PLOT_TARGET, ask: 'x' },
+      rec.handlers,
+      { signal: new AbortController().signal }
+    );
+    await sleep(50);
+    failures = await bundle.errorLog.listActiveFailures(project);
+  });
+
+  test('没有产出 draft', () => {
+    assert.equal(out.draft, undefined, JSON.stringify(out.draft));
+  });
+
+  test('onError 说清了「只有思考」', () => {
+    assert.ok(rec.r.error && rec.r.error.includes('只输出了思考'), rec.r.error);
+  });
+
+  test('那句话里给了下一步怎么办', () => {
+    assert.ok(rec.r.error.includes('再试一次'), rec.r.error);
+  });
+
+  // 第 16 条：失败要留在出错的东西身上。
+  test('失败挂在细纲上', () => {
+    assert.ok(failures[PLOT_TARGET.plotRelPath], JSON.stringify(Object.keys(failures)));
+  });
+
+  test('进了日志', () => {
+    assert.ok(warns.some((w) => w.includes('没有产出内容')), warns.join('|'));
+  });
+
+  test('装配结果照旧回给调用方', () => {
+    assert.ok(out.built && out.built.messages.length > 0);
+  });
+});
+
+describe('一个字都没有（连思考也没有）', () => {
+  let out;
+  let rec;
+
+  before(async () => {
+    configure();
+    fake.reset();
+    replyFn = () => '';
+    rec = recorder();
+    out = await gen.generate(
+      project,
+      { job: 'plot', target: PLOT_TARGET, ask: 'x' },
+      rec.handlers,
+      { signal: new AbortController().signal }
+    );
+  });
+
+  test('没有产出 draft', () => {
+    assert.equal(out.draft, undefined, JSON.stringify(out.draft));
+  });
+
+  test('onError 说的是「什么都没输出」', () => {
+    assert.ok(rec.r.error && rec.r.error.includes('什么都没输出'), rec.r.error);
   });
 });

@@ -263,7 +263,7 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
 
   test('高级设置收起的是模型分档及其后三块', () => {
     const advancedHeads = [...advBox.querySelectorAll('.pane-head span')].map((s) => s.textContent);
-    assert.equal(advancedHeads.join(','), '模型分档,任务档位,请求与调度', advancedHeads.join(','));
+    assert.equal(advancedHeads.join(','), '模型分档,任务档位,请求与调度,调试', advancedHeads.join(','));
   });
 
   test('模型分档块在高级设置容器里', () => {
@@ -284,6 +284,35 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
     advToggle.click();
     assert.ok(advBox.hidden);
     assert.equal(advToggle.getAttribute('aria-expanded'), 'false');
+  });
+
+  // 调试开关：缺省关、回显、进负载。开着它工程里会多出一批文件，所以
+  // **默认必须是关的**，而且要能从磁盘上那份配置如实回显。
+  describe('调试开关', () => {
+    test('在高级设置里', () => {
+      assert.ok(advBox.querySelector('#setDebug'));
+    });
+
+    test('后端没说时是关的', () => {
+      ui.post({ type: 'settings', ack: 'saved', settings: settings(), keys: {} });
+      assert.equal(ui.doc.getElementById('setDebug').checked, false);
+    });
+
+    test('后端说开着就勾上', () => {
+      ui.post({ type: 'settings', ack: 'saved', settings: settings({ debug: true }), keys: {} });
+      assert.equal(ui.doc.getElementById('setDebug').checked, true);
+    });
+
+    test('勾上之后保存带 debug: true', () => {
+      ui.doc.getElementById('setDebug').checked = true;
+      assert.equal(save().settings.debug, true);
+    });
+
+    test('取消勾选之后保存带 debug: false', () => {
+      ui.post({ type: 'settings', ack: 'saved', settings: settings({ debug: true }), keys: {} });
+      ui.doc.getElementById('setDebug').checked = false;
+      assert.equal(save().settings.debug, false);
+    });
   });
 
   // 折叠不影响保存：值仍在 DOM 里、照常进负载。

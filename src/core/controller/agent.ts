@@ -33,6 +33,7 @@
  */
 import type { ChatController } from './index';
 import { readConfig } from '../config';
+import { debugEnabled } from '../runtime/debug';
 import { buildProvider } from '../llm/registry';
 import { runTask } from '../runtime/progress';
 import { scoped } from '../runtime/logger';
@@ -41,6 +42,7 @@ import { refsForTask } from '../model/tiers';
 import {
   Attachment,
   ChatTurn,
+  TurnDebug,
   TurnSegment,
   TurnToolCall,
   deriveTitle,
@@ -77,6 +79,24 @@ const RESULT_LIMIT = 2000;
 const OUTPUT_LIMIT = 20000;
 
 /**
+ * 调试模式下的那一套上限。
+ *
+ * 上面三档是按「界面上要画多长」定的，而排查要的恰恰是被截掉的那一段——
+ * 「它读那一章时到底拿回了什么」在一个 2000 字的省略号后面就永远查不出来。
+ * 所以调试档整体放宽两个数量级，但**仍然有上限**：无限大的话，一次读了整卷
+ * 正文的调用就能把会话文件撑到几十兆，那份文件本身也就没法看了。截了照旧
+ * 自报（第 2 条），而完整的那一份在调试目录里。
+ */
+const DEBUG_LIMITS = { args: 20000, result: 200000, output: 200000 };
+
+/** 这一轮按哪一套上限截。开着调试就宽，平时就窄。 */
+function limitsNow(): { args: number; result: number; output: number } {
+  return debugEnabled()
+    ? DEBUG_LIMITS
+    : { args: ARGS_LIMIT, result: RESULT_LIMIT, output: OUTPUT_LIMIT };
+}
+
+/**
  * 截一段给界面看的文本。**说出自己截了**（第 2 条：不静默截断）——
  * 作者展开明细就是为了核对，看不出后面还有内容的话，他会把半截当全部。
  */
@@ -93,12 +113,15 @@ function clip(text: string, limit: number): string {
  * 没参数的工具（`status` 那类）回 undefined 而不是 `{}`——空花括号只是让作者
  * 多点开一次才发现没东西可看。
  */
-function describeArgs(args: Record<string, unknown> | undefined): string | undefined {
+function describeArgs(
+  args: Record<string, unknown> | undefined,
+  limit = ARGS_LIMIT
+): string | undefined {
   if (!args || Object.keys(args).length === 0) {
     return undefined;
   }
   try {
-    return clip(JSON.stringify(args, null, 2), ARGS_LIMIT);
+    return clip(JSON.stringify(args, null, 2), limit);
   } catch {
     // 循环引用之类的怪东西：明细不是关键路径，画不出来就不画。
     return undefined;
@@ -182,14 +205,41 @@ function foldAttachments(text: string, attachments: Attachment[]): string {
 }
 
 /**
+ * 这一轮的排查线索。**只在调试模式下调**。
+ *
+ * 上下文快照存的是**工程内相对路径**：会话文件跟着工程走（提交、换机器），
+ * 一串绝对路径换台机器就全指不到了。日志里那一条仍是绝对路径——那一条是
+ * 当场就要点开的。
+ */
+function describeRun(
+  c: ChatController,
+  model: string,
+  policy: string,
+  startedAtMs: number,
+  contexts: string[]
+): TurnDebug {
+  return {
+    model,
+    thinking: c.current.thinking ?? 'off',
+    policy,
+    startedAt: new Date(startedAtMs).toISOString(),
+    endedAt: nowIso(),
+    elapsedMs: Date.now() - startedAtMs,
+    contexts: contexts.length > 0 ? contexts.map((at) => c.project.relPath(at)) : undefined,
+  };
+}
+
+/**
  * 让 agent 跑一轮。
  *
- * `limits` 由前端可选带上（日后的设置页），缺省走 `budget.ts` 那三条。
+ * `budgetLimits` 由前端可选带上（日后的设置页），缺省走 `budget.ts` 那三条。
+ * （名字里带 budget 是为了跟这一轮的**截断上限** `limits` 分开——后者是
+ * 「会话里那几个字段各留多长」，两个都叫 limits 时改错一个不会报错。）
  */
 export async function sendAgent(
   c: ChatController,
   text: string,
-  limits?: Partial<BudgetLimits>
+  budgetLimits?: Partial<BudgetLimits>
 ): Promise<void> {
   if (c.busy) {
     c.toast('已有一个生成任务在进行中。', 'error');
@@ -256,6 +306,7 @@ export async function sendAgent(
   c.post({ type: 'busy', value: true });
 
   const assistantTurn: ChatTurn = { id: makeTurnId(), role: 'assistant', content: '', at: nowIso() };
+  const startedAtMs = Date.now();
   c.current.turns.push(assistantTurn);
   c.post({ type: 'turnDone', turn: serializeTurn(assistantTurn) });
 
@@ -264,6 +315,12 @@ export async function sendAgent(
    * 就是这个。攒段那几个纯函数在 `model/session.ts`（`pushTextSegment` 等）。
    */
   const segments: TurnSegment[] = [];
+  /**
+   * 这一轮按哪一套截断上限。**开跑时定一次**：中途去设置页勾上调试，不该让
+   * 同一轮里前三次调用截在 2000 字、后两次留全文——那种会话文件比两者中的
+   * 任何一种都难读。
+   */
+  const limits = limitsNow();
   /**
    * 同样这些工具调用，按 callId 找得到的那一面。
    *
@@ -301,7 +358,10 @@ export async function sendAgent(
           // 消息：agent 没有装配器（第 20 条），上下文由它一步步自己读出来。
           ask: foldSkills(foldAttachments(userTurn.content, attachments), skills),
           target: c.current.target,
-          limits,
+          limits: budgetLimits,
+          // 调试模式下，每回合的完整上下文落在这个会话的调试目录里；
+          // 路径随 outcome.contexts 交回来，记进这一轮的 `debug` 块。
+          sessionId: c.current.id,
           // 与对话页的单次生成同一档：作者调的是「这件事让它想多深」，
           // 而 agent 的每一回合都是这件事的一部分。
           thinking: c.current.thinking,
@@ -332,7 +392,7 @@ export async function sendAgent(
                 ok: false,
                 summary: '进行中…',
                 elapsedMs: 0,
-                argsText: describeArgs(call.args),
+                argsText: describeArgs(call.args, limits.args),
               };
               calls.push(row);
               segments.push({ kind: 'tool', call: row });
@@ -349,8 +409,8 @@ export async function sendAgent(
             onToolResult: (r) => {
               // 明细在这里截一次，界面与会话里存的是同一份——两处不一样的话，
               // 作者当场看到的和第二天翻回来看到的就对不上。
-              const argsText = describeArgs(r.args);
-              const resultText = r.text ? clip(r.text, RESULT_LIMIT) : undefined;
+              const argsText = describeArgs(r.args, limits.args);
+              const resultText = r.text ? clip(r.text, limits.result) : undefined;
               // 就地补齐 `onToolCall` 那一刻占下的那一段。认不出的 callId 补一段
               // 在末尾——少画一条不如画在错的位置上（两者都不该发生）。
               const row = callOf(r.callId);
@@ -409,6 +469,9 @@ export async function sendAgent(
                   detail: req.detail,
                   // 参数与工具条上展开看到的是同一份截断（同一个 describeArgs）：
                   // 两处不一样的话，作者点头时看到的和随后核对的就对不上。
+                  // 闸门那张卡片画在输入框上方，**永远按界面档截**：调试开着
+                  // 时那两万字的参数会把整个对话页挤没，而作者要判断的只是
+                  // 「它要动哪个文件」。完整的那一份在调试目录里。
                   argsText: describeArgs(req.args),
                   proceed: req.proceed,
                 },
@@ -422,8 +485,19 @@ export async function sendAgent(
               const draft = draftId ? c.drafts.get(draftId) : undefined;
               const art = draft?.artifact ? await describeArtifactOf(c, draft.raw, draft) : undefined;
               if (!draft || !art) {
-                // 解析不出可落盘的形状（讨论类的产出）：没什么可写的，不问。
-                return { note: '' };
+                // 解析不出可落盘的形状：没什么可写的，不问作者。
+                //
+                // 但**必须告诉模型这件事**。`generate` 的返回里写着「要不要落盘
+                // 正在问他，结论就在下面」，一句空 note 会让那句话变成谎话——
+                // 抓到过的现场就是 agent 转头跟作者说「分卷清单已生成，正在等
+                // 你点头」，而作者那边一张卡片都没有。
+                return {
+                  note: draft
+                    ? '这份产出解析不出可落盘的形状（不是这一层要的结构），' +
+                      '所以**没有问作者、也没有落盘**。别当成已经写下去了：' +
+                      '要么按这一层要的结构重做一次，要么把情况告诉作者。'
+                    : '',
+                };
               }
               c.current.drafts = c.drafts.bySession(c.current.id);
               const r = await askArtifact(c, {
@@ -456,7 +530,7 @@ export async function sendAgent(
     // 生成五份的话，会话文件不能被它撑爆。截了会自报（第 2 条）。
     for (const call of calls) {
       if (call.output) {
-        call.output = clip(call.output, OUTPUT_LIMIT);
+        call.output = clip(call.output, limits.output);
       }
     }
     // 只剩空白的文字段清出去：留着它们，刷新之后气泡里会凭空多出几块空盒子。
@@ -474,6 +548,12 @@ export async function sendAgent(
       stopReason: outcome.stopReason,
       message: outcome.message || undefined,
     };
+    // 调试模式：把「哪个模型、想多深、完整上下文在哪几个文件里」记进这一轮。
+    // 关着时**一个字都不写**——留一个空对象在会话里，日后读的人会以为这一轮
+    // 开过调试却什么都没留下。
+    if (debugEnabled()) {
+      assistantTurn.debug = describeRun(c, dispatch.ref, config.agentPolicy, startedAtMs, outcome.contexts);
+    }
     // 作者叫停与点停止是同一回事：气泡上都标「已中断」，翻回去看得出没跑完。
     if (outcome.stopReason === 'cancelled' || outcome.stopReason === 'declined') {
       assistantTurn.interrupted = true;

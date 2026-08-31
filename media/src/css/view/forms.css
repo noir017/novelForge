@@ -38,6 +38,28 @@ textarea:focus {
   color: var(--vscode-descriptionForeground);
 }
 
+/**
+ * 勾选框那一档：`.field` 是「标题在上、控件在下」的竖排，勾选框反过来——
+ * 框在左、说明在右，而且说明是给人读的一整句话，不该缩成 0.85em 的灰字。
+ */
+.field.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  grid-column: 1 / -1;
+}
+
+.field.checkbox > span {
+  font-size: 1em;
+  color: inherit;
+}
+
+.field.checkbox > input {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

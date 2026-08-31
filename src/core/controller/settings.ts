@@ -76,6 +76,7 @@ export async function pushSettingsTo(
       fallbackAttempts: cfg.fallbackAttempts,
       agentPolicy: cfg.agentPolicy,
       skillModes: cfg.skillModes,
+      debug: cfg.debug,
     },
     keys: await apiKeyStatus(cfg.providers),
     // 技能那张表**每次都重扫**：作者可能刚在 `.novelforge/skills/` 下加了一份。
@@ -130,6 +131,8 @@ export async function saveSettingsFrom(
     agentPolicy: normalizeAgentPolicy(s.agentPolicy),
     // 技能档位同样容错：认不出的档位名丢弃，那一项回落缺省（仅用户）。
     skillModes: normalizeSkillModes(s.skillModes),
+    // 与 readConfig 同一条规矩：只认真正的 true。
+    debug: s.debug === true,
   });
 
   // 删掉的服务商不该在钥匙串里留下孤儿 Key。
@@ -142,7 +145,10 @@ export async function saveSettingsFrom(
       `温度 ${s.temperature}｜超时 ${s.requestTimeoutMs}ms｜` +
       `并发 ${s.concurrency}｜换模型重试 ${s.fallbackAttempts} 次｜` +
       `Agent 策略 ${AGENT_POLICY_LABEL[normalizeAgentPolicy(s.agentPolicy)]}｜` +
-      describeSkillModes(normalizeSkillModes(s.skillModes))
+      describeSkillModes(normalizeSkillModes(s.skillModes)) +
+      // 单独说一句而不是混进上面那串：它开着的时候工程里会多出一批文件，
+      // 这件事值得在日志里一眼看见。
+      `${s.debug === true ? '｜调试模式已开启（完整上下文会落盘）' : ''}`
   );
   await pushSettingsTo(sink, 'saved', project);
   if (afterSave) {

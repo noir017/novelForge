@@ -34,6 +34,7 @@ import { CancelledError, LlmProvider, StreamOptions, TokenUsage } from '../llm/p
 import { buildProvider } from '../llm/registry';
 import { readConfig } from '../config';
 import { ThinkingDepth } from '../model/thinking';
+import { appendDump, dumpContext } from '../runtime/debug';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { countWords } from '../model/fs';
@@ -102,6 +103,14 @@ export interface GenerateOptions {
    * 都升级成深思考，账单上看不出是谁决定的。
    */
   thinking?: ThinkingDepth;
+  /**
+   * 这一次算在哪个会话名下。**只给调试模式用**：开着时完整上下文落在
+   * `.novelforge/sessions/<id>.debug/` 下（见 runtime/debug.ts）。
+   *
+   * 缺席不影响生成，只是那一次不留快照——工程页的批量任务没有会话，
+   * 硬造一个落点只会在工程里留下没人认领的目录。
+   */
+  sessionId?: string;
 }
 
 export interface GenerateResult {
@@ -168,6 +177,24 @@ export async function generate(
   const buildStart = Date.now();
   const built = await buildContext(project, { ...request, providerMaxInputTokens }, config);
   logAssembly(built, buildStart);
+  // 调试模式：这一次到底发出去了什么，原样落一份在会话旁边。**在发请求之前
+  // 写**——请求可能卡死，那时最该看的就是这一份。关着时它整个是空转。
+  const dumpAt = await dumpContext(project, {
+    sessionId: options.sessionId,
+    slug: `generate-${request.job}`,
+    title: `${what}：${where}`,
+    facts: [
+      ['模型', provider.label],
+      ['任务', `${request.job}（${what}）`],
+      ['目标字数', request.targetWords],
+      ['思考深度', options.thinking],
+      ['预算', `${built.usedTokens}/${built.budget} token`],
+      ['引用', request.attachments?.length],
+      ['技能', request.skills?.map((s) => s.name).join('、')],
+    ],
+    sections: [{ heading: '装配明细', body: describeAssembly(built) }],
+    messages: built.messages,
+  });
 
   let reasoning = '';
   // 服务商分多次回报用量（Anthropic 输入/输出分开给），按字段合并成一份。
@@ -203,6 +230,44 @@ export async function generate(
     // 在这里剥会把「去掉开场白」那几条正则用到 JSON 上，可能切坏结构。
     const raw = request.job === 'manuscript' ? cleanOutput(full) : full.trim();
     handlers.onDone(raw);
+    // 实测用量先记下来：产出为空这一次的钱也照样花了（第 4 条），
+    // 而且「入 2927 / 出 0」正是查这类空响应的第一条线索。
+    recordUsage('创作', built.usedTokens, usage);
+    const usageNote = describeUsage(built.usedTokens, usage);
+
+    // 一个字正文都没有：**这不是一份产物，不许造 Draft**。
+    //
+    // 抓到过的现场：上游（新版 DeepSeek 之类的推理模型，经中转网关）吐完
+    // 1893 字思考就把流断了，没有 message_stop、没有正文、实测输出 0 token。
+    // 从前这里照样造出一份 `raw: ''` 的草稿，于是一路装成成功——工具回
+    // 「已生成：分卷清单 · 0 字」，agent 转头跟作者说「正在等你点头」，
+    // 而根本没有任何卡片弹出来（`onArtifact` 解析不出形状就不问）。
+    // 空产物必须在这里就变成一次失败：调用方（`tools/novel/generate.ts`）
+    // 见 `draft` 缺席才会把错误如实报给 agent。
+    if (!raw) {
+      const why = reasoning
+        ? `模型只输出了思考（${reasoning.length} 字），一个字正文都没给`
+        : '模型什么都没输出';
+      log.error(
+        `${what}没有产出内容`,
+        `${why}；用时 ${elapsed(startedAt)}${usageNote ? `；${usageNote}` : ''}`
+      );
+      await appendDump(
+        dumpAt,
+        '这一次没有产出内容',
+        `- ${why}\n- 用时：${elapsed(startedAt)}\n` +
+          `- 实测用量：入 ${usage.inputTokens ?? '—'} / 出 ${usage.outputTokens ?? '—'}\n` +
+          `${reasoning ? `\n### 思考\n\n${reasoning}\n` : ''}`
+      );
+      handlers.onError(
+        `${what}没有产出内容：${why}。` +
+          '多半是上游在思考与正文之间断了流。可以再试一次；' +
+          '同一个模型反复如此，就把思考深度降一档或换一个模型。'
+      );
+      await noteFailure(project, request.target, `${what}没有产出内容：${why}`, `位置 ${where}`);
+      return { built };
+    }
+
     const artifact = parseDraftArtifact(request.job, raw);
     draft = {
       id: makeDraftId(),
@@ -215,9 +280,15 @@ export async function generate(
       reasoning: reasoning || undefined,
       createdAt: new Date().toISOString(),
     };
-    // 有实测用量就记一笔：估算准不准，只有对着服务商的账单才看得出来。
-    recordUsage('创作', built.usedTokens, usage);
-    const usageNote = describeUsage(built.usedTokens, usage);
+    await appendDump(
+      dumpAt,
+      '模型的回答',
+      `- 用时：${elapsed(startedAt)}\n` +
+        `- 实测用量：入 ${usage.inputTokens ?? '—'} / 出 ${usage.outputTokens ?? '—'}\n` +
+        `- 产物：${draft.summary ?? '（解析不出结构化产物）'}\n` +
+        `${reasoning ? `\n### 思考\n\n${reasoning}\n` : ''}` +
+        `\n### 正文（${draft.words} 字）\n\n${raw}`
+    );
     log.info(
       `${what}完成`,
       `产出 ${full.length} 字，用时 ${elapsed(startedAt)}` +
@@ -228,8 +299,10 @@ export async function generate(
   } catch (err) {
     if (err instanceof CancelledError || options.signal.aborted) {
       log.warn('生成被取消', `已产出内容，用时 ${elapsed(startedAt)}`);
+      await appendDump(dumpAt, '这一次被取消了', `用时 ${elapsed(startedAt)}`);
       handlers.onCancelled();
     } else {
+      await appendDump(dumpAt, '这一次失败了', `${describeError(err)}\n\n用时 ${elapsed(startedAt)}`);
       log.error(`${what}失败：${describeError(err)}`, err);
       handlers.onError(describeError(err));
       await noteFailure(project, request.target, `${what}失败：${describeError(err)}`, `位置 ${where}`);
@@ -315,6 +388,29 @@ function logAssembly(built: BuiltContext, startedAtMs: number): void {
       lost.map((i) => `${statusLabel(i.status)} ${i.label}${i.note ? `——${i.note}` : ''}`).join('\n')
     );
   }
+}
+
+/**
+ * 装配明细排成一张表，**给调试快照用**。
+ *
+ * 与 `logAssembly` 那条日志是两件事：日志只说数（十万字的正文进不了日志缓冲），
+ * 这里说的是「每一条各占多少、留没留下、为什么」——排查「它为什么没看见那份
+ * 细纲」时，答案通常就在某一行的 `[丢弃] 预算不足` 上。**仍然不含条目正文**：
+ * 正文就在下面那几条消息里，抄两遍只会让文件翻倍。
+ */
+function describeAssembly(built: BuiltContext): string {
+  const lines = built.items.map(
+    (i) =>
+      `| ${statusLabel(i.status)} | ${i.label} | ${i.tokens} | ${i.source ?? ''} | ${i.note ?? ''} |`
+  );
+  return [
+    `共 ${built.items.length} 条，用掉 ${built.usedTokens}/${built.budget} token` +
+      `${built.budgetClampedByProvider ? '（预算被服务商配额压低）' : ''}`,
+    '',
+    '| 状态 | 条目 | token | 来源 | 说明 |',
+    '| --- | --- | --- | --- | --- |',
+    ...lines,
+  ].join('\n');
 }
 
 function statusLabel(status: string): string {
