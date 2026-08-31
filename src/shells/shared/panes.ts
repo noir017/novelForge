@@ -223,7 +223,7 @@ export function logsPane(): string {
 }
 
 /**
- * 设置页：服务商与模型、默认模型、高级设置（分档 / 任务档位 / 请求调度）、上下文管理。
+ * 设置页：服务商与模型、默认模型、高级设置（分档 / 任务档位 / 请求调度）、技能、上下文管理。
  *
  * 存储说明对两个壳是同一句话——插件壳在迁移之后也用 `FileConfigStore`
  * （`~/.novelforge/config.json`）。这里**不再按壳分叉**：从前那句「设置写入工作区
@@ -236,6 +236,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
   return `<section class="pane" id="pane-settings">
   <div class="settings-subtabs" role="tablist" aria-label="设置分类">
     <button class="settings-subtab active" id="settingsTabModels" data-settings-tab="models" role="tab" aria-selected="true" aria-controls="settingsPanelModels">模型配置</button>
+    <button class="settings-subtab" id="settingsTabSkills" data-settings-tab="skills" role="tab" aria-selected="false" aria-controls="settingsPanelSkills">技能</button>
     <button class="settings-subtab" id="settingsTabContext" data-settings-tab="context" role="tab" aria-selected="false" aria-controls="settingsPanelContext">上下文管理</button>
   </div>
 
@@ -279,17 +280,6 @@ export function settingsPane(opts: PaneOptions = {}): string {
       </label>
     </div>
 
-    <div class="pane-head"><span>技能</span></div>
-    <div class="hint">
-      技能是「这类事该怎么做」的工作流说明——内置几份，也可以在工程的
-      <code>.novelforge/skills/&lt;名字&gt;/SKILL.md</code> 里自己写。
-      下面这一列管的是 <b>每一份让 agent 每轮看到多少</b>：
-      <b>仅用户</b>（缺省）它看不见，你在输入框里打 <kbd>/</kbd> 呼出时整份正文才进那一轮；
-      <b>仅标题</b> / <b>完整</b> 让它每轮看到名字（或名字加一句描述），自己判断要不要读——
-      更容易选对，代价是那几行每一轮都要发一遍。<b>禁用</b> 两边都看不到。
-    </div>
-    <div id="skillList"></div>
-
     <button type="button" class="settings-advanced-toggle" id="settingsAdvancedToggle" aria-expanded="false" aria-controls="settingsAdvanced">
       <span class="caret">▸</span>
       <span class="settings-advanced-title">高级设置</span>
@@ -331,6 +321,19 @@ export function settingsPane(opts: PaneOptions = {}): string {
         <label class="field"><span>换模型重试次数</span><input type="number" id="setFallbackAttempts" min="0" max="5"></label>
       </div>
     </div>
+  </div>
+
+  <div class="settings-panel" id="settingsPanelSkills" data-settings-panel="skills" role="tabpanel" aria-labelledby="settingsTabSkills">
+    <div class="pane-head"><span>技能</span></div>
+    <div class="hint">
+      技能是「这类事该怎么做」的工作流说明——内置几份，也可以在工程的
+      <code>.novelforge/skills/&lt;名字&gt;/SKILL.md</code> 里自己写。
+      下面这一列管的是 <b>每一份让 agent 每轮看到多少</b>：
+      <b>仅用户</b>（缺省）它看不见，你在输入框里打 <kbd>/</kbd> 呼出时整份正文才进那一轮；
+      <b>仅标题</b> / <b>完整</b> 让它每轮看到名字（或名字加一句描述），自己判断要不要读——
+      更容易选对，代价是那几行每一轮都要发一遍。<b>禁用</b> 两边都看不到。
+    </div>
+    <div id="skillList"></div>
   </div>
 
   <div class="settings-panel" id="settingsPanelContext" data-settings-panel="context" role="tabpanel" aria-labelledby="settingsTabContext">

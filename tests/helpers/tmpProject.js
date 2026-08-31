@@ -38,24 +38,16 @@ function pathHelpers(dir) {
 /**
  * 建一个初始化过的空工程。
  *
- * `initialize()` 会撒两个示例文件（示例角色与示例设定），默认删掉——它们会干扰
- * 「角色有几个」「设定有几条」这类计数断言。
- *
  * @param {object} projectMod 载入的 `src/core/model/project.ts`
  * @param {object} [opts]
  * @param {string} [opts.prefix] 临时目录前缀
  * @param {string} [opts.title]
- * @param {boolean} [opts.keepExamples] 保留 initialize 撒下的示例文件
  */
 async function makeTempProject(projectMod, opts = {}) {
-  const { prefix = 'project', title = '测试工程', keepExamples = false } = opts;
+  const { prefix = 'project', title = '测试工程' } = opts;
   const t = makeTempDir(prefix);
   const project = projectMod.NovelProject.open(t.dir);
   await project.initialize({ title, author: '测试' });
-  if (!keepExamples) {
-    fs.rmSync(t.rel('.novelforge/characters/example-protagonist.md'), { force: true });
-    fs.rmSync(t.rel('.novelforge/lore/example-setting.md'), { force: true });
-  }
   return { ...t, project };
 }
 

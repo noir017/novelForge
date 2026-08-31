@@ -41,7 +41,6 @@ before(async () => {
   t = await makeTempProject(bundle.project, {
     prefix: 'creation',
     title: '青云剑录',
-    keepExamples: true,
   });
   project = t.project;
   accept = (target, artifact) => bundle.accept.acceptArtifact(project, target, artifact);

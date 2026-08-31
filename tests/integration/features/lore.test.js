@@ -61,14 +61,11 @@ before(async () => {
     ],
   });
 
-  // 原脚本只删了示例设定，示例角色留着。
   t = await makeTempProject(bundle.project, {
     prefix: 'lore',
     title: '设定测试',
-    keepExamples: true,
   });
   project = t.project;
-  t.remove('.novelforge/lore/example-setting.md');
 });
 
 after(() => {

@@ -106,7 +106,6 @@ before(async () => {
   t = await makeTempProject(bundle.project, {
     prefix: 'batch',
     title: '青云剑录',
-    keepExamples: true,
   });
   project = t.project;
   for (const [no, title] of [[1, '楔子'], [2, '入镇'], [3, '夜访']]) {

@@ -49,7 +49,6 @@ before(async () => {
   t = await makeTempProject(bundle.project, {
     prefix: 'pipeline',
     title: '青云剑录',
-    keepExamples: true,
   });
   project = t.project;
 });
@@ -67,6 +66,14 @@ describe('数据层 · 目录与镜像路径', () => {
 
   test('初始化建出 manuscripts/', () => {
     assert.ok(t.has('.novelforge/manuscripts'));
+  });
+
+  test('初始化不撒示例角色', () => {
+    assert.equal(t.has('.novelforge/characters/example-protagonist.md'), false);
+  });
+
+  test('初始化不撒示例设定', () => {
+    assert.equal(t.has('.novelforge/lore/example-setting.md'), false);
   });
 
   // 中转站正文的身份是段文件名的**词干**：改标题会改文件名，它必须跟着走

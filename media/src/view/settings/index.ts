@@ -14,9 +14,10 @@ import { installProviderModal, openProviderModal, refreshProviderModal } from '.
 import { renderSkills, setSkillRows } from './skills';
 import { renderTaskTiers } from './taskTiers';
 
-type SettingsCategory = 'models' | 'context';
+type SettingsCategory = 'models' | 'skills' | 'context';
 
-const SETTINGS_CATEGORIES: readonly SettingsCategory[] = ['models', 'context'];
+// 顺序即 tab 顺序，也是方向键的走位顺序：加一类只改这里与 panes.ts 的标记。
+const SETTINGS_CATEGORIES: readonly SettingsCategory[] = ['models', 'skills', 'context'];
 
 export function renderSettings(
   settings: SettingsPayload,

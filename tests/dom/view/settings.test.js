@@ -29,8 +29,10 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
   let ui;
   let sent;
   let modelTab;
+  let skillTab;
   let contextTab;
   let modelPanel;
+  let skillPanel;
   let contextPanel;
   let advToggle;
   let advBox;
@@ -53,13 +55,33 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
       keys: {},
     });
     modelTab = ui.doc.getElementById('settingsTabModels');
+    skillTab = ui.doc.getElementById('settingsTabSkills');
     contextTab = ui.doc.getElementById('settingsTabContext');
     modelPanel = ui.doc.getElementById('settingsPanelModels');
+    skillPanel = ui.doc.getElementById('settingsPanelSkills');
     contextPanel = ui.doc.getElementById('settingsPanelContext');
   });
 
-  test('设置页有两个二级分类', () => {
-    assert.ok(modelTab && contextTab);
+  test('设置页有三个二级分类', () => {
+    assert.ok(modelTab && skillTab && contextTab);
+  });
+
+  // 技能表整份搬进自己那一页：模型配置页里不该再留着它。
+  test('技能表在技能页里', () => {
+    assert.equal(ui.doc.getElementById('skillList').closest('[data-settings-panel]'), skillPanel);
+  });
+
+  test('默认隐藏技能', () => {
+    assert.equal(skillTab.getAttribute('aria-selected'), 'false');
+    assert.ok(skillPanel.hidden);
+  });
+
+  test('点击后切到技能', () => {
+    skillTab.click();
+    assert.equal(skillTab.getAttribute('aria-selected'), 'true');
+    assert.ok(!skillPanel.hidden);
+    assert.ok(modelPanel.hidden);
+    modelTab.click();
   });
 
   test('默认显示模型配置', () => {
@@ -80,7 +102,11 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
   });
 
   test('二级分类支持方向键切换', () => {
+    // 上下文管理往左一格是技能（中间插了一页），再往左才是模型配置。
     contextTab.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    assert.equal(skillTab.getAttribute('aria-selected'), 'true');
+    assert.ok(!skillPanel.hidden);
+    skillTab.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
     assert.equal(modelTab.getAttribute('aria-selected'), 'true');
     assert.ok(!modelPanel.hidden);
   });

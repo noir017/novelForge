@@ -215,7 +215,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | 模块 | 提供 |
 |---|---|
 | `load.js` | `loadModule(relPath)` / `loadBundle(entries)`——用 esbuild 把 **TS 源码** bundle 成 CJS 后 require，结果带缓存。**要用 Host 的模块必须打进同一个 bundle**：分开 bundle 会让每份产物各带一份 `host.ts` 的模块级状态，`initHost` 只作用于其中一份 |
-| `tmpProject.js` | `makeTempProject()`（建工程并删掉 initialize 撒的示例文件）、`copyFixture()`（需要写盘时复制 `sample-novel/`）、`rel/write/read/has/remove` |
+| `tmpProject.js` | `makeTempProject()`（建一个初始化过的空工程）、`copyFixture()`（需要写盘时复制 `sample-novel/`）、`rel/write/read/has/remove` |
 | `fakeHost.js` | 可编程假宿主：input/confirm/pick/reviewReplace 按**队列**取答案，没排队就当用户取消；录制 toasts/confirms/reviewed/opened，并能观察 `reviewReplace` 的并发峰值 |
 | `fakeProvider.js` | 假模型，一律经 `registerProviderFactory` 且 `kind: 'vscode-lm'`——那是唯一不碰 SecretStore 的路径（其余 kind 会去要 API Key）。支持应答队列、函数应答、按模型注入 `unavailable`/`fail`/`cancel`，以及并发峰值观察 |
 | `vscodeStub.js` | 四档能力的 `vscode` 模块桩（`minimal`/`config`/`workspace`/`full`），`full` 带真实文件系统支撑的 `workspace.fs`。**返回 `restore()`，请挂到 `after()`** |

@@ -366,6 +366,10 @@ export class NovelProject {
 
   // ---------------------------------------------------------------- 初始化
 
+  /**
+   * 建目录与文风 / 大纲 / 全书摘要骨架。角色卡与设定条目不撒示例——
+   * 空着等作者自己建，或之后从正文里提取。
+   */
   async initialize(meta: { title: string; author: string }): Promise<void> {
     await fs.mkdir(this.chaptersDir, { recursive: true });
     await fs.mkdir(this.charactersDir, { recursive: true });
@@ -379,8 +383,6 @@ export class NovelProject {
     await writeIfAbsent(this.stylePath, STYLE_TEMPLATE);
     await writeIfAbsent(this.outlinePath, OUTLINE_TEMPLATE(meta.title));
     await writeIfAbsent(this.globalSummaryPath, GLOBAL_SUMMARY_TEMPLATE);
-    await writeIfAbsent(path.join(this.charactersDir, 'example-protagonist.md'), CHARACTER_TEMPLATE);
-    await writeIfAbsent(path.join(this.loreDir, 'example-setting.md'), LORE_TEMPLATE);
 
     this.invalidate();
     const manifest: ProjectManifest = {
@@ -1181,46 +1183,4 @@ generatedBy: novel-forge
 ## 未收伏笔
 
 ## 人物关系变动
-`;
-
-const CHARACTER_TEMPLATE = `---
-name: 示例主角
-aliases: [小示, 示公子]
-tags: [主角]
-firstAppear: 1
----
-
-# 示例主角
-
-## 身份
-
-（他/她是谁，在故事里承担什么位置。）
-
-## 外貌
-
-## 性格
-
-## 语言习惯
-
-（说话的节奏、口癖、常用词——这一节对保持角色声音很关键。）
-
-## 人物关系
-
-## 当前状态
-
-（写到最新章节时，此人身在何处、处于什么处境。续写时会优先注入这一节。）
-
-## 未收伏笔
-
-（与此人相关、尚未回收的线索。）
-`;
-
-const LORE_TEMPLATE = `---
-title: 示例设定
-keywords: [示例, 设定]
----
-
-# 示例设定
-
-（世界观、势力、功法、地理等设定条目。keywords 命中续写纲要时会自动注入。）
 `;
