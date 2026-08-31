@@ -16,6 +16,7 @@ import {
   AgentMessage,
   LlmError,
   LlmProvider,
+  ReasoningTrace,
   StopSignal,
   StreamEvent,
   StreamOptions,
@@ -40,7 +41,12 @@ const log = scoped('模型');
  * 二次才成。数字与梯子长度绑起来，以后往梯子上加一档不会再复发。
  */
 const MAX_NEGOTIATIONS =
-  THINKING_DEPTHS.length - 1 + (CHAT_STYLE_LADDER.length - 1) + 2;
+  THINKING_DEPTHS.length -
+  1 +
+  (CHAT_STYLE_LADDER.length - 1) +
+  // stream_options / temperature / tool_choice / assistant 的空 content 各一次，
+  // 思考原文最多两次（不交 → 交 → 上游反过来拒收）。
+  6;
 
 /**
  * 通用 **OpenAI 兼容** `/chat/completions` 流式实现。
@@ -68,11 +74,15 @@ const MAX_NEGOTIATIONS =
  * 同时留一个手动档（服务商配置里的「思考字段」下拉）：自动协商靠 400 的错误
  * 文本认字段，而中转网关的报错措辞什么样都有可能。猜错时得有个地方能钉死。
  *
- * ## 三件与另两条协议不同、不做就会静默出错的事
+ * ## 三件与另两条协议不同、不做就会出错的事
  *
- * - **不发 `reasoningTrace`**。同一个 kind 底下各家要求正好相反：DeepSeek 把
- *   上一轮的 `reasoning_content` 交回去是**直接 400**，Kimi 的文档却要求在一次
- *   工具循环里交回去。400 比「白丢一次推理缓存」严重得多，所以一律不交。
+ * - **思考原文交不交回去，按模型记**。同一个 kind 底下各家要求正好相反：老的
+ *   `deepseek-reasoner` 交回去是**直接 400**，DeepSeek V4 的思考模式**不交回才
+ *   是 400**（Kimi 的文档同样要求交回）。所以这不是一条写死的结论，而是
+ *   `MODEL_COMPAT` 里的一格：表里认得的模型直接按对的来，认不出的缺省不交、
+ *   被上游的 400 教一次就改。判据用 DeepSeek 文档给的那个——**这次请求带没带
+ *   `tools`**：不带时交回去也会被忽略，带 `tools` 时历史上每一轮都必须交回，
+ *   **包括那些没有工具调用的轮**。
  * - **`stop` 必须排在所有 `toolCall` 之后**（见 provider.ts 的 StopSignal）。但
  *   这条协议的工具调用是**分片攒到流结束**才拼得完的，而 `finish_reason` 往往
  *   在那之前就到了——所以收尾原因要先扣着，冲完工具调用再发。
@@ -102,14 +112,22 @@ export class ChatCompletionsProvider implements LlmProvider {
   async *stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
     const { signal, dispose, poke } = makeAbortSignal(options);
     try {
-      const msgs = toChatMessages(messages);
       const quirk = quirksOf(this.baseUrl, this.model, this.style);
+      // 交不交回思考原文的判据是「这次请求带没带 tools」，见 MODEL_COMPAT。
+      const hasTools = (options.tools?.length ?? 0) > 0;
       let stream: ReadableStream<Uint8Array> | undefined;
 
       // 上游拒了某个字段就换一种写法再发（见 negotiate）——**不是重试同一个
-      // 请求**：每一次的请求体都与上一次不同。梯子最长五档（四种写法 + 不带），
-      // 外加 stream_options 与 temperature 各一次，所以上限给到七次。
+      // 请求**：每一次的请求体都与上一次不同。上限见 MAX_NEGOTIATIONS，是按最
+      // 长路径算出来的，不是拍一个数。
       for (let attempt = 0; ; attempt += 1) {
+        // 消息在循环**里面**转：协商可能改掉「交不交思考原文」与「空 content
+        // 发 null 还是空串」，这两样落在 messages 上而不是请求体的顶层字段上，
+        // 在循环外面转一次，重发的还是协商前那一份。
+        const msgs = toChatMessages(messages, {
+          echoReasoning: hasTools && quirk.echoReasoning === 'on',
+          nullAssistantContent: quirk.nullAssistantContent,
+        });
         const sent = buildBody(this.model, msgs, options, quirk);
         const response = await fetch(`${this.baseUrl}/chat/completions`, {
           method: 'POST',
@@ -146,6 +164,9 @@ export class ChatCompletionsProvider implements LlmProvider {
       const toolChunks: ChatToolCallDelta[][] = [];
       // 收尾原因往往在工具调用拼完之前就到——扣着，等工具调用发完再发它。
       let stopReason: StopSignal | undefined;
+      // 思考原文整块攒一份：下一轮要原样交回去。界面上那份是逐片给的，两者
+      // 不能互相替代（界面要的是「已经在想了」，回填要的是一整块原文）。
+      let reasoningText = '';
 
       for await (const payload of iterateSse(stream, signal, poke)) {
         let chunk: ChatChunk;
@@ -160,9 +181,18 @@ export class ChatCompletionsProvider implements LlmProvider {
           } else if (ev.type === 'finish') {
             stopReason = ev.reason;
           } else {
+            if (ev.event.type === 'reasoning') {
+              reasoningText += ev.event.text;
+            }
             yield ev.event;
           }
         }
+      }
+
+      // 排在工具调用之前发：上层把它挂到同一条 assistant 消息上（loop.ts 的
+      // `traces`），下一轮再交回去。
+      if (reasoningText) {
+        yield { type: 'reasoningTrace', trace: { kind: 'openai-chat', payload: reasoningText } };
       }
 
       // 流结束才把每个槽发出去：参数是逐片拼出来的。
@@ -203,6 +233,21 @@ export interface Quirks {
   maxDepth: ThinkingDepth;
   /** 「输出上限太小」那句话已经说过了。同一个模型只说一次。 */
   warnedRoom: boolean;
+  /**
+   * 带 `tools` 时要不要把上一轮的思考原文交回去。
+   *
+   * 三档而不是布尔，为的是让协商**单调收敛**：`off`（缺省，谁也没说要）→ `on`
+   * （上游报了「必须交回」）→ `never`（交回去反而被拒，从此不再交）。少一档
+   * 就会在两家要求相反的网关上来回翻，一个请求也发不出去。
+   */
+  echoReasoning: 'off' | 'on' | 'never';
+  /**
+   * assistant 只发工具调用、一个字都没说时，`content` 发 `null`（缺省）还是空串。
+   * 两边都有实现在拒对面那一种，所以按模型记。
+   */
+  nullAssistantContent: boolean;
+  /** 拒收 `tool_choice`（DeepSeek V4 的思考模式如此）。 */
+  noToolChoice: boolean;
 }
 
 /**
@@ -227,6 +272,50 @@ const STYLE = new Map<string, { style: Exclude<ChatThinkingStyle, 'auto'>; pinne
  */
 const PER_MODEL = new Map<string, Omit<Quirks, 'style' | 'pinned'>>();
 
+/** 三件「协议上有两种做法、两边都有实现在拒对面那种」的事。 */
+type ModelCompat = Pick<Quirks, 'echoReasoning' | 'nullAssistantContent' | 'noToolChoice'>;
+
+/**
+ * 已知模型的先验。
+ *
+ * **不是白名单**：表里没有的照旧靠 400 学（见 negotiate），这张表只是让踩过的
+ * 坑不必每个模型再踩一遍——踩一遍的代价是作者的第一次生成先失败一次。
+ *
+ * 按模型名的**子串**认，因为中转网关会改名：作者手里那个叫
+ * `deepseek-v4-flash-0731`，OpenRouter 上是 `deepseek/deepseek-v4-pro`。认不出
+ * 就退回探测，不会比从前更糟。
+ */
+const MODEL_COMPAT: { match: RegExp; compat: Partial<ModelCompat>; why: string }[] = [
+  {
+    // V3.2 / V4 起的思考模式：不交回思考原文是 400、`content` 不能是 null、
+    // 也不认 tool_choice。三条一起给——修好第一条马上会撞上后两条。
+    match: /deepseek-(v[4-9]|v3\.[2-9])/,
+    compat: { echoReasoning: 'on', nullAssistantContent: false, noToolChoice: true },
+    why: '带 tools 时历史上每一轮的 reasoning_content 都必须交回，且 content 不能是 null',
+  },
+  {
+    // 老的单独推理模型：要求正好相反，交回去是直接 400。
+    match: /deepseek-reasoner/,
+    compat: { echoReasoning: 'never' },
+    why: 'deepseek-reasoner 拒收交回来的 reasoning_content',
+  },
+];
+
+/** 缺省 = 从前的行为：不交思考原文、空 content 发 null、带 tool_choice。 */
+export function compatOf(model: string): ModelCompat {
+  const base: ModelCompat = {
+    echoReasoning: 'off',
+    nullAssistantContent: true,
+    noToolChoice: false,
+  };
+  const hit = MODEL_COMPAT.find((e) => e.match.test(model.toLowerCase()));
+  if (!hit) {
+    return base;
+  }
+  log.debug(`${model} 命中已知兼容项`, hit.why);
+  return { ...base, ...hit.compat };
+}
+
 /**
  * 两张表拼成这一次请求要用的 `Quirks`。
  *
@@ -247,7 +336,13 @@ function quirksOf(baseUrl: string, model: string, style: ChatThinkingStyle): Qui
   const modelKey = `${baseUrl}|${model}`;
   let pm = PER_MODEL.get(modelKey);
   if (!pm) {
-    pm = { noStreamOptions: false, noTemperature: false, maxDepth: 'max', warnedRoom: false };
+    pm = {
+      noStreamOptions: false,
+      noTemperature: false,
+      maxDepth: 'max',
+      warnedRoom: false,
+      ...compatOf(model),
+    };
     PER_MODEL.set(modelKey, pm);
   }
 
@@ -290,6 +385,24 @@ function quirksOf(baseUrl: string, model: string, style: ChatThinkingStyle): Qui
     set warnedRoom(v) {
       pm.warnedRoom = v;
     },
+    get echoReasoning() {
+      return pm.echoReasoning;
+    },
+    set echoReasoning(v) {
+      pm.echoReasoning = v;
+    },
+    get nullAssistantContent() {
+      return pm.nullAssistantContent;
+    },
+    set nullAssistantContent(v) {
+      pm.nullAssistantContent = v;
+    },
+    get noToolChoice() {
+      return pm.noToolChoice;
+    },
+    set noToolChoice(v) {
+      pm.noToolChoice = v;
+    },
   };
 }
 
@@ -322,7 +435,10 @@ export function buildBody(
             type: 'function',
             function: { name: s.name, description: s.description, parameters: s.parameters },
           })),
-          ...(options.toolChoice ? { tool_choice: options.toolChoice } : {}),
+          // DeepSeek V4 的思考模式不认 tool_choice（见 MODEL_COMPAT）。
+          ...(options.toolChoice && !quirk.noToolChoice
+            ? { tool_choice: options.toolChoice }
+            : {}),
         }
       : {}),
   };
@@ -421,6 +537,35 @@ export function negotiate(
     quirk.noTemperature = true;
     return true;
   }
+  if ('tool_choice' in sent && detail.includes('tool_choice') && !quirk.noToolChoice) {
+    quirk.noToolChoice = true;
+    log.warn(`${label} 不认 tool_choice，去掉它再发一次`, detail.slice(0, 200));
+    return true;
+  }
+
+  // ---- 以下两条必须排在思考字段之前 ----
+  //
+  // `reasoning_content` 里含 "reasoning" 这个子串，落到下面的 `mentionsThinking`
+  // 会被当成「上游不认这种思考写法」，于是把风格梯子整个走一遍——每一步都因为
+  // 同一个真实原因失败，最后还把这个网关记成「不带思考字段」（`STYLE` 按
+  // baseUrl 记），作者看到的是「从此这家所有模型都不思考了」。这句抱怨说的是
+  // **消息历史**，不是请求体上那几个开关，两件事不能混。
+  if (detail.includes('reasoning_content')) {
+    return negotiateReasoningEcho(detail, quirk, label);
+  }
+  if (
+    quirk.nullAssistantContent &&
+    sentNullAssistantContent(sent) &&
+    detail.includes('content') &&
+    (detail.includes('null') || detail.includes('empty'))
+  ) {
+    quirk.nullAssistantContent = false;
+    log.warn(
+      `${label} 不收 content 为 null 的 assistant 消息，改发空串再发一次`,
+      detail.slice(0, 200)
+    );
+    return true;
+  }
 
   const sentThinking = THINKING_KEYS.some((k) => k in sent);
   if (!sentThinking || !mentionsThinking(detail)) {
@@ -473,6 +618,82 @@ export function negotiate(
     detail.slice(0, 200)
   );
   return true;
+}
+
+/**
+ * 「上一轮的思考原文」这件事怎么协商。**单调**：`off` → `on` → `never`，
+ * 最多两步，所以不会来回翻。
+ *
+ * 两种抱怨要分清，措辞是唯一的线索：
+ *   要交回   The `reasoning_content` in the thinking mode must be passed back to the API.
+ *   不该带   Unrecognized request argument: 'reasoning_content'
+ * 先认「不该带」那一类的词：`must be omitted` 这种说法两类词都占，按「要交回」
+ * 读会把去掉字段的那一步变成加上字段，永远发不出去。
+ *
+ * 「不该带」那一串里**没有 `invalid`**，虽然措辞上很像：兼容实现的错误信封里
+ * 普遍带一句 `"type": "invalid_request_error"`，把它算进去等于把每一句要求交回
+ * 的抱怨都读成「不该带」，于是这条协商永远不会触发。
+ */
+function negotiateReasoningEcho(detail: string, quirk: Quirks, label: string): boolean {
+  const rejects =
+    detail.includes('unrecognized') ||
+    detail.includes('unexpected') ||
+    detail.includes('unsupported') ||
+    detail.includes('not support') ||
+    detail.includes('must not') ||
+    detail.includes('should not') ||
+    detail.includes('remove');
+  const demands =
+    !rejects &&
+    (detail.includes('must') ||
+      detail.includes('require') ||
+      detail.includes('missing') ||
+      detail.includes('pass back') ||
+      detail.includes('passed back'));
+
+  if (demands) {
+    if (quirk.echoReasoning === 'off') {
+      quirk.echoReasoning = 'on';
+      log.warn(`${label} 要求交回上一轮的思考原文，带上它再发一次`, detail.slice(0, 200));
+      return true;
+    }
+    if (quirk.echoReasoning === 'on') {
+      // 已经在交了它还这么说：这段历史里有交不出原文的 assistant 消息——本次修复
+      // 之前存下的会话，或者中途换过模型/服务商（别家的凭据认不出，一律丢掉）。
+      // 那段原文再协商多少回也变不出来，只能报出来。
+      log.warn(
+        `${label} 仍然要求交回思考原文，但这段历史里有交不出原文的回合`,
+        `多半是中途换过模型、或是这次修复之前存下的会话——新开一次会话即可｜${detail.slice(0, 200)}`
+      );
+      return false;
+    }
+    log.warn(
+      `${label} 要求交回思考原文，但它此前拒收过同一个字段`,
+      `上游前后两次的要求互相矛盾，只能报出来｜${detail.slice(0, 200)}`
+    );
+    return false;
+  }
+
+  // 不是「要交回」而是「不该带」：我们确实带了才退回去。没带就与我们无关，
+  // 让真错误照原样报出来。
+  if (quirk.echoReasoning === 'on') {
+    quirk.echoReasoning = 'never';
+    log.warn(`${label} 拒收交回来的思考原文，这一轮起不再交`, detail.slice(0, 200));
+    return true;
+  }
+  return false;
+}
+
+/** 这一次的请求体里有没有 `content` 为 null 的 assistant 消息。 */
+function sentNullAssistantContent(sent: Record<string, unknown>): boolean {
+  const msgs = sent.messages;
+  return (
+    Array.isArray(msgs) &&
+    msgs.some((m) => {
+      const row = m as { role?: string; content?: unknown };
+      return row.role === 'assistant' && row.content === null;
+    })
+  );
 }
 
 /** 四种风格用到的全部字段名——「这一次带了思考字段吗」按它判。 */
@@ -528,31 +749,69 @@ function rejectsValue(detail: string): boolean {
 // ---------------------------------------------------------------- 消息转换
 
 /**
+ * 这一次的消息要按哪一种形状发。两项都是**上游的事实**，由 `Quirks` 给，
+ * 缺省是从前的行为（谁也没要求过的网关上，请求体与从前一字不差）。
+ */
+export interface ChatShape {
+  /** 把 assistant 的思考原文交回去。只在这次请求带了 `tools` 时才该开。 */
+  echoReasoning?: boolean;
+  /** assistant 只发工具调用时 `content` 发 `null`（缺省）还是空串。 */
+  nullAssistantContent?: boolean;
+}
+
+/**
  * `AgentMessage[]` → OpenAI 的 `messages[]`。
  *
  * 这条协议是四家里最省事的：system 就是一条普通消息，`tool` 是独立 role，
- * 工具调用挂在 assistant 上。**思考凭据一律不带**（`traces` 直接忽略）——
- * 理由见类注释。
+ * 工具调用挂在 assistant 上。
+ *
+ * 只有一处不省事：assistant 上要不要带 `reasoning_content`。带的时候是**每一条
+ * assistant 消息都带**，不只是有工具调用的那些——DeepSeek 的文档明说没有工具
+ * 调用的轮也必须交回。理由与判据见类注释与 `MODEL_COMPAT`。
  */
-export function toChatMessages(messages: AgentMessage[]): unknown[] {
+export function toChatMessages(messages: AgentMessage[], shape: ChatShape = {}): unknown[] {
   return messages.map((m) => {
     if (m.role === 'tool') {
       return { role: 'tool', tool_call_id: m.toolCallId, content: m.content };
     }
-    if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+    if (m.role === 'assistant') {
+      const calls = m.toolCalls ?? [];
+      const hasCalls = calls.length > 0;
+      const reasoning = shape.echoReasoning ? chatReasoning(m.traces) : undefined;
+      // 一个字都没说时：多数实现要求 content 是 null（空串会被拒），DeepSeek V4
+      // 的思考模式反过来要求非 null。两种都得能发。
+      const empty = shape.nullAssistantContent === false ? '' : null;
       return {
         role: 'assistant',
-        // 只发工具调用、一个字都没说时 content 必须是 null，空串会被部分实现拒掉。
-        content: m.content || null,
-        tool_calls: m.toolCalls.map((c) => ({
-          id: c.id,
-          type: 'function',
-          function: { name: c.name, arguments: c.raw },
-        })),
+        content: hasCalls ? m.content || empty : m.content,
+        ...(reasoning !== undefined ? { reasoning_content: reasoning } : {}),
+        ...(hasCalls
+          ? {
+              tool_calls: calls.map((c) => ({
+                id: c.id,
+                type: 'function',
+                function: { name: c.name, arguments: c.raw },
+              })),
+            }
+          : {}),
       };
     }
     return { role: m.role, content: m.content };
   });
+}
+
+/**
+ * 这条 assistant 消息里属于**本协议**的思考原文。
+ *
+ * 认不出的 kind 一律丢掉：作者可以在一轮对话中间换模型，Anthropic 的思考块
+ * 或 Responses 的 reasoning item 塞进 `reasoning_content` 只会 400。
+ */
+function chatReasoning(traces: ReasoningTrace[] | undefined): string | undefined {
+  const text = (traces ?? [])
+    .filter((t) => t.kind === 'openai-chat' && typeof t.payload === 'string')
+    .map((t) => t.payload as string)
+    .join('');
+  return text || undefined;
 }
 
 // ---------------------------------------------------------------- 事件解析

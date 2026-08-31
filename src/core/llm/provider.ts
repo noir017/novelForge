@@ -51,13 +51,14 @@ export type StreamEvent =
  * 自己解释。`kind` 是必需的——作者可以在一轮对话中间换模型，另一家的凭据
  * 拿过去只会 400，认不出的 kind 一律丢掉。
  *
- * **只有两条协议发它**：Responses 与 Messages。通用 `/chat/completions` 那条
- * 一个都不发，因为同一个 kind 底下各家要求正好相反——DeepSeek 把上一轮的
- * `reasoning_content` 交回去是直接 400，Kimi 的文档却要求在一次工具循环里交
- * 回去。400 比「白丢一次推理缓存」严重得多，所以那条路一律不交。
+ * **三条协议都发它**。通用 `/chat/completions` 那条从前一个都不发，理由是
+ * 「同一个 kind 底下各家要求正好相反」——老的 `deepseek-reasoner` 交回去是直接
+ * 400，Kimi 的文档却要求在一次工具循环里交回去。那个结论今天已经过期：
+ * DeepSeek V4 的思考模式**不交回才是 400**。矛盾的要求只能用一张按模型记的表
+ * 装，不能用一条写死的结论装——见 chatCompletionsProvider 的 `MODEL_COMPAT`。
  */
 export interface ReasoningTrace {
-  kind: 'anthropic' | 'openai-responses';
+  kind: 'anthropic' | 'openai-responses' | 'openai-chat';
   payload: unknown;
 }
 

@@ -65,16 +65,91 @@ describe('llm/chatCompletionsProvider · 消息转换', () => {
     assert.deepEqual(out, [{ role: 'tool', tool_call_id: 'call_1', content: '文件内容' }]);
   });
 
-  // DeepSeek 把上一轮的 reasoning_content 交回去是直接 400。
-  test('思考凭据一律不交回去', () => {
+  // 上游没要求过就不交：老的 deepseek-reasoner 收到它是直接 400。
+  test('缺省不交回思考原文', () => {
     const out = m.toChatMessages([
-      {
-        role: 'assistant',
-        content: '想过了',
-        traces: [{ kind: 'openai-responses', payload: { type: 'reasoning' } }],
-      },
+      { role: 'assistant', content: '想过了', traces: [{ kind: 'openai-chat', payload: '嗯……' }] },
     ]);
     assert.deepEqual(out, [{ role: 'assistant', content: '想过了' }]);
+  });
+
+  // 换过模型的会话里会有别家的凭据，塞进 reasoning_content 只会 400。
+  test('别家协议的凭据一律不交，认不出的 kind 直接丢掉', () => {
+    const out = m.toChatMessages(
+      [
+        {
+          role: 'assistant',
+          content: '想过了',
+          traces: [{ kind: 'openai-responses', payload: { type: 'reasoning' } }],
+        },
+      ],
+      { echoReasoning: true }
+    );
+    assert.deepEqual(out, [{ role: 'assistant', content: '想过了' }]);
+  });
+
+  test('要交的时候按原文交回去，多块拼成一块', () => {
+    const out = m.toChatMessages(
+      [
+        {
+          role: 'assistant',
+          content: '',
+          traces: [
+            { kind: 'openai-chat', payload: '先看设定，' },
+            { kind: 'openai-chat', payload: '再动笔。' },
+          ],
+          toolCalls: [{ id: 'c1', name: 'read', args: {}, raw: '{}' }],
+        },
+      ],
+      { echoReasoning: true }
+    );
+    assert.equal(out[0].reasoning_content, '先看设定，再动笔。');
+  });
+
+  // DeepSeek 文档明说：带 tools 时**没有工具调用的那些轮也必须交回**。
+  test('没有工具调用的 assistant 也带上思考原文', () => {
+    const out = m.toChatMessages(
+      [{ role: 'assistant', content: '写好了', traces: [{ kind: 'openai-chat', payload: '想' }] }],
+      { echoReasoning: true }
+    );
+    assert.deepEqual(out, [{ role: 'assistant', content: '写好了', reasoning_content: '想' }]);
+  });
+
+  // DeepSeek V4 的思考模式与「空串会被拒」那一类实现要求正好相反。
+  test('钉死非 null 时空 content 发空串', () => {
+    const out = m.toChatMessages(
+      [{ role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'read', args: {}, raw: '{}' }] }],
+      { nullAssistantContent: false }
+    );
+    assert.equal(out[0].content, '');
+  });
+});
+
+describe('llm/chatCompletionsProvider · 已知模型的先验', () => {
+  // 中转会改名，所以按子串认：作者手里那个叫 deepseek-v4-flash-0731。
+  test('DeepSeek V4 三件事一起给', () => {
+    assert.deepEqual(m.compatOf('deepseek-v4-flash-0731'), {
+      echoReasoning: 'on',
+      nullAssistantContent: false,
+      noToolChoice: true,
+    });
+  });
+
+  test('OpenRouter 那种带前缀的名字也认', () => {
+    assert.equal(m.compatOf('deepseek/deepseek-v4-pro').echoReasoning, 'on');
+  });
+
+  // 老的单独推理模型要求正好相反。
+  test('deepseek-reasoner 是 never，不是 on', () => {
+    assert.equal(m.compatOf('deepseek-reasoner').echoReasoning, 'never');
+  });
+
+  test('表里没有的退回缺省——请求体与从前一字不差', () => {
+    assert.deepEqual(m.compatOf('gpt-4o'), {
+      echoReasoning: 'off',
+      nullAssistantContent: true,
+      noToolChoice: false,
+    });
   });
 });
 
@@ -241,6 +316,9 @@ describe('llm/chatCompletionsProvider · 400 的两种抱怨要分清', () => {
     noTemperature: false,
     maxDepth: 'max',
     warnedRoom: false,
+    echoReasoning: 'off',
+    nullAssistantContent: true,
+    noToolChoice: false,
   });
   const sent = { reasoning_effort: 'max' };
   const nego = (body, q) => m.negotiate(400, body, sent, q, 'test-model');
@@ -294,5 +372,95 @@ describe('llm/chatCompletionsProvider · 400 的两种抱怨要分清', () => {
     assert.equal(nego('context length exceeded', q), false);
     assert.equal(q.style, 'effort');
     assert.equal(q.maxDepth, 'max');
+  });
+});
+
+describe('llm/chatCompletionsProvider · 消息历史被拒时不动思考字段', () => {
+  const quirk = (over) => ({
+    style: 'effort',
+    pinned: false,
+    noStreamOptions: false,
+    noTemperature: false,
+    maxDepth: 'max',
+    warnedRoom: false,
+    echoReasoning: 'off',
+    nullAssistantContent: true,
+    noToolChoice: false,
+    ...over,
+  });
+  const DEMAND = 'The `reasoning_content` in the thinking mode must be passed back to the API.';
+
+  // 这是这一组存在的理由：DEMAND 里含 reasoning 与 thinking 两个词，从前会被
+  // 当成「上游不认这种思考写法」，把风格梯子整个走一遍后还把整个网关记成
+  // 「不带思考字段」——而真正的原因在 messages 里。
+  test('「必须交回」只改交不交，一个思考字段都不动', () => {
+    const q = quirk();
+    assert.equal(m.negotiate(400, DEMAND, { reasoning_effort: 'max' }, q, 'x'), true);
+    assert.equal(q.echoReasoning, 'on');
+    assert.equal(q.style, 'effort');
+    assert.equal(q.maxDepth, 'max');
+  });
+
+  // 交不出原文的历史（换过模型 / 修复前存下的会话）：再协商也变不出来。
+  test('已经在交还这么说就报出来，不再重发', () => {
+    const q = quirk({ echoReasoning: 'on' });
+    assert.equal(m.negotiate(400, DEMAND, { reasoning_effort: 'max' }, q, 'x'), false);
+    assert.equal(q.echoReasoning, 'on');
+  });
+
+  test('反过来拒收就钉成 never，不再交', () => {
+    const q = quirk({ echoReasoning: 'on' });
+    const body = "Unrecognized request argument: 'reasoning_content'";
+    assert.equal(m.negotiate(400, body, { reasoning_effort: 'max' }, q, 'x'), true);
+    assert.equal(q.echoReasoning, 'never');
+    assert.equal(q.style, 'effort');
+  });
+
+  // 「must be omitted」两类词都占，按「要交回」读会把该去掉的字段加上去。
+  test('措辞里带否定词的算拒收，不算要求交回', () => {
+    const q = quirk({ echoReasoning: 'on' });
+    const body = 'reasoning_content must not be passed back for this model';
+    assert.equal(m.negotiate(400, body, {}, q, 'x'), true);
+    assert.equal(q.echoReasoning, 'never');
+  });
+
+  test('没带思考字段时这条也照样协商——它与思考字段无关', () => {
+    const q = quirk();
+    assert.equal(m.negotiate(400, DEMAND, {}, q, 'x'), true);
+    assert.equal(q.echoReasoning, 'on');
+  });
+
+  // 兼容实现普遍把这句话包在 "type": "invalid_request_error" 的信封里——
+  // 按 invalid 认「不该带」的话，这条协商永远不会触发。
+  test('错误信封里的 invalid_request_error 不算「不该带」', () => {
+    const q = quirk();
+    const body = JSON.stringify({
+      error: { type: 'invalid_request_error', code: 'invalid_request_error', message: DEMAND },
+    });
+    assert.equal(m.negotiate(400, body, { reasoning_effort: 'max' }, q, 'x'), true);
+    assert.equal(q.echoReasoning, 'on');
+  });
+
+  test('不认 tool_choice 就去掉它', () => {
+    const q = quirk();
+    const sent = { tool_choice: 'auto' };
+    assert.equal(m.negotiate(400, "Unsupported parameter: 'tool_choice'", sent, q, 'x'), true);
+    assert.equal(q.noToolChoice, true);
+  });
+
+  test('拒收 content 为 null 的 assistant 消息就改发空串', () => {
+    const q = quirk();
+    const sent = { messages: [{ role: 'assistant', content: null, tool_calls: [] }] };
+    const body = 'assistant message content must not be null';
+    assert.equal(m.negotiate(400, body, sent, q, 'x'), true);
+    assert.equal(q.nullAssistantContent, false);
+  });
+
+  // 这一次压根没发 null，那句抱怨与我们无关。
+  test('没发 null 时不动这一格', () => {
+    const q = quirk();
+    const sent = { messages: [{ role: 'assistant', content: '写好了' }] };
+    assert.equal(m.negotiate(400, 'content must not be null', sent, q, 'x'), false);
+    assert.equal(q.nullAssistantContent, true);
   });
 });

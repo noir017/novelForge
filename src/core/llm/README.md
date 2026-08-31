@@ -72,15 +72,21 @@ provider 里判「现在是哪一条」——那种分支每加一个字段就�
   GLM 的 `disabled` 有报告说被忽略，Ollama 的 `false` 因字段类型是 string 直接报错）。于是在
   缺省就开思考的模型（GLM、DeepSeek、Ollama 上的推理模型）上，这一档的准确含义是**跟随服务商
   默认**，界面上的说明就是这么写的。
-- **`reasoningTrace` 只有两条协议发**。工具结果在协议上是一条新的 user 消息，但它与上一步的思考
+- **`reasoningTrace` 三条协议都发**。工具结果在协议上是一条新的 user 消息，但它与上一步的思考
   属于同一段推理。Anthropic 不交回思考块（含 `signature`）会**静默把这一轮的思考关掉**（文档
   写明是 graceful degradation，不报错），表现出来就是「开了深思考，但 agent 从第二步起就不
   想了」——很难查。Responses 那边则是白丢一次推理缓存（`store: false`，所以要显式
   `include: ['reasoning.encrypted_content']`）。载荷对本层不透明，`kind` 认不出就丢掉：
   作者可以在一轮对话中间换模型，另一家的凭据交过去只会 400。
-  **通用那条一个都不发**：同一个 kind 底下各家要求正好相反——DeepSeek 把上一轮的
-  `reasoning_content` 交回去是**直接 400**，Kimi 的文档却要求在一次工具循环里交回去。400 比
-  「白丢一次推理缓存」严重得多，所以那条路一律不交。
+  **通用那条按模型记**：同一个 kind 底下各家要求正好相反——老的 `deepseek-reasoner` 把上一轮的
+  `reasoning_content` 交回去是**直接 400**，DeepSeek V4 的思考模式**不交回才是 400**（Kimi 的
+  文档同样要求交回）。从前的结论是「一律不交」，代价是 V4 上的工具循环从第二步起必然 400，而
+  那句报错里含 `reasoning`/`thinking` 两个词，还会被字段协商误当成「不认这种思考写法」，把整个
+  网关记成不带思考字段。矛盾的要求只能用一张按模型记的表装（`MODEL_COMPAT`：表里认得的直接按
+  对的来，认不出的缺省不交、被上游的 400 教一次就改），判据用 DeepSeek 文档给的那个——**这次
+  请求带没带 `tools`**：不带时交回去也会被忽略，带 `tools` 时历史上每一轮都必须交回，包括那些
+  没有工具调用的轮。同一张表还装着另外两格：`content` 为 null 的 assistant 消息、以及
+  `tool_choice`，V4 的思考模式两样都拒。
 - **上游拒了就换一种写法，不把这一轮判死**。`effort` 的梯子上老模型缺顶上那两档；Anthropic
   更是有两代写法（自适应 `thinking: {type:'adaptive'}` + `output_config.effort`，以及 4.5 及
   更早唯一可用的手动预算 `thinking: {type:'enabled', budget_tokens}`，后者在 4.7 以后直接被
