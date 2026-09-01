@@ -2,6 +2,7 @@ import type { DirListing } from '../files/fileTree';
 import type { LogEntry } from '../runtime/logger';
 import type { TaskSnapshot } from '../runtime/progress';
 import type { SkillAudience, SkillMode } from '../model/skillMode';
+import type { CreationJob, CreationStage } from '../model/pipeline';
 import type {
   EditorPane,
   SerializedAttachment,
@@ -12,6 +13,7 @@ import type {
   PlotPipelineView,
   PlotSummaryView,
   ProjectTree,
+  SerializedArtifact,
   SerializedSession,
   SerializedTurn,
   SessionListItem,
@@ -170,6 +172,38 @@ export type OutMessage =
    * 拿到最新名单（他可能刚写完一份技能），而设置那条只在切到设置页时推。
    */
   | { type: 'skillList'; items: SkillRow[] }
+  // ------------------------------------------------------------ 「生成」页
+  //
+  // 六条独立的消息，一条都不与对话页共用（见 controller/generate.ts 的文件头）。
+  /**
+   * 这一层的落点候选，以及这一层会用哪个模型。`genTargets` 的回话。
+   *
+   * 两件事一起给是因为它们由同一个输入决定（job → stage）：分成两条消息
+   * 只会让界面在换 job 之后短暂地显示上一层的模型。
+   */
+  | {
+      type: 'genTargets';
+      job: CreationJob;
+      stage: CreationStage;
+      items: GenTargetItem[];
+      model: GenModelView;
+    }
+  /** 「生成」页的阶段。前端据此画状态行、切「生成/停止」。 */
+  | { type: 'genPhase'; phase: GenPhase; message?: string }
+  /** 正文增量。**不进任何会话**，只画在这一页的输出框里。 */
+  | { type: 'genDelta'; text: string }
+  /** 思考增量。正文迟迟不来时它是唯一的进度反馈。 */
+  | { type: 'genReasoning'; text: string }
+  /**
+   * 这一次生成的结论。
+   *
+   * `draft` 缺席 = 没有产出（失败或被取消），原因在 `genPhase` 里说过了。
+   * 有 `draft` 但 `draft.artifact` 缺席 = 产出了但解析不出这一层要的结构，
+   * **那时不给采纳按钮**：写一个空产物比不写更糟。
+   */
+  | { type: 'genDone'; draft?: GenDraftView }
+  /** 落盘的结论。`relPath` 缺席 = 没写（解析不出、被网关拦下、内容是空的）。 */
+  | { type: 'genAdopted'; relPath?: string; message: string }
   | { type: 'toast'; message: string; level: 'info' | 'error' }
   | { type: 'editorOpen'; file: EditorFileView; pane?: EditorPane }
   | { type: 'editorSaved'; file: EditorFileView }
@@ -213,6 +247,75 @@ export type OutMessage =
       error?: string;
       roots?: boolean;
     };
+
+/** 「生成」页落点下拉框里的一项。 */
+export interface GenTargetItem {
+  /** 工程内相对路径。发回后端的就是它。 */
+  relPath: string;
+  /** 人话说法（「剧情 4《楼道》」）。**由后端给**——几种行的说法完全不同。 */
+  label: string;
+  /**
+   * 这一层的产物在那里已经有内容了 → 采纳时是覆盖。
+   *
+   * 两件「拆」（volumeList / plotSegment）恒为 false：它们往下加一份新的空壳，
+   * 落点上本来就没东西，说「会覆盖」是吓唬人。
+   */
+  hasContent: boolean;
+}
+
+/**
+ * 这一次会用哪个模型。**必须回显**：不写清算到了谁，等于让作者在不知道用
+ * 哪个模型的情况下按下花钱的按钮。
+ */
+export interface GenModelView {
+  /** 「glm/glm-4-plus」。解析不出模型时是空串，那时 `issue` 有值。 */
+  ref: string;
+  label: string;
+  contextWindow: number;
+  maxOutputTokens: number;
+  /** 「剧情层走快速档」这半句。按层自动时才有。 */
+  tierNote?: string;
+  /** 解析不出模型时的原因。有它就不该让作者点「生成」。 */
+  issue?: string;
+}
+
+export type GenPhase =
+  /** 还没开始，或者上一次已经结算完了。 */
+  | 'idle'
+  /** 正在装配上下文（还没发请求，还没花钱）。 */
+  | 'building'
+  /** 模型在想（推理模型的思考阶段）。 */
+  | 'thinking'
+  /** 正在写正文。 */
+  | 'writing'
+  | 'done'
+  | 'error'
+  | 'cancelled';
+
+/** 装配明细里的一行。`BuiltContext.items` 的界面投影。 */
+export interface GenLayerView {
+  label: string;
+  tokens: number;
+  /** 「完整」「降级为摘要」「已丢弃」。 */
+  status: string;
+  note?: string;
+  source?: string;
+}
+
+/** 一次生成的产出。**正文不在里面**——它已经流过去了。 */
+export interface GenDraftView {
+  draftId: string;
+  words: number;
+  /** 落点、形状、会不会覆盖。解析不出这一层要的结构时缺席（= 不能采纳）。 */
+  artifact?: SerializedArtifact;
+  /** 采纳按钮上写的那个路径。 */
+  relPath: string;
+  /** 思考过程的字数。0 = 这一次没有思考段。 */
+  reasoningChars: number;
+  layers: GenLayerView[];
+  usedTokens: number;
+  budget: number;
+}
 
 export interface WorkspaceItem {
   id: string;

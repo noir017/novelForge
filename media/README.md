@@ -36,7 +36,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 
 各子目录的划分：
 
-- **`src/view/`** —— `refs`（页面上固定 id 的节点）、`store`（运行时状态与草稿存取）、`format` / `buttons` / `toast` / `menu` / `menubar` / `welcome` / `folderPicker` / `tip`（通用件；`menubar` / `welcome` / `folderPicker` 探测不到 `#wbMenubar` 就 return，插件不受影响）、`tabs` / `state` / `messages` / `composer` / `skillPalette` / `history` / `tasks` / `logs` / `prompt`（各块）、`pipeline` / `workbench`（创作页的两块：流水线条、当前产物浮窗），外加 `project/` 与 `settings/` 两个子目录。`index.ts` 只做装配与消息分发。
+- **`src/view/`** —— `refs`（页面上固定 id 的节点）、`store`（运行时状态与草稿存取）、`format` / `buttons` / `toast` / `menu` / `menubar` / `welcome` / `folderPicker` / `tip`（通用件；`menubar` / `welcome` / `folderPicker` 探测不到 `#wbMenubar` 就 return，插件不受影响）、`tabs` / `state` / `messages` / `composer` / `skillPalette` / `generate` / `history` / `tasks` / `logs` / `prompt`（各块）、`pipeline` / `workbench`（创作页的两块：流水线条、当前产物浮窗），外加 `project/` 与 `settings/` 两个子目录。`index.ts` 只做装配与消息分发。
 - **`src/editor/`** —— `paneElements`（一块编辑区的类型与 DOM）、`pane`（工厂，两块编辑区是它的两个实例）、`store`（两块之间共享的状态与 localStorage）、`shell`（主题/拖拽/窄屏）、`preview` / `clipboard` / `words`。
 - **`src/explorer/`** —— `state`（展开集合、剪贴板、高亮）、`actions`（发消息）、`rows`（建行与菜单）。
 
@@ -62,6 +62,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 - **三只浮窗，各有取舍**（`view/project/` 下的 `summaryTip` / `detailTip` / `errorTip`）：定位（`view/tip.ts` 的 `placeTip`）与事件委托是同一套（挂 `body`、`position: fixed`、委托在 `#projectBody` 上），区别只在**要不要让鼠标进去**。`detailTip` 只复读一行被截断的副标题，`pointer-events: none` 收起不留宽限；`summaryTip` 与 `errorTip` 的内容是多行、要能滚动与选中复制，所以必须留宽限期。`errorTip` 还有一点不同：**数据不必向后端单取**——失败记录随 `ProjectTree.failures` 一起推来了（一条几十字，且只有出错的目标才有），直接读 `treeState.lastTree` 即可。
 - **失败标记是「解析失败只有日志、用户看不见」的界面出口**（`view/project/rows.ts` 的 `failureMark`）：出错的行在文件名之前插一个感叹号，红色 = 整体失败、目标一字未改，黄色 = 部分完成、下次会重来；同一目标混着两种时**按最严重的算**。感叹号还带原生 `title` 兜底（浮窗要等 300ms）。旧后端推来的树没有 `failures` 字段，`lastTree?.failures?.[relPath]` 的可选链是有意的，别把它简化掉。
 - **一套菜单引擎、两个入口**（`view/menu.ts`）：`buildMenuElement(items, className)` 由 `{ label, run, danger, disabled }`（`{ sep: true }` 是分隔线）建出菜单 DOM。气泡右上角的 ⋯ 用 `.msg-menu` 绝对定位贴在 `.msg-head` 里；右键用 `.ctx-menu` 挂到 `body` 上 `position: fixed` 跟着光标走（工程页有内部滚动，挂在容器里会被裁掉），贴边时翻转。同时只有一个菜单，点别处 / Esc / 滚动都收起。
+- **「生成」页是 `generate` 工具的手动入口，与对话页毫无共用状态**（`view/generate.ts`）：六块表单一一对应那个工具的参数（job / target / ask / targetWords / skills / 模型），下面是流式输出与一条钉在底部的采纳栏。它不碰 `store.session`、不碰气泡、不碰闸门卡片——**落盘那一问是这一页自己那条采纳栏**，不是 `gate` 卡片。四件在这里定死的事：**落点是下拉框不是让人填路径**（候选由后端按层给，`genTargets`；候选里没有的走「手填路径」），**目标字数只在 job=manuscript 时渲染**（不是灰着——灰着只会让人想怎么点亮它），**skills 一份都不写死**（名单来自 `skillList`，这里只挑 `audience: generate` 那些；空名单给的是「怎么才能有」的指路而不是一个空框），**模型那一行必须回显实际算到了谁**（换模型要重发一次 `genTargets`，那一行的窗口前端算不出来）。会覆盖时采纳栏整条变黄：覆盖是这一页唯一有破坏性的动作，而它与「写入」在界面上只差两个字。
 - **只有一条发送路径**（`view/composer.ts`）：打字 → `sendAgent`，**只带那句话**。从前这里有三条（状态机主按钮 / `/` 命令面板 / 直接发送），前两条都是确定性单步的入口——挑好层与能力，一次调用产出一份产物。删掉之后「在哪一层、干什么」这个判断只剩后端一处（agent 每回合读到的状态注入），前端不再参与，也就不会与它分叉。流水线条（`view/pipeline.ts`）因此只画**信息**：这一段走到哪了、哪一层挂着 ⟳。
 - **`/` 是浮在输入框上方的技能面板**（`view/skillPalette.ts`）：挑一份「这类事该怎么做」的工作流说明，挑完只是在输入框上方挂一枚标签，发出去的**仍是一条 `sendAgent`**。它与从前那个命令面板形似而事不同：那一版替 agent 决定做什么（挑一层 + 挑个能力），这一版只告诉它怎么做。
   - **不走宿主的选择器**（`getHost().pick()`，即 `@` 引用那条路）。`@` 挑的是一个文件——候选是整棵工程树、几百项、要搜要分组，那本来就是一次独立的检索，跳出一个居中的框是合理的。`/` 挑的东西**就是这句话的一部分**：打 `/` 时手在键盘上、光标在输入框里，弹一个模态框等于把光标拽走一次，挑完还得自己找回去。

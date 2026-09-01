@@ -150,6 +150,131 @@ export function chatPane(opts: PaneOptions = {}): string {
 </section>`;
 }
 
+/**
+ * 生成页：**手动调一次 `generate` 工具**。
+ *
+ * 九块自上而下，与那个工具的参数一一对应：产出什么（job）/ 落在哪（target）/
+ * 补充要求（ask）/ 目标字数 / skills / 用哪个模型 / 动作条 / 输出 / 采纳栏。
+ *
+ * 三件在这里就定死的事：
+ *
+ * 1. **落点是下拉框，不是让人填路径。** 工具收裸路径是因为模型手上只有路径，
+ *    而作者手上是「第 12 章」「第二卷」。候选由后端按层给（`genTargets`），
+ *    候选里没有的（老工程、拆段那种还不存在的落点）走「手填路径」。
+ * 2. **目标字数只在 job=manuscript 时渲染**，其余时候整块不在 DOM 里——不是
+ *    渲染出来再禁用。一个灰着的输入框只会让人想知道怎么点亮它，而答案是
+ *    「这个 job 下它没有意义」。
+ * 3. **skills 一份都不写死**：`<div id="genSkills">` 是空的，名单由后端的
+ *    `skillList` 填（`listGenerateSkills` 的结果）。
+ *
+ * 采纳栏钉在底部、不随表单滚：生成完的东西不该因为上面表单长就滚出视野。
+ */
+export function generatePane(): string {
+  return `<section class="pane" id="pane-generate">
+  <div class="gen-body">
+
+    <!-- ① 产出什么。选项与提示语由前端从后端那份常量填（JOB_LABEL / JOB_HINT），
+         这里不写死六个 option——两处各写一遍，改文案时必然对不上。 -->
+    <div class="gen-step">
+      <div class="pane-head"><span>① 产出什么</span></div>
+      <select id="genJob"></select>
+      <div class="hint" id="genJobHint"></div>
+    </div>
+
+    <!-- ② 落在哪 -->
+    <div class="gen-step">
+      <div class="pane-head"><span>② 落在哪</span><span class="meta" id="genStageBadge"></span></div>
+      <select id="genTarget"></select>
+      <button class="composer-tool gen-manual" id="genManualBtn"><span class="caret">▸</span>手填路径</button>
+      <input type="text" id="genManualPath" class="hidden" placeholder="工程内相对路径，如 .novelforge/plots/01-开端/05-新的一段.md">
+      <div class="gen-check" id="genCheck"></div>
+    </div>
+
+    <!-- ③ 补充要求 -->
+    <div class="gen-step">
+      <div class="pane-head"><span>③ 补充要求</span><span class="meta">可留空</span></div>
+      <textarea id="genAsk" rows="3" placeholder="留空就按上一层的产物照常生成。"></textarea>
+    </div>
+
+    <!-- ④ 目标字数：只对 job=manuscript 有意义，其余时候前端把整块摘掉。 -->
+    <div class="gen-step hidden" id="genWordsStep">
+      <div class="pane-head"><span>④ 目标字数</span><span class="meta">0 为不限</span></div>
+      <div class="grid">
+        <label class="field"><span>目标字数</span><input type="number" id="genWords" value="2000" min="0" step="100"></label>
+      </div>
+    </div>
+
+    <!-- ⑤ skills。名单来自后端，前端一个名字都不写死。 -->
+    <div class="gen-step">
+      <div class="pane-head"><span>⑤ skills</span><span class="meta" id="genSkillCount"></span></div>
+      <div class="hint">
+        能交给创作模型的那些（工程里 <code>audience: generate</code> 且没被禁用的技能）。
+        勾中的会整份进创作模型的上下文，也会占掉这一次的预算。
+      </div>
+      <div class="gen-skills" id="genSkills"></div>
+    </div>
+
+    <!-- ⑥ 用哪个模型 -->
+    <div class="gen-step">
+      <div class="pane-head"><span>⑥ 用哪个模型</span></div>
+      <div class="grid">
+        <label class="field"><span>模型</span><select id="genModel"></select></label>
+        <label class="field"><span>思考深度</span><select id="genThinking"></select></label>
+      </div>
+      <!-- 实际解析到的那一个。不写清算到了谁，等于让作者在不知道用哪个模型的
+           情况下按下花钱的按钮。 -->
+      <div class="gen-resolved" id="genResolved"></div>
+    </div>
+
+    <!-- ⑦ 动作条 -->
+    <div class="gen-run">
+      <button class="primary" id="genRunBtn">生成</button>
+      <button class="danger hidden" id="genStopBtn">停止</button>
+      <span class="spacer"></span>
+      <span class="meta" id="genCost">这一次会调一次模型</span>
+    </div>
+
+    <!-- ⑧ 输出 -->
+    <div class="gen-out hidden" id="genOut">
+      <div class="gen-out-head">
+        <span class="gen-status" id="genStatus"><span class="dot"></span><span id="genStatusText"></span></span>
+        <span class="spacer"></span>
+        <button class="chip-btn" id="genCopyBtn">复制</button>
+      </div>
+      <details class="gen-fold hidden" id="genReasonFold">
+        <summary id="genReasonSummary">思考过程</summary>
+        <div class="gen-fold-body" id="genReasonBody"></div>
+      </details>
+      <details class="gen-fold hidden" id="genLayersFold">
+        <summary id="genLayersSummary">装配明细</summary>
+        <div class="gen-fold-body"><div class="gen-layers" id="genLayers"></div></div>
+      </details>
+      <!-- 可编辑：采纳前作者能改，采纳时按框里当下的文本重新解析。 -->
+      <textarea class="gen-text" id="genText" spellcheck="false"></textarea>
+      <div class="gen-shape" id="genShape"></div>
+    </div>
+
+    <div class="gen-out" id="genOutEmpty">
+      <div class="gen-empty hint">
+        填好上面几项，点「生成」。<br>
+        产出会流在这里，<b>不会自动落盘</b>——写不写、写到哪，下面那一条你说了算。
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ⑨ 采纳栏。有产出时才出现，钉在底部。 -->
+  <div class="gen-adopt hidden" id="genAdopt">
+    <div class="gen-adopt-where" id="genAdoptWhere"></div>
+    <div class="actions">
+      <button class="primary" id="genAdoptBtn">采纳并写入</button>
+      <button class="secondary" id="genDiscardBtn">不采纳</button>
+      <button class="chip-btn" id="genRerunBtn">用同样的参数重来</button>
+    </div>
+  </div>
+</section>`;
+}
+
 /** 工程页：工具栏 + 长任务进度条 + 目录树。 */
 export function projectPane(): string {
   return `<section class="pane" id="pane-project">

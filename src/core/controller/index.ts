@@ -2,6 +2,7 @@ import { listAttachmentChoices } from '../files/attachments';
 import { readConfig } from '../config';
 import { closeDatabase, installLogPersistence, readLogHistory } from '../runtime/db';
 import { DraftStore } from '../generation/drafts';
+import type { Draft } from '../generation/generate';
 import { CancelledError } from '../llm/provider';
 import { getHost } from '../host';
 import { addLogSink, clearLogs, describeError, recentLogs, scoped } from '../runtime/logger';
@@ -34,6 +35,7 @@ import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
 import { buildPipelineIndex } from '../views/pipeline';
 import { pushPipeline, selectPlot, setTarget } from './chat';
 import { sendAgent } from './agent';
+import { adoptGen, discardGen, pushGenTargets, runGenerate, stopGenerate } from './generate';
 import type { PendingGate } from './gate';
 import { cancelGates, resendGates, resolveGate } from './gate';
 import { fileAction, openDraft, pushDirListings } from './files';
@@ -111,6 +113,15 @@ export class ChatController {
    * 真正的取消）迟早会对不上，而对不上的表现是「停止按钮点了没反应」。
    */
   private currentAbort?: AbortController;
+  /**
+   * 「生成」页那一份还没采纳的产出。**一次只有一份**，新的顶掉旧的。
+   *
+   * 不进 `drafts`（那是 agent 那条路的 `DraftStore`，按会话分桶、随会话落盘）：
+   * 这一页没有会话，也不该有——它是一次独立的产出，作者当场决定要不要。
+   * 页面刷新就没了，没落盘的东西本来也不该活过一次刷新。
+   * @internal controller/ 同包用；壳不要读。
+   */
+  genDraft?: Draft;
   /** 尚未落盘的附件（用户已经 @ 了，但还没发送）。@internal 同包用。 */
   pending: Attachment[] = [];
   /**
@@ -307,6 +318,27 @@ export class ChatController {
 
       case 'stop':
         this.stopGeneration();
+        return;
+
+      // 「生成」页那五条。**一条都不与对话页共用**（见 controller/generate.ts）。
+      case 'genTargets':
+        await pushGenTargets(this, msg.job, msg.model);
+        return;
+
+      case 'genRun':
+        await runGenerate(this, msg);
+        return;
+
+      case 'genStop':
+        stopGenerate(this);
+        return;
+
+      case 'genAdopt':
+        await adoptGen(this, msg.draftId, msg.text);
+        return;
+
+      case 'genDiscard':
+        discardGen(this, msg.draftId);
         return;
 
       case 'setTarget':
@@ -629,6 +661,11 @@ export class ChatController {
   async pushTabData(): Promise<void> {
     if (this.tab === 'project') {
       await this.pushProject();
+    } else if (this.tab === 'generate') {
+      // 切过来时重扫一遍技能名单：作者可能刚写完一份技能，用几分钟前那份缓存
+      // 会让它「明明在磁盘上却选不到」。落点候选由前端按当前 job 自己要
+      // （`genTargets`）——那一份跟着下拉框走，不跟着切页走。
+      await pushSkillList(this);
     } else if (this.tab === 'files') {
       // 资源管理器只重推前端说过它关心的那些目录；一个都没登记（刚切过来、
       // 前端还没发 listDir）时什么也不做，等那条消息到了自然会推。

@@ -12,6 +12,11 @@ export type {
 export type {
   EditorFileView,
   FileOpResult,
+  GenDraftView,
+  GenLayerView,
+  GenModelView,
+  GenPhase,
+  GenTargetItem,
   HostDirEntry,
   OutMessage,
   PendingSkill,

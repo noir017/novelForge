@@ -22,6 +22,11 @@ export type {
   FileAction,
   FileOpResult,
   FsEntry,
+  GenDraftView,
+  GenLayerView,
+  GenModelView,
+  GenPhase,
+  GenTargetItem,
   InMessage,
   LogEntry,
   LogLevel,
@@ -66,7 +71,10 @@ export type {
  */
 export {
   PLOT_STAGE_LABEL,
+  CREATION_JOBS,
   CREATION_STAGES,
+  JOB_HINT,
+  JOB_LABEL,
   STAGE_LABEL,
   STAGE_QUESTION,
   chapterLabel,
@@ -80,6 +88,7 @@ export {
 } from '../../src/core/model/pipeline';
 export type {
   BookStage,
+  CreationJob,
   CreationStage,
   CreationTarget,
   PipelineProgress,

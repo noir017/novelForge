@@ -34,6 +34,17 @@ import {
   upsertTurn,
 } from './messages';
 import { settleGate, showGate } from './gate';
+import {
+  appendGenReasoning,
+  appendGenText,
+  installGenerate,
+  onGenAdopted,
+  renderGenDone,
+  renderGenModels,
+  renderGenSkills,
+  renderGenTargets,
+  setGenPhase,
+} from './generate';
 import { applySummary, installProject, invalidateSummaries, renderProject } from './project';
 import { baseMenuItems } from './project/actions';
 import { installNewSession, installRenamePlot, renderPipeline } from './pipeline';
@@ -55,6 +66,7 @@ exposeToast();
 installMenus(baseMenuItems);
 installTabs();
 installComposer();
+installGenerate();
 installMessages();
 installNewSession();
 installRenamePlot();
@@ -71,6 +83,8 @@ onMessage((msg) => {
     case 'init':
     case 'state':
       renderState(msg.state);
+      // 生成页那个模型下拉吃同一份名单。
+      renderGenModels();
       break;
 
     case 'tab':
@@ -112,10 +126,38 @@ onMessage((msg) => {
       renderChips();
       // 面板开着时那几项要跟着标「已呼出」——刚挑完的那一下就是这条消息回来的。
       applySkillList(store.skillList);
+      renderGenSkills();
       break;
 
     case 'skillList':
       applySkillList(msg.items);
+      // 生成页那一列 skills 也吃这一条：它挑的是 `audience: generate` 那些。
+      renderGenSkills();
+      break;
+
+    // ---------------------------------------------------------- 生成页
+    case 'genTargets':
+      renderGenTargets(msg);
+      break;
+
+    case 'genPhase':
+      setGenPhase(msg.phase, msg.message);
+      break;
+
+    case 'genDelta':
+      appendGenText(msg.text);
+      break;
+
+    case 'genReasoning':
+      appendGenReasoning(msg.text);
+      break;
+
+    case 'genDone':
+      renderGenDone(msg.draft);
+      break;
+
+    case 'genAdopted':
+      onGenAdopted(msg.relPath, msg.message);
       break;
 
     case 'delta':

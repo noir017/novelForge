@@ -15,6 +15,7 @@
 @import './view/banner.css';
 
 /* 各页 */
+@import './view/generate.css';
 @import './view/project.css';
 @import './view/tasks.css';
 @import './view/logs.css';

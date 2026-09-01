@@ -1,6 +1,7 @@
 import { makeNonce } from '../../core/protocol';
 import {
   chatPane,
+  generatePane,
   historyPane,
   logsPane,
   projectPane,
@@ -46,6 +47,7 @@ export function renderHtml(opts: WebviewHtmlOptions): string {
 <body data-vscode-context='{"preventDefaultContextMenuItems": true}'>
 ${tabbar([
   { tab: 'chat', label: '对话' },
+  { tab: 'generate', label: '生成' },
   { tab: 'project', label: '工程' },
   { tab: 'history', label: '历史' },
   { tab: 'logs', label: '日志' },
@@ -53,6 +55,8 @@ ${tabbar([
 ])}
 
 ${chatPane({ selectionFromEditor: true })}
+
+${generatePane()}
 
 ${projectPane()}
 

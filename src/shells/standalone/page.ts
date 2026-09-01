@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   chatPane,
+  generatePane,
   escapeHtml,
   filesPane,
   historyPane,
@@ -87,6 +88,7 @@ export function standalonePage(root?: string): string {
   <!-- ---------------------------------------------------------- 活动栏 -->
 ${tabbar([
   { tab: 'chat', label: '对话', icon: '✎' },
+  { tab: 'generate', label: '生成', icon: '✦' },
   { tab: 'project', label: '工程', icon: '❐', dotId: 'projectStaleDot' },
   { tab: 'files', label: '文件', icon: '🗀' },
   { tab: 'history', label: '历史', icon: '◷' },
@@ -98,6 +100,8 @@ ${tabbar([
   <div class="wb-side" id="wbSide">
 
 ${chatPane(caps)}
+
+${generatePane()}
 
 ${projectPane()}
 

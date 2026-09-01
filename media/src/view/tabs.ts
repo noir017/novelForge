@@ -6,6 +6,7 @@
  */
 import { closestFrom } from '../dom';
 import type { Tab } from '../protocol';
+import { refreshGenerate } from './generate';
 import { clearUnseenErrors } from './logs';
 import { el } from './refs';
 import { vscode } from './store';
@@ -19,6 +20,10 @@ export function showTab(tab: string): void {
   }
   if (tab === 'chat') {
     el.input.focus();
+  }
+  if (tab === 'generate') {
+    // 切过来时重新要一遍落点候选与模型：工程与设置都可能在别处变过了。
+    refreshGenerate();
   }
   if (tab === 'logs') {
     // 看过了就把红点收掉。

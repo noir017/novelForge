@@ -2,10 +2,10 @@ import type { LlmTask, ModelTier } from '../model/tiers';
 import type { AgentPolicy } from '../model/agentPolicy';
 import type { SkillModes } from '../model/skillMode';
 import type { ThinkingDepth } from '../model/thinking';
-import type { CreationTarget } from '../model/pipeline';
+import type { CreationJob, CreationTarget } from '../model/pipeline';
 import type { SerializedProvider } from './out';
 
-export type Tab = 'chat' | 'project' | 'files' | 'history' | 'settings' | 'logs';
+export type Tab = 'chat' | 'generate' | 'project' | 'files' | 'history' | 'settings' | 'logs';
 
 export interface SerializedAttachment {
   id: string;
@@ -33,6 +33,47 @@ export type InMessage =
    */
   | { type: 'sendAgent'; text: string; limits?: { steps?: number; calls?: number; tokens?: number } }
   | { type: 'stop' }
+  /**
+   * 「生成」页：换了 job，要这一层的落点候选与这一层会用哪个模型。
+   *
+   * 候选由后端按层列（`kindOfPath` 认得的那些），**不让作者去拼路径**——
+   * 工具收裸路径是因为模型手上只有路径，而作者手上是「第 12 章」。
+   *
+   * `model` 是下拉框里此刻选中的那个（空 = 按层自动）。**必须带上**：回话里
+   * 那份「这一次会用哪个模型」要按它算，否则作者显式挑了一个模型，界面回显的
+   * 却还是自动档那一个——而这一行正是他按下花钱按钮之前唯一的依据。
+   */
+  | { type: 'genTargets'; job: CreationJob; model?: string }
+  /**
+   * 「生成」页：手动调一次 `generate`。
+   *
+   * 与 `sendAgent` 是两条完全独立的路：这一条不进会话、不进 agent 循环、
+   * 不碰 `DraftStore` 与闸门表（见 controller/generate.ts 的文件头）。
+   *
+   * `model` 缺席 = 按层自动（照抄 `tools/novel/generate.ts` 那张表）；
+   * 给了就严格用它、不走池。`thinking` 缺席 = 不带思考参数。
+   */
+  | {
+      type: 'genRun';
+      job: CreationJob;
+      target: string;
+      ask: string;
+      targetWords?: number;
+      skills: string[];
+      model?: string;
+      thinking?: ThinkingDepth;
+    }
+  /** 「生成」页：停掉正在跑的那一次。 */
+  | { type: 'genStop' }
+  /**
+   * 「生成」页：把这份产出落盘。
+   *
+   * `text` 是**输出框里当下的文本**，不是生成那一刻的原文——作者可以在采纳
+   * 之前改。落盘时按它重新解析（`parseDraftArtifact`）。
+   */
+  | { type: 'genAdopt'; draftId: string; text: string }
+  /** 「生成」页：丢掉这份产出。磁盘不动。 */
+  | { type: 'genDiscard'; draftId: string }
   | { type: 'setTarget'; target: CreationTarget }
   | { type: 'selectPlot'; plotRelPath: string }
   | { type: 'requestPipeline'; plotRelPath?: string }

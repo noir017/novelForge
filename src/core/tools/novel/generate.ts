@@ -74,8 +74,12 @@ const log = scoped('Agent');
 /**
  * 哪一层走哪一档。**列在这里的才走池**——不在表里的（正文、大纲、卷纲）严格用
  * 对话页选定的那个模型，不走池、不 fallback（第 12 条）。
+ *
+ * 导出是给「生成」页用的（`controller/generate.ts`）：那一页是这个工具的手动
+ * 入口，两处必须用同一张表——各写一份的话，手动生成与 agent 生成会在某一天
+ * 悄悄用上不同的模型，而账单上看不出是谁决定的。
  */
-const TIER_TASK: Partial<Record<CreationStage, LlmTask>> = {
+export const STAGE_TIER_TASK: Partial<Record<CreationStage, LlmTask>> = {
   plot: 'plotOutline',
 };
 
@@ -261,7 +265,7 @@ export const generateTool: ToolDef = {
 async function pickModel(
   stage: CreationStage
 ): Promise<{ provider?: LlmProvider; budget?: { contextWindow: number; maxOutputTokens: number } }> {
-  const task = TIER_TASK[stage];
+  const task = STAGE_TIER_TASK[stage];
   if (!task) {
     return {};
   }
