@@ -259,6 +259,18 @@ function normalizeKey(s: string): string {
  */
 export const SECTION_PLACEHOLDER = '（待补充）';
 
+/**
+ * 这一节有没有实质内容：空白与占位文字（`（待补充）`，全角半角括号都认）不算。
+ *
+ * 「排过没有」「填过没有」这类判断全靠它——模板里带着占位的空壳被当成
+ * 「已完成」的话，流水线状态从此撒谎。从前 plotFile / volumeFile 各有一份
+ * 同样的私有函数，新文档格式一律用这一份。
+ */
+export function hasContent(text: string | undefined): boolean {
+  const t = (text ?? '').trim();
+  return t !== '' && t !== SECTION_PLACEHOLDER && t !== '(待补充)';
+}
+
 /** 把小节 Record 序列化回 `## 小节名` 形式，跳过空小节。 */
 export function stringifySections(
   sections: Record<string, string>,
