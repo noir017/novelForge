@@ -21,7 +21,7 @@ import { isPlotFilled, parsePlotFileName } from '../model/plotFile';
 import { isOutlineFilled, mergeOutline, outlineOverlaps } from '../model/outlineFile';
 import { hasContent } from '../model/markdown';
 import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections } from '../model/types';
-import { CreationTarget, SETTING_DOC_LABEL, plotOfTarget } from '../model/pipeline';
+import { CreationTarget, SETTING_DOC_LABEL, WriteMode, plotOfTarget } from '../model/pipeline';
 import { Artifact, ChapterRange, PlotFields, RosterEntry } from '../features/artifact';
 import { BlueprintItem, blueprintToPlot } from '../features/blueprint';
 import { chapterTargetOf, plotContentHash } from '../views/pipeline';
@@ -44,6 +44,12 @@ export interface AcceptResult {
  */
 export interface AcceptOptions {
   onlyBlank?: boolean;
+  /**
+   * 正文的写法（Draft 上记着的那一份）。`continue` 追加；其余在这一章已有正文时覆盖、
+   * 写入前审阅。缺席（老会话里的 Draft）按「有正文就覆盖审阅」——宁可多问一句，
+   * 也不把一整章叠到已有的后面。
+   */
+  writeMode?: WriteMode;
 }
 
 /**
@@ -89,7 +95,7 @@ export async function acceptArtifact(
     case 'plot':
       return acceptPlot(project, ws, target, artifact);
     case 'manuscript':
-      return acceptManuscript(project, ws, target, artifact.text);
+      return acceptManuscript(project, ws, target, artifact.text, opts.writeMode);
     case 'plotBatch':
       return acceptPlotBatch(project, ws, artifact.items, artifact.range);
   }
@@ -419,30 +425,55 @@ async function createPlannedCards(project: NovelProject, ws: Workspace, items: B
 }
 
 /**
- * 正文：落在**同号的章节**上。
+ * 正文：落在**同号的章节**上。三种写法（model/pipeline.ts 的 `WriteMode`）：
  *
  * - 章节还没有：新建 `chapters/NNN-<细纲标题>.md`（同名一律报错，见网关）。
- * - 已经有了：**追加**在末尾——「接着写」不该丢掉前面那几千字。重写 / 覆盖的
- *   语义在三期随自动续写一起定。
+ * - 章节在、但一个字正文都没有（只有标题行）：直接填，不审阅——没有东西可吞。
+ * - `continue`：**追加**在末尾，不审阅（不覆盖任何东西）。
+ * - 其余（`write` / `rewrite`，以及老会话里没记写法的）：**覆盖**，写入前审阅 diff
+ *   （第 3 条）。标题行沿用原文件——那是作者起的名字，模型写的正文里没有它。
  *
  * 落盘之后在细纲上记 `writtenFrom`（正文据以写成的细纲指纹）。少了这一步，
  * 这一章会永远显示「正文与细纲对不上」或永远不显示，两种都是错的。
- * 追加是唯一不走覆盖审阅的落盘路径——它不覆盖任何东西。
+ * 作者在审阅时放弃了就什么都不记。
  */
 async function acceptManuscript(
   project: NovelProject,
   ws: Workspace,
   target: CreationTarget,
-  text: string
+  text: string,
+  mode?: WriteMode
 ): Promise<AcceptResult> {
   const plotRelPath = plotOfTarget(target);
   if (!plotRelPath) {
     throw new Error('这段正文不属于任何章。');
   }
   const dest = await chapterTargetOf(project, plotRelPath);
-  const rel = dest.exists
-    ? (await ws.write(dest.rel, { text }, { mode: 'append' })).rel
-    : await ws.createChapter(dest.no, dest.title, text);
+  let rel: string;
+  let how: string;
+  if (!dest.exists) {
+    rel = await ws.createChapter(dest.no, dest.title, text);
+    how = '新建';
+  } else {
+    const chapter = await project.getChapter(dest.no);
+    const body = chapter ? await project.readChapterText(chapter) : '';
+    const raw = chapter ? await project.readChapterRaw(chapter) : '';
+    if (body.trim() && mode === 'continue') {
+      rel = (await ws.write(dest.rel, { text }, { mode: 'append' })).rel;
+      how = '追加';
+    } else {
+      const r = await ws.write(dest.rel, { text: withHeading(raw, body, text) }, {
+        mode: 'overwrite',
+        what: `第 ${dest.no} 章的正文`,
+        review: !!body.trim(),
+      });
+      if (r.skipped) {
+        return { skipped: true, message: `没有改动第 ${dest.no} 章。` };
+      }
+      rel = r.rel;
+      how = body.trim() ? '覆盖' : '写入';
+    }
+  }
 
   const plot = await project.resolvePlot(plotRelPath);
   if (plot) {
@@ -450,6 +481,17 @@ async function acceptManuscript(
   }
   await project.syncManifest();
 
-  log.info(`已${dest.exists ? '追加' : '写入'} ${text.length} 字到第 ${dest.no} 章`, `${rel}｜该章摘要将变为过期`);
-  return { relPath: rel, message: `已写入 ${rel}` };
+  log.info(`已${how}第 ${dest.no} 章：${text.length} 字`, `${rel}｜该章摘要将变为过期`);
+  return { relPath: rel, message: how === '追加' ? `已追加到 ${rel}` : `已写入 ${rel}` };
+}
+
+/**
+ * 覆盖一章时保留原文件的标题行（`# 标题`）。
+ *
+ * `raw` 是整个文件、`body` 是去掉标题行之后的正文：两者一样就说明原文件没有标题行
+ * （`.txt`、或作者删了），那就原样只写正文，不凭空补一行。
+ */
+function withHeading(raw: string, body: string, text: string): string {
+  const head = raw.trim() !== body.trim() ? /^[^\n]*\n?/.exec(raw.trimStart())?.[0].trim() : undefined;
+  return head ? `${head}\n\n${text.trim()}\n` : `${text.trim()}\n`;
 }

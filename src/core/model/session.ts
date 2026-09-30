@@ -9,8 +9,10 @@ import {
   CreationTarget,
   DEFAULT_CAPABILITY,
   STAGE_CAPABILITIES,
+  WriteMode,
   isCapability,
   isCreationStage,
+  isWriteMode,
   normalizeAction,
   normalizeTarget,
   stageOfTarget,
@@ -93,6 +95,8 @@ export interface ChatTurn {
   range?: { from: number; to: number };
   /** 仅 user 轮：一句话弹窗带过来的规模。同上，重来时要用。 */
   setup?: { totalChapters: number; wordsPerChapter: number };
+  /** 仅 user 轮：写正文的写法（「接着写」「重写」）。同上，重来时要用。 */
+  writeMode?: 'continue' | 'rewrite';
   /** 仅 assistant 轮：本次装配明细。 */
   context?: ContextDigest;
   /** 仅 assistant 轮：已采纳写入的目标路径。 */
@@ -239,6 +243,12 @@ export interface SessionDraft {
   range?: { from: number; to: number };
   notes?: string[];
   calls?: number;
+  /** 正文的写法。采纳时按它落盘（「接着写」追加，其余覆盖审阅）。 */
+  writeMode?: WriteMode;
+  /** 正文写了多长（卡片上的「2980 / 3000 字 · 已达标」）。 */
+  length?: { words: number; target?: number; added: number; rounds: number; reached: boolean };
+  /** 与上一章结尾重合的那一段原文。 */
+  replay?: string;
 }
 
 export interface ChatSession {
@@ -540,9 +550,29 @@ function normalizeDrafts(raw: unknown): SessionDraft[] {
       range: normalizeRange(o.range),
       notes: Array.isArray(o.notes) ? o.notes.filter((n): n is string => typeof n === 'string') : undefined,
       calls: typeof o.calls === 'number' && Number.isFinite(o.calls) ? o.calls : undefined,
+      writeMode: isWriteMode(o.writeMode) ? o.writeMode : undefined,
+      length: normalizeLength(o.length),
+      replay: typeof o.replay === 'string' && o.replay ? o.replay : undefined,
     });
   }
   return out;
+}
+
+/** 正文长度记录的容错读取：总字数认不出就整条不要（卡片上宁可不写，也不写个错的）。 */
+function normalizeLength(raw: unknown): SessionDraft['length'] {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : undefined);
+  const words = num(o.words);
+  if (words === undefined) {
+    return undefined;
+  }
+  return {
+    words,
+    target: num(o.target) || undefined,
+    added: num(o.added) ?? words,
+    rounds: num(o.rounds) ?? 0,
+    reached: typeof o.reached === 'boolean' ? o.reached : true,
+  };
 }
 
 /** 章号区间的容错读取：两端都是正整数才认，写反了对调。 */

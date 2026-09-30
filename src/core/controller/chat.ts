@@ -23,6 +23,7 @@ import {
   DEFAULT_CAPABILITY,
   PLOT_BATCH,
   STAGE_CAPABILITIES,
+  WriteMode,
   commandOf,
   deriveBookNextStep,
   deriveBookStage,
@@ -101,6 +102,7 @@ export async function send(c: ChatController, payload: SendPayload): Promise<voi
       // 重来一轮时要原样重跑，而那条路上前端给的是输入框当下的参数。
       range: normalizeRange(payload.range),
       setup: normalizeSetup(payload.setup),
+      writeMode: normalizeWriteMode(payload.writeMode),
     };
     c.current.turns.push(userTurn);
     if (c.current.turns.length === 1) {
@@ -181,6 +183,7 @@ export async function runTurn(
   const action = { stage: c.current.stage, capability: c.current.capability };
   const range = rangeFor(action, normalizeRange(payload.range) ?? userTurn.range);
   const setup = action.stage === 'setting' ? (normalizeSetup(payload.setup) ?? userTurn.setup) : undefined;
+  const writeMode = action.stage === 'manuscript' ? (normalizeWriteMode(payload.writeMode) ?? userTurn.writeMode) : undefined;
   let built;
   let draft: Draft | undefined;
   try {
@@ -193,6 +196,7 @@ export async function runTurn(
         ask: userTurn.content,
         range,
         setup,
+        writeMode,
         // 目标字数只有一处来源：细纲的 `targetWords`，没写就是配置的每章字数。
         // 从前输入框下面还有一个（默认 2000），作者分不清哪个生效（W1）。
         targetWords: await targetWordsOf(c, c.current.target),
@@ -244,7 +248,7 @@ export async function runTurn(
     assistantTurn.artifact = {
       where: await describeTargetOf(c, draft.target, draft.range),
       summary: draft.summary ?? describeArtifact(draft.artifact),
-      overwrites: await targetHasContent(c, action, draft.target, draft.range),
+      overwrites: await targetHasContent(c, action, draft.target, draft.range, draft.writeMode),
       ...(creates.length > 0 ? { creates } : {}),
       ...(draft.notes?.length ? { notes: draft.notes } : {}),
       ...(draft.calls ? { calls: draft.calls } : {}),
@@ -297,7 +301,7 @@ export async function runTurn(
 export async function describeArtifactOf(
   c: ChatController,
   content: string,
-  draft?: Pick<Draft, 'action' | 'target' | 'range' | 'notes' | 'calls'>
+  draft?: Pick<Draft, 'action' | 'target' | 'range' | 'notes' | 'calls' | 'writeMode'>
 ): Promise<SerializedArtifact | undefined> {
   const action = draft?.action ?? { stage: c.current.stage, capability: c.current.capability };
   const target = draft?.target ?? c.current.target;
@@ -312,7 +316,7 @@ export async function describeArtifactOf(
   return {
     where: await describeTargetOf(c, target, draft?.range),
     summary: describeArtifact(artifact),
-    overwrites: await targetHasContent(c, action, target, draft?.range),
+    overwrites: await targetHasContent(c, action, target, draft?.range, draft?.writeMode),
     ...(creates.length > 0 ? { creates } : {}),
     ...(draft?.notes?.length ? { notes: draft.notes } : {}),
     ...(draft?.calls ? { calls: draft.calls } : {}),
@@ -337,6 +341,11 @@ function rangeFor(
   return action.stage === 'outline' ? range : undefined;
 }
 
+/** 前端给的写法：只认「接着写」「重写」两种，其余当没给（由磁盘定）。 */
+function normalizeWriteMode(raw: unknown): 'continue' | 'rewrite' | undefined {
+  return raw === 'continue' || raw === 'rewrite' ? raw : undefined;
+}
+
 /** 一句话弹窗的规模：两个数都得是正整数，否则当没给。 */
 function normalizeSetup(raw: unknown): { totalChapters: number; wordsPerChapter: number } | undefined {
   const o = (raw ?? {}) as { totalChapters?: unknown; wordsPerChapter?: unknown };
@@ -349,7 +358,8 @@ function normalizeSetup(raw: unknown): { totalChapters: number; wordsPerChapter:
  * 采纳的落点上已经有东西了——按钮文案据此改成「覆盖…」。
  *
  * 只看**这一层自己的产物**，而且只认「填过」：一份只有占位的模板说「会覆盖」
- * 是吓唬人。角色图谱与正文永远是 false——前者只建新卡（同名跳过），后者是追加。
+ * 是吓唬人。角色图谱永远是 false——只建新卡（同名走各自的审阅）。正文看写法：
+ * 「接着写」是追加，不覆盖；其余在这一章已有正文时是整章覆盖。
  */
 export async function targetHasContent(
   c: ChatController,
@@ -358,7 +368,8 @@ export async function targetHasContent(
     capability: c.current.capability,
   },
   target: CreationTarget = c.current.target,
-  range?: { from: number; to: number }
+  range?: { from: number; to: number },
+  writeMode?: WriteMode
 ): Promise<boolean> {
   void action;
   // 带区间时只看区间里：续写第 21–40 章的大纲不覆盖前 20 章，一批细纲只覆盖这几章。
@@ -383,8 +394,14 @@ export async function targetHasContent(
       const plot = await c.project.resolvePlot(target.plotRelPath);
       return !!plot && isPlotFilled(plot.sections);
     }
-    case 'manuscript':
-      return false;
+    case 'manuscript': {
+      if (writeMode === 'continue') {
+        return false;
+      }
+      const no = parsePlotFileName(basename(target.plotRelPath))?.no ?? (await c.project.resolvePlot(target.plotRelPath))?.no;
+      const chapter = no !== undefined ? await c.project.getChapter(no) : undefined;
+      return !!chapter && chapter.wordCount > 0;
+    }
   }
 }
 
@@ -484,7 +501,8 @@ export async function askArtifact(
     return { verdict, message: '这段内容解析不出可写入的产物，没有写入任何文件。' };
   }
 
-  const result = await writeArtifact(c.project, draft.target, artifact);
+  // 正文按生成那一刻定下的写法落盘：「接着写」追加，其余在已有正文时覆盖审阅。
+  const result = await writeArtifact(c.project, draft.target, artifact, { writeMode: draft.writeMode });
   c.toast(result.message);
   if (result.skipped || !result.relPath) {
     return { verdict, message: result.message };

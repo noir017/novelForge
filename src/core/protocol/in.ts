@@ -29,6 +29,11 @@ export interface SendPayload {
    * 「一句话」一节，总章数与每章字数以这里为准，`config.md` 已有内容时保留原文、追加生成。
    */
   setup?: { totalChapters: number; wordsPerChapter: number };
+  /**
+   * 写正文的写法（主按钮「接着写」「重写第 N 章」、章节工作台带过来的）。`continue` 只写新增的
+   * 那一段并追加；其余在这一章已有正文时整章重写、覆盖前审阅。不给就按磁盘定。
+   */
+  writeMode?: 'continue' | 'rewrite';
   attachments: SerializedAttachment[];
   excludedIds: string[];
 }

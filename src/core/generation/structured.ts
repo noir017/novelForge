@@ -60,11 +60,27 @@ export interface CallOutcome {
 /** 链要的三样东西：调一次模型、按改过的请求重新装配、第一次调用发出去的那几条消息。 */
 export interface ChainIO {
   /** 调一次模型。`label` 写进气泡与日志，说清这一次在补什么。 */
-  call(messages: AgentMessage[], label: string): Promise<CallOutcome>;
+  call(messages: AgentMessage[], label: string, opts?: CallOptions): Promise<CallOutcome>;
   /** 按改过的请求重新装配：同一个装配器、同一份预算，只换这几个字段。 */
   build(patch: Partial<BuildRequest>): Promise<AgentMessage[]>;
   /** 第一次调用的消息。字段级重写要借它的系统提示。 */
   messages: AgentMessage[];
+  /**
+   * 把气泡退回到这一份（正文续写丢弃一轮时）。流进气泡的那一轮已经收不回来了，
+   * 不退回去的话作者看着的是一段不会被写入的文字。没有气泡的那条路（批量）不实现。
+   */
+  reset?(text: string): void;
+}
+
+/** 一次调用的附带要求。只有正文续写用得上。 */
+export interface CallOptions {
+  /**
+   * 这一次的输出与气泡里前面那段之间放什么。缺省是一行「——label——」：结构化产物的
+   * 几次调用各是各的。正文续写放一个空行——读起来得是同一章。
+   */
+  separator?: string;
+  /** 流式期间报进度：第几轮、这一次开始之前已经写到多少字。 */
+  progress?: { round: number; base: number };
 }
 
 export interface ChainResult {
@@ -85,7 +101,7 @@ export class ChainError extends Error {
 }
 
 /** 一条链上的账：说明与调用次数。 */
-class Tally {
+export class Tally {
   notes: string[] = [];
   calls: number;
   constructor(first: boolean) {
@@ -97,9 +113,9 @@ class Tally {
   fail(message: string): never {
     throw new ChainError(message, this.notes, this.calls);
   }
-  async call(io: ChainIO, messages: AgentMessage[], label: string): Promise<CallOutcome> {
+  async call(io: ChainIO, messages: AgentMessage[], label: string, opts?: CallOptions): Promise<CallOutcome> {
     this.calls++;
-    return io.call(messages, label);
+    return io.call(messages, label, opts);
   }
 }
 
@@ -446,13 +462,16 @@ export function singleShotNotes(
   return notes;
 }
 
-/** 这次生成要不要接链、接哪一条。 */
-export type ChainKind = 'config' | 'roster' | 'blueprints';
+/** 这次生成要不要接链、接哪一条。正文那一条在 generation/continuation.ts。 */
+export type ChainKind = 'config' | 'roster' | 'blueprints' | 'manuscript';
 
 export function chainOf(request: Pick<BuildRequest, 'action' | 'target' | 'range'>): ChainKind | undefined {
   const { stage, capability } = request.action;
   if (capability === 'discuss') {
     return undefined;
+  }
+  if (stage === 'manuscript') {
+    return 'manuscript';
   }
   if (stage === 'setting' && request.target.kind === 'setting') {
     return request.target.doc === 'config' ? 'config' : request.target.doc === 'characters' ? 'roster' : undefined;

@@ -175,6 +175,42 @@ describe('随会话往返一趟', () => {
   });
 });
 
+// 三期：正文的写法决定采纳时追加还是覆盖。刷新之后再写入，不能从「接着写」变成「覆盖」。
+describe('正文草稿的写法与长度随会话往返', () => {
+  let reloaded;
+
+  before(async () => {
+    const session = store.create();
+    session.drafts = [
+      makeDraft({
+        id: 'm1',
+        action: { stage: 'manuscript', capability: 'generate' },
+        target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/003-夜访.md' },
+        raw: '他推开了门。',
+        writeMode: 'continue',
+        length: { words: 2980, target: 3000, added: 1200, rounds: 2, reached: true },
+        replay: '沈氏坐在柜台后面',
+      }),
+      makeDraft({ id: 'm2', writeMode: 'append', length: { words: '很多' } }),
+    ];
+    await store.write(session);
+    reloaded = await store.read(session.id);
+  });
+
+  test('写法、长度、重演原句都回来了', () => {
+    const d = reloaded.drafts.find((x) => x.id === 'm1');
+    assert.equal(d.writeMode, 'continue');
+    assert.deepEqual(d.length, { words: 2980, target: 3000, added: 1200, rounds: 2, reached: true });
+    assert.equal(d.replay, '沈氏坐在柜台后面');
+  });
+
+  test('手改坏的写法与长度当没记（不抛）', () => {
+    const d = reloaded.drafts.find((x) => x.id === 'm2');
+    assert.equal(d.writeMode, undefined);
+    assert.equal(d.length, undefined);
+  });
+});
+
 describe('会话文件被手改坏', () => {
   let session;
   let reloaded;

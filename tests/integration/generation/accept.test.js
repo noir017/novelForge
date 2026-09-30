@@ -427,6 +427,9 @@ describe('写正文 → 当场问一句 → 落到同号章节', () => {
   let chapterWhenAsked;
   let again;
   let reviewedAgain;
+  let afterAppend;
+  let rewrite;
+  let reviewedRewrite;
 
   before(async () => {
     replyFn = () => '雨下了三天，青云宗的石阶泡得发白。';
@@ -436,22 +439,40 @@ describe('写正文 → 当场问一句 → 落到同号章节', () => {
     };
     r = await send({ kind: 'manuscript', plotRelPath: P1 }, { stage: 'manuscript' });
 
-    // 再写一次：追加在末尾，不覆盖，所以也不弹覆盖审阅。
+    // 接着写（主按钮「接着写」带的写法）：追加在末尾，不覆盖，所以也不弹覆盖审阅。
     replyFn = () => '他数到第三盏灯才动。';
     onGate = async () => 'proceed';
     h.expect();
-    again = await send({ kind: 'manuscript', plotRelPath: P1 }, { stage: 'manuscript' });
+    again = await send({ kind: 'manuscript', plotRelPath: P1 }, { stage: 'manuscript', writeMode: 'continue' });
     reviewedAgain = h.reviewed.length;
+    afterAppend = t.read(CHAPTER);
+
+    // 不带写法再写一次：这一章已经有正文了，是整章重写——卡片说覆盖、写入前审阅。
+    replyFn = () => '门开了，有人请他进去。';
+    h.expect();
+    rewrite = await send({ kind: 'manuscript', plotRelPath: P1 }, { stage: 'manuscript' });
+    reviewedRewrite = h.reviewed.length;
   });
 
   test('问了这一句', () => {
     assert.ok(r.gate, JSON.stringify(posted.map((m) => m.type)));
   });
 
-  // 正文永远是追加，不会吞掉已有的东西——卡片上说「写入」，不吓唬人说「覆盖」。
-  test('卡片说的是写入，不是覆盖', () => {
+  // 新写与接着写都不吞掉已有的东西——卡片上说「写入」，不吓唬人说「覆盖」。
+  test('新写与接着写：卡片说的是写入，不是覆盖', () => {
     assert.ok(r.gate.title.includes('写入到'), r.gate.title);
     assert.ok(again.gate.title.includes('写入到'), again.gate.title);
+  });
+
+  test('重写：卡片说覆盖，并说写入前会先对比', () => {
+    assert.ok(rewrite.gate.title.includes('覆盖到'), rewrite.gate.title);
+    assert.match(rewrite.gate.detail, /先对比/);
+  });
+
+  test('重写：写入前审阅一次，整章换成新写的，标题行留着', () => {
+    assert.equal(reviewedRewrite, 1);
+    const text = t.read(CHAPTER);
+    assert.ok(text.startsWith('# 夜入青云') && text.includes('门开了') && !text.includes('第三盏灯'), text);
   });
 
   test('卡片说得出是多少字的正文', () => {
@@ -463,7 +484,7 @@ describe('写正文 → 当场问一句 → 落到同号章节', () => {
   });
 
   test('答了才新建同号的章节', () => {
-    assert.ok(t.read(CHAPTER).includes('石阶泡得发白'), t.read(CHAPTER));
+    assert.ok(afterAppend.includes('石阶泡得发白'), afterAppend);
   });
 
   test('气泡上记下写到哪个章节了', () => {
@@ -475,9 +496,8 @@ describe('写正文 → 当场问一句 → 落到同号章节', () => {
     assert.equal(plot.writtenFrom, bundle.pipe.plotContentHash(plot));
   });
 
-  test('再写一次追加在同一章末尾', () => {
-    const text = t.read(CHAPTER);
-    assert.ok(text.includes('石阶泡得发白') && text.includes('第三盏灯'), text);
+  test('接着写追加在同一章末尾', () => {
+    assert.ok(afterAppend.includes('石阶泡得发白') && afterAppend.includes('第三盏灯'), afterAppend);
     assert.equal(again.assistant.acceptedTo, CHAPTER);
   });
 

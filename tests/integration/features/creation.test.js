@@ -60,7 +60,7 @@ before(async () => {
   project = t.project;
   t.write('.novelforge/outline.md', OUTLINE);
   project.invalidate();
-  accept = (target, artifact) => bundle.accept.acceptArtifact(project, target, artifact);
+  accept = (target, artifact, opts) => bundle.accept.acceptArtifact(project, target, artifact, opts);
 });
 
 after(() => {
@@ -733,9 +733,9 @@ describe('采纳 · 细纲（覆盖要审阅）', () => {
 });
 
 /**
- * 正文落在**同号的章节**上：没有就新建 `chapters/NNN-<细纲标题>.md`，有了就追加。
- * 落盘之后在细纲上记 `writtenFrom`——少了这一步，这一章会永远显示（或永远不显示）
- * 「正文与细纲对不上」。
+ * 正文落在**同号的章节**上：没有就新建 `chapters/NNN-<细纲标题>.md`；有了按写法落——
+ * 「接着写」追加、其余覆盖（写入前审阅）。落盘之后在细纲上记 `writtenFrom`——少了这一步，
+ * 这一章会永远显示（或永远不显示）「正文与细纲对不上」。
  */
 describe('采纳 · 正文（落到同号章节）', () => {
   const plotRelPath = '.novelforge/plots/012-夜入青云.md';
@@ -797,7 +797,7 @@ describe('采纳 · 正文（落到同号章节）', () => {
     assert.ok(pipe.progress.manuscript < 1, String(pipe.progress.manuscript));
   });
 
-  describe('再写一次', () => {
+  describe('接着写一次', () => {
     let second;
     let text;
     let chapterCount;
@@ -805,7 +805,7 @@ describe('采纳 · 正文（落到同号章节）', () => {
 
     before(async () => {
       h.expect();
-      second = await accept(target, { kind: 'manuscript', text: '他数到第三盏灯才动。' });
+      second = await accept(target, { kind: 'manuscript', text: '他数到第三盏灯才动。' }, { writeMode: 'continue' });
       confirmsAgain = h.confirms.length;
       text = t.read(CHAPTER);
       chapterCount = (await project.listChapters()).length;
@@ -835,7 +835,12 @@ describe('采纳 · 正文（落到同号章节）', () => {
 
   describe('细纲改过 → 正文标脏 → 重写后记新的指纹', () => {
     let stale;
+    let declined;
+    let stillStale;
+    let rewritten;
     let fresh;
+    let text;
+    let asked;
 
     before(async () => {
       h.expect('覆盖');
@@ -844,13 +849,38 @@ describe('采纳 · 正文（落到同号章节）', () => {
       });
       stale = await bundle.pipe.buildPlotPipeline(project, { no: 12, plot: await project.readPlot(plotRelPath) });
 
-      await accept(target, { kind: 'manuscript', text: '门开了，有人请他进去。' });
+      // 第一次作者在审阅里选「保留原样」：什么都不改，也不记指纹。
+      h.expect('保留原样');
+      declined = await accept(target, { kind: 'manuscript', text: '门开了，有人请他进去。' }, { writeMode: 'rewrite' });
+      stillStale = await bundle.pipe.buildPlotPipeline(project, { no: 12, plot: await project.readPlot(plotRelPath) });
+
+      h.expect('覆盖');
+      rewritten = await accept(target, { kind: 'manuscript', text: '门开了，有人请他进去。' }, { writeMode: 'rewrite' });
+      asked = h.confirms.length;
+      text = t.read(CHAPTER);
       fresh = await bundle.pipe.buildPlotPipeline(project, { no: 12, plot: await project.readPlot(plotRelPath) });
     });
 
     // 重写细纲的那一步不许抹掉 writtenFrom：它对不上，正是「细纲在正文之后改过」的信号。
     test('细纲改后正文标脏', () => {
       assert.equal(stale.chapter.upstreamStale, true, JSON.stringify(stale.chapter));
+    });
+
+    // 第 3 条：重写吞掉的是一整章，写入前必须先问。
+    test('重写覆盖前先问；保留原样就一个字不改、也不记指纹', () => {
+      assert.equal(declined.skipped, true, declined.message);
+      assert.equal(stillStale.chapter.upstreamStale, true);
+    });
+
+    test('答了覆盖：整章换成新写的，旧的不留', () => {
+      assert.equal(asked, 1);
+      assert.equal(rewritten.relPath, CHAPTER, rewritten.message);
+      assert.ok(text.includes('门开了') && !text.includes('石阶泡得发白'), text);
+    });
+
+    // 标题行是作者起的名字，模型写的正文里没有它。
+    test('标题行沿用原文件', () => {
+      assert.ok(text.startsWith('# 夜入青云\n\n门开了'), JSON.stringify(text.slice(0, 30)));
     });
 
     test('照着新细纲写过之后不再标脏', () => {
@@ -861,24 +891,36 @@ describe('采纳 · 正文（落到同号章节）', () => {
 
 /**
  * 老工程里只有正文、没有细纲的章：target 上的细纲路径是它**应该**在的位置
- * （`plotPathForNo`），文件并不存在。正文照样追加到那一章上，不凭空造细纲。
+ * （`plotPathForNo`），文件并不存在。正文照样落到那一章上，不凭空造细纲。
  */
 describe('采纳 · 正文（只有正文、没有细纲的老章）', () => {
   const CHAPTER = 'chapters/020-旧章.md';
   let result;
   let plotPath;
+  let unmarked;
+  let asked;
 
   before(async () => {
     t.write(CHAPTER, '# 旧章\n\n作者早就写好的。\n');
     project.invalidate();
     plotPath = project.plotPathForNo(20, '旧章');
-    result = await accept({ kind: 'manuscript', plotRelPath: plotPath }, { kind: 'manuscript', text: '接着往下写的一段。' });
+    result = await accept({ kind: 'manuscript', plotRelPath: plotPath }, { kind: 'manuscript', text: '接着往下写的一段。' }, { writeMode: 'continue' });
+    // 老会话里的 Draft 没记写法：宁可多问一句，也不把一整章叠到已有的后面。
+    h.expect('保留原样');
+    unmarked = await accept({ kind: 'manuscript', plotRelPath: plotPath }, { kind: 'manuscript', text: '另起的一整章。' });
+    asked = h.confirms.length;
   });
 
-  test('追加到那一章上', () => {
+  test('接着写：追加到那一章上', () => {
     assert.equal(result.relPath, CHAPTER, result.message);
     const text = t.read(CHAPTER);
     assert.ok(text.includes('作者早就写好的') && text.includes('接着往下写'), text);
+  });
+
+  test('没记写法：按覆盖审阅，先问', () => {
+    assert.equal(asked, 1);
+    assert.equal(unmarked.skipped, true);
+    assert.ok(!t.read(CHAPTER).includes('另起的一整章'));
   });
 
   test('不凭空造出一份细纲', () => {

@@ -235,12 +235,16 @@ describe('history 恒为空', () => {
 describe('给章节路径：按章号认成正文层', () => {
   let r;
   let draft;
+  let firstCall;
 
   before(async () => {
     resetCtx();
     replyFn = () => '雨下了三天。山门在雨里。';
+    const start = fake.calls.length;
     r = await run({ target: CHAPTER_REL, capability: 'generate', targetWords: 800 });
     draft = stored[0]?.draft;
+    // 写得太短会自动续写，最后一次调用是续写那一轮；这里要看的是第一次。
+    firstCall = fake.calls[start];
   });
 
   test('没有 error', () => {
@@ -267,7 +271,14 @@ describe('给章节路径：按章号认成正文层', () => {
   });
 
   test('目标字数传进了 prompt', () => {
-    assert.ok(lastUser().includes('800 字'), lastUser().slice(-400));
+    const user = firstCall[firstCall.length - 1].content;
+    assert.ok(user.includes('目标 800 字'), user.slice(-400));
+  });
+
+  // 三期：写得太短（十来个字对 800 字的目标）就自动续写，续写那一轮带着已写的末尾。
+  test('没写够就自动续写', () => {
+    assert.ok(draft.length.rounds >= 1, JSON.stringify(draft.length));
+    assert.match(lastUser(), /请无缝续写当前章节正文/);
   });
 
   test('返回文本里的落点是作者给的那个章节路径', () => {

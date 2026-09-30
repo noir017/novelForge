@@ -40,15 +40,18 @@ import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { countWords } from '../model/fs';
 import { NovelProject } from '../model/project';
+import { parsePlotFileName } from '../model/plotFile';
 import {
   CAPABILITY_LABEL,
   CreationAction,
   CreationTarget,
   STAGE_LABEL,
+  WriteMode,
   describeTarget,
   outputKindOf,
   plotOfTarget,
 } from '../model/pipeline';
+import { previousEnding } from '../context/replay';
 import { describeModelIssue, providerLabel } from '../model/providers';
 import { Artifact, ChapterRange, describeArtifact, isArtifactEmpty, parseArtifact } from '../features/artifact';
 import { cleanOutput } from '../features/creation';
@@ -64,6 +67,8 @@ import {
   completeRoster,
   singleShotNotes,
 } from './structured';
+import { ManuscriptChainResult, WriteProgress, completeManuscript } from './continuation';
+import { basename } from 'node:path';
 
 const log = scoped('创作');
 
@@ -91,6 +96,24 @@ export interface Draft {
   notes?: string[];
   /** 这一次一共调了几次模型。 */
   calls?: number;
+  /**
+   * 正文的写法（model/pipeline.ts 的 `WriteMode`）。**采纳时按它落盘**：`continue` 追加、
+   * 其余在已有正文时覆盖审阅。生成那一刻按磁盘定的，采纳时不再猜。
+   */
+  writeMode?: WriteMode;
+  /** 正文写了多长：这一章写完后的总字数、目标、这一次新写的、续写了几轮、够不够八成。 */
+  length?: DraftLength;
+  /** 新稿开头与上一章结尾重合的那一段原文（context/replay.ts）。卡片标红、写入要点两下。 */
+  replay?: string;
+}
+
+export interface DraftLength {
+  words: number;
+  target?: number;
+  added: number;
+  rounds: number;
+  /** 到了目标的八成（没有目标时恒为 true：有字就算写够）。 */
+  reached: boolean;
 }
 
 export interface GenerateHandlers {
@@ -100,6 +123,10 @@ export interface GenerateHandlers {
   onDone(full: string): void;
   onError(message: string): void;
   onCancelled(): void;
+  /** 写正文的进度：第几轮、写到多少字、目标多少。流式期间约 300ms 一次，每一轮开始时一次。 */
+  onProgress?(p: WriteProgress): void;
+  /** 气泡退回到这一份（续写丢弃一轮时）。 */
+  onReset?(full: string): void;
 }
 
 export interface GenerateOptions {
@@ -179,10 +206,11 @@ export function parseDraftArtifact(
  */
 export async function generate(
   project: NovelProject,
-  request: Omit<BuildRequest, 'providerMaxInputTokens'>,
+  requested: Omit<BuildRequest, 'providerMaxInputTokens'>,
   handlers: GenerateHandlers,
   options: GenerateOptions
 ): Promise<GenerateResult> {
+  let request = requested;
   // 干活那个模型的窗口优先：换了 provider 却拿对话页那个模型的窗口切上下文，
   // 是第 13 条明确点名的错法。
   const config = options.budget ? { ...readConfig(), ...options.budget } : readConfig();
@@ -215,6 +243,22 @@ export async function generate(
       `${request.history?.length ? `｜历史 ${request.history.length} 轮` : ''}`
   );
 
+  // 写正文：写法、目标字数、上一版与上一章结尾都按磁盘定好了再装配（三期计划 §1–§2）。
+  const writing = stage === 'manuscript' && capability === 'generate' ? await planWriting(project, request) : undefined;
+  if (writing) {
+    request = {
+      ...request,
+      writeMode: writing.mode,
+      targetWords: writing.target,
+      revision: request.revision ?? writing.revision,
+    };
+    log.info(
+      `写法：${WRITE_MODE_LABEL[writing.mode]}`,
+      `${writing.target ? `目标 ${writing.target} 字` : '没有目标字数（不自动续写）'}` +
+        `${writing.existing ? `｜已有 ${countWords(writing.existing)} 字` : ''}`
+    );
+  }
+
   const providerMaxInputTokens = await provider.maxInputTokens();
   const buildStart = Date.now();
   const built = await buildContext(project, { ...request, providerMaxInputTokens }, config);
@@ -233,10 +277,21 @@ export async function generate(
 
   let draft: Draft | undefined;
   let full = '';
-  const streamOnce = async (messages: typeof built.messages): Promise<CallOutcome> => {
+  const streamOnce = async (
+    messages: typeof built.messages,
+    progress?: { round: number; base: number }
+  ): Promise<CallOutcome> => {
     let text = '';
     let stop: StopSignal | undefined;
     let firstDeltaAt = 0;
+    let reportedAt = 0;
+    const report = () => {
+      if (progress && handlers.onProgress) {
+        reportedAt = Date.now();
+        handlers.onProgress({ round: progress.round, words: progress.base + countWords(text), target: writing?.target });
+      }
+    };
+    report();
     for await (const ev of provider.stream(messages, streamOptions)) {
       if (ev.type === 'text') {
         if (!firstDeltaAt) {
@@ -246,6 +301,10 @@ export async function generate(
         text += ev.text;
         full += ev.text;
         handlers.onDelta(ev.text, full);
+        // 数字随流一起涨，但不必每个分片都数一遍：几千个分片 × 几千字是平方级的活。
+        if (Date.now() - reportedAt >= PROGRESS_INTERVAL_MS) {
+          report();
+        }
       } else if (ev.type === 'reasoning') {
         reasoning += ev.text;
         handlers.onReasoning?.(ev.text, reasoning);
@@ -255,27 +314,50 @@ export async function generate(
         stop = ev.reason;
       }
     }
+    report();
     return { text, stop };
   };
 
   try {
-    const first = await streamOnce(built.messages);
+    const first = await streamOnce(
+      built.messages,
+      writing ? { round: 0, base: countWords(writing.existing) } : undefined
+    );
     const chain = chainOf(request);
     let result: ChainResult;
+    let written: ManuscriptChainResult | undefined;
     if (chain) {
       const io: ChainIO = {
         messages: built.messages,
         build: async (patch) => (await buildContext(project, { ...request, ...patch, providerMaxInputTokens }, config)).messages,
-        call: async (messages, label) => {
+        call: async (messages, label, opts) => {
           // 后面几次照样流进同一个气泡，前面一行说清这一次在补什么（第 11 条：不闷着干活）。
-          const head = `\n\n——${label}——\n\n`;
+          // 正文续写只空一行：读起来得是同一章。
+          const head = opts?.separator ?? `\n\n——${label}——\n\n`;
           full += head;
           handlers.onDelta(head, full);
           log.info(`${what}：${label}`);
-          return streamOnce(messages);
+          return streamOnce(messages, opts?.progress);
+        },
+        reset: (text) => {
+          full = text;
+          handlers.onReset?.(full);
         },
       };
-      result = await runChain(project, chain, request, first, io);
+      if (chain === 'manuscript' && writing) {
+        written = await completeManuscript(first, io, {
+          mode: writing.mode,
+          existing: writing.existing,
+          target: writing.target,
+          prevEnding: writing.prevEnding,
+          reasoned: !!reasoning,
+          onProgress: handlers.onProgress,
+          signal: options.signal,
+        });
+        result = written;
+      } else {
+        result = await runChain(project, chain, request, first, io);
+      }
     } else {
       // 清理只对正文做：JSON 产物里的 ``` 由 stripCodeFence 在解析时处理，
       // 在这里剥会把「去掉开场白」那几条正则用到 JSON 上，可能切坏结构。
@@ -299,6 +381,19 @@ export async function generate(
       ...(request.range ? { range: request.range } : {}),
       ...(result.notes.length > 0 ? { notes: result.notes } : {}),
       calls: result.calls,
+      ...(writing && written
+        ? {
+            writeMode: writing.mode,
+            length: {
+              words: written.words,
+              target: writing.target,
+              added: written.added,
+              rounds: written.rounds,
+              reached: !written.short,
+            },
+            ...(written.replay ? { replay: written.replay } : {}),
+          }
+        : {}),
     };
     if (result.notes.length > 0) {
       log.warn(`${what}：${result.notes.length} 处降级或说明`, result.notes.join('\n'));
@@ -356,7 +451,76 @@ async function runChain(
       return completeRoster(first, io);
     case 'blueprints':
       return completeBlueprints(first, io, chaptersOf(request.range!));
+    case 'manuscript':
+      // 正文那一条要的东西（写法、已有正文、上一章结尾）在 `planWriting` 里，走不到这里。
+      throw new Error('正文的续写链缺了写法。');
   }
+}
+
+// ---------------------------------------------------------------- 写正文
+
+/** 流式期间多久报一次进度。 */
+const PROGRESS_INTERVAL_MS = 300;
+
+const WRITE_MODE_LABEL: Record<WriteMode, string> = {
+  write: '新写一章',
+  continue: '接着写（追加）',
+  rewrite: '重写（覆盖前审阅）',
+};
+
+/**
+ * 重写时交给 `revision` 层的那句修改意见。作者这一轮说的话已经在「补充要求」与执行卡里，
+ * 这里不再抄一遍。
+ */
+const REWRITE_FEEDBACK = '照本章细纲与上面的补充要求重写这一章。上一版里与细纲不冲突、写得好的段落可以保留。';
+
+interface WritingPlan {
+  mode: WriteMode;
+  target?: number;
+  /** `continue` 写法下本章已有的正文；其余是空串。 */
+  existing: string;
+  prevEnding?: string;
+  revision?: { previousDraft: string; feedback: string };
+}
+
+/**
+ * 写法按磁盘定：这一章还没有正文 → `write`；明说了接着写 → `continue`；其余 → `rewrite`。
+ *
+ * 纯函数单列出来：「对话里发写正文、这一章已经有正文」从前是追加，现在是覆盖审阅——
+ * 这条改动的判据只在这里（见 model/pipeline.ts 的 `WriteMode`）。
+ */
+export function resolveWriteMode(body: string, requested?: WriteMode): WriteMode {
+  if (!body.trim()) {
+    return 'write';
+  }
+  return requested === 'continue' ? 'continue' : 'rewrite';
+}
+
+/**
+ * 写正文之前要从磁盘知道的事。
+ *
+ * - **目标字数**：请求给了用请求的，否则细纲的 `targetWords`，再否则配置的每章字数（D6）。
+ *   agent 工具与快速续写不传它，从此也有目标。
+ * - **上一章结尾**：按磁盘现读（重演检测用），不取上下文里那一份——那一份可能被整章全文
+ *   取代、或被作者取消勾选。
+ */
+async function planWriting(project: NovelProject, request: Omit<BuildRequest, 'providerMaxInputTokens'>): Promise<WritingPlan> {
+  const relPath = plotOfTarget(request.target);
+  const plot = relPath ? await project.resolvePlot(relPath) : undefined;
+  const no = plot?.no ?? (relPath ? parsePlotFileName(basename(relPath))?.no : undefined) ?? request.targetNo;
+  const target = request.targetWords ?? plot?.targetWords ?? (await project.readBookConfig()).wordsPerChapter;
+  const chapter = no ? await project.getChapter(no) : undefined;
+  const body = chapter ? await project.readChapterText(chapter) : '';
+  const mode = resolveWriteMode(body, request.writeMode);
+  const prev = no && no > 1 ? await project.getChapter(no - 1) : undefined;
+  const prevText = prev ? await project.readChapterText(prev) : '';
+  return {
+    mode,
+    target: target && target > 0 ? target : undefined,
+    existing: mode === 'continue' ? body : '',
+    prevEnding: prevText.trim() ? previousEnding(prevText) : undefined,
+    revision: mode === 'rewrite' ? { previousDraft: body, feedback: REWRITE_FEEDBACK } : undefined,
+  };
 }
 
 /**

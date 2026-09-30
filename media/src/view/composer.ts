@@ -201,6 +201,8 @@ export function runNextStep(step: NextStepView): void {
       target: step.target,
       targetNo: step.no ?? step.range?.from ?? (Number(el.targetSelect.value) || 1),
       range: step.range,
+      // 「接着写」追加、「重写第 N 章」覆盖审阅：写法随这一步走（后端按它落盘）。
+      writeMode: step.writeMode,
     },
   });
   el.input.value = '';
