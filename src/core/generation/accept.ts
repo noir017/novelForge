@@ -1,5 +1,5 @@
 /**
- * 采纳：把一份产物写进磁盘。按产物种类分派到五条落盘路径。
+ * 采纳：把一份产物写进磁盘。按产物种类分派到六条落盘路径。
  *
  * ## 与生成分开的那一步
  *
@@ -16,10 +16,14 @@
  */
 import { scoped } from '../runtime/logger';
 import { sanitizeFileName } from '../model/fs';
-import { NovelProject, emptyCharacterSections } from '../model/project';
-import { parsePlotFileName } from '../model/plotFile';
+import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../model/project';
+import { isPlotFilled, parsePlotFileName } from '../model/plotFile';
+import { isOutlineFilled, mergeOutline, outlineOverlaps } from '../model/outlineFile';
+import { hasContent } from '../model/markdown';
+import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections } from '../model/types';
 import { CreationTarget, SETTING_DOC_LABEL, plotOfTarget } from '../model/pipeline';
-import { Artifact, PlotFields, RosterEntry } from '../features/artifact';
+import { Artifact, ChapterRange, PlotFields, RosterEntry } from '../features/artifact';
+import { BlueprintItem, blueprintToPlot } from '../features/blueprint';
 import { chapterTargetOf, plotContentHash } from '../views/pipeline';
 import { Workspace, pathOfTarget } from '../workspace';
 import { plotUpstreamHash } from '../workspace/handlers/plot';
@@ -32,6 +36,26 @@ export interface AcceptResult {
   skipped?: boolean;
   /** 一句人话，直接进 toast。 */
   message: string;
+}
+
+/**
+ * 落盘之前就能说清的事：会新建哪几张角色卡。写入卡片上要列出来（D19），
+ * 不能等写完了才在 toast 里说「顺便建了三张卡」。
+ */
+export async function plannedCards(project: NovelProject, artifact: Artifact): Promise<string[]> {
+  if (artifact.kind !== 'plotBatch' && artifact.kind !== 'characterRoster') {
+    return [];
+  }
+  const taken = takenNames(await project.listCharacters());
+  const names =
+    artifact.kind === 'plotBatch'
+      ? artifact.items.flatMap((b) => b.newCharacters.map((c) => c.name))
+      : artifact.characters.map((c) => c.name);
+  return [...new Set(names)].filter((name) => !taken.has(name) && !taken.has(sanitizeFileName(name)));
+}
+
+function takenNames(cards: CharacterCard[]): Set<string> {
+  return new Set(cards.flatMap((c) => [c.name, ...c.aliases, c.slug]));
 }
 
 /**
@@ -52,14 +76,13 @@ export async function acceptArtifact(
     case 'characterRoster':
       return acceptRoster(project, ws, artifact.characters);
     case 'outlineDoc':
-      return acceptOutline(project, ws, artifact.text);
+      return acceptOutline(project, ws, artifact.text, artifact.range);
     case 'plot':
       return acceptPlot(project, ws, target, artifact);
     case 'manuscript':
       return acceptManuscript(project, ws, target, artifact.text);
     case 'plotBatch':
-      // 生成链与批次的落盘随下一个 commit 一起接上；这之前没有任何路径产出它。
-      throw new Error('细纲批次还不能落盘。');
+      return acceptPlotBatch(project, ws, artifact.items, artifact.range);
   }
 }
 
@@ -84,54 +107,131 @@ async function acceptSettingDoc(
     return { skipped: true, message: `没有改动${what}。` };
   }
   log.info(`${what}已写入`, rel);
-  return { relPath: rel, message: `已写入 ${rel}` };
+  const styleNote = artifact.style ? await acceptStyle(project, ws, artifact.style) : '';
+  return { relPath: rel, message: `已写入 ${rel}${styleNote}` };
 }
 
 /**
- * 角色图谱：每人建一张角色卡。
+ * 配置草稿里附带的文风：**只在 `style.md` 还没被动过时写进去**（D14：文风的唯一出处
+ * 是 `style.md`；第 3 条：作者写过的一个字都不覆盖）。没写进去也要说一句——
+ * 作者看着卡片上那段文风，会以为它已经生效了。
+ */
+async function acceptStyle(project: NovelProject, ws: Workspace, style: string): Promise<string> {
+  if (!(await project.styleGuideUntouched())) {
+    log.info('文风指南已有作者的内容，配置里附带的文风没有写进去');
+    return '；style.md 已有内容，附带的文风没有写进去';
+  }
+  const rel = await ws.writeStyleGuide(style);
+  log.info('配置附带的文风已写入文风指南', rel);
+  return `；文风写进了 ${rel}`;
+}
+
+/**
+ * 角色图谱：每人一张角色卡。
  *
- * **同名（或别名撞上）已存在的一律跳过，绝不覆盖**——作者可能已经把那张卡改得
- * 很细，再生成一次图谱不该把它抹掉。跳过的必须说出来。新卡没有作者写过的内容
- * 可覆盖，所以不走审阅（与「给未建卡的人物新建角色卡」同一口径）。
+ * - **没有卡的人**直接建：新卡没有作者写过的内容可覆盖，不走审阅（与「给未建卡的
+ *   人物新建角色卡」同一口径）。
+ * - **同名（或别名撞上）已经有卡的**走覆盖审阅，一张一审：作者可能已经把那张卡改得
+ *   很细，重新生成一次图谱不该静默抹掉它（第 3 条）。新图谱里空着的节沿用旧卡；
+ *   出场统计、别名这些卡上的记账原样保留。
+ *
+ * 建了几张、覆盖了几张、保留了哪几张，必须说出来。
  */
 async function acceptRoster(project: NovelProject, ws: Workspace, entries: RosterEntry[]): Promise<AcceptResult> {
   const cards = await project.listCharacters();
-  const taken = new Set(cards.flatMap((c) => [c.name, ...c.aliases, c.slug]));
+  const taken = takenNames(cards);
   const created: string[] = [];
-  const skipped: string[] = [];
+  const replaced: string[] = [];
+  const kept: string[] = [];
+  // 一张卡只处理一次：图谱里「林昭」与「阿昭」撞上的是同一张卡，第二次拿着写之前的
+  // 旧内容再合并一遍，会把第一次刚换上的那一版又改回去。
+  const handled = new Set<string>();
 
   for (const entry of entries) {
     const slug = sanitizeFileName(entry.name);
+    const existing = cards.find((c) => c.name === entry.name || c.aliases.includes(entry.name) || c.slug === slug);
+    if (existing && handled.has(existing.relPath)) {
+      continue;
+    }
+    if (existing) {
+      handled.add(existing.relPath);
+      const sections = mergeSections(existing.sections, entry.sections);
+      const text = renderCharacterCard({
+        ...existing,
+        aliases: [...new Set([...existing.aliases, ...entry.aliases])],
+        tags: existing.tags.length > 0 ? existing.tags : entry.role ? [entry.role] : [],
+        sections,
+      });
+      const r = await ws.write(existing.relPath, { text }, { mode: 'overwrite', what: `角色卡「${existing.name}」` });
+      (r.skipped ? kept : replaced).push(existing.name);
+      continue;
+    }
     if (taken.has(entry.name) || taken.has(slug)) {
-      skipped.push(entry.name);
+      kept.push(entry.name);
       continue;
     }
     taken.add(entry.name);
     taken.add(slug);
-    created.push(
-      await ws.writeCharacter({
-        slug,
-        name: entry.name,
-        aliases: entry.aliases,
-        tags: entry.role ? [entry.role] : [],
-        sections: { ...emptyCharacterSections(), ...entry.sections },
-      })
-    );
+    await ws.writeCharacter({
+      slug,
+      name: entry.name,
+      aliases: entry.aliases,
+      tags: entry.role ? [entry.role] : [],
+      sections: { ...emptyCharacterSections(), ...entry.sections },
+    });
+    created.push(entry.name);
   }
 
-  const note = skipped.length > 0 ? `，跳过已有的 ${skipped.join('、')}` : '';
-  log.info(`角色图谱：新建 ${created.length} 张角色卡`, `${created.join('、') || '（无）'}${note}`);
-  return { relPath: created[0], message: `已新建 ${created.length} 张角色卡${note}。` };
+  const parts = [
+    created.length > 0 ? `新建 ${created.length} 张角色卡` : '',
+    replaced.length > 0 ? `覆盖 ${replaced.join('、')}` : '',
+    kept.length > 0 ? `保留原样的 ${kept.join('、')}` : '',
+  ].filter(Boolean);
+  log.info('角色图谱已落盘', parts.join('；') || '（没有改动）');
+  const first = created[0] ?? replaced[0];
+  const rel = first ? cards.find((c) => c.name === first)?.relPath ?? `${project.relPath(project.charactersDir)}/${sanitizeFileName(first)}.md` : undefined;
+  return created.length + replaced.length === 0
+    ? { skipped: true, message: `没有改动角色卡${kept.length > 0 ? `（保留原样的 ${kept.join('、')}）` : ''}。` }
+    : { relPath: rel, message: `${parts.join('，')}。` };
 }
 
-/** 情节大纲：整篇替换，覆盖前审阅。按区间合并留到二期。 */
-async function acceptOutline(project: NovelProject, ws: Workspace, text: string): Promise<AcceptResult> {
+/** 新的一版里有内容的节换新，空着的节沿用旧卡。 */
+function mergeSections(old: CharacterSections, fresh: Partial<CharacterSections>): CharacterSections {
+  const out = { ...old };
+  for (const key of CHARACTER_SECTION_KEYS) {
+    if (hasContent(fresh[key])) {
+      out[key] = fresh[key]!.trim();
+    }
+  }
+  return out;
+}
+
+/**
+ * 情节大纲：带区间（续写的那一段）时**只替换与这一段重叠的那几节**，其余原样保留
+ * （model/outlineFile.ts 的 `mergeOutline`）；不带区间整篇替换。
+ *
+ * 审阅只在真的要换掉东西时弹：整篇替换一份写过的大纲，或者续写的这一段与已有的节
+ * 重叠。纯续写（第 21–40 章接在第 20 章后面）一个字都不吞，不必让作者对比一遍。
+ */
+async function acceptOutline(
+  project: NovelProject,
+  ws: Workspace,
+  text: string,
+  range?: ChapterRange
+): Promise<AcceptResult> {
   const rel = project.relPath(project.outlinePath);
-  const r = await ws.write(rel, { artifact: { kind: 'outlineDoc', text } }, { mode: 'overwrite', what: '情节大纲' });
+  const existing = await project.readOutline();
+  const next = range ? mergeOutline(existing, text, range) : text;
+  const replacing = range ? outlineOverlaps(existing, range) : isOutlineFilled(existing);
+  const r = await ws.write(rel, { artifact: { kind: 'outlineDoc', text: next } }, {
+    mode: 'overwrite',
+    what: '情节大纲',
+    review: replacing,
+  });
   if (r.skipped) {
     return { skipped: true, message: '没有改动大纲。' };
   }
-  log.info('情节大纲已更新', `${rel}｜${text.length} 字`);
+  log.info('情节大纲已更新', `${rel}｜${next.length} 字${range ? `｜并入第 ${range.from}–${range.to} 章那一段` : ''}`);
   return { relPath: rel, message: `已写入 ${rel}` };
 }
 
@@ -178,13 +278,116 @@ async function acceptPlot(
     title: fields.title ?? '',
     role: fields.role ?? '',
     characters: fields.characters ?? [],
-    targetWords: fields.targetWords,
+    // D3：目标字数必填。蓝图合同里没有它，缺省取配置的每章字数。
+    targetWords: fields.targetWords ?? (await project.readBookConfig()).wordsPerChapter,
     upstreamHash: await plotUpstreamHash(project, relPath),
     done: false,
     sections: fields.sections,
   });
   log.info(`第 ${no} 章的细纲已新建`, rel);
   return { relPath: rel, message: `已新建 ${rel}` };
+}
+
+/**
+ * 一批细纲：一章一份，逐章落。
+ *
+ * - **已经排过的章**（关键事件有内容）走覆盖审阅，一章一审：主按钮那一批永远是空白的章
+ *   （model/pipeline.ts 的拆细纲区间），走到这里说明作者在这之间自己排了——不静默盖掉。
+ * - **空壳**（有文件、关键事件空着）直接填，并按产物的标题改名（`004.md` → `004-雪夜.md`）。
+ * - **没有文件**的新建。目标字数缺省取配置的每章字数（D3）。
+ *
+ * 然后给蓝图里的新角色建卡（D19，同名已有的不动）。批量那条路（features/pipelineBatch.ts）
+ * 也走这里——它只给空白的章，于是一张审阅都不会弹。
+ */
+export async function acceptPlotBatch(
+  project: NovelProject,
+  ws: Workspace,
+  items: BlueprintItem[],
+  range: ChapterRange
+): Promise<AcceptResult> {
+  const book = await project.readBookConfig();
+  const written: string[] = [];
+  const kept: number[] = [];
+  for (const item of items) {
+    const fields = blueprintToPlot(item);
+    const existing = await project.getPlot(item.no);
+    if (existing && isPlotFilled(existing.sections)) {
+      const r = await ws.write(existing.relPath, { artifact: { kind: 'plot', ...fields } }, {
+        mode: 'overwrite',
+        what: `第 ${item.no} 章的细纲`,
+      });
+      if (r.skipped) {
+        kept.push(item.no);
+      } else {
+        written.push(r.rel);
+      }
+      continue;
+    }
+    written.push(
+      await ws.writePlot(
+        {
+          no: item.no,
+          title: existing?.title || fields.title || '',
+          role: fields.role ?? '',
+          characters: fields.characters ?? [],
+          targetWords: existing?.targetWords ?? book.wordsPerChapter,
+          upstreamHash: await plotUpstreamHash(project, project.plotPathForNo(item.no, '')),
+          writtenFrom: existing?.writtenFrom,
+          done: existing?.done ?? false,
+          sections: fields.sections,
+        },
+        existing?.relPath
+      )
+    );
+  }
+  const cards = await createPlannedCards(project, ws, items);
+
+  const where = range.from === range.to ? `第 ${range.from} 章` : `第 ${range.from}–${range.to} 章`;
+  const parts = [
+    `已写入${where}的细纲 ${written.length} 份`,
+    kept.length > 0 ? `保留原样的第 ${kept.join('、')} 章` : '',
+    cards.length > 0 ? `新建角色卡：${cards.join('、')}` : '',
+  ].filter(Boolean);
+  log.info(`${where}的细纲已落盘`, parts.join('；'));
+  return written.length === 0 && cards.length === 0
+    ? { skipped: true, message: `没有改动${where}的细纲。` }
+    : { relPath: written[0], message: `${parts.join('，')}。` };
+}
+
+/**
+ * 蓝图里新登场、后面还会出场的人：直接建卡（D19）。同名（或别名撞上）已有的不动。
+ *
+ * 卡上只写得出这么多：定位、在哪一章登场、那一章要他做什么。其余等写到了、有了摘要，
+ * 再从正文里更新——细纲里的「计划出场」不进出场统计（D13），这里也不写 `firstAppear`。
+ */
+async function createPlannedCards(project: NovelProject, ws: Workspace, items: BlueprintItem[]): Promise<string[]> {
+  const taken = takenNames(await project.listCharacters());
+  const created: string[] = [];
+  for (const item of items) {
+    for (const c of item.newCharacters) {
+      const slug = sanitizeFileName(c.name);
+      if (taken.has(c.name) || taken.has(slug)) {
+        continue;
+      }
+      taken.add(c.name);
+      taken.add(slug);
+      await ws.writeCharacter({
+        slug,
+        name: c.name,
+        aliases: [],
+        tags: c.role ? [c.role] : [],
+        sections: {
+          ...emptyCharacterSections(),
+          身份: `第 ${item.no} 章《${item.title}》登场${c.role ? `的${c.role}` : ''}。那一章：${item.purpose}`,
+        },
+      });
+      created.push(c.name);
+    }
+  }
+  if (created.length > 0) {
+    log.info(`细纲里的新角色已建卡：${created.join('、')}`);
+  }
+  return created;
 }
 
 /**

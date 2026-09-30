@@ -23,6 +23,8 @@ export type {
 
 export type {
   ArchitectureRow,
+  BookView,
+  IdeaDefaults,
   CastConflictView,
   CastEntry,
   CastSummary,

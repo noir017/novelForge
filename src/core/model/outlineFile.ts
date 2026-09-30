@@ -140,6 +140,11 @@ export function outlineSliceFor(text: string, no: number): OutlineRange | undefi
 
 // ---------------------------------------------------------------- 按区间合并
 
+/** 大纲里有没有与 [from, to] 重叠的区间节——有，续写这一段才谈得上「覆盖」。 */
+export function outlineOverlaps(text: string, range: { from: number; to: number }): boolean {
+  return parseOutlineRanges(text).some((r) => r.from <= range.to && r.to >= range.from);
+}
+
 /**
  * 大纲切成块：区间节（标题行到下一个同级或更高级标题之前）与其余部分。
  * 与 {@link parseOutlineRanges} 同一套认法，只是保留原始行，合并时原样拼回去。

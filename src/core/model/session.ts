@@ -86,6 +86,13 @@ export interface ChatTurn {
   attachments?: Attachment[];
   /** 仅 user 轮：本轮被手动取消勾选的上下文条目 id。 */
   excludedIds?: string[];
+  /**
+   * 仅 user 轮：主按钮带过来的章号区间（「拆细纲（第 6–10 章）」「续写情节大纲（第 21–40 章）」）。
+   * 记下来是为了「重来一轮」原样重跑——那条路上前端给的是输入框当下的参数，不是这一轮的。
+   */
+  range?: { from: number; to: number };
+  /** 仅 user 轮：一句话弹窗带过来的规模。同上，重来时要用。 */
+  setup?: { totalChapters: number; wordsPerChapter: number };
   /** 仅 assistant 轮：本次装配明细。 */
   context?: ContextDigest;
   /** 仅 assistant 轮：已采纳写入的目标路径。 */
@@ -112,6 +119,12 @@ export interface ChatTurn {
     summary: string;
     overwrites: boolean;
     declined?: boolean;
+    /** 写入时会新建的角色卡（D19）。 */
+    creates?: string[];
+    /** 生成这一路上的降级与说明（第 2 条）。 */
+    notes?: string[];
+    /** 这一轮一共调了几次模型。 */
+    calls?: number;
   };
   /**
    * 仅 assistant 轮：这一轮**按发生顺序**排下来的段——它说的话与它做的事交替。
@@ -222,6 +235,10 @@ export interface SessionDraft {
   /** 推理模型的思考过程。不是正文，采纳时不取。 */
   reasoning?: string;
   createdAt: string;
+  /** 细纲批次 / 续写大纲的章号区间。采纳时按它解码与合并。 */
+  range?: { from: number; to: number };
+  notes?: string[];
+  calls?: number;
 }
 
 export interface ChatSession {
@@ -520,9 +537,23 @@ function normalizeDrafts(raw: unknown): SessionDraft[] {
       words: typeof o.words === 'number' && Number.isFinite(o.words) ? o.words : 0,
       reasoning: typeof o.reasoning === 'string' ? o.reasoning : undefined,
       createdAt: typeof o.createdAt === 'string' ? o.createdAt : new Date(0).toISOString(),
+      range: normalizeRange(o.range),
+      notes: Array.isArray(o.notes) ? o.notes.filter((n): n is string => typeof n === 'string') : undefined,
+      calls: typeof o.calls === 'number' && Number.isFinite(o.calls) ? o.calls : undefined,
     });
   }
   return out;
+}
+
+/** 章号区间的容错读取：两端都是正整数才认，写反了对调。 */
+export function normalizeRange(raw: unknown): { from: number; to: number } | undefined {
+  const o = (raw ?? {}) as { from?: unknown; to?: unknown };
+  const a = typeof o.from === 'number' ? Math.floor(o.from) : NaN;
+  const b = typeof o.to === 'number' ? Math.floor(o.to) : NaN;
+  if (!(a > 0) || !(b > 0)) {
+    return undefined;
+  }
+  return { from: Math.min(a, b), to: Math.max(a, b) };
 }
 
 function isTurn(t: unknown): t is ChatTurn {

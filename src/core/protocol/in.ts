@@ -18,12 +18,17 @@ export interface SendPayload {
   targetNo: number;
   /**
    * 这一步覆盖的章号区间（主按钮「拆细纲（第 6–10 章）」「续写情节大纲（第 21–40 章）」
-   * 带过来的）。本期只透传、不影响生成；按区间一次生成是二期的事。
+   * 带过来的）。细纲给了区间就是一批（一次出几章，最多 5 章），大纲按它只写那一段。
    *
    * 从前这里还有一个 `targetWords`（输入框下面那个，默认 2000）。它和细纲里的
    * `targetWords` 两处都能写，作者分不清哪个生效——现在只认细纲（W1）。
    */
   range?: { from: number; to: number };
+  /**
+   * 一句话弹窗带过来的规模（W4）。给了就是「从一句话生成小说配置」：作者那句话写进
+   * 「一句话」一节，总章数与每章字数以这里为准，`config.md` 已有内容时保留原文、追加生成。
+   */
+  setup?: { totalChapters: number; wordsPerChapter: number };
   attachments: SerializedAttachment[];
   excludedIds: string[];
 }
@@ -74,7 +79,19 @@ export type InMessage =
   | { type: 'openExternal'; path: string }
   | { type: 'syncSummaries' }
   | { type: 'requestSummary'; plotRelPath: string }
-  | { type: 'projectAction'; action: ProjectAction; relPath?: string; dir?: string }
+  /**
+   * `range` 只有「批量拆细纲」用：弹窗里选的区间（W5）。`confirmed` 表示弹窗已经把
+   * 调用次数写给作者看过了，后端不再弹第二个确认框（弹窗与确认框算的是同一个
+   * `planPlotBatches`，不叠弹窗）。
+   */
+  | {
+      type: 'projectAction';
+      action: ProjectAction;
+      relPath?: string;
+      dir?: string;
+      range?: { from: number; to: number };
+      confirmed?: boolean;
+    }
   | { type: 'characterAction'; action: CharacterAction; name: string; relPath?: string }
   | {
       type: 'fileAction';
@@ -135,6 +152,7 @@ export type ProjectAction =
   | 'syncSummaries'
   | 'rebuildGlobalSummary'
   | 'generatePlots'
+  | 'completeSettings'
   | 'writeManuscripts'
   | 'extractCharacters'
   | 'generateLore'

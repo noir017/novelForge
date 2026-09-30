@@ -481,52 +481,67 @@ describe('采纳 · 故事前提 / 世界观', () => {
 });
 
 /**
- * 角色图谱：每人建一张卡。**同名（或别名撞上）已存在的一律跳过**，绝不覆盖——
- * 作者可能已经把那张卡改得很细。新卡没有可覆盖的东西，所以不走审阅。
+ * 角色图谱：每人一张卡。
+ *
+ * - 没有卡的人直接建：新卡没有可覆盖的东西，不走审阅。
+ * - **同名（或别名撞上）已有卡的走覆盖审阅，一张一审**（二期）：作者可能已经把那张卡
+ *   改得很细，重新生成一次图谱不该静默抹掉它；同意了才换，新图谱里空着的节沿用旧卡。
+ *   从前是一律跳过——那样作者想重做角色图谱时，已有的卡永远换不掉。
  */
-describe('采纳 · 角色图谱（只建新卡，同名跳过）', () => {
+describe('采纳 · 角色图谱（新卡直接建，同名的先审阅）', () => {
   const MINE = '.novelforge/characters/林昭.md';
-  const handWritten = '---\nname: 林昭\naliases: [阿昭]\n---\n\n# 林昭\n\n## 身份\n\n作者改得很细的一段。\n';
+  const handWritten = '---\nname: 林昭\naliases: [阿昭]\n---\n\n# 林昭\n\n## 身份\n\n作者改得很细的一段。\n\n## 性格\n\n作者写的性格。\n';
   const roster = {
     kind: 'characterRoster',
     characters: [
       { name: '林昭', role: '主角', aliases: [], sections: { 身份: '模型写的林昭' } },
-      // 撞上的是已有卡的**别名**，一样跳过。
+      // 撞上的是已有卡的**别名**，同样是那一张：只审一次，不另建。
       { name: '阿昭', role: '主角', aliases: [], sections: {} },
       { name: '沈青', role: '盟友', aliases: ['青姐'], sections: { 身份: '客栈老板娘' } },
       { name: '韩七', role: '对手', aliases: [], sections: {} },
     ],
   };
-  let result;
+  let kept;
+  let keptText;
+  let replaced;
+  let reviewed;
   let again;
-  let confirms;
   let cards;
 
   before(async () => {
     t.write(MINE, handWritten);
     project.invalidate();
-    h.expect();
-    result = await accept(settingT('characters'), roster);
-    confirms = h.confirms.length;
-    again = await accept(settingT('characters'), roster);
+    // 第一次：作者在审阅里选「保留原样」（这个文件的假宿主没有 reviewReplace，
+    // 审阅走 confirm）。
+    h.expect('保留原样', '保留原样');
+    kept = await accept(settingT('characters'), roster);
+    keptText = t.read(MINE);
+    reviewed = h.confirms.map((c) => c.message);
+    // 第二次：同一份图谱，作者同意覆盖。
+    h.expect('覆盖', '覆盖');
+    replaced = await accept(settingT('characters'), roster);
+    again = h.confirms.length;
     cards = await project.listCharacters();
   });
 
-  test('只建出两张新卡', () => {
-    assert.ok(result.message.includes('已新建 2 张角色卡'), result.message);
+  test('新卡直接建，说出建了几张', () => {
+    assert.ok(kept.message.includes('新建 2 张角色卡'), kept.message);
   });
 
-  test('已有的那张卡一个字节都没动', () => {
-    assert.equal(t.read(MINE), handWritten);
+  // 第 3 条：已有的卡先给作者看 diff。别名撞上的也是这一张，一共只审它一次。
+  // 别名撞上的也是这一张：一共只审它一次，不会审两次、写两次。
+  test('同名的卡先审阅，别名撞上的不另审一次', () => {
+    assert.equal(reviewed.length, 1, JSON.stringify(reviewed));
+    assert.ok(reviewed[0].includes('角色卡「林昭」'), reviewed[0]);
+  });
+
+  test('作者选保留：那张卡一个字节都没动，并且说出来', () => {
+    assert.equal(keptText, handWritten);
+    assert.ok(kept.message.includes('保留原样的 林昭'), kept.message);
   });
 
   test('撞上别名的不另建一张', () => {
     assert.ok(!t.has('.novelforge/characters/阿昭.md'));
-  });
-
-  // 默默少建两张，作者要到写到那里才发现。
-  test('跳过了谁要说出来', () => {
-    assert.ok(result.message.includes('跳过已有的 林昭、阿昭'), result.message);
   });
 
   test('新卡带上定位、别名与身份', async () => {
@@ -536,13 +551,18 @@ describe('采纳 · 角色图谱（只建新卡，同名跳过）', () => {
     assert.equal(shen?.sections.身份, '客栈老板娘', JSON.stringify(shen?.sections));
   });
 
-  test('只建新卡不弹审阅', () => {
-    assert.equal(confirms, 0, JSON.stringify(h.confirms));
+  test('作者同意覆盖：新图谱里有的节换新，空着的节沿用旧卡，别名留着', async () => {
+    const lin = cards.find((c) => c.name === '林昭');
+    assert.equal(lin.sections.身份, '模型写的林昭');
+    assert.equal(lin.sections.性格, '作者写的性格。');
+    assert.deepEqual(lin.aliases, ['阿昭']);
+    assert.ok(replaced.message.includes('覆盖 林昭'), replaced.message);
   });
 
-  test('再采纳一次同一份图谱：一张都不建', () => {
-    assert.ok(again.message.includes('已新建 0 张角色卡'), again.message);
+  test('第二次不再新建（沈青、韩七已经有卡了），也不多出卡', () => {
+    assert.ok(!replaced.message.includes('新建'), replaced.message);
     assert.equal(cards.length, 3, cards.map((c) => c.name).join('、'));
+    assert.equal(again, 1);
   });
 
   test('有卡就算角色图谱填过了', async () => {

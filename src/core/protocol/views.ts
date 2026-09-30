@@ -71,6 +71,26 @@ export interface ProjectTree {
   bookStage: BookStage;
   /** 下一个该写的章（从第 1 章起连续有正文的最大章号 + 1）。只有这一行给「写这一章」。 */
   nextChapterNo: number;
+  /** 一句话、拆细纲两个弹窗的默认值（W4 / W5）。 */
+  book: BookView;
+}
+
+/** 一句话弹窗的默认值。主按钮是「生成小说配置」时随下一步一起给。 */
+export interface IdeaDefaults {
+  /** `config.md` 里「一句话」那一节的原文。 */
+  idea: string;
+  totalChapters?: number;
+  wordsPerChapter?: number;
+  /** `config.md` 写过任何一节：弹窗据此写明「保留原文，追加生成」。 */
+  configHasContent: boolean;
+}
+
+/** 工程页两个弹窗要的全书事实。 */
+export interface BookView extends IdeaDefaults {
+  /** 大纲覆盖到第几章。说不上（散文式大纲）或还没写时缺席——JSON 里放不下 Infinity。 */
+  outlineCoverage?: number;
+  /** 排好细纲的章号：拆细纲弹窗据此算这一段要跳过几章。 */
+  plotFilledNos: number[];
 }
 
 /**
@@ -171,6 +191,8 @@ export interface PlotPipelineView {
 export interface NextStepView extends NextStepPlan {
   target: CreationTarget;
   no?: number;
+  /** `form: 'idea'` 时一句话弹窗的默认值。 */
+  formDefaults?: IdeaDefaults;
 }
 
 export interface WorkbenchSection {
@@ -330,6 +352,12 @@ export interface SerializedArtifact {
   overwrites: boolean;
   /** 作者当时没同意写。写了的那一份记在 `acceptedTo` 上。 */
   declined?: boolean;
+  /** 写入时会新建的角色卡（D19：细纲里的新角色直接建卡，卡片上先列出来）。 */
+  creates?: string[];
+  /** 生成这一路上的降级与说明（截断重来、拆半重试、漏字段……，第 2 条）。 */
+  notes?: string[];
+  /** 这一轮一共调了几次模型。 */
+  calls?: number;
 }
 
 export interface SerializedDigest {

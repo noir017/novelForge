@@ -403,7 +403,6 @@ function rosterManifestContract(facts: PromptFacts): string {
  * 每节都有字数上限（第 15 条：角色卡不能无限膨胀）。
  */
 function rosterDetailContract(step: Extract<ChainStep, { kind: 'rosterDetails' }>): string {
-  const L = CHARACTER_DETAIL_LIMITS;
   return [
     '【冻结身份与关系清单】',
     step.manifest,
@@ -414,6 +413,14 @@ function rosterDetailContract(step: Extract<ChainStep, { kind: 'rosterDetails' }
     '',
     '这一步只为清单里指定的人补全紧凑资料，不规划或改写角色身份和关系。故事前提和主角档案中的作者明确设定是权威事实；必须写入相关角色详情，不得遗漏、弱化、反转或用题材惯例替换。',
     '',
+    rosterDetailJsonContract(),
+  ].join('\n');
+}
+
+/** 角色详情的 JSON 合同本身。语法修复那一步也拿它当「不可变合同」。 */
+export function rosterDetailJsonContract(): string {
+  const L = CHARACTER_DETAIL_LIMITS;
+  return [
     '【不可变角色详情 JSON 合同】',
     '只输出 {"entries":[...]}。每项必须包含 slotId、name、role、身份、外貌、性格、语言习惯、当前状态、未收伏笔；可选 aliases（这个人的专属称呼：字号、外号、小名；不收「他」「师兄」「那个少年」这类泛称）。',
     `- 身份：出身背景、能力、核心动机与弧光（起点 → 终点），不超过 ${L.身份} 字；`,

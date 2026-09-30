@@ -21,13 +21,15 @@
  * `summary`。**采纳时仍然重新解析**——用户可能在气泡里改过文本，
  * `draft.artifact` 只是生成那一刻的快照。
  *
- * ## 不动装配器
+ * ## 一件产物可能要调几次
  *
- * `context/recipes.ts`、`context/prompts.ts`、`context/layers/`、
- * `context/builder.ts`、`features/artifact.ts` 一个字都不改。分阶段装配是
- * 这个项目既有质量的来源。
+ * 小说配置、角色图谱、细纲批次要分几次调用才拼得出来（截断重来、两段式、拆半重试），
+ * 第一次流式调用之后接上 `structured.ts` 的那条链，后面几次照样流进同一个气泡，
+ * 最后气泡换成规范化结果（将要落盘的样子）。每一次降级记进 `Draft.notes`，
+ * 落盘卡片上列出来（第 2 条）。
  */
 import { BuildRequest, BuiltContext, buildContext } from '../context/builder';
+import { StopSignal } from '../llm/provider';
 import { describeUsage, recordUsage } from '../context/tokenizer';
 import { mergeUsage } from '../llm/collect';
 import { CancelledError, LlmProvider, StreamOptions, TokenUsage } from '../llm/provider';
@@ -48,8 +50,20 @@ import {
   plotOfTarget,
 } from '../model/pipeline';
 import { describeModelIssue, providerLabel } from '../model/providers';
-import { Artifact, describeArtifact, isArtifactEmpty, parseArtifact } from '../features/artifact';
+import { Artifact, ChapterRange, describeArtifact, isArtifactEmpty, parseArtifact } from '../features/artifact';
 import { cleanOutput } from '../features/creation';
+import {
+  CallOutcome,
+  ChainError,
+  ChainIO,
+  ChainResult,
+  chainOf,
+  chaptersOf,
+  completeBlueprints,
+  completeConfig,
+  completeRoster,
+  singleShotNotes,
+} from './structured';
 
 const log = scoped('创作');
 
@@ -68,6 +82,15 @@ export interface Draft {
   /** 推理模型的思考过程。**不是正文，采纳时不取。** */
   reasoning?: string;
   createdAt: string;
+  /**
+   * 这一步覆盖的章号区间：细纲批次（给了就是一批）与续写的那一段大纲。采纳时要它——
+   * 细纲按批次解码、大纲按区间合并。
+   */
+  range?: ChapterRange;
+  /** 这一路上的降级与说明（截断重来、拆半重试、漏字段……）。落盘卡片上列出来。 */
+  notes?: string[];
+  /** 这一次一共调了几次模型。 */
+  calls?: number;
 }
 
 export interface GenerateHandlers {
@@ -137,13 +160,14 @@ export async function previewContext(
 export function parseDraftArtifact(
   action: CreationAction,
   raw: string,
-  target?: CreationTarget
+  target?: CreationTarget,
+  range?: ChapterRange
 ): Artifact | undefined {
   if (outputKindOf(action) !== 'artifact') {
     return undefined;
   }
-  // 架构层要看 target 才分得清是哪一件（四件同属一个阶段）；其余阶段只看 action。
-  const artifact = parseArtifact(action, raw, target);
+  // 架构层要看 target 才分得清是哪一件（四件同属一个阶段）；细纲与大纲还要看区间。
+  const artifact = parseArtifact(action, raw, target, range);
   return isArtifactEmpty(artifact) ? undefined : artifact;
 }
 
@@ -208,15 +232,18 @@ export async function generate(
   };
 
   let draft: Draft | undefined;
-  try {
-    let full = '';
+  let full = '';
+  const streamOnce = async (messages: typeof built.messages): Promise<CallOutcome> => {
+    let text = '';
+    let stop: StopSignal | undefined;
     let firstDeltaAt = 0;
-    for await (const ev of provider.stream(built.messages, streamOptions)) {
+    for await (const ev of provider.stream(messages, streamOptions)) {
       if (ev.type === 'text') {
         if (!firstDeltaAt) {
           firstDeltaAt = Date.now();
           log.debug('首个分片已到达', `首字延迟 ${elapsed(startedAt, firstDeltaAt)}`);
         }
+        text += ev.text;
         full += ev.text;
         handlers.onDelta(ev.text, full);
       } else if (ev.type === 'reasoning') {
@@ -224,13 +251,41 @@ export async function generate(
         handlers.onReasoning?.(ev.text, reasoning);
       } else if (ev.type === 'usage') {
         mergeUsage(usage, ev.usage);
+      } else if (ev.type === 'stop') {
+        stop = ev.reason;
       }
     }
-    // 清理只对正文做：JSON 产物里的 ``` 由 stripCodeFence 在解析时处理，
-    // 在这里剥会把「去掉开场白」那几条正则用到 JSON 上，可能切坏结构。
-    const raw = stage === 'manuscript' ? cleanOutput(full) : full.trim();
+    return { text, stop };
+  };
+
+  try {
+    const first = await streamOnce(built.messages);
+    const chain = chainOf(request);
+    let result: ChainResult;
+    if (chain) {
+      const io: ChainIO = {
+        messages: built.messages,
+        build: async (patch) => (await buildContext(project, { ...request, ...patch, providerMaxInputTokens }, config)).messages,
+        call: async (messages, label) => {
+          // 后面几次照样流进同一个气泡，前面一行说清这一次在补什么（第 11 条：不闷着干活）。
+          const head = `\n\n——${label}——\n\n`;
+          full += head;
+          handlers.onDelta(head, full);
+          log.info(`${what}：${label}`);
+          return streamOnce(messages);
+        },
+      };
+      result = await runChain(project, chain, request, first, io);
+    } else {
+      // 清理只对正文做：JSON 产物里的 ``` 由 stripCodeFence 在解析时处理，
+      // 在这里剥会把「去掉开场白」那几条正则用到 JSON 上，可能切坏结构。
+      const raw = stage === 'manuscript' ? cleanOutput(first.text) : first.text.trim();
+      result = { raw, notes: singleShotNotes(stage, raw, first.stop, request.range), calls: 1 };
+    }
+
+    const raw = result.raw;
     handlers.onDone(raw);
-    const artifact = parseDraftArtifact(request.action, raw, request.target);
+    const artifact = parseDraftArtifact(request.action, raw, request.target, request.range);
     draft = {
       id: makeDraftId(),
       action: request.action,
@@ -241,13 +296,19 @@ export async function generate(
       words: countWords(raw),
       reasoning: reasoning || undefined,
       createdAt: new Date().toISOString(),
+      ...(request.range ? { range: request.range } : {}),
+      ...(result.notes.length > 0 ? { notes: result.notes } : {}),
+      calls: result.calls,
     };
+    if (result.notes.length > 0) {
+      log.warn(`${what}：${result.notes.length} 处降级或说明`, result.notes.join('\n'));
+    }
     // 有实测用量就记一笔：估算准不准，只有对着服务商的账单才看得出来。
     recordUsage('创作', built.usedTokens, usage);
     const usageNote = describeUsage(built.usedTokens, usage);
     log.info(
       `${what}完成`,
-      `产出 ${full.length} 字，用时 ${elapsed(startedAt)}` +
+      `产出 ${full.length} 字，调用 ${result.calls} 次，用时 ${elapsed(startedAt)}` +
         `${reasoning ? `；另有思考 ${reasoning.length} 字` : ''}` +
         `${usageNote ? `；${usageNote}` : ''}`
     );
@@ -256,6 +317,12 @@ export async function generate(
     if (err instanceof CancelledError || options.signal.aborted) {
       log.warn('生成被取消', `已产出内容，用时 ${elapsed(startedAt)}`);
       handlers.onCancelled();
+    } else if (err instanceof ChainError) {
+      // 链走不下去：已经收到的输出留在气泡里（作者能拿去手改），不出落盘卡片。
+      handlers.onDone(full.trim());
+      log.error(`${what}失败：${err.message}`, [`调用 ${err.calls} 次`, ...err.notes].join('\n'));
+      handlers.onError(err.message);
+      await noteFailure(project, request.target, `${what}失败：${err.message}`, `位置 ${where}；调用 ${err.calls} 次`);
     } else {
       log.error(`${what}失败：${describeError(err)}`, err);
       handlers.onError(describeError(err));
@@ -267,6 +334,30 @@ export async function generate(
 }
 
 // ---------------------------------------------------------------- 内部
+
+/** 按产物种类接上对应的那条链（generation/structured.ts）。 */
+async function runChain(
+  project: NovelProject,
+  chain: NonNullable<ReturnType<typeof chainOf>>,
+  request: Omit<BuildRequest, 'providerMaxInputTokens'>,
+  first: CallOutcome,
+  io: ChainIO
+): Promise<ChainResult> {
+  switch (chain) {
+    case 'config':
+      return completeConfig(first, io, {
+        existing: await project.readBookConfig(),
+        // 只有一句话弹窗发起时，作者这句话才是「一句话」那一节本身；在对话里说的
+        // 「把金手指改狠一点」是修改意见，写进「一句话」就错了。
+        idea: request.setup ? request.ask.trim() || undefined : undefined,
+        setup: request.setup,
+      });
+    case 'roster':
+      return completeRoster(first, io);
+    case 'blueprints':
+      return completeBlueprints(first, io, chaptersOf(request.range!));
+  }
+}
 
 /**
  * Draft id。

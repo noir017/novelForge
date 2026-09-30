@@ -892,6 +892,18 @@ export class NovelProject {
     return stripH1(parseMarkdown(await readText(this.stylePath)).body);
   }
 
+  /**
+   * 文风指南还没被作者动过：文件不在、是空的，或者一字不差还是初始化写的那份模板。
+   *
+   * 生成小说配置时模型会顺带给一段文风，只在这种时候才写进 `style.md`（D14 + 第 3 条）。
+   * 模板是插件自己写的通用建议，替换它不会吞掉作者的任何一个字；作者改过一个字，
+   * 它就是作者的文件了。
+   */
+  async styleGuideUntouched(): Promise<boolean> {
+    const raw = (await readTextIfExists(this.stylePath).catch(() => undefined)) ?? '';
+    return !raw.trim() || raw.replace(/\r\n/g, '\n').trim() === STYLE_TEMPLATE.trim();
+  }
+
   async readOutline(): Promise<string> {
     if (!(await exists(this.outlinePath))) {
       return '';

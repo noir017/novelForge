@@ -2,7 +2,8 @@ import { basename } from 'node:path';
 import { buildCastIndex, describePlots } from './cast';
 import { listActiveFailures } from '../runtime/errorLog';
 import { scoped } from '../runtime/logger';
-import { SECTION_PLACEHOLDER } from '../model/markdown';
+import { SECTION_PLACEHOLDER, hasContent } from '../model/markdown';
+import { BookConfig } from '../model/settingFile';
 import { SETTING_DOC_LABEL, chapterLabel, deriveBookStage } from '../model/pipeline';
 import { NovelProject } from '../model/project';
 import { parsePlotFileName } from '../model/plotFile';
@@ -21,6 +22,7 @@ import {
   ProjectNode,
   ProjectPlotNode,
   ProjectTree,
+  IdeaDefaults,
 } from '../protocol';
 
 const log = scoped('角色卡');
@@ -82,6 +84,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       globalSummaryPath,
       bookStage: 'setting',
       nextChapterNo: 1,
+      book: { idea: '', configHasContent: false, plotFilledNos: [] },
     };
   }
 
@@ -233,6 +236,21 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     globalSummaryPath,
     bookStage: deriveBookStage(book),
     nextChapterNo: book.nextChapterNo,
+    book: {
+      ...ideaDefaultsOf(pipelineIndex.config),
+      outlineCoverage: Number.isFinite(coverage) && coverage > 0 ? coverage : undefined,
+      plotFilledNos: [...book.plotFilledNos],
+    },
+  };
+}
+
+/** 一句话弹窗的默认值：`config.md` 里已经写了的那几样。 */
+export function ideaDefaultsOf(config: BookConfig): IdeaDefaults {
+  return {
+    idea: config.sections.一句话 ?? '',
+    totalChapters: config.totalChapters,
+    wordsPerChapter: config.wordsPerChapter,
+    configHasContent: Object.values(config.sections).some((v) => hasContent(v)),
   };
 }
 

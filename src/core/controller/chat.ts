@@ -1,7 +1,7 @@
 import type { ChatController } from './index';
 import { basename } from 'node:path';
 import { describeArtifact } from '../features/artifact';
-import { acceptArtifact as writeArtifact } from '../generation/accept';
+import { acceptArtifact as writeArtifact, plannedCards } from '../generation/accept';
 import { Draft, generate, parseDraftArtifact } from '../generation/generate';
 import { getHost } from '../host';
 import type { GateVerdict } from '../agent/policy';
@@ -12,6 +12,7 @@ import {
   ChatTurn,
   deriveTitle,
   makeTurnId,
+  normalizeRange,
   nowIso,
   turnPreview,
 } from '../model/session';
@@ -20,6 +21,7 @@ import {
   CreationStage,
   CreationTarget,
   DEFAULT_CAPABILITY,
+  PLOT_BATCH,
   STAGE_CAPABILITIES,
   commandOf,
   deriveBookNextStep,
@@ -33,13 +35,13 @@ import {
   stageOfTarget,
 } from '../model/pipeline';
 import { isSettingFilled } from '../model/settingFile';
-import { isOutlineFilled } from '../model/outlineFile';
+import { isOutlineFilled, outlineOverlaps } from '../model/outlineFile';
 import {
   NextStepView,
   SendPayload,
   SerializedArtifact,
 } from '../protocol';
-import { buildPlotPipelineView } from '../views/projectView';
+import { buildPlotPipelineView, ideaDefaultsOf } from '../views/projectView';
 import { buildBookFacts, buildPlotPipeline, chapterOfPlotNo } from '../views/pipeline';
 import { buildWorkbench } from '../views/workbench';
 import { Plot, isPlotFilled, parsePlotFileName } from '../model/plotFile';
@@ -96,6 +98,9 @@ export async function send(c: ChatController, payload: SendPayload): Promise<voi
       command: payload.capability === 'discuss' ? undefined : command?.label,
       attachments: c.pending.length > 0 ? [...c.pending] : undefined,
       excludedIds: payload.excludedIds.length > 0 ? payload.excludedIds : undefined,
+      // 重来一轮时要原样重跑，而那条路上前端给的是输入框当下的参数。
+      range: normalizeRange(payload.range),
+      setup: normalizeSetup(payload.setup),
     };
     c.current.turns.push(userTurn);
     if (c.current.turns.length === 1) {
@@ -174,6 +179,8 @@ export async function runTurn(
   const history = c.current.turns.slice(0, -2).filter((t) => t.content.trim());
 
   const action = { stage: c.current.stage, capability: c.current.capability };
+  const range = rangeFor(action, normalizeRange(payload.range) ?? userTurn.range);
+  const setup = action.stage === 'setting' ? (normalizeSetup(payload.setup) ?? userTurn.setup) : undefined;
   let built;
   let draft: Draft | undefined;
   try {
@@ -182,8 +189,10 @@ export async function runTurn(
       {
         action,
         target: c.current.target,
-        targetNo: payload.targetNo,
+        targetNo: range?.from ?? payload.targetNo,
         ask: userTurn.content,
+        range,
+        setup,
         // 目标字数只有一处来源：细纲的 `targetWords`，没写就是配置的每章字数。
         // 从前输入框下面还有一个（默认 2000），作者分不清哪个生效（W1）。
         targetWords: await targetWordsOf(c, c.current.target),
@@ -231,10 +240,14 @@ export async function runTurn(
   if (draft?.artifact) {
     c.drafts.put(draft, c.current.id);
     c.current.drafts = c.drafts.bySession(c.current.id);
+    const creates = await plannedCards(c.project, draft.artifact);
     assistantTurn.artifact = {
-      where: await describeCurrentTarget(c),
+      where: await describeTargetOf(c, draft.target, draft.range),
       summary: draft.summary ?? describeArtifact(draft.artifact),
-      overwrites: await targetHasContent(c),
+      overwrites: await targetHasContent(c, action, draft.target, draft.range),
+      ...(creates.length > 0 ? { creates } : {}),
+      ...(draft.notes?.length ? { notes: draft.notes } : {}),
+      ...(draft.calls ? { calls: draft.calls } : {}),
     };
   }
   if (assistantTurn.error) {
@@ -284,22 +297,52 @@ export async function runTurn(
 export async function describeArtifactOf(
   c: ChatController,
   content: string,
-  draft?: Pick<Draft, 'action' | 'target'>
+  draft?: Pick<Draft, 'action' | 'target' | 'range' | 'notes' | 'calls'>
 ): Promise<SerializedArtifact | undefined> {
   const action = draft?.action ?? { stage: c.current.stage, capability: c.current.capability };
   const target = draft?.target ?? c.current.target;
   if (outputKindOf(action) !== 'artifact' || !content.trim()) {
     return undefined;
   }
-  const artifact = parseDraftArtifact(action, content, target);
+  const artifact = parseDraftArtifact(action, content, target, draft?.range);
   if (!artifact) {
     return undefined;
   }
+  const creates = await plannedCards(c.project, artifact);
   return {
-    where: await describeTargetOf(c, target),
+    where: await describeTargetOf(c, target, draft?.range),
     summary: describeArtifact(artifact),
-    overwrites: await targetHasContent(c, action, target),
+    overwrites: await targetHasContent(c, action, target, draft?.range),
+    ...(creates.length > 0 ? { creates } : {}),
+    ...(draft?.notes?.length ? { notes: draft.notes } : {}),
+    ...(draft?.calls ? { calls: draft.calls } : {}),
   };
+}
+
+/**
+ * 这一轮请求真正带下去的区间。只有两处认它：细纲的「生成」（给了就是一批，
+ * 对话页一批最多 {@link PLOT_BATCH} 章——更长的区间走工程页的批量拆细纲）与
+ * 大纲的「生成」（只写那一段）。落定细纲只落一章，讨论不需要区间。
+ */
+function rangeFor(
+  action: { stage: CreationStage; capability: Capability },
+  range: { from: number; to: number } | undefined
+): { from: number; to: number } | undefined {
+  if (!range || action.capability !== 'generate') {
+    return undefined;
+  }
+  if (action.stage === 'plot') {
+    return { from: range.from, to: Math.min(range.to, range.from + PLOT_BATCH - 1) };
+  }
+  return action.stage === 'outline' ? range : undefined;
+}
+
+/** 一句话弹窗的规模：两个数都得是正整数，否则当没给。 */
+function normalizeSetup(raw: unknown): { totalChapters: number; wordsPerChapter: number } | undefined {
+  const o = (raw ?? {}) as { totalChapters?: unknown; wordsPerChapter?: unknown };
+  const total = typeof o.totalChapters === 'number' ? Math.floor(o.totalChapters) : NaN;
+  const words = typeof o.wordsPerChapter === 'number' ? Math.floor(o.wordsPerChapter) : NaN;
+  return total > 0 && words > 0 ? { totalChapters: total, wordsPerChapter: words } : undefined;
 }
 
 /**
@@ -314,9 +357,18 @@ export async function targetHasContent(
     stage: c.current.stage,
     capability: c.current.capability,
   },
-  target: CreationTarget = c.current.target
+  target: CreationTarget = c.current.target,
+  range?: { from: number; to: number }
 ): Promise<boolean> {
   void action;
+  // 带区间时只看区间里：续写第 21–40 章的大纲不覆盖前 20 章，一批细纲只覆盖这几章。
+  if (range && target.kind === 'outline') {
+    return outlineOverlaps(await c.project.readOutline(), range);
+  }
+  if (range && target.kind === 'plot') {
+    const plots = await c.project.listPlots();
+    return plots.some((p) => p.no >= range.from && p.no <= range.to && isPlotFilled(p.sections));
+  }
   switch (target.kind) {
     case 'setting': {
       if (target.doc === 'characters') {
@@ -407,7 +459,7 @@ export async function askArtifact(
       callId: ask.callId,
       name: 'artifact',
       title: `${ask.byAgent ? 'Agent 要把生成的产物' : '把这份产物'}${what}到「${art.where}」`,
-      detail: art.overwrites ? `${art.summary}\n那里已经有内容了，写入前会让你先对比一遍。` : art.summary,
+      detail: artifactDetail(art),
       skip: '不采纳',
     },
     ask.signal
@@ -424,7 +476,7 @@ export async function askArtifact(
     return { verdict, message: '内容是空的，没有写入任何文件。' };
   }
   // **重新解析一遍**而不是用 `draft.artifact`：作者可能在气泡里改过。
-  const artifact = parseDraftArtifact(draft.action, raw, draft.target);
+  const artifact = parseDraftArtifact(draft.action, raw, draft.target, draft.range);
   if (!artifact) {
     // 解析不出来时**不写**。写一个空产物比不写更糟：作者会以为存下了。
     log.warn('产物解析不出内容，未写入', `阶段 ${draft.action.stage}·${draft.action.capability}`);
@@ -449,6 +501,27 @@ export async function askArtifact(
   // pushState 连流水线条一起推。
   await c.pushState();
   return { verdict, relPath: result.relPath, message: result.message };
+}
+
+/**
+ * 落盘卡片上那几行字：形状、会新建哪几张角色卡（D19）、会不会先对比、调了几次模型、
+ * 这一路上的降级（第 2 条）。**动手之前全摊开**——写完再说「顺便建了三张卡」就晚了。
+ */
+function artifactDetail(art: SerializedArtifact): string {
+  const lines = [art.summary];
+  if (art.creates?.length) {
+    lines.push(`会新建角色卡：${art.creates.join('、')}`);
+  }
+  if (art.overwrites) {
+    lines.push('那里已经有内容了，写入前会让你先对比一遍。');
+  }
+  if (art.calls && art.calls > 1) {
+    lines.push(`这一轮一共调了 ${art.calls} 次模型。`);
+  }
+  for (const note of art.notes ?? []) {
+    lines.push(`· ${note}`);
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -595,7 +668,16 @@ export async function describeCurrentTarget(c: ChatController): Promise<string> 
  * 与 `describeCurrentTarget` 分开是因为 agent 那条路上的落点由 draft 决定，
  * 未必是作者当下选中的那一章——拿 `c.current` 顶上会把落点说成另一章。
  */
-export async function describeTargetOf(c: ChatController, target: CreationTarget): Promise<string> {
+export async function describeTargetOf(
+  c: ChatController,
+  target: CreationTarget,
+  range?: { from: number; to: number }
+): Promise<string> {
+  // 一批细纲 / 续写的那一段大纲：落点是一段章号，不是某一章。
+  if (range && (target.kind === 'plot' || target.kind === 'outline')) {
+    const span = range.from === range.to ? `第 ${range.from} 章` : `第 ${range.from}–${range.to} 章`;
+    return target.kind === 'plot' ? `${span} · 细纲` : `情节大纲 · ${span}`;
+  }
   const relPath = plotOfTarget(target);
   if (!relPath) {
     return describeTarget(target);
@@ -647,6 +729,10 @@ export async function bookNextStep(c: ChatController): Promise<NextStepView | un
   const stage = deriveBookStage(facts);
   const step = deriveBookNextStep(stage, facts);
   if (step) {
+    if (step.form === 'idea') {
+      // 一句话弹窗要的默认值：config.md 里已经写了的那句话与规模。
+      return { ...step, target: step.target!, formDefaults: ideaDefaultsOf(await c.project.readBookConfig()) };
+    }
     if (step.target) {
       return { ...step, target: step.target };
     }
