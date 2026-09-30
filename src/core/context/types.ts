@@ -21,8 +21,12 @@ export type ItemKind =
   | 'ask'
   | 'attachment'
   | 'history'
-  /** 架构层的一份文档（小说配置 / 故事前提 / 世界观）。 */
+  /** 架构层的一份文档（小说配置 / 故事前提 / 世界观 / 角色图谱一览）。 */
   | 'setting'
+  /** 故事结构指导（按总章数算好的章号区间）。是指令，不是产物。 */
+  | 'guide'
+  /** 前序细纲一览：一章一行的目录进度（细纲批次用）。 */
+  | 'plotList'
   /** 情节大纲原文。与 `ask` 分开：一个是产物，一个是这一轮的指令。 */
   | 'outlineDoc'
   /** 一章的细纲。 */
@@ -74,7 +78,15 @@ export type LayerId =
   // 产物
   /** 架构层的三份文档，填过的才带。 */
   | 'settingDocs'
+  /** 角色图谱一览：全部角色卡压成一人一段（名字、定位、身份、人物关系）。 */
+  | 'rosterDoc'
   | 'outlineDoc'
+  /** 情节大纲里覆盖本章 / 本批的那几节。没有区间标题的大纲退回全文。 */
+  | 'outlineSlice'
+  /** 故事结构指导（model/structureGuide.ts）。 */
+  | 'structure'
+  /** 前序细纲一览（最近 100 章，一章一行）。 */
+  | 'plotList'
   | 'plotSelf'
   /** 前几章的细纲原文（上文）。 */
   | 'plotPrev'
@@ -118,6 +130,20 @@ export interface BuildRequest {
   targetNo?: number;
   /** 目标字数，写进 prompt 指令。 */
   targetWords?: number;
+  /**
+   * 这一步覆盖的章号区间：大纲写哪一段、细纲拆哪一批（**给了就是一批**）。
+   * 前文的边界取 `from`，后文从 `to` 之后算起。
+   */
+  range?: { from: number; to: number };
+  /** 一句话弹窗带过来的规模（总章数、每章字数）。给了就以它为准。 */
+  setup?: { totalChapters: number; wordsPerChapter: number };
+  /** 多步生成里的哪一步（generation/structured.ts）。缺省 = 第一步。 */
+  step?: ChainStep;
+  /**
+   * 生成链里已经过了校验、还没落盘的细纲（拆半重试时的前一半）。前序细纲一览把它们
+   * 接在磁盘上那些后面——不然后一半看不见前一半刚写了什么。
+   */
+  draftPlots?: DraftPlotLine[];
   /** 额外写作指令，如「加强对白」。 */
   extraInstruction?: string;
   /** 上一版生成结果 + 修改意见，用于「重写」。 */
@@ -130,6 +156,21 @@ export interface BuildRequest {
   attachments?: Attachment[];
   /** 本会话之前的对话轮次，按时间正序，不含本轮。 */
   history?: ChatTurn[];
+}
+
+/** 多步生成里除第一步之外的那几步。 */
+export type ChainStep =
+  /** 角色图谱第二步：按冻结的身份清单补这几个人的详情。 */
+  | { kind: 'rosterDetails'; manifest: string; slotIds: string[]; done: string }
+  /** 细纲批次里某一章的紧凑重建：上一次截断或解不出来，只重做这一章。 */
+  | { kind: 'blueprintCompact'; diagnostic?: string };
+
+/** 一章已经排好、还没落盘的细纲，给前序细纲一览用。 */
+export interface DraftPlotLine {
+  no: number;
+  title: string;
+  keyEvents: string;
+  suspenseHook: string;
 }
 
 export interface BuiltContext {

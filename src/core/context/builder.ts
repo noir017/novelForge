@@ -13,7 +13,8 @@ import { NovelProject } from '../model/project';
 import { NovelConfig } from '../model/types';
 import { estimateTokens } from './tokenizer';
 import { LAYERS, resolveFocus, type Assembly } from './layers';
-import { askHeading, buildOutputContract } from './prompts';
+import { promptFactsOf } from './layers/dialog';
+import { PromptFacts, askHeading, buildOutputContract } from './prompts';
 import { recipeFor } from './recipes';
 import { BuildRequest, BuiltContext, ContextItem, ItemKind } from './types';
 
@@ -38,13 +39,14 @@ export async function buildContext(
     request.providerMaxInputTokens !== undefined && request.providerMaxInputTokens < config.contextWindow;
 
   const recipe = recipeFor(request.action.stage, request.action.capability);
-  const focus = await resolveFocus(project, request, recipe);
+  const [focus, book] = await Promise.all([resolveFocus(project, request, recipe), project.readBookConfig()]);
 
   const assembly: Assembly = {
     project,
     request,
     config,
     focus,
+    book,
     budget,
     remaining: budget,
     items,
@@ -93,7 +95,7 @@ export async function buildContext(
     await LAYERS[spec.layer](assembly, spec);
   }
 
-  const messages = assembleMessages(items, request, config);
+  const messages = assembleMessages(items, request, config, promptFactsOf(assembly));
   const usedTokens = items.reduce((sum, i) => sum + i.tokens, 0);
 
   return { messages, items, usedTokens, budget, budgetClampedByProvider };
@@ -108,7 +110,12 @@ export async function buildContext(
  * 与输出契约压在最后——模型对末尾的指令最敏感，把「现在请你做什么」放在
  * 十万字前文之前，等于让它读完全书再回头猜要干嘛。
  */
-function assembleMessages(items: ContextItem[], request: BuildRequest, config: NovelConfig): AgentMessage[] {
+function assembleMessages(
+  items: ContextItem[],
+  request: BuildRequest,
+  config: NovelConfig,
+  facts: PromptFacts
+): AgentMessage[] {
   const live = items.filter((i) => (i.status === 'included' || i.status === 'degraded') && i.text.trim());
   const pick = (kind: ItemKind): ContextItem[] => live.filter((i) => i.kind === kind);
   const join = (list: ContextItem[]): string => list.map((i) => i.text.trim()).join('\n\n');
@@ -144,6 +151,7 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
   section('# 故事架构', pick('setting'));
   section('# 全书前情提要', pick('globalSummary'));
   section('# 情节大纲', pick('outlineDoc'));
+  section('# 故事结构指导', pick('guide'));
   section('# 相关角色设定', pick('character'));
   section('# 相关世界观设定', pick('lore'));
   // 摘要与正文都由远及近排列，读起来是正序的时间线。
@@ -167,13 +175,19 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
     sections.push(`你要从上面「${last.label.replace(' · 正文', '')}」的结尾处无缝接下去。`);
   }
 
+  // 已经排好的目录进度：细纲批次要紧接着它的最后一章往下排。
+  section('# 前序细纲一览（已生成的目录进度）', pick('plotList'));
+
   // 本层产物紧挨着指令：这一章的细纲才是这一轮真正要动的东西。
   section('# 细纲', pick('plot'));
 
   // 用户 @ 的引用也紧挨着他的指令放——他多半正是要针对这些内容提要求。
   section('# 我引用的内容（请针对这些内容作答）', pick('attachment'));
 
-  const requirements: string[] = [`${askHeading(request.action)}\n\n${pick('ask')[0]?.text ?? request.ask}`];
+  const askText = pick('ask')[0]?.text ?? request.ask;
+  const requirements: string[] = [
+    `${askHeading(request.action, facts)}\n\n${askText.trim() || '（没有额外要求，按上面的设定与契约来。）'}`,
+  ];
   if (writing && request.targetWords && request.targetWords > 0) {
     requirements.push(`目标字数：约 ${request.targetWords} 字（±15% 均可）。`);
   }
@@ -188,7 +202,7 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
   }
 
   // target 也要给：架构层四件同属一个阶段，契约要看是哪一件。
-  const contract = buildOutputContract(request.action, request.targetWords, request.target);
+  const contract = buildOutputContract(request.action, facts);
   sections.push(
     writing && config.recentChaptersFullText > 0
       ? `${contract}注意与上文的语气、称谓、时态保持一致。`

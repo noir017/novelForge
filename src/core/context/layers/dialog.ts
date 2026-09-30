@@ -1,9 +1,26 @@
 import { STAGE_ROLE } from '../../model/pipeline';
-import { buildSystemPrompt } from '../prompts';
+import { PromptFacts, buildSystemPrompt } from '../prompts';
 import { estimateTokens, takeHead, takeTail } from '../tokenizer';
 import { ContextItem } from '../types';
-import type { LayerFn } from './assembly';
+import type { Assembly, LayerFn } from './assembly';
 import { ATTACHMENT_NOTE, resolveAttachment } from './render';
+
+/**
+ * 这一次装配交给提示词的事实。系统提示（这里）与输出契约（builder.ts）必须拿同一份，
+ * 不然一个说「写第 6–10 章」，另一个说「写这一章」。
+ */
+export function promptFactsOf(a: Pick<Assembly, 'request' | 'book' | 'focus'>): PromptFacts {
+  const r = a.request;
+  return {
+    target: r.target,
+    targetWords: r.targetWords,
+    range: r.range,
+    setup: r.setup,
+    step: r.step,
+    book: a.book,
+    no: Number.isFinite(a.focus.no) ? a.focus.no : undefined,
+  };
+}
 
 /** 历史里单条消息的上限，超出取结尾（越靠后越相关）。 */
 const HISTORY_TURN_CAP_RATIO = 0.12;
@@ -15,7 +32,7 @@ export const system: LayerFn = async (a, spec) => {
       kind: 'system',
       priority: spec.priority,
       label: `系统提示 · ${STAGE_ROLE[a.request.action.stage]}`,
-      text: buildSystemPrompt(a.request.action, a.config, a.request.targetWords),
+      text: buildSystemPrompt(a.request.action, a.config, promptFactsOf(a)),
     },
     { force: spec.force }
   );

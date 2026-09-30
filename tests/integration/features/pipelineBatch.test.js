@@ -281,10 +281,11 @@ describe('批量写细纲', () => {
     assert.ok(!user.includes('# 前文正文'), user.slice(0, 200));
   });
 
-  // 契约是 D3 三节；从前那条「不写画面台词」的禁令删掉了——关键事件可以写到具体场面。
-  test('细纲契约是本章目的 / 关键事件 / 章末钩子', () => {
-    for (const key of ['本章目的', '关键事件', '章末钩子']) {
-      assert.ok(user.includes(`"${key}"`), `契约里没有 ${key}：${user.slice(-600)}`);
+  // 契约是蓝图合同（purpose / keyEvents / suspenseHook 对到 D3 三节）；从前那条
+  // 「不写画面台词」的禁令删掉了——关键事件可以写到具体场面。
+  test('细纲契约是蓝图合同的三个正文字段', () => {
+    for (const key of ['purpose', 'keyEvents', 'suspenseHook']) {
+      assert.ok(user.includes(key), `契约里没有 ${key}：${user.slice(-600)}`);
     }
   });
 

@@ -63,6 +63,14 @@ export const PREMISE_SECTION_KEYS = ['一句话前提', '核心冲突链', '金�
 /** 世界观三节：规则与它的漏洞、阶层与资源、深层危机。 */
 export const WORLD_SECTION_KEYS = ['规则与漏洞', '阶层与资源', '深层危机'] as const;
 
+/**
+ * 「全局要求」一节的合同：4–8 条跨章规则，总计不超过 600 字，不许逐章列大纲。
+ * 来自 AI-Novel-Writer 的 `novel-config-expansion.ts`；提示词与生成链的质检共用。
+ */
+export const GUIDANCE_MAX_CHARS = 600;
+export const GUIDANCE_MIN_RULES = 4;
+export const GUIDANCE_MAX_RULES = 8;
+
 export const SETTING_SECTION_KEYS: Record<SettingFileDoc, readonly string[]> = {
   config: CONFIG_SECTION_KEYS,
   premise: PREMISE_SECTION_KEYS,

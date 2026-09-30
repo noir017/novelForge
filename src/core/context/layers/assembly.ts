@@ -1,4 +1,5 @@
 import { NovelProject } from '../../model/project';
+import { BookConfig } from '../../model/settingFile';
 import { NovelConfig } from '../../model/types';
 import { BuildRequest, ContextItem, LayerSpec } from '../types';
 import type { Focus } from './focus';
@@ -9,6 +10,8 @@ export interface Assembly {
   readonly request: BuildRequest;
   readonly config: NovelConfig;
   readonly focus: Focus;
+  /** 磁盘上那份 `config.md`：规模、类型、结构。提示词与结构指导都要它，只读一次。 */
+  readonly book: BookConfig;
   readonly budget: number;
   /** 剩余预算。**层可以直接改它**——降级路径需要自己算完再扣。 */
   remaining: number;

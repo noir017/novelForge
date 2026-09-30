@@ -319,8 +319,9 @@ describe('对架构文档调 generate', () => {
     assert.ok(lastSystem().includes('资深网文策划编辑'), lastSystem().slice(0, 60));
   });
 
-  test('输出契约按这一件的小节来', () => {
-    assert.ok(lastUser().includes('## 核心梗概') && lastUser().includes('## 全局要求'), lastUser().slice(-600));
+  // 配置用上游的 JSON 合同（英文键，解码时对到 config.md 的七节）。
+  test('输出契约是小说配置的 JSON 合同', () => {
+    assert.ok(lastUser().includes('"coreOutline"') && lastUser().includes('"globalGuidance"'), lastUser().slice(-600));
   });
 
   test('返回文本里有形状摘要', () => {

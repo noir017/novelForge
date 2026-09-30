@@ -23,6 +23,9 @@ import { hasContent } from '../model/markdown';
 import {
   BookConfig,
   CONFIG_SECTION_KEYS,
+  GUIDANCE_MAX_CHARS,
+  GUIDANCE_MAX_RULES,
+  GUIDANCE_MIN_RULES,
   ConfigSectionKey,
   NARRATIVE_POVS,
   NarrativePov,
@@ -34,10 +37,7 @@ import {
 import { parseJson, singleJsonObject } from './structuredJson';
 import { toSectionText } from './summarize';
 
-/** 「全局要求」的合同：4–8 条跨章规则，总计不超过 600 字，不许逐章列大纲（上游 `novel-config-expansion.ts:3-27`）。 */
-export const GUIDANCE_MAX_CHARS = 600;
-export const GUIDANCE_MIN_RULES = 4;
-export const GUIDANCE_MAX_RULES = 8;
+export { GUIDANCE_MAX_CHARS, GUIDANCE_MAX_RULES, GUIDANCE_MIN_RULES };
 
 /** 「第 3 章」「第 1–20 章」「Chapter 5」开头的一行——那是在逐章列大纲。 */
 const CHAPTER_OUTLINE_LINE =

@@ -89,10 +89,14 @@ export async function resolveFocus(
     ? (plots.find((p) => p.relPath === plotRelPath) ?? (pathNo !== undefined ? plots.find((p) => p.no === pathNo) : undefined))
     : undefined;
 
+  // 细纲批次（给了区间）：前文的边界是区间第一章，后文从区间最后一章之后算起——
+  // 区间里那几章正是这一次要写的，既不是前文也不是后文。
+  const range = target.kind === 'plot' ? request.range : undefined;
   const no =
     target.kind === 'outline' || target.kind === 'setting'
       ? Number.POSITIVE_INFINITY
-      : (plot?.no ??
+      : (range?.from ??
+        plot?.no ??
         // 细纲还没落盘时按路径里的章号定位——老工程选中某一章、拆细纲给下一章
         // 找落点都是这条路。
         (plotRelPath ? parsePlotFileName(basename(plotRelPath))?.no : undefined) ??
@@ -100,7 +104,8 @@ export async function resolveFocus(
         Number.POSITIVE_INFINITY);
   const previous = all.filter((c) => c.no < no);
   // 后文只在这一章确实有定位时才有意义：`no` 是 +∞ 时「后面」是空的。
-  const following = Number.isFinite(no) ? all.filter((c) => c.no > no) : [];
+  const last = range?.to ?? no;
+  const following = Number.isFinite(last) ? all.filter((c) => c.no > last) : [];
 
   return {
     target,

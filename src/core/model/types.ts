@@ -121,6 +121,19 @@ export const CHARACTER_SECTION_KEYS: (keyof CharacterSections)[] = [
   '未收伏笔',
 ];
 
+/**
+ * 角色图谱生成详情时各节的字数上限（第 15 条：角色卡不能无限膨胀）。「人物关系」不在里面：
+ * 它由身份清单生成，不让模型写。提示词（context/prompts.ts）与解码（features/roster.ts）共用。
+ */
+export const CHARACTER_DETAIL_LIMITS: Record<Exclude<keyof CharacterSections, '人物关系'>, number> = {
+  身份: 200,
+  外貌: 120,
+  性格: 120,
+  语言习惯: 120,
+  当前状态: 120,
+  未收伏笔: 120,
+};
+
 /** 续写时优先保留的角色卡小节（预算不足时只留这几节）。 */
 export const CHARACTER_ESSENTIAL_KEYS: (keyof CharacterSections)[] = ['身份', '当前状态', '未收伏笔'];
 

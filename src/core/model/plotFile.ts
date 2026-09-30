@@ -57,6 +57,24 @@ export const PLOT_SECTION_KEYS = ['本章目的', '关键事件', '章末钩子'
 
 export type PlotSectionKey = (typeof PLOT_SECTION_KEYS)[number];
 
+/**
+ * 模型产出一章细纲时各字段的长度上限（字）。提示词里的合同（context/prompts.ts）与
+ * 解码（features/blueprint.ts）共用这一份。
+ *
+ * 标题会变成文件名（`012-<标题>.md`），所以比上游（AI-Novel-Writer 的
+ * `blueprint-semantic-contract.ts`，60 字）紧得多；关键事件的目标是 100–300 字，
+ * 硬上限沿用上游的 1200。
+ */
+export const BLUEPRINT_LIMITS = {
+  title: 18,
+  role: 30,
+  purpose: 240,
+  keyEvents: 1200,
+  suspenseHook: 160,
+  characters: 12,
+  name: 32,
+} as const;
+
 export type PlotSections = Record<PlotSectionKey, string>;
 
 export interface Plot {

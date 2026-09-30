@@ -19,7 +19,7 @@
  * 落盘卡片上列出来。角色图谱是一次一份、摊在卡片上给作者看的产物，
  * 作者看得见缺了什么；作废它只是让他再花一轮钱。
  */
-import { CHARACTER_SECTION_KEYS, CharacterSections } from '../model/types';
+import { CHARACTER_DETAIL_LIMITS, CHARACTER_SECTION_KEYS, CharacterSections } from '../model/types';
 import { roleLabel } from './blueprint';
 import { parseJson, singleJsonObject } from './structuredJson';
 
@@ -138,14 +138,7 @@ export function decodeManifest(text: string): ManifestDecode {
 }
 
 /** 详情那一步要写的六节与各自的字数上限（第 15 条：角色卡不能无限膨胀）。 */
-export const DETAIL_LIMITS: Record<Exclude<keyof CharacterSections, '人物关系'>, number> = {
-  身份: 200,
-  外貌: 120,
-  性格: 120,
-  语言习惯: 120,
-  当前状态: 120,
-  未收伏笔: 120,
-};
+export const DETAIL_LIMITS = CHARACTER_DETAIL_LIMITS;
 
 export const DETAIL_KEYS = Object.keys(DETAIL_LIMITS) as (keyof typeof DETAIL_LIMITS)[];
 

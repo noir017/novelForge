@@ -1196,10 +1196,19 @@ describe('装配：四阶段配方', () => {
     assert.ok(user.includes('「故事前提」') && user.includes('## 核心冲突链') && user.includes('## 悬念骨架'), user.slice(-500));
   });
 
-  // 角色图谱没有自己的文件，它就是一组角色卡——契约是一张 JSON 角色表。
-  test('角色图谱那一件的契约是 JSON 角色表', () => {
+  // 角色图谱分两步（上游 AI-Novel-Writer 的两段式）：第一步只出一张身份清单。
+  test('角色图谱第一步的契约是身份清单', () => {
     const user = lastOf(sChars);
-    assert.ok(user.includes('角色图谱') && user.includes('"characters"'), user.slice(-600));
+    assert.ok(user.includes('角色图谱') && user.includes('{"slots":[...]}') && user.includes('narrativeDuty'), user.slice(-600));
+  });
+
+  // ★ 上游内置模板里的这段设计原则从来没发出去过（只发 taskGuidance）。这里补上。
+  test('★ 角色图谱带上设计原则：盟友、对手、避免脸谱化', () => {
+    const user = lastOf(sChars);
+    assert.ok(
+      user.includes('至少 1 位与主角有深度羁绊的盟友') && user.includes('至少 1 位与主角理念对立的竞争者') && user.includes('切忌脸谱化'),
+      user.slice(-1600)
+    );
   });
 
   // 「全局要求」会被每一章读一遍：逐章大纲写在这里是最贵的越界。
@@ -1306,13 +1315,15 @@ describe('装配：四阶段配方', () => {
     );
   });
 
-  test('细纲阶段带上全书大纲', () => {
-    assert.ok(alive(pIds, 'outlineDoc'));
+  // 排第 2 章用不着全书大纲：只带覆盖它的那一节（总计划 §2.3）。
+  test('细纲阶段只带大纲里覆盖本章的那一节', () => {
+    assert.ok(alive(pIds, 'outlineSlice:2-2') && !pIds.has('outlineDoc'), keysOf(pIds, 'outline').join(','));
+    assert.ok(pIds.get('outlineSlice:2-2').text.includes('第一幕'), pIds.get('outlineSlice:2-2').text);
   });
 
-  // 架构在这一层是背景：带，但不强制，预算紧时让位给本章与前后章的细纲。
-  test('细纲阶段带架构三件（P1）', () => {
-    assert.ok(SETTING_IDS.every((id) => alive(pIds, id) && pIds.get(id).priority === 1), keysOf(pIds, 'setting:').join(','));
+  // 细纲是从架构与大纲里拆出来的：设定四件在这一层也是 P0（总计划 §2.3）。
+  test('细纲阶段带架构三件（P0）', () => {
+    assert.ok(SETTING_IDS.every((id) => alive(pIds, id) && pIds.get(id).priority === 0), keysOf(pIds, 'setting:').join(','));
   });
 
   test('细纲阶段不带正文原文', () => {
@@ -1333,11 +1344,12 @@ describe('装配：四阶段配方', () => {
     assert.equal(fullTokens(pc), 0);
   });
 
-  test('细纲的输出契约是 D3 三节', () => {
+  // 单章也用批次合同的单项形式（第 22 条：两个入口契约一致），三个字段对到 D3 三节。
+  test('细纲的输出契约是蓝图合同的单项形式', () => {
     const user = lastOf(pg);
     assert.ok(
-      ['"本章目的":"…"', '"关键事件":"…"', '"章末钩子":"…"'].every((k) => user.includes(k)),
-      user.slice(-600)
+      ['{"blueprints":[...]}', 'purpose', 'keyEvents', 'suspenseHook', '"chapterNumber":2'].every((k) => user.includes(k)),
+      user.slice(-1600)
     );
   });
 
@@ -1346,11 +1358,12 @@ describe('装配：四阶段配方', () => {
   });
 
   test('契约说章末钩子必填', () => {
-    assert.ok(lastOf(pg).includes('「章末钩子」必填'), lastOf(pg).slice(-400));
+    assert.ok(lastOf(pg).includes('suspenseHook 始终必填'), lastOf(pg).slice(-1600));
   });
 
-  test('给了目标字数时契约里说篇幅', () => {
-    assert.ok(lastOf(pg).includes('目标篇幅约 650 字'), lastOf(pg).slice(-300));
+  // 容量合同（上游 DC:131-142）：单章按细纲自己的目标字数算 ±20%。
+  test('给了目标字数时契约里有容量合同', () => {
+    assert.ok(lastOf(pg).includes('每章正文目标约 650 字，可接受范围 520–780 字'), lastOf(pg).slice(-2400));
   });
 
   // ------------------------------------------------------------ 正文
@@ -2131,5 +2144,187 @@ describe('细纲的计划出场：装配时认别名，但不进出场统计（D
   test('计划出场不算进已建卡角色的出场章', () => {
     const lin = index.known.find((m) => m.card && m.card.name === '林昭');
     assert.ok(!lin.plots.includes(4), lin.plots.join(','));
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * 二期加的几层与移植过来的契约（AI-Novel-Writer 的配置 / 前提 / 角色图谱 / 世界观 /
+ * 情节大纲 / 细纲批次）。示例工程：三幕、30 章 × 400 字，大纲三段区间，第 1–3 章细纲都在。
+ *
+ * | 用例组 | 钉的是什么 |
+ * |---|---|
+ * | 结构指导 | 大纲层 P0 force 带按总章数算好的章号区间，并点明本批落在哪几段 |
+ * | 角色图谱一览 | 架构后几件、大纲、细纲都知道「书里有谁、彼此什么关系」，不带完整角色卡 |
+ * | 大纲续写 | 契约写明本次只写哪几章、前面的不许重写 |
+ * | 细纲批次 | 没有「本章」：plotSelf / plotPrev 不出场，前序细纲一览全包，最后几章带钩子 |
+ * | 拆半后的后一半 | 看得见前一半刚排好、还没落盘的那几章 |
+ * | 链里的后几步 | 角色详情带冻结清单；紧凑重建写明上次哪里不合格 |
+ */
+describe('装配：二期的新层与移植的契约', () => {
+  const build = (request) => builderMod.buildContext(project, request, baseConfig);
+  const lastOf = (b) => b.messages[b.messages.length - 1].content;
+  const GEN = (stage) => ({ stage, capability: 'generate' });
+  let outline21;
+  let batch;
+  let bIds;
+  let split;
+  let details;
+  let compact;
+  let config;
+  let world;
+
+  before(async () => {
+    outline21 = await build({ action: GEN('outline'), target: { kind: 'outline' }, ask: '', range: { from: 11, to: 25 } });
+    batch = await build({
+      action: GEN('plot'),
+      target: { kind: 'plot', plotRelPath: PLOT4 },
+      ask: '',
+      range: { from: 4, to: 8 },
+    });
+    bIds = ids(batch);
+    split = await build({
+      action: GEN('plot'),
+      target: { kind: 'plot', plotRelPath: '.novelforge/plots/006.md' },
+      ask: '',
+      range: { from: 6, to: 8 },
+      draftPlots: [
+        { no: 4, title: '第二块令牌', keyEvents: '林昭找到守卫的母亲。', suspenseHook: '她说令牌共有五块。' },
+        { no: 5, title: '雨夜', keyEvents: '持牌人坠井。', suspenseHook: '井边有沈氏的簪子。' },
+      ],
+    });
+    details = await build({
+      action: GEN('setting'),
+      target: { kind: 'setting', doc: 'characters' },
+      ask: '',
+      step: { kind: 'rosterDetails', manifest: '{"slots":[{"slotId":"1","name":"林昭"}]}', slotIds: ['1'], done: '' },
+    });
+    compact = await build({
+      action: GEN('plot'),
+      target: { kind: 'plot', plotRelPath: PLOT4 },
+      ask: '',
+      range: { from: 4, to: 4 },
+      step: { kind: 'blueprintCompact', diagnostic: 'blueprints[0].suspenseHook 是空的' },
+    });
+    config = await build({
+      action: GEN('setting'),
+      target: { kind: 'setting', doc: 'config' },
+      ask: '一个从火里活下来的人回到起火的地方。',
+      setup: { totalChapters: 100, wordsPerChapter: 3000 },
+    });
+    world = await build({ action: GEN('setting'), target: { kind: 'setting', doc: 'world' }, ask: '' });
+  });
+
+  // ------------------------------------------------------------ 结构指导
+
+  test('★ 大纲层带故事结构指导（P0 force），按 30 章算好区间', () => {
+    const item = ids(outline21).get('structure');
+    assert.ok(item && item.status === 'included' && item.priority === 0, JSON.stringify(item));
+    assert.ok(item.text.includes('第一幕 · 建置（第 1–6 章）') && item.text.includes('第三幕 · 高潮与结局（第 24–30 章）'), item.text);
+    assert.ok(lastOf(outline21).includes('# 故事结构指导'));
+  });
+
+  test('结构指导点明本批落在哪几段', () => {
+    assert.ok(ids(outline21).get('structure').text.includes('本次只写第 11–25 章，它们落在：第二幕'), ids(outline21).get('structure').text);
+  });
+
+  test('续写大纲：契约写明本次范围，前面的不许重写', () => {
+    const user = lastOf(outline21);
+    assert.ok(user.includes('本次必须对第 11–25 章输出完整详细的情节大纲（全书共 30 章）'), user.slice(-2000));
+    assert.ok(user.includes('第 1–10 章的大纲已在上面的「情节大纲」中给出：不得重复、改写或复述'), user.slice(-2000));
+    assert.ok(user.includes('第 26 章以后本次不写'), user.slice(-2000));
+  });
+
+  test('没写总章数时不带结构指导，并在明细里说为什么', async () => {
+    const fixture = copyFixture('builder-nototal');
+    try {
+      const cfg = fs.readFileSync(path.join(fixture.dir, '.novelforge/config.md'), 'utf8').replace(/^totalChapters: .*\n/m, '');
+      fixture.write('.novelforge/config.md', cfg);
+      const p = projectMod.NovelProject.open(fixture.dir);
+      const b = await builderMod.buildContext(p, { action: GEN('outline'), target: { kind: 'outline' }, ask: '' }, baseConfig);
+      const item = ids(b).get('structure');
+      assert.ok(item.status === 'dropped' && /总章数/.test(item.note), JSON.stringify(item));
+    } finally {
+      cleanup(fixture.dir);
+    }
+  });
+
+  // ------------------------------------------------------------ 角色图谱一览
+
+  test('世界观那一件带角色图谱一览：一人一段，写明截短', () => {
+    const roster = ids(world).get('roster');
+    assert.ok(roster && roster.status === 'included' && roster.priority === 0, JSON.stringify(roster));
+    assert.ok(roster.text.startsWith('【角色图谱】') && roster.text.includes('- 林昭') && roster.note, roster.text);
+    assert.ok(lastOf(world).includes('# 故事架构'));
+  });
+
+  test('世界观契约：三节对上 world.md，自带冲突点', () => {
+    const user = lastOf(world);
+    assert.ok(['## 规则与漏洞', '## 阶层与资源', '## 深层危机', '自带冲突点'].every((k) => user.includes(k)), user.slice(-1400));
+  });
+
+  // ------------------------------------------------------------ 细纲批次
+
+  test('★ 批次没有「本章」：不带区间第一章的细纲，也不带上文细纲', () => {
+    assert.ok(!bIds.has(`plot:${PLOT4}`) && ![PLOT1, PLOT2, PLOT3].some((p) => bIds.has(`plot:${p}`)), [...bIds.keys()].join(','));
+  });
+
+  test('★ 前序细纲一览全包：最后几章带章末钩子', () => {
+    const list = bIds.get('plotList');
+    assert.ok(list && list.status === 'included', JSON.stringify(list));
+    const lines = list.text.split('\n');
+    assert.equal(lines.length, 3);
+    assert.ok(lines.every((l) => l.includes('｜章末钩子：')), list.text);
+    assert.ok(lastOf(batch).includes('# 前序细纲一览（已生成的目录进度）'));
+  });
+
+  test('批次只带大纲里覆盖这几章的那一节', () => {
+    assert.ok(bIds.has('outlineSlice:4-8') && bIds.get('outlineSlice:4-8').text.includes('第一幕 · 停舟'), [...bIds.keys()].join(','));
+  });
+
+  test('批次契约：覆盖第 4–8 章、容量按每章字数、钩子必填', () => {
+    const user = lastOf(batch);
+    assert.ok(user.includes('为接下来的第 4–8 章生成极其严密的「保姆级执行目录细纲」'), user.slice(-3000));
+    assert.ok(user.includes('chapterNumber 必须覆盖第 4–8 章的每一章'), user.slice(-3000));
+    assert.ok(user.includes('每章正文目标约 400 字，可接受范围 320–480 字'), user.slice(-3000));
+    // 第 4 章起已经过了黄金三章。
+    assert.ok(!user.includes('黄金三章法则') && user.includes('小高潮循环'), user.slice(-3000));
+  });
+
+  test('开篇那一批带黄金三章法则', async () => {
+    const first = await build({ action: GEN('plot'), target: { kind: 'plot', plotRelPath: PLOT1 }, ask: '', range: { from: 1, to: 5 } });
+    assert.ok(lastOf(first).includes('黄金三章法则') && lastOf(first).includes('这是全书开篇'), lastOf(first).slice(-3000));
+  });
+
+  test('拆半后的后一半看得见前一半刚排好、还没落盘的那几章', () => {
+    const list = ids(split).get('plotList').text;
+    assert.ok(list.includes('第4章 第二块令牌（刚排好，还没写入文件）') && list.includes('第5章 雨夜'), list);
+    // 最后三章（第 3、4、5 章）带钩子：下一章要紧接着第 5 章往下排。
+    assert.ok(list.includes('井边有沈氏的簪子'), list);
+  });
+
+  // ------------------------------------------------------------ 链里的后几步
+
+  test('角色详情那一步带冻结清单与这一批的 slotId，禁止写关系', () => {
+    const user = lastOf(details);
+    assert.ok(user.includes('【冻结身份与关系清单】') && user.includes('"name":"林昭"') && user.includes('{"entries":[...]}'), user.slice(-1500));
+    assert.ok(user.includes('禁止输出人物关系'), user.slice(-800));
+  });
+
+  test('紧凑重建写明上次哪里不合格，只要这一章', () => {
+    const user = lastOf(compact);
+    assert.ok(user.includes('blueprints[0].suspenseHook 是空的') && user.includes('必须且只能返回 chapterNumber=4 的一项'), user.slice(-800));
+  });
+
+  // ------------------------------------------------------------ 小说配置
+
+  test('一句话发起的配置：规模按弹窗给的算，作者已有配置不许改写', () => {
+    const user = lastOf(config);
+    assert.ok(user.includes('# 我的脑洞') && user.includes('一个从火里活下来的人'), user.slice(-3500));
+    assert.ok(user.includes('计划总章数：100 章') && user.includes('全书总字数约：100 × 3000 = 300000 字'), user.slice(0, 4000));
+    assert.ok(user.includes('【作者已有配置】'), user.slice(-3500));
+    assert.ok(user.includes('totalChapters 若输出必须严格等于 100'), user.slice(-1500));
+    assert.ok(config.messages[0].content.includes('擅长从简短灵感中提炼完整、一致且可执行的小说配置'), config.messages[0].content.slice(0, 200));
   });
 });

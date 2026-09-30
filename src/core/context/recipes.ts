@@ -37,35 +37,42 @@ const SETTLE_HISTORY_CAP = 0.6;
  * 每张的前四层都一样（系统提示 / 用户输入 / 引用 / 历史）——那是「这一轮
  * 对话本身」，任何阶段都不能少。差别从第五层开始。
  *
- * 本期（一期）只把卷与中转站那几层换掉，**不加新层**：细纲批次要的前序细纲一览、
- * 正文要的执行卡与后五章边界，随二、三期的提示词一起进来（见总计划 §2.3）。
+ * 架构、大纲、细纲三张按总计划 §2.3 排（二期）：设定四件一律 P0，大纲带故事结构指导，
+ * 细纲带覆盖本批的那几节大纲与前序细纲一览。正文那一张的执行卡与后五章边界随三期进来。
  */
 export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // ---------------------------------------------------------------- 架构
   // 策划要看的是已经定下的那几件：配置、前提、世界观、已有的角色。**不看正文**
   // ——这一层在第一章之前，也不该被已经写出来的东西带着走。
   //
-  // ★ `settingDocs` 是 P0 force：架构四件一件吃一件，前提要照着配置写，
-  //   世界观要照着前提与角色写，少了上一件，这一件就是凭空编的。
+  // ★ `settingDocs` 与 `rosterDoc` 是 P0：架构四件一件吃一件，前提要照着配置写，
+  //   世界观要照着前提与角色写，少了上一件，这一件就是凭空编的。角色图谱一览不强制
+  //   ——老工程可能有几十张卡，放不下时说一声，完整的卡在 P1 还有一次机会。
   setting: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
     { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
     { layer: 'settingDocs', priority: 0, force: true },
+    { layer: 'rosterDoc', priority: 0 },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'characters', priority: 1 },
-    { layer: 'outlineDoc', priority: 2 },
-    { layer: 'lore', priority: 2 },
   ],
 
   // ---------------------------------------------------------------- 大纲
-  // 策划编辑要看全局：架构四件 + 现有大纲全文 + 全书摘要。**不看正文原文**——
+  // 策划编辑要看全局：架构四件 + 结构指导 + 现有大纲全文 + 全书摘要。**不看正文原文**——
   // 讨论故事结构时读三章原文既没用又昂贵。
+  //
+  // ★ `structure` P0 force：大纲按总章数排结构拐点，没有章号区间，模型会按它熟悉的
+  //   篇幅去排，写出来与总章数对不上。
+  // ★ 现有大纲 P0 force：续写第 21–40 章时它就是「已完成的前缀」，少了它续出来的
+  //   是另一本书。（总计划 §2.3 排在 P1；续写这件事让它必须强制。）
   outline: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
     { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
     { layer: 'settingDocs', priority: 0, force: true },
+    { layer: 'rosterDoc', priority: 0, force: true },
+    { layer: 'structure', priority: 0, force: true },
     { layer: 'outlineDoc', priority: 0, force: true },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'characters', priority: 1 },
@@ -75,9 +82,13 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   ],
 
   // ---------------------------------------------------------------- 细纲
-  // 剧情编剧要看：这一章在大纲里的位置、它现在的样子、前几章排到哪、下一章要
-  // 接到哪。**不看正文原文**：排细纲要的是走向，不是措辞。
+  // 剧情编剧要看：设定四件、大纲里覆盖这几章的那几节、前面排到哪（前序细纲一览）、
+  // 后面已经排好了什么。**不看正文原文**：排细纲要的是走向，不是措辞。
   //
+  // 单章与批次共用这一张：`plotSelf` / `plotPrev` 只在单章时出场，批次时由
+  // `plotList` 全包（见 layers/artifacts.ts）。
+  //
+  // ★ `outlineSlice` P0 force：细纲是从大纲里拆出来的，少了这几节就是凭空编。
   // ★ `plotNext` 少了它，改中间某一章时模型不知道后面已经排好了什么，收尾会与
   //   下一章的开头撞车或断裂——「转折突兀」多半出在这里。
   plot: [
@@ -85,15 +96,18 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'ask', priority: 0, force: true },
     { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
     { layer: 'plotSelf', priority: 0, force: true },
-    { layer: 'outlineDoc', priority: 0 },
-    { layer: 'settingDocs', priority: 1 },
+    { layer: 'settingDocs', priority: 0, force: true },
+    { layer: 'rosterDoc', priority: 0, force: true },
+    { layer: 'outlineSlice', priority: 0, force: true },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'plotPrev', priority: 1 },
+    { layer: 'plotList', priority: 1 },
     { layer: 'plotNext', priority: 1 },
-    { layer: 'globalSummary', priority: 1 },
+    { layer: 'structure', priority: 1 },
+    { layer: 'globalSummary', priority: 2 },
+    { layer: 'plotSummary', priority: 2 },
     { layer: 'characters', priority: 2 },
-    { layer: 'lore', priority: 2 },
-    { layer: 'plotSummary', priority: 3 },
+    { layer: 'lore', priority: 3 },
   ],
 
   // ---------------------------------------------------------------- 正文

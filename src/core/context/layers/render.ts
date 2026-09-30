@@ -47,6 +47,32 @@ export function focusText(focus: Focus): string {
   return parts.filter(Boolean).join('\n');
 }
 
+/** 压成一行并截短：换行变空格，超过 `max` 字截断并补省略号。 */
+export function clipLine(text: string, max: number): string {
+  const one = (text ?? '').replace(/\s*\n+\s*/g, ' ').trim();
+  const chars = Array.from(one);
+  return chars.length > max ? `${chars.slice(0, max).join('')}…` : one;
+}
+
+/**
+ * 角色图谱一览里的一个人：名字、别名、定位，下面缩进三行身份 / 关系 / 当前状态的开头。
+ * 完整角色卡由 `characters` 层按需带（正文层）。
+ */
+export function renderRosterLine(card: CharacterCard): string {
+  const alias = card.aliases.length > 0 ? `（又称 ${card.aliases.join('、')}）` : '';
+  const tags = card.tags.length > 0 ? `［${card.tags.join('、')}］` : '';
+  const parts = [`- ${card.name}${alias}${tags}`];
+  const add = (label: string, text: string, max: number) => {
+    if (text?.trim()) {
+      parts.push(`  ${label}：${clipLine(text, max)}`);
+    }
+  };
+  add('身份', card.sections.身份, 120);
+  add('人物关系', card.sections.人物关系, 160);
+  add('当前状态', card.sections.当前状态, 80);
+  return parts.join('\n');
+}
+
 export function renderCharacter(card: CharacterCard, essentialOnly: boolean): string {
   const keys = essentialOnly ? CHARACTER_ESSENTIAL_KEYS : CHARACTER_SECTION_KEYS;
   const header = card.aliases.length > 0 ? `【${card.name}（又称 ${card.aliases.join('、')}）】` : `【${card.name}】`;

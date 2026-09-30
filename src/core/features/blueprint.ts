@@ -20,6 +20,7 @@
  * `relationships` 不要（D3 的细纲里没有它的位置）；`newCharacters` 可选，写入细纲时
  * 直接给新角色建卡（D19）。
  */
+import { BLUEPRINT_LIMITS } from '../model/plotFile';
 import type { PlotFields } from './artifact';
 import { parseJson, singleJsonObject } from './structuredJson';
 
@@ -36,19 +37,7 @@ export interface BlueprintItem {
   suspenseHook: string;
 }
 
-/**
- * 各字段的长度上限（字）。标题会变成文件名（`012-<标题>.md`），所以比上游的 60 紧得多；
- * 关键事件的目标是 100–300 字（D3），上限沿用上游的 1200。
- */
-export const BLUEPRINT_LIMITS = {
-  title: 18,
-  role: 30,
-  purpose: 240,
-  keyEvents: 1200,
-  suspenseHook: 160,
-  characters: 12,
-  name: 32,
-} as const;
+export { BLUEPRINT_LIMITS };
 
 export interface BlueprintDiagnostic {
   code: 'not_json' | 'no_list' | 'missing_field' | 'invalid_type' | 'empty_value' | 'invalid_value';
