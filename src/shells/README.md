@@ -41,6 +41,8 @@
 
 `media/` 是**浏览器**产物（esbuild `platform: browser`，自己一份 tsconfig 带 DOM lib）。
 页面骨架是宿主在 Node / Bun 里拼出来的字符串，跑在服务端那一侧，所以它归壳这一层。
+页头的任务条（`taskBar()`，四期 W8）也在这里：两个壳各自把它放在页签之上的那一处——插件在标签栏下面、独立版在侧栏顶上——位置不同是布局外壳的事，DOM 仍只有这一份。
+
 `shared/panes.ts` 因此是零 import 的纯字符串函数：不碰 `vscode`、不碰 `node:`、不碰 `bun:`
 ——这条由 [tests/contract/shellPurity.test.js](../../tests/contract/shellPurity.test.js) 守着。
 

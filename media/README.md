@@ -36,7 +36,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 
 各子目录的划分：
 
-- **`src/view/`** —— `refs`（页面上固定 id 的节点）、`store`（运行时状态与草稿存取）、`format` / `buttons` / `toast` / `menu` / `menubar` / `welcome` / `folderPicker` / `tip`（通用件；`menubar` / `welcome` / `folderPicker` 探测不到 `#wbMenubar` 就 return，插件不受影响）、`tabs` / `state` / `messages` / `composer` / `history` / `tasks` / `logs` / `prompt`（各块）、`form` / `forms`（通用表单弹窗与一句话、拆细纲两个具体弹窗——复用 `providerModal` 那层遮罩，两种形态都能用；调用次数的说明用的是 core 的 `describeCalls` / `planPlotBatches`，与后端确认框同源）、`pipeline` / `workbench` / `commands`（创作页的三块：流水线条与下一步、当前产物浮窗、`/` 命令面板），外加 `project/` 与 `settings/` 两个子目录。`index.ts` 只做装配与消息分发。
+- **`src/view/`** —— `refs`（页面上固定 id 的节点）、`store`（运行时状态与草稿存取）、`format` / `buttons` / `toast` / `menu` / `menubar` / `welcome` / `folderPicker` / `tip`（通用件；`menubar` / `welcome` / `folderPicker` 探测不到 `#wbMenubar` 就 return，插件不受影响）、`tabs` / `state` / `messages` / `composer` / `history` / `tasks` / `logs` / `prompt`（各块）、`form` / `forms`（通用表单弹窗与一句话、拆细纲、批量写章三个具体弹窗——复用 `providerModal` 那层遮罩，两种形态都能用；调用次数的说明用的是 core 的 `describeCalls` / `planPlotBatches` / `planWriteBatch`，与后端确认框同源；表单支持 `select` 字段，`confirm` 让提交键两段式——「写完即定稿」第一下只换字、第二下才发，改了任何一个值退回第一段）、`pipeline` / `workbench` / `commands`（创作页的三块：流水线条与下一步、当前产物浮窗、`/` 命令面板），外加 `project/` 与 `settings/` 两个子目录。`index.ts` 只做装配与消息分发。
 - **`src/editor/`** —— `paneElements`（一块编辑区的类型与 DOM）、`pane`（工厂，两块编辑区是它的两个实例）、`store`（两块之间共享的状态与 localStorage）、`shell`（主题/拖拽/窄屏）、`chapterBar`（章节工作台的章节条，W6）、`preview` / `clipboard` / `words`。
 - **`src/explorer/`** —— `state`（展开集合、剪贴板、高亮）、`actions`（发消息）、`rows`（建行与菜单）。
 
@@ -51,6 +51,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 - **前端无状态**：一切数据来自 `ViewState` / `ProjectTree` 全量推送，前端只保留 UI 状态（草稿、展开/折叠、正在编辑的回复）。webview 销毁重建后一条 `ready` 就能完整恢复。
 - **输入框旁那三个下拉框各归各的真相**（`view/composer.ts` + `view/state.ts`）：**模型**是全局设置（`ViewState.model`，选一下等于把它提到默认模型列表首位），**思考深度**与**当前章**是**会话的属性**（`SerializedSession.thinking` / `.target`）。所以思考深度的 change 只 `postMessage({type:'setThinking'})`、不改本地状态——值由回来的那条 `session` 消息回填（`syncThinkingSelect`）。五个档位的说法直接打包后端那份零 import 的 `model/thinking.ts`，界面上写的和跑起来的必然一致。
 - **进度与日志各有一条推送路径**：长任务用 `tasks`（**全量替换**，列表最多两三项，增量协议不值得），日志用 `log`（增量一条）+ `logs`（全量，切到日志页或清空后）+ `logHistory`（**只有点「加载更早」才发**，那是唯一会查工程库的路径，默认进日志页零开销）。两者都在 `resendFullState` 里补推，刷新页面时正在跑的任务不会凭空消失。
+  - **任务条在页头**（W8，四期）：`#taskList` 由 `shells/shared/panes.ts` 的 `taskBar()` 给出，插件放在标签栏下、独立版放在侧栏顶上——所有页签都看得见，从对话页点的定稿、批量不会跑起来就没了影。`pausable` 的任务多一颗「写完这一章就停」（发 `stopAfterItem`），点过换成一句说明。任务说完那一句时后端推 `taskDone`，`view/toast.ts` 出一条带按钮的提示（「打开第 3 章」发 `openChapter`），多留一会儿。
   - **计时由前端自己走**（`view/tasks.ts`）：后端只在有进度时才推快照，一次模型调用能安静一分钟，那期间计时停住会让人以为卡死。收到快照时记下 `Date.now() - elapsedMs` 当基线，之后每秒**只改计时文本**——重建 DOM 会打断「停止」按钮上的点击。
   - **日志增量不重画整表**（`view/logs.ts`）：长任务每秒好几条，重画会让滚动位置乱跳。只在原本就贴着底时才跟着滚，用户翻上去看东西时不该被拽回来。
   - **对话页流式输出同样只在贴着底才跟滚**（`view/messages.ts` 的 `scrollToBottom`）：每来一段 delta / 思考 / 工具行都会调它，翻上去看前面的气泡时不该被拽回底部。切会话与主动发送仍强制贴底。`.messages` 关掉了浏览器默认的 `overflow-anchor`，避免末气泡变高时视口自己挪。

@@ -5,7 +5,7 @@
 | 文件 | 职责 |
 |---|---|
 | [logger.ts](logger.ts) | 环形缓冲 + sink 转发；`redact` 脱敏、绝不记 prompt 全文、日志坏了不带崩正事 |
-| [progress.ts](progress.ts) | `runTask`：长任务的宿主原生进度 + 推给前端的结构化进度（n/N）+ 日志三件事一次做完 |
+| [progress.ts](progress.ts) | `runTask`：长任务的宿主原生进度 + 推给前端的结构化进度（n/N）+ 日志三件事一次做完。`pausable` 的任务多一个 `stopRequested()`（作者点了「写完这一项就停」，只在项与项之间停，批量写章用）；`finish(notice)` 是结束时的那一句（可带「打开第 N 章」），controller 订阅 `onTaskFinished` 推 `taskDone`——给了它就不再另外 `toast` |
 | [errorLog.ts](errorLog.ts) | 失败记在目标身上（工程页那一行的红/黄标记），成功必须 `clearFailures` |
 | [concurrency.ts](concurrency.ts) | `runPool`：有界并发，`current` 只在一项真正结束时才 +1 |
 | [db.ts](db.ts) | 工程内 SQLite（`errors` / `logs` 两张表），见下 |

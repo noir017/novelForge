@@ -13,8 +13,10 @@
 | [novelConfig.ts](novelConfig.ts) | 小说配置的 JSON 合同：上游英文键 → `config.md` 七节与 frontmatter，「全局要求」4–8 条 600 字的质检，一句话弹窗时「保留原文，追加生成」的合并，规范化草稿（`config.md` 全文 + 一节文风）。 |
 | [structuredJson.ts](structuredJson.ts) | 结构化输出的 JSON 小工具：认出「语法坏了但值得修」的输出；校验修过的那份只改了标点（标量逐个一致，只许在末尾补闭合括号）；「唯一一个完整对象」。 |
 | [parse.ts](parse.ts) | 模型输出解析小工具：剥代码围栏、提取 JSON、字符串与数字去重、字符串数组归一。 |
-| [pipelineBatch.ts](pipelineBatch.ts) | ★ 工程页的三条批量动作：**补齐设定**（配置 → 前提 → 角色图谱 → 世界观，只补空白、严格串行）、**批量拆细纲**（区间里没有细纲的章每批 5 章、严格串行地走生成链，一批失败就停）、批量写正文（落同号章节并记 `writtenFrom`，仍按原样并发、一章一次调用、**不自动续写**——对话页的「写第 N 章」会续写到八成，这条路四期改成严格串行时一并接上续写链与重演检测；确认框照实说「一章 1 次」）。**只补不改**，失败挂在那一行上。 |
-| [summarize.ts](summarize.ts) | 单章摘要编排（从 `chapters/` 的正文生成；解析、批量同步、全书 map-reduce）。「定稿」本期就是它，四期再加更新角色「当前状态」。系统提示词在 [summarizePrompt.ts](summarizePrompt.ts)。 |
+| [pipelineBatch.ts](pipelineBatch.ts) | ★ 工程页的三条批量动作，**都严格串行、一件失败就停**：**补齐设定**（配置 → 前提 → 角色图谱 → 世界观，只补空白）、**批量拆细纲**（区间里没有细纲的章每批 5 章走生成链）、**批量写章**（四期，D10：区间里还没有正文的章一章一章写，续写链与重演检测与对话页同一份，一章之内续写那几轮钉住同一个模型；「写完即定稿」模式写一章定稿一章；重演命中或没写够八成的照样落盘、不定稿、挂黄 ❗ 并停下；能「写完这一章就停」；切分与调用上限走 `planWriteBatch`）。**只补不改**，失败挂在那一行上，返回实际调用次数。 |
+| [finalize.ts](finalize.ts) | ★ 定稿一章（四期，D17）：摘要（1 次，带连续性事实与证据）→ 出场角色的当前状态（0–1 次）。摘要失败整个定稿失败；角色状态失败摘要照样算数，黄 ❗ 挂在章节上。`finalizeChapterTask` 是单章入口的外壳（主按钮、工作台、工程页右键、VS Code「定稿这一章」共用）；批量入口两步各走各的档。 |
+| [characterState.ts](characterState.ts) | 定稿时更新本章出场角色的「当前状态」（D15，移植 `update_character_cards`）：按本章摘要的出场人物认卡、一次调用出所有人的；归机器的卡只换那一节并盖章（`model/characterState.ts`），作者改过的不写、挂黄 ❗；`reviewCharacterState` 是那张卡右键「对比第 N 章给出的状态…」。 |
+| [summarize.ts](summarize.ts) | 单章摘要编排（从 `chapters/` 的正文生成；解析、批量同步、全书 map-reduce）。摘要里的「连续性事实」在这里挂证据：模型只给陈述，证据句用 bigram 在整章正文里找（`model/continuity.ts`，零调用），找不到依据的丢掉并记日志。「同步所有过期摘要」只补摘要，不更新角色状态（那是定稿的事）。系统提示词在 [summarizePrompt.ts](summarizePrompt.ts)。 |
 | [summarizePrompt.ts](summarizePrompt.ts) | 单章摘要 / 阶段摘要 / 全书摘要三条系统提示。 |
 | [characters.ts](characters.ts) | 从选定的几段正文**批量**提取/更新角色卡。系统提示词在 [charactersPrompt.ts](charactersPrompt.ts)。 |
 | [charactersPrompt.ts](charactersPrompt.ts) | 批量提取角色卡的系统提示。 |
@@ -22,7 +24,7 @@
 | [lorePrompt.ts](lorePrompt.ts) | 逐段识别与条目整合两条系统提示。 |
 | [characterCard.ts](characterCard.ts) | ★ **单个角色**的档案更新编排。解析见 [characterCardParse.ts](characterCardParse.ts)，控篇幅提示词见 [characterCardPrompt.ts](characterCardPrompt.ts)。 |
 | [characterCardParse.ts](characterCardParse.ts) | 角色卡更新的 JSON 解析（`parseCardResponse`）。 |
-| [characterCardPrompt.ts](characterCardPrompt.ts) | 更新角色卡的系统提示（字数上限与「性格 / 语言习惯」优先）。 |
+| [characterCardPrompt.ts](characterCardPrompt.ts) | 更新角色卡的系统提示（字数上限与「性格 / 语言习惯」优先）；定稿时更新当前状态的系统提示（`STATE_SYSTEM`）。 |
 | [characterMaintenance.ts](characterMaintenance.ts) | ★ 两条**不调模型**的整理动作：`cleanCharacterAliases` 删掉不是专属称呼的别名（含被误填成别名的**其他角色的名字**），`mergeDuplicateCharacterCards` 把同一个人的多张卡并成一张。只改 frontmatter（`rewriteFrontmatter`），作者手写的正文一个字节不动；被合并的卡搬进 `.novelforge/.trash/`。 |
 | [style.ts](style.ts) | 从 1~3 段样文归纳文风指南写入 `.novelforge/style.md`。系统提示词在 [stylePrompt.ts](stylePrompt.ts)。 |
 | [stylePrompt.ts](stylePrompt.ts) | 文风提取的系统提示。并入了 AI-Novel-Writer 文风分析模板的任务边界：只学技法，不复述情节、角色名、地名，不抄原句。 |
@@ -47,14 +49,15 @@
 |---|---|---|
 | 一次处理 | 一份产物 | 几十章 |
 | 覆盖已有产物 | 走 `reviewReplace` 逐份审阅 | **一律跳过**——一次弹 63 个 diff 没人看得完。补齐设定连一节都不覆盖：作者写过的节原样留着（`onlyBlank`） |
-| 解析失败 | 单份文档全文兜底（产物摊在屏幕上，用户看得见它是什么）；细纲批次不兜底 | **不兜底**——没人逐份过目，兜底会把「这次失败了」变成「这一章已排好」，紧接着的批量写正文还会照着它写出一整章 |
-| 出错 | 报错，用户重来 | 记进 errorLog 挂在那一行上。写正文**继续跑完剩下的**；补齐设定与拆细纲**就此停下**——后一件、后一批要吃前面的产出 |
+| 解析失败 | 单份文档全文兜底（产物摊在屏幕上，用户看得见它是什么）；细纲批次不兜底 | **不兜底**——没人逐份过目，兜底会把「这次失败了」变成「这一章已排好」，紧接着的批量写章还会照着它写出一整章 |
+| 出错 | 报错，用户重来 | 记进 errorLog 挂在那一行上，**就此停下**——后一件、后一批、后一章要吃前面的产出 |
+| 写出来但有问题（重演、没写够） | 卡片上标出来，作者当场判断 | 照样落盘（钱已经花了，D6），不定稿，黄 ❗ 挂在那一章上，**停下**——接着往下写等于踩着一个有问题的结尾 |
 
-两条路共用同一个 `buildContext` 与同一条生成链（`generation/structured.ts`），因此批量与单次产出的是同一个质量、同一套降级。
+两条路共用同一个 `buildContext` 与同两条生成链（`generation/structured.ts`、`generation/continuation.ts`），因此批量与单次产出的是同一个质量、同一套降级与续写。
 
 ## 摘要走 JSON
 
-单章摘要的提示词要求模型输出 JSON（六个小节 + `出场人物: [{name, aliases}]`），`parseSummaryResponse` 解析成 `SummaryData`。落盘仍是 Markdown（作者要翻、要手改），结构化的出场人物额外写进 frontmatter 的 `cast`。
+单章摘要的提示词要求模型输出 JSON（六个小节 + `出场人物: [{name, aliases}]` + `连续性事实: [...]`），`parseSummaryResponse` 解析成 `SummaryData`。落盘仍是 Markdown（作者要翻、要手改），结构化的出场人物额外写进 frontmatter 的 `cast`；连续性事实挂上证据之后写成第七节（`- 陈述 〔证据：「原文」〕`，格式在 [../model/continuity.ts](../model/continuity.ts)）。
 
 解析是**三层降级**，一层都不能少——模型不听话是常态，而解析失败意味着这一章的剧情永远进不了上下文：
 
@@ -85,10 +88,10 @@
 - **回调而非返回**：生成类操作通过 `GenerateHandlers`（onDelta / onDone / onError / onCancelled）汇报进度，UI 层决定怎么展示流式内容。
 - **长任务走 `runTask`，不直调 `Host.progress`**：本层除创作页的单次生成（它在对话页有流式气泡）以外的批量活一律经 [../runtime/progress.ts](../runtime/progress.ts)。`report({ message, current, total })` 里的 `total` 决定网页上画不画进度条——摘要同步是 `stale.length`，重建全书摘要是「批数 + 合并那一步」，角色/文风是固定三步/两步，设定生成是「逐段扫描 + 设定整合 + 写入/审阅」，流水线批量是待处理的段数。
 - **无先后依赖的条目并发跑**：各章摘要之间、角色卡之间、全书摘要的各阶段批次之间都没有依赖，一律经 [../runtime/concurrency.ts](../runtime/concurrency.ts) 的 `runPool`（并发量取 `config.concurrency`）。**有依赖的绝不并发**——同一张角色卡内部的分批必须串行，后一批要看到前一批的产出；全书摘要的 reduce 合并要等全部 map 到齐。并发下 `current` 只在项结束时 +1，`message` 报「已完成 n/N + 正在跑哪几项」。
-- **模型经 `llm/pool.ts` 取，并且要报出档位**：建池时必须传 `task`（如 `createModelPool({ task: 'plotSummary' })`），这样才有分档、「同档失败随机换模型」与并发轮转。唯一的例外是创作页的单次生成（[../generation/generate.ts](../generation/README.md)）与设置页的连接测试（`creation.ts`），两者都必须用用户选定的那个模型。同一个功能里难度不同的阶段要**各建一个池**——`rebuildGlobalSummary` 的分批汇总（`globalSummaryStage`）与最终合并（`globalSummaryMerge`）、`generateLore` 的逐段识别（`loreScan`）与条目整合（`loreSynthesis`）都是两档，串行时也不能图省事复用同一个池（那会把后一阶段悄悄降级到前一阶段的档）。流水线批量的两条同理：`plotOutline`（均衡）与 `manuscript`（均衡）各建各的池。
+- **模型经 `llm/pool.ts` 取，并且要报出档位**：建池时必须传 `task`（如 `createModelPool({ task: 'plotSummary' })`），这样才有分档、「同档失败随机换模型」与并发轮转。唯一的例外是创作页的单次生成（[../generation/generate.ts](../generation/README.md)）与设置页的连接测试（`creation.ts`），两者都必须用用户选定的那个模型。同一个功能里难度不同的阶段要**各建一个池**——`rebuildGlobalSummary` 的分批汇总（`globalSummaryStage`）与最终合并（`globalSummaryMerge`）、`generateLore` 的逐段识别（`loreScan`）与条目整合（`loreSynthesis`）都是两档，串行时也不能图省事复用同一个池（那会把后一阶段悄悄降级到前一阶段的档）。流水线批量同理：`plotOutline`（均衡）与 `manuscript`（均衡）各建各的池；批量写章的「写完即定稿」再为定稿的两步各建一个（`plotSummary`、`characterCard`）。
 - **切批与预算用 `pool.primaryBudget`，不用 `config.contextWindow`**：后者是对话页选定模型的窗口，分档后与干活的模型无关。确认框之前就要算的批数/片段数（它们就是「预计调用 N 次」那个数字）用 `budgetForTask(task)`，它不构造 provider，不会在用户点确认前弹 Key 输入框。
 - **确认框里的「模型」一行走 `describeTaskModels(config, task)`**：档位、实际清单、会不会换人、是不是继承默认模型，四件事一次说清。**不要再打印 `config.models`**——弹窗写着一个模型、实际跑另一个，是「不偷偷烧 token」的反面。
-- **每一步都留痕**：批量任务逐项打一条 `info`（含刚完成的项、用时、平均速度、预计剩余），失败项打 `error` 并**继续跑完剩下的**，结束时汇总说明哪几项失败。日志里绝不出现 API Key（`logger.redact` 统一处理），也不记 prompt 全文。
+- **每一步都留痕**：批量任务逐项打一条 `info`（含刚完成的项、用时、平均速度、预计剩余），失败项打 `error`；可以并发的（摘要同步、角色卡批量）**继续跑完剩下的**、结束时汇总说明哪几项失败，流水线那三条就此停下并说清停在哪。日志里绝不出现 API Key（`logger.redact` 统一处理），也不记 prompt 全文。
 - **模型输出清洗**：LLM 常把正文包在 code fence 里或加上「好的，以下是续写」之类的前言，写入前统一剥掉（`stripCodeFence` 等）。
 - **人工确认优先**：凡是覆盖作者可能手改过的文件（角色卡、style.md），一律先经宿主审阅/弹窗确认。批量更新时分析是并发的，但审阅经 `concurrency.ts` 的 `serialize()` 排队——同时弹三个 diff，用户根本不知道自己在看谁。
 - **超预算截断必须打 `warn`**：单章正文、角色提取的语料、文风样文、阶段摘要合并这四处都会按输入预算 `takeHead`。截断本身是对的，但作者选了五章却只读进两章半时必须说出来——这是「不静默截断」在本层的落法。
