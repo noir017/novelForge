@@ -38,7 +38,7 @@
 
 ## 与插件壳的能力差异
 
-`Host` 上的可选方法就是差异点：`browseFile`（这里提示输入相对路径）、`reviewReplace`（这里无 diff，纯确认）、`openNativeSettings`（**这里不实现**，于是 `page.ts` 渲染时就不产出那颗按钮——不是渲染出来再隐藏）、`openInEditor` / `saveFromEditor` / `openExternal`（只有这里实现）、`openBeside`（这里开第二块编辑区，插件是 `ViewColumn.Beside`）。`supportsVscodeLm` 为 `false`，Copilot 模型在设置页与下拉框里都被过滤掉。
+`Host` 上的可选方法就是差异点：`browseFile`（这里提示输入相对路径）、`reviewReplace`（五期起推 `prompt kind: 'merge'`，网页上开段级 diff / 合并视图：网关请求合并时作者可以逐段挑、手改，交回 `{ merged }`；其余调用方只读，只有采纳 / 放弃；插件照旧 `vscode.diff`）、`revealText`（点审稿报告上的引文：先 `editorOpen` 那一章，再推 `editorReveal` 让内置编辑器选中那一句；插件是 `showTextDocument` + `revealRange`）、`openNativeSettings`（**这里不实现**，于是 `page.ts` 渲染时就不产出那颗按钮——不是渲染出来再隐藏）、`openInEditor` / `saveFromEditor` / `openExternal`（只有这里实现）、`openBeside`（这里开第二块编辑区，插件是 `ViewColumn.Beside`）。`supportsVscodeLm` 为 `false`，Copilot 模型在设置页与下拉框里都被过滤掉。
 
 ## 验证
 

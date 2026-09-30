@@ -25,7 +25,7 @@
 | 文件 | 职责 |
 |---|---|
 | [protocol/](protocol/index.ts) | 前端 ↔ 后端的消息协议（`InMessage` / `OutMessage` / `ViewState`）。对外入口仍是 `core/protocol`。插件 webview 与独立版网页共用，是前后端的唯一契约。 |
-| [controller/](controller/index.ts) | ★ `ChatController`：全部面板逻辑，按消息域拆在同目录模块里。收 `InMessage` → 调度 `generation/` / `agent/` / 会话存储 / 创作目标切换 / 设置读写 → 广播 `OutMessage`。**并发控制在这一层**（`beginGeneration` / `stopGeneration`，`busy` 就是 `currentAbort !== undefined`）——生成那一层是无状态的，「有没有在跑」是调度的事，单步与 agent 共用同一把锁。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。**agent 动手前那一句问也在这一层**（`gate.ts`）：画成对话里的一张卡片而不是全局模态框，还没答的记在 controller 上，重连时随全量状态重推。 |
+| [controller/](controller/index.ts) | ★ `ChatController`：全部面板逻辑，按消息域拆在同目录模块里。收 `InMessage` → 调度 `generation/` / `agent/` / 会话存储 / 创作目标切换 / 设置读写 → 广播 `OutMessage`。**并发控制在这一层**（`beginGeneration` / `stopGeneration`，`busy` 就是 `currentAbort !== undefined`）——生成那一层是无状态的，「有没有在跑」是调度的事，单步与 agent 共用同一把锁。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。**agent 动手前那一句问也在这一层**（`gate.ts`）：画成对话里的一张卡片而不是全局模态框，还没答的记在 controller 上，重连时随全量状态重推。五期起写一章之前的一致性预检也借这张卡问（「仅本次忽略，照写 / 先不写」，零调用）；审稿那一轮不问落盘，报告挂在这一轮上随会话保存，`reviseChapter` 按那份报告与磁盘上此刻的正文拼清单再发一轮修稿，`revealQuote` 按宿主能力定位引文。 |
 | [host.ts](host.ts) | core 对宿主的唯一依赖面（窄接口）：弹窗/选择/进度/文件监听/打开文件等，两个壳各实现一份。 |
 | [actions.ts](actions.ts) | 工程级交互流程（初始化、新建一章、直接建一个发布章节文件），命令面板与网页共用。新建只落一个纯序号名的空细纲（标题等细纲排完再改名定），**不问标题也不打开它**；章号取 `plots/` 与 `chapters/` 两边的最大号 +1，所以老工程的 99 章之后建出来的就是第 100 章。「建完去哪」由调用方决定，面板走 `selectPlot` 落到这一章的当前步骤。正常路径上的章节是写正文时生成的，`newChapterFlow` 只留给「手里已有一章现成的文字要粘进来」。 |
 | [config.ts](config.ts) | `readConfig` / `readBudgetFallback` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |

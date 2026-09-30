@@ -40,7 +40,7 @@
 | 4 | `.trash/` 内容不可改（**读得到**，作者要能找回东西） | `WsError('inTrash')` |
 | 5 | 大小上限 2MB（读、写各一次） | `WsError('tooLarge')` |
 | 6 | 同名不覆盖（`mode: 'create'`） | `WsError('exists')` |
-| 7 | 覆盖前审阅（`reviewReplace` 或确认框） | 用户拒绝 → `{ skipped: true }` |
+| 7 | 覆盖前审阅（`reviewReplace` 或确认框）。请求合并（`opts.merge`），独立版的合并视图交回作者挑过、改过的那一份时写它（五期 W11） | 用户拒绝 → `{ skipped: true }` |
 | 8 | 内容 hash 乐观锁 | `WsConflictError(diskText, diskHash)` |
 
 **区界限不在这里**：`fileOps` 的三区约束（章节挪不进角色目录）是**工程页的
