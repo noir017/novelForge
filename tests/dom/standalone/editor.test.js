@@ -186,3 +186,54 @@ describe('内置编辑器：右键菜单与标签搬家', { skip: JSDOM_SKIP }, 
     assert.ok(tabs()[0].classList.contains('dirty'));
   });
 });
+
+/**
+ * 已打开的文件被再次打开（落盘后自动打开、工程页再点一次）：从前一律当成
+ * reload，把编辑器里没保存的修改直接冲掉。现在只有「还原」发起的那一次才冲。
+ */
+describe('内置编辑器：再次打开不冲掉未保存的修改', { skip: JSDOM_SKIP }, () => {
+  let ui;
+  const area = () => ui.doc.getElementById('edArea');
+  const conflictBar = () => ui.doc.getElementById('edConflict');
+  const type = (text) => {
+    area().value = text;
+    area().dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+  };
+  const open = (text, hash) =>
+    ui.post({ type: 'editorOpen', file: file('chapters/001-楔子.md', text, hash ? { hash } : undefined) });
+
+  before(() => {
+    ui = mount({ body: 'standalone', scripts: ['editor.js'], shims: ['pointerCapture', 'confirm'] });
+    open('原文');
+    type('原文，改了一半');
+  });
+
+  test('磁盘没变：草稿原样留着，不挂冲突条', () => {
+    open('原文');
+    assert.equal(area().value, '原文，改了一半', area().value);
+    assert.ok(conflictBar().classList.contains('hidden'));
+  });
+
+  test('磁盘变了：草稿仍留着，挂冲突条且不说「保存已取消」', () => {
+    open('刚写入的新版', 'h-new');
+    assert.equal(area().value, '原文，改了一半', area().value);
+    assert.ok(!conflictBar().classList.contains('hidden'));
+    const text = ui.doc.getElementById('edConflictText').textContent;
+    assert.ok(text.includes('没有覆盖') && !text.includes('保存已取消'), text);
+  });
+
+  test('选「用磁盘版本覆盖」才换成新版', () => {
+    ui.clickEl(ui.doc.getElementById('edConflictTake'));
+    assert.equal(area().value, '刚写入的新版', area().value);
+    assert.ok(conflictBar().classList.contains('hidden'));
+  });
+
+  test('点「还原」之后的那次打开照旧冲掉修改', () => {
+    type('又改了一笔');
+    ui.clickEl(ui.doc.getElementById('edRevertBtn'));
+    assert.ok(ui.last('reloadFile'), '没发出 reloadFile');
+    open('磁盘上的版本', 'h-disk');
+    assert.equal(area().value, '磁盘上的版本', area().value);
+    assert.ok(conflictBar().classList.contains('hidden'));
+  });
+});

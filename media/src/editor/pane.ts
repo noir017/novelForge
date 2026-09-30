@@ -43,8 +43,17 @@ export function createPane(
   post: (msg: InMessage) => void
 ): Pane {
   const files = new Map<string, OpenFile>();
-  /** 冲突时暂存的磁盘版本，供「用磁盘版本覆盖」使用。 */
-  const conflicts = new Map<string, { text: string; hash: string }>();
+  /**
+   * 冲突时暂存的磁盘版本，供「用磁盘版本覆盖」使用。
+   * `reopen`：不是保存撞上的，是已打开的文件被再次打开（多半是刚落盘了新产物）
+   * 而编辑器里还有未保存的修改——文案不能说「这次保存已取消」。
+   */
+  const conflicts = new Map<string, { text: string; hash: string; reopen?: boolean }>();
+  /**
+   * 作者点过「还原」、正在等后端回磁盘版的路径。只有它们的 editorOpen 才允许
+   * 冲掉未保存的修改；其余的 editorOpen 一律当成「再打开一次」。
+   */
+  const reloading = new Set<string>();
 
   const pane: Pane = {
     id,
@@ -244,9 +253,10 @@ export function createPane(
     const conflict = file ? conflicts.get(file.path) : undefined;
     setHidden(el.conflict, !conflict);
     if (conflict && file) {
-      el.conflictText.textContent =
-        `「${file.name}」在磁盘上已被改动（可能是你在别处编辑，或插件写入了内容）。` +
-        '为不覆盖别人的修改，这次保存已取消。';
+      el.conflictText.textContent = conflict.reopen
+        ? `「${file.name}」在磁盘上已被改动（可能刚写入了新内容），编辑器里还有未保存的修改，没有覆盖。`
+        : `「${file.name}」在磁盘上已被改动（可能是你在别处编辑，或插件写入了内容）。` +
+          '为不覆盖别人的修改，这次保存已取消。';
     }
 
     if (!file) {
@@ -502,6 +512,7 @@ export function createPane(
     if (file.draft !== file.text && !window.confirm(`放弃「${file.name}」的未保存修改？`)) {
       return;
     }
+    reloading.add(file.path);
     post({ type: 'reloadFile', path: file.path });
   });
 
@@ -560,12 +571,23 @@ export function createPane(
     pendingDrafts.delete(incoming.path);
 
     if (existing) {
-      // 已打开：这是一次 reload（放弃修改 / 冲突后取磁盘版）。
-      existing.text = incoming.text;
-      existing.hash = incoming.hash;
-      existing.draft = incoming.text;
-      existing.draftPath = incoming.draftPath;
-      conflicts.delete(incoming.path);
+      // 已打开。只有「还原」发起的那一次才冲掉未保存的修改；其余的（落盘后
+      // 自动打开、工程页再点一次）碰上脏草稿就不动它——磁盘版变了就挂冲突条
+      // 让作者自己选，没变就只是切过去。
+      const reload = reloading.delete(incoming.path);
+      const dirty = existing.draft !== existing.text;
+      if (reload || !dirty) {
+        existing.text = incoming.text;
+        existing.hash = incoming.hash;
+        existing.draft = incoming.text;
+        conflicts.delete(incoming.path);
+      } else if (incoming.hash !== existing.hash) {
+        conflicts.set(incoming.path, { text: incoming.text, hash: incoming.hash, reopen: true });
+        toast(`「${existing.name}」在磁盘上已被改过，编辑器里的未保存修改保留着。`, true);
+      }
+      if (incoming.draftPath !== undefined) {
+        existing.draftPath = incoming.draftPath;
+      }
       pane.activePath = incoming.path;
     } else {
       files.set(incoming.path, newFile(incoming, carried?.draft !== undefined ? carried : pending));
