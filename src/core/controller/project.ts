@@ -15,13 +15,14 @@ import {
 import { cleanCharacterAliases, mergeDuplicateCharacterCards } from '../features/characterMaintenance';
 import { extractCharacters, newCharacter, newLore } from '../features/characters';
 import { generateLore } from '../features/lore';
-import { generatePlots, writeManuscripts } from '../features/pipelineBatch';
+import { completeSettings, generatePlots, writeManuscripts } from '../features/pipelineBatch';
 import { extractStyle } from '../features/style';
 import { chapterForSummary, rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../features/summarize';
 import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { CharacterAction, ProjectAction } from '../protocol';
+import { normalizeRange } from '../model/session';
 import { selectPlot } from './chat';
 
 const log = scoped('面板');
@@ -39,7 +40,8 @@ export async function projectAction(
   c: ChatController,
   action: ProjectAction,
   relPath?: string,
-  dir?: string
+  dir?: string,
+  batch: { range?: { from: number; to: number }; confirmed?: boolean } = {}
 ): Promise<void> {
   // refresh 每次切页/刷盘都来一趟，记了只会淹掉别的；其余动作都值得留痕。
   if (action !== 'refresh') {
@@ -118,7 +120,11 @@ export async function projectAction(
       await rebuildGlobalSummary(c.project);
       break;
     case 'generatePlots':
-      await generatePlots(c.project);
+      // 区间与「弹窗已经报过调用次数」来自工程页的拆细纲弹窗（W5）；不带就是下一批 5 章，先问。
+      await generatePlots(c.project, { range: normalizeRange(batch.range), confirmed: batch.confirmed === true });
+      break;
+    case 'completeSettings':
+      await completeSettings(c.project);
       break;
     case 'writeManuscripts':
       await writeManuscripts(c.project);

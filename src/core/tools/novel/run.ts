@@ -102,10 +102,10 @@ const ACTIONS: Record<string, ActionSpec> = {
     },
   },
   batchPlots: {
-    label: '给所有还没排过的细纲各排一次',
+    label: '从下一个该写的章起拆 5 章细纲（已有细纲的章跳过）',
     costly: true,
     async run(ctx) {
-      return countedBy(await generatePlots(ctx.project), '批量写细纲');
+      return countedBy(await generatePlots(ctx.project), '批量拆细纲');
     },
   },
   batchManuscripts: {

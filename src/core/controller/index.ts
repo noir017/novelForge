@@ -433,7 +433,7 @@ export class ChatController {
         return;
 
       case 'projectAction':
-        await projectAction(this, msg.action, msg.relPath, msg.dir);
+        await projectAction(this, msg.action, msg.relPath, msg.dir, { range: msg.range, confirmed: msg.confirmed });
         return;
 
       case 'fileAction':

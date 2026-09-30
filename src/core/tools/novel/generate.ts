@@ -15,7 +15,7 @@
  *    |---|---|---|
  *    | `manuscript` | **对话页选定的那个**，不走池 | 中途换人会让文风断掉 |
  *    | `setting` / `outline` | 同上 | 一次定调，而且没有对应档位 |
- *    | `plot` | `plotOutline` 档 | 与工程页「批量写细纲」同一个模型 |
+ *    | `plot` | `plotOutline` 档 | 与工程页「批量拆细纲」同一个模型 |
  *
  *    走池时**必须把池的 `primaryBudget` 一起传下去**（第 13 条）：
  *    `config.contextWindow` 跟着对话页那个模型走，拿 200k 的窗口给快速档的

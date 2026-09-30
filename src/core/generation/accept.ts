@@ -39,6 +39,14 @@ export interface AcceptResult {
 }
 
 /**
+ * `onlyBlank`：批量那条路（工程页「补齐设定」）。第 19 条的批量那一面——不问、不覆盖：
+ * 作者写过的节一个字不动，只填空着的节，也就不必弹审阅。
+ */
+export interface AcceptOptions {
+  onlyBlank?: boolean;
+}
+
+/**
  * 落盘之前就能说清的事：会新建哪几张角色卡。写入卡片上要列出来（D19），
  * 不能等写完了才在 toast 里说「顺便建了三张卡」。
  */
@@ -67,12 +75,13 @@ function takenNames(cards: CharacterCard[]): Set<string> {
 export async function acceptArtifact(
   project: NovelProject,
   target: CreationTarget,
-  artifact: Artifact
+  artifact: Artifact,
+  opts: AcceptOptions = {}
 ): Promise<AcceptResult> {
   const ws = new Workspace(project);
   switch (artifact.kind) {
     case 'settingDoc':
-      return acceptSettingDoc(project, ws, artifact);
+      return acceptSettingDoc(project, ws, artifact, opts);
     case 'characterRoster':
       return acceptRoster(project, ws, artifact.characters);
     case 'outlineDoc':
@@ -96,13 +105,26 @@ export async function acceptArtifact(
 async function acceptSettingDoc(
   project: NovelProject,
   ws: Workspace,
-  artifact: Extract<Artifact, { kind: 'settingDoc' }>
+  artifact: Extract<Artifact, { kind: 'settingDoc' }>,
+  opts: AcceptOptions
 ): Promise<AcceptResult> {
   const rel = pathOfTarget(project, { kind: 'setting', doc: artifact.doc });
   const what = SETTING_DOC_LABEL[artifact.doc];
   const current = await project.readSettingDoc(artifact.doc);
   const blank = !Object.values(current.sections).some((v) => v.trim());
-  const r = await ws.write(rel, { artifact }, { mode: 'overwrite', what, review: !blank });
+  let art = artifact;
+  // 批量只补空白：作者写过的节原样留着。配置不在这里合——生成链已经按「保留原文，
+  // 追加生成」合过了（generation/structured.ts 的 completeConfig）。
+  if (opts.onlyBlank && artifact.doc !== 'config') {
+    const sections = { ...artifact.sections };
+    for (const [key, value] of Object.entries(current.sections)) {
+      if (hasContent(value)) {
+        sections[key] = value;
+      }
+    }
+    art = { ...artifact, sections };
+  }
+  const r = await ws.write(rel, { artifact: art }, { mode: 'overwrite', what, review: !blank && !opts.onlyBlank });
   if (r.skipped) {
     return { skipped: true, message: `没有改动${what}。` };
   }
@@ -303,7 +325,8 @@ export async function acceptPlotBatch(
   project: NovelProject,
   ws: Workspace,
   items: BlueprintItem[],
-  range: ChapterRange
+  range: ChapterRange,
+  opts: { onlyBlank?: boolean } = {}
 ): Promise<AcceptResult> {
   const book = await project.readBookConfig();
   const written: string[] = [];
@@ -311,6 +334,11 @@ export async function acceptPlotBatch(
   for (const item of items) {
     const fields = blueprintToPlot(item);
     const existing = await project.getPlot(item.no);
+    // 批量那条路只补空白（第 19 条）：跑的这几十秒里作者自己排了这一章，就不动它，也不问。
+    if (existing && isPlotFilled(existing.sections) && opts.onlyBlank) {
+      kept.push(item.no);
+      continue;
+    }
     if (existing && isPlotFilled(existing.sections)) {
       const r = await ws.write(existing.relPath, { artifact: { kind: 'plot', ...fields } }, {
         mode: 'overwrite',

@@ -1,9 +1,12 @@
 /**
- * 工程页的流水线批量动作：**一次给几十章写细纲 / 写正文**。
+ * 工程页的流水线批量动作：**补齐故事架构、一次拆几十章细纲、一次写几十章正文**。
  *
- * 本期（一期）只是把落点从「剧情段 + 中转站」换成「一章一纲 + chapters/」。
- * 细纲按每批 5 章生成是二期的事；写正文改成严格串行（写一章 → 定稿 → 下一章，
- * 后一章要读前一章的结尾与角色状态）是四期的事。
+ * - 补齐设定与批量拆细纲（二期）走 generation/structured.ts 的生成链，与对话页同一份：
+ *   细纲每批 5 章，截断拆半、语法修复、漏章 fail-closed 一样不少。它们**严格串行**——
+ *   前提要照着配置写，后一批细纲要接着前一批往下排——一件（一批）失败就停，已经写好
+ *   的留着。
+ * - 写正文改成严格串行（写一章 → 定稿 → 下一章，后一章要读前一章的结尾与角色状态）
+ *   是四期的事，现在仍按原样并发。
  *
  * 与创作页的单次生成（features/creation.ts）是两条路，理由是它们的失败模型
  * 完全不同：创作页一次一份，出错就重来；这里一次几十份，**必须允许部分失败
@@ -19,89 +22,343 @@
  * 「逐个审阅」的余地——一次弹 63 个 diff 没有人看得完——所以唯一安全的
  * 做法是只处理空白的那些。要重做某一段，去创作页单独重做。
  *
- * ## 返回值是「这一次计划调用几次模型」
+ * ## 返回值是「这一次调了几次模型」
  *
- * 就是确认框里那个数字（用户取消、没有可做的、没有可用模型时是 0）。
- * **只在这里算一次**：agent 的 `run` 工具拿它记进预算，工程页那条路不看它。
- * 让调用方各算一遍，弹窗写着 7 次、账上记 1 次，正是第 4 条要防的事。
+ * 写正文返回确认框里那个数字（一章一次，计划即实际）。补齐设定与拆细纲有自动修复，
+ * 实际次数在跑完之前说不准，返回**实际调用的次数**——确认框里报的是区间与上限
+ * （同一个纯函数算的，见 model/pipeline.ts 的 `planPlotBatches` / `CallEstimate`）。
+ * 用户取消、没有可做的、没有可用模型时是 0。**只在这里算**：agent 的 `run` 工具拿它
+ * 记进预算，工程页那条路不看它。让调用方各算一遍，弹窗写着 7 次、账上记 1 次，
+ * 正是第 4 条要防的事。
  */
 import { runPool } from '../runtime/concurrency';
 import { readConfig } from '../config';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { getHost } from '../host';
-import { collectText } from '../llm/collect';
-import { AgentMessage, CancelledError } from '../llm/provider';
-import { createModelPool } from '../llm/pool';
+import { collect, collectText } from '../llm/collect';
+import { CancelledError } from '../llm/provider';
+import { ModelPool, createModelPool } from '../llm/pool';
 import { describeError, elapsed, formatDuration, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import { Plot, isPlotFilled } from '../model/plotFile';
-import { chapterTargetOf, plotContentHash } from '../views/pipeline';
+import { isOutlineFilled } from '../model/outlineFile';
+import { buildBookFacts, chapterTargetOf, plotContentHash } from '../views/pipeline';
 import { describeTaskModels } from '../model/tiers';
-import { buildContext } from '../context/builder';
+import { BuildRequest, buildContext } from '../context/builder';
 import { runTask } from '../runtime/progress';
 import { cleanOutput } from './creation';
-import { parsePlotStrict } from './artifact';
-import { Capability } from '../model/pipeline';
+import { isArtifactEmpty, parseArtifact } from './artifact';
+import {
+  CONFIG_CALLS,
+  CallEstimate,
+  ONE_CALL,
+  PLOT_BATCH,
+  SETTING_DOCS,
+  SETTING_DOC_LABEL,
+  SettingDoc,
+  addCalls,
+  describeCalls,
+  planPlotBatches,
+  rosterCalls,
+} from '../model/pipeline';
 import { Workspace } from '../workspace';
-import { plotUpstreamHash } from '../workspace/handlers/plot';
+import { acceptArtifact, acceptPlotBatch } from '../generation/accept';
+import { CallOutcome, ChainError, ChainIO, completeBlueprints, completeConfig, completeRoster } from '../generation/structured';
 
 const log = scoped('流水线');
 
-/**
- * 给所有还没排过的细纲（文件在、「关键事件」空着）各写一份。
- *
- * 每章一次调用。章与章之间**有**先后关系，但装配器会把前后章的细纲一起带上，
- * 所以仍然可以并发——并发改变的只是完成顺序，不改变每次调用看到的上下文。
- */
-export async function generatePlots(project: NovelProject): Promise<number> {
-  const pending = (await project.listPlots()).filter((p) => !isPlotFilled(p.sections));
+/** 没有写总章数、每章字数时，补齐设定按这个规模展开配置（与一句话弹窗的默认值一致）。 */
+const DEFAULT_SETUP = { totalChapters: 100, wordsPerChapter: 3000 };
 
-  if (pending.length === 0) {
-    getHost().toast('每一章都已经排过细纲了。');
+/**
+ * 批量拆细纲：`range` 里还没有细纲的章，按 {@link PLOT_BATCH} 章一批、**严格串行**地拆。
+ *
+ * - 缺省区间是「下一可写章起 5 章」，不越过大纲的覆盖与总章数。
+ * - 已经排过的章一律跳过（第 19 条批量那一面：不问、不覆盖），跳过的章把区间断开。
+ * - 每批写完就落盘，后一批的装配读得到它（前序细纲一览）；一批失败就停——后一批要
+ *   接着它往下排，接不上的细纲比没有更糟。失败挂在那一批第一章的细纲上（第 16 条）。
+ * - 新角色照样建卡（D19）。
+ *
+ * `confirmed`：工程页弹窗已经把切分与调用次数写给作者看过了（同一个 `planPlotBatches`），
+ * 不再弹第二个确认框。agent 的 `run` 那条路不带它，照旧先问。
+ */
+export async function generatePlots(
+  project: NovelProject,
+  opts: { range?: { from: number; to: number }; confirmed?: boolean } = {}
+): Promise<number> {
+  const outline = await project.readOutline();
+  if (!isOutlineFilled(outline)) {
+    // 没有大纲就写细纲，等于让模型凭空编四十章——那不是作者要的。
+    log.warn('情节大纲是空的，批量拆细纲已中止');
+    getHost().toast('情节大纲还是空的。先写一份大纲，细纲才有依据。', 'error');
     return 0;
   }
-  const outline = await project.readOutline();
-  if (!outline.trim()) {
-    // 没有大纲就写细纲，等于让模型凭空编四十章——那不是作者要的。
-    log.warn('情节大纲是空的，批量写细纲已中止');
-    getHost().toast('情节大纲还是空的。先写一份大纲，细纲才有依据。', 'error');
+  const facts = await buildBookFacts(project);
+  const cap = Math.min(facts.outlineCoverage, facts.totalChapters ?? Infinity);
+  const from = Math.max(1, opts.range?.from ?? facts.nextChapterNo);
+  const to = Math.min(opts.range?.to ?? from + PLOT_BATCH - 1, cap);
+  if (to < from) {
+    getHost().toast(
+      Number.isFinite(facts.outlineCoverage) && from > facts.outlineCoverage
+        ? `情节大纲只覆盖到第 ${facts.outlineCoverage} 章。先续写大纲，再拆第 ${from} 章以后的细纲。`
+        : `第 ${from} 章已经超出总章数。`,
+      'error'
+    );
+    return 0;
+  }
+  const plan = planPlotBatches({ from, to, filledNos: facts.plotFilledNos });
+  const where = plan.from === plan.to ? `第 ${plan.from} 章` : `第 ${plan.from}–${plan.to} 章`;
+  if (plan.batches.length === 0) {
+    getHost().toast(`${where}都已经排过细纲了。`);
     return 0;
   }
 
   const config = readConfig();
-  const lanes = Math.min(config.concurrency, pending.length);
-  const confirm = await getHost().confirm(
-    `有 ${pending.length} 章还没排细纲，需要调用 ${pending.length} 次模型。现在写？`,
-    ['开始生成'],
+  if (!opts.confirmed) {
+    const pick = await getHost().confirm(
+      `${where}：要拆 ${plan.chapters.length} 章细纲，分 ${plan.batches.length} 批，${describeCalls(plan.calls)}。现在拆？`,
+      ['开始拆细纲'],
+      {
+        modal: true,
+        detail:
+          `${describeTaskModels(config, 'plotOutline')}\n` +
+          (plan.skipped.length > 0 ? `已经排过的第 ${plan.skipped.join('、')} 章跳过，不会被改动。\n` : '') +
+          '每批写完就落盘，后一批接着前一批往下排；一批失败就停，已经写好的留着。\n' +
+          '输出被截断或格式不对时会自动拆小重试，所以给的是上限。',
+      }
+    );
+    if (pick !== '开始拆细纲') {
+      log.info('用户取消了批量拆细纲');
+      return 0;
+    }
+  }
+
+  const pool = await createModelPool({ task: 'plotOutline', concurrent: false });
+  if (!pool) {
+    log.error('没有可用的模型，批量拆细纲中止');
+    return 0;
+  }
+  const ws = new Workspace(project);
+  let calls = 0;
+  await runTask(
+    '批量拆细纲',
+    async ({ signal, report }) => {
+      const startedAt = Date.now();
+      let done = 0;
+      for (let i = 0; i < plan.batches.length; i++) {
+        const batch = plan.batches[i];
+        const range = { from: batch[0], to: batch[batch.length - 1] };
+        const span = range.from === range.to ? `第 ${range.from} 章` : `第 ${range.from}–${range.to} 章`;
+        const target = { kind: 'plot' as const, plotRelPath: (await project.getPlot(range.from))?.relPath ?? project.plotPathForNo(range.from, '') };
+        report({ message: `${span}（第 ${i + 1}/${plan.batches.length} 批）`, current: done, total: plan.chapters.length });
+        const io = poolIO(project, pool, config, signal, {
+          action: { stage: 'plot', capability: 'generate' },
+          target,
+          targetNo: range.from,
+          range,
+          ask: '',
+        });
+        try {
+          const result = await completeBlueprints(undefined, io.chain, batch);
+          calls += result.calls;
+          if (result.notes.length > 0) {
+            log.warn(`${span}：${result.notes.length} 处降级`, result.notes.join('\n'));
+          }
+          const r = await acceptPlotBatch(project, ws, result.items, range, { onlyBlank: true });
+          log.info(`${span}的细纲已落盘`, r.message);
+          void clearFailures(project, 'plot', target.plotRelPath, 'plotOutline');
+          done += batch.length;
+        } catch (err) {
+          calls += err instanceof ChainError ? err.calls : io.calls();
+          if (err instanceof CancelledError || signal.aborted) {
+            log.warn(`批量拆细纲被取消，已完成 ${done}/${plan.chapters.length} 章`);
+            return;
+          }
+          const reason = describeError(err);
+          log.error(`${span}的细纲失败：${reason}`, err instanceof ChainError ? err.notes.join('\n') : err);
+          void recordFailure(project, {
+            scope: '流水线',
+            targetKind: 'plot',
+            targetKey: target.plotRelPath,
+            severity: 'error',
+            op: 'plotOutline',
+            message: `细纲生成失败：${reason}`,
+            detail: `${span}这一批没有写入。后面的批次依赖它，已经停下。`,
+          });
+          getHost().toast(
+            `${span}的细纲没拆成（${reason}）。${done > 0 ? `前面 ${done} 章已经写好。` : ''}后面的批次已停下。`,
+            'error'
+          );
+          return;
+        }
+      }
+      report({ message: '收尾', current: done, total: plan.chapters.length });
+      log.info(`批量拆细纲结束：${done} 章`, `调用 ${calls} 次，总耗时 ${elapsed(startedAt)}`);
+      getHost().toast(`已为${where}写好 ${done} 章细纲${plan.skipped.length > 0 ? `（跳过已有的 ${plan.skipped.length} 章）` : ''}。`);
+    },
+    { scope: '流水线' }
+  );
+  return calls;
+}
+
+/**
+ * 补齐故事架构：配置 → 前提 → 角色图谱 → 世界观，**只补空白、严格串行**（D21）。
+ *
+ * - 小说配置只在「一句话」那一节写了东西时才能补——没有脑洞可展开，这一步就是凭空编；
+ *   规模缺省按一句话弹窗的默认值（100 章 × 3000 字），确认框里写明。
+ * - 角色图谱只在一张卡都没有时生成（有卡就算填过，见 `settingFilled`）。
+ * - 一件失败就停：后面几件都吃它的产出。
+ *
+ * 走分档池的 `setting` 档，不带思考深度（第 26 条：工程页的批量任务一律不带）。
+ */
+export async function completeSettings(project: NovelProject): Promise<number> {
+  const facts = await buildBookFacts(project);
+  const missing = SETTING_DOCS.filter((doc) => !facts.settings[doc]);
+  if (missing.length === 0) {
+    getHost().toast('故事架构四件都已经有了。');
+    return 0;
+  }
+  const book = await project.readBookConfig();
+  const idea = book.sections.一句话.trim();
+  if (missing.includes('config') && !idea) {
+    getHost().toast('小说配置还没写，也没有「一句话」可以展开。先点「生成小说配置」写下你的脑洞。', 'error');
+    return 0;
+  }
+  const setup = {
+    totalChapters: book.totalChapters ?? DEFAULT_SETUP.totalChapters,
+    wordsPerChapter: book.wordsPerChapter ?? DEFAULT_SETUP.wordsPerChapter,
+  };
+  const estimate = missing
+    .map((doc): CallEstimate => (doc === 'config' ? CONFIG_CALLS : doc === 'characters' ? rosterCalls() : ONE_CALL))
+    .reduce(addCalls);
+  const labels = missing.map((doc) => SETTING_DOC_LABEL[doc]);
+
+  const config = readConfig();
+  const pick = await getHost().confirm(
+    `要补齐${labels.join('、')}，${describeCalls(estimate)}。现在补？`,
+    ['开始补齐'],
     {
       modal: true,
       detail:
-        `${describeTaskModels(config, 'plotOutline')}\n` +
-        (lanes > 1 ? `并发 ${lanes} 路。` : '串行逐章处理（并发数为 1）。') +
-        '\n已经排过的细纲不会被改动。',
+        `${describeTaskModels(config, 'setting')}\n` +
+        '按 配置 → 前提 → 角色图谱 → 世界观 的顺序一件一件来，每件都吃前面几件的产出；已经有的不会被改动。一件失败就停。' +
+        (missing.includes('config') && (!book.totalChapters || !book.wordsPerChapter)
+          ? `\n小说配置里没写总章数或每章字数，按 ${setup.totalChapters} 章 × ${setup.wordsPerChapter} 字展开。`
+          : ''),
     }
   );
-  if (confirm !== '开始生成') {
-    log.info('用户取消了批量写细纲');
+  if (pick !== '开始补齐') {
+    log.info('用户取消了补齐设定');
+    return 0;
+  }
+  const pool = await createModelPool({ task: 'setting', concurrent: false });
+  if (!pool) {
+    log.error('没有可用的模型，补齐设定中止');
     return 0;
   }
 
-  const ws = new Workspace(project);
-  const pool = await createModelPool({ task: 'plotOutline', concurrent: lanes > 1 });
-  if (!pool) {
-    log.error('没有可用的模型，批量写细纲中止');
-    return 0;
+  let calls = 0;
+  await runTask(
+    '补齐设定',
+    async ({ signal, report }) => {
+      for (let i = 0; i < missing.length; i++) {
+        const doc = missing[i];
+        const label = SETTING_DOC_LABEL[doc];
+        report({ message: label, current: i, total: missing.length });
+        const request: Omit<BuildRequest, 'providerMaxInputTokens'> = {
+          action: { stage: 'setting', capability: 'generate' },
+          target: { kind: 'setting', doc },
+          ask: doc === 'config' ? idea : '',
+          ...(doc === 'config' ? { setup } : {}),
+        };
+        const io = poolIO(project, pool, config, signal, request);
+        try {
+          const raw = await settingRaw(project, doc, request, io, idea, setup);
+          const artifact = parseArtifact(request.action, raw, request.target);
+          if (isArtifactEmpty(artifact)) {
+            throw new Error('模型返回的内容里解析不出这一件');
+          }
+          const r = await acceptArtifact(project, request.target, artifact, { onlyBlank: true });
+          log.info(`${label}已补上`, r.message);
+          void clearFailures(project, 'setting', settingKey(project, doc), 'setting');
+          calls += io.calls();
+        } catch (err) {
+          calls += err instanceof ChainError ? err.calls : io.calls();
+          if (err instanceof CancelledError || signal.aborted) {
+            log.warn(`补齐设定被取消，停在${label}`);
+            return;
+          }
+          const reason = describeError(err);
+          log.error(`补齐设定：${label}失败：${reason}`, err instanceof ChainError ? err.notes.join('\n') : err);
+          // 挂在「故事架构」那一行上（第 16 条）：toast 五秒就没了。
+          void recordFailure(project, {
+            scope: '流水线',
+            targetKind: 'setting',
+            targetKey: settingKey(project, doc),
+            severity: 'error',
+            op: 'setting',
+            message: `${label}生成失败：${reason}`,
+            detail: '补齐设定停在这一件。后面几件依赖它，没有继续。',
+          });
+          getHost().toast(`${label}没补上（${reason}）。后面几件依赖它，已经停下。`, 'error');
+          return;
+        }
+      }
+      report({ message: '收尾', current: missing.length, total: missing.length });
+      getHost().toast(`已补齐${labels.join('、')}。`);
+    },
+    { scope: '流水线' }
+  );
+  return calls;
+}
+
+/** 故事架构那一行的失败记在哪：它的文件（角色图谱是角色目录）。与工程页那一行的 `relPath` 一致。 */
+function settingKey(project: NovelProject, doc: SettingDoc): string {
+  return project.relPath(project.settingPath(doc));
+}
+
+/** 补齐设定的一件：第一次调用，配置与角色图谱再接上各自的链。 */
+async function settingRaw(
+  project: NovelProject,
+  doc: SettingDoc,
+  request: Omit<BuildRequest, 'providerMaxInputTokens'>,
+  io: ReturnType<typeof poolIO>,
+  idea: string,
+  setup: { totalChapters: number; wordsPerChapter: number }
+): Promise<string> {
+  const messages = await io.chain.build({});
+  const first = await io.chain.call(messages, SETTING_DOC_LABEL[doc]);
+  const chain = { ...io.chain, messages };
+  if (doc === 'config') {
+    return (await completeConfig(first, chain, { existing: await project.readBookConfig(), idea, setup })).raw;
   }
-  await runBatch(project, {
-    title: '批量写细纲',
-    items: pending,
-    lanes,
-    op: 'plotOutline',
-    what: '细纲',
-    run: async (plot, signal) => {
-      const messages = await buildContextFor(project, plot, config, 'generate');
-      const raw = await pool.run(`第 ${plot.no} 章细纲`, (llm) =>
-        collectText(
+  if (doc === 'characters') {
+    return (await completeRoster(first, chain)).raw;
+  }
+  void request;
+  return first.text.trim();
+}
+
+/**
+ * 批量那条路的 {@link ChainIO}：每次调用走分档池（失败换同档其余，第 12 条），
+ * 装配用干活那个模型的窗口（第 13 条：`pool.primaryBudget`），不带思考深度（第 26 条）。
+ */
+function poolIO(
+  project: NovelProject,
+  pool: ModelPool,
+  config: ReturnType<typeof readConfig>,
+  signal: AbortSignal,
+  base: Omit<BuildRequest, 'providerMaxInputTokens'>
+): { chain: ChainIO; calls: () => number } {
+  let count = 0;
+  const budgeted = { ...config, ...pool.primaryBudget };
+  const chain: ChainIO = {
+    messages: [],
+    build: async (patch) => (await buildContext(project, { ...base, ...patch }, budgeted)).messages,
+    call: async (messages, label): Promise<CallOutcome> => {
+      count++;
+      const r = await pool.run(label, (llm) =>
+        collect(
           llm.stream(messages, {
             maxOutputTokens: pool.primaryBudget.maxOutputTokens,
             temperature: config.temperature,
@@ -110,29 +367,10 @@ export async function generatePlots(project: NovelProject): Promise<number> {
           })
         )
       );
-      // 严格解析：批量路径上没有人逐份过目，全文兜底会把模型的一句
-      // 「我不太确定这一章写什么」变成一份「已规划」的细纲，紧接着的
-      // 批量写正文还会照着它写出一整章。
-      const fields = parsePlotStrict(raw);
-      if (!fields || !isPlotFilled(fields.sections)) {
-        throw new Error('模型返回的内容里解析不出细纲');
-      }
-      await ws.writePlot({
-        no: plot.no,
-        // 标题、目标字数、done 沿用磁盘那份：批量写细纲改的是三个小节与规划字段，
-        // 不该把作者起的名字、定的字数、标的完成状态抹掉。
-        title: plot.title || fields.title || '',
-        role: fields.role || plot.role,
-        characters: fields.characters?.length ? fields.characters : plot.characters,
-        targetWords: plot.targetWords ?? fields.targetWords,
-        upstreamHash: await plotUpstreamHash(project, plot.relPath),
-        writtenFrom: plot.writtenFrom,
-        done: plot.done,
-        sections: fields.sections,
-      });
+      return { text: r.text, stop: r.stopReason };
     },
-  });
-  return pending.length;
+  };
+  return { chain, calls: () => count };
 }
 
 /**
@@ -256,35 +494,6 @@ export async function writeManuscripts(project: NovelProject): Promise<number> {
 }
 
 // ---------------------------------------------------------------- 共用
-
-/**
- * 装配某一章**细纲层**的上下文。
- *
- * 走**同一个装配器**而不是在这里手拼 prompt：分阶段配方、预算封顶、
- * 角色卡降级、前后章与附件的处理全都一致。批量与单次生成产出的东西
- * 因此是同一个质量，作者不会发现「工程页批量写的细纲比创作页的差一截」。
- */
-async function buildContextFor(
-  project: NovelProject,
-  plot: Plot,
-  config: ReturnType<typeof readConfig>,
-  capability: Extract<Capability, 'generate'>
-): Promise<AgentMessage[]> {
-  const built = await buildContext(
-    project,
-    {
-      action: { stage: 'plot', capability },
-      target: { kind: 'plot', plotRelPath: plot.relPath },
-      targetNo: plot.no,
-      targetWords: plot.targetWords,
-      // 批量路径上没有用户输入那一句话。用这一章的「本章目的」当锚点，
-      // 没有就用标题。
-      ask: `排出第 ${plot.no} 章的细纲。${plot.sections.本章目的.trim() || plot.title}`,
-    },
-    config
-  );
-  return built.messages;
-}
 
 interface BatchSpec {
   title: string;

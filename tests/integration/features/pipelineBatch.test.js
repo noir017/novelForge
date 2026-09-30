@@ -1,12 +1,14 @@
 /**
- * 工程页流水线批量动作：批量写细纲、批量写正文。
+ * 工程页流水线批量动作：批量拆细纲、批量写正文（补齐设定在 settingsBatch.test.js）。
  *
- * 一章一纲之后两条都是**一章一次调用**：批量写细纲给「文件在、关键事件还空着」的章补，
- * 批量写正文把排好细纲的章直接写进同号的 `chapters/` 章节（没有中转站、也没有拆章）。
+ * - **批量拆细纲**（二期）：区间里还没有细纲的章，每批 5 章、严格串行地走生成链
+ *   （generation/structured.ts）。每批写完就落盘，后一批读得到它；一批失败就停。
+ * - **批量写正文**：一章一次调用，把排好细纲的章直接写进同号的 `chapters/` 章节。
  *
  * 这两条路的失败方式和单次生成完全不同——一次跑几十章，所以要钉住的是：
  * 1. **只补不改**：已经有产物的章一律跳过，不问、不覆盖（第 19 条的批量那一面）。
- * 2. **部分失败不影响其余**：第 12 章写不出正文，另外 63 章照样跑完。
+ * 2. **失败的样子各不相同**：写正文部分失败不影响其余；拆细纲一批失败就停——
+ *    后一批要接着它往下排。
  * 3. **失败留在那一章上**：toast 五秒就没了（第 16 条）。
  * 4. **没有前置产物就不跑**：没有大纲还写细纲，等于让模型凭空编四十章。
  * 5. **动手前说清调几次模型**，并发不改变这个数（第 4 条）。
@@ -23,17 +25,32 @@ const { cleanup } = require('../../helpers/teardown');
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
 
-/** 模型交回的一章细纲（D3 三节 + 规划字段）。标题与字数故意和磁盘那份不一样。 */
-const PLOT_JSON = JSON.stringify({
+/** 模型交回的一章蓝图。标题故意和磁盘那份不一样。 */
+const bp = (no, over = {}) => ({
+  chapterNumber: no,
   title: '模型起的名',
   role: '铺垫',
+  purpose: '进入宗门',
+  keyEvents: '踩点、失手、翻墙；收在藏书阁门口。',
   characters: ['林昭', '沈青'],
-  targetWords: 5000,
-  本章目的: '进入宗门',
-  关键事件: '踩点、失手、翻墙；收在藏书阁门口。',
-  章末钩子: '藏书阁里有人在等他',
+  suspenseHook: '藏书阁里有人在等他',
+  ...over,
 });
+/** 按契约里写的区间应答：「chapterNumber 必须覆盖第 3–5 章的每一章」。 */
+function blueprintsFor(messages, over = {}) {
+  const user = messages[messages.length - 1].content;
+  const m = /chapterNumber 必须覆盖第 (\d+)(?:–(\d+))? 章的每一章/.exec(user);
+  const from = Number(m?.[1] ?? 1);
+  const to = Number(m?.[2] ?? from);
+  const items = [];
+  for (let no = from; no <= to; no++) {
+    items.push(bp(no, typeof over === 'function' ? over(no) : over));
+  }
+  return JSON.stringify({ blueprints: items });
+}
 const OUTLINE = '# 大纲\n\n## 第1–20章：第一幕 · 入局\n\n- 林昭进入青云宗\n';
+/** 总章数 3：缺省的那一批收在第 3 章，下面批量写正文那几组只面对这三章。 */
+const CONFIG = '---\ntotalChapters: 3\n---\n\n# 小说配置\n\n## 核心梗概\n\n少年入宗。\n';
 
 let bundle;
 let h;
@@ -122,10 +139,12 @@ before(async () => {
     keepExamples: true,
   });
   project = t.project;
-  // 第 3 章的作者已经定了 3000 字：批量写细纲不该拿模型给的 5000 顶掉它。
-  for (const [no, title, extra] of [[1, '楔子'], [2, '入镇'], [3, '夜访', { targetWords: 3000 }]]) {
+  // 作者给第 1、3 章定了字数：批量拆细纲不该把它们抹掉。
+  for (const [no, title, extra] of [[1, '楔子', { targetWords: 5000 }], [2, '入镇'], [3, '夜访', { targetWords: 3000 }]]) {
     await skeleton(no, title, extra);
   }
+  t.write('.novelforge/config.md', CONFIG);
+  project.invalidate();
   await project.syncManifest();
 });
 
@@ -134,7 +153,7 @@ after(() => {
   if (t) cleanup(t.dir, bundle && bundle.db);
 });
 
-describe('批量写细纲 · 前置检查', () => {
+describe('批量拆细纲 · 前置检查', () => {
   let callCount;
   let toasts;
 
@@ -142,7 +161,8 @@ describe('批量写细纲 · 前置检查', () => {
     configure();
     // 没有大纲就写细纲，等于让模型凭空编三章。
     fs.writeFileSync(t.rel('.novelforge/outline.md'), '');
-    h.answers.push('开始生成');
+    project.invalidate();
+    h.answers.push('开始拆细纲');
     await bundle.batch.generatePlots(project);
     callCount = fake.calls.length;
     toasts = [...h.toasts];
@@ -162,11 +182,12 @@ describe('批量写细纲 · 前置检查', () => {
   });
 });
 
-describe('批量写细纲', () => {
+describe('批量拆细纲', () => {
   let callCount;
   let confirm;
   let sys;
-  let user;
+  let users;
+  let returned;
   let callCountAgain;
   let toastsAgain;
 
@@ -174,7 +195,7 @@ describe('批量写细纲', () => {
     fs.writeFileSync(t.rel('.novelforge/outline.md'), OUTLINE);
     configure();
 
-    // 先给第 2 章一份手写细纲——它必须原样保留。
+    // 先给第 2 章一份手写细纲——它必须原样保留，而且把区间断开。
     await wsOf(project).writePlot({
       no: 2,
       title: '入镇',
@@ -189,64 +210,65 @@ describe('批量写细纲', () => {
       },
     });
 
-    replyFn = () => PLOT_JSON;
-    h.answers.push('开始生成');
-    await bundle.batch.generatePlots(project);
+    replyFn = (messages) => blueprintsFor(messages);
+    h.answers.push('开始拆细纲');
+    returned = await bundle.batch.generatePlots(project);
 
     callCount = fake.calls.length;
     confirm = h.confirms[0];
     // 装配走的是同一个装配器 → 细纲阶段的配方里有大纲、没有正文全文。
     sys = fake.calls[0].find((m) => m.role === 'system').content;
-    user = fake.calls[0].find((m) => m.role === 'user').content;
+    users = fake.calls.map((c) => c.find((m) => m.role === 'user').content);
 
     // 再跑一次：全都有了，一次都不该调。
     configure();
-    h.answers.push('开始生成');
+    h.answers.push('开始拆细纲');
     await bundle.batch.generatePlots(project);
     callCountAgain = fake.calls.length;
     toastsAgain = [...h.toasts];
   });
 
-  // 三章里第 2 章已排过 → 只该调两次。
-  test('只为没排过细纲的章调模型', () => {
+  // 缺省区间是下一可写章起 5 章，收在总章数（3）。第 2 章排过，把区间断成两批：[1] 与 [3]。
+  test('只为没排过细纲的章调模型，跳过的章把区间断开', () => {
     assert.equal(callCount, 2, `调了 ${callCount} 次`);
+    assert.ok(users[0].includes('请输出第 1 章的细纲') && users[1].includes('请输出第 3 章的细纲'), users.map((u) => u.slice(-200)).join('\n'));
   });
 
-  // 第 4 条：动手前说清要调几次模型。
-  test('确认框里写明调用次数', () => {
-    assert.ok(confirm?.message.includes('调用 2 次模型'), JSON.stringify(confirm));
+  // 第 4 条：动手前说清要调几次模型——有自动修复，所以报预计与上限。
+  test('确认框里写明批数与调用次数', () => {
+    assert.ok(confirm?.message.includes('要拆 2 章细纲，分 2 批，预计 2 次调用，最多 6 次'), JSON.stringify(confirm));
   });
 
   test('确认框说清排过的不会被改动', () => {
-    assert.ok(confirm?.detail.includes('不会被改动'), JSON.stringify(confirm));
+    assert.ok(confirm?.detail.includes('已经排过的第 2 章跳过，不会被改动'), JSON.stringify(confirm));
   });
 
-  test('第 1 章写出细纲', async () => {
+  test('返回实际调用次数（agent 的预算记它）', () => {
+    assert.equal(returned, 2);
+  });
+
+  test('第 1、3 章写出细纲', async () => {
+    for (const no of [1, 3]) {
+      const plot = await project.getPlot(no);
+      assert.ok(bundle.plotFile.isPlotFilled(plot.sections), `${no}: ${JSON.stringify(plot.sections)}`);
+    }
+  });
+
+  test('细纲内容来自模型：三个字段对到三节', async () => {
     const plot = await project.getPlot(1);
-    assert.ok(bundle.plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
+    assert.equal(plot.sections.章末钩子, '藏书阁里有人在等他');
+    assert.equal(plot.sections.本章目的, '进入宗门');
   });
 
-  test('第 3 章写出细纲', async () => {
-    const plot = await project.getPlot(3);
-    assert.ok(bundle.plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
-  });
-
-  test('细纲内容来自模型', () => {
-    assert.ok(t.read('.novelforge/plots/001-楔子.md').includes('藏书阁里有人在等他'));
-  });
-
-  // 批量写细纲改的是三个小节与规划字段，不该把作者起的名字、定的字数抹掉。
+  // 批量拆细纲改的是三个小节与规划字段，不该把作者起的名字、定的字数抹掉。
   test('标题沿用磁盘那份，文件名不变', () => {
     assert.ok(t.has('.novelforge/plots/001-楔子.md'));
     assert.ok(!t.has('.novelforge/plots/001-模型起的名.md'));
   });
 
-  test('作者定的目标字数不被模型给的顶掉', async () => {
-    assert.equal((await project.getPlot(3)).targetWords, 3000);
-  });
-
-  test('没定字数的章收下模型给的', async () => {
+  test('作者定的目标字数原样留着', async () => {
     assert.equal((await project.getPlot(1)).targetWords, 5000);
+    assert.equal((await project.getPlot(3)).targetWords, 3000);
   });
 
   test('结构功能与计划出场收下', async () => {
@@ -263,8 +285,13 @@ describe('批量写细纲', () => {
     );
   });
 
+  // 每批写完就落盘：第二批的装配读得到第一批刚写好的第 1 章。
+  test('后一批读得到前一批刚写好的细纲', () => {
+    assert.ok(users[1].includes('踩点、失手、翻墙'), users[1].slice(0, 2000));
+  });
+
   // 上游是大纲里**覆盖本章那一节**，不是全书的指纹。
-  test('新细纲记下大纲里覆盖本章那一节的指纹', async () => {
+  test('细纲记下大纲里覆盖本章那一节的指纹', async () => {
     const plot = await project.getPlot(1);
     assert.equal(plot.upstreamHash, bundle.outlineFile.outlineUpstreamHash(OUTLINE, 1));
   });
@@ -274,23 +301,23 @@ describe('批量写细纲', () => {
   });
 
   test('装配带上了情节大纲', () => {
-    assert.ok(user.includes('林昭进入青云宗'));
+    assert.ok(users[0].includes('林昭进入青云宗'));
   });
 
   test('细纲阶段不带正文全文', () => {
-    assert.ok(!user.includes('# 前文正文'), user.slice(0, 200));
+    assert.ok(!users[0].includes('# 前文正文'), users[0].slice(0, 200));
   });
 
   // 契约是蓝图合同（purpose / keyEvents / suspenseHook 对到 D3 三节）；从前那条
   // 「不写画面台词」的禁令删掉了——关键事件可以写到具体场面。
   test('细纲契约是蓝图合同的三个正文字段', () => {
     for (const key of ['purpose', 'keyEvents', 'suspenseHook']) {
-      assert.ok(user.includes(key), `契约里没有 ${key}：${user.slice(-600)}`);
+      assert.ok(users[0].includes(key), `契约里没有 ${key}：${users[0].slice(-600)}`);
     }
   });
 
   test('细纲契约不再要老四节', () => {
-    assert.ok(!/"剧情脉络"|"冲突与转折"/.test(user), user.slice(-600));
+    assert.ok(!/"剧情脉络"|"冲突与转折"/.test(users[0]), users[0].slice(-600));
   });
 
   test('没有缺口时不调模型', () => {
@@ -298,95 +325,61 @@ describe('批量写细纲', () => {
   });
 
   test('没有缺口时给出说明', () => {
-    assert.ok(toastsAgain.some((x) => x.includes('排过细纲')), toastsAgain.join('|'));
+    assert.ok(toastsAgain.some((x) => x.includes('都已经排过细纲了')), toastsAgain.join('|'));
   });
 });
 
-describe('批量写细纲 · 部分失败', () => {
-  let stillSkeleton;
-  let warnsSnapshot;
+describe('批量拆细纲 · 一批失败就停', () => {
+  let calls;
+  let users;
   let toastsSnapshot;
   let failures;
+  let plotsAfter;
 
   before(async () => {
-    // 把第 1 章打回骨架重来，验证「解析不出就不写盘」。
-    await skeleton(1, '楔子');
+    // 这一组要第 6 章以后的章：总章数临时放到 30。
+    t.write('.novelforge/config.md', CONFIG.replace('totalChapters: 3', 'totalChapters: 30'));
+    project.invalidate();
     configure();
-    // 模型返回一段废话——严格解析认不出，绝不能写盘：
-    // 界面上会显示「已规划」，而里面什么都没有。
-    replyFn = () => '我不太确定这一章要写什么。';
-    h.answers.push('开始生成');
-    await bundle.batch.generatePlots(project);
-
-    const plot = await project.readPlot('.novelforge/plots/001-楔子.md');
-    stillSkeleton = !bundle.plotFile.isPlotFilled(plot.sections);
-    warnsSnapshot = [...warns];
+    // 模型返回一段废话——严格解码认不出，绝不能写盘：界面上会显示「已规划」，
+    // 而里面什么都没有。拆半、单章重建都救不回来。
+    replyFn = () => '我不太确定这几章要写什么。';
+    // 弹窗已经把切分与调用次数报过了：不再弹第二个确认框。
+    await bundle.batch.generatePlots(project, { range: { from: 6, to: 12 }, confirmed: true });
+    calls = fake.calls.length;
+    users = fake.calls.map((c) => c.find((m) => m.role === 'user').content);
     toastsSnapshot = [...h.toasts];
-
-    // 失败挂在那一章上，第二天回来还看得见。
-    // recordFailure 是 fire-and-forget，所以这里让出一轮事件循环再查。
     await sleep(50);
     failures = await bundle.errorLog.listActiveFailures(project);
+    plotsAfter = (await project.listPlots()).map((p) => p.no);
+    t.write('.novelforge/config.md', CONFIG);
+    project.invalidate();
   });
 
-  test('解析不出内容时不写盘', () => {
-    assert.ok(stillSkeleton);
+  test('弹窗确认过的不再弹确认框', () => {
+    assert.equal(h.confirms.length, 0, JSON.stringify(h.confirms));
   });
 
-  test('失败进日志', () => {
-    assert.ok(warnsSnapshot.some((w) => w.includes('第 1 章')), warnsSnapshot.join('|'));
+  // 第 6–10 章一批：整批解不出 → 拆出第 6–7 章 → 拆出第 6 章 → 单章重建 → 仍不行，停。
+  test('降级链走到头就停，只调了 4 次', () => {
+    assert.equal(calls, 4, users.map((u) => u.slice(-120)).join('\n'));
   });
 
-  test('失败也给出汇总 toast', () => {
-    assert.ok(toastsSnapshot.some((x) => x.includes('失败')), toastsSnapshot.join('|'));
+  // 后一批（第 11–12 章）要接着前一批往下排，前一批没成就不跑。
+  test('后一批没有跑', () => {
+    assert.ok(!users.some((u) => u.includes('第 11–12 章')), users.map((u) => u.slice(-200)).join('\n'));
   });
 
-  test('失败记录挂在细纲上', () => {
-    assert.ok(!!failures['.novelforge/plots/001-楔子.md'], JSON.stringify(Object.keys(failures)));
+  test('一份细纲都没写', () => {
+    assert.ok(!plotsAfter.some((no) => no >= 6), plotsAfter.join(','));
   });
 
-  // 只有「本章目的」的 JSON 也是解析得出来的——但它不算排过，批量写正文会照着
-  // 一个空壳写出一整章。所以批量路径把它也当失败。
-  test('只有本章目的、没有关键事件的回复也不写盘', async () => {
-    configure();
-    replyFn = () => JSON.stringify({ 本章目的: '进宗门' });
-    h.answers.push('开始生成');
-    await bundle.batch.generatePlots(project);
-    const plot = await project.getPlot(1);
-    assert.ok(!bundle.plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
-  });
-});
-
-describe('批量写细纲 · 补齐三章', () => {
-  let failures;
-
-  before(async () => {
-    // 补回第 1 章的细纲，三章齐活——下面的批量写正文要用。
-    configure();
-    replyFn = () => PLOT_JSON;
-    h.answers.push('开始生成');
-    await bundle.batch.generatePlots(project);
-    await sleep(50);
-    failures = await bundle.errorLog.listActiveFailures(project);
+  test('失败挂在那一批第一章的细纲上', () => {
+    assert.ok(!!failures['.novelforge/plots/006.md'], JSON.stringify(Object.keys(failures)));
   });
 
-  test('三章都排过细纲了', async () => {
-    const plots = await project.listPlots();
-    assert.ok(
-      plots.every((p) => bundle.plotFile.isPlotFilled(p.sections)),
-      plots.map((p) => `${p.no}:${bundle.plotFile.isPlotFilled(p.sections)}`).join('|')
-    );
-  });
-
-  // 修好了还挂着标记，用户会学会无视它。
-  test('成功之后那一章的失败标记清掉了', () => {
-    assert.ok(!failures['.novelforge/plots/001-楔子.md'], JSON.stringify(Object.keys(failures)));
-  });
-
-  // 场景那一层删掉之后这条路只剩两个动作。留一条断言钉住它——
-  // 忘记删导出的话，工程页那个菜单项还在，点了会炸。
-  test('不再导出批量拆场景', () => {
-    assert.equal(bundle.batch.breakdownScenes, undefined);
+  test('toast 说清停在哪', () => {
+    assert.ok(toastsSnapshot.some((x) => x.includes('第 6–10 章的细纲没拆成') && x.includes('已停下')), toastsSnapshot.join('|'));
   });
 });
 

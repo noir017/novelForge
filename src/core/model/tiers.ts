@@ -50,6 +50,7 @@ export type LlmTask =
   | 'plotSummary'
   | 'globalSummaryStage'
   | 'globalSummaryMerge'
+  | 'setting'
   | 'plotOutline'
   | 'manuscript'
   | 'loreScan'
@@ -63,6 +64,7 @@ export const LLM_TASKS: LlmTask[] = [
   'plotSummary',
   'globalSummaryStage',
   'globalSummaryMerge',
+  'setting',
   'plotOutline',
   'manuscript',
   'loreScan',
@@ -78,6 +80,7 @@ export const TASK_LABEL: Record<LlmTask, string> = {
   plotSummary: '单章摘要',
   globalSummaryStage: '全书摘要 · 分批汇总',
   globalSummaryMerge: '全书摘要 · 最终合并',
+  setting: '故事架构',
   plotOutline: '剧情细纲',
   manuscript: '批量写正文',
   loreScan: '设定 · 逐章识别',
@@ -93,7 +96,8 @@ export const TASK_HINT: Record<LlmTask, string> = {
   plotSummary: '一章一次调用，几十上百次；输入只有单章正文，输出是固定结构',
   globalSummaryStage: '每批一次调用，批数多且各批独立',
   globalSummaryMerge: '全书只调一次，要跨几十万字取舍主线',
-  plotOutline: '一章一次调用；要在大纲与前后章之间排出这一章的关键事件与钩子，写歪了后面全歪',
+  setting: '配置、前提、角色图谱、世界观各一次（角色图谱分两步）；全书只跑一次，后面每一章都吃它',
+  plotOutline: '每批 5 章一次调用；要在大纲与前后章之间排出这几章的关键事件与钩子，写歪了后面全歪',
   manuscript: '一章一次调用，是最烧 token 的活；文风与语气全看它',
   loreScan: '逐章通读一遍，只做事实摘录',
   loreSynthesis: '每条设定一次调用，要合并跨章事实且不能推翻作者已写的内容',
@@ -124,6 +128,7 @@ export const DEFAULT_TASK_TIERS: Record<LlmTask, ModelTier> = {
   loreScan: 'fast',
   loreSynthesis: 'balanced',
   characterCard: 'balanced',
+  setting: 'quality',
   plotOutline: 'balanced',
   manuscript: 'balanced',
   globalSummaryMerge: 'quality',

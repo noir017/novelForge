@@ -35,14 +35,26 @@ const PLOT2 = '.novelforge/plots/002-藏书阁.md';
 const CH1 = 'chapters/001-夜入青云.md';
 const CH2 = 'chapters/002-藏书阁.md';
 
-/** 细纲层的应答（D3 三节）。 */
-const PLOT_JSON = JSON.stringify({
-  role: '开篇',
-  characters: ['林昭'],
-  本章目的: '进入宗门',
-  关键事件: '踩点、失手、翻墙；收在藏书阁门口。',
-  章末钩子: '墙内有人在等他。',
-});
+/** 细纲层的应答：按契约里写的区间给一批蓝图（「chapterNumber 必须覆盖第 1–2 章的每一章」）。 */
+function plotReply(messages) {
+  const user = messages[messages.length - 1].content;
+  const m = /chapterNumber 必须覆盖第 (\d+)(?:–(\d+))? 章的每一章/.exec(user);
+  const from = Number(m?.[1] ?? 1);
+  const to = Number(m?.[2] ?? from);
+  const blueprints = [];
+  for (let no = from; no <= to; no++) {
+    blueprints.push({
+      chapterNumber: no,
+      title: '模型起的名',
+      role: '开篇',
+      purpose: '进入宗门',
+      keyEvents: '踩点、失手、翻墙；收在藏书阁门口。',
+      characters: ['林昭'],
+      suspenseHook: '墙内有人在等他。',
+    });
+  }
+  return JSON.stringify({ blueprints });
+}
 const MANUSCRIPT_TEXT = '雨下了三天。山门在雨里，林昭在门外。';
 const SUMMARY_JSON = JSON.stringify({
   梗概: '林昭夜入青云宗。',
@@ -61,7 +73,7 @@ function replyFor(messages) {
   const system = messages[0]?.content ?? '';
   if (system.includes('摘要')) return SUMMARY_JSON;
   if (system.includes('资深中文长篇小说作者')) return MANUSCRIPT_TEXT;
-  return PLOT_JSON;
+  return plotReply(messages);
 }
 
 const tool = () => bundle.tools.NOVEL_TOOLS.find((x) => x.name === 'run');
@@ -117,7 +129,13 @@ before(async () => {
     { text: '# 大纲\n\n## 第1–20章：入宗\n\n林昭入宗。\n' },
     { mode: 'overwrite' }
   );
-  // 两章细纲都只起了个头（「关键事件」空着）：批量写细纲有活可干。
+  // 全书两章：批量拆细纲的缺省区间（下一可写章起 5 章）收在第 2 章，一批就完。
+  await ws.write(
+    project.relPath(project.configPath),
+    { text: '---\ntotalChapters: 2\n---\n\n# 小说配置\n\n## 核心梗概\n\n少年入宗。\n' },
+    { mode: 'overwrite', review: false }
+  );
+  // 两章细纲都只起了个头（「关键事件」空着）：批量拆细纲有活可干。
   for (const [no, title] of [[1, '夜入青云'], [2, '藏书阁']]) {
     await ws.writePlot({
       no,
@@ -215,7 +233,7 @@ describe('定稿：还没有正文就不花钱', () => {
   });
 });
 
-describe('批量写细纲：作者不同意就什么都不做', () => {
+describe('批量拆细纲：作者不同意就什么都不做', () => {
   let r;
 
   before(async () => {
@@ -229,9 +247,9 @@ describe('批量写细纲：作者不同意就什么都不做', () => {
     assert.equal(h.confirms.length, 1, JSON.stringify(h.confirms));
   });
 
-  // 第 4 条：动手前必须写明预计调用次数。
+  // 第 4 条：动手前必须写明预计调用次数（有自动修复，所以还有上限）。
   test('确认框里写了预计调用几次', () => {
-    assert.ok(/调用 \d+ 次模型/.test(h.confirms[0].message), h.confirms[0].message);
+    assert.ok(/预计 \d+ 次调用，最多 \d+ 次/.test(h.confirms[0].message), h.confirms[0].message);
   });
 
   test('一次模型都没调', () => {
@@ -257,12 +275,12 @@ describe('批量写细纲：作者不同意就什么都不做', () => {
   });
 });
 
-describe('批量写细纲：作者同意', () => {
+describe('批量拆细纲：作者同意', () => {
   let r;
 
   before(async () => {
     resetCtx();
-    h.expect('开始生成');
+    h.expect('开始拆细纲');
     r = await run({ action: 'batchPlots' });
   });
 
@@ -271,7 +289,7 @@ describe('批量写细纲：作者同意', () => {
     assert.ok(plots.every((p) => bundle.plotFile.isPlotFilled(p.sections)), JSON.stringify(plots.map((p) => p.sections)));
   });
 
-  // 批量写细纲改的是三个小节与规划字段：作者起的标题不该被抹掉。
+  // 批量拆细纲改的是三个小节与规划字段：作者起的标题不该被抹掉。
   test('标题沿用磁盘那份', async () => {
     const plot = await project.readPlot(PLOT1);
     assert.equal(plot.title, '夜入青云');
@@ -282,26 +300,27 @@ describe('批量写细纲：作者同意', () => {
     assert.deepEqual(plot.characters, ['林昭']);
   });
 
-  test('调了两次模型', () => {
-    assert.equal(fake.calls.length, 2, String(fake.calls.length));
+  // 两章一批：一次调用出两份。
+  test('两章一批，调了一次模型', () => {
+    assert.equal(fake.calls.length, 1, String(fake.calls.length));
   });
 
-  // ★ 弹窗写着 2 次，账上就得记 2 次。
-  test('预计次数报了出去', () => {
-    assert.equal(ctx.usage.calls, 2);
+  // ★ 实际调了几次，账上就记几次。
+  test('调用次数报了出去', () => {
+    assert.equal(ctx.usage.calls, 1);
   });
 
   test('用量在气泡里说出来了', () => {
-    assert.ok(reports.some((m) => m.includes('2')), JSON.stringify(reports));
+    assert.ok(reports.some((m) => m.includes('1')), JSON.stringify(reports));
   });
 
   test('返回文本里有次数', () => {
-    assert.ok(r.text.includes('2 次'), r.text);
+    assert.ok(r.text.includes('1 次'), r.text);
   });
 
   test('没事可做时再调一次不花钱', async () => {
     resetCtx();
-    h.expect('开始生成');
+    h.expect('开始拆细纲');
     const again = await run({ action: 'batchPlots' });
     assert.equal(fake.calls.length, 0, String(fake.calls.length));
     assert.equal(ctx.usage.calls, 0);
