@@ -1,16 +1,20 @@
 import { LayerId } from '../types';
 import {
+  guidance,
   outlineDoc,
   outlineSlice,
+  plotAhead,
   plotList,
   plotNext,
   plotPrev,
   plotSelf,
+  premiseWorld,
   rosterDoc,
   settingDocs,
   structure,
 } from './artifacts';
 import {
+  chapterSoFar,
   characters,
   globalSummary,
   lore,
@@ -29,6 +33,8 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   attachments,
   history,
   settingDocs,
+  guidance,
+  premiseWorld,
   rosterDoc,
   outlineDoc,
   outlineSlice,
@@ -37,6 +43,8 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   plotSelf,
   plotPrev,
   plotNext,
+  plotAhead,
+  chapterSoFar,
   style,
   globalSummary,
   characters,

@@ -42,6 +42,7 @@ import {
   ROSTER_MAX,
   ROSTER_MIN,
   STAGE_ROLE,
+  WriteMode,
   outputKindOf,
 } from '../model/pipeline';
 import { BLUEPRINT_LIMITS } from '../model/plotFile';
@@ -74,6 +75,14 @@ export interface PromptFacts {
   book?: BookConfig;
   /** 目标章的章号（单章细纲要写「第 N 章」）。 */
   no?: number;
+  /** 本章细纲里执行卡要重列的几项（写正文时）。 */
+  plot?: { keyEvents: string; hook: string };
+  /** 作者这一轮说的话：写正文时它是「作者本章指导」，进执行卡。 */
+  ask?: string;
+  /** 写正文的写法（`continue` 时契约改成「只写新增的那一段」）。 */
+  writeMode?: WriteMode;
+  /** 「接着写」时这一章已经有多少字（算「还差多少」）。续写那几轮由 `step.written` 给。 */
+  written?: number;
 }
 
 /** 每个阶段管什么、**不管**什么。后半句同样要紧：越界是这套设计最主要的失败方式。 */
@@ -140,32 +149,15 @@ function ethosOf(stage: CreationStage, target?: CreationTarget): string | undefi
 /**
  * 系统提示词。
  *
- * 正文阶段的六条硬性要求逐字保留——它们是这个项目跑了很久、调出来的东西
- * （不复述前情、不写章节标题、不强行收束…），换个说法就等于重新试错一遍。
+ * 正文阶段的前五条硬性要求逐字保留——它们是这个项目跑了很久、调出来的东西
+ * （不复述前情、不写章节标题…），换个说法就等于重新试错一遍。其余移植自上游，见
+ * {@link manuscriptSystemPrompt}。
  */
 export function buildSystemPrompt(action: CreationAction, config: NovelConfig, facts: PromptFacts = {}): string {
   const { stage, capability } = action;
-  const targetWords = facts.targetWords;
 
-  // 正文 + 出稿：沿用原有的写作提示词。那六条是这个项目跑了很久调出来的；
-  // 去 AI 味的禁令、执行卡与后五章边界随三期一起进来。
   if (stage === 'manuscript' && capability === 'generate') {
-    const lines = [
-      '你是一位资深中文长篇小说作者，正在为一部已连载的作品续写新的章节。',
-      '',
-      '硬性要求：',
-      '1. 严格贴合已给出的文风指南与上文语气，读者应当感觉不到换人执笔。',
-      '2. 人物的性格、称谓、说话习惯必须与角色设定一致，不得凭空改变人物关系或已确立的设定。',
-      '3. 完整落实本章细纲里的每一个关键事件，按顺序推进，写成有场景、有对白、有细节的成稿。',
-      '4. 不要复述前情，不要写「上回说到」，直接从上一章结尾的情境自然接续。',
-      '5. 只输出正文。不要输出章节标题、小标题、分隔线、创作说明、字数统计或任何元信息。',
-      '6. 不要在结尾强行收束或做总结陈词，留出继续往下写的余地。',
-    ];
-    if (targetWords) {
-      lines.push(`7. 篇幅控制在约 ${targetWords} 字。`);
-    }
-    lines.push('', `叙事语言：简体中文。温度设定 ${config.temperature}，请在保持稳定的前提下让文字有生气。`);
-    return lines.join('\n');
+    return manuscriptSystemPrompt(config, facts);
   }
 
   const producing = outputKindOf(action) === 'artifact';
@@ -191,6 +183,180 @@ export function buildSystemPrompt(action: CreationAction, config: NovelConfig, f
 
   lines.push('', '语言：简体中文。');
   return lines.join('\n');
+}
+
+// ---------------------------------------------------------------- 正文
+
+/**
+ * 去 AI 味的禁令（D8）。移植自 `first_chapter_draft` / `next_chapter_draft` 的
+ * 「AI 味反制」（PT:776-780、850-854），一字不改地写进每一次写正文的系统提示。
+ */
+export const ANTI_AI_RULES: readonly string[] = [
+  '禁止段尾总结句（如「他知道，这一切才刚刚开始」「命运的齿轮开始转动」）',
+  '「仿佛」「犹如」「宛如」全章合计不超过 3 次',
+  '对话必须区分角色语气：不同角色的说话方式必须有辨识度',
+  '禁止在结尾添加与正文无关的哲理感悟或旁白总结',
+];
+
+/** 这一次写的是第 1 章：上游第 1 章与后续章各一套提示词（PT:720-855）。 */
+function isFirstChapter(facts: PromptFacts): boolean {
+  return facts.no === 1;
+}
+
+/**
+ * 写正文的系统提示。移植自 `first_chapter_draft` / `next_chapter_draft` 的
+ * `systemRole` 与 `systemSuffix`（PT:724、758-780、787、831-854）。
+ *
+ * 原有的六条硬性要求保留了前五条。第 6 条从前是「不要在结尾强行收束，留出继续往下写的
+ * 余地」——那是一段细纲拆成几章写时的规矩；一章一纲之后这一章就该停在细纲的钩子上，
+ * 于是换成上游的「按约定的结束状态收束」。
+ *
+ * 上游的「不可偏离的作者事实」在它那里是把故事架构全文塞进系统提示；这里事实由装配器
+ * 分层给出，系统提示只留那条规矩本身。
+ */
+function manuscriptSystemPrompt(config: NovelConfig, facts: PromptFacts): string {
+  const first = isFirstChapter(facts);
+  const words = facts.targetWords;
+  const pov = facts.book?.pov ? NARRATIVE_POV_LABEL[facts.book.pov] : undefined;
+  const rules = [
+    '1. 严格贴合已给出的文风指南与上文语气，读者应当感觉不到换人执笔。',
+    '2. 人物的性格、称谓、说话习惯必须与角色设定一致，不得凭空改变人物关系或已确立的设定。',
+    '3. 完整落实本章细纲里的每一个关键事件，按顺序推进，写成有场景、有对白、有细节的成稿。',
+    first
+      ? '4. 不要用长篇大论介绍世界观，设定只在情节需要时通过动作与对话带出来。'
+      : '4. 不要复述前情，不要写「上回说到」，直接从上一章结尾的情境自然接续。',
+    '5. 只输出正文。不要输出章节标题、小标题、分隔线、创作说明、字数统计或任何元信息，也不要用 Markdown 符号（* 、# 之类）。',
+    '6. 按本章细纲约定的结束状态或章末钩子收束；不在结尾做总结陈词，不擅自新增高潮、突发变故或后续章节的事件。',
+    ...(words ? [`7. 篇幅约 ${words} 字。`] : []),
+  ];
+  return [
+    first
+      ? '你是一位经验丰富的中文长篇小说作者，正在为一部新作写第一章。尊重作者事实，通过具体场景、动作、感官细节和有区分度的对话推进因果，不输出思考过程或元话术。'
+      : '你是一位经验丰富的中文长篇小说作者，正在为一部连载作品写新的一章。保持长篇连续性，通过角色主动选择、阻力和代价推进本章，不输出思考过程或元话术。',
+    '',
+    '硬性要求：',
+    ...rules,
+    '',
+    '【不可偏离的作者事实】',
+    '故事架构、小说配置与角色卡里作者明确写下的设定是不可改写的事实源：不得删除、弱化、反转或用类型惯例替换；本章暂不展开的事实也不得写出相反的内容。',
+    '',
+    '【文风适用边界】',
+    '- 文风仅用于选择表达方式，不是新增事实或事件要求，无需逐条强行兑现。',
+    '- 作者明确的事实与要求、实际前文、本章关键因果和本章篇幅优先。不得用文风改写这些内容，也不要只为兑现文风去增加场景、动作或事件。',
+    '',
+    '【格式】',
+    '- 所有对话使用中文双引号，不写剧本式对白。',
+    '- 段落与段落之间空一行，不要把多个段落挤成一大块。',
+    '- 一次写不到目标字数时停在自然段落末尾，不要写「继续生成」「未完待续」之类的提示。',
+    ...(pov ? [`- 叙事视角：${pov}。不写视角人物不可能知道或看见的事。`] : []),
+    '',
+    '【AI 味反制——以下模式严禁出现】',
+    ...ANTI_AI_RULES.map((r) => `- ${r}`),
+    '',
+    `叙事语言：简体中文。温度设定 ${config.temperature}，请在保持稳定的前提下让文字有生气。`,
+  ].join('\n');
+}
+
+/**
+ * 写正文的输出契约：法则 + 篇幅合同 + 执行卡，**执行卡压在最末**（上游 GD:657 的顺序：
+ * 模型对末尾的指令最敏感，「这一章要落实哪几件事」得是它读到的最后一件事）。
+ *
+ * 三种情形：
+ * - 第 1 章：「黄金第一章」四条（PT:750-754）；
+ * - 后续章：「连载更新核心法则」五条（PT:822-827）；
+ * - 接着写 / 续写那几轮：只写新增的那一段（GD:1010-1018），恢复那一轮前面加一句（GD:999-1007）。
+ */
+function manuscriptContract(facts: PromptFacts): string {
+  const words = facts.targetWords;
+  const step = facts.step?.kind === 'continuation' ? facts.step : undefined;
+  const continuing = !!step || facts.writeMode === 'continue';
+  const lines: string[] = [];
+
+  if (continuing) {
+    const written = step?.written ?? facts.written;
+    const remaining = step ? step.remaining : words && written !== undefined ? Math.max(0, words - written) : undefined;
+    if (step?.recovery) {
+      lines.push(
+        '上一轮续写达到输出上限且没有增加足够的新正文，已被全部丢弃。',
+        '这是本次任务唯一一次无进展恢复机会：请直接推进下一事件、动作或对话，禁止复述已写末尾。',
+        ''
+      );
+    }
+    lines.push(
+      '请无缝续写当前章节正文（已写的部分见上面「本章已写正文」）。',
+      '',
+      '【硬性要求】',
+      '- 只输出新增正文，不要复述已写内容。',
+      '- 从已写正文末尾自然接下去，保持同一场景逻辑或合理转场。',
+      remaining !== undefined && remaining > 0
+        ? `- 本次续写尽可能完成剩余约 ${remaining} 字；如果无法达到，停在自然段落末尾。`
+        : '- 写到本章细纲约定的结束状态为止；如果一次写不完，停在自然段落末尾。',
+      '- 不要输出标题、解释、总结、Markdown、思考过程或「点我继续」。',
+      '- 避免重复已写正文中的整句、整段、动作链和意象。',
+      '- 不提前写后续章节，只完成本章细纲允许的内容。'
+    );
+  } else if (isFirstChapter(facts)) {
+    lines.push(
+      '请开始创作这本小说的第一章（破冰章）。',
+      '',
+      '【网文「黄金第一章」创作法则】',
+      '1. 开场即高能（黄金三秒）：绝不要用长篇大论介绍世界观。起笔第一句必须直接切入一个动作、一次高压审问、一场追杀或一个极具落差感的现场。',
+      '2. 仅当本章细纲明确要求时才展现主角的金手指；不得为满足通用套路擅自新增事件。',
+      '3. 视角内推进：通过动作、感官、内心活动和符合当前视角的对话推动剧情；不得仅为展示信息而让角色公开说出只由其私下感知、尚未转述的内容。',
+      '4. 落实全局要求，避开其中列出的写作问题。'
+    );
+  } else {
+    lines.push(
+      '你正在连载写作最新章节。',
+      '',
+      '【网文连载更新核心法则】',
+      '1. 向前推进：前情提要、摘要和上一章结尾记录的是已经发生的事；本章细纲与后续章节预告里的事都还没有发生。第一段必须从上一章的最终状态之后推进本章的新事件；不得引用、摘要、回放或重演上一章结尾中的句子、动作和意象，也不要场景瞬移或突兀切换视角。',
+      '2. 动作与神态驱动：用动态的描写推动剧情，不要写「他们聊了很久」，用拔剑声、茶水滴落声、瞳孔的骤缩来代替。',
+      `3. 落实本章核心冲突：${words ? `用约 ${words} 字的篇幅，` : ''}踏踏实实地推演完本章目标，避免平淡流水账。`,
+      '4. 章节收束：仅落实本章细纲明确要求的悬念或结束状态；未明确要求时自然断章，不得擅自新增高潮、突发变故或后续事件。',
+      '5. 落实全局要求，避开其中列出的写作问题；与上文的语气、称谓、时态保持一致。'
+    );
+  }
+
+  if (words && !continuing) {
+    const low = Math.round(words * 0.8);
+    const high = Math.round(words * 1.2);
+    lines.push(
+      '',
+      '【本章篇幅合同】',
+      `目标 ${words} 字；可接受范围 ${low}–${high} 字（±20%）。在此篇幅内完整落实本章细纲中的全部作者任务和必需事件；不得为满足篇幅而删除、改写或截断这些要求，也不要为凑字数增加无关内容。`
+    );
+  }
+
+  const card = executionCard(facts);
+  if (card) {
+    lines.push('', card);
+  }
+  lines.push('', continuing ? '现在接着写。只输出新增的小说正文。' : '现在开始写作。只输出小说正文，不要输出任何标题、序号、解释、总结或「以下是」之类的话。');
+  return lines.join('\n');
+}
+
+/**
+ * 本章执行卡：把细纲里「必须落实的事」在消息最末原样重列一遍。移植自 GD:645-656。
+ *
+ * **补上上游的缺口**：单章入口（`chapter-creation-parameters.ts:43-58`）不收章末钩子，
+ * 那条路上执行卡里只有必需事件——这里钩子一律从细纲里取。
+ */
+function executionCard(facts: PromptFacts): string | undefined {
+  const items: [string, string | undefined][] = [
+    ['必需事件', facts.plot?.keyEvents],
+    ['章节钩子', facts.plot?.hook],
+    ['作者本章指导', facts.ask],
+  ];
+  const filled = items.filter(([, v]) => v?.trim());
+  if (filled.length === 0) {
+    return undefined;
+  }
+  return [
+    '【本章执行卡（细纲原文重列）】',
+    '以下各项是本章应落实的动作和收束，不是新增事实。请在输出前核对各项已通过正文里的动作或结果落实；后一项动作必须承接正文实际形成的物品持有、人物知情和计划完成状态。',
+    ...filled.map(([k, v]) => `- ${k}：${v!.trim()}`),
+  ].join('\n');
 }
 
 // ---------------------------------------------------------------- 规模与题材
@@ -253,7 +419,7 @@ export function buildOutputContract(action: CreationAction, facts: PromptFacts =
     case 'plot':
       return blueprintContract(facts);
     case 'manuscript':
-      return `现在开始写作。只输出小说正文，不要输出任何标题、序号、解释、总结或「以下是」之类的话。`;
+      return manuscriptContract(facts);
   }
 }
 

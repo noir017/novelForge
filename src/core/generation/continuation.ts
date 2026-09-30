@@ -11,8 +11,9 @@ import { StopSignal } from '../llm/provider';
 import { countWords } from '../model/fs';
 import { MANUSCRIPT_DONE_RATIO, MAX_CONTINUE_ROUNDS } from '../model/pipeline';
 
-/** 续写时带已写正文的最后多少字（上游 `CONTINUE_PROMPT_MAX_CHARS`）。 */
-export const CONTINUE_TAIL_CHARS = 1600;
+// 续写时带已写正文的最后 1600 字：取法在装配那一层（「接着写」的第一次调用也要它）。
+export { CONTINUE_TAIL_CHARS, continuationTail } from '../context/layers/render';
+
 /** 一轮续写少于这么多字算「没进展」（上游 GD:1121）。 */
 export const MIN_ROUND_GAIN = 300;
 /** 被截断、而正文还不到这么多字：输出预算被思考吃光了（上游 GD:973-986）。 */
@@ -131,17 +132,6 @@ export function joinContinuation(existing: string, addition: string): { text: st
   }
   const added = kept.join('\n\n');
   return { text: [base, added].filter(Boolean).join('\n\n'), added };
-}
-
-/** 已写正文的最后 {@link CONTINUE_TAIL_CHARS} 字，开头对齐到段落边界。续写的提示词里带它。 */
-export function continuationTail(text: string, max = CONTINUE_TAIL_CHARS): string {
-  const trimmed = text.trim();
-  if (trimmed.length <= max) {
-    return trimmed;
-  }
-  const slice = trimmed.slice(-max);
-  const br = slice.indexOf('\n');
-  return (br !== -1 && br < max * 0.25 ? slice.slice(br + 1) : slice).trimStart();
 }
 
 /** 两段文字合起来有多少字：`continue` 写法下「这一章写到多少字了」要连已有的一起算。 */

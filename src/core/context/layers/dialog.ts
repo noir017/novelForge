@@ -11,6 +11,7 @@ import { ATTACHMENT_NOTE, resolveAttachment } from './render';
  */
 export function promptFactsOf(a: Pick<Assembly, 'request' | 'book' | 'focus'>): PromptFacts {
   const r = a.request;
+  const plot = a.focus.plot;
   return {
     target: r.target,
     targetWords: r.targetWords,
@@ -19,6 +20,10 @@ export function promptFactsOf(a: Pick<Assembly, 'request' | 'book' | 'focus'>): 
     step: r.step,
     book: a.book,
     no: Number.isFinite(a.focus.no) ? a.focus.no : undefined,
+    plot: plot ? { keyEvents: plot.sections.关键事件, hook: plot.sections.章末钩子 } : undefined,
+    ask: r.ask,
+    writeMode: r.writeMode,
+    written: r.writeMode === 'continue' ? a.focus.chapter?.wordCount : undefined,
   };
 }
 

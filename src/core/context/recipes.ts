@@ -12,7 +12,7 @@
  * 所以有几处刻意的抬高，见下面的 ★。
  */
 import { Capability, CreationStage } from '../model/pipeline';
-import { LayerSpec } from './types';
+import { ChainStep, LayerSpec } from './types';
 
 /** 单条附件最多吃掉多少预算——用户 @ 一个大文件不该把前文全挤掉。 */
 const ATTACHMENT_CAP = 0.35;
@@ -38,7 +38,7 @@ const SETTLE_HISTORY_CAP = 0.6;
  * 对话本身」，任何阶段都不能少。差别从第五层开始。
  *
  * 架构、大纲、细纲三张按总计划 §2.3 排（二期）：设定四件一律 P0，大纲带故事结构指导，
- * 细纲带覆盖本批的那几节大纲与前序细纲一览。正文那一张的执行卡与后五章边界随三期进来。
+ * 细纲带覆盖本批的那几节大纲与前序细纲一览。正文那一张（三期）带执行卡、后五章边界与全局要求。
  */
 export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // ---------------------------------------------------------------- 架构
@@ -111,21 +111,32 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   ],
 
   // ---------------------------------------------------------------- 正文
-  // 唯一保留全套装配的阶段。
-  // ★ 文风指南升到 P0 force：它决定读者感不感觉到换人执笔，不该跟一段长对话
-  //   抢预算。这是分阶段装配最直接的质量收益。
+  // 唯一保留全套装配的阶段。按总计划 §2.3 排（三期），移植自 AI-Novel-Writer 的
+  // `next_chapter_draft` 材料包（GD:431-660）。
+  //
+  // ★ 文风指南 P0 force：它决定读者感不感觉到换人执笔，不该跟一段长对话抢预算。
   // ★ `plotSelf` P0 force：细纲**就是**写正文的依据。少了它，模型手上只有文风与
   //   前文尾巴，会自己编一章出来。
+  // ★ `guidance` P0 force：小说配置的「全局要求」是作者定下的跨章规矩，每一章都得守。
+  // ★ `plotAhead` P0 force：后 5 章的细纲是**边界**。没有它，模型写到钩子时最顺手的
+  //   就是把下一章的事提前演掉。
+  // ★ `chapterSoFar` P0 force：「接着写」要从本章已写的末尾往下接，少了它就是另起一章。
+  // 执行卡与篇幅合同不是层：由输出契约拼在消息最末（上游 GD:657 的顺序）。
   manuscript: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
     { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
     { layer: 'style', priority: 0, force: true },
+    { layer: 'guidance', priority: 0, force: true },
     { layer: 'plotSelf', priority: 0, force: true },
     { layer: 'prevTail', priority: 0, force: true },
+    { layer: 'plotAhead', priority: 0, force: true },
+    { layer: 'chapterSoFar', priority: 0, force: true },
     { layer: 'revision', priority: 0, force: true },
-    { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'characters', priority: 1 },
+    { layer: 'premiseWorld', priority: 1 },
+    { layer: 'outlineSlice', priority: 1 },
+    { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'globalSummary', priority: 2 },
     { layer: 'lore', priority: 2 },
     { layer: 'manuscriptFull', priority: 3 },
@@ -134,13 +145,37 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
 };
 
 /**
+ * 正文续写那几轮的配方（generation/continuation.ts）。
+ *
+ * 上游续写时把整个材料包再发一遍（GD:1036）。这里只带「接着写」真正要看的：这一章要落实
+ * 什么（细纲）、不许写到哪（边界）、从哪接（已写末尾）、怎么写（文风、全局要求）、谁在场
+ * （出场角色）。前情摘要、前几章全文这些第一次调用已经用过了，那一场怎么开头已经写在
+ * 已写的正文里——再发一遍只是让每一轮都付一次全价。
+ */
+const CONTINUATION_RECIPE: LayerSpec[] = [
+  { layer: 'system', priority: 0, force: true },
+  { layer: 'ask', priority: 0, force: true },
+  { layer: 'style', priority: 0, force: true },
+  { layer: 'guidance', priority: 0, force: true },
+  { layer: 'plotSelf', priority: 0, force: true },
+  { layer: 'plotAhead', priority: 0, force: true },
+  { layer: 'chapterSoFar', priority: 0, force: true },
+  { layer: 'characters', priority: 1 },
+];
+
+/**
  * 取某阶段的配方。
  *
  * `capability` 只影响一处：`settle` 要把历史对话抬成 P0 并放宽封顶。做成
  * 「按能力微调既有配方」而不是再写一张完整配方，是因为其余十一层与
  * `generate` 一模一样——复制一份，下次改剧情层的装配策略就会漏掉一边。
+ *
+ * `step` 是续写那几轮时换成精简配方（见 {@link CONTINUATION_RECIPE}）。
  */
-export function recipeFor(stage: CreationStage, capability?: Capability): LayerSpec[] {
+export function recipeFor(stage: CreationStage, capability?: Capability, step?: ChainStep): LayerSpec[] {
+  if (stage === 'manuscript' && step?.kind === 'continuation') {
+    return CONTINUATION_RECIPE;
+  }
   const recipe = STAGE_RECIPES[stage] ?? STAGE_RECIPES.manuscript;
   if (capability !== 'settle') {
     return recipe;

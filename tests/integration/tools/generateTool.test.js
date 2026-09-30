@@ -257,7 +257,7 @@ describe('给章节路径：按章号认成正文层', () => {
   });
 
   test('系统提示是作者的身份', () => {
-    assert.ok(lastSystem().includes('资深中文长篇小说作者'), lastSystem().slice(0, 60));
+    assert.ok(lastSystem().includes('中文长篇小说作者，正在为'), lastSystem().slice(0, 60));
   });
 
   // 细纲是写正文的依据：认对了号，那一章的细纲就在上下文里。

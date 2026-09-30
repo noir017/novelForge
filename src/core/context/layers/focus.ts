@@ -1,5 +1,5 @@
 import { plotOfTarget, CreationTarget } from '../../model/pipeline';
-import { Plot, parsePlotFileName } from '../../model/plotFile';
+import { Plot, isPlotFilled, parsePlotFileName } from '../../model/plotFile';
 import { NovelProject } from '../../model/project';
 import { Chapter } from '../../model/types';
 import { BuildRequest, LayerId, LayerSpec } from '../types';
@@ -8,6 +8,12 @@ import { basename } from 'node:path';
 /** 写/改某一章时，前后各带几章**细纲**。摘要不受这个数限制（它便宜得多）。 */
 export const PREV_PLOTS = 3;
 export const NEXT_PLOTS = 1;
+/**
+ * 写正文时往后看几章的细纲（边界）。移植自 AI-Novel-Writer 的「后续章节大纲预告」
+ * （GD:464-466：`chapterNumber > N && chapterNumber <= N + 5`）——按章号算窗口，
+ * 不是「后面排过的五章」：第 N+9 章的事离这一章太远，写进边界只会让模型分心。
+ */
+export const AHEAD_PLOTS = 5;
 
 /**
  * 一章在装配器眼里的样子：细纲与正文各有可能缺席。
@@ -45,6 +51,10 @@ export interface Focus {
   prevPlots: ChapterRef[];
   /** 紧邻的后一章（`plotNext` 用）。它已经排好时，本章的收尾要接得上它的开头。 */
   nextPlots: ChapterRef[];
+  /** 后 {@link AHEAD_PLOTS} 章里排过细纲的（`plotAhead` 用），按章号升序。 */
+  aheadPlots: ChapterRef[];
+  /** 目标章自己的正文（「接着写」要从它的末尾往下接）。还没写时缺席。 */
+  chapter?: Chapter;
 }
 
 /** 按配方只读用得上的文件。 */
@@ -115,6 +125,10 @@ export async function resolveFocus(
     // 「上文」只在有细纲时才有内容可带（那一层渲染的是细纲的小节）。
     prevPlots: wants('plotPrev') ? previous.filter((c) => c.plot).slice(-PREV_PLOTS) : [],
     nextPlots: wants('plotNext') ? following.filter((c) => c.plot).slice(0, NEXT_PLOTS) : [],
+    aheadPlots: wants('plotAhead')
+      ? following.filter((c) => c.no <= last + AHEAD_PLOTS && c.plot && isPlotFilled(c.plot.sections))
+      : [],
+    chapter: Number.isFinite(no) ? byNo.get(no)?.chapter : undefined,
   };
 }
 

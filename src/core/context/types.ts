@@ -5,7 +5,7 @@
  * 引用配方里的 cap/force）之间的循环引用——两边都只依赖这里，谁也不依赖谁。
  */
 import { AgentMessage } from '../llm/provider';
-import { CreationAction, CreationTarget } from '../model/pipeline';
+import { CreationAction, CreationTarget, WriteMode } from '../model/pipeline';
 import { Attachment, ChatTurn } from '../model/session';
 
 /** 上下文条目在 prompt 中的分层，数字越小越先保证。 */
@@ -23,10 +23,16 @@ export type ItemKind =
   | 'history'
   /** 架构层的一份文档（小说配置 / 故事前提 / 世界观 / 角色图谱一览）。 */
   | 'setting'
+  /** 小说配置里的「全局要求」：跨章的写作规则，写正文时单独成段。 */
+  | 'guidance'
   /** 故事结构指导（按总章数算好的章号区间）。是指令，不是产物。 */
   | 'guide'
   /** 前序细纲一览：一章一行的目录进度（细纲批次用）。 */
   | 'plotList'
+  /** 后几章的细纲：写正文时的边界——知道后面要发生什么，才不会在这一章提前写掉。 */
+  | 'boundary'
+  /** 本章已经写好的正文末尾：「接着写」与续写那几轮从这里往下接。 */
+  | 'chapterSoFar'
   /** 情节大纲原文。与 `ask` 分开：一个是产物，一个是这一轮的指令。 */
   | 'outlineDoc'
   /** 一章的细纲。 */
@@ -78,6 +84,10 @@ export type LayerId =
   // 产物
   /** 架构层的三份文档，填过的才带。 */
   | 'settingDocs'
+  /** 小说配置的「全局要求」一节。写正文时单独带、强制带（上游每一章都带它）。 */
+  | 'guidance'
+  /** 写正文用的架构：小说配置（除全局要求）、故事前提、世界观，一件一条。 */
+  | 'premiseWorld'
   /** 角色图谱一览：全部角色卡压成一人一段（名字、定位、身份、人物关系）。 */
   | 'rosterDoc'
   | 'outlineDoc'
@@ -92,6 +102,10 @@ export type LayerId =
   | 'plotPrev'
   /** 后一章的细纲原文（下文）。有了它，这一章的收尾才接得上已经排好的下一章。 */
   | 'plotNext'
+  /** 后 5 章的细纲，一章一行：写正文时的边界（「禁止提前写」）。 */
+  | 'plotAhead'
+  /** 本章已经写好的正文末尾（「接着写」与续写那几轮）。 */
+  | 'chapterSoFar'
   // 背景
   | 'style'
   | 'globalSummary'
@@ -131,6 +145,12 @@ export interface BuildRequest {
   /** 目标字数，写进 prompt 指令。 */
   targetWords?: number;
   /**
+   * 写正文的写法（model/pipeline.ts 的 `WriteMode`）。生成层按磁盘定好了再交过来：
+   * `continue` 时装配器带上本章已写正文的末尾、契约改成「只写新增的那一段」；
+   * `rewrite` 时上一版正文经 `revision` 带进来。缺省按 `write`。
+   */
+  writeMode?: WriteMode;
+  /**
    * 这一步覆盖的章号区间：大纲写哪一段、细纲拆哪一批（**给了就是一批**）。
    * 前文的边界取 `from`，后文从 `to` 之后算起。
    */
@@ -163,7 +183,13 @@ export type ChainStep =
   /** 角色图谱第二步：按冻结的身份清单补这几个人的详情。 */
   | { kind: 'rosterDetails'; manifest: string; slotIds: string[]; done: string }
   /** 细纲批次里某一章的紧凑重建：上一次截断或解不出来，只重做这一章。 */
-  | { kind: 'blueprintCompact'; diagnostic?: string };
+  | { kind: 'blueprintCompact'; diagnostic?: string }
+  /**
+   * 正文的续写那几轮（generation/continuation.ts）。`tail` 是已写正文的最后 1600 字，
+   * `written` 是这一章到此为止的总字数，`remaining` 是离目标还差多少字（没有目标时缺席）。
+   * `recovery`：上一轮被截断又没写出新东西、已经丢掉了，这是唯一一次恢复机会。
+   */
+  | { kind: 'continuation'; tail: string; written: number; remaining?: number; recovery: boolean };
 
 /** 一章已经排好、还没落盘的细纲，给前序细纲一览用。 */
 export interface DraftPlotLine {

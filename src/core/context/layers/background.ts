@@ -3,6 +3,7 @@ import { estimateTokens, takeTail } from '../tokenizer';
 import type { LayerFn } from './assembly';
 import { readChapterText, readPrevManuscript } from './focus';
 import {
+  continuationTail,
   focusText,
   isPlaceholder,
   matchesKeywords,
@@ -109,7 +110,9 @@ export const lore: LayerFn = async (a, spec) => {
 
 export const prevTail: LayerFn = async (a, spec) => {
   const prev = a.focus.previous[a.focus.previous.length - 1];
-  if (!prev || a.config.prevChapterTailChars <= 0) {
+  // 「接着写」不带：这一章的开头早就从上一章结尾接过了，要接的是本章已写的末尾
+  // （`chapterSoFar`）。两个「从这里接下去」摆在一起，模型会跳回上一章去。
+  if (!prev || a.config.prevChapterTailChars <= 0 || a.request.writeMode === 'continue') {
     return;
   }
   const manuscript = await readPrevManuscript(a.project, a.focus);
@@ -289,6 +292,44 @@ export const plotSummary: LayerFn = async (a, spec) => {
       tokens
     );
   }
+};
+
+/**
+ * 本章已经写好的正文末尾（最后 1600 字）：「接着写」与续写那几轮从这里往下接。
+ *
+ * 两个来处：续写那几轮由生成链把「已写到哪」直接给过来（`step.tail`，含这一次刚写、
+ * 还没落盘的部分）；「接着写」的第一次调用读磁盘上这一章的正文。**只带末尾**——
+ * 上游续写也只带 1600 字（GD:998）：接得上靠的是最后那一场，整章塞进去只是贵。
+ */
+export const chapterSoFar: LayerFn = async (a, spec) => {
+  const step = a.request.step?.kind === 'continuation' ? a.request.step : undefined;
+  let text = step?.tail ?? '';
+  let written = step?.written ?? 0;
+  let source: string | undefined;
+  if (!step) {
+    if (a.request.writeMode !== 'continue' || !a.focus.chapter) {
+      return;
+    }
+    const body = await a.project.readChapterText(a.focus.chapter);
+    text = continuationTail(body);
+    written = a.focus.chapter.wordCount;
+    source = a.focus.chapter.relPath;
+  }
+  if (!text.trim()) {
+    return;
+  }
+  a.admit(
+    {
+      id: 'chapterSoFar',
+      kind: 'chapterSoFar',
+      priority: spec.priority,
+      label: `本章已写正文 · 末尾（全章已有 ${written} 字）`,
+      source,
+      text,
+      note: '只带最后一段，从这里往下接',
+    },
+    { force: spec.force }
+  );
 };
 
 export const revision: LayerFn = async (a, spec) => {

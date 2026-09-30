@@ -93,6 +93,25 @@ export function tailByChars(text: string, chars: number): string {
   return `……（前略）\n\n${slice.trimStart()}`;
 }
 
+/** 续写时带已写正文的最后多少字（AI-Novel-Writer 的 `CONTINUE_PROMPT_MAX_CHARS`）。 */
+export const CONTINUE_TAIL_CHARS = 1600;
+
+/**
+ * 已写正文的最后 {@link CONTINUE_TAIL_CHARS} 字，开头对齐到段落边界。
+ *
+ * 与 {@link tailByChars} 的差别是**不加「（前略）」**：这一段是要让模型从末尾接着写的，
+ * 开头多一行说明，模型会以为那也是正文的一部分、跟着学。
+ */
+export function continuationTail(text: string, max = CONTINUE_TAIL_CHARS): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) {
+    return trimmed;
+  }
+  const slice = trimmed.slice(-max);
+  const br = slice.indexOf('\n');
+  return (br !== -1 && br < max * 0.25 ? slice.slice(br + 1) : slice).trimStart();
+}
+
 export function isPlaceholder(text: string): boolean {
   return /尚未生成|（待补充）/.test(text) && text.replace(/[#\s（）()]/g, '').length < 80;
 }

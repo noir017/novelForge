@@ -1413,9 +1413,12 @@ describe('装配：四阶段配方', () => {
     assert.ok(full >= 0 && full < plot && plot < askAt, `${full} / ${plot} / ${askAt}`);
   });
 
-  test('目标字数写进系统提示与指令', () => {
-    assert.ok(mc.messages[0].content.includes('篇幅控制在约 1200 字'), mc.messages[0].content);
-    assert.ok(lastOf(mc).includes('目标字数：约 1200 字'), lastOf(mc).slice(-400));
+  // 三期：目标字数只在篇幅合同里说一次（±20%），从前另有一行「约 N 字（±15%）」，
+  // 两个比例谁也分不清哪个算数。
+  test('目标字数写进系统提示与篇幅合同', () => {
+    assert.ok(mc.messages[0].content.includes('篇幅约 1200 字'), mc.messages[0].content);
+    assert.ok(lastOf(mc).includes('目标 1200 字；可接受范围 960–1440 字（±20%）'), lastOf(mc).slice(-600));
+    assert.ok(!lastOf(mc).includes('±15%'));
   });
 });
 

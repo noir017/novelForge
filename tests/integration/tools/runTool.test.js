@@ -72,7 +72,7 @@ const SUMMARY_JSON = JSON.stringify({
 function replyFor(messages) {
   const system = messages[0]?.content ?? '';
   if (system.includes('摘要')) return SUMMARY_JSON;
-  if (system.includes('资深中文长篇小说作者')) return MANUSCRIPT_TEXT;
+  if (system.includes('中文长篇小说作者，正在为')) return MANUSCRIPT_TEXT;
   return plotReply(messages);
 }
 

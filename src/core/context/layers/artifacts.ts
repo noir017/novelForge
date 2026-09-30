@@ -6,10 +6,12 @@ import {
   SETTING_DOC_HEADING,
   SETTING_FILE_DOCS,
   SETTING_SECTION_KEYS,
+  SettingFileDoc,
 } from '../../model/settingFile';
 import { structureGuideText } from '../../model/structureGuide';
-import { stringifySections } from '../../model/markdown';
-import type { LayerFn } from './assembly';
+import { hasContent, stringifySections } from '../../model/markdown';
+import type { LayerSpec } from '../types';
+import type { Assembly, LayerFn } from './assembly';
 import { clipLine, isPlaceholder, renderPlot, renderPlotBrief, renderRosterLine } from './render';
 
 /** 前序细纲一览最多带几章（上游 `chapter_blueprint_chunk` 的「最近 100 章」）。 */
@@ -47,9 +49,28 @@ export const outlineDoc: LayerFn = async (a, spec) => {
  * 正在生成的那一件也照带——目标已有内容时再生成，那一版就是修改的底稿。
  */
 export const settingDocs: LayerFn = async (a, spec) => {
+  await admitSettingDocs(a, spec);
+};
+
+/**
+ * 写正文用的架构：小说配置（**除全局要求**）、故事前提、世界观，一件一条。
+ *
+ * 与 `settingDocs` 同一份取数，只少一节：「全局要求」由 `guidance` 层单独强制带（P0），
+ * 这里再带一遍就是同一段规则出现两次。整层是 P1——写一章正文时，本章细纲、上一章结尾
+ * 与文风比架构的全文要紧，放不下时让它先让。
+ */
+export const premiseWorld: LayerFn = async (a, spec) => {
+  await admitSettingDocs(a, spec, { config: [GUIDANCE_KEY] });
+};
+
+/** 「全局要求」那一节的小节名。 */
+const GUIDANCE_KEY = '全局要求';
+
+async function admitSettingDocs(a: Assembly, spec: LayerSpec, omit: Partial<Record<SettingFileDoc, string[]>> = {}): Promise<void> {
   for (const doc of SETTING_FILE_DOCS) {
     const parsed = await a.project.readSettingDoc(doc);
-    const body = stringifySections(parsed.sections, SETTING_SECTION_KEYS[doc]);
+    const keys = SETTING_SECTION_KEYS[doc].filter((k) => !(omit[doc] ?? []).includes(k));
+    const body = stringifySections(parsed.sections, keys);
     if (!body.trim()) {
       continue;
     }
@@ -61,10 +82,36 @@ export const settingDocs: LayerFn = async (a, spec) => {
         label: SETTING_DOC_HEADING[doc],
         source: parsed.relPath,
         text: `【${SETTING_DOC_HEADING[doc]}】\n${body}`,
+        note: omit[doc]?.length ? `不含${omit[doc]!.map((k) => `「${k}」`).join('')}（单独带）` : undefined,
       },
       { force: spec.force }
     );
   }
+}
+
+/**
+ * 小说配置里的「全局要求」：跨章有效的写作规则（「不写上帝视角」「每章结尾留一个未决的问题」）。
+ *
+ * 上游每一章正文都带它（`next_chapter_draft` 的 `global_guidance`，PT:827），而且是作者
+ * 定下的规矩——写正文时强制带、单独成段，不和架构的其余几节一起排队。
+ */
+export const guidance: LayerFn = async (a, spec) => {
+  const parsed = await a.project.readSettingDoc('config');
+  const text = parsed.sections[GUIDANCE_KEY]?.trim() ?? '';
+  if (!hasContent(text)) {
+    return;
+  }
+  a.admit(
+    {
+      id: 'guidance',
+      kind: 'guidance',
+      priority: spec.priority,
+      label: '全局要求',
+      source: parsed.relPath,
+      text,
+    },
+    { force: spec.force }
+  );
 };
 
 /**
@@ -277,4 +324,41 @@ export const plotNext: LayerFn = async (a, spec) => {
       text: renderPlotBrief(plot, '下文'),
     });
   }
+};
+
+/** 边界里每一章的关键事件截到多长：够看出「那一章要发生什么」，又不至于把它写成第二份细纲。 */
+const AHEAD_EVENT_CHARS = 300;
+
+/**
+ * 后 5 章的细纲，一章一行：写正文时的**边界**。移植自 AI-Novel-Writer 的「后续章节大纲
+ * 预告（仅供了解后续剧情发力点，请绝对不要在本章提前写出后续内容！）」（PT:744、816；
+ * 取数 GD:456-474）。
+ *
+ * 不带它，模型写到这一章的钩子时手上没有「后面要发生什么」，最顺手的做法就是把下一章
+ * 的事提前演掉——下一章于是无事可写。P0：这一层管的是整条流水线的节奏，不是锦上添花。
+ *
+ * 只带排过细纲的章（空壳里没有可当边界的事），按章号窗口取（focus.ts 的 `AHEAD_PLOTS`）。
+ */
+export const plotAhead: LayerFn = async (a, spec) => {
+  const ahead = a.focus.aheadPlots;
+  if (ahead.length === 0) {
+    return;
+  }
+  const lines = ahead.map(({ no, plot }) => {
+    const title = plot!.title ? ` ${plot!.title}` : '';
+    return `第${no}章${title}：${clipLine(plot!.sections.关键事件, AHEAD_EVENT_CHARS)}`;
+  });
+  const first = ahead[0].no;
+  const last = ahead[ahead.length - 1].no;
+  a.admit(
+    {
+      id: `plotAhead:${first}-${last}`,
+      kind: 'boundary',
+      priority: spec.priority,
+      label: `后续章节细纲 · ${span(first, last)}（边界）`,
+      text: lines.join('\n'),
+      note: '只为让模型知道后面要发生什么、不在本章提前写掉',
+    },
+    { force: spec.force }
+  );
 };

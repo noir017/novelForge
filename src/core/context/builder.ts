@@ -38,7 +38,7 @@ export async function buildContext(
   const budgetClampedByProvider =
     request.providerMaxInputTokens !== undefined && request.providerMaxInputTokens < config.contextWindow;
 
-  const recipe = recipeFor(request.action.stage, request.action.capability);
+  const recipe = recipeFor(request.action.stage, request.action.capability, request.step);
   const [focus, book] = await Promise.all([resolveFocus(project, request, recipe), project.readBookConfig()]);
 
   const assembly: Assembly = {
@@ -95,7 +95,7 @@ export async function buildContext(
     await LAYERS[spec.layer](assembly, spec);
   }
 
-  const messages = assembleMessages(items, request, config, promptFactsOf(assembly));
+  const messages = assembleMessages(items, request, promptFactsOf(assembly));
   const usedTokens = items.reduce((sum, i) => sum + i.tokens, 0);
 
   return { messages, items, usedTokens, budget, budgetClampedByProvider };
@@ -113,7 +113,6 @@ export async function buildContext(
 function assembleMessages(
   items: ContextItem[],
   request: BuildRequest,
-  config: NovelConfig,
   facts: PromptFacts
 ): AgentMessage[] {
   const live = items.filter((i) => (i.status === 'included' || i.status === 'degraded') && i.text.trim());
@@ -148,6 +147,7 @@ function assembleMessages(
   };
 
   section('# 文风指南（务必贴合）', pick('style'));
+  section('# 全局要求（每一章都要遵守）', pick('guidance'));
   section('# 故事架构', pick('setting'));
   section('# 全书前情提要', pick('globalSummary'));
   section('# 情节大纲', pick('outlineDoc'));
@@ -162,9 +162,11 @@ function assembleMessages(
 
   const prevTail = pick('prevTail')[0];
   if (prevTail) {
+    // 「不可重演」：上游的说法是「只作边界，不可重演」（PT:810）。模型拿到上一章结尾之后
+    // 最常见的失败不是接不上，是从那里把最后一场重新演一遍（context/replay.ts 写完再查一次）。
     sections.push(
       writing
-        ? `# 上一章结尾原文（你要从这里无缝接下去）\n\n${prevTail.text}`
+        ? `# 上一章结尾原文（只作边界，不可重演）\n\n这是上一章已经写完的结尾。本章从它的最终状态之后无缝接下去，不要重写、摘要或回放这一段。\n\n${prevTail.text}`
         : `# 上一章结尾原文\n\n${prevTail.text}`
     );
   } else if (writing && fullText.length > 0 && items.some((i) => i.kind === 'prevTail' && i.status === 'dropped')) {
@@ -172,7 +174,9 @@ function assembleMessages(
     // 根本没有正文（只排了细纲）时这里没有结尾片段可言，最后一份全文是更早的某一章，
     // 说「从它的结尾接下去」等于让模型跳过中间那一章的事件。
     const last = fullText[fullText.length - 1];
-    sections.push(`你要从上面「${last.label.replace(' · 正文', '')}」的结尾处无缝接下去。`);
+    sections.push(
+      `你要从上面「${last.label.replace(' · 正文', '')}」结尾的最终状态之后无缝接下去，不要重演它的结尾。`
+    );
   }
 
   // 已经排好的目录进度：细纲批次要紧接着它的最后一章往下排。
@@ -181,6 +185,12 @@ function assembleMessages(
   // 本层产物紧挨着指令：这一章的细纲才是这一轮真正要动的东西。
   section('# 细纲', pick('plot'));
 
+  // 写正文的边界：后面几章要发生的事。紧跟在本章细纲后面，读的时候就是「这一章写到这为止」。
+  section('# 后续章节预告（仅供了解后续剧情发力点，绝对不要在本章提前写出这些内容）', pick('boundary'));
+
+  // 「接着写」从这里往下接：离指令最近，接的是哪一句一眼看得到。
+  section('# 本章已写正文（末尾，你要从这里接着写）', pick('chapterSoFar'));
+
   // 用户 @ 的引用也紧挨着他的指令放——他多半正是要针对这些内容提要求。
   section('# 我引用的内容（请针对这些内容作答）', pick('attachment'));
 
@@ -188,9 +198,6 @@ function assembleMessages(
   const requirements: string[] = [
     `${askHeading(request.action, facts)}\n\n${askText.trim() || '（没有额外要求，按上面的设定与契约来。）'}`,
   ];
-  if (writing && request.targetWords && request.targetWords > 0) {
-    requirements.push(`目标字数：约 ${request.targetWords} 字（±15% 均可）。`);
-  }
   if (request.extraInstruction?.trim()) {
     requirements.push(`额外要求：${request.extraInstruction.trim()}`);
   }
@@ -201,13 +208,9 @@ function assembleMessages(
     sections.push(`# 修订要求\n\n${revision.text}\n\n请基于上一版重写，采纳修改意见，保留其中写得好的部分。`);
   }
 
-  // target 也要给：架构层四件同属一个阶段，契约要看是哪一件。
-  const contract = buildOutputContract(request.action, facts);
-  sections.push(
-    writing && config.recentChaptersFullText > 0
-      ? `${contract}注意与上文的语气、称谓、时态保持一致。`
-      : contract
-  );
+  // target 也要给：架构层四件同属一个阶段，契约要看是哪一件。写正文时目标字数也在契约里
+  // （篇幅合同 ±20%），从前这里另有一行「约 N 字（±15%）」，两个比例作者与模型都分不清哪个算数。
+  sections.push(buildOutputContract(request.action, facts));
 
   messages.push({ role: 'user', content: sections.join('\n\n---\n\n') });
   return messages;
