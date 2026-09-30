@@ -24,7 +24,9 @@ export type FormField =
       /** 空着不许提交。 */
       required?: boolean;
     }
-  | { kind: 'number'; key: string; label: string; value?: number; min?: number; max?: number; step?: number };
+  | { kind: 'number'; key: string; label: string; value?: number; min?: number; max?: number; step?: number }
+  /** 几选一（批量写章的模式）。值是字符串。 */
+  | { kind: 'select'; key: string; label: string; value?: string; options: { value: string; label: string }[] };
 
 export type FormValues = Record<string, string | number>;
 
@@ -39,6 +41,11 @@ export interface FormSpec {
    */
   note?: (values: FormValues) => { text: string; ok?: boolean };
   submitLabel: string;
+  /**
+   * 提交要点两下（按钮文案两段式，不叠弹窗）：返回第二下的字，第一下只把提交键换成它；
+   * 返回 undefined 就一下提交。任何一个值改了都退回第一段。批量写章「写完即定稿」用它（W9）。
+   */
+  confirm?: (values: FormValues) => string | undefined;
   onSubmit: (values: FormValues) => void;
 }
 
@@ -64,13 +71,23 @@ export function openForm(spec: FormSpec): void {
     form.appendChild(mk('p', 'hint form-lead', spec.lead));
   }
 
-  const inputs = new Map<string, HTMLInputElement | HTMLTextAreaElement>();
+  const inputs = new Map<string, HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>();
   const grid = mk('div', 'grid');
   for (const f of spec.fields) {
     const label = mk('label', 'field');
     label.appendChild(mk('span', undefined, f.label));
-    let input: HTMLInputElement | HTMLTextAreaElement;
-    if (f.kind === 'textarea') {
+    let input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+    if (f.kind === 'select') {
+      const sel = mk('select');
+      for (const o of f.options) {
+        const opt = mk('option', undefined, o.label);
+        opt.value = o.value;
+        sel.appendChild(opt);
+      }
+      sel.value = f.value ?? f.options[0]?.value ?? '';
+      input = sel;
+      grid.appendChild(label);
+    } else if (f.kind === 'textarea') {
       const ta = mk('textarea');
       ta.rows = f.rows ?? 4;
       ta.placeholder = f.placeholder ?? '';
@@ -122,6 +139,8 @@ export function openForm(spec: FormSpec): void {
     return undefined;
   };
 
+  /** 两段式提交：第一下之后记着第二下的字（{@link FormSpec.confirm}）。 */
+  let armed = false;
   const submit = primaryBtn(spec.submitLabel, () => trySubmit());
   const cancel = secondaryBtn('取消', () => close());
   const foot = mk('div', 'modal-foot');
@@ -142,8 +161,22 @@ export function openForm(spec: FormSpec): void {
       return;
     }
     const v = values();
+    const second = spec.confirm?.(v);
+    if (second && !armed) {
+      armed = true;
+      submit.textContent = second;
+      submit.classList.add('is-armed');
+      return;
+    }
     close();
     spec.onSubmit(v);
+  };
+  const disarm = () => {
+    if (armed) {
+      armed = false;
+      submit.textContent = spec.submitLabel;
+      submit.classList.remove('is-armed');
+    }
   };
   const close = () => {
     if (active !== handle) {
@@ -155,7 +188,14 @@ export function openForm(spec: FormSpec): void {
   };
   const handle = { close };
 
-  form.addEventListener('input', refresh);
+  form.addEventListener('input', () => {
+    disarm();
+    refresh();
+  });
+  form.addEventListener('change', () => {
+    disarm();
+    refresh();
+  });
   form.addEventListener('keydown', (e) => {
     // Ctrl/⌘+Enter 提交：多行文本里单按 Enter 是换行。
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {

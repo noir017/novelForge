@@ -9,6 +9,7 @@ import { NovelProject } from '../model/project';
 import { parsePlotFileName } from '../model/plotFile';
 import { isOutlineFilled, outlineCoverage } from '../model/outlineFile';
 import { SUMMARY_SECTION_KEYS } from '../model/types';
+import { describeStateThrough } from '../model/characterState';
 import { buildBookFacts, buildPlotPipeline, buildPipelineIndex, chapterOfPlotNo } from './pipeline';
 import {
   ArchitectureRow,
@@ -151,11 +152,16 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     },
   ];
 
+  // 「状态截至第 3 章」（四期，D15）：当前状态写到哪一章了，写下一章前一眼看得出跟没跟上。
   const characterLeaves = characters.map<ProjectFileNode>((card) => ({
     kind: 'file',
     label: card.name,
     relPath: card.relPath,
-    detail: [...card.tags, ...(card.aliases.length > 0 ? [`别名 ${card.aliases.join('/')}`] : [])].join(' · '),
+    detail: [
+      ...card.tags,
+      ...(card.aliases.length > 0 ? [`别名 ${card.aliases.join('/')}`] : []),
+      ...(describeStateThrough(card.stateThrough) ? [describeStateThrough(card.stateThrough)] : []),
+    ].join(' · '),
   }));
 
   const loreLeaves = lore.map<ProjectFileNode>((entry) => ({

@@ -20,7 +20,7 @@
  * 另一份没开着时给「并排看细纲 / 并排看正文」。审稿按钮是五期的事。
  */
 import { el } from '../dom';
-import { ONE_CALL, PLOT_STAGE_LABEL, WRITE_CALLS, describeCalls } from '../protocol';
+import { FINALIZE_CALLS, PLOT_STAGE_LABEL, WRITE_CALLS, describeCalls } from '../protocol';
 import type { ChapterAction, InMessage, ProjectPlotNode } from '../protocol';
 import { onMessage } from '../vscodeApi';
 import { paneOwning } from './store';
@@ -70,7 +70,9 @@ export function installChapterBar(stage: HTMLElement, post: (msg: InMessage) => 
     actions.appendChild(
       button('重写', 'rewrite', written && row.plotExists, `照细纲整章重写，写入前会让你先对比。${describeCalls(WRITE_CALLS)}`)
     );
-    actions.appendChild(button('定稿', 'finalize', written, `生成这一章的摘要。${describeCalls(ONE_CALL)}`));
+    actions.appendChild(
+      button('定稿', 'finalize', written, `生成摘要与连续性事实，再更新出场角色的当前状态。${describeCalls(FINALIZE_CALLS)}`)
+    );
 
     // 另一份没开着：给一颗把它并排打开的按钮。
     const onChapter = active === row.chapterPath;

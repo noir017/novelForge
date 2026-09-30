@@ -26,7 +26,7 @@ import {
   emptyRow,
   renderNodes,
 } from './rows';
-import { openIdeaForm, openPlotBatchForm } from '../forms';
+import { openIdeaForm, openPlotBatchForm, openWriteBatchForm } from '../forms';
 import { hideDetailTip, installDetailTip } from './detailTip';
 import { hideFailureTip, installFailureTip } from './errorTip';
 import { hideSummaryTip, installSummaryTip } from './summaryTip';
@@ -70,9 +70,9 @@ export function renderProject(tree: ProjectTree): void {
         { label: '新建细纲（接在最后一章之后）', run: () => projectAction('newPlot') },
         { label: '新建章节文件（直接粘正文用）', run: () => projectAction('newChapter') },
         { sep: true },
-        // 两个批量动作都「只补不改」：已经有产物的章一律跳过。拆细纲先开弹窗选区间。
+        // 两个批量动作都「只补不改」：已经有产物的章一律跳过。都先开弹窗选区间。
         { label: '批量拆细纲…', run: () => openPlotBatchForm(tree) },
-        { label: '批量写正文（只补缺）', run: () => projectAction('writeManuscripts') },
+        { label: '批量写章…', run: () => openWriteBatchForm(tree) },
         { sep: true },
       ],
       build: () =>
@@ -157,6 +157,10 @@ export function installProject(): void {
     const form = closestFrom<HTMLElement>(e.target, '[data-form]');
     if (form?.dataset.form === 'plotBatch' && lastTree) {
       openPlotBatchForm(lastTree);
+      return;
+    }
+    if (form?.dataset.form === 'writeBatch' && lastTree) {
+      openWriteBatchForm(lastTree);
       return;
     }
     const btn = closestFrom<HTMLElement>(e.target, '[data-action]');

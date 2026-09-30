@@ -195,3 +195,83 @@ describe('长任务进度条', { skip: JSDOM_SKIP }, () => {
     assert.equal(rows().length, 0, `${rows().length}`);
   });
 });
+
+/**
+ * 页头任务条（四期，W8、D24）：所有页签都看得见；批量写章能「写完这一章就停」；
+ * 做完了给一条带「打开第 N 章」的提示。
+ */
+describe('页头任务条 · 所有页签都看得见', { skip: JSDOM_SKIP }, () => {
+  let ui;
+  const taskList = () => ui.doc.getElementById('taskList');
+  const buttons = () => [...taskList().querySelectorAll('button')];
+
+  before(() => {
+    ui = mount();
+    ui.post({
+      type: 'tasks',
+      tasks: [{ id: 'b1', title: '批量写章', message: '第 2 章《令牌》 · 续写第 1 轮 · 已写 1860 / 3000 字', current: 1, total: 3, elapsedMs: 5000, pausable: true, stopping: false }],
+    });
+  });
+
+  // 从前长在工程页里，从对话页点的定稿、批量跑起来之后在对话页上什么都看不见。
+  test('不在工程页里：对话页开着也看得见', () => {
+    assert.equal(taskList().closest('#pane-project'), null);
+    assert.ok(ui.doc.getElementById('pane-chat').classList.contains('active'));
+    assert.ok(!taskList().classList.contains('hidden'));
+  });
+
+  test('写着当前章、当前步骤、第几章 / 共几章', () => {
+    assert.ok(taskList().textContent.includes('续写第 1 轮 · 已写 1860 / 3000 字'), taskList().textContent);
+    assert.ok(taskList().textContent.includes('1/3'), taskList().textContent);
+  });
+
+  test('能停在章与章之间的任务多一颗「写完这一章就停」，点了发 stopAfterItem', () => {
+    const pause = buttons().find((b) => b.textContent === '写完这一章就停');
+    assert.ok(pause, taskList().innerHTML);
+    ui.sent.length = 0;
+    ui.clickEl(pause);
+    assert.ok(ui.sent.some((m) => m.type === 'stopAfterItem' && m.id === 'b1'), JSON.stringify(ui.sent));
+  });
+
+  test('点过之后换成一句说明，不能再点', () => {
+    ui.post({ type: 'tasks', tasks: [{ id: 'b1', title: '批量写章', message: '…', current: 1, total: 3, elapsedMs: 6000, pausable: true, stopping: true }] });
+    assert.ok(!buttons().some((b) => b.textContent === '写完这一章就停'));
+    assert.ok(taskList().querySelector('.task-stopping'));
+    assert.ok(buttons().some((b) => b.textContent === '停止'));
+  });
+
+  test('不能停在中间的任务没有这一颗', () => {
+    ui.post({ type: 'tasks', tasks: [{ id: 's1', title: '定稿第 3 章', message: '摘要', current: 0, total: 2, elapsedMs: 0 }] });
+    assert.ok(!buttons().some((b) => b.textContent === '写完这一章就停'));
+  });
+
+  test('做完了：提示带「打开第 3 章」，点了打开那一章', () => {
+    ui.post({
+      type: 'taskDone',
+      title: '批量写章',
+      message: '第 1–3 章已写好（调用 3 次）。',
+      level: 'info',
+      open: { plotRelPath: '.novelforge/plots/003-夜访.md', label: '打开第 3 章' },
+    });
+    const toast = ui.doc.getElementById('toast');
+    assert.ok(!toast.classList.contains('hidden'));
+    assert.ok(toast.textContent.includes('第 1–3 章已写好'), toast.textContent);
+    const btn = toast.querySelector('.toast-action');
+    assert.equal(btn?.textContent, '打开第 3 章');
+    ui.sent.length = 0;
+    ui.clickEl(btn);
+    assert.ok(ui.sent.some((m) => m.type === 'openChapter' && m.plotRelPath === '.novelforge/plots/003-夜访.md'), JSON.stringify(ui.sent));
+    assert.ok(toast.classList.contains('hidden'));
+  });
+
+  test('没带按钮的只是一句话', () => {
+    ui.post({ type: 'taskDone', title: '定稿第 3 章', message: '第 3 章已定稿。', level: 'info' });
+    assert.equal(ui.doc.getElementById('toast').querySelector('.toast-action'), null);
+  });
+
+  // 收尾：任务条还开着时每秒走一次计时，不收掉的话这个测试文件跑完进程也不退。
+  test('任务都结束了，任务条收起', () => {
+    ui.post({ type: 'tasks', tasks: [] });
+    assert.ok(taskList().classList.contains('hidden'));
+  });
+});

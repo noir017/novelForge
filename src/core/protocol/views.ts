@@ -237,6 +237,11 @@ export interface FailureView {
   severity: 'error' | 'warn';
   message: string;
   detail?: string;
+  /**
+   * 哪个动作留下的（`summarize` / `cardState` …）。前端只拿它决定多给哪一项菜单：角色卡上挂着
+   * `cardState`（定稿时作者改过的当前状态没被覆盖，D15）就多一项「对比…」。
+   */
+  op?: string;
 }
 
 export interface CastConflictView {

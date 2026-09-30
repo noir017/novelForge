@@ -1,17 +1,22 @@
 /**
- * 两个具体的弹窗：一句话（W4）与拆细纲（W5）。表单本身在 form.ts。
+ * 三个具体的弹窗：一句话（W4）、拆细纲（W5）与批量写章（W9）。表单本身在 form.ts。
  *
- * 两者的「预计调用几次」都来自 core 的纯函数（`describeCalls` / `planPlotBatches`），
- * 与后端确认框同源——弹窗写着 3 次、实际调了 4 次，正是第 4 条要防的事。
+ * 它们的「预计调用几次」都来自 core 的纯函数（`describeCalls` / `planPlotBatches` /
+ * `planWriteBatch`），与后端确认框同源——弹窗写着 3 次、实际调了 4 次，正是第 4 条要防的事。
  */
 import {
   CONFIG_CALLS,
   PLOT_BATCH,
+  WRITE_BATCH_DEFAULT,
+  WRITE_BATCH_MAX,
   describeCalls,
   planPlotBatches,
+  planWriteBatch,
 } from '../protocol';
+import type { WriteBatchMode } from '../protocol';
 import type { IdeaDefaults, ProjectTree } from '../protocol';
 import { openForm } from './form';
+import type { FormValues } from './form';
 import { setBusy } from './state';
 import { store, vscode } from './store';
 import { showTab } from './tabs';
@@ -141,6 +146,94 @@ export function openPlotBatchForm(tree: ProjectTree): void {
         type: 'projectAction',
         action: 'generatePlots',
         range: { from: Number(v.from), to: Number(v.to) },
+        confirmed: true,
+      });
+    },
+  });
+}
+
+/** 「第 3 章」或「第 3–7 章」。 */
+function span(from: number, to: number): string {
+  return from === to ? `第 ${from} 章` : `第 ${from}–${to} 章`;
+}
+
+/**
+ * 「批量写章」（W9）：选一段章号与模式，一章一章串行写。
+ *
+ * 缺省从下一可写章起 {@link WRITE_BATCH_DEFAULT} 章，一次最多 {@link WRITE_BATCH_MAX} 章。实时说明
+ * 写出这一段要写几章、跳过几章、在哪收住、调用次数上限——提交时带上 `confirmed`，后端不再弹
+ * 第二个确认框。「写完即定稿」会自动多花定稿那几次调用（D17），提交键要点两下。
+ */
+export function openWriteBatchForm(tree: ProjectTree): void {
+  const writtenNos = tree.plots.filter((p) => p.chapterPath && p.wordCount > 0).map((p) => p.no);
+  const plotFilledNos = tree.book.plotFilledNos;
+  const from = tree.nextChapterNo;
+  const plan = (v: FormValues) =>
+    planWriteBatch({
+      from: Number(v.from),
+      to: Number(v.to),
+      mode: v.mode === 'finalize' ? 'finalize' : 'draft',
+      writtenNos,
+      plotFilledNos,
+    });
+  openForm({
+    title: '批量写章',
+    lead:
+      '从这一章起一章一章写正文，后一章接着前一章的结尾写。已经有正文的章跳过，不会被改动；' +
+      '一章写不出来就停；写出来但开头重演了上一章、或没写够八成，也写进去然后停下，等你看过再继续。',
+    fields: [
+      { kind: 'number', key: 'from', label: '从第几章', value: from, min: 1, max: 99999 },
+      { kind: 'number', key: 'to', label: '到第几章', value: from + WRITE_BATCH_DEFAULT - 1, min: 1, max: 99999 },
+      {
+        kind: 'select',
+        key: 'mode',
+        label: '模式',
+        value: 'draft',
+        options: [
+          { value: 'draft', label: '只写正文' },
+          { value: 'finalize', label: '写完即定稿（每写完一章就定稿）' },
+        ],
+      },
+    ],
+    note: (v) => {
+      const a = Number(v.from);
+      const b = Number(v.to);
+      if (b < a) {
+        return { text: '区间写反了。', ok: false };
+      }
+      if (b - a + 1 > WRITE_BATCH_MAX) {
+        return { text: `一次最多写 ${WRITE_BATCH_MAX} 章。`, ok: false };
+      }
+      const p = plan(v);
+      if (p.chapters.length === 0) {
+        return {
+          text: p.stopAt !== undefined ? `第 ${p.stopAt} 章还没有细纲。先拆细纲，再写正文。` : '这一段都已经写过正文了。',
+          ok: false,
+        };
+      }
+      const first = p.chapters[0];
+      const last = p.chapters[p.chapters.length - 1];
+      return {
+        text:
+          `要写 ${p.chapters.length} 章（${span(first, last)}）` +
+          `${p.skipped.length > 0 ? `，跳过已有正文的 ${p.skipped.length} 章` : ''}` +
+          `${p.stopAt !== undefined ? `；第 ${p.stopAt} 章还没有细纲，写到它前面为止` : ''}。` +
+          `${describeCalls(p.calls)}（没写够时自动续写，算在上限里）。` +
+          (p.mode === 'finalize' ? '每写完一章就定稿：摘要与连续性事实，再更新出场角色的当前状态。' : '只写正文，之后在主按钮上逐章定稿。'),
+      };
+    },
+    submitLabel: '开始写章',
+    confirm: (v) => {
+      const p = plan(v);
+      return p.mode === 'finalize' ? `再点一下：写完即定稿 ${p.chapters.length} 章` : undefined;
+    },
+    onSubmit: (v) => {
+      const mode: WriteBatchMode = v.mode === 'finalize' ? 'finalize' : 'draft';
+      vscode.postMessage({
+        type: 'projectAction',
+        action: 'writeManuscripts',
+        range: { from: Number(v.from), to: Number(v.to) },
+        mode,
         confirmed: true,
       });
     },

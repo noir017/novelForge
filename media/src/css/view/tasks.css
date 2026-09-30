@@ -1,6 +1,6 @@
 /* 长任务进度条。 */
 
-/* 工程页顶部的进度块。没有任务时整块 hidden，页面回到原样。 */
+/* 页头的进度块（W8）：在标签栏 / 侧栏顶上，所有页签都看得见。没有任务时整块 hidden，页面回到原样。 */
 .tasks {
   display: flex;
   flex-direction: column;
@@ -72,4 +72,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 「写完这一章就停」点过之后换成一句说明：不再能点第二下。 */
+.task-stopping {
+  font-style: italic;
 }

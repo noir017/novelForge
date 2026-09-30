@@ -566,8 +566,9 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(legacyItems.includes('打开正文'), JSON.stringify(legacyItems));
   });
 
-  test('没定稿的章给「定稿（生成摘要）」', () => {
-    assert.ok(legacyItems.includes('定稿（生成摘要）'), JSON.stringify(legacyItems));
+  // 四期：定稿 = 摘要（带连续性事实）+ 出场角色的当前状态，菜单上写着调用次数（D17）。
+  test('没定稿的章给「定稿（摘要 + 角色状态）」并写着调用次数', () => {
+    assert.ok(legacyItems.includes('定稿（摘要 + 角色状态，预计 1–2 次调用）'), JSON.stringify(legacyItems));
     assert.ok(!legacyItems.includes('重新定稿'), JSON.stringify(legacyItems));
   });
 
@@ -576,8 +577,8 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     ui.closeMenu();
   });
 
-  test('「定稿（生成摘要）」发 finalizeChapter，带的是章节路径', () => {
-    ui.pick(ui.rightClick(plotRow('入镇')), '定稿（生成摘要）');
+  test('「定稿」发 finalizeChapter，带的是章节路径', () => {
+    ui.pick(ui.rightClick(plotRow('入镇')), '定稿（摘要 + 角色状态，预计 1–2 次调用）');
     const msg = ui.last('projectAction');
     assert.equal(msg?.action, 'finalizeChapter', JSON.stringify(msg));
     assert.equal(msg?.relPath, 'chapters/002-入镇.md', JSON.stringify(msg));
@@ -599,7 +600,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   // 定稿、看摘要、草稿读的都是正文——没有正文就无从谈起。
-  for (const label of ['重新定稿', '定稿（生成摘要）', '看摘要', '打开草稿', '新建草稿']) {
+  for (const label of ['重新定稿', '定稿（摘要 + 角色状态，预计 1–2 次调用）', '看摘要', '打开草稿', '新建草稿']) {
     test(`没写正文的章菜单不含「${label}」`, () => {
       assert.ok(!planningItems.includes(label), JSON.stringify(planningItems));
     });
@@ -753,7 +754,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
       .find((n) => n.querySelector('.group-name').textContent === '章节');
     plotGroupItems = ui.itemsOf(ui.rightClick(plotHead));
     for (const label of ['新建细纲（接在最后一章之后）', '新建章节文件（直接粘正文用）',
-      '批量拆细纲…', '批量写正文（只补缺）']) {
+      '批量拆细纲…', '批量写章…']) {
       assert.ok(plotGroupItems.includes(label), JSON.stringify(plotGroupItems));
     }
   });
@@ -771,7 +772,6 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   for (const [label, action] of [
     ['新建细纲（接在最后一章之后）', 'newPlot'],
     ['新建章节文件（直接粘正文用）', 'newChapter'],
-    ['批量写正文（只补缺）', 'writeManuscripts'],
   ]) {
     test(`「${label}」发 ${action}`, () => {
       ui.pick(ui.rightClick(plotHead), label);

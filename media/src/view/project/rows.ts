@@ -11,7 +11,7 @@
  */
 import { el as mk } from '../../dom';
 import type { MenuItem } from '../../globals';
-import { PLOT_STAGE_LABEL } from '../../protocol';
+import { FINALIZE_CALLS, PLOT_STAGE_LABEL, describeCalls } from '../../protocol';
 import type {
   ArchitectureRow,
   CastConflictView,
@@ -249,8 +249,9 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
 
     // 定稿、看摘要、草稿都只对有正文的章成立——三者读的都是正文。
     if (written) {
+      // 定稿 = 摘要（带连续性事实）+ 出场角色的当前状态（四期，D17）。调用次数与主按钮同源。
       items.push({
-        label: p.stale ? '定稿（生成摘要）' : '重新定稿',
+        label: p.stale ? `定稿（摘要 + 角色状态，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）` : '重新定稿',
         run: () => projectAction('finalizeChapter', p.chapterPath),
       });
     }
@@ -436,6 +437,15 @@ function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): H
       );
     } else {
       items.push({ label: '未在摘要中出现，无法自动更新', disabled: true });
+    }
+    // 定稿时这张卡的当前状态你改过、没被覆盖（D15）：拿机器给的那一版对比，决定用不用。
+    const guarded = lastTree?.failures?.[f.relPath]?.find((x) => x.op === 'cardState');
+    if (guarded) {
+      const no = /第 (\d+) 章/.exec(guarded.message)?.[1];
+      items.push(
+        { sep: true },
+        { label: `对比第 ${no ?? '?'} 章给出的状态…`, run: () => characterAction('reviewState', f.label, f.relPath) }
+      );
     }
     items.push({ sep: true }, ...entryItems(f.relPath));
     return items;

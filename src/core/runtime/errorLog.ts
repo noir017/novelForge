@@ -206,10 +206,11 @@ export async function listActiveFailures(
       at: string;
       target_key: string;
       severity: string;
+      op: string | null;
       message: string;
       detail: string | null;
     }>(
-      'SELECT at, target_key, severity, message, detail FROM errors' +
+      'SELECT at, target_key, severity, op, message, detail FROM errors' +
         ' WHERE cleared_at IS NULL ORDER BY id DESC'
     );
 
@@ -225,6 +226,7 @@ export async function listActiveFailures(
         severity: row.severity === 'warn' ? 'warn' : 'error',
         message: row.message,
         detail: row.detail ?? undefined,
+        ...(row.op ? { op: row.op } : {}),
       });
     }
     return out;

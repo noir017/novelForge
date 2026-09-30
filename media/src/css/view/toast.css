@@ -18,3 +18,9 @@
 .toast.error {
   border-color: var(--vscode-inputValidation-errorBorder);
 }
+
+/* 任务做完时的「打开第 3 章」（D24）：接在那句话后面，点了就开那一章。 */
+.toast-action {
+  margin-left: 10px;
+  font-weight: 600;
+}

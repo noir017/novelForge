@@ -7,6 +7,7 @@ import {
   providerModal,
   settingsPane,
   tabbar,
+  taskBar,
   toastSlot,
 } from '../shared/panes';
 
@@ -51,6 +52,8 @@ ${tabbar([
   { tab: 'logs', label: '日志' },
   { tab: 'settings', label: '设置' },
 ])}
+
+${taskBar()}
 
 ${chatPane({ selectionFromEditor: true })}
 

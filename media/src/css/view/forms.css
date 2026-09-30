@@ -50,3 +50,9 @@ textarea:focus {
   align-items: center;
   flex-wrap: wrap;
 }
+
+/* 两段式提交的第二段（W9「写完即定稿」）：换了字，也换个颜色，看得出这一下会多花钱。 */
+.nf-form .primary.is-armed {
+  background: var(--vscode-inputValidation-warningBorder, #b89500);
+  border-color: var(--vscode-inputValidation-warningBorder, #b89500);
+}

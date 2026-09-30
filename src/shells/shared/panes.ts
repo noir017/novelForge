@@ -160,13 +160,24 @@ export function chatPane(opts: PaneOptions = {}): string {
 </section>`;
 }
 
-/** 工程页：工具栏 + 长任务进度条 + 目录树。 */
+/**
+ * 页头的长任务条（W8、D24）：正在跑的长任务（批量写章、定稿、同步摘要……）。**所有页签都看得见**
+ * ——从前它长在工程页里，从对话页点的定稿、批量跑起来之后切回对话页就什么都看不见了。
+ * 没有任务时整块隐藏。两个壳各自把它放在页签之上的那一处（插件在标签栏下面，独立版在侧栏顶上）。
+ */
+export function taskBar(): string {
+  return '<div class="tasks hidden" id="taskList"></div>';
+}
+
+/** 工程页：工具栏 + 目录树。 */
 export function projectPane(): string {
   return `<section class="pane" id="pane-project">
   <div class="project-toolbar" id="projectToolbar">
     <!-- 两个批量入口（W5）。「补齐设定」只补空白、先问；「拆细纲…」先开弹窗选区间。 -->
     <button class="chip-btn" data-action="completeSettings" title="配置、前提、角色图谱、世界观：只补还没有的，已有的不动">补齐设定</button>
     <button class="chip-btn" data-form="plotBatch" title="选一段章号，把还没有细纲的章拆出来（每批 5 章）">拆细纲…</button>
+    <!-- 批量写章（W9）：选一段章号与模式，一章一章串行写，先开弹窗说清调用上限。 -->
+    <button class="chip-btn" data-form="writeBatch" title="选一段章号，一章一章写正文（已有正文的跳过；可选写完即定稿）">批量写章…</button>
     <button class="chip-btn" data-action="newPlot">＋ 新建细纲</button>
     <button class="chip-btn" data-action="newCharacter">＋ 角色卡</button>
     <button class="chip-btn" data-action="newLore">＋ 设定</button>
@@ -174,8 +185,6 @@ export function projectPane(): string {
     <span class="spacer"></span>
     <button class="icon-btn" data-action="refresh" title="刷新">⟳</button>
   </div>
-  <!-- 正在跑的长任务（同步摘要等）。没有任务时整块隐藏。 -->
-  <div class="tasks hidden" id="taskList"></div>
   <div class="project-body" id="projectBody"></div>
 </section>`;
 }

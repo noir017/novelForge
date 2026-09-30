@@ -98,11 +98,18 @@ export {
   // 章节工作台工具条的按钮提示与主按钮报同一个调用次数（W6、D16）。
   ONE_CALL,
   WRITE_CALLS,
+  // 定稿与批量写章（四期）：弹窗、章节条与后端确认框同源（第 4 条）。
+  FINALIZE_CALLS,
+  WRITE_BATCH_DEFAULT,
+  WRITE_BATCH_MAX,
+  planWriteBatch,
 } from '../../src/core/model/pipeline';
 export type {
   BookStage,
   CallEstimate,
   PlotBatchPlan,
+  WriteBatchMode,
+  WriteBatchPlan,
   Capability,
   CreationAction,
   CreationStage,

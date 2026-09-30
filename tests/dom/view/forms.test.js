@@ -239,3 +239,105 @@ describe('故事架构 · 第一件没填的是小说配置时', { skip: JSDOM_S
     assert.ok(!ui.sent.some((m) => m.type === 'setTarget' || m.type === 'send'), JSON.stringify(ui.sent));
   });
 });
+
+/**
+ * 批量写章弹窗（四期，W9）：区间、模式、调用上限与后端同一个 `planWriteBatch`；
+ * 「写完即定稿」要点两下（按钮文案两段式，不叠弹窗）。
+ *
+ * sampleTree：第 1–3 章有正文，第 1、3、4 章排过细纲，下一可写章是第 4 章。
+ */
+describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
+  let ui;
+  const toolbarBtn = () => ui.doc.querySelector('#projectToolbar [data-form="writeBatch"]');
+  function choose(value) {
+    const sel = field(ui, 'mode');
+    sel.value = value;
+    sel.dispatchEvent(new ui.window.Event('change', { bubbles: true }));
+  }
+
+  before(() => {
+    ui = mount();
+    ui.post({ type: 'project', tree: sampleTree() });
+    ui.clickEl(toolbarBtn());
+  });
+
+  test('工具栏上有「批量写章…」，点了打开弹窗', () => {
+    assert.equal(toolbarBtn()?.textContent, '批量写章…');
+    assert.ok(isOpen(ui));
+  });
+
+  test('缺省从下一可写章起 3 章、只写正文', () => {
+    assert.equal(field(ui, 'from').value, '4');
+    assert.equal(field(ui, 'to').value, '6');
+    assert.equal(field(ui, 'mode').value, 'draft');
+  });
+
+  // 第 5 章没排细纲：写到第 4 章为止。上限含自动续写（一章最多 8 次）。
+  test('实时说明：写几章、在哪收住、预计与最多', () => {
+    assert.ok(note(ui).includes('要写 1 章（第 4 章）；第 5 章还没有细纲，写到它前面为止。'), note(ui));
+    assert.ok(note(ui).includes('预计 1 次调用，最多 8 次'), note(ui));
+  });
+
+  test('一次最多 10 章', () => {
+    type(ui, 'from', 1);
+    type(ui, 'to', 11);
+    assert.ok(submitBtn(ui).disabled);
+    assert.ok(note(ui).includes('一次最多写 10 章'), note(ui));
+  });
+
+  test('这一段都写过了不许提交', () => {
+    type(ui, 'to', 3);
+    assert.ok(submitBtn(ui).disabled);
+    assert.ok(note(ui).includes('都已经写过正文了'), note(ui));
+  });
+
+  test('写完即定稿：说明里加上定稿那几次', () => {
+    type(ui, 'from', 4);
+    type(ui, 'to', 6);
+    choose('finalize');
+    assert.ok(note(ui).includes('预计 2–3 次调用，最多 10 次'), note(ui));
+    assert.ok(note(ui).includes('每写完一章就定稿'), note(ui));
+  });
+
+  test('写完即定稿要点两下：第一下只换字，不发', () => {
+    ui.sent.length = 0;
+    ui.clickEl(submitBtn(ui));
+    assert.ok(isOpen(ui));
+    assert.equal(submitBtn(ui).textContent, '再点一下：写完即定稿 1 章');
+    assert.ok(!ui.sent.some((m) => m.type === 'projectAction'), JSON.stringify(ui.sent));
+  });
+
+  test('改了任何一个值就退回第一段', () => {
+    type(ui, 'to', 5);
+    assert.equal(submitBtn(ui).textContent, '开始写章');
+  });
+
+  test('第二下才发：writeManuscripts，带区间、模式与 confirmed', () => {
+    ui.clickEl(submitBtn(ui));
+    ui.clickEl(submitBtn(ui));
+    const msg = ui.last('projectAction');
+    assert.equal(msg?.action, 'writeManuscripts', JSON.stringify(ui.sent));
+    assert.equal(JSON.stringify(msg.range), JSON.stringify({ from: 4, to: 5 }));
+    assert.equal(msg.mode, 'finalize');
+    assert.equal(msg.confirmed, true);
+    assert.ok(!isOpen(ui));
+  });
+
+  test('只写正文一下就发', () => {
+    ui.clickEl(toolbarBtn());
+    ui.sent.length = 0;
+    ui.clickEl(submitBtn(ui));
+    const msg = ui.last('projectAction');
+    assert.equal(msg?.mode, 'draft', JSON.stringify(ui.sent));
+  });
+
+  test('章节组右键「批量写章…」打开同一个弹窗', () => {
+    const head = [...ui.doc.querySelectorAll('#projectBody .group-head')]
+      .find((n) => n.querySelector('.group-name').textContent === '章节');
+    ui.sent.length = 0;
+    ui.pick(ui.rightClick(head), '批量写章…');
+    assert.ok(isOpen(ui));
+    assert.ok(!ui.sent.some((m) => m.type === 'projectAction'), JSON.stringify(ui.sent));
+    key(ui, ui.doc, 'Escape');
+  });
+});

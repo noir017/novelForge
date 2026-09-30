@@ -1,5 +1,5 @@
 /**
- * 工程页顶部的长任务进度条。
+ * 页头的长任务进度条（W8）：所有页签都看得见（DOM 在 shells/shared/panes.ts 的 `taskBar`）。
  *
  * 后端每次进度变化都全量重推 `tasks`，这里整块重画——列表最多两三项，
  * 增量更新换来的那点开销不值得多维护一份状态。
@@ -68,6 +68,17 @@ function buildTaskRow(t: TaskSnapshot): HTMLElement {
   head.appendChild(mk('span', 'meta task-counter', counterText(t)));
   head.appendChild(spacer());
   head.appendChild(mk('span', 'meta task-time', durationText(t.elapsedMs || 0)));
+  // 批量写章只在章与章之间停（D10）：「写完这一章就停」让正在写的这一章写完、落盘再收；
+  // 「停止」是中断，正在写的那一章不要了。点过之后按钮换成一句说明，不再能点第二下。
+  if (t.pausable) {
+    if (t.stopping) {
+      head.appendChild(mk('span', 'meta task-stopping', '写完这一章就停'));
+    } else {
+      const pause = linkBtn('写完这一章就停', () => vscode.postMessage({ type: 'stopAfterItem', id: t.id }));
+      pause.classList.add('task-pause');
+      head.appendChild(pause);
+    }
+  }
   head.appendChild(linkBtn('停止', () => vscode.postMessage({ type: 'cancelTask', id: t.id })));
   box.appendChild(head);
 

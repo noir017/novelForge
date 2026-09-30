@@ -8,6 +8,7 @@ import type { ProjectNode, ProjectTree } from '../../protocol';
 import { linkBtn } from '../buttons';
 import { formatWords } from '../format';
 import { onContextMenu } from '../menu';
+import { openWriteBatchForm } from '../forms';
 import { openPath } from '../store';
 import { hasTask } from '../tasks';
 import { baseMenuItems, newItemsIn, projectAction } from './actions';
@@ -242,9 +243,9 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
     { label: '提取/更新角色卡', run: () => projectAction('extractCharacters') },
     { sep: true },
     // 两个批量动作都「只补不改」：已经有产物的章一律跳过。批量路径上
-    // 没有逐个审阅的余地，跳过是唯一安全的做法。
+    // 没有逐个审阅的余地，跳过是唯一安全的做法。批量写章先开弹窗选区间与模式（W9）。
     { label: '批量写细纲（只补缺）', run: () => projectAction('generatePlots') },
-    { label: '批量写正文（只补缺）', run: () => projectAction('writeManuscripts') },
+    { label: '批量写章…', run: () => openWriteBatchForm(tree) },
     { sep: true },
     ...baseMenuItems(),
   ]);

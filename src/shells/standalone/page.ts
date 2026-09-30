@@ -10,6 +10,7 @@ import {
   providerModal,
   settingsPane,
   tabbar,
+  taskBar,
   toastSlot,
 } from '../shared/panes';
 
@@ -96,6 +97,8 @@ ${tabbar([
 
   <!-- ---------------------------------------------------------- 侧栏 -->
   <div class="wb-side" id="wbSide">
+
+${taskBar()}
 
 ${chatPane(caps)}
 
