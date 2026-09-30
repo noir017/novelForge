@@ -22,13 +22,14 @@
  * 不静默覆盖、产物落盘前必须过一遍人）。分开还有一个好处：产出先摊在气泡里
  * 给他看，他改两个字再点写入。
  *
- * ## 本期（一期）的架构产物是过渡版
+ * ## 多步生成交来的是规范化结果
  *
- * 架构四件与细纲批次的提示词、JSON 合同、修复链从 AI-Novel-Writer 移植过来是二期
- * 的事。这里先认最朴素的两种形状（JSON 同名键 / Markdown 小节），保证新链路
- * 每一层都有落点。
+ * 小说配置、角色图谱、细纲批次由生成链（generation/structured.ts）分几次调用拼出来，
+ * 交到气泡里的是**将要落盘的样子**：配置是 `config.md` 全文、角色图谱与细纲批次是
+ * 规范化的 JSON。这里认那几种形状，也认模型第一次调用的原样输出（agent 那条路、
+ * 老会话），并照旧三层降级。合同本身在 features/blueprint.ts、roster.ts、novelConfig.ts。
  */
-import { pickSections } from '../model/markdown';
+import { parseMarkdown, pickSections } from '../model/markdown';
 import { PLOT_SECTION_KEYS, PlotSections, emptyPlotSections } from '../model/plotFile';
 import {
   BookConfig,
@@ -38,11 +39,17 @@ import {
   PlotStructure,
   SETTING_SECTION_KEYS,
   SettingFileDoc,
+  parseBookConfig,
 } from '../model/settingFile';
 import { CHARACTER_SECTION_KEYS, CharacterSections } from '../model/types';
 import { CreationAction, CreationTarget, SettingDoc } from '../model/pipeline';
+import { BlueprintItem, decodeBlueprints } from './blueprint';
+import { STYLE_DRAFT_HEADING, decodeNovelConfig } from './novelConfig';
 import { extractJsonObject, stripCodeFence } from './parse';
+import type { RosterEntry } from './roster';
 import { toSectionText } from './summarize';
+
+export type { RosterEntry };
 
 // ---------------------------------------------------------------- 产物形状
 
@@ -50,15 +57,6 @@ import { toSectionText } from './summarize';
 export type ConfigFields = Partial<
   Pick<BookConfig, 'genre' | 'subGenre' | 'audience' | 'structure' | 'pov' | 'totalChapters' | 'wordsPerChapter'>
 >;
-
-/** 角色图谱里的一个人。落盘时变成一张角色卡（同名已存在的不动）。 */
-export interface RosterEntry {
-  name: string;
-  /** 主角 / 盟友 / 对手……落进角色卡的 tags。 */
-  role: string;
-  aliases: string[];
-  sections: Partial<CharacterSections>;
-}
 
 /** 一章细纲的规划字段（三节之外的那些）。 */
 export interface PlotFields {
@@ -74,27 +72,54 @@ export interface PlotFields {
  * 「角色图谱」产出的是一组角色卡，其余三件是一份文档。
  */
 export type Artifact =
-  | { kind: 'settingDoc'; doc: SettingFileDoc; sections: Record<string, string>; config?: ConfigFields }
+  | {
+      kind: 'settingDoc';
+      doc: SettingFileDoc;
+      sections: Record<string, string>;
+      config?: ConfigFields;
+      /** 配置草稿里附带的文风：只在 `style.md` 空着时写过去（D14）。 */
+      style?: string;
+    }
   | { kind: 'characterRoster'; characters: RosterEntry[] }
-  | { kind: 'outlineDoc'; text: string }
+  /** `range` 给了就只替换大纲里与它重叠的那几节（model/outlineFile.ts 的 `mergeOutline`）。 */
+  | { kind: 'outlineDoc'; text: string; range?: ChapterRange }
   | ({ kind: 'plot' } & PlotFields)
+  /** 一批细纲：一章一份，按章号升序，只含区间内的章。 */
+  | { kind: 'plotBatch'; items: BlueprintItem[]; range: ChapterRange }
   | { kind: 'manuscript'; text: string };
+
+/** 章号闭区间。 */
+export interface ChapterRange {
+  from: number;
+  to: number;
+}
 
 /**
  * 按 action 解析。**绝不抛**：解析这一步出异常，用户丢的是刚花掉的那次调用。
  * 实在认不出就退回一个「全文塞进主字段」的产物，让他至少能手工取用。
  *
  * 架构层要看 target 才分得清是哪一件（四件同属一个阶段）；其余阶段只看 action。
+ *
+ * `range` 只对两层有意义：大纲（续写的那一段，落盘时按区间合并）与细纲（**给了区间
+ * 就是一批**，按批次合同严格解码，不做全文兜底——见 {@link parsePlotStrict} 为什么）。
  */
-export function parseArtifact(action: CreationAction, raw: string, target?: CreationTarget): Artifact {
+export function parseArtifact(
+  action: CreationAction,
+  raw: string,
+  target?: CreationTarget,
+  range?: ChapterRange
+): Artifact {
   const text = stripCodeFence(raw).trim();
   switch (action.stage) {
     case 'manuscript':
       return { kind: 'manuscript', text };
     case 'outline':
       // 大纲是 Markdown，没有 JSON 可解——原样收下。
-      return { kind: 'outlineDoc', text };
+      return range ? { kind: 'outlineDoc', text, range } : { kind: 'outlineDoc', text };
     case 'plot':
+      if (range && action.capability === 'generate') {
+        return { kind: 'plotBatch', items: parsePlotBatch(text, range), range };
+      }
       return { kind: 'plot', ...(parsePlotStrict(text) ?? { sections: { ...emptyPlotSections(), 关键事件: text } }) };
     case 'setting': {
       const doc: SettingDoc = target?.kind === 'setting' ? target.doc : 'config';
@@ -117,6 +142,8 @@ export function isArtifactEmpty(artifact: Artifact): boolean {
       return artifact.characters.length === 0;
     case 'plot':
       return !Object.values(artifact.sections).some((v) => v.trim());
+    case 'plotBatch':
+      return artifact.items.length === 0;
   }
 }
 
@@ -135,6 +162,12 @@ export function describeArtifact(artifact: Artifact): string {
     case 'plot': {
       const filled = Object.values(artifact.sections).filter((v) => v.trim()).length;
       return `细纲 · ${filled}/${PLOT_SECTION_KEYS.length} 节`;
+    }
+    case 'plotBatch': {
+      const nos = artifact.items.map((b) => b.no);
+      const span = nos.length > 1 ? `第 ${nos[0]}–${nos[nos.length - 1]} 章` : `第 ${nos[0]} 章`;
+      const fresh = new Set(artifact.items.flatMap((b) => b.newCharacters.map((c) => c.name))).size;
+      return `细纲 · ${span}（${nos.length} 章）${fresh > 0 ? ` · 新角色 ${fresh} 人` : ''}`;
     }
     case 'manuscript':
       return `正文 · ${artifact.text.length} 字`;
@@ -167,7 +200,12 @@ const PLOT_KEY_ALIASES: Record<(typeof PLOT_SECTION_KEYS)[number], string[]> = {
  * 用户看得见它是什么，兜底至少留住了这次调用的钱。
  */
 export function parsePlotStrict(text: string): PlotFields | undefined {
-  const fromJson = objectOf(text);
+  const outer = objectOf(text);
+  // 单章也用批次合同的单项形式（第 22 条：生成与落定两个入口契约一致），
+  // 模型答的是 `{"blueprints":[{…}]}`——取里面那一项。
+  const wrapped = Array.isArray(outer?.blueprints) ? outer.blueprints[0] : undefined;
+  const fromJson =
+    wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped) ? (wrapped as Record<string, unknown>) : outer;
   if (fromJson) {
     const sections = emptyPlotSections();
     for (const key of PLOT_SECTION_KEYS) {
@@ -190,6 +228,24 @@ export function parsePlotStrict(text: string): PlotFields | undefined {
   return Object.values(picked).some((v) => v.trim()) ? { sections: { ...emptyPlotSections(), ...picked } } : undefined;
 }
 
+/**
+ * 一批细纲：按批次合同严格解码，只留区间内的章、同号只留第一份，按章号升序。
+ *
+ * 解不出来就是空的——采纳时据此说「解析不出」，不写任何东西。生成那一步的漏章、
+ * 重复章由生成链当场报错（fail-closed），走到这里的是已经过了那一关的规范化结果，
+ * 或者作者在气泡里改过的那一份。
+ */
+export function parsePlotBatch(text: string, range: ChapterRange): BlueprintItem[] {
+  const decoded = decodeBlueprints(text);
+  if (!decoded.ok) {
+    return [];
+  }
+  const seen = new Set<number>();
+  return decoded.items
+    .filter((b) => b.no >= range.from && b.no <= range.to && !seen.has(b.no) && (seen.add(b.no), true))
+    .sort((a, b) => a.no - b.no);
+}
+
 // ---------------------------------------------------------------- 架构
 
 /** 各件兜底塞进哪一节：那一件的主体，也就是「填过没有」看的那一节。 */
@@ -199,8 +255,19 @@ const SETTING_FALLBACK: Record<SettingFileDoc, string> = {
   world: '规则与漏洞',
 };
 
-/** 小说配置 / 前提 / 世界观：JSON 同名键 → Markdown 小节 → 全文塞进主体那一节。 */
+/**
+ * 小说配置 / 前提 / 世界观：JSON 同名键 → Markdown 小节 → 全文塞进主体那一节。
+ *
+ * 配置另外认两种形状：生成链交来的规范化草稿（带 frontmatter 的 `config.md` 全文，
+ * 末尾可能有一节「文风」），以及上游合同的英文键 JSON（模型第一次调用的原样输出）。
+ */
 export function parseSettingArtifact(doc: SettingFileDoc, text: string): Extract<Artifact, { kind: 'settingDoc' }> {
+  if (doc === 'config') {
+    const special = parseConfigDraft(text);
+    if (special) {
+      return special;
+    }
+  }
   const keys = SETTING_SECTION_KEYS[doc];
   const obj = objectOf(text);
   const sections: Record<string, string> = Object.fromEntries(keys.map((k) => [k, '']));
@@ -232,6 +299,51 @@ export function parseSettingArtifact(doc: SettingFileDoc, text: string): Extract
     sections[SETTING_FALLBACK[doc]] = text.trim();
   }
   return { kind: 'settingDoc', doc, sections, config };
+}
+
+/**
+ * 配置的两种特殊形状（见 {@link parseSettingArtifact}）。都认不出返回 undefined，
+ * 回到通用的三层降级。
+ */
+function parseConfigDraft(text: string): Extract<Artifact, { kind: 'settingDoc' }> | undefined {
+  const pickConfig = (c: ConfigFields & { genre?: string; subGenre?: string; audience?: string }): ConfigFields => ({
+    genre: c.genre || undefined,
+    subGenre: c.subGenre || undefined,
+    audience: c.audience || undefined,
+    structure: c.structure,
+    pov: c.pov,
+    totalChapters: c.totalChapters,
+    wordsPerChapter: c.wordsPerChapter,
+  });
+
+  if (/^---\s*\r?\n/.test(text)) {
+    const book = parseBookConfig(text, '');
+    const style = pickSections(parseMarkdown(text).body, [STYLE_DRAFT_HEADING])[STYLE_DRAFT_HEADING].trim();
+    return {
+      kind: 'settingDoc',
+      doc: 'config',
+      sections: { ...book.sections },
+      config: pickConfig(book),
+      ...(style ? { style } : {}),
+    };
+  }
+
+  const decoded = decodeNovelConfig(text);
+  if (!decoded.ok || !Object.values(decoded.value.sections).some((v) => v?.trim())) {
+    return undefined;
+  }
+  const { value } = decoded;
+  const sections: Record<string, string> = Object.fromEntries(SETTING_SECTION_KEYS.config.map((k) => [k, '']));
+  for (const [k, v] of Object.entries(value.sections)) {
+    sections[k] = v ?? '';
+  }
+  return {
+    kind: 'settingDoc',
+    doc: 'config',
+    sections,
+    config: pickConfig(value),
+    ...(value.writingStyle ? { style: value.writingStyle } : {}),
+  };
 }
 
 /**

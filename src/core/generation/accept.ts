@@ -57,6 +57,9 @@ export async function acceptArtifact(
       return acceptPlot(project, ws, target, artifact);
     case 'manuscript':
       return acceptManuscript(project, ws, target, artifact.text);
+    case 'plotBatch':
+      // 生成链与批次的落盘随下一个 commit 一起接上；这之前没有任何路径产出它。
+      throw new Error('细纲批次还不能落盘。');
   }
 }
 
