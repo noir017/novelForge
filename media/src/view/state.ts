@@ -18,6 +18,7 @@ const THINKING_LABEL_DISPLAY: Record<ThinkingDepth, string> = {
 };
 import type { ViewState } from '../protocol';
 import { setCommandsDisabled } from './commands';
+import { syncReviewCards } from './review';
 import { fmt } from './format';
 import { el } from './refs';
 import { store, hasWorkspace } from './store';
@@ -177,4 +178,6 @@ export function setBusy(value: boolean): void {
   // 也一并收掉——一个点不动的候选列表挂在输入框上方只会挡住消息流。
   el.nextStepBtn.disabled = value || locked;
   setCommandsDisabled(value || locked);
+  // 审稿报告卡上的「按勾选的 n 条修稿」也会发起新的一轮。
+  syncReviewCards();
 }

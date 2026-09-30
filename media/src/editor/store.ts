@@ -31,6 +31,11 @@ export interface Pane {
   save(force: boolean): void;
   savePath(path: string, force: boolean): void;
   showFind(): void;
+  /**
+   * 切到这份文件、选中这一句并滚到它（五期：点审稿报告上的引文）。定位按 `locateQuote`——与后端
+   * 校验引文同一个归一化。找不到返回 false。
+   */
+  reveal(path: string, quote: string): boolean;
   applySaved(incoming: EditorFileView): void;
   applyConflict(path: string, diskText: string, diskHash: string): void;
 }

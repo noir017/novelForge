@@ -12,6 +12,7 @@ import { setHidden } from '../dom';
 import { onContextMenu, toast } from '../globals';
 import type { MenuItem } from '../globals';
 import type { EditorFileView, InMessage } from '../protocol';
+import { locateQuote } from '../protocol';
 import { areaCopy, areaCut, areaPaste, handleTabKey } from './clipboard';
 import type { CarriedDraft, OpenFile, PaneId, PaneRefs } from './paneElements';
 import { renderPreview } from './preview';
@@ -70,6 +71,7 @@ export function createPane(
     save,
     savePath,
     showFind,
+    reveal,
     applySaved,
     applyConflict,
   };
@@ -414,6 +416,29 @@ export function createPane(
 
   function hideFind(): void {
     setHidden(el.find, true);
+  }
+
+  /**
+   * 选中引文那一句。按编辑区里**当下**的文字找（可能有没保存的修改）；预览模式先切回编辑。
+   * 滚动按位置比例估：textarea 拿不到某个字符的像素位置，比例对长章来说足够准。
+   */
+  function reveal(path: string, quote: string): boolean {
+    if (!files.has(path)) {
+      return false;
+    }
+    if (pane.activePath !== path || previewMode) {
+      activate(path);
+    }
+    const at = locateQuote(el.area.value, quote);
+    if (!at) {
+      return false;
+    }
+    el.area.focus();
+    el.area.setSelectionRange(at.start, at.end);
+    const len = Math.max(1, el.area.value.length);
+    el.area.scrollTop = Math.max(0, (at.start / len) * el.area.scrollHeight - el.area.clientHeight / 3);
+    stashCaret();
+    return true;
   }
 
   function findStep(dir: 1 | -1): void {

@@ -17,10 +17,11 @@
  *
  * 四颗按这一章的状态亮灭：「写这一章」只在细纲排好、还没有正文时亮；「接着写」「重写」
  * 要这一章已经有正文；「定稿」也要有正文。提示里写调用次数，与主按钮同一个数（D16）。
- * 另一份没开着时给「并排看细纲 / 并排看正文」。审稿按钮是五期的事。
+ * 另一份没开着时给「并排看细纲 / 并排看正文」。「审稿」（五期）要有正文：只出报告、不写文件，
+ * 报告出在对话页，勾选之后按勾选的条目修稿。
  */
 import { el } from '../dom';
-import { FINALIZE_CALLS, PLOT_STAGE_LABEL, WRITE_CALLS, describeCalls } from '../protocol';
+import { FINALIZE_CALLS, PLOT_STAGE_LABEL, REVIEW_CALLS, WRITE_CALLS, describeCalls } from '../protocol';
 import type { ChapterAction, InMessage, ProjectPlotNode } from '../protocol';
 import { onMessage } from '../vscodeApi';
 import { paneOwning } from './store';
@@ -69,6 +70,9 @@ export function installChapterBar(stage: HTMLElement, post: (msg: InMessage) => 
     actions.appendChild(button('接着写', 'continue', written, `从末尾往下写，新写的追加在后面。${describeCalls(WRITE_CALLS)}`));
     actions.appendChild(
       button('重写', 'rewrite', written && row.plotExists, `照细纲整章重写，写入前会让你先对比。${describeCalls(WRITE_CALLS)}`)
+    );
+    actions.appendChild(
+      button('审稿', 'review', written, `逐条引原文挑出这一章的问题，逐项核对细纲的关键事件；只出报告，不改文件。${describeCalls(REVIEW_CALLS)}`)
     );
     actions.appendChild(
       button('定稿', 'finalize', written, `生成摘要与连续性事实，再更新出场角色的当前状态。${describeCalls(FINALIZE_CALLS)}`)

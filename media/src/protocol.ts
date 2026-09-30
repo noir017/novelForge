@@ -103,7 +103,23 @@ export {
   WRITE_BATCH_DEFAULT,
   WRITE_BATCH_MAX,
   planWriteBatch,
+  // 审稿与修稿（五期）：章节条、报告卡上的调用次数与后端同一份。
+  REVIEW_CALLS,
+  REVISE_CALLS,
 } from '../../src/core/model/pipeline';
+
+/**
+ * 审稿报告（五期 W10）。标签、能勾哪几条、定位引文的归一化都必须与后端同源：报告里说找得到的
+ * 引文，点下去就得在编辑器里选得中。`review.ts` 是纯类型 + 纯函数、零 import，打进浏览器产物是安全的。
+ */
+export {
+  GOAL_STATUS_LABEL,
+  SEVERITY_LABEL,
+  describeReport,
+  locateQuote,
+  pickableIds,
+} from '../../src/core/model/review';
+export type { ReviewGoal, ReviewIssue, ReviewReport } from '../../src/core/model/review';
 export type {
   BookStage,
   CallEstimate,

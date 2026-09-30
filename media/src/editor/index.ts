@@ -208,6 +208,18 @@ function start(stage: HTMLElement): void {
         paneOwning(msg.path)?.applyConflict(msg.path, msg.diskText, msg.diskHash);
         break;
 
+      // 点审稿报告上的引文（五期）：后端先推了那一份的 editorOpen，这里选中那一句。
+      case 'editorReveal': {
+        const pane = paneOwning(msg.path);
+        if (pane) {
+          setActivePane(pane);
+          if (!pane.reveal(msg.path, msg.quote)) {
+            toast('这一句在编辑区里找不到了（可能有没保存的修改）。', true);
+          }
+        }
+        break;
+      }
+
       case 'editorError':
         toast(msg.message, true);
         // 恢复时文件可能已被删/改名，别让它卡在待恢复列表里。

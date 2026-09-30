@@ -44,6 +44,7 @@ import { openPath, store, vscode } from './store';
 import { toast } from './toast';
 import type { SendPayload } from '../protocol';
 import { describeWriteLength } from '../protocol';
+import { buildReviewCard } from './review';
 
 /** 由 composer.ts 注入：「重新生成」要带上输入框里当下的那套参数。 */
 let currentPayload: () => SendPayload = () => {
@@ -215,7 +216,11 @@ function buildTurn(turn: SerializedTurn): HTMLElement {
     wrap.appendChild(buildReasoningDetails(turn.reasoning));
   }
   // 段区：它说的话与它做的事按发生顺序交替。没有段的轮次就是一块正文。
-  if (turn.role === 'assistant' && turn.segments && turn.segments.length > 0) {
+  // 审稿那一轮（五期 W10）画报告卡，不画那段可就地编辑的正文：报告不落盘，改它的文字没有意义；
+  // 正文里那一份给人读的文字仍在 `turn.content` 上，「复制」取它。
+  if (turn.role === 'assistant' && turn.review && !turn.error) {
+    wrap.appendChild(buildReviewCard(turn));
+  } else if (turn.role === 'assistant' && turn.segments && turn.segments.length > 0) {
     for (const node of buildSegments(turn)) {
       wrap.appendChild(node);
     }
@@ -310,6 +315,13 @@ function fillUserBody(body: HTMLElement, turn: SerializedTurn): HTMLElement {
   const text = turn.error || turn.content;
   if (text) {
     body.appendChild(mk('span', 'msg-text', text));
+  } else if (turn.revise?.items.length) {
+    // 按审稿修稿：勾了哪几条（五期）。命令标签下面一条一行——翻回来看得出这一次修的是什么。
+    const list = mk('ul', 'msg-revise-items');
+    for (const item of turn.revise.items) {
+      list.appendChild(mk('li', undefined, item));
+    }
+    body.appendChild(list);
   } else if (!turn.command) {
     // 既没有话也没有命令：只可能是旧会话里的空轮次（那时命令没被记下来）。
     // 留一句说明，总比一片看不出所以然的空白好。
