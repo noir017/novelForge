@@ -432,8 +432,8 @@ export async function askArtifact(
   if (ask.open !== false) {
     await getHost().openFile(result.relPath);
   }
+  // pushState 连流水线条一起推。
   await c.pushState();
-  await pushPipeline(c);
   return { verdict, relPath: result.relPath, message: result.message };
 }
 

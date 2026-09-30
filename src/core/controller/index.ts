@@ -599,11 +599,24 @@ export class ChatController {
     };
   }
 
-  /** 工程内容变化时刷新（由 FileSystemWatcher 触发）。 */
+  /**
+   * 工程内容变化时刷新（由 FileSystemWatcher、保存、工程页动作触发）。
+   *
+   * 流水线条跟着一起推：拆完章、总结完、在编辑器里手改了细纲，主按钮都得跟着
+   * 变。从前这里只推 state，拆完章主按钮还挂着「拆成章节」，再点只报「还没有
+   * 正文」。它失败不该拖垮 state 那一份，所以单独兜住。
+   */
   async pushState(): Promise<void> {
     this.project.invalidate();
     for (const host of this.hosts) {
       host.post({ type: 'state', state: await this.buildState() });
+    }
+    if (await this.project.isInitialized()) {
+      try {
+        await pushPipeline(this);
+      } catch (err) {
+        log.warn(`刷新流水线失败：${describeError(err)}`, err);
+      }
     }
     await this.pushTabData();
   }
