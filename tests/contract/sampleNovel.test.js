@@ -5,10 +5,11 @@
  * 这是**只读**断言：任何写入类用例都不许碰 sample-novel（写了这里就会红），
  * 需要写盘的先经 helpers/tmpProject.js 的 copyFixture 复制一份。
  *
- * 指纹链的轴是**章**：`chapters/NNN-标题.md` 是成品，摘要按同一个词干镜像到
- * `summaries/`。细纲（`plots/`）与它同号，是这一章的规划稿。中转站
- * `manuscripts/` 在拆分之后就删掉了，所以示例工程里没有它——这里连
- * 「它确实不在」一起验。
+ * 一条轴：细纲号 = 章号。`chapters/NNN-标题.md` 是正文，摘要按同一个词干镜像到
+ * `summaries/`，细纲（`plots/`）与它同号。指纹链的三环都在这里验：大纲那一节 →
+ * 细纲（`upstreamHash`）、细纲 → 正文（`writtenFrom`）、正文 → 摘要（`sourceHash`）。
+ * 架构三件（config / premise / world）都要是填过的——示例工程是一份走完整条
+ * 链路、写到第 3 章的书。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -57,22 +58,35 @@ describe('示例工程数据一致性', () => {
     assert.equal(manifest.plots, undefined);
   });
 
-  /**
-   * 中转站是**临时的**：正文拆分成发布章节之后那份就删掉了。
-   *
-   * 示例工程是一份「已经写完三章」的工程，所以 `manuscripts/` 不该有东西。
-   * 它要是回来了，多半是哪条路径又把中转站当成了永久副本。
-   */
-  test('拆分之后中转站是空的', () => {
-    const dir = path.join(SAMPLE, '.novelforge/manuscripts');
-    const left = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.md')) : [];
-    assert.deepEqual(left, [], left.join('|'));
+  /** 卷与中转站两层都删了：示例工程里不该再出现它们。 */
+  test('没有 volumes/ 与 manuscripts/', () => {
+    assert.ok(!fs.existsSync(path.join(SAMPLE, '.novelforge/volumes')));
+    assert.ok(!fs.existsSync(path.join(SAMPLE, '.novelforge/manuscripts')));
   });
 
   /** 每一章都有同号的细纲：示例工程是走完整条流水线写出来的。 */
-  test('每一章都有同号的细纲', () => {
+  test('每一章都有同号的细纲（细纲号 = 章号）', () => {
+    const plotFile = loadModule('src/core/model/plotFile.ts');
     const plots = fs.readdirSync(path.join(SAMPLE, '.novelforge/plots')).filter((f) => f.endsWith('.md'));
-    assert.equal(plots.length, manifest.chapters.length, plots.join('|'));
+    const nos = plots.map((f) => plotFile.parsePlotFileName(f).no).sort((a, b) => a - b);
+    assert.deepEqual(nos, manifest.chapters.map((c) => c.order).sort((a, b) => a - b));
+  });
+
+  test('架构三件都填过，配置能解析出规模参数', () => {
+    const setting = loadModule('src/core/model/settingFile.ts');
+    for (const doc of setting.SETTING_FILE_DOCS) {
+      const parsed = setting.parseSettingDoc(doc, read(`.novelforge/${doc}.md`), doc);
+      assert.ok(setting.isSettingFilled(doc, parsed.sections), doc);
+    }
+    const config = setting.parseBookConfig(read('.novelforge/config.md'), 'config');
+    assert.equal(config.totalChapters, 30);
+    assert.equal(config.wordsPerChapter, 400);
+    assert.equal(config.structure, 'three_act');
+  });
+
+  test('情节大纲按章号区间分节，覆盖到总章数', () => {
+    const outline = loadModule('src/core/model/outlineFile.ts');
+    assert.equal(outline.outlineCoverage(read('.novelforge/outline.md')), 30);
   });
 
   describe('每章的指纹链', () => {
@@ -87,6 +101,18 @@ describe('示例工程数据一致性', () => {
 
       test(`第 ${entry.order} 章有细纲`, () => {
         assert.ok(fs.existsSync(path.join(SAMPLE, plotRel)), plotRel);
+      });
+
+      // 细纲的两个指纹都对得上：它依据的那一节大纲没改过，正文依据的细纲也没改过。
+      test(`第 ${entry.order} 章细纲的 upstreamHash / writtenFrom 都是新鲜的`, () => {
+        const plotFile = loadModule('src/core/model/plotFile.ts');
+        const outlineFile = loadModule('src/core/model/outlineFile.ts');
+        const fsm = loadModule('src/core/model/fs.ts');
+        const plot = plotFile.parsePlotFile(read(plotRel), plotRel);
+        const outline = md.stripH1(md.parseMarkdown(read('.novelforge/outline.md')).body);
+        assert.equal(plot.upstreamHash, outlineFile.outlineUpstreamHash(outline, plot.no));
+        const content = fsm.hash(plotFile.PLOT_SECTION_KEYS.map((k) => plot.sections[k]).join('\n---\n'));
+        assert.equal(plot.writtenFrom, content);
       });
 
       // 哈希的是**整份正文**（含标题行）：与 `listChapters` 一字对齐。
