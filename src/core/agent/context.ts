@@ -53,7 +53,7 @@ import {
 import { parsePlotFileName } from '../model/plotFile';
 import { parseChapterFileName } from '../model/chapterFile';
 import { BookFacts } from '../model/pipeline';
-import { buildBookFacts, buildPipelineIndex, factsOf } from '../views/pipeline';
+import { buildBookFacts, buildPipelineIndex, buildPlotPipeline, factsOf } from '../views/pipeline';
 import type { PipelineIndex, PlotPipeline } from '../views/pipeline';
 
 const log = scoped('Agent');
@@ -94,7 +94,7 @@ export async function buildStateBrief(
       (config.totalChapters ? `（计划 ${config.totalChapters} 章）` : '')
   );
 
-  const current = target ? findPipeline(index, target) : undefined;
+  const current = target ? await findPipeline(project, index, target) : undefined;
   if (current) {
     const where = current.plot.exists ? current.plot.relPath : current.chapter.relPath || current.plot.relPath;
     lines.push(`当前目标：${chapterLabel(current.no, current.title)}（${where}）`);
@@ -152,15 +152,30 @@ function describeNext(next: { label: string; hint: string } | undefined, done: s
 
 /**
  * target → 那一章的流水线。**按章号认**（细纲号 = 章号），与 `selectPlot` 同一条判据：
- * target 里记的可能是一份还不存在的细纲（老工程里选中某一章那条路），也可能是章节路径。
+ * target 里记的可能是一份还不存在的细纲（点了「拆细纲 / 写第 N 章细纲」之后会话里的
+ * 就是这种），也可能是章节路径。
+ *
+ * 索引里只有「有细纲或正文文件」的章号。**不在索引里的章也要给一份空壳**——与
+ * `buildPlotPipelineView` 同一条路：否则作者刚点了主按钮、会话落在第 2 章那份还不存在的
+ * 细纲上，界面说「写第 2 章细纲」，agent 这里却说「还没选定某一章」（第 20 条）。
  */
-function findPipeline(index: PipelineIndex, target: CreationTarget): PlotPipeline | undefined {
+async function findPipeline(
+  project: NovelProject,
+  index: PipelineIndex,
+  target: CreationTarget
+): Promise<PlotPipeline | undefined> {
   const rel = plotOfTarget(target);
   if (!rel) {
     return undefined;
   }
   const no = parsePlotFileName(basename(rel))?.no ?? parseChapterFileName(basename(rel))?.order;
-  return no === undefined ? undefined : index.byNo.get(no);
+  if (no === undefined) {
+    return undefined;
+  }
+  return (
+    index.byNo.get(no) ??
+    buildPlotPipeline(project, { no }, { outline: index.outline, config: index.config, chapters: index.chapters })
+  );
 }
 
 function formatWords(words: number): string {

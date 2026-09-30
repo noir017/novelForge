@@ -60,7 +60,13 @@ export async function acceptArtifact(
   }
 }
 
-/** 小说配置 / 前提 / 世界观：整份替换，覆盖前审阅。配置的 frontmatter 由 handler 合并。 */
+/**
+ * 小说配置 / 前提 / 世界观：整份替换，覆盖前审阅。配置的 frontmatter 由 handler 合并。
+ *
+ * **磁盘上那份一节内容都没有时不审阅**：新工程里躺着的是初始化写的空模板（全是占位），
+ * 拿它跟产物 diff 一遍只是让作者多点一次；而作者哪怕只填了一节，照旧先问。
+ * 配置的 frontmatter（总章数、每章字数）不受影响——handler 没给就沿用磁盘那份。
+ */
 async function acceptSettingDoc(
   project: NovelProject,
   ws: Workspace,
@@ -68,7 +74,9 @@ async function acceptSettingDoc(
 ): Promise<AcceptResult> {
   const rel = pathOfTarget(project, { kind: 'setting', doc: artifact.doc });
   const what = SETTING_DOC_LABEL[artifact.doc];
-  const r = await ws.write(rel, { artifact }, { mode: 'overwrite', what });
+  const current = await project.readSettingDoc(artifact.doc);
+  const blank = !Object.values(current.sections).some((v) => v.trim());
+  const r = await ws.write(rel, { artifact }, { mode: 'overwrite', what, review: !blank });
   if (r.skipped) {
     return { skipped: true, message: `没有改动${what}。` };
   }
@@ -143,14 +151,19 @@ async function acceptPlot(
   if (!relPath) {
     throw new Error('这份细纲不属于任何章。');
   }
-  const existing = await project.readPlot(relPath);
+  // 按章号认：占位路径（`plots/003.md`）上采纳过一次之后，文件已经落成
+  // `003-雪夜.md`，再采纳要覆盖它并先审阅，而不是当成新的再写一份。
+  const existing = await project.resolvePlot(relPath);
   if (existing) {
-    const r = await ws.write(relPath, { artifact: fields }, { mode: 'overwrite', what: `第 ${existing.no} 章的细纲` });
+    const r = await ws.write(existing.relPath, { artifact: fields }, {
+      mode: 'overwrite',
+      what: `第 ${existing.no} 章的细纲`,
+    });
     if (r.skipped) {
       return { skipped: true, message: '没有改动这一章。' };
     }
-    log.info(`第 ${existing.no} 章的细纲已写入`, relPath);
-    return { relPath, message: `已写入 ${relPath}` };
+    log.info(`第 ${existing.no} 章的细纲已写入`, existing.relPath);
+    return { relPath: existing.relPath, message: `已写入 ${existing.relPath}` };
   }
 
   const no = parsePlotFileName(relPath.split('/').pop() ?? '')?.no;
@@ -197,7 +210,7 @@ async function acceptManuscript(
     ? (await ws.write(dest.rel, { text }, { mode: 'append' })).rel
     : await ws.createChapter(dest.no, dest.title, text);
 
-  const plot = await project.readPlot(plotRelPath);
+  const plot = await project.resolvePlot(plotRelPath);
   if (plot) {
     await ws.recordWrittenFrom(plot.relPath, plotContentHash(plot));
   }

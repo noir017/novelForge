@@ -91,7 +91,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
   }
 
   const no = parsePlotFileName(basename(target.plotRelPath))?.no ?? 0;
-  const plot = await project.readPlot(target.plotRelPath);
+  const plot = await project.resolvePlot(target.plotRelPath);
   const chapter = no > 0 ? chapterOfPlotNo(await project.listChapters(), no) : undefined;
   const head = plotLabel(no, plot?.title || chapter?.title);
 

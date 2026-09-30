@@ -159,8 +159,10 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
         ? `# 上一章结尾原文（你要从这里无缝接下去）\n\n${prevTail.text}`
         : `# 上一章结尾原文\n\n${prevTail.text}`
     );
-  } else if (writing && fullText.length > 0) {
-    // 结尾片段被整章正文取代时，仍要点明接续位置。
+  } else if (writing && fullText.length > 0 && items.some((i) => i.kind === 'prevTail' && i.status === 'dropped')) {
+    // 结尾片段被整章正文取代时，仍要点明接续位置。**只在确实被取代时说**：上一章
+    // 根本没有正文（只排了细纲）时这里没有结尾片段可言，最后一份全文是更早的某一章，
+    // 说「从它的结尾接下去」等于让模型跳过中间那一章的事件。
     const last = fullText[fullText.length - 1];
     sections.push(`你要从上面「${last.label.replace(' · 正文', '')}」的结尾处无缝接下去。`);
   }

@@ -286,7 +286,7 @@ async function describe(project: NovelProject, target: CreationTarget): Promise<
   if (!relPath) {
     return describeTarget(target);
   }
-  const plot = await project.readPlot(relPath);
+  const plot = await project.resolvePlot(relPath);
   return describeTarget(target, { no: plot?.no, title: plot?.title });
 }
 

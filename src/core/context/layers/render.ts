@@ -134,7 +134,7 @@ export async function selectCharacters(
     }
     const hit = matchesKeywords(ask, [card.name, ...card.aliases]);
     if (hit) {
-      hits.set(card.slug, { card, reason: `纲要中出现「${hit}」` });
+      hits.set(card.slug, { card, reason: `这一轮的要求里提到「${hit}」` });
     }
   }
 

@@ -29,7 +29,7 @@ export const ask: LayerFn = async (a, spec) => {
       id: 'ask',
       kind: 'ask',
       priority: spec.priority,
-      label: isDraftOrder ? '本章剧情纲要' : '我的要求',
+      label: isDraftOrder ? '这一章的补充要求' : '我的要求',
       text: a.request.ask.trim(),
     },
     { force: spec.force }

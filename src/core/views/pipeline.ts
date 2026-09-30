@@ -45,7 +45,7 @@ import {
   isFallbackChapterTitle,
   manuscriptRatio,
 } from '../model/pipeline';
-import { Chapter, ProjectManifest } from '../model/types';
+import { Chapter, CharacterCard, ProjectManifest } from '../model/types';
 import { SummaryIndex, buildSummaryIndex, summaryOf } from './summaryIndex';
 
 const log = scoped('流水线');
@@ -248,7 +248,7 @@ export async function chapterTargetOf(
   if (existing) {
     return { no, rel: existing.relPath, exists: true, title: existing.title };
   }
-  const plot = await project.readPlot(plotRelPath);
+  const plot = await project.resolvePlot(plotRelPath);
   const title = plot?.title?.trim() ?? '';
   const stem = title ? sanitizeFileName(title) : '';
   const dir = project.relPath(project.chaptersDir);
@@ -263,9 +263,14 @@ export async function chapterTargetOf(
  * （views/projectView.ts）与 agent 每回合的状态注入（agent/context.ts）都吃它
  * ——各取各的，界面上的主按钮就会与 agent 说的下一步分叉（第 20 条）。
  */
-export async function buildBookFacts(project: NovelProject, index?: PipelineIndex): Promise<BookFacts> {
+export async function buildBookFacts(
+  project: NovelProject,
+  index?: PipelineIndex,
+  known?: { characters?: CharacterCard[] }
+): Promise<BookFacts> {
   const built = index ?? (await buildPipelineIndex(project));
-  const settings = await project.settingFilled();
+  // 配置在索引里已经读过；角色卡调用方手上有就用它的（工程页刷新时已经列过一遍）。
+  const settings = await project.settingFilled({ config: built.config, characters: known?.characters });
   const nextChapterNo = nextWritableChapterNo(built.chapters);
   const nextPlot = built.plots.find((p) => p.no === nextChapterNo);
   return {

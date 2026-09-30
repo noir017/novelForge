@@ -98,7 +98,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   // 章节列表、manifest、全书摘要与大纲原文都用流水线那一趟读到的同一份，
   // 不再单独读一次。
   const { rows, chapters, summaries, manifest, outline } = pipelineIndex;
-  const book = await buildBookFacts(project, pipelineIndex);
+  const book = await buildBookFacts(project, pipelineIndex, { characters });
 
   const plotRows: ProjectPlotNode[] = rows.map((p) => {
     const chapterPath = p.chapter.relPath;
@@ -253,7 +253,7 @@ export async function buildPlotPipelineView(
   const chapters = await project.listChapters();
   const direct = chapters.find((c) => c.relPath === plotRelPath);
   const no = direct?.order ?? parsePlotFileName(basename(plotRelPath))?.no ?? 0;
-  const plot = direct ? await project.getPlot(no) : ((await project.readPlot(plotRelPath)) ?? undefined);
+  const plot = direct ? await project.getPlot(no) : await project.resolvePlot(plotRelPath);
   const p = await buildPlotPipeline(
     project,
     { no, plot, chapter: direct ?? chapterOfPlotNo(chapters, no) },

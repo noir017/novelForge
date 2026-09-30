@@ -92,7 +92,8 @@ export const generateTool: ToolDef = {
     '调用创作模型，为某一份产物生成内容。target 是那份产物的工程内相对路径，' +
     '层由路径决定：.novelforge/config.md、premise.md、world.md 是架构层，' +
     '.novelforge/outline.md 是大纲层，.novelforge/plots/<章号>-<标题>.md 是细纲层（一章一份），' +
-    '章节文件（chapters/ 下）是正文层——正文层也可以给那一章细纲的路径。' +
+    '正文层给那一章的章节路径（chapters/<章号>-<标题>.md；还没写过的章写成 chapters/<章号>.md 即可，' +
+    '按章号认到同号的细纲）。**细纲路径永远是细纲层**，要写正文不要给细纲路径。' +
     '各层可用的 capability 不同：' +
     Object.entries(STAGE_CAPABILITIES)
       .map(([stage, caps]) => `${stage}=${caps.join('/')}`)

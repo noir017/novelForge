@@ -191,7 +191,10 @@ export function installSummaryTip(): void {
   // 事件委托挂在 projectBody 上：树每次重渲染都换掉全部行，
   // 逐行 addEventListener 会随重渲染次数堆积。
   el.projectBody.addEventListener('mouseover', (e) => {
-    const row = closestFrom<HTMLElement>(e.target, '.row-plot');
+    // 只认带 data-plot 的章节行。「故事架构」那几行为了与章节行同一个版式也带
+    // `.row-plot`，但它们没有摘要可弹：认进来的话会撤销收起却不另开一只，
+    // 上一章的浮窗就一直挂着，指着一行鼠标早已不在的地方。
+    const row = closestFrom<HTMLElement>(e.target, '.row-plot[data-plot]');
     if (row) {
       // 回到行上就撤销待执行的收起（从浮窗挪回行上时会走到这儿）。
       cancelScheduledHide();

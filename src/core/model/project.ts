@@ -27,7 +27,7 @@ import {
   stripH1,
 } from './markdown';
 import { isChapterFileName, isMarkdownExt, isMarkdownPath, parseChapterFileName } from './chapterFile';
-import { Plot, isPlotFileName, parsePlotFile, plotFileName } from './plotFile';
+import { Plot, isPlotFileName, parsePlotFile, parsePlotFileName, plotFileName } from './plotFile';
 import {
   BookConfig,
   SETTING_FILE_DOCS,
@@ -675,6 +675,24 @@ export class NovelProject {
     }
   }
 
+  /**
+   * 按 target 里的细纲路径找那一章的细纲：路径上有就是它，**没有就按路径里的章号认
+   * 同号的那一份**。
+   *
+   * 主按钮给的落点常常是纯序号的占位路径（`plots/003.md`——拆细纲那一刻标题还没定），
+   * 而采纳时按产物带的标题落成了 `003-雪夜.md`。之后凡是「按 target 找细纲」的地方
+   * 都要认得它：只按路径读的话，流水线会说「这一章还没有细纲」，再采纳一次就绕过了
+   * 覆盖审阅（第 3 条）。作者手里的文件路径（工程页右键、编辑器）不走这里，那是实打实的路径。
+   */
+  async resolvePlot(plotRelPath: string): Promise<Plot | undefined> {
+    const direct = await this.readPlot(plotRelPath);
+    if (direct) {
+      return direct;
+    }
+    const no = parsePlotFileNameOf(plotRelPath);
+    return no === undefined ? undefined : this.getPlot(no);
+  }
+
   /** 按章号取细纲。同号有多份时取路径排序第一份。 */
   async getPlot(no: number): Promise<Plot | undefined> {
     return (await this.listPlots()).find((p) => p.no === no);
@@ -717,13 +735,16 @@ export class NovelProject {
    *
    * 角色图谱没有自己的文件，**至少有一张角色卡就算**——作者手写的卡、从正文里
    * 提取的卡都算数。
+   *
+   * `known` 收调用方手上已经读过的：工程页一次刷新里配置与角色卡都已经读过一遍，
+   * 再读一遍只是多几次 I/O（`tests/integration/views/projectTreeReads.test.js` 盯着）。
    */
-  async settingFilled(): Promise<Record<SettingDoc, boolean>> {
+  async settingFilled(known?: { config?: BookConfig; characters?: CharacterCard[] }): Promise<Record<SettingDoc, boolean>> {
     const [config, premise, world, characters] = await Promise.all([
-      this.readSettingDoc('config'),
+      known?.config ? { sections: known.config.sections as Record<string, string> } : this.readSettingDoc('config'),
       this.readSettingDoc('premise'),
       this.readSettingDoc('world'),
-      this.listCharacters(),
+      known?.characters ?? this.listCharacters(),
     ]);
     return {
       config: isSettingFilled('config', config.sections),
@@ -1013,6 +1034,11 @@ function baseName(absPath: string): string {
  */
 function safeStem(title: string): string {
   return title.trim() ? sanitizeFileName(title) : '';
+}
+
+/** 细纲路径的文件名里那个章号；认不出是 undefined。 */
+function parsePlotFileNameOf(plotRelPath: string): number | undefined {
+  return parsePlotFileName(path.basename(plotRelPath))?.no;
 }
 
 // ---------------------------------------------------------------- 初始化模板

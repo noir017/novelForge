@@ -81,7 +81,13 @@ export async function resolveFocus(
   const all = [...byNo.values()].sort((a, b) => a.no - b.no);
 
   const plotRelPath = plotOfTarget(target);
-  const plot = plotRelPath ? plots.find((p) => p.relPath === plotRelPath) : undefined;
+  // 路径上没有就按章号认同号那份（与 `NovelProject.resolvePlot` 同一条规则）：主按钮
+  // 给的落点可能是纯序号的占位路径，而细纲已经按标题落成了 `003-雪夜.md`——认不出的话，
+  // 写正文时本章细纲那一层（P0 force）就空着。
+  const pathNo = plotRelPath ? parsePlotFileName(basename(plotRelPath))?.no : undefined;
+  const plot = plotRelPath
+    ? (plots.find((p) => p.relPath === plotRelPath) ?? (pathNo !== undefined ? plots.find((p) => p.no === pathNo) : undefined))
+    : undefined;
 
   const no =
     target.kind === 'outline' || target.kind === 'setting'

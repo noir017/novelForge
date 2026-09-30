@@ -328,7 +328,7 @@ export async function targetHasContent(
     case 'outline':
       return isOutlineFilled(await c.project.readOutline());
     case 'plot': {
-      const plot = await c.project.readPlot(target.plotRelPath);
+      const plot = await c.project.resolvePlot(target.plotRelPath);
       return !!plot && isPlotFilled(plot.sections);
     }
     case 'manuscript':
@@ -345,7 +345,7 @@ async function targetWordsOf(c: ChatController, target: CreationTarget): Promise
   if (!relPath) {
     return undefined;
   }
-  const plot = await c.project.readPlot(relPath);
+  const plot = await c.project.resolvePlot(relPath);
   return plot?.targetWords ?? (await c.project.readBookConfig()).wordsPerChapter;
 }
 
@@ -436,6 +436,12 @@ export async function askArtifact(
   c.toast(result.message);
   if (result.skipped || !result.relPath) {
     return { verdict, message: result.message };
+  }
+  // 细纲落在占位路径（`plots/003.md`）上时，文件其实按标题落成了 `003-雪夜.md`。
+  // 会话还指着占位路径的话，下一轮写正文、再点一次写细纲都会对着一份「不存在」的细纲
+  // ——改成真实路径。不走 setTarget：那会把能力重置、把页签切走。
+  if (draft.target.kind === 'plot' && result.relPath !== draft.target.plotRelPath && isPlotPath(c.project, result.relPath)) {
+    await retargetPlot(c, draft.target.plotRelPath, result.relPath);
   }
   if (ask.open !== false) {
     await getHost().openFile(result.relPath);
@@ -594,8 +600,8 @@ export async function describeTargetOf(c: ChatController, target: CreationTarget
   if (!relPath) {
     return describeTarget(target);
   }
-  const plot = await c.project.readPlot(relPath);
-  return describeTarget(target, { no: plot?.no, title: plot?.title });
+  const plot = await c.project.resolvePlot(relPath);
+  return describeTarget(target, { no: plot?.no ?? parsePlotFileName(basename(relPath))?.no, title: plot?.title });
 }
 
 /**

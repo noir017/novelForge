@@ -434,6 +434,11 @@ export class Workspace {
       ? await this.project.readPlot(fromRelPath)
       : await this.project.getPlot(plot.no);
     const rel = plotRelPathFor(this.project, plot.no, safeStem(plot.title));
+    // 落点上已经有一份**别的**细纲（不是这一章要替换的那份）：不静默盖掉它（第 3 条）。
+    // 手改文件名撞了号、或两章起了同一个标题都会走到这里。
+    if (rel !== previous?.relPath && (await readTextIfExists(this.project.pathOf(rel)).catch(() => undefined)) !== undefined) {
+      throw new WsError('exists', `已经有一份细纲叫 ${rel}，没有覆盖它。`);
+    }
 
     await writeText(this.project.pathOf(rel), renderPlotFile(plot));
 

@@ -38,7 +38,7 @@ export function renderProject(tree: ProjectTree): void {
   hideSummaryTip();
   hideDetailTip();
   hideFailureTip();
-  // 还不是小说工程时，工具栏上的「新建剧情段」等按钮点了只会报错。
+  // 还不是小说工程时，工具栏上的「新建细纲」等按钮点了只会报错。
   setHidden(el.projectToolbar, !tree.initialized);
 
   if (!tree.initialized) {

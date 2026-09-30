@@ -327,6 +327,15 @@ function objectOf(text: string): Record<string, unknown> | undefined {
  * `{"角色列表":[…]}` 这种也别丢。
  */
 function listOf(text: string, ...keys: string[]): unknown[] {
+  // 整段就是一个数组时先认数组：只有一个人的裸数组 `[{"name":"林昭","aliases":[…]}]`
+  // 里，「第一个 `{` 到最后一个 `}`」恰好是那个人自己——当成外层对象去取数组键，
+  // 取到的是他的 aliases，名单就成了空的。
+  if (text.trimStart().startsWith('[')) {
+    const bare = bareArray(text);
+    if (bare) {
+      return bare;
+    }
+  }
   const obj = objectOf(text);
   if (obj) {
     for (const key of keys) {

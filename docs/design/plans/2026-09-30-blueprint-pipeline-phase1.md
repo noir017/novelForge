@@ -189,7 +189,7 @@ commit 2–4 之间**允许**测试红，但 typecheck 必须过；commit 4 结�
 - `listPlots` 只扫 `plots/` 根目录；
 - 加 `configPath`、`premisePath`、`worldPath`，以及 `readSetting(doc)`、`readConfigDoc()`（返回解析好的 config）；
 - `initialize` 不再建 `volumes/`、`manuscripts/`，改为写入 config / premise / world 的模板；大纲模板去掉「分卷规划」一节，换成区间示例；
-- `nextPlotNo` 改成「下一个没有细纲的章号」。
+- `nextPlotNo` **保持**「细纲号与章号里最大的 +1」（工程页「新建细纲」接在最后一章之后；给缺口补细纲走全书状态机的「拆细纲」）。
 
 **`model/types.ts`**：删 `Manuscript`；`Chapter` 与 `ManifestChapter` 的注释里去掉中转站。
 
@@ -231,7 +231,7 @@ commit 2–4 之间**允许**测试红，但 typecheck 必须过；commit 4 结�
   - 加 `settingDoc` 产物（落点由 target 决定）；
   - `plot` 产物换成 D3 三节，外加 `role`、`characters`、`targetWords`、`title`。
 - **`generation/accept.ts`**：五条分支变成 setting / outline / plot / manuscript 四条：
-  - manuscript：`chapterTargetOf` → 章节不存在就 `create`，写入时带 `# 第N章 标题`；存在就 `append`，中间空一行。然后 `recordWrittenFrom`，再 `syncManifest`。
+  - manuscript：`chapterTargetOf` → 章节不存在就 `createChapter`（标题行是 `# 标题`，与改名时同步标题的规则一致）；存在就 `append`，中间空一行。然后 `recordWrittenFrom`，再 `syncManifest`。
   - 覆盖 / 重写的语义留到三期定，本期保持从前「接着往下写」的行为。
 - **`generation/generate.ts`**：失败挂在细纲路径上（不变），正文落点换掉。
 - **`features/pipelineBatch.ts`**：
