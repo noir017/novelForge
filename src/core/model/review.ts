@@ -614,3 +614,52 @@ export function describeReport(report: ReviewReport): string {
   }
   return parts.join(' · ');
 }
+
+// ---------------------------------------------------------------- 容错读取
+
+/**
+ * 会话文件里那份报告的容错读取（第 1 条：会话 JSON 作者可能手改过）。认不出章号或正文路径
+ * 就整份不要——报告卡上点引文、按勾选修稿都要靠这两样；其余字段坏了按空补。
+ */
+export function normalizeReport(raw: unknown): ReviewReport | undefined {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
+  const list = (v: unknown) => (Array.isArray(v) ? v : []).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object');
+  const chapterNo = typeof o.chapterNo === 'number' && o.chapterNo > 0 ? Math.floor(o.chapterNo) : 0;
+  const chapterRelPath = str(o.chapterRelPath);
+  if (!chapterNo || !chapterRelPath) {
+    return undefined;
+  }
+  const severity = (v: unknown): ReviewSeverity => (v === 'error' ? 'error' : 'warning');
+  const status = (v: unknown): GoalStatus => (v === 'completed' || v === 'unmet' ? v : 'unknown');
+  const coverage: GoalCoverage = o.coverage === 'complete' || o.coverage === 'none' ? o.coverage : 'partial';
+  return {
+    chapterNo,
+    ...(str(o.chapterTitle) ? { chapterTitle: str(o.chapterTitle) } : {}),
+    chapterRelPath,
+    chapterHash: str(o.chapterHash),
+    summary: str(o.summary),
+    issues: list(o.issues)
+      .filter((i) => str(i.id) && str(i.quote))
+      .map((i) => ({ id: str(i.id), category: str(i.category) || '其他', severity: severity(i.severity), quote: str(i.quote), description: str(i.description) })),
+    passes: list(o.passes).map((p) => ({ category: str(p.category) || '其他', description: str(p.description) })),
+    goals: list(o.goals)
+      .filter((g) => str(g.id))
+      .map((g) => ({
+        id: str(g.id),
+        kind: g.kind === 'hook' ? ('hook' as const) : ('event' as const),
+        text: str(g.text),
+        status: status(g.status),
+        judgment: str(g.judgment),
+        quotes: (Array.isArray(g.quotes) ? g.quotes : []).filter((q): q is string => typeof q === 'string'),
+      })),
+    coverage,
+    dropped: list(o.dropped).map((d) => ({
+      category: str(d.category) || '其他',
+      severity: severity(d.severity),
+      description: str(d.description),
+      ...(str(d.quote) ? { quote: str(d.quote) } : {}),
+      why: str(d.why),
+    })),
+  };
+}

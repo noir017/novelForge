@@ -51,6 +51,9 @@ import { Plot, isPlotFilled, parsePlotFileName } from '../model/plotFile';
 import { parseChapterFileName } from '../model/chapterFile';
 import { isPlotPath } from '../files/fileOps';
 import { Chapter } from '../model/types';
+import { describePicks, normalizeReport, pickableIds, relocatePicks, renderRevisionBrief } from '../model/review';
+import { PREFLIGHT_SUGGESTION, describeRisks, preflightChapter } from '../features/preflight';
+import { clearFailures } from '../runtime/errorLog';
 import { persist } from './persist';
 import {
   factsOf,
@@ -64,7 +67,15 @@ const log = scoped('面板');
 
 /** 创作页：发送、采纳、目标与流水线。字段只给 controller/ 同包用。 */
 
-export async function send(c: ChatController, payload: SendPayload): Promise<void> {
+/**
+ * `extra`：后端自己发起的那几种轮次要记在用户轮上的东西（按审稿修稿的清单与写法）。前端发的
+ * `send` 不带它——`SendPayload.writeMode` 只认「接着写 / 重写」，修稿只能从报告卡进来。
+ */
+export async function send(
+  c: ChatController,
+  payload: SendPayload,
+  extra?: Pick<ChatTurn, 'writeMode' | 'command' | 'revise'>
+): Promise<void> {
   // 占位必须在**任何 await 之前**：下面 `await persist(c)` 会让出事件循环，
   // 那一瞬间 currentAbort 还没设，紧跟着进来的第二条请求照样能过 busy 检查，
   // 于是两条都跑起来、烧两份 token。本机磁盘快，第一条往往一路同步跑完，
@@ -105,6 +116,7 @@ export async function send(c: ChatController, payload: SendPayload): Promise<voi
       range: normalizeRange(payload.range),
       setup: normalizeSetup(payload.setup),
       writeMode: normalizeWriteMode(payload.writeMode),
+      ...(extra ?? {}),
     };
     c.current.turns.push(userTurn);
     if (c.current.turns.length === 1) {
@@ -185,7 +197,32 @@ export async function runTurn(
   const action = { stage: c.current.stage, capability: c.current.capability };
   const range = rangeFor(action, normalizeRange(payload.range) ?? userTurn.range);
   const setup = action.stage === 'setting' ? (normalizeSetup(payload.setup) ?? userTurn.setup) : undefined;
-  const writeMode = action.stage === 'manuscript' ? (normalizeWriteMode(payload.writeMode) ?? userTurn.writeMode) : undefined;
+  // 修稿那一轮的写法记在用户轮上（前端的 payload 永远不带 revise）；重来一轮时照样认得出来。
+  const writeMode =
+    action.stage === 'manuscript' && action.capability === 'generate'
+      ? userTurn.writeMode === 'revise'
+        ? 'revise'
+        : (normalizeWriteMode(payload.writeMode) ?? userTurn.writeMode)
+      : undefined;
+
+  // 动手之前的两道：修稿先按报告与此刻的正文拼好清单；写一章之前先做一致性预检（零调用）。
+  // 任何一道拦下，这一轮就不调模型，回复里写明为什么停。
+  const before = await beforeGenerate(c, { action, writeMode, userTurn, assistantTurn, signal: lease.signal });
+  if (!before.go) {
+    lease.release();
+    c.post({ type: 'busy', value: false });
+    if (before.error) {
+      assistantTurn.error = before.error;
+      c.toast(before.error, 'error');
+    } else {
+      assistantTurn.content = before.content ?? '';
+      assistantTurn.interrupted = before.interrupted || undefined;
+    }
+    c.post({ type: 'turnDone', turn: serializeTurn(assistantTurn) });
+    await persist(c);
+    return;
+  }
+
   let built;
   let draft: Draft | undefined;
   try {
@@ -199,6 +236,7 @@ export async function runTurn(
         range,
         setup,
         writeMode,
+        ...(before.reviseBrief ? { reviseBrief: before.reviseBrief } : {}),
         // 目标字数只有一处来源：细纲的 `targetWords`，没写就是配置的每章字数。
         // 从前输入框下面还有一个（默认 2000），作者分不清哪个生效（W1）。
         targetWords: await targetWordsOf(c, c.current.target),
@@ -240,6 +278,21 @@ export async function runTurn(
   if (built) {
     assistantTurn.context = serializeDigest(built);
     c.post({ type: 'context', turnId: assistantTurn.id, digest: assistantTurn.context });
+  }
+  // 修稿时重新定位清单的说明排在最前：「正文在审稿之后改过，两条作废」比续写几轮更要紧。
+  if (draft && before.notes?.length) {
+    draft.notes = [...before.notes, ...(draft.notes ?? [])];
+  }
+  // 审稿报告（D22）：不落盘，随会话保存——草稿表里一份、这一轮上一份（报告卡照它画）。
+  // 没有 artifact，所以下面那张落盘卡片不会出现。
+  if (draft?.review) {
+    c.drafts.put(draft, c.current.id);
+    c.current.drafts = c.drafts.bySession(c.current.id);
+    assistantTurn.review = {
+      report: draft.review,
+      ...(draft.notes?.length ? { notes: draft.notes } : {}),
+      ...(draft.calls ? { calls: draft.calls } : {}),
+    };
   }
   // 产出的是可落盘的东西时，把落点与形状一起记下——卡片上要说清
   // 「新建 5 张角色卡，写到哪」，而不是一句光秃秃的「确定吗」。
@@ -601,6 +654,10 @@ export async function chapterAction(c: ChatController, plotRelPath: string, acti
     await c.dispatch({ type: 'projectAction', action: 'finalizeChapter', relPath: entry.chapter.relPath });
     return;
   }
+  if (action === 'review' && !(entry.chapter && entry.chapter.wordCount > 0)) {
+    c.toast('这一章还没有正文，没法审稿。', 'error');
+    return;
+  }
   const target: CreationTarget = {
     kind: 'manuscript',
     plotRelPath: entry.plot?.relPath ?? c.project.plotPathForNo(entry.no, entry.chapter?.title ?? ''),
@@ -609,13 +666,170 @@ export async function chapterAction(c: ChatController, plotRelPath: string, acti
   await send(c, {
     text: '',
     stage: 'manuscript',
-    capability: 'generate',
+    // 审稿（五期）：与写这一章同一条路，只是能力换成 review——只出报告，没有落盘卡片。
+    capability: action === 'review' ? 'review' : 'generate',
     target,
     targetNo: entry.no,
     attachments: [],
     excludedIds: [],
-    ...(action === 'write' ? {} : { writeMode: action }),
+    ...(action === 'continue' || action === 'rewrite' ? { writeMode: action } : {}),
   });
+}
+
+/**
+ * 审稿报告卡底部「按勾选的 n 条修稿」（五期 W10）。
+ *
+ * 发的是一轮正文层的生成，写法 `revise`：用户气泡是 `/按审稿修稿` + 勾选的那几条，清单在
+ * 动手之前按此刻的正文重新拼（{@link planRevision}），修订稿照样当场问写不写、覆盖前先对比
+ * （第 19 条、第 3 条）。能勾的只有问题与没完成的目标；认不出的 id 丢掉。
+ */
+export async function reviseChapter(c: ChatController, turnId: string, picks: readonly string[]): Promise<void> {
+  if (c.busy) {
+    c.toast('已有一个生成任务在进行中。', 'error');
+    return;
+  }
+  const turn = c.current.turns.find((t) => t.id === turnId && t.role === 'assistant');
+  const report = turn?.review ? normalizeReport(turn.review.report) : undefined;
+  if (!report) {
+    c.toast('找不到这份审稿报告，可能那一轮已经被删掉了。', 'error');
+    return;
+  }
+  const allowed = new Set(pickableIds(report));
+  const chosen = [...new Set(picks)].filter((id) => allowed.has(id));
+  if (chosen.length === 0) {
+    c.toast('没有勾选任何可以修的条目。', 'error');
+    return;
+  }
+  const plot = await c.project.getPlot(report.chapterNo);
+  const target: CreationTarget = {
+    kind: 'manuscript',
+    plotRelPath: plot?.relPath ?? c.project.plotPathForNo(report.chapterNo, report.chapterTitle ?? ''),
+  };
+  await setTarget(c, target);
+  await send(
+    c,
+    { text: '', stage: 'manuscript', capability: 'generate', target, targetNo: report.chapterNo, attachments: [], excludedIds: [] },
+    {
+      writeMode: 'revise',
+      command: '按审稿修稿',
+      revise: { reviewTurnId: turnId, picks: chosen, items: describePicks(report, chosen) },
+    }
+  );
+}
+
+/** {@link beforeGenerate} 的结论：放行（修稿时带上拼好的清单），或者拦下并说明。 */
+type BeforeGenerate =
+  | { go: true; reviseBrief?: string; notes?: string[] }
+  | { go: false; content?: string; error?: string; interrupted?: boolean };
+
+/**
+ * 调模型之前的两道（五期）。
+ *
+ * - **修稿**：按那一轮的报告与磁盘上此刻的正文拼清单。正文在审稿之后改过（指纹对不上），
+ *   逐条重新定位勾选的问题，引文已经不在的作废并写进说明；一条都不剩就不调模型。
+ * - **一致性预检**：写一章（新写或重写）之前，零调用地查细纲有没有把角色卡上已经死了的人排进
+ *   本章。有就在对话页亮一张卡：「仅本次忽略，照写」/「先不写」。接着写与修稿不查——开头已经
+ *   写下了，这时候拦它没有意义。
+ */
+async function beforeGenerate(
+  c: ChatController,
+  ctx: {
+    action: { stage: CreationStage; capability: Capability };
+    writeMode?: WriteMode;
+    userTurn: ChatTurn;
+    assistantTurn: ChatTurn;
+    signal: AbortSignal;
+  }
+): Promise<BeforeGenerate> {
+  if (ctx.action.stage !== 'manuscript' || ctx.action.capability !== 'generate') {
+    return { go: true };
+  }
+  if (ctx.writeMode === 'revise') {
+    return planRevision(c, ctx.userTurn);
+  }
+  if (ctx.writeMode === 'continue') {
+    return { go: true };
+  }
+  const relPath = plotOfTarget(c.current.target);
+  const no =
+    (relPath ? (await c.project.resolvePlot(relPath))?.no ?? parsePlotFileName(basename(relPath))?.no : undefined) ??
+    c.current.targetNo;
+  const risks = no ? await preflightChapter(c.project, no) : [];
+  // 批量写章在这一章前面停下时挂过一个黄 ❗：这一次查过了（没问题，或作者说仅本次忽略）就收掉。
+  const plotRel = no ? (await c.project.getPlot(no))?.relPath : undefined;
+  if (!no || risks.length === 0) {
+    if (plotRel) {
+      await clearFailures(c.project, 'plot', plotRel, 'preflight');
+    }
+    return { go: true };
+  }
+  const lines = describeRisks(no, risks);
+  log.warn(`写第 ${no} 章之前的一致性预检：${risks.length} 处`, lines.join('\n'));
+  const verdict = await askGate(
+    c,
+    {
+      turnId: ctx.assistantTurn.id,
+      name: 'preflight',
+      title: `写第 ${no} 章之前的一致性预检：${risks.length} 处要留意`,
+      detail: `${PREFLIGHT_SUGGESTION}\n这一步没有调用模型。`,
+      danger: lines.join('\n'),
+      proceed: '仅本次忽略，照写',
+      skip: '先不写',
+    },
+    ctx.signal
+  );
+  if (verdict === 'proceed') {
+    log.info(`一致性预检：作者选择仅本次忽略，照写第 ${no} 章`);
+    if (plotRel) {
+      await clearFailures(c.project, 'plot', plotRel, 'preflight');
+    }
+    return { go: true };
+  }
+  return {
+    go: false,
+    interrupted: verdict === 'stop',
+    content: [
+      `一致性预检发现 ${risks.length} 处问题，这一次先不写——没有调用模型。`,
+      '',
+      ...lines.map((l) => `- ${l}`),
+      '',
+      '改好细纲的出场角色或角色卡之后再写；如果这本来就是回忆、幻象一类的刻意安排，再点一次写这一章，选「仅本次忽略，照写」。',
+    ].join('\n'),
+  };
+}
+
+/** 修稿那一轮的清单。见 {@link beforeGenerate}。 */
+async function planRevision(c: ChatController, userTurn: ChatTurn): Promise<BeforeGenerate> {
+  const r = userTurn.revise;
+  const reviewTurn = r ? c.current.turns.find((t) => t.id === r.reviewTurnId) : undefined;
+  const report = reviewTurn?.review ? normalizeReport(reviewTurn.review.report) : undefined;
+  if (!r || !report) {
+    return { go: false, error: '找不到这一轮修稿依据的那份审稿报告（可能已经被删掉了），没法按它修稿。' };
+  }
+  const chapter = await c.project.getChapter(report.chapterNo);
+  const text = chapter ? await c.project.readChapterText(chapter) : '';
+  if (!chapter || !text.trim()) {
+    return { go: false, error: `第 ${report.chapterNo} 章已经没有正文了，没法修稿。` };
+  }
+  const notes: string[] = [];
+  let picks = r.picks;
+  if (chapter.contentHash !== report.chapterHash) {
+    const { kept, lost } = relocatePicks(report, picks, text);
+    picks = kept;
+    notes.push('正文在审稿之后改过，勾选的条目已按现在的正文重新定位');
+    if (lost.length > 0) {
+      notes.push(
+        `${lost.length} 条的引文已经不在正文里了，没有交给模型：${lost.map((i) => `「${clipQuote(i.description, 24)}」`).join('、')}`
+      );
+    }
+  }
+  const brief = renderRevisionBrief(report, picks);
+  if (!brief) {
+    return { go: false, error: '勾选的条目在现在的正文里都找不到了，没有可以修的。正文改过的话，重新审一遍这一章。' };
+  }
+  notes.unshift(`按 ${picks.length} 条勾选的审稿意见修稿`);
+  log.info(`按审稿修第 ${report.chapterNo} 章`, notes.join('；'));
+  return { go: true, reviseBrief: brief, notes };
 }
 
 /**

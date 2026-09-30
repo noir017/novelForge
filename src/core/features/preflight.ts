@@ -1,0 +1,44 @@
+/**
+ * 一致性预检的取数（五期）：本章细纲排了谁、他们的卡上「当前状态」怎么写的。判断在
+ * model/preflight.ts（纯函数）。
+ *
+ * 零调用：只读细纲与角色卡。两个入口：对话页写第 N 章之前（controller/chat.ts，亮一张卡，
+ * 可以「仅本次忽略」）；工程页批量写章开跑之前与每一章之前（features/pipelineBatch.ts）。
+ */
+import { NovelProject } from '../model/project';
+import { PreflightRisk, describeRisk, findPreflightRisks } from '../model/preflight';
+
+export { describeRisk, PREFLIGHT_SUGGESTION } from '../model/preflight';
+export type { PreflightRisk } from '../model/preflight';
+
+/**
+ * 第 `no` 章的预检。这一章没有细纲、细纲里没排人，都是空的——没有可比的东西。
+ */
+export async function preflightChapter(project: NovelProject, no: number): Promise<PreflightRisk[]> {
+  const plot = await project.getPlot(no);
+  if (!plot || plot.characters.length === 0) {
+    return [];
+  }
+  const cards = await project.listCharacters();
+  return findPreflightRisks({
+    no,
+    planned: plot.characters,
+    cards: cards.map((c) => ({
+      name: c.name,
+      aliases: c.aliases,
+      state: c.sections.当前状态 ?? '',
+      stateThrough: c.stateThrough,
+      relPath: c.relPath,
+    })),
+  });
+}
+
+/** 一处风险的身份：同一章、同一个人。批量里「开跑前问过、作者说仅本次忽略」的那几处按它认。 */
+export function riskKey(no: number, risk: PreflightRisk): string {
+  return `${no}:${risk.name}`;
+}
+
+/** 卡片、确认框、日志里的那几行：「第 3 章：沈秋的当前状态……」。 */
+export function describeRisks(no: number, risks: readonly PreflightRisk[], withChapter = false): string[] {
+  return risks.map((r) => `${withChapter ? `第 ${no} 章：` : ''}${describeRisk(r)}`);
+}

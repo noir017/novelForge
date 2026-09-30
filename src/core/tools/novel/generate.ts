@@ -133,6 +133,15 @@ export const generateTool: ToolDef = {
       };
     }
 
+    // `review`（五期）只出报告，要作者在报告卡上勾选之后才修稿——agent 拿到一份报告做不了什么，
+    // 也不该替作者决定哪几条算数。六期统一改工具时再定要不要开放。
+    if (capability === 'review') {
+      return {
+        text: '',
+        error: '审稿要作者在对话页的正文层发起（/审稿，或章节条上的「审稿」），报告由作者勾选之后再修稿。这个工具不做审稿。',
+      };
+    }
+
     const path = await resolveTargetPath(ctx.project, rel);
     if (!path.stage || !path.target) {
       return {

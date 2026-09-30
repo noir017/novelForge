@@ -170,6 +170,11 @@ export type OutMessage =
   | { type: 'editorSaved'; file: EditorFileView }
   | { type: 'editorConflict'; path: string; diskText: string; diskHash: string }
   | { type: 'editorError'; path: string; message: string }
+  /**
+   * 在编辑区里选中这一句并滚到它（五期 W10：点审稿报告上的引文）。紧跟在那一份的 `editorOpen`
+   * 之后推。定位按 model/review.ts 的 `locateQuote`（与引文校验同一个归一化）。
+   */
+  | { type: 'editorReveal'; path: string; quote: string }
   | { type: 'dirListings'; listings: DirListing[] }
   | { type: 'filesOpDone'; op: 'rename' | 'move' | 'copy'; results: FileOpResult[] }
   | { type: 'tasks'; tasks: TaskSnapshot[] }
@@ -181,7 +186,12 @@ export type OutMessage =
   | {
       type: 'prompt';
       requestId: string;
-      kind: 'input' | 'confirm' | 'pick';
+      /**
+       * `merge`（五期 W11）：覆盖审阅的段级 diff / 合并视图。`current` / `proposed` 是两个版本，
+       * `mergeable` 为真时可以逐段挑、结果可以手改，回的是 `{"verdict":"apply"|"discard","merged"?}`
+       * 的 JSON；为假时只读，只有采纳 / 放弃。
+       */
+      kind: 'input' | 'confirm' | 'pick' | 'merge';
       title: string;
       message?: string;
       placeholder?: string;
@@ -189,6 +199,9 @@ export type OutMessage =
       password?: boolean;
       multiline?: boolean;
       options?: string[];
+      current?: string;
+      proposed?: string;
+      mergeable?: boolean;
     }
   /**
    * 当前打开的工作区。独立版空窗口 `currentId` 为 null。

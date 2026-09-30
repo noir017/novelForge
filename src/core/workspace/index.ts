@@ -262,7 +262,7 @@ export class Workspace {
     }
     const target = ctx.rel;
 
-    const text = artifact ? await this.render(handler, ctx, artifact) : (input as { text: string }).text;
+    let text = artifact ? await this.render(handler, ctx, artifact) : (input as { text: string }).text;
 
     const guarded = await guardWrite(this.project, target, {
       mode,
@@ -271,11 +271,13 @@ export class Workspace {
     });
 
     // 步骤 4：覆盖前审阅。**append 不走这一条**——追加不覆盖任何东西。
+    // 独立版的合并视图可能交回作者挑过的那一份：写它，记账与伴生照常跑在最终文本上。
     if (mode === 'overwrite' && guarded.existed && opts.review !== false) {
-      const ok = await reviewOverwrite(opts.what ?? target, target, guarded.current ?? '', text);
-      if (!ok) {
+      const review = await reviewOverwrite(opts.what ?? target, target, guarded.current ?? '', text);
+      if (!review.ok) {
         return { rel: target, skipped: true, message: `没有改动 ${target}。` };
       }
+      text = review.text ?? text;
     }
 
     const final = mode === 'append' ? await appendText(guarded, text, handler, ctx) : text;

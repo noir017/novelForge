@@ -9,7 +9,8 @@
  * 2. **层由路径决定**：架构三件、大纲、细纲各有自己的路径；**正文层给章节路径**
  *    （`chapters/NNN-标题.md`），工具按章号去认同号的细纲（细纲号 = 章号），
  *    target 以那份细纲的路径为身份。老工程的中转站、卷纲路径认不出，一律拦下。
- * 3. **能力只有三种**（discuss / generate / settle），`split` 随卷与中转站一起删了。
+ * 3. **能力由 STAGE_CAPABILITIES 说了算**（discuss / generate / settle / review），`split` 随卷与中转站一起删了；
+ *    `settle` 与 `review` 这个工具不做（一个要一段讨论，一个要作者勾选）。
  * 4. **`settle` 明确不支持**：它要沉淀的是一段讨论，而 agent 手上没有。
  * 5. **`history` 恒为空**——混进装配器会把工具调用当成作者的创作要求。
  * 6. **走对话页选定的那个模型**（不传 provider），第 12 条。
@@ -344,7 +345,7 @@ describe('对架构文档调 generate', () => {
   });
 });
 
-describe('能力只有三种，由 STAGE_CAPABILITIES 说了算', () => {
+describe('能力由 STAGE_CAPABILITIES 说了算', () => {
   // 拆卷、拆段、拆章都删了。agent 拿着老提示词来试的话，要在这里被拦住，
   // 并被告知现在有哪几种能力。
   test('split 不再是能力，给 error', async () => {
@@ -369,6 +370,16 @@ describe('能力只有三种，由 STAGE_CAPABILITIES 说了算', () => {
     resetCtx();
     const r = await run({ target: PLOT_REL, capability: '排一下' });
     assert.ok(r.error && r.error.includes('capability'), JSON.stringify(r));
+  });
+});
+
+// 五期：审稿报告要作者勾选才修稿，agent 拿到一份报告做不了什么。
+describe('review 明确不支持', () => {
+  test('给 error，说清要作者在对话页发起，不调模型', async () => {
+    resetCtx();
+    const r = await run({ target: CHAPTER_REL, capability: 'review' });
+    assert.match(r.error, /审稿要作者在对话页的正文层发起/);
+    assert.equal(fake.calls.length, 0);
   });
 });
 

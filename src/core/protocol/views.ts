@@ -10,6 +10,7 @@ import type {
   SettingDoc,
 } from '../model/pipeline';
 import type { ThinkingDepth } from '../model/thinking';
+import type { ReviewReport } from '../model/review';
 import type { SerializedAttachment } from './in';
 
 export interface ViewState {
@@ -292,6 +293,13 @@ export interface SerializedTurn {
   error?: string;
   reasoning?: string;
   artifact?: SerializedArtifact;
+  /**
+   * 仅 assistant 轮：审稿报告（五期 W10）。有它就画报告卡，不画那段可就地编辑的正文。
+   * `picks` 是缺省勾选的条目（model/review.ts 的 `defaultPicks`）——与后端同一个算法，前端不另写。
+   */
+  review?: { report: ReviewReport; picks: string[]; notes?: string[]; calls?: number };
+  /** 仅 user 轮：按审稿修稿时勾选的那几条（气泡上 `/按审稿修稿` 下面一条一行）。 */
+  revise?: { items: string[] };
   /**
    * 仅 assistant 轮：这一轮**按发生顺序**排下来的段——它说的话与它做的事交替。
    *

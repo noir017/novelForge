@@ -17,7 +17,7 @@
  * 写卡**只动那一节与两个 frontmatter 字段**（`patchCardState`）：整卡重渲染会抹掉作者自加的
  * 小节。这里不走覆盖审阅——归属判据就是那道闸（与批量路径「只补空白」同一个理由）。
  */
-import { getHost } from '../host';
+import { getHost, plainVerdict } from '../host';
 import { collectText } from '../llm/collect';
 import { LlmProvider, StreamOptions } from '../llm/provider';
 import { readConfig } from '../config';
@@ -271,7 +271,7 @@ export async function reviewCharacterState(project: NovelProject, relPath: strin
   let verdict: 'apply' | 'discard' | undefined;
   try {
     verdict = host.reviewReplace
-      ? await host.reviewReplace(`角色卡「${card.name}」的当前状态`, raw, next, relPath)
+      ? plainVerdict(await host.reviewReplace(`角色卡「${card.name}」的当前状态`, raw, next, relPath))
       : (await host.confirm(`用第 ${proposal.no} 章给出的状态换掉「${card.name}」现在的当前状态？`, ['换', '不换'], {
             modal: true,
             detail: proposal.state,

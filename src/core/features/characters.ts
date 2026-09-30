@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { getHost } from '../host';
+import { getHost, plainVerdict } from '../host';
 import { collectText } from '../llm/collect';
 import { StreamOptions } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
@@ -263,7 +263,7 @@ async function reviewCharacterUpdate(
   let verdict: 'apply' | 'discard' | undefined;
   const host = getHost();
   if (host.reviewReplace) {
-    verdict = await host.reviewReplace(existing.name, currentText, proposedText, existing.relPath);
+    verdict = plainVerdict(await host.reviewReplace(existing.name, currentText, proposedText, existing.relPath));
   } else {
     // 宿主未实现审阅能力时退化为纯确认（不展示差异）。
     const pick = await getHost().confirm(

@@ -97,6 +97,26 @@ export async function openChapter(c: ChatController, plotRelPath: string): Promi
   log.info(`打开第 ${chapter.order} 章`, `${chapter.relPath}${plot && host.openBeside ? ` ｜ 并排 ${plot.relPath}` : ''}`);
 }
 
+/**
+ * 点审稿报告上的引文（五期 W10）：在编辑器里打开那一章、选中那一句。
+ *
+ * 宿主有 `revealText` 就交给它（独立版选中内置编辑器里那一段，插件用 `revealRange`）；没有就
+ * 只打开文件，并把那一句写进提示——作者自己 Ctrl+F 也找得到。能力探测，不判断是哪个壳。
+ */
+export async function revealQuote(c: ChatController, relPath: string, quote: string): Promise<void> {
+  const host = getHost();
+  const clip = quote.replace(/\s+/g, ' ').trim().slice(0, 40);
+  if (host.revealText) {
+    const found = await host.revealText(relPath, quote);
+    if (!found) {
+      c.toast(`这一句在现在的正文里找不到了（正文可能改过）：「${clip}」`, 'error');
+    }
+    return;
+  }
+  await host.openFile(relPath);
+  c.toast(`在编辑器里找这一句：「${clip}」`);
+}
+
 /** 细纲路径或章节路径 → 章号（细纲号 = 章号）。 */
 function chapterNoOf(relPath: string): number | undefined {
   const name = basename(relPath);

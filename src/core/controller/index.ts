@@ -35,6 +35,7 @@ import {
   chapterAction,
   pushPipeline,
   retry,
+  reviseChapter,
   selectPlot,
   send,
   setTarget,
@@ -42,7 +43,7 @@ import {
 import { sendAgent } from './agent';
 import type { PendingGate } from './gate';
 import { cancelGates, resendGates, resolveGate } from './gate';
-import { fileAction, openChapter, openDraft, pushDirListings } from './files';
+import { fileAction, openChapter, openDraft, pushDirListings, revealQuote } from './files';
 import { characterAction, projectAction } from './project';
 import {
   deleteSession,
@@ -415,6 +416,14 @@ export class ChatController {
 
       case 'openChapter':
         await openChapter(this, msg.plotRelPath);
+        return;
+
+      case 'reviseChapter':
+        await reviseChapter(this, msg.turnId, msg.picks);
+        return;
+
+      case 'revealQuote':
+        await revealQuote(this, msg.relPath, msg.quote);
         return;
 
       case 'chapterAction':

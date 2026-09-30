@@ -6,6 +6,7 @@ import { readConfig } from '../../core/config';
 import { Disposable, Host, InputOptions, PickChoice } from '../../core/host';
 import { CancelledError } from '../../core/llm/provider';
 import { NovelProject } from '../../core/model/project';
+import { locateQuote } from '../../core/model/review';
 import { Attachment } from '../../core/model/session';
 import { watchGlobs } from '../../core/watchPolicy';
 import { selectionAttachment } from './attachments';
@@ -105,6 +106,25 @@ export class VsCodeHost implements Host {
     await this.show(relPath, vscode.ViewColumn.Beside);
   }
 
+  /**
+   * 点审稿报告上的引文（五期）：打开那一章、选中那一句、滚到它。定位用 core 的 `locateQuote`——
+   * 与引文校验同一个归一化，报告里说找得到的，这里就选得中。
+   */
+  async revealText(relPath: string, quote: string): Promise<boolean> {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const abs = root ? path.join(root, relPath) : relPath;
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(abs));
+    const editor = await vscode.window.showTextDocument(doc, { preview: false });
+    const at = locateQuote(doc.getText(), quote);
+    if (!at) {
+      return false;
+    }
+    const range = new vscode.Range(doc.positionAt(at.start), doc.positionAt(at.end));
+    editor.selection = new vscode.Selection(range.start, range.end);
+    editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    return true;
+  }
+
   private async show(relPath: string, viewColumn: vscode.ViewColumn): Promise<void> {
     // relPath 相对当前工作区根（与 currentProject() 的口径一致）。
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -138,12 +158,18 @@ export class VsCodeHost implements Host {
     return uri ? project.relPath(uri.fsPath) : undefined;
   }
 
+  /**
+   * `opts.merge` 在这里不认：VS Code 的 diff 编辑器本身就能看清改了什么，逐段挑是独立版合并视图
+   * 的事（总计划 W11：VS Code 壳继续用 `vscode.diff`）。永远只答采纳 / 放弃。
+   */
   async reviewReplace(
     name: string,
     currentText: string,
     proposedText: string,
-    relPath?: string
+    relPath?: string,
+    opts?: { merge?: boolean }
   ): Promise<'apply' | 'discard' | undefined> {
+    void opts;
     // 保持原有 diff 体验：当前文件 ↔ 临时建议文件。untitled 文档不支持 diff 保存，
     // 故建议内容先写真实临时文件。
     void currentText; // 左侧用磁盘上的现有文件，无需内容

@@ -18,6 +18,7 @@ import {
   stageOfTarget,
 } from './pipeline';
 import { ThinkingDepth, isThinkingDepth } from './thinking';
+import { ReviewReport, normalizeReport } from './review';
 
 /**
  * 会话存储：`.novelforge/sessions/<id>.json`。
@@ -95,8 +96,13 @@ export interface ChatTurn {
   range?: { from: number; to: number };
   /** 仅 user 轮：一句话弹窗带过来的规模。同上，重来时要用。 */
   setup?: { totalChapters: number; wordsPerChapter: number };
-  /** 仅 user 轮：写正文的写法（「接着写」「重写」）。同上，重来时要用。 */
-  writeMode?: 'continue' | 'rewrite';
+  /** 仅 user 轮：写正文的写法（「接着写」「重写」「按审稿修稿」）。同上，重来时要用。 */
+  writeMode?: 'continue' | 'rewrite' | 'revise';
+  /**
+   * 仅 user 轮：按审稿修稿（五期）。报告在哪一轮、勾了哪几条；`items` 是气泡上那几行的文字
+   * （`describePicks`）。重来一轮时按 `reviewTurnId` + `picks` 重新拼清单——正文这期间可能又改过。
+   */
+  revise?: { reviewTurnId: string; picks: string[]; items: string[] };
   /** 仅 assistant 轮：本次装配明细。 */
   context?: ContextDigest;
   /** 仅 assistant 轮：已采纳写入的目标路径。 */
@@ -136,6 +142,11 @@ export interface ChatTurn {
     /** 正文是追加在这一章末尾（「接着写」）。 */
     append?: boolean;
   };
+  /**
+   * 仅 assistant 轮：审稿报告（五期，D22）。**不落盘**：它随会话保存，报告卡照它画，
+   * 作者勾选之后按它修稿。`notes` 是审稿链一路上的说明（截断重来、丢掉了几条……）。
+   */
+  review?: { report: ReviewReport; notes?: string[]; calls?: number };
   /**
    * 仅 assistant 轮：这一轮**按发生顺序**排下来的段——它说的话与它做的事交替。
    *
@@ -255,6 +266,8 @@ export interface SessionDraft {
   length?: { words: number; target?: number; added: number; rounds: number; reached: boolean };
   /** 与上一章结尾重合的那一段原文。 */
   replay?: string;
+  /** 审稿报告（审稿那一轮没有 `artifact`，只有它）。 */
+  review?: ReviewReport;
 }
 
 export interface ChatSession {
@@ -559,6 +572,7 @@ function normalizeDrafts(raw: unknown): SessionDraft[] {
       writeMode: isWriteMode(o.writeMode) ? o.writeMode : undefined,
       length: normalizeLength(o.length),
       replay: typeof o.replay === 'string' && o.replay ? o.replay : undefined,
+      review: o.review ? normalizeReport(o.review) : undefined,
     });
   }
   return out;

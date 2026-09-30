@@ -84,20 +84,41 @@ export interface Host {
   /** 用系统默认程序打开。独立版用它实现编辑器里的「在外部打开」。 */
   openExternal?(relPath: string): Promise<void>;
   /**
-   * 覆盖前审阅：插件开 diff 编辑器；独立版弹确认框。返回 undefined=取消。
+   * 覆盖前审阅：插件开 diff 编辑器；独立版开段级 diff / 合并视图（五期 W11）。返回 undefined=取消。
    *
    * 起初只给角色卡用，后来 `workspace/guard.ts` 的 `reviewOverwrite` 把大纲、
-   * 细纲、设定的覆盖也接了进来——所以 `name` 只是给人看的称呼，定位现有文件
+   * 细纲、设定、正文的覆盖也接了进来——所以 `name` 只是给人看的称呼，定位现有文件
    * 一律认 `relPath`（按名字找角色卡只是它缺席时的回落）。
+   *
+   * `opts.merge`：调用方收得下「作者挑过、改过的那一份」。给了的宿主**可以**交回 `{ merged }`
+   * （独立版的合并视图）；不认它的宿主照旧只答采纳 / 放弃（VS Code 的 diff 编辑器）。
+   * 没请求合并的调用方（角色卡、设定条目那几处）永远只拿到采纳 / 放弃。
    */
   reviewReplace?(
     name: string,
     currentText: string,
     proposedText: string,
-    relPath?: string
-  ): Promise<'apply' | 'discard' | undefined>;
+    relPath?: string,
+    opts?: { merge?: boolean }
+  ): Promise<ReviewVerdict>;
+  /**
+   * 在编辑器里打开这份文件并选中这一句（五期：点审稿报告上的引文）。找不到那一句时只打开、
+   * 返回 false。宿主不实现时 controller 退回 `openFile` 并提示那一句。
+   */
+  revealText?(relPath: string, quote: string): Promise<boolean>;
   /** 「在 VS Code 设置中打开」，仅插件实现。 */
   openNativeSettings?(): Promise<void>;
+}
+
+/** 覆盖审阅的回答：采纳新版、保留原样、取消，或者作者在合并视图里挑过、改过的那一份。 */
+export type ReviewVerdict = 'apply' | 'discard' | undefined | { merged: string };
+
+/**
+ * 没请求合并的调用方拿到的回答。宿主只在 `opts.merge` 时才可能交回 `{ merged }`；万一交回了
+ * （契约被破坏），当成取消——宁可这一次不写，也不拿「新版全文」顶替作者挑过的那一份。
+ */
+export function plainVerdict(v: ReviewVerdict): 'apply' | 'discard' | undefined {
+  return typeof v === 'object' ? undefined : v;
 }
 
 let current: Host | undefined;

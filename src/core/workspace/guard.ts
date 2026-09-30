@@ -272,10 +272,11 @@ export async function guardMutate(project: NovelProject, relPath: string): Promi
 }
 
 /**
- * 覆盖前审阅。返回「可以写了吗」。
+ * 覆盖前审阅。返回「可以写了吗」，以及要写的是哪一份。
  *
- * 有 `reviewReplace` 的宿主（插件）开 diff 编辑器，作者能逐行看清改了什么；
- * 没有的（独立版目前）退化成一个带字数对比的确认框。**都没有确认就不写。**
+ * 有 `reviewReplace` 的宿主开 diff：插件是 diff 编辑器，作者能逐行看清改了什么；独立版是
+ * 段级 diff / 合并视图（五期 W11），作者可以逐段挑、手改，交回来的 `text` 就是他挑过的那一份，
+ * 写它而不是新版全文。没有的宿主退化成一个带字数对比的确认框。**都没有确认就不写。**
  *
  * 内容一模一样时不问——一字未变还弹个框，只会让人以为自己点错了。
  *
@@ -288,14 +289,20 @@ export async function reviewOverwrite(
   relPath: string,
   current: string,
   next: string
-): Promise<boolean> {
+): Promise<{ ok: boolean; text?: string }> {
   if (current.trim() === next.trim()) {
-    return true;
+    return { ok: true };
   }
 
   const host = getHost();
+  const answer = host.reviewReplace ? await host.reviewReplace(what, current, next, relPath, { merge: true }) : undefined;
+  if (typeof answer === 'object') {
+    // 作者在合并视图里挑过：挑完与现有的一字不差（全保留原样）也照样算「写了」——落盘是幂等的。
+    log.info(`按合并结果覆盖${what}`, `${answer.merged.length} 字（新版 ${next.length} 字，现有 ${current.length} 字）`);
+    return { ok: true, text: answer.merged };
+  }
   const verdict = host.reviewReplace
-    ? await host.reviewReplace(what, current, next, relPath)
+    ? answer
     : await host
         .confirm(`「${what}」已经有内容了，用新版本覆盖？`, ['覆盖', '保留原样'], {
           modal: true,
@@ -305,7 +312,7 @@ export async function reviewOverwrite(
 
   if (verdict !== 'apply') {
     log.info(`未覆盖${what}`, verdict === 'discard' ? '用户选择保留原样' : '用户取消');
-    return false;
+    return { ok: false };
   }
-  return true;
+  return { ok: true };
 }

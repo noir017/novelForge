@@ -4,6 +4,7 @@ import { Attachment, ChatSession, ChatTurn } from '../model/session';
 import { NovelConfig } from '../model/types';
 import { modelLabel, providerLabel } from '../model/providers';
 import { DEFAULT_THINKING_DEPTH } from '../model/thinking';
+import { defaultPicks, normalizeReport } from '../model/review';
 import {
   CreationTarget,
 } from '../model/pipeline';
@@ -76,8 +77,30 @@ export function serializeTurn(t: ChatTurn): SerializedTurn {
     error: t.error,
     reasoning: t.reasoning,
     artifact: t.artifact,
+    ...reviewOf(t),
+    ...(t.revise ? { revise: { items: t.revise.items } } : {}),
     segments: segmentsOf(t),
     agentRun: t.agentRun,
+  };
+}
+
+/**
+ * 审稿那一轮的报告（五期）。会话文件里的那一份按容错读取重新归一一次：作者可能手改过，
+ * 报告卡照着一份坏掉的报告画，点引文、修稿都会出错。认不出就当这一轮没有报告（气泡里
+ * 仍有给人读的那一份文字）。
+ */
+function reviewOf(t: ChatTurn): Pick<SerializedTurn, 'review'> {
+  const report = t.review ? normalizeReport(t.review.report) : undefined;
+  if (!t.review || !report) {
+    return {};
+  }
+  return {
+    review: {
+      report,
+      picks: defaultPicks(report),
+      ...(t.review.notes?.length ? { notes: t.review.notes } : {}),
+      ...(t.review.calls ? { calls: t.review.calls } : {}),
+    },
   };
 }
 

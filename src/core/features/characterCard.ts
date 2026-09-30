@@ -2,7 +2,7 @@ import { appearancesOf, buildCastIndex, CastMember, describePlots } from '../vie
 import { readConfig } from '../config';
 import { runPool, serialize } from '../runtime/concurrency';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
-import { getHost } from '../host';
+import { getHost, plainVerdict } from '../host';
 import { collectText } from '../llm/collect';
 import { StreamOptions } from '../llm/provider';
 import { budgetForTask, createModelPool, ModelPool } from '../llm/pool';
@@ -979,7 +979,7 @@ async function review(project: NovelProject, card: CharacterCard, proposedText: 
     // 现有内容在排到队之前可能已被别处改过，进队后再读一次才是当下的真相。
     const currentText = await readText(abs);
     if (host.reviewReplace) {
-      return host.reviewReplace(card.name, currentText, proposedText, card.relPath);
+      return plainVerdict(await host.reviewReplace(card.name, currentText, proposedText, card.relPath));
     }
     const pick = await host.confirm(`已生成「${card.name}」的新版角色卡。采纳？`, ['采纳', '跳过'], {
       modal: true,

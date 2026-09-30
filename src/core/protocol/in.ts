@@ -49,8 +49,8 @@ export interface SerializedAttachment {
 
 export type EditorPane = 'main' | 'draft';
 
-/** 章节工作台工具条上的四颗按钮。审稿是五期的事。 */
-export type ChapterAction = 'write' | 'continue' | 'rewrite' | 'finalize';
+/** 章节工作台工具条上的按钮。`review` 是五期的审稿：只出报告，不写文件。 */
+export type ChapterAction = 'write' | 'continue' | 'rewrite' | 'finalize' | 'review';
 
 /** Webview → 扩展 */
 export type InMessage =
@@ -91,6 +91,16 @@ export type InMessage =
    * 按下主按钮（切到它的正文层、按那种写法发一轮生成），`finalize` 走定稿。
    */
   | { type: 'chapterAction'; plotRelPath: string; action: ChapterAction }
+  /**
+   * 审稿报告卡底部「按勾选的 n 条修稿」（五期 W10）：报告在哪一轮、勾了哪几条（条目 id）。
+   * 后端按那一轮的报告拼清单、按磁盘上此刻的正文重新定位引文，发一轮修稿。
+   */
+  | { type: 'reviseChapter'; turnId: string; picks: string[] }
+  /**
+   * 点报告卡上的引文：在编辑器里打开那一章、选中那一句（五期 W10）。宿主没有「定位」这一项
+   * 能力时只打开文件，并提示那一句。
+   */
+  | { type: 'revealQuote'; relPath: string; quote: string }
   | { type: 'saveFile'; path: string; text: string; baseHash?: string }
   | { type: 'reloadFile'; path: string }
   | { type: 'listDir'; dirs: string[]; ephemeral?: boolean }

@@ -80,13 +80,16 @@ function makeFakeHost(opts = {}) {
     openFile: async (p) => { opened.push(p); },
     toast: (m, level) => toasts.push(`${level ?? 'info'}: ${m}`),
     selectionAttachment: async () => undefined,
-    reviewReplace: async (n, current, proposed, relPath) => {
+    // 回答可以是 'apply' / 'discard' / undefined，也可以是一个函数（按这一次的两个版本算出回答，
+    // 比如交回 `{ merged }`，测独立版合并视图那条路）。`opts.merge` 记下来：只有网关的覆盖审阅请求合并。
+    reviewReplace: async (n, current, proposed, relPath, opts) => {
       reviewInFlight++;
       reviewPeak = Math.max(reviewPeak, reviewInFlight);
-      reviewed.push({ name: n, current, proposed, relPath });
+      reviewed.push({ name: n, current, proposed, relPath, merge: !!opts?.merge });
       if (reviewDelayMs) await sleep(reviewDelayMs);
       reviewInFlight--;
-      return state.reviewVerdict;
+      const v = state.reviewVerdict;
+      return typeof v === 'function' ? v({ name: n, current, proposed, relPath, opts }) : v;
     },
 
     ...overrides,

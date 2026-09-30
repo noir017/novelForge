@@ -391,3 +391,68 @@ describe('没有可写的', () => {
     cleanup(t.dir, bundle.db);
   });
 });
+
+// ---------------------------------------------------------------- 一致性预检（五期）
+
+/** 第 2 章的细纲改成排着沈秋；沈秋的卡上「当前状态」写着 `state`。 */
+function scheduleShenQiu(t, state, through = 0) {
+  t.write(
+    PLOT(2),
+    [
+      '---', 'no: 2', `title: ${TITLES[1]}`, 'characters: [林昭, 沈秋]', 'targetWords: 600', '---', '',
+      `# 第2章 ${TITLES[1]}`, '', '## 本章目的', '', '第 2 章的目的', '', '## 关键事件', '', '第 2 章林昭查到一点东西。', '',
+      '## 章末钩子', '', '第 2 章结尾：又一个人不见了。', '',
+    ].join('\n')
+  );
+  t.write('.novelforge/characters/沈秋.md', `---\nname: 沈秋\nstateThrough: ${through}\n---\n\n# 沈秋\n\n## 当前状态\n\n${state}\n`);
+  t.project.invalidate();
+}
+
+describe('一致性预检：开跑之前查一遍，有问题先问', () => {
+  test('作者说「仅本次忽略」：照写，跑的中途不再为它停', async () => {
+    const t = await fresh('wb-preflight-ignore');
+    scheduleShenQiu(t, '已死亡');
+    h.expect('仅本次忽略，照写');
+    const calls = await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, confirmed: true });
+    assert.equal(h.confirms.length, 1);
+    assert.match(h.confirms[0].message, /^一致性预检：第 1–3 章里有 1 处要留意（这一步没有调用模型）/);
+    assert.match(h.confirms[0].detail, /第 2 章：沈秋的当前状态（开篇状态）写着「已死亡」/);
+    assert.equal(calls, 3);
+    assert.ok(t.has(CH(3)));
+    cleanup(t.dir, bundle.db);
+  });
+
+  test('作者没答应：一次模型都不调', async () => {
+    const t = await fresh('wb-preflight-cancel');
+    scheduleShenQiu(t, '已死亡');
+    h.expect(undefined);
+    const calls = await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, confirmed: true });
+    assert.equal(calls, 0);
+    assert.equal(fake.calls.length, 0);
+    cleanup(t.dir, bundle.db);
+  });
+
+  // 前面刚定稿的一章把某人写死了，后面一章还排着他：批量没有人看着，停在那一章前面。
+  test('中途新冒出来的：停在那一章前面，挂黄 ❗', async () => {
+    const t = await fresh('wb-preflight-midway');
+    scheduleShenQiu(t, '（待补充）');
+    replyFn = (messages) => {
+      if (isSummary(messages)) {
+        return JSON.stringify({ 梗概: '第 1 章的事。', 出场人物: [{ name: '林昭', aliases: [] }, { name: '沈秋', aliases: [] }], 关键事件: [], 连续性事实: [] });
+      }
+      if (isState(messages)) {
+        return JSON.stringify({ updates: [{ name: '沈秋', 当前状态: '已死亡，尸体留在渡口' }] });
+      }
+      return defaultReply(messages);
+    };
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', confirmed: true });
+    assert.equal(h.confirms.length, 0, '开跑时还没有问题');
+    assert.ok(t.has(CH(1)));
+    assert.ok(!t.has(CH(2)), '第 2 章没写');
+    const f = finished.find((x) => x.title === '批量写章');
+    assert.match(f.message, /第 2 章的一致性预检发现 1 处问题（沈秋在角色卡上已经死了，细纲仍排着），批量停在这里/);
+    const fails = await failuresOf(t, PLOT(2));
+    assert.ok(fails.some((x) => x.severity === 'warn' && /一致性预检/.test(x.message)), JSON.stringify(fails));
+    cleanup(t.dir, bundle.db);
+  });
+});

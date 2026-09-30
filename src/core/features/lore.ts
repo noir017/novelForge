@@ -2,7 +2,7 @@ import { readConfig } from '../config';
 import { runPool, Settled } from '../runtime/concurrency';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { estimateTokens, takeHead } from '../context/tokenizer';
-import { getHost } from '../host';
+import { getHost, plainVerdict } from '../host';
 import { collectText } from '../llm/collect';
 import { StreamOptions } from '../llm/provider';
 import { budgetForTask, createModelPool, ModelPool } from '../llm/pool';
@@ -612,7 +612,7 @@ async function reviewExisting(
   const host = getHost();
   let verdict: 'apply' | 'discard' | undefined;
   if (host.reviewReplace) {
-    verdict = await host.reviewReplace(`设定「${existing.title}」`, currentText, proposedText, existing.relPath);
+    verdict = plainVerdict(await host.reviewReplace(`设定「${existing.title}」`, currentText, proposedText, existing.relPath));
   } else {
     const picked = await host.confirm(`已生成设定「${existing.title}」的更新。采纳？`, ['采纳', '跳过'], {
       modal: true,

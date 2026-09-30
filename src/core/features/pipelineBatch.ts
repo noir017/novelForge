@@ -44,6 +44,7 @@ import { BuildRequest, buildContext } from '../context/builder';
 import { runTask } from '../runtime/progress';
 import { countWords } from '../model/fs';
 import { describeFinalize, finalizeChapter } from './finalize';
+import { PREFLIGHT_SUGGESTION, PreflightRisk, describeRisks, preflightChapter, riskKey } from './preflight';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import {
   CONFIG_CALLS,
@@ -436,6 +437,34 @@ export async function writeManuscripts(
   }
   const writing = rangeLabel(plan.chapters[0], plan.chapters[plan.chapters.length - 1]);
 
+  // 一致性预检（五期，零调用）：开跑之前把要写的几章一起查一遍，有就先问一句。作者说「仅本次
+  // 忽略」的那几处记下来，跑的中途不再为它们停；中途新冒出来的（前面刚定稿的一章把某人写死了）
+  // 在那一章前面停下——批量没有人看着，接着写就是明知有矛盾还往下写。
+  const ignored = new Set<string>();
+  const found: [number, PreflightRisk[]][] = [];
+  for (const no of plan.chapters) {
+    const risks = await preflightChapter(project, no);
+    if (risks.length > 0) {
+      found.push([no, risks]);
+    }
+  }
+  if (found.length > 0) {
+    const lines = found.flatMap(([no, risks]) => describeRisks(no, risks, true));
+    log.warn(`批量写章之前的一致性预检：${lines.length} 处`, lines.join('\n'));
+    const pick = await getHost().confirm(
+      `一致性预检：${writing}里有 ${lines.length} 处要留意（这一步没有调用模型）。仍要写？`,
+      ['仅本次忽略，照写'],
+      { modal: true, detail: [...lines, PREFLIGHT_SUGGESTION].join('\n') }
+    );
+    if (pick !== '仅本次忽略，照写') {
+      log.info('一致性预检有问题，作者没有开始批量写章');
+      return 0;
+    }
+    for (const [no, risks] of found) {
+      risks.forEach((r) => ignored.add(riskKey(no, r)));
+    }
+  }
+
   const config = readConfig();
   if (!opts.confirmed) {
     const pick = await getHost().confirm(
@@ -504,6 +533,23 @@ export async function writeManuscripts(
           halt = { no, why: '还没有细纲', level: 'error' };
           break;
         }
+        const fresh = (await preflightChapter(project, no)).filter((r) => !ignored.has(riskKey(no, r)));
+        if (fresh.length > 0) {
+          const lines = describeRisks(no, fresh);
+          log.warn(`第 ${no} 章的一致性预检没过，批量停在它前面`, lines.join('\n'));
+          await recordFailure(project, {
+            scope: '流水线',
+            targetKind: 'plot',
+            targetKey: plot.relPath,
+            severity: 'warn',
+            op: 'preflight',
+            message: `一致性预检：${lines.join('；')}`,
+            detail: `批量写章停在这一章前面，没有写。${PREFLIGHT_SUGGESTION}`,
+          });
+          halt = { no, why: `的一致性预检发现 ${fresh.length} 处问题（${fresh.map((r) => r.name).join('、')}在角色卡上已经死了，细纲仍排着）`, level: 'info' };
+          break;
+        }
+        void clearFailures(project, 'plot', plot.relPath, 'preflight');
         const name = `第 ${no} 章${plot.title ? `《${plot.title}》` : ''}`;
         report({ message: `${name} · 写正文`, current: i, total });
         let chapterCalls = 0;

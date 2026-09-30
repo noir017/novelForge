@@ -9,9 +9,10 @@ import {
   readFileForEditor,
   writeFileFromEditor,
 } from '../../core/files/fileEditing';
-import { Disposable, Host, InputOptions, PickChoice } from '../../core/host';
+import { Disposable, Host, InputOptions, PickChoice, ReviewVerdict } from '../../core/host';
 import { isChapterFileName } from '../../core/model/chapterFile';
 import { NovelProject } from '../../core/model/project';
+import { locateQuote } from '../../core/model/review';
 import { Attachment } from '../../core/model/session';
 import { EditorPane, OutMessage } from '../../core/protocol';
 import { shouldIgnoreChange } from '../../core/watchPolicy';
@@ -309,21 +310,79 @@ export class FileHost implements Host {
     return rel?.trim();
   }
 
+  /**
+   * 覆盖前审阅：网页上开段级 diff / 合并视图（五期 W11，`media/src/view/merge.ts`）。
+   *
+   * 调用方请求了合并（`opts.merge`，网关的覆盖审阅）：作者可以逐段「采用新版 / 保留原文」、
+   * 在结果格里手改，交回来的是挑过的那一份。没请求的（角色卡、设定条目那几处）只读，
+   * 只有采纳 / 放弃——它们收不下一份作者拼出来的文字。
+   *
+   * `name` 是调用方给的称呼，可能是角色卡、设定、大纲、细纲或正文——从前这里写死成
+   * 「将更新角色卡」，覆盖大纲时也这么说。
+   */
   async reviewReplace(
     name: string,
     currentText: string,
     proposedText: string,
-    relPath?: string
-  ): Promise<'apply' | 'discard' | undefined> {
-    // 网页上还没有 diff（五期补）：给出规模信息后纯确认。`name` 是调用方给的称呼，
-    // 可能是角色卡、设定、大纲或细纲——从前这里写死成「将更新角色卡」，覆盖大纲时也这么说。
-    const ok = await this.confirm(
-      `将用新版本覆盖「${name}」（新版 ${proposedText.length} 字，当前 ${currentText.length} 字）。`,
-      ['覆盖'],
-      { detail: relPath ?? '' }
-    );
-    return ok ? 'apply' : 'discard';
+    relPath?: string,
+    opts?: { merge?: boolean }
+  ): Promise<ReviewVerdict> {
+    const value = await this.prompts.ask({
+      kind: 'merge',
+      title: `对比「${name}」：现有 ↔ 新版`,
+      message: relPath,
+      current: currentText,
+      proposed: proposedText,
+      mergeable: !!opts?.merge,
+    });
+    return parseMergeReply(value, !!opts?.merge);
+  }
+
+  /**
+   * 点审稿报告上的引文（五期）：内置编辑器里打开那一章，再推一条 `editorReveal` 让它选中那一句。
+   * 找不到那一句（正文改过）时只打开、返回 false。
+   */
+  async revealText(relPath: string, quote: string): Promise<boolean> {
+    if (!this.root) {
+      this.broadcastMsg({ type: 'editorError', path: relPath, message: '请先打开文件夹' });
+      return false;
+    }
+    await this.openInEditor(relPath);
+    let text = '';
+    try {
+      text = (await readFileForEditor(this.root, relPath)).text;
+    } catch {
+      return false;
+    }
+    if (!locateQuote(text, quote)) {
+      return false;
+    }
+    this.broadcastMsg({ type: 'editorReveal', path: relPath, quote });
+    return true;
   }
 
   // standalone 没有 openNativeSettings：前端已隐藏按钮，此处不提供。
+}
+
+/**
+ * 合并视图的回答（协议 `prompt kind: 'merge'`）：`{"verdict":"apply"|"discard","merged"?}` 的 JSON。
+ * 认不出、或者没回答（关掉了），当取消——宁可这一次不写。只读模式下交回来的 `merged` 不认。
+ */
+export function parseMergeReply(value: string | undefined, mergeable: boolean): ReviewVerdict {
+  if (value === undefined) {
+    return undefined;
+  }
+  let o: { verdict?: unknown; merged?: unknown };
+  try {
+    o = JSON.parse(value) as typeof o;
+  } catch {
+    return undefined;
+  }
+  if (o.verdict === 'discard') {
+    return 'discard';
+  }
+  if (o.verdict !== 'apply') {
+    return undefined;
+  }
+  return mergeable && typeof o.merged === 'string' ? { merged: o.merged } : 'apply';
 }

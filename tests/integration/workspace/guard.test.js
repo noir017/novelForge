@@ -218,9 +218,11 @@ describe('守卫 7 · 覆盖前审阅', () => {
     const withReview = makeFakeHost({ settings: () => ({}) });
     bundle.host.initHost(withReview.host);
     withReview.expect();
-    const ok = await G.reviewOverwrite('第 12 章的细纲', '.novelforge/plots/012.md', '旧', '新');
+    const { ok } = await G.reviewOverwrite('第 12 章的细纲', '.novelforge/plots/012.md', '旧', '新');
     assert.equal(ok, true);
     assert.equal(withReview.reviewed.length, 1, JSON.stringify(withReview.reviewed));
+    // 网关的覆盖审阅请求合并：独立版的合并视图可以交回作者挑过的那一份（五期 W11）。
+    assert.equal(withReview.reviewed[0].merge, true);
     bundle.host.initHost(h.host);
   });
 
@@ -238,14 +240,25 @@ describe('守卫 7 · 覆盖前审阅', () => {
     const withReview = makeFakeHost({ settings: () => ({}) });
     withReview.setReviewVerdict('discard');
     bundle.host.initHost(withReview.host);
-    const ok = await G.reviewOverwrite('第 12 章的细纲', '.novelforge/plots/012.md', '旧', '新');
+    const { ok } = await G.reviewOverwrite('第 12 章的细纲', '.novelforge/plots/012.md', '旧', '新');
     assert.equal(ok, false);
     bundle.host.initHost(h.host);
   });
 
+  test('合并视图交回的那一份：可以写，写的是它', async () => {
+    const withReview = makeFakeHost({ settings: () => ({}) });
+    withReview.setReviewVerdict(() => ({ merged: '挑过的' }));
+    bundle.host.initHost(withReview.host);
+    try {
+      assert.deepEqual(await G.reviewOverwrite('第 1 章的正文', 'chapters/001.md', '旧', '新'), { ok: true, text: '挑过的' });
+    } finally {
+      bundle.host.initHost(h.host);
+    }
+  });
+
   test('没有 reviewReplace 的宿主退化成确认框', async () => {
     h.expect('覆盖');
-    const ok = await G.reviewOverwrite('全书大纲', '.novelforge/outline.md', '旧的一段', '新的一段');
+    const { ok } = await G.reviewOverwrite('全书大纲', '.novelforge/outline.md', '旧的一段', '新的一段');
     assert.equal(ok, true);
     assert.equal(h.confirms.length, 1);
   });
@@ -264,18 +277,18 @@ describe('守卫 7 · 覆盖前审阅', () => {
 
   test('用户选「保留原样」就不写', async () => {
     h.expect('保留原样');
-    assert.equal(await G.reviewOverwrite('全书大纲', '.novelforge/outline.md', '旧', '新'), false);
+    assert.equal((await G.reviewOverwrite('全书大纲', '.novelforge/outline.md', '旧', '新')).ok, false);
   });
 
   test('用户直接取消也不写', async () => {
     h.expect();
-    assert.equal(await G.reviewOverwrite('全书大纲', '.novelforge/outline.md', '旧', '新'), false);
+    assert.equal((await G.reviewOverwrite('全书大纲', '.novelforge/outline.md', '旧', '新')).ok, false);
   });
 
   // 一字未变还弹个框，只会让人以为自己点错了。
   test('内容一模一样时不弹框，直接算通过', async () => {
     h.expect();
-    assert.equal(await G.reviewOverwrite('全书大纲', '.novelforge/outline.md', ' 甲 ', '甲'), true);
+    assert.equal((await G.reviewOverwrite('全书大纲', '.novelforge/outline.md', ' 甲 ', '甲')).ok, true);
     assert.equal(h.confirms.length, 0);
   });
 });
