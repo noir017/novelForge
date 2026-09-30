@@ -120,6 +120,13 @@ export {
   pickableIds,
 } from '../../src/core/model/review';
 export type { ReviewGoal, ReviewIssue, ReviewReport } from '../../src/core/model/review';
+
+/**
+ * 段级 diff（五期 W11）：独立版的合并视图按它对齐两个版本、拼合并结果。纯函数、零 import；
+ * 算法在 core 里单测，前端不另写一份。
+ */
+export { changeCount, diffParagraphs, joinMerge, sideText } from '../../src/core/model/paragraphDiff';
+export type { MergeSegment } from '../../src/core/model/paragraphDiff';
 export type {
   BookStage,
   CallEstimate,

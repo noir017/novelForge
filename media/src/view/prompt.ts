@@ -11,12 +11,18 @@
 import { el as mk, setHidden } from '../dom';
 import type { OutMessage } from '../protocol';
 import { primaryBtn, secondaryBtn } from './buttons';
+import { renderMerge } from './merge';
 import { el } from './refs';
 import { vscode } from './store';
 
 type PromptMessage = Extract<OutMessage, { type: 'prompt' }>;
 
 export function renderPrompt(msg: PromptMessage): void {
+  // 覆盖审阅（五期 W11）有它自己的一整块：两个版本并排、逐段挑，塞不进这个小弹窗。
+  if (msg.kind === 'merge') {
+    renderMerge(msg);
+    return;
+  }
   const body = el.providerModalBody;
   el.providerModalTitle.textContent = msg.title;
   body.innerHTML = '';

@@ -378,6 +378,30 @@ export function providerModal(): string {
 </div>`;
 }
 
+/**
+ * 覆盖审阅的段级 diff / 合并视图（五期 W11，只有独立版放它：插件用 VS Code 自己的 diff 编辑器）。
+ * 内容由 media/src/view/merge.ts 按 `prompt kind: 'merge'` 填。
+ */
+export function mergeModal(): string {
+  return `<div class="modal-overlay merge-overlay hidden" id="mergeModal">
+  <div class="modal merge-modal" role="dialog" aria-labelledby="mergeTitle">
+    <div class="modal-head">
+      <span class="modal-title" id="mergeTitle">对比</span>
+      <span class="merge-progress" id="mergeProgress"></span>
+      <button class="secondary small" id="mergeAllNew">全部采用新版</button>
+      <button class="secondary small" id="mergeAllOld">全部保留原文</button>
+    </div>
+    <div class="hint merge-path" id="mergePath"></div>
+    <div class="modal-body merge-body" id="mergeBody"></div>
+    <div class="actions merge-foot">
+      <span class="hint merge-foot-hint" id="mergeHint"></span>
+      <button class="secondary" id="mergeDiscard">放弃</button>
+      <button class="primary" id="mergeApply">写入合并结果</button>
+    </div>
+  </div>
+</div>`;
+}
+
 /** toast 的落点。前端往里填内容。 */
 export function toastSlot(): string {
   return '<div class="toast hidden" id="toast"></div>';

@@ -1,0 +1,121 @@
+/*
+ * 覆盖审阅的段级 diff / 合并视图（五期 W11）。DOM 只有独立版有，所以样式也只在这里。
+ *
+ * 比服务商弹窗宽得多：两个版本要并排看，一章几千字挤在 560px 里读不下去。颜色只花在两处：
+ * 原文 / 新版两栏的底色（删与加），以及手改过的那一格的边框——那一格「谁都不动它」，要一眼看得出。
+ */
+
+.merge-modal {
+  max-width: 1100px;
+  height: calc(100% - 48px);
+}
+
+.merge-progress {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.merge-path {
+  padding: 4px 12px 0;
+  word-break: break-all;
+}
+
+.merge-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.merge-body p {
+  margin: 0 0 0.6em;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.merge-same {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.92em;
+}
+
+.merge-same-fold summary {
+  cursor: pointer;
+  margin: 0 0 0.6em;
+  font-size: 0.9em;
+}
+
+.merge-hunk {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.3));
+  border-radius: var(--nf-ctl-radius);
+}
+
+.merge-hunk.edited {
+  border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.merge-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.merge-side {
+  padding: 6px 8px;
+  border-radius: 4px;
+  min-width: 0;
+}
+
+.merge-old {
+  background: var(--vscode-diffEditor-removedTextBackground, rgba(255, 0, 0, 0.12));
+}
+
+.merge-new {
+  background: var(--vscode-diffEditor-insertedTextBackground, rgba(155, 185, 85, 0.18));
+}
+
+.merge-side-label {
+  font-size: 0.8em;
+  margin-bottom: 4px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.merge-none {
+  font-style: italic;
+  color: var(--vscode-descriptionForeground);
+}
+
+.merge-result {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.6;
+}
+
+.merge-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.merge-state {
+  margin-left: auto;
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.merge-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.merge-foot-hint {
+  flex: 1;
+}

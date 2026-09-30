@@ -22,6 +22,7 @@
 @import './standalone/editor.css';
 @import './standalone/preview.css';
 @import './standalone/explorer.css';
+@import './standalone/merge.css';
 
 /* 覆盖 view.css 的那几处 */
 @import './standalone/side-tweaks.css';

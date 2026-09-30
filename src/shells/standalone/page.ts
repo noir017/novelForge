@@ -6,6 +6,7 @@ import {
   filesPane,
   historyPane,
   logsPane,
+  mergeModal,
   projectPane,
   providerModal,
   settingsPane,
@@ -195,6 +196,7 @@ ${settingsPane(caps)}
 </div>
 
 ${providerModal()}
+${mergeModal()}
 
 ${toastSlot()}
 <script src="/media/bridge.js"></script>
