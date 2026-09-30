@@ -486,19 +486,19 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(!doneItems.some((x) => x.includes('场景')), JSON.stringify(doneItems));
   });
 
-  // 点章名 = 打开这一章的文件（这份 body 是插件壳，没有 #wbEditor → openFile）。
-  test('点章节名打开正文', () => {
+  // 点章名 = 打开这一章（W6 章节工作台）：正文在主区、细纲并排在旁边。开几份、开在哪
+  // 由后端按宿主的能力定（有没有「并排打开」），前端只说是哪一章——两个壳发的是同一条。
+  test('点章节名发 openChapter，带这一行的主路径', () => {
     ui.closeMenu();
     ui.clickEl(plotRow('楔子').querySelector('.row-label'));
-    const open = ui.last('openFile');
-    assert.ok(open, '没发出 openFile');
-    assert.equal(open.path, 'chapters/001-楔子.md', JSON.stringify(open));
+    const open = ui.last('openChapter');
+    assert.ok(open, '没发出 openChapter');
+    assert.equal(open.plotRelPath, 'chapters/001-楔子.md', JSON.stringify(open));
   });
 
-  // 还没写正文：落到细纲。
-  test('还没写正文的章点名字打开细纲', () => {
+  test('还没写正文的章也发 openChapter（后端只开细纲）', () => {
     ui.clickEl(plotRow('北行').querySelector('.row-label'));
-    assert.equal(ui.last('openFile').path, '.novelforge/plots/004-北行.md');
+    assert.equal(ui.last('openChapter').plotRelPath, '.novelforge/plots/004-北行.md');
   });
 
   test('点章节名不再切到对话页', () => {

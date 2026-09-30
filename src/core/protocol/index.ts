@@ -1,4 +1,5 @@
 export type {
+  ChapterAction,
   CharacterAction,
   EditorPane,
   FileAction,

@@ -49,6 +49,9 @@ export interface SerializedAttachment {
 
 export type EditorPane = 'main' | 'draft';
 
+/** 章节工作台工具条上的四颗按钮。审稿是五期的事。 */
+export type ChapterAction = 'write' | 'continue' | 'rewrite' | 'finalize';
+
 /** Webview → 扩展 */
 export type InMessage =
   | { type: 'ready' }
@@ -78,6 +81,16 @@ export type InMessage =
   | { type: 'openFile'; path: string }
   | { type: 'openEditor'; path: string; pane?: EditorPane }
   | { type: 'openDraft'; path: string }
+  /**
+   * 打开一章（W6 章节工作台）：正文在主区、这一章的细纲并排在旁边。宿主没有「并排打开」
+   * 这一项能力时只开一份。收的是这一章的细纲路径（还没有细纲时是它应该在的位置）。
+   */
+  | { type: 'openChapter'; plotRelPath: string }
+  /**
+   * 章节工作台工具条上的按钮：对这一章做一件事。`write` / `continue` / `rewrite` 等于对这一章
+   * 按下主按钮（切到它的正文层、按那种写法发一轮生成），`finalize` 走定稿。
+   */
+  | { type: 'chapterAction'; plotRelPath: string; action: ChapterAction }
   | { type: 'saveFile'; path: string; text: string; baseHash?: string }
   | { type: 'reloadFile'; path: string }
   | { type: 'listDir'; dirs: string[]; ephemeral?: boolean }

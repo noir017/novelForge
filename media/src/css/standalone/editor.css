@@ -132,6 +132,39 @@
 
 /* ---- 工具条 */
 
+/* 章节条（W6 章节工作台）：正开着某一章的正文或细纲时，主区顶上一行——这一章在哪一步、
+   写了多少，右边是对这一章能做的几件事。与工具栏同一种底色，但字重一档：它说的是
+   「这一章」，工具栏说的是「这个文件」。 */
+.ed-chapter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editor-background);
+  font-size: 0.85em;
+}
+
+.ed-chapter-info {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ed-chapter-actions {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.ed-chapter-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .ed-toolbar {
   display: flex;
   align-items: center;

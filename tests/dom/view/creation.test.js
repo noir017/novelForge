@@ -1001,17 +1001,17 @@ describe('选中一章进入当前阶段', { skip: JSDOM_SKIP }, () => {
     assert.equal(toOutline?.target.kind, 'outline', JSON.stringify(toOutline));
   });
 
-  // 工程页点章名是**打开文件**，不切页——「进入这一章」在右键菜单与「去写这一章」里。
-  // 在工程页上扫章节列表时，要看的多半就是这一章写成了什么样。
-  test('工程页点章名打开文件，不发 selectPlot', () => {
+  // 工程页点章名是**打开这一章**（正文与细纲并排，W6），不切页——「进入这一章」在右键
+  // 菜单与「去写这一章」里。在工程页上扫章节列表时，要看的多半就是这一章写成了什么样。
+  test('工程页点章名打开这一章，不发 selectPlot', () => {
     ui.post({ type: 'project', tree: sampleTree() });
     ui.sent.length = 0;
     // 排掉「故事架构」那一组的行：它们刻意复用同一套样式类（`.row-plot`）。
     const row = ui.doc.querySelector('#projectBody .row-plot:not(.row-architecture) .row-label');
     ui.clickEl(row);
     assert.ok(![...ui.sent].some((m) => m.type === 'selectPlot'), JSON.stringify(ui.sent));
-    const open = [...ui.sent].reverse().find((m) => m.type === 'openFile');
-    assert.equal(open?.path, 'chapters/001-楔子.md', JSON.stringify(open));
+    const open = [...ui.sent].reverse().find((m) => m.type === 'openChapter');
+    assert.equal(open?.plotRelPath, 'chapters/001-楔子.md', JSON.stringify(open));
   });
 
   test('工程页右键「进入这一章」带主路径', () => {

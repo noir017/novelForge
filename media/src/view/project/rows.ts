@@ -180,10 +180,13 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
 
   const opens = openTargetOf(p);
   const label = mk('span', 'row-label', p.label);
-  label.title = `${opens}\n点击在编辑器里打开；右键「进入这一章」去做下一步`;
-  // 点名字 = **打开这一章的文件**。在工程页上扫章节列表时，想看的多半就是这一章
-  // 写成了什么样；「进入这一章」在右键菜单与行尾那颗按钮里。
-  label.addEventListener('click', () => openPath(opens));
+  label.title = p.chapterPath && p.plotExists
+    ? `${p.chapterPath}\n点击打开正文，细纲并排在旁边；右键「进入这一章」去做下一步`
+    : `${opens}\n点击在编辑器里打开；右键「进入这一章」去做下一步`;
+  // 点名字 = **打开这一章**（W6 章节工作台）：正文在主区、细纲并排在旁边。在工程页上扫
+  // 章节列表时，想看的多半就是这一章写成了什么样、对不对得上细纲。并排是宿主的能力，
+  // 由后端按能力决定开几份；「进入这一章」在右键菜单与行尾那颗按钮里。
+  label.addEventListener('click', () => vscode.postMessage({ type: 'openChapter', plotRelPath: p.relPath }));
   row.appendChild(label);
 
   // 状态徽章：这一章现在该做哪一步。**已完成的不挂**——一列「已完成」只是噪声。

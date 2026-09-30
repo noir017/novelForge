@@ -20,6 +20,7 @@ export type {
   CharacterAction,
   DirListing,
   EditorFileView,
+  ChapterAction,
   EditorPane,
   FailureView,
   FileAction,
@@ -94,6 +95,9 @@ export {
   planPlotBatches,
   // 「2980 / 3000 字 · 已达标」：气泡上那一行与落盘卡片是同一句（W7）。
   describeWriteLength,
+  // 章节工作台工具条的按钮提示与主按钮报同一个调用次数（W6、D16）。
+  ONE_CALL,
+  WRITE_CALLS,
 } from '../../src/core/model/pipeline';
 export type {
   BookStage,

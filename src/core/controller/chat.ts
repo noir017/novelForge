@@ -39,6 +39,7 @@ import {
 import { isSettingFilled } from '../model/settingFile';
 import { isOutlineFilled, outlineOverlaps } from '../model/outlineFile';
 import {
+  ChapterAction,
   NextStepView,
   SendPayload,
   SerializedArtifact,
@@ -573,6 +574,48 @@ function artifactDetail(art: SerializedArtifact): string {
 function clipQuote(text: string, max = 120): string {
   const one = text.replace(/\s+/g, ' ').trim();
   return one.length > max ? `${one.slice(0, max)}…` : one;
+}
+
+/**
+ * 章节工作台工具条上的按钮（W6）：对这一章做一件事。
+ *
+ * 写这一章 / 接着写 / 重写 **等于对这一章按下主按钮**：切到它的正文层，按那种写法发一轮
+ * 生成（输入框里没有话——该说的都在细纲里）。生成照样在对话页流式输出、照样当场问写不写
+ * （第 19 条），与主按钮是同一条路，只是入口在编辑器上方。定稿走工程动作。
+ */
+export async function chapterAction(c: ChatController, plotRelPath: string, action: ChapterAction): Promise<void> {
+  if (c.busy) {
+    c.toast('已有一个生成任务在进行中。', 'error');
+    return;
+  }
+  const entry = await resolvePlotTarget(c, plotRelPath);
+  if (!entry) {
+    c.toast('这一章不存在，可能刚被改名或删除。', 'error');
+    return;
+  }
+  if (action === 'finalize') {
+    if (!entry.chapter) {
+      c.toast('这一章还没有正文，无法定稿。', 'error');
+      return;
+    }
+    await c.dispatch({ type: 'projectAction', action: 'finalizeChapter', relPath: entry.chapter.relPath });
+    return;
+  }
+  const target: CreationTarget = {
+    kind: 'manuscript',
+    plotRelPath: entry.plot?.relPath ?? c.project.plotPathForNo(entry.no, entry.chapter?.title ?? ''),
+  };
+  await setTarget(c, target);
+  await send(c, {
+    text: '',
+    stage: 'manuscript',
+    capability: 'generate',
+    target,
+    targetNo: entry.no,
+    attachments: [],
+    excludedIds: [],
+    ...(action === 'write' ? {} : { writeMode: action }),
+  });
 }
 
 /**

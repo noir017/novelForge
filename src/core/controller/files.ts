@@ -14,6 +14,9 @@ import { scoped } from '../runtime/logger';
 import { FileOpResult, InMessage } from '../protocol';
 import { retargetPlot } from './chat';
 import { Workspace } from '../workspace';
+import { parsePlotFileName } from '../model/plotFile';
+import { parseChapterFileName } from '../model/chapterFile';
+import { basename } from 'node:path';
 
 const log = scoped('面板');
 
@@ -65,6 +68,39 @@ export async function openDraft(c: ChatController, chapterRelPath: string): Prom
   }
   // 刚建出来的草稿要让 hasDraft 立刻翻过来，菜单文案跟着变。
   await c.pushState();
+}
+
+/**
+ * 打开一章：正文在主区，这一章的细纲并排在旁边（W6 章节工作台）。
+ *
+ * 从前点工程页的行名只开一份（有正文开正文，否则开细纲），对照着看要再去右键开另一份。
+ * **并排是宿主的能力，不是壳的名字**：有 `openBeside` 的（独立版落在第二块编辑区，VS Code
+ * 落在 `ViewColumn.Beside`）两份都开，没有的只开正文——与 `openDraft` 同一个判法。
+ * 还没写正文的章只开细纲；两样都没有才说找不到。
+ */
+export async function openChapter(c: ChatController, plotRelPath: string): Promise<void> {
+  const no = chapterNoOf(plotRelPath);
+  const [plot, chapter] = no !== undefined ? await Promise.all([c.project.getPlot(no), c.project.getChapter(no)]) : [];
+  const host = getHost();
+  if (!plot && !chapter) {
+    c.toast('这一章还没有细纲也没有正文。', 'error');
+    return;
+  }
+  if (!chapter) {
+    await host.openFile(plot!.relPath);
+    return;
+  }
+  await host.openFile(chapter.relPath);
+  if (plot && host.openBeside) {
+    await host.openBeside(plot.relPath);
+  }
+  log.info(`打开第 ${chapter.order} 章`, `${chapter.relPath}${plot && host.openBeside ? ` ｜ 并排 ${plot.relPath}` : ''}`);
+}
+
+/** 细纲路径或章节路径 → 章号（细纲号 = 章号）。 */
+function chapterNoOf(relPath: string): number | undefined {
+  const name = basename(relPath);
+  return parsePlotFileName(name)?.no ?? parseChapterFileName(name)?.order;
 }
 
 /**

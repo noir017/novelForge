@@ -6,7 +6,7 @@
  * 与 view 完全解耦：各自监听 window 的 message 事件、各自 postMessage，
  * 互不调用。唯一的交集是共用 #toast 与右键菜单引擎（见 src/globals.ts）。
  *
- * **两块编辑区**：主区放正文，草稿区（`pane: 'draft'`）放草稿，左右并列。
+ * **两块编辑区**：主区放正文，第二块（`pane: 'draft'`）放草稿或并排打开的细纲，左右并列。
  * **一个路径同一时刻只属于一块**——editorSaved / editorConflict / editorError
  * 都只带 path，靠这条不变量才认得出该送给谁（`paneOwning`）。破坏它会导致
  * 从错的那块保存时用错 baseHash，触发假冲突。
@@ -19,6 +19,7 @@ import { maybeById } from '../dom';
 import { acquireApi, onMessage } from '../vscodeApi';
 import { toast } from '../globals';
 import { createPane } from './pane';
+import { installChapterBar } from './chapterBar';
 import { createPaneElements, mainRefs } from './paneElements';
 import type { CarriedDraft } from './paneElements';
 import {
@@ -58,11 +59,16 @@ function start(stage: HTMLElement): void {
   bindStore({ post, draftResizer: shell.draftResizer });
 
   setActivePane(registerPane(createPane('main', mainRefs(stage), post)));
+  // 正开着某一章的正文或细纲时，主区顶上那一条（W6 章节工作台）。
+  installChapterBar(stage, post);
 
-  /** 草稿区惰性创建：没用过草稿的人不该多出一块空编辑区。 */
+  /**
+   * 第二块编辑区惰性创建：没用过的人不该多出一块空编辑区。它放草稿，也放点开一章时
+   * 并排打开的那一份细纲（W6）。
+   */
   function ensureDraftPane(): Pane {
     if (!panes.draft) {
-      const refs = createPaneElements('这一块用来放草稿');
+      const refs = createPaneElements('这一块放草稿或细纲');
       shell.editors.appendChild(refs.root);
       registerPane(createPane('draft', refs, post));
     }

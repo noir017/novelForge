@@ -32,6 +32,7 @@ import {
 import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
 import { buildPipelineIndex } from '../views/pipeline';
 import {
+  chapterAction,
   pushPipeline,
   retry,
   selectPlot,
@@ -41,7 +42,7 @@ import {
 import { sendAgent } from './agent';
 import type { PendingGate } from './gate';
 import { cancelGates, resendGates, resolveGate } from './gate';
-import { fileAction, openDraft, pushDirListings } from './files';
+import { fileAction, openChapter, openDraft, pushDirListings } from './files';
 import { characterAction, projectAction } from './project';
 import {
   deleteSession,
@@ -404,6 +405,14 @@ export class ChatController {
 
       case 'openDraft':
         await openDraft(this, msg.path);
+        return;
+
+      case 'openChapter':
+        await openChapter(this, msg.plotRelPath);
+        return;
+
+      case 'chapterAction':
+        await chapterAction(this, msg.plotRelPath, msg.action);
         return;
 
       case 'saveFile': {
