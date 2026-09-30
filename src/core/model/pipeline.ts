@@ -103,20 +103,24 @@ export function isSettingDoc(value: unknown): value is SettingDoc {
 // ---------------------------------------------------------------- Capability
 
 /**
- * 通用能力。与阶段正交——「讨论」不是一个模式，而是三个能力之一。
+ * 通用能力。与阶段正交——「讨论」不是一个模式，而是四个能力之一。
  *
  * 留下来的每一个都有**提示词之外**的结构差异：输出契约、解析、装配配方、
  * 采纳流程，那才是值得作者显式挑一下的东西。从前还有一个 `split`（大纲拆卷、
  * 卷拆剧情段），卷那一层删掉之后它没有落点了。
+ *
+ * `review`（审稿，五期）只挂在正文层：一次调用出一份逐条引证的报告，**只出报告、不写文件**
+ * （D9、D22）。它不进主按钮（第 20 条）——审稿是可选动作，由作者自己决定哪一章值得查一遍。
  */
-export type Capability = 'discuss' | 'generate' | 'settle';
+export type Capability = 'discuss' | 'generate' | 'settle' | 'review';
 
-export const CAPABILITIES: Capability[] = ['discuss', 'generate', 'settle'];
+export const CAPABILITIES: Capability[] = ['discuss', 'generate', 'settle', 'review'];
 
 export const CAPABILITY_LABEL: Record<Capability, string> = {
   discuss: '讨论',
   generate: '生成',
   settle: '落定',
+  review: '审稿',
 };
 
 /** 按钮的 tooltip。说清「点了会发生什么」，尤其是会不会产出可采纳的东西。 */
@@ -124,6 +128,9 @@ export const CAPABILITY_HINT: Record<Capability, string> = {
   discuss: '就当前产物提问，AI 只回答，不改动任何文件',
   generate: '按你描述的走向产出本阶段的产物，可采纳写入；目标已有内容时，你的话就是修改意见',
   settle: '把刚才讨论出的结论整理成产物，可采纳写入',
+  review:
+    '逐条引原文挑出这一章的连续性、因果与角色状态问题，并逐项核对细纲里的关键事件；只出报告，不改文件。' +
+    '勾选之后可以按勾选的条目修稿',
 };
 
 export function isCapability(value: unknown): value is Capability {
@@ -156,7 +163,7 @@ export const STAGE_CAPABILITIES: Record<CreationStage, Capability[]> = {
   setting: ['discuss', 'generate'],
   outline: ['discuss', 'generate'],
   plot: ['discuss', 'settle', 'generate'],
-  manuscript: ['discuss', 'generate'],
+  manuscript: ['discuss', 'generate', 'review'],
 };
 
 /**
@@ -230,11 +237,14 @@ export function normalizeAction(raw: unknown): CreationAction {
  *
  * - `text`：自由作答，只出现在对话气泡里，不碰任何文件。
  * - `artifact`：产出本阶段的产物，可以采纳落盘。
+ * - `report`：审稿报告（五期）。有结构、要解析、要校验引文，但**不是**可以落盘的东西——
+ *   没有落盘卡片，随会话保存（D22）。凡是按「不是讨论就是产物」判断的地方都得认它，
+ *   否则一份审稿 JSON 会走到写入卡上、被当成正文写进章节。
  */
-export type OutputKind = 'text' | 'artifact';
+export type OutputKind = 'text' | 'artifact' | 'report';
 
 export function outputKindOf(action: CreationAction): OutputKind {
-  return action.capability === 'discuss' ? 'text' : 'artifact';
+  return action.capability === 'discuss' ? 'text' : action.capability === 'review' ? 'report' : 'artifact';
 }
 
 // ---------------------------------------------------------------- 命令表
@@ -259,6 +269,7 @@ const CAPABILITY_KEYS: Record<Capability, string[]> = {
   discuss: ['discuss', 'tl'],
   generate: ['generate', 'sc'],
   settle: ['settle', 'ld'],
+  review: ['review', 'sg'],
 };
 
 /**
@@ -620,9 +631,9 @@ export interface NextStepPlan {
   /**
    * 写正文那几步怎么写（见 {@link WriteMode}）。「接着写」是追加，「重写第 N 章」是覆盖——
    * 两者按钮上的字不同、落盘方式也不同，得随这一步一起带到后端。「写第 N 章」不带：
-   * 那一章还没有正文，写法由磁盘自己定。
+   * 那一章还没有正文，写法由磁盘自己定。修稿（`revise`）只由审稿报告卡发起，永远不是下一步。
    */
-  writeMode?: Exclude<WriteMode, 'write'>;
+  writeMode?: Exclude<WriteMode, 'write' | 'revise'>;
 }
 
 /**
@@ -633,15 +644,20 @@ export interface NextStepPlan {
  * | `write` | 这一章还没有正文 | 整章 | 新建章节文件 |
  * | `continue` | 「接着写」 | 只写新增的那一段 | 追加在末尾，不审阅（不覆盖任何东西） |
  * | `rewrite` | 「重写第 N 章」，或已有正文时在对话里发「写正文」 | 整章，上一版作底稿 | 覆盖，写入前审阅 |
+ * | `revise` | 审稿报告卡上「按勾选的 n 条修稿」（五期） | 整章，**最小改动**，只改勾选的那几处 | 覆盖，写入前审阅 |
  *
  * 从前已有正文时一律追加：对话里发「写正文」写出的是完整一章，追加上去就是两章叠在一起。
  * 现在只有明说「接着写」才追加，其余都当成「按修改意见重做这一章」——与其他各层
  * 「目标已有内容时再生成，作者的话就是修改意见」同一个口径。
+ *
+ * `revise` 与 `rewrite` 的差别不在落盘（都是覆盖审阅），在契约：重写是「照细纲再写一章」，
+ * 带着写正文那一套法则与篇幅合同；修稿是「只改这几处，其余一字不动」，那套法则在这里
+ * 只会诱导它重写。
  */
-export type WriteMode = 'write' | 'continue' | 'rewrite';
+export type WriteMode = 'write' | 'continue' | 'rewrite' | 'revise';
 
 export function isWriteMode(value: unknown): value is WriteMode {
-  return value === 'write' || value === 'continue' || value === 'rewrite';
+  return value === 'write' || value === 'continue' || value === 'rewrite' || value === 'revise';
 }
 
 // ---------------------------------------------------------------- 调用次数
@@ -730,6 +746,32 @@ export const FINALIZE_CALLS: CallEstimate = {
   high: 2,
   max: 2,
   why: '摘要 1 次，本章出场的人有角色卡时再更新一次角色状态',
+};
+
+/**
+ * 审一章：1 次；输出被截断时整份重来 1 次（截断的那一半不可信，不续接），解不出合格的
+ * JSON 时按合同重建 1 次。移植自 AI-Novel-Writer `review-chapter.command.ts` 的重试（RV:288-367）。
+ */
+export const REVIEW_CALLS: CallEstimate = {
+  low: 1,
+  high: 1,
+  max: 3,
+  why: '输出被截断或不合格时重来，最多再 2 次',
+};
+
+/**
+ * 按审稿意见修稿时，被输出上限截断最多再续几轮。移植自 AI-Novel-Writer 的
+ * `refine-from-review.command.ts`（`maxContinuations: 3`，`bounded-completion.ts:11`）。
+ * 只看截断，不看字数：修稿没有「写够」这一说，原稿多长它就该多长。
+ */
+export const REVISE_CONTINUE_ROUNDS = 3;
+
+/** 按勾选的审稿意见修一章：通常 1 次，被截断时接着写，最多再续 {@link REVISE_CONTINUE_ROUNDS} 轮。 */
+export const REVISE_CALLS: CallEstimate = {
+  low: 1,
+  high: 1,
+  max: 1 + REVISE_CONTINUE_ROUNDS,
+  why: `被输出上限截断时接着写，最多再续 ${REVISE_CONTINUE_ROUNDS} 轮`,
 };
 
 /** 角色图谱的人数上下限与详情每批几人（上游 `architecture.command.ts:719-721`）。 */

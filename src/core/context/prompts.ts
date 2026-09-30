@@ -137,6 +137,8 @@ const CAPABILITY_TASK: Record<Capability, string> = {
     '以讨论里定下的为准：**不要塞进讨论中被否掉的方案**，也不要临时发明谁都没提过的新走向。\n' +
     '讨论中悬而未决的地方，按最接近的结论写或留空，并在产物之外用一两句话说明哪几处还没定——' +
     '那正是作者接下来要接着聊的东西。',
+  // 审稿有自己的系统提示（`reviewSystemPrompt`），这一句只在认不出配方时兜底。
+  review: '审阅这一章正文，只报告有正文证据的客观问题，不改写正文。',
 };
 
 function ethosOf(stage: CreationStage, target?: CreationTarget): string | undefined {

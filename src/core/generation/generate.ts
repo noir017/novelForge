@@ -466,6 +466,7 @@ const WRITE_MODE_LABEL: Record<WriteMode, string> = {
   write: '新写一章',
   continue: '接着写（追加）',
   rewrite: '重写（覆盖前审阅）',
+  revise: '按审稿意见修稿（覆盖前审阅）',
 };
 
 /**

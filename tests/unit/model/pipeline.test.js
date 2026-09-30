@@ -39,9 +39,16 @@ describe('pipeline.ts · Stage × Capability', () => {
     }
   });
 
-  test('能力只剩讨论 / 生成 / 落定（split 删了）', () => {
-    assert.deepEqual(pipeline.CAPABILITIES, ['discuss', 'generate', 'settle']);
+  test('能力是讨论 / 生成 / 落定 / 审稿（split 删了）', () => {
+    assert.deepEqual(pipeline.CAPABILITIES, ['discuss', 'generate', 'settle', 'review']);
     assert.equal(pipeline.isCapability('split'), false);
+  });
+
+  // 五期：审稿是正文层的可选动作，其余各层没有「这一章写得对不对」可查。
+  test('只有正文层能审稿', () => {
+    const withReview = pipeline.CREATION_STAGES.filter((s) => pipeline.STAGE_CAPABILITIES[s].includes('review'));
+    assert.deepEqual(withReview, ['manuscript']);
+    assert.equal(pipeline.isValidAction({ stage: 'plot', capability: 'review' }), false);
   });
 
   // 前端的按钮组直接读这张表，混进一个不存在的能力会渲染出一个点了什么都不会发生的按钮。
@@ -71,19 +78,29 @@ describe('pipeline.ts · Stage × Capability', () => {
     assert.equal(pipeline.isValidAction({ stage: 'outline', capability: 'split' }), false);
   });
 
-  test('命令面板不列讨论，每条都产出产物', () => {
+  test('命令面板不列讨论，每条都产出产物或报告', () => {
     for (const s of pipeline.CREATION_STAGES) {
       const cmds = pipeline.commandsFor(s);
       assert.ok(cmds.length > 0, s);
       assert.ok(cmds.every((c) => c.capability !== 'discuss'), s);
     }
     assert.deepEqual(pipeline.commandsFor('plot').map((c) => c.label), ['落定细纲', '写细纲']);
+    assert.deepEqual(pipeline.commandsFor('manuscript').map((c) => c.label), ['写正文', '审稿']);
+    assert.ok(pipeline.commandOf('manuscript', 'review').keys.includes('sg'));
   });
 
-  test('输出形态：讨论是文本，其余是产物', () => {
+  // 审稿报告不是可以落盘的产物：按「不是讨论就是产物」判断的地方会把它写进章节。
+  test('输出形态：讨论是文本，审稿是报告，其余是产物', () => {
     assert.equal(pipeline.outputKindOf({ stage: 'plot', capability: 'discuss' }), 'text');
     assert.equal(pipeline.outputKindOf({ stage: 'plot', capability: 'settle' }), 'artifact');
     assert.equal(pipeline.outputKindOf({ stage: 'setting', capability: 'generate' }), 'artifact');
+    assert.equal(pipeline.outputKindOf({ stage: 'manuscript', capability: 'review' }), 'report');
+  });
+
+  test('审稿与修稿的调用次数', () => {
+    assert.equal(pipeline.describeCalls(pipeline.REVIEW_CALLS), '预计 1 次调用，最多 3 次（输出被截断或不合格时重来，最多再 2 次）');
+    assert.equal(pipeline.describeCalls(pipeline.REVISE_CALLS), '预计 1 次调用，最多 4 次（被输出上限截断时接着写，最多再续 3 轮）');
+    assert.equal(pipeline.isWriteMode('revise'), true);
   });
 });
 
