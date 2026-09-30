@@ -230,7 +230,7 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
  * 与 `kindOfPath` 互为逆运算（见 tests/unit/workspace/kind.test.js 的往返用例）。
  *
  * **正文不在这里**：它落在同号的章节上，而同号的章节在不在、叫什么名字要读盘才
- * 知道——这个函数是纯的。正文的落点走 `resolveManuscriptPath`（views/pipeline.ts）。
+ * 知道——这个函数是纯的。正文的落点走 views/pipeline.ts 的 `chapterTargetOf`。
  * 角色图谱给的是角色目录：它是一组卡，不是一个文件。
  */
 export function pathOfTarget(project: NovelProject, target: CreationTarget): string {
@@ -242,7 +242,7 @@ export function pathOfTarget(project: NovelProject, target: CreationTarget): str
     case 'plot':
       return target.plotRelPath;
     case 'manuscript':
-      throw new Error('正文的落点要按章号去认同号的章节，请改用 resolveManuscriptPath。');
+      throw new Error('正文的落点要按章号去认同号的章节，请改用 views/pipeline.ts 的 chapterTargetOf。');
   }
 }
 

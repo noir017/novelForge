@@ -54,6 +54,17 @@ describe('kindOfPath · 固定单文件', () => {
   test('summaries/global.md 是全书摘要而不是某一章的摘要', () => {
     assert.equal(kindOf('.novelforge/summaries/global.md').kind, 'globalSummary');
   });
+
+  // 架构三件与大纲同级：各自是一份固定文件，带着「是哪一件」。
+  for (const doc of ['config', 'premise', 'world']) {
+    test(`${doc}.md 是架构文档，带上 doc 与创作目标`, () => {
+      const k = kindOf(`.novelforge/${doc}.md`);
+      assert.equal(k.kind, 'setting');
+      assert.equal(k.doc, doc);
+      assert.equal(k.stage, 'setting');
+      assert.deepEqual(k.target, { kind: 'setting', doc });
+    });
+  }
 });
 
 describe('kindOfPath · 细纲', () => {
@@ -89,6 +100,14 @@ describe('kindOfPath · 细纲', () => {
   test('plots/ 下的 .txt 不是细纲', () => {
     assert.equal(kindOf('.novelforge/plots/012-入宗.txt').kind, 'other');
   });
+
+  // 细纲是平铺的（一章一纲）。老工程按卷分的子目录里那些四节细纲不再是这条链上的
+  // 东西——判成 other，但 rel 照给：文件确实在那儿，只是不再是产物。
+  test('plots/ 下按卷分的子目录里的文件不是细纲', () => {
+    const k = kindOf('.novelforge/plots/01-觉醒之日/003-楼道.md');
+    assert.equal(k.kind, 'other');
+    assert.equal(k.rel, '.novelforge/plots/01-觉醒之日/003-楼道.md');
+  });
 });
 
 // 场景那一层已经删掉（见 core/model/pipeline.ts 的文件头）。老工程磁盘上那个
@@ -117,25 +136,16 @@ describe('kindOfPath · 老工程留下的 scenes/', () => {
   });
 });
 
-describe('kindOfPath · 中转站正文', () => {
-  test('manuscripts/ 下的 .md 是中转站正文', () => {
-    assert.equal(kindOf('.novelforge/manuscripts/012-入宗.md').kind, 'manuscript');
-  });
-
-  test('中转站正文带上章号', () => {
-    assert.equal(kindOf('.novelforge/manuscripts/012-入宗.md').no, 12);
-  });
-
-  test('中转站正文反推得出所属细纲', () => {
-    assert.equal(
-      kindOf('.novelforge/manuscripts/012-入宗.md').plotRelPath,
-      '.novelforge/plots/012-入宗.md'
-    );
-  });
-
-  test('中转站正文的创作层是 manuscript', () => {
-    assert.equal(kindOf('.novelforge/manuscripts/012-入宗.md').stage, 'manuscript');
-  });
+// 卷与中转站两层也删了，老工程里那两个目录同 scenes/ 一样：判成 other、不抛。
+describe('kindOfPath · 老工程留下的 volumes/ 与 manuscripts/', () => {
+  for (const rel of ['.novelforge/volumes/01-觉醒之日.md', '.novelforge/manuscripts/012-入宗.md']) {
+    test(`${rel} 是 other、没有创作层`, () => {
+      const k = kindOf(rel);
+      assert.equal(k.kind, 'other');
+      assert.equal(k.stage, undefined);
+      assert.equal(k.rel, rel);
+    });
+  }
 });
 
 describe('kindOfPath · 章节（不认扩展名，AGENTS 第 9 条）', () => {
@@ -145,6 +155,11 @@ describe('kindOfPath · 章节（不认扩展名，AGENTS 第 9 条）', () => {
 
   test('章节带上章号', () => {
     assert.equal(kindOf('chapters/012-入宗.md').no, 12);
+  });
+
+  // 第 12 章的细纲在哪要按号去 plots/ 里认，那一步要读盘——这里是纯函数，不给。
+  test('章节不带创作目标', () => {
+    assert.equal(kindOf('chapters/012-入宗.md').target, undefined);
   });
 
   test('无扩展名也是章节', () => {
@@ -232,13 +247,15 @@ describe('kindOfPath · 越界一律 other 且不抛', () => {
 
 describe('pathOfTarget · 与 kindOfPath 往返', () => {
   const targets = [
+    { kind: 'setting', doc: 'config' },
+    { kind: 'setting', doc: 'premise' },
+    { kind: 'setting', doc: 'world' },
     { kind: 'outline' },
     { kind: 'plot', plotRelPath: '.novelforge/plots/012-入宗.md' },
-    { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-入宗.md' },
   ];
 
   for (const target of targets) {
-    test(`${target.kind} 的落点能反解回同一个目标`, () => {
+    test(`${JSON.stringify(target)} 的落点能反解回同一个目标`, () => {
       const rel = bundle.kind.pathOfTarget(project, target);
       assert.deepEqual(kindOf(rel).target, target, rel);
     });
@@ -255,13 +272,16 @@ describe('pathOfTarget · 与 kindOfPath 往返', () => {
     );
   });
 
-  test('正文落在中转站而不是 chapters/', () => {
-    assert.equal(
-      bundle.kind.pathOfTarget(project, {
-        kind: 'manuscript',
-        plotRelPath: '.novelforge/plots/012-入宗.md',
-      }),
-      '.novelforge/manuscripts/012-入宗.md'
+  test('角色图谱的落点是角色目录', () => {
+    assert.equal(bundle.kind.pathOfTarget(project, { kind: 'setting', doc: 'characters' }), '.novelforge/characters');
+  });
+
+  // 正文落在同号的章节上，那一章在不在、叫什么要读盘才知道——纯函数不猜，
+  // 抛出来让调用方改用 chapterTargetOf。
+  test('正文的落点不在这里算', () => {
+    assert.throws(
+      () => bundle.kind.pathOfTarget(project, { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-入宗.md' }),
+      /chapterTargetOf/
     );
   });
 });

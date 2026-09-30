@@ -95,7 +95,7 @@ type BookStage = 'setting' | 'outline' | 'plots' | 'writing' | 'complete';
 
 - 细纲 `plots/NNN-标题.md` 平铺，不再按卷分子目录；`plots/` 下子目录里的文件判成 `other`。
 - 细纲号 = 章号。第 N 章的细纲、正文、摘要按号互认，**只在 `views/pipeline.ts` 的一个函数里做**（`chapterOfPlotNo`）：同号的章节有多份时取路径排序第一份，并记一条 warn。
-- 正文落点：同号章节已存在就用它；否则是 `chapters/NNN-<细纲标题>.md`。解析落点要读盘，所以是 async 的 `resolveManuscriptPath(project, plotRelPath)`，**不放进纯函数 `pathOfTarget`**。
+- 正文落点：同号章节已存在就用它；否则是 `chapters/NNN-<细纲标题>.md`。解析落点要读盘，所以是 async 的 `chapterTargetOf(project, plotRelPath)`（views/pipeline.ts），**不放进纯函数 `pathOfTarget`**。
 
 ### 细纲格式（D3）
 
@@ -196,7 +196,7 @@ commit 2–4 之间**允许**测试红，但 typecheck 必须过；commit 4 结�
 **`workspace/kind.ts`：**
 - `ArtifactKind` 删 `volume`、`manuscript`，加 `setting`（同时带上 `doc`）；
 - `plots/` 下只认根目录的文件；
-- `pathOfTarget`：setting 返回对应文档路径；`characters` 那一件返回角色目录；manuscript 抛错，提示调用方改用 `resolveManuscriptPath`。
+- `pathOfTarget`：setting 返回对应文档路径；`characters` 那一件返回角色目录；manuscript 抛错，提示调用方改用 `chapterTargetOf`。
 
 **handlers：**
 - 删 `volume.ts`、`manuscript.ts`；
@@ -231,7 +231,7 @@ commit 2–4 之间**允许**测试红，但 typecheck 必须过；commit 4 结�
   - 加 `settingDoc` 产物（落点由 target 决定）；
   - `plot` 产物换成 D3 三节，外加 `role`、`characters`、`targetWords`、`title`。
 - **`generation/accept.ts`**：五条分支变成 setting / outline / plot / manuscript 四条：
-  - manuscript：`resolveManuscriptPath` → 章节不存在就 `create`，写入时带 `# 第N章 标题`；存在就 `append`，中间空一行。然后 `recordWrittenFrom`，再 `syncManifest`。
+  - manuscript：`chapterTargetOf` → 章节不存在就 `create`，写入时带 `# 第N章 标题`；存在就 `append`，中间空一行。然后 `recordWrittenFrom`，再 `syncManifest`。
   - 覆盖 / 重写的语义留到三期定，本期保持从前「接着往下写」的行为。
 - **`generation/generate.ts`**：失败挂在细纲路径上（不变），正文落点换掉。
 - **`features/pipelineBatch.ts`**：

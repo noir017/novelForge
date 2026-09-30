@@ -101,6 +101,30 @@ describe('outlineCoverage', () => {
   test('空：0', () => {
     assert.equal(O.outlineCoverage('  \n'), 0);
   });
+
+  test('只有模板脚手架：0（不是 Infinity）', () => {
+    assert.equal(O.outlineCoverage('> 按章号区间分节。\n\n'), 0);
+  });
+});
+
+describe('isOutlineFilled', () => {
+  test('新模板：只有一行 > 说明，不算写过', () => {
+    assert.equal(O.isOutlineFilled('> 按章号区间分节（`## 第1–20章：标题`）。可以只写到一部分章。\n'), false);
+  });
+
+  test('老模板：括号提示、空的 1. 与 -，不算写过', () => {
+    const old = '## 一句话立意\n\n（写一句话概括全书。）\n\n## 主线\n\n1.\n2.\n\n## 分卷规划\n\n### 第一卷\n\n-\n';
+    assert.equal(O.isOutlineFilled(old), false);
+  });
+
+  test('有一行实质内容就算', () => {
+    assert.equal(O.isOutlineFilled('## 主线\n\n1. 林昭入宗\n'), true);
+    assert.equal(O.isOutlineFilled('少年夜渡青河。'), true);
+  });
+
+  test('区间一节里有内容也算', () => {
+    assert.equal(O.isOutlineFilled('## 第1-20章：入局\n林昭入宗。'), true);
+  });
 });
 
 describe('outlineSliceFor', () => {
