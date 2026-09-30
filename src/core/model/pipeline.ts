@@ -607,6 +607,133 @@ export interface NextStepPlan {
    * 于是留空由调用方用 `plotPathForNo` 补。单章的下一步也留空——落点就是那一章。
    */
   target?: CreationTarget;
+  /**
+   * 这一步要调几次模型（第 4 条、D16）。主按钮的提示后面写出来，动手之前作者就知道。
+   * 缺席 = 不是模型调用，或者本期还说不准（正文的自动续写是三期的事）。
+   */
+  calls?: CallEstimate;
+  /**
+   * 这一步要先填一张表再动手，而不是点了就跑。目前只有「生成小说配置」：
+   * 一句话、总章数、每章字数得作者自己给（W4）。
+   */
+  form?: 'idea';
+}
+
+// ---------------------------------------------------------------- 调用次数
+
+/**
+ * 一步要调几次模型：通常 `low`–`high` 次，出岔子时最多 `max` 次。
+ *
+ * 为什么分三个数：结构化产物不合格时会自动修（拆半重试、紧凑重建、语法修复），
+ * 那几次调用平时不发生，但作者得在动手之前知道上限在哪（第 4 条），
+ * 而只报上限又会把「通常 1 次」的事说得像要调十五次。
+ */
+export interface CallEstimate {
+  low: number;
+  high: number;
+  max: number;
+}
+
+/** 「预计 1 次调用，最多 15 次」。主按钮提示、确认框、弹窗说明共用这一句。 */
+export function describeCalls(c: CallEstimate): string {
+  const head = c.low === c.high ? `预计 ${c.low} 次调用` : `预计 ${c.low}–${c.high} 次调用`;
+  return c.max > c.high ? `${head}，最多 ${c.max} 次` : head;
+}
+
+/** 两份估算加在一起（批量动作的确认框按件加总）。 */
+export function addCalls(a: CallEstimate, b: CallEstimate): CallEstimate {
+  return { low: a.low + b.low, high: a.high + b.high, max: a.max + b.max };
+}
+
+/** 一次就完的那种：前提、世界观、大纲、单章细纲、定稿的摘要。 */
+export const ONE_CALL: CallEstimate = { low: 1, high: 1, max: 1 };
+
+/**
+ * 小说配置：1 次；输出被截断时整份重来 1 次；「全局要求」不合格时只重写这一节 1 次。
+ * 与 AI-Novel-Writer 的 `GenerateConfigCommand` 同一套重试（`architecture.command.ts:1033-1123`）。
+ */
+export const CONFIG_CALLS: CallEstimate = { low: 1, high: 1, max: 3 };
+
+/** 角色图谱的人数上下限与详情每批几人（上游 `architecture.command.ts:719-721`）。 */
+export const ROSTER_MIN = 3;
+export const ROSTER_MAX = 8;
+export const ROSTER_DETAIL_BATCH = 3;
+
+/**
+ * 角色图谱：身份清单 1 次 + 详情每批 3 人。
+ *
+ * 上限：清单截断重来 1 次；详情截断时逐批对半拆，n 人最坏是一棵满二叉树
+ * （2n − 批数 次）；另留 1 次语法修复。8 人时是 2 + 13 + 1 = 16。
+ */
+export function rosterCalls(): CallEstimate {
+  const batches = (n: number) => Math.ceil(n / ROSTER_DETAIL_BATCH);
+  return {
+    low: 1 + batches(ROSTER_MIN),
+    high: 1 + batches(ROSTER_MAX),
+    max: 2 + (2 * ROSTER_MAX - batches(ROSTER_MAX)) + 1,
+  };
+}
+
+/**
+ * 一批 n 章细纲：1 次；截断或解码失败时对半拆（满二叉树 2n − 1 次）、每章至多
+ * 一次紧凑重建（n 次）、全程一次语法修复（1 次）——上限 3n。与上游
+ * `blueprint-batch-policy.ts` 的 `planBlueprintGenerationCost` 同一个式子。
+ */
+export function blueprintCalls(n: number): CallEstimate {
+  const k = Math.max(0, Math.floor(n));
+  return k === 0 ? { low: 0, high: 0, max: 0 } : { low: 1, high: 1, max: 3 * k };
+}
+
+// ---------------------------------------------------------------- 细纲批次
+
+/**
+ * 工程页「批量拆细纲」怎么切：区间里跳过已有细纲的章，剩下的按连续段切，
+ * 每段再切成 ≤ {@link PLOT_BATCH} 章一批。
+ *
+ * **前端弹窗的实时说明与后端的确认框用的是这同一个函数**：两边各算一遍的话，
+ * 弹窗写着 3 次、实际调了 4 次，正是第 4 条要防的事。
+ */
+export interface PlotBatchPlan {
+  from: number;
+  to: number;
+  /** 这次要写的章（区间里还没有细纲的）。 */
+  chapters: number[];
+  /** 已经有细纲、这次跳过的章。 */
+  skipped: number[];
+  /** 切好的批：每批章号连续、不超过 {@link PLOT_BATCH} 章。 */
+  batches: number[][];
+  calls: CallEstimate;
+}
+
+export function planPlotBatches(input: { from: number; to: number; filledNos: readonly number[] }): PlotBatchPlan {
+  const from = Math.max(1, Math.floor(Math.min(input.from, input.to)));
+  const to = Math.max(from, Math.floor(Math.max(input.from, input.to)));
+  const filled = new Set(input.filledNos);
+  const chapters: number[] = [];
+  const skipped: number[] = [];
+  const batches: number[][] = [];
+  let run: number[] = [];
+  const flush = () => {
+    if (run.length > 0) {
+      batches.push(run);
+      run = [];
+    }
+  };
+  for (let no = from; no <= to; no++) {
+    if (filled.has(no)) {
+      skipped.push(no);
+      flush();
+      continue;
+    }
+    chapters.push(no);
+    run.push(no);
+    if (run.length === PLOT_BATCH) {
+      flush();
+    }
+  }
+  flush();
+  const calls = batches.map((b) => blueprintCalls(b.length)).reduce(addCalls, { low: 0, high: 0, max: 0 });
+  return { from, to, chapters, skipped, batches, calls };
 }
 
 /** 推导单章下一步所需的事实。 */
@@ -629,6 +756,7 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
         capability: 'generate',
         label: `写第 ${f.no} 章细纲`,
         hint: '先把这一章要发生什么定下来：本章目的、关键事件、章末钩子。',
+        calls: ONE_CALL,
       };
 
     case 'manuscript':
@@ -667,6 +795,7 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
         projectAction: 'finalizeChapter',
         label: '定稿（生成摘要）',
         hint: '正文写够了。摘要是后面几百章唯一能记住这些内容的东西。',
+        calls: ONE_CALL,
       };
 
     // 都做完了就不催这一章——调用方会转去问全书的下一步（下一章）。
@@ -712,6 +841,11 @@ export interface BookFacts {
   nextChapterNo: number;
   /** 那一章有排好的细纲。 */
   nextPlotFilled: boolean;
+  /**
+   * 排好细纲的全部章号。拆细纲的区间要在第一份已有细纲之前收住：主按钮那一批
+   * 永远是空白的章，不会把作者排过的章圈进来再问一遍要不要覆盖。
+   */
+  plotFilledNos: readonly number[];
 }
 
 /**
@@ -771,6 +905,9 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
         label: `生成${SETTING_DOC_LABEL[doc]}`,
         hint: SETTING_HINT[doc],
         target: { kind: 'setting', doc },
+        calls: doc === 'config' ? CONFIG_CALLS : doc === 'characters' ? rosterCalls() : ONE_CALL,
+        // 配置要作者先给一句话和规模，点了是打开表单而不是直接发送。
+        ...(doc === 'config' ? { form: 'idea' as const } : {}),
       };
     }
 
@@ -787,19 +924,26 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
           : '按故事结构把全书的走向排出来，按章号区间分节。一次写一段，后面的等写到了再续。',
         target: { kind: 'outline' },
         range: { from, to },
+        calls: ONE_CALL,
       };
     }
 
     case 'plots': {
       const from = f.nextChapterNo;
-      const cap = Math.min(f.totalChapters ?? Infinity, f.outlineCoverage);
-      const to = Math.max(from, Math.min(from + PLOT_BATCH - 1, cap));
+      const cap = Math.min(from + PLOT_BATCH - 1, f.totalChapters ?? Infinity, f.outlineCoverage);
+      // 连续的空白章，遇到第一份已有细纲就收住（见 `BookFacts.plotFilledNos`）。
+      const filled = new Set(f.plotFilledNos);
+      let to = from;
+      while (to + 1 <= cap && !filled.has(to + 1)) {
+        to++;
+      }
       return {
         stage: 'plot',
         capability: 'generate',
         label: `拆细纲（${rangeText(from, to)}）`,
         hint: '从情节大纲里把接下来几章拆成一章一份的细纲：本章目的、关键事件、章末钩子。',
         range: { from, to },
+        calls: blueprintCalls(to - from + 1),
       };
     }
 

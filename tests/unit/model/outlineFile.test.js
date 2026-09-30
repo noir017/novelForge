@@ -1,8 +1,8 @@
 /**
  * 情节大纲按章号区间切片（model/outlineFile.ts）。
  *
- * 三处要用它：续写大纲时判「覆盖到第几章」、细纲按「覆盖本章的那一节」记上游指纹、
- * 写正文时只带本章所在的那一节。解析一律不抛（第 1 条）。
+ * 四处要用它：续写大纲时判「覆盖到第几章」、细纲按「覆盖本章的那一节」记上游指纹、
+ * 写正文时只带本章所在的那一节、续写的那一段落盘时按区间合并。解析一律不抛（第 1 条）。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -136,5 +136,64 @@ describe('outlineSliceFor', () => {
 
   test('区间之外：undefined', () => {
     assert.equal(O.outlineSliceFor(OUTLINE, 41), undefined);
+  });
+});
+
+describe('outlineFile.ts · 按区间合并', () => {
+  const OLD = [
+    '# 情节大纲',
+    '',
+    '> 作者的说明：这本书节奏要快。',
+    '',
+    '## 第1–20章：第一幕 · 入局',
+    '林昭进了青云宗。',
+    '',
+    '### 作者手记',
+    '这一段我改过。',
+    '',
+    '## 第21–40章：第二幕 · 风起',
+    '旧的第二幕。',
+    '',
+    '## 附注',
+    '别忘了玉佩。',
+    '',
+  ].join('\n');
+
+  test('旧大纲没写过：直接用新的', () => {
+    const merged = O.mergeOutline('# 情节大纲\n\n> 按章号区间分节。\n', '## 第1–20章：入局\n开局。', { from: 1, to: 20 });
+    assert.equal(merged, '## 第1–20章：入局\n开局。\n');
+  });
+
+  test('替换与本批重叠的那一节，前言、别的节与附注原样保留', () => {
+    const merged = O.mergeOutline(OLD, '# 情节大纲\n\n## 第21–40章：第二幕 · 暗涌\n新的第二幕。', { from: 21, to: 40 });
+    assert.match(merged, /> 作者的说明/);
+    assert.match(merged, /这一段我改过。/);
+    assert.match(merged, /新的第二幕。/);
+    assert.doesNotMatch(merged, /旧的第二幕/);
+    assert.match(merged, /## 附注\n别忘了玉佩。/);
+    // 新产出开头那行 `# 情节大纲` 不会被拼进中间。
+    assert.equal(merged.match(/^# 情节大纲$/gm).length, 1);
+    // 新的一节仍在附注之前。
+    assert.ok(merged.indexOf('新的第二幕') < merged.indexOf('## 附注'));
+  });
+
+  test('续写：接在最后一节之后、附注之前', () => {
+    const merged = O.mergeOutline(OLD, '## 第41–60章：第三幕 · 破局\n收束。', { from: 41, to: 60 });
+    const ranges = O.parseOutlineRanges(merged).map((r) => `${r.from}-${r.to}`);
+    assert.deepEqual(ranges, ['1-20', '21-40', '41-60']);
+    assert.ok(merged.indexOf('收束。') < merged.indexOf('## 附注'));
+    assert.equal(O.outlineCoverage(merged), 60);
+  });
+
+  test('插在前后两节之间', () => {
+    const base = '## 第1–10章：甲\n一。\n\n## 第21–30章：丙\n三。\n';
+    const merged = O.mergeOutline(base, '## 第11–20章：乙\n二。', { from: 11, to: 20 });
+    assert.deepEqual(O.parseOutlineRanges(merged).map((r) => r.title), ['甲', '乙', '丙']);
+  });
+
+  test('新产出里一个区间标题都没有：整段并进去，不丢', () => {
+    const merged = O.mergeOutline('## 第1–10章：甲\n一。\n', '这一段模型没写标题。', { from: 11, to: 20 });
+    assert.match(merged, /这一段模型没写标题。/);
+    assert.match(merged, /一。/);
   });
 });

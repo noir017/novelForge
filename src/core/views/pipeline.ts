@@ -280,6 +280,7 @@ export async function buildBookFacts(
     totalChapters: built.config.totalChapters,
     nextChapterNo,
     nextPlotFilled: !!nextPlot && isPlotFilled(nextPlot.sections),
+    plotFilledNos: built.plots.filter((p) => isPlotFilled(p.sections)).map((p) => p.no),
   };
 }
 

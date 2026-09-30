@@ -525,6 +525,7 @@ describe('pipeline.ts · 全书状态推导', () => {
     totalChapters: 100,
     nextChapterNo: 1,
     nextPlotFilled: false,
+    plotFilledNos: [],
     ...over,
   });
 
@@ -600,6 +601,35 @@ describe('pipeline.ts · 全书状态推导', () => {
     assert.equal(s.label, '拆细纲（第 20 章）');
   });
 
+  // 主按钮那一批永远是空白：第 8 章已经排过，第 6 章起的这一批收在第 7 章。
+  test('拆细纲的区间在第一份已有细纲之前收住', () => {
+    const s = pipeline.deriveBookNextStep('plots', book({ nextChapterNo: 6, plotFilledNos: [1, 2, 3, 4, 5, 8, 9] }));
+    assert.deepEqual(s.range, { from: 6, to: 7 });
+    assert.equal(s.label, '拆细纲（第 6–7 章）');
+  });
+
+  test('每一档都写明要调几次模型', () => {
+    const none = { config: false, premise: false, characters: false, world: false };
+    const config = pipeline.deriveBookNextStep('setting', book({ settings: none }));
+    assert.deepEqual(config.calls, pipeline.CONFIG_CALLS);
+    // 配置要先填一句话与规模，主按钮打开表单而不是直接发送。
+    assert.equal(config.form, 'idea');
+
+    const roster = pipeline.deriveBookNextStep('setting', book({ settings: { ...all, characters: false } }));
+    assert.deepEqual(roster.calls, { low: 2, high: 4, max: 16 });
+    assert.equal(roster.form, undefined);
+
+    const premise = pipeline.deriveBookNextStep('setting', book({ settings: { ...all, premise: false } }));
+    assert.deepEqual(premise.calls, pipeline.ONE_CALL);
+
+    const outline = pipeline.deriveBookNextStep('outline', book({ outlineFilled: false, outlineCoverage: 0 }));
+    assert.deepEqual(outline.calls, pipeline.ONE_CALL);
+
+    // 一批 5 章：通常 1 次，上限 3n（上游 blueprint-batch-policy 的式子）。
+    const plots = pipeline.deriveBookNextStep('plots', book({ nextChapterNo: 1 }));
+    assert.deepEqual(plots.calls, { low: 1, high: 1, max: 15 });
+  });
+
   test('下一章有细纲 → 在写（交给单章状态机）', () => {
     const f = book({ nextPlotFilled: true, nextChapterNo: 3 });
     assert.equal(pipeline.deriveBookStage(f), 'writing');
@@ -621,5 +651,38 @@ describe('pipeline.ts · 全书状态推导', () => {
     const f = book({ settings: { config: false, premise: false, characters: true, world: false }, nextChapterNo: 100 });
     assert.equal(pipeline.deriveBookStage(f), 'setting');
     assert.equal(pipeline.deriveBookNextStep('setting', f).target.doc, 'config');
+  });
+});
+
+// ---------------------------------------------------------------- 细纲批次与调用次数
+
+describe('pipeline.ts · 批量拆细纲的切分', () => {
+  test('跳过已有细纲的章，剩下的按连续段切、每批不超过 5 章', () => {
+    const plan = pipeline.planPlotBatches({ from: 1, to: 14, filledNos: [4, 5] });
+    assert.deepEqual(plan.skipped, [4, 5]);
+    assert.deepEqual(plan.chapters, [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    // 第 4、5 章把区间断开：1–3 一批；6–14 再按 5 章切。
+    assert.deepEqual(plan.batches, [[1, 2, 3], [6, 7, 8, 9, 10], [11, 12, 13, 14]]);
+    // 三批各 1 次；上限 3n 按要写的章数加总。
+    assert.deepEqual(plan.calls, { low: 3, high: 3, max: 36 });
+  });
+
+  test('区间写反了照样认；全都排过时一批都没有', () => {
+    const plan = pipeline.planPlotBatches({ from: 7, to: 5, filledNos: [5, 6, 7] });
+    assert.equal(plan.from, 5);
+    assert.equal(plan.to, 7);
+    assert.deepEqual(plan.batches, []);
+    assert.deepEqual(plan.calls, { low: 0, high: 0, max: 0 });
+  });
+
+  test('调用次数的说法', () => {
+    assert.equal(pipeline.describeCalls({ low: 1, high: 1, max: 1 }), '预计 1 次调用');
+    assert.equal(pipeline.describeCalls({ low: 1, high: 1, max: 15 }), '预计 1 次调用，最多 15 次');
+    assert.equal(pipeline.describeCalls({ low: 2, high: 4, max: 16 }), '预计 2–4 次调用，最多 16 次');
+  });
+
+  test('单章的下一步也写调用次数', () => {
+    assert.deepEqual(pipeline.deriveNextStep('plot', { no: 3, words: 0, ratio: 0, upstreamStale: false }).calls, pipeline.ONE_CALL);
+    assert.deepEqual(pipeline.deriveNextStep('finalize', { no: 3, words: 900, ratio: 1, upstreamStale: false }).calls, pipeline.ONE_CALL);
   });
 });

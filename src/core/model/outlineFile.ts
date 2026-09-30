@@ -7,7 +7,7 @@
  *
  * ## 为什么要按区间切
  *
- * 三处要用：
+ * 四处要用：
  *
  * 1. **续写大纲**：总章数超过 20 时先只写第 1–20 章（一次写一百章的大纲，后半段
  *    会稀得像目录），细纲快追上时再续——判「追上没有」要知道覆盖到了第几章。
@@ -15,6 +15,8 @@
  *    那一节，前 20 章的细纲不该挂 ⟳（从前按卷算指纹也是为了这一条）。
  * 3. **写正文时只带本章所在的那一节**：整份大纲塞进去既浪费预算，又会让模型
  *    提前把后面的事写掉。
+ * 4. **续写的那一段落盘时按区间合并**（{@link mergeOutline}）：写第 21–40 章不该把
+ *    作者手改过的前 20 章整份替换掉。
  *
  * ## 认哪些写法
  *
@@ -134,6 +136,96 @@ export function outlineCoverage(text: string): number {
 /** 覆盖第 `no` 章的那一节；重叠时取先出现的；没有就 undefined。 */
 export function outlineSliceFor(text: string, no: number): OutlineRange | undefined {
   return parseOutlineRanges(text).find((r) => r.from <= no && no <= r.to);
+}
+
+// ---------------------------------------------------------------- 按区间合并
+
+/**
+ * 大纲切成块：区间节（标题行到下一个同级或更高级标题之前）与其余部分。
+ * 与 {@link parseOutlineRanges} 同一套认法，只是保留原始行，合并时原样拼回去。
+ */
+type OutlineBlock = { lines: string[] } & ({ kind: 'range'; from: number; to: number } | { kind: 'other' });
+
+function splitOutlineBlocks(text: string): OutlineBlock[] {
+  const blocks: OutlineBlock[] = [];
+  let current: OutlineBlock | undefined;
+  let level = 0;
+  for (const line of (text ?? '').replace(/^﻿/, '').split(/\r?\n/)) {
+    const m = RANGE_HEADING.exec(line);
+    const a = m && (m[3] || m[5]) ? Number(m[2]) : 0;
+    if (m && a > 0) {
+      const b = m[4] !== undefined ? Number(m[4]) : a;
+      current = { kind: 'range', from: Math.min(a, b), to: Math.max(a, b), lines: [line] };
+      level = m[1].length;
+      blocks.push(current);
+      continue;
+    }
+    const h = ANY_HEADING.exec(line);
+    if (current?.kind === 'range' && h && h[1].length <= level) {
+      current = undefined;
+    }
+    if (!current) {
+      current = { kind: 'other', lines: [] };
+      blocks.push(current);
+    }
+    current.lines.push(line);
+  }
+  return blocks;
+}
+
+function blockText(b: OutlineBlock): string {
+  return b.lines.join('\n').replace(/\s+$/, '');
+}
+
+/**
+ * 把第 [from, to] 章新写的那段大纲并进旧大纲。
+ *
+ * 大纲是一段一段续写的（D20）：写第 21–40 章时模型只输出这一段，不该让作者手改过的
+ * 第 1–20 章被整份替换掉。规则：
+ *
+ * - 旧大纲没写过（{@link isOutlineFilled}）→ 直接用新的。
+ * - 删掉旧大纲里**与 [from, to] 重叠**的区间节，新的几节放在第一个被删节的位置；
+ *   一节都没删就按章号插在前后两节之间（找不到就接在最后）。
+ * - 区间之外的节、没有区间标题的前言与附注原样保留。
+ * - 新产出里区间标题之前的东西（多半是一行 `# 情节大纲`）在合并时丢掉——旧大纲已经有
+ *   自己的开头，拼进中间只会多出一个标题。
+ *
+ * 结果仍要走覆盖审阅：合并规则再周全，也得让作者看一眼 diff（第 3 条）。
+ */
+export function mergeOutline(existing: string, incoming: string, range: { from: number; to: number }): string {
+  const fresh = (incoming ?? '').trim();
+  if (!isOutlineFilled(existing)) {
+    return `${fresh}\n`;
+  }
+  const incomingBlocks = splitOutlineBlocks(fresh);
+  const firstRange = incomingBlocks.findIndex((b) => b.kind === 'range');
+  const insert = (firstRange === -1 ? incomingBlocks : incomingBlocks.slice(firstRange)).map(blockText).join('\n\n').trim();
+  if (!insert) {
+    return existing;
+  }
+
+  const overlaps = (b: OutlineBlock) => b.kind === 'range' && b.from <= range.to && b.to >= range.from;
+  const blocks = splitOutlineBlocks(existing);
+  const first = blocks.findIndex(overlaps);
+  const kept = blocks.filter((b) => !overlaps(b));
+
+  let at: number;
+  if (first !== -1) {
+    at = blocks.slice(0, first).filter((b) => !overlaps(b)).length;
+  } else {
+    // 插在「后面那一节」之前；没有后面的就紧跟「前面最后一节」——不跟在末尾的附注后面。
+    const after = kept.findIndex((b) => b.kind === 'range' && b.from > range.to);
+    let before = -1;
+    kept.forEach((b, i) => {
+      if (b.kind === 'range' && b.to < range.from) {
+        before = i;
+      }
+    });
+    at = after !== -1 ? after : before !== -1 ? before + 1 : kept.length;
+  }
+
+  const parts = [...kept.slice(0, at).map(blockText), insert, ...kept.slice(at).map(blockText)].filter((p) => p.trim());
+  return `${parts.join('\n\n')}\n`;
 }
 
 /**
