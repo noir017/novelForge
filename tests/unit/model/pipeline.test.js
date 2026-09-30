@@ -683,7 +683,18 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
 
   test('单章的下一步也写调用次数', () => {
     assert.deepEqual(pipeline.deriveNextStep('plot', { no: 3, words: 0, ratio: 0, upstreamStale: false }).calls, pipeline.ONE_CALL);
-    assert.deepEqual(pipeline.deriveNextStep('finalize', { no: 3, words: 900, ratio: 1, upstreamStale: false }).calls, pipeline.ONE_CALL);
+  });
+
+  // D17：定稿 = 摘要 + 出场角色的当前状态。出场的人都没建卡时只有摘要那一次。
+  test('定稿第 N 章报「预计 1–2 次调用」，并说清两次各做什么', () => {
+    const step = pipeline.deriveNextStep('finalize', { no: 3, words: 900, ratio: 1, upstreamStale: false });
+    assert.equal(step.label, '定稿第 3 章');
+    assert.equal(step.projectAction, 'finalizeChapter');
+    assert.deepEqual(step.calls, pipeline.FINALIZE_CALLS);
+    assert.equal(
+      pipeline.describeCalls(step.calls),
+      '预计 1–2 次调用（摘要 1 次，本章出场的人有角色卡时再更新一次角色状态）'
+    );
   });
 
   // D16：自动续写算进调用次数，动手之前写明上限。
@@ -726,5 +737,56 @@ describe('pipeline.ts · 写正文的写法', () => {
   test('isWriteMode 只认三种', () => {
     assert.ok(['write', 'continue', 'rewrite'].every(pipeline.isWriteMode));
     assert.ok(![undefined, 'append', '', 3].some(pipeline.isWriteMode));
+  });
+});
+
+// ---------------------------------------------------------------- 批量写章（四期，W9）
+
+describe('pipeline.ts · 批量写章的切分', () => {
+  const base = { mode: 'draft', writtenNos: [], plotFilledNos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] };
+
+  test('只写正文：一章 1 次，最多 8 次，按件加总', () => {
+    const plan = pipeline.planWriteBatch({ ...base, from: 1, to: 3 });
+    assert.deepEqual(plan.chapters, [1, 2, 3]);
+    assert.deepEqual(plan.calls, { low: 3, high: 3, max: 24 });
+  });
+
+  test('写完即定稿：每章再加定稿的 1–2 次', () => {
+    const plan = pipeline.planWriteBatch({ ...base, mode: 'finalize', from: 1, to: 3 });
+    assert.deepEqual(plan.calls, { low: 6, high: 9, max: 30 });
+    assert.equal(plan.mode, 'finalize');
+  });
+
+  // 第 19 条批量那一面：已有产物的一律跳过，不问、不覆盖。
+  test('已有正文的章跳过，不断开区间', () => {
+    const plan = pipeline.planWriteBatch({ ...base, writtenNos: [2], from: 1, to: 4 });
+    assert.deepEqual(plan.skipped, [2]);
+    assert.deepEqual(plan.chapters, [1, 3, 4]);
+    assert.equal(plan.stopAt, undefined);
+  });
+
+  // 后面的章要接着它的结尾写：跳过一章没细纲的去写后面的，写出来接不上。
+  test('遇到第一章没有细纲的就在它前面收住', () => {
+    const plan = pipeline.planWriteBatch({ ...base, plotFilledNos: [1, 2, 4, 5], from: 1, to: 5 });
+    assert.deepEqual(plan.chapters, [1, 2]);
+    assert.equal(plan.stopAt, 3);
+  });
+
+  test('一次最多 10 章；写满了就不再往后看细纲', () => {
+    const plan = pipeline.planWriteBatch({ ...base, plotFilledNos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], from: 1, to: 20 });
+    assert.equal(plan.chapters.length, pipeline.WRITE_BATCH_MAX);
+    assert.equal(plan.stopAt, undefined, '第 11 章没细纲，但本来就写不到它');
+  });
+
+  test('区间写反了照样认；全写过时一章都没有、零调用', () => {
+    const plan = pipeline.planWriteBatch({ ...base, writtenNos: [3, 4], from: 4, to: 3 });
+    assert.equal(plan.from, 3);
+    assert.deepEqual(plan.chapters, []);
+    assert.deepEqual(plan.calls, { low: 0, high: 0, max: 0 });
+  });
+
+  test('isWriteBatchMode 只认两种', () => {
+    assert.ok(['draft', 'finalize'].every(pipeline.isWriteBatchMode));
+    assert.ok(![undefined, 'review', ''].some(pipeline.isWriteBatchMode));
   });
 });

@@ -58,6 +58,13 @@ export interface SummarySections {
   关键事件: string;
   新增伏笔: string;
   状态变更: string;
+  /**
+   * 后面各章必须保持一致的事实，一条一行，每条挂一句正文里的证据原文（D18）：
+   * `- 林昭左臂被划伤，未愈 〔证据：「血顺着左臂往下淌」〕`。格式与解析在 model/continuity.ts。
+   *
+   * 写正文时不拿这一节当事实，而是拿证据原句回到那一章的正文里取原文段落（`evidence` 层）。
+   */
+  连续性事实: string;
 }
 
 export const SUMMARY_SECTION_KEYS: (keyof SummarySections)[] = [
@@ -67,6 +74,7 @@ export const SUMMARY_SECTION_KEYS: (keyof SummarySections)[] = [
   '关键事件',
   '新增伏笔',
   '状态变更',
+  '连续性事实',
 ];
 
 /** 角色卡，存于 .novelforge/characters/<slug>.md。 */
@@ -96,6 +104,16 @@ export interface CharacterCard {
    * （手写的卡也是这个状态），此时增量等于全量。
    */
   updatedThrough?: number;
+  /**
+   * 「当前状态」一节写到第几章为止（D15）。0 = 开篇（角色图谱建卡时写的）。
+   * 缺席 = 从没被机器写过。
+   */
+  stateThrough?: number;
+  /**
+   * 机器最后一次写「当前状态」时这一节的指纹（model/characterState.ts 的 `stateHashOf`）。
+   * 与这一节现在的内容对不上，就说明作者改过——定稿时不覆盖。
+   */
+  stateHash?: string;
   /** 除 frontmatter 外的正文全文。 */
   body: string;
   sections: CharacterSections;

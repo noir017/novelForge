@@ -820,6 +820,8 @@ export class NovelProject {
         lastSeen: asNumber(frontmatter.lastSeen),
         appearsIn: asNumberArray(frontmatter.appearsIn),
         updatedThrough: asNumber(frontmatter.updatedThrough),
+        stateThrough: asNumber(frontmatter.stateThrough),
+        stateHash: asString(frontmatter.stateHash) || undefined,
         body: stripH1(body),
         sections: pickSections<keyof CharacterSections>(body, CHARACTER_SECTION_KEYS) as CharacterSections,
       });
@@ -938,6 +940,10 @@ export function renderCharacterCard(card: WritableCharacterCard): string {
     // 也方便作者/日后的检索功能按人物找章节。
     appearsIn: card.appearsIn?.length ? card.appearsIn.map(String) : undefined,
     updatedThrough: card.updatedThrough,
+    // 「当前状态」归谁（D15，model/characterState.ts）：原样带着走。维护类动作重写整张卡时
+    // 不重新盖章——作者改过的那一节，换个别名不该让它变成「机器写的」。
+    stateThrough: card.stateThrough,
+    stateHash: card.stateHash,
   });
   const body = stringifySections(card.sections as unknown as Record<string, string>, CHARACTER_SECTION_KEYS, {
     keepEmpty: true,
@@ -974,6 +980,7 @@ export function emptySummarySections(): SummarySections {
     关键事件: '',
     新增伏笔: '',
     状态变更: '',
+    连续性事实: '',
   };
 }
 

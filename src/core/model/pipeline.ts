@@ -721,6 +721,17 @@ export const WRITE_CALLS: CallEstimate = {
  */
 export const CONFIG_CALLS: CallEstimate = { low: 1, high: 1, max: 3 };
 
+/**
+ * 定稿一章：摘要 1 次（连续性事实的证据用 bigram 找，不调模型），再用 1 次更新本章出场角色的
+ * 「当前状态」（D15、D17）。出场的人一个都没建卡时没有状态可更新，只有摘要那一次。
+ */
+export const FINALIZE_CALLS: CallEstimate = {
+  low: 1,
+  high: 2,
+  max: 2,
+  why: '摘要 1 次，本章出场的人有角色卡时再更新一次角色状态',
+};
+
 /** 角色图谱的人数上下限与详情每批几人（上游 `architecture.command.ts:719-721`）。 */
 export const ROSTER_MIN = 3;
 export const ROSTER_MAX = 8;
@@ -803,6 +814,80 @@ export function planPlotBatches(input: { from: number; to: number; filledNos: re
   return { from, to, chapters, skipped, batches, calls };
 }
 
+// ---------------------------------------------------------------- 批量写章
+
+/** 批量写章缺省写几章（W9）。 */
+export const WRITE_BATCH_DEFAULT = 3;
+/** 批量写章一次最多几章（W9，上游 `batch-chapter-workflow.ts` 的 1–10 章）。 */
+export const WRITE_BATCH_MAX = 10;
+
+/**
+ * 批量写章的两种模式：`draft` 只写正文；`finalize` 写完一章就定稿，再写下一章（D17：
+ * 自动定稿只在这里）。
+ */
+export type WriteBatchMode = 'draft' | 'finalize';
+
+export function isWriteBatchMode(value: unknown): value is WriteBatchMode {
+  return value === 'draft' || value === 'finalize';
+}
+
+/**
+ * 批量写章怎么切。**前端弹窗的实时说明与后端的确认框用的是这同一个函数**（第 4 条）。
+ */
+export interface WriteBatchPlan {
+  from: number;
+  to: number;
+  mode: WriteBatchMode;
+  /** 这次要写的章，按章号升序、严格串行。 */
+  chapters: number[];
+  /** 已经有正文、这次跳过的章（批量只补空白，第 19 条）。 */
+  skipped: number[];
+  /**
+   * 区间里第一章没有细纲的章号：批量在它前面收住。后面的章要接着它的结尾写，跳过它去写
+   * 只会写出一段接不上的正文。
+   */
+  stopAt?: number;
+  calls: CallEstimate;
+}
+
+/**
+ * 区间里已有正文的章跳过；遇到第一章没有细纲的就在它前面收住；最多 {@link WRITE_BATCH_MAX} 章
+ * （超出的部分不写，调用方据此报错或截短）。调用次数按件加总：一章 {@link WRITE_CALLS}，
+ * 写完即定稿时再加 {@link FINALIZE_CALLS}。
+ */
+export function planWriteBatch(input: {
+  from: number;
+  to: number;
+  mode: WriteBatchMode;
+  writtenNos: readonly number[];
+  plotFilledNos: readonly number[];
+}): WriteBatchPlan {
+  const from = Math.max(1, Math.floor(Math.min(input.from, input.to)));
+  const to = Math.max(from, Math.floor(Math.max(input.from, input.to)));
+  const written = new Set(input.writtenNos);
+  const filled = new Set(input.plotFilledNos);
+  const chapters: number[] = [];
+  const skipped: number[] = [];
+  let stopAt: number | undefined;
+  for (let no = from; no <= to; no++) {
+    if (written.has(no)) {
+      skipped.push(no);
+      continue;
+    }
+    if (chapters.length === WRITE_BATCH_MAX) {
+      break;
+    }
+    if (!filled.has(no)) {
+      stopAt = no;
+      break;
+    }
+    chapters.push(no);
+  }
+  const each = input.mode === 'finalize' ? addCalls(WRITE_CALLS, FINALIZE_CALLS) : WRITE_CALLS;
+  const calls = chapters.reduce<CallEstimate>((sum) => addCalls(sum, each), { low: 0, high: 0, max: 0 });
+  return { from, to, mode: input.mode, chapters, skipped, ...(stopAt !== undefined ? { stopAt } : {}), calls };
+}
+
 /** 推导单章下一步所需的事实。 */
 export interface NextStepFacts {
   /** 章号。按钮上要说「写第 12 章」。 */
@@ -865,9 +950,11 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
         stage: 'manuscript',
         capability: 'generate',
         projectAction: 'finalizeChapter',
-        label: '定稿（生成摘要）',
-        hint: '正文写够了。摘要是后面几百章唯一能记住这些内容的东西。',
-        calls: ONE_CALL,
+        label: `定稿第 ${f.no} 章`,
+        hint:
+          '正文写够了。定稿生成摘要与连续性事实，并把本章出场角色的当前状态更新到这一章——' +
+          '后面几百章靠它们记住这里发生过什么。',
+        calls: FINALIZE_CALLS,
       };
 
     // 都做完了就不催这一章——调用方会转去问全书的下一步（下一章）。

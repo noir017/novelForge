@@ -144,6 +144,41 @@ export function rewriteFrontmatter(
   return `${bom}${fence}${eol}${rest.slice(match[0].length)}`;
 }
 
+/**
+ * 只换掉某一节（`## 小节名` 到下一个同级或更高级标题之前）的内容，其余一个字不动。
+ *
+ * 与 {@link rewriteFrontmatter} 同一个理由：机器定稿时要改角色卡的「当前状态」（D15），
+ * 整卡重渲染会抹掉作者自加的小节与排版。小节名按 `pickSections` 同一套宽松规则认
+ * （忽略空白与常见标点）；没有这一节就追加在末尾。
+ */
+export function replaceSection(text: string, key: string, value: string): string {
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const lines = text.split(/\r?\n/);
+  const want = normalizeKey(key);
+  const start = lines.findIndex((line) => {
+    const m = /^(#{2,3})\s+(.+?)\s*$/.exec(line);
+    return !!m && normalizeKey(m[2].replace(/[:：]\s*$/, '')) === want;
+  });
+  const content = value.trim() || SECTION_PLACEHOLDER;
+  if (start === -1) {
+    const head = text.replace(/\s+$/, '');
+    return `${head}${eol}${eol}## ${key}${eol}${eol}${content.split('\n').join(eol)}${eol}`;
+  }
+  const level = /^(#{2,3})/.exec(lines[start])![1].length;
+  let end = start + 1;
+  while (end < lines.length) {
+    const h = /^(#{1,3})\s+/.exec(lines[end]);
+    if (h && h[1].length <= level) {
+      break;
+    }
+    end++;
+  }
+  const replaced = [lines[start], '', ...content.split('\n'), ...(end < lines.length ? [''] : [])];
+  const out = [...lines.slice(0, start), ...replaced, ...lines.slice(end)];
+  const joined = out.join(eol);
+  return end < lines.length ? joined : `${joined.replace(/\s+$/, '')}${eol}`;
+}
+
 // ---------------------------------------------------------------- frontmatter 取值
 //
 // 解析器只产出 `string | string[]`（见 parseFrontmatter），而调用方要的是

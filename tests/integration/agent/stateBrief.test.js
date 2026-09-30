@@ -242,13 +242,13 @@ describe('选中一章 · 注入的下一步与单章状态机一字不差', () 
     assert.ok(s.includes('当前目标：第 1 章《北行》'), s);
   });
 
-  test('写够了：待定稿，下一步是定稿（生成摘要）', async () => {
+  test('写够了：待定稿，下一步是定稿第 1 章', async () => {
     t.write(CH1, `# 北行\n\n${'字'.repeat(400)}\n`);
     project.invalidate();
     const s = await brief({ kind: 'plot', plotRelPath: PLOT1 });
     const now = await nextStepOf(PLOT1);
     assert.ok(s.includes('状态：待定稿'), s);
-    assert.ok(s.includes(now.label) && now.label === '定稿（生成摘要）', s);
+    assert.ok(s.includes(now.label) && now.label === '定稿第 1 章', s);
   });
 });
 
