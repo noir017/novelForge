@@ -190,6 +190,11 @@ export interface BuildRequest {
    * 契约里给模型的与链上校验用的必须是同一份——细纲在这几秒里被改了也不会对不上。
    */
   reviewGoals?: FrozenGoal[];
+  /**
+   * 修稿（`writeMode: 'revise'`）时勾选的审稿清单（`renderRevisionBrief` 的输出）。生成层按磁盘
+   * 读好整章原文，与它一起放进 `revision`（generation/generate.ts 的 `planWriting`）。
+   */
+  reviseBrief?: string;
   /** 被用户手动取消勾选的条目 id。 */
   excludedIds?: string[];
   /** provider 的硬性输入上限，会与 contextWindow 取小。 */

@@ -462,16 +462,25 @@ export function singleShotNotes(
   return notes;
 }
 
-/** 这次生成要不要接链、接哪一条。正文那一条在 generation/continuation.ts。 */
-export type ChainKind = 'config' | 'roster' | 'blueprints' | 'manuscript';
+/**
+ * 这次生成要不要接链、接哪一条。正文那一条在 generation/continuation.ts，审稿与修稿（五期）
+ * 在 generation/review.ts、generation/revision.ts。
+ *
+ * **审稿必须在正文之前认出来**：它也在正文层，按「正文层不是讨论就走续写链」的旧判据，一份审稿
+ * JSON 会被当成一章正文去续写、去查重演。
+ */
+export type ChainKind = 'config' | 'roster' | 'blueprints' | 'manuscript' | 'review' | 'revision';
 
-export function chainOf(request: Pick<BuildRequest, 'action' | 'target' | 'range'>): ChainKind | undefined {
+export function chainOf(request: Pick<BuildRequest, 'action' | 'target' | 'range' | 'writeMode'>): ChainKind | undefined {
   const { stage, capability } = request.action;
   if (capability === 'discuss') {
     return undefined;
   }
+  if (capability === 'review') {
+    return 'review';
+  }
   if (stage === 'manuscript') {
-    return 'manuscript';
+    return request.writeMode === 'revise' ? 'revision' : 'manuscript';
   }
   if (stage === 'setting' && request.target.kind === 'setting') {
     return request.target.doc === 'config' ? 'config' : request.target.doc === 'characters' ? 'roster' : undefined;

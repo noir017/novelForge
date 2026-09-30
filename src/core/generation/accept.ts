@@ -445,7 +445,8 @@ async function createPlannedCards(project: NovelProject, ws: Workspace, items: B
  *
  * 落盘之后在细纲上记 `writtenFrom`（正文据以写成的细纲指纹）。少了这一步，
  * 这一章会永远显示「正文与细纲对不上」或永远不显示，两种都是错的。
- * 作者在审阅时放弃了就什么都不记。
+ * 作者在审阅时放弃了就什么都不记。**修稿（`revise`）也不记**：它没有照细纲重写，只改了
+ * 审稿指出的那几处——细纲改过的 ⟳ 不能因为修了一次稿就消掉。
  */
 async function acceptManuscript(
   project: NovelProject,
@@ -485,7 +486,7 @@ async function acceptManuscript(
     }
   }
 
-  const plot = await project.resolvePlot(plotRelPath);
+  const plot = mode === 'revise' ? undefined : await project.resolvePlot(plotRelPath);
   if (plot) {
     await ws.recordWrittenFrom(plot.relPath, plotContentHash(plot));
   }

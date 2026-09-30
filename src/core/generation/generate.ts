@@ -48,6 +48,7 @@ import {
   STAGE_LABEL,
   WriteMode,
   describeTarget,
+  isFallbackChapterTitle,
   outputKindOf,
   plotOfTarget,
 } from '../model/pipeline';
@@ -68,6 +69,9 @@ import {
   singleShotNotes,
 } from './structured';
 import { ManuscriptChainResult, WriteProgress, completeManuscript } from './continuation';
+import { ReviewChainContext, completeReview } from './review';
+import { completeRevision } from './revision';
+import { ReviewReport, freezeGoals } from '../model/review';
 import { basename } from 'node:path';
 
 const log = scoped('创作');
@@ -105,6 +109,11 @@ export interface Draft {
   length?: DraftLength;
   /** 新稿开头与上一章结尾重合的那一段原文（context/replay.ts）。卡片标红、写入要点两下。 */
   replay?: string;
+  /**
+   * 审稿报告（五期）。审稿那一轮**没有 `artifact`**：报告不落盘，随会话保存（D22），
+   * 作者在报告卡上勾选之后再发起修稿。
+   */
+  review?: ReviewReport;
 }
 
 export interface DraftLength {
@@ -245,12 +254,28 @@ export async function generate(
 
   // 写正文：写法、目标字数、上一版与上一章结尾都按磁盘定好了再装配（三期计划 §1–§2）。
   const writing = stage === 'manuscript' && capability === 'generate' ? await planWriting(project, request) : undefined;
+  if (writing && request.writeMode === 'revise' && writing.mode !== 'revise') {
+    log.warn('修稿时这一章已经没有正文了', where);
+    handlers.onError('这一章已经没有正文了，没法修稿。');
+    return {};
+  }
+  // 审稿：这一章的正文与冻结的目标清单也在装配之前定好（契约里给模型的与链上校验用的是同一份）。
+  const reviewing = stage === 'manuscript' && capability === 'review' ? await planReview(project, request) : undefined;
+  if (stage === 'manuscript' && capability === 'review') {
+    if (!reviewing) {
+      log.warn('这一章还没有正文，没法审稿', where);
+      handlers.onError('这一章还没有正文，没法审稿。');
+      return {};
+    }
+    request = { ...request, reviewGoals: [...reviewing.goals] };
+    log.info(`审稿：${where}`, `正文 ${countWords(reviewing.text)} 字｜目标 ${reviewing.goals.length} 项`);
+  }
   if (writing) {
     request = {
       ...request,
       writeMode: writing.mode,
       targetWords: writing.target,
-      revision: request.revision ?? writing.revision,
+      revision: writing.mode === 'revise' ? writing.revision : request.revision ?? writing.revision,
     };
     log.info(
       `写法：${WRITE_MODE_LABEL[writing.mode]}`,
@@ -326,6 +351,7 @@ export async function generate(
     const chain = chainOf(request);
     let result: ChainResult;
     let written: ManuscriptChainResult | undefined;
+    let report: ReviewReport | undefined;
     if (chain) {
       const io: ChainIO = {
         messages: built.messages,
@@ -355,6 +381,17 @@ export async function generate(
           signal: options.signal,
         });
         result = written;
+      } else if (chain === 'revision' && writing) {
+        result = await completeRevision(first, io, {
+          source: writing.revision?.previousDraft ?? '',
+          wordsPerChapter: (await project.readBookConfig()).wordsPerChapter,
+          onProgress: handlers.onProgress,
+          signal: options.signal,
+        });
+      } else if (chain === 'review' && reviewing) {
+        const reviewed = await completeReview(first, io, reviewing);
+        report = reviewed.report;
+        result = reviewed;
       } else {
         result = await runChain(project, chain, request, first, io);
       }
@@ -381,9 +418,10 @@ export async function generate(
       ...(request.range ? { range: request.range } : {}),
       ...(result.notes.length > 0 ? { notes: result.notes } : {}),
       calls: result.calls,
+      ...(writing ? { writeMode: writing.mode } : {}),
+      ...(report ? { review: report } : {}),
       ...(writing && written
         ? {
-            writeMode: writing.mode,
             length: {
               words: written.words,
               target: writing.target,
@@ -452,8 +490,11 @@ async function runChain(
     case 'blueprints':
       return completeBlueprints(first, io, chaptersOf(request.range!));
     case 'manuscript':
+    case 'revision':
       // 正文那一条要的东西（写法、已有正文、上一章结尾）在 `planWriting` 里，走不到这里。
       throw new Error('正文的续写链缺了写法。');
+    case 'review':
+      throw new Error('审稿链缺了待审的正文。');
   }
 }
 
@@ -477,6 +518,7 @@ const REWRITE_FEEDBACK = '照本章细纲与上面的补充要求重写这一章
 
 export interface WritingPlan {
   mode: WriteMode;
+  /** 目标字数。修稿时是原稿的字数：只给进度条用，不据此续写。 */
   target?: number;
   /** `continue` 写法下本章已有的正文；其余是空串。 */
   existing: string;
@@ -485,16 +527,18 @@ export interface WritingPlan {
 }
 
 /**
- * 写法按磁盘定：这一章还没有正文 → `write`；明说了接着写 → `continue`；其余 → `rewrite`。
+ * 写法按磁盘定：这一章还没有正文 → `write`；明说了接着写 → `continue`；明说了修稿 → `revise`；
+ * 其余 → `rewrite`。
  *
  * 纯函数单列出来：「对话里发写正文、这一章已经有正文」从前是追加，现在是覆盖审阅——
- * 这条改动的判据只在这里（见 model/pipeline.ts 的 `WriteMode`）。
+ * 这条改动的判据只在这里（见 model/pipeline.ts 的 `WriteMode`）。修稿要一章已有的正文，
+ * 没有正文时它不成立，调用方据此报错（不会退成「新写一章」）。
  */
 export function resolveWriteMode(body: string, requested?: WriteMode): WriteMode {
   if (!body.trim()) {
     return 'write';
   }
-  return requested === 'continue' ? 'continue' : 'rewrite';
+  return requested === 'continue' || requested === 'revise' ? requested : 'rewrite';
 }
 
 /**
@@ -517,12 +561,48 @@ export async function planWriting(project: NovelProject, request: Omit<BuildRequ
   const mode = resolveWriteMode(body, request.writeMode);
   const prev = no && no > 1 ? await project.getChapter(no - 1) : undefined;
   const prevText = prev ? await project.readChapterText(prev) : '';
+  if (mode === 'revise') {
+    // 修稿的「上一版」就是磁盘上此刻这一章：清单是按它定位过的（controller 在发起前重新定位过）。
+    return {
+      mode,
+      target: countWords(body),
+      existing: '',
+      prevEnding: prevText.trim() ? previousEnding(prevText) : undefined,
+      revision: { previousDraft: body, feedback: request.reviseBrief?.trim() ?? '' },
+    };
+  }
   return {
     mode,
     target: target && target > 0 ? target : undefined,
     existing: mode === 'continue' ? body : '',
     prevEnding: prevText.trim() ? previousEnding(prevText) : undefined,
     revision: mode === 'rewrite' ? { previousDraft: body, feedback: REWRITE_FEEDBACK } : undefined,
+  };
+}
+
+/**
+ * 审稿之前要从磁盘知道的事：这一章的正文（去掉标题行）与指纹、冻结的目标清单。
+ * 这一章还没有正文时 undefined——没有东西可审。
+ */
+export async function planReview(
+  project: NovelProject,
+  request: Omit<BuildRequest, 'providerMaxInputTokens'>
+): Promise<ReviewChainContext | undefined> {
+  const relPath = plotOfTarget(request.target);
+  const plot = relPath ? await project.resolvePlot(relPath) : undefined;
+  const no = plot?.no ?? (relPath ? parsePlotFileName(basename(relPath))?.no : undefined) ?? request.targetNo;
+  const chapter = no ? await project.getChapter(no) : undefined;
+  const text = chapter ? await project.readChapterText(chapter) : '';
+  if (!chapter || !no || !text.trim()) {
+    return undefined;
+  }
+  return {
+    text,
+    goals: plot ? freezeGoals(plot.sections.关键事件, plot.sections.章末钩子) : [],
+    chapterNo: no,
+    chapterTitle: plot?.title || (isFallbackChapterTitle(no, chapter.title) ? undefined : chapter.title),
+    chapterRelPath: chapter.relPath,
+    chapterHash: chapter.contentHash,
   };
 }
 
