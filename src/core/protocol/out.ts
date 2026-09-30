@@ -173,6 +173,8 @@ export type OutMessage =
   | { type: 'dirListings'; listings: DirListing[] }
   | { type: 'filesOpDone'; op: 'rename' | 'move' | 'copy'; results: FileOpResult[] }
   | { type: 'tasks'; tasks: TaskSnapshot[] }
+  /** 长任务说完了那一句（D24）：前端出一条提示，带按钮时点了打开那一章。 */
+  | { type: 'taskDone'; title: string; message: string; level: 'info' | 'error'; open?: { plotRelPath: string; label: string } }
   | { type: 'log'; entry: LogEntry }
   | { type: 'logs'; entries: LogEntry[] }
   | { type: 'logHistory'; entries: LogEntry[]; exhausted: boolean }

@@ -109,7 +109,7 @@ const ACTIONS: Record<string, ActionSpec> = {
     },
   },
   batchManuscripts: {
-    label: '给所有细纲已排、还没写正文的章各写一遍',
+    label: '从下一个该写的章起一章一章写 3 章正文（已有正文的跳过，只写正文不定稿）',
     costly: true,
     async run(ctx) {
       return countedBy(await writeManuscripts(ctx.project), '批量写正文');

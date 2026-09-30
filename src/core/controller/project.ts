@@ -24,6 +24,7 @@ import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
 import { CharacterAction, ProjectAction } from '../protocol';
 import { normalizeRange } from '../model/session';
+import { isWriteBatchMode } from '../model/pipeline';
 import { selectPlot } from './chat';
 
 const log = scoped('面板');
@@ -42,7 +43,7 @@ export async function projectAction(
   action: ProjectAction,
   relPath?: string,
   dir?: string,
-  batch: { range?: { from: number; to: number }; confirmed?: boolean } = {}
+  batch: { range?: { from: number; to: number }; confirmed?: boolean; mode?: 'draft' | 'finalize' } = {}
 ): Promise<void> {
   // refresh 每次切页/刷盘都来一趟，记了只会淹掉别的；其余动作都值得留痕。
   if (action !== 'refresh') {
@@ -117,7 +118,12 @@ export async function projectAction(
       await completeSettings(c.project);
       break;
     case 'writeManuscripts':
-      await writeManuscripts(c.project);
+      // 区间、模式与「弹窗已经报过调用次数」来自批量写章弹窗（W9）；不带就是下一可写章起 3 章、只写正文，先问。
+      await writeManuscripts(c.project, {
+        range: normalizeRange(batch.range),
+        mode: isWriteBatchMode(batch.mode) ? batch.mode : 'draft',
+        confirmed: batch.confirmed === true,
+      });
       break;
     case 'extractCharacters':
       await extractCharacters(c.project);

@@ -474,7 +474,7 @@ const WRITE_MODE_LABEL: Record<WriteMode, string> = {
  */
 const REWRITE_FEEDBACK = '照本章细纲与上面的补充要求重写这一章。上一版里与细纲不冲突、写得好的段落可以保留。';
 
-interface WritingPlan {
+export interface WritingPlan {
   mode: WriteMode;
   target?: number;
   /** `continue` 写法下本章已有的正文；其余是空串。 */
@@ -503,8 +503,10 @@ export function resolveWriteMode(body: string, requested?: WriteMode): WriteMode
  *   agent 工具与快速续写不传它，从此也有目标。
  * - **上一章结尾**：按磁盘现读（重演检测用），不取上下文里那一份——那一份可能被整章全文
  *   取代、或被作者取消勾选。
+ *
+ * 批量写章（features/pipelineBatch.ts）也走这一份：两条路的写法、目标与重演检测必须同源。
  */
-async function planWriting(project: NovelProject, request: Omit<BuildRequest, 'providerMaxInputTokens'>): Promise<WritingPlan> {
+export async function planWriting(project: NovelProject, request: Omit<BuildRequest, 'providerMaxInputTokens'>): Promise<WritingPlan> {
   const relPath = plotOfTarget(request.target);
   const plot = relPath ? await project.resolvePlot(relPath) : undefined;
   const no = plot?.no ?? (relPath ? parsePlotFileName(basename(relPath))?.no : undefined) ?? request.targetNo;

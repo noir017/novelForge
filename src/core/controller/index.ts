@@ -5,7 +5,7 @@ import { DraftStore } from '../generation/drafts';
 import { CancelledError } from '../llm/provider';
 import { getHost } from '../host';
 import { addLogSink, clearLogs, describeError, recentLogs, scoped } from '../runtime/logger';
-import { activeTasks, cancelTask, onTasksChanged } from '../runtime/progress';
+import { activeTasks, cancelTask, onTaskFinished, onTasksChanged, requestStop } from '../runtime/progress';
 import { clearApiKey, promptForApiKey } from '../llm/registry';
 import { NovelProject } from '../model/project';
 import { Workspace } from '../workspace';
@@ -153,6 +153,12 @@ export class ChatController {
     this.subscriptions.push(addLogSink((entry) => this.post({ type: 'log', entry })));
     // 任务表变化 → 推快照。工程页的进度条与工具栏的忙碌标记都吃这一条。
     this.subscriptions.push(onTasksChanged(() => this.post({ type: 'tasks', tasks: activeTasks() })));
+    // 任务说完了那一句（D24）：在所有页签都看得见的提示条上说，带「打开第 N 章」。
+    this.subscriptions.push(
+      onTaskFinished((t) =>
+        this.post({ type: 'taskDone', title: t.title, message: t.message, level: t.level ?? 'info', open: t.open })
+      )
+    );
     // 日志再落一份进工程库，重启之后仍查得到「昨晚那 76 章卡在哪」。
     // 开库是异步的，而 controller 可能在开完之前就被 dispose 掉（用户刚打开
     // 侧边栏又立刻关掉窗口）——那时必须就地退订，否则这个 sink 会永远挂着
@@ -442,7 +448,11 @@ export class ChatController {
         return;
 
       case 'projectAction':
-        await projectAction(this, msg.action, msg.relPath, msg.dir, { range: msg.range, confirmed: msg.confirmed });
+        await projectAction(this, msg.action, msg.relPath, msg.dir, {
+          range: msg.range,
+          confirmed: msg.confirmed,
+          mode: msg.mode,
+        });
         return;
 
       case 'fileAction':
@@ -487,6 +497,12 @@ export class ChatController {
       case 'cancelTask':
         if (!cancelTask(msg.id)) {
           // 任务刚好在这一刻结束：推一份新快照让前端把进度条收掉。
+          this.post({ type: 'tasks', tasks: activeTasks() });
+        }
+        return;
+
+      case 'stopAfterItem':
+        if (!requestStop(msg.id)) {
           this.post({ type: 'tasks', tasks: activeTasks() });
         }
         return;

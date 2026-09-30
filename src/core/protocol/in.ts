@@ -100,7 +100,8 @@ export type InMessage =
   /**
    * `range` 只有「批量拆细纲」用：弹窗里选的区间（W5）。`confirmed` 表示弹窗已经把
    * 调用次数写给作者看过了，后端不再弹第二个确认框（弹窗与确认框算的是同一个
-   * `planPlotBatches`，不叠弹窗）。
+   * `planPlotBatches`，不叠弹窗）。「批量写章」（W9）同样带 `range` / `confirmed`，另带
+   * `mode`：只写正文，还是写完一章就定稿（`planWriteBatch`）。
    */
   | {
       type: 'projectAction';
@@ -109,6 +110,7 @@ export type InMessage =
       dir?: string;
       range?: { from: number; to: number };
       confirmed?: boolean;
+      mode?: 'draft' | 'finalize';
     }
   | { type: 'characterAction'; action: CharacterAction; name: string; relPath?: string }
   | {
@@ -131,6 +133,11 @@ export type InMessage =
   | { type: 'testConnection'; ref?: string; provider?: SerializedProvider }
   | { type: 'openNativeSettings' }
   | { type: 'cancelTask'; id: string }
+  /**
+   * 「写完这一章就停」（W8）：批量写章只在章与章之间停——正在写的那一章照常写完、落盘，
+   * 然后收。与 `cancelTask`（中断正在写的）是两回事。
+   */
+  | { type: 'stopAfterItem'; id: string }
   | { type: 'requestLogs' }
   | { type: 'requestLogHistory'; before?: string }
   | { type: 'clearLogs' }

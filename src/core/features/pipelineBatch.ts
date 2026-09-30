@@ -1,44 +1,40 @@
 /**
- * 工程页的流水线批量动作：**补齐故事架构、一次拆几十章细纲、一次写几十章正文**。
+ * 工程页的流水线批量动作：**补齐故事架构、一次拆几十章细纲、一章一章写正文**。
  *
- * - 补齐设定与批量拆细纲（二期）走 generation/structured.ts 的生成链，与对话页同一份：
- *   细纲每批 5 章，截断拆半、语法修复、漏章 fail-closed 一样不少。它们**严格串行**——
- *   前提要照着配置写，后一批细纲要接着前一批往下排——一件（一批）失败就停，已经写好
- *   的留着。
- * - 写正文改成严格串行（写一章 → 定稿 → 下一章，后一章要读前一章的结尾与角色状态）
- *   是四期的事，现在仍按原样并发。
+ * 三个动作都**严格串行**、**一件失败就停**，已经写好的留着：
  *
- * 与创作页的单次生成（features/creation.ts）是两条路，理由是它们的失败模型
- * 完全不同：创作页一次一份，出错就重来；这里一次几十份，**必须允许部分失败
- * 并跑完剩下的**——第 12 段写不出正文不该让另外 63 段白等。
+ * - 补齐设定：前提要照着配置写，世界观要照着前提与角色写。
+ * - 批量拆细纲：后一批要接着前一批往下排（前序细纲一览）。
+ * - 批量写章（四期，D10）：后一章接着前一章的结尾写，写完即定稿时还要读前一章更新过的
+ *   角色状态与证据原文。
  *
- * 结构与 `syncSummaries` 逐字对齐（同一套 runTask + runPool + recordFailure +
- * 分档确认框），因为作者对这类批量动作已经有了预期：先说清要调几次模型、
- * 用哪一档，跑起来能看进度、能取消，失败的挂在那一行上第二天还看得见。
+ * 补齐设定与拆细纲走 generation/structured.ts 的生成链，写章走 generation/continuation.ts
+ * 的续写链——与对话页同一份，截断拆半、语法修复、自动续写、重演检测一样不少。
+ *
+ * 结构与 `syncSummaries` 对齐（runTask + recordFailure + 分档确认框），因为作者对这类批量
+ * 动作已经有了预期：先说清要调几次模型、用哪一档，跑起来能看进度、能取消，失败的挂在那一行上
+ * 第二天还看得见。
  *
  * ## 只补不改
  *
- * 两个批量动作都**跳过已经有产物的段**，不问、不覆盖。批量路径上没有
- * 「逐个审阅」的余地——一次弹 63 个 diff 没有人看得完——所以唯一安全的
- * 做法是只处理空白的那些。要重做某一段，去创作页单独重做。
+ * 三个批量动作都**跳过已经有产物的章**，不问、不覆盖。批量路径上没有「逐个审阅」的余地——
+ * 一次弹几十个 diff 没有人看得完——所以唯一安全的做法是只处理空白的那些。要重做某一章，去
+ * 创作页单独重做。
  *
- * ## 返回值是「这一次调了几次模型」
+ * ## 返回值是「这一次实际调了几次模型」
  *
- * 写正文返回确认框里那个数字（一章一次，计划即实际）。补齐设定与拆细纲有自动修复，
- * 实际次数在跑完之前说不准，返回**实际调用的次数**——确认框里报的是区间与上限
- * （同一个纯函数算的，见 model/pipeline.ts 的 `planPlotBatches` / `CallEstimate`）。
- * 用户取消、没有可做的、没有可用模型时是 0。**只在这里算**：agent 的 `run` 工具拿它
- * 记进预算，工程页那条路不看它。让调用方各算一遍，弹窗写着 7 次、账上记 1 次，
- * 正是第 4 条要防的事。
+ * 自动修复与自动续写让实际次数在跑完之前说不准：确认框里报的是区间与上限（同一个纯函数算的，
+ * 见 model/pipeline.ts 的 `planPlotBatches` / `planWriteBatch` / `CallEstimate`），返回的是实际数。
+ * 用户取消、没有可做的、没有可用模型时是 0。**只在这里算**：agent 的 `run` 工具拿它记进预算。
+ * 让调用方各算一遍，弹窗写着 7 次、账上记 1 次，正是第 4 条要防的事。
  */
-import { runPool } from '../runtime/concurrency';
 import { readConfig } from '../config';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { getHost } from '../host';
-import { collect, collectText } from '../llm/collect';
-import { CancelledError } from '../llm/provider';
+import { collect } from '../llm/collect';
+import { AgentMessage, CancelledError, LlmProvider, StopSignal } from '../llm/provider';
 import { ModelPool, createModelPool } from '../llm/pool';
-import { describeError, elapsed, formatDuration, scoped } from '../runtime/logger';
+import { describeError, elapsed, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import { Plot, isPlotFilled } from '../model/plotFile';
 import { isOutlineFilled } from '../model/outlineFile';
@@ -46,7 +42,8 @@ import { buildBookFacts, chapterTargetOf, plotContentHash } from '../views/pipel
 import { describeTaskModels } from '../model/tiers';
 import { BuildRequest, buildContext } from '../context/builder';
 import { runTask } from '../runtime/progress';
-import { cleanOutput } from './creation';
+import { countWords } from '../model/fs';
+import { describeFinalize, finalizeChapter } from './finalize';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import {
   CONFIG_CALLS,
@@ -56,14 +53,19 @@ import {
   SETTING_DOCS,
   SETTING_DOC_LABEL,
   SettingDoc,
+  WRITE_BATCH_DEFAULT,
+  WriteBatchMode,
   addCalls,
   describeCalls,
   planPlotBatches,
+  planWriteBatch,
   rosterCalls,
 } from '../model/pipeline';
 import { Workspace } from '../workspace';
 import { acceptArtifact, acceptPlotBatch } from '../generation/accept';
 import { CallOutcome, ChainError, ChainIO, completeBlueprints, completeConfig, completeRoster } from '../generation/structured';
+import { ManuscriptChainResult, WriteProgress, completeManuscript } from '../generation/continuation';
+import { planWriting } from '../generation/generate';
 
 const log = scoped('流水线');
 
@@ -373,234 +375,355 @@ function poolIO(
   return { chain, calls: () => count };
 }
 
-/**
- * 给所有「细纲排好了但还没写正文」的章各写一遍正文。
- *
- * 这是两个批量动作里贵得多的一个（一章几千字输出，一次几十章），所以确认框里
- * 除了调用次数还报出预计总字数——那个数字比「40 次调用」更能让人意识到
- * 这一下要花多少钱。
- *
- * **一章一次调用，不自动续写**。对话页的「写第 N 章」会续写到目标字数的八成
- * （generation/continuation.ts），这条批量路径还没接上：它四期要整个重写成严格串行
- * （写一章 → 落盘 → 定稿 → 下一章，D10），续写链与重演检测那时一并接。写不够长的章
- * 留在「待写正文」（`manuscriptRatio`），作者在创作页点「接着写」。**批量路径只补空白**。
- */
-export async function writeManuscripts(project: NovelProject): Promise<number> {
-  const [plots, chapters, book] = await Promise.all([
-    project.listPlots(),
-    project.listChapters(),
-    project.readBookConfig(),
-  ]);
-  const pending: Plot[] = [];
-  let noPlot = 0;
-  for (const plot of plots) {
-    // 没排细纲就写正文，模型只能照着标题瞎编——那种正文作者一章都留不下。
-    if (!isPlotFilled(plot.sections)) {
-      noPlot++;
-      continue;
-    }
-    // 只补空白：已经写过正文的章一律跳过，哪怕上游变了、哪怕还没写够。
-    const chapter = chapters.find((c) => c.order === plot.no);
-    if (!chapter || chapter.wordCount === 0) {
-      pending.push(plot);
-    }
-  }
+/** 两种模式在确认框与完成提示里的说法。 */
+const MODE_LABEL: Record<WriteBatchMode, string> = {
+  draft: '只写正文',
+  finalize: '写完即定稿',
+};
 
-  if (pending.length === 0) {
+/**
+ * 批量写章（D10）：区间里还没有正文的章，**严格串行**地一章一章写。
+ *
+ * ```
+ * for 每一章：
+ *   写（续写链，与对话页同一个 completeManuscript；一章之内续写那几轮钉住同一个模型）
+ *   → 新建 chapters/NNN-标题.md、记 writtenFrom
+ *   → 写完即定稿：定稿（摘要 + 角色状态，features/finalize.ts）
+ *   → 作者点过「写完这一章就停」：停
+ * ```
+ *
+ * - **为什么串行**：后一章要接前一章的结尾写（上一章结尾、重演检测），写完即定稿时还要读前一章
+ *   更新过的角色状态与证据原文。并发写出来的几章彼此接不上。所以不看并发设置。
+ * - **只补空白**（第 19 条）：已有正文的章跳过；区间里第一章没有细纲的就在它前面收住
+ *   （`planWriteBatch`，前端弹窗与这里的确认框同源）。
+ * - **失败即停**：写不出来（调用失败、思考吃光、空正文）或定稿的摘要失败——停，红 ❗ 挂在
+ *   那一章上，已经写好的留着。
+ * - **写出来但不能往下接的也停**：重演命中（开头把上一章最后一场又演了一遍）、最后仍不到目标的
+ *   八成。这两种照样落盘（新章，没有东西可吞；钱已经花了，D6），不定稿，黄 ❗ 挂在那一章上写明
+ *   原因。对话页那边有卡片让作者当场判断；批量没有人看，接着往下写等于让后面几章踩在一个有问题
+ *   的结尾上。上游这两种直接作废整章（GD:1130-1186）。
+ * - **停止**（中断）：正在写的那一章不落盘。**写完这一章就停**：这一章照常写完、落盘、（定稿），然后收。
+ * - 模型走 `manuscript` 档（第 12 条：失败换同档其余），不带思考深度（第 26 条）；定稿两步各走
+ *   `plotSummary` / `characterCard` 档。
+ *
+ * `confirmed`：工程页弹窗已经把切分与调用次数写给作者看过了，不再弹第二个确认框。agent 的
+ * `run` 那条路不带它，照旧先问。返回实际调了几次模型（取消、无事可做、没有模型时是 0）。
+ */
+export async function writeManuscripts(
+  project: NovelProject,
+  opts: { range?: { from: number; to: number }; mode?: WriteBatchMode; confirmed?: boolean } = {}
+): Promise<number> {
+  const [facts, chapters] = await Promise.all([buildBookFacts(project), project.listChapters()]);
+  const mode = opts.mode ?? 'draft';
+  const from = Math.max(1, opts.range?.from ?? facts.nextChapterNo);
+  const to = Math.max(from, opts.range?.to ?? from + WRITE_BATCH_DEFAULT - 1);
+  const plan = planWriteBatch({
+    from,
+    to,
+    mode,
+    writtenNos: chapters.filter((c) => c.wordCount > 0).map((c) => c.order),
+    plotFilledNos: facts.plotFilledNos,
+  });
+  const where = rangeLabel(plan.from, plan.to);
+  if (plan.chapters.length === 0) {
     getHost().toast(
-      noPlot > 0
-        ? `没有可写的章。还有 ${noPlot} 章没排细纲——先写细纲再来写正文。`
-        : '每一章都已经写过正文了。'
+      plan.stopAt !== undefined
+        ? `第 ${plan.stopAt} 章还没有细纲。先拆细纲，再写正文。`
+        : `${where}都已经写过正文了。`,
+      plan.stopAt !== undefined ? 'error' : 'info'
     );
     return 0;
   }
-
-  // 预计字数：细纲上标了目标字数就用它，否则用配置的每章字数，都没有按 3000 估。
-  const wordsTotal = pending.reduce((sum, p) => sum + (p.targetWords ?? book.wordsPerChapter ?? 3000), 0);
+  const writing = rangeLabel(plan.chapters[0], plan.chapters[plan.chapters.length - 1]);
 
   const config = readConfig();
-  const lanes = Math.min(config.concurrency, pending.length);
-  const confirm = await getHost().confirm(
-    `有 ${pending.length} 章的细纲已排好但还没写正文，需要调用 ${pending.length} 次模型（一章 1 次）。现在写？`,
-    ['开始写作'],
-    {
-      modal: true,
-      detail:
-        `${describeTaskModels(config, 'manuscript')}\n` +
-        `预计产出约 ${Math.round(wordsTotal / 1000)} 千字。\n` +
-        (lanes > 1 ? `并发 ${lanes} 章。` : '串行逐章处理（并发数为 1）。') +
-        '\n批量写正文不自动续写：写不够目标字数的章，之后在创作页点「接着写」。' +
-        '\n已经写过正文的章不会被改动。' +
-        (noPlot > 0 ? `\n另有 ${noPlot} 章还没排细纲，这次跳过。` : ''),
+  if (!opts.confirmed) {
+    const pick = await getHost().confirm(
+      `${writing}：要写 ${plan.chapters.length} 章正文（${MODE_LABEL[mode]}），${describeCalls(plan.calls)}。现在写？`,
+      ['开始写章'],
+      {
+        modal: true,
+        detail: [
+          describeTaskModels(config, 'manuscript'),
+          mode === 'finalize' ? describeTaskModels(config, 'plotSummary') : '',
+          '一章一章串行写：后一章接着前一章的结尾写。没写够时自动续写（算在上限里）。',
+          mode === 'finalize' ? '每写完一章就定稿（摘要 + 出场角色的当前状态），再写下一章。' : '只写正文，不定稿；之后在主按钮上逐章定稿。',
+          plan.skipped.length > 0 ? `已经写过正文的第 ${plan.skipped.join('、')} 章跳过，不会被改动。` : '',
+          plan.stopAt !== undefined ? `第 ${plan.stopAt} 章还没有细纲，写到它前面为止。` : '',
+          '一章写不出来就停；写出来但开头重演了上一章、或没写够八成，也写进去然后停下，等你看过再继续。',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      }
+    );
+    if (pick !== '开始写章') {
+      log.info('用户取消了批量写章');
+      return 0;
     }
-  );
-  if (confirm !== '开始写作') {
-    log.info('用户取消了批量写正文');
-    return 0;
   }
 
-  const ws = new Workspace(project);
-  const pool = await createModelPool({ task: 'manuscript', concurrent: lanes > 1 });
+  const pool = await createModelPool({ task: 'manuscript', concurrent: false });
   if (!pool) {
-    log.error('没有可用的模型，批量写正文中止');
+    log.error('没有可用的模型，批量写章中止');
     return 0;
   }
+  let summaryPool: ModelPool | undefined;
+  let statePool: ModelPool | undefined;
+  if (mode === 'finalize') {
+    summaryPool = await createModelPool({ task: 'plotSummary', concurrent: false });
+    statePool = (await createModelPool({ task: 'characterCard', concurrent: false })) ?? summaryPool;
+    if (!summaryPool) {
+      log.error('没有可用的模型定稿，批量写章中止');
+      return 0;
+    }
+  }
 
-  await runBatch(project, {
-    title: '批量写正文',
-    items: pending,
-    lanes,
-    op: 'manuscript',
-    what: '正文',
-    run: async (plot, signal) => {
-      const built = await buildContext(
-        project,
-        {
-          action: { stage: 'manuscript', capability: 'generate' },
-          target: { kind: 'manuscript', plotRelPath: plot.relPath },
-          targetNo: plot.no,
-          targetWords: plot.targetWords ?? book.wordsPerChapter,
-          // 批量路径上没有用户输入那一句话。装配器已经把整份细纲按 P0 force
-          // 带上了，这一句只说清写的是哪一章。
-          ask: `写第 ${plot.no} 章${plot.title ? `《${plot.title}》` : ''}的正文。`,
-        },
-        config
-      );
-      const raw = await pool.run(`第 ${plot.no} 章`, (llm) =>
-        collectText(
-          llm.stream(built.messages, {
-            maxOutputTokens: pool.primaryBudget.maxOutputTokens,
-            temperature: config.temperature,
-            timeoutMs: config.requestTimeoutMs,
-            signal,
-          })
-        )
-      );
-      const text = cleanOutput(raw);
-      if (!text.trim()) {
-        throw new Error('模型返回的正文是空的');
+  let calls = 0;
+  await runTask(
+    '批量写章',
+    async ({ signal, report, stopRequested, finish }) => {
+      const startedAt = Date.now();
+      const total = plan.chapters.length;
+      const written: number[] = [];
+      let finalized = 0;
+      /** 停在哪、为什么。没有就是全部写完了。 */
+      let halt: { no: number; why: string; level: 'info' | 'error' } | undefined;
+      let last: Plot | undefined;
+
+      for (let i = 0; i < total && !halt; i++) {
+        const no = plan.chapters[i];
+        // 这一路要跑好几分钟：作者可能在这期间自己写了这一章、或删了它的细纲。
+        project.invalidate();
+        const plot = await project.getPlot(no);
+        const existing = await project.getChapter(no);
+        if (existing && existing.wordCount > 0) {
+          log.info(`第 ${no} 章在批量写章期间已经有了正文，跳过`);
+          continue;
+        }
+        if (!plot || !isPlotFilled(plot.sections)) {
+          halt = { no, why: '还没有细纲', level: 'error' };
+          break;
+        }
+        const name = `第 ${no} 章${plot.title ? `《${plot.title}》` : ''}`;
+        report({ message: `${name} · 写正文`, current: i, total });
+        let chapterCalls = 0;
+        try {
+          const out = await writeOne(project, plot, pool, config, signal, {
+            onCall: () => {
+              chapterCalls++;
+            },
+            onProgress: (p) =>
+              report({
+                message: `${name} · ${p.round > 0 ? `续写第 ${p.round} 轮 · ` : ''}已写 ${p.words}${p.target ? ` / ${p.target}` : ''} 字`,
+              }),
+          });
+          calls += chapterCalls;
+          written.push(no);
+          last = plot;
+          if (out.notes.length > 0) {
+            log.info(`${name}：${out.notes.length} 条说明`, out.notes.join('\n'));
+          }
+          const problem = out.replay
+            ? `开头与上一章结尾大段重合（「${clip(out.replay, 40)}」），可能把上一章最后一场又演了一遍`
+            : out.short
+              ? `只写到 ${out.words} / ${out.target} 字，不到目标的八成`
+              : undefined;
+          if (problem) {
+            void recordFailure(project, {
+              scope: '流水线',
+              targetKind: 'plot',
+              targetKey: plot.relPath,
+              severity: 'warn',
+              op: 'manuscript',
+              message: `批量写章：这一章写进去了，但${problem}`,
+              detail: '批量在这一章停下，没有定稿，也没有往下写。看过这一章（接着写、重写或手改）再继续。',
+            });
+            halt = { no, why: problem, level: 'info' };
+            break;
+          }
+          void clearFailures(project, 'plot', plot.relPath, 'manuscript');
+        } catch (err) {
+          calls += err instanceof ChainError ? Math.max(err.calls, chapterCalls) : chapterCalls;
+          if (err instanceof CancelledError || signal.aborted) {
+            log.warn(`批量写章被取消，停在${name}（这一章没有写入）`);
+            return;
+          }
+          const reason = describeError(err);
+          log.error(`${name}的正文没写成：${reason}`, err instanceof ChainError ? err.notes.join('\n') : err);
+          void recordFailure(project, {
+            scope: '流水线',
+            targetKind: 'plot',
+            targetKey: plot.relPath,
+            severity: 'error',
+            op: 'manuscript',
+            message: `正文生成失败：${reason}`,
+            detail: '批量写章停在这一章。后面的章要接着它写，已经停下。',
+          });
+          halt = { no, why: `没写成（${reason}）`, level: 'error' };
+          break;
+        }
+
+        if (mode === 'finalize') {
+          report({ message: `${name} · 定稿`, current: i, total });
+          project.invalidate();
+          const chapter = await project.getChapter(no);
+          try {
+            const outcome = chapter
+              ? await finalizeChapter(project, chapter, { signal, summary: summaryPool, state: statePool })
+              : undefined;
+            if (!outcome) {
+              halt = { no, why: '写好了，但没能定稿', level: 'error' };
+              break;
+            }
+            calls += outcome.calls;
+            finalized++;
+            log.info(`${name}已定稿`, describeFinalize(no, outcome));
+          } catch (err) {
+            // 请求发出去了钱就花了：摘要那一次算上。
+            calls += 1;
+            if (err instanceof CancelledError || signal.aborted) {
+              log.warn(`批量写章被取消，${name}写好了、没定稿`);
+              return;
+            }
+            halt = { no, why: `写好了，但定稿失败（${describeError(err)}）`, level: 'error' };
+            break;
+          }
+        }
+
+        report({ current: i + 1, total });
+        if (stopRequested() && i < total - 1) {
+          halt = { no, why: '按你的要求写完这一章就停', level: 'info' };
+          break;
+        }
       }
-      // 同号章节不在就新建，在（空文件）就追加；然后在细纲上记 `writtenFrom`，
-      // 少了那一步这一章会永远显示「正文与细纲对不上」或永远不显示。
-      const dest = await chapterTargetOf(project, plot.relPath);
-      if (dest.exists) {
-        await ws.write(dest.rel, { text }, { mode: 'append' });
-      } else {
-        await ws.createChapter(dest.no, dest.title, text);
+
+      // 停下之后还没写的：停在的那一章之后的（那一章本身在前面那句里已经说过了）。
+      const rest = halt ? plan.chapters.filter((n) => n > halt!.no) : [];
+      const done = written.length > 0 ? `${rangeLabel(written[0], written[written.length - 1])}已写好${mode === 'finalize' ? `，定稿 ${finalized} 章` : ''}` : '';
+      log.info(`批量写章结束：写了 ${written.length} 章`, `调用 ${calls} 次，总耗时 ${elapsed(startedAt)}`);
+      const open = last ? { plotRelPath: last.relPath, label: `打开第 ${last.no} 章` } : undefined;
+      if (!halt) {
+        finish({ message: `${done}（调用 ${calls} 次）。`, open });
+        return;
       }
-      await ws.recordWrittenFrom(plot.relPath, plotContentHash(plot));
-      await project.syncManifest();
+      const tail = rest.length > 0 ? `后面的${rangeLabel(rest[0], rest[rest.length - 1])}没写。` : '';
+      const head =
+        halt.why === '按你的要求写完这一章就停'
+          ? `写完第 ${halt.no} 章停下了`
+          : written.includes(halt.no)
+            ? `第 ${halt.no} 章写进去了，但${halt.why}，没有往下写`
+            : `第 ${halt.no} 章${halt.why}，批量停在这里`;
+      finish({
+        message: [done ? `${done}。` : '', `${head}。`, tail].join(''),
+        level: halt.level,
+        open: written.includes(halt.no) ? { plotRelPath: last!.relPath, label: `打开第 ${halt.no} 章` } : open,
+      });
     },
-  });
-  return pending.length;
-}
-
-// ---------------------------------------------------------------- 共用
-
-interface BatchSpec {
-  title: string;
-  items: Plot[];
-  lanes: number;
-  /** 失败记录的 op，与清除时用的一致。 */
-  op: string;
-  /** 产物名，进日志与 toast（「细纲」「正文」）。 */
-  what: string;
-  run(plot: Plot, signal: AbortSignal): Promise<void>;
+    { scope: '流水线', pausable: true }
+  );
+  return calls;
 }
 
 /**
- * 批量执行的外壳：进度、取消、逐项失败记录、收尾汇报。
+ * 写一章：装配 → 第一次调用 → 续写链 → 落盘、记 `writtenFrom`。
  *
- * 抽出来是因为两个批量动作的这一段一字不差，而它们要保证的东西恰恰在这里：
- * **失败一项不影响其余**、失败挂在那一段上、取消时说清跑到哪了。
+ * 模型：第一次调用走池（失败换同档其余，第 12 条）；**之后续写那几轮钉住第一次成功的那个**——
+ * 一章写到一半换人，文风会断在段落中间（三期约束：续写每一轮都用第一次那个模型）。
  */
-async function runBatch(project: NovelProject, spec: BatchSpec): Promise<void> {
-  const { items, lanes } = spec;
-  await runTask(
-    spec.title,
-    async ({ signal, report }) => {
-      const startedAt = Date.now();
-      const failed: { no: number; reason: string }[] = [];
-      const running = new Set<number>();
-      let done = 0;
-      let okCount = 0;
-      report({ message: '准备中…', current: 0, total: items.length });
-
-      const describeRunning = (): string =>
-        lanes > 1
-          ? `已完成 ${done}/${items.length} · ${running.size} 路进行中（第 ${[...running]
-              .sort((a, b) => a - b)
-              .join('、')} 章）`
-          : '';
-
-      await runPool(items, lanes, (plot) => spec.run(plot, signal), {
-        signal,
-        onStart: (plot) => {
-          running.add(plot.no);
-          report({
-            message: lanes > 1 ? describeRunning() : `第 ${plot.no} 章《${plot.title}》`,
-            current: done,
-            total: items.length,
-          });
-        },
-        onSettled: (result, plot, _index, finished) => {
-          running.delete(plot.no);
-          done = finished;
-          if (result.status === 'fulfilled') {
-            okCount++;
-            void clearFailures(project, 'plot', plot.relPath, spec.op);
-          } else {
-            const err = result.reason;
-            if (!(err instanceof CancelledError || err?.name === 'CancelledError')) {
-              const reason = describeError(err);
-              failed.push({ no: plot.no, reason });
-              log.error(`第 ${plot.no} 章《${plot.title}》失败：${reason}`, err);
-              // toast 五秒就没了，而一次跑几十章、失败三章是常态。
-              // 挂到那一行上，第二天回来还看得出是哪几章没成。
-              void recordFailure(project, {
-                scope: '流水线',
-                targetKind: 'plot',
-                targetKey: plot.relPath,
-                severity: 'error',
-                op: spec.op,
-                message: `${spec.what}生成失败：${reason}`,
-                detail: `这一章的${spec.what}未完成。可在创作页单独重试。`,
-              });
-            }
-          }
-          const perItem = (Date.now() - startedAt) / done;
-          log.info(
-            `进度 ${done}/${items.length}`,
-            `刚完成第 ${plot.no} 章；平均 ${formatDuration(perItem)}/章，` +
-              `预计剩余 ${formatDuration(perItem * (items.length - done))}`
-          );
-          report({
-            message: lanes > 1 ? describeRunning() : `第 ${plot.no} 章《${plot.title}》`,
-            current: done,
-            total: items.length,
-          });
-        },
+async function writeOne(
+  project: NovelProject,
+  plot: Plot,
+  pool: ModelPool,
+  config: ReturnType<typeof readConfig>,
+  signal: AbortSignal,
+  hooks: { onCall(): void; onProgress(p: WriteProgress): void }
+): Promise<ManuscriptChainResult & { target?: number }> {
+  const request: Omit<BuildRequest, 'providerMaxInputTokens'> = {
+    action: { stage: 'manuscript', capability: 'generate' },
+    target: { kind: 'manuscript', plotRelPath: plot.relPath },
+    targetNo: plot.no,
+    // 批量路径上没有作者那一句话。整份细纲与执行卡已经由装配器带上了，这一句只说清写的是哪一章。
+    ask: `写第 ${plot.no} 章${plot.title ? `《${plot.title}》` : ''}的正文。`,
+  };
+  const writing = await planWriting(project, request);
+  const built: Omit<BuildRequest, 'providerMaxInputTokens'> = {
+    ...request,
+    writeMode: writing.mode,
+    targetWords: writing.target,
+  };
+  const budgeted = { ...config, ...pool.primaryBudget };
+  let pinned: LlmProvider | undefined;
+  const stream = async (llm: LlmProvider, messages: AgentMessage[], progress?: { round: number; base: number }): Promise<CallOutcome> => {
+    let text = '';
+    let stop: StopSignal | undefined;
+    let reportedAt = 0;
+    for await (const ev of llm.stream(messages, {
+      maxOutputTokens: pool.primaryBudget.maxOutputTokens,
+      temperature: config.temperature,
+      timeoutMs: config.requestTimeoutMs,
+      signal,
+    })) {
+      if (ev.type === 'text') {
+        text += ev.text;
+        if (Date.now() - reportedAt >= 1000) {
+          reportedAt = Date.now();
+          hooks.onProgress({ round: progress?.round ?? 0, words: (progress?.base ?? 0) + countWords(text), target: writing.target });
+        }
+      } else if (ev.type === 'stop') {
+        stop = ev.reason;
+      }
+    }
+    return { text, stop };
+  };
+  const io: ChainIO = {
+    messages: [],
+    build: async (patch) => (await buildContext(project, { ...built, ...patch }, budgeted)).messages,
+    call: async (messages, label, opts) => {
+      hooks.onCall();
+      if (pinned) {
+        return stream(pinned, messages, opts?.progress);
+      }
+      return pool.run(label, async (llm) => {
+        const out = await stream(llm, messages, opts?.progress);
+        pinned = llm;
+        return out;
       });
-
-      if (signal.aborted) {
-        log.warn(`${spec.title}被取消，已完成 ${done}/${items.length} 章`);
-      }
-      report({ message: '收尾', current: done, total: items.length });
-      // 完成顺序是乱的，汇报前排回来——「第 7、3、12 章失败」没法读。
-      failed.sort((a, b) => a.no - b.no);
-      if (failed.length > 0) {
-        log.warn(
-          `${spec.title}结束：成功 ${okCount} 章，失败 ${failed.length} 章`,
-          failed.map((f) => `第 ${f.no} 章：${f.reason}`).join('\n')
-        );
-        getHost().toast(
-          `完成 ${okCount} 章，第 ${failed.map((f) => f.no).join('、')} 章失败，可在日志页看原因。`
-        );
-      } else if (okCount > 0) {
-        log.info(`${spec.title}结束：${okCount} 章全部成功`, `总耗时 ${elapsed(startedAt)}`);
-        getHost().toast(`已为 ${okCount} 章生成${spec.what}。`);
-      }
     },
-    { scope: '流水线' }
-  );
+  };
+  io.messages = await io.build({});
+  const first = await io.call(io.messages, `第 ${plot.no} 章`, { progress: { round: 0, base: 0 } });
+  const result = await completeManuscript(first, io, {
+    mode: writing.mode,
+    existing: writing.existing,
+    target: writing.target,
+    prevEnding: writing.prevEnding,
+    reasoned: false,
+    onProgress: hooks.onProgress,
+    signal,
+  });
+  if (!result.raw.trim()) {
+    throw new Error('模型返回的正文是空的');
+  }
+  // 同号章节不在就新建，在（空文件）就填进去；然后在细纲上记 `writtenFrom`，
+  // 少了那一步这一章会永远显示「正文与细纲对不上」或永远不显示。
+  const ws = new Workspace(project);
+  const dest = await chapterTargetOf(project, plot.relPath);
+  if (dest.exists) {
+    await ws.write(dest.rel, { text: result.raw }, { mode: 'append' });
+  } else {
+    await ws.createChapter(dest.no, dest.title, result.raw);
+  }
+  await ws.recordWrittenFrom(plot.relPath, plotContentHash(plot));
+  await project.syncManifest();
+  return { ...result, target: writing.target };
+}
+
+/** 「第 3 章」或「第 3–7 章」。 */
+function rangeLabel(from: number, to: number): string {
+  return from === to ? `第 ${from} 章` : `第 ${from}–${to} 章`;
+}
+
+function clip(text: string, max: number): string {
+  const one = text.replace(/\s+/g, ' ').trim();
+  return one.length > max ? `${one.slice(0, max)}…` : one;
 }

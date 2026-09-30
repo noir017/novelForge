@@ -337,12 +337,13 @@ describe('批量写正文：正文直接落同号章节，并在细纲上记指�
 
   before(async () => {
     resetCtx();
-    h.expect('开始写作');
+    h.expect('开始写章');
     r = await run({ action: 'batchManuscripts' });
   });
 
-  test('确认框写了预计调用几次', () => {
-    assert.ok(/调用 2 次模型/.test(h.confirms[0].message), h.confirms[0].message);
+  // 四期：缺省是下一可写章起 3 章、只写正文；全书只有两章细纲，收在第 2 章。上限含自动续写。
+  test('确认框写了区间与预计调用几次', () => {
+    assert.equal(h.confirms[0].message, '第 1–2 章：要写 2 章正文（只写正文），预计 2 次调用，最多 16 次。现在写？');
   });
 
   // 一章一纲：没有中转站，正文就落在 chapters/ 里那个同号的文件上。
@@ -377,7 +378,6 @@ describe('批量写正文：正文直接落同号章节，并在细纲上记指�
   // 只补空白：已经写过的章不再动，也不再花钱。
   test('再调一次没事可做，不花钱', async () => {
     resetCtx();
-    h.expect('开始写作');
     const again = await run({ action: 'batchManuscripts' });
     assert.equal(fake.calls.length, 0, String(fake.calls.length));
     assert.equal(ctx.usage.calls, 0);

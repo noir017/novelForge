@@ -27,6 +27,29 @@ export interface TaskSnapshot {
   total?: number;
   /** 已运行毫秒数（快照时刻）。前端自己续着走秒。 */
   elapsedMs: number;
+  /**
+   * 能在「这一项做完之后」停下（批量写章：只在章与章之间停，D10）。前端据此多给一颗
+   * 「写完这一章就停」。
+   */
+  pausable?: boolean;
+  /** 作者已经点过「写完这一章就停」：这一项做完就收。 */
+  stopping?: boolean;
+}
+
+/**
+ * 任务结束时的那一句（D24）。前端出一条带按钮的提示——「打开第 3 章」直接开那一章，
+ * 而不是像上游那样跳到输出面板。给了它的任务不再另外 `toast`（不重复）。
+ */
+export interface TaskNotice {
+  message: string;
+  level?: 'info' | 'error';
+  /** 提示条上的按钮：打开这一章（章节工作台那一条，W6）。 */
+  open?: { plotRelPath: string; label: string };
+}
+
+export interface TaskFinished extends TaskNotice {
+  id: string;
+  title: string;
 }
 
 export interface TaskContext {
@@ -37,6 +60,13 @@ export interface TaskContext {
    * 前端据此画进度条。字段留空表示沿用上一次的值。
    */
   report(update: string | { message?: string; current?: number; total?: number }): void;
+  /**
+   * 作者点过「写完这一项就停」没有（`pausable` 的任务才会有）。任务在每一项之间看一眼，
+   * 是就收——正在做的那一项照常做完，与「停止」（中断正在做的）是两回事。
+   */
+  stopRequested(): boolean;
+  /** 任务结束时说的那一句（{@link TaskNotice}）。多次调用以最后一次为准。 */
+  finish(notice: TaskNotice): void;
 }
 
 interface TaskState extends TaskSnapshot {
@@ -47,6 +77,7 @@ interface TaskState extends TaskSnapshot {
 const log = scoped('任务');
 const tasks = new Map<string, TaskState>();
 const listeners = new Set<() => void>();
+const finishers = new Set<(t: TaskFinished) => void>();
 let counter = 0;
 
 /** 当前在跑的任务快照，按开始时间正序。 */
@@ -60,7 +91,30 @@ export function activeTasks(): TaskSnapshot[] {
       current: t.current,
       total: t.total,
       elapsedMs: Date.now() - t.startedAt,
+      ...(t.pausable ? { pausable: true, stopping: !!t.stopping } : {}),
     }));
+}
+
+/** 任务说完那一句（{@link TaskNotice}）时回调。返回的 dispose 必须在宿主销毁时调用。 */
+export function onTaskFinished(fn: (t: TaskFinished) => void): { dispose(): void } {
+  finishers.add(fn);
+  return { dispose: () => void finishers.delete(fn) };
+}
+
+/**
+ * 前端点「写完这一章就停」。只对 `pausable` 的任务有效；未知 id（任务刚好结束）当作无事发生。
+ */
+export function requestStop(id: string): boolean {
+  const task = tasks.get(id);
+  if (!task || !task.pausable) {
+    return false;
+  }
+  if (!task.stopping) {
+    log.info(`用户要求「${task.title}」做完这一项就停`, `已运行 ${formatDuration(Date.now() - task.startedAt)}`);
+    task.stopping = true;
+    notify();
+  }
+  return true;
 }
 
 /** 任务表有变化时回调（新增/进度/结束）。返回的 dispose 必须在宿主销毁时调用。 */
@@ -100,7 +154,7 @@ function notify(): void {
 export async function runTask<T>(
   title: string,
   fn: (ctx: TaskContext) => Promise<T>,
-  opts: { scope?: string } = {}
+  opts: { scope?: string; pausable?: boolean } = {}
 ): Promise<T> {
   const id = `task-${++counter}`;
   const scope = opts.scope ?? title;
@@ -118,7 +172,16 @@ export async function runTask<T>(
       hostSignal.addEventListener('abort', relay, { once: true });
     }
 
-    const state: TaskState = { id, title, message: '准备中…', elapsedMs: 0, startedAt, abort };
+    const state: TaskState = {
+      id,
+      title,
+      message: '准备中…',
+      elapsedMs: 0,
+      startedAt,
+      abort,
+      ...(opts.pausable ? { pausable: true, stopping: false } : {}),
+    };
+    let notice: TaskNotice | undefined;
     tasks.set(id, state);
     taskLog.info(`开始：${title}`);
     notify();
@@ -146,11 +209,28 @@ export async function runTask<T>(
     };
 
     try {
-      const result = await fn({ signal: abort.signal, report });
+      const result = await fn({
+        signal: abort.signal,
+        report,
+        stopRequested: () => !!state.stopping,
+        finish: (n) => {
+          notice = n;
+        },
+      });
       if (abort.signal.aborted) {
         taskLog.warn(`已取消：${title}`, `已运行 ${elapsed(startedAt)}`);
       } else {
         taskLog.info(`完成：${title}`, `耗时 ${elapsed(startedAt)}`);
+      }
+      if (notice) {
+        const done: TaskFinished = { ...notice, id, title };
+        for (const f of finishers) {
+          try {
+            f(done);
+          } catch {
+            /* 订阅者出错不影响任务本身 */
+          }
+        }
       }
       return result;
     } catch (err) {
