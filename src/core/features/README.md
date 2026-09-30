@@ -13,7 +13,7 @@
 | [novelConfig.ts](novelConfig.ts) | 小说配置的 JSON 合同：上游英文键 → `config.md` 七节与 frontmatter，「全局要求」4–8 条 600 字的质检，一句话弹窗时「保留原文，追加生成」的合并，规范化草稿（`config.md` 全文 + 一节文风）。 |
 | [structuredJson.ts](structuredJson.ts) | 结构化输出的 JSON 小工具：认出「语法坏了但值得修」的输出；校验修过的那份只改了标点（标量逐个一致，只许在末尾补闭合括号）；「唯一一个完整对象」。 |
 | [parse.ts](parse.ts) | 模型输出解析小工具：剥代码围栏、提取 JSON、字符串与数字去重、字符串数组归一。 |
-| [pipelineBatch.ts](pipelineBatch.ts) | ★ 工程页的三条批量动作：**补齐设定**（配置 → 前提 → 角色图谱 → 世界观，只补空白、严格串行）、**批量拆细纲**（区间里没有细纲的章每批 5 章、严格串行地走生成链，一批失败就停）、批量写正文（落同号章节并记 `writtenFrom`，仍按原样并发，四期改成严格串行）。**只补不改**，失败挂在那一行上。 |
+| [pipelineBatch.ts](pipelineBatch.ts) | ★ 工程页的三条批量动作：**补齐设定**（配置 → 前提 → 角色图谱 → 世界观，只补空白、严格串行）、**批量拆细纲**（区间里没有细纲的章每批 5 章、严格串行地走生成链，一批失败就停）、批量写正文（落同号章节并记 `writtenFrom`，仍按原样并发、一章一次调用、**不自动续写**——对话页的「写第 N 章」会续写到八成，这条路四期改成严格串行时一并接上续写链与重演检测；确认框照实说「一章 1 次」）。**只补不改**，失败挂在那一行上。 |
 | [summarize.ts](summarize.ts) | 单章摘要编排（从 `chapters/` 的正文生成；解析、批量同步、全书 map-reduce）。「定稿」本期就是它，四期再加更新角色「当前状态」。系统提示词在 [summarizePrompt.ts](summarizePrompt.ts)。 |
 | [summarizePrompt.ts](summarizePrompt.ts) | 单章摘要 / 阶段摘要 / 全书摘要三条系统提示。 |
 | [characters.ts](characters.ts) | 从选定的几段正文**批量**提取/更新角色卡。系统提示词在 [charactersPrompt.ts](charactersPrompt.ts)。 |

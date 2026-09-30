@@ -8,7 +8,8 @@
 |---|---|
 | [generate.ts](generate.ts) | ★ **无状态**：装配（`buildContext`）→ 调模型 → （需要时接生成链）→ 解析 → 产出一份 `Draft`（带 `range`、`notes`、`calls`）。收 `signal`，不自己管并发。另有 `previewContext`（只装配不调模型，面板的「预览上下文」）与 `parseDraftArtifact`（解析，不写盘）。 |
 | [structured.ts](structured.ts) | ★ **生成链**（二期，移植自 AI-Novel-Writer）：小说配置（截断整份重来、「全局要求」只重写这一节）、角色图谱（身份清单 → 每批 3 人补详情）、细纲批次（截断或解不出来时多章对半拆、单章紧凑重建，语法修复一次且只许改标点，漏章 fail-closed）。单步与批量共用，只在 `ChainIO` 上不同；每一次降级记进 `notes`。 |
-| [accept.ts](accept.ts) | ★ 落盘：按产物分派到六条落盘路径（架构文档 / 角色图谱 / 情节大纲 / 细纲 / 细纲批次 / 正文）。配置附带的文风只在 `style.md` 还是初始化模板时写过去；角色图谱新卡直接建、**同名的走覆盖审阅一张一审**；大纲带区间时只并进那一段，纯续写不审阅；细纲批次逐章落（排过的审阅、空壳按标题改名填上、没有的新建），再给新角色建卡（D19）；正文落**同号的章节**，然后在细纲上记 `writtenFrom`。`onlyBlank` 给批量路径用：作者写过的一个字都不动、不问。守卫、渲染、记账全在 `workspace/` 做一次，这里只做分派与人话消息。 |
+| [continuation.ts](continuation.ts) | ★ **正文的续写链**（三期，移植自上游 `extendDraftIfNeeded`）：被截断或不到目标的八成就续，最多 7 轮；被截断又没写出 300 字的那一轮丢弃、只给一次恢复；正常收尾又只多了几句就不再催；最后查一遍重演（`context/replay.ts`）。另有纯函数：该不该续、续出来的那段怎么接（去重叠、去整段重复、去「未完待续」一类话术）。见下文「写一章正文」。 |
+| [accept.ts](accept.ts) | ★ 落盘：按产物分派到六条落盘路径（架构文档 / 角色图谱 / 情节大纲 / 细纲 / 细纲批次 / 正文）。配置附带的文风只在 `style.md` 还是初始化模板时写过去；角色图谱新卡直接建、**同名的走覆盖审阅一张一审**；大纲带区间时只并进那一段，纯续写不审阅；细纲批次逐章落（排过的审阅、空壳按标题改名填上、没有的新建），再给新角色建卡（D19）；正文落**同号的章节**，按写法落（没有就新建、「接着写」追加、其余在已有正文时覆盖并审阅，标题行沿用原文件；没记写法的老草稿按覆盖审阅），然后在细纲上记 `writtenFrom`。`onlyBlank` 给批量路径用：作者写过的一个字都不动、不问。守卫、渲染、记账全在 `workspace/` 做一次，这里只做分派与人话消息。 |
 | [drafts.ts](drafts.ts) | ★ `DraftStore`：还没落盘的产物，内存按会话分桶 + 随会话 JSON 落盘。 |
 
 ## 三条硬约束
@@ -23,9 +24,7 @@
 
 ### 2. `cleanOutput` 只对正文层做
 
-```ts
-const raw = stage === 'manuscript' ? cleanOutput(full) : full.trim();
-```
+正文由续写链（`continuation.ts`）对每一轮的输出各跑一遍 `cleanOutput`，其余层 `full.trim()`。
 
 那几条正则是为正文写的（剥开场白、剥章节标题、剥结尾字数统计）。跑在 JSON 产物上会切坏结构——产物里的 ``` 由 `features/parse.ts` 的 `stripCodeFence` 在**解析时**处理，不在这里剥。
 
@@ -66,6 +65,17 @@ draft.target → accept(project, target, parseArtifact(action, 气泡里的文�
 
 链走不下去（清单不合格、漏章、修复改了内容……）抛 `ChainError`：已经收到的输出留在气泡里，报错，不出卡片，失败挂在那一章 / 那一件上。卡片上除了形状，还列出会新建的角色卡、这一轮调了几次模型、每一处降级（第 2 条）。
 
+## 写一章正文
+
+写正文也是一条链（`continuation.ts` 的 `completeManuscript`），与上面三条共用 `ChainIO`。
+
+- **写法**（`model/pipeline.ts` 的 `WriteMode`）由 `generate.ts` 的 `planWriting` 按磁盘定：这一章还没有正文 → `write`；请求明说接着写 → `continue`（只写新增的那一段，装配器带本章已写末尾）；其余 → `rewrite`（整章，上一版正文经 `revision` 层作底稿）。从前已有正文时一律追加，对话里发「写正文」就会把一整章叠到已有的后面。
+- **目标字数**：请求给的 → 细纲的 `targetWords` → 配置的每章字数（D6）。都没有时不自动续写。
+- **续写**：被截断、或总字数（`continue` 含已有的）不到目标的八成就续；每一轮带最后 1600 字、本章细纲、执行卡、后 5 章边界（装配器的精简配方）。轮与轮之间在气泡里只空一行；丢弃的那一轮经 `ChainIO.reset` 让气泡退回；流式期间约 300ms 报一次进度（`onProgress`，controller 转成 `writeProgress`）。
+- **比上游宽松：已写的不丢**。恢复那一轮仍没进展、最后仍被截断、最后仍不到八成、某一轮调用失败，都保留已写的并写进说明，卡片照样可以写入。只有「截断且正文不到 100 字」（思考把输出预算吃光）报错、不出卡片。作者自己点了停止照旧不出卡片。
+- **重演**：续写结束之后查一次（`continue` 不查），上一章结尾按磁盘现读。命中不拒收：Draft 带 `replay`，卡片标红、写入要点两下。
+- Draft 多带 `writeMode`、`length`（总字数、目标、新写多少、续写几轮、够不够八成）与 `replay`，随会话落盘——刷新之后再写入，「接着写」不会变成「覆盖」。
+
 ## 不在这里写装配
 
 `context/recipes.ts`、`context/prompts.ts`、`context/layers/`、`context/builder.ts`、`features/artifact.ts` 是装配与解析的唯一一份。生成链重新装配时也走 `buildContext`（换 `range` / `step` / `draftPlots`），不在这里手拼 prompt；只有语法修复与「全局要求」字段重写两条消息不经装配器——它们不需要上下文，给多了反而会让模型「顺手」补内容。
@@ -81,4 +91,4 @@ draft.target → accept(project, target, parseArtifact(action, 气泡里的文�
 
 ## 依赖关系
 
-依赖 `context/`（装配）、`llm/`（provider）、`workspace/`（落盘）、`features/artifact.ts`（解析）、`model/`、`runtime/`。被 `controller/chat.ts`（对话页）与 `shells/vscode/quickContinue.ts`（命令面板的快速续写）调用。**不认识 `agent/`**——依赖方向严格自下而上。
+依赖 `context/`（装配）、`llm/`（provider）、`workspace/`（落盘）、`features/artifact.ts`（解析）、`model/`、`runtime/`。被 `controller/chat.ts`（对话页）、`tools/novel/generate.ts`（agent）与 `shells/vscode/quickContinue.ts`（命令面板的快速续写，落在下一可写章）调用。**不认识 `agent/`**——依赖方向严格自下而上。

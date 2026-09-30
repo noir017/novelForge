@@ -22,10 +22,10 @@
 - **侧边栏折叠不丢状态**：`retainContextWhenHidden: true`，否则草稿和流式内容会丢。
 - **命令是兜底入口**：工程页上每个按钮都映射到一条 `novel.*` 命令（webview 只说「点了什么」），命令面板也能直达同一功能。
 - **输出面板最先建**：`registerOutputChannel` 是 `activate` 的第一句。迁移、配置读取这些在它之后才跑，但模块 import 期就可能打过日志了——所以它会先把缓冲里已有的补进面板，再挂 sink。面板里的内容与网页日志页是同一份，只是多一个能跟其他扩展并排看、能整段复制的入口（命令 `Novel: 显示输出面板日志`）。
-- **草稿开在旁边一栏**：`openBeside` 用 `ViewColumn.Beside`，它是相对**当前活动编辑器**的。从侧边栏点过来时最后活动的文本编辑器通常就是正文（`openFile` 把它放在第一栏），草稿于是落到第二栏；若此刻活动的是 `ChatPanel` 那个 tab，草稿就开在它旁边。够用，没去纠正。
+- **草稿与细纲开在旁边一栏**：`openBeside` 用 `ViewColumn.Beside`，它是相对**当前活动编辑器**的。从侧边栏点过来时最后活动的文本编辑器通常就是正文（`openFile` 把它放在第一栏），草稿于是落到第二栏；若此刻活动的是 `ChatPanel` 那个 tab，草稿就开在它旁边。够用，没去纠正。章节工作台（W6，工程页点章节行名）走的是同一对方法：core 的 `openChapter` 先 `openFile` 正文、再 `openBeside` 细纲，这个壳一行没改。编辑器上方那条章节条只在独立版有（这里没有内置编辑器），并排的两个编辑器加侧边栏的主按钮就是那一套。
 - **监听哪些文件不由这里决定**：`VsCodeHost.watch` 只负责机制（`createFileSystemWatcher` + `RelativePattern`），glob 清单来自 [../../core/watchPolicy.ts](../../core/watchPolicy.ts) 的 `watchGlobs`——独立版用同一份策略的另一种形态（事件过滤）。章节能是什么扩展名、草稿在哪，都是 core 的规则。
 - **弹窗与清单一律走 Host**：这一层不再直接调 `window.showQuickPick` / `show*Message`。「更新哪个角色」那份清单（含「＋N 章待读」的计算）在 [../../core/choices.ts](../../core/choices.ts)——它是业务知识，壳里抄一份就会与工程页上的同一行说明分叉。
-- **两处刻意留在壳里的原生流程**：[quickContinue.ts](quickContinue.ts)（流式写进一个 untitled 文档，是彻底的平台专属入口）与 `NO_WORKSPACE_HTML`（无工作区时的宿主占位视图，不加载脚本、CSP 收到最紧）。它们没有第二个壳需要复用，也没有业务判断藏在里面。
+- **两处刻意留在壳里的原生流程**：[quickContinue.ts](quickContinue.ts)（流式写进一个 untitled 文档，是彻底的平台专属入口；写的是全书状态机的**下一可写章**，接着那一章已写的末尾往下写，续写丢弃过的那一轮与收尾的去重靠完成时整份替换文档）与 `NO_WORKSPACE_HTML`（无工作区时的宿主占位视图，不加载脚本、CSP 收到最紧）。它们没有第二个壳需要复用，也没有业务判断藏在里面。
 
 ## 依赖关系
 
