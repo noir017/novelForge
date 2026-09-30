@@ -27,6 +27,7 @@ import {
   STAGE_QUESTION,
   chapterLabel,
   plotOfTarget,
+  describeCalls,
 } from '../protocol';
 import type {
   CreationStage,
@@ -286,12 +287,15 @@ function renderNextStep(): void {
     return;
   }
 
-  el.nextStepHint.textContent = next.hint;
+  // 调用次数写在动手之前（第 4 条、D16）：有自动修复的步骤连上限一起报。
+  el.nextStepHint.textContent = next.calls ? `${next.hint}（${describeCalls(next.calls)}）` : next.hint;
   setHidden(el.nextStepBtn, false);
-  el.nextStepBtn.textContent = next.label;
-  el.nextStepBtn.title = next.projectAction
-    ? '这一步是工程动作，不消耗对话上下文'
-    : `${STAGE_LABEL[next.stage]} · 点了立即执行，输入框里有字就一起带上`;
+  el.nextStepBtn.textContent = next.form ? `${next.label}…` : next.label;
+  el.nextStepBtn.title = next.form
+    ? '先填一句话与规模，再生成'
+    : next.projectAction
+      ? '这一步是工程动作，不消耗对话上下文'
+      : `${STAGE_LABEL[next.stage]} · 点了立即执行，输入框里有字就一起带上`;
   el.nextStepBtn.disabled = store.busy;
   el.nextStepBtn.onclick = () => {
     if (!store.busy && next) {

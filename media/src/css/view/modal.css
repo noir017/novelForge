@@ -95,3 +95,23 @@
 .pick-item:hover {
   background: var(--vscode-list-hoverBackground);
 }
+
+/* 通用表单弹窗（view/form.ts）：一句话、拆细纲。多行文本占满一行，数字框并排在下面。 */
+.nf-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nf-form .form-lead {
+  margin: 0;
+}
+
+.nf-form .form-note {
+  margin: 0;
+  min-height: 1.4em;
+}
+
+.nf-form .form-note.is-error {
+  color: var(--vscode-errorForeground, #f48771);
+}

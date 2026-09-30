@@ -10,6 +10,8 @@
  */
 export type {
   ArchitectureRow,
+  BookView,
+  IdeaDefaults,
   CastConflictView,
   CastEntry,
   CastSummary,
@@ -85,9 +87,16 @@ export {
   labelOf,
   outputKindOf,
   targetKey,
+  // 调用次数与批次切分：弹窗的实时说明与后端的确认框必须是同一个算法（第 4 条）。
+  CONFIG_CALLS,
+  PLOT_BATCH,
+  describeCalls,
+  planPlotBatches,
 } from '../../src/core/model/pipeline';
 export type {
   BookStage,
+  CallEstimate,
+  PlotBatchPlan,
   Capability,
   CreationAction,
   CreationStage,

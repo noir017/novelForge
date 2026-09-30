@@ -320,6 +320,11 @@ function sampleTree() {
     initialized: true, title: '测试', author: '甲',
     plotCount: 5, chapterCount: 3, totalWords: 3580, staleCount: 1,
     summarizedCount: 2, bookStage: 'writing', nextChapterNo: 4,
+    // 一句话、拆细纲两个弹窗的默认值。第 1、3、4 章排过细纲，大纲覆盖到第 20 章。
+    book: {
+      idea: '一个从火里活下来的人回到起火的地方。', totalChapters: 30, wordsPerChapter: 400,
+      configHasContent: true, outlineCoverage: 20, plotFilledNos: [1, 3, 4],
+    },
     plotsRoot: '.novelforge/plots',
     chaptersRoot: 'chapters', charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
     globalSummaryThrough: 2, styleGuidePath: '.novelforge/style.md',

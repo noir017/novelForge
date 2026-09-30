@@ -49,6 +49,7 @@ import { renderTasks } from './tasks';
 import { countWords } from './format';
 import { exposeToast, toast } from './toast';
 import { installFolderPicker } from './folderPicker';
+import { installForm } from './form';
 import { applyWorkspaces, installWelcome } from './welcome';
 import { onMessage } from '../vscodeApi';
 
@@ -66,6 +67,7 @@ installNewSession();
 installRenamePlot();
 bindCommandPick(setPendingCommand);
 installProject();
+installForm();
 installLogs();
 installSettings();
 installWorkbench();

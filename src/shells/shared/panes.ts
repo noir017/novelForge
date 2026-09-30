@@ -164,6 +164,9 @@ export function chatPane(opts: PaneOptions = {}): string {
 export function projectPane(): string {
   return `<section class="pane" id="pane-project">
   <div class="project-toolbar" id="projectToolbar">
+    <!-- 两个批量入口（W5）。「补齐设定」只补空白、先问；「拆细纲…」先开弹窗选区间。 -->
+    <button class="chip-btn" data-action="completeSettings" title="配置、前提、角色图谱、世界观：只补还没有的，已有的不动">补齐设定</button>
+    <button class="chip-btn" data-form="plotBatch" title="选一段章号，把还没有细纲的章拆出来（每批 5 章）">拆细纲…</button>
     <button class="chip-btn" data-action="newPlot">＋ 新建细纲</button>
     <button class="chip-btn" data-action="newCharacter">＋ 角色卡</button>
     <button class="chip-btn" data-action="newLore">＋ 设定</button>

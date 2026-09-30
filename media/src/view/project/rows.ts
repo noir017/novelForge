@@ -25,6 +25,7 @@ import type {
   ProjectTree,
 } from '../../protocol';
 import { formatWords } from '../format';
+import { openIdeaForm } from '../forms';
 import { onContextMenu } from '../menu';
 import { openPath, vscode } from '../store';
 import {
@@ -280,8 +281,12 @@ export function buildPlotRows(plots: ProjectPlotNode[], nextNo: number): HTMLEle
  *
  * 点名字打开那份文件；角色图谱没有自己的文件，点它进入那一层（对话页的主按钮
  * 会是「生成角色图谱」或针对它的讨论）。右键「进入这一层」去生成或重写。
+ *
+ * **第一件还没填的**在行尾多一个「去生成」（与章节组的「去写这一章」同一个道理：
+ * 扫一眼就知道从哪接着做，全组只有这一行有）。小说配置那一行直接打开一句话弹窗；
+ * 其余几行进入那一层，真正花钱的那一下仍是对话页的主按钮（第 20 条：只推一个）。
  */
-function buildArchitectureRow(a: ArchitectureRow): HTMLElement {
+function buildArchitectureRow(a: ArchitectureRow, isNext: boolean, tree?: ProjectTree): HTMLElement {
   const row = mk('div', 'row row-plot row-architecture');
   row.style.paddingLeft = `${indentOf(0)}px`;
 
@@ -304,8 +309,24 @@ function buildArchitectureRow(a: ArchitectureRow): HTMLElement {
     row.appendChild(mk('span', 'meta row-detail', a.detail));
   }
 
+  const idea = () => openIdeaForm(tree?.book);
+  if (isNext) {
+    const go = mk('button', 'chip-btn row-go', '去生成');
+    go.title = a.key === 'config' ? '写一句话与规模，生成小说配置' : '进入这一层：对话页的主按钮就是生成它';
+    go.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (a.key === 'config') {
+        idea();
+      } else {
+        setTarget(target);
+      }
+    });
+    row.appendChild(go);
+  }
+
   onContextMenu(row, () => [
     ...(a.key === 'characters' ? [] : [{ label: '打开', run: () => openPath(a.relPath) }]),
+    ...(a.key === 'config' ? [{ label: '从一句话生成…', run: idea }] : []),
     { label: a.filled ? '进入这一层（讨论 / 重写）' : '进入这一层（去生成）', run: () => setTarget(target) },
     { sep: true },
     ...baseMenuItems(),
@@ -313,9 +334,13 @@ function buildArchitectureRow(a: ArchitectureRow): HTMLElement {
   return row;
 }
 
-/** 「故事架构」组的全部行。顺序即生成顺序：每一件都吃前面几件。 */
-export function buildArchitectureRows(rows: ArchitectureRow[]): HTMLElement[] {
-  return rows.map(buildArchitectureRow);
+/**
+ * 「故事架构」组的全部行。顺序即生成顺序：每一件都吃前面几件——所以「去生成」
+ * 只挂在第一件没填的那一行上。
+ */
+export function buildArchitectureRows(rows: ArchitectureRow[], tree?: ProjectTree): HTMLElement[] {
+  const next = rows.findIndex((r) => !r.filled);
+  return rows.map((r, i) => buildArchitectureRow(r, i === next, tree));
 }
 
 /** 三段完成度，鼠标移上去看得见。 */

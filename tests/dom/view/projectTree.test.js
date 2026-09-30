@@ -158,11 +158,25 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
     assert.equal(row('世界观').querySelector('.row-detail')?.textContent, '待生成', row('世界观').outerHTML);
   });
 
-  // 架构行复用章节行的样式，但它们不是一章：不带 data-plot（摘要浮窗认的就是它），
-  // 也不挂「去写这一章」。
+  // 架构行复用章节行的样式，但它们不是一章：不带 data-plot（摘要浮窗认的就是它）。
   test('架构行不带章节行的抓手', () => {
-    assert.ok(rows().every((r) => r.dataset.plot === undefined && !r.querySelector('.row-go')),
-      rows().map((r) => r.outerHTML).join('\n'));
+    assert.ok(rows().every((r) => r.dataset.plot === undefined), rows().map((r) => r.outerHTML).join('\n'));
+  });
+
+  // 与「去写这一章」同一个道理：第一件还没填的那一行给「去生成」，全组只有这一颗。
+  test('只有第一件没填的那一行有「去生成」', () => {
+    const go = rows().filter((r) => r.querySelector('.row-go'));
+    assert.equal(go.length, 1, String(go.length));
+    assert.equal(go[0], row('世界观'));
+    assert.equal(go[0].querySelector('.row-go').textContent, '去生成');
+  });
+
+  // 它只是「进入这一层」：真正花钱的那一下仍是对话页的主按钮。
+  test('点「去生成」进入那一层，不直接开写', () => {
+    ui.sent.length = 0;
+    ui.clickEl(row('世界观').querySelector('.row-go'));
+    assert.equal(JSON.stringify(ui.last('setTarget')?.target), JSON.stringify({ kind: 'setting', doc: 'world' }), JSON.stringify(ui.sent));
+    assert.ok(!ui.sent.some((m) => m.type === 'send'), JSON.stringify(ui.sent));
   });
 
   // 点名字 = 打开那份文件，与章节行同一个习惯。
@@ -241,7 +255,8 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
 describe('章节组：一个章号一行', { skip: JSDOM_SKIP }, () => {
   let ui;
   const plotRow = (text) => chapterRowsOf(ui).find((n) => n.textContent.includes(text));
-  const goBtns = () => [...ui.doc.querySelectorAll('#projectBody .row-go')];
+  // 只数章节行上的：故事架构那一组有自己的「去生成」。
+  const goBtns = () => [...ui.doc.querySelectorAll('#projectBody .row-plot:not(.row-architecture) .row-go')];
   const metaOf = (text) => plotRow(text).querySelector('.meta').textContent;
   const plotGroupMeta = () =>
     [...ui.doc.querySelectorAll('#projectBody .group-head')]
@@ -412,8 +427,9 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     ui.post({ type: 'project', tree: sampleTree() });
   });
 
-  // 页面整洁：故事架构 / 章节 / 角色三个区的行不挂行内操作按钮。唯一的例外是
-  // 下一个该写的章那颗「去写这一章」（W2）——全书只有一颗，不会变成一排按钮。
+  // 页面整洁：故事架构 / 章节 / 角色三个区的行不挂行内操作按钮。例外只有两颗：
+  // 下一个该写的章那颗「去写这一章」与第一件没填的架构文档那颗「去生成」（W2）
+  // ——各自全组只有一颗，不会变成一排按钮。
   // （「文风与摘要」不是文件管理区，它的「重建」「从正文提取」链接照旧留在行内。）
   test('树上的行没有行内操作区', () => {
     const treeRows = [...ui.doc.querySelectorAll('#projectBody .group')]
@@ -423,11 +439,11 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
       `${treeRows.length} 行`);
   });
 
-  test('树上的行里唯一的按钮是「去写这一章」', () => {
+  test('树上的行里只有「去生成」与「去写这一章」两颗按钮', () => {
     const buttons = [...ui.doc.querySelectorAll('#projectBody .group')]
       .slice(0, 3)
       .flatMap((g) => [...g.querySelectorAll('.row button')]);
-    assert.deepEqual(buttons.map((b) => b.textContent), ['去写这一章']);
+    assert.deepEqual(buttons.map((b) => b.textContent), ['去生成', '去写这一章']);
   });
 
   test('分组标题栏不再有「＋」按钮', () => {
@@ -737,7 +753,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
       .find((n) => n.querySelector('.group-name').textContent === '章节');
     plotGroupItems = ui.itemsOf(ui.rightClick(plotHead));
     for (const label of ['新建细纲（接在最后一章之后）', '新建章节文件（直接粘正文用）',
-      '批量写细纲（只补缺）', '批量写正文（只补缺）']) {
+      '批量拆细纲…', '批量写正文（只补缺）']) {
       assert.ok(plotGroupItems.includes(label), JSON.stringify(plotGroupItems));
     }
   });
@@ -755,7 +771,6 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   for (const [label, action] of [
     ['新建细纲（接在最后一章之后）', 'newPlot'],
     ['新建章节文件（直接粘正文用）', 'newChapter'],
-    ['批量写细纲（只补缺）', 'generatePlots'],
     ['批量写正文（只补缺）', 'writeManuscripts'],
   ]) {
     test(`「${label}」发 ${action}`, () => {

@@ -1026,7 +1026,7 @@ describe('选中一章进入当前阶段', { skip: JSDOM_SKIP }, () => {
   test('「去写这一章」与「进入这一章」发的是同一条', () => {
     const viaMenu = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
     ui.sent.length = 0;
-    ui.clickEl(ui.doc.querySelector('#projectBody .row-go'));
+    ui.clickEl(ui.doc.querySelector('#projectBody .row-plot:not(.row-architecture) .row-go'));
     const viaButton = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
     assert.equal(viaButton?.plotRelPath, viaMenu?.plotRelPath, JSON.stringify(ui.sent));
   });

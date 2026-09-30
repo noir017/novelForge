@@ -31,6 +31,7 @@ import {
   syncCommandPalette,
   toggleCommands,
 } from './commands';
+import { openIdeaForm } from './forms';
 import { scrollToBottom } from './messages';
 import { el } from './refs';
 import { persistDraft, store, vscode, hasWorkspace } from './store';
@@ -175,6 +176,11 @@ function send(): void {
  */
 export function runNextStep(step: NextStepView): void {
   if (store.busy || !hasWorkspace()) {
+    return;
+  }
+  // 「生成小说配置」要作者先给一句话与规模：打开表单，提交时才发送（W4）。
+  if (step.form === 'idea') {
+    openIdeaForm(step.formDefaults);
     return;
   }
   if (step.projectAction) {

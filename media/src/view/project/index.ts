@@ -26,6 +26,7 @@ import {
   emptyRow,
   renderNodes,
 } from './rows';
+import { openIdeaForm, openPlotBatchForm } from '../forms';
 import { hideDetailTip, installDetailTip } from './detailTip';
 import { hideFailureTip, installFailureTip } from './errorTip';
 import { hideSummaryTip, installSummaryTip } from './summaryTip';
@@ -52,7 +53,13 @@ export function renderProject(tree: ProjectTree): void {
   const filled = tree.architecture.filter((a) => a.filled).length;
   el.projectBody.appendChild(
     buildGroup('architecture', '故事架构', `${filled}/${tree.architecture.length}`, {
-      build: () => buildArchitectureRows(tree.architecture),
+      extraItems: () => [
+        { label: '从一句话生成小说配置…', run: () => openIdeaForm(tree.book) },
+        // 只补空白：已经有的那几件不动、不问（第 19 条的批量那一面）。
+        { label: '补齐设定（只补空白）', run: () => projectAction('completeSettings') },
+        { sep: true },
+      ],
+      build: () => buildArchitectureRows(tree.architecture, tree),
     })
   );
 
@@ -63,8 +70,8 @@ export function renderProject(tree: ProjectTree): void {
         { label: '新建细纲（接在最后一章之后）', run: () => projectAction('newPlot') },
         { label: '新建章节文件（直接粘正文用）', run: () => projectAction('newChapter') },
         { sep: true },
-        // 两个批量动作都「只补不改」：已经有产物的章一律跳过。
-        { label: '批量写细纲（只补缺）', run: () => projectAction('generatePlots') },
+        // 两个批量动作都「只补不改」：已经有产物的章一律跳过。拆细纲先开弹窗选区间。
+        { label: '批量拆细纲…', run: () => openPlotBatchForm(tree) },
         { label: '批量写正文（只补缺）', run: () => projectAction('writeManuscripts') },
         { sep: true },
       ],
@@ -147,6 +154,11 @@ export function installProject(): void {
   installFailureTip();
 
   el.projectToolbar.addEventListener('click', (e) => {
+    const form = closestFrom<HTMLElement>(e.target, '[data-form]');
+    if (form?.dataset.form === 'plotBatch' && lastTree) {
+      openPlotBatchForm(lastTree);
+      return;
+    }
     const btn = closestFrom<HTMLElement>(e.target, '[data-action]');
     if (btn?.dataset.action) {
       projectAction(btn.dataset.action as Parameters<typeof projectAction>[0]);
