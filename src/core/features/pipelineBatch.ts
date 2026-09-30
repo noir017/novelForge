@@ -380,9 +380,10 @@ function poolIO(
  * 除了调用次数还报出预计总字数——那个数字比「40 次调用」更能让人意识到
  * 这一下要花多少钱。
  *
- * **一章一次调用**。写不够长是可能的（`targetWords` 那条判据会把它留在「待写正文」，
- * 见 model/pipeline.ts 的 `manuscriptRatio`），那时作者在创作页点「接着写」；
- * 自动续写到目标字数是三期的事。**批量路径只补空白**。
+ * **一章一次调用，不自动续写**。对话页的「写第 N 章」会续写到目标字数的八成
+ * （generation/continuation.ts），这条批量路径还没接上：它四期要整个重写成严格串行
+ * （写一章 → 落盘 → 定稿 → 下一章，D10），续写链与重演检测那时一并接。写不够长的章
+ * 留在「待写正文」（`manuscriptRatio`），作者在创作页点「接着写」。**批量路径只补空白**。
  */
 export async function writeManuscripts(project: NovelProject): Promise<number> {
   const [plots, chapters, book] = await Promise.all([
@@ -420,7 +421,7 @@ export async function writeManuscripts(project: NovelProject): Promise<number> {
   const config = readConfig();
   const lanes = Math.min(config.concurrency, pending.length);
   const confirm = await getHost().confirm(
-    `有 ${pending.length} 章的细纲已排好但还没写正文，需要调用 ${pending.length} 次模型。现在写？`,
+    `有 ${pending.length} 章的细纲已排好但还没写正文，需要调用 ${pending.length} 次模型（一章 1 次）。现在写？`,
     ['开始写作'],
     {
       modal: true,
@@ -428,6 +429,7 @@ export async function writeManuscripts(project: NovelProject): Promise<number> {
         `${describeTaskModels(config, 'manuscript')}\n` +
         `预计产出约 ${Math.round(wordsTotal / 1000)} 千字。\n` +
         (lanes > 1 ? `并发 ${lanes} 章。` : '串行逐章处理（并发数为 1）。') +
+        '\n批量写正文不自动续写：写不够目标字数的章，之后在创作页点「接着写」。' +
         '\n已经写过正文的章不会被改动。' +
         (noPlot > 0 ? `\n另有 ${noPlot} 章还没排细纲，这次跳过。` : ''),
     }

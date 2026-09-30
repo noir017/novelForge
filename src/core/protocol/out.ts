@@ -44,6 +44,16 @@ export type OutMessage =
   | { type: 'toolDelta'; turnId: string; callId: string; text: string }
   | { type: 'reasoning'; turnId: string; text: string }
   /**
+   * 写正文的进度（W7）：第几轮（0 = 第一次调用，k = 自动续写第 k 轮）、这一章写到多少字了、
+   * 目标多少。流式期间约 300ms 一次。前端在流式气泡顶上画一条进度。
+   */
+  | { type: 'writeProgress'; turnId: string; round: number; words: number; target?: number }
+  /**
+   * 流式气泡退回到这一份文字：正文续写丢弃了一轮（被截断又没写出东西），那一轮已经流进
+   * 气泡里了，不退回去作者看着的是一段不会被写入的文字。
+   */
+  | { type: 'streamReset'; turnId: string; text: string }
+  /**
    * agent 循环开了新的一步。前端画一行「第 N 步」。
    *
    * 与 `runTask` 的进度条不冲突：那个说的是「这个长任务跑了多久」，
@@ -114,6 +124,16 @@ export type OutMessage =
       argsText?: string;
       proceed: string;
       skip: string;
+      /**
+       * 要作者特别留意的一句（画成红色块）。目前只有正文重演：开头与上一章结尾大段重合，
+       * 这里是重合的那一段原文。
+       */
+      danger?: string;
+      /**
+       * 给了就要点两下才算同意：第一下把按钮上的字换成它，第二下才发出去。按钮文案两段式，
+       * 不叠弹窗（总计划 §2.4）。
+       */
+      confirm?: string;
     }
   /**
    * 那张卡片可以收了：作者在另一个视图上答了，或者这一轮被取消/结束了。

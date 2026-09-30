@@ -90,6 +90,10 @@ export interface GateAsk {
   proceed?: string;
   /** 拒绝那颗按钮上的字。缺省是「跳过」。 */
   skip?: string;
+  /** 红色块里的那一句（见协议 `gate.danger`）。 */
+  danger?: string;
+  /** 给了就要点两下才算同意，第二下按钮上是这几个字（见协议 `gate.confirm`）。 */
+  confirm?: string;
 }
 
 /**
@@ -114,6 +118,8 @@ export function askGate(c: ChatController, ask: GateAsk, signal?: AbortSignal): 
     // 话，改了文案就对不上了。
     proceed: ask.proceed ?? PROCEED_ACTION,
     skip: ask.skip ?? SKIP_ACTION,
+    ...(ask.danger ? { danger: ask.danger } : {}),
+    ...(ask.confirm ? { confirm: ask.confirm } : {}),
   };
 
   return new Promise<GateVerdict>((resolve) => {

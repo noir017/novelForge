@@ -358,6 +358,20 @@ export interface SerializedArtifact {
   notes?: string[];
   /** 这一轮一共调了几次模型。 */
   calls?: number;
+  /** 正文写了多长（W7）：这一章写完后的总字数、目标、这一次新写的、续写了几轮、够不够八成。 */
+  length?: WriteLength;
+  /** 正文开头与上一章结尾重合的那一段原文（重演）。卡片标红，写入要点两下。 */
+  replay?: string;
+  /** 正文是追加在这一章末尾（「接着写」），不是整章写入。 */
+  append?: boolean;
+}
+
+export interface WriteLength {
+  words: number;
+  target?: number;
+  added: number;
+  rounds: number;
+  reached: boolean;
 }
 
 export interface SerializedDigest {

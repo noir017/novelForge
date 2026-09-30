@@ -109,7 +109,7 @@ export const generateTool: ToolDef = {
       target: str('要生成的那份产物的工程内相对路径。'),
       capability: str(`要它干什么。${describeCapabilities()}`, CAPABILITIES),
       ask: str('补充要求，可留空。留空时按上一层的产物照常生成。'),
-      targetWords: int('目标字数，只对正文层有意义。留空不限。'),
+      targetWords: int('目标字数，只对正文层有意义。留空取细纲的目标字数，再没有取小说配置的每章字数；不到八成会自动续写。'),
     },
     ['target', 'capability']
   ),

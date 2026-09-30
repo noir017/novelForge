@@ -129,6 +129,12 @@ export interface ChatTurn {
     notes?: string[];
     /** 这一轮一共调了几次模型。 */
     calls?: number;
+    /** 正文写了多长（与 `SessionDraft.length` 同形）。 */
+    length?: { words: number; target?: number; added: number; rounds: number; reached: boolean };
+    /** 正文开头与上一章结尾重合的那一段原文。 */
+    replay?: string;
+    /** 正文是追加在这一章末尾（「接着写」）。 */
+    append?: boolean;
   };
   /**
    * 仅 assistant 轮：这一轮**按发生顺序**排下来的段——它说的话与它做的事交替。

@@ -41,6 +41,7 @@ import {
   NextStepView,
   SendPayload,
   SerializedArtifact,
+  WriteLength,
 } from '../protocol';
 import { buildPlotPipelineView, ideaDefaultsOf } from '../views/projectView';
 import { buildBookFacts, buildPlotPipeline, chapterOfPlotNo } from '../views/pipeline';
@@ -221,6 +222,9 @@ export async function runTurn(
         onCancelled: () => {
           assistantTurn.interrupted = true;
         },
+        // 写正文时气泡顶上那条进度（W7）：第几轮、写到多少字、目标多少。
+        onProgress: (p) => c.post({ type: 'writeProgress', turnId: assistantTurn.id, ...p }),
+        onReset: (full) => c.post({ type: 'streamReset', turnId: assistantTurn.id, text: full }),
       },
       // 作者在这个会话上选的那一档。第 12 条的另一面：**只有对话页选定的
       // 那个模型**吃它，工程页的批量任务不吃。
@@ -252,6 +256,7 @@ export async function runTurn(
       ...(creates.length > 0 ? { creates } : {}),
       ...(draft.notes?.length ? { notes: draft.notes } : {}),
       ...(draft.calls ? { calls: draft.calls } : {}),
+      ...writingOf(draft),
     };
   }
   if (assistantTurn.error) {
@@ -301,7 +306,7 @@ export async function runTurn(
 export async function describeArtifactOf(
   c: ChatController,
   content: string,
-  draft?: Pick<Draft, 'action' | 'target' | 'range' | 'notes' | 'calls' | 'writeMode'>
+  draft?: Pick<Draft, 'action' | 'target' | 'range' | 'notes' | 'calls' | 'writeMode' | 'length' | 'replay'>
 ): Promise<SerializedArtifact | undefined> {
   const action = draft?.action ?? { stage: c.current.stage, capability: c.current.capability };
   const target = draft?.target ?? c.current.target;
@@ -320,6 +325,16 @@ export async function describeArtifactOf(
     ...(creates.length > 0 ? { creates } : {}),
     ...(draft?.notes?.length ? { notes: draft.notes } : {}),
     ...(draft?.calls ? { calls: draft.calls } : {}),
+    ...(draft ? writingOf(draft) : {}),
+  };
+}
+
+/** 正文那几样要摊在卡片上的事：写了多长、是不是追加、有没有重演上一章结尾（W7）。 */
+function writingOf(draft: Pick<Draft, 'length' | 'replay' | 'writeMode'>): Partial<SerializedArtifact> {
+  return {
+    ...(draft.length ? { length: draft.length } : {}),
+    ...(draft.replay ? { replay: draft.replay } : {}),
+    ...(draft.writeMode === 'continue' ? { append: true } : {}),
   };
 }
 
@@ -468,7 +483,7 @@ export async function askArtifact(
   }
 ): Promise<{ verdict: GateVerdict; relPath?: string; message: string }> {
   const { art, draft } = ask;
-  const what = art.overwrites ? '覆盖' : '写入';
+  const what = art.overwrites ? '覆盖' : art.append ? '追加' : '写入';
   const verdict = await askGate(
     c,
     {
@@ -478,6 +493,14 @@ export async function askArtifact(
       title: `${ask.byAgent ? 'Agent 要把生成的产物' : '把这份产物'}${what}到「${art.where}」`,
       detail: artifactDetail(art),
       skip: '不采纳',
+      // 重演上一章结尾：标红、写明重合的原句，写入要点两下（总计划 §2.4）。不替作者拒收——
+      // 有时重合的是一句刻意呼应的台词。
+      ...(art.replay
+        ? {
+            danger: `开头与上一章结尾大段重合，可能把上一章最后一场又演了一遍：\n「${clipQuote(art.replay)}」`,
+            confirm: '确定仍要写入',
+          }
+        : {}),
     },
     ask.signal
   );
@@ -527,6 +550,9 @@ export async function askArtifact(
  */
 function artifactDetail(art: SerializedArtifact): string {
   const lines = [art.summary];
+  if (art.length) {
+    lines.push(describeLength(art.length, art.append));
+  }
   if (art.creates?.length) {
     lines.push(`会新建角色卡：${art.creates.join('、')}`);
   }
@@ -534,12 +560,30 @@ function artifactDetail(art: SerializedArtifact): string {
     lines.push('那里已经有内容了，写入前会让你先对比一遍。');
   }
   if (art.calls && art.calls > 1) {
-    lines.push(`这一轮一共调了 ${art.calls} 次模型。`);
+    const rounds = art.length?.rounds ? `（续写 ${art.length.rounds} 轮）` : '';
+    lines.push(`这一轮一共调了 ${art.calls} 次模型${rounds}。`);
   }
   for (const note of art.notes ?? []) {
     lines.push(`· ${note}`);
   }
   return lines.join('\n');
+}
+
+/**
+ * 「2980 / 3000 字 · 已达标」「1900 / 3000 字 · 未写够」。接着写时说清是追加：
+ * 已有多少、新写多少——作者要知道点下去之后这一章是多长。
+ */
+export function describeLength(len: WriteLength, append?: boolean): string {
+  const head = len.target ? `${len.words} / ${len.target} 字` : `${len.words} 字`;
+  const verdict = len.target ? (len.reached ? ' · 已达标' : ' · 未写够（不到目标的八成）') : '';
+  const extra = append ? `（已有 ${len.words - len.added} 字，这一次新写 ${len.added} 字，追加在末尾）` : '';
+  return `${head}${verdict}${extra}`;
+}
+
+/** 重演的那一段太长时只摊开头：卡片上放不下一整段，作者认得出是哪一段就够了。 */
+function clipQuote(text: string, max = 120): string {
+  const one = text.replace(/\s+/g, ' ').trim();
+  return one.length > max ? `${one.slice(0, max)}…` : one;
 }
 
 /**

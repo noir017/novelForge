@@ -458,10 +458,10 @@ describe('写正文 → 当场问一句 → 落到同号章节', () => {
     assert.ok(r.gate, JSON.stringify(posted.map((m) => m.type)));
   });
 
-  // 新写与接着写都不吞掉已有的东西——卡片上说「写入」，不吓唬人说「覆盖」。
-  test('新写与接着写：卡片说的是写入，不是覆盖', () => {
+  // 新写与接着写都不吞掉已有的东西——卡片上不吓唬人说「覆盖」；接着写说清是「追加」。
+  test('新写说写入、接着写说追加，都不说覆盖', () => {
     assert.ok(r.gate.title.includes('写入到'), r.gate.title);
-    assert.ok(again.gate.title.includes('写入到'), again.gate.title);
+    assert.ok(again.gate.title.includes('追加到'), again.gate.title);
   });
 
   test('重写：卡片说覆盖，并说写入前会先对比', () => {
