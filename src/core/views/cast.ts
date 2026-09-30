@@ -212,6 +212,20 @@ function indexCards(cards: readonly CharacterCard[]): {
   return { cardByName, conflicts };
 }
 
+/**
+ * 「摘要里的一位出场人物 → 他的角色卡」，与 {@link buildCastIndex} 同一张表（正式名压过别名、
+ * 泛称先滤掉）。定稿更新角色状态时用：本章摘要说谁出场了，就给谁的卡更新——两处认人
+ * 的规则一旦分叉，出场统计说他在、状态却没人更新。
+ */
+export function cardLookup(cards: readonly CharacterCard[]): (entry: SummaryCast | string) => CharacterCard | undefined {
+  const { cardByName } = indexCards(cards);
+  return (entry) => {
+    const name = typeof entry === 'string' ? entry : entry.name;
+    const aliases = typeof entry === 'string' ? [] : sanitizeAliases(entry.aliases, entry.name);
+    return cardByName.get(normalizeName(name)) ?? aliases.map((a) => cardByName.get(normalizeName(a))).find(Boolean);
+  };
+}
+
 /** 某个角色的出场章号。找不到（名字对不上任何摘要）时返回空数组。 */
 export function appearancesOf(index: CastIndex, card: CharacterCard): number[] {
   return index.known.find((m) => m.card?.slug === card.slug)?.plots ?? [];

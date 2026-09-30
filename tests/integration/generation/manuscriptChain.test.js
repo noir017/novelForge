@@ -15,7 +15,7 @@
  * | 第 2 章的装配：上一章结尾不许重演、后几章作边界、执行卡带钩子、全局要求 | 总计划 §2.3 |
  * | 第 2 章被截断，自动续写一轮 | §2.4 |
  * | 第 3 章开头重演了第 2 章结尾：卡片标红、写入要点两下 | §2.4：不替作者拒收 |
- * | 一共调了几次 | 第 4 条：二期 7 次 + 1 + 1 + 2 + 1 + 1 = 13 |
+ * | 一共调了几次 | 第 4 条：二期 7 次 + 1 + 2 + 2 + 2 + 1 = 15（定稿是摘要 + 角色状态两次） |
  * | 一张覆盖审阅都没弹 | 新章都是新建，没有东西可吞 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -109,6 +109,9 @@ function reply(messages) {
   if (system.includes('建立可检索的章节档案')) {
     const no = Number(/第 (\d+) 章/.exec(user)?.[1] ?? 0);
     return SUMMARY_JSON(no);
+  }
+  if (system.includes('依据本章正文更新角色的「当前状态」')) {
+    return JSON.stringify({ updates: [{ name: '林昭', 当前状态: '在青崖镇，离真相近了一步。' }] });
   }
   if (user.includes('请无缝续写当前章节正文')) {
     return { text: filler(500, 202), stop: 'end' };
@@ -276,9 +279,10 @@ describe('三期验收：一句话 → 写完前 3 章', () => {
     }
   });
 
-  // 第 4 条：二期 7 次 + 第 1 章 1 + 定稿 1 + 第 2 章 2（截断续写一轮）+ 定稿 1 + 第 3 章 1。
-  test('一共调了 13 次模型', () => {
-    assert.equal(fake.callCount(), 13);
+  // 第 4 条：二期 7 次 + 第 1 章 1 + 定稿 2 + 第 2 章 2（截断续写一轮）+ 定稿 2 + 第 3 章 1。
+  // 定稿两次：摘要一次，林昭有角色卡、再更新一次角色状态（四期，D17）。
+  test('一共调了 15 次模型', () => {
+    assert.equal(fake.callCount(), 15);
   });
 
   test('三章都落在 chapters/，标题取细纲的，正文写了进去', async () => {

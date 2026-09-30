@@ -32,7 +32,8 @@ import { objectSchema, str } from '../schema';
 import { text } from './naming';
 import { newPlotFlow } from '../../actions';
 import { generatePlots, writeManuscripts } from '../../features/pipelineBatch';
-import { chapterForSummary, summarizeChapter, syncSummaries } from '../../features/summarize';
+import { chapterForSummary, syncSummaries } from '../../features/summarize';
+import { describeFinalize, finalizeChapter } from '../../features/finalize';
 import { createCardForCast, updateCharacterCard } from '../../features/characterCard';
 import { extractStyle } from '../../features/style';
 import { generateLore } from '../../features/lore';
@@ -75,7 +76,7 @@ const ACTIONS: Record<string, ActionSpec> = {
 
   // ---- 花钱的：确认框全在 feature 自己那里，这里只转发
   summarize: {
-    label: '给某一章定稿（生成摘要）',
+    label: '给某一章定稿（摘要与连续性事实，再更新出场角色的当前状态）',
     costly: true,
     needsField: 'path',
     needs: 'path=那一章的章节路径或细纲路径',
@@ -84,14 +85,13 @@ const ACTIONS: Record<string, ActionSpec> = {
       if (!chapter) {
         throw new Error(`${args.path} 这一章还没有正文，没有可定稿的东西。摘要描述的是写出来的那一章。`);
       }
-      const ok = await summarizeChapter(ctx.project, chapter, undefined, ctx.signal);
-      return {
-        text: ok
-          ? `第 ${chapter.order} 章的摘要已生成。`
-          : `第 ${chapter.order} 章的摘要没有生成（没有可用的模型，或这一章是空的）。`,
-        // 请求发出去了钱就花了，成不成都记账。
-        calls: 1,
-      };
+      const outcome = await finalizeChapter(ctx.project, chapter, { signal: ctx.signal });
+      return outcome
+        ? { text: describeFinalize(chapter.order, outcome), calls: outcome.calls }
+        : {
+            text: `第 ${chapter.order} 章没有定稿（没有可用的模型，或这一章是空的）。`,
+            calls: 0,
+          };
     },
   },
   syncSummaries: {

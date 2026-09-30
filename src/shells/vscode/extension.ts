@@ -9,10 +9,10 @@ import { updateCharacterCard } from '../../core/features/characterCard';
 import { generateLore } from '../../core/features/lore';
 import { newFolder, sectionRoots } from '../../core/files/fileOps';
 import { extractStyle } from '../../core/features/style';
-import { rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../../core/features/summarize';
+import { rebuildGlobalSummary, syncSummaries } from '../../core/features/summarize';
+import { finalizeChapterTask } from '../../core/features/finalize';
 import { getHost, initHost } from '../../core/host';
 import { addLogSink, describeError, formatLogEntry, recentLogs, scoped } from '../../core/runtime/logger';
-import { runTask } from '../../core/runtime/progress';
 import { clearApiKey, initSecrets, pickModelRef, promptForApiKey, registerProviderFactory } from '../../core/llm/registry';
 import { NovelProject } from '../../core/model/project';
 import { providerLabel } from '../../core/model/providers';
@@ -267,19 +267,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
 
-    await runTask(
-      `总结第 ${chapter.order} 章`,
-      async ({ signal, report }) => {
-        report({ message: `《${chapter.title}》`, current: 0, total: 1 });
-        const ok = await summarizeChapter(target, chapter, undefined, signal);
-        report({ message: ok ? '完成' : '未生成', current: 1, total: 1 });
-        if (ok) {
-          getHost().toast(`第 ${chapter.order} 章摘要已生成。`);
-          await refresh();
-        }
-      },
-      { scope: '摘要' }
-    );
+    // 定稿 = 摘要（带连续性事实）+ 出场角色的当前状态，与工程页、主按钮同一份。
+    await finalizeChapterTask(target, chapter);
+    await refresh();
   });
 
   register('novel.syncSummaries', async () => {

@@ -13,6 +13,7 @@ import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } fro
 import { sanitizeAliases } from '../model/naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
+import { stampState } from '../model/characterState';
 import { CHARACTER_SYSTEM } from './charactersPrompt';
 import { extractJsonArray, stringArray, stripCodeFence, unique } from './parse';
 import { pickPlotsByInput } from './pickPlots';
@@ -166,19 +167,25 @@ async function mergeCharacters(
     }
     // 新角色：直接创建，没有可覆盖的人工内容。
     const slug = await uniqueSlug(project.charactersDir, slugify(item.name));
-    const relPath = await new Workspace(project).writeCharacter({
-      slug,
-      name: item.name,
-      aliases: item.aliases,
-      tags: item.tags,
-      firstAppear: range.firstNo,
-      lastSeen: range.lastNo,
-      // 这一批章节就是目前已知的出场记录。摘要索引之后会给出更完整的清单，
-      // 这里先落一份，免得新卡在角色页上显示「未在摘要中出现」。
-      appearsIn: range.nos,
-      updatedThrough: range.lastNo,
-      sections: item.sections,
-    });
+    // 「当前状态」是从这几章里提取的：盖章归机器（D15），写到这一批的最后一章。
+    const relPath = await new Workspace(project).writeCharacter(
+      stampState(
+        {
+          slug,
+          name: item.name,
+          aliases: item.aliases,
+          tags: item.tags,
+          firstAppear: range.firstNo,
+          lastSeen: range.lastNo,
+          // 这一批章节就是目前已知的出场记录。摘要索引之后会给出更完整的清单，
+          // 这里先落一份，免得新卡在角色页上显示「未在摘要中出现」。
+          appearsIn: range.nos,
+          updatedThrough: range.lastNo,
+          sections: item.sections,
+        },
+        range.lastNo
+      )
+    );
     log.info(`新建角色卡「${item.name}」`, relPath);
     created.push(item.name);
   }
@@ -232,7 +239,8 @@ async function reviewCharacterUpdate(
   }
 
   const appearsIn = [...new Set([...existing.appearsIn, ...range.nos])].sort((a, b) => a - b);
-  const mergedCard = {
+  const baseCard = {
+    ...existing,
     slug: existing.slug,
     name: existing.name,
     aliases: unique(sanitizeAliases([...existing.aliases, ...proposed.aliases], existing.name)),
@@ -244,6 +252,9 @@ async function reviewCharacterUpdate(
     updatedThrough: Math.max(existing.updatedThrough ?? 0, range.lastNo),
     sections: merged,
   };
+  // 模型给了新的「当前状态」才盖章（D15）；没给就沿用旧卡那一节，连同旧卡的章。
+  const nextState = proposed.sections.当前状态?.trim();
+  const mergedCard = nextState && nextState !== '无' && nextState !== '（待补充）' ? stampState(baseCard, range.lastNo) : baseCard;
 
   const proposedText = renderCharacterCard(mergedCard);
   const currentAbs = project.pathOf(existing.relPath);

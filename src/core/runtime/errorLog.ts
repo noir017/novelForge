@@ -149,6 +149,44 @@ export async function clearFailures(
 }
 
 /**
+ * 某个目标上某个动作还挂着的那一条（最新的）。没有、或库打不开时返回 undefined。
+ *
+ * 只有一处要它：定稿时作者改过的角色状态没被覆盖，黄 ❗ 的说明里带着机器给出的那一版，
+ * 「对比…」入口从这里把它取回来（features/characterState.ts）。那一版是可以重新生成的
+ * 痕迹，放在库里符合第 17 条；库没了只是这个入口说「没有待对比的」，卡本身不受影响。
+ */
+export async function activeFailure(
+  project: NovelProject,
+  targetKind: FailureTargetKind,
+  targetKey: string,
+  op: string
+): Promise<FailureView | undefined> {
+  const db = await openDatabase(project, { create: false });
+  if (!db) {
+    return undefined;
+  }
+  try {
+    const row = db.all<{ at: string; severity: string; message: string; detail: string | null }>(
+      'SELECT at, severity, message, detail FROM errors' +
+        ' WHERE target_kind = ? AND target_key = ? AND op = ? AND cleared_at IS NULL ORDER BY id DESC LIMIT 1',
+      targetKind,
+      targetKey,
+      op
+    )[0];
+    return row
+      ? {
+          at: row.at,
+          severity: row.severity === 'warn' ? 'warn' : 'error',
+          message: row.message,
+          detail: row.detail ?? undefined,
+        }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * 全部未清除的失败记录，按 `targetKey` 聚合，每个目标最多 {@link MAX_PER_TARGET} 条（新的在前）。
  *
  * **一次查询拿全部**，不要按目标逐个查：工程页每次刷新都要为几十张卡、

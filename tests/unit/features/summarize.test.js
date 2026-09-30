@@ -47,6 +47,13 @@ describe('summarize.ts · parseSummaryResponse', () => {
       assert.equal(j.sections.状态变更, '');
     });
 
+    // 四期：连续性事实是字符串数组，解析成一条一行；证据在定稿时另挂（summarizeChapter）。
+    test('JSON：连续性事实一条一行；老提示词没有这一项时是空的', () => {
+      const withFacts = sum.parseSummaryResponse(JSON.stringify({ ...JSON.parse(JSON_REPLY), 连续性事实: ['林昭左臂受伤', '李叔认出了令牌'] }));
+      assert.equal(withFacts.sections.连续性事实, '- 林昭左臂受伤\n- 李叔认出了令牌');
+      assert.equal(j.sections.连续性事实, '');
+    });
+
     test('JSON：出场人物结构化', () => {
       assert.equal(j.cast.length, 2, JSON.stringify(j.cast));
       assert.equal(j.cast[0].name, '林昭', JSON.stringify(j.cast));

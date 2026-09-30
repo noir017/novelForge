@@ -480,7 +480,11 @@ describe('工具定义本身', () => {
     assert.ok(tool().description.includes('确认框'), tool().description);
   });
 
-  test('summarize 的说法是「定稿（生成摘要）」', () => {
-    assert.ok(tool().description.includes('给某一章定稿（生成摘要）'), tool().description);
+  // 四期：定稿 = 摘要（带连续性事实）+ 出场角色的当前状态。
+  test('summarize 的说法是「定稿」：摘要与连续性事实，再更新角色状态', () => {
+    assert.ok(
+      tool().description.includes('给某一章定稿（摘要与连续性事实，再更新出场角色的当前状态）'),
+      tool().description
+    );
   });
 });

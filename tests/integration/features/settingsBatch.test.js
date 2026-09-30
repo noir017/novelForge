@@ -10,7 +10,7 @@
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { loadBundle } = require('../../helpers/load');
+const { loadBundle, loadModule } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost, sleep } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
@@ -189,6 +189,17 @@ describe('补齐设定', () => {
     assert.equal(book.sections.一句话, '少年背着旧案入宗');
     assert.equal(book.totalChapters, 100);
     assert.equal((await project.listCharacters()).length >= 3, true);
+  });
+
+  // D15：图谱写的当前状态是开篇状态、归机器——定稿时才能接着往后更新，而不是被当成作者写的。
+  test('角色图谱建的卡盖了章：开篇状态、归机器', async () => {
+    const stateModel = loadModule('src/core/model/characterState.ts');
+    const cards = await project.listCharacters();
+    assert.ok(cards.length > 0);
+    for (const c of cards) {
+      assert.equal(c.stateThrough, 0, c.name);
+      assert.ok(stateModel.stateOwnedByMachine(c), c.name);
+    }
   });
 
   test('都齐了就一次都不调', async () => {

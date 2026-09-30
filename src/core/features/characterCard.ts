@@ -19,6 +19,7 @@ import { describeTaskModels } from '../model/tiers';
 import { explainDroppedAliases, sanitizeAliases } from '../model/naming';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
+import { stampState } from '../model/characterState';
 import { parseCardResponse, ParsedCard } from './characterCardParse';
 import { UPDATE_SYSTEM } from './characterCardPrompt';
 import { unique, uniqueNumbers } from './parse';
@@ -808,17 +809,22 @@ async function runCardUpdate(
       detail,
     });
   }
-  const merged = {
-    slug: card.slug,
-    name: card.name,
-    aliases,
-    tags,
-    firstAppear: appearances[0] ?? card.firstAppear,
-    lastSeen: appearances[appearances.length - 1] ?? card.lastSeen,
-    appearsIn: appearances,
-    updatedThrough,
-    sections,
-  };
+  // 「当前状态」是机器按读到的最后一章写的：盖章（D15），作者采纳之后这一节归机器，
+  // 定稿时接着往后更新。
+  const merged = stampState(
+    {
+      slug: card.slug,
+      name: card.name,
+      aliases,
+      tags,
+      firstAppear: appearances[0] ?? card.firstAppear,
+      lastSeen: appearances[appearances.length - 1] ?? card.lastSeen,
+      appearsIn: appearances,
+      updatedThrough,
+      sections,
+    },
+    updatedThrough
+  );
 
   const abs = project.pathOf(card.relPath);
   const proposedText = renderCharacterCard(merged);

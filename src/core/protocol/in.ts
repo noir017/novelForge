@@ -184,7 +184,9 @@ export type CharacterAction =
   | 'rebuildAllCards'
   | 'createAllCards'
   | 'cleanAliases'
-  | 'mergeDuplicates';
+  | 'mergeDuplicates'
+  /** 定稿时作者改过、没被覆盖的「当前状态」：拿机器给的那一版做一次对比（D15）。 */
+  | 'reviewState';
 
 export type FileAction = 'rename' | 'renameAny' | 'move' | 'delete' | 'paste';
 

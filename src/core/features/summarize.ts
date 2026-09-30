@@ -15,6 +15,7 @@ import { NovelProject, emptySummarySections } from '../model/project';
 import { parsePlotFileName } from '../model/plotFile';
 import { describeTaskModels } from '../model/tiers';
 import { SUMMARY_SECTION_KEYS, Chapter, SummaryCast, SummarySections } from '../model/types';
+import { ContinuityFact, attachEvidence, parseContinuityFacts, renderContinuityFacts } from '../model/continuity';
 import { sanitizeAliases } from '../model/naming';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
 import { extractJsonObject, stripCodeFence } from './parse';
@@ -36,11 +37,25 @@ export interface SummaryData {
 }
 
 /**
- * 总结一章的正文。返回是否成功写入。
+ * 写好的一份摘要：落盘的那些小节与出场人物，外加连续性事实挂证据的结果——
+ * 定稿（features/finalize.ts）要拿出场人物去更新角色状态，丢了几条事实要说出来。
+ */
+export interface SummaryOutcome extends SummaryData {
+  relPath: string;
+  /** 挂上了证据、写进摘要的连续性事实。 */
+  facts: ContinuityFact[];
+  /** 正文里找不到依据、丢掉的事实（D18，第 2 条：说出来）。 */
+  dropped: string[];
+}
+
+/**
+ * 总结一章的正文。返回写好的那一份；没有模型、正文是空的时返回 undefined（已经说过原因）。
  *
- * 读的是 `chapters/`（作者切好的发布章节）：摘要描述的是成品，而中转站
- * （`manuscripts/`）里那份是等着拆分的半成品，随时会被拆掉删掉。老工程里
- * 那些从没经过本工具的章因此也能直接总结，不需要任何迁移。
+ * 读的是 `chapters/`：摘要描述的是写出来的那一章。老工程里那些从没经过本工具的章因此
+ * 也能直接总结，不需要任何迁移。
+ *
+ * 连续性事实（D18）的证据在这里挂：模型只给事实陈述，证据句用 bigram 在**整章**正文里找
+ * （model/continuity.ts），不调模型。找不到依据的事实丢掉并记日志。
  */
 export async function summarizeChapter(
   project: NovelProject,
@@ -53,11 +68,11 @@ export async function summarizeChapter(
    * 单章入口（命令面板）不传，退回全局配置。
    */
   budget?: { contextWindow: number; maxOutputTokens: number }
-): Promise<boolean> {
+): Promise<SummaryOutcome | undefined> {
   const llm = provider ?? (await resolveProvider());
   if (!llm) {
     log.warn(`第 ${chapter.order} 章跳过：没有可用的模型（未配置或未录入 API Key）`);
-    return false;
+    return undefined;
   }
   const config = readConfig();
   const window = budget ?? { contextWindow: config.contextWindow, maxOutputTokens: config.maxOutputTokens };
@@ -65,7 +80,7 @@ export async function summarizeChapter(
   if (!text.trim()) {
     log.warn(`第 ${chapter.order} 章《${chapter.title}》还没有正文，跳过`);
     getHost().toast(`第 ${chapter.order} 章还没有正文，跳过总结。`);
-    return false;
+    return undefined;
   }
 
   // 单章正文通常远小于窗口；极长的章按输入预算截断。
@@ -80,7 +95,8 @@ export async function summarizeChapter(
 
   const usage: TokenUsage = {};
   const options: StreamOptions = {
-    maxOutputTokens: Math.min(window.maxOutputTokens, 1500),
+    // 多了一节连续性事实（最多 12 条、每条 40 字），上限跟着抬一点。
+    maxOutputTokens: Math.min(window.maxOutputTokens, 2000),
     temperature: 0.3, // 摘要要稳定、可复现，压低温度
     timeoutMs: config.requestTimeoutMs,
     signal,
@@ -133,6 +149,21 @@ export async function summarizeChapter(
     });
     throw new Error(`第 ${chapter.order} 章摘要解析失败，模型返回内容无法解析。`);
   }
+  // 连续性事实挂证据：在整章正文里找（截给模型的那一份可能只有前半章）。人名给出场人物的
+  // 名字与别名——事实里提到谁，就先在提到他的句子里找。
+  const statements = parseContinuityFacts(sections.连续性事实).map((f) => f.statement);
+  const { facts, dropped } = attachEvidence(
+    statements,
+    text,
+    cast.flatMap((c) => [c.name, ...c.aliases])
+  );
+  sections.连续性事实 = renderContinuityFacts(facts);
+  if (dropped.length > 0) {
+    log.warn(
+      `第 ${chapter.order} 章有 ${dropped.length} 条连续性事实在正文里找不到依据，已丢弃`,
+      dropped.map((d) => `- ${d}`).join('\n')
+    );
+  }
   const relPath = await new Workspace(project).writeSummary(
     chapter,
     chapter.contentHash,
@@ -149,9 +180,10 @@ export async function summarizeChapter(
     `第 ${chapter.order} 章《${chapter.title}》摘要已写入`,
     `${relPath}｜耗时 ${elapsed(startedAt)}｜摘要 ${raw.length} 字｜` +
       `出场 ${cast.length} 人${cast.length > 0 ? `（${cast.map((c) => c.name).join('、')}）` : ''}` +
+      `｜连续性事实 ${facts.length} 条` +
       `${usageNote ? `｜${usageNote}` : ''}`
   );
-  return true;
+  return { relPath, sections, cast, facts, dropped };
 }
 
 /**

@@ -121,7 +121,7 @@
       },
       {
         "command": "novel.summarizePlot",
-        "title": "Novel: 总结这一章",
+        "title": "Novel: 定稿这一章",
         "icon": "$(book)"
       },
       {

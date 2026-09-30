@@ -17,10 +17,11 @@ import { extractCharacters, newCharacter, newLore } from '../features/characters
 import { generateLore } from '../features/lore';
 import { completeSettings, generatePlots, writeManuscripts } from '../features/pipelineBatch';
 import { extractStyle } from '../features/style';
-import { chapterForSummary, rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../features/summarize';
+import { chapterForSummary, rebuildGlobalSummary, syncSummaries } from '../features/summarize';
+import { finalizeChapterTask } from '../features/finalize';
+import { reviewCharacterState } from '../features/characterState';
 import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
-import { runTask } from '../runtime/progress';
 import { CharacterAction, ProjectAction } from '../protocol';
 import { normalizeRange } from '../model/session';
 import { selectPlot } from './chat';
@@ -92,25 +93,14 @@ export async function projectAction(
       }
       // 传进来的可能是细纲路径（从流水线那一侧点的），也可能是章节路径
       // （从工程页那一行点的）。摘要挂在正文上，所以统一解析成章节。
-      // 本期（一期）定稿只生成摘要；更新角色「当前状态」是四期的事。
+      // 定稿 = 摘要（带连续性事实）+ 出场角色的当前状态（features/finalize.ts）。
       const chapter = await chapterForSummary(c.project, relPath);
       if (!chapter) {
         log.warn(`找不到 ${relPath} 对应的章节，可能还没写正文或刚被改名`);
         getHost().toast('这一章还没有正文，无法定稿。', 'error');
         break;
       }
-      await runTask(
-        `总结第 ${chapter.order} 章`,
-        async ({ signal, report }) => {
-          report({ message: `《${chapter.title}》`, current: 0, total: 1 });
-          const ok = await summarizeChapter(c.project, chapter, undefined, signal);
-          report({ message: ok ? '完成' : '未生成', current: 1, total: 1 });
-          if (ok) {
-            getHost().toast(`第 ${chapter.order} 章摘要已生成。`);
-          }
-        },
-        { scope: '摘要' }
-      );
+      await finalizeChapterTask(c.project, chapter);
       break;
     }
     case 'syncSummaries':
@@ -194,6 +184,12 @@ export async function characterAction(
       break;
     case 'mergeDuplicates':
       await mergeDuplicateCharacterCards(c.project);
+      break;
+    case 'reviewState':
+      // 定稿时没覆盖的那一版（作者改过这张卡的当前状态，D15）：对比后决定用不用。
+      if (relPath) {
+        await reviewCharacterState(c.project, relPath);
+      }
       break;
   }
   await c.pushState();

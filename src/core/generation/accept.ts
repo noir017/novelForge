@@ -20,6 +20,7 @@ import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../mo
 import { isPlotFilled, parsePlotFileName } from '../model/plotFile';
 import { isOutlineFilled, mergeOutline, outlineOverlaps } from '../model/outlineFile';
 import { hasContent } from '../model/markdown';
+import { stampState } from '../model/characterState';
 import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections } from '../model/types';
 import { CreationTarget, SETTING_DOC_LABEL, WriteMode, plotOfTarget } from '../model/pipeline';
 import { Artifact, ChapterRange, PlotFields, RosterEntry } from '../features/artifact';
@@ -184,12 +185,15 @@ async function acceptRoster(project: NovelProject, ws: Workspace, entries: Roste
     if (existing) {
       handled.add(existing.relPath);
       const sections = mergeSections(existing.sections, entry.sections);
-      const text = renderCharacterCard({
+      const merged = {
         ...existing,
         aliases: [...new Set([...existing.aliases, ...entry.aliases])],
         tags: existing.tags.length > 0 ? existing.tags : entry.role ? [entry.role] : [],
         sections,
-      });
+      };
+      // 新图谱给了「当前状态」就是机器写的开篇状态（D15）：盖章，定稿时才认得出它归机器。
+      // 没给就沿用旧卡那一节，连同旧卡的章。
+      const text = renderCharacterCard(hasContent(entry.sections.当前状态) ? stampState(merged, 0) : merged);
       const r = await ws.write(existing.relPath, { text }, { mode: 'overwrite', what: `角色卡「${existing.name}」` });
       (r.skipped ? kept : replaced).push(existing.name);
       continue;
@@ -200,13 +204,19 @@ async function acceptRoster(project: NovelProject, ws: Workspace, entries: Roste
     }
     taken.add(entry.name);
     taken.add(slug);
-    await ws.writeCharacter({
-      slug,
-      name: entry.name,
-      aliases: entry.aliases,
-      tags: entry.role ? [entry.role] : [],
-      sections: { ...emptyCharacterSections(), ...entry.sections },
-    });
+    // 图谱写的「当前状态」是开篇状态（`stateThrough: 0`），盖章归机器（D15）。
+    await ws.writeCharacter(
+      stampState(
+        {
+          slug,
+          name: entry.name,
+          aliases: entry.aliases,
+          tags: entry.role ? [entry.role] : [],
+          sections: { ...emptyCharacterSections(), ...entry.sections },
+        },
+        0
+      )
+    );
     created.push(entry.name);
   }
 
