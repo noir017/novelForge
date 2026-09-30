@@ -685,4 +685,46 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
     assert.deepEqual(pipeline.deriveNextStep('plot', { no: 3, words: 0, ratio: 0, upstreamStale: false }).calls, pipeline.ONE_CALL);
     assert.deepEqual(pipeline.deriveNextStep('finalize', { no: 3, words: 900, ratio: 1, upstreamStale: false }).calls, pipeline.ONE_CALL);
   });
+
+  // D16：自动续写算进调用次数，动手之前写明上限。
+  test('写正文的三种下一步都报「1 次，最多 8 次」，并说清为什么', () => {
+    const f = { no: 3, words: 0, ratio: 0, upstreamStale: false };
+    const steps = [
+      pipeline.deriveNextStep('manuscript', f),
+      pipeline.deriveNextStep('manuscript', { ...f, words: 900, ratio: 0.4 }),
+      pipeline.deriveNextStep('manuscript', { ...f, words: 3000, ratio: 1, upstreamStale: true }),
+    ];
+    for (const s of steps) {
+      assert.deepEqual(s.calls, pipeline.WRITE_CALLS);
+    }
+    assert.equal(pipeline.WRITE_CALLS.max, 1 + pipeline.MAX_CONTINUE_ROUNDS);
+    assert.equal(pipeline.describeCalls(pipeline.WRITE_CALLS), '预计 1 次调用，最多 8 次（没写够时自动续写，最多再续 7 轮）');
+  });
+
+  test('加总时不带原因（几件事的原因拼不成一句话）', () => {
+    assert.equal(pipeline.addCalls(pipeline.WRITE_CALLS, pipeline.WRITE_CALLS).why, undefined);
+  });
+});
+
+describe('pipeline.ts · 写正文的写法', () => {
+  const f = { no: 12, words: 0, ratio: 0, upstreamStale: false };
+
+  test('没字 → 不带写法（由磁盘定：新建）', () => {
+    assert.equal(pipeline.deriveNextStep('manuscript', f).writeMode, undefined);
+  });
+
+  test('接着写 → continue（追加）', () => {
+    assert.equal(pipeline.deriveNextStep('manuscript', { ...f, words: 800, ratio: 0.3 }).writeMode, 'continue');
+  });
+
+  test('重写第 N 章 → rewrite（覆盖前审阅）', () => {
+    const s = pipeline.deriveNextStep('manuscript', { ...f, words: 3000, ratio: 1, upstreamStale: true });
+    assert.equal(s.writeMode, 'rewrite');
+    assert.match(s.hint, /对比/);
+  });
+
+  test('isWriteMode 只认三种', () => {
+    assert.ok(['write', 'continue', 'rewrite'].every(pipeline.isWriteMode));
+    assert.ok(![undefined, 'append', '', 3].some(pipeline.isWriteMode));
+  });
 });

@@ -609,7 +609,7 @@ export interface NextStepPlan {
   target?: CreationTarget;
   /**
    * 这一步要调几次模型（第 4 条、D16）。主按钮的提示后面写出来，动手之前作者就知道。
-   * 缺席 = 不是模型调用，或者本期还说不准（正文的自动续写是三期的事）。
+   * 缺席 = 不是模型调用。写正文那几步的上限含自动续写（{@link WRITE_CALLS}）。
    */
   calls?: CallEstimate;
   /**
@@ -617,6 +617,31 @@ export interface NextStepPlan {
    * 一句话、总章数、每章字数得作者自己给（W4）。
    */
   form?: 'idea';
+  /**
+   * 写正文那几步怎么写（见 {@link WriteMode}）。「接着写」是追加，「重写第 N 章」是覆盖——
+   * 两者按钮上的字不同、落盘方式也不同，得随这一步一起带到后端。「写第 N 章」不带：
+   * 那一章还没有正文，写法由磁盘自己定。
+   */
+  writeMode?: Exclude<WriteMode, 'write'>;
+}
+
+/**
+ * 写正文的三种写法。**由生成层按磁盘定**（generation/generate.ts 的 `resolveWriteMode`）：
+ *
+ * | 写法 | 什么时候 | 模型写什么 | 落盘 |
+ * |---|---|---|---|
+ * | `write` | 这一章还没有正文 | 整章 | 新建章节文件 |
+ * | `continue` | 「接着写」 | 只写新增的那一段 | 追加在末尾，不审阅（不覆盖任何东西） |
+ * | `rewrite` | 「重写第 N 章」，或已有正文时在对话里发「写正文」 | 整章，上一版作底稿 | 覆盖，写入前审阅 |
+ *
+ * 从前已有正文时一律追加：对话里发「写正文」写出的是完整一章，追加上去就是两章叠在一起。
+ * 现在只有明说「接着写」才追加，其余都当成「按修改意见重做这一章」——与其他各层
+ * 「目标已有内容时再生成，作者的话就是修改意见」同一个口径。
+ */
+export type WriteMode = 'write' | 'continue' | 'rewrite';
+
+export function isWriteMode(value: unknown): value is WriteMode {
+  return value === 'write' || value === 'continue' || value === 'rewrite';
 }
 
 // ---------------------------------------------------------------- 调用次数
@@ -632,12 +657,15 @@ export interface CallEstimate {
   low: number;
   high: number;
   max: number;
+  /** 上限为什么比通常多（「没写够时自动续写……」）。加总时不带——几件事的原因拼不成一句话。 */
+  why?: string;
 }
 
 /** 「预计 1 次调用，最多 15 次」。主按钮提示、确认框、弹窗说明共用这一句。 */
 export function describeCalls(c: CallEstimate): string {
   const head = c.low === c.high ? `预计 ${c.low} 次调用` : `预计 ${c.low}–${c.high} 次调用`;
-  return c.max > c.high ? `${head}，最多 ${c.max} 次` : head;
+  const tail = c.max > c.high ? `${head}，最多 ${c.max} 次` : head;
+  return c.why ? `${tail}（${c.why}）` : tail;
 }
 
 /** 两份估算加在一起（批量动作的确认框按件加总）。 */
@@ -647,6 +675,23 @@ export function addCalls(a: CallEstimate, b: CallEstimate): CallEstimate {
 
 /** 一次就完的那种：前提、世界观、大纲、单章细纲、定稿的摘要。 */
 export const ONE_CALL: CallEstimate = { low: 1, high: 1, max: 1 };
+
+/**
+ * 正文自动续写最多几轮。移植自 AI-Novel-Writer（`generate-draft.command.ts` 的
+ * `MAX_AUTO_CONTINUE_ROUNDS`）：「无进展恢复」那一轮也算在这 7 轮里。
+ */
+export const MAX_CONTINUE_ROUNDS = 7;
+
+/**
+ * 写一章正文：通常 1 次；不到目标字数的八成、或被输出上限截断时自动续写，
+ * 最多再续 {@link MAX_CONTINUE_ROUNDS} 轮（D16：续写算进调用次数，动手之前写明）。
+ */
+export const WRITE_CALLS: CallEstimate = {
+  low: 1,
+  high: 1,
+  max: 1 + MAX_CONTINUE_ROUNDS,
+  why: `没写够时自动续写，最多再续 ${MAX_CONTINUE_ROUNDS} 轮`,
+};
 
 /**
  * 小说配置：1 次；输出被截断时整份重来 1 次；「全局要求」不合格时只重写这一节 1 次。
@@ -766,7 +811,9 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
           stage: 'manuscript',
           capability: 'generate',
           label: `重写第 ${f.no} 章`,
-          hint: '细纲改过，现有正文可能已经与它对不上。',
+          hint: '细纲改过，现有正文可能已经与它对不上。照新细纲重写，写入前会让你先对比。',
+          writeMode: 'rewrite',
+          calls: WRITE_CALLS,
         };
       }
       // 写过一部分但还没写够：说清是「接着写」而不是「重新写一遍」——
@@ -778,6 +825,8 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
           label: '接着写',
           hint: `第 ${f.no} 章写了 ${f.words} 字，还没写够（约 ${Math.round(f.ratio * 100)}%）。` +
             '接着往下写，新写的会追加在末尾。',
+          writeMode: 'continue',
+          calls: WRITE_CALLS,
         };
       }
       return {
@@ -785,6 +834,7 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
         capability: 'generate',
         label: `写第 ${f.no} 章`,
         hint: '细纲已经定好了，这一步把它写成小说。',
+        calls: WRITE_CALLS,
       };
 
     case 'finalize':
