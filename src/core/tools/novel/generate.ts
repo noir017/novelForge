@@ -96,9 +96,9 @@ export const generateTool: ToolDef = {
     '按章号认到同号的细纲）。**细纲路径永远是细纲层**，要写正文不要给细纲路径。' +
     '各层可用的 capability 不同：' +
     Object.entries(STAGE_CAPABILITIES)
-      .map(([stage, caps]) => `${stage}=${caps.join('/')}`)
+      .map(([stage, caps]) => `${stage}=${caps.filter((c) => c !== 'review').join('/')}`)
       .join('；') +
-    '。' +
+    '（审稿只能由作者在对话页发起，这个工具不做）。' +
     '**返回的只有形状与 draftId，没有正文**——正文会直接流给作者看；' +
     '你要看内容就等它落盘之后再 read。' +
     '产出之后会当场请作者点头，同意才落盘，结果写在返回里；不必也不要再用 write 写同一份。' +
@@ -252,7 +252,8 @@ async function pickModel(
 }
 
 function describeCapabilities(): string {
-  return CAPABILITIES.map((c) => `${c}=${CAPABILITY_LABEL[c]}`).join('，');
+  // 审稿（五期）这个工具不做：不写进说明，免得模型照着说明去试。
+  return CAPABILITIES.filter((c) => c !== 'review').map((c) => `${c}=${CAPABILITY_LABEL[c]}`).join('，');
 }
 
 function toPositiveInt(value: unknown): number | undefined {
