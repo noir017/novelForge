@@ -668,6 +668,28 @@ export function describeCalls(c: CallEstimate): string {
   return c.why ? `${tail}（${c.why}）` : tail;
 }
 
+/** 正文写了多长：这一章写完后的总字数、目标、这一次新写的、续写了几轮、够不够八成。 */
+export interface WriteLength {
+  words: number;
+  target?: number;
+  added: number;
+  rounds: number;
+  /** 到了目标的八成（{@link MANUSCRIPT_DONE_RATIO}）。没有目标时恒为 true：有字就算写够。 */
+  reached: boolean;
+}
+
+/**
+ * 「2980 / 3000 字 · 已达标」「1900 / 3000 字 · 未写够（不到目标的八成）」。落盘卡片与气泡上的
+ * 那一行共用这一句（W7）。接着写时说清是追加：已有多少、新写多少——作者要知道点下去之后
+ * 这一章是多长。
+ */
+export function describeWriteLength(len: WriteLength, append?: boolean): string {
+  const head = len.target ? `${len.words} / ${len.target} 字` : `${len.words} 字`;
+  const verdict = len.target ? (len.reached ? ' · 已达标' : ' · 未写够（不到目标的八成）') : '';
+  const extra = append ? `（已有 ${len.words - len.added} 字，这一次新写 ${len.added} 字，追加在末尾）` : '';
+  return `${head}${verdict}${extra}`;
+}
+
 /** 两份估算加在一起（批量动作的确认框按件加总）。 */
 export function addCalls(a: CallEstimate, b: CallEstimate): CallEstimate {
   return { low: a.low + b.low, high: a.high + b.high, max: a.max + b.max };

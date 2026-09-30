@@ -10,6 +10,7 @@
  * `InMessage` / `OutMessage`，经 src/protocol.ts 引进来——改协议这边
  * 对不上会直接编译不过。
  */
+import { el as mk } from '../dom';
 import { installComposer, payload, renderChips, runNextStep, setPendingCommand } from './composer';
 import { bindCommandPick } from './commands';
 import { renderSessions } from './history';
@@ -127,6 +128,15 @@ onMessage((msg) => {
 
     case 'reasoning':
       appendReasoning(msg.turnId, msg.text);
+      break;
+
+    // ---- 写正文：气泡顶上的进度（W7），与丢弃一轮时的退回
+    case 'writeProgress':
+      showWriteProgress(msg.turnId, msg.round, msg.words, msg.target);
+      break;
+
+    case 'streamReset':
+      resetStreamText(msg.turnId, msg.text);
       break;
 
     // ---- agent 的三条：步数、工具调用、工具结果
@@ -264,6 +274,59 @@ function appendReasoning(turnId: string, text: string): void {
     }
   }
   scrollToBottom();
+}
+
+/**
+ * 写正文的进度：「第 2 轮 · 已写 1860 / 目标 3000 字」+ 一条进度条（W7）。
+ *
+ * 挂在气泡顶上、正文之前（与思考折叠块同一个位置）：正文在往下涨，进度得待在
+ * 一眼看得到的地方。**就地更新**——重建节点会冲掉正在流的正文。收尾的 turnDone
+ * 会整条重建气泡，进度条随之消失，那时落盘卡片上已经写着最后的字数。
+ */
+function showWriteProgress(turnId: string, round: number, words: number, target?: number): void {
+  const node = bubbleOf(turnId);
+  if (!node) {
+    return;
+  }
+  node.classList.add('streaming');
+  let box = node.querySelector<HTMLElement>('.write-progress');
+  if (!box) {
+    const made = mk('div', 'write-progress');
+    made.appendChild(mk('div', 'write-progress-label'));
+    const bar = mk('div', 'write-progress-bar');
+    bar.appendChild(mk('div', 'write-progress-fill'));
+    made.appendChild(bar);
+    node.insertBefore(made, node.querySelector('details.reasoning, .msg-body, .tools, .gen') ?? segmentAnchor(node));
+    box = made;
+  }
+  const phase = round > 0 ? `续写第 ${round} 轮` : '正在写';
+  const label = box.querySelector<HTMLElement>('.write-progress-label')!;
+  label.textContent = target ? `${phase} · 已写 ${words} / 目标 ${target} 字` : `${phase} · 已写 ${words} 字`;
+  const fill = box.querySelector<HTMLElement>('.write-progress-fill')!;
+  fill.style.width = `${target ? Math.min(100, Math.round((words / target) * 100)) : 100}%`;
+  // 到了八成就算写够（与后端 MANUSCRIPT_DONE_RATIO 同一个比例）：颜色换一档。
+  box.classList.toggle('reached', !!target && words >= target * 0.8);
+  box.classList.toggle('indeterminate', !target);
+}
+
+/**
+ * 气泡里的正文退回到这一份：续写丢弃了一轮，那一轮已经流进来了。只动文字块，
+ * 进度条与思考折叠块不动。
+ */
+function resetStreamText(turnId: string, text: string): void {
+  const node = bubbleOf(turnId);
+  if (!node) {
+    return;
+  }
+  const blocks = [...node.querySelectorAll<HTMLElement>('.msg-body[data-seg="text"]')];
+  if (blocks.length === 0) {
+    node.insertBefore(buildTextBlock(text), segmentAnchor(node));
+    return;
+  }
+  blocks[0].textContent = text;
+  for (const extra of blocks.slice(1)) {
+    extra.remove();
+  }
 }
 
 /**

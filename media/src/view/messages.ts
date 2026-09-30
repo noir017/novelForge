@@ -43,6 +43,7 @@ import { renderState, syncThinkingSelect } from './state';
 import { openPath, store, vscode } from './store';
 import { toast } from './toast';
 import type { SendPayload } from '../protocol';
+import { describeWriteLength } from '../protocol';
 
 /** 由 composer.ts 注入：「重新生成」要带上输入框里当下的那套参数。 */
 let currentPayload: () => SendPayload = () => {
@@ -373,6 +374,16 @@ function buildActions(turn: SerializedTurn): HTMLElement {
     const a = turn.artifact;
     const line = `${a.where} · ${a.summary}${a.declined ? ' · 未采纳' : ''}`;
     bar.appendChild(mk('span', 'artifact-where', line));
+  }
+  // 正文写了多长、有没有重演（W7）：写没写进去都留着，翻回来看得出这一章当时够不够。
+  const a = turn.artifact;
+  if (a?.length) {
+    bar.appendChild(mk('span', `artifact-length${a.length.reached ? '' : ' short'}`, describeWriteLength(a.length, a.append)));
+  }
+  if (a?.replay) {
+    const flag = mk('span', 'artifact-replay', '开头与上一章结尾重合');
+    flag.title = a.replay;
+    bar.appendChild(flag);
   }
 
   bar.appendChild(

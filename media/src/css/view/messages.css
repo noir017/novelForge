@@ -505,3 +505,43 @@ details.tool-row > summary.tool-line:hover {
 .agent-run-stopped .agent-run-why {
   color: var(--vscode-editorWarning-foreground, #cca700);
 }
+
+/* ---- 写正文的进度（W7）：气泡顶上一行字 + 一条细进度条。
+   到了目标的八成换成「已达标」的颜色；没有目标字数时来回扫（只说明还在写）。 */
+.write-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 2px 0 8px;
+}
+
+.write-progress-label {
+  font-size: 0.8em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.write-progress-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.write-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--vscode-progressBar-background, #0078d4);
+  transition: width 200ms ease;
+}
+
+.write-progress.reached .write-progress-fill {
+  background: var(--vscode-testing-iconPassed, #3fb950);
+}
+
+.write-progress.indeterminate .write-progress-fill {
+  position: absolute;
+  width: 35%;
+  transition: none;
+  animation: task-scan 1.6s ease-in-out infinite;
+}

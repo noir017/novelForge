@@ -374,3 +374,21 @@
   color: var(--vscode-descriptionForeground);
   margin-right: 4px;
 }
+
+/* 正文写了多长（W7）。没写够的那一档用警示色：作者翻回来一眼看得出哪几章还差字。 */
+.artifact-length {
+  font-size: 0.78em;
+  color: var(--vscode-descriptionForeground);
+  margin-right: 4px;
+}
+
+.artifact-length.short {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.artifact-replay {
+  font-size: 0.78em;
+  color: var(--vscode-errorForeground, #f14c4c);
+  margin-right: 4px;
+  cursor: help;
+}

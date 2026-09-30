@@ -113,6 +113,11 @@ function buildGateCard(msg: GateMessage): HTMLElement {
   if (msg.detail) {
     card.appendChild(mk('div', 'gate-detail', msg.detail));
   }
+  // 要作者特别留意的那一句（正文开头重演了上一章结尾）：红色块，排在明细后面、按钮前面。
+  if (msg.danger) {
+    card.classList.add('gate-warn');
+    card.appendChild(mk('div', 'gate-danger', msg.danger));
+  }
   if (msg.argsText) {
     const det = mk('details', 'gate-args');
     det.appendChild(mk('summary', undefined, '参数'));
@@ -132,7 +137,17 @@ function buildGateCard(msg: GateMessage): HTMLElement {
   const actions = mk('div', 'gate-actions');
   actions.appendChild(spacer());
   actions.appendChild(gateBtn(msg.skip, 'secondary', () => answer('skip')));
-  actions.appendChild(gateBtn(msg.proceed, 'primary', () => answer('proceed')));
+  const proceed = gateBtn(msg.proceed, 'primary', () => {
+    // 两段式（总计划 §2.4）：第一下只把字换成「确定仍要写入」，第二下才发出去。
+    // 不叠一个确认弹窗——作者要判断的依据就在这张卡上，弹窗会把它盖住。
+    if (msg.confirm && !proceed.classList.contains('armed')) {
+      proceed.classList.add('armed');
+      proceed.textContent = msg.confirm;
+      return;
+    }
+    answer('proceed');
+  });
+  actions.appendChild(proceed);
   card.appendChild(actions);
   return card;
 }

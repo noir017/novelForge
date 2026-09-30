@@ -1,6 +1,7 @@
 import type {
   BookStage,
   Capability,
+  WriteLength,
   CreationStage,
   CreationTarget,
   NextStepPlan,
@@ -366,13 +367,7 @@ export interface SerializedArtifact {
   append?: boolean;
 }
 
-export interface WriteLength {
-  words: number;
-  target?: number;
-  added: number;
-  rounds: number;
-  reached: boolean;
-}
+export type { WriteLength };
 
 export interface SerializedDigest {
   usedTokens: number;

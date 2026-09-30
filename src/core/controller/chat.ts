@@ -25,6 +25,7 @@ import {
   STAGE_CAPABILITIES,
   WriteMode,
   commandOf,
+  describeWriteLength,
   deriveBookNextStep,
   deriveBookStage,
   deriveNextStep,
@@ -41,7 +42,6 @@ import {
   NextStepView,
   SendPayload,
   SerializedArtifact,
-  WriteLength,
 } from '../protocol';
 import { buildPlotPipelineView, ideaDefaultsOf } from '../views/projectView';
 import { buildBookFacts, buildPlotPipeline, chapterOfPlotNo } from '../views/pipeline';
@@ -551,7 +551,7 @@ export async function askArtifact(
 function artifactDetail(art: SerializedArtifact): string {
   const lines = [art.summary];
   if (art.length) {
-    lines.push(describeLength(art.length, art.append));
+    lines.push(describeWriteLength(art.length, art.append));
   }
   if (art.creates?.length) {
     lines.push(`会新建角色卡：${art.creates.join('、')}`);
@@ -567,17 +567,6 @@ function artifactDetail(art: SerializedArtifact): string {
     lines.push(`· ${note}`);
   }
   return lines.join('\n');
-}
-
-/**
- * 「2980 / 3000 字 · 已达标」「1900 / 3000 字 · 未写够」。接着写时说清是追加：
- * 已有多少、新写多少——作者要知道点下去之后这一章是多长。
- */
-export function describeLength(len: WriteLength, append?: boolean): string {
-  const head = len.target ? `${len.words} / ${len.target} 字` : `${len.words} 字`;
-  const verdict = len.target ? (len.reached ? ' · 已达标' : ' · 未写够（不到目标的八成）') : '';
-  const extra = append ? `（已有 ${len.words - len.added} 字，这一次新写 ${len.added} 字，追加在末尾）` : '';
-  return `${head}${verdict}${extra}`;
 }
 
 /** 重演的那一段太长时只摊开头：卡片上放不下一整段，作者认得出是哪一段就够了。 */

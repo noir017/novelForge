@@ -134,3 +134,28 @@
   flex: 1 1 auto;
   word-break: break-word;
 }
+
+/* 要作者特别留意的那一句（正文开头重演了上一章结尾）：红色块。
+   整张卡的边也跟着变红——卡片堆了两张时，一眼看得出是哪一张在喊。 */
+.gate.gate-warn {
+  border-color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.gate-danger {
+  font-size: 0.8em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 6px 8px;
+  border-radius: 4px;
+  color: var(--vscode-errorForeground, #f14c4c);
+  background: var(--vscode-inputValidation-errorBackground, rgba(241, 76, 76, 0.1));
+  max-height: 96px;
+  overflow: auto;
+}
+
+/* 两段式写入：第一下之后按钮换字、换成警示色，第二下才算数。 */
+.gate-actions button.armed {
+  background: var(--vscode-errorForeground, #f14c4c);
+  color: var(--vscode-button-foreground, #fff);
+}
