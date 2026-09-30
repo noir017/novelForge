@@ -9,6 +9,7 @@
  * （core 是 Node 侧的，带进浏览器会立刻炸）。
  */
 export type {
+  ArchitectureRow,
   CastConflictView,
   CastEntry,
   CastSummary,
@@ -29,7 +30,6 @@ export type {
   OutMessage,
   ProjectAction,
   ProjectPlotNode,
-  ProjectVolumeNode,
   ProjectDirNode,
   ProjectFile,
   ProjectFileNode,
@@ -77,10 +77,9 @@ export {
   chapterLabel,
   plotLabel,
   plotOfTarget,
-  segmentLabel,
-  segmentDisplayNo,
-  volumeLabel,
-  volumeOfTarget,
+  settingOfTarget,
+  SETTING_DOCS,
+  SETTING_DOC_LABEL,
   commandOf,
   commandsFor,
   labelOf,
@@ -96,6 +95,7 @@ export type {
   NextStepPlan,
   PipelineProgress,
   PlotStage,
+  SettingDoc,
   StageCommand,
 } from '../../src/core/model/pipeline';
 

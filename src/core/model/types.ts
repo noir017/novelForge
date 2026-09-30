@@ -5,9 +5,8 @@ import { AgentPolicy } from './agentPolicy';
 /**
  * 章节：chapters/NNN-标题.md 中的一篇正文。
  *
- * **发布单位，不在创作流水线上。** 作者把 `manuscripts/` 里的正文切成一篇篇
- * 章节以便发布，工具只提供文件操作（列出、改名、移动、删除、草稿），
- * 不分析内容、不生成摘要、不挂流水线状态。
+ * **正文的唯一真相。** 生成的正文直接落在这里（与同号细纲 `plots/NNN-*.md` 互认），
+ * 摘要、角色卡、设定、文风都从这里读。
  */
 export interface Chapter {
   /** 序号，来自文件名前缀，决定顺序。 */
@@ -20,38 +19,6 @@ export interface Chapter {
   wordCount: number;
   /** 正文内容的 hash，用于判断摘要是否过期。 */
   contentHash: string;
-}
-
-/**
- * 一章的生成正文（`.novelforge/manuscripts/NNN-标题.md`，中转站）。
- *
- * 与 `Chapter` 的关系：正文是**创作产物**，章节是**发布产物**。作者最后把
- * manuscripts 里的内容切成 chapters 下的一篇篇章节，那一步由他自己做，
- * 工具不参与（见 model/plotFile.ts 的文件头）。
- */
-export interface Manuscript {
-  /** 归属细纲的工作区相对路径。 */
-  plotRelPath: string;
-  /** 正文文件的工作区相对路径。 */
-  relPath: string;
-  /** 正文（不含 frontmatter 与 `# 标题` 行）。 */
-  text: string;
-  wordCount: number;
-  /** 正文内容 hash，用于判断摘要是否过期。 */
-  contentHash: string;
-  /**
-   * 这份正文所依据的**细纲指纹**。与当前细纲对不上 = 剧情改过、正文可能已失效。
-   *
-   * 落在正文文件自己的 frontmatter 里（而不是 manifest）：manuscripts 是插件
-   * 自己产出的 `.md`，不像章节那样可能是 `.txt` / 无扩展名，加 frontmatter 是
-   * 安全的。真相跟着文件走，作者手工搬动文件时不会与一份中央索引失联。
-   *
-   * 老工程里这一行叫 `beatsHash`，上游是那一段的**场景集合**。场景层删掉之后
-   * 上游就是细纲本身，名字随之统一成 `upstreamHash`（与卷纲、细纲两层同名）。
-   * `readManuscript` **两个名字都认**——不认老名字的话，那些正文会一夜之间
-   * 全部变成「手写的」而永不标脏。
-   */
-  upstreamHash: string;
 }
 
 /** 一章的摘要，存于 .novelforge/summaries/ 下，与**发布章节**同名。 */
@@ -182,14 +149,12 @@ export interface ProjectManifest {
 /**
  * manifest 里的一章。
  *
- * 索引的是**发布章节**（`chapters/`）而不是细纲：这里的四个字段——字数、
- * 正文 hash、摘要 hash——描述的全是成品。中转站（`manuscripts/`）里那份
- * 是半成品，随时会被拆掉删掉，不该进索引。
+ * 索引的是章节（`chapters/`）而不是细纲：这里的字段——字数、正文 hash、
+ * 摘要 hash——描述的全是正文。
  *
  * **只放可以重算的索引信息**：真相在 `chapters/` 与 `summaries/` 的文件里，
- * 这里是为了「不必读几百个文件就能画出工程页」。注意正文的 `upstreamHash`
- * **不在这里**——它跟着中转站正文文件的 frontmatter 走，理由见
- * `Manuscript.upstreamHash`。
+ * 这里是为了「不必读几百个文件就能画出工程页」。正文依据的细纲指纹**不在这里**
+ * ——它记在细纲自己的 frontmatter 里（`writtenFrom`，见 model/plotFile.ts）。
  */
 export interface ManifestChapter {
   /** 章节文件的工作区相对路径。 */

@@ -2,7 +2,6 @@ import * as path from 'node:path';
 import { resolveSectionDir } from './files/fileOps';
 import { getHost } from './host';
 import { emptyPlotSections } from './model/plotFile';
-import { emptyVolumeSections } from './model/volumeFile';
 import { NovelProject } from './model/project';
 import { Workspace } from './workspace';
 
@@ -29,97 +28,58 @@ export async function initProjectFlow(project: NovelProject, defaultTitle: strin
   const author = await getHost().input({ title: '初始化小说工程（2/2）', prompt: '作者名（可留空）' });
   await project.initialize({ title: title.trim(), author: (author ?? '').trim() });
   getHost().toast(`已初始化《${title.trim()}》。`);
-  // **不追问「要不要新建第 1 章」**：新工程的第一步是写大纲，创作页的主按钮
-  // 已经明写着这件事（`deriveBookNextStep`）。这里再弹一个问句等于给出第二个
-  // 入口，而它通向的是一个还没有大纲可依据的空细纲。
+  // **不追问「要不要新建第 1 章」**：新工程的第一步是生成小说配置，创作页的
+  // 主按钮已经明写着这件事（`deriveBookNextStep`）。这里再弹一个问句等于给出
+  // 第二个入口，而它通向的是一个还没有架构可依据的空细纲。
   return true;
 }
 
 /**
- * 新建一章：**只建一份空的细纲骨架**，不问标题、不打开它。返回相对路径。
+ * 新建一章的细纲：**只建一份空骨架**，不问标题、不打开它。返回相对路径。
  *
- * ## 段号从哪来
- *
- * `nextPlotNo()` 取 `plots/` 与 `chapters/` 两边的最大号 +1。段号只是 `plots/`
- * 里的排序键，但仍然把已发布的章算进来，好让新建的段在文件名上排在最后。
- * 界面上它显示成「剧情 几」（最新章号 + 位次，见 model/pipeline.ts 的
- * `segmentDisplayNo`），与这个文件名前缀是两回事。
- *
- * **落在 `plots/` 根下，也就是「未分卷」**：手工新建的段没有卷可归——它是作者
- * 绕开「大纲 → 卷 → 段」那条路自己加的一段。要归卷就在工程页上把它拖/改到
- * 那一卷的目录里，或者从那一卷「拆出剧情段」。
+ * 章号取 `plots/` 与 `chapters/` 两边的最大号 +1（`nextPlotNo`），落在 `plots/`
+ * 根下（细纲是平铺的）。正常路径上细纲是「拆细纲」一批一批生成的；这条留给作者
+ * 想在末尾手工加一章。
  *
  * ## 为什么不问标题
  *
- * 新建的那一刻还没有标题可言：标题是排完剧情、知道这一章要发生什么之后才
- * 定下来的东西。逼作者先编一个（预填一个「剧情N」，多数人就直接回车）只会
- * 换来一个假标题，而它会进文件名、进界面说法、进上下文。所以先落成纯序号名
- * `007.md`，等他想好了走「重命名」（序号前缀会保留）。
+ * 新建的那一刻还没有标题可言：标题是排完细纲、知道这一章要发生什么之后才
+ * 定下来的东西。逼作者先编一个只会换来一个假标题，而它会进文件名、进界面说法、
+ * 进上下文。所以先落成纯序号名 `007.md`，等他想好了走「重命名」（序号前缀会保留）。
  *
  * ## 为什么不打开文件
  *
- * 接下来该做的是排剧情，不是在一个空文件里发呆——四层流水线存在的理由正是
- * 不让人从空白开始写。「建完去哪」由调用方决定：面板走 `selectPlot`
- * （状态机把他送到「待写剧情」），CLI 与命令面板只报一句路径。
+ * 接下来该做的是排细纲，不是在一个空文件里发呆。「建完去哪」由调用方决定：
+ * 面板走 `selectPlot`（状态机把他送到「待写细纲」），CLI 与命令面板只报一句路径。
  */
 export async function newPlotFlow(project: NovelProject): Promise<string> {
   const no = await project.nextPlotNo();
-  // 落进**最后一卷**（有卷的话）：作者正在写的就是那一卷，手工加一段多半是
-  // 给它补一段。没有卷就落在 `plots/` 根下，那是「未分卷」——老工程与还没
-  // 分卷的新工程都走这条。
-  const volumes = await project.listVolumes();
-  const last = volumes[volumes.length - 1];
-  const relPath = await new Workspace(project).writePlot(
-    {
-      no,
-      title: '',
-      arc: '',
-      // 手工新建的段没有上游——**upstreamHash 留空**，它才永远不会挂 ⟳
-      // （手写的产物永不标脏）。
-      upstreamHash: '',
-      done: false,
-      chapters: [],
-      sections: emptyPlotSections(),
-    },
-    undefined,
-    last ? project.plotsMirrorRelPathForVolume(last.relPath) : undefined
-  );
-  await project.syncManifest();
-  getHost().toast(`已新建剧情段：${relPath}`);
-  return relPath;
-}
-
-/**
- * 直接新建一卷：**只建一份空卷纲**，不问名字、不打开它。返回相对路径。
- *
- * 与 `newPlotFlow` 逐条同理——名字是排完这一卷的走向之后才定得下来的东西，
- * 逼作者先编一个只会换来一个假名字，而它会进文件名、进界面说法、进上下文。
- * 所以先落成纯序号名 `03.md`，等他想好了走「重命名」（卷号前缀会保留）。
- */
-export async function newVolumeFlow(project: NovelProject): Promise<string> {
-  const no = await project.nextVolumeNo();
-  const relPath = await new Workspace(project).writeVolume({
+  const relPath = await new Workspace(project).writePlot({
     no,
     title: '',
-    // 手工新建的卷没有上游，同上。
+    role: '',
+    characters: [],
+    // 手工新建的细纲没有上游——**upstreamHash 留空**，它才永远不会挂 ⟳
+    // （手写的产物永不标脏）。
     upstreamHash: '',
     done: false,
-    sections: emptyVolumeSections(),
+    sections: emptyPlotSections(),
   });
-  getHost().toast(`已新建第 ${no} 卷：${relPath}`);
+  await project.syncManifest();
+  getHost().toast(`已新建第 ${no} 章的细纲：${relPath}`);
   return relPath;
 }
 
 /**
- * 直接新建一个发布章节文件：**只建一个 0 字的文件**，不问标题、不打开它。
+ * 直接新建一个章节文件：**只建一个 0 字的文件**，不问标题、不打开它。
  * 返回相对路径。
  *
  * `dir` 是落点目录（工作区相对路径，如 `chapters/第一卷`），缺省或越界时落在
  * chapters/ 根下。序号是全书唯一的下一个——分卷只是收纳，不重置编号。
  *
- * 正常路径上的发布章节是**拆分**出来的（`features/splitChapter.ts`），不是从这里
- * 建的。这条留给「手里已经有一章现成的文字，想直接粘进来」——所以建完不把作者
- * 送进创作页，多半他接下来就是往里粘正文。
+ * 正常路径上的章节是写正文时生成的，不是从这里建的。这条留给「手里已经有一章
+ * 现成的文字，想直接粘进来」——所以建完不把作者送进创作页，多半他接下来就是
+ * 往里粘正文。
  */
 export async function newChapterFlow(project: NovelProject, dir?: string): Promise<string> {
   const target = resolveSectionDir(project, 'chapters', dir);

@@ -4,7 +4,6 @@ import {
   initProjectFlow,
   newChapterFlow,
   newPlotFlow,
-  newVolumeFlow,
 } from '../actions';
 import { newFolder, Section, sectionOf, sectionRoots } from '../files/fileOps';
 import {
@@ -19,12 +18,11 @@ import { generateLore } from '../features/lore';
 import { generatePlots, writeManuscripts } from '../features/pipelineBatch';
 import { extractStyle } from '../features/style';
 import { chapterForSummary, rebuildGlobalSummary, summarizeChapter, syncSummaries } from '../features/summarize';
-import { splitManuscript } from '../features/splitChapter';
 import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { CharacterAction, ProjectAction } from '../protocol';
-import { selectPlot, setTarget } from './chat';
+import { selectPlot } from './chat';
 
 const log = scoped('面板');
 
@@ -56,28 +54,19 @@ export async function projectAction(
       break;
     case 'refresh':
       break; // pushState 本身就是刷新
-    case 'newVolume': {
-      const rel = await newVolumeFlow(c.project);
-      if (rel) {
-        // 建完**进入这一卷**：接下来要做的是把这一卷的走向写出来
-        // （主按钮会是「写这一卷的卷纲」），再从它拆剧情段。
-        await setTarget(c, { kind: 'volume', volumeRelPath: rel });
-      }
-      break;
-    }
     case 'newPlot': {
       const rel = await newPlotFlow(c.project);
       if (rel) {
-        // 建完**进入这一段**，落在哪一层由状态机决定（空段 → 待写剧情 →
-        // 主按钮「写剧情」）。走 selectPlot 而不是自己拼 target：
-        // 只有后端知道那一段处于什么状态，这与点段落名同一条路。
+        // 建完**进入这一章**，落在哪一层由状态机决定（空细纲 → 待写细纲 →
+        // 主按钮「写第 N 章细纲」）。走 selectPlot 而不是自己拼 target：
+        // 只有后端知道那一章处于什么状态，这与点章名同一条路。
         await selectPlot(c, rel);
       }
       break;
     }
     case 'newChapter':
-      // 发布区手工新建一篇。**不进创作页**——章节不在流水线上，
-      // 建它多半是作者要往里粘一段切好的正文。
+      // 手工新建一个章节文件。**不进创作页**——建它多半是作者要往里粘一段
+      // 现成的正文。
       await newChapterFlow(c.project, dir);
       break;
     case 'newCharacter':
@@ -95,16 +84,17 @@ export async function projectAction(
       await newFolder(c.project, section, dir);
       break;
     }
-    case 'summarizePlot': {
+    case 'finalizeChapter': {
       if (!relPath) {
         break;
       }
       // 传进来的可能是细纲路径（从流水线那一侧点的），也可能是章节路径
-      // （从工程页那一行点的）。摘要挂在成品上，所以统一解析成章节。
+      // （从工程页那一行点的）。摘要挂在正文上，所以统一解析成章节。
+      // 本期（一期）定稿只生成摘要；更新角色「当前状态」是四期的事。
       const chapter = await chapterForSummary(c.project, relPath);
       if (!chapter) {
-        log.warn(`找不到 ${relPath} 对应的章节，可能还没拆分或刚被改名`);
-        getHost().toast('这一章还没有拆分成发布章节，无法总结。', 'error');
+        log.warn(`找不到 ${relPath} 对应的章节，可能还没写正文或刚被改名`);
+        getHost().toast('这一章还没有正文，无法定稿。', 'error');
         break;
       }
       await runTask(
@@ -119,13 +109,6 @@ export async function projectAction(
         },
         { scope: '摘要' }
       );
-      break;
-    }
-    case 'splitManuscript': {
-      if (!relPath) {
-        break;
-      }
-      await splitManuscript(c.project, relPath);
       break;
     }
     case 'syncSummaries':

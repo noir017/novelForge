@@ -5,13 +5,11 @@
  *
  * 写盘从前散在六处（`model/project.ts`、`features/creation.ts` 的
  * `acceptArtifact`、`files/fileOps.ts`、`files/fileEditing.ts`、
- * `files/projectFiles.ts`、`features/splitChapter.ts`），**每处各带一部分
- * 保护，谁也不认识谁**。既有落盘路径背着一批不变量，绕过任何一条都会安静地
- * 损坏工程：
+ * `files/projectFiles.ts`、拆章），**每处各带一部分保护，谁也不认识谁**。
+ * 既有落盘路径背着一批不变量，绕过任何一条都会安静地损坏工程：
  *
- * - 细纲改名要连带搬走场景目录与中转站正文，当普通文件搬会把它们变成孤儿
- * - 场景文件名由「场号 + 标题」决定，改标题要清掉旧文件名
- * - 写正文与写细纲都要记 `upstreamHash`，漏了新鲜度链就断
+ * - 细纲文件名由「章号 + 标题」决定，改标题要清掉旧文件名
+ * - 写细纲要记 `upstreamHash`、写正文要在细纲上记 `writtenFrom`，漏了新鲜度链就断
  * - 删除一律进 `.trash/`；同名目标一律报错退出
  *
  * 所以 `write` 不是「往这个路径写字节」，而是「按这个路径**应有的种类**写一份
@@ -47,9 +45,9 @@ import {
   SummaryCast,
   SummarySections,
 } from '../model/types';
-import { stringifyFrontmatter, stringifySections } from '../model/markdown';
+import { rewriteFrontmatter, stringifyFrontmatter, stringifySections } from '../model/markdown';
 import { renderCastEntry } from '../model/castParse';
-import { isMarkdownExt, isMarkdownPath, splitByMark } from '../model/chapterFile';
+import { isMarkdownExt, isMarkdownPath } from '../model/chapterFile';
 import {
   NovelProject,
   WritableCharacterCard,
@@ -58,7 +56,6 @@ import {
   renderLoreEntry,
 } from '../model/project';
 import { WritablePlot, renderPlotFile } from '../model/plotFile';
-import { WritableVolume, renderVolumeFile } from '../model/volumeFile';
 import { Artifact } from '../features/artifact';
 import {
   ArtifactKind,
@@ -66,7 +63,6 @@ import {
   kindOfPath,
   normalizeRel,
   plotRelPathFor,
-  volumeRelPathFor,
 } from './kind';
 import {
   MAX_EDITABLE_BYTES,
@@ -77,8 +73,7 @@ import {
   reviewOverwrite,
 } from './guard';
 import { Handler, HandlerCtx, handlerFor } from './handlers';
-import { carryPlotCompanions, trashPlotCompanions, trashRel } from './handlers/plot';
-import { carryVolumeCompanions, trashVolumeCompanions } from './handlers/volume';
+import { trashRel } from './handlers/plot';
 import { SearchOptions, SearchResult, search } from './search';
 
 const log = scoped('工作区');
@@ -410,91 +405,39 @@ export class Workspace {
   // ---------------------------------------------------------------- 领域写入器
   //
   // 上面六个方法收的是**路径**。下面这几个收的是**领域对象**（一份细纲、
-  // 一场戏），因为它们的落点由内容决定：细纲的文件名是「章号 + 标题」，
-  // 场景的是「场号 + 标题」，改标题就是改文件名。调用方手里只有对象，
-  // 让它自己去拼路径等于把命名规则复制一份出去。
+  // 一章正文），因为它们的落点由内容决定：细纲的文件名是「章号 + 标题」，
+  // 改标题就是改文件名。调用方手里只有对象，让它自己去拼路径等于把命名规则
+  // 复制一份出去。
   //
   // 它们仍然经同一套 handler 记账与伴生，只是路径由这一层算出来。
 
   /**
-   * 写一卷的卷纲，返回工作区相对路径。
+   * 写一章的细纲，返回工作区相对路径。
    *
-   * 与 `writePlot` 同构：文件名由**卷号与标题**共同决定，所以改标题会改文件名。
-   * 旧文件必须删掉并把三棵伴生目录（段、场景、中转站正文）搬过去，否则
-   * `01-觉醒.md` 与 `01-觉醒之日.md` 并存会变成两卷，而其中一卷的段全成孤儿。
-   *
-   * @param fromRelPath 改卷号时传原卷纲路径；改标题或新建时不必传。
-   */
-  async writeVolume(volume: WritableVolume, fromRelPath?: string): Promise<string> {
-    const rel = volumeRelPathFor(this.project, volume.no, safeStem(volume.title));
-    const previous = fromRelPath
-      ? await this.project.readVolume(fromRelPath)
-      : (await this.project.listVolumes()).find((v) => v.no === volume.no);
-
-    await writeText(this.project.pathOf(rel), renderVolumeFile(volume));
-
-    if (previous && previous.relPath !== rel) {
-      await carryVolumeCompanions(this.project, previous.relPath, rel);
-      await fs.unlink(this.project.pathOf(previous.relPath)).catch(() => undefined);
-    }
-    this.project.invalidate();
-    return rel;
-  }
-
-  /**
-   * 删一卷的卷纲：连同它收纳的剧情段、那些段的场景与中转站正文一起搬进
-   * `.trash/`，不真删（AGENTS 第 6 条）。返回是否确实删掉了。
-   *
-   * **不碰 `chapters/` 与摘要**：与 `deletePlot` 同一条理由——那是作者已经
-   * 发布出去的成品，删一份规划稿不该顺手带走它。
-   */
-  async deleteVolume(volumeRelPath: string): Promise<boolean> {
-    const volume = await this.project.readVolume(volumeRelPath);
-    if (!volume) {
-      return false;
-    }
-    await trashVolumeCompanions(this.project, volumeRelPath);
-    await trashRel(this.project, volumeRelPath);
-    this.project.invalidate();
-    return true;
-  }
-
-  /**
-   * 写一段的细纲，返回工作区相对路径。
-   *
-   * 文件名由**段号与标题**共同决定，所以改标题会改文件名，改段号也会。旧文件
-   * 必须删掉并把伴生文件搬过去，否则 `007-入宗.md` 与 `007-入宗风波.md` 并存
-   * 会变成两段。
+   * 文件名由**章号与标题**共同决定，所以改标题会改文件名，改章号也会。旧文件
+   * 必须删掉，否则 `007-入宗.md` 与 `007-入宗风波.md` 并存会变成同一章的两份细纲。
    *
    * 「旧文件是哪一份」有两种问法：
    *
-   * - **改标题**（段号没变）：按 `plot.no` 就找得到，这是绝大多数调用。
-   * - **改段号**：新号上根本没有旧文件，必须由调用方把原路径经 `fromRelPath`
-   *   传进来。不传的话旧文件会留在原地成为孤儿，而它的场景目录与中转站正文
-   *   也不会跟着走。
+   * - **改标题**（章号没变）：按 `plot.no` 就找得到，这是绝大多数调用。
+   * - **改章号**：新号上根本没有旧文件，必须由调用方把原路径经 `fromRelPath`
+   *   传进来。不传的话旧文件会留在原地成为孤儿。
    *
-   * **`upstreamHash` 以调用方给的为准**，不在这里补：手工新建的段
-   * （`actions.ts` 的 `newPlotFlow`）传的就是空串，它才永远不会挂 ⟳。
+   * **`upstreamHash` 以调用方给的为准**，不在这里补：手工新建的细纲传的就是空串，
+   * 它才永远不会挂 ⟳。
    *
-   * **落在哪一卷**由 `dir` 说（`plots/01-觉醒之日`）；不给就落在 `plots/` 根下，
-   * 那是「未分卷」。改标题时缺省沿用**磁盘上那份所在的目录**——不然给一段改个
-   * 名字会把它从它那一卷里搬出来。
-   *
-   * @param fromRelPath 改段号时传原细纲路径；改标题或新建时不必传。
-   * @param dir 落点目录（工作区相对）。不给则沿用旧文件所在目录，再退到 `plots/` 根。
+   * @param fromRelPath 改章号时传原细纲路径；改标题或新建时不必传。
    */
-  async writePlot(plot: WritablePlot, fromRelPath?: string, dir?: string): Promise<string> {
+  async writePlot(plot: WritablePlot, fromRelPath?: string): Promise<string> {
     // 换号时新号上是空的，只有调用方知道原来那份在哪。
     const previous = fromRelPath
       ? await this.project.readPlot(fromRelPath)
       : await this.project.getPlot(plot.no);
-    const parent = dir ?? (previous ? dirOf(previous.relPath) : undefined);
-    const rel = plotRelPathFor(this.project, plot.no, safeStem(plot.title), parent);
+    const rel = plotRelPathFor(this.project, plot.no, safeStem(plot.title));
 
     await writeText(this.project.pathOf(rel), renderPlotFile(plot));
 
     if (previous && previous.relPath !== rel) {
-      await carryPlotCompanions(this.project, previous.relPath, rel);
       await fs.unlink(this.project.pathOf(previous.relPath)).catch(() => undefined);
     }
     // 细纲列表有缓存，写完不失效的话下一次读到的还是写之前那份——新建的章
@@ -504,89 +447,44 @@ export class Workspace {
   }
 
   /**
-   * 删一章的细纲：连同中转站里的正文一起搬进 `.trash/`，不真删
-   * （AGENTS 第 6 条）。返回是否确实删掉了。
+   * 删一章的细纲：搬进 `.trash/`，不真删（AGENTS 第 6 条）。返回是否确实删掉了。
    *
-   * **不碰 `chapters/` 与摘要**：那两样描述的是已经发布的成品。删掉细纲
-   * 只是放弃这一章的规划稿，不该顺手把作者已经拆出去的正文一起带走。
+   * **不碰 `chapters/` 与摘要**：那两样是已经写出来的正文。删掉细纲只是放弃
+   * 这一章的规划稿，不该顺手把正文一起带走。
    */
   async deletePlot(plotRelPath: string): Promise<boolean> {
     const plot = await this.project.readPlot(plotRelPath);
     if (!plot) {
       return false;
     }
-    await trashPlotCompanions(this.project, plotRelPath);
     await trashRel(this.project, plotRelPath);
     this.project.invalidate();
     return true;
   }
 
   /**
-   * 把文本追加到中转站里那一章的正文末尾，返回工作区相对路径。
+   * 在细纲上记下「正文据以写成的细纲指纹」（`writtenFrom`）。正文落盘那一步调它。
    *
-   * 正文是**追加**而不是覆盖：一段可以分几次写，顺序拼起来才是完整的一段。
-   * 这也是唯一一条不走覆盖审阅的落盘路径——追加不覆盖任何东西。
+   * 为什么记在细纲这一侧：章节是作者的文件，可以是 `.txt`、没有 frontmatter
+   * （第 9 条），这条链只能从细纲指过去（见 model/plotFile.ts 的文件头）。
+   * `rewriteFrontmatter` 只改 `---` 之间那一段，正文一个字节不动；细纲没有
+   * frontmatter（作者手写的）就不补——那份细纲不在这条链上。
    *
-   * 两次追加之间插一行 `---`：那是**默认的拆分候选点**（第 23 条）。一次写作
-   * 的边界正是最可能的章节边界；给一个能改的默认，比让作者从头自己标要好。
-   * 他可以删掉、也可以另加——拆分只认这一行标记。
-   *
-   * 写完记 `upstreamHash`（正文所依据的细纲指纹）。少了这一步，这一段会永远
-   * 显示「正文与剧情对不上」或永远不显示，两种都是错的。
+   * 返回是否确实记上了。
    */
-  async appendToManuscript(plotRelPath: string, text: string): Promise<string> {
-    const rel = this.project.manuscriptMirrorRelPath(plotRelPath);
-    const r = await this.write(rel, { text }, { mode: 'append' });
-    return r.rel;
-  }
-
-  /**
-   * 把中转站里的一章正文按 `---` 拆成若干章，写进 `chapters/`，
-   * 然后把中转站那份搬进回收站。返回建好的章节相对路径。
-   *
-   * `titles[i]` 对应第 i 片；给空串就落成纯序号名（`101.md`）。
-   *
-   * **章号从「现有最大章号 + 1」往后连排**，与这一段自己的段号无关：段号只是
-   * `plots/` 里的排序键，一段可以拆成三章，两条轴各排各的（见 model/plotFile.ts
-   * 的文件头）。从前是从段号起排，于是「一段拆成三章」必须把后面几十段整体
-   * 改名让路——那次重命名风暴连带搬场景目录与中转站正文，一次失败就留下一地
-   * 孤儿。现在两条轴不再撞号，那一步整个不需要了。
-   *
-   * 落盘之后把建好的章节路径记进这一段的 frontmatter（`chapters`）：这是
-   * 「段 → 章」唯一的链，界面据此知道这一段已经交付，也据此从任一章回到
-   * 它的规划稿。`chapters/` 下的文件是作者的东西，拆分之后一个字节都不改，
-   * 所以这条链只能记在段这一侧。
-   */
-  async splitManuscript(plotRelPath: string, titles: string[]): Promise<string[]> {
-    const manuscript = await this.project.readManuscript(plotRelPath);
-    if (!manuscript) {
-      throw new Error(`这一章还没有正文可拆：${plotRelPath}`);
+  async recordWrittenFrom(plotRelPath: string, plotHash: string): Promise<boolean> {
+    const abs = this.project.pathOf(plotRelPath);
+    const raw = await readTextIfExists(abs).catch(() => undefined);
+    if (raw === undefined || !plotHash) {
+      return false;
     }
-    const pieces = splitByMark(manuscript.text);
-    if (pieces.length === 0) {
-      throw new Error(`这一章的正文是空的，没有可拆的内容：${manuscript.relPath}`);
+    const next = rewriteFrontmatter(raw, { writtenFrom: plotHash });
+    if (next === undefined || next === raw) {
+      return next !== undefined;
     }
-    const startNo = (await this.project.nextChapterNo()) ?? 1;
-
-    const created: string[] = [];
-    for (const [i, piece] of pieces.entries()) {
-      created.push(await this.createChapter(startNo + i, titles[i] ?? '', piece));
-    }
-    // 全部落盘成功才动原件。中途抛出的话中转站那份还在，作者可以重来。
-    await trashRel(this.project, manuscript.relPath);
+    await fs.writeFile(abs, next, 'utf8');
     this.project.invalidate();
-
-    // 记下「这一段交付到了哪几章」。**追加而不是覆盖**：作者可能把一段的正文
-    // 分两次拆（先拆前半段、又往中转站续写后半段再拆一次）。
-    const plot = await this.project.readPlot(plotRelPath);
-    if (plot) {
-      await this.writePlot(
-        { ...plot, chapters: [...plot.chapters, ...created.filter((c) => !plot.chapters.includes(c))] },
-        plot.relPath
-      );
-    }
-    await this.project.syncManifest();
-    return created;
+    return true;
   }
 
   /**
@@ -596,8 +494,8 @@ export class Workspace {
    * `ext` 默认 `.md`：扫描时认任意扩展名，但插件自己建的东西仍然出 markdown。
    * 非 markdown 家族不写标题行。
    *
-   * **`title` 留空是合法的**，落成纯序号名 `001.md`——拆分出来的第 2 章往后
-   * 就是这个样子（标题等作者自己改）。
+   * **`title` 留空是合法的**，落成纯序号名 `001.md`（细纲还没起标题的章就是
+   * 这个样子，标题等作者自己改）。
    *
    * 标题行写的是**清洗后**的词干而不是原样 `title`：两者一致，改名时
    * `renamedBody` 才认得出「这个 H1 是跟着文件名走的」。无标题时干脆不写
@@ -646,7 +544,7 @@ export class Workspace {
   /**
    * 写一章的摘要。落点镜像**章节**路径（`summaryPathForChapter`）。
    *
-   * `sourceHash` 记的是**成品**的 `contentHash`——摘要描述的是已发布的那一章
+   * `sourceHash` 记的是正文的 `contentHash`——摘要描述的是写出来的那一章
    * （指纹链的最后一环）。
    *
    * 落盘仍是 Markdown（第 14 条：作者要手改），结构化的出场人物写进
@@ -756,9 +654,8 @@ function clip(text: string): string {
 /**
  * 追加时拼出最终内容。
  *
- * 首次写入带上 handler 给的头（正文是 frontmatter + `# 第N章… · 正文`），
- * 之后在两段之间插 handler 给的分隔符——正文那一行 `---` 是**默认的拆分
- * 候选点**（第 23 条），其余种类只空一行。
+ * 首次写入带上 handler 给的头（没有就不带），之后在两段之间插 handler 给的
+ * 分隔符（缺省空一行）。
  */
 async function appendText(
   guarded: { existed: boolean; current?: string },
@@ -829,12 +726,3 @@ export type { ArtifactKind, PathKind } from './kind';
 // 一个 `NovelProject`，不必为了搜一次而先造一个门面。
 export { search } from './search';
 export type { SearchHit, SearchOptions, SearchResult } from './search';
-
-/**
- * 一个工作区相对路径所在的目录（`plots/01-卷/003-x.md` → `plots/01-卷`）。
- * 根下的文件给空串——`plotRelPathFor` 收到空就落回 `plots/` 根。
- */
-function dirOf(rel: string): string {
-  const slash = rel.lastIndexOf('/');
-  return slash < 0 ? '' : rel.slice(0, slash);
-}

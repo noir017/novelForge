@@ -6,6 +6,7 @@ import type {
   NextStepPlan,
   PipelineProgress,
   PlotStage,
+  SettingDoc,
 } from '../model/pipeline';
 import type { ThinkingDepth } from '../model/thinking';
 import type { SerializedAttachment } from './in';
@@ -13,14 +14,12 @@ import type { SerializedAttachment } from './in';
 export interface ViewState {
   initialized: boolean;
   /**
-   * 创作页目标下拉框里的候选：已发布的章 + 还没交付的剧情段。
+   * 创作页目标下拉框里的候选：**每个章号一行**（细纲号 = 章号）。
    *
-   * `label` 由后端给（「第 12 章《夜访》」/「剧情 4《楼道》」）——两种行的说法
-   * 完全不同，让前端按 `no` 自己拼会拼错一半（见 model/pipeline.ts 的
-   * `segmentLabel`）。
+   * `label` 由后端给（「第 12 章《夜访》」），`relPath` 是这一章细纲的路径
+   * （还没有细纲时是它应该在的位置）——选中它就是「进入这一章」。
    */
   plots: {
-    kind: 'chapter' | 'segment';
     no: number;
     label: string;
     title: string;
@@ -41,21 +40,17 @@ export interface ProjectTree {
   initialized: boolean;
   title: string;
   author: string;
-  /** 卷数。工程页「卷」那一组的标题上那个数字。 */
-  volumeCount: number;
-  /** 还没交付的剧情段数。工程页「章节」组标题里那个「+N 剧情」。 */
-  segmentCount: number;
-  /** 章节组的行数（已发布的章 + 未交付的剧情段）。 */
+  /** 章节组的行数（每个出现过的章号一行）。 */
   plotCount: number;
-  /** 已发布的章数。 */
+  /** 已经有正文文件的章数。 */
   chapterCount: number;
   /** 已写正文的总字数。 */
   totalWords: number;
   staleCount: number;
   summarizedCount: number;
-  /** 全书分卷。**前端复用章节行组件**渲染它。 */
-  volumes: ProjectVolumeNode[];
-  /** 章节组的全部行：已发布的章在前，还没交付的剧情段在后。 */
+  /** 「故事架构」组的五行：架构四件 + 情节大纲。 */
+  architecture: ArchitectureRow[];
+  /** 章节组的全部行，一个章号一行，升序。 */
   plots: ProjectPlotNode[];
   characters: ProjectNode[];
   lore: ProjectNode[];
@@ -64,7 +59,6 @@ export interface ProjectTree {
   summaryCount: number;
   failures: Record<string, FailureView[]>;
   castConflicts: CastConflictView[];
-  volumesRoot: string;
   plotsRoot: string;
   chaptersRoot: string;
   charactersRoot: string;
@@ -73,82 +67,62 @@ export interface ProjectTree {
   styleGuidePath: string;
   outlinePath: string;
   globalSummaryPath: string;
-  /** 全书走到哪一步（还没大纲 / 还没规划章节 / 已经在写）。主按钮吃它。 */
+  /** 全书走到哪一步（架构 / 大纲 / 细纲 / 在写 / 写完）。 */
   bookStage: BookStage;
+  /** 下一个该写的章（从第 1 章起连续有正文的最大章号 + 1）。只有这一行给「写这一章」。 */
+  nextChapterNo: number;
 }
 
 /**
- * 工程页「卷」组里的一行。
+ * 「故事架构」组里的一行。
  *
- * 前端复用章节行的组件渲染它（`buildPlotRow` 那一套：序号 + 名字 + 徽章 +
- * 右键菜单），所以字段刻意与 `ProjectPlotNode` 同形——同一个组件读两种数据时，
- * 字段对不上就得在前端写分支。
+ * `key` 是架构四件之一或 `outline`（情节大纲）。角色图谱那一行没有自己的文件，
+ * `relPath` 给角色目录；点它是跳到「角色」那一组，不是打开文件。
  */
-export interface ProjectVolumeNode {
-  no: number;
-  title: string;
-  /** 卷纲路径。这一行的身份。 */
+export interface ArchitectureRow {
+  key: SettingDoc | 'outline';
+  label: string;
   relPath: string;
-  /** 这一卷收纳了几个剧情段（含已交付的）。 */
-  segmentCount: number;
-  /** 其中已经交付（拆成章）的有几个。 */
-  deliveredCount: number;
-  /** 这一卷的剧情段加起来多少字（成品优先，其次中转站）。 */
-  wordCount: number;
-  /** 卷纲有实质内容（「剧情走向」非空）。空壳的卷拆不出像样的段。 */
   filled: boolean;
-  /** 生成这一卷之后，全书大纲改过。 */
-  upstreamStale: boolean;
+  /** 一句话副标题（「3 人」「覆盖到第 20 章」）。 */
+  detail: string;
 }
 
 /**
- * 工程页「章节」组里的一行：**一个已发布的章，或一个还没交付的剧情段**。
+ * 工程页「章节」组里的一行：**一个章号**。细纲号 = 章号，所以细纲与正文是同一行
+ * 的两面，各自有没有、齐不齐都写在这一行上。
  *
  * 扁平列表，不折目录——顺序恰恰是这一层最要紧的信息，折进目录反而看不出来。
- * `chapters/` 与 `plots/` 下的分卷子目录因此不体现在这里（作者仍可以建，
- * 文件操作照常）。
- *
- * 从前一行同时代表规划与成品（两者同号）。现在两者是两条轴：一段可以拆成三章，
- * 拆完那一段就不再是待做项，由它拆出来的几章各自成行。
+ * `chapters/` 下的分卷子目录因此不体现在这里（作者仍可以建，文件操作照常）。
  */
 export interface ProjectPlotNode {
-  /**
-   * 这一行是什么。**界面上的说法完全不同**：章说「第 12 章」，段说「剧情 4」，
-   * 而段还带阶段徽章与四段进度。
-   */
-  kind: 'chapter' | 'segment';
-  /**
-   * 序号：章的是章号，段的是**推导出来的位次**（最新章号 + 在未交付的段里排第几，
-   * 见 model/pipeline.ts 的 `segmentDisplayNo`）——不是段的文件名前缀。
-   */
+  /** 章号。 */
   no: number;
-  /** 界面上那一行的完整说法（「第 12 章《夜访》」/「剧情 4《楼道》」）。 */
+  /** 界面上那一行的完整说法（「第 12 章《夜访》」）。 */
   label: string;
   title: string;
   /**
-   * 这一行的**主路径**：有成品就是成品，否则是细纲。它是这一章在协议上的
-   * 身份——`selectPlot` / `setTarget` / 重命名 / 删除都拿它去认那一章。
-   *
-   * **不是「点行打开哪份文件」**：那件事前端按 成品 → 待拆分的正文 → 细纲
-   * 挑（见 view/project/rows.ts 的 `openTargetOf`），因为主路径漏掉了
-   * 「正文写完、还没拆成章节」那一档。
+   * 这一行的**主路径**：有正文就是正文，否则是细纲（还没有细纲时是它应该在的位置）。
+   * 它是这一章在协议上的身份——`selectPlot` / 重命名 / 删除都拿它去认那一章。
    */
   relPath: string;
-  /** 细纲路径。已发布的章找不到它的来源段时是空串（老工程里每一章都是）。 */
+  /** 细纲路径。还没有细纲时是它**应该**在的位置（切到细纲层、写细纲都要一个落点）。 */
   plotPath: string;
-  /** 成品路径。剧情段行永远是空串。 */
+  /** 细纲文件在不在。「打开细纲」只在它在的时候给。 */
+  plotExists: boolean;
+  /** 正文路径。还没有正文时是空串。 */
   chapterPath: string;
-  /** 中转站里等着拆分的正文路径。没有就是空串。 */
-  manuscriptPath: string;
-  /** 这一章的字数。成品优先，其次是中转站里那份。 */
   wordCount: number;
-  /** 摘要缺失或过期。 */
+  /** 目标字数（细纲的，或配置的每章字数）。都没有是 undefined。 */
+  targetWords?: number;
+  /** 摘要缺失或过期（只对有正文的章有意义）。 */
   stale: boolean;
   summaryPath: string;
   stage: PlotStage;
   progress: PipelineProgress;
+  /** 细纲或正文的上游变过（⟳）。 */
   upstreamStale: boolean;
-  /** 有草稿文件。只有成品才有草稿。 */
+  /** 有草稿文件。只有正文才有草稿。 */
   hasDraft: boolean;
   draftPath: string;
 }
@@ -156,7 +130,7 @@ export interface ProjectPlotNode {
 /**
  * 角色 / 设定两个区的树节点。
  *
- * **没有「章节节点」**：章节不在这棵树里——它与剧情段合成了 `ProjectPlotNode`
+ * **没有「章节节点」**：章节不在这棵树里——它与细纲合成了 `ProjectPlotNode`
  * 那一条扁平列表（见上）。这两个区仍是任意深度的目录树。
  */
 export type ProjectNode = ProjectDirNode | ProjectFileNode;
@@ -175,39 +149,20 @@ export interface ProjectFileNode extends ProjectFile {
 
 export interface PlotPipelineView {
   plotRelPath: string;
-  /** 段号（文件名前缀）。只是 `plots/` 里的排序键，不是章号。 */
+  /** 章号。 */
   no: number;
-  /** 界面上那个「剧情 N」的 N：最新章号 + 在未交付的段里排第几。 */
-  displayNo: number;
   title: string;
   plot: { relPath: string; exists: boolean; filled: boolean; upstreamStale: boolean };
-  /**
-   * 这一段所属那一卷。**未分卷的段没有**（`plots/` 根下那些，老工程全是）。
-   *
-   * 对话页那一排状态点的第一个（卷纲）读它：点了要能切到那一卷，而前端手上
-   * 只有段路径，算不出卷路径——那是目录规则，只有后端知道（见
-   * `workspace/handlers/plot.ts` 的 `volumeOfPlot`）。
-   */
-  volume?: {
-    relPath: string;
-    no: number;
-    title: string;
-    /** 卷纲有实质内容（「剧情走向」非空）。 */
-    filled: boolean;
-    /** 写过这一卷之后，全书大纲改过。 */
-    upstreamStale: boolean;
-  };
-  /** 中转站里等着拆分的正文。 */
-  manuscript: {
+  /** 同号的正文。 */
+  chapter: {
+    exists: boolean;
     relPath: string;
     words: number;
-    /** 这一段预计写多少字。没写就 undefined，那时「有字就算写完」。 */
+    /** 目标字数。都没写就 undefined，那时「有字就算写够」。 */
     targetWords?: number;
-    /** 写完正文之后，这一段的细纲改过。 */
+    /** 写完正文之后，这一章的细纲改过。 */
     upstreamStale: boolean;
   };
-  /** 这一段交付到的发布章。`relPath` 是第一章，`words` 是几章的总字数。 */
-  chapter: { exists: boolean; relPath: string; words: number; chapterPaths: string[] };
   summary: { exists: boolean; stale: boolean };
   stage: PlotStage;
   progress: PipelineProgress;
@@ -270,23 +225,15 @@ export interface CastConflictView {
 export interface PlotSummaryView {
   no: number;
   title: string;
-  /**
-   * 浮窗标题里那一行（「第 12 章《夜访》」/「剧情 4《楼道》」）。
-   *
-   * 由后端给：一行可能是已发布的章，也可能是还没交付的剧情段，两者的说法
-   * 完全不同（见 model/pipeline.ts 的 `segmentLabel`）。前端按 `no` 自己拼
-   * 会把每一个剧情段都叫成「第 N 章」。
-   */
+  /** 浮窗标题里那一行（「第 12 章《夜访》」）。由后端给，文案只有一份。 */
   label: string;
   exists: boolean;
   stale: boolean;
   relPath: string;
   sections: { name: string; text: string }[];
   /**
-   * 没有摘要时那句话。
-   *
-   * 章与段的原因不同：章是「还没总结」（右键就能总结），段是「还没拆成章，
-   * 摘要挂在成品上」——对段说「右键总结这一章」是在指一条走不通的路。
+   * 没有摘要时那句话。有正文是「还没定稿」（右键就能定稿），没有正文是
+   * 「还没写」——对一章还没写的说「右键定稿」是在指一条走不通的路。
    */
   emptyHint?: string;
 }

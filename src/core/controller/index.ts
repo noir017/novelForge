@@ -22,7 +22,6 @@ import {
   chapterLabel,
   plotOfTarget,
   normalizeTarget,
-  segmentLabel,
 } from '../model/pipeline';
 import {
   InMessage,
@@ -554,35 +553,17 @@ export class ChatController {
         maxOutputTokens: 0,
       };
     }
-    // 目标下拉框列的是**已发布的章 + 还没交付的剧情段**，顺序即时间线：
-    // 前面是写完的，后面是待写的。只列后者的话，老工程打开后下拉框是空的。
-    //
-    // 两种行的说法完全不同（「第 12 章」/「剧情 4」），所以 `label` 由后端给，
-    // 位次也由后端算——前端按 `no` 自己拼会拼错一半。
-    const { segments, chapters } = await buildPipelineIndex(this.project);
-    const rows: ViewState['plots'] = [
-      ...chapters.map((chapter) => ({
-        kind: 'chapter' as const,
-        no: chapter.order,
-        label: chapterLabel(chapter.order, chapter.title),
-        title: chapter.title,
-        wordCount: chapter.wordCount,
-        // 已发布的章选中时落在**它的来源段**上（拆分时记下的落点）；找不到
-        // 来源（老工程里每一章都是）就指向细纲**应该**在的位置——选中它就是
-        // 「去给这一章补规划」，而 `readPlot` 读不到会如实退化成空壳。
-        relPath:
-          segments.find((p) => p.chapter.chapterPaths.includes(chapter.relPath))?.plot.relPath ||
-          this.project.plotPathForNo(chapter.order, chapter.title),
-      })),
-      ...segments.map((p) => ({
-        kind: 'segment' as const,
-        no: p.displayNo,
-        label: segmentLabel(p.displayNo, p.title),
-        title: p.title,
-        wordCount: p.manuscript.words,
-        relPath: p.plot.relPath,
-      })),
-    ];
+    // 目标下拉框：**一个章号一行**（细纲号 = 章号），顺序即时间线。
+    // `relPath` 是那一章细纲的路径——还没有细纲时是它应该在的位置，选中它就是
+    // 「去给这一章补规划」，`readPlot` 读不到会如实退化成空壳。
+    const { rows: pipelineRows } = await buildPipelineIndex(this.project);
+    const rows: ViewState['plots'] = pipelineRows.map((p) => ({
+      no: p.no,
+      label: chapterLabel(p.no, p.title),
+      title: p.title,
+      wordCount: p.chapter.words,
+      relPath: p.plot.relPath,
+    }));
     return {
       initialized: true,
       plots: rows,

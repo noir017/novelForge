@@ -156,7 +156,7 @@ ${settingsPane(caps)}
         </div>
         <div class="nf-welcome-col nf-welcome-copy">
           <h2>Novel Forge</h2>
-          <p>从一句念头开始，逐层填成大纲、剧情、场景，最后写成正文。</p>
+          <p>从一句念头开始，先定架构、排大纲、拆细纲，再一章一章写成正文。</p>
           <dl>
             <dt><kbd>Ctrl</kbd>+<kbd>O</kbd></dt><dd>打开文件夹</dd>
             <dt><kbd>Ctrl</kbd>+<kbd>S</kbd></dt><dd>保存当前文件</dd>

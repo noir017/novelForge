@@ -95,18 +95,18 @@ export function chatPane(opts: PaneOptions = {}): string {
        的那件事本身也只能在工程页上处理。活动栏「工程」上的小圆点负责在别的
        页面上留个记号。 -->
 
-  <!-- 流水线条：这一章走到哪一步了。点任一层切到那一层。
-       目标是全书大纲时只剩面包屑，四段隐藏。 -->
+  <!-- 流水线条：这一章走到哪一步了。点任一格切到那一层。
+       目标是架构或大纲时只剩面包屑，三格隐藏。 -->
   <div class="pipeline" id="pipeline">
     <div class="pipeline-top" id="pipelineTop">
       <div class="pipeline-crumb" id="pipelineCrumb"></div>
-      <!-- 给当前这一段起名 / 改名。新建出来的段是纯序号名（标题要等剧情
-           写完才定得下来），所以命名是主流程的一步，得有个常驻入口。
-           目标是全书大纲时前端把它藏起来。 -->
+      <!-- 给当前这一章的细纲起名 / 改名。手工新建的细纲是纯序号名（标题要等
+           细纲排完才定得下来），所以命名得有个常驻入口。
+           目标是架构或大纲时前端把它藏起来。 -->
       <button class="pipeline-new hidden" id="renamePlotBtn" title="重命名当前章节" aria-label="重命名当前章节">✎</button>
       <button class="pipeline-new" id="newSessionBtn" title="开始新对话" aria-label="开始新对话">＋</button>
     </div>
-    <!-- 卷纲 / 剧情 / 正文 三个状态点。内容由 view/pipeline.ts 画。 -->
+    <!-- 细纲 / 正文 / 定稿 三格。内容由 view/pipeline.ts 画。 -->
     <div class="pipeline-stages" id="pipelineStages"></div>
     <!-- 「当前产物」的入口：一行标题。悬停浮出这一层的产物，点击钉住。
          从前它是消息流顶部一张 sticky 卡片——关不掉、藏不起来，还长期占着
@@ -116,8 +116,8 @@ export function chatPane(opts: PaneOptions = {}): string {
 
   <div class="messages" id="messages">
     <div class="empty" id="emptyHint">
-      <p><strong>先挑一章剧情，从它当前该做的那一步接着做</strong></p>
-      <p>在「工程」页点任意章节，或用下面的下拉框选一章——界面会自动落到它的当前阶段：还没排剧情就去写剧情，剧情排好了就去拆场景。</p>
+      <p><strong>跟着上面的主按钮走：它永远是这本书现在该做的那一步</strong></p>
+      <p>从一句话开始：先生成小说配置、故事前提、角色图谱与世界观，再排情节大纲、拆细纲，最后一章一章写正文。想接着写某一章，在「工程」页右键「进入这一章」，或用下面的下拉框选它。</p>
       <p>用 <kbd>@</kbd> 引用正文、角色卡或任意文件；在输入框里打 <kbd>/</kbd> 可以挑其它命令。</p>${editorHint}
     </div>
   </div>
@@ -151,7 +151,6 @@ export function chatPane(opts: PaneOptions = {}): string {
       <!-- 思考深度：跟着**会话**走，不是设置项（见 core/model/session.ts）。 -->
       <select id="thinkSelect" title="让模型想多深"></select>
       <select id="targetSelect" title="当前创作目标"></select>
-      <input type="number" id="targetWords" value="2000" min="0" step="100" title="目标字数（0 为不限）">
       <span class="spacer"></span>
       <button class="primary" id="sendBtn">发送</button>
       <button class="danger hidden" id="stopBtn">停止</button>
@@ -165,8 +164,7 @@ export function chatPane(opts: PaneOptions = {}): string {
 export function projectPane(): string {
   return `<section class="pane" id="pane-project">
   <div class="project-toolbar" id="projectToolbar">
-    <button class="chip-btn" data-action="newVolume">＋ 新建卷</button>
-    <button class="chip-btn" data-action="newPlot">＋ 新建剧情段</button>
+    <button class="chip-btn" data-action="newPlot">＋ 新建细纲</button>
     <button class="chip-btn" data-action="newCharacter">＋ 角色卡</button>
     <button class="chip-btn" data-action="newLore">＋ 设定</button>
     <button class="chip-btn" data-action="newFolder">＋ 文件夹</button>

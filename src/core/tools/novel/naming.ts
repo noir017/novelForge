@@ -16,20 +16,16 @@ import type { NovelProject } from '../../model/project';
 export function describeForReview(path: PathKind, rel: string): string {
   const no = path.no;
   switch (path.kind) {
+    case 'setting':
+      return path.doc === 'config' ? '小说配置' : path.doc === 'premise' ? '故事前提' : '世界观';
     case 'outline':
-      return '全书大纲';
+      return '情节大纲';
     case 'style':
       return '文风指南';
     case 'globalSummary':
       return '全书滚动摘要';
-    case 'volume':
-      return no === undefined ? '这一卷的卷纲' : `第 ${no} 卷的卷纲`;
-    // 这里报的是**段号**（文件名前缀），不是界面上那个「剧情 N」位次——
-    // 框里紧接着还要显示路径，两者对得上作者才认得出是同一份文件。
     case 'plot':
-      return no === undefined ? '这一段的细纲' : `剧情段 ${no} 的细纲`;
-    case 'manuscript':
-      return no === undefined ? '这一段的正文' : `剧情段 ${no} 的正文`;
+      return no === undefined ? '这一章的细纲' : `第 ${no} 章的细纲`;
     case 'chapter':
       return no === undefined ? '这一章' : `第 ${no} 章`;
     case 'summary':

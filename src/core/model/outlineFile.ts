@@ -22,6 +22,7 @@
  * `- – — ~ ～ 至 到`，后面的冒号（中英文）可有可无。**只认阿拉伯数字**：
  * 「第一章」这种写法要做中文数字解析，而移植过来的提示词一律要求阿拉伯数字。
  */
+import { hash } from './fs';
 
 export interface OutlineRange {
   from: number;
@@ -89,23 +90,67 @@ export function parseOutlineRanges(text: string): OutlineRange[] {
 }
 
 /**
+ * 大纲写过没有。
+ *
+ * 不能只看「有没有字」：模板里有一行 `>` 说明，老模板还有「（写一句话概括全书。）」
+ * 这类括号提示和一串空的 `1.` `-`——那些都是给人看的脚手架，不是大纲。
+ * 所以只认**实质行**：不是空行、不是 `>` 引用、不是标题、不是空的列表项、
+ * 也不是整行一对括号的提示文字。区间一节里有内容当然也算。
+ */
+export function isOutlineFilled(text: string): boolean {
+  for (const raw of (text ?? '').replace(/^﻿/, '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (
+      !line ||
+      line.startsWith('>') ||
+      /^#{1,6}\s/.test(line) ||
+      /^([-*+]|\d+[.、)）])\s*$/.test(line) ||
+      /^[（(][^）)]*[）)]$/.test(line)
+    ) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
  * 大纲覆盖到了第几章。
  *
  * - 有区间标题：取最大的 `to`。
- * - 有内容但一个区间标题都没有（老工程、或作者自己写的散文式大纲）：`Infinity`
- *   ——说不上覆盖到哪，就**不拦**。拿 0 的话，那些工程会被状态机一直推去「续写大纲」，
- *   而它们的大纲明明写好了。
- * - 空：0。
+ * - 写过（{@link isOutlineFilled}）但一个区间标题都没有（老工程、或作者自己写的
+ *   散文式大纲）：`Infinity`——说不上覆盖到哪，就**不拦**。拿 0 的话，那些工程会被
+ *   状态机一直推去「续写大纲」，而它们的大纲明明写好了。
+ * - 没写过：0。
  */
 export function outlineCoverage(text: string): number {
   const ranges = parseOutlineRanges(text);
   if (ranges.length > 0) {
     return ranges.reduce((max, r) => Math.max(max, r.to), 0);
   }
-  return (text ?? '').trim() ? Infinity : 0;
+  return isOutlineFilled(text) ? Infinity : 0;
 }
 
 /** 覆盖第 `no` 章的那一节；重叠时取先出现的；没有就 undefined。 */
 export function outlineSliceFor(text: string, no: number): OutlineRange | undefined {
   return parseOutlineRanges(text).find((r) => r.from <= no && no <= r.to);
+}
+
+/**
+ * 第 `no` 章细纲的上游指纹：**覆盖本章的那一节**的指纹（区间、标题、正文都算——
+ * 改了区间也是改了这一章的上游）；大纲没有覆盖这一章的区间时退回全书的指纹；
+ * 大纲是空的给空串（空串 = 不记、不标脏）。
+ *
+ * 为什么不直接用全书的指纹：大纲是一段一段续写的，续写一次就让前 20 章的细纲
+ * 全部挂 ⟳ 是在说谎——它们依据的那一节一个字都没变。
+ *
+ * 细纲落盘时记它（workspace/handlers/plot.ts），流水线判脏时比它
+ * （views/pipeline.ts）——两处必须是同一个函数。
+ */
+export function outlineUpstreamHash(outline: string, no: number | undefined): string {
+  if (!(outline ?? '').trim()) {
+    return '';
+  }
+  const slice = no === undefined ? undefined : outlineSliceFor(outline, no);
+  return slice ? hash(`${slice.from}-${slice.to}\n${slice.title}\n${slice.text}`) : hash(outline);
 }

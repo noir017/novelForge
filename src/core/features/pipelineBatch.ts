@@ -1,8 +1,9 @@
 /**
- * 工程页的流水线批量动作：**一次给几十段写剧情 / 写正文**。
+ * 工程页的流水线批量动作：**一次给几十章写细纲 / 写正文**。
  *
- * 从前是三条（写剧情 / 拆场景 / 写正文）。场景那一层删掉之后剩两条，链上
- * 也少一个闸口——「剧情排好了就能直接写正文」（见 model/pipeline.ts 的文件头）。
+ * 本期（一期）只是把落点从「剧情段 + 中转站」换成「一章一纲 + chapters/」。
+ * 细纲按每批 5 章生成是二期的事；写正文改成严格串行（写一章 → 定稿 → 下一章，
+ * 后一章要读前一章的结尾与角色状态）是四期的事。
  *
  * 与创作页的单次生成（features/creation.ts）是两条路，理由是它们的失败模型
  * 完全不同：创作页一次一份，出错就重来；这里一次几十份，**必须允许部分失败
@@ -34,6 +35,7 @@ import { createModelPool } from '../llm/pool';
 import { describeError, elapsed, formatDuration, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import { Plot, isPlotFilled } from '../model/plotFile';
+import { chapterTargetOf, plotContentHash } from '../views/pipeline';
 import { describeTaskModels } from '../model/tiers';
 import { buildContext } from '../context/builder';
 import { runTask } from '../runtime/progress';
@@ -46,60 +48,59 @@ import { plotUpstreamHash } from '../workspace/handlers/plot';
 const log = scoped('流水线');
 
 /**
- * 给所有还没排剧情的段各写一份。
+ * 给所有还没排过的细纲（文件在、「关键事件」空着）各写一份。
  *
- * 每段一次调用。段与段之间**有**先后关系（后一段接着前一段的局面），但装配器
- * 会把前后段的原文一起带上，所以仍然可以并发——并发改变的只是完成顺序，
- * 不改变每次调用看到的上下文。
+ * 每章一次调用。章与章之间**有**先后关系，但装配器会把前后章的细纲一起带上，
+ * 所以仍然可以并发——并发改变的只是完成顺序，不改变每次调用看到的上下文。
  */
 export async function generatePlots(project: NovelProject): Promise<number> {
   const pending = (await project.listPlots()).filter((p) => !isPlotFilled(p.sections));
 
   if (pending.length === 0) {
-    getHost().toast('每一段都已经排过剧情了。');
+    getHost().toast('每一章都已经排过细纲了。');
     return 0;
   }
   const outline = await project.readOutline();
   if (!outline.trim()) {
-    // 没有大纲就写剧情，等于让模型凭空编四十段——那不是作者要的。
-    log.warn('全书大纲是空的，批量写剧情已中止');
-    getHost().toast('全书大纲还是空的。先写一份大纲，剧情才有依据。', 'error');
+    // 没有大纲就写细纲，等于让模型凭空编四十章——那不是作者要的。
+    log.warn('情节大纲是空的，批量写细纲已中止');
+    getHost().toast('情节大纲还是空的。先写一份大纲，细纲才有依据。', 'error');
     return 0;
   }
 
   const config = readConfig();
   const lanes = Math.min(config.concurrency, pending.length);
   const confirm = await getHost().confirm(
-    `有 ${pending.length} 段还没排剧情，需要调用 ${pending.length} 次模型。现在写？`,
+    `有 ${pending.length} 章还没排细纲，需要调用 ${pending.length} 次模型。现在写？`,
     ['开始生成'],
     {
       modal: true,
       detail:
         `${describeTaskModels(config, 'plotOutline')}\n` +
-        (lanes > 1 ? `并发 ${lanes} 路。` : '串行逐段处理（并发数为 1）。') +
-        '\n已经排过剧情的段不会被改动。',
+        (lanes > 1 ? `并发 ${lanes} 路。` : '串行逐章处理（并发数为 1）。') +
+        '\n已经排过的细纲不会被改动。',
     }
   );
   if (confirm !== '开始生成') {
-    log.info('用户取消了批量写剧情');
+    log.info('用户取消了批量写细纲');
     return 0;
   }
 
   const ws = new Workspace(project);
   const pool = await createModelPool({ task: 'plotOutline', concurrent: lanes > 1 });
   if (!pool) {
-    log.error('没有可用的模型，批量写剧情中止');
+    log.error('没有可用的模型，批量写细纲中止');
     return 0;
   }
   await runBatch(project, {
-    title: '批量写剧情',
+    title: '批量写细纲',
     items: pending,
     lanes,
     op: 'plotOutline',
-    what: '剧情',
+    what: '细纲',
     run: async (plot, signal) => {
       const messages = await buildContextFor(project, plot, config, 'generate');
-      const raw = await pool.run(`剧情段 ${plot.no}`, (llm) =>
+      const raw = await pool.run(`第 ${plot.no} 章细纲`, (llm) =>
         collectText(
           llm.stream(messages, {
             maxOutputTokens: pool.primaryBudget.maxOutputTokens,
@@ -110,25 +111,24 @@ export async function generatePlots(project: NovelProject): Promise<number> {
         )
       );
       // 严格解析：批量路径上没有人逐份过目，全文兜底会把模型的一句
-      // 「我不太确定这一段写什么」变成一份「已规划」的剧情，紧接着的
-      // 批量写正文还会照着它写出一整段。
-      const sections = parsePlotStrict(raw);
-      if (!sections || !isPlotFilled(sections)) {
-        throw new Error('模型返回的内容里解析不出剧情');
+      // 「我不太确定这一章写什么」变成一份「已规划」的细纲，紧接着的
+      // 批量写正文还会照着它写出一整章。
+      const fields = parsePlotStrict(raw);
+      if (!fields || !isPlotFilled(fields.sections)) {
+        throw new Error('模型返回的内容里解析不出细纲');
       }
       await ws.writePlot({
         no: plot.no,
-        title: plot.title,
-        arc: plot.arc,
-        targetWords: plot.targetWords,
-        // 上游是**这一段所属那一卷**（未分卷的段退回全书大纲），不是一律的
-        // 大纲指纹：分卷之后拿大纲指纹去记，改一卷的走向就再也标不出脏。
+        // 标题、目标字数、done 沿用磁盘那份：批量写细纲改的是三个小节与规划字段，
+        // 不该把作者起的名字、定的字数、标的完成状态抹掉。
+        title: plot.title || fields.title || '',
+        role: fields.role || plot.role,
+        characters: fields.characters?.length ? fields.characters : plot.characters,
+        targetWords: plot.targetWords ?? fields.targetWords,
         upstreamHash: await plotUpstreamHash(project, plot.relPath),
-        // done / chapters 沿用磁盘那份：批量写剧情改的是四个小节，不该把作者
-        // 标的完成状态或「这一段交付到哪几章」抹掉。
+        writtenFrom: plot.writtenFrom,
         done: plot.done,
-        chapters: plot.chapters,
-        sections,
+        sections: fields.sections,
       });
     },
   });
@@ -136,32 +136,33 @@ export async function generatePlots(project: NovelProject): Promise<number> {
 }
 
 /**
- * 给所有「剧情排好了但还没写正文」的段各写一遍正文。
+ * 给所有「细纲排好了但还没写正文」的章各写一遍正文。
  *
- * 这是两个批量动作里贵得多的一个（一段几千字输出，一次几十段），所以确认框里
+ * 这是两个批量动作里贵得多的一个（一章几千字输出，一次几十章），所以确认框里
  * 除了调用次数还报出预计总字数——那个数字比「40 次调用」更能让人意识到
  * 这一下要花多少钱。
  *
- * **一段一次调用**。从前是「一段内部逐场串行」：一段拆成几场，每场调一次、
- * 依次追加。场景那一层删掉之后没有那个坐标了，于是回到最朴素的形态——
- * 一次写一段。写不够长是可能的（`targetWords` 那条判据会把它留在「待写正文」，
- * 见 model/pipeline.ts 的 `manuscriptRatio`），那时作者在创作页点「接着写」，
- * 而不是让批量路径自己反复追加：**批量路径只补空白**，一段追加到什么程度算够
- * 是要看着文字决定的事。
+ * **一章一次调用**。写不够长是可能的（`targetWords` 那条判据会把它留在「待写正文」，
+ * 见 model/pipeline.ts 的 `manuscriptRatio`），那时作者在创作页点「接着写」；
+ * 自动续写到目标字数是三期的事。**批量路径只补空白**。
  */
 export async function writeManuscripts(project: NovelProject): Promise<number> {
-  const plots = await project.listPlots();
+  const [plots, chapters, book] = await Promise.all([
+    project.listPlots(),
+    project.listChapters(),
+    project.readBookConfig(),
+  ]);
   const pending: Plot[] = [];
   let noPlot = 0;
   for (const plot of plots) {
-    // 没排剧情就写正文，模型只能照着标题瞎编——那种正文作者一段都留不下。
+    // 没排细纲就写正文，模型只能照着标题瞎编——那种正文作者一章都留不下。
     if (!isPlotFilled(plot.sections)) {
       noPlot++;
       continue;
     }
-    const manuscript = await project.readManuscript(plot.relPath);
-    // 只补空白：已经写过正文的段一律跳过，哪怕上游变了、哪怕还没写够。
-    if (!manuscript || !manuscript.text.trim()) {
+    // 只补空白：已经写过正文的章一律跳过，哪怕上游变了、哪怕还没写够。
+    const chapter = chapters.find((c) => c.order === plot.no);
+    if (!chapter || chapter.wordCount === 0) {
       pending.push(plot);
     }
   }
@@ -169,28 +170,28 @@ export async function writeManuscripts(project: NovelProject): Promise<number> {
   if (pending.length === 0) {
     getHost().toast(
       noPlot > 0
-        ? `没有可写的段。还有 ${noPlot} 段没排剧情——先写剧情再来写正文。`
-        : '每一段都已经写过正文了。'
+        ? `没有可写的章。还有 ${noPlot} 章没排细纲——先写细纲再来写正文。`
+        : '每一章都已经写过正文了。'
     );
     return 0;
   }
 
-  // 预计字数：细纲上标了目标字数就用它，没标按一段 3000 字估。
-  const wordsTotal = pending.reduce((sum, p) => sum + (p.targetWords ?? 3000), 0);
+  // 预计字数：细纲上标了目标字数就用它，否则用配置的每章字数，都没有按 3000 估。
+  const wordsTotal = pending.reduce((sum, p) => sum + (p.targetWords ?? book.wordsPerChapter ?? 3000), 0);
 
   const config = readConfig();
   const lanes = Math.min(config.concurrency, pending.length);
   const confirm = await getHost().confirm(
-    `有 ${pending.length} 段的剧情已排好但还没写正文，需要调用 ${pending.length} 次模型。现在写？`,
+    `有 ${pending.length} 章的细纲已排好但还没写正文，需要调用 ${pending.length} 次模型。现在写？`,
     ['开始写作'],
     {
       modal: true,
       detail:
         `${describeTaskModels(config, 'manuscript')}\n` +
         `预计产出约 ${Math.round(wordsTotal / 1000)} 千字。\n` +
-        (lanes > 1 ? `并发 ${lanes} 段。` : '串行逐段处理（并发数为 1）。') +
-        '\n已经写过正文的段不会被改动。' +
-        (noPlot > 0 ? `\n另有 ${noPlot} 段还没排剧情，这次跳过。` : ''),
+        (lanes > 1 ? `并发 ${lanes} 章。` : '串行逐章处理（并发数为 1）。') +
+        '\n已经写过正文的章不会被改动。' +
+        (noPlot > 0 ? `\n另有 ${noPlot} 章还没排细纲，这次跳过。` : ''),
     }
   );
   if (confirm !== '开始写作') {
@@ -218,14 +219,14 @@ export async function writeManuscripts(project: NovelProject): Promise<number> {
           action: { stage: 'manuscript', capability: 'generate' },
           target: { kind: 'manuscript', plotRelPath: plot.relPath },
           targetNo: plot.no,
-          targetWords: plot.targetWords,
-          // 批量路径上没有用户输入那一句话。用这一段的「目标」当锚点——
-          // 装配器已经把整份细纲按 P0 force 带上了，这一句只说清写的是哪一段。
-          ask: `写剧情段 ${plot.no}${plot.title ? `《${plot.title}》` : ''} 的正文。`,
+          targetWords: plot.targetWords ?? book.wordsPerChapter,
+          // 批量路径上没有用户输入那一句话。装配器已经把整份细纲按 P0 force
+          // 带上了，这一句只说清写的是哪一章。
+          ask: `写第 ${plot.no} 章${plot.title ? `《${plot.title}》` : ''}的正文。`,
         },
         config
       );
-      const raw = await pool.run(`剧情段 ${plot.no}`, (llm) =>
+      const raw = await pool.run(`第 ${plot.no} 章`, (llm) =>
         collectText(
           llm.stream(built.messages, {
             maxOutputTokens: pool.primaryBudget.maxOutputTokens,
@@ -239,9 +240,15 @@ export async function writeManuscripts(project: NovelProject): Promise<number> {
       if (!text.trim()) {
         throw new Error('模型返回的正文是空的');
       }
-      // 走网关的追加：它自己会记 `upstreamHash`（正文所依据的细纲指纹），
-      // 少了那一步这一段会永远显示「正文与剧情对不上」。
-      await ws.appendToManuscript(plot.relPath, text);
+      // 同号章节不在就新建，在（空文件）就追加；然后在细纲上记 `writtenFrom`，
+      // 少了那一步这一章会永远显示「正文与细纲对不上」或永远不显示。
+      const dest = await chapterTargetOf(project, plot.relPath);
+      if (dest.exists) {
+        await ws.write(dest.rel, { text }, { mode: 'append' });
+      } else {
+        await ws.createChapter(dest.no, dest.title, text);
+      }
+      await ws.recordWrittenFrom(plot.relPath, plotContentHash(plot));
       await project.syncManifest();
     },
   });
@@ -251,11 +258,11 @@ export async function writeManuscripts(project: NovelProject): Promise<number> {
 // ---------------------------------------------------------------- 共用
 
 /**
- * 装配某一段**剧情层**的上下文。
+ * 装配某一章**细纲层**的上下文。
  *
  * 走**同一个装配器**而不是在这里手拼 prompt：分阶段配方、预算封顶、
- * 角色卡降级、前后段与附件的处理全都一致。批量与单次生成产出的东西
- * 因此是同一个质量，作者不会发现「工程页批量写的剧情比创作页的差一截」。
+ * 角色卡降级、前后章与附件的处理全都一致。批量与单次生成产出的东西
+ * 因此是同一个质量，作者不会发现「工程页批量写的细纲比创作页的差一截」。
  */
 async function buildContextFor(
   project: NovelProject,
@@ -270,9 +277,9 @@ async function buildContextFor(
       target: { kind: 'plot', plotRelPath: plot.relPath },
       targetNo: plot.no,
       targetWords: plot.targetWords,
-      // 批量路径上没有用户输入那一句话。用这一段的「目标」当锚点——它正是
-      // 拆段那一步定下的「这一段要达成什么」，比拿标题当输入具体得多。
-      ask: `排出剧情段 ${plot.no} 的剧情。${plot.sections.目标.trim() || plot.title}`,
+      // 批量路径上没有用户输入那一句话。用这一章的「本章目的」当锚点，
+      // 没有就用标题。
+      ask: `排出第 ${plot.no} 章的细纲。${plot.sections.本章目的.trim() || plot.title}`,
     },
     config
   );
@@ -285,7 +292,7 @@ interface BatchSpec {
   lanes: number;
   /** 失败记录的 op，与清除时用的一致。 */
   op: string;
-  /** 产物名，进日志与 toast（「剧情」「正文」）。 */
+  /** 产物名，进日志与 toast（「细纲」「正文」）。 */
   what: string;
   run(plot: Plot, signal: AbortSignal): Promise<void>;
 }

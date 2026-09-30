@@ -8,21 +8,19 @@ import { ArtifactKind } from '../kind';
 import { Handler } from './types';
 import { docHandler } from './doc';
 import { plainHandler } from './plain';
-import { volumeHandler } from './volume';
+import { settingHandler } from './setting';
 import { plotHandler } from './plot';
-import { manuscriptHandler } from './manuscript';
 import { chapterHandler } from './chapter';
 import { summaryHandler } from './summary';
 
 const REGISTRY: Partial<Record<ArtifactKind, Handler>> = {
+  setting: settingHandler,
   outline: docHandler,
   style: docHandler,
   globalSummary: docHandler,
   character: docHandler,
   lore: docHandler,
-  volume: volumeHandler,
   plot: plotHandler,
-  manuscript: manuscriptHandler,
   chapter: chapterHandler,
   summary: summaryHandler,
   other: plainHandler,

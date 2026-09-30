@@ -28,7 +28,6 @@ export const el = {
   modelSelect: byId<HTMLSelectElement>('modelSelect'),
   thinkSelect: byId<HTMLSelectElement>('thinkSelect'),
   targetSelect: byId<HTMLSelectElement>('targetSelect'),
-  targetWords: byId<HTMLInputElement>('targetWords'),
   sendBtn: byId<HTMLButtonElement>('sendBtn'),
   stopBtn: byId<HTMLButtonElement>('stopBtn'),
   providerMeta: byId('providerMeta'),

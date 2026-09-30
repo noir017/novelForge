@@ -7,17 +7,17 @@
  *
  * ```
  * # 当前工程
- * 《青云志》· 已发布 99 章 · 31.2 万字
+ * 《青云志》· 已写 99 章 · 31.2 万字（计划 300 章）
  * 当前目标：第 100 章（.novelforge/plots/100.md）
- * 本章状态：待写剧情
- * 下一步（由状态机算出，不要另做判断）：写剧情
- *   先把这一章的剧情脉络排出来：发生什么、因果怎么串、收在什么局面上。
+ * 状态：待写细纲
+ * 下一步（由状态机算出，不要另做判断）：写第 100 章细纲
+ *   先把这一章要发生什么定下来：本章目的、关键事件、章末钩子。
  * 提醒：第 12、13 章的上游产物改过（⟳）
  * ```
  *
  * **判据一个都不在这里重新实现**：`buildPipelineIndex` 取数、`deriveStage` /
  * `deriveNextStep` / `deriveBookStage` 判断，与创作页主按钮吃的是同一份输出
- * （AGENTS 第 20 条）。两处各判各的，界面上就会出现「徽章说待拆场景，agent
+ * （AGENTS 第 20 条）。两处各判各的，界面上就会出现「徽章说待写细纲，agent
  * 让你写正文」——而那种分叉没有任何测试拦得住，只会让作者不再相信界面。
  *
  * 这同时解释了为什么**没有 `status` 工具**：状态每回合免费送到，不花一次
@@ -39,18 +39,22 @@ import { AgentMessage } from '../llm/provider';
 import { estimateTokens } from '../context/tokenizer';
 import { scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
+import { basename } from 'node:path';
 import {
   CreationTarget,
+  NextStepPlan,
   PLOT_STAGE_LABEL,
   chapterLabel,
   deriveBookNextStep,
   deriveBookStage,
   deriveNextStep,
   plotOfTarget,
-  segmentLabel,
 } from '../model/pipeline';
-import { buildPipelineIndex, factsOf } from '../views/pipeline';
-import type { PlotPipeline } from '../views/pipeline';
+import { parsePlotFileName } from '../model/plotFile';
+import { parseChapterFileName } from '../model/chapterFile';
+import { BookFacts } from '../model/pipeline';
+import { buildBookFacts, buildPipelineIndex, factsOf } from '../views/pipeline';
+import type { PipelineIndex, PlotPipeline } from '../views/pipeline';
 
 const log = scoped('Agent');
 
@@ -65,83 +69,78 @@ export const KEEP_ROUNDS = 6;
 /**
  * 拼一份「现在这本书走到哪了」。**只取数，判断全在 `model/pipeline.ts`。**
  *
- * `target` 缺席（作者还没选章）时只报全书那一层的下一步——那正是
- * `deriveBookNextStep` 的职责，与创作页在全书大纲阶段显示的是同一句话。
+ * `target` 没指向某一章（作者还在架构或大纲那一层）时报全书那一层的下一步——
+ * 与创作页主按钮在那两层显示的是同一句话。选中的那一章做完了也转去问全书，
+ * 主按钮与这里于是一起落到下一个该写的章上（controller/chat.ts 的 `pushPipeline`
+ * 是同一条路）。
  *
  * 代价是一次 `buildPipelineIndex`，与工程页刷新同一趟活。调用方（循环）每回合
- * 调一次：三期的工具一个字都不写盘，状态其实变不了，但作者可能正在另一个窗口
- * 里改文件——照着一份开跑时的旧快照往下走，比多读一次盘糟得多。
+ * 调一次：作者可能正在另一个窗口里改文件——照着一份开跑时的旧快照往下走，
+ * 比多读一次盘糟得多。
  */
 export async function buildStateBrief(
   project: NovelProject,
   target?: CreationTarget
 ): Promise<string> {
-  const { pipelines, segments, chapters, volumes, manifest, outline } =
-    await buildPipelineIndex(project);
-  const all = [...pipelines.values()];
+  const index = await buildPipelineIndex(project);
+  const { rows, chapters, manifest, config } = index;
+  const facts = await buildBookFacts(project, index);
 
-  const words =
-    chapters.reduce((sum, c) => sum + c.wordCount, 0) +
-    segments.reduce((sum, p) => sum + p.manuscript.words, 0);
-
+  const written = chapters.filter((c) => c.wordCount > 0);
+  const words = written.reduce((sum, c) => sum + c.wordCount, 0);
   const lines: string[] = ['# 当前工程'];
   lines.push(
-    `《${manifest.title || '未命名'}》· ${volumes.length} 卷 · 已发布 ${chapters.length} 章 · ` +
-      `${formatWords(words)}（还没交付的剧情段 ${segments.length} 个）`
+    `《${manifest.title || '未命名'}》· 已写 ${written.length} 章 · ${formatWords(words)}` +
+      (config.totalChapters ? `（计划 ${config.totalChapters} 章）` : '')
   );
 
-  const current = target ? findPipeline(all, target) : undefined;
+  const current = target ? findPipeline(index, target) : undefined;
   if (current) {
-    const where = current.plot.relPath || current.chapter.relPath || plotOfTarget(target!) || '';
-    // 已经交付的段报「第 N 章」（它就是那几章），还没交付的报「剧情 N」——
-    // 与工程页、与主按钮同一份说法（第 20 条：文案只有一份）。
-    const head = current.consumed
-      ? chapterLabel(current.no, current.title)
-      : segmentLabel(current.displayNo, current.title);
-    lines.push(`当前目标：${head}（${where}）`);
+    const where = current.plot.exists ? current.plot.relPath : current.chapter.relPath || current.plot.relPath;
+    lines.push(`当前目标：${chapterLabel(current.no, current.title)}（${where}）`);
     lines.push(`状态：${PLOT_STAGE_LABEL[current.stage]}`);
-
     const next = deriveNextStep(current.stage, factsOf(current));
     lines.push(
-      ...describeNext(next, '这一段都做完了，不必再往下推进——需要改动的话作者会说。')
+      ...(next
+        ? describeNext(next, '')
+        : describeNext(bookStep(index, facts), '全书都写完了。需要改动的话作者会说。').map((l, i) =>
+            i === 0 ? `这一章都做完了。${l}` : l
+          ))
     );
   } else {
-    // 还没选：走全书那一层。没有大纲就写大纲，有大纲没卷就拆卷，有卷没段就
-    // 去拆段，都齐了 `deriveBookNextStep` 就不给下一步——那时该挑哪一段是
-    // **作者的选择**，不是系统能替他定的，所以照实说，不要造一个假的下一步。
-    const bookStage = deriveBookStage({
-      outlineFilled: outline.trim().length > 0,
-      volumeCount: volumes.length,
-      // **已发布的章也算数**：老工程写了 99 章、一份卷纲都没有，把它拉回
-      // 「先把大纲拆成卷」是荒唐的（第 8 条：已发布的正文天生就算数）。
-      plotCount: segments.length + chapters.length,
-    });
-    lines.push('当前目标：还没选定某一段');
-    lines.push(
-      ...describeNext(
-        deriveBookNextStep(bookStage),
-        '大纲、分卷与剧情段都有了。具体做哪一段要看作者这一轮说的是什么，不要自己挑一段开工。'
-      )
-    );
+    lines.push(target?.kind === 'setting' || target?.kind === 'outline' ? `当前目标：${target.kind === 'setting' ? '故事架构' : '情节大纲'}` : '当前目标：还没选定某一章');
+    lines.push(...describeNext(bookStep(index, facts), '全书都写完了。需要改动的话作者会说。'));
   }
 
-  const stale = segments.filter(
-    (p) => p.plot.upstreamStale || p.manuscript.upstreamStale
-  );
+  const stale = rows.filter((p) => p.plot.upstreamStale || p.chapter.upstreamStale);
   if (stale.length > 0) {
-    const named = stale.slice(0, STALE_LIST_LIMIT).map((p) => `剧情 ${p.displayNo}`).join('、');
-    const rest = stale.length > STALE_LIST_LIMIT ? `等 ${stale.length} 段` : '';
+    const named = stale.slice(0, STALE_LIST_LIMIT).map((p) => `第 ${p.no} 章`).join('、');
+    const rest = stale.length > STALE_LIST_LIMIT ? `等 ${stale.length} 章` : '';
     lines.push(`提醒：${named}${rest}的上游产物改过，现有内容可能已经对不上（⟳）`);
   }
   return lines.join('\n');
 }
 
 /**
+ * 全书级的下一步：架构 / 大纲 / 拆细纲三档由纯函数直接给；「在写」那一档转去问
+ * 下一个该写的章。与 controller/chat.ts 的 `bookNextStep` 同一条判据。
+ */
+function bookStep(index: PipelineIndex, facts: BookFacts): NextStepPlan | undefined {
+  const stage = deriveBookStage(facts);
+  const step = deriveBookNextStep(stage, facts);
+  if (step || stage !== 'writing') {
+    return step;
+  }
+  const chapter = index.byNo.get(facts.nextChapterNo);
+  return chapter ? deriveNextStep(chapter.stage, factsOf(chapter)) : undefined;
+}
+
+/**
  * 「下一步」那两行。**label 与 hint 逐字来自状态机**，不在这里改写措辞——
- * 界面上的主按钮写着「拆成场景」，agent 却说「去写场景卡」，作者会以为
+ * 界面上的主按钮写着「写第 12 章」，agent 却说「去扩写第 12 章」，作者会以为
  * 它们是两件事。
  *
- * 状态机不给下一步时**照实说**（第 20 条 (c)：做完了就不给下一步）。造一个假的
+ * 状态机不给下一步时**照实说**（第 20 条：做完了就不给下一步）。造一个假的
  * 出来，agent 会自作主张挑一章开始烧钱。
  */
 function describeNext(next: { label: string; hint: string } | undefined, done: string): string[] {
@@ -152,21 +151,16 @@ function describeNext(next: { label: string; hint: string } | undefined, done: s
 }
 
 /**
- * target → 它属于哪一段的流水线。
- *
- * **按路径认**：细纲路径是段的身份。target 里记的可能是一份还不存在的细纲
- * （老工程里选中某一章那条路），那时退回「这一段拆出来的章里有它」——
- * 与 `selectPlot` 同一条判据。
- *
- * 从前这里还有一条「按章号兜底」：段号与章号同源时它成立，现在两者是两条轴，
- * 拿号去猜会指到一个毫不相干的段上。
+ * target → 那一章的流水线。**按章号认**（细纲号 = 章号），与 `selectPlot` 同一条判据：
+ * target 里记的可能是一份还不存在的细纲（老工程里选中某一章那条路），也可能是章节路径。
  */
-function findPipeline(all: PlotPipeline[], target: CreationTarget): PlotPipeline | undefined {
+function findPipeline(index: PipelineIndex, target: CreationTarget): PlotPipeline | undefined {
   const rel = plotOfTarget(target);
   if (!rel) {
     return undefined;
   }
-  return all.find((p) => p.plot.relPath === rel || p.chapter.chapterPaths.includes(rel));
+  const no = parsePlotFileName(basename(rel))?.no ?? parseChapterFileName(basename(rel))?.order;
+  return no === undefined ? undefined : index.byNo.get(no);
 }
 
 function formatWords(words: number): string {

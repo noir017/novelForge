@@ -43,9 +43,8 @@ export async function plotChoices(project: NovelProject): Promise<PickChoice<num
     byNo.set(chapter.order, { title: chapter.title, words: chapter.wordCount });
   }
   for (const plot of plots) {
-    const words =
-      byNo.get(plot.no)?.words || (await project.readManuscript(plot.relPath))?.wordCount || 0;
-    byNo.set(plot.no, { title: plot.title || byNo.get(plot.no)?.title || '', words });
+    // 细纲号 = 章号：字数就是同号那一章的。
+    byNo.set(plot.no, { title: plot.title || byNo.get(plot.no)?.title || '', words: byNo.get(plot.no)?.words ?? 0 });
   }
 
   return [...byNo.entries()]

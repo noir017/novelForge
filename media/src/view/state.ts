@@ -59,48 +59,39 @@ export function renderState(state: ViewState): void {
 }
 
 /**
- * 当前创作目标那一章剧情。
+ * 当前创作目标是哪一章。
  *
  * 它不只是「采纳写到哪」了——装配的每一层都跟着它走，所以选项里带上
- * `relPath`（目标一律按路径标识，章号会撞）。「新建第 N 章」那一项没有
- * relPath：那一章还不存在。
+ * `relPath`（目标一律按路径标识，章号会撞）。第一项「全书（架构与大纲）」没有
+ * relPath：选它就是回到全书那一层，主按钮是全书的下一步。
  *
- * 列的是**已发布的章 + 还没交付的剧情段**，顺序即时间线的倒序（最近的在上面）。
- * 说法由后端给（`p.label`）——两种行的叫法完全不同，前端按 `no` 自己拼会把每个
- * 剧情段都叫成「第 N 章」。
+ * 列的是**每个章号一行**，最近的在上面。说法由后端给（`p.label`）。
  */
 function renderTargetSelect(state: ViewState): void {
   el.targetSelect.innerHTML = '';
 
-  const newOpt = document.createElement('option');
-  newOpt.value = String(state.nextNo);
-  // **不报序号**：新建出来的是一个剧情段，它显示成「剧情 几」是推导出来的
-  // 位次（最新章号 + 位次），与 `nextNo` 那个文件名前缀不是一回事。
-  newOpt.textContent = '新建剧情段';
-  newOpt.dataset.mode = 'new';
-  el.targetSelect.appendChild(newOpt);
+  const bookOpt = document.createElement('option');
+  bookOpt.value = '0';
+  bookOpt.textContent = '全书（架构与大纲）';
+  bookOpt.dataset.mode = 'book';
+  el.targetSelect.appendChild(bookOpt);
 
   for (const p of [...state.plots].reverse()) {
     const opt = document.createElement('option');
     opt.value = String(p.no);
-    // 文案由后端给：一行可能是已发布的章，也可能是还没交付的剧情段，
-    // 两者的说法完全不同（「第 12 章《夜访》」/「剧情 4《楼道》」）。
     opt.textContent = p.label;
     opt.dataset.mode = 'append';
     opt.dataset.rel = p.relPath;
     el.targetSelect.appendChild(opt);
   }
 
-  // 以会话里的目标为准（后端是唯一真相），它指向的那一章不在列表里
-  // （刚被删/改名）时退回「新建下一章」。
+  // 以会话里的目标为准（后端是唯一真相）。目标是架构或大纲、或它指向的那一章
+  // 不在列表里（刚被删/改名、还没有细纲也没有正文）时停在「全书」那一项。
   const relPath = plotOfTarget(store.session.target);
   const matched = relPath
     ? [...el.targetSelect.options].find((o) => o.dataset.rel === relPath)
     : undefined;
-  el.targetSelect.value = matched?.value ?? String(store.session.targetNo ?? state.nextNo);
-  if (!matched && !state.plots.some((p) => p.no === store.session.targetNo)) {
-    el.targetSelect.value = String(state.nextNo);
-  }
+  el.targetSelect.value = matched?.value ?? '0';
 }
 
 /** 输入框旁的模型下拉框，按服务商分组。 */

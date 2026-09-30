@@ -1,13 +1,5 @@
 import { LayerId } from '../types';
-import {
-  outlineDoc,
-  plotNext,
-  plotPrev,
-  plotSelf,
-  volumeList,
-  volumeSegments,
-  volumeSelf,
-} from './artifacts';
+import { outlineDoc, plotNext, plotPrev, plotSelf, settingDocs } from './artifacts';
 import {
   characters,
   globalSummary,
@@ -26,10 +18,8 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   ask,
   attachments,
   history,
+  settingDocs,
   outlineDoc,
-  volumeList,
-  volumeSelf,
-  volumeSegments,
   plotSelf,
   plotPrev,
   plotNext,

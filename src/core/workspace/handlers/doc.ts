@@ -5,8 +5,8 @@
  *
  * 它们的共同点是**在指纹链的最上游或链外**：
  *
- * - `outline.md` 是整条链的源头（细纲记的 `upstreamHash` 就是它的 hash），
- *   它自己没有上游可记。
+ * - `outline.md` 是细纲的上游（细纲记的 `upstreamHash` 是它覆盖本章那一节的
+ *   hash）。它自己的上游是架构，那一环留到二期再接。
  * - `style.md` / 角色卡 / 设定条目根本不在生产链上——它们是横切的记忆与
  *   约束，被装配进 prompt，但不由某一层产物「生出来」。
  * - `summaries/global.md` 的上游是全部单章摘要，那是一次显式的重建动作
@@ -22,7 +22,7 @@ export const docHandler: Handler = {
     if (artifact.kind !== 'outlineDoc') {
       throw new Error(`「${ctx.rel}」不接 ${artifact.kind} 产物`);
     }
-    // 逐字沿用 features/creation.ts 的 acceptOutline：整篇替换，带一行 H1。
-    return `# 全书大纲\n\n${artifact.text.trim()}\n`;
+    // 整篇替换，带一行 H1。按区间合并（只替换这一批覆盖的那几节）是二期的事。
+    return `# 情节大纲\n\n${artifact.text.trim()}\n`;
   },
 };

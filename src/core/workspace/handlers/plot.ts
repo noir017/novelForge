@@ -1,43 +1,43 @@
 /**
- * `plot` handler：细纲。
+ * `plot` handler：一章的细纲。
  *
- * 三件事：
+ * 两件事：
  *
- * 1. **渲染**：`Artifact{kind:'plot'}` → `renderPlotFile`，四个小节换新，
- *    **标题 / 幕 / 目标字数 / done 沿用磁盘那份**——「重写剧情」改的是剧情，
- *    不该顺手把作者起的标题或标的完成状态一起抹掉。
- * 2. **记账**：`upstreamHash` = **这一段所属那一卷**的卷纲指纹（未分卷的段
- *    退回全书大纲的指纹）。**从前只在采纳路径上做**，作者在内置编辑器里改一份
- *    细纲，指纹链就断了——那一段从此再也不挂 ⟳。下沉到这里之后谁写都记。
- * 3. **伴生**：改名/改号时搬走 `manuscripts/<stem>.md`（原 `carryPlotCompanions`），
- *    删除时把它搬进 `.trash/`。
+ * 1. **渲染**：`Artifact{kind:'plot'}` → `renderPlotFile`。三个小节换新；
+ *    **标题、目标字数、done、writtenFrom 沿用磁盘那份**——「重写细纲」改的是这一章
+ *    怎么走，不该顺手把作者起的标题、定的字数、标的完成状态抹掉；`writtenFrom`
+ *    是正文那一侧记的账，细纲重写之后它对不上，正是「细纲在正文之后改过」的信号。
+ *    结构功能与计划出场的人随产物更新（那是规划的一部分）。
+ * 2. **记账**：`upstreamHash` = 情节大纲里**覆盖本章那一节**的指纹（大纲没有区间
+ *    标题时退回全书大纲的指纹）。谁写都记——作者在内置编辑器里改一份细纲，
+ *    指纹链照样接得上。
  *
- * ## 三条不能碰的取舍
+ * 从前还有第三件：改名 / 删除时搬走中转站里那份正文。一章一纲之后正文就是章节，
+ * 细纲改名不必带走任何东西。
+ *
+ * ## 两条不能碰的取舍
  *
  * - **手写的产物永不标脏**（第 18a 条）：**没有 frontmatter 的细纲不补
- *   `upstreamHash`**。`upstreamHash` 为空说明它不是这条链生出来的，拿一个
- *   凭空的过期标记去催作者重做，他会学会无视所有标记。
- * - **`plotContentHash` 只哈希四个小节，不含 frontmatter**（第 18b 条）：
- *   `upstreamHash` 自己就在 frontmatter 里，算进去会让「排一次剧情」立刻
- *   使这一段的正文过期。那个哈希在 `views/pipeline.ts` 里定义，这里只是引用它。
- * - **删细纲不碰 `chapters/` 与摘要**：那两样描述的是已经发布的成品。
- *   删掉细纲只是放弃这一章的规划稿。
+ *   `upstreamHash`**。它为空说明这份细纲不是这条链生出来的，拿一个凭空的过期标记
+ *   去催作者重做，他会学会无视所有标记。
+ * - **`plotContentHash` 只哈希三个小节，不含 frontmatter**（第 18b 条）：
+ *   `upstreamHash` / `writtenFrom` 自己就在 frontmatter 里，算进去会让「排一次细纲」
+ *   立刻使这一章的正文过期。那个哈希在 `views/pipeline.ts` 里定义。
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { hash, readTextIfExists } from '../../model/fs';
 import { rewriteFrontmatter } from '../../model/markdown';
 import { NovelProject } from '../../model/project';
-import { parsePlotFile, renderPlotFile } from '../../model/plotFile';
-import { volumeContentHash } from '../../views/pipeline';
+import { parsePlotFile, parsePlotFileName, renderPlotFile } from '../../model/plotFile';
+import { outlineUpstreamHash } from '../../model/outlineFile';
 import { Handler, HandlerCtx } from './types';
 
 export const plotHandler: Handler = {
   /**
-   * 四个小节换新，其余字段沿用磁盘那份。
+   * 三个小节换新，其余字段按上面的规矩合并。
    *
-   * 细纲文件不存在时（拆章那一步为每章建骨架）就用产物自己的空壳，
-   * 标题等由调用方走 `writePlot` 那条路给。
+   * 细纲文件不存在时（拆细纲那一步新建）就用产物自己带的标题与规划字段。
    */
   async render(ctx: HandlerCtx, artifact) {
     if (artifact.kind !== 'plot') {
@@ -46,74 +46,43 @@ export const plotHandler: Handler = {
     const current = await ctx.project.readPlot(ctx.rel);
     return renderPlotFile({
       no: current?.no ?? ctx.path.no ?? 0,
-      title: current?.title ?? '',
-      arc: current?.arc ?? '',
-      targetWords: current?.targetWords,
+      title: current?.title || artifact.title || '',
+      role: artifact.role || current?.role || '',
+      characters: artifact.characters?.length ? artifact.characters : (current?.characters ?? []),
+      targetWords: current?.targetWords ?? artifact.targetWords,
       upstreamHash: await plotUpstreamHash(ctx.project, ctx.rel),
+      writtenFrom: current?.writtenFrom,
       done: current?.done ?? false,
-      // 已经拆出去的落点沿用磁盘那份：「重写剧情」改的是规划稿，
-      // 不该把「这一段交付到哪几章」抹掉。
-      chapters: current?.chapters ?? [],
       sections: artifact.sections,
     });
   },
 
   /**
-   * 记账：把当前大纲的指纹落进 frontmatter。
+   * 记账：把大纲切片的指纹落进 frontmatter。
    *
    * `rewriteFrontmatter` 只改 `---` 之间那一段，**正文一个字节不动**——
    * 作者可能加过自定义小节，整份重渲染会把它们悄悄抹平。
    * 没有 frontmatter 时返回 undefined，那正是「手写的产物」，不补。
    */
   async after(ctx: HandlerCtx, text: string) {
-    const inVolume = await volumeOfPlot(ctx.project, ctx.rel);
-    return recordUpstream(
-      ctx,
-      text,
-      await plotUpstreamHash(ctx.project, ctx.rel),
-      inVolume ? '卷纲指纹' : '大纲指纹'
-    );
-  },
-
-  async companions(ctx: HandlerCtx, from: string, to: string) {
-    return carryPlotCompanions(ctx.project, from, to);
-  },
-
-  async onRemove(ctx: HandlerCtx, rel: string) {
-    return trashPlotCompanions(ctx.project, rel);
+    return recordUpstream(ctx, text, await plotUpstreamHash(ctx.project, ctx.rel), '大纲指纹');
   },
 };
 
-/** 全书大纲的内容指纹——卷纲的上游，也是未分卷的段的上游。 */
+/** 全书大纲的内容指纹。大纲没有区间标题时，它就是每一章细纲的上游。 */
 export async function outlineHash(project: NovelProject): Promise<string> {
   return hash(await project.readOutline());
 }
 
 /**
- * 这一段的上游指纹：**所属那一卷的卷纲**，未分卷时退回全书大纲。
+ * 这一章细纲的上游指纹：情节大纲里**覆盖本章的那一节**（见 model/outlineFile.ts 的
+ * `outlineUpstreamHash`，流水线判脏用的是同一个函数）。
  *
- * 上游是谁由**目录**决定，与 `listPlotsOfVolume` 同一条判据——段的归属不落
- * frontmatter，目录已经说了。找不到那一卷的文件（作者手删了卷纲、或手工把段
- * 放进了一个没有对应卷纲的目录）时也退回大纲：一个凭空的指纹会让整卷立刻
- * 标脏，而那不是真的。
+ * 章号从细纲的**文件名**取（文件名是身份），取不到就用全书指纹。
  */
 export async function plotUpstreamHash(project: NovelProject, plotRelPath: string): Promise<string> {
-  const volume = await volumeOfPlot(project, plotRelPath);
-  return volume ? volumeContentHash(volume) : outlineHash(project);
-}
-
-/** 这一段所属的那一卷；未分卷（段直接躺在 `plots/` 根下）时 undefined。 */
-export async function volumeOfPlot(project: NovelProject, plotRelPath: string) {
-  const root = `${project.relPath(project.plotsDir)}/`;
-  const under = plotRelPath.startsWith(root) ? plotRelPath.slice(root.length) : '';
-  const slash = under.lastIndexOf('/');
-  if (slash < 0) {
-    return undefined;
-  }
-  const stem = under.slice(0, slash);
-  return (await project.listVolumes()).find(
-    (v) => project.plotsMirrorRelPathForVolume(v.relPath) === `${root}${stem}`
-  );
+  const no = parsePlotFileName(path.posix.basename(plotRelPath))?.no;
+  return outlineUpstreamHash(await project.readOutline(), no);
 }
 
 /**
@@ -143,52 +112,6 @@ async function recordUpstream(
   await fs.writeFile(ctx.project.pathOf(ctx.rel), next, 'utf8');
   ctx.project.invalidate();
   return [`记下${label} ${upstream}`];
-}
-
-/**
- * 细纲改名（或改号）后，把中转站正文跟着搬过去。
- *
- * 目标已存在时**不动**（不静默覆盖）——那说明磁盘上已经有一份叫这个名字的，
- * 覆盖会把它的东西吞掉。搬不过去的那份留在原处，不凭空消失。
- *
- * 摘要不在此列：它挂在 `chapters/` 上，跟着章节文件改名走（见 fileOps 的
- * `carrySummary`）。**场景目录也不在此列**——那一层已经删掉，老工程里剩下的
- * 那个目录不再是这一段的伴生物，跟着改名搬只会让人以为它还在用。
- */
-export async function carryPlotCompanions(
-  project: NovelProject,
-  fromRel: string,
-  toRel: string
-): Promise<string[]> {
-  const pairs: [string, string][] = [
-    [project.manuscriptMirrorRelPath(fromRel), project.manuscriptMirrorRelPath(toRel)],
-  ];
-  const side: string[] = [];
-  for (const [from, to] of pairs) {
-    const fromAbs = project.pathOf(from);
-    const toAbs = project.pathOf(to);
-    if (from === to || !(await pathExists(fromAbs)) || (await pathExists(toAbs))) {
-      continue;
-    }
-    await fs.mkdir(path.dirname(toAbs), { recursive: true });
-    await fs.rename(fromAbs, toAbs);
-    side.push(`${from} → ${to}`);
-  }
-  return side;
-}
-
-/** 删细纲时把中转站正文一起搬进 `.trash/`（保留原相对路径）。 */
-export async function trashPlotCompanions(
-  project: NovelProject,
-  plotRelPath: string
-): Promise<string[]> {
-  const side: string[] = [];
-  for (const rel of [project.manuscriptMirrorRelPath(plotRelPath)]) {
-    if (await trashRel(project, rel)) {
-      side.push(`${rel} → .trash/`);
-    }
-  }
-  return side;
 }
 
 /** 把某个工作区相对路径搬进 `.trash/`（保留原相对路径）。不存在就跳过。 */

@@ -3,18 +3,17 @@
  *
  * ## 为什么要有它
  *
- * 拆分、批量排剧情、同步摘要这些动作背着一批 agent 不该知道的不变量：
- * 拆分要**先移号再落盘**、后面还没发布的细纲要连同场景目录与中转站正文一起
- * 顺延（第 23 条）；批量路径要**跳过已有产物**、要用不带全文兜底的严格解析
- * （第 19 条）。让它拿着 `write` 自己拼，等于把这些不变量交给一个每次都可能
- * 记错的东西去执行。
+ * 批量排细纲、批量写正文、定稿、同步摘要这些动作背着一批 agent 不该知道的
+ * 不变量：批量路径要**跳过已有产物**、要用不带全文兜底的严格解析（第 19 条）；
+ * 正文落盘要在细纲上记 `writtenFrom`（第 18 条）。让它拿着 `write` 自己拼，等于把
+ * 这些不变量交给一个每次都可能记错的东西去执行。
  *
  * 所以这里是**白名单 + 转发**：每个 action 就是工程页那颗按钮背后的同一个
  * 函数，一个字都不重写。
  *
  * ## 确认框照弹，不给 agent 绕过去的快路
  *
- * 批量动作自带的确认框（写明「有 N 章还没排剧情，需要调用 N 次模型」）在
+ * 批量动作自带的确认框（写明「有 N 章还没排细纲，需要调用 N 次模型」）在
  * agent 这条路上**照样弹**（第 4 条）。**这一期没有为 agent 加任何一条绕过它
  * 的路。** 那些数字同时经 `usage.record` 报给调用方——弹窗写着 7 次、账上记 1 次，
  * 正是第 4 条要防的事，所以次数只在 feature 自己那里算一次，由返回值带回来。
@@ -24,23 +23,20 @@
  * | 不给 | 为什么 |
  * |---|---|
  * | `delete` / `remove`（任何形式） | 作者要删东西会自己删。给 agent 一个删除工具，收益接近零而风险是丢内容——即使进了 `.trash/`，作者也未必知道它删过什么 |
- * | `rename` / `move` | 改名会连带搬走场景目录与中转站正文（第 7 条），一次误操作的收拾成本远高于收益 |
+ * | `rename` / `move` | 细纲的文件名由章号与标题决定、章节是作者的文件（第 7 条），一次误操作的收拾成本远高于收益 |
  * | `initProject` | 一个空工程被 agent 初始化一遍，作者的配置就没了 |
- * | `newChapter` | 正常路径上发布章节是**拆分**出来的（第 23 条），不该由 agent 直接建 |
+ * | `newChapter` | 正常路径上章节是写正文时生成的，不该由 agent 直接建一个空文件 |
  */
 import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
 import { objectSchema, str } from '../schema';
 import { text } from './naming';
 import { newPlotFlow } from '../../actions';
-import { splitManuscript } from '../../features/splitChapter';
 import { generatePlots, writeManuscripts } from '../../features/pipelineBatch';
 import { chapterForSummary, summarizeChapter, syncSummaries } from '../../features/summarize';
 import { createCardForCast, updateCharacterCard } from '../../features/characterCard';
 import { extractStyle } from '../../features/style';
 import { generateLore } from '../../features/lore';
-import { kindOfPath } from '../../workspace';
 import { describeError } from '../../runtime/logger';
-import type { NovelProject } from '../../model/project';
 
 /** 一次动作的结果：说给模型听的一句话 + 这一下花了几次模型调用。 */
 interface ActionResult {
@@ -67,52 +63,26 @@ interface RunArgs {
 }
 
 const ACTIONS: Record<string, ActionSpec> = {
-  // ---- 不花钱的两个
+  // ---- 不花钱的
   newPlot: {
     label: '新建一章的细纲骨架',
     costly: false,
     async run(ctx) {
       const rel = await newPlotFlow(ctx.project);
-      return { text: `已新建 ${rel}（空骨架，还没有剧情）。`, calls: 0 };
-    },
-  },
-  split: {
-    label: '把中转站正文按 --- 拆成发布章',
-    costly: false,
-    needsField: 'path',
-    needs: 'path=那一章的细纲路径',
-    async run(ctx, args) {
-      const plotRelPath = await requirePlotPath(ctx, args.path, 'split');
-      const created = await splitManuscript(ctx.project, plotRelPath);
-      if (created.length === 0) {
-        return {
-          text:
-            `没有拆出任何章（${plotRelPath}）。可能这一章还没有正文、正文里没有单独一行的 ---、` +
-            '或者作者在确认框里取消了。不要重试同一个动作。',
-          calls: 0,
-        };
-      }
-      return {
-        text:
-          `已拆成 ${created.length} 章：${created.join('、')}。` +
-          '中转站那份已经进回收站，此后这几章按发布章管理。',
-        calls: 0,
-      };
+      return { text: `已新建 ${rel}（空骨架，还没有细纲内容）。`, calls: 0 };
     },
   },
 
   // ---- 花钱的：确认框全在 feature 自己那里，这里只转发
   summarize: {
-    label: '给某一章生成摘要',
+    label: '给某一章定稿（生成摘要）',
     costly: true,
     needsField: 'path',
     needs: 'path=那一章的章节路径或细纲路径',
     async run(ctx, args) {
       const chapter = await chapterForSummary(ctx.project, args.path);
       if (!chapter) {
-        throw new Error(
-          `${args.path} 还没有拆分成发布章节，没有可总结的成品。摘要描述的是已发布的那一章。`
-        );
+        throw new Error(`${args.path} 这一章还没有正文，没有可定稿的东西。摘要描述的是写出来的那一章。`);
       }
       const ok = await summarizeChapter(ctx.project, chapter, undefined, ctx.signal);
       return {
@@ -132,14 +102,14 @@ const ACTIONS: Record<string, ActionSpec> = {
     },
   },
   batchPlots: {
-    label: '给所有还没排剧情的剧情段各排一次',
+    label: '给所有还没排过的细纲各排一次',
     costly: true,
     async run(ctx) {
-      return countedBy(await generatePlots(ctx.project), '批量写剧情');
+      return countedBy(await generatePlots(ctx.project), '批量写细纲');
     },
   },
   batchManuscripts: {
-    label: '给所有剧情已排、还没写正文的剧情段各写一遍',
+    label: '给所有细纲已排、还没写正文的章各写一遍',
     costly: true,
     async run(ctx) {
       return countedBy(await writeManuscripts(ctx.project), '批量写正文');
@@ -196,7 +166,8 @@ const REFUSED: Record<string, string> = {
   rename: '改名',
   move: '移动',
   initProject: '初始化工程',
-  newChapter: '直接新建发布章节',
+  newChapter: '直接新建章节文件',
+  split: '拆分正文',
 };
 
 export const runTool: ToolDef = {
@@ -223,18 +194,18 @@ export const runTool: ToolDef = {
   },
 
   description:
-    '执行一个工程动作。这些动作背着一批固定流程（拆分要先顺延后面的章号、' +
-    '批量动作只补空白不覆盖已有产物），所以走这个口子，不要自己用 write 拼。' +
+    '执行一个工程动作。这些动作背着一批固定流程（批量动作只补空白不覆盖已有产物、' +
+    '正文落盘要在细纲上记指纹），所以走这个口子，不要自己用 write 拼。' +
     '可用的 action：' +
     ACTION_NAMES.map((a) => `${a}=${ACTIONS[a].label}${ACTIONS[a].costly ? '（调模型）' : '（不调模型）'}`).join('；') +
     '。' +
     '要参数的几个：' +
     ACTION_NAMES.filter((a) => ACTIONS[a].needs).map((a) => `${a} 要 ${ACTIONS[a].needs}`).join('；') +
     '。' +
-    '**连续多段的同类工作用这里的批量动作**（batchPlots / batchManuscripts），' +
-    '比一段一段 generate 省钱，而且有进度条、能停、失败的会挂在那一段上。' +
+    '**连续多章的同类工作用这里的批量动作**（batchPlots / batchManuscripts），' +
+    '比一章一章 generate 省钱，而且有进度条、能停、失败的会挂在那一章上。' +
     '调模型的动作会先弹一个确认框告诉作者要调用几次，他可以不同意。' +
-    '删除、改名、移动、新建发布章节都没有——那些由作者自己做。',
+    '删除、改名、移动、新建章节文件都没有——那些由作者自己做。',
 
   parameters: objectSchema(
     {
@@ -308,28 +279,4 @@ function countedBy(calls: number, what: string): ActionResult {
     };
   }
   return { text: `${what}已执行，计划调用模型 ${calls} 次。结果见工程页与日志。`, calls };
-}
-
-/**
- * 「随便哪个路径」→ 它属于哪一章的细纲。
- *
- * 判定走 `kindOfPath`（工程里唯一那张种类表），这里一行路径规则都不写。
- */
-async function requirePlotPath(ctx: ToolContext, rel: string, action: string): Promise<string> {
-  const path = kindOfPath(ctx.project, rel);
-  const plotRelPath = path.plotRelPath;
-  if (!plotRelPath) {
-    throw new Error(
-      `认不出「${rel}」属于哪一章。${action} 要的是那一章的细纲路径，` +
-        '形如 .novelforge/plots/<章号>-<标题>.md（中转站正文路径也认）。'
-    );
-  }
-  await ensureExists(ctx.project, plotRelPath);
-  return plotRelPath;
-}
-
-async function ensureExists(project: NovelProject, plotRelPath: string): Promise<void> {
-  if (!(await project.readPlot(plotRelPath))) {
-    throw new Error(`找不到细纲 ${plotRelPath}，可能刚被改名或删除。先用 list 看看现在有哪些。`);
-  }
 }

@@ -141,8 +141,9 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
   };
 
   section('# 文风指南（务必贴合）', pick('style'));
+  section('# 故事架构', pick('setting'));
   section('# 全书前情提要', pick('globalSummary'));
-  section('# 全书大纲', pick('outlineDoc'));
+  section('# 情节大纲', pick('outlineDoc'));
   section('# 相关角色设定', pick('character'));
   section('# 相关世界观设定', pick('lore'));
   // 摘要与正文都由远及近排列，读起来是正序的时间线。
@@ -164,8 +165,8 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
     sections.push(`你要从上面「${last.label.replace(' · 正文', '')}」的结尾处无缝接下去。`);
   }
 
-  // 本层产物紧挨着指令：这一章的细纲、这一幕的场景卡才是这一轮真正要动的东西。
-  section('# 剧情', pick('plot'));
+  // 本层产物紧挨着指令：这一章的细纲才是这一轮真正要动的东西。
+  section('# 细纲', pick('plot'));
 
   // 用户 @ 的引用也紧挨着他的指令放——他多半正是要针对这些内容提要求。
   section('# 我引用的内容（请针对这些内容作答）', pick('attachment'));
@@ -184,9 +185,8 @@ function assembleMessages(items: ContextItem[], request: BuildRequest, config: N
     sections.push(`# 修订要求\n\n${revision.text}\n\n请基于上一版重写，采纳修改意见，保留其中写得好的部分。`);
   }
 
-  // target 也要给：大纲这一层的 `split` 在全书大纲上要分卷清单、在一卷上要
-  // 一个剧情段（卷不是独立阶段，见 model/pipeline.ts 的文件头）。
-  const contract = buildOutputContract(request.action, request.targetWords);
+  // target 也要给：架构层四件同属一个阶段，契约要看是哪一件。
+  const contract = buildOutputContract(request.action, request.targetWords, request.target);
   sections.push(
     writing && config.recentChaptersFullText > 0
       ? `${contract}注意与上文的语气、称谓、时态保持一致。`

@@ -2,13 +2,10 @@ import type { ChatController } from './index';
 import {
   deleteEntry,
   deletePlot,
-  deleteVolume,
   isPlotPath,
-  isVolumePath,
   moveEntry,
   renameEntry,
   renamePlot,
-  renameVolume,
 } from '../files/fileOps';
 import { listDirs } from '../files/fileTree';
 import { copyInto, moveInto, renameAny } from '../files/projectFiles';
@@ -95,16 +92,11 @@ export async function fileAction(
   // 会拿到一份「这一章找不到」的空壳。
   const moved: { from: string; to: string }[] = [];
   const isPlot = !!relPath && isPlotPath(c.project, relPath);
-  const isVolume = !!relPath && isVolumePath(c.project, relPath);
   switch (action) {
     case 'rename':
       if (relPath) {
-        // 三条路：卷纲要搬三棵目录树，细纲要搬两样伴生文件，其余是普通文件。
-        const to = isVolume
-          ? await renameVolume(c.project, relPath)
-          : isPlot
-            ? await renamePlot(c.project, relPath)
-            : await renameEntry(c.project, relPath);
+        // 两条路：细纲的文件名由章号与标题决定，其余是普通文件。
+        const to = isPlot ? await renamePlot(c.project, relPath) : await renameEntry(c.project, relPath);
         if (to) {
           moved.push({ from: relPath, to });
         }
@@ -116,9 +108,9 @@ export async function fileAction(
       }
       break;
     case 'move':
-      // 卷纲与细纲都没有「移动到…」：它们的落点由卷号/段号与所属的卷决定，
-      // 挪进别的目录只会让伴生的场景与正文变成孤儿。前端不给这一项，这里兜一层。
-      if (relPath && !isPlot && !isVolume) {
+      // 细纲没有「移动到…」：它平铺在 `plots/` 下，挪进子目录它就不在这条链上了。
+      // 前端不给这一项，这里兜一层。
+      if (relPath && !isPlot) {
         const to = await moveEntry(c.project, relPath, targetDir);
         if (to) {
           moved.push({ from: relPath, to });
@@ -127,11 +119,7 @@ export async function fileAction(
       break;
     case 'delete':
       if (relPath) {
-        await (isVolume
-          ? deleteVolume(c.project, relPath)
-          : isPlot
-            ? deletePlot(c.project, relPath)
-            : deleteEntry(c.project, relPath));
+        await (isPlot ? deletePlot(c.project, relPath) : deleteEntry(c.project, relPath));
       }
       break;
     case 'paste':

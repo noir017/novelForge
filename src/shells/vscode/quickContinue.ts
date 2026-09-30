@@ -28,8 +28,9 @@ export async function quickContinue(project: NovelProject): Promise<void> {
         project,
         {
           action: { stage: 'manuscript', capability: 'generate' },
-          // 快速续写永远写「下一章」，那一章还不存在，relPath 留空。
-          target: { kind: 'manuscript', plotRelPath: '' },
+          // 快速续写永远写「下一章」。那一章的细纲多半还不存在，target 指向它
+          // **应该**在的位置（细纲号 = 章号），装配器按这个号定位前文。
+          target: { kind: 'manuscript', plotRelPath: project.plotPathForNo(no, '') },
           targetNo: no,
           ask: outline,
         },

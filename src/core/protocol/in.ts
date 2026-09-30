@@ -16,7 +16,14 @@ export interface SendPayload {
   capability: Capability;
   target: CreationTarget;
   targetNo: number;
-  targetWords: number;
+  /**
+   * 这一步覆盖的章号区间（主按钮「拆细纲（第 6–10 章）」「续写情节大纲（第 21–40 章）」
+   * 带过来的）。本期只透传、不影响生成；按区间一次生成是二期的事。
+   *
+   * 从前这里还有一个 `targetWords`（输入框下面那个，默认 2000）。它和细纲里的
+   * `targetWords` 两处都能写，作者分不清哪个生效——现在只认细纲（W1）。
+   */
+  range?: { from: number; to: number };
   attachments: SerializedAttachment[];
   excludedIds: string[];
 }
@@ -40,7 +47,7 @@ export type InMessage =
   /**
    * 让 agent 跑一轮：它自己决定查什么、生成什么。**这是直接发送走的那条路。**
    *
-   * 与 `send` 并存而不是取代它——挑了 `/命令`（写剧情、拆成场景）是**确定性
+   * 与 `send` 并存而不是取代它——挑了 `/命令`（写细纲、写正文）是**确定性
    * 单步**，多一次调度调用只是加钱加延迟（设计文档的第一条决策）。`limits`
    * 留给日后的设置页，缺省走 `budget.ts` 的三条。
    */
@@ -119,14 +126,12 @@ export type InMessage =
 export type ProjectAction =
   | 'initProject'
   | 'refresh'
-  | 'newVolume'
   | 'newPlot'
   | 'newChapter'
   | 'newCharacter'
   | 'newLore'
   | 'newFolder'
-  | 'summarizePlot'
-  | 'splitManuscript'
+  | 'finalizeChapter'
   | 'syncSummaries'
   | 'rebuildGlobalSummary'
   | 'generatePlots'

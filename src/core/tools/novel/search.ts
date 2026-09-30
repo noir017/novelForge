@@ -25,12 +25,11 @@ export const SEARCH_PER_FILE = 4;
 
 /** `kinds` 参数的候选值。与 `workspace/kind.ts` 的 `ArtifactKind` 同源。 */
 const KINDS: ArtifactKind[] = [
+  'setting',
   'outline',
   'style',
   'globalSummary',
-  'volume',
   'plot',
-  'manuscript',
   'chapter',
   'summary',
   'draft',

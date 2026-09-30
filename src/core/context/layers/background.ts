@@ -161,10 +161,10 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
 
     const manuscript = await readChapterText(a.project, ref);
     if (!manuscript?.text.trim()) {
-      // 只排了剧情、还没写正文——这不是错误，是这一章还没到那一步。
+      // 只排了细纲、还没写正文——这不是错误，是这一章还没到那一步。
       // **不认领它**（不进 fullTextNos）：认领了摘要那一层就会跳过它，
       // 而它既没有正文也没有摘要，于是从上下文里凭空消失，明细上还看不出
-      // 少了什么。留给摘要层，那里会退化成只带「目标」并说明原因。
+      // 少了什么。留给摘要层，那里会退化成只带「本章目的」并说明原因。
       continue;
     }
     // 确实注入了（哪怕后面降级成摘要）才认领：摘要层据此避免重复注入。
@@ -225,10 +225,10 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
 /**
  * 更早那些章的摘要，由近及远填充。
  *
- * **还没写正文的章退化成只带「目标」**，并在明细里注明原因。这是「不静默截断」
- * 在这条链上最要紧的一处：作者常常先把一百章剧情排完再回头写，那些章没有正文
+ * **还没写正文的章退化成只带「本章目的」**，并在明细里注明原因。这是「不静默截断」
+ * 在这条链上最要紧的一处：作者常常先把一百章细纲排完再回头写，那些章没有正文
  * 也就没有摘要——直接跳过的话，排第 60 章时模型对前 59 章一无所知，却看不出
- * 少了什么。带一行目标很便宜，而且诚实。
+ * 少了什么。带一行目的很便宜，而且诚实。
  */
 export const plotSummary: LayerFn = async (a, spec) => {
   const candidates = a.focus.previous.filter((p) => !a.scratch.fullTextNos.has(p.no)).reverse();
@@ -247,12 +247,12 @@ export const plotSummary: LayerFn = async (a, spec) => {
       continue;
     }
 
-    // 摘要挂在成品上；还没拆分的章自然没有。
+    // 摘要挂在正文上；还没写的章自然没有。
     const summary = ref.chapter ? await a.project.readSummary(ref.chapter.relPath) : undefined;
     if (!summary?.content.trim()) {
-      const goal = ref.plot?.sections.目标.trim() ?? '';
+      const goal = ref.plot?.sections.本章目的.trim() ?? '';
       if (!goal) {
-        a.reject({ ...base, text: '' }, 'dropped', '这一章还没写正文，也没有目标可带');
+        a.reject({ ...base, text: '' }, 'dropped', '这一章还没写正文，也没有本章目的可带');
         continue;
       }
       const block = `【${label}】\n${goal}`;
@@ -262,7 +262,7 @@ export const plotSummary: LayerFn = async (a, spec) => {
         continue;
       }
       a.accept(
-        { ...base, text: block, status: 'degraded', note: '这一章还没写正文，只带目标' },
+        { ...base, text: block, status: 'degraded', note: '这一章还没写正文，只带本章目的' },
         tokens
       );
       continue;
@@ -281,7 +281,7 @@ export const plotSummary: LayerFn = async (a, spec) => {
         text: block,
         status: 'included',
         note:
-          // 摘要的上游是成品，直接比它的 hash——不必再读一遍正文。
+          // 摘要的上游是正文，直接比它的 hash——不必再读一遍正文。
           ref.chapter && summary.sourceHash !== ref.chapter.contentHash
             ? '⚠ 该摘要已过期（正文有改动）'
             : undefined,

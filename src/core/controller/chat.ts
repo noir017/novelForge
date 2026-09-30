@@ -32,16 +32,17 @@ import {
   plotOfTarget,
   stageOfTarget,
 } from '../model/pipeline';
+import { isSettingFilled } from '../model/settingFile';
+import { isOutlineFilled } from '../model/outlineFile';
 import {
   NextStepView,
   SendPayload,
   SerializedArtifact,
 } from '../protocol';
 import { buildPlotPipelineView } from '../views/projectView';
-import { buildPlotPipeline } from '../views/pipeline';
+import { buildBookFacts, buildPlotPipeline, chapterOfPlotNo } from '../views/pipeline';
 import { buildWorkbench } from '../views/workbench';
 import { Plot, isPlotFilled, parsePlotFileName } from '../model/plotFile';
-import { isVolumeFilled } from '../model/volumeFile';
 import { parseChapterFileName } from '../model/chapterFile';
 import { isPlotPath } from '../files/fileOps';
 import { Chapter } from '../model/types';
@@ -74,8 +75,8 @@ export async function send(c: ChatController, payload: SendPayload): Promise<voi
   try {
     // 空输入只挡「讨论」（它不是命令，`commandOf` 查不到它）。
     //
-    // 旧界面一律要求先写点什么才能发送，而「落定剧情」「拆出剧情段」「写正文」
-    // 本来就不需要作者说任何话——该说的都在大纲、卷纲与细纲里了。逼他先编一句
+    // 旧界面一律要求先写点什么才能发送，而「落定细纲」「写细纲」「写正文」
+    // 本来就不需要作者说任何话——该说的都在架构、大纲与细纲里了。逼他先编一句
     // 「请生成」，那句话还会被当成要求装进 prompt。
     //
     // 讨论例外：它的全部内容就是作者那句话，没有话就没有讨论。
@@ -91,7 +92,7 @@ export async function send(c: ChatController, payload: SendPayload): Promise<voi
       content: payload.text.trim(),
       at: nowIso(),
       // 点命令时输入框可以是空的，气泡里就只剩一片空白。记下这一轮下的是哪个
-      // 命令，界面才说得出「刚才那一下是 /落定剧情」。「讨论」是默认动作，不记。
+      // 命令，界面才说得出「刚才那一下是 /落定细纲」。「讨论」是默认动作，不记。
       command: payload.capability === 'discuss' ? undefined : command?.label,
       attachments: c.pending.length > 0 ? [...c.pending] : undefined,
       excludedIds: payload.excludedIds.length > 0 ? payload.excludedIds : undefined,
@@ -102,7 +103,6 @@ export async function send(c: ChatController, payload: SendPayload): Promise<voi
     }
     applyAction(c, payload);
     c.current.targetNo = payload.targetNo;
-    c.current.targetWords = payload.targetWords;
     c.pending = [];
 
     c.post({ type: 'turnDone', turn: serializeTurn(userTurn) });
@@ -184,7 +184,9 @@ export async function runTurn(
         target: c.current.target,
         targetNo: payload.targetNo,
         ask: userTurn.content,
-        targetWords: payload.targetWords > 0 ? payload.targetWords : undefined,
+        // 目标字数只有一处来源：细纲的 `targetWords`，没写就是配置的每章字数。
+        // 从前输入框下面还有一个（默认 2000），作者分不清哪个生效（W1）。
+        targetWords: await targetWordsOf(c, c.current.target),
         excludedIds: userTurn.excludedIds,
         attachments: userTurn.attachments,
         history,
@@ -222,7 +224,7 @@ export async function runTurn(
     c.post({ type: 'context', turnId: assistantTurn.id, digest: assistantTurn.context });
   }
   // 产出的是可落盘的东西时，把落点与形状一起记下——卡片上要说清
-  // 「拆出了 4 场，写到哪」，而不是一句光秃秃的「确定吗」。
+  // 「新建 5 张角色卡，写到哪」，而不是一句光秃秃的「确定吗」。
   //
   // **不再重新解析一遍**：draft 出厂就带 artifact 与 summary。从前这里
   // 是三次解析里多余的那一次。
@@ -240,7 +242,7 @@ export async function runTurn(
   }
   c.post({ type: 'turnDone', turn: serializeTurn(assistantTurn) });
   await persist(c);
-  // 这一轮可能把某一层的产物写过（正文追加）——刷新流水线条。
+  // 这一轮可能把某一层的产物写过——刷新流水线条。
   await pushPipeline(c);
 
   // 第 19 条：产物落盘前必须过一遍人。**在这里问，不是留一颗按钮**——
@@ -289,7 +291,7 @@ export async function describeArtifactOf(
   if (outputKindOf(action) !== 'artifact' || !content.trim()) {
     return undefined;
   }
-  const artifact = parseDraftArtifact(action, content);
+  const artifact = parseDraftArtifact(action, content, target);
   if (!artifact) {
     return undefined;
   }
@@ -303,8 +305,8 @@ export async function describeArtifactOf(
 /**
  * 采纳的落点上已经有东西了——按钮文案据此改成「覆盖…」。
  *
- * 只看**这一层自己的产物**：拆章/拆场景本来就跳过已存在的，
- * 说「会覆盖」是吓唬人。
+ * 只看**这一层自己的产物**，而且只认「填过」：一份只有占位的模板说「会覆盖」
+ * 是吓唬人。角色图谱与正文永远是 false——前者只建新卡（同名跳过），后者是追加。
  */
 export async function targetHasContent(
   c: ChatController,
@@ -314,31 +316,37 @@ export async function targetHasContent(
   },
   target: CreationTarget = c.current.target
 ): Promise<boolean> {
-  const { stage, capability } = action;
-  const relPath = plotOfTarget(target);
-  if (stage === 'outline') {
-    if (capability === 'split') {
+  void action;
+  switch (target.kind) {
+    case 'setting': {
+      if (target.doc === 'characters') {
+        return false;
+      }
+      const doc = await c.project.readSettingDoc(target.doc);
+      return isSettingFilled(target.doc, doc.sections);
+    }
+    case 'outline':
+      return isOutlineFilled(await c.project.readOutline());
+    case 'plot': {
+      const plot = await c.project.readPlot(target.plotRelPath);
+      return !!plot && isPlotFilled(plot.sections);
+    }
+    case 'manuscript':
       return false;
-    }
-    // 大纲这一层有两种落点：全书大纲，或某一卷的卷纲。看错文件的话，写一卷
-    // 空壳卷纲时会说「会覆盖」——覆盖的是 `outline.md`，而那份根本不动。
-    if (target.kind === 'volume') {
-      const volume = await c.project.readVolume(target.volumeRelPath);
-      return !!volume && isVolumeFilled(volume.sections);
-    }
-    return (await c.project.readOutline()).trim().length > 0;
   }
-  if (!relPath || capability === 'split') {
-    return false;
+}
+
+/**
+ * 这一轮生成的目标字数：细纲的 `targetWords`，没写就是 `config.md` 的每章字数。
+ * 只有细纲与正文两层谈得上「这一章写多长」。
+ */
+async function targetWordsOf(c: ChatController, target: CreationTarget): Promise<number | undefined> {
+  const relPath = plotOfTarget(target);
+  if (!relPath) {
+    return undefined;
   }
-  if (stage === 'plot') {
-    // 只有**排过剧情**才算有内容。一份只带「目标」的骨架（拆章那一步产出的）
-    // 说「会覆盖」是吓唬人——那正是接下来要填的东西。
-    const plot = await c.project.readPlot(relPath);
-    return !!plot && isPlotFilled(plot.sections);
-  }
-  // 正文是追加，不覆盖任何东西。
-  return false;
+  const plot = await c.project.readPlot(relPath);
+  return plot?.targetWords ?? (await c.project.readBookConfig()).wordsPerChapter;
 }
 
 /**
@@ -416,7 +424,7 @@ export async function askArtifact(
     return { verdict, message: '内容是空的，没有写入任何文件。' };
   }
   // **重新解析一遍**而不是用 `draft.artifact`：作者可能在气泡里改过。
-  const artifact = parseDraftArtifact(draft.action, raw);
+  const artifact = parseDraftArtifact(draft.action, raw, draft.target);
   if (!artifact) {
     // 解析不出来时**不写**。写一个空产物比不写更糟：作者会以为存下了。
     log.warn('产物解析不出内容，未写入', `阶段 ${draft.action.stage}·${draft.action.capability}`);
@@ -451,13 +459,12 @@ export async function setTarget(c: ChatController, target: CreationTarget): Prom
   c.current.target = target;
   c.current.stage = stageOfTarget(target);
   c.current.capability = DEFAULT_CAPABILITY[c.current.stage];
-  // 细纲已落盘时把章号同步过来：装配器在细纲尚未落盘时靠它定位前文边界，
-  // 而这里正好知道答案。
+  // 把章号同步过来：装配器在细纲尚未落盘时靠它定位前文边界，而这里正好知道答案。
   const relPath = plotOfTarget(target);
   if (relPath) {
-    const plot = await c.project.readPlot(relPath);
-    if (plot) {
-      c.current.targetNo = plot.no;
+    const no = parsePlotFileName(basename(relPath))?.no;
+    if (no !== undefined) {
+      c.current.targetNo = no;
     }
   }
   log.info(`创作目标切到 ${await describeCurrentTarget(c)}`);
@@ -470,20 +477,12 @@ export async function setTarget(c: ChatController, target: CreationTarget): Prom
 /**
  * 进入某一章：**由状态机决定落在哪一层**。
  *
- * 这是「选中一章 = 进入它当前该做的那一步」的实现。改造前前端一律发
- * `setTarget({kind:'manuscript'})`，于是点开一个连细纲都没排的章，
- * 界面直接把作者丢进正文层——四层流水线在创作页上等于不存在。
+ * 这是「选中一章 = 进入它当前该做的那一步」的实现：还没排细纲就落细纲层，
+ * 细纲排好了就落正文层。判断必须在后端：前端手上只有当前那一章的 pipeline。
  *
- * 判断必须在后端：前端手上只有当前那一章的 pipeline，不知道别的章
- * 处于什么状态。
- *
- * **收的是「哪一段」或「哪一章」。** 界面上几个入口给的路径形状各不相同：
- *
- * - 剧情段那一行 → 真实的细纲路径
- * - 已发布的章那一行 → `chapters/003-夜访.md`（可能有来源段，也可能没有）
- * - 老工程的章 / 下拉框 → 一份**并不存在**的细纲路径（`plotPathForNo` 算出来的）
- *
- * `resolvePlotTarget` 把这三种都收敛成「一段 + 它交付的那几章」。
+ * **收的是「哪一章」**，界面上几个入口给的路径形状各不相同——细纲路径（可能还
+ * 不存在，下拉框与老工程的章给的就是 `plotPathForNo` 算出来的位置）或章节路径。
+ * `resolvePlotTarget` 按章号把它们认到同一章（第 20 条：只在细纲号 = 章号这一条轴上认）。
  */
 export async function selectPlot(c: ChatController, plotRelPath: string): Promise<void> {
   const entry = await resolvePlotTarget(c, plotRelPath);
@@ -493,8 +492,8 @@ export async function selectPlot(c: ChatController, plotRelPath: string): Promis
   }
   const pipeline = await buildPlotPipeline(c.project, entry);
   const next = deriveNextStep(pipeline.stage, factsOf(pipeline));
-  // 细纲还没有时落点用它**应该**在的位置（`plotPathForNo`，落在 `plots/` 根下）：
-  // 选中它就是「去给这一章补规划」，装配器与工作区卡都能如实退化成空壳。
+  // 细纲还没有时落点用它**应该**在的位置（`plotPathForNo`）：选中它就是
+  // 「去给这一章补规划」，装配器与工作区卡都能如实退化成空壳。
   const target = entry.plot?.relPath ?? c.project.plotPathForNo(entry.no, entry.chapter?.title ?? '');
 
   // 全做完了（next 为空）就停在正文——那是这一章的终点，也是最可能
@@ -503,23 +502,12 @@ export async function selectPlot(c: ChatController, plotRelPath: string): Promis
 }
 
 /**
- * 前端给的路径 → 这一段（含它交付的那几章）。两边都没有才算「不存在」。
- *
- * 三条路依次试：
- *
- * 1. 路径本身就是一份细纲 → 就是它。
- * 2. 路径是一个已发布的章 → 找**它的来源段**（拆分时记进 frontmatter 的落点）。
- *    找不到来源就只带这一章：那是老工程里的章，作者点开它是要去补规划。
- * 3. 路径是一份**还不存在**的细纲（`plotPathForNo` 算出来的）→ 按文件名里的
- *    号去找同号的章，让老工程的每一章都定位得到。
+ * 前端给的路径 → 这一章（细纲与正文各自可能缺席）。两边都没有才算「不存在」。
  *
  * 只有落在 `plots/` 之下的路径才当细纲读：`readPlot` 是纯解析，喂它一个章节
  * 文件也会**解析成功**（数字前缀 + `# 标题` 一样认得出），于是 target 会指进
- * `chapters/` 去，而场景目录与中转站正文都是按细纲路径镜像的——那一段的
- * 三层产物从此各找各的位置。
- *
- * **不再按号在两条轴之间互认**：段号与章号是两条轴（一段可以拆成三章），
- * 拿号去猜会指到一个毫不相干的段上。
+ * `chapters/` 去。其余情况一律按章号认：章节路径取它的章号，还不存在的细纲路径
+ * 取文件名里的号。
  */
 async function resolvePlotTarget(
   c: ChatController,
@@ -527,27 +515,19 @@ async function resolvePlotTarget(
 ): Promise<{ no: number; plot?: Plot; chapter?: Chapter } | undefined> {
   const chapters = await c.project.listChapters();
 
-  // 1. 就是一份细纲。
-  const plot = isPlotPath(c.project, relPath) ? await c.project.readPlot(relPath) : undefined;
-  if (plot) {
-    return { no: plot.no, plot };
-  }
-
-  // 2. 是一个已发布的章：找它的来源段。
   const direct = chapters.find((ch) => ch.relPath === relPath);
-  if (direct) {
-    const source = (await c.project.listPlots()).find((p) => p.chapters.includes(direct.relPath));
-    return { no: source?.no ?? direct.order, plot: source, chapter: direct };
-  }
-
-  // 3. 是一份还不存在的细纲路径（老工程的章走这条）：按号找同号的章。
+  const asPlot = !direct && isPlotPath(c.project, relPath) ? await c.project.readPlot(relPath) : undefined;
   const no =
-    parsePlotFileName(basename(relPath))?.no ?? parseChapterFileName(basename(relPath))?.order;
+    direct?.order ??
+    asPlot?.no ??
+    parsePlotFileName(basename(relPath))?.no ??
+    parseChapterFileName(basename(relPath))?.order;
   if (no === undefined || no <= 0) {
     return undefined;
   }
-  const chapter = chapters.find((ch) => ch.order === no);
-  return chapter ? { no, chapter } : undefined;
+  const plot = asPlot ?? (await c.project.getPlot(no));
+  const chapter = direct ?? chapterOfPlotNo(chapters, no);
+  return plot || chapter ? { no, plot, chapter } : undefined;
 }
 
 /**
@@ -621,8 +601,9 @@ export async function describeTargetOf(c: ChatController, target: CreationTarget
 /**
  * 推一份创作页的现场：流水线 + 工作区卡 + 下一步。
  *
- * **全书大纲阶段也推**（改造前那时直接 return）：那一层没有「这一章的四段」，
- * 但一样有产物要看、有下一步要做——大纲是空的就该去写大纲。
+ * 架构与大纲两层没有「这一章」，下一步问全书状态机。选中一章时问那一章的；
+ * **那一章做完了就转去问全书**——主按钮于是自然落到下一个该写的章上，
+ * 而不是一段做完就沉默（从前 `done` 之后没有按钮，作者得自己去找下一段）。
  */
 export async function pushPipeline(c: ChatController): Promise<void> {
   const target = c.current.target;
@@ -639,41 +620,45 @@ export async function pushPipeline(c: ChatController): Promise<void> {
     type: 'pipeline',
     pipeline,
     workbench,
-    next: step ? { ...step, target: targetOf(step, relPath), no: pipeline.no } : undefined,
+    next: step
+      ? { ...step, target: targetOf(step, pipeline.plot.relPath), no: pipeline.no }
+      : await bookNextStep(c),
   });
 }
 
 /**
- * 全书大纲那一层的下一步。
+ * 全书级的下一步。
  *
- * 判据在纯函数层（`deriveBookStage` / `deriveBookNextStep`），这里只取数：
- * 没有大纲就写大纲，有大纲一卷都没拆就拆卷，有卷一段都没拆就去第一卷拆段。
- * 都齐了就不催——此时该做的是挑一段进去，而那是用户的选择，不是系统能替他定的。
+ * 判据在纯函数层（`deriveBookStage` / `deriveBookNextStep`），这里只取数与补落点：
  *
- * `plots` 那一档的落点是**第一卷**：纯函数层挑不了卷（它手上没有卷列表），
- * 而「去拆段」必须指着某一卷才点得下去。
+ * - 架构、大纲两档：纯函数自己给了 target。
+ * - 拆细纲那一档：落在区间第一章的细纲上（已有空壳就用它，否则用它应该在的位置）。
+ * - 在写那一档：转去问**下一个该写的章**的单章状态机，主按钮就是「写第 N 章」一类。
+ * - 写完了：不给按钮。
  */
 export async function bookNextStep(c: ChatController): Promise<NextStepView | undefined> {
-  const [outline, plots, chapters, volumes] = await Promise.all([
-    c.project.readOutline(),
-    c.project.listPlots(),
-    c.project.listChapters(),
-    c.project.listVolumes(),
-  ]);
-  const stage = deriveBookStage({
-    outlineFilled: outline.trim().length > 0,
-    volumeCount: volumes.length,
-    plotCount: plots.length + chapters.length,
-  });
-  const step = deriveBookNextStep(stage);
-  if (!step) {
+  const facts = await buildBookFacts(c.project);
+  const stage = deriveBookStage(facts);
+  const step = deriveBookNextStep(stage, facts);
+  if (step) {
+    if (step.target) {
+      return { ...step, target: step.target };
+    }
+    const no = step.range?.from ?? facts.nextChapterNo;
+    const rel = (await c.project.getPlot(no))?.relPath ?? c.project.plotPathForNo(no, '');
+    return { ...step, target: { kind: 'plot', plotRelPath: rel }, no };
+  }
+  if (stage !== 'writing') {
     return undefined;
   }
-  const target: CreationTarget =
-    stage === 'plots' && volumes[0]
-      ? { kind: 'volume', volumeRelPath: volumes[0].relPath }
-      : { kind: 'outline' };
-  return { ...step, target };
+  const no = facts.nextChapterNo;
+  const chapters = await c.project.listChapters();
+  const plot = await c.project.getPlot(no);
+  const pipeline = await buildPlotPipeline(c.project, { no, plot, chapter: chapterOfPlotNo(chapters, no) }, { chapters });
+  const chapterStep = deriveNextStep(pipeline.stage, factsOf(pipeline));
+  return chapterStep
+    ? { ...chapterStep, target: targetOf(chapterStep, pipeline.plot.relPath), no }
+    : undefined;
 }
 
 /**

@@ -22,6 +22,7 @@ export type {
 } from './out';
 
 export type {
+  ArchitectureRow,
   CastConflictView,
   CastEntry,
   CastSummary,
@@ -30,7 +31,6 @@ export type {
   FailureView,
   NextStepView,
   ProjectPlotNode,
-  ProjectVolumeNode,
   ProjectDirNode,
   ProjectFile,
   ProjectFileNode,
@@ -62,6 +62,7 @@ export type {
   NextStepPlan,
   PipelineProgress,
   PlotStage,
+  SettingDoc,
   StageCommand,
 } from '../model/pipeline';
 

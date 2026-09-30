@@ -67,9 +67,6 @@ export function renderSession(session: typeof store.session): void {
   }
 
   syncThinkingSelect();
-  if (session.targetWords) {
-    el.targetWords.value = String(session.targetWords);
-  }
   // 目标下拉框与流水线条都跟着会话走——会话里的 target 是唯一真相。
   if (store.state) {
     renderState(store.state);

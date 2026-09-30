@@ -14,9 +14,8 @@
  *    | 层 | 用哪个模型 | 为什么 |
  *    |---|---|---|
  *    | `manuscript` | **对话页选定的那个**，不走池 | 中途换人会让文风断掉 |
- *    | `outline` | 同上 | 一次定调，而且没有对应档位 |
- *    | `volume` | 同上 | 一卷定调，同样没有对应档位 |
- *    | `plot` | `plotOutline` 档 | 与工程页「批量写剧情」同一个模型 |
+ *    | `setting` / `outline` | 同上 | 一次定调，而且没有对应档位 |
+ *    | `plot` | `plotOutline` 档 | 与工程页「批量写细纲」同一个模型 |
  *
  *    走池时**必须把池的 `primaryBudget` 一起传下去**（第 13 条）：
  *    `config.contextWindow` 跟着对话页那个模型走，拿 200k 的窗口给快速档的
@@ -32,7 +31,8 @@
  *
  * `kindOfPath` 一次给出 `stage` 与 `target`，不必让模型填 `{kind, chapterNo}`
  * 那种嵌套结构——路径是产物在这个工程里的身份，作者在文件管理器里看到的
- * 就是它。
+ * 就是它。**章节路径是例外**：正文层的 target 以细纲路径为身份，章节路径要按
+ * 章号去认同号的细纲（细纲号 = 章号），那一步要读盘，在这里做。
  */
 import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
 import { int, objectSchema, str } from '../schema';
@@ -43,6 +43,8 @@ import type { LlmProvider } from '../../llm/provider';
 import { scoped } from '../../runtime/logger';
 import type { LlmTask } from '../../model/tiers';
 import { kindOfPath } from '../../workspace';
+import type { PathKind } from '../../workspace';
+import type { NovelProject } from '../../model/project';
 import {
   CAPABILITIES,
   CAPABILITY_LABEL,
@@ -57,7 +59,7 @@ import {
 const log = scoped('Agent');
 
 /**
- * 哪一层走哪一档。**列在这里的才走池**——不在表里的（正文、大纲、卷纲）严格用
+ * 哪一层走哪一档。**列在这里的才走池**——不在表里的（正文、大纲、架构）严格用
  * 对话页选定的那个模型，不走池、不 fallback（第 12 条）。
  */
 const TIER_TASK: Partial<Record<CreationStage, LlmTask>> = {
@@ -88,10 +90,9 @@ export const generateTool: ToolDef = {
 
   description:
     '调用创作模型，为某一份产物生成内容。target 是那份产物的工程内相对路径，' +
-    '层由路径决定：.novelforge/outline.md 是大纲层，.novelforge/volumes/ 下是卷纲层，' +
-    '.novelforge/plots/ 下是剧情层，.novelforge/manuscripts/ 与已发布的章是正文层。' +
-    'split 只有前两层有：给 outline.md 拆出**分卷清单**，' +
-    '给某一卷的卷纲拆出**一个剧情段**（一次只拆一段，拆下一段就再调一次）。' +
+    '层由路径决定：.novelforge/config.md、premise.md、world.md 是架构层，' +
+    '.novelforge/outline.md 是大纲层，.novelforge/plots/<章号>-<标题>.md 是细纲层（一章一份），' +
+    '章节文件（chapters/ 下）是正文层——正文层也可以给那一章细纲的路径。' +
     '各层可用的 capability 不同：' +
     Object.entries(STAGE_CAPABILITIES)
       .map(([stage, caps]) => `${stage}=${caps.join('/')}`)
@@ -127,19 +128,18 @@ export const generateTool: ToolDef = {
         text: '',
         error:
           'settle 要沉淀的是作者与模型刚刚讨论出的结论，而你手上没有那段讨论。' +
-          '请让作者在对话页手动执行「落定剧情」；要按你自己的思路排剧情用 capability=generate。',
+          '请让作者在对话页手动执行「落定细纲」；要按你自己的思路排细纲用 capability=generate。',
       };
     }
 
-    const path = kindOfPath(ctx.project, rel);
+    const path = await resolveTargetPath(ctx.project, rel);
     if (!path.stage || !path.target) {
       return {
         text: '',
         error:
           `认不出「${rel}」是哪一层的产物。` +
-          '剧情层给 .novelforge/plots/<卷词干>/<段号>-<标题>.md，' +
-          '正文层给 .novelforge/manuscripts/<细纲在 plots/ 之下的整段路径>.md，' +
-          '大纲给 .novelforge/outline.md，卷纲给 .novelforge/volumes/<卷号>-<卷名>.md。' +
+          '架构给 .novelforge/config.md / premise.md / world.md，大纲给 .novelforge/outline.md，' +
+          '细纲给 .novelforge/plots/<章号>-<标题>.md，正文给那一章的章节路径（chapters/ 下）。' +
           '可以先用 list 看看那个目录下实际有什么。',
       };
     }
@@ -248,4 +248,24 @@ function describeCapabilities(): string {
 function toPositiveInt(value: unknown): number | undefined {
   const n = typeof value === 'string' ? Number(value) : value;
   return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.trunc(n) : undefined;
+}
+
+/**
+ * 路径 → 层与目标。章节路径按章号认成正文层（target 以同号细纲的路径为身份，
+ * 还没有细纲时是它应该在的位置）；其余交给 `kindOfPath`。
+ */
+async function resolveTargetPath(project: NovelProject, rel: string): Promise<PathKind> {
+  const path = kindOfPath(project, rel);
+  if (path.kind !== 'chapter' || path.no === undefined) {
+    return path;
+  }
+  const chapter = (await project.listChapters()).find((c) => c.relPath === path.rel);
+  const plotRelPath =
+    (await project.getPlot(path.no))?.relPath ?? project.plotPathForNo(path.no, chapter?.title ?? '');
+  return {
+    ...path,
+    stage: 'manuscript',
+    target: { kind: 'manuscript', plotRelPath },
+    plotRelPath,
+  };
 }
