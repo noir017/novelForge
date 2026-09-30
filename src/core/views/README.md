@@ -2,18 +2,19 @@
 
 本目录把磁盘上的 Markdown 与工程状态聚合成上层界面需要的只读数据，**不写盘**：
 
-- `projectView.ts`：工程树（**卷**那一组、章节列表——已发布的章在前、还没交付的剧情段在后，角色/设定是目录树）、摘要浮窗与单段流水线视图；两种章节行的说法（「第 12 章《夜访》」/「剧情 4《楼道》」）都由这一层给，前端只渲染。
-- `pipeline.ts`：读取大纲、卷纲、细纲、中转站正文、发布章节与摘要，**两条轴各遍历一遍**（不再按号合并），汇总每个剧情段的流水线状态、界面位次与新鲜度链；
+- `projectView.ts`：工程树（「故事架构」五行、章节列表——**一个章号一行**，细纲与正文是同一行的两面；角色/设定是目录树）、摘要浮窗与单章流水线视图；章的说法（「第 12 章《夜访》」）由这一层给，前端只渲染。
+- `pipeline.ts`：读取大纲、配置、细纲、章节与摘要，**按章号合并**（细纲号 = 章号；认号只在 `chapterOfPlotNo` 里做一次），汇总每一章的流水线状态与新鲜度链；给全书状态机取数（`buildBookFacts`，主按钮、工程页、agent 三处共用）；算正文的落点（`chapterTargetOf`）；
 - `summaryIndex.ts`：全书摘要读一次，摊给上面三个都要它的取数方；
 - `workbench.ts`：读取当前创作目标，构造「当前产物」浮窗的内容；
 - `cast.ts`：从各章摘要反向聚合出场人物索引。
 
-新鲜度链：`outline.md` → `volumes/*.md` → `plots/**/*.md` → `manuscripts/<段镜像键>.md`
-→（**拆分**）→ `chapters/*.md` → `summaries/*.md`，全靠比对 hash，零模型调用。
+新鲜度链：`outline.md` 里覆盖第 N 章那一节 →（`upstreamHash`）`plots/N.md` →
+（`writtenFrom`，记在细纲上）`chapters/N` →（`sourceHash`）`summaries/N.md`，
+全靠比对 hash，零模型调用。
 
-`chapters/` 是这条链的**终点，也是唯一真相**：`buildPlotPipeline` 先看这一章有没有成品，
-有就短路整条生产链（`deriveStage` 里 `chapterExists` 排在最前）。所以只有 `chapters/`、
-一份细纲都没有的老工程，每一章天生就是「已完成」，不需要任何迁移。
+`chapters/` 是正文的**唯一真相**：`deriveStage` 先看这一章有没有字，有字就不再退回
+「写细纲」。所以只有 `chapters/`、一份细纲都没有的老工程，每一章是「待定稿」或
+「已完成」，不会被倒回去要求补细纲；它们缺的是架构，全书状态机会先推那一格。
 
 `pipeline.ts` 是 I/O 聚合器；[`../model/pipeline.ts`](../model/pipeline.ts) 仍是零 I/O、零 import
 的纯领域模型和状态机。不要把后者迁入 `views/`，也不要在 `views/pipeline.ts` 里复制状态判断。

@@ -14,14 +14,13 @@
 | `files/fileOps.ts` | 三区类文件操作 | 区界限、同名不覆盖、`.trash` |
 | `files/fileEditing.ts` | 内置编辑器读写 | 工程根包含、扩展名白名单、大小上限、乐观锁 |
 | `files/projectFiles.ts` | 文件页的移动/复制/改名 | 工程根包含、`isProtectedPath`、同名不覆盖 |
-| `features/splitChapter.ts` | 拆分 | 章号接在最后一章之后、把落点记回段的 frontmatter |
+| 拆章（已删） | 拆分 | 章号接在最后一章之后、把落点记回段的 frontmatter |
 
 既有落盘路径背着一批不变量，绕过任何一条都会**安静地**损坏工程：
 
-- 细纲改名要连带搬走中转站正文（`carryPlotCompanions`），当普通文件搬会把它变成孤儿
-- **卷纲**改名要连带搬走两棵目录树（`plots/<卷词干>/`、`manuscripts/<卷词干>/`，见 `carryVolumeCompanions`）——卷词干是两处的第一级目录名，只搬 `plots/` 那一棵会让整卷的正文变成孤儿
-- 拆分要把落点记回段的 frontmatter（`chapters:`），那是「段 → 章」唯一的链
-- 写正文与写细纲都要记 `upstreamHash`（正文的上游是它那一段的细纲），漏了新鲜度链就断
+- 细纲的文件名由「章号 + 标题」决定，改标题要清掉旧文件名
+- 写细纲要记 `upstreamHash`（大纲里覆盖本章那一节的指纹），写正文要在细纲上记
+  `writtenFrom`（正文据以写成的细纲指纹），漏了新鲜度链就断
 - 删除一律进 `.trash/`；同名目标一律报错退出——**会话删除走的是同一套**（`trashPathFor`），不真删不是文件独有的行为（AGENTS 第 6 条）
 
 所以 **`write` 不是「往这个路径写字节」**，而是「按这个路径**应有的种类**写一份
@@ -54,12 +53,11 @@
 
 | 种类 | 判定 | 解析 / 渲染 | 上游指纹 | 伴生 |
 |---|---|---|---|---|
+| `setting` | `config.md` / `premise.md` / `world.md`（带 `doc`） | `settingFile.ts`；配置的 frontmatter 产物没给就沿用磁盘那份 | — | — |
 | `outline` / `style` / `globalSummary` | 固定路径 | 纯文本 | — | — |
-| `plot` | `plots/` 下 + 数字前缀 + markdown | `plotFile.ts` | 写入记所属卷纲的指纹（未分卷退回 `hash(outline)`） | 改名连带中转站正文 |
-| `manuscript` | `manuscripts/` 下 | 正文 + frontmatter | 追加记 `plotContentHash(plot)` | — |
-| `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | — | 改名/移动带草稿；写后 `syncManifest` |
+| `plot` | `plots/` **根下** + 数字前缀 + markdown | `plotFile.ts` | 写入记大纲里覆盖本章那一节的指纹（`outlineUpstreamHash`） | — |
+| `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | —（正文依据的细纲指纹记在细纲的 `writtenFrom` 上） | 改名/移动带草稿；写后 `syncManifest` |
 | `summary` | `summaries/` 镜像 | frontmatter + 小节 | `sourceHash` | 写后 `markSummarized` |
-| `volume` | `volumes/` 下（扁平）+ `.md` | frontmatter + 四个小节 | `outline.md` 的 hash | 改名/删除带三棵目录树 |
 | `character` / `lore` | 各自区 + `.md` | frontmatter | — | — |
 | `draft` | `drafts/` 下 | 纯文本 | — | **永不自动进上下文** |
 | `other` | 其余工程内文本 | 纯文本 | — | — |
@@ -69,16 +67,14 @@
 1. **`chapter` 不看是不是 `.md`**（AGENTS 第 9 条：章节不认扩展名）。
    `001-楔子.txt`、`001-楔子`（无扩展名）、`004.json` 都算章节；
    角色 / 设定 / 细纲**不**跟着放宽，它们是插件自己的数据格式。
-2. **镜像产物的归属靠镜像路径反推**，零 I/O：
-   `manuscripts/01-觉醒之日/012-入宗.md` → `plots/01-觉醒之日/012-入宗.md`。
-   镜像的是段在 `plots/` 之下的**整段路径**，所以卷那一层原样带着（未分卷的段
-   镜像出来自然就是扁的）。找不到对应细纲时**仍然返回 `kind: 'manuscript'`**
-   （那个文件确实在那儿），只是 `plotRelPath` 指向那个「应该存在」的位置。
+2. **章节路径不带创作目标**：正文就是章节，第 N 章的细纲在哪要按号去 `plots/`
+   里认——那一步要读盘，不在这里做（`views/pipeline.ts` 的 `chapterTargetOf`）。
+   `pathOfTarget` 对正文 target 直接抛，提示调用方改用它。
 3. **`summaries/global.md` 排在单章摘要之前判**，否则会被当成第 0 章的摘要。
-4. **老工程留下的 `.novelforge/scenes/` 判成 `other`**：场景那一层已经删掉
-   （见 `model/pipeline.ts` 的文件头）。那个目录里的文件是作者的东西，磁盘上
-   一个字节都不动，但代码里彻底不认——`guard.ts` 的 `isProtectedPath` 仍然把它
-   列为受保护目录，免得哪条文件操作把它整棵删掉。
+4. **老工程留下的 `scenes/`、`volumes/`、`manuscripts/` 与 `plots/` 下的卷子目录
+   都判成 `other`**：那几层已经删掉（见 `model/pipeline.ts` 的文件头）。那些文件
+   是作者的东西，磁盘上一个字节都不动，但代码里彻底不认——`guard.ts` 的
+   `isProtectedPath` 仍然把那几个目录列为受保护目录，免得哪条文件操作把它们整棵删掉。
 
 ## 记账下沉（这一期唯一有意的行为变化）
 
@@ -86,15 +82,16 @@
 `acceptPlot` / `acceptManuscript`）。作者在
 内置编辑器里改一份细纲，指纹链就断了——那一章从此再也不挂 ⟳。
 
-下沉到写入路径本身之后，**任何一次 `workspace.write` 到 volume / plot /
-manuscript 路径都记**。细纲的上游是**它所属那一卷**（`plotUpstreamHash`，未分卷的
-段退回全书大纲）——改一卷的走向只该让那一卷的段标脏，拿一律的大纲指纹去记，
-改一句立意会换来一屏 ⟳。三条配套约束一条没变：
+下沉到写入路径本身之后，**任何一次 `workspace.write` 到 plot 路径都记**。细纲的
+上游是**大纲里覆盖本章的那一节**（`plotUpstreamHash` → `outlineUpstreamHash`，大纲
+没有区间标题时退回全书的指纹）——大纲一段一段续写，续写第 21–40 章不该让前 20 章
+的细纲挂 ⟳。正文那一环（`writtenFrom`）由正文落盘那一步记（`recordWrittenFrom`），
+作者在编辑器里手改正文不动它。三条配套约束一条没变：
 
-- **手写的产物永不标脏**：`upstreamHash` 为空 = 不是这条链生出来的，不给它补一个
-- **`plotContentHash` 只哈希四个小节**，不含 frontmatter——`upstreamHash` 自己就在
-  frontmatter 里，算进去会让「排一次剧情」立刻使这一段的正文过期
-- **不哈希状态位**——作者把某一段标成 `done`（`status: done` 在 frontmatter 里），
+- **手写的产物永不标脏**：`upstreamHash` / `writtenFrom` 为空 = 不是这条链生出来的，不给它补一个
+- **`plotContentHash` 只哈希三个小节**，不含 frontmatter——那两个指纹自己就在
+  frontmatter 里，算进去会让「排一次细纲」立刻使这一章的正文过期
+- **不哈希状态位**——作者把某一章标成 `done`（`status: done` 在 frontmatter 里），
   那一次写入不该让刚写好的正文立刻显示「上游已变更」
 
 ## 全文检索（`search.ts`）
@@ -125,11 +122,10 @@ workspace/
 └── handlers/
     ├── index.ts    种类 → handler 注册表（认不出落 plain，绝不抛）
     ├── types.ts    Handler 的四件事：render / resolve / after / companions
-    ├── plot.ts     渲染 + 记 upstreamHash + 伴生搬迁
-    ├── manuscript.ts 追加（插 `---`）+ 记 upstreamHash
+    ├── setting.ts  架构三件（小节换新、配置 frontmatter 合并）
+    ├── plot.ts     渲染 + 记 upstreamHash
     ├── chapter.ts  草稿跟随 + manifest 同步（删章节不删草稿）
     ├── summary.ts  manifest 同步
-    ├── volume.ts   卷纲（记大纲指纹、改名/删除带两棵目录树）
     ├── doc.ts      outline / style / globalSummary / character / lore
     └── plain.ts    other / draft（纯文本，无记账）
 ```
@@ -140,10 +136,8 @@ workspace/
 
 | 方法 | 落点由什么决定 |
 |---|---|
-| `writeVolume` / `deleteVolume` | 卷号 + 卷名（改卷名就是改文件名，连带三棵目录树） |
-| `writePlot` / `deletePlot` | 段号 + 标题 + **所属的卷**（改标题时缺省沿用磁盘那份所在的目录，不然给一段改名会把它从它那一卷里搬出来） |
-| `writeScene` / `deleteScene` | 场号 + 标题 |
-| `appendToManuscript` / `splitManuscript` | 段在 `plots/` 之下的整段路径 / `nextChapterNo()` |
+| `writePlot` / `deletePlot` | 章号 + 标题（平铺在 `plots/` 根下；改章号要传原路径） |
+| `recordWrittenFrom` | 细纲路径（只改 frontmatter 的 `writtenFrom`，正文一个字节不动） |
 | `createChapter` / `ensureDraft` | 章号 + 标题 / 章节路径的镜像 |
 | `writeSummary` | 章节路径的镜像 |
 | `writeCharacter` / `writeLore` | slug（可带子目录） |

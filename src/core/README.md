@@ -27,7 +27,7 @@
 | [protocol/](protocol/index.ts) | 前端 ↔ 后端的消息协议（`InMessage` / `OutMessage` / `ViewState`）。对外入口仍是 `core/protocol`。插件 webview 与独立版网页共用，是前后端的唯一契约。 |
 | [controller/](controller/index.ts) | ★ `ChatController`：全部面板逻辑，按消息域拆在同目录模块里。收 `InMessage` → 调度 `generation/` / `agent/` / 会话存储 / 创作目标切换 / 设置读写 → 广播 `OutMessage`。**并发控制在这一层**（`beginGeneration` / `stopGeneration`，`busy` 就是 `currentAbort !== undefined`）——生成那一层是无状态的，「有没有在跑」是调度的事，单步与 agent 共用同一把锁。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。**agent 动手前那一句问也在这一层**（`gate.ts`）：画成对话里的一张卡片而不是全局模态框，还没答的记在 controller 上，重连时随全量状态重推。 |
 | [host.ts](host.ts) | core 对宿主的唯一依赖面（窄接口）：弹窗/选择/进度/文件监听/打开文件等，两个壳各实现一份。 |
-| [actions.ts](actions.ts) | 工程级交互流程（初始化、新建一章、直接建一个发布章节文件），命令面板与网页共用。新建只落一个纯序号名的空细纲（标题等剧情排完再改名定），**不问标题也不打开它**；章号取 `plots/` 与 `chapters/` 两边的最大号 +1，所以老工程的 99 章之后建出来的就是第 100 章。「建完去哪」由调用方决定，面板走 `selectPlot` 落到这一章的当前步骤。正常路径上的发布章节是**拆分**出来的，`newChapterFlow` 只留给「手里已有一章现成的文字要粘进来」。 |
+| [actions.ts](actions.ts) | 工程级交互流程（初始化、新建一章、直接建一个发布章节文件），命令面板与网页共用。新建只落一个纯序号名的空细纲（标题等细纲排完再改名定），**不问标题也不打开它**；章号取 `plots/` 与 `chapters/` 两边的最大号 +1，所以老工程的 99 章之后建出来的就是第 100 章。「建完去哪」由调用方决定，面板走 `selectPlot` 落到这一章的当前步骤。正常路径上的章节是写正文时生成的，`newChapterFlow` 只留给「手里已有一章现成的文字要粘进来」。 |
 | [config.ts](config.ts) | `readConfig` / `readBudgetFallback` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |
 | [stores.ts](stores.ts) | 文件后端的配置/密钥存储（`~/.novelforge/`），双壳共用。 |
 
@@ -40,7 +40,7 @@
 - **失败还要留在出错的东西身上，不只是日志**：日志与 toast 都要求用户「恰好在看」。角色卡/章/设定失败时经 `runtime/errorLog.ts` 记一条（`severity: 'error'` = 目标一字未改，`'warn'` = 部分完成、下次重来），工程页那一行就挂上感叹号，一直挂到成功。**成功路径必须 `clearFailures`**——修好了还挂着比一开始不报错更糟，用户会学会无视它。`targetKey` 一律用 relPath（名字会被作者改，路径才是当下的身份，而且前端的树本来就按 relPath 索引）。
 - **库不可用不是错误路径**：`runtime/db.ts` / `runtime/errorLog.ts` 的每个 API 都自己吞异常并降级为「没有库」。纯读取的调用方（`listActiveFailures`、`clearFailures`、`readLogHistory`）必须带 `{ create: false }`——否则光是打开工程页就会在作者的 `.novelforge/` 里凭空生出一个 db 文件。写日志失败**绝不能再打日志**（会递归刷屏），只往 stderr 说一次然后彻底静默。
 - `readConfig` / `readBudgetFallback` 位于 `config.ts`，数据源由宿主注入的 `ConfigStore` 提供。模型预算在模型条目上配置；`readBudgetFallback` 只为未填写的模型与旧版全局值兜底，不是设置页配置项。
-- **段号与章号是两条轴**：章节顺序永远由文件名的数字前缀决定，与它在第几层子目录无关；分卷不重置编号。细纲（`plots/<卷词干>/`）**按卷分子目录**，段号只是那一侧的排序键——一段可以拆成三章，界面上的「剧情 N」是推导出来的位次（`segmentDisplayNo`）。上下文装配的正文优先取 `chapters/`（没拆分才回落中转站），摘要新鲜度一律按 `chapters/` 算。工程页每层内**正序**展示（第 1 章在上，与文件名顺序一致）。
+- **一条轴：细纲号 = 章号**：章节顺序永远由文件名的数字前缀决定，与它在第几层子目录无关；分卷目录只是收纳，不重置编号。细纲平铺在 `plots/` 根下，第 N 章的细纲、正文、摘要按号互认（`views/pipeline.ts` 的 `chapterOfPlotNo`）。上下文装配的正文只取 `chapters/`，摘要新鲜度一律按 `chapters/` 算。工程页每层内**正序**展示（第 1 章在上，与文件名顺序一致）。
 - **摘要正文不进 `ProjectTree`**：那棵树每次文件变动都全量重推（`pushState` → `buildProjectTree`），一本两百章的书每章带上千字摘要，等于每保存一次正文就推几百 KB。悬停浮窗要的摘要走单独的 `requestSummary` / `summary` 一问一答（`buildPlotSummaryView`），前端按行路径缓存、收到新树即作废。往树上加字段前先想想它会不会把这条推送撑爆。（`failures` 是有意的例外：一条几十字，**且只有出错的目标才有**，正常工程是空对象。）
 - **草稿不是可管理区**：`drafts/` 不在 `files/fileOps.ts` 的三个区里（工程页上也没有它的节点），但它是**可打开的**——`files/fileEditing.ts` 只看工程根包含 + 扩展名/章节规则 + 大小，草稿天然满足。草稿路径由 `NovelProject.draftRelPathFor` 从章节路径推导，别在别处另拼一份。
 - **草稿永不自动注入**：`context/builder.ts` 里没有任何一处读 `drafts/`，草稿只能经 `resolveAttachment`（作者显式 `@` 引用）进 prompt。加功能时别打破这条——它是「不偷偷烧 token」的一部分。

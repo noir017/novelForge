@@ -9,9 +9,8 @@
 | [creation.ts](creation.ts) | 设置页的连接测试（`testConnection`——严格用指定的那个模型，不走分档池）+ 两个纯文本工具：`cleanOutput`（**只对正文层用**，在 JSON 产物上跑会切坏结构）与 `suggestTitle`。从前的 `CreationSession` 类没了，四件事各自搬了家，见下表。 |
 | [artifact.ts](artifact.ts) | ★ 模型输出 → 可采纳的结构化产物。三层降级（JSON → Markdown 小节 → 全文兜底），与摘要同一套。**只解析，一个字都不写盘。** |
 | [parse.ts](parse.ts) | 模型输出解析小工具：剥代码围栏、提取 JSON、字符串与数字去重、字符串数组归一。 |
-| [pipelineBatch.ts](pipelineBatch.ts) | ★ 工程页的两条批量流水线动作：给缺剧情的段批量写剧情、给已有剧情的段批量写正文。**只补不改**，走 runTask + runPool，失败挂在那一段上。 |
-| [splitChapter.ts](splitChapter.ts) | ★ 把一个剧情段的中转站正文按单独一行 `---` 拆成发布章：数出会切几章 → 弹确认 → 建 `chapters/` 文件（章号接在**现有最后一章**之后）→ 中转站原件搬进 `.trash/` → 把落点记回这一段的 frontmatter。**零次模型调用**，章名不猜（第一章沿用原标题，其余留纯序号名）；**一个别的文件都不动**——后面还没拆的段不改名（段号与章号是两条轴）。 |
-| [summarize.ts](summarize.ts) | 单章摘要编排（从 `chapters/` 的**发布正文**生成——没拆分就没有成品，本来也无从总结；解析、批量同步、全书 map-reduce）。系统提示词在 [summarizePrompt.ts](summarizePrompt.ts)。 |
+| [pipelineBatch.ts](pipelineBatch.ts) | ★ 工程页的两条批量流水线动作：给还没排过的细纲批量写细纲、给细纲已排但没有正文的章批量写正文（落同号章节并记 `writtenFrom`）。**只补不改**，走 runTask + runPool，失败挂在那一章的细纲上。按每批 5 章生成细纲是二期、写正文改成严格串行是四期。 |
+| [summarize.ts](summarize.ts) | 单章摘要编排（从 `chapters/` 的正文生成；解析、批量同步、全书 map-reduce）。「定稿」本期就是它，四期再加更新角色「当前状态」。系统提示词在 [summarizePrompt.ts](summarizePrompt.ts)。 |
 | [summarizePrompt.ts](summarizePrompt.ts) | 单章摘要 / 阶段摘要 / 全书摘要三条系统提示。 |
 | [characters.ts](characters.ts) | 从选定的几段正文**批量**提取/更新角色卡。系统提示词在 [charactersPrompt.ts](charactersPrompt.ts)。 |
 | [charactersPrompt.ts](charactersPrompt.ts) | 批量提取角色卡的系统提示。 |
@@ -27,9 +26,9 @@
 
 ## 创作的四层与两条路
 
-创作按 `Stage × Capability × Target` 展开（定义在 [../model/pipeline.ts](../model/pipeline.ts)）：大纲 → 卷纲 → 剧情 → 正文。同一层可以被讨论（默认动作，挑刺、检查设定都靠直接打字说），也可以被生成；大纲与卷纲两层还能拆成下一层（拆卷 / 拆出剧情段），剧情层另有一个 `settle`（落定剧情），把刚才那段讨论里**已经达成的结论**沉淀成细纲。改写不是独立能力：目标已有内容时的生成就是改写，作者那句话就是修改意见。**剧情段是最小的规划单位**——它没有 `split`，从前那一档拆的是场景，而那一层已经删掉。
+创作按 `Stage × Capability × Target` 展开（定义在 [../model/pipeline.ts](../model/pipeline.ts)）：架构 → 大纲 → 细纲 → 正文。同一层可以被讨论（默认动作，挑刺、检查设定都靠直接打字说），也可以被生成；细纲层另有一个 `settle`（落定细纲），把刚才那段讨论里**已经达成的结论**沉淀成细纲。改写不是独立能力：目标已有内容时的生成就是改写，作者那句话就是修改意见。从前还有 `split`（大纲拆卷、卷拆剧情段）与拆章，卷那一层删掉之后都没了。
 
-**创作编排本身已经不在本层了**——它是 [../generation/](../generation/README.md)：`generate.ts` 无状态地装配 → 调模型 → 解析成 `Draft`，`accept.ts` 按 target 分派到六条落盘路径，`drafts.ts` 让草稿活过一次刷新。并发控制在 `controller/`（那是调度的责任）。本层留下的是 `artifact.ts`（解析）与 `pipelineBatch.ts`（工程页批量）。
+**创作编排本身已经不在本层了**——它是 [../generation/](../generation/README.md)：`generate.ts` 无状态地装配 → 调模型 → 解析成 `Draft`，`accept.ts` 按产物分派到五条落盘路径，`drafts.ts` 让草稿活过一次刷新。并发控制在 `controller/`（那是调度的责任）。本层留下的是 `artifact.ts`（解析）与 `pipelineBatch.ts`（工程页批量）。
 
 **生成与落盘是两步**，这是这条路上最要紧的一条：
 
