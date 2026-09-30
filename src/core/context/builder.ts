@@ -86,7 +86,7 @@ export async function buildContext(
       items.push({ ...item, text: '', tokens: 0, status, note });
     },
 
-    scratch: { fullTextNos: new Set<number>() },
+    scratch: { fullTextNos: new Set<number>(), evidence: new Map<number, ContextItem>() },
   };
 
   // 强制项可能已经吃掉全部预算，后续条目自然会被判 dropped——这是有意的：
@@ -156,6 +156,12 @@ function assembleMessages(
   section('# 相关世界观设定', pick('lore'));
   // 摘要与正文都由远及近排列，读起来是正序的时间线。
   section('# 早前剧情摘要（由远及近）', pick('plotSummary').slice().sort(byNoAsc));
+  // 证据原文排在摘要后面、前文正文前面：读的时候是「摘要这么说 → 原文是这样写的 → 紧挨着的那几章」。
+  // 说法移植自上游 chapter-materials.ts:223-227（「索引、摘要和 currentState 都不是作者事实」）。
+  section(
+    '# 定稿原文片段（前情以这些原文为准；摘要、角色状态与它有出入时信原文）',
+    pick('evidence').slice().sort(byNoAsc)
+  );
 
   const fullText = pick('manuscriptFull').slice().sort(byNoAsc);
   section('# 前文正文', fullText);

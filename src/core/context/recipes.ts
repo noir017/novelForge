@@ -121,6 +121,8 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // ★ `plotAhead` P0 force：后 5 章的细纲是**边界**。没有它，模型写到钩子时最顺手的
   //   就是把下一章的事提前演掉。
   // ★ `chapterSoFar` P0 force：「接着写」要从本章已写的末尾往下接，少了它就是另起一章。
+  // ★ `evidence` 排在 P2 的最前面（四期，D18）：摘要是模型对正文的转述，会走样；证据所在的
+  //   原文段落才是作者认可过的那一版。它比全书摘要、设定条目更接近「这里到底写了什么」。
   // 执行卡与篇幅合同不是层：由输出契约拼在消息最末（上游 GD:657 的顺序）。
   manuscript: [
     { layer: 'system', priority: 0, force: true },
@@ -137,6 +139,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'premiseWorld', priority: 1 },
     { layer: 'outlineSlice', priority: 1 },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
+    { layer: 'evidence', priority: 2 },
     { layer: 'globalSummary', priority: 2 },
     { layer: 'lore', priority: 2 },
     { layer: 'manuscriptFull', priority: 3 },

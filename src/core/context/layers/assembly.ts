@@ -23,8 +23,11 @@ export interface Assembly {
   accept(item: Omit<ContextItem, 'tokens'>, tokens: number): void;
   /** 装不下 / 被排除：登记原因，不扣余额。**绝不静默丢弃。** */
   reject(item: Omit<ContextItem, 'tokens' | 'status'>, status: 'dropped' | 'excluded', note: string): void;
-  /** 跨层协调的便签，只有两处用得上。 */
-  scratch: { prevTail?: ContextItem; fullTextNos: Set<number> };
+  /**
+   * 跨层协调的便签，只有三处用得上：上一章结尾与近章全文互斥、摘要跳过已经带了全文的章、
+   * 定稿原文片段与近章全文互斥（整章进来了，它的片段就多余了）。
+   */
+  scratch: { prevTail?: ContextItem; fullTextNos: Set<number>; evidence: Map<number, ContextItem> };
 }
 
 export type LayerFn = (a: Assembly, spec: LayerSpec) => Promise<void>;

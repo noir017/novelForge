@@ -45,6 +45,8 @@ export type ItemKind =
   | 'manuscriptFull'
   /** 前面某章的摘要。 */
   | 'plotSummary'
+  /** 前面某章的定稿原文片段：连续性事实的证据所在的那几段（D18）。 */
+  | 'evidence'
   | 'lore'
   | 'revision';
 
@@ -114,6 +116,8 @@ export type LayerId =
   | 'prevTail'
   | 'manuscriptFull'
   | 'plotSummary'
+  /** 前面各章的定稿原文片段：拿摘要里连续性事实的证据原句回到正文里取的那几段（D18）。 */
+  | 'evidence'
   | 'revision';
 
 export interface LayerSpec {

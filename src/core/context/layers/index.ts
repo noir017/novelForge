@@ -16,6 +16,7 @@ import {
 import {
   chapterSoFar,
   characters,
+  evidence,
   globalSummary,
   lore,
   manuscriptFull,
@@ -52,6 +53,7 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   prevTail,
   manuscriptFull,
   plotSummary,
+  evidence,
   revision,
 };
 
