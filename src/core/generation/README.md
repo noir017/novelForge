@@ -6,8 +6,9 @@
 
 | 文件 | 职责 |
 |---|---|
-| [generate.ts](generate.ts) | ★ **无状态**：装配（`buildContext`）→ 调模型 → 解析 → 产出一份 `Draft`。收 `signal`，不自己管并发。另有 `previewContext`（只装配不调模型，面板的「预览上下文」）与 `parseDraftArtifact`（解析，不写盘）。 |
-| [accept.ts](accept.ts) | ★ 落盘：按产物分派到五条落盘路径（架构文档 / 角色图谱 / 情节大纲 / 细纲 / 正文）。角色图谱**只建新卡、同名跳过**并说出跳过了谁；细纲还不存在时按章号与产物带的标题新建；正文落**同号的章节**（不存在就新建，存在就追加），然后在细纲上记 `writtenFrom`。守卫、渲染、记账全在 `workspace/` 做一次，这里只做分派与人话消息。 |
+| [generate.ts](generate.ts) | ★ **无状态**：装配（`buildContext`）→ 调模型 → （需要时接生成链）→ 解析 → 产出一份 `Draft`（带 `range`、`notes`、`calls`）。收 `signal`，不自己管并发。另有 `previewContext`（只装配不调模型，面板的「预览上下文」）与 `parseDraftArtifact`（解析，不写盘）。 |
+| [structured.ts](structured.ts) | ★ **生成链**（二期，移植自 AI-Novel-Writer）：小说配置（截断整份重来、「全局要求」只重写这一节）、角色图谱（身份清单 → 每批 3 人补详情）、细纲批次（截断或解不出来时多章对半拆、单章紧凑重建，语法修复一次且只许改标点，漏章 fail-closed）。单步与批量共用，只在 `ChainIO` 上不同；每一次降级记进 `notes`。 |
+| [accept.ts](accept.ts) | ★ 落盘：按产物分派到六条落盘路径（架构文档 / 角色图谱 / 情节大纲 / 细纲 / 细纲批次 / 正文）。配置附带的文风只在 `style.md` 还是初始化模板时写过去；角色图谱新卡直接建、**同名的走覆盖审阅一张一审**；大纲带区间时只并进那一段，纯续写不审阅；细纲批次逐章落（排过的审阅、空壳按标题改名填上、没有的新建），再给新角色建卡（D19）；正文落**同号的章节**，然后在细纲上记 `writtenFrom`。`onlyBlank` 给批量路径用：作者写过的一个字都不动、不问。守卫、渲染、记账全在 `workspace/` 做一次，这里只做分派与人话消息。 |
 | [drafts.ts](drafts.ts) | ★ `DraftStore`：还没落盘的产物，内存按会话分桶 + 随会话 JSON 落盘。 |
 
 ## 三条硬约束
@@ -59,11 +60,15 @@ draft.target → accept(project, target, parseArtifact(action, 气泡里的文�
 - **谁装回内存**：`controller/session.ts` 的 `openSession`。换会话时 `dropBySession` 掉上一个，不然开一天面板会攒下几十份没人再看的正文
 - **容错**：认不出的草稿在 `model/session.ts` 的 `normalize()` 里丢掉。气泡上那份 `ChatTurn.artifact` 是**回放用的记录**（产出过什么、落到哪儿了 / 未采纳），与草稿在不在无关——它不再驱动任何按钮
 
-## 一个字都不改装配器
+## 一件产物可能要调几次
 
-`context/recipes.ts`、`context/prompts.ts`、`context/layers/`、`context/builder.ts`、`features/artifact.ts`。
+小说配置、角色图谱、细纲批次由 `structured.ts` 的链拼出来。对话页第一次调用是流式的，后面几次照样流进同一个气泡（每步前面一行「——角色详情（林昭、沈青）——」），链结束后气泡换成**规范化结果**——将要落盘的样子（配置是 `config.md` 全文，角色图谱与细纲批次是规范化 JSON），作者改完再点写入时按同一套解码读回来。
 
-分阶段装配与三层降级解析是这个项目既有质量的来源，agent 化不碰它们。本层只是它们的调用方。
+链走不下去（清单不合格、漏章、修复改了内容……）抛 `ChainError`：已经收到的输出留在气泡里，报错，不出卡片，失败挂在那一章 / 那一件上。卡片上除了形状，还列出会新建的角色卡、这一轮调了几次模型、每一处降级（第 2 条）。
+
+## 不在这里写装配
+
+`context/recipes.ts`、`context/prompts.ts`、`context/layers/`、`context/builder.ts`、`features/artifact.ts` 是装配与解析的唯一一份。生成链重新装配时也走 `buildContext`（换 `range` / `step` / `draftPlots`），不在这里手拼 prompt；只有语法修复与「全局要求」字段重写两条消息不经装配器——它们不需要上下文，给多了反而会让模型「顺手」补内容。
 
 ## 逐字保留的四件事
 

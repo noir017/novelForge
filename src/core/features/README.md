@@ -7,9 +7,13 @@
 | 文件 | 职责 |
 |---|---|
 | [creation.ts](creation.ts) | 设置页的连接测试（`testConnection`——严格用指定的那个模型，不走分档池）+ 两个纯文本工具：`cleanOutput`（**只对正文层用**，在 JSON 产物上跑会切坏结构）与 `suggestTitle`。从前的 `CreationSession` 类没了，四件事各自搬了家，见下表。 |
-| [artifact.ts](artifact.ts) | ★ 模型输出 → 可采纳的结构化产物。三层降级（JSON → Markdown 小节 → 全文兜底），与摘要同一套。**只解析，一个字都不写盘。** |
+| [artifact.ts](artifact.ts) | ★ 模型输出 → 可采纳的结构化产物。三层降级（JSON → Markdown 小节 → 全文兜底），与摘要同一套；**细纲给了区间就是一批**，按批次合同严格解码、不做全文兜底。**只解析，一个字都不写盘。** |
+| [blueprint.ts](blueprint.ts) | 细纲批次（章节蓝图）的严格解码：缺必填字段给出带路径的诊断，超长截断不作废，新角色必须逐字出现在出场名单里；覆盖检查（漏章 / 重复 / 越界）。合同移植自 AI-Novel-Writer。 |
+| [roster.ts](roster.ts) | 角色图谱两段式的解码：身份清单 → 按冻结清单补详情 → 拼成角色卡，「人物关系」由清单生成到双方卡上。比上游宽松：只有一个能用的人都没有才算失败。 |
+| [novelConfig.ts](novelConfig.ts) | 小说配置的 JSON 合同：上游英文键 → `config.md` 七节与 frontmatter，「全局要求」4–8 条 600 字的质检，一句话弹窗时「保留原文，追加生成」的合并，规范化草稿（`config.md` 全文 + 一节文风）。 |
+| [structuredJson.ts](structuredJson.ts) | 结构化输出的 JSON 小工具：认出「语法坏了但值得修」的输出；校验修过的那份只改了标点（标量逐个一致，只许在末尾补闭合括号）；「唯一一个完整对象」。 |
 | [parse.ts](parse.ts) | 模型输出解析小工具：剥代码围栏、提取 JSON、字符串与数字去重、字符串数组归一。 |
-| [pipelineBatch.ts](pipelineBatch.ts) | ★ 工程页的两条批量流水线动作：给还没排过的细纲批量写细纲、给细纲已排但没有正文的章批量写正文（落同号章节并记 `writtenFrom`）。**只补不改**，走 runTask + runPool，失败挂在那一章的细纲上。按每批 5 章生成细纲是二期、写正文改成严格串行是四期。 |
+| [pipelineBatch.ts](pipelineBatch.ts) | ★ 工程页的三条批量动作：**补齐设定**（配置 → 前提 → 角色图谱 → 世界观，只补空白、严格串行）、**批量拆细纲**（区间里没有细纲的章每批 5 章、严格串行地走生成链，一批失败就停）、批量写正文（落同号章节并记 `writtenFrom`，仍按原样并发，四期改成严格串行）。**只补不改**，失败挂在那一行上。 |
 | [summarize.ts](summarize.ts) | 单章摘要编排（从 `chapters/` 的正文生成；解析、批量同步、全书 map-reduce）。「定稿」本期就是它，四期再加更新角色「当前状态」。系统提示词在 [summarizePrompt.ts](summarizePrompt.ts)。 |
 | [summarizePrompt.ts](summarizePrompt.ts) | 单章摘要 / 阶段摘要 / 全书摘要三条系统提示。 |
 | [characters.ts](characters.ts) | 从选定的几段正文**批量**提取/更新角色卡。系统提示词在 [charactersPrompt.ts](charactersPrompt.ts)。 |
@@ -21,14 +25,14 @@
 | [characterCardPrompt.ts](characterCardPrompt.ts) | 更新角色卡的系统提示（字数上限与「性格 / 语言习惯」优先）。 |
 | [characterMaintenance.ts](characterMaintenance.ts) | ★ 两条**不调模型**的整理动作：`cleanCharacterAliases` 删掉不是专属称呼的别名（含被误填成别名的**其他角色的名字**），`mergeDuplicateCharacterCards` 把同一个人的多张卡并成一张。只改 frontmatter（`rewriteFrontmatter`），作者手写的正文一个字节不动；被合并的卡搬进 `.novelforge/.trash/`。 |
 | [style.ts](style.ts) | 从 1~3 段样文归纳文风指南写入 `.novelforge/style.md`。系统提示词在 [stylePrompt.ts](stylePrompt.ts)。 |
-| [stylePrompt.ts](stylePrompt.ts) | 文风提取的系统提示。 |
+| [stylePrompt.ts](stylePrompt.ts) | 文风提取的系统提示。并入了 AI-Novel-Writer 文风分析模板的任务边界：只学技法，不复述情节、角色名、地名，不抄原句。 |
 | [pickPlots.ts](pickPlots.ts) | 多段选择：Host.pick 只支持单选，需要多段时改为输入序号列表（如 `1,2,3`）。 |
 
 ## 创作的四层与两条路
 
 创作按 `Stage × Capability × Target` 展开（定义在 [../model/pipeline.ts](../model/pipeline.ts)）：架构 → 大纲 → 细纲 → 正文。同一层可以被讨论（默认动作，挑刺、检查设定都靠直接打字说），也可以被生成；细纲层另有一个 `settle`（落定细纲），把刚才那段讨论里**已经达成的结论**沉淀成细纲。改写不是独立能力：目标已有内容时的生成就是改写，作者那句话就是修改意见。从前还有 `split`（大纲拆卷、卷拆剧情段）与拆章，卷那一层删掉之后都没了。
 
-**创作编排本身已经不在本层了**——它是 [../generation/](../generation/README.md)：`generate.ts` 无状态地装配 → 调模型 → 解析成 `Draft`，`accept.ts` 按产物分派到五条落盘路径，`drafts.ts` 让草稿活过一次刷新。并发控制在 `controller/`（那是调度的责任）。本层留下的是 `artifact.ts`（解析）与 `pipelineBatch.ts`（工程页批量）。
+**创作编排本身已经不在本层了**——它是 [../generation/](../generation/README.md)：`generate.ts` 无状态地装配 → 调模型 → （需要时接 `structured.ts` 的生成链）→ 解析成 `Draft`，`accept.ts` 按产物分派到六条落盘路径，`drafts.ts` 让草稿活过一次刷新。并发控制在 `controller/`（那是调度的责任）。本层留下的是 `artifact.ts`（解析）与 `pipelineBatch.ts`（工程页批量）。
 
 **生成与落盘是两步**，这是这条路上最要紧的一条：
 
@@ -41,12 +45,12 @@
 
 | | `generation/` | `pipelineBatch.ts` |
 |---|---|---|
-| 一次处理 | 一份产物 | 几十段 |
-| 覆盖已有产物 | 走 `reviewReplace` 逐份审阅 | **一律跳过**——一次弹 63 个 diff 没人看得完 |
-| 解析失败 | 全文兜底（产物摊在屏幕上，用户看得见它是什么） | **不兜底**（`parsePlotStrict`）——没人逐份过目，兜底会把「这次失败了」变成「这一段已排好」，紧接着的批量写正文还会照着它写出一整段 |
-| 出错 | 报错，用户重来 | 记进 errorLog 挂在那一章上，**继续跑完剩下的** |
+| 一次处理 | 一份产物 | 几十章 |
+| 覆盖已有产物 | 走 `reviewReplace` 逐份审阅 | **一律跳过**——一次弹 63 个 diff 没人看得完。补齐设定连一节都不覆盖：作者写过的节原样留着（`onlyBlank`） |
+| 解析失败 | 单份文档全文兜底（产物摊在屏幕上，用户看得见它是什么）；细纲批次不兜底 | **不兜底**——没人逐份过目，兜底会把「这次失败了」变成「这一章已排好」，紧接着的批量写正文还会照着它写出一整章 |
+| 出错 | 报错，用户重来 | 记进 errorLog 挂在那一行上。写正文**继续跑完剩下的**；补齐设定与拆细纲**就此停下**——后一件、后一批要吃前面的产出 |
 
-两条路共用同一个 `buildContext`，因此批量与单次产出的是同一个质量。
+两条路共用同一个 `buildContext` 与同一条生成链（`generation/structured.ts`），因此批量与单次产出的是同一个质量、同一套降级。
 
 ## 摘要走 JSON
 
