@@ -6,6 +6,7 @@
  */
 import { AgentMessage } from '../llm/provider';
 import { CreationAction, CreationTarget, WriteMode } from '../model/pipeline';
+import type { FrozenGoal } from '../model/review';
 import { Attachment, ChatTurn } from '../model/session';
 
 /** 上下文条目在 prompt 中的分层，数字越小越先保证。 */
@@ -47,6 +48,10 @@ export type ItemKind =
   | 'plotSummary'
   /** 前面某章的定稿原文片段：连续性事实的证据所在的那几段（D18）。 */
   | 'evidence'
+  /** 前面某章定稿留下的连续性事实（只有事实文字，不回原文取段落）。审稿对照用。 */
+  | 'facts'
+  /** 这一章的正文全文：审稿审的就是它。 */
+  | 'chapterFull'
   | 'lore'
   | 'revision';
 
@@ -118,6 +123,10 @@ export type LayerId =
   | 'plotSummary'
   /** 前面各章的定稿原文片段：拿摘要里连续性事实的证据原句回到正文里取的那几段（D18）。 */
   | 'evidence'
+  /** 前面各章定稿留下的连续性事实，只带事实文字（审稿，五期）。 */
+  | 'recentFacts'
+  /** 目标章自己的正文全文（审稿，五期）。 */
+  | 'chapterFull'
   | 'revision';
 
 export interface LayerSpec {
@@ -170,8 +179,17 @@ export interface BuildRequest {
   draftPlots?: DraftPlotLine[];
   /** 额外写作指令，如「加强对白」。 */
   extraInstruction?: string;
-  /** 上一版生成结果 + 修改意见，用于「重写」。 */
+  /**
+   * 上一版正文 + 修改意见，用于「重写」与「修稿」。**整章都带**：修稿要求最小改动，
+   * 模型手上只有后半章的话，前半章只能凭空重写。修稿时 `feedback` 是勾选的审稿清单
+   * （model/review.ts 的 `renderRevisionBrief`）。
+   */
   revision?: { previousDraft: string; feedback: string };
+  /**
+   * 审稿时冻结的目标清单（model/review.ts 的 `freezeGoals`）。由审稿链在装配之前冻结好交过来，
+   * 契约里给模型的与链上校验用的必须是同一份——细纲在这几秒里被改了也不会对不上。
+   */
+  reviewGoals?: FrozenGoal[];
   /** 被用户手动取消勾选的条目 id。 */
   excludedIds?: string[];
   /** provider 的硬性输入上限，会与 contextWindow 取小。 */
@@ -193,7 +211,12 @@ export type ChainStep =
    * `written` 是这一章到此为止的总字数，`remaining` 是离目标还差多少字（没有目标时缺席）。
    * `recovery`：上一轮被截断又没写出新东西、已经丢掉了，这是唯一一次恢复机会。
    */
-  | { kind: 'continuation'; tail: string; written: number; remaining?: number; recovery: boolean };
+  | { kind: 'continuation'; tail: string; written: number; remaining?: number; recovery: boolean }
+  /**
+   * 审稿的重来一次（generation/review.ts）：上一次被截断（`truncated`），或解不出合格的 JSON
+   * （`invalid`，`reason` 说为什么）。上一次的输出不可信，不许续接。
+   */
+  | { kind: 'reviewRetry'; why: 'truncated' | 'invalid'; reason?: string };
 
 /** 一章已经排好、还没落盘的细纲，给前序细纲一览用。 */
 export interface DraftPlotLine {

@@ -47,6 +47,14 @@ import {
 } from '../model/pipeline';
 import { BLUEPRINT_LIMITS } from '../model/plotFile';
 import {
+  FrozenGoal,
+  REVIEW_DESCRIPTION_MAX,
+  REVIEW_ITEMS_MAX,
+  REVIEW_QUOTE_MAX,
+  REVIEW_SUMMARY_MAX,
+  frozenGoalsJson,
+} from '../model/review';
+import {
   BookConfig,
   GUIDANCE_MAX_CHARS,
   GUIDANCE_MAX_RULES,
@@ -83,6 +91,8 @@ export interface PromptFacts {
   writeMode?: WriteMode;
   /** 「接着写」时这一章已经有多少字（算「还差多少」）。续写那几轮由 `step.written` 给。 */
   written?: number;
+  /** 审稿时冻结的目标清单（审稿链交过来的那一份）。 */
+  reviewGoals?: FrozenGoal[];
 }
 
 /** 每个阶段管什么、**不管**什么。后半句同样要紧：越界是这套设计最主要的失败方式。 */
@@ -158,6 +168,12 @@ function ethosOf(stage: CreationStage, target?: CreationTarget): string | undefi
 export function buildSystemPrompt(action: CreationAction, config: NovelConfig, facts: PromptFacts = {}): string {
   const { stage, capability } = action;
 
+  if (stage === 'manuscript' && capability === 'review') {
+    return REVIEW_SYSTEM_PROMPT;
+  }
+  if (stage === 'manuscript' && capability === 'generate' && facts.writeMode === 'revise') {
+    return REVISE_SYSTEM_PROMPT;
+  }
   if (stage === 'manuscript' && capability === 'generate') {
     return manuscriptSystemPrompt(config, facts);
   }
@@ -361,6 +377,140 @@ function executionCard(facts: PromptFacts): string | undefined {
   ].join('\n');
 }
 
+// ---------------------------------------------------------------- 审稿
+
+/**
+ * 审稿的系统提示。移植自 AI-Novel-Writer `consistency_check` 模板的 systemRole、审查原则与检查维度
+ * （PT:917-970）。维度里「前文」一词换成这边的装配给的是什么：前几章的连续性事实与上一章结尾。
+ *
+ * 多了一段「事实的优先级」：上游在每一段材料的标题上标「约束而非已发生事实」「非既定历史」
+ * （RV:269-281），这里把同一件事说在一处——审稿最常见的误判就是拿计划当历史、拿设定当正文。
+ */
+export const REVIEW_SYSTEM_PROMPT = [
+  '你是一位严谨的小说审稿编辑，正在审阅一部长篇中文小说刚写好的一章。依据文本证据检查连续性、因果、角色状态与设定冲突，区分客观问题和主观偏好。',
+  '',
+  '【审查原则】',
+  '1. 举证审查：只报告有明确文本证据的问题。每个问题必须逐字引用「待审正文」里的具体句子。',
+  '2. 宁缺毋滥：没有问题的维度可以省略；如需明确已检查，可输出一条 severity 为 pass 的记录。不要凑数量。',
+  '3. 只查一致性不评文笔：不报告风格偏好、文笔建议、创作建议。只报告可验证的事实矛盾。',
+  '4. 客观可验证：报出的每个问题必须能被第三方编辑复查确认。',
+  '',
+  '【检查维度】',
+  '1. 剧情连贯性：本章情节是否与前文（前几章的连续性事实、上一章结尾）有矛盾？前后文是否自相矛盾？',
+  '2. 剧情合理性：因果逻辑是否成立？人物动机是否合理？是否有常识性硬伤？',
+  '3. 角色状态：角色行为、能力、位置、情感是否与角色设定里的当前状态一致？',
+  '4. 前后章节串联：伏笔、悬念是否连贯？是否出现未交代前因的突兀情节？是否把后续章节计划里的事提前写掉了？',
+  '5. 伏笔完整性：本章是否存在应回收而未提及的前置伏笔？是否有与已知伏笔体系冲突的新增设置？',
+  '',
+  '【事实的优先级】',
+  '- 待审正文、前几章的连续性事实、上一章结尾：已经发生的事。',
+  '- 角色设定、故事架构、全局要求、本章细纲：作者定下的约束，不是已经发生的事。',
+  '- 后续章节计划：还没有发生的事，只用来判断本章有没有提前写掉，不是本章应当写到的内容。',
+  '',
+  '只出审稿报告，不改写正文，不输出修改后的章节。语言：简体中文。',
+].join('\n');
+
+/**
+ * 审稿的输出契约：JSON 合同 + 目标逐项核对。移植自 `consistency_check` 的 systemSuffix（PT:917-970）
+ * 与 `buildChapterGoalReviewPrompt`（`chapter-goal-review.ts:35-59`），两段原是分开拼的，这里合成一份。
+ *
+ * 比上游多说了一句「引文在正文里找不到的问题会被丢弃」：上游不校验普通问题的引文，这里校验
+ * （model/review.ts），先告诉模型规矩，比事后丢掉它编的那几条划算。
+ */
+function reviewContract(facts: PromptFacts): string {
+  const goals = facts.reviewGoals ?? [];
+  const lines: string[] = [];
+  if (facts.step?.kind === 'reviewRetry') {
+    lines.push(
+      facts.step.why === 'truncated'
+        ? '上一轮审稿输出因长度限制而中断，已被丢弃，不得引用或续接。请从头完成审稿任务，只输出一个完整 JSON；说明写精炼些。'
+        : `上一轮审稿输出未通过合同校验（${facts.step.reason ?? '格式不对'}），已被丢弃，不得引用或续接。请重新完成原始审稿任务。`,
+      ''
+    );
+  }
+  lines.push(
+    '【输出格式（JSON）】',
+    '请严格输出以下 JSON 格式：',
+    '{"summary":"一句话总体评价","items":[{"category":"剧情连贯性","severity":"pass","description":"未发现与前文矛盾"},{"category":"剧情合理性","severity":"error","quote":"原文中的具体句子","description":"问题描述"},{"category":"角色状态","severity":"warning","quote":"原文句子","description":"轻微不一致说明"}],"goalReviews":[{"id":"g1","evidence":[{"quote":"待审正文逐字引文"}],"description":"逐个子动作的判断，再汇总","status":"completed"}]}',
+    '',
+    'severity 取值：error=严重矛盾强烈建议修复，warning=轻微不一致酌情修复，pass=该维度通过无问题。',
+    `items 必须为 1–${REVIEW_ITEMS_MAX} 条；不要求每个检查维度单列一项，不得为覆盖类别而凑 pass 项，同一问题不得重复。`,
+    `quote 必须逐字摘自「待审正文」里的一句连续原文，不拼接、不改写、不省略中间的字；每项 quote 不超过 ${REVIEW_QUOTE_MAX} 字，description 不超过 ${REVIEW_DESCRIPTION_MAX} 字；summary 不超过 ${REVIEW_SUMMARY_MAX} 字。quote 只在 pass 时可省略。**引文在正文里找不到的问题会被丢弃。**`,
+    ''
+  );
+  if (goals.length === 0) {
+    lines.push('【本章目标逐项核对】本章细纲没有可核对的关键事件：goalReviews 输出空数组 []。', '');
+  } else {
+    lines.push(
+      '【本章目标逐项核对｜冻结清单】',
+      '在同一个 JSON 根对象里增加 goalReviews 数组（不受 items 的条数限制）。冻结清单来自本章细纲的关键事件与章末钩子；按 id、evidence、description、status 顺序逐项返回 {"id":"原始id","evidence":[{"quote":"待审正文逐字引文"}],"description":"逐个列出目标原文中的每个当章子动作及其判断，再汇总","status":"completed|unmet|unknown"}，不得删项、改写目标或自创 id。',
+      '依次判断：',
+      '1. 先按原意区分当章行动与背景/未来约束；仅当目标要求达成约定时，本章达成约定即可，不要求提前执行。背景、本章目的、未来计划不是已发生事实，也不自动变成到期行动。',
+      '2. 当章到期行动有明确延期、拒绝或相反结果的正文证据 → unmet。准备/承诺不能代替要求现在完成的行动；部分完成不等于整项目标完成。',
+      '3. 全部到期动作有完成证据，或正文明确支持该项约束 → completed。章末钩子一项看本章结尾有没有落下这个悬念或结束状态。',
+      '4. 仅未提及、无法判断或证据不足 → unknown，不能以「没写到」断言「没发生」。例如要求归还借书，正文只写走进图书馆：应 unknown，不能判 unmet。',
+      '最后汇总所有子动作：任一 unmet → unmet；否则任一 unknown → unknown；仅全部完成 → completed。不得用多数已完成掩盖一个延期或不明子动作。',
+      'completed/unmet 都须待审正文的逐字证据；unknown 可 evidence:[]。不拼接或改写引文，不引用计划证明行动；引文存在不证明推断成立。不检查字数或强求背景细节。',
+      `冻结清单：${frozenGoalsJson(goals)}`,
+      ''
+    );
+  }
+  lines.push('只输出一个可由 JSON.parse 读取的 JSON 对象，不要 Markdown、代码围栏、解释或思考过程。');
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------- 修稿
+
+/**
+ * 修稿的系统提示。移植自 AI-Novel-Writer `refine_from_review` 的 systemRole（PT:1023-1055）
+ * 与它末尾的输出要求。刻意**不带**写正文那一套（六条硬性要求、黄金第一章、去 AI 味禁令）：
+ * 那些是在教它「写一章」，修稿要的是「只改这几处」，带上只会诱导它顺手重写。
+ */
+export const REVISE_SYSTEM_PROMPT = [
+  '你是一位严谨的小说编辑。只依据人工确认的审稿意见进行必要修改，保留作者事实、角色声音和未被指出的有效内容。',
+  '',
+  '【格式】',
+  '- 所有对话使用中文双引号，不写剧本式对白。',
+  '- 段落与段落之间必须空一行，不要把多个段落挤成一大块。',
+  '- 只输出修复后的正文。不要输出章节标题、开场白、解释、修改说明或任何 Markdown 符号。',
+  '',
+  '语言：简体中文。',
+].join('\n');
+
+/**
+ * 修稿的输出契约。修复原则四条逐字移植自 `refine_from_review`（PT:1040-1044），第 2 条补了一句
+ * 「清单没指到的段落原样保留」——上游的「不要进行审稿报告未提及的润色」模型常读成「可以少润色」。
+ * 第 5 条是这边的：修的时候别跟细纲、角色卡、后几章打架。
+ *
+ * 续写那几轮（被输出上限截断）换成「从已修订的末尾接着输出剩下的部分」，原则不变。
+ */
+function reviseContract(facts: PromptFacts): string {
+  if (facts.step?.kind === 'continuation') {
+    return [
+      '上一轮修稿输出因长度限制而中断。请从上面「已修订正文（末尾）」的最后一句之后，接着输出修订后的剩余部分。',
+      '',
+      '【硬性要求】',
+      '- 只输出新增的修订正文，不要复述已经输出的部分，不要总结、解释或 Markdown。',
+      '- 剩余部分按同样的修复原则处理：清单指到的地方改，其余照「待修稿原文」原样保留。',
+      '- 从已修订正文末尾自然接下去，一直写到全章结束。',
+      '',
+      '现在接着输出。只输出正文。',
+    ].join('\n');
+  }
+  return [
+    '请根据上面「已确认纳入本次修稿的审稿项」，对「待修稿原文」进行**精准修复**。',
+    '',
+    '【修复原则】',
+    '1. 只修复清单中明确指出的问题，一条一条逐项解决。',
+    '2. 不要进行清单未提及的润色或改写：清单没有指到的段落原样保留，一字不改。',
+    '3. 保持原文的风格、节奏和字数体量。',
+    '4. 对每处修改保持最小变化原则——改得越少越好，只解决问题本身。',
+    '5. 修改不得与本章细纲、角色设定和前文事实冲突，也不要写进后续章节的事件。',
+    '',
+    '请直接输出修复后的全文章节正文。强制要求纯文本，严禁剧本式格式，【严禁】任何开场白、解释文字。段落与段落之间必须保留一个空行作为分隔。',
+  ].join('\n');
+}
+
 // ---------------------------------------------------------------- 规模与题材
 
 /** 这本书的规模：一句话弹窗给的优先，其次是 `config.md`。两者都没有就是 undefined。 */
@@ -404,6 +554,9 @@ export function buildOutputContract(action: CreationAction, facts: PromptFacts =
   if (outputKindOf(action) === 'text') {
     return '请直接回答上面的问题。若我要的是建议或分析，就给建议或分析，不必写成小说正文。';
   }
+  if (outputKindOf(action) === 'report') {
+    return reviewContract(facts);
+  }
 
   switch (action.stage) {
     case 'setting': {
@@ -421,7 +574,7 @@ export function buildOutputContract(action: CreationAction, facts: PromptFacts =
     case 'plot':
       return blueprintContract(facts);
     case 'manuscript':
-      return manuscriptContract(facts);
+      return facts.writeMode === 'revise' ? reviseContract(facts) : manuscriptContract(facts);
   }
 }
 
@@ -782,6 +935,13 @@ export function blueprintJsonContract(range?: { from: number; to: number }): str
  * 一句话弹窗发起的配置生成，这一段就是作者的脑洞本身。
  */
 export function askHeading(action: CreationAction, facts: PromptFacts = {}): string {
+  if (action.capability === 'review') {
+    // 上游 `review_focus`：「作者要求重点检查的维度（如有，这些维度必须优先、深入检查）」。
+    return '# 作者要求重点检查的方面（如有，必须优先、深入检查）';
+  }
+  if (action.stage === 'manuscript' && action.capability === 'generate' && facts.writeMode === 'revise') {
+    return '# 作者补充的修稿指导（如有，最高优先级）';
+  }
   if (action.stage === 'manuscript' && action.capability === 'generate') {
     return '# 这一章的补充要求';
   }

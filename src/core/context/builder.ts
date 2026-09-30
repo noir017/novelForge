@@ -38,7 +38,7 @@ export async function buildContext(
   const budgetClampedByProvider =
     request.providerMaxInputTokens !== undefined && request.providerMaxInputTokens < config.contextWindow;
 
-  const recipe = recipeFor(request.action.stage, request.action.capability, request.step);
+  const recipe = recipeFor(request.action.stage, request.action.capability, request.step, request.writeMode);
   const [focus, book] = await Promise.all([resolveFocus(project, request, recipe), project.readBookConfig()]);
 
   const assembly: Assembly = {
@@ -122,6 +122,10 @@ function assembleMessages(
   const { stage, capability } = request.action;
   /** 正文出稿：只有这一种情况才谈「接下去写」「目标字数」。 */
   const writing = stage === 'manuscript' && capability === 'generate';
+  /** 审稿（五期）：几段材料的标题要说清哪些是已经发生的事、哪些不是。 */
+  const reviewing = capability === 'review';
+  /** 按审稿意见修稿（五期）。 */
+  const revising = writing && request.writeMode === 'revise';
 
   const messages: AgentMessage[] = [];
   const system = pick('system')[0];
@@ -162,6 +166,8 @@ function assembleMessages(
     '# 定稿原文片段（前情以这些原文为准；摘要、角色状态与它有出入时信原文）',
     pick('evidence').slice().sort(byNoAsc)
   );
+  // 审稿对照的前情：上游标的是「已确认定稿历史｜唯一已发生事实源」（RV:212-227）。
+  section('# 前几章的连续性事实（已定稿，已经发生的事）', pick('facts').slice().sort(byNoAsc));
 
   const fullText = pick('manuscriptFull').slice().sort(byNoAsc);
   section('# 前文正文', fullText);
@@ -171,7 +177,7 @@ function assembleMessages(
     // 「不可重演」：上游的说法是「只作边界，不可重演」（PT:810）。模型拿到上一章结尾之后
     // 最常见的失败不是接不上，是从那里把最后一场重新演一遍（context/replay.ts 写完再查一次）。
     sections.push(
-      writing
+      writing && !revising
         ? `# 上一章结尾原文（只作边界，不可重演）\n\n这是上一章已经写完的结尾。本章从它的最终状态之后无缝接下去，不要重写、摘要或回放这一段。\n\n${prevTail.text}`
         : `# 上一章结尾原文\n\n${prevTail.text}`
     );
@@ -192,10 +198,22 @@ function assembleMessages(
   section('# 细纲', pick('plot'));
 
   // 写正文的边界：后面几章要发生的事。紧跟在本章细纲后面，读的时候就是「这一章写到这为止」。
-  section('# 后续章节预告（仅供了解后续剧情发力点，绝对不要在本章提前写出这些内容）', pick('boundary'));
+  // 审稿时同一份东西换个说法（上游 `planningMaterial` 的「当前及未来蓝图/计划｜非既定历史」）。
+  section(
+    reviewing
+      ? '# 后续章节计划（非既定历史：这些事还没有发生，只用来判断本章有没有提前写掉）'
+      : '# 后续章节预告（仅供了解后续剧情发力点，绝对不要在本章提前写出这些内容）',
+    pick('boundary')
+  );
+
+  // 审的就是它：紧挨着契约，引文从这里逐字摘。
+  section('# 待审正文', pick('chapterFull'));
 
   // 「接着写」从这里往下接：离指令最近，接的是哪一句一眼看得到。
-  section('# 本章已写正文（末尾，你要从这里接着写）', pick('chapterSoFar'));
+  section(
+    revising ? '# 已修订正文（末尾，从这里接着输出）' : '# 本章已写正文（末尾，你要从这里接着写）',
+    pick('chapterSoFar')
+  );
 
   // 用户 @ 的引用也紧挨着他的指令放——他多半正是要针对这些内容提要求。
   section('# 我引用的内容（请针对这些内容作答）', pick('attachment'));
@@ -211,7 +229,12 @@ function assembleMessages(
 
   const revision = pick('revision')[0];
   if (revision) {
-    sections.push(`# 修订要求\n\n${revision.text}\n\n请基于上一版重写，采纳修改意见，保留其中写得好的部分。`);
+    // 修稿不说「重写」：它要的是清单指到的那几处改掉、其余一字不动（契约里说清）。
+    sections.push(
+      revising
+        ? `# 待修稿原文与审稿意见\n\n${revision.text}`
+        : `# 修订要求\n\n${revision.text}\n\n请基于上一版重写，采纳修改意见，保留其中写得好的部分。`
+    );
   }
 
   // target 也要给：架构层四件同属一个阶段，契约要看是哪一件。写正文时目标字数也在契约里

@@ -14,6 +14,7 @@ import {
   structure,
 } from './artifacts';
 import {
+  chapterFull,
   chapterSoFar,
   characters,
   evidence,
@@ -22,6 +23,7 @@ import {
   manuscriptFull,
   plotSummary,
   prevTail,
+  recentFacts,
   revision,
   style,
 } from './background';
@@ -54,6 +56,8 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   manuscriptFull,
   plotSummary,
   evidence,
+  recentFacts,
+  chapterFull,
   revision,
 };
 

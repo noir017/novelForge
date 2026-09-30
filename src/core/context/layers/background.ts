@@ -3,7 +3,7 @@ import { describeStateThrough } from '../../model/characterState';
 import { ContinuityFact, locateEvidence, parseContinuityFacts } from '../../model/continuity';
 import { CharacterCard } from '../../model/types';
 import { ContextItem } from '../types';
-import { estimateTokens, takeTail } from '../tokenizer';
+import { estimateTokens } from '../tokenizer';
 import type { LayerFn } from './assembly';
 import { readChapterText, readPrevManuscript } from './focus';
 import {
@@ -336,7 +336,10 @@ export const chapterSoFar: LayerFn = async (a, spec) => {
       id: 'chapterSoFar',
       kind: 'chapterSoFar',
       priority: spec.priority,
-      label: `本章已写正文 · 末尾（全章已有 ${written} 字）`,
+      label:
+        a.request.writeMode === 'revise'
+          ? `已修订正文 · 末尾（已输出 ${written} 字）`
+          : `本章已写正文 · 末尾（全章已有 ${written} 字）`,
       source,
       text,
       note: '只带最后一段，从这里往下接',
@@ -487,19 +490,105 @@ function latestState(cards: CharacterCard[], names: readonly string[]): number |
   return nos.length > 0 ? Math.max(...nos) : undefined;
 }
 
+/**
+ * 上一版正文与修改意见：「重写」与「修稿」（五期）。
+ *
+ * **整章都带。** 从前这里是 `takeTail(…, 3000)`——3000 token 的尾巴，长一点的章前半截直接没了，
+ * 模型只能凭空重写开头，明细上还看不出少了什么（第 2 条）。修稿要求「清单没指到的地方一字不改」，
+ * 手上没有原文就无从谈起。
+ */
 export const revision: LayerFn = async (a, spec) => {
   const value = a.request.revision;
   if (!value) {
     return;
   }
+  const revise = a.request.writeMode === 'revise';
   a.admit(
     {
       id: 'revision',
       kind: 'revision',
       priority: spec.priority,
-      label: '上一版草稿与修改意见',
-      text: `【上一版草稿】\n${takeTail(value.previousDraft, 3000)}\n\n【修改意见】\n${value.feedback.trim()}`,
+      label: revise ? '待修稿原文与勾选的审稿意见' : '上一版草稿与修改意见',
+      text: revise
+        ? `【待修稿原文】\n${value.previousDraft.trim()}\n\n${value.feedback.trim()}`
+        : `【上一版草稿】\n${value.previousDraft.trim()}\n\n【修改意见】\n${value.feedback.trim()}`,
     },
     { force: spec.force }
   );
+};
+
+/**
+ * 待审的这一章正文全文（审稿，五期）。审的就是它，P0 force；这一章还没有正文时审稿在
+ * 生成层就被拦下了（generation/generate.ts），走不到这里。
+ */
+export const chapterFull: LayerFn = async (a, spec) => {
+  const chapter = a.focus.chapter;
+  if (!chapter) {
+    return;
+  }
+  const text = await a.project.readChapterText(chapter);
+  if (!text.trim()) {
+    return;
+  }
+  a.admit(
+    {
+      id: `chapterFull:${a.focus.no}`,
+      kind: 'chapterFull',
+      priority: spec.priority,
+      label: `${plotLabel(a.focus.no, chapter.title)} · 待审正文（${chapter.wordCount} 字）`,
+      source: chapter.relPath,
+      text: text.trim(),
+    },
+    { force: spec.force }
+  );
+};
+
+/** 近章的连续性事实最多从几章里取（审稿）。 */
+export const RECENT_FACTS_CHAPTERS = 12;
+/** 近章的连续性事实一共多少字。 */
+export const RECENT_FACTS_BUDGET_CHARS = 3000;
+
+/**
+ * 前几章定稿留下的连续性事实（审稿，五期）：由近及远、一章一条，只带事实文字。
+ *
+ * 上游审稿读的是「已定稿历史的连续性投影」——每一章的要点与事实（RV:121-154），明说它是
+ * 「唯一已发生事实源」。这里对应四期摘要里的「连续性事实」一节。没定稿的章（没有摘要、或摘要
+ * 过期）不带并说清楚：拿一份过期的事实去判「本章与前文矛盾」，判出来的可能正是作者改过的地方。
+ */
+export const recentFacts: LayerFn = async (a, spec) => {
+  const previous = a.focus.previous;
+  let budget = RECENT_FACTS_BUDGET_CHARS;
+  let taken = 0;
+  for (let i = previous.length - 1; i >= 0 && taken < RECENT_FACTS_CHAPTERS; i--) {
+    const ref = previous[i];
+    if (!ref.chapter || ref.chapter.wordCount <= 0) {
+      continue;
+    }
+    taken++;
+    const base = {
+      id: `facts:${ref.no}`,
+      kind: 'facts' as const,
+      priority: spec.priority,
+      label: `${plotLabel(ref.no, ref.title)} · 连续性事实`,
+      source: ref.chapter.relPath,
+    };
+    const summary = await a.project.readSummary(ref.chapter.relPath);
+    if (!summary || summary.sourceHash !== ref.chapter.contentHash) {
+      a.reject({ ...base, text: '' }, 'dropped', summary ? '摘要已过期（正文有改动），事实不作数' : '这一章还没定稿，没有连续性事实');
+      continue;
+    }
+    const facts = parseContinuityFacts(summary.sections.连续性事实);
+    if (facts.length === 0) {
+      continue;
+    }
+    const block = `【${plotLabel(ref.no, ref.title)}】\n${facts.map((f) => `- ${f.statement}`).join('\n')}`;
+    if (block.length > budget) {
+      a.reject({ ...base, text: '' }, 'dropped', `连续性事实一共只带 ${RECENT_FACTS_BUDGET_CHARS} 字，更近的几章已经用完了`);
+      continue;
+    }
+    const item = a.admit({ ...base, source: summary.relPath, text: block, note: `${facts.length} 条` });
+    if (item.status === 'included') {
+      budget -= block.length;
+    }
+  }
 };

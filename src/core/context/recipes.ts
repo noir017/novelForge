@@ -11,7 +11,7 @@
  *
  * 所以有几处刻意的抬高，见下面的 ★。
  */
-import { Capability, CreationStage } from '../model/pipeline';
+import { Capability, CreationStage, WriteMode } from '../model/pipeline';
 import { ChainStep, LayerSpec } from './types';
 
 /** 单条附件最多吃掉多少预算——用户 @ 一个大文件不该把前文全挤掉。 */
@@ -167,15 +167,82 @@ const CONTINUATION_RECIPE: LayerSpec[] = [
 ];
 
 /**
+ * 审稿（五期）：审稿编辑要看的是**这一章写了什么**与**它该对得上什么**。按总计划 §2.3 排，
+ * 移植自 AI-Novel-Writer `review-chapter.command.ts` 的材料（RV:121-281）。
+ *
+ * ★ `chapterFull` / `plotSelf` P0 force：审的就是这一章；目标清单从细纲冻结，少了它无从核对。
+ * ★ `plotAhead` P0（不强制）：后几章的计划标「非既定历史」，只用来判断本章有没有提前写掉
+ *   （上游 `planningMaterial`）。
+ * ★ `recentFacts` P2：前几章定稿留下的连续性事实——上游审稿读的「已定稿历史」就是它。只带事实
+ *   文字，不像写正文那样回原文取段落：判一句话有没有与前文矛盾，事实本身就够了。
+ * 不带历史对话：审稿判的是正文，不是聊天记录。不带文风：文笔不在审查范围里。
+ */
+const REVIEW_RECIPE: LayerSpec[] = [
+  { layer: 'system', priority: 0, force: true },
+  { layer: 'ask', priority: 0, force: true },
+  { layer: 'chapterFull', priority: 0, force: true },
+  { layer: 'plotSelf', priority: 0, force: true },
+  { layer: 'plotAhead', priority: 0 },
+  { layer: 'characters', priority: 1 },
+  { layer: 'premiseWorld', priority: 1 },
+  { layer: 'guidance', priority: 1 },
+  { layer: 'prevTail', priority: 1 },
+  { layer: 'recentFacts', priority: 2 },
+];
+
+/**
+ * 按勾选的审稿意见修稿（五期）。移植自 AI-Novel-Writer 的 `refine_from_review`（PT:1023-1055）：
+ * 上游只给「审稿清单 + 待修稿全文 + 全局要求」。这里多带几样修得对要看的东西，但**不带**写正文
+ * 那一套（大纲、前情摘要、近章全文）——修稿不是再写一章。
+ *
+ * ★ `revision` P0 force：整章原文 + 勾选清单，这就是这一次的全部任务。
+ * ★ `style` / `guidance` P0 force：改过的那几句要与全章同一个声音。
+ * `plotSelf`（修「未完成的目标」要看细纲原话）、`prevTail`（修「接不上上一章」）、`plotAhead`
+ * （别把后面几章的事写进来）、`evidence`（修连续性问题要看定稿原文）都不强制。
+ */
+const REVISE_RECIPE: LayerSpec[] = [
+  { layer: 'system', priority: 0, force: true },
+  { layer: 'ask', priority: 0, force: true },
+  { layer: 'revision', priority: 0, force: true },
+  { layer: 'style', priority: 0, force: true },
+  { layer: 'guidance', priority: 0, force: true },
+  { layer: 'plotSelf', priority: 1 },
+  { layer: 'characters', priority: 1 },
+  { layer: 'prevTail', priority: 1 },
+  { layer: 'plotAhead', priority: 1 },
+  { layer: 'evidence', priority: 2 },
+];
+
+/**
+ * 修稿被截断之后接着写的那几轮：原文与清单（`revision`）+ 已经修订到哪（`chapterSoFar`）。
+ * 上游续写带的是原始任务的头尾各一截（`bounded-completion.ts:398-419`）；这里原文整份带着，
+ * 模型才知道剩下那半章原来是怎么写的。
+ */
+const REVISE_CONTINUATION_RECIPE: LayerSpec[] = [
+  { layer: 'system', priority: 0, force: true },
+  { layer: 'style', priority: 0, force: true },
+  { layer: 'guidance', priority: 0, force: true },
+  { layer: 'revision', priority: 0, force: true },
+  { layer: 'chapterSoFar', priority: 0, force: true },
+];
+
+/**
  * 取某阶段的配方。
  *
- * `capability` 只影响一处：`settle` 要把历史对话抬成 P0 并放宽封顶。做成
- * 「按能力微调既有配方」而不是再写一张完整配方，是因为其余十一层与
- * `generate` 一模一样——复制一份，下次改剧情层的装配策略就会漏掉一边。
+ * `capability` 影响两处：`settle` 要把历史对话抬成 P0 并放宽封顶（做成「按能力微调既有配方」
+ * 而不是再写一张完整配方，是因为其余十一层与 `generate` 一模一样——复制一份，下次改剧情层的
+ * 装配策略就会漏掉一边）；`review` 换成审稿那一张（它要的东西与写正文几乎不重合）。
  *
- * `step` 是续写那几轮时换成精简配方（见 {@link CONTINUATION_RECIPE}）。
+ * `step` 是续写那几轮时换成精简配方（见 {@link CONTINUATION_RECIPE}）；`writeMode` 是修稿时
+ * 换成修稿那两张。
  */
-export function recipeFor(stage: CreationStage, capability?: Capability, step?: ChainStep): LayerSpec[] {
+export function recipeFor(stage: CreationStage, capability?: Capability, step?: ChainStep, writeMode?: WriteMode): LayerSpec[] {
+  if (stage === 'manuscript' && capability === 'review') {
+    return REVIEW_RECIPE;
+  }
+  if (stage === 'manuscript' && writeMode === 'revise') {
+    return step?.kind === 'continuation' ? REVISE_CONTINUATION_RECIPE : REVISE_RECIPE;
+  }
   if (stage === 'manuscript' && step?.kind === 'continuation') {
     return CONTINUATION_RECIPE;
   }

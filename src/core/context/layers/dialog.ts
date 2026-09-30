@@ -24,6 +24,7 @@ export function promptFactsOf(a: Pick<Assembly, 'request' | 'book' | 'focus'>): 
     ask: r.ask,
     writeMode: r.writeMode,
     written: r.writeMode === 'continue' ? a.focus.chapter?.wordCount : undefined,
+    reviewGoals: r.reviewGoals,
   };
 }
 
@@ -46,12 +47,20 @@ export const system: LayerFn = async (a, spec) => {
 export const ask: LayerFn = async (a, spec) => {
   const { stage, capability } = a.request.action;
   const isDraftOrder = stage === 'manuscript' && capability === 'generate';
+  const label =
+    capability === 'review'
+      ? '要求重点检查的方面'
+      : isDraftOrder && a.request.writeMode === 'revise'
+        ? '修稿的补充要求'
+        : isDraftOrder
+          ? '这一章的补充要求'
+          : '我的要求';
   a.admit(
     {
       id: 'ask',
       kind: 'ask',
       priority: spec.priority,
-      label: isDraftOrder ? '这一章的补充要求' : '我的要求',
+      label,
       text: a.request.ask.trim(),
     },
     { force: spec.force }
