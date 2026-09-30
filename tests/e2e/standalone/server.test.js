@@ -294,14 +294,14 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
     toasted = await conn.waitFor((m) => m.type === 'toast', 'toast');
   });
 
-  // sample-novel 的三章都写完、拆分发布、也总结过了 → 状态机说「已完成」，
-  // 不给下一步，于是落在**正文层**：那是这一章的终点，也是最可能回头改的一层
+  // sample-novel 的三章都写完、也定稿过了 → 状态机说「已完成」，这一章没有
+  // 下一步，于是落在**正文层**：那是这一章的终点，也是最可能回头改的一层
   // （见 selectPlot 尾部那行）。
   //
   // 这条从前断言的是 `plot`，而那是个 bug 的回声：`selectPlot` 把一份 `Plot`
   // 直接喂给了收 `{no, plot, chapter}` 的 `buildPlotPipeline`——`Plot` 恰好也有
   // `no`，另外两个字段又是可选的，于是**类型检查过得去**，而 plot/chapter 全是
-  // undefined。每一章都按空事实推导，状态机于是永远答「待写剧情」。四层流水线
+  // undefined。每一章都按空事实推导，状态机于是永远答「待写细纲」。四层流水线
   // 在这个入口上等于不存在，而这正是 selectPlot 存在的理由。
   test('落到状态机算出的那一层', () => {
     assert.equal(session.session.stage, 'manuscript');
@@ -331,10 +331,13 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
       JSON.stringify(pipe.workbench));
   });
 
-  // **全做完了就不催**：给一个假的「下一步」等于逼作者一直有事可做。
-  // 这一章正文发布了、摘要也新鲜，状态机因此不返回下一步。
-  test('已完成的章没有下一步', () => {
-    assert.equal(pipe.next, undefined, JSON.stringify(pipe.next));
+  // **这一章做完了就转去问全书**：从前做完就沉默，作者得自己去找下一章。
+  // sample-novel 写到第 3 章、第 4 章还没有细纲，于是主按钮是「拆细纲（第 4–8 章）」，
+  // 落点是第 4 章细纲应该在的位置。
+  test('已完成的章，下一步转到全书的下一步', () => {
+    assert.equal(pipe.next?.label, '拆细纲（第 4–8 章）', JSON.stringify(pipe.next));
+    assert.deepEqual(pipe.next?.range, { from: 4, to: 8 });
+    assert.equal(pipe.next?.target?.plotRelPath, '.novelforge/plots/004.md');
   });
 
   test('已完成的章徽章是已完成', () => {
