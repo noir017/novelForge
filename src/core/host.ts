@@ -83,8 +83,19 @@ export interface Host {
   saveFromEditor?(relPath: string, text: string, baseHash?: string): Promise<void>;
   /** 用系统默认程序打开。独立版用它实现编辑器里的「在外部打开」。 */
   openExternal?(relPath: string): Promise<void>;
-  /** 角色卡更新审阅：插件开 diff 编辑器；独立版弹确认框。返回 undefined=取消。 */
-  reviewReplace?(name: string, currentText: string, proposedText: string): Promise<'apply' | 'discard' | undefined>;
+  /**
+   * 覆盖前审阅：插件开 diff 编辑器；独立版弹确认框。返回 undefined=取消。
+   *
+   * 起初只给角色卡用，后来 `workspace/guard.ts` 的 `reviewOverwrite` 把大纲、
+   * 细纲、设定的覆盖也接了进来——所以 `name` 只是给人看的称呼，定位现有文件
+   * 一律认 `relPath`（按名字找角色卡只是它缺席时的回落）。
+   */
+  reviewReplace?(
+    name: string,
+    currentText: string,
+    proposedText: string,
+    relPath?: string
+  ): Promise<'apply' | 'discard' | undefined>;
   /** 「在 VS Code 设置中打开」，仅插件实现。 */
   openNativeSettings?(): Promise<void>;
 }

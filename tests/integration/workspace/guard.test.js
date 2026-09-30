@@ -224,6 +224,16 @@ describe('守卫 7 · 覆盖前审阅', () => {
     bundle.host.initHost(h.host);
   });
 
+  // diff 左侧要定位现有文件：从前只给称呼，插件壳按名字去找角色卡，
+  // 覆盖大纲、细纲时左侧一片空白。
+  test('把落点路径交给 reviewReplace', async () => {
+    const withReview = makeFakeHost({ settings: () => ({}) });
+    bundle.host.initHost(withReview.host);
+    await G.reviewOverwrite('第 12 章的细纲', '.novelforge/plots/012.md', '旧', '新');
+    assert.equal(withReview.reviewed[0]?.relPath, '.novelforge/plots/012.md', JSON.stringify(withReview.reviewed));
+    bundle.host.initHost(h.host);
+  });
+
   test('reviewReplace 说 discard 就不写', async () => {
     const withReview = makeFakeHost({ settings: () => ({}) });
     withReview.setReviewVerdict('discard');

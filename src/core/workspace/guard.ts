@@ -294,7 +294,7 @@ export async function reviewOverwrite(
 
   const host = getHost();
   const verdict = host.reviewReplace
-    ? await host.reviewReplace(what, current, next)
+    ? await host.reviewReplace(what, current, next, relPath)
     : await host
         .confirm(`「${what}」已经有内容了，用新版本覆盖？`, ['覆盖', '保留原样'], {
           modal: true,

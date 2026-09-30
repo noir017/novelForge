@@ -612,7 +612,7 @@ async function reviewExisting(
   const host = getHost();
   let verdict: 'apply' | 'discard' | undefined;
   if (host.reviewReplace) {
-    verdict = await host.reviewReplace(`设定「${existing.title}」`, currentText, proposedText);
+    verdict = await host.reviewReplace(`设定「${existing.title}」`, currentText, proposedText, existing.relPath);
   } else {
     const picked = await host.confirm(`已生成设定「${existing.title}」的更新。采纳？`, ['采纳', '跳过'], {
       modal: true,

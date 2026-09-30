@@ -141,13 +141,19 @@ export class VsCodeHost implements Host {
   async reviewReplace(
     name: string,
     currentText: string,
-    proposedText: string
+    proposedText: string,
+    relPath?: string
   ): Promise<'apply' | 'discard' | undefined> {
-    // 保持原有 diff 体验：当前卡 ↔ 临时建议文件。untitled 文档不支持 diff 保存，
+    // 保持原有 diff 体验：当前文件 ↔ 临时建议文件。untitled 文档不支持 diff 保存，
     // 故建议内容先写真实临时文件。
     void currentText; // 左侧用磁盘上的现有文件，无需内容
-    const previewAbs = path.join(os.tmpdir(), `novelforge-${Date.now()}-${name}.proposed.md`);
-    const currentAbs = await this.findCharacterFile(name);
+    // 临时文件名取落点的文件名：`name` 是给人看的称呼（「设定「…」」「第 12 章 · 剧情」），
+    // 里面可能有斜杠。
+    const stem = (relPath ? path.basename(relPath, path.extname(relPath)) : name).replace(/[\\/:*?"<>|]/g, '_');
+    const previewAbs = path.join(os.tmpdir(), `novelforge-${Date.now()}-${stem}.proposed.md`);
+    // 定位现有文件认 relPath；只有老调用方没给时才按名字找角色卡。从前一律按名字找，
+    // 覆盖大纲、细纲时左侧是一片空白。
+    const currentAbs = relPath ? this.absOf(relPath) : await this.findCharacterFile(name);
     await fs.writeFile(previewAbs, proposedText, 'utf8');
 
     try {
@@ -176,6 +182,12 @@ export class VsCodeHost implements Host {
 
   async openNativeSettings(): Promise<void> {
     await vscode.commands.executeCommand('workbench.action.openSettings', 'novel.');
+  }
+
+  /** 工程相对路径 → 绝对路径（diff 左侧）。没打开工作区返回 undefined。 */
+  private absOf(relPath: string): string | undefined {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return root ? path.join(root, relPath) : undefined;
   }
 
   /** 按角色名找到现有卡的绝对路径（diff 左侧）。找不到返回 undefined。 */

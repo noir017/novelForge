@@ -309,12 +309,18 @@ export class FileHost implements Host {
     return rel?.trim();
   }
 
-  async reviewReplace(name: string, currentText: string, proposedText: string): Promise<'apply' | 'discard' | undefined> {
-    // 网页上无法开 diff：给出规模信息后纯确认。
+  async reviewReplace(
+    name: string,
+    currentText: string,
+    proposedText: string,
+    relPath?: string
+  ): Promise<'apply' | 'discard' | undefined> {
+    // 网页上还没有 diff（五期补）：给出规模信息后纯确认。`name` 是调用方给的称呼，
+    // 可能是角色卡、设定、大纲或细纲——从前这里写死成「将更新角色卡」，覆盖大纲时也这么说。
     const ok = await this.confirm(
-      `将更新角色卡「${name}」（新版 ${proposedText.length} 字，当前 ${currentText.length} 字）。`,
-      ['应用更新'],
-      { detail: '合并模型建议与现有内容；模型留空的小节保留原文。' }
+      `将用新版本覆盖「${name}」（新版 ${proposedText.length} 字，当前 ${currentText.length} 字）。`,
+      ['覆盖'],
+      { detail: relPath ?? '' }
     );
     return ok ? 'apply' : 'discard';
   }

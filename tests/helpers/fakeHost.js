@@ -80,10 +80,10 @@ function makeFakeHost(opts = {}) {
     openFile: async (p) => { opened.push(p); },
     toast: (m, level) => toasts.push(`${level ?? 'info'}: ${m}`),
     selectionAttachment: async () => undefined,
-    reviewReplace: async (n, current, proposed) => {
+    reviewReplace: async (n, current, proposed, relPath) => {
       reviewInFlight++;
       reviewPeak = Math.max(reviewPeak, reviewInFlight);
-      reviewed.push({ name: n, current, proposed });
+      reviewed.push({ name: n, current, proposed, relPath });
       if (reviewDelayMs) await sleep(reviewDelayMs);
       reviewInFlight--;
       return state.reviewVerdict;
