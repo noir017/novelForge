@@ -236,13 +236,18 @@ const emptySession = (extra) =>
     extra
   );
 
-/** 一份单章流水线视图，字段与 `PlotPipelineView` 一致。 */
+/**
+ * 一份单章流水线视图，字段与 `PlotPipelineView` 一致。
+ *
+ * 缺省是「细纲排好了、正文还没写」的第 12 章：细纲号 = 章号，所以一章只有
+ * 细纲与正文两面（`plot` / `chapter`），没有卷、也没有中转站那一份。
+ * `chapter` 整块换掉时记得带全五个字段——前端直接读 `chapter.upstreamStale`。
+ */
 const pipelineView = (extra) =>
   Object.assign(
     {
       plotRelPath: '.novelforge/plots/012-夜入青云.md',
       no: 12,
-      displayNo: 12,
       title: '夜入青云',
       plot: {
         relPath: '.novelforge/plots/012-夜入青云.md',
@@ -250,22 +255,8 @@ const pipelineView = (extra) =>
         filled: true,
         upstreamStale: false,
       },
-      // 这一段落在第 1 卷里，所以卷纲那一格有东西可点。未分卷的段没有它，
-      // 那时对话页把那一格整个收起来（见 media/src/view/pipeline.ts）。
-      volume: {
-        relPath: '.novelforge/volumes/01-觉醒之日.md',
-        no: 1,
-        title: '觉醒之日',
-        filled: true,
-        upstreamStale: false,
-      },
-      manuscript: {
-        relPath: '.novelforge/manuscripts/012-夜入青云.md',
-        words: 0,
-        targetWords: undefined,
-        upstreamStale: false,
-      },
-      chapter: { exists: false, relPath: '', words: 0, chapterPaths: [] },
+      // 同号的正文。还没写时 relPath 是空串；目标字数取细纲的 targetWords。
+      chapter: { exists: false, relPath: '', words: 0, targetWords: 3000, upstreamStale: false },
       summary: { exists: false, stale: true },
       stage: 'manuscript',
       progress: { plot: 1, manuscript: 0, summary: 0 },
@@ -273,14 +264,14 @@ const pipelineView = (extra) =>
     extra
   );
 
-/** 一份工作区卡视图，字段与 `WorkbenchView` 一致。 */
+/** 一份工作区卡视图，字段与 `WorkbenchView` 一致。缺省是第 12 章细纲那一层。 */
 const workbenchView = (extra) =>
   Object.assign(
     {
       stage: 'plot',
-      title: '剧情 · 第 12 章《夜入青云》',
+      title: '细纲 · 第 12 章《夜入青云》',
       relPath: '.novelforge/plots/012-夜入青云.md',
-      sections: [{ key: '目标', text: '林昭成功进入青云宗' }],
+      sections: [{ key: '本章目的', text: '林昭成功进入青云宗' }],
     },
     extra
   );
@@ -290,7 +281,8 @@ const viewState = (extra) =>
   Object.assign(
     {
       initialized: true,
-      // 创作目标下拉列的是**已发布的章 + 还没交付的剧情段**，说法由后端给。
+      // 创作目标下拉的候选：**每个章号一行**，`{ no, label, title, wordCount, relPath }`，
+      // 说法（label）由后端给。
       plots: [],
       nextNo: 1,
       staleCount: 0,
@@ -304,88 +296,92 @@ const viewState = (extra) =>
   );
 
 /**
- * 造一棵工程页快照：卷 + 扁平的章节列表 + 角色树 + 空文件夹。
+ * 造一棵工程页快照：「故事架构」五行 + 一个章号一行的章节列表 + 角色树 + 空文件夹。
  *
- * 章节组里有**两种行**：已发布的章（`kind: 'chapter'`）在前，还没交付的剧情段
- * （`kind: 'segment'`）在后。两者的说法完全不同（「第 1 章《楔子》」/
- * 「剧情 2《入镇》」），所以 `label` 由后端给，前端只渲染。
+ * 形状与后端 `buildProjectTree` 一致（`src/core/views/projectView.ts`）：细纲号 = 章号，
+ * 所以细纲与正文是同一行的两面——`relPath` 是主路径（有正文就是正文，否则是细纲），
+ * `plotPath` 是细纲**应在**的位置（`plotExists` 说它在不在），`chapterPath` 没有正文时是空串。
  *
- * 三种样本都要有：已发布的章、还在排的段、正文写完等着拆分的段。
- * 它被 5 个目标文件的 20 处用到。
+ * 五种样本各一行，覆盖单章状态机的四档加「老工程里没有细纲的章」：
+ *
+ * | 章 | 细纲 | 正文 | 摘要 | stage |
+ * |---|---|---|---|---|
+ * | 1《楔子》 | 有 | 300 字，带草稿 | 新鲜 | done |
+ * | 2《入镇》 | **没有**（老工程） | 2980 / 3000 | 过期 | finalize |
+ * | 3《夜访》 | 有 | 300 字 | 新鲜 | done |
+ * | 4《北行》 | 有，大纲那一节后来改过（⟳） | 没写 | — | manuscript |
+ * | 5《赤星》 | 只有骨架 | 没写 | — | plot |
+ *
+ * `nextChapterNo` 是 4：从第 1 章起连续有正文的最大章号 + 1。**只有这一行**挂
+ * 「去写这一章」。故事架构四件填了三件、外加大纲，所以组标题是 4/5。
  */
 function sampleTree() {
   return {
     initialized: true, title: '测试', author: '甲',
-    volumeCount: 2, segmentCount: 2,
-    plotCount: 5, chapterCount: 3, totalWords: 1200, staleCount: 1,
-    summarizedCount: 2, bookStage: 'working',
-    volumesRoot: '.novelforge/volumes',
+    plotCount: 5, chapterCount: 3, totalWords: 3580, staleCount: 1,
+    summarizedCount: 2, bookStage: 'writing', nextChapterNo: 4,
     plotsRoot: '.novelforge/plots',
     chaptersRoot: 'chapters', charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
     globalSummaryThrough: 2, styleGuidePath: '.novelforge/style.md',
     outlinePath: '.novelforge/outline.md', globalSummaryPath: '.novelforge/summaries/global.md',
-    // 分卷。前端复用章节行的组件渲染它，所以字段与下面那些同形。
-    volumes: [
-      { no: 1, title: '觉醒之日', relPath: '.novelforge/volumes/01-觉醒之日.md',
-        segmentCount: 5, deliveredCount: 3, wordCount: 1200, filled: true, upstreamStale: false },
-      // 第 2 卷还是空壳（卷纲没排过走向），且全书大纲在它之后改过。
-      { no: 2, title: '', relPath: '.novelforge/volumes/02.md',
-        segmentCount: 0, deliveredCount: 0, wordCount: 0, filled: false, upstreamStale: true },
+    // 故事架构：四件文档 + 情节大纲，顺序即生成顺序。世界观还没写。
+    // 角色图谱没有自己的文件，relPath 给的是角色目录。
+    architecture: [
+      { key: 'config', label: '小说配置', relPath: '.novelforge/config.md', filled: true, detail: '' },
+      { key: 'premise', label: '故事前提', relPath: '.novelforge/premise.md', filled: true, detail: '' },
+      { key: 'characters', label: '角色图谱', relPath: '.novelforge/characters', filled: true, detail: '2 人' },
+      { key: 'world', label: '世界观', relPath: '.novelforge/world.md', filled: false, detail: '待生成' },
+      { key: 'outline', label: '情节大纲', relPath: '.novelforge/outline.md', filled: true, detail: '覆盖到第 20 章' },
     ],
-    // 章节列表是扁平的：顺序即时间线——**已发布的章在前，还没交付的剧情段在后**。
+    // 章节列表是扁平的，一个章号一行，升序。
     plots: [
-      // 第 1 章：已发布，摘要新鲜，还带一份草稿。它由一个剧情段拆出来，
-      // 所以 plotPath 指得回那份规划稿。
-      { kind: 'chapter', no: 1, label: '第 1 章《楔子》', title: '楔子',
+      // 第 1 章：写完且定稿过，摘要新鲜，还带一份草稿。
+      { no: 1, label: '第 1 章《楔子》', title: '楔子',
         relPath: 'chapters/001-楔子.md',
-        plotPath: '.novelforge/plots/01-觉醒之日/001-楔子.md',
+        plotPath: '.novelforge/plots/001-楔子.md', plotExists: true,
         chapterPath: 'chapters/001-楔子.md',
-        manuscriptPath: '',
         wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/001-楔子.md',
         stage: 'done', upstreamStale: false,
         draftPath: 'drafts/001-楔子.md', hasDraft: true,
         progress: { plot: 1, manuscript: 1, summary: 1 } },
-      // 第 2 章：摘要过期。**老工程里的章**——找不到来源段，plotPath 为空。
-      { kind: 'chapter', no: 2, label: '第 2 章《入镇》', title: '入镇',
+      // 第 2 章：**老工程里的章**——只有正文、没有细纲（plotPath 是它应在的位置）。
+      // 写够了目标字数、摘要过期 → 待定稿。
+      { no: 2, label: '第 2 章《入镇》', title: '入镇',
         relPath: 'chapters/002-入镇.md',
-        plotPath: '',
+        plotPath: '.novelforge/plots/002-入镇.md', plotExists: false,
         chapterPath: 'chapters/002-入镇.md',
-        manuscriptPath: '',
-        wordCount: 300, stale: true, summaryPath: '.novelforge/summaries/002-入镇.md',
-        stage: 'done', upstreamStale: false,
+        wordCount: 2980, targetWords: 3000, stale: true, summaryPath: '.novelforge/summaries/002-入镇.md',
+        stage: 'finalize', upstreamStale: false,
         draftPath: 'drafts/002-入镇.md', hasDraft: false,
-        progress: { plot: 1, manuscript: 1, summary: 0 } },
-      // 第 3 章：已发布、摘要新鲜。
-      { kind: 'chapter', no: 3, label: '第 3 章《夜访》', title: '夜访',
+        progress: { plot: 0, manuscript: 1, summary: 0 } },
+      // 第 3 章：写完且定稿过。
+      { no: 3, label: '第 3 章《夜访》', title: '夜访',
         relPath: 'chapters/003-夜访.md',
-        plotPath: '.novelforge/plots/01-觉醒之日/003-夜访.md',
+        plotPath: '.novelforge/plots/003-夜访.md', plotExists: true,
         chapterPath: 'chapters/003-夜访.md',
-        manuscriptPath: '',
         wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/003-夜访.md',
         stage: 'done', upstreamStale: false,
         draftPath: '', hasDraft: false,
         progress: { plot: 1, manuscript: 1, summary: 1 } },
-      // 剧情 4：正文写了一半（目标 3000 字，写了 900），且上游（本卷卷纲）改过。
-      // 位次 = 最新章号 3 + 在未交付的段里排第 1。
-      { kind: 'segment', no: 4, label: '剧情 4《北行》', title: '北行',
-        relPath: '.novelforge/plots/01-觉醒之日/004-北行.md',
-        plotPath: '.novelforge/plots/01-觉醒之日/004-北行.md',
+      // 第 4 章：细纲排好了、正文还没写（目标 3000 字）；情节大纲里覆盖它的那一节
+      // 在细纲之后改过（⟳）。它就是 nextChapterNo——主路径因此是细纲。
+      { no: 4, label: '第 4 章《北行》', title: '北行',
+        relPath: '.novelforge/plots/004-北行.md',
+        plotPath: '.novelforge/plots/004-北行.md', plotExists: true,
         chapterPath: '',
-        manuscriptPath: '',
-        wordCount: 900, stale: false, summaryPath: '',
+        wordCount: 0, targetWords: 3000, stale: false, summaryPath: '',
         stage: 'manuscript', upstreamStale: true,
         draftPath: '', hasDraft: false,
-        progress: { plot: 1, manuscript: 0.375, summary: 0 } },
-      // 剧情 5：正文写完了还躺在中转站里，等着作者标断点 → 待拆分。
-      { kind: 'segment', no: 5, label: '剧情 5《赤星》', title: '赤星',
-        relPath: '.novelforge/plots/01-觉醒之日/005-赤星.md',
-        plotPath: '.novelforge/plots/01-觉醒之日/005-赤星.md',
+        progress: { plot: 1, manuscript: 0, summary: 0 } },
+      // 第 5 章：细纲只有一个骨架（「关键事件」是空的）→ 待写细纲。
+      { no: 5, label: '第 5 章《赤星》', title: '赤星',
+        relPath: '.novelforge/plots/005-赤星.md',
+        plotPath: '.novelforge/plots/005-赤星.md', plotExists: true,
         chapterPath: '',
-        manuscriptPath: '.novelforge/manuscripts/01-觉醒之日/005-赤星.md',
-        wordCount: 300, stale: false, summaryPath: '',
-        stage: 'split', upstreamStale: false,
+        wordCount: 0, stale: false, summaryPath: '',
+        stage: 'plot', upstreamStale: false,
         draftPath: '', hasDraft: false,
-        progress: { plot: 1, manuscript: 1, summary: 0 } },
+        progress: { plot: 0, manuscript: 0, summary: 0 } },
     ],
     characters: [
       { kind: 'dir', label: '配角', relPath: '.novelforge/characters/配角', fileCount: 1, children: [
@@ -397,7 +393,8 @@ function sampleTree() {
     summaryCount: 3,
     // 正常工程这里是空对象——只有出错的目标才有记录。
     failures: {},
-    // 林昭出场三段、上次只更新到第 1 段 → 待更新 2 段；李叔从没在摘要里出现。
+    castConflicts: [],
+    // 林昭出场三章、上次只更新到第 1 章 → 待更新 2 章；李叔从没在摘要里出现。
     castByCard: {
       '.novelforge/characters/林昭.md': {
         plots: [1, 2, 3], detail: '第 1、2、3 章', updatedThrough: 1, pending: 2,

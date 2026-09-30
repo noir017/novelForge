@@ -161,9 +161,9 @@ describe('工具调用流（重开面板时回放）', { skip: JSDOM_SKIP }, () 
               toolSeg({
                 callId: 'c2',
                 name: 'generate',
-                title: 'generate 剧情·生成',
+                title: 'generate 细纲·生成',
                 ok: true,
-                summary: '剧情 · 4/4 节 · 620 字',
+                summary: '细纲 · 3/3 节 · 620 字',
                 elapsedMs: 12400,
                 output: '第一节 藏书阁门口\n他在门口站了很久。',
               }),
@@ -189,9 +189,9 @@ describe('工具调用流（重开面板时回放）', { skip: JSDOM_SKIP }, () 
   test('generate 画成一张卡，不是一行流水账', () => {
     const card = ui.bubble('a1').querySelector('.gen[data-call="c2"]');
     assert.ok(card, ui.bubble('a1').innerHTML);
-    assert.equal(card.querySelector('.gen-title').textContent, 'generate 剧情·生成');
+    assert.equal(card.querySelector('.gen-title').textContent, 'generate 细纲·生成');
     assert.equal(card.querySelector('.gen-elapsed').textContent, '12.4s');
-    assert.equal(card.querySelector('.gen-state-text').textContent, '剧情 · 4/4 节 · 620 字');
+    assert.equal(card.querySelector('.gen-state-text').textContent, '细纲 · 3/3 节 · 620 字');
     assert.ok(card.querySelector('.gen-body').textContent.includes('藏书阁门口'));
   });
 
@@ -257,21 +257,21 @@ describe('直接发送就是 agent', { skip: JSDOM_SKIP }, () => {
     assert.equal(input().value, '');
   });
 
-  // 挑了 `/命令`（拆成卷、生成大纲…）才回到确定性的单步。
+  // 挑了 `/命令`（生成情节大纲、写细纲…）才回到确定性的单步。
   //
   // 挑的命令必须**属于当前会话那一层**：面板读的是 `commandsFor(session.stage)`，
-  // 而这个会话停在大纲层（`emptySession` 的缺省）。挑一条别的层的命令，
-  // `find` 会返回 undefined，用例炸在 clickEl 上而不是在断言上——从前这里
-  // 挑的正是剧情层的命令，所以它一直是红的。
+  // 而这个会话停在大纲层（`emptySession` 的缺省），那一层只有「生成情节大纲」一条
+  // （拆卷随卷那一层删了）。挑一条别的层的命令，`find` 会返回 undefined，
+  // 用例炸在 clickEl 上而不是在断言上——所以先断言它找得到。
   test('挑了命令时发的还是 send', () => {
     ui.post({ type: 'busy', value: false });
     input().value = '/';
     input().dispatchEvent(new ui.window.Event('input', { bubbles: true }));
-    const pick = [...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('拆成卷'));
+    const pick = [...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('生成情节大纲'));
     assert.ok(pick, [...ui.doc.querySelectorAll('.cmd-item')].map((n) => n.textContent).join('|'));
     ui.clickEl(pick);
-    input().value = '切成三卷';
+    input().value = '前二十章先把主角送进宗门';
     ui.clickEl(sendBtn());
-    assert.equal(ui.last('send').payload.capability, 'split', JSON.stringify(ui.last('send').payload));
+    assert.equal(ui.last('send').payload.capability, 'generate', JSON.stringify(ui.last('send').payload));
   });
 });

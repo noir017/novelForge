@@ -7,7 +7,10 @@
  * 1. **产出的 Draft 自带 artifact 与 summary**——从前生成一次要解析三次
  *    （生成时、后端画卡片时、采纳时），中间那次是多余的。
  * 2. **`cleanOutput` 只对正文层做**——那几条正则跑在 JSON 产物上会切坏结构。
- * 3. **失败挂在细纲上、成功清掉**（AGENTS 第 16 条），取消不算失败。
+ * 3. **失败挂在细纲上、成功清掉**（AGENTS 第 16 条），取消不算失败；架构与大纲没有
+ *    归属的那一行，失败只进日志。
+ *
+ * 一章一纲之后细纲是 D3 三节；架构层四件同属一个阶段，解析要看 target 才分得清。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -18,10 +21,9 @@ const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 
 const PLOT_JSON = JSON.stringify({
-  目标: '进入宗门',
-  剧情脉络: '踩点、失手、翻墙；收在藏书阁门口。',
-  冲突与转折: '三拍推进',
-  伏笔与回收: '第三块令牌',
+  本章目的: '进入宗门',
+  关键事件: '踩点、失手、翻墙；收在藏书阁门口。三拍推进。',
+  章末钩子: '第三块令牌',
 });
 
 let bundle;
@@ -103,10 +105,11 @@ before(async () => {
   await ws.writePlot({
     no: 1,
     title: '夜入青云',
-    arc: '',
+    role: '',
+    characters: [],
     upstreamHash: '',
     done: false,
-    sections: { ...bundle.plotFile.emptyPlotSections(), 目标: '林昭进入宗门' },
+    sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '林昭进入宗门' },
   });
   await project.syncManifest();
 });
@@ -117,7 +120,7 @@ after(() => {
 
 const PLOT_TARGET = { kind: 'plot', plotRelPath: '.novelforge/plots/001-夜入青云.md' };
 
-describe('剧情层 · 产出 Draft', () => {
+describe('细纲层 · 产出 Draft', () => {
   let out;
   let rec;
 
@@ -155,12 +158,12 @@ describe('剧情层 · 产出 Draft', () => {
     assert.equal(out.draft.artifact.kind, 'plot', JSON.stringify(out.draft.artifact));
   });
 
-  test('产物四节都在', () => {
-    assert.equal(out.draft.artifact.sections.伏笔与回收, '第三块令牌');
+  test('产物三节都在', () => {
+    assert.equal(out.draft.artifact.sections.章末钩子, '第三块令牌');
   });
 
   test('draft 自带一句话形状描述', () => {
-    assert.equal(out.draft.summary, '剧情 · 4/4 节', out.draft.summary);
+    assert.equal(out.draft.summary, '细纲 · 3/3 节', out.draft.summary);
   });
 
   test('draft 记下字数', () => {
@@ -207,7 +210,7 @@ describe('正文层 · cleanOutput 只在这一层跑', () => {
       )
     ).draft;
 
-    // 同一段文本走剧情层：那几条正则会把 JSON 的第一行剥掉，绝不能跑。
+    // 同一段文本走细纲层：那几条正则会把 JSON 的第一行剥掉，绝不能跑。
     replyFn = () => `\`\`\`json\n${PLOT_JSON}\n\`\`\``;
     const b = recorder();
     plotRaw = (
@@ -232,6 +235,12 @@ describe('正文层 · cleanOutput 只在这一层跑', () => {
     assert.ok(manuscript.raw.includes('雨下了三天'), manuscript.raw);
   });
 
+  // 正文直接落同号的章节——但那是采纳那一步的事。生成这一步一个字都不写。
+  test('正文层也不落盘：同号章节没被建出来', async () => {
+    project.invalidate();
+    assert.deepEqual((await project.listChapters()).map((c) => c.relPath), []);
+  });
+
   // 关键：JSON 产物原样保留代码围栏，剥围栏是 `parseArtifact` 的活
   // （`stripCodeFence`），在这里剥会把「去掉开场白」那几条正则用到 JSON 上。
   test('JSON 产物不过 cleanOutput', () => {
@@ -241,9 +250,72 @@ describe('正文层 · cleanOutput 只在这一层跑', () => {
   test('围栏包着的 JSON 照样解析得出来', async () => {
     const artifact = bundle.generate.parseDraftArtifact(
       { stage: 'plot', capability: 'generate' },
-      plotRaw
+      plotRaw,
+      PLOT_TARGET
     );
-    assert.equal(artifact.sections.冲突与转折, '三拍推进', JSON.stringify(artifact));
+    assert.equal(artifact.sections.章末钩子, '第三块令牌', JSON.stringify(artifact));
+  });
+});
+
+/**
+ * 架构四件同属一个阶段：**解析要看 target 才分得清是哪一件**——角色图谱产出的是
+ * 一组角色卡，另外三件是一份文档。这是 `parseDraftArtifact` 多收一个 target 的原因。
+ */
+describe('架构层 · 同一阶段的四件靠 target 分辨', () => {
+  const act = { stage: 'setting', capability: 'generate' };
+  const ROSTER = JSON.stringify({
+    characters: [
+      { name: '林昭', role: '主角', 身份: '火场里活下来的孤儿' },
+      { name: '沈青', role: '盟友', 身份: '客栈老板娘' },
+    ],
+  });
+  let roster;
+  let config;
+  let cardsAfter;
+
+  before(async () => {
+    configure();
+    replyFn = () => ROSTER;
+    roster = (
+      await gen.generate(
+        project,
+        { action: act, target: { kind: 'setting', doc: 'characters' }, ask: '排一下角色' },
+        recorder().handlers,
+        { signal: new AbortController().signal }
+      )
+    ).draft;
+    replyFn = () => '## 核心梗概\n\n林昭回青崖镇查火。\n\n## 金手指\n\n一块残缺的令牌。';
+    config = (
+      await gen.generate(
+        project,
+        { action: act, target: { kind: 'setting', doc: 'config' }, ask: '展开这个脑洞' },
+        recorder().handlers,
+        { signal: new AbortController().signal }
+      )
+    ).draft;
+    cardsAfter = await project.listCharacters();
+  });
+
+  test('角色图谱解析成一组人', () => {
+    assert.equal(roster.artifact.kind, 'characterRoster', JSON.stringify(roster.artifact));
+    assert.equal(roster.summary, '角色图谱 · 2 人', roster.summary);
+  });
+
+  test('小说配置解析成一份文档', () => {
+    assert.equal(config.artifact.kind, 'settingDoc', JSON.stringify(config.artifact));
+    assert.equal(config.artifact.doc, 'config');
+    assert.equal(config.summary, '小说配置 · 2/7 节', config.summary);
+  });
+
+  // 同一段文本，target 不同解析出来就不同：采纳时重新解析也必须带上 target。
+  test('parseDraftArtifact 带上 target 才认得出角色图谱', () => {
+    const withTarget = gen.parseDraftArtifact(act, ROSTER, { kind: 'setting', doc: 'characters' });
+    assert.equal(withTarget.kind, 'characterRoster');
+  });
+
+  // 一个字都不写磁盘：角色卡要等作者在卡片上点了写入才建（第 19 条）。
+  test('生成角色图谱不建角色卡', () => {
+    assert.deepEqual(cardsAfter.map((c) => c.name), []);
   });
 });
 
@@ -338,6 +410,51 @@ describe('成功要清掉失败标记', () => {
   // 修好了还挂着标记，用户会学会无视它。
   test('细纲上的红标记没了', () => {
     assert.ok(!failures[PLOT_TARGET.plotRelPath], JSON.stringify(failures));
+  });
+});
+
+/**
+ * 失败挂在**细纲**上（工程页那一行）。架构与大纲没有归属的那一行——失败只进日志，
+ * 不凭空挂到某一章头上。
+ */
+describe('模型抛错 · 架构与大纲的失败只进日志', () => {
+  let rec;
+  let keysBefore;
+  let keysAfter;
+
+  before(async () => {
+    configure();
+    keysBefore = Object.keys(await bundle.errorLog.listActiveFailures(project)).sort();
+    replyFn = () => {
+      throw new bundle.provider.LlmError('假装 429 限流');
+    };
+    rec = recorder();
+    await gen.generate(
+      project,
+      { action: { stage: 'setting', capability: 'generate' }, target: { kind: 'setting', doc: 'premise' }, ask: 'x' },
+      rec.handlers,
+      { signal: new AbortController().signal }
+    );
+    await gen.generate(
+      project,
+      { action: { stage: 'outline', capability: 'generate' }, target: { kind: 'outline' }, ask: 'x' },
+      recorder().handlers,
+      { signal: new AbortController().signal }
+    );
+    await sleep(50);
+    keysAfter = Object.keys(await bundle.errorLog.listActiveFailures(project)).sort();
+  });
+
+  test('onError 被调用', () => {
+    assert.ok(rec.r.error && rec.r.error.includes('429'), rec.r.error);
+  });
+
+  test('不凭空挂到某一章上', () => {
+    assert.deepEqual(keysAfter, keysBefore);
+  });
+
+  test('失败进日志', () => {
+    assert.ok(warns.some((w) => w.includes('429')), warns.join('|'));
   });
 });
 

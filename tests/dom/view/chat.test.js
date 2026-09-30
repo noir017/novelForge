@@ -124,7 +124,7 @@ describe('气泡右上角的 ... 菜单', { skip: JSDOM_SKIP }, () => {
       type: 'turnDone',
       turn: turn('a1', 'assistant', '正文', {
         draftId: 'd1',
-        artifact: { where: '第 12 段《夜入青云》 · 正文', summary: '正文 · 1 场', overwrites: false },
+        artifact: { where: '第 12 章《夜入青云》 · 正文', summary: '正文 · 1200 字', overwrites: false },
       }),
     });
   });
@@ -257,9 +257,9 @@ describe('空输入', { skip: JSDOM_SKIP }, () => {
     assert.equal(sends() + agentSends(), 0);
   });
 
-  // 而 `/写剧情` 不需要作者再说什么——该说的都在大纲里了。
+  // 而 `/写细纲` 不需要作者再说什么——这一章该发生什么，大纲里覆盖它的那一节都写着。
   test('生成类命令允许空输入', () => {
-    pickCommand('写剧情');
+    pickCommand('写细纲');
     ui.clickEl(ui.doc.getElementById('sendBtn'));
     assert.equal(sends(), 1, String(sends()));
     assert.equal(ui.last('send').payload.capability, 'generate', JSON.stringify(ui.last('send').payload));
@@ -292,7 +292,7 @@ describe('产物那一行', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'turnDone',
       turn: turn('a2', 'assistant', '{"目标":"进宗门"}', {
-        artifact: { where: '第 12 段《夜入青云》 · 剧情', summary: '剧情 · 4/4 节', overwrites: false },
+        artifact: { where: '第 12 章《夜入青云》 · 细纲', summary: '细纲 · 3/3 节', overwrites: false },
       }),
     });
   });
@@ -304,10 +304,10 @@ describe('产物那一行', { skip: JSDOM_SKIP }, () => {
       .some((b) => b.textContent === '复制'));
   });
 
-  // 产出过什么仍然看得见：翻回来要认得出「这一轮产出过一份 4 场的场景清单」。
+  // 产出过什么仍然看得见：翻回来要认得出「这一轮产出过一份第 12 章的细纲」。
   test('产出过的说清落点与形状', () => {
-    assert.ok(where('a2') && where('a2').textContent.includes('第 12 段'), where('a2')?.textContent);
-    assert.ok(where('a2').textContent.includes('4/4 节'), where('a2').textContent);
+    assert.ok(where('a2') && where('a2').textContent.includes('第 12 章'), where('a2')?.textContent);
+    assert.ok(where('a2').textContent.includes('3/3 节'), where('a2').textContent);
   });
 
   // ★ 这条就是这次改动本身。
@@ -320,7 +320,7 @@ describe('产物那一行', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'turnDone',
       turn: turn('a3', 'assistant', '{"目标":"换一版"}', {
-        artifact: { where: '第 12 段《夜入青云》 · 剧情', summary: '剧情 · 4/4 节', overwrites: true, declined: true },
+        artifact: { where: '第 12 章《夜入青云》 · 细纲', summary: '细纲 · 3/3 节', overwrites: true, declined: true },
       }),
     });
     assert.ok(where('a3').textContent.includes('未采纳'), where('a3').textContent);
@@ -411,7 +411,7 @@ describe('思考过程（推理模型）', { skip: JSDOM_SKIP }, () => {
       turn: turn('a1', 'assistant', '灯昏。', {
         reasoning: '先确定场景：夜里的旧书店。再补细节。',
         draftId: 'd1',
-        artifact: { where: '第 12 段《夜入青云》 · 正文', summary: '正文 · 1 场', overwrites: false },
+        artifact: { where: '第 12 章《夜入青云》 · 正文', summary: '正文 · 1200 字', overwrites: false },
       }),
     });
     ui.post({ type: 'busy', value: false });
@@ -460,19 +460,19 @@ describe('命令类消息的气泡', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'plan', chapterRelPath: 'chapters/012-夜入青云.md' },
-        stage: 'plan',
+        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
+        stage: 'plot',
         capability: 'generate',
       }),
     });
   });
 
-  // 「生成细纲」不需要作者说什么（该说的都在大纲里），于是 content 是空的。
+  // 「写细纲」不需要作者说什么（该说的都在大纲里），于是 content 是空的。
   // 但气泡不能就这么空着——翻回去看时认不出刚才点的是哪一下。
   test('空输入的命令轮次显示命令名', () => {
-    ui.post({ type: 'turnDone', turn: turn('u1', 'user', '', { command: '生成细纲' }) });
+    ui.post({ type: 'turnDone', turn: turn('u1', 'user', '', { command: '写细纲' }) });
     assert.ok(cmdTag('u1'), '没有命令标签');
-    assert.equal(cmdTag('u1').textContent, '/生成细纲', cmdTag('u1')?.textContent);
+    assert.equal(cmdTag('u1').textContent, '/写细纲', cmdTag('u1')?.textContent);
   });
 
   test('气泡不再是一片空白', () => {
@@ -481,8 +481,8 @@ describe('命令类消息的气泡', { skip: JSDOM_SKIP }, () => {
 
   // 有补充要求时两样都在：命令一枚标签，正文跟在后面。
   test('带补充要求时命令与正文都显示', () => {
-    ui.post({ type: 'turnDone', turn: turn('u2', 'user', '这一章要慢一点', { command: '生成细纲' }) });
-    assert.equal(cmdTag('u2').textContent, '/生成细纲');
+    ui.post({ type: 'turnDone', turn: turn('u2', 'user', '这一章要慢一点', { command: '写细纲' }) });
+    assert.equal(cmdTag('u2').textContent, '/写细纲');
     assert.equal(ui.bubble('u2').querySelector('.msg-text').textContent, '这一章要慢一点');
   });
 

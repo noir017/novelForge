@@ -23,10 +23,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
   let ui;
   const tip = () => ui.doc.querySelector('.summary-tip');
-  // 浮窗只挂在**章节行**上。夹具里同名的行不止一处，
-  // 按 .row 取会撞上章节那一行，而章节行根本没有 data-plot。
+  // 浮窗只挂在**章节行**上（`.row-plot[data-plot]`）。「故事架构」那几行复用了
+  // `.row-plot` 的样式，但不带 data-plot——按 .row-plot 取时要认准章节组。
   const rowWith = (text) =>
-    [...ui.doc.querySelectorAll('#projectBody .row-plot')].find((n) => n.textContent.includes(text));
+    [...ui.doc.querySelectorAll('#projectBody .row-plot[data-plot]')].find((n) => n.textContent.includes(text));
+  const archRow = (text) =>
+    [...ui.doc.querySelectorAll('#projectBody .row-architecture')].find((n) => n.textContent.includes(text));
   const hover = (node) => node.dispatchEvent(new ui.window.MouseEvent('mouseover', { bubbles: true }));
   /** 等过悬停延迟（view.js 里是 450ms）。 */
   const settle = () => wait(600);
@@ -35,14 +37,14 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
   /** 鼠标进/出浮窗。这两个事件不冒泡，得直接派到浮窗上。 */
   const enterTip = () => tip().dispatchEvent(new ui.window.MouseEvent('mouseenter'));
   const leaveTip = () => tip().dispatchEvent(new ui.window.MouseEvent('mouseleave'));
-  /** 移开鼠标并等过宽限期：悬停到分组标题栏（不是剧情行）即可。 */
+  /** 移开鼠标并等过宽限期：悬停到分组标题栏（不是章节行）即可。 */
   const moveAway = async () => {
     hover(ui.doc.querySelector('#projectBody .group-head'));
     await grace();
   };
 
   // jsdom 里所有尺寸都是 0，定位逻辑会全程退化成「贴光标」，量不出东西来。
-  // 给浮窗与剧情行装上可控的几何，才验得了「不许跑到窗口外面去」。
+  // 给浮窗与章节行装上可控的几何，才验得了「不许跑到窗口外面去」。
   const VIEWPORT = { w: 800, h: 600 };
   /** 浮窗的自然高度（不受行内 maxHeight 限制时的高度）。 */
   let tipNaturalHeight = 200;
@@ -117,14 +119,24 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(!tip());
   });
 
-  // 只有剧情行有浮窗，角色行没有。
+  // 只有章节行有浮窗，角色行没有。
   test('角色行不弹浮窗', async () => {
     hover([...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes('林昭')));
     await settle();
     assert.ok(!tip());
   });
 
-  // ---- 悬停在剧情行上
+  // 架构行与章节行共用 `.row-plot` 的样式，但它们不是一章，没有摘要可取。
+  // 抓手是 data-plot 而不是类名——漏了这一点，悬停「故事前提」会去要一份不存在的摘要。
+  test('故事架构的行不弹摘要浮窗', async () => {
+    ui.sent.length = 0;
+    hover(archRow('故事前提'));
+    await settle();
+    assert.ok(!tip());
+    assert.ok(!ui.last('requestSummary'), JSON.stringify(ui.sent));
+  });
+
+  // ---- 悬停在章节行上
   test('悬停后不立刻弹出（有延迟，免得划过时闪）', () => {
     ui.sent.length = 0;
     hover(rowWith('楔子'));
@@ -152,7 +164,7 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     const req = ui.last('requestSummary');
     assert.ok(req, '没发出 requestSummary');
     // 要的是**路径**，不是序号：摘要文件名跟着标题走，只有路径能唯一
-    // 定位到一份摘要。这一章已经发布，主路径因此指成品。
+    // 定位到一份摘要。这一章有正文，主路径因此指正文。
     assert.equal(req.plotRelPath, 'chapters/001-楔子.md', JSON.stringify(req));
   });
 
@@ -166,8 +178,7 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(!tip().textContent.includes('读取摘要'), tip().textContent);
   });
 
-  // 说法由后端给（`PlotSummaryView.label`）：这一行可能是已发布的章，也可能是
-  // 还没交付的剧情段，前端按 `no` 自己拼会把每个剧情段都叫成「第 N 章」。
+  // 说法由后端给（`PlotSummaryView.label`），前端不按 `no` 自己拼——文案只有一份。
   test('浮窗带后端给的说法', () => {
     assert.ok(tip().textContent.includes('第 1 章《楔子》'), tip().textContent);
   });
@@ -229,12 +240,28 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(tip());
   });
 
-  test('移到非剧情行、且没进浮窗时收起', async () => {
+  test('移到非章节行、且没进浮窗时收起', async () => {
     await moveAway();
     assert.ok(!tip());
   });
 
-  // ---- 缓存：同一段再悬停不再发请求
+  // 从章节行挪到「故事架构」那几行：那几行也带 `.row-plot`（同一个版式），但没有
+  // data-plot。浮窗只认带 data-plot 的行，否则会撤销收起却不另开一只——上一章的
+  // 浮窗就一直挂着，指着一行鼠标早已不在的地方。
+  test(
+    '从章节行挪到架构行时浮窗收起',
+    async () => {
+      hover(rowWith('楔子'));
+      await settle();
+      hover(ui.doc.querySelector('#projectBody .group-head'));
+      hover(archRow('故事前提'));
+      await grace();
+      assert.ok(!tip());
+      await moveAway();
+    }
+  );
+
+  // ---- 缓存：同一章再悬停不再发请求
   test('命中缓存时直接显示，不再请求', async () => {
     ui.sent.length = 0;
     hover(rowWith('楔子'));
@@ -289,7 +316,7 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     await moveAway();
   });
 
-  // ---- 没生成过摘要的段：说清楚，不给空浮窗
+  // ---- 还没定稿过的章：说清楚，不给空浮窗
   test('未总结时给出说明而非空白', async () => {
     hover(rowWith('楔子'));
     await settle();
@@ -547,8 +574,15 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
 
   const CARD = '.novelforge/characters/林昭.md';
   // 失败挂在出错那份文件上（recordFailure 的 targetKey 就是它的路径）。
-  // 章节是纯文件行，没有失败标记——工具不在那上面跑任何东西。
-  const PLOT = '.novelforge/plots/01-觉醒之日/001-楔子.md';
+  // 写细纲 / 写正文失败挂在细纲上，定稿（摘要）失败挂在正文上——章节行两侧都查。
+  const PLOT = '.novelforge/plots/001-楔子.md';
+  const CHAPTER = 'chapters/002-入镇.md';
+  // 生成架构文档失败挂在那份文档上。
+  const PREMISE = '.novelforge/premise.md';
+  /** 章节组的行（排掉复用了 .row-plot 样式的「故事架构」那几行）。 */
+  const plotRow = (text) =>
+    [...ui.doc.querySelectorAll('#projectBody .row-plot:not(.row-architecture)')]
+      .find((n) => n.textContent.includes(text));
 
   before(() => {
     ui = mount();
@@ -592,6 +626,12 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
       [PLOT]: [
         { at: '2026-08-10T11:20:00.000Z', severity: 'warn', message: '3 段解析失败，「已读到」只推进到第 2 段' },
       ],
+      [CHAPTER]: [
+        { at: '2026-08-10T11:25:00.000Z', severity: 'error', message: '摘要解析失败，第 2 章未定稿' },
+      ],
+      [PREMISE]: [
+        { at: '2026-08-10T11:10:00.000Z', severity: 'error', message: '故事前提解析失败，文件未改动' },
+      ],
     };
     ui.post({ type: 'project', tree });
     cardMark = markIn('林昭');
@@ -613,10 +653,9 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(cardMark.title.includes('未改动'), cardMark.title);
   });
 
-  test('出错的章节行也挂上感叹号', () => {
-    // 按章节行取（排掉卷那一组）：夹具里同名的行不止一处，按 .row 取会撞上别的。
-    const row = [...ui.doc.querySelectorAll('#projectBody .row-plot:not(.row-volume)')]
-      .find((n) => n.textContent.includes('楔子'));
+  // 第 1 章有正文也有细纲：失败挂在细纲上，照样要标在这一行。
+  test('细纲失败标在章节行上', () => {
+    const row = plotRow('楔子');
     plotMark = row ? row.querySelector('.row-failure') : null;
     assert.ok(plotMark);
   });
@@ -625,10 +664,28 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(plotMark && plotMark.classList.contains('is-warn'), plotMark && plotMark.className);
   });
 
+  // 第 2 章没有细纲：失败挂在正文上（定稿读的是正文）。
+  test('正文上的失败也标在章节行上', () => {
+    const mark = plotRow('入镇')?.querySelector('.row-failure');
+    assert.ok(mark && mark.classList.contains('is-error'), plotRow('入镇')?.outerHTML);
+  });
+
   // 失败记录按路径挂：别的章不该跟着挂标记。
   test('别的章不挂感叹号', () => {
-    const row = [...ui.doc.querySelectorAll('#projectBody .row-plot:not(.row-volume)')]
-      .find((n) => n.textContent.includes('入镇'));
+    const row = plotRow('夜访');
+    assert.ok(row && !row.querySelector('.row-failure'), row && row.outerHTML);
+  });
+
+  // 生成架构文档失败时，「故事架构」那一行同样要看得见——那是后面一切的上游。
+  test('出错的架构行也挂上感叹号', () => {
+    const row = [...ui.doc.querySelectorAll('#projectBody .row-architecture')]
+      .find((n) => n.textContent.includes('故事前提'));
+    assert.ok(row && row.querySelector('.row-failure.is-error'), row && row.outerHTML);
+  });
+
+  test('没出错的架构行没有感叹号', () => {
+    const row = [...ui.doc.querySelectorAll('#projectBody .row-architecture')]
+      .find((n) => n.textContent.includes('小说配置'));
     assert.ok(row && !row.querySelector('.row-failure'), row && row.outerHTML);
   });
 

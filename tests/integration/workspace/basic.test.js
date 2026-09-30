@@ -4,7 +4,7 @@
  * 本组只覆盖最基础的两个 handler——`plain`（other / draft）与
  * `doc`（outline / style / globalSummary / character / lore）。
  * 带记账的那几种（plot / scene / manuscript / chapter / summary）在
- * hashChain.test.js 与 split.test.js。
+ * hashChain.test.js。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');

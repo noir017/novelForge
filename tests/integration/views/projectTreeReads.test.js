@@ -2,14 +2,14 @@
  * 工程页刷新的读盘次数。
  *
  * `buildProjectTree` 由文件监听触发（两个壳各去抖 250ms），**作者每存一次盘就跑一次**。
- * 它一次要把全书的产物聚合出来，所以「每段多读一个文件」在五百段工程上就是
+ * 它一次要把全书的产物聚合出来，所以「每章多读一个文件」在五百章工程上就是
  * 多五百次读盘——这条路上的浪费不会报错、不会变红，只会让工程页越用越慢。
  *
  * 因此这里断言的不是耗时（机器一换就飘），而是**读盘次数**：
  *
  * 1. 同一个文件在一次刷新里至多读一次——重复读盘一律是取数方各读各的，
  *    而不是真的需要读两遍；
- * 2. 每段的 fs 调用数有上限——挡住「新加一层产物顺手每段多扫一个目录」。
+ * 2. 每章的 fs 调用数有上限——挡住「新加一层产物顺手每章多扫一个目录」。
  *
  * 计数靠替换 `node:fs/promises` 上的方法。core 的读盘全部经 `model/fs.ts`，
  * 而那里只用 `fs.readFile` / `fs.stat` / `fs.readdir`，所以替换这三个就够。
@@ -23,7 +23,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
-/** 造多少段。够大到能把「每段 +1」与常数项区分开，又不至于让用例变慢。 */
+/** 造多少章。够大到能把「每章 +1」与常数项区分开，又不至于让用例变慢。 */
 const PLOTS = 40;
 
 let bundle;
@@ -73,8 +73,8 @@ async function measure() {
 }
 
 /**
- * 一段「全都齐了」的内容：细纲 + 中转站正文 + 成品 + 摘要，四条取数路径
- * 都会走到。
+ * 一章「全都齐了」的内容：细纲 + 同号章节 + 摘要，三条取数路径都会走到。
+ * 一章一纲之后没有中转站那一份了，正文就是章节。
  */
 async function writePlot(i, { full = true } = {}) {
   const n = String(i).padStart(3, '0');
@@ -82,21 +82,16 @@ async function writePlot(i, { full = true } = {}) {
   const plotRel = `.novelforge/plots/${stem}.md`;
   t.write(
     plotRel,
-    `---\nno: ${i}\ntitle: 第${i}章\nupstreamHash: h\n---\n\n## 目标\n目标\n\n## 剧情脉络\n脉络\n` +
-      (full ? '\n## 冲突与转折\n冲突\n\n## 伏笔与回收\n伏笔\n' : '')
+    `---\nno: ${i}\ntitle: 第${i}章\nupstreamHash: h\n---\n\n# 第${i}章\n\n## 本章目的\n目的\n\n## 关键事件\n事件\n` +
+      (full ? '\n## 章末钩子\n钩子\n' : '')
   );
-  // 正文的上游指纹随手写一个 `b` 就会让它永远显示「上游已变更」，这一段
-  // 于是卡在 manuscript 阶段，后面几条取数路径根本走不到——那样这份读盘
-  // 计数就挡不住它回潮了。所以留空：从没记录过指纹的正文永不标脏（第 18a 条）。
-  t.write(
-    `.novelforge/manuscripts/${stem}.md`,
-    `---\nplot: ${plotRel}\n---\n\n# 第${i}章 · 正文\n\n${'正文。'.repeat(50)}`
-  );
-  // 成品：拆分之后才有。没有它这一章停在 split，摘要那条路走不到。
+  // 不写 writtenFrom：随手写一个就会让它永远显示「细纲在正文之后改过」，这一章于是
+  // 卡在 manuscript 阶段——那样摘要那条取数路径的回潮就测不出来了。从没记录过
+  // 指纹的正文永不标脏（第 18a 条）。
   const chapterRel = `chapters/${stem}.md`;
   t.write(chapterRel, `# 第${i}章\n\n${'正文。'.repeat(50)}`);
   project.invalidate();
-  // 摘要的 sourceHash 要对上**成品**，否则停在 review，同样走不到「已完成」。
+  // 摘要的 sourceHash 要对上章节，否则停在「待定稿」，同样走不到「已完成」。
   const sourceHash =
     (await project.listChapters()).find((c) => c.relPath === chapterRel)?.contentHash ?? '';
   t.write(
@@ -132,7 +127,7 @@ describe('工程页刷新 · 读盘次数', () => {
     assert.equal(tree.plotCount, PLOTS);
   });
 
-  // 全齐了才说明各条取数路径都真的走到了：只建细纲不发布的话，
+  // 全齐了才说明各条取数路径都真的走到了：只建细纲不写正文的话，
   // 摘要那一层会被跳过，这份计数就挡不住它回潮。
   test('夹具的各层都齐了', async () => {
     const tree = await measure();
@@ -142,11 +137,16 @@ describe('工程页刷新 · 读盘次数', () => {
     );
   });
 
-  test('同一个文件在一次刷新里至多读一次', async () => {
-    await measure();
-    const repeated = [...reads.entries()]
+  const repeatedReads = () =>
+    [...reads.entries()]
       .filter(([, n]) => n > 1)
-      .map(([p, n]) => `${path.relative(t.dir, p)} ×${n}`);
+      .map(([p, n]) => [path.relative(t.dir, p).replace(/\\/g, '/'), n]);
+
+  // 一期大切换曾让 `config.md` 读两次：`buildPipelineIndex` 读一次，`buildBookFacts`
+  // 的 `settingFilled()` 又读一次。现在后者吃索引里那一份。
+  test('同一个文件在一次刷新里至多读一次（含 config.md）', async () => {
+    await measure();
+    const repeated = repeatedReads().map(([rel, n]) => `${rel} ×${n}`);
     assert.deepEqual(
       repeated,
       [],
@@ -154,37 +154,36 @@ describe('工程页刷新 · 读盘次数', () => {
     );
   });
 
-  test('每段的 fs 调用数不超过 5 次', async () => {
+  test('每章的 fs 调用数不超过 4 次', async () => {
     await measure();
-    // 一段的下限是 4：细纲 1 + 成品 1 + 中转站正文 1 + 摘要 1，每份文件恰好
-    // 读一次，再少就得砍功能了。
+    // 一章的下限是 3：细纲 1 + 同号章节 1 + 摘要 1，每份文件恰好读一次，再少就得
+    // 砍功能了。
     //
-    // 场景那一层删掉之后这个数从 9 掉到 4——每段少读一个目录（readdir）
-    // 与四个文件。这份用例正是那笔收益的度量。
+    // 从前是 4（还有中转站那一份正文），再往前有场景层时是 9。一章一纲之后正文
+    // 就是章节，每章少读一个文件——这份用例正是那笔收益的度量。
     //
-    // 这个夹具把中转站那份也留着（真实工程里拆分之后就删了，那时是 3）——
-    // 留着才测得到「两侧都读到了」。上限留 5 是给全书那几次常数开销
-    // （大纲、manifest、角色/设定/草稿目录）摊下来的余量，它们不随段数增长，
-    // 段数越多这个比值越贴近 4。
-    //
-    // 真正要挡的是「每段再多读一个文件」那类回潮：那会让这个数直接跳过 5。
+    // 上限 4 是给全书那几次常数开销（大纲、配置与架构三件、manifest、角色/设定/
+    // 草稿目录）摊下来的余量，它们不随章数增长，章数越多这个比值越贴近 3。
+    // 真正要挡的是「每章再多读一个文件」那类回潮：那会让这个数直接跳过 4。
+    // （从前上限是 5、下限是 4；下限掉到 3 之后上限跟着收紧，否则多读一个文件
+    // 也还在余量里，这条就挡不住了。）
     const perPlot = calls / PLOTS;
     assert.ok(
-      perPlot <= 5,
-      `每段 ${perPlot.toFixed(1)} 次 fs 调用（共 ${calls} 次 / ${PLOTS} 段），上限 5`
+      perPlot <= 4,
+      `每章 ${perPlot.toFixed(1)} 次 fs 调用（共 ${calls} 次 / ${PLOTS} 章），上限 4`
     );
   });
 
-  test('段数翻倍时读盘次数不超过线性增长', async () => {
+  test('章数翻倍时读盘次数不超过线性增长', async () => {
     const before = calls;
     for (let i = PLOTS + 1; i <= PLOTS * 2; i++) {
       await writePlot(i, { full: false });
     }
     await measure();
-    // 二次项（每段都去扫一遍全书）会让这个比值远超 2。
+    // 二次项（每章都去扫一遍全书）会让这个比值远超 2。
     assert.ok(
       calls <= before * 2.2,
-      `${PLOTS} 段 ${before} 次 → ${PLOTS * 2} 段 ${calls} 次，超出线性增长`
+      `${PLOTS} 章 ${before} 次 → ${PLOTS * 2} 章 ${calls} 次，超出线性增长`
     );
   });
 });

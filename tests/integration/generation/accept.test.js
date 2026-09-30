@@ -16,6 +16,10 @@
  * | 讨论型回复 | 没有产物，也就没有卡片 |
  * | 刷新网页 | 没答的那张卡随全量状态重推，答了照样落盘 |
  * | 面板销毁 | 卡片作废，产物记成「未采纳」——不留一个永远悬着的等待 |
+ * | 写正文 | 答了才落到**同号的章节**上（没有就新建、有了就追加），并在细纲上记 `writtenFrom` |
+ * | 拆细纲落在占位路径 | 细纲按产物的标题落盘之后，流水线条仍认得这一章 |
+ *
+ * 一章一纲之后细纲是 D3 三节（本章目的 / 关键事件 / 章末钩子），正文不再先落中转站。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -27,10 +31,9 @@ const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 
 const PLOT_JSON = JSON.stringify({
-  目标: '进入宗门',
-  剧情脉络: '踩点、失手、翻墙；收在藏书阁门口。',
-  冲突与转折: '三拍推进',
-  伏笔与回收: '第三块令牌',
+  本章目的: '进入宗门',
+  关键事件: '踩点、失手、翻墙；收在藏书阁门口。三拍推进。',
+  章末钩子: '第三块令牌',
 });
 
 const P1 = '.novelforge/plots/001-夜入青云.md';
@@ -81,7 +84,7 @@ function attach() {
   });
 }
 
-/** 发一轮「写剧情」，回收这一轮推给前端的消息（含落盘那一问的往返）。 */
+/** 发一轮「写细纲」（extra 可以改成别的阶段），回收这一轮推给前端的消息（含落盘那一问的往返）。 */
 async function send(target, extra = {}) {
   posted.length = 0;
   gates = [];
@@ -93,7 +96,6 @@ async function send(target, extra = {}) {
       capability: 'generate',
       target,
       targetNo: 0,
-      targetWords: 0,
       attachments: [],
       excludedIds: [],
       ...extra,
@@ -117,6 +119,7 @@ before(async () => {
     provider: './src/core/llm/provider.ts',
     controller: './src/core/controller/index.ts',
     plotFile: './src/core/model/plotFile.ts',
+    pipe: './src/core/views/pipeline.ts',
     db: './src/core/runtime/db.ts',
   });
   settings = {
@@ -137,8 +140,8 @@ before(async () => {
   const ws = new bundle.ws.Workspace(project);
   for (const [no, title] of [[1, '夜入青云'], [2, '藏书阁']]) {
     await ws.writePlot({
-      no, title, arc: '', upstreamHash: '', done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 目标: `第 ${no} 章要达成的事` },
+      no, title, role: '', characters: [], upstreamHash: '', done: false,
+      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: `第 ${no} 章要达成的事` },
     });
   }
   await project.syncManifest();
@@ -180,7 +183,7 @@ describe('生成一轮 → 当场问一句', () => {
 
   test('说得出写到哪、是什么形状', () => {
     assert.ok(r.gate.title.includes('夜入青云'), r.gate.title);
-    assert.ok(r.gate.detail.includes('4/4 节'), r.gate.detail);
+    assert.ok(r.gate.detail.includes('3/3 节'), r.gate.detail);
   });
 
   // 叫停整轮不在这张卡上（那是输入框旁边那颗「停止」）；拒绝那颗写的是
@@ -206,7 +209,7 @@ describe('生成一轮 → 当场问一句', () => {
 
   // 展示快照仍在：翻回来看得出这一轮产出过什么。
   test('展示快照还在', () => {
-    assert.equal(r.assistant.artifact.summary, '剧情 · 4/4 节', JSON.stringify(r.assistant.artifact));
+    assert.equal(r.assistant.artifact.summary, '细纲 · 3/3 节', JSON.stringify(r.assistant.artifact));
   });
 });
 
@@ -216,8 +219,8 @@ describe('落点从 draft 里取，不看当下选中的那一章', () => {
   before(async () => {
     t.remove(P2);
     await new bundle.ws.Workspace(project).writePlot({
-      no: 2, title: '藏书阁', arc: '', upstreamHash: '', done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 目标: '第 2 章要达成的事' },
+      no: 2, title: '藏书阁', role: '', characters: [], upstreamHash: '', done: false,
+      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '第 2 章要达成的事' },
     });
     project.invalidate();
     replyFn = () => PLOT_JSON;
@@ -258,10 +261,9 @@ describe('落盘的是气泡里当下那份', () => {
         type: 'editTurn',
         turnId: msg.turnId,
         text: JSON.stringify({
-          目标: '进入宗门',
-          剧情脉络: '踩点、失手、翻墙；收在藏书阁门口。',
-          冲突与转折: '我自己改成了两拍',
-          伏笔与回收: '第三块令牌',
+          本章目的: '进入宗门',
+          关键事件: '踩点、失手、翻墙；收在藏书阁门口。我自己改成了两拍。',
+          章末钩子: '第三块令牌',
         }),
       });
       return 'proceed';
@@ -289,8 +291,8 @@ describe('答「不采纳」', () => {
   before(async () => {
     t.remove(P1);
     await new bundle.ws.Workspace(project).writePlot({
-      no: 1, title: '夜入青云', arc: '', upstreamHash: '', done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 目标: '第 1 章要达成的事' },
+      no: 1, title: '夜入青云', role: '', characters: [], upstreamHash: '', done: false,
+      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '第 1 章要达成的事' },
     });
     project.invalidate();
     replyFn = () => PLOT_JSON;
@@ -303,7 +305,7 @@ describe('答「不采纳」', () => {
     assert.ok(!bundle.plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
   });
 
-  // 翻回来要看得出「这一轮产出过一份剧情，我没要」。
+  // 翻回来要看得出「这一轮产出过一份细纲，我没要」。
   test('气泡上留了一行「未采纳」', () => {
     assert.equal(r.assistant.artifact.declined, true, JSON.stringify(r.assistant.artifact));
     assert.equal(r.assistant.acceptedTo, undefined, r.assistant.acceptedTo);
@@ -340,8 +342,8 @@ describe('刷新网页：没答的卡片跟着回来', () => {
   before(async () => {
     t.remove(P2);
     await new bundle.ws.Workspace(project).writePlot({
-      no: 2, title: '藏书阁', arc: '', upstreamHash: '', done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 目标: '第 2 章要达成的事' },
+      no: 2, title: '藏书阁', role: '', characters: [], upstreamHash: '', done: false,
+      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '第 2 章要达成的事' },
     });
     project.invalidate();
     replyFn = () => PLOT_JSON;
@@ -383,8 +385,8 @@ describe('面板销毁：卡片作废，产物不落盘', () => {
   before(async () => {
     t.remove(P1);
     await new bundle.ws.Workspace(project).writePlot({
-      no: 1, title: '夜入青云', arc: '', upstreamHash: '', done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 目标: '第 1 章要达成的事' },
+      no: 1, title: '夜入青云', role: '', characters: [], upstreamHash: '', done: false,
+      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '第 1 章要达成的事' },
     });
     project.invalidate();
     replyFn = () => PLOT_JSON;
@@ -412,6 +414,111 @@ describe('面板销毁：卡片作废，产物不落盘', () => {
 
   test('记成「未采纳」', () => {
     assert.equal(r.assistant.artifact.declined, true, JSON.stringify(r.assistant.artifact));
+  });
+});
+
+/**
+ * 写正文：答了才落到**同号的章节**上。没有中转站了——从前这一步写进
+ * `manuscripts/`，要等作者拆章才进 `chapters/`。
+ */
+describe('写正文 → 当场问一句 → 落到同号章节', () => {
+  const CHAPTER = 'chapters/001-夜入青云.md';
+  let r;
+  let chapterWhenAsked;
+  let again;
+  let reviewedAgain;
+
+  before(async () => {
+    replyFn = () => '雨下了三天，青云宗的石阶泡得发白。';
+    onGate = async () => {
+      chapterWhenAsked = t.has(CHAPTER);
+      return 'proceed';
+    };
+    r = await send({ kind: 'manuscript', plotRelPath: P1 }, { stage: 'manuscript' });
+
+    // 再写一次：追加在末尾，不覆盖，所以也不弹覆盖审阅。
+    replyFn = () => '他数到第三盏灯才动。';
+    onGate = async () => 'proceed';
+    h.expect();
+    again = await send({ kind: 'manuscript', plotRelPath: P1 }, { stage: 'manuscript' });
+    reviewedAgain = h.reviewed.length;
+  });
+
+  test('问了这一句', () => {
+    assert.ok(r.gate, JSON.stringify(posted.map((m) => m.type)));
+  });
+
+  // 正文永远是追加，不会吞掉已有的东西——卡片上说「写入」，不吓唬人说「覆盖」。
+  test('卡片说的是写入，不是覆盖', () => {
+    assert.ok(r.gate.title.includes('写入到'), r.gate.title);
+    assert.ok(again.gate.title.includes('写入到'), again.gate.title);
+  });
+
+  test('卡片说得出是多少字的正文', () => {
+    assert.ok(r.gate.detail.startsWith('正文 · '), r.gate.detail);
+  });
+
+  test('还没答时章节不存在', () => {
+    assert.equal(chapterWhenAsked, false);
+  });
+
+  test('答了才新建同号的章节', () => {
+    assert.ok(t.read(CHAPTER).includes('石阶泡得发白'), t.read(CHAPTER));
+  });
+
+  test('气泡上记下写到哪个章节了', () => {
+    assert.equal(r.assistant.acceptedTo, CHAPTER, JSON.stringify(r.assistant));
+  });
+
+  test('细纲上记下 writtenFrom', async () => {
+    const plot = await project.readPlot(P1);
+    assert.equal(plot.writtenFrom, bundle.pipe.plotContentHash(plot));
+  });
+
+  test('再写一次追加在同一章末尾', () => {
+    const text = t.read(CHAPTER);
+    assert.ok(text.includes('石阶泡得发白') && text.includes('第三盏灯'), text);
+    assert.equal(again.assistant.acceptedTo, CHAPTER);
+  });
+
+  test('追加不弹覆盖审阅', () => {
+    assert.equal(reviewedAgain, 0);
+  });
+});
+
+/**
+ * 拆细纲给下一章找的落点是纯序号的占位路径（主按钮的 target 就是
+ * `plotPathForNo(N, '')`）。细纲按产物带的标题落盘，文件名于是与占位路径不同。
+ */
+describe('拆细纲落在占位路径上', () => {
+  const PLACEHOLDER = '.novelforge/plots/003.md';
+  const REAL = '.novelforge/plots/003-雪夜.md';
+  let r;
+  let pipe;
+
+  before(async () => {
+    replyFn = () => JSON.stringify({ title: '雪夜', ...JSON.parse(PLOT_JSON) });
+    onGate = async () => 'proceed';
+    r = await send({ kind: 'plot', plotRelPath: PLACEHOLDER });
+    pipe = posted.filter((m) => m.type === 'pipeline').pop();
+  });
+
+  test('细纲按产物的标题落盘', () => {
+    assert.ok(t.has(REAL), REAL);
+    assert.equal(r.assistant.acceptedTo, REAL, JSON.stringify(r.assistant));
+  });
+
+  // 采纳后会话 target 改到真实路径（`retargetPlot`），流水线也按章号认得这份细纲：
+  // 流水线条不再说「这一章还没有细纲」，主按钮转到写正文。否则再点一次，新产物会
+  // 落回占位路径（见 creation.test.js 同名用例）。
+  test('写完之后流水线条认得这一章，主按钮转到写正文', () => {
+    assert.equal(pipe?.pipeline?.plot.exists, true, JSON.stringify(pipe?.pipeline?.plot));
+    assert.equal(pipe?.next?.stage, 'manuscript', JSON.stringify(pipe?.next));
+  });
+
+  test('会话 target 跟到了真实路径', () => {
+    const session = posted.filter((m) => m.type === 'session').pop()?.session;
+    assert.equal(session?.target?.plotRelPath, REAL, JSON.stringify(session?.target));
   });
 });
 

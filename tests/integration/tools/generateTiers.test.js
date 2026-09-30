@@ -4,12 +4,15 @@
  * | 层 | 用哪个 | 为什么 |
  * |---|---|---|
  * | 正文 | **对话页选定的那个** | 中途换人会让文风断掉 |
- * | 大纲 | 同上 | 一次定调，没有对应档位 |
- * | 卷纲 | 同上 | 一卷定调，同样没有对应档位 |
- * | 剧情 | `plotOutline` 档 | 与工程页「批量写剧情」同一个模型 |
+ * | 架构 | 同上 | 一次定调，没有对应档位 |
+ * | 大纲 | 同上 | 同上 |
+ * | 细纲 | `plotOutline` 档 | 与工程页「批量写细纲」同一个模型 |
  *
  * 还有一条容易漏的：走池时**窗口要跟着干活那个模型走**（第 13 条），
  * 拿 200k 的对话模型窗口给快速档的 32k 模型装配上下文会稳定超窗。
+ *
+ * 正文层的 target 用**章节路径**给（`chapters/NNN-标题.md`）：一章一纲之后正文直接
+ * 落在那里，工具按章号去认同号的细纲。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -27,9 +30,9 @@ let ctx;
 let settings;
 
 const PLOT_REL = '.novelforge/plots/001-夜入青云.md';
-const MANUSCRIPT_REL = '.novelforge/manuscripts/001-夜入青云.md';
+const CHAPTER_REL = 'chapters/001-夜入青云.md';
 const OUTLINE_REL = '.novelforge/outline.md';
-const VOLUME_REL = '.novelforge/volumes/01-觉醒之日.md';
+const CONFIG_REL = '.novelforge/config.md';
 
 const tool = () => bundle.tools.NOVEL_TOOLS.find((x) => x.name === 'generate');
 const run = (args) => tool().run(ctx, args);
@@ -74,23 +77,22 @@ before(async () => {
         kind: 'vscode-lm',
         models: [
           { name: 'plotter', contextWindow: 64000, maxOutputTokens: 2000 },
-          { name: 'splitter', contextWindow: 32000, maxOutputTokens: 1000 },
+          { name: 'quick', contextWindow: 32000, maxOutputTokens: 1000 },
         ],
       },
     ],
     models: ['chat/big'],
     // plotOutline 默认归均衡档。
-    tierModels: { balanced: ['cheap/plotter'], fast: ['cheap/splitter'], quality: [] },
+    tierModels: { balanced: ['cheap/plotter'], fast: ['cheap/quick'], quality: [] },
     concurrency: 1,
   };
   bundle.host.initHost(makeFakeHost({ supportsVscodeLm: true, settings: () => settings }).host);
   fake = installFakeProvider(bundle.registry, {
     reply: () =>
       JSON.stringify({
-        目标: '进入宗门',
-        剧情脉络: '踩点、失手、翻墙。',
-        冲突与转折: '三拍',
-        伏笔与回收: '令牌',
+        本章目的: '进入宗门',
+        关键事件: '踩点、失手、翻墙。',
+        章末钩子: '墙内有人在等他。',
       }),
     errors: { LlmError: bundle.provider.LlmError, CancelledError: bundle.provider.CancelledError },
   });
@@ -101,18 +103,11 @@ before(async () => {
   await ws.writePlot({
     no: 1,
     title: '夜入青云',
-    arc: '',
+    role: '',
+    characters: [],
     upstreamHash: '',
     done: false,
-    sections: { ...bundle.plotFile.emptyPlotSections(), 目标: '进入宗门' },
-  });
-  // 卷纲那一层要有个真文件才落得出目标。
-  await ws.writeVolume({
-    no: 1,
-    title: '觉醒之日',
-    upstreamHash: '',
-    done: false,
-    sections: { 目标: '走出青云镇', 剧情走向: '甲、乙。', 关键转折: '', 伏笔与回收: '' },
+    sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '进入宗门' },
   });
   await project.syncManifest();
   resetCtx();
@@ -122,7 +117,7 @@ after(() => {
   if (t) cleanup(t.dir, bundle && bundle.db);
 });
 
-describe('剧情层走 plotOutline 档', () => {
+describe('细纲层走 plotOutline 档', () => {
   before(async () => {
     resetCtx();
     await run({ target: PLOT_REL, capability: 'generate' });
@@ -137,7 +132,7 @@ describe('剧情层走 plotOutline 档', () => {
 describe('正文层严格用对话页选定的那个模型', () => {
   before(async () => {
     resetCtx();
-    await run({ target: MANUSCRIPT_REL, capability: 'generate' });
+    await run({ target: CHAPTER_REL, capability: 'generate' });
   });
 
   test('不走池', () => {
@@ -147,7 +142,8 @@ describe('正文层严格用对话页选定的那个模型', () => {
   test('把那一档配得再满也不换', async () => {
     resetCtx();
     settings.tierModels.balanced = ['cheap/plotter'];
-    await run({ target: MANUSCRIPT_REL, capability: 'generate' });
+    settings.tierModels.fast = ['cheap/quick'];
+    await run({ target: CHAPTER_REL, capability: 'generate' });
     assert.equal(fake.calls[0].ref, 'chat/big', String(fake.calls[0].ref));
   });
 });
@@ -160,20 +156,27 @@ describe('大纲层也用对话页那个（一次定调，没有对应档位）'
   });
 });
 
-// 卷纲独立成阶段之后仍然没有自己的档位：一卷定调，与大纲同理。
-describe('卷纲层也用对话页那个', () => {
+// 架构四件是全书的定调，与大纲同理：没有档位，用作者在对话页选的那个。
+describe('架构层也用对话页那个', () => {
   test('不走池', async () => {
     resetCtx();
-    await run({ target: VOLUME_REL, capability: 'generate' });
+    await run({ target: CONFIG_REL, capability: 'generate' });
     assert.equal(fake.calls[0].ref, 'chat/big', String(fake.calls[0].ref));
   });
 });
 
-// 拆场景那一档随场景层一起删掉了。忘记删的话，设置页会多出一行点了没用的
-// 档位，而作者会以为自己在配一个真存在的任务。
-describe('拆场景那个档位没了', () => {
-  test('不在任务清单里', () => {
+// 拆场景、拆卷那两档随那两层一起删掉了。忘记删的话，设置页会多出一行点了
+// 没用的档位，而作者会以为自己在配一个真存在的任务。
+describe('删掉的层没有留下档位', () => {
+  test('拆场景不在任务清单里', () => {
     assert.ok(!bundle.tiers.LLM_TASKS.includes('sceneBreakdown'), bundle.tiers.LLM_TASKS.join(','));
+  });
+
+  test('没有卷那一层的任务', () => {
+    assert.ok(
+      !bundle.tiers.LLM_TASKS.some((task) => /volume|split/i.test(task)),
+      bundle.tiers.LLM_TASKS.join(',')
+    );
   });
 });
 

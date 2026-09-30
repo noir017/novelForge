@@ -5,72 +5,187 @@
  *   == 创作流水线条与下一步 ==（389） == 工作区卡 ==（544）
  *   == / 命令面板 ==（617）          == 选中章节进入当前阶段 ==（720）
  *   == 独立版壳上的创作页 ==（770）
+ *
+ * 一章一纲之后（commit 4e0d289）：阶段是「架构 / 大纲 / 细纲 / 正文」，流水线条上
+ * 一章只剩「细纲 / 正文」两格加一个定稿状态；卷纲那一格、目标字数输入框都没了。
+ * 主按钮发的是**状态机给的 target 与 range**——从前发的是会话当下的 target，
+ * 按钮上写着一件事、落盘时写到了另一处（§3.1-1）。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   mount, JSDOM_SKIP,
-  turn, emptySession, pipelineView, workbenchView, viewState, sampleTree,
+  emptySession, pipelineView, workbenchView, viewState, sampleTree,
 } = require('../../helpers/dom');
+
+const PLOT_12 = '.novelforge/plots/012-夜入青云.md';
 
 describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
   let ui;
   let sentStep;
   let act;
+  const crumbBox = () => ui.doc.getElementById('pipelineCrumb');
   const crumbs = () => [...ui.doc.querySelectorAll('#pipelineCrumb .crumb')].map((n) => n.textContent);
+  const stagesBox = () => ui.doc.getElementById('pipelineStages');
   const stages = () => [...ui.doc.querySelectorAll('#pipelineStages .pstage')];
+  const stage = (label) => stages().find((n) => n.querySelector('.pstage-label')?.textContent === label);
+  const summaryState = () => ui.doc.querySelector('#pipelineStages .psummary');
   const lastSetTarget = () => [...ui.sent].reverse().find((m) => m.type === 'setTarget');
+  const lastSend = () => [...ui.sent].reverse().find((m) => m.type === 'send');
   const goBtn = () => ui.doc.getElementById('nextStepBtn');
   const hint = () => ui.doc.getElementById('nextStepHint').textContent;
+  const renameBtn = () => ui.doc.getElementById('renamePlotBtn');
+  /** 点主按钮，取它发出的那一条 send，然后把 busy 放回去（点了就会置 busy）。 */
+  const runStep = () => {
+    ui.doc.getElementById('input').value = '';
+    ui.clickEl(goBtn());
+    const msg = lastSend();
+    ui.post({ type: 'busy', value: false });
+    return msg;
+  };
+  const chapterSession = (extra) =>
+    emptySession({
+      target: { kind: 'manuscript', plotRelPath: PLOT_12 },
+      stage: 'manuscript',
+      capability: 'discuss',
+      ...extra,
+    });
 
   before(() => {
     ui = mount();
-    // ---- 大纲阶段 ----
+    // ---- 情节大纲那一层（emptySession 的缺省）----
     ui.post({ type: 'session', session: emptySession() });
   });
 
-  test('大纲阶段收起段名信息条', () => {
-    assert.ok(ui.doc.getElementById('pipelineCrumb').classList.contains('hidden'));
+  // 从前全书那一层没有具体落点可报，整条收起。现在架构与大纲各有名字，
+  // 面包屑照样报「在哪」——只是下面那两格没有意义了。
+  test('大纲层显示面包屑「情节大纲」', () => {
+    assert.ok(!crumbBox().classList.contains('hidden'));
+    assert.deepEqual(crumbs(), ['情节大纲']);
   });
 
-  test('大纲阶段收起三层状态', () => {
-    assert.ok(ui.doc.getElementById('pipelineStages').classList.contains('hidden'));
+  test('大纲层收起细纲 / 正文两格', () => {
+    assert.ok(stagesBox().classList.contains('hidden'));
   });
 
-  // 全书大纲那一层没有段可改名，留一个点了会报错的按钮比没有更糟。
-  test('大纲阶段收起重命名按钮', () => {
-    assert.ok(ui.doc.getElementById('renamePlotBtn').classList.contains('hidden'));
+  // 大纲那一层没有章可改名，留一个点了会报错的按钮比没有更糟。
+  test('大纲层收起重命名按钮', () => {
+    assert.ok(renameBtn().classList.contains('hidden'));
   });
 
-  // 全书大纲阶段没有「这一段的三层」，但一样有下一步（去写大纲）。
-  test('大纲阶段也给下一步', () => {
+  // 徽章说的是「这一章走到哪了」，大纲不是一章。
+  test('大纲层不挂章节状态徽章', () => {
+    assert.equal(ui.doc.querySelector('#pipelineCrumb .cstage'), null);
+  });
+
+  // 全书那一层同样有下一步（生成 / 续写大纲、拆细纲），而且带章号区间。
+  test('大纲层也给下一步', () => {
     ui.post({
       type: 'pipeline',
-      workbench: workbenchView({ stage: 'outline', title: '全书大纲', sections: [], empty: '这部书还没有大纲。' }),
-      next: { stage: 'outline', capability: 'generate', label: '生成大纲', hint: '先定下这个故事讲什么。', target: { kind: 'outline' } },
+      workbench: workbenchView({ stage: 'outline', title: '情节大纲', sections: [], empty: '这部书还没有情节大纲。' }),
+      next: {
+        stage: 'outline',
+        capability: 'generate',
+        label: '生成情节大纲（第 1–20 章）',
+        hint: '按故事结构把全书的走向排出来，按章号区间分节。',
+        target: { kind: 'outline' },
+        range: { from: 1, to: 20 },
+      },
     });
-    assert.equal(goBtn().textContent, '生成大纲', goBtn().textContent);
+    assert.equal(goBtn().textContent, '生成情节大纲（第 1–20 章）', goBtn().textContent);
   });
 
   test('下一步给出理由', () => {
-    assert.ok(hint().includes('先定下'), hint());
+    assert.ok(hint().includes('按故事结构'), hint());
   });
 
-  // ---- 切到某一段的正文 ----
-  test('信息条只显示段名', () => {
+  // 区间本期只透传、不影响生成（二期才按区间一次出多章），但必须原样到后端。
+  test('主按钮透传状态机给的区间', () => {
+    sentStep = runStep();
+    assert.ok(sentStep, '没发出 send');
+    assert.equal(sentStep.payload.range?.from, 1, JSON.stringify(sentStep.payload));
+    assert.equal(sentStep.payload.range?.to, 20, JSON.stringify(sentStep.payload));
+  });
+
+  // 没有 step.no 时 targetNo 取区间起点——那是这一步开工的那一章。
+  test('没有章号时 targetNo 取区间起点', () => {
+    assert.equal(sentStep.payload.targetNo, 1, JSON.stringify(sentStep.payload));
+  });
+
+  // W1：目标字数只认细纲（或 config.md 的每章字数）。输入框下面那个默认 2000 的
+  // 数字框删了，payload 里也不该再捎一个——两处都能写，作者分不清哪个生效。
+  test('主按钮的 payload 不再带 targetWords', () => {
+    assert.ok(!('targetWords' in sentStep.payload), JSON.stringify(sentStep.payload));
+  });
+
+  // ---- ★ 本期修的那个 bug（§3.1-1）：主按钮发的是 step.target，不是会话的 target
+  //
+  // 会话停在大纲，全书状态机说下一步是「拆细纲（第 1–5 章）」、落点是第 1 章的细纲。
+  // 从前 payload 只覆盖了 stage 与 capability，target 仍是会话那份（大纲），
+  // 于是产出的细纲被当成大纲写回了 outline.md。
+  test('主按钮发的是状态机给的 target，不是会话当前的', () => {
+    ui.post({
+      type: 'pipeline',
+      workbench: workbenchView({ stage: 'outline', title: '情节大纲' }),
+      next: {
+        stage: 'plot',
+        capability: 'generate',
+        label: '拆细纲（第 1–5 章）',
+        hint: '从情节大纲里把接下来几章拆成一章一份的细纲。',
+        target: { kind: 'plot', plotRelPath: '.novelforge/plots/001-楔子.md' },
+        range: { from: 1, to: 5 },
+      },
+    });
+    sentStep = runStep();
+    assert.equal(sentStep.payload.target.kind, 'plot', JSON.stringify(sentStep.payload));
+    assert.equal(sentStep.payload.target.plotRelPath, '.novelforge/plots/001-楔子.md', JSON.stringify(sentStep.payload));
+  });
+
+  test('阶段与能力也跟着 step 走', () => {
+    assert.equal(sentStep.payload.stage, 'plot', JSON.stringify(sentStep.payload));
+    assert.equal(sentStep.payload.capability, 'generate', JSON.stringify(sentStep.payload));
+  });
+
+  test('拆细纲那一步的区间原样透传', () => {
+    assert.equal(sentStep.payload.range?.from, 1, JSON.stringify(sentStep.payload));
+    assert.equal(sentStep.payload.range?.to, 5, JSON.stringify(sentStep.payload));
+  });
+
+  // ---- 架构那一层 ----
+  // 阶段叫「架构」，避免和设定条目（lore，界面上叫「设定」）撞名。
+  test('架构层面包屑写「故事架构 · 故事前提」', () => {
     ui.post({
       type: 'session',
-      session: emptySession({
-        target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
-        stage: 'manuscript',
-        capability: 'discuss',
-      }),
+      session: emptySession({ target: { kind: 'setting', doc: 'premise' }, stage: 'setting', capability: 'discuss' }),
     });
+    assert.ok(!crumbBox().classList.contains('hidden'));
+    assert.deepEqual(crumbs(), ['故事架构 · 故事前提']);
+  });
+
+  test('架构层同样收起两格', () => {
+    assert.ok(stagesBox().classList.contains('hidden'));
+  });
+
+  test('架构层收起重命名按钮', () => {
+    assert.ok(renameBtn().classList.contains('hidden'));
+  });
+
+  // 没有下一步、也不在某一章上：全书写完了。不造一个假的下一步。
+  test('全书层没有下一步时收起主按钮并说明', () => {
+    ui.post({ type: 'pipeline', workbench: workbenchView({ stage: 'setting', title: '架构 · 故事前提' }) });
+    assert.ok(goBtn().classList.contains('hidden'));
+    assert.ok(hint().includes('全书都写完了'), hint());
+  });
+
+  // ---- 切到某一章的正文 ----
+  test('面包屑只报这一章', () => {
+    ui.post({ type: 'session', session: chapterSession() });
     ui.post({
       type: 'pipeline',
       pipeline: pipelineView({
-        manuscript: {
-          relPath: '.novelforge/manuscripts/012-夜入青云.md',
+        chapter: {
+          exists: true,
+          relPath: 'chapters/012-夜入青云.md',
           words: 1200,
           targetWords: 3000,
           upstreamStale: true,
@@ -78,92 +193,119 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
         stage: 'manuscript',
         progress: { plot: 1, manuscript: 0.5, summary: 0 },
       }),
-      workbench: workbenchView({ stage: 'manuscript', title: '正文 · 第 12 段《夜入青云》' }),
+      workbench: workbenchView({ stage: 'manuscript', title: '正文 · 第 12 章《夜入青云》' }),
       next: {
         stage: 'manuscript',
         capability: 'generate',
-        label: '重写正文',
-        hint: '剧情改过，现有正文可能已经与它对不上。',
-        target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
+        label: '重写第 12 章',
+        hint: '细纲改过，现有正文可能已经与它对不上。',
+        target: { kind: 'manuscript', plotRelPath: PLOT_12 },
       },
     });
-    assert.equal(crumbs().length, 1, crumbs().join('|'));
-    assert.ok(crumbs()[0].includes('夜入青云'), crumbs().join('|'));
+    assert.deepEqual(crumbs(), ['第 12 章《夜入青云》']);
   });
 
   test('信息条不是按钮', () => {
     assert.ok([...ui.doc.querySelectorAll('#pipelineCrumb .crumb')].every((n) => n.tagName === 'SPAN'));
   });
 
-  // 这三格是**当前这一段的上游链**：所属那一卷的卷纲 → 它的细纲 → 它的正文。
-  // 从前第一格是「细节」（那一段拆出来的场景），那一层已经删掉。
-  test('展开三层状态（卷纲/剧情/正文）', () => {
-    assert.equal(stages().length, 3, stages().map((n) => n.textContent).join('|'));
+  // 一章一纲之后这一章的上游链只剩两格：它的细纲 → 它的正文。定稿不是一个
+  // 创作阶段（它是写完之后的一步工程动作），只给状态不给按钮。
+  test('展开两格：细纲 / 正文', () => {
+    assert.ok(!stagesBox().classList.contains('hidden'));
+    assert.deepEqual(stages().map((n) => n.querySelector('.pstage-label').textContent), ['细纲', '正文']);
   });
 
-  test('第一格是卷纲', () => {
-    assert.ok(stages()[0].textContent.includes('卷纲'), stages().map((n) => n.textContent).join('|'));
-  });
-
-  test('不再有「细节」那一格', () => {
-    assert.ok(
-      !stages().some((n) => n.textContent.includes('细节')),
-      stages().map((n) => n.textContent).join('|')
-    );
-  });
-
-  // 这一章的状态徽章：与工程页那一列同一份文案。
+  // 这一章的状态徽章：与工程页那一列同一份文案（PLOT_STAGE_LABEL）。
   test('信息条带这一章的状态徽章', () => {
     const badge = ui.doc.querySelector('#pipelineCrumb .cstage');
     assert.ok(badge, '没有徽章');
     assert.equal(badge.textContent, '待写正文', badge?.textContent);
   });
 
-  // 三态圆点：卷纲与剧情完成、正文进行中——不是百分比条。
-  test('剧情标成已完成', () => {
-    assert.ok(stages().find((n) => n.textContent.includes('剧情')).querySelector('.pstage-mark.done'));
-  });
-
-  // 卷纲那一格不在 `PipelineProgress` 里（那份进度按段算，卷纲是段的上游），
-  // 单独取：有卷纲且写过走向就算齐。
-  test('卷纲标成已完成', () => {
-    assert.ok(stages().find((n) => n.textContent.includes('卷纲')).querySelector('.pstage-mark.done'));
+  // 三态圆点：细纲完成、正文进行中——不是百分比条。
+  test('细纲标成已完成', () => {
+    assert.ok(stage('细纲').querySelector('.pstage-mark.done'), stage('细纲').outerHTML);
   });
 
   test('正文标成进行中', () => {
-    assert.ok(stages().find((n) => n.textContent.includes('正文')).querySelector('.pstage-mark.partial'));
+    assert.ok(stage('正文').querySelector('.pstage-mark.partial'), stage('正文').outerHTML);
   });
 
   test('不再画百分比条', () => {
     assert.ok(!ui.doc.querySelector('.pstage-bar'));
   });
 
-  // 上游变过的那一段挂 ⟳。这是整条流水线最有价值的一格信息。
-  test('正文段标出上游已变更', () => {
-    const manuscriptStage = stages().find((n) => n.textContent.includes('正文'));
-    assert.ok(manuscriptStage.querySelector('.pstage-stale'));
+  // 会话停在哪一层，哪一格就亮着。
+  test('当前所在那一层高亮', () => {
+    assert.ok(stage('正文').classList.contains('active'));
+    assert.ok(!stage('细纲').classList.contains('active'));
   });
 
-  test('这一章没有变更标记', () => {
-    assert.ok(!stages().find((n) => n.textContent.includes('剧情')).querySelector('.pstage-stale'));
+  // ⟳ 是整条流水线最有价值的一格信息：细纲在正文写完之后改过。
+  test('正文那一格标出上游已变更', () => {
+    assert.ok(stage('正文').querySelector('.pstage-stale'), stage('正文').outerHTML);
+  });
+
+  test('细纲那一格没有变更标记', () => {
+    assert.ok(!stage('细纲').querySelector('.pstage-stale'));
+  });
+
+  // 定稿：写了正文还没有摘要 → 待定稿，并标成待办。
+  test('写了没定稿报「待定稿」', () => {
+    assert.equal(summaryState()?.textContent, '待定稿');
+    assert.ok(summaryState().classList.contains('stale'), summaryState().className);
   });
 
   // ---- 主按钮：点了就跑，不必先输入 ----
   test('主按钮空输入也能发', () => {
-    ui.doc.getElementById('input').value = '';
     const beforeSend = ui.sent.filter((m) => m.type === 'send').length;
-    ui.clickEl(goBtn());
-    sentStep = [...ui.sent].reverse().find((m) => m.type === 'send');
+    sentStep = runStep();
     assert.equal(ui.sent.filter((m) => m.type === 'send').length, beforeSend + 1);
   });
 
-  test('主按钮带上状态机给的能力', () => {
+  test('主按钮带上状态机给的阶段与能力', () => {
     assert.equal(sentStep.payload.stage, 'manuscript', JSON.stringify(sentStep.payload));
     assert.equal(sentStep.payload.capability, 'generate', JSON.stringify(sentStep.payload));
+  });
+
+  test('主按钮带上状态机给的 target', () => {
+    assert.equal(sentStep.payload.target.kind, 'manuscript', JSON.stringify(sentStep.payload));
+    assert.equal(sentStep.payload.target.plotRelPath, PLOT_12, JSON.stringify(sentStep.payload));
+  });
+
+  // 单章那一步没有区间，别把上一步的区间捎过去。
+  test('没有区间的那一步不带 range', () => {
+    assert.equal(sentStep.payload.range, undefined, JSON.stringify(sentStep.payload));
+  });
+
+  // 输入框里有字就当补充要求一起带上。
+  test('输入框里的字作为补充要求带上', () => {
+    ui.doc.getElementById('input').value = '多写点雨里的细节';
+    ui.clickEl(goBtn());
+    assert.equal(lastSend().payload.text, '多写点雨里的细节', JSON.stringify(lastSend().payload));
+    assert.equal(ui.doc.getElementById('input').value, '', '发完没清空输入框');
     ui.post({ type: 'busy', value: false });
   });
 
-  // ---- 点击切目标（信息条本身不可点，靠下面的层按钮切）----
+  // ---- 生成中：主按钮会发起新的一轮，必须点不动 ----
+  test('生成中禁用主按钮', () => {
+    ui.post({ type: 'busy', value: true });
+    assert.ok(goBtn().disabled);
+  });
+
+  test('生成中点主按钮不发送', () => {
+    const before = ui.sent.filter((m) => m.type === 'send').length;
+    ui.clickEl(goBtn());
+    assert.equal(ui.sent.filter((m) => m.type === 'send').length, before);
+  });
+
+  test('生成结束后主按钮恢复', () => {
+    ui.post({ type: 'busy', value: false });
+    assert.ok(!goBtn().disabled);
+  });
+
+  // ---- 点击切目标（信息条本身不可点，靠下面的两格切）----
   test('点信息条不发 setTarget', () => {
     const before = ui.sent.filter((m) => m.type === 'setTarget').length;
     ui.clickEl(ui.doc.querySelector('#pipelineCrumb .crumb'));
@@ -200,142 +342,177 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
   });
 
   // ---- 「重命名当前这一章」按钮：面包屑右侧那支笔 ----
-  // 新建出来的段是纯序号名（标题要等剧情排完才定），所以命名是主流程的一步。
+  // 手工新建的细纲是纯序号名（标题要等细纲排完才定得下来），所以得有个常驻入口。
   test('重命名按钮在面包屑右侧', () => {
-    const btn = ui.doc.getElementById('renamePlotBtn');
-    assert.ok(btn, '没有 renamePlotBtn');
-    assert.equal(btn.parentElement?.id, 'pipelineTop');
+    assert.ok(renameBtn(), '没有 renamePlotBtn');
+    assert.equal(renameBtn().parentElement?.id, 'pipelineTop');
   });
 
   test('目标是某一章时按钮可见', () => {
-    assert.ok(!ui.doc.getElementById('renamePlotBtn').classList.contains('hidden'));
+    assert.ok(!renameBtn().classList.contains('hidden'));
   });
 
-  test('tooltip 带上段名', () => {
-    assert.ok(ui.doc.getElementById('renamePlotBtn').title.includes('夜入青云'),
-      ui.doc.getElementById('renamePlotBtn').title);
+  test('tooltip 带上章名', () => {
+    assert.ok(renameBtn().title.includes('夜入青云'), renameBtn().title);
   });
 
-  // 复用工程页右键那条 fileAction，不新增协议。
+  // 复用工程页右键那条 fileAction，不新增协议。改的是细纲（章号前缀保留）。
   test('点重命名发出 fileAction', () => {
-    ui.clickEl(ui.doc.getElementById('renamePlotBtn'));
+    ui.clickEl(renameBtn());
     const msg = [...ui.sent].reverse().find((m) => m.type === 'fileAction');
     assert.ok(msg, JSON.stringify(ui.sent));
     assert.equal(msg.action, 'rename', JSON.stringify(msg));
-    assert.equal(msg.relPath, '.novelforge/plots/012-夜入青云.md', JSON.stringify(msg));
+    assert.equal(msg.relPath, PLOT_12, JSON.stringify(msg));
   });
 
   test('生成中禁用重命名按钮', () => {
     ui.post({ type: 'busy', value: true });
-    assert.ok(ui.doc.getElementById('renamePlotBtn').disabled);
+    assert.ok(renameBtn().disabled);
     ui.post({ type: 'busy', value: false });
-    assert.ok(!ui.doc.getElementById('renamePlotBtn').disabled);
+    assert.ok(!renameBtn().disabled);
   });
 
   test('生成中点重命名不发 fileAction', () => {
     ui.post({ type: 'busy', value: true });
     const before = ui.sent.filter((m) => m.type === 'fileAction').length;
-    ui.clickEl(ui.doc.getElementById('renamePlotBtn'));
+    ui.clickEl(renameBtn());
     assert.equal(ui.sent.filter((m) => m.type === 'fileAction').length, before);
     ui.post({ type: 'busy', value: false });
   });
 
-  test('点剧情层发出 setTarget', () => {
-    ui.clickEl(stages().find((n) => n.textContent.includes('剧情')));
+  test('点细纲那一格发出 setTarget', () => {
+    ui.clickEl(stage('细纲'));
     assert.equal(lastSetTarget()?.target.kind, 'plot', JSON.stringify(lastSetTarget()));
   });
 
   test('切层保留当前这一章', () => {
-    assert.equal(lastSetTarget()?.target.plotRelPath, '.novelforge/plots/012-夜入青云.md');
+    assert.equal(lastSetTarget()?.target.plotRelPath, PLOT_12);
   });
 
-  // 卷路径只有后端算得出（段的归属靠目录），前端从推来的那份流水线里拿。
-  test('点卷纲层发出 setTarget，带的是卷路径', () => {
-    ui.clickEl(stages().find((n) => n.textContent.includes('卷纲')));
-    assert.equal(lastSetTarget()?.target.kind, 'volume', JSON.stringify(lastSetTarget()));
-    assert.equal(
-      lastSetTarget()?.target.volumeRelPath,
-      '.novelforge/volumes/01-觉醒之日.md',
-      JSON.stringify(lastSetTarget())
-    );
+  test('点正文那一格切到正文层', () => {
+    ui.clickEl(stage('正文'));
+    assert.equal(lastSetTarget()?.target.kind, 'manuscript', JSON.stringify(lastSetTarget()));
+    assert.equal(lastSetTarget()?.target.plotRelPath, PLOT_12);
   });
 
-  // ---- 未分卷的段（`plots/` 根下那些，老工程全是） ----
-  // 卷纲那一格对它们本来就不存在。**收起来而不是摆一个点了报错的按钮。**
-  test('未分卷的段不显示卷纲那一格', () => {
+  // 细纲改过（大纲那一节在细纲之后动过）时，⟳ 挂在细纲那一格上。
+  test('细纲的上游变过时细纲那一格挂 ⟳', () => {
     ui.post({
       type: 'pipeline',
-      pipeline: pipelineView({ volume: undefined }),
+      pipeline: pipelineView({ plot: { relPath: PLOT_12, exists: true, filled: true, upstreamStale: true } }),
+      workbench: workbenchView(),
+    });
+    assert.ok(stage('细纲').querySelector('.pstage-stale'), stage('细纲').outerHTML);
+  });
+
+  // 还没有正文时别把一格空的说成「待定稿」。
+  test('还没写正文报「未写正文」', () => {
+    ui.post({ type: 'pipeline', pipeline: pipelineView(), workbench: workbenchView() });
+    assert.equal(summaryState()?.textContent, '未写正文');
+    assert.ok(!summaryState().classList.contains('stale'), summaryState().className);
+  });
+
+  // ---- 全做完的章不催 ----
+  test('定稿过的章报「已定稿」', () => {
+    ui.post({
+      type: 'pipeline',
+      pipeline: pipelineView({
+        chapter: { exists: true, relPath: 'chapters/012-夜入青云.md', words: 3000, targetWords: 3000, upstreamStale: false },
+        summary: { exists: true, stale: false },
+        stage: 'done',
+        progress: { plot: 1, manuscript: 1, summary: 1 },
+      }),
       workbench: workbenchView(),
       next: undefined,
     });
-    assert.equal(stages().length, 2, stages().map((n) => n.textContent).join('|'));
-    assert.ok(
-      !stages().some((n) => n.textContent.includes('卷纲')),
-      stages().map((n) => n.textContent).join('|')
-    );
+    assert.equal(summaryState()?.textContent, '已定稿');
   });
 
-  // ---- 全做完的段不催 ----
   test('没有下一步时收起主按钮', () => {
-    ui.post({
-      type: 'pipeline',
-      pipeline: pipelineView({ stage: 'done', progress: { plot: 1, manuscript: 1, summary: 1 } }),
-      workbench: workbenchView(),
-      next: undefined,
-    });
     assert.ok(goBtn().classList.contains('hidden'));
   });
 
   test('没有下一步时说明为什么', () => {
-    assert.ok(hint().includes('各层都齐了'), hint());
+    assert.ok(hint().includes('这一章都齐了'), hint());
   });
 
-  // ---- 审阅阶段的下一步是工程动作，不是一轮对话 ----
-  let beforeAct;
-  test('审阅走工程动作', () => {
+  // 单章做完之后主按钮转去问全书，落到下一个该写的章——这时 step.target 与
+  // 会话的 target 指的是两章。发出去的必须是下一章。
+  test('这一章做完后，主按钮落到下一章', () => {
     ui.post({
       type: 'pipeline',
-      pipeline: pipelineView({ stage: 'review' }),
+      pipeline: pipelineView({ stage: 'done', progress: { plot: 1, manuscript: 1, summary: 1 } }),
+      workbench: workbenchView(),
+      next: {
+        stage: 'plot',
+        capability: 'generate',
+        label: '写第 13 章细纲',
+        hint: '先把这一章要发生什么定下来。',
+        target: { kind: 'plot', plotRelPath: '.novelforge/plots/013.md' },
+      },
+    });
+    sentStep = runStep();
+    assert.equal(sentStep.payload.target.plotRelPath, '.novelforge/plots/013.md', JSON.stringify(sentStep.payload));
+    assert.equal(sentStep.payload.target.kind, 'plot', JSON.stringify(sentStep.payload));
+  });
+
+  // ---- 定稿那一步是工程动作，不是一轮对话 ----
+  let beforeAct;
+  test('定稿走工程动作', () => {
+    ui.post({
+      type: 'pipeline',
+      pipeline: pipelineView({
+        chapter: { exists: true, relPath: 'chapters/012-夜入青云.md', words: 2980, targetWords: 3000, upstreamStale: false },
+        stage: 'finalize',
+        progress: { plot: 1, manuscript: 1, summary: 0 },
+      }),
       workbench: workbenchView(),
       next: {
         stage: 'manuscript',
         capability: 'generate',
-        projectAction: 'summarizePlot',
-        label: '总结这一段',
-        hint: '正文齐了。',
-        target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
-        relPath: '.novelforge/plots/012-夜入青云.md',
+        projectAction: 'finalizeChapter',
+        label: '定稿（生成摘要）',
+        hint: '正文写够了。',
+        target: { kind: 'manuscript', plotRelPath: PLOT_12 },
       },
     });
     beforeAct = ui.sent.filter((m) => m.type === 'send').length;
     ui.clickEl(goBtn());
     act = [...ui.sent].reverse().find((m) => m.type === 'projectAction');
-    assert.equal(act?.action, 'summarizePlot', JSON.stringify(act));
+    assert.equal(act?.action, 'finalizeChapter', JSON.stringify(act));
   });
 
-  // 段路径必须来自 next 而不是会话里的目标——后者可能还没同步，
-  // 而 summarizePlot 收到 undefined 会静默什么都不做。
-  test('工程动作带上段路径', () => {
-    assert.equal(act?.relPath, '.novelforge/plots/012-夜入青云.md', JSON.stringify(act));
+  // 路径必须来自 next.target 而不是会话里的目标——后者可能还没同步，
+  // 而工程动作拿不到对象会静默什么都不做。后端按章号把细纲路径认到同号正文上。
+  test('工程动作带上这一章的路径', () => {
+    assert.equal(act?.relPath, PLOT_12, JSON.stringify(act));
   });
 
   test('工程动作不占对话', () => {
     assert.equal(ui.sent.filter((m) => m.type === 'send').length, beforeAct);
   });
 
-  // ---- 目标换段时，上一段的进度不能留着显示 ----
-  test('换段后不再显示上一段的段名', () => {
+  test('工程动作不把界面锁进生成中', () => {
+    assert.ok(!goBtn().disabled);
+  });
+
+  // ---- 目标换章时，上一章的进度不能留着显示 ----
+  // 拿上一章的状态配这一章的名字，比什么都不显示更糟。
+  test('换章后不再显示上一章的章名', () => {
     ui.post({ type: 'pipeline', pipeline: pipelineView(), workbench: workbenchView() });
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/013-另一段.md' },
+        target: { kind: 'plot', plotRelPath: '.novelforge/plots/013-另一章.md' },
         stage: 'plot',
         capability: 'discuss',
       }),
     });
     assert.ok(!crumbs().some((c) => c.includes('夜入青云')), crumbs().join('|'));
+  });
+
+  test('换章后不再显示上一章的徽章', () => {
+    assert.equal(ui.doc.querySelector('#pipelineCrumb .cstage'), null);
   });
 });
 
@@ -361,17 +538,14 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
   /** 等过收起的宽限期（CLOSE_DELAY_MS 是 200ms）。 */
   const grace = () => wait(320);
 
-  const postScene = () =>
+  const postPlot = () =>
     ui.post({
       type: 'pipeline',
       pipeline: pipelineView(),
       workbench: workbenchView({
-        stage: 'scene',
-        title: '场景 2 翻越侧峰 · 第 12 章《夜入青云》',
-        relPath: '.novelforge/scenes/012-夜入青云/02-翻越侧峰.md',
         sections: [
-          { key: '这一幕', text: '青云宗侧峰 · 子时，暴雨 · 林昭' },
-          { key: '动作', text: '林昭把外衣搭在墙头\n数到第三盏灯才翻过去' },
+          { key: '本章目的', text: '林昭混进青云宗，拿到入门的腰牌' },
+          { key: '关键事件', text: '林昭把外衣搭在墙头\n数到第三盏灯才翻过去' },
         ],
       }),
     });
@@ -381,12 +555,12 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'scene', chapterRelPath: 'chapters/012-夜入青云.md', sceneNo: 2 },
-        stage: 'scene',
+        target: { kind: 'plot', plotRelPath: PLOT_12 },
+        stage: 'plot',
         capability: 'discuss',
       }),
     });
-    postScene();
+    postPlot();
   });
 
   // ---- 入口：一行，长在流水线条上（不在消息流里，不占版面）
@@ -400,7 +574,7 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
 
   test('入口上就写着在改哪一层', () => {
     const title = entry().querySelector('.wbt-entry-title');
-    assert.ok(title?.textContent.includes('场景 2'), title?.textContent);
+    assert.ok(title?.textContent.includes('细纲 · 第 12 章'), title?.textContent);
   });
 
   test('默认不显示浮窗', () => {
@@ -423,7 +597,7 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
   });
 
   test('浮窗标题说清在改哪一层', () => {
-    assert.ok(tip().querySelector('.wbt-title').textContent.includes('场景 2'),
+    assert.ok(tip().querySelector('.wbt-title').textContent.includes('细纲'),
       tip().querySelector('.wbt-title')?.textContent);
   });
 
@@ -431,11 +605,11 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
     assert.equal(rows().length, 2, rows().join('|'));
   });
 
-  test('素材逐行可见', () => {
+  test('关键事件逐行可见', () => {
     assert.ok(rows()[1].includes('搭在墙头') && rows()[1].includes('第三盏灯'), rows()[1]);
   });
 
-  // 场景素材是要抄进正文的，鼠标得进得来——所以收起有宽限期。
+  // 写正文时要对着细纲抄事件，鼠标得进得来——所以收起有宽限期。
   test('移开后有宽限期，浮窗还在', () => {
     leaveEntry();
     assert.ok(tip());
@@ -446,7 +620,7 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(!tip());
   });
 
-  // ---- 点一下钉住：照着场景素材写正文时鼠标要回输入框
+  // ---- 点一下钉住：照着细纲写正文时鼠标要回输入框
   test('点击立刻浮出来，不等延迟', () => {
     ui.clickEl(entry());
     assert.ok(tip());
@@ -474,7 +648,7 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
     ui.clickEl(entry());
     ui.clickEl(tip().querySelector('.wbt-open'));
     const opened = [...ui.sent].reverse().find((m) => m.type === 'openFile' || m.type === 'openEditor');
-    assert.equal(opened?.path, '.novelforge/scenes/012-夜入青云/02-翻越侧峰.md', JSON.stringify(opened));
+    assert.equal(opened?.path, PLOT_12, JSON.stringify(opened));
   });
 
   // 上游变更在浮窗里是一句人话，不只是流水线条上那个 ⟳。
@@ -483,9 +657,9 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'pipeline',
       pipeline: pipelineView(),
-      workbench: workbenchView({ stage: 'scene', warning: '本章细纲在这一场之后改过。' }),
+      workbench: workbenchView({ warning: '情节大纲里覆盖这一章的那一节在细纲之后改过，两者可能已经对不上。' }),
     });
-    assert.ok(tip()?.querySelector('.wbt-warning')?.textContent.includes('细纲在这一场之后改过'),
+    assert.ok(tip()?.querySelector('.wbt-warning')?.textContent.includes('在细纲之后改过'),
       tip()?.querySelector('.wbt-warning')?.textContent);
   });
 
@@ -504,9 +678,14 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'pipeline',
       pipeline: pipelineView(),
-      workbench: workbenchView({ stage: 'plan', sections: [], empty: '这一章还没有细纲。' }),
+      workbench: workbenchView({
+        stage: 'manuscript',
+        title: '正文 · 第 12 章《夜入青云》',
+        sections: [],
+        empty: '这一章没有细纲，写正文时模型只能照着前文往下编。',
+      }),
     });
-    assert.equal(tip()?.querySelector('.wbt-empty')?.textContent, '这一章还没有细纲。',
+    assert.equal(tip()?.querySelector('.wbt-empty')?.textContent, '这一章没有细纲，写正文时模型只能照着前文往下编。',
       tip()?.querySelector('.wbt-empty')?.textContent);
   });
 
@@ -550,7 +729,7 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
+        target: { kind: 'plot', plotRelPath: PLOT_12 },
         stage: 'plot',
         capability: 'discuss',
       }),
@@ -578,9 +757,9 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     assert.ok(ui.doc.querySelector('#composerInput .cmd-panel'));
   });
 
-  // 讨论不进面板（打字就是在讨论）。剧情层有 `/写剧情` 与 `/落定剧情` 两条——
-  // `split` 随场景层一起没了（剧情段就是最小的规划单位）。
-  test('剧情阶段两个命令', () => {
+  // 讨论不进面板（打字就是在讨论）。细纲层有 `/落定细纲` 与 `/写细纲` 两条——
+  // 细纲是唯一一层「先跟人聊、聊出结论再落文件」的东西，所以只有它有 settle。
+  test('细纲层两个命令', () => {
     assert.equal(items().length, 2, items().join('|'));
   });
 
@@ -588,8 +767,8 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     assert.ok(!items().some((s) => s.includes('讨论')), items().join('|'));
   });
 
-  test('剧情阶段有「落定剧情」', () => {
-    assert.ok(items().includes('/落定剧情'), items().join('|'));
+  test('细纲层有「落定细纲」与「写细纲」', () => {
+    assert.ok(items().includes('/落定细纲') && items().includes('/写细纲'), items().join('|'));
   });
 
   // 面板里的名字带斜杠：挑的和打的是同一样东西。
@@ -597,8 +776,8 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     assert.ok(items().every((s) => s.startsWith('/')), items().join('|'));
   });
 
-  // 剧情层没有拆分了：忘记删的话面板里会多一条点了什么都不发生的命令。
-  test('剧情阶段没有拆分命令', () => {
+  // 拆卷 / 拆段随卷与剧情段一起删了：忘记删的话面板里会多一条点了什么都不发生的命令。
+  test('细纲层没有拆分命令', () => {
     assert.ok(!items().some((s) => s.includes('拆')), items().join('|'));
   });
 
@@ -616,7 +795,7 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   test('按拼音首字母过滤', () => {
     type('ld');
     assert.equal(items().length, 1, items().join('|'));
-    assert.equal(items()[0], '/落定剧情', items().join('|'));
+    assert.equal(items()[0], '/落定细纲', items().join('|'));
   });
 
   test('过滤串跟着输入框走', () => {
@@ -641,7 +820,7 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   test('选中后收起面板', () => {
     type('/');
     beforePick = ui.sent.length;
-    ui.clickEl([...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('落定剧情')));
+    ui.clickEl([...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('落定细纲')));
     assert.ok(!panel());
   });
 
@@ -652,7 +831,7 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   test('选中变成待执行 chip', () => {
     const chip = ui.doc.querySelector('#pendingCmd .cmd-chip');
     assert.ok(chip, '没有 chip');
-    assert.ok(chip.textContent.includes('落定剧情'), chip?.textContent);
+    assert.ok(chip.textContent.includes('落定细纲'), chip?.textContent);
   });
 
   // chip 长在输入框**里面**：发送时用的是它的能力，它就是输入内容的一部分。
@@ -671,6 +850,12 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     ui.clickEl(ui.doc.getElementById('sendBtn'));
     const sent = [...ui.sent].reverse().find((m) => m.type === 'send');
     assert.equal(sent.payload.capability, 'settle', JSON.stringify(sent.payload));
+  });
+
+  // 挑命令那条路的落点是会话当前那一章（作者就是在这一章上挑的命令）。
+  test('挑命令发送时 target 是会话那一章', () => {
+    const sent = [...ui.sent].reverse().find((m) => m.type === 'send');
+    assert.equal(sent.payload.target.plotRelPath, PLOT_12, JSON.stringify(sent.payload));
   });
 
   test('发完清掉 chip', () => {
@@ -727,11 +912,25 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     assert.ok(ui.doc.getElementById('cmdBtn').disabled);
     ui.post({ type: 'busy', value: false });
   });
+
+  // 命令表按会话那一层取（`commandsFor(session.stage)`），前端不自己维护一份。
+  test('换到架构层后面板跟着换', () => {
+    setValue('');
+    ui.post({
+      type: 'session',
+      session: emptySession({ target: { kind: 'setting', doc: 'config' }, stage: 'setting', capability: 'discuss' }),
+    });
+    type('/');
+    assert.deepEqual(items(), ['/生成这份架构文档']);
+    key('Escape');
+    setValue('');
+  });
 });
 
 describe('选中一章进入当前阶段', { skip: JSDOM_SKIP }, () => {
   let ui;
   let select;
+  const options = () => [...select.options];
 
   before(() => {
     ui = mount();
@@ -739,59 +938,97 @@ describe('选中一章进入当前阶段', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'state',
       state: viewState({
-        plots: [{ no: 12, title: '夜入青云', wordCount: 0, relPath: '.novelforge/plots/012-夜入青云.md' }],
+        // 后端按章号升序给；每个章号一行，说法由后端给。
+        plots: [
+          { no: 11, label: '第 11 章《青崖》', title: '青崖', wordCount: 3000, relPath: 'chapters/011-青崖.md' },
+          { no: 12, label: '第 12 章《夜入青云》', title: '夜入青云', wordCount: 0, relPath: PLOT_12 },
+        ],
         nextNo: 13,
       }),
     });
     select = ui.doc.getElementById('targetSelect');
   });
 
-  // 下拉框选一段 = 进入那一段当前该做的那一步，由后端的状态机判定。
-  // 旧版一律发 setTarget({kind:'manuscript'})，于是选中一个连剧情都没排的
-  // 段，界面直接把作者丢进正文层。
+  // 第一项是回到全书那一层的入口：主按钮就是全书的下一步。
+  test('第一项是「全书（架构与大纲）」', () => {
+    assert.equal(options()[0].textContent, '全书（架构与大纲）');
+    assert.equal(options()[0].value, '0');
+  });
+
+  test('每个章号一行，最近的在上面', () => {
+    assert.deepEqual(options().slice(1).map((o) => o.textContent), ['第 12 章《夜入青云》', '第 11 章《青崖》']);
+  });
+
+  test('会话停在大纲时下拉停在「全书」', () => {
+    assert.equal(select.value, '0');
+  });
+
+  test('会话停在某一章时下拉停在那一章', () => {
+    ui.post({
+      type: 'session',
+      session: emptySession({ target: { kind: 'plot', plotRelPath: PLOT_12 }, stage: 'plot', capability: 'discuss' }),
+    });
+    assert.equal(select.value, '12');
+  });
+
+  test('会话停在架构文档时下拉回到「全书」', () => {
+    ui.post({
+      type: 'session',
+      session: emptySession({ target: { kind: 'setting', doc: 'world' }, stage: 'setting', capability: 'discuss' }),
+    });
+    assert.equal(select.value, '0');
+  });
+
+  // 下拉框选一章 = 进入那一章当前该做的那一步，由后端的状态机判定。
+  // 旧版一律发 setTarget({kind:'manuscript'})，于是选中一个连细纲都没排的
+  // 章，界面直接把作者丢进正文层。
   test('选一章发 selectPlot', () => {
     select.value = '12';
     select.dispatchEvent(new ui.window.Event('change', { bubbles: true }));
     const picked = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
-    assert.equal(picked?.plotRelPath, '.novelforge/plots/012-夜入青云.md', JSON.stringify(picked));
+    assert.equal(picked?.plotRelPath, PLOT_12, JSON.stringify(picked));
   });
 
   test('不再直接发 setTarget 到正文', () => {
     assert.ok(![...ui.sent].some((m) => m.type === 'setTarget' && m.target.kind === 'manuscript'));
   });
 
-  // 「新建第 N 章」那一项没有 relPath——那一章还不存在，只能落到大纲。
-  test('新建项落到大纲', () => {
-    select.value = '13';
+  // 「全书」那一项没有 relPath：回到大纲那一层，主按钮会是全书的下一步。
+  test('选「全书」回到大纲那一层', () => {
+    select.value = '0';
     select.dispatchEvent(new ui.window.Event('change', { bubbles: true }));
     const toOutline = [...ui.sent].reverse().find((m) => m.type === 'setTarget');
     assert.equal(toOutline?.target.kind, 'outline', JSON.stringify(toOutline));
   });
 
-  // 工程页点章名是**打开文件**，不切页——「进入这一章」挪进了右键菜单。
+  // 工程页点章名是**打开文件**，不切页——「进入这一章」在右键菜单与「去写这一章」里。
   // 在工程页上扫章节列表时，要看的多半就是这一章写成了什么样。
   test('工程页点章名打开文件，不发 selectPlot', () => {
     ui.post({ type: 'project', tree: sampleTree() });
     ui.sent.length = 0;
-    // 排掉卷那一组的行：它们刻意复用同一套样式类（`.row-plot`）。
-    const row = ui.doc.querySelector('#projectBody .row-plot:not(.row-volume) .row-label');
+    // 排掉「故事架构」那一组的行：它们刻意复用同一套样式类（`.row-plot`）。
+    const row = ui.doc.querySelector('#projectBody .row-plot:not(.row-architecture) .row-label');
     ui.clickEl(row);
     assert.ok(![...ui.sent].some((m) => m.type === 'selectPlot'), JSON.stringify(ui.sent));
     const open = [...ui.sent].reverse().find((m) => m.type === 'openFile');
     assert.equal(open?.path, 'chapters/001-楔子.md', JSON.stringify(open));
   });
 
-  // 剧情段那一行说的是「进入这一段」——它不是一章，一段可以拆成三章。
-  test('工程页右键「进入这一段」带细纲路径', () => {
+  test('工程页右键「进入这一章」带主路径', () => {
     ui.sent.length = 0;
-    const rows = [...ui.doc.querySelectorAll('#projectBody .row-plot:not(.row-volume)')];
-    ui.pick(ui.rightClick(rows.find((n) => n.textContent.includes('北行'))), '进入这一段');
+    const rows = [...ui.doc.querySelectorAll('#projectBody .row-plot:not(.row-architecture)')];
+    ui.pick(ui.rightClick(rows.find((n) => n.textContent.includes('北行'))), '进入这一章');
     const fromTree = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
-    assert.equal(
-      fromTree?.plotRelPath,
-      '.novelforge/plots/01-觉醒之日/004-北行.md',
-      JSON.stringify(fromTree)
-    );
+    assert.equal(fromTree?.plotRelPath, '.novelforge/plots/004-北行.md', JSON.stringify(fromTree));
+  });
+
+  // 「去写这一章」与右键「进入这一章」是同一件事，发的是同一条消息。
+  test('「去写这一章」与「进入这一章」发的是同一条', () => {
+    const viaMenu = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
+    ui.sent.length = 0;
+    ui.clickEl(ui.doc.querySelector('#projectBody .row-go'));
+    const viaButton = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
+    assert.equal(viaButton?.plotRelPath, viaMenu?.plotRelPath, JSON.stringify(ui.sent));
   });
 });
 
@@ -811,21 +1048,21 @@ describe('独立版壳上的创作页', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
+        target: { kind: 'plot', plotRelPath: PLOT_12 },
         stage: 'plot',
         capability: 'discuss',
       }),
     });
     ui.post({
       type: 'pipeline',
-      pipeline: pipelineView(),
+      pipeline: pipelineView({ stage: 'plot', plot: { relPath: PLOT_12, exists: true, filled: false, upstreamStale: false } }),
       workbench: workbenchView(),
       next: {
         stage: 'plot',
-        capability: 'split',
-        label: '拆成场景',
-        hint: '把这一段拆成 3~6 个能独立开写的场景。',
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
+        capability: 'generate',
+        label: '写第 12 章细纲',
+        hint: '先把这一章要发生什么定下来：本章目的、关键事件、章末钩子。',
+        target: { kind: 'plot', plotRelPath: PLOT_12 },
       },
     });
   });
@@ -833,7 +1070,7 @@ describe('独立版壳上的创作页', { skip: JSDOM_SKIP }, () => {
   test('独立版渲染当前产物入口', () => {
     const entry = ui.doc.getElementById('workbench');
     assert.ok(!entry.classList.contains('hidden'));
-    assert.ok(entry.querySelector('.wbt-entry-title')?.textContent.includes('剧情'),
+    assert.ok(entry.querySelector('.wbt-entry-title')?.textContent.includes('细纲'),
       entry.querySelector('.wbt-entry-title')?.textContent);
   });
 
@@ -843,8 +1080,13 @@ describe('独立版壳上的创作页', { skip: JSDOM_SKIP }, () => {
     ui.doc.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   });
 
+  test('独立版渲染两格', () => {
+    const labels = [...ui.doc.querySelectorAll('#pipelineStages .pstage-label')].map((n) => n.textContent);
+    assert.deepEqual(labels, ['细纲', '正文']);
+  });
+
   test('独立版渲染主按钮', () => {
-    assert.equal(ui.doc.getElementById('nextStepBtn').textContent, '拆成场景',
+    assert.equal(ui.doc.getElementById('nextStepBtn').textContent, '写第 12 章细纲',
       ui.doc.getElementById('nextStepBtn').textContent);
   });
 
@@ -859,6 +1101,7 @@ describe('独立版壳上的创作页', { skip: JSDOM_SKIP }, () => {
     ui.doc.getElementById('input').value = '';
     ui.clickEl(ui.doc.getElementById('nextStepBtn'));
     const sentStep = [...ui.sent].reverse().find((m) => m.type === 'send');
-    assert.equal(sentStep?.payload.capability, 'split', JSON.stringify(sentStep));
+    assert.equal(sentStep?.payload.capability, 'generate', JSON.stringify(sentStep));
+    assert.equal(sentStep?.payload.target.plotRelPath, PLOT_12, JSON.stringify(sentStep));
   });
 });

@@ -16,9 +16,8 @@ const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
 /**
- * 细纲与场景的写入搬进了 `core/workspace/`：改名要连带搬走场景目录与中转站
- * 正文、写入要记上游指纹、删除要进 `.trash/`，那些是网关的活。`NovelProject`
- * 这一层只留领域查询。
+ * 细纲的写入在 `core/workspace/`：文件名由章号与标题共同决定、写入要记上游指纹、
+ * 删除要进 `.trash/`，那些是网关的活。`NovelProject` 这一层只留领域查询。
  */
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
@@ -29,6 +28,7 @@ describe('fileOps.ts', () => {
   let fileOps;
   let charactersMod;
   let actionsMod;
+  let pipe;
   let h;
   let project;
   let dir;
@@ -46,6 +46,7 @@ describe('fileOps.ts', () => {
       fileOps: './src/core/files/fileOps.ts',
       characters: './src/core/features/characters.ts',
       actions: './src/core/actions.ts',
+      pipe: './src/core/views/pipeline.ts',
     });
     wsMod = bundle.ws;
     projectMod = bundle.project;
@@ -53,6 +54,7 @@ describe('fileOps.ts', () => {
     fileOps = bundle.fileOps;
     charactersMod = bundle.characters;
     actionsMod = bundle.actions;
+    pipe = bundle.pipe;
     // 原脚本的 host 字面量里没有 reviewReplace，必须显式抹掉：
     // characters.ts 用 `host.reviewReplace ? … : host.confirm(…)` 分支，
     // 默认 fakeHost 带着它会把用例送进另一条路径。
@@ -822,12 +824,12 @@ describe('fileOps.ts', () => {
   });
 
   /**
-   * 单段摘要的浮窗视图（工程页鼠标悬停在剧情行上时按需取一次）。
+   * 单章摘要的浮窗视图（工程页鼠标悬停在章节行上时按需取一次）。
    *
    * 与 `buildProjectTree` 分开是有意的：摘要正文上千字，而那棵树每次文件变动
    * 都全量重推，把摘要塞进去等于每保存一次正文就多推几百 KB。
    */
-  describe('单段摘要视图（悬停浮窗的数据源）', () => {
+  describe('单章摘要视图（悬停浮窗的数据源）', () => {
     const PLOT = '.novelforge/plots/030-有摘要.md';
     let view;
     let staleAfterEdit;
@@ -840,10 +842,10 @@ describe('fileOps.ts', () => {
 
     before(async () => {
       await wsOf(project).writePlot({
-        no: 30, title: '有摘要', arc: '', upstreamHash: '', done: false,
-        sections: { 目标: 'x', 剧情脉络: '甲乙丙', 冲突与转折: '', 伏笔与回收: '' },
+        no: 30, title: '有摘要', role: '', characters: [], upstreamHash: '', done: false,
+        sections: { 本章目的: 'x', 关键事件: '甲乙丙', 章末钩子: '' },
       });
-      // 摘要挂在成品上，所以这一章要先拆分发布出去。
+      // 摘要挂在同号的章节上，所以这一章要先有正文。
       write('chapters/030-有摘要.md', '# 有摘要\n\n正文内容。\n');
       project.invalidate();
       const secs = projectMod.emptySummarySections();
@@ -859,8 +861,8 @@ describe('fileOps.ts', () => {
 
       // 没总结过的章不是错误，给 exists:false 让前端说清楚。
       const bare = await wsOf(project).writePlot({
-        no: 31, title: '没摘要', arc: '', upstreamHash: '', done: false,
-        sections: { 目标: 'y', 剧情脉络: '丁', 冲突与转折: '', 伏笔与回收: '' },
+        no: 31, title: '没摘要', role: '', characters: [], upstreamHash: '', done: false,
+        sections: { 本章目的: 'y', 关键事件: '丁', 章末钩子: '' },
       });
       write('chapters/031-没摘要.md', '# 没摘要\n\n随便写点。\n');
       project.invalidate();
@@ -947,7 +949,7 @@ describe('fileOps.ts', () => {
       assert.equal(none.relPath, '');
     });
 
-    test('不存在的段退化为空视图', () => {
+    test('不存在的章退化为空视图', () => {
       assert.equal(ghost.exists, false);
       assert.equal(ghost.title, '');
     });
@@ -970,24 +972,31 @@ describe('fileOps.ts', () => {
   /**
    * 细纲的改名与删除**不走区守卫那条路**。
    *
-   * `plots/` 不是三个可管理区之一（`sectionOf` 认不出它），而且一段剧情
-   * 不只是一个文件：中转站正文的身份就是段文件名的词干，当成普通文件搬会把它
-   * 变成孤儿——作者会看到「这一段还没写正文」，而那份正文就躺在旁边一个没人
-   * 认领的目录里。
+   * `plots/` 不是三个可管理区之一（`sectionOf` 认不出它），而且细纲的文件名由
+   * 「章号 + 标题」共同决定：改名要经 `writePlot` 按新标题重新落盘并清掉旧文件，
+   * 当成普通文件搬会让同一章冒出两份细纲。
+   *
+   * 一章一纲之后正文就是同号的章节，是作者的文件：改细纲名、删细纲都**不碰它**，
+   * 也不碰挂在它上面的摘要。从前要连带搬走中转站里那份正文，那一层删掉了。
    */
   describe('细纲的改名与删除', () => {
     const NO = 40;
+    const CHAPTER = 'chapters/040.md';
+    const CHAPTER_TEXT = '正文内容。\n';
+    const SUMMARY = '.novelforge/summaries/040.md';
     let created;
     let renamed;
     let renamedExists;
     let oldGone;
-    let manuscriptFollowed;
-    let summaryFollowed;
     let sectionsKept;
-    let manifestFollowed;
+    let chapterUntouchedByRename;
+    let staleAfterRename;
+    let writtenFromKept;
     let deleted;
     let plotTrashed;
-    let manuscriptTrashed;
+    let chapterKept;
+    let chapterTrashed;
+    let summaryKept;
     let cancelled;
     let cancelledKept;
     let missing;
@@ -995,10 +1004,17 @@ describe('fileOps.ts', () => {
 
     before(async () => {
       created = await wsOf(project).writePlot({
-        no: NO, title: '', arc: '', upstreamHash: '', done: false,
-        sections: { 目标: '进宗门', 剧情脉络: '甲乙丙', 冲突与转折: '', 伏笔与回收: '' },
+        no: NO, title: '', role: '', characters: [], upstreamHash: '', done: false,
+        sections: { 本章目的: '进宗门', 关键事件: '甲乙丙', 章末钩子: '' },
       });
-      await wsOf(project).appendToManuscript(created, '正文内容。');
+      // 同号的章节已经写了正文，细纲上记着 writtenFrom（正文落盘那一步的样子）。
+      write(CHAPTER, CHAPTER_TEXT);
+      project.invalidate();
+      const plot = await project.readPlot(created);
+      await wsOf(project).recordWrittenFrom(created, pipe.plotContentHash(plot));
+      const writtenFrom = (await project.readPlot(created)).writtenFrom;
+      const chapter = (await project.listChapters()).find((c) => c.relPath === CHAPTER);
+      await wsOf(project).writeSummary(chapter, chapter.contentHash, projectMod.emptySummarySections(), []);
       await project.syncManifest();
       project.invalidate();
 
@@ -1007,10 +1023,12 @@ describe('fileOps.ts', () => {
       renamed = await fileOps.renamePlot(project, created);
       renamedExists = !!renamed && has(renamed);
       oldGone = !has(created);
-      manuscriptFollowed = has('.novelforge/manuscripts/040-入宗风波.md');
+      chapterUntouchedByRename = has(CHAPTER) && read(CHAPTER) === CHAPTER_TEXT;
       project.invalidate();
       const after = await project.readPlot(renamed);
-      sectionsKept = after && after.sections.剧情脉络;
+      sectionsKept = after && after.sections.关键事件;
+      writtenFromKept = after && after.writtenFrom === writtenFrom;
+      staleAfterRename = (await pipe.buildPlotPipeline(project, { no: NO, plot: after })).chapter.upstreamStale;
 
       // 取消删除：什么都不该动。
       h.expect(undefined);
@@ -1020,9 +1038,11 @@ describe('fileOps.ts', () => {
       h.expect('删除');
       deleted = await fileOps.deletePlot(project, renamed);
       plotTrashed = has('.novelforge/.trash/.novelforge/plots/040-入宗风波.md');
-      manuscriptTrashed = has('.novelforge/.trash/.novelforge/manuscripts/040-入宗风波.md');
+      chapterKept = has(CHAPTER) && read(CHAPTER) === CHAPTER_TEXT;
+      chapterTrashed = has(`.novelforge/.trash/${CHAPTER}`);
+      summaryKept = has(SUMMARY);
 
-      // 已经删掉的段再删一次：报错退出，不抛。
+      // 已经删掉的细纲再删一次：报错退出，不抛。
       h.expect('删除');
       missing = await fileOps.deletePlot(project, renamed);
       missingErred = h.erred();
@@ -1041,12 +1061,19 @@ describe('fileOps.ts', () => {
       assert.ok(oldGone);
     });
 
-    test('正文跟着改名', () => {
-      assert.ok(manuscriptFollowed);
-    });
-
     test('改名不动小节内容', () => {
       assert.equal(sectionsKept, '甲乙丙', String(sectionsKept));
+    });
+
+    // 章节是作者的文件：给细纲起个名字不该顺手去改它的名字或内容。
+    test('改细纲名不动同号的章节', () => {
+      assert.ok(chapterUntouchedByRename);
+    });
+
+    // 改个名不该让正文凭空标脏：writtenFrom 跟着带过去，标题也不在内容指纹里。
+    test('改名带着 writtenFrom，正文不标脏', () => {
+      assert.ok(writtenFromKept);
+      assert.equal(staleAfterRename, false);
     });
 
     test('取消删除时返回 false', () => {
@@ -1065,21 +1092,23 @@ describe('fileOps.ts', () => {
       assert.ok(plotTrashed);
     });
 
-    test('正文一起进回收站', () => {
-      assert.ok(manuscriptTrashed);
+    // 删掉细纲只是放弃这一章的规划稿，不该把作者已经写出来的正文一起带走。
+    test('删细纲不动同号的章节', () => {
+      assert.ok(chapterKept);
+      assert.ok(!chapterTrashed);
     });
 
-    // 摘要**不**跟着走：它挂在 `chapters/` 里的成品上。删掉细纲只是放弃这一章
-    // 的规划稿，不该把作者已经拆分发布出去的正文与摘要一起带走。
+    // 摘要**不**跟着走：它挂在章节上。
     test('删细纲不动摘要', () => {
-      assert.ok(!has('.novelforge/.trash/.novelforge/summaries/040-入宗风波.md'));
+      assert.ok(summaryKept);
+      assert.ok(!has(`.novelforge/.trash/${SUMMARY}`));
     });
 
-    test('删不存在的段返回 false', () => {
+    test('删不存在的细纲返回 false', () => {
       assert.equal(missing, false);
     });
 
-    test('删不存在的段报错而不是静默', () => {
+    test('删不存在的细纲报错而不是静默', () => {
       assert.ok(missingErred);
     });
   });
