@@ -22,9 +22,8 @@ const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
 /**
- * 细纲与场景的写入搬进了 `core/workspace/`：改名要连带搬走场景目录与中转站
- * 正文、写入要记上游指纹、删除要进 `.trash/`，那些是网关的活。`NovelProject`
- * 这一层只留领域查询。
+ * 细纲的写入搬进了 `core/workspace/`：写入要记上游指纹、删除要进 `.trash/`，
+ * 那些是网关的活。`NovelProject` 这一层只留领域查询。
  */
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
@@ -74,7 +73,7 @@ before(async () => {
   }
   for (let i = 1; i <= PLOTS; i++) {
     const n = String(i).padStart(3, '0');
-    t.write(`.novelforge/plots/${n}-第${i}段.md`, `---\nno: ${i}\n---\n\n## 剧情脉络\n脉络。\n`);
+    t.write(`.novelforge/plots/${n}-第${i}章.md`, `---\nno: ${i}\n---\n\n## 关键事件\n事件。\n`);
   }
 });
 
@@ -185,7 +184,7 @@ describe('细纲列表缓存', () => {
     const inFlight = project.listPlots();
     project.invalidate();
     await inFlight;
-    t.write('.novelforge/plots/013-新段.md', '---\nno: 13\n---\n\n## 剧情脉络\n新排的。\n');
+    t.write('.novelforge/plots/013-新章.md', '---\nno: 13\n---\n\n## 关键事件\n新排的。\n');
     try {
       const plots = await project.listPlots();
       assert.equal(plots.length, PLOTS + 1, '缓存里应当没有那份过期结果');
@@ -199,7 +198,7 @@ describe('细纲列表缓存', () => {
   test('writePlot 之后读得到新段', async () => {
     await project.listPlots();
     try {
-      await wsOf(project).writePlot({ no: 99, title: '新写的', sections: { 剧情脉络: '脉络' } });
+      await wsOf(project).writePlot({ no: 99, title: '新写的', sections: { 关键事件: '事件' } });
       const plots = await project.listPlots();
       assert.ok(plots.some((p) => p.no === 99), plots.map((p) => p.no).join('|'));
     } finally {
@@ -210,9 +209,9 @@ describe('细纲列表缓存', () => {
 
   test('改标题之后读到的是新文件名', async () => {
     try {
-      await wsOf(project).writePlot({ no: 99, title: '初名', sections: { 剧情脉络: '脉络' } });
+      await wsOf(project).writePlot({ no: 99, title: '初名', sections: { 关键事件: '事件' } });
       await project.listPlots();
-      await wsOf(project).writePlot({ no: 99, title: '改过的名字', sections: { 剧情脉络: '脉络' } });
+      await wsOf(project).writePlot({ no: 99, title: '改过的名字', sections: { 关键事件: '事件' } });
       const found = (await project.listPlots()).find((p) => p.no === 99);
       assert.equal(found?.relPath, '.novelforge/plots/099-改过的名字.md', found?.relPath);
     } finally {
@@ -222,7 +221,7 @@ describe('细纲列表缓存', () => {
   });
 
   test('deletePlot 之后读不到了', async () => {
-    await wsOf(project).writePlot({ no: 99, title: '待删', sections: { 剧情脉络: '脉络' } });
+    await wsOf(project).writePlot({ no: 99, title: '待删', sections: { 关键事件: '事件' } });
     await project.listPlots();
     await wsOf(project).deletePlot('.novelforge/plots/099-待删.md');
     const plots = await project.listPlots();

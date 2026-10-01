@@ -973,7 +973,7 @@ async function resolvePlotTarget(
  * 细纲改名后，把当前会话的目标指到新路径。
  *
  * 少了这一步，`current.target.plotRelPath` 还指着旧路径，创作页会拿到一份
- * 「这一章找不到」的空壳 pipeline——徽章回落成「待写剧情」、进度全归零、
+ * 「这一章找不到」的空壳 pipeline——徽章回落成「待写细纲」、进度全归零、
  * 工作区卡说这一章不存在。而作者刚做的只是给它起个名字。
  *
  * **不走 `setTarget`**：那会把 capability 重置成 discuss、把页签切到创作页。

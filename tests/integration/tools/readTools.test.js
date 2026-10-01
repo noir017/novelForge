@@ -45,7 +45,7 @@ before(async () => {
   t.write('chapters/003-楔子.md', '# 楔子\n\n雨下了三天。\n北境的雪他见过三回。\n');
   t.write(
     '.novelforge/plots/012-入宗.md',
-    '## 目标\n\n翻墙进宗门\n\n## 剧情脉络\n\n山门外等到天黑\n\n## 冲突与转折\n\n三拍\n\n## 伏笔与回收\n\n令牌\n'
+    '## 本章目的\n\n翻墙进宗门\n\n## 关键事件\n\n山门外等到天黑，三拍\n\n## 章末钩子\n\n令牌\n'
   );
   // 100 行的长文件，用来逼出 read 的行数截断。
   t.write('chapters/020-长章.md', Array.from({ length: 100 }, (_, i) => `第 ${i + 1} 行`).join('\n'));

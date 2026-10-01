@@ -28,9 +28,9 @@ function makeDraft(over = {}) {
     id: 'd1',
     action: { stage: 'plot', capability: 'generate' },
     target: { kind: 'plot', plotRelPath: '.novelforge/plots/001-夜入青云.md' },
-    raw: '{"剧情脉络":"进宗门"}',
-    artifact: { kind: 'plot', sections: { 目标: '', 剧情脉络: '进宗门', 冲突与转折: '', 伏笔与回收: '' } },
-    summary: '剧情 · 1/4 节',
+    raw: '{"关键事件":"进宗门"}',
+    artifact: { kind: 'plot', sections: { 本章目的: '', 关键事件: '进宗门', 章末钩子: '' } },
+    summary: '细纲 · 1/3 节',
     words: 3,
     createdAt: '2026-08-15T10:00:00.000Z',
     ...over,
@@ -67,7 +67,7 @@ describe('DraftStore · 内存', () => {
   });
 
   test('put 之后取得回来', () => {
-    assert.equal(s.get('d1').raw, '{"剧情脉络":"进宗门"}');
+    assert.equal(s.get('d1').raw, '{"关键事件":"进宗门"}');
   });
 
   test('取不认识的 id 给 undefined，不抛', () => {
@@ -133,10 +133,10 @@ describe('随会话往返一趟', () => {
     session.turns.push({
       id: 't1',
       role: 'assistant',
-      content: '{"剧情脉络":"进宗门"}',
+      content: '{"关键事件":"进宗门"}',
       at: '2026-08-15T10:00:00.000Z',
       draftId: 'd1',
-      artifact: { where: '第 1 章 · 剧情', summary: '剧情 · 1/4 节', overwrites: false },
+      artifact: { where: '第 1 章 · 细纲', summary: '细纲 · 1/3 节', overwrites: false },
     });
     session.drafts = [makeDraft()];
     await store.write(session);
@@ -158,7 +158,7 @@ describe('随会话往返一趟', () => {
   });
 
   test('原文跟着一起回来了', () => {
-    assert.equal(reloaded.drafts[0].raw, '{"剧情脉络":"进宗门"}');
+    assert.equal(reloaded.drafts[0].raw, '{"关键事件":"进宗门"}');
   });
 
   // 刷新网页后采纳按钮还在——这就是 draft 落盘的全部理由。
@@ -167,11 +167,11 @@ describe('随会话往返一趟', () => {
   });
 
   test('展示快照也还在', () => {
-    assert.equal(reloaded.turns[0].artifact.summary, '剧情 · 1/4 节');
+    assert.equal(reloaded.turns[0].artifact.summary, '细纲 · 1/3 节');
   });
 
   test('装回内存后取得到', () => {
-    assert.equal(s.get('d1').summary, '剧情 · 1/4 节');
+    assert.equal(s.get('d1').summary, '细纲 · 1/3 节');
   });
 });
 
@@ -220,7 +220,7 @@ describe('会话文件被手改坏', () => {
     session.turns.push({
       id: 't1', role: 'assistant', content: 'x', at: '2026-08-15T10:00:00.000Z',
       draftId: '这份草稿已经没了',
-      artifact: { where: '第 1 章 · 剧情', summary: '剧情 · 1/4 节', overwrites: false },
+      artifact: { where: '第 1 章 · 细纲', summary: '细纲 · 1/3 节', overwrites: false },
     });
     session.turns.push({
       id: 't2', role: 'assistant', content: 'y', at: '2026-08-15T10:01:00.000Z', draftId: 'd1',
@@ -260,7 +260,7 @@ describe('会话文件被手改坏', () => {
   // 草稿在不在已经与它无关了：写不写盘在产出的当下就问过了，气泡上没有
   // 任何能触发写入的按钮，也就没有「草稿过期了怎么办」这回事。
   test('展示快照留着', () => {
-    assert.equal(reloaded.turns[0].artifact.summary, '剧情 · 1/4 节');
+    assert.equal(reloaded.turns[0].artifact.summary, '细纲 · 1/3 节');
   });
 });
 

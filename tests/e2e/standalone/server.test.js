@@ -147,7 +147,7 @@ describe('内置编辑器：只读用例', () => {
   let json;
 
   before(async () => {
-    // 取正文：示例工程的三章都已经拆分发布，正文在 `chapters/` 里。
+    // 取正文：示例工程写到第 3 章，正文在 `chapters/` 里。
     conn.send({ type: 'openEditor', path: 'chapters/001-楔子.md' });
     opened = await conn.waitFor((m) => m.type === 'editorOpen', 'editorOpen');
 

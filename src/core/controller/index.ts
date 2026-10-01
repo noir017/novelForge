@@ -623,9 +623,9 @@ export class ChatController {
   /**
    * 工程内容变化时刷新（由 FileSystemWatcher、保存、工程页动作触发）。
    *
-   * 流水线条跟着一起推：拆完章、总结完、在编辑器里手改了细纲，主按钮都得跟着
-   * 变。从前这里只推 state，拆完章主按钮还挂着「拆成章节」，再点只报「还没有
-   * 正文」。它失败不该拖垮 state 那一份，所以单独兜住。
+   * 流水线条跟着一起推：写完正文、定稿完、在编辑器里手改了细纲，主按钮都得跟着
+   * 变。从前这里只推 state，做完一步主按钮还挂着上一步，再点只会报错。
+   * 它失败不该拖垮 state 那一份，所以单独兜住。
    */
   async pushState(): Promise<void> {
     this.project.invalidate();

@@ -36,7 +36,7 @@ let t;
 function makePlot(no, cast) {
   const n = String(no).padStart(3, '0');
   const stem = `${n}-第${no}章`;
-  t.write(`.novelforge/plots/${stem}.md`, `## 目标\n\n略。\n\n## 剧情脉络\n\n甲乙丙。\n`);
+  t.write(`.novelforge/plots/${stem}.md`, `## 本章目的\n\n略。\n\n## 关键事件\n\n甲乙丙。\n\n## 章末钩子\n\n略。\n`);
   t.write(`chapters/${stem}.md`, `# 第${no}章\n\n雨下了三天。\n`);
   t.write(
     `.novelforge/summaries/${stem}.md`,

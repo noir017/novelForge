@@ -132,9 +132,8 @@ function buildBody(view?: PlotSummaryView): DocumentFragment {
   }
 
   const head = mk('div', 'summary-tip-head');
-  // 说法由后端给：这一行可能是已发布的章，也可能是还没交付的剧情段
-  // （「第 12 章《夜访》」/「剧情 4《楼道》」）。前端按 `no` 自己拼会把
-  // 每个剧情段都叫成「第 N 章」。
+  // 说法由后端给（`chapterLabel`：「第 12 章《夜访》」），前端不按 `no` 自己拼——
+  // 标题取正文还是细纲那一侧、没有标题时怎么说，只在后端定一次。
   head.appendChild(mk('span', 'summary-tip-title', view.label));
   // 过期必须说出来：照着一份写于三次修改之前的摘要做判断比没有摘要更糟。
   if (view.exists && view.stale) {
@@ -143,8 +142,8 @@ function buildBody(view?: PlotSummaryView): DocumentFragment {
   frag.appendChild(head);
 
   if (!view.exists) {
-    // 原因分两种，后端给的那句话已经分好了：章是「还没总结」，
-    // 段是「还没拆成章，摘要挂在成品上」。
+    // 原因分两种，后端给的那句话已经分好了：有正文的章是「还没定稿」，
+    // 只有细纲的章是「还没写正文，摘要挂在正文上」。
     frag.appendChild(mk('div', 'hint', view.emptyHint ?? '还没有摘要。'));
     return frag;
   }

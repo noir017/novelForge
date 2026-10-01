@@ -7,7 +7,8 @@
  * 2. **记账**：写完之后要把哪个上游指纹落进 frontmatter。
  * 3. **伴生**：改名/移动时要连带搬走什么。
  *
- * 三件事都可选。`plain` 三件都不做，`plot` 三件都做。
+ * 三件事都可选。`plain` 三件都不做，`plot` 只做前两件（细纲的落点由章号决定，改名不带走
+ * 别的东西），`chapter` 做伴生（摘要与草稿跟着正文搬）。
  */
 import { NovelProject } from '../../model/project';
 import { Artifact } from '../../features/artifact';
@@ -17,7 +18,7 @@ export interface HandlerCtx {
   project: NovelProject;
   /** 这次写入的目标路径（工作区相对，正斜杠）。 */
   rel: string;
-  /** `kindOfPath` 的结果。章号、段号、所属细纲都在里面。 */
+  /** `kindOfPath` 的结果。种类与章号都在里面。 */
   path: PathKind;
 }
 
@@ -42,10 +43,6 @@ export interface Handler {
    * 真正的落点由 handler 说了算。不实现就用调用方给的路径。
    */
   resolve?(ctx: HandlerCtx, artifact?: Artifact): Promise<string>;
-  /** 首次 append 到一个还不存在的文件时，正文前面要带的那一段（frontmatter + 标题行）。 */
-  appendHead?(ctx: HandlerCtx): Promise<string>;
-  /** 两段 append 之间的分隔符。缺省空一行。 */
-  readonly appendSeparator?: string;
   /** 写入之后的记账与伴生动作。返回补进 `side` 的说明。 */
   after?(ctx: HandlerCtx, text: string): Promise<string[]>;
   /** 改名/移动时要连带搬走什么。返回补进 `side` 的说明。 */

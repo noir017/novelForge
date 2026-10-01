@@ -27,9 +27,7 @@
  * 判据是「整个输入框只有一个 `/词`」（`/^\/\S*$/`）：`/` 在中文正文里是普通
  * 字符（日期、比值、网址），只要后面跟了空格或前面有别的字，就不是在下命令。
  *
- * 命令表来自 core 的 `commandsFor`（零 import 的纯函数，前端直接打包）。
- * **带上 target 的种类**：大纲那一层有两种落点，同一个「拆分」在全书大纲上
- * 拆的是卷、在一卷上拆的是一个剧情段，说法必须跟着变。
+ * 命令表来自 core 的 `commandsFor(stage)`（零 import 的纯函数，前端直接打包）。
  * 前端不自己维护一份——否则界面上会出现一个后端不认的命令，点了什么都不发生。
  */
 import { el as mk, clear, closestFrom } from '../dom';
@@ -177,10 +175,15 @@ function redraw(): void {
     const line = mk('span', 'cmd-line');
     // 名字前面带上斜杠：面板里挑的和输入框里打的是同一样东西。
     line.appendChild(mk('span', 'cmd-label', `/${cmd.label}`));
-    // 面板里的命令全都会写文件（讨论不是命令，打字就是）——每条都标出来：
-    // 点了会花钱，而且会在磁盘上留下东西。
-    row.classList.add('cmd-writes');
-    line.appendChild(mk('span', 'cmd-tag', '写文件'));
+    // 面板里的命令几乎都会写文件（讨论不是命令，打字就是）——每条都标出来：点了会花钱，
+    // 而且会在磁盘上留下东西。**审稿是例外**：只出一份报告、不写文件（五期 D22），挂一样的
+    // 「写文件」会让作者以为点了它正文就被改了。
+    if (cmd.capability === 'review') {
+      line.appendChild(mk('span', 'cmd-tag', '只出报告'));
+    } else {
+      row.classList.add('cmd-writes');
+      line.appendChild(mk('span', 'cmd-tag', '写文件'));
+    }
     row.appendChild(line);
     row.appendChild(mk('span', 'cmd-hint', cmd.hint));
 

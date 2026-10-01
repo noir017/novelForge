@@ -22,7 +22,8 @@ export const docHandler: Handler = {
     if (artifact.kind !== 'outlineDoc') {
       throw new Error(`「${ctx.rel}」不接 ${artifact.kind} 产物`);
     }
-    // 整篇替换，带一行 H1。按区间合并（只替换这一批覆盖的那几节）是二期的事。
+    // 整篇替换，带一行 H1。按区间续写时只替换重叠的那几节——那一步在 accept 里先合并好
+    // （`mergeOutline`），到这里的已经是合并后的全文。
     return `# 情节大纲\n\n${artifact.text.trim()}\n`;
   },
 };

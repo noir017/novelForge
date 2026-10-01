@@ -64,7 +64,7 @@ export async function generateLore(project: NovelProject): Promise<void> {
   const chapters = await project.listChapters();
   if (chapters.length === 0) {
     log.warn('还没有章节，无法生成设定');
-    getHost().toast('还没有章节。写完正文先拆成章节，才能生成设定。');
+    getHost().toast('还没有写过正文。写过几章之后，才能从正文里生成设定。');
     return;
   }
 

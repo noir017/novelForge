@@ -105,7 +105,9 @@ describe('守卫 3 · 固定目录保护', () => {
     'drafts',
     '.novelforge',
     '.novelforge/plots',
+    // 场景、卷、中转站三层删掉了，但老工程磁盘上那几个目录是作者的文件（D11）。
     '.novelforge/scenes',
+    '.novelforge/volumes',
     '.novelforge/manuscripts',
     '.novelforge/summaries',
     '.novelforge/characters',

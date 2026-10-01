@@ -103,7 +103,7 @@ export function buildInitPrompt(): HTMLElement {
 export function buildProjectHead(tree: ProjectTree): HTMLElement {
   const head = mk('div', 'project-head');
   head.appendChild(mk('div', 'project-title', tree.title || '未命名'));
-  // 字数取成品优先、其次是中转站里那份（见 projectView）——两者说的是同一批文字。
+  // 字数是各章正文的字数之和（见 projectView），细纲不算。
   head.appendChild(
     mk(
       'div',
@@ -124,8 +124,8 @@ export function buildProjectHead(tree: ProjectTree): HTMLElement {
  * 这里给出「已完成 N/M」与一条进度条，同步过程中每章刷新一次
  * （后端 pushState 会重推整棵树）。
  *
- * 分母是**已拆分发布的章**（`summarizedCount + staleCount`），不是全部章：
- * 还没拆分的章没有摘要是正常的，算进分母会让进度条永远到不了头。
+ * 分母是**已有正文的章**（`summarizedCount + staleCount`），不是全部章：
+ * 只有细纲、还没写正文的章没有摘要是正常的，算进分母会让进度条永远到不了头。
  */
 function buildSummaryBanner(tree: ProjectTree): HTMLElement {
   const banner = mk('div', 'banner banner-summary');
@@ -187,7 +187,8 @@ export function countLabel(nodes: ProjectNode[], unit: string): string {
 }
 
 /**
- * 「文风与摘要」那一组：全书摘要、文风指南、全书大纲，外加两个批量动作。
+ * 「文风与摘要」那一组：全书摘要、文风指南，外加一行批量动作（同步过期摘要、提取角色卡、
+ * 批量拆细纲、批量写章）。情节大纲在「故事架构」那一组。
  *
  * 这几行是工程的固定文件，不给类文件操作（`buildFileRow` 不传 depth 即可），
  * 但它们的「重建」「从正文提取」是常用动作，照旧留在行内。
@@ -244,7 +245,7 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
     { sep: true },
     // 两个批量动作都「只补不改」：已经有产物的章一律跳过。批量路径上
     // 没有逐个审阅的余地，跳过是唯一安全的做法。批量写章先开弹窗选区间与模式（W9）。
-    { label: '批量写细纲（只补缺）', run: () => projectAction('generatePlots') },
+    { label: '批量拆细纲（只补缺）', run: () => projectAction('generatePlots') },
     { label: '批量写章…', run: () => openWriteBatchForm(tree) },
     { sep: true },
     ...baseMenuItems(),

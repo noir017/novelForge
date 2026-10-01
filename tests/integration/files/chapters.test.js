@@ -18,7 +18,7 @@ const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
 /**
- * 产物写入搬进了 `core/workspace/`：正文追加要插分隔标记与记 beatsHash、
+ * 产物写入搬进了 `core/workspace/`：正文落盘要在细纲上记 `writtenFrom`、
  * 建章节要同名报错并同步 manifest、草稿按需创建但绝不覆盖。`NovelProject`
  * 这一层只留领域查询。
  */
@@ -211,8 +211,8 @@ describe('章节文件规则（磁盘）', () => {
   });
 
   /**
-   * manifest 索引的是**发布章节**：字数、正文 hash、摘要 hash 描述的全是成品。
-   * 中转站（`manuscripts/`）里那份是等着拆分的半成品，随时会被删掉，不进索引。
+   * manifest 索引的是**章节正文**：字数、正文 hash、摘要 hash 描述的全是 `chapters/`
+   * 里的文件。细纲不进索引（它的新鲜度记在自己的 frontmatter 里）。
    *
    * 任意扩展名都算章节（`.txt` / 无扩展名 / `.json`），所以它们也都要进。
    */

@@ -31,10 +31,10 @@ function queueAnswer(...values) {
   h.answers.push(...values);
 }
 
-/** 造一章 + 它的成品正文。设定扫描按章遍历 `chapters/`。 */
+/** 造一章 + 它的正文。设定扫描按章遍历 `chapters/`。 */
 function makePlot(no, title, text) {
   const stem = `${String(no).padStart(3, '0')}-${title}`;
-  t.write(`.novelforge/plots/${stem}.md`, '## 目标\n\n略。\n\n## 剧情脉络\n\n甲乙丙。\n');
+  t.write(`.novelforge/plots/${stem}.md`, '## 本章目的\n\n略。\n\n## 关键事件\n\n甲乙丙。\n\n## 章末钩子\n\n略。\n');
   t.write(`chapters/${stem}.md`, `# ${title}\n\n${text}\n`);
 }
 
@@ -81,8 +81,8 @@ describe('逐段识别与跨段合并', () => {
   let callCount;
 
   before(async () => {
-    // 设定扫描读的是 `manuscripts/` 里的正文，按 `plots/` 逐段遍历——
-    // `chapters/` 已经退出流水线，这条链上一个字都不读它。
+    // 设定扫描读的是 `chapters/` 里的正文，按章号逐章遍历——
+    // 细纲里的计划不是事实，这条链上一个字都不读它。
     makePlot(1, '镇', '青崖镇在断崖下。');
     makePlot(2, '盐道', '盐道通往北境。');
     makePlot(3, '宗门', '玄门有七宗。');

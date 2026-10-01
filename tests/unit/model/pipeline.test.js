@@ -327,11 +327,6 @@ describe('plotFile.ts · 解析与渲染（D3 格式）', () => {
   test('status: done 被读出', () => {
     assert.equal(plotFile.parsePlotFile(plotFile.renderPlotFile({ ...plot, done: true }), 'x/012.md').done, true);
   });
-
-  test('一行摘要', () => {
-    assert.equal(plotFile.describePlot(plot), '12. 夜入青云 · 小高潮');
-    assert.equal(plotFile.describePlot({ no: 3, title: '', role: '' }), '3. （未命名）');
-  });
 });
 
 describe('plotFile.ts · 排过没有 / 容错', () => {

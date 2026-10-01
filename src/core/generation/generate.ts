@@ -87,7 +87,7 @@ export interface Draft {
   raw: string;
   /** 解析出的结构化产物。讨论（唯一的 text 类能力）没有。 */
   artifact?: Artifact;
-  /** 一句话形状描述，如「剧情 · 4/4 节」。有 artifact 才有。 */
+  /** 一句话形状描述，如「细纲 · 3/3 节」。有 artifact 才有。 */
   summary?: string;
   words: number;
   /** 推理模型的思考过程。**不是正文，采纳时不取。** */

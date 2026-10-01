@@ -256,14 +256,6 @@ export function renderPlotFile(plot: WritablePlot): string {
   return `${fm}\n\n${heading}\n\n${body}\n`;
 }
 
-/**
- * 一行摘要，如「12. 夜入青云 · 小高潮」。给三处共用：创作页的下拉、工程页的行、
- * 装配进 prompt 的前序细纲一览。文案只有一份，三处不会分叉。
- */
-export function describePlot(plot: Pick<Plot, 'no' | 'title' | 'role'>): string {
-  return [`${plot.no}. ${plot.title || '（未命名）'}`, plot.role].filter((s) => s && s.trim()).join(' · ');
-}
-
 function positive(n: number | undefined): number | undefined {
   return n !== undefined && n > 0 ? n : undefined;
 }

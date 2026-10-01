@@ -303,9 +303,9 @@ function buildBody(turn: SerializedTurn): HTMLElement {
 /**
  * 用户气泡：命令标签 +（可选的）补充要求。
  *
- * 命令类的轮次 content 本来就是空的——「写剧情」不需要作者说什么，该说的
- * 都在大纲和前后段里（命令一律不要求输入，见 `commandsFor`）。但**空气泡不能就这么空着**：
- * 翻回去看时认不出刚才点的是哪一下。所以把命令本身画成一枚 `/写剧情` 标签。
+ * 命令类的轮次 content 本来就是空的——「写细纲」不需要作者说什么，该说的
+ * 都在大纲和前后几章的细纲里（命令一律不要求输入，见 `commandsFor`）。但**空气泡不能就这么空着**：
+ * 翻回去看时认不出刚才点的是哪一下。所以把命令本身画成一枚 `/写细纲` 标签。
  */
 function fillUserBody(body: HTMLElement, turn: SerializedTurn): HTMLElement {
   if (turn.command) {

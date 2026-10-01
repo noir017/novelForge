@@ -11,7 +11,7 @@
  * | 流水线 / 新建 | 真实的细纲路径 |
  *
  * 从前它只 `readPlot` 一次、读不到就报「这一章不存在，可能刚被改名或删除」，
- * 于是**拆分出来的章、以及老工程里的每一章**一点开就是那句话——而它们明明
+ * 于是**没有细纲的章（老工程里的每一章、直接粘进来的章）**一点开就是那句话——而它们明明
  * 好好地躺在 `chapters/` 里。所以这里的每一条都在守同一件事：认的是「哪一章」，
  * 不是「哪个细纲文件」；只有两边都没有才算不存在。
  */
@@ -23,9 +23,8 @@ const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
 /**
- * 细纲与场景的写入搬进了 `core/workspace/`：改名要连带搬走场景目录与中转站
- * 正文、写入要记上游指纹、删除要进 `.trash/`，那些是网关的活。`NovelProject`
- * 这一层只留领域查询。
+ * 细纲的写入搬进了 `core/workspace/`：写入要记上游指纹、删除要进 `.trash/`，
+ * 那些是网关的活。`NovelProject` 这一层只留领域查询。
  */
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
@@ -61,14 +60,14 @@ before(async () => {
   t = await makeTempProject(bundle.project, { prefix: 'selectplot', title: '选章测试' });
   project = t.project;
 
-  // 第 8 章：规划过，正文也拆分发布了 —— 两面俱全。
+  // 第 8 章：细纲排过，正文也写好了 —— 两面俱全。
   await wsOf(project).writePlot({
-    no: 8, title: '夜访', arc: '', upstreamHash: '', done: false,
-    sections: { ...bundle.project.emptyPlotSections?.() ?? {}, 目标: '暴露令牌', 剧情脉络: '甲、乙、丙。', 冲突与转折: '', 伏笔与回收: '' },
+    no: 8, title: '夜访', role: '', characters: [], upstreamHash: '', done: false,
+    sections: { 本章目的: '暴露令牌', 关键事件: '甲、乙、丙。', 章末钩子: '' },
   });
   t.write('chapters/008-夜访.md', '# 夜访\n\n三更，林昭醒了。\n');
-  // 第 9 章：**只有成品**。一份正文拆成两章时，第二章天生就是这样——
-  // 没有细纲，标题也还没起（纯序号名）。老工程里的每一章也是这样。
+  // 第 9 章：**只有正文**。老工程里的每一章都是这样（直接把已有的章放进 chapters/），
+  // 用「新建章节文件」粘进来的章也是——没有细纲，标题也还没起（纯序号名）。
   t.write('chapters/009.md', '雨停了。\n');
   project.invalidate();
 
@@ -93,8 +92,8 @@ describe('工程页点章名（给的是主路径）', () => {
     assert.equal(r.error, undefined, r.error && r.error.message);
   });
 
-  // 目标一律落在**细纲那一侧**：场景目录与中转站正文都是按细纲路径镜像的，
-  // 让 target 指进 chapters/ 的话，这一章的三层产物会各找各的位置。
+  // 目标一律落在**细纲那一侧**：流水线、工作区卡与写入都按细纲路径认这一章（细纲号 = 章号），
+  // 让 target 指进 chapters/ 的话，同一章的细纲与正文会各找各的位置。
   test('目标归到细纲路径', () => {
     assert.equal(r.session.target.plotRelPath, '.novelforge/plots/008-夜访.md');
   });
@@ -131,8 +130,8 @@ describe('对话页下拉框选一个只有成品的章', () => {
     assert.equal(r.pipe.pipeline?.no, 9, JSON.stringify(r.pipe.pipeline?.no));
   });
 
-  // 成品在就是造完了（`deriveStage` 先看 chapterExists）——不该被倒回去补细纲。
-  test('已有成品的章不被倒回「待写剧情」', () => {
+  // 正文在就不该被倒回去补细纲（`deriveStage` 先看 chapterExists）。
+  test('已有正文的章不被倒回「待写细纲」', () => {
     assert.notEqual(r.pipe.pipeline?.stage, 'plot', r.pipe.pipeline?.stage);
   });
 
@@ -167,16 +166,16 @@ describe('状态机仍然在管落在哪一层', () => {
   let planned;
 
   before(async () => {
-    // 一个连剧情都没排的新章：状态机该把作者留在剧情层，而不是丢进正文。
+    // 一个关键事件还没排的新章：状态机该把作者留在细纲层，而不是丢进正文。
     await wsOf(project).writePlot({
-      no: 20, title: '', arc: '', upstreamHash: '', done: false,
-      sections: { 目标: '还没想好', 剧情脉络: '', 冲突与转折: '', 伏笔与回收: '' },
+      no: 20, title: '', role: '', characters: [], upstreamHash: '', done: false,
+      sections: { 本章目的: '还没想好', 关键事件: '', 章末钩子: '' },
     });
     project.invalidate();
     planned = await select('.novelforge/plots/020.md');
   });
 
-  test('没排剧情的章落在剧情层', () => {
+  test('没排细纲的章落在细纲层', () => {
     assert.equal(planned.session.stage, 'plot', planned.session.stage);
   });
 
@@ -185,7 +184,7 @@ describe('状态机仍然在管落在哪一层', () => {
     assert.equal(planned.session.capability, 'discuss', planned.session.capability);
   });
 
-  test('主按钮是「写剧情」', () => {
+  test('主按钮是「写第 20 章细纲」那一类生成', () => {
     assert.equal(planned.pipe.next?.capability, 'generate', JSON.stringify(planned.pipe.next));
   });
 });

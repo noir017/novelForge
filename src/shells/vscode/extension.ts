@@ -133,7 +133,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!target) {
       return;
     }
-    // 有面板就走面板那条路：建完会落到这一章的当前步骤（多半是「写剧情」）。
+    // 有面板就走面板那条路：建完会落到这一章的当前步骤（多半是「写第 N 章细纲」）。
     // 没有面板（无工作区时 controller 不存在）只建文件。
     if (chat) {
       await chat.newPlotFromCommand();
@@ -457,19 +457,19 @@ async function setInitializedContext(project: NovelProject): Promise<void> {
 
 /**
  * 挑一章。清单构造在 core（`plotChoices`）；这里只多做一件宿主专属的事：
- * 当前编辑器正好开着某一章（正文、细纲或中转站那份）时不问，直接用它。
+ * 当前编辑器正好开着某一章（正文或它的细纲）时不问，直接用它。
  */
 async function pickChapter(project: NovelProject): Promise<Chapter | undefined> {
   const chapters = await project.listChapters();
   if (chapters.length === 0) {
-    getHost().toast('还没有章节。写完正文先拆成章节，才能总结。');
+    getHost().toast('还没有写过正文。写完一章再定稿。');
     return undefined;
   }
 
   const active = vscode.window.activeTextEditor?.document.uri;
   if (active) {
     const rel = project.relPath(active.fsPath);
-    // 正开着成品就用它；开着细纲或中转站正文时按章号找回成品。
+    // 正开着正文就用它；开着细纲时按章号找回同号的那一章（细纲号 = 章号）。
     const direct = chapters.find((c) => c.relPath === rel);
     if (direct) {
       return direct;

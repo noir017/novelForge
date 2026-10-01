@@ -128,9 +128,9 @@ function chapterNoOf(relPath: string): number | undefined {
  * 文件页的 renameAny/paste 走 core/files/projectFiles（根范围）。
  * 有逐项结果的动作额外推 filesOpDone，前端据此 remap 编辑器标签。
  *
- * **细纲单独分流**：它的改名/删除要连带搬走场景目录与中转站正文，
- * 而 `plots/` 根本不是三个可管理区之一，照走 fileOps 会被区守卫直接拒掉
- * （新建出来的细纲是纯序号名，第一次命名走的正是这条路）。
+ * **细纲单独分流**：它的文件名由章号与标题共同决定（改名只改标题，章号前缀
+ * 由 `writePlot` 保留），而 `plots/` 根本不是三个可管理区之一，照走 fileOps 会被
+ * 区守卫直接拒掉（新建出来的细纲是纯序号名，第一次命名走的正是这条路）。
  */
 export async function fileAction(
   c: ChatController,

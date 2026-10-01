@@ -21,7 +21,7 @@ const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
 
 /**
- * 产物写入搬进了 `core/workspace/`：正文追加要插分隔标记与记 beatsHash、
+ * 产物写入搬进了 `core/workspace/`：正文落盘要在细纲上记 `writtenFrom`、
  * 建章节要同名报错并同步 manifest、草稿按需创建但绝不覆盖。`NovelProject`
  * 这一层只留领域查询。
  */

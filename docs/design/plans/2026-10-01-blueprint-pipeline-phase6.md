@@ -147,7 +147,7 @@
 ### Task 3：死代码与旧文案（commit 3）
 
 - §2 表里五处。
-- §3 作者看得见的三处，以及调研清单里的注释（`shells/vscode/extension.ts`、`controller/files.ts`、`controller/index.ts`、`controller/chat.ts`、`controller/agent.ts`、`features/characters.ts`、`features/summarize.ts`、`files/fileOps.ts`、`model/session.ts`、`model/tiers.ts`、`generation/generate.ts`、`workspace/index.ts`、`workspace/guard.ts`、`workspace/handlers/{types,chapter,doc}.ts`、`media/src/view/{commands,messages}.ts`、`media/src/view/project/{groups,summaryTip}.ts`、`media/src/css/view/{summary-tip,pipeline,messages}.css`）。`handlers/chapter.ts` 文件头「所以这里没有 `onRemove`」与下面的实现矛盾，一并改。
+- §3 作者看得见的三处；外加一处五期留下的：`/` 命令面板给每条命令都挂「写文件」，`/审稿` 只出报告，改挂「只出报告」。以及调研清单里的注释（`shells/vscode/extension.ts`、`controller/files.ts`、`controller/index.ts`、`controller/chat.ts`、`controller/agent.ts`、`features/characters.ts`、`features/summarize.ts`、`files/fileOps.ts`、`model/session.ts`、`model/tiers.ts`、`generation/generate.ts`、`workspace/index.ts`、`workspace/guard.ts`、`workspace/handlers/{types,chapter,doc}.ts`、`media/src/view/{commands,messages}.ts`、`media/src/view/project/{groups,summaryTip}.ts`、`media/src/css/view/{summary-tip,pipeline,messages}.css`）。`handlers/chapter.ts` 文件头「所以这里没有 `onRemove`」与下面的实现矛盾，一并改。
 - 测试文件头与夹具：`tokenizer`、`selectPlot`、`characterCard`、`lore`、`drafts`、`chapters`、`listCache`、`choices`、`cast`、`readTools`、`unit/generation/drafts`、`e2e/standalone/server`。
 - `tests/integration/workspace/guard.test.js` 补 `volumes/` 的保护。
 - 跑 `npm run test:node`。
@@ -158,7 +158,7 @@
 - `protocol/views.ts`：`ProjectTree.next?: NextStepView`；`views/projectView.ts` 填上。
 - `media/src/view/project/rows.ts`：`nextRow(step, tree)`——「下一步：……」+ 一颗 `chip-btn`，按 §4 的规则决定按钮做什么；`emptyRow` 照旧给不带按钮的说明用。`index.ts` 的章节、角色、设定三组按 §4 接上。
 - `media/src/view/state.ts` / `messages.ts`：未初始化时的空白提示与按钮。`media/src/view/history.ts`：「去对话页」。`media/src/view/welcome.ts`：遮罩上的「打开文件夹…」。
-- CSS 同步；`node scripts/verify-css.js`。
+- CSS 同步（`scripts/verify-css.js` 是拆 CSS 时比对新旧两份用的，这里用不上；`npm run media` 构建通过即可）。
 - 测试：
   - `tests/integration/views/projectTreeReads.test.js`：空工程的 `next` 是「生成小说配置」（带一句话弹窗的默认值）；架构齐了、没大纲是「生成情节大纲」；有大纲没细纲是「拆细纲（第 1–5 章）」；与 `pushPipeline` 推给对话页的全书下一步逐字一致。
   - `tests/dom/view/projectTree.test.js`：章节组为空时三种 `next` 各自的文案与按钮（配置开一句话弹窗、其余发 `setTarget`、拆细纲开弹窗），**都不发 `send`**；章节不空但缺下一章细纲时组末那一行；角色组两种空法；设定组的「＋ 设定」发 `newLore`。原来「前三组的行里只有『去生成』『去写这一章』两种按钮」那条断言照旧成立（下一步那一行不是 `.row`）。

@@ -19,7 +19,7 @@ let t;
 function makePlot(no, title, text, cast) {
   const n = String(no).padStart(3, '0');
   const stem = `${n}-${title}`;
-  t.write(`.novelforge/plots/${stem}.md`, `## 目标\n\n略。\n\n## 剧情脉络\n\n甲乙丙。\n`);
+  t.write(`.novelforge/plots/${stem}.md`, `## 本章目的\n\n略。\n\n## 关键事件\n\n甲乙丙。\n\n## 章末钩子\n\n略。\n`);
   t.write(`chapters/${stem}.md`, `# ${title}\n\n${text}\n`);
   t.write(
     `.novelforge/summaries/${stem}.md`,
@@ -69,9 +69,9 @@ describe('plotChoices', () => {
     assert.match(list[0].description, /^\d+ 字$/);
   });
 
-  // 只排了剧情、还没写正文的段照样要列出来——那正是作者接下来要写的那些。
-  test('没写正文的段说「还没有正文」', async () => {
-    t.write('.novelforge/plots/003-空的.md', '## 目标\n\n略。\n\n## 剧情脉络\n\n丁。\n');
+  // 只排了细纲、还没写正文的章照样要列出来——那正是作者接下来要写的那些。
+  test('没写正文的章说「还没有正文」', async () => {
+    t.write('.novelforge/plots/003-空的.md', '## 本章目的\n\n略。\n\n## 关键事件\n\n丁。\n');
     t.project.invalidate();
     const withEmpty = await choices.plotChoices(t.project);
     assert.equal(withEmpty.find((c) => c.value === 3).description, '还没有正文');

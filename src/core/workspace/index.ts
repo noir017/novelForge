@@ -280,7 +280,7 @@ export class Workspace {
       text = review.text ?? text;
     }
 
-    const final = mode === 'append' ? await appendText(guarded, text, handler, ctx) : text;
+    const final = mode === 'append' ? appendText(guarded, text) : text;
     await writeText(guarded.abs, final);
     this.project.invalidate();
 
@@ -335,7 +335,7 @@ export class Workspace {
   /**
    * 改名/移动。**目标已存在一律拒绝**（第 3 条：不静默覆盖）。
    *
-   * 伴生搬迁交给 handler：细纲带走场景目录与中转站正文，章节带走草稿。
+   * 伴生搬迁交给 handler：章节带走草稿（摘要由 `fileOps` 的交互流程搬）。细纲没有伴生。
    */
   async move(from: string, to: string): Promise<WriteResult> {
     const fromAbs = await guardMutate(this.project, from);
@@ -379,8 +379,8 @@ export class Workspace {
     const ctx = this.ctxOf(normalized);
     const handler = handlerFor(ctx.path.kind);
 
-    // 伴生先搬：细纲的场景目录与中转站正文得跟着进回收站，
-    // 主文件删完再搬的话，中途失败会留下一堆孤儿。
+    // 伴生先处理（有的 handler 删除时要连带搬东西或重算索引），主文件删完再做的话，
+    // 中途失败会留下一堆孤儿。
     const side = handler.onRemove ? await handler.onRemove(ctx, normalized) : [];
 
     const dest = await trashPathFor(this.project, normalized);
@@ -686,23 +686,17 @@ function clip(text: string): string {
 }
 
 /**
- * 追加时拼出最终内容。
+ * 追加时拼出最终内容：接在已有内容后面空一行；文件还不存在就是这一段本身。
  *
- * 首次写入带上 handler 给的头（没有就不带），之后在两段之间插 handler 给的
- * 分隔符（缺省空一行）。
+ * 从前 handler 能给「首次追加带的头」与「两段之间的分隔符」——那是中转站正文用的
+ * （拆章的 `---` 断点）。中转站删掉之后再没有种类要它们，钩子一并删了。
  */
-async function appendText(
-  guarded: { existed: boolean; current?: string },
-  text: string,
-  handler: Handler,
-  ctx: HandlerCtx
-): Promise<string> {
+function appendText(guarded: { existed: boolean; current?: string }, text: string): string {
   if (!guarded.existed) {
-    const head = handler.appendHead ? await handler.appendHead(ctx) : '';
-    return `${head}${text.trim()}\n`;
+    return `${text.trim()}\n`;
   }
   const existing = (guarded.current ?? '').replace(/\s+$/, '');
-  return `${existing}${handler.appendSeparator ?? '\n\n'}${text.trim()}\n`;
+  return `${existing}\n\n${text.trim()}\n`;
 }
 
 /** 垃圾箱里保留原相对路径；同名冲突时加序号，不覆盖之前删掉的东西。 */

@@ -927,6 +927,42 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   });
 });
 
+describe('/ 命令面板 · 正文层', { skip: JSDOM_SKIP }, () => {
+  let ui;
+  const rowOf = (label) =>
+    [...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.querySelector('.cmd-label').textContent === label);
+
+  before(() => {
+    ui = mount();
+    ui.post({
+      type: 'session',
+      session: emptySession({
+        target: { kind: 'manuscript', plotRelPath: PLOT_12 },
+        stage: 'manuscript',
+        capability: 'discuss',
+      }),
+    });
+    const input = ui.doc.getElementById('input');
+    input.value = '/';
+    input.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+  });
+
+  test('有「写正文」与「审稿」', () => {
+    assert.ok(rowOf('/写正文') && rowOf('/审稿'));
+  });
+
+  test('写正文挂「写文件」', () => {
+    assert.equal(rowOf('/写正文').querySelector('.cmd-tag').textContent, '写文件');
+    assert.ok(rowOf('/写正文').classList.contains('cmd-writes'));
+  });
+
+  // 审稿只出报告、不写文件（D22）：挂「写文件」会让作者以为点了它正文就被改了。
+  test('审稿挂「只出报告」，不算写文件的命令', () => {
+    assert.equal(rowOf('/审稿').querySelector('.cmd-tag').textContent, '只出报告');
+    assert.ok(!rowOf('/审稿').classList.contains('cmd-writes'));
+  });
+});
+
 describe('选中一章进入当前阶段', { skip: JSDOM_SKIP }, () => {
   let ui;
   let select;

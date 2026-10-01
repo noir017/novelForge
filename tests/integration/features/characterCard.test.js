@@ -65,15 +65,15 @@ function setReplies(items) {
 /**
  * 造一章：细纲 + `words` 字的成品正文 + 一份带 cast 的摘要。
  *
- * 角色卡通读的是 `chapters/` 里的成品、出场统计来自按章的摘要——
- * 中转站（`manuscripts/`）里那份是等着拆分的半成品，这条链不读它。
+ * 角色卡通读的是 `chapters/` 里的正文、出场统计来自按章的摘要——
+ * 细纲里计划出场的人（`characters:`）不算出场（D13）。
  */
 function makePlot(no, title, cast, words = 400) {
   const pad = '雨下了三天，石板路泡得发白。'.repeat(Math.ceil(words / 14)).slice(0, words);
   const stem = `${String(no).padStart(3, '0')}-${title}`;
   t.write(
     `.novelforge/plots/${stem}.md`,
-    `---\nplot: ${no}\ntitle: ${title}\n---\n\n## 目标\n\n略。\n\n## 剧情脉络\n\n甲乙丙。\n`
+    `---\nno: ${no}\ntitle: ${title}\n---\n\n## 本章目的\n\n略。\n\n## 关键事件\n\n甲乙丙。\n\n## 章末钩子\n\n略。\n`
   );
   t.write(`chapters/${stem}.md`, `# ${title}\n\n${pad}\n`);
   t.write(

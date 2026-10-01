@@ -274,7 +274,6 @@ export interface SerializedSession {
   stage: CreationStage;
   capability: Capability;
   targetNo?: number;
-  targetWords?: number;
   /** 这个会话让模型想多深。输入框旁那个下拉框回显它。 */
   thinking: ThinkingDepth;
   turns: SerializedTurn[];

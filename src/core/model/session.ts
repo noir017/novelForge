@@ -73,14 +73,14 @@ export interface ChatTurn {
   /** ISO 时间戳。 */
   at: string;
   /**
-   * 仅 user 轮：这一轮下的是哪个命令，如 `落定剧情`。**只在不是「讨论」时记**——
+   * 仅 user 轮：这一轮下的是哪个命令，如 `落定细纲`。**只在不是「讨论」时记**——
    * 讨论是默认动作，每条消息都挂一枚「/讨论」的标签是纯噪声。
    *
-   * 存的是标签而不是能力名：`labelOf` 是按阶段具体化过的（剧情阶段的 `split`
-   * 叫「拆成场景」），而历史里那一轮当时在哪个阶段，事后未必还推得出来。
+   * 存的是标签而不是能力名：`labelOf` 是按阶段具体化过的（同一个 `generate` 在细纲层
+   * 叫「写细纲」、在正文层叫「写正文」），而历史里那一轮当时在哪个阶段，事后未必还推得出来。
    *
    * 为什么不干脆写进 `content`：那句话会被当成作者的要求装进 prompt。
-   * 「写剧情」这类命令本来就不需要作者说什么，凭空塞一句「请写剧情」
+   * 「写细纲」这类命令本来就不需要作者说什么，凭空塞一句「请写细纲」
    * 进上下文，与旧界面逼他手打一句是同一个毛病。界面要显示的东西和要发给
    * 模型的东西是两件事。
    */
@@ -156,7 +156,7 @@ export interface ChatTurn {
    * 是在哪一步之后说的；而 `content` 存的还只是**最后一回合**那段文字，跑的
    * 时候看到的和第二天翻回来看到的不是一份东西。
    *
-   * 只有 agent 那条路写它。单步创作（写剧情、写正文）没有工具，一块正文就是
+   * 只有 agent 那条路写它。单步创作（写细纲、写正文）没有工具，一块正文就是
    * 全部——那条路不产生段，气泡照旧画成一块可就地编辑的正文。
    */
   segments?: TurnSegment[];
@@ -250,7 +250,7 @@ export interface SessionDraft {
   raw: string;
   /** 解析出的结构化产物。讨论（唯一的 text 类能力）没有。 */
   artifact?: unknown;
-  /** 一句话形状描述，如「剧情 · 4/4 节」。 */
+  /** 一句话形状描述，如「细纲 · 3/3 节」。 */
   summary?: string;
   words: number;
   /** 推理模型的思考过程。不是正文，采纳时不取。 */
@@ -286,13 +286,11 @@ export interface ChatSession {
   capability: Capability;
   /** 本会话默认写入的章号。目标章尚未落盘时用它定位「前文」边界。 */
   targetNo?: number;
-  /** 目标字数，跟着会话走，省得每次重填。 */
-  targetWords?: number;
   /**
    * 这个会话让模型想多深。
    *
    * **跟着会话走而不是全局设置**：想多深是「这件事有多难」的函数，不是偏好。
-   * 排一卷的走向值得让它想透，改一个错别字不值得——而这两件事往往就是相邻
+   * 排一份情节大纲值得让它想透，改一个错别字不值得——而这两件事往往就是相邻
    * 的两个会话。缺席 = 不思考（`DEFAULT_THINKING_DEPTH`），也就是这个字段
    * 出现之前的行为，老会话读进来一个字都不用改。
    */
@@ -474,7 +472,7 @@ export function deriveTitle(text: string): string {
 /**
  * 一轮对话拿什么当「它说了什么」——历史列表的预览与会话标题都用这一份。
  *
- * 命令类的轮次（写剧情、拆成场景）content 本来就是空的：该说的都在剧情和
+ * 命令类的轮次（写细纲、写正文）content 本来就是空的：该说的都在细纲和
  * 大纲里了，作者一个字都不必打。空串会让历史列表出现一排「新对话」，也让
  * 消息流里出现一个空白气泡——两处都得能说出这一轮到底干了什么。
  */
@@ -525,7 +523,8 @@ function normalize(id: string, raw: unknown): ChatSession {
     stage,
     capability,
     targetNo: typeof o.targetNo === 'number' ? o.targetNo : undefined,
-    targetWords: typeof o.targetWords === 'number' ? o.targetWords : undefined,
+    // 老会话里还有一个会话级的 `targetWords`（一期删掉的那个输入框）：不读，下次保存时自然消失。
+    // 目标字数只认细纲的 `targetWords`，缺席取小说配置的每章字数。
     // 认不出的档位当没设过（= 不思考），不抛：手改坏一个字段不该让整个会话读不出来。
     thinking: isThinkingDepth(o.thinking) ? o.thinking : undefined,
     turns: Array.isArray(o.turns) ? o.turns.filter(isTurn) : [],
