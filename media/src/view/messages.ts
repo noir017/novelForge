@@ -27,7 +27,7 @@
  * **流式时只在贴着底才跟滚**：每来一段 delta 都会 `scrollToBottom()`，
  * 翻上去看前面的气泡时不该被拽回来（与日志页同一条理由）。
  */
-import { el as mk, spacer } from '../dom';
+import { closestFrom, el as mk, spacer } from '../dom';
 import type {
   SerializedAgentRun,
   SerializedDigest,
@@ -64,6 +64,8 @@ export function renderSession(session: typeof store.session): void {
     el.messages.appendChild(el.emptyHint);
     el.emptyHint.classList.remove('hidden');
   }
+  // 「还不是小说工程」那一块常驻在消息区里，显不显示由 #messages 的 uninit 类决定（state.ts）。
+  el.messages.appendChild(el.initHint);
   for (const turn of session.turns) {
     el.messages.appendChild(buildTurn(turn));
   }
@@ -195,6 +197,12 @@ export function scrollToBottom(force = false): void {
 export function installMessages(): void {
   el.messages.addEventListener('scroll', () => {
     follow = isAtBottom();
+  });
+  // 与工程页那颗「初始化小说工程」同一个动作：初始化流程（问作品名等）在后端。
+  el.initHint.addEventListener('click', (e) => {
+    if (closestFrom(e.target, '#initProjectBtn')) {
+      vscode.postMessage({ type: 'projectAction', action: 'initProject' });
+    }
   });
 }
 

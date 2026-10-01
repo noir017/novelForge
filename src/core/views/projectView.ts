@@ -4,7 +4,7 @@ import { listActiveFailures } from '../runtime/errorLog';
 import { scoped } from '../runtime/logger';
 import { SECTION_PLACEHOLDER, hasContent } from '../model/markdown';
 import { BookConfig } from '../model/settingFile';
-import { SETTING_DOC_LABEL, chapterLabel, deriveBookStage } from '../model/pipeline';
+import { BookFacts, BookStage, SETTING_DOC_LABEL, chapterLabel, deriveBookNextStep, deriveBookStage } from '../model/pipeline';
 import { NovelProject } from '../model/project';
 import { parsePlotFileName } from '../model/plotFile';
 import { isOutlineFilled, outlineCoverage } from '../model/outlineFile';
@@ -24,6 +24,7 @@ import {
   ProjectPlotNode,
   ProjectTree,
   IdeaDefaults,
+  NextStepView,
 } from '../protocol';
 
 const log = scoped('角色卡');
@@ -214,6 +215,12 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   // 未解决的失败记录，一次查询拿全部（按 relPath 索引，各区共用一张表）。
   // 库不可用时是空对象——工程页照常渲染，只是没有感叹号。
   const failures = await listActiveFailures(project);
+  const bookStage = deriveBookStage(book);
+  // 空状态（W12）说的「下一步」：与对话页主按钮在全书那一档给的同一步。
+  const next = await bookStepView(bookStage, book, {
+    config: () => pipelineIndex.config,
+    plotPathOf: (no) => rows.find((r) => r.no === no)?.plot.relPath ?? project.plotPathForNo(no, ''),
+  });
   return {
     initialized: true,
     title: manifest.title,
@@ -240,8 +247,9 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     styleGuidePath,
     outlinePath,
     globalSummaryPath,
-    bookStage: deriveBookStage(book),
+    bookStage,
     nextChapterNo: book.nextChapterNo,
+    ...(next ? { next } : {}),
     book: {
       ...ideaDefaultsOf(pipelineIndex.config),
       outlineCoverage: Number.isFinite(coverage) && coverage > 0 ? coverage : undefined,
@@ -258,6 +266,36 @@ export function ideaDefaultsOf(config: BookConfig): IdeaDefaults {
     wordsPerChapter: config.wordsPerChapter,
     configHasContent: Object.values(config.sections).some((v) => hasContent(v)),
   };
+}
+
+/**
+ * 全书那一档的下一步（生成架构 / 情节大纲 / 拆细纲），补上落点与弹窗默认值。
+ *
+ * 对话页的主按钮（`controller/chat.ts` 的 `bookNextStep`）与工程页的空状态（W12）共用
+ * 这一份，两处说的是同一步、同一句话（第 20 条：只推一个下一步）。判据在纯函数层
+ * （`deriveBookNextStep`），这里只补落点：
+ *
+ * - 架构、大纲两档：纯函数自己给了 target；小说配置那一步还要一句话弹窗的默认值。
+ * - 拆细纲那一档：落在区间第一章的细纲上（已有空壳就用它，否则用它应该在的位置）。
+ * - 在写、写完了：undefined——那时的下一步是单章状态机的事。
+ */
+export async function bookStepView(
+  stage: BookStage,
+  facts: BookFacts,
+  at: { config(): BookConfig | Promise<BookConfig>; plotPathOf(no: number): string | Promise<string> }
+): Promise<NextStepView | undefined> {
+  const step = deriveBookNextStep(stage, facts);
+  if (!step) {
+    return undefined;
+  }
+  if (step.form === 'idea') {
+    return { ...step, target: step.target!, formDefaults: ideaDefaultsOf(await at.config()) };
+  }
+  if (step.target) {
+    return { ...step, target: step.target };
+  }
+  const no = step.range?.from ?? facts.nextChapterNo;
+  return { ...step, target: { kind: 'plot', plotRelPath: await at.plotPathOf(no) }, no };
 }
 
 /**

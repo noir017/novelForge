@@ -261,6 +261,26 @@
   padding: 4px 4px 6px 16px;
 }
 
+/*
+ * 空状态（W12）：一句说明 + 几颗小按钮。说明可以换行，按钮跟在后面，窄的时候整行折下去。
+ * 「下一步：……」那一行加粗一点：它说的是全书现在该做的那一步，与对话页主按钮同一句话。
+ */
+.row-hint-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+
+.row-hint-action .row-go {
+  margin-left: 0;
+}
+
+.row-next-step .row-hint-text {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
 /* 「多张卡抢同一个称呼」的提示行。出场统计有一处必然是错的，得看得见。 */
 .row-conflict {
   margin: 4px 10px 6px 16px;

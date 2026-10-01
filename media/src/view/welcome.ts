@@ -224,7 +224,16 @@ function ensureSideEmptyHints(): void {
     if (!pane || pane.querySelector('.ws-empty')) {
       continue;
     }
-    pane.appendChild(mk('div', 'ws-empty', EMPTY_HINT));
+    // 遮罩上也给一颗「打开文件夹…」（W12）：侧栏的每一页都看得见下一步，不必先找到欢迎页。
+    const box = mk('div', 'ws-empty');
+    const inner = mk('div', 'ws-empty-inner');
+    inner.appendChild(mk('p', undefined, EMPTY_HINT));
+    const btn = mk('button', 'chip-btn', '打开文件夹…');
+    btn.dataset.welcome = 'openFolder';
+    btn.addEventListener('click', () => requestOpenFolder());
+    inner.appendChild(btn);
+    box.appendChild(inner);
+    pane.appendChild(box);
   }
 }
 

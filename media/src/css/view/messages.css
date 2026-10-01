@@ -24,6 +24,12 @@
   margin: 0 0 8px;
 }
 
+/* 还不是小说工程（W12）：消息区只放初始化那一块，平时它不出现。 */
+.messages:not(.uninit) #initHint,
+.messages.uninit #emptyHint {
+  display: none;
+}
+
 .msg {
   display: flex;
   flex-direction: column;

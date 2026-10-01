@@ -25,6 +25,19 @@
   background: var(--vscode-list-activeSelectionBackground);
 }
 
+/* 空列表（W12）：一句说明 + 「去对话页」。它不是一个会话，悬停不变色、不当成可点的行。 */
+.sessions li.history-empty {
+  cursor: default;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.sessions li.history-empty:hover {
+  background: none;
+}
+
 .sessions .s-head {
   display: flex;
   align-items: baseline;

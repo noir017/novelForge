@@ -136,6 +136,11 @@ body.no-workspace .ws-empty {
   font-size: 13px;
 }
 
+/* 遮罩里的一句话 + 「打开文件夹…」（W12）。 */
+.ws-empty-inner p {
+  margin: 0 0 10px;
+}
+
 .nf-about {
   display: none;
   position: fixed;

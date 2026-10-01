@@ -5,15 +5,22 @@ import { linkBtn } from './buttons';
 import { timeLabel } from './format';
 import { el } from './refs';
 import { vscode } from './store';
+import { showTab } from './tabs';
 
 export function renderSessions(list: SessionListItem[]): void {
   el.sessionList.innerHTML = '';
   el.historyMeta.textContent = `${list.length} 个会话`;
 
   if (list.length === 0) {
-    el.sessionList.appendChild(
-      mk('li', 'hint', '还没有保存的对话。发出第一条消息后会自动保存。')
-    );
+    // 空页写出去哪儿（W12）：会话是在对话页里说出第一句话时才存下来的。
+    const li = mk('li', 'hint history-empty', '还没有保存的对话。在对话页跟着主按钮走，发出第一条消息后会自动保存在这里。');
+    const go = mk('button', 'chip-btn', '去对话页');
+    go.addEventListener('click', () => {
+      showTab('chat');
+      vscode.postMessage({ type: 'switchTab', tab: 'chat' });
+    });
+    li.appendChild(go);
+    el.sessionList.appendChild(li);
     return;
   }
   for (const s of list) {

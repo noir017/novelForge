@@ -26,7 +26,6 @@ import {
   WriteMode,
   commandOf,
   describeWriteLength,
-  deriveBookNextStep,
   deriveBookStage,
   deriveNextStep,
   describeTarget,
@@ -44,7 +43,7 @@ import {
   SendPayload,
   SerializedArtifact,
 } from '../protocol';
-import { buildPlotPipelineView, ideaDefaultsOf } from '../views/projectView';
+import { bookStepView, buildPlotPipelineView } from '../views/projectView';
 import { buildBookFacts, buildPlotPipeline, chapterOfPlotNo } from '../views/pipeline';
 import { buildWorkbench } from '../views/workbench';
 import { Plot, isPlotFilled, parsePlotFileName } from '../model/plotFile';
@@ -1077,31 +1076,21 @@ export async function pushPipeline(c: ChatController): Promise<void> {
 /**
  * 全书级的下一步。
  *
- * 判据在纯函数层（`deriveBookStage` / `deriveBookNextStep`），这里只取数与补落点：
+ * 判据在纯函数层（`deriveBookStage` / `deriveBookNextStep`），这里只取数：
  *
- * - 架构、大纲两档：纯函数自己给了 target。
- * - 拆细纲那一档：落在区间第一章的细纲上（已有空壳就用它，否则用它应该在的位置）。
+ * - 架构、大纲、拆细纲三档：`bookStepView` 补上落点（工程页的空状态用的是同一份）。
  * - 在写那一档：转去问**下一个该写的章**的单章状态机，主按钮就是「写第 N 章」一类。
  * - 写完了：不给按钮。
  */
 export async function bookNextStep(c: ChatController): Promise<NextStepView | undefined> {
   const facts = await buildBookFacts(c.project);
   const stage = deriveBookStage(facts);
-  const step = deriveBookNextStep(stage, facts);
-  if (step) {
-    if (step.form === 'idea') {
-      // 一句话弹窗要的默认值：config.md 里已经写了的那句话与规模。
-      return { ...step, target: step.target!, formDefaults: ideaDefaultsOf(await c.project.readBookConfig()) };
-    }
-    if (step.target) {
-      return { ...step, target: step.target };
-    }
-    const no = step.range?.from ?? facts.nextChapterNo;
-    const rel = (await c.project.getPlot(no))?.relPath ?? c.project.plotPathForNo(no, '');
-    return { ...step, target: { kind: 'plot', plotRelPath: rel }, no };
-  }
-  if (stage !== 'writing') {
-    return undefined;
+  const step = await bookStepView(stage, facts, {
+    config: () => c.project.readBookConfig(),
+    plotPathOf: async (no) => (await c.project.getPlot(no))?.relPath ?? c.project.plotPathForNo(no, ''),
+  });
+  if (step || stage !== 'writing') {
+    return step;
   }
   const no = facts.nextChapterNo;
   const chapters = await c.project.listChapters();

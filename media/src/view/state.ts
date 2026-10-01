@@ -36,8 +36,12 @@ export function renderState(state: ViewState): void {
     el.sendBtn.disabled = true;
   }
 
+  // 打开了文件夹但还不是小说工程：消息区换成「下一步：初始化」那一块（W12）。没打开文件夹时
+  // 不显示——那时独立版有空窗口的遮罩，插件没有这个状态。
+  el.messages.classList.toggle('uninit', hasWorkspace() && !state.initialized);
   if (!state.initialized) {
-    el.providerMeta.textContent = '当前工作区还不是小说工程，先运行「Novel: 初始化小说工程」。';
+    // 从前这里写「先运行「Novel: 初始化小说工程」」——那是 VS Code 的命令名，独立版里找不到。
+    el.providerMeta.textContent = '当前工作区还不是小说工程。';
     el.sendBtn.disabled = true;
     return;
   }

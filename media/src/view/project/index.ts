@@ -27,6 +27,7 @@ import {
   renderNodes,
 } from './rows';
 import { openIdeaForm, openPlotBatchForm, openWriteBatchForm } from '../forms';
+import { charactersEmptyRow, loreEmptyRow, nextStepRow } from './nextSteps';
 import { hideDetailTip, installDetailTip } from './detailTip';
 import { hideFailureTip, installFailureTip } from './errorTip';
 import { hideSummaryTip, installSummaryTip } from './summaryTip';
@@ -75,10 +76,16 @@ export function renderProject(tree: ProjectTree): void {
         { label: '批量写章…', run: () => openWriteBatchForm(tree) },
         { sep: true },
       ],
-      build: () =>
-        tree.plots.length === 0
-          ? [emptyRow('还没有章节。先把故事架构与情节大纲写好，再拆出细纲。')]
-          : buildPlotRows(tree.plots, tree.nextChapterNo),
+      build: () => {
+        // 空分组与「下一章还没有细纲那一行」（拆细纲那一档）都写出全书的下一步（W12）。
+        // 有下一章那一行时它自己带「去写这一章」，不再多说一句。
+        if (tree.plots.length === 0) {
+          return [tree.next ? nextStepRow(tree.next, tree) : emptyRow('还没有章节。先把故事架构与情节大纲写好，再拆出细纲。')];
+        }
+        const rows = buildPlotRows(tree.plots, tree.nextChapterNo);
+        const hasNextRow = tree.plots.some((p) => p.no === tree.nextChapterNo);
+        return !hasNextRow && tree.next ? [...rows, nextStepRow(tree.next, tree)] : rows;
+      },
     })
   );
 
@@ -98,7 +105,7 @@ export function renderProject(tree: ProjectTree): void {
         // 冲突排在最前面：它说明这棵树上的出场统计有一处是错的。
         ...(tree.castConflicts ?? []).map(buildConflictRow),
         ...(tree.characters.length === 0
-          ? [emptyRow('还没有角色卡。可运行「提取/更新角色卡」从正文抽取。')]
+          ? [charactersEmptyRow(tree)]
           : renderNodes(tree.characters, 0, SECTIONS.characters, tree)),
       ],
     })
@@ -126,10 +133,7 @@ export function renderProject(tree: ProjectTree): void {
         { label: '从已写正文生成/更新设定', run: () => projectAction('generateLore') },
         { sep: true },
       ],
-      build: () =>
-        tree.lore.length === 0
-          ? [emptyRow('还没有设定条目。keywords 命中纲要时会自动注入上下文。')]
-          : renderNodes(tree.lore, 0, SECTIONS.lore),
+      build: () => (tree.lore.length === 0 ? [loreEmptyRow(tree)] : renderNodes(tree.lore, 0, SECTIONS.lore)),
     })
   );
 

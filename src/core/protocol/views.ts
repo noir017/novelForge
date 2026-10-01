@@ -73,6 +73,11 @@ export interface ProjectTree {
   bookStage: BookStage;
   /** 下一个该写的章（从第 1 章起连续有正文的最大章号 + 1）。只有这一行给「写这一章」。 */
   nextChapterNo: number;
+  /**
+   * 全书那一档的下一步（生成架构 / 情节大纲 / 拆细纲），与对话页主按钮在全书那一档给的
+   * 同一步。工程页的空状态写「下一步：……」用它（W12）。在写、写完了时缺席。
+   */
+  next?: NextStepView;
   /** 一句话、拆细纲两个弹窗的默认值（W4 / W5）。 */
   book: BookView;
 }

@@ -120,6 +120,12 @@ export function chatPane(opts: PaneOptions = {}): string {
       <p>从一句话开始：先生成小说配置、故事前提、角色图谱与世界观，再排情节大纲、拆细纲，最后一章一章写正文。想接着写某一章，在「工程」页右键「进入这一章」，或用下面的下拉框选它。</p>
       <p>用 <kbd>@</kbd> 引用正文、角色卡或任意文件；在输入框里打 <kbd>/</kbd> 可以挑其它命令。</p>${editorHint}
     </div>
+    <!-- 打开的文件夹还不是小说工程：消息区只放这一块（W12）。由 #messages 上的 uninit 类切换。 -->
+    <div class="empty" id="initHint">
+      <p><strong>下一步：把这个文件夹初始化成小说工程</strong></p>
+      <p>会创建 chapters/ 与 .novelforge/ 目录及模板文件。</p>
+      <p><button class="primary" id="initProjectBtn">初始化小说工程</button></p>
+    </div>
   </div>
 
   <!-- 下一步：状态机算出来的那一个动作。点了就跑，不必先输入什么。 -->

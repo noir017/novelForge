@@ -11,6 +11,7 @@ export const el = {
   tabbar: byId('tabbar'),
   messages: byId('messages'),
   emptyHint: byId('emptyHint'),
+  initHint: byId('initHint'),
   newSessionBtn: byId<HTMLButtonElement>('newSessionBtn'),
   renamePlotBtn: byId<HTMLButtonElement>('renamePlotBtn'),
   workbench: byId<HTMLButtonElement>('workbench'),

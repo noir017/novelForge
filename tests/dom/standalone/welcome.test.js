@@ -26,6 +26,23 @@ describe('独立版空窗口欢迎页', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.doc.getElementById('input').disabled, true);
   });
 
+  // W12：侧栏每一页的遮罩上都看得见下一步，不必先找到欢迎页。
+  test('侧栏遮罩上有「打开文件夹…」，与欢迎页那颗同一个动作', () => {
+    for (const id of ['pane-chat', 'pane-project', 'pane-files', 'pane-history']) {
+      const btn = ui.doc.querySelector(`#${id} .ws-empty button`);
+      assert.ok(btn && btn.textContent === '打开文件夹…', id);
+    }
+    let intent;
+    const onPick = (e) => {
+      intent = e.detail.intent;
+      e.preventDefault();
+    };
+    ui.window.addEventListener('nf-pick-folder', onPick);
+    ui.clickEl(ui.doc.querySelector('#pane-chat .ws-empty button'));
+    ui.window.removeEventListener('nf-pick-folder', onPick);
+    assert.equal(intent, 'open');
+  });
+
   test('workspaces 带 recents 时画出 Recent', () => {
     ui.post({
       type: 'workspaces',
