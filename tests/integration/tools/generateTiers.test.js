@@ -4,9 +4,9 @@
  * | 层 | 用哪个 | 为什么 |
  * |---|---|---|
  * | 正文 | **对话页选定的那个** | 中途换人会让文风断掉 |
- * | 架构 | 同上 | 一次定调，没有对应档位 |
- * | 大纲 | 同上 | 同上 |
- * | 细纲 | `plotOutline` 档 | 与工程页「批量写细纲」同一个模型 |
+ * | 大纲 | 同上 | 一次定调，没有对应档位 |
+ * | 架构 | `setting` 档（故事架构） | 与工程页「补齐设定」同一个模型 |
+ * | 细纲 | `plotOutline` 档 | 与工程页「批量拆细纲」同一个模型 |
  *
  * 还有一条容易漏的：走池时**窗口要跟着干活那个模型走**（第 13 条），
  * 拿 200k 的对话模型窗口给快速档的 32k 模型装配上下文会稳定超窗。
@@ -78,12 +78,13 @@ before(async () => {
         models: [
           { name: 'plotter', contextWindow: 64000, maxOutputTokens: 2000 },
           { name: 'quick', contextWindow: 32000, maxOutputTokens: 1000 },
+          { name: 'architect', contextWindow: 128000, maxOutputTokens: 8000 },
         ],
       },
     ],
     models: ['chat/big'],
-    // plotOutline 默认归均衡档。
-    tierModels: { balanced: ['cheap/plotter'], fast: ['cheap/quick'], quality: [] },
+    // plotOutline 默认归均衡档，setting（故事架构）默认归精标档。
+    tierModels: { balanced: ['cheap/plotter'], fast: ['cheap/quick'], quality: ['cheap/architect'] },
     concurrency: 1,
   };
   bundle.host.initHost(makeFakeHost({ supportsVscodeLm: true, settings: () => settings }).host);
@@ -156,12 +157,31 @@ describe('大纲层也用对话页那个（一次定调，没有对应档位）'
   });
 });
 
-// 架构四件是全书的定调，与大纲同理：没有档位，用作者在对话页选的那个。
-describe('架构层也用对话页那个', () => {
-  test('不走池', async () => {
+// 架构四件与工程页「补齐设定」是同一件事：用同一档的同一个模型，作者在设置页配一处就够。
+describe('架构层走 setting 档（故事架构）', () => {
+  test('用的是那一档的首选，不是对话页那个', async () => {
     resetCtx();
     await run({ target: CONFIG_REL, capability: 'generate' });
+    assert.equal(fake.calls[0].ref, 'cheap/architect', String(fake.calls[0].ref));
+  });
+
+  test('那一档没配就回到对话页那个', async () => {
+    resetCtx();
+    const saved = settings.tierModels.quality;
+    settings.tierModels.quality = [];
+    await run({ target: CONFIG_REL, capability: 'generate' });
     assert.equal(fake.calls[0].ref, 'chat/big', String(fake.calls[0].ref));
+    settings.tierModels.quality = saved;
+  });
+});
+
+// 六期定了 agent 不做审稿（报告要作者勾选才修稿）：工具不该为一件它不做的事走某个档位。
+describe('审稿当场拒绝，不走任何档位', () => {
+  test('给 error，一次模型都不调', async () => {
+    resetCtx();
+    const r = await run({ target: CHAPTER_REL, capability: 'review' });
+    assert.ok(r.error && r.error.includes('审稿'), JSON.stringify(r));
+    assert.equal(fake.calls.length, 0, String(fake.calls.length));
   });
 });
 

@@ -28,16 +28,17 @@
  * | `newChapter` | 正常路径上章节是写正文时生成的，不该由 agent 直接建一个空文件 |
  */
 import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
-import { objectSchema, str } from '../schema';
+import { bool, int, objectSchema, str } from '../schema';
 import { text } from './naming';
 import { newPlotFlow } from '../../actions';
-import { generatePlots, writeManuscripts } from '../../features/pipelineBatch';
+import { completeSettings, generatePlots, writeManuscripts } from '../../features/pipelineBatch';
 import { chapterForSummary, syncSummaries } from '../../features/summarize';
 import { describeFinalize, finalizeChapter } from '../../features/finalize';
 import { createCardForCast, updateCharacterCard } from '../../features/characterCard';
 import { extractStyle } from '../../features/style';
 import { generateLore } from '../../features/lore';
 import { describeError } from '../../runtime/logger';
+import { PLOT_BATCH, WRITE_BATCH_DEFAULT, WriteBatchMode, isWriteBatchMode } from '../../model/pipeline';
 
 /** 一次动作的结果：说给模型听的一句话 + 这一下花了几次模型调用。 */
 interface ActionResult {
@@ -55,18 +56,27 @@ interface ActionSpec {
   needsField?: 'path' | 'name';
   /** 参数说明，进工具描述。 */
   needs?: string;
+  /**
+   * 认哪几个可选参数。没列的给了就当场报错——模型以为自己传了一个区间、其实被忽略，
+   * 比多一次往返更糟（`objectSchema` 的 `additionalProperties: false` 同一个道理）。
+   */
+  takes?: { range?: number; mode?: boolean };
   run(ctx: ToolContext, args: RunArgs): Promise<ActionResult>;
 }
 
 interface RunArgs {
   path: string;
   name: string;
+  /** 章号区间。只给了 `from` 时按动作的缺省长度补齐 `to`（`takes.range`）。 */
+  range?: { from: number; to: number };
+  mode?: WriteBatchMode;
+  review?: boolean;
 }
 
 const ACTIONS: Record<string, ActionSpec> = {
   // ---- 不花钱的
   newPlot: {
-    label: '新建一章的细纲骨架',
+    label: '新建一章的细纲骨架（接在最后一章之后）',
     costly: false,
     async run(ctx) {
       const rel = await newPlotFlow(ctx.project);
@@ -75,6 +85,13 @@ const ACTIONS: Record<string, ActionSpec> = {
   },
 
   // ---- 花钱的：确认框全在 feature 自己那里，这里只转发
+  completeSettings: {
+    label: '补齐故事架构（小说配置 / 故事前提 / 角色图谱 / 世界观，只补空白）',
+    costly: true,
+    async run(ctx) {
+      return countedBy(await completeSettings(ctx.project), '补齐故事架构', '四件都已经有了，或者小说配置还没有「一句话」可以展开');
+    },
+  },
   summarize: {
     label: '给某一章定稿（摘要与连续性事实，再更新出场角色的当前状态）',
     costly: true,
@@ -102,17 +119,22 @@ const ACTIONS: Record<string, ActionSpec> = {
     },
   },
   batchPlots: {
-    label: '从下一个该写的章起拆 5 章细纲（已有细纲的章跳过）',
+    label: `批量拆细纲（缺省从下一个该写的章起 ${PLOT_BATCH} 章；已有细纲的章跳过）`,
     costly: true,
-    async run(ctx) {
-      return countedBy(await generatePlots(ctx.project), '批量拆细纲');
+    takes: { range: PLOT_BATCH },
+    async run(ctx, args) {
+      return countedBy(await generatePlots(ctx.project, { range: args.range }), '批量拆细纲');
     },
   },
   batchManuscripts: {
-    label: '从下一个该写的章起一章一章写 3 章正文（已有正文的跳过，只写正文不定稿）',
+    label: `批量写章，一章一章串行写（缺省从下一个该写的章起 ${WRITE_BATCH_DEFAULT} 章、只写正文；已有正文的章跳过）`,
     costly: true,
-    async run(ctx) {
-      return countedBy(await writeManuscripts(ctx.project), '批量写正文');
+    takes: { range: WRITE_BATCH_DEFAULT, mode: true },
+    async run(ctx, args) {
+      return countedBy(
+        await writeManuscripts(ctx.project, { range: args.range, mode: args.mode, review: args.review }),
+        '批量写章'
+      );
     },
   },
   updateCard: {
@@ -184,10 +206,20 @@ export const runTool: ToolDef = {
   intent(args): ToolIntent {
     const action = text(args.action);
     const target = text(args.path) || text(args.name);
+    // 区间与模式写进框里：「批量写章」与「把第 5–8 章写完并定稿」是两件分量很不一样的事。
+    const from = toInt(args.from);
+    const to = toInt(args.to);
+    const scope = [
+      from !== undefined ? (to !== undefined && to !== from ? `第 ${from}–${to} 章` : `从第 ${from} 章起`) : '',
+      args.mode === 'finalize' ? '写完即定稿' : '',
+      args.review === true ? '写完即审稿' : '',
+    ]
+      .filter(Boolean)
+      .join('，');
     return {
       gate: 'mutating',
       title: `执行工程动作 ${action}`,
-      detail: [target, '要调模型的动作随后还会告诉你预计调用几次，那一步你也可以不同意。']
+      detail: [target, scope, '要调模型的动作随后还会告诉你预计调用几次，那一步你也可以不同意。']
         .filter(Boolean)
         .join('\n'),
     };
@@ -204,6 +236,8 @@ export const runTool: ToolDef = {
     '。' +
     '**连续多章的同类工作用这里的批量动作**（batchPlots / batchManuscripts），' +
     '比一章一章 generate 省钱，而且有进度条、能停、失败的会挂在那一章上。' +
+    '这两个可以用 from / to 指定章号区间（只给 from 时按缺省章数往后数）；' +
+    'batchManuscripts 另可给 mode=finalize（每写完一章就定稿）与 review=true（每写完一章先审稿，报告放进一个新会话）。' +
     '调模型的动作会先弹一个确认框告诉作者要调用几次，他可以不同意。' +
     '删除、改名、移动、新建章节文件都没有——那些由作者自己做。',
 
@@ -212,6 +246,13 @@ export const runTool: ToolDef = {
       action: str('要执行哪个动作。', ACTION_NAMES),
       path: str('动作的作用对象，工程内相对路径。只有部分动作要。'),
       name: str('人物名字，只有 createCard 要。'),
+      from: int('章号区间的起点，只有 batchPlots / batchManuscripts 认。留空从下一个该写的章起。'),
+      to: int('章号区间的终点（含），只有 batchPlots / batchManuscripts 认。要给就同时给 from。'),
+      mode: str(
+        '批量写章的模式，只有 batchManuscripts 认：draft=只写正文（缺省），finalize=每写完一章就定稿（摘要 + 出场角色的当前状态）。',
+        ['draft', 'finalize']
+      ),
+      review: bool('每写完一章先审稿，只有 batchManuscripts 认。缺省 false。'),
     },
     ['action']
   ),
@@ -244,6 +285,11 @@ export const runTool: ToolDef = {
     if (spec.needsField && !runArgs[spec.needsField]) {
       return { text: '', error: `${action} 需要参数：${spec.needs}。` };
     }
+    const extra = readExtras(action, spec, args);
+    if ('error' in extra) {
+      return { text: '', error: extra.error };
+    }
+    Object.assign(runArgs, extra);
 
     try {
       const r = await spec.run(ctx, runArgs);
@@ -264,16 +310,71 @@ export const runTool: ToolDef = {
 };
 
 /**
+ * 区间与模式这几个可选参数：只给认它们的动作，值不对当场说清楚。
+ *
+ * 区间不在这里截到总章数、大纲覆盖或批量上限——那些由 feature 自己按磁盘算，确认框里写着
+ * 实际要处理哪几章（同一个 `planPlotBatches` / `planWriteBatch`）。
+ */
+function readExtras(
+  action: string,
+  spec: ActionSpec,
+  args: Record<string, unknown>
+): Pick<RunArgs, 'range' | 'mode' | 'review'> | { error: string } {
+  const from = toInt(args.from);
+  const to = toInt(args.to);
+  const hasRange = args.from !== undefined || args.to !== undefined;
+  const hasMode = args.mode !== undefined || args.review !== undefined;
+  if (hasRange && !spec.takes?.range) {
+    return { error: `${action} 不认 from / to，只有 batchPlots / batchManuscripts 认。` };
+  }
+  if (hasMode && !spec.takes?.mode) {
+    return { error: `${action} 不认 mode / review，只有 batchManuscripts 认。` };
+  }
+
+  const out: Pick<RunArgs, 'range' | 'mode' | 'review'> = {};
+  if (hasRange) {
+    if (from === undefined) {
+      return {
+        error: args.from === undefined ? '给了 to 就要同时给 from（章号区间的起点）。' : 'from / to 要填章号（正整数）。',
+      };
+    }
+    if (args.to !== undefined && to === undefined) {
+      return { error: 'from / to 要填章号（正整数）。' };
+    }
+    const end = to ?? from + spec.takes!.range! - 1;
+    if (from < 1 || end < from) {
+      return { error: `章号区间不对：第 ${from}–${end} 章。from 从 1 起，to 不能小于 from。` };
+    }
+    out.range = { from, to: end };
+  }
+  if (args.mode !== undefined) {
+    if (!isWriteBatchMode(args.mode)) {
+      return { error: 'mode 只能是 draft（只写正文）或 finalize（写完即定稿）。' };
+    }
+    out.mode = args.mode;
+  }
+  if (args.review !== undefined) {
+    out.review = args.review === true;
+  }
+  return out;
+}
+
+function toInt(value: unknown): number | undefined {
+  const n = typeof value === 'string' && value.trim() ? Number(value) : value;
+  return typeof n === 'number' && Number.isFinite(n) ? Math.trunc(n) : undefined;
+}
+
+/**
  * feature 报回来的「计划调用几次」→ 一句话 + 记账。
  *
- * **0 次要说清楚**：作者取消了，或者压根没有待处理的章。不说的话模型会以为
+ * **0 次要说清楚**：作者取消了，或者压根没有待处理的东西。不说的话模型会以为
  * 是自己参数填错了，然后原地再发一遍——那正是无进展检测要拦的事。
  */
-function countedBy(calls: number, what: string): ActionResult {
+function countedBy(calls: number, what: string, idle = '没有待处理的章'): ActionResult {
   if (calls <= 0) {
     return {
       text:
-        `${what}这一次没有调用模型：要么作者在确认框里取消了，要么没有待处理的章。` +
+        `${what}这一次没有调用模型：要么作者在确认框里取消了，要么${idle}。` +
         '不要重试同一个动作——先用 list 或 read 看看现在的状态。',
       calls: 0,
     };

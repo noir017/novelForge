@@ -43,8 +43,9 @@ export const searchTool: ToolDef = {
   description:
     '在工程里全文检索，返回命中的行（带路径与行号），**按章号升序**。' +
     '默认按字面量搜（作者搜的多半是人名地名），regex=true 才当正则。' +
-    'path 可限定目录，kinds 可限定产物种类（chapter=已发布的章，manuscript=尚未拆分的正文，' +
-    'plot=细纲，volume=卷纲，summary=单章摘要，character=角色卡，lore=设定）。' +
+    'path 可限定目录，kinds 可限定产物种类（setting=小说配置 / 故事前提 / 世界观，outline=情节大纲，' +
+    'plot=细纲，chapter=正文，summary=单章摘要，character=角色卡，lore=设定，style=文风指南，' +
+    'globalSummary=全书摘要，draft=章节草稿）。' +
     `一次最多返回 ${SEARCH_LIMIT} 条、每个文件最多 ${SEARCH_PER_FILE} 条；` +
     '有命中因为超上限被丢掉时会明确告诉你丢了几条——那时不要断言「全书只有这几处」。',
   parameters: objectSchema(

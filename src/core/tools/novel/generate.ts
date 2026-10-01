@@ -14,7 +14,8 @@
  *    | 层 | 用哪个模型 | 为什么 |
  *    |---|---|---|
  *    | `manuscript` | **对话页选定的那个**，不走池 | 中途换人会让文风断掉 |
- *    | `setting` / `outline` | 同上 | 一次定调，而且没有对应档位 |
+ *    | `outline` | 同上 | 一次定调，而且没有对应档位 |
+ *    | `setting` | `setting` 档（故事架构） | 与工程页「补齐设定」同一个模型 |
  *    | `plot` | `plotOutline` 档 | 与工程页「批量拆细纲」同一个模型 |
  *
  *    走池时**必须把池的 `primaryBudget` 一起传下去**（第 13 条）：
@@ -59,10 +60,14 @@ import {
 const log = scoped('Agent');
 
 /**
- * 哪一层走哪一档。**列在这里的才走池**——不在表里的（正文、大纲、架构）严格用
+ * 哪一层走哪一档。**列在这里的才走池**——不在表里的（正文、大纲）严格用
  * 对话页选定的那个模型，不走池、不 fallback（第 12 条）。
+ *
+ * 没有审稿档：这个工具不做审稿（`capability === 'review'` 当场报错，理由写在那里）。
+ * `review` 档只给批量写章的「写完即审稿」用。
  */
 const TIER_TASK: Partial<Record<CreationStage, LlmTask>> = {
+  setting: 'setting',
   plot: 'plotOutline',
 };
 
@@ -133,8 +138,9 @@ export const generateTool: ToolDef = {
       };
     }
 
-    // `review`（五期）只出报告，要作者在报告卡上勾选之后才修稿——agent 拿到一份报告做不了什么，
-    // 也不该替作者决定哪几条算数。六期统一改工具时再定要不要开放。
+    // `review` 只出报告，要作者在报告卡上勾选之后才修稿——agent 拿到一份「2 严重 · 1 建议」
+    // 做不了什么，也不该替作者决定哪几条算数；作者要审稿，对话页 `/审稿` 或章节条上一颗按钮
+    // 就到。五期把开不开放留给六期，六期定了不开放。
     if (capability === 'review') {
       return {
         text: '',

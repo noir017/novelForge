@@ -329,6 +329,63 @@ describe('批量拆细纲：作者同意', () => {
 });
 
 /**
+ * 批量的区间与模式（六期）：工程页两个弹窗能选的，agent 这条路也能给。确认框照弹，
+ * 区间与模式写在框里——「批量写章」与「把第 1–2 章写完并定稿」是分量不一样的两件事。
+ * 这里一律在确认框上取消：只看框里写了什么，不花钱。
+ */
+describe('批量写章：区间与模式写进确认框', () => {
+  test('from / to / mode / review 都转给了批量写章', async () => {
+    resetCtx();
+    h.expect();
+    const r = await run({ action: 'batchManuscripts', from: 1, to: 2, mode: 'finalize', review: true });
+    const message = h.confirms[h.confirms.length - 1].message;
+    assert.ok(message.startsWith('第 1–2 章：要写 2 章正文（写完即定稿、写完即审稿）'), message);
+    assert.equal(fake.calls.length, 0, String(fake.calls.length));
+    assert.ok(r.text.includes('没有调用模型'), r.text);
+  });
+
+  // 只给起点：按批量写章的缺省（3 章）往后数，再由 feature 按磁盘收住（第 3 章起没有细纲）。
+  test('只给 from 时按缺省章数往后数', async () => {
+    resetCtx();
+    h.expect();
+    await run({ action: 'batchManuscripts', from: 2 });
+    const message = h.confirms[h.confirms.length - 1].message;
+    assert.ok(message.startsWith('第 2 章：要写 1 章正文（只写正文）'), message);
+  });
+
+  test('批量拆细纲也认区间', async () => {
+    resetCtx();
+    h.expect();
+    const r = await run({ action: 'batchPlots', from: 2, to: 2 });
+    // 第 2 章已经排过细纲：feature 自己说「都排过了」，不弹确认框、不花钱。
+    assert.equal(fake.calls.length, 0, String(fake.calls.length));
+    assert.ok(r.text.includes('没有调用模型'), r.text);
+  });
+});
+
+describe('区间与模式的参数不对就当场报错，不弹框、不花钱', () => {
+  const cases = [
+    ['from 大于 to', { action: 'batchPlots', from: 3, to: 1 }, '区间'],
+    ['只给 to', { action: 'batchPlots', to: 3 }, 'from'],
+    ['from 不是数', { action: 'batchManuscripts', from: '第三章' }, '章号'],
+    ['不认区间的动作给了区间', { action: 'summarize', path: PLOT1, from: 1 }, '不认 from'],
+    ['拆细纲给了模式', { action: 'batchPlots', mode: 'finalize' }, '不认 mode'],
+    ['模式写错', { action: 'batchManuscripts', mode: 'all' }, 'mode 只能是'],
+  ];
+  for (const [name, args, word] of cases) {
+    test(name, async () => {
+      resetCtx();
+      const before = h.confirms.length;
+      const r = await run(args);
+      assert.ok(r.error && r.error.includes(word), JSON.stringify(r));
+      assert.equal(h.confirms.length, before, '不该弹确认框');
+      assert.equal(fake.calls.length, 0, String(fake.calls.length));
+      assert.equal(ctx.usage.calls, 0);
+    });
+  }
+});
+
+/**
  * 批量写正文是 `run` 存在的理由之一：正文落盘要在细纲上记 `writtenFrom`（第 18 条），
  * agent 拿着 write 自己拼就会漏掉这一步——那一章从此永远不会因为细纲改过而挂 ⟳。
  */
@@ -448,6 +505,33 @@ describe('newPlot 不花钱', () => {
   });
 });
 
+// 补齐故事架构（六期）：工程页工具栏那颗按钮背后的同一个函数，确认框照弹。
+describe('补齐故事架构：转发给工程页那个动作', () => {
+  let r;
+
+  before(async () => {
+    resetCtx();
+    h.expect();
+    r = await run({ action: 'completeSettings' });
+  });
+
+  // 小说配置写了核心梗概，算填过；缺的是另外三件。
+  test('确认框写着缺哪几件、预计调用几次', () => {
+    const message = h.confirms[h.confirms.length - 1].message;
+    assert.ok(message.startsWith('要补齐故事前提、角色图谱、世界观，预计'), message);
+  });
+
+  test('作者取消：一次模型都不调，账上也不记', () => {
+    assert.equal(fake.calls.length, 0, String(fake.calls.length));
+    assert.equal(ctx.usage.calls, 0);
+  });
+
+  test('回给模型的话说的是架构，不是「没有待处理的章」', () => {
+    assert.ok(r.text.includes('补齐故事架构这一次没有调用模型'), r.text);
+    assert.ok(!r.text.includes('待处理的章'), r.text);
+  });
+});
+
 describe('工具定义本身', () => {
   test('标了 mutating', () => {
     assert.equal(tool().mutating, true);
@@ -457,10 +541,20 @@ describe('工具定义本身', () => {
     assert.equal(tool().costly, true);
   });
 
-  test('参数是扁平的三个标量', () => {
+  test('参数是扁平的标量', () => {
     const props = tool().parameters.properties;
-    assert.deepEqual(Object.keys(props).sort(), ['action', 'name', 'path']);
-    assert.ok(Object.values(props).every((p) => p.type !== 'object'), JSON.stringify(props));
+    assert.deepEqual(Object.keys(props).sort(), ['action', 'from', 'mode', 'name', 'path', 'review', 'to']);
+    assert.ok(Object.values(props).every((p) => p.type !== 'object' && p.type !== 'array'), JSON.stringify(props));
+  });
+
+  test('mode 是枚举：只写正文 / 写完即定稿', () => {
+    assert.deepEqual(tool().parameters.properties.mode.enum, ['draft', 'finalize']);
+  });
+
+  // 确认框上看得出这一下要动哪几章、要不要定稿——那是作者决定点不点的依据。
+  test('动手前那一问写着区间与模式', () => {
+    const intent = tool().intent({ action: 'batchManuscripts', from: 5, to: 8, mode: 'finalize', review: true });
+    assert.ok(intent.detail.includes('第 5–8 章，写完即定稿，写完即审稿'), intent.detail);
   });
 
   test('action 是枚举，删除类与 split 不在里面', () => {

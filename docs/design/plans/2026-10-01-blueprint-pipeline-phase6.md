@@ -39,7 +39,7 @@
 **`run`**
 - 新增 `completeSettings`：补齐故事架构（只补空白，确认框写明缺哪几件、调用几次）。转发 `features/pipelineBatch.ts` 的 `completeSettings`，一字不改。
 - ⚑ `batchPlots` / `batchManuscripts` 收可选的 `from` / `to`（章号区间），`batchManuscripts` 另收 `mode`（`draft` 只写正文 / `finalize` 写完即定稿）与 `review`（写完即审稿）。工程页的两个弹窗都能选区间和模式，agent 这条路只能「从下一可写章起、只写正文」，作者说「把第 5–8 章写完并定稿」它就做不到。确认框照弹（不带 `confirmed`），区间与模式写在框里，次数按 `planWriteBatch` 的上限报（第 4 条）。
-- 去掉 `REFUSED` 里的 `split`：新链路没有拆分这件事，留着它等于告诉模型「有这个动作，只是不给你」。模型真填了 `split`，走「认不出动作」那条报错，同样列出可用动作。
+- `REFUSED` 里的 `split` **保留**（`runTool.test.js` 钉着）：拿着老提示词来的模型要听到「这是有意不给的」，听到「认不出」它会换十个名字接着试。
 - 描述里的标签按新链路改（「定稿」「补齐故事架构」「批量拆细纲」「批量写章」）。
 
 **`list` / `search` / `schema.ts` / `index.ts` 的说明与注释**

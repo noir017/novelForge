@@ -26,8 +26,9 @@ export const listTool: ToolDef = {
   description:
     '列出工程里某个目录的直接子项（不递归），带类型与字数。' +
     'path 是工程内相对路径、用正斜杠，留空则列工程根。' +
-    '几个固定位置：卷纲在 .novelforge/volumes/，细纲在 .novelforge/plots/<卷词干>/，' +
-    '尚未拆分的正文在 .novelforge/manuscripts/，已发布的章在章节根目录（默认 chapters/），' +
+    '几个固定位置：小说配置、故事前提、世界观是 .novelforge/config.md、premise.md、world.md，' +
+    '情节大纲是 .novelforge/outline.md，细纲在 .novelforge/plots/（一章一份，<章号>-<标题>.md，不分子目录），' +
+    '正文在章节根目录（默认 chapters/，与细纲同号），' +
     '单章摘要在 .novelforge/summaries/，角色卡在 .novelforge/characters/，设定在 .novelforge/lore/。' +
     `一次最多返回 ${LIST_LIMIT} 项，超出会截断并告诉你还有多少。`,
   parameters: objectSchema({
