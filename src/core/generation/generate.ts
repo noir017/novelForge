@@ -40,7 +40,9 @@ import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { countWords } from '../model/fs';
 import { NovelProject } from '../model/project';
-import { parsePlotFileName } from '../model/plotFile';
+import { isPlotFilled, parsePlotFileName } from '../model/plotFile';
+import { NotYet, notYetOnStage } from '../model/manuscriptCheck';
+import { AHEAD_PLOTS } from '../context/layers/focus';
 import {
   CAPABILITY_LABEL,
   CreationAction,
@@ -377,6 +379,8 @@ export async function generate(
           target: writing.target,
           prevEnding: writing.prevEnding,
           reasoned: !!reasoning,
+          hook: writing.hook,
+          notYet: writing.notYet,
           onProgress: handlers.onProgress,
           signal: options.signal,
         });
@@ -524,6 +528,13 @@ export interface WritingPlan {
   existing: string;
   prevEnding?: string;
   revision?: { previousDraft: string; feedback: string };
+  /** 本章细纲的章末钩子：收尾过早要回退时按它找收尾那一段（五期补遗 §1.1）。 */
+  hook?: string;
+  /**
+   * 后面几章才登场的人（带角色卡上的专属称呼）：写完查有没有提前写进来（§1.2）。与执行卡里
+   * 「本章不出场」那一行同一个函数、同一个窗口算的（context/layers/dialog.ts 的 `promptFactsOf`）。
+   */
+  notYet: (NotYet & { aliases: string[] })[];
 }
 
 /**
@@ -569,6 +580,7 @@ export async function planWriting(project: NovelProject, request: Omit<BuildRequ
       existing: '',
       prevEnding: prevText.trim() ? previousEnding(prevText) : undefined,
       revision: { previousDraft: body, feedback: request.reviseBrief?.trim() ?? '' },
+      notYet: [],
     };
   }
   return {
@@ -577,7 +589,27 @@ export async function planWriting(project: NovelProject, request: Omit<BuildRequ
     existing: mode === 'continue' ? body : '',
     prevEnding: prevText.trim() ? previousEnding(prevText) : undefined,
     revision: mode === 'rewrite' ? { previousDraft: body, feedback: REWRITE_FEEDBACK } : undefined,
+    ...(plot?.sections.章末钩子.trim() ? { hook: plot.sections.章末钩子 } : {}),
+    notYet: no ? await notYetOf(project, no, plot?.characters ?? []) : [],
   };
+}
+
+/**
+ * 第 `no` 章「本章不出场」的人，带角色卡上的专属称呼。窗口与装配器的 `plotAhead` 一样：后
+ * {@link AHEAD_PLOTS} 章里排过细纲的。
+ */
+async function notYetOf(project: NovelProject, no: number, self: readonly string[]): Promise<(NotYet & { aliases: string[] })[]> {
+  const plots = await project.listPlots();
+  const list = notYetOnStage({
+    self,
+    previous: plots.filter((p) => p.no < no),
+    ahead: plots.filter((p) => p.no > no && p.no <= no + AHEAD_PLOTS && isPlotFilled(p.sections)),
+  });
+  if (list.length === 0) {
+    return [];
+  }
+  const cards = await project.listCharacters();
+  return list.map((who) => ({ ...who, aliases: cards.find((c) => c.name === who.name)?.aliases ?? [] }));
 }
 
 /**

@@ -16,6 +16,9 @@
  * | 重演 | 开头搬了上一章结尾：Draft 带 `replay`，说明里写明 |
  * | 接着写 | 只含新增的那一段，字数连已有的算 |
  * | 重写 | 上一版正文作底稿带进 prompt |
+ * | 收尾过早（五期补遗 §1.1） | 先回退到钩子那一段之前再写；回退之后又收尾就停；回退那一轮没写成就把原结尾放回去 |
+ * | 本章边界（§1.2、§1.3） | 执行卡后面点名「本章不出场」的人与比喻词上限；续写那一轮说已经用了几次 |
+ * | 写完查（§1.2、§1.3、§1.5） | 提前登场、比喻词超标、英文缩写都记进说明 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -105,12 +108,14 @@ before(async () => {
   project = t.project;
   const ws = new bundle.ws.Workspace(project);
   const empty = bundle.plotFile.emptyPlotSections();
+  // 第 3 章才排沈秋：写第 2 章时他在「本章不出场」的名单上（五期补遗 §1.2）。
+  const cast = { 1: ['林昭'], 2: ['林昭'], 3: ['林昭', '沈秋'] };
   for (const [no, title] of [[1, '夜入青云'], [2, '客栈'], [3, '夜访']]) {
     await ws.writePlot({
       no,
       title,
       role: '',
-      characters: [],
+      characters: cast[no],
       targetWords: 1000,
       upstreamHash: '',
       done: false,
@@ -400,5 +405,150 @@ describe('重写第 3 章（不带写法，这一章已有正文）', () => {
 
   test('整章重写：字数不含上一版', () => {
     assert.equal(r.draft.length.words, 950);
+  });
+});
+
+// ---------------------------------------------------------------- 五期补遗
+
+/** 第一次调用：四段，最后一段收在第 2 章的钩子上（一共 420 字左右，不到八成）。 */
+const LANDED = [filler(150, 200), filler(150, 201), filler(100, 202), '他回头望去，第 2 章的钩子就这样落了下来。'];
+
+describe('收尾过早：先回退到钩子那一段之前再写', () => {
+  let r;
+  before(async () => {
+    r = await write(P2, [{ text: LANDED.join('\n\n'), stop: 'end' }, { text: filler(600, 203), stop: 'end' }]);
+  });
+
+  test('2 次调用，写够了', () => {
+    assert.equal(r.calls, 2);
+    assert.equal(r.draft.length.reached, true);
+  });
+
+  test('收在钩子上的那一段拿掉了，新写的接在它前面', () => {
+    assert.equal(r.draft.raw, [...LANDED.slice(0, 3), filler(600, 203)].join('\n\n'));
+    assert.ok(!r.draft.raw.includes('钩子就这样落了下来'));
+  });
+
+  test('气泡退回到切点', () => {
+    assert.deepEqual(r.rec.resets, [LANDED.slice(0, 3).join('\n\n')]);
+  });
+
+  test('续写那一轮说清收尾拿掉了、要重新落到钩子上，差多少按切完算', () => {
+    assert.match(r.users[1], /收尾那一段已经拿掉了/);
+    assert.match(r.users[1], /重新落到章末钩子上/);
+    assert.match(r.users[1], /剩余约 600 字/);
+  });
+
+  test('说明里写了切了几段', () => {
+    assert.ok(r.draft.notes.some((n) => /按章末钩子收了尾：拿掉结尾 1 段/.test(n)), JSON.stringify(r.draft.notes));
+  });
+});
+
+describe('回退之后又收尾、仍不够八成：不再往钩子后面续', () => {
+  let r;
+  before(async () => {
+    r = await write(P2, [
+      { text: LANDED.join('\n\n'), stop: 'end' },
+      { text: filler(350, 210), stop: 'end' },
+      { text: filler(500, 211), stop: 'end' },
+    ]);
+  });
+
+  test('2 次调用就停', () => {
+    assert.equal(r.calls, 2);
+    assert.equal(r.draft.length.reached, false);
+  });
+
+  test('说明里写为什么停、未写够', () => {
+    const notes = r.draft.notes.join('\n');
+    assert.match(notes, /没有再往章末钩子后面续写/);
+    assert.match(notes, /未写够/);
+  });
+});
+
+describe('回退那一轮调用失败：原来的结尾放回去', () => {
+  let r;
+  before(async () => {
+    r = await write(P2, [
+      { text: LANDED.join('\n\n'), stop: 'end' },
+      () => {
+        throw new bundle.provider.LlmError('假装 502');
+      },
+    ]);
+  });
+
+  test('正文还是第一次写的那一版，结尾在', () => {
+    assert.equal(r.draft.raw, LANDED.join('\n\n'));
+  });
+
+  test('说明里写了放回去，不说截断', () => {
+    const notes = r.draft.notes.join('\n');
+    assert.match(notes, /原来的结尾放回去了/);
+    assert.ok(!/截断/.test(notes), notes);
+  });
+});
+
+describe('一段写成的正文没法回退：照旧往后接', () => {
+  test('与三期一样续一轮', async () => {
+    const r = await write(P2, [{ text: filler(500, 220), stop: 'end' }, { text: filler(450, 221), stop: 'end' }]);
+    assert.equal(r.calls, 2);
+    assert.equal(r.draft.raw, `${filler(500, 220)}\n\n${filler(450, 221)}`);
+    assert.ok(!r.users[1].includes('收尾那一段已经拿掉了'));
+  });
+});
+
+describe('本章边界：点名不出场的人、比喻词上限', () => {
+  let r;
+  before(async () => {
+    r = await write(P2, [
+      { text: `仿佛隔世。仿佛重生。${filler(500, 230)}`, stop: 'maxTokens' },
+      { text: filler(500, 231), stop: 'end' },
+    ]);
+  });
+
+  test('第一次调用：执行卡后面列出本章不出场的人与比喻词上限', () => {
+    assert.match(r.users[0], /【本章边界】/);
+    assert.match(r.users[0], /本章不出场：沈秋（第 3 章才登场）/);
+    assert.match(r.users[0], /「仿佛」「犹如」「宛如」全章合计不超过 3 次/);
+  });
+
+  test('续写那一轮：已经用了几次、还能用几次', () => {
+    assert.match(r.users[1], /已写部分用了 2 次「仿佛」「犹如」「宛如」，续写部分最多再用 1 次/);
+    assert.match(r.users[1], /本章不出场：沈秋/);
+  });
+
+  test('写第 3 章时沈秋排在本章里，不点名', async () => {
+    const r3 = await write(P3, [{ text: filler(950, 232), stop: 'end' }]);
+    assert.ok(!/本章不出场/.test(r3.users[0]));
+  });
+});
+
+describe('写完查：提前登场、比喻词超标、英文缩写', () => {
+  let r;
+  before(async () => {
+    const text = [
+      filler(400, 240),
+      '他仿佛听见了什么，犹如惊弓之鸟，宛如困兽，仿佛又回到那一夜，PTSD 又犯了。',
+      `${filler(400, 241)}。巷子尽头站着一个人，是沈秋。`,
+    ].join('\n\n');
+    r = await write(P2, [{ text, stop: 'end' }]);
+  });
+
+  test('提前登场：谁、按细纲第几章、哪一句', () => {
+    assert.ok(
+      r.draft.notes.some((n) => /沈秋按细纲第 3 章才登场，本章已经写到了：「巷子尽头站着一个人，是沈秋。」/.test(n)),
+      JSON.stringify(r.draft.notes)
+    );
+  });
+
+  test('比喻词：全章几次、逐个列', () => {
+    assert.ok(
+      r.draft.notes.some((n) => /全章合计 4 次（「仿佛」2 次、「犹如」1 次、「宛如」1 次），超过 3 次的上限/.test(n)),
+      JSON.stringify(r.draft.notes)
+    );
+  });
+
+  test('英文缩写', () => {
+    assert.ok(r.draft.notes.some((n) => /正文里有英文缩写：PTSD/.test(n)), JSON.stringify(r.draft.notes));
   });
 });

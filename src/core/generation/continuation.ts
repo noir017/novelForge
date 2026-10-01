@@ -19,10 +19,37 @@
  *
  * 另一处：续写某一轮调用失败（网络、限流）时，前面写好的也保留，不让一次抖动把整章带走。
  * 作者自己点了停止不算——那是他不要了。
+ *
+ * ## 收尾过早时先回退（五期补遗 §1.1 ⚑，上游没有）
+ *
+ * 三期真实模型首跑：三章的第一次调用都正常收尾、只写到目标的 55–77%。第一次调用已经按执行卡
+ * 收在章末钩子上了，不到八成的续写只能接在钩子**后面**——第 3 章在钩子之后又写了 869 字，
+ * 最后把第 4 章才登场的人写了出来。被截断时结尾停在半句上，往后接没问题；正常收尾时结尾就是
+ * 钩子，往后接必然越过它。
+ *
+ * 所以正常收尾（`end`）又不够八成时，第一次续写先把收尾那一场切掉（model/manuscriptCheck.ts 的
+ * `rewindPoint`：与钩子最像的那一段起，找不到就切最后约四分之一），从切点接着写、写足之后重新
+ * 落到钩子上。每条链只回退一次；回退之后又正常收尾、仍不够八成，就停——不再往钩子后面续。
+ * 网关不报收尾原因（`stop` 缺席）时分不清是收尾还是截断，照旧往后接。
+ *
+ * ## 写完查三样（§1.2、§1.3、§1.5）
+ *
+ * 比喻词超没超上限、有没有拉丁字母缩写、后面几章才登场的人有没有提前写进来——只记说明，
+ * 不改正文。最后一样批量写章据此停下（features/pipelineBatch.ts）。
  */
 import { CancelledError, StopSignal } from '../llm/provider';
 import { countWords } from '../model/fs';
 import { MANUSCRIPT_DONE_RATIO, MAX_CONTINUE_ROUNDS, WriteMode } from '../model/pipeline';
+import {
+  EarlyEntrance,
+  NotYet,
+  SIMILE_LIMIT,
+  countSimiles,
+  describeSimiles,
+  findEarlyEntrances,
+  latinAcronyms,
+  rewindPoint,
+} from '../model/manuscriptCheck';
 import { continuationTail } from '../context/layers/render';
 import { detectReplay } from '../context/replay';
 import { cleanOutput } from '../features/creation';
@@ -176,6 +203,10 @@ export interface ManuscriptChainContext {
   prevEnding?: string;
   /** 第一次调用有没有思考——截断且没几个字时，报错的说法不一样。 */
   reasoned: boolean;
+  /** 本章细纲的章末钩子：收尾过早要回退时，按它找收尾那一段。 */
+  hook?: string;
+  /** 后面几章才登场的人（名字与别名）：写完查一遍有没有提前写进来。 */
+  notYet?: readonly (NotYet & { aliases?: readonly string[] })[];
   /** 每一轮开始时报一次进度。流式期间的进度由 `ChainIO.call` 的 `progress` 选项另报。 */
   onProgress?(p: WriteProgress): void;
   signal?: AbortSignal;
@@ -194,6 +225,8 @@ export interface ManuscriptChainResult extends ChainResult {
   truncated: boolean;
   /** 新稿开头与上一章结尾重合的那一段原文（重演）。 */
   replay?: string;
+  /** 后面几章才登场、却写进了这一次新写的正文里的人。 */
+  early?: EarlyEntrance[];
 }
 
 /**
@@ -226,12 +259,50 @@ export async function completeManuscript(
   let rounds = 0;
   let recoveryUsed = false;
   let recoveryPending = false;
+  let rewound = false;
+  /**
+   * 回退时切掉、还没有被新写的结尾替上的那一截。回退之后那一轮没写成（调用失败、截断丢弃）
+   * 就把它放回去——宁可留着那个短一点但落在钩子上的结尾，也不留一章没有结尾的正文。
+   */
+  let pendingCut: string | undefined;
+  const restoreCut = () => {
+    if (pendingCut) {
+      added = [added, pendingCut].filter(Boolean).join('\n\n');
+      pendingCut = undefined;
+      // 放回去的是一个正常收尾的结尾，不是停在半句上的那一截。
+      stop = 'end';
+      io.reset?.(added);
+      t.note('回退之后那一轮没写成，原来的结尾放回去了');
+    }
+  };
   let lastGain = Number.POSITIVE_INFINITY;
   while (shouldContinue({ words: total(), target: ctx.target, stop, rounds })) {
     // 正常收尾、而上一轮只多了几句：模型认为这一章写完了，再催也是注水（上游 GD:1152）。
     if (stop !== 'maxTokens' && lastGain < MIN_ROUND_GAIN) {
       t.note(`续写第 ${rounds} 轮只多了 ${lastGain} 字，模型已经收尾，不再续写`);
       break;
+    }
+    // 正常收尾又不够八成：结尾已经落在章末钩子上了，往后接就越过它（见文件头）。第一次先回退到
+    // 收尾那一场之前；回退过还是这样，就停在这里。
+    let rewinding = false;
+    if (stop === 'end') {
+      if (rewound) {
+        t.note(`回退重写之后模型又按钩子收了尾（到 ${total()} 字），没有再往章末钩子后面续写`);
+        break;
+      }
+      const point = rewindPoint(added, ctx.hook ?? '');
+      if (point) {
+        const before = total();
+        added = point.keep;
+        pendingCut = point.cut;
+        rewound = true;
+        rewinding = true;
+        io.reset?.(added);
+        t.note(
+          `写到 ${before}${ctx.target ? ` / ${ctx.target}` : ''} 字就${point.byHook ? '按章末钩子' : ''}收了尾：` +
+            `拿掉结尾 ${point.paragraphs} 段（约 ${countWords(point.cut)} 字），从它前面接着写，写足之后重新收在钩子上`
+        );
+      }
     }
     rounds++;
     const written = [base, added].filter(Boolean).join('\n\n');
@@ -244,14 +315,21 @@ export async function completeManuscript(
         written: before,
         remaining: ctx.target ? Math.max(0, ctx.target - before) : undefined,
         recovery: recoveryPending,
+        ...(rewinding ? { rewound: true } : {}),
+        similes: countSimiles(written),
       },
     });
     let out: CallOutcome;
     try {
-      out = await t.call(io, messages, recoveryPending ? `续写第 ${rounds} 轮（恢复）` : `续写第 ${rounds} 轮`, {
-        separator: '\n\n',
-        progress: { round: rounds, base: before },
-      });
+      out = await t.call(
+        io,
+        messages,
+        recoveryPending ? `续写第 ${rounds} 轮（恢复）` : rewinding ? `续写第 ${rounds} 轮（回退重写结尾）` : `续写第 ${rounds} 轮`,
+        {
+          separator: '\n\n',
+          progress: { round: rounds, base: before },
+        }
+      );
     } catch (err) {
       if (err instanceof CancelledError || ctx.signal?.aborted) {
         throw err;
@@ -259,6 +337,7 @@ export async function completeManuscript(
       // 一次网络抖动不该把前面写好的几千字带走（D6）。
       t.note(`续写第 ${rounds} 轮调用失败（${describeError(err)}），停在这里，已写的保留`);
       io.reset?.(added);
+      restoreCut();
       break;
     }
     const joined = joinContinuation(written, cleanOutput(out.text));
@@ -270,6 +349,7 @@ export async function completeManuscript(
       if (recoveryUsed) {
         t.note(`续写第 ${rounds} 轮（恢复）仍被截断、只多了 ${gain} 字，已丢弃，停在这里；已写的保留`);
         stop = out.stop;
+        restoreCut();
         break;
       }
       recoveryUsed = true;
@@ -280,11 +360,14 @@ export async function completeManuscript(
       continue;
     }
     added = [added, joined.added].filter(Boolean).join('\n\n');
+    pendingCut = undefined;
     stop = out.stop;
     recoveryPending = false;
     lastGain = gain;
     t.note(`续写第 ${rounds} 轮：多了 ${gain} 字，到 ${total()}${ctx.target ? ` / ${ctx.target}` : ''} 字`);
   }
+  // 到了轮数上限、回退之后那一轮还没写成：同样放回去。
+  restoreCut();
 
   if (rounds >= MAX_CONTINUE_ROUNDS && shouldContinue({ words: total(), target: ctx.target, stop, rounds: 0 })) {
     t.note(`续写到了上限 ${MAX_CONTINUE_ROUNDS} 轮，没有再续`);
@@ -315,6 +398,21 @@ export async function completeManuscript(
     }
   }
 
+  // 写完查三样（五期补遗 §1.2、§1.3、§1.5）：只记说明，不改正文。
+  const chapterText = [base, added].filter(Boolean).join('\n\n');
+  const similes = countSimiles(chapterText);
+  if (similes > SIMILE_LIMIT) {
+    t.note(`「仿佛」「犹如」「宛如」全章合计 ${similes} 次（${describeSimiles(chapterText)}），超过 ${SIMILE_LIMIT} 次的上限`);
+  }
+  const acronyms = latinAcronyms(added);
+  if (acronyms.length > 0) {
+    t.note(`正文里有英文缩写：${acronyms.join('、')}。故事的年代用不上这种说法的话，改成那个年代的人会说的话`);
+  }
+  const early = ctx.notYet?.length ? findEarlyEntrances(added, ctx.notYet) : [];
+  for (const e of early) {
+    t.note(`${e.name}按细纲第 ${e.no} 章才登场，本章已经写到了：「${e.quote}」`);
+  }
+
   return {
     raw: added,
     notes: t.notes,
@@ -325,5 +423,6 @@ export async function completeManuscript(
     short,
     truncated,
     replay,
+    ...(early.length > 0 ? { early } : {}),
   };
 }

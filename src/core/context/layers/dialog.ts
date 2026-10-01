@@ -1,4 +1,5 @@
 import { STAGE_ROLE } from '../../model/pipeline';
+import { notYetOnStage } from '../../model/manuscriptCheck';
 import { PromptFacts, buildSystemPrompt } from '../prompts';
 import { estimateTokens, takeHead, takeTail } from '../tokenizer';
 import { ContextItem } from '../types';
@@ -12,6 +13,7 @@ import { ATTACHMENT_NOTE, resolveAttachment } from './render';
 export function promptFactsOf(a: Pick<Assembly, 'request' | 'book' | 'focus'>): PromptFacts {
   const r = a.request;
   const plot = a.focus.plot;
+  const drafting = r.action.stage === 'manuscript' && r.action.capability === 'generate' && r.writeMode !== 'revise';
   return {
     target: r.target,
     targetWords: r.targetWords,
@@ -25,6 +27,16 @@ export function promptFactsOf(a: Pick<Assembly, 'request' | 'book' | 'focus'>): 
     writeMode: r.writeMode,
     written: r.writeMode === 'continue' ? a.focus.chapter?.wordCount : undefined,
     reviewGoals: r.reviewGoals,
+    // 「本章不出场」（五期补遗 §1.2）：与 generation/generate.ts 写完查的那份同一个函数、同一个窗口。
+    ...(drafting
+      ? {
+          notYet: notYetOnStage({
+            self: plot?.characters ?? [],
+            previous: a.focus.previous.map((c) => ({ no: c.no, characters: c.plot?.characters ?? [] })),
+            ahead: a.focus.aheadPlots.map((c) => ({ no: c.no, characters: c.plot?.characters ?? [] })),
+          }),
+        }
+      : {}),
   };
 }
 

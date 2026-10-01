@@ -8,6 +8,7 @@
  * | 写完即定稿：写一章、定稿一章，再写下一章 | D17：自动定稿只在这里 |
  * | 一章写不出来就停，后面的不写 | 失败即停：后面的章接不上 |
  * | 重演、没写够：写进去然后停，挂黄 ❗ | 钱已经花了（D6），但不能踩着有问题的结尾往下写 |
+ * | 后面几章才登场的人提前写进来：同上 | 五期补遗 §1.2：下一章要从他第一次露面写起 |
  * | 写完这一章就停 / 停止 | 只在章与章之间停；停止时正在写的那一章不落盘 |
  * | 一章之内续写那几轮不换模型 | 一章写到一半换人，文风断在段落中间 |
  * | 完成提示带「打开第 N 章」 | D24 |
@@ -293,6 +294,50 @@ describe('重演：写进去，然后停', () => {
     const f = finished.find((x) => x.title === '批量写章');
     assert.match(f.message, /第 2 章写进去了，但开头与上一章结尾大段重合/);
     assert.deepEqual(f.open, { plotRelPath: PLOT(2), label: '打开第 2 章' });
+  });
+});
+
+describe('后面几章才登场的人提前写了进来：写进去，然后停（五期补遗 §1.2）', () => {
+  let t;
+  before(async () => {
+    t = await fresh('wb-early');
+    // 第 3 章才排沈秋；第 2 章的结尾把他写了出来。
+    const ws = new bundle.ws.Workspace(t.project);
+    await ws.writePlot({
+      no: 3,
+      title: TITLES[2],
+      role: '铺垫',
+      characters: ['林昭', '沈秋'],
+      targetWords: 600,
+      upstreamHash: '',
+      done: false,
+      sections: { 本章目的: '第 3 章的目的', 关键事件: '第 3 章林昭遇见沈秋。', 章末钩子: '第 3 章结尾：又一个人不见了。' },
+    });
+    replyFn = (messages) => {
+      if (chapterOf(messages).no === 2) {
+        return { text: `${filler(700, 556)}\n\n巷口站着一个人，是沈秋。`, stop: 'end' };
+      }
+      return defaultReply(messages);
+    };
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', confirmed: true });
+  });
+  after(() => cleanup(t.dir, bundle.db));
+
+  test('第 2 章写进去了、没定稿；第 3 章没写', () => {
+    assert.ok(t.has(CH(2)));
+    assert.ok(!t.has('.novelforge/summaries/002-令牌.md'));
+    assert.ok(!t.has(CH(3)));
+  });
+
+  test('黄 ❗ 挂在第 2 章上，写明是谁', async () => {
+    const [f] = await failuresOf(t, PLOT(2));
+    assert.equal(f.severity, 'warn');
+    assert.match(f.message, /第 3 章才登场的沈秋提前写进了这一章/);
+  });
+
+  test('写第 2 章时执行卡后面就点了名', () => {
+    const asked = fake.calls.map((c) => c[c.length - 1].content).find((u) => /- 章节钩子：第 2 章结尾/.test(u));
+    assert.match(asked, /本章不出场：沈秋（第 3 章才登场）/);
   });
 });
 

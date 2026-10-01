@@ -215,8 +215,18 @@ export type ChainStep =
    * 正文的续写那几轮（generation/continuation.ts）。`tail` 是已写正文的最后 1600 字，
    * `written` 是这一章到此为止的总字数，`remaining` 是离目标还差多少字（没有目标时缺席）。
    * `recovery`：上一轮被截断又没写出新东西、已经丢掉了，这是唯一一次恢复机会。
+   * `rewound`：上一轮已经按钩子收了尾、篇幅不够，收尾那一段刚被拿掉（五期补遗 §1.1），这一轮要
+   * 写足之后重新落到钩子上。`similes`：已写部分用了几次「仿佛 / 犹如 / 宛如」（§1.3）。
    */
-  | { kind: 'continuation'; tail: string; written: number; remaining?: number; recovery: boolean }
+  | {
+      kind: 'continuation';
+      tail: string;
+      written: number;
+      remaining?: number;
+      recovery: boolean;
+      rewound?: boolean;
+      similes?: number;
+    }
   /**
    * 审稿的重来一次（generation/review.ts）：上一次被截断（`truncated`），或解不出合格的 JSON
    * （`invalid`，`reason` 说为什么）。上一次的输出不可信，不许续接。

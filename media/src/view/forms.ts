@@ -180,7 +180,7 @@ export function openWriteBatchForm(tree: ProjectTree): void {
     title: '批量写章',
     lead:
       '从这一章起一章一章写正文，后一章接着前一章的结尾写。已经有正文的章跳过，不会被改动；' +
-      '一章写不出来就停；写出来但开头重演了上一章、或没写够八成，也写进去然后停下，等你看过再继续。',
+      '一章写不出来就停；写出来但开头重演了上一章、把后面几章的人提前写了进来、或没写够八成，也写进去然后停下，等你看过再继续。',
     fields: [
       { kind: 'number', key: 'from', label: '从第几章', value: from, min: 1, max: 99999 },
       { kind: 'number', key: 'to', label: '到第几章', value: from + WRITE_BATCH_DEFAULT - 1, min: 1, max: 99999 },

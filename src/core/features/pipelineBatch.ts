@@ -399,10 +399,11 @@ const MODE_LABEL: Record<WriteBatchMode, string> = {
  *   （`planWriteBatch`，前端弹窗与这里的确认框同源）。
  * - **失败即停**：写不出来（调用失败、思考吃光、空正文）或定稿的摘要失败——停，红 ❗ 挂在
  *   那一章上，已经写好的留着。
- * - **写出来但不能往下接的也停**：重演命中（开头把上一章最后一场又演了一遍）、最后仍不到目标的
- *   八成。这两种照样落盘（新章，没有东西可吞；钱已经花了，D6），不定稿，黄 ❗ 挂在那一章上写明
- *   原因。对话页那边有卡片让作者当场判断；批量没有人看，接着往下写等于让后面几章踩在一个有问题
- *   的结尾上。上游这两种直接作废整章（GD:1130-1186）。
+ * - **写出来但不能往下接的也停**：重演命中（开头把上一章最后一场又演了一遍）、后面几章才登场的人
+ *   提前写了进来（五期补遗 §1.2：下一章要从他「第一次露面」写起）、最后仍不到目标的八成。这几种照样
+ *   落盘（新章，没有东西可吞；钱已经花了，D6），不定稿，黄 ❗ 挂在那一章上写明原因。对话页那边有卡片
+ *   让作者当场判断；批量没有人看，接着往下写等于让后面几章踩在一个有问题的结尾上。上游前后两种直接
+ *   作废整章（GD:1130-1186）。
  * - **停止**（中断）：正在写的那一章不落盘。**写完这一章就停**：这一章照常写完、落盘、（定稿），然后收。
  * - 模型走 `manuscript` 档（第 12 条：失败换同档其余），不带思考深度（第 26 条）；定稿两步各走
  *   `plotSummary` / `characterCard` 档。
@@ -479,7 +480,7 @@ export async function writeManuscripts(
           mode === 'finalize' ? '每写完一章就定稿（摘要 + 出场角色的当前状态），再写下一章。' : '只写正文，不定稿；之后在主按钮上逐章定稿。',
           plan.skipped.length > 0 ? `已经写过正文的第 ${plan.skipped.join('、')} 章跳过，不会被改动。` : '',
           plan.stopAt !== undefined ? `第 ${plan.stopAt} 章还没有细纲，写到它前面为止。` : '',
-          '一章写不出来就停；写出来但开头重演了上一章、或没写够八成，也写进去然后停下，等你看过再继续。',
+          '一章写不出来就停；写出来但开头重演了上一章、把后面几章的人提前写了进来、或没写够八成，也写进去然后停下，等你看过再继续。',
         ]
           .filter(Boolean)
           .join('\n'),
@@ -571,9 +572,11 @@ export async function writeManuscripts(
           }
           const problem = out.replay
             ? `开头与上一章结尾大段重合（「${clip(out.replay, 40)}」），可能把上一章最后一场又演了一遍`
-            : out.short
-              ? `只写到 ${out.words} / ${out.target} 字，不到目标的八成`
-              : undefined;
+            : out.early?.length
+              ? `${out.early.map((e) => `第 ${e.no} 章才登场的${e.name}`).join('、')}提前写进了这一章（「${clip(out.early[0].quote, 40)}」）`
+              : out.short
+                ? `只写到 ${out.words} / ${out.target} 字，不到目标的八成`
+                : undefined;
           if (problem) {
             void recordFailure(project, {
               scope: '流水线',
@@ -744,6 +747,8 @@ async function writeOne(
     target: writing.target,
     prevEnding: writing.prevEnding,
     reasoned: false,
+    hook: writing.hook,
+    notYet: writing.notYet,
     onProgress: hooks.onProgress,
     signal,
   });

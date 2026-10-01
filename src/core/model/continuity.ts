@@ -79,7 +79,8 @@ function unquote(s: string): string {
 
 // ---------------------------------------------------------------- 定稿：挂证据
 
-function textBigrams(value: string): Set<string> {
+/** 一段文字的 bigram 集合（只看字母与数字，标点与空白切开）。model/manuscriptCheck.ts 找钩子落在哪一段也用它。 */
+export function textBigrams(value: string): Set<string> {
   const groups = value.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   return new Set(
     groups.flatMap((group) => {

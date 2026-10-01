@@ -64,6 +64,7 @@ import {
   SETTING_SECTION_KEYS,
 } from '../model/settingFile';
 import { CHARACTER_DETAIL_LIMITS, NovelConfig } from '../model/types';
+import { NotYet, SIMILE_LIMIT, SIMILE_WORDS } from '../model/manuscriptCheck';
 import type { ChainStep } from './types';
 
 /**
@@ -93,6 +94,11 @@ export interface PromptFacts {
   written?: number;
   /** 审稿时冻结的目标清单（审稿链交过来的那一份）。 */
   reviewGoals?: FrozenGoal[];
+  /**
+   * 写正文时「本章不出场」的人：后五章细纲里排了、本章与前面各章都没排过的（五期补遗 §1.2）。
+   * 装配器从 focus 算好交过来（model/manuscriptCheck.ts 的 `notYetOnStage`）。
+   */
+  notYet?: NotYet[];
 }
 
 /** 每个阶段管什么、**不管**什么。后半句同样要紧：越界是这套设计最主要的失败方式。 */
@@ -300,6 +306,15 @@ function manuscriptContract(facts: PromptFacts): string {
         ''
       );
     }
+    if (step?.rewound) {
+      // 五期补遗 §1.1：上一轮已经收在钩子上、篇幅不够，收尾那一段刚被拿掉。往钩子后面接只会
+      // 越过它、写进下一章；所以让它从收尾之前接着写，写足之后重新落到钩子上。
+      lines.push(
+        '上一轮写到本章收尾时篇幅还不够，收尾那一段已经拿掉了：上面「本章已写正文」停在收尾之前。',
+        '请从它的末尾接着写，把本章细纲里还没写足的事件写足（场面、动作、对白、人物的反应），最后重新落到章末钩子上收束。',
+        ''
+      );
+    }
     lines.push(
       '请无缝续写当前章节正文（已写的部分见上面「本章已写正文」）。',
       '',
@@ -311,7 +326,7 @@ function manuscriptContract(facts: PromptFacts): string {
         : '- 写到本章细纲约定的结束状态为止；如果一次写不完，停在自然段落末尾。',
       '- 不要输出标题、解释、总结、Markdown、思考过程或「点我继续」。',
       '- 避免重复已写正文中的整句、整段、动作链和意象。',
-      '- 不提前写后续章节，只完成本章细纲允许的内容。'
+      '- 不提前写后续章节，只完成本章细纲允许的内容；写到章末钩子就收住，不越过它去写之后的事。'
     );
   } else if (isFirstChapter(facts)) {
     lines.push(
@@ -350,7 +365,37 @@ function manuscriptContract(facts: PromptFacts): string {
   if (card) {
     lines.push('', card);
   }
+  lines.push('', boundaryCard(facts));
   lines.push('', continuing ? '现在接着写。只输出新增的小说正文。' : '现在开始写作。只输出小说正文，不要输出任何标题、序号、解释、总结或「以下是」之类的话。');
+  return lines.join('\n');
+}
+
+/**
+ * 本章边界（五期补遗 §1.2、§1.3）：排在执行卡后面、「现在开始写作」前面——模型对末尾的指令最敏感。
+ *
+ * - **本章不出场**：后五章细纲里才排到的人逐个点名。三期首跑时边界只有「后续章节预告……绝对不要
+ *   在本章提前写出这些内容」一句原则，第 3 章的结尾照样把第 4 章才登场的人写了出来。
+ * - **比喻词上限**：系统提示里那条规则在第一次调用里重列一遍；续写那几轮换成「已经用了几次、还能用
+ *   几次」——它看不到前面写了什么，不告诉它，每一轮都会当成从零开始。
+ */
+function boundaryCard(facts: PromptFacts): string {
+  const lines = ['【本章边界】'];
+  const notYet = facts.notYet ?? [];
+  if (notYet.length > 0) {
+    lines.push(
+      `- 本章不出场：${notYet.map((p) => `${p.name}（第 ${p.no} 章才登场）`).join('、')}。后续章节里才登场的人，本章不让他们露面。`
+    );
+  }
+  const words = SIMILE_WORDS.map((w) => `「${w}」`).join('');
+  const step = facts.step?.kind === 'continuation' ? facts.step : undefined;
+  if (step?.similes !== undefined) {
+    const left = Math.max(0, SIMILE_LIMIT - step.similes);
+    lines.push(
+      `- 比喻词：已写部分用了 ${step.similes} 次${words}，续写部分${left > 0 ? `最多再用 ${left} 次` : '一次也不许再用'}（全章合计不超过 ${SIMILE_LIMIT} 次）。`
+    );
+  } else {
+    lines.push(`- 比喻词：${words}全章合计不超过 ${SIMILE_LIMIT} 次。`);
+  }
   return lines.join('\n');
 }
 
