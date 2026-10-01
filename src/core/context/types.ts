@@ -50,6 +50,8 @@ export type ItemKind =
   | 'evidence'
   /** 前面某章定稿留下的连续性事实（只有事实文字，不回原文取段落）。审稿对照用。 */
   | 'facts'
+  /** 一条还没收的叙事线（七期）：跨章的伏笔与线索，一行。 */
+  | 'thread'
   /** 这一章的正文全文：审稿审的就是它。 */
   | 'chapterFull'
   | 'lore'
@@ -125,6 +127,8 @@ export type LayerId =
   | 'evidence'
   /** 前面各章定稿留下的连续性事实，只带事实文字（审稿，五期）。 */
   | 'recentFacts'
+  /** 和本章有关、还没收的叙事线，最多 6 条、1200 字（七期）。 */
+  | 'threads'
   /** 目标章自己的正文全文（审稿，五期）。 */
   | 'chapterFull'
   | 'revision';

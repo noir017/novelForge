@@ -248,6 +248,16 @@ export function threadStatus(thread: Thread): ThreadStatus {
   return last ? STATUS_OF[last.type] : '计划中';
 }
 
+/**
+ * 写到第 `no` 章时这条线的样子：只留第 `no` 章**之前**的事件。重写、重新定稿早前的章时，
+ * 后面几章记下的事在那一章看来还没有发生——带进去就是把后面的剧情透给前面（与
+ * `evidence` 层只取 `previous` 同一个道理）。
+ */
+export function asOf(thread: Thread, no: number): Thread {
+  const events = thread.events.filter((e) => e.chapter < no);
+  return events.length === thread.events.length ? thread : { ...thread, events };
+}
+
 /** 已回收、已放弃：收了的线不再带进上下文、不再判事件。 */
 export function isClosed(status: ThreadStatus): boolean {
   return status === '已回收' || status === '已放弃';
@@ -428,13 +438,15 @@ export interface ThreadCandidate {
  * 5. 只是本章出场的人出现在它的名字或意图里。
  *
  * 收了的线不带。**计划中、还没到埋下那一章、细纲也没提到的线不带**——带进去等于提示模型
- * 提前埋。同档按文件里的顺序。
+ * 提前埋。同档按文件里的顺序。状态、最近一次推进都按「写到这一章时」算（{@link asOf}），
+ * 候选里的 `thread` 就是那个样子。
  */
 export function threadCandidates(threads: readonly Thread[], focus: ThreadFocus): ThreadCandidate[] {
   const plot = normalizeQuote(focus.plotText);
   const names = focus.names.map((n) => n.trim()).filter((n) => n.length >= 2);
   const out: ThreadCandidate[] = [];
-  for (const thread of threads) {
+  for (const full of threads) {
+    const thread = asOf(full, focus.no);
     const status = threadStatus(thread);
     if (isClosed(status)) {
       continue;
@@ -703,16 +715,18 @@ export function verifyThreadEvents(
 }
 
 /**
- * 定稿时送哪几条线去判：还没收的，按写正文时同一个顺序排在前面（与本章有关的先判），
- * 其余按文件顺序跟在后面，最多 {@link THREAD_JUDGE_LIMIT} 条。返回送去的与没送的。
+ * 定稿时送哪几条线去判：写到这一章时还没收的（{@link asOf}），按写正文时同一个顺序排在前面
+ * （与本章有关的先判），其余按文件顺序跟在后面，最多 {@link THREAD_JUDGE_LIMIT} 条。返回送去的
+ * 与没送的——都是文件里的**原样**（带着全部事件，{@link verifyThreadEvents} 去重要看同一章已经
+ * 记过的）。
  */
 export function threadsToJudge(
   threads: readonly Thread[],
   focus: ThreadFocus
 ): { judged: Thread[]; skipped: Thread[] } {
-  const ordered = threadCandidates(threads, focus).map((c) => c.thread);
+  const ordered = threadCandidates(threads, focus).map((c) => threads[c.thread.index]);
   for (const t of threads) {
-    if (!ordered.includes(t) && !isClosed(threadStatus(t))) {
+    if (!ordered.includes(t) && !isClosed(threadStatus(asOf(t, focus.no)))) {
       ordered.push(t);
     }
   }

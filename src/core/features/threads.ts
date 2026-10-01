@@ -50,6 +50,7 @@ import {
   ThreadPlan,
   appendEvents,
   appendThreads,
+  asOf,
   lastEvent,
   parseThreads,
   threadKey,
@@ -311,8 +312,12 @@ export interface ThreadEventOutcome {
   skipped: string[];
 }
 
-/** 送去判的一条线：名字、类型、状态、区间、意图、最近一次推进。意图不截（判得准要看全）。 */
-function judgeLine(t: Thread): string {
+/**
+ * 送去判的一条线：名字、类型、状态、区间、意图、最近一次推进（都按写到这一章时算）。意图不截
+ * （判得准要看全）。
+ */
+function judgeLine(full: Thread, no: number): string {
+  const t = asOf(full, no);
   const range = t.from !== undefined && t.to !== undefined ? `计划第 ${t.from}–${t.to} 章` : '';
   const head = [t.kind, threadStatus(t), range].filter(Boolean).join(' · ');
   const last = lastEvent(t);
@@ -353,7 +358,7 @@ export async function recordThreadEvents(
   }
 
   const text = await project.readChapterText(chapter);
-  const roster = judged.map(judgeLine).join('\n');
+  const roster = judged.map((t) => judgeLine(t, chapter.order)).join('\n');
   const config = readConfig();
   const inputBudget = Math.max(2000, opts.budget.contextWindow - opts.budget.maxOutputTokens - 1500 - estimateTokens(roster));
   const body = takeHead(text, inputBudget);

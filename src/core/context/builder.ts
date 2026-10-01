@@ -169,6 +169,18 @@ function assembleMessages(
   // 审稿对照的前情：上游标的是「已确认定稿历史｜唯一已发生事实源」（RV:212-227）。
   section('# 前几章的连续性事实（已定稿，已经发生的事）', pick('facts').slice().sort(byNoAsc));
 
+  // 叙事线（七期）：一条一行，按要紧程度排（层里排好了，不按章号）。排在前情后面、前文正文前面：
+  // 读的时候是「前面发生了什么 → 哪几条线还开着 → 紧挨着的那几章」。说法的后半句是这一层存在的
+  // 另一半理由——模型知道第 8 章要揭开什么，写第 3 章时最顺手的就是提前揭开。
+  const threadLines = pick('thread');
+  if (threadLines.length > 0) {
+    sections.push(
+      `# 进行中的叙事线（只作提醒：以本章细纲为准，细纲没写到的线不要硬塞；没到回收章的线不许提前揭开）\n\n${threadLines
+        .map((i) => i.text.trim())
+        .join('\n')}`
+    );
+  }
+
   const fullText = pick('manuscriptFull').slice().sort(byNoAsc);
   section('# 前文正文', fullText);
 

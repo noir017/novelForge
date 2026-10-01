@@ -332,3 +332,21 @@ describe('threadsFile.ts · 校验定稿时判出来的事件', () => {
     assert.equal(skipped.length, 3);
   });
 });
+
+describe('threadsFile.ts · 按写到第几章算', () => {
+  const [jade] = t.parseThreads('## 玉佩\n- 计划：第 2–8 章\n- 第 3 章 · 埋下：「a」\n- 第 6 章 · 回收：「b」');
+
+  test('只留这一章之前的事件', () => {
+    assert.equal(t.threadStatus(t.asOf(jade, 7)), '已回收');
+    assert.equal(t.threadStatus(t.asOf(jade, 6)), '已埋下');
+    assert.equal(t.threadStatus(t.asOf(jade, 3)), '计划中');
+    assert.equal(t.asOf(jade, 9), jade, '没有要去掉的就原样返回');
+  });
+
+  test('重新定稿早前的章：后面才收的线照样送去判，送的是原样', () => {
+    const { judged } = t.threadsToJudge([jade], { no: 4, plotText: '', names: [] });
+    assert.equal(judged.length, 1);
+    assert.equal(judged[0], jade);
+    assert.deepEqual(t.threadsToJudge([jade], { no: 7, plotText: '', names: [] }).judged, []);
+  });
+});

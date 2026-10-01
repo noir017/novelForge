@@ -26,6 +26,7 @@ import {
   recentFacts,
   revision,
   style,
+  threads,
 } from './background';
 import { ask, attachments, history, system } from './dialog';
 import type { LayerFn } from './assembly';
@@ -57,6 +58,7 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   plotSummary,
   evidence,
   recentFacts,
+  threads,
   chapterFull,
   revision,
 };
