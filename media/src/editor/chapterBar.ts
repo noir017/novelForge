@@ -75,7 +75,7 @@ export function installChapterBar(stage: HTMLElement, post: (msg: InMessage) => 
       button('审稿', 'review', written, `逐条引原文挑出这一章的问题，逐项核对细纲的关键事件；只出报告，不改文件。${describeCalls(REVIEW_CALLS)}`)
     );
     actions.appendChild(
-      button('定稿', 'finalize', written, `生成摘要与连续性事实，再更新出场角色的当前状态。${describeCalls(FINALIZE_CALLS)}`)
+      button('定稿', 'finalize', written, `生成摘要与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线。${describeCalls(FINALIZE_CALLS)}`)
     );
 
     // 另一份没开着：给一颗把它并排打开的按钮。

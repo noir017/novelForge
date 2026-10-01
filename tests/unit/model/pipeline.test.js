@@ -697,15 +697,16 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
     assert.deepEqual(pipeline.deriveNextStep('plot', { no: 3, words: 0, ratio: 0, upstreamStale: false }).calls, pipeline.ONE_CALL);
   });
 
-  // D17：定稿 = 摘要 + 出场角色的当前状态。出场的人都没建卡时只有摘要那一次。
-  test('定稿第 N 章报「预计 1–2 次调用」，并说清两次各做什么', () => {
+  // D17：定稿 = 摘要 + 出场角色的当前状态；七期再加一次判叙事线。出场的人都没建卡、
+  // 也没有还没收的线时只有摘要那一次。
+  test('定稿第 N 章报「预计 1–3 次调用」，并说清三次各做什么', () => {
     const step = pipeline.deriveNextStep('finalize', { no: 3, words: 900, ratio: 1, upstreamStale: false });
     assert.equal(step.label, '定稿第 3 章');
     assert.equal(step.projectAction, 'finalizeChapter');
     assert.deepEqual(step.calls, pipeline.FINALIZE_CALLS);
     assert.equal(
       pipeline.describeCalls(step.calls),
-      '预计 1–2 次调用（摘要 1 次，本章出场的人有角色卡时再更新一次角色状态）'
+      '预计 1–3 次调用（摘要 1 次；本章出场的人有角色卡时更新角色状态 1 次；有还没收的叙事线时判一次本章推进了哪几条）'
     );
   });
 
@@ -763,9 +764,9 @@ describe('pipeline.ts · 批量写章的切分', () => {
     assert.deepEqual(plan.calls, { low: 3, high: 3, max: 24 });
   });
 
-  test('写完即定稿：每章再加定稿的 1–2 次', () => {
+  test('写完即定稿：每章再加定稿的 1–3 次', () => {
     const plan = pipeline.planWriteBatch({ ...base, mode: 'finalize', from: 1, to: 3 });
-    assert.deepEqual(plan.calls, { low: 6, high: 9, max: 30 });
+    assert.deepEqual(plan.calls, { low: 6, high: 12, max: 33 });
     assert.equal(plan.mode, 'finalize');
     assert.equal(plan.review, false);
   });
@@ -776,7 +777,7 @@ describe('pipeline.ts · 批量写章的切分', () => {
     assert.equal(plan.review, true);
     assert.deepEqual(plan.calls, { low: 6, high: 6, max: 33 });
     const both = pipeline.planWriteBatch({ ...base, mode: 'finalize', review: true, from: 1, to: 3 });
-    assert.deepEqual(both.calls, { low: 9, high: 12, max: 39 });
+    assert.deepEqual(both.calls, { low: 9, high: 15, max: 42 });
   });
 
   // 第 19 条批量那一面：已有产物的一律跳过，不问、不覆盖。

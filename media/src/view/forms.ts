@@ -231,7 +231,7 @@ export function openWriteBatchForm(tree: ProjectTree): void {
           `${p.stopAt !== undefined ? `；第 ${p.stopAt} 章还没有细纲，写到它前面为止` : ''}。` +
           `${describeCalls(p.calls)}（没写够时自动续写，算在上限里）。` +
           (p.review ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不停。' : '') +
-          (p.mode === 'finalize' ? '每写完一章就定稿：摘要与连续性事实，再更新出场角色的当前状态。' : '只写正文，之后在主按钮上逐章定稿。'),
+          (p.mode === 'finalize' ? '每写完一章就定稿：摘要与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线。' : '只写正文，之后在主按钮上逐章定稿。'),
       };
     },
     submitLabel: '开始写章',

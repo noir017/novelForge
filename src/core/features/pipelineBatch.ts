@@ -660,8 +660,9 @@ export async function writeManuscripts(
           project.invalidate();
           const chapter = await project.getChapter(no);
           try {
+            // 叙事线那一步与摘要同档：读一章、按合同摘出东西，是同一种活。
             const outcome = chapter
-              ? await finalizeChapter(project, chapter, { signal, summary: summaryPool, state: statePool })
+              ? await finalizeChapter(project, chapter, { signal, summary: summaryPool, state: statePool, threads: summaryPool })
               : undefined;
             if (!outcome) {
               halt = { no, why: '写好了，但没能定稿', level: 'error' };

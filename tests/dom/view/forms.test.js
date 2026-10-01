@@ -295,7 +295,7 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     type(ui, 'from', 4);
     type(ui, 'to', 6);
     choose('finalize');
-    assert.ok(note(ui).includes('预计 2–3 次调用，最多 10 次'), note(ui));
+    assert.ok(note(ui).includes('预计 2–4 次调用，最多 11 次'), note(ui));
     assert.ok(note(ui).includes('每写完一章就定稿'), note(ui));
   });
 

@@ -566,9 +566,9 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(legacyItems.includes('打开正文'), JSON.stringify(legacyItems));
   });
 
-  // 四期：定稿 = 摘要（带连续性事实）+ 出场角色的当前状态，菜单上写着调用次数（D17）。
-  test('没定稿的章给「定稿（摘要 + 角色状态）」并写着调用次数', () => {
-    assert.ok(legacyItems.includes('定稿（摘要 + 角色状态，预计 1–2 次调用）'), JSON.stringify(legacyItems));
+  // 四期：定稿 = 摘要（带连续性事实）+ 出场角色的当前状态，菜单上写着调用次数（D17）；七期再加叙事线。
+  test('没定稿的章给「定稿（摘要 + 角色状态 + 叙事线）」并写着调用次数', () => {
+    assert.ok(legacyItems.includes('定稿（摘要 + 角色状态 + 叙事线，预计 1–3 次调用）'), JSON.stringify(legacyItems));
     assert.ok(!legacyItems.includes('重新定稿'), JSON.stringify(legacyItems));
   });
 
@@ -578,7 +578,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   test('「定稿」发 finalizeChapter，带的是章节路径', () => {
-    ui.pick(ui.rightClick(plotRow('入镇')), '定稿（摘要 + 角色状态，预计 1–2 次调用）');
+    ui.pick(ui.rightClick(plotRow('入镇')), '定稿（摘要 + 角色状态 + 叙事线，预计 1–3 次调用）');
     const msg = ui.last('projectAction');
     assert.equal(msg?.action, 'finalizeChapter', JSON.stringify(msg));
     assert.equal(msg?.relPath, 'chapters/002-入镇.md', JSON.stringify(msg));

@@ -1,25 +1,28 @@
 /**
- * 定稿一章（D17、D18、D15）：
+ * 定稿一章（D17、D18、D15、七期）：
  *
  * ```
  * 1. 摘要（1 次）：六节 + 连续性事实 → 证据用 bigram 在正文里找（0 次）→ 落盘
  * 2. 角色状态（0–1 次）：本章出场、已经建卡的人 → 按归属写、或挂黄 ❗
+ * 3. 叙事线（0–1 次）：还没收的线 → 判本章推进了哪几条 → 证据逐字校验 → 追加事件
  * ```
  *
- * 移植自 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator）`finalize-chapter.command.ts` 的
+ * 前两步移植自 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator）`finalize-chapter.command.ts` 的
  * `buildFinalizePostProcessSteps`（FC:246-563）的后两步。知识库导入、定稿收据、来源 hash、
- * 项目租约不搬（总计划 §1 #14）。
+ * 项目租约不搬（总计划 §1 #14）。第三步上游不在定稿里（是叙事线编辑器里的一颗按钮），见
+ * features/threads.ts。
  *
- * ## 两步的失败各算各的
+ * ## 几步的失败各算各的
  *
  * 摘要是这一章能不能「记住」的那一步：它失败了整个定稿就算没成，红 ❗ 挂在章节上（与从前
- * 「总结这一章」一样）。角色状态失败时摘要照样算数——黄 ❗ 挂在章节上（第 16 条：部分完成），
- * 角色卡停在上一次的状态，下次重新定稿会再来一遍。
+ * 「总结这一章」一样）。角色状态、叙事线失败时摘要照样算数——黄 ❗ 挂在章节上（第 16 条：
+ * 部分完成），角色卡 / `threads.md` 停在上一次，下次重新定稿会再来一遍。
  *
  * ## 用哪个模型
  *
  * 单章入口（主按钮、章节工作台、右键、agent 的 `run summarize`）用对话页选定的那个，与从前的
- * 「总结这一章」一致。批量入口两步各走各的档（`plotSummary` / `characterCard`），失败换同档其余。
+ * 「总结这一章」一致。批量入口各走各的档（摘要与叙事线 `plotSummary`、角色状态 `characterCard`），
+ * 失败换同档其余。
  */
 import { getHost } from '../host';
 import { readConfig } from '../config';
@@ -32,6 +35,7 @@ import { NovelProject } from '../model/project';
 import { Chapter } from '../model/types';
 import { STATE_OP, StateUpdateOutcome, updateCharacterStates } from './characterState';
 import { SummaryOutcome, summarizeChapter } from './summarize';
+import { THREADS_OP, ThreadEventOutcome, recordThreadEvents } from './threads';
 
 const log = scoped('定稿');
 
@@ -56,8 +60,10 @@ export interface FinalizeOptions {
   summary?: ModelRunner;
   /** 角色状态那一步用谁。缺省同摘要。 */
   state?: ModelRunner;
+  /** 叙事线那一步用谁。缺省同摘要（读一章、按合同摘出东西，与摘要是同一种活）。 */
+  threads?: ModelRunner;
   /** 走到第几步了（任务条上那一行）。 */
-  onStep?(step: 'summary' | 'state'): void;
+  onStep?(step: 'summary' | 'state' | 'threads'): void;
 }
 
 export interface FinalizeOutcome {
@@ -67,6 +73,9 @@ export interface FinalizeOutcome {
   states?: StateUpdateOutcome;
   /** 角色状态那一步没成（摘要照样算数）。 */
   stateError?: string;
+  threads?: ThreadEventOutcome;
+  /** 叙事线那一步没成（摘要照样算数）。 */
+  threadsError?: string;
 }
 
 /**
@@ -125,12 +134,40 @@ export async function finalizeChapter(
       detail: '角色卡的当前状态停在上一次。重新定稿这一章会再更新一遍。',
     });
   }
+
+  opts.onStep?.('threads');
+  const threadsRunner = opts.threads ?? summaryRunner;
+  try {
+    outcome.threads = await recordThreadEvents(project, chapter, {
+      run: (what, fn) => threadsRunner.run(what, fn),
+      budget: threadsRunner.primaryBudget,
+      signal: opts.signal,
+    });
+    outcome.calls += outcome.threads.calls;
+    await clearFailures(project, 'chapter', chapter.relPath, THREADS_OP);
+  } catch (err) {
+    if (err instanceof CancelledError || opts.signal?.aborted) {
+      throw err;
+    }
+    outcome.calls += 1;
+    outcome.threadsError = describeError(err);
+    log.warn(`第 ${chapter.order} 章的叙事线没判成：${outcome.threadsError}`, err);
+    await recordFailure(project, {
+      scope: '定稿',
+      targetKind: 'chapter',
+      targetKey: chapter.relPath,
+      severity: 'warn',
+      op: THREADS_OP,
+      message: `摘要已写好，但叙事线没判成：${outcome.threadsError}`,
+      detail: 'threads.md 没有改动。重新定稿这一章会再判一遍。',
+    });
+  }
   return outcome;
 }
 
 /**
- * 「第 3 章已定稿：摘要与 7 条连续性事实；林昭、沈氏的当前状态更新到这一章。」
- * 丢了的事实、没覆盖的卡、没更新成的那一步都说出来（第 2 条）。
+ * 「第 3 章已定稿：摘要与 7 条连续性事实；林昭、沈氏的当前状态更新到这一章；叙事线：玉佩的来历埋下。」
+ * 丢了的事实、没覆盖的卡、没记的事件、没成的那一步都说出来（第 2 条）。
  */
 export function describeFinalize(no: number, o: FinalizeOutcome): string {
   const parts = [`第 ${no} 章已定稿：摘要与 ${o.summary.facts.length} 条连续性事实`];
@@ -151,6 +188,19 @@ export function describeFinalize(no: number, o: FinalizeOutcome): string {
       parts.push('出场的人都还没有角色卡，没有状态可更新');
     }
   }
+  const th = o.threads;
+  if (o.threadsError) {
+    parts.push(`叙事线没判成（${o.threadsError}）`);
+  } else if (th && th.calls > 0) {
+    parts.push(
+      th.recorded.length > 0
+        ? `叙事线：${th.recorded.map((r) => `${r.title}${r.type}`).join('、')}`
+        : '叙事线没有新进展'
+    );
+    if (th.dropped.length > 0) {
+      parts.push(`另有 ${th.dropped.length} 条叙事线事件没有记（证据在正文里找不到，或认不出是哪一条线）`);
+    }
+  }
   return `${parts.join('；')}。`;
 }
 
@@ -163,16 +213,24 @@ export async function finalizeChapterTask(project: NovelProject, chapter: Chapte
   await runTask(
     `定稿第 ${chapter.order} 章`,
     async ({ signal, report }) => {
-      report({ message: `《${chapter.title}》 · 摘要`, current: 0, total: 2 });
+      report({ message: `《${chapter.title}》 · 摘要`, current: 0, total: 3 });
       const outcome = await finalizeChapter(project, chapter, {
         signal,
-        onStep: (step) =>
-          step === 'state' && report({ message: `《${chapter.title}》 · 角色状态`, current: 1, total: 2 }),
+        onStep: (step) => {
+          if (step === 'state') {
+            report({ message: `《${chapter.title}》 · 角色状态`, current: 1, total: 3 });
+          } else if (step === 'threads') {
+            report({ message: `《${chapter.title}》 · 叙事线`, current: 2, total: 3 });
+          }
+        },
       });
-      report({ message: outcome ? '完成' : '未定稿', current: 2, total: 2 });
+      report({ message: outcome ? '完成' : '未定稿', current: 3, total: 3 });
       if (outcome) {
         calls = outcome.calls;
-        getHost().toast(describeFinalize(chapter.order, outcome), outcome.stateError ? 'error' : 'info');
+        getHost().toast(
+          describeFinalize(chapter.order, outcome),
+          outcome.stateError || outcome.threadsError ? 'error' : 'info'
+        );
       }
     },
     { scope: '定稿' }

@@ -56,8 +56,8 @@ describe('章节条', { skip: JSDOM_SKIP }, () => {
 
   test('提示里写调用次数（与主按钮同一个数）', () => {
     assert.match(btn('continue').title, /预计 1 次调用，最多 8 次/);
-    // 四期：定稿 = 摘要 + 出场角色的当前状态（D17）。
-    assert.match(btn('finalize').title, /预计 1–2 次调用/);
+    // 四期：定稿 = 摘要 + 出场角色的当前状态（D17）；七期再加一次判叙事线。
+    assert.match(btn('finalize').title, /预计 1–3 次调用/);
   });
 
   test('点「接着写」发 chapterAction', () => {

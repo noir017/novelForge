@@ -1,5 +1,8 @@
 /**
- * 叙事线（七期）：从细纲排出跨章的伏笔与线索。
+ * 叙事线（七期）：从细纲排出跨章的伏笔与线索（{@link generateThreads}），定稿时判这一章推进了
+ * 哪几条（{@link recordThreadEvents}）。
+ *
+ * ## 排线
  *
  * 移植自 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator）`narrative-thread-candidate-generator.ts`
  * 的 `generatePlanCandidates`。上游是叙事线编辑器里的一颗按钮，候选逐条点「确认计划」才入库；
@@ -12,17 +15,27 @@
  * - 不做修复重试：1 次就是 1 次。坏了挂红 ❗ 在「叙事线」那一行上（第 16 条），作者再点一次。
  *
  * 不进主按钮（第 20 条只推一个下一步）：叙事线是可选的，不拿它挡路。
+ *
+ * ## 定稿时判事件
+ *
+ * 移植自同一个文件的 `generateEventCandidates`。上游要作者在编辑器里一条线一条线点「AI 识别
+ * 定稿事件」再逐条确认；这里是定稿的第三步，**自动做、直接写**——与 D15 角色状态同一个理由：
+ * 批量「写完即定稿」时没人看，而事件只是在一条线的事件列表末尾**追加**一行带原文的记录，
+ * 不吞任何东西；证据逐字校验（`verifyThreadEvents`）就是那道闸。一次调用判所有还没收的线
+ * （上游一次一条）。
  */
 import { readConfig } from '../config';
 import { getHost } from '../host';
 import { collectText } from '../llm/collect';
 import { createModelPool } from '../llm/pool';
 import { StreamOptions } from '../llm/provider';
-import { estimateTokens } from '../context/tokenizer';
+import { estimateTokens, takeHead } from '../context/tokenizer';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { NovelProject } from '../model/project';
+import { Chapter } from '../model/types';
+import { LlmProvider } from '../llm/provider';
 import { isPlotFilled } from '../model/plotFile';
 import { ONE_CALL, describeCalls } from '../model/pipeline';
 import { describeTaskModels } from '../model/tiers';
@@ -32,15 +45,22 @@ import {
   SAME_THREAD,
   THREAD_PLAN_LIMIT,
   Thread,
+  ThreadEvent,
+  ThreadEventType,
   ThreadPlan,
+  appendEvents,
   appendThreads,
+  lastEvent,
   parseThreads,
   threadKey,
+  threadStatus,
+  threadsToJudge,
+  verifyThreadEvents,
   verifyThreadPlans,
 } from '../model/threadsFile';
 import { Workspace } from '../workspace';
 import { extractJson, stripCodeFence } from './parse';
-import { threadPlanSystem } from './threadsPrompt';
+import { THREAD_EVENT_SYSTEM, threadPlanSystem } from './threadsPrompt';
 
 const log = scoped('叙事线');
 
@@ -276,4 +296,130 @@ export async function generateThreads(project: NovelProject): Promise<number> {
     { scope: '叙事线' }
   );
   return calls;
+}
+
+// ---------------------------------------------------------------- 定稿时判事件
+
+export interface ThreadEventOutcome {
+  /** 调了几次模型：没有还没收的线时是 0。 */
+  calls: number;
+  /** 记下的事件：哪条线、什么类型。 */
+  recorded: { title: string; type: ThreadEventType }[];
+  /** 没记的：证据找不到、认不出线、类型不对。 */
+  dropped: { thread: string; why: string }[];
+  /** 还没收的线超过一次能判的条数，没送去判的那几条。 */
+  skipped: string[];
+}
+
+/** 送去判的一条线：名字、类型、状态、区间、意图、最近一次推进。意图不截（判得准要看全）。 */
+function judgeLine(t: Thread): string {
+  const range = t.from !== undefined && t.to !== undefined ? `计划第 ${t.from}–${t.to} 章` : '';
+  const head = [t.kind, threadStatus(t), range].filter(Boolean).join(' · ');
+  const last = lastEvent(t);
+  return `- ${t.title}（${head}）${t.intent ? `意图：${t.intent}` : ''}${last ? `；最近：第 ${last.chapter} 章${last.type}` : ''}`;
+}
+
+/**
+ * 定稿第三步：判这一章推进了哪几条还没收的叙事线，证据逐字校验后追加进 `threads.md`。
+ *
+ * `run` 决定怎么调模型（同 `updateCharacterStates`）：单章入口直接用对话页选定的那个，批量
+ * 入口传「单章摘要」档的池。调用失败或解析不出来时抛错——摘要已经写好了，由调用方把失败
+ * 挂在章节上。
+ */
+export async function recordThreadEvents(
+  project: NovelProject,
+  chapter: Chapter,
+  opts: {
+    run: <T>(what: string, fn: (llm: LlmProvider) => Promise<T>) => Promise<T>;
+    budget: { contextWindow: number; maxOutputTokens: number };
+    signal?: AbortSignal;
+  }
+): Promise<ThreadEventOutcome> {
+  const out: ThreadEventOutcome = { calls: 0, recorded: [], dropped: [], skipped: [] };
+  const threads = await project.readThreads();
+  const plot = await project.getPlot(chapter.order);
+  const { judged, skipped } = threadsToJudge(threads, {
+    no: chapter.order,
+    plotText: plot ? [plot.title, ...Object.values(plot.sections)].join('\n') : chapter.title,
+    names: plot?.characters ?? [],
+  });
+  out.skipped = skipped.map((t) => t.title);
+  if (judged.length === 0) {
+    log.info(`第 ${chapter.order} 章定稿：没有还没收的叙事线，不判`);
+    return out;
+  }
+  if (skipped.length > 0) {
+    log.warn(`还没收的叙事线超过 ${judged.length} 条，第 ${chapter.order} 章只判了前 ${judged.length} 条`, `没判：${out.skipped.join('、')}`);
+  }
+
+  const text = await project.readChapterText(chapter);
+  const roster = judged.map(judgeLine).join('\n');
+  const config = readConfig();
+  const inputBudget = Math.max(2000, opts.budget.contextWindow - opts.budget.maxOutputTokens - 1500 - estimateTokens(roster));
+  const body = takeHead(text, inputBudget);
+  if (body.length < text.length) {
+    log.warn(`第 ${chapter.order} 章正文超出输入预算，判叙事线时已截断`, `${text.length} 字 → ${body.length} 字`);
+  }
+  const user =
+    `【第${chapter.order}章 ${chapter.title}】\n\n${body}\n\n` + `【还没收的叙事线】\n${roster}\n\n请按要求输出 JSON。`;
+  const options: StreamOptions = {
+    maxOutputTokens: Math.min(opts.budget.maxOutputTokens, 1500),
+    temperature: 0.2,
+    timeoutMs: config.requestTimeoutMs,
+    signal: opts.signal,
+  };
+
+  out.calls = 1;
+  const raw = await opts.run(`第 ${chapter.order} 章 · 叙事线`, (llm) =>
+    collectText(
+      llm.stream(
+        [
+          { role: 'system', content: THREAD_EVENT_SYSTEM },
+          { role: 'user', content: user },
+        ],
+        options
+      )
+    )
+  );
+  const list = jsonList(raw, 'events');
+  if (!list) {
+    throw new Error('模型返回的叙事线事件解析不出来');
+  }
+  // 证据对的是整章正文（不是截过的那一截）：截掉的后半章里的原句同样是正文。
+  const { events, dropped } = verifyThreadEvents(list, judged, chapter.order, text);
+  out.dropped = dropped;
+
+  if (events.length > 0) {
+    const byThread = new Map<string, { title: string; events: ThreadEvent[] }>();
+    for (const { thread, event } of events) {
+      const entry = byThread.get(thread.title) ?? { title: thread.title, events: [] };
+      entry.events.push(event);
+      byThread.set(thread.title, entry);
+    }
+    // 写之前重读（同排线）：只在此刻的原文上追加。这几十秒里作者把哪条线改了名，就记不上它。
+    await new Workspace(project).updateThreads((raw) => {
+      let next = raw;
+      for (const entry of byThread.values()) {
+        const patched = appendEvents(next, entry.title, entry.events);
+        if (patched === undefined) {
+          out.dropped.push({ thread: entry.title, why: '这条线在文件里找不到了（改了名或删了）' });
+          continue;
+        }
+        next = patched;
+        out.recorded.push(...entry.events.map((e) => ({ title: entry.title, type: e.type })));
+      }
+      return next;
+    });
+  }
+
+  log.info(
+    `第 ${chapter.order} 章的叙事线已处理`,
+    [
+      out.recorded.length > 0 ? `记下 ${out.recorded.map((r) => `${r.title}·${r.type}`).join('、')}` : '本章没有推进哪条线',
+      out.dropped.length > 0 ? `没记 ${out.dropped.map((d) => `${d.thread}（${d.why}）`).join('、')}` : '',
+    ]
+      .filter(Boolean)
+      .join('｜')
+  );
+  return out;
 }

@@ -94,7 +94,7 @@ const ACTIONS: Record<string, ActionSpec> = {
     },
   },
   summarize: {
-    label: '给某一章定稿（摘要与连续性事实，再更新出场角色的当前状态）',
+    label: '给某一章定稿（摘要与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线）',
     costly: true,
     needsField: 'path',
     needs: 'path=那一章的章节路径或细纲路径',
