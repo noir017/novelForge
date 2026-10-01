@@ -19,24 +19,60 @@
  *   未完成的目标也勾，待核实不勾——证据不足不代表有问题。通过与已完成没有可勾的东西。
  * - 勾选状态是**界面状态**，留在前端（按 turnId 记着）：气泡随 `turnDone` 整体重建时不丢。
  * - 底部按钮写勾了几条、会调几次模型（第 4 条）；一条都没勾、正在生成时禁用。
+ *
+ * ## 编辑模式（五期补遗 §3）
+ *
+ * 底部「编辑问题」把问题那几组换成一张可改的表：分类、严重度、说明、引文；「新增问题」加一条作者
+ * 自己写的（引文可以空着）。作者加的可以删，**模型给的不能删**——不想修就别勾。目标核对来自细纲，
+ * 不在表里。「保存」把整张表发给后端（`editReview`），后端校验引文、接着编号，推回新的报告；编辑
+ * 期间不能修稿。正在编辑的表按 turnId 记在前端，气泡重建时照着它画，不丢作者刚敲的字。
  */
 import { el as mk, spacer } from '../dom';
-import type { ReviewGoal, ReviewIssue, SerializedTurn } from '../protocol';
-import { GOAL_STATUS_LABEL, REVISE_CALLS, SEVERITY_LABEL, describeCalls, describeReport, pickableIds } from '../protocol';
+import type { ReviewGoal, ReviewIssue, ReviewIssueEdit, SerializedTurn } from '../protocol';
+import {
+  AUTHOR_CATEGORY,
+  GOAL_STATUS_LABEL,
+  REVISE_CALLS,
+  SEVERITY_LABEL,
+  describeCalls,
+  describeReport,
+  pickableIds,
+} from '../protocol';
 import { store, vscode } from './store';
 
 type ReviewView = NonNullable<SerializedTurn['review']>;
 
 /** 每一轮的勾选状态。没记过的用后端给的缺省。 */
 const picked = new Map<string, Set<string>>();
+/** 每一轮上一次见过哪些可勾的条目：编辑之后冒出来的新条目按后端的缺省勾上。 */
+const known = new Map<string, Set<string>>();
+/** 正在编辑的那几张：turnId → 编辑中的问题表。 */
+const editing = new Map<string, EditRow[]>();
+
+interface EditRow extends ReviewIssueEdit {
+  origin?: 'author';
+}
 
 function picksOf(turnId: string, review: ReviewView): Set<string> {
+  const allowed = new Set(pickableIds(review.report));
   let set = picked.get(turnId);
   if (!set) {
-    const allowed = new Set(pickableIds(review.report));
     set = new Set(review.picks.filter((id) => allowed.has(id)));
     picked.set(turnId, set);
+  } else {
+    const seen = known.get(turnId) ?? new Set<string>();
+    for (const id of review.picks) {
+      if (allowed.has(id) && !seen.has(id)) {
+        set.add(id);
+      }
+    }
+    for (const id of [...set]) {
+      if (!allowed.has(id)) {
+        set.delete(id);
+      }
+    }
   }
+  known.set(turnId, allowed);
   return set;
 }
 
@@ -44,8 +80,10 @@ export function buildReviewCard(turn: SerializedTurn): HTMLElement {
   const review = turn.review!;
   const report = review.report;
   const picks = picksOf(turn.id, review);
-  const card = mk('div', 'review-card');
+  const rows = editing.get(turn.id);
+  const card = mk('div', `review-card${rows ? ' editing' : ''}`);
   card.dataset.review = turn.id;
+  const redraw = () => card.replaceWith(buildReviewCard(turn));
 
   const head = mk('div', 'review-head');
   const where = `第 ${report.chapterNo} 章${report.chapterTitle ? `《${report.chapterTitle}》` : ''}`;
@@ -62,7 +100,7 @@ export function buildReviewCard(turn: SerializedTurn): HTMLElement {
   const refresh = () => {
     const n = picks.size;
     submit.textContent = n > 0 ? `按勾选的 ${n} 条修稿` : '勾选要修的条目';
-    submit.disabled = n === 0 || store.busy;
+    submit.disabled = n === 0 || store.busy || !!rows;
     submit.title = `${describeCalls(REVISE_CALLS)}。只把勾选的条目连同整章原文交给模型，要求最小改动；写入前会让你先对比。`;
   };
   const toggle = (id: string, on: boolean) => {
@@ -90,20 +128,24 @@ export function buildReviewCard(turn: SerializedTurn): HTMLElement {
     card.appendChild(section);
   }
 
-  for (const sev of ['error', 'warning'] as const) {
-    const list = report.issues.filter((i) => i.severity === sev);
-    if (list.length === 0) {
-      continue;
+  if (rows) {
+    card.appendChild(editor(rows, redraw));
+  } else {
+    for (const sev of ['error', 'warning'] as const) {
+      const list = report.issues.filter((i) => i.severity === sev);
+      if (list.length === 0) {
+        continue;
+      }
+      const section = mk('div', `review-section review-${sev}`);
+      section.appendChild(mk('div', 'review-section-title', `${SEVERITY_LABEL[sev]}（${list.length}）`));
+      for (const issue of list) {
+        section.appendChild(issueRow(issue, picks.has(issue.id), toggle, quote));
+      }
+      card.appendChild(section);
     }
-    const section = mk('div', `review-section review-${sev}`);
-    section.appendChild(mk('div', 'review-section-title', `${SEVERITY_LABEL[sev]}（${list.length}）`));
-    for (const issue of list) {
-      section.appendChild(issueRow(issue, picks.has(issue.id), toggle, quote));
+    if (report.issues.length === 0) {
+      card.appendChild(mk('div', 'review-empty', '没有找到有正文证据的问题。'));
     }
-    card.appendChild(section);
-  }
-  if (report.issues.length === 0) {
-    card.appendChild(mk('div', 'review-empty', '没有找到有正文证据的问题。'));
   }
 
   if (report.passes.length > 0) {
@@ -124,6 +166,54 @@ export function buildReviewCard(turn: SerializedTurn): HTMLElement {
   }
 
   const foot = mk('div', 'review-foot');
+  if (rows) {
+    // 编辑模式：新增 / 取消 / 保存。修稿那一颗收起来——表还没存，按它修的是哪一版说不清。
+    foot.appendChild(
+      footBtn('新增问题', 'secondary review-edit-add', () => {
+        rows.push({ category: AUTHOR_CATEGORY, severity: 'warning', description: '', quote: '', origin: 'author' });
+        redraw();
+      })
+    );
+    foot.appendChild(spacer());
+    foot.appendChild(
+      footBtn('取消', 'secondary review-edit-cancel', () => {
+        editing.delete(turn.id);
+        redraw();
+      })
+    );
+    foot.appendChild(
+      footBtn('保存', 'primary review-edit-save', () => {
+        const issues: ReviewIssueEdit[] = rows.map((r) => ({
+          ...(r.id ? { id: r.id } : {}),
+          category: r.category,
+          severity: r.severity,
+          description: r.description,
+          quote: r.quote ?? '',
+        }));
+        editing.delete(turn.id);
+        vscode.postMessage({ type: 'editReview', turnId: turn.id, issues });
+        redraw();
+      })
+    );
+    card.appendChild(foot);
+    return card;
+  }
+  foot.appendChild(
+    footBtn('编辑问题', 'secondary review-edit', () => {
+      editing.set(
+        turn.id,
+        report.issues.map((i) => ({
+          id: i.id,
+          category: i.category,
+          severity: i.severity,
+          description: i.description,
+          quote: i.quote,
+          ...(i.origin ? { origin: i.origin } : {}),
+        }))
+      );
+      redraw();
+    })
+  );
   foot.appendChild(mk('span', 'review-hint', `${describeCalls(REVISE_CALLS)}，写入前会让你先对比`));
   foot.appendChild(spacer());
   submit.addEventListener('click', () => {
@@ -165,10 +255,91 @@ function issueRow(issue: ReviewIssue, checked: boolean, toggle: Toggle, quote: Q
   const line = mk('div', 'review-item-line');
   line.appendChild(mk('span', 'review-category', `[${issue.category}]`));
   line.appendChild(mk('span', 'review-desc', issue.description));
+  if (issue.origin === 'author') {
+    line.appendChild(mk('span', 'review-tag', '作者补充'));
+  } else if (issue.edited) {
+    line.appendChild(mk('span', 'review-tag', '已改'));
+  }
   body.appendChild(line);
-  body.appendChild(quote(issue.quote));
+  // 作者加的可以没有引文：没有就不画那一行（点下去也定位不到什么）。
+  if (issue.quote) {
+    body.appendChild(quote(issue.quote));
+  }
   row.appendChild(body);
   return row;
+}
+
+/**
+ * 编辑模式下的问题表：一条一行，分类、严重度、说明、引文都能改；作者加的那几条多一颗「删除」。
+ * 改动直接写进 `rows`（那就是 `editing` 里记着的那一份），重建时不丢。
+ */
+function editor(rows: EditRow[], redraw: () => void): HTMLElement {
+  const box = mk('div', 'review-section review-editor');
+  box.appendChild(
+    mk('div', 'review-section-title', '编辑问题（模型给的不能删，不想修就别勾；引文要逐字抄正文里的一句，可以空着）')
+  );
+  rows.forEach((r, i) => {
+    const row = mk('div', `review-edit-row${r.origin === 'author' ? ' author' : ''}`);
+    row.dataset.edit = String(i);
+    const top = mk('div', 'review-edit-top');
+    const severity = mk('select', 'review-edit-severity');
+    for (const sev of ['error', 'warning'] as const) {
+      const opt = mk('option', undefined, SEVERITY_LABEL[sev]);
+      opt.value = sev;
+      opt.selected = r.severity === sev;
+      severity.appendChild(opt);
+    }
+    severity.addEventListener('change', () => {
+      r.severity = severity.value === 'error' ? 'error' : 'warning';
+    });
+    const category = mk('input', 'review-edit-category');
+    category.type = 'text';
+    category.value = r.category;
+    category.placeholder = '分类';
+    category.addEventListener('input', () => {
+      r.category = category.value;
+    });
+    top.appendChild(severity);
+    top.appendChild(category);
+    if (r.origin === 'author') {
+      top.appendChild(mk('span', 'review-tag', '作者补充'));
+      top.appendChild(spacer());
+      top.appendChild(
+        footBtn('删除', 'secondary review-edit-remove', () => {
+          rows.splice(i, 1);
+          redraw();
+        })
+      );
+    }
+    row.appendChild(top);
+    const desc = mk('textarea', 'review-edit-desc');
+    desc.rows = 2;
+    desc.value = r.description;
+    desc.placeholder = '具体是什么问题、要怎么改';
+    desc.addEventListener('input', () => {
+      r.description = desc.value;
+    });
+    row.appendChild(desc);
+    const q = mk('input', 'review-edit-quote');
+    q.type = 'text';
+    q.value = r.quote ?? '';
+    q.placeholder = '相关原文（可选）';
+    q.addEventListener('input', () => {
+      r.quote = q.value;
+    });
+    row.appendChild(q);
+    box.appendChild(row);
+  });
+  if (rows.length === 0) {
+    box.appendChild(mk('div', 'review-empty', '还没有问题。点「新增问题」加一条。'));
+  }
+  return box;
+}
+
+function footBtn(text: string, className: string, onClick: () => void): HTMLButtonElement {
+  const b = mk('button', className, text);
+  b.addEventListener('click', onClick);
+  return b;
 }
 
 function goalRow(goal: ReviewGoal, checked: boolean, toggle: Toggle, quote: QuoteBtn): HTMLElement {
@@ -211,7 +382,7 @@ export function syncReviewCards(): void {
     const btn = card.querySelector<HTMLButtonElement>('.review-submit');
     const turnId = card.dataset.review;
     if (btn && turnId) {
-      btn.disabled = store.busy || (picked.get(turnId)?.size ?? 0) === 0;
+      btn.disabled = store.busy || editing.has(turnId) || (picked.get(turnId)?.size ?? 0) === 0;
     }
   });
 }

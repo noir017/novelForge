@@ -288,3 +288,109 @@ describe('review.ts · 勾选与清单', () => {
     assert.deepEqual(r.describePicks(report, ['i2', 'g3']), ['[建议] 角色状态：他左臂有伤却点头如常', '[待核实] 章末钩子：门外有人敲门']);
   });
 });
+
+// 五期补遗 §3：报告卡的编辑模式。
+describe('review.ts · 编辑报告', () => {
+  const base = {
+    chapterNo: 2,
+    chapterTitle: '客栈',
+    chapterRelPath: 'chapters/002-客栈.md',
+    chapterHash: 'h',
+    summary: '',
+    issues: [
+      { id: 'i1', category: '剧情合理性', severity: 'error', quote: '她把那块残令收进了袖中', description: '残令早交出去了' },
+      { id: 'i2', category: '角色状态', severity: 'warning', quote: '林昭点了点头', description: '左臂有伤' },
+    ],
+    passes: [],
+    goals: [{ id: 'g1', kind: 'event', text: '林昭回到客栈', status: 'unmet', judgment: '判断', quotes: ['林昭推开客栈的门'] }],
+    coverage: 'complete',
+    dropped: [],
+  };
+  const plain = (x) => JSON.parse(JSON.stringify(x));
+
+  test('模型给的：漏了就原样留着；改过的标 edited；新加的接着编号 a1、a2，分类缺省「作者补充」', () => {
+    const { report, notes } = r.applyReviewEdits(
+      base,
+      [
+        { id: 'i2', category: '角色状态', severity: 'error', description: '左臂有伤，不该点头如常', quote: '林昭点了点头' },
+        { category: '', severity: 'warning', description: '雨写得太长', quote: '雨下了一整夜' },
+        { severity: 'error', category: '节奏', description: '结尾太急' },
+      ],
+      TEXT
+    );
+    assert.deepEqual(notes, []);
+    assert.deepEqual(
+      plain(report.issues).map((i) => [i.id, i.category, i.severity, i.origin ?? '', !!i.edited]),
+      [
+        ['i1', '剧情合理性', 'error', '', false],
+        ['i2', '角色状态', 'error', '', true],
+        ['a1', '作者补充', 'warning', 'author', false],
+        ['a2', '节奏', 'error', 'author', false],
+      ]
+    );
+    assert.equal(report.issues[3].quote, '');
+    assert.deepEqual(report.goals.map((g) => g.id), ['g1']);
+  });
+
+  test('引文：作者加的找不到就清空，模型条目改出来的找不到就保留原句；都说明', () => {
+    const { report, notes } = r.applyReviewEdits(
+      base,
+      [
+        { id: 'i1', category: '剧情合理性', severity: 'error', description: '残令早交出去了', quote: '正文里没有这一句话' },
+        { category: '', severity: 'warning', description: '一条新的', quote: '也没有这一句' },
+      ],
+      TEXT
+    );
+    assert.equal(report.issues[0].quote, '她把那块残令收进了袖中');
+    assert.equal(report.issues[0].edited, undefined);
+    assert.equal(report.issues[2].quote, '');
+    assert.equal(notes.length, 2);
+    assert.match(notes[0], /改过的引文在正文里找不到，保留原来那一句/);
+    assert.match(notes[1], /引文在正文里找不到，按没有引文处理/);
+  });
+
+  test('说明空的：模型条目保留原句，新加的整条不收；作者加的漏了就是删掉', () => {
+    const once = r.applyReviewEdits(base, [{ category: '', severity: 'warning', description: '先加一条' }], TEXT).report;
+    const { report, notes } = r.applyReviewEdits(
+      once,
+      [
+        { id: 'i1', category: '剧情合理性', severity: 'error', description: '  ', quote: '她把那块残令收进了袖中' },
+        { category: '', severity: 'warning', description: '' },
+      ],
+      TEXT
+    );
+    assert.equal(report.issues[0].description, '残令早交出去了');
+    assert.deepEqual(report.issues.map((i) => i.id), ['i1', 'i2']);
+    assert.ok(notes.some((n) => /说明不能是空的/.test(n)));
+    assert.ok(notes.some((n) => /1 条新加的问题没写说明/.test(n)));
+    assert.ok(notes.some((n) => /删掉了 1 条作者加的问题/.test(n)));
+  });
+
+  test('作者加的：缺省勾上；修稿清单里没有引文就不写「相关原文」，分类不是缺省的标「作者补充」', () => {
+    const { report } = r.applyReviewEdits(
+      base,
+      [
+        { category: '', severity: 'warning', description: '雨写得太长' },
+        { category: '节奏', severity: 'error', description: '结尾太急' },
+      ],
+      TEXT
+    );
+    assert.deepEqual(r.defaultPicks(report), ['i1', 'i2', 'a1', 'a2', 'g1']);
+    const brief = r.renderRevisionBrief(report, ['a1', 'a2']);
+    assert.match(brief, /1\. \[作者补充 \/ 建议\] 雨写得太长\n2\. \[节奏 \/ 严重 · 作者补充\] 结尾太急/);
+    assert.doesNotMatch(brief, /相关原文/);
+    assert.match(r.renderReport(report), /- \[作者补充\] 雨写得太长（作者补充）/);
+  });
+
+  test('会话文件读回来：作者加的没有引文也认；模型条目没有引文就不认', () => {
+    const { report } = r.applyReviewEdits(base, [{ category: '', severity: 'warning', description: '雨写得太长' }], TEXT);
+    const back = r.normalizeReport(plain({ ...report, issues: [...report.issues, { id: 'i9', category: 'x', severity: 'error', quote: '', description: '坏的' }] }));
+    assert.deepEqual(back.issues.map((i) => i.id), ['i1', 'i2', 'a1']);
+    assert.equal(back.issues[2].origin, 'author');
+  });
+
+  test('正文改过之后重新定位：没有引文的照旧交给模型', () => {
+    const { report } = r.applyReviewEdits(base, [{ category: '', severity: 'warning', description: '雨写得太长' }], TEXT);
+    assert.deepEqual(r.relocatePicks(report, ['a1'], '完全换了一版正文。').kept, ['a1']);
+  });
+});

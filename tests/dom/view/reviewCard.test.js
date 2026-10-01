@@ -12,6 +12,7 @@
  * | 气泡重建 | 勾选状态不丢（界面状态留在前端） |
  * | 正在生成 | 修稿按钮禁用 |
  * | 用户气泡 | `/按审稿修稿` 下面列出勾了哪几条 |
+ * | 编辑问题（五期补遗 §3） | 表里能改能加，模型给的不能删；重建不丢；保存发 `editReview`；推回后作者加的缺省勾上 |
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -137,5 +138,94 @@ describe('审稿报告卡', { skip: JSDOM_SKIP }, () => {
     const bubble = ui.bubble('u2');
     assert.equal(bubble.querySelector('.msg-command').textContent, '/按审稿修稿');
     assert.deepEqual([...bubble.querySelectorAll('.msg-revise-items li')].map((n) => n.textContent), ['[严重] 剧情合理性：残令前文已经交出去了']);
+  });
+});
+
+// 五期补遗 §3：编辑模式。
+describe('审稿报告卡 · 编辑问题', { skip: JSDOM_SKIP }, () => {
+  let ui;
+  const card = () => ui.bubble('a9').querySelector('.review-card');
+  const btn = (cls) => card().querySelector(cls);
+  const rows = () => [...card().querySelectorAll('.review-edit-row')];
+  const set = (node, value) => {
+    node.value = value;
+    node.dispatchEvent(new ui.window.Event(node.tagName === 'SELECT' ? 'change' : 'input'));
+  };
+  const theTurn = (report = REPORT, picks = ['i1', 'i2', 'g2']) =>
+    turn('a9', 'assistant', '# 审稿', { review: { report, picks, calls: 1 } });
+
+  before(() => {
+    ui = mount();
+    ui.post({ type: 'session', session: emptySession() });
+    ui.post({ type: 'turnDone', turn: theTurn() });
+  });
+
+  test('点「编辑问题」：问题那几组换成可改的表，修稿那一颗收起来', () => {
+    ui.clickEl(btn('.review-edit'));
+    assert.ok(card().classList.contains('editing'));
+    assert.equal(rows().length, 2);
+    assert.equal(card().querySelector('.review-submit'), null);
+    assert.equal(rows()[0].querySelector('.review-edit-desc').value, '残令前文已经交出去了');
+    assert.equal(rows()[0].querySelector('.review-edit-remove'), null, '模型给的不能删');
+  });
+
+  test('新增一条：作者补充，可以删', () => {
+    ui.clickEl(btn('.review-edit-add'));
+    assert.equal(rows().length, 3);
+    const added = rows()[2];
+    assert.ok(added.classList.contains('author'));
+    assert.equal(added.querySelector('.review-edit-category').value, '作者补充');
+    assert.ok(added.querySelector('.review-edit-remove'));
+  });
+
+  test('气泡重建：编辑中的表与刚敲的字不丢', () => {
+    set(rows()[2].querySelector('.review-edit-desc'), '结尾太急');
+    set(rows()[1].querySelector('.review-edit-severity'), 'error');
+    ui.post({ type: 'turnDone', turn: theTurn() });
+    assert.equal(rows().length, 3);
+    assert.equal(rows()[2].querySelector('.review-edit-desc').value, '结尾太急');
+    assert.equal(rows()[1].querySelector('.review-edit-severity').value, 'error');
+  });
+
+  test('保存：发 editReview，整张表，新加的不带 id；退出编辑模式', () => {
+    ui.clickEl(btn('.review-edit-save'));
+    const sent = ui.last('editReview');
+    assert.equal(sent.turnId, 'a9');
+    assert.deepEqual(
+      sent.issues.map((i) => [i.id ?? '', i.severity, i.description]),
+      [
+        ['i1', 'error', '残令前文已经交出去了'],
+        ['i2', 'error', '左臂有伤却动作如常'],
+        ['', 'warning', '结尾太急'],
+      ]
+    );
+    assert.ok(!card().classList.contains('editing'));
+    assert.ok(card().querySelector('.review-submit'));
+  });
+
+  test('后端推回新报告：作者加的标「作者补充」、没有引文不画引文、缺省勾上；改过的标「已改」', () => {
+    const next = {
+      ...REPORT,
+      issues: [
+        REPORT.issues[0],
+        { ...REPORT.issues[1], severity: 'error', edited: true },
+        { id: 'a1', category: '作者补充', severity: 'warning', quote: '', description: '结尾太急', origin: 'author' },
+      ],
+    };
+    ui.post({ type: 'turnDone', turn: theTurn(next, ['i1', 'i2', 'a1', 'g2']) });
+    const a1 = card().querySelector('.review-item[data-item="a1"]');
+    assert.equal(a1.querySelector('.review-tag').textContent, '作者补充');
+    assert.equal(a1.querySelector('.review-quote'), null);
+    assert.equal(a1.querySelector('input[data-pick="a1"]').checked, true);
+    assert.equal(card().querySelector('.review-item[data-item="i2"] .review-tag').textContent, '已改');
+    assert.equal(card().querySelector('.review-submit').textContent, '按勾选的 4 条修稿');
+  });
+
+  test('取消：不发消息，回到原样', () => {
+    const before = ui.sent.length;
+    ui.clickEl(btn('.review-edit'));
+    ui.clickEl(btn('.review-edit-cancel'));
+    assert.equal(ui.sent.length, before);
+    assert.ok(!card().classList.contains('editing'));
   });
 });

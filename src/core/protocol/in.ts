@@ -1,6 +1,7 @@
 import type { LlmTask, ModelTier } from '../model/tiers';
 import type { AgentPolicy } from '../model/agentPolicy';
 import type { ThinkingDepth } from '../model/thinking';
+import type { ReviewIssueEdit } from '../model/review';
 import type {
   Capability,
   CreationStage,
@@ -96,6 +97,11 @@ export type InMessage =
    * 后端按那一轮的报告拼清单、按磁盘上此刻的正文重新定位引文，发一轮修稿。
    */
   | { type: 'reviseChapter'; turnId: string; picks: string[] }
+  /**
+   * 报告卡编辑模式点了「保存」（五期补遗 §3）：那一轮报告的整张问题表。模型给的不能删（表里漏了
+   * 就原样留着），作者加的不带 `id`。后端校验之后写回那一轮、落盘、推回。
+   */
+  | { type: 'editReview'; turnId: string; issues: ReviewIssueEdit[] }
   /**
    * 点报告卡上的引文：在编辑器里打开那一章、选中那一句（五期 W10）。宿主没有「定位」这一项
    * 能力时只打开文件，并提示那一句。

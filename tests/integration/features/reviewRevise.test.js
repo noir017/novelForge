@@ -16,6 +16,7 @@
  * | 修过稿，主按钮先推重新定稿第 2 章 | 摘要跟着修订稿走 |
  * | 主按钮写第 3 章：先亮预检卡，「先不写」零调用，再按一次「仅本次忽略」照写 | 一致性预检零调用、可以仅本次忽略 |
  * | 重写第 3 章选「记为刻意安排」：理由记进细纲、不动内容指纹；再写不再亮卡 | 五期补遗 §2：永久放行按章记 |
+ * | 编辑报告：模型条目改了标已改、加的接着编号、找不到的引文清空；按作者加的修稿 | 五期补遗 §3 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -360,6 +361,54 @@ describe('五期验收', () => {
       await rewrite3();
       assert.deepEqual(gates().map((g) => g.name), ['artifact']);
       assert.match(gates()[0].detail, /沈秋按你记下的安排放行（托梦里的一场）/);
+    });
+  });
+
+  // 五期补遗 §3：报告卡的编辑模式，经 controller 走一遍。
+  describe('编辑第一份报告：改一条、加两条，再按作者加的那条修稿', () => {
+    let edited;
+    before(async () => {
+      posted = [];
+      h.toasts.length = 0;
+      await controller.handle({
+        type: 'editReview',
+        turnId: reviewTurn.id,
+        issues: [
+          { id: 'i2', category: '角色状态', severity: 'error', description: '左臂有伤，不该点头如常', quote: '林昭点了点头' },
+          { category: '', severity: 'warning', description: '沈氏的反应太平淡', quote: '沈氏在柜台后看着他' },
+          { category: '节奏', severity: 'error', description: '结尾太急', quote: '正文里没有这一句' },
+        ],
+      });
+      edited = lastAssistant();
+    });
+
+    test('推回的报告：i1 原样、i2 已改、新加 a1 a2；找不到的引文清空', () => {
+      const issues = edited.review.report.issues;
+      assert.deepEqual(issues.map((i) => i.id), ['i1', 'i2', 'a1', 'a2']);
+      assert.equal(issues[1].edited, true);
+      assert.equal(issues[2].origin, 'author');
+      assert.equal(issues[2].quote, '沈氏在柜台后看着他');
+      assert.equal(issues[3].quote, '');
+      assert.ok(edited.review.picks.includes('a1') && edited.review.picks.includes('a2'));
+    });
+
+    test('提示里说了引文找不到；气泡正文换成新的文字版；会话文件里存着', () => {
+      const toasts = posted.filter((m) => m.type === 'toast').map((m) => m.message);
+      assert.ok(toasts.some((x) => /「结尾太急」的引文在正文里找不到，按没有引文处理/.test(x)), JSON.stringify(toasts));
+      const json = JSON.parse(fs.readFileSync(path.join(project.sessionsDir, `${controller.current.id}.json`), 'utf8'));
+      const saved = json.turns.find((x) => x.id === reviewTurn.id);
+      assert.equal(saved.review.report.issues.length, 4);
+      assert.match(saved.content, /结尾太急（作者补充）/);
+    });
+
+    test('按作者加的那条修稿：清单里有它、没有「相关原文」', async () => {
+      queues.revise.push({ text: '太短了。', stop: 'end' });
+      fake.calls.length = 0;
+      posted = [];
+      await controller.handle({ type: 'reviseChapter', turnId: reviewTurn.id, picks: ['a2'] });
+      const [prompt] = promptsOf('revise');
+      assert.match(prompt, /1\. \[节奏 \/ 严重 · 作者补充\] 结尾太急/);
+      assert.doesNotMatch(prompt, /结尾太急\n   相关原文/);
     });
   });
 });

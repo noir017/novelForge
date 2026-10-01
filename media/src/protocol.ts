@@ -113,13 +113,14 @@ export {
  * 引文，点下去就得在编辑器里选得中。`review.ts` 是纯类型 + 纯函数、零 import，打进浏览器产物是安全的。
  */
 export {
+  AUTHOR_CATEGORY,
   GOAL_STATUS_LABEL,
   SEVERITY_LABEL,
   describeReport,
   locateQuote,
   pickableIds,
 } from '../../src/core/model/review';
-export type { ReviewGoal, ReviewIssue, ReviewReport } from '../../src/core/model/review';
+export type { ReviewGoal, ReviewIssue, ReviewIssueEdit, ReviewReport } from '../../src/core/model/review';
 
 /**
  * 段级 diff（五期 W11）：独立版的合并视图按它对齐两个版本、拼合并结果。纯函数、零 import；

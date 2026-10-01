@@ -51,7 +51,16 @@ import { Plot, isPlotFilled, parsePlotFileName } from '../model/plotFile';
 import { parseChapterFileName } from '../model/chapterFile';
 import { isPlotPath } from '../files/fileOps';
 import { Chapter } from '../model/types';
-import { describePicks, normalizeReport, pickableIds, relocatePicks, renderRevisionBrief } from '../model/review';
+import {
+  ReviewIssueEdit,
+  applyReviewEdits,
+  describePicks,
+  normalizeReport,
+  pickableIds,
+  relocatePicks,
+  renderReport,
+  renderRevisionBrief,
+} from '../model/review';
 import { PREFLIGHT_SUGGESTION, describeExempted, describeRisks, preflightChapter } from '../features/preflight';
 import { clearFailures } from '../runtime/errorLog';
 import { persist } from './persist';
@@ -715,6 +724,29 @@ export async function reviseChapter(c: ChatController, turnId: string, picks: re
       revise: { reviewTurnId: turnId, picks: chosen, items: describePicks(report, chosen) },
     }
   );
+}
+
+/**
+ * 报告卡编辑模式点了「保存」（五期补遗 §3）：把那张问题表合回那一轮的报告（`applyReviewEdits`：
+ * 模型给的不能删、作者加的接着编号、引文按正文校验），气泡正文换成新的文字版，落盘、推回。
+ * 不调模型。引文按磁盘上此刻的正文找——审稿之后改过的话，作者对着的正是现在这一版。
+ */
+export async function editReview(c: ChatController, turnId: string, edits: readonly ReviewIssueEdit[]): Promise<void> {
+  const turn = c.current.turns.find((t) => t.id === turnId && t.role === 'assistant');
+  const report = turn?.review ? normalizeReport(turn.review.report) : undefined;
+  if (!turn || !turn.review || !report) {
+    c.toast('找不到这份审稿报告，可能那一轮已经被删掉了。', 'error');
+    return;
+  }
+  const chapter = await c.project.getChapter(report.chapterNo);
+  const text = chapter ? await c.project.readChapterText(chapter) : '';
+  const { report: next, notes } = applyReviewEdits(report, edits, text);
+  turn.review = { ...turn.review, report: next };
+  turn.content = renderReport(next);
+  log.info(`编辑了第 ${report.chapterNo} 章的审稿报告`, notes.join('；') || `${next.issues.length} 条问题`);
+  await persist(c);
+  c.post({ type: 'turnDone', turn: serializeTurn(turn) });
+  c.toast(notes.length > 0 ? `审稿报告已保存。${notes.join('；')}。` : '审稿报告已保存。');
 }
 
 /** {@link beforeGenerate} 的结论：放行（修稿时带上拼好的清单），或者拦下并说明。 */

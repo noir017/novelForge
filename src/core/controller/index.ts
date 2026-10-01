@@ -33,6 +33,7 @@ import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
 import { buildPipelineIndex } from '../views/pipeline';
 import {
   chapterAction,
+  editReview,
   pushPipeline,
   retry,
   reviseChapter,
@@ -420,6 +421,10 @@ export class ChatController {
 
       case 'reviseChapter':
         await reviseChapter(this, msg.turnId, msg.picks);
+        return;
+
+      case 'editReview':
+        await editReview(this, msg.turnId, Array.isArray(msg.issues) ? msg.issues : []);
         return;
 
       case 'revealQuote':

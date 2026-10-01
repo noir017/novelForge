@@ -32,13 +32,20 @@ export const SEVERITY_LABEL: Record<ReviewSeverity, string> = {
   warning: '建议',
 };
 
-/** 一条问题。`quote` 是正文里找得到的那一句（模型给的原样，不是归一形）。 */
+/**
+ * 一条问题。`quote` 是正文里找得到的那一句（模型给的原样，不是归一形）。
+ *
+ * 报告卡的编辑模式（五期补遗 §3）：`origin: 'author'` 是作者自己加的（引文可以空着）；`edited`
+ * 是模型给的、作者改过的（改引文时找不到就保留原来那一句）。
+ */
 export interface ReviewIssue {
   id: string;
   category: string;
   severity: ReviewSeverity;
   quote: string;
   description: string;
+  origin?: 'author';
+  edited?: boolean;
 }
 
 /** 查过、没发现问题的一维。只展示，不能勾。 */
@@ -499,7 +506,8 @@ export function relocatePicks(
   const lost: ReviewIssue[] = [];
   for (const id of picks) {
     const issue = report.issues.find((i) => i.id === id);
-    if (issue && !quoteFound(index, issue.quote)) {
+    // 没有引文的（作者加的）没什么可重新定位的，照旧交给模型。
+    if (issue && issue.quote && !quoteFound(index, issue.quote)) {
       lost.push(issue);
       continue;
     }
@@ -522,7 +530,10 @@ export function renderRevisionBrief(report: ReviewReport, picks: readonly string
   for (const issue of report.issues) {
     if (chosen.has(issue.id)) {
       n++;
-      lines.push(`${n}. [${issue.category} / ${SEVERITY_LABEL[issue.severity]}] ${issue.description}\n   相关原文：${issue.quote}`);
+      // 作者加的分类缺省就是「作者补充」，那时不必再标一遍。
+      const tag = issue.origin === 'author' && issue.category !== AUTHOR_CATEGORY ? ' · 作者补充' : '';
+      const quote = issue.quote ? `\n   相关原文：${issue.quote}` : '';
+      lines.push(`${n}. [${issue.category} / ${SEVERITY_LABEL[issue.severity]}${tag}] ${issue.description}${quote}`);
     }
   }
   for (const goal of report.goals) {
@@ -557,6 +568,120 @@ export function describePicks(report: ReviewReport, picks: readonly string[]): s
   ];
 }
 
+// ---------------------------------------------------------------- 编辑（五期补遗 §3）
+
+/** 报告卡编辑模式交回来的一条。`id` 缺席或认不出 = 作者新加的。 */
+export interface ReviewIssueEdit {
+  id?: string;
+  category: string;
+  severity: ReviewSeverity;
+  description: string;
+  quote?: string;
+}
+
+/** 作者加的条目缺省的分类。 */
+export const AUTHOR_CATEGORY = '作者补充';
+
+/**
+ * 把报告卡上编辑过的问题表合回报告。移植上游 `ReviewReport.tsx` 的编辑模式（:462-503），几处不同：
+ *
+ * - **模型给的不能删**：表里漏了它就原样留着（不想修就别勾，上游同样只给「忽略」）；改过任何一项
+ *   标 `edited`。说明改成空的不算数，保留原来那句。
+ * - **作者加的**（`id` 缺席或认不出）：编号接着 `a1`、`a2`… 往下，标 `origin: 'author'`，分类空着就是
+ *   「作者补充」，说明空的整条丢掉；表里漏了已有的作者条目 = 删掉它。
+ * - **引文按审稿时同一个归一化去正文里找**：作者加的找不到就清空（没有原文撑着的引文交给修稿只会
+ *   让它凭空找地方改）；模型条目改出来的找不到就保留原来那一句。都写进说明（第 2 条）。
+ * - 长度按审稿合同的上限截断。顺序：模型的在前（原来的顺序），作者加的跟在后面（表里的顺序）。
+ */
+export function applyReviewEdits(
+  report: ReviewReport,
+  edits: readonly ReviewIssueEdit[],
+  text: string
+): { report: ReviewReport; notes: string[] } {
+  const notes: string[] = [];
+  const index = indexText(text);
+  const cut = (s: unknown, max: number) => Array.from(typeof s === 'string' ? s.trim() : '').slice(0, max).join('');
+  const sev = (v: unknown): ReviewSeverity => (v === 'error' ? 'error' : 'warning');
+  const byId = new Map(report.issues.map((i) => [i.id, i]));
+  const used = new Set<string>();
+
+  const model: ReviewIssue[] = [];
+  for (const issue of report.issues.filter((i) => i.origin !== 'author')) {
+    const e = edits.find((x) => x.id === issue.id);
+    used.add(issue.id);
+    if (!e) {
+      model.push(issue);
+      continue;
+    }
+    const description = cut(e.description, REVIEW_DESCRIPTION_MAX) || issue.description;
+    if (!cut(e.description, REVIEW_DESCRIPTION_MAX)) {
+      notes.push(`「${clipText(issue.description, 24)}」的说明不能是空的，保留原来那句`);
+    }
+    let quote = cut(e.quote, REVIEW_QUOTE_MAX);
+    if (quote !== issue.quote && quote && !quoteFound(index, quote)) {
+      notes.push(`「${clipText(description, 24)}」改过的引文在正文里找不到，保留原来那一句`);
+      quote = issue.quote;
+    }
+    const next: ReviewIssue = {
+      ...issue,
+      category: cut(e.category, 40) || issue.category,
+      severity: sev(e.severity),
+      description,
+      quote,
+    };
+    const changed =
+      next.category !== issue.category || next.severity !== issue.severity || next.description !== issue.description || next.quote !== issue.quote;
+    model.push(changed || issue.edited ? { ...next, edited: true } : issue);
+  }
+
+  // 作者加的：已有的按 id 认，新加的接着编号。
+  let n = report.issues.reduce((max, i) => Math.max(max, Number(/^a(\d+)$/.exec(i.id)?.[1] ?? 0)), 0);
+  const authored: ReviewIssue[] = [];
+  let removed = 0;
+  for (const old of report.issues.filter((i) => i.origin === 'author')) {
+    if (!edits.some((x) => x.id === old.id)) {
+      removed++;
+    }
+  }
+  let blank = 0;
+  for (const e of edits) {
+    if (e.id && used.has(e.id)) {
+      continue;
+    }
+    const existing = e.id ? byId.get(e.id) : undefined;
+    if (existing && existing.origin !== 'author') {
+      continue;
+    }
+    const description = cut(e.description, REVIEW_DESCRIPTION_MAX);
+    if (!description) {
+      blank++;
+      continue;
+    }
+    let quote = cut(e.quote, REVIEW_QUOTE_MAX);
+    if (quote && !quoteFound(index, quote)) {
+      notes.push(`「${clipText(description, 24)}」的引文在正文里找不到，按没有引文处理`);
+      quote = '';
+    }
+    const id = existing?.id ?? `a${++n}`;
+    used.add(id);
+    authored.push({
+      id,
+      category: cut(e.category, 40) || AUTHOR_CATEGORY,
+      severity: sev(e.severity),
+      quote,
+      description,
+      origin: 'author',
+    });
+  }
+  if (blank > 0) {
+    notes.push(`${blank} 条新加的问题没写说明，没有收`);
+  }
+  if (removed > 0) {
+    notes.push(`删掉了 ${removed} 条作者加的问题`);
+  }
+  return { report: { ...report, issues: [...model, ...authored] }, notes };
+}
+
 // ---------------------------------------------------------------- 渲染
 
 /**
@@ -574,7 +699,11 @@ export function renderReport(report: ReviewReport): string {
     if (list.length > 0) {
       lines.push('', `## ${SEVERITY_LABEL[sev]}（${list.length}）`);
       for (const i of list) {
-        lines.push(`- [${i.category}] ${i.description}`, `  > ${i.quote}`);
+        const tag = i.origin === 'author' ? '（作者补充）' : i.edited ? '（已改）' : '';
+        lines.push(`- [${i.category}] ${i.description}${tag}`);
+        if (i.quote) {
+          lines.push(`  > ${i.quote}`);
+        }
       }
     }
   }
@@ -640,8 +769,17 @@ export function normalizeReport(raw: unknown): ReviewReport | undefined {
     chapterHash: str(o.chapterHash),
     summary: str(o.summary),
     issues: list(o.issues)
-      .filter((i) => str(i.id) && str(i.quote))
-      .map((i) => ({ id: str(i.id), category: str(i.category) || '其他', severity: severity(i.severity), quote: str(i.quote), description: str(i.description) })),
+      // 没有引文的只认作者加的与作者改过的：模型交回的条目引文是校验过的，缺了就是文件坏了。
+      .filter((i) => str(i.id) && (str(i.quote) || i.origin === 'author' || i.edited === true))
+      .map((i) => ({
+        id: str(i.id),
+        category: str(i.category) || '其他',
+        severity: severity(i.severity),
+        quote: str(i.quote),
+        description: str(i.description),
+        ...(i.origin === 'author' ? { origin: 'author' as const } : {}),
+        ...(i.edited === true ? { edited: true } : {}),
+      })),
     passes: list(o.passes).map((p) => ({ category: str(p.category) || '其他', description: str(p.description) })),
     goals: list(o.goals)
       .filter((g) => str(g.id))
