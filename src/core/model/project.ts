@@ -39,6 +39,7 @@ import {
   settingTemplate,
 } from './settingFile';
 import { SettingDoc, isFallbackChapterTitle } from './pipeline';
+import { Thread, parseThreads } from './threadsFile';
 import {
   countWords,
   exists,
@@ -146,6 +147,11 @@ export class NovelProject {
 
   get outlinePath(): string {
     return path.join(this.novelDir, 'outline.md');
+  }
+
+  /** 叙事线（七期）。可选：没有这份文件就是还没排过，初始化时不建。 */
+  get threadsPath(): string {
+    return path.join(this.novelDir, 'threads.md');
   }
 
   get charactersDir(): string {
@@ -799,6 +805,19 @@ export class NovelProject {
       return '';
     }
     return stripH1(parseMarkdown(await readText(this.globalSummaryPath)).body);
+  }
+
+  /** `threads.md` 的原文。没有这份文件返回空串。 */
+  async readThreadsText(): Promise<string> {
+    if (!(await exists(this.threadsPath))) {
+      return '';
+    }
+    return readText(this.threadsPath);
+  }
+
+  /** 叙事线（解析失败退化为认不出的行跳过，绝不抛，第 1 条）。 */
+  async readThreads(): Promise<Thread[]> {
+    return parseThreads(await this.readThreadsText());
   }
 
   // ---------------------------------------------------------------- 角色 / 设定 / 文风
