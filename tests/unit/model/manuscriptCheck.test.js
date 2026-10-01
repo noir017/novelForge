@@ -122,4 +122,27 @@ describe('manuscriptCheck · 回退点', () => {
   test('只有一段：没法切', () => {
     assert.equal(m.rewindPoint(para('甲', 500), '钩子'), undefined);
   });
+
+  // 真实正文一段只有六十来字，钩子那一幕拆在两三段里：单看哪一段都不够像，三段一窗才认得出。
+  test('钩子拆在几段短段落里：按窗口认', () => {
+    const hook = '陆烬借着月光看清了枷锁缝隙中刻着的族徽，那竟是属于守门人家族的标志';
+    const text = [
+      ...Array.from({ length: 12 }, (_, i) => para('甲乙丙丁戊己庚辛'[i % 8], 60)),
+      '他借着月光凑近了枷锁。',
+      '缝隙中刻着一枚族徽。',
+      '那竟是守门人家族的标志。',
+    ].join('\n\n');
+    const r = m.rewindPoint(text, hook);
+    assert.ok(r);
+    assert.equal(r.byHook, true);
+    assert.equal(r.paragraphs, 3);
+  });
+
+  test('认不出钩子时最多切 600 字', () => {
+    const text = Array.from({ length: 20 }, (_, i) => para('甲乙丙丁戊己庚辛'[i % 8], 200)).join('\n\n');
+    const r = m.rewindPoint(text, '没写到的钩子');
+    assert.ok(r);
+    assert.equal(r.byHook, false);
+    assert.equal(r.paragraphs, 3);
+  });
 });

@@ -27,10 +27,11 @@
  * 最后把第 4 章才登场的人写了出来。被截断时结尾停在半句上，往后接没问题；正常收尾时结尾就是
  * 钩子，往后接必然越过它。
  *
- * 所以正常收尾（`end`）又不够八成时，第一次续写先把收尾那一场切掉（model/manuscriptCheck.ts 的
- * `rewindPoint`：与钩子最像的那一段起，找不到就切最后约四分之一），从切点接着写、写足之后重新
- * 落到钩子上。每条链只回退一次；回退之后又正常收尾、仍不够八成，就停——不再往钩子后面续。
- * 网关不报收尾原因（`stop` 缺席）时分不清是收尾还是截断，照旧往后接。
+ * 所以正常收尾（`end`）又不够八成时，续写先把收尾那一场切掉（model/manuscriptCheck.ts 的
+ * `rewindPoint`：与钩子最像的那几段起，找不到切最后约四分之一、最多 600 字，至少留一半），从切点接着写、
+ * 写足之后重新落到钩子上。一次写一千字上下的模型一章要这样走两三轮，所以可以回退几次，但**每次只在
+ * 上一轮新写的那一段里切**（前几轮已经接受的正文不再动）；回退那一轮净多的不到 300 字、或者上一轮那一段
+ * 短得没法切，就停——不往钩子后面接。网关不报收尾原因（`stop` 缺席）时分不清是收尾还是截断，照旧往后接。
  *
  * ## 写完查三样（§1.2、§1.3、§1.5）
  *
@@ -259,7 +260,14 @@ export async function completeManuscript(
   let rounds = 0;
   let recoveryUsed = false;
   let recoveryPending = false;
-  let rewound = false;
+  let rewinds = 0;
+  /** 最近一次回退之前这一章写到多少字：回退那一轮写完之后对着它算净多了几个字。 */
+  let beforeCut = 0;
+  /**
+   * 上一轮新写的那一段（第一次调用之后就是 `added` 全部）。**回退只在它里面切**：前几轮已经接受的
+   * 正文不再动，认不出钩子时最多也只白扔上一轮的四分之一。
+   */
+  let fresh = added;
   /**
    * 回退时切掉、还没有被新写的结尾替上的那一截。回退之后那一轮没写成（调用失败、截断丢弃）
    * 就把它放回去——宁可留着那个短一点但落在钩子上的结尾，也不留一章没有结尾的正文。
@@ -282,24 +290,31 @@ export async function completeManuscript(
       t.note(`续写第 ${rounds} 轮只多了 ${lastGain} 字，模型已经收尾，不再续写`);
       break;
     }
-    // 正常收尾又不够八成：结尾已经落在章末钩子上了，往后接就越过它（见文件头）。第一次先回退到
-    // 收尾那一场之前；回退过还是这样，就停在这里。
+    // 正常收尾又不够八成：结尾已经落在章末钩子上了，往后接就越过它（见文件头）。先回退到收尾那一场
+    // 之前再写；写完又是这样就再回退一次——一次写一千字上下的模型，一章要这样走两三轮。回退那一轮
+    // 净多的不到 300 字、或者上一轮那一段短得没法切，就停在这里，不往钩子后面接。
     let rewinding = false;
     if (stop === 'end') {
-      if (rewound) {
-        t.note(`回退重写之后模型又按钩子收了尾（到 ${total()} 字），没有再往章末钩子后面续写`);
+      if (rewinds > 0 && total() - beforeCut < MIN_ROUND_GAIN) {
+        t.note(`回退重写那一轮只比回退之前多了 ${total() - beforeCut} 字，模型又按钩子收了尾，没有再往章末钩子后面续写`);
         break;
       }
-      const point = rewindPoint(added, ctx.hook ?? '');
+      const point = rewindPoint(fresh, ctx.hook ?? '');
+      if (!point && rewinds > 0) {
+        t.note(`回退重写之后模型又收了尾（到 ${total()} 字），上一轮那一段太短、认不出收尾在哪，没有再往章末钩子后面续写`);
+        break;
+      }
       if (point) {
-        const before = total();
-        added = point.keep;
+        beforeCut = total();
+        const head = added.slice(0, added.length - fresh.length).trim();
+        added = [head, point.keep].filter(Boolean).join('\n\n');
+        fresh = point.keep;
         pendingCut = point.cut;
-        rewound = true;
+        rewinds++;
         rewinding = true;
         io.reset?.(added);
         t.note(
-          `写到 ${before}${ctx.target ? ` / ${ctx.target}` : ''} 字就${point.byHook ? '按章末钩子' : ''}收了尾：` +
+          `写到 ${beforeCut}${ctx.target ? ` / ${ctx.target}` : ''} 字就${point.byHook ? '按章末钩子' : ''}收了尾：` +
             `拿掉结尾 ${point.paragraphs} 段（约 ${countWords(point.cut)} 字），从它前面接着写，写足之后重新收在钩子上`
         );
       }
@@ -360,6 +375,7 @@ export async function completeManuscript(
       continue;
     }
     added = [added, joined.added].filter(Boolean).join('\n\n');
+    fresh = joined.added;
     pendingCut = undefined;
     stop = out.stop;
     recoveryPending = false;

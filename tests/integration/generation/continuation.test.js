@@ -466,6 +466,33 @@ describe('回退之后又收尾、仍不够八成：不再往钩子后面续', (
   });
 });
 
+// 真实模型试跑：一次只写一千字上下，一章要回退两三轮。每次只在上一轮新写的那一段里切。
+describe('回退之后又收在钩子上、仍不够：再回退一次，只切上一轮那一段', () => {
+  const AGAIN = [filler(200, 250), filler(150, 251), '他抬起头，第 2 章的钩子又一次落了下来。'];
+  let r;
+  before(async () => {
+    r = await write(P2, [
+      { text: LANDED.join('\n\n'), stop: 'end' },
+      { text: AGAIN.join('\n\n'), stop: 'end' },
+      { text: filler(500, 252), stop: 'end' },
+    ]);
+  });
+
+  test('3 次调用，写够了', () => {
+    assert.equal(r.calls, 3);
+    assert.equal(r.draft.length.reached, true);
+  });
+
+  test('两次收在钩子上的那一段都拿掉了；前面接受过的一个字没动', () => {
+    assert.equal(r.draft.raw, [...LANDED.slice(0, 3), ...AGAIN.slice(0, 2), filler(500, 252)].join('\n\n'));
+  });
+
+  test('第二次回退那一轮也说清了', () => {
+    assert.match(r.users[2], /收尾那一段已经拿掉了/);
+    assert.equal(r.draft.notes.filter((n) => /拿掉结尾 1 段/.test(n)).length, 2, JSON.stringify(r.draft.notes));
+  });
+});
+
 describe('回退那一轮调用失败：原来的结尾放回去', () => {
   let r;
   before(async () => {

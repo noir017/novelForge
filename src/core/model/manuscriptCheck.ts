@@ -148,12 +148,19 @@ function sentenceAround(text: string, at: number): string {
 
 // ---------------------------------------------------------------- 续写回退
 
-/** 结尾那一段与章末钩子的 bigram 覆盖率到这个数，算「钩子落在这里」。 */
+/** 结尾那几段与章末钩子的 bigram 覆盖率到这个数，算「钩子落在这里」。 */
 export const HOOK_MATCH = 0.35;
+/**
+ * 按几段一窗算覆盖率。真实正文的段落很短（一章四五十段、一段六十来字），钩子那一幕常常拆在两三段里，
+ * 一段一段算的话最像的那一段也只有 0.3 上下（三期首跑的三章实测）。
+ */
+const HOOK_WINDOW = 3;
 /** 只在最后这么多比例的段落里找钩子：再往前就不是结尾了。 */
 const HOOK_SEARCH_SPAN = 0.4;
-/** 找不到钩子时切掉最后多少比例（按字数）。 */
+/** 找不到钩子时切掉最后多少比例（按字数）…… */
 const FALLBACK_CUT = 0.25;
+/** ……最多切这么多字：认不出钩子时切多了是白扔。 */
+const FALLBACK_MAX_CHARS = 600;
 /** 至少留下这么多比例（按字数）：切多了等于重写一章。 */
 const MIN_KEEP = 0.5;
 
@@ -192,10 +199,10 @@ function coverage(hook: Set<string>, paragraph: string): number {
 /**
  * 一章写到收尾了、篇幅却不够时，回退到哪里：从结尾那一场之前切开，后面的丢掉重写。
  *
- * - 在最后 40% 的段落里找与章末钩子最像的那一段（bigram 覆盖率 ≥ {@link HOOK_MATCH}，并列取靠前的），
- *   从它开始切——那一段就是收尾的地方；
- * - 找不到（钩子空着、或者模型没写到它）就从末尾往前切，切到约 25% 为止；
- * - 至少切一段、至少留一半。只有一段时没法切，返回 undefined——调用方照旧往后接。
+ * - 在最后 40% 的段落里，按 {@link HOOK_WINDOW} 段一窗找与章末钩子最像的那一窗（bigram 覆盖率 ≥
+ *   {@link HOOK_MATCH}，并列取靠后的），从窗口第一段开始切——那里就是收尾的地方；
+ * - 找不到（钩子空着、或者模型没写到它）就从末尾往前切，切到约 25%、最多 600 字为止；
+ * - 至少切一段、至少留一半。只有一段时没法切，返回 undefined——调用方自己决定怎么办。
  */
 export function rewindPoint(text: string, hook: string): Rewind | undefined {
   const paras = paragraphsOf(text ?? '');
@@ -212,17 +219,18 @@ export function rewindPoint(text: string, hook: string): Rewind | undefined {
   let best = -1;
   let bestScore = 0;
   for (let i = from; i < paras.length; i++) {
-    const score = coverage(bigrams, paras[i]);
-    if (score >= HOOK_MATCH && score > bestScore && allowed(i)) {
+    const score = coverage(bigrams, paras.slice(i, i + HOOK_WINDOW).join('\n'));
+    if (score >= HOOK_MATCH && score >= bestScore && allowed(i)) {
       best = i;
       bestScore = score;
     }
   }
   let at = best;
   if (at < 0) {
-    // 从末尾往前数，切够四分之一为止。
+    // 从末尾往前数，切够四分之一（最多 600 字）为止。
+    const want = Math.min(total * FALLBACK_CUT, FALLBACK_MAX_CHARS);
     at = paras.length - 1;
-    while (at > 1 && total - before(at) < total * FALLBACK_CUT && allowed(at - 1)) {
+    while (at > 1 && total - before(at) < want && allowed(at - 1)) {
       at--;
     }
     if (!allowed(at)) {
