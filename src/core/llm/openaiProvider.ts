@@ -315,6 +315,8 @@ export interface ResponsesEvent {
   response?: {
     usage?: { input_tokens?: number; output_tokens?: number };
     error?: { message?: string };
+    /** `completed` / `incomplete` / ……。有的网关在 `response.completed` 里也写 `incomplete`。 */
+    status?: string;
     /** 只在 `response.incomplete` 上：`max_output_tokens` / `content_filter`。 */
     incomplete_details?: { reason?: string };
   };
@@ -367,10 +369,16 @@ export function readResponsesEvent(event: ResponsesEvent, label: string): Stream
       // 这条协议里**没有** `tool_use` 这一档收尾原因：工具调用是输出项
       // （`function_call`），不是一个需要另行声明的状态，所以「说要调却没给」
       // 那种自相矛盾在这条路上表达不出来（见 provider.ts 的 StopSignal）。
-      // 能报的只有截断。
-      if (event.type === 'response.incomplete') {
+      // 能报的是截断与正常收尾两种。
+      //
+      // `completed` 从前什么都不报：正文续写链（generation/continuation.ts）要分清「模型自己收了尾」
+      // 与「网关没说」——前者说明结尾已经落在章末钩子上，不够八成时先回退再写（五期补遗 §1.1），
+      // 后者不敢回退。真实模型试跑里这一条路上永远是「没说」，回退一次都没触发过。
+      if (event.type === 'response.incomplete' || event.response?.status === 'incomplete') {
         const reason = event.response?.incomplete_details?.reason;
         out.push({ type: 'stop', reason: reason === 'max_output_tokens' ? 'maxTokens' : 'other' });
+      } else {
+        out.push({ type: 'stop', reason: 'end' });
       }
       return out;
     }

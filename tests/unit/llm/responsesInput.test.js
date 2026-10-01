@@ -147,13 +147,30 @@ describe('llm/openaiProvider · 事件解析', () => {
     ]);
   });
 
-  test('completed 带用量', () => {
+  test('completed 带用量，报正常收尾', () => {
     assert.deepEqual(
       read({
         type: 'response.completed',
         response: { usage: { input_tokens: 12, output_tokens: 3 } },
       }),
-      [{ type: 'usage', usage: { inputTokens: 12, outputTokens: 3 } }]
+      [
+        { type: 'usage', usage: { inputTokens: 12, outputTokens: 3 } },
+        // 五期补遗：从前这里什么都不报，续写链分不清「模型自己收了尾」与「网关没说」，回退从不触发。
+        { type: 'stop', reason: 'end' },
+      ]
+    );
+  });
+
+  test('incomplete 报截断；completed 里写着 incomplete 的也按截断算', () => {
+    assert.deepEqual(read({ type: 'response.incomplete', response: { incomplete_details: { reason: 'max_output_tokens' } } }), [
+      { type: 'stop', reason: 'maxTokens' },
+    ]);
+    assert.deepEqual(read({ type: 'response.incomplete', response: { incomplete_details: { reason: 'content_filter' } } }), [
+      { type: 'stop', reason: 'other' },
+    ]);
+    assert.deepEqual(
+      read({ type: 'response.completed', response: { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } } }),
+      [{ type: 'stop', reason: 'maxTokens' }]
     );
   });
 
