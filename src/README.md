@@ -36,11 +36,11 @@ src/
 
 ## 一条创作请求的完整链路
 
-以「在剧情阶段点写剧情」为例，四个阶段走的是同一条路，差别只在配方与提示词：
+以「在细纲层点写细纲」为例，四个阶段走的是同一条路，差别只在配方与提示词（正文层在第 5 步之后多一条续写链，审稿与修稿各有一条自己的链，见 [core/generation/README.md](core/generation/README.md)）：
 
 1. webview 前端（[media/src/view/](../media/src/view/)）发 `send` 消息，带上 `stage` / `capability` / `target` → 宿主（`shells/vscode/chatViewProvider` 或 `chatPanel`）转给 `core/ChatController`。
-2. `ChatController` 校验一遍这个能力在这个阶段合不合法（对不上就回落到 `discuss` 并 warn），记进会话，交给 `core/features/CreationSession.generate()`。
-3. `CreationSession` 先经 `core/llm/registry` 拿到 provider，再调 `core/context/builder.buildContext()` 装配上下文。
+2. `ChatController`（`controller/chat.ts` 的 `send`）校验一遍这个能力在这个阶段合不合法（对不上就回落到 `discuss` 并 warn），记进会话，交给 `core/generation/generate.ts` 的 `generate()`。
+3. `generate()` 先经 `core/llm/registry` 拿到 provider，再调 `core/context/builder.buildContext()` 装配上下文。
 4. 装配器按 `action.stage` 取一张配方（[core/context/recipes.ts](core/context/recipes.ts)），**只读这一层用得上的文件**，按优先级填预算，产出 messages + 明细。系统提示由 `stage`（身份）× `capability`（任务）拼出。
 5. provider 流式返回增量文本，经 `GenerateHandlers` 回到 `ChatController`，以 `OutMessage` 广播给所有挂接的宿主。
 6. 收尾时若这次的输出形态是 `artifact`，后端算出「落点 + 形状 + 会不会覆盖」，**当场在对话里问一句「写不写」**（`controller/gate.ts` 推一条 `gate`，前端画成气泡里的一张权限卡片，与 agent 动手前那一问同一副样子）。
@@ -56,7 +56,7 @@ src/
 2. 先扫一遍新鲜度并**记进日志**（共几章、缺几章、哪几章），再弹确认框——不偷偷烧 token。
 3. `core/runtime/progress.runTask('同步章节摘要', …)` 起任务。它一次做三件事：包住 `Host.progress` 拿到宿主原生进度与取消信号；把 `report({ message, current, total })` 登记进任务表；开始/结束进日志附耗时。
 4. 任务表一变，`ChatController` 构造时挂的 `onTasksChanged` 就把 `tasks` 快照广播给所有前端 → 页头的任务条动起来（所有页签都看得见）；任务说完那一句（`finish`）时推 `taskDone`，前端出一条带「打开第 N 章」的提示。
-5. 逐章 `summarizePlot`（读的是 `chapters/` 里的发布正文——还没拆分的章没有成品，本来就不该总结），每章一条 `info`（用时、平均速度、预计剩余）。**失败不中断整批**，记 `error` 后继续；`signal.aborted` 则停在当前章，已写的摘要保留。
+5. 逐章 `summarizeChapter`（读的是 `chapters/` 里的正文——还没写正文的章本来就无从总结），每章一条 `info`（用时、平均速度、预计剩余）。**失败不中断整批**，记 `error` 后继续；`signal.aborted` 则停在当前章，已写的摘要保留。
 6. 每条日志同时经 `addLogSink` 推成 `log` 消息 → 日志页实时追加。
 
 ## 构建

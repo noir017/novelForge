@@ -24,7 +24,7 @@
  * 标脏；改了正文，摘要过期。**代价是零次模型调用、零幻觉、零 token。**
  *
  * 正文那一环的指纹记在**细纲**上而不是章节上：章节是作者的文件，可以是 `.txt`、
- * 没有 frontmatter（第 9 条）。架构 → 大纲那一环留到二期（大纲生成移植过来之后）。
+ * 没有 frontmatter（第 9 条）。架构 → 大纲那一环还没有：改了设定四件，大纲不会挂 ⟳。
  */
 import * as path from 'node:path';
 import { scoped } from '../runtime/logger';

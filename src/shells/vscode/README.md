@@ -20,7 +20,7 @@
 - **UI 全在 webview**：不用 TreeView 等原生控件，一套 HTML 同时供侧边栏与编辑器标签页使用。命令、菜单、快捷键的声明在根目录 [package.json](../../../package.json)。
 - **激活条件**：`workspaceContains:.novelforge/project.json`（含旧目录 `.novel/`），非小说工程不激活。
 - **侧边栏折叠不丢状态**：`retainContextWhenHidden: true`，否则草稿和流式内容会丢。
-- **命令是兜底入口**：工程页上每个按钮都映射到一条 `novel.*` 命令（webview 只说「点了什么」），命令面板也能直达同一功能。
+- **命令是兜底入口**：工程页上常用的那几件（初始化、新建细纲 / 角色卡 / 设定、定稿、同步摘要、提取角色卡 / 文风、生成设定……）都有一条 `novel.*` 命令（webview 只说「点了什么」），命令面板也能直达。带表单的批量动作（补齐设定、拆细纲、批量写章）只在工程页上。
 - **输出面板最先建**：`registerOutputChannel` 是 `activate` 的第一句。迁移、配置读取这些在它之后才跑，但模块 import 期就可能打过日志了——所以它会先把缓冲里已有的补进面板，再挂 sink。面板里的内容与网页日志页是同一份，只是多一个能跟其他扩展并排看、能整段复制的入口（命令 `Novel: 显示输出面板日志`）。
 - **草稿与细纲开在旁边一栏**：`openBeside` 用 `ViewColumn.Beside`，它是相对**当前活动编辑器**的。从侧边栏点过来时最后活动的文本编辑器通常就是正文（`openFile` 把它放在第一栏），草稿于是落到第二栏；若此刻活动的是 `ChatPanel` 那个 tab，草稿就开在它旁边。够用，没去纠正。章节工作台（W6，工程页点章节行名）走的是同一对方法：core 的 `openChapter` 先 `openFile` 正文、再 `openBeside` 细纲，这个壳一行没改。编辑器上方那条章节条只在独立版有（这里没有内置编辑器），并排的两个编辑器加侧边栏的主按钮就是那一套。
 - **监听哪些文件不由这里决定**：`VsCodeHost.watch` 只负责机制（`createFileSystemWatcher` + `RelativePattern`），glob 清单来自 [../../core/watchPolicy.ts](../../core/watchPolicy.ts) 的 `watchGlobs`——独立版用同一份策略的另一种形态（事件过滤）。章节能是什么扩展名、草稿在哪，都是 core 的规则。

@@ -27,9 +27,9 @@
 | [characterCardParse.ts](characterCardParse.ts) | 角色卡更新的 JSON 解析（`parseCardResponse`）。 |
 | [characterCardPrompt.ts](characterCardPrompt.ts) | 更新角色卡的系统提示（字数上限与「性格 / 语言习惯」优先）；定稿时更新当前状态的系统提示（`STATE_SYSTEM`）。 |
 | [characterMaintenance.ts](characterMaintenance.ts) | ★ 两条**不调模型**的整理动作：`cleanCharacterAliases` 删掉不是专属称呼的别名（含被误填成别名的**其他角色的名字**），`mergeDuplicateCharacterCards` 把同一个人的多张卡并成一张。只改 frontmatter（`rewriteFrontmatter`），作者手写的正文一个字节不动；被合并的卡搬进 `.novelforge/.trash/`。 |
-| [style.ts](style.ts) | 从 1~3 段样文归纳文风指南写入 `.novelforge/style.md`。系统提示词在 [stylePrompt.ts](stylePrompt.ts)。 |
+| [style.ts](style.ts) | 从 1~3 章样章归纳文风指南写入 `.novelforge/style.md`。系统提示词在 [stylePrompt.ts](stylePrompt.ts)。 |
 | [stylePrompt.ts](stylePrompt.ts) | 文风提取的系统提示。并入了 AI-Novel-Writer 文风分析模板的任务边界：只学技法，不复述情节、角色名、地名，不抄原句。 |
-| [pickPlots.ts](pickPlots.ts) | 多段选择：Host.pick 只支持单选，需要多段时改为输入序号列表（如 `1,2,3`）。 |
+| [pickPlots.ts](pickPlots.ts) | 多章选择：Host.pick 只支持单选，需要选几章时改为输入章号列表（如 `1,2,3`）。 |
 
 ## 创作的四层与两条路
 
@@ -72,7 +72,7 @@
 
 | | `characters.ts` · 提取角色 | `characterCard.ts` · 更新角色卡 |
 |---|---|---|
-| 面向 | 「刚写完几段，把新出现的人补上」 | 「这个人写了三十段了，把他的档案重新过一遍」 |
+| 面向 | 「刚写完几章，把新出现的人补上」 | 「这个人出场三十章了，把他的档案重新过一遍」 |
 | 作用对象 | 一批章里的**所有**角色 | **一个**角色（另有按卡并发的批量版） |
 | 章从哪来 | 作者手输序号列表 | 摘要索引自动给出该角色的出场章 |
 | 上下文 | 一次装完（超预算就截断并 warn） | 按预算分批，逐批精炼同一张卡 |
@@ -81,15 +81,15 @@
 `characterCard.ts` 的三条关键设计：
 
 - **自动关联出场章**：来自 [../views/cast.ts](../views/cast.ts) 的索引，作者不必再手输章号。
-- **分批时先说要调几次**：主角可能出现在几十段里，一次装不下就切批。动手前的确认框里必须写明「分 N 批，预计调用模型 N 次」——这是「不偷偷烧 token」在本层的落法。后一批看得到前一批的产出，逐批精炼而非各写各的。
+- **分批时先说要调几次**：主角可能出现在几十章里，一次装不下就切批。动手前的确认框里必须写明「分 N 批，预计调用模型 N 次」——这是「不偷偷烧 token」在本层的落法。后一批看得到前一批的产出，逐批精炼而非各写各的。
 - **提示词是为「控篇幅」写的**：同一个角色会被反复调用，每批都往上堆的话角色卡会膨胀成一篇论文，而它每次续写都要注入上下文。所以每一节都给了硬性字数上限，并明确「性格 / 语言习惯」优先（它们决定模型能不能把人写像），外貌与人物关系从简；「未收伏笔」要做减法。
 
 ## 关键设计
 
 - **回调而非返回**：生成类操作通过 `GenerateHandlers`（onDelta / onDone / onError / onCancelled）汇报进度，UI 层决定怎么展示流式内容。
-- **长任务走 `runTask`，不直调 `Host.progress`**：本层除创作页的单次生成（它在对话页有流式气泡）以外的批量活一律经 [../runtime/progress.ts](../runtime/progress.ts)。`report({ message, current, total })` 里的 `total` 决定网页上画不画进度条——摘要同步是 `stale.length`，重建全书摘要是「批数 + 合并那一步」，角色/文风是固定三步/两步，设定生成是「逐段扫描 + 设定整合 + 写入/审阅」，流水线批量是待处理的段数。
+- **长任务走 `runTask`，不直调 `Host.progress`**：本层除创作页的单次生成（它在对话页有流式气泡）以外的批量活一律经 [../runtime/progress.ts](../runtime/progress.ts)。`report({ message, current, total })` 里的 `total` 决定网页上画不画进度条——摘要同步是 `stale.length`，重建全书摘要是「批数 + 合并那一步」，角色/文风是固定三步/两步，设定生成是「逐章扫描 + 设定整合 + 写入/审阅」，流水线批量是待处理的章数（补齐设定是缺的件数）。
 - **无先后依赖的条目并发跑**：各章摘要之间、角色卡之间、全书摘要的各阶段批次之间都没有依赖，一律经 [../runtime/concurrency.ts](../runtime/concurrency.ts) 的 `runPool`（并发量取 `config.concurrency`）。**有依赖的绝不并发**——同一张角色卡内部的分批必须串行，后一批要看到前一批的产出；全书摘要的 reduce 合并要等全部 map 到齐。并发下 `current` 只在项结束时 +1，`message` 报「已完成 n/N + 正在跑哪几项」。
-- **模型经 `llm/pool.ts` 取，并且要报出档位**：建池时必须传 `task`（如 `createModelPool({ task: 'plotSummary' })`），这样才有分档、「同档失败随机换模型」与并发轮转。唯一的例外是创作页的单次生成（[../generation/generate.ts](../generation/README.md)）与设置页的连接测试（`creation.ts`），两者都必须用用户选定的那个模型。同一个功能里难度不同的阶段要**各建一个池**——`rebuildGlobalSummary` 的分批汇总（`globalSummaryStage`）与最终合并（`globalSummaryMerge`）、`generateLore` 的逐段识别（`loreScan`）与条目整合（`loreSynthesis`）都是两档，串行时也不能图省事复用同一个池（那会把后一阶段悄悄降级到前一阶段的档）。流水线批量同理：`plotOutline`（均衡）与 `manuscript`（均衡）各建各的池；批量写章的「写完即定稿」再为定稿的两步各建一个（`plotSummary`、`characterCard`）。
+- **模型经 `llm/pool.ts` 取，并且要报出档位**：建池时必须传 `task`（如 `createModelPool({ task: 'plotSummary' })`），这样才有分档、「同档失败随机换模型」与并发轮转。唯一的例外是创作页的单次生成（[../generation/generate.ts](../generation/README.md)）与设置页的连接测试（`creation.ts`），两者都必须用用户选定的那个模型。同一个功能里难度不同的阶段要**各建一个池**——`rebuildGlobalSummary` 的分批汇总（`globalSummaryStage`）与最终合并（`globalSummaryMerge`）、`generateLore` 的逐章识别（`loreScan`）与条目整合（`loreSynthesis`）都是两档，串行时也不能图省事复用同一个池（那会把后一阶段悄悄降级到前一阶段的档）。流水线批量同理：`plotOutline`（均衡）与 `manuscript`（均衡）各建各的池；批量写章的「写完即定稿」再为定稿的两步各建一个（`plotSummary`、`characterCard`）。
 - **切批与预算用 `pool.primaryBudget`，不用 `config.contextWindow`**：后者是对话页选定模型的窗口，分档后与干活的模型无关。确认框之前就要算的批数/片段数（它们就是「预计调用 N 次」那个数字）用 `budgetForTask(task)`，它不构造 provider，不会在用户点确认前弹 Key 输入框。
 - **确认框里的「模型」一行走 `describeTaskModels(config, task)`**：档位、实际清单、会不会换人、是不是继承默认模型，四件事一次说清。**不要再打印 `config.models`**——弹窗写着一个模型、实际跑另一个，是「不偷偷烧 token」的反面。
 - **每一步都留痕**：批量任务逐项打一条 `info`（含刚完成的项、用时、平均速度、预计剩余），失败项打 `error`；可以并发的（摘要同步、角色卡批量）**继续跑完剩下的**、结束时汇总说明哪几项失败，流水线那三条就此停下并说清停在哪。日志里绝不出现 API Key（`logger.redact` 统一处理），也不记 prompt 全文。

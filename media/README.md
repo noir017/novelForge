@@ -55,9 +55,9 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
   - **计时由前端自己走**（`view/tasks.ts`）：后端只在有进度时才推快照，一次模型调用能安静一分钟，那期间计时停住会让人以为卡死。收到快照时记下 `Date.now() - elapsedMs` 当基线，之后每秒**只改计时文本**——重建 DOM 会打断「停止」按钮上的点击。
   - **日志增量不重画整表**（`view/logs.ts`）：长任务每秒好几条，重画会让滚动位置乱跳。只在原本就贴着底时才跟着滚，用户翻上去看东西时不该被拽回来。
   - **对话页流式输出同样只在贴着底才跟滚**（`view/messages.ts` 的 `scrollToBottom`）：每来一段 delta / 思考 / 工具行都会调它，翻上去看前面的气泡时不该被拽回底部。切会话与主动发送仍强制贴底。`.messages` 关掉了浏览器默认的 `overflow-anchor`，避免末气泡变高时视口自己挪。
-- **工程页的树是扁平渲染的**（`view/project/rows.ts`）：`renderNodes` 递归遍历 `ProjectNode`，但产出的是**扁平的行数组**，层级靠 `paddingLeft` 缩进表达而非嵌套 DOM。折叠状态存在 `project/treeState.ts` 的 `openFolders`（relPath 集合）与 `openGroups` 里；切换折叠只用最近一次收到的树重画（`rerenderProject`），不往后端要数据。文件夹默认折叠，顶层分组默认展开。**卷那一组复用章节行的组件**（同样的 `.row-plot` / `.row-stage` / `.row-label`），所以按 `.row-plot` 取节点时要排掉 `.row-volume`，否则「章节有几行」之类的判断会连卷一起数。
+- **工程页的树是扁平渲染的**（`view/project/rows.ts`）：`renderNodes` 递归遍历 `ProjectNode`，但产出的是**扁平的行数组**，层级靠 `paddingLeft` 缩进表达而非嵌套 DOM。折叠状态存在 `project/treeState.ts` 的 `openFolders`（relPath 集合）与 `openGroups` 里；切换折叠只用最近一次收到的树重画（`rerenderProject`），不往后端要数据。文件夹默认折叠，顶层分组默认展开。**「故事架构」那一组复用章节行的组件**（同样的 `.row-plot` / `.row-label`），所以按 `.row-plot` 取节点时要排掉 `.row-architecture`，否则「章节有几行」之类的判断会连架构五行一起数。空分组的「下一步：……」与说明行（`view/project/nextSteps.ts`）**不是** `.row`：它们不是树上的一项，没有右键菜单，也不该被「这一组有几行」数进去。
 - **摘要浮窗按需取、事件委托**（`view/project/summaryTip.ts`）：鼠标停在**章节行**上约半秒后弹出这一章的摘要（还没写正文或还没定稿的章没有摘要，浮窗会照实说）。摘要正文**不在** `ProjectTree` 里（那棵树每次文件变动都全量重推，塞进去等于每保存一次就推几百 KB），悬停时发 `requestSummary{plotRelPath}` 单章去要。**缓存只在收到 `project` 消息时清**——那说明磁盘变过；折叠文件夹走 `rerenderProject()` 不经那条分支，缓存留着。监听用事件委托挂在 `#projectBody` 上（行每次重渲染都换掉，逐行 `addEventListener` 会堆积），浮窗与右键菜单同样是挂在 `body` 上的 `position: fixed`。
-  - **浮窗是可以进去的**：摘要有六个小节、可能上千字，一瞥看不完。鼠标移上去就一直留着，能滚动、能选中复制，移开才收。所以**不能**给它 `pointer-events: none`，收起也**必须有宽限期**（`CLOSE_DELAY_MS`）——从行挪到浮窗要跨过一道缝，那一两帧鼠标既不在行上也不在浮窗上，立刻收会让浮窗永远够不着。
+  - **浮窗是可以进去的**：摘要有七个小节、可能上千字，一瞥看不完。鼠标移上去就一直留着，能滚动、能选中复制，移开才收。所以**不能**给它 `pointer-events: none`，收起也**必须有宽限期**（`CLOSE_DELAY_MS`）——从行挪到浮窗要跨过一道缝，那一两帧鼠标既不在行上也不在浮窗上，立刻收会让浮窗永远够不着。
   - **收起要分清是谁在滚**：页面滚动会让 fixed 的浮窗和目标行脱节，得收；但**浮窗自己内部的滚动不算**，一滚就收等于那个滚动条形同虚设。捕获阶段的 `scroll` 监听里用 `hoverTip.box.contains(e.target)` 区分。Esc 与右键仍然立刻收（右键菜单也是 fixed，会叠在一起）。
   - **定位必须夹进视口**：`place()` 横向左对齐目标行、右边溢出往左收；纵向优先放下方，放不下翻上方，**两边都放不下时选空间大的一侧并压行内 `max-height`**——只翻转不压高度的话，一份长摘要在矮窗口里会有一截永远够不到。量高度前要先清掉上一次的 `maxHeight`，否则会一直沿用之前那个更矮的值；内容后到达（`applySummary`）把浮窗撑高后要重新走一次定位。
 - **三只浮窗，各有取舍**（`view/project/` 下的 `summaryTip` / `detailTip` / `errorTip`）：定位（`view/tip.ts` 的 `placeTip`）与事件委托是同一套（挂 `body`、`position: fixed`、委托在 `#projectBody` 上），区别只在**要不要让鼠标进去**。`detailTip` 只复读一行被截断的副标题，`pointer-events: none` 收起不留宽限；`summaryTip` 与 `errorTip` 的内容是多行、要能滚动与选中复制，所以必须留宽限期。`errorTip` 还有一点不同：**数据不必向后端单取**——失败记录随 `ProjectTree.failures` 一起推来了（一条几十字，且只有出错的目标才有），直接读 `treeState.lastTree` 即可。
@@ -87,7 +87,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 - **能力探测而非环境判断**：`view/store.ts` 里用 `document.getElementById('wbEditor')` 判断有没有内置编辑器，据此决定「打开文件」发 `openEditor` 还是 `openFile`；`editor/index.ts` 与 `explorer/index.ts` 各自开头探测自己那块容器（`#wbEditor` / `#filesBody`），不在就直接 return（连 `acquireVsCodeApi()` 都不调——webview 里那个函数只允许调一次）。插件里没有这些容器，行为不变。
 - **跨文件只经三样东西**（全在 `src/globals.ts`）：`window.__nfToast`（view 出，editor / explorer 用）、`window.__nfContextMenu`（view 出的右键菜单登记函数）、两个自定义事件 `nf-editor-active`（editor → explorer，高亮当前文件）与 `nf-files-moved`（explorer → editor，改名后搬标签）。别让 explorer 直接读 editor 的 `panes`——那会把编辑器的内部状态变成两个文件之间的契约，而资源管理器在插件形态里根本不存在。右键菜单尤其**不能各起一套**：全局 `contextmenu` 监听在 view 里，另起一个会两层菜单一起弹。
 - **不拼 HTML 字符串渲染用户内容**：一律 `createElement` + `textContent`（`src/dom.ts` 的 `el()` 就是干这个的），正文里写 `<script>` 也只是普通文字。
-- **一排控件共用一套尺寸，主按钮靠颜色跳出来**（`css/view/buttons.css` 的 `--nf-ctl-height` / `--nf-ctl-padding-x` / `--nf-ctl-radius`）：`.primary` / `.secondary` / `.danger` / `.chip-btn` / `.composer-tool` 与 composer、日志页工具栏里的下拉框、数字框同高。从前主次按钮是 `5px 12px` + 13px 字号，在一排 0.8em 的小控件中间粗一号——「写剧情」「保存」「发送」于是成了三块各占一角的色斑。要改高度只动那三个变量。
+- **一排控件共用一套尺寸，主按钮靠颜色跳出来**（`css/view/buttons.css` 的 `--nf-ctl-height` / `--nf-ctl-padding-x` / `--nf-ctl-radius`）：`.primary` / `.secondary` / `.danger` / `.chip-btn` / `.composer-tool` 与 composer、日志页工具栏里的下拉框、数字框同高。从前主次按钮是 `5px 12px` + 13px 字号，在一排 0.8em 的小控件中间粗一号——「写第 N 章」「保存」「发送」于是成了三块各占一角的色斑。要改高度只动那三个变量。
   - **尺寸挂在变体类上，不挂在裸 `button` 上**：页面上大半的 `button` 不是「一排控件里的一颗」——菜单项、页签、标签页的关闭叉、chip 上的 ×、命令面板的每一项、流水线条上的那几层，各有各的高度。`min-height` 写在裸 `button` 上会把它们全拽到 24px（`min-height` 压得过它们自己的 `height`，而它们都没声明 min-height 来挡）。裸 `button` 只留字体、光标、圆角这类人人都要的。
   - **`forms.css` 的 `width: 100%` 要在工具栏里收回来**：那条规则是给设置页那种「一列一个字段」定的；工具栏一行摆好几颗控件，不写 `width: auto` 的话下拉框会独占一整行，把后面的按钮挤到第二行（日志页曾是这样）。
 - **预览与等宽字体是两件事**：章节可以是 `.txt` / 无扩展名，那时没有 Markdown 可预览（隐藏「预览」按钮），但它仍是正文，该用正文字体；只有 `.json` / `.yml` 这类结构化文件才加 `.mono`。
@@ -124,12 +124,12 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 
 ## 测试
 
-- [`../tests/dom/`](../tests/dom/) 用 jsdom 跑**构建产物**（`dist/media/*.js`，不是源码），从两个 html 模板里抠 body 保证结构与真实渲染一致，按页面分成十个文件：消息流、创作页、工程页、角色出场、进度、日志页、设置页、悬停浮窗、两块编辑区、资源管理器。改了 `media/src/**` 先 `npm run media` 再跑它，否则测的是上一次的产物（`npm run test:dom` / `npm test` 会自动先构建）。
+- [`../tests/dom/`](../tests/dom/) 用 jsdom 跑**构建产物**（`dist/media/*.js`，不是源码），从两个 html 模板里抠 body 保证结构与真实渲染一致，按页面与组件分文件（`view/` 下是对话页、创作页、工程页、表单、报告卡、合并视图、空状态、日志页、设置页、悬停浮窗……，`standalone/` 下是两块编辑区、章节条、资源管理器、欢迎页），清单见 [tests/README.md](../tests/README.md)。改了 `media/src/**` 先 `npm run media` 再跑它，否则测的是上一次的产物（`npm run test:dom` / `npm test` 会自动先构建）。
 - [`../scripts/verify-css.js`](../scripts/verify-css.js) 比对两份 CSS 是否等价：规则集合一条不多一条不少，且「同选择器 + 同属性」的相对顺序没被改变。拆分或重排样式片段后可以拿它对着旧产物验一遍。
 
 ## 新增产物
 
-加一个新的 `.js` / `.css` 产物要四处同改（比改造前多一处，就是第一步）：
+加一个新的 `.js` / `.css` 产物：先写源码入口，再改三处配置（AGENTS.md 与 `standalone/README.md` 说的「三处」就是下面的 2–4 步）：
 
 1. `media/src/<名字>/index.ts`（或 `src/css/<名字>.css`）放源码；
 2. [`../scripts/build-media.js`](../scripts/build-media.js) 的 `JS_ENTRIES` / `CSS_ENTRIES` 加一条；

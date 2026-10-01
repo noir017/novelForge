@@ -2,12 +2,14 @@
 
 > **状态：五期已全部合入，这一组是当时的记录，不再更新。**
 > 当下的真相以模块 README 与 [AGENTS.md](../../AGENTS.md) 为准——下面的文档里
-> 有几处已经对不上了：产品承诺当时是 23 条（现在 25 条），工具当时住在
+> 有几处已经对不上了：产品承诺当时是 23 条（现在 26 条），工具当时住在
 > `core/agent/tools/`、契约在 `core/agent/registry.ts`（**现已独立成
 > [`core/tools/`](../../src/core/tools/README.md)**：工具不认识 agent 的预算与闸门，
 > 循环不认识工具，理由见那份 README 开头）。
 >
 > 留着它是为了**当初为什么这么切**那部分；照着里面的路径建文件会建错地方。
+>
+> 之后的**生成链路重构**（复刻 AI-Novel-Writer 的创作链路 + WebUI 重做：架构四件 → 情节大纲 → 一章一纲 → 自动续写 → 定稿 → 审稿修稿）另有一组：设计依据 [specs/2026-09-29-blueprint-pipeline-design.md](specs/2026-09-29-blueprint-pipeline-design.md)，总计划 [plans/2026-09-30-blueprint-pipeline-roadmap.md](plans/2026-09-30-blueprint-pipeline-roadmap.md)，逐期实施计划是同目录下的 `*-blueprint-pipeline-phase*.md`。那一组之后卷、剧情段、中转站都删了，下面文档里凡是提到它们的地方都只是历史。
 
 ## 是什么
 

@@ -35,6 +35,6 @@ chapters/                    正文，NNN-标题.md。**唯一真相**：摘要�
 config / premise / characters / world → outline.md → plots/NNN.md → chapters/NNN.md → summaries/NNN.md
 ```
 
-格式细节（细纲的三个小节、角色卡固定小节、摘要的六个小节、frontmatter 字段）见根目录 [README.md](../README.md) 与 [../src/core/model/README.md](../src/core/model/README.md)。
+格式细节（细纲的三个小节、角色卡固定小节、摘要的七个小节——示例里的三份摘要早于「连续性事实」那一节、frontmatter 字段）见根目录 [README.md](../README.md) 与 [../src/core/model/README.md](../src/core/model/README.md)。
 
 > 本目录被根目录 tsconfig 的 `exclude` 排除，不参与编译。

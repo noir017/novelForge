@@ -76,7 +76,7 @@
    是作者的东西，磁盘上一个字节都不动，但代码里彻底不认——`guard.ts` 的
    `isProtectedPath` 仍然把那几个目录列为受保护目录，免得哪条文件操作把它们整棵删掉。
 
-## 记账下沉（这一期唯一有意的行为变化）
+## 记账下沉（网关收拢那一期唯一有意的行为变化）
 
 `upstreamHash` 从前**只在采纳路径上记**（`features/creation.ts` 的
 `acceptPlot` / `acceptManuscript`）。作者在

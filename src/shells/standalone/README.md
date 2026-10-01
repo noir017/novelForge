@@ -33,7 +33,7 @@
 - **watcher 只挡二进制，而且规则不在这里**：过滤走 [../../core/watchPolicy.ts](../../core/watchPolicy.ts) 的 `shouldIgnoreChange`（黑名单——章节可以是 `.txt`/无扩展名，目录事件也没有扩展名，白名单式过滤会让这些改动看不见）。插件壳用同一份策略的 glob 形态。因为放行面宽，`onChange` 带 250ms 去抖：它会触发 `pushState`，那是一次全量重扫。
 - **进度不再是 toast**：`FileHost.progress` 过去每收到一次 `report` 就弹一条 toast，跑一次「同步 76 章摘要」等于刷 76 条提示、把别的消息全盖掉。现在同一份进度由 `core/runtime/progress.ts` 结构化推成 `tasks` 消息，侧栏顶上的任务条画进度条（n/N、计时、可停止，所有页签都看得见），`FileHost.progress` 只负责给出 signal 与报告失败。
 - **终端 sink 只挂一次**：端口被占时 `main.ts` 会重试着调 `startServer`，每次都 `addLogSink` 会让同一条日志打印好几遍。
-- **前端资源三处同改**：新增前端**产物**后，要同时加进 `build-media.js` 的 entryPoints、`embed-media.js` 的 `built` 数组和 `page.ts` 的引用，否则编译版会 404。（只改已有产物的源码不需要动那两个脚本。）`/media/*` 是路由名，不是磁盘路径——字节全部来自内嵌的 `MEDIA_ASSETS`。
+- **前端资源三处同改**：新增前端**产物**（先写好 `media/src/` 下的源码入口）后，要同时加进 `build-media.js` 的 `JS_ENTRIES` / `CSS_ENTRIES`、`embed-media.js` 的 `built` 数组和 `page.ts` 的引用，否则编译版会 404；插件也要加载时再改 `vscode/webviewHtml.ts`。（只改已有产物的源码不需要动那两个脚本。）`/media/*` 是路由名，不是磁盘路径——字节全部来自内嵌的 `MEDIA_ASSETS`。
 - **管道输入也要能跑 init**：`TerminalHost` 全程共用一个 readline，并把没人接的行排队。每问一句就新建再关掉一个（原来那份实现）会让 `printf '书名\n作者\n' | novelforge init` 在第二问就撞上 EOF；而管道是一次全来的，两问之间夹着落盘 await，不排队那几行就白丢了。EOF 一律按「取消」处理，免得在校验失败里死循环。
 
 ## 与插件壳的能力差异

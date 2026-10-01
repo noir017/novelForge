@@ -100,9 +100,14 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `model/structureGuide.test.js` | 六种故事结构在 3 / 11 / 20 / 30 / 100 / 1000 章下的章号区间都连续、从第 1 章起到最后一章止；章数够分时每段至少一章；三幕与上游切法一致；英雄之旅与节拍表有逐段章号；给了区间就点明本批落在哪几段 |
 | `model/settingFile.test.js` | 架构三件：配置 frontmatter 各字段（枚举认中文标签、写坏的数字与非正整数退化成缺席、整份大白话不抛）、渲染往返、**模板的占位不算填过、读回来是空串**、各件「填过没有」看主体小节 |
 | `model/outlineFile.test.js` | 大纲按章号区间切片：各种区间写法与不是区间的标题、`###` 子节、CRLF、不抛；覆盖到第几章（**散文式大纲是 Infinity、只有模板脚手架是 0**）、`isOutlineFilled` 不把 `>` 说明与括号提示当内容、`outlineSliceFor` 重叠时取先出现的；`mergeOutline` 按区间合并（替换重叠的节、续写接在最后一节之后与附注之前、插在前后两节之间、保留前言） |
+| `model/thinking.test.js` | 思考深度的档位表与两家的字段映射：「不思考」是不带字段、最高档降一档的写法 |
 | `llm/fakeProvider.test.js` | 假模型本身：字符串应答照旧、对象应答在正文之后发 `stop`、思考先于正文、分片拼回去一字不差；`filler` 恰好 n 字、可复现、不同 seed 无公共 8-gram |
-| `context/tokenizer.test.js` | token 估算（中英文比例）、`takeTail`/`takeHead` 的预算与截断标记（样本取 `manuscripts/` 里的真实正文） |
+| `context/tokenizer.test.js` | token 估算（中英文比例）、`takeTail`/`takeHead` 的预算与截断标记（样本取示例工程 `chapters/` 里的真实正文） |
 | `llm/stopSignal.test.js` | 收尾原因（`StopSignal`）：喂一段**照抄现场**的 SSE——兼容网关说了 `stop_reason: "tool_use"` 却把 `tool_use` 块整个漏掉——断言 provider 交出 `stop: toolUse` 且零个 `toolCall`（循环据此重发）；正常那一份两者都在；`stop` **排在所有 `toolCall` 之后**；上游不发这一条时**一个 stop 都不交**（`undefined` 意为「它没说」）；认不出的原因归 `other`、截断归 `maxTokens` |
+| `llm/abort.test.js` | 空闲超时：`timeoutMs` 是「多久没收到数据」，不是整段请求的上限，流式还在吐字时不 abort |
+| `llm/collect.test.js` | 事件流收集器：思考绝不混进正文、usage 按字段合并、工具调用原样收进数组 |
+| `llm/responsesInput.test.js` | OpenAI Responses 协议的两段纯逻辑：system 走 `instructions`、工具调用与结果是 input 里独立的项（靠 `call_id` 配对）、思考块原样交回且排在它引出的调用之前；事件解析 |
+| `llm/anthropicToolUse.test.js` | Anthropic 协议的两段纯逻辑：`tool_result` 合并进一条 user 消息、工具参数由 `input_json_delta` 逐字拼出 |
 | `context/replay.test.js` | 重演检测：整段搬了上一章结尾（改过标点空白、全角半角）一定报、零星撞词与一句呼应的台词不报、只查开头 1200 字、太短不判不抛；报出的 `quote` 是新稿里的原文；上一章结尾取最后约 1000 字并对齐到句子边界 |
 | `generation/continuation.test.js` | 续写的纯函数：被截断就续（哪怕字数够了）、不到八成就续、别的原因停了不续、没有目标不续、7 轮封顶；续写开头复述了已写末尾（≥48 字）那一截去掉、整段一字不差的重复去掉（短对白不算）、「未完待续」一类话术去掉 |
 | `context/tokenCounter.test.js` | 可替换计数器的注册/切换、`prepare` 抛错时不带崩、用量校准统计只收真实用量 |
@@ -110,11 +115,18 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `features/structured.test.js` | 结构化产物的解码：语法修复只许补闭合括号与改标点（改一个字就拒收）；细纲批次缺字段给带路径的诊断、超长截断不作废、新角色必须在出场名单里、覆盖检查；角色图谱清单的关系闭合与宽松说明、详情以冻结清单为准、关系写到双方卡上；小说配置英文键映射、「全局要求」合同、保留作者原文、规范化草稿读回来时文风单独拿出 |
 | `features/summarize.test.js` | **摘要解析的三层降级**：JSON → Markdown 小节 → 全文进梗概；不相干的 JSON 不被当成摘要；真实示例摘要（无 `cast` 字段那份）走小节反解 |
 | `features/characters.test.js` | 角色 JSON 解析的容错：坏 JSON 返回空数组而非抛错、无 name 条目被丢弃 |
+| `features/characterCardParse.test.js` | 角色卡应答解析：性格等小节读得出、泛称别名被过滤 |
+| `features/parse.test.js` | 解析小工具：剥代码围栏、取最外层 JSON 对象 / 数组、去重、顿号串转数组 |
 | `runtime/concurrency.test.js` | `runPool`：并发峰值不超 limit、结果按 index 对齐、单项失败不拖累其余、取消后不起新任务、`onSettled` 计数单调不重复；`serialize` 的串行与不卡死 |
 | `runtime/pool.test.js` | 模型池：并发轮转均摊、串行恒用首选、失败换人、重试不超 `fallbackAttempts`、取消不 fallback、剔除备选**不弹 API Key 输入框**；**分档**：空档位继承 `models`、**fallback 绝不跨档**、`primaryBudget` 取该档首选窗口 |
 | `runtime/logger.test.js` | 脱敏（`sk-`／`Bearer`／`api_key=`／`x-api-key`）、环形缓冲上限、sink 级别过滤、坏 sink 不抛给调用方、detail 截断带说明 |
 | `shells/mergeReview.test.js` | 独立版的覆盖审阅（五期 W11 后端一半）：推 `prompt kind: 'merge'` 带两个版本与能不能合并、请求了合并才认 `merged`、认不出与没回答当取消；`revealText` 找得到才推 `editorReveal` |
+| `shells/cli.test.js` | 独立版 CLI：不带目录时 root 为空，不把 cwd 当成工程 |
+| `shells/hostFs.test.js` | 本机一层目录列举（打开文件夹用），只在临时目录里扫 |
+| `shells/windowState.test.js` | `~/.novelforge/window.json` 的读写（写进临时目录） |
+| `shells/workspaceHub.test.js` | WorkspaceHub：工程目录可空、可热换 |
 | `runtime/progress.test.js` | 长任务进度快照、字符串 `report` 只改文案、宿主进度带 `（n/N）`、取消、抛异常继续上抛且进日志、并发两个任务、结束后清表 |
+| `runtime/watchPolicy.test.js` | 「哪些改动值得刷新界面」：两个壳共用的这一份策略（从前各写一份，改了一处忘了另一处） |
 
 ### `integration/`
 
@@ -122,6 +134,10 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 |---|---|
 | `tools/readTools.test.js` | 只读三件套：list 的 60 项上限与「还有 N 项未列出」、read 的行号与「第 X–Y 行未读」（含接着读的 offset）、search 的章号升序与 `dropped > 0` 时那行 ⚠；**越界与不存在一律给 `error` 不抛**（模型看得到才换得了路）；跑完三个工具磁盘 mtime 一个都不变 |
 | `tools/generateTool.test.js` | `generate` 工具：draft 落进 store 而**返回文本里没有正文**（三千字塞回循环，每走一步重烧一遍）、层与能力的组合问 `STAGE_CAPABILITIES`、`settle` 明确不支持并指路对话页、认不出的路径给 error 且一次模型都不调、`history` 恒为空、正文层走 `config.active`、**失败也照样报一次账**（请求发出去钱就花了）、**工具自己不提上限**（「已用 1/10」那句是调用方的） |
+| `tools/generateTiers.test.js` | `generate` 用哪个模型：细纲走 `plotOutline` 档、**架构走 `setting` 档**（六期，与工程页「补齐设定」同一个），正文与大纲严格用对话页那个；档位没配退回对话页那个；审稿当场拒绝、一次都不调；删掉的层没留下档位；「Agent 调度」是独立的一档 |
+| `tools/runTool.test.js` | `run` 工具：白名单之外一律拒（删除类与 `split` 说清「这是有意的」）；确认框照弹、作者不同意就一次都不调并说清「不要重试」；预计次数报给调用方记账；批量拆细纲与批量写章走既有流程（正文落同号章节、细纲上记 `writtenFrom`）；定稿按章号认；**区间与模式**（六期）：`from` / `to` / `mode` / `review` 转给批量写章并写进确认框与动手前那一问、只给 `from` 按缺省章数往后数、参数不对当场报错不弹框；**补齐故事架构**转发工程页那个动作 |
+| `tools/editTool.test.js` | `edit` 工具：唯一才改（命中多处且没给 all 时报错并说清几处）等五件事 |
+| `tools/writeTool.test.js` | `write` 工具：agent 的落盘口，这一层特有的五件事（写盘本身由 workspace 的测试守着） |
 | `agent/stateBrief.test.js` | 状态注入：**label 与 hint 与状态机一字不差**（第 20 条的硬断言），把一本书从零走一遍（生成小说配置 → 大纲 → 拆细纲 → 写 / 接着写 / 定稿 → 做完转去报全书下一步 → 写完照实说）；**target 是还没落盘的下一章细纲时也报「写第 N 章细纲」**（与主按钮一致）；老工程（99 章成品、没有架构）全书下一步推回「生成小说配置」、选中的章按章号认；⟳ 超 5 章写「等 N 章」 |
 | `agent/loop.test.js` | agent 循环（脚本化假 provider）：不调工具时一个回合结束、tool 消息形状、连续两次同工具同参数收到提示且**不真跑**、三次停下并仍给一轮总结、预算触顶时最后一轮**不带 tools**、取消停在工具边界且已产出的 draft 保留、工具抛异常变成 error 回给模型、**工具产出的正文走 `onToolDelta`（带 callId）而 `onDelta` 里只剩模型自己说的话**、**上游说要调工具却没把调用发过来时原样重发这一回合**（同一份上下文、气泡里留一句解释、额度按回合归零；连着几次都缺就停在 `stopReason: 'protocol'` 并说清是接口丢了这一段，而「上游没说收尾原因」照旧当成最终回答）、日志里没有 prompt 全文/参数值/正文 |
 | `generation/structuredChain.test.js` | 生成链经对话页走到落盘：配置截断整份重来、「全局要求」只重写这一节、一句话与规模按弹窗、文风只写进没动过的 `style.md`、保留原文追加生成；角色图谱两段式、截断拆半、关系写到双方卡上；细纲批次截断对半拆且后一半看得见前一半、卡片列出新建的角色卡与降级说明、**漏章 fail-closed**、只改标点的修复收下而改了内容的拒收、单章缺字段紧凑重建；大纲续写只并进那一段、不弹审阅 |
@@ -133,6 +149,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `generation/writeCard.test.js` | 写正文那张卡片：「x / y 字 · 已达标 / 未写够」、续写了几轮一共调了几次、接着写说「追加」并写明已有与新写、重演时 gate 带红色块与两段式确认；写的过程中推 `writeProgress`，丢弃一轮时推 `streamReset` |
 | `generation/chapterWorkbench.test.js` | 章节工作台后端：`openChapter` 正文开主区、宿主能并排时细纲开旁边（没有 `openBeside` 只开正文、没有正文只开细纲、两样都没有说找不到）；`chapterAction` 接着写等于对这一章按主按钮、没有正文时定稿说无法定稿 |
 | `generation/accept.test.js` | 产物落盘走的是**当场问的那张卡片**（写正文：新写说写入、接着写说追加且不审阅、不带写法再写一次说覆盖并审阅、标题行留着）：卡片说得出写到哪、只有两颗按钮、**没答时磁盘没动静**；落点从 draft 取（答之前切了一章也写对）、落盘的是气泡里当下那份（先 `editTurn` 再点写入）、答「不采纳」一个字不写且气泡上留一行；讨论型回复不问；刷新网页时没答的卡片重推、面板销毁时按「未采纳」结算；并发控制那三条 |
+| `generation/generate.test.js` | `generate()`：产出的 Draft 自带 artifact 与 summary、`cleanOutput` 只对正文层做、失败挂在细纲上成功清掉（取消不算失败）；架构层四件按 target 分辨 |
 | `agent/gate.test.js` | 闸门串起来之后：默认模式下 write 弹一句且**说清写到哪**、两个选项（确认 / 跳过）、跳过则不执行而循环接着跑、**没回答当停止**且仍给最后一轮总结、放手模式新建不问、**覆盖审阅任何模式都在**、读工具从不打断、瞎编的工具名不问；**有 `onGate` 时不弹宿主的框**（面板那条路把这一句画进对话）；以及**产出之后当场问一句落盘**——三种模式都问（第 19 条，不是偏好设置）、结论回给模型、那一问没人答就停下且仍给最后一轮总结、没实现 `onArtifact` 就不问 |
 | `workspace/guard.test.js` | **八条入口守卫**各至少一条：越界（含归一化后仍逃出去的）、工程根包含、固定目录保护、回收站不可改（但读得到）、2MB 上限、同名不覆盖、覆盖审阅（两种宿主 + 文案逐字）、内容 hash 乐观锁 |
 | `workspace/basic.test.js` | `Workspace` 门面：write 的三种 mode、审阅拒绝时一字未改、乐观锁冲突、read 的 `truncated`（不静默截断）、edit 的「old 不唯一就报错」与「要么全成要么全不成」、remove 进 `.trash/` 且同名加序号、move 不覆盖、list 带 `kind` |
@@ -144,6 +161,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `files/chapters.test.js` | 非 markdown 章节不解析 H1、角色区仍只认 `.md`、`isEditablePath` 放行无扩展名章节 |
 | `files/listCache.test.js` | 章节与**细纲**两份列表缓存的并发语义：并发调用只扫一遍全书、`invalidate` 后重扫、**扫描途中失效的那一轮不回填缓存**（否则界面会停在变更之前的字数与过期标记）；外加 `writePlot`/`deletePlot` 自己让缓存失效（否则新建的章不出现在工程页上，且不报错） |
 | `views/projectTreeReads.test.js` | 工程页刷新的**读盘次数**：同一个文件一次刷新至多读一次（含 `config.md`）、每章 fs 调用不超过 4 次（细纲 + 章节 + 摘要各一次，再加全书常数的余量）、章数翻倍不超过线性增长。这条路由文件监听触发，作者每存一次盘就跑一次，重复读盘不报错只变慢，只能靠断言守 |
+| `views/projectTreeNext.test.js` | 工程页快照里的「全书下一步」（W12）与对话页主按钮在全书那一档给的逐字一致：从空工程一路走到「在写」，每一档都比一遍；进入「在写」之后工程页不再给 |
 | `files/drafts.test.js` | 草稿路径镜像、按需创建且第二次不覆盖、不混进章节树与 manifest、`@` 引用、跟随改名/移动、删章节不删草稿 |
 | `context/manuscriptRecipe.test.js` | 正文层的装配（三期）：全局要求单独强制带且不在架构那几条里重复、后 5 章细纲按章号窗口作边界（空壳不带）、边界在本章细纲之后、执行卡压在最末（必需事件 / 章节钩子 / 作者本章指导）、篇幅合同 ±20%；第 1 章黄金第一章法则、后续章连载法则、D8 禁令与作者事实都在系统提示里；接着写带本章已写末尾、不带上一章结尾、只要新增的那一段；续写那几轮用精简配方、恢复那一轮说清上一轮已丢弃 |
 | `context/reviewRecipe.test.js` | 审稿与修稿的装配（五期）：审稿带这一章全文、细纲与冻结清单（钩子单列）、后续章节标「非既定历史」、定稿过的前几章的连续性事实（过期的说清楚不带）、角色卡与上一章结尾，**不带历史对话与文风**；重来那一次说明上一次为什么被丢弃；修稿带整章原文与勾选清单、**没有执行卡、篇幅合同与连载法则**；修稿续写带原文与已修订的末尾；**重写时 `revision` 是整章**（精修） |
@@ -162,6 +180,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `features/cast.test.js` | 别名的泛称过滤；同一人聚类——**同章共现的两人绝不合并**；出场索引的正式名优先与 `conflicts`；维护命令（清理别名不动正文、合并重复卡、水位线退回） |
 | `features/characterCard.test.js` | 更新角色卡：分批与「预计调用 M 次」、只装该角色的出场章、增量无新章时**一次模型都不调**、部分失败时**水位线停在第一个失败章之前**、取消/放弃不落盘；**并发**下模型请求重叠但 **diff 审阅仍一次只弹一张** |
 | `features/lore.test.js` | 自动生成设定：逐章识别次数、跨章合并、分类目录落盘、已有设定必须经审阅 |
+| `features/choices.test.js` | 「让用户挑一个」的清单（角色卡 / 章节）：「＋N 章待读」与工程页同一个算法、没写正文的章说「还没有正文」 |
 | `storage/errorLog.test.js` | 工程库与失败记录：驱动适配层、**关库之后删得掉目录**、纯读取不建库、失败记录生命周期、日志持久化与挂 sink 前的补写、**库不可用时全线静默降级** |
 | `storage/session.test.js` | 会话读写往返（含 agent 那一轮的**段**：顺序原样、`generate` 产出的正文也留得住）、损坏文件容错、列表排序、重命名/删除、id 唯一性、`.novel` → `.novelforge` 迁移 |
 | `llm/streaming.test.js` | 起本地假服务器模拟 SSE：流式解析（跨块切分、CRLF、心跳、非 JSON 行）、取消、超时、**流式还在吐字时不超时**、HTTP 401/404/429，Anthropic 的 system 提取与消息合并，以及**思考深度落成请求字段**（两家各自的 effort 字段、思考开着时不带 temperature）与**上游拒了就换写法**（降一档 / 换一代写法，结论记住不再重试） |
@@ -182,6 +201,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `view/chat.test.js` | 流式逐段显示、生成中不可编辑、结束后可编辑、中断与报错、气泡 ... 菜单、空输入、**产物那一行（气泡上没有任何写文件的按钮**，只有「产出过什么 / 已写入哪儿 / 未采纳」）、思考过程 |
 | `view/creation.test.js` | 创作流水线条（架构 / 大纲目标只剩面包屑；章目标是「细纲 / 正文」两格 + 定稿状态）与下一步——**主按钮发的是 `step.target` 与 `step.range`**（会话停在大纲、下一步落在第 1 章细纲；这一章写完、下一步落到下一章），忙碌时禁用；工作区卡、`/` 命令面板（细纲层「落定细纲 / 写细纲」、切层跟着换）、目标下拉（第一项「全书」）、选中一章进入当前阶段、独立版壳上的创作页 |
 | `view/forms.test.js` | 一句话弹窗（主按钮打开而不直接发送、默认值来自后端、保留原文的说明、全书字数实时算、Ctrl+Enter 发 send 带 setup 并切到对话页、空脑洞与越界规模不许提交、Esc 关掉什么都不发）；拆细纲弹窗（缺省区间、跳过几章 / 分几批 / 预计与最多几次与后端同源、超出大纲覆盖不许提交、提交带 `confirmed`）；工具栏「补齐设定」；主按钮提示写调用次数；**批量写章弹窗**（四期 W9）：缺省区间与模式、实时说明与 `planWriteBatch` 同源、一次最多 10 章、写完即定稿要点两下（改了值退回第一段）、提交带区间 / 模式 / confirmed；批量写章弹窗的「写完即审稿」（说明里加审稿那几次、点两下才发、带 `review`，五期补遗 §4） |
+| `view/emptyStates.test.js` | 空状态写出下一步（W12）：章节组空着或缺下一章细纲时写主按钮那一句、按钮开一句话 / 拆细纲弹窗或进入那一层且**都不发 send**；角色组只在全书下一步正是角色图谱时说「下一步」、老工程给「提取角色卡…」；设定组「＋ 设定」与「从正文生成…」；对话页还不是小说工程时的初始化那一块；历史页「去对话页」 |
 | `view/characterState.test.js` | 角色行上的当前状态（四期，D15）：说明里写「状态截至第 K 章」；挂着 `cardState` 的卡右键多「对比第 N 章给出的状态…」，点了发 `reviewState`；没挂的没有这一项 |
 | `view/projectTree.test.js` | 「故事架构」组五行（x/5、点名字打开、角色图谱进入那一层、没有重命名删除、**第一件没填的那一行有「去生成」**）；章节组一个章号一行（身份是正文或细纲路径、三种徽章、⟳、「写了 / 目标」字数、**只有下一个该写的章有「去写这一章」**且点了只发 `selectPlot`、点行名发 `openChapter`——正文与细纲并排由后端按能力开）；目录树折叠/展开与缩进、空文件夹提示、重推后保持展开；右键菜单按三种行（写完 / 没细纲 / 没正文）增减条目、章节组标题的新建与批量动作、通用行为 |
 | `view/reviewCard.test.js` | 审稿报告卡（W10）：画报告卡不画可编辑正文、分组与一句话概括、通过 / 丢掉的 / 说明折叠；缺省勾选（严重、建议、未完成勾，待核实不勾，已完成没有勾）、按钮写勾了几条与调用次数、0 条与生成中禁用；点引文发 `revealQuote`、点修稿只带勾选的 id；气泡重建时勾选不丢；用户气泡列出勾了哪几条；编辑模式（五期补遗 §3）：表里能改能加、模型给的不能删、重建不丢、保存发 `editReview`、推回后作者加的缺省勾上且没有引文行、改过的标「已改」、取消不发消息 |
@@ -189,7 +209,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `view/cast.test.js` | 角色行的「出场 N 章」与「＋N 待更新」、增量/全量分别发 `updateCard`/`rebuildCard`、「出场人物 · 未建卡」分组、旧后端的树不让前端崩 |
 | `view/progress.test.js` | 摘要进度横幅（已总结 N/M + 进度条）、长任务进度条（n/N、计时、停止）；**页头任务条**（四期 W8）：不在工程页里、对话页开着也看得见，批量写章的「写完这一章就停」发 `stopAfterItem`、点过换成说明，完成提示的「打开第 N 章」发 `openChapter`；完成提示带「打开审稿报告」时点了发 `openSession`（五期补遗 §4） |
 | `view/logs.test.js` | 级别与关键字过滤、detail 折叠、增量追加也走过滤；**「加载更早」**——默认不查库、点了才发 `requestLogHistory`、历史不冲掉本次会话 |
-| `view/settings.test.js` | 模型分档三档渲染、八行任务表与内置默认标记、只把**改过的项**写进 `taskTiers`、指向已删模型的引用摘掉且摘空了保持为空；「高级设置」折叠开关 |
+| `view/settings.test.js` | 模型分档三档渲染、任务表（每项任务一行）与内置默认标记、只把**改过的项**写进 `taskTiers`、指向已删模型的引用摘掉且摘空了保持为空；「高级设置」折叠开关 |
 | `view/hover.test.js` | 三组悬停浮窗（章节摘要 / 行内别名 / 失败标记）：延迟才弹、缓存与作废、可进入（能选中复制）、**夹进视口**（下方放不下翻上方、贴右收左、超长压 `max-height`）、失败标记挂在章节行与架构行上、按最严重的算；**从章节行挪到架构行时浮窗收起**（架构行也带 `.row-plot` 但没有摘要） |
 | `standalone/editor.test.js` | 内置编辑器：草稿区惰性创建、`pane` 分派、「草稿」按钮可见性与 `openDraft` 负载、保存回执不冲掉 `draftPath`、右键菜单与标签搬家 |
 | `standalone/merge.test.js` | 覆盖审阅的合并视图（W11）：相同的段一行带过、改动两栏 + 结果格（缺省新版）、进度计数；什么都不动交回 `apply`；保留原文交回合并结果；**手改过的那一格「采用」「全部采用」「全部保留」都不动它**、「撤销手改」才放开；结果格清空整段删；只读模式没有结果格与逐段按钮 |
@@ -197,7 +217,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `standalone/chapterBar.test.js` | 章节条（W6）：只在开着某一章的正文或细纲时出现、写这一章在哪一步写了多少、四颗按钮按状态亮灭且提示里写调用次数、点了发 `chapterAction`、另一份没开着时「并排看细纲 / 正文」、工程树更新时跟着变 |
 | `standalone/explorer.test.js` | 资源管理器：点开头目录列得出来且压暗、目录排在文件前、懒展开、折叠连带子目录、可编辑与否走不同消息、截断如实告知、读失败降级；文件页剪贴板与右键菜单 |
 | `standalone/menubar.test.js` | 文件 / 编辑 / 帮助菜单栏：点击打开、hover 隔壁切换、Esc / 点外面关闭；空窗口时部分项 disabled |
-| `standalone/welcome.test.js` | 空窗口 Get Started：Start / Recent、打开文件夹与新建工程入口 |
+| `standalone/welcome.test.js` | 空窗口 Get Started：Start / Recent、打开文件夹与新建工程入口；侧栏每一页的遮罩上也有「打开文件夹…」（W12），与欢迎页那颗同一个动作 |
 | `standalone/picker.test.js` | 远程风目录选择器：本机列一层、进子目录、新建文件夹；打开文件走工程内 `listDir` |
 | `standalone/find.test.js` | 内置编辑器查找条：Ctrl+F、Enter 下一处 / Shift+Enter 上一处 |
 
@@ -207,6 +227,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 |---|---|
 | `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、WS 首条消息、`Origin` 校验；`selectPlot` 由后端算落在哪一层（已完成的章落正文层，**下一步转到全书的下一步**「拆细纲（第 4–8 章）」），且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返；**空窗口** ready 后无假工程、`openFolder` 热换、`mode: 'add'` 仍一份工作区、`closeFolder` 卸掉 |
 | `contract/layerBoundary.test.js` | 工具层与 agent 层的边界：`tools/` 一行都不 import `agent/`、`agent/` 引用工具契约一律 `import type`、agent 不 import 任何一个具体工具、工具体里不出现 `ctx.budget`。这条守的是「工具能端出去做 MCP」与「循环可换」两件事，**能悄悄长回来**，只能靠断言守 |
+| `contract/toolText.test.js` | 模型每一轮都读的文字（七个工具的描述、参数说明与枚举值、agent 身份提示词）里没有旧链路的说法（卷、剧情段、中转站、拆分、`volumes/`、`manuscripts/`）；`run` 的可用动作里没有 `split` |
 | `contract/corePurity.test.js` | `src/core/` 零 vscode 依赖——分层架构的硬约束，也是 `external: ['vscode']` 成立的前提 |
 | `contract/shellPurity.test.js` | 壳的契约（[src/shells/README.md](../src/shells/README.md)）：`shells/shared/` 零宿主依赖（不碰 vscode / node: / bun:）、三个壳互不 import、全仓库没有 `host.name ===` 这类按身份分支的写法。三条都是**能悄悄长回来**的东西，只能靠断言守 |
 | `contract/sampleNovel.test.js` | `sample-novel/` 自洽：manifest 章数与磁盘一致（v1 结构，索引的是 `chapters`）、每章 `contentHash` / `summaryHash` / 摘要 `sourceHash` 对得上、摘要 frontmatter 指回章号、**细纲号 = 章号**、细纲的 `upstreamHash` / `writtenFrom` 都新鲜、架构三件都填过且配置解析得出规模参数、大纲覆盖到总章数、没有 `volumes/` 与 `manuscripts/`、示例纲要能命中 3 个角色 |
