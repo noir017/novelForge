@@ -129,6 +129,16 @@ export const attachments: LayerFn = async (a, spec) => {
   }
 };
 
+/**
+ * 历史对话。
+ *
+ * **已经写入的那一轮不再带**（五期补遗 §1.4）：同一个会话跟着主按钮一路走，配置、前提、角色图谱、
+ * 大纲、细纲、前几章正文都留在历史里，写第 3 章时又整份装一遍。它们早就落盘了，专门的层按磁盘带
+ * （设定、大纲切片、本章细纲、上一章结尾、前文全文、证据），而作者落盘之后可能手改过——历史里的
+ * 还是改之前那一版。发起那一轮的命令（用户轮，带 `command`）一起跳过：要求已经落在产物里了。
+ * 讨论（没有 `command`）与没写入的产物（作者点了不采纳，那份只在历史里有）照旧带。跳过的都记在
+ * 明细里（第 2 条）。
+ */
 export const history: LayerFn = async (a, spec) => {
   const turns = a.request.history ?? [];
   if (turns.length === 0) {
@@ -137,6 +147,18 @@ export const history: LayerFn = async (a, spec) => {
   const historyCap = Math.floor(a.budget * (spec.cap ?? 1));
   const turnCap = Math.floor(a.budget * HISTORY_TURN_CAP_RATIO);
   let historyRemaining = Math.min(historyCap, Math.max(0, a.remaining));
+
+  // 已写入的那一轮 → 落点；发起它的命令轮 → 同一个落点。
+  const landed = new Map<string, string>();
+  turns.forEach((turn, i) => {
+    if (turn.role === 'assistant' && turn.acceptedTo) {
+      landed.set(turn.id, turn.acceptedTo);
+      const asked = turns[i - 1];
+      if (asked && asked.role === 'user' && asked.command) {
+        landed.set(asked.id, turn.acceptedTo);
+      }
+    }
+  });
 
   const kept: ContextItem[] = [];
   const skipped: ContextItem[] = [];
@@ -157,6 +179,20 @@ export const history: LayerFn = async (a, spec) => {
         tokens: 0,
         status: a.excluded.has(id) ? 'excluded' : 'dropped',
         note: a.excluded.has(id) ? '已被手动排除' : '空消息',
+      });
+      continue;
+    }
+    const to = landed.get(turn.id);
+    if (to) {
+      skipped.push({
+        ...base,
+        text: '',
+        tokens: 0,
+        status: 'dropped',
+        note:
+          turn.role === 'assistant'
+            ? `已写入「${to}」，以磁盘上那一份为准，不再随历史带`
+            : `这一轮的产物已写入「${to}」，要求已经落在产物里`,
       });
       continue;
     }

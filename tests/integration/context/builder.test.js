@@ -868,6 +868,43 @@ describe('装配：多轮对话历史', () => {
   });
 });
 
+describe('装配：已写入的产物不随历史回灌（五期补遗 §1.4）', () => {
+  // 跟着主按钮写完第 1 章、写入；又讨论了一句；这一轮写第 2 章。
+  const history = [
+    { id: 'w1', role: 'user', content: '多写点雪。', command: '写正文', at: '2026-08-01T10:00:00Z' },
+    { id: 'w2', role: 'assistant', content: '雪下了一夜。第 1 章正文全文……', acceptedTo: 'chapters/001-夜入青云.md', at: '2026-08-01T10:01:00Z' },
+    { id: 'd1', role: 'user', content: '第 2 章要不要让沈氏先开口？', at: '2026-08-01T10:02:00Z' },
+    { id: 'd2', role: 'assistant', content: '可以，让她先问残令的下落。', at: '2026-08-01T10:03:00Z' },
+    { id: 'x1', role: 'user', content: '再来一版。', command: '写正文', at: '2026-08-01T10:04:00Z' },
+    { id: 'x2', role: 'assistant', content: '没采纳的那一版正文……', artifact: { where: '第 1 章', summary: '正文', overwrites: true, declined: true }, at: '2026-08-01T10:05:00Z' },
+  ];
+  let conv;
+  let m;
+
+  before(async () => {
+    conv = await builderMod.buildContext(project, req('写第 2 章。', { history }), baseConfig);
+    m = ids(conv);
+  });
+
+  test('写入了的那一轮与发起它的命令都不带，明细里说清落在哪', () => {
+    assert.equal(m.get('history:w2').status, 'dropped');
+    assert.match(m.get('history:w2').note, /已写入「chapters\/001-夜入青云\.md」，以磁盘上那一份为准/);
+    assert.equal(m.get('history:w1').status, 'dropped');
+    assert.match(m.get('history:w1').note, /产物已写入/);
+  });
+
+  test('讨论与没采纳的那一版照旧带', () => {
+    for (const id of ['d1', 'd2', 'x1', 'x2']) {
+      assert.equal(m.get(`history:${id}`).status, 'included', id);
+    }
+  });
+
+  test('messages 里没有写入了的那份正文', () => {
+    assert.ok(!conv.messages.some((x) => x.content.includes('第 1 章正文全文')));
+    assert.ok(conv.messages.some((x) => x.content === '没采纳的那一版正文……'));
+  });
+});
+
 // ---------------------------------------------------------------------------
 
 describe('装配：历史预算封顶（由近及远保留）', () => {
@@ -1419,6 +1456,17 @@ describe('装配：四阶段配方', () => {
     assert.ok(mc.messages[0].content.includes('篇幅约 1200 字'), mc.messages[0].content);
     assert.ok(lastOf(mc).includes('目标 1200 字；可接受范围 960–1440 字（±20%）'), lastOf(mc).slice(-600));
     assert.ok(!lastOf(mc).includes('±15%'));
+  });
+
+  // 五期补遗 §1.5：民国背景的书里冒出 PTSD。正文与前面几个阶段的系统提示都带这一条。
+  test('系统提示要求用词贴合年代（正文与细纲都有）', async () => {
+    assert.match(mc.messages[0].content, /用词贴合故事的年代与世界观.*PTSD/);
+    const plotCtx = await builderMod.buildContext(
+      project,
+      { action: { stage: 'plot', capability: 'generate' }, target: { kind: 'plot', plotRelPath: PLOT4 }, ask: '' },
+      baseConfig
+    );
+    assert.match(plotCtx.messages[0].content, /4\. 用词贴合故事的年代与世界观/);
   });
 });
 
