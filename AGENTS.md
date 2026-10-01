@@ -2,14 +2,14 @@
 
 Novel Forge 帮作者**把一个脑洞养成一本完整的书**：从一句念头开始，先展开成小说配置、故事前提、角色图谱与世界观，再排情节大纲、拆成一章一份的细纲，最后一章一章写成正文。三种壳（独立 Web 服务 / 桌面 App / VS Code 插件）共用同一套核心。
 
-实现上分两条主线：**往下展开**——按**创作阶段**（架构 / 大纲 / 细纲 / 正文）分别装配上下文并透明展示，把上一层产物展开成下一层（流式预览、当场点头才落盘），正文按细纲的目标字数自动续写；**往回记住**——定稿（单章摘要 + 连续性事实 + 出场角色的「当前状态」）、全书摘要、角色卡与设定整合，让「记忆」有限且可人工校正。审稿是正文层的可选动作：只出报告，作者在报告卡上勾选之后按勾选的条目修稿。所有数据是工作区里的普通 Markdown（`.novelforge/` 目录），可 Git、可手改。
+实现上分两条主线：**往下展开**——按**创作阶段**（架构 / 大纲 / 细纲 / 正文）分别装配上下文并透明展示，把上一层产物展开成下一层（流式预览、当场点头才落盘），正文按细纲的目标字数自动续写；**往回记住**——定稿（单章摘要 + 连续性事实 + 出场角色的「当前状态」 + 本章推进了哪几条叙事线）、全书摘要、角色卡与设定整合，让「记忆」有限且可人工校正。审稿是正文层的可选动作：只出报告，作者在报告卡上勾选之后按勾选的条目修稿。所有数据是工作区里的普通 Markdown（`.novelforge/` 目录），可 Git、可手改。
 
-**一条轴：细纲号 = 章号。** 往下展开的链是：一句话 ──▶ `config.md` ──▶ `premise.md` / `characters/` / `world.md` ──▶ `outline.md`（按「第 a–b 章」分节，可以只覆盖到一部分章）──▶ `plots/NNN-标题.md`（一章一份，每批 5 章）──▶ `chapters/NNN-标题.md`（正文）──▶ `summaries/`（定稿）。
+**一条轴：细纲号 = 章号。** 往下展开的链是：一句话 ──▶ `config.md` ──▶ `premise.md` / `characters/` / `world.md` ──▶ `outline.md`（按「第 a–b 章」分节，可以只覆盖到一部分章）──▶ `plots/NNN-标题.md`（一章一份，每批 5 章）──▶ `chapters/NNN-标题.md`（正文）──▶ `summaries/`（定稿）。跨章的伏笔与线索另记在 `threads.md`（叙事线，可选，不在链上：工程页从细纲排出，定稿时追加事件，写正文时带最多 6 条有关的）。
 
 **细纲与正文之间没有中间层。** 从前这里有过「细节」（`scenes/`）、「卷」（`volumes/`）与「中转站」（`manuscripts/`，写完再按 `---` 拆成章）几层，都删了：「这一幕怎么发生」是写正文时才定的事；大纲按章号区间分节、细纲一章一份，已经解决了卷要解决的跨度问题；正文直接落进 `chapters/`，不必再拆。老工程磁盘上那几个目录**一个字节都不动**（那是作者的文件），但代码里彻底不认它们：`kindOfPath` 判成 `other`，工程页不显示、装配器不读，文件操作也删不掉它们。
 
 - **`chapters/` 是唯一真相**：摘要从它生成、上下文从它取正文、工程页的字数也报它。正文的上游指纹记在同号细纲 frontmatter 的 `writtenFrom` 上——章节是作者的文件（可以是 `.txt`、没有 frontmatter），这条链只能从细纲指过去。
-- **主按钮只推一个下一步**：全书那一档（架构四件 → 情节大纲 → 拆细纲）由 `deriveBookNextStep` 算，进入「在写」之后由单章的 `deriveNextStep` 算（写细纲 → 写正文 / 接着写 / 重写 → 定稿）。批量动作（补齐设定、批量拆细纲、批量写章）都在工程页，只补空白。
+- **主按钮只推一个下一步**：全书那一档（架构四件 → 情节大纲 → 拆细纲）由 `deriveBookNextStep` 算，进入「在写」之后由单章的 `deriveNextStep` 算（写细纲 → 写正文 / 接着写 / 重写 → 定稿）。批量动作（补齐设定、批量拆细纲、批量写章）都在工程页，只补空白；排叙事线也在工程页，不进主按钮。
 - **定稿是唯一的人工闸口**：单章写完不自动定稿；定稿过的章即使细纲后来改了也不被拉回「待写」，只挂 ⟳。
 
 产品文档（面向作者的完整使用说明）见根目录 [README.md](README.md)。本文件面向代码代理：先读模块 README 再动手。
@@ -43,13 +43,13 @@ npm run test:e2e         # 独立版服务（需 Bun）
 |---|---|---|
 | `src/` | 两层架构总览与一条创作请求的完整链路 | [src/README.md](src/README.md) |
 | `src/core/` | 核心逻辑层入口（含协议 `protocol/`、读写网关 `workspace/`、文件能力 `files/`、只读聚合与界面快照 `views/`、运行时设施 `runtime/`）。`views/pipeline.ts` 是磁盘 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，绝不搬进 `views/`。 | [src/core/README.md](src/core/README.md) |
-| `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**（全书与单章两级状态机、调用次数）、架构三件 settingFile.ts、情节大纲 outlineFile.ts、细纲 plotFile.ts、连续性事实 continuity.ts、角色当前状态 characterState.ts、审稿报告 review.ts、一致性预检 preflight.ts、段级 diff paragraphDiff.ts、服务商配置、思考深度 thinking.ts、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
+| `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**（全书与单章两级状态机、调用次数）、架构三件 settingFile.ts、情节大纲 outlineFile.ts、细纲 plotFile.ts、连续性事实 continuity.ts、角色当前状态 characterState.ts、叙事线 threadsFile.ts、审稿报告 review.ts、一致性预检 preflight.ts、段级 diff paragraphDiff.ts、服务商配置、思考深度 thinking.ts、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/workspace/` | ★ **工程的唯一读写网关**：路径 → 种类（`kind.ts`）→ 八条守卫（`guard.ts`）→ 解析/渲染/记账/伴生（`handlers/`）。写盘从前散在六处、各带一部分保护，现在收成一处；`upstreamHash` 与 `writtenFrom` 的记账下沉到写入路径本身，谁写都记 | [src/core/workspace/README.md](src/core/workspace/README.md) |
 | `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/generation/` | ★ 创作的一次单步：**无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，并发控制在 controller），外加几条链：结构化产物的降级修复（`structured.ts`）、正文自动续写（`continuation.ts`）、审稿（`review.ts`）、按勾选修稿（`revision.ts`）；六条落盘分派、Draft store（随会话落盘，`write draftId=…` 认它） | [src/core/generation/README.md](src/core/generation/README.md) |
 | `src/core/tools/` | ★ **工具层**：契约（`ToolDef` / `ToolIntent` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那七个工具：读三件 + `generate` + `write` / `edit` / `run`，**没有删除/改名/移动**。**不认识 `agent/`**（形状照 MCP 的 `tools/list` + `tools/call` 摆，将来能单独端出去） | [src/core/tools/README.md](src/core/tools/README.md) |
 | `src/core/agent/` | ★ 多步调度：对话循环、状态注入、预算闸门与无进展检测、**策略与确认闸门**（`policy.ts`）。手上只有一个 `ToolInvoker`，**不认识 `Workspace` / `DraftStore` / 具体工具**；「下一步该做什么」由 `deriveNextStep` 每回合注入，agent 拿着它去执行而不是另做判断 | [src/core/agent/README.md](src/core/agent/README.md) |
-| `src/core/features/` | 功能编排：批量流水线（补齐设定 / 批量拆细纲 / 批量写章）、定稿（摘要 + 角色当前状态）、一致性预检、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
+| `src/core/features/` | 功能编排：批量流水线（补齐设定 / 批量拆细纲 / 批量写章）、定稿（摘要 + 角色当前状态 + 叙事线事件）、叙事线（从细纲排出）、一致性预检、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
 | `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
 | `src/shells/` | ★ 三个壳并排放这里，外加 `shared/panes.ts`（所有 pane 的 DOM 唯一来源）。**壳的契约在这份 README 里**：壳只做实现 Host、传输与生命周期、平台专属入口三件事 | [src/shells/README.md](src/shells/README.md) |
 | `src/shells/vscode/` | VS Code 壳：extension 入口、命令、两个 webview 宿主、vscode-lm | [src/shells/vscode/README.md](src/shells/vscode/README.md) |
@@ -105,7 +105,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 16. **失败要留在出错的东西身上**：失败经 [src/core/runtime/errorLog.ts](src/core/runtime/errorLog.ts) 挂在对应目标上（红=整体失败，黄=部分完成），成功路径必须 `clearFailures`。见 [src/core/README.md](src/core/README.md)。
 17. **SQLite 只放可丢弃的痕迹**：内容的唯一真相永远是 Markdown，库打不开就静默降级。实现细节（两个驱动、动态 import 写法、finalize 时机）见 [src/core/runtime/README.md](src/core/runtime/README.md)。
 18. **上下游新鲜度只靠 hash 传播，不调模型**：产物串成一条指纹链——情节大纲里覆盖这一章的那一节 →（细纲 frontmatter 的 `upstreamHash`）细纲 →（同一份 frontmatter 的 `writtenFrom`，正文落盘时记）正文 →（摘要的 `sourceHash`）摘要。**手写的产物永不标脏**（没有记录过指纹就不算；代码注释里的「第 18a 条」指的就是这一句）。定稿过的章即使上游改了也不被拉回「待写」，只挂 ⟳；流水线状态一律从磁盘推导，绝不落盘。见 [src/core/workspace/README.md](src/core/workspace/README.md)、[src/core/views/README.md](src/core/views/README.md)、[src/core/model/README.md](src/core/model/README.md)。
-19. **产物落盘前必须过一遍人，而且是当场过**：`generate` 只把文本交回界面，作者在对话里那张权限卡片上点了「写入」才落盘；这一问与 agent 的策略无关，三种模式都问，也不做成一颗可以拖延的按钮。批量路径反过来——一律跳过已有产物的目标，不问、不覆盖（补齐设定只补空白的那几件）。几处有意的例外：细纲带出的新角色随细纲一起建卡（写入卡片上列出会建哪几张）；定稿时角色卡的「当前状态」由机器维护，自上次机器写入之后没人改过才直接更新，作者改过就不写、挂黄 ❗；批量写章写出来但不能往下接的（重演、后面几章的人提前登场、没写够八成）照样落盘，然后停下。见 [src/core/generation/README.md](src/core/generation/README.md)、[src/core/features/README.md](src/core/features/README.md)、[src/core/agent/README.md](src/core/agent/README.md)。
+19. **产物落盘前必须过一遍人，而且是当场过**：`generate` 只把文本交回界面，作者在对话里那张权限卡片上点了「写入」才落盘；这一问与 agent 的策略无关，三种模式都问，也不做成一颗可以拖延的按钮。批量路径反过来——一律跳过已有产物的目标，不问、不覆盖（补齐设定只补空白的那几件）。几处有意的例外：细纲带出的新角色随细纲一起建卡（写入卡片上列出会建哪几张）；定稿时角色卡的「当前状态」由机器维护，自上次机器写入之后没人改过才直接更新，作者改过就不写、挂黄 ❗；批量写章写出来但不能往下接的（重演、后面几章的人提前登场、没写够八成）照样落盘，然后停下；叙事线 `threads.md` 由机器**只追加**——工程页「从细纲排出」在末尾加新线（同名跳过），定稿时把本章推进了哪几条线追加在那条线的事件末尾（证据逐字校验），作者写的字一个都不动。见 [src/core/generation/README.md](src/core/generation/README.md)、[src/core/features/README.md](src/core/features/README.md)、[src/core/agent/README.md](src/core/agent/README.md)。
 20. **界面永远只推荐一个下一步，且由状态机算出来**：主按钮来自全书那一档的 `deriveBookNextStep`（架构四件 → 情节大纲 → 拆细纲）与单章的 `deriveNextStep`，后者与 `deriveStage` 共用同一套判据；工程页空状态说的「下一步」是同一步、同一句话；审稿是可选动作，不进主按钮。agent 每回合从同一个状态机免费拿到同一份结论，没有 `status` 工具；`selectPlot` 收的是「哪一章」，细纲路径与章节路径都按章号认到同一章。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/agent/README.md](src/core/agent/README.md)。
 21. **细纲是这一章的计划，不是正文**：`plots/NNN-标题.md` 三节——本章目的、关键事件、章末钩子（必填）；关键事件可以写到具体场面，但不写成段的描写与对白。**「这一章正文写够了没有」看细纲的 `targetWords`**（到八成算写完，不到就自动续写），缺席取小说配置的每章字数，再缺席有字就算——不拿一个猜出来的阈值骗人。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/context/README.md](src/core/context/README.md)。
 22. **细纲有两个入口，讨论那条不许被截断**：`generate` 按走向填（单章，或从情节大纲每批 5 章一起拆），`settle` 把讨论结论沉淀成细纲，几条路共用同一份蓝图合同、输出一字不差；`settle` 的历史 cap 抬到 60%。见 [src/core/context/README.md](src/core/context/README.md)。

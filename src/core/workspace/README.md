@@ -54,7 +54,7 @@
 | 种类 | 判定 | 解析 / 渲染 | 上游指纹 | 伴生 |
 |---|---|---|---|---|
 | `setting` | `config.md` / `premise.md` / `world.md`（带 `doc`） | `settingFile.ts`；配置的 frontmatter 产物没给就沿用磁盘那份 | — | — |
-| `outline` / `style` / `globalSummary` | 固定路径 | 纯文本 | — | — |
+| `outline` / `style` / `globalSummary` / `threads` | 固定路径 | 纯文本 | — | — |
 | `plot` | `plots/` **根下** + 数字前缀 + markdown | `plotFile.ts` | 写入记大纲里覆盖本章那一节的指纹（`outlineUpstreamHash`） | — |
 | `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | —（正文依据的细纲指纹记在细纲的 `writtenFrom` 上） | 改名/移动带草稿；写后 `syncManifest` |
 | `summary` | `summaries/` 镜像 | frontmatter + 小节 | `sourceHash` | 写后 `markSummarized` |
@@ -126,7 +126,7 @@ workspace/
     ├── plot.ts     渲染 + 记 upstreamHash
     ├── chapter.ts  草稿跟随 + manifest 同步（删章节不删草稿）
     ├── summary.ts  manifest 同步
-    ├── doc.ts      outline / style / globalSummary / character / lore
+    ├── doc.ts      outline / style / globalSummary / threads / character / lore
     └── plain.ts    other / draft（纯文本，无记账）
 ```
 
@@ -143,6 +143,7 @@ workspace/
 | `writeSummary` | 章节路径的镜像 |
 | `writeCharacter` / `writeLore` | slug（可带子目录） |
 | `writeStyleGuide` / `writeGlobalSummary` | 固定路径 |
+| `updateThreads(edit)` | 固定路径（`threads.md`）。读**此刻**的原文交给 `edit`、写回它给的新原文：排线、定稿要调几十秒模型，写之前重读，作者这期间的改动才不会被一份旧全文冲掉 |
 
 调用方手里只有对象，让它自己去拼路径等于把命名规则复制一份出去。
 
