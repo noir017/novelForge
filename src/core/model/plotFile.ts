@@ -30,6 +30,11 @@
  *   （第 9 条），这条链只能从这边指过去。与当前内容指纹对不上 = 细纲在正文之后
  *   改过。从没记过（作者手写的正文）就永不标脏（第 18a 条）。
  * - `status: done`：作者手工宣布这一章过了。只允许向前覆盖推导值。
+ * - `preflightOk`：一致性预检的**永久放行**（五期补遗 §2），一行一条「名字：理由」——作者说过
+ *   「这一章里他出场是刻意的安排（回忆、幻象……）」的那几个人，写这一章之前不再为他们亮卡。
+ *   按章记：第 8 章是回忆，不代表第 12 章再排他也是。**重新生成这一章的细纲会丢掉它**（handlers/plot.ts
+ *   的渲染不带它）：重排过的出场是新的安排，要再问一次。改名、记账都原样留着。作者要撤销就删掉那一行。
+ *   不进内容指纹（{@link PLOT_SECTION_KEYS} 之外的都不进），记下它不会让正文变成「细纲改过」。
  *
  * ## 派生数据一律不写进这份文件
  *
@@ -95,13 +100,42 @@ export interface Plot {
   writtenFrom: string;
   /** 作者手工宣布这一章过了（frontmatter `status: done`）。只允许向前覆盖推导值。 */
   done: boolean;
+  /** 一致性预检的永久放行（frontmatter `preflightOk`）。见文件头。 */
+  preflightOk: PreflightOk[];
   sections: PlotSections;
   /** frontmatter 之外的正文全文。作者可能加了自定义小节，读回来时保留。 */
   body: string;
 }
 
-/** 写盘时需要的字段（relPath / body 由调用方与渲染决定）。 */
-export type WritablePlot = Omit<Plot, 'relPath' | 'body' | 'writtenFrom'> & { writtenFrom?: string };
+/** 预检永久放行的一条：谁、为什么（作者没写理由时是空串）。 */
+export interface PreflightOk {
+  name: string;
+  reason: string;
+}
+
+/** 写盘时需要的字段（relPath / body 由调用方与渲染决定）。`preflightOk` 不给就不写（见文件头）。 */
+export type WritablePlot = Omit<Plot, 'relPath' | 'body' | 'writtenFrom' | 'preflightOk'> & {
+  writtenFrom?: string;
+  preflightOk?: PreflightOk[];
+};
+
+/** `沈秋：回忆里的一场` ↔ `{ name, reason }`。全角半角冒号都认；没有冒号就整行是名字。 */
+export function parsePreflightOk(lines: readonly string[]): PreflightOk[] {
+  const out: PreflightOk[] = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    const at = line.search(/[：:]/u);
+    const name = (at >= 0 ? line.slice(0, at) : line).trim();
+    if (name && !out.some((x) => x.name === name)) {
+      out.push({ name, reason: at >= 0 ? line.slice(at + 1).trim() : '' });
+    }
+  }
+  return out;
+}
+
+export function renderPreflightOk(entries: readonly PreflightOk[]): string[] {
+  return entries.map((e) => (e.reason.trim() ? `${e.name}：${e.reason.trim()}` : e.name));
+}
 
 export interface PlotFileName {
   no: number;
@@ -193,6 +227,7 @@ export function parsePlotFile(text: string, relPath: string): Plot {
     upstreamHash: asString(frontmatter.upstreamHash),
     writtenFrom: asString(frontmatter.writtenFrom),
     done: asString(frontmatter.status).toLowerCase() === 'done',
+    preflightOk: parsePreflightOk(asArray(frontmatter.preflightOk)),
     sections,
     body,
   };
@@ -211,6 +246,7 @@ export function renderPlotFile(plot: WritablePlot): string {
     upstreamHash: plot.upstreamHash || undefined,
     writtenFrom: plot.writtenFrom || undefined,
     status: plot.done ? 'done' : undefined,
+    preflightOk: plot.preflightOk?.length ? renderPreflightOk(plot.preflightOk) : undefined,
     generatedBy: 'novel-forge',
   });
   const body = stringifySections(plot.sections as unknown as Record<string, string>, PLOT_SECTION_KEYS, {

@@ -44,7 +44,7 @@ import { BuildRequest, buildContext } from '../context/builder';
 import { runTask } from '../runtime/progress';
 import { countWords } from '../model/fs';
 import { describeFinalize, finalizeChapter } from './finalize';
-import { PREFLIGHT_SUGGESTION, PreflightRisk, describeRisks, preflightChapter, riskKey } from './preflight';
+import { PREFLIGHT_SUGGESTION, PreflightRisk, describeExempted, describeRisks, preflightChapter, riskKey } from './preflight';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import {
   CONFIG_CALLS,
@@ -444,9 +444,12 @@ export async function writeManuscripts(
   const ignored = new Set<string>();
   const found: [number, PreflightRisk[]][] = [];
   for (const no of plan.chapters) {
-    const risks = await preflightChapter(project, no);
+    const { risks, exempted } = await preflightChapter(project, no);
     if (risks.length > 0) {
       found.push([no, risks]);
+    }
+    if (exempted.length > 0) {
+      log.info(`第 ${no} 章：${exempted.map(describeExempted).join('；')}`);
     }
   }
   if (found.length > 0) {
@@ -455,7 +458,14 @@ export async function writeManuscripts(
     const pick = await getHost().confirm(
       `一致性预检：${writing}里有 ${lines.length} 处要留意（这一步没有调用模型）。仍要写？`,
       ['仅本次忽略，照写'],
-      { modal: true, detail: [...lines, PREFLIGHT_SUGGESTION].join('\n') }
+      {
+        modal: true,
+        detail: [
+          ...lines,
+          PREFLIGHT_SUGGESTION,
+          '要永久放行某一处：在对话页写那一章时选「记为刻意安排」，或在那一章细纲的 frontmatter 里加一行 preflightOk。',
+        ].join('\n'),
+      }
     );
     if (pick !== '仅本次忽略，照写') {
       log.info('一致性预检有问题，作者没有开始批量写章');
@@ -534,7 +544,7 @@ export async function writeManuscripts(
           halt = { no, why: '还没有细纲', level: 'error' };
           break;
         }
-        const fresh = (await preflightChapter(project, no)).filter((r) => !ignored.has(riskKey(no, r)));
+        const fresh = (await preflightChapter(project, no)).risks.filter((r) => !ignored.has(riskKey(no, r)));
         if (fresh.length > 0) {
           const lines = describeRisks(no, fresh);
           log.warn(`第 ${no} 章的一致性预检没过，批量停在它前面`, lines.join('\n'));

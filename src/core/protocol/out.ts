@@ -134,6 +134,12 @@ export type OutMessage =
        * 不叠弹窗（总计划 §2.4）。
        */
       confirm?: string;
+      /**
+       * 给了就在按钮上方多一格理由输入框与第三颗按钮（`label`），填了理由才能点；点了算同意，
+       * 理由随 `gateResult.remember` 带回。目前只有一致性预检用它：「记为刻意安排，照写」
+       * （五期补遗 §2）。
+       */
+      remember?: { label: string; placeholder: string };
     }
   /**
    * 那张卡片可以收了：作者在另一个视图上答了，或者这一轮被取消/结束了。

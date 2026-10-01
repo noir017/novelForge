@@ -539,7 +539,7 @@ export class ChatController {
 
       case 'gateResult':
         // 作者在气泡里那张权限卡片上点了一颗按钮。认不出的 requestId 静默丢弃。
-        resolveGate(this, msg.requestId, msg.verdict);
+        resolveGate(this, msg.requestId, msg.verdict, typeof msg.remember === 'string' ? msg.remember : undefined);
         return;
 
       // 工作区生命周期与本机目录：独立版由 WorkspaceHub 在进 controller

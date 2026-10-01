@@ -3,24 +3,35 @@
  * model/preflight.ts（纯函数）。
  *
  * 零调用：只读细纲与角色卡。两个入口：对话页写第 N 章之前（controller/chat.ts，亮一张卡，
- * 可以「仅本次忽略」）；工程页批量写章开跑之前与每一章之前（features/pipelineBatch.ts）。
+ * 可以「仅本次忽略」或「记为刻意安排」）；工程页批量写章开跑之前与每一章之前（features/pipelineBatch.ts）。
+ *
+ * 细纲里记下的永久放行（`preflightOk`，五期补遗 §2）在这里分出去：两个入口都只为剩下的那些停。
  */
 import { NovelProject } from '../model/project';
-import { PreflightRisk, describeRisk, findPreflightRisks } from '../model/preflight';
+import { PreflightRisk, describeRisk, findPreflightRisks, splitExempt } from '../model/preflight';
 
-export { describeRisk, PREFLIGHT_SUGGESTION } from '../model/preflight';
+export { describeExempted, describeRisk, PREFLIGHT_SUGGESTION } from '../model/preflight';
 export type { PreflightRisk } from '../model/preflight';
+
+export interface PreflightResult {
+  /** 要作者留意的（没有被永久放行的）。 */
+  risks: PreflightRisk[];
+  /** 细纲里记过永久放行的：不拦，只在说明里提一句。 */
+  exempted: { risk: PreflightRisk; reason: string }[];
+  /** 这一章细纲的路径（记永久放行要写它）。没有细纲时缺席。 */
+  plotRelPath?: string;
+}
 
 /**
  * 第 `no` 章的预检。这一章没有细纲、细纲里没排人，都是空的——没有可比的东西。
  */
-export async function preflightChapter(project: NovelProject, no: number): Promise<PreflightRisk[]> {
+export async function preflightChapter(project: NovelProject, no: number): Promise<PreflightResult> {
   const plot = await project.getPlot(no);
   if (!plot || plot.characters.length === 0) {
-    return [];
+    return { risks: [], exempted: [], ...(plot ? { plotRelPath: plot.relPath } : {}) };
   }
   const cards = await project.listCharacters();
-  return findPreflightRisks({
+  const all = findPreflightRisks({
     no,
     planned: plot.characters,
     cards: cards.map((c) => ({
@@ -31,6 +42,7 @@ export async function preflightChapter(project: NovelProject, no: number): Promi
       relPath: c.relPath,
     })),
   });
+  return { ...splitExempt(all, plot.preflightOk), plotRelPath: plot.relPath };
 }
 
 /** 一处风险的身份：同一章、同一个人。批量里「开跑前问过、作者说仅本次忽略」的那几处按它认。 */

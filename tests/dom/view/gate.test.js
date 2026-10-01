@@ -17,6 +17,7 @@
  * | 重连重推同一条 | 不画出两张 |
  * | 认不出的 turnId | 卡片照样画（丢掉等于留一个没人看得见的死等） |
  * | `gateDone` | 另一个视图上答的，这边也收 |
+ * | 带 `remember` 的预检卡 | 多一格理由与第三颗按钮，填了才能点，理由随 `gateResult` 带回（五期补遗 §2） |
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -156,6 +157,61 @@ describe('点下去', { skip: JSDOM_SKIP }, () => {
   test('后端广播回来不再补第二行', () => {
     ui.post({ type: 'gateDone', requestId: 'g1', verdict: 'proceed' });
     assert.equal(ui.bubble('a1').querySelectorAll('.gate-note').length, 1);
+  });
+});
+
+// 五期补遗 §2：一致性预检卡多一格理由与第三颗按钮「记为刻意安排，照写」。
+describe('记为刻意安排（带理由的同意）', { skip: JSDOM_SKIP }, () => {
+  const PREFLIGHT = {
+    ...GATE,
+    requestId: 'g5',
+    callId: undefined,
+    name: 'preflight',
+    title: '写第 8 章之前的一致性预检：1 处要留意',
+    proceed: '仅本次忽略，照写',
+    skip: '先不写',
+    danger: '沈秋的当前状态（截至第 5 章）写着「已死亡」，本章细纲仍安排这个人出场',
+    remember: { label: '记为刻意安排，照写', placeholder: '为什么这是刻意的安排' },
+  };
+  let ui;
+  let save;
+  let input;
+
+  before(() => {
+    ui = running();
+    ui.post(PREFLIGHT);
+    input = card(ui).querySelector('.gate-remember-input');
+    save = card(ui).querySelector('.gate-remember-btn');
+  });
+
+  test('有理由输入框与第三颗按钮，排在两颗主按钮上面', () => {
+    assert.ok(input && save, card(ui).innerHTML);
+    assert.equal(input.placeholder, '为什么这是刻意的安排');
+    assert.equal(save.textContent, '记为刻意安排，照写');
+    const row = card(ui).querySelector('.gate-remember');
+    const actions = card(ui).querySelector('.gate-actions');
+    assert.ok(row.compareDocumentPosition(actions) & 4, '理由那一行在按钮行前面');
+  });
+
+  test('没填理由点不了', () => {
+    assert.equal(save.disabled, true);
+  });
+
+  test('填了理由点下去：发回 proceed 并带上理由，卡片撤下', () => {
+    input.value = '  托梦里的一场 ';
+    input.dispatchEvent(new ui.window.Event('input'));
+    assert.equal(save.disabled, false);
+    ui.clickEl(save);
+    const sent = ui.last('gateResult');
+    assert.equal(sent.verdict, 'proceed');
+    assert.equal(sent.remember, '托梦里的一场');
+    assert.equal(card(ui), null);
+  });
+
+  test('别的卡片没有这一格', () => {
+    const other = running();
+    other.post(GATE);
+    assert.equal(other.doc.querySelector('.gate-remember'), null);
   });
 });
 

@@ -125,12 +125,35 @@ function buildGateCard(msg: GateMessage): HTMLElement {
     card.appendChild(det);
   }
 
-  const answer = (verdict: 'proceed' | 'skip') => {
+  const answer = (verdict: 'proceed' | 'skip', remember?: string) => {
     // 先就地撤卡：慢一点的后端回话之前，作者不该能把两颗都点一遍。
     if (settleGate(msg.requestId, verdict)) {
-      vscode.postMessage({ type: 'gateResult', requestId: msg.requestId, verdict });
+      vscode.postMessage({ type: 'gateResult', requestId: msg.requestId, verdict, ...(remember ? { remember } : {}) });
     }
   };
+
+  // 「记为刻意安排，照写」（一致性预检，五期补遗 §2）：一格理由 + 一颗按钮，填了理由才能点。
+  // 排在两颗主按钮上面——它是「同意」的一种，但要多做一件事（把理由记进细纲），不该挨着
+  // 「照写」让作者顺手点错。
+  if (msg.remember) {
+    const row = mk('div', 'gate-remember');
+    const input = mk('input', 'gate-remember-input');
+    input.type = 'text';
+    input.placeholder = msg.remember.placeholder;
+    const save = gateBtn(msg.remember.label, 'secondary gate-remember-btn', () => {
+      const reason = input.value.trim();
+      if (reason) {
+        answer('proceed', reason);
+      }
+    });
+    save.disabled = true;
+    input.addEventListener('input', () => {
+      save.disabled = !input.value.trim();
+    });
+    row.appendChild(input);
+    row.appendChild(save);
+    card.appendChild(row);
+  }
 
   // 同意贴最右（离「发送」最近的那一侧就是「继续」），拒绝挨着它压成次级按钮。
   // 两颗一样重的话，作者会下意识点左边那颗——而这一下是「动我的磁盘」。

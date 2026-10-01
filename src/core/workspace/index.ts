@@ -55,7 +55,7 @@ import {
   renderCharacterCard,
   renderLoreEntry,
 } from '../model/project';
-import { WritablePlot, renderPlotFile } from '../model/plotFile';
+import { PreflightOk, WritablePlot, parsePlotFile, renderPlotFile, renderPreflightOk } from '../model/plotFile';
 import { Artifact } from '../features/artifact';
 import {
   ArtifactKind,
@@ -491,6 +491,33 @@ export class Workspace {
     }
     await fs.writeFile(abs, next, 'utf8');
     this.project.invalidate();
+    return true;
+  }
+
+  /**
+   * 一致性预检的永久放行（五期补遗 §2）：把「这几个人在这一章出场是刻意的安排」记进这一章细纲的
+   * frontmatter（`preflightOk`，一行「名字：理由」）。同名的换成新理由，其余原样留着。
+   *
+   * 与 {@link recordWrittenFrom} 同一种写法：只改 `---` 之间那一段。细纲没有 frontmatter（作者
+   * 手写的）就不补——补一段 frontmatter 等于把它拉进指纹链（handlers/plot.ts 的第 18a 条）。
+   * 返回是否确实记上了。
+   */
+  async recordPreflightOk(plotRelPath: string, entries: readonly PreflightOk[]): Promise<boolean> {
+    const abs = this.project.pathOf(plotRelPath);
+    const raw = await readTextIfExists(abs).catch(() => undefined);
+    if (raw === undefined || entries.length === 0) {
+      return false;
+    }
+    const current = parsePlotFile(raw, plotRelPath).preflightOk;
+    const merged = [...current.filter((e) => !entries.some((n) => n.name === e.name)), ...entries];
+    const next = rewriteFrontmatter(raw, { preflightOk: renderPreflightOk(merged) });
+    if (next === undefined) {
+      return false;
+    }
+    if (next !== raw) {
+      await fs.writeFile(abs, next, 'utf8');
+      this.project.invalidate();
+    }
     return true;
   }
 

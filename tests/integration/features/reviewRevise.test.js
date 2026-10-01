@@ -15,6 +15,7 @@
  * | 修订稿不到原稿六成：报错，磁盘不变 | 修稿后长度低于阈值时报错（总计划 §5 五期验收第二条） |
  * | 修过稿，主按钮先推重新定稿第 2 章 | 摘要跟着修订稿走 |
  * | 主按钮写第 3 章：先亮预检卡，「先不写」零调用，再按一次「仅本次忽略」照写 | 一致性预检零调用、可以仅本次忽略 |
+ * | 重写第 3 章选「记为刻意安排」：理由记进细纲、不动内容指纹；再写不再亮卡 | 五期补遗 §2：永久放行按章记 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -74,7 +75,10 @@ function attach() {
     post: (m) => {
       posted.push(m);
       if (m.type === 'gate') {
-        void controller.handle({ type: 'gateResult', requestId: m.requestId, verdict: gateAnswer(m) });
+        // 答案可以带理由（预检卡的「记为刻意安排」）：`{ verdict, remember }`。
+        const a = gateAnswer(m);
+        const { verdict, remember } = typeof a === 'string' ? { verdict: a } : a;
+        void controller.handle({ type: 'gateResult', requestId: m.requestId, verdict, ...(remember ? { remember } : {}) });
       }
     },
     reveal() {},
@@ -119,6 +123,7 @@ before(async () => {
     provider: './src/core/llm/provider.ts',
     controller: './src/core/controller/index.ts',
     plotFile: './src/core/model/plotFile.ts',
+    views: './src/core/views/pipeline.ts',
     db: './src/core/runtime/db.ts',
   });
   const settings = {
@@ -314,6 +319,47 @@ describe('五期验收', () => {
       assert.equal(fake.calls.length, 1);
       assert.deepEqual(gates().map((g) => g.name), ['preflight', 'artifact']);
       assert.ok(t.has('chapters/003-渡口.md'));
+    });
+  });
+
+  // 五期补遗 §2：预检的永久放行。
+  describe('重写第 3 章：记为刻意安排', () => {
+    const P3 = '.novelforge/plots/003-渡口.md';
+    const rewrite3 = async () => {
+      posted = [];
+      await controller.handle({
+        type: 'send',
+        payload: { text: '', stage: 'manuscript', capability: 'generate', target: { kind: 'manuscript', plotRelPath: P3 }, targetNo: 3, writeMode: 'rewrite', attachments: [], excludedIds: [] },
+      });
+    };
+
+    test('预检卡带理由输入框；填了理由点「记为刻意安排」：照写，理由记进第 3 章细纲', async () => {
+      gateAnswer = (m) => (m.name === 'preflight' ? { verdict: 'proceed', remember: '托梦里的一场' } : 'proceed');
+      queues.write.push({ text: filler(950, 31), stop: 'end' });
+      const hashBefore = bundle.views.plotContentHash(await project.getPlot(3));
+      await rewrite3();
+      const [g] = gates();
+      assert.equal(g.name, 'preflight');
+      assert.equal(g.remember.label, '记为刻意安排，照写');
+      project.invalidate();
+      const plot = await project.getPlot(3);
+      assert.deepEqual(JSON.parse(JSON.stringify(plot.preflightOk)), [{ name: '沈秋', reason: '托梦里的一场' }]);
+      assert.match(t.read(P3), /preflightOk: \[沈秋：托梦里的一场\]/);
+      // frontmatter 不进内容指纹：记下放行不会让正文变成「细纲改过」。
+      assert.equal(bundle.views.plotContentHash(plot), hashBefore);
+    });
+
+    test('落盘卡片的说明里写着记下了', () => {
+      const card = gates().find((g) => g.name === 'artifact');
+      assert.match(card.detail, /沈秋在第 3 章出场已记为刻意安排（托梦里的一场）/);
+    });
+
+    test('再重写一次：不亮预检卡，说明里提一句「按你记下的安排放行」', async () => {
+      gateAnswer = () => 'proceed';
+      queues.write.push({ text: filler(950, 32), stop: 'end' });
+      await rewrite3();
+      assert.deepEqual(gates().map((g) => g.name), ['artifact']);
+      assert.match(gates()[0].detail, /沈秋按你记下的安排放行（托梦里的一场）/);
     });
   });
 });

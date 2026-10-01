@@ -5,7 +5,7 @@ import { acceptArtifact as writeArtifact, plannedCards } from '../generation/acc
 import { Draft, generate, parseDraftArtifact } from '../generation/generate';
 import { getHost } from '../host';
 import type { GateVerdict } from '../agent/policy';
-import { askGate, cancelGates } from './gate';
+import { askGate, askGateNoted, cancelGates } from './gate';
 import { scoped } from '../runtime/logger';
 import {
   ChatSession,
@@ -52,7 +52,7 @@ import { parseChapterFileName } from '../model/chapterFile';
 import { isPlotPath } from '../files/fileOps';
 import { Chapter } from '../model/types';
 import { describePicks, normalizeReport, pickableIds, relocatePicks, renderRevisionBrief } from '../model/review';
-import { PREFLIGHT_SUGGESTION, describeRisks, preflightChapter } from '../features/preflight';
+import { PREFLIGHT_SUGGESTION, describeExempted, describeRisks, preflightChapter } from '../features/preflight';
 import { clearFailures } from '../runtime/errorLog';
 import { persist } from './persist';
 import {
@@ -728,8 +728,9 @@ type BeforeGenerate =
  * - **修稿**：按那一轮的报告与磁盘上此刻的正文拼清单。正文在审稿之后改过（指纹对不上），
  *   逐条重新定位勾选的问题，引文已经不在的作废并写进说明；一条都不剩就不调模型。
  * - **一致性预检**：写一章（新写或重写）之前，零调用地查细纲有没有把角色卡上已经死了的人排进
- *   本章。有就在对话页亮一张卡：「仅本次忽略，照写」/「先不写」。接着写与修稿不查——开头已经
- *   写下了，这时候拦它没有意义。
+ *   本章。有就在对话页亮一张卡：「仅本次忽略，照写」/「先不写」，或者填一句理由「记为刻意安排，
+ *   照写」——记进这一章细纲的 `preflightOk`，以后写这一章不再为这几个人亮卡（五期补遗 §2）。记过的
+ *   不拦，写章卡片的说明里提一句。接着写与修稿不查——开头已经写下了，这时候拦它没有意义。
  */
 async function beforeGenerate(
   c: ChatController,
@@ -754,18 +755,18 @@ async function beforeGenerate(
   const no =
     (relPath ? (await c.project.resolvePlot(relPath))?.no ?? parsePlotFileName(basename(relPath))?.no : undefined) ??
     c.current.targetNo;
-  const risks = no ? await preflightChapter(c.project, no) : [];
+  const { risks, exempted, plotRelPath: plotRel } = no ? await preflightChapter(c.project, no) : { risks: [], exempted: [], plotRelPath: undefined };
+  const notes = exempted.map(describeExempted);
   // 批量写章在这一章前面停下时挂过一个黄 ❗：这一次查过了（没问题，或作者说仅本次忽略）就收掉。
-  const plotRel = no ? (await c.project.getPlot(no))?.relPath : undefined;
   if (!no || risks.length === 0) {
     if (plotRel) {
       await clearFailures(c.project, 'plot', plotRel, 'preflight');
     }
-    return { go: true };
+    return { go: true, ...(notes.length > 0 ? { notes } : {}) };
   }
   const lines = describeRisks(no, risks);
   log.warn(`写第 ${no} 章之前的一致性预检：${risks.length} 处`, lines.join('\n'));
-  const verdict = await askGate(
+  const answer = await askGateNoted(
     c,
     {
       turnId: ctx.assistantTurn.id,
@@ -775,25 +776,44 @@ async function beforeGenerate(
       danger: lines.join('\n'),
       proceed: '仅本次忽略，照写',
       skip: '先不写',
+      ...(plotRel
+        ? {
+            remember: {
+              label: '记为刻意安排，照写',
+              placeholder: '为什么这是刻意的安排（如：回忆里的一场）。记进这一章的细纲，以后写这一章不再为这几个人提醒',
+            },
+          }
+        : {}),
     },
     ctx.signal
   );
-  if (verdict === 'proceed') {
-    log.info(`一致性预检：作者选择仅本次忽略，照写第 ${no} 章`);
+  if (answer.verdict === 'proceed') {
+    if (answer.remember && plotRel) {
+      const ok = await c.workspace.recordPreflightOk(plotRel, risks.map((r) => ({ name: r.name, reason: answer.remember! })));
+      const who = risks.map((r) => r.name).join('、');
+      log.info(`一致性预检：作者把${who}记为第 ${no} 章的刻意安排`, answer.remember);
+      notes.unshift(
+        ok
+          ? `一致性预检：${who}在第 ${no} 章出场已记为刻意安排（${answer.remember}），写进了这一章细纲的 preflightOk，以后写这一章不再提醒`
+          : `一致性预检：这一章细纲是手写的（没有 frontmatter），没能记下「${answer.remember}」；这一次照写`
+      );
+    } else {
+      log.info(`一致性预检：作者选择仅本次忽略，照写第 ${no} 章`);
+    }
     if (plotRel) {
       await clearFailures(c.project, 'plot', plotRel, 'preflight');
     }
-    return { go: true };
+    return { go: true, ...(notes.length > 0 ? { notes } : {}) };
   }
   return {
     go: false,
-    interrupted: verdict === 'stop',
+    interrupted: answer.verdict === 'stop',
     content: [
       `一致性预检发现 ${risks.length} 处问题，这一次先不写——没有调用模型。`,
       '',
       ...lines.map((l) => `- ${l}`),
       '',
-      '改好细纲的出场角色或角色卡之后再写；如果这本来就是回忆、幻象一类的刻意安排，再点一次写这一章，选「仅本次忽略，照写」。',
+      '改好细纲的出场角色或角色卡之后再写；如果这本来就是回忆、幻象一类的刻意安排，再点一次写这一章，选「仅本次忽略，照写」或「记为刻意安排，照写」。',
     ].join('\n'),
   };
 }

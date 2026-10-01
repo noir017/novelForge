@@ -117,5 +117,31 @@ export function describeRisk(r: PreflightRisk): string {
   return `${r.name}的当前状态${when}写着「${r.clause}」，本章细纲仍安排这个人出场`;
 }
 
+/**
+ * 按细纲里记下的永久放行（`preflightOk`，五期补遗 §2）分开：作者说过「这一章里他出场是刻意的」那几个人
+ * 不再算风险，单独列出来（写章卡片的说明里说一句「按你记下的安排放行」）。按卡上的名字认。
+ */
+export function splitExempt(
+  risks: readonly PreflightRisk[],
+  exempt: readonly { name: string; reason: string }[]
+): { risks: PreflightRisk[]; exempted: { risk: PreflightRisk; reason: string }[] } {
+  const out: PreflightRisk[] = [];
+  const exempted: { risk: PreflightRisk; reason: string }[] = [];
+  for (const risk of risks) {
+    const hit = exempt.find((e) => e.name === risk.name);
+    if (hit) {
+      exempted.push({ risk, reason: hit.reason });
+    } else {
+      out.push(risk);
+    }
+  }
+  return { risks: out, exempted };
+}
+
+/** 「沈秋：按你记下的安排放行（回忆里的一场）」。 */
+export function describeExempted(e: { risk: PreflightRisk; reason: string }): string {
+  return `一致性预检：${e.risk.name}按你记下的安排放行（${e.reason || '没写理由'}）。要撤销，删掉这一章细纲 preflightOk 里那一行`;
+}
+
 /** 卡片上跟在警告后面的那一句建议（上游 suggestion 的说法）。 */
 export const PREFLIGHT_SUGGESTION = '调整细纲的出场角色，或者这本来就是回忆、幻象、托梦一类的刻意安排——那就仅本次忽略，照写。';

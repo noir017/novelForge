@@ -61,8 +61,11 @@ export type GateSettlement = 'proceed' | 'skip' | 'cancelled';
 /** 一次还没答的询问。`msg` 留着是为了重连时能原样再推一遍。 */
 export interface PendingGate {
   readonly msg: GateMessage;
-  /** 结算这一次询问。**只有第一次算数**（作者点了，同时这一轮又被取消）。 */
-  settle(verdict: GateSettlement): void;
+  /**
+   * 结算这一次询问。**只有第一次算数**（作者点了，同时这一轮又被取消）。`remember` 是卡片带
+   * 理由输入框时作者填的那一句（见 {@link GateAsk.remember}）。
+   */
+  settle(verdict: GateSettlement, remember?: string): void;
 }
 
 /**
@@ -94,6 +97,8 @@ export interface GateAsk {
   danger?: string;
   /** 给了就要点两下才算同意，第二下按钮上是这几个字（见协议 `gate.confirm`）。 */
   confirm?: string;
+  /** 给了就多一格理由输入框与第三颗按钮（见协议 `gate.remember`）。理由经 {@link askGateNoted} 拿回来。 */
+  remember?: { label: string; placeholder: string };
 }
 
 /**
@@ -103,7 +108,16 @@ export interface GateAsk {
  * 只有取消一种，按**停止**处理（他被问「要不要动你的磁盘」而没有回答，不该
  * 替他答「继续」）。
  */
-export function askGate(c: ChatController, ask: GateAsk, signal?: AbortSignal): Promise<GateVerdict> {
+export async function askGate(c: ChatController, ask: GateAsk, signal?: AbortSignal): Promise<GateVerdict> {
+  return (await askGateNoted(c, ask, signal)).verdict;
+}
+
+/** 同 {@link askGate}，另把作者在理由输入框里填的那一句带回来（卡片带 `remember` 时才可能有）。 */
+export function askGateNoted(
+  c: ChatController,
+  ask: GateAsk,
+  signal?: AbortSignal
+): Promise<{ verdict: GateVerdict; remember?: string }> {
   const requestId = nextRequestId();
   const msg: GateMessage = {
     type: 'gate',
@@ -120,18 +134,20 @@ export function askGate(c: ChatController, ask: GateAsk, signal?: AbortSignal): 
     skip: ask.skip ?? SKIP_ACTION,
     ...(ask.danger ? { danger: ask.danger } : {}),
     ...(ask.confirm ? { confirm: ask.confirm } : {}),
+    ...(ask.remember ? { remember: ask.remember } : {}),
   };
 
-  return new Promise<GateVerdict>((resolve) => {
+  return new Promise<{ verdict: GateVerdict; remember?: string }>((resolve) => {
     const onAbort = () => c.gates.get(requestId)?.settle('cancelled');
-    const settle = (verdict: GateSettlement) => {
+    const settle = (verdict: GateSettlement, remember?: string) => {
       // 先从表里摘掉：这既是「只结算一次」的判据，也让重连不再推它。
       if (!c.gates.delete(requestId)) {
         return;
       }
       signal?.removeEventListener('abort', onAbort);
       c.post({ type: 'gateDone', requestId, verdict });
-      resolve(verdict === 'cancelled' ? 'stop' : verdict);
+      const note = verdict === 'proceed' && ask.remember && remember?.trim() ? remember.trim() : undefined;
+      resolve({ verdict: verdict === 'cancelled' ? 'stop' : verdict, ...(note ? { remember: note } : {}) });
     };
 
     c.gates.set(requestId, { msg, settle });
@@ -156,8 +172,8 @@ export function askGate(c: ChatController, ask: GateAsk, signal?: AbortSignal): 
  * **认不出的 requestId 静默丢弃**：重连之后前端可能还留着一张早就结束了的
  * 卡片（另一个视图上答过了），为它报错只会让作者莫名其妙。
  */
-export function resolveGate(c: ChatController, requestId: string, verdict: 'proceed' | 'skip'): void {
-  c.gates.get(requestId)?.settle(verdict);
+export function resolveGate(c: ChatController, requestId: string, verdict: 'proceed' | 'skip', remember?: string): void {
+  c.gates.get(requestId)?.settle(verdict, remember);
 }
 
 /**

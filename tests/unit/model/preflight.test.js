@@ -95,3 +95,48 @@ describe('preflight.ts · 找风险', () => {
     assert.match(p.describeRisk(risks[0]), /（开篇状态）/);
   });
 });
+
+// 五期补遗 §2：永久放行记在细纲 frontmatter 的 `preflightOk` 里，一行「名字：理由」。
+describe('preflight.ts · 永久放行', () => {
+  const plotFile = loadModule('src/core/model/plotFile.ts');
+  const risks = p.findPreflightRisks({
+    no: 8,
+    planned: ['沈秋', '李叔'],
+    cards: [
+      { name: '沈秋', aliases: [], state: '已死亡', stateThrough: 5 },
+      { name: '李叔', aliases: [], state: '已于第 6 章病逝', stateThrough: 6 },
+    ],
+  });
+
+  test('记过的人分出去，带着理由；没记过的照旧是风险', () => {
+    const r = p.splitExempt(risks, [{ name: '沈秋', reason: '回忆里的一场' }]);
+    assert.deepEqual(r.risks.map((x) => x.name), ['李叔']);
+    assert.equal(r.exempted.length, 1);
+    assert.equal(r.exempted[0].risk.name, '沈秋');
+    assert.match(p.describeExempted(r.exempted[0]), /沈秋按你记下的安排放行（回忆里的一场）。要撤销，删掉这一章细纲 preflightOk 里那一行/);
+  });
+
+  test('没写理由也算放行', () => {
+    const r = p.splitExempt(risks, [{ name: '李叔', reason: '' }]);
+    assert.deepEqual(r.risks.map((x) => x.name), ['沈秋']);
+    assert.match(p.describeExempted(r.exempted[0]), /（没写理由）/);
+  });
+
+  test('「名字：理由」解析：全角半角冒号都认，没冒号整行是名字，同名只留第一条', () => {
+    assert.deepEqual(JSON.parse(JSON.stringify(plotFile.parsePreflightOk(['沈秋：回忆', '李叔:托梦', '王五', '沈秋：又一条', '  ']))), [
+      { name: '沈秋', reason: '回忆' },
+      { name: '李叔', reason: '托梦' },
+      { name: '王五', reason: '' },
+    ]);
+    assert.deepEqual(plotFile.renderPreflightOk([{ name: '沈秋', reason: '回忆' }, { name: '王五', reason: '' }]), ['沈秋：回忆', '王五']);
+  });
+
+  test('细纲读回来带着它；渲染时给了才写', () => {
+    const empty = plotFile.emptyPlotSections();
+    const base = { no: 8, title: '渡口', role: '', characters: ['沈秋'], upstreamHash: '', done: false, sections: { ...empty, 关键事件: '事' } };
+    const withOk = plotFile.renderPlotFile({ ...base, preflightOk: [{ name: '沈秋', reason: '回忆' }] });
+    assert.match(withOk, /preflightOk: \[沈秋：回忆\]/);
+    assert.deepEqual(JSON.parse(JSON.stringify(plotFile.parsePlotFile(withOk, '.novelforge/plots/008-渡口.md').preflightOk)), [{ name: '沈秋', reason: '回忆' }]);
+    assert.doesNotMatch(plotFile.renderPlotFile(base), /preflightOk/);
+  });
+});

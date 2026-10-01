@@ -159,3 +159,26 @@
   background: var(--vscode-errorForeground, #f14c4c);
   color: var(--vscode-button-foreground, #fff);
 }
+
+/* 「记为刻意安排，照写」（一致性预检的永久放行）：一格理由 + 一颗按钮，排在两颗主按钮上面。 */
+.gate-remember {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.gate-remember-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.85em;
+  padding: 3px 6px;
+  color: var(--vscode-input-foreground, inherit);
+  background: var(--vscode-input-background, transparent);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  border-radius: 3px;
+}
+
+.gate-remember-btn {
+  flex: 0 0 auto;
+}
