@@ -329,6 +329,9 @@ function sampleTree() {
     chaptersRoot: 'chapters', charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
     globalSummaryThrough: 2, styleGuidePath: '.novelforge/style.md',
     outlinePath: '.novelforge/outline.md', globalSummaryPath: '.novelforge/summaries/global.md',
+    // 叙事线（七期）：排过 4 条，一条已收，一条过了回收章还开着。
+    threadsPath: '.novelforge/threads.md',
+    threads: { exists: true, total: 4, open: 3, closed: 1, overdue: 1 },
     // 故事架构：四件文档 + 情节大纲，顺序即生成顺序。世界观还没写。
     // 角色图谱没有自己的文件，relPath 给的是角色目录。
     architecture: [

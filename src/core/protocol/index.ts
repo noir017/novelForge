@@ -26,6 +26,7 @@ export type {
   ArchitectureRow,
   BookView,
   IdeaDefaults,
+  ThreadsView,
   CastConflictView,
   CastEntry,
   CastSummary,

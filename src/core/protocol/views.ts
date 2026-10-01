@@ -69,6 +69,9 @@ export interface ProjectTree {
   styleGuidePath: string;
   outlinePath: string;
   globalSummaryPath: string;
+  /** 叙事线（七期）。可选的文件：`threads.exists` 为 false 时还没排过。 */
+  threadsPath: string;
+  threads: ThreadsView;
   /** 全书走到哪一步（架构 / 大纲 / 细纲 / 在写 / 写完）。 */
   bookStage: BookStage;
   /** 下一个该写的章（从第 1 章起连续有正文的最大章号 + 1）。只有这一行给「写这一章」。 */
@@ -80,6 +83,19 @@ export interface ProjectTree {
   next?: NextStepView;
   /** 一句话、拆细纲两个弹窗的默认值（W4 / W5）。 */
   book: BookView;
+}
+
+/**
+ * 「文风与摘要」组里「叙事线」那一行的计数（七期）。`overdue` 是还没收、却已经过了计划回收章的
+ * （以「下一可写章 − 1」为写到的那一章）。
+ */
+export interface ThreadsView {
+  /** `threads.md` 有内容。没有时点那一行不打开文件（没有文件可开）。 */
+  exists: boolean;
+  total: number;
+  open: number;
+  closed: number;
+  overdue: number;
 }
 
 /** 一句话弹窗的默认值。主按钮是「生成小说配置」时随下一步一起给。 */

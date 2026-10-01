@@ -10,6 +10,7 @@ import { parsePlotFileName } from '../model/plotFile';
 import { isOutlineFilled, outlineCoverage } from '../model/outlineFile';
 import { SUMMARY_SECTION_KEYS } from '../model/types';
 import { describeStateThrough } from '../model/characterState';
+import { countThreads, parseThreads } from '../model/threadsFile';
 import { buildBookFacts, buildPlotPipeline, buildPipelineIndex, chapterOfPlotNo } from './pipeline';
 import {
   ArchitectureRow,
@@ -52,6 +53,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   const styleGuidePath = project.relPath(project.stylePath);
   const outlinePath = project.relPath(project.outlinePath);
   const globalSummaryPath = project.relPath(project.globalSummaryPath);
+  const threadsPath = project.relPath(project.threadsPath);
   const plotsRoot = project.relPath(project.plotsDir);
   const chaptersRoot = project.relPath(project.chaptersDir);
   const charactersRoot = project.relPath(project.charactersDir);
@@ -84,13 +86,15 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       styleGuidePath,
       outlinePath,
       globalSummaryPath,
+      threadsPath,
+      threads: { exists: false, total: 0, open: 0, closed: 0, overdue: 0 },
       bookStage: 'setting',
       nextChapterNo: 1,
       book: { idea: '', configHasContent: false, plotFilledNos: [] },
     };
   }
 
-  const [characters, lore, characterDirs, loreDirs, draftPaths, pipelineIndex] = await Promise.all([
+  const [characters, lore, characterDirs, loreDirs, draftPaths, pipelineIndex, threadsText] = await Promise.all([
     project.listCharacters(),
     project.listLore(),
     project.listFolders(project.charactersDir),
@@ -99,6 +103,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     project.listDraftPaths(),
     // 全书流水线索引：大纲、配置、manifest 与全书摘要都只读一次摊给所有章。
     buildPipelineIndex(project),
+    project.readThreadsText(),
   ]);
   // 章节列表、manifest、全书摘要与大纲原文都用流水线那一趟读到的同一份，
   // 不再单独读一次。
@@ -247,6 +252,9 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     styleGuidePath,
     outlinePath,
     globalSummaryPath,
+    threadsPath,
+    // 「写到第几章」以下一可写章 − 1 算，与主按钮同一个口径。空文件当没有。
+    threads: { exists: threadsText.trim() !== '', ...countThreads(parseThreads(threadsText), book.nextChapterNo - 1) },
     bookStage,
     nextChapterNo: book.nextChapterNo,
     ...(next ? { next } : {}),

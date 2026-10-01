@@ -4,7 +4,7 @@
  */
 import { el as mk, spacer } from '../../dom';
 import type { MenuItem } from '../../globals';
-import type { ProjectNode, ProjectTree } from '../../protocol';
+import type { ProjectNode, ProjectTree, ThreadsView } from '../../protocol';
 import { linkBtn } from '../buttons';
 import { formatWords } from '../format';
 import { onContextMenu } from '../menu';
@@ -187,7 +187,7 @@ export function countLabel(nodes: ProjectNode[], unit: string): string {
 }
 
 /**
- * 「文风与摘要」那一组：全书摘要、文风指南，外加一行批量动作（同步过期摘要、提取角色卡、
+ * 「文风与摘要」那一组：全书摘要、文风指南、叙事线，外加一行批量动作（同步过期摘要、提取角色卡、
  * 批量拆细纲、批量写章）。情节大纲在「故事架构」那一组。
  *
  * 这几行是工程的固定文件，不给类文件操作（`buildFileRow` 不传 depth 即可），
@@ -229,6 +229,8 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   ]);
   rows.push(style);
 
+  rows.push(buildThreadsRow(tree));
+
   // 情节大纲不在这一组：它是「故事架构」那一组的第五行（后面一切的上游）。
 
   const tools = mk('div', 'row row-tools');
@@ -253,6 +255,51 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   rows.push(tools);
 
   return rows;
+}
+
+const NO_THREADS: ThreadsView = { exists: false, total: 0, open: 0, closed: 0, overdue: 0 };
+
+/**
+ * 「叙事线」一行（七期）：可选的固定文件，与全书摘要同类，不进「故事架构」的 x/5——它不挡路。
+ *
+ * 还没有细纲时没有东西可排，不给按钮；排线在跑时也不给（点第二次只会撞上「已有任务在
+ * 进行」）。任务名与 features/threads.ts 的 runTask 一字不差。按钮不直接花钱：后端先弹确认框，
+ * 写明 1 次调用。
+ */
+function buildThreadsRow(tree: ProjectTree): HTMLElement {
+  const th = tree.threads ?? NO_THREADS;
+  const canPlan = (tree.book?.plotFilledNos ?? []).length > 0;
+  const detail =
+    th.total === 0
+      ? canPlan
+        ? '未生成'
+        : '未生成 · 拆出细纲之后可以从细纲排出'
+      : [
+          `${th.total} 条`,
+          `${th.open} 条进行中`,
+          th.closed > 0 ? `${th.closed} 条已收` : '',
+          th.overdue > 0 ? `⚠ ${th.overdue} 条已过回收章` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+  const row = buildFileRow({ label: '叙事线', relPath: tree.threadsPath, detail }, '🧵', undefined, {
+    openable: th.exists,
+  });
+  const verb = th.total === 0 ? '从细纲排出' : '从细纲补充';
+  if (canPlan && !hasTask('排叙事线')) {
+    row.appendChild(rowActions(linkBtn(verb, () => projectAction('generateThreads'))));
+  }
+  onContextMenu(row, () => {
+    const items: MenuItem[] = [];
+    if (th.exists) {
+      items.push({ label: '打开', run: () => openPath(tree.threadsPath) });
+    }
+    if (canPlan) {
+      items.push({ label: `${verb}叙事线`, run: () => projectAction('generateThreads') });
+    }
+    return [...items, ...(items.length > 0 ? [{ sep: true as const }] : []), ...baseMenuItems()];
+  });
+  return row;
 }
 
 /** 行内操作的容器。平时藏起来，hover 才亮。 */

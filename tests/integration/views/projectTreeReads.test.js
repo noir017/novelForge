@@ -114,6 +114,8 @@ before(async () => {
   for (let i = 1; i <= PLOTS; i++) {
     await writePlot(i);
   }
+  // 叙事线（七期）：有这份文件，下面「至多读一次」那条才管得到它。
+  t.write('.novelforge/threads.md', '# 叙事线\n\n## 玉佩\n- 计划：第 1–2 章\n- 第 1 章 · 埋下：「玉佩」\n');
 });
 
 after(() => {
@@ -125,6 +127,7 @@ describe('工程页刷新 · 读盘次数', () => {
   test('夹具确实建出了全部章（否则下面的计数没有意义）', async () => {
     const tree = await measure();
     assert.equal(tree.plotCount, PLOTS);
+    assert.deepEqual(tree.threads, { exists: true, total: 1, open: 1, closed: 0, overdue: 1 });
   });
 
   // 全齐了才说明各条取数路径都真的走到了：只建细纲不写正文的话，

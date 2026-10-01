@@ -368,9 +368,15 @@ function setTarget(target: CreationTarget): void {
  * 角色/设定/元数据行。
  *
  * `depth` 为 undefined 时不设缩进，也不挂类文件操作的右键菜单——
- * 「文风与摘要」那几行是工程的固定文件，不能重命名/移动/删除。
+ * 「文风与摘要」那几行是工程的固定文件，不能重命名/移动/删除。`openable: false` 给还不存在的
+ * 可选文件（叙事线）：点名字不去开一个没有的文件。
  */
-export function buildFileRow(f: ProjectFile, icon: string, depth?: number): HTMLElement {
+export function buildFileRow(
+  f: ProjectFile,
+  icon: string,
+  depth?: number,
+  opts: { openable?: boolean } = {}
+): HTMLElement {
   const row = mk('div', 'row');
   if (depth !== undefined) {
     row.style.paddingLeft = `${indentOf(depth)}px`;
@@ -386,7 +392,9 @@ export function buildFileRow(f: ProjectFile, icon: string, depth?: number): HTML
 
   const label = mk('span', 'row-label', f.label);
   label.title = f.relPath;
-  label.addEventListener('click', () => openPath(f.relPath));
+  if (opts.openable !== false) {
+    label.addEventListener('click', () => openPath(f.relPath));
+  }
   row.appendChild(label);
 
   if (f.detail) {
