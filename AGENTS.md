@@ -1,6 +1,6 @@
 # AGENTS.md
 
-> **生成链路重构中（`refactor/blueprint-pipeline`）。** 卷、剧情段、中转站、拆章已从代码里删掉，换成「架构 → 情节大纲 → 细纲（一章一份，细纲号 = 章号）→ 正文直接落 `chapters/`」。下文涉及那几层的段落与第 8、18、21、22、23 条的文字尚未改写（六期统一改），**冲突时以 [总计划](docs/design/plans/2026-09-30-blueprint-pipeline-roadmap.md)、[一期计划](docs/design/plans/2026-09-30-blueprint-pipeline-phase1.md)、[二期计划](docs/design/plans/2026-09-30-blueprint-pipeline-phase2.md)、[三期计划](docs/design/plans/2026-09-30-blueprint-pipeline-phase3.md)、[四期计划](docs/design/plans/2026-09-30-blueprint-pipeline-phase4.md) 与 [五期计划](docs/design/plans/2026-09-30-blueprint-pipeline-phase5.md) 为准**。
+> **生成链路重构中（`refactor/blueprint-pipeline`）。** 卷、剧情段、中转站、拆章已从代码里删掉，换成「架构 → 情节大纲 → 细纲（一章一份，细纲号 = 章号）→ 正文直接落 `chapters/`」。下文涉及那几层的段落与第 8、18、21、22、23 条的文字尚未改写（六期统一改），**冲突时以 [总计划](docs/design/plans/2026-09-30-blueprint-pipeline-roadmap.md)、[一期计划](docs/design/plans/2026-09-30-blueprint-pipeline-phase1.md)、[二期计划](docs/design/plans/2026-09-30-blueprint-pipeline-phase2.md)、[三期计划](docs/design/plans/2026-09-30-blueprint-pipeline-phase3.md)、[四期计划](docs/design/plans/2026-09-30-blueprint-pipeline-phase4.md)、[五期计划](docs/design/plans/2026-09-30-blueprint-pipeline-phase5.md) 与 [五期补遗](docs/design/plans/2026-10-01-blueprint-pipeline-phase5b.md) 为准**。
 
 Novel Forge 帮作者**把一个脑洞养成一本完整的书**：从一句念头开始，逐层填成大纲、卷纲、剧情，最后写成正文。三种壳（独立 Web 服务 / 桌面 App / VS Code 插件）共用同一套核心。
 
