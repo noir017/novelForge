@@ -195,6 +195,11 @@ export interface BuildRequest {
    * 读好整章原文，与它一起放进 `revision`（generation/generate.ts 的 `planWriting`）。
    */
   reviseBrief?: string;
+  /**
+   * 写正文时「本章不出场」的人（五期补遗 §1.2）。生成层按磁盘算好交过来（`planWriting`：带角色卡上的
+   * 称呼，本章细纲自己提到的不算），与写完查的那一份同源。缺席时装配器按 focus 现算一份（只认名字）。
+   */
+  notYet?: { name: string; no: number }[];
   /** 被用户手动取消勾选的条目 id。 */
   excludedIds?: string[];
   /** provider 的硬性输入上限，会与 contextWindow 取小。 */

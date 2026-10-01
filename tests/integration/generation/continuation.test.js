@@ -579,3 +579,23 @@ describe('写完查：提前登场、比喻词超标、英文缩写', () => {
     assert.ok(r.draft.notes.some((n) => /正文里有英文缩写：PTSD/.test(n)), JSON.stringify(r.draft.notes));
   });
 });
+
+describe('本章细纲自己提到了后面才登场的人：不点名、写完也不算越界', () => {
+  let r;
+  before(async () => {
+    const ws = new bundle.ws.Workspace(project);
+    const plot = await project.readPlot(P2);
+    await ws.writePlot({ ...plot, sections: { ...plot.sections, 章末钩子: '有人提醒林昭：沈秋已经在找他了' } }, P2);
+    r = await write(P2, [{ text: `${filler(900, 260)}。“沈秋已经在找你了。”有人低声说。`, stop: 'end' }]);
+    await ws.writePlot(plot, P2);
+  });
+
+  test('执行卡后面没有「本章不出场：沈秋」', () => {
+    assert.match(r.users[0], /【本章边界】/);
+    assert.doesNotMatch(r.users[0], /本章不出场/);
+  });
+
+  test('写完不报提前登场', () => {
+    assert.ok(!(r.draft.notes ?? []).some((n) => /才登场/.test(n)), JSON.stringify(r.draft.notes));
+  });
+});

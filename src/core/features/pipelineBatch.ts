@@ -748,6 +748,7 @@ async function writeOne(
     ...request,
     writeMode: writing.mode,
     targetWords: writing.target,
+    notYet: writing.notYet.map(({ name, no }) => ({ name, no })),
   };
   const budgeted = { ...config, ...pool.primaryBudget };
   let pinned: LlmProvider | undefined;

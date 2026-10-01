@@ -107,8 +107,26 @@ export interface EarlyEntrance extends NotYet {
 }
 
 /**
- * 名单里的人（名字或角色卡上的专属称呼）在这段正文里出现了。别名短于两个字的不认
- * （单字到处都是）。`quote` 是第一次出现的那一句，长了截到 60 字。
+ * 一个人在正文里可能的几种写法：全名、括号里外各一截（「镇守人（陈道源）」→ 镇守人、陈道源）、
+ * 角色卡上的专属称呼。两个字以上才算（单字到处都是）。
+ */
+export function namesOf(name: string, aliases: readonly string[] = []): string[] {
+  const parts = name.split(/[（()）]/u).map((s) => s.trim());
+  return [...new Set([name.trim(), ...parts, ...aliases.map((a) => a.trim())])].filter((n) => n.length >= 2);
+}
+
+/**
+ * 本章细纲自己提到了的人不算「不出场」：细纲要他在本章被提起（钩子里一句警告、一段回忆），这时候
+ * 再点名「本章不出场」只会和细纲打架，写完查到他也不是越界。真实模型试跑里第 3 章的钩子就是
+ * 「老客提醒他祠堂里的陈老爷正在搜寻」，陈老爷是第 4 章才登场的镇守人的别名。
+ */
+export function dropMentioned<T extends NotYet & { aliases?: readonly string[] }>(list: readonly T[], selfText: string): T[] {
+  return list.filter((who) => !namesOf(who.name, who.aliases).some((n) => selfText.includes(n)));
+}
+
+/**
+ * 名单里的人（名字、括号里外各一截或角色卡上的专属称呼）在这段正文里出现了。`quote` 是第一次出现的
+ * 那一句，长了截到 60 字。
  */
 export function findEarlyEntrances(
   text: string,
@@ -116,7 +134,7 @@ export function findEarlyEntrances(
 ): EarlyEntrance[] {
   const out: EarlyEntrance[] = [];
   for (const who of notYet) {
-    const names = [who.name, ...(who.aliases ?? [])].map((n) => n.trim()).filter((n) => n.length >= 2);
+    const names = namesOf(who.name, who.aliases);
     let at = -1;
     for (const n of names) {
       const i = text.indexOf(n);

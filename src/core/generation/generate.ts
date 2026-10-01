@@ -40,8 +40,8 @@ import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { countWords } from '../model/fs';
 import { NovelProject } from '../model/project';
-import { isPlotFilled, parsePlotFileName } from '../model/plotFile';
-import { NotYet, notYetOnStage } from '../model/manuscriptCheck';
+import { Plot, isPlotFilled, parsePlotFileName } from '../model/plotFile';
+import { NotYet, dropMentioned, notYetOnStage } from '../model/manuscriptCheck';
 import { AHEAD_PLOTS } from '../context/layers/focus';
 import {
   CAPABILITY_LABEL,
@@ -278,6 +278,8 @@ export async function generate(
       writeMode: writing.mode,
       targetWords: writing.target,
       revision: writing.mode === 'revise' ? writing.revision : request.revision ?? writing.revision,
+      // 执行卡后面「本章不出场」那一行与写完查的是同一份（五期补遗 §1.2）。
+      notYet: writing.notYet.map(({ name, no }) => ({ name, no })),
     };
     log.info(
       `写法：${WRITE_MODE_LABEL[writing.mode]}`,
@@ -590,18 +592,18 @@ export async function planWriting(project: NovelProject, request: Omit<BuildRequ
     prevEnding: prevText.trim() ? previousEnding(prevText) : undefined,
     revision: mode === 'rewrite' ? { previousDraft: body, feedback: REWRITE_FEEDBACK } : undefined,
     ...(plot?.sections.章末钩子.trim() ? { hook: plot.sections.章末钩子 } : {}),
-    notYet: no ? await notYetOf(project, no, plot?.characters ?? []) : [],
+    notYet: no ? await notYetOf(project, no, plot) : [],
   };
 }
 
 /**
  * 第 `no` 章「本章不出场」的人，带角色卡上的专属称呼。窗口与装配器的 `plotAhead` 一样：后
- * {@link AHEAD_PLOTS} 章里排过细纲的。
+ * {@link AHEAD_PLOTS} 章里排过细纲的。本章细纲自己提到了的人不算（`dropMentioned`）。
  */
-async function notYetOf(project: NovelProject, no: number, self: readonly string[]): Promise<(NotYet & { aliases: string[] })[]> {
+async function notYetOf(project: NovelProject, no: number, plot: Plot | undefined): Promise<(NotYet & { aliases: string[] })[]> {
   const plots = await project.listPlots();
   const list = notYetOnStage({
-    self,
+    self: plot?.characters ?? [],
     previous: plots.filter((p) => p.no < no),
     ahead: plots.filter((p) => p.no > no && p.no <= no + AHEAD_PLOTS && isPlotFilled(p.sections)),
   });
@@ -609,7 +611,8 @@ async function notYetOf(project: NovelProject, no: number, self: readonly string
     return [];
   }
   const cards = await project.listCharacters();
-  return list.map((who) => ({ ...who, aliases: cards.find((c) => c.name === who.name)?.aliases ?? [] }));
+  const withAliases = list.map((who) => ({ ...who, aliases: cards.find((c) => c.name === who.name)?.aliases ?? [] }));
+  return dropMentioned(withAliases, plot ? Object.values(plot.sections).join('\n') : '');
 }
 
 /**

@@ -27,10 +27,10 @@ export function promptFactsOf(a: Pick<Assembly, 'request' | 'book' | 'focus'>): 
     writeMode: r.writeMode,
     written: r.writeMode === 'continue' ? a.focus.chapter?.wordCount : undefined,
     reviewGoals: r.reviewGoals,
-    // 「本章不出场」（五期补遗 §1.2）：与 generation/generate.ts 写完查的那份同一个函数、同一个窗口。
+    // 「本章不出场」（五期补遗 §1.2）：生成层交过来的那一份优先（与写完查的同源）；没给就按 focus 现算。
     ...(drafting
       ? {
-          notYet: notYetOnStage({
+          notYet: r.notYet ?? notYetOnStage({
             self: plot?.characters ?? [],
             previous: a.focus.previous.map((c) => ({ no: c.no, characters: c.plot?.characters ?? [] })),
             ahead: a.focus.aheadPlots.map((c) => ({ no: c.no, characters: c.plot?.characters ?? [] })),

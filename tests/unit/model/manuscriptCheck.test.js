@@ -78,6 +78,21 @@ describe('manuscriptCheck · 提前登场', () => {
   test('没出现就是空的', () => {
     assert.deepEqual(m.findEarlyEntrances('陆烬独自走了。', [{ name: '沈秋', no: 4 }]), []);
   });
+
+  // 真实模型试跑：角色图谱起的名字是「镇守人（陈道源）」，正文里写的是「陈道源」或别名「陈老爷」。
+  test('名字带括号：括号里外各一截也认', () => {
+    assert.deepEqual(m.namesOf('镇守人（陈道源）', ['陈老爷', '某']), ['镇守人（陈道源）', '镇守人', '陈道源', '陈老爷']);
+    assert.equal(m.findEarlyEntrances('陈道源坐在太师椅上。', [{ name: '镇守人（陈道源）', no: 4 }]).length, 1);
+  });
+
+  test('本章细纲自己提到的人不算「不出场」（按名字、括号里外与别名认）', () => {
+    const list = [
+      { name: '镇守人（陈道源）', no: 4, aliases: ['陈老爷'] },
+      { name: '红姑', no: 5, aliases: [] },
+    ];
+    const kept = m.dropMentioned(list, '老客提醒他祠堂里的陈老爷正在到处搜寻火场里的漏网之鱼。');
+    assert.deepEqual(kept.map((x) => x.name), ['红姑']);
+  });
 });
 
 describe('manuscriptCheck · 回退点', () => {
