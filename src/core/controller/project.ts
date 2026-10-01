@@ -43,7 +43,7 @@ export async function projectAction(
   action: ProjectAction,
   relPath?: string,
   dir?: string,
-  batch: { range?: { from: number; to: number }; confirmed?: boolean; mode?: 'draft' | 'finalize' } = {}
+  batch: { range?: { from: number; to: number }; confirmed?: boolean; mode?: 'draft' | 'finalize'; review?: boolean } = {}
 ): Promise<void> {
   // refresh 每次切页/刷盘都来一趟，记了只会淹掉别的；其余动作都值得留痕。
   if (action !== 'refresh') {
@@ -122,6 +122,7 @@ export async function projectAction(
       await writeManuscripts(c.project, {
         range: normalizeRange(batch.range),
         mode: isWriteBatchMode(batch.mode) ? batch.mode : 'draft',
+        review: batch.review === true,
         confirmed: batch.confirmed === true,
       });
       break;

@@ -329,6 +329,25 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     ui.clickEl(submitBtn(ui));
     const msg = ui.last('projectAction');
     assert.equal(msg?.mode, 'draft', JSON.stringify(ui.sent));
+    assert.equal(msg.review, undefined);
+  });
+
+  // 五期补遗 §4：写完即审稿，与模式分开选；多出审稿那几次，也要点两下。
+  test('写完即审稿：说明里加上审稿那几次，点两下才发，带 review', () => {
+    ui.clickEl(toolbarBtn());
+    assert.equal(field(ui, 'review').value, 'off');
+    const sel = field(ui, 'review');
+    sel.value = 'on';
+    sel.dispatchEvent(new ui.window.Event('change', { bubbles: true }));
+    assert.ok(note(ui).includes('预计 2 次调用，最多 11 次'), note(ui));
+    assert.ok(note(ui).includes('报告放进一个新会话「批量审稿」'), note(ui));
+    ui.sent.length = 0;
+    ui.clickEl(submitBtn(ui));
+    assert.equal(submitBtn(ui).textContent, '再点一下：写完即审稿 1 章');
+    ui.clickEl(submitBtn(ui));
+    const msg = ui.last('projectAction');
+    assert.equal(msg?.review, true, JSON.stringify(ui.sent));
+    assert.equal(msg.mode, 'draft');
   });
 
   test('章节组右键「批量写章…」打开同一个弹窗', () => {

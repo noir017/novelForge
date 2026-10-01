@@ -880,6 +880,8 @@ export interface WriteBatchPlan {
   from: number;
   to: number;
   mode: WriteBatchMode;
+  /** 写完一章先审一遍（五期补遗 §4）：报告进一个新会话，审出问题不停。 */
+  review: boolean;
   /** 这次要写的章，按章号升序、严格串行。 */
   chapters: number[];
   /** 已经有正文、这次跳过的章（批量只补空白，第 19 条）。 */
@@ -895,12 +897,13 @@ export interface WriteBatchPlan {
 /**
  * 区间里已有正文的章跳过；遇到第一章没有细纲的就在它前面收住；最多 {@link WRITE_BATCH_MAX} 章
  * （超出的部分不写，调用方据此报错或截短）。调用次数按件加总：一章 {@link WRITE_CALLS}，
- * 写完即定稿时再加 {@link FINALIZE_CALLS}。
+ * 写完即审稿时再加 {@link REVIEW_CALLS}，写完即定稿时再加 {@link FINALIZE_CALLS}。
  */
 export function planWriteBatch(input: {
   from: number;
   to: number;
   mode: WriteBatchMode;
+  review?: boolean;
   writtenNos: readonly number[];
   plotFilledNos: readonly number[];
 }): WriteBatchPlan {
@@ -925,9 +928,10 @@ export function planWriteBatch(input: {
     }
     chapters.push(no);
   }
-  const each = input.mode === 'finalize' ? addCalls(WRITE_CALLS, FINALIZE_CALLS) : WRITE_CALLS;
+  const review = input.review === true;
+  const each = [WRITE_CALLS, ...(review ? [REVIEW_CALLS] : []), ...(input.mode === 'finalize' ? [FINALIZE_CALLS] : [])].reduce(addCalls);
   const calls = chapters.reduce<CallEstimate>((sum) => addCalls(sum, each), { low: 0, high: 0, max: 0 });
-  return { from, to, mode: input.mode, chapters, skipped, ...(stopAt !== undefined ? { stopAt } : {}), calls };
+  return { from, to, mode: input.mode, review, chapters, skipped, ...(stopAt !== undefined ? { stopAt } : {}), calls };
 }
 
 /** 推导单章下一步所需的事实。 */

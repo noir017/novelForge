@@ -43,9 +43,11 @@ export interface TaskSnapshot {
 export interface TaskNotice {
   message: string;
   level?: 'info' | 'error';
-  /** 提示条上的按钮：打开这一章（章节工作台那一条，W6）。 */
-  open?: { plotRelPath: string; label: string };
+  /** 提示条上的按钮：打开这一章（章节工作台那一条，W6），或者打开一个会话（批量审稿的报告，五期补遗 §4）。 */
+  open?: TaskOpen;
 }
+
+export type TaskOpen = { plotRelPath: string; label: string } | { sessionId: string; label: string };
 
 export interface TaskFinished extends TaskNotice {
   id: string;

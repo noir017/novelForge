@@ -117,7 +117,8 @@ export type InMessage =
    * `range` 只有「批量拆细纲」用：弹窗里选的区间（W5）。`confirmed` 表示弹窗已经把
    * 调用次数写给作者看过了，后端不再弹第二个确认框（弹窗与确认框算的是同一个
    * `planPlotBatches`，不叠弹窗）。「批量写章」（W9）同样带 `range` / `confirmed`，另带
-   * `mode`：只写正文，还是写完一章就定稿（`planWriteBatch`）。
+   * `mode`：只写正文，还是写完一章就定稿（`planWriteBatch`）；`review`：写完一章先审一遍，
+   * 报告放进一个新会话（五期补遗 §4）。
    */
   | {
       type: 'projectAction';
@@ -127,6 +128,7 @@ export type InMessage =
       range?: { from: number; to: number };
       confirmed?: boolean;
       mode?: 'draft' | 'finalize';
+      review?: boolean;
     }
   | { type: 'characterAction'; action: CharacterAction; name: string; relPath?: string }
   | {

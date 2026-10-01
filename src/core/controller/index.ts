@@ -466,6 +466,7 @@ export class ChatController {
           range: msg.range,
           confirmed: msg.confirmed,
           mode: msg.mode,
+          review: msg.review,
         });
         return;
 

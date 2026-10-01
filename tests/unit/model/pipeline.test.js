@@ -772,6 +772,16 @@ describe('pipeline.ts · 批量写章的切分', () => {
     const plan = pipeline.planWriteBatch({ ...base, mode: 'finalize', from: 1, to: 3 });
     assert.deepEqual(plan.calls, { low: 6, high: 9, max: 30 });
     assert.equal(plan.mode, 'finalize');
+    assert.equal(plan.review, false);
+  });
+
+  // 五期补遗 §4：审稿一章 1 次、最多 3 次，与定稿各算各的。
+  test('写完即审稿：每章再加审稿的 1 次（最多 3 次）；与定稿叠加', () => {
+    const plan = pipeline.planWriteBatch({ ...base, review: true, from: 1, to: 3 });
+    assert.equal(plan.review, true);
+    assert.deepEqual(plan.calls, { low: 6, high: 6, max: 33 });
+    const both = pipeline.planWriteBatch({ ...base, mode: 'finalize', review: true, from: 1, to: 3 });
+    assert.deepEqual(both.calls, { low: 9, high: 12, max: 39 });
   });
 
   // 第 19 条批量那一面：已有产物的一律跳过，不问、不覆盖。

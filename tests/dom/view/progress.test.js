@@ -269,6 +269,22 @@ describe('页头任务条 · 所有页签都看得见', { skip: JSDOM_SKIP }, ()
     assert.equal(ui.doc.getElementById('toast').querySelector('.toast-action'), null);
   });
 
+  // 五期补遗 §4：批量写完即审稿的完成提示，按钮打开那个「批量审稿」会话。
+  test('完成提示带「打开审稿报告」：点了开那个会话', () => {
+    ui.post({
+      type: 'taskDone',
+      title: '批量写章',
+      message: '第 1–3 章已写好。审稿：第 1 章 1 严重 · 0 建议。',
+      level: 'info',
+      open: { sessionId: 's-review', label: '打开审稿报告' },
+    });
+    const btn = ui.doc.getElementById('toast').querySelector('.toast-action');
+    assert.equal(btn?.textContent, '打开审稿报告');
+    ui.sent.length = 0;
+    ui.clickEl(btn);
+    assert.ok(ui.sent.some((m) => m.type === 'openSession' && m.id === 's-review'), JSON.stringify(ui.sent));
+  });
+
   // 收尾：任务条还开着时每秒走一次计时，不收掉的话这个测试文件跑完进程也不退。
   test('任务都结束了，任务条收起', () => {
     ui.post({ type: 'tasks', tasks: [] });

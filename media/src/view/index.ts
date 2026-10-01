@@ -217,13 +217,22 @@ onMessage((msg) => {
       renderTasks(msg.tasks);
       break;
 
-    // 长任务说完了那一句（D24）：带「打开第 N 章」时点了就开那一章（W6 章节工作台那一条）。
+    // 长任务说完了那一句（D24）：带「打开第 N 章」时点了就开那一章（W6 章节工作台那一条）；
+    // 批量审稿带的是「打开审稿报告」——开那个会话（五期补遗 §4）。
     case 'taskDone': {
       const open = msg.open;
       toast(
         msg.message,
         msg.level === 'error',
-        open ? { label: open.label, run: () => vscode.postMessage({ type: 'openChapter', plotRelPath: open.plotRelPath }) } : undefined
+        open
+          ? {
+              label: open.label,
+              run: () =>
+                vscode.postMessage(
+                  'sessionId' in open ? { type: 'openSession', id: open.sessionId } : { type: 'openChapter', plotRelPath: open.plotRelPath }
+                ),
+            }
+          : undefined
       );
       break;
     }

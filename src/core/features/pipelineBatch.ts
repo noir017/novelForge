@@ -57,6 +57,7 @@ import {
   WRITE_BATCH_DEFAULT,
   WriteBatchMode,
   addCalls,
+  commandOf,
   describeCalls,
   planPlotBatches,
   planWriteBatch,
@@ -66,7 +67,10 @@ import { Workspace } from '../workspace';
 import { acceptArtifact, acceptPlotBatch } from '../generation/accept';
 import { CallOutcome, ChainError, ChainIO, completeBlueprints, completeConfig, completeRoster } from '../generation/structured';
 import { ManuscriptChainResult, WriteProgress, completeManuscript } from '../generation/continuation';
-import { planWriting } from '../generation/generate';
+import { planReview, planWriting } from '../generation/generate';
+import { completeReview } from '../generation/review';
+import { ReviewReport, describeReport, renderReport } from '../model/review';
+import { ChatSession, SessionStore, makeTurnId, nowIso } from '../model/session';
 
 const log = scoped('流水线');
 
@@ -389,6 +393,7 @@ const MODE_LABEL: Record<WriteBatchMode, string> = {
  * for 每一章：
  *   写（续写链，与对话页同一个 completeManuscript；一章之内续写那几轮钉住同一个模型）
  *   → 新建 chapters/NNN-标题.md、记 writtenFrom
+ *   → 写完即审稿：审一遍，报告进「批量审稿」那个会话（五期补遗 §4）
  *   → 写完即定稿：定稿（摘要 + 角色状态，features/finalize.ts）
  *   → 作者点过「写完这一章就停」：停
  * ```
@@ -407,22 +412,29 @@ const MODE_LABEL: Record<WriteBatchMode, string> = {
  * - **停止**（中断）：正在写的那一章不落盘。**写完这一章就停**：这一章照常写完、落盘、（定稿），然后收。
  * - 模型走 `manuscript` 档（第 12 条：失败换同档其余），不带思考深度（第 26 条）；定稿两步各走
  *   `plotSummary` / `characterCard` 档。
+ * - **写完即审稿**（五期补遗 §4 ⚑）：顺序是写 → 审 → 定稿——审稿对照的是「截至上一章」的角色状态与
+ *   连续性事实，先定稿的话本章刚写下的事会被当成前文拿来对照它自己。报告一章一轮放进新会话
+ *   「批量审稿 · 第 a–b 章」，每审完一章落盘一次；作者打开它在报告卡上逐章勾选、修稿（走对话页那条路）。
+ *   **审出问题不停**（要人勾了才修，批量停下也没人勾），**审稿失败也不停**（后面几章不靠这份报告往下写），
+ *   都在完成提示里说清。走 `review` 档。写进去但要停下的那一章（重演、提前登场、没写够）照样审完再停。
  *
  * `confirmed`：工程页弹窗已经把切分与调用次数写给作者看过了，不再弹第二个确认框。agent 的
  * `run` 那条路不带它，照旧先问。返回实际调了几次模型（取消、无事可做、没有模型时是 0）。
  */
 export async function writeManuscripts(
   project: NovelProject,
-  opts: { range?: { from: number; to: number }; mode?: WriteBatchMode; confirmed?: boolean } = {}
+  opts: { range?: { from: number; to: number }; mode?: WriteBatchMode; review?: boolean; confirmed?: boolean } = {}
 ): Promise<number> {
   const [facts, chapters] = await Promise.all([buildBookFacts(project), project.listChapters()]);
   const mode = opts.mode ?? 'draft';
+  const reviewing = opts.review === true;
   const from = Math.max(1, opts.range?.from ?? facts.nextChapterNo);
   const to = Math.max(from, opts.range?.to ?? from + WRITE_BATCH_DEFAULT - 1);
   const plan = planWriteBatch({
     from,
     to,
     mode,
+    review: reviewing,
     writtenNos: chapters.filter((c) => c.wordCount > 0).map((c) => c.order),
     plotFilledNos: facts.plotFilledNos,
   });
@@ -479,14 +491,16 @@ export async function writeManuscripts(
   const config = readConfig();
   if (!opts.confirmed) {
     const pick = await getHost().confirm(
-      `${writing}：要写 ${plan.chapters.length} 章正文（${MODE_LABEL[mode]}），${describeCalls(plan.calls)}。现在写？`,
+      `${writing}：要写 ${plan.chapters.length} 章正文（${MODE_LABEL[mode]}${reviewing ? '、写完即审稿' : ''}），${describeCalls(plan.calls)}。现在写？`,
       ['开始写章'],
       {
         modal: true,
         detail: [
           describeTaskModels(config, 'manuscript'),
+          reviewing ? describeTaskModels(config, 'review') : '',
           mode === 'finalize' ? describeTaskModels(config, 'plotSummary') : '',
           '一章一章串行写：后一章接着前一章的结尾写。没写够时自动续写（算在上限里）。',
+          reviewing ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不会停。' : '',
           mode === 'finalize' ? '每写完一章就定稿（摘要 + 出场角色的当前状态），再写下一章。' : '只写正文，不定稿；之后在主按钮上逐章定稿。',
           plan.skipped.length > 0 ? `已经写过正文的第 ${plan.skipped.join('、')} 章跳过，不会被改动。` : '',
           plan.stopAt !== undefined ? `第 ${plan.stopAt} 章还没有细纲，写到它前面为止。` : '',
@@ -517,6 +531,13 @@ export async function writeManuscripts(
       return 0;
     }
   }
+  const reviewPool = reviewing ? await createModelPool({ task: 'review', concurrent: false }) : undefined;
+  if (reviewing && !reviewPool) {
+    log.error('没有可用的模型审稿，批量写章中止');
+    return 0;
+  }
+  // 报告放进的那个会话：审完第一章才落盘（一章都没审成就不在历史里占位）。
+  const reviews = reviewing ? reviewSession(project, plan.chapters) : undefined;
 
   let calls = 0;
   await runTask(
@@ -579,6 +600,18 @@ export async function writeManuscripts(
           last = plot;
           if (out.notes.length > 0) {
             log.info(`${name}：${out.notes.length} 条说明`, out.notes.join('\n'));
+          }
+          // 写完即审稿（五期补遗 §4）：写 → 审 → 定稿。要停下的那一章也照样审完再停——作者回来要看它。
+          if (reviews && reviewPool) {
+            report({ message: `${name} · 审稿`, current: i, total });
+            project.invalidate();
+            const r = await reviewOne(project, plot, reviewPool, config, signal);
+            calls += r.calls;
+            if (r.cancelled) {
+              log.warn(`批量写章被取消，${name}写好了、没审完`);
+              return;
+            }
+            await reviews.add(plot, r);
           }
           const problem = out.replay
             ? `开头与上一章结尾大段重合（「${clip(out.replay, 40)}」），可能把上一章最后一场又演了一遍`
@@ -660,9 +693,14 @@ export async function writeManuscripts(
       const rest = halt ? plan.chapters.filter((n) => n > halt!.no) : [];
       const done = written.length > 0 ? `${rangeLabel(written[0], written[written.length - 1])}已写好${mode === 'finalize' ? `，定稿 ${finalized} 章` : ''}` : '';
       log.info(`批量写章结束：写了 ${written.length} 章`, `调用 ${calls} 次，总耗时 ${elapsed(startedAt)}`);
-      const open = last ? { plotRelPath: last.relPath, label: `打开第 ${last.no} 章` } : undefined;
+      const reviewed = reviews?.summary();
+      const open = reviews?.sessionId
+        ? { sessionId: reviews.sessionId, label: '打开审稿报告' }
+        : last
+          ? { plotRelPath: last.relPath, label: `打开第 ${last.no} 章` }
+          : undefined;
       if (!halt) {
-        finish({ message: `${done}（调用 ${calls} 次）。`, open });
+        finish({ message: `${done}（调用 ${calls} 次）。${reviewed ?? ''}`, open });
         return;
       }
       const tail = rest.length > 0 ? `后面的${rangeLabel(rest[0], rest[rest.length - 1])}没写。` : '';
@@ -673,9 +711,10 @@ export async function writeManuscripts(
             ? `第 ${halt.no} 章写进去了，但${halt.why}，没有往下写`
             : `第 ${halt.no} 章${halt.why}，批量停在这里`;
       finish({
-        message: [done ? `${done}。` : '', `${head}。`, tail].join(''),
+        message: [done ? `${done}。` : '', `${head}。`, tail, reviewed ?? ''].join(''),
         level: halt.level,
-        open: written.includes(halt.no) ? { plotRelPath: last!.relPath, label: `打开第 ${halt.no} 章` } : open,
+        // 停在一章有问题的正文上：先看那一章（审稿报告在历史页的那个会话里，提示里说了）。
+        open: written.includes(halt.no) && halt.why !== '按你的要求写完这一章就停' ? { plotRelPath: last!.relPath, label: `打开第 ${halt.no} 章` } : open,
       });
     },
     { scope: '流水线', pausable: true }
@@ -782,6 +821,99 @@ async function writeOne(
 /** 「第 3 章」或「第 3–7 章」。 */
 function rangeLabel(from: number, to: number): string {
   return from === to ? `第 ${from} 章` : `第 ${from}–${to} 章`;
+}
+
+// ---------------------------------------------------------------- 写完即审稿（五期补遗 §4）
+
+/** 审一章的结果：报告，或者审不成的原因；取消单列（整个批量就此收）。 */
+type ReviewOutcome =
+  | { report: ReviewReport; notes: string[]; calls: number; cancelled?: false }
+  | { error: string; notes: string[]; calls: number; cancelled?: false }
+  | { cancelled: true; calls: number };
+
+/**
+ * 审一章：与对话页同一条审稿链（generation/review.ts 的 `completeReview`：截断重来、不合格重建、
+ * 引文校验、目标核对），只是每次调用走 `review` 档的池、不流式。**不抛**（取消除外，也收成一个结果）：
+ * 审稿失败不该被当成写章失败把批量停下。
+ */
+async function reviewOne(
+  project: NovelProject,
+  plot: Plot,
+  pool: ModelPool,
+  config: ReturnType<typeof readConfig>,
+  signal: AbortSignal
+): Promise<ReviewOutcome> {
+  const request: Omit<BuildRequest, 'providerMaxInputTokens'> = {
+    action: { stage: 'manuscript', capability: 'review' },
+    target: { kind: 'manuscript', plotRelPath: plot.relPath },
+    targetNo: plot.no,
+    ask: '',
+  };
+  const ctx = await planReview(project, request);
+  if (!ctx) {
+    return { error: '这一章没有正文，没法审', notes: [], calls: 0 };
+  }
+  const io = poolIO(project, pool, config, signal, { ...request, reviewGoals: [...ctx.goals] });
+  try {
+    const messages = await io.chain.build({});
+    const first = await io.chain.call(messages, `审第 ${plot.no} 章`);
+    const r = await completeReview(first, { ...io.chain, messages }, ctx);
+    log.info(`第 ${plot.no} 章审完：${describeReport(r.report)}`, r.notes.join('\n'));
+    return { report: r.report, notes: r.notes, calls: r.calls };
+  } catch (err) {
+    const calls = err instanceof ChainError ? Math.max(err.calls, io.calls()) : io.calls();
+    if (err instanceof CancelledError || signal.aborted) {
+      return { cancelled: true, calls };
+    }
+    log.warn(`第 ${plot.no} 章审稿失败：${describeError(err)}`, err instanceof ChainError ? err.notes.join('\n') : err);
+    return { error: describeError(err), notes: err instanceof ChainError ? err.notes : [], calls };
+  }
+}
+
+/**
+ * 「批量审稿 · 第 a–b 章」那个会话：一章一轮（用户轮 `/审稿`，助手轮是报告卡；审不成的那一轮记报错），
+ * 每加一轮落盘一次。作者在对话页打开它，报告卡上勾选、修稿与对话页里审出来的那一份一模一样。
+ */
+function reviewSession(project: NovelProject, nos: readonly number[]) {
+  const store = new SessionStore(project);
+  let session: ChatSession | undefined;
+  const lines: string[] = [];
+  const command = commandOf('manuscript', 'review')?.label ?? '审稿';
+  return {
+    get sessionId(): string | undefined {
+      return session?.id;
+    },
+    async add(plot: Plot, r: Exclude<ReviewOutcome, { cancelled: true }>): Promise<void> {
+      if (!session) {
+        session = store.create({ target: { kind: 'manuscript', plotRelPath: plot.relPath }, stage: 'manuscript', targetNo: plot.no });
+        session.title = `批量审稿 · ${rangeLabel(nos[0], nos[nos.length - 1])}`;
+      }
+      session.target = { kind: 'manuscript', plotRelPath: plot.relPath };
+      session.targetNo = plot.no;
+      session.turns.push({ id: makeTurnId(), role: 'user', content: '', at: nowIso(), command });
+      if ('report' in r) {
+        session.turns.push({
+          id: makeTurnId(),
+          role: 'assistant',
+          content: renderReport(r.report),
+          at: nowIso(),
+          review: { report: r.report, ...(r.notes.length > 0 ? { notes: r.notes } : {}), calls: r.calls },
+        });
+        const errors = r.report.issues.filter((x) => x.severity === 'error').length;
+        const warnings = r.report.issues.length - errors;
+        lines.push(`第 ${plot.no} 章${r.report.issues.length > 0 ? ` ${errors} 严重 · ${warnings} 建议` : '没有找到问题'}`);
+      } else {
+        session.turns.push({ id: makeTurnId(), role: 'assistant', content: '', at: nowIso(), error: `审稿失败：${r.error}` });
+        lines.push(`第 ${plot.no} 章审稿失败`);
+      }
+      session.updatedAt = nowIso();
+      await store.write(session);
+    },
+    /** 完成提示里的那一句：「审稿：第 1 章 1 严重 · 2 建议；第 2 章没有找到问题。报告在……」。 */
+    summary(): string | undefined {
+      return session && lines.length > 0 ? `审稿：${lines.join('；')}。报告在会话「${session.title}」里。` : undefined;
+    },
+  };
 }
 
 function clip(text: string, max: number): string {

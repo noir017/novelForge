@@ -53,6 +53,7 @@ export type LlmTask =
   | 'setting'
   | 'plotOutline'
   | 'manuscript'
+  | 'review'
   | 'loreScan'
   | 'loreSynthesis'
   | 'characterCard'
@@ -67,6 +68,7 @@ export const LLM_TASKS: LlmTask[] = [
   'setting',
   'plotOutline',
   'manuscript',
+  'review',
   'loreScan',
   'loreSynthesis',
   'characterCard',
@@ -83,6 +85,7 @@ export const TASK_LABEL: Record<LlmTask, string> = {
   setting: '故事架构',
   plotOutline: '剧情细纲',
   manuscript: '批量写正文',
+  review: '批量审稿',
   loreScan: '设定 · 逐章识别',
   loreSynthesis: '设定 · 条目整合',
   characterCard: '角色卡 · 更新 / 建卡',
@@ -99,6 +102,7 @@ export const TASK_HINT: Record<LlmTask, string> = {
   setting: '配置、前提、角色图谱、世界观各一次（角色图谱分两步）；全书只跑一次，后面每一章都吃它',
   plotOutline: '每批 5 章一次调用；要在大纲与前后章之间排出这几章的关键事件与钩子，写歪了后面全歪',
   manuscript: '一章一次调用，是最烧 token 的活；文风与语气全看它',
+  review: '批量写章「写完即审稿」时一章一次；要逐字引正文、判细纲的每一项落实了没有，判错了作者会照着去改',
   loreScan: '逐章通读一遍，只做事实摘录',
   loreSynthesis: '每条设定一次调用，要合并跨章事实且不能推翻作者已写的内容',
   characterCard: '按出场章分批精炼，产物每次续写都注入上下文',
@@ -131,6 +135,7 @@ export const DEFAULT_TASK_TIERS: Record<LlmTask, ModelTier> = {
   setting: 'quality',
   plotOutline: 'balanced',
   manuscript: 'balanced',
+  review: 'balanced',
   globalSummaryMerge: 'quality',
   extractCharacters: 'quality',
   extractStyle: 'quality',

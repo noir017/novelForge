@@ -162,7 +162,7 @@ function span(from: number, to: number): string {
  *
  * 缺省从下一可写章起 {@link WRITE_BATCH_DEFAULT} 章，一次最多 {@link WRITE_BATCH_MAX} 章。实时说明
  * 写出这一段要写几章、跳过几章、在哪收住、调用次数上限——提交时带上 `confirmed`，后端不再弹
- * 第二个确认框。「写完即定稿」会自动多花定稿那几次调用（D17），提交键要点两下。
+ * 第二个确认框。「写完即定稿」「写完即审稿」会自动多花那几次调用（D17、五期补遗 §4），提交键要点两下。
  */
 export function openWriteBatchForm(tree: ProjectTree): void {
   const writtenNos = tree.plots.filter((p) => p.chapterPath && p.wordCount > 0).map((p) => p.no);
@@ -173,6 +173,7 @@ export function openWriteBatchForm(tree: ProjectTree): void {
       from: Number(v.from),
       to: Number(v.to),
       mode: v.mode === 'finalize' ? 'finalize' : 'draft',
+      review: v.review === 'on',
       writtenNos,
       plotFilledNos,
     });
@@ -192,6 +193,16 @@ export function openWriteBatchForm(tree: ProjectTree): void {
         options: [
           { value: 'draft', label: '只写正文' },
           { value: 'finalize', label: '写完即定稿（每写完一章就定稿）' },
+        ],
+      },
+      {
+        kind: 'select',
+        key: 'review',
+        label: '审稿',
+        value: 'off',
+        options: [
+          { value: 'off', label: '不审' },
+          { value: 'on', label: '写完即审稿（每写完一章审一遍，报告放进一个新会话）' },
         ],
       },
     ],
@@ -219,13 +230,15 @@ export function openWriteBatchForm(tree: ProjectTree): void {
           `${p.skipped.length > 0 ? `，跳过已有正文的 ${p.skipped.length} 章` : ''}` +
           `${p.stopAt !== undefined ? `；第 ${p.stopAt} 章还没有细纲，写到它前面为止` : ''}。` +
           `${describeCalls(p.calls)}（没写够时自动续写，算在上限里）。` +
+          (p.review ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不停。' : '') +
           (p.mode === 'finalize' ? '每写完一章就定稿：摘要与连续性事实，再更新出场角色的当前状态。' : '只写正文，之后在主按钮上逐章定稿。'),
       };
     },
     submitLabel: '开始写章',
     confirm: (v) => {
       const p = plan(v);
-      return p.mode === 'finalize' ? `再点一下：写完即定稿 ${p.chapters.length} 章` : undefined;
+      const extra = [p.review ? '写完即审稿' : '', p.mode === 'finalize' ? '写完即定稿' : ''].filter(Boolean).join('、');
+      return extra ? `再点一下：${extra} ${p.chapters.length} 章` : undefined;
     },
     onSubmit: (v) => {
       const mode: WriteBatchMode = v.mode === 'finalize' ? 'finalize' : 'draft';
@@ -234,6 +247,7 @@ export function openWriteBatchForm(tree: ProjectTree): void {
         action: 'writeManuscripts',
         range: { from: Number(v.from), to: Number(v.to) },
         mode,
+        ...(v.review === 'on' ? { review: true } : {}),
         confirmed: true,
       });
     },

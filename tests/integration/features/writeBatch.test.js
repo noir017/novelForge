@@ -50,6 +50,9 @@ function isSummary(messages) {
 function isState(messages) {
   return (messages[0]?.content ?? '').includes('依据本章正文更新角色的「当前状态」');
 }
+function isReview(messages) {
+  return (messages[0]?.content ?? '').includes('严谨的小说审稿编辑');
+}
 
 /** 缺省的应答：正文一次写够，摘要与状态各给一份。 */
 function defaultReply(messages) {
@@ -499,5 +502,84 @@ describe('一致性预检：开跑之前查一遍，有问题先问', () => {
     const fails = await failuresOf(t, PLOT(2));
     assert.ok(fails.some((x) => x.severity === 'warn' && /一致性预检/.test(x.message)), JSON.stringify(fails));
     cleanup(t.dir, bundle.db);
+  });
+});
+
+// 五期补遗 §4：写完即审稿。写 → 审 → 定稿；报告进一个新会话；审出问题、审稿失败都不停。
+describe('写完即审稿', () => {
+  let t;
+  const order = [];
+  before(async () => {
+    t = await fresh('wb-review');
+    replyFn = (messages) => {
+      if (isReview(messages)) {
+        const user = messages[messages.length - 1].content;
+        const no = Number(/- 章节钩子：第 (\d+) 章结尾/.exec(user)?.[1] ?? /第 (\d+) 章林昭查到/.exec(user)?.[1] ?? 0);
+        order.push(`审${no}`);
+        if (no === 2) {
+          return { text: '这不是 JSON', stop: 'end' };
+        }
+        const quote = /# 待审正文\n\n([\s\S]{20})/.exec(user)?.[1] ?? '';
+        return {
+          text: JSON.stringify({
+            summary: `第 ${no} 章还行`,
+            items: [{ category: '剧情合理性', severity: 'error', quote, description: '这一句有问题' }],
+            goalReviews: [],
+          }),
+          stop: 'end',
+        };
+      }
+      if (isSummary(messages)) {
+        order.push('定稿');
+      } else if (!isState(messages)) {
+        order.push('写');
+      }
+      return defaultReply(messages);
+    };
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', review: true, confirmed: true });
+  });
+  after(() => cleanup(t.dir, bundle.db));
+
+  test('三章都写了；每章是写 → 审 → 定稿', () => {
+    assert.ok([1, 2, 3].every((no) => t.has(CH(no))));
+    assert.deepEqual(order.filter((x) => x !== '审2'), ['写', '审1', '定稿', '写', '定稿', '写', '审3', '定稿']);
+  });
+
+  test('第 2 章审稿两次都不合格：不停，后面照写', () => {
+    assert.deepEqual(order.filter((x) => x === '审2'), ['审2', '审2']);
+    assert.ok(t.has(CH(3)));
+  });
+
+  test('报告进了一个新会话：标题、一章一轮、报告卡与报错', () => {
+    const dir = t.project.sessionsDir;
+    const files = require('fs').readdirSync(dir).filter((f) => f.endsWith('.json'));
+    assert.equal(files.length, 1);
+    const s = JSON.parse(require('fs').readFileSync(require('path').join(dir, files[0]), 'utf8'));
+    assert.equal(s.title, '批量审稿 · 第 1–3 章');
+    assert.deepEqual(s.turns.map((x) => x.role), ['user', 'assistant', 'user', 'assistant', 'user', 'assistant']);
+    assert.equal(s.turns[0].command, '审稿');
+    assert.equal(s.turns[1].review.report.chapterNo, 1);
+    assert.equal(s.turns[1].review.report.issues.length, 1);
+    assert.match(s.turns[3].error, /^审稿失败：/);
+    assert.equal(s.turns[5].review.report.chapterNo, 3);
+    assert.equal(s.target.kind, 'manuscript');
+  });
+
+  test('完成提示：每章审出什么，按钮打开那个会话', () => {
+    const f = finished.find((x) => x.title === '批量写章');
+    assert.match(f.message, /审稿：第 1 章 1 严重 · 0 建议；第 2 章审稿失败；第 3 章 1 严重 · 0 建议。报告在会话「批量审稿 · 第 1–3 章」里/);
+    assert.equal(f.open.label, '打开审稿报告');
+    assert.ok(f.open.sessionId);
+  });
+
+  test('没确认过的走确认框：说清写完即审稿与审稿用哪一档', async () => {
+    const t2 = await fresh('wb-review-ask');
+    h.answers.push(undefined);
+    await bundle.batch.writeManuscripts(t2.project, { range: { from: 1, to: 2 }, review: true });
+    const c = h.confirms.at(-1);
+    assert.match(c.message, /只写正文、写完即审稿/);
+    assert.match(c.detail, /每写完一章先审一遍/);
+    assert.match(c.detail, /批量审稿/);
+    cleanup(t2.dir, bundle.db);
   });
 });
