@@ -17,6 +17,7 @@ import { extractCharacters, newCharacter, newLore } from '../features/characters
 import { generateLore } from '../features/lore';
 import { completeSettings, generatePlots, writeManuscripts } from '../features/pipelineBatch';
 import { extractStyle } from '../features/style';
+import { generateThreads } from '../features/threads';
 import { chapterForSummary, rebuildGlobalSummary, syncSummaries } from '../features/summarize';
 import { finalizeChapterTask } from '../features/finalize';
 import { reviewCharacterState } from '../features/characterState';
@@ -134,6 +135,9 @@ export async function projectAction(
       break;
     case 'extractStyle':
       await extractStyle(c.project);
+      break;
+    case 'generateThreads':
+      await generateThreads(c.project);
       break;
   }
 

@@ -42,6 +42,7 @@ export type ArtifactKind =
   | 'outline'
   | 'style'
   | 'globalSummary'
+  | 'threads'
   | 'plot'
   | 'chapter'
   | 'summary'
@@ -99,6 +100,7 @@ interface Dirs {
   outline: string;
   style: string;
   globalSummary: string;
+  threads: string;
 }
 
 function dirsOf(project: NovelProject): Dirs {
@@ -115,6 +117,7 @@ function dirsOf(project: NovelProject): Dirs {
     outline: project.relPath(project.outlinePath),
     style: project.relPath(project.stylePath),
     globalSummary: project.relPath(project.globalSummaryPath),
+    threads: project.relPath(project.threadsPath),
   };
 }
 
@@ -163,6 +166,10 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
   }
   if (rel === d.globalSummary) {
     return { kind: 'globalSummary', rel };
+  }
+  // 叙事线（七期）：可选的固定文件，与全书摘要同类——没有创作阶段，由工程页动作与定稿追加。
+  if (rel === d.threads) {
+    return { kind: 'threads', rel };
   }
 
   // ---- 细纲。**平铺**，只认根下的 markdown 家族。老工程按卷分的子目录判成 other。

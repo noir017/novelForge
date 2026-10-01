@@ -200,7 +200,8 @@ export type ProjectAction =
   | 'writeManuscripts'
   | 'extractCharacters'
   | 'generateLore'
-  | 'extractStyle';
+  | 'extractStyle'
+  | 'generateThreads';
 
 export type CharacterAction =
   | 'updateCard'

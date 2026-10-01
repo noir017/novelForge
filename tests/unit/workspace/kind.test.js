@@ -55,6 +55,14 @@ describe('kindOfPath · 固定单文件', () => {
     assert.equal(kindOf('.novelforge/summaries/global.md').kind, 'globalSummary');
   });
 
+  // 叙事线（七期）：与全书摘要同类，没有创作阶段，也不是哪一层的生成目标。
+  test('threads.md 是叙事线，不带创作层与目标', () => {
+    const k = kindOf('.novelforge/threads.md');
+    assert.equal(k.kind, 'threads');
+    assert.equal(k.stage, undefined);
+    assert.equal(k.target, undefined);
+  });
+
   // 架构三件与大纲同级：各自是一份固定文件，带着「是哪一件」。
   for (const doc of ['config', 'premise', 'world']) {
     test(`${doc}.md 是架构文档，带上 doc 与创作目标`, () => {

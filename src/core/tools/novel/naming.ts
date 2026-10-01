@@ -24,6 +24,8 @@ export function describeForReview(path: PathKind, rel: string): string {
       return '文风指南';
     case 'globalSummary':
       return '全书滚动摘要';
+    case 'threads':
+      return '叙事线';
     case 'plot':
       return no === undefined ? '这一章的细纲' : `第 ${no} 章的细纲`;
     case 'chapter':

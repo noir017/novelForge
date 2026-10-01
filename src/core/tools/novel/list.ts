@@ -29,7 +29,8 @@ export const listTool: ToolDef = {
     '几个固定位置：小说配置、故事前提、世界观是 .novelforge/config.md、premise.md、world.md，' +
     '情节大纲是 .novelforge/outline.md，细纲在 .novelforge/plots/（一章一份，<章号>-<标题>.md，不分子目录），' +
     '正文在章节根目录（默认 chapters/，与细纲同号），' +
-    '单章摘要在 .novelforge/summaries/，角色卡在 .novelforge/characters/，设定在 .novelforge/lore/。' +
+    '单章摘要在 .novelforge/summaries/，角色卡在 .novelforge/characters/，设定在 .novelforge/lore/，' +
+    '叙事线（跨章的伏笔与线索，可选）是 .novelforge/threads.md。' +
     `一次最多返回 ${LIST_LIMIT} 项，超出会截断并告诉你还有多少。`,
   parameters: objectSchema({
     path: str('要列的目录，工程内相对路径。留空列工程根。'),

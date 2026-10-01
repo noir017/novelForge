@@ -38,7 +38,7 @@ import { FailureView } from '../protocol';
  * 换轴之前记下的行——它们指向 `chapters/` 下的路径，读出来只是挂不到任何
  * 一行上，不该因此让整张表读不出来。
  */
-export type FailureTargetKind = 'character' | 'plot' | 'chapter' | 'lore' | 'setting';
+export type FailureTargetKind = 'character' | 'plot' | 'chapter' | 'lore' | 'setting' | 'threads';
 
 /**
  * - `error`：这次动作整体没成，目标**一字未改**。

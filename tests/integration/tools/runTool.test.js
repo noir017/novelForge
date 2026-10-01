@@ -532,6 +532,28 @@ describe('补齐故事架构：转发给工程页那个动作', () => {
   });
 });
 
+// 排叙事线（七期）：工程页「从细纲排出」背后的同一个函数，确认框照弹。
+describe('排叙事线：转发给工程页那个动作', () => {
+  let r;
+
+  before(async () => {
+    resetCtx();
+    h.expect();
+    r = await run({ action: 'generateThreads' });
+  });
+
+  test('确认框写着从哪几章的细纲排、预计调用几次', () => {
+    const message = h.confirms[h.confirms.length - 1].message;
+    assert.match(message, /^要从第 \d+–\d+ 章的细纲排出叙事线，预计 1 次调用/);
+  });
+
+  test('作者取消：一次模型都不调，账上也不记', () => {
+    assert.equal(fake.calls.length, 0, String(fake.calls.length));
+    assert.equal(ctx.usage.calls, 0);
+    assert.ok(r.text.includes('排叙事线这一次没有调用模型'), r.text);
+  });
+});
+
 describe('工具定义本身', () => {
   test('标了 mutating', () => {
     assert.equal(tool().mutating, true);

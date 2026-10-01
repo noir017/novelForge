@@ -574,6 +574,9 @@ function cut(text: string, max: number): string {
   return [...text].slice(0, max).join('').trim();
 }
 
+/** {@link verifyThreadPlans} 给重名那一条的原因。完成提示里把它和「不合格」分开说。 */
+export const SAME_THREAD = '同名的线已经有了';
+
 /**
  * 排线时模型交回来的候选 → 能追加的线。
  *
@@ -610,7 +613,7 @@ export function verifyThreadPlans(
     } else if (totalChapters && to > totalChapters) {
       why = `计划回收的第 ${to} 章超出了全书 ${totalChapters} 章`;
     } else if (seen.has(threadKey(title))) {
-      why = '同名的线已经有了';
+      why = SAME_THREAD;
     }
     if (why) {
       dropped.push({ title: name, why });

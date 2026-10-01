@@ -657,6 +657,25 @@ export class Workspace {
     return rel;
   }
 
+  /**
+   * 改写叙事线（七期）：读**此刻**磁盘上的原文 → `edit` 给出新原文 → 写回。`edit` 返回
+   * undefined 或原样返回就不写。
+   *
+   * 为什么不让调用方先读好再交一份全文进来：排线、定稿那一次调用要几十秒，这期间作者可能
+   * 正在编辑器里改这份文件。在写之前那一刻重读、只在上面追加，作者那几十秒里的改动才不会
+   * 被一份旧的全文冲掉（第 3 条）。链外文件，没有上游指纹。
+   */
+  async updateThreads(edit: (raw: string) => string | undefined): Promise<string | undefined> {
+    const rel = this.project.relPath(this.project.threadsPath);
+    const raw = await this.project.readThreadsText();
+    const next = edit(raw);
+    if (next === undefined || next === raw) {
+      return undefined;
+    }
+    await writeText(this.project.pathOf(rel), next);
+    return rel;
+  }
+
   // ---------------------------------------------------------------- 内部
 
   private ctxOf(rel: string): HandlerCtx {

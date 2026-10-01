@@ -37,6 +37,7 @@ import { describeFinalize, finalizeChapter } from '../../features/finalize';
 import { createCardForCast, updateCharacterCard } from '../../features/characterCard';
 import { extractStyle } from '../../features/style';
 import { generateLore } from '../../features/lore';
+import { generateThreads } from '../../features/threads';
 import { describeError } from '../../runtime/logger';
 import { PLOT_BATCH, WRITE_BATCH_DEFAULT, WriteBatchMode, isWriteBatchMode } from '../../model/pipeline';
 
@@ -135,6 +136,13 @@ const ACTIONS: Record<string, ActionSpec> = {
         await writeManuscripts(ctx.project, { range: args.range, mode: args.mode, review: args.review }),
         '批量写章'
       );
+    },
+  },
+  generateThreads: {
+    label: '从细纲排出叙事线（跨章的伏笔与线索，追加到 .novelforge/threads.md 末尾；已有的不动、同名跳过）',
+    costly: true,
+    async run(ctx) {
+      return countedBy(await generateThreads(ctx.project), '排叙事线', '还没有细纲可排');
     },
   },
   updateCard: {

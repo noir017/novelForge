@@ -1,7 +1,7 @@
 /**
  * `doc` handler：纯文本 + frontmatter，**没有上游指纹**。
  *
- * 接 `outline` / `style` / `globalSummary` / `character` / `lore` 五种。
+ * 接 `outline` / `style` / `globalSummary` / `threads` / `character` / `lore` 六种。
  *
  * 它们的共同点是**在指纹链的最上游或链外**：
  *
@@ -11,9 +11,11 @@
  *   约束，被装配进 prompt，但不由某一层产物「生出来」。
  * - `summaries/global.md` 的上游是全部单章摘要，那是一次显式的重建动作
  *   （features/summarize.ts 的 `through` 水位线），不是 hash 传播。
+ * - `threads.md`（叙事线，七期）由工程页「排叙事线」与定稿追加，是跨章的计划与记录，
+ *   同样不在链上。
  *
  * 所以这里只做一件事：把 `Artifact{kind:'outlineDoc'}` 渲染成大纲文件。
- * 其余四种没有对应的结构化产物，只走 `{text}` 那条路。
+ * 其余五种没有对应的结构化产物，只走 `{text}` 那条路。
  */
 import { Handler, HandlerCtx } from './types';
 
