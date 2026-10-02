@@ -2,9 +2,9 @@
 
 Novel Forge 帮作者**把一个脑洞养成一本完整的书**：从一句念头开始，先展开成小说配置、故事前提、角色图谱与世界观，再排情节大纲、拆成一章一份的细纲，最后一章一章写成正文。三种壳（独立 Web 服务 / 桌面 App / VS Code 插件）共用同一套核心。
 
-实现上分两条主线：**往下展开**——按**创作阶段**（架构 / 大纲 / 细纲 / 正文）分别装配上下文并透明展示，把上一层产物展开成下一层（流式预览、当场点头才落盘），正文按细纲的目标字数自动续写；**往回记住**——定稿（单章摘要 + 连续性事实 + 出场角色的「当前状态」 + 本章推进了哪几条叙事线）、全书摘要、角色卡与设定整合，让「记忆」有限且可人工校正。审稿是正文层的可选动作：只出报告，作者在报告卡上勾选之后按勾选的条目修稿。所有数据是工作区里的普通 Markdown（`.novelforge/` 目录），可 Git、可手改。
+实现上分两条主线：**往下展开**——按**创作阶段**（架构 / 大纲 / 细纲 / 正文）分别装配上下文并透明展示，把上一层产物展开成下一层（流式预览、当场点头才落盘），正文按细纲的目标字数自动续写；**往回记住**——定稿（单章摘要 + 连续性事实 + 出场角色的「当前状态」 + 本章推进了哪几条叙事线）、全书摘要、角色卡与设定整合，让「记忆」有限且可人工校正。审稿是正文层的可选动作：只出报告，作者在报告卡上勾选之后按勾选的条目修稿。作者还可以给每个阶段（规划 / 写正文 / 审稿 / 修稿）绑一份**写作技能**（一份纯提示词的 `SKILL.md`），这个阶段往后的每一次生成都把它放在提示词最前面。所有数据是工作区里的普通 Markdown（`.novelforge/` 目录），可 Git、可手改。
 
-**一条轴：细纲号 = 章号。** 往下展开的链是：一句话 ──▶ `config.md` ──▶ `premise.md` / `characters/` / `world.md` ──▶ `outline.md`（按「第 a–b 章」分节，可以只覆盖到一部分章）──▶ `plots/NNN-标题.md`（一章一份，每批 5 章）──▶ `chapters/NNN-标题.md`（正文）──▶ `summaries/`（定稿）。跨章的伏笔与线索另记在 `threads.md`（叙事线，可选，不在链上：工程页从细纲排出，定稿时追加事件，写正文时带最多 6 条有关的）。
+**一条轴：细纲号 = 章号。** 往下展开的链是：一句话 ──▶ `config.md` ──▶ `premise.md` / `characters/` / `world.md` ──▶ `outline.md`（按「第 a–b 章」分节，可以只覆盖到一部分章）──▶ `plots/NNN-标题.md`（一章一份，每批 5 章）──▶ `chapters/NNN-标题.md`（正文）──▶ `summaries/`（定稿）。跨章的伏笔与线索另记在 `threads.md`（叙事线，可选，不在链上：工程页从细纲排出，定稿时追加事件，写正文时带最多 6 条有关的）。写作技能也不在链上：本工程的放 `.novelforge/skills/<名字>/SKILL.md`，阶段绑定记在 `.novelforge/skills.json`，我的技能库在工程外的 `~/.novelforge/skills/`。
 
 **细纲与正文之间没有中间层。** 从前这里有过「细节」（`scenes/`）、「卷」（`volumes/`）与「中转站」（`manuscripts/`，写完再按 `---` 拆成章）几层，都删了：「这一幕怎么发生」是写正文时才定的事；大纲按章号区间分节、细纲一章一份，已经解决了卷要解决的跨度问题；正文直接落进 `chapters/`，不必再拆。老工程磁盘上那几个目录**一个字节都不动**（那是作者的文件），但代码里彻底不认它们：`kindOfPath` 判成 `other`，工程页不显示、装配器不读，文件操作也删不掉它们。
 
@@ -43,13 +43,14 @@ npm run test:e2e         # 独立版服务（需 Bun）
 |---|---|---|
 | `src/` | 两层架构总览与一条创作请求的完整链路 | [src/README.md](src/README.md) |
 | `src/core/` | 核心逻辑层入口（含协议 `protocol/`、读写网关 `workspace/`、文件能力 `files/`、只读聚合与界面快照 `views/`、运行时设施 `runtime/`）。`views/pipeline.ts` 是磁盘 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，绝不搬进 `views/`。 | [src/core/README.md](src/core/README.md) |
-| `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**（全书与单章两级状态机、调用次数）、架构三件 settingFile.ts、情节大纲 outlineFile.ts、细纲 plotFile.ts、连续性事实 continuity.ts、角色当前状态 characterState.ts、叙事线 threadsFile.ts、审稿报告 review.ts、一致性预检 preflight.ts、段级 diff paragraphDiff.ts、服务商配置、思考深度 thinking.ts、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
+| `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**（全书与单章两级状态机、调用次数）、架构三件 settingFile.ts、情节大纲 outlineFile.ts、细纲 plotFile.ts、连续性事实 continuity.ts、角色当前状态 characterState.ts、叙事线 threadsFile.ts、写作技能 writingSkill.ts、审稿报告 review.ts、一致性预检 preflight.ts、段级 diff paragraphDiff.ts、服务商配置、思考深度 thinking.ts、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/workspace/` | ★ **工程的唯一读写网关**：路径 → 种类（`kind.ts`）→ 八条守卫（`guard.ts`）→ 解析/渲染/记账/伴生（`handlers/`）。写盘从前散在六处、各带一部分保护，现在收成一处；`upstreamHash` 与 `writtenFrom` 的记账下沉到写入路径本身，谁写都记 | [src/core/workspace/README.md](src/core/workspace/README.md) |
-| `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器 | [src/core/context/README.md](src/core/context/README.md) |
+| `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器。每张配方都带一层 `skill`（这个阶段绑的写作技能，P0 那一组的最后，整份带或整份不带） | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/generation/` | ★ 创作的一次单步：**无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，并发控制在 controller），外加几条链：结构化产物的降级修复（`structured.ts`）、正文自动续写（`continuation.ts`）、审稿（`review.ts`）、按勾选修稿（`revision.ts`）；六条落盘分派、Draft store（随会话落盘，`write draftId=…` 认它） | [src/core/generation/README.md](src/core/generation/README.md) |
-| `src/core/tools/` | ★ **工具层**：契约（`ToolDef` / `ToolIntent` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那七个工具：读三件 + `generate` + `write` / `edit` / `run`，**没有删除/改名/移动**。**不认识 `agent/`**（形状照 MCP 的 `tools/list` + `tools/call` 摆，将来能单独端出去） | [src/core/tools/README.md](src/core/tools/README.md) |
+| `src/core/tools/` | ★ **工具层**：契约（`ToolDef` / `ToolIntent` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那七个工具：读三件 + `generate` + `write` / `edit` / `run`（写作技能的查 / 检查 / 安装 / 绑定也是 `run` 的动作），**没有删除/改名/移动**。**不认识 `agent/`**（形状照 MCP 的 `tools/list` + `tools/call` 摆，将来能单独端出去） | [src/core/tools/README.md](src/core/tools/README.md) |
 | `src/core/agent/` | ★ 多步调度：对话循环、状态注入、预算闸门与无进展检测、**策略与确认闸门**（`policy.ts`）。手上只有一个 `ToolInvoker`，**不认识 `Workspace` / `DraftStore` / 具体工具**；「下一步该做什么」由 `deriveNextStep` 每回合注入，agent 拿着它去执行而不是另做判断 | [src/core/agent/README.md](src/core/agent/README.md) |
 | `src/core/features/` | 功能编排：批量流水线（补齐设定 / 批量拆细纲 / 批量写章）、定稿（摘要 + 角色当前状态 + 叙事线事件）、叙事线（从细纲排出）、一致性预检、摘要、角色卡、设定、文风提取 | [src/core/features/README.md](src/core/features/README.md) |
+| `src/core/skills/` | 写作技能（移植自 AI-Novel-Writer 的阶段 Skill）：三个来源（内置 / 我的技能库 / 本工程）、从 GitHub **先检查再安装**、卸载进回收站、工程的阶段绑定。纯函数（`SKILL.md` 解析与兼容检查、绑定文件格式、`skillStageOf`）在 `model/writingSkill.ts`；注入在 `context/` 的 `skill` 层 | [src/core/skills/README.md](src/core/skills/README.md) |
 | `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
 | `src/shells/` | ★ 三个壳并排放这里，外加 `shared/panes.ts`（所有 pane 的 DOM 唯一来源）。**壳的契约在这份 README 里**：壳只做实现 Host、传输与生命周期、平台专属入口三件事 | [src/shells/README.md](src/shells/README.md) |
 | `src/shells/vscode/` | VS Code 壳：extension 入口、命令、两个 webview 宿主、vscode-lm | [src/shells/vscode/README.md](src/shells/vscode/README.md) |
@@ -111,7 +112,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 22. **细纲有两个入口，讨论那条不许被截断**：`generate` 按走向填（单章，或从情节大纲每批 5 章一起拆），`settle` 把讨论结论沉淀成细纲，几条路共用同一份蓝图合同、输出一字不差；`settle` 的历史 cap 抬到 60%。见 [src/core/context/README.md](src/core/context/README.md)。
 23. **定稿是这条链上唯一的人工闸口**：一章只有摘要新鲜（或作者在细纲上标了完成）才算写完；单章写完不自动定稿，下一步按钮给「定稿第 N 章」并写明调用次数，只有批量的「写完即定稿」模式里自动定稿。（这一条从前是「拆分是作者的活」，拆分随中转站一起删了，编号原位沿用。）见 [src/core/features/README.md](src/core/features/README.md)、[src/core/model/README.md](src/core/model/README.md)。
 24. **agent 是调度者，不是第二个作者**：循环只做「拿着工具达成一个目标」，创作质量仍来自分阶段装配那一层，领域知识只在那里写一份；四条配套约束（产物不回灌、history 传空、无进展检测、触顶不静默停）见 [src/core/agent/README.md](src/core/agent/README.md)。
-25. **agent 不越过既有的闸门**：它的写入走的是与落盘卡片同一条 `workspace.write`，这一层没有任何新的保护代码，`policy.ts` 只决定「动手之前要不要先问一句」；明确不给删除/改名/移动/`bash`/工程根之外的路径/裸 `fs`。见 [src/core/agent/README.md](src/core/agent/README.md)。
+25. **agent 不越过既有的闸门**：它的写入走的是与落盘卡片同一条 `workspace.write`，这一层没有任何新的保护代码，`policy.ts` 只决定「动手之前要不要先问一句」；明确不给删除/改名/移动/`bash`/工程根之外的路径/裸 `fs`（唯一写到工程外的是 `run installSkill`：固定落进我的技能库，路径不由 agent 给，三种模式都先问）。见 [src/core/agent/README.md](src/core/agent/README.md)。
 26. **思考深度是会话的属性，只作用于作者选定的那个模型**：落在 `ChatSession.thinking` 上跟着会话走，缺省是「不思考」；只有对话页的单次生成与 agent 循环带它，工程页的后台批量任务一律不带。见 [src/core/model/README.md](src/core/model/README.md)、[src/core/llm/README.md](src/core/llm/README.md)。
 
 ## 提交约定

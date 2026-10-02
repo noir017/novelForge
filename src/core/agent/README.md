@@ -33,7 +33,7 @@ runAgent({
 
 ## 七个工具，没有第八个
 
-清单与理由在 [tools/README.md](../tools/README.md) 与 [tools/novel/index.ts](../tools/novel/index.ts)：`list` / `read` / `search` 查，`generate` 产出，`write` / `edit` 落盘，`run` 走既有的工程动作。**明确不给**删除、改名、移动、`bash`、工程根之外的路径、裸 `fs`（AGENTS 第 25(c) 条）。
+清单与理由在 [tools/README.md](../tools/README.md) 与 [tools/novel/index.ts](../tools/novel/index.ts)：`list` / `read` / `search` 查，`generate` 产出，`write` / `edit` 落盘，`run` 走既有的工程动作。**明确不给**删除、改名、移动、`bash`、工程根之外的路径、裸 `fs`（AGENTS 第 25(c) 条）。唯一写到工程外的是 `run installSkill`：固定落进我的技能库、路径不由 agent 给，闸门 `always`（见 [tools/README.md](../tools/README.md)）。
 
 ### 为什么没有 `read_draft`
 
@@ -121,11 +121,11 @@ agent 的工具调用不是作者的讨论。混进装配器，`buildContext` �
 
 | gate | 谨慎 | 默认 | 放手 | 谁是这一档 |
 |---|---|---|---|---|
-| `auto` | 自动 | 自动 | 自动 | list / read / search |
+| `auto` | 自动 | 自动 | 自动 | list / read / search、run listSkills / inspectSkill |
 | `costly` | **每次确认** | 预算内自动 | 预算内自动 | generate |
 | `mutating` | 确认 | 确认 | 自动 | write 新建/追加、run（批量动作自带的框仍然弹） |
 | `reviewed` | 审阅 | 审阅 | 审阅 | write 覆盖 |
-| `always` | 确认 | 确认 | **确认** | edit |
+| `always` | 确认 | 确认 | **确认** | edit、run installSkill / bindSkill、write 新建 / 追加写作技能文件（写作技能：改的是我的技能库与往后每一次生成的提示词，下游没有 diff） |
 
 后两档**三种模式完全一样，且不可配置**：`write` 覆盖交给网关的覆盖审阅（diff 本身就同时回答了「要不要动」与「改了什么」）；`edit` 一律确认，因为 `ws.edit` 走的是 `review: false` 那条路，框里写出的 old → new 就是它的 diff。
 

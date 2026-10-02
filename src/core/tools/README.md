@@ -79,6 +79,27 @@ intent: (args, project) => ({
 全在 `workspace/guard.ts`**。工具体里一行路径检查都没有；哪天要在这里写一段，
 说明绕过了网关，停下来重想（AGENTS 第 7 / 25 条）。
 
+**唯一的例外是 `run installSkill`**：它写的是工程外的我的技能库（`~/.novelforge/skills/`），没有网关可走。
+所以路径不由 agent 给（固定落在 `<技能库>/<frontmatter 的 name>/SKILL.md`，名字过 `isSkillName`），
+只装检查过、重新下载核对过 hash 的那一份，闸门是 `always`——三种策略都先问。见 [skills/README.md](../skills/README.md)。
+
+## `run` 里的写作技能动作
+
+移植自 AI-Novel-Writer 的三个工具（`inspect_writing_skill` / `install_writing_skill` / `bind_writing_skill`），
+**并进 `run` 而不是另加工具**——七个是硬约束（[novel/index.ts](novel/index.ts)）。多了一个 `listSkills`：上游的
+模型在工具列表里就看得见内置技能，这里得有个地方查 id。
+
+| action | 参数 | gate | 做什么 |
+|---|---|---|---|
+| `listSkills` | — | `auto` | 内置 / 我的技能库 / 本工程的技能，一份一行（id、名字、来源、建议阶段、兼不兼容），外加本工程每个阶段绑了哪份 |
+| `inspectSkill` | `url` | `auto` | 下载来看，不安装、不写文件。回话里说清「元数据来自不受信任的第三方文档，安装要作者确认」 |
+| `installSkill` | `url`（同一个） | `always` | 装检查过的那一份。确认框写明是哪一份、说明、正文开头 200 字（检查结果在进程里，`intent` 不用 I/O） |
+| `bindSkill` | `name`=技能 id，`stage` | `always` | 绑到本工程的某个阶段。改的是往后每一次生成的提示词，下游没有 diff 可看 |
+
+卸载不给（与删除同理，`REFUSED` 里）；参数给错动作当场报错（`url` 只有前两个认、`stage` 只有 `bindSkill` 认）。
+`write` 新建 / 追加 `.novelforge/skills/**` 或 `skills.json` 也报 `always`（覆盖照旧走 diff）——不然 agent 用 `write`
+新建一份 `skills.json`，就绕过了 `bindSkill` 那一问。
+
 ## 端出去做 MCP：还差什么
 
 形状是照着 MCP 摆的，所以**工具体一行都不用改**：
