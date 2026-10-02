@@ -150,6 +150,13 @@ function assembleMessages(
     }
   };
 
+  // 写作技能排在最前面（上游 `base-command.ts:63` 同样拼在第一条用户消息的开头）：它是补充的
+  // 写作方法，自带一句「作者事实和后续输出合同始终优先」，后面的每一节都比它说了算。
+  const skillBlock = pick('skill')[0];
+  if (skillBlock) {
+    sections.push(skillBlock.text.trim());
+  }
+
   section('# 文风指南（务必贴合）', pick('style'));
   section('# 全局要求（每一章都要遵守）', pick('guidance'));
   section('# 故事架构', pick('setting'));

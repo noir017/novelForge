@@ -55,7 +55,9 @@ export type ItemKind =
   /** 这一章的正文全文：审稿审的就是它。 */
   | 'chapterFull'
   | 'lore'
-  | 'revision';
+  | 'revision'
+  /** 这一阶段绑的写作技能：补充的写作方法，排在用户消息最前面。 */
+  | 'skill';
 
 export type ItemStatus = 'included' | 'degraded' | 'dropped' | 'excluded';
 
@@ -131,7 +133,9 @@ export type LayerId =
   | 'threads'
   /** 目标章自己的正文全文（审稿，五期）。 */
   | 'chapterFull'
-  | 'revision';
+  | 'revision'
+  /** 这一阶段绑的写作技能（`.novelforge/skills.json`），整份带或整份不带。 */
+  | 'skill';
 
 export interface LayerSpec {
   layer: LayerId;

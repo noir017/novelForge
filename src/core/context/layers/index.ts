@@ -29,6 +29,7 @@ import {
   threads,
 } from './background';
 import { ask, attachments, history, system } from './dialog';
+import { skill } from './skill';
 import type { LayerFn } from './assembly';
 
 export const LAYERS: Record<LayerId, LayerFn> = {
@@ -61,6 +62,7 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   threads,
   chapterFull,
   revision,
+  skill,
 };
 
 export { resolveFocus } from './focus';

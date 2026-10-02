@@ -39,6 +39,10 @@ const SETTLE_HISTORY_CAP = 0.6;
  *
  * 架构、大纲、细纲三张按总计划 §2.3 排（二期）：设定四件一律 P0，大纲带故事结构指导，
  * 细纲带覆盖本批的那几节大纲与前序细纲一览。正文那一张（三期）带执行卡、后五章边界与全局要求。
+ *
+ * 每张配方（含下面四张专用的）都在 P0 那一组的最后带一层 `skill`：作者给这个阶段绑的写作技能
+ * （移植自 AI-Novel-Writer 的阶段 Skill）。不 force——作者事实先拿预算，技能再拿，放不下整份
+ * 不带并写明原因。讨论不带，由层自己判（`model/writingSkill.ts` 的 `skillStageOf`）。
  */
 export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // ---------------------------------------------------------------- 架构
@@ -54,6 +58,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
     { layer: 'settingDocs', priority: 0, force: true },
     { layer: 'rosterDoc', priority: 0 },
+    { layer: 'skill', priority: 0 },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'characters', priority: 1 },
   ],
@@ -74,6 +79,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'rosterDoc', priority: 0, force: true },
     { layer: 'structure', priority: 0, force: true },
     { layer: 'outlineDoc', priority: 0, force: true },
+    { layer: 'skill', priority: 0 },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'characters', priority: 1 },
     { layer: 'globalSummary', priority: 2 },
@@ -99,6 +105,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'settingDocs', priority: 0, force: true },
     { layer: 'rosterDoc', priority: 0, force: true },
     { layer: 'outlineSlice', priority: 0, force: true },
+    { layer: 'skill', priority: 0 },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'plotPrev', priority: 1 },
     { layer: 'plotList', priority: 1 },
@@ -138,6 +145,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'plotAhead', priority: 0, force: true },
     { layer: 'chapterSoFar', priority: 0, force: true },
     { layer: 'revision', priority: 0, force: true },
+    { layer: 'skill', priority: 0 },
     { layer: 'characters', priority: 1 },
     { layer: 'premiseWorld', priority: 1 },
     { layer: 'outlineSlice', priority: 1 },
@@ -167,6 +175,7 @@ const CONTINUATION_RECIPE: LayerSpec[] = [
   { layer: 'plotSelf', priority: 0, force: true },
   { layer: 'plotAhead', priority: 0, force: true },
   { layer: 'chapterSoFar', priority: 0, force: true },
+  { layer: 'skill', priority: 0 },
   { layer: 'characters', priority: 1 },
 ];
 
@@ -187,6 +196,7 @@ const REVIEW_RECIPE: LayerSpec[] = [
   { layer: 'chapterFull', priority: 0, force: true },
   { layer: 'plotSelf', priority: 0, force: true },
   { layer: 'plotAhead', priority: 0 },
+  { layer: 'skill', priority: 0 },
   { layer: 'characters', priority: 1 },
   { layer: 'premiseWorld', priority: 1 },
   { layer: 'guidance', priority: 1 },
@@ -210,6 +220,7 @@ const REVISE_RECIPE: LayerSpec[] = [
   { layer: 'revision', priority: 0, force: true },
   { layer: 'style', priority: 0, force: true },
   { layer: 'guidance', priority: 0, force: true },
+  { layer: 'skill', priority: 0 },
   { layer: 'plotSelf', priority: 1 },
   { layer: 'characters', priority: 1 },
   { layer: 'prevTail', priority: 1 },
@@ -228,6 +239,7 @@ const REVISE_CONTINUATION_RECIPE: LayerSpec[] = [
   { layer: 'guidance', priority: 0, force: true },
   { layer: 'revision', priority: 0, force: true },
   { layer: 'chapterSoFar', priority: 0, force: true },
+  { layer: 'skill', priority: 0 },
 ];
 
 /**
