@@ -58,6 +58,8 @@ export function renderProject(tree: ProjectTree): void {
         { label: '从一句话生成小说配置…', run: () => openIdeaForm(tree.book) },
         // 只补空白：已经有的那几件不动、不问（第 19 条的批量那一面）。
         { label: '补齐设定（只补空白）', run: () => projectAction('completeSettings') },
+        // 已经有正文（导入的原稿、老工程）：照正文整理，不从一句话重新编。两次确认，次数在框里。
+        { label: '从已写正文补齐（摘要、角色卡、架构、大纲、细纲）…', run: () => projectAction('deriveFromText') },
         { sep: true },
       ],
       build: () => buildArchitectureRows(tree.architecture, tree),
@@ -70,6 +72,8 @@ export function renderProject(tree: ProjectTree): void {
       extraItems: () => [
         { label: '新建细纲（接在最后一章之后）', run: () => projectAction('newPlot') },
         { label: '新建章节文件（直接粘正文用）', run: () => projectAction('newChapter') },
+        // 整本 txt 放进工程之后切成章（零调用；后端弹框挑文件、报切分结果）。
+        { label: '导入原稿（工程里的 txt）…', run: () => projectAction('importManuscript') },
         { sep: true },
         // 两个批量动作都「只补不改」：已经有产物的章一律跳过。都先开弹窗选区间。
         { label: '批量拆细纲…', run: () => openPlotBatchForm(tree) },
@@ -80,7 +84,11 @@ export function renderProject(tree: ProjectTree): void {
         // 空分组与「下一章还没有细纲那一行」（拆细纲那一档）都写出全书的下一步（W12）。
         // 有下一章那一行时它自己带「去写这一章」，不再多说一句。
         if (tree.plots.length === 0) {
-          return [tree.next ? nextStepRow(tree.next, tree) : emptyRow('还没有章节。先把故事架构与情节大纲写好，再拆出细纲。')];
+          return [
+            tree.next
+              ? nextStepRow(tree.next, tree)
+              : emptyRow('还没有章节。先把故事架构与情节大纲写好，再拆出细纲；已经有写好的稿子，就把 txt 放进工程，右键「导入原稿」。'),
+          ];
         }
         const rows = buildPlotRows(tree.plots, tree.nextChapterNo);
         const hasNextRow = tree.plots.some((p) => p.no === tree.nextChapterNo);

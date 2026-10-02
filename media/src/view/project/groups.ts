@@ -220,10 +220,17 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   rows.push(global);
 
   const style = buildFileRow({ label: '文风指南', relPath: tree.styleGuidePath, detail: '' }, '🎨');
-  style.appendChild(rowActions(linkBtn('从正文提取', () => projectAction('extractStyle'))));
+  style.appendChild(
+    rowActions(
+      linkBtn('从正文提取', () => projectAction('extractStyle')),
+      linkBtn('从参考书学', () => projectAction('learnFromReference'))
+    )
+  );
   onContextMenu(style, () => [
     { label: '打开', run: () => openPath(tree.styleGuidePath) },
     { label: '从正文提取文风', run: () => projectAction('extractStyle') },
+    // 别人的书放进工程：只学怎么写——文风写这里，结构与节奏写成一份「规划」阶段的技能。
+    { label: '从参考书学写法（工程里的 txt）…', run: () => projectAction('learnFromReference') },
     { sep: true },
     ...baseMenuItems(),
   ]);
