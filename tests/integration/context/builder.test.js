@@ -2290,7 +2290,7 @@ describe('装配：二期的新层与移植的契约', () => {
   test('没写总章数时不带结构指导，并在明细里说为什么', async () => {
     const fixture = copyFixture('builder-nototal');
     try {
-      const cfg = fs.readFileSync(path.join(fixture.dir, '.novelforge/config.md'), 'utf8').replace(/^totalChapters: .*\n/m, '');
+      const cfg = fs.readFileSync(path.join(fixture.dir, '.novelforge/config.md'), 'utf8').replace(/^totalChapters: .*\r?\n/m, '');
       fixture.write('.novelforge/config.md', cfg);
       const p = projectMod.NovelProject.open(fixture.dir);
       const b = await builderMod.buildContext(p, { action: GEN('outline'), target: { kind: 'outline' }, ask: '' }, baseConfig);

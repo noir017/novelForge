@@ -135,7 +135,8 @@ async function scan(root: string, source: SkillSource, project?: NovelProject): 
       out.push(skill);
     }
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  // 按码点排，不用 localeCompare：那个跟着系统区域走，中文名排在英文前还是后因机器而异。
+  return out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
 async function readOne(
