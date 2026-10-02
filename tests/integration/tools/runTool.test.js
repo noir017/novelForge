@@ -565,7 +565,8 @@ describe('工具定义本身', () => {
 
   test('参数是扁平的标量', () => {
     const props = tool().parameters.properties;
-    assert.deepEqual(Object.keys(props).sort(), ['action', 'from', 'mode', 'name', 'path', 'review', 'to']);
+    // url / stage 是写作技能那几个动作的（inspectSkill / installSkill / bindSkill），见 runSkills.test.js。
+    assert.deepEqual(Object.keys(props).sort(), ['action', 'from', 'mode', 'name', 'path', 'review', 'stage', 'to', 'url']);
     assert.ok(Object.values(props).every((p) => p.type !== 'object' && p.type !== 'array'), JSON.stringify(props));
   });
 

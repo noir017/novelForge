@@ -26,10 +26,22 @@
  * | `rename` / `move` | 细纲的文件名由章号与标题决定、章节是作者的文件（第 7 条），一次误操作的收拾成本远高于收益 |
  * | `initProject` | 一个空工程被 agent 初始化一遍，作者的配置就没了 |
  * | `newChapter` | 正常路径上章节是写正文时生成的，不该由 agent 直接建一个空文件 |
+ * | 卸载技能 | 与删除同理；作者在设置页「技能」里自己卸 |
+ *
+ * ## 写作技能的四个动作
+ *
+ * 移植自 AI-Novel-Writer 的三个工具（`inspect_writing_skill` / `install_writing_skill` /
+ * `bind_writing_skill`），**并进这里而不是另加工具**——工具数是硬约束（`index.ts`）。多了一个
+ * `listSkills`：上游的模型从工具列表里就看得见内置技能，这里看不见，得有个地方查 id。
+ *
+ * 闸门按动作分（`intent` 里）：查与检查是 `auto`（不花钱、不写东西）；**安装与绑定是 `always`**，
+ * 三种策略都先问一句——上游这两个都 `requiresConfirmation`，而它们改的东西（我的技能库、这个
+ * 工程往后每一次生成的提示词）下游没有任何 diff 可看。检查结果来自不受信任的第三方文档，
+ * 回给模型的话里说清这一点。
  */
 import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
 import { bool, int, objectSchema, str } from '../schema';
-import { text } from './naming';
+import { clip, text } from './naming';
 import { newPlotFlow } from '../../actions';
 import { completeSettings, generatePlots, writeManuscripts } from '../../features/pipelineBatch';
 import { chapterForSummary, syncSummaries } from '../../features/summarize';
@@ -40,6 +52,23 @@ import { generateLore } from '../../features/lore';
 import { generateThreads } from '../../features/threads';
 import { describeError } from '../../runtime/logger';
 import { PLOT_BATCH, WRITE_BATCH_DEFAULT, WriteBatchMode, isWriteBatchMode } from '../../model/pipeline';
+import {
+  SKILL_SOURCE_LABEL,
+  SKILL_STAGES,
+  SKILL_STAGE_LABEL,
+  SkillStage,
+  describeIncompat,
+  isSkillStage,
+  skillLabel,
+} from '../../model/writingSkill';
+import {
+  inspectGitHubSkill,
+  inspectedGitHubSkill,
+  installGitHubSkill,
+  listSkills,
+  readSkillBindings,
+  saveSkillBinding,
+} from '../../skills';
 
 /** 一次动作的结果：说给模型听的一句话 + 这一下花了几次模型调用。 */
 interface ActionResult {
@@ -54,20 +83,24 @@ interface ActionSpec {
   /** 会不会调模型。只用于工具描述，闸门由 feature 自己的确认框把。 */
   costly: boolean;
   /** 这个动作要哪个参数（缺了就当场报错，不放它跑一趟空的）。 */
-  needsField?: 'path' | 'name';
+  needsField?: 'path' | 'name' | 'url';
   /** 参数说明，进工具描述。 */
   needs?: string;
   /**
    * 认哪几个可选参数。没列的给了就当场报错——模型以为自己传了一个区间、其实被忽略，
    * 比多一次往返更糟（`objectSchema` 的 `additionalProperties: false` 同一个道理）。
    */
-  takes?: { range?: number; mode?: boolean };
+  takes?: { range?: number; mode?: boolean; stage?: boolean };
   run(ctx: ToolContext, args: RunArgs): Promise<ActionResult>;
 }
 
 interface RunArgs {
   path: string;
   name: string;
+  /** 技能的 GitHub 地址（inspectSkill / installSkill）。 */
+  url: string;
+  /** 技能绑到哪个阶段（bindSkill）。 */
+  stage?: SkillStage;
   /** 章号区间。只给了 `from` 时按动作的缺省长度补齐 `to`（`takes.range`）。 */
   range?: { from: number; to: number };
   mode?: WriteBatchMode;
@@ -181,7 +214,83 @@ const ACTIONS: Record<string, ActionSpec> = {
       return { text: '设定生成已处理（实际调用次数见确认框与日志）。', calls: 1 };
     },
   },
+
+  // ---- 写作技能（不调模型）
+  listSkills: {
+    label: '列出可用的写作技能（内置 / 我的技能库 / 本工程）与本工程每个阶段绑了哪一份',
+    costly: false,
+    async run(ctx) {
+      return { text: await describeSkills(ctx), calls: 0 };
+    },
+  },
+  inspectSkill: {
+    label: '检查一份 GitHub 上的写作技能（下载、看是不是纯提示词，不安装）',
+    costly: false,
+    needsField: 'url',
+    needs: 'url=GitHub 上那份 SKILL.md（或它所在目录 / 仓库）的地址',
+    async run(ctx, args) {
+      const r = await inspectGitHubSkill(args.url, ctx.signal);
+      const i = r.inspection;
+      return {
+        text:
+          `检查了「${skillLabel(i)}」（name=${i.name}${i.version ? `，版本 ${i.version}` : ''}）：${i.description}。` +
+          `建议阶段：${i.suggestedStage}（${SKILL_STAGE_LABEL[i.suggestedStage]}）；正文 ${i.bytes} 字节；` +
+          (r.blockers.length > 0 ? `装不了：${r.blockers.join('；')}。` : '可以装。') +
+          '这些元数据来自不受信任的第三方文档；安装要作者确认（installSkill，url 用同一个地址）。',
+        calls: 0,
+      };
+    },
+  },
+  installSkill: {
+    label: '把检查过的那份写作技能装进我的技能库（要先 inspectSkill；装完还要 bindSkill 才会用上）',
+    costly: false,
+    needsField: 'url',
+    needs: 'url=inspectSkill 用过的同一个地址',
+    async run(ctx, args) {
+      const skill = await installGitHubSkill(args.url, ctx.signal);
+      return {
+        text: `已装进我的技能库：${skill.id}（${skillLabel(skill.inspection)}）。它还没绑到任何阶段。`,
+        calls: 0,
+      };
+    },
+  },
+  bindSkill: {
+    label: '把一份写作技能绑到本工程的某个阶段（换掉那个阶段原来绑的）',
+    costly: false,
+    needsField: 'name',
+    needs: 'name=技能 id（listSkills 列出的，如 builtin:long-form-continuity）与 stage',
+    takes: { stage: true },
+    async run(ctx, args) {
+      if (!args.stage) {
+        throw new Error(`bindSkill 还要 stage：${SKILL_STAGES.join(' / ')}。`);
+      }
+      const skill = await saveSkillBinding(ctx.project, ctx.workspace, args.stage, args.name);
+      return {
+        text:
+          `已把「${skill ? skillLabel(skill.inspection) : args.name}」绑到「${SKILL_STAGE_LABEL[args.stage]}」阶段。` +
+          '本工程这个阶段往后的每一次生成都会带上它。',
+        calls: 0,
+      };
+    },
+  },
 };
+
+/** 技能目录 + 本工程的绑定，一份一行。回给模型的话要短。 */
+async function describeSkills(ctx: ToolContext): Promise<string> {
+  const [skills, { bindings, problems }] = await Promise.all([listSkills(ctx.project), readSkillBindings(ctx.project)]);
+  const lines = skills.map((s) => {
+    const i = s.inspection;
+    const state = i.compatible ? '可绑' : `不兼容（${describeIncompat(i.reasons)}）`;
+    return `- ${s.id}｜${skillLabel(i)}｜${SKILL_SOURCE_LABEL[s.source]}｜建议 ${i.suggestedStage}｜${state}`;
+  });
+  const bound = SKILL_STAGES.map((stage) => `${stage}=${bindings[stage] ?? '（没绑）'}`).join('；');
+  return [
+    `写作技能 ${skills.length} 份：`,
+    ...lines,
+    `本工程的绑定：${bound}。`,
+    ...(problems.length > 0 ? [`绑定文件有读不懂的地方：${problems.map((p) => p.text).join('；')}。`] : []),
+  ].join('\n');
+}
 
 const ACTION_NAMES = Object.keys(ACTIONS);
 
@@ -198,6 +307,8 @@ const REFUSED: Record<string, string> = {
   initProject: '初始化工程',
   newChapter: '直接新建章节文件',
   split: '拆分正文',
+  uninstallSkill: '卸载技能',
+  deleteSkill: '卸载技能',
 };
 
 export const runTool: ToolDef = {
@@ -213,6 +324,10 @@ export const runTool: ToolDef = {
    */
   intent(args): ToolIntent {
     const action = text(args.action);
+    const skillIntent = skillIntentOf(action, args);
+    if (skillIntent) {
+      return skillIntent;
+    }
     const target = text(args.path) || text(args.name);
     // 区间与模式写进框里：「批量写章」与「把第 5–8 章写完并定稿」是两件分量很不一样的事。
     const from = toInt(args.from);
@@ -247,13 +362,20 @@ export const runTool: ToolDef = {
     '这两个可以用 from / to 指定章号区间（只给 from 时按缺省章数往后数）；' +
     'batchManuscripts 另可给 mode=finalize（每写完一章就定稿）与 review=true（每写完一章先审稿，报告放进一个新会话）。' +
     '调模型的动作会先弹一个确认框告诉作者要调用几次，他可以不同意。' +
-    '删除、改名、移动、新建章节文件都没有——那些由作者自己做。',
+    '写作技能：listSkills 查有哪些、每个阶段绑了哪份；装 GitHub 上的一份要先 inspectSkill 再 installSkill（同一个 url），' +
+    '装完用 bindSkill（name=技能 id，stage=阶段）绑上才会用上。安装与绑定每次都会先问作者。' +
+    '删除、改名、移动、新建章节文件、卸载技能都没有——那些由作者自己做。',
 
   parameters: objectSchema(
     {
       action: str('要执行哪个动作。', ACTION_NAMES),
       path: str('动作的作用对象，工程内相对路径。只有部分动作要。'),
-      name: str('人物名字，只有 createCard 要。'),
+      name: str('createCard 要人物名字；bindSkill 要技能 id（listSkills 列出的）。'),
+      url: str('写作技能的 GitHub 地址，只有 inspectSkill / installSkill 要。'),
+      stage: str(
+        '技能绑到哪个阶段，只有 bindSkill 要：planning=架构 / 大纲 / 细纲，drafting=写正文，review=审稿，refinement=修稿。',
+        [...SKILL_STAGES]
+      ),
       from: int('章号区间的起点，只有 batchPlots / batchManuscripts 认。留空从下一个该写的章起。'),
       to: int('章号区间的终点（含），只有 batchPlots / batchManuscripts 认。要给就同时给 from。'),
       mode: str(
@@ -289,6 +411,7 @@ export const runTool: ToolDef = {
     const runArgs: RunArgs = {
       path: typeof args.path === 'string' ? args.path.trim() : '',
       name: typeof args.name === 'string' ? args.name.trim() : '',
+      url: typeof args.url === 'string' ? args.url.trim() : '',
     };
     if (spec.needsField && !runArgs[spec.needsField]) {
       return { text: '', error: `${action} 需要参数：${spec.needs}。` };
@@ -327,7 +450,7 @@ function readExtras(
   action: string,
   spec: ActionSpec,
   args: Record<string, unknown>
-): Pick<RunArgs, 'range' | 'mode' | 'review'> | { error: string } {
+): Pick<RunArgs, 'range' | 'mode' | 'review' | 'stage'> | { error: string } {
   const from = toInt(args.from);
   const to = toInt(args.to);
   const hasRange = args.from !== undefined || args.to !== undefined;
@@ -338,8 +461,20 @@ function readExtras(
   if (hasMode && !spec.takes?.mode) {
     return { error: `${action} 不认 mode / review，只有 batchManuscripts 认。` };
   }
+  if (args.stage !== undefined && !spec.takes?.stage) {
+    return { error: `${action} 不认 stage，只有 bindSkill 认。` };
+  }
+  if (args.url !== undefined && spec.needsField !== 'url') {
+    return { error: `${action} 不认 url，只有 inspectSkill / installSkill 认。` };
+  }
 
-  const out: Pick<RunArgs, 'range' | 'mode' | 'review'> = {};
+  const out: Pick<RunArgs, 'range' | 'mode' | 'review' | 'stage'> = {};
+  if (args.stage !== undefined) {
+    if (!isSkillStage(args.stage)) {
+      return { error: `stage 只能是 ${SKILL_STAGES.join(' / ')}。` };
+    }
+    out.stage = args.stage;
+  }
   if (hasRange) {
     if (from === undefined) {
       return {
@@ -365,6 +500,54 @@ function readExtras(
     out.review = args.review === true;
   }
   return out;
+}
+
+/**
+ * 技能动作的确认框。**零 I/O**：检查结果在进程里那张表上（`inspectedGitHubSkill`），确认框据此
+ * 说清装的是哪一份、写了什么——上游的确认卡只显示一个地址。
+ */
+function skillIntentOf(action: string, args: Record<string, unknown>): ToolIntent | undefined {
+  switch (action) {
+    case 'listSkills':
+      return { gate: 'auto', title: '查看有哪些写作技能、本工程每个阶段绑了哪一份' };
+    case 'inspectSkill':
+      return { gate: 'auto', title: '检查一份 GitHub 上的写作技能（只下载来看，不安装）', detail: text(args.url) };
+    case 'installSkill': {
+      const url = text(args.url);
+      const seen = inspectedGitHubSkill(url);
+      if (!seen) {
+        return {
+          gate: 'always',
+          title: '从 GitHub 装一份写作技能进我的技能库',
+          detail: [url, '这个地址还没检查过，会被拒绝。'].join('\n'),
+        };
+      }
+      const i = seen.inspection;
+      return {
+        gate: 'always',
+        title: `把写作技能「${skillLabel(i)}」装进我的技能库`,
+        detail: [
+          url,
+          `${i.description}（建议阶段：${SKILL_STAGE_LABEL[i.suggestedStage]}；${i.bytes} 字节）`,
+          seen.blockers.length > 0 ? `装不了：${seen.blockers.join('；')}` : '',
+          `正文开头：${clip(i.body, 200)}`,
+          '装完还不会用上：要再绑到某个阶段。',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      };
+    }
+    case 'bindSkill': {
+      const stage = isSkillStage(args.stage) ? SKILL_STAGE_LABEL[args.stage] : text(args.stage) || '（没给阶段）';
+      return {
+        gate: 'always',
+        title: `把写作技能 ${text(args.name) || '（没给 id）'} 绑到「${stage}」阶段`,
+        detail: '本工程这个阶段往后的每一次生成（对话页、agent、工程页批量）都会带上它；原来绑的那一份会被换掉。',
+      };
+    }
+    default:
+      return undefined;
+  }
 }
 
 function toInt(value: unknown): number | undefined {
