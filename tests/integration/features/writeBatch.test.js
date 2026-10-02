@@ -525,10 +525,67 @@ describe('一致性预检：开跑之前查一遍，有问题先问', () => {
     assert.ok(t.has(CH(1)));
     assert.ok(!t.has(CH(2)), '第 2 章没写');
     const f = finished.find((x) => x.title === '批量写章');
-    assert.match(f.message, /第 2 章的一致性预检发现 1 处问题（沈秋在角色卡上已经死了，细纲仍排着），批量停在这里/);
+    assert.match(f.message, /第 2 章的一致性预检发现 1 处问题（沈秋已经死了，细纲仍排着），批量停在这里/);
     const fails = await failuresOf(t, PLOT(2));
     assert.ok(fails.some((x) => x.severity === 'warn' && /一致性预检/.test(x.message)), JSON.stringify(fails));
     cleanup(t.dir, bundle.db);
+  });
+
+  // 百章实验：钱执事第 10 章的摘要已记下「尸骨无存」，第 26 章细纲照排——他没有卡，预检没拦。
+  test('没有卡的人：靠前面定稿的连续性事实认出来，停在那一章前面', async () => {
+    const t = await fresh('wb-preflight-fact');
+    scheduleShenQiu(t, '');
+    t.remove('.novelforge/characters/沈秋.md');
+    // 第 1 章也排着沈秋：他死在这一章（不算提前登场）。
+    t.write(PLOT(1), t.read(PLOT(1)).replace('characters: [林昭]', 'characters: [林昭, 沈秋]'));
+    t.project.invalidate();
+    replyFn = (messages) => {
+      if (isSummary(messages)) {
+        return JSON.stringify({ 梗概: '第 1 章的事。', 出场人物: [{ name: '林昭', aliases: [] }], 关键事件: [], 连续性事实: ['沈秋被刺死在渡口，尸骨无存'] });
+      }
+      const { no, continuation } = chapterOf(messages);
+      if (!isState(messages) && !continuation && no === 1) {
+        return { text: `沈秋被刺死在渡口，尸骨无存。\n\n${filler(700, 100)}`, stop: 'end' };
+      }
+      return defaultReply(messages);
+    };
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', confirmed: true });
+    assert.ok(t.has(CH(1)) && !t.has(CH(2)));
+    const f = finished.find((x) => x.title === '批量写章');
+    assert.match(f.message, /第 2 章的一致性预检发现 1 处问题（沈秋已经死了/);
+    const fails = await failuresOf(t, PLOT(2));
+    assert.ok(fails.some((x) => /沈秋在第 1 章的定稿事实里写着「沈秋被刺死在渡口」/.test(x.message)), JSON.stringify(fails));
+    cleanup(t.dir, bundle.db);
+  });
+});
+
+describe('开写之前补建角色卡：摘要里出场两章以上、还没有卡的人', () => {
+  let t;
+  before(async () => {
+    t = await fresh('wb-cast-cards');
+    replyFn = (messages) => {
+      if (isSummary(messages)) {
+        return JSON.stringify({ 梗概: '事。', 出场人物: [{ name: '林昭', aliases: [] }, { name: '老周', aliases: [] }], 关键事件: [], 连续性事实: [] });
+      }
+      return defaultReply(messages);
+    };
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', confirmed: true });
+    fake.reset();
+    h.confirms.length = 0;
+    h.expect('开始写章');
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 3, to: 3 } });
+  });
+  after(() => cleanup(t.dir, bundle.db));
+
+  test('确认框里说了给谁建卡、几次调用，并算进总数', () => {
+    const c = h.confirms[0];
+    assert.match(c.message, /预计 2 次调用/);
+    assert.match(c.detail, /开写之前先给老周建角色卡（摘要里已经出场 2 章以上、还没有卡；1 次调用/);
+  });
+
+  test('先建卡再写：老周有了卡，第 3 章写了', () => {
+    assert.ok(t.has('.novelforge/characters/老周.md'));
+    assert.ok(t.has(CH(3)));
   });
 });
 

@@ -24,6 +24,15 @@ export interface ContinuityFact {
   evidence?: string;
 }
 
+/** 定稿过的一章留下的连续性事实（`NovelProject.finalizedFacts`）。 */
+export interface FinalizedFacts {
+  no: number;
+  title: string;
+  /** 摘要文件的相对路径。 */
+  relPath: string;
+  facts: ContinuityFact[];
+}
+
 /** 一章最多留几条（上游 `CONTINUITY_FACT_LIMIT`）。 */
 export const CONTINUITY_FACT_LIMIT = 12;
 /** 一条事实最长多少字（上游 `CONTINUITY_STATEMENT_LIMIT`）。 */

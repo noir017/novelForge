@@ -52,6 +52,7 @@ import {
   writeText,
 } from './fs';
 import { castFromText, parseCast } from './castParse';
+import { FinalizedFacts, parseContinuityFacts } from './continuity';
 
 const NOVEL_DIR = '.novelforge';
 /** 0.1.x 用的目录名。检测到就提示迁移，不静默改动用户文件。 */
@@ -617,6 +618,27 @@ export class NovelProject {
       }
     }
     return stale;
+  }
+
+  /**
+   * 第 `beforeNo` 章之前、**定稿过**的各章留下的连续性事实，按章号升序。摘要过期（正文改过）或
+   * 没有摘要的章不收：拿一份过期的事实去判矛盾，判出来的可能正是作者改过的地方。没有事实的章也不收。
+   * 预检、写前冲突检查与装配器的 `recentFacts` 层共用这一份。
+   */
+  async finalizedFacts(beforeNo = Number.POSITIVE_INFINITY): Promise<FinalizedFacts[]> {
+    const out: FinalizedFacts[] = [];
+    const chapters = (await this.listChapters()).filter((c) => c.order < beforeNo && c.wordCount > 0);
+    for (const chapter of chapters.sort((a, b) => a.order - b.order)) {
+      const summary = await this.readSummary(chapter.relPath);
+      if (!summary || summary.sourceHash !== chapter.contentHash) {
+        continue;
+      }
+      const facts = parseContinuityFacts(summary.sections.连续性事实);
+      if (facts.length > 0) {
+        out.push({ no: chapter.order, title: chapter.title, relPath: summary.relPath, facts });
+      }
+    }
+    return out;
   }
 
   /**

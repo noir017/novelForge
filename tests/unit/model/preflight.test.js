@@ -29,6 +29,11 @@ describe('preflight.ts · 终态判定', () => {
     '重伤不治，已于第 4 章去世',
     '死于青崖镇的大火',
     '确认死亡',
+    '尸骨无存',
+    '已陨落',
+    '魂飞魄散，再无转世可能',
+    '再无半点生息',
+    '被大阵吞噬，化作飞灰',
   ];
   for (const s of dead) {
     test(`算：${s}`, () => assert.ok(p.terminalClause(s)));
@@ -44,6 +49,8 @@ describe('preflight.ts · 终态判定', () => {
     '死守城门三日',
     '传言已死，其实在京城',
     '濒临死亡，昏迷不醒',
+    '陨落的宗门遗迹里藏身',
+    '死亡的阴影一直跟着他',
   ];
   for (const s of alive) {
     test(`不算：${s}`, () => assert.equal(p.terminalClause(s), undefined));
@@ -93,6 +100,48 @@ describe('preflight.ts · 找风险', () => {
   test('开篇状态的说法', () => {
     const risks = p.findPreflightRisks({ no: 1, planned: ['甲'], cards: [{ name: '甲', aliases: [], state: '身亡', stateThrough: 0 }] });
     assert.match(p.describeRisk(risks[0]), /（开篇状态）/);
+  });
+});
+
+// 百章实验：钱执事第 10 章「尸骨无存」，第 26 章细纲照排——他没有卡。
+describe('preflight.ts · 定稿事实', () => {
+  const facts = [
+    { no: 10, relPath: 's/010.md', statements: ['陆沉夺得了钱执事的聚灵囊', '钱执事已被禁区大阵的魔气彻底吞噬，尸骨无存'] },
+    { no: 12, statements: ['钱执事的魂灯碎了，执法堂开始追查'] },
+  ];
+
+  test('没有卡的人：以他做主语的事实判出终态，一条，说清是第几章', () => {
+    const risks = p.findPreflightRisks({ no: 26, planned: ['陆沉', '钱执事'], cards: [], facts });
+    assert.equal(risks.length, 1);
+    assert.equal(risks[0].source, 'fact');
+    assert.equal(risks[0].chapter, 10);
+    assert.equal(risks[0].relPath, 's/010.md');
+    assert.equal(p.describeRisk(risks[0]), '钱执事在第 10 章的定稿事实里写着「尸骨无存」，本章细纲仍安排这个人出场');
+  });
+
+  test('「钱执事的……」不算以他做主语', () => {
+    assert.equal(p.factTerminal(['钱执事'], [{ no: 3, statements: ['钱执事的储物袋被陆沉夺走'] }], 5), undefined);
+  });
+
+  test('只看本章之前的章', () => {
+    assert.deepEqual(p.findPreflightRisks({ no: 10, planned: ['钱执事'], cards: [], facts }), []);
+  });
+
+  test('以他做主语的最近一条说了算：后来又写他在活动，就不算', () => {
+    const later = [...facts, { no: 20, statements: ['钱执事假死脱身，藏身外门'] }];
+    assert.deepEqual(p.findPreflightRisks({ no: 26, planned: ['钱执事'], cards: [], facts: later }), []);
+  });
+
+  test('卡上状态没跟上（还写着活着）：事实照判；卡上判出来了就只报卡上那一条', () => {
+    const alive = [{ name: '钱执事', aliases: ['钱老鬼'], state: '在药园克扣灵草', stateThrough: 9 }];
+    const byFact = p.findPreflightRisks({ no: 26, planned: ['钱老鬼'], cards: alive, facts });
+    assert.equal(byFact.length, 1);
+    assert.equal(byFact[0].name, '钱执事');
+    assert.equal(byFact[0].source, 'fact');
+    const dead = [{ name: '钱执事', aliases: [], state: '已死亡', stateThrough: 10 }];
+    const byCard = p.findPreflightRisks({ no: 26, planned: ['钱执事'], cards: dead, facts });
+    assert.equal(byCard.length, 1);
+    assert.equal(byCard[0].source, 'card');
   });
 });
 

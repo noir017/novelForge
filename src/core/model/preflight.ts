@@ -10,8 +10,9 @@
  *
  * ## 与上游不同的地方（五期计划 §8 ⚑）
  *
- * - **读角色卡的「当前状态」**（总计划 §1 #19），不读上游的定稿事实投影。四期起这一节由定稿
- *   维护，写着「截至第 K 章」这个人在哪、怎么样。
+ * - **读角色卡的「当前状态」**（总计划 §1 #19），四期起这一节由定稿维护，写着「截至第 K 章」这个人
+ *   在哪、怎么样。**卡上判不出来再读定稿事实**（{@link factTerminal}）：百章实验里 13 张卡有 8 张是写完
+ *   才建的，钱执事第 10 章的摘要已记下「尸骨无存」，第 26 章的细纲照样排他出场，预检没拦——他没有卡。
  * - **只信写到本章之前的状态**：`stateThrough ≥ N`（状态已经更新到本章或更晚，重写早前的章时
  *   常见）不判——那个「已死亡」说的可能正是本章或之后发生的事。没记过 `stateThrough` 的手写卡照判。
  * - **判定按分句、看句首**：上游只认「名字紧挨着死亡 / 身亡 / 牺牲 / 去世」四个词，可卡上的
@@ -31,13 +32,25 @@ export interface PreflightCard {
   relPath?: string;
 }
 
-/** 一处风险：谁、卡上那一节怎么写的、写到第几章、是哪一句判出来的。 */
+/** 一处风险：谁、卡上那一节（或哪一章的定稿事实）怎么写的、写到第几章、是哪一句判出来的。 */
 export interface PreflightRisk {
   name: string;
+  /** 判出来的那段原文：卡上「当前状态」一节，或那一条连续性事实。 */
   state: string;
   through?: number;
   clause: string;
   relPath?: string;
+  /** 从哪儿判出来的。缺席等于 `card`。 */
+  source?: 'card' | 'fact';
+  /** `source: 'fact'` 时：那条事实是第几章定稿留下的。 */
+  chapter?: number;
+}
+
+/** 预检要知道的一章定稿事实（只要事实原句）。 */
+export interface PreflightFacts {
+  no: number;
+  relPath?: string;
+  statements: readonly string[];
 }
 
 const NUM = '[0-9０-９一二三四五六七八九十百千两]+';
@@ -48,7 +61,10 @@ const LEAD =
 /** 终态说法。刻意不收单字「死」：死守、死敌、死心、拼死都不是终态。 */
 const TERMINAL =
   '(?:死亡|身亡|牺牲|去世|过世|亡故|病逝|病故|遇害|遇难|罹难|阵亡|战死|丧生|丧命|殒命|殒身|毙命|气绝|惨死|' +
-  '死了|死去|死于|自尽|自刎|被?处决|被?斩首|被[^，。；,;！!？?]{0,12}?(?:杀|害|刺|毒|打|斩|砍|击|射|烧|勒|吊|处|咬|砸|溺|捅)死)';
+  '死了|死去|死于|自尽|自刎|被?处决|被?斩首|被[^，。；,;！!？?]{0,12}?(?:杀|害|刺|毒|打|斩|砍|击|射|烧|勒|吊|处|咬|砸|溺|捅)死|' +
+  // 修真、玄幻的说法（百章实验：「钱执事已被大阵吞噬，尸骨无存」没被认出来）。
+  '尸骨无存|魂飞魄散|形神俱灭|灰飞烟灭|身死道消|陨落|化作飞灰|化为飞灰|化作枯尸|化为枯尸|' +
+  '再无(?:半点|一丝)?生息|没了气息|没有了气息|彻底没了气息)';
 /** 「已死」「已经死」：单字「死」只在这两种前缀后面才算。 */
 const BARE_DEAD = '(?:早已|已经|已)死(?![守战敌士心罪期对磕撑扛咬拼])';
 
@@ -63,7 +79,8 @@ function escapeRe(s: string): string {
 export function terminalClause(state: string, names: readonly string[] = []): string | undefined {
   const subjects = ['他', '她', '其', '此人', '本人', ...names.filter((n) => n.trim().length > 0).map(escapeRe)];
   const subject = `(?:${subjects.join('|')})?`;
-  const re = new RegExp(`^${subject}\\s*${LEAD}\\s*(?:${TERMINAL}|${BARE_DEAD})`, 'u');
+  // 终态说法后面跟着「的」是在修饰别的东西（「陨落的宗门」「死亡的阴影」），不是这个人死了。
+  const re = new RegExp(`^${subject}\\s*${LEAD}\\s*(?:${TERMINAL}|${BARE_DEAD})(?![的之])`, 'u');
   for (const raw of (state ?? '').split(/[，,。；;！!？?\n（）()【】\[\]]/u)) {
     const clause = raw.replace(/^[\s\-*•·:：]+/u, '').trim();
     if (clause && re.test(clause)) {
@@ -74,45 +91,112 @@ export function terminalClause(state: string, names: readonly string[] = []): st
 }
 
 /**
- * 本章细纲 `characters[]` 里的人，卡上写着已经死了 → 一条风险。按名字与别名认卡；
- * 细纲里有、却没有卡的人不查（没有状态可比）。
+ * 本章细纲 `characters[]` 里的人已经死了 → 一条风险。先看卡上的「当前状态」（按名字与别名认卡）；
+ * 卡上没判出来、或者这个人根本没有卡，再看前面各章定稿留下的连续性事实（{@link factTerminal}）。
+ * 一个人只报一条。
  */
 export function findPreflightRisks(input: {
   no: number;
   planned: readonly string[];
   cards: readonly PreflightCard[];
+  /** 本章之前定稿过的各章的连续性事实。没卡的人、卡上状态没跟上的人，靠它认出来。 */
+  facts?: readonly PreflightFacts[];
 }): PreflightRisk[] {
   const out: PreflightRisk[] = [];
-  const seen = new Set<PreflightCard>();
+  const seen = new Set<string>();
   for (const raw of input.planned) {
     const name = raw.trim();
     if (!name) {
       continue;
     }
     const card = input.cards.find((c) => c.name === name || c.aliases.includes(name));
-    if (!card || seen.has(card)) {
+    const who = card?.name ?? name;
+    if (seen.has(who)) {
       continue;
     }
-    seen.add(card);
-    if (card.stateThrough !== undefined && card.stateThrough >= input.no) {
-      continue;
+    seen.add(who);
+    const names = card ? [card.name, ...card.aliases] : [name];
+    if (card && (card.stateThrough === undefined || card.stateThrough < input.no)) {
+      const clause = terminalClause(card.state, names);
+      if (clause) {
+        out.push({
+          name: card.name,
+          state: card.state.trim(),
+          ...(card.stateThrough !== undefined ? { through: card.stateThrough } : {}),
+          clause,
+          ...(card.relPath ? { relPath: card.relPath } : {}),
+          source: 'card',
+        });
+        continue;
+      }
     }
-    const clause = terminalClause(card.state, [card.name, ...card.aliases]);
-    if (clause) {
+    const fact = input.facts ? factTerminal(names, input.facts, input.no) : undefined;
+    if (fact) {
       out.push({
-        name: card.name,
-        state: card.state.trim(),
-        ...(card.stateThrough !== undefined ? { through: card.stateThrough } : {}),
-        clause,
-        ...(card.relPath ? { relPath: card.relPath } : {}),
+        name: who,
+        state: fact.statement,
+        clause: fact.clause,
+        ...(fact.relPath ? { relPath: fact.relPath } : {}),
+        source: 'fact',
+        chapter: fact.chapter,
       });
     }
   }
   return out;
 }
 
+/**
+ * 定稿事实里判终态：**这个人做主语的最近一条事实说了算**。由近及远找以名字开头（后面不跟「的」）的
+ * 那一句，从它起到这条事实结尾判终态——后面的分句沿用同一个主语（「钱执事已被大阵吞噬，尸骨无存」）。
+ * 最近那条说他还在活动（假死、复活、托梦里现身之后又写了他在做事），就不算。
+ */
+export function factTerminal(
+  names: readonly string[],
+  chapters: readonly PreflightFacts[],
+  beforeNo: number
+): { clause: string; statement: string; chapter: number; relPath?: string } | undefined {
+  const keys = names.map((n) => n.trim()).filter((n) => n.length >= 2);
+  if (keys.length === 0) {
+    return undefined;
+  }
+  const ordered = chapters.filter((c) => c.no < beforeNo).slice().sort((a, b) => b.no - a.no);
+  for (const ch of ordered) {
+    for (const statement of [...ch.statements].reverse()) {
+      const start = subjectStart(statement, keys);
+      if (start === undefined) {
+        continue;
+      }
+      const clause = terminalClause(statement.slice(start), keys);
+      return clause ? { clause, statement: statement.trim(), chapter: ch.no, ...(ch.relPath ? { relPath: ch.relPath } : {}) } : undefined;
+    }
+  }
+  return undefined;
+}
+
+/** 名字在哪个分句的句首做主语（后面不跟「的」）。没有就 undefined。 */
+function subjectStart(statement: string, names: readonly string[]): number | undefined {
+  const re = /[，,。；;！!？?\n（）()【】[\]]/gu;
+  const starts = [0];
+  for (const m of statement.matchAll(re)) {
+    starts.push((m.index ?? 0) + 1);
+  }
+  for (const at of starts) {
+    const rest = statement.slice(at).replace(/^[\s\-*•·:：]+/u, '');
+    const offset = statement.length - at - rest.length;
+    for (const n of names) {
+      if (rest.startsWith(n) && !rest.slice(n.length).startsWith('的')) {
+        return at + offset;
+      }
+    }
+  }
+  return undefined;
+}
+
 /** 「沈秋的当前状态（截至第 5 章）写着『已死亡』，本章细纲仍安排他出场。」卡片与日志共用。 */
 export function describeRisk(r: PreflightRisk): string {
+  if (r.source === 'fact') {
+    return `${r.name}在第 ${r.chapter} 章的定稿事实里写着「${r.clause}」，本章细纲仍安排这个人出场`;
+  }
   const when = r.through === undefined ? '' : r.through <= 0 ? '（开篇状态）' : `（截至第 ${r.through} 章）`;
   return `${r.name}的当前状态${when}写着「${r.clause}」，本章细纲仍安排这个人出场`;
 }

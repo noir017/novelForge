@@ -44,6 +44,7 @@ import { BuildRequest, buildContext } from '../context/builder';
 import { runTask } from '../runtime/progress';
 import { countWords } from '../model/fs';
 import { describeFinalize, finalizeChapter } from './finalize';
+import { createCastCards, planCastCards } from './characterCard';
 import { PREFLIGHT_SUGGESTION, PreflightRisk, describeExempted, describeRisks, preflightChapter, riskKey } from './preflight';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import {
@@ -421,6 +422,9 @@ const MODE_LABEL: Record<WriteBatchMode, string> = {
  * `confirmed`：工程页弹窗已经把切分与调用次数写给作者看过了，不再弹第二个确认框。agent 的
  * `run` 那条路不带它，照旧先问。返回实际调了几次模型（取消、无事可做、没有模型时是 0）。
  */
+/** 批量写章开跑前补建角色卡：摘要里至少出场这么多章的人。 */
+export const CAST_CARD_MIN_APPEARANCES = 2;
+
 export async function writeManuscripts(
   project: NovelProject,
   opts: { range?: { from: number; to: number }; mode?: WriteBatchMode; review?: boolean; confirmed?: boolean } = {}
@@ -488,10 +492,15 @@ export async function writeManuscripts(
     }
   }
 
+  // 开写之前补建角色卡：已经在摘要里出场两章以上、还没有卡的人。没有卡就没有「当前状态」可维护，
+  // 定稿时不更新、预检也只能靠定稿事实认人（百章实验里 13 张卡有 8 张是写完才建的）。
+  const castCards = await planCastCards(project, { minAppearances: CAST_CARD_MIN_APPEARANCES });
+  const cardCalls: CallEstimate = { low: castCards.calls, high: castCards.calls, max: castCards.calls };
+  const totalCalls = castCards.calls > 0 ? addCalls(plan.calls, cardCalls) : plan.calls;
   const config = readConfig();
   if (!opts.confirmed) {
     const pick = await getHost().confirm(
-      `${writing}：要写 ${plan.chapters.length} 章正文（${MODE_LABEL[mode]}${reviewing ? '、写完即审稿' : ''}），${describeCalls(plan.calls)}。现在写？`,
+      `${writing}：要写 ${plan.chapters.length} 章正文（${MODE_LABEL[mode]}${reviewing ? '、写完即审稿' : ''}），${describeCalls(totalCalls)}。现在写？`,
       ['开始写章'],
       {
         modal: true,
@@ -499,6 +508,9 @@ export async function writeManuscripts(
           describeTaskModels(config, 'manuscript'),
           reviewing ? describeTaskModels(config, 'review') : '',
           mode === 'finalize' ? describeTaskModels(config, 'plotSummary') : '',
+          castCards.plans.length > 0
+            ? `开写之前先给${castCards.plans.map((p) => p.member.name).join('、')}建角色卡（摘要里已经出场 ${CAST_CARD_MIN_APPEARANCES} 章以上、还没有卡；${castCards.calls} 次调用，算在上面的数里）。`
+            : '',
           '一章一章串行写：后一章接着前一章的结尾写。没写够时自动续写（算在上限里）。',
           reviewing ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不会停。' : '',
           mode === 'finalize' ? '每写完一章就定稿（摘要 + 出场角色的当前状态），再写下一章。' : '只写正文，不定稿；之后在主按钮上逐章定稿。',
@@ -531,6 +543,7 @@ export async function writeManuscripts(
       return 0;
     }
   }
+  const cardPool = castCards.plans.length > 0 ? (statePool ?? (await createModelPool({ task: 'characterCard', concurrent: false }))) : undefined;
   const reviewPool = reviewing ? await createModelPool({ task: 'review', concurrent: false }) : undefined;
   if (reviewing && !reviewPool) {
     log.error('没有可用的模型审稿，批量写章中止');
@@ -550,6 +563,30 @@ export async function writeManuscripts(
       /** 停在哪、为什么。没有就是全部写完了。 */
       let halt: { no: number; why: string; level: 'info' | 'error' } | undefined;
       let last: Plot | undefined;
+
+      if (cardPool && castCards.plans.length > 0) {
+        const names = castCards.plans.map((p) => p.member.name).join('、');
+        report({ message: `补建角色卡：${names}`, current: 0, total });
+        try {
+          const made = await createCastCards(project, castCards.plans, {
+            signal,
+            pool: cardPool,
+            config,
+            report: (p) => report({ message: `补建角色卡 · ${p.message}` }),
+          });
+          calls += castCards.calls;
+          log.info(`开写之前补建了 ${made.created} 张角色卡`, `${names}${made.failed > 0 ? `｜失败 ${made.failed} 张（空卡已留下）` : ''}`);
+        } catch (err) {
+          calls += castCards.calls;
+          if (err instanceof CancelledError || signal.aborted) {
+            log.warn('批量写章被取消，停在补建角色卡');
+            return;
+          }
+          // 卡没建成不挡写章：预检照样能靠定稿事实认人。
+          log.warn(`补建角色卡失败：${describeError(err)}，接着写章`);
+        }
+        project.invalidate();
+      }
 
       for (let i = 0; i < total && !halt; i++) {
         const no = plan.chapters[i];
@@ -578,7 +615,7 @@ export async function writeManuscripts(
             message: `一致性预检：${lines.join('；')}`,
             detail: `批量写章停在这一章前面，没有写。${PREFLIGHT_SUGGESTION}`,
           });
-          halt = { no, why: `的一致性预检发现 ${fresh.length} 处问题（${fresh.map((r) => r.name).join('、')}在角色卡上已经死了，细纲仍排着）`, level: 'info' };
+          halt = { no, why: `的一致性预检发现 ${fresh.length} 处问题（${fresh.map((r) => r.name).join('、')}已经死了，细纲仍排着）`, level: 'info' };
           break;
         }
         void clearFailures(project, 'plot', plot.relPath, 'preflight');

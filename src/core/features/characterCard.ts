@@ -377,6 +377,156 @@ export async function createCardForCast(project: NovelProject, name: string): Pr
   });
 }
 
+/** 给没建卡的一位人物建卡要做的事：通读哪几章、分几批（一批一次调用）。 */
+export interface CastCardPlan {
+  member: CastMember;
+  plots: Chapter[];
+  batches: Batch[];
+}
+
+/** {@link planCastCards} 的结果。 */
+export interface CastCardsPlan {
+  plans: CastCardPlan[];
+  /** 读不到正文、建不了的人和原因。 */
+  skipped: { name: string; reason: string }[];
+  /** 一批一次调用，加起来就是预计调用次数。 */
+  calls: number;
+  /** 一共通读几章（同一章给几个人读算几次）。 */
+  chapters: number;
+}
+
+/**
+ * 摘要里出现过、还没建卡的人，各要通读哪几章、分几批。`minAppearances` 只收出场至少这么多章的人
+ * （批量写章开跑前补卡用 2：只露过一面的路人不值得一张卡）。零调用。
+ */
+export async function planCastCards(project: NovelProject, opts: { minAppearances?: number } = {}): Promise<CastCardsPlan> {
+  const index = await buildCastIndex(project);
+  const min = Math.max(1, opts.minAppearances ?? 1);
+  const cardBudget = budgetForTask('characterCard');
+  const allPlots = await project.listChapters();
+  const plans: CastCardPlan[] = [];
+  const skipped: { name: string; reason: string }[] = [];
+  for (const member of index.unknown.filter((m) => m.plots.length >= min)) {
+    const plots = allPlots.filter((c) => member.plots.includes(c.order));
+    if (plots.length === 0) {
+      skipped.push({ name: member.name, reason: '出场章节已不在磁盘上' });
+      continue;
+    }
+    const batches = await planBatches(project, plots, cardBudget);
+    if (batches.length === 0) {
+      skipped.push({ name: member.name, reason: '章节正文都为空' });
+      continue;
+    }
+    plans.push({ member, plots, batches });
+  }
+  return {
+    plans,
+    skipped,
+    calls: plans.reduce((sum, p) => sum + p.batches.length, 0),
+    chapters: plans.reduce((sum, p) => sum + p.batches.reduce((n, b) => n + b.plots.length, 0), 0),
+  };
+}
+
+/**
+ * 按 {@link planCastCards} 排好的建卡：各人之间没有先后依赖，按 `lanes` 并发。每位先落一张空卡再让模型来填——
+ * 即便调用失败或被取消，作者也拿到了一个可手写的档案；失败挂在那张卡上。不弹框、不开任务，调用方负责
+ * 确认与进度条（工程页的「全部建卡」、批量写章开跑前的补卡）。
+ */
+export async function createCastCards(
+  project: NovelProject,
+  plans: readonly CastCardPlan[],
+  opts: {
+    signal: AbortSignal;
+    pool: ModelPool;
+    config: ReturnType<typeof readConfig>;
+    lanes?: number;
+    /** 进度：一句话，与已完成 / 一共多少步（一位 = 批数 + 1）。 */
+    report?: (p: { message: string; current: number; total: number }) => void;
+  }
+): Promise<{ created: number; failed: number }> {
+  const totalSteps = plans.reduce((sum, p) => sum + p.batches.length + 1, 0);
+  let done = 0;
+  let finished = 0;
+  let created = 0;
+  let failed = 0;
+  const running = new Set<string>();
+  /**
+   * 每位人物那张刚落下的空卡的路径，按 plan 下标记。
+   *
+   * 抛异常时 `onSettled` 只拿得到 `plan`（那里只有名字），而失败记录要
+   * 挂在**文件**上。空卡是在 worker 里现建的，只能这样把路径带出来。
+   */
+  const seeded: (string | undefined)[] = [];
+  const describeState = (): string =>
+    `已完成 ${finished}/${plans.length} 位` +
+    (running.size > 0 ? ` · ${running.size} 位进行中（${[...running].join('、')}）` : '');
+
+  await runPool(
+    [...plans],
+    Math.max(1, opts.lanes ?? 1),
+    async (plan, i) => {
+      const card = await seedEmptyCard(project, plan.member);
+      if (!card) {
+        throw new Error(`建卡失败：${plan.member.name}`);
+      }
+      seeded[i] = card.relPath;
+      return runCardUpdate(
+        project,
+        card,
+        {
+          scope: 'full',
+          allAppearances: plan.member.plots,
+          batches: plan.batches,
+          skipReview: true,
+        },
+        {
+          signal: opts.signal,
+          report: (message) =>
+            opts.report?.({ message: `${describeState()} · 「${plan.member.name}」${message}`, current: done, total: totalSteps }),
+          pool: opts.pool,
+          config: opts.config,
+        }
+      );
+    },
+    {
+      signal: opts.signal,
+      onStart: (plan) => {
+        running.add(`「${plan.member.name}」`);
+      },
+      onSettled: (result, plan, index, count) => {
+        running.delete(`「${plan.member.name}」`);
+        finished = count;
+        done += plan.batches.length + 1;
+        if (result.status === 'rejected') {
+          failed++;
+          const reason = describeError(result.reason);
+          log.error(`「${plan.member.name}」建卡失败：${reason}`, result.reason);
+          // 空卡已经落盘了（那是有意的），但它是空的——不挂个标记的话
+          // 作者会看到一张干净的新卡，以为模型就只写出这么点东西。
+          const relPath = seeded[index];
+          if (relPath) {
+            void recordFailure(project, {
+              scope: '角色卡',
+              targetKind: 'character',
+              targetKey: relPath,
+              severity: 'error',
+              op: 'updateCard',
+              message: `建卡失败：${reason}`,
+              detail: '空卡已留下，可手写或重新运行「更新角色卡」重试。',
+            });
+          }
+        } else if (result.value.status === 'updated') {
+          created++;
+        } else if (result.value.status === 'failed') {
+          failed++;
+        }
+        opts.report?.({ message: describeState(), current: done, total: totalSteps });
+      },
+    }
+  );
+  return { created, failed };
+}
+
 /**
  * 给「出场人物 · 未建卡」里的**所有**人建卡——该分组的右键动作。
  *
@@ -395,37 +545,17 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
   }
 
   const config = readConfig();
-  const cardBudget = budgetForTask('characterCard');
-  const allPlots = await project.listChapters();
-  const plans: { member: CastMember; plots: Chapter[]; batches: Batch[] }[] = [];
-  const skipped: { name: string; reason: string }[] = [];
-
-  for (const member of index.unknown) {
-    const plots = allPlots.filter((c) => member.plots.includes(c.order));
-    if (plots.length === 0) {
-      skipped.push({ name: member.name, reason: '出场章节已不在磁盘上' });
-      continue;
-    }
-    const batches = await planBatches(project, plots, cardBudget);
-    if (batches.length === 0) {
-      skipped.push({ name: member.name, reason: '章节正文都为空' });
-      continue;
-    }
-    plans.push({ member, plots, batches });
-  }
-
+  const { plans, skipped, calls, chapters } = await planCastCards(project);
   if (plans.length === 0) {
     log.info('没有可建卡的出场人物', skipped.map((s) => `${s.name}（${s.reason}）`).join('、'));
     getHost().toast('这些人物的出场章节都读不到内容，无法建卡。');
     return;
   }
 
-  const totalBatches = plans.reduce((sum, p) => sum + p.batches.length, 0);
-  const totalPlots = plans.reduce((sum, p) => sum + p.batches.reduce((n, b) => n + b.plots.length, 0), 0);
   const lanes = Math.min(config.concurrency, plans.length);
   const confirm = await getHost().confirm(
-    `给 ${plans.length} 位未建卡的人物建卡：共需通读 ${totalPlots} 章，` +
-      `分 ${totalBatches} 批，预计调用模型 ${totalBatches} 次。现在开始？`,
+    `给 ${plans.length} 位未建卡的人物建卡：共需通读 ${chapters} 章，` +
+      `分 ${calls} 批，预计调用模型 ${calls} 次。现在开始？`,
     ['开始建卡'],
     {
       modal: true,
@@ -454,7 +584,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
   }
   log.info(
     `开始批量建卡`,
-    `${plans.length} 位｜${totalPlots} 章分 ${totalBatches} 批｜模型 ${pool.label}｜` +
+    `${plans.length} 位｜${chapters} 章分 ${calls} 批｜模型 ${pool.label}｜` +
       (lanes > 1 ? `并发 ${lanes} 路` : '串行')
   );
 
@@ -462,88 +592,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
     '批量建角色卡',
     async ({ signal, report }) => {
       const totalSteps = plans.reduce((sum, p) => sum + p.batches.length + 1, 0);
-      let done = 0;
-      let finished = 0;
-      let created = 0;
-      let failed = 0;
-      const running = new Set<string>();
-      /**
-       * 每位人物那张刚落下的空卡的路径，按 plan 下标记。
-       *
-       * 抛异常时 `onSettled` 只拿得到 `plan`（那里只有名字），而失败记录要
-       * 挂在**文件**上。空卡是在 worker 里现建的，只能这样把路径带出来。
-       */
-      const seeded: (string | undefined)[] = [];
-
-      const describeState = (): string =>
-        `已完成 ${finished}/${plans.length} 位` +
-        (running.size > 0 ? ` · ${running.size} 位进行中（${[...running].join('、')}）` : '');
-
-      await runPool(
-        plans,
-        lanes,
-        async (plan, i) => {
-          // 先落一张空卡：即便模型调用失败/被取消，作者也拿到了一个可手写的档案。
-          const card = await seedEmptyCard(project, plan.member);
-          if (!card) {
-            throw new Error(`建卡失败：${plan.member.name}`);
-          }
-          seeded[i] = card.relPath;
-          return runCardUpdate(
-            project,
-            card,
-            {
-              scope: 'full',
-              allAppearances: plan.member.plots,
-              batches: plan.batches,
-              skipReview: true,
-            },
-            {
-              signal,
-              report: (message) =>
-                report({ message: `${describeState()} · 「${plan.member.name}」${message}`, current: done, total: totalSteps }),
-              pool,
-              config,
-            }
-          );
-        },
-        {
-          signal,
-          onStart: (plan) => {
-            running.add(`「${plan.member.name}」`);
-          },
-          onSettled: (result, plan, index, count) => {
-            running.delete(`「${plan.member.name}」`);
-            finished = count;
-            done += plan.batches.length + 1;
-            if (result.status === 'rejected') {
-              failed++;
-              const reason = describeError(result.reason);
-              log.error(`「${plan.member.name}」建卡失败：${reason}`, result.reason);
-              // 空卡已经落盘了（那是有意的），但它是空的——不挂个标记的话
-              // 作者会看到一张干净的新卡，以为模型就只写出这么点东西。
-              const relPath = seeded[index];
-              if (relPath) {
-                void recordFailure(project, {
-                  scope: '角色卡',
-                  targetKind: 'character',
-                  targetKey: relPath,
-                  severity: 'error',
-                  op: 'updateCard',
-                  message: `建卡失败：${reason}`,
-                  detail: '空卡已留下，可手写或重新运行「更新角色卡」重试。',
-                });
-              }
-            } else if (result.value.status === 'updated') {
-              created++;
-            } else if (result.value.status === 'failed') {
-              failed++;
-            }
-            report({ message: describeState(), current: done, total: totalSteps });
-          },
-        }
-      );
-
+      const { created, failed } = await createCastCards(project, plans, { signal, pool, config, lanes, report });
       report({ message: '完成', current: totalSteps, total: totalSteps });
       const summary =
         `已建 ${created} 张` +
