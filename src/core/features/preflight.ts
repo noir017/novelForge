@@ -1,8 +1,8 @@
 /**
- * 一致性预检的取数（五期）：本章细纲排了谁、他们的卡上「当前状态」怎么写的。判断在
- * model/preflight.ts（纯函数）。
+ * 一致性预检的取数（五期）：本章细纲排了谁、他们的卡上「当前状态」怎么写的、前面定稿过的章留下了
+ * 哪些连续性事实。判断在 model/preflight.ts（纯函数）。
  *
- * 零调用：只读细纲与角色卡。两个入口：对话页写第 N 章之前（controller/chat.ts，亮一张卡，
+ * 零调用：只读细纲、角色卡与摘要。两个入口：对话页写第 N 章之前（controller/chat.ts，亮一张卡，
  * 可以「仅本次忽略」或「记为刻意安排」）；工程页批量写章开跑之前与每一章之前（features/pipelineBatch.ts）。
  *
  * 细纲里记下的永久放行（`preflightOk`，五期补遗 §2）在这里分出去：两个入口都只为剩下的那些停。
@@ -30,7 +30,7 @@ export async function preflightChapter(project: NovelProject, no: number): Promi
   if (!plot || plot.characters.length === 0) {
     return { risks: [], exempted: [], ...(plot ? { plotRelPath: plot.relPath } : {}) };
   }
-  const cards = await project.listCharacters();
+  const [cards, finalized] = await Promise.all([project.listCharacters(), project.finalizedFacts(no)]);
   const all = findPreflightRisks({
     no,
     planned: plot.characters,
@@ -41,6 +41,7 @@ export async function preflightChapter(project: NovelProject, no: number): Promi
       stateThrough: c.stateThrough,
       relPath: c.relPath,
     })),
+    facts: finalized.map((f) => ({ no: f.no, relPath: f.relPath, statements: f.facts.map((x) => x.statement) })),
   });
   return { ...splitExempt(all, plot.preflightOk), plotRelPath: plot.relPath };
 }

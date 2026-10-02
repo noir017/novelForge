@@ -10,7 +10,7 @@
  * | 第 1 章与后续章各一套法则，D8 禁令都在系统提示里 | 上游两套提示词（PT:720-855） |
  * | 上一章结尾写明「不可重演」 | 最常见的失败是把上一章最后一场重演一遍 |
  * | 接着写只要新增的那一段，从本章已写的末尾接 | 落盘是追加，模型要是重写整章就叠成两份 |
- * | 续写那几轮用精简配方 | 每一轮都付一次全价的材料包不值 |
+ * | 续写那几轮用精简配方，但带近几章的连续性事实 | 每一轮都付一次全价的材料包不值；一条前情都不带，死了的人会在续写里活过来 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -288,6 +288,12 @@ describe('正文配方 · 续写那几轮（精简配方）', () => {
   let recovery;
   const step = { kind: 'continuation', tail: '他推开了井边那扇门。门后是一段向下的石阶。', written: 700, remaining: 500, recovery: false };
   before(async () => {
+    // 第 2 章定稿过、带连续性事实：续写那几轮也要看见它（百章实验里续写写了一章的大半）。
+    fs.appendFileSync(
+      path.join(t.dir, '.novelforge/summaries/002-客栈里的女人.md'),
+      '\n## 连续性事实\n\n- 沈氏住进走廊尽头的房间\n'
+    );
+    project.invalidate();
     const base = { action: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT(4, '井') }, ask: ASK, targetWords: 1200 };
     b = await builderMod.buildContext(project, { ...base, step }, config);
     recovery = await builderMod.buildContext(project, { ...base, step: { ...step, recovery: true } }, config);
@@ -301,6 +307,11 @@ describe('正文配方 · 续写那几轮（精简配方）', () => {
     for (const k of ['manuscriptFull', 'plotSummary', 'globalSummary', 'prevTail', 'setting']) {
       assert.ok(!kinds.has(k), k);
     }
+  });
+
+  test('带近几章定稿的连续性事实', () => {
+    assert.ok(b.items.some((i) => i.kind === 'facts' && i.status === 'included' && i.text.includes('沈氏住进走廊尽头的房间')));
+    assert.match(lastUser(b), /# 前几章的连续性事实（已定稿/);
   });
 
   test('已写末尾就是生成链给的那一段', () => {

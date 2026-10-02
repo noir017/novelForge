@@ -167,6 +167,9 @@ function span(from: number, to: number): string {
 export function openWriteBatchForm(tree: ProjectTree): void {
   const writtenNos = tree.plots.filter((p) => p.chapterPath && p.wordCount > 0).map((p) => p.no);
   const plotFilledNos = tree.book.plotFilledNos;
+  // 大纲覆盖缺席有两种：散文式大纲（说不上覆盖到哪，当作全覆盖），或者还没写大纲。
+  const noOutline = tree.bookStage === 'setting' || tree.bookStage === 'outline';
+  const outlineCoverage = Math.min(tree.book.outlineCoverage ?? (noOutline ? 0 : Infinity), tree.book.totalChapters ?? Infinity);
   const from = tree.nextChapterNo;
   const plan = (v: FormValues) =>
     planWriteBatch({
@@ -176,6 +179,8 @@ export function openWriteBatchForm(tree: ProjectTree): void {
       review: v.review === 'on',
       writtenNos,
       plotFilledNos,
+      outlineCoverage,
+      globalSummaryThrough: tree.globalSummaryThrough,
     });
   openForm({
     title: '批量写章',
@@ -218,7 +223,7 @@ export function openWriteBatchForm(tree: ProjectTree): void {
       const p = plan(v);
       if (p.chapters.length === 0) {
         return {
-          text: p.stopAt !== undefined ? `第 ${p.stopAt} 章还没有细纲。先拆细纲，再写正文。` : '这一段都已经写过正文了。',
+          text: p.stopAt !== undefined ? `第 ${p.stopAt} 章还没有细纲，情节大纲也没覆盖到它。先续写大纲。` : '这一段都已经写过正文了。',
           ok: false,
         };
       }
@@ -228,8 +233,11 @@ export function openWriteBatchForm(tree: ProjectTree): void {
         text:
           `要写 ${p.chapters.length} 章（${span(first, last)}）` +
           `${p.skipped.length > 0 ? `，跳过已有正文的 ${p.skipped.length} 章` : ''}` +
-          `${p.stopAt !== undefined ? `；第 ${p.stopAt} 章还没有细纲，写到它前面为止` : ''}。` +
-          `${describeCalls(p.calls)}（没写够时自动续写，算在上限里）。` +
+          `${p.stopAt !== undefined ? `；第 ${p.stopAt} 章还没有细纲、大纲也没覆盖到，写到它前面为止` : ''}。` +
+          (p.plotBatches.length > 0
+            ? `${p.plotBatches.map((b) => span(b[0], b[b.length - 1])).join('、')}还没有细纲，写到时先拆（拆的时候看得见前面定稿的事实）。`
+            : '') +
+          `${describeCalls(p.calls)}（没写够时自动续写、每章写前比对一次细纲与既成事实，都算在上限里）。` +
           (p.review ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不停。' : '') +
           (p.mode === 'finalize' ? '每写完一章就定稿：摘要与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线。' : '只写正文，之后在主按钮上逐章定稿。'),
       };

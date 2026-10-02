@@ -46,6 +46,7 @@ import {
   outputKindOf,
 } from '../model/pipeline';
 import { BLUEPRINT_LIMITS } from '../model/plotFile';
+import { OUTLINE_SECTION_MAX } from '../model/outlineFile';
 import {
   FrozenGoal,
   REVIEW_DESCRIPTION_MAX,
@@ -99,6 +100,8 @@ export interface PromptFacts {
    * 装配器从 focus 算好交过来（model/manuscriptCheck.ts 的 `notYetOnStage`）。
    */
   notYet?: NotYet[];
+  /** 写正文时不该用的词（生成层算好、经 `BuildRequest.banned` 交过来）。 */
+  banned?: string[];
 }
 
 /** 每个阶段管什么、**不管**什么。后半句同样要紧：越界是这套设计最主要的失败方式。 */
@@ -121,7 +124,9 @@ const STAGE_DUTY: Record<CreationStage, string> = {
     '不写成段的描写与对白。每一章都要有实质推进，不要写「继续发展」这种空话。',
   manuscript:
     '你负责把已经定好的这一章写成文学文本。发生什么不由你决定——那在本章细纲里已经定了。' +
-    '**怎么写成可感的场面由你来定**：画面、动作、对白、节奏。你要交出的是读起来像小说的文字。',
+    '**怎么写成可感的场面由你来定**：画面、动作、对白、节奏。你要交出的是读起来像小说的文字。\n' +
+    '前文定稿留下的连续性事实是既成历史：细纲与它冲突时（已经死了的人、已经毁掉或交出去的东西、' +
+    '已经发生过的事），以事实为准，不照细纲重演。',
 };
 
 /**
@@ -227,7 +232,8 @@ const ERA_RULE =
  */
 export const ANTI_AI_RULES: readonly string[] = [
   '禁止段尾总结句（如「他知道，这一切才刚刚开始」「命运的齿轮开始转动」）',
-  '「仿佛」「犹如」「宛如」全章合计不超过 3 次',
+  // 上游只点名前三个；百章实验里模型改用「如同」，所以按 SIMILE_WORDS 全列。
+  `${SIMILE_WORDS.map((w) => `「${w}」`).join('')}全章合计不超过 ${SIMILE_LIMIT} 次`,
   '对话必须区分角色语气：不同角色的说话方式必须有辨识度',
   '禁止在结尾添加与正文无关的哲理感悟或旁白总结',
 ];
@@ -406,6 +412,11 @@ function boundaryCard(facts: PromptFacts): string {
     );
   } else {
     lines.push(`- 比喻词：${words}全章合计不超过 ${SIMILE_LIMIT} 次。`);
+  }
+  if (step?.banned?.length) {
+    lines.push(`- 禁用词：已写部分用了${step.banned.map((b) => `「${b.term}」${b.count} 次`).join('、')}，续写部分不许再用，换成这个故事里的人会说的话。`);
+  } else if (facts.banned?.length) {
+    lines.push(`- 禁用词：${facts.banned.map((t) => `「${t}」`).join('')}一个都不用，换成这个故事里的人会说的话。`);
   }
   return lines.join('\n');
 }
@@ -883,7 +894,10 @@ function outlineContract(facts: PromptFacts): string {
     ...(pov ? [`4. 叙事视角为「${pov}」，大纲设计时需考虑视角限制对信息揭露、悬念制造的影响。`] : []),
     '5. 故事前提、角色图谱、世界观中的作者明确设定必须作为后续情节的因果约束，不得遗漏、弱化或反转。',
     '6. 落实全局要求，避开其中列出的写作问题。',
-    '7. 只输出情节大纲本身，禁止一切废话或旁白。',
+    `7. 每一节最多覆盖 ${OUTLINE_SECTION_MAX} 章：一节写的事撑不满它覆盖的章数，细纲就只能把同一个高潮反复演。章数多的结构节点拆成几节写，每节写清这几章各自推进到哪。`,
+    '8. 终局级事件（主角动用终极手段、核心反派身死、核心大阵或秘境毁灭、主要角色死亡）全书只发生一次：写明发生在哪一节，此前只能铺垫或局部发生，此后只写余波与代价。',
+    '9. 有修炼、等级或实力体系时，每节末尾写明主角此时的境界与关键资源；境界只进不退，跨度与章数相称，不要几十章原地不动，也不要越级太多。',
+    '10. 只输出情节大纲本身，禁止一切废话或旁白。',
   ].join('\n');
 }
 
@@ -926,6 +940,12 @@ function blueprintContract(facts: PromptFacts): string {
     range && range.from > 1
       ? '紧密承接前序细纲里最后一章的情节继续推演；前面留下的危机，这里该引爆或解决的要引爆或解决。'
       : '这是全书开篇，前面没有已生成的章节。',
+    ...(range && range.from > 1
+      ? [
+          '- 前面各章已定稿的摘要与连续性事实是既成历史：已经死了的人不再出场（回忆、幻象除外），已经毁掉、交出去的东西不再出现在谁手里，境界只进不退。细纲与大纲有出入时以既成历史为准。',
+          '- 已经发生过的终局级事件（核心大阵被毁、主要反派身死、秘境崩塌、主角动用终极手段）不得再排一次；后续只写它的余波与代价。',
+        ]
+      : []),
     '',
     '【商业网文节奏设计原则】',
     ...(range && range.from <= 3

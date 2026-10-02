@@ -27,8 +27,8 @@
 import { readConfig } from '../config';
 import { getHost } from '../host';
 import { collectText } from '../llm/collect';
-import { createModelPool } from '../llm/pool';
-import { StreamOptions } from '../llm/provider';
+import { ModelPool, createModelPool } from '../llm/pool';
+import { CancelledError, StreamOptions } from '../llm/provider';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
@@ -112,8 +112,179 @@ function existingLine(t: Thread): string {
   return `- ${t.title}${range}${t.kind ? ` · ${t.kind}` : ''}`;
 }
 
+/** {@link planThreads} 的结果。 */
+export interface PlanThreadsOutcome {
+  /** 实际调了几次模型。 */
+  calls: number;
+  /** 追加进 `threads.md` 的线。 */
+  added: ThreadPlan[];
+  /** 同名跳过几条。 */
+  same: number;
+  /** 不合格没收几条（见日志）。 */
+  bad: number;
+  /** 没排成的原因（失败已经挂在 `threads.md` 上）。 */
+  error?: string;
+  cancelled?: boolean;
+}
+
 /**
- * 从细纲排叙事线。返回实际调用次数（取消、没有细纲时是 0）。
+ * 从细纲排叙事线：工程页按钮与拆完细纲之后自动排（批量拆细纲、批量写章边写边拆）共用。**不弹框、不开任务、
+ * 不抛**（取消单列）：确认与进度条归调用方；失败挂在 `threads.md` 上（第 16 条）。只追加新线，同名跳过（第 19 条）。
+ */
+export async function planThreads(
+  project: NovelProject,
+  pool: ModelPool,
+  signal: AbortSignal,
+  report: (p: { message: string; current?: number; total?: number }) => void = () => {}
+): Promise<PlanThreadsOutcome> {
+  const out: PlanThreadsOutcome = { calls: 0, added: [], same: 0, bad: 0 };
+  const plots = (await project.listPlots()).filter((p) => isPlotFilled(p.sections)).sort((a, b) => a.no - b.no);
+  if (plots.length === 0) {
+    return { ...out, error: '还没有细纲' };
+  }
+  const existing = await project.readThreads();
+  const rel = project.relPath(project.threadsPath);
+  const config = readConfig();
+  const first = plots[0].no;
+
+  report({ message: '读取设定与细纲', current: 0, total: 2 });
+  const book = await project.readBookConfig();
+  const premise = await project.readSettingDoc('premise');
+  const outline = await project.readOutline();
+
+  const head: string[] = [];
+  if (book.totalChapters || book.wordsPerChapter) {
+    head.push(
+      `【全书规模】${book.totalChapters ? `共 ${book.totalChapters} 章` : ''}${
+        book.wordsPerChapter ? `，每章约 ${book.wordsPerChapter} 字` : ''
+      }`
+    );
+  }
+  if (hasContent(book.sections.一句话)) {
+    head.push(`【一句话】\n${book.sections.一句话.trim()}`);
+  }
+  const premiseText = PREMISE_SECTION_KEYS.filter((k) => hasContent(premise.sections[k]))
+    .map((k) => `## ${k}\n${premise.sections[k].trim()}`)
+    .join('\n\n');
+  if (premiseText) {
+    head.push(`【故事前提】\n${premiseText}`);
+  }
+  if (outline.trim()) {
+    const o = outline.trim();
+    head.push(`【情节大纲】\n${[...o].length > OUTLINE_CHARS ? `${[...o].slice(0, OUTLINE_CHARS).join('')}\n……（后面略）` : o}`);
+    if ([...o].length > OUTLINE_CHARS) {
+      log.warn('情节大纲太长，排叙事线时只带了前面一截', `${[...o].length} 字 → ${OUTLINE_CHARS} 字`);
+    }
+  }
+  const tail = [
+    existing.length > 0 ? `【已有的叙事线（不要重复）】\n${existing.map(existingLine).join('\n')}` : '',
+    '请按要求输出 JSON。',
+  ].filter(Boolean);
+
+  const plotLines = plots.map(
+    (p) =>
+      `第${p.no}章 ${p.title}｜目的：${clip(p.sections.本章目的, 80)}｜关键事件：${clip(
+        p.sections.关键事件,
+        PLOT_LINE_EVENTS
+      )}｜章末钩子：${clip(p.sections.章末钩子, 60)}`
+  );
+  // 输入预算：放不下时从细纲一览的最后截（越往后越是还没写到的，判回收章时也最远）。
+  const budget = Math.max(3000, pool.primaryBudget.contextWindow - pool.primaryBudget.maxOutputTokens - 2000);
+  const fixed = estimateTokens([...head, ...tail].join('\n\n'));
+  let kept = plotLines.length;
+  while (kept > 1 && fixed + estimateTokens(plotLines.slice(0, kept).join('\n')) > budget) {
+    kept--;
+  }
+  if (kept < plotLines.length) {
+    log.warn(
+      '细纲一览超出输入预算，排叙事线时只带了前面几章',
+      `第 ${first}–${plots[kept - 1].no} 章（共 ${plots.length} 章里的 ${kept} 章）`
+    );
+  }
+  const user = [...head, `【各章细纲（一行一章）】\n${plotLines.slice(0, kept).join('\n')}`, ...tail].join('\n\n');
+
+  report({ message: '排线', current: 1, total: 2 });
+  const options: StreamOptions = {
+    maxOutputTokens: Math.min(pool.primaryBudget.maxOutputTokens, 2500),
+    temperature: 0.4,
+    timeoutMs: config.requestTimeoutMs,
+    signal,
+  };
+  const startedAt = Date.now();
+  let plans: ThreadPlan[];
+  let dropped: { title: string; why: string }[] = [];
+  try {
+    out.calls = 1;
+    const raw = await pool.run('排叙事线', (llm) =>
+      collectText(
+        llm.stream(
+          [
+            { role: 'system', content: threadPlanSystem(book.totalChapters) },
+            { role: 'user', content: user },
+          ],
+          options
+        )
+      )
+    );
+    if (signal.aborted) {
+      log.warn('排叙事线被取消，未写盘');
+      return { ...out, cancelled: true };
+    }
+    log.info('模型已返回', `${raw.length} 字，用时 ${elapsed(startedAt)}`);
+    const list = jsonList(raw, 'threads');
+    if (!list) {
+      throw new Error('模型返回的内容里解析不出 JSON');
+    }
+    const verified = verifyThreadPlans(list, existing, book.totalChapters);
+    if (verified.dropped.length > 0) {
+      log.warn(
+        `有 ${verified.dropped.length} 条没收`,
+        verified.dropped.map((d) => `${d.title}：${d.why}`).join('\n')
+      );
+    }
+    if (verified.plans.length === 0) {
+      const why = verified.dropped.length > 0 ? `${verified.dropped.length} 条都不合格` : '一条都没有';
+      throw new Error(`模型排出的线${why}`);
+    }
+    plans = verified.plans;
+    dropped = verified.dropped;
+  } catch (err) {
+    if (err instanceof CancelledError || signal.aborted) {
+      log.warn('排叙事线被取消，未写盘');
+      return { ...out, cancelled: true };
+    }
+    const reason = describeError(err);
+    log.error(`排叙事线失败：${reason}`, err);
+    await recordFailure(project, {
+      scope: '叙事线',
+      targetKind: 'threads',
+      targetKey: rel,
+      severity: 'error',
+      op: THREADS_OP,
+      message: `排叙事线失败：${reason}`,
+      detail: `${rel} 没有改动。可以再排一次。`,
+    });
+    return { ...out, error: reason };
+  }
+
+  // 写之前重读：这几十秒里作者可能在编辑器里加了线（同名的照样跳过）。
+  let added: ThreadPlan[] = [];
+  await new Workspace(project).updateThreads((raw) => {
+    const now = new Set(parseThreads(raw).map((t) => threadKey(t.title)));
+    added = plans.filter((p) => !now.has(threadKey(p.title)));
+    return added.length > 0 ? appendThreads(raw, added) : undefined;
+  });
+  await clearFailures(project, 'threads', rel, THREADS_OP);
+  report({ message: '完成', current: 2, total: 2 });
+  out.added = added;
+  out.same = plans.length - added.length + dropped.filter((d) => d.why === SAME_THREAD).length;
+  out.bad = dropped.filter((d) => d.why !== SAME_THREAD).length;
+  log.info(`排出 ${added.length} 条叙事线`, added.map((p) => `${p.title}（第 ${p.from}–${p.to} 章）`).join('\n'));
+  return out;
+}
+
+/**
+ * 工程页「从细纲排出叙事线」：先问一句（调用次数），再排。返回实际调用次数（取消、没有细纲时是 0）。
  */
 export async function generateThreads(project: NovelProject): Promise<number> {
   const plots = (await project.listPlots()).filter((p) => isPlotFilled(p.sections)).sort((a, b) => a.no - b.no);
@@ -151,146 +322,22 @@ export async function generateThreads(project: NovelProject): Promise<number> {
   await runTask(
     '排叙事线',
     async ({ signal, report }) => {
-      report({ message: '读取设定与细纲', current: 0, total: 2 });
-      const book = await project.readBookConfig();
-      const premise = await project.readSettingDoc('premise');
-      const outline = await project.readOutline();
-
-      const head: string[] = [];
-      if (book.totalChapters || book.wordsPerChapter) {
-        head.push(
-          `【全书规模】${book.totalChapters ? `共 ${book.totalChapters} 章` : ''}${
-            book.wordsPerChapter ? `，每章约 ${book.wordsPerChapter} 字` : ''
-          }`
-        );
-      }
-      if (hasContent(book.sections.一句话)) {
-        head.push(`【一句话】\n${book.sections.一句话.trim()}`);
-      }
-      const premiseText = PREMISE_SECTION_KEYS.filter((k) => hasContent(premise.sections[k]))
-        .map((k) => `## ${k}\n${premise.sections[k].trim()}`)
-        .join('\n\n');
-      if (premiseText) {
-        head.push(`【故事前提】\n${premiseText}`);
-      }
-      if (outline.trim()) {
-        const o = outline.trim();
-        head.push(`【情节大纲】\n${[...o].length > OUTLINE_CHARS ? `${[...o].slice(0, OUTLINE_CHARS).join('')}\n……（后面略）` : o}`);
-        if ([...o].length > OUTLINE_CHARS) {
-          log.warn('情节大纲太长，排叙事线时只带了前面一截', `${[...o].length} 字 → ${OUTLINE_CHARS} 字`);
-        }
-      }
-      const tail = [
-        existing.length > 0 ? `【已有的叙事线（不要重复）】\n${existing.map(existingLine).join('\n')}` : '',
-        '请按要求输出 JSON。',
-      ].filter(Boolean);
-
-      const plotLines = plots.map(
-        (p) =>
-          `第${p.no}章 ${p.title}｜目的：${clip(p.sections.本章目的, 80)}｜关键事件：${clip(
-            p.sections.关键事件,
-            PLOT_LINE_EVENTS
-          )}｜章末钩子：${clip(p.sections.章末钩子, 60)}`
-      );
-      // 输入预算：放不下时从细纲一览的最后截（越往后越是还没写到的，判回收章时也最远）。
-      const budget = Math.max(3000, pool.primaryBudget.contextWindow - pool.primaryBudget.maxOutputTokens - 2000);
-      const fixed = estimateTokens([...head, ...tail].join('\n\n'));
-      let kept = plotLines.length;
-      while (kept > 1 && fixed + estimateTokens(plotLines.slice(0, kept).join('\n')) > budget) {
-        kept--;
-      }
-      if (kept < plotLines.length) {
-        log.warn(
-          '细纲一览超出输入预算，排叙事线时只带了前面几章',
-          `第 ${first}–${plots[kept - 1].no} 章（共 ${plots.length} 章里的 ${kept} 章）`
-        );
-      }
-      const user = [...head, `【各章细纲（一行一章）】\n${plotLines.slice(0, kept).join('\n')}`, ...tail].join('\n\n');
-
-      report({ message: '排线', current: 1, total: 2 });
-      const options: StreamOptions = {
-        maxOutputTokens: Math.min(pool.primaryBudget.maxOutputTokens, 2500),
-        temperature: 0.4,
-        timeoutMs: config.requestTimeoutMs,
-        signal,
-      };
-      const startedAt = Date.now();
-      let plans: ThreadPlan[];
-      let dropped: { title: string; why: string }[] = [];
-      try {
-        calls = 1;
-        const raw = await pool.run('排叙事线', (llm) =>
-          collectText(
-            llm.stream(
-              [
-                { role: 'system', content: threadPlanSystem(book.totalChapters) },
-                { role: 'user', content: user },
-              ],
-              options
-            )
-          )
-        );
-        if (signal.aborted) {
-          log.warn('排叙事线被取消，未写盘');
-          return;
-        }
-        log.info('模型已返回', `${raw.length} 字，用时 ${elapsed(startedAt)}`);
-        const list = jsonList(raw, 'threads');
-        if (!list) {
-          throw new Error('模型返回的内容里解析不出 JSON');
-        }
-        const verified = verifyThreadPlans(list, existing, book.totalChapters);
-        if (verified.dropped.length > 0) {
-          log.warn(
-            `有 ${verified.dropped.length} 条没收`,
-            verified.dropped.map((d) => `${d.title}：${d.why}`).join('\n')
-          );
-        }
-        if (verified.plans.length === 0) {
-          const why = verified.dropped.length > 0 ? `${verified.dropped.length} 条都不合格` : '一条都没有';
-          throw new Error(`模型排出的线${why}`);
-        }
-        plans = verified.plans;
-        dropped = verified.dropped;
-      } catch (err) {
-        if (signal.aborted) {
-          log.warn('排叙事线被取消，未写盘');
-          return;
-        }
-        const reason = describeError(err);
-        log.error(`排叙事线失败：${reason}`, err);
-        await recordFailure(project, {
-          scope: '叙事线',
-          targetKind: 'threads',
-          targetKey: rel,
-          severity: 'error',
-          op: THREADS_OP,
-          message: `排叙事线失败：${reason}`,
-          detail: `${rel} 没有改动。可以再排一次。`,
-        });
-        getHost().toast(`叙事线没排成（${reason}）。`, 'error');
+      const r = await planThreads(project, pool, signal, report);
+      calls = r.calls;
+      if (r.cancelled) {
         return;
       }
-
-      // 写之前重读：这几十秒里作者可能在编辑器里加了线（同名的照样跳过）。
-      let added: ThreadPlan[] = [];
-      await new Workspace(project).updateThreads((raw) => {
-        const now = new Set(parseThreads(raw).map((t) => threadKey(t.title)));
-        added = plans.filter((p) => !now.has(threadKey(p.title)));
-        return added.length > 0 ? appendThreads(raw, added) : undefined;
-      });
-      await clearFailures(project, 'threads', rel, THREADS_OP);
-      report({ message: '完成', current: 2, total: 2 });
-      const same = plans.length - added.length + dropped.filter((d) => d.why === SAME_THREAD).length;
-      const bad = dropped.filter((d) => d.why !== SAME_THREAD).length;
-      const notes = [same > 0 ? `同名跳过 ${same} 条` : '', bad > 0 ? `${bad} 条不合格没收（见日志）` : ''].filter(Boolean);
-      log.info(`排出 ${added.length} 条叙事线`, added.map((p) => `${p.title}（第 ${p.from}–${p.to} 章）`).join('\n'));
+      if (r.error) {
+        getHost().toast(`叙事线没排成（${r.error}）。`, 'error');
+        return;
+      }
+      const notes = [r.same > 0 ? `同名跳过 ${r.same} 条` : '', r.bad > 0 ? `${r.bad} 条不合格没收（见日志）` : ''].filter(Boolean);
       getHost().toast(
-        added.length > 0
-          ? `排出 ${added.length} 条叙事线${notes.length > 0 ? `（${notes.join('，')}）` : ''}，已追加到 ${rel}。`
+        r.added.length > 0
+          ? `排出 ${r.added.length} 条叙事线${notes.length > 0 ? `（${notes.join('，')}）` : ''}，已追加到 ${rel}。`
           : `排出的线在 ${rel} 里都已经有了，没有改动。`
       );
-      if (added.length > 0) {
+      if (r.added.length > 0) {
         await getHost().openFile(rel);
       }
     },

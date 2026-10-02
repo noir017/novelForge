@@ -33,6 +33,12 @@
  * 上一轮新写的那一段里切**（前几轮已经接受的正文不再动）；回退那一轮净多的不到 300 字、或者上一轮那一段
  * 短得没法切，就停——不往钩子后面接。网关不报收尾原因（`stop` 缺席）时分不清是收尾还是截断，照旧往后接。
  *
+ * ## 停在半句上算截断
+ *
+ * 只信模型报的收尾原因不够：百章实验第 3 章停在「他已经到了极限，全身」，字数过了八成，照样定稿了。
+ * 每一次调用之后看一眼结尾那个字（model/manuscriptCheck.ts 的 `endsMidSentence`）：不是句末标点就按
+ * `maxTokens` 处理——往后接、不回退。写完仍停在半句上时 `truncated` 为真，批量写章据此停下。
+ *
  * ## 写完查三样（§1.2、§1.3、§1.5）
  *
  * 比喻词超没超上限、有没有拉丁字母缩写、后面几章才登场的人有没有提前写进来——只记说明，
@@ -45,8 +51,12 @@ import {
   EarlyEntrance,
   NotYet,
   SIMILE_LIMIT,
+  SIMILE_WORDS,
+  countBanned,
   countSimiles,
+  describeBanned,
   describeSimiles,
+  endsMidSentence,
   findEarlyEntrances,
   latinAcronyms,
   rewindPoint,
@@ -208,6 +218,8 @@ export interface ManuscriptChainContext {
   hook?: string;
   /** 后面几章才登场的人（名字与别名）：写完查一遍有没有提前写进来。 */
   notYet?: readonly (NotYet & { aliases?: readonly string[] })[];
+  /** 这本书写正文时不该用的词：续写那一轮告诉它已经用了哪几个，写完数一遍。 */
+  banned?: readonly string[];
   /** 每一轮开始时报一次进度。流式期间的进度由 `ChainIO.call` 的 `progress` 选项另报。 */
   onProgress?(p: WriteProgress): void;
   signal?: AbortSignal;
@@ -222,7 +234,7 @@ export interface ManuscriptChainResult extends ChainResult {
   added: number;
   /** 不到目标的八成。 */
   short: boolean;
-  /** 最后一轮仍被输出上限截断：结尾可能停在半句上。 */
+  /** 结尾停在半句上：最后一轮仍被输出上限截断，或者结尾那个字不是句末标点（{@link endsMidSentence}）。 */
   truncated: boolean;
   /** 新稿开头与上一章结尾重合的那一段原文（重演）。 */
   replay?: string;
@@ -256,6 +268,15 @@ export async function completeManuscript(
         : '正文还没写几个字就被输出上限截断了。调大设置页的「最大输出 token」再试。'
     );
   }
+  // 模型说正常收尾（或网关不报原因）、结尾却停在半句上：照截断处理——往后接，不回退。
+  const settle = (s: StopSignal | undefined, text: string, round: string): StopSignal | undefined => {
+    if (s === 'maxTokens' || s === 'other' || !endsMidSentence(text)) {
+      return s;
+    }
+    t.note(`${round}的结尾停在半句上（${s === 'end' ? '模型报的是正常收尾' : '网关没报收尾原因'}），按截断接着写`);
+    return 'maxTokens';
+  };
+  stop = settle(stop, added, '第一次调用');
 
   let rounds = 0;
   let recoveryUsed = false;
@@ -283,6 +304,7 @@ export async function completeManuscript(
       t.note('回退之后那一轮没写成，原来的结尾放回去了');
     }
   };
+  const usedBanned = (text: string) => (ctx.banned?.length ? countBanned(text, ctx.banned) : []);
   let lastGain = Number.POSITIVE_INFINITY;
   while (shouldContinue({ words: total(), target: ctx.target, stop, rounds })) {
     // 正常收尾、而上一轮只多了几句：模型认为这一章写完了，再催也是注水（上游 GD:1152）。
@@ -322,6 +344,8 @@ export async function completeManuscript(
     rounds++;
     const written = [base, added].filter(Boolean).join('\n\n');
     const before = total();
+    // 上一轮停在半句上：新写的是那半句的后半截，直接接上，不空行。
+    const glue = endsMidSentence(written) ? '' : '\n\n';
     ctx.onProgress?.({ round: rounds, words: before, target: ctx.target });
     const messages = await io.build({
       step: {
@@ -332,6 +356,7 @@ export async function completeManuscript(
         recovery: recoveryPending,
         ...(rewinding ? { rewound: true } : {}),
         similes: countSimiles(written),
+        ...(usedBanned(written).length > 0 ? { banned: usedBanned(written) } : {}),
       },
     });
     let out: CallOutcome;
@@ -341,7 +366,7 @@ export async function completeManuscript(
         messages,
         recoveryPending ? `续写第 ${rounds} 轮（恢复）` : rewinding ? `续写第 ${rounds} 轮（回退重写结尾）` : `续写第 ${rounds} 轮`,
         {
-          separator: '\n\n',
+          separator: glue,
           progress: { round: rounds, base: before },
         }
       );
@@ -357,27 +382,28 @@ export async function completeManuscript(
     }
     const joined = joinContinuation(written, cleanOutput(out.text));
     const gain = countWords(joined.added);
+    const outStop = settle(out.stop, `${written}${glue}${joined.added}`, `续写第 ${rounds} 轮`);
 
     // 被截断又几乎没写出新东西：这一轮丢掉，只给一次恢复机会（上游 GD:1130-1146）。
-    if (out.stop === 'maxTokens' && gain < MIN_ROUND_GAIN) {
+    if (outStop === 'maxTokens' && gain < MIN_ROUND_GAIN) {
       io.reset?.(added);
       if (recoveryUsed) {
         t.note(`续写第 ${rounds} 轮（恢复）仍被截断、只多了 ${gain} 字，已丢弃，停在这里；已写的保留`);
-        stop = out.stop;
+        stop = outStop;
         restoreCut();
         break;
       }
       recoveryUsed = true;
       recoveryPending = true;
       t.note(`续写第 ${rounds} 轮被截断、只多了 ${gain} 字，已丢弃，再给一次恢复机会`);
-      stop = out.stop;
+      stop = outStop;
       lastGain = Number.POSITIVE_INFINITY;
       continue;
     }
-    added = [added, joined.added].filter(Boolean).join('\n\n');
+    added = added ? `${added}${glue}${joined.added}` : joined.added;
     fresh = joined.added;
     pendingCut = undefined;
-    stop = out.stop;
+    stop = outStop;
     recoveryPending = false;
     lastGain = gain;
     t.note(`续写第 ${rounds} 轮：多了 ${gain} 字，到 ${total()}${ctx.target ? ` / ${ctx.target}` : ''} 字`);
@@ -391,12 +417,16 @@ export async function completeManuscript(
   if (stop === 'other') {
     t.note('模型因为别的原因停下了（常见的是内容审查），没有再续写');
   }
-  const truncated = stop === 'maxTokens';
+  const chapterText = [base, added].filter(Boolean).join('\n\n');
+  const midSentence = endsMidSentence(chapterText);
+  const truncated = stop === 'maxTokens' || midSentence;
   if (truncated) {
     t.note(
-      ctx.target
-        ? '最后一轮仍被输出上限截断，结尾可能停在半句上。写入后可以接着写或手改。'
-        : '输出被输出上限截断，结尾可能停在半句上。细纲与配置里都没写目标字数，所以没有自动续写。'
+      midSentence
+        ? `结尾停在半句上：「${chapterText.trim().slice(-20)}」。${ctx.target ? '续写没能把它接完，' : '细纲与配置里都没写目标字数，所以没有自动续写，'}写入后可以接着写或手改。`
+        : ctx.target
+          ? '最后一轮仍被输出上限截断，结尾可能停在半句上。写入后可以接着写或手改。'
+          : '输出被输出上限截断，结尾可能停在半句上。细纲与配置里都没写目标字数，所以没有自动续写。'
     );
   }
   const words = total();
@@ -415,10 +445,13 @@ export async function completeManuscript(
   }
 
   // 写完查三样（五期补遗 §1.2、§1.3、§1.5）：只记说明，不改正文。
-  const chapterText = [base, added].filter(Boolean).join('\n\n');
   const similes = countSimiles(chapterText);
   if (similes > SIMILE_LIMIT) {
-    t.note(`「仿佛」「犹如」「宛如」全章合计 ${similes} 次（${describeSimiles(chapterText)}），超过 ${SIMILE_LIMIT} 次的上限`);
+    t.note(`比喻词${SIMILE_WORDS.map((w) => `「${w}」`).join('')}全章合计 ${similes} 次（${describeSimiles(chapterText)}），超过 ${SIMILE_LIMIT} 次的上限`);
+  }
+  const banned = usedBanned(chapterText);
+  if (banned.length > 0) {
+    t.note(`正文用到了这本书不该用的词：${describeBanned(banned)}。换成这个故事里的人会说的话`);
   }
   const acronyms = latinAcronyms(added);
   if (acronyms.length > 0) {

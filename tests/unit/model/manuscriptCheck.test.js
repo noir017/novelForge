@@ -24,6 +24,24 @@ describe('manuscriptCheck · 比喻词', () => {
   });
 });
 
+describe('manuscriptCheck · 停在半句', () => {
+  test('结尾不是句末标点就算停在半句', () => {
+    assert.equal(m.endsMidSentence('他已经到了极限，全身'), true);
+    assert.equal(m.endsMidSentence('他已经到了极限，全身，'), true);
+  });
+
+  test('句号、问叹号、省略号、收引号、破折号收尾都不算；末尾空白先去掉', () => {
+    for (const t of ['走了。', '走了？', '走了！', '走了……', '“走了。”', '「走了」', '他走了——', '走了。\n\n  ']) {
+      assert.equal(m.endsMidSentence(t), false, t);
+    }
+  });
+
+  test('空文本不算', () => {
+    assert.equal(m.endsMidSentence(''), false);
+    assert.equal(m.endsMidSentence('  \n'), false);
+  });
+});
+
 describe('manuscriptCheck · 拉丁字母缩写', () => {
   test('两个以上大写字母连写才算，去重、按出现顺序', () => {
     assert.deepEqual(m.latinAcronyms('他的PTSD又发作了，PTSD让他头晕，CPU也烧了。'), ['PTSD', 'CPU']);
@@ -159,5 +177,38 @@ describe('manuscriptCheck · 回退点', () => {
     assert.ok(r);
     assert.equal(r.byHook, false);
     assert.equal(r.paragraphs, 3);
+  });
+});
+
+// 百章实验：全局要求写着「严禁使用现代科学或心理学词汇」，正文照样写了「能量」33 次——没人数。
+describe('manuscriptCheck · 禁用词', () => {
+  test('文风指南禁用词表里括起来的词', () => {
+    assert.deepEqual(m.bannedTerms({ styleBanList: '不使用「不禁」「顿时」“仿佛整个世界”这类套话' }), ['不禁', '顿时', '仿佛整个世界']);
+  });
+
+  test('全局要求：只收表禁止的那一个分句里括起来的词，要用的词不收', () => {
+    const guidance = '严禁使用“系统”“面板”一类词，情绪须用“惊悸”、“心病”表达；不要写「众所周知」。';
+    assert.deepEqual(m.bannedTerms({ guidance }), ['系统', '面板', '众所周知']);
+  });
+
+  test('古代、修真一类题材带上内置的现代说法；都市不带', () => {
+    assert.ok(m.bannedTerms({ genre: '仙侠 凡人流' }).includes('能量'));
+    assert.ok(m.bannedTerms({ genre: '历史' }).includes('神经'));
+    assert.deepEqual(m.bannedTerms({ genre: '都市' }), []);
+  });
+
+  test('去重；太长的不算词', () => {
+    assert.deepEqual(m.bannedTerms({ styleBanList: '「能量」「这是一句很长很长的话不是词」', genre: '仙侠' }).filter((t) => t === '能量').length, 1);
+    assert.ok(!m.bannedTerms({ styleBanList: '「这是一句很长很长的话不是词」' }).length);
+  });
+
+  test('数几次，按次数排；说明里逐个列', () => {
+    const list = m.countBanned('能量涌动，神经一跳，能量又散了。', ['神经', '能量', '坐标']);
+    assert.deepEqual(list, [{ term: '能量', count: 2 }, { term: '神经', count: 1 }]);
+    assert.equal(m.describeBanned(list), '「能量」2 次、「神经」1 次');
+  });
+
+  test('比喻词也数「如同」「好似」', () => {
+    assert.equal(m.countSimiles('如同死水，好似梦境，恍如隔世，宛若新生。'), 4);
   });
 });

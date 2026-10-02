@@ -300,22 +300,22 @@ describe('批量拆细纲：作者同意', () => {
     assert.deepEqual(plot.characters, ['林昭']);
   });
 
-  // 两章一批：一次调用出两份。
-  test('两章一批，调了一次模型', () => {
-    assert.equal(fake.calls.length, 1, String(fake.calls.length));
+  // 两章一批：一次调用出两份；拆完再排一次叙事线。
+  test('两章一批，调了一次模型；拆完排一次叙事线', () => {
+    assert.equal(fake.calls.length, 2, String(fake.calls.length));
   });
 
   // ★ 实际调了几次，账上就记几次。
   test('调用次数报了出去', () => {
-    assert.equal(ctx.usage.calls, 1);
+    assert.equal(ctx.usage.calls, 2);
   });
 
   test('用量在气泡里说出来了', () => {
-    assert.ok(reports.some((m) => m.includes('1')), JSON.stringify(reports));
+    assert.ok(reports.some((m) => m.includes('2')), JSON.stringify(reports));
   });
 
   test('返回文本里有次数', () => {
-    assert.ok(r.text.includes('1 次'), r.text);
+    assert.ok(r.text.includes('2 次'), r.text);
   });
 
   test('没事可做时再调一次不花钱', async () => {
@@ -400,7 +400,7 @@ describe('批量写正文：正文直接落同号章节，并在细纲上记指�
 
   // 四期：缺省是下一可写章起 3 章、只写正文；全书只有两章细纲，收在第 2 章。上限含自动续写。
   test('确认框写了区间与预计调用几次', () => {
-    assert.equal(h.confirms[0].message, '第 1–2 章：要写 2 章正文（只写正文），预计 2 次调用，最多 16 次。现在写？');
+    assert.equal(h.confirms[0].message, '第 1–2 章：要写 2 章正文（只写正文），预计 2–4 次调用，最多 20 次。现在写？');
   });
 
   // 一章一纲：没有中转站，正文就落在 chapters/ 里那个同号的文件上。

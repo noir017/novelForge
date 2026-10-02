@@ -208,6 +208,8 @@ export interface BuildRequest {
    * 称呼，本章细纲自己提到的不算），与写完查的那一份同源。缺席时装配器按 focus 现算一份（只认名字）。
    */
   notYet?: { name: string; no: number }[];
+  /** 写正文时不该用的词（生成层 `planWriting` 算好交过来）：执行卡后面的【本章边界】里点名。 */
+  banned?: string[];
   /** 被用户手动取消勾选的条目 id。 */
   excludedIds?: string[];
   /** provider 的硬性输入上限，会与 contextWindow 取小。 */
@@ -239,6 +241,8 @@ export type ChainStep =
       recovery: boolean;
       rewound?: boolean;
       similes?: number;
+      /** 已写部分用到的禁用词与次数：续写那一轮要换掉。 */
+      banned?: { term: string; count: number }[];
     }
   /**
    * 审稿的重来一次（generation/review.ts）：上一次被截断（`truncated`），或解不出合格的 JSON

@@ -47,6 +47,17 @@ const RANGE_HEADING =
 const ANY_HEADING = /^(#{1,3})\s+\S/;
 
 /**
+ * 大纲一节最多覆盖几章（提示词里要求，写完查一遍）。百章实验：22 节覆盖 100 章，一节十章，
+ * 细纲撑不满就把同一个高潮演了一遍又一遍。
+ */
+export const OUTLINE_SECTION_MAX = 5;
+
+/** 覆盖超过 `max` 章的那几节。只记说明、不拦：作者手写的大纲怎么分节是作者的事。 */
+export function oversizedSections(ranges: readonly OutlineRange[], max = OUTLINE_SECTION_MAX): OutlineRange[] {
+  return ranges.filter((r) => r.to - r.from + 1 > max);
+}
+
+/**
  * 抽出全部区间，按出现顺序。
  *
  * `from > to` 时两者对调（`第 20–1 章` 只可能是手滑）；区间彼此重叠也照收，

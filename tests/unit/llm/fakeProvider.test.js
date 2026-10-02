@@ -62,8 +62,11 @@ describe('假模型的应答形状', () => {
 });
 
 describe('filler', () => {
-  test('恰好 n 个字', () => {
-    assert.equal(filler(2345, 7).length, 2345);
+  test('恰好 n 个字，收在句号上', () => {
+    const text = filler(2345, 7);
+    assert.equal(text.length, 2346);
+    assert.equal(text.slice(-1), '。');
+    assert.ok(!text.slice(0, -1).includes('。'));
   });
 
   test('同 seed 可复现', () => {

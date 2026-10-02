@@ -41,7 +41,8 @@ import { describeError, elapsed, scoped } from '../runtime/logger';
 import { countWords } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { Plot, isPlotFilled, parsePlotFileName } from '../model/plotFile';
-import { NotYet, dropMentioned, notYetOnStage } from '../model/manuscriptCheck';
+import { NotYet, bannedTerms, dropMentioned, notYetOnStage } from '../model/manuscriptCheck';
+import { pickSections } from '../model/markdown';
 import { AHEAD_PLOTS } from '../context/layers/focus';
 import {
   CAPABILITY_LABEL,
@@ -280,6 +281,8 @@ export async function generate(
       revision: writing.mode === 'revise' ? writing.revision : request.revision ?? writing.revision,
       // 执行卡后面「本章不出场」那一行与写完查的是同一份（五期补遗 §1.2）。
       notYet: writing.notYet.map(({ name, no }) => ({ name, no })),
+      // 【本章边界】里点名不许用的词，与写完数的同一份。
+      ...(writing.banned.length > 0 ? { banned: writing.banned } : {}),
     };
     log.info(
       `写法：${WRITE_MODE_LABEL[writing.mode]}`,
@@ -383,6 +386,7 @@ export async function generate(
           reasoned: !!reasoning,
           hook: writing.hook,
           notYet: writing.notYet,
+          banned: writing.banned,
           onProgress: handlers.onProgress,
           signal: options.signal,
         });
@@ -537,6 +541,8 @@ export interface WritingPlan {
    * 「本章不出场」那一行同一个函数、同一个窗口算的（context/layers/dialog.ts 的 `promptFactsOf`）。
    */
   notYet: (NotYet & { aliases: string[] })[];
+  /** 这本书写正文时不该用的词（文风指南的禁用词表、全局要求里禁止的词、古代题材的现代说法）：写完数一遍。 */
+  banned: string[];
 }
 
 /**
@@ -568,7 +574,13 @@ export async function planWriting(project: NovelProject, request: Omit<BuildRequ
   const relPath = plotOfTarget(request.target);
   const plot = relPath ? await project.resolvePlot(relPath) : undefined;
   const no = plot?.no ?? (relPath ? parsePlotFileName(basename(relPath))?.no : undefined) ?? request.targetNo;
-  const target = request.targetWords ?? plot?.targetWords ?? (await project.readBookConfig()).wordsPerChapter;
+  const book = await project.readBookConfig();
+  const target = request.targetWords ?? plot?.targetWords ?? book.wordsPerChapter;
+  const banned = bannedTerms({
+    styleBanList: pickSections(await project.readStyleGuide(), ['禁用词表']).禁用词表,
+    guidance: book.sections.全局要求,
+    genre: `${book.genre} ${book.subGenre}`,
+  });
   const chapter = no ? await project.getChapter(no) : undefined;
   const body = chapter ? await project.readChapterText(chapter) : '';
   const mode = resolveWriteMode(body, request.writeMode);
@@ -583,6 +595,7 @@ export async function planWriting(project: NovelProject, request: Omit<BuildRequ
       prevEnding: prevText.trim() ? previousEnding(prevText) : undefined,
       revision: { previousDraft: body, feedback: request.reviseBrief?.trim() ?? '' },
       notYet: [],
+      banned,
     };
   }
   return {
@@ -593,6 +606,7 @@ export async function planWriting(project: NovelProject, request: Omit<BuildRequ
     revision: mode === 'rewrite' ? { previousDraft: body, feedback: REWRITE_FEEDBACK } : undefined,
     ...(plot?.sections.章末钩子.trim() ? { hook: plot.sections.章末钩子 } : {}),
     notYet: no ? await notYetOf(project, no, plot) : [],
+    banned,
   };
 }
 

@@ -228,14 +228,15 @@ describe('批量拆细纲', () => {
   });
 
   // 缺省区间是下一可写章起 5 章，收在总章数（3）。第 2 章排过，把区间断成两批：[1] 与 [3]。
-  test('只为没排过细纲的章调模型，跳过的章把区间断开', () => {
-    assert.equal(callCount, 2, `调了 ${callCount} 次`);
+  // 拆完再排一次叙事线：第 3 次。
+  test('只为没排过细纲的章调模型，跳过的章把区间断开；拆完排一次叙事线', () => {
+    assert.equal(callCount, 3, `调了 ${callCount} 次`);
     assert.ok(users[0].includes('请输出第 1 章的细纲') && users[1].includes('请输出第 3 章的细纲'), users.map((u) => u.slice(-200)).join('\n'));
   });
 
   // 第 4 条：动手前说清要调几次模型——有自动修复，所以报预计与上限。
   test('确认框里写明批数与调用次数', () => {
-    assert.ok(confirm?.message.includes('要拆 2 章细纲，分 2 批，预计 2 次调用，最多 6 次'), JSON.stringify(confirm));
+    assert.ok(confirm?.message.includes('要拆 2 章细纲，分 2 批，预计 3 次调用，最多 7 次'), JSON.stringify(confirm));
   });
 
   test('确认框说清排过的不会被改动', () => {
@@ -243,7 +244,7 @@ describe('批量拆细纲', () => {
   });
 
   test('返回实际调用次数（agent 的预算记它）', () => {
-    assert.equal(returned, 2);
+    assert.equal(returned, 3);
   });
 
   test('第 1、3 章写出细纲', async () => {

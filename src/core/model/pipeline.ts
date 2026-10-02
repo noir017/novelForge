@@ -732,6 +732,17 @@ export const WRITE_CALLS: CallEstimate = {
 };
 
 /**
+ * 写一章之前比对细纲与前面定稿的连续性事实（`features/plotCheck.ts`）：前面没有定稿过的章、或者细纲上
+ * 记了 `factCheckOk` 时 0 次；输出不合格按合同重来 1 次。
+ */
+export const PLOT_CHECK_CALLS: CallEstimate = {
+  low: 0,
+  high: 1,
+  max: 2,
+  why: '前面有定稿过的章时，写之前比对一次细纲与既成事实；输出不合格重来 1 次',
+};
+
+/**
  * 小说配置：1 次；输出被截断时整份重来 1 次；「全局要求」不合格时只重写这一节 1 次。
  * 与 AI-Novel-Writer 的 `GenerateConfigCommand` 同一套重试（`architecture.command.ts:1033-1123`）。
  */
@@ -853,11 +864,18 @@ export function planPlotBatches(input: { from: number; to: number; filledNos: re
     }
   }
   flush();
-  const calls = batches.map((b) => blueprintCalls(b.length)).reduce(addCalls, { low: 0, high: 0, max: 0 });
+  // 拆完之后从细纲排一次叙事线（只追加新线），算 1 次。
+  const calls = batches.map((b) => blueprintCalls(b.length)).reduce(addCalls, batches.length > 0 ? ONE_CALL : { low: 0, high: 0, max: 0 });
   return { from, to, chapters, skipped, batches, calls };
 }
 
 // ---------------------------------------------------------------- 批量写章
+
+/**
+ * 批量写章「写完即定稿」时，全书滚动摘要落后这么多章就增量更新一次（1 次调用：旧摘要 + 之后各章的单章摘要）。
+ * 百章实验里全书摘要从没生成过：它要作者手动点「重建」。
+ */
+export const GLOBAL_SUMMARY_EVERY = 10;
 
 /** 批量写章缺省写几章（W9）。 */
 export const WRITE_BATCH_DEFAULT = 3;
@@ -888,17 +906,29 @@ export interface WriteBatchPlan {
   /** 已经有正文、这次跳过的章（批量只补空白，第 19 条）。 */
   skipped: number[];
   /**
-   * 区间里第一章没有细纲的章号：批量在它前面收住。后面的章要接着它的结尾写，跳过它去写
-   * 只会写出一段接不上的正文。
+   * 这次要写、但还没有细纲的章，按连续段每 {@link PLOT_BATCH} 章切成批：写到每批的第一章时先拆这一批。
+   */
+  plotBatches: number[][];
+  /** 写完即定稿时，在哪几章定稿之后更新一次全书滚动摘要（{@link GLOBAL_SUMMARY_EVERY}）。 */
+  globalSummaryAt: number[];
+  /**
+   * 区间里第一章没有细纲、又超出情节大纲覆盖的章号：批量在它前面收住。后面的章要接着它的结尾写，
+   * 跳过它去写只会写出一段接不上的正文。
    */
   stopAt?: number;
   calls: CallEstimate;
 }
 
 /**
- * 区间里已有正文的章跳过；遇到第一章没有细纲的就在它前面收住；最多 {@link WRITE_BATCH_MAX} 章
- * （超出的部分不写，调用方据此报错或截短）。调用次数按件加总：一章 {@link WRITE_CALLS}，
- * 写完即审稿时再加 {@link REVIEW_CALLS}，写完即定稿时再加 {@link FINALIZE_CALLS}。
+ * 区间里已有正文的章跳过；最多 {@link WRITE_BATCH_MAX} 章（超出的部分不写，调用方据此报错或截短）。
+ *
+ * **边写边拆细纲**：没有细纲、但在情节大纲覆盖之内（`outlineCoverage`）的章照样排进来，写到它时先拆
+ * 这一批（`plotBatches`，连续的空白章每 {@link PLOT_BATCH} 章一批）——拆的时候前面各章已经写完、定稿，
+ * 细纲看得见既成事实。百章实验一次拆完一百章细纲再写，第 10 章写死的人第 26 章的细纲照排。超出大纲
+ * 覆盖的第一章在它前面收住（`stopAt`）：没有大纲，细纲就是凭空编。
+ *
+ * 调用次数按件加总：一章 {@link WRITE_CALLS} + 写前比对 {@link PLOT_CHECK_CALLS}，写完即审稿再加
+ * {@link REVIEW_CALLS}，写完即定稿再加 {@link FINALIZE_CALLS}；每批细纲 {@link blueprintCalls}，拆完再排一次叙事线。
  */
 export function planWriteBatch(input: {
   from: number;
@@ -907,32 +937,82 @@ export function planWriteBatch(input: {
   review?: boolean;
   writtenNos: readonly number[];
   plotFilledNos: readonly number[];
+  /** 情节大纲覆盖到第几章（`outlineCoverage`）。缺席等于 0：没细纲的章一律收住。 */
+  outlineCoverage?: number;
+  /** 全书滚动摘要覆盖到第几章（写完即定稿时据此排更新全书摘要的那几次）。缺席等于 0。 */
+  globalSummaryThrough?: number;
 }): WriteBatchPlan {
   const from = Math.max(1, Math.floor(Math.min(input.from, input.to)));
   const to = Math.max(from, Math.floor(Math.max(input.from, input.to)));
   const written = new Set(input.writtenNos);
   const filled = new Set(input.plotFilledNos);
+  const coverage = input.outlineCoverage ?? 0;
   const chapters: number[] = [];
   const skipped: number[] = [];
+  const plotBatches: number[][] = [];
+  let run: number[] = [];
+  const flush = () => {
+    if (run.length > 0) {
+      plotBatches.push(run);
+      run = [];
+    }
+  };
   let stopAt: number | undefined;
   for (let no = from; no <= to; no++) {
     if (written.has(no)) {
       skipped.push(no);
+      flush();
       continue;
     }
     if (chapters.length === WRITE_BATCH_MAX) {
       break;
     }
     if (!filled.has(no)) {
-      stopAt = no;
-      break;
+      if (no > coverage) {
+        stopAt = no;
+        break;
+      }
+      run.push(no);
+      if (run.length === PLOT_BATCH) {
+        flush();
+      }
+    } else {
+      flush();
     }
     chapters.push(no);
   }
+  flush();
   const review = input.review === true;
-  const each = [WRITE_CALLS, ...(review ? [REVIEW_CALLS] : []), ...(input.mode === 'finalize' ? [FINALIZE_CALLS] : [])].reduce(addCalls);
-  const calls = chapters.reduce<CallEstimate>((sum) => addCalls(sum, each), { low: 0, high: 0, max: 0 });
-  return { from, to, mode: input.mode, review, chapters, skipped, ...(stopAt !== undefined ? { stopAt } : {}), calls };
+  const each = [WRITE_CALLS, PLOT_CHECK_CALLS, ...(review ? [REVIEW_CALLS] : []), ...(input.mode === 'finalize' ? [FINALIZE_CALLS] : [])].reduce(addCalls);
+  const writing = chapters.reduce<CallEstimate>((sum) => addCalls(sum, each), { low: 0, high: 0, max: 0 });
+  // 写完即定稿：全书滚动摘要落后 {@link GLOBAL_SUMMARY_EVERY} 章就在那一章定稿之后更新一次。
+  const globalSummaryAt: number[] = [];
+  if (input.mode === 'finalize') {
+    let through = input.globalSummaryThrough ?? 0;
+    for (const no of chapters) {
+      if (no - through >= GLOBAL_SUMMARY_EVERY) {
+        globalSummaryAt.push(no);
+        through = no;
+      }
+    }
+  }
+  // 每拆一批细纲，接着从细纲排一次叙事线（只追加新线），各算 1 次。
+  const calls = [
+    ...plotBatches.map((b) => addCalls(blueprintCalls(b.length), ONE_CALL)),
+    ...globalSummaryAt.map(() => ONE_CALL),
+  ].reduce(addCalls, writing);
+  return {
+    from,
+    to,
+    mode: input.mode,
+    review,
+    chapters,
+    skipped,
+    plotBatches,
+    globalSummaryAt,
+    ...(stopAt !== undefined ? { stopAt } : {}),
+    calls,
+  };
 }
 
 /** 推导单章下一步所需的事实。 */

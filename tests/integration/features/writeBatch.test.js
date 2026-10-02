@@ -83,6 +83,7 @@ before(() => {
     registry: './src/core/llm/registry.ts',
     provider: './src/core/llm/provider.ts',
     batch: './src/core/features/pipelineBatch.ts',
+    summarize: './src/core/features/summarize.ts',
     plotFile: './src/core/model/plotFile.ts',
     progress: './src/core/runtime/progress.ts',
     errorLog: './src/core/runtime/errorLog.ts',
@@ -150,9 +151,9 @@ describe('只写正文：下一可写章起 3 章', () => {
   });
   after(() => cleanup(t.dir, bundle.db));
 
-  test('确认框报区间、模式与上限（一章最多 8 次）', () => {
+  test('确认框报区间、模式与上限（一章最多 8 次，写前比对最多 2 次）', () => {
     const c = h.confirms[0];
-    assert.equal(c.message, '第 1–3 章：要写 3 章正文（只写正文），预计 3 次调用，最多 24 次。现在写？');
+    assert.equal(c.message, '第 1–3 章：要写 3 章正文（只写正文），预计 3–6 次调用，最多 30 次。现在写？');
     assert.match(c.detail, /一章一章串行写/);
   });
 
@@ -228,9 +229,9 @@ describe('第一章没细纲的在它前面收住', () => {
   });
   after(() => cleanup(t.dir, bundle.db));
 
-  test('写到第 2 章为止，确认框里说了为什么', () => {
+  test('没有情节大纲：写到第 2 章为止，确认框里说了为什么', () => {
     assert.match(h.confirms[0].message, /^第 1–2 章：要写 2 章正文/);
-    assert.match(h.confirms[0].detail, /第 3 章还没有细纲，写到它前面为止/);
+    assert.match(h.confirms[0].detail, /第 3 章还没有细纲、情节大纲也没覆盖到它，写到它前面为止/);
     assert.ok(t.has(CH(2)) && !t.has(CH(3)) && !t.has(CH(4)));
   });
 });
@@ -370,6 +371,203 @@ describe('续写到最后仍不到八成：写进去，然后停', () => {
   });
 });
 
+describe('结尾停在半句上、续写也没接完：写进去，然后停', () => {
+  let t;
+  before(async () => {
+    t = await fresh('wb-half');
+    replyFn = (messages) => {
+      if (isSummary(messages) || isState(messages)) {
+        return defaultReply(messages);
+      }
+      // 第一次字数够了、停在半句上；续写那两轮都只多几个字。
+      return chapterOf(messages).continuation ? { text: '的骨头', stop: 'end' } : { text: `${filler(700, 9).slice(0, -1)}，全身`, stop: 'end' };
+    };
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', confirmed: true });
+  });
+  after(() => cleanup(t.dir, bundle.db));
+
+  test('第 1 章写了、没定稿，第 2 章没写', () => {
+    assert.ok(t.has(CH(1)) && !t.has(CH(2)));
+    assert.ok(!t.has('.novelforge/summaries/001-停舟.md'));
+  });
+
+  test('黄 ❗：结尾停在半句上', async () => {
+    const [f] = await failuresOf(t, PLOT(1));
+    assert.equal(f.severity, 'warn');
+    assert.match(f.message, /结尾停在半句上/);
+  });
+});
+
+// ---------------------------------------------------------------- 边写边拆细纲、写前冲突检查（百章实验复盘）
+
+const OUTLINE = '# 情节大纲\n\n## 第1–10章：第一幕\n\n林昭回镇查案。\n';
+
+/** 按契约里写的区间应答一批细纲。 */
+function blueprintsFor(messages) {
+  const user = messages[messages.length - 1].content;
+  const m = /chapterNumber 必须覆盖第 (\d+)(?:–(\d+))? 章的每一章/.exec(user);
+  const from = Number(m?.[1] ?? 1);
+  const to = Number(m?.[2] ?? from);
+  const blueprints = [];
+  for (let no = from; no <= to; no++) {
+    blueprints.push({
+      chapterNumber: no,
+      title: TITLES[no - 1] ?? `第${no}章`,
+      role: '铺垫',
+      purpose: `第 ${no} 章的目的`,
+      keyEvents: `第 ${no} 章林昭又查到一点东西。`,
+      characters: ['林昭'],
+      suspenseHook: `第 ${no} 章结尾：又一个人不见了。`,
+    });
+  }
+  return JSON.stringify({ blueprints });
+}
+const isBlueprint = (messages) => /chapterNumber 必须覆盖第/.test(messages[messages.length - 1].content);
+const isPlotCheck = (messages) => (messages[0]?.content ?? '').includes('你是长篇小说的连续性编辑');
+const isEvents = (messages) => (messages[0]?.content ?? '').includes('你是小说定稿事实审查员');
+const isThreads = (messages) => (messages[0]?.content ?? '').includes('只从作者给的故事前提、情节大纲与各章细纲里提出跨章的伏笔');
+
+/** 每章正文带一句可查证的事实；摘要把它记成连续性事实。 */
+function factfulReply(conflicts = () => []) {
+  return (messages) => {
+    if (isBlueprint(messages)) {
+      return blueprintsFor(messages);
+    }
+    if (isPlotCheck(messages)) {
+      return JSON.stringify({ conflicts: conflicts(messages) });
+    }
+    if (isThreads(messages)) {
+      return JSON.stringify({ threads: [{ title: '玉佩的下落', type: '伏笔', from: 1, to: 8, intent: '玉佩一块块丢在哪里。' }] });
+    }
+    if (isSummary(messages)) {
+      const no = Number(/【第(\d+)章/.exec(messages[messages.length - 1].content)?.[1] ?? 0);
+      return JSON.stringify({ 梗概: '事。', 出场人物: [{ name: '林昭', aliases: [] }], 关键事件: [], 连续性事实: [`林昭在第${no}章丢了第${no}块玉佩`] });
+    }
+    const { no, continuation } = chapterOf(messages);
+    if (!isState(messages) && !continuation && no) {
+      return { text: `林昭在第${no}章丢了第${no}块玉佩。\n\n${filler(700, no * 100)}`, stop: 'end' };
+    }
+    return defaultReply(messages);
+  };
+}
+
+describe('边写边拆细纲：大纲覆盖之内没细纲的章，写到时先拆这一批', () => {
+  let t;
+  let order;
+  let blueprintPrompt;
+  before(async () => {
+    t = await fresh('wb-rolling', { blank: [3, 4, 5] });
+    t.write('.novelforge/outline.md', OUTLINE);
+    t.project.invalidate();
+    replyFn = factfulReply();
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 4 }, mode: 'finalize', confirmed: true });
+    order = fake.calls.map((m) =>
+      isBlueprint(m) ? 'plots' : isThreads(m) ? 'threads' : isEvents(m) ? 'events' : isPlotCheck(m) ? 'check' : isSummary(m) ? 'summary' : isState(m) ? 'state' : `write:${chapterOf(m).no}`
+    );
+    blueprintPrompt = fake.calls.find(isBlueprint)?.at(-1).content ?? '';
+  });
+  after(() => cleanup(t.dir, bundle.db));
+
+  // 排出叙事线之后，定稿多了判叙事线那一步。
+  test('写完第 2 章、定稿之后才拆第 3–4 章（只拆这次要写的），接着排叙事线；第 1 章前面没定稿的章，不比对', () => {
+    assert.deepEqual(order, [
+      'write:1', 'summary', 'state',
+      'check', 'write:2', 'summary', 'state',
+      'plots', 'threads', 'check', 'write:3', 'summary', 'state', 'events',
+      'check', 'write:4', 'summary', 'state', 'events',
+    ]);
+  });
+
+  test('拆完接着排叙事线，追加进 threads.md', () => {
+    assert.match(t.read('.novelforge/threads.md'), /玉佩的下落/);
+  });
+
+  test('拆细纲的时候看得见前面定稿的连续性事实', () => {
+    assert.ok(blueprintPrompt.includes('林昭在第2章丢了第2块玉佩'), blueprintPrompt.slice(0, 1500));
+    assert.ok(blueprintPrompt.includes('既成历史'));
+  });
+
+  test('第 3、4 章的细纲拆了、正文写了；区间外的第 5 章不动', () => {
+    assert.ok(t.has(CH(3)) && t.has(CH(4)) && !t.has(CH(5)));
+    assert.match(t.read(PLOT(4)), /第 4 章林昭又查到一点东西/);
+    assert.doesNotMatch(t.read(PLOT(5)), /林昭又查到/);
+  });
+});
+
+// 百章实验里全书滚动摘要从没生成过：它只有「重建」一个入口。批量定稿每落后 10 章增量更新一次。
+describe('全书滚动摘要增量更新', () => {
+  let t;
+  const users = [];
+  const runner = {
+    primaryBudget: { contextWindow: 100000, maxOutputTokens: 2000 },
+    run: (_what, fn) =>
+      fn({
+        stream: async function* (messages) {
+          users.push(messages[messages.length - 1].content);
+          yield { type: 'text', text: `## 主线进展\n\n第 ${users.length} 版：林昭一路丢玉佩。` };
+        },
+      }),
+  };
+  before(async () => {
+    t = await fresh('wb-global');
+    replyFn = factfulReply();
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', confirmed: true });
+  });
+  after(() => cleanup(t.dir, bundle.db));
+
+  test('还没有全书摘要：从第 1 章起汇总定稿过的章，through 记到最后一章', async () => {
+    const r = await bundle.summarize.updateGlobalSummary(t.project, runner);
+    assert.deepEqual(r, { calls: 1, through: 2 });
+    assert.match(users[0], /第 1–2 章的逐章摘要/);
+    assert.match(t.read('.novelforge/summaries/global.md'), /through: 2[\s\S]*第 1 版：林昭一路丢玉佩/);
+  });
+
+  test('之后只并入新定稿的章，旧摘要一起带上；没有新章就零调用', async () => {
+    t.project.invalidate();
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 3, to: 3 }, mode: 'finalize', confirmed: true });
+    const r = await bundle.summarize.updateGlobalSummary(t.project, runner);
+    assert.deepEqual(r, { calls: 1, through: 3 });
+    assert.match(users[1], /截至第 2 章/);
+    assert.match(users[1], /第 1 版：林昭一路丢玉佩/);
+    assert.match(users[1], /【第3章/);
+    assert.doesNotMatch(users[1], /【第2章/);
+    const again = await bundle.summarize.updateGlobalSummary(t.project, runner);
+    assert.equal(again.calls, 0);
+  });
+});
+
+describe('写前冲突检查：细纲与前面定稿的事实对不上，停在那一章前面', () => {
+  test('对得上原文的冲突：停下、挂黄 ❗，说清是哪两句', async () => {
+    const t = await fresh('wb-plotcheck');
+    replyFn = factfulReply(() => [
+      { plot: '第 2 章林昭查到一点东西', fact: '林昭在第1章丢了第1块玉佩', chapter: 1, why: '玉佩已经丢了' },
+      { plot: '细纲里没有这句', fact: '林昭在第1章丢了第1块玉佩', chapter: 1, why: '编的' },
+    ]);
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', confirmed: true });
+    const f = finished.find((x) => x.title === '批量写章');
+    assert.ok(t.has(CH(1)) && !t.has(CH(2)));
+    assert.match(f.message, /第 2 章的细纲与前面定稿的事实有 1 处对不上/, f.message);
+    const fails = await failuresOf(t, PLOT(2));
+    assert.ok(
+      fails.some((x) => x.op === 'plotCheck' && /细纲「第 2 章林昭查到一点东西」与第 1 章的定稿事实「林昭在第1章丢了第1块玉佩」矛盾：玉佩已经丢了/.test(x.message)),
+      JSON.stringify(fails)
+    );
+    assert.match(fails[0].detail, /factCheckOk: true/);
+    cleanup(t.dir, bundle.db);
+  });
+
+  test('细纲上记了 factCheckOk：不比对，照写', async () => {
+    const t = await fresh('wb-plotcheck-ok');
+    t.write(PLOT(2), t.read(PLOT(2)).replace('targetWords: 600', 'targetWords: 600\nfactCheckOk: true'));
+    t.project.invalidate();
+    replyFn = factfulReply(() => [{ plot: '第 2 章林昭查到一点东西', fact: '林昭在第1章丢了第1块玉佩', chapter: 1, why: '玉佩已经丢了' }]);
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', confirmed: true });
+    assert.ok(t.has(CH(2)));
+    assert.ok(!fake.calls.some(isPlotCheck));
+    cleanup(t.dir, bundle.db);
+  });
+});
+
 describe('写完这一章就停；停止', () => {
   test('点了「写完这一章就停」：这一章写完、落盘，然后收', async () => {
     const t = await fresh('wb-pause');
@@ -498,10 +696,67 @@ describe('一致性预检：开跑之前查一遍，有问题先问', () => {
     assert.ok(t.has(CH(1)));
     assert.ok(!t.has(CH(2)), '第 2 章没写');
     const f = finished.find((x) => x.title === '批量写章');
-    assert.match(f.message, /第 2 章的一致性预检发现 1 处问题（沈秋在角色卡上已经死了，细纲仍排着），批量停在这里/);
+    assert.match(f.message, /第 2 章的一致性预检发现 1 处问题（沈秋已经死了，细纲仍排着），批量停在这里/);
     const fails = await failuresOf(t, PLOT(2));
     assert.ok(fails.some((x) => x.severity === 'warn' && /一致性预检/.test(x.message)), JSON.stringify(fails));
     cleanup(t.dir, bundle.db);
+  });
+
+  // 百章实验：钱执事第 10 章的摘要已记下「尸骨无存」，第 26 章细纲照排——他没有卡，预检没拦。
+  test('没有卡的人：靠前面定稿的连续性事实认出来，停在那一章前面', async () => {
+    const t = await fresh('wb-preflight-fact');
+    scheduleShenQiu(t, '');
+    t.remove('.novelforge/characters/沈秋.md');
+    // 第 1 章也排着沈秋：他死在这一章（不算提前登场）。
+    t.write(PLOT(1), t.read(PLOT(1)).replace('characters: [林昭]', 'characters: [林昭, 沈秋]'));
+    t.project.invalidate();
+    replyFn = (messages) => {
+      if (isSummary(messages)) {
+        return JSON.stringify({ 梗概: '第 1 章的事。', 出场人物: [{ name: '林昭', aliases: [] }], 关键事件: [], 连续性事实: ['沈秋被刺死在渡口，尸骨无存'] });
+      }
+      const { no, continuation } = chapterOf(messages);
+      if (!isState(messages) && !continuation && no === 1) {
+        return { text: `沈秋被刺死在渡口，尸骨无存。\n\n${filler(700, 100)}`, stop: 'end' };
+      }
+      return defaultReply(messages);
+    };
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', confirmed: true });
+    const f = finished.find((x) => x.title === '批量写章');
+    assert.ok(t.has(CH(1)) && !t.has(CH(2)));
+    assert.match(f.message, /第 2 章的一致性预检发现 1 处问题（沈秋已经死了/);
+    const fails = await failuresOf(t, PLOT(2));
+    assert.ok(fails.some((x) => /沈秋在第 1 章的定稿事实里写着「沈秋被刺死在渡口」/.test(x.message)), JSON.stringify(fails));
+    cleanup(t.dir, bundle.db);
+  });
+});
+
+describe('开写之前补建角色卡：摘要里出场两章以上、还没有卡的人', () => {
+  let t;
+  before(async () => {
+    t = await fresh('wb-cast-cards');
+    replyFn = (messages) => {
+      if (isSummary(messages)) {
+        return JSON.stringify({ 梗概: '事。', 出场人物: [{ name: '林昭', aliases: [] }, { name: '老周', aliases: [] }], 关键事件: [], 连续性事实: [] });
+      }
+      return defaultReply(messages);
+    };
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', confirmed: true });
+    fake.reset();
+    h.confirms.length = 0;
+    h.expect('开始写章');
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 3, to: 3 } });
+  });
+  after(() => cleanup(t.dir, bundle.db));
+
+  test('确认框里说了给谁建卡、几次调用，并算进总数', () => {
+    const c = h.confirms[0];
+    assert.match(c.message, /预计 2–3 次调用/);
+    assert.match(c.detail, /开写之前先给老周建角色卡（摘要里已经出场 2 章以上、还没有卡；1 次调用/);
+  });
+
+  test('先建卡再写：老周有了卡，第 3 章写了', () => {
+    assert.ok(t.has('.novelforge/characters/老周.md'));
+    assert.ok(t.has(CH(3)));
   });
 });
 

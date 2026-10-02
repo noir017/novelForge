@@ -30,6 +30,7 @@ export function promptFactsOf(a: Pick<Assembly, 'request' | 'book' | 'focus'>): 
     // 「本章不出场」（五期补遗 §1.2）：生成层交过来的那一份优先（与写完查的同源）；没给就按 focus 现算。
     ...(drafting
       ? {
+          ...(r.banned?.length ? { banned: r.banned } : {}),
           notYet: r.notYet ?? notYetOnStage({
             self: plot?.characters ?? [],
             previous: a.focus.previous.map((c) => ({ no: c.no, characters: c.plot?.characters ?? [] })),

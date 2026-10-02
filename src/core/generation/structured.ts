@@ -39,7 +39,7 @@ import {
 import { PLOT_BATCH, ROSTER_DETAIL_BATCH } from '../model/pipeline';
 import { BookConfig } from '../model/settingFile';
 import { hasContent } from '../model/markdown';
-import { parseOutlineRanges } from '../model/outlineFile';
+import { OUTLINE_SECTION_MAX, oversizedSections, parseOutlineRanges } from '../model/outlineFile';
 import { BlueprintItem, checkCoverage, decodeBlueprints, renderBlueprints } from '../features/blueprint';
 import { CharacterDetail, IdentitySlot, assembleRoster, decodeDetails, decodeManifest, renderRoster } from '../features/roster';
 import {
@@ -456,6 +456,14 @@ export function singleShotNotes(
       const covered = ranges.reduce((m, r) => Math.max(m, r.to), 0);
       if (covered < range.to) {
         notes.push(`产出只覆盖到第 ${covered} 章（这一批要写到第 ${range.to} 章），写入后主按钮会接着推续写`);
+      }
+      const wide = oversizedSections(ranges);
+      if (wide.length > 0) {
+        notes.push(
+          `有 ${wide.length} 节一节覆盖了 ${OUTLINE_SECTION_MAX} 章以上（${wide
+            .map((r) => `第 ${r.from}–${r.to} 章`)
+            .join('、')}）：一节的事撑不满这么多章，细纲容易把同一个高潮反复演。可以重新生成，或手动拆成几节`
+        );
       }
     }
   }
