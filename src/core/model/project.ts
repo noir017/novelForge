@@ -481,6 +481,29 @@ export class NovelProject {
     return (await readText(this.pathOf(chapter.relPath))).trim();
   }
 
+  /**
+   * 工程里能拿来拆的整本 txt（导入原稿、从参考书学写法）：`.txt`，**章节文件与草稿除外**，按路径排序。
+   * 隐藏目录照例不扫（`.novelforge/` 里没有作者要导入的东西）。只列路径与大小，不读内容。
+   */
+  async listImportableTexts(): Promise<{ relPath: string; bytes: number }[]> {
+    const chaptersRoot = path.resolve(this.chaptersDir);
+    const isTxt = (name: string) => path.extname(name).toLowerCase() === '.txt';
+    const out: { relPath: string; bytes: number }[] = [];
+    for (const abs of await listFilesDeep(this.root, isTxt, new Set([this.draftsDir]))) {
+      const back = path.relative(chaptersRoot, abs);
+      const inChapters = !back.startsWith('..') && !path.isAbsolute(back);
+      if (inChapters && isChapterFileName(path.basename(abs))) {
+        continue;
+      }
+      try {
+        out.push({ relPath: this.relPath(abs), bytes: (await fs.stat(abs)).size });
+      } catch {
+        // 列完到 stat 之间被删了：当没有。
+      }
+    }
+    return out;
+  }
+
   /** 下一个可用章节序号。 */
   async nextChapterOrder(): Promise<number> {
     const chapters = await this.listChapters();
