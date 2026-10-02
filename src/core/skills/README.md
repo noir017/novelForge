@@ -98,4 +98,4 @@
 | `builtin:less-ai-tone-review` | 审稿 | 命中且成密度的报成 `AI 腔` / warning 审稿项，合计不超过 3 项 |
 | `builtin:less-ai-tone-refinement` | 修稿 | 清单里有 AI 腔一类的审稿项时按最小改动改，信息不增不减 |
 
-修稿合同只许改清单指到的地方（技能排在合同之后），所以修稿那份不写「顺手清理」，靠审稿那份先把句子报出来、作者勾选。清单的数据来源与被排除的特征见 [docs/design/plans/2026-10-02-less-ai-tone.md](../../../docs/design/plans/2026-10-02-less-ai-tone.md)。
+flash-lite 上实测：写正文那份能把揭底句、翻案腔、句首然而压到五到七成，短语类压不下来；审稿那份的 AI 腔误报近一半、修稿又照单执行，暂不建议绑（数据见下面的文档）。修稿合同只许改清单指到的地方（技能排在合同之后），所以修稿那份不写「顺手清理」，靠审稿那份先把句子报出来、作者勾选。清单的数据来源与被排除的特征见 [docs/design/plans/2026-10-02-less-ai-tone.md](../../../docs/design/plans/2026-10-02-less-ai-tone.md)。
