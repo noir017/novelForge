@@ -497,6 +497,52 @@ describe('章节 · 同名一律报错退出，manifest 跟着同步', () => {
 });
 
 /**
+ * 一次新建好几章（导入原稿）：每章照样过网关，manifest 最后同步一次——逐章同步是 O(n²) 次读盘。
+ * 撞了同名照样报错退出：前面写好的留着，manifest 也照样同步到它们。
+ */
+describe('章节 · 一次新建好几章', () => {
+  let made;
+  let err;
+
+  before(async () => {
+    made = await ws.createChapters([
+      { order: 41, title: '甲', content: '第四十一章。' },
+      { order: 42, title: '', content: '第四十二章。' },
+    ]);
+    t.write('chapters/044-丁.md', '# 丁\n\n作者先放的。\n');
+    project.invalidate();
+    try {
+      await ws.createChapters([
+        { order: 43, title: '丙', content: '第四十三章。' },
+        { order: 44, title: '丁', content: '不该写进去' },
+        { order: 45, title: '戊', content: '不该写到这里' },
+      ]);
+    } catch (e) {
+      err = e;
+    }
+  });
+
+  test('一章一个文件，规则与 createChapter 一样', () => {
+    assert.deepEqual(made, ['chapters/041-甲.md', 'chapters/042.md']);
+    assert.equal(t.read('chapters/041-甲.md'), '# 甲\n\n第四十一章。\n');
+    assert.equal(t.read('chapters/042.md'), '第四十二章。\n');
+  });
+
+  test('撞了同名报错退出，不覆盖、不往下写', () => {
+    assert.equal(err?.code, 'exists');
+    assert.ok(!t.read('chapters/044-丁.md').includes('不该写进去'));
+    assert.ok(!t.has('chapters/045-戊.md'));
+  });
+
+  test('manifest 同步到写好的每一章（包括报错之前那一章）', async () => {
+    const files = (await project.readManifest()).chapters.map((c) => c.file);
+    for (const rel of ['chapters/041-甲.md', 'chapters/042.md', 'chapters/043-丙.md']) {
+      assert.ok(files.includes(rel), rel);
+    }
+  });
+});
+
+/**
  * 细纲改名：正文与摘要都挂在**章节**上，不跟着细纲走。从前改细纲名要连带搬走
  * 中转站里那份正文；一章一纲之后正文就是章节，细纲改名不必带走任何东西。
  */

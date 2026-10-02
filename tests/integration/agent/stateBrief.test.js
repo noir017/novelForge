@@ -408,9 +408,13 @@ describe('老工程 · 99 章成品、没有架构也没有细纲', () => {
     assert.ok(/\d+\.\d 万字/.test(text), text);
   });
 
-  test('全书下一步被推回架构第一件', async () => {
+  // 从前（D11）推的是「生成小说配置」：凭一句话编一套与这 99 章无关的设定。拆书 A 之后改成照正文整理。
+  test('全书下一步是「从已写正文补齐」，是工程动作、不带调用次数（框里再报）', async () => {
     const { step } = await bookStepOf(old);
-    assert.equal(step.label, '生成小说配置');
+    assert.equal(step.label, '从已写正文补齐…');
+    assert.equal(step.projectAction, 'deriveFromText');
+    assert.equal(step.calls, undefined);
+    assert.ok(step.hint.includes('第 1–99 章') && step.hint.includes('小说配置'), step.hint);
     assert.ok(text.includes(step.label) && text.includes(step.hint), text);
   });
 

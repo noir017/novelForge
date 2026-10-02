@@ -554,6 +554,48 @@ describe('排叙事线：转发给工程页那个动作', () => {
   });
 });
 
+describe('拆书三个动作：转发给工程页那几个函数', () => {
+  test('importManuscript / learnFromReference 要 path，缺了当场报错、不弹框', async () => {
+    resetCtx();
+    h.expect();
+    for (const action of ['importManuscript', 'learnFromReference']) {
+      const r = await run({ action });
+      assert.match(r.error, new RegExp(`${action} 需要参数：path=`), r.error);
+    }
+    assert.equal(h.confirms.length + h.picks.length, 0);
+  });
+
+  test('path 只认工程里的 txt：章节文件报错回给模型，不花钱', async () => {
+    resetCtx();
+    h.expect();
+    const r = await run({ action: 'importManuscript', path: CH1 });
+    assert.match(r.error, /不是工程里能拆的 txt/, JSON.stringify(r));
+    assert.equal(fake.calls.length, 0);
+    assert.equal(ctx.usage.calls, 0);
+  });
+
+  test('导入：作者在确认框取消，回给模型「不要重试」、零调用', async () => {
+    resetCtx();
+    t.write('原稿.txt', '第一章 入宗\n林昭入宗。');
+    project.invalidate();
+    h.expect(undefined);
+    const r = await run({ action: 'importManuscript', path: '原稿.txt' });
+    assert.match(h.confirms[0].message, /^从《原稿》认出 1 章/);
+    assert.match(r.text, /这一次没有导入/);
+    assert.match(r.text, /不要重试同一个动作/);
+    assert.equal(ctx.usage.calls, 0);
+  });
+
+  test('从已写正文补齐：作者在第一个框取消，零调用', async () => {
+    resetCtx();
+    h.expect(undefined);
+    const r = await run({ action: 'deriveFromText' });
+    assert.match(h.confirms[0].message, /^从已写正文补齐第 1–\d+ 章/);
+    assert.match(r.text, /从已写正文补齐这一次没有调用模型/);
+    assert.equal(fake.calls.length, 0);
+  });
+});
+
 describe('工具定义本身', () => {
   test('标了 mutating', () => {
     assert.equal(tool().mutating, true);

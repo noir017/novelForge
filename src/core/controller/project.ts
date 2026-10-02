@@ -17,6 +17,9 @@ import { extractCharacters, newCharacter, newLore } from '../features/characters
 import { generateLore } from '../features/lore';
 import { completeSettings, generatePlots, writeManuscripts } from '../features/pipelineBatch';
 import { extractStyle } from '../features/style';
+import { importManuscript } from '../features/importManuscript';
+import { deriveFromText } from '../features/derive';
+import { learnFromReference } from '../features/reference';
 import { generateThreads } from '../features/threads';
 import { chapterForSummary, rebuildGlobalSummary, syncSummaries } from '../features/summarize';
 import { finalizeChapterTask } from '../features/finalize';
@@ -138,6 +141,15 @@ export async function projectAction(
       break;
     case 'generateThreads':
       await generateThreads(c.project);
+      break;
+    case 'importManuscript':
+      await importManuscript(c.project);
+      break;
+    case 'deriveFromText':
+      await deriveFromText(c.project);
+      break;
+    case 'learnFromReference':
+      await learnFromReference(c.project);
       break;
   }
 

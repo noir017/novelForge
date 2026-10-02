@@ -603,10 +603,11 @@ export interface NextStepPlan {
   /**
    * 这一步不是一次模型对话，而是一个工程动作。
    *
-   * 目前只有定稿（`finalizeChapter`）：它是工程页那条既有的「总结这一章」，
-   * 不该假装成一轮对话。
+   * - 定稿（`finalizeChapter`）：它是工程页那条既有的「总结这一章」，不该假装成一轮对话。
+   * - 从已写正文补齐（`deriveFromText`，拆书 A）：已经有正文、却缺架构或大纲没覆盖到它们。那是十几到
+   *   几百次调用的批量动作，次数在它自己的确认框里报（要读摘要才算得准），所以这一步不带 `calls`。
    */
-  projectAction?: 'finalizeChapter';
+  projectAction?: 'finalizeChapter' | 'deriveFromText';
   /**
    * 这一步覆盖的章号区间（闭区间）。大纲一次写一段区间、细纲一批写几章，
    * 按钮上的「第 21–40 章」与发给后端的范围都读它。
@@ -1143,8 +1144,9 @@ export interface BookFacts {
  * 4. 下一章没有细纲 → 拆细纲；
  * 5. 否则 → 去写那一章。
  *
- * 老工程（有几十章正文、从没有过架构）会被推回第 1 条。这是有意的（D11）：
- * 新链路写正文要读前提、角色与世界观，没有它们上下文就是空的。
+ * 老工程（有几十章正文、从没有过架构）会被推回第 1 条：新链路写正文要读前提、角色与世界观，
+ * 没有它们上下文就是空的。**下一步换成「从已写正文补齐」**（拆书 A，`deriveBookNextStep`）——
+ * 从前（D11）推的是「生成小说配置」，那会凭一句话编出一套与已写正文无关的设定。
  */
 export function deriveBookStage(f: BookFacts): BookStage {
   if (SETTING_DOCS.some((doc) => !f.settings[doc])) {
@@ -1180,11 +1182,17 @@ function rangeText(from: number, to: number): string {
  * 状态机，后者就是没有下一步。
  *
  * `plots` 那一档的 target 留空，由调用方补上第 N 章细纲的路径（见 `NextStepPlan.target`）。
+ *
+ * **已经写过正文的章不再往前规划**：第 1 章起连续有正文（`nextChapterNo > 1`）时，缺架构、或大纲还没覆盖到
+ * 已写的章，下一步是「从已写正文补齐」——照着写成的东西整理，而不是从一句话、从结构指导重新编一遍。
  */
 export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan | undefined {
   switch (stage) {
     case 'setting': {
       const doc = SETTING_DOCS.find((d) => !f.settings[d]) ?? 'config';
+      if (f.nextChapterNo > 1) {
+        return deriveStep(f, `还缺${SETTING_DOC_LABEL[doc]}`, { kind: 'setting', doc });
+      }
       return {
         stage: 'setting',
         capability: 'generate',
@@ -1199,6 +1207,13 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
 
     case 'outline': {
       const from = f.outlineFilled && Number.isFinite(f.outlineCoverage) ? f.outlineCoverage + 1 : 1;
+      if (from < f.nextChapterNo) {
+        return deriveStep(
+          f,
+          from === 1 ? '还没有情节大纲' : `情节大纲只覆盖到第 ${from - 1} 章`,
+          { kind: 'outline' }
+        );
+      }
       const to = Math.max(from, Math.min(from + OUTLINE_BATCH - 1, f.totalChapters ?? Infinity));
       const verb = f.outlineFilled ? '续写' : '生成';
       return {
@@ -1237,4 +1252,22 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
     case 'complete':
       return undefined;
   }
+}
+
+/**
+ * 「从已写正文补齐」那一步（拆书 A）。不带 `calls`：次数要读摘要才算得准，由 features/derive.ts 的
+ * 确认框在动手之前报（第 4 条）——点主按钮本身不花钱。
+ */
+function deriveStep(f: BookFacts, missing: string, target: CreationTarget): NextStepPlan {
+  const through = f.nextChapterNo - 1;
+  return {
+    stage: target.kind === 'outline' ? 'outline' : 'setting',
+    capability: 'generate',
+    label: '从已写正文补齐…',
+    hint:
+      `已经写了${rangeText(1, through)}，${missing}。照已写正文把摘要、角色卡、架构、情节大纲与细纲整理出来（只补空白），` +
+      '再接着往下写；动手之前会先列出要调几次模型。',
+    target,
+    projectAction: 'deriveFromText',
+  };
 }

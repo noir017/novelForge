@@ -38,6 +38,13 @@
  * 三种策略都先问一句——上游这两个都 `requiresConfirmation`，而它们改的东西（我的技能库、这个
  * 工程往后每一次生成的提示词）下游没有任何 diff 可看。检查结果来自不受信任的第三方文档，
  * 回给模型的话里说清这一点。
+ *
+ * ## 拆书的三个动作
+ *
+ * `importManuscript` / `deriveFromText` / `learnFromReference` 都是工程页那颗按钮背后的同一个函数。
+ * `importManuscript` 会新建章节文件——与上面不给的 `newChapter` 不同，它建的是作者自己那本 txt 里的
+ * 章，切分结果先在确认框里给作者看，同名一律不覆盖。两个要 `path` 的动作只认工程里的 txt
+ * （`features/bookText.ts` 的那张清单），不认章节文件、隐藏目录与工程外的路径。
  */
 import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
 import { bool, int, objectSchema, str } from '../schema';
@@ -48,6 +55,9 @@ import { chapterForSummary, syncSummaries } from '../../features/summarize';
 import { describeFinalize, finalizeChapter } from '../../features/finalize';
 import { createCardForCast, updateCharacterCard } from '../../features/characterCard';
 import { extractStyle } from '../../features/style';
+import { importManuscript } from '../../features/importManuscript';
+import { deriveFromText } from '../../features/derive';
+import { learnFromReference } from '../../features/reference';
 import { generateLore } from '../../features/lore';
 import { generateThreads } from '../../features/threads';
 import { describeError } from '../../runtime/logger';
@@ -215,6 +225,51 @@ const ACTIONS: Record<string, ActionSpec> = {
     },
   },
 
+  // ---- 拆书（导入原稿、从已写正文补齐、从参考书学写法）
+  importManuscript: {
+    label: '导入原稿：把工程里的一本 txt 按章标题切成章节，接在已有章节之后（切分结果先给作者看；导入本身不调模型，导入完作者可以选择接着从已写正文补齐）',
+    costly: true,
+    needsField: 'path',
+    needs: 'path=工程里那本 txt 的相对路径',
+    async run(ctx, args) {
+      const r = await importManuscript(ctx.project, { path: args.path });
+      if (r.imported === 0) {
+        return {
+          text: '这一次没有导入：要么作者取消了，要么认不出章节标题（每章开头要有单独一行「第一章 xxx」）。不要重试同一个动作——先问作者。',
+          calls: 0,
+        };
+      }
+      return {
+        text:
+          `已导入 ${r.imported} 章。` +
+          (r.calls > 0 ? `作者接着从已写正文补齐了，调用模型 ${r.calls} 次，结果见工程页。` : '作者没有接着补齐；需要时用 deriveFromText。'),
+        calls: r.calls,
+      };
+    },
+  },
+  deriveFromText: {
+    label: '从已写正文补齐：照第 1 章起连续写成的正文，补上缺的摘要、角色卡、架构四件、情节大纲、细纲与全书摘要（只补空白，已有的不动；动手前报调用次数）',
+    costly: true,
+    async run(ctx) {
+      return countedBy(await deriveFromText(ctx.project), '从已写正文补齐', '那几样都已经有了，或者还没有正文');
+    },
+  },
+  learnFromReference: {
+    label: '从工程里的一本参考书学写法：文风写进 style.md，结构与节奏写成一份「规划」阶段的写作技能（只学怎么写，不复述原书的情节与人名，原文不进工程）',
+    costly: true,
+    needsField: 'path',
+    needs: 'path=工程里那本参考书 txt 的相对路径',
+    async run(ctx, args) {
+      const r = await learnFromReference(ctx.project, { path: args.path });
+      const made = [r.style ? `文风写进了 ${r.style}` : '', r.skill ? `写法写成了技能 ${r.skill.id}${r.skill.bound ? '，已绑到规划阶段' : '，没有绑'}` : '']
+        .filter(Boolean)
+        .join('；');
+      return made
+        ? { text: `${made}。`, calls: r.calls }
+        : { text: '这一次什么都没写：要么作者取消了，要么没学成（见工程页提示）。不要重试同一个动作——先问作者。', calls: r.calls };
+    },
+  },
+
   // ---- 写作技能（不调模型）
   listSkills: {
     label: '列出可用的写作技能（内置 / 我的技能库 / 本工程）与本工程每个阶段绑了哪一份',
@@ -364,12 +419,14 @@ export const runTool: ToolDef = {
     '调模型的动作会先弹一个确认框告诉作者要调用几次，他可以不同意。' +
     '写作技能：listSkills 查有哪些、每个阶段绑了哪份；装 GitHub 上的一份要先 inspectSkill 再 installSkill（同一个 url），' +
     '装完用 bindSkill（name=技能 id，stage=阶段）绑上才会用上。安装与绑定每次都会先问作者。' +
-    '删除、改名、移动、新建章节文件、卸载技能都没有——那些由作者自己做。',
+    '作者有写好的稿子要接上来：txt 放在工程里，用 importManuscript（path=那本 txt）导入，再 deriveFromText 从已写正文补齐；' +
+    '要学别人的书怎么写：learnFromReference（path=那本 txt）。' +
+    '删除、改名、移动、新建空章节文件、卸载技能都没有——那些由作者自己做。',
 
   parameters: objectSchema(
     {
       action: str('要执行哪个动作。', ACTION_NAMES),
-      path: str('动作的作用对象，工程内相对路径。只有部分动作要。'),
+      path: str('动作的作用对象，工程内相对路径。只有部分动作要（importManuscript / learnFromReference 要那本 txt 的路径）。'),
       name: str('createCard 要人物名字；bindSkill 要技能 id（listSkills 列出的）。'),
       url: str('写作技能的 GitHub 地址，只有 inspectSkill / installSkill 要。'),
       stage: str(

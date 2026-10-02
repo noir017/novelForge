@@ -308,12 +308,12 @@ export async function completeSettings(project: NovelProject): Promise<number> {
 }
 
 /** 故事架构那一行的失败记在哪：它的文件（角色图谱是角色目录）。与工程页那一行的 `relPath` 一致。 */
-function settingKey(project: NovelProject, doc: SettingDoc): string {
+export function settingKey(project: NovelProject, doc: SettingDoc): string {
   return project.relPath(project.settingPath(doc));
 }
 
-/** 补齐设定的一件：第一次调用，配置与角色图谱再接上各自的链。 */
-async function settingRaw(
+/** 补齐设定的一件：第一次调用，配置与角色图谱再接上各自的链。从已写正文补齐（features/derive.ts）也走它。 */
+export async function settingRaw(
   project: NovelProject,
   doc: SettingDoc,
   request: Omit<BuildRequest, 'providerMaxInputTokens'>,
@@ -338,17 +338,28 @@ async function settingRaw(
  * 批量那条路的 {@link ChainIO}：每次调用走分档池（失败换同档其余，第 12 条），
  * 装配用干活那个模型的窗口（第 13 条：`pool.primaryBudget`），不带思考深度（第 26 条）。
  */
+/** {@link runPlotBatch} 从已写正文整理时要的东西：写到第几章、每章的实际字数与标题（按章号）。 */
+export interface PlotBatchDerive {
+  through: number;
+  targetWords: ReadonlyMap<number, number>;
+  titles: ReadonlyMap<number, string>;
+}
+
 /**
  * 拆一批细纲：生成链（截断拆半、语法修复、漏章 fail-closed）→ 只补空白地落盘。批量拆细纲与批量写章
  * 「边写边拆」共用。**不抛**：失败挂在这一批第一章的细纲上（第 16 条），由调用方决定停不停；取消单列。
+ *
+ * `derive`：从已写正文整理（拆书 A，features/derive.ts）。装配带上这几章的正文，契约换成「照正文提取」；
+ * 标题用章节自己的（作者起的名字，模型改了不算），目标字数记那一章的实际字数，不建新卡。
  */
-async function runPlotBatch(
+export async function runPlotBatch(
   project: NovelProject,
   ws: Workspace,
   pool: ModelPool,
   config: ReturnType<typeof readConfig>,
   signal: AbortSignal,
-  batch: readonly number[]
+  batch: readonly number[],
+  derive?: PlotBatchDerive
 ): Promise<{ ok: true; calls: number } | { ok: false; calls: number; cancelled: boolean; reason: string }> {
   const range = { from: batch[0], to: batch[batch.length - 1] };
   const span = rangeLabel(range.from, range.to);
@@ -359,13 +370,20 @@ async function runPlotBatch(
     targetNo: range.from,
     range,
     ask: '',
+    ...(derive ? { derive: { through: derive.through } } : {}),
   });
   try {
     const result = await completeBlueprints(undefined, io.chain, [...batch]);
     if (result.notes.length > 0) {
       log.warn(`${span}：${result.notes.length} 处降级`, result.notes.join('\n'));
     }
-    const r = await acceptPlotBatch(project, ws, result.items, range, { onlyBlank: true });
+    const items = derive
+      ? result.items.map((item) => ({ ...item, title: derive.titles.get(item.no) || item.title, newCharacters: [] }))
+      : result.items;
+    const r = await acceptPlotBatch(project, ws, items, range, {
+      onlyBlank: true,
+      ...(derive ? { targetWords: derive.targetWords, newCards: false } : {}),
+    });
     log.info(`${span}的细纲已落盘`, r.message);
     void clearFailures(project, 'plot', target.plotRelPath, 'plotOutline');
     return { ok: true, calls: result.calls };
@@ -389,7 +407,7 @@ async function runPlotBatch(
   }
 }
 
-function poolIO(
+export function poolIO(
   project: NovelProject,
   pool: ModelPool,
   config: ReturnType<typeof readConfig>,

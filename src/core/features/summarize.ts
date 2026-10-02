@@ -2,7 +2,7 @@ import { getHost } from '../host';
 import { basename } from 'node:path';
 import { collectText, mergeUsage } from '../llm/collect';
 import { CancelledError, LlmProvider, StreamOptions, TokenUsage } from '../llm/provider';
-import { createModelPool } from '../llm/pool';
+import { ModelPool, createModelPool } from '../llm/pool';
 import { resolveProvider } from '../llm/registry';
 import { runPool } from '../runtime/concurrency';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
@@ -256,83 +256,11 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
     '同步章节摘要',
     async ({ signal, report }) => {
       const startedAt = Date.now();
-      const failed: { no: number; reason: string }[] = [];
-      // 并发下「正在跑哪几章」是变动的，用一个集合维护，报进度时现拼。
-      const running = new Set<number>();
-      let done = 0;
-      let okCount = 0;
-      report({ message: '准备中…', current: 0, total: stale.length });
-
-      const describeRunning = (): string =>
-        lanes > 1
-          ? `已完成 ${done}/${stale.length} · ${running.size} 路进行中（第 ${[...running]
-              .sort((a, b) => a - b)
-              .join('、')} 章）`
-          : '';
-
-      await runPool(
-        stale,
-        lanes,
-        (chapter) =>
-          pool.run(`第 ${chapter.order} 章`, (llm) =>
-            summarizeChapter(project, chapter, llm, signal, pool.primaryBudget)
-          ),
-        {
-          signal,
-          onStart: (chapter) => {
-            running.add(chapter.order);
-            report({
-              message: lanes > 1 ? describeRunning() : `第 ${chapter.order} 章《${chapter.title}》`,
-              current: done,
-              total: stale.length,
-            });
-          },
-          onSettled: (result, chapter, _index, finished) => {
-            running.delete(chapter.order);
-            done = finished;
-            if (result.status === 'fulfilled') {
-              okCount++;
-            } else {
-              const err = result.reason;
-              if (!(err instanceof CancelledError || err?.name === 'CancelledError')) {
-                const reason = describeError(err);
-                failed.push({ no: chapter.order, reason });
-                log.error(`第 ${chapter.order} 章《${chapter.title}》失败：${reason}`, err);
-                // toast 里只列得下章号，而它五秒就没了。挂到那一行上，
-                // 用户第二天回来还能看出是哪几章没总结成。
-                void recordFailure(project, {
-                  scope: '摘要',
-                  targetKind: 'chapter',
-                  targetKey: chapter.relPath,
-                  severity: 'error',
-                  op: 'summarize',
-                  message: `摘要生成失败：${reason}`,
-                  detail: '这一章的剧情不会进入上下文。可右键「总结这一章」单独重试。',
-                });
-              }
-            }
-            // 每章一条 info：一次跑几十章，中途出问题时要看得出停在哪。
-            const perItem = (Date.now() - startedAt) / done;
-            log.info(
-              `进度 ${done}/${stale.length}`,
-              `刚完成第 ${chapter.order} 章；平均 ${formatDuration(perItem)}/章，` +
-                `预计剩余 ${formatDuration(perItem * (stale.length - done))}`
-            );
-            report({
-              message: lanes > 1 ? describeRunning() : `第 ${chapter.order} 章《${chapter.title}》`,
-              current: done,
-              total: stale.length,
-            });
-          },
-        }
-      );
-
+      const { ok: okCount, failed } = await summarizeChapters(project, stale, { pool, lanes, signal, report });
       if (signal.aborted) {
-        log.warn(`同步被取消，已完成 ${done}/${stale.length} 章`);
+        log.warn(`同步被取消，已完成 ${okCount + failed.length}/${stale.length} 章`);
       }
-      report({ message: '收尾', current: done, total: stale.length });
-      // 完成顺序是乱的，汇报前按章号排回来——「第 7、3、12 章失败」没法读。
-      failed.sort((a, b) => a.no - b.no);
+      report({ message: '收尾', current: okCount + failed.length, total: stale.length });
       if (failed.length > 0) {
         log.warn(
           `同步结束：成功 ${okCount} 章，失败 ${failed.length} 章`,
@@ -349,6 +277,97 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
     { scope: '摘要' }
   );
   return stale.length;
+}
+
+/**
+ * 并发总结这几章：`syncSummaries` 与「从已写正文补齐」（features/derive.ts）共用。**不弹框、不开任务**，
+ * 确认与进度条归调用方。失败的挂在那一章上（第 16 条），按章号排好交回去；取消的不算失败。
+ */
+export async function summarizeChapters(
+  project: NovelProject,
+  stale: readonly Chapter[],
+  opts: {
+    pool: ModelPool;
+    lanes: number;
+    signal: AbortSignal;
+    report: (p: { message?: string; current?: number; total?: number }) => void;
+  }
+): Promise<{ ok: number; failed: { no: number; reason: string }[] }> {
+  const { pool, lanes, signal, report } = opts;
+  const startedAt = Date.now();
+  const failed: { no: number; reason: string }[] = [];
+  // 并发下「正在跑哪几章」是变动的，用一个集合维护，报进度时现拼。
+  const running = new Set<number>();
+  let done = 0;
+  let okCount = 0;
+  report({ message: '准备中…', current: 0, total: stale.length });
+
+  const describeRunning = (): string =>
+    lanes > 1
+      ? `已完成 ${done}/${stale.length} · ${running.size} 路进行中（第 ${[...running]
+          .sort((a, b) => a - b)
+          .join('、')} 章）`
+      : '';
+
+  await runPool(
+    [...stale],
+    lanes,
+    (chapter) =>
+      pool.run(`第 ${chapter.order} 章`, (llm) =>
+        summarizeChapter(project, chapter, llm, signal, pool.primaryBudget)
+      ),
+    {
+      signal,
+      onStart: (chapter) => {
+        running.add(chapter.order);
+        report({
+          message: lanes > 1 ? describeRunning() : `第 ${chapter.order} 章《${chapter.title}》`,
+          current: done,
+          total: stale.length,
+        });
+      },
+      onSettled: (result, chapter, _index, finished) => {
+        running.delete(chapter.order);
+        done = finished;
+        if (result.status === 'fulfilled') {
+          okCount++;
+        } else {
+          const err = result.reason;
+          if (!(err instanceof CancelledError || err?.name === 'CancelledError')) {
+            const reason = describeError(err);
+            failed.push({ no: chapter.order, reason });
+            log.error(`第 ${chapter.order} 章《${chapter.title}》失败：${reason}`, err);
+            // toast 里只列得下章号，而它五秒就没了。挂到那一行上，
+            // 用户第二天回来还能看出是哪几章没总结成。
+            void recordFailure(project, {
+              scope: '摘要',
+              targetKind: 'chapter',
+              targetKey: chapter.relPath,
+              severity: 'error',
+              op: 'summarize',
+              message: `摘要生成失败：${reason}`,
+              detail: '这一章的剧情不会进入上下文。可右键「总结这一章」单独重试。',
+            });
+          }
+        }
+        // 每章一条 info：一次跑几十章，中途出问题时要看得出停在哪。
+        const perItem = (Date.now() - startedAt) / done;
+        log.info(
+          `进度 ${done}/${stale.length}`,
+          `刚完成第 ${chapter.order} 章；平均 ${formatDuration(perItem)}/章，` +
+            `预计剩余 ${formatDuration(perItem * (stale.length - done))}`
+        );
+        report({
+          message: lanes > 1 ? describeRunning() : `第 ${chapter.order} 章《${chapter.title}》`,
+          current: done,
+          total: stale.length,
+        });
+      },
+    }
+  );
+  // 完成顺序是乱的，汇报前按章号排回来——「第 7、3、12 章失败」没法读。
+  failed.sort((a, b) => a.no - b.no);
+  return { ok: okCount, failed };
 }
 
 /**

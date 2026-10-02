@@ -116,6 +116,11 @@ export interface WriteOptions {
   baseHash?: string;
   /** 覆盖审阅框里显示的名字，如「第 12 章的细纲」。 */
   what?: string;
+  /**
+   * 不跑写后的记账与伴生（`handler.after`），由调用方在一批写完之后补上。**只给 {@link Workspace.createChapters}
+   * 用**：章节的 after 只是重算 manifest，逐章重算是 O(n²) 次读盘；别的种类的 after 记的是指纹，不能延后。
+   */
+  deferAfter?: boolean;
 }
 
 export interface WriteResult {
@@ -285,7 +290,7 @@ export class Workspace {
     await writeText(guarded.abs, final);
     this.project.invalidate();
 
-    const side = handler.after ? await handler.after(ctx, final) : [];
+    const side = handler.after && !(opts.deferAfter && ctx.path.kind === 'chapter') ? await handler.after(ctx, final) : [];
     if (side.length > 0) {
       log.debug(`写入 ${target} 时连带`, side.join('｜'));
     }
@@ -543,15 +548,49 @@ export class Workspace {
     dir?: string,
     ext = '.md'
   ): Promise<string> {
+    const { rel, text } = this.chapterFileOf(order, title, content, dir, ext);
+
+    // 走 write：同名一律报错退出（第 3 条），manifest 由 chapter handler 同步。
+    await this.write(rel, { text }, { mode: 'create' });
+    return rel;
+  }
+
+  /**
+   * 一次新建好几章（导入原稿，features/importManuscript.ts）。每一章与 {@link createChapter} 走同一条
+   * `write`（同名报错退出、大小上限一样不少），只是 manifest **最后同步一次**——chapter handler 每写一章
+   * 就重扫全部章节，几百章逐章同步是 O(n²) 次读盘（三百章十几秒）。
+   *
+   * 一章写不进去就抛（前面写好的留着，manifest 照样同步）；`signal` 取消了就停在下一章前面。
+   * `onEach` 每写好一章报一次。
+   */
+  async createChapters(
+    items: readonly { order: number; title: string; content: string }[],
+    opts: { signal?: AbortSignal; onEach?: (rel: string, index: number) => void } = {}
+  ): Promise<string[]> {
+    const out: string[] = [];
+    try {
+      for (let i = 0; i < items.length && !opts.signal?.aborted; i++) {
+        const { rel, text } = this.chapterFileOf(items[i].order, items[i].title, items[i].content);
+        await this.write(rel, { text }, { mode: 'create', deferAfter: true });
+        out.push(rel);
+        opts.onEach?.(rel, i);
+      }
+    } finally {
+      if (out.length > 0) {
+        await this.project.syncManifest();
+      }
+    }
+    return out;
+  }
+
+  /** 新建章节的落点与内容（标题行规则见 {@link createChapter}）。 */
+  private chapterFileOf(order: number, title: string, content: string, dir?: string, ext = '.md'): { rel: string; text: string } {
     const stem = safeStem(title);
     const fileName = stem ? `${pad3(order)}-${stem}${ext}` : `${pad3(order)}${ext}`;
     const parent = dir ? normalizeRel(dir) : this.project.relPath(this.project.chaptersDir);
     const rel = parent ? `${parent}/${fileName}` : fileName;
     const text = isMarkdownExt(ext) && stem ? `# ${stem}\n\n${content.trim()}\n` : `${content.trim()}\n`;
-
-    // 走 write：同名一律报错退出（第 3 条），manifest 由 chapter handler 同步。
-    await this.write(rel, { text }, { mode: 'create' });
-    return rel;
+    return { rel, text };
   }
 
   /**

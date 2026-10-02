@@ -336,13 +336,17 @@ async function acceptPlot(
  *
  * 然后给蓝图里的新角色建卡（D19，同名已有的不动）。批量那条路（features/pipelineBatch.ts）
  * 也走这里——它只给空白的章，于是一张审阅都不会弹。
+ *
+ * 从已写正文整理（拆书 A，features/derive.ts）多两个选项：`targetWords` 按章给目标字数（导入的章用
+ * 它自己的字数——拿配置的每章字数去量一章已经写完的正文，短章会被判成「接着写」）；`newCards: false`
+ * 不建新卡（角色卡另外从正文建，细纲里冒出来的名字不该再建一张空卡）。
  */
 export async function acceptPlotBatch(
   project: NovelProject,
   ws: Workspace,
   items: BlueprintItem[],
   range: ChapterRange,
-  opts: { onlyBlank?: boolean } = {}
+  opts: { onlyBlank?: boolean; targetWords?: ReadonlyMap<number, number>; newCards?: boolean } = {}
 ): Promise<AcceptResult> {
   const book = await project.readBookConfig();
   const written: string[] = [];
@@ -374,7 +378,7 @@ export async function acceptPlotBatch(
           title: existing?.title || fields.title || '',
           role: fields.role ?? '',
           characters: fields.characters ?? [],
-          targetWords: existing?.targetWords ?? book.wordsPerChapter,
+          targetWords: existing?.targetWords ?? opts.targetWords?.get(item.no) ?? book.wordsPerChapter,
           upstreamHash: await plotUpstreamHash(project, project.plotPathForNo(item.no, '')),
           writtenFrom: existing?.writtenFrom,
           done: existing?.done ?? false,
@@ -384,7 +388,7 @@ export async function acceptPlotBatch(
       )
     );
   }
-  const cards = await createPlannedCards(project, ws, items);
+  const cards = opts.newCards === false ? [] : await createPlannedCards(project, ws, items);
 
   const where = range.from === range.to ? `第 ${range.from} 章` : `第 ${range.from}–${range.to} 章`;
   const parts = [

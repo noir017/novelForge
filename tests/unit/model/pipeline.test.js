@@ -659,10 +659,42 @@ describe('pipeline.ts · 全书状态推导', () => {
   });
 
   // D11：老工程（有正文、没有架构）被推回第一格——新链路写正文要读前提、角色与世界观。
-  test('有正文但没有架构的老工程 → 先补架构', () => {
+  // 拆书 A 之后这一格的动作换成「从已写正文补齐」：照正文整理，不从一句话重新编。
+  test('有正文但没有架构的老工程 → 先补架构，动作是从已写正文补齐', () => {
     const f = book({ settings: { config: false, premise: false, characters: true, world: false }, nextChapterNo: 100 });
     assert.equal(pipeline.deriveBookStage(f), 'setting');
-    assert.equal(pipeline.deriveBookNextStep('setting', f).target.doc, 'config');
+    const s = pipeline.deriveBookNextStep('setting', f);
+    assert.equal(s.target.doc, 'config');
+    assert.equal(s.projectAction, 'deriveFromText');
+    assert.equal(s.label, '从已写正文补齐…');
+    assert.equal(s.form, undefined);
+    // 次数要读摘要才算得准：确认框里报，主按钮不带。
+    assert.equal(s.calls, undefined);
+    assert.match(s.hint, /第 1–99 章/);
+    assert.match(s.hint, /小说配置/);
+  });
+
+  test('还没有正文时架构那一档照旧（一句话表单）', () => {
+    const s = pipeline.deriveBookNextStep('setting', book({ settings: { ...all, config: false }, nextChapterNo: 1 }));
+    assert.equal(s.form, 'idea');
+    assert.equal(s.projectAction, undefined);
+  });
+
+  test('大纲没覆盖到已写的章 → 从已写正文补齐，不往前规划', () => {
+    const none = pipeline.deriveBookNextStep('outline', book({ outlineFilled: false, outlineCoverage: 0, nextChapterNo: 31 }));
+    assert.equal(none.projectAction, 'deriveFromText');
+    assert.deepEqual(none.target, { kind: 'outline' });
+    assert.match(none.hint, /还没有情节大纲/);
+
+    const short = pipeline.deriveBookNextStep('outline', book({ outlineCoverage: 20, nextChapterNo: 31 }));
+    assert.equal(short.projectAction, 'deriveFromText');
+    assert.match(short.hint, /只覆盖到第 20 章/);
+  });
+
+  test('大纲恰好覆盖到已写的最后一章 → 照常续写大纲', () => {
+    const s = pipeline.deriveBookNextStep('outline', book({ outlineCoverage: 30, nextChapterNo: 31 }));
+    assert.equal(s.projectAction, undefined);
+    assert.deepEqual(s.range, { from: 31, to: 50 });
   });
 });
 
