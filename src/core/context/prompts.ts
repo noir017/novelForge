@@ -100,6 +100,8 @@ export interface PromptFacts {
    * 装配器从 focus 算好交过来（model/manuscriptCheck.ts 的 `notYetOnStage`）。
    */
   notYet?: NotYet[];
+  /** 写正文时不该用的词（生成层算好、经 `BuildRequest.banned` 交过来）。 */
+  banned?: string[];
 }
 
 /** 每个阶段管什么、**不管**什么。后半句同样要紧：越界是这套设计最主要的失败方式。 */
@@ -230,7 +232,8 @@ const ERA_RULE =
  */
 export const ANTI_AI_RULES: readonly string[] = [
   '禁止段尾总结句（如「他知道，这一切才刚刚开始」「命运的齿轮开始转动」）',
-  '「仿佛」「犹如」「宛如」全章合计不超过 3 次',
+  // 上游只点名前三个；百章实验里模型改用「如同」，所以按 SIMILE_WORDS 全列。
+  `${SIMILE_WORDS.map((w) => `「${w}」`).join('')}全章合计不超过 ${SIMILE_LIMIT} 次`,
   '对话必须区分角色语气：不同角色的说话方式必须有辨识度',
   '禁止在结尾添加与正文无关的哲理感悟或旁白总结',
 ];
@@ -409,6 +412,11 @@ function boundaryCard(facts: PromptFacts): string {
     );
   } else {
     lines.push(`- 比喻词：${words}全章合计不超过 ${SIMILE_LIMIT} 次。`);
+  }
+  if (step?.banned?.length) {
+    lines.push(`- 禁用词：已写部分用了${step.banned.map((b) => `「${b.term}」${b.count} 次`).join('、')}，续写部分不许再用，换成这个故事里的人会说的话。`);
+  } else if (facts.banned?.length) {
+    lines.push(`- 禁用词：${facts.banned.map((t) => `「${t}」`).join('')}一个都不用，换成这个故事里的人会说的话。`);
   }
   return lines.join('\n');
 }

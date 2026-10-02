@@ -30,3 +30,20 @@ describe('长篇约束 · 提示词', () => {
     assert.match(sp.SUMMARY_SYSTEM, /已经毁掉的地方、阵法、法宝也要记/);
   });
 });
+
+describe('长篇约束 · 本章边界里的禁用词', () => {
+  test('第一次调用：点名不许用的词', () => {
+    const c = p.buildOutputContract({ stage: 'manuscript', capability: 'generate' }, { banned: ['能量', '神经'] });
+    assert.match(c, /- 禁用词：「能量」「神经」一个都不用/);
+  });
+
+  test('续写那一轮：说清已经用了哪几个、几次', () => {
+    const step = { kind: 'continuation', tail: '……', written: 700, recovery: false, banned: [{ term: '能量', count: 2 }] };
+    const c = p.buildOutputContract({ stage: 'manuscript', capability: 'generate' }, { banned: ['能量'], step });
+    assert.match(c, /- 禁用词：已写部分用了「能量」2 次，续写部分不许再用/);
+  });
+
+  test('比喻词上限把「如同」也算进去', () => {
+    assert.ok(p.ANTI_AI_RULES.some((r) => r.includes('「如同」') && r.includes('全章合计不超过 3 次')));
+  });
+});

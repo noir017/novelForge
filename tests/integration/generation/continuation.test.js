@@ -536,11 +536,11 @@ describe('本章边界：点名不出场的人、比喻词上限', () => {
   test('第一次调用：执行卡后面列出本章不出场的人与比喻词上限', () => {
     assert.match(r.users[0], /【本章边界】/);
     assert.match(r.users[0], /本章不出场：沈秋（第 3 章才登场）/);
-    assert.match(r.users[0], /「仿佛」「犹如」「宛如」全章合计不超过 3 次/);
+    assert.match(r.users[0], /「仿佛」「犹如」「宛如」「如同」「好似」「恍如」「宛若」全章合计不超过 3 次/);
   });
 
   test('续写那一轮：已经用了几次、还能用几次', () => {
-    assert.match(r.users[1], /已写部分用了 2 次「仿佛」「犹如」「宛如」，续写部分最多再用 1 次/);
+    assert.match(r.users[1], /已写部分用了 2 次「仿佛」「犹如」「宛如」「如同」「好似」「恍如」「宛若」，续写部分最多再用 1 次/);
     assert.match(r.users[1], /本章不出场：沈秋/);
   });
 
@@ -653,5 +653,36 @@ describe('续写也没把半句接完：照样出 Draft，说明里写明停在�
 
   test('说明里引了结尾，提示接着写或手改', () => {
     assert.ok(r.draft.notes.some((n) => /^结尾停在半句上：「.*全身」/.test(n)), JSON.stringify(r.draft.notes));
+  });
+});
+
+// 百章实验：全局要求写着「严禁使用现代科学或心理学词汇」，正文照样写了「能量」33 次——没人数。
+describe('禁用词：执行卡后面点名，续写那一轮说清用了几次，写完记进说明', () => {
+  let r;
+  let saved;
+  before(async () => {
+    saved = t.read('.novelforge/config.md');
+    t.write('.novelforge/config.md', '---\ngenre: 仙侠\n---\n\n# 小说配置\n\n## 全局要求\n\n严禁使用“系统”一类说法。\n');
+    project.invalidate();
+    r = await write(P2, [
+      { text: `能量涌动，神经一跳。${filler(500, 400)}`, stop: 'end' },
+      { text: `能量又散了。${filler(450, 401)}`, stop: 'end' },
+    ]);
+  });
+  after(() => {
+    t.write('.novelforge/config.md', saved);
+    project.invalidate();
+  });
+
+  test('第一次调用：本章边界里点名不许用的词（文风指南的禁用词表、全局要求里禁止的、古代题材的现代说法）', () => {
+    assert.match(r.users[0], /- 禁用词：「不禁」.*「系统」「能量」「神经」/);
+  });
+
+  test('续写那一轮：说清已写部分用了哪几个', () => {
+    assert.match(r.users[1], /- 禁用词：已写部分用了「能量」1 次、「神经」1 次，续写部分不许再用/);
+  });
+
+  test('写完记进说明：全章合计', () => {
+    assert.ok(r.draft.notes.some((n) => /正文用到了这本书不该用的词：「能量」2 次、「神经」1 次/.test(n)), JSON.stringify(r.draft.notes));
   });
 });

@@ -51,7 +51,10 @@ import {
   EarlyEntrance,
   NotYet,
   SIMILE_LIMIT,
+  SIMILE_WORDS,
+  countBanned,
   countSimiles,
+  describeBanned,
   describeSimiles,
   endsMidSentence,
   findEarlyEntrances,
@@ -215,6 +218,8 @@ export interface ManuscriptChainContext {
   hook?: string;
   /** 后面几章才登场的人（名字与别名）：写完查一遍有没有提前写进来。 */
   notYet?: readonly (NotYet & { aliases?: readonly string[] })[];
+  /** 这本书写正文时不该用的词：续写那一轮告诉它已经用了哪几个，写完数一遍。 */
+  banned?: readonly string[];
   /** 每一轮开始时报一次进度。流式期间的进度由 `ChainIO.call` 的 `progress` 选项另报。 */
   onProgress?(p: WriteProgress): void;
   signal?: AbortSignal;
@@ -299,6 +304,7 @@ export async function completeManuscript(
       t.note('回退之后那一轮没写成，原来的结尾放回去了');
     }
   };
+  const usedBanned = (text: string) => (ctx.banned?.length ? countBanned(text, ctx.banned) : []);
   let lastGain = Number.POSITIVE_INFINITY;
   while (shouldContinue({ words: total(), target: ctx.target, stop, rounds })) {
     // 正常收尾、而上一轮只多了几句：模型认为这一章写完了，再催也是注水（上游 GD:1152）。
@@ -350,6 +356,7 @@ export async function completeManuscript(
         recovery: recoveryPending,
         ...(rewinding ? { rewound: true } : {}),
         similes: countSimiles(written),
+        ...(usedBanned(written).length > 0 ? { banned: usedBanned(written) } : {}),
       },
     });
     let out: CallOutcome;
@@ -440,7 +447,11 @@ export async function completeManuscript(
   // 写完查三样（五期补遗 §1.2、§1.3、§1.5）：只记说明，不改正文。
   const similes = countSimiles(chapterText);
   if (similes > SIMILE_LIMIT) {
-    t.note(`「仿佛」「犹如」「宛如」全章合计 ${similes} 次（${describeSimiles(chapterText)}），超过 ${SIMILE_LIMIT} 次的上限`);
+    t.note(`比喻词${SIMILE_WORDS.map((w) => `「${w}」`).join('')}全章合计 ${similes} 次（${describeSimiles(chapterText)}），超过 ${SIMILE_LIMIT} 次的上限`);
+  }
+  const banned = usedBanned(chapterText);
+  if (banned.length > 0) {
+    t.note(`正文用到了这本书不该用的词：${describeBanned(banned)}。换成这个故事里的人会说的话`);
   }
   const acronyms = latinAcronyms(added);
   if (acronyms.length > 0) {

@@ -18,12 +18,15 @@ import { textBigrams } from './continuity';
 
 // ---------------------------------------------------------------- 比喻词
 
-/** 去 AI 味禁令里点名的三个比喻词（context/prompts.ts 的 `ANTI_AI_RULES`）。 */
-export const SIMILE_WORDS = ['仿佛', '犹如', '宛如'] as const;
+/**
+ * 去 AI 味禁令里点名的比喻词（context/prompts.ts 的 `ANTI_AI_RULES`）。百章实验只数前三个，模型就改用
+ * 「如同」——全书 287 次，比「仿佛」还多。
+ */
+export const SIMILE_WORDS = ['仿佛', '犹如', '宛如', '如同', '好似', '恍如', '宛若'] as const;
 /** 全章合计上限。 */
 export const SIMILE_LIMIT = 3;
 
-/** 三个比喻词在这段文字里一共出现几次。 */
+/** 这几个比喻词在这段文字里一共出现几次。 */
 export function countSimiles(text: string): number {
   let n = 0;
   for (const w of SIMILE_WORDS) {
@@ -52,6 +55,69 @@ const SENTENCE_END = /[。！？!?…”’」』）)\]】—~～.]$/;
 export function endsMidSentence(text: string): boolean {
   const t = (text ?? '').replace(/\s+$/u, '');
   return t.length > 0 && !SENTENCE_END.test(t);
+}
+
+// ---------------------------------------------------------------- 禁用词
+
+/**
+ * 古代、修真一类题材里不该出现的现代说法。百章实验的全局要求写着「严禁使用现代科学或心理学词汇」，
+ * 正文照样写了「能量」33 次、「神经」17 次、「频率」16 次、「坐标」10 次——规矩只靠模型自觉，没人数。
+ */
+export const MODERN_TERMS = ['能量', '神经', '频率', '坐标', '逻辑', '数据', '分钟', '秒钟', '物理', '化学', '细胞', '程序', '效率', '信号'] as const;
+
+/** 认作古代、修真一类题材的说法（`config.md` 的 genre / subGenre）。 */
+const ANCIENT_GENRE = /仙侠|玄幻|修真|修仙|武侠|奇幻|历史|古言|古代|宫斗|宅斗|洪荒|神话/;
+
+/** 一个禁用词最长几个字：再长就是一句话，不是一个词。 */
+const BANNED_MAX_CHARS = 8;
+/** 「这一句是在禁止什么」的说法。 */
+const BANNING = /禁|不得|不许|不准|不要|不用|不使用|避免|杜绝|别用/;
+/** 括起来的词：「」、『』、“”、""。 */
+const QUOTED = /[「『“"]([^」』”"\n]{1,16})[」』”"]/g;
+
+/**
+ * 这一本书写正文时不该用的词，三个来源，去重、按出现顺序：
+ *
+ * - `style.md` 的「禁用词表」一节里括起来的词（那一节整节都是禁令）；
+ * - 小说配置「全局要求」里**表禁止的那一个分句**里括起来的词——同一句后半句往往是「须用『惊悸』『心病』」，
+ *   那是要用的词，不能连着收进来；
+ * - 题材是古代、修真一类时，内置的现代说法 {@link MODERN_TERMS}。
+ */
+export function bannedTerms(input: { styleBanList?: string; guidance?: string; genre?: string }): string[] {
+  const out: string[] = [];
+  const add = (term: string) => {
+    const t = term.trim();
+    if (t.length >= 2 && t.length <= BANNED_MAX_CHARS && !out.includes(t)) {
+      out.push(t);
+    }
+  };
+  for (const m of (input.styleBanList ?? '').matchAll(QUOTED)) {
+    add(m[1]);
+  }
+  for (const clause of (input.guidance ?? '').split(/[，,。；;！!？?\n]/u)) {
+    if (BANNING.test(clause)) {
+      for (const m of clause.matchAll(QUOTED)) {
+        add(m[1]);
+      }
+    }
+  }
+  if (ANCIENT_GENRE.test(input.genre ?? '')) {
+    MODERN_TERMS.forEach(add);
+  }
+  return out;
+}
+
+/** 这段文字里用到了哪几个禁用词、各几次（0 次的不列），按出现次数从多到少。 */
+export function countBanned(text: string, terms: readonly string[]): { term: string; count: number }[] {
+  return terms
+    .map((term) => ({ term, count: (text ?? '').split(term).length - 1 }))
+    .filter((x) => x.count > 0)
+    .sort((a, b) => b.count - a.count);
+}
+
+/** 「『能量』3 次、『神经』1 次」。 */
+export function describeBanned(list: readonly { term: string; count: number }[]): string {
+  return list.map((x) => `「${x.term}」${x.count} 次`).join('、');
 }
 
 // ---------------------------------------------------------------- 拉丁字母缩写

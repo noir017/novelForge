@@ -918,6 +918,7 @@ async function writeOne(
     writeMode: writing.mode,
     targetWords: writing.target,
     notYet: writing.notYet.map(({ name, no }) => ({ name, no })),
+    banned: writing.banned,
   };
   const budgeted = { ...config, ...pool.primaryBudget };
   let pinned: LlmProvider | undefined;
@@ -968,6 +969,7 @@ async function writeOne(
     reasoned: false,
     hook: writing.hook,
     notYet: writing.notYet,
+    banned: writing.banned,
     onProgress: hooks.onProgress,
     signal,
   });
