@@ -83,6 +83,18 @@ intent: (args, project) => ({
 所以路径不由 agent 给（固定落在 `<技能库>/<frontmatter 的 name>/SKILL.md`，名字过 `isSkillName`），
 只装检查过、重新下载核对过 hash 的那一份，闸门是 `always`——三种策略都先问。见 [skills/README.md](../skills/README.md)。
 
+## `run` 里的拆书动作
+
+工程页那几颗按钮背后的同一个函数，确认框照弹。
+
+| action | 参数 | 做什么 |
+|---|---|---|
+| `importManuscript` | `path`=工程里那本 txt | 切成章节、接在已有章节之后。导入本身不调模型；导入完作者可以选择接着补齐（次数照报、记账）。会新建章节文件——与不给的 `newChapter` 不同，建的是作者那本 txt 里的章，切分结果先给作者看，同名不覆盖 |
+| `deriveFromText` | — | 从已写正文补齐摘要、角色卡、架构、大纲、细纲与全书摘要（只补空白；两次确认） |
+| `learnFromReference` | `path`=工程里那本参考书 | 文风写 `style.md`、结构与节奏写成「规划」阶段的写作技能；学什么、绑不绑都问作者 |
+
+两个要 `path` 的只认工程里的 txt（`features/bookText.ts` 的清单）：章节文件、隐藏目录、工程外的路径当场报错回给模型，不花钱。
+
 ## `run` 里的写作技能动作
 
 移植自 AI-Novel-Writer 的三个工具（`inspect_writing_skill` / `install_writing_skill` / `bind_writing_skill`），
