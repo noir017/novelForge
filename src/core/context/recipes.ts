@@ -43,11 +43,16 @@ const SETTLE_HISTORY_CAP = 0.6;
  * 每张配方（含下面四张专用的）都在 P0 那一组的最后带一层 `skill`：作者给这个阶段绑的写作技能
  * （移植自 AI-Novel-Writer 的阶段 Skill）。不 force——作者事实先拿预算，技能再拿，放不下整份
  * 不带并写明原因。讨论不带，由层自己判（`model/writingSkill.ts` 的 `skillStageOf`）。
+ *
+ * 架构、大纲、细纲三张另挂一层 `written`（已写正文，拆书 A）：只有「从已写正文整理」
+ * （`BuildRequest.derive`）时才有内容，平时是空的。它排在本层产物之后、技能之前——整理时正文是
+ * 这一次唯一的依据，比技能要紧。
  */
 export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // ---------------------------------------------------------------- 架构
   // 策划要看的是已经定下的那几件：配置、前提、世界观、已有的角色。**不看正文**
-  // ——这一层在第一章之前，也不该被已经写出来的东西带着走。
+  // ——这一层在第一章之前，也不该被已经写出来的东西带着走。（从已写正文整理时例外：
+  // 那时正文就是要整理的东西，经 `written` 带。）
   //
   // ★ `settingDocs` 与 `rosterDoc` 是 P0：架构四件一件吃一件，前提要照着配置写，
   //   世界观要照着前提与角色写，少了上一件，这一件就是凭空编的。角色图谱一览不强制
@@ -58,6 +63,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'attachments', priority: 0, cap: ATTACHMENT_CAP },
     { layer: 'settingDocs', priority: 0, force: true },
     { layer: 'rosterDoc', priority: 0 },
+    { layer: 'written', priority: 0, force: true },
     { layer: 'skill', priority: 0 },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'characters', priority: 1 },
@@ -79,6 +85,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'rosterDoc', priority: 0, force: true },
     { layer: 'structure', priority: 0, force: true },
     { layer: 'outlineDoc', priority: 0, force: true },
+    { layer: 'written', priority: 0, force: true },
     { layer: 'skill', priority: 0 },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'characters', priority: 1 },
@@ -107,6 +114,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'settingDocs', priority: 0, force: true },
     { layer: 'rosterDoc', priority: 0, force: true },
     { layer: 'outlineSlice', priority: 0, force: true },
+    { layer: 'written', priority: 0, force: true },
     { layer: 'skill', priority: 0 },
     { layer: 'history', priority: 1, cap: HISTORY_CAP },
     { layer: 'plotPrev', priority: 1 },

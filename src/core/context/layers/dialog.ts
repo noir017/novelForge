@@ -27,6 +27,7 @@ export function promptFactsOf(a: Pick<Assembly, 'request' | 'book' | 'focus'>): 
     writeMode: r.writeMode,
     written: r.writeMode === 'continue' ? a.focus.chapter?.wordCount : undefined,
     reviewGoals: r.reviewGoals,
+    ...(r.derive ? { derive: r.derive } : {}),
     // 「本章不出场」（五期补遗 §1.2）：生成层交过来的那一份优先（与写完查的同源）；没给就按 focus 现算。
     ...(drafting
       ? {

@@ -57,7 +57,9 @@ export type ItemKind =
   | 'lore'
   | 'revision'
   /** 这一阶段绑的写作技能：补充的写作方法，排在用户消息最前面。 */
-  | 'skill';
+  | 'skill'
+  /** 已写正文（拆书 A）：从作者已经写成的章里整理设定、大纲、细纲时要看的那几章。 */
+  | 'written';
 
 export type ItemStatus = 'included' | 'degraded' | 'dropped' | 'excluded';
 
@@ -135,7 +137,9 @@ export type LayerId =
   | 'chapterFull'
   | 'revision'
   /** 这一阶段绑的写作技能（`.novelforge/skills.json`），整份带或整份不带。 */
-  | 'skill';
+  | 'skill'
+  /** 已写正文（拆书 A，`BuildRequest.derive`）：不是从正文整理时什么都不带。 */
+  | 'written';
 
 export interface LayerSpec {
   layer: LayerId;
@@ -178,6 +182,12 @@ export interface BuildRequest {
   range?: { from: number; to: number };
   /** 一句话弹窗带过来的规模（总章数、每章字数）。给了就以它为准。 */
   setup?: { totalChapters: number; wordsPerChapter: number };
+  /**
+   * 这一次是**从已写正文整理**（拆书 A，features/derive.ts）：作者已经写到第 `through` 章，
+   * 设定、大纲、细纲要从那些章里整理出来，不是从零创作。装配器带上 `written` 层，契约换成
+   * 「照正文整理」的说法。缺席就是平常的生成。
+   */
+  derive?: { through: number };
   /** 多步生成里的哪一步（generation/structured.ts）。缺省 = 第一步。 */
   step?: ChainStep;
   /**

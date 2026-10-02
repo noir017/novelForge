@@ -8,7 +8,8 @@
  *   P0 那一组的最后：作者事实先拿预算，技能再拿（上游那句「作者事实……始终优先」）。
  * - **绑了却带不上的说出来**：找不到、变得不兼容、绑定文件读不懂，一律 dropped 带原因，
  *   而不是像上游那样让整次生成起不来。
- * - 讨论不带（`skillStageOf`）。
+ * - 讨论不带（`skillStageOf`）。**从已写正文整理（`derive`）也不带**：那一次是把写成的东西照实整理，
+ *   不是规划——一份「规划」技能会让模型把已经发生的事按技能的排法改一遍。
  * - **记一条日志**：用了哪份、或者为什么没带。工程页批量不走 `logAssembly`、也没有明细可看，上游
  *   每次工作流同样记一句「本次 X 阶段使用……」。续写与修复那几轮会反复装配，同一句五分钟内只记一次。
  */
@@ -36,7 +37,7 @@ function sayOnce(level: 'info' | 'warn', message: string, detail?: string): void
 
 export const skill: LayerFn = async (a, spec) => {
   const stage = skillStageOf(a.request.action, a.request.writeMode);
-  if (!stage) {
+  if (!stage || a.request.derive) {
     return;
   }
   const bound = await boundSkillFor(a.project, stage);

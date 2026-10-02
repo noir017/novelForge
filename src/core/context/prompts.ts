@@ -102,6 +102,8 @@ export interface PromptFacts {
   notYet?: NotYet[];
   /** 写正文时不该用的词（生成层算好、经 `BuildRequest.banned` 交过来）。 */
   banned?: string[];
+  /** 从已写正文整理（拆书 A）：作者已经写到第 `through` 章。契约换成「照正文整理」的说法。 */
+  derive?: { through: number };
 }
 
 /** 每个阶段管什么、**不管**什么。后半句同样要紧：越界是这套设计最主要的失败方式。 */
@@ -197,6 +199,7 @@ export function buildSystemPrompt(action: CreationAction, config: NovelConfig, f
     STAGE_DUTY[stage],
     '',
     CAPABILITY_TASK[capability],
+    ...(producing && facts.derive ? ['', deriveTask(facts.derive.through)] : []),
     '',
     '通用要求：',
     '1. 一切判断建立在已给出的文风指南、设定、角色卡与前文之上，不要凭空发明设定。',
@@ -223,6 +226,34 @@ export function buildSystemPrompt(action: CreationAction, config: NovelConfig, f
 const ERA_RULE =
   '用词贴合故事的年代与世界观：古代、民国、架空世界不用现代医学、心理学、网络与科技术语' +
   '（如 PTSD、抑郁症、多巴胺、CPU），换成那个年代的人会说的话（如「惊悸」「心病」）。';
+
+// ---------------------------------------------------------------- 从已写正文整理（拆书 A）
+
+/**
+ * 系统提示里那一句：这一次是整理，不是创作。上游（AI-Novel-Writer `infer_novel_config_with_vectors`、
+ * `infer_blueprints_per_chapter`）的说法是「必须基于正文实际内容提取，不可臆造」「未能确定的填写（待确认）」；
+ * 这里不让模型写「待确认」——后面的续写会把这三个字当设定读。
+ */
+function deriveTask(through: number): string {
+  return (
+    `这一次不是从零创作：作者已经写到第 ${through} 章（见下面「已写正文」），要你把已经写成的东西整理成这一层的产物，` +
+    '好让后面的续写接得上。**正文是权威事实**：照它整理，专有名词一字不改，不美化、不改写、不另起炉灶。'
+  );
+}
+
+/** 契约开头那一段：正文写到的照抄，必填而正文没写到的顺着走向补，不许把没发生的事写成发生过。 */
+function deriveLead(facts: PromptFacts): string[] {
+  if (!facts.derive) {
+    return [];
+  }
+  return [
+    `【从已写正文整理（重要）】作者已经写到第 ${facts.derive.through} 章，正文见上面「已写正文」。`,
+    '- 正文里写到的人物、关系、规则、事件、境界与伏笔以正文为准，专有名词一字不改；',
+    '- 这一件必填、正文还没写到的部分，顺着正文已有的走向补上，不得与正文矛盾，也不要把没发生的事写成已经发生；',
+    '- 不要写「待确认」「未知」这类占位——拿不准的地方按正文最可能的意思写，宁可少写。',
+    '',
+  ];
+}
 
 // ---------------------------------------------------------------- 正文
 
@@ -655,17 +686,35 @@ export function buildOutputContract(action: CreationAction, facts: PromptFacts =
 function configContract(facts: PromptFacts): string {
   const { total, words } = scaleOf(facts);
   const authorHasConfig = !!facts.setup && !!facts.book && Object.values(facts.book.sections).some((v) => v.trim());
+  // 从已写正文整理时（拆书 A）任务换一套：卖点、类型、文风都照正文归纳，不按市场重新包装。JSON 合同不变。
+  const task = facts.derive
+    ? [
+        '基于上面「已写正文」（各章节选与全书梗概），归纳这部小说连贯、具体、能接着往下写的全局设定。',
+        '',
+        ...deriveLead(facts),
+        ...scaleLines(facts, '小说规模（重要！后续章节按此推进）：'),
+        '',
+        '【核心任务要求】',
+        '1. 类型、受众、卖点与金手指按正文实际的样子归纳，不按市场重新包装。',
+        '2. coreOutline 写全书主线：已写部分按正文概括，后续走向顺着正文里的伏笔与冲突推断。',
+        '3. protagonistProfile、worldSetting 只写正文里立得住的东西。',
+        '4. 职责分离：globalGuidance 只写跨章节长期有效的执行规则（从正文里看得出的写法与禁忌），**不要逐章列大纲**、分配章节区间或复述 coreOutline。',
+        '5. writingStyle 按正文实际的写法归纳；故事结构与叙事视角按正文判断。',
+      ]
+    : [
+        '基于作者提供的一句话点子或初步构想（见上面「我的脑洞」或「我的要求」），扩展并补全这部小说连贯、具体且可持续推进的全局设定。',
+        '',
+        ...scaleLines(facts, '小说规模（重要！请严格根据此参数设计节奏）：'),
+        '',
+        '【核心任务要求】',
+        '1. 深度挖掘商业价值：提取强烈的「爽点」「情绪痛点」，构建极具张力的起承转合。',
+        '2. 专业化设定：应用「角色图谱」和「三维世界观」理念，杜绝假大空，所有设定必须为推动情节和产生直接冲突服务。',
+        '3. 契合市场：如果作者未指定基础类型，请推断一个最契合的爆火类型。',
+        '4. 职责分离：globalGuidance 只写跨章节长期有效的执行规则，**不要逐章列大纲**、分配章节区间或复述 coreOutline。',
+        '5. 智能推荐：根据类型和题材推荐最合适的故事结构和叙事视角。',
+      ];
   return [
-    '基于作者提供的一句话点子或初步构想（见上面「我的脑洞」或「我的要求」），扩展并补全这部小说连贯、具体且可持续推进的全局设定。',
-    '',
-    ...scaleLines(facts, '小说规模（重要！请严格根据此参数设计节奏）：'),
-    '',
-    '【核心任务要求】',
-    '1. 深度挖掘商业价值：提取强烈的「爽点」「情绪痛点」，构建极具张力的起承转合。',
-    '2. 专业化设定：应用「角色图谱」和「三维世界观」理念，杜绝假大空，所有设定必须为推动情节和产生直接冲突服务。',
-    '3. 契合市场：如果作者未指定基础类型，请推断一个最契合的爆火类型。',
-    '4. 职责分离：globalGuidance 只写跨章节长期有效的执行规则，**不要逐章列大纲**、分配章节区间或复述 coreOutline。',
-    '5. 智能推荐：根据类型和题材推荐最合适的故事结构和叙事视角。',
+    ...task,
     ...(authorHasConfig
       ? [
           '',
@@ -708,9 +757,10 @@ function premiseContract(facts: PromptFacts): string {
   const { total, words } = scaleOf(facts);
   const keys = SETTING_SECTION_KEYS.premise;
   return [
-    `请提炼本书的「${SETTING_DOC_HEADING.premise}」（Story Premise）。这是一本【${genreOf(facts)}】小说，依据是上面「故事架构」里的小说配置：核心梗概、世界观要点、金手指、主角档案、全局要求与参考作品。`,
+    `请提炼本书的「${SETTING_DOC_HEADING.premise}」（Story Premise）。这是一本【${genreOf(facts)}】小说，依据是${facts.derive ? '上面的「已写正文」，以及' : ''}上面「故事架构」里的小说配置：核心梗概、世界观要点、金手指、主角档案、全局要求与参考作品。`,
     ...(total ? [`预期篇幅：约 ${total} 章${words ? `（每章 ${words} 字）` : ''}。`] : []),
     '',
+    ...deriveLead(facts),
     '【生成任务】',
     '请生成一份 300–500 字的结构化故事前提，严格按以下四个小节输出，小节名一字不改：',
     '',
@@ -827,8 +877,9 @@ function worldContract(facts: PromptFacts): string {
   return [
     `请将基础设定转化为能直接引发冲突的「剧情游乐场」，输出这部小说的「${SETTING_DOC_HEADING.world}」。`,
     '',
+    ...deriveLead(facts),
     '【生成任务】',
-    `请基于小说配置里的世界观要点，根据「${genre}」类型的特点，构建以下三个维度的世界观设定。每个设定都必须「自带冲突点」，能直接驱动情节。用 Markdown 小节书写，小节名一字不改：`,
+    `请基于${facts.derive ? '「已写正文」与' : ''}小说配置里的世界观要点，根据「${genre}」类型的特点，构建以下三个维度的世界观设定。每个设定都必须「自带冲突点」，能直接驱动情节。用 Markdown 小节书写，小节名一字不改：`,
     '',
     `## ${rules}`,
     '- 本世界运转的核心规则是什么？（根据类型可以是：修炼体系、科技等级、社会制度、超自然法则等）',
@@ -858,6 +909,9 @@ function worldContract(facts: PromptFacts): string {
  * 删掉它。续写靠的是「下一批细纲超出大纲覆盖」时状态机再推一次（D20）。
  */
 function outlineContract(facts: PromptFacts): string {
+  if (facts.derive) {
+    return deriveOutlineContract(facts);
+  }
   const { total } = scaleOf(facts);
   const genre = genreOf(facts);
   const pov = facts.book?.pov ? NARRATIVE_POV_LABEL[facts.book.pov] : undefined;
@@ -902,6 +956,35 @@ function outlineContract(facts: PromptFacts): string {
 }
 
 /**
+ * 从已写正文整理一段情节大纲（拆书 A）：依据是那几章的摘要（`written` 层）。分节格式与续写大纲
+ * 同一份（`## 第a–b章：标题`、每节最多 {@link OUTLINE_SECTION_MAX} 章）——后面续写大纲、拆细纲、
+ * 指纹链都认这个格式。去掉的是规划用的那几条：结构拐点、节奏策略、终局事件只发生一次。
+ */
+function deriveOutlineContract(facts: PromptFacts): string {
+  const { total } = scaleOf(facts);
+  const range = facts.range;
+  const where = range ? span(range.from, range.to) : '已写的这几章';
+  return [
+    `请按上面「已写正文」里${where}实际发生的事，整理出这一段的情节大纲${total ? `（全书计划 ${total} 章）` : ''}。`,
+    '',
+    ...deriveLead(facts),
+    '【范围与格式】',
+    `只写${where}，按章号区间分节：每一段连续章组以独立的二级标题开头，严格使用「## 第a–b章：标题」（单章写「## 第a章：标题」）的格式，章号用阿拉伯数字，区间连续、不重叠，标题下一行起写非空正文。`,
+    ...(range && range.from > 1
+      ? [`第 1–${range.from - 1} 章的大纲已在上面的「情节大纲」中给出：不得重复、改写或复述，从第 ${range.from} 章接着整理。`]
+      : []),
+    '',
+    '【故事结构】按正文实际的走向分节；「故事结构指导」只用来判断这一段在全书结构里处在哪个位置，不要为了贴合它改写已经发生的事。',
+    '',
+    '【要求】',
+    '1. 每一节概括这几章实际推进到哪、经过哪些关键事件：写已经发生了什么，不预告、不改写后文。',
+    `2. 每一节最多覆盖 ${OUTLINE_SECTION_MAX} 章，按正文自然的段落（一个小事件、一次转折）分节。`,
+    '3. 有修炼、等级或实力体系时，每节末尾照正文写明主角此时的境界与关键资源。',
+    '4. 只输出情节大纲本身，禁止一切废话或旁白。',
+  ].join('\n');
+}
+
+/**
  * 细纲：一批（给了区间）或一章。移植自 `chapter_blueprint_chunk`（PT:643-714）、
  * `chapter_blueprint` 的节奏原则（PT:607-611）、`blueprintCapacityGenerationContract`
  * （DC:131-142）与 `blueprintSemanticGenerationContract`（blueprint-semantic-contract.ts:51-75）。
@@ -910,6 +993,9 @@ function outlineContract(facts: PromptFacts): string {
  * 两个入口的输出契约必须一致。
  */
 function blueprintContract(facts: PromptFacts): string {
+  if (facts.derive) {
+    return deriveBlueprintContract(facts);
+  }
   const no = facts.no;
   const range = facts.range ?? (no !== undefined ? { from: no, to: no } : undefined);
   const { total, words } = scaleOf(facts);
@@ -980,6 +1066,43 @@ function blueprintContract(facts: PromptFacts): string {
 }
 
 /**
+ * 从已写正文整理细纲（拆书 A）：依据是那几章正文的头尾（`written` 层）。上游 `infer_blueprints_per_chapter`
+ * 的那句「keyEvents 必须基于正文实际内容提取，不可臆造」照搬；规划用的几段（接力推演、商业网文节奏、
+ * 章节容量合同）不要——这几章已经写完了。JSON 合同与平常**一字不差**（第 22 条：几条路共用同一份
+ * 蓝图合同），于是解码、修复链、落盘全部复用。
+ */
+function deriveBlueprintContract(facts: PromptFacts): string {
+  const no = facts.no;
+  const range = facts.range ?? (no !== undefined ? { from: no, to: no } : undefined);
+  const compact = facts.step?.kind === 'blueprintCompact' ? facts.step : undefined;
+  const where = range ? span(range.from, range.to) : '这一章';
+  const L = BLUEPRINT_LIMITS;
+  const lines = [
+    `${where}的正文已经写成（见上面「已写正文」）。请为${where}各整理一份细纲，一章一份：照正文实际写的提取，不可臆造，不预告后文。`,
+    '',
+    ...deriveLead(facts),
+    '【整理要求】',
+    `- title：这一章的章名（「已写正文」里每章开头那一行写着；没有章名就按本章内容起一个，不超过 ${L.title} 字，不带「第N章」）。`,
+    '- role：本章在全书结构中的功能（建置、发展、转折、小高潮……），按正文判断。',
+    '- purpose：本章主角实际想解决的那一件事。',
+    '- keyEvents：按正文实际发生的顺序写清谁在哪、对谁做了什么、结果怎样；必须基于正文实际内容提取，不可臆造。',
+    '- suspenseHook：本章结尾实际留下的悬念、威胁或未决的事（看正文的结尾）。',
+    '- characters：本章实际出场的主要人物，写完整姓名。',
+    '- 不要输出 newCharacters：角色卡另外从正文建。',
+    '',
+    blueprintJsonContract(range),
+  ];
+  if (compact) {
+    lines.push(
+      '',
+      `【上次输出不合格】${compact.diagnostic ?? '输出被截断或无法解析'}。丢弃上次输出，按上述合同完整重建。`,
+      `必须且只能返回 chapterNumber=${range?.from} 的一项；每个字段写精炼，keyEvents 控制在 150 字左右。`
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
  * 蓝图 JSON 合同本身。语法修复那一步也用它当「不可变合同」（generation/structured.ts）：
  * 修复只能照着它补标点，不能照着任务去补内容。
  */
@@ -1021,7 +1144,7 @@ export function askHeading(action: CreationAction, facts: PromptFacts = {}): str
   if (action.stage === 'manuscript' && action.capability === 'generate') {
     return '# 这一章的补充要求';
   }
-  if (action.stage === 'setting' && facts.setup) {
+  if (action.stage === 'setting' && facts.setup && !facts.derive) {
     return '# 我的脑洞';
   }
   // 上游把这一段叫「作者对本步骤的额外指导（最高优先级）」：产出产物时，作者这句话

@@ -30,6 +30,7 @@ import {
 } from './background';
 import { ask, attachments, history, system } from './dialog';
 import { skill } from './skill';
+import { written } from './written';
 import type { LayerFn } from './assembly';
 
 export const LAYERS: Record<LayerId, LayerFn> = {
@@ -63,6 +64,7 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   chapterFull,
   revision,
   skill,
+  written,
 };
 
 export { resolveFocus } from './focus';
