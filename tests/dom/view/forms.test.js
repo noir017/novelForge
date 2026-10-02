@@ -272,10 +272,20 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     assert.equal(field(ui, 'mode').value, 'draft');
   });
 
-  // 第 5 章没排细纲：写到第 4 章为止。上限含自动续写（一章最多 8 次）。
-  test('实时说明：写几章、在哪收住、预计与最多', () => {
-    assert.ok(note(ui).includes('要写 1 章（第 4 章）；第 5 章还没有细纲，写到它前面为止。'), note(ui));
-    assert.ok(note(ui).includes('预计 1 次调用，最多 8 次'), note(ui));
+  // 第 5、6 章没排细纲、大纲覆盖到第 20 章：写到时先拆。上限含自动续写（一章最多 8 次）、写前比对（最多 2 次）
+  // 与拆细纲（2 章一批最多 6 次）。
+  test('实时说明：写几章、哪几章写到时先拆细纲、预计与最多', () => {
+    assert.ok(note(ui).includes('要写 3 章（第 4–6 章）。第 5–6 章还没有细纲，写到时先拆'), note(ui));
+    assert.ok(note(ui).includes('预计 4–7 次调用，最多 36 次'), note(ui));
+  });
+
+  test('大纲只覆盖到第 4 章：第 5 章在它前面收住', () => {
+    ui.post({ type: 'project', tree: { ...sampleTree(), book: { ...sampleTree().book, outlineCoverage: 4 } } });
+    ui.clickEl(toolbarBtn());
+    assert.ok(note(ui).includes('要写 1 章（第 4 章）；第 5 章还没有细纲、大纲也没覆盖到，写到它前面为止。'), note(ui));
+    assert.ok(note(ui).includes('预计 1–2 次调用，最多 10 次'), note(ui));
+    ui.post({ type: 'project', tree: sampleTree() });
+    ui.clickEl(toolbarBtn());
   });
 
   test('一次最多 10 章', () => {
@@ -295,7 +305,7 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     type(ui, 'from', 4);
     type(ui, 'to', 6);
     choose('finalize');
-    assert.ok(note(ui).includes('预计 2–4 次调用，最多 11 次'), note(ui));
+    assert.ok(note(ui).includes('预计 7–16 次调用，最多 45 次'), note(ui));
     assert.ok(note(ui).includes('每写完一章就定稿'), note(ui));
   });
 
@@ -303,7 +313,7 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     ui.sent.length = 0;
     ui.clickEl(submitBtn(ui));
     assert.ok(isOpen(ui));
-    assert.equal(submitBtn(ui).textContent, '再点一下：写完即定稿 1 章');
+    assert.equal(submitBtn(ui).textContent, '再点一下：写完即定稿 3 章');
     assert.ok(!ui.sent.some((m) => m.type === 'projectAction'), JSON.stringify(ui.sent));
   });
 
@@ -339,11 +349,11 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     const sel = field(ui, 'review');
     sel.value = 'on';
     sel.dispatchEvent(new ui.window.Event('change', { bubbles: true }));
-    assert.ok(note(ui).includes('预计 2 次调用，最多 11 次'), note(ui));
+    assert.ok(note(ui).includes('预计 7–10 次调用，最多 45 次'), note(ui));
     assert.ok(note(ui).includes('报告放进一个新会话「批量审稿」'), note(ui));
     ui.sent.length = 0;
     ui.clickEl(submitBtn(ui));
-    assert.equal(submitBtn(ui).textContent, '再点一下：写完即审稿 1 章');
+    assert.equal(submitBtn(ui).textContent, '再点一下：写完即审稿 3 章');
     ui.clickEl(submitBtn(ui));
     const msg = ui.last('projectAction');
     assert.equal(msg?.review, true, JSON.stringify(ui.sent));

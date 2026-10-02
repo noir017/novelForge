@@ -758,15 +758,16 @@ describe('pipeline.ts · 写正文的写法', () => {
 describe('pipeline.ts · 批量写章的切分', () => {
   const base = { mode: 'draft', writtenNos: [], plotFilledNos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] };
 
-  test('只写正文：一章 1 次，最多 8 次，按件加总', () => {
+  test('只写正文：一章 1 次、最多 8 次，加写前比对 0–1 次、最多 2 次，按件加总', () => {
     const plan = pipeline.planWriteBatch({ ...base, from: 1, to: 3 });
     assert.deepEqual(plan.chapters, [1, 2, 3]);
-    assert.deepEqual(plan.calls, { low: 3, high: 3, max: 24 });
+    assert.deepEqual(plan.plotBatches, []);
+    assert.deepEqual(plan.calls, { low: 3, high: 6, max: 30 });
   });
 
   test('写完即定稿：每章再加定稿的 1–3 次', () => {
     const plan = pipeline.planWriteBatch({ ...base, mode: 'finalize', from: 1, to: 3 });
-    assert.deepEqual(plan.calls, { low: 6, high: 12, max: 33 });
+    assert.deepEqual(plan.calls, { low: 6, high: 15, max: 39 });
     assert.equal(plan.mode, 'finalize');
     assert.equal(plan.review, false);
   });
@@ -775,9 +776,9 @@ describe('pipeline.ts · 批量写章的切分', () => {
   test('写完即审稿：每章再加审稿的 1 次（最多 3 次）；与定稿叠加', () => {
     const plan = pipeline.planWriteBatch({ ...base, review: true, from: 1, to: 3 });
     assert.equal(plan.review, true);
-    assert.deepEqual(plan.calls, { low: 6, high: 6, max: 33 });
+    assert.deepEqual(plan.calls, { low: 6, high: 9, max: 39 });
     const both = pipeline.planWriteBatch({ ...base, mode: 'finalize', review: true, from: 1, to: 3 });
-    assert.deepEqual(both.calls, { low: 9, high: 15, max: 42 });
+    assert.deepEqual(both.calls, { low: 9, high: 18, max: 48 });
   });
 
   // 第 19 条批量那一面：已有产物的一律跳过，不问、不覆盖。
@@ -789,10 +790,32 @@ describe('pipeline.ts · 批量写章的切分', () => {
   });
 
   // 后面的章要接着它的结尾写：跳过一章没细纲的去写后面的，写出来接不上。
-  test('遇到第一章没有细纲的就在它前面收住', () => {
+  test('不给大纲覆盖：遇到第一章没有细纲的就在它前面收住', () => {
     const plan = pipeline.planWriteBatch({ ...base, plotFilledNos: [1, 2, 4, 5], from: 1, to: 5 });
     assert.deepEqual(plan.chapters, [1, 2]);
     assert.equal(plan.stopAt, 3);
+  });
+
+  // 百章实验复盘：细纲一次拆完、看不到正文。大纲覆盖到的章写到时再拆。
+  test('边写边拆：大纲覆盖之内没细纲的章照写，连续的空白章每 5 章一批，拆细纲的调用算进去', () => {
+    const plan = pipeline.planWriteBatch({ ...base, plotFilledNos: [1, 2, 9], from: 1, to: 10, outlineCoverage: 20 });
+    assert.deepEqual(plan.chapters, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    assert.deepEqual(plan.plotBatches, [[3, 4, 5, 6, 7], [8], [10]]);
+    assert.equal(plan.stopAt, undefined);
+    const writing = pipeline.planWriteBatch({ ...base, plotFilledNos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], from: 1, to: 10 }).calls;
+    assert.deepEqual(plan.calls, { low: writing.low + 3, high: writing.high + 3, max: writing.max + 15 + 3 + 3 });
+  });
+
+  test('边写边拆：超出大纲覆盖的第一章在它前面收住', () => {
+    const plan = pipeline.planWriteBatch({ ...base, plotFilledNos: [1], from: 1, to: 6, outlineCoverage: 4 });
+    assert.deepEqual(plan.chapters, [1, 2, 3, 4]);
+    assert.deepEqual(plan.plotBatches, [[2, 3, 4]]);
+    assert.equal(plan.stopAt, 5);
+  });
+
+  test('边写边拆：已有正文的章把批断开', () => {
+    const plan = pipeline.planWriteBatch({ ...base, plotFilledNos: [], writtenNos: [3], from: 1, to: 5, outlineCoverage: 10 });
+    assert.deepEqual(plan.plotBatches, [[1, 2], [4, 5]]);
   });
 
   test('一次最多 10 章；写满了就不再往后看细纲', () => {

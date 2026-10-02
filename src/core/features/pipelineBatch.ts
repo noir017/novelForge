@@ -45,6 +45,8 @@ import { runTask } from '../runtime/progress';
 import { countWords } from '../model/fs';
 import { describeFinalize, finalizeChapter } from './finalize';
 import { createCastCards, planCastCards } from './characterCard';
+import { checkPlotAgainstFacts } from './plotCheck';
+import { PLOT_CHECK_SUGGESTION, describeConflict } from '../model/plotCheck';
 import { PREFLIGHT_SUGGESTION, PreflightRisk, describeExempted, describeRisks, preflightChapter, riskKey } from './preflight';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import {
@@ -155,44 +157,18 @@ export async function generatePlots(
       let done = 0;
       for (let i = 0; i < plan.batches.length; i++) {
         const batch = plan.batches[i];
-        const range = { from: batch[0], to: batch[batch.length - 1] };
-        const span = range.from === range.to ? `第 ${range.from} 章` : `第 ${range.from}–${range.to} 章`;
-        const target = { kind: 'plot' as const, plotRelPath: (await project.getPlot(range.from))?.relPath ?? project.plotPathForNo(range.from, '') };
+        const span = rangeLabel(batch[0], batch[batch.length - 1]);
         report({ message: `${span}（第 ${i + 1}/${plan.batches.length} 批）`, current: done, total: plan.chapters.length });
-        const io = poolIO(project, pool, config, signal, {
-          action: { stage: 'plot', capability: 'generate' },
-          target,
-          targetNo: range.from,
-          range,
-          ask: '',
-        });
-        try {
-          const result = await completeBlueprints(undefined, io.chain, batch);
-          calls += result.calls;
-          if (result.notes.length > 0) {
-            log.warn(`${span}：${result.notes.length} 处降级`, result.notes.join('\n'));
-          }
-          const r = await acceptPlotBatch(project, ws, result.items, range, { onlyBlank: true });
-          log.info(`${span}的细纲已落盘`, r.message);
-          void clearFailures(project, 'plot', target.plotRelPath, 'plotOutline');
+        const r = await runPlotBatch(project, ws, pool, config, signal, batch);
+        calls += r.calls;
+        if (r.ok) {
           done += batch.length;
-        } catch (err) {
-          calls += err instanceof ChainError ? err.calls : io.calls();
-          if (err instanceof CancelledError || signal.aborted) {
+        } else {
+          if (r.cancelled) {
             log.warn(`批量拆细纲被取消，已完成 ${done}/${plan.chapters.length} 章`);
             return;
           }
-          const reason = describeError(err);
-          log.error(`${span}的细纲失败：${reason}`, err instanceof ChainError ? err.notes.join('\n') : err);
-          void recordFailure(project, {
-            scope: '流水线',
-            targetKind: 'plot',
-            targetKey: target.plotRelPath,
-            severity: 'error',
-            op: 'plotOutline',
-            message: `细纲生成失败：${reason}`,
-            detail: `${span}这一批没有写入。后面的批次依赖它，已经停下。`,
-          });
+          const reason = r.reason;
           getHost().toast(
             `${span}的细纲没拆成（${reason}）。${done > 0 ? `前面 ${done} 章已经写好。` : ''}后面的批次已停下。`,
             'error'
@@ -351,6 +327,57 @@ async function settingRaw(
  * 批量那条路的 {@link ChainIO}：每次调用走分档池（失败换同档其余，第 12 条），
  * 装配用干活那个模型的窗口（第 13 条：`pool.primaryBudget`），不带思考深度（第 26 条）。
  */
+/**
+ * 拆一批细纲：生成链（截断拆半、语法修复、漏章 fail-closed）→ 只补空白地落盘。批量拆细纲与批量写章
+ * 「边写边拆」共用。**不抛**：失败挂在这一批第一章的细纲上（第 16 条），由调用方决定停不停；取消单列。
+ */
+async function runPlotBatch(
+  project: NovelProject,
+  ws: Workspace,
+  pool: ModelPool,
+  config: ReturnType<typeof readConfig>,
+  signal: AbortSignal,
+  batch: readonly number[]
+): Promise<{ ok: true; calls: number } | { ok: false; calls: number; cancelled: boolean; reason: string }> {
+  const range = { from: batch[0], to: batch[batch.length - 1] };
+  const span = rangeLabel(range.from, range.to);
+  const target = { kind: 'plot' as const, plotRelPath: (await project.getPlot(range.from))?.relPath ?? project.plotPathForNo(range.from, '') };
+  const io = poolIO(project, pool, config, signal, {
+    action: { stage: 'plot', capability: 'generate' },
+    target,
+    targetNo: range.from,
+    range,
+    ask: '',
+  });
+  try {
+    const result = await completeBlueprints(undefined, io.chain, [...batch]);
+    if (result.notes.length > 0) {
+      log.warn(`${span}：${result.notes.length} 处降级`, result.notes.join('\n'));
+    }
+    const r = await acceptPlotBatch(project, ws, result.items, range, { onlyBlank: true });
+    log.info(`${span}的细纲已落盘`, r.message);
+    void clearFailures(project, 'plot', target.plotRelPath, 'plotOutline');
+    return { ok: true, calls: result.calls };
+  } catch (err) {
+    const calls = err instanceof ChainError ? err.calls : io.calls();
+    if (err instanceof CancelledError || signal.aborted) {
+      return { ok: false, calls, cancelled: true, reason: '已取消' };
+    }
+    const reason = describeError(err);
+    log.error(`${span}的细纲失败：${reason}`, err instanceof ChainError ? err.notes.join('\n') : err);
+    await recordFailure(project, {
+      scope: '流水线',
+      targetKind: 'plot',
+      targetKey: target.plotRelPath,
+      severity: 'error',
+      op: 'plotOutline',
+      message: `细纲生成失败：${reason}`,
+      detail: `${span}这一批没有写入。后面的批次依赖它，已经停下。`,
+    });
+    return { ok: false, calls, cancelled: false, reason };
+  }
+}
+
 function poolIO(
   project: NovelProject,
   pool: ModelPool,
@@ -441,12 +468,13 @@ export async function writeManuscripts(
     review: reviewing,
     writtenNos: chapters.filter((c) => c.wordCount > 0).map((c) => c.order),
     plotFilledNos: facts.plotFilledNos,
+    outlineCoverage: Math.min(facts.outlineCoverage, facts.totalChapters ?? Infinity),
   });
   const where = rangeLabel(plan.from, plan.to);
   if (plan.chapters.length === 0) {
     getHost().toast(
       plan.stopAt !== undefined
-        ? `第 ${plan.stopAt} 章还没有细纲。先拆细纲，再写正文。`
+        ? `第 ${plan.stopAt} 章还没有细纲，情节大纲也没覆盖到它。先续写大纲，再写正文。`
         : `${where}都已经写过正文了。`,
       plan.stopAt !== undefined ? 'error' : 'info'
     );
@@ -498,7 +526,8 @@ export async function writeManuscripts(
   const cardCalls: CallEstimate = { low: castCards.calls, high: castCards.calls, max: castCards.calls };
   const totalCalls = castCards.calls > 0 ? addCalls(plan.calls, cardCalls) : plan.calls;
   const config = readConfig();
-  if (!opts.confirmed) {
+  // 前端弹窗算不出补卡那几次（要读摘要），所以有卡要补时照样再问一次（第 4 条）。
+  if (!opts.confirmed || castCards.calls > 0) {
     const pick = await getHost().confirm(
       `${writing}：要写 ${plan.chapters.length} 章正文（${MODE_LABEL[mode]}${reviewing ? '、写完即审稿' : ''}），${describeCalls(totalCalls)}。现在写？`,
       ['开始写章'],
@@ -507,16 +536,21 @@ export async function writeManuscripts(
         detail: [
           describeTaskModels(config, 'manuscript'),
           reviewing ? describeTaskModels(config, 'review') : '',
-          mode === 'finalize' ? describeTaskModels(config, 'plotSummary') : '',
+          describeTaskModels(config, 'plotSummary'),
+          plan.plotBatches.length > 0 ? describeTaskModels(config, 'plotOutline') : '',
           castCards.plans.length > 0
             ? `开写之前先给${castCards.plans.map((p) => p.member.name).join('、')}建角色卡（摘要里已经出场 ${CAST_CARD_MIN_APPEARANCES} 章以上、还没有卡；${castCards.calls} 次调用，算在上面的数里）。`
             : '',
           '一章一章串行写：后一章接着前一章的结尾写。没写够时自动续写（算在上限里）。',
+          plan.plotBatches.length > 0
+            ? `${plan.plotBatches.map((b) => rangeLabel(b[0], b[b.length - 1])).join('、')}还没有细纲：写到时先按情节大纲拆这一批，拆的时候看得见前面已经定稿的事实。`
+            : '',
+          '每章写之前先比对一次细纲与前面定稿的连续性事实（前面没定稿过的章就不调）；对不上就停在那一章前面。',
           reviewing ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不会停。' : '',
           mode === 'finalize' ? '每写完一章就定稿（摘要 + 出场角色的当前状态），再写下一章。' : '只写正文，不定稿；之后在主按钮上逐章定稿。',
           plan.skipped.length > 0 ? `已经写过正文的第 ${plan.skipped.join('、')} 章跳过，不会被改动。` : '',
-          plan.stopAt !== undefined ? `第 ${plan.stopAt} 章还没有细纲，写到它前面为止。` : '',
-          '一章写不出来就停；写出来但开头重演了上一章、把后面几章的人提前写了进来、或没写够八成，也写进去然后停下，等你看过再继续。',
+          plan.stopAt !== undefined ? `第 ${plan.stopAt} 章还没有细纲、情节大纲也没覆盖到它，写到它前面为止。` : '',
+          '一章写不出来就停；写出来但开头重演了上一章、把后面几章的人提前写了进来、没写够八成或结尾停在半句上，也写进去然后停下，等你看过再继续。',
         ]
           .filter(Boolean)
           .join('\n'),
@@ -544,6 +578,14 @@ export async function writeManuscripts(
     }
   }
   const cardPool = castCards.plans.length > 0 ? (statePool ?? (await createModelPool({ task: 'characterCard', concurrent: false }))) : undefined;
+  // 写前冲突检查与摘要同档：读两份短文字、按合同摘出东西。
+  const checkPool = summaryPool ?? (await createModelPool({ task: 'plotSummary', concurrent: false }));
+  const plotPool = plan.plotBatches.length > 0 ? await createModelPool({ task: 'plotOutline', concurrent: false }) : undefined;
+  if (plan.plotBatches.length > 0 && !plotPool) {
+    log.error('没有可用的模型拆细纲，批量写章中止');
+    return 0;
+  }
+  const ws = new Workspace(project);
   const reviewPool = reviewing ? await createModelPool({ task: 'review', concurrent: false }) : undefined;
   if (reviewing && !reviewPool) {
     log.error('没有可用的模型审稿，批量写章中止');
@@ -592,11 +634,29 @@ export async function writeManuscripts(
         const no = plan.chapters[i];
         // 这一路要跑好几分钟：作者可能在这期间自己写了这一章、或删了它的细纲。
         project.invalidate();
-        const plot = await project.getPlot(no);
+        let plot = await project.getPlot(no);
         const existing = await project.getChapter(no);
         if (existing && existing.wordCount > 0) {
           log.info(`第 ${no} 章在批量写章期间已经有了正文，跳过`);
           continue;
+        }
+        // 边写边拆：写到一批没细纲的章的第一章时先拆这一批——前面的章刚写完、定稿，细纲看得见。
+        const plotBatch = plan.plotBatches.find((b) => b[0] === no);
+        if (plotBatch && plotPool && (!plot || !isPlotFilled(plot.sections))) {
+          const span = rangeLabel(plotBatch[0], plotBatch[plotBatch.length - 1]);
+          report({ message: `${span} · 拆细纲`, current: i, total });
+          const r = await runPlotBatch(project, ws, plotPool, config, signal, plotBatch);
+          calls += r.calls;
+          if (!r.ok) {
+            if (r.cancelled) {
+              log.warn(`批量写章被取消，停在拆${span}的细纲`);
+              return;
+            }
+            halt = { no, why: `的细纲没拆成（${r.reason}）`, level: 'error' };
+            break;
+          }
+          project.invalidate();
+          plot = await project.getPlot(no);
         }
         if (!plot || !isPlotFilled(plot.sections)) {
           halt = { no, why: '还没有细纲', level: 'error' };
@@ -619,6 +679,38 @@ export async function writeManuscripts(
           break;
         }
         void clearFailures(project, 'plot', plot.relPath, 'preflight');
+        // 写前冲突检查：细纲是计划，定稿事实是历史。对不上就停在这一章前面（批量没有人看着）。
+        if (checkPool) {
+          report({ message: `第 ${no} 章 · 比对细纲与既成事实`, current: i, total });
+          try {
+            const check = await checkPlotAgainstFacts(project, no, checkPool, signal);
+            calls += check.calls;
+            if (check.conflicts.length > 0) {
+              const lines = check.conflicts.map(describeConflict);
+              log.warn(`第 ${no} 章的细纲与前面定稿的事实对不上，批量停在它前面`, lines.join('\n'));
+              await recordFailure(project, {
+                scope: '流水线',
+                targetKind: 'plot',
+                targetKey: plot.relPath,
+                severity: 'warn',
+                op: 'plotCheck',
+                message: `写前冲突检查：${lines.join('；')}`,
+                detail: `批量写章停在这一章前面，没有写。${PLOT_CHECK_SUGGESTION}`,
+              });
+              halt = { no, why: `的细纲与前面定稿的事实有 ${check.conflicts.length} 处对不上（${clip(lines[0], 60)}）`, level: 'info' };
+              break;
+            }
+            void clearFailures(project, 'plot', plot.relPath, 'plotCheck');
+          } catch (err) {
+            calls += (err as { calls?: number }).calls ?? 1;
+            if (err instanceof CancelledError || signal.aborted) {
+              log.warn(`批量写章被取消，停在第 ${no} 章的写前冲突检查`);
+              return;
+            }
+            // 检查是额外的一道：它没做成不该挡写章。
+            log.warn(`第 ${no} 章的写前冲突检查没做成（${describeError(err)}），照写`);
+          }
+        }
         const name = `第 ${no} 章${plot.title ? `《${plot.title}》` : ''}`;
         report({ message: `${name} · 写正文`, current: i, total });
         let chapterCalls = 0;

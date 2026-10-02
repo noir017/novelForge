@@ -60,6 +60,9 @@ const EVENTS = {
 function reply(messages) {
   const system = messages[0]?.content ?? '';
   const user = messages[messages.length - 1].content;
+  if (system.includes('你是长篇小说的连续性编辑')) {
+    return JSON.stringify({ conflicts: [] });
+  }
   if (system.includes('只从作者给的故事前提、情节大纲与各章细纲里提出跨章的伏笔')) {
     return JSON.stringify({
       threads: [
@@ -203,8 +206,8 @@ describe('七期验收：排叙事线，再批量写章第 1–3 章、写完即
     assert.ok(t.read(THREADS).includes(AUTHOR_INTENT), t.read(THREADS));
   });
 
-  test('一共 10 次：排线 1 次，一章写一次、摘要一次、叙事线一次；没超过两个确认框的上限', () => {
-    assert.equal(fake.callCount(), 10);
+  test('一共 12 次：排线 1 次，一章写一次、摘要一次、叙事线一次，第 2、3 章写前各比对一次；没超过两个确认框的上限', () => {
+    assert.equal(fake.callCount(), 12);
     const plan = bundle.pipelineModel.planWriteBatch({ from: 1, to: 3, mode: 'finalize', writtenNos: [], plotFilledNos: [1, 2, 3, 4, 5] });
     assert.ok(fake.callCount() <= 1 + plan.calls.max);
   });

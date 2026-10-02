@@ -35,6 +35,8 @@
  *   按章记：第 8 章是回忆，不代表第 12 章再排他也是。**重新生成这一章的细纲会丢掉它**（handlers/plot.ts
  *   的渲染不带它）：重排过的出场是新的安排，要再问一次。改名、记账都原样留着。作者要撤销就删掉那一行。
  *   不进内容指纹（{@link PLOT_SECTION_KEYS} 之外的都不进），记下它不会让正文变成「细纲改过」。
+ * - `factCheckOk: true`：批量写章写前冲突检查（features/plotCheck.ts）的放行。检查说本章细纲与前面
+ *   定稿的事实矛盾、作者看过认为是刻意安排时手写这一行；与 `preflightOk` 一样不进内容指纹。
  *
  * ## 派生数据一律不写进这份文件
  *
@@ -102,6 +104,8 @@ export interface Plot {
   done: boolean;
   /** 一致性预检的永久放行（frontmatter `preflightOk`）。见文件头。 */
   preflightOk: PreflightOk[];
+  /** 写前冲突检查的放行（frontmatter `factCheckOk: true`）。见文件头。 */
+  factCheckOk?: boolean;
   sections: PlotSections;
   /** frontmatter 之外的正文全文。作者可能加了自定义小节，读回来时保留。 */
   body: string;
@@ -114,9 +118,10 @@ export interface PreflightOk {
 }
 
 /** 写盘时需要的字段（relPath / body 由调用方与渲染决定）。`preflightOk` 不给就不写（见文件头）。 */
-export type WritablePlot = Omit<Plot, 'relPath' | 'body' | 'writtenFrom' | 'preflightOk'> & {
+export type WritablePlot = Omit<Plot, 'relPath' | 'body' | 'writtenFrom' | 'preflightOk' | 'factCheckOk'> & {
   writtenFrom?: string;
   preflightOk?: PreflightOk[];
+  factCheckOk?: boolean;
 };
 
 /** `沈秋：回忆里的一场` ↔ `{ name, reason }`。全角半角冒号都认；没有冒号就整行是名字。 */
@@ -228,6 +233,7 @@ export function parsePlotFile(text: string, relPath: string): Plot {
     writtenFrom: asString(frontmatter.writtenFrom),
     done: asString(frontmatter.status).toLowerCase() === 'done',
     preflightOk: parsePreflightOk(asArray(frontmatter.preflightOk)),
+    ...(asString(frontmatter.factCheckOk).toLowerCase() === 'true' ? { factCheckOk: true } : {}),
     sections,
     body,
   };
@@ -247,6 +253,7 @@ export function renderPlotFile(plot: WritablePlot): string {
     writtenFrom: plot.writtenFrom || undefined,
     status: plot.done ? 'done' : undefined,
     preflightOk: plot.preflightOk?.length ? renderPreflightOk(plot.preflightOk) : undefined,
+    factCheckOk: plot.factCheckOk ? 'true' : undefined,
     generatedBy: 'novel-forge',
   });
   const body = stringifySections(plot.sections as unknown as Record<string, string>, PLOT_SECTION_KEYS, {

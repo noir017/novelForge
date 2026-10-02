@@ -57,6 +57,9 @@ let linWhenCh3 = '';
 function reply(messages) {
   const system = messages[0]?.content ?? '';
   const user = messages[messages.length - 1].content;
+  if (system.includes('你是长篇小说的连续性编辑')) {
+    return JSON.stringify({ conflicts: [] });
+  }
   if (system.includes('建立可检索的章节档案')) {
     const no = Number(/【第(\d+)章/.exec(user)?.[1] ?? 0);
     return JSON.stringify({
@@ -234,15 +237,16 @@ describe('四期验收：批量写章第 1–3 章、写完即定稿', () => {
     assert.match(lin.detail, /状态截至第 3 章/);
   });
 
-  test('一共 9 次：一章写一次、摘要一次、角色状态一次；没超过确认框的上限', () => {
-    assert.equal(fake.callCount(), 9);
+  // 写前冲突检查：第 1 章前面没有定稿过的章，不调；第 2、3 章各一次。
+  test('一共 11 次：一章写一次、摘要一次、角色状态一次，第 2、3 章写前各比对一次；没超过确认框的上限', () => {
+    assert.equal(fake.callCount(), 11);
     const plan = bundle.pipelineModel.planWriteBatch({ from: 1, to: 3, mode: 'finalize', writtenNos: [], plotFilledNos: [1, 2, 3, 4, 5] });
     assert.ok(fake.callCount() <= plan.calls.max);
   });
 
   test('完成提示：写好 3 章、定稿 3 章，带「打开第 3 章」', () => {
     const f = finished.find((x) => x.title === '批量写章');
-    assert.equal(f.message, '第 1–3 章已写好，定稿 3 章（调用 9 次）。');
+    assert.equal(f.message, '第 1–3 章已写好，定稿 3 章（调用 11 次）。');
     assert.deepEqual(f.open, { plotRelPath: PLOT(3), label: '打开第 3 章' });
   });
 
