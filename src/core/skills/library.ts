@@ -3,7 +3,7 @@
  *
  * | 来源 | 在哪 | 谁往里放 |
  * |---|---|---|
- * | 内置 | 代码里（[builtin.ts](builtin.ts)） | 随应用发布，删不掉 |
+ * | 内置 | 代码里（[builtin/](builtin/index.ts)，一份一个文件） | 随应用发布，删不掉 |
  * | 我的技能库 | `~/.novelforge/skills/<名字>/SKILL.md`，所有工程共用 | 设置页「技能」或 agent 从 GitHub 装；也可以手放 |
  * | 本工程 | `.novelforge/skills/<名字>/SKILL.md`，跟着工程走、可进 Git | 作者手放 |
  *

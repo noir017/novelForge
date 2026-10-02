@@ -9,7 +9,7 @@
 | [library.ts](library.ts) | 三个来源怎么读（内置 / 我的技能库 / 本工程），我的技能库怎么装与卸。**每次都读盘**；不跟链接 |
 | [github.ts](github.ts) | 从 GitHub 装：**先检查、再确认安装**，两步之间内容变了不装 |
 | [bindings.ts](bindings.ts) | 工程的阶段绑定（`.novelforge/skills.json`）：读、改、装配器问的那一句 `boundSkillFor` |
-| [builtin.ts](builtin.ts) | 两份内置技能（整份 `SKILL.md` 文本，与其余来源走同一个解析器） |
+| [builtin/](builtin/index.ts) | 五份内置技能，一份一个文件（整份 `SKILL.md` 文本，与其余来源走同一个解析器）：上游搬来两份，去 AI 味三份共用 [aiTone.ts](builtin/aiTone.ts) 的句式清单；`index.ts` 只定顺序 |
 
 纯函数（解析 `SKILL.md`、兼容检查、绑定文件的格式、一次装配算哪个阶段、GitHub 地址）在 [model/writingSkill.ts](../model/writingSkill.ts)：它零运行时 import，前端直接用里面的阶段名与来源名。
 
@@ -30,7 +30,7 @@
 
 | 来源 | id | 在哪 | 怎么进来 |
 |---|---|---|---|
-| 内置 | `builtin:<名字>` | [builtin.ts](builtin.ts) | 随应用发布，删不掉，不自动绑 |
+| 内置 | `builtin:<名字>` | [builtin/](builtin/index.ts) | 随应用发布，删不掉，不自动绑 |
 | 我的技能库 | `user:<目录名>` | `~/.novelforge/skills/<名字>/SKILL.md`，所有工程共用 | 设置页「技能」或 agent 的 `run installSkill` 从 GitHub 装；也可以手放 |
 | 本工程 | `project:<目录名>` | `.novelforge/skills/<名字>/SKILL.md`，跟着工程走、可进 Git | 作者手放 |
 
@@ -80,10 +80,22 @@
 |---|---|---|
 | 三个 agent 工具 | 并进 `run` 的四个动作（多一个 `listSkills`） | 工具数是硬约束（[tools/novel/index.ts](../tools/novel/index.ts)） |
 | 对话里 `/技能名` 手动调用 | 不做 | `/` 已经是阶段命令面板；上游这条路还绕过兼容检查与预算 |
-| 七个内置 | 两个 | 其余五个是上游 AI 助手对话用的，正文让模型调它自己的工具 |
+| 七个内置 | 搬了两个，另加三份去 AI 味 | 其余五个是上游 AI 助手对话用的，正文让模型调它自己的工具；去 AI 味见下 |
 | 名字只认 ASCII | 可以是中文 | 作者给自己的方法起中文名再自然不过 |
 | 身份取 frontmatter 的 name | 取目录名 | 只有一个名字，卸载不会删了个空 |
 | 装之前看不到正文 | 检查结果带正文 | 往后每一次生成都会带上它 |
 | 绑了不存在的技能，工作流起不来 | 明细里说一声、这次不带 | 一份技能不该把生成拦住 |
 | 卸载直接删 | 挪进回收站 | 第 6 条 |
 | 中英双语 | 只有中文 | novelForge 只写中文 |
+
+## 内置的去 AI 味
+
+三份共用 [builtin/aiTone.ts](builtin/aiTone.ts) 的句式清单（揭底句「X，那是Y」、翻案腔、「带着一股……」、「闪过一丝」、「一种……的」、句首「然而，」、「当……时」与话题壳、书面比喻词、套路微动作、相邻句同构），按阶段各说一套用法：
+
+| id | 建议阶段 | 怎么用这张清单 |
+|---|---|---|
+| `builtin:less-ai-tone` | 写正文 | 叙述里避开；另加语体方向：多对白、口语叙述、多问句感叹句 |
+| `builtin:less-ai-tone-review` | 审稿 | 命中且成密度的报成 `AI 腔` / warning 审稿项，合计不超过 3 项 |
+| `builtin:less-ai-tone-refinement` | 修稿 | 清单里有 AI 腔一类的审稿项时按最小改动改，信息不增不减 |
+
+修稿合同只许改清单指到的地方（技能排在合同之后），所以修稿那份不写「顺手清理」，靠审稿那份先把句子报出来、作者勾选。清单的数据来源与被排除的特征见 [docs/design/plans/2026-10-02-less-ai-tone.md](../../../docs/design/plans/2026-10-02-less-ai-tone.md)。

@@ -89,6 +89,9 @@ describe('三个来源', () => {
     assert.deepEqual(ids, [
       'builtin:long-form-continuity',
       'builtin:natural-prose-refinement',
+      'builtin:less-ai-tone',
+      'builtin:less-ai-tone-review',
+      'builtin:less-ai-tone-refinement',
       'user:scene-craft',
       'project:scene-craft',
       'project:去AI味',
@@ -112,9 +115,24 @@ describe('三个来源', () => {
     assert.equal(await skills.loadSkill('project:scene-craft'), undefined);
   });
 
-  test('两个内置都兼容', async () => {
+  test('内置的都兼容', async () => {
     const list = await skills.listSkills();
     assert.ok(list.filter((s) => s.source === 'builtin').every((s) => s.inspection.compatible));
+  });
+
+  test('去 AI 味三份各建议一个阶段，共用同一张句式清单', async () => {
+    const [draft, review, refine] = await Promise.all(
+      ['less-ai-tone', 'less-ai-tone-review', 'less-ai-tone-refinement'].map((n) => skills.loadSkill(`builtin:${n}`))
+    );
+    assert.deepEqual(
+      [draft, review, refine].map((s) => s.inspection.stage),
+      ['drafting', 'review', 'refinement']
+    );
+    const rules = (s) => s.inspection.body.split('\n').filter((l) => /^\d+\. /.test(l));
+    assert.equal(rules(draft).length, 10);
+    assert.deepEqual(rules(review), rules(draft));
+    assert.deepEqual(rules(refine), rules(draft));
+    assert.ok(review.inspection.body.includes('category 写「AI 腔」'));
   });
 
   test('链接过去的目录认不出', async () => {
