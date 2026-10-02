@@ -54,6 +54,7 @@ import {
   setThinking,
 } from './session';
 import { persist } from './persist';
+import { bindSkillFrom, inspectSkillFrom, installSkillFrom, pushSkillsTo, uninstallSkillFrom } from './skills';
 import {
   describeProvider,
   serializeAttachment,
@@ -505,6 +506,26 @@ export class ChatController {
         await testConnection(this, msg.ref, msg.provider);
         return;
 
+      case 'requestSkills':
+        await pushSkillsTo(this, this);
+        return;
+
+      case 'inspectSkill':
+        await inspectSkillFrom(this, msg.url);
+        return;
+
+      case 'installSkill':
+        await installSkillFrom(this, this, msg.url);
+        return;
+
+      case 'uninstallSkill':
+        await uninstallSkillFrom(this, this, msg.id);
+        return;
+
+      case 'bindSkill':
+        await bindSkillFrom(this, this, msg.stage, msg.id);
+        return;
+
       case 'openNativeSettings':
         await getHost().openNativeSettings?.();
         return;
@@ -659,6 +680,8 @@ export class ChatController {
       await this.pushSessions();
     } else if (this.tab === 'settings') {
       await pushSettings(this);
+      // 「技能」那一页每次都重扫：作者可能刚往 .novelforge/skills/ 里放了一份。
+      await pushSkillsTo(this, this);
     } else if (this.tab === 'logs') {
       // 切到日志页时补一份全量；此后靠 sink 增量追加。
       this.post({ type: 'logs', entries: recentLogs() });

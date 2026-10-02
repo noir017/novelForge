@@ -11,11 +11,12 @@ import { NUMERIC_FIELDS } from './presets';
 import type { NumericField } from './presets';
 import { bindOpenModal, renderProviders } from './providerList';
 import { installProviderModal, openProviderModal, refreshProviderModal } from './providerModal';
+import { installSkillsPanel, requestSkills } from './skills';
 import { renderTaskTiers } from './taskTiers';
 
-type SettingsCategory = 'models' | 'context';
+type SettingsCategory = 'models' | 'context' | 'skills';
 
-const SETTINGS_CATEGORIES: readonly SettingsCategory[] = ['models', 'context'];
+const SETTINGS_CATEGORIES: readonly SettingsCategory[] = ['models', 'context', 'skills'];
 
 export function renderSettings(
   settings: SettingsPayload,
@@ -119,6 +120,7 @@ export function installSettings(): void {
   installProviderModal();
   installCategoryTabs();
   installAdvancedToggle();
+  installSkillsPanel();
 
   for (const id of Object.values(NUMERIC_FIELDS)) {
     maybeById(id)?.addEventListener('input', touch);
@@ -172,6 +174,17 @@ function showCategory(category: SettingsCategory, focus = false): void {
     const active = panel.dataset.settingsPanel === category;
     panel.classList.toggle('active', active);
     panel.hidden = !active;
+  }
+  // 「技能」那一页改了当场生效：底下那颗「保存设置」与存储说明在那一页上只会让人以为还要再点一下。
+  const skills = category === 'skills';
+  for (const id of ['settingsSaveRow', 'settingsStorageHint']) {
+    const node = maybeById(id);
+    if (node) {
+      node.hidden = skills;
+    }
+  }
+  if (skills) {
+    requestSkills();
   }
 }
 

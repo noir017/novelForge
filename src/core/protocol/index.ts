@@ -18,6 +18,9 @@ export type {
   OutMessage,
   SerializedModel,
   SerializedProvider,
+  SkillInspectionView,
+  SkillRow,
+  SkillsView,
   WorkspaceItem,
   WorkspaceRecent,
 } from './out';

@@ -264,6 +264,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
   <div class="settings-subtabs" role="tablist" aria-label="设置分类">
     <button class="settings-subtab active" id="settingsTabModels" data-settings-tab="models" role="tab" aria-selected="true" aria-controls="settingsPanelModels">模型配置</button>
     <button class="settings-subtab" id="settingsTabContext" data-settings-tab="context" role="tab" aria-selected="false" aria-controls="settingsPanelContext">上下文管理</button>
+    <button class="settings-subtab" id="settingsTabSkills" data-settings-tab="skills" role="tab" aria-selected="false" aria-controls="settingsPanelSkills">技能</button>
   </div>
 
   <div class="settings-panel active" id="settingsPanelModels" data-settings-panel="models" role="tabpanel" aria-labelledby="settingsTabModels">
@@ -364,7 +365,34 @@ export function settingsPane(opts: PaneOptions = {}): string {
     </div>
   </div>
 
-  <div class="actions">
+  <div class="settings-panel" id="settingsPanelSkills" data-settings-panel="skills" role="tabpanel" aria-labelledby="settingsTabSkills">
+    <div class="hint">
+      写作技能是一份<b>补充的写作方法</b>（一个目录里一份 <code>SKILL.md</code>）。给本工程的某个阶段绑上一份，
+      这个阶段往后的每一次生成都会把它放在提示词最前面——对话页、Agent、工程页批量都一样。
+      它只能补充写法：<b>作者事实和输出格式始终优先</b>。讨论、定稿与摘要不带。这一页的改动当场生效，不用点「保存设置」。
+    </div>
+
+    <div class="pane-head"><span>本工程的阶段绑定</span></div>
+    <div class="hint" id="skillBindingHint"></div>
+    <div class="grid" id="skillBindings"></div>
+
+    <div class="pane-head"><span>从 GitHub 安装</span></div>
+    <div class="hint">
+      只收自包含的纯提示词 <code>SKILL.md</code>：要跑脚本、装 hook、派子代理、调工具，或引用旁边别的文件的，都装不了。
+      先检查（只下载来看，不写任何文件），看过正文再确认安装；安装时会重新下载，与检查时那一份核对一致才装。
+    </div>
+    <div class="skill-install">
+      <input type="url" id="skillUrl" placeholder="https://github.com/owner/repo/tree/main/skills/xxx" aria-label="技能的 GitHub 地址">
+      <button class="secondary" id="inspectSkillBtn">检查</button>
+    </div>
+    <div id="skillInspection"></div>
+
+    <div class="pane-head"><span>技能库</span><span class="meta" id="skillCount"></span></div>
+    <div class="hint" id="skillLibraryHint"></div>
+    <div id="skillList"></div>
+  </div>
+
+  <div class="actions" id="settingsSaveRow">
     <button class="primary" id="saveSettingsBtn">保存设置</button>${nativeBtn}
   </div>
   <div class="hint" id="settingsStorageHint">设置写入 <code>~/.novelforge/config.json</code>；API Key 存在 <code>~/.novelforge/secrets.json</code>，不进配置文件。</div>

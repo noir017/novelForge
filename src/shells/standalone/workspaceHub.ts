@@ -10,6 +10,13 @@ import {
   SettingsSink,
   testConnectionTo,
 } from '../../core/controller/settings';
+import {
+  bindSkillFrom,
+  inspectSkillFrom,
+  installSkillFrom,
+  pushSkillsTo,
+  uninstallSkillFrom,
+} from '../../core/controller/skills';
 import { Disposable } from '../../core/host';
 import { clearApiKey, promptForApiKey } from '../../core/llm/registry';
 import { InMessage, OutMessage, WorkspaceItem, WorkspaceRecent } from '../../core/protocol';
@@ -136,6 +143,7 @@ export class WorkspaceHub {
       return;
     }
     await pushSettingsTo(this.sink);
+    await pushSkillsTo(this.sink, {});
     this.broadcast({ type: 'logs', entries: recentLogs() });
     this.broadcast({ type: 'tasks', tasks: activeTasks() });
   }
@@ -215,6 +223,7 @@ export class WorkspaceHub {
         this.broadcast({ type: 'tab', tab: msg.tab });
         if (msg.tab === 'settings') {
           await pushSettingsTo(this.sink);
+          await pushSkillsTo(this.sink, {});
         } else if (msg.tab === 'logs') {
           this.broadcast({ type: 'logs', entries: recentLogs() });
         }
@@ -233,6 +242,22 @@ export class WorkspaceHub {
         if (!cancelTask(msg.id)) {
           this.broadcast({ type: 'tasks', tasks: activeTasks() });
         }
+        return true;
+      // 设置页「技能」：技能库与工程无关，空窗口也能看、能装、能卸；绑定要工程（bindSkillFrom 会说）。
+      case 'requestSkills':
+        await pushSkillsTo(this.sink, {});
+        return true;
+      case 'inspectSkill':
+        await inspectSkillFrom(this.sink, msg.url);
+        return true;
+      case 'installSkill':
+        await installSkillFrom(this.sink, {}, msg.url);
+        return true;
+      case 'uninstallSkill':
+        await uninstallSkillFrom(this.sink, {}, msg.id);
+        return true;
+      case 'bindSkill':
+        await bindSkillFrom(this.sink, {}, msg.stage, msg.id);
         return true;
       default:
         return false;

@@ -357,3 +357,82 @@ button.settings-subtab.active {
   flex: 0 0 auto;
   max-width: 45%;
 }
+
+/* 「技能」那一页：检查卡与技能库的每一行。 */
+
+.skill-install {
+  display: flex;
+  gap: 6px;
+}
+
+.skill-install input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.skill-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  border-radius: var(--radius);
+}
+
+.skill-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.skill-name {
+  font-weight: 600;
+}
+
+.skill-tag {
+  padding: 0 6px;
+  font-size: 0.8em;
+  border-radius: 8px;
+  color: var(--vscode-descriptionForeground);
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+
+.skill-tag.ok {
+  color: var(--vscode-testing-iconPassed, #73c991);
+}
+
+.skill-tag.bad,
+.skill-error {
+  color: var(--vscode-errorForeground, #f48771);
+}
+
+.skill-desc {
+  font-size: 0.92em;
+}
+
+.skill-meta {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.skill-error {
+  font-size: 0.88em;
+}
+
+.skill-body pre {
+  max-height: 240px;
+  overflow: auto;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  font-size: 0.88em;
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+  border-radius: 4px;
+}
+
+.skill-actions {
+  display: flex;
+  gap: 10px;
+}

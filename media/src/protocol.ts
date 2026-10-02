@@ -52,6 +52,9 @@ export type {
   SerializedTurn,
   SessionListItem,
   SettingsPayload,
+  SkillInspectionView,
+  SkillRow,
+  SkillsView,
   Tab,
   TaskSnapshot,
   WorkspaceItem,
@@ -191,3 +194,15 @@ export {
   isAgentPolicy,
 } from '../../src/core/model/agentPolicy';
 export type { AgentPolicy } from '../../src/core/model/agentPolicy';
+
+/**
+ * 写作技能的阶段、来源与不兼容原因的说法。与分档同一套理由：设置页上写着「写正文」而后端按
+ * 别的阶段带，作者就再也不信这张表了。`writingSkill.ts` 零运行时 import，打进浏览器产物是安全的。
+ */
+export {
+  SKILL_SOURCE_LABEL,
+  SKILL_STAGES,
+  SKILL_STAGE_LABEL,
+  isSkillStage,
+} from '../../src/core/model/writingSkill';
+export type { SkillSource, SkillStage } from '../../src/core/model/writingSkill';

@@ -8,6 +8,7 @@ import type {
   CreationTarget,
 } from '../model/pipeline';
 import type { SerializedProvider } from './out';
+import type { SkillStage } from '../model/writingSkill';
 
 export type Tab = 'chat' | 'project' | 'files' | 'history' | 'settings' | 'logs';
 
@@ -182,7 +183,17 @@ export type InMessage =
   /** 有工程时经 workspace 写文件；已存在拒绝。`text` 缺省为空。 */
   | { type: 'createFile'; relPath: string; text?: string }
   /** 打开使用说明：工程内 README，否则仓库根 README。 */
-  | { type: 'openReadme' };
+  | { type: 'openReadme' }
+  // ---- 设置页「技能」（写作技能）。没打开工程时只有前四条有用：绑定跟着工程走。
+  | { type: 'requestSkills' }
+  /** 下载并检查一份 GitHub 上的技能。不写任何文件。 */
+  | { type: 'inspectSkill'; url: string }
+  /** 装检查过的那一份。后端先弹确认框，再重新下载核对。 */
+  | { type: 'installSkill'; url: string }
+  /** 从我的技能库卸载（挪进回收站）。只认 `user:` 的。 */
+  | { type: 'uninstallSkill'; id: string }
+  /** 本工程某个阶段绑哪份；`id` 为 null 是不带。 */
+  | { type: 'bindSkill'; stage: SkillStage; id: string | null };
 
 export type ProjectAction =
   | 'initProject'

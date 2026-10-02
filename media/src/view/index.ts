@@ -43,6 +43,7 @@ import { bindNextStepRunner, installNewSession, installRenamePlot, renderPipelin
 import { renderWorkbench, installWorkbench } from './workbench';
 import { renderPrompt } from './prompt';
 import { installSettings, renderSettings } from './settings';
+import { renderSkillInspection, renderSkills } from './settings/skills';
 import { renderState, setBusy } from './state';
 import { restoreDraft, store, vscode } from './store';
 import { installTabs, isTabActive, showTab } from './tabs';
@@ -211,6 +212,14 @@ onMessage((msg) => {
 
     case 'settings':
       renderSettings(msg.settings, msg.keys, msg.ack);
+      break;
+
+    case 'skills':
+      renderSkills(msg.view, msg.installed);
+      break;
+
+    case 'skillInspection':
+      renderSkillInspection(msg.url, msg.inspection, msg.error);
       break;
 
     case 'tasks':

@@ -1,6 +1,7 @@
 import type { DirListing } from '../files/fileTree';
 import type { LogEntry } from '../runtime/logger';
 import type { TaskOpen, TaskSnapshot } from '../runtime/progress';
+import type { SkillSource, SkillStage } from '../model/writingSkill';
 import type {
   EditorPane,
   SerializedAttachment,
@@ -171,6 +172,13 @@ export type OutMessage =
       workbench: WorkbenchView;
     }
   | { type: 'settings'; settings: SettingsPayload; keys: Record<string, boolean>; ack?: 'saved' | 'rejected' }
+  /**
+   * 设置页「技能」：技能库与本工程的阶段绑定。每次切到那一页、装卸绑之后重推（每次都重扫：作者可能
+   * 刚手放了一份进来）。`installed`：刚装好的那一份的 id，前端据此收起检查结果。
+   */
+  | { type: 'skills'; view: SkillsView; installed?: string }
+  /** 「检查」的结果：给了 `inspection` 是检查成了（不等于装得了，见 `blockers`），给了 `error` 是没检查成。 */
+  | { type: 'skillInspection'; url: string; inspection?: SkillInspectionView; error?: string }
   | { type: 'toast'; message: string; level: 'info' | 'error' }
   | { type: 'editorOpen'; file: EditorFileView; pane?: EditorPane }
   | { type: 'editorSaved'; file: EditorFileView }
@@ -245,6 +253,54 @@ export interface HostDirEntry {
   name: string;
   kind: 'dir' | 'file';
   absPath: string;
+}
+
+/** 技能库里的一份写作技能。 */
+export interface SkillRow {
+  /** `来源:名字`，绑定与卸载都认它。 */
+  id: string;
+  source: SkillSource;
+  name: string;
+  /** 显示名（`display_name` → `name`）。 */
+  label: string;
+  description: string;
+  version?: string;
+  /** frontmatter 写明的阶段，没写就是按内容猜的。只是建议。 */
+  suggestedStage: SkillStage;
+  compatible: boolean;
+  /** 不兼容的原因，已经是给人看的话。 */
+  reasons: string[];
+  /** 正文的 UTF-8 字节数。 */
+  bytes: number;
+  /** 本工程的技能在工程里的路径（点得开）。 */
+  relPath?: string;
+  /** 在本工程里绑在哪几个阶段。 */
+  boundTo: SkillStage[];
+}
+
+export interface SkillsView {
+  rows: SkillRow[];
+  /** 本工程每个阶段绑了哪份。**没打开工程时缺席**：绑定跟着工程走。 */
+  bindings?: Partial<Record<SkillStage, string>>;
+  /** 绑定文件读不懂的地方（`.novelforge/skills.json`）。 */
+  problems: string[];
+  /** 我的技能库在哪：手放技能的作者要知道往哪放。 */
+  userDir: string;
+}
+
+/** 检查一份 GitHub 上的技能得到的东西。**带正文**：装之前作者看得到它写了什么。 */
+export interface SkillInspectionView {
+  url: string;
+  resolvedUrl: string;
+  name: string;
+  label: string;
+  description: string;
+  version?: string;
+  suggestedStage: SkillStage;
+  bytes: number;
+  body: string;
+  /** 装不了的原因。空 = 可以装。 */
+  blockers: string[];
 }
 
 export interface SerializedProvider {

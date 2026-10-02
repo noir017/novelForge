@@ -58,8 +58,8 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
     contextPanel = ui.doc.getElementById('settingsPanelContext');
   });
 
-  test('设置页有两个二级分类', () => {
-    assert.ok(modelTab && contextTab);
+  test('设置页有三个二级分类（第三个是「技能」，见 skillsSettings.test.js）', () => {
+    assert.ok(modelTab && contextTab && ui.doc.getElementById('settingsTabSkills'));
   });
 
   test('默认显示模型配置', () => {
