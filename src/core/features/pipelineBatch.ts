@@ -619,7 +619,9 @@ export async function writeManuscripts(
               ? `${out.early.map((e) => `第 ${e.no} 章才登场的${e.name}`).join('、')}提前写进了这一章（「${clip(out.early[0].quote, 40)}」）`
               : out.short
                 ? `只写到 ${out.words} / ${out.target} 字，不到目标的八成`
-                : undefined;
+                : out.truncated
+                  ? '结尾停在半句上（被截断，续写没能接完）'
+                  : undefined;
           if (problem) {
             void recordFailure(project, {
               scope: '流水线',

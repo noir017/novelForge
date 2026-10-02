@@ -157,6 +157,18 @@ describe('write · append', () => {
     assert.ok(text.includes('第一段') && text.includes('第二段'), text);
     assert.equal(h.confirms.length, 0);
   });
+
+  test('别的文件结尾没有标点也照样空一行', () => {
+    assert.match(t.read('日志.md'), /第一段\n\n第二段/);
+  });
+
+  test('章节停在半句上：接着写的那半截直接接上，不空行；收在句末才空一行', async () => {
+    t.write('chapters/091-半句.md', '他已经到了极限，全身\n');
+    await ws.write('chapters/091-半句.md', { text: '的骨头都在响。' }, { mode: 'append' });
+    assert.equal(t.read('chapters/091-半句.md'), '他已经到了极限，全身的骨头都在响。\n');
+    await ws.write('chapters/091-半句.md', { text: '天亮了。' }, { mode: 'append' });
+    assert.equal(t.read('chapters/091-半句.md'), '他已经到了极限，全身的骨头都在响。\n\n天亮了。\n');
+  });
 });
 
 describe('read', () => {

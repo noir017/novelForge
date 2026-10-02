@@ -45,6 +45,7 @@ async function* emit(item) {
 /**
  * 造一段恰好 `n` 个字的中文正文，用来测字数门槛（「不到八成就续写」）。
  * `seed` 让不同轮的内容不重样——重演检测按 n-gram 认，重样的填充会被当成重演。
+ * 末尾带一个句号（不计字数）：不收在句末标点上的正文会被当成停在半句上、自动续写。
  */
 function filler(n, seed = 0) {
   const pool = '天地玄黄宇宙洪荒日月盈昃辰宿列张寒来暑往秋收冬藏闰余成岁律吕调阳云腾致雨露结为霜金生丽水玉出昆冈剑号巨阙珠称夜光果珍李柰菜重芥姜';
@@ -56,7 +57,7 @@ function filler(n, seed = 0) {
     x = (Math.imul(x, 1103515245) + 12345) >>> 0;
     out += pool[(x >>> 16) % pool.length];
   }
-  return out;
+  return `${out}。`;
 }
 
 /**

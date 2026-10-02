@@ -97,6 +97,8 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // ★ `outlineSlice` P0 force：细纲是从大纲里拆出来的，少了这几节就是凭空编。
   // ★ `plotNext` 少了它，改中间某一章时模型不知道后面已经排好了什么，收尾会与
   //   下一章的开头撞车或断裂——「转折突兀」多半出在这里。
+  // ★ `recentFacts` P1：已定稿各章的连续性事实是既成历史。早前摘要排在 P2，预算紧时先被挤掉，
+  //   细纲就会排出与正文矛盾的事（死了的人再出场、已经炸掉的大阵再炸一次）。
   plot: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
@@ -110,6 +112,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'plotPrev', priority: 1 },
     { layer: 'plotList', priority: 1 },
     { layer: 'plotNext', priority: 1 },
+    { layer: 'recentFacts', priority: 1 },
     { layer: 'structure', priority: 1 },
     { layer: 'globalSummary', priority: 2 },
     { layer: 'plotSummary', priority: 2 },
@@ -166,6 +169,9 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
  * 什么（细纲）、不许写到哪（边界）、从哪接（已写末尾）、怎么写（文风、全局要求）、谁在场
  * （出场角色）。前情摘要、前几章全文这些第一次调用已经用过了，那一场怎么开头已经写在
  * 已写的正文里——再发一遍只是让每一轮都付一次全价。
+ *
+ * ★ `recentFacts` P1：近几章定稿留下的连续性事实（≤3000 字）。百章实验里首轮常只写到一半，
+ *   续写那几轮写出了一章的大半——它们一条前情都不带时，已经死了的人在续写里又活过来。
  */
 const CONTINUATION_RECIPE: LayerSpec[] = [
   { layer: 'system', priority: 0, force: true },
@@ -177,6 +183,7 @@ const CONTINUATION_RECIPE: LayerSpec[] = [
   { layer: 'chapterSoFar', priority: 0, force: true },
   { layer: 'skill', priority: 0 },
   { layer: 'characters', priority: 1 },
+  { layer: 'recentFacts', priority: 1 },
 ];
 
 /**

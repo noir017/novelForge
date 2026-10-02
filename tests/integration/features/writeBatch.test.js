@@ -370,6 +370,33 @@ describe('续写到最后仍不到八成：写进去，然后停', () => {
   });
 });
 
+describe('结尾停在半句上、续写也没接完：写进去，然后停', () => {
+  let t;
+  before(async () => {
+    t = await fresh('wb-half');
+    replyFn = (messages) => {
+      if (isSummary(messages) || isState(messages)) {
+        return defaultReply(messages);
+      }
+      // 第一次字数够了、停在半句上；续写那两轮都只多几个字。
+      return chapterOf(messages).continuation ? { text: '的骨头', stop: 'end' } : { text: `${filler(700, 9).slice(0, -1)}，全身`, stop: 'end' };
+    };
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', confirmed: true });
+  });
+  after(() => cleanup(t.dir, bundle.db));
+
+  test('第 1 章写了、没定稿，第 2 章没写', () => {
+    assert.ok(t.has(CH(1)) && !t.has(CH(2)));
+    assert.ok(!t.has('.novelforge/summaries/001-停舟.md'));
+  });
+
+  test('黄 ❗：结尾停在半句上', async () => {
+    const [f] = await failuresOf(t, PLOT(1));
+    assert.equal(f.severity, 'warn');
+    assert.match(f.message, /结尾停在半句上/);
+  });
+});
+
 describe('写完这一章就停；停止', () => {
   test('点了「写完这一章就停」：这一章写完、落盘，然后收', async () => {
     const t = await fresh('wb-pause');

@@ -24,6 +24,24 @@ describe('manuscriptCheck · 比喻词', () => {
   });
 });
 
+describe('manuscriptCheck · 停在半句', () => {
+  test('结尾不是句末标点就算停在半句', () => {
+    assert.equal(m.endsMidSentence('他已经到了极限，全身'), true);
+    assert.equal(m.endsMidSentence('他已经到了极限，全身，'), true);
+  });
+
+  test('句号、问叹号、省略号、收引号、破折号收尾都不算；末尾空白先去掉', () => {
+    for (const t of ['走了。', '走了？', '走了！', '走了……', '“走了。”', '「走了」', '他走了——', '走了。\n\n  ']) {
+      assert.equal(m.endsMidSentence(t), false, t);
+    }
+  });
+
+  test('空文本不算', () => {
+    assert.equal(m.endsMidSentence(''), false);
+    assert.equal(m.endsMidSentence('  \n'), false);
+  });
+});
+
 describe('manuscriptCheck · 拉丁字母缩写', () => {
   test('两个以上大写字母连写才算，去重、按出现顺序', () => {
     assert.deepEqual(m.latinAcronyms('他的PTSD又发作了，PTSD让他头晕，CPU也烧了。'), ['PTSD', 'CPU']);

@@ -48,6 +48,7 @@ import {
 import { rewriteFrontmatter, stringifyFrontmatter, stringifySections } from '../model/markdown';
 import { renderCastEntry } from '../model/castParse';
 import { isMarkdownExt, isMarkdownPath } from '../model/chapterFile';
+import { endsMidSentence } from '../model/manuscriptCheck';
 import {
   NovelProject,
   WritableCharacterCard,
@@ -280,7 +281,7 @@ export class Workspace {
       text = review.text ?? text;
     }
 
-    const final = mode === 'append' ? appendText(guarded, text) : text;
+    const final = mode === 'append' ? appendText(guarded, text, ctx.path.kind === 'chapter') : text;
     await writeText(guarded.abs, final);
     this.project.invalidate();
 
@@ -720,13 +721,17 @@ function clip(text: string): string {
  *
  * 从前 handler 能给「首次追加带的头」与「两段之间的分隔符」——那是中转站正文用的
  * （拆章的 `---` 断点）。中转站删掉之后再没有种类要它们，钩子一并删了。
+ *
+ * **正文停在半句上时直接接上**：被截断的那一章「接着写」，新写的是那半句的后半截，中间空一行
+ * 就把一句话断成两段（百章实验第 57 章）。只对章节这么做——别的文件结尾没有标点是常事。
  */
-function appendText(guarded: { existed: boolean; current?: string }, text: string): string {
+function appendText(guarded: { existed: boolean; current?: string }, text: string, prose = false): string {
   if (!guarded.existed) {
     return `${text.trim()}\n`;
   }
   const existing = (guarded.current ?? '').replace(/\s+$/, '');
-  return `${existing}\n\n${text.trim()}\n`;
+  const glue = prose && endsMidSentence(existing) ? '' : '\n\n';
+  return `${existing}${glue}${text.trim()}\n`;
 }
 
 /** 垃圾箱里保留原相对路径；同名冲突时加序号，不覆盖之前删掉的东西。 */
