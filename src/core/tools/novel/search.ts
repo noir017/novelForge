@@ -30,6 +30,7 @@ const KINDS: ArtifactKind[] = [
   'style',
   'globalSummary',
   'threads',
+  'skill',
   'plot',
   'chapter',
   'summary',

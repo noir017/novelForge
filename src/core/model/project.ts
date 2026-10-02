@@ -154,6 +154,19 @@ export class NovelProject {
     return path.join(this.novelDir, 'threads.md');
   }
 
+  /**
+   * 本工程的写作技能（`.novelforge/skills/<名字>/SKILL.md`）。可选：作者手放进来的，
+   * 初始化时不建。我的技能库在工程外（`~/.novelforge/skills/`），见 core/skills/。
+   */
+  get skillsDir(): string {
+    return path.join(this.novelDir, 'skills');
+  }
+
+  /** 这个工程每个阶段绑了哪份技能（`.novelforge/skills.json`）。没绑过就没有这份文件。 */
+  get skillBindingsPath(): string {
+    return path.join(this.novelDir, 'skills.json');
+  }
+
   get charactersDir(): string {
     return path.join(this.novelDir, 'characters');
   }

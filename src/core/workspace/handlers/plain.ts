@@ -1,7 +1,8 @@
 /**
  * `plain` handler：纯文本进出，无记账。
  *
- * 接 `other`（工程里的普通文本）与 `draft`（草稿）。
+ * 接 `other`（工程里的普通文本）、`draft`（草稿）与 `skill`（本工程的写作技能与阶段绑定：
+ * 作者手写的 `SKILL.md` 与一份 JSON，都不该被加 frontmatter）。
  *
  * 草稿在这里而不在 `doc` 里，是因为它**永不自动进上下文**（AGENTS 第 10 条）：
  * `context/builder.ts` 里没有任何一处读 `drafts/`，草稿只能经作者显式 `@`

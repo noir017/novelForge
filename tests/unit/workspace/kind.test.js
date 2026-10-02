@@ -63,6 +63,19 @@ describe('kindOfPath · 固定单文件', () => {
     assert.equal(k.target, undefined);
   });
 
+  // 写作技能：阶段绑定与本工程的技能目录，都在链外，没有创作阶段。
+  test('skills.json 与 skills/ 下的文件是技能，不带创作层与目标', () => {
+    const kinds = ['.novelforge/skills.json', '.novelforge/skills/去AI味/SKILL.md', '.novelforge/skills'].map(kindOf);
+    assert.deepEqual(
+      kinds.map((k) => [k.kind, k.stage, k.target]),
+      [
+        ['skill', undefined, undefined],
+        ['skill', undefined, undefined],
+        ['skill', undefined, undefined],
+      ]
+    );
+  });
+
   // 架构三件与大纲同级：各自是一份固定文件，带着「是哪一件」。
   for (const doc of ['config', 'premise', 'world']) {
     test(`${doc}.md 是架构文档，带上 doc 与创作目标`, () => {

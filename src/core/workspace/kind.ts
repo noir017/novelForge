@@ -43,6 +43,8 @@ export type ArtifactKind =
   | 'style'
   | 'globalSummary'
   | 'threads'
+  /** 写作技能：本工程的 `.novelforge/skills/**` 与阶段绑定 `.novelforge/skills.json`。 */
+  | 'skill'
   | 'plot'
   | 'chapter'
   | 'summary'
@@ -101,6 +103,8 @@ interface Dirs {
   style: string;
   globalSummary: string;
   threads: string;
+  skills: string;
+  skillBindings: string;
 }
 
 function dirsOf(project: NovelProject): Dirs {
@@ -118,6 +122,8 @@ function dirsOf(project: NovelProject): Dirs {
     style: project.relPath(project.stylePath),
     globalSummary: project.relPath(project.globalSummaryPath),
     threads: project.relPath(project.threadsPath),
+    skills: project.relPath(project.skillsDir),
+    skillBindings: project.relPath(project.skillBindingsPath),
   };
 }
 
@@ -170,6 +176,10 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
   // 叙事线（七期）：可选的固定文件，与全书摘要同类——没有创作阶段，由工程页动作与定稿追加。
   if (rel === d.threads) {
     return { kind: 'threads', rel };
+  }
+  // 写作技能：链外，没有创作阶段。装配器只经 core/skills/ 读绑定的那一份。
+  if (rel === d.skillBindings || under(rel, d.skills) !== undefined) {
+    return { kind: 'skill', rel };
   }
 
   // ---- 细纲。**平铺**，只认根下的 markdown 家族。老工程按卷分的子目录判成 other。
