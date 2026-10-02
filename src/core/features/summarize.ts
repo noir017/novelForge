@@ -381,6 +381,90 @@ function describeNos(chapters: Chapter[]): string {
   return chapters.length > 12 ? `${head}…（共 ${chapters.length} 章）` : head;
 }
 
+/** {@link updateGlobalSummary} 的结果。 */
+export interface GlobalSummaryUpdate {
+  calls: number;
+  /** 更新之后覆盖到第几章。 */
+  through?: number;
+  /** 没更新的原因（零调用）。 */
+  skipped?: string;
+}
+
+/**
+ * 增量更新全书滚动摘要：旧摘要 + 它覆盖到的那一章之后、定稿过的各章的单章摘要，**1 次调用**出新的一版。
+ * 批量写章「写完即定稿」每落后 `GLOBAL_SUMMARY_EVERY` 章调一次（百章实验里全书摘要从没生成过——
+ * 它只有作者手动点「重建」这一个入口）。还没有旧摘要时就从第 1 章起汇总；新章太多、一次放不下时
+ * 只并入放得下的前面那几章，`through` 停在那里，下一次接着并。不弹框、不开任务；调用失败抛错。
+ */
+export async function updateGlobalSummary(
+  project: NovelProject,
+  runner: {
+    run<T>(what: string, fn: (llm: LlmProvider) => Promise<T>): Promise<T>;
+    readonly primaryBudget: { contextWindow: number; maxOutputTokens: number };
+  },
+  signal?: AbortSignal
+): Promise<GlobalSummaryUpdate> {
+  const manifest = await project.readManifest();
+  const old = (await project.readGlobalSummary()).trim();
+  const fresh = old && !/尚未生成/.test(old);
+  const since = fresh ? manifest.globalSummaryThrough ?? 0 : 0;
+  const units: { no: number; title: string; content: string }[] = [];
+  for (const chapter of (await project.listChapters()).sort((a, b) => a.order - b.order)) {
+    if (chapter.order <= since || chapter.wordCount <= 0) {
+      continue;
+    }
+    const summary = await project.readSummary(chapter.relPath);
+    // 一章没定稿就停在它前面：全书摘要是按时间顺序的主线，跳过一章就缺一块。
+    if (!summary || summary.sourceHash !== chapter.contentHash || !summary.content.trim()) {
+      break;
+    }
+    units.push({ no: chapter.order, title: chapter.title, content: summary.content.trim() });
+  }
+  if (units.length === 0) {
+    return { calls: 0, skipped: `第 ${since} 章之后还没有定稿过的章` };
+  }
+
+  const budget = runner.primaryBudget;
+  const inputBudget = Math.max(4000, budget.contextWindow - budget.maxOutputTokens - 2000) - estimateTokens(old);
+  const blocks: string[] = [];
+  let used = 0;
+  let through = since;
+  for (const u of units) {
+    const block = `【第${u.no}章 ${u.title}】\n${u.content}`;
+    const cost = estimateTokens(block);
+    if (blocks.length > 0 && used + cost > inputBudget) {
+      log.warn('新定稿的章太多，这一次只并入前面几章', `并到第 ${through} 章，后面的下一次再并`);
+      break;
+    }
+    blocks.push(block);
+    used += cost;
+    through = u.no;
+  }
+  const span = units[0].no === through ? `第 ${through} 章` : `第 ${units[0].no}–${through} 章`;
+  const user = fresh
+    ? `以下是目前的全书滚动摘要（截至第 ${since} 章），以及之后${span}的逐章摘要。请在旧摘要上并入这几章，输出一份新的全书滚动摘要。\n\n# 目前的全书滚动摘要\n\n${old}\n\n# 新定稿的逐章摘要\n\n${blocks.join('\n\n')}`
+    : `以下是${span}的逐章摘要，请汇总成一份全书滚动摘要。\n\n${blocks.join('\n\n')}`;
+  const config = readConfig();
+  const startedAt = Date.now();
+  const text = await runner.run('更新全书摘要', (llm) =>
+    collectText(
+      llm.stream(
+        [
+          { role: 'system', content: GLOBAL_SYSTEM },
+          { role: 'user', content: user },
+        ],
+        { maxOutputTokens: Math.min(budget.maxOutputTokens, 2000), temperature: 0.3, timeoutMs: config.requestTimeoutMs, signal }
+      )
+    )
+  );
+  if (!text.trim()) {
+    throw new Error('模型返回的全书摘要是空的');
+  }
+  await new Workspace(project).writeGlobalSummary(text.trim(), through);
+  log.info(`全书摘要已更新到第 ${through} 章`, `并入${span}｜${text.trim().length} 字｜用时 ${elapsed(startedAt)}`);
+  return { calls: 1, through };
+}
+
 /**
  * map-reduce 重建全书摘要。
  *

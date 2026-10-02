@@ -83,6 +83,7 @@ before(() => {
     registry: './src/core/llm/registry.ts',
     provider: './src/core/llm/provider.ts',
     batch: './src/core/features/pipelineBatch.ts',
+    summarize: './src/core/features/summarize.ts',
     plotFile: './src/core/model/plotFile.ts',
     progress: './src/core/runtime/progress.ts',
     errorLog: './src/core/runtime/errorLog.ts',
@@ -423,6 +424,8 @@ function blueprintsFor(messages) {
 }
 const isBlueprint = (messages) => /chapterNumber 必须覆盖第/.test(messages[messages.length - 1].content);
 const isPlotCheck = (messages) => (messages[0]?.content ?? '').includes('你是长篇小说的连续性编辑');
+const isEvents = (messages) => (messages[0]?.content ?? '').includes('你是小说定稿事实审查员');
+const isThreads = (messages) => (messages[0]?.content ?? '').includes('只从作者给的故事前提、情节大纲与各章细纲里提出跨章的伏笔');
 
 /** 每章正文带一句可查证的事实；摘要把它记成连续性事实。 */
 function factfulReply(conflicts = () => []) {
@@ -432,6 +435,9 @@ function factfulReply(conflicts = () => []) {
     }
     if (isPlotCheck(messages)) {
       return JSON.stringify({ conflicts: conflicts(messages) });
+    }
+    if (isThreads(messages)) {
+      return JSON.stringify({ threads: [{ title: '玉佩的下落', type: '伏笔', from: 1, to: 8, intent: '玉佩一块块丢在哪里。' }] });
     }
     if (isSummary(messages)) {
       const no = Number(/【第(\d+)章/.exec(messages[messages.length - 1].content)?.[1] ?? 0);
@@ -456,19 +462,24 @@ describe('边写边拆细纲：大纲覆盖之内没细纲的章，写到时先�
     replyFn = factfulReply();
     await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 4 }, mode: 'finalize', confirmed: true });
     order = fake.calls.map((m) =>
-      isBlueprint(m) ? 'plots' : isPlotCheck(m) ? 'check' : isSummary(m) ? 'summary' : isState(m) ? 'state' : `write:${chapterOf(m).no}`
+      isBlueprint(m) ? 'plots' : isThreads(m) ? 'threads' : isEvents(m) ? 'events' : isPlotCheck(m) ? 'check' : isSummary(m) ? 'summary' : isState(m) ? 'state' : `write:${chapterOf(m).no}`
     );
     blueprintPrompt = fake.calls.find(isBlueprint)?.at(-1).content ?? '';
   });
   after(() => cleanup(t.dir, bundle.db));
 
-  test('写完第 2 章、定稿之后才拆第 3–4 章（只拆这次要写的）；第 1 章前面没定稿的章，不比对', () => {
+  // 排出叙事线之后，定稿多了判叙事线那一步。
+  test('写完第 2 章、定稿之后才拆第 3–4 章（只拆这次要写的），接着排叙事线；第 1 章前面没定稿的章，不比对', () => {
     assert.deepEqual(order, [
       'write:1', 'summary', 'state',
       'check', 'write:2', 'summary', 'state',
-      'plots', 'check', 'write:3', 'summary', 'state',
-      'check', 'write:4', 'summary', 'state',
+      'plots', 'threads', 'check', 'write:3', 'summary', 'state', 'events',
+      'check', 'write:4', 'summary', 'state', 'events',
     ]);
+  });
+
+  test('拆完接着排叙事线，追加进 threads.md', () => {
+    assert.match(t.read('.novelforge/threads.md'), /玉佩的下落/);
   });
 
   test('拆细纲的时候看得见前面定稿的连续性事实', () => {
@@ -480,6 +491,48 @@ describe('边写边拆细纲：大纲覆盖之内没细纲的章，写到时先�
     assert.ok(t.has(CH(3)) && t.has(CH(4)) && !t.has(CH(5)));
     assert.match(t.read(PLOT(4)), /第 4 章林昭又查到一点东西/);
     assert.doesNotMatch(t.read(PLOT(5)), /林昭又查到/);
+  });
+});
+
+// 百章实验里全书滚动摘要从没生成过：它只有「重建」一个入口。批量定稿每落后 10 章增量更新一次。
+describe('全书滚动摘要增量更新', () => {
+  let t;
+  const users = [];
+  const runner = {
+    primaryBudget: { contextWindow: 100000, maxOutputTokens: 2000 },
+    run: (_what, fn) =>
+      fn({
+        stream: async function* (messages) {
+          users.push(messages[messages.length - 1].content);
+          yield { type: 'text', text: `## 主线进展\n\n第 ${users.length} 版：林昭一路丢玉佩。` };
+        },
+      }),
+  };
+  before(async () => {
+    t = await fresh('wb-global');
+    replyFn = factfulReply();
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', confirmed: true });
+  });
+  after(() => cleanup(t.dir, bundle.db));
+
+  test('还没有全书摘要：从第 1 章起汇总定稿过的章，through 记到最后一章', async () => {
+    const r = await bundle.summarize.updateGlobalSummary(t.project, runner);
+    assert.deepEqual(r, { calls: 1, through: 2 });
+    assert.match(users[0], /第 1–2 章的逐章摘要/);
+    assert.match(t.read('.novelforge/summaries/global.md'), /through: 2[\s\S]*第 1 版：林昭一路丢玉佩/);
+  });
+
+  test('之后只并入新定稿的章，旧摘要一起带上；没有新章就零调用', async () => {
+    t.project.invalidate();
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 3, to: 3 }, mode: 'finalize', confirmed: true });
+    const r = await bundle.summarize.updateGlobalSummary(t.project, runner);
+    assert.deepEqual(r, { calls: 1, through: 3 });
+    assert.match(users[1], /截至第 2 章/);
+    assert.match(users[1], /第 1 版：林昭一路丢玉佩/);
+    assert.match(users[1], /【第3章/);
+    assert.doesNotMatch(users[1], /【第2章/);
+    const again = await bundle.summarize.updateGlobalSummary(t.project, runner);
+    assert.equal(again.calls, 0);
   });
 });
 

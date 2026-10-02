@@ -46,12 +46,15 @@ import { countWords } from '../model/fs';
 import { describeFinalize, finalizeChapter } from './finalize';
 import { createCastCards, planCastCards } from './characterCard';
 import { checkPlotAgainstFacts } from './plotCheck';
+import { planThreads } from './threads';
+import { updateGlobalSummary } from './summarize';
 import { PLOT_CHECK_SUGGESTION, describeConflict } from '../model/plotCheck';
 import { PREFLIGHT_SUGGESTION, PreflightRisk, describeExempted, describeRisks, preflightChapter, riskKey } from './preflight';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import {
   CONFIG_CALLS,
   CallEstimate,
+  GLOBAL_SUMMARY_EVERY,
   ONE_CALL,
   PLOT_BATCH,
   SETTING_DOCS,
@@ -133,7 +136,7 @@ export async function generatePlots(
         detail:
           `${describeTaskModels(config, 'plotOutline')}\n` +
           (plan.skipped.length > 0 ? `已经排过的第 ${plan.skipped.join('、')} 章跳过，不会被改动。\n` : '') +
-          '每批写完就落盘，后一批接着前一批往下排；一批失败就停，已经写好的留着。\n' +
+          '每批写完就落盘，后一批接着前一批往下排；一批失败就停，已经写好的留着。拆完再从细纲排一次叙事线（只追加新线）。\n' +
           '输出被截断或格式不对时会自动拆小重试，所以给的是上限。',
       }
     );
@@ -176,9 +179,17 @@ export async function generatePlots(
           return;
         }
       }
+      // 拆完接着从细纲排一次叙事线：伏笔有人记着，定稿时才判得出推进了哪几条（百章实验里叙事线一直是空的）。
+      report({ message: '排叙事线', current: done, total: plan.chapters.length });
+      const th = await planThreads(project, pool, signal);
+      calls += th.calls;
+      if (th.cancelled) {
+        return;
+      }
       report({ message: '收尾', current: done, total: plan.chapters.length });
       log.info(`批量拆细纲结束：${done} 章`, `调用 ${calls} 次，总耗时 ${elapsed(startedAt)}`);
-      getHost().toast(`已为${where}写好 ${done} 章细纲${plan.skipped.length > 0 ? `（跳过已有的 ${plan.skipped.length} 章）` : ''}。`);
+      const threads = th.error ? `；叙事线没排成（${th.error}）` : th.added.length > 0 ? `；新排出 ${th.added.length} 条叙事线` : '';
+      getHost().toast(`已为${where}写好 ${done} 章细纲${plan.skipped.length > 0 ? `（跳过已有的 ${plan.skipped.length} 章）` : ''}${threads}。`);
     },
     { scope: '流水线' }
   );
@@ -456,7 +467,7 @@ export async function writeManuscripts(
   project: NovelProject,
   opts: { range?: { from: number; to: number }; mode?: WriteBatchMode; review?: boolean; confirmed?: boolean } = {}
 ): Promise<number> {
-  const [facts, chapters] = await Promise.all([buildBookFacts(project), project.listChapters()]);
+  const [facts, chapters, manifest] = await Promise.all([buildBookFacts(project), project.listChapters(), project.readManifest()]);
   const mode = opts.mode ?? 'draft';
   const reviewing = opts.review === true;
   const from = Math.max(1, opts.range?.from ?? facts.nextChapterNo);
@@ -469,6 +480,7 @@ export async function writeManuscripts(
     writtenNos: chapters.filter((c) => c.wordCount > 0).map((c) => c.order),
     plotFilledNos: facts.plotFilledNos,
     outlineCoverage: Math.min(facts.outlineCoverage, facts.totalChapters ?? Infinity),
+    globalSummaryThrough: manifest.globalSummaryThrough ?? 0,
   });
   const where = rangeLabel(plan.from, plan.to);
   if (plan.chapters.length === 0) {
@@ -548,6 +560,9 @@ export async function writeManuscripts(
           '每章写之前先比对一次细纲与前面定稿的连续性事实（前面没定稿过的章就不调）；对不上就停在那一章前面。',
           reviewing ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不会停。' : '',
           mode === 'finalize' ? '每写完一章就定稿（摘要 + 出场角色的当前状态），再写下一章。' : '只写正文，不定稿；之后在主按钮上逐章定稿。',
+          plan.globalSummaryAt.length > 0
+            ? `第 ${plan.globalSummaryAt.join('、')} 章定稿之后各更新一次全书滚动摘要（落后 ${GLOBAL_SUMMARY_EVERY} 章就更新，每次 1 次调用）。`
+            : '',
           plan.skipped.length > 0 ? `已经写过正文的第 ${plan.skipped.join('、')} 章跳过，不会被改动。` : '',
           plan.stopAt !== undefined ? `第 ${plan.stopAt} 章还没有细纲、情节大纲也没覆盖到它，写到它前面为止。` : '',
           '一章写不出来就停；写出来但开头重演了上一章、把后面几章的人提前写了进来、没写够八成或结尾停在半句上，也写进去然后停下，等你看过再继续。',
@@ -654,6 +669,13 @@ export async function writeManuscripts(
             }
             halt = { no, why: `的细纲没拆成（${r.reason}）`, level: 'error' };
             break;
+          }
+          // 新排出来的细纲里埋了什么线：接着排一次（只追加新线；没排成不挡写章，失败挂在 threads.md 上）。
+          const th = await planThreads(project, plotPool, signal);
+          calls += th.calls;
+          if (th.cancelled) {
+            log.warn(`批量写章被取消，停在排叙事线`);
+            return;
           }
           project.invalidate();
           plot = await project.getPlot(no);
@@ -802,6 +824,21 @@ export async function writeManuscripts(
             calls += outcome.calls;
             finalized++;
             log.info(`${name}已定稿`, describeFinalize(no, outcome));
+            if (summaryPool && plan.globalSummaryAt.includes(no)) {
+              report({ message: `${name} · 更新全书摘要`, current: i, total });
+              try {
+                const g = await updateGlobalSummary(project, summaryPool, signal);
+                calls += g.calls;
+              } catch (err) {
+                calls += 1;
+                if (err instanceof CancelledError || signal.aborted) {
+                  log.warn(`批量写章被取消，${name}定稿了、全书摘要没更新`);
+                  return;
+                }
+                // 全书摘要是额外的一道：没更新成不挡写章，下一次落后得更多时再更新。
+                log.warn(`全书摘要没更新成（${describeError(err)}），接着写`);
+              }
+            }
           } catch (err) {
             // 请求发出去了钱就花了：摘要那一次算上。
             calls += 1;

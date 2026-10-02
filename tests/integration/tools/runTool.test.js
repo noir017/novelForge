@@ -300,22 +300,22 @@ describe('批量拆细纲：作者同意', () => {
     assert.deepEqual(plot.characters, ['林昭']);
   });
 
-  // 两章一批：一次调用出两份。
-  test('两章一批，调了一次模型', () => {
-    assert.equal(fake.calls.length, 1, String(fake.calls.length));
+  // 两章一批：一次调用出两份；拆完再排一次叙事线。
+  test('两章一批，调了一次模型；拆完排一次叙事线', () => {
+    assert.equal(fake.calls.length, 2, String(fake.calls.length));
   });
 
   // ★ 实际调了几次，账上就记几次。
   test('调用次数报了出去', () => {
-    assert.equal(ctx.usage.calls, 1);
+    assert.equal(ctx.usage.calls, 2);
   });
 
   test('用量在气泡里说出来了', () => {
-    assert.ok(reports.some((m) => m.includes('1')), JSON.stringify(reports));
+    assert.ok(reports.some((m) => m.includes('2')), JSON.stringify(reports));
   });
 
   test('返回文本里有次数', () => {
-    assert.ok(r.text.includes('1 次'), r.text);
+    assert.ok(r.text.includes('2 次'), r.text);
   });
 
   test('没事可做时再调一次不花钱', async () => {

@@ -675,8 +675,8 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
     assert.deepEqual(plan.chapters, [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     // 第 4、5 章把区间断开：1–3 一批；6–14 再按 5 章切。
     assert.deepEqual(plan.batches, [[1, 2, 3], [6, 7, 8, 9, 10], [11, 12, 13, 14]]);
-    // 三批各 1 次；上限 3n 按要写的章数加总。
-    assert.deepEqual(plan.calls, { low: 3, high: 3, max: 36 });
+    // 三批各 1 次；上限 3n 按要写的章数加总；拆完排一次叙事线。
+    assert.deepEqual(plan.calls, { low: 4, high: 4, max: 37 });
   });
 
   test('区间写反了照样认；全都排过时一批都没有', () => {
@@ -803,7 +803,8 @@ describe('pipeline.ts · 批量写章的切分', () => {
     assert.deepEqual(plan.plotBatches, [[3, 4, 5, 6, 7], [8], [10]]);
     assert.equal(plan.stopAt, undefined);
     const writing = pipeline.planWriteBatch({ ...base, plotFilledNos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], from: 1, to: 10 }).calls;
-    assert.deepEqual(plan.calls, { low: writing.low + 3, high: writing.high + 3, max: writing.max + 15 + 3 + 3 });
+    // 三批细纲各 1 次（上限 3n），每批拆完各排一次叙事线。
+    assert.deepEqual(plan.calls, { low: writing.low + 6, high: writing.high + 6, max: writing.max + 15 + 3 + 3 + 3 });
   });
 
   test('边写边拆：超出大纲覆盖的第一章在它前面收住', () => {
@@ -816,6 +817,16 @@ describe('pipeline.ts · 批量写章的切分', () => {
   test('边写边拆：已有正文的章把批断开', () => {
     const plan = pipeline.planWriteBatch({ ...base, plotFilledNos: [], writtenNos: [3], from: 1, to: 5, outlineCoverage: 10 });
     assert.deepEqual(plan.plotBatches, [[1, 2], [4, 5]]);
+  });
+
+  test('写完即定稿：全书摘要落后 10 章就在那一章定稿之后更新一次，各算 1 次；只写正文不更新', () => {
+    const filled = Array.from({ length: 30 }, (_, i) => i + 1);
+    const plan = pipeline.planWriteBatch({ ...base, mode: 'finalize', plotFilledNos: filled, writtenNos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], from: 11, to: 20, globalSummaryThrough: 3 });
+    assert.deepEqual(plan.globalSummaryAt, [13]);
+    const none = pipeline.planWriteBatch({ ...base, mode: 'finalize', plotFilledNos: filled, from: 11, to: 20, globalSummaryThrough: 10 });
+    assert.deepEqual(none.globalSummaryAt, [20]);
+    assert.equal(none.calls.low - pipeline.planWriteBatch({ ...base, mode: 'finalize', plotFilledNos: filled, from: 11, to: 20, globalSummaryThrough: 11 }).calls.low, 1);
+    assert.deepEqual(pipeline.planWriteBatch({ ...base, plotFilledNos: filled, from: 11, to: 20 }).globalSummaryAt, []);
   });
 
   test('一次最多 10 章；写满了就不再往后看细纲', () => {

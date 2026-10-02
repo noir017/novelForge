@@ -180,6 +180,7 @@ export function openWriteBatchForm(tree: ProjectTree): void {
       writtenNos,
       plotFilledNos,
       outlineCoverage,
+      globalSummaryThrough: tree.globalSummaryThrough,
     });
   openForm({
     title: '批量写章',
