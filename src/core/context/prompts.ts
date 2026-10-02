@@ -46,6 +46,7 @@ import {
   outputKindOf,
 } from '../model/pipeline';
 import { BLUEPRINT_LIMITS } from '../model/plotFile';
+import { OUTLINE_SECTION_MAX } from '../model/outlineFile';
 import {
   FrozenGoal,
   REVIEW_DESCRIPTION_MAX,
@@ -885,7 +886,10 @@ function outlineContract(facts: PromptFacts): string {
     ...(pov ? [`4. 叙事视角为「${pov}」，大纲设计时需考虑视角限制对信息揭露、悬念制造的影响。`] : []),
     '5. 故事前提、角色图谱、世界观中的作者明确设定必须作为后续情节的因果约束，不得遗漏、弱化或反转。',
     '6. 落实全局要求，避开其中列出的写作问题。',
-    '7. 只输出情节大纲本身，禁止一切废话或旁白。',
+    `7. 每一节最多覆盖 ${OUTLINE_SECTION_MAX} 章：一节写的事撑不满它覆盖的章数，细纲就只能把同一个高潮反复演。章数多的结构节点拆成几节写，每节写清这几章各自推进到哪。`,
+    '8. 终局级事件（主角动用终极手段、核心反派身死、核心大阵或秘境毁灭、主要角色死亡）全书只发生一次：写明发生在哪一节，此前只能铺垫或局部发生，此后只写余波与代价。',
+    '9. 有修炼、等级或实力体系时，每节末尾写明主角此时的境界与关键资源；境界只进不退，跨度与章数相称，不要几十章原地不动，也不要越级太多。',
+    '10. 只输出情节大纲本身，禁止一切废话或旁白。',
   ].join('\n');
 }
 

@@ -197,3 +197,16 @@ describe('outlineFile.ts · 按区间合并', () => {
     assert.match(merged, /一。/);
   });
 });
+
+// 百章实验：22 节覆盖 100 章，一节十章，细纲撑不满就把同一个高潮反复演。
+describe('outlineFile.ts · 超跨度的节', () => {
+  test('覆盖超过 5 章的那几节', () => {
+    const ranges = O.parseOutlineRanges('## 第1章：甲\n一\n\n## 第2–6章：乙\n二\n\n## 第7–16章：丙\n三\n');
+    assert.deepEqual(
+      O.oversizedSections(ranges).map((r) => [r.from, r.to]),
+      [[7, 16]]
+    );
+    assert.equal(O.OUTLINE_SECTION_MAX, 5);
+    assert.deepEqual(O.oversizedSections(ranges, 3).map((r) => r.from), [2, 7]);
+  });
+});
