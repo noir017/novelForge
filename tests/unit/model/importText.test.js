@@ -38,6 +38,11 @@ describe('importText · 解码', () => {
     assert.equal(r.encoding, 'utf-16le');
     assert.equal(r.text, '楔子');
   });
+
+  test('decodeFileText：UTF-8 原样（换行不动），GBK 解成中文', () => {
+    assert.equal(m.decodeFileText(Buffer.from('第一行\r\n第二行', 'utf8')), '第一行\r\n第二行');
+    assert.equal(m.decodeFileText(new Uint8Array([0xc4, 0xe3, 0xba, 0xc3, 0x0d, 0x0a])), '你好\n');
+  });
 });
 
 describe('importText · 认标题', () => {

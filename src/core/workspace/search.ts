@@ -21,6 +21,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { scoped } from '../runtime/logger';
+import { decodeFileText } from '../model/importText';
 import { NovelProject } from '../model/project';
 import { ArtifactKind, kindOfPath, normalizeRel } from './kind';
 import { MAX_EDITABLE_BYTES, isInTrash, isInternalPath } from './guard';
@@ -126,7 +127,7 @@ export async function search(
         dropped++;
         continue;
       }
-      text = await fs.readFile(abs, 'utf8');
+      text = decodeFileText(await fs.readFile(abs));
     } catch {
       continue; // 权限、刚被删掉：跳过一份文件不该让整次检索失败
     }

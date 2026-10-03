@@ -4,6 +4,7 @@
  * 任务边界与小节一字不差。
  */
 import { StopSignal } from '../llm/provider';
+import { stripCodeFence } from './parse';
 
 const STYLE_INTRO =
   '你是文学编辑，需要从作者的样章中归纳出一份「文风指南」。这份指南会在每次 AI 续写时注入模型，用来保证续写内容与原作风格一致，因此必须**具体、可执行**，不能是「文笔优美」这类无法操作的空话。';
@@ -112,6 +113,44 @@ export function assertComplete(system: string, output: string, stopReason: StopS
   }
   const missing = missingSections(system, output);
   if (missing.length > 0) {
-    throw new Error(`回答缺了「${missing.join('」「')}」${missing.length} 节，多半是被截断了`);
+    throw new Error(missing.length === missingSections(system, '').length ? '回答是空的或没按小节写' : `回答缺了「${missing.join('」「')}」${missing.length} 节，多半是被截断了`);
+  }
+}
+
+/** 没撞上限却缺小节时，同一个模型再问几次。 */
+export const INCOMPLETE_RETRIES = 2;
+
+/**
+ * 调一次、去掉代码围栏、核小节；没撞上限却缺小节就重问。
+ *
+ * 有的网关会在上游半路断流时照常发 `[DONE]`、不给收尾原因（实测 newapi 转 gemini-3-flash
+ * 时有发生），回答停在第一二节。这种断流是偶发的，再问一次多半就全了；撞了输出上限
+ * 则是稳定复现的，重问只是白烧 token，直接报错。放在 `pool.run` 里面调：重试用完还缺，
+ * 抛出去由池子换模型。
+ */
+export async function collectComplete(
+  system: string,
+  call: () => Promise<{ text: string; stopReason?: StopSignal }>,
+  opts: { maxOut: number; signal?: AbortSignal; onRetry?: (attempt: number, reason: string) => void }
+): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    const r = await call();
+    const text = stripCodeFence(r.text).trim();
+    if (opts.signal?.aborted) {
+      return text;
+    }
+    try {
+      assertComplete(system, text, r.stopReason, opts.maxOut);
+      return text;
+    } catch (err) {
+      const reason = (err as Error).message;
+      if (r.stopReason === 'maxTokens') {
+        throw err;
+      }
+      if (attempt >= INCOMPLETE_RETRIES) {
+        throw new Error(`${reason}（连问 ${attempt + 1} 次都不完整，多半是服务商半路断了流：过会儿再试，或给这一档多配一个模型）`);
+      }
+      opts.onRetry?.(attempt + 1, reason);
+    }
   }
 }

@@ -207,13 +207,15 @@ describe('从参考书学写法 · 边角', () => {
     }
   });
 
-  test('写法写到一半就停：不写技能、不问绑定，报出缺了哪几节；文风照常写', async () => {
+  test('写法每次都写到一半就停：重问用完后不写技能、不问绑定，报出缺了哪几节；文风照常写', async () => {
     const t = await fresh('ref-cut');
     skillBody = '## 章节结构\n\n- **结尾停靠**：\n  1. 视觉峰值\n  2. 规则';
     try {
       h.expect('参考/玄天录.txt', 'both', '开始学');
       const r = await bundle.reference.learnFromReference(t.project);
-      assert.equal(r.calls, 2);
+      // 文风 1 次 + 写法 1 次再重问 2 次
+      assert.equal(r.calls, 4);
+      assert.equal(fake.callCount(), 4);
       assert.equal(r.skill, undefined);
       assert.equal(r.style, '.novelforge/style.md');
       assert.ok(!t.has('.novelforge/skills'));

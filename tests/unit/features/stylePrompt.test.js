@@ -39,3 +39,53 @@ describe('stylePrompt.ts · 截断检查', () => {
     assert.throws(() => assertComplete(STYLE_SYSTEM, '## 叙事视角\n第三人称', undefined, 8000), /缺了「句式节奏」/);
   });
 });
+
+describe('stylePrompt.ts · 不完整就重问', () => {
+  const full = (system) =>
+    system
+      .split('\n')
+      .filter((l) => l.startsWith('## '))
+      .map((h) => `${h}\n内容`)
+      .join('\n\n');
+
+  test('网关半路断流：重问一次就拿到完整的', async () => {
+    const { collectComplete, STYLE_SYSTEM } = mod();
+    const replies = [{ text: '## 叙事视角\n第三人称' }, { text: '```markdown\n' + full(STYLE_SYSTEM) + '\n```', stopReason: 'end' }];
+    const retries = [];
+    const text = await collectComplete(STYLE_SYSTEM, async () => replies.shift(), {
+      maxOut: 8000,
+      onRetry: (attempt, reason) => retries.push([attempt, reason]),
+    });
+    assert.equal(text, full(STYLE_SYSTEM));
+    assert.equal(retries.length, 1);
+    assert.match(retries[0][1], /缺了「句式节奏」/);
+  });
+
+  test('撞了输出上限：不重问，直接报错', async () => {
+    const { collectComplete, STYLE_SYSTEM } = mod();
+    let calls = 0;
+    await assert.rejects(
+      collectComplete(STYLE_SYSTEM, async () => (calls++, { text: '## 叙事视角', stopReason: 'maxTokens' }), { maxOut: 8000 }),
+      /输出上限/
+    );
+    assert.equal(calls, 1);
+  });
+
+  test('一直不完整：重问用完后报错，说明问了几次', async () => {
+    const { collectComplete, INCOMPLETE_RETRIES, REFERENCE_SKILL_SYSTEM } = mod();
+    let calls = 0;
+    await assert.rejects(
+      collectComplete(REFERENCE_SKILL_SYSTEM, async () => (calls++, { text: '' }), { maxOut: 8000 }),
+      new RegExp(`回答是空的.*连问 ${INCOMPLETE_RETRIES + 1} 次`)
+    );
+    assert.equal(calls, INCOMPLETE_RETRIES + 1);
+  });
+
+  test('已取消：不核小节，原样返回', async () => {
+    const { collectComplete, STYLE_SYSTEM } = mod();
+    const ctl = new AbortController();
+    ctl.abort();
+    const text = await collectComplete(STYLE_SYSTEM, async () => ({ text: '## 叙事视角' }), { maxOut: 8000, signal: ctl.signal });
+    assert.equal(text, '## 叙事视角');
+  });
+});

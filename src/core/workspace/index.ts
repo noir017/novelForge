@@ -30,6 +30,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { scoped } from '../runtime/logger';
+import { decodeFileText } from '../model/importText';
 import {
   countWords,
   hash,
@@ -209,7 +210,7 @@ export class Workspace {
   async read(rel: string, opts?: { offset?: number; limit?: number }): Promise<WsFile> {
     const abs = await guardRead(this.project, rel);
     const normalized = normalizeRel(rel)!;
-    const full = await readText(abs);
+    const full = decodeFileText(await fs.readFile(abs));
     const kind = kindOfPath(this.project, normalized).kind;
 
     const offset = Math.max(0, Math.trunc(opts?.offset ?? 0));
@@ -804,7 +805,7 @@ async function pathExists(abs: string): Promise<boolean> {
 
 async function wordsOf(abs: string): Promise<number | undefined> {
   try {
-    return countWords(await fs.readFile(abs, 'utf8'));
+    return countWords(decodeFileText(await fs.readFile(abs)));
   } catch {
     // 二进制/权限问题：不给字数，也不因此让整次列举失败。
     return undefined;

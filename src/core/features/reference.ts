@@ -39,8 +39,7 @@ import { listSkills, loadSkill, readSkillBindings, saveSkillBinding } from '../s
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
 import { formatWordCount, pickBookText, readBookText } from './bookText';
-import { stripCodeFence } from './parse';
-import { REFERENCE_SKILL_SYSTEM, REFERENCE_STYLE_SYSTEM, assertComplete } from './stylePrompt';
+import { INCOMPLETE_RETRIES, REFERENCE_SKILL_SYSTEM, REFERENCE_STYLE_SYSTEM, collectComplete } from './stylePrompt';
 
 const log = scoped('学写法');
 
@@ -161,22 +160,29 @@ export async function learnFromReference(
     }
     log.debug(`${label}：样章已备好`, `${corpus.length} 字（约 ${estimateTokens(corpus)} token）`);
     outcome.calls++;
-    const r = await pool.run(label, (llm) =>
-      collect(
-        llm.stream(
-          [
-            { role: 'system', content: system },
-            { role: 'user', content: corpus },
-          ],
-          { maxOutputTokens: maxOut, temperature: 0.3, timeoutMs: config.requestTimeoutMs, signal }
-        )
+    return pool.run(label, (llm) =>
+      collectComplete(
+        system,
+        () =>
+          collect(
+            llm.stream(
+              [
+                { role: 'system', content: system },
+                { role: 'user', content: corpus },
+              ],
+              { maxOutputTokens: maxOut, temperature: 0.3, timeoutMs: config.requestTimeoutMs, signal }
+            )
+          ),
+        {
+          maxOut,
+          signal,
+          onRetry: (attempt, reason) => {
+            outcome.calls++;
+            log.warn(`${label}：回答不完整，重问（第 ${attempt}/${INCOMPLETE_RETRIES} 次）`, reason);
+          },
+        }
       )
     );
-    const text = stripCodeFence(r.text).trim();
-    if (text && !signal.aborted) {
-      assertComplete(system, text, r.stopReason, maxOut);
-    }
-    return text;
   };
 
   const ws = new Workspace(project);

@@ -52,6 +52,15 @@ export function decodeTextBytes(bytes: Uint8Array): { text: string; encoding: Te
   return { text: text.replace(/\r\n?/g, '\n'), encoding };
 }
 
+/**
+ * 读工程里的文件给 agent 看、数字数、检索用：UTF-8 原样返回（不动换行与 BOM，与写盘那条路读到的一字不差），
+ * 不是 UTF-8 才走 `decodeTextBytes`——作者丢进工程的 txt 常是 GBK，按 UTF-8 读出来是一屏乱码。
+ */
+export function decodeFileText(bytes: Uint8Array): string {
+  const decoded = decodeTextBytes(bytes);
+  return decoded.encoding === 'utf-8' ? Buffer.from(bytes).toString('utf8') : decoded.text;
+}
+
 /** 确认框里怎么称呼这种编码。 */
 export const ENCODING_LABEL: Record<TextEncodingName, string> = {
   'utf-8': 'UTF-8',

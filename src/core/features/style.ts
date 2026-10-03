@@ -8,9 +8,8 @@ import { runTask } from '../runtime/progress';
 import { NovelProject } from '../model/project';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
-import { stripCodeFence } from './parse';
 import { pickPlotsByInput } from './pickPlots';
-import { STYLE_SYSTEM, assertComplete } from './stylePrompt';
+import { INCOMPLETE_RETRIES, STYLE_SYSTEM, collectComplete } from './stylePrompt';
 
 const log = scoped('文风');
 
@@ -104,24 +103,31 @@ export async function extractStyle(project: NovelProject): Promise<void> {
         signal,
       };
       const modelStart = Date.now();
-      const r = await pool.run('提取文风', (llm) =>
-        collect(
-          llm.stream(
-            [
-              { role: 'system', content: STYLE_SYSTEM },
-              { role: 'user', content: corpus },
-            ],
-            options
-          )
+      const raw = await pool.run('提取文风', (llm) =>
+        collectComplete(
+          STYLE_SYSTEM,
+          () =>
+            collect(
+              llm.stream(
+                [
+                  { role: 'system', content: STYLE_SYSTEM },
+                  { role: 'user', content: corpus },
+                ],
+                options
+              )
+            ),
+          {
+            maxOut: options.maxOutputTokens,
+            signal,
+            onRetry: (attempt, reason) => log.warn(`回答不完整，重问（第 ${attempt}/${INCOMPLETE_RETRIES} 次）`, reason),
+          }
         )
       );
-      log.info('模型已返回', `${r.text.length} 字，用时 ${elapsed(modelStart)}`);
+      log.info('模型已返回', `${raw.length} 字，用时 ${elapsed(modelStart)}`);
       if (signal.aborted) {
         log.warn('提取被取消，未写盘');
         return;
       }
-      const raw = stripCodeFence(r.text);
-      assertComplete(STYLE_SYSTEM, raw, r.stopReason, options.maxOutputTokens);
 
       const relPath = await new Workspace(project).writeStyleGuide(raw);
       report({ message: '完成', current: 2, total: 2 });
