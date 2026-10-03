@@ -158,15 +158,16 @@ describe('正文配方 · 写第 4 章（后续章）', () => {
   test('执行卡压在消息最末：必需事件、章节钩子、作者本章指导', () => {
     const user = lastUser(b);
     const card = user.slice(user.indexOf('【本章执行卡'));
-    assert.ok(user.indexOf('【本章执行卡') > user.indexOf('【本章篇幅合同】'));
+    assert.ok(user.indexOf('【本章执行卡') > user.indexOf('【本章篇幅】'));
     assert.match(card, /- 必需事件：林昭夜里下到镇东的枯井/);
     assert.match(card, /- 章节钩子：井底有人咳了一声。/);
     assert.ok(card.includes(`- 作者本章指导：${ASK}`), card);
     assert.match(user.trimEnd(), /现在开始写作。[^\n]*$/);
   });
 
-  test('篇幅合同 ±20%', () => {
-    assert.ok(lastUser(b).includes('目标 1200 字；可接受范围 960–1440 字（±20%）'));
+  test('篇幅只给大概：约 N 字，不必精确，不给区间', () => {
+    assert.ok(lastUser(b).includes('约 1200 字，不必精确，也不用数字数'));
+    assert.ok(!/±\d+%/.test(lastUser(b)));
   });
 
   test('后续章：连载更新法则，不是黄金第一章', () => {
@@ -263,8 +264,8 @@ describe('正文配方 · 接着写第 3 章', () => {
     const user = lastUser(b);
     assert.match(user, /请无缝续写当前章节正文/);
     assert.match(user, /只输出新增正文，不要复述已写内容/);
-    assert.match(user, /剩余约 \d+ 字/);
-    assert.ok(!user.includes('【本章篇幅合同】'));
+    assert.match(user, /大约再写 \d+ 字，不必精确/);
+    assert.ok(!user.includes('【本章篇幅】'));
     assert.match(user.trimEnd(), /现在接着写。/);
   });
 
@@ -316,7 +317,7 @@ describe('正文配方 · 续写那几轮（精简配方）', () => {
 
   test('已写末尾就是生成链给的那一段', () => {
     assert.equal(b.items.find((i) => i.kind === 'chapterSoFar').text, step.tail);
-    assert.match(lastUser(b), /剩余约 500 字/);
+    assert.match(lastUser(b), /大约再写 500 字/);
   });
 
   test('恢复那一轮开头说清「上一轮已丢弃」', () => {

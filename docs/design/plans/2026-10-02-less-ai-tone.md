@@ -1,5 +1,7 @@
 # 内置技能：去 AI 味（写正文 / 审稿 / 修稿）
 
+> **已归档（2026-10-03）**：三份技能实测基本无效，已从内置撤下，`SKILL.md` 原文在 [docs/design/archive/less-ai-tone/](../archive/less-ai-tone/)。后续见 [2026-10-03-plain-prose.md](2026-10-03-plain-prose.md)。下文是当时的设计与数据，代码链接已失效。
+
 > 2026-10-02。在写作技能（[2026-10-02-writing-skills.md](2026-10-02-writing-skills.md)）之上加三份内置技能，代码在 [skills/builtin/](../../../src/core/skills/builtin/index.ts)（一份一个文件，共用清单在 `aiTone.ts`）。方法借自 [lieflat-less-ai-tone](https://github.com/larashero3-dotcom/lieflat-less-ai-tone)（MIT），清单是这边对小说重新测出来的。
 
 ## 为什么不直接搬那份

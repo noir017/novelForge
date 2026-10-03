@@ -48,6 +48,8 @@ import { CancelledError, StopSignal } from '../llm/provider';
 import { countWords } from '../model/fs';
 import { MANUSCRIPT_DONE_RATIO, MAX_CONTINUE_ROUNDS, WriteMode } from '../model/pipeline';
 import {
+  DIALOGUE_FLOOR,
+  dialogueShare,
   EarlyEntrance,
   NotYet,
   SIMILE_LIMIT,
@@ -66,6 +68,7 @@ import { detectReplay } from '../context/replay';
 import { cleanOutput } from '../features/creation';
 import { describeError } from '../runtime/logger';
 import { CallOutcome, ChainIO, ChainResult, Tally } from './structured';
+import { trimModifiers } from './trim';
 
 // 续写时带已写正文的最后 1600 字：取法在装配那一层（「接着写」的第一次调用也要它）。
 export { CONTINUE_TAIL_CHARS, continuationTail } from '../context/layers/render';
@@ -208,8 +211,13 @@ export interface ManuscriptChainContext {
   mode: WriteMode;
   /** 本章已有的正文（`continue` 写法才有）。「写到多少字了」连它一起算。 */
   existing: string;
-  /** 目标字数。缺席时不自动续写（`shouldContinue`）。 */
+  /** 目标字数。缺席时不自动续写（`shouldContinue`）。卡片上的「写够了没有」、删修饰的保底按它算。 */
   target?: number;
+  /**
+   * 续写往哪儿写：该不该再续、还差多少字按它算。开着删修饰时比 `target` 多两成（`writingAim`），
+   * 删完落在目标附近；缺席就是 `target`。
+   */
+  aim?: number;
   /** 上一章的结尾（重演检测用）。第 1 章、上一章还没写正文时缺席。 */
   prevEnding?: string;
   /** 第一次调用有没有思考——截断且没几个字时，报错的说法不一样。 */
@@ -220,6 +228,8 @@ export interface ManuscriptChainContext {
   notYet?: readonly (NotYet & { aliases?: readonly string[] })[];
   /** 这本书写正文时不该用的词：续写那一轮告诉它已经用了哪几个，写完数一遍。 */
   banned?: readonly string[];
+  /** 写完之后跑一轮删修饰（`trim.ts`）。设置里的「写完正文删修饰」。 */
+  trim?: boolean;
   /** 每一轮开始时报一次进度。流式期间的进度由 `ChainIO.call` 的 `progress` 选项另报。 */
   onProgress?(p: WriteProgress): void;
   signal?: AbortSignal;
@@ -240,6 +250,8 @@ export interface ManuscriptChainResult extends ChainResult {
   replay?: string;
   /** 后面几章才登场、却写进了这一次新写的正文里的人。 */
   early?: EarlyEntrance[];
+  /** 删修饰真删了字时：删之前那一版（只含这一次新写的，与 `raw` 对应）。 */
+  untrimmed?: string;
 }
 
 /**
@@ -256,6 +268,7 @@ export async function completeManuscript(
   // 显式标注类型：`t.fail()` 返回 never，TS 只对显式标注的变量做控制流收窄。
   const t: Tally = new Tally(true);
   const base = ctx.existing.trim();
+  const aim = ctx.aim ?? ctx.target;
   // 「接着写」的第一次调用也可能把已写的最后几句复述一遍：一样去重叠。
   let added = joinContinuation(base, cleanOutput(first.text)).added;
   let stop = first.stop;
@@ -306,7 +319,7 @@ export async function completeManuscript(
   };
   const usedBanned = (text: string) => (ctx.banned?.length ? countBanned(text, ctx.banned) : []);
   let lastGain = Number.POSITIVE_INFINITY;
-  while (shouldContinue({ words: total(), target: ctx.target, stop, rounds })) {
+  while (shouldContinue({ words: total(), target: aim, stop, rounds })) {
     // 正常收尾、而上一轮只多了几句：模型认为这一章写完了，再催也是注水（上游 GD:1152）。
     if (stop !== 'maxTokens' && lastGain < MIN_ROUND_GAIN) {
       t.note(`续写第 ${rounds} 轮只多了 ${lastGain} 字，模型已经收尾，不再续写`);
@@ -352,10 +365,11 @@ export async function completeManuscript(
         kind: 'continuation',
         tail: continuationTail(written),
         written: before,
-        remaining: ctx.target ? Math.max(0, ctx.target - before) : undefined,
+        remaining: aim ? Math.max(0, aim - before) : undefined,
         recovery: recoveryPending,
         ...(rewinding ? { rewound: true } : {}),
         similes: countSimiles(written),
+        dialogue: dialogueShare(written),
         ...(usedBanned(written).length > 0 ? { banned: usedBanned(written) } : {}),
       },
     });
@@ -411,11 +425,19 @@ export async function completeManuscript(
   // 到了轮数上限、回退之后那一轮还没写成：同样放回去。
   restoreCut();
 
-  if (rounds >= MAX_CONTINUE_ROUNDS && shouldContinue({ words: total(), target: ctx.target, stop, rounds: 0 })) {
+  if (rounds >= MAX_CONTINUE_ROUNDS && shouldContinue({ words: total(), target: aim, stop, rounds: 0 })) {
     t.note(`续写到了上限 ${MAX_CONTINUE_ROUNDS} 轮，没有再续`);
   }
   if (stop === 'other') {
     t.note('模型因为别的原因停下了（常见的是内容审查），没有再续写');
+  }
+  let untrimmed: string | undefined;
+  if (ctx.trim) {
+    // 删之前够八成的，删完也得够：不然主按钮转去推「接着写」，这一轮等于白删。
+    const floor = ctx.target && total() >= lowerBound(ctx.target) ? lowerBound(ctx.target) - wordsOf(base) : undefined;
+    const trimmed = await trimModifiers(io, t, added, { floor, signal: ctx.signal });
+    added = trimmed.text;
+    untrimmed = trimmed.untrimmed;
   }
   const chapterText = [base, added].filter(Boolean).join('\n\n');
   const midSentence = endsMidSentence(chapterText);
@@ -449,6 +471,10 @@ export async function completeManuscript(
   if (similes > SIMILE_LIMIT) {
     t.note(`比喻词${SIMILE_WORDS.map((w) => `「${w}」`).join('')}全章合计 ${similes} 次（${describeSimiles(chapterText)}），超过 ${SIMILE_LIMIT} 次的上限`);
   }
+  const dialogue = dialogueShare(chapterText);
+  if (dialogue < DIALOGUE_FLOOR) {
+    t.note(`对白段只占 ${Math.round(dialogue * 100)}%（人类网文约三成），读起来像旁白`);
+  }
   const banned = usedBanned(chapterText);
   if (banned.length > 0) {
     t.note(`正文用到了这本书不该用的词：${describeBanned(banned)}。换成这个故事里的人会说的话`);
@@ -473,5 +499,6 @@ export async function completeManuscript(
     truncated,
     replay,
     ...(early.length > 0 ? { early } : {}),
+    ...(untrimmed ? { untrimmed } : {}),
   };
 }

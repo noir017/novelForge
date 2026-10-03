@@ -50,10 +50,12 @@ function makeFakeHost(opts = {}) {
   /** reviewReplace 里的人为延时，用来让重入真的可观察。 */
   let reviewDelayMs = 0;
 
-  const readSettings = () => {
-    if (typeof settings === 'function') return settings();
-    return settings ?? {};
-  };
+  // 删修饰缺省开、每章多一次调用：假模型的回放脚本都是按「写 + 续写」排的，这里缺省关掉，
+  // 测删修饰的用例自己传 `trimModifiers: true`。
+  const readSettings = () => ({
+    trimModifiers: false,
+    ...(typeof settings === 'function' ? settings() : settings ?? {}),
+  });
 
   const host = {
     name,

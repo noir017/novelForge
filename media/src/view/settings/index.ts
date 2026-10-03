@@ -57,10 +57,17 @@ export function renderSettings(
       node.value = String(settings[key as NumericField]);
     }
   }
+  const trim = maybeById<HTMLInputElement>(TRIM_FIELD);
+  if (trim) {
+    trim.checked = settings.trimModifiers !== false;
+  }
   renderProviders();
   renderTaskTiers();
   refreshProviderModal();
 }
+
+/** 「写完正文删修饰」那个勾选框的 id。 */
+const TRIM_FIELD = 'setTrimModifiers';
 
 function save(): void {
   const settings = {
@@ -72,6 +79,7 @@ function save(): void {
   for (const [key, id] of Object.entries(NUMERIC_FIELDS)) {
     settings[key as NumericField] = Number(byId<HTMLInputElement>(id).value);
   }
+  settings.trimModifiers = maybeById<HTMLInputElement>(TRIM_FIELD)?.checked !== false;
   const problem = validateProviders(draft.providers);
   if (problem) {
     toast(problem, true);
@@ -115,6 +123,7 @@ export function installSettings(): void {
   for (const id of Object.values(NUMERIC_FIELDS)) {
     maybeById(id)?.addEventListener('input', touch);
   }
+  maybeById(TRIM_FIELD)?.addEventListener('change', touch);
 
   byId('saveSettingsBtn').addEventListener('click', save);
   // 能力探测：只有带原生设置界面的宿主（VS Code）才渲染这颗按钮，

@@ -273,7 +273,7 @@ describe('给章节路径：按章号认成正文层', () => {
 
   test('目标字数传进了 prompt', () => {
     const user = firstCall[firstCall.length - 1].content;
-    assert.ok(user.includes('目标 800 字'), user.slice(-400));
+    assert.ok(user.includes('约 800 字'), user.slice(-400));
   });
 
   // 三期：写得太短（十来个字对 800 字的目标）就自动续写，续写那一轮带着已写的末尾。

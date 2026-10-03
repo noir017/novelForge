@@ -56,6 +56,7 @@ export async function pushSettingsTo(sink: SettingsSink, ack?: 'saved' | 'reject
       requestTimeoutMs: cfg.requestTimeoutMs,
       concurrency: cfg.concurrency,
       fallbackAttempts: cfg.fallbackAttempts,
+      trimModifiers: cfg.trimModifiers,
     },
     keys: await apiKeyStatus(cfg.providers),
   });
@@ -101,6 +102,7 @@ export async function saveSettingsFrom(
     requestTimeoutMs: s.requestTimeoutMs,
     concurrency: s.concurrency,
     fallbackAttempts: s.fallbackAttempts,
+    trimModifiers: s.trimModifiers !== false,
   });
 
   // 删掉的服务商不该在钥匙串里留下孤儿 Key。
@@ -111,7 +113,8 @@ export async function saveSettingsFrom(
     `${providers.length} 个服务商｜默认模型 ${models.join('、') || '（未选）'}｜` +
       `${describeTierConfig(tierModels, taskTiers)}｜` +
       `温度 ${s.temperature}｜超时 ${s.requestTimeoutMs}ms｜` +
-      `并发 ${s.concurrency}｜换模型重试 ${s.fallbackAttempts} 次`
+      `并发 ${s.concurrency}｜换模型重试 ${s.fallbackAttempts} 次｜` +
+      `删修饰 ${s.trimModifiers !== false ? '开' : '关'}`
   );
   await pushSettingsTo(sink, 'saved');
   if (afterSave) {

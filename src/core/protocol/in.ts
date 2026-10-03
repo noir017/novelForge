@@ -237,4 +237,6 @@ export interface SettingsPayload {
   requestTimeoutMs: number;
   concurrency: number;
   fallbackAttempts: number;
+  /** 写完正文删修饰。 */
+  trimModifiers: boolean;
 }

@@ -9,7 +9,7 @@
 | [library.ts](library.ts) | 三个来源怎么读（内置 / 我的技能库 / 本工程），我的技能库怎么装与卸。**每次都读盘**；不跟链接 |
 | [github.ts](github.ts) | 从 GitHub 装：**先检查、再确认安装**，两步之间内容变了不装 |
 | [bindings.ts](bindings.ts) | 工程的阶段绑定（`.novelforge/skills.json`）：读、改、装配器问的那一句 `boundSkillFor` |
-| [builtin/](builtin/index.ts) | 五份内置技能，一份一个文件（整份 `SKILL.md` 文本，与其余来源走同一个解析器）：上游搬来两份，去 AI 味三份共用 [aiTone.ts](builtin/aiTone.ts) 的句式清单；`index.ts` 只定顺序 |
+| [builtin/](builtin/index.ts) | 三份内置技能，一份一个文件（整份 `SKILL.md` 文本，与其余来源走同一个解析器）：上游搬来两份，另有一份修正文风；`index.ts` 只定顺序 |
 
 纯函数（解析 `SKILL.md`、兼容检查、绑定文件的格式、一次装配算哪个阶段、GitHub 地址）在 [model/writingSkill.ts](../model/writingSkill.ts)：它零运行时 import，前端直接用里面的阶段名与来源名。
 
@@ -80,7 +80,7 @@
 |---|---|---|
 | 三个 agent 工具 | 一个 `skills` 工具的四个动作（多一个 `list`） | 四件事共用 `url` / `id` / `stage` 三个参数，合成一个工具比三个更好选（[tools/novel/index.ts](../tools/novel/index.ts)） |
 | 对话里 `/技能名` 手动调用 | 不做 | `/` 已经是阶段命令面板；上游这条路还绕过兼容检查与预算 |
-| 七个内置 | 搬了两个，另加三份去 AI 味 | 其余五个是上游 AI 助手对话用的，正文让模型调它自己的工具；去 AI 味见下 |
+| 七个内置 | 搬了两个，另加一份修正文风 | 其余五个是上游 AI 助手对话用的，正文让模型调它自己的工具；修正文风见下 |
 | 名字只认 ASCII | 可以是中文 | 作者给自己的方法起中文名再自然不过 |
 | 身份取 frontmatter 的 name | 取目录名 | 只有一个名字，卸载不会删了个空 |
 | 装之前看不到正文 | 检查结果带正文 | 往后每一次生成都会带上它 |
@@ -88,14 +88,10 @@
 | 卸载直接删 | 挪进回收站 | 第 6 条 |
 | 中英双语 | 只有中文 | novelForge 只写中文 |
 
-## 内置的去 AI 味
+## 内置的修正文风
 
-三份共用 [builtin/aiTone.ts](builtin/aiTone.ts) 的句式清单（揭底句「X，那是Y」、翻案腔、「带着一股……」、「闪过一丝」、「一种……的」、句首「然而，」、「当……时」与话题壳、书面比喻词、套路微动作、相邻句同构），按阶段各说一套用法：
+`builtin:plain-prose`（写正文）治过度描写：名词前堆形容词、动词前挂程度副词、「带着／透着」挂气味和情绪。八条能自己数的规矩加四组改前改后的整句示范。
 
-| id | 建议阶段 | 怎么用这张清单 |
-|---|---|---|
-| `builtin:less-ai-tone` | 写正文 | 叙述里避开；另加语体方向：多对白、口语叙述、多问句感叹句 |
-| `builtin:less-ai-tone-review` | 审稿 | 命中且成密度的报成 `AI 腔` / warning 审稿项，合计不超过 3 项 |
-| `builtin:less-ai-tone-refinement` | 修稿 | 清单里有 AI 腔一类的审稿项时按最小改动改，信息不增不减 |
+flash-lite 上实测**单绑它几乎没用**（修饰密度与不绑持平，删掉系统提示里三处反向要求之后「那／这＋定语」降三成，程度副词不动）：管住修饰靠的是写完之后那一轮只许删的删修饰（[generation/trim.ts](../generation/trim.ts)，设置里的「写完正文删修饰」），不是技能。它留着当提示词那一层的配合。
 
-flash-lite 上实测：写正文那份能把揭底句、翻案腔、句首然而压到五到七成，短语类压不下来；审稿那份的 AI 腔误报近一半、修稿又照单执行，暂不建议绑（数据见下面的文档）。修稿合同只许改清单指到的地方（技能排在合同之后），所以修稿那份不写「顺手清理」，靠审稿那份先把句子报出来、作者勾选。清单的数据来源与被排除的特征见 [docs/design/plans/2026-10-02-less-ai-tone.md](../../../docs/design/plans/2026-10-02-less-ai-tone.md)。
+从前的三份去 AI 味（写正文 / 审稿 / 修稿，共用一张十条的句式清单）实测基本无效，已撤下，原文归档在 [docs/design/archive/less-ai-tone/](../../../docs/design/archive/less-ai-tone/)，要用可以手动装进本工程。数据见 [2026-10-02-less-ai-tone.md](../../../docs/design/plans/2026-10-02-less-ai-tone.md) 与 [2026-10-03-plain-prose.md](../../../docs/design/plans/2026-10-03-plain-prose.md)。

@@ -43,6 +43,21 @@ export function describeSimiles(text: string): string {
     .join('、');
 }
 
+/**
+ * 对白段占比低于这个数时，续写那一轮提醒多让人物开口，写完记一条说明。人类网文三部 29–36%；
+ * novel-test 百章修仙只有 10–14%，整章像旁白。
+ */
+export const DIALOGUE_FLOOR = 0.25;
+
+/** 带引号（“”或「」）的段占全部段的比例。没有段时为 1（不提醒）。 */
+export function dialogueShare(text: string): number {
+  const paragraphs = (text ?? '').split(/\n\s*\n/).filter((p) => p.trim());
+  if (paragraphs.length === 0) {
+    return 1;
+  }
+  return paragraphs.filter((p) => /[“「]/.test(p)).length / paragraphs.length;
+}
+
 // ---------------------------------------------------------------- 停在半句
 
 /** 一句话能停在这些字上：句末标点、收引号与括号、省略号、破折号。 */

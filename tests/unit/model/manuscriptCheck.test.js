@@ -24,6 +24,16 @@ describe('manuscriptCheck · 比喻词', () => {
   });
 });
 
+describe('manuscriptCheck · 对白占比', () => {
+  test('带引号的段占全部段的比例', () => {
+    assert.equal(m.dialogueShare('他走了。\n\n“站住。”\n\n她说：「别走」。\n\n雨停了。'), 0.5);
+  });
+
+  test('没有段时不提醒', () => {
+    assert.equal(m.dialogueShare(''), 1);
+  });
+});
+
 describe('manuscriptCheck · 停在半句', () => {
   test('结尾不是句末标点就算停在半句', () => {
     assert.equal(m.endsMidSentence('他已经到了极限，全身'), true);

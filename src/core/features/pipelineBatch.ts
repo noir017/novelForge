@@ -72,6 +72,7 @@ import {
 import { Workspace } from '../workspace';
 import { acceptArtifact, acceptPlotBatch } from '../generation/accept';
 import { CallOutcome, ChainError, ChainIO, completeBlueprints, completeConfig, completeRoster } from '../generation/structured';
+import { writingAim } from '../model/trimProse';
 import { ManuscriptChainResult, WriteProgress, completeManuscript } from '../generation/continuation';
 import { planReview, planWriting } from '../generation/generate';
 import { completeReview } from '../generation/review';
@@ -931,28 +932,35 @@ async function writeOne(
     ask: `写第 ${plot.no} 章${plot.title ? `《${plot.title}》` : ''}的正文。`,
   };
   const writing = await planWriting(project, request);
+  // 开着删修饰时往多写一点，删完落在目标附近。
+  const aim = writingAim(writing.target, config.trimModifiers);
   const built: Omit<BuildRequest, 'providerMaxInputTokens'> = {
     ...request,
     writeMode: writing.mode,
-    targetWords: writing.target,
+    targetWords: aim,
     notYet: writing.notYet.map(({ name, no }) => ({ name, no })),
     banned: writing.banned,
   };
   const budgeted = { ...config, ...pool.primaryBudget };
   let pinned: LlmProvider | undefined;
-  const stream = async (llm: LlmProvider, messages: ChatMessage[], progress?: { round: number; base: number }): Promise<CallOutcome> => {
+  const stream = async (
+    llm: LlmProvider,
+    messages: ChatMessage[],
+    progress?: { round: number; base: number },
+    temperature = config.temperature
+  ): Promise<CallOutcome> => {
     let text = '';
     let stop: StopSignal | undefined;
     let reportedAt = 0;
     for await (const ev of llm.stream(messages, {
       maxOutputTokens: pool.primaryBudget.maxOutputTokens,
-      temperature: config.temperature,
+      temperature,
       timeoutMs: config.requestTimeoutMs,
       signal,
     })) {
       if (ev.type === 'text') {
         text += ev.text;
-        if (Date.now() - reportedAt >= 1000) {
+        if (progress && Date.now() - reportedAt >= 1000) {
           reportedAt = Date.now();
           hooks.onProgress({ round: progress?.round ?? 0, words: (progress?.base ?? 0) + countWords(text), target: writing.target });
         }
@@ -968,10 +976,10 @@ async function writeOne(
     call: async (messages, label, opts) => {
       hooks.onCall();
       if (pinned) {
-        return stream(pinned, messages, opts?.progress);
+        return stream(pinned, messages, opts?.progress, opts?.temperature);
       }
       return pool.run(label, async (llm) => {
-        const out = await stream(llm, messages, opts?.progress);
+        const out = await stream(llm, messages, opts?.progress, opts?.temperature);
         pinned = llm;
         return out;
       });
@@ -983,11 +991,13 @@ async function writeOne(
     mode: writing.mode,
     existing: writing.existing,
     target: writing.target,
+    aim,
     prevEnding: writing.prevEnding,
     reasoned: false,
     hook: writing.hook,
     notYet: writing.notYet,
     banned: writing.banned,
+    trim: config.trimModifiers,
     onProgress: hooks.onProgress,
     signal,
   });

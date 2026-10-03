@@ -71,6 +71,7 @@ import {
   completeRoster,
   singleShotNotes,
 } from './structured';
+import { writingAim } from '../model/trimProse';
 import { ManuscriptChainResult, WriteProgress, completeManuscript } from './continuation';
 import { ReviewChainContext, completeReview } from './review';
 import { completeRevision } from './revision';
@@ -112,6 +113,11 @@ export interface Draft {
   length?: DraftLength;
   /** 新稿开头与上一章结尾重合的那一段原文（context/replay.ts）。卡片标红、写入要点两下。 */
   replay?: string;
+  /**
+   * 删修饰真删了字时：删之前那一版（与 `raw` 对应，只含这一次新写的）。写入卡片点了「写入」之后，
+   * 合并视图拿它与气泡里那份逐段对照，作者可以把删改退回原文。
+   */
+  untrimmed?: string;
   /**
    * 审稿报告（五期）。审稿那一轮**没有 `artifact`**：报告不落盘，随会话保存（D22），
    * 作者在报告卡上勾选之后再发起修稿。
@@ -273,11 +279,13 @@ export async function generate(
     request = { ...request, reviewGoals: [...reviewing.goals] };
     log.info(`审稿：${where}`, `正文 ${countWords(reviewing.text)} 字｜目标 ${reviewing.goals.length} 项`);
   }
+  // 开着删修饰时往多写一点，删完落在目标附近（修稿不删修饰，原稿多长就多长）。
+  const aim = writing && writing.mode !== 'revise' ? writingAim(writing.target, config.trimModifiers) : writing?.target;
   if (writing) {
     request = {
       ...request,
       writeMode: writing.mode,
-      targetWords: writing.target,
+      targetWords: aim,
       revision: writing.mode === 'revise' ? writing.revision : request.revision ?? writing.revision,
       // 执行卡后面「本章不出场」那一行与写完查的是同一份（五期补遗 §1.2）。
       notYet: writing.notYet.map(({ name, no }) => ({ name, no })),
@@ -311,7 +319,8 @@ export async function generate(
   let full = '';
   const streamOnce = async (
     messages: typeof built.messages,
-    progress?: { round: number; base: number }
+    progress?: { round: number; base: number },
+    opts: { quiet?: boolean; temperature?: number } = {}
   ): Promise<CallOutcome> => {
     let text = '';
     let stop: StopSignal | undefined;
@@ -324,13 +333,17 @@ export async function generate(
       }
     };
     report();
-    for await (const ev of provider.stream(messages, streamOptions)) {
+    const options = opts.temperature === undefined ? streamOptions : { ...streamOptions, temperature: opts.temperature };
+    for await (const ev of provider.stream(messages, options)) {
       if (ev.type === 'text') {
         if (!firstDeltaAt) {
           firstDeltaAt = Date.now();
           log.debug('首个分片已到达', `首字延迟 ${elapsed(startedAt, firstDeltaAt)}`);
         }
         text += ev.text;
+        if (opts.quiet) {
+          continue;
+        }
         full += ev.text;
         handlers.onDelta(ev.text, full);
         // 数字随流一起涨，但不必每个分片都数一遍：几千个分片 × 几千字是平方级的活。
@@ -370,7 +383,7 @@ export async function generate(
           full += head;
           handlers.onDelta(head, full);
           log.info(`${what}：${label}`);
-          return streamOnce(messages, opts?.progress);
+          return streamOnce(messages, opts?.progress, { quiet: opts?.quiet, temperature: opts?.temperature });
         },
         reset: (text) => {
           full = text;
@@ -382,11 +395,13 @@ export async function generate(
           mode: writing.mode,
           existing: writing.existing,
           target: writing.target,
+          aim,
           prevEnding: writing.prevEnding,
           reasoned: !!reasoning,
           hook: writing.hook,
           notYet: writing.notYet,
           banned: writing.banned,
+          trim: config.trimModifiers,
           onProgress: handlers.onProgress,
           signal: options.signal,
         });
@@ -440,6 +455,7 @@ export async function generate(
               reached: !written.short,
             },
             ...(written.replay ? { replay: written.replay } : {}),
+            ...(written.untrimmed ? { untrimmed: written.untrimmed } : {}),
           }
         : {}),
     };

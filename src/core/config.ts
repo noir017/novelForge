@@ -42,6 +42,8 @@ export interface PersistedSettings {
   concurrency?: number;
   /** 一次调用失败后，换模型重试的次数上限。 */
   fallbackAttempts?: number;
+  /** 写完正文删修饰。缺席 = 开。 */
+  trimModifiers?: boolean;
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
   contextWindow?: number;
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
@@ -127,6 +129,7 @@ export function readConfig(): NovelConfig {
     requestTimeoutMs: c.requestTimeoutMs ?? 300000,
     concurrency: clamp('并发请求数', c.concurrency, CONCURRENCY_RANGE),
     fallbackAttempts: clamp('换模型重试次数', c.fallbackAttempts, FALLBACK_RANGE),
+    trimModifiers: c.trimModifiers !== false,
   };
 }
 

@@ -246,4 +246,8 @@ export interface NovelConfig {
   concurrency: number;
   /** 一次调用失败后，换用列表里其它模型重试的次数上限。0 表示不重试。 */
   fallbackAttempts: number;
+  /**
+   * 写完正文之后跑一轮「只许删」的删修饰（generation/trim.ts），对话页与批量写章都跑，每章多调 1 次模型。
+   */
+  trimModifiers: boolean;
 }

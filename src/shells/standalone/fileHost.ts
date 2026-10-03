@@ -338,6 +338,11 @@ export class FileHost implements Host {
     return parseMergeReply(value, !!opts?.merge);
   }
 
+  async mergeTexts(title: string, before: string, after: string): Promise<ReviewVerdict> {
+    const value = await this.prompts.ask({ kind: 'merge', title, current: before, proposed: after, mergeable: true });
+    return parseMergeReply(value, true);
+  }
+
   /**
    * 点审稿报告上的引文（五期）：内置编辑器里打开那一章，再推一条 `editorReveal` 让它选中那一句。
    * 找不到那一句（正文改过）时只打开、返回 false。

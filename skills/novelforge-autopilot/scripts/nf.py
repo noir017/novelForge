@@ -120,6 +120,9 @@ def answer_all(verdict='proceed', log_only_types=()):
             send({'type': 'promptResult', 'requestId': p['requestId'], **({'value': 'yes'} if verdict == 'proceed' else {})})
         elif p['kind'] == 'pick' and verdict == 'proceed':
             send({'type': 'promptResult', 'requestId': p['requestId'], 'value': (p.get('options') or [''])[0]})
+        elif p['kind'] == 'merge' and verdict == 'proceed':
+            # 合并视图（覆盖审阅、删修饰的逐段对照）：原样采用新版。
+            send({'type': 'promptResult', 'requestId': p['requestId'], 'value': json.dumps({'verdict': 'apply'})})
         else:
             send({'type': 'promptResult', 'requestId': p['requestId']})
         n += 1

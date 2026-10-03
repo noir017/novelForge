@@ -342,6 +342,12 @@ export function settingsPane(opts: PaneOptions = {}): string {
       <label class="field"><span>上一章结尾字数</span><input type="number" id="setPrevChapterTailChars" min="0" step="100"></label>
     </div>
 
+    <div class="pane-head"><span>删修饰</span></div>
+    <div class="hint">写完一章正文之后，让同一个模型再过一遍，只删名词前堆的形容词、动词前的程度副词这类多余修饰，不加字、不动对白；删坏的段落自动退回原文。每章多调 1 次模型。对话页写入前可以逐段把删改退回原文。</div>
+    <div class="grid">
+      <label class="field"><span>写完正文删修饰</span><input type="checkbox" id="setTrimModifiers"></label>
+    </div>
+
     <div class="pane-head"><span>全书摘要</span></div>
     <div class="hint">重建全书摘要时，单章摘要先按此数量分批汇总，再合并成全书摘要。</div>
     <div class="grid">

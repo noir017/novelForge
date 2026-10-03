@@ -6,9 +6,8 @@
  * 写作教练）是上游 AI 助手对话用的，正文让模型去调它自己的 `read_drafts` 一类工具、按星级表格
  * 作答——放进这里的生成链只会让模型以为自己能调一个不存在的工具。
  *
- * 另有三份去 AI 味是这边的（写正文 / 审稿 / 修稿各一份，共用 [aiTone.ts](aiTone.ts) 的句式清单）：
- * 审稿把命中的句子报成审稿项，作者勾了，修稿才动它——修稿合同只许改清单指到的地方，修稿那份
- * 不能写成「顺手清理」。
+ * 另有一份修正文风（写正文）是这边的，治名词前堆形容词的过度描写。从前的三份去 AI 味（写正文 /
+ * 审稿 / 修稿）实测基本无效，已归档到 docs/design/archive/less-ai-tone/。
  *
  * 写成整份 `SKILL.md` 文本而不是拆好的字段：内置与用户、工程技能走同一个解析器，兼容检查与
  * 字节数也是按真正注入的那份算的（上游内置的兼容性是拿一份短的替身算的）。
@@ -17,9 +16,7 @@
  */
 import { longFormContinuity } from './longFormContinuity';
 import { naturalProseRefinement } from './naturalProseRefinement';
-import { lessAiTone } from './lessAiTone';
-import { lessAiToneReview } from './lessAiToneReview';
-import { lessAiToneRefinement } from './lessAiToneRefinement';
+import { plainProse } from './plainProse';
 import type { BuiltinSkill } from './types';
 
 export type { BuiltinSkill } from './types';
@@ -27,7 +24,5 @@ export type { BuiltinSkill } from './types';
 export const BUILTIN_SKILLS: readonly BuiltinSkill[] = [
   longFormContinuity,
   naturalProseRefinement,
-  lessAiTone,
-  lessAiToneReview,
-  lessAiToneRefinement,
+  plainProse,
 ];

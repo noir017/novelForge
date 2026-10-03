@@ -743,7 +743,7 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
   });
 
   // D16：自动续写算进调用次数，动手之前写明上限。
-  test('写正文的三种下一步都报「1 次，最多 8 次」，并说清为什么', () => {
+  test('写正文的三种下一步都报「1–2 次，最多 9 次」，并说清为什么', () => {
     const f = { no: 3, words: 0, ratio: 0, upstreamStale: false };
     const steps = [
       pipeline.deriveNextStep('manuscript', f),
@@ -753,8 +753,8 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
     for (const s of steps) {
       assert.deepEqual(s.calls, pipeline.WRITE_CALLS);
     }
-    assert.equal(pipeline.WRITE_CALLS.max, 1 + pipeline.MAX_CONTINUE_ROUNDS);
-    assert.equal(pipeline.describeCalls(pipeline.WRITE_CALLS), '预计 1 次调用，最多 8 次（没写够时自动续写，最多再续 7 轮）');
+    assert.equal(pipeline.WRITE_CALLS.max, 2 + pipeline.MAX_CONTINUE_ROUNDS);
+    assert.equal(pipeline.describeCalls(pipeline.WRITE_CALLS), '预计 1–2 次调用，最多 9 次（开着删修饰时写完再删 1 次；没写够时自动续写，最多再续 7 轮）');
   });
 
   test('加总时不带原因（几件事的原因拼不成一句话）', () => {
@@ -790,16 +790,16 @@ describe('pipeline.ts · 写正文的写法', () => {
 describe('pipeline.ts · 批量写章的切分', () => {
   const base = { mode: 'draft', writtenNos: [], plotFilledNos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] };
 
-  test('只写正文：一章 1 次、最多 8 次，加写前比对 0–1 次、最多 2 次，按件加总', () => {
+  test('只写正文：一章 1–2 次、最多 9 次，加写前比对 0–1 次、最多 2 次，按件加总', () => {
     const plan = pipeline.planWriteBatch({ ...base, from: 1, to: 3 });
     assert.deepEqual(plan.chapters, [1, 2, 3]);
     assert.deepEqual(plan.plotBatches, []);
-    assert.deepEqual(plan.calls, { low: 3, high: 6, max: 30 });
+    assert.deepEqual(plan.calls, { low: 3, high: 9, max: 33 });
   });
 
   test('写完即定稿：每章再加定稿的 1–3 次', () => {
     const plan = pipeline.planWriteBatch({ ...base, mode: 'finalize', from: 1, to: 3 });
-    assert.deepEqual(plan.calls, { low: 6, high: 15, max: 39 });
+    assert.deepEqual(plan.calls, { low: 6, high: 18, max: 42 });
     assert.equal(plan.mode, 'finalize');
     assert.equal(plan.review, false);
   });
@@ -808,9 +808,9 @@ describe('pipeline.ts · 批量写章的切分', () => {
   test('写完即审稿：每章再加审稿的 1 次（最多 3 次）；与定稿叠加', () => {
     const plan = pipeline.planWriteBatch({ ...base, review: true, from: 1, to: 3 });
     assert.equal(plan.review, true);
-    assert.deepEqual(plan.calls, { low: 6, high: 9, max: 39 });
+    assert.deepEqual(plan.calls, { low: 6, high: 12, max: 42 });
     const both = pipeline.planWriteBatch({ ...base, mode: 'finalize', review: true, from: 1, to: 3 });
-    assert.deepEqual(both.calls, { low: 9, high: 18, max: 48 });
+    assert.deepEqual(both.calls, { low: 9, high: 21, max: 51 });
   });
 
   // 第 19 条批量那一面：已有产物的一律跳过，不问、不覆盖。

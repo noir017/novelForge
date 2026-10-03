@@ -81,6 +81,13 @@ export interface CallOptions {
   separator?: string;
   /** 流式期间报进度：第几轮、这一次开始之前已经写到多少字。 */
   progress?: { round: number; base: number };
+  /**
+   * 不流进气泡：只在气泡里加一行「——label——」，输出不显示（删修饰交回的是带编号的段落，
+   * 流出来作者会以为正文写坏了）。调用方用完要 `reset` 把气泡退回去。
+   */
+  quiet?: boolean;
+  /** 这一次的温度，缺席用设置里的。 */
+  temperature?: number;
 }
 
 export interface ChainResult {

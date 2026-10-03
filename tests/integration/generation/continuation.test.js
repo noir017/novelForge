@@ -143,11 +143,12 @@ describe('一次写够', () => {
     assert.equal(r.draft.calls, 1);
   });
 
-  test('够了八成：已达标，没有说明', () => {
+  test('够了八成：已达标，除了对白偏少没有别的说明', () => {
     assert.equal(r.draft.length.reached, true);
     assert.equal(r.draft.length.words, 900);
     assert.equal(r.draft.length.target, 1000);
-    assert.equal(r.draft.notes, undefined, JSON.stringify(r.draft.notes));
+    // 假模型的正文一句对白都没有。
+    assert.deepEqual(r.draft.notes, ['对白段只占 0%（人类网文约三成），读起来像旁白']);
   });
 
   test('写法：这一章还没有正文 → write', () => {
@@ -188,7 +189,11 @@ describe('截断后续写', () => {
   test('续写那一轮带着已写的末尾，说清还差多少', () => {
     assert.match(r.users[1], /请无缝续写当前章节正文/);
     assert.match(r.users[1], /# 本章已写正文/);
-    assert.match(r.users[1], /剩余约 150 字/);
+    assert.match(r.users[1], /大约再写 150 字/);
+  });
+
+  test('已写部分没有对白：续写那一轮点名多让人物开口', () => {
+    assert.match(r.users[1], /- 对白：已写部分带对白的段只占 0%/);
   });
 
   test('说明里写了续写了几轮', () => {
@@ -380,7 +385,7 @@ describe('接着写第 3 章', () => {
 
   test('第一次调用就带着本章已写的末尾', () => {
     assert.match(r.users[0], /# 本章已写正文/);
-    assert.match(r.users[0], /剩余约 600 字/);
+    assert.match(r.users[0], /大约再写 600 字/);
   });
 
   test('接着写不查重演（这一章的开头早就有了）', () => {
@@ -436,7 +441,7 @@ describe('收尾过早：先回退到钩子那一段之前再写', () => {
   test('续写那一轮说清收尾拿掉了、要重新落到钩子上，差多少按切完算', () => {
     assert.match(r.users[1], /收尾那一段已经拿掉了/);
     assert.match(r.users[1], /重新落到章末钩子上/);
-    assert.match(r.users[1], /剩余约 600 字/);
+    assert.match(r.users[1], /大约再写 600 字/);
   });
 
   test('说明里写了切了几段', () => {
