@@ -25,18 +25,27 @@ function span(from: number, to: number): string {
 }
 
 export const outlineDoc: LayerFn = async (a, spec) => {
-  const outline = await a.project.readOutline();
+  const outline = a.request.outlineDraft ?? (await a.project.readOutline());
   if (!outline.trim() || isPlaceholder(outline)) {
     return;
   }
+  const range = a.request.range;
+  // 分段重写：说清哪几节是这次刚写的新版、哪几节是待重写的旧版，免得模型照抄旧版。
+  const rewriting = a.request.outlineDraft !== undefined && range;
+  const lead = rewriting
+    ? `【重写中】${range.from > 1 ? `第 1–${range.from - 1} 章是这次刚重写好的新版；` : ''}第 ${range.from} 章起是旧版，${span(range.from, range.to)}正是这一次要重写的，旧版只作参考。
+
+`
+    : '';
   a.admit(
     {
       id: 'outlineDoc',
       kind: 'outlineDoc',
       priority: spec.priority,
-      label: '情节大纲',
+      label: rewriting ? '情节大纲（重写中）' : '情节大纲',
       source: a.project.relPath(a.project.outlinePath),
-      text: outline,
+      text: `${lead}${outline}`,
+      note: rewriting ? `分段重写：第 ${range.from} 章以前是新版，以后是旧版` : undefined,
     },
     { force: spec.force }
   );
@@ -147,7 +156,7 @@ export const rosterDoc: LayerFn = async (a, spec) => {
  * 并在明细里说一句（第 2 条）。
  */
 export const outlineSlice: LayerFn = async (a, spec) => {
-  const outline = await a.project.readOutline();
+  const outline = a.request.outlineDraft ?? (await a.project.readOutline());
   if (!outline.trim() || isPlaceholder(outline)) {
     return;
   }

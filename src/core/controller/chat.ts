@@ -1,6 +1,7 @@
 import type { ChatController } from './index';
 import { basename } from 'node:path';
 import { describeArtifact } from '../features/artifact';
+import { describeOutlineRewrite, outlineRewritePlan, rewriteOutline } from '../features/outlineRewrite';
 import { acceptArtifact as writeArtifact, plannedCards } from '../generation/accept';
 import { Draft, generate, parseDraftArtifact } from '../generation/generate';
 import { getHost } from '../host';
@@ -701,6 +702,8 @@ export async function chapterAction(c: ChatController, plotRelPath: string, acti
  * 先问一句重写要求——留空就是照上游重来一遍，写了就是修改意见（生成层本来就这么读输入）；
  * 取消就什么都不做。生成照样在对话页流式输出，覆盖前照样先对比（第 19 条）。
  * 「讨论」走 `setTarget`：只进入这一层，不花钱。
+ *
+ * 情节大纲有区间标题时不走对话页：按 20 章一段重写，写完一次对比（features/outlineRewrite.ts）。
  */
 export async function rewriteArchitecture(c: ChatController, target: CreationTarget): Promise<void> {
   if (target.kind !== 'setting' && target.kind !== 'outline') {
@@ -711,13 +714,22 @@ export async function rewriteArchitecture(c: ChatController, target: CreationTar
     return;
   }
   const where = describeTarget(target);
+  // 有区间标题的大纲按段重写（features/outlineRewrite.ts）：一次写全书，后半段稀得像目录。
+  const plan = target.kind === 'outline' ? await outlineRewritePlan(c.project) : undefined;
   const ask = await getHost().input({
     title: `重写${where}`,
-    prompt: '这次要怎么改？留空就照上游重新生成一遍。写入前会先让你对比。',
+    prompt: plan
+      ? `这次要怎么改？${describeOutlineRewrite(plan)}`
+      : '这次要怎么改？留空就照上游重新生成一遍。写入前会先让你对比。',
     placeHolder: '例如：主角的金手指换成……；节奏再快一点',
     multiline: true,
   });
   if (ask === undefined) {
+    return;
+  }
+  if (plan) {
+    await rewriteOutline(c.project, plan, ask.trim());
+    await c.pushState();
     return;
   }
   await setTarget(c, target);

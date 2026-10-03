@@ -195,6 +195,11 @@ export interface BuildRequest {
    * 接在磁盘上那些后面——不然后一半看不见前一半刚写了什么。
    */
   draftPlots?: DraftPlotLine[];
+  /**
+   * 分段重写大纲时还没落盘的那一份（features/outlineRewrite.ts）：前面几段已经换成新版，
+   * 后面的还是旧版。大纲两层读它而不读磁盘——不然后一段看不见前一段刚改了什么。
+   */
+  outlineDraft?: string;
   /** 额外写作指令，如「加强对白」。 */
   extraInstruction?: string;
   /**

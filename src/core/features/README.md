@@ -35,6 +35,7 @@
 | [bookText.ts](bookText.ts) | 拆书两条路共用的取书：作者点的入口经 `Host.pickHostFile` 在**本机任意位置**挑一本 `.txt`（宿主没有这个能力就退回工程里的清单：章节文件、草稿、隐藏目录除外），读出来、解码；一本上限 64 MiB（网关那道 2 MiB 是给编辑器与上下文的，这里只读、不进上下文、不写回原处）。**agent 给的路径只认工程里那张清单**——外部 agent 不读工程外的文件。 |
 | [importManuscript.ts](importManuscript.ts) | ★ **导入原稿**（拆书 A）：挑 txt → 切章（`model/importText.ts`）→ 确认框报章数、区间与丢掉了什么（零调用）→ `Workspace.createChapters` 一批建好（同名报错停下，manifest 最后同步一次）→ 问要不要接着「从已写正文补齐」。接在已有章节之后，章号按顺序重编。 |
 | [derive.ts](derive.ts) | ★ **从已写正文补齐**（拆书 A）：第 1 章起连续写好的 N 章，按 摘要 → 配置 → 前提 → 角色卡 → 世界观 → 情节大纲（每次 20 章，照摘要）→ 细纲（每批 5 章，照正文头尾）→ 全书摘要 的顺序**只补空白**。两次确认：摘要没齐时先只报摘要，摘要出来再报其余（建卡次数要读摘要才算得准）。装配走 `BuildRequest.derive` + `written` 层；角色卡走 `createCastCards`（摘要里出场两章以上）；细纲走 `runPlotBatch` 的 derive 那一面（标题用章节的、目标字数记实际字数、不建新卡、不记 `writtenFrom`）。不排叙事线。一件失败就停，失败挂在那一行上。主按钮在「有正文却缺架构 / 大纲没覆盖到」时推它（`model/pipeline.ts` 的 `deriveBookNextStep`）。 |
+| [outlineRewrite.ts](outlineRewrite.ts) | **分段重写情节大纲**（工程页「情节大纲」右键「重写…」）：有区间标题的大纲按 20 章一段重写到它现在覆盖的那一章，已写成的那一截照摘要整理（`derive`），其余照架构重新规划，段不跨这条线；作者那句要求每段都带；每段经 `BuildRequest.outlineDraft` 看得见前几段刚写好的新版；全部写完一次审阅、整份写入，中途失败已重写的几段照样拿去审阅、没轮到的保留旧版，取消什么都不写。次数写在问要求的那一框里。散文式与空大纲不分段，退回对话页整篇重写。 |
 | [reference.ts](reference.ts) | **从参考书学写法**（拆书 B）：挑 txt → 选学文风 / 写法 / 两样 → 确认（各 1 次调用，`extractStyle` 档）→ 文风写 `style.md`、写法写成本工程的写作技能 `<书名>-写法/SKILL.md`（`stage: planning`，不覆盖已有的，同名加后缀）→ 问绑不绑到「规划」。原文不写进工程的任何文件。 |
 | [pickPlots.ts](pickPlots.ts) | 多章选择：Host.pick 只支持单选，需要选几章时改为输入章号列表（如 `1,2,3`）。 |
 
