@@ -162,9 +162,15 @@ describe('MCP：外部 agent 的入口', () => {
     sid = res.headers.get('mcp-session-id');
     init = await res.json();
     tools = await (await mcpPost(rpc(2, 'tools/list'), { 'mcp-session-id': sid })).json();
-    read = await (
+    // tools/call 回 SSE：取其中的回复，跳过进度通知。
+    const sse = await (
       await mcpPost(rpc(3, 'tools/call', { name: 'list', arguments: { path: '.novelforge' } }), { 'mcp-session-id': sid })
-    ).json();
+    ).text();
+    read = sse
+      .split('\n')
+      .filter((l) => l.startsWith('data: '))
+      .map((l) => JSON.parse(l.slice('data: '.length)))
+      .find((m) => m.method === undefined);
     evil = await mcpPost(rpc(4, 'ping'), { origin: 'http://evil.example.com' });
   });
 
