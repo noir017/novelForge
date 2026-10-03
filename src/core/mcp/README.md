@@ -11,7 +11,7 @@ agent 做得更好，自己再做一份只是更弱的重复。真正值钱的�
 | 文件 | 职责 |
 |---|---|
 | [server.ts](server.ts) | ★ 协议：`initialize` / `ping` / `tools/list` / `tools/call` / `notifications/cancelled`，会话，状态简报 |
-| [http.ts](http.ts) | Streamable HTTP 传输：POST 回 JSON、会话头、DELETE、GET 405、Origin 校验。只用标准 `Request` / `Response` |
+| [http.ts](http.ts) | Streamable HTTP 传输：POST 回 JSON（`tools/call` 回 SSE 带进度保活）、会话头、DELETE、GET 405、Origin 校验。只用标准 `Request` / `Response` |
 | [instructions.ts](instructions.ts) | `initialize` 回给客户端的使用说明（只说怎么用工具，不写领域知识） |
 | [index.ts](index.ts) | `createNovelMcp(backend)`：工具清单 + 说明 + 传输，壳只给「当前工程的执行端」 |
 
@@ -71,8 +71,11 @@ MCP 没有「每回合往 system 里注入」这个口子，于是状态机给�
 
 ## 长调用
 
-写一章可能跑几分钟，期间连接上一个字节都没有。不回 SSE、不发进度通知：等它跑完回一整份 JSON。
-Bun 缺省 10 秒空闲就断连接，所以壳对 `/mcp` 的请求调 `server.timeout(req, 0)`。客户端那一侧的
-工具超时要自己放宽（Codex 缺省 60 秒）。
+写一章可能跑几分钟，等作者点确认也算在里面。客户端两道上限都会撞上：等响应头（Claude Code 缺省 60 秒，
+报「The operation timed out.」）与等结果的空闲上限（HTTP 缺省 5 分钟，收到进度通知才重新计时）。
+所以 `tools/call` 在客户端收 `text/event-stream` 时回 SSE：响应头当场回，跑的期间每 15 秒发一条
+`notifications/progress`（请求没带 `progressToken` 就发 SSE 注释），跑完把回复当最后一个事件发出去。
+其余请求、以及只收 JSON 的客户端，照旧回整份 JSON。
+Bun 缺省 10 秒空闲就断连接，所以壳对 `/mcp` 的请求调 `server.timeout(req, 0)`。
 
 取消有两条路：客户端发 `notifications/cancelled`，或者连接断了——都会中断那一次调用。

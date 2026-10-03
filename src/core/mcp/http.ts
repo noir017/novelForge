@@ -3,14 +3,18 @@
  *
  * 实现的是规范里最小的那一截：
  *
- * - `POST` 一条（或一批）JSON-RPC 消息 → 有请求就回 `application/json`，只有通知回 202；
+ * - `POST` 一条（或一批）JSON-RPC 消息 → 有请求就回 `application/json`（`tools/call` 见下），只有通知回 202；
  * - `initialize` 的响应带 `Mcp-Session-Id`，之后的请求带着它来；认不出的 id 回 404，
  *   客户端据此重新 `initialize`（服务重启过就是这样）；
  * - `DELETE` 结束会话；
  * - `GET`（服务端主动推的那条 SSE 流）回 405——我们从不主动推东西。
  *
- * 不回 SSE：一次 `tools/call` 可能跑几分钟（写一章），那期间什么都不推，等它跑完一次
- * 回整份 JSON。连接上的空闲超时由壳关掉（`server.ts` 的 `server.timeout(req, 0)`）。
+ * 带 `tools/call` 的请求、客户端又收 `text/event-stream` 时回 SSE：一次调用可能跑几分钟（写一章、
+ * 等作者点确认），而客户端等响应头有上限（Claude Code 缺省 60 秒，到点报「The operation timed out.」），
+ * 等结果还有空闲上限（HTTP 缺省 5 分钟，收到 progress 通知才重新计时）。所以先回响应头，跑的期间
+ * 每隔 `HEARTBEAT_MS` 发一条 `notifications/progress`（请求没带 progressToken 就发一行 SSE 注释），
+ * 跑完把回复当事件发出去、关流。其余请求照旧回整份 JSON。
+ * 连接上的空闲超时由壳关掉（`server.ts` 的 `server.timeout(req, 0)`）。
  *
  * 地址上可以带 `?project=<工程目录>` 指定落到哪个工程（独立版能同时开几个）；不带由壳决定。
  *
@@ -26,6 +30,7 @@ import {
   McpServer,
   McpSession,
   RPC,
+  isRequest,
   rpcError,
 } from './server';
 
@@ -33,9 +38,14 @@ const log = scoped('MCP');
 
 const SESSION_HEADER = 'mcp-session-id';
 
+/** SSE 上多久发一次保活：远小于客户端的空闲上限（HTTP 缺省 5 分钟）。 */
+export const HEARTBEAT_MS = 15_000;
+
 export interface McpHttpOptions {
   /** 浏览器发来的 `Origin` 认不认。不给就一律放过（测试用）。 */
   allowOrigin?(origin: string | null): boolean;
+  /** SSE 保活间隔，缺省 `HEARTBEAT_MS`（测试调小）。 */
+  heartbeatMs?: number;
 }
 
 export class McpHttpHandler {
@@ -99,15 +109,80 @@ export class McpHttpHandler {
     // 地址上的 `?project=` 跟着每次请求走：客户端配置里改了地址、不必重新 initialize。
     session.project = new URL(req.url).searchParams.get('project')?.trim() || undefined;
 
+    const headers: Record<string, string> = session.id ? { 'Mcp-Session-Id': session.id } : {};
+    const long = messages.some((m) => m?.method === 'tools/call' && isRequest(m));
+    if (long && (req.headers.get('accept') ?? '').includes('text/event-stream')) {
+      return this.stream(messages, session, req.signal, headers);
+    }
+
     const replies = (
       await Promise.all(messages.map((m) => this.server.dispatch(m, session, req.signal)))
     ).filter((r): r is JsonRpcResponse => r !== undefined);
 
-    const headers: Record<string, string> = session.id ? { 'Mcp-Session-Id': session.id } : {};
     if (replies.length === 0) {
       return new Response(null, { status: 202, headers });
     }
     return json(batch ? replies : replies[0], 200, headers);
+  }
+
+  /** 先回响应头，跑的期间发保活，跑完一条回复一个事件。 */
+  private stream(
+    messages: JsonRpcMessage[],
+    session: McpSession,
+    signal: AbortSignal,
+    headers: Record<string, string>
+  ): Response {
+    const tokens = messages
+      .map((m) => (m?.params?._meta as { progressToken?: unknown } | undefined)?.progressToken)
+      .filter((t): t is string | number => typeof t === 'string' || typeof t === 'number');
+    const encoder = new TextEncoder();
+    // 客户端断开时流会被 cancel：与 req.signal 一起当取消信号，哪个先到都中断那次调用。
+    const gone = new AbortController();
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start: async (controller) => {
+        const send = (chunk: string) => {
+          if (!gone.signal.aborted) {
+            controller.enqueue(encoder.encode(chunk));
+          }
+        };
+        // Bun 等到第一块正文才把响应头发出去：先发一行注释，响应头当场就到。
+        send(': open\n\n');
+        let beat = 0;
+        timer = setInterval(() => {
+          beat++;
+          if (tokens.length === 0) {
+            send(': running\n\n');
+          }
+          for (const progressToken of tokens) {
+            send(event({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken, progress: beat, message: '仍在运行' } }));
+          }
+        }, this.opts.heartbeatMs ?? HEARTBEAT_MS);
+        try {
+          const replies = await Promise.all(
+            messages.map((m) => this.server.dispatch(m, session, AbortSignal.any([signal, gone.signal])))
+          );
+          for (const r of replies) {
+            if (r !== undefined) {
+              send(event(r));
+            }
+          }
+        } finally {
+          clearInterval(timer);
+          if (!gone.signal.aborted) {
+            controller.close();
+          }
+        }
+      },
+      cancel: () => {
+        clearInterval(timer);
+        gone.abort();
+      },
+    });
+    return new Response(body, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', ...headers },
+    });
   }
 
   private remove(req: Request): Response {
@@ -121,6 +196,10 @@ export class McpHttpHandler {
     log.info(`MCP 会话结束${session.clientName ? `：${session.clientName}` : ''}`);
     return new Response(null, { status: 200 });
   }
+}
+
+function event(payload: unknown): string {
+  return `event: message\ndata: ${JSON.stringify(payload)}\n\n`;
 }
 
 function json(payload: unknown, status: number, headers: Record<string, string> = {}): Response {

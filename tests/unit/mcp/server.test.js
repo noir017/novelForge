@@ -13,6 +13,7 @@
  * | 状态简报 | 第一次必贴；没变不贴；变了再贴 |
  * | 取消 | `notifications/cancelled` 与连接断开都中断那一次调用 |
  * | HTTP | 通知 202、坏 JSON 400、认不出的会话 404、DELETE 结束会话、GET 405、跨源 403 |
+ * | 长调用 | `tools/call` 回 SSE：响应头先回、跑的期间发进度、读的一方走了就中断；只收 JSON 的照旧 |
  */
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -44,18 +45,35 @@ function fakeBackend() {
   return b;
 }
 
-function makeHandler({ backend, allowOrigin } = {}) {
-  return mcp.createNovelMcp(() => backend, allowOrigin ? { allowOrigin } : {});
+function makeHandler({ backend, allowOrigin, heartbeatMs } = {}) {
+  return mcp.createNovelMcp(() => backend, { ...(allowOrigin ? { allowOrigin } : {}), ...(heartbeatMs ? { heartbeatMs } : {}) });
 }
 
-function post(handler, body, headers = {}) {
-  return handler.handle(
+/** SSE 正文 → 逐条事件（只认 `data:` 行）。 */
+function sseEvents(text) {
+  return text
+    .split('\n')
+    .filter((l) => l.startsWith('data: '))
+    .map((l) => JSON.parse(l.slice(6)));
+}
+
+/**
+ * `tools/call` 回的是 SSE：把其中的回复（不含进度通知）重新包成一份 JSON 响应，
+ * 其余用例照旧 `res.json()`。
+ */
+async function post(handler, body, headers = {}) {
+  const res = await handler.handle(
     new Request(URL_, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers },
       body: typeof body === 'string' ? body : JSON.stringify(body),
     })
   );
+  if (!(res.headers.get('content-type') ?? '').startsWith('text/event-stream')) {
+    return res;
+  }
+  const replies = sseEvents(await res.text()).filter((m) => m.method === undefined);
+  return new Response(JSON.stringify(Array.isArray(body) ? replies : replies[0]), { status: res.status, headers: res.headers });
 }
 
 let nextId = 1;
@@ -360,5 +378,71 @@ describe('HTTP', () => {
     assert.equal(evil.status, 403);
     const cli = await post(guarded, rpc('ping'));
     assert.equal(cli.status, 200);
+  });
+});
+
+describe('长调用走 SSE', () => {
+  const raw = (h, body, headers = {}) =>
+    h.handle(
+      new Request(URL_, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers },
+        body: JSON.stringify(body),
+      })
+    );
+
+  test('tools/call：先回响应头，跑的期间带 progressToken 发进度，跑完发回复', async () => {
+    const b = fakeBackend();
+    let release;
+    b.hold = () => new Promise((r) => (release = r));
+    const h = makeHandler({ backend: b.backend, heartbeatMs: 10 });
+    const sid = await open(h);
+    // 调用还没跑完，响应头已经回来了
+    const res = await raw(h, rpc('tools/call', { name: 'generate', arguments: {}, _meta: { progressToken: 'p1' } }), { 'mcp-session-id': sid });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /^text\/event-stream/);
+    assert.equal(res.headers.get('mcp-session-id'), sid);
+    await new Promise((r) => setTimeout(r, 60));
+    release();
+    const events = sseEvents(await res.text());
+    const progress = events.filter((e) => e.method === 'notifications/progress');
+    assert.ok(progress.length >= 2, `进度只有 ${progress.length} 条`);
+    assert.ok(progress.every((e) => e.params.progressToken === 'p1'));
+    assert.ok(progress[1].params.progress > progress[0].params.progress, '进度要递增');
+    const last = events[events.length - 1];
+    assert.equal(last.result.content[0].text.startsWith('ran generate'), true);
+  });
+
+  test('没带 progressToken：只发 SSE 注释保活', async () => {
+    const b = fakeBackend();
+    b.hold = () => new Promise((r) => setTimeout(r, 40));
+    const h = makeHandler({ backend: b.backend, heartbeatMs: 10 });
+    const sid = await open(h);
+    const text = await (await raw(h, rpc('tools/call', { name: 'list', arguments: {} }), { 'mcp-session-id': sid })).text();
+    assert.match(text, /^: running$/m);
+    assert.equal(sseEvents(text).length, 1);
+  });
+
+  test('客户端只收 JSON：照旧回整份 JSON', async () => {
+    const h = makeHandler({ backend: fakeBackend().backend });
+    const sid = await open(h);
+    const res = await raw(h, rpc('tools/call', { name: 'list', arguments: {} }), { 'mcp-session-id': sid, accept: 'application/json' });
+    assert.match(res.headers.get('content-type'), /^application\/json/);
+    assert.equal((await res.json()).result.isError, false);
+  });
+
+  test('读流的一方走了：中断那一次调用', async () => {
+    const b = fakeBackend();
+    let aborted = false;
+    b.hold = (signal) => new Promise((r) => signal.addEventListener('abort', () => ((aborted = true), r())));
+    const h = makeHandler({ backend: b.backend });
+    const sid = await open(h);
+    const res = await raw(h, rpc('tools/call', { name: 'generate', arguments: {} }), { 'mcp-session-id': sid });
+    while (b.calls.length === 0) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    await res.body.cancel();
+    await new Promise((r) => setTimeout(r, 5));
+    assert.ok(aborted);
   });
 });
