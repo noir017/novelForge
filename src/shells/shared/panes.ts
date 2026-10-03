@@ -435,8 +435,8 @@ export function mergeModal(): string {
     <div class="modal-head">
       <span class="modal-title" id="mergeTitle">对比</span>
       <span class="merge-progress" id="mergeProgress"></span>
-      <button class="secondary small" id="mergeAllNew">全部采用新版</button>
       <button class="secondary small" id="mergeAllOld">全部保留原文</button>
+      <button class="secondary small" id="mergeAllNew">全部采用新版</button>
     </div>
     <div class="hint merge-path" id="mergePath"></div>
     <div class="modal-body merge-body" id="mergeBody"></div>

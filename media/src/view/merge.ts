@@ -11,7 +11,7 @@
  * ┌ 结果（可以手改）──────────────────────────┐
  * │ 她看了一眼他空着的手                       │
  * └──────────────────────────────────────────┘
- * [采用新版] [保留原文]                   已采用新版
+ * [保留原文] [采用新版]                   已采用新版
  * ```
  *
  * ## 手改过的那一格谁都不动
@@ -180,7 +180,7 @@ function hunkBlock(seg: Change, k: number, state: HunkState, mergeable: boolean,
   const takeOld = mk('button', 'secondary small merge-take-old', '保留原文');
   const undo = mk('button', 'link merge-undo', '撤销手改');
   const label = mk('span', 'merge-state');
-  actions.append(takeNew, takeOld, undo, label);
+  actions.append(takeOld, takeNew, undo, label);
   block.appendChild(actions);
 
   const current = () => sideText(seg, state.choice ?? 'new');
