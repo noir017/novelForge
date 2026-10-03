@@ -254,4 +254,8 @@ export interface NovelConfig {
    * 「预计调用 N 次」确认框在任何模式下都在（见 model/agentPolicy.ts）。
    */
   agentPolicy: AgentPolicy;
+  /**
+   * 写完正文之后跑一轮「只许删」的删修饰（generation/trim.ts），对话页与批量写章都跑，每章多调 1 次模型。
+   */
+  trimModifiers: boolean;
 }

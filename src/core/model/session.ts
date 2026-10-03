@@ -266,6 +266,8 @@ export interface SessionDraft {
   length?: { words: number; target?: number; added: number; rounds: number; reached: boolean };
   /** 与上一章结尾重合的那一段原文。 */
   replay?: string;
+  /** 删修饰之前那一版。 */
+  untrimmed?: string;
   /** 审稿报告（审稿那一轮没有 `artifact`，只有它）。 */
   review?: ReviewReport;
 }
@@ -571,6 +573,7 @@ function normalizeDrafts(raw: unknown): SessionDraft[] {
       writeMode: isWriteMode(o.writeMode) ? o.writeMode : undefined,
       length: normalizeLength(o.length),
       replay: typeof o.replay === 'string' && o.replay ? o.replay : undefined,
+      untrimmed: typeof o.untrimmed === 'string' && o.untrimmed ? o.untrimmed : undefined,
       review: o.review ? normalizeReport(o.review) : undefined,
     });
   }

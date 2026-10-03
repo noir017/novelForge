@@ -59,6 +59,7 @@ export async function pushSettingsTo(sink: SettingsSink, ack?: 'saved' | 'reject
       concurrency: cfg.concurrency,
       fallbackAttempts: cfg.fallbackAttempts,
       agentPolicy: cfg.agentPolicy,
+      trimModifiers: cfg.trimModifiers,
     },
     keys: await apiKeyStatus(cfg.providers),
   });
@@ -106,6 +107,7 @@ export async function saveSettingsFrom(
     fallbackAttempts: s.fallbackAttempts,
     // 认不出的策略名回落默认，与其它字段一样容错。
     agentPolicy: normalizeAgentPolicy(s.agentPolicy),
+    trimModifiers: s.trimModifiers !== false,
   });
 
   // 删掉的服务商不该在钥匙串里留下孤儿 Key。
@@ -117,7 +119,8 @@ export async function saveSettingsFrom(
       `${describeTierConfig(tierModels, taskTiers)}｜` +
       `温度 ${s.temperature}｜超时 ${s.requestTimeoutMs}ms｜` +
       `并发 ${s.concurrency}｜换模型重试 ${s.fallbackAttempts} 次｜` +
-      `Agent 策略 ${AGENT_POLICY_LABEL[normalizeAgentPolicy(s.agentPolicy)]}`
+      `Agent 策略 ${AGENT_POLICY_LABEL[normalizeAgentPolicy(s.agentPolicy)]}｜` +
+      `删修饰 ${s.trimModifiers !== false ? '开' : '关'}`
   );
   await pushSettingsTo(sink, 'saved');
   if (afterSave) {

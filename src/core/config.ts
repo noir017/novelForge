@@ -45,6 +45,8 @@ export interface PersistedSettings {
   fallbackAttempts?: number;
   /** Agent 的确认策略（careful / default / bold）。认不出的值回落默认。 */
   agentPolicy?: string;
+  /** 写完正文删修饰。缺席 = 开。 */
+  trimModifiers?: boolean;
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
   contextWindow?: number;
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
@@ -133,6 +135,7 @@ export function readConfig(): NovelConfig {
     // 手改配置文件写错、旧版本留下的值一律回落默认，不抛：一个认不出的
     // 策略名不该让 agent 整个跑不起来。
     agentPolicy: normalizeAgentPolicy(c.agentPolicy),
+    trimModifiers: c.trimModifiers !== false,
   };
 }
 

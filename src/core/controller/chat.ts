@@ -572,10 +572,21 @@ export async function askArtifact(
 
   // 气泡里当下那份优先（作者可能改过），空了退回生成时那份原文。
   const edited = ask.raw?.();
-  const raw = edited?.trim() ? edited : draft.raw;
+  let raw = edited?.trim() ? edited : draft.raw;
   if (!raw.trim()) {
     c.toast('内容是空的。', 'error');
     return { verdict, message: '内容是空的，没有写入任何文件。' };
+  }
+  // 删修饰删过字：逐段对照删之前那一版，作者可以把删错的退回原文。作者已经在气泡里改过就不问——
+  // 合并视图拿删之前那版对着他改过的那份，标出来的改动里混着他自己的字。
+  const host = getHost();
+  if (draft.untrimmed && host.mergeTexts && raw.trim() === draft.raw.trim()) {
+    const picked = await host.mergeTexts('删修饰：删之前 ↔ 删之后（可以逐段退回原文）', draft.untrimmed, raw);
+    if (typeof picked === 'object') {
+      raw = picked.merged;
+    } else if (picked !== 'apply') {
+      return { verdict, message: '作者在删修饰的对照里放弃了写入，磁盘上什么都没变。' };
+    }
   }
   // **重新解析一遍**而不是用 `draft.artifact`：作者可能在气泡里改过。
   const artifact = parseDraftArtifact(draft.action, raw, draft.target, draft.range);

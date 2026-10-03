@@ -722,14 +722,15 @@ export const ONE_CALL: CallEstimate = { low: 1, high: 1, max: 1 };
 export const MAX_CONTINUE_ROUNDS = 7;
 
 /**
- * 写一章正文：通常 1 次；不到目标字数的八成、或被输出上限截断时自动续写，
- * 最多再续 {@link MAX_CONTINUE_ROUNDS} 轮（D16：续写算进调用次数，动手之前写明）。
+ * 写一章正文：写 1 次，设置里开着「写完正文删修饰」（缺省开）时再删一次修饰；不到目标字数的八成、
+ * 或被输出上限截断时自动续写，最多再续 {@link MAX_CONTINUE_ROUNDS} 轮（D16：续写算进调用次数，
+ * 动手之前写明）。开关在全局设置里、这里是纯函数，所以按「1–2 次」报，原因里说清那一次是什么。
  */
 export const WRITE_CALLS: CallEstimate = {
   low: 1,
-  high: 1,
-  max: 1 + MAX_CONTINUE_ROUNDS,
-  why: `没写够时自动续写，最多再续 ${MAX_CONTINUE_ROUNDS} 轮`,
+  high: 2,
+  max: 2 + MAX_CONTINUE_ROUNDS,
+  why: `开着删修饰时写完再删 1 次；没写够时自动续写，最多再续 ${MAX_CONTINUE_ROUNDS} 轮`,
 };
 
 /**

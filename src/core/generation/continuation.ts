@@ -66,6 +66,7 @@ import { detectReplay } from '../context/replay';
 import { cleanOutput } from '../features/creation';
 import { describeError } from '../runtime/logger';
 import { CallOutcome, ChainIO, ChainResult, Tally } from './structured';
+import { trimModifiers } from './trim';
 
 // 续写时带已写正文的最后 1600 字：取法在装配那一层（「接着写」的第一次调用也要它）。
 export { CONTINUE_TAIL_CHARS, continuationTail } from '../context/layers/render';
@@ -220,6 +221,8 @@ export interface ManuscriptChainContext {
   notYet?: readonly (NotYet & { aliases?: readonly string[] })[];
   /** 这本书写正文时不该用的词：续写那一轮告诉它已经用了哪几个，写完数一遍。 */
   banned?: readonly string[];
+  /** 写完之后跑一轮删修饰（`trim.ts`）。设置里的「写完正文删修饰」。 */
+  trim?: boolean;
   /** 每一轮开始时报一次进度。流式期间的进度由 `ChainIO.call` 的 `progress` 选项另报。 */
   onProgress?(p: WriteProgress): void;
   signal?: AbortSignal;
@@ -240,6 +243,8 @@ export interface ManuscriptChainResult extends ChainResult {
   replay?: string;
   /** 后面几章才登场、却写进了这一次新写的正文里的人。 */
   early?: EarlyEntrance[];
+  /** 删修饰真删了字时：删之前那一版（只含这一次新写的，与 `raw` 对应）。 */
+  untrimmed?: string;
 }
 
 /**
@@ -417,6 +422,14 @@ export async function completeManuscript(
   if (stop === 'other') {
     t.note('模型因为别的原因停下了（常见的是内容审查），没有再续写');
   }
+  let untrimmed: string | undefined;
+  if (ctx.trim) {
+    // 删之前够八成的，删完也得够：不然主按钮转去推「接着写」，这一轮等于白删。
+    const floor = ctx.target && total() >= lowerBound(ctx.target) ? lowerBound(ctx.target) - wordsOf(base) : undefined;
+    const trimmed = await trimModifiers(io, t, added, { floor, signal: ctx.signal });
+    added = trimmed.text;
+    untrimmed = trimmed.untrimmed;
+  }
   const chapterText = [base, added].filter(Boolean).join('\n\n');
   const midSentence = endsMidSentence(chapterText);
   const truncated = stop === 'maxTokens' || midSentence;
@@ -473,5 +486,6 @@ export async function completeManuscript(
     truncated,
     replay,
     ...(early.length > 0 ? { early } : {}),
+    ...(untrimmed ? { untrimmed } : {}),
   };
 }

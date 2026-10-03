@@ -940,19 +940,24 @@ async function writeOne(
   };
   const budgeted = { ...config, ...pool.primaryBudget };
   let pinned: LlmProvider | undefined;
-  const stream = async (llm: LlmProvider, messages: AgentMessage[], progress?: { round: number; base: number }): Promise<CallOutcome> => {
+  const stream = async (
+    llm: LlmProvider,
+    messages: AgentMessage[],
+    progress?: { round: number; base: number },
+    temperature = config.temperature
+  ): Promise<CallOutcome> => {
     let text = '';
     let stop: StopSignal | undefined;
     let reportedAt = 0;
     for await (const ev of llm.stream(messages, {
       maxOutputTokens: pool.primaryBudget.maxOutputTokens,
-      temperature: config.temperature,
+      temperature,
       timeoutMs: config.requestTimeoutMs,
       signal,
     })) {
       if (ev.type === 'text') {
         text += ev.text;
-        if (Date.now() - reportedAt >= 1000) {
+        if (progress && Date.now() - reportedAt >= 1000) {
           reportedAt = Date.now();
           hooks.onProgress({ round: progress?.round ?? 0, words: (progress?.base ?? 0) + countWords(text), target: writing.target });
         }
@@ -968,10 +973,10 @@ async function writeOne(
     call: async (messages, label, opts) => {
       hooks.onCall();
       if (pinned) {
-        return stream(pinned, messages, opts?.progress);
+        return stream(pinned, messages, opts?.progress, opts?.temperature);
       }
       return pool.run(label, async (llm) => {
-        const out = await stream(llm, messages, opts?.progress);
+        const out = await stream(llm, messages, opts?.progress, opts?.temperature);
         pinned = llm;
         return out;
       });
@@ -988,6 +993,7 @@ async function writeOne(
     hook: writing.hook,
     notYet: writing.notYet,
     banned: writing.banned,
+    trim: config.trimModifiers,
     onProgress: hooks.onProgress,
     signal,
   });

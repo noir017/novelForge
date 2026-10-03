@@ -237,7 +237,7 @@ export function openWriteBatchForm(tree: ProjectTree): void {
           (p.plotBatches.length > 0
             ? `${p.plotBatches.map((b) => span(b[0], b[b.length - 1])).join('、')}还没有细纲，写到时先拆（拆的时候看得见前面定稿的事实）。`
             : '') +
-          `${describeCalls(p.calls)}（没写够时自动续写、每章写前比对一次细纲与既成事实，都算在上限里）。` +
+          `${describeCalls(p.calls)}（没写够时自动续写、开着删修饰时写完再删一次、每章写前比对一次细纲与既成事实，都算在上限里）。` +
           (p.review ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不停。' : '') +
           (p.mode === 'finalize' ? '每写完一章就定稿：摘要与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线。' : '只写正文，之后在主按钮上逐章定稿。'),
       };

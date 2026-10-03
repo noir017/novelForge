@@ -102,6 +102,12 @@ export interface Host {
     opts?: { merge?: boolean }
   ): Promise<ReviewVerdict>;
   /**
+   * 两份还没落盘的文字逐段挑（删修饰：删之前 ↔ 删之后）。与 `reviewReplace` 的差别是左边不是磁盘上的
+   * 文件。交回 `{ merged }`（挑过）、`'apply'`（原样用 `after`）、`'discard'` 或 undefined（放弃，不写）。
+   * 独立版用合并视图实现；VS Code 的 diff 编辑器左边认的是磁盘文件，不实现——调用方就直接用 `after`。
+   */
+  mergeTexts?(title: string, before: string, after: string): Promise<ReviewVerdict>;
+  /**
    * 在编辑器里打开这份文件并选中这一句（五期：点审稿报告上的引文）。找不到那一句时只打开、
    * 返回 false。宿主不实现时 controller 退回 `openFile` 并提示那一句。
    */

@@ -151,9 +151,9 @@ describe('只写正文：下一可写章起 3 章', () => {
   });
   after(() => cleanup(t.dir, bundle.db));
 
-  test('确认框报区间、模式与上限（一章最多 8 次，写前比对最多 2 次）', () => {
+  test('确认框报区间、模式与上限（一章最多 9 次，写前比对最多 2 次）', () => {
     const c = h.confirms[0];
-    assert.equal(c.message, '第 1–3 章：要写 3 章正文（只写正文），预计 3–6 次调用，最多 30 次。现在写？');
+    assert.equal(c.message, '第 1–3 章：要写 3 章正文（只写正文），预计 3–9 次调用，最多 33 次。现在写？');
     assert.match(c.detail, /一章一章串行写/);
   });
 
@@ -750,7 +750,7 @@ describe('开写之前补建角色卡：摘要里出场两章以上、还没有�
 
   test('确认框里说了给谁建卡、几次调用，并算进总数', () => {
     const c = h.confirms[0];
-    assert.match(c.message, /预计 2–3 次调用/);
+    assert.match(c.message, /预计 2–4 次调用/);
     assert.match(c.detail, /开写之前先给老周建角色卡（摘要里已经出场 2 章以上、还没有卡；1 次调用/);
   });
 

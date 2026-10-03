@@ -248,4 +248,6 @@ export interface SettingsPayload {
   fallbackAttempts: number;
   /** Agent 的确认策略：careful / default / bold。 */
   agentPolicy: AgentPolicy;
+  /** 写完正文删修饰。 */
+  trimModifiers: boolean;
 }
