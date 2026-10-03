@@ -842,7 +842,7 @@ export function toSectionText(v: unknown): string {
   return '';
 }
 
-/** 从 Markdown 抽出六个固定小节。允许模型多写、少写，缺的留空。 */
+/** 从 Markdown 抽出几个固定小节（SUMMARY_SECTION_KEYS）。允许模型多写、少写，缺的留空。 */
 function parseSummarySections(cleaned: string): SummarySections {
   const picked = pickSections<keyof SummarySections>(cleaned, SUMMARY_SECTION_KEYS);
   const sections = { ...emptySummarySections(), ...picked };

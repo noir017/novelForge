@@ -1055,6 +1055,7 @@ export function emptySummarySections(): SummarySections {
     出场人物: '',
     时间地点: '',
     关键事件: '',
+    看点: '',
     新增伏笔: '',
     状态变更: '',
     连续性事实: '',

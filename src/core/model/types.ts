@@ -55,6 +55,8 @@ export interface SummarySections {
   出场人物: string;
   时间地点: string;
   关键事件: string;
+  /** 本章读者最爽、最想往下看的地方（爽点与钩子）。拆书整理架构与大纲时靠它提炼卖点。 */
+  看点: string;
   新增伏笔: string;
   状态变更: string;
   /**
@@ -71,6 +73,7 @@ export const SUMMARY_SECTION_KEYS: (keyof SummarySections)[] = [
   '出场人物',
   '时间地点',
   '关键事件',
+  '看点',
   '新增伏笔',
   '状态变更',
   '连续性事实',

@@ -63,6 +63,7 @@ before(async () => {
       出场人物: '林昭',
       时间地点: '青云山',
       关键事件: `第${chapter.order}章关键事件：翻墙。`,
+      看点: `- 第${chapter.order}章看点：执事当众被林昭拆穿\n- 门外是谁`,
       新增伏笔: '',
       状态变更: `第${chapter.order}章后林昭受了轻伤。`,
       连续性事实: '',
@@ -122,6 +123,8 @@ describe('derive · 架构', () => {
     const synopsis = items.find((i) => i.id === 'written:synopsis');
     assert.equal(synopsis.status, 'included');
     assert.match(synopsis.text, /第1章梗概/);
+    // 看点跟在同一行梗概后面，多条用分号连起来。
+    assert.match(synopsis.text, /第1章梗概：林昭查到了第1条线索。｜看点：第1章看点：执事当众被林昭拆穿；门外是谁/);
     assert.match(synopsis.note, /2 章还没有摘要/);
 
     assert.match(system(b), /这一次不是从零创作：作者已经写到第 8 章/);

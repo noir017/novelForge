@@ -6,8 +6,8 @@
  *
  * | 阶段 | 带什么 | 预算 |
  * |---|---|---|
- * | 架构 | 第 1–N 章的梗概（一章一行），加均匀抽样 {@link SAMPLE_COUNT} 章的开头节选 | 节选按配方（强制）；梗概放不下就隔章抽，写明抽了几章 |
- * | 大纲 | 区间里各章的摘要（梗概、关键事件、状态变更、新增伏笔）；没有摘要的章退回正文头尾 | 按配方 |
+ * | 架构 | 第 1–N 章的梗概与看点（一章一行），加均匀抽样 {@link SAMPLE_COUNT} 章的开头节选 | 节选按配方（强制）；梗概放不下就隔章抽，写明抽了几章 |
+ * | 大纲 | 区间里各章的摘要（梗概、关键事件、看点、状态变更、新增伏笔）；没有摘要的章退回正文头尾 | 按配方 |
  * | 细纲 | 区间里各章正文的开头 {@link PLOT_HEAD} 字 + 结尾 {@link PLOT_TAIL} 字（章末钩子在结尾） | 按配方 |
  *
  * 上游（AI-Novel-Writer 的 `import-novel.command.ts`）推演设定只看首末两章各 3000 字、反推蓝图每章取
@@ -94,9 +94,17 @@ async function settingMaterial(a: Parameters<LayerFn>[0], spec: Parameters<Layer
   const lines: { no: number; line: string }[] = [];
   let missing = 0;
   for (const chapter of chapters) {
-    const synopsis = (await a.project.readSummary(chapter.relPath))?.sections.梗概?.trim();
+    const sections = (await a.project.readSummary(chapter.relPath))?.sections;
+    const synopsis = sections?.梗概?.trim();
     if (synopsis) {
-      lines.push({ no: chapter.order, line: `${plotLabel(chapter.order, chapter.title)}：${synopsis.replace(/\s+/g, ' ')}` });
+      // 看点跟在梗概后面：卖点与爽点只能从这里提炼，梗概只写发生了什么。
+      const highlight = (sections?.看点 ?? '')
+        .split(/\r?\n/)
+        .map((l) => l.replace(/^\s*[-*·]\s*/, '').trim())
+        .filter(Boolean)
+        .join('；');
+      const tail = highlight ? `｜看点：${highlight}` : '';
+      lines.push({ no: chapter.order, line: `${plotLabel(chapter.order, chapter.title)}：${synopsis.replace(/\s+/g, ' ')}${tail}` });
     } else {
       missing++;
     }
@@ -109,9 +117,9 @@ async function settingMaterial(a: Parameters<LayerFn>[0], spec: Parameters<Layer
     id: 'written:synopsis',
     kind: 'written' as const,
     priority: spec.priority,
-    label: `第 1–${last} 章梗概`,
+    label: `第 1–${last} 章梗概与看点`,
   };
-  const all = `【第 1–${last} 章梗概（一章一行）】\n${lines.map((l) => l.line).join('\n')}`;
+  const all = `【第 1–${last} 章梗概与看点（一章一行）】\n${lines.map((l) => l.line).join('\n')}`;
   const missingNote = missing > 0 ? `；${missing} 章还没有摘要，没有梗概可带` : '';
   if (estimateTokens(all) <= a.remaining) {
     a.admit({ ...base, text: all, note: `${lines.length} 章${missingNote}` });
@@ -120,7 +128,7 @@ async function settingMaterial(a: Parameters<LayerFn>[0], spec: Parameters<Layer
   // 放不下就隔章抽：每 k 章留一章，首尾都在。宁可稀一点，也不要只剩前半本。
   for (let stride = 2; stride <= lines.length; stride++) {
     const kept = lines.filter((_, i) => i % stride === 0 || i === lines.length - 1);
-    const text = `【第 1–${last} 章梗概（每 ${stride} 章取一章）】\n${kept.map((l) => l.line).join('\n')}`;
+    const text = `【第 1–${last} 章梗概与看点（每 ${stride} 章取一章）】\n${kept.map((l) => l.line).join('\n')}`;
     const tokens = estimateTokens(text);
     if (tokens <= a.remaining) {
       a.accept({ ...base, text, status: 'degraded', note: `预算不足，${lines.length} 章里每 ${stride} 章取一章，带了 ${kept.length} 章${missingNote}` }, tokens);
@@ -139,6 +147,7 @@ async function admitSummary(a: Parameters<LayerFn>[0], spec: Parameters<LayerFn>
     ? [
         ['梗概', s.梗概],
         ['关键事件', s.关键事件],
+        ['看点', s.看点],
         ['状态变更', s.状态变更],
         ['新增伏笔', s.新增伏笔],
       ].filter(([, v]) => v?.trim())
