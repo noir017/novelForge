@@ -138,7 +138,7 @@ function renderBindings(v: SkillsView): void {
       ? '先打开一个工程：绑定跟着工程走（记在工程里的 .novelforge/skills.json）。'
       : v.problems.length > 0
         ? `.novelforge/skills.json 有读不懂的地方：${v.problems.join('；')}。先手动修好或删掉它，才能在这里改绑定。`
-        : '每个阶段最多绑一份；同一份可以绑在几个阶段上。只列出兼容的技能。';
+        : '每个阶段最多绑一份；同一份可以绑在几个阶段上。只列出兼容的技能；内置技能只在它所属的阶段列出。';
   }
   const usable = v.rows.filter((r) => r.compatible);
   for (const stage of SKILL_STAGES) {
@@ -159,13 +159,18 @@ function bindingField(
   const none = el('option', undefined, '不带');
   none.value = '';
   select.appendChild(none);
-  for (const row of usable) {
-    const opt = el('option', undefined, `${row.label}（${SKILL_SOURCE_LABEL[row.source]}）`);
-    opt.value = row.id;
-    opt.title = row.description;
-    select.appendChild(opt);
-  }
   const current = bindings?.[stage] ?? '';
+  // 内置的阶段是写死的（三份「去 AI 味」各管一个阶段），别的阶段不列；已经绑上的照列。
+  // 我的技能库与本工程的「建议阶段」可能是猜的，全列，只是本阶段建议的排前面。
+  const listed = usable.filter((r) => r.source !== 'builtin' || r.suggestedStage === stage || r.id === current);
+  const suggested = listed.filter((r) => r.suggestedStage === stage);
+  const others = listed.filter((r) => r.suggestedStage !== stage);
+  if (others.length === 0 || suggested.length === 0) {
+    appendOptions(select, listed);
+  } else {
+    appendOptions(select.appendChild(optgroup('本阶段建议')), suggested);
+    appendOptions(select.appendChild(optgroup('其他技能')), others);
+  }
   if (current && !usable.some((r) => r.id === current)) {
     // 绑着的那份找不到了或者变得不兼容：照实显示，别让下拉框装作「不带」——生成时明细里也是这么说的。
     const found = all.find((r) => r.id === current);
@@ -180,6 +185,21 @@ function bindingField(
   });
   field.appendChild(select);
   return field;
+}
+
+function optgroup(label: string): HTMLOptGroupElement {
+  const group = document.createElement('optgroup');
+  group.label = label;
+  return group;
+}
+
+function appendOptions(parent: HTMLElement, rows: SkillRow[]): void {
+  for (const row of rows) {
+    const opt = el('option', undefined, `${row.label}（${SKILL_SOURCE_LABEL[row.source]}）`);
+    opt.value = row.id;
+    opt.title = row.description;
+    parent.appendChild(opt);
+  }
 }
 
 // ---------------------------------------------------------------- 技能库

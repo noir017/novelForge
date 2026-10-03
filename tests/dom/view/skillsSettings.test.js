@@ -5,6 +5,7 @@
  * |---|---|
  * | 切到这一页就重扫一次；「保存设置」藏起来 | 这一页改了当场生效 |
  * | 四个阶段各一个下拉框，只列兼容的 | 不兼容的绑不上 |
+ * | 内置的只在所属阶段列（已绑的照列）；其余按建议阶段分两组 | 三份「去 AI 味」别挤在同一个下拉框里 |
  * | 绑着却找不到的照实显示 | 别让下拉框装作「不带」 |
  * | 没打开工程时下拉框不能动，说清为什么 | 绑定跟着工程走 |
  * | 检查结果带正文；装不了时「确认安装」按不下去 | 装之前看得到写了什么 |
@@ -40,8 +41,9 @@ const VIEW = {
     row({}),
     row({ id: 'user:b', source: 'user', name: 'b', label: '乙', boundTo: ['drafting'] }),
     row({ id: 'project:c', source: 'project', name: 'c', label: '丙', compatible: false, reasons: ['依赖脚本'], relPath: '.novelforge/skills/c/SKILL.md' }),
+    row({ id: 'builtin:d', name: 'd', label: '丁', suggestedStage: 'drafting' }),
   ],
-  bindings: { drafting: 'user:b', review: 'user:gone' },
+  bindings: { drafting: 'user:b', review: 'user:gone', refinement: 'builtin:a' },
   problems: [],
   userDir: '/home/x/.novelforge/skills',
 };
@@ -77,9 +79,26 @@ describe('设置页：技能', { skip: JSDOM_SKIP }, () => {
   });
 
   test('下拉框只列兼容的，回显当前绑定', () => {
-    const s = select('drafting');
+    const s = select('planning');
     assert.deepEqual([...s.options].map((o) => o.value), ['', 'builtin:a', 'user:b']);
-    assert.equal(s.value, 'user:b');
+    assert.equal(select('drafting').value, 'user:b');
+  });
+
+  test('内置的只在所属阶段列；本阶段建议的与其他的分两组', () => {
+    const s = select('drafting');
+    assert.deepEqual(
+      [...s.querySelectorAll('optgroup')].map((g) => [g.label, [...g.children].map((o) => o.value)]),
+      [
+        ['本阶段建议', ['builtin:d']],
+        ['其他技能', ['user:b']],
+      ]
+    );
+  });
+
+  test('内置的绑在别的阶段上照列', () => {
+    const s = select('refinement');
+    assert.deepEqual([...s.options].map((o) => o.value), ['', 'builtin:a', 'user:b']);
+    assert.equal(s.value, 'builtin:a');
   });
 
   test('绑着却找不到的照实显示', () => {
@@ -100,9 +119,9 @@ describe('设置页：技能', { skip: JSDOM_SKIP }, () => {
 
   test('技能库一份一行，不兼容的写原因', () => {
     const cards = [...ui.doc.querySelectorAll('#skillList .skill-card')];
-    assert.equal(cards.length, 3);
+    assert.equal(cards.length, 4);
     assert.ok(cards[2].textContent.includes('依赖脚本'), cards[2].textContent);
-    assert.equal($('#skillCount').textContent, '3 份');
+    assert.equal($('#skillCount').textContent, '4 份');
   });
 
   test('写明本工程绑在哪个阶段', () => {
