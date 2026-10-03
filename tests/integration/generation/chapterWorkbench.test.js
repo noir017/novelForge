@@ -171,3 +171,45 @@ describe('chapterAction', () => {
     assert.ok(toasts.some((m) => m.includes('无法定稿')), JSON.stringify(toasts));
   });
 });
+
+/**
+ * 工程页「故事架构」右键「重写…」：先问一句要求，再对那一件发一轮生成。
+ * 取消就什么都不做；「讨论」那条（setTarget）不在这里——它只切层、不花钱。
+ */
+describe('rewriteArchitecture', () => {
+  const PREMISE = '.novelforge/premise.md';
+
+  before(() => {
+    t.write(PREMISE, '# 故事前提\n\n少年入青云，一路被人看不起。\n');
+  });
+
+  test('取消那一句要求：不切层、不起生成', async () => {
+    h.expect(undefined);
+    posted = [];
+    await controller.handle({ type: 'rewriteArchitecture', target: { kind: 'setting', doc: 'premise' } });
+    assert.equal(h.inputs.length, 1);
+    assert.ok(!posted.some((m) => m.type === 'session' || m.type === 'gate'), JSON.stringify(posted.map((m) => m.type)));
+  });
+
+  test('写了要求：切到那一件、发一轮生成，要求进了用户那一轮，照样当场问写不写', async () => {
+    h.expect('主角的金手指换成剑灵');
+    replies = [{ text: '# 故事前提\n\n少年得剑灵相助，入青云后一路逆袭打脸。\n', stop: 'end' }];
+    posted = [];
+    await controller.handle({ type: 'rewriteArchitecture', target: { kind: 'setting', doc: 'premise' } });
+    const session = [...posted].reverse().find((m) => m.type === 'session')?.session;
+    assert.deepEqual(session.target, { kind: 'setting', doc: 'premise' });
+    const turns = posted.filter((m) => m.type === 'turnDone').map((m) => m.turn);
+    const user = turns.find((u) => u.role === 'user');
+    assert.ok(user?.content.includes('剑灵'), JSON.stringify(turns.map((u) => [u.role, u.content])));
+    assert.equal(user.command, '生成这份架构文档', JSON.stringify(user));
+    assert.ok(posted.some((m) => m.type === 'gate'), JSON.stringify(posted.map((m) => m.type)));
+  });
+
+  test('不是架构或大纲的目标：什么都不做', async () => {
+    h.expect('x');
+    posted = [];
+    await controller.handle({ type: 'rewriteArchitecture', target: { kind: 'plot', plotRelPath: P1 } });
+    assert.equal(h.inputs.length, 0);
+    assert.equal(posted.length, 0);
+  });
+});

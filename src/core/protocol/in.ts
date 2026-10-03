@@ -85,6 +85,11 @@ export type InMessage =
    */
   | { type: 'chapterAction'; plotRelPath: string; action: ChapterAction }
   /**
+   * 工程页「故事架构」那几行右键「重写…」：先问一句重写要求（可留空），再对那一件发一轮生成。
+   * 与 `setTarget` 分开——那条只是进入这一层（讨论），不花钱。
+   */
+  | { type: 'rewriteArchitecture'; target: CreationTarget }
+  /**
    * 审稿报告卡底部「按勾选的 n 条修稿」（五期 W10）：报告在哪一轮、勾了哪几条（条目 id）。
    * 后端按那一轮的报告拼清单、按磁盘上此刻的正文重新定位引文，发一轮修稿。
    */

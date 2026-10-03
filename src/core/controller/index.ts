@@ -37,6 +37,7 @@ import {
   pushPipeline,
   retry,
   reviseChapter,
+  rewriteArchitecture,
   selectPlot,
   send,
   setTarget,
@@ -431,6 +432,10 @@ export class ChatController {
 
       case 'chapterAction':
         await chapterAction(this, msg.plotRelPath, msg.action);
+        return;
+
+      case 'rewriteArchitecture':
+        await rewriteArchitecture(this, normalizeTarget(msg.target));
         return;
 
       case 'saveFile': {

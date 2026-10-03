@@ -243,17 +243,31 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
     assert.equal(t?.target.doc, 'world', JSON.stringify(t));
   });
 
-  // 填过的那一件，进去多半是要讨论或重写，菜单上说的是这件事。
-  test('情节大纲进入的是大纲层', () => {
-    ui.pick(ui.rightClick(row('情节大纲')), '进入这一层（讨论 / 重写）');
+  // 填过的那一件：「讨论」只进入那一层，「重写…」直接发一轮生成（后端先问要求）。
+  test('情节大纲右键「讨论」进入大纲层，不发生成', () => {
+    ui.sent.length = 0;
+    ui.pick(ui.rightClick(row('情节大纲')), '讨论');
     const t = ui.last('setTarget');
     assert.equal(t?.target.kind, 'outline', JSON.stringify(t));
+    assert.ok(!ui.last('rewriteArchitecture'), JSON.stringify(ui.sent));
+  });
+
+  test('情节大纲右键「重写…」发 rewriteArchitecture，不只是切过去', () => {
+    ui.sent.length = 0;
+    ui.pick(ui.rightClick(row('情节大纲')), '重写…');
+    const r = ui.last('rewriteArchitecture');
+    assert.equal(r?.target.kind, 'outline', JSON.stringify(ui.sent));
+    assert.ok(!ui.last('setTarget'), JSON.stringify(ui.sent));
+  });
+
+  test('没填的那一件不给「重写…」', () => {
+    assert.ok(!worldItems.includes('重写…'), JSON.stringify(worldItems));
   });
 
   test('角色图谱的菜单没有「打开」', () => {
     const items = ui.itemsOf(ui.rightClick(row('角色图谱')));
     assert.ok(!items.includes('打开'), JSON.stringify(items));
-    assert.ok(items.includes('进入这一层（讨论 / 重写）'), JSON.stringify(items));
+    assert.ok(items.includes('讨论') && items.includes('重写…'), JSON.stringify(items));
     ui.closeMenu();
   });
 

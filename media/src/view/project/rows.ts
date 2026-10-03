@@ -292,7 +292,8 @@ export function buildPlotRows(plots: ProjectPlotNode[], nextNo: number): HTMLEle
  * 「故事架构」组的一行：小说配置 / 故事前提 / 角色图谱 / 世界观 / 情节大纲。
  *
  * 点名字打开那份文件；角色图谱没有自己的文件：已有卡时点它展开并滚到下面「角色」那一组，
- * 还没有卡时进入那一层（对话页的主按钮是「生成角色图谱」）。右键「进入这一层」去生成或重写。
+ * 还没有卡时进入那一层（对话页的主按钮是「生成角色图谱」）。已填的右键「讨论」进入这一层，
+ * 「重写…」问一句要求后直接重新生成；没填的右键「进入这一层」去生成。
  *
  * **第一件还没填的**在行尾多一个「去生成」（与章节组的「去写这一章」同一个道理：
  * 扫一眼就知道从哪接着做，全组只有这一行有）。小说配置那一行直接打开一句话弹窗；
@@ -317,7 +318,7 @@ function buildArchitectureRow(a: ArchitectureRow, isNext: boolean, tree?: Projec
     a.key !== 'characters'
       ? a.relPath
       : a.filled
-        ? '跳到下面「角色」那一组；右键「进入这一层」去讨论或重写'
+        ? '跳到下面「角色」那一组；右键「讨论」或「重写…」'
         : '进入这一层：对话页的主按钮就是生成它';
   label.addEventListener('click', () => {
     if (a.key !== 'characters') {
@@ -352,7 +353,13 @@ function buildArchitectureRow(a: ArchitectureRow, isNext: boolean, tree?: Projec
   onContextMenu(row, () => [
     ...(a.key === 'characters' ? [] : [{ label: '打开', run: () => openPath(a.relPath) }]),
     ...(a.key === 'config' ? [{ label: '从一句话生成…', run: idea }] : []),
-    { label: a.filled ? '进入这一层（讨论 / 重写）' : '进入这一层（去生成）', run: () => setTarget(target) },
+    // 已填的：讨论只是进入这一层（不花钱），重写直接发一轮生成（先问一句要求，覆盖前照样对比）。
+    ...(a.filled
+      ? [
+          { label: '讨论', run: () => setTarget(target) },
+          { label: '重写…', run: () => vscode.postMessage({ type: 'rewriteArchitecture', target }) },
+        ]
+      : [{ label: '进入这一层（去生成）', run: () => setTarget(target) }]),
     { sep: true },
     ...baseMenuItems(),
   ]);

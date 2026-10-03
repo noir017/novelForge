@@ -696,6 +696,43 @@ export async function chapterAction(c: ChatController, plotRelPath: string, acti
 }
 
 /**
+ * 工程页「故事架构」那几行右键「重写…」：对那一件**直接发一轮生成**。
+ *
+ * 先问一句重写要求——留空就是照上游重来一遍，写了就是修改意见（生成层本来就这么读输入）；
+ * 取消就什么都不做。生成照样在对话页流式输出，覆盖前照样先对比（第 19 条）。
+ * 「讨论」走 `setTarget`：只进入这一层，不花钱。
+ */
+export async function rewriteArchitecture(c: ChatController, target: CreationTarget): Promise<void> {
+  if (target.kind !== 'setting' && target.kind !== 'outline') {
+    return;
+  }
+  if (c.busy) {
+    c.toast('已有一个生成任务在进行中。', 'error');
+    return;
+  }
+  const where = describeTarget(target);
+  const ask = await getHost().input({
+    title: `重写${where}`,
+    prompt: '这次要怎么改？留空就照上游重新生成一遍。写入前会先让你对比。',
+    placeHolder: '例如：主角的金手指换成……；节奏再快一点',
+    multiline: true,
+  });
+  if (ask === undefined) {
+    return;
+  }
+  await setTarget(c, target);
+  await send(c, {
+    text: ask.trim(),
+    stage: stageOfTarget(target),
+    capability: 'generate',
+    target,
+    targetNo: c.current.targetNo ?? 1,
+    attachments: [],
+    excludedIds: [],
+  });
+}
+
+/**
  * 审稿报告卡底部「按勾选的 n 条修稿」（五期 W10）。
  *
  * 发的是一轮正文层的生成，写法 `revise`：用户气泡是 `/按审稿修稿` + 勾选的那几条，清单在
