@@ -80,6 +80,27 @@ intent: (args, project) => ({
 
 两个要 `path` 的只认工程里的 txt（`features/bookText.ts` 的清单）：章节文件、隐藏目录、工程外的路径当场报错回给模型，不花钱。
 
+## `run` 里的角色卡维护与全书摘要
+
+工程页那几颗按钮背后的同一个函数，确认框、提示条都在 feature 自己那里。这几个 feature 不报调用次数，
+所以回给模型的只有一句「交出去了」，次数以确认框为准。
+
+| action | 参数 | 做什么 |
+|---|---|---|
+| `rebuildGlobalSummary` | — | 从各章摘要重建全书摘要 |
+| `extractCharacters` | — | 通读已写正文，提取主要角色写成角色卡 |
+| `updateCard` / `rebuildCard` | `path`=角色卡 | 按新出场的章增量更新 / 按全部出场章重写一张 |
+| `updateAllCards` / `rebuildAllCards` | — | 同上，所有角色卡 |
+| `createCard` / `createAllCards` | `name` / — | 给一位 / 所有还没有卡的出场人物建卡 |
+| `cleanAliases` | — | 清理别名里的泛称与别人的名字（不调模型） |
+| `mergeDuplicates` | — | 合并指向同一个人的重复卡（不调模型，合并哪几组由作者确认） |
+| `reviewState` | `path`=角色卡 | 定稿时没覆盖的那一版「当前状态」，请作者对比决定换不换（不调模型） |
+
+## `generate` 的写法
+
+正文层这一章已经有字时，`writeMode` 说清是接着写（`continue`，落盘追加在末尾）还是整章重写（`rewrite`，
+缺省；落盘覆盖、先逐行对比）。修稿只从审稿报告卡进来，这里不给；审稿也由作者自己在对话页发起。
+
 ## `run` 里的写作技能动作
 
 移植自 AI-Novel-Writer 的三个工具（`inspect_writing_skill` / `install_writing_skill` / `bind_writing_skill`），

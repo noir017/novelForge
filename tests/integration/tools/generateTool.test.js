@@ -309,6 +309,55 @@ describe('给章节路径：按章号认成正文层', () => {
   });
 });
 
+// 这一章已经有正文时，写法由 writeMode 说：接着写（落盘追加）还是整章重写（落盘覆盖、先对比）。
+// 不给就是重写——与对话页主按钮「重写第 N 章」同一条路。
+describe('正文层的 writeMode', () => {
+  const REL = 'chapters/004-残灯.md';
+
+  before(() => {
+    t.write(REL, '# 残灯\n\n灯芯只剩一截。\n');
+    project.invalidate();
+  });
+
+  test('continue：草稿记成接着写', async () => {
+    resetCtx();
+    replyFn = () => '他把灯挑亮了一些。';
+    const r = await run({ target: REL, capability: 'generate', writeMode: 'continue' });
+    assert.equal(r.error, undefined, r.error);
+    assert.equal(stored[0].draft.writeMode, 'continue');
+  });
+
+  test('rewrite：草稿记成重写', async () => {
+    resetCtx();
+    replyFn = () => '灯芯只剩一截，他还是没睡。';
+    await run({ target: REL, capability: 'generate', writeMode: 'rewrite' });
+    assert.equal(stored[0].draft.writeMode, 'rewrite');
+  });
+
+  test('不给：已有正文就是重写', async () => {
+    resetCtx();
+    replyFn = () => '灯芯只剩一截。';
+    await run({ target: REL, capability: 'generate' });
+    assert.equal(stored[0].draft.writeMode, 'rewrite');
+  });
+
+  test('写法认不出：当场报错，不花钱', async () => {
+    resetCtx();
+    const before = fake.calls.length;
+    const r = await run({ target: REL, capability: 'generate', writeMode: 'revise' });
+    assert.ok(r.error?.includes('writeMode 只能是'), r.error);
+    assert.equal(fake.calls.length, before);
+  });
+
+  test('别的层给了 writeMode：当场报错，不花钱', async () => {
+    resetCtx();
+    const before = fake.calls.length;
+    const r = await run({ target: PLOT_REL, capability: 'generate', writeMode: 'continue' });
+    assert.ok(r.error?.includes('只对正文层'), r.error);
+    assert.equal(fake.calls.length, before);
+  });
+});
+
 describe('对架构文档调 generate', () => {
   let r;
 
@@ -548,9 +597,9 @@ describe('工具定义本身', () => {
     assert.ok(tool().description.includes('细纲路径永远是细纲层'), tool().description);
   });
 
-  test('参数是扁平的四个标量', () => {
+  test('参数是扁平的五个标量', () => {
     const props = tool().parameters.properties;
-    assert.deepEqual(Object.keys(props).sort(), ['ask', 'capability', 'target', 'targetWords']);
+    assert.deepEqual(Object.keys(props).sort(), ['ask', 'capability', 'target', 'targetWords', 'writeMode']);
     assert.ok(Object.values(props).every((p) => p.type !== 'object'), JSON.stringify(props));
   });
 });

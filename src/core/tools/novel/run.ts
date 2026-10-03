@@ -51,9 +51,17 @@ import { bool, int, objectSchema, str } from '../schema';
 import { clip, text } from './naming';
 import { newPlotFlow } from '../../actions';
 import { completeSettings, generatePlots, writeManuscripts } from '../../features/pipelineBatch';
-import { chapterForSummary, syncSummaries } from '../../features/summarize';
+import { chapterForSummary, rebuildGlobalSummary, syncSummaries } from '../../features/summarize';
 import { describeFinalize, finalizeChapter } from '../../features/finalize';
-import { createCardForCast, updateCharacterCard } from '../../features/characterCard';
+import {
+  createCardForCast,
+  createCardsForAllCast,
+  updateAllCharacterCards,
+  updateCharacterCard,
+} from '../../features/characterCard';
+import { cleanCharacterAliases, mergeDuplicateCharacterCards } from '../../features/characterMaintenance';
+import { reviewCharacterState } from '../../features/characterState';
+import { extractCharacters } from '../../features/characters';
 import { extractStyle } from '../../features/style';
 import { importManuscript } from '../../features/importManuscript';
 import { deriveFromText } from '../../features/derive';
@@ -181,6 +189,14 @@ const ACTIONS: Record<string, ActionSpec> = {
       );
     },
   },
+  rebuildGlobalSummary: {
+    label: '从各章摘要重建全书摘要',
+    costly: true,
+    async run(ctx) {
+      await rebuildGlobalSummary(ctx.project);
+      return handed('全书摘要重建');
+    },
+  },
   generateThreads: {
     label: '从细纲排出叙事线（跨章的伏笔与线索，追加到 .novelforge/threads.md 末尾；已有的不动、同名跳过）',
     costly: true,
@@ -198,6 +214,32 @@ const ACTIONS: Record<string, ActionSpec> = {
       return { text: `已处理角色卡 ${args.path}（实际调用次数见确认框与日志）。`, calls: 1 };
     },
   },
+  rebuildCard: {
+    label: '按全部出场章重写一张角色卡（不只是新出场的章）',
+    costly: true,
+    needsField: 'path',
+    needs: 'path=那张角色卡的路径',
+    async run(ctx, args) {
+      await updateCharacterCard(ctx.project, args.path, 'full');
+      return handed(`角色卡 ${args.path} 重写`);
+    },
+  },
+  updateAllCards: {
+    label: '把所有角色卡按新出场的章增量更新一遍',
+    costly: true,
+    async run(ctx) {
+      await updateAllCharacterCards(ctx.project, 'incremental');
+      return handed('全部角色卡增量更新');
+    },
+  },
+  rebuildAllCards: {
+    label: '按全部出场章重写所有角色卡',
+    costly: true,
+    async run(ctx) {
+      await updateAllCharacterCards(ctx.project, 'full');
+      return handed('全部角色卡重写');
+    },
+  },
   createCard: {
     label: '给一位还没有卡的出场人物建卡',
     costly: true,
@@ -206,6 +248,48 @@ const ACTIONS: Record<string, ActionSpec> = {
     async run(ctx, args) {
       await createCardForCast(ctx.project, args.name);
       return { text: `已处理「${args.name}」的角色卡（实际调用次数见确认框与日志）。`, calls: 1 };
+    },
+  },
+  createAllCards: {
+    label: '给摘要里所有还没有卡的出场人物建卡',
+    costly: true,
+    async run(ctx) {
+      await createCardsForAllCast(ctx.project);
+      return handed('批量建卡');
+    },
+  },
+  extractCharacters: {
+    label: '通读已写正文，提取主要角色写成角色卡',
+    costly: true,
+    async run(ctx) {
+      await extractCharacters(ctx.project);
+      return handed('提取角色');
+    },
+  },
+  cleanAliases: {
+    label: '清理角色卡别名里的泛称与别人的名字（只改 aliases，正文不动）',
+    costly: false,
+    async run(ctx) {
+      await cleanCharacterAliases(ctx.project);
+      return handed('别名清理');
+    },
+  },
+  mergeDuplicates: {
+    label: '找出指向同一个人的重复角色卡并合并（合并哪几组由作者确认）',
+    costly: false,
+    async run(ctx) {
+      await mergeDuplicateCharacterCards(ctx.project);
+      return handed('重复角色卡合并');
+    },
+  },
+  reviewState: {
+    label: '定稿时作者改过、机器没覆盖的那张角色卡「当前状态」：拿出机器那一版请作者对比决定换不换',
+    costly: false,
+    needsField: 'path',
+    needs: 'path=那张角色卡的路径',
+    async run(ctx, args) {
+      await reviewCharacterState(ctx.project, args.path);
+      return handed(`角色卡 ${args.path} 的当前状态对比`);
     },
   },
   extractStyle: {
@@ -618,6 +702,17 @@ function toInt(value: unknown): number | undefined {
  * **0 次要说清楚**：作者取消了，或者压根没有待处理的东西。不说的话模型会以为
  * 是自己参数填错了，然后原地再发一遍——那正是无进展检测要拦的事。
  */
+/**
+ * 不报次数的那几个 feature（结论都在确认框、提示条与日志里）：只说交出去了、去哪看结果。
+ * 次数记 0——确认框里写的才是实数，这里猜一个反倒是第 4 条要防的那种对不上。
+ */
+function handed(what: string): ActionResult {
+  return {
+    text: `${what}已交给 Novel Forge 执行（确认框、结果与调用次数都在作者那边的界面和日志里）。要知道改了什么，用 read 看对应文件。`,
+    calls: 0,
+  };
+}
+
 function countedBy(calls: number, what: string, idle = '没有待处理的章'): ActionResult {
   if (calls <= 0) {
     return {

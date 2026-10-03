@@ -12,6 +12,7 @@
  * | 连着两次调用 | 接在同一个气泡里；作者说过话就另起一个 |
  * | 生成位被占 | 当场回 isError，不排队 |
  * | edit（`always`） | 动手前先问；跳过就一字不改，返回说「不要重试」 |
+ * | 正文 writeMode=continue | 卡片写追加，落盘接在已有正文后面 |
  * | 简报 | 与状态机同一句「下一步」 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -41,6 +42,7 @@ let posted = [];
 let gates = [];
 /** 卡片来了怎么答：返回 proceed / skip。 */
 let onGate = async () => 'proceed';
+let replyFn = () => PLOT_JSON;
 
 const signal = () => new AbortController().signal;
 const call = (name, args) => backend.call(name, args, signal());
@@ -64,7 +66,7 @@ before(async () => {
   h = makeFakeHost({ name: 'standalone', supportsVscodeLm: true, settings: () => settings });
   bundle.host.initHost(h.host);
   installFakeProvider(bundle.registry, {
-    reply: () => PLOT_JSON,
+    reply: () => replyFn(),
     errors: { LlmError: bundle.provider.LlmError, CancelledError: bundle.provider.CancelledError },
   });
 
@@ -256,6 +258,29 @@ describe('edit：动手前先问', () => {
     assert.equal(r.isError, false, r.text);
     const plot = await project.readPlot(P1);
     assert.equal(plot.sections['本章目的'], '离开宗门');
+  });
+});
+
+describe('generate 正文接着写：落盘追加在已有正文后面', () => {
+  const CH = 'chapters/001-夜入青云.md';
+  let r;
+  before(async () => {
+    reset();
+    t.write(CH, '# 夜入青云\n\n雨下了三天。\n');
+    project.invalidate();
+    replyFn = () => '林昭翻过了墙。';
+    onGate = async () => 'proceed';
+    r = await call('generate', { target: CH, capability: 'generate', writeMode: 'continue', targetWords: 10 });
+  });
+
+  test('卡片写的是追加', () => {
+    assert.ok(gates[0].title.includes('追加'), gates[0].title);
+  });
+
+  test('原有的正文还在，新写的接在后面', async () => {
+    const text = t.read(CH);
+    assert.ok(text.indexOf('雨下了三天') >= 0 && text.indexOf('林昭翻过了墙') > text.indexOf('雨下了三天'), text);
+    assert.equal(r.isError, false, r.text);
   });
 });
 

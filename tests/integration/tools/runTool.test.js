@@ -596,6 +596,49 @@ describe('拆书三个动作：转发给工程页那几个函数', () => {
   });
 });
 
+// 工程页那几颗角色卡与全书摘要的按钮，在 run 里各有一个同名动作：转发给同一个 feature 函数，
+// 确认框、提示条都在 feature 自己那里，run 只说「交出去了，去哪看结果」。
+describe('角色卡维护与全书摘要', () => {
+  const NEW_ACTIONS = [
+    'rebuildGlobalSummary',
+    'extractCharacters',
+    'rebuildCard',
+    'createAllCards',
+    'updateAllCards',
+    'rebuildAllCards',
+    'cleanAliases',
+    'mergeDuplicates',
+    'reviewState',
+  ];
+
+  test('都在可选动作里，也都写进了描述', () => {
+    const actions = tool().parameters.properties.action.enum;
+    for (const a of NEW_ACTIONS) {
+      assert.ok(actions.includes(a), a);
+      assert.ok(tool().description.includes(`${a}=`), a);
+    }
+  });
+
+  test('要角色卡路径的两个，缺了就当场报错、不花钱', async () => {
+    for (const action of ['rebuildCard', 'reviewState']) {
+      resetCtx();
+      const r = await run({ action });
+      assert.ok(r.error?.includes('path=那张角色卡的路径'), `${action}: ${r.error}`);
+      assert.equal(fake.calls.length, 0);
+    }
+  });
+
+  test('还没有角色卡时清理别名：feature 自己说明，不调模型、不报错', async () => {
+    resetCtx();
+    h.toasts.length = 0;
+    const r = await run({ action: 'cleanAliases' });
+    assert.equal(r.error, undefined, r.error);
+    assert.ok(r.text.includes('已交给 Novel Forge 执行'), r.text);
+    assert.ok(h.toasts.some((m) => m.includes('还没有角色卡')), JSON.stringify(h.toasts));
+    assert.equal(fake.calls.length, 0);
+  });
+});
+
 describe('工具定义本身', () => {
   test('标了 mutating', () => {
     assert.equal(tool().mutating, true);

@@ -66,6 +66,9 @@ const log = scoped('Agent');
  * 没有审稿档：这个工具不做审稿（`capability === 'review'` 当场报错，理由写在那里）。
  * `review` 档只给批量写章的「写完即审稿」用。
  */
+/** 正文层可选的两种写法。修稿只从审稿报告卡进来，这里不给。 */
+const WRITE_MODES = ['continue', 'rewrite'] as const;
+
 const TIER_TASK: Partial<Record<CreationStage, LlmTask>> = {
   setting: 'setting',
   plot: 'plotOutline',
@@ -87,7 +90,12 @@ export const generateTool: ToolDef = {
     return {
       gate: 'costly',
       title: `为「${describePath(target, project)}」调一次创作模型`,
-      detail: [target, text(args.ask) && `要求：${clip(text(args.ask))}`, '这一步会花钱。产出之后还会再问你一次要不要落盘。']
+      detail: [
+        target,
+        text(args.writeMode) === 'continue' ? '接着已有的正文往下写' : text(args.writeMode) === 'rewrite' ? '整章重写' : '',
+        text(args.ask) && `要求：${clip(text(args.ask))}`,
+        '这一步会花钱。产出之后还会再问你一次要不要落盘。',
+      ]
         .filter(Boolean)
         .join('\n'),
     };
@@ -99,6 +107,7 @@ export const generateTool: ToolDef = {
     '.novelforge/outline.md 是大纲层，.novelforge/plots/<章号>-<标题>.md 是细纲层（一章一份），' +
     '正文层给那一章的章节路径（chapters/<章号>-<标题>.md；还没写过的章写成 chapters/<章号>.md 即可，' +
     '按章号认到同号的细纲）。**细纲路径永远是细纲层**，要写正文不要给细纲路径。' +
+    '这一章已经有正文时用 writeMode 说清是接着写（continue）还是整章重写（rewrite，缺省）。' +
     '各层可用的 capability 不同：' +
     Object.entries(STAGE_CAPABILITIES)
       .map(([stage, caps]) => `${stage}=${caps.filter((c) => c !== 'review').join('/')}`)
@@ -115,6 +124,11 @@ export const generateTool: ToolDef = {
       capability: str(`要它干什么。${describeCapabilities()}`, CAPABILITIES),
       ask: str('补充要求，可留空。留空时按上一层的产物照常生成。'),
       targetWords: int('目标字数，只对正文层有意义。留空取细纲的目标字数，再没有取小说配置的每章字数；不到八成会自动续写。'),
+      writeMode: str(
+        '正文层这一章已经有字时怎么写，其余层不认：continue=接着已有的正文往下写，落盘时追加到末尾；' +
+          'rewrite=整章重写，落盘时覆盖（作者会先逐行对比）。缺省 rewrite。这一章还没有正文时两者一样，就是从头写。',
+        [...WRITE_MODES]
+      ),
     },
     ['target', 'capability']
   ),
@@ -160,6 +174,14 @@ export const generateTool: ToolDef = {
       };
     }
 
+    const writeMode = typeof args.writeMode === 'string' ? args.writeMode.trim() : '';
+    if (writeMode && !(WRITE_MODES as readonly string[]).includes(writeMode)) {
+      return { text: '', error: `writeMode 只能是 ${WRITE_MODES.join(' / ')}，收到的是「${writeMode}」。` };
+    }
+    if (writeMode && path.stage !== 'manuscript') {
+      return { text: '', error: 'writeMode 只对正文层有意义（target 给章节路径）。其余层不要给它。' };
+    }
+
     const action = { stage: path.stage, capability: capability as Capability };
     if (!isValidAction(action)) {
       return {
@@ -183,6 +205,7 @@ export const generateTool: ToolDef = {
         targetNo: path.no,
         ask: typeof args.ask === 'string' ? args.ask : '',
         targetWords: toPositiveInt(args.targetWords),
+        ...(writeMode ? { writeMode: writeMode as 'continue' | 'rewrite' } : {}),
         // 空数组，见文件头第 2 条。**不要改成 ctx 里的什么历史。**
         history: [],
       },
