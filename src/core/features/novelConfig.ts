@@ -10,8 +10,8 @@
  * ## 模型面向的键沿用上游的英文名
  *
  * `coreOutline`、`goldenFinger` 这些键是上游调过的提示词的一部分，换成中文键就得
- * 重新试错一遍。解码时映射到 `config.md` 的七节；「一句话」一节不让模型写——
- * 它就是作者的原话。
+ * 重新试错一遍。解码时映射到 `config.md` 的八节；「一句话」是作者的原话，模型给的 `logline`
+ * 只在作者没写时补上（从已写正文补齐时就没有作者的原话）。
  *
  * ## 比上游宽松
  *
@@ -69,8 +69,10 @@ export function isGuidanceValid(text: string): boolean {
 }
 
 /** 模型那边的键 → `config.md` 的小节。 */
-const SECTION_OF: Record<string, Exclude<ConfigSectionKey, '一句话'>> = {
+const SECTION_OF: Record<string, ConfigSectionKey> = {
+  logline: '一句话',
   coreOutline: '核心梗概',
+  sellingPoints: '核心卖点',
   worldSetting: '世界观要点',
   goldenFinger: '金手指',
   protagonistProfile: '主角档案',
@@ -78,12 +80,13 @@ const SECTION_OF: Record<string, Exclude<ConfigSectionKey, '一句话'>> = {
   referenceWorks: '参考作品',
 };
 
-/** 上游合同里必填的九个文本字段（`REQUIRED_CONFIG_TEXT_FIELDS`）。缺了记进 `missing`。 */
+/** 必填的十个文本字段（上游 `REQUIRED_CONFIG_TEXT_FIELDS` 的九个，外加核心卖点）。缺了记进 `missing`。 */
 const REQUIRED = [
   'genre',
   'targetAudience',
   'subGenre',
   'coreOutline',
+  'sellingPoints',
   'worldSetting',
   'goldenFinger',
   'protagonistProfile',
@@ -173,6 +176,7 @@ export function decodeNovelConfig(text: string): ConfigDecode {
     targetAudience: !!value.audience,
     subGenre: !!value.subGenre,
     coreOutline: !!sections.核心梗概,
+    sellingPoints: !!sections.核心卖点,
     worldSetting: !!sections.世界观要点,
     goldenFinger: !!sections.金手指,
     protagonistProfile: !!sections.主角档案,
@@ -216,8 +220,9 @@ export interface MergeOptions {
 export function mergeWithAuthor(existing: BookConfig, generated: GeneratedConfig, opts: MergeOptions): WritableBookConfig {
   const sections = { ...existing.sections };
   for (const key of CONFIG_SECTION_KEYS) {
-    const fresh = key === '一句话' ? opts.idea?.trim() : generated.sections[key];
     const old = hasContent(existing.sections[key]) ? existing.sections[key] : '';
+    // 一句话：作者这次给的 > 作者原来写的 > 模型补的。
+    const fresh = key === '一句话' ? opts.idea?.trim() || (old ? undefined : generated.sections[key]) : generated.sections[key];
     sections[key] = opts.preserve ? preserveAuthorText(old, fresh) : fresh?.trim() || old;
   }
   // 作者选过的类型 / 受众 / 结构 / 视角：保留原文时一律不改；否则生成的优先。

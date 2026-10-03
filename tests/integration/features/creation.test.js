@@ -352,7 +352,7 @@ describe('artifact.ts · 空产物与描述', () => {
   test('架构文档描述带填了几节', () => {
     assert.equal(
       A.describeArtifact({ kind: 'settingDoc', doc: 'config', sections: { 核心梗概: 'x', 金手指: 'y' } }),
-      '小说配置 · 2/7 节'
+      '小说配置 · 2/8 节'
     );
   });
 

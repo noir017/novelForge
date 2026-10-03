@@ -147,6 +147,7 @@ const CONFIG_FIELD_LABEL: Record<string, string> = {
   targetAudience: '受众',
   subGenre: '细分类型',
   coreOutline: '核心梗概',
+  sellingPoints: '核心卖点',
   worldSetting: '世界观要点',
   goldenFinger: '金手指',
   protagonistProfile: '主角档案',

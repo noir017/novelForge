@@ -108,7 +108,7 @@ describe('前提 / 世界观', () => {
   });
 
   test('renderSettingDoc 往返', () => {
-    const sections = { 一句话前提: '当少年遭遇翻船，必须活下来否则家族覆灭', 核心冲突链: '甲', 金手指定位: '', 悬念骨架: '乙' };
+    const sections = { 一句话前提: '当少年遭遇翻船，必须活下来否则家族覆灭', 核心冲突链: '甲', 爽点循环: '', 悬念骨架: '乙' };
     const text = S.renderSettingDoc('premise', sections);
     assert.deepEqual(S.parseSettingDoc('premise', text, 'x').sections, sections);
   });

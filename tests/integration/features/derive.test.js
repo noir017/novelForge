@@ -78,7 +78,7 @@ function defaultReply(messages) {
     case 'config':
       return CONFIG_JSON;
     case 'premise':
-      return '## 一句话前提\n\n当孤儿遭遇灭门，必须入宗查案。\n\n## 核心冲突链\n\n灭门 → 入宗 → 查案。\n\n## 金手指定位\n\n残令。\n\n## 悬念骨架\n\n谁放的火。';
+      return '## 一句话前提\n\n当孤儿遭遇灭门，必须入宗查案。\n\n## 核心冲突链\n\n灭门 → 入宗 → 查案。\n\n## 爽点循环\n\n残令。\n\n## 悬念骨架\n\n谁放的火。';
     case 'world':
       return '## 规则与漏洞\n\n灵脉决定修为。\n\n## 阶层与资源\n\n宗门垄断灵脉。\n\n## 深层危机\n\n灵脉在枯竭。';
     case 'outline': {

@@ -41,7 +41,7 @@ export type SettingFileDoc = 'config' | 'premise' | 'world';
 export const SETTING_FILE_DOCS: readonly SettingFileDoc[] = ['config', 'premise', 'world'];
 
 /**
- * 小说配置的七节。顺序即「读它们的顺序」：先是作者的那句话，再是展开后的梗概，
+ * 小说配置的八节。顺序即「读它们的顺序」：先是作者的那句话，再是展开后的梗概与读者追读的理由（核心卖点），
  * 然后是世界、金手指、主角，最后是跨章的规则与参考。
  *
  * 「全局要求」只写**跨章**的规则（≤600 字、4–8 行），禁止逐章列大纲——那是
@@ -50,6 +50,7 @@ export const SETTING_FILE_DOCS: readonly SettingFileDoc[] = ['config', 'premise'
 export const CONFIG_SECTION_KEYS = [
   '一句话',
   '核心梗概',
+  '核心卖点',
   '世界观要点',
   '金手指',
   '主角档案',
@@ -57,8 +58,8 @@ export const CONFIG_SECTION_KEYS = [
   '参考作品',
 ] as const;
 
-/** 故事前提四节：一句话前提（当[身份]遭遇[事件]，必须[行动]否则[后果]）、冲突链、金手指定位、悬念骨架。 */
-export const PREMISE_SECTION_KEYS = ['一句话前提', '核心冲突链', '金手指定位', '悬念骨架'] as const;
+/** 故事前提四节：一句话前提、冲突链、爽点循环（金手指怎样一次次兑现爽点）、悬念骨架。 */
+export const PREMISE_SECTION_KEYS = ['一句话前提', '核心冲突链', '爽点循环', '悬念骨架'] as const;
 
 /** 世界观三节：规则与它的漏洞、阶层与资源、深层危机。 */
 export const WORLD_SECTION_KEYS = ['规则与漏洞', '阶层与资源', '深层危机'] as const;

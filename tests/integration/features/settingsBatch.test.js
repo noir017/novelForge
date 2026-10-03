@@ -69,7 +69,7 @@ function reply(messages) {
     case 'config':
       return CONFIG_JSON;
     case 'premise':
-      return '## 一句话前提\n\n当孤儿遭遇灭门，必须入宗查案。\n\n## 核心冲突链\n\n灭门 → 入宗 → 查案 → 执法堂阻挠。\n\n## 金手指定位\n\n残令。\n\n## 悬念骨架\n\n谁放的火。';
+      return '## 一句话前提\n\n当孤儿遭遇灭门，必须入宗查案。\n\n## 核心冲突链\n\n灭门 → 入宗 → 查案 → 执法堂阻挠。\n\n## 爽点循环\n\n残令。\n\n## 悬念骨架\n\n谁放的火。';
     case 'manifest':
       return MANIFEST;
     case 'details':

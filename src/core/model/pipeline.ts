@@ -1168,7 +1168,7 @@ export function deriveBookStage(f: BookFacts): BookStage {
 /** 架构四件各自那句「为什么是这一步」。 */
 const SETTING_HINT: Record<SettingDoc, string> = {
   config: '先把这个脑洞展开成一份小说配置：类型、卖点、主角、金手指，以及全书写多少章、每章多少字。',
-  premise: '从配置里提炼故事前提：一句话前提、核心冲突链、金手指定位、悬念骨架。',
+  premise: '从配置里提炼故事前提：一句话前提、核心冲突链、爽点循环、悬念骨架。',
   characters: '按前提排出角色图谱：主角、盟友、对手，以及他们之间的关系。',
   world: '把世界观立起来：规则与它的漏洞、阶层与资源、深层危机。',
 };

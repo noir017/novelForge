@@ -386,7 +386,7 @@ describe('对架构文档调 generate', () => {
   });
 
   test('返回文本里有形状摘要', () => {
-    assert.ok(r.text.includes('小说配置 · 2/7 节'), r.text);
+    assert.ok(r.text.includes('小说配置 · 2/8 节'), r.text);
   });
 
   test('返回文本里没有正文', () => {

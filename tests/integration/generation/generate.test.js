@@ -304,7 +304,7 @@ describe('架构层 · 同一阶段的四件靠 target 分辨', () => {
   test('小说配置解析成一份文档', () => {
     assert.equal(config.artifact.kind, 'settingDoc', JSON.stringify(config.artifact));
     assert.equal(config.artifact.doc, 'config');
-    assert.equal(config.summary, '小说配置 · 2/7 节', config.summary);
+    assert.equal(config.summary, '小说配置 · 2/8 节', config.summary);
   });
 
   // 同一段文本，target 不同解析出来就不同：采纳时重新解析也必须带上 target。

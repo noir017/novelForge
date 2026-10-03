@@ -187,6 +187,7 @@ describe('novelConfig.ts · 小说配置', () => {
     plotStructure: 'three_act',
     narrativePOV: 'third_limited',
     coreOutline: '少年背着旧案入宗，查出宗门与灭门案的关系。',
+    sellingPoints: '残令回放死者最后一刻：每次都在众人面前翻案。',
     worldSetting: '灵脉枯竭的九州。',
     goldenFinger: '一块能回放死者最后一刻的残令。',
     protagonistProfile: '林昭，隐忍，想替父洗冤。',
@@ -194,14 +195,25 @@ describe('novelConfig.ts · 小说配置', () => {
     writingStyle: '冷峻克制，短句为主。',
   };
 
-  test('英文键映射到七节，文风单独拿出来', () => {
+  test('英文键映射到八节，文风单独拿出来', () => {
     const r = C.decodeNovelConfig(JSON.stringify(generated));
     assert.equal(r.ok, true);
     assert.deepEqual(r.missing, []);
     assert.equal(r.value.sections.金手指, generated.goldenFinger);
     assert.equal(r.value.structure, 'three_act');
     assert.equal(r.value.writingStyle, '冷峻克制，短句为主。');
+    assert.equal(r.value.sections.核心卖点, generated.sellingPoints);
     assert.equal(r.value.sections.一句话, undefined);
+  });
+
+  test('logline 只在作者没写一句话时补上', () => {
+    const r = C.decodeNovelConfig(JSON.stringify({ ...generated, logline: '模型补的一句话' }));
+    assert.equal(r.value.sections.一句话, '模型补的一句话');
+    const empty = { sections: {} };
+    assert.equal(C.mergeWithAuthor(empty, r.value, { preserve: false }).sections.一句话, '模型补的一句话');
+    const authored = { sections: { 一句话: '作者的脑洞' } };
+    assert.equal(C.mergeWithAuthor(authored, r.value, { preserve: false }).sections.一句话, '作者的脑洞');
+    assert.equal(C.mergeWithAuthor(authored, r.value, { preserve: false, idea: '新脑洞' }).sections.一句话, '新脑洞');
   });
 
   test('缺字段、枚举写错：照收并说明，不作废', () => {
