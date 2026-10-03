@@ -1,5 +1,4 @@
 import type { LlmTask, ModelTier } from '../model/tiers';
-import type { AgentPolicy } from '../model/agentPolicy';
 import type { ThinkingDepth } from '../model/thinking';
 import type { ReviewIssueEdit } from '../model/review';
 import type {
@@ -59,14 +58,6 @@ export type InMessage =
   | { type: 'ready' }
   | { type: 'switchTab'; tab: Tab }
   | { type: 'send'; payload: SendPayload }
-  /**
-   * 让 agent 跑一轮：它自己决定查什么、生成什么。**这是直接发送走的那条路。**
-   *
-   * 与 `send` 并存而不是取代它——挑了 `/命令`（写细纲、写正文）是**确定性
-   * 单步**，多一次调度调用只是加钱加延迟（设计文档的第一条决策）。`limits`
-   * 留给日后的设置页，缺省走 `budget.ts` 的三条。
-   */
-  | { type: 'sendAgent'; text: string; limits?: { steps?: number; calls?: number; tokens?: number } }
   | { type: 'stop' }
   | { type: 'retry'; turnId: string; payload: SendPayload }
   | { type: 'setTarget'; target: CreationTarget }
@@ -246,8 +237,6 @@ export interface SettingsPayload {
   requestTimeoutMs: number;
   concurrency: number;
   fallbackAttempts: number;
-  /** Agent 的确认策略：careful / default / bold。 */
-  agentPolicy: AgentPolicy;
   /** 写完正文删修饰。 */
   trimModifiers: boolean;
 }

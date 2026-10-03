@@ -203,7 +203,7 @@ const turn = (id, role, content, extra) =>
   Object.assign({ id, role, content, at: new Date(0).toISOString() }, extra);
 
 /**
- * 一轮 agent 排下来的段。形状与后端 `serializeTurn` 归一之后的一致——
+ * 一轮里排下来的段（外部 agent 经 MCP 调工具、带工具条的回放）。形状与后端 `serializeTurn` 归一之后的一致——
  * **界面只认这一个字段**（`toolCalls` 是改成段之前的形状，后端读老会话时就归一
  * 掉了，前端不认它）。
  *

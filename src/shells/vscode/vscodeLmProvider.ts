@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import {
-  AgentMessage,
+  ChatMessage,
   CancelledError,
   LlmError,
   LlmProvider,
@@ -13,10 +13,9 @@ import {
 /**
  * 基于 VS Code Language Model API（复用 Copilot 订阅）。
  *
- * 三点与自建 API 不同：
+ * 两点与自建 API 不同：
  * 1. 没有独立的 system 角色，系统提示会并入首条 user 消息；
- * 2. 有硬性的 maxInputTokens 配额，装配器需要据此收紧预算；
- * 3. 工具参数**已经是解析好的对象**，不必像另外两家那样累积分片。
+ * 2. 有硬性的 maxInputTokens 配额，装配器需要据此收紧预算。
  */
 export class VsCodeLmProvider implements LlmProvider {
   readonly id = 'vscode-lm' as const;
@@ -71,7 +70,7 @@ export class VsCodeLmProvider implements LlmProvider {
    * 也不警告——作者选一个 Copilot 模型时要的就是「用订阅额度」，为一个这条路上
    * 压根不存在的旋钮弹提示只是噪声。
    */
-  async *stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
+  async *stream(messages: ChatMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
     const model = await this.resolveModel();
     const { signal, dispose, poke } = makeAbortSignal(options);
     const source = new vscode.CancellationTokenSource();
@@ -88,41 +87,15 @@ export class VsCodeLmProvider implements LlmProvider {
         toLmMessages(messages),
         {
           justification: 'Novel Forge 需要调用语言模型续写小说正文。',
-          // 没有工具时一律不带这两个字段，与另外两家一致。
-          ...(options.tools && options.tools.length > 0 && options.toolChoice !== 'none'
-            ? {
-                tools: options.tools.map((s) => ({
-                  name: s.name,
-                  description: s.description,
-                  inputSchema: s.parameters,
-                })),
-                toolMode:
-                  options.toolChoice === 'required'
-                    ? vscode.LanguageModelChatToolMode.Required
-                    : vscode.LanguageModelChatToolMode.Auto,
-              }
-            : {}),
         },
         source.token
       );
       poke();
 
-      // 走 response.stream 而不是 response.text：后者把工具调用整段滤掉了。
       for await (const part of response.stream) {
         poke();
         if (part instanceof vscode.LanguageModelTextPart) {
           yield { type: 'text', text: part.value };
-        } else if (part instanceof vscode.LanguageModelToolCallPart) {
-          // input 已经是解析好的对象，不用累积、也没有坏 JSON 这一说。
-          yield {
-            type: 'toolCall',
-            call: {
-              id: part.callId,
-              name: part.name,
-              args: part.input as Record<string, unknown>,
-              raw: JSON.stringify(part.input),
-            },
-          };
         }
       }
     } catch (err) {
@@ -145,16 +118,12 @@ export class VsCodeLmProvider implements LlmProvider {
 }
 
 /**
- * `AgentMessage[]` → VS Code 的消息数组。
+ * `ChatMessage[]` → VS Code 的消息数组。
  *
  * **系统提示并进首条 user** 是这个 provider 的特点而不是缺陷：LM API 根本
  * 没有 system 角色，不并进去这段提示就丢了。
- *
- * `tool` 消息走 User + `LanguageModelToolResultPart`（与 Anthropic 同一个
- * 道理：工具结果属于用户那一侧），`assistant` 的工具调用走 Assistant +
- * `LanguageModelToolCallPart`。
  */
-function toLmMessages(messages: AgentMessage[]): vscode.LanguageModelChatMessage[] {
+function toLmMessages(messages: ChatMessage[]): vscode.LanguageModelChatMessage[] {
   const systemText = messages
     .filter((m) => m.role === 'system')
     .map((m) => m.content)
@@ -164,29 +133,8 @@ function toLmMessages(messages: AgentMessage[]): vscode.LanguageModelChatMessage
 
   let systemMerged = !systemText;
   for (const m of rest) {
-    if (m.role === 'tool') {
-      out.push(
-        vscode.LanguageModelChatMessage.User([
-          new vscode.LanguageModelToolResultPart(m.toolCallId, [
-            new vscode.LanguageModelTextPart(m.content),
-          ]),
-        ])
-      );
-      continue;
-    }
     if (m.role === 'assistant') {
-      if (m.toolCalls && m.toolCalls.length > 0) {
-        const parts: (vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart)[] = [];
-        if (m.content) {
-          parts.push(new vscode.LanguageModelTextPart(m.content));
-        }
-        for (const c of m.toolCalls) {
-          parts.push(new vscode.LanguageModelToolCallPart(c.id, c.name, c.args));
-        }
-        out.push(vscode.LanguageModelChatMessage.Assistant(parts));
-      } else {
-        out.push(vscode.LanguageModelChatMessage.Assistant(m.content));
-      }
+      out.push(vscode.LanguageModelChatMessage.Assistant(m.content));
       continue;
     }
     if (!systemMerged) {

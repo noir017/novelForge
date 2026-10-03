@@ -2,7 +2,7 @@
  * 设置页的装配：收后端推来的设置、渲染、保存。
  */
 import { byId, maybeById } from '../../dom';
-import { DEFAULT_AGENT_POLICY, MODEL_TIERS, isAgentPolicy } from '../../protocol';
+import { MODEL_TIERS } from '../../protocol';
 import type { SettingsPayload } from '../../protocol';
 import { vscode } from '../store';
 import { toast } from '../toast';
@@ -57,10 +57,6 @@ export function renderSettings(
       node.value = String(settings[key as NumericField]);
     }
   }
-  const policy = maybeById<HTMLSelectElement>(AGENT_POLICY_FIELD);
-  if (policy) {
-    policy.value = isAgentPolicy(settings.agentPolicy) ? settings.agentPolicy : DEFAULT_AGENT_POLICY;
-  }
   const trim = maybeById<HTMLInputElement>(TRIM_FIELD);
   if (trim) {
     trim.checked = settings.trimModifiers !== false;
@@ -69,9 +65,6 @@ export function renderSettings(
   renderTaskTiers();
   refreshProviderModal();
 }
-
-/** 设置页上那个策略下拉框的 id。读、写、绑事件三处共用。 */
-const AGENT_POLICY_FIELD = 'setAgentPolicy';
 
 /** 「写完正文删修饰」那个勾选框的 id。 */
 const TRIM_FIELD = 'setTrimModifiers';
@@ -86,9 +79,6 @@ function save(): void {
   for (const [key, id] of Object.entries(NUMERIC_FIELDS)) {
     settings[key as NumericField] = Number(byId<HTMLInputElement>(id).value);
   }
-  // 认不出的值回落默认——后端也会再兜一次，两边都不因为一个手改坏的值而炸。
-  const picked = maybeById<HTMLSelectElement>(AGENT_POLICY_FIELD)?.value;
-  settings.agentPolicy = isAgentPolicy(picked) ? picked : DEFAULT_AGENT_POLICY;
   settings.trimModifiers = maybeById<HTMLInputElement>(TRIM_FIELD)?.checked !== false;
   const problem = validateProviders(draft.providers);
   if (problem) {
@@ -133,7 +123,6 @@ export function installSettings(): void {
   for (const id of Object.values(NUMERIC_FIELDS)) {
     maybeById(id)?.addEventListener('input', touch);
   }
-  maybeById(AGENT_POLICY_FIELD)?.addEventListener('change', touch);
   maybeById(TRIM_FIELD)?.addEventListener('change', touch);
 
   byId('saveSettingsBtn').addEventListener('click', save);

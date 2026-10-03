@@ -27,7 +27,7 @@
  * 并说明，只有「一点能用的都没有」才报错。细纲批次保持上游的严格——那条路上没有人
  * 逐份过目，漏一章就会让流水线从此撒谎。
  */
-import type { AgentMessage, StopSignal } from '../llm/provider';
+import type { ChatMessage, StopSignal } from '../llm/provider';
 import type { BuildRequest, DraftPlotLine } from '../context/types';
 import {
   RESTART_AFTER_TRUNCATION,
@@ -60,11 +60,11 @@ export interface CallOutcome {
 /** 链要的三样东西：调一次模型、按改过的请求重新装配、第一次调用发出去的那几条消息。 */
 export interface ChainIO {
   /** 调一次模型。`label` 写进气泡与日志，说清这一次在补什么。 */
-  call(messages: AgentMessage[], label: string, opts?: CallOptions): Promise<CallOutcome>;
+  call(messages: ChatMessage[], label: string, opts?: CallOptions): Promise<CallOutcome>;
   /** 按改过的请求重新装配：同一个装配器、同一份预算，只换这几个字段。 */
-  build(patch: Partial<BuildRequest>): Promise<AgentMessage[]>;
+  build(patch: Partial<BuildRequest>): Promise<ChatMessage[]>;
   /** 第一次调用的消息。字段级重写要借它的系统提示。 */
-  messages: AgentMessage[];
+  messages: ChatMessage[];
   /**
    * 把气泡退回到这一份（正文续写丢弃一轮时）。流进气泡的那一轮已经收不回来了，
    * 不退回去的话作者看着的是一段不会被写入的文字。没有气泡的那条路（批量）不实现。
@@ -120,7 +120,7 @@ export class Tally {
   fail(message: string): never {
     throw new ChainError(message, this.notes, this.calls);
   }
-  async call(io: ChainIO, messages: AgentMessage[], label: string, opts?: CallOptions): Promise<CallOutcome> {
+  async call(io: ChainIO, messages: ChatMessage[], label: string, opts?: CallOptions): Promise<CallOutcome> {
     this.calls++;
     return io.call(messages, label, opts);
   }

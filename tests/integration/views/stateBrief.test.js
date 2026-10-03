@@ -1,7 +1,7 @@
 /**
- * `agent/context.ts` 的**状态注入**那一半。
+ * `views/stateBrief.ts`：MCP 贴在工具结果末尾的那段「# 当前工程」。
  *
- * 这一段是 AGENTS 第 20 条在 agent 上的落点：**界面永远只推荐一个下一步，
+ * 这一段是 AGENTS 第 20 条在外部 agent 上的落点：**界面永远只推荐一个下一步，
  * 且由状态机算出来**。所以最要紧的断言不是「文案好不好看」，而是
  * **注入的 label / hint 与状态机的输出一字不差**——单章看 `deriveNextStep`，
  * 全书看 `deriveBookStage` / `deriveBookNextStep`。两处各判各的，界面上就会出现
@@ -27,7 +27,7 @@ let ws;
 const PLOT1 = '.novelforge/plots/001-北行.md';
 const CH1 = 'chapters/001-北行.md';
 
-const brief = (target) => bundle.context.buildStateBrief(project, target);
+const brief = (target) => bundle.stateBrief.buildStateBrief(project, target);
 
 /** 直接问单章状态机：注入的那句必须与它一字不差。 */
 async function nextStepOf(relPath, p = project) {
@@ -60,7 +60,7 @@ before(async () => {
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
     ws: './src/core/workspace/index.ts',
-    context: './src/core/agent/context.ts',
+    stateBrief: './src/core/views/stateBrief.ts',
     pipeline: './src/core/model/pipeline.ts',
     views: './src/core/views/projectView.ts',
     viewsPipeline: './src/core/views/pipeline.ts',
@@ -393,7 +393,7 @@ describe('老工程 · 99 章成品、没有架构也没有细纲', () => {
     }
     t2.write('.novelforge/outline.md', '# 大纲\n\n少年入宗，一路向北。\n');
     old.invalidate();
-    text = await bundle.context.buildStateBrief(old);
+    text = await bundle.stateBrief.buildStateBrief(old);
   });
 
   after(() => {
@@ -420,7 +420,7 @@ describe('老工程 · 99 章成品、没有架构也没有细纲', () => {
 
   test('选中某一章按章号认，报它自己的状态', async () => {
     const rel = 'chapters/099-第99章.md';
-    const s = await bundle.context.buildStateBrief(old, { kind: 'manuscript', plotRelPath: rel });
+    const s = await bundle.stateBrief.buildStateBrief(old, { kind: 'manuscript', plotRelPath: rel });
     const now = await nextStepOf(rel, old);
     assert.ok(s.includes('当前目标：第 99 章') && s.includes(rel), s);
     assert.ok(s.includes('状态：待定稿'), s);
@@ -429,7 +429,7 @@ describe('老工程 · 99 章成品、没有架构也没有细纲', () => {
 
   // 老工程写了 99 章、从没碰过这个工具，不该被倒回去要求补细纲。
   test('不说「待写细纲」', async () => {
-    const s = await bundle.context.buildStateBrief(old, { kind: 'manuscript', plotRelPath: 'chapters/050-第50章.md' });
+    const s = await bundle.stateBrief.buildStateBrief(old, { kind: 'manuscript', plotRelPath: 'chapters/050-第50章.md' });
     assert.ok(!s.includes('待写细纲'), s);
   });
 });

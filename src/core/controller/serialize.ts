@@ -20,9 +20,8 @@ import {
 /**
  * 流水线 → `deriveNextStep` 要的那几个事实。
  *
- * 实现搬去了 [views/pipeline.ts](../views/pipeline.ts)：agent 的状态注入
- * （`agent/context.ts`）也要用它，而 `agent/` 不能反向依赖 `controller/`。
- * 这里保留转发，同包的调用点不必改。
+ * 实现在 [views/pipeline.ts](../views/pipeline.ts)：状态简报（`views/stateBrief.ts`）
+ * 也要用它。这里保留转发，同包的调用点不必改。
  */
 export { factsOf } from '../views/pipeline';
 
@@ -79,7 +78,7 @@ export function serializeTurn(t: ChatTurn): SerializedTurn {
     ...reviewOf(t),
     ...(t.revise ? { revise: { items: t.revise.items } } : {}),
     segments: segmentsOf(t),
-    agentRun: t.agentRun,
+    ...(t.mcp ? { mcp: true } : {}),
   };
 }
 

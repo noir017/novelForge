@@ -41,7 +41,6 @@ import {
   send,
   setTarget,
 } from './chat';
-import { sendAgent } from './agent';
 import type { PendingGate } from './gate';
 import { cancelGates, resendGates, resolveGate } from './gate';
 import { fileAction, openChapter, openDraft, pushDirListings, revealQuote } from './files';
@@ -63,6 +62,7 @@ import {
 import { pushSettings, saveSettings, selectModel, testConnection } from './settings';
 
 export { describeProvider } from './serialize';
+export { createMcpBackend } from './mcp';
 
 /** Webview 宿主需要提供的能力。侧边栏与编辑器面板各实现一份。 */
 export interface ViewHost {
@@ -110,12 +110,11 @@ export class ChatController {
   /**
    * 正在跑的那次生成。
    *
-   * **并发控制是调度的责任**，不是生成的责任——从前它是 `CreationSession`
-   * 的私有字段，于是同一个类既管「有没有在生成」又管装配与解析。搬到这里
-   * 之后 `generation/` 整层无状态，agent 循环（三期）自己管自己那一份。
+   * **并发控制是调度的责任**，不是生成的责任：`generation/` 整层无状态，对话页的
+   * 单步创作与 MCP 调用（`controller/mcp.ts`）共用这一个位。
    *
-   * 与从前的 `busy` 合成一个：两个独立状态（一个给前端画忙碌标记、一个控
-   * 真正的取消）迟早会对不上，而对不上的表现是「停止按钮点了没反应」。
+   * 忙碌标记与取消是同一个状态：分成两个迟早会对不上，而对不上的表现是「停止按钮
+   * 点了没反应」。
    */
   private currentAbort?: AbortController;
   /** 尚未落盘的附件（用户已经 @ 了，但还没发送）。@internal 同包用。 */
@@ -304,10 +303,6 @@ export class ChatController {
 
       case 'send':
         await send(this, msg.payload);
-        return;
-
-      case 'sendAgent':
-        await sendAgent(this, msg.text, msg.limits);
         return;
 
       case 'retry':

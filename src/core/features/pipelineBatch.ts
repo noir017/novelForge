@@ -25,14 +25,14 @@
  *
  * 自动修复与自动续写让实际次数在跑完之前说不准：确认框里报的是区间与上限（同一个纯函数算的，
  * 见 model/pipeline.ts 的 `planPlotBatches` / `planWriteBatch` / `CallEstimate`），返回的是实际数。
- * 用户取消、没有可做的、没有可用模型时是 0。**只在这里算**：agent 的 `run` 工具拿它记进预算。
+ * 用户取消、没有可做的、没有可用模型时是 0。**只在这里算**：MCP 的 `pipeline` 工具拿它记账。
  * 让调用方各算一遍，弹窗写着 7 次、账上记 1 次，正是第 4 条要防的事。
  */
 import { readConfig } from '../config';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { getHost } from '../host';
 import { collect } from '../llm/collect';
-import { AgentMessage, CancelledError, LlmProvider, StopSignal } from '../llm/provider';
+import { ChatMessage, CancelledError, LlmProvider, StopSignal } from '../llm/provider';
 import { ModelPool, createModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
@@ -94,7 +94,7 @@ const DEFAULT_SETUP = { totalChapters: 100, wordsPerChapter: 3000 };
  * - 新角色照样建卡（D19）。
  *
  * `confirmed`：工程页弹窗已经把切分与调用次数写给作者看过了（同一个 `planPlotBatches`），
- * 不再弹第二个确认框。agent 的 `run` 那条路不带它，照旧先问。
+ * 不再弹第二个确认框。MCP 的 `pipeline` 工具不带它，照旧先问。
  */
 export async function generatePlots(
   project: NovelProject,
@@ -477,7 +477,7 @@ const MODE_LABEL: Record<WriteBatchMode, string> = {
  *   都在完成提示里说清。走 `review` 档。写进去但要停下的那一章（重演、提前登场、没写够）照样审完再停。
  *
  * `confirmed`：工程页弹窗已经把切分与调用次数写给作者看过了，不再弹第二个确认框。agent 的
- * `run` 那条路不带它，照旧先问。返回实际调了几次模型（取消、无事可做、没有模型时是 0）。
+ * MCP 的 `pipeline` 工具不带它，照旧先问。返回实际调了几次模型（取消、无事可做、没有模型时是 0）。
  */
 /** 批量写章开跑前补建角色卡：摘要里至少出场这么多章的人。 */
 export const CAST_CARD_MIN_APPEARANCES = 2;
@@ -945,7 +945,7 @@ async function writeOne(
   let pinned: LlmProvider | undefined;
   const stream = async (
     llm: LlmProvider,
-    messages: AgentMessage[],
+    messages: ChatMessage[],
     progress?: { round: number; base: number },
     temperature = config.temperature
   ): Promise<CallOutcome> => {

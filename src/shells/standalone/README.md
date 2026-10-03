@@ -10,7 +10,7 @@
 |---|---|
 | [main.ts](main.ts) | 入口。`init` 装上 `TerminalHost` 后走 **core 的** `initProjectFlow`；否则起服务（端口被占顺延，最多 20 次）并按需开浏览器。 |
 | [cli.ts](cli.ts) | 参数解析：`novelforge`（空窗口）/ `novelforge [dir]` / `novelforge init [dir]`。不带位置参数时不再把当前目录当成工程。 |
-| [server.ts](server.ts) | `Bun.serve`：`/` 出页面、`/media/*` 出内嵌资源、`/favicon.ico`、`/ws` WebSocket。`promptResult` 解弹窗，其余先问 `WorkspaceHub`，有激活工程再交给它的 `ChatController`。启动时把 core 的日志接到终端（默认 info 及以上，`--verbose` 放开 debug）。 |
+| [server.ts](server.ts) | `Bun.serve`：`/` 出页面、`/media/*` 出内嵌资源、`/favicon.ico`、`/ws` WebSocket、`/mcp`（外部 agent 的 MCP 入口，见 [core/mcp](../../core/mcp/README.md)）。`promptResult` 解弹窗，其余先问 `WorkspaceHub`，有激活工程再交给它的 `ChatController`。启动时把 core 的日志接到终端（默认 info 及以上，`--verbose` 放开 debug）。 |
 | [workspaceHub.ts](workspaceHub.ts) | 工作区登记处：0 或 1 个工程、热换 `ChatController`、吃掉打开/关闭文件夹与设置类消息。 |
 | [windowState.ts](windowState.ts) | `~/.novelforge/window.json`：上次打开的目录与最近打开列表。 |
 | [hostFs.ts](hostFs.ts) | 本机一层目录列举与选择器「新建文件夹」。不进 core，agent 拿不到。 |
@@ -25,7 +25,8 @@
 ## 关键设计
 
 - **单用户、只绑本机，工程可空**：`127.0.0.1`，无鉴权。工作区由 [workspaceHub.ts](workspaceHub.ts) 持有，窗口里 0 或 1 个工程；打开文件夹在同一进程热换，不重启服务。多个 WS 连接共享当前那一份 `ChatController`。没有工程时不造假实例，创作类消息 toast「请先打开文件夹」。设置仍可用（配置在 `~/.novelforge`）。
-- **Origin 校验**：WebSocket 不受同源策略约束，恶意网页能向本机端口发消息。`server.ts` 因此校验 `Origin` 只认本机同端口；没有 `Origin` 头的（命令行工具、冒烟测试）放过。
+- **Origin 校验**：WebSocket 不受同源策略约束，恶意网页能向本机端口发消息。`server.ts` 因此校验 `Origin` 只认本机同端口；没有 `Origin` 头的（命令行工具、冒烟测试）放过。`/mcp` 用同一条规则。
+- **`/mcp` 关掉空闲超时**：一次工具调用可能跑几分钟（写一章），期间连接上一个字节都没有，而 Bun 缺省 10 秒空闲就断。`server.timeout(req, 0)` 只对这一个请求生效。MCP 调用落在 `WorkspaceHub` 当前激活的那个工程上；启动日志里那行 `claude mcp add …` 就是接入命令。
 - **openFile 的语义差异**：插件里是「打开 VS Code 的编辑器 tab」，这里是「在网页内置编辑器里打开」。刻意让 `openFile` 本身改道，这样 controller 里「产物落盘后打开」「点章节」「点上下文条目」三处调用点一次全对。非文本文件回落到系统默认程序。
 - **两块编辑区**：`openInEditor(rel, pane)` 的 `pane` 决定 `editorOpen` 落到哪一块，`openBeside` 就是 `pane: 'draft'`。`editorOpen` 广播时顺手带上 `draftPath`（由 `draftPathOf` 从章节路径推导），前端据此显示工具栏上的「草稿」按钮——前端不该自己复刻「什么算章节」。`editorSaved` 也必须带它，否则按钮会在首次保存后消失。
 - **文件读写全部经 [../core/files/fileEditing.ts](../../core/files/fileEditing.ts)**：路径包含校验、可编辑判定（扩展名白名单 ∪ 章节文件名规则）、大小上限、保存的 hash 乐观锁都在那里。本层只负责把异常翻译成 `editorError` / `editorConflict` 广播出去，不要绕过它直接 `fs.writeFile`。

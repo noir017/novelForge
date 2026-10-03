@@ -13,7 +13,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  *
  *   { text, stop?, reasoning?, chunks? }
  *
- * - `stop`：跟在正文之后发一条 `{ type: 'stop', reason }`（'end' / 'maxTokens' / 'toolUse' / 'other'）。
+ * - `stop`：跟在正文之后发一条 `{ type: 'stop', reason }`（'end' / 'maxTokens' / 'other'）。
  *   续写要靠它区分「模型说完了」与「被输出上限截断」。不给就不发，与真实 provider
  *   里有的网关不报收尾原因一致。
  * - `reasoning`：先发一段思考，再发正文——测「思考把输出预算吃光」要用。

@@ -1,7 +1,8 @@
 /**
- * agent 一轮里**说的话与做的事按发生顺序交替**，`generate` 的产出自成一张卡。
+ * 带工具调用的一轮里**说的话与做的事按发生顺序交替**，`generate` 的产出自成一张卡。
+ * 外部 agent 经 MCP 留下的那一轮、带工具调用的回放都走这一套渲染。
  *
- * 改之前是两块死板的东西：所有工具挤成一串画在正文上方，模型每一回合说的话全
+ * 改之前是两块死板的东西：所有工具挤成一串画在正文上方，每一回合说的话全
  * 灌进同一个 `.msg-body`，而 `generate` 内部那次调用流出来的几千字也顺着同一条
  * `delta` 拌进去——刷新之后那一半还整份消失（它没进会话）。
  *
@@ -180,7 +181,6 @@ describe('交替（重开面板时回放）', { skip: JSDOM_SKIP }, () => {
               }),
               textSeg('大纲已经生成。'),
             ],
-            agentRun: { steps: 4, calls: 1, tokens: 12000, stopReason: 'done' },
           }),
         ],
       }),
@@ -194,11 +194,6 @@ describe('交替（重开面板时回放）', { skip: JSDOM_SKIP }, () => {
   // 从前它整份消失（那几千字没进会话）：刷新一下，作者刚生成的东西就没了。
   test('产出的正文留住了', () => {
     assert.ok(card(ui, 'a1', 'c3').querySelector('.gen-body').textContent.includes('第一卷 活着'));
-  });
-
-  test('花销那一行排在段区之后', () => {
-    const kids = [...ui.bubble('a1').children].map((c) => c.className);
-    assert.ok(kids.indexOf('agent-run') > kids.lastIndexOf('msg-body'), JSON.stringify(kids));
   });
 
   // editTurn 换的是**整轮内容**，而这一轮的正文分成好几块，改哪一块都映射不回去。

@@ -56,12 +56,8 @@ export class ToolRegistry implements ToolInvoker {
   }
 
   specs(): ToolSpec[] {
-    // run / intent 是本地函数，透传给 API 会炸，所以逐字段挑而不是整个塞过去。
-    return this.defs.map((d) => ({
-      name: d.name,
-      description: d.description,
-      parameters: d.parameters,
-    }));
+    // run / intent 是本地函数，序列化出去会炸，所以逐字段挑而不是整个塞过去。
+    return this.defs.map(specOf);
   }
 
   names(): string[] {
@@ -121,4 +117,15 @@ export class ToolRegistry implements ToolInvoker {
       elapsedMs: Date.now() - startedAt,
     };
   }
+}
+
+/** `ToolDef` → 对外的那一条声明。不绑环境也算得出来：MCP 没打开工程时 `tools/list` 照样要回。 */
+export function specOf(d: ToolDef): ToolSpec {
+  return {
+    name: d.name,
+    description: d.description,
+    parameters: d.parameters,
+    ...(d.costly ? { costly: true } : {}),
+    ...(d.mutating ? { mutating: true } : {}),
+  };
 }

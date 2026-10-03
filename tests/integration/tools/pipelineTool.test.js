@@ -1,17 +1,18 @@
 /**
- * `run` 工具：工程动作的白名单口子。
+ * `pipeline` 工具：流水线上的批量动作（补齐架构、批量拆细纲、批量写章、新建细纲骨架）。
  *
  * 五件事：
  *
- * 1. **白名单之外一律拒绝**，删除/改名/移动单独回一句「这是有意的」。`split`（拆章）
- *    随中转站一起删掉了：老提示词拿着它来试时，要被当成「有意不给」拦下，而不是
- *    「认不出」——后者会让模型换十个名字继续试。
- * 2. **确认框照弹**——作者不同意就一次模型都不调，且回给模型的话要说清
+ * 1. **确认框照弹**——作者不同意就一次模型都不调，且回给模型的话要说清
  *    「不要重试同一个动作」。
- * 3. **预计次数报给调用方记账**：弹窗写着 N 次、账上记 1 次，正是第 4 条要防的。
- * 4. **批量写正文走既有流程**：正文直接落同号的 `chapters/NNN-标题.md`（一章一纲，
+ * 2. **预计次数报给调用方记账**：弹窗写着 N 次、账上记 1 次，正是第 4 条要防的。
+ * 3. **批量写正文走既有流程**：正文直接落同号的 `chapters/NNN-标题.md`（一章一纲，
  *    没有中转站），并在细纲上记 `writtenFrom`——这正是「不要自己用 write 拼」的理由。
- * 5. **定稿按章号认**：给细纲路径也认得到同号那一章；还没有正文就不花钱。
+ * 4. **区间与模式**：`from` / `to` / `mode` / `review` 转给批量写章并写进确认框与动手前那一问；
+ *    只给 `from` 按缺省章数往后数；参数不对当场报错，不弹框、不花钱。
+ * 5. **只补空白**：没事可做时再调一次不花钱。
+ *
+ * 带 action 工具共用的那一套（拒绝删除类、认不出的动作、参数对不上动作）在 actionTool.test.js。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -31,7 +32,6 @@ let reports;
 let settings;
 
 const PLOT1 = '.novelforge/plots/001-夜入青云.md';
-const PLOT2 = '.novelforge/plots/002-藏书阁.md';
 const CH1 = 'chapters/001-夜入青云.md';
 const CH2 = 'chapters/002-藏书阁.md';
 
@@ -56,14 +56,6 @@ function plotReply(messages) {
   return JSON.stringify({ blueprints });
 }
 const MANUSCRIPT_TEXT = '雨下了三天。山门在雨里，林昭在门外。';
-const SUMMARY_JSON = JSON.stringify({
-  梗概: '林昭夜入青云宗。',
-  出场人物: ['林昭'],
-  时间地点: '雨夜，山门外。',
-  关键事件: ['翻墙入宗'],
-  新增伏笔: [],
-  状态变更: '林昭进了宗门。',
-});
 
 /**
  * 按装配出的系统提示认是哪一层在问：批量拆细纲与批量写章在同一个用例文件里
@@ -71,12 +63,11 @@ const SUMMARY_JSON = JSON.stringify({
  */
 function replyFor(messages) {
   const system = messages[0]?.content ?? '';
-  if (system.includes('摘要')) return SUMMARY_JSON;
   if (system.includes('中文长篇小说作者，正在为')) return MANUSCRIPT_TEXT;
   return plotReply(messages);
 }
 
-const tool = () => bundle.tools.NOVEL_TOOLS.find((x) => x.name === 'run');
+const tool = () => bundle.tools.NOVEL_TOOLS.find((x) => x.name === 'pipeline');
 const run = (args) => tool().run(ctx, args);
 
 function resetCtx() {
@@ -121,7 +112,7 @@ before(async () => {
     errors: { LlmError: bundle.provider.LlmError, CancelledError: bundle.provider.CancelledError },
   });
 
-  t = await makeTempProject(bundle.project, { prefix: 'agentrun', title: '青云剑录' });
+  t = await makeTempProject(bundle.project, { prefix: 'pipelineTool', title: '青云剑录' });
   project = t.project;
   const ws = new bundle.ws.Workspace(project);
   await ws.write(
@@ -153,84 +144,6 @@ before(async () => {
 
 after(() => {
   if (t) cleanup(t.dir, bundle && bundle.db);
-});
-
-describe('白名单之外一律拒绝', () => {
-  for (const bad of ['delete', 'remove', 'rename', 'move', 'initProject', 'newChapter', 'split']) {
-    test(`${bad} 给 error`, async () => {
-      resetCtx();
-      const r = await run({ action: bad, path: PLOT2 });
-      assert.ok(r.error, JSON.stringify(r));
-    });
-  }
-
-  // 「没有这个动作」与「这是有意的」是两句话：后者能让模型停下来，
-  // 前者会让它换十个名字继续试。
-  test('删除类动作的 error 说清了这是有意的', async () => {
-    resetCtx();
-    const r = await run({ action: 'delete', path: PLOT2 });
-    assert.ok(r.error.includes('有意'), r.error);
-  });
-
-  // 拆章随中转站一起删了。拿着老提示词来的 agent 要听到「这是有意不给的」，
-  // 而不是「认不出」。
-  test('split 被当成有意不给的动作拦下', async () => {
-    resetCtx();
-    const r = await run({ action: 'split', path: PLOT1 });
-    assert.ok(r.error && r.error.includes('有意'), JSON.stringify(r));
-  });
-
-  test('认不出的 action 在 error 里列出可用动作', async () => {
-    resetCtx();
-    const r = await run({ action: '把书写完' });
-    assert.ok(r.error, JSON.stringify(r));
-    assert.ok(r.error.includes('batchPlots') && r.error.includes('batchManuscripts'), r.error);
-  });
-
-  // 可用动作里不该再有已经删掉的那一个，否则模型会照着列表去点它。
-  test('可用动作清单里没有 split', async () => {
-    resetCtx();
-    const r = await run({ action: '把书写完' });
-    assert.ok(!r.error.includes('split'), r.error);
-  });
-
-  test('action 必填', async () => {
-    resetCtx();
-    const r = await run({});
-    assert.ok(r.error && r.error.includes('action'), JSON.stringify(r));
-  });
-
-  test('要参数的动作缺参数时报错', async () => {
-    resetCtx();
-    const r = await run({ action: 'summarize' });
-    assert.ok(r.error && r.error.includes('path'), JSON.stringify(r));
-  });
-
-  test('拒绝的动作一次模型都不调', () => {
-    assert.equal(fake.calls.length, 0, String(fake.calls.length));
-  });
-});
-
-describe('定稿：还没有正文就不花钱', () => {
-  let r;
-
-  before(async () => {
-    resetCtx();
-    r = await run({ action: 'summarize', path: PLOT1 });
-  });
-
-  // 摘要描述的是写出来的那一章。没有正文时调一次模型，得到的只能是对细纲的复述。
-  test('给 error，说清这一章还没有正文', () => {
-    assert.ok(r.error && r.error.includes('还没有正文'), JSON.stringify(r));
-  });
-
-  test('一次模型都没调', () => {
-    assert.equal(fake.calls.length, 0, String(fake.calls.length));
-  });
-
-  test('一次调用都不报', () => {
-    assert.equal(ctx.usage.calls, 0);
-  });
 });
 
 describe('批量拆细纲：作者不同意就什么都不做', () => {
@@ -368,8 +281,10 @@ describe('区间与模式的参数不对就当场报错，不弹框、不花钱'
     ['from 大于 to', { action: 'batchPlots', from: 3, to: 1 }, '区间'],
     ['只给 to', { action: 'batchPlots', to: 3 }, 'from'],
     ['from 不是数', { action: 'batchManuscripts', from: '第三章' }, '章号'],
-    ['不认区间的动作给了区间', { action: 'summarize', path: PLOT1, from: 1 }, '不认 from'],
-    ['拆细纲给了模式', { action: 'batchPlots', mode: 'finalize' }, '不认 mode'],
+    ['不认区间的动作给了区间', { action: 'newPlot', from: 1 }, '不认 from，只有 batchPlots / batchManuscripts 认'],
+    ['拆细纲给了模式', { action: 'batchPlots', mode: 'finalize' }, '不认 mode，只有 batchManuscripts 认'],
+    ['补齐架构给了审稿', { action: 'completeSettings', review: true }, '不认 review，只有 batchManuscripts 认'],
+    ['区间只给了半个数', { action: 'batchPlots', from: 1, to: '末尾' }, '章号'],
     ['模式写错', { action: 'batchManuscripts', mode: 'all' }, 'mode 只能是'],
   ];
   for (const [name, args, word] of cases) {
@@ -386,7 +301,7 @@ describe('区间与模式的参数不对就当场报错，不弹框、不花钱'
 });
 
 /**
- * 批量写正文是 `run` 存在的理由之一：正文落盘要在细纲上记 `writtenFrom`（第 18 条），
+ * 批量写正文是 `pipeline` 存在的理由之一：正文落盘要在细纲上记 `writtenFrom`（第 18 条），
  * agent 拿着 write 自己拼就会漏掉这一步——那一章从此永远不会因为细纲改过而挂 ⟳。
  */
 describe('批量写正文：正文直接落同号章节，并在细纲上记指纹', () => {
@@ -439,39 +354,6 @@ describe('批量写正文：正文直接落同号章节，并在细纲上记指�
     assert.equal(fake.calls.length, 0, String(fake.calls.length));
     assert.equal(ctx.usage.calls, 0);
     assert.ok(again.text.includes('没有调用模型'), again.text);
-  });
-});
-
-describe('定稿：按章号认，给细纲路径也行', () => {
-  let r;
-
-  before(async () => {
-    resetCtx();
-    r = await run({ action: 'summarize', path: PLOT1 });
-  });
-
-  test('没有 error', () => {
-    assert.equal(r.error, undefined, r.error);
-  });
-
-  test('报的是那一章的章号', () => {
-    assert.ok(r.text.includes('第 1 章'), r.text);
-  });
-
-  test('摘要落在同号章节的镜像位置', () => {
-    assert.ok(t.has('.novelforge/summaries/001-夜入青云.md'));
-  });
-
-  test('调了一次、记了一次', () => {
-    assert.equal(fake.calls.length, 1, String(fake.calls.length));
-    assert.equal(ctx.usage.calls, 1);
-  });
-
-  test('越界路径给 error，且不调模型', async () => {
-    resetCtx();
-    const bad = await run({ action: 'summarize', path: '../../etc/passwd' });
-    assert.ok(bad.error, JSON.stringify(bad));
-    assert.equal(fake.calls.length, 0, String(fake.calls.length));
   });
 });
 
@@ -532,83 +414,19 @@ describe('补齐故事架构：转发给工程页那个动作', () => {
   });
 });
 
-// 排叙事线（七期）：工程页「从细纲排出」背后的同一个函数，确认框照弹。
-describe('排叙事线：转发给工程页那个动作', () => {
-  let r;
-
-  before(async () => {
-    resetCtx();
-    h.expect();
-    r = await run({ action: 'generateThreads' });
-  });
-
-  test('确认框写着从哪几章的细纲排、预计调用几次', () => {
-    const message = h.confirms[h.confirms.length - 1].message;
-    assert.match(message, /^要从第 \d+–\d+ 章的细纲排出叙事线，预计 1 次调用/);
-  });
-
-  test('作者取消：一次模型都不调，账上也不记', () => {
-    assert.equal(fake.calls.length, 0, String(fake.calls.length));
-    assert.equal(ctx.usage.calls, 0);
-    assert.ok(r.text.includes('排叙事线这一次没有调用模型'), r.text);
-  });
-});
-
-describe('拆书三个动作：转发给工程页那几个函数', () => {
-  test('importManuscript / learnFromReference 要 path，缺了当场报错、不弹框', async () => {
-    resetCtx();
-    h.expect();
-    for (const action of ['importManuscript', 'learnFromReference']) {
-      const r = await run({ action });
-      assert.match(r.error, new RegExp(`${action} 需要参数：path=`), r.error);
-    }
-    assert.equal(h.confirms.length + h.picks.length, 0);
-  });
-
-  test('path 只认工程里的 txt：章节文件报错回给模型，不花钱', async () => {
-    resetCtx();
-    h.expect();
-    const r = await run({ action: 'importManuscript', path: CH1 });
-    assert.match(r.error, /不是工程里能拆的 txt/, JSON.stringify(r));
-    assert.equal(fake.calls.length, 0);
-    assert.equal(ctx.usage.calls, 0);
-  });
-
-  test('导入：作者在确认框取消，回给模型「不要重试」、零调用', async () => {
-    resetCtx();
-    t.write('原稿.txt', '第一章 入宗\n林昭入宗。');
-    project.invalidate();
-    h.expect(undefined);
-    const r = await run({ action: 'importManuscript', path: '原稿.txt' });
-    assert.match(h.confirms[0].message, /^从《原稿》认出 1 章/);
-    assert.match(r.text, /这一次没有导入/);
-    assert.match(r.text, /不要重试同一个动作/);
-    assert.equal(ctx.usage.calls, 0);
-  });
-
-  test('从已写正文补齐：作者在第一个框取消，零调用', async () => {
-    resetCtx();
-    h.expect(undefined);
-    const r = await run({ action: 'deriveFromText' });
-    assert.match(h.confirms[0].message, /^从已写正文补齐第 1–\d+ 章/);
-    assert.match(r.text, /从已写正文补齐这一次没有调用模型/);
-    assert.equal(fake.calls.length, 0);
-  });
-});
-
 describe('工具定义本身', () => {
   test('标了 mutating', () => {
     assert.equal(tool().mutating, true);
   });
 
-  test('标了 costly（大多数动作会调模型）', () => {
+  test('标了 costly（四个动作里三个调模型）', () => {
     assert.equal(tool().costly, true);
   });
 
   test('参数是扁平的标量', () => {
     const props = tool().parameters.properties;
-    // url / stage 是写作技能那几个动作的（inspectSkill / installSkill / bindSkill），见 runSkills.test.js。
-    assert.deepEqual(Object.keys(props).sort(), ['action', 'from', 'mode', 'name', 'path', 'review', 'stage', 'to', 'url']);
+    // 只有区间与模式：path / name / url 归别的工具，这里给了只会被当场拒。
+    assert.deepEqual(Object.keys(props).sort(), ['action', 'from', 'mode', 'review', 'to']);
     assert.ok(Object.values(props).every((p) => p.type !== 'object' && p.type !== 'array'), JSON.stringify(props));
   });
 
@@ -622,12 +440,15 @@ describe('工具定义本身', () => {
     assert.ok(intent.detail.includes('第 5–8 章，写完即定稿，写完即审稿'), intent.detail);
   });
 
-  test('action 是枚举，删除类与 split 不在里面', () => {
-    const values = tool().parameters.properties.action.enum;
-    assert.ok(Array.isArray(values), JSON.stringify(values));
-    for (const bad of ['delete', 'remove', 'rename', 'move', 'initProject', 'newChapter', 'split']) {
-      assert.ok(!values.includes(bad), `${bad} 不该在白名单里：${values.join(',')}`);
-    }
+  test('action 是这四个动作的枚举', () => {
+    assert.deepEqual(tool().parameters.properties.action.enum, ['completeSettings', 'batchPlots', 'batchManuscripts', 'newPlot']);
+  });
+
+  // 只给起点时，框里写「从第 N 章起」——实际收在哪一章由 feature 按磁盘算，写在下一个确认框里。
+  test('只给 from 时那一问写「从第 N 章起」；什么都不给就不写区间', () => {
+    assert.ok(tool().intent({ action: 'batchManuscripts', from: 3 }).detail.startsWith('从第 3 章起'));
+    assert.ok(tool().intent({ action: 'batchManuscripts' }).detail.startsWith('随后还会告诉你'));
+    assert.equal(tool().intent({ action: 'batchManuscripts' }).title, '批量写章');
   });
 
   // 第 5 条端到端验收点的提示词落点：连续多章该走批量动作而不是循环 generate。
@@ -637,13 +458,5 @@ describe('工具定义本身', () => {
 
   test('描述里说清了会先弹确认框告诉作者调几次', () => {
     assert.ok(tool().description.includes('确认框'), tool().description);
-  });
-
-  // 四期：定稿 = 摘要（带连续性事实）+ 出场角色的当前状态；七期再记叙事线。
-  test('summarize 的说法是「定稿」：摘要与连续性事实，再更新角色状态、记叙事线', () => {
-    assert.ok(
-      tool().description.includes('给某一章定稿（摘要与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线）'),
-      tool().description
-    );
   });
 });

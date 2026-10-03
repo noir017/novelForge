@@ -4,7 +4,7 @@
  * 单独成文件是为了打断 `recipes.ts`（配方引用层名）与 `layers/`（层实现
  * 引用配方里的 cap/force）之间的循环引用——两边都只依赖这里，谁也不依赖谁。
  */
-import { AgentMessage } from '../llm/provider';
+import { ChatMessage } from '../llm/provider';
 import { CreationAction, CreationTarget, WriteMode } from '../model/pipeline';
 import type { FrozenGoal } from '../model/review';
 import { Attachment, ChatTurn } from '../model/session';
@@ -271,7 +271,7 @@ export interface DraftPlotLine {
 }
 
 export interface BuiltContext {
-  messages: AgentMessage[];
+  messages: ChatMessage[];
   items: ContextItem[];
   /** 实际使用的输入 token 估算值。 */
   usedTokens: number;

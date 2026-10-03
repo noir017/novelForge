@@ -6,8 +6,8 @@
  * 填参数的：`list` 的说明里写着「卷纲在 .novelforge/volumes/」，它就会去列一个不存在的
  * 目录；`search` 的说明里写着 `kinds=volume`，它填进去会被静默丢掉、变成不限种类的搜索。
  *
- * 只查模型读得到的那几处：每个工具的 `description`、每个参数的说明与枚举值、agent 的
- * 身份提示词。代码注释与 README 里讲「从前……、为什么删掉」的历史说明是有意的，不在这里。
+ * 只查模型读得到的那几处：每个工具的 `description`、每个参数的说明与枚举值、MCP 回给
+ * 外部 agent 的 `instructions`。代码注释与 README 里讲「从前……、为什么删掉」的历史说明是有意的，不在这里。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -22,7 +22,7 @@ let bundle;
 before(() => {
   bundle = loadBundle({
     tools: './src/core/tools/novel/index.ts',
-    loop: './src/core/agent/loop.ts',
+    instructions: './src/core/mcp/instructions.ts',
   });
 });
 
@@ -46,8 +46,8 @@ function assertClean(where, text) {
 }
 
 describe('工具说明不提旧链路', () => {
-  test('七个工具都查到了', () => {
-    assert.equal(bundle.tools.NOVEL_TOOLS.length, 7);
+  test('十二个工具都查到了', () => {
+    assert.equal(bundle.tools.NOVEL_TOOLS.length, 12);
   });
 
   test('描述、参数说明与枚举值', () => {
@@ -58,19 +58,21 @@ describe('工具说明不提旧链路', () => {
     }
   });
 
-  // 「拆分」这个动作仍在 run 的拒绝清单里（拿着老提示词来的模型要听到「这是有意不给的」），
-  // 但不许出现在可用动作的枚举里——否则模型会照着列表去点它。
-  test('run 的可用动作里没有 split', () => {
-    const run = bundle.tools.NOVEL_TOOLS.find((t) => t.name === 'run');
-    assert.ok(!run.parameters.properties.action.enum.includes('split'));
+  // 「拆分」仍在带 action 工具的拒绝清单里（拿着老提示词来的模型要听到「这是有意不给的」），
+  // 但不许出现在任何一个工具的可用动作枚举里——否则模型会照着列表去点它。
+  test('哪个工具的可用动作里都没有 split', () => {
+    const withAction = bundle.tools.NOVEL_TOOLS.filter((t) => t.parameters.properties.action);
+    assert.ok(withAction.length >= 6, withAction.map((t) => t.name).join(','));
+    for (const tool of withAction) {
+      assert.ok(!tool.parameters.properties.action.enum.includes('split'), tool.name);
+    }
   });
 });
 
-describe('agent 的身份提示词不提旧链路', () => {
-  test('AGENT_SYSTEM', () => {
-    const system = Array.isArray(bundle.loop.AGENT_SYSTEM)
-      ? bundle.loop.AGENT_SYSTEM.join('\n')
-      : String(bundle.loop.AGENT_SYSTEM);
-    assertClean('AGENT_SYSTEM', system);
+describe('MCP 说明不提旧链路', () => {
+  test('MCP_INSTRUCTIONS', () => {
+    const text = String(bundle.instructions.MCP_INSTRUCTIONS);
+    assert.ok(text.length > 0);
+    assertClean('MCP_INSTRUCTIONS', text);
   });
 });

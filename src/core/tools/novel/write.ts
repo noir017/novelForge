@@ -16,8 +16,7 @@
  * ## 五条硬约束
  *
  * 1. **`review` 永远 `true`，且不作为工具参数暴露。** 模型不该有能力关掉审阅
- *    （第 3 / 19 条：不静默覆盖）。三种策略模式下都一样，这是产品承诺不是
- *    偏好设置。
+ *    （第 3 / 19 条：不静默覆盖）。这是产品承诺不是偏好设置。
  * 2. **`draftId` 找不到时 `error`，不静默降级成写空文件。**
  * 3. **draft 没有 `artifact`（讨论这类 text 产出）时 `error`**——
  *    一段批评意见不该被写成一份细纲。
@@ -61,7 +60,7 @@ export const writeTool: ToolDef = {
       return { gate: 'reviewed', title: `覆盖「${describePath(target, project)}」` };
     }
     // 写作技能与它的阶段绑定（`.novelforge/skills/**`、`skills.json`）：改的是往后每一次生成的
-    // 提示词，下游没有 diff。新建与追加也照 `run bindSkill` 那样三种策略都问——不然 agent 用 write
+    // 提示词，下游没有 diff。新建与追加也照 `skills bind` 那样先问——不然 agent 用 write
     // 新建一份 skills.json，就绕过了 bindSkill 那一问。覆盖仍走上面的 diff。
     const skill = project !== undefined && kindOfPath(project, target).kind === 'skill';
     return {

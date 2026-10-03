@@ -211,18 +211,15 @@ describe('档位没配模型时沿用默认模型清单', () => {
   });
 });
 
-describe('Agent 调度是一项独立的任务档位', () => {
-  test('在任务清单里', () => {
-    assert.ok(bundle.tiers.LLM_TASKS.includes('agent'), bundle.tiers.LLM_TASKS.join(','));
+// 调度交给了外部 agent（经 MCP），它用的是宿主自己的模型；这里不再给它留一档。
+describe('没有 agent 这一项任务档位', () => {
+  test('不在任务清单里', () => {
+    assert.ok(!bundle.tiers.LLM_TASKS.includes('agent'), bundle.tiers.LLM_TASKS.join(','));
   });
 
-  test('有中文名与说明（设置页那张表要用）', () => {
-    assert.ok(bundle.tiers.TASK_LABEL.agent, bundle.tiers.TASK_LABEL.agent);
-    assert.ok(bundle.tiers.TASK_HINT.agent, bundle.tiers.TASK_HINT.agent);
-  });
-
-  // 一轮十几次调用，但每次只做「下一步调哪个工具」的判断，不产正文。
-  test('默认归均衡档', () => {
-    assert.equal(bundle.tiers.DEFAULT_TASK_TIERS.agent, 'balanced');
+  test('也没有残留的中文名、说明与默认档', () => {
+    assert.equal(bundle.tiers.TASK_LABEL.agent, undefined);
+    assert.equal(bundle.tiers.TASK_HINT.agent, undefined);
+    assert.equal(bundle.tiers.DEFAULT_TASK_TIERS.agent, undefined);
   });
 });

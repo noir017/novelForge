@@ -29,7 +29,6 @@
  */
 import { closestFrom, el as mk, spacer } from '../dom';
 import type {
-  SerializedAgentRun,
   SerializedDigest,
   SerializedToolCall,
   SerializedTurn,
@@ -159,7 +158,7 @@ export function dropEmptyText(node: ParentNode): void {
  * 所以按这个顺序找第一个在的；全都不在就返回 null（= 追加到末尾）。
  */
 export function segmentAnchor(node: ParentNode): Element | null {
-  return node.querySelector('.agent-run') ?? node.querySelector('.ctx') ?? node.querySelector('.msg-actions');
+  return node.querySelector('.ctx') ?? node.querySelector('.msg-actions');
 }
 
 /** 离底多近算「贴着底」。与日志页同一档。 */
@@ -240,12 +239,6 @@ function buildTurn(turn: SerializedTurn): HTMLElement {
     wrap.appendChild(buildBody(turn));
   }
 
-  // agent 那一轮的花销：几步、几次生成、大约多少 token。第 4 条要求它
-  // 看得见，而且要留得住——所以画的是会话里存的那一份，不是实时消息。
-  if (turn.agentRun) {
-    wrap.appendChild(buildAgentRunRow(turn.agentRun));
-  }
-
   if (turn.context) {
     wrap.appendChild(buildContextDetails(turn.context));
   }
@@ -255,7 +248,13 @@ function buildTurn(turn: SerializedTurn): HTMLElement {
 
 function buildHead(turn: SerializedTurn): HTMLElement {
   const head = mk('div', 'msg-head');
-  head.appendChild(mk('span', 'msg-role', turn.role === 'user' ? '我' : '模型'));
+  head.appendChild(mk('span', 'msg-role', turn.role === 'user' ? '我' : turn.mcp ? '外部 Agent' : '模型'));
+  if (turn.mcp) {
+    // 经 MCP 接进来的调用（Claude Code 之类）：它说的话不在这里，这里只有它做的事。
+    const tag = mk('span', 'msg-tag', 'MCP');
+    tag.title = '外部 agent 经 MCP 调用 Novel Forge 的工具留下的记录';
+    head.appendChild(tag);
+  }
   head.appendChild(mk('span', undefined, timeLabel(turn.at)));
 
   if (turn.role === 'assistant' && turn.content) {
@@ -592,7 +591,7 @@ function buildGenState(call: SerializedToolCall): HTMLElement {
  * **那一行上只画摘要**：`read` 一章正文是几千字，摊在气泡里会把作者真正要看的
  * 那段回答挤到屏幕外。参数与返回文本收在折叠里——想核对「它读的是哪一章、
  * 看到的是什么」点开就有，不想看时它一行都不占（后端已经截过，见
- * `controller/agent.ts`）。
+ * `controller/mcp.ts`）。
  */
 export function buildToolStrip(): HTMLElement {
   return mk('div', 'tools');
@@ -690,40 +689,6 @@ function formatElapsed(ms: number): string {
     return '';
   }
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
-}
-
-/**
- * agent 那一轮末尾的花销行。
- *
- * ```
- * ─────────────────────────────────
- * 5 步 · 1 次生成 · 约 1.8 万 token
- * ```
- *
- * **非正常结束时把原因写在同一行**（触顶、原地打转、作者叫停）：那句话是
- * 「为什么只做到这里」的唯一去处，toast 五秒就没了。
- */
-export function buildAgentRunRow(run: SerializedAgentRun): HTMLElement {
-  const row = mk('div', 'agent-run');
-  const parts = [`${run.steps} 步`];
-  if (run.calls > 0) {
-    parts.push(`${run.calls} 次生成`);
-  }
-  if (run.tokens > 0) {
-    parts.push(`约 ${formatTokens(run.tokens)} token`);
-  }
-  row.appendChild(mk('span', 'agent-run-cost', parts.join(' · ')));
-  if (run.stopReason !== 'done' && run.message) {
-    const why = mk('span', 'agent-run-why', run.message);
-    row.appendChild(why);
-    row.classList.add('agent-run-stopped');
-  }
-  return row;
-}
-
-/** 与日志的口径一致：上万就报「万」，几千的照实说。 */
-function formatTokens(n: number): string {
-  return n >= 10000 ? `${(n / 10000).toFixed(1)} 万` : String(n);
 }
 
 /** 上下文明细：装配器放进去了什么、各占多少 token、降级或丢弃的原因。 */

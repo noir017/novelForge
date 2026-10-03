@@ -260,7 +260,7 @@ export async function chapterTargetOf(
  * 全书状态机要的事实（`deriveBookStage` / `deriveBookNextStep`）。
  *
  * **只有这一份**：创作页的主按钮（controller/chat.ts）、工程页的全书阶段
- * （views/projectView.ts）与 agent 每回合的状态注入（agent/context.ts）都吃它
+ * （views/projectView.ts）与给外部 agent 的状态简报（views/stateBrief.ts）都吃它
  * ——各取各的，界面上的主按钮就会与 agent 说的下一步分叉（第 20 条）。
  */
 export async function buildBookFacts(

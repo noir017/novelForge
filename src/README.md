@@ -9,8 +9,8 @@ src/
 │   ├── context/     ★ 分阶段装配（配方 × 层）+ 身份化提示词 + token 粗估
 │   ├── features/    创作（四层产物）/ 批量流水线 / 摘要 / 角色卡 / 设定 / 文风提取
 │   ├── llm/         LlmProvider 接口与 OpenAI / Anthropic 实现
-│   ├── tools/       ★ 工具层：契约 + 注册表 + novel/ 那七个工具（不认识 agent/）
-│   ├── agent/       ★ 多步调度：循环、状态注入、预算、闸门（只认 ToolInvoker）
+│   ├── tools/       ★ 工具层：契约 + 注册表 + novel/ 那十二个工具（不认识 mcp/）
+│   ├── mcp/         ★ 把工具经 MCP 端给外部 agent（协议 + HTTP 传输）
 │   ├── protocol/    webview ↔ 扩展消息协议（前后端唯一契约；对外仍是 core/protocol）
 │   ├── controller/  ★ ChatController：宿主无关的面板逻辑
 │   ├── views/       ★ 只读聚合：工程树、I/O 流水线、工作区卡、出场人物索引
@@ -27,7 +27,7 @@ src/
 
 - [core/README.md](core/README.md)
 - [core/model/README.md](core/model/README.md) · [core/context/README.md](core/context/README.md) · [core/features/README.md](core/features/README.md) · [core/llm/README.md](core/llm/README.md)
-- [core/tools/README.md](core/tools/README.md) · [core/agent/README.md](core/agent/README.md) —— 「能做什么」与「谁拿着它做」分成两层的理由
+- [core/tools/README.md](core/tools/README.md) · [core/mcp/README.md](core/mcp/README.md) —— 「能做什么」与「怎么端给外部 agent」分成两层的理由
 - [shells/README.md](shells/README.md) —— 壳的契约（三件事该做、三件事不该做）
 - [shells/vscode/README.md](shells/vscode/README.md) · [shells/standalone/README.md](shells/standalone/README.md) · [shells/desktop/README.md](shells/desktop/README.md)
 
@@ -43,7 +43,7 @@ src/
 3. `generate()` 先经 `core/llm/registry` 拿到 provider，再调 `core/context/builder.buildContext()` 装配上下文。
 4. 装配器按 `action.stage` 取一张配方（[core/context/recipes.ts](core/context/recipes.ts)），**只读这一层用得上的文件**，按优先级填预算，产出 messages + 明细。系统提示由 `stage`（身份）× `capability`（任务）拼出。
 5. provider 流式返回增量文本，经 `GenerateHandlers` 回到 `ChatController`，以 `OutMessage` 广播给所有挂接的宿主。
-6. 收尾时若这次的输出形态是 `artifact`，后端算出「落点 + 形状 + 会不会覆盖」，**当场在对话里问一句「写不写」**（`controller/gate.ts` 推一条 `gate`，前端画成气泡里的一张权限卡片，与 agent 动手前那一问同一副样子）。
+6. 收尾时若这次的输出形态是 `artifact`，后端算出「落点 + 形状 + 会不会覆盖」，**当场在对话里问一句「写不写」**（`controller/gate.ts` 推一条 `gate`，前端画成气泡里的一张权限卡片，与外部 agent 动手前那一问同一副样子）。
 7. 用户可以先在气泡里改，改完点「写入」→ 后端**重新解析气泡里当下的文本**（经 `editTurn` 落在 `turn.content` 上），目标已有内容时再走 `reviewReplace`，两层都过了才落盘；点「不采纳」则一个字不写，气泡末尾记一行「未采纳」。
 
 全程 `core/runtime/logger.ts` 记下：阶段·能力与目标产物、装配用了多少 token / 哪几项被降级丢弃、首字延迟、产出字数与总耗时、最终写到哪个文件。

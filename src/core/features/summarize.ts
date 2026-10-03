@@ -211,7 +211,7 @@ async function knownNamesHint(project: NovelProject): Promise<string> {
  * 批量补齐所有缺失/过期的摘要，带进度，可取消。各章之间无先后，按配置并发。
  *
  * 返回**这一次计划调用几次模型**（确认框里那个数字；取消或无事可做时是 0）。
- * 只在这里算一次——agent 的 `run` 工具拿它记进预算。
+ * 只在这里算一次——MCP 的 `summary` 工具拿它记账。
  */
 export async function syncSummaries(project: NovelProject): Promise<number> {
   log.info('开始检查摘要新鲜度');
@@ -378,7 +378,7 @@ export async function summarizeChapters(
  * 后者覆盖「传的是细纲、正文另有其名」这种正常情况。还没有正文时返回
  * undefined，调用方据此说「这一章还没有正文」。
  *
- * 放在这里而不是各调用方各写一份：工程页、命令面板与 agent 的 `run` 工具
+ * 放在这里而不是各调用方各写一份：工程页、命令面板与 MCP 的 `summary` 工具
  * 都要问同一个问题，答案分叉了就会出现「工程页总结得了、agent 说找不到」。
  */
 export async function chapterForSummary(

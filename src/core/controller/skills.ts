@@ -4,7 +4,7 @@
  * 与 [settings.ts](settings.ts) 一样**不依赖 controller**：独立版没打开工程时由 WorkspaceHub
  * 直接调这几个函数（`scope` 是空的），技能库照样能看、能装、能卸；只有绑定要工程。
  *
- * 装与卸在这里先弹确认框（`Host.confirm`）——agent 那条路由 `run` 的 `always` 闸门问，两边都问
+ * 装与卸在这里先弹确认框（`Host.confirm`）——外部 agent 那条路由 `skills install` 的 `always` 闸门问，两边都问
  * 一次，不多不少。
  */
 import { getHost } from '../host';

@@ -40,7 +40,6 @@ export type {
   ProjectNode,
   ProjectTree,
   SendPayload,
-  SerializedAgentRun,
   SerializedArtifact,
   SerializedAttachment,
   SerializedDigest,
@@ -181,19 +180,6 @@ export {
   isThinkingDepth,
 } from '../../src/core/model/thinking';
 export type { ThinkingDepth } from '../../src/core/model/thinking';
-
-/**
- * Agent 的确认策略。与分档同一套理由：设置页上写着「放手」而后端按别的
- * 值跑，作者就再也不信这张表了。`agentPolicy.ts` 是纯数据 + 纯函数。
- */
-export {
-  AGENT_POLICIES,
-  AGENT_POLICY_HINT,
-  AGENT_POLICY_LABEL,
-  DEFAULT_AGENT_POLICY,
-  isAgentPolicy,
-} from '../../src/core/model/agentPolicy';
-export type { AgentPolicy } from '../../src/core/model/agentPolicy';
 
 /**
  * 写作技能的阶段、来源与不兼容原因的说法。与分档同一套理由：设置页上写着「写正文」而后端按

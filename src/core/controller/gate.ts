@@ -8,53 +8,60 @@
  * 「Agent 要写入…，允许吗」把他从要看的东西上拽走，还顺手锁住整个窗口：想
  * 先翻一眼那个文件再决定都做不到。所以这一句改成**贴在输入框上方的一张卡片**
  * （`media/src/view/gate.ts`），页面照常能滚、能翻、能点别的。它也不挂在气泡
- * 上——那样会跟着内容滚出视野，而循环正卡在它上面等回答。
+ * 上——那样会跟着内容滚出视野，而调用正卡在它上面等回答。
  *
  * ## 这一层只做「问」这件事
  *
- * 判定（哪一档要问、问什么、按钮上写什么）全在 [`agent/policy.ts`](../agent/README.md)，
- * 循环只管拿三个结论中的一个。这里把那一问变成一条协议消息，等前端回话：
+ * 问不问、问什么由调用方定（工具自报的 `ToolIntent`、落盘卡片的形状），这里把那一问
+ * 变成一条协议消息，等前端回话：
  *
  * ```
- * loop.askGate ──onGate──▶ askGate ──gate──▶ 输入框上方那张卡片
- *                             ▲                    │
- *                             └─── gateResult ◀────┘
+ * mcp.ts / chat.ts ──askGate──▶ gate ──▶ 输入框上方那张卡片
+ *                      ▲                       │
+ *                      └───── gateResult ◀─────┘
  * ```
  *
  * **两种问法共用这一条路**：
  *
  * | 谁在问 | 什么时候 | 按钮 |
  * |---|---|---|
- * | agent 的闸门（`policy.ts`） | 动手前，按策略查表 | 确认 / 跳过 |
- * | 产物落盘（第 19 条） | `generate` 一产出就问，**与策略无关** | 确认 / 不采纳 |
+ * | 外部 agent 的 `always` 动作（`controller/mcp.ts`） | 动手前 | 确认 / 跳过 |
+ * | 产物落盘（第 19 条） | `generate` 一产出就问 | 确认 / 不采纳 |
  *
  * 两种都只有两颗：**叫停整轮不在这张卡上**——那是输入框旁边那颗「停止」，
  * 与「这一个文件要不要动」是两件事，混进闸门只会被误当成「跳过」。
  *
- * 后一种从前是气泡末尾那颗「采纳写入」——它可以拖到第二天再点，于是
- * 「产物落盘前必须过一遍人」在界面上是一颗**可以永远不点的按钮**，而 agent
- * 早就接着往下做了。现在它和别的动手请求长一个样、在同一个位置、当场问。
- *
  * ## 三件必须做对的事
  *
  * 1. **两个视图同时收卡**——侧边栏与编辑器标签页挂同一个 controller，只在被
- *    点的那一边收，另一边会留一张点了没反应的卡（`agentGateDone` 广播）。
+ *    点的那一边收，另一边会留一张点了没反应的卡（`gateDone` 广播）。
  * 2. **重连之后卡片还在**——前端无状态，刷新网页/webview 重建后靠
- *    `resendFullState` 把还没答的这几条重推一遍；不重推的话循环就永远停在
+ *    `resendFullState` 把还没答的这几条重推一遍；不重推的话调用就永远停在
  *    一个没人看得见的等待上。
- * 3. **取消要能解开等待**——作者点「停止」时循环正卡在这里等回答，
+ * 3. **取消要能解开等待**——作者点「停止」时调用正卡在这里等回答，
  *    signal 一断就按「停止」结算，不留一个永远悬着的 Promise。
  */
-import type { GateVerdict } from '../agent/policy';
-import { PROCEED_ACTION, SKIP_ACTION } from '../agent/policy';
 import type { OutMessage } from '../protocol';
 import type { ChatController } from './index';
+
+/**
+ * 一次询问的结论。作者只点得到前两个：**停止**是没人回答（取消）时替他记下的那一笔，
+ * 不是卡片上的一颗按钮。
+ */
+export type GateVerdict = 'proceed' | 'skip' | 'stop';
+
+/**
+ * 两颗按钮上的缺省字。**同意那颗不写动词**：「Agent 要写入「第 12 章」」这句话就在
+ * 按钮上方，按钮再说一遍是重复；每次换一个动词的话，作者反而要先读按钮才敢点。
+ */
+export const PROCEED_ACTION = '确认';
+export const SKIP_ACTION = '跳过';
 
 type GateMessage = Extract<OutMessage, { type: 'gate' }>;
 
 /**
  * 一次询问能有的结论。**卡片上只有前两颗按钮**，`cancelled` 是没人回答
- * （这一轮被取消、换了会话）时替作者记下的那一笔——它对循环等于「停止」。
+ * （这一轮被取消、换了会话）时替作者记下的那一笔——它对调用方等于「停止」。
  */
 export type GateSettlement = 'proceed' | 'skip' | 'cancelled';
 
@@ -128,7 +135,7 @@ export function askGateNoted(
     title: ask.title,
     detail: ask.detail,
     argsText: ask.argsText,
-    // 按钮上的字都从后端来：与循环里判定用的是同一份常量，前端自己写一遍的
+    // 按钮上的字都从后端来：与调用方判定用的是同一份常量，前端自己写一遍的
     // 话，改了文案就对不上了。
     proceed: ask.proceed ?? PROCEED_ACTION,
     skip: ask.skip ?? SKIP_ACTION,

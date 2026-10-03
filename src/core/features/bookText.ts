@@ -29,7 +29,7 @@ export interface BookText {
 /**
  * 挑一本：工程里的 `.txt`（章节文件、草稿与隐藏目录除外，`NovelProject.listImportableTexts`）。
  *
- * 给了 `relPath`（agent 的 `run`）就只认这张清单里的——不让它拿章节文件或工程外的路径来拆。
+ * 给了 `relPath`（MCP 的 `book` 工具）就只认这张清单里的——不让它拿章节文件或工程外的路径来拆。
  * 没有可挑的就说清楚该把 txt 放在哪，返回 undefined。
  */
 export async function pickBookText(project: NovelProject, title: string, relPath?: string): Promise<string | undefined> {

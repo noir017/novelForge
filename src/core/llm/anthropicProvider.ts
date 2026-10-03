@@ -7,16 +7,14 @@ import {
   thinkingBudget,
 } from '../model/thinking';
 import { scoped } from '../runtime/logger';
-import { describeHttpBody, hostOf, parseToolArgs, readBody } from './openaiProvider';
+import { describeHttpBody, hostOf, readBody } from './openaiProvider';
 import {
-  AgentMessage,
+  ChatMessage,
   LlmError,
   LlmProvider,
-  ReasoningTrace,
   StopSignal,
   StreamEvent,
   StreamOptions,
-  ToolCall,
   iterateSse,
   makeAbortSignal,
   normalizeError,
@@ -58,7 +56,7 @@ export class AnthropicProvider implements LlmProvider {
     return undefined;
   }
 
-  async *stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
+  async *stream(messages: ChatMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
     const { signal, dispose, poke } = makeAbortSignal(options);
     try {
       const system = messages
@@ -79,11 +77,6 @@ export class AnthropicProvider implements LlmProvider {
             'Content-Type': 'application/json',
             'x-api-key': this.apiKey,
             'anthropic-version': '2023-06-01',
-            // 手动预算那条路上，工具之间要想事情必须开这个 beta；自适应自己
-            // 就会交错思考，不需要它。上游对不支持的模型是**忽略**而非报错。
-            ...(plan?.mode === 'manual' && options.tools?.length
-              ? { 'anthropic-beta': 'interleaved-thinking-2025-05-14' }
-              : {}),
           },
           body: JSON.stringify({
             model: this.model,
@@ -104,19 +97,6 @@ export class AnthropicProvider implements LlmProvider {
               ? { thinking: { type: 'enabled', budget_tokens: plan.budgetTokens } }
               : {}),
             stream: true,
-            // toolChoice 为 none 时干脆不带 tools——Anthropic 没有「有工具但禁用」
-            // 这个说法，带上再禁掉只是白烧几百 token 的工具描述。
-            ...(options.tools && options.tools.length > 0 && options.toolChoice !== 'none'
-              ? {
-                  // 字段名是 input_schema，不是 parameters。
-                  tools: options.tools.map((s) => ({
-                    name: s.name,
-                    description: s.description,
-                    input_schema: s.parameters,
-                  })),
-                  tool_choice: options.toolChoice === 'required' ? { type: 'any' } : { type: 'auto' },
-                }
-              : {}),
           }),
           signal,
         });
@@ -135,11 +115,6 @@ export class AnthropicProvider implements LlmProvider {
         throw new LlmError(describeHttpBody(response.status, detail, this.label, '/v1/messages'));
       }
       poke();
-
-      // 工具调用分三个事件到达，按 event.index 攒着，stop 之后才完整。
-      const slots = new Map<number, ToolUseSlot>();
-      // 思考块同理：thinking_delta 逐段来，签名在 stop 之前才给。
-      const thinking = new Map<number, ThinkingSlot>();
 
       for await (const payload of iterateSse(stream, signal, poke)) {
         let event: AnthropicEvent;
@@ -171,18 +146,7 @@ export class AnthropicProvider implements LlmProvider {
         ) {
           yield { type: 'reasoning', text: event.delta.thinking };
         }
-        // 思考块收完了：把它连签名一起交给上层，下一轮原样发回去。
-        const trace = feedThinking(thinking, event);
-        if (trace) {
-          yield { type: 'reasoningTrace', trace };
-        }
-        const call = feedToolUse(slots, event);
-        if (call) {
-          yield { type: 'toolCall', call };
-        }
-        // 收尾原因在 `message_delta` 上，**排在所有内容块之后**。上层拿它跟手里
-        // 攒到的工具调用对一下：说了 tool_use 却一个都没给，就是这一轮的响应
-        // 缺了一半（见 provider.ts 的 StopSignal）。
+        // 收尾原因在 `message_delta` 上，**排在所有内容块之后**。
         if (event.type === 'message_delta' && event.delta?.stop_reason) {
           yield { type: 'stop', reason: stopSignalOf(event.delta.stop_reason) };
         }
@@ -196,15 +160,13 @@ export class AnthropicProvider implements LlmProvider {
 }
 
 /**
- * Anthropic 的 `stop_reason` → 归一的四档。
+ * Anthropic 的 `stop_reason` → 归一的三档。
  *
  * 认不出的一律 `other`：这个字段上游还在加值（`pause_turn`、`refusal`），
- * 报错会让循环因为一个不认识的字符串就断掉。
+ * 报错会让续写链因为一个不认识的字符串就断掉。
  */
 function stopSignalOf(reason: string): StopSignal {
   switch (reason) {
-    case 'tool_use':
-      return 'toolUse';
     case 'end_turn':
     case 'stop_sequence':
       return 'end';
@@ -328,15 +290,11 @@ function negotiate(status: number, body: string, quirk: Quirks, label: string): 
 
 export interface AnthropicEvent {
   type: string;
-  index?: number;
-  content_block?: { type?: string; id?: string; name?: string; input?: unknown; text?: string };
   delta?: {
     type?: string;
     text?: string;
     thinking?: string;
-    signature?: string;
-    partial_json?: string;
-    /** 只在 `message_delta` 上：`end_turn` / `tool_use` / `max_tokens` / … */
+    /** 只在 `message_delta` 上：`end_turn` / `max_tokens` / … */
     stop_reason?: string;
   };
   message?: { usage?: AnthropicUsage };
@@ -349,199 +307,32 @@ interface AnthropicUsage {
   output_tokens?: number;
 }
 
-interface ToolUseSlot {
-  id: string;
-  name: string;
-  json: string;
-}
-
-/** 攒一块思考。签名（整段推理的加密副本）在 stop 之前的最后一个事件才给。 */
-interface ThinkingSlot {
-  thinking: string;
-  signature: string;
-}
-
-/** Anthropic 的一条 content block。纯文本消息仍用字符串 content，不无谓地包成数组。 */
-type ContentBlock =
-  /**
-   * 上一轮原样收下的思考块。**必须交回去**：工具结果在协议上是一条新的 user
-   * 消息，模型靠这一块把它与上一步的推理接起来。不交的话上游会静默把这一轮
-   * 的思考关掉（文档写明是 graceful degradation，不报错），表现出来就是
-   * 「开了深思考，但 agent 从第二步起就不想了」。
-   */
-  | { type: 'thinking'; thinking: string; signature: string }
-  | { type: 'text'; text: string }
-  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string };
-
 interface AnthropicMessage {
   role: string;
-  content: string | ContentBlock[];
+  content: string;
 }
 
 /**
- * `AgentMessage[]` → Anthropic 的 `messages[]`。
+ * `ChatMessage[]` → Anthropic 的 `messages[]`。
  *
- * 比 OpenAI 那边复杂的地方在于 **`tool_result` 不是独立 role**：它是一条
- * `user` 消息 content 数组里的一个 block。所以连续的 `tool` 消息要合并进
- * **一条** user 消息，而不是各自成条——各自成条会让 user/assistant 不再交替。
- *
+ * Anthropic 要求 user/assistant 严格交替且首条是 user，相邻同角色并成一条；
  * system 由顶层字段带走，这里直接跳过。
  */
-export function toAnthropicMessages(messages: AgentMessage[]): unknown[] {
+export function toAnthropicMessages(messages: ChatMessage[]): unknown[] {
   const out: AnthropicMessage[] = [];
-
-  const push = (role: string, content: string | ContentBlock[]): void => {
-    const last = out[out.length - 1];
-    // Anthropic 要求 user/assistant 严格交替，相邻同角色必须合并。
-    if (last && last.role === role) {
-      if (typeof last.content === 'string' && typeof content === 'string') {
-        last.content += `\n\n${content}`;
-      } else {
-        last.content = [...asBlocks(last.content), ...asBlocks(content)];
-      }
-      return;
-    }
-    out.push({ role, content });
-  };
-
   for (const m of messages) {
     if (m.role === 'system') {
       continue;
     }
-    if (m.role === 'tool') {
-      push('user', [{ type: 'tool_result', tool_use_id: m.toolCallId, content: m.content }]);
+    const last = out[out.length - 1];
+    if (last && last.role === m.role) {
+      last.content += `\n\n${m.content}`;
       continue;
     }
-    if (m.role === 'assistant' && ((m.toolCalls && m.toolCalls.length > 0) || m.traces?.length)) {
-      const blocks: ContentBlock[] = [];
-      // 思考块排在最前：手动预算那条路要求助手这一轮**以思考块开头**。
-      // 别家协议的凭据（换过模型的会话里会有）交给 Anthropic 只会 400。
-      for (const trace of m.traces ?? []) {
-        if (trace.kind === 'anthropic') {
-          blocks.push(trace.payload as ContentBlock);
-        }
-      }
-      // text 为空时不放空的 text block——空 block 会 400。
-      if (m.content) {
-        blocks.push({ type: 'text', text: m.content });
-      }
-      for (const c of m.toolCalls ?? []) {
-        blocks.push({ type: 'tool_use', id: c.id, name: c.name, input: c.args });
-      }
-      push('assistant', blocks);
-      continue;
-    }
-    push(m.role, m.content);
+    out.push({ role: m.role, content: m.content });
   }
-
-  // 首条必须是 user。
   if (out.length > 0 && out[0].role !== 'user') {
     out.unshift({ role: 'user', content: '（继续）' });
   }
   return out;
-}
-
-function asBlocks(content: string | ContentBlock[]): ContentBlock[] {
-  return typeof content === 'string' ? [{ type: 'text', text: content }] : content;
-}
-
-/**
- * 喂一个事件进思考槽，这一块收完（`content_block_stop`）时返回它的凭据。
- *
- * 事件序列与工具调用同形：`content_block_start`（`content_block.type ===
- * 'thinking'`）→ 若干 `thinking_delta` → **一个 `signature_delta`** →
- * `content_block_stop`。`display: 'omitted'` 的模型上没有 thinking_delta，
- * 只有签名——那时 `thinking` 是空串，仍然要交回去（签名才是有效载荷）。
- */
-function feedThinking(
-  slots: Map<number, ThinkingSlot>,
-  event: AnthropicEvent
-): ReasoningTrace | undefined {
-  const index = event.index;
-  if (index === undefined) {
-    return undefined;
-  }
-  if (event.type === 'content_block_start' && event.content_block?.type === 'thinking') {
-    slots.set(index, { thinking: '', signature: '' });
-    return undefined;
-  }
-  const slot = slots.get(index);
-  if (!slot) {
-    return undefined;
-  }
-  if (event.type === 'content_block_delta') {
-    if (event.delta?.type === 'thinking_delta' && event.delta.thinking) {
-      slot.thinking += event.delta.thinking;
-    }
-    if (event.delta?.type === 'signature_delta' && event.delta.signature) {
-      slot.signature += event.delta.signature;
-    }
-    return undefined;
-  }
-  if (event.type === 'content_block_stop') {
-    slots.delete(index);
-    // 没签名的思考块交回去会被拒（上游要用它验真），干脆不交。
-    if (!slot.signature) {
-      return undefined;
-    }
-    return {
-      kind: 'anthropic',
-      payload: { type: 'thinking', thinking: slot.thinking, signature: slot.signature },
-    };
-  }
-  return undefined;
-}
-
-/**
- * 喂一个事件进累积槽，这一块收完时返回拼好的工具调用。
- *
- * 三个事件一组：`content_block_start`（带 `id` / `name`）→ 若干
- * `content_block_delta`（`input_json_delta` 的 `partial_json` 是**逐字符拼的
- * JSON 串**）→ `content_block_stop`（此时才完整）。按 `event.index` 分槽，
- * 多个并行调用各占一个 index。
- */
-function feedToolUse(slots: Map<number, ToolUseSlot>, event: AnthropicEvent): ToolCall | undefined {
-  const index = event.index;
-  if (index === undefined) {
-    return undefined;
-  }
-  if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
-    slots.set(index, {
-      id: event.content_block.id ?? '',
-      name: event.content_block.name ?? '',
-      json: '',
-    });
-    return undefined;
-  }
-  if (event.type === 'content_block_delta' && event.delta?.type === 'input_json_delta') {
-    const slot = slots.get(index);
-    if (slot && event.delta.partial_json) {
-      slot.json += event.delta.partial_json;
-    }
-    return undefined;
-  }
-  if (event.type === 'content_block_stop') {
-    const slot = slots.get(index);
-    if (!slot) {
-      return undefined;
-    }
-    slots.delete(index);
-    // 坏 JSON 不抛：发一个 args 为空的调用，raw 保留原文交给上层回显。
-    return { id: slot.id, name: slot.name, args: parseToolArgs(slot.json), raw: slot.json };
-  }
-  return undefined;
-}
-
-/** 把一整条事件序列里的 tool_use 块拼成工具调用，按 `content_block_stop` 的先后产出。 */
-export function accumulateToolUse(events: AnthropicEvent[]): ToolCall[] {
-  const slots = new Map<number, ToolUseSlot>();
-  const calls: ToolCall[] = [];
-  for (const event of events) {
-    const call = feedToolUse(slots, event);
-    if (call) {
-      calls.push(call);
-    }
-  }
-  return calls;
 }

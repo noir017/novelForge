@@ -1,6 +1,5 @@
 import type { ChatController } from './index';
 import {
-  normalizeAgentPolicy,
   normalizeModelList,
   normalizeTaskTiers,
   normalizeTierModels,
@@ -9,7 +8,6 @@ import {
   readConfig,
 } from '../config';
 import { describeTierConfig } from '../model/tiers';
-import { AGENT_POLICY_LABEL } from '../model/agentPolicy';
 import { apiKeyStatus, pruneApiKeys } from '../llm/registry';
 import {
   describeModelIssue,
@@ -58,7 +56,6 @@ export async function pushSettingsTo(sink: SettingsSink, ack?: 'saved' | 'reject
       requestTimeoutMs: cfg.requestTimeoutMs,
       concurrency: cfg.concurrency,
       fallbackAttempts: cfg.fallbackAttempts,
-      agentPolicy: cfg.agentPolicy,
       trimModifiers: cfg.trimModifiers,
     },
     keys: await apiKeyStatus(cfg.providers),
@@ -105,8 +102,6 @@ export async function saveSettingsFrom(
     requestTimeoutMs: s.requestTimeoutMs,
     concurrency: s.concurrency,
     fallbackAttempts: s.fallbackAttempts,
-    // 认不出的策略名回落默认，与其它字段一样容错。
-    agentPolicy: normalizeAgentPolicy(s.agentPolicy),
     trimModifiers: s.trimModifiers !== false,
   });
 
@@ -119,7 +114,6 @@ export async function saveSettingsFrom(
       `${describeTierConfig(tierModels, taskTiers)}｜` +
       `温度 ${s.temperature}｜超时 ${s.requestTimeoutMs}ms｜` +
       `并发 ${s.concurrency}｜换模型重试 ${s.fallbackAttempts} 次｜` +
-      `Agent 策略 ${AGENT_POLICY_LABEL[normalizeAgentPolicy(s.agentPolicy)]}｜` +
       `删修饰 ${s.trimModifiers !== false ? '开' : '关'}`
   );
   await pushSettingsTo(sink, 'saved');

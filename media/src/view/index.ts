@@ -19,7 +19,6 @@ import { installMenubar } from './menubar';
 import { installMenus } from './menu';
 import {
   bindPayload,
-  buildAgentRunRow,
   buildContextDetails,
   buildGenCard,
   buildPendingToolRow,
@@ -140,12 +139,6 @@ onMessage((msg) => {
       resetStreamText(msg.turnId, msg.text);
       break;
 
-    // ---- agent 的三条：步数、工具调用、工具结果
-    case 'agentStep':
-      // 步数只进进度条（工程页顶部那条）与日志，气泡里不画——每一步一行
-      // 「第 3 步」会把真正有信息量的工具调用挤散。
-      break;
-
     case 'toolCall':
       appendToolCall(msg.turnId, msg.callId, msg.name, msg.title ?? msg.name, msg.detail, msg.argsText);
       break;
@@ -165,25 +158,13 @@ onMessage((msg) => {
       // 人在别的页签上时那一格看不见，而循环正卡在这里等他——喊一声。
       // 不替他切页：他多半正是去工程页翻那个文件，好决定点不点头。
       if (!isTabActive('chat')) {
-        toast('Agent 在等你点头，去对话页看看。');
+        toast('有一件事在等你点头，去对话页看看。');
       }
       break;
 
     case 'gateDone':
       // 另一个视图上答了，或者这一轮被取消了。两处的卡片都要收。
       settleGate(msg.requestId, msg.verdict);
-      break;
-
-    case 'agentDone':
-      // 花销那一行立刻画出来（随后的 turnDone 会用会话里存的那份重建同一行）。
-      settleAgentRun(msg.turnId, msg);
-      // 非正常结束再补一句 toast——那一行上也写着，两处都有是有意的：
-      // 正在看的人立刻知道，第二天回来翻的人也查得到。
-      if (msg.stopReason !== 'done' && msg.message) {
-        // `protocol`（接口把工具调用那一段丢了）跟 error 同一档：不换服务商
-        // 就一直是这样，提示条得是红的。
-        toast(msg.message, msg.stopReason === 'error' || msg.stopReason === 'protocol');
-      }
       break;
 
     case 'turnDone':
@@ -432,30 +413,6 @@ function appendToolCall(
     return;
   }
   strip.appendChild(buildPendingToolRow(callId, title, detail, argsText));
-  scrollToBottom();
-}
-
-/**
- * 一轮 agent 结束：在气泡末尾画上花销那一行。
- *
- * 就地插入而不是重建气泡——重建会把正在流的正文冲掉（`.msg-body` 是纯文本
- * 节点），与工具条那一串同一条理由。
- */
-function settleAgentRun(
-  turnId: string,
-  run: { steps: number; calls: number; tokens: number; stopReason: string; message: string }
-): void {
-  const node = bubbleOf(turnId);
-  if (!node) {
-    return;
-  }
-  const row = buildAgentRunRow({ ...run, message: run.message || undefined });
-  const existing = node.querySelector('.agent-run');
-  if (existing) {
-    existing.replaceWith(row);
-  } else {
-    node.insertBefore(row, node.querySelector('.ctx') ?? node.querySelector('.msg-actions'));
-  }
   scrollToBottom();
 }
 

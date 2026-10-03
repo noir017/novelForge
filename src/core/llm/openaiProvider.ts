@@ -7,12 +7,11 @@ import {
 } from '../model/thinking';
 import { scoped } from '../runtime/logger';
 import {
-  AgentMessage,
+  ChatMessage,
   LlmError,
   LlmProvider,
   StreamEvent,
   StreamOptions,
-  ToolCall,
   iterateSse,
   makeAbortSignal,
   normalizeError,
@@ -52,7 +51,7 @@ export class OpenAiProvider implements LlmProvider {
     return undefined; // 以用户设置的 contextWindow 为准
   }
 
-  async *stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
+  async *stream(messages: ChatMessage[], options: StreamOptions): AsyncIterable<StreamEvent> {
     const { signal, dispose, poke } = makeAbortSignal(options);
     try {
       const { instructions, input } = toResponsesInput(messages);
@@ -153,35 +152,18 @@ function buildBody(
     max_output_tokens: options.maxOutputTokens,
     stream: true,
     // 不让上游存这次对话：历史由本地会话文件负责，服务端再存一份只是
-    // 多一个副本。代价是推理块要自己回填（见 include 与 ReasoningTrace）。
+    // 多一个副本。
     store: false,
     ...(effort
       ? {
           // summary: 'auto' 才会有 reasoning_summary 的增量——界面上那段
           // 「正在思考」靠它，没有它作者只能对着空气等几十秒。
           reasoning: { effort, summary: 'auto' },
-          // store: false 时不显式要，推理块回来是不带 encrypted_content 的空壳，
-          // 交回去也就没有意义了。
-          include: ['reasoning.encrypted_content'],
         }
       : {}),
     // 推理模型拒收 temperature。思考开着时一律不带（它必然是推理模型），
     // 关着时带上——非推理模型上它仍然是有效的文风旋钮。
     ...(effort || quirk.noTemperature ? {} : { temperature: options.temperature }),
-    // 没有 tools 时这两个字段一律不带——有些兼容实现见到未知字段会直接 400。
-    ...(options.tools && options.tools.length > 0
-      ? {
-          // Responses 的工具声明是**平的**：name/parameters 直接挂在这一层，
-          // 不像 chat/completions 那样包一个 function 对象。
-          tools: options.tools.map((s) => ({
-            type: 'function',
-            name: s.name,
-            description: s.description,
-            parameters: s.parameters,
-          })),
-          ...(options.toolChoice ? { tool_choice: options.toolChoice } : {}),
-        }
-      : {}),
   };
 }
 
@@ -252,50 +234,28 @@ function negotiate(
 // ---------------------------------------------------------------- 消息转换
 
 /**
- * `AgentMessage[]` → Responses 的 `instructions` + `input[]`。
+ * `ChatMessage[]` → Responses 的 `instructions` + `input[]`。
  *
- * 三处与 chat/completions 不同：
- * - **system 走 `instructions` 顶层字段**，不再是 input 里的一条消息；
- * - **工具调用与工具结果是 input 里独立的一项**（`function_call` /
- *   `function_call_output`），不再挂在 assistant 消息上；两者靠 `call_id` 配对；
- * - **思考块要原样交回**（`traces`），否则多轮工具调用之间的推理白丢。
- *   放在这一轮的 `function_call` **之前**——上游按顺序把推理与它引出的调用
- *   配对，顺序颠倒等于没交。
+ * 与 chat/completions 不同的一处：**system 走 `instructions` 顶层字段**，
+ * 不再是 input 里的一条消息。
  */
-export function toResponsesInput(messages: AgentMessage[]): {
+export function toResponsesInput(messages: ChatMessage[]): {
   instructions: string;
   input: unknown[];
 } {
   const systems: string[] = [];
   const input: unknown[] = [];
-
   for (const m of messages) {
     if (m.role === 'system') {
       systems.push(m.content);
-      continue;
-    }
-    if (m.role === 'tool') {
-      input.push({ type: 'function_call_output', call_id: m.toolCallId, output: m.content });
-      continue;
-    }
-    if (m.role === 'assistant') {
-      for (const trace of m.traces ?? []) {
-        // 别家协议的凭据交给 OpenAI 只会 400——换过模型的会话里会出现这种事。
-        if (trace.kind === 'openai') {
-          input.push(trace.payload);
-        }
-      }
+    } else if (m.role === 'assistant') {
       if (m.content) {
         input.push({ role: 'assistant', content: m.content });
       }
-      for (const c of m.toolCalls ?? []) {
-        input.push({ type: 'function_call', call_id: c.id, name: c.name, arguments: c.raw });
-      }
-      continue;
+    } else {
+      input.push({ role: 'user', content: m.content });
     }
-    input.push({ role: 'user', content: m.content });
   }
-
   return { instructions: systems.join('\n\n'), input };
 }
 
@@ -305,13 +265,6 @@ export function toResponsesInput(messages: AgentMessage[]): {
 export interface ResponsesEvent {
   type?: string;
   delta?: string;
-  item?: {
-    type?: string;
-    call_id?: string;
-    name?: string;
-    arguments?: string;
-    [k: string]: unknown;
-  };
   response?: {
     usage?: { input_tokens?: number; output_tokens?: number };
     error?: { message?: string };
@@ -328,7 +281,7 @@ export interface ResponsesEvent {
  * 一条事件 → 若干 `StreamEvent`。
  *
  * **认不出的类型一律忽略**：这条协议的事件种类有二十来个（item 的增删、
- * 各种 `.done`、注解、内容部分的开合），我们只关心其中五类。为未知类型报错
+ * 各种 `.done`、注解、内容部分的开合），我们只关心其中几类。为未知类型报错
  * 会让上游加一个新事件就炸掉整轮生成。
  */
 export function readResponsesEvent(event: ResponsesEvent, label: string): StreamEvent[] {
@@ -347,16 +300,6 @@ export function readResponsesEvent(event: ResponsesEvent, label: string): Stream
         out.push({ type: 'reasoning', text: event.delta });
       }
       return out;
-    case 'response.output_item.done': {
-      const item = event.item;
-      if (item?.type === 'function_call') {
-        out.push({ type: 'toolCall', call: toolCallOf(item) });
-      } else if (item?.type === 'reasoning') {
-        // 原样收着，下一轮交回去（store: false，上游那边不留）。
-        out.push({ type: 'reasoningTrace', trace: { kind: 'openai', payload: item } });
-      }
-      return out;
-    }
     case 'response.completed':
     case 'response.incomplete': {
       const usage = event.response?.usage;
@@ -366,14 +309,9 @@ export function readResponsesEvent(event: ResponsesEvent, label: string): Stream
           usage: { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens },
         });
       }
-      // 这条协议里**没有** `tool_use` 这一档收尾原因：工具调用是输出项
-      // （`function_call`），不是一个需要另行声明的状态，所以「说要调却没给」
-      // 那种自相矛盾在这条路上表达不出来（见 provider.ts 的 StopSignal）。
-      // 能报的是截断与正常收尾两种。
-      //
-      // `completed` 从前什么都不报：正文续写链（generation/continuation.ts）要分清「模型自己收了尾」
+      // `completed` 也要报 `end`：正文续写链（generation/continuation.ts）要分清「模型自己收了尾」
       // 与「网关没说」——前者说明结尾已经落在章末钩子上，不够八成时先回退再写（五期补遗 §1.1），
-      // 后者不敢回退。真实模型试跑里这一条路上永远是「没说」，回退一次都没触发过。
+      // 后者不敢回退。
       if (event.type === 'response.incomplete' || event.response?.status === 'incomplete') {
         const reason = event.response?.incomplete_details?.reason;
         out.push({ type: 'stop', reason: reason === 'max_output_tokens' ? 'maxTokens' : 'other' });
@@ -389,34 +327,6 @@ export function readResponsesEvent(event: ResponsesEvent, label: string): Stream
     default:
       return out;
   }
-}
-
-/**
- * `function_call` 项 → 一次工具调用。
- *
- * 与 chat/completions 最大的差别：**参数不用自己拼**。这条协议在
- * `response.output_item.done` 上给的是完整的 `arguments` 串，所以按 index
- * 累积那一套坑在这里不存在（分片增量事件我们干脆不听）。
- */
-function toolCallOf(item: { call_id?: string; name?: string; arguments?: string }): ToolCall {
-  const raw = item.arguments ?? '';
-  return { id: item.call_id ?? '', name: item.name ?? '', args: parseToolArgs(raw), raw };
-}
-
-/** 解析工具参数。失败或解析出非对象一律退成空对象，绝不抛。 */
-export function parseToolArgs(raw: string): Record<string, unknown> {
-  if (!raw.trim()) {
-    return {};
-  }
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    /* 坏 JSON 不抛：由上层报「参数解析失败」给模型看，让它重试 */
-  }
-  return {};
 }
 
 export function hostOf(url: string): string {

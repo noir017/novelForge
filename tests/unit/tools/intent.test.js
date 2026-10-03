@@ -1,8 +1,8 @@
 /**
  * 每个工具自报的**意图**：这一步是什么性质、问的时候怎么说。
  *
- * 从前这些话写在 agent 的 `policy.ts` 里（一个按工具名分支的 switch）。
- * 搬到工具这一侧之后，判定表那边只剩五行（`tests/unit/agent/policy.test.js`），
+ * 从前这些话写在内置 agent 的 `policy.ts` 里（一个按工具名分支的 switch）。
+ * 现在按 `gate` 档位决定问不问的是 MCP 执行端（`controller/mcp.ts`），
  * 而**说辞与它描述的那件事在同一个文件里**——改了 `write` 的行为，眼皮底下
  * 就是它要对作者说的话。
  *
@@ -11,10 +11,9 @@
  * 1. **`write` 覆盖 = `reviewed`**——下游 `ws.write` 带 diff 请人过目，
  *    不该在它之前再问一句「确定吗」。
  * 2. **`edit` = `always`**——`ws.edit` 不走 diff，那一句确认就是它的 diff，
- *    放手模式也不能免。
+ *    任何调用方都不能免。
  *
- * 这里不给 project（纯单测），名字退回路径本身；带工程时的名字由
- * `tests/integration/agent/gate.test.js` 验。
+ * 这里不给 project（纯单测），名字退回路径本身。
  */
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -69,7 +68,7 @@ describe('generate：花钱但不写盘', () => {
     assert.ok(!g().title.startsWith('Agent'), g().title);
   });
 
-  // 按钮上一律是「确认」（`policy.ts` 的 `PROCEED_ACTION`）：动词已经在
+  // 按钮上一律是「确认」（`controller/gate.ts` 的 `PROCEED_ACTION`）：动词已经在
   // title 上了，工具不必再各报一个。
   test('不再自报按钮上的字', () => {
     assert.equal(g().proceed, undefined);
@@ -133,20 +132,49 @@ describe('edit：任何模式都要问', () => {
   });
 });
 
-describe('run：工程动作', () => {
-  const i = () => intentOf('run', { action: 'batchPlots' });
+describe('带 action 的工程动作：缺省归 mutating', () => {
+  const i = () => intentOf('pipeline', { action: 'batchPlots' });
 
   test('归 mutating', () => {
     assert.equal(i().gate, 'mutating');
   });
 
-  test('说清了要执行哪个动作', () => {
-    assert.ok(i().title.includes('batchPlots'), i().title);
+  // 标题就是动作的说法，作者在框里读到的是「批量拆细纲」而不是一个英文动作名。
+  test('标题是那个动作的说法', () => {
+    assert.ok(i().title.startsWith('批量拆细纲'), i().title);
   });
 
-  // 放手模式下这里不问，但 pipelineBatch 自己那个「预计调用 N 次」照弹。
-  test('提醒了随后还会告诉他调几次', () => {
+  // 这里不问（`mutating` 档），但 pipelineBatch 自己那个「预计调用 N 次」照弹。
+  test('调模型的动作提醒了随后还会告诉他调几次', () => {
     assert.ok(i().detail.includes('预计调用几次'), i().detail);
+  });
+
+  test('不调模型的动作不提调用次数', () => {
+    assert.equal(intentOf('pipeline', { action: 'newPlot' }).detail.includes('预计调用几次'), false);
+  });
+
+  test('作用对象（path / name）写进框里', () => {
+    assert.ok(intentOf('summary', { action: 'finalize', path: PLOT }).detail.includes(PLOT));
+    assert.ok(intentOf('characters', { action: 'create', name: '林昭' }).detail.includes('林昭'));
+  });
+
+  // 认不出的动作执行时会被拒，但问的那一步不能因此放行。
+  test('认不出的动作也归 mutating，标题写着工具与动作名', () => {
+    const x = intentOf('summary', { action: 'delete' });
+    assert.equal(x.gate, 'mutating');
+    assert.equal(x.title, '执行 summary delete');
+  });
+
+  test('技能的查与检查不问，装与绑每次都问', () => {
+    assert.deepEqual(
+      [
+        intentOf('skills', { action: 'list' }).gate,
+        intentOf('skills', { action: 'inspect', url: 'https://github.com/o/r' }).gate,
+        intentOf('skills', { action: 'install', url: 'https://github.com/o/r' }).gate,
+        intentOf('skills', { action: 'bind', id: 'builtin:x', stage: 'review' }).gate,
+      ],
+      ['auto', 'auto', 'always', 'always']
+    );
   });
 });
 

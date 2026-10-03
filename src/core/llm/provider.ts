@@ -6,15 +6,6 @@ export interface TokenUsage {
   outputTokens?: number;
 }
 
-/** 一次工具调用。args 已解析成对象；解析失败时是空对象。 */
-export interface ToolCall {
-  id: string;
-  name: string;
-  args: Record<string, unknown>;
-  /** 参数原文。解析失败时上层要把它回显给模型看。 */
-  raw: string;
-}
-
 /**
  * provider 吐出的唯一原语。
  *
@@ -26,69 +17,26 @@ export interface ToolCall {
 export type StreamEvent =
   | { type: 'text'; text: string }
   | { type: 'reasoning'; text: string }
-  | { type: 'toolCall'; call: ToolCall }
   | { type: 'usage'; usage: TokenUsage }
   /**
-   * 上游自己报的收尾原因。**不是给界面看的**，是用来判断这一轮回答自不自洽。
+   * 上游自己报的收尾原因。**不是给界面看的**，是用来分清收尾与截断（见 `StopSignal`）。
    */
-  | { type: 'stop'; reason: StopSignal }
-  /**
-   * 一整块思考收完了，带着回填下一轮要用的凭据。**不是给界面看的**
-   * （给界面看的是上面那条 `reasoning`），而是给多轮工具调用回填用。
-   */
-  | { type: 'reasoningTrace'; trace: ReasoningTrace };
+  | { type: 'stop'; reason: StopSignal };
 
 /**
- * 一块思考的**原样凭据**，下一轮请求要把它交回去。
+ * 上游报的收尾原因，归一成三档。
  *
- * 两家都要求这件事，理由也一样：工具结果在协议上是一条新的 user 消息，
- * 但它与上一步的思考属于同一段推理。不交回去，Anthropic 会静默把这一轮的
- * 思考关掉（文档明说是 graceful degradation，不报错——所以漏了这件事只会
- * 表现为「开了深思考但 agent 从第二步起就不想了」，很难查），OpenAI 那边则
- * 是白丢一次推理缓存。
- *
- * 载荷**对本层不透明**：`payload` 是那家协议里的原始块，由产生它的 provider
- * 自己解释。`kind` 是必需的——作者可以在一轮对话中间换模型，另一家的凭据
- * 拿过去只会 400，认不出的 kind 一律丢掉。
+ * 用它的是需要分清「模型自己收了尾」与「被输出上限截断」的调用方：正文续写链
+ * （`generation/continuation.ts`）据 `maxTokens` 接着写、据 `end` 判断结尾已经
+ * 落在章末钩子上；工程页批量（`features/pipelineBatch.ts`）据 `maxTokens` 判断
+ * 结构化输出是否被截断。`undefined`（上游没说）与 `other` 都不敢当成任何一种。
  */
-export interface ReasoningTrace {
-  kind: 'anthropic' | 'openai';
-  payload: unknown;
-}
+export type StopSignal = 'end' | 'maxTokens' | 'other';
 
-export interface ToolSpec {
-  name: string;
-  description: string;
-  /** JSON Schema object，原样透传给各家 API。 */
-  parameters: Record<string, unknown>;
-}
-
-export type ToolChoice = 'auto' | 'none' | 'required';
-
-/**
- * 上游报的收尾原因，归一成四档。
- *
- * ## 它存在的唯一理由：一轮回答可能自相矛盾
- *
- * 「这一轮没有工具调用」在 agent 循环里就等于「模型给出了最终回答，收工」。
- * 这个等号有一个前提：**上游没在别处说过它想调工具**。而经手过的兼容网关
- * （OpenAI 协议转 Anthropic 协议的那一类）会破坏这个前提——上游模型明明返回了
- * tool_calls，网关把 `stop_reason: "tool_use"` 照抄过来了，却把 `tool_use` 内容块
- * 整个漏掉。抓到过的一次是同一份请求连发八次、五次这样，三次正常。
- *
- * 那种响应落到循环里，长得和「模型说完了」一模一样：agent 说一句「我先看看
- * 工程状态」就停，一个工具都没调，也没有任何报错。有了这一档，循环才分得清
- * 「它不想调」和「它想调但那一半没到」——见 `loop.ts` 的 `PROTOCOL_RETRIES`。
- *
- * `maxTokens` 目前只是记下来（截断本身已经由界面上的字数体现），循环不据此分支。
- */
-export type StopSignal = 'end' | 'toolUse' | 'maxTokens' | 'other';
-
-export type AgentMessage =
+export type ChatMessage =
   | { role: 'system'; content: string }
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string; toolCalls?: ToolCall[]; traces?: ReasoningTrace[] }
-  | { role: 'tool'; toolCallId: string; name: string; content: string };
+  | { role: 'assistant'; content: string };
 
 export interface StreamOptions {
   maxOutputTokens: number;
@@ -100,14 +48,10 @@ export interface StreamOptions {
   timeoutMs: number;
   /** 外部取消（用户点「停止」）。超时仍由本模块内部处理。 */
   signal?: AbortSignal;
-  /** 本轮可用的工具。不给就不带 tools 字段——有些兼容实现见到未知字段会 400。 */
-  tools?: ToolSpec[];
-  /** 缺省 auto。 */
-  toolChoice?: ToolChoice;
   /**
    * 这一轮让模型想多深。缺席或 `off` = 不带任何思考参数（服务商默认）。
    *
-   * 只有作者选定的那个模型的调用带它（对话页续写与 agent 循环）——工程页
+   * 只有作者选定的那个模型的调用带它（对话页单次生成）——工程页
    * 的后台批量任务不带，理由与第 12 条同源：那一档模型是作者按成本挑的，
    * 替他把每一章的摘要都升级成深思考，等于绕过他的成本决定。
    */
@@ -124,7 +68,7 @@ export interface LlmProvider {
    */
   maxInputTokens(): Promise<number | undefined>;
   /** 流式对话。逐个 yield 事件，文本用 `collect.ts` 的 collectText 收。 */
-  stream(messages: AgentMessage[], options: StreamOptions): AsyncIterable<StreamEvent>;
+  stream(messages: ChatMessage[], options: StreamOptions): AsyncIterable<StreamEvent>;
 }
 
 /** 用户主动取消时抛出，调用方据此静默处理而非报错。 */
