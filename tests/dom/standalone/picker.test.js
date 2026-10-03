@@ -77,4 +77,16 @@ describe('独立版目录选择器', { skip: JSDOM_SKIP }, () => {
     assert.equal(msg.path, '/home/me/books');
     assert.equal(msg.mode, 'replace');
   });
+
+  test('开着工程时，选择器从这个工程的目录起', () => {
+    ui.post({
+      type: 'workspaces',
+      currentId: 'D:\\books\\雪夜',
+      items: [{ id: 'D:\\books\\雪夜', root: 'D:\\books\\雪夜', name: '雪夜' }],
+      recents: [],
+    });
+    ui.sent.length = 0;
+    ui.clickEl(ui.doc.querySelector('[data-welcome="openFolder"]'));
+    assert.equal(ui.last('listHostDir').path, 'D:\\books\\雪夜');
+  });
 });

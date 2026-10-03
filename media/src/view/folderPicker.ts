@@ -7,7 +7,7 @@
  */
 import { el as mk } from '../dom';
 import type { DirListing, OutMessage } from '../protocol';
-import { hasWorkspace, vscode } from './store';
+import { hasWorkspace, store, vscode } from './store';
 import { openProject } from './welcome';
 import { onMessage } from '../vscodeApi';
 
@@ -85,7 +85,8 @@ export function openPicker(intent: Intent): void {
   if (intent === 'file') {
     vscode.postMessage({ type: 'listDir', dirs: [''], ephemeral: true });
   } else {
-    vscode.postMessage({ type: 'listHostDir', path: '~' });
+    // 起点是这个窗口开着的工程，空窗口才落到家目录。
+    vscode.postMessage({ type: 'listHostDir', path: store.currentId || '~' });
   }
   pathInput.focus();
 }

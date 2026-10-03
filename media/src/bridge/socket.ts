@@ -22,7 +22,10 @@ export function connect(): Socket {
 
   const open = () => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    // 窗口开的是哪个工程：网址上的 `?project=` 原样带进握手。每次重连现读，网址跟着工程换过之后连回新的那个。
+    const project = new URLSearchParams(location.search).get('project');
+    const query = project ? `?project=${encodeURIComponent(project)}` : '';
+    ws = new WebSocket(`${proto}://${location.host}/ws${query}`);
 
     ws.onopen = () => {
       banner.hide();

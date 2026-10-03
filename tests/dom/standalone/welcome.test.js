@@ -63,7 +63,8 @@ describe('独立版空窗口欢迎页', { skip: JSDOM_SKIP }, () => {
       recents: [{ root: '/tmp/my-book', name: 'my-book' }],
     });
     assert.equal(ui.doc.body.classList.contains('no-workspace'), false);
-    assert.ok(ui.doc.getElementById('wbTitleText').textContent.includes('my-book'));
+    assert.equal(ui.doc.getElementById('wbTitleText').textContent, '/tmp/my-book - Novel Forge');
+    assert.equal(ui.doc.title, 'my-book - Novel Forge');
     assert.equal(ui.doc.getElementById('input').disabled, false);
   });
 

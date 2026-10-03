@@ -249,11 +249,15 @@ function updateTitle(item?: WorkspaceItem): void {
   const current = item ?? (store.currentId ? { id: store.currentId, root: store.currentId, name: nameOf(store.currentId) } : undefined);
   const titleText = document.getElementById('wbTitleText');
   let title = 'Novel Forge';
+  // 标题栏地方够，写工程的完整目录；浏览器标签页窄，只写名字。
+  let barText = title;
   if (current) {
     title = fileName ? `${fileName} - ${current.name} - Novel Forge` : `${current.name} - Novel Forge`;
+    barText = fileName ? `${fileName} - ${current.root} - Novel Forge` : `${current.root} - Novel Forge`;
   }
   if (titleText) {
-    titleText.textContent = title;
+    titleText.textContent = barText;
+    titleText.title = current?.root ?? '';
   }
   document.title = title;
 }
