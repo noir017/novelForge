@@ -33,7 +33,7 @@
  * 补上的两处上游缺口：角色图谱的设计原则（上游内置模板的这一段从来没发出去，见
  * {@link rosterManifestContract}）；六种故事结构都带章号区间（见 model/structureGuide.ts）。
  */
-import type { AgentMessage } from '../llm/provider';
+import type { ChatMessage } from '../llm/provider';
 import {
   Capability,
   CreationAction,
@@ -1170,7 +1170,7 @@ export const RESTART_AFTER_TRUNCATION =
  * （`structured-syntax-repair.ts:23-99`）。**不经装配器**：它不需要任何上下文，
  * 合同与候选就是全部证据；给多了反而会让它「顺手」补内容。
  */
-export function syntaxRepairMessages(contract: string, candidate: string): AgentMessage[] {
+export function syntaxRepairMessages(contract: string, candidate: string): ChatMessage[] {
   return [
     {
       role: 'system',
@@ -1190,7 +1190,7 @@ export function syntaxRepairMessages(contract: string, candidate: string): Agent
  * 「全局要求」不合格时只重写这一节。移植自 AC:1100-1114。其余配置作为上下文给它，
  * 让它知道这本书是什么，但只许输出规则本身。
  */
-export function guidanceRetryMessages(system: string, otherFields: string): AgentMessage[] {
+export function guidanceRetryMessages(system: string, otherFields: string): ChatMessage[] {
   return [
     { role: 'system', content: system },
     {

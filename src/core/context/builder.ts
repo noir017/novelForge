@@ -8,7 +8,7 @@
  * 任何装不下的条目都会以 dropped/degraded 的形式留在 items 里——
  * **绝不静默丢弃**，作者需要知道这次没带上什么。
  */
-import { AgentMessage } from '../llm/provider';
+import { ChatMessage } from '../llm/provider';
 import { NovelProject } from '../model/project';
 import { NovelConfig } from '../model/types';
 import { estimateTokens } from './tokenizer';
@@ -114,7 +114,7 @@ function assembleMessages(
   items: ContextItem[],
   request: BuildRequest,
   facts: PromptFacts
-): AgentMessage[] {
+): ChatMessage[] {
   const live = items.filter((i) => (i.status === 'included' || i.status === 'degraded') && i.text.trim());
   const pick = (kind: ItemKind): ContextItem[] => live.filter((i) => i.kind === kind);
   const join = (list: ContextItem[]): string => list.map((i) => i.text.trim()).join('\n\n');
@@ -127,7 +127,7 @@ function assembleMessages(
   /** 按审稿意见修稿（五期）。 */
   const revising = writing && request.writeMode === 'revise';
 
-  const messages: AgentMessage[] = [];
+  const messages: ChatMessage[] = [];
   const system = pick('system')[0];
   if (system) {
     messages.push({ role: 'system', content: system.text });

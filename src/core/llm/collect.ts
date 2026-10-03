@@ -3,34 +3,22 @@
  *
  * provider 吐的是 `StreamEvent`，而 13 个既有调用点要的只是一段文本。
  * 这里把「传一个流，拿一段文本」那个形状保住，同时让想听 reasoning /
- * usage / toolCall 的调用方各取所需——它们从前挂在 provider 的 options 上，
- * 那是「调用方想不想听决定 provider 发不发」，方向反了。
+ * usage 的调用方各取所需——provider 总是全量发事件，听不听由调用方决定，
+ * 而不是让「调用方想不想听」反过来决定 provider 发不发。
  */
-import { ReasoningTrace, StopSignal, StreamEvent, TokenUsage, ToolCall } from './provider';
+import { StopSignal, StreamEvent, TokenUsage } from './provider';
 
 export interface CollectHandlers {
   onDelta?(delta: string, full: string): void;
   onReasoning?(delta: string, full: string): void;
   onUsage?(usage: TokenUsage): void;
-  onToolCall?(call: ToolCall): void;
 }
 
 export interface CollectResult {
   text: string;
   reasoning: string;
-  toolCalls: ToolCall[];
   usage: TokenUsage;
-  /**
-   * 这一轮的思考凭据，按到达顺序。**多轮工具调用要把它原样交回去**
-   * （见 provider.ts 的 `ReasoningTrace`）；单次生成用不着，忽略即可。
-   */
-  traces: ReasoningTrace[];
-  /**
-   * 上游报的收尾原因。`undefined` = 它没说（有些兼容实现压根不发这一条）。
-   *
-   * agent 循环拿它跟 `toolCalls` 对账：`'toolUse'` 而 `toolCalls` 是空的，
-   * 说明这一轮的响应缺了一半，不能当成「模型说完了」。
-   */
+  /** 上游报的收尾原因。`undefined` = 它没说（有些兼容实现压根不发这一条）。 */
   stopReason?: StopSignal;
 }
 
@@ -57,9 +45,7 @@ export async function collect(
 ): Promise<CollectResult> {
   let text = '';
   let reasoning = '';
-  const toolCalls: ToolCall[] = [];
   const usage: TokenUsage = {};
-  const traces: ReasoningTrace[] = [];
   let stopReason: StopSignal | undefined;
 
   for await (const ev of stream) {
@@ -72,16 +58,9 @@ export async function collect(
         reasoning += ev.text;
         handlers?.onReasoning?.(ev.text, reasoning);
         break;
-      case 'toolCall':
-        toolCalls.push(ev.call);
-        handlers?.onToolCall?.(ev.call);
-        break;
       case 'usage':
         mergeUsage(usage, ev.usage);
         handlers?.onUsage?.(ev.usage);
-        break;
-      case 'reasoningTrace':
-        traces.push(ev.trace);
         break;
       case 'stop':
         stopReason = ev.reason;
@@ -89,7 +68,7 @@ export async function collect(
     }
   }
 
-  return { text, reasoning, toolCalls, usage, traces, stopReason };
+  return { text, reasoning, usage, stopReason };
 }
 
 /** 只要文本那一份。既有的 13 个调用点用这个。 */

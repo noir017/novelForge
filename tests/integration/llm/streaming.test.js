@@ -4,8 +4,7 @@
  * 以及 Anthropic 的 system 抽取与相邻消息合并。
  *
  * OpenAI 那一侧走的是 **Responses**（`/responses`）：事件名是
- * `response.output_text.delta` 这一套，工具调用在 `response.output_item.done`
- * 上一次给全（不必按 index 拼分片），思考深度是 `reasoning.effort`。
+ * `response.output_text.delta` 这一套，思考深度是 `reasoning.effort`。
  *
  * ## 为什么这份假服务器留在文件里
  *
@@ -140,33 +139,6 @@ const httpServer = http.createServer((req, res) => {
         tick();
         return;
       }
-      case 'openai-tool-calls': {
-        sse();
-        // Responses 的形状：正文与工具调用是两种 item，调用在 done 上一次给全，
-        // 不必按 index 拼分片。中间那个 reasoning item 要被收成思考凭据。
-        res.write('data: {"type":"response.output_text.delta","delta":"我先读一下"}\n\n');
-        res.write(
-          'data: {"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_1","encrypted_content":"enc"}}\n\n'
-        );
-        res.write(
-          'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_a","name":"read","arguments":"{\\"path\\":\\"plots/001.md\\"}"}}\n\n'
-        );
-        res.write(
-          'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_b","name":"search","arguments":"{\\"q\\":\\"北境\\"}"}}\n\n'
-        );
-        res.write('data: [DONE]\n\n');
-        res.end();
-        return;
-      }
-      case 'openai-tool-calls-bad-json': {
-        sse();
-        res.write(
-          'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_a","name":"read","arguments":"{\\"path\\":"}}\n\n'
-        );
-        res.write('data: [DONE]\n\n');
-        res.end();
-        return;
-      }
       /**
        * 第一次 400（「不认这个 effort 值」），之后正常。
        *
@@ -262,13 +234,6 @@ const opts = (extra = {}) => ({
   timeoutMs: 5000,
   ...extra,
 });
-
-/** 一份最小可用的工具声明，只用来看透传形状。 */
-const TOOL = {
-  name: 'read',
-  description: '读一个工程内的文件',
-  parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
-};
 
 let vs;
 let providerMod;
@@ -662,85 +627,19 @@ describe('collectText onDelta 回调', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('OpenAI provider · tool_calls', () => {
-  let ok;
-  let bad;
-
-  before(async () => {
-    server.mode = 'openai-tool-calls';
-    ok = await collect(openai.stream([], opts({ tools: [TOOL], toolChoice: 'auto' })));
-
-    server.mode = 'openai-tool-calls-bad-json';
-    bad = await collect(openai.stream([], opts({ tools: [TOOL] })));
-  });
-
-  test('正文与工具调用分开：text 里没有参数片段', () => {
-    assert.equal(ok.text, '我先读一下');
-  });
-
-  test('分片按 index 拼成完整参数（id 只在第一片给）', () => {
-    assert.deepEqual(ok.toolCalls[0], {
-      id: 'call_a',
-      name: 'read',
-      args: { path: 'plots/001.md' },
-      raw: '{"path":"plots/001.md"}',
-    });
-  });
-
-  test('两个并行调用各自拼对，不串味', () => {
-    assert.deepEqual(ok.toolCalls[1], {
-      id: 'call_b',
-      name: 'search',
-      args: { q: '北境' },
-      raw: '{"q":"北境"}',
-    });
-  });
-
-  test('tools 透传给上游，且是平的形状（不包 function 对象）', () => {
-    const body = server.lastRequest.body;
-    assert.deepEqual(body.tools, [
-      {
-        type: 'function',
-        name: TOOL.name,
-        description: TOOL.description,
-        parameters: TOOL.parameters,
-      },
-    ]);
-  });
-
-  // 多轮工具调用要把它原样交回去，否则模型接不上「上一步为什么调这个工具」。
-  test('reasoning item 被收成思考凭据，不进正文', () => {
-    assert.deepEqual(ok.traces, [
-      { kind: 'openai', payload: { type: 'reasoning', id: 'rs_1', encrypted_content: 'enc' } },
-    ]);
-  });
-
-  test('坏 JSON 不抛：args 为空对象，raw 保留原文', () => {
-    assert.deepEqual(bad.toolCalls, [
-      { id: 'call_a', name: 'read', args: {}, raw: '{"path":' },
-    ]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-
-describe('OpenAI provider · 没有 tools 时不带这两个字段', () => {
+describe('OpenAI provider · 请求体', () => {
   before(async () => {
     server.mode = 'openai-ok';
     await collectText(openai.stream([], opts()));
   });
 
-  // 有些兼容实现见到未知字段会直接 400，stream_options 上已经踩过这个坑。
-  test('请求体里没有 tools', () => {
-    assert.equal('tools' in server.lastRequest.body, false);
-  });
-
-  test('请求体里没有 tool_choice', () => {
-    assert.equal('tool_choice' in server.lastRequest.body, false);
-  });
-
   test('stream 恒开', () => {
     assert.equal(server.lastRequest.body.stream, true);
+  });
+
+  // 历史由本地会话文件负责，不让上游再存一份。
+  test('store 恒关', () => {
+    assert.equal(server.lastRequest.body.store, false);
   });
 });
 
@@ -777,19 +676,13 @@ describe('思考深度 · OpenAI Responses', () => {
     assert.equal(max.reasoning.summary, 'auto');
   });
 
-  // store: false 时不显式要，推理块回来是不带 encrypted_content 的空壳。
-  test('思考开着时要 encrypted_content', () => {
-    assert.deepEqual(low.include, ['reasoning.encrypted_content']);
-  });
-
   // 推理模型一律拒收 temperature：带上去就是 400。
   test('思考开着时不带 temperature', () => {
     assert.equal('temperature' in low, false);
   });
 
-  test('关着时既不带 reasoning 也不带 include', () => {
+  test('关着时不带 reasoning', () => {
     assert.equal('reasoning' in off, false);
-    assert.equal('include' in off, false);
   });
 });
 
@@ -870,12 +763,6 @@ describe('思考深度 · Anthropic', () => {
     assert.equal(result.text, '答案');
   });
 
-  // 签名是整段推理的加密副本，下一轮要原样交回去；没有它的思考块交回去会被拒。
-  test('思考块连签名一起收成凭据', () => {
-    assert.deepEqual(result.traces, [
-      { kind: 'anthropic', payload: { type: 'thinking', thinking: '先想一下', signature: 'SIG==' } },
-    ]);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -925,18 +812,6 @@ describe('思考深度 · 老模型不认自适应时换写法', () => {
       provider.stream([{ role: 'user', content: 'x' }], opts({ thinking: 'max', maxOutputTokens: 1500 }))
     );
     assert.equal('thinking' in server.lastRequest.body, false);
-  });
-
-  test('手动预算那条路上带交错思考的 beta 头（有工具时）', async () => {
-    server.mode = 'anthropic-ok';
-    const provider = new AnthropicProvider(`http://127.0.0.1:${port}`, 'claude-old', 'sk-ant-test');
-    await collectText(
-      provider.stream(
-        [{ role: 'user', content: 'x' }],
-        opts({ thinking: 'low', tools: [TOOL], maxOutputTokens: 16000 })
-      )
-    );
-    assert.equal(server.lastRequest.headers['anthropic-beta'], 'interleaved-thinking-2025-05-14');
   });
 
   test('作者拿到的是正常结果，不是一句报错', () => {

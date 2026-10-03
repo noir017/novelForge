@@ -102,11 +102,11 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `model/thinking.test.js` | 思考深度的档位表与两家的字段映射：「不思考」是不带字段、最高档降一档的写法 |
 | `llm/fakeProvider.test.js` | 假模型本身：字符串应答照旧、对象应答在正文之后发 `stop`、思考先于正文、分片拼回去一字不差；`filler` 恰好 n 字、可复现、不同 seed 无公共 8-gram |
 | `context/tokenizer.test.js` | token 估算（中英文比例）、`takeTail`/`takeHead` 的预算与截断标记（样本取示例工程 `chapters/` 里的真实正文） |
-| `llm/stopSignal.test.js` | 收尾原因（`StopSignal`）：喂一段**照抄现场**的 SSE——兼容网关说了 `stop_reason: "tool_use"` 却把 `tool_use` 块整个漏掉——断言 provider 交出 `stop: toolUse` 且零个 `toolCall`（循环据此重发）；正常那一份两者都在；`stop` **排在所有 `toolCall` 之后**；上游不发这一条时**一个 stop 都不交**（`undefined` 意为「它没说」）；认不出的原因归 `other`、截断归 `maxTokens` |
+| `llm/stopSignal.test.js` | Anthropic 的收尾原因归一成 `StopSignal`：`end_turn` 归 `end`、截断归 `maxTokens`、认不出的原因归 `other`；上游不发这一条时**一个 stop 都不交**（`undefined` 意为「它没说」） |
 | `llm/abort.test.js` | 空闲超时：`timeoutMs` 是「多久没收到数据」，不是整段请求的上限，流式还在吐字时不 abort |
-| `llm/collect.test.js` | 事件流收集器：思考绝不混进正文、usage 按字段合并、工具调用原样收进数组 |
-| `llm/responsesInput.test.js` | OpenAI Responses 协议的两段纯逻辑：system 走 `instructions`、工具调用与结果是 input 里独立的项（靠 `call_id` 配对）、思考块原样交回且排在它引出的调用之前；事件解析 |
-| `llm/anthropicToolUse.test.js` | Anthropic 协议的两段纯逻辑：`tool_result` 合并进一条 user 消息、工具参数由 `input_json_delta` 逐字拼出 |
+| `llm/collect.test.js` | 事件流收集器：思考绝不混进正文、usage 按字段合并、收尾原因原样交出（上游没说就是 `undefined`） |
+| `llm/responsesInput.test.js` | OpenAI Responses 协议的两段纯逻辑：system 走 `instructions`、空的 assistant 不进 input；事件解析（正文 / 思考 / 用量 / 收尾原因，认不出的类型一律忽略） |
+| `llm/anthropicMessages.test.js` | Anthropic 协议的消息转换：system 不进 messages、相邻同角色合并、首条不是 user 时补一条 |
 | `context/replay.test.js` | 重演检测：整段搬了上一章结尾（改过标点空白、全角半角）一定报、零星撞词与一句呼应的台词不报、只查开头 1200 字、太短不判不抛；报出的 `quote` 是新稿里的原文；上一章结尾取最后约 1000 字并对齐到句子边界 |
 | `generation/continuation.test.js` | 续写的纯函数：被截断就续（哪怕字数够了）、不到八成就续、别的原因停了不续、没有目标不续、7 轮封顶；续写开头复述了已写末尾（≥48 字）那一截去掉、整段一字不差的重复去掉（短对白不算）、「未完待续」一类话术去掉 |
 | `context/tokenCounter.test.js` | 可替换计数器的注册/切换、`prepare` 抛错时不带崩、用量校准统计只收真实用量 |

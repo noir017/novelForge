@@ -3,7 +3,7 @@
  *
  * 这一层是 13 个既有调用点与 provider 之间唯一的桥，所以三件事必须钉死：
  * reasoning 绝不混进正文、usage 按字段合并（同一次请求会回调多次）、
- * toolCall 原样收进数组。
+ * 收尾原因原样交出（上游没说就是 undefined）。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -69,16 +69,6 @@ describe('llm/collect', () => {
     assert.deepEqual(seen, [{ inputTokens: 100 }, { outputTokens: 20 }]);
   });
 
-  test('toolCall 收进数组并回调', async () => {
-    const call = { id: 'c1', name: 'read', args: { path: 'a.md' }, raw: '{"path":"a.md"}' };
-    const seen = [];
-    const r = await c.collect(streamOf([{ type: 'toolCall', call }]), {
-      onToolCall: (x) => seen.push(x.name),
-    });
-    assert.deepEqual(r.toolCalls, [call]);
-    assert.deepEqual(seen, ['read']);
-  });
-
   test('onDelta 收到增量与全量', async () => {
     const seen = [];
     await c.collectText(
@@ -95,20 +85,16 @@ describe('llm/collect', () => {
   });
 
   test('collect 同时给出四份产出', async () => {
-    const call = { id: 'c1', name: 'read', args: {}, raw: '{}' };
     const r = await c.collect(
       streamOf([
         { type: 'text', text: '正' },
         { type: 'reasoning', text: '想' },
-        { type: 'toolCall', call },
         { type: 'usage', usage: { inputTokens: 5 } },
         { type: 'text', text: '文' },
+        { type: 'stop', reason: 'end' },
       ])
     );
-    assert.deepEqual(
-      { text: r.text, reasoning: r.reasoning, calls: r.toolCalls.length, usage: r.usage },
-      { text: '正文', reasoning: '想', calls: 1, usage: { inputTokens: 5 } }
-    );
+    assert.deepEqual(r, { text: '正文', reasoning: '想', usage: { inputTokens: 5 }, stopReason: 'end' });
   });
 
   test('空流产出空字符串与空 usage', async () => {
@@ -116,42 +102,20 @@ describe('llm/collect', () => {
     assert.deepEqual(r, {
       text: '',
       reasoning: '',
-      toolCalls: [],
       usage: {},
-      traces: [],
       stopReason: undefined,
     });
   });
 
-  // 思考凭据要按到达顺序原样收着：下一轮请求把它交回去，模型才接得上
-  // 「上一步为什么调那个工具」。它不是给界面看的，所以不进 reasoning。
-  test('reasoningTrace 按顺序收进 traces，不混进 reasoning', async () => {
-    const r = await c.collect(
-      streamOf([
-        { type: 'reasoning', text: '想' },
-        { type: 'reasoningTrace', trace: { kind: 'anthropic', payload: { signature: 'a' } } },
-        { type: 'reasoningTrace', trace: { kind: 'anthropic', payload: { signature: 'b' } } },
-      ])
-    );
-    assert.equal(r.reasoning, '想');
-    assert.deepEqual(
-      r.traces.map((t) => t.payload.signature),
-      ['a', 'b']
-    );
-  });
-
-  // 循环拿它跟 toolCalls 对账：说了 toolUse 却一个调用都没有，就是这一轮的
-  // 响应缺了一半（兼容网关转协议时丢了那一段）。
   test('收尾原因收进 stopReason', async () => {
     const r = await c.collect(
-      streamOf([{ type: 'text', text: '我先看看。' }, { type: 'stop', reason: 'toolUse' }])
+      streamOf([{ type: 'text', text: '写到一半' }, { type: 'stop', reason: 'maxTokens' }])
     );
-    assert.equal(r.stopReason, 'toolUse');
-    assert.deepEqual(r.toolCalls, []);
+    assert.equal(r.stopReason, 'maxTokens');
   });
 
   // undefined 有它自己的意思：「上游没说」。补一个默认值等于替它编一句话，而
-  // 循环会照着那句话决定要不要重发。
+  // 续写链会照着那句话决定回退还是往后接。
   test('上游没说时是 undefined，不补默认值', async () => {
     const r = await c.collect(streamOf([{ type: 'text', text: '好的。' }]));
     assert.equal(r.stopReason, undefined);

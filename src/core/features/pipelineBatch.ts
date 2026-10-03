@@ -32,7 +32,7 @@ import { readConfig } from '../config';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { getHost } from '../host';
 import { collect } from '../llm/collect';
-import { AgentMessage, CancelledError, LlmProvider, StopSignal } from '../llm/provider';
+import { ChatMessage, CancelledError, LlmProvider, StopSignal } from '../llm/provider';
 import { ModelPool, createModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
@@ -940,7 +940,7 @@ async function writeOne(
   };
   const budgeted = { ...config, ...pool.primaryBudget };
   let pinned: LlmProvider | undefined;
-  const stream = async (llm: LlmProvider, messages: AgentMessage[], progress?: { round: number; base: number }): Promise<CallOutcome> => {
+  const stream = async (llm: LlmProvider, messages: ChatMessage[], progress?: { round: number; base: number }): Promise<CallOutcome> => {
     let text = '';
     let stop: StopSignal | undefined;
     let reportedAt = 0;
