@@ -168,6 +168,14 @@ export interface ToolDef {
    * 不实现时由 {@link ToolRegistry} 按 `costly` / `mutating` 兜一个通用的。
    */
   intent?(args: Record<string, unknown>, project?: NovelProject): ToolIntent;
+  /**
+   * 参数本身对不对（缺哪个、动作认不认），**零 I/O**，不对时回一句给模型的话。
+   *
+   * 由 {@link ToolRegistry} 在 `run` 之前调，MCP 执行端在拿锁、问作者之前也调——
+   * 参数本来就不对的调用，不该先在对话页弹一张「改「」里的一段文字」再报错。
+   * 不实现也照样过一遍按 `parameters` 的通用校验（`schema.ts` 的 `checkArgs`）。
+   */
+  check?(args: Record<string, unknown>): string | undefined;
   run(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult>;
 }
 
@@ -194,6 +202,8 @@ export interface ToolInvoker {
   names(): string[];
   /** 这一步的意图。名字不认识时返回 undefined。 */
   intent(name: string, args: Record<string, unknown>): ToolIntent | undefined;
+  /** 参数对不对：不对时回那句报错，名字不认识或没问题时 undefined。`invoke` 自己也会先过它。 */
+  check(name: string, args: Record<string, unknown>): string | undefined;
   /** 执行。**绝不抛**，认不出名字也回一条能让模型换路的结果。 */
   invoke(
     name: string,

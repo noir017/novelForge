@@ -116,6 +116,20 @@ export function isProtectedPath(project: NovelProject, relPath: string): boolean
   return fixed.includes(rel);
 }
 
+/**
+ * Novel Forge 自己的内部文件：工程库（`novelforge.db` 与 WAL 模式带出的 `-wal` / `-shm`）与会话记录。
+ * 它们不是作品内容，读出来是二进制乱码或对话流水，改坏了是整页起不来。
+ * 所以列目录、搜索里看不见，读当不存在，写、改、搬一律拒绝。
+ */
+export function isInternalPath(project: NovelProject, rel: string): boolean {
+  const db = `${project.relPath(project.novelDir)}/novelforge.db`;
+  if (rel === db || rel === `${db}-wal` || rel === `${db}-shm` || rel === `${db}-journal`) {
+    return true;
+  }
+  const sessions = project.relPath(project.sessionsDir);
+  return rel === sessions || rel.startsWith(`${sessions}/`);
+}
+
 /** 这条路径在回收站里。`.trash/` 里躺着刚删掉的东西，不是操作对象。 */
 export function isInTrash(project: NovelProject, rel: string): boolean {
   const trash = project.relPath(project.trashDir);
@@ -160,6 +174,9 @@ export function toRelPosix(root: string, absPath: string): string {
  */
 export async function guardRead(project: NovelProject, relPath: string): Promise<string> {
   const abs = resolveInRoot(project.root, relPath);
+  if (isInternalPath(project, normalizeRel(relPath)!)) {
+    throw new WsError('notFound', `文件不存在：${relPath}`);
+  }
 
   let stat: import('node:fs').Stats;
   try {
@@ -208,6 +225,9 @@ export async function guardWrite(
   const abs = resolveInRoot(project.root, relPath);
   const rel = normalizeRel(relPath)!;
 
+  if (isInternalPath(project, rel)) {
+    throw new WsError('protected', `「${rel}」是 Novel Forge 自己的内部文件，不能写。`);
+  }
   if (isInTrash(project, rel)) {
     throw new WsError('inTrash', `回收站里的内容不能写：${rel}`);
   }
@@ -260,6 +280,9 @@ export async function guardMutate(project: NovelProject, relPath: string): Promi
 
   if (isProtectedPath(project, rel)) {
     throw new WsError('protected', `「${rel}」是工程的固定目录，不能改名或搬走。`);
+  }
+  if (isInternalPath(project, rel)) {
+    throw new WsError('protected', `「${rel}」是 Novel Forge 自己的内部文件，不能改名、搬走或删除。`);
   }
   if (isInTrash(project, rel)) {
     throw new WsError('inTrash', `回收站里的内容不能操作：${rel}`);

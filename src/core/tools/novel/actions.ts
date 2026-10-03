@@ -74,7 +74,7 @@ export function defineActionTool(def: ActionToolDef): ToolDef {
   const names = Object.keys(def.actions);
   const anyCostly = names.some((a) => def.actions[a].costly);
 
-  return {
+  const tool: ToolDef = {
     name: def.name,
     costly: anyCostly,
     mutating: names.some((a) => gateOf(def.actions[a]) !== 'auto'),
@@ -112,8 +112,8 @@ export function defineActionTool(def: ActionToolDef): ToolDef {
 
     parameters: objectSchema({ action: str('要执行哪个动作。', names), ...def.params }, ['action']),
 
-    async run(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
-      const action = typeof args.action === 'string' ? args.action.trim() : '';
+    check(args) {
+      const action = text(args.action);
       const spec = def.actions[action];
       if (!spec) {
         const why = REFUSED[action]
@@ -121,23 +121,30 @@ export function defineActionTool(def: ActionToolDef): ToolDef {
           : action
             ? `认不出动作「${action}」。`
             : 'action 是必填的。';
-        return { text: '', error: `${why}${def.name} 可用的是：${names.join(' / ')}。` };
+        return `${why}${def.name} 可用的是：${names.join(' / ')}。`;
       }
 
       const uses = new Set(spec.uses ?? []);
       for (const key of Object.keys(args)) {
         if (key !== 'action' && args[key] !== undefined && !uses.has(key)) {
           const who = names.filter((a) => def.actions[a].uses?.includes(key));
-          return {
-            text: '',
-            error: `${action} 不认 ${key}${who.length > 0 ? `，只有 ${who.join(' / ')} 认` : ''}。`,
-          };
+          return `${action} 不认 ${key}${who.length > 0 ? `，只有 ${who.join(' / ')} 认` : ''}。`;
         }
       }
       const missing = (spec.requires ?? []).filter((key) => !text(args[key]) && typeof args[key] !== 'number');
       if (missing.length > 0) {
-        return { text: '', error: `${action} 需要参数：${missing.join('、')}。${describeParams(def, missing)}` };
+        return `${action} 需要参数：${missing.join('、')}。${describeParams(def, missing)}`;
       }
+      return undefined;
+    },
+
+    async run(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+      const issue = tool.check!(args);
+      if (issue) {
+        return { text: '', error: issue };
+      }
+      const action = text(args.action);
+      const spec = def.actions[action];
 
       try {
         const r = await spec.run(ctx, args);
@@ -157,6 +164,7 @@ export function defineActionTool(def: ActionToolDef): ToolDef {
       }
     },
   };
+  return tool;
 }
 
 /** 查询类动作自己报 `auto`；其余一律 `mutating`（宁可多问，也不要有一条没人想过的路）。 */

@@ -203,28 +203,94 @@ describe('invoke 绝不抛', () => {
         throw new Error('磁盘着火了');
       },
     });
-    const r = await new reg.ToolRegistry([boom], ENV).invoke('boom', {}, run());
+    const r = await new reg.ToolRegistry([boom], ENV).invoke('boom', { path: 'a.md' }, run());
     assert.equal(r.ok, false);
     assert.ok(r.text.includes('磁盘着火了'), r.text);
   });
 
   test('出错时 text 就是那句错误（模型只读 text）', async () => {
     const bad = def({ name: 'bad', run: async () => ({ text: '', error: '路径超出工程目录' }) });
-    const r = await new reg.ToolRegistry([bad], ENV).invoke('bad', {}, run());
+    const r = await new reg.ToolRegistry([bad], ENV).invoke('bad', { path: 'a.md' }, run());
     assert.equal(r.text, '路径超出工程目录');
   });
 
   test('成功时带出 draftIds 与耗时', async () => {
     const ok = def({ name: 'gen', run: async () => ({ text: '好了', draftIds: ['d1'] }) });
-    const r = await new reg.ToolRegistry([ok], ENV).invoke('gen', {}, run());
+    const r = await new reg.ToolRegistry([ok], ENV).invoke('gen', { path: 'a.md' }, run());
     assert.equal(r.ok, true);
     assert.deepEqual(r.draftIds, ['d1']);
     assert.equal(typeof r.elapsedMs, 'number');
   });
 
   test('没产出草稿时 draftIds 是空数组而不是 undefined', async () => {
-    const r = await new reg.ToolRegistry([def()], ENV).invoke('read', {}, run());
+    const r = await new reg.ToolRegistry([def()], ENV).invoke('read', { path: 'a.md' }, run());
     assert.deepEqual(r.draftIds, []);
+  });
+});
+
+describe('入参校验：run 之前先过一遍', () => {
+  const search = def({
+    name: 'search',
+    parameters: schema.objectSchema(
+      {
+        pattern: schema.str('要找的字面量'),
+        kinds: schema.strArray('限定种类'),
+        regex: schema.bool('按正则搜'),
+        limit: schema.int('最多返回几条'),
+        mode: schema.str('怎么搜', ['fast', 'full']),
+      },
+      ['pattern']
+    ),
+    run: async () => ({ text: '跑了' }),
+  });
+  const check = (args) => new reg.ToolRegistry([search], ENV).check('search', args);
+
+  test('合法的入参放过', () => {
+    assert.equal(check({ pattern: '林', kinds: ['chapter'], regex: true, limit: 5, mode: 'fast' }), undefined);
+  });
+
+  test('空串不算缺（「不能为空」由工具自己说）', () => {
+    assert.equal(check({ pattern: '' }), undefined);
+  });
+
+  test('缺必填时说出缺哪个、那个参数是干什么的', () => {
+    assert.equal(check({}), '缺少参数：pattern（要找的字面量）');
+  });
+
+  test('类型不对', () => {
+    assert.ok(check({ pattern: 1 }).includes('pattern 应该是字符串'));
+    assert.ok(check({ pattern: 'a', limit: 1.5 }).includes('limit 应该是整数'));
+    assert.ok(check({ pattern: 'a', regex: 'yes' }).includes('regex 应该是'));
+    assert.ok(check({ pattern: 'a', kinds: 'chapter' }).includes('kinds 应该是数组'));
+    assert.ok(check({ pattern: 'a', kinds: [1] }).includes('元素是字符串'));
+  });
+
+  test('不在枚举里', () => {
+    assert.equal(check({ pattern: 'a', mode: 'slow' }), 'mode 只能是：fast / full。');
+  });
+
+  test('多塞了 schema 里没有的键', () => {
+    assert.ok(check({ pattern: 'a', path: 'x' }).startsWith('没有 path 这个参数'));
+  });
+
+  test('工具自己的 check 先说，它放过了再走通用校验', () => {
+    const own = def({ check: (args) => (args.path === 'bad' ? '工具自己的话' : undefined) });
+    const reg1 = new reg.ToolRegistry([own], ENV);
+    assert.equal(reg1.check('read', { path: 'bad' }), '工具自己的话');
+    assert.ok(reg1.check('read', { path: 'ok', extra: 1 }).startsWith('没有 extra'));
+  });
+
+  test('名字不认识时不归它管（invoke 会说「没有叫 X 的工具」）', () => {
+    assert.equal(new reg.ToolRegistry([search], ENV).check('nope', {}), undefined);
+  });
+
+  test('invoke 校验不过就不跑工具体', async () => {
+    let ran = false;
+    const spy = def({ run: async () => ((ran = true), { text: '' }) });
+    const r = await new reg.ToolRegistry([spy], ENV).invoke('read', { path: 3 }, run());
+    assert.equal(r.ok, false);
+    assert.equal(ran, false);
+    assert.ok(r.text.includes('path 应该是字符串'), r.text);
   });
 });
 
@@ -233,7 +299,7 @@ describe('工具体拿到环境 + 这一次调用', () => {
     let seen;
     const spy = def({ name: 'spy', run: async (ctx) => ((seen = ctx), { text: '' }) });
     const r = run();
-    await new reg.ToolRegistry([spy], { ...ENV, sessionId: 's7' }).invoke('spy', {}, r);
+    await new reg.ToolRegistry([spy], { ...ENV, sessionId: 's7' }).invoke('spy', { path: 'a.md' }, r);
     assert.equal(seen.sessionId, 's7');
     assert.equal(seen.signal, r.signal);
     assert.equal(typeof seen.usage.record, 'function');

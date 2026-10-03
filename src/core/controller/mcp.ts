@@ -76,6 +76,12 @@ async function callTool(
     return { text: r.text, isError: !r.ok };
   }
 
+  // 参数本来就不对的调用当场回话：不占锁、不挂气泡，更不在对话页问一句「改「」里的一段文字」。
+  const issue = tools.check(name, args);
+  if (issue) {
+    return { text: issue, isError: true };
+  }
+
   // 与对话页的单步创作共用同一把锁：两条路同时跑会让草稿与流式内容互相盖。
   const lease = c.beginGeneration();
   if (!lease) {

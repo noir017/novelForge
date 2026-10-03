@@ -71,6 +71,7 @@ import {
   guardMutate,
   guardRead,
   guardWrite,
+  isInternalPath,
   reviewOverwrite,
 } from './guard';
 import { Handler, HandlerCtx, handlerFor } from './handlers';
@@ -166,6 +167,9 @@ export class Workspace {
     const out: WsEntry[] = [];
     for (const dirent of dirents) {
       const childRel = rel === '' ? dirent.name : `${rel}/${dirent.name}`;
+      if (isInternalPath(this.project, childRel)) {
+        continue;
+      }
       const childAbs = path.join(abs, dirent.name);
       let isDir = dirent.isDirectory();
       let bytes = 0;

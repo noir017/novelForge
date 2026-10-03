@@ -375,6 +375,58 @@ describe('list', () => {
   });
 });
 
+// 工程库与会话记录是 Novel Forge 自己的东西：经 MCP 读出来是二进制乱码，改坏了整页起不来。
+describe('内部文件 · 看不见、读不到、改不了', () => {
+  before(async () => {
+    t.write('.novelforge/novelforge.db', 'SQLite format 3\0北境');
+    t.write('.novelforge/novelforge.db-wal', '北境\0');
+    t.write('.novelforge/novelforge.db-shm', '\0');
+    t.write('.novelforge/sessions/s1.json', '{"title":"北境"}');
+    t.write('.novelforge/premise.md', '# 故事前提\n\n北境的雪。\n');
+    project.invalidate();
+  });
+
+  test('判定只认这几个', () => {
+    for (const rel of [
+      '.novelforge/novelforge.db',
+      '.novelforge/novelforge.db-wal',
+      '.novelforge/novelforge.db-shm',
+      '.novelforge/sessions',
+      '.novelforge/sessions/s1.json',
+    ]) {
+      assert.equal(bundle.guard.isInternalPath(project, rel), true, rel);
+    }
+    for (const rel of ['.novelforge/premise.md', 'novelforge.db', 'chapters/novelforge.db', '.novelforge/sessions.md']) {
+      assert.equal(bundle.guard.isInternalPath(project, rel), false, rel);
+    }
+  });
+
+  test('list 不列出来', async () => {
+    const names = (await ws.list('.novelforge')).map((e) => e.name);
+    assert.ok(names.includes('premise.md'), names.join());
+    for (const hidden of ['novelforge.db', 'novelforge.db-wal', 'novelforge.db-shm', 'sessions']) {
+      assert.ok(!names.includes(hidden), names.join());
+    }
+  });
+
+  test('read 当不存在', async () => {
+    assert.equal(await codeOf(() => ws.read('.novelforge/novelforge.db')), 'notFound');
+    assert.equal(await codeOf(() => ws.read('.novelforge/sessions/s1.json')), 'notFound');
+  });
+
+  test('search 搜不到', async () => {
+    const r = await ws.search('北境');
+    assert.deepEqual(r.hits.map((x) => x.rel), ['.novelforge/premise.md']);
+  });
+
+  test('写、改、删一律拒绝', async () => {
+    assert.equal(await codeOf(() => ws.write('.novelforge/novelforge.db', { text: 'x' }, { mode: 'overwrite' })), 'protected');
+    assert.equal(await codeOf(() => ws.write('.novelforge/sessions/新.json', { text: '{}' }, { mode: 'create' })), 'protected');
+    assert.equal(await codeOf(() => ws.remove('.novelforge/novelforge.db-wal')), 'protected');
+    assert.equal(t.read('.novelforge/sessions/s1.json'), '{"title":"北境"}');
+  });
+});
+
 describe('doc handler · 固定单文件与角色/设定', () => {
   test('写大纲', async () => {
     h.expect('覆盖');

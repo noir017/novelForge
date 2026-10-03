@@ -20,7 +20,7 @@
  * 所以调用方那边只剩一行 `await tools.invoke(...)`。
  */
 import { describeError, scoped } from '../runtime/logger';
-import { validateToolDef } from './schema';
+import { checkArgs, validateToolDef } from './schema';
 import type {
   ToolDef,
   ToolEnv,
@@ -82,6 +82,15 @@ export class ToolRegistry implements ToolInvoker {
     };
   }
 
+  /** 工具自己的 `check` 先说（话更贴切），它放过了再按 `parameters` 过一遍通用校验。 */
+  check(name: string, args: Record<string, unknown>): string | undefined {
+    const def = this.byName.get(name);
+    if (!def) {
+      return undefined;
+    }
+    return def.check?.(args ?? {}) ?? checkArgs(def.parameters, args ?? {});
+  }
+
   async invoke(
     name: string,
     args: Record<string, unknown>,
@@ -96,6 +105,11 @@ export class ToolRegistry implements ToolInvoker {
       // 名单从**实际注册的那一份**来。写死一串名字，加了工具之后这句话就在撒谎。
       const error = `没有叫 ${name} 的工具。可用的是：${this.names().join(' / ')}。`;
       return { ok: false, text: error, error, draftIds: [], elapsedMs: 0 };
+    }
+
+    const issue = this.check(name, args);
+    if (issue) {
+      return { ok: false, text: issue, error: issue, draftIds: [], elapsedMs: 0 };
     }
 
     let result: ToolResult;

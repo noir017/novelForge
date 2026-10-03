@@ -13,6 +13,7 @@
  * | 连着两次调用 | 接在同一个气泡里；作者说过话就另起一个 |
  * | 生成位被占 | 当场回 isError，不排队 |
  * | edit（`always`） | 动手前先问；跳过就一字不改，返回说「不要重试」 |
+ * | 参数不对 | 当场回 isError：不问、不占生成位、不进对话页 |
  * | 正文 writeMode=continue | 卡片写追加，落盘接在已有正文后面 |
  * | 简报 | 与状态机同一句「下一步」 |
  */
@@ -267,6 +268,37 @@ describe('edit：动手前先问', () => {
     assert.equal(r.isError, false, r.text);
     const plot = await project.readPlot(P1);
     assert.equal(plot.sections['本章目的'], '离开宗门');
+  });
+});
+
+// 参数本来就不对的调用：不该先在对话页弹一张「改「」里的一段文字」，再等作者答完才报错。
+describe('参数不对：当场回话，不问、不占生成位', () => {
+  const cases = [
+    ['edit 什么都没给', 'edit', {}, 'path 是必填的'],
+    ['edit 缺 new', 'edit', { path: P1, old: '进入宗门' }, 'new 是必填的'],
+    ['skills bind 缺 stage', 'skills', { action: 'bind', id: 'builtin:long-form-continuity' }, 'bind 需要参数：stage'],
+    ['pipeline 认不出的动作', 'pipeline', { action: 'explode' }, '认不出动作「explode」'],
+    ['generate 类型不对', 'generate', { target: P1, capability: 'generate', targetWords: '三千' }, 'targetWords 应该是整数'],
+  ];
+  for (const [label, name, args, want] of cases) {
+    test(label, async () => {
+      reset();
+      onGate = async () => assert.fail('不该问作者');
+      const r = await call(name, args);
+      assert.equal(r.isError, true);
+      assert.ok(r.text.includes(want), r.text);
+      assert.deepEqual(posted.filter((m) => ['toolCall', 'busy', 'turnDone', 'gate'].includes(m.type)), []);
+    });
+  }
+
+  test('生成位被占时照样先说参数不对', async () => {
+    const lease = controller.beginGeneration();
+    try {
+      const r = await call('edit', {});
+      assert.ok(r.text.includes('path 是必填的'), r.text);
+    } finally {
+      lease.release();
+    }
   });
 });
 

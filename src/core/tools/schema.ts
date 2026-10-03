@@ -132,3 +132,60 @@ export function validateToolDef(def: ToolDef, seen: ReadonlySet<string>): string
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+
+/**
+ * 按 `parameters` 校验一次调用的入参：缺必填、类型不对、不在枚举里、多塞了 schema 里没有的键。
+ * 返回一句给模型的话，没问题时 undefined。
+ *
+ * 只认 {@link objectSchema} 拼得出的那几种形状。空串不算缺——`edit` 的 `new` 就是靠空串表示删掉，
+ * 「不能为空」由各工具自己的 `check` 说。
+ */
+export function checkArgs(parameters: Record<string, unknown>, args: Record<string, unknown>): string | undefined {
+  const props = (isPlainObject(parameters.properties) ? parameters.properties : {}) as Record<string, PropSchema>;
+  const required = Array.isArray(parameters.required) ? (parameters.required as string[]) : [];
+
+  const missing = required.filter((key) => args[key] === undefined || args[key] === null);
+  if (missing.length > 0) {
+    return `缺少参数：${missing.map((k) => `${k}（${props[k]?.description ?? ''}）`).join('；')}`;
+  }
+  for (const [key, value] of Object.entries(args)) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+    const prop = props[key];
+    if (!prop) {
+      return `没有 ${key} 这个参数。可用的是：${Object.keys(props).join(' / ')}。`;
+    }
+    const items = prop.items;
+    if (!matchesType(prop.type, value) || (items && !(value as unknown[]).every((v) => matchesType(items.type, v)))) {
+      return `${key} 应该是${TYPE_NAMES[prop.type]}${items ? `（元素是${TYPE_NAMES[items.type]}）` : ''}。`;
+    }
+    if (prop.enum && !prop.enum.includes(value as string)) {
+      return `${key} 只能是：${prop.enum.join(' / ')}。`;
+    }
+  }
+  return undefined;
+}
+
+const TYPE_NAMES: Record<PropSchema['type'], string> = {
+  string: '字符串',
+  number: '数字',
+  integer: '整数',
+  boolean: 'true / false',
+  array: '数组',
+};
+
+function matchesType(type: PropSchema['type'], value: unknown): boolean {
+  switch (type) {
+    case 'string':
+      return typeof value === 'string';
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value);
+    case 'integer':
+      return Number.isInteger(value);
+    case 'boolean':
+      return typeof value === 'boolean';
+    case 'array':
+      return Array.isArray(value);
+  }
+}

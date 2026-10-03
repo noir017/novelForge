@@ -80,23 +80,28 @@ export const editTool: ToolDef = {
     ['path', 'old', 'new']
   ),
 
-  async run(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
-    const rel = typeof args.path === 'string' ? args.path.trim() : '';
-    if (!rel) {
-      return { text: '', error: 'path 是必填的：给一个工程内相对路径。' };
+  check(args) {
+    if (!text(args.path)) {
+      return 'path 是必填的：给一个工程内相对路径。';
     }
-    const oldText = typeof args.old === 'string' ? args.old : '';
-    if (!oldText) {
-      return {
-        text: '',
-        error: 'old 是必填的，而且不能是空串：给一段文件里现有的、逐字相同的文字。',
-      };
+    if (typeof args.old !== 'string' || !args.old) {
+      return 'old 是必填的，而且不能是空串：给一段文件里现有的、逐字相同的文字。';
     }
     // `new` 允许是空串（删掉这一段），所以只校验类型不校验长度。
     if (typeof args.new !== 'string') {
-      return { text: '', error: 'new 是必填的：要替换成什么。删掉这一段就传空字符串。' };
+      return 'new 是必填的：要替换成什么。删掉这一段就传空字符串。';
     }
-    const newText = args.new;
+    return undefined;
+  },
+
+  async run(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+    const issue = editTool.check!(args);
+    if (issue) {
+      return { text: '', error: issue };
+    }
+    const rel = text(args.path);
+    const oldText = args.old as string;
+    const newText = args.new as string;
     const all = args.all === true;
 
     const path = kindOfPath(ctx.project, rel);
