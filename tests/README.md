@@ -77,7 +77,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | 文件 | 覆盖 |
 |---|---|
 | `tools/registry.test.js` | 工具注册表：`specs()` 只透传 name/description/parameters（`run` / `intent` 漏进去会炸 API）、重名与非法名直接抛、**参数必须扁平**（嵌套对象与对象数组一律拒——那是模型最容易填错的地方）、工具与每个参数都必须有描述、`required` ⊆ `properties`；**`invoke` 绝不抛**（认不出的名字与工具自己炸掉都变成一条模型读得懂的结果）、工具没报意图时兜的那一档 |
-| `tools/intent.test.js` | 七个工具**自报的意图**：五档归类（读三件 auto、generate costly、write 新建 mutating、**write 覆盖 reviewed**、**edit always**）与确认框上的话——花钱要说、产出之后还会再问一次落盘要说、edit 要写出 old → new。后两档是产品承诺，不是偏好设置 |
+| `tools/intent.test.js` | 工具**自报的意图**：五档归类（读三件 auto、generate costly、write 新建 mutating、**write 覆盖 reviewed**、**edit always**；带 action 的工具缺省 mutating、标题是动作的说法，技能的查 auto、装绑 always）与确认框上的话——花钱要说、产出之后还会再问一次落盘要说、edit 要写出 old → new。后两档是产品承诺，不是偏好设置 |
 | `controller/gateAsk.test.js` | 权限询问的收发（`controller/gate.ts`，MCP 调用动手前那一问与产物落盘共用）：卡片的身份与按钮上的字都从后端来、答了才落地、**广播 `gateDone`**（两个视图都要收卡）、答第二次不算数、认不出的 requestId 静默丢弃、**重连时还没答的原样重推**（前端无状态）、取消按「停止」结算、`cancelGates` 收掉没答的那些；**卡片上只有两颗按钮**（调用方能改字，改不出第三颗） |
 | `workspace/kind.test.js` | 路径 → 种类的一张表：架构三件（带 `doc`）/大纲/细纲/章节/摘要/角色/设定/草稿各自的判定；**细纲平铺**（`plots/` 下的卷子目录判 `other`）；**章节不认扩展名**（无扩展名、`.txt` 都算，`.png` 不算）而角色/细纲仍只认 `.md`；章节不带创作目标；`summaries/global.md` 不被当成第 0 章的摘要；**老工程留下的 `scenes/`、`volumes/`、`manuscripts/` 判成 `other`**（磁盘不动、代码不认）；越界一律 `other` 且 `rel: undefined`、绝不抛；`pathOfTarget` 与 `kindOfPath` 往返，正文落点不走 `pathOfTarget` |
 | `model/markdown.test.js` | frontmatter 解析（行内/块状数组、畸形行不抛错）、小节抽取、`extractH1`/`stripH1` 互逆、序列化往返 |
@@ -134,7 +134,13 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `tools/readTools.test.js` | 只读三件套：list 的 60 项上限与「还有 N 项未列出」、read 的行号与「第 X–Y 行未读」（含接着读的 offset）、search 的章号升序与 `dropped > 0` 时那行 ⚠；**越界与不存在一律给 `error` 不抛**（模型看得到才换得了路）；跑完三个工具磁盘 mtime 一个都不变 |
 | `tools/generateTool.test.js` | `generate` 工具：draft 落进 store 而**返回文本里没有正文**（三千字塞回循环，每走一步重烧一遍）、层与能力的组合问 `STAGE_CAPABILITIES`、`settle` 明确不支持并指路对话页、认不出的路径给 error 且一次模型都不调、`history` 恒为空、正文层走 `config.active`、**失败也照样报一次账**（请求发出去钱就花了）、**工具自己不提上限**（「已用 1/10」那句是调用方的） |
 | `tools/generateTiers.test.js` | `generate` 用哪个模型：细纲走 `plotOutline` 档、**架构走 `setting` 档**（六期，与工程页「补齐设定」同一个），正文与大纲严格用对话页那个；档位没配退回对话页那个；审稿当场拒绝、一次都不调；删掉的层没留下档位；`agent` 不再是一项任务档位（调度交给外部 agent 了） |
-| `tools/runTool.test.js` | `run` 工具：白名单之外一律拒（删除类与 `split` 说清「这是有意的」）；确认框照弹、作者不同意就一次都不调并说清「不要重试」；预计次数报给调用方记账；批量拆细纲与批量写章走既有流程（正文落同号章节、细纲上记 `writtenFrom`）；定稿按章号认；**区间与模式**（六期）：`from` / `to` / `mode` / `review` 转给批量写章并写进确认框与动手前那一问、只给 `from` 按缺省章数往后数、参数不对当场报错不弹框；**补齐故事架构**转发工程页那个动作 |
+| `tools/actionTool.test.js` | 带 action 的六个工具共用的那一套（`tools/novel/actions.ts` 的 `defineActionTool`）：删除 / 改名 / 移动 / 拆分 / 卸载在每个工具上都说清「这是有意的」且不在枚举里；认不出的动作只列这个工具自己的；**给了动作不认的参数当场报错并说清谁认**；缺必填带参数说明、不跑；ArgError 原样回、feature 抛错挂上动作的说法；报几次记几次；描述逐条标「调模型 / 不调模型」；schema 扁平、`action` 必填；工具级 `costly` / `mutating` 由动作表推出；意图缺省 `mutating`、查询类 `auto` |
+| `tools/pipelineTool.test.js` | `pipeline` 工具：确认框照弹、作者不同意就一次都不调并说清「不要重试」；预计次数报给调用方记账；批量拆细纲与批量写章走既有流程（正文落同号章节、细纲上记 `writtenFrom`）；**区间与模式**：`from` / `to` / `mode` / `review` 转给批量写章并写进确认框与动手前那一问、只给 `from` 按缺省章数往后数、参数不对当场报错不弹框；**补齐故事架构**转发工程页那个动作；新建细纲骨架不花钱 |
+| `tools/summaryTool.test.js` | `summary` 工具：定稿按章号认（给细纲路径也行）、还没有正文就不花钱、调几次记几次；同步与重建全书摘要的确认框照弹、取消零调用；定稿之后再同步没事可做；越界路径给 error |
+| `tools/charactersTool.test.js` | `characters` 工具：十个动作都在枚举与描述里；要角色卡路径 / 人名的缺了当场报错；建卡给了 path、批量动作给了 name 当场报错并说清谁认；交出去的动作账上记 0；没有角色卡时清理别名由 feature 自己说明 |
+| `tools/extractTool.test.js` | `extract` 工具：排叙事线的确认框照弹、取消零调用；文风（先挑样章）与设定取消后零调用、**账上记 0**（次数只在确认框里）；一个参数都不认 |
+| `tools/bookTool.test.js` | `book` 工具：导入与学写法缺 path 当场报错不弹框；path 只认工程里的 txt；导入取消回「不要重试」、补齐在第一个框取消都零调用；描述写着先 import 再 derive |
+| `tools/skillsTool.test.js` | `skills` 工具：查与检查 `auto`、装与绑 `always`（没检查过就装，框里先说会被拒）；write 新建技能文件也每次都问；list → inspect → install → bind 走通，一个模型都不调；缺 id / stage / url、stage 写错、给错参数（含老提示词的 `name`）当场报错；卸载被当成有意不给的动作拦下；工具不 costly 但 mutating |
 | `tools/editTool.test.js` | `edit` 工具：唯一才改（命中多处且没给 all 时报错并说清几处）等五件事 |
 | `tools/writeTool.test.js` | `write` 工具：外部 agent 的落盘口，这一层特有的五件事（写盘本身由 workspace 的测试守着） |
 | `views/stateBrief.test.js` | 状态简报（`views/stateBrief.ts`，MCP 贴在工具结果末尾的「# 当前工程」）：**label 与 hint 与状态机一字不差**（第 20 条的硬断言），把一本书从零走一遍（生成小说配置 → 大纲 → 拆细纲 → 写 / 接着写 / 定稿 → 做完转去报全书下一步 → 写完照实说）；**target 是还没落盘的下一章细纲时也报「写第 N 章细纲」**（与主按钮一致）；老工程（99 章成品、没有架构）全书下一步推回「生成小说配置」、选中的章按章号认；⟳ 超 5 章写「等 N 章」 |
@@ -232,7 +238,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 |---|---|
 | `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、WS 首条消息、`Origin` 校验；`selectPlot` 由后端算落在哪一层（已完成的章落正文层，**下一步转到全书的下一步**「拆细纲（第 4–8 章）」），且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返；**空窗口** ready 后无假工程、`openFolder` 热换、`mode: 'add'` 仍一份工作区、`closeFolder` 卸掉 |
 | `contract/layerBoundary.test.js` | 工具层与 MCP 端口的边界：`tools/` 一行都不 import `mcp/` 或 `controller/`、`mcp/` 只 import `./`、`node:`、`../tools/`、`../runtime/`（不碰 controller / workspace / generation，执行端由壳注入）、工具体里不出现 `ctx.budget`。这条守的是「工具能端出去」「端口不钉死在宿主上」两件事，**能悄悄长回来**，只能靠断言守 |
-| `contract/toolText.test.js` | 模型读得到的文字（七个工具的描述、参数说明与枚举值、MCP 的 `instructions`）里没有旧链路的说法（卷、剧情段、中转站、拆分、`volumes/`、`manuscripts/`）；`run` 的可用动作里没有 `split` |
+| `contract/toolText.test.js` | 模型读得到的文字（十二个工具的描述、参数说明与枚举值、MCP 的 `instructions`）里没有旧链路的说法（卷、剧情段、中转站、拆分、`volumes/`、`manuscripts/`）；哪个工具的可用动作里都没有 `split` |
 | `contract/corePurity.test.js` | `src/core/` 零 vscode 依赖——分层架构的硬约束，也是 `external: ['vscode']` 成立的前提 |
 | `contract/shellPurity.test.js` | 壳的契约（[src/shells/README.md](../src/shells/README.md)）：`shells/shared/` 零宿主依赖（不碰 vscode / node: / bun:）、三个壳互不 import、全仓库没有 `host.name ===` 这类按身份分支的写法。三条都是**能悄悄长回来**的东西，只能靠断言守 |
 | `contract/sampleNovel.test.js` | `sample-novel/` 自洽：manifest 章数与磁盘一致（v1 结构，索引的是 `chapters`）、每章 `contentHash` / `summaryHash` / 摘要 `sourceHash` 对得上、摘要 frontmatter 指回章号、**细纲号 = 章号**、细纲的 `upstreamHash` / `writtenFrom` 都新鲜、架构三件都填过且配置解析得出规模参数、大纲覆盖到总章数、没有 `volumes/` 与 `manuscripts/`、示例纲要能命中 3 个角色 |

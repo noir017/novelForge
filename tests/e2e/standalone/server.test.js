@@ -171,8 +171,8 @@ describe('MCP：外部 agent 的入口', () => {
     assert.equal(init.result.protocolVersion, '2025-06-18');
   });
 
-  test('列得出七个工具', () => {
-    assert.equal(tools.result.tools.length, 7);
+  test('列得出十二个工具', () => {
+    assert.equal(tools.result.tools.length, 12);
   });
 
   test('只读调用落到当前打开的工程上，附带状态简报', () => {

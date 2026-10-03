@@ -1,7 +1,7 @@
 /**
  * 架构不变式：**工具层与 MCP 端口互不缠绕，MCP 端口不伸手进别的层。**
  *
- * 工具（`src/core/tools/`）是 Novel Forge 对外的那一份能力：七个工具的契约、注册表、实现。
+ * 工具（`src/core/tools/`）是 Novel Forge 对外的那一份能力：全部工具的契约、注册表、实现。
  * MCP（`src/core/mcp/`）只是把这份契约端出去的一个传输——它认识工具的形状（`ToolSpec`），
  * 真正执行交给壳注入的 `McpBackend`（由 `controller/mcp.ts` 拼出来）。从前工具体里
  * `ctx.budget.calls += 1`、闸门反过来 import `tools/write`，谁都搬不动；这里守的就是

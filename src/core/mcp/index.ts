@@ -1,5 +1,5 @@
 /**
- * Novel Forge 的 MCP 入口：七个工具 + 说明 + HTTP 传输，壳只要给出「当前工程的执行端」。
+ * Novel Forge 的 MCP 入口：工具清单 + 说明 + HTTP 传输，壳只要给出「当前工程的执行端」。
  *
  * ```ts
  * const mcp = createNovelMcp(() => hub.activeController() && createMcpBackend(...));

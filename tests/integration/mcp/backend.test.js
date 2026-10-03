@@ -7,6 +7,7 @@
  * | 用例 | 钉的是什么 |
  * |---|---|
  * | 查询（read / list） | 不占生成位、不进对话页 |
+ * | 查技能（skills list） | 带 action 的工具按动作报闸门：查询类同样不进对话页；绑技能（`always`）先问 |
  * | generate | 气泡标 MCP、正文流进工具条、**当场问写不写**；同意才落盘，结论接在返回后面；**返回里没有正文** |
  * | generate 不采纳 | 磁盘没动，返回说「不要重复生成」 |
  * | 连着两次调用 | 接在同一个气泡里；作者说过话就另起一个 |
@@ -18,10 +19,11 @@
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { loadBundle } = require('../../helpers/load');
-const { makeTempProject } = require('../../helpers/tmpProject');
+const { makeTempProject, makeTempDir } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const fs = require('fs');
 
 const PLOT_JSON = JSON.stringify({
   本章目的: '进入宗门',
@@ -33,6 +35,7 @@ const P1 = '.novelforge/plots/001-夜入青云.md';
 const P2 = '.novelforge/plots/002-藏书阁.md';
 
 let bundle;
+let home;
 let h;
 let t;
 let project;
@@ -56,6 +59,7 @@ before(async () => {
     provider: './src/core/llm/provider.ts',
     controller: './src/core/controller/index.ts',
     plotFile: './src/core/model/plotFile.ts',
+    skills: './src/core/skills/index.ts',
     db: './src/core/runtime/db.ts',
   });
   const settings = {
@@ -65,6 +69,9 @@ before(async () => {
   };
   h = makeFakeHost({ name: 'standalone', supportsVscodeLm: true, settings: () => settings });
   bundle.host.initHost(h.host);
+  // 「我的技能库」指到临时目录：skills list 会列出它，不能读到跑测试那台机器上装过的技能。
+  home = makeTempDir('mcpSkillsHome');
+  bundle.skills.setUserSkillsDir(home.rel('skills'));
   installFakeProvider(bundle.registry, {
     reply: () => replyFn(),
     errors: { LlmError: bundle.provider.LlmError, CancelledError: bundle.provider.CancelledError },
@@ -102,6 +109,8 @@ before(async () => {
 });
 
 after(() => {
+  bundle?.skills.setUserSkillsDir(undefined);
+  if (home) fs.rmSync(home.dir, { recursive: true, force: true });
   controller?.dispose();
   if (t) cleanup(t.dir, bundle?.db);
 });
@@ -281,6 +290,30 @@ describe('generate 正文接着写：落盘追加在已有正文后面', () => {
     const text = t.read(CH);
     assert.ok(text.indexOf('雨下了三天') >= 0 && text.indexOf('林昭翻过了墙') > text.indexOf('雨下了三天'), text);
     assert.equal(r.isError, false, r.text);
+  });
+});
+
+// 动作工具的闸门按动作报：同一个 skills，list 是查询，bind 要先问作者。
+describe('skills：按动作分闸门', () => {
+  test('list 是查询：照样列得出，不进对话页、不占生成位', async () => {
+    reset();
+    const turnsBefore = mcpTurns().length;
+    const r = await call('skills', { action: 'list' });
+    assert.equal(r.isError, false, r.text);
+    assert.ok(r.text.includes('builtin:long-form-continuity'), r.text);
+    assert.deepEqual(posted.filter((m) => ['toolCall', 'busy', 'turnDone', 'gate'].includes(m.type)), []);
+    assert.equal(mcpTurns().length, turnsBefore);
+  });
+
+  // 绑定改的是这个工程往后每一次生成的提示词，下游没有 diff 可看：动手前问，跳过就不写。
+  test('bind 先在对话页问；作者跳过就不写 skills.json', async () => {
+    reset();
+    onGate = async () => 'skip';
+    const r = await call('skills', { action: 'bind', id: 'builtin:long-form-continuity', stage: 'drafting' });
+    assert.equal(gates.length, 1);
+    assert.ok(gates[0].title.includes('绑到「写正文」阶段'), gates[0].title);
+    assert.equal(r.isError, false, r.text);
+    assert.equal(t.has('.novelforge/skills.json'), false);
   });
 });
 

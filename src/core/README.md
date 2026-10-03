@@ -8,7 +8,7 @@
 | [workspace/](workspace/README.md) | ★ **工程的唯一读写网关**：`list` / `read` / `write` / `edit` / `move` / `remove` / `search`。路径 → 种类 → 八条守卫 → 解析/渲染/记账/伴生。**新代码不许绕过 `guard.ts` 直接 `fs.writeFile`** |
 | [context/](context/README.md) | ★ 上下文装配：token 粗估与分层预算装配器 |
 | [generation/](generation/README.md) | ★ 创作的一次单步：`generate.ts` **无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，不管并发）、`accept.ts` 六条落盘分派、`drafts.ts` 让还没落盘的产物活过一次刷新（`write draftId=…` 认它）。**`cleanOutput` 只对正文层做**，落盘时拿气泡里当下的文本重新解析——那一问在产出的当下就问了（`controller/gate.ts` 的卡片），不是气泡末尾一颗可以永远不点的按钮 |
-| [tools/](tools/README.md) | ★ **工具层**：契约（`ToolDef` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那七个工具（读三件 + `generate` + `write` / `edit` / `run`），**没有删除/改名/移动**；写入走的是与产物落盘同一条 `workspace.write`，没有新的保护代码。**不认识 `mcp/` 与 `controller/`** |
+| [tools/](tools/README.md) | ★ **工具层**：契约（`ToolDef` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那十二个工具（读三件 + `generate` + `write` / `edit` + 六个工程动作：`pipeline` / `summary` / `characters` / `extract` / `book` / `skills`），**没有删除/改名/移动**；写入走的是与产物落盘同一条 `workspace.write`，没有新的保护代码。**不认识 `mcp/` 与 `controller/`** |
 | [mcp/](mcp/README.md) | ★ **把工具端给外部 agent**：MCP 协议与 Streamable HTTP 传输（独立版挂在 `/mcp`）。只认 `tools/` 的契约，执行端在 `controller/mcp.ts`。多步调度交给外部 agent，本项目不自带循环 |
 | [features/](features/README.md) | 功能编排：批量流水线（补齐设定 / 批量拆细纲 / 批量写章）、定稿（摘要 + 角色当前状态）、一致性预检、摘要、角色卡、设定、文风提取。续写链在 `generation/` |
 | [skills/](skills/README.md) | 写作技能（移植自 AI-Novel-Writer 的阶段 Skill）：三个来源（内置 / `~/.novelforge/skills/` / 工程的 `.novelforge/skills/`）、从 GitHub 先检查再安装、卸载进回收站、工程的阶段绑定（`.novelforge/skills.json`）。装配器的 `skill` 层只问它一句「这个阶段绑了什么」 |

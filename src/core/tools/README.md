@@ -11,7 +11,7 @@
 | [types.ts](types.ts) | ★ 契约。`ToolDef` / `ToolSpec` / `ToolContext` / `ToolResult` / `ToolIntent` / `ToolInvoker` |
 | [schema.ts](schema.ts) | 参数 schema 的写法与校验（描述怎么写、为什么必须扁平） |
 | [registry.ts](registry.ts) | ★ 一组 `ToolDef` + 一份环境 = 一个能被调用的工具集。执行、兜异常、记日志；`specOf` 给出对外的声明 |
-| [novel/](novel/index.ts) | Novel Forge 这套：`list` / `read` / `search` / `generate` / `write` / `edit` / `run` |
+| [novel/](novel/index.ts) | Novel Forge 这套：读三件、`generate`、`write` / `edit`，以及六个工程动作工具（`actions.ts` 把一张动作表变成一个工具） |
 
 ## 谁绑、谁跑
 
@@ -64,59 +64,58 @@ intent: (args, project) => ({
 全在 `workspace/guard.ts`**。工具体里一行路径检查都没有；哪天要在这里写一段，
 说明绕过了网关，停下来重想（AGENTS 第 7 / 25 条）。
 
-**唯一的例外是 `run installSkill`**：它写的是工程外的我的技能库（`~/.novelforge/skills/`），没有网关可走。
+**唯一的例外是 `skills install`**：它写的是工程外的我的技能库（`~/.novelforge/skills/`），没有网关可走。
 所以路径不由 agent 给（固定落在 `<技能库>/<frontmatter 的 name>/SKILL.md`，名字过 `isSkillName`），
 只装检查过、重新下载核对过 hash 的那一份，闸门是 `always`——动手前先问。见 [skills/README.md](../skills/README.md)。
 
-## `run` 里的拆书动作
+## 十二个工具
 
-工程页那几颗按钮背后的同一个函数，确认框照弹。
-
-| action | 参数 | 做什么 |
+| 工具 | 动作 / 用法 | 参数 |
 |---|---|---|
-| `importManuscript` | `path`=工程里那本 txt | 切成章节、接在已有章节之后。导入本身不调模型；导入完作者可以选择接着补齐（次数照报、记账）。会新建章节文件——与不给的 `newChapter` 不同，建的是作者那本 txt 里的章，切分结果先给作者看，同名不覆盖 |
-| `deriveFromText` | — | 从已写正文补齐摘要、角色卡、架构、大纲、细纲与全书摘要（只补空白；两次确认） |
-| `learnFromReference` | `path`=工程里那本参考书 | 文风写 `style.md`、结构与节奏写成「规划」阶段的写作技能；学什么、绑不绑都问作者 |
+| `list` / `read` / `search` | 看目录、读文件、全文搜 | 各自的 |
+| `generate` | 为一份产物调一次创作模型；产出当场问作者落不落盘 | `target` `capability` `ask` `targetWords` `writeMode` |
+| `write` / `edit` | 写一份文件 / 改一段文字 | 各自的 |
+| `pipeline` | `completeSettings` `batchPlots` `batchManuscripts` `newPlot` | `from` `to` `mode` `review` |
+| `summary` | `finalize` `sync` `rebuildGlobal` | `path` |
+| `characters` | `extract` `create` `createAll` `update` `rebuild` `updateAll` `rebuildAll` `cleanAliases` `mergeDuplicates` `reviewState` | `path` `name` |
+| `extract` | `style` `lore` `threads` | — |
+| `book` | `import` `derive` `learn` | `path` |
+| `skills` | `list` `inspect` `install` `bind` | `url` `id` `stage` |
 
-两个要 `path` 的只认工程里的 txt（`features/bookText.ts` 的清单）：章节文件、隐藏目录、工程外的路径当场报错回给模型，不花钱。
+**怎么分**：一个工具的参数就是它的全部用法——每个参数都对这个工具的大多数动作有意义，模型不必记
+「哪个动作认哪个参数」；工具之间按作者心里的那几块分，与工程页按钮的分组一致。每个动作声明自己认
+哪几个参数（`uses`）、哪几个必填（`requires`），给了不认的当场报错（[novel/actions.ts](novel/actions.ts)）。
 
-## `run` 里的角色卡维护与全书摘要
+后六个都是工程页按钮背后的同一个函数，确认框照弹，**没有为外部 agent 加任何一条绕过它的路**。
+大多数 feature 报回计划调用次数（`countedBy`），角色卡与全书摘要那几个不报，只回一句「交出去了」
+（`handed`），次数以确认框为准。
 
-工程页那几颗按钮背后的同一个函数，确认框、提示条都在 feature 自己那里。这几个 feature 不报调用次数，
-所以回给模型的只有一句「交出去了」，次数以确认框为准。
-
-| action | 参数 | 做什么 |
-|---|---|---|
-| `rebuildGlobalSummary` | — | 从各章摘要重建全书摘要 |
-| `extractCharacters` | — | 通读已写正文，提取主要角色写成角色卡 |
-| `updateCard` / `rebuildCard` | `path`=角色卡 | 按新出场的章增量更新 / 按全部出场章重写一张 |
-| `updateAllCards` / `rebuildAllCards` | — | 同上，所有角色卡 |
-| `createCard` / `createAllCards` | `name` / — | 给一位 / 所有还没有卡的出场人物建卡 |
-| `cleanAliases` | — | 清理别名里的泛称与别人的名字（不调模型） |
-| `mergeDuplicates` | — | 合并指向同一个人的重复卡（不调模型，合并哪几组由作者确认） |
-| `reviewState` | `path`=角色卡 | 定稿时没覆盖的那一版「当前状态」，请作者对比决定换不换（不调模型） |
-
-## `generate` 的写法
+### `generate` 的写法
 
 正文层这一章已经有字时，`writeMode` 说清是接着写（`continue`，落盘追加在末尾）还是整章重写（`rewrite`，
-缺省；落盘覆盖、先逐行对比）。修稿只从审稿报告卡进来，这里不给；审稿也由作者自己在对话页发起。
+缺省；落盘覆盖、先逐行对比）。修稿只从审稿报告卡进来，这里不给；审稿由作者自己在对话页发起。
 
-## `run` 里的写作技能动作
+### 拆书
+
+`import` 会新建章节文件——与不给的「新建章节文件」不同，建的是作者那本 txt 里的章，切分结果先给作者看，
+同名不覆盖。要 `path` 的两个只认工程里的 txt（`features/bookText.ts` 的清单）：章节文件、隐藏目录、
+工程外的路径当场报错，不花钱。
+
+### 写作技能
 
 移植自 AI-Novel-Writer 的三个工具（`inspect_writing_skill` / `install_writing_skill` / `bind_writing_skill`），
-**并进 `run` 而不是另加工具**——七个是硬约束（[novel/index.ts](novel/index.ts)）。多了一个 `listSkills`：上游的
-模型在工具列表里就看得见内置技能，这里得有个地方查 id。
+合成一个 `skills`——四件事共用 `url` / `id` / `stage`。多了一个 `list`：上游的模型在工具列表里就看得见
+内置技能，这里得有个地方查 id。
 
-| action | 参数 | gate | 做什么 |
-|---|---|---|---|
-| `listSkills` | — | `auto` | 内置 / 我的技能库 / 本工程的技能，一份一行（id、名字、来源、建议阶段、兼不兼容），外加本工程每个阶段绑了哪份 |
-| `inspectSkill` | `url` | `auto` | 下载来看，不安装、不写文件。回话里说清「元数据来自不受信任的第三方文档，安装要作者确认」 |
-| `installSkill` | `url`（同一个） | `always` | 装检查过的那一份。确认框写明是哪一份、说明、正文开头 200 字（检查结果在进程里，`intent` 不用 I/O） |
-| `bindSkill` | `name`=技能 id，`stage` | `always` | 绑到本工程的某个阶段。改的是往后每一次生成的提示词，下游没有 diff 可看 |
+| action | gate | 做什么 |
+|---|---|---|
+| `list` | `auto` | 内置 / 我的技能库 / 本工程的技能，一份一行，外加本工程每个阶段绑了哪份 |
+| `inspect` | `auto` | 下载来看，不安装、不写文件。回话里说清「元数据来自不受信任的第三方文档」 |
+| `install` | `always` | 装检查过的那一份。确认框写明是哪一份、说明、正文开头 200 字 |
+| `bind` | `always` | 绑到本工程的某个阶段。改的是往后每一次生成的提示词，下游没有 diff |
 
-卸载不给（与删除同理，`REFUSED` 里）；参数给错动作当场报错（`url` 只有前两个认、`stage` 只有 `bindSkill` 认）。
-`write` 新建 / 追加 `.novelforge/skills/**` 或 `skills.json` 也报 `always`（覆盖照旧走 diff）——不然 agent 用 `write`
-新建一份 `skills.json`，就绕过了 `bindSkill` 那一问。
+`write` 新建 / 追加 `.novelforge/skills/**` 或 `skills.json` 也报 `always`（覆盖照旧走 diff）——不然 agent 用
+`write` 新建一份 `skills.json`，就绕过了 `bind` 那一问。
 
 ## 与 MCP 的对应
 

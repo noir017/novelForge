@@ -718,7 +718,7 @@ export class Workspace {
 
   /**
    * 写技能的阶段绑定（`.novelforge/skills.json`）。链外的小文件，由设置页「技能」与
-   * agent 的 `run bindSkill` 改写——两条路在动手前都已经问过作者，这里不再弹覆盖审阅：
+   * 外部 agent 的 `skills bind` 改写——两条路在动手前都已经问过作者，这里不再弹覆盖审阅：
    * 每换一次下拉框就弹一个 JSON 的 diff 只是噪声。内容由 `renderSkillBindings` 产出。
    */
   async writeSkillBindings(text: string): Promise<string> {

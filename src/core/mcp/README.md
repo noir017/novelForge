@@ -4,16 +4,16 @@
 
 本项目不自带对话循环。上下文压缩、多步规划、权限模式、各家服务商的 tool calling 兼容——这些通用
 agent 做得更好，自己再做一份只是更弱的重复。真正值钱的不在循环里：创作质量来自分阶段装配
-（`generate` 内部那次调用），工程动作的不变量在 `features/` 里（`run` 转发过去）。
+（`generate` 内部那次调用），工程动作的不变量在 `features/` 里（`pipeline` / `summary` / `characters` 那几个工具转发过去）。
 
-所以这一层只做一件事：把 [`tools/`](../tools/README.md) 那七个工具经 MCP 端出去，外部 agent 自带循环。
+所以这一层只做一件事：把 [`tools/`](../tools/README.md) 那套工具经 MCP 端出去，外部 agent 自带循环。
 
 | 文件 | 职责 |
 |---|---|
 | [server.ts](server.ts) | ★ 协议：`initialize` / `ping` / `tools/list` / `tools/call` / `notifications/cancelled`，会话，状态简报 |
 | [http.ts](http.ts) | Streamable HTTP 传输：POST 回 JSON、会话头、DELETE、GET 405、Origin 校验。只用标准 `Request` / `Response` |
 | [instructions.ts](instructions.ts) | `initialize` 回给客户端的使用说明（只说怎么用工具，不写领域知识） |
-| [index.ts](index.ts) | `createNovelMcp(backend)`：七个工具 + 说明 + 传输，壳只给「当前工程的执行端」 |
+| [index.ts](index.ts) | `createNovelMcp(backend)`：工具清单 + 说明 + 传输，壳只给「当前工程的执行端」 |
 
 执行端在 [controller/mcp.ts](../controller/mcp.ts)：一次调用落到当前打开的那个工程上。
 

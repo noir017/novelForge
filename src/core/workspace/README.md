@@ -145,7 +145,7 @@ workspace/
 | `writeSummary` | 章节路径的镜像 |
 | `writeCharacter` / `writeLore` | slug（可带子目录） |
 | `writeStyleGuide` / `writeGlobalSummary` | 固定路径 |
-| `writeSkillBindings(text)` | 固定路径（`skills.json`）。设置页「技能」与 `run bindSkill` 动手前都已经问过作者，这里不再弹覆盖审阅——每换一次下拉框弹一个 JSON 的 diff 只是噪声 |
+| `writeSkillBindings(text)` | 固定路径（`skills.json`）。设置页「技能」与 `skills bind` 动手前都已经问过作者，这里不再弹覆盖审阅——每换一次下拉框弹一个 JSON 的 diff 只是噪声 |
 | `updateThreads(edit)` | 固定路径（`threads.md`）。读**此刻**的原文交给 `edit`、写回它给的新原文：排线、定稿要调几十秒模型，写之前重读，作者这期间的改动才不会被一份旧全文冲掉 |
 
 调用方手里只有对象，让它自己去拼路径等于把命名规则复制一份出去。

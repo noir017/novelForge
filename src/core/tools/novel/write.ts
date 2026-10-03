@@ -60,7 +60,7 @@ export const writeTool: ToolDef = {
       return { gate: 'reviewed', title: `覆盖「${describePath(target, project)}」` };
     }
     // 写作技能与它的阶段绑定（`.novelforge/skills/**`、`skills.json`）：改的是往后每一次生成的
-    // 提示词，下游没有 diff。新建与追加也照 `run bindSkill` 那样先问——不然 agent 用 write
+    // 提示词，下游没有 diff。新建与追加也照 `skills bind` 那样先问——不然 agent 用 write
     // 新建一份 skills.json，就绕过了 bindSkill 那一问。覆盖仍走上面的 diff。
     const skill = project !== undefined && kindOfPath(project, target).kind === 'skill';
     return {

@@ -1,5 +1,5 @@
 /**
- * MCP server：**把 `tools/` 那七个工具端给外部 agent**（Claude Code、Codex……）。
+ * MCP server：**把 `tools/` 那套工具端给外部 agent**（Claude Code、Codex……）。
  *
  * 这一层只懂协议：JSON-RPC 的那几个方法、会话、取消。它不认识 `Workspace`、
  * `DraftStore`、任何一个具体工具——工具清单是一份 `ToolSpec[]`，执行交给
@@ -12,7 +12,7 @@
  * |---|---|
  * | `initialize` | 协商版本，回 `instructions`（怎么用这几个工具） |
  * | `ping` | 回 `{}` |
- * | `tools/list` | 七个工具，带 `readOnlyHint` / `destructiveHint` |
+ * | `tools/list` | 全部工具，带 `readOnlyHint` / `destructiveHint` |
  * | `tools/call` | 执行；出错照 MCP 的约定回 `isError`，不回 JSON-RPC 错误 |
  * | `notifications/cancelled` | 中断那一次调用（生成会停在半路） |
  *

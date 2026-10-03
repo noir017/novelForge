@@ -132,20 +132,49 @@ describe('edit：任何模式都要问', () => {
   });
 });
 
-describe('run：工程动作', () => {
-  const i = () => intentOf('run', { action: 'batchPlots' });
+describe('带 action 的工程动作：缺省归 mutating', () => {
+  const i = () => intentOf('pipeline', { action: 'batchPlots' });
 
   test('归 mutating', () => {
     assert.equal(i().gate, 'mutating');
   });
 
-  test('说清了要执行哪个动作', () => {
-    assert.ok(i().title.includes('batchPlots'), i().title);
+  // 标题就是动作的说法，作者在框里读到的是「批量拆细纲」而不是一个英文动作名。
+  test('标题是那个动作的说法', () => {
+    assert.ok(i().title.startsWith('批量拆细纲'), i().title);
   });
 
   // 这里不问（`mutating` 档），但 pipelineBatch 自己那个「预计调用 N 次」照弹。
-  test('提醒了随后还会告诉他调几次', () => {
+  test('调模型的动作提醒了随后还会告诉他调几次', () => {
     assert.ok(i().detail.includes('预计调用几次'), i().detail);
+  });
+
+  test('不调模型的动作不提调用次数', () => {
+    assert.equal(intentOf('pipeline', { action: 'newPlot' }).detail.includes('预计调用几次'), false);
+  });
+
+  test('作用对象（path / name）写进框里', () => {
+    assert.ok(intentOf('summary', { action: 'finalize', path: PLOT }).detail.includes(PLOT));
+    assert.ok(intentOf('characters', { action: 'create', name: '林昭' }).detail.includes('林昭'));
+  });
+
+  // 认不出的动作执行时会被拒，但问的那一步不能因此放行。
+  test('认不出的动作也归 mutating，标题写着工具与动作名', () => {
+    const x = intentOf('summary', { action: 'delete' });
+    assert.equal(x.gate, 'mutating');
+    assert.equal(x.title, '执行 summary delete');
+  });
+
+  test('技能的查与检查不问，装与绑每次都问', () => {
+    assert.deepEqual(
+      [
+        intentOf('skills', { action: 'list' }).gate,
+        intentOf('skills', { action: 'inspect', url: 'https://github.com/o/r' }).gate,
+        intentOf('skills', { action: 'install', url: 'https://github.com/o/r' }).gate,
+        intentOf('skills', { action: 'bind', id: 'builtin:x', stage: 'review' }).gate,
+      ],
+      ['auto', 'auto', 'always', 'always']
+    );
   });
 });
 

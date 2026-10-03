@@ -7,7 +7,7 @@
  * | 用例 | 钉的是什么 |
  * |---|---|
  * | initialize | 版本协商、回会话 id、带上使用说明 |
- * | tools/list | 七个工具；`costly` / `mutating` 落成 readOnlyHint / destructiveHint |
+ * | tools/list | 十二个工具；`costly` / `mutating` 落成 readOnlyHint / destructiveHint |
  * | tools/call | 参数原样转给执行端；出错走 `isError`，不走 JSON-RPC 错误 |
  * | 没打开工程 | 回一句能照着做的话，`isError` |
  * | 状态简报 | 第一次必贴；没变不贴；变了再贴 |
@@ -94,12 +94,25 @@ describe('initialize', () => {
 
 describe('tools/list', () => {
   let tools;
-  test('七个工具', async () => {
+  test('十二个工具，按模型看到的顺序', async () => {
     const h = makeHandler({ backend: fakeBackend().backend });
     const sid = await open(h);
     const body = await (await post(h, rpc('tools/list'), { 'mcp-session-id': sid })).json();
     tools = Object.fromEntries(body.result.tools.map((t) => [t.name, t]));
-    assert.deepEqual(Object.keys(tools), ['list', 'read', 'search', 'generate', 'write', 'edit', 'run']);
+    assert.deepEqual(Object.keys(tools), [
+      'list',
+      'read',
+      'search',
+      'generate',
+      'write',
+      'edit',
+      'pipeline',
+      'summary',
+      'characters',
+      'extract',
+      'book',
+      'skills',
+    ]);
   });
 
   test('参数 schema 原样给成 inputSchema', () => {
@@ -116,10 +129,29 @@ describe('tools/list', () => {
     assert.equal(tools.write.annotations.destructiveHint, true);
   });
 
+  // 工具级的两个标记由动作表推出来：有一个动作调模型就 costly，有一个动作不是 auto 就 mutating。
+  // skills 一个模型都不调，但装与绑会改东西——所以不只读，且有破坏性。
+  test('带 action 的工具：标记由动作表推出', () => {
+    assert.equal(tools.skills.annotations.readOnlyHint, false);
+    assert.equal(tools.skills.annotations.destructiveHint, true);
+    for (const name of ['pipeline', 'summary', 'characters', 'extract', 'book']) {
+      assert.equal(tools[name].annotations.readOnlyHint, false, name);
+      assert.equal(tools[name].annotations.destructiveHint, true, name);
+    }
+  });
+
+  test('带 action 的工具：action 必填且是枚举', () => {
+    for (const name of ['pipeline', 'summary', 'characters', 'extract', 'book', 'skills']) {
+      const schema = tools[name].inputSchema;
+      assert.deepEqual(schema.required, ['action'], name);
+      assert.ok(Array.isArray(schema.properties.action.enum), name);
+    }
+  });
+
   test('没打开工程也列得出来', async () => {
     const h = makeHandler({ backend: undefined });
     const body = await (await post(h, rpc('tools/list'))).json();
-    assert.equal(body.result.tools.length, 7);
+    assert.equal(body.result.tools.length, 12);
   });
 });
 

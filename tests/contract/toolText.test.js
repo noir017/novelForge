@@ -46,8 +46,8 @@ function assertClean(where, text) {
 }
 
 describe('工具说明不提旧链路', () => {
-  test('七个工具都查到了', () => {
-    assert.equal(bundle.tools.NOVEL_TOOLS.length, 7);
+  test('十二个工具都查到了', () => {
+    assert.equal(bundle.tools.NOVEL_TOOLS.length, 12);
   });
 
   test('描述、参数说明与枚举值', () => {
@@ -58,11 +58,14 @@ describe('工具说明不提旧链路', () => {
     }
   });
 
-  // 「拆分」这个动作仍在 run 的拒绝清单里（拿着老提示词来的模型要听到「这是有意不给的」），
-  // 但不许出现在可用动作的枚举里——否则模型会照着列表去点它。
-  test('run 的可用动作里没有 split', () => {
-    const run = bundle.tools.NOVEL_TOOLS.find((t) => t.name === 'run');
-    assert.ok(!run.parameters.properties.action.enum.includes('split'));
+  // 「拆分」仍在带 action 工具的拒绝清单里（拿着老提示词来的模型要听到「这是有意不给的」），
+  // 但不许出现在任何一个工具的可用动作枚举里——否则模型会照着列表去点它。
+  test('哪个工具的可用动作里都没有 split', () => {
+    const withAction = bundle.tools.NOVEL_TOOLS.filter((t) => t.parameters.properties.action);
+    assert.ok(withAction.length >= 6, withAction.map((t) => t.name).join(','));
+    for (const tool of withAction) {
+      assert.ok(!tool.parameters.properties.action.enum.includes('split'), tool.name);
+    }
   });
 });
 
