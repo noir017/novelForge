@@ -716,7 +716,7 @@ export function buildContextDetails(digest: SerializedDigest): HTMLDetailsElemen
     if (item.source) {
       li.appendChild(linkBtn('打开', () => openPath(item.source!)));
     }
-    li.appendChild(mk('span', 'tokens', item.tokens > 0 ? `${fmt(item.tokens)} tk` : '—'));
+    li.appendChild(mk('span', 'tokens', item.tokens > 0 ? fmt(item.tokens) : '—'));
     if (item.note) {
       li.appendChild(mk('span', 'note', item.note));
     }
