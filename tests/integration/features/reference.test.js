@@ -26,7 +26,14 @@ let bundle;
 let h;
 let fake;
 let home;
-let skillBody = '## 章节结构\n\n每章两到三个场景，结尾停在未决的选择上。\n\n## 规划时怎么用\n\n- 每章至少一次局面变化。';
+/** 提示词规定的小节一个不缺——缺了会被当成截断拦下。 */
+const sections = (heads, first) => heads.map((x, i) => `## ${x}\n\n${i === 0 ? first : '……'}`).join('\n\n');
+const STYLE_HEADS = ['叙事视角', '句式节奏', '遣词特征', '对白风格', '描写偏好', '修辞习惯', '禁用清单'];
+const SKILL_HEADS = ['章节结构', '场景推进', '钩子与悬念', '节奏与爽点', '信息投放', '开篇写法', '规划时怎么用'];
+const STYLE_FULL = sections(STYLE_HEADS, '第三人称限知。');
+const SKILL_FULL = `${sections(SKILL_HEADS, '每章两到三个场景，结尾停在未决的选择上。')}\n\n- 每章至少一次局面变化。`;
+let skillBody = SKILL_FULL;
+let styleReply = STYLE_FULL;
 const projects = [];
 
 /** 一本 12 章的参考书：每章开头写明章号，结尾一句钩子；里面有专有名词「玄天宗」。 */
@@ -56,7 +63,7 @@ before(() => {
   home = makeTempDir('referenceHome');
   bundle.skills.setUserSkillsDir(home.rel('skills'));
   fake = installFakeProvider(bundle.registry, {
-    reply: (messages) => (kindOf(messages) === 'style' ? '## 叙事视角\n\n第三人称限知。\n\n## 禁用清单\n\n- 不用感叹号' : skillBody),
+    reply: (messages) => (kindOf(messages) === 'style' ? styleReply : skillBody),
   });
 });
 
@@ -186,7 +193,7 @@ describe('从参考书学写法 · 边角', () => {
   test('技能正文不兼容：不问绑定，说清为什么', async () => {
     const t = await fresh('ref-incompat');
     const saved = skillBody;
-    skillBody = '## 章节结构\n\n每次规划前先调用 outline 工具检查结构。';
+    skillBody = sections(SKILL_HEADS, '每次规划前先调用 outline 工具检查结构。');
     try {
       h.expect('参考/玄天录.txt', 'skill', '开始学');
       const r = await bundle.reference.learnFromReference(t.project);
@@ -195,6 +202,42 @@ describe('从参考书学写法 · 边角', () => {
       assert.ok(h.toasts.some((x) => x.startsWith('error:') && x.includes('不兼容')), h.toasts.join('|'));
     } finally {
       skillBody = saved;
+    }
+  });
+
+  test('写法写到一半就停：不写技能、不问绑定，报出缺了哪几节；文风照常写', async () => {
+    const t = await fresh('ref-cut');
+    skillBody = '## 章节结构\n\n- **结尾停靠**：\n  1. 视觉峰值\n  2. 规则';
+    try {
+      h.expect('参考/玄天录.txt', 'both', '开始学');
+      const r = await bundle.reference.learnFromReference(t.project);
+      assert.equal(r.calls, 2);
+      assert.equal(r.skill, undefined);
+      assert.equal(r.style, '.novelforge/style.md');
+      assert.ok(!t.has('.novelforge/skills'));
+      assert.equal(h.confirms.length, 1);
+      assert.ok(
+        h.toasts.some((x) => x.startsWith('error:') && x.includes('写法没学成') && x.includes('缺了「场景推进」')),
+        h.toasts.join('|')
+      );
+    } finally {
+      skillBody = SKILL_FULL;
+    }
+  });
+
+  test('上游报撞到输出上限：小节齐全也不写 style.md', async () => {
+    const t = await fresh('ref-maxtokens');
+    t.write('.novelforge/style.md', '# 文风指南\n\n作者自己调过的文风。\n');
+    t.project.invalidate();
+    styleReply = { text: STYLE_FULL, stop: 'maxTokens' };
+    try {
+      h.expect('参考/玄天录.txt', 'style', '覆盖 style.md 并开始');
+      const r = await bundle.reference.learnFromReference(t.project);
+      assert.equal(r.style, undefined);
+      assert.match(t.read('.novelforge/style.md'), /作者自己调过的文风/);
+      assert.ok(h.toasts.some((x) => x.startsWith('error:') && x.includes('输出上限')), h.toasts.join('|'));
+    } finally {
+      styleReply = STYLE_FULL;
     }
   });
 

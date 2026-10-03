@@ -3,6 +3,8 @@
  * 只有开头那一段不同——一份是「保证续写与原作一致」，一份是「让作者的书学参考书的写法」。
  * 任务边界与小节一字不差。
  */
+import { StopSignal } from '../llm/provider';
+
 const STYLE_INTRO =
   '你是文学编辑，需要从作者的样章中归纳出一份「文风指南」。这份指南会在每次 AI 续写时注入模型，用来保证续写内容与原作风格一致，因此必须**具体、可执行**，不能是「文笔优美」这类无法操作的空话。';
 
@@ -89,3 +91,27 @@ export const REFERENCE_SKILL_SYSTEM = `你是一位资深网文编辑，需要�
 5–8 条排大纲与细纲时可以直接照做的规则（如「每章至少一次局面变化，章末停在未决的选择上」）。
 
 要求：所有结论必须能从样章中找到依据，宁可少写也不要臆测。用简体中文。`;
+
+/**
+ * 提示词规定了哪些 `## 小节`，回答里少了哪几个。被截断的回答尾巴上的小节必然缺席；
+ * 有的网关不报收尾原因，只靠 `stopReason` 拦不住，所以按小节再核一遍。
+ */
+export function missingSections(system: string, output: string): string[] {
+  const has = new Set(output.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('## ')).map((l) => l.slice(3).trim()));
+  return system
+    .split('\n')
+    .filter((l) => l.startsWith('## '))
+    .map((l) => l.slice(3).trim())
+    .filter((h) => !has.has(h));
+}
+
+/** 截断或缺小节就抛错：半份文风指南、半份技能写进工程比没写更糟——它会被当成完整的照做。 */
+export function assertComplete(system: string, output: string, stopReason: StopSignal | undefined, maxOut: number): void {
+  if (stopReason === 'maxTokens') {
+    throw new Error(`回答撞到输出上限（${maxOut} token）被截断了`);
+  }
+  const missing = missingSections(system, output);
+  if (missing.length > 0) {
+    throw new Error(`回答缺了「${missing.join('」「')}」${missing.length} 节，多半是被截断了`);
+  }
+}

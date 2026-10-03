@@ -1,5 +1,5 @@
 import { getHost } from '../host';
-import { collectText } from '../llm/collect';
+import { collect } from '../llm/collect';
 import { StreamOptions } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { readConfig } from '../config';
@@ -10,7 +10,7 @@ import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
 import { stripCodeFence } from './parse';
 import { pickPlotsByInput } from './pickPlots';
-import { STYLE_SYSTEM } from './stylePrompt';
+import { STYLE_SYSTEM, assertComplete } from './stylePrompt';
 
 const log = scoped('文风');
 
@@ -98,14 +98,14 @@ export async function extractStyle(project: NovelProject): Promise<void> {
 
       report({ message: '分析文风特征', current: 1, total: 2 });
       const options: StreamOptions = {
-        maxOutputTokens: Math.min(pool.primaryBudget.maxOutputTokens, 2000),
+        maxOutputTokens: pool.primaryBudget.maxOutputTokens,
         temperature: 0.3,
         timeoutMs: config.requestTimeoutMs,
         signal,
       };
       const modelStart = Date.now();
-      const raw = await pool.run('提取文风', (llm) =>
-        collectText(
+      const r = await pool.run('提取文风', (llm) =>
+        collect(
           llm.stream(
             [
               { role: 'system', content: STYLE_SYSTEM },
@@ -115,13 +115,15 @@ export async function extractStyle(project: NovelProject): Promise<void> {
           )
         )
       );
-      log.info('模型已返回', `${raw.length} 字，用时 ${elapsed(modelStart)}`);
+      log.info('模型已返回', `${r.text.length} 字，用时 ${elapsed(modelStart)}`);
       if (signal.aborted) {
         log.warn('提取被取消，未写盘');
         return;
       }
+      const raw = stripCodeFence(r.text);
+      assertComplete(STYLE_SYSTEM, raw, r.stopReason, options.maxOutputTokens);
 
-      const relPath = await new Workspace(project).writeStyleGuide(stripCodeFence(raw));
+      const relPath = await new Workspace(project).writeStyleGuide(raw);
       report({ message: '完成', current: 2, total: 2 });
       log.info('文风指南已写入', `${relPath}｜总耗时 ${elapsed(startedAt)}`);
       getHost().toast('文风指南已生成，建议人工过一遍再用。');

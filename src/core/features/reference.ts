@@ -13,7 +13,7 @@
  */
 import { readConfig } from '../config';
 import { getHost } from '../host';
-import { collectText } from '../llm/collect';
+import { collect } from '../llm/collect';
 import { createModelPool } from '../llm/pool';
 import { NovelProject } from '../model/project';
 import {
@@ -40,7 +40,7 @@ import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
 import { formatWordCount, pickBookText, readBookText } from './bookText';
 import { stripCodeFence } from './parse';
-import { REFERENCE_SKILL_SYSTEM, REFERENCE_STYLE_SYSTEM } from './stylePrompt';
+import { REFERENCE_SKILL_SYSTEM, REFERENCE_STYLE_SYSTEM, assertComplete } from './stylePrompt';
 
 const log = scoped('学写法');
 
@@ -153,25 +153,30 @@ export async function learnFromReference(
   const outcome: ReferenceOutcome = { calls: 0 };
   const failures: string[] = [];
   const budget = Math.max(3000, pool.primaryBudget.contextWindow - pool.primaryBudget.maxOutputTokens - 2000);
-  const ask = async (system: string, user: string, label: string, signal: AbortSignal, maxOut: number): Promise<string> => {
+  const maxOut = pool.primaryBudget.maxOutputTokens;
+  const ask = async (system: string, user: string, label: string, signal: AbortSignal): Promise<string> => {
     const corpus = takeHead(user, budget);
     if (corpus.length < user.length) {
       log.warn(`${label}的样章超出输入预算，已截断`, `${user.length} 字 → ${corpus.length} 字（预算 ${budget} token）`);
     }
     log.debug(`${label}：样章已备好`, `${corpus.length} 字（约 ${estimateTokens(corpus)} token）`);
     outcome.calls++;
-    const raw = await pool.run(label, (llm) =>
-      collectText(
+    const r = await pool.run(label, (llm) =>
+      collect(
         llm.stream(
           [
             { role: 'system', content: system },
             { role: 'user', content: corpus },
           ],
-          { maxOutputTokens: Math.min(pool.primaryBudget.maxOutputTokens, maxOut), temperature: 0.3, timeoutMs: config.requestTimeoutMs, signal }
+          { maxOutputTokens: maxOut, temperature: 0.3, timeoutMs: config.requestTimeoutMs, signal }
         )
       )
     );
-    return stripCodeFence(raw).trim();
+    const text = stripCodeFence(r.text).trim();
+    if (text && !signal.aborted) {
+      assertComplete(system, text, r.stopReason, maxOut);
+    }
+    return text;
   };
 
   const ws = new Workspace(project);
@@ -184,7 +189,7 @@ export async function learnFromReference(
         report({ message: '学文风', current: step, total: n });
         try {
           const samples = styleIdx.map((i) => `【样章：第 ${i + 1} ${unit}】\n${headOf(chapters[i].body, STYLE_HEAD)}`).join('\n\n');
-          const text = await ask(REFERENCE_STYLE_SYSTEM, `以下是参考书的样章。\n\n${samples}`, '学文风', signal, 2000);
+          const text = await ask(REFERENCE_STYLE_SYSTEM, `以下是参考书的样章。\n\n${samples}`, '学文风', signal);
           if (signal.aborted) {
             return;
           }
@@ -209,7 +214,7 @@ export async function learnFromReference(
             .map((i) => `【样章：第 ${i + 1} ${unit}｜${chapters[i].words} 字】\n${headTail(chapters[i].body, SKILL_HEAD, SKILL_TAIL)}`)
             .join('\n\n');
           const user = `# 参考书的篇幅统计（程序数的）\n\n${describeShape(shapeStats(chapters))}\n\n# 样章\n\n${samples}`;
-          const body = await ask(REFERENCE_SKILL_SYSTEM, user, '学写法', signal, 3000);
+          const body = await ask(REFERENCE_SKILL_SYSTEM, user, '学写法', signal);
           if (signal.aborted) {
             return;
           }
