@@ -1,5 +1,5 @@
 /**
- * 设置页「技能」：列技能库、从 GitHub 检查与安装、卸载、本工程的阶段绑定。
+ * 设置页「技能」：列技能库、从 GitHub 检查与安装、卸载（本工程的叫删除）、本工程的阶段绑定。
  *
  * 与 [settings.ts](settings.ts) 一样**不依赖 controller**：独立版没打开工程时由 WorkspaceHub
  * 直接调这几个函数（`scope` 是空的），技能库照样能看、能装、能卸；只有绑定要工程。
@@ -7,6 +7,7 @@
  * 装与卸在这里先弹确认框（`Host.confirm`）——外部 agent 那条路由 `skills install` 的 `always` 闸门问，两边都问
  * 一次，不多不少。
  */
+import * as path from 'node:path';
 import { getHost } from '../host';
 import type { NovelProject } from '../model/project';
 import {
@@ -129,11 +130,18 @@ export async function installSkillFrom(sink: SkillsSink, scope: SkillsScope, url
   }
 }
 
-/** 卸载：只认我的技能库里的。整个目录挪进回收站；本工程绑了它的阶段一起解绑。 */
+/**
+ * 卸载我的技能库里的、删本工程的：整个目录挪进回收站（不真删）；本工程绑了它的阶段一起解绑。
+ * 内置的删不掉。
+ */
 export async function uninstallSkillFrom(sink: SkillsSink, scope: SkillsScope, id: string): Promise<void> {
   const parsed = parseSkillId(id);
+  if (parsed?.source === 'project') {
+    await removeProjectSkill(sink, scope, id);
+    return;
+  }
   if (!parsed || parsed.source !== 'user') {
-    sink.toast('只有我的技能库里的技能能在这里卸载。内置的删不掉；本工程的在 .novelforge/skills/ 里，自己删那个目录。', 'error');
+    sink.toast('内置技能删不掉；不想用就在阶段绑定里换掉它。', 'error');
     return;
   }
   const skill = await loadSkill(id);
@@ -159,6 +167,42 @@ export async function uninstallSkillFrom(sink: SkillsSink, scope: SkillsScope, i
   } catch (err) {
     log.error(`卸载技能失败：${describeError(err)}`, id);
     sink.toast(`卸载失败：${describeError(err)}`, 'error');
+  }
+  await pushSkillsTo(sink, scope);
+}
+
+/** 删本工程的技能：`.novelforge/skills/<名字>/` 整个目录经网关挪进 `.novelforge/.trash/`。 */
+async function removeProjectSkill(sink: SkillsSink, scope: SkillsScope, id: string): Promise<void> {
+  if (!scope.project || !scope.workspace) {
+    sink.toast('本工程的技能跟着工程走：先打开那个工程。', 'error');
+    return;
+  }
+  const skill = await loadSkill(id, scope.project);
+  if (!skill?.relPath) {
+    sink.toast(`本工程里找不到「${id}」。`, 'error');
+    await pushSkillsTo(sink, scope);
+    return;
+  }
+  const label = skillLabel(skill.inspection);
+  const dir = path.posix.dirname(skill.relPath);
+  const choice = await getHost().confirm(`删掉本工程的技能「${label}」？`, ['删除'], {
+    modal: true,
+    detail: `整个 ${dir}/ 挪进 .novelforge/.trash/，可手动找回。绑了它的阶段会一起解绑。`,
+  });
+  if (choice !== '删除') {
+    return;
+  }
+  try {
+    const unbound = await unbindSkillEverywhere(scope.project, scope.workspace, id);
+    await scope.workspace.remove(dir);
+    sink.toast(
+      unbound.length > 0
+        ? `已删除「${label}」，${unbound.map((s) => `「${SKILL_STAGE_LABEL[s]}」`).join('')}不再带它。`
+        : `已删除「${label}」。`
+    );
+  } catch (err) {
+    log.error(`删除技能失败：${describeError(err)}`, id);
+    sink.toast(`删除失败：${describeError(err)}`, 'error');
   }
   await pushSkillsTo(sink, scope);
 }

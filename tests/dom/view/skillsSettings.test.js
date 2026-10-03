@@ -10,7 +10,7 @@
  * | 没打开工程时下拉框不能动，说清为什么 | 绑定跟着工程走 |
  * | 检查结果带正文；装不了时「确认安装」按不下去 | 装之前看得到写了什么 |
  * | 装好之后检查卡收起 | 免得以为还要再点一次 |
- * | 只有我的技能库的能卸载，本工程的点得开 | 内置删不掉，本工程的作者自己删 |
+ * | 我的技能库的能卸载，本工程的能打开、能删除 | 内置删不掉 |
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -128,16 +128,18 @@ describe('设置页：技能', { skip: JSDOM_SKIP }, () => {
     assert.ok($('[data-skill-id="user:b"]').textContent.includes('本工程绑在：写正文'));
   });
 
-  test('只有我的技能库的能卸载', () => {
+  test('我的技能库的能卸载，本工程的能删除，内置的没有按钮', () => {
     const buttons = (id) => [...$(`[data-skill-id="${id}"]`).querySelectorAll('button')].map((b) => b.textContent);
-    assert.deepEqual([buttons('builtin:a'), buttons('user:b'), buttons('project:c')], [[], ['卸载'], ['打开']]);
+    assert.deepEqual([buttons('builtin:a'), buttons('user:b'), buttons('project:c')], [[], ['卸载'], ['打开', '删除']]);
   });
 
-  test('点卸载发 uninstallSkill，点打开发 openFile', () => {
+  test('点卸载、删除发 uninstallSkill，点打开发 openFile', () => {
     $('[data-skill-id="user:b"] button').click();
     assert.deepEqual(lastSent('uninstallSkill'), { type: 'uninstallSkill', id: 'user:b' });
     $('[data-skill-id="project:c"] button').click();
     assert.deepEqual(lastSent('openFile'), { type: 'openFile', path: '.novelforge/skills/c/SKILL.md' });
+    $('[data-skill-id="project:c"] button.danger').click();
+    assert.deepEqual(lastSent('uninstallSkill'), { type: 'uninstallSkill', id: 'project:c' });
   });
 
   test('技能库在哪写在提示里', () => {

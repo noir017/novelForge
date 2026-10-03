@@ -265,8 +265,8 @@ function libraryRow(row: SkillRow): HTMLElement {
     open.addEventListener('click', () => vscode.postMessage({ type: 'openFile', path: row.relPath! }));
     actions.appendChild(open);
   }
-  if (row.source === 'user') {
-    const remove = el('button', 'link danger', '卸载');
+  if (row.source === 'user' || row.source === 'project') {
+    const remove = el('button', 'link danger', row.source === 'user' ? '卸载' : '删除');
     remove.addEventListener('click', () => vscode.postMessage({ type: 'uninstallSkill', id: row.id }));
     actions.appendChild(remove);
   }
