@@ -57,6 +57,15 @@ describe('trimProse.ts · 只许删', () => {
   });
 });
 
+describe('trimProse.ts · 写正文的篇幅', () => {
+  test('开着删修饰放大两成、取整到百字；关着或没有目标原样', () => {
+    assert.equal(tp.writingAim(3000, true), 3600);
+    assert.equal(tp.writingAim(1250, true), 1500);
+    assert.equal(tp.writingAim(3000, false), 3000);
+    assert.equal(tp.writingAim(undefined, true), undefined);
+  });
+});
+
 describe('trimProse.ts · 拼回正文', () => {
   const paras = ['甲乙丙丁戊己庚辛壬癸。', '子丑寅卯辰巳午未申酉。', '“这句对白不动。”'];
 

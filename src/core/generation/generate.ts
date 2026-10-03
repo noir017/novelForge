@@ -71,6 +71,7 @@ import {
   completeRoster,
   singleShotNotes,
 } from './structured';
+import { writingAim } from '../model/trimProse';
 import { ManuscriptChainResult, WriteProgress, completeManuscript } from './continuation';
 import { ReviewChainContext, completeReview } from './review';
 import { completeRevision } from './revision';
@@ -278,11 +279,13 @@ export async function generate(
     request = { ...request, reviewGoals: [...reviewing.goals] };
     log.info(`审稿：${where}`, `正文 ${countWords(reviewing.text)} 字｜目标 ${reviewing.goals.length} 项`);
   }
+  // 开着删修饰时往多写一点，删完落在目标附近（修稿不删修饰，原稿多长就多长）。
+  const aim = writing && writing.mode !== 'revise' ? writingAim(writing.target, config.trimModifiers) : writing?.target;
   if (writing) {
     request = {
       ...request,
       writeMode: writing.mode,
-      targetWords: writing.target,
+      targetWords: aim,
       revision: writing.mode === 'revise' ? writing.revision : request.revision ?? writing.revision,
       // 执行卡后面「本章不出场」那一行与写完查的是同一份（五期补遗 §1.2）。
       notYet: writing.notYet.map(({ name, no }) => ({ name, no })),
@@ -392,6 +395,7 @@ export async function generate(
           mode: writing.mode,
           existing: writing.existing,
           target: writing.target,
+          aim,
           prevEnding: writing.prevEnding,
           reasoned: !!reasoning,
           hook: writing.hook,

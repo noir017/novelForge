@@ -14,6 +14,17 @@ export const TRIM_MAX_ADDED_HAN = 2;
 /** 一段删完至少留原来的这么多（按汉字算）。删得更狠的多半是把情节删了。 */
 export const TRIM_MIN_KEEP_RATIO = 0.4;
 
+/**
+ * 开着删修饰时写正文往多写几成：删修饰一章删掉一到两成，按目标字数写、删完就跌破八成，保底又把删改
+ * 退回去（novel-test 第 91–100 章，十章七章触发）。所以给模型的篇幅与续写的判据都按目标的这么多倍。
+ */
+export const TRIM_HEADROOM = 1.2;
+
+/** 写正文时给模型、给续写判据的篇幅：开着删修饰按 {@link TRIM_HEADROOM} 放大，取整到百字。 */
+export function writingAim(target: number | undefined, trim: boolean): number | undefined {
+  return trim && target ? Math.round((target * TRIM_HEADROOM) / 100) * 100 : target;
+}
+
 /** 新写的正文不到这么多字就不跑这一轮：几句话没什么可删的，白花一次调用。 */
 export const TRIM_MIN_CHARS = 200;
 

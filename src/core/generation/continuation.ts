@@ -48,6 +48,8 @@ import { CancelledError, StopSignal } from '../llm/provider';
 import { countWords } from '../model/fs';
 import { MANUSCRIPT_DONE_RATIO, MAX_CONTINUE_ROUNDS, WriteMode } from '../model/pipeline';
 import {
+  DIALOGUE_FLOOR,
+  dialogueShare,
   EarlyEntrance,
   NotYet,
   SIMILE_LIMIT,
@@ -209,8 +211,13 @@ export interface ManuscriptChainContext {
   mode: WriteMode;
   /** 本章已有的正文（`continue` 写法才有）。「写到多少字了」连它一起算。 */
   existing: string;
-  /** 目标字数。缺席时不自动续写（`shouldContinue`）。 */
+  /** 目标字数。缺席时不自动续写（`shouldContinue`）。卡片上的「写够了没有」、删修饰的保底按它算。 */
   target?: number;
+  /**
+   * 续写往哪儿写：该不该再续、还差多少字按它算。开着删修饰时比 `target` 多两成（`writingAim`），
+   * 删完落在目标附近；缺席就是 `target`。
+   */
+  aim?: number;
   /** 上一章的结尾（重演检测用）。第 1 章、上一章还没写正文时缺席。 */
   prevEnding?: string;
   /** 第一次调用有没有思考——截断且没几个字时，报错的说法不一样。 */
@@ -261,6 +268,7 @@ export async function completeManuscript(
   // 显式标注类型：`t.fail()` 返回 never，TS 只对显式标注的变量做控制流收窄。
   const t: Tally = new Tally(true);
   const base = ctx.existing.trim();
+  const aim = ctx.aim ?? ctx.target;
   // 「接着写」的第一次调用也可能把已写的最后几句复述一遍：一样去重叠。
   let added = joinContinuation(base, cleanOutput(first.text)).added;
   let stop = first.stop;
@@ -311,7 +319,7 @@ export async function completeManuscript(
   };
   const usedBanned = (text: string) => (ctx.banned?.length ? countBanned(text, ctx.banned) : []);
   let lastGain = Number.POSITIVE_INFINITY;
-  while (shouldContinue({ words: total(), target: ctx.target, stop, rounds })) {
+  while (shouldContinue({ words: total(), target: aim, stop, rounds })) {
     // 正常收尾、而上一轮只多了几句：模型认为这一章写完了，再催也是注水（上游 GD:1152）。
     if (stop !== 'maxTokens' && lastGain < MIN_ROUND_GAIN) {
       t.note(`续写第 ${rounds} 轮只多了 ${lastGain} 字，模型已经收尾，不再续写`);
@@ -357,10 +365,11 @@ export async function completeManuscript(
         kind: 'continuation',
         tail: continuationTail(written),
         written: before,
-        remaining: ctx.target ? Math.max(0, ctx.target - before) : undefined,
+        remaining: aim ? Math.max(0, aim - before) : undefined,
         recovery: recoveryPending,
         ...(rewinding ? { rewound: true } : {}),
         similes: countSimiles(written),
+        dialogue: dialogueShare(written),
         ...(usedBanned(written).length > 0 ? { banned: usedBanned(written) } : {}),
       },
     });
@@ -416,7 +425,7 @@ export async function completeManuscript(
   // 到了轮数上限、回退之后那一轮还没写成：同样放回去。
   restoreCut();
 
-  if (rounds >= MAX_CONTINUE_ROUNDS && shouldContinue({ words: total(), target: ctx.target, stop, rounds: 0 })) {
+  if (rounds >= MAX_CONTINUE_ROUNDS && shouldContinue({ words: total(), target: aim, stop, rounds: 0 })) {
     t.note(`续写到了上限 ${MAX_CONTINUE_ROUNDS} 轮，没有再续`);
   }
   if (stop === 'other') {
@@ -461,6 +470,10 @@ export async function completeManuscript(
   const similes = countSimiles(chapterText);
   if (similes > SIMILE_LIMIT) {
     t.note(`比喻词${SIMILE_WORDS.map((w) => `「${w}」`).join('')}全章合计 ${similes} 次（${describeSimiles(chapterText)}），超过 ${SIMILE_LIMIT} 次的上限`);
+  }
+  const dialogue = dialogueShare(chapterText);
+  if (dialogue < DIALOGUE_FLOOR) {
+    t.note(`对白段只占 ${Math.round(dialogue * 100)}%（人类网文约三成），读起来像旁白`);
   }
   const banned = usedBanned(chapterText);
   if (banned.length > 0) {

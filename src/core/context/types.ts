@@ -251,6 +251,8 @@ export type ChainStep =
       recovery: boolean;
       rewound?: boolean;
       similes?: number;
+      /** 已写部分对白段的占比（0–1）。低于 `DIALOGUE_FLOOR` 时这一轮提醒多让人物开口。 */
+      dialogue?: number;
       /** 已写部分用到的禁用词与次数：续写那一轮要换掉。 */
       banned?: { term: string; count: number }[];
     }

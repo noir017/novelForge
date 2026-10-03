@@ -24,8 +24,8 @@ let script = [];
 const P1 = '.novelforge/plots/001-夜入青云.md';
 
 /** 两段正文，每段中间夹一个可删的程度副词；第三段是对白。目标 1000 字。 */
-const A = `${filler(420, 1).slice(0, -1)}格外${filler(30, 2)}`;
-const B = `${filler(420, 3).slice(0, -1)}狠狠${filler(30, 4)}`;
+const A = `${filler(520, 1).slice(0, -1)}格外${filler(30, 2)}`;
+const B = `${filler(520, 3).slice(0, -1)}狠狠${filler(30, 4)}`;
 const C = '“这一句是对白，不许动。”';
 const CHAPTER = [A, B, C].join('\n\n');
 const strip = (s, w) => s.replace(w, '');
@@ -120,6 +120,11 @@ describe('删得合格', () => {
     assert.equal(r.draft.untrimmed, CHAPTER);
   });
 
+  test('开着删修饰往多写两成：目标 1000，给模型的是约 1200 字', () => {
+    assert.match(fake.calls[0].at(-1).content, /约 1200 字，不必精确/);
+    assert.equal(r.draft.length.target, 1000);
+  });
+
   test('说明里写删了几段、多少字', () => {
     const note = r.draft.notes.find((n) => n.startsWith('删修饰：'));
     assert.match(note, /3 段里删了 2 段/);
@@ -158,8 +163,8 @@ describe('模型加了字', () => {
 describe('删到八成以下', () => {
   let r;
   before(async () => {
-    // 第 1 段删到只剩六成（合格），第 2 段只删一个词：整章掉到八成以下。
-    const cut = (s) => `${s.slice(0, Math.round(s.length * 0.6))}。`;
+    // 第 1 段删到只剩四成多（合格），第 2 段只删一个词：整章掉到八成以下。
+    const cut = (s) => `${s.slice(0, Math.round(s.length * 0.42))}。`;
     const deep = `[1] ${cut(A)}\n\n[2] ${strip(B, '狠狠')}\n\n[3] ${C}`;
     r = await write([{ text: CHAPTER, stop: 'end' }, { text: deep, stop: 'end' }]);
   });

@@ -72,6 +72,7 @@ import {
 import { Workspace } from '../workspace';
 import { acceptArtifact, acceptPlotBatch } from '../generation/accept';
 import { CallOutcome, ChainError, ChainIO, completeBlueprints, completeConfig, completeRoster } from '../generation/structured';
+import { writingAim } from '../model/trimProse';
 import { ManuscriptChainResult, WriteProgress, completeManuscript } from '../generation/continuation';
 import { planReview, planWriting } from '../generation/generate';
 import { completeReview } from '../generation/review';
@@ -931,10 +932,12 @@ async function writeOne(
     ask: `写第 ${plot.no} 章${plot.title ? `《${plot.title}》` : ''}的正文。`,
   };
   const writing = await planWriting(project, request);
+  // 开着删修饰时往多写一点，删完落在目标附近。
+  const aim = writingAim(writing.target, config.trimModifiers);
   const built: Omit<BuildRequest, 'providerMaxInputTokens'> = {
     ...request,
     writeMode: writing.mode,
-    targetWords: writing.target,
+    targetWords: aim,
     notYet: writing.notYet.map(({ name, no }) => ({ name, no })),
     banned: writing.banned,
   };
@@ -988,6 +991,7 @@ async function writeOne(
     mode: writing.mode,
     existing: writing.existing,
     target: writing.target,
+    aim,
     prevEnding: writing.prevEnding,
     reasoned: false,
     hook: writing.hook,

@@ -65,7 +65,7 @@ import {
   SETTING_SECTION_KEYS,
 } from '../model/settingFile';
 import { CHARACTER_DETAIL_LIMITS, NovelConfig } from '../model/types';
-import { NotYet, SIMILE_LIMIT, SIMILE_WORDS } from '../model/manuscriptCheck';
+import { DIALOGUE_FLOOR, NotYet, SIMILE_LIMIT, SIMILE_WORDS } from '../model/manuscriptCheck';
 import type { ChainStep } from './types';
 
 /**
@@ -299,7 +299,7 @@ function manuscriptSystemPrompt(config: NovelConfig, facts: PromptFacts): string
     '5. 只输出正文。不要输出章节标题、小标题、分隔线、创作说明、字数统计或任何元信息，也不要用 Markdown 符号（* 、# 之类）。',
     '6. 按本章细纲约定的结束状态或章末钩子收束；不在结尾做总结陈词，不擅自新增高潮、突发变故或后续章节的事件。',
     `7. ${ERA_RULE}`,
-    ...(words ? [`8. 篇幅约 ${words} 字。`] : []),
+    ...(words ? [`8. 篇幅约 ${words} 字，不必精确。`] : []),
   ];
   return [
     first
@@ -328,6 +328,13 @@ function manuscriptSystemPrompt(config: NovelConfig, facts: PromptFacts): string
     `叙事语言：简体中文。温度设定 ${config.temperature}，请在保持稳定的前提下让文字有生气。`,
   ].join('\n');
 }
+
+/**
+ * 多让人物开口。人类网文对白段约占三成，novel-test 百章修仙只有 10–14%：交代、对峙、讨价还价都由
+ * 叙述者转述，整章像旁白。写正文三种情形（第 1 章、后续章、续写那几轮）都带这一条。
+ */
+const DIALOGUE_RULE =
+  '多让人物开口：能用对白推进的场面就写成对白——交代、试探、对峙、讨价还价都让人物自己说，不由叙述者转述；带对白的段落大约占三成。';
 
 /**
  * 写正文的输出契约：法则 + 篇幅合同 + 执行卡，**执行卡压在最末**（上游 GD:657 的顺序：
@@ -370,10 +377,11 @@ function manuscriptContract(facts: PromptFacts): string {
       '- 只输出新增正文，不要复述已写内容。',
       '- 从已写正文末尾自然接下去，保持同一场景逻辑或合理转场。',
       remaining !== undefined && remaining > 0
-        ? `- 本次续写尽可能完成剩余约 ${remaining} 字；如果无法达到，停在自然段落末尾。`
+        ? `- 大约再写 ${remaining} 字，不必精确；写不完就停在自然段落末尾。`
         : '- 写到本章细纲约定的结束状态为止；如果一次写不完，停在自然段落末尾。',
       '- 不要输出标题、解释、总结、Markdown、思考过程或「点我继续」。',
       '- 避免重复已写正文中的整句、整段、动作链和意象。',
+      `- ${DIALOGUE_RULE}`,
       '- 不提前写后续章节，只完成本章细纲允许的内容；写到章末钩子就收住，不越过它去写之后的事。'
     );
   } else if (isFirstChapter(facts)) {
@@ -384,7 +392,8 @@ function manuscriptContract(facts: PromptFacts): string {
       '1. 开场即高能（黄金三秒）：绝不要用长篇大论介绍世界观。起笔第一句必须直接切入一个动作、一次高压审问、一场追杀或一个极具落差感的现场。',
       '2. 仅当本章细纲明确要求时才展现主角的金手指；不得为满足通用套路擅自新增事件。',
       '3. 视角内推进：通过动作、感官、内心活动和符合当前视角的对话推动剧情；不得仅为展示信息而让角色公开说出只由其私下感知、尚未转述的内容。',
-      '4. 落实全局要求，避开其中列出的写作问题。'
+      `4. ${DIALOGUE_RULE}`,
+      '5. 落实全局要求，避开其中列出的写作问题。'
     );
   } else {
     lines.push(
@@ -395,17 +404,17 @@ function manuscriptContract(facts: PromptFacts): string {
       '2. 动作驱动：用人物的动作和对白推动剧情，不要写「他们聊了很久」这种概述。',
       `3. 落实本章核心冲突：${words ? `用约 ${words} 字的篇幅，` : ''}踏踏实实地推演完本章目标，避免平淡流水账。`,
       '4. 章节收束：仅落实本章细纲明确要求的悬念或结束状态；未明确要求时自然断章，不得擅自新增高潮、突发变故或后续事件。',
-      '5. 落实全局要求，避开其中列出的写作问题；与上文的语气、称谓、时态保持一致。'
+      `5. ${DIALOGUE_RULE}`,
+      '6. 落实全局要求，避开其中列出的写作问题；与上文的语气、称谓、时态保持一致。'
     );
   }
 
+  // 篇幅只给一个大概：不给区间、不要它数字数——字数够不够由续写链按磁盘数，模型的心思该花在场面上。
   if (words && !continuing) {
-    const low = Math.round(words * 0.8);
-    const high = Math.round(words * 1.2);
     lines.push(
       '',
-      '【本章篇幅合同】',
-      `目标 ${words} 字；可接受范围 ${low}–${high} 字（±20%）。在此篇幅内完整落实本章细纲中的全部作者任务和必需事件；不得为满足篇幅而删除、改写或截断这些要求，也不要为凑字数增加无关内容。`
+      '【本章篇幅】',
+      `约 ${words} 字，不必精确，也不用数字数：把本章细纲的事件逐个写足、场面写开就行。不要为凑字数增加无关内容。`
     );
   }
 
@@ -443,6 +452,11 @@ function boundaryCard(facts: PromptFacts): string {
     );
   } else {
     lines.push(`- 比喻词：${words}全章合计不超过 ${SIMILE_LIMIT} 次。`);
+  }
+  if (step?.dialogue !== undefined && step.dialogue < DIALOGUE_FLOOR) {
+    lines.push(
+      `- 对白：已写部分带对白的段只占 ${Math.round(step.dialogue * 100)}%，读起来像旁白。接下来的场面多让人物开口，对峙、交代、讨价还价都写成对白。`
+    );
   }
   if (step?.banned?.length) {
     lines.push(`- 禁用词：已写部分用了${step.banned.map((b) => `「${b.term}」${b.count} 次`).join('、')}，续写部分不许再用，换成这个故事里的人会说的话。`);

@@ -1450,12 +1450,11 @@ describe('装配：四阶段配方', () => {
     assert.ok(full >= 0 && full < plot && plot < askAt, `${full} / ${plot} / ${askAt}`);
   });
 
-  // 三期：目标字数只在篇幅合同里说一次（±20%），从前另有一行「约 N 字（±15%）」，
-  // 两个比例谁也分不清哪个算数。
-  test('目标字数写进系统提示与篇幅合同', () => {
-    assert.ok(mc.messages[0].content.includes('篇幅约 1200 字'), mc.messages[0].content);
-    assert.ok(lastOf(mc).includes('目标 1200 字；可接受范围 960–1440 字（±20%）'), lastOf(mc).slice(-600));
-    assert.ok(!lastOf(mc).includes('±15%'));
+  // 篇幅只给一个大概，不给区间：字数够不够由续写链按磁盘数，不让模型在数字数上花心思。
+  test('目标字数写进系统提示与篇幅，只给大概', () => {
+    assert.ok(mc.messages[0].content.includes('篇幅约 1200 字，不必精确'), mc.messages[0].content);
+    assert.ok(lastOf(mc).includes('【本章篇幅】\n约 1200 字，不必精确'), lastOf(mc).slice(-600));
+    assert.ok(!/±\d+%/.test(lastOf(mc)));
   });
 
   // 五期补遗 §1.5：民国背景的书里冒出 PTSD。正文与前面几个阶段的系统提示都带这一条。

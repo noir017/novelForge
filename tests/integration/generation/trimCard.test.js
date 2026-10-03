@@ -28,8 +28,8 @@ let script = [];
 const merges = [];
 let answer;
 
-const A = `${filler(420, 1).slice(0, -1)}格外${filler(30, 2)}`;
-const B = `${filler(420, 3).slice(0, -1)}狠狠${filler(30, 4)}`;
+const A = `${filler(520, 1).slice(0, -1)}格外${filler(30, 2)}`;
+const B = `${filler(520, 3).slice(0, -1)}狠狠${filler(30, 4)}`;
 const CHAPTER = [A, B].join('\n\n');
 const TRIMMED = [A.replace('格外', ''), B.replace('狠狠', '')].join('\n\n');
 const GOOD = `[1] ${A.replace('格外', '')}\n\n[2] ${B.replace('狠狠', '')}`;
