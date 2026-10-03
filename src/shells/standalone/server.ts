@@ -15,6 +15,8 @@ import {
   setSinkLevel,
 } from '../../core/runtime/logger';
 import { InMessage, OutMessage } from '../../core/protocol';
+import { createMcpBackend } from '../../core/controller';
+import { MCP_PATH, createNovelMcp } from '../../core/mcp';
 import { FileConfigStore, FileSecretStore } from '../../core/stores';
 import { assetBytes } from './assets';
 import { FileHost } from './fileHost';
@@ -61,12 +63,29 @@ export async function startServer(opts: ServeOptions): Promise<number> {
   const hub = new WorkspaceHub({ broadcast, host, windowDir: opts.windowDir });
   await hub.bootstrap(opts.root);
 
+  // 外部 agent（Claude Code 之类）从这里接进来，落到当前打开的那个工程上。
+  // 没打开工程时工具照样列得出来，调用回一句「先打开工程」。
+  let port = opts.port;
+  const mcp = createNovelMcp(
+    () => {
+      const chat = hub.activeController();
+      return chat ? createMcpBackend(chat) : undefined;
+    },
+    { allowOrigin: (origin) => isAllowedOrigin(origin, port) }
+  );
+
   const server = Bun.serve({
     port: opts.port,
     hostname: '127.0.0.1',
 
     fetch(req, server) {
       const url = new URL(req.url);
+      if (url.pathname === MCP_PATH) {
+        // 一次工具调用可能跑几分钟（写一章），期间连接上一个字节都没有。Bun 缺省 10 秒
+        // 空闲就断，这里对这一个请求关掉。
+        server.timeout(req, 0);
+        return mcp.handle(req);
+      }
       if (url.pathname === '/ws') {
         // 服务无鉴权，只靠「仅绑 127.0.0.1」保护。恶意网页无法读跨源
         // WebSocket 的响应，但能发消息（WS 不受同源策略约束），
@@ -147,9 +166,12 @@ export async function startServer(opts: ServeOptions): Promise<number> {
     },
   });
 
+  port = server.port;
+
   // 走日志而不是裸 console.log：终端 sink 会把它打出来，网页的日志页也留一条。
   const rootLabel = hub.snapshot().items[0]?.root ?? '未打开工程';
   log.info(`服务已启动：http://127.0.0.1:${server.port}/`, `工程根 ${rootLabel}`);
+  log.info(`MCP 已就绪：http://127.0.0.1:${server.port}${MCP_PATH}`, `claude mcp add --transport http novelforge http://127.0.0.1:${server.port}${MCP_PATH}`);
   return server.port;
 }
 

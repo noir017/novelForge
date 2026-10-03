@@ -1,8 +1,8 @@
 /**
  * 每个工具自报的**意图**：这一步是什么性质、问的时候怎么说。
  *
- * 从前这些话写在 agent 的 `policy.ts` 里（一个按工具名分支的 switch）。
- * 搬到工具这一侧之后，判定表那边只剩五行（`tests/unit/agent/policy.test.js`），
+ * 从前这些话写在内置 agent 的 `policy.ts` 里（一个按工具名分支的 switch）。
+ * 现在按 `gate` 档位决定问不问的是 MCP 执行端（`controller/mcp.ts`），
  * 而**说辞与它描述的那件事在同一个文件里**——改了 `write` 的行为，眼皮底下
  * 就是它要对作者说的话。
  *
@@ -11,10 +11,9 @@
  * 1. **`write` 覆盖 = `reviewed`**——下游 `ws.write` 带 diff 请人过目，
  *    不该在它之前再问一句「确定吗」。
  * 2. **`edit` = `always`**——`ws.edit` 不走 diff，那一句确认就是它的 diff，
- *    放手模式也不能免。
+ *    任何调用方都不能免。
  *
- * 这里不给 project（纯单测），名字退回路径本身；带工程时的名字由
- * `tests/integration/agent/gate.test.js` 验。
+ * 这里不给 project（纯单测），名字退回路径本身。
  */
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -69,7 +68,7 @@ describe('generate：花钱但不写盘', () => {
     assert.ok(!g().title.startsWith('Agent'), g().title);
   });
 
-  // 按钮上一律是「确认」（`policy.ts` 的 `PROCEED_ACTION`）：动词已经在
+  // 按钮上一律是「确认」（`controller/gate.ts` 的 `PROCEED_ACTION`）：动词已经在
   // title 上了，工具不必再各报一个。
   test('不再自报按钮上的字', () => {
     assert.equal(g().proceed, undefined);
@@ -144,7 +143,7 @@ describe('run：工程动作', () => {
     assert.ok(i().title.includes('batchPlots'), i().title);
   });
 
-  // 放手模式下这里不问，但 pipelineBatch 自己那个「预计调用 N 次」照弹。
+  // 这里不问（`mutating` 档），但 pipelineBatch 自己那个「预计调用 N 次」照弹。
   test('提醒了随后还会告诉他调几次', () => {
     assert.ok(i().detail.includes('预计调用几次'), i().detail);
   });

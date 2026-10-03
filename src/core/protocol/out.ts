@@ -55,13 +55,6 @@ export type OutMessage =
    */
   | { type: 'streamReset'; turnId: string; text: string }
   /**
-   * agent 循环开了新的一步。前端画一行「第 N 步」。
-   *
-   * 与 `runTask` 的进度条不冲突：那个说的是「这个长任务跑了多久」，
-   * 这个说的是「它现在在做第几件事」。
-   */
-  | { type: 'agentStep'; turnId: string; step: number; message: string }
-  /**
    * agent 要调一个工具了。前端在气泡里挂一条折叠条。
    *
    * `argsText` 是模型填的参数（JSON 文本，已截断）：展开那一条就能看到它这一步
@@ -105,8 +98,8 @@ export type OutMessage =
    * `turnId` / `callId` 仍然带着：答完之后前端往那一轮的工具串（或产物正文
    * 下面）补一行「已跳过/已允许」当记录。
    *
-   * **两种问法共用这一条**：agent 动手前的闸门（`agent/policy.ts`），以及
-   * **产物落盘前那一句**（第 19 条，任何模式下都问）。两种都只有两颗按钮
+   * **两种问法共用这一条**：外部 agent 的 `always` 动作动手前（`controller/mcp.ts`），以及
+   * **产物落盘前那一句**（第 19 条，任何情况下都问）。两种都只有两颗按钮
    * ——**叫停整轮不在这张卡上**，那是输入框旁边那颗「停止」；与「这一个
    * 文件要不要动」是两件事，混进闸门只会被误当成「跳过」。
    *
@@ -149,16 +142,6 @@ export type OutMessage =
    * 一边收卡片的话，另一边会留着一张点了没反应的卡。
    */
   | { type: 'gateDone'; requestId: string; verdict: 'proceed' | 'skip' | 'cancelled' }
-  /** 一次 agent 循环结束。`message` 在非正常结束时说明为什么停。 */
-  | {
-      type: 'agentDone';
-      turnId: string;
-      stopReason: string;
-      message: string;
-      steps: number;
-      calls: number;
-      tokens: number;
-    }
   | { type: 'turnDone'; turn: SerializedTurn }
   | { type: 'context'; turnId: string; digest: SerializedDigest }
   | { type: 'busy'; value: boolean }

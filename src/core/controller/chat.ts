@@ -4,8 +4,8 @@ import { describeArtifact } from '../features/artifact';
 import { acceptArtifact as writeArtifact, plannedCards } from '../generation/accept';
 import { Draft, generate, parseDraftArtifact } from '../generation/generate';
 import { getHost } from '../host';
-import type { GateVerdict } from '../agent/policy';
 import { askGate, askGateNoted, cancelGates } from './gate';
+import type { GateVerdict } from './gate';
 import { scoped } from '../runtime/logger';
 import {
   ChatSession,
@@ -506,11 +506,11 @@ async function targetWordsOf(c: ChatController, target: CreationTarget): Promise
  * 已经写过。现在它和别的动手请求（写文件、改一段字）长一个样、在同一个
  * 位置、**产出的当下就问**（[gate.ts](gate.ts)）。
  *
- * ## 与策略无关
+ * ## 不交给宿主的权限配置
  *
- * `agent/policy.ts` 那张五档表管的是「动手之前要不要先问一句」，三种模式
- * 各有各的松紧。这一问不在那张表里：**任何模式下都问**，包括「放手」。
- * 那是产品承诺（第 19 条），不是偏好设置。
+ * 外部 agent 的宿主（Claude Code 之类）自己有一层「让不让调这个工具」的权限，
+ * 可以被设成全自动。这一问不在那一层：**任何情况下都问**（`controller/mcp.ts`
+ * 产出草稿后照样走这里）。那是产品承诺（第 19 条），不是偏好设置。
  *
  * ## 落点从 draft 里取，不由前端传
  *

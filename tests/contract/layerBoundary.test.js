@@ -1,21 +1,23 @@
 /**
- * 架构不变式：**工具层与 agent 层互不缠绕。**
+ * 架构不变式：**工具层与 MCP 端口互不缠绕，MCP 端口不伸手进别的层。**
  *
- * 这条守的是「工具将来能端出去（MCP）、agent 是可换的轻量实现」这两件事。
- * 从前两层互相伸手——工具体里 `ctx.budget.calls += 1`，闸门反过来按工具名
- * switch 还 import 了 `tools/write`——于是**谁都搬不动**：想把工具端出去，
- * 得先把 agent 的预算对象一起端出去。
+ * 工具（`src/core/tools/`）是 Novel Forge 对外的那一份能力：七个工具的契约、注册表、实现。
+ * MCP（`src/core/mcp/`）只是把这份契约端出去的一个传输——它认识工具的形状（`ToolSpec`），
+ * 真正执行交给壳注入的 `McpBackend`（由 `controller/mcp.ts` 拼出来）。从前工具体里
+ * `ctx.budget.calls += 1`、闸门反过来 import `tools/write`，谁都搬不动；这里守的就是
+ * 别再长回去。
  *
  * 三条：
  *
- * 1. `src/core/tools/` **一行都不 import `agent/`**。反过来会成环，也会让
- *    「另起一个调用方」变成一件要先读懂 agent 的事。
- * 2. `src/core/agent/` 只 `import type` 那一份契约（`tools/types.ts`）。
- *    拿到运行时的东西（具体工具、注册表）就等于又把工具集钉死在循环里了。
+ * 1. `src/core/tools/` **一行都不 import `mcp/` 或 `controller/`**。反过来会成环，也会让
+ *    「另起一个调用方」变成一件要先读懂 MCP 或 controller 的事。
+ * 2. `src/core/mcp/` 只认 `../tools/`（契约、注册表、那一套工具）与 `../runtime/`（日志）。
+ *    controller、workspace、generation 这些由 backend 注入，不直接 import——否则端口就
+ *    钉死在某一个宿主上了。
  * 3. 工具体不认识预算：**`budget` 这个词在 `tools/novel/` 里不该出现**
  *    （工具只 `usage.record(n)` 报数，上限是调用方的事）。
  *
- * 谁绑工具、谁跑循环，见 `src/core/tools/README.md` 的那张分层图。
+ * 谁绑工具、谁接调用，见 `src/core/tools/README.md` 的那张分层图。
  */
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -24,7 +26,7 @@ const path = require('path');
 const { ROOT } = require('../helpers/load');
 
 const TOOLS = path.join(ROOT, 'src', 'core', 'tools');
-const AGENT = path.join(ROOT, 'src', 'core', 'agent');
+const MCP = path.join(ROOT, 'src', 'core', 'mcp');
 
 function listTsFiles(dir) {
   const out = [];
@@ -50,16 +52,21 @@ function imports(file) {
   return out;
 }
 
-describe('tools 不认识 agent', () => {
+describe('tools 不认识调用方', () => {
   const files = listTsFiles(TOOLS);
 
   test('至少扫到了文件（防止路径写错导致空跑通过）', () => {
     assert.ok(files.length > 0, TOOLS);
   });
 
-  test('没有任何一处 import agent/', () => {
-    const bad = files.filter((f) => imports(f).some((i) => /(^|\/)agent\//.test(i.from)));
-    assert.deepEqual(bad.map(rel), [], 'tools 层反向依赖了 agent');
+  test('没有任何一处 import mcp/ 或 controller/', () => {
+    const bad = [];
+    for (const f of files) {
+      for (const i of imports(f)) {
+        if (/(^|\/)(mcp|controller)(\/|$)/.test(i.from)) bad.push(`${rel(f)} → ${i.from}`);
+      }
+    }
+    assert.deepEqual(bad, [], 'tools 层反向依赖了调用方');
   });
 
   // 工具只会说「我调了 2 次模型」，连上限是多少都不知道。
@@ -71,28 +78,33 @@ describe('tools 不认识 agent', () => {
   });
 });
 
-describe('agent 只认那一份契约', () => {
-  const files = listTsFiles(AGENT);
+describe('mcp 只认工具契约与运行时', () => {
+  const files = listTsFiles(MCP);
 
   test('至少扫到了文件', () => {
-    assert.ok(files.length > 0, AGENT);
+    assert.ok(files.length > 0, MCP);
   });
 
-  test('引用 tools/ 的地方一律是 import type', () => {
+  // 同目录（./）、node 内建（node:）、../tools/、../runtime/ 之外一律不许。
+  test('import 只来自 ./、node:、../tools/、../runtime/', () => {
+    const ok = /^(\.\/|node:|\.\.\/tools(\/|$)|\.\.\/runtime(\/|$))/;
     const bad = [];
     for (const f of files) {
       for (const i of imports(f)) {
-        if (/(^|\/)tools\//.test(i.from) && !i.typeOnly) {
-          bad.push(`${rel(f)} → ${i.from}`);
-        }
+        if (!ok.test(i.from)) bad.push(`${rel(f)} → ${i.from}`);
       }
     }
-    assert.deepEqual(bad, [], 'agent 层拿了工具层的运行时代码');
+    assert.deepEqual(bad, [], 'mcp 层直接伸手进了别的层');
   });
 
-  // 具体是哪七个工具是调用方（controller）的选择，不是循环的。
-  test('不 import 任何一个具体工具', () => {
-    const bad = files.filter((f) => imports(f).some((i) => /tools\/novel/.test(i.from)));
-    assert.deepEqual(bad.map(rel), [], 'agent 层把某一套工具钉死了');
+  // 具体执行由壳注入的 backend 做；端口本身不认识哪一个宿主。
+  test('不碰 controller / workspace / generation', () => {
+    const bad = [];
+    for (const f of files) {
+      for (const i of imports(f)) {
+        if (/(^|\/)(controller|workspace|generation)(\/|$)/.test(i.from)) bad.push(`${rel(f)} → ${i.from}`);
+      }
+    }
+    assert.deepEqual(bad, [], 'mcp 层钉死在某个宿主上了');
   });
 });

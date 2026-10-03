@@ -229,7 +229,6 @@ describe('生成中的限制', { skip: JSDOM_SKIP }, () => {
 describe('空输入', { skip: JSDOM_SKIP }, () => {
   let ui;
   const sends = () => ui.sent.filter((m) => m.type === 'send').length;
-  const agentSends = () => ui.sent.filter((m) => m.type === 'sendAgent').length;
   /** 从 `/` 面板挑一个命令，挑完输入框是空的。 */
   const pickCommand = (label) => {
     const input = ui.doc.getElementById('input');
@@ -250,18 +249,26 @@ describe('空输入', { skip: JSDOM_SKIP }, () => {
     });
   });
 
-  // 直接发送走的是 agent，而 agent 的全部输入就是作者那句话——没有话就没得跑。
+  // 直接发送是在当前阶段讨论，讨论的全部输入就是作者那句话——没有话就没得聊。
   test('直接发送仍然要求先输入', () => {
     ui.doc.getElementById('input').value = '';
     ui.clickEl(ui.doc.getElementById('sendBtn'));
-    assert.equal(sends() + agentSends(), 0);
+    assert.equal(sends(), 0);
+  });
+
+  test('有话就发 send，能力是讨论', () => {
+    ui.doc.getElementById('input').value = '这一章节奏是不是太慢';
+    ui.clickEl(ui.doc.getElementById('sendBtn'));
+    assert.equal(sends(), 1, String(sends()));
+    assert.equal(ui.last('send').payload.capability, 'discuss', JSON.stringify(ui.last('send').payload));
+    ui.post({ type: 'busy', value: false });
   });
 
   // 而 `/写细纲` 不需要作者再说什么——这一章该发生什么，大纲里覆盖它的那一节都写着。
   test('生成类命令允许空输入', () => {
     pickCommand('写细纲');
     ui.clickEl(ui.doc.getElementById('sendBtn'));
-    assert.equal(sends(), 1, String(sends()));
+    assert.equal(sends(), 2, String(sends()));
     assert.equal(ui.last('send').payload.capability, 'generate', JSON.stringify(ui.last('send').payload));
   });
 });

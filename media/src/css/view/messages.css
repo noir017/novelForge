@@ -49,6 +49,15 @@
   color: var(--vscode-foreground);
 }
 
+/* 外部 agent 经 MCP 留下的气泡：角色名旁一枚小标签。 */
+.msg-tag {
+  padding: 0 5px;
+  border-radius: 3px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
 .msg-body {
   white-space: pre-wrap;
   word-break: break-word;
@@ -483,33 +492,6 @@ details.tool-row > summary.tool-line:hover {
 
 .gen-args .tool-detail {
   margin-left: 0;
-}
-
-/* 一轮 agent 的花销：几步、几次生成、大约多少 token（第 4 条）。
-   一条细分隔线把它与回答分开——它是账单，不是话。 */
-.agent-run {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
-  font-size: 0.82em;
-  color: var(--vscode-descriptionForeground);
-}
-
-.agent-run-cost {
-  flex: 0 0 auto;
-}
-
-/* 「为什么只做到这里」——toast 五秒就没了，这一行留得住。 */
-.agent-run-why {
-  flex: 1 1 auto;
-}
-
-.agent-run-stopped .agent-run-why {
-  color: var(--vscode-editorWarning-foreground, #cca700);
 }
 
 /* ---- 写正文的进度（W7）：气泡顶上一行字 + 一条细进度条。

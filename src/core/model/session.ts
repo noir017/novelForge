@@ -156,7 +156,7 @@ export interface ChatTurn {
    * 是在哪一步之后说的；而 `content` 存的还只是**最后一回合**那段文字，跑的
    * 时候看到的和第二天翻回来看到的不是一份东西。
    *
-   * 只有 agent 那条路写它。单步创作（写细纲、写正文）没有工具，一块正文就是
+   * 只有 MCP 那条路写它。单步创作（写细纲、写正文）没有工具，一块正文就是
    * 全部——那条路不产生段，气泡照旧画成一块可就地编辑的正文。
    */
   segments?: TurnSegment[];
@@ -168,21 +168,10 @@ export interface ChatTurn {
    */
   toolCalls?: TurnToolCall[];
   /**
-   * 仅 assistant 轮：这一轮 agent 的花销与结局。
-   *
-   * **落盘**（第 4 条）：只在跑的时候闪一下的话，作者第二天回来翻这一轮
-   * 就看不出它花了多少钱。
+   * 仅 assistant 轮：这是外部 agent 经 MCP 调工具留下的气泡（`controller/mcp.ts`）。
+   * 连着几次调用接在同一个气泡里；作者说了话就另起一个。
    */
-  agentRun?: TurnAgentRun;
-}
-
-/** 一轮 agent 的花销与结局。只够画一行。 */
-export interface TurnAgentRun {
-  steps: number;
-  calls: number;
-  tokens: number;
-  stopReason: string;
-  message?: string;
+  mcp?: boolean;
 }
 
 /**
@@ -216,7 +205,7 @@ export interface TurnToolCall {
    * 回给模型的那段文本（已截断）。同样只在展开后画。
    *
    * **截断是必须的**：这份东西随会话落盘，一轮几十次调用的完整返回值会把
-   * 会话文件撑成几兆。截断点在 `controller/agent.ts`，那里也是唯一知道
+   * 会话文件撑成几兆。截断点在 `controller/mcp.ts`，那里也是唯一知道
    * 「界面要画多长」的地方。
    */
   resultText?: string;
@@ -225,10 +214,9 @@ export interface TurnToolCall {
    *
    * 与 `resultText` 不是一回事：那是回给模型的一句「已生成 4/4 节」，这是作者
    * 要读的那几千字。它走的是另一条通道（`ToolRun.onDelta` → 协议 `toolDelta`），
-   * 从前和模型自己说的话混进同一块正文里，刷新之后又整份消失——存下来，气泡
-   * 里那张卡片才画得回来。
+   * 存下来，刷新之后气泡里那张卡片才画得回来。
    *
-   * 截断点在 `controller/agent.ts`（那里也是唯一知道界面要画多长的地方），
+   * 截断点在 `controller/mcp.ts`（那里也是唯一知道界面要画多长的地方），
    * 截了会自报（第 2 条）。
    */
   output?: string;

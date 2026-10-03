@@ -141,6 +141,52 @@ describe('WebSocket 与 Origin 校验', () => {
 
 // ---------------------------------------------------------------------------
 
+describe('MCP：外部 agent 的入口', () => {
+  const rpc = (id, method, params = {}) => ({ jsonrpc: '2.0', id, method, params });
+  const mcpPost = (body, headers = {}) =>
+    fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers },
+      body: JSON.stringify(body),
+    });
+  let init;
+  let sid;
+  let tools;
+  let read;
+  let evil;
+
+  before(async () => {
+    const res = await mcpPost(rpc(1, 'initialize', { protocolVersion: '2025-06-18', clientInfo: { name: 'e2e' } }));
+    sid = res.headers.get('mcp-session-id');
+    init = await res.json();
+    tools = await (await mcpPost(rpc(2, 'tools/list'), { 'mcp-session-id': sid })).json();
+    read = await (
+      await mcpPost(rpc(3, 'tools/call', { name: 'list', arguments: { path: '.novelforge' } }), { 'mcp-session-id': sid })
+    ).json();
+    evil = await mcpPost(rpc(4, 'ping'), { origin: 'http://evil.example.com' });
+  });
+
+  test('initialize 回会话 id 与版本', () => {
+    assert.ok(sid);
+    assert.equal(init.result.protocolVersion, '2025-06-18');
+  });
+
+  test('列得出七个工具', () => {
+    assert.equal(tools.result.tools.length, 7);
+  });
+
+  test('只读调用落到当前打开的工程上，附带状态简报', () => {
+    assert.equal(read.result.isError, false, read.result.content[0].text);
+    assert.ok(read.result.content[0].text.includes('# 当前工程'), read.result.content[0].text);
+  });
+
+  test('跨源请求 403', () => {
+    assert.equal(evil.status, 403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
 describe('内置编辑器：只读用例', () => {
   let opened;
   let escaped;

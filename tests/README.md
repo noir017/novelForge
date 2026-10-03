@@ -78,10 +78,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 |---|---|
 | `tools/registry.test.js` | 工具注册表：`specs()` 只透传 name/description/parameters（`run` / `intent` 漏进去会炸 API）、重名与非法名直接抛、**参数必须扁平**（嵌套对象与对象数组一律拒——那是模型最容易填错的地方）、工具与每个参数都必须有描述、`required` ⊆ `properties`；**`invoke` 绝不抛**（认不出的名字与工具自己炸掉都变成一条模型读得懂的结果）、工具没报意图时兜的那一档 |
 | `tools/intent.test.js` | 七个工具**自报的意图**：五档归类（读三件 auto、generate costly、write 新建 mutating、**write 覆盖 reviewed**、**edit always**）与确认框上的话——花钱要说、产出之后还会再问一次落盘要说、edit 要写出 old → new。后两档是产品承诺，不是偏好设置 |
-| `agent/policy.test.js` | 三种模式 × 五档那张表；`reviewed` 与 `always` 在三种模式下**逐字相同**；说辞原样来自工具、只补一个主语；拒绝之后回给模型的话有信息量（「不要重试同一个动作」）。**这个文件不认识任何一个工具名** |
-| `agent/gateAsk.test.js` | 权限询问的收发（`controller/gate.ts`，闸门与产物落盘共用）：卡片的身份与按钮上的字都从后端来、答了才落地、**广播 `gateDone`**（两个视图都要收卡）、答第二次不算数、认不出的 requestId 静默丢弃、**重连时还没答的原样重推**（前端无状态）、取消按「停止」结算、`cancelGates` 收掉没答的那些；**卡片上只有两颗按钮**（调用方能改字，改不出第三颗） |
-| `agent/budget.test.js` | 三条上限（回合 / 生成次数 / token）各一条、**无进展检测**的两连（提示）与三连（停）、换参数换工具与「中间隔了别的动作」都不算重复、键序不同但内容相同算重复；以及第 11 条——**日志只有工具名与参数键名，没有参数值** |
-| `agent/context.test.js` | agent 上下文压缩：装得下就一个字不动、超预算时 system 与最后 6 轮完整保留而更早的工具结果只剩第一行、压缩时打 warn、压不下去时给停下的信号且**用户最初那句要求还在** |
+| `controller/gateAsk.test.js` | 权限询问的收发（`controller/gate.ts`，MCP 调用动手前那一问与产物落盘共用）：卡片的身份与按钮上的字都从后端来、答了才落地、**广播 `gateDone`**（两个视图都要收卡）、答第二次不算数、认不出的 requestId 静默丢弃、**重连时还没答的原样重推**（前端无状态）、取消按「停止」结算、`cancelGates` 收掉没答的那些；**卡片上只有两颗按钮**（调用方能改字，改不出第三颗） |
 | `workspace/kind.test.js` | 路径 → 种类的一张表：架构三件（带 `doc`）/大纲/细纲/章节/摘要/角色/设定/草稿各自的判定；**细纲平铺**（`plots/` 下的卷子目录判 `other`）；**章节不认扩展名**（无扩展名、`.txt` 都算，`.png` 不算）而角色/细纲仍只认 `.md`；章节不带创作目标；`summaries/global.md` 不被当成第 0 章的摘要；**老工程留下的 `scenes/`、`volumes/`、`manuscripts/` 判成 `other`**（磁盘不动、代码不认）；越界一律 `other` 且 `rel: undefined`、绝不抛；`pathOfTarget` 与 `kindOfPath` 往返，正文落点不走 `pathOfTarget` |
 | `model/markdown.test.js` | frontmatter 解析（行内/块状数组、畸形行不抛错）、小节抽取、`extractH1`/`stripH1` 互逆、序列化往返 |
 | `model/chapterFile.test.js` | 章节文件名规则：任意非二进制扩展名 / 无扩展名算章节、二进制黑名单被挡、`extractH1` 只看首行 |
@@ -136,12 +133,11 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 |---|---|
 | `tools/readTools.test.js` | 只读三件套：list 的 60 项上限与「还有 N 项未列出」、read 的行号与「第 X–Y 行未读」（含接着读的 offset）、search 的章号升序与 `dropped > 0` 时那行 ⚠；**越界与不存在一律给 `error` 不抛**（模型看得到才换得了路）；跑完三个工具磁盘 mtime 一个都不变 |
 | `tools/generateTool.test.js` | `generate` 工具：draft 落进 store 而**返回文本里没有正文**（三千字塞回循环，每走一步重烧一遍）、层与能力的组合问 `STAGE_CAPABILITIES`、`settle` 明确不支持并指路对话页、认不出的路径给 error 且一次模型都不调、`history` 恒为空、正文层走 `config.active`、**失败也照样报一次账**（请求发出去钱就花了）、**工具自己不提上限**（「已用 1/10」那句是调用方的） |
-| `tools/generateTiers.test.js` | `generate` 用哪个模型：细纲走 `plotOutline` 档、**架构走 `setting` 档**（六期，与工程页「补齐设定」同一个），正文与大纲严格用对话页那个；档位没配退回对话页那个；审稿当场拒绝、一次都不调；删掉的层没留下档位；「Agent 调度」是独立的一档 |
+| `tools/generateTiers.test.js` | `generate` 用哪个模型：细纲走 `plotOutline` 档、**架构走 `setting` 档**（六期，与工程页「补齐设定」同一个），正文与大纲严格用对话页那个；档位没配退回对话页那个；审稿当场拒绝、一次都不调；删掉的层没留下档位；`agent` 不再是一项任务档位（调度交给外部 agent 了） |
 | `tools/runTool.test.js` | `run` 工具：白名单之外一律拒（删除类与 `split` 说清「这是有意的」）；确认框照弹、作者不同意就一次都不调并说清「不要重试」；预计次数报给调用方记账；批量拆细纲与批量写章走既有流程（正文落同号章节、细纲上记 `writtenFrom`）；定稿按章号认；**区间与模式**（六期）：`from` / `to` / `mode` / `review` 转给批量写章并写进确认框与动手前那一问、只给 `from` 按缺省章数往后数、参数不对当场报错不弹框；**补齐故事架构**转发工程页那个动作 |
 | `tools/editTool.test.js` | `edit` 工具：唯一才改（命中多处且没给 all 时报错并说清几处）等五件事 |
-| `tools/writeTool.test.js` | `write` 工具：agent 的落盘口，这一层特有的五件事（写盘本身由 workspace 的测试守着） |
-| `agent/stateBrief.test.js` | 状态注入：**label 与 hint 与状态机一字不差**（第 20 条的硬断言），把一本书从零走一遍（生成小说配置 → 大纲 → 拆细纲 → 写 / 接着写 / 定稿 → 做完转去报全书下一步 → 写完照实说）；**target 是还没落盘的下一章细纲时也报「写第 N 章细纲」**（与主按钮一致）；老工程（99 章成品、没有架构）全书下一步推回「生成小说配置」、选中的章按章号认；⟳ 超 5 章写「等 N 章」 |
-| `agent/loop.test.js` | agent 循环（脚本化假 provider）：不调工具时一个回合结束、tool 消息形状、连续两次同工具同参数收到提示且**不真跑**、三次停下并仍给一轮总结、预算触顶时最后一轮**不带 tools**、取消停在工具边界且已产出的 draft 保留、工具抛异常变成 error 回给模型、**工具产出的正文走 `onToolDelta`（带 callId）而 `onDelta` 里只剩模型自己说的话**、**上游说要调工具却没把调用发过来时原样重发这一回合**（同一份上下文、气泡里留一句解释、额度按回合归零；连着几次都缺就停在 `stopReason: 'protocol'` 并说清是接口丢了这一段，而「上游没说收尾原因」照旧当成最终回答）、日志里没有 prompt 全文/参数值/正文 |
+| `tools/writeTool.test.js` | `write` 工具：外部 agent 的落盘口，这一层特有的五件事（写盘本身由 workspace 的测试守着） |
+| `views/stateBrief.test.js` | 状态简报（`views/stateBrief.ts`，MCP 贴在工具结果末尾的「# 当前工程」）：**label 与 hint 与状态机一字不差**（第 20 条的硬断言），把一本书从零走一遍（生成小说配置 → 大纲 → 拆细纲 → 写 / 接着写 / 定稿 → 做完转去报全书下一步 → 写完照实说）；**target 是还没落盘的下一章细纲时也报「写第 N 章细纲」**（与主按钮一致）；老工程（99 章成品、没有架构）全书下一步推回「生成小说配置」、选中的章按章号认；⟳ 超 5 章写「等 N 章」 |
 | `generation/structuredChain.test.js` | 生成链经对话页走到落盘：配置截断整份重来、「全局要求」只重写这一节、一句话与规模按弹窗、文风只写进没动过的 `style.md`、保留原文追加生成；角色图谱两段式、截断拆半、关系写到双方卡上；细纲批次截断对半拆且后一半看得见前一半、卡片列出新建的角色卡与降级说明、**漏章 fail-closed**、只改标点的修复收下而改了内容的拒收、单章缺字段紧凑重建；大纲续写只并进那一段、不弹审阅 |
 | `generation/blueprintChain.test.js` | **二期验收**：跟着主按钮从空工程走「一句话 → 配置 → 前提 → 角色图谱 → 世界观 → 大纲第 1–20 章 → 第 1–5 章细纲」，钉住按钮顺序、每一步的装配里有前面几步的产物、一共 7 次调用、一张审阅都不弹、最后转到「写第 1 章」 |
 | `generation/manuscriptChain.test.js` | **三期验收**：跟着主按钮从空工程一路写完前 3 章（二期那六步 → 写 / 定稿 / 写 / 定稿 / 写），第 2 章被截断自动续写一轮、第 3 章开头重演了第 2 章结尾；钉住按钮顺序、写正文那几步报「最多 8 次」、两套法则、第 2 章的装配（不许重演、后几章边界、执行卡的钩子、全局要求）、重演时卡片标红与两段式、一共 13 次调用、一张覆盖审阅都不弹 |
@@ -152,7 +148,6 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `generation/chapterWorkbench.test.js` | 章节工作台后端：`openChapter` 正文开主区、宿主能并排时细纲开旁边（没有 `openBeside` 只开正文、没有正文只开细纲、两样都没有说找不到）；`chapterAction` 接着写等于对这一章按主按钮、没有正文时定稿说无法定稿 |
 | `generation/accept.test.js` | 产物落盘走的是**当场问的那张卡片**（写正文：新写说写入、接着写说追加且不审阅、不带写法再写一次说覆盖并审阅、标题行留着）：卡片说得出写到哪、只有两颗按钮、**没答时磁盘没动静**；落点从 draft 取（答之前切了一章也写对）、落盘的是气泡里当下那份（先 `editTurn` 再点写入）、答「不采纳」一个字不写且气泡上留一行；讨论型回复不问；刷新网页时没答的卡片重推、面板销毁时按「未采纳」结算；并发控制那三条 |
 | `generation/generate.test.js` | `generate()`：产出的 Draft 自带 artifact 与 summary、`cleanOutput` 只对正文层做、失败挂在细纲上成功清掉（取消不算失败）；架构层四件按 target 分辨 |
-| `agent/gate.test.js` | 闸门串起来之后：默认模式下 write 弹一句且**说清写到哪**、两个选项（确认 / 跳过）、跳过则不执行而循环接着跑、**没回答当停止**且仍给最后一轮总结、放手模式新建不问、**覆盖审阅任何模式都在**、读工具从不打断、瞎编的工具名不问；**有 `onGate` 时不弹宿主的框**（面板那条路把这一句画进对话）；以及**产出之后当场问一句落盘**——三种模式都问（第 19 条，不是偏好设置）、结论回给模型、那一问没人答就停下且仍给最后一轮总结、没实现 `onArtifact` 就不问 |
 | `workspace/guard.test.js` | **八条入口守卫**各至少一条：越界（含归一化后仍逃出去的）、工程根包含、固定目录保护、回收站不可改（但读得到）、2MB 上限、同名不覆盖、覆盖审阅（两种宿主 + 文案逐字）、内容 hash 乐观锁 |
 | `workspace/basic.test.js` | `Workspace` 门面：write 的三种 mode、审阅拒绝时一字未改、乐观锁冲突、read 的 `truncated`（不静默截断）、edit 的「old 不唯一就报错」与「要么全成要么全不成」、remove 进 `.trash/` 且同名加序号、move 不覆盖、list 带 `kind` |
 | `workspace/hashChain.test.js` | **记账下沉**：改大纲后直接 `write` / `edit` 细纲文本，`upstreamHash` 跟着更新；**大纲改了哪一节，只标脏那一节覆盖的章**（续写新一节、只改第二幕、改区间标题）；`writtenFrom` 只改细纲 frontmatter、正文字节不动、编辑器改细纲不抹掉它；`plotContentHash` 只哈希三个小节、标 done 不动指纹；**手写的产物永不标脏**；删细纲不碰 `chapters/` 与摘要；摘要 `sourceHash` 记正文、`createChapter` 同名报错且同步 manifest |
@@ -191,7 +186,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `features/lore.test.js` | 自动生成设定：逐章识别次数、跨章合并、分类目录落盘、已有设定必须经审阅 |
 | `features/choices.test.js` | 「让用户挑一个」的清单（角色卡 / 章节）：「＋N 章待读」与工程页同一个算法、没写正文的章说「还没有正文」 |
 | `storage/errorLog.test.js` | 工程库与失败记录：驱动适配层、**关库之后删得掉目录**、纯读取不建库、失败记录生命周期、日志持久化与挂 sink 前的补写、**库不可用时全线静默降级** |
-| `storage/session.test.js` | 会话读写往返（含 agent 那一轮的**段**：顺序原样、`generate` 产出的正文也留得住）、损坏文件容错、列表排序、重命名/删除、id 唯一性、`.novel` → `.novelforge` 迁移 |
+| `storage/session.test.js` | 会话读写往返（含 MCP 留下的那一轮：**段**顺序原样、`generate` 产出的正文也留得住、`mcp` 标记读得回来）、损坏文件容错、列表排序、重命名/删除、id 唯一性、`.novel` → `.novelforge` 迁移 |
 | `llm/streaming.test.js` | 起本地假服务器模拟 SSE：流式解析（跨块切分、CRLF、心跳、非 JSON 行）、取消、超时、**流式还在吐字时不超时**、HTTP 401/404/429，Anthropic 的 system 提取与消息合并，以及**思考深度落成请求字段**（两家各自的 effort 字段、思考开着时不带 temperature）与**上游拒了就换写法**（降一档 / 换一代写法，结论记住不再重试） |
 
 ### `dom/`
@@ -203,9 +198,9 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 
 | 文件 | 覆盖 |
 |---|---|
-| `view/agentTurn.test.js` | agent 那一轮的气泡：`toolCall` 先挂「进行中…」、`toolResult` 就地换成带耗时的最终形态（**不重建气泡**，重建会冲掉正在流的内容）、工具调用打断之后两句话各自成块、重开面板时靠 `turn.segments` 回放（`generate` 画成一张卡，不是一行）、那一行上只有摘要；**直接发送就是 agent**（没挑命令时发 `sendAgent` 且**不带 stage/capability**，挑了 `/命令` 才回到 `send`） |
-| `view/agentSegments.test.js` | **说的话与做的事按发生顺序交替**：说 → 查 → 说各自成块、相邻的调用并进同一串、`toolDelta` 只进 generate 那张卡（不进任何一块正文）、卡默认展开、`toolResult` 换掉头与结论而**卡里那份正文不丢**（落盘结论重推一次也不丢）、生成中说「生成中…」、第一段是工具调用时那块空正文占位撤掉、参数收在再一层折叠里、回放（`segments` + `output`）、有段的那一轮只读而一块正文的那一轮照旧可改 |
-| `view/agentTools.test.js` | 工具流那一串：花销行实时画出且**留得住**、非正常结束把原因写在同一行、失败那步标红保留、停止按钮全程可用；**详情点得开**——那一行仍只画摘要，参数与返回在折叠里，老会话没明细就不长出三角，进行中就查得到参数、结果到了展开状态跟着走 |
+| `view/toolCalls.test.js` | 带工具调用的那一轮气泡：`toolCall` 先挂「进行中…」、`toolResult` 就地换成带耗时的最终形态（**不重建气泡**，重建会冲掉正在流的内容）、工具调用打断之后两句话各自成块、重开面板时靠 `turn.segments` 回放（`generate` 画成一张卡，不是一行）、那一行上只有摘要；**直接发送就是讨论**（没挑命令时发 `send` 且能力是 `discuss`，没有 `sendAgent`；空输入不发） |
+| `view/toolSegments.test.js` | **说的话与做的事按发生顺序交替**：说 → 查 → 说各自成块、相邻的调用并进同一串、`toolDelta` 只进 generate 那张卡（不进任何一块正文）、卡默认展开、`toolResult` 换掉头与结论而**卡里那份正文不丢**（落盘结论重推一次也不丢）、生成中说「生成中…」、第一段是工具调用时那块空正文占位撤掉、参数收在再一层折叠里、回放（`segments` + `output`）、有段的那一轮只读而一块正文的那一轮照旧可改 |
+| `view/toolRows.test.js` | 工具条那一行：MCP 留下的那一轮头上写「外部 Agent」并挂 `MCP` 标签（普通回复不挂）、失败那步标红保留、停止按钮全程可用；**详情点得开**——那一行仍只画摘要，参数与返回在折叠里，老会话没明细就不长出三角，进行中就查得到参数、结果到了展开状态跟着走 |
 | `view/gate.test.js` | 权限请求卡片**固定在输入框上方（`#gateDock`），既不是遮罩层也不进消息流**：卡片在 `.composer` 里、排在输入框之前、说清动的是哪个文件、参数收在折叠里、按钮的字来自后端且同意贴最右、认不出的 turnId 照样画、叠了两张才编号、点下去发回 `gateResult` 并就地撤卡（消息流里补一行 `.gate-note` 记录，广播回来不补第二行）、重连重推不画两张、`gateDone` 让另一个视图也收卡；**落盘那种只有两颗按钮，那一行记录挂在正文下面**；带 `remember` 的预检卡多一格理由与第三颗按钮，填了才能点，理由随 `gateResult` 带回（五期补遗 §2） |
 | `view/chat.test.js` | 流式逐段显示、生成中不可编辑、结束后可编辑、中断与报错、气泡 ... 菜单、空输入、**产物那一行（气泡上没有任何写文件的按钮**，只有「产出过什么 / 已写入哪儿 / 未采纳」）、思考过程 |
 | `view/creation.test.js` | 创作流水线条（架构 / 大纲目标只剩面包屑；章目标是「细纲 / 正文」两格 + 定稿状态）与下一步——**主按钮发的是 `step.target` 与 `step.range`**（会话停在大纲、下一步落在第 1 章细纲；这一章写完、下一步落到下一章），忙碌时禁用；工作区卡、`/` 命令面板（细纲层「落定细纲 / 写细纲」、切层跟着换）、目标下拉（第一项「全书」）、选中一章进入当前阶段、独立版壳上的创作页 |
@@ -236,8 +231,8 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | 文件 | 覆盖 |
 |---|---|
 | `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、WS 首条消息、`Origin` 校验；`selectPlot` 由后端算落在哪一层（已完成的章落正文层，**下一步转到全书的下一步**「拆细纲（第 4–8 章）」），且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返；**空窗口** ready 后无假工程、`openFolder` 热换、`mode: 'add'` 仍一份工作区、`closeFolder` 卸掉 |
-| `contract/layerBoundary.test.js` | 工具层与 agent 层的边界：`tools/` 一行都不 import `agent/`、`agent/` 引用工具契约一律 `import type`、agent 不 import 任何一个具体工具、工具体里不出现 `ctx.budget`。这条守的是「工具能端出去做 MCP」与「循环可换」两件事，**能悄悄长回来**，只能靠断言守 |
-| `contract/toolText.test.js` | 模型每一轮都读的文字（七个工具的描述、参数说明与枚举值、agent 身份提示词）里没有旧链路的说法（卷、剧情段、中转站、拆分、`volumes/`、`manuscripts/`）；`run` 的可用动作里没有 `split` |
+| `contract/layerBoundary.test.js` | 工具层与 MCP 端口的边界：`tools/` 一行都不 import `mcp/` 或 `controller/`、`mcp/` 只 import `./`、`node:`、`../tools/`、`../runtime/`（不碰 controller / workspace / generation，执行端由壳注入）、工具体里不出现 `ctx.budget`。这条守的是「工具能端出去」「端口不钉死在宿主上」两件事，**能悄悄长回来**，只能靠断言守 |
+| `contract/toolText.test.js` | 模型读得到的文字（七个工具的描述、参数说明与枚举值、MCP 的 `instructions`）里没有旧链路的说法（卷、剧情段、中转站、拆分、`volumes/`、`manuscripts/`）；`run` 的可用动作里没有 `split` |
 | `contract/corePurity.test.js` | `src/core/` 零 vscode 依赖——分层架构的硬约束，也是 `external: ['vscode']` 成立的前提 |
 | `contract/shellPurity.test.js` | 壳的契约（[src/shells/README.md](../src/shells/README.md)）：`shells/shared/` 零宿主依赖（不碰 vscode / node: / bun:）、三个壳互不 import、全仓库没有 `host.name ===` 这类按身份分支的写法。三条都是**能悄悄长回来**的东西，只能靠断言守 |
 | `contract/sampleNovel.test.js` | `sample-novel/` 自洽：manifest 章数与磁盘一致（v1 结构，索引的是 `chapters`）、每章 `contentHash` / `summaryHash` / 摘要 `sourceHash` 对得上、摘要 frontmatter 指回章号、**细纲号 = 章号**、细纲的 `upstreamHash` / `writtenFrom` 都新鲜、架构三件都填过且配置解析得出规模参数、大纲覆盖到总章数、没有 `volumes/` 与 `manuscripts/`、示例纲要能命中 3 个角色 |

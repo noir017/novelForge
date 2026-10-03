@@ -1,5 +1,6 @@
 /**
- * agent 那一轮在气泡里长什么样：工具调用的折叠条 + 「直接发送就是 agent」。
+ * 工具调用在气泡里长什么样：工具调用的折叠条（外部 agent 经 MCP 调工具时挂在那一轮上）
+ * + 「直接发送就是讨论」。
  *
  * 两条路都要验：
  *
@@ -8,7 +9,7 @@
  * 2. **回放**——重开面板时靠 `turn.segments` 把那一串重新画出来。
  *
  * 还有一条最要紧的：**气泡里只画摘要，不画工具的完整返回值**。
- * 交替本身（说的话与做的事按发生顺序排）另有一份：`agentSegments.test.js`。
+ * 交替本身（说的话与做的事按发生顺序排）另有一份：`toolSegments.test.js`。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -27,7 +28,7 @@ describe('工具调用流（实时）', { skip: JSDOM_SKIP }, () => {
   before(() => {
     ui = mount();
     ui.post({ type: 'session', session: emptySession() });
-    ui.post({ type: 'turnDone', turn: turn('u1', 'user', '第 9 章里他说过没去过北境吗？', { command: 'Agent' }) });
+    ui.post({ type: 'turnDone', turn: turn('u1', 'user', '第 9 章里他说过没去过北境吗？') });
     ui.post({ type: 'busy', value: true });
     ui.post({ type: 'turnDone', turn: turn('a1', 'assistant', '') });
   });
@@ -154,7 +155,7 @@ describe('工具调用流（重开面板时回放）', { skip: JSDOM_SKIP }, () 
       type: 'session',
       session: emptySession({
         turns: [
-          turn('u1', 'user', '排一下第 12 章', { command: 'Agent' }),
+          turn('u1', 'user', '排一下第 12 章'),
           turn('a1', 'assistant', '排好了，收在藏书阁门口。', {
             segments: [
               toolSeg({ callId: 'c1', name: 'read', title: 'read .novelforge/plots/012.md', ok: true, summary: '20 行', elapsedMs: 30 }),
@@ -214,40 +215,40 @@ describe('工具调用流（重开面板时回放）', { skip: JSDOM_SKIP }, () 
   });
 });
 
-describe('直接发送就是 agent', { skip: JSDOM_SKIP }, () => {
+describe('直接发送就是讨论', { skip: JSDOM_SKIP }, () => {
   let ui;
   const input = () => ui.doc.getElementById('input');
   const sendBtn = () => ui.doc.getElementById('sendBtn');
+  const sends = () => ui.sent.filter((m) => m.type === 'send').length;
 
   before(() => {
     ui = mount();
     ui.post({ type: 'session', session: emptySession() });
   });
 
-  // 从前这里是输入框旁一个「Agent」开关，缺省关着。现在 agent 就是默认的那条
-  // 路：不挑命令直接说话，走的就是它。
-  test('页面上没有 Agent 开关了', () => {
+  test('页面上没有 Agent 开关', () => {
     assert.equal(ui.doc.getElementById('agentToggle'), null);
   });
 
-  test('没挑命令时发的是 sendAgent', () => {
+  // 内置 agent 删掉了：多步的活由外部 agent 经 MCP 来做，对话框里不挑命令就是在当前阶段讨论。
+  test('没挑命令时发的是 send，能力是讨论', () => {
     input().value = '第 9 章里他说过没去过北境吗？';
     ui.clickEl(sendBtn());
-    assert.equal(ui.last('sendAgent').text, '第 9 章里他说过没去过北境吗？');
+    const p = ui.last('send').payload;
+    assert.equal(p.text, '第 9 章里他说过没去过北境吗？');
+    assert.equal(p.capability, 'discuss', JSON.stringify(p));
   });
 
-  // agent 没有 stage/capability 的概念——「下一步该做什么」由后端每回合注入的
-  // 状态机结论说了算。前端捎一份过去，两处迟早分叉。
-  test('sendAgent 不带 stage / capability', () => {
-    assert.deepEqual(Object.keys(ui.last('sendAgent')).sort(), ['text', 'type']);
+  test('不再有 sendAgent', () => {
+    assert.ok(!ui.sent.some((m) => m.type === 'sendAgent'), JSON.stringify(ui.sent.map((m) => m.type)));
   });
 
   test('空输入不发送', () => {
     ui.post({ type: 'busy', value: false });
-    const before = ui.sent.filter((m) => m.type === 'sendAgent').length;
+    const before = sends();
     input().value = '   ';
     ui.clickEl(sendBtn());
-    assert.equal(ui.sent.filter((m) => m.type === 'sendAgent').length, before);
+    assert.equal(sends(), before);
   });
 
   test('发送后清空输入框', () => {

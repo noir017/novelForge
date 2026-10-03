@@ -5,7 +5,7 @@
  *
  * - **主按钮**（状态机算出的下一步）：点了就跑，输入框可空
  * - **`/` 命令**：挑一个 → 变成一枚 chip → Enter/发送时用它，确定性的单步
- * - **直接发送**：不挑命令就走 Agent——它自己决定查什么、分几步做完
+ * - **直接发送**：不挑命令就是在当前阶段讨论（`discuss`）。多步的活交给外部 agent 经 MCP 来做
  *
  * 三条都走同一个 `send()`：附件、草稿、busy 只在一处管。
  */
@@ -50,10 +50,10 @@ let pending: { stage: CreationStage; capability: Capability; label: string } | n
 export function payload(): SendPayload {
   return {
     text: el.input.value,
-    // 阶段/能力/目标全都记在会话里（后端是唯一真相，前端只是回显它）。
-    // 挑了命令就用命令的，否则沿用会话当前的那一对。后端还会再校验一遍。
+    // 阶段/目标记在会话里（后端是唯一真相，前端只是回显它）。挑了命令就用命令的，
+    // 否则就是在当前阶段讨论——每一层都有讨论。后端还会再校验一遍。
     stage: pending?.stage ?? store.session.stage,
-    capability: pending?.capability ?? store.session.capability,
+    capability: pending?.capability ?? 'discuss',
     target: store.session.target,
     targetNo: Number(el.targetSelect.value) || 1,
     attachments: store.attachments,
@@ -121,29 +121,6 @@ function send(): void {
   if (store.busy || !hasWorkspace()) {
     return;
   }
-  // 没挑命令就是 Agent——**它是默认的那条路**，不再是一个开关。Agent 只吃一句
-  // 话：它没有 stage/capability 的概念，「下一步该做什么」由后端每回合注入的
-  // 状态机结论说了算（第 20 条）。所以这里**不带 payload**——把当前选的能力捎
-  // 过去，等于让前端也参与判断，两处迟早分叉。
-  if (!pending) {
-    const text = el.input.value.trim();
-    if (!text) {
-      toast('先说说你要它做什么。', true);
-      el.input.focus();
-      return;
-    }
-    setBusy(true);
-    vscode.postMessage({ type: 'sendAgent', text });
-    el.input.value = '';
-    // 引用与单步那条路同一套：发出去就清空（后端也清它那份 pending）。
-    store.attachments = [];
-    clearPendingCommand();
-    renderChips();
-    persistDraft();
-    scrollToBottom(true);
-    return;
-  }
-
   const p = payload();
   // 空输入只挡「讨论」——讨论的全部内容就是你那句话，而它不是命令，
   // `commandOf` 查不到它。命令（写细纲、写正文）本来就不需要

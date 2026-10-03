@@ -13,7 +13,12 @@ interface BunServeOptions {
   hostname?: string;
   fetch(
     req: Request,
-    server: { port: number; upgrade(req: Request, options?: { data?: unknown }): boolean }
+    server: {
+      port: number;
+      upgrade(req: Request, options?: { data?: unknown }): boolean;
+      /** 这一个请求的空闲超时（秒），0 = 不限。 */
+      timeout(req: Request, seconds: number): void;
+    }
   ): Response | undefined | Promise<Response | undefined>;
   websocket?: {
     open?(ws: BunServerWebSocket): void;

@@ -8,8 +8,8 @@
 | [workspace/](workspace/README.md) | ★ **工程的唯一读写网关**：`list` / `read` / `write` / `edit` / `move` / `remove` / `search`。路径 → 种类 → 八条守卫 → 解析/渲染/记账/伴生。**新代码不许绕过 `guard.ts` 直接 `fs.writeFile`** |
 | [context/](context/README.md) | ★ 上下文装配：token 粗估与分层预算装配器 |
 | [generation/](generation/README.md) | ★ 创作的一次单步：`generate.ts` **无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，不管并发）、`accept.ts` 六条落盘分派、`drafts.ts` 让还没落盘的产物活过一次刷新（`write draftId=…` 认它）。**`cleanOutput` 只对正文层做**，落盘时拿气泡里当下的文本重新解析——那一问在产出的当下就问了（`controller/gate.ts` 的卡片），不是气泡末尾一颗可以永远不点的按钮 |
-| [tools/](tools/README.md) | ★ **工具层**：契约（`ToolDef` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那七个工具（读三件 + `generate` + `write` / `edit` / `run`），**没有删除/改名/移动**；写入走的是与产物落盘同一条 `workspace.write`，没有新的保护代码。**不认识 `agent/`**——将来要能单独端出去做 MCP |
-| [agent/](agent/README.md) | ★ 多步调度：循环、状态注入、预算闸门、策略与确认闸门。手上只有一个 `ToolInvoker`，**不认识 `Workspace` / `DraftStore` / 具体工具**。「下一步该做什么」由 `deriveNextStep` 每回合注入，agent 不另做判断 |
+| [tools/](tools/README.md) | ★ **工具层**：契约（`ToolDef` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那七个工具（读三件 + `generate` + `write` / `edit` / `run`），**没有删除/改名/移动**；写入走的是与产物落盘同一条 `workspace.write`，没有新的保护代码。**不认识 `mcp/` 与 `controller/`** |
+| [mcp/](mcp/README.md) | ★ **把工具端给外部 agent**：MCP 协议与 Streamable HTTP 传输（独立版挂在 `/mcp`）。只认 `tools/` 的契约，执行端在 `controller/mcp.ts`。多步调度交给外部 agent，本项目不自带循环 |
 | [features/](features/README.md) | 功能编排：批量流水线（补齐设定 / 批量拆细纲 / 批量写章）、定稿（摘要 + 角色当前状态）、一致性预检、摘要、角色卡、设定、文风提取。续写链在 `generation/` |
 | [skills/](skills/README.md) | 写作技能（移植自 AI-Novel-Writer 的阶段 Skill）：三个来源（内置 / `~/.novelforge/skills/` / 工程的 `.novelforge/skills/`）、从 GitHub 先检查再安装、卸载进回收站、工程的阶段绑定（`.novelforge/skills.json`）。装配器的 `skill` 层只问它一句「这个阶段绑了什么」 |
 | [llm/](llm/README.md) | 模型接入：`LlmProvider` 接口、OpenAI / Anthropic 协议实现、provider 注册表 |
@@ -19,14 +19,14 @@
 
 依赖方向自上而下：`features/` / `generation/` → `context/` / `llm/` → `skills/` → `workspace/` → `model/`，反向不允许（`skills/` 只 `import type` 网关，写绑定时由调用方把 `Workspace` 交进来）。`tools/` 坐在最上面（它调 `generation/`、`workspace/` 与 `features/`），**不认识 `controller/`**——反过来会成环。
 
-`agent/` 与 `tools/` **并列而不是上下级**：agent 只 `import type` 那一份契约（`tools/types.ts`），tools 一行都不 import agent。绑在一起的是 `controller/agent.ts`——它给工具绑好环境，再把工具集递给循环。这条边由 [tests/contract/layerBoundary.test.js](../../tests/contract/layerBoundary.test.js) 守着，两个理由：**工具将来要能端出去做 MCP**，**循环要能换成更轻的实现**。
+`mcp/` 只认 `tools/` 的契约（`ToolSpec`、`NOVEL_TOOLS`），tools 一行都不 import `mcp/` 与 `controller/`。绑在一起的是 `controller/mcp.ts`——它给工具绑好当前工程，占生成锁、在对话页挂 MCP 气泡、问那两句（`always` 动手前、产物落盘前）。这条边由 [tests/contract/layerBoundary.test.js](../../tests/contract/layerBoundary.test.js) 守着。
 
 本目录根下只保留入口胶水与跨子目录契约：
 
 | 文件 | 职责 |
 |---|---|
 | [protocol/](protocol/index.ts) | 前端 ↔ 后端的消息协议（`InMessage` / `OutMessage` / `ViewState`）。对外入口仍是 `core/protocol`。插件 webview 与独立版网页共用，是前后端的唯一契约。 |
-| [controller/](controller/index.ts) | ★ `ChatController`：全部面板逻辑，按消息域拆在同目录模块里。收 `InMessage` → 调度 `generation/` / `agent/` / 会话存储 / 创作目标切换 / 设置读写 → 广播 `OutMessage`。**并发控制在这一层**（`beginGeneration` / `stopGeneration`，`busy` 就是 `currentAbort !== undefined`）——生成那一层是无状态的，「有没有在跑」是调度的事，单步与 agent 共用同一把锁。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。**agent 动手前那一句问也在这一层**（`gate.ts`）：画成对话里的一张卡片而不是全局模态框，还没答的记在 controller 上，重连时随全量状态重推。五期起写一章之前的一致性预检也借这张卡问（「仅本次忽略，照写 / 先不写」，零调用）；审稿那一轮不问落盘，报告挂在这一轮上随会话保存，`reviseChapter` 按那份报告与磁盘上此刻的正文拼清单再发一轮修稿，`revealQuote` 按宿主能力定位引文。 |
+| [controller/](controller/index.ts) | ★ `ChatController`：全部面板逻辑，按消息域拆在同目录模块里。收 `InMessage` → 调度 `generation/` / 会话存储 / 创作目标切换 / 设置读写 → 广播 `OutMessage`。**并发控制在这一层**（`beginGeneration` / `stopGeneration`，`busy` 就是 `currentAbort !== undefined`）——生成那一层是无状态的，「有没有在跑」是调度的事，单步与 MCP 调用共用同一把锁。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。**动手前那一句问也在这一层**（`gate.ts`：产物落盘、外部 agent 的 `always` 动作）：画成对话里的一张卡片而不是全局模态框，还没答的记在 controller 上，重连时随全量状态重推。五期起写一章之前的一致性预检也借这张卡问（「仅本次忽略，照写 / 先不写」，零调用）；审稿那一轮不问落盘，报告挂在这一轮上随会话保存，`reviseChapter` 按那份报告与磁盘上此刻的正文拼清单再发一轮修稿，`revealQuote` 按宿主能力定位引文。 |
 | [host.ts](host.ts) | core 对宿主的唯一依赖面（窄接口）：弹窗/选择/进度/文件监听/打开文件等，两个壳各实现一份。 |
 | [actions.ts](actions.ts) | 工程级交互流程（初始化、新建一章、直接建一个发布章节文件），命令面板与网页共用。新建只落一个纯序号名的空细纲（标题等细纲排完再改名定），**不问标题也不打开它**；章号取 `plots/` 与 `chapters/` 两边的最大号 +1，所以老工程的 99 章之后建出来的就是第 100 章。「建完去哪」由调用方决定，面板走 `selectPlot` 落到这一章的当前步骤。正常路径上的章节是写正文时生成的，`newChapterFlow` 只留给「手里已有一章现成的文字要粘进来」。 |
 | [config.ts](config.ts) | `readConfig` / `readBudgetFallback` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |

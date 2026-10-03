@@ -44,7 +44,6 @@ export type {
   ProjectNode,
   ProjectTree,
   WriteLength,
-  SerializedAgentRun,
   SerializedArtifact,
   SerializedDigest,
   SerializedSegment,

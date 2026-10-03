@@ -311,7 +311,7 @@ describe('章节组：一个章号一行', { skip: JSDOM_SKIP }, () => {
   });
 
   test('点「去写这一章」不顺手打开文件，也不直接开写', () => {
-    assert.ok(!ui.sent.some((m) => m.type === 'openFile' || m.type === 'send' || m.type === 'sendAgent'),
+    assert.ok(!ui.sent.some((m) => m.type === 'openFile' || m.type === 'send'),
       JSON.stringify(ui.sent));
   });
 

@@ -47,13 +47,13 @@ draft.target → accept(project, target, parseArtifact(action, 气泡里的文�
 「已有一个生成任务在进行中」是**调度**的责任：
 
 - 对话页 → `controller/index.ts` 的 `beginGeneration()` / `stopGeneration()`，`busy` 就是 `currentAbort !== undefined`（两个独立状态迟早对不上，而对不上的表现是「停止按钮点了没反应」）
-- agent 循环 → 它自己管自己那一份
+- MCP 调用 → 同一把锁（`controller/mcp.ts`）
 
-`generate` 只收一个 `signal` 往下透传。这正是它能被 agent 并发调用的前提。
+`generate` 只收一个 `signal` 往下透传。
 
 ## Draft 为什么要落盘
 
-`generate` 产出的那份东西一个字都没写盘，而它至少要活到作者在落盘卡片上点头那一刻；agent 手里的 `draftId` 还可能被它稍后用 `write draftId=…` 拿去写——翻回一个旧会话接着让它干活时，那几份草稿还得在。
+`generate` 产出的那份东西一个字都没写盘，而它至少要活到作者在落盘卡片上点头那一刻；外部 agent 手里的 `draftId` 还可能被它稍后用 `write draftId=…` 拿去写。
 
 - **存哪里**：内存为主（`Map`，按会话分桶），随会话 JSON 一起落盘（`.novelforge/sessions/<id>.json`）
 - **不进 SQLite**：第 17 条，库只放可丢弃的痕迹。draft 是未落盘的内容，但它跟着会话走，会话本来就是 JSON

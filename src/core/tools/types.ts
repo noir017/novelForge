@@ -1,14 +1,9 @@
 /**
  * 工具层的契约。**这一份是 tools 与调用方之间唯一的约定**，两边都只认它。
  *
- * ## 为什么工具不认识 agent
+ * ## 工具不认识调用方
  *
- * 从前工具住在 `agent/` 里，`ToolContext` 上挂着 agent 的 `Budget`（工具自己
- * `budget.calls += 1`，还读 `limits` 拼「已用 3/10 次生成」那句话），闸门反过来
- * 又按工具名 switch。两层互相伸手，结果是**谁都搬不动**：想把工具端出去做
- * MCP，得先把 agent 的预算对象一起端出去。
- *
- * 现在的分工：
+ * 调用方是 MCP 那一头（[controller/mcp.ts](../controller/mcp.ts)）。分工：
  *
  * | 谁 | 管什么 |
  * |---|---|
@@ -20,34 +15,38 @@
  *
  * ## 与 MCP 的对应
  *
- * 这套形状是照着 MCP 的 `tools/list` + `tools/call` 摆的，将来把它端出去时
- * **不必改工具体**：
+ * 这套形状是照着 MCP 的 `tools/list` + `tools/call` 摆的，端出去不必改工具体：
  *
  * | 这里 | MCP |
  * |---|---|
  * | {@link ToolDef.name} / `description` / `parameters` | `tools/list` 的一条 |
  * | {@link ToolInvoker.invoke} → {@link ToolInvocation} | `tools/call` 的请求与结果 |
- * | {@link ToolDef.mutating} / `costly` | `readOnlyHint` / 那类注解 |
+ * | {@link ToolDef.mutating} / `costly` | `destructiveHint` / `readOnlyHint` |
  * | {@link ToolIntent} | MCP 没有对应物——**确认是宿主的事**，所以工具只描述意图，不自己弹框 |
  *
- * 缺的那一半（传输、鉴权、会话）不在这一层，见 [README](README.md)。
+ * 协议、传输、会话在 [mcp/](../mcp/README.md)。
  */
 import type { NovelProject } from '../model/project';
 import type { Workspace } from '../workspace';
 import type { DraftStore } from '../generation/drafts';
-import type { ToolSpec } from '../llm/provider';
 
 /**
- * 发给模型的一条工具声明。**沿用 `llm/provider` 那一份，不另定义一个同形的**
- * ——两份迟早会差一个字段，而差的那一天没有任何测试会红。
+ * 对外的一条工具声明：MCP `tools/list` 的一条就从它来（[mcp/server.ts](../mcp/server.ts)）。
+ * `costly` / `mutating` 落成 MCP 的 `readOnlyHint` / `destructiveHint`。
  */
-export type { ToolSpec };
+export interface ToolSpec {
+  name: string;
+  description: string;
+  /** JSON Schema object。 */
+  parameters: Record<string, unknown>;
+  costly?: boolean;
+  mutating?: boolean;
+}
 
 // ---------------------------------------------------------------- 执行环境
 
 /**
- * 工具够得着的工程那一面。**由调用方绑定一次**（面板一轮 agent、或将来一条
- * MCP 会话），此后每次调用都是同一份。
+ * 工具够得着的工程那一面。**由调用方绑定**（MCP 的每一次调用现绑当前工程与会话）。
  *
  * **没有 `history`**：工具调用不是作者的讨论，混进装配器会被当成创作要求
  * （见 [novel/generate.ts](novel/generate.ts)）。
@@ -130,14 +129,9 @@ export interface ToolIntent {
   detail?: string;
 }
 
-// 从前这里还有一个 `proceed`（「写入」/「替换」/「执行」/「生成」）：同意那颗
-// 按钮上的字由工具自报。取消了——`title` 已经把动词说在按钮上方了，按钮再说
-// 一遍是重复，而一颗每次换一个字的主按钮反倒要作者先读一遍才敢点。现在闸门
-// 上一律是「确认」（`agent/policy.ts` 的 `PROCEED_ACTION`）。
-
 /**
- * 这一步的性质。**五个值，判定表在调用方**（agent 的
- * [policy.ts](../agent/policy.ts)）。
+ * 这一步的性质。**五个值，怎么处理在调用方**（[controller/mcp.ts](../controller/mcp.ts)：
+ * `auto` 直接跑；`always` 动手前在对话页问；其余问不问交给宿主的权限设置）。
  *
  * | 值 | 什么样的动作 | 为什么单独一档 |
  * |---|---|---|
@@ -191,11 +185,7 @@ export interface ToolInvocation {
 }
 
 /**
- * 调用方眼里的工具集。**agent 只认这个接口**，不认识 `ToolDef`、不认识
- * `Workspace`、不认识 `DraftStore`。
- *
- * 于是换一套工具（另一个领域、或者将来一个 MCP 客户端）只要另实现一份
- * 这四个方法，循环一行都不用改。
+ * 调用方眼里的工具集：清单、意图、执行。
  */
 export interface ToolInvoker {
   /** 发给模型的工具清单。顺序即模型看到的顺序。 */

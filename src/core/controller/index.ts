@@ -41,7 +41,6 @@ import {
   send,
   setTarget,
 } from './chat';
-import { sendAgent } from './agent';
 import type { PendingGate } from './gate';
 import { cancelGates, resendGates, resolveGate } from './gate';
 import { fileAction, openChapter, openDraft, pushDirListings, revealQuote } from './files';
@@ -63,6 +62,7 @@ import {
 import { pushSettings, saveSettings, selectModel, testConnection } from './settings';
 
 export { describeProvider } from './serialize';
+export { createMcpBackend } from './mcp';
 
 /** Webview 宿主需要提供的能力。侧边栏与编辑器面板各实现一份。 */
 export interface ViewHost {
@@ -304,10 +304,6 @@ export class ChatController {
 
       case 'send':
         await send(this, msg.payload);
-        return;
-
-      case 'sendAgent':
-        await sendAgent(this, msg.text, msg.limits);
         return;
 
       case 'retry':
