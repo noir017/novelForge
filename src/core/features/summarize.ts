@@ -95,8 +95,7 @@ export async function summarizeChapter(
 
   const usage: TokenUsage = {};
   const options: StreamOptions = {
-    // 多了一节连续性事实（最多 12 条、每条 40 字），上限跟着抬一点。
-    maxOutputTokens: Math.min(window.maxOutputTokens, 2000),
+    maxOutputTokens: window.maxOutputTokens,
     temperature: 0.3, // 摘要要稳定、可复现，压低温度
     timeoutMs: config.requestTimeoutMs,
     signal,
@@ -472,7 +471,7 @@ export async function updateGlobalSummary(
           { role: 'system', content: GLOBAL_SYSTEM },
           { role: 'user', content: user },
         ],
-        { maxOutputTokens: Math.min(budget.maxOutputTokens, 2000), temperature: 0.3, timeoutMs: config.requestTimeoutMs, signal }
+        { maxOutputTokens: budget.maxOutputTokens, temperature: 0.3, timeoutMs: config.requestTimeoutMs, signal }
       )
     )
   );
@@ -569,7 +568,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
     async ({ signal, report }) => {
       const startedAt = Date.now();
       const options: StreamOptions = {
-        maxOutputTokens: Math.min(stagePool.primaryBudget.maxOutputTokens, 2000),
+        maxOutputTokens: stagePool.primaryBudget.maxOutputTokens,
         temperature: 0.3,
         timeoutMs: config.requestTimeoutMs,
         signal,
@@ -672,7 +671,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
                   content: `以下是各阶段摘要，请合并成一份全书滚动摘要。\n\n${clipped}`,
                 },
               ],
-              { ...options, maxOutputTokens: Math.min(mergeBudget.maxOutputTokens, 2000) }
+              { ...options, maxOutputTokens: mergeBudget.maxOutputTokens }
             )
           )
         );

@@ -66,7 +66,7 @@ export async function testConnection(
     let reply = '';
     for await (const ev of provider.stream(
       [{ role: 'user', content: '回复两个字：收到' }],
-      { maxOutputTokens: 16, temperature: 0, timeoutMs: 30000, signal: abort.signal }
+      { maxOutputTokens: active.model.maxOutputTokens ?? config.maxOutputTokens, temperature: 0, timeoutMs: 30000, signal: abort.signal }
     )) {
       if (ev.type !== 'text') {
         continue;

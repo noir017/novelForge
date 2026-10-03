@@ -205,7 +205,7 @@ export async function planThreads(
 
   report({ message: '排线', current: 1, total: 2 });
   const options: StreamOptions = {
-    maxOutputTokens: Math.min(pool.primaryBudget.maxOutputTokens, 2500),
+    maxOutputTokens: pool.primaryBudget.maxOutputTokens,
     temperature: 0.4,
     timeoutMs: config.requestTimeoutMs,
     signal,
@@ -415,7 +415,7 @@ export async function recordThreadEvents(
   const user =
     `【第${chapter.order}章 ${chapter.title}】\n\n${body}\n\n` + `【还没收的叙事线】\n${roster}\n\n请按要求输出 JSON。`;
   const options: StreamOptions = {
-    maxOutputTokens: Math.min(opts.budget.maxOutputTokens, 1500),
+    maxOutputTokens: opts.budget.maxOutputTokens,
     temperature: 0.2,
     timeoutMs: config.requestTimeoutMs,
     signal: opts.signal,

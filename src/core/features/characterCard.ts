@@ -979,7 +979,7 @@ async function analyzeBatch(
 ): Promise<ParsedCard | undefined> {
   const options: StreamOptions = {
     // 输出上限跟着实际干活的模型走（pool 就在手边），不是对话页那个。
-    maxOutputTokens: Math.min(pool.primaryBudget.maxOutputTokens, 2000),
+    maxOutputTokens: pool.primaryBudget.maxOutputTokens,
     temperature: 0.3,
     timeoutMs: ctx.config.requestTimeoutMs,
     signal: ctx.signal,

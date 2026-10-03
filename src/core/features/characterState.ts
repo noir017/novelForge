@@ -104,7 +104,7 @@ export async function updateCharacterStates(
     `【第${chapter.order}章 ${chapter.title}】\n\n${body}\n\n` +
     `【本章出场、已经建档的人物】\n${roster}\n\n请按要求输出 JSON。`;
   const options: StreamOptions = {
-    maxOutputTokens: Math.min(opts.budget.maxOutputTokens, 1500),
+    maxOutputTokens: opts.budget.maxOutputTokens,
     temperature: 0.3,
     timeoutMs: config.requestTimeoutMs,
     signal: opts.signal,

@@ -59,7 +59,7 @@ export async function checkPlotAgainstFacts(
   const user = plotCheckUser({ no, title: plot.title, text }, facts);
   const config = readConfig();
   const options: StreamOptions = {
-    maxOutputTokens: Math.min(runner.primaryBudget.maxOutputTokens, 1500),
+    maxOutputTokens: runner.primaryBudget.maxOutputTokens,
     temperature: 0.2,
     timeoutMs: config.requestTimeoutMs,
     signal,
