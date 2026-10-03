@@ -186,17 +186,35 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.last('openFile')?.path, '.novelforge/premise.md', JSON.stringify(ui.sent));
   });
 
-  // 角色图谱没有自己的文件（它就是 characters/ 下那一组卡）：点它是进入那一层，
-  // 打开一个目录在编辑器里什么都看不到。
-  test('点「角色图谱」进入那一层，不打开文件', () => {
+  // 角色图谱没有自己的文件（它就是 characters/ 下那一组卡）：已有卡时点它跳到「角色」那一组，
+  // 不切到对话页；打开一个目录在编辑器里什么都看不到。
+  test('已有角色卡：点「角色图谱」展开「角色」组，不进入那一层、不打开文件', () => {
+    const chars = () =>
+      [...ui.doc.querySelectorAll('#projectBody .group')].find((g) => g.querySelector('.group-name')?.textContent === '角色');
+    ui.clickEl(chars().querySelector('.group-toggle'));
+    assert.equal(chars().querySelector('.group-body').children.length, 0, '先折起来');
     ui.sent.length = 0;
     ui.clickEl(row('角色图谱').querySelector('.row-label'));
-    const t = ui.last('setTarget');
-    assert.ok(t, JSON.stringify(ui.sent));
+    assert.ok(chars().querySelector('.group-body').children.length > 0, chars().outerHTML);
+    assert.ok(!ui.last('setTarget'), JSON.stringify(ui.sent));
+    assert.ok(!ui.last('openFile'), JSON.stringify(ui.sent));
+  });
+
+  test('还没有角色卡：点「角色图谱」进入那一层', () => {
+    const ui2 = mount();
+    const tree = sampleTree();
+    tree.architecture = tree.architecture.map((a) => (a.key === 'characters' ? { ...a, filled: false } : a));
+    ui2.post({ type: 'project', tree });
+    const r = [...ui2.doc.querySelectorAll('#projectBody .row-architecture')].find(
+      (n) => n.querySelector('.row-label')?.textContent === '角色图谱'
+    );
+    ui2.sent.length = 0;
+    ui2.clickEl(r.querySelector('.row-label'));
+    const t = ui2.last('setTarget');
+    assert.ok(t, JSON.stringify(ui2.sent));
     // 逐字段比：target 是在 jsdom 那个 realm 里造的，原型不同，deepStrictEqual 会判不等。
     assert.equal(t.target.kind, 'setting', JSON.stringify(t));
     assert.equal(t.target.doc, 'characters', JSON.stringify(t));
-    assert.ok(!ui.last('openFile'), JSON.stringify(ui.sent));
   });
 
   let worldItems;

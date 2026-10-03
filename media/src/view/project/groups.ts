@@ -42,6 +42,7 @@ export function buildGroup(
   opts: GroupOptions
 ): HTMLElement {
   const box = mk('div', 'group');
+  box.dataset.group = id;
 
   const head = mk('div', 'group-head');
   // 折叠开关吃掉整行的可点面积：标题栏上现在只有它，点哪儿都能折叠。

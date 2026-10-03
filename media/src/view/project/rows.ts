@@ -39,7 +39,7 @@ import {
 } from './actions';
 import type { Section } from './actions';
 import { SECTIONS } from './actions';
-import { indentOf, lastTree, openFolders } from './treeState';
+import { indentOf, lastTree, openFolders, openGroups } from './treeState';
 
 /**
  * 失败标记。有未解决的失败记录时插在文件名之前，鼠标移上去看原因
@@ -69,6 +69,13 @@ let rerender: () => void = () => {};
 
 export function bindRerender(fn: () => void): void {
   rerender = fn;
+}
+
+/** 展开某个顶层分组并滚到它。重画会换掉全部节点，所以先重画再找。 */
+function revealGroup(id: string): void {
+  openGroups[id] = true;
+  rerender();
+  document.querySelector<HTMLElement>(`#projectBody [data-group="${id}"]`)?.scrollIntoView?.({ block: 'start' });
 }
 
 /**
@@ -284,8 +291,8 @@ export function buildPlotRows(plots: ProjectPlotNode[], nextNo: number): HTMLEle
 /**
  * 「故事架构」组的一行：小说配置 / 故事前提 / 角色图谱 / 世界观 / 情节大纲。
  *
- * 点名字打开那份文件；角色图谱没有自己的文件，点它进入那一层（对话页的主按钮
- * 会是「生成角色图谱」或针对它的讨论）。右键「进入这一层」去生成或重写。
+ * 点名字打开那份文件；角色图谱没有自己的文件：已有卡时点它展开并滚到下面「角色」那一组，
+ * 还没有卡时进入那一层（对话页的主按钮是「生成角色图谱」）。右键「进入这一层」去生成或重写。
  *
  * **第一件还没填的**在行尾多一个「去生成」（与章节组的「去写这一章」同一个道理：
  * 扫一眼就知道从哪接着做，全组只有这一行有）。小说配置那一行直接打开一句话弹窗；
@@ -306,8 +313,21 @@ function buildArchitectureRow(a: ArchitectureRow, isNext: boolean, tree?: Projec
 
   const target: CreationTarget = a.key === 'outline' ? { kind: 'outline' } : { kind: 'setting', doc: a.key };
   const label = mk('span', 'row-label', a.label);
-  label.title = a.key === 'characters' ? '角色卡在下面「角色」那一组' : a.relPath;
-  label.addEventListener('click', () => (a.key === 'characters' ? setTarget(target) : openPath(a.relPath)));
+  label.title =
+    a.key !== 'characters'
+      ? a.relPath
+      : a.filled
+        ? '跳到下面「角色」那一组；右键「进入这一层」去讨论或重写'
+        : '进入这一层：对话页的主按钮就是生成它';
+  label.addEventListener('click', () => {
+    if (a.key !== 'characters') {
+      openPath(a.relPath);
+    } else if (a.filled) {
+      revealGroup('characters');
+    } else {
+      setTarget(target);
+    }
+  });
   row.appendChild(label);
 
   if (a.detail) {
