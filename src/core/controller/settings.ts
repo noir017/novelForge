@@ -57,6 +57,7 @@ export async function pushSettingsTo(sink: SettingsSink, ack?: 'saved' | 'reject
       concurrency: cfg.concurrency,
       fallbackAttempts: cfg.fallbackAttempts,
       trimModifiers: cfg.trimModifiers,
+      openInNewWindow: cfg.openInNewWindow,
     },
     keys: await apiKeyStatus(cfg.providers),
   });
@@ -103,6 +104,7 @@ export async function saveSettingsFrom(
     concurrency: s.concurrency,
     fallbackAttempts: s.fallbackAttempts,
     trimModifiers: s.trimModifiers !== false,
+    ...(typeof s.openInNewWindow === 'boolean' ? { openInNewWindow: s.openInNewWindow } : {}),
   });
 
   // 删掉的服务商不该在钥匙串里留下孤儿 Key。

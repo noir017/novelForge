@@ -32,6 +32,8 @@ export const store: {
    */
   currentId: string | null | undefined;
   recents: { root: string; name: string }[];
+  /** 设置「新窗口中打开项目」（独立版，随 `workspaces` 推来）。 */
+  openInNewWindow: boolean;
 } = {
   state: null,
   // 会话的初值与后端 `SessionStore.create()` 对齐：情节大纲 · 讨论。
@@ -51,6 +53,7 @@ export const store: {
   excluded: new Set(),
   currentId: undefined,
   recents: [],
+  openInNewWindow: true,
 };
 
 /** 独立版空窗口为 false；插件与已打开的工程为 true。 */

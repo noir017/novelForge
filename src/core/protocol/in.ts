@@ -170,6 +170,8 @@ export type InMessage =
   | { type: 'openFolder'; path: string; mode?: 'replace' | 'add' }
   | { type: 'closeFolder'; id?: string }
   | { type: 'activateWorkspace'; id: string }
+  /** 独立版：这个窗口拿到了焦点。没指定工程的 MCP 调用落到最近操作的窗口上。 */
+  | { type: 'windowFocus' }
   | { type: 'openLogDir' }
   /** 有工程时经 workspace 写文件；已存在拒绝。`text` 缺省为空。 */
   | { type: 'createFile'; relPath: string; text?: string }
@@ -239,4 +241,6 @@ export interface SettingsPayload {
   fallbackAttempts: number;
   /** 写完正文删修饰。 */
   trimModifiers: boolean;
+  /** 新窗口中打开项目（独立版）。插件的设置页没有这一项，不带就保持原值。 */
+  openInNewWindow?: boolean;
 }

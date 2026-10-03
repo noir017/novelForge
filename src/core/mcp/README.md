@@ -15,7 +15,7 @@ agent 做得更好，自己再做一份只是更弱的重复。真正值钱的�
 | [instructions.ts](instructions.ts) | `initialize` 回给客户端的使用说明（只说怎么用工具，不写领域知识） |
 | [index.ts](index.ts) | `createNovelMcp(backend)`：工具清单 + 说明 + 传输，壳只给「当前工程的执行端」 |
 
-执行端在 [controller/mcp.ts](../controller/mcp.ts)：一次调用落到当前打开的那个工程上。
+执行端在 [controller/mcp.ts](../controller/mcp.ts)：一次调用落到一个工程上，落到哪个由壳决定（`backend(project)`）。
 
 ## 怎么接
 
@@ -26,7 +26,7 @@ MCP 已就绪：http://127.0.0.1:3000/mcp
     claude mcp add --transport http novelforge http://127.0.0.1:3000/mcp
 ```
 
-调用落在**网页上当前打开的那个工程**上；没打开工程时工具照样列得出来，调用回一句「先打开工程」。
+调用落在**最近操作的那个网页窗口开着的工程**上；地址带 `?project=<工程目录>`（每次请求都看地址，不必重新 initialize）就落到那个工程，它必须在某个窗口里开着。没打开工程时工具照样列得出来，调用回一句「先打开工程」。
 VS Code 壳还没接（要另起一个 HTTP 服务，等用得上再说）。
 
 ## 分层

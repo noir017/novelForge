@@ -209,6 +209,8 @@ export type OutMessage =
       currentId: string | null;
       items: WorkspaceItem[];
       recents: WorkspaceRecent[];
+      /** 设置「新窗口中打开项目」。前端打开工程时据此决定换掉本窗口的工程还是开新窗口。 */
+      openInNewWindow?: boolean;
     }
   /** 本机一层目录的列举结果。失败不另造消息，原因写在 `error`。 */
   | {

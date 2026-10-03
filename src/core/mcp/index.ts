@@ -2,7 +2,7 @@
  * Novel Forge 的 MCP 入口：工具清单 + 说明 + HTTP 传输，壳只要给出「当前工程的执行端」。
  *
  * ```ts
- * const mcp = createNovelMcp(() => hub.activeController() && createMcpBackend(...));
+ * const mcp = createNovelMcp((project) => hub.mcpBackend(project));
  * // fetch 里：if (url.pathname === '/mcp') return mcp.handle(req);
  * ```
  */
@@ -24,7 +24,7 @@ export const MCP_PATH = '/mcp';
 /** `serverInfo.version`。只给客户端日志看，不参与任何判断。 */
 const SERVER_VERSION = '0.1.0';
 
-export function createNovelMcp(backend: () => McpBackend | undefined, opts: McpHttpOptions = {}): McpHttpHandler {
+export function createNovelMcp(backend: (project?: string) => McpBackend | undefined, opts: McpHttpOptions = {}): McpHttpHandler {
   const server = new McpServer({
     tools: NOVEL_TOOLS.map(specOf),
     backend,

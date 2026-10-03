@@ -2,10 +2,12 @@
  * 独立版 Web 服务：Bun.serve 提供静态页 + /ws WebSocket。
  * 仅绑定 127.0.0.1，无鉴权——设计上只服务本机作者。
  *
- * 工程目录由 WorkspaceHub 持有，可空、可在运行时热换。ChatController
- * 仍然一对一绑一份 NovelProject，没有工程时不造假实例。
+ * 工程由 WorkspaceHub 持有：一个进程同时开着几个，每个窗口（WebSocket）各绑一个或者空着，
+ * 窗口网址上的 `?project=` 说它开的是哪个。ChatController 仍然一对一绑一份 NovelProject，
+ * 没有工程时不造假实例。
  */
 import { initHost } from '../../core/host';
+import { setTaskOwnerResolver } from '../../core/runtime/progress';
 import { initSecrets } from '../../core/llm/registry';
 import {
   addLogSink,
@@ -15,13 +17,13 @@ import {
   setSinkLevel,
 } from '../../core/runtime/logger';
 import { InMessage, OutMessage } from '../../core/protocol';
-import { createMcpBackend } from '../../core/controller';
 import { MCP_PATH, createNovelMcp } from '../../core/mcp';
 import { FileConfigStore, FileSecretStore } from '../../core/stores';
 import { assetBytes } from './assets';
 import { FileHost } from './fileHost';
 import { standalonePage } from './page';
-import { WorkspaceHub } from './workspaceHub';
+import { currentScope, ScopedHost } from './scopedHost';
+import { WindowConn, WorkspaceHub } from './workspaceHub';
 
 const log = scoped('服务');
 
@@ -48,31 +50,29 @@ export async function startServer(opts: ServeOptions): Promise<number> {
     addLogSink((entry) => console.log(formatLogEntry(entry)));
   }
 
-  const clients = new Set<BunServerWebSocket>();
+  const clients = new Map<BunServerWebSocket, WindowConn>();
 
   const broadcast = (msg: OutMessage) => {
     const text = JSON.stringify(msg);
-    for (const ws of clients) {
+    for (const ws of clients.keys()) {
       ws.send(text);
     }
   };
 
-  const host = new FileHost(new FileConfigStore(), broadcast);
-  initHost(host);
+  // 不在任何窗口上下文里的 getHost()（启动期）落到这一份，广播给所有网页。
+  const config = new FileConfigStore();
+  initHost(new ScopedHost(new FileHost(config, broadcast)));
   initSecrets(new FileSecretStore());
-  const hub = new WorkspaceHub({ broadcast, host, windowDir: opts.windowDir });
+  setTaskOwnerResolver(() => currentScope()?.owner);
+  const hub = new WorkspaceHub({ config, windowDir: opts.windowDir });
   await hub.bootstrap(opts.root);
 
-  // 外部 agent（Claude Code 之类）从这里接进来，落到当前打开的那个工程上。
-  // 没打开工程时工具照样列得出来，调用回一句「先打开工程」。
+  // 外部 agent（Claude Code 之类）从这里接进来。地址带 `?project=<工程目录>` 就落到那个工程，
+  // 不带落到作者最近操作的那个窗口的工程。没打开工程时工具照样列得出来，调用回一句「先打开工程」。
   let port = opts.port;
-  const mcp = createNovelMcp(
-    () => {
-      const chat = hub.activeController();
-      return chat ? createMcpBackend(chat) : undefined;
-    },
-    { allowOrigin: (origin) => isAllowedOrigin(origin, port) }
-  );
+  const mcp = createNovelMcp((project) => hub.mcpBackend(project), {
+    allowOrigin: (origin) => isAllowedOrigin(origin, port),
+  });
 
   const server = Bun.serve({
     port: opts.port,
@@ -94,13 +94,24 @@ export async function startServer(opts: ServeOptions): Promise<number> {
           log.warn('拒绝了一个跨源 WebSocket 连接', `Origin: ${req.headers.get('origin')}`);
           return new Response('Forbidden origin', { status: 403 });
         }
-        if (server.upgrade(req)) {
+        // 窗口开的是哪个工程：页面把自己网址上的 `?project=` 原样带过来。
+        const project = url.searchParams.get('project')?.trim() || undefined;
+        if (server.upgrade(req, { data: { project } })) {
           return undefined;
         }
         return new Response('WebSocket upgrade failed', { status: 400 });
       }
       if (url.pathname === '/' || url.pathname === '/index.html') {
-        return new Response(standalonePage(hub.snapshot().items[0]?.root), {
+        const project = url.searchParams.get('project')?.trim();
+        // 不带工程的网址落到最近操作的那个工程上，并把它写进网址：之后刷新、重连都认这一个，
+        // 别的窗口换了「最近操作」也不会把这个窗口带走。
+        const fallback = project ? undefined : hub.defaultRoot();
+        if (fallback) {
+          const target = new URL(url);
+          target.searchParams.set('project', fallback);
+          return Response.redirect(target.toString(), 302);
+        }
+        return new Response(standalonePage(project), {
           headers: { 'content-type': 'text/html; charset=utf-8' },
         });
       }
@@ -125,43 +136,33 @@ export async function startServer(opts: ServeOptions): Promise<number> {
 
     websocket: {
       open(ws) {
-        clients.add(ws);
-        log.debug(`网页已连接（当前 ${clients.size} 个客户端）`);
-        // 重连时 view.js 不会再发 ready，这里主动推一遍全量状态；
+        // 重连时 view.js 不会再发 ready，connect 里主动推一遍全量状态；
         // 首次加载时前端还没挂监听，view.js 加载完会发 ready 再推一遍。
-        void hub.pushReady();
+        const project = (ws.data as { project?: string } | undefined)?.project;
+        clients.set(ws, hub.connect((msg) => ws.send(JSON.stringify(msg)), project));
+        log.debug(`网页已连接（当前 ${clients.size} 个客户端）`);
       },
-      async message(_ws, raw) {
+      async message(ws, raw) {
+        const conn = clients.get(ws);
+        if (!conn) {
+          return;
+        }
+        let msg: InMessage;
         try {
-          const msg = JSON.parse(String(raw)) as InMessage;
-          if (msg.type === 'promptResult') {
-            host.prompts.resolve(msg.requestId, msg.value);
-            return;
-          }
-          if (await hub.handle(msg)) {
-            return;
-          }
-          const chat = hub.activeController();
-          if (!chat) {
-            broadcast({ type: 'toast', message: '请先打开文件夹', level: 'error' });
-            return;
-          }
-          await chat.handle(msg);
+          msg = JSON.parse(String(raw)) as InMessage;
         } catch (err) {
           log.error(`处理网页消息失败：${describeError(err)}`, err);
-          broadcast({
-            type: 'toast',
-            message: describeError(err),
-            level: 'error',
-          });
+          return;
         }
+        await hub.receive(conn, msg);
       },
       close(ws) {
+        const conn = clients.get(ws);
         clients.delete(ws);
-        log.debug(`网页已断开（剩 ${clients.size} 个客户端）`);
-        if (clients.size === 0) {
-          host.prompts.cancelAll();
+        if (conn) {
+          hub.disconnect(conn);
         }
+        log.debug(`网页已断开（剩 ${clients.size} 个客户端）`);
       },
     },
   });
@@ -169,7 +170,7 @@ export async function startServer(opts: ServeOptions): Promise<number> {
   port = server.port;
 
   // 走日志而不是裸 console.log：终端 sink 会把它打出来，网页的日志页也留一条。
-  const rootLabel = hub.snapshot().items[0]?.root ?? '未打开工程';
+  const rootLabel = hub.defaultRoot() ?? '未打开工程';
   log.info(`服务已启动：http://127.0.0.1:${server.port}/`, `工程根 ${rootLabel}`);
   log.info(`MCP 已就绪：http://127.0.0.1:${server.port}${MCP_PATH}`, `claude mcp add --transport http novelforge http://127.0.0.1:${server.port}${MCP_PATH}`);
   return server.port;

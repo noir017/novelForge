@@ -10,8 +10,9 @@
 |---|---|
 | [main.ts](main.ts) | 入口。`init` 装上 `TerminalHost` 后走 **core 的** `initProjectFlow`；否则起服务（端口被占顺延，最多 20 次）并按需开浏览器。 |
 | [cli.ts](cli.ts) | 参数解析：`novelforge`（空窗口）/ `novelforge [dir]` / `novelforge init [dir]`。不带位置参数时不再把当前目录当成工程。 |
-| [server.ts](server.ts) | `Bun.serve`：`/` 出页面、`/media/*` 出内嵌资源、`/favicon.ico`、`/ws` WebSocket、`/mcp`（外部 agent 的 MCP 入口，见 [core/mcp](../../core/mcp/README.md)）。`promptResult` 解弹窗，其余先问 `WorkspaceHub`，有激活工程再交给它的 `ChatController`。启动时把 core 的日志接到终端（默认 info 及以上，`--verbose` 放开 debug）。 |
-| [workspaceHub.ts](workspaceHub.ts) | 工作区登记处：0 或 1 个工程、热换 `ChatController`、吃掉打开/关闭文件夹与设置类消息。 |
+| [server.ts](server.ts) | `Bun.serve`：`/` 出页面、`/media/*` 出内嵌资源、`/favicon.ico`、`/ws` WebSocket、`/mcp`（外部 agent 的 MCP 入口，见 [core/mcp](../../core/mcp/README.md)）。每条 WebSocket 是一个窗口，握手地址上的 `?project=` 说它开哪个工程；不带工程的 `/` 302 到最近操作的那个工程。消息全交给 `WorkspaceHub.receive`。启动时把 core 的日志接到终端（默认 info 及以上，`--verbose` 放开 debug）。 |
+| [workspaceHub.ts](workspaceHub.ts) | 工作区登记处：同时开几个工程，每个窗口各绑一个（或空着），同一个工程的几个窗口共用一份 `ChatController`；吃掉打开/关闭文件夹与设置类消息；没有窗口的工程空闲一分钟后关（最近操作的那个留着给 MCP）。 |
+| [scopedHost.ts](scopedHost.ts) | 注册给 core 的全局 Host：按 `AsyncLocalStorage` 里的窗口上下文把 `getHost()` 转给那个窗口自己的 `FileHost`，弹窗、toast、打开编辑器只落到对应的网页上。 |
 | [windowState.ts](windowState.ts) | `~/.novelforge/window.json`：上次打开的目录与最近打开列表。 |
 | [hostFs.ts](hostFs.ts) | 本机一层目录列举与选择器「新建文件夹」。不进 core，agent 拿不到。 |
 | [fileHost.ts](fileHost.ts) | `Host` 的实现：弹窗经 `PromptHub` 变成网页 modal；`fs.watch` 监听工程（失败退化为轮询，带 250ms 去抖）；`openFile` 走内置编辑器；`openBeside` 开在第二块编辑区。`progress` 只提供 signal——进度由 `core/runtime/progress.ts` 结构化推给网页。`bind` / `unbind` 随 Hub 热换工程根。 |
@@ -24,9 +25,9 @@
 
 ## 关键设计
 
-- **单用户、只绑本机，工程可空**：`127.0.0.1`，无鉴权。工作区由 [workspaceHub.ts](workspaceHub.ts) 持有，窗口里 0 或 1 个工程；打开文件夹在同一进程热换，不重启服务。多个 WS 连接共享当前那一份 `ChatController`。没有工程时不造假实例，创作类消息 toast「请先打开文件夹」。设置仍可用（配置在 `~/.novelforge`）。
+- **单用户、只绑本机，工程可空**：`127.0.0.1`，无鉴权。工作区由 [workspaceHub.ts](workspaceHub.ts) 持有，一个进程同时开几个工程，每个浏览器窗口一个；网址上的 `?project=` 跟着窗口的工程走，刷新、重连都回到它。设置「新窗口中打开项目」（默认开）决定在已有工程的窗口里打开别的工程时开新窗口还是换掉当前的。前端的 localStorage（标签页、展开的目录、输入框草稿）按工程分开存。没有工程时不造假实例，创作类消息 toast「请先打开文件夹」。设置仍可用（配置在 `~/.novelforge`）。
 - **Origin 校验**：WebSocket 不受同源策略约束，恶意网页能向本机端口发消息。`server.ts` 因此校验 `Origin` 只认本机同端口；没有 `Origin` 头的（命令行工具、冒烟测试）放过。`/mcp` 用同一条规则。
-- **`/mcp` 关掉空闲超时**：一次工具调用可能跑几分钟（写一章），期间连接上一个字节都没有，而 Bun 缺省 10 秒空闲就断。`server.timeout(req, 0)` 只对这一个请求生效。MCP 调用落在 `WorkspaceHub` 当前激活的那个工程上；启动日志里那行 `claude mcp add …` 就是接入命令。
+- **`/mcp` 关掉空闲超时**：一次工具调用可能跑几分钟（写一章），期间连接上一个字节都没有，而 Bun 缺省 10 秒空闲就断。`server.timeout(req, 0)` 只对这一个请求生效。MCP 调用落在地址 `?project=` 指定的那个工程上，不带就落到最近操作的那个窗口的工程；启动日志里那行 `claude mcp add …` 就是接入命令。
 - **openFile 的语义差异**：插件里是「打开 VS Code 的编辑器 tab」，这里是「在网页内置编辑器里打开」。刻意让 `openFile` 本身改道，这样 controller 里「产物落盘后打开」「点章节」「点上下文条目」三处调用点一次全对。非文本文件回落到系统默认程序。
 - **两块编辑区**：`openInEditor(rel, pane)` 的 `pane` 决定 `editorOpen` 落到哪一块，`openBeside` 就是 `pane: 'draft'`。`editorOpen` 广播时顺手带上 `draftPath`（由 `draftPathOf` 从章节路径推导），前端据此显示工具栏上的「草稿」按钮——前端不该自己复刻「什么算章节」。`editorSaved` 也必须带它，否则按钮会在首次保存后消失。
 - **文件读写全部经 [../core/files/fileEditing.ts](../../core/files/fileEditing.ts)**：路径包含校验、可编辑判定（扩展名白名单 ∪ 章节文件名规则）、大小上限、保存的 hash 乐观锁都在那里。本层只负责把异常翻译成 `editorError` / `editorConflict` 广播出去，不要绕过它直接 `fs.writeFile`。
@@ -39,7 +40,7 @@
 
 ## 与插件壳的能力差异
 
-`Host` 上的可选方法就是差异点：`browseFile`（这里提示输入相对路径）、`reviewReplace`（五期起推 `prompt kind: 'merge'`，网页上开段级 diff / 合并视图：网关请求合并时作者可以逐段挑、手改，交回 `{ merged }`；其余调用方只读，只有采纳 / 放弃；插件照旧 `vscode.diff`）、`revealText`（点审稿报告上的引文：先 `editorOpen` 那一章，再推 `editorReveal` 让内置编辑器选中那一句；插件是 `showTextDocument` + `revealRange`）、`openNativeSettings`（**这里不实现**，于是 `page.ts` 渲染时就不产出那颗按钮——不是渲染出来再隐藏）、`openInEditor` / `saveFromEditor` / `openExternal`（只有这里实现）、`openBeside`（这里开第二块编辑区，插件是 `ViewColumn.Beside`）。`supportsVscodeLm` 为 `false`，Copilot 模型在设置页与下拉框里都被过滤掉。
+`Host` 上的可选方法就是差异点：`browseFile`（这里提示输入相对路径）、`pickHostFile`（拆书选 txt：推 `prompt kind: 'file'`，网页里复用「打开文件夹」那个本机目录选择器的选文件模式，只列目录与允许的扩展名，回绝对路径；插件是 `showOpenDialog`）、`reviewReplace`（五期起推 `prompt kind: 'merge'`，网页上开段级 diff / 合并视图：网关请求合并时作者可以逐段挑、手改，交回 `{ merged }`；其余调用方只读，只有采纳 / 放弃；插件照旧 `vscode.diff`）、`revealText`（点审稿报告上的引文：先 `editorOpen` 那一章，再推 `editorReveal` 让内置编辑器选中那一句；插件是 `showTextDocument` + `revealRange`）、`openNativeSettings`（**这里不实现**，于是 `page.ts` 渲染时就不产出那颗按钮——不是渲染出来再隐藏）、`openInEditor` / `saveFromEditor` / `openExternal`（只有这里实现）、`openBeside`（这里开第二块编辑区，插件是 `ViewColumn.Beside`）。`supportsVscodeLm` 为 `false`，Copilot 模型在设置页与下拉框里都被过滤掉。
 
 ## 验证
 

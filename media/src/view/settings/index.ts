@@ -14,9 +14,14 @@ import { installProviderModal, openProviderModal, refreshProviderModal } from '.
 import { installSkillsPanel, requestSkills } from './skills';
 import { renderTaskTiers } from './taskTiers';
 
-type SettingsCategory = 'models' | 'context' | 'skills';
+type SettingsCategory = 'models' | 'context' | 'general' | 'skills';
 
-const SETTINGS_CATEGORIES: readonly SettingsCategory[] = ['models', 'context', 'skills'];
+const SETTINGS_CATEGORIES: readonly SettingsCategory[] = ['models', 'context', 'general', 'skills'];
+
+/** 页面上真有的那几页（「通用」只有独立版有），按显示顺序。 */
+function presentCategories(): SettingsCategory[] {
+  return SETTINGS_CATEGORIES.filter((c) => document.querySelector(`[data-settings-tab="${c}"]`));
+}
 
 export function renderSettings(
   settings: SettingsPayload,
@@ -61,6 +66,10 @@ export function renderSettings(
   if (trim) {
     trim.checked = settings.trimModifiers !== false;
   }
+  const newWindow = maybeById<HTMLInputElement>(NEW_WINDOW_FIELD);
+  if (newWindow) {
+    newWindow.checked = settings.openInNewWindow !== false;
+  }
   renderProviders();
   renderTaskTiers();
   refreshProviderModal();
@@ -68,6 +77,8 @@ export function renderSettings(
 
 /** 「写完正文删修饰」那个勾选框的 id。 */
 const TRIM_FIELD = 'setTrimModifiers';
+/** 「新窗口中打开项目」那个勾选框的 id。只有独立版的页面上有。 */
+const NEW_WINDOW_FIELD = 'setOpenInNewWindow';
 
 function save(): void {
   const settings = {
@@ -80,6 +91,10 @@ function save(): void {
     settings[key as NumericField] = Number(byId<HTMLInputElement>(id).value);
   }
   settings.trimModifiers = maybeById<HTMLInputElement>(TRIM_FIELD)?.checked !== false;
+  const newWindow = maybeById<HTMLInputElement>(NEW_WINDOW_FIELD);
+  if (newWindow) {
+    settings.openInNewWindow = newWindow.checked;
+  }
   const problem = validateProviders(draft.providers);
   if (problem) {
     toast(problem, true);
@@ -124,6 +139,7 @@ export function installSettings(): void {
     maybeById(id)?.addEventListener('input', touch);
   }
   maybeById(TRIM_FIELD)?.addEventListener('change', touch);
+  maybeById(NEW_WINDOW_FIELD)?.addEventListener('change', touch);
 
   byId('saveSettingsBtn').addEventListener('click', save);
   // 能力探测：只有带原生设置界面的宿主（VS Code）才渲染这颗按钮，
@@ -196,15 +212,16 @@ function installCategoryTabs(): void {
       }
     });
     button.addEventListener('keydown', (event) => {
-      const current = SETTINGS_CATEGORIES.indexOf(button.dataset.settingsTab as SettingsCategory);
+      const tabs = presentCategories();
+      const current = tabs.indexOf(button.dataset.settingsTab as SettingsCategory);
       let next = current;
-      if (event.key === 'ArrowLeft') next = (current - 1 + SETTINGS_CATEGORIES.length) % SETTINGS_CATEGORIES.length;
-      if (event.key === 'ArrowRight') next = (current + 1) % SETTINGS_CATEGORIES.length;
+      if (event.key === 'ArrowLeft') next = (current - 1 + tabs.length) % tabs.length;
+      if (event.key === 'ArrowRight') next = (current + 1) % tabs.length;
       if (event.key === 'Home') next = 0;
-      if (event.key === 'End') next = SETTINGS_CATEGORIES.length - 1;
+      if (event.key === 'End') next = tabs.length - 1;
       if (next !== current) {
         event.preventDefault();
-        showCategory(SETTINGS_CATEGORIES[next], true);
+        showCategory(tabs[next], true);
       }
     });
   }

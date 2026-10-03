@@ -33,11 +33,11 @@ import {
   activePane,
   announceActive,
   bindStore,
+  cancelScheduledPersist,
   paneOwning,
   panes,
   pendingActive,
   pendingDrafts,
-  persist,
   registerPane,
   rekeyStorage,
   restore,
@@ -126,14 +126,20 @@ function start(stage: HTMLElement): void {
   });
 
   window.addEventListener('nf-workspace-reset', () => {
+    // 不写 localStorage：标签页按工程分开记（projectStorageKey），上一个工程的那份留着下次回来用，
+    // 而此刻网址已经换成了新工程，这里写下去会把新工程那份冲成空的。
+    cancelScheduledPersist();
+    pendingDrafts.clear();
+    pendingActive.clear();
     for (const pane of Object.values(panes)) {
       for (const path of [...pane.files.keys()]) {
         pane.closeSilently(path);
       }
     }
-    persist();
     announceActive();
     syncDraftVisibility();
+    // 换来的那个工程上次开着的标签页接着开。关掉工程时 restore 自己会跳过。
+    restore();
   });
 
   window.addEventListener('beforeunload', (e) => {

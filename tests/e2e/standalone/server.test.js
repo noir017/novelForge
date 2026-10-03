@@ -47,6 +47,8 @@ const PORT = 3999;
 const EDIT_PORT = 3998;
 /** 空窗口必须排在 3999/3998 之后：initHost 是进程单例。 */
 const EMPTY_PORT = 3997;
+/** 多窗口排在最后，理由同上。 */
+const MULTI_PORT = 3996;
 const root = path.join(import.meta.dir, '..', '..', '..', 'sample-novel');
 const base = `http://127.0.0.1:${PORT}`;
 
@@ -662,7 +664,7 @@ describe('空窗口', () => {
   });
 
   test('mode add 不换成第二份工作区', () => {
-    assert.ok(addToast.message.includes('一个工作区'), addToast.message);
+    assert.ok(addToast.message.includes('一个工程'), addToast.message);
     assert.equal(afterAdd.items.length, 1);
     assert.equal(afterAdd.currentId, opened.currentId);
   });
@@ -673,3 +675,80 @@ describe('空窗口', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+
+// 排在最后：startServer 的 initHost 是单例。
+describe('多窗口：每个窗口各开一个工程', () => {
+  const rpc = (id, method, params = {}) => ({ jsonrpc: '2.0', id, method, params });
+  let other;
+  let winA;
+  let winB;
+  let wsA;
+  let wsB;
+  let redirect;
+  let mcpOther;
+  let mcpMissing;
+  let toastOnlyB;
+
+  before(async () => {
+    const multiWin = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-e2e-multi-'));
+    other = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-e2e-other-'));
+    await startServer({ root, port: MULTI_PORT, windowDir: multiWin });
+
+    redirect = await fetch(`http://127.0.0.1:${MULTI_PORT}/`, { redirect: 'manual' });
+
+    winA = connect(MULTI_PORT);
+    await winA.ready;
+    wsA = await winA.waitFor((m) => m.type === 'workspaces' && m.currentId, 'A workspaces');
+    winB = connect(MULTI_PORT, other);
+    await winB.ready;
+    wsB = await winB.waitFor((m) => m.type === 'workspaces' && m.currentId, 'B workspaces');
+
+    // B 里出的错只回 B
+    winA.drain();
+    winB.send({ type: 'createFile', relPath: '' });
+    await winB.waitFor((m) => m.type === 'toast' && m.level === 'error', 'B toast');
+    toastOnlyB = !winA.has((m) => m.type === 'toast');
+
+    const mcpAt = async (query) => {
+      const res = await fetch(`http://127.0.0.1:${MULTI_PORT}/mcp${query}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(rpc(1, 'tools/call', { name: 'list', arguments: {} })),
+      });
+      return (await res.json()).result;
+    };
+    mcpOther = await mcpAt(`?project=${encodeURIComponent(other)}`);
+    mcpMissing = await mcpAt(`?project=${encodeURIComponent(path.join(other, 'nope'))}`);
+  });
+
+  after(() => {
+    winA?.ws.close();
+    winB?.ws.close();
+  });
+
+  test('不带工程的首页跳到最近操作的那个工程', () => {
+    assert.equal(redirect.status, 302);
+    assert.ok(new URL(redirect.headers.get('location')).searchParams.get('project'));
+  });
+
+  test('两个窗口各是各的工程', () => {
+    assert.ok(wsA.currentId);
+    assert.ok(wsB.currentId);
+    assert.notEqual(wsA.currentId, wsB.currentId);
+    assert.equal(wsB.items[0].name, path.basename(other));
+  });
+
+  test('一个窗口的提示不出现在另一个窗口', () => {
+    assert.ok(toastOnlyB);
+  });
+
+  test('MCP 带 ?project= 落到那个工程', () => {
+    assert.equal(mcpOther.isError, false, mcpOther.content[0].text);
+  });
+
+  test('MCP 指向没开着的工程：说出是哪个', () => {
+    assert.equal(mcpMissing.isError, true);
+    assert.ok(mcpMissing.content[0].text.includes('没有打开这个小说工程'), mcpMissing.content[0].text);
+  });
+});

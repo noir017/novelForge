@@ -12,6 +12,8 @@
  * 不回 SSE：一次 `tools/call` 可能跑几分钟（写一章），那期间什么都不推，等它跑完一次
  * 回整份 JSON。连接上的空闲超时由壳关掉（`server.ts` 的 `server.timeout(req, 0)`）。
  *
+ * 地址上可以带 `?project=<工程目录>` 指定落到哪个工程（独立版能同时开几个）；不带由壳决定。
+ *
  * 没有鉴权，与网页那条 WebSocket 同一套理由：只绑 127.0.0.1。浏览器会带 `Origin`，
  * 这里只放本机同端口的那一个——挡掉恶意网页借浏览器打本机端口（DNS rebinding）。
  * 命令行客户端不带 `Origin`，放过。
@@ -94,6 +96,8 @@ export class McpHttpHandler {
       // 不带会话 id 的客户端也放过：只是没法按会话省掉重复的状态简报。
       session = new McpSession('');
     }
+    // 地址上的 `?project=` 跟着每次请求走：客户端配置里改了地址、不必重新 initialize。
+    session.project = new URL(req.url).searchParams.get('project')?.trim() || undefined;
 
     const replies = (
       await Promise.all(messages.map((m) => this.server.dispatch(m, session, req.signal)))

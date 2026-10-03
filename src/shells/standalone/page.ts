@@ -55,8 +55,8 @@ function productVersion(): string {
 export function standalonePage(root?: string): string {
   const version = productVersion();
   // 有内置编辑器、但取不到原生编辑器选区（「加入选区」在这里是粘贴框），
-  // 也没有原生设置界面可跳——三个能力位就是这个壳与插件壳的全部界面差异。
-  const caps = { builtinEditor: true, selectionFromEditor: false, nativeSettings: false };
+  // 也没有原生设置界面可跳；一个进程能同时开几个工程、每个窗口一个——这几个能力位就是这个壳与插件壳的全部界面差异。
+  const caps = { builtinEditor: true, selectionFromEditor: false, nativeSettings: false, multiWindow: true };
   const bodyClass = root ? 'workbench' : 'workbench no-workspace';
   return `<!DOCTYPE html>
 <html lang="zh-CN" data-theme="dark">

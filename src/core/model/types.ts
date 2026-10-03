@@ -250,4 +250,6 @@ export interface NovelConfig {
    * 写完正文之后跑一轮「只许删」的删修饰（generation/trim.ts），对话页与批量写章都跑，每章多调 1 次模型。
    */
   trimModifiers: boolean;
+  /** 独立版：已经开着工程时，打开另一个工程用新的浏览器窗口，而不是换掉当前窗口里的那个。 */
+  openInNewWindow: boolean;
 }

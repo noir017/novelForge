@@ -244,9 +244,7 @@ export function closeDatabase(project: NovelProject): void {
     return;
   }
   connections.delete(project.root);
-  if (db === logDb) {
-    logDb = undefined;
-  }
+  logDbs = logDbs.filter((d) => d !== db);
   try {
     db.close();
   } catch {
@@ -266,7 +264,7 @@ export function resetDatabases(): void {
   }
   connections.clear();
   failedRoots.clear();
-  logDb = undefined;
+  logDbs = [];
   logWriteBroken = false;
 }
 
@@ -319,7 +317,11 @@ function pruneOldLogs(db: SqlDatabase): void {
  */
 let pendingLogs: LogEntry[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | undefined;
-let logDb: SqlDatabase | undefined;
+/**
+ * 日志写进哪个库：最近一个挂上来的。独立版一个进程可能同时开着几个工程，
+ * 日志是进程级的，写进其中一份就够；那个工程关了就落到前一个上。
+ */
+let logDbs: SqlDatabase[] = [];
 /**
  * 写库失败过了。
  *
@@ -347,7 +349,7 @@ export async function installLogPersistence(project: NovelProject): Promise<Unsu
     // 让调用方不必区分「挂上了」和「没挂上」。
     return { dispose: () => undefined };
   }
-  logDb = db;
+  logDbs.push(db);
 
   const sink = addLogSink((entry) => {
     if (logWriteBroken) {
@@ -373,7 +375,7 @@ export async function installLogPersistence(project: NovelProject): Promise<Unsu
     dispose: () => {
       sink.dispose();
       flushPendingLogs();
-      logDb = undefined;
+      logDbs = logDbs.filter((d) => d !== db);
     },
   };
 }
@@ -386,6 +388,7 @@ export function flushPendingLogs(): void {
   }
   const batch = pendingLogs;
   pendingLogs = [];
+  const logDb = logDbs[logDbs.length - 1];
   if (batch.length === 0 || !logDb || logWriteBroken) {
     return;
   }

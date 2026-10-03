@@ -5,7 +5,7 @@ import { DraftStore } from '../generation/drafts';
 import { CancelledError } from '../llm/provider';
 import { getHost } from '../host';
 import { addLogSink, clearLogs, describeError, recentLogs, scoped } from '../runtime/logger';
-import { activeTasks, cancelTask, onTaskFinished, onTasksChanged, requestStop } from '../runtime/progress';
+import { activeTasks, cancelTask, onTaskFinished, onTasksChanged, requestStop, visibleTo } from '../runtime/progress';
 import { clearApiKey, promptForApiKey } from '../llm/registry';
 import { NovelProject } from '../model/project';
 import { Workspace } from '../workspace';
@@ -154,12 +154,14 @@ export class ChatController {
     // 日志实时推给前端：日志页在跑长任务时要跟着滚，不能只在切页时拉一次。
     this.subscriptions.push(addLogSink((entry) => this.post({ type: 'log', entry })));
     // 任务表变化 → 推快照。工程页的进度条与工具栏的忙碌标记都吃这一条。
-    this.subscriptions.push(onTasksChanged(() => this.post({ type: 'tasks', tasks: activeTasks() })));
+    this.subscriptions.push(onTasksChanged(() => this.post({ type: 'tasks', tasks: activeTasks(project.root) })));
     // 任务说完了那一句（D24）：在所有页签都看得见的提示条上说，带「打开第 N 章」。
     this.subscriptions.push(
-      onTaskFinished((t) =>
-        this.post({ type: 'taskDone', title: t.title, message: t.message, level: t.level ?? 'info', open: t.open })
-      )
+      onTaskFinished((t) => {
+        if (visibleTo(t.owner, project.root)) {
+          this.post({ type: 'taskDone', title: t.title, message: t.message, level: t.level ?? 'info', open: t.open });
+        }
+      })
     );
     // 日志再落一份进工程库，重启之后仍查得到「昨晚那 76 章卡在哪」。
     // 开库是异步的，而 controller 可能在开完之前就被 dispose 掉（用户刚打开
@@ -283,7 +285,7 @@ export class ChatController {
     this.post({ type: 'attachments', items: this.pending.map(serializeAttachment) });
     this.post({ type: 'busy', value: this.busy });
     // 刷新页面时长任务多半还在跑，进度条必须立刻接上，别让人以为任务没了。
-    this.post({ type: 'tasks', tasks: activeTasks() });
+    this.post({ type: 'tasks', tasks: activeTasks(this.project.root) });
     // 还没答的权限卡片也要跟着回来：它挂在会话的气泡上（上面那条 session 已经
     // 把气泡带回来了），循环这会儿正卡在那里等回答。
     resendGates(this);
@@ -528,13 +530,13 @@ export class ChatController {
       case 'cancelTask':
         if (!cancelTask(msg.id)) {
           // 任务刚好在这一刻结束：推一份新快照让前端把进度条收掉。
-          this.post({ type: 'tasks', tasks: activeTasks() });
+          this.post({ type: 'tasks', tasks: activeTasks(this.project.root) });
         }
         return;
 
       case 'stopAfterItem':
         if (!requestStop(msg.id)) {
-          this.post({ type: 'tasks', tasks: activeTasks() });
+          this.post({ type: 'tasks', tasks: activeTasks(this.project.root) });
         }
         return;
 
@@ -571,6 +573,7 @@ export class ChatController {
       case 'openFolder':
       case 'closeFolder':
       case 'activateWorkspace':
+      case 'windowFocus':
       case 'openLogDir':
       case 'createFile':
       case 'openReadme':

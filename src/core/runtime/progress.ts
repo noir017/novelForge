@@ -52,6 +52,8 @@ export type TaskOpen = { plotRelPath: string; label: string } | { sessionId: str
 export interface TaskFinished extends TaskNotice {
   id: string;
   title: string;
+  /** 任务属于哪个工程（{@link setTaskOwnerResolver}）。没有归属的人人都看得见。 */
+  owner?: string;
 }
 
 export interface TaskContext {
@@ -74,6 +76,7 @@ export interface TaskContext {
 interface TaskState extends TaskSnapshot {
   startedAt: number;
   abort: AbortController;
+  owner?: string;
 }
 
 const log = scoped('任务');
@@ -81,10 +84,28 @@ const tasks = new Map<string, TaskState>();
 const listeners = new Set<() => void>();
 const finishers = new Set<(t: TaskFinished) => void>();
 let counter = 0;
+let ownerResolver: () => string | undefined = () => undefined;
 
-/** 当前在跑的任务快照，按开始时间正序。 */
-export function activeTasks(): TaskSnapshot[] {
+/**
+ * 任务开跑时记下它属于哪个工程（独立版一个进程同时开着几个工程，进度条只该出现在
+ * 那个工程的窗口里）。插件一个进程一个工程，不设。
+ */
+export function setTaskOwnerResolver(fn: () => string | undefined): void {
+  ownerResolver = fn;
+}
+
+/**
+ * 这个任务该不该给 `owner` 那个工程的窗口看。不问归属（undefined）的都看；没有归属的任务谁都看；
+ * `null` 是没开工程的窗口，只看没有归属的。
+ */
+export function visibleTo(taskOwner: string | undefined, owner: string | null | undefined): boolean {
+  return owner === undefined || !taskOwner || taskOwner === owner;
+}
+
+/** 当前在跑的任务快照，按开始时间正序。`owner` 的意思见 {@link visibleTo}。 */
+export function activeTasks(owner?: string | null): TaskSnapshot[] {
   return [...tasks.values()]
+    .filter((t) => visibleTo(t.owner, owner))
     .sort((a, b) => a.startedAt - b.startedAt)
     .map((t) => ({
       id: t.id,
@@ -181,6 +202,7 @@ export async function runTask<T>(
       elapsedMs: 0,
       startedAt,
       abort,
+      owner: ownerResolver(),
       ...(opts.pausable ? { pausable: true, stopping: false } : {}),
     };
     let notice: TaskNotice | undefined;
@@ -225,7 +247,7 @@ export async function runTask<T>(
         taskLog.info(`完成：${title}`, `耗时 ${elapsed(startedAt)}`);
       }
       if (notice) {
-        const done: TaskFinished = { ...notice, id, title };
+        const done: TaskFinished = { ...notice, id, title, owner: state.owner };
         for (const f of finishers) {
           try {
             f(done);

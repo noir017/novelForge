@@ -53,8 +53,11 @@ export interface McpBackend {
 export interface McpServerOptions {
   /** 工具清单。与工程无关，没打开工程时 `tools/list` 照样回得出来。 */
   tools: ToolSpec[];
-  /** 当前工程的执行端。没打开工程时回 undefined。 */
-  backend(): McpBackend | undefined;
+  /**
+   * 工程的执行端。`project` 是客户端在 MCP 地址上写的 `?project=<工程目录>`：给了就落到那个工程，
+   * 没给由壳决定（独立版：作者最近操作的那个窗口）。那个工程没打开时回 undefined。
+   */
+  backend(project?: string): McpBackend | undefined;
   version: string;
   instructions: string;
 }
@@ -104,6 +107,8 @@ export class McpSession {
   /** 还在跑的调用，`notifications/cancelled` 按请求 id 找到它。 */
   readonly inflight = new Map<JsonRpcId, AbortController>();
   clientName = '';
+  /** 客户端在地址上指定的工程（`?project=`），每次请求按地址刷新。 */
+  project?: string;
 
   constructor(readonly id: string) {}
 
@@ -214,9 +219,12 @@ export class McpServer {
         ? (params.arguments as Record<string, unknown>)
         : {};
 
-    const backend = this.opts.backend();
+    const backend = this.opts.backend(session.project);
     if (!backend) {
-      return toCallResult({ text: 'Novel Forge 现在没有打开任何小说工程。请作者先在 Novel Forge 里打开一个工程。', isError: true });
+      const text = session.project
+        ? `Novel Forge 里没有打开这个小说工程：${session.project}。请作者先在 Novel Forge 里打开它。`
+        : 'Novel Forge 现在没有打开任何小说工程。请作者先在 Novel Forge 里打开一个工程。';
+      return toCallResult({ text, isError: true });
     }
 
     // 两条取消的路：客户端发 `notifications/cancelled`，或者 HTTP 连接断了。

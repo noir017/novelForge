@@ -44,6 +44,8 @@ export interface PersistedSettings {
   fallbackAttempts?: number;
   /** 写完正文删修饰。缺席 = 开。 */
   trimModifiers?: boolean;
+  /** 独立版：已经开着工程时，打开另一个工程用新窗口。缺席 = 开。 */
+  openInNewWindow?: boolean;
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
   contextWindow?: number;
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
@@ -130,6 +132,7 @@ export function readConfig(): NovelConfig {
     concurrency: clamp('并发请求数', c.concurrency, CONCURRENCY_RANGE),
     fallbackAttempts: clamp('换模型重试次数', c.fallbackAttempts, FALLBACK_RANGE),
     trimModifiers: c.trimModifiers !== false,
+    openInNewWindow: c.openInNewWindow !== false,
   };
 }
 

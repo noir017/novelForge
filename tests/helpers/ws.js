@@ -18,6 +18,7 @@ const TIMEOUT_MS = 5000;
  * 开一条 WS，把收到的消息按谓词分发给等待者，其余排进 inbox。
  *
  * @param {number} port 服务端口
+ * @param {string} [project] 窗口网址上的 `?project=`（独立版一个窗口开一个工程）
  * @returns {{
  *   ws: WebSocket,
  *   ready: Promise<void>,
@@ -26,8 +27,9 @@ const TIMEOUT_MS = 5000;
  *   drain: () => void,
  * }}
  */
-export function connect(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+export function connect(port, project) {
+  const query = project ? `?project=${encodeURIComponent(project)}` : '';
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws${query}`);
   const inbox = [];
   const waiters = [];
 

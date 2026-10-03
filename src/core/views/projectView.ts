@@ -31,10 +31,10 @@ import {
 const log = scoped('角色卡');
 
 /**
- * 上一次报过的冲突签名。工程页每次刷新都会走到这里，同一批冲突反复打进日志
- * 会把日志页淹掉——变了才说一次。
+ * 每个工程上一次报过的冲突签名。工程页每次刷新都会走到这里，同一批冲突反复打进日志
+ * 会把日志页淹掉——变了才说一次。按工程根分开：独立版同时开着几个工程时不互相顶掉。
  */
-let lastConflictSignature = '';
+const lastConflictSignature = new Map<string, string>();
 
 /**
  * 工程页的数据来源。
@@ -211,7 +211,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       .filter((c): c is NonNullable<typeof c> => !!c)
       .map((c) => ({ name: c.name, relPath: c.relPath })),
   }));
-  reportConflicts(castConflicts);
+  reportConflicts(project.root, castConflicts);
 
   // 摘要新鲜度只算**有正文**的章：还没写的章无从总结，算进来会让顶部黄条报一个
   // 永远清不掉的待办数。
@@ -345,12 +345,12 @@ export async function buildPlotPipelineView(
  * 冲突进日志。前端也会显示一条，但日志才是事后能翻的地方——
  * 「上周那批出场统计怎么会错」只有这里答得上。
  */
-function reportConflicts(conflicts: CastConflictView[]): void {
+function reportConflicts(root: string, conflicts: CastConflictView[]): void {
   const signature = conflicts.map((c) => `${c.kind}:${c.name}:${c.cards.map((x) => x.relPath).join(',')}`).join('|');
-  if (signature === lastConflictSignature) {
+  if (signature === (lastConflictSignature.get(root) ?? '')) {
     return;
   }
-  lastConflictSignature = signature;
+  lastConflictSignature.set(root, signature);
   if (conflicts.length === 0) {
     return;
   }

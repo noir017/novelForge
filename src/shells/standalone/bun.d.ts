@@ -6,6 +6,8 @@
 interface BunServerWebSocket {
   send(text: string): void;
   close(): void;
+  /** upgrade 时给的 `data`。 */
+  readonly data: unknown;
 }
 
 interface BunServeOptions {

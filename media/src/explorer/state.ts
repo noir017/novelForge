@@ -5,6 +5,7 @@
  * index.ts 收消息时要写它们——把状态摊在模块作用域里，两边就都不必
  * 互相 import 对方的内部字段。
  */
+import { projectStorageKey } from '../globals';
 import type { DirListing, FsEntry } from '../protocol';
 
 const OPEN_KEY = 'novelforge.files.open';
@@ -84,7 +85,7 @@ export function markAllPending(): void {
 
 export function persistOpen(): void {
   try {
-    localStorage.setItem(OPEN_KEY, JSON.stringify([...openDirs]));
+    localStorage.setItem(projectStorageKey(OPEN_KEY), JSON.stringify([...openDirs]));
   } catch {
     /* 隐私模式下写不进去，退化为仅本次会话保留 */
   }
@@ -93,7 +94,7 @@ export function persistOpen(): void {
 export function restoreOpen(): void {
   let saved: unknown;
   try {
-    saved = JSON.parse(localStorage.getItem(OPEN_KEY) || 'null');
+    saved = JSON.parse(localStorage.getItem(projectStorageKey(OPEN_KEY)) || 'null');
   } catch {
     return;
   }

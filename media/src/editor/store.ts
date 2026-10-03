@@ -6,7 +6,7 @@
  * 要认下自己是 activePane；而「有哪几块」这件事又得等 pane 造出来才知道。
  * 把状态放这儿，方向就只剩 index → pane → store 一条。
  */
-import { announceEditorActive } from '../globals';
+import { announceEditorActive, projectStorageKey } from '../globals';
 import type { EditorFileView, InMessage } from '../protocol';
 import type { CarriedDraft, OpenFile, PaneId } from './paneElements';
 
@@ -125,7 +125,7 @@ export function persist(): void {
       ),
       activePane: activePane?.id,
     };
-    localStorage.setItem(STORE_KEY, JSON.stringify(data));
+    localStorage.setItem(projectStorageKey(STORE_KEY), JSON.stringify(data));
   } catch {
     /* 隐私模式下 localStorage 可能不可写，丢了也不影响主流程 */
   }
@@ -137,6 +137,12 @@ let persistTimer: ReturnType<typeof setTimeout> | undefined;
 export function schedulePersist(): void {
   clearTimeout(persistTimer);
   persistTimer = setTimeout(persist, 400);
+}
+
+/** 换工程时：攒着的那一次不写了——它记的是上一个工程的标签页，写下去会落到新工程的键上。 */
+export function cancelScheduledPersist(): void {
+  clearTimeout(persistTimer);
+  persistTimer = undefined;
 }
 
 /**
@@ -152,7 +158,7 @@ export function restore(): void {
   }
   let saved: unknown;
   try {
-    saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+    saved = JSON.parse(localStorage.getItem(projectStorageKey(STORE_KEY)) || 'null');
   } catch {
     return;
   }
@@ -192,7 +198,7 @@ export function restore(): void {
  */
 export function rekeyStorage(from: string, to: string): void {
   try {
-    const data = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+    const data = JSON.parse(localStorage.getItem(projectStorageKey(STORE_KEY)) || 'null');
     if (!data?.panes) {
       return;
     }
@@ -208,7 +214,7 @@ export function rekeyStorage(from: string, to: string): void {
         paneData.active = to;
       }
     }
-    localStorage.setItem(STORE_KEY, JSON.stringify(data));
+    localStorage.setItem(projectStorageKey(STORE_KEY), JSON.stringify(data));
   } catch {
     /* 同上 */
   }

@@ -4,25 +4,28 @@
  * `getState`/`setState` 在浏览器里落 localStorage：网页会被 F5 刷新，
  * 比 webview 更需要它——view.js 用它存输入框里没发出去的草稿。
  */
+import { projectStorageKey } from '../globals';
 import type { WebviewApi } from '../vscodeApi';
 import type { Socket } from './socket';
 
 const STATE_KEY = 'novelforge.viewState';
 
 export function installWebviewApi(socket: Socket): void {
-  // 内存副本：读一次 localStorage 就够，之后以它为准。
+  // 内存副本：同一个键读一次 localStorage 就够，之后以它为准。键随工程变（projectStorageKey），
+  // 窗口里换了工程就重新读。
   let memoryState: unknown;
-  let loaded = false;
+  let loadedKey: string | undefined;
 
   const api: WebviewApi<unknown> = {
     postMessage(message) {
       socket.send(message);
     },
     getState() {
-      if (!loaded) {
-        loaded = true;
+      const key = projectStorageKey(STATE_KEY);
+      if (loadedKey !== key) {
+        loadedKey = key;
         try {
-          memoryState = JSON.parse(localStorage.getItem(STATE_KEY) || 'null') ?? undefined;
+          memoryState = JSON.parse(localStorage.getItem(key) || 'null') ?? undefined;
         } catch {
           memoryState = undefined;
         }
@@ -31,9 +34,9 @@ export function installWebviewApi(socket: Socket): void {
     },
     setState(state) {
       memoryState = state;
-      loaded = true;
+      loadedKey = projectStorageKey(STATE_KEY);
       try {
-        localStorage.setItem(STATE_KEY, JSON.stringify(state));
+        localStorage.setItem(loadedKey, JSON.stringify(state));
       } catch {
         // 隐私模式下写不进去，退化为仅本次会话保留。
       }

@@ -1,9 +1,10 @@
 import * as fsSync from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { ChatController, ViewHost } from '../../core/controller';
+import { ChatController, ViewHost, createMcpBackend } from '../../core/controller';
 import type { NovelProject } from '../../core/model/project';
 import { Workspace } from '../../core/workspace';
+import { readConfig } from '../../core/config';
 import {
   pushSettingsTo,
   saveSettingsFrom,
@@ -19,12 +20,14 @@ import {
 } from '../../core/controller/skills';
 import { Disposable } from '../../core/host';
 import { clearApiKey, promptForApiKey } from '../../core/llm/registry';
+import type { McpBackend } from '../../core/mcp';
 import { InMessage, OutMessage, WorkspaceItem, WorkspaceRecent } from '../../core/protocol';
 import { clearLogs, describeError, recentLogs, scoped } from '../../core/runtime/logger';
 import { activeTasks, cancelTask } from '../../core/runtime/progress';
 import { homeDir } from '../../core/stores';
 import { FileHost } from './fileHost';
 import { createHostDir, listHostDir } from './hostFs';
+import { runInScope, WindowScope } from './scopedHost';
 import { openWithSystem } from './systemOpen';
 import {
   readWindowState,
@@ -35,176 +38,280 @@ import {
 
 const log = scoped('工作区');
 
+/** 最后一个窗口离开之后，工程再留多久才关（刷新页面、断线重连都在这段时间里回来）。 */
+const IDLE_MS = 60_000;
+
 export interface WorkspaceHubOptions {
-  broadcast: (msg: OutMessage) => void;
-  host: FileHost;
+  /** 所有窗口共用的设置读写。 */
+  config: FileHost['config'];
   /** window.json 所在目录。测试注入，缺省为 ~/.novelforge。 */
   windowDir?: string;
+  /** 没有窗口的工程多久之后关。测试注入。 */
+  idleMs?: number;
 }
 
-interface BoundRuntime {
+/** 一个网页窗口（一条 WebSocket）。 */
+export interface WindowConn {
+  send(msg: OutMessage): void;
+  /** 这个窗口开着的工程。空窗口没有。 */
+  runtime?: Runtime;
+  /** 空窗口自己的宿主：弹窗、toast 只回这个窗口。 */
+  readonly host: FileHost;
+  readonly scope: WindowScope;
+  /** 连接时绑定工程的那一步。之后的消息要等它做完。 */
+  ready: Promise<void>;
+}
+
+/** 一个打开着的工程。几个窗口开同一个工程时共用这一份。 */
+export interface Runtime {
   id: string;
   root: string;
   name: string;
   project: NovelProject;
   controller: ChatController;
   watch: Disposable;
+  host: FileHost;
+  scope: WindowScope;
+  clients: Set<WindowConn>;
+  idleTimer?: ReturnType<typeof setTimeout>;
 }
 
 /**
  * 独立版进程里的工作区登记处。
  *
- * `ChatController` 仍然一对一绑一份 `NovelProject`；多开不进 core。
- * 这一版窗口里只有 0 或 1 个工程，`mode: 'add'` 回明确错误。
+ * 一个进程同时开着几个工程，每个窗口（WebSocket 连接）各自绑一个，或者是空窗口。
+ * `ChatController` 仍然一对一绑一份 `NovelProject`；同一个工程开在几个窗口里，它们共用一份。
+ * 广播只发给开着这个工程的那几个窗口，设置与最近打开的列表是全局的。
+ *
+ * core 里的 `getHost()` 靠 {@link runInScope} 落到对应窗口：处理哪个窗口的消息、跑哪个工程的
+ * 监听与 MCP 调用，就在哪个上下文里跑。
  */
 export class WorkspaceHub {
-  private current: BoundRuntime | undefined;
-  private readonly broadcast: (msg: OutMessage) => void;
-  private readonly host: FileHost;
+  private readonly runtimes = new Map<string, Runtime>();
+  private readonly conns = new Set<WindowConn>();
+  /** 最近操作的那个工程：没指定工程的 MCP 调用、不带 `?project=` 的新窗口都落到它上面。 */
+  private lastActive: Runtime | undefined;
+  private readonly config: FileHost['config'];
   private readonly windowDir?: string;
-  private readonly viewHost: ViewHost;
+  private readonly idleMs: number;
 
   constructor(opts: WorkspaceHubOptions) {
-    this.broadcast = opts.broadcast;
-    this.host = opts.host;
+    this.config = opts.config;
     this.windowDir = opts.windowDir;
-    this.viewHost = {
-      kind: 'editor',
-      post: (msg) => this.broadcast(msg),
-      reveal: () => undefined,
-    };
+    this.idleMs = opts.idleMs ?? IDLE_MS;
   }
 
-  private get sink(): SettingsSink {
-    return {
-      post: (msg) => this.broadcast(msg),
-      toast: (message, level) => this.host.toast(message, level),
-    };
+  // ---------------------------------------------------------------- 连接
+
+  /**
+   * 一个窗口连上来。`requested` 是它网址上的 `?project=`：给了就开那个工程（已经开着就共用），
+   * 没给就落到最近操作的那个工程上；都没有是空窗口。
+   */
+  connect(send: (msg: OutMessage) => void, requested?: string): WindowConn {
+    const host = new FileHost(this.config, send);
+    const conn: WindowConn = { send, host, scope: { host }, ready: Promise.resolve() };
+    this.conns.add(conn);
+    conn.ready = (async () => {
+      if (requested) {
+        await this.openIn(conn, requested, { quiet: true });
+      } else if (this.lastActive) {
+        this.attach(conn, this.lastActive);
+      }
+      await this.pushReady(conn);
+    })().catch((err) => log.error(`窗口连接失败：${describeError(err)}`, err));
+    return conn;
   }
 
-  activeController(): ChatController | undefined {
-    return this.current?.controller;
+  disconnect(conn: WindowConn): void {
+    this.conns.delete(conn);
+    conn.host.prompts.cancelAll();
+    this.detach(conn);
   }
 
-  snapshot(): {
+  /** 网页发来的一条消息。 */
+  async receive(conn: WindowConn, msg: InMessage): Promise<void> {
+    await conn.ready;
+    if (msg.type === 'promptResult') {
+      (conn.runtime?.host ?? conn.host).prompts.resolve(msg.requestId, msg.value);
+      return;
+    }
+    this.touch(conn);
+    const scope = conn.runtime?.scope ?? conn.scope;
+    await runInScope(scope, async () => {
+      try {
+        if (await this.handle(conn, msg)) {
+          return;
+        }
+        if (!conn.runtime) {
+          conn.send({ type: 'toast', message: '请先打开文件夹', level: 'error' });
+          return;
+        }
+        await conn.runtime.controller.handle(msg);
+      } catch (err) {
+        log.error(`处理网页消息失败：${describeError(err)}`, err);
+        conn.send({ type: 'toast', message: describeError(err), level: 'error' });
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------- 查询
+
+  /** 某个窗口眼里的工作区：它自己开着的那一个，加上全局的最近打开。 */
+  snapshot(conn?: WindowConn): {
     currentId: string | null;
     items: WorkspaceItem[];
     recents: WorkspaceRecent[];
+    openInNewWindow: boolean;
   } {
     const recents = readWindowState(this.windowDir).recents.map((r) => ({
       root: r.root,
       name: r.name,
     }));
+    const rt = conn ? conn.runtime : this.lastActive;
     return {
-      currentId: this.current?.id ?? null,
-      items: this.current
-        ? [{ id: this.current.id, root: this.current.root, name: this.current.name }]
-        : [],
+      currentId: rt?.id ?? null,
+      items: rt ? [{ id: rt.id, root: rt.root, name: rt.name }] : [],
       recents,
+      openInNewWindow: readConfig().openInNewWindow,
     };
   }
 
-  pushSnapshot(): void {
-    this.broadcast({ type: 'workspaces', ...this.snapshot() });
+  /** 不带 `?project=` 的窗口会落到哪个工程上。 */
+  defaultRoot(): string | undefined {
+    return this.lastActive?.root;
+  }
+
+  /** 现在开着的所有工程根。 */
+  openRoots(): string[] {
+    return [...this.runtimes.keys()];
   }
 
   /**
-   * 启动时绑定：CLI 给了目录就打开它；否则看 window.json 的 lastOpen。
-   * 路径已经不在盘上则清掉该字段，保持空窗口。
+   * MCP 的执行端。`project` 给了就找那个工程（必须开着），没给用最近操作的那个窗口的工程。
+   * 调用在那个工程的上下文里跑：确认框、写入审阅弹在开着它的窗口上。
+   */
+  mcpBackend(project?: string): McpBackend | undefined {
+    const rt = project ? this.findRuntime(project) : this.lastActive;
+    if (!rt) {
+      return undefined;
+    }
+    const backend = createMcpBackend(rt.controller);
+    return {
+      call: (name, args, signal) => runInScope(rt.scope, () => backend.call(name, args, signal)),
+      brief: () => runInScope(rt.scope, () => backend.brief()),
+    };
+  }
+
+  /** 测试与 server 用：某个工程的 controller。不给就是最近操作的那个。 */
+  controllerOf(root?: string): ChatController | undefined {
+    return (root ? this.findRuntime(root) : this.lastActive)?.controller;
+  }
+
+  // ---------------------------------------------------------------- 启动
+
+  /**
+   * 启动时打开：CLI 给了目录就打开它；否则看 window.json 的 lastOpen。
+   * 路径已经不在盘上则清掉该字段。还没有窗口连上来，它成为「最近操作」的那个。
    */
   async bootstrap(cliRoot?: string): Promise<void> {
-    if (cliRoot) {
-      await this.open(cliRoot);
+    const target = cliRoot ?? readWindowState(this.windowDir).lastOpen;
+    if (!target) {
       return;
     }
-    const win = readWindowState(this.windowDir);
-    if (!win.lastOpen) {
+    if (!cliRoot) {
+      try {
+        if (!(await fsp.stat(target)).isDirectory()) {
+          throw new Error('not a directory');
+        }
+      } catch {
+        const win = readWindowState(this.windowDir);
+        writeWindowState({ lastOpen: null, recents: win.recents }, this.windowDir);
+        return;
+      }
+    }
+    const resolved = await this.resolveDir(target, (m) => log.warn(m, target));
+    if (!resolved) {
       return;
     }
     try {
-      const st = await fsp.stat(win.lastOpen);
-      if (st.isDirectory()) {
-        await this.open(win.lastOpen);
-        return;
-      }
-    } catch {
-      // 目录没了
+      const rt = await this.ensureRuntime(resolved);
+      this.lastActive = rt;
+      rememberOpen(resolved, this.windowDir);
+    } catch (err) {
+      log.error(`打开工程失败：${describeError(err)}`, err);
     }
-    writeWindowState({ lastOpen: null, recents: win.recents }, this.windowDir);
   }
+
+  // ---------------------------------------------------------------- 消息
 
   /**
    * 重连 / 前端 ready：有工程则 workspaces + 全量状态；空窗口不发假 init。
    */
-  async pushReady(): Promise<void> {
-    this.pushSnapshot();
-    if (this.current) {
-      await this.current.controller.resendFullState();
+  async pushReady(conn: WindowConn): Promise<void> {
+    conn.send({ type: 'workspaces', ...this.snapshot(conn) });
+    if (conn.runtime) {
+      await runInScope(conn.runtime.scope, () => conn.runtime!.controller.resendFullState());
       return;
     }
-    await pushSettingsTo(this.sink);
-    await pushSkillsTo(this.sink, {});
-    this.broadcast({ type: 'logs', entries: recentLogs() });
-    this.broadcast({ type: 'tasks', tasks: activeTasks() });
+    await pushSettingsTo(this.sinkOf(conn));
+    await pushSkillsTo(this.sinkOf(conn), {});
+    conn.send({ type: 'logs', entries: recentLogs() });
+    conn.send({ type: 'tasks', tasks: activeTasks(null) });
   }
 
   /**
-   * 吃掉 Hub 自己的消息。true = 已处理，server 不要再交给 controller。
+   * 吃掉 Hub 自己的消息。true = 已处理，不要再交给 controller。
    */
-  async handle(msg: InMessage): Promise<boolean> {
+  async handle(conn: WindowConn, msg: InMessage): Promise<boolean> {
+    const rt = conn.runtime;
+    const sink = this.sinkOf(conn);
     switch (msg.type) {
       case 'listHostDir':
-        this.broadcast({ type: 'hostDir', ...(await listHostDir(msg.path)) });
+        conn.send({ type: 'hostDir', ...(await listHostDir(msg.path)) });
         return true;
       case 'createHostDir':
-        this.broadcast({ type: 'hostDir', ...(await createHostDir(msg.parent, msg.name)) });
+        conn.send({ type: 'hostDir', ...(await createHostDir(msg.parent, msg.name)) });
         return true;
       case 'openFolder':
-        await this.open(msg.path, msg.mode);
+        await this.openIn(conn, msg.path, { mode: msg.mode });
         return true;
       case 'closeFolder':
-        await this.close(msg.id);
+        this.closeIn(conn, msg.id);
         return true;
       case 'activateWorkspace':
-        this.activate(msg.id);
+        this.activate(conn, msg.id);
+        return true;
+      case 'windowFocus':
+        // touch() 已经记下了。
         return true;
       case 'openLogDir':
         openWithSystem(homeDir());
         return true;
       case 'createFile':
-        await this.createFile(msg.relPath, msg.text);
+        await this.createFile(conn, msg.relPath, msg.text);
         return true;
       case 'openReadme':
-        await this.openReadme();
+        await this.openReadme(conn);
         return true;
       case 'saveSettings':
-        await saveSettingsFrom(
-          msg.settings,
-          this.sink,
-          this.current ? () => this.current!.controller.pushState() : undefined
-        );
+        // 设置是全局的：所有窗口都收新设置，开着的工程都刷新一遍（模型清单在工程状态里）。
+        await saveSettingsFrom(msg.settings, this.globalSink(conn), () => this.refreshAll());
+        this.pushSnapshots();
         return true;
       case 'setApiKey':
         await promptForApiKey(msg.providerId);
-        await pushSettingsTo(this.sink);
-        if (this.current) {
-          await this.current.controller.pushState();
-        }
+        await pushSettingsTo(this.globalSink(conn));
+        await this.refreshAll();
         return true;
       case 'clearApiKey':
         await clearApiKey(msg.providerId);
-        await pushSettingsTo(this.sink);
+        await pushSettingsTo(this.globalSink(conn));
         return true;
       case 'testConnection':
-        await testConnectionTo(
-          this.sink,
-          msg.ref,
-          msg.provider,
-          this.current ? () => this.current!.controller.pushState() : undefined
-        );
+        await testConnectionTo(sink, msg.ref, msg.provider, rt ? () => rt.controller.pushState() : undefined);
         return true;
       case 'ready':
-        await this.pushReady();
+        await this.pushReady(conn);
         return true;
       case 'openNativeSettings':
         // 独立版没有原生设置页：空窗口也要吃掉这条，避免落到「请先打开文件夹」。
@@ -213,195 +320,359 @@ export class WorkspaceHub {
         break;
     }
 
-    if (this.current) {
+    if (rt) {
       return false;
     }
 
-    // 空窗口仍要能切设置/日志、停任务。其余创作类消息由 server 拦。
+    // 空窗口仍要能切设置/日志、停任务。其余创作类消息由 receive 拦。
     switch (msg.type) {
       case 'switchTab':
-        this.broadcast({ type: 'tab', tab: msg.tab });
+        conn.send({ type: 'tab', tab: msg.tab });
         if (msg.tab === 'settings') {
-          await pushSettingsTo(this.sink);
-          await pushSkillsTo(this.sink, {});
+          await pushSettingsTo(sink);
+          await pushSkillsTo(sink, {});
         } else if (msg.tab === 'logs') {
-          this.broadcast({ type: 'logs', entries: recentLogs() });
+          conn.send({ type: 'logs', entries: recentLogs() });
         }
         return true;
       case 'requestLogs':
-        this.broadcast({ type: 'logs', entries: recentLogs() });
+        conn.send({ type: 'logs', entries: recentLogs() });
         return true;
       case 'requestLogHistory':
-        this.broadcast({ type: 'logHistory', entries: [], exhausted: true });
+        conn.send({ type: 'logHistory', entries: [], exhausted: true });
         return true;
       case 'clearLogs':
         clearLogs();
-        this.broadcast({ type: 'logs', entries: recentLogs() });
+        conn.send({ type: 'logs', entries: recentLogs() });
         return true;
       case 'cancelTask':
         if (!cancelTask(msg.id)) {
-          this.broadcast({ type: 'tasks', tasks: activeTasks() });
+          conn.send({ type: 'tasks', tasks: activeTasks(null) });
         }
         return true;
       // 设置页「技能」：技能库与工程无关，空窗口也能看、能装、能卸；绑定要工程（bindSkillFrom 会说）。
       case 'requestSkills':
-        await pushSkillsTo(this.sink, {});
+        await pushSkillsTo(sink, {});
         return true;
       case 'inspectSkill':
-        await inspectSkillFrom(this.sink, msg.url);
+        await inspectSkillFrom(sink, msg.url);
         return true;
       case 'installSkill':
-        await installSkillFrom(this.sink, {}, msg.url);
+        await installSkillFrom(sink, {}, msg.url);
         return true;
       case 'uninstallSkill':
-        await uninstallSkillFrom(this.sink, {}, msg.id);
+        await uninstallSkillFrom(sink, {}, msg.id);
         return true;
       case 'bindSkill':
-        await bindSkillFrom(this.sink, {}, msg.stage, msg.id);
+        await bindSkillFrom(sink, {}, msg.stage, msg.id);
         return true;
       default:
         return false;
     }
   }
 
-  async open(absPath: string, mode?: 'replace' | 'add'): Promise<void> {
-    let resolved: string;
+  // ---------------------------------------------------------------- 打开 / 关闭
+
+  /**
+   * 这个窗口打开一个工程（换掉它原来的那个）。别的窗口不受影响；原来那个工程没有窗口了就按
+   * 空闲回收。打不开时窗口保持原样。`quiet`：连接时按网址打开，不另外推一遍状态（connect 会推）。
+   */
+  async openIn(
+    conn: WindowConn,
+    absPath: string,
+    opts: { mode?: 'replace' | 'add'; quiet?: boolean } = {}
+  ): Promise<void> {
+    const resolved = await this.resolveDir(absPath, (m) => conn.host.toast(m, 'error'));
+    if (!resolved) {
+      return;
+    }
+
+    if (opts.mode === 'add' && conn.runtime && conn.runtime.id !== resolved) {
+      conn.host.toast('一个窗口只能开一个工程', 'error');
+      return;
+    }
+
+    if (conn.runtime?.id === resolved) {
+      this.activate(conn, resolved);
+      return;
+    }
+
+    let rt: Runtime;
     try {
-      const target = path.resolve(absPath);
-      const st = await fsp.stat(target);
-      if (!st.isDirectory()) {
-        this.host.toast('不是目录', 'error');
-        return;
-      }
-      resolved = await fsp.realpath(target);
-    } catch {
-      this.host.toast('目录不存在', 'error');
-      return;
-    }
-
-    if (mode === 'add' && this.current && this.current.id !== resolved) {
-      this.host.toast('本版本只支持一个工作区', 'error');
-      return;
-    }
-
-    if (this.current?.id === resolved) {
-      this.activate(resolved);
-      return;
-    }
-
-    const previousRoot = this.current?.root;
-    if (this.current) {
-      this.teardown();
-    }
-
-    try {
-      await this.bindNew(resolved);
+      rt = await this.ensureRuntime(resolved);
     } catch (err) {
-      this.host.toast(describeError(err), 'error');
+      conn.host.toast(describeError(err), 'error');
       log.error(`打开工程失败：${describeError(err)}`, err);
-      if (previousRoot) {
-        try {
-          await this.bindNew(previousRoot);
-          return;
-        } catch (restoreErr) {
-          this.host.toast(describeError(restoreErr), 'error');
-          log.error(`恢复上一工程失败：${describeError(restoreErr)}`, restoreErr);
-        }
-      }
-      this.teardown();
-      rememberClosed(this.windowDir);
-      this.pushSnapshot();
+      return;
     }
+    this.detach(conn);
+    this.attach(conn, rt);
+    this.lastActive = rt;
+    rememberOpen(resolved, this.windowDir);
+    if (!opts.quiet) {
+      await this.pushReady(conn);
+    }
+    // 最近打开的列表变了，别的窗口的欢迎页也要跟着变。
+    this.pushSnapshots(conn);
   }
 
-  async close(id?: string): Promise<void> {
-    if (!this.current) {
+  /** 这个窗口关掉它的工程。没有别的窗口开着它就当场关（停生成、关库）。 */
+  closeIn(conn: WindowConn, id?: string): void {
+    const rt = conn.runtime;
+    if (!rt || (id && id !== rt.id)) {
       return;
     }
-    if (id && id !== this.current.id) {
-      return;
-    }
-    this.teardown();
-    rememberClosed(this.windowDir);
-    this.pushSnapshot();
+    this.detach(conn, { immediate: true });
+    this.pushSnapshots();
     log.info('已关闭文件夹');
   }
 
-  activate(id: string): void {
-    if (this.current?.id === id) {
-      this.pushSnapshot();
-      return;
+  /** 测试用：关掉所有工程，所有窗口回到空窗口。 */
+  async closeAll(): Promise<void> {
+    for (const conn of this.conns) {
+      conn.runtime = undefined;
     }
-    this.host.toast('找不到这个工作区', 'error');
+    for (const rt of [...this.runtimes.values()]) {
+      this.teardown(rt);
+    }
+    rememberClosed(this.windowDir);
   }
 
-  private async bindNew(resolved: string): Promise<void> {
-    const project = this.host.bind(resolved);
-    let watch: Disposable | undefined;
-    try {
+  activate(conn: WindowConn, id: string): void {
+    if (conn.runtime?.id === id) {
+      conn.send({ type: 'workspaces', ...this.snapshot(conn) });
+      return;
+    }
+    conn.host.toast('找不到这个工作区', 'error');
+  }
+
+  // ---------------------------------------------------------------- 内部
+
+  private attach(conn: WindowConn, rt: Runtime): void {
+    conn.runtime = rt;
+    rt.clients.add(conn);
+    if (rt.idleTimer) {
+      clearTimeout(rt.idleTimer);
+      rt.idleTimer = undefined;
+    }
+  }
+
+  /**
+   * 窗口离开它的工程。那个工程没有窗口了：`immediate` 当场关；否则等一会儿（刷新、重连会回来），
+   * 到时还没人、也没在跑东西才关。最近操作的那个不关——没指定工程的 MCP 调用还要落到它上面。
+   */
+  private detach(conn: WindowConn, opts: { immediate?: boolean } = {}): void {
+    const rt = conn.runtime;
+    if (!rt) {
+      return;
+    }
+    conn.runtime = undefined;
+    rt.clients.delete(conn);
+    if (rt.clients.size > 0) {
+      return;
+    }
+    // 没人答得了的弹窗按取消处理（与从前「全部网页断开」同一条规矩）。
+    rt.host.prompts.cancelAll();
+    if (opts.immediate) {
+      this.teardown(rt);
+      if (this.lastActive) {
+        rememberOpen(this.lastActive.root, this.windowDir);
+      } else {
+        rememberClosed(this.windowDir);
+      }
+      return;
+    }
+    this.scheduleIdle(rt);
+  }
+
+  private scheduleIdle(rt: Runtime): void {
+    if (rt.idleTimer) {
+      clearTimeout(rt.idleTimer);
+    }
+    rt.idleTimer = setTimeout(() => {
+      rt.idleTimer = undefined;
+      if (rt.clients.size > 0 || !this.runtimes.has(rt.id) || rt === this.lastActive) {
+        return;
+      }
+      if (rt.controller.busy || activeTasks(rt.id).length > 0) {
+        this.scheduleIdle(rt);
+        return;
+      }
+      log.info(`工程已没有窗口，关闭：${rt.root}`);
+      this.teardown(rt);
+    }, this.idleMs);
+    // 不要因为这个计时器拖住进程退出。
+    (rt.idleTimer as { unref?: () => void }).unref?.();
+  }
+
+  /** 记下这个窗口在操作。它开着的工程成为「最近操作」的那个。 */
+  private touch(conn: WindowConn): void {
+    const rt = conn.runtime;
+    if (!rt || rt === this.lastActive) {
+      return;
+    }
+    this.lastActive = rt;
+    rememberOpen(rt.root, this.windowDir);
+  }
+
+  private async ensureRuntime(resolved: string): Promise<Runtime> {
+    const existing = this.runtimes.get(resolved);
+    if (existing) {
+      return existing;
+    }
+    const clients = new Set<WindowConn>();
+    const broadcast = (msg: OutMessage): void => {
+      for (const c of clients) {
+        c.send(msg);
+      }
+    };
+    const host = new FileHost(this.config, broadcast);
+    const scope: WindowScope = { host, owner: resolved };
+    const viewHost: ViewHost = { kind: 'editor', post: broadcast, reveal: () => undefined };
+    return runInScope(scope, () => {
+      const project = host.bind(resolved);
       const controller = new ChatController(project);
-      controller.attach(this.viewHost);
-      watch = this.host.watch(project, () => {
-        project.invalidate();
-        void controller.pushState();
-      });
-      this.current = {
+      controller.attach(viewHost);
+      let watch: Disposable | undefined;
+      try {
+        watch = host.watch(project, () =>
+          runInScope(scope, () => {
+            project.invalidate();
+            void controller.pushState();
+          })
+        );
+      } catch (err) {
+        controller.dispose();
+        host.unbind();
+        throw err;
+      }
+      const rt: Runtime = {
         id: resolved,
         root: resolved,
         name: path.basename(resolved) || resolved,
         project,
         controller,
         watch,
+        host,
+        scope,
+        clients,
       };
-      rememberOpen(resolved, this.windowDir);
-      this.pushSnapshot();
-      await controller.resendFullState();
+      this.runtimes.set(resolved, rt);
       log.info(`已打开工程：${resolved}`);
-    } catch (err) {
-      if (this.current) {
-        this.teardown();
-      } else {
-        watch?.dispose();
-        this.host.unbind();
-      }
-      throw err;
-    }
+      return rt;
+    });
   }
 
   /**
    * 停生成 → 关库 → 停 watcher → 卸 FileHost。
    * 先关库再停 watcher：反过来 Windows 上 sqlite 文件会 EBUSY。
    */
-  private teardown(): void {
-    const bound = this.current;
-    this.current = undefined;
-    if (bound) {
-      try {
-        bound.controller.stopGeneration();
-        bound.controller.dispose();
-      } finally {
-        bound.watch.dispose();
+  private teardown(rt: Runtime): void {
+    this.runtimes.delete(rt.id);
+    if (rt.idleTimer) {
+      clearTimeout(rt.idleTimer);
+      rt.idleTimer = undefined;
+    }
+    for (const c of rt.clients) {
+      c.runtime = undefined;
+    }
+    rt.clients.clear();
+    if (this.lastActive === rt) {
+      this.lastActive = [...this.runtimes.values()].pop();
+    }
+    try {
+      rt.controller.stopGeneration();
+      rt.controller.dispose();
+    } finally {
+      rt.watch.dispose();
+      rt.host.prompts.cancelAll();
+      rt.host.unbind();
+    }
+  }
+
+  private findRuntime(root: string): Runtime | undefined {
+    const direct = this.runtimes.get(root);
+    if (direct) {
+      return direct;
+    }
+    const want = [normalizePath(root)];
+    try {
+      want.push(normalizePath(fsSync.realpathSync.native(path.resolve(root))));
+    } catch {
+      // 不在盘上就只按字面比
+    }
+    for (const rt of this.runtimes.values()) {
+      if (want.includes(normalizePath(rt.id))) {
+        return rt;
       }
     }
-    this.host.unbind();
+    return undefined;
+  }
+
+  private async resolveDir(absPath: string, fail: (message: string) => void): Promise<string | undefined> {
+    try {
+      const target = path.resolve(absPath);
+      const st = await fsp.stat(target);
+      if (!st.isDirectory()) {
+        fail('不是目录');
+        return undefined;
+      }
+      return await fsp.realpath(target);
+    } catch {
+      fail('目录不存在');
+      return undefined;
+    }
+  }
+
+  /** 这个窗口自己的回执：设置页、技能页的推送与提示只回它。 */
+  private sinkOf(conn: WindowConn): SettingsSink {
+    return { post: (msg) => conn.send(msg), toast: (message, level) => conn.host.toast(message, level) };
+  }
+
+  /** 设置改了：新设置推给所有窗口，提示只给发起的那个。 */
+  private globalSink(conn: WindowConn): SettingsSink {
+    return {
+      post: (msg) => {
+        for (const c of this.conns) {
+          c.send(msg);
+        }
+      },
+      toast: (message, level) => conn.host.toast(message, level),
+    };
+  }
+
+  private async refreshAll(): Promise<void> {
+    for (const rt of this.runtimes.values()) {
+      await runInScope(rt.scope, () => rt.controller.pushState());
+    }
+  }
+
+  /** 每个窗口各推一份它眼里的 workspaces。`except` 那个刚推过。 */
+  private pushSnapshots(except?: WindowConn): void {
+    for (const c of this.conns) {
+      if (c !== except) {
+        c.send({ type: 'workspaces', ...this.snapshot(c) });
+      }
+    }
   }
 
   /** 经 workspace 网关新建文件；已存在拒绝，不覆盖。 */
-  private async createFile(relPath: string, text?: string): Promise<void> {
-    if (!this.current) {
-      this.host.toast('请先打开文件夹', 'error');
+  private async createFile(conn: WindowConn, relPath: string, text?: string): Promise<void> {
+    const rt = conn.runtime;
+    if (!rt) {
+      conn.host.toast('请先打开文件夹', 'error');
       return;
     }
     const rel = (relPath ?? '').trim();
     if (!rel) {
-      this.host.toast('路径不能为空', 'error');
+      rt.host.toast('路径不能为空', 'error');
       return;
     }
     try {
-      await new Workspace(this.current.project).write(rel, { text: text ?? '' }, { mode: 'create', review: false });
-      await this.host.openInEditor(rel);
+      await new Workspace(rt.project).write(rel, { text: text ?? '' }, { mode: 'create', review: false });
+      await rt.host.openInEditor(rel);
     } catch (err) {
-      this.host.toast(describeError(err), 'error');
+      rt.host.toast(describeError(err), 'error');
     }
   }
 
@@ -409,14 +680,15 @@ export class WorkspaceHub {
    * 有工程且根下有 README → 内置编辑器打开。
    * 否则找产品仓库根的 README 交给系统打开。都没有则 toast。
    */
-  private async openReadme(): Promise<void> {
-    if (this.current) {
+  private async openReadme(conn: WindowConn): Promise<void> {
+    const rt = conn.runtime;
+    if (rt) {
       for (const name of README_NAMES) {
-        const abs = path.join(this.current.root, name);
+        const abs = path.join(rt.root, name);
         try {
           const st = await fsp.stat(abs);
           if (st.isFile()) {
-            await this.host.openInEditor(name);
+            await rt.host.openInEditor(name);
             return;
           }
         } catch {
@@ -429,8 +701,13 @@ export class WorkspaceHub {
       openWithSystem(product);
       return;
     }
-    this.host.toast('找不到使用说明', 'error');
+    conn.host.toast('找不到使用说明', 'error');
   }
+}
+
+function normalizePath(p: string): string {
+  const resolved = path.resolve(p).replace(/[\\/]+$/, '');
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
 const README_NAMES = ['README.md', 'README.markdown'];

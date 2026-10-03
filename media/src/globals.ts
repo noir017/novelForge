@@ -110,3 +110,21 @@ export function confirmProceedIfDirty(message = '有未保存的修改，仍要�
 export function resetEditor(): void {
   window.dispatchEvent(new Event('nf-workspace-reset'));
 }
+
+/** 这个窗口开的是哪个工程：独立版网址上的 `?project=`。插件与空窗口没有。 */
+export function windowProject(): string | null {
+  try {
+    return new URLSearchParams(location.search).get('project') || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * localStorage 的键按工程分开：独立版几个窗口各开一个工程时，标签页、展开的目录、
+ * 没发出去的草稿不互相顶掉。没有工程时就是原来那个键。
+ */
+export function projectStorageKey(base: string): string {
+  const project = windowProject();
+  return project ? `${base}@${project}` : base;
+}

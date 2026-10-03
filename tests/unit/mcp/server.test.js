@@ -191,6 +191,30 @@ describe('tools/call', () => {
     const body = await (await post(h, rpc('tools/call', {}))).json();
     assert.equal(body.error.code, -32602);
   });
+
+  test('地址上的 ?project= 交给壳挑工程；那个工程没开着时说出是哪个', async () => {
+    const asked = [];
+    const b = fakeBackend();
+    const h = mcp.createNovelMcp((project) => {
+      asked.push(project);
+      return project === 'D:/books/a' ? b.backend : undefined;
+    });
+    const at = (query, body) =>
+      h.handle(
+        new Request(`${URL_}${query}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      );
+    const ok = (await (await at('?project=D%3A%2Fbooks%2Fa', rpc('tools/call', { name: 'read', arguments: {} }))).json()).result;
+    assert.equal(ok.isError, false);
+    const miss = (await (await at('?project=D%3A%2Fbooks%2Fb', rpc('tools/call', { name: 'read', arguments: {} }))).json()).result;
+    assert.equal(miss.isError, true);
+    assert.ok(miss.content[0].text.includes('D:/books/b'), miss.content[0].text);
+    await at('', rpc('tools/call', { name: 'read', arguments: {} }));
+    assert.deepEqual(asked, ['D:/books/a', 'D:/books/b', undefined]);
+  });
 });
 
 describe('状态简报：变了才贴', () => {

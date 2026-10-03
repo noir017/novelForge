@@ -5,10 +5,9 @@
  * 不冲掉资源管理器的关注集合）。
  */
 import { el as mk } from '../dom';
-import { confirmProceedIfDirty } from '../globals';
 import type { DirListing, OutMessage } from '../protocol';
 import { hasWorkspace, vscode } from './store';
-import { markPendingInit } from './welcome';
+import { openProject } from './welcome';
 import { onMessage } from '../vscodeApi';
 
 type Intent = 'open' | 'new' | 'file';
@@ -223,16 +222,10 @@ function confirm(): void {
     closePicker();
     return;
   }
-  if (!confirmProceedIfDirty()) {
-    return;
-  }
   const chosen = state.path;
   const intent = state.intent;
   closePicker();
-  if (intent === 'new') {
-    markPendingInit();
-  }
-  vscode.postMessage({ type: 'openFolder', path: chosen, mode: 'replace' });
+  openProject(chosen, { init: intent === 'new' });
 }
 
 function mkdir(): void {

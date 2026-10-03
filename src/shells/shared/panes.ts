@@ -31,6 +31,11 @@ export interface PaneOptions {
    * 没有这个能力时按钮**根本不渲染**——不是渲染出来再让前端 hidden 掉。
    */
   nativeSettings?: boolean;
+  /**
+   * 宿主能同时开几个工程、每个窗口一个（独立版）。设置页因此多一页「通用」，
+   * 放「新窗口中打开项目」。插件一个窗口就是一个 VS Code 工作区，没有这一项。
+   */
+  multiWindow?: boolean;
 }
 
 /** 活动栏/标签栏的一项。 */
@@ -260,10 +265,28 @@ export function settingsPane(opts: PaneOptions = {}): string {
   const nativeBtn = opts.nativeSettings
     ? '\n    <button class="link" id="nativeSettingsBtn">在 VS Code 设置中打开</button>'
     : '';
+  const generalTab = opts.multiWindow
+    ? '\n    <button class="settings-subtab" id="settingsTabGeneral" data-settings-tab="general" role="tab" aria-selected="false" aria-controls="settingsPanelGeneral">通用</button>'
+    : '';
+  const generalPanel = opts.multiWindow
+    ? `
+
+  <div class="settings-panel" id="settingsPanelGeneral" data-settings-panel="general" role="tabpanel" aria-labelledby="settingsTabGeneral">
+    <div class="pane-head"><span>窗口</span></div>
+    <div class="hint">
+      每个浏览器窗口各开一个工程，互不干扰。开着这一项时，在已经开着工程的窗口里再打开别的工程（打开文件夹、新建工程、最近打开），
+      会开一个新窗口，当前窗口不动；关掉则换掉当前窗口里的工程。空窗口里打开总是用当前窗口。
+      外部 Agent 经 MCP 调用时，地址带 <code>?project=&lt;工程目录&gt;</code> 就落到那个工程，不带就落到最近操作的那个窗口。
+    </div>
+    <div class="grid">
+      <label class="field"><span>新窗口中打开项目</span><input type="checkbox" id="setOpenInNewWindow"></label>
+    </div>
+  </div>`
+    : '';
   return `<section class="pane" id="pane-settings">
   <div class="settings-subtabs" role="tablist" aria-label="设置分类">
     <button class="settings-subtab active" id="settingsTabModels" data-settings-tab="models" role="tab" aria-selected="true" aria-controls="settingsPanelModels">模型配置</button>
-    <button class="settings-subtab" id="settingsTabContext" data-settings-tab="context" role="tab" aria-selected="false" aria-controls="settingsPanelContext">上下文管理</button>
+    <button class="settings-subtab" id="settingsTabContext" data-settings-tab="context" role="tab" aria-selected="false" aria-controls="settingsPanelContext">上下文管理</button>${generalTab}
     <button class="settings-subtab" id="settingsTabSkills" data-settings-tab="skills" role="tab" aria-selected="false" aria-controls="settingsPanelSkills">技能</button>
   </div>
 
@@ -353,7 +376,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
     <div class="grid">
       <label class="field"><span>每批章数</span><input type="number" id="setSummaryBatchSize" min="3"></label>
     </div>
-  </div>
+  </div>${generalPanel}
 
   <div class="settings-panel" id="settingsPanelSkills" data-settings-panel="skills" role="tabpanel" aria-labelledby="settingsTabSkills">
     <div class="hint">
