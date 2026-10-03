@@ -11,11 +11,15 @@
 import { el as mk, setHidden } from '../dom';
 import type { OutMessage } from '../protocol';
 import { primaryBtn, secondaryBtn } from './buttons';
+import { openHostFilePicker } from './folderPicker';
 import { renderMerge } from './merge';
 import { el } from './refs';
 import { vscode } from './store';
 
 type PromptMessage = Extract<OutMessage, { type: 'prompt' }>;
+
+/** 开着的那个弹窗的「取消」。遮罩上的 ×、点空白、Esc 都走它；不是这里开的就是 undefined。 */
+let cancelActive: (() => void) | undefined;
 
 export function renderPrompt(msg: PromptMessage): void {
   // 覆盖审阅（五期 W11）有它自己的一整块：两个版本并排、逐段挑，塞不进这个小弹窗。
@@ -23,21 +27,37 @@ export function renderPrompt(msg: PromptMessage): void {
     renderMerge(msg);
     return;
   }
+  // 选本机文件：要逐层翻目录，用的是「打开文件夹」那个选择器，不是这个小弹窗。
+  if (msg.kind === 'file') {
+    openHostFilePicker(msg.requestId, msg.title, msg.value ?? '', msg.options ?? []);
+    return;
+  }
   const body = el.providerModalBody;
   el.providerModalTitle.textContent = msg.title;
   body.innerHTML = '';
 
   const reply = (value?: string) => {
+    if (cancelActive !== cancel) {
+      return;
+    }
+    cancelActive = undefined;
     setHidden(el.providerModal, true);
     body.innerHTML = '';
     vscode.postMessage({ type: 'promptResult', requestId: msg.requestId, value });
   };
+  // 与「取消」按钮同一个回答：确认框回 no，其余回 undefined。
+  const cancel = () => reply(msg.kind === 'confirm' ? 'no' : undefined);
+  cancelActive = cancel;
 
   if (msg.message) {
     body.appendChild(mk('p', 'hint', msg.message));
   }
 
   if (msg.kind === 'confirm') {
+    // 补充说明（Host.confirm 的 detail）：要调几次、看哪几章、会覆盖什么——作者点「确定」前要看得见。
+    for (const line of (msg.value ?? '').split('\n').filter((l) => l.trim())) {
+      body.appendChild(mk('p', 'hint prompt-detail', line));
+    }
     body.appendChild(actionRow(primaryBtn('确定', () => reply('yes')), secondaryBtn('取消', () => reply('no'))));
   } else if (msg.kind === 'pick') {
     body.appendChild(buildPickList(msg.options ?? [], reply));
@@ -52,6 +72,24 @@ export function renderPrompt(msg: PromptMessage): void {
   }
 
   setHidden(el.providerModal, false);
+}
+
+/**
+ * 遮罩上的 ×、点空白、Esc：弹窗是这里开的才由这里关，并且照「取消」回后端——
+ * 只把遮罩藏起来的话，后端那一头的 confirm / pick 会一直等着。服务商弹窗与表单各有自己的一套。
+ */
+export function installPrompt(): void {
+  el.providerModalClose.addEventListener('click', () => cancelActive?.());
+  el.providerModal.addEventListener('click', (e) => {
+    if (e.target === el.providerModal) {
+      cancelActive?.();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      cancelActive?.();
+    }
+  });
 }
 
 function buildPickList(options: string[], reply: (value?: string) => void): HTMLElement {

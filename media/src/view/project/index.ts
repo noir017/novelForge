@@ -73,7 +73,7 @@ export function renderProject(tree: ProjectTree): void {
         { label: '新建细纲（接在最后一章之后）', run: () => projectAction('newPlot') },
         { label: '新建章节文件（直接粘正文用）', run: () => projectAction('newChapter') },
         // 整本 txt 放进工程之后切成章（零调用；后端弹框挑文件、报切分结果）。
-        { label: '导入原稿（工程里的 txt）…', run: () => projectAction('importManuscript') },
+        { label: '导入原稿（选一本 txt）…', run: () => projectAction('importManuscript') },
         { sep: true },
         // 两个批量动作都「只补不改」：已经有产物的章一律跳过。都先开弹窗选区间。
         { label: '批量拆细纲…', run: () => openPlotBatchForm(tree) },

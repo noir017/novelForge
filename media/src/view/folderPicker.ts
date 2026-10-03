@@ -2,7 +2,8 @@
  * VS Code 远程风目录选择器。没有菜单栏（插件）就不装。
  *
  * 文件夹模式走 `listHostDir`；文件模式锁在当前工程，走 `listDir`（ephemeral，
- * 不冲掉资源管理器的关注集合）。
+ * 不冲掉资源管理器的关注集合）。选本机文件模式（`hostFile`，后端 `Host.pickHostFile` 推来的
+ * `prompt kind: 'file'`）也走 `listHostDir`，只列目录与允许的扩展名，选定或取消都回 `promptResult`。
  */
 import { el as mk } from '../dom';
 import type { DirListing, OutMessage } from '../protocol';
@@ -10,7 +11,7 @@ import { hasWorkspace, vscode } from './store';
 import { openProject } from './welcome';
 import { onMessage } from '../vscodeApi';
 
-type Intent = 'open' | 'new' | 'file';
+type Intent = 'open' | 'new' | 'file' | 'hostFile';
 
 interface PickerState {
   intent: Intent;
@@ -20,6 +21,10 @@ interface PickerState {
   truncated: number;
   error?: string;
   selected?: string;
+  /** 选本机文件：后端在等的那个弹窗，与允许的扩展名（小写、不带点）。 */
+  requestId?: string;
+  extensions?: string[];
+  title?: string;
 }
 
 let wrap: HTMLElement | undefined;
@@ -85,9 +90,48 @@ export function openPicker(intent: Intent): void {
   pathInput.focus();
 }
 
-function closePicker(): void {
+/**
+ * 选本机文件：后端那头的 `pickHostFile` 在等，选定之外的一切关法（取消、×、Esc、点空白）都回一个
+ * undefined，不能只把遮罩藏起来。
+ */
+export function openHostFilePicker(requestId: string, title: string, startDir: string, extensions: string[]): void {
+  if (!wrap || !titleEl || !pathInput) {
+    vscode.postMessage({ type: 'promptResult', requestId, value: undefined });
+    return;
+  }
+  if (state?.intent === 'hostFile') {
+    closePicker();
+  }
+  state = {
+    intent: 'hostFile',
+    path: '',
+    entries: [],
+    truncated: 0,
+    requestId,
+    title,
+    extensions: extensions.map((e) => e.replace(/^\./, '').toLowerCase()),
+  };
+  wrap.classList.add('open');
+  titleEl.textContent = titleOf('hostFile');
+  if (mkdirBtn) {
+    mkdirBtn.hidden = true;
+  }
+  vscode.postMessage({ type: 'listHostDir', path: startDir || '~' });
+  pathInput.focus();
+}
+
+function closePicker(answer?: string): void {
+  if (state?.intent === 'hostFile' && state.requestId) {
+    vscode.postMessage({ type: 'promptResult', requestId: state.requestId, value: answer });
+  }
   wrap?.classList.remove('open');
   state = undefined;
+}
+
+function allowed(name: string): boolean {
+  const exts = state?.extensions ?? [];
+  const dot = name.lastIndexOf('.');
+  return exts.length === 0 || (dot > 0 && exts.includes(name.slice(dot + 1).toLowerCase()));
 }
 
 function titleOf(intent: Intent): string {
@@ -96,6 +140,10 @@ function titleOf(intent: Intent): string {
   }
   if (intent === 'file') {
     return '打开文件';
+  }
+  if (intent === 'hostFile') {
+    const exts = state?.extensions?.length ? `（${state.extensions.map((e) => `.${e}`).join(' / ')}）` : '';
+    return `${state?.title ?? '选择文件'}${exts}`;
   }
   return '打开文件夹';
 }
@@ -106,7 +154,7 @@ function applyHostDir(msg: Extract<OutMessage, { type: 'hostDir' }>): void {
   }
   state.path = msg.path;
   state.parent = msg.parent;
-  state.entries = msg.entries;
+  state.entries = state.intent === 'hostFile' ? msg.entries.filter((e) => e.kind === 'dir' || allowed(e.name)) : msg.entries;
   state.truncated = msg.truncated;
   state.error = msg.error;
   state.selected = undefined;
@@ -175,7 +223,7 @@ function onRow(kind: 'dir' | 'file', target: string, up: boolean): void {
     navigate(target);
     return;
   }
-  if (state.intent !== 'file') {
+  if (state.intent !== 'file' && state.intent !== 'hostFile') {
     return;
   }
   state.selected = target;
@@ -207,11 +255,17 @@ function syncOk(): void {
   if (!okBtn || !state) {
     return;
   }
-  okBtn.disabled = state.intent === 'file' ? !state.selected : !state.path;
+  okBtn.disabled = state.intent === 'file' || state.intent === 'hostFile' ? !state.selected : !state.path;
 }
 
 function confirm(): void {
   if (!state) {
+    return;
+  }
+  if (state.intent === 'hostFile') {
+    if (state.selected) {
+      closePicker(state.selected);
+    }
     return;
   }
   if (state.intent === 'file') {
@@ -249,6 +303,11 @@ function jumpToTyped(): void {
     vscode.postMessage({ type: 'listDir', dirs: [rel], ephemeral: true });
     return;
   }
+  // 直接粘了一个文件的完整路径：扩展名对得上就当选定，读不读得到由后端说。
+  if (state.intent === 'hostFile' && typed && allowed(typed.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '')) {
+    closePicker(typed);
+    return;
+  }
   vscode.postMessage({ type: 'listHostDir', path: typed });
 }
 
@@ -278,7 +337,7 @@ function build(): HTMLElement {
   mkdirBtn.addEventListener('click', mkdir);
   const cancel = mk('button', 'chip-btn', '取消');
   cancel.type = 'button';
-  cancel.addEventListener('click', closePicker);
+  cancel.addEventListener('click', () => closePicker());
   okBtn = mk('button', 'primary', '确定');
   okBtn.type = 'button';
   okBtn.addEventListener('click', confirm);

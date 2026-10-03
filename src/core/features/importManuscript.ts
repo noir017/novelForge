@@ -30,20 +30,20 @@ export interface ImportOutcome {
 const NONE: ImportOutcome = { imported: 0, calls: 0 };
 
 export async function importManuscript(project: NovelProject, opts: { path?: string } = {}): Promise<ImportOutcome> {
-  const rel = await pickBookText(project, '导入原稿：选一本工程里的 txt', opts.path);
-  if (!rel) {
+  const source = await pickBookText(project, '导入原稿：选一本 txt', opts.path);
+  if (!source) {
     return NONE;
   }
   let book;
   try {
-    book = await readBookText(project, rel);
+    book = await readBookText(project, source);
   } catch (err) {
     getHost().toast(describeError(err), 'error');
     return NONE;
   }
   const split = splitChapters(book.text);
   if (split.chapters.length === 0) {
-    log.warn(`《${book.title}》里认不出章节标题，没有导入`, rel);
+    log.warn(`《${book.title}》里认不出章节标题，没有导入`, book.shown);
     getHost().toast(
       `《${book.title}》里认不出章节标题。每章开头要有单独一行的标题，如「第一章 雪夜」「第12章」「楔子」，改好再导入。`,
       'error'
@@ -63,7 +63,7 @@ export async function importManuscript(project: NovelProject, opts: { path?: str
     {
       modal: true,
       detail: [
-        `文件：${rel}（${ENCODING_LABEL[book.encoding]}）。`,
+        `文件：${book.shown}（${ENCODING_LABEL[book.encoding]}）。`,
         `开头：${chapters.slice(0, 3).map((c, i) => describe(start + i, c)).join('；')}${chapters.length > 3 ? '……' : ''}`,
         chapters.length > 3 ? `结尾：${describe(end, chapters[chapters.length - 1])}。` : '',
         split.preface.words > 0 ? `第一个章标题之前的 ${split.preface.words} 字（「${split.preface.head}」）不导入。` : '',
@@ -113,7 +113,7 @@ export async function importManuscript(project: NovelProject, opts: { path?: str
       }
       project.invalidate();
       report({ message: '收尾', current: chapters.length, total: chapters.length });
-      log.info(`导入原稿：《${book.title}》${imported}/${chapters.length} 章`, `${rel}｜用时 ${elapsed(startedAt)}`);
+      log.info(`导入原稿：《${book.title}》${imported}/${chapters.length} 章`, `${book.shown}｜用时 ${elapsed(startedAt)}`);
     },
     { scope: '导入' }
   );

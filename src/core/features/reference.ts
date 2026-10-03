@@ -70,13 +70,13 @@ export async function learnFromReference(
   project: NovelProject,
   opts: { path?: string; what?: ReferenceLearn } = {}
 ): Promise<ReferenceOutcome> {
-  const rel = await pickBookText(project, '从参考书学写法：选一本工程里的 txt', opts.path);
-  if (!rel) {
+  const where = await pickBookText(project, '从参考书学写法：选一本 txt', opts.path);
+  if (!where) {
     return { calls: 0 };
   }
   let book;
   try {
-    book = await readBookText(project, rel);
+    book = await readBookText(project, where);
   } catch (err) {
     getHost().toast(describeError(err), 'error');
     return { calls: 0 };
@@ -125,7 +125,7 @@ export async function learnFromReference(
     {
       modal: true,
       detail: [
-        `文件：${rel}（${ENCODING_LABEL[book.encoding]}）；${bySize ? `认不出章节标题，按约 3000 字一段切成 ${chapters.length} 段` : `认出 ${chapters.length} 章`}，共 ${formatWordCount(chapters.reduce((s, c) => s + c.words, 0))}。`,
+        `文件：${book.shown}（${ENCODING_LABEL[book.encoding]}）；${bySize ? `认不出章节标题，按约 3000 字一段切成 ${chapters.length} 段` : `认出 ${chapters.length} 章`}，共 ${formatWordCount(chapters.reduce((s, c) => s + c.words, 0))}。`,
         describeTaskModels(config, 'extractStyle'),
         doStyle
           ? `文风：看第 ${nos(styleIdx)} ${unit}（首尾与中间均匀抽），各取开头 ${STYLE_HEAD} 字，归纳成文风指南写进 ${project.relPath(project.stylePath)}` +

@@ -158,6 +158,17 @@ export class VsCodeHost implements Host {
     return uri ? project.relPath(uri.fsPath) : undefined;
   }
 
+  async pickHostFile(opts: { title: string; extensions: string[]; startDir?: string }): Promise<string | undefined> {
+    const uris = await vscode.window.showOpenDialog({
+      title: opts.title,
+      canSelectMany: false,
+      defaultUri: opts.startDir ? vscode.Uri.file(opts.startDir) : undefined,
+      filters: { 文本: opts.extensions },
+      openLabel: '选这一本',
+    });
+    return uris?.[0]?.fsPath;
+  }
+
   /**
    * `opts.merge` 在这里不认：VS Code 的 diff 编辑器本身就能看清改了什么，逐段挑是独立版合并视图
    * 的事（总计划 W11：VS Code 壳继续用 `vscode.diff`）。永远只答采纳 / 放弃。

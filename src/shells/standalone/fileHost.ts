@@ -106,6 +106,17 @@ export class FileHost implements Host {
     return idx >= 0 ? choices[idx].value : undefined;
   }
 
+  /** 网页里的本机目录选择器（`folderPicker.ts` 的选文件模式）：只列目录与这几种扩展名，回绝对路径。 */
+  async pickHostFile(opts: { title: string; extensions: string[]; startDir?: string }): Promise<string | undefined> {
+    const picked = await this.prompts.ask({
+      kind: 'file',
+      title: opts.title,
+      value: opts.startDir ?? this.root,
+      options: opts.extensions,
+    });
+    return picked || undefined;
+  }
+
   /**
    * 长任务。**不再为每次进度弹 toast**——`core/runtime/progress.ts` 把同一份进度
    * 结构化推给了网页，工程页顶部有进度条与计时，逐条 toast 只会连着刷屏

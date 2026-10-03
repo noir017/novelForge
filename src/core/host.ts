@@ -63,6 +63,12 @@ export interface Host {
   /** 「浏览工作区文件」：插件弹文件对话框；独立版提示输入相对路径。可选。 */
   browseFile?(project: NovelProject): Promise<string | undefined>;
   /**
+   * 选本机任意一个文件（拆书的 txt 不必先放进工程）：插件弹 VS Code 的打开对话框，独立版开网页里的
+   * 本机目录选择器。返回**绝对路径**，作者取消返回 undefined。`extensions` 不带点（如 `['txt']`）。
+   * 只给作者亲手点的入口用；MCP 那条路不走它——外部 agent 不读工程外的文件。可选。
+   */
+  pickHostFile?(opts: { title: string; extensions: string[]; startDir?: string }): Promise<string | undefined>;
+  /**
    * 在宿主自己的编辑器里打开一个文本文件。
    *
    * 独立版实现为「读文件 → 广播 editorOpen」，网页里开内置编辑器；

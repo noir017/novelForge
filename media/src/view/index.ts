@@ -40,7 +40,7 @@ import { applySummary, installProject, invalidateSummaries, renderProject } from
 import { baseMenuItems } from './project/actions';
 import { bindNextStepRunner, installNewSession, installRenamePlot, renderPipeline } from './pipeline';
 import { renderWorkbench, installWorkbench } from './workbench';
-import { renderPrompt } from './prompt';
+import { installPrompt, renderPrompt } from './prompt';
 import { installSettings, renderSettings } from './settings';
 import { renderSkillInspection, renderSkills } from './settings/skills';
 import { renderState, setBusy } from './state';
@@ -69,6 +69,7 @@ installRenamePlot();
 bindCommandPick(setPendingCommand);
 installProject();
 installForm();
+installPrompt();
 installLogs();
 installSettings();
 installWorkbench();

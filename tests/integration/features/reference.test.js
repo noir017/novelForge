@@ -11,6 +11,8 @@
  * | 原文不进工程 | 作者拍板：只学写法 |
  * | 只学文风：1 次调用，不写技能 | 选什么做什么 |
  * | 技能正文不兼容：不绑，说清为什么 | 绑上会让装配器每次都 dropped |
+ * | 写一半就停 / 撞上限：不写盘 | 半份文风指南、半份技能会被当成完整的照做 |
+ * | 宿主能选本机文件：工程外的 txt 也能学；MCP 给的路径仍只认工程里的 | 作者点的入口不必先把书搬进工程；外部 agent 不读工程外的文件 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -238,6 +240,62 @@ describe('从参考书学写法 · 边角', () => {
       assert.ok(h.toasts.some((x) => x.startsWith('error:') && x.includes('输出上限')), h.toasts.join('|'));
     } finally {
       styleReply = STYLE_FULL;
+    }
+  });
+
+  test('宿主能选本机文件：工程外的 txt 照样能学，确认框写绝对路径，原文不进工程', async () => {
+    const t = await fresh('ref-host');
+    const outside = makeTempDir('referenceBook');
+    fs.writeFileSync(outside.rel('外面的书.txt'), BOOK);
+    const asked = [];
+    h.host.pickHostFile = async (opts) => {
+      asked.push(opts);
+      return outside.rel('外面的书.txt');
+    };
+    try {
+      h.expect('style', '开始学');
+      const r = await bundle.reference.learnFromReference(t.project);
+      assert.equal(asked.length, 1);
+      assert.deepEqual(asked[0].extensions, ['txt']);
+      assert.equal(asked[0].startDir, t.project.root);
+      assert.equal(r.calls, 1);
+      assert.equal(h.confirms[0].message, '从《外面的书》学文风，预计 1 次调用。现在开始？');
+      assert.ok(h.confirms[0].detail.includes(`文件：${outside.rel('外面的书.txt')}`), h.confirms[0].detail);
+      assert.ok(!allProjectText(t).includes('玄天宗的钟响了'));
+    } finally {
+      delete h.host.pickHostFile;
+      fs.rmSync(outside.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('作者在本机选择器里取消：一次都不调', async () => {
+    const t = await fresh('ref-host-cancel');
+    h.host.pickHostFile = async () => undefined;
+    const before = h.confirms.length;
+    try {
+      const r = await bundle.reference.learnFromReference(t.project);
+      assert.equal(r.calls, 0);
+      assert.equal(h.confirms.length, before);
+    } finally {
+      delete h.host.pickHostFile;
+    }
+  });
+
+  test('MCP 给的路径只认工程里的：工程外的绝对路径拒绝，不弹选择器', async () => {
+    const t = await fresh('ref-mcp-abs');
+    const outside = makeTempDir('referenceMcp');
+    fs.writeFileSync(outside.rel('外面的书.txt'), BOOK);
+    let opened = false;
+    h.host.pickHostFile = async () => {
+      opened = true;
+      return undefined;
+    };
+    try {
+      await assert.rejects(bundle.reference.learnFromReference(t.project, { path: outside.rel('外面的书.txt') }), /不是工程里能拆的 txt/);
+      assert.equal(opened, false);
+    } finally {
+      delete h.host.pickHostFile;
+      fs.rmSync(outside.dir, { recursive: true, force: true });
     }
   });
 

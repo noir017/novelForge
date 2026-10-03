@@ -187,8 +187,13 @@ export type OutMessage =
        * `merge`（五期 W11）：覆盖审阅的段级 diff / 合并视图。`current` / `proposed` 是两个版本，
        * `mergeable` 为真时可以逐段挑、结果可以手改，回的是 `{"verdict":"apply"|"discard","merged"?}`
        * 的 JSON；为假时只读，只有采纳 / 放弃。
+       *
+       * `file`：选本机任意一个文件（`Host.pickHostFile`）。`value` 是起始目录，`options` 是允许的扩展名
+       * （不带点），回的是选中文件的绝对路径；取消回 undefined。
+       *
+       * `confirm` 的 `value` 是补充说明（`Host.confirm` 的 `detail`），多行。
        */
-      kind: 'input' | 'confirm' | 'pick' | 'merge';
+      kind: 'input' | 'confirm' | 'pick' | 'merge' | 'file';
       title: string;
       message?: string;
       placeholder?: string;

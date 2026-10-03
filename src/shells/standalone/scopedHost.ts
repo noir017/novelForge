@@ -83,6 +83,10 @@ export class ScopedHost implements Host {
     return this.target.browseFile(project);
   }
 
+  pickHostFile(opts: { title: string; extensions: string[]; startDir?: string }): Promise<string | undefined> {
+    return this.target.pickHostFile(opts);
+  }
+
   openInEditor(relPath: string, pane?: EditorPane): Promise<void> {
     return this.target.openInEditor(relPath, pane);
   }
