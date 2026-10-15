@@ -8,6 +8,7 @@ import {
   readConfig,
 } from '../config';
 import { describeTierConfig } from '../model/tiers';
+import { CONTEXT_DETAIL_LABEL, normalizeContextDetail } from '../model/contextDetail';
 import { apiKeyStatus, pruneApiKeys } from '../llm/registry';
 import {
   describeModelIssue,
@@ -50,8 +51,7 @@ export async function pushSettingsTo(sink: SettingsSink, ack?: 'saved' | 'reject
       tierModels: cfg.tierModels,
       taskTiers: cfg.taskTiers,
       temperature: cfg.temperature,
-      recentChaptersFullText: cfg.recentChaptersFullText,
-      prevChapterTailChars: cfg.prevChapterTailChars,
+      contextDetail: cfg.contextDetail,
       summaryBatchSize: cfg.summaryBatchSize,
       requestTimeoutMs: cfg.requestTimeoutMs,
       concurrency: cfg.concurrency,
@@ -89,6 +89,7 @@ export async function saveSettingsFrom(
   // 档位清单与 models 同样容错：去空、去重、保序，认不出的档位名丢弃。
   const tierModels = normalizeTierModels(s.tierModels);
   const taskTiers = normalizeTaskTiers(s.taskTiers);
+  const contextDetail = normalizeContextDetail(s.contextDetail);
   await updateSettings({
     providers,
     // 列表是唯一真相；updateSettings 会顺手把 model 对齐到首项。
@@ -97,8 +98,7 @@ export async function saveSettingsFrom(
     tierModels,
     taskTiers,
     temperature: s.temperature,
-    recentChaptersFullText: s.recentChaptersFullText,
-    prevChapterTailChars: s.prevChapterTailChars,
+    contextDetail,
     summaryBatchSize: s.summaryBatchSize,
     requestTimeoutMs: s.requestTimeoutMs,
     concurrency: s.concurrency,
@@ -114,7 +114,7 @@ export async function saveSettingsFrom(
     '设置已保存',
     `${providers.length} 个服务商｜默认模型 ${models.join('、') || '（未选）'}｜` +
       `${describeTierConfig(tierModels, taskTiers)}｜` +
-      `温度 ${s.temperature}｜超时 ${s.requestTimeoutMs}ms｜` +
+      `温度 ${s.temperature}｜上下文详细度 ${CONTEXT_DETAIL_LABEL[contextDetail]}｜超时 ${s.requestTimeoutMs}ms｜` +
       `并发 ${s.concurrency}｜换模型重试 ${s.fallbackAttempts} 次｜` +
       `删修饰 ${s.trimModifiers !== false ? '开' : '关'}`
   );

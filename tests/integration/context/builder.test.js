@@ -56,8 +56,6 @@ const baseConfig = {
   contextWindow: 128000,
   maxOutputTokens: 4096,
   temperature: 0.8,
-  recentChaptersFullText: 2,
-  prevChapterTailChars: 1500,
   chaptersDir: 'chapters',
   draftsDir: 'drafts',
   summaryBatchSize: 15,
@@ -407,7 +405,7 @@ describe('装配：预算刚好放不下整章正文（应降级为摘要）', (
     // 关掉结尾片段，单独考察 manuscriptFull 的降级链。
     const mid = p3SummaryTokens + Math.floor((p3Full - p3SummaryTokens) / 2);
     const window = upToP2Tokens + mid + 2000 + 512;
-    const cfg = { ...baseConfig, prevChapterTailChars: 0, maxOutputTokens: 2000, contextWindow: window };
+    const cfg = { ...baseConfig, contextOverrides: { prevTailChars: 0 }, maxOutputTokens: 2000, contextWindow: window };
     deg = await builderMod.buildContext(project, req(ASK), cfg);
     dById = ids(deg);
     item = dById.get('manuscriptFull:3');
@@ -458,7 +456,7 @@ describe('装配：预算极小（P0 之外几乎全丢）', () => {
   let degradedOrDropped;
 
   before(async () => {
-    const tight = { ...baseConfig, contextWindow: 3000, maxOutputTokens: 2000, prevChapterTailChars: 300 };
+    const tight = { ...baseConfig, contextWindow: 3000, maxOutputTokens: 2000, contextOverrides: { prevTailChars: 300 } };
     small = await builderMod.buildContext(project, req(ASK), tight);
     sById = ids(small);
     degradedOrDropped = small.items.filter((i) => i.status === 'degraded' || i.status === 'dropped');

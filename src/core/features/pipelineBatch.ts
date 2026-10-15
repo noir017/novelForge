@@ -40,6 +40,7 @@ import { Plot, isPlotFilled } from '../model/plotFile';
 import { isOutlineFilled } from '../model/outlineFile';
 import { buildBookFacts, chapterTargetOf, plotContentHash } from '../views/pipeline';
 import { describeTaskModels } from '../model/tiers';
+import { CONTEXT_DETAIL_LABEL } from '../model/contextDetail';
 import { BuildRequest, buildContext } from '../context/builder';
 import { runTask } from '../runtime/progress';
 import { countWords } from '../model/fs';
@@ -573,6 +574,7 @@ export async function writeManuscripts(
             ? `开写之前先给${castCards.plans.map((p) => p.member.name).join('、')}建角色卡（摘要里已经出场 ${CAST_CARD_MIN_APPEARANCES} 章以上、还没有卡；${castCards.calls} 次调用，算在上面的数里）。`
             : '',
           '一章一章串行写：后一章接着前一章的结尾写。没写够时自动续写（算在上限里）。',
+          `上下文详细度：${CONTEXT_DETAIL_LABEL[config.contextDetail]}（设置 → 上下文管理；只改每次带多少前文，不改调用次数）。`,
           plan.plotBatches.length > 0
             ? `${plan.plotBatches.map((b) => rangeLabel(b[0], b[b.length - 1])).join('、')}还没有细纲：写到时先按情节大纲拆这一批，拆的时候看得见前面已经定稿的事实。`
             : '',

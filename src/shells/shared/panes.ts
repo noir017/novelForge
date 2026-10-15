@@ -358,12 +358,12 @@ export function settingsPane(opts: PaneOptions = {}): string {
   </div>
 
   <div class="settings-panel" id="settingsPanelContext" data-settings-panel="context" role="tabpanel" aria-labelledby="settingsTabContext">
-    <div class="pane-head"><span>续写上下文</span></div>
-    <div class="hint">控制写正文时自动装配的近期原文。预算不足时，完整原文仍会按明细中说明的顺序降级为摘要或省略。</div>
+    <div class="pane-head"><span>上下文详细度</span></div>
+    <div class="hint">每一次调用带多少前文与设定：写架构、大纲、细纲、正文、审稿、修稿，以及提取文风与角色、排叙事线、定稿判线、写前冲突检查都按它。级别越高带得越多、越贵；任何一级都不改调用次数。预算不足时仍会按明细中说明的顺序降级或省略。</div>
     <div class="grid">
-      <label class="field"><span>注入完整原文章数</span><input type="number" id="setRecentChaptersFullText" min="0" max="10"></label>
-      <label class="field"><span>上一章结尾字数</span><input type="number" id="setPrevChapterTailChars" min="0" step="100"></label>
+      <label class="field"><span>上下文详细度</span><select id="setContextDetail"></select></label>
     </div>
+    <div class="hint" id="contextDetailHint"></div>
 
     <div class="pane-head"><span>删修饰</span></div>
     <div class="hint">写完一章正文之后，让同一个模型再过一遍，只删名词前堆的形容词、动词前的程度副词这类多余修饰，不加字、不动对白；删坏的段落自动退回原文。每章多调 1 次模型。对话页写入前可以逐段把删改退回原文。</div>

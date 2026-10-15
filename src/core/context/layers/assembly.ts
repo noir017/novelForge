@@ -1,4 +1,5 @@
 import { NovelProject } from '../../model/project';
+import type { ContextDetail, ContextLimits } from '../../model/contextDetail';
 import { BookConfig } from '../../model/settingFile';
 import { NovelConfig } from '../../model/types';
 import { BuildRequest, ContextItem, LayerSpec } from '../types';
@@ -9,6 +10,10 @@ export interface Assembly {
   readonly project: NovelProject;
   readonly request: BuildRequest;
   readonly config: NovelConfig;
+  /** 这一次按哪一级装（上下文详细度）。说明文字里点名用。 */
+  readonly detail: ContextDetail;
+  /** 这一级的各项上限（`contextLimitsOf(config)`，已叠上测试的单项覆盖）。层只从这里取。 */
+  readonly limits: ContextLimits;
   readonly focus: Focus;
   /** 磁盘上那份 `config.md`：规模、类型、结构。提示词与结构指导都要它，只读一次。 */
   readonly book: BookConfig;

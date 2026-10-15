@@ -427,21 +427,6 @@
           "description": "采样温度。写小说建议 0.7 ~ 1.0。摘要类任务内部固定用 0.3。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
-        "novel.recentChaptersFullText": {
-          "type": "number",
-          "default": 2,
-          "minimum": 0,
-          "maximum": 10,
-          "description": "续写时注入多少章「完整原文」（不含上一章结尾片段）。预算不足会自动降级为摘要。",
-          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
-        },
-        "novel.prevChapterTailChars": {
-          "type": "number",
-          "default": 1500,
-          "minimum": 0,
-          "description": "上一章结尾原文注入的字数，用于保证语气衔接。",
-          "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
-        },
         "novel.chaptersDir": {
           "type": "string",
           "default": "chapters",

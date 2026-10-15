@@ -1,5 +1,6 @@
 import { ActiveModel, ProviderProfile } from './providers';
 import { LlmTask, ModelTier, TierModels } from './tiers';
+import type { ContextDetail, ContextLimits } from './contextDetail';
 
 /**
  * 章节：chapters/NNN-标题.md 中的一篇正文。
@@ -244,8 +245,16 @@ export interface NovelConfig {
   contextWindow: number;
   maxOutputTokens: number;
   temperature: number;
-  recentChaptersFullText: number;
-  prevChapterTailChars: number;
+  /**
+   * 上下文详细度（model/contextDetail.ts）：每一次调用带多少前文与设定。各层与后台任务
+   * 经 `contextLimitsOf(config)` 取上限，不直接读这个数。
+   */
+  contextDetail: ContextDetail;
+  /**
+   * 单项覆盖级别那一行，**只给代码与测试用**，不从 config.json 读：作者能动的只有级别。
+   * 缺席 = 原样用级别那一行。
+   */
+  contextOverrides?: Partial<ContextLimits>;
   chaptersDir: string;
   /** 草稿根目录（相对工作区根）。镜像章节在 chaptersDir 之下的相对路径。 */
   draftsDir: string;

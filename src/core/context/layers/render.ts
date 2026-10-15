@@ -1,4 +1,5 @@
 import { exists, readText } from '../../model/fs';
+import { takeLast } from '../../model/contextDetail';
 import { stringifySections } from '../../model/markdown';
 import { plotLabel } from '../../model/pipeline';
 import { Plot, PLOT_SECTION_KEYS } from '../../model/plotFile';
@@ -160,14 +161,15 @@ export interface CharacterHit {
  *
  * **第一条是本章细纲的 `characters[]`**（D13）：细纲里明写了这一章有谁，那比在
  * 用户那句话里做子串匹配准得多。它只在**这里**用——那是计划出场，出场统计仍然
- * 只认摘要（第 14 条），两者混在一起会污染统计。之后才是这一轮的输入、前两章的
- * 摘要与主角。
+ * 只认摘要（第 14 条），两者混在一起会污染统计。之后才是这一轮的输入、前几章
+ * （`castWindow`，上下文详细度，缺省 2）的摘要与主角。
  */
 export async function selectCharacters(
   project: NovelProject,
   cards: CharacterCard[],
   ask: string,
-  focus: Focus
+  focus: Focus,
+  castWindow: number
 ): Promise<CharacterHit[]> {
   const hits = new Map<string, CharacterHit>();
 
@@ -189,7 +191,7 @@ export async function selectCharacters(
     }
   }
 
-  for (const ref of focus.previous.slice(-2)) {
+  for (const ref of takeLast(focus.previous, castWindow)) {
     // 摘要挂在正文上；还没写的章没有摘要，也就无从取出场人物。
     const summary = ref.chapter ? await project.readSummary(ref.chapter.relPath) : undefined;
     const cast = summary?.sections.出场人物 ?? '';

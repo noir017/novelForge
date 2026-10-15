@@ -1,5 +1,6 @@
 import type { LlmTask, ModelTier } from '../model/tiers';
 import type { ThinkingDepth } from '../model/thinking';
+import type { ContextDetail } from '../model/contextDetail';
 import type { ReviewIssueEdit } from '../model/review';
 import type {
   Capability,
@@ -238,8 +239,8 @@ export interface SettingsPayload {
   tierModels: Record<ModelTier, string[]>;
   taskTiers: Partial<Record<LlmTask, ModelTier>>;
   temperature: number;
-  recentChaptersFullText: number;
-  prevChapterTailChars: number;
+  /** 上下文详细度 1–4（model/contextDetail.ts）。 */
+  contextDetail: ContextDetail;
   summaryBatchSize: number;
   requestTimeoutMs: number;
   concurrency: number;

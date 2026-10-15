@@ -1,3 +1,4 @@
+import { takeLast, type ContextLimits } from '../../model/contextDetail';
 import { plotOfTarget, CreationTarget } from '../../model/pipeline';
 import { Plot, isPlotFilled, parsePlotFileName } from '../../model/plotFile';
 import { NovelProject } from '../../model/project';
@@ -5,13 +6,17 @@ import { Chapter } from '../../model/types';
 import { BuildRequest, LayerId, LayerSpec } from '../types';
 import { basename } from 'node:path';
 
-/** 写/改某一章时，前后各带几章**细纲**。摘要不受这个数限制（它便宜得多）。 */
-export const PREV_PLOTS = 3;
-export const NEXT_PLOTS = 1;
+/*
+ * 写/改某一章时前后各带几章**细纲**：按上下文详细度（`prevPlots` / `nextPlots`，缺省 3 / 1）。
+ * 摘要不受这个数限制（它便宜得多）。
+ */
 /**
  * 写正文时往后看几章的细纲（边界）。移植自 AI-Novel-Writer 的「后续章节大纲预告」
  * （GD:464-466：`chapterNumber > N && chapterNumber <= N + 5`）——按章号算窗口，
  * 不是「后面排过的五章」：第 N+9 章的事离这一章太远，写进边界只会让模型分心。
+ *
+ * **不随上下文详细度变**：它是「不许提前写」的边界，生成层算「本章不出场」
+ * （generation/generate.ts 的 `notYetOf`）用的也是这个窗口，两边必须一致。
  */
 export const AHEAD_PLOTS = 5;
 
@@ -57,11 +62,12 @@ export interface Focus {
   chapter?: Chapter;
 }
 
-/** 按配方只读用得上的文件。 */
+/** 按配方只读用得上的文件。前后带几章细纲按 `limits`（上下文详细度）。 */
 export async function resolveFocus(
   project: NovelProject,
   request: BuildRequest,
-  recipe: LayerSpec[]
+  recipe: LayerSpec[],
+  limits: Pick<ContextLimits, 'prevPlots' | 'nextPlots'>
 ): Promise<Focus> {
   const wants = (id: LayerId): boolean => recipe.some((s) => s.layer === id);
   const target = request.target;
@@ -123,8 +129,8 @@ export async function resolveFocus(
     no,
     previous,
     // 「上文」只在有细纲时才有内容可带（那一层渲染的是细纲的小节）。
-    prevPlots: wants('plotPrev') ? previous.filter((c) => c.plot).slice(-PREV_PLOTS) : [],
-    nextPlots: wants('plotNext') ? following.filter((c) => c.plot).slice(0, NEXT_PLOTS) : [],
+    prevPlots: wants('plotPrev') ? takeLast(previous.filter((c) => c.plot), limits.prevPlots) : [],
+    nextPlots: wants('plotNext') ? following.filter((c) => c.plot).slice(0, Math.max(0, limits.nextPlots)) : [],
     aheadPlots: wants('plotAhead')
       ? following.filter((c) => c.no <= last + AHEAD_PLOTS && c.plot && isPlotFilled(c.plot.sections))
       : [],

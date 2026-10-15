@@ -9,6 +9,7 @@
  * **绝不静默丢弃**，作者需要知道这次没带上什么。
  */
 import { ChatMessage } from '../llm/provider';
+import { contextLimitsOf, normalizeContextDetail } from '../model/contextDetail';
 import { NovelProject } from '../model/project';
 import { NovelConfig } from '../model/types';
 import { estimateTokens } from './tokenizer';
@@ -39,12 +40,16 @@ export async function buildContext(
     request.providerMaxInputTokens !== undefined && request.providerMaxInputTokens < config.contextWindow;
 
   const recipe = recipeFor(request.action.stage, request.action.capability, request.step, request.writeMode);
-  const [focus, book] = await Promise.all([resolveFocus(project, request, recipe), project.readBookConfig()]);
+  const detail = normalizeContextDetail(config.contextDetail);
+  const limits = contextLimitsOf(config);
+  const [focus, book] = await Promise.all([resolveFocus(project, request, recipe, limits), project.readBookConfig()]);
 
   const assembly: Assembly = {
     project,
     request,
     config,
+    detail,
+    limits,
     focus,
     book,
     budget,
@@ -98,7 +103,7 @@ export async function buildContext(
   const messages = assembleMessages(items, request, promptFactsOf(assembly));
   const usedTokens = items.reduce((sum, i) => sum + i.tokens, 0);
 
-  return { messages, items, usedTokens, budget, budgetClampedByProvider };
+  return { messages, items, usedTokens, budget, budgetClampedByProvider, detail };
 }
 
 // ---------------------------------------------------------------- 组装

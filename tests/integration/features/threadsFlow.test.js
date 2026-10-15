@@ -110,13 +110,15 @@ before(async () => {
     threadsFile: './src/core/model/threadsFile.ts',
     projectView: './src/core/views/projectView.ts',
     db: './src/core/runtime/db.ts',
+    config: './src/core/config.ts',
   });
   const settings = {
     providers: [{ id: 'p', kind: 'vscode-lm', models: [{ name: 'm', contextWindow: 100000 }] }],
     models: ['p/m'],
     concurrency: 1,
-    recentChaptersFullText: 0,
   };
+  // 近章全文 0 章、其余照缺省那一级：没有哪一级是这个组合，只能单项覆盖（作者那边只有级别可选）。
+  bundle.config.setContextLimitsOverride({ fullTextChapters: 0 });
   h = makeFakeHost({ name: 'standalone', supportsVscodeLm: true, settings: () => settings });
   bundle.host.initHost(h.host);
   fake = installFakeProvider(bundle.registry, {
@@ -165,6 +167,7 @@ before(async () => {
 
 after(() => {
   controller?.dispose();
+  bundle?.config.setContextLimitsOverride(undefined);
   if (t) cleanup(t.dir, bundle?.db);
 });
 

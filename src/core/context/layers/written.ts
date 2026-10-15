@@ -6,7 +6,7 @@
  *
  * | 阶段 | 带什么 | 预算 |
  * |---|---|---|
- * | 架构 | 第 1–N 章的梗概与看点（一章一行），加均匀抽样 {@link SAMPLE_COUNT} 章的开头节选 | 节选按配方（强制）；梗概放不下就隔章抽，写明抽了几章 |
+ * | 架构 | 第 1–N 章的梗概与看点（一章一行），加均匀抽样几章（上下文详细度的 `deriveSamples`，缺省 5）的开头节选 | 节选按配方（强制）；梗概放不下就隔章抽，写明抽了几章 |
  * | 大纲 | 区间里各章的摘要（梗概、关键事件、看点、状态变更、新增伏笔）；没有摘要的章退回正文头尾 | 按配方 |
  * | 细纲 | 区间里各章正文的开头 {@link PLOT_HEAD} 字 + 结尾 {@link PLOT_TAIL} 字（章末钩子在结尾） | 按配方 |
  *
@@ -19,8 +19,6 @@ import { Chapter } from '../../model/types';
 import { estimateTokens } from '../tokenizer';
 import type { LayerFn } from './assembly';
 
-/** 架构那几件抽几章的开头。 */
-export const SAMPLE_COUNT = 5;
 /** 首章的节选长一点：开篇交代的东西最多。 */
 export const SAMPLE_HEAD_FIRST = 3000;
 export const SAMPLE_HEAD = 2000;
@@ -73,7 +71,8 @@ export const written: LayerFn = async (a, spec) => {
 /** 架构那几件：全书梗概 + 抽样节选。 */
 async function settingMaterial(a: Parameters<LayerFn>[0], spec: Parameters<LayerFn>[1], chapters: Chapter[]): Promise<void> {
   // 节选先进（强制）：它们是「这本书读起来什么样」的唯一证据，梗概再长也替不了。
-  for (const i of evenSample(chapters.length, SAMPLE_COUNT)) {
+  const samples = a.limits.deriveSamples;
+  for (const i of evenSample(chapters.length, samples)) {
     const chapter = chapters[i];
     const text = await a.project.readChapterText(chapter);
     const head = i === 0 ? SAMPLE_HEAD_FIRST : SAMPLE_HEAD;
@@ -85,7 +84,7 @@ async function settingMaterial(a: Parameters<LayerFn>[0], spec: Parameters<Layer
         label: `${plotLabel(chapter.order, chapter.title)} · 开头节选`,
         source: chapter.relPath,
         text: `【${plotLabel(chapter.order, chapter.title)} · 开头节选】\n${headOf(text, head)}`,
-        note: `均匀抽样 ${SAMPLE_COUNT} 章之一，开头 ${head} 字`,
+        note: `均匀抽样 ${samples} 章之一，开头 ${head} 字`,
       },
       { force: spec.force }
     );

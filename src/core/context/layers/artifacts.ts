@@ -1,3 +1,4 @@
+import { CONTEXT_DETAIL_LABEL, takeLast } from '../../model/contextDetail';
 import { plotLabel } from '../../model/pipeline';
 import { parseOutlineRanges } from '../../model/outlineFile';
 import { isPlotFilled } from '../../model/plotFile';
@@ -14,8 +15,10 @@ import type { LayerSpec } from '../types';
 import type { Assembly, LayerFn } from './assembly';
 import { clipLine, isPlaceholder, renderPlot, renderPlotBrief, renderRosterLine } from './render';
 
-/** 前序细纲一览最多带几章（上游 `chapter_blueprint_chunk` 的「最近 100 章」）。 */
-export const PLOT_LIST_MAX = 100;
+/*
+ * 前序细纲一览最多带几章：按上下文详细度（`plotListMax`），缺省 100——上游
+ * `chapter_blueprint_chunk` 的「最近 100 章」。
+ */
 
 /** 批次模式下，一览里最后几章写得详细些（带章末钩子）——下一批要紧接着它们往下排。 */
 const PLOT_LIST_DETAILED = 3;
@@ -239,7 +242,7 @@ export const plotList: LayerFn = async (a, spec) => {
       draft: false,
     }));
   const drafts = (a.request.draftPlots ?? []).map((d) => ({ ...d, draft: true }));
-  const rows = [...disk, ...drafts].slice(-PLOT_LIST_MAX);
+  const rows = takeLast([...disk, ...drafts], a.limits.plotListMax);
   if (rows.length === 0) {
     return;
   }
@@ -257,7 +260,10 @@ export const plotList: LayerFn = async (a, spec) => {
       priority: spec.priority,
       label: `前序细纲一览（${rows.length} 章）`,
       text: lines.join('\n'),
-      note: disk.length + drafts.length > rows.length ? `只带最近 ${PLOT_LIST_MAX} 章` : undefined,
+      note:
+        disk.length + drafts.length > rows.length
+          ? `只带最近 ${a.limits.plotListMax} 章（上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」）`
+          : undefined,
     },
     { force: spec.force }
   );

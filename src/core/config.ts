@@ -2,6 +2,13 @@ import { firstModelRef, normalizeProviders, resolveModelRef, seedFromLegacy } fr
 import { scoped } from './runtime/logger';
 import { NovelConfig } from './model/types';
 import { isLlmTask, isModelTier, LlmTask, MODEL_TIERS, ModelTier, TierModels } from './model/tiers';
+import {
+  CONTEXT_DETAIL_LABEL,
+  ContextDetail,
+  ContextLimits,
+  isContextDetail,
+  normalizeContextDetail,
+} from './model/contextDetail';
 
 const log = scoped('配置');
 
@@ -51,8 +58,8 @@ export interface PersistedSettings {
   /** @deprecated 旧版全局预算，仅作兼容兜底；设置页不再提供写入口。 */
   maxOutputTokens?: number;
   temperature?: number;
-  recentChaptersFullText?: number;
-  prevChapterTailChars?: number;
+  /** 上下文详细度 1–4（model/contextDetail.ts）。缺席或认不出 = 3。 */
+  contextDetail?: number;
   chaptersDir?: string;
   draftsDir?: string;
   summaryBatchSize?: number;
@@ -123,8 +130,8 @@ export function readConfig(): NovelConfig {
     contextWindow: active?.model.contextWindow ?? fallbackBudget.contextWindow,
     maxOutputTokens: active?.model.maxOutputTokens ?? fallbackBudget.maxOutputTokens,
     temperature: c.temperature ?? 0.8,
-    recentChaptersFullText: c.recentChaptersFullText ?? 2,
-    prevChapterTailChars: c.prevChapterTailChars ?? 1500,
+    contextDetail: readContextDetail(c.contextDetail),
+    ...(contextOverride ? { contextOverrides: { ...contextOverride } } : {}),
     chaptersDir: c.chaptersDir ?? 'chapters',
     draftsDir: c.draftsDir ?? 'drafts',
     summaryBatchSize: c.summaryBatchSize ?? 15,
@@ -213,6 +220,28 @@ function clamp(label: string, value: unknown, range: { min: number; max: number;
   return bounded;
 }
 
+/** 上下文详细度：认不出回落缺省，同一个坏值只说一次（理由同 `clamp`）。 */
+let detailWarned: unknown;
+
+function readContextDetail(value: unknown): ContextDetail {
+  const detail = normalizeContextDetail(value);
+  if (value !== undefined && !isContextDetail(value) && detailWarned !== value) {
+    detailWarned = value;
+    log.warn(`上下文详细度设为 ${JSON.stringify(value)}，认不出，按「${CONTEXT_DETAIL_LABEL[detail]}」生效`);
+  }
+  return detail;
+}
+
+/**
+ * 单项覆盖上下文上限，**只给测试用**：走 `readConfig()` 的那几条链（批量写章、定稿）没有地方
+ * 递一份手写配置进去。生产代码从不调用——config.json 里不认这一项，作者能动的只有级别。
+ */
+let contextOverride: Partial<ContextLimits> | undefined;
+
+export function setContextLimitsOverride(override: Partial<ContextLimits> | undefined): void {
+  contextOverride = override;
+}
+
 
 /**
  * 单模型没有声明预算时的兼容兜底。
@@ -269,11 +298,12 @@ export async function promoteModel(ref: string): Promise<string[]> {
  *
  * 顺手丢掉 0.1.x 的带点键：它们只是 legacy reader 的输入，写进
  * config.json 既无人读取，又会在 providers 日后被清空时重新触发兜底。
+ * 退役的键（{@link RETIRED_KEYS}）同理：下一次保存时从文件里清掉。
  */
 function effectiveSettings(): PersistedSettings {
   const c = { ...raw() } as Record<string, unknown>;
   for (const key of Object.keys(c)) {
-    if (key.includes('.') || key === 'provider') {
+    if (key.includes('.') || key === 'provider' || RETIRED_KEYS.includes(key)) {
       delete c[key];
     }
   }
@@ -288,6 +318,12 @@ function effectiveSettings(): PersistedSettings {
   settings.model = normalizeModelList(settings.models)[0] ?? settings.model ?? config.model;
   return settings;
 }
+
+/**
+ * 不再读的键。「注入完整原文章数」「上一章结尾字数」并进了上下文详细度：设置页保存过一次的人，
+ * 这两个数都已经写在文件里，分不清是不是手改的，所以一律不读，免得级别调了却被旧数字盖住。
+ */
+const RETIRED_KEYS = ['recentChaptersFullText', 'prevChapterTailChars'];
 
 /** seedFromLegacy 原本吃 vscode 配置的分散键；这里接受扁平 raw。 */
 function seedFromLegacyRaw(c: PersistedSettings) {

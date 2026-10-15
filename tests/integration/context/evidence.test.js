@@ -26,8 +26,6 @@ const config = (extra = {}) => ({
   contextWindow: 128000,
   maxOutputTokens: 4096,
   temperature: 0.8,
-  recentChaptersFullText: 2,
-  prevChapterTailChars: 1500,
   chaptersDir: 'chapters',
   draftsDir: 'drafts',
   summaryBatchSize: 15,
@@ -216,7 +214,7 @@ describe('evidence · 更早的章只取涉及本章角色的事实', () => {
     t = await setup('evidence-names', 8, [1, 2, 3, 4, 5, 6, 7, 8], {
       facts: (no) => (no <= 3 ? [`- 沈氏锁上第${no}道门 〔证据：「沈氏在第${no}章锁上了第${no}道门。」〕`] : [`- 林昭收起第${no}块令牌 〔证据：「林昭在第${no}章把第${no}块令牌塞进怀里。」〕`]),
     });
-    b = await build(t, 9, { recentChaptersFullText: 0 });
+    b = await build(t, 9, { contextOverrides: { fullTextChapters: 0 } });
   });
   after(() => cleanup(t.dir, bundle.db));
 
@@ -237,7 +235,7 @@ describe('evidence · 一共 6000 字、最多 12 章', () => {
     const t = await setup('evidence-cap', 8, [1, 2, 3, 4, 5, 6, 7, 8], {
       text: (no) => chapterText(no).replace('开头，雨还在下。', `开头，${long}`).replace('结尾，风停了。', `结尾，${long}`),
     });
-    const b = await build(t, 9, { recentChaptersFullText: 0 });
+    const b = await build(t, 9, { contextOverrides: { fullTextChapters: 0 } });
     const ev = b.items.filter((i) => i.kind === 'evidence');
     const kept = ev.filter((i) => i.status === 'included');
     assert.ok(kept.length >= 2 && kept.length < 8, JSON.stringify(ev.map((i) => [i.id, i.status])));
@@ -250,7 +248,7 @@ describe('evidence · 一共 6000 字、最多 12 章', () => {
 
   test('最多从 12 章里取', async () => {
     const t = await setup('evidence-twelve', 19, Array.from({ length: 19 }, (_, i) => i + 1));
-    const b = await build(t, 20, { recentChaptersFullText: 0 });
+    const b = await build(t, 20, { contextOverrides: { fullTextChapters: 0 } });
     const nos = b.items.filter((i) => i.kind === 'evidence' && i.status === 'included').map((i) => Number(i.id.split(':')[1]));
     assert.equal(nos.length, 12);
     assert.equal(Math.min(...nos), 8);

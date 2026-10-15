@@ -146,7 +146,8 @@ export const history: LayerFn = async (a, spec) => {
   if (turns.length === 0) {
     return;
   }
-  const historyCap = Math.floor(a.budget * (spec.cap ?? 1));
+  // 配方没写封顶就按上下文详细度那一级（缺省 0.3）；落定细纲在配方上写死 0.6。
+  const historyCap = Math.floor(a.budget * (spec.cap ?? a.limits.historyCap));
   const turnCap = Math.floor(a.budget * HISTORY_TURN_CAP_RATIO);
   let historyRemaining = Math.min(historyCap, Math.max(0, a.remaining));
 

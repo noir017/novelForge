@@ -182,6 +182,21 @@ export {
 export type { ThinkingDepth } from '../../src/core/model/thinking';
 
 /**
+ * 上下文详细度的级别、说法与每一级带多少。同一套理由：下拉框上写着「精简」而后端按别的级别装，
+ * 作者就再也不信这个开关了。`contextDetail.ts` 是纯数据 + 纯函数、零 import，打进浏览器产物是安全的。
+ */
+export {
+  CONTEXT_DETAILS,
+  CONTEXT_DETAIL_HINT,
+  CONTEXT_DETAIL_LABEL,
+  DEFAULT_CONTEXT_DETAIL,
+  describeContextDetail,
+  isContextDetail,
+  normalizeContextDetail,
+} from '../../src/core/model/contextDetail';
+export type { ContextDetail } from '../../src/core/model/contextDetail';
+
+/**
  * 写作技能的阶段、来源与不兼容原因的说法。与分档同一套理由：设置页上写着「写正文」而后端按
  * 别的阶段带，作者就再也不信这张表了。`writingSkill.ts` 零运行时 import，打进浏览器产物是安全的。
  */

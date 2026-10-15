@@ -52,6 +52,8 @@ export interface ContextDigest {
   usedTokens: number;
   budget: number;
   clamped: boolean;
+  /** 按哪一级上下文详细度装的（1–4）。这个开关出现之前存下的会话没有。 */
+  detail?: number;
   items: DigestItem[];
 }
 

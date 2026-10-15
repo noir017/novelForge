@@ -19,8 +19,6 @@
     "novel.contextWindow": 256000,
     "novel.maxOutputTokens": 35840,
     "novel.temperature": 0.8,
-    "novel.recentChaptersFullText": 2,
-    "novel.prevChapterTailChars": 1500,
     "novel.summaryBatchSize": 15,
     "novel.requestTimeoutMs": 300000
 }

@@ -16,8 +16,10 @@ import { ChainStep, LayerSpec } from './types';
 
 /** 单条附件最多吃掉多少预算——用户 @ 一个大文件不该把前文全挤掉。 */
 const ATTACHMENT_CAP = 0.35;
-/** 全部历史对话最多吃掉多少预算。 */
-const HISTORY_CAP = 0.3;
+/*
+ * 全部历史对话最多吃掉多少预算：不写在配方上，按上下文详细度那一级的 `historyCap`
+ * （缺省 0.3，见 model/contextDetail.ts）。只有落定细纲写死在下面。
+ */
 /**
  * 「落定细纲」时历史对话的封顶。
  *
@@ -65,7 +67,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'rosterDoc', priority: 0 },
     { layer: 'written', priority: 0, force: true },
     { layer: 'skill', priority: 0 },
-    { layer: 'history', priority: 1, cap: HISTORY_CAP },
+    { layer: 'history', priority: 1 },
     { layer: 'characters', priority: 1 },
   ],
 
@@ -87,7 +89,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'outlineDoc', priority: 0, force: true },
     { layer: 'written', priority: 0, force: true },
     { layer: 'skill', priority: 0 },
-    { layer: 'history', priority: 1, cap: HISTORY_CAP },
+    { layer: 'history', priority: 1 },
     { layer: 'characters', priority: 1 },
     { layer: 'globalSummary', priority: 2 },
     { layer: 'lore', priority: 2 },
@@ -116,7 +118,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'outlineSlice', priority: 0, force: true },
     { layer: 'written', priority: 0, force: true },
     { layer: 'skill', priority: 0 },
-    { layer: 'history', priority: 1, cap: HISTORY_CAP },
+    { layer: 'history', priority: 1 },
     { layer: 'plotPrev', priority: 1 },
     { layer: 'plotList', priority: 1 },
     { layer: 'plotNext', priority: 1 },
@@ -161,7 +163,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'premiseWorld', priority: 1 },
     { layer: 'outlineSlice', priority: 1 },
     { layer: 'threads', priority: 1 },
-    { layer: 'history', priority: 1, cap: HISTORY_CAP },
+    { layer: 'history', priority: 1 },
     { layer: 'evidence', priority: 2 },
     { layer: 'globalSummary', priority: 2 },
     { layer: 'lore', priority: 2 },

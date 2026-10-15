@@ -136,6 +136,7 @@ export function serializeDigest(built: BuiltContext): SerializedDigest {
     usedTokens: built.usedTokens,
     budget: built.budget,
     clamped: built.budgetClampedByProvider,
+    detail: built.detail,
     items: built.items.map(serializeItem),
   };
 }

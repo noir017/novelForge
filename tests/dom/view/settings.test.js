@@ -15,8 +15,7 @@ const settings = (extra) =>
       tierModels: { fast: [], balanced: [], quality: [] },
       taskTiers: {},
       temperature: 0.8,
-      recentChaptersFullText: 2,
-      prevChapterTailChars: 1500,
+      contextDetail: 2,
       summaryBatchSize: 15,
       requestTimeoutMs: 300000,
       concurrency: 3,
@@ -89,20 +88,39 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
     assert.ok(!ui.doc.getElementById('setContextWindow') && !ui.doc.getElementById('setMaxOutputTokens'));
   });
 
-  test('上下文参数各自回显', () => {
-    assert.equal(ui.doc.getElementById('setRecentChaptersFullText').value, '2');
-    assert.equal(ui.doc.getElementById('setPrevChapterTailChars').value, '1500');
+  test('上下文参数各自回显：详细度按推来的级别选中', () => {
+    assert.equal(ui.doc.getElementById('setContextDetail').value, '2');
     assert.equal(ui.doc.getElementById('setSummaryBatchSize').value, '15');
   });
 
-  test('上下文参数独立提交', () => {
-    ui.doc.getElementById('setRecentChaptersFullText').value = '4';
-    ui.doc.getElementById('setPrevChapterTailChars').value = '2400';
+  test('详细度下拉：四级，标签来自 contextDetail.ts，第 3 级标默认', () => {
+    const options = [...ui.doc.querySelectorAll('#setContextDetail option')].map((o) => o.textContent);
+    assert.deepEqual(options, ['1 · 精简', '2 · 标准', '3 · 详细（默认）', '4 · 完整']);
+  });
+
+  test('「注入完整原文章数」「上一章结尾字数」两个输入框不在了：并进了详细度', () => {
+    assert.ok(!ui.doc.getElementById('setRecentChaptersFullText') && !ui.doc.getElementById('setPrevChapterTailChars'));
+  });
+
+  test('说明行写出这一级带多少；改级别跟着变', () => {
+    const hint = () => ui.doc.getElementById('contextDetailHint').textContent;
+    assert.match(hint(), /近章全文 1 章/, hint());
+    const select = ui.doc.getElementById('setContextDetail');
+    select.value = '1';
+    select.dispatchEvent(new ui.window.Event('change', { bubbles: true }));
+    assert.match(hint(), /近章全文 不带/, hint());
+    assert.match(hint(), /定稿原文片段 不带/, hint());
+  });
+
+  test('上下文参数独立提交：详细度是数字，负载里没有旧的两个键', () => {
     ui.doc.getElementById('setSummaryBatchSize').value = '12';
     sent = save();
-    assert.equal(sent.settings.recentChaptersFullText, 4, JSON.stringify(sent.settings));
-    assert.equal(sent.settings.prevChapterTailChars, 2400, JSON.stringify(sent.settings));
+    assert.equal(sent.settings.contextDetail, 1, JSON.stringify(sent.settings));
     assert.equal(sent.settings.summaryBatchSize, 12, JSON.stringify(sent.settings));
+    assert.ok(
+      !Object.hasOwn(sent.settings, 'recentChaptersFullText') && !Object.hasOwn(sent.settings, 'prevChapterTailChars'),
+      JSON.stringify(sent.settings)
+    );
   });
 
   test('保存负载不含全局预算', () => {

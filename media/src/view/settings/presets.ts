@@ -24,8 +24,6 @@ export const KIND_LABEL: Record<string, string> = {
 /** 设置页上的数字输入框：配置项名 -> 页面上的 id。 */
 export const NUMERIC_FIELDS = {
   temperature: 'setTemperature',
-  recentChaptersFullText: 'setRecentChaptersFullText',
-  prevChapterTailChars: 'setPrevChapterTailChars',
   summaryBatchSize: 'setSummaryBatchSize',
   requestTimeoutMs: 'setRequestTimeoutMs',
   concurrency: 'setConcurrency',

@@ -1,5 +1,6 @@
 import { plotLabel } from '../../model/pipeline';
 import { describeStateThrough } from '../../model/characterState';
+import { CONTEXT_DETAIL_LABEL, takeLast } from '../../model/contextDetail';
 import { ContinuityFact, locateEvidence, parseContinuityFacts } from '../../model/continuity';
 import { Thread, pickActiveThreads, threadCandidates } from '../../model/threadsFile';
 import { CharacterCard } from '../../model/types';
@@ -55,7 +56,7 @@ export const globalSummary: LayerFn = async (a, spec) => {
 
 export const characters: LayerFn = async (a, spec) => {
   const all = await a.project.listCharacters();
-  const relevant = await selectCharacters(a.project, all, a.request.ask, a.focus);
+  const relevant = await selectCharacters(a.project, all, a.request.ask, a.focus, a.limits.castSummaries);
   for (const { card, reason } of relevant) {
     const id = `character:${card.slug}`;
     const base = {
@@ -72,11 +73,14 @@ export const characters: LayerFn = async (a, spec) => {
     // 「当前状态」写到第几章（D23）：上一章没定稿时，这里说的是更早那一章结束时的样子。
     const through = describeStateThrough(card.stateThrough);
     const why = through ? `${reason}；${through}` : reason;
-    const fullText = renderCharacter(card, false);
-    const fullTokens = estimateTokens(fullText);
-    if (fullTokens <= a.remaining) {
-      a.admit({ ...base, text: fullText, note: why });
-      continue;
+    // 上下文详细度「精简」：一律只带要点，不先试整张卡。
+    if (!a.limits.essentialCards) {
+      const fullText = renderCharacter(card, false);
+      const fullTokens = estimateTokens(fullText);
+      if (fullTokens <= a.remaining) {
+        a.admit({ ...base, text: fullText, note: why });
+        continue;
+      }
     }
     const essential = renderCharacter(card, true);
     const essentialTokens = estimateTokens(essential);
@@ -86,7 +90,9 @@ export const characters: LayerFn = async (a, spec) => {
           ...base,
           text: essential,
           status: 'degraded',
-          note: `${why}；预算不足，仅保留身份/当前状态/未收伏笔`,
+          note: a.limits.essentialCards
+            ? `${why}；上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」只带身份/当前状态/未收伏笔`
+            : `${why}；预算不足，仅保留身份/当前状态/未收伏笔`,
         },
         essentialTokens
       );
@@ -120,7 +126,7 @@ export const prevTail: LayerFn = async (a, spec) => {
   const prev = a.focus.previous[a.focus.previous.length - 1];
   // 「接着写」不带：这一章的开头早就从上一章结尾接过了，要接的是本章已写的末尾
   // （`chapterSoFar`）。两个「从这里接下去」摆在一起，模型会跳回上一章去。
-  if (!prev || a.config.prevChapterTailChars <= 0 || a.request.writeMode === 'continue') {
+  if (!prev || a.limits.prevTailChars <= 0 || a.request.writeMode === 'continue') {
     return;
   }
   const manuscript = await readPrevManuscript(a.project, a.focus);
@@ -134,7 +140,7 @@ export const prevTail: LayerFn = async (a, spec) => {
       priority: spec.priority,
       label: `${plotLabel(prev.no, prev.title)} · 结尾原文`,
       source: manuscript.relPath,
-      text: tailByChars(manuscript.text, a.config.prevChapterTailChars),
+      text: tailByChars(manuscript.text, a.limits.prevTailChars),
       note: '原文注入，保证语气与场景衔接',
     },
     { force: spec.force }
@@ -150,9 +156,8 @@ export const prevTail: LayerFn = async (a, spec) => {
 export const manuscriptFull: LayerFn = async (a, spec) => {
   const previous = a.focus.previous;
   const prev = previous[previous.length - 1];
-  const fullTextCount = Math.max(0, a.config.recentChaptersFullText);
-  // 0 就是一章全文都不带：`slice(-0)` 等于 `slice(0)`，会把前面每一章都整章塞进来。
-  const fullTextPlots = fullTextCount > 0 ? previous.slice(-fullTextCount) : [];
+  // 0 就是一章全文都不带（`takeLast` 不踩 `slice(-0)` 等于 `slice(0)` 的坑）。
+  const fullTextPlots = takeLast(previous, a.limits.fullTextChapters);
 
   for (const ref of [...fullTextPlots].reverse()) {
     const plot = ref;
@@ -240,16 +245,22 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
 };
 
 /**
- * 更早那些章的摘要，由近及远填充。
+ * 更早那些章的摘要，由近及远填充，最多带最近 `summaryChapters` 章（上下文详细度，缺省 60）。
  *
  * **还没写正文的章退化成只带「本章目的」**，并在明细里注明原因。这是「不静默截断」
  * 在这条链上最要紧的一处：作者常常先把一百章细纲排完再回头写，那些章没有正文
  * 也就没有摘要——直接跳过的话，排第 60 章时模型对前 59 章一无所知，却看不出
  * 少了什么。带一行目的很便宜，而且诚实。
+ *
+ * **封顶之外的合成一条 dropped**，不是一章一条：一百多章的书封在 5 章时，明细里摆九十几行
+ * 「不带」只会把真正带了什么淹掉。更早的前情由全书摘要接着（它在 P2，比这一层先拿预算）。
+ * 名额按「最近几章」数，作者手动取消勾选的那一章照样占一个名额。
  */
 export const plotSummary: LayerFn = async (a, spec) => {
   const candidates = a.focus.previous.filter((p) => !a.scratch.fullTextNos.has(p.no)).reverse();
-  for (const ref of candidates) {
+  const cap = a.limits.summaryChapters;
+  const beyond = candidates.slice(cap);
+  for (const ref of candidates.slice(0, cap)) {
     const id = `plotSummary:${ref.no}`;
     const label = plotLabel(ref.no, ref.title);
     const base = {
@@ -304,6 +315,22 @@ export const plotSummary: LayerFn = async (a, spec) => {
             : undefined,
       },
       tokens
+    );
+  }
+  if (beyond.length > 0) {
+    // `beyond` 由近及远：最后一个是最早的那章。
+    const first = beyond[beyond.length - 1].no;
+    const last = beyond[0].no;
+    a.reject(
+      {
+        id: 'plotSummary:beyond',
+        kind: 'plotSummary',
+        priority: spec.priority,
+        label: first === last ? `${plotLabel(first, beyond[0].title)} · 摘要` : `第 ${first}–${last} 章 · 摘要`,
+        text: '',
+      },
+      'dropped',
+      `上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」只带最近 ${cap} 章的摘要，更早的 ${beyond.length} 章不带`
     );
   }
 };
@@ -361,13 +388,6 @@ function releaseEvidence(a: Parameters<LayerFn>[0], ev: ContextItem | undefined)
   ev.text = '';
 }
 
-/** 前几章的连续性事实全取（D18）。 */
-export const EVIDENCE_RECENT = 5;
-/** 最多从几章里取（更早的章只取涉及本章角色的）。 */
-export const EVIDENCE_MAX_CHAPTERS = 12;
-/** 定稿原文片段一共多少字（上游 `MATERIAL_BUDGET_CHARS`）。 */
-export const EVIDENCE_BUDGET_CHARS = 6000;
-
 /**
  * 前面各章的**定稿原文片段**（D18）：拿摘要里每条连续性事实的证据原句回到那一章的正文里
  * 逐字定位，取所在段落与前后各一段（model/continuity.ts 的 `locateEvidence`）。
@@ -376,29 +396,43 @@ export const EVIDENCE_BUDGET_CHARS = 6000;
  * `assembleChapterMaterials`（CM:120-187）：写正文时不拿摘要当事实，按证据回到定稿原文里取段落。
  * 不搬它的定稿收据、来源 hash 与租约（总计划 §1 #14）。
  *
+ * 取多少按上下文详细度（`evidenceRecent` / `evidenceChapters` / `evidenceChars`，缺省 5 / 12 / 6000）：
+ *
  * | 取哪几章 | 取什么 |
  * |---|---|
- * | 前 {@link EVIDENCE_RECENT} 章 | 全部连续性事实 |
- * | 更早的章，一共不超过 {@link EVIDENCE_MAX_CHAPTERS} 章 | 只取提到本章角色的事实 |
+ * | 前 `evidenceRecent` 章 | 全部连续性事实 |
+ * | 更早的章，一共不超过 `evidenceChapters` 章 | 只取提到本章角色的事实 |
  *
- * - 由近及远填，一共不超过 {@link EVIDENCE_BUDGET_CHARS} 字；放不下的章 dropped 并写原因（第 2 条）。
+ * - 由近及远填，一共不超过 `evidenceChars` 字；放不下的章 dropped 并写原因（第 2 条）。
  * - **定位不到**（作者改过正文）的那几条换成事实原句，条目标 degraded 并写明几条（第 2 条）。
  * - 上一章有正文却还没定稿：明细里多一条 dropped，说清没有事实、角色状态截至第几章（D23）。
  *   不挡路——写第 N 章不强制第 N−1 章已定稿——但不静默。
+ * - 「精简」整层不带：前面有写好的章时出一条 dropped 说明，不一章一条。
  */
 export const evidence: LayerFn = async (a, spec) => {
   const previous = a.focus.previous;
   if (previous.length === 0) {
     return;
   }
+  const { evidenceRecent, evidenceChapters, evidenceChars } = a.limits;
+  if (evidenceChapters <= 0 || evidenceChars <= 0) {
+    if (previous.some((p) => p.chapter && p.chapter.wordCount > 0)) {
+      a.reject(
+        { id: 'evidence:off', kind: 'evidence', priority: spec.priority, label: '定稿原文片段', text: '' },
+        'dropped',
+        `上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」不带定稿原文片段`
+      );
+    }
+    return;
+  }
   const cards = await a.project.listCharacters();
   const names = namesOf(cards, a.focus.plot?.characters ?? []);
-  const recentFrom = previous.length - EVIDENCE_RECENT;
+  const recentFrom = previous.length - evidenceRecent;
   const prev = previous[previous.length - 1];
-  let budget = EVIDENCE_BUDGET_CHARS;
+  let budget = evidenceChars;
   let taken = 0;
 
-  for (let i = previous.length - 1; i >= 0 && taken < EVIDENCE_MAX_CHAPTERS; i--) {
+  for (let i = previous.length - 1; i >= 0 && taken < evidenceChapters; i--) {
     const ref = previous[i];
     if (!ref.chapter || ref.chapter.wordCount <= 0) {
       continue;
@@ -432,7 +466,7 @@ export const evidence: LayerFn = async (a, spec) => {
     const text = await a.project.readChapterText(ref.chapter);
     const { block, missing } = renderEvidence(ref.no, ref.title, text, facts);
     if (block.length > budget) {
-      a.reject({ ...base, text: '' }, 'dropped', `定稿原文片段一共只带 ${EVIDENCE_BUDGET_CHARS} 字，更近的几章已经用完了`);
+      a.reject({ ...base, text: '' }, 'dropped', `定稿原文片段一共只带 ${evidenceChars} 字，更近的几章已经用完了`);
       continue;
     }
     const notes = [
@@ -459,7 +493,7 @@ export const evidence: LayerFn = async (a, spec) => {
  * model/threadsFile.ts（`pickActiveThreads`）；这一层只管登记：
  *
  * - 一条线一个条目，按要紧程度排好（细纲提到的在最前）；note 写状态与为什么带它。
- * - 6 条 / 1200 字放不下的条目 dropped 并写原因（第 2 条）。
+ * - 条数与字数按上下文详细度（缺省 6 条 / 1200 字），放不下的条目 dropped 并写原因（第 2 条）。
  * - 作者在明细里取消勾选的那条不占名额，后面的补上来。
  * - 没有 `threads.md`、或者没有一条有关的线：什么都不出（没有东西被截断）。
  */
@@ -490,7 +524,8 @@ export const threads: LayerFn = async (a, spec) => {
   const excluded = threadCandidates(list, focus).filter((c) => a.excluded.has(idOf(c.thread)));
   const { picked, dropped } = pickActiveThreads(
     list.filter((t) => !a.excluded.has(idOf(t))),
-    focus
+    focus,
+    { count: a.limits.threadCount, chars: a.limits.threadChars }
   );
   for (const p of picked) {
     a.admit({ ...base(p.thread), text: p.line, note: `${p.status} · ${p.why}` });
@@ -596,13 +631,9 @@ export const chapterFull: LayerFn = async (a, spec) => {
   );
 };
 
-/** 近章的连续性事实最多从几章里取（审稿）。 */
-export const RECENT_FACTS_CHAPTERS = 12;
-/** 近章的连续性事实一共多少字。 */
-export const RECENT_FACTS_BUDGET_CHARS = 3000;
-
 /**
  * 前几章定稿留下的连续性事实（审稿，五期）：由近及远、一章一条，只带事实文字。
+ * 最多几章、一共几字按上下文详细度（`factsChapters` / `factsChars`，缺省 12 章 / 3000 字）。
  *
  * 上游审稿读的是「已定稿历史的连续性投影」——每一章的要点与事实（RV:121-154），明说它是
  * 「唯一已发生事实源」。这里对应四期摘要里的「连续性事实」一节。没定稿的章（没有摘要、或摘要
@@ -610,9 +641,10 @@ export const RECENT_FACTS_BUDGET_CHARS = 3000;
  */
 export const recentFacts: LayerFn = async (a, spec) => {
   const previous = a.focus.previous;
-  let budget = RECENT_FACTS_BUDGET_CHARS;
+  const { factsChapters, factsChars } = a.limits;
+  let budget = factsChars;
   let taken = 0;
-  for (let i = previous.length - 1; i >= 0 && taken < RECENT_FACTS_CHAPTERS; i--) {
+  for (let i = previous.length - 1; i >= 0 && taken < factsChapters; i--) {
     const ref = previous[i];
     if (!ref.chapter || ref.chapter.wordCount <= 0) {
       continue;
@@ -636,7 +668,7 @@ export const recentFacts: LayerFn = async (a, spec) => {
     }
     const block = `【${plotLabel(ref.no, ref.title)}】\n${facts.map((f) => `- ${f.statement}`).join('\n')}`;
     if (block.length > budget) {
-      a.reject({ ...base, text: '' }, 'dropped', `连续性事实一共只带 ${RECENT_FACTS_BUDGET_CHARS} 字，更近的几章已经用完了`);
+      a.reject({ ...base, text: '' }, 'dropped', `连续性事实一共只带 ${factsChars} 字，更近的几章已经用完了`);
       continue;
     }
     const item = a.admit({ ...base, source: summary.relPath, text: block, note: `${facts.length} 条` });

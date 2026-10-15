@@ -42,7 +42,7 @@ import { renderState, syncThinkingSelect } from './state';
 import { openPath, store, vscode } from './store';
 import { toast } from './toast';
 import type { SendPayload } from '../protocol';
-import { describeWriteLength } from '../protocol';
+import { CONTEXT_DETAIL_LABEL, describeWriteLength, isContextDetail } from '../protocol';
 import { buildReviewCard } from './review';
 
 /** 由 composer.ts 注入：「重新生成」要带上输入框里当下的那套参数。 */
@@ -696,12 +696,14 @@ export function buildContextDetails(digest: SerializedDigest): HTMLDetailsElemen
   const det = mk('details', 'ctx');
 
   const kept = digest.items.filter((i) => i.status === 'included' || i.status === 'degraded').length;
+  // 按哪一级装的：这个开关出现之前存下的会话没有，就不说。
+  const detail = isContextDetail(digest.detail) ? ` · 详细度：${CONTEXT_DETAIL_LABEL[digest.detail]}` : '';
   const sum = mk(
     'summary',
     undefined,
     `上下文 ${fmt(digest.usedTokens)} / ${fmt(digest.budget)} token${
       digest.clamped ? '（已按模型配额压缩）' : ''
-    } · ${kept} 项`
+    } · ${kept} 项${detail}`
   );
   if (digest.usedTokens > digest.budget) {
     sum.classList.add('over-budget');

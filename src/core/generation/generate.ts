@@ -36,6 +36,7 @@ import { CancelledError, LlmProvider, StreamOptions, TokenUsage } from '../llm/p
 import { buildProvider, resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
 import { ThinkingDepth } from '../model/thinking';
+import { CONTEXT_DETAIL_LABEL } from '../model/contextDetail';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { countWords } from '../model/fs';
@@ -736,7 +737,7 @@ function logAssembly(built: BuiltContext, startedAtMs: number): void {
 
   log.info(
     `上下文已装配：${built.usedTokens}/${built.budget} token（${percent}%），${kept.length} 项`,
-    `${built.messages.length} 条消息，用时 ${elapsed(startedAtMs)}` +
+    `${built.messages.length} 条消息，用时 ${elapsed(startedAtMs)}｜上下文详细度 ${CONTEXT_DETAIL_LABEL[built.detail]}` +
       `${built.budgetClampedByProvider ? '｜预算被服务商配额压低' : ''}`
   );
   if (lost.length > 0) {

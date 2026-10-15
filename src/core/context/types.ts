@@ -5,6 +5,7 @@
  * 引用配方里的 cap/force）之间的循环引用——两边都只依赖这里，谁也不依赖谁。
  */
 import { ChatMessage } from '../llm/provider';
+import type { ContextDetail } from '../model/contextDetail';
 import { CreationAction, CreationTarget, WriteMode } from '../model/pipeline';
 import type { FrozenGoal } from '../model/review';
 import { Attachment, ChatTurn } from '../model/session';
@@ -146,7 +147,8 @@ export interface LayerSpec {
   priority: Priority;
   /**
    * 该层最多吃掉预算的比例。只有本身可能无限大的层需要（附件、历史）。
-   * 不给则不单独封顶，只受全局余额约束。
+   * 不给则不单独封顶，只受全局余额约束——历史例外：不给时按上下文详细度那一级的
+   * `historyCap`（layers/dialog.ts），只有落定细纲写死 0.6。
    */
   cap?: number;
   /** 强制注入，不参与预算竞争（对应 admit 的 force）。 */
@@ -284,4 +286,6 @@ export interface BuiltContext {
   budget: number;
   /** 上限是否被 provider 配额压低。 */
   budgetClampedByProvider: boolean;
+  /** 这一次按哪一级上下文详细度装的（装配清单与日志点名用）。 */
+  detail: ContextDetail;
 }

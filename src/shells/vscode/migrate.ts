@@ -6,7 +6,7 @@ import { FileConfigStore, FileSecretStore } from '../../core/stores';
 const SETTING_KEYS = [
   'providers', 'models', 'model', 'tierModels', 'taskTiers',
   'contextWindow', 'maxOutputTokens', 'temperature',
-  'recentChaptersFullText', 'prevChapterTailChars', 'chaptersDir', 'draftsDir',
+  'chaptersDir', 'draftsDir',
   'summaryBatchSize', 'requestTimeoutMs', 'concurrency', 'fallbackAttempts',
 ];
 

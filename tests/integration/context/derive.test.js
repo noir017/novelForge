@@ -24,8 +24,6 @@ const config = (extra = {}) => ({
   contextWindow: 128000,
   maxOutputTokens: 4096,
   temperature: 0.8,
-  recentChaptersFullText: 2,
-  prevChapterTailChars: 1500,
   chaptersDir: 'chapters',
   draftsDir: 'drafts',
   summaryBatchSize: 15,

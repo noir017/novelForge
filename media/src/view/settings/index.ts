@@ -2,7 +2,15 @@
  * 设置页的装配：收后端推来的设置、渲染、保存。
  */
 import { byId, maybeById } from '../../dom';
-import { MODEL_TIERS } from '../../protocol';
+import {
+  CONTEXT_DETAILS,
+  CONTEXT_DETAIL_HINT,
+  CONTEXT_DETAIL_LABEL,
+  DEFAULT_CONTEXT_DETAIL,
+  MODEL_TIERS,
+  describeContextDetail,
+  normalizeContextDetail,
+} from '../../protocol';
 import type { SettingsPayload } from '../../protocol';
 import { vscode } from '../store';
 import { toast } from '../toast';
@@ -70,6 +78,11 @@ export function renderSettings(
   if (newWindow) {
     newWindow.checked = settings.openInNewWindow !== false;
   }
+  const detail = maybeById<HTMLSelectElement>(DETAIL_FIELD);
+  if (detail) {
+    detail.value = String(normalizeContextDetail(settings.contextDetail));
+    renderDetailHint();
+  }
   renderProviders();
   renderTaskTiers();
   refreshProviderModal();
@@ -79,6 +92,40 @@ export function renderSettings(
 const TRIM_FIELD = 'setTrimModifiers';
 /** 「新窗口中打开项目」那个勾选框的 id。只有独立版的页面上有。 */
 const NEW_WINDOW_FIELD = 'setOpenInNewWindow';
+/** 「上下文详细度」下拉框与它下面那一行说明的 id。 */
+const DETAIL_FIELD = 'setContextDetail';
+const DETAIL_HINT = 'contextDetailHint';
+
+/** 选项只建一次：标签与每一级带多少都来自 `contextDetail.ts`，前端不另写。 */
+function installDetailSelect(): void {
+  const select = maybeById<HTMLSelectElement>(DETAIL_FIELD);
+  if (!select) {
+    return;
+  }
+  for (const d of CONTEXT_DETAILS) {
+    const option = document.createElement('option');
+    option.value = String(d);
+    option.textContent = `${d} · ${CONTEXT_DETAIL_LABEL[d]}${d === DEFAULT_CONTEXT_DETAIL ? '（默认）' : ''}`;
+    select.appendChild(option);
+  }
+  select.value = String(DEFAULT_CONTEXT_DETAIL);
+  renderDetailHint();
+  select.addEventListener('change', () => {
+    touch();
+    renderDetailHint();
+  });
+}
+
+/** 下拉框下面那一行：这一级是干什么的，具体带多少。 */
+function renderDetailHint(): void {
+  const select = maybeById<HTMLSelectElement>(DETAIL_FIELD);
+  const hint = maybeById(DETAIL_HINT);
+  if (!select || !hint) {
+    return;
+  }
+  const d = normalizeContextDetail(Number(select.value));
+  hint.textContent = `${CONTEXT_DETAIL_HINT[d]}。${describeContextDetail(d)}`;
+}
 
 function save(): void {
   const settings = {
@@ -91,6 +138,8 @@ function save(): void {
     settings[key as NumericField] = Number(byId<HTMLInputElement>(id).value);
   }
   settings.trimModifiers = maybeById<HTMLInputElement>(TRIM_FIELD)?.checked !== false;
+  const detail = maybeById<HTMLSelectElement>(DETAIL_FIELD);
+  settings.contextDetail = normalizeContextDetail(detail ? Number(detail.value) : undefined);
   const newWindow = maybeById<HTMLInputElement>(NEW_WINDOW_FIELD);
   if (newWindow) {
     settings.openInNewWindow = newWindow.checked;
@@ -140,6 +189,7 @@ export function installSettings(): void {
   }
   maybeById(TRIM_FIELD)?.addEventListener('change', touch);
   maybeById(NEW_WINDOW_FIELD)?.addEventListener('change', touch);
+  installDetailSelect();
 
   byId('saveSettingsBtn').addEventListener('click', save);
   // 能力探测：只有带原生设置界面的宿主（VS Code）才渲染这颗按钮，

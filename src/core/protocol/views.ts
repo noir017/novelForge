@@ -390,6 +390,8 @@ export interface SerializedDigest {
   usedTokens: number;
   budget: number;
   clamped: boolean;
+  /** 按哪一级上下文详细度装的（1–4）。旧会话没有，前端不显示。 */
+  detail?: number;
   items: {
     id: string;
     label: string;
