@@ -331,6 +331,15 @@ describe('threadsFile.ts · 校验定稿时判出来的事件', () => {
     assert.equal(j[0].title, '线辰');
     assert.equal(skipped.length, 3);
   });
+
+  test('送几条按传进来的上限（上下文详细度）：与本章有关的照样排最前', () => {
+    const names = '甲乙丙丁戊己庚辛壬癸子丑寅卯辰';
+    const many = t.parseThreads(Array.from({ length: 15 }, (_, i) => `## 线${names[i]}\n- 计划：第 ${20 + i}–${30 + i} 章`).join('\n'));
+    const { judged, skipped } = t.threadsToJudge(many, { no: 3, plotText: '线辰在这里', names: [] }, 6);
+    assert.equal(judged.length, 6);
+    assert.equal(judged[0].title, '线辰');
+    assert.equal(skipped.length, 9);
+  });
 });
 
 describe('threadsFile.ts · 按写到第几章算', () => {

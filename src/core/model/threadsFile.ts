@@ -27,6 +27,9 @@
  * 纯函数，无 I/O。
  */
 import { indexText, normalizeQuote, quoteFound } from './review';
+import { CONTEXT_DETAIL_LIMITS, DEFAULT_CONTEXT_DETAIL } from './contextDetail';
+
+const DEFAULT_LIMITS = CONTEXT_DETAIL_LIMITS[DEFAULT_CONTEXT_DETAIL];
 
 // ---------------------------------------------------------------- 类型
 
@@ -75,16 +78,20 @@ export interface ThreadPlan {
   intent: string;
 }
 
+/*
+ * 下面三个上限随上下文详细度变（model/contextDetail.ts），这里是缺省那一级的值，给纯函数当默认参数：
+ * 装配器与定稿按级别把实际的数传进来。
+ */
 /** 写正文时最多带几条（上游 `ACTIVE_THREAD_LIMIT`）。 */
-export const ACTIVE_THREAD_LIMIT = 6;
+export const ACTIVE_THREAD_LIMIT = DEFAULT_LIMITS.threadCount;
 /** 写正文时一共最多带多少字（上游 `ACTIVE_THREAD_CHAR_LIMIT`）。 */
-export const ACTIVE_THREAD_CHARS = 1200;
+export const ACTIVE_THREAD_CHARS = DEFAULT_LIMITS.threadChars;
 /** 一次最多排出几条（上游 `PLAN_CANDIDATE_LIMIT`；提示词要的是 3–8 条）。 */
 export const THREAD_PLAN_LIMIT = 8;
 /** 定稿时一章最多记几条事件（上游 `EVENT_CANDIDATE_LIMIT`）。 */
 export const THREAD_EVENT_LIMIT = 5;
 /** 定稿时最多送几条线去判（比写正文时宽：判漏了比多带几行贵）。 */
-export const THREAD_JUDGE_LIMIT = 12;
+export const THREAD_JUDGE_LIMIT = DEFAULT_LIMITS.threadJudge;
 
 const TITLE_MAX = 30;
 const KIND_MAX = 12;
@@ -716,13 +723,14 @@ export function verifyThreadEvents(
 
 /**
  * 定稿时送哪几条线去判：写到这一章时还没收的（{@link asOf}），按写正文时同一个顺序排在前面
- * （与本章有关的先判），其余按文件顺序跟在后面，最多 {@link THREAD_JUDGE_LIMIT} 条。返回送去的
+ * （与本章有关的先判），其余按文件顺序跟在后面，最多 `limit` 条（上下文详细度，缺省 {@link THREAD_JUDGE_LIMIT}）。返回送去的
  * 与没送的——都是文件里的**原样**（带着全部事件，{@link verifyThreadEvents} 去重要看同一章已经
  * 记过的）。
  */
 export function threadsToJudge(
   threads: readonly Thread[],
-  focus: ThreadFocus
+  focus: ThreadFocus,
+  limit: number = THREAD_JUDGE_LIMIT
 ): { judged: Thread[]; skipped: Thread[] } {
   const ordered = threadCandidates(threads, focus).map((c) => threads[c.thread.index]);
   for (const t of threads) {
@@ -730,5 +738,6 @@ export function threadsToJudge(
       ordered.push(t);
     }
   }
-  return { judged: ordered.slice(0, THREAD_JUDGE_LIMIT), skipped: ordered.slice(THREAD_JUDGE_LIMIT) };
+  const n = Math.max(0, limit);
+  return { judged: ordered.slice(0, n), skipped: ordered.slice(n) };
 }

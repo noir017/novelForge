@@ -12,6 +12,7 @@
  * 各 1 次调用，走「提取文风」那一档（`extractStyle`），不带思考深度（第 26 条）。
  */
 import { readConfig } from '../config';
+import { contextLimitsOf } from '../model/contextDetail';
 import { getHost } from '../host';
 import { collect } from '../llm/collect';
 import { createModelPool } from '../llm/pool';
@@ -45,8 +46,7 @@ const log = scoped('学写法');
 
 export type ReferenceLearn = 'both' | 'style' | 'skill';
 
-/** 文风看几章、每章看多少。 */
-export const STYLE_SAMPLES = 5;
+/** 文风每章看多少。看几章按上下文详细度（`referenceSamples`，缺省 5 章）。 */
 export const STYLE_HEAD = 2500;
 /** 写法看的那几章：开头与结尾各看多少（章末钩子在结尾）。 */
 export const SKILL_HEAD = 2500;
@@ -105,7 +105,8 @@ export async function learnFromReference(
   }
   const doStyle = what !== 'skill';
   const doSkill = what !== 'style';
-  const styleIdx = evenSample(chapters.length, STYLE_SAMPLES);
+  const config = readConfig();
+  const styleIdx = evenSample(chapters.length, contextLimitsOf(config).referenceSamples);
   const skillIdx = structureSample(chapters.length);
   const styleTouched = doStyle && !(await project.styleGuideUntouched());
   const taken = new Set((await listSkills(project)).filter((s) => s.source === 'project').map((s) => s.name));
@@ -116,7 +117,6 @@ export async function learnFromReference(
   const unit = bySize ? '段' : '章';
   const nos = (idx: number[]) => idx.map((i) => i + 1).join('、');
 
-  const config = readConfig();
   const button = styleTouched ? '覆盖 style.md 并开始' : '开始学';
   const pick = await getHost().confirm(
     `从《${book.title}》学${LEARN_LABEL[what]}，${describeCalls(estimate)}。现在开始？`,

@@ -25,6 +25,7 @@
  * （上游一次一条）。
  */
 import { readConfig } from '../config';
+import { contextLimitsOf } from '../model/contextDetail';
 import { getHost } from '../host';
 import { collectText } from '../llm/collect';
 import { ModelPool, createModelPool } from '../llm/pool';
@@ -68,10 +69,11 @@ const log = scoped('叙事线');
 /** 失败记录的 op：排线失败、定稿时判叙事线失败都记在它名下。 */
 export const THREADS_OP = 'threads';
 
-/** 细纲一览里关键事件截到多长：一览是让模型看清全书节奏的，不是让它重读每一章。 */
-const PLOT_LINE_EVENTS = 120;
-/** 情节大纲最多带多少字。 */
-const OUTLINE_CHARS = 8000;
+/*
+ * 排线时情节大纲最多带多少字、细纲一览里关键事件截到多长：按上下文详细度
+ * （`threadPlanOutlineChars` / `threadPlanEvents`，缺省 8000 / 120）。一览是让模型看清全书节奏的，
+ * 不是让它重读每一章。
+ */
 
 /**
  * 模型交回来的 JSON 里取那一组：`{"threads":[…]}` / `{"events":[…]}`，也认上游的
@@ -145,6 +147,7 @@ export async function planThreads(
   const existing = await project.readThreads();
   const rel = project.relPath(project.threadsPath);
   const config = readConfig();
+  const { threadPlanOutlineChars: outlineChars, threadPlanEvents } = contextLimitsOf(config);
   const first = plots[0].no;
 
   report({ message: '读取设定与细纲', current: 0, total: 2 });
@@ -171,9 +174,9 @@ export async function planThreads(
   }
   if (outline.trim()) {
     const o = outline.trim();
-    head.push(`【情节大纲】\n${[...o].length > OUTLINE_CHARS ? `${[...o].slice(0, OUTLINE_CHARS).join('')}\n……（后面略）` : o}`);
-    if ([...o].length > OUTLINE_CHARS) {
-      log.warn('情节大纲太长，排叙事线时只带了前面一截', `${[...o].length} 字 → ${OUTLINE_CHARS} 字`);
+    head.push(`【情节大纲】\n${[...o].length > outlineChars ? `${[...o].slice(0, outlineChars).join('')}\n……（后面略）` : o}`);
+    if ([...o].length > outlineChars) {
+      log.warn('情节大纲太长，排叙事线时只带了前面一截', `${[...o].length} 字 → ${outlineChars} 字`);
     }
   }
   const tail = [
@@ -185,7 +188,7 @@ export async function planThreads(
     (p) =>
       `第${p.no}章 ${p.title}｜目的：${clip(p.sections.本章目的, 80)}｜关键事件：${clip(
         p.sections.关键事件,
-        PLOT_LINE_EVENTS
+        threadPlanEvents
       )}｜章末钩子：${clip(p.sections.章末钩子, 60)}`
   );
   // 输入预算：放不下时从细纲一览的最后截（越往后越是还没写到的，判回收章时也最远）。
@@ -390,11 +393,16 @@ export async function recordThreadEvents(
   const out: ThreadEventOutcome = { calls: 0, recorded: [], dropped: [], skipped: [] };
   const threads = await project.readThreads();
   const plot = await project.getPlot(chapter.order);
-  const { judged, skipped } = threadsToJudge(threads, {
-    no: chapter.order,
-    plotText: plot ? [plot.title, ...Object.values(plot.sections)].join('\n') : chapter.title,
-    names: plot?.characters ?? [],
-  });
+  const config = readConfig();
+  const { judged, skipped } = threadsToJudge(
+    threads,
+    {
+      no: chapter.order,
+      plotText: plot ? [plot.title, ...Object.values(plot.sections)].join('\n') : chapter.title,
+      names: plot?.characters ?? [],
+    },
+    contextLimitsOf(config).threadJudge
+  );
   out.skipped = skipped.map((t) => t.title);
   if (judged.length === 0) {
     log.info(`第 ${chapter.order} 章定稿：没有还没收的叙事线，不判`);
@@ -406,7 +414,6 @@ export async function recordThreadEvents(
 
   const text = await project.readChapterText(chapter);
   const roster = judged.map((t) => judgeLine(t, chapter.order)).join('\n');
-  const config = readConfig();
   const inputBudget = Math.max(2000, opts.budget.contextWindow - opts.budget.maxOutputTokens - 1500 - estimateTokens(roster));
   const body = takeHead(text, inputBudget);
   if (body.length < text.length) {

@@ -3,6 +3,7 @@ import { collect } from '../llm/collect';
 import { StreamOptions } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { readConfig } from '../config';
+import { contextLimitsOf } from '../model/contextDetail';
 import { elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { NovelProject } from '../model/project';
@@ -27,12 +28,13 @@ export async function extractStyle(project: NovelProject): Promise<void> {
     return;
   }
 
-  // 默认拿前两章当样章，用户可改成写得最顺手的那几章。
+  // 默认勾前几章当样章（上下文详细度，缺省前两章），用户可改成写得最顺手的那几章。
+  const config = readConfig();
   const picked = await pickPlotsByInput(
     written.map((c) => ({ no: c.order, title: c.title, chapter: c })),
     '选取 1~3 章最能代表文风的样章',
     '输入章号，逗号分隔，如 1,2,3',
-    written.slice(0, 2).map((c) => c.order)
+    written.slice(0, Math.min(3, contextLimitsOf(config).styleSamples)).map((c) => c.order)
   );
   if (!picked || picked.length === 0) {
     log.info('用户取消了样章选择');
@@ -63,7 +65,6 @@ export async function extractStyle(project: NovelProject): Promise<void> {
     log.error('没有可用的模型，提取中止');
     return;
   }
-  const config = readConfig();
   const samples = picked.slice(0, 3);
   log.info(
     `准备从 ${samples.length} 章样章提取文风`,

@@ -16,11 +16,16 @@
  * 拿一条模型编出来的矛盾去拦作者，比漏掉一条更糟。
  */
 import { normalizeQuote } from './review';
+import { CONTEXT_DETAIL_LIMITS, DEFAULT_CONTEXT_DETAIL } from './contextDetail';
 
-/** 冲突检查最多带几章的近章事实（与审稿的近章事实同一个数）。 */
-export const PLOT_CHECK_RECENT = 12;
+/*
+ * 下面两个与审稿的近章事实是同一组数，随上下文详细度变（`factsChapters` / `factsChars`）。
+ * 这里是缺省那一级的值，给 {@link selectCheckFacts} 当默认参数。
+ */
+/** 冲突检查最多带几章的近章事实。 */
+export const PLOT_CHECK_RECENT = CONTEXT_DETAIL_LIMITS[DEFAULT_CONTEXT_DETAIL].factsChapters;
 /** 事实一共带多少字。 */
-export const PLOT_CHECK_BUDGET_CHARS = 3000;
+export const PLOT_CHECK_BUDGET_CHARS = CONTEXT_DETAIL_LIMITS[DEFAULT_CONTEXT_DETAIL].factsChars;
 /** 引文归一之后至少几个字才算数：太短的「他」「玉简」到处都对得上。 */
 const MIN_QUOTE = 4;
 /** 一次最多报几处。 */
@@ -55,14 +60,19 @@ export const PLOT_CHECK_SYSTEM = [
 ].join('\n');
 
 /**
- * 选哪些事实：提到本章计划出场的人的事实（不论多早），加上最近 {@link PLOT_CHECK_RECENT} 章的全部事实；
- * 由近及远、一共不超过 {@link PLOT_CHECK_BUDGET_CHARS} 字。返回按章号升序。
+ * 选哪些事实：提到本章计划出场的人的事实（不论多早），加上最近 `limits.recent` 章的全部事实；
+ * 由近及远、一共不超过 `limits.chars` 字（缺省 {@link PLOT_CHECK_RECENT} 章、{@link PLOT_CHECK_BUDGET_CHARS} 字）。
+ * 返回按章号升序。
  */
-export function selectCheckFacts(chapters: readonly CheckFacts[], names: readonly string[]): CheckFacts[] {
+export function selectCheckFacts(
+  chapters: readonly CheckFacts[],
+  names: readonly string[],
+  limits: { recent?: number; chars?: number } = {}
+): CheckFacts[] {
   const keys = names.map((n) => n.trim()).filter((n) => n.length >= 2);
   const ordered = chapters.slice().sort((a, b) => b.no - a.no);
-  const recent = new Set(ordered.slice(0, PLOT_CHECK_RECENT).map((c) => c.no));
-  let budget = PLOT_CHECK_BUDGET_CHARS;
+  const recent = new Set(ordered.slice(0, Math.max(0, limits.recent ?? PLOT_CHECK_RECENT)).map((c) => c.no));
+  let budget = limits.chars ?? PLOT_CHECK_BUDGET_CHARS;
   const out: CheckFacts[] = [];
   for (const ch of ordered) {
     const picked: string[] = [];

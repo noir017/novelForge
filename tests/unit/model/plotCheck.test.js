@@ -32,6 +32,14 @@ describe('plotCheck · 选事实', () => {
     assert.ok(!picked.some((c) => c.no === 10));
   });
 
+  test('近几章、一共几字按传进来的上限（上下文详细度）', () => {
+    const nos = m.selectCheckFacts(chapters, ['沈秋'], { recent: 6 }).map((c) => c.no);
+    assert.deepEqual(nos, Array.from({ length: 6 }, (_, i) => 25 + i));
+    const long = Array.from({ length: 12 }, (_, i) => ({ no: i + 1, statements: ['字'.repeat(400)] }));
+    const total = m.selectCheckFacts(long, [], { chars: 1500 }).reduce((n, c) => n + c.statements.join('').length, 0);
+    assert.ok(total <= 1500 && total > 0, String(total));
+  });
+
   test('一共不超过预算', () => {
     const long = Array.from({ length: 12 }, (_, i) => ({ no: i + 1, statements: ['字'.repeat(400)] }));
     const total = m.selectCheckFacts(long, []).reduce((n, c) => n + c.statements.join('').length, 0);

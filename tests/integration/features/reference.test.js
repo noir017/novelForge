@@ -36,6 +36,8 @@ const STYLE_FULL = sections(STYLE_HEADS, '第三人称限知。');
 const SKILL_FULL = `${sections(SKILL_HEADS, '每章两到三个场景，结尾停在未决的选择上。')}\n\n- 每章至少一次局面变化。`;
 let skillBody = SKILL_FULL;
 let styleReply = STYLE_FULL;
+/** 上下文详细度：缺席 = 第 3 级（抽 5 章）。 */
+let contextDetail;
 const projects = [];
 
 /** 一本 12 章的参考书：每章开头写明章号，结尾一句钩子；里面有专有名词「玄天宗」。 */
@@ -59,7 +61,12 @@ before(() => {
   });
   h = makeFakeHost({
     supportsVscodeLm: true,
-    settings: () => ({ providers: [{ id: 'p', kind: 'vscode-lm', models: [{ name: 'm', contextWindow: 100000 }] }], models: ['p/m'], concurrency: 1 }),
+    settings: () => ({
+      providers: [{ id: 'p', kind: 'vscode-lm', models: [{ name: 'm', contextWindow: 100000 }] }],
+      models: ['p/m'],
+      concurrency: 1,
+      ...(contextDetail ? { contextDetail } : {}),
+    }),
   });
   bundle.host.initHost(h.host);
   home = makeTempDir('referenceHome');
@@ -170,6 +177,22 @@ describe('从参考书学写法 · 边角', () => {
     assert.equal(r.skill, undefined);
     assert.match(t.read('.novelforge/style.md'), /第三人称限知/);
     assert.ok(!t.has('.novelforge/skills'));
+  });
+
+  test('文风抽几章按上下文详细度：「精简」3 章、「完整」8 章', async () => {
+    const shown = async (detail) => {
+      contextDetail = detail;
+      const t = await fresh(`ref-detail-${detail}`);
+      h.expect('参考/玄天录.txt', 'style', undefined);
+      await bundle.reference.learnFromReference(t.project);
+      contextDetail = undefined;
+      const m = /文风：看第 ([\d、]+) 章/.exec(h.confirms[0].detail);
+      assert.ok(m, h.confirms[0].detail);
+      return m[1].split('、').length;
+    };
+    assert.equal(await shown(1), 3);
+    assert.equal(await shown(4), 8);
+    assert.equal(fake.callCount(), 0);
   });
 
   test('作者在确认框取消：一次都不调、什么都不写', async () => {

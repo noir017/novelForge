@@ -4,6 +4,7 @@ import { collectText } from '../llm/collect';
 import { StreamOptions } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { readConfig } from '../config';
+import { contextLimitsOf, takeLast } from '../model/contextDetail';
 import { resolveSectionDir } from '../files/fileOps';
 import { elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
@@ -38,12 +39,13 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
     return;
   }
 
-  // 默认勾最近三章；选得越多越准，但消耗的 token 也越多。
+  // 默认勾最近几章（上下文详细度，缺省三章）；选得越多越准，但消耗的 token 也越多。
+  const config = readConfig();
   const picked = await pickPlotsByInput(
     written.map((c) => ({ no: c.order, title: c.title, chapter: c })),
     '从哪几章提取角色信息？',
     '输入章号，逗号分隔，如 1,2,3',
-    written.slice(-3).map((c) => c.order)
+    takeLast(written, contextLimitsOf(config).characterChapters).map((c) => c.order)
   );
   if (!picked || picked.length === 0) {
     log.info('用户取消了章节选择');
@@ -56,7 +58,6 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
     log.error('没有可用的模型，提取中止');
     return;
   }
-  const config = readConfig();
   const existing = await project.listCharacters();
   log.info(
     `准备从 ${picked.length} 章提取角色`,

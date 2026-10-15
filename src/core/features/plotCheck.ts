@@ -8,6 +8,7 @@
  * 零调用的情形：细纲是空的、细纲上记了 `factCheckOk: true`、前面没有定稿过的章、选不出相关的事实。
  */
 import { readConfig } from '../config';
+import { contextLimitsOf } from '../model/contextDetail';
 import { collectText } from '../llm/collect';
 import { StreamOptions } from '../llm/provider';
 import { scoped } from '../runtime/logger';
@@ -47,9 +48,12 @@ export async function checkPlotAgainstFacts(
     return { calls: 0, conflicts: [], dropped: 0, skipped: '细纲上记了 factCheckOk，放行' };
   }
   const finalized = await project.finalizedFacts(no);
+  const config = readConfig();
+  const limits = contextLimitsOf(config);
   const facts = selectCheckFacts(
     finalized.map((f) => ({ no: f.no, title: f.title, statements: f.facts.map((x) => x.statement) })),
-    plot.characters
+    plot.characters,
+    { recent: limits.factsChapters, chars: limits.factsChars }
   );
   if (facts.length === 0) {
     return { calls: 0, conflicts: [], dropped: 0, skipped: '前面没有定稿过、留下连续性事实的章' };
@@ -57,7 +61,6 @@ export async function checkPlotAgainstFacts(
 
   const text = [plot.sections.本章目的, plot.sections.关键事件, plot.sections.章末钩子].filter((s) => s.trim()).join('\n\n');
   const user = plotCheckUser({ no, title: plot.title, text }, facts);
-  const config = readConfig();
   const options: StreamOptions = {
     maxOutputTokens: runner.primaryBudget.maxOutputTokens,
     temperature: 0.2,
