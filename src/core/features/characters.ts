@@ -11,6 +11,7 @@ import { readText, slugify, uniqueSlug, writeText } from '../model/fs';
 import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../model/project';
 import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
 import { sanitizeAliases } from '../model/naming';
+import { keepGender, normalizeGender } from '../model/gender';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
 import { stampState } from '../model/characterState';
@@ -133,6 +134,7 @@ interface ParsedCharacter {
   name: string;
   aliases: string[];
   tags: string[];
+  gender?: string;
   sections: CharacterSections;
 }
 
@@ -175,6 +177,7 @@ async function mergeCharacters(
           name: item.name,
           aliases: item.aliases,
           tags: item.tags,
+          gender: item.gender,
           firstAppear: range.firstNo,
           lastSeen: range.lastNo,
           // 这一批章节就是目前已知的出场记录。摘要索引之后会给出更完整的清单，
@@ -229,7 +232,7 @@ async function reviewCharacterUpdate(
   proposed: ParsedCharacter,
   range: { lastNo: number; nos: number[] }
 ): Promise<void> {
-  // 合并策略：模型有内容的小节覆盖，模型留空的保留原文；别名/标签取并集。
+  // 合并策略：模型有内容的小节覆盖，模型留空的保留原文；别名/标签取并集；性别卡上写了的不动。
   const merged: CharacterSections = { ...existing.sections };
   for (const key of CHARACTER_SECTION_KEYS) {
     const next = proposed.sections[key]?.trim();
@@ -245,6 +248,7 @@ async function reviewCharacterUpdate(
     name: existing.name,
     aliases: unique(sanitizeAliases([...existing.aliases, ...proposed.aliases], existing.name)),
     tags: unique([...existing.tags, ...proposed.tags]),
+    gender: keepGender(existing.gender, proposed.gender),
     firstAppear: existing.firstAppear ?? appearsIn[0],
     lastSeen: Math.max(existing.lastSeen ?? 0, range.lastNo) || range.lastNo,
     appearsIn,
@@ -379,6 +383,7 @@ export function parseCharacterResponse(raw: string): ParsedCharacter[] {
       name,
       aliases: sanitizeAliases(unique(stringArray(obj.aliases)), name),
       tags: unique(stringArray(obj.tags)),
+      gender: normalizeGender(obj.性别 ?? obj.gender),
       sections,
     });
   }

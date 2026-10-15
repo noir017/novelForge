@@ -7,7 +7,7 @@
  * |---|---|
  * | 小说配置 · 一句话 | 截断整份重来、「全局要求」不合格只重写这一节；一句话、规模按弹窗的来；文风写进还没动过的 style.md |
  * | 小说配置 · style.md 改过 | 文风不写进去，并且说出来（第 3 条） |
- * | 角色图谱 | 身份清单 → 每批 3 人补详情；截断拆半；关系由清单生成到双方卡上 |
+ * | 角色图谱 | 身份清单 → 每批 3 人补详情；截断拆半；关系由清单生成到双方卡上；性别在清单里定、落进卡的 frontmatter |
  * | 细纲批次 | 截断对半拆，后一半看得见前一半；写入卡片列出会新建的角色卡（D19）与降级说明（第 2 条） |
  * | 细纲批次 · 漏章 | 模型正常收尾却漏写：报错、不出卡片、磁盘一个字节不动（fail-closed） |
  * | 细纲批次 · 语法修复 | 只改标点的修复收下；改了内容的拒收 |
@@ -242,8 +242,8 @@ describe('小说配置 · style.md 已经改过', () => {
 describe('角色图谱 · 两段式', () => {
   const manifest = {
     slots: [
-      { slotId: '1', name: '林昭', role: 'protagonist', narrativeDuty: '背着旧案入宗', relations: [{ targetSlotId: '2', relation: '同门，互相试探' }] },
-      { slotId: '2', name: '沈青', role: 'supporting', narrativeDuty: '引路人', relations: [] },
+      { slotId: '1', name: '林昭', role: 'protagonist', gender: '男', narrativeDuty: '背着旧案入宗', relations: [{ targetSlotId: '2', relation: '同门，互相试探' }] },
+      { slotId: '2', name: '沈青', role: 'supporting', gender: 'female', narrativeDuty: '引路人', relations: [] },
       { slotId: '3', name: '周岳', role: 'antagonist', narrativeDuty: '执法堂首座', relations: [{ targetSlotId: '1', relation: '处处压制' }] },
       { slotId: '4', name: '韩七', role: 'minor', narrativeDuty: '杂役', relations: [] },
     ],
@@ -289,6 +289,16 @@ describe('角色图谱 · 两段式', () => {
     assert.ok(lin.sections.人物关系.includes('- 与周岳：周岳眼中——处处压制'), lin.sections.人物关系);
     assert.ok(lin.sections.身份.includes('叙事职责：背着旧案入宗'), lin.sections.身份);
   });
+
+  // 名字看不出性别时写正文只能猜：性别在清单那一步定，跟着冻结清单进详情、落在卡的 frontmatter 上。
+  test('性别：清单里定，详情那一步看得见，落盘成 frontmatter；没给的不写', () => {
+    assert.ok(userOf(1).includes('"name":"沈青","role":"配角","gender":"女"'), userOf(1).slice(-1200));
+    assert.equal(cards.find((c) => c.name === '林昭').gender, '男');
+    const shen = cards.find((c) => c.name === '沈青');
+    assert.equal(shen.gender, '女');
+    assert.match(t.read(shen.relPath), /^gender: 女$/m);
+    assert.equal(cards.find((c) => c.name === '周岳').gender, undefined);
+  });
 });
 
 // ---------------------------------------------------------------- 细纲批次
@@ -302,7 +312,7 @@ describe('细纲批次 · 截断对半拆', () => {
     project.invalidate();
     fake.reset([
       { text: batchOf(bp(1), bp(2)), stop: 'maxTokens' },
-      { text: batchOf(bp(1), bp(2, { characters: ['林昭', '苏晚'], newCharacters: [{ name: '苏晚', role: 'supporting' }] })), stop: 'end' },
+      { text: batchOf(bp(1), bp(2, { characters: ['林昭', '苏晚'], newCharacters: [{ name: '苏晚', role: 'supporting', gender: '女' }] })), stop: 'end' },
       { text: batchOf(bp(3), bp(4), bp(5)), stop: 'end' },
     ]);
     onGate = async () => 'proceed';
@@ -333,9 +343,10 @@ describe('细纲批次 · 截断对半拆', () => {
     assert.equal(plots[2].sections.章末钩子, '第 3 章的钩子');
   });
 
-  test('新角色建了卡（D19）', async () => {
+  test('新角色建了卡（D19），性别落在卡上', async () => {
     const su = (await project.listCharacters()).find((c) => c.name === '苏晚');
     assert.ok(su && su.tags.includes('配角') && su.sections.身份.includes('第 2 章'), JSON.stringify(su));
+    assert.equal(su.gender, '女');
   });
 
   test('全书下一步转去写第 1 章', async () => {

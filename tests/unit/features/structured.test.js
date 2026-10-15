@@ -119,6 +119,14 @@ describe('blueprint.ts · 细纲批次', () => {
     const again = B.decodeBlueprints(B.renderBlueprints(r.items));
     assert.deepEqual(again.items, r.items);
   });
+
+  test('新角色带性别：规范成「男」「女」，原样解回来；没给的不多一个键', () => {
+    const r = B.decodeBlueprints(JSON.stringify({
+      blueprints: [item(4, { characters: ['林昭', '沈青', '周岳'], newCharacters: [{ name: '沈青', role: 'supporting', gender: 'female' }, { name: '周岳', role: 'minor' }] })],
+    }));
+    assert.deepEqual(r.items[0].newCharacters, [{ name: '沈青', role: '配角', gender: '女' }, { name: '周岳', role: '次要' }]);
+    assert.deepEqual(B.decodeBlueprints(B.renderBlueprints(r.items)).items, r.items);
+  });
 });
 
 describe('roster.ts · 角色图谱两段式', () => {
@@ -176,6 +184,23 @@ describe('roster.ts · 角色图谱两段式', () => {
     const back = A.parseRoster(R.renderRoster(entries));
     assert.deepEqual(back.map((e) => [e.name, e.role]), [['林昭', '主角'], ['沈青', '配角'], ['周岳', '反派']]);
     assert.equal(back[0].sections.人物关系, entries[0].sections.人物关系);
+  });
+
+  test('性别在清单里定：规范写法、拼卡带上、规范化输出读得回来；没给的就没有', () => {
+    const withGender = {
+      slots: [
+        { ...manifest.slots[0], gender: 'male' },
+        { ...manifest.slots[1], gender: '女性' },
+        { ...manifest.slots[2], gender: '未知' },
+      ],
+    };
+    const { slots } = R.decodeManifest(JSON.stringify(withGender));
+    assert.deepEqual(slots.map((s) => s.gender), ['男', '女', undefined]);
+    const { entries } = R.assembleRoster(slots, []);
+    assert.deepEqual(entries.map((e) => e.gender), ['男', '女', undefined]);
+    const text = R.renderRoster(entries);
+    assert.match(text, /"性别": "女"/);
+    assert.deepEqual(A.parseRoster(text).map((e) => e.gender), ['男', '女', undefined]);
   });
 });
 

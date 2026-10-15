@@ -17,6 +17,7 @@ import {
 import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
 import { describeTaskModels } from '../model/tiers';
 import { explainDroppedAliases, sanitizeAliases } from '../model/naming';
+import { keepGender } from '../model/gender';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
 import { stampState } from '../model/characterState';
@@ -751,6 +752,7 @@ async function runCardUpdate(
   let sections: CharacterSections = { ...card.sections };
   let aliases = [...card.aliases];
   let tags = [...card.tags];
+  let gender = card.gender;
   /**
    * 真正分析成功 / 失败的章节。
    *
@@ -791,6 +793,7 @@ async function runCardUpdate(
     sections = parsed.sections;
     aliases = unique([...aliases, ...parsed.aliases]);
     tags = unique([...tags, ...parsed.tags]);
+    gender = keepGender(gender, parsed.gender);
     analyzed.push(...batch.plots.map((p) => p.order));
     log.info(
       `第 ${i + 1}/${batches.length} 批完成（${range}）`,
@@ -866,6 +869,7 @@ async function runCardUpdate(
       name: card.name,
       aliases,
       tags,
+      gender,
       firstAppear: appearances[0] ?? card.firstAppear,
       lastSeen: appearances[appearances.length - 1] ?? card.lastSeen,
       appearsIn: appearances,
@@ -985,7 +989,10 @@ async function analyzeBatch(
     signal: ctx.signal,
   };
 
-  const currentCard = CHARACTER_SECTION_KEYS.map((k) => `${k}：${current[k]?.trim() || '（空）'}`).join('\n');
+  const currentCard = [
+    `性别：${card.gender || '（空）'}`,
+    ...CHARACTER_SECTION_KEYS.map((k) => `${k}：${current[k]?.trim() || '（空）'}`),
+  ].join('\n');
   const range = describePlots(batch.plots.map((p) => p.order));
   const progress =
     ctx.total > 1 ? `这是第 ${ctx.index + 1}/${ctx.total} 批（${range}）。\n` : `本次分析 ${range}。\n`;

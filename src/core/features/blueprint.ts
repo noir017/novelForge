@@ -20,6 +20,7 @@
  * `relationships` 不要（D3 的细纲里没有它的位置）；`newCharacters` 可选，写入细纲时
  * 直接给新角色建卡（D19）。
  */
+import { normalizeGender } from '../model/gender';
 import { BLUEPRINT_LIMITS } from '../model/plotFile';
 import type { PlotFields } from './artifact';
 import { parseJson, singleJsonObject } from './structuredJson';
@@ -32,8 +33,8 @@ export interface BlueprintItem {
   purpose: string;
   keyEvents: string;
   characters: string[];
-  /** 本章首次登场、后面还会出场的重要角色。名字一定在 `characters` 里。 */
-  newCharacters: { name: string; role: string }[];
+  /** 本章首次登场、后面还会出场的重要角色。名字一定在 `characters` 里；性别建卡时落进卡上。 */
+  newCharacters: { name: string; role: string; gender?: string }[];
   suspenseHook: string;
 }
 
@@ -202,7 +203,8 @@ export function decodeBlueprints(text: string): BlueprintDecode {
           continue;
         }
         if (!newCharacters.some((c) => c.name === name)) {
-          newCharacters.push({ name, role: roleLabel(typeof e?.role === 'string' ? e.role : '') });
+          const gender = normalizeGender(e?.gender ?? e?.性别);
+          newCharacters.push({ name, role: roleLabel(typeof e?.role === 'string' ? e.role : ''), ...(gender ? { gender } : {}) });
         }
       }
     }

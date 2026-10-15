@@ -21,6 +21,7 @@ import { isPlotFilled, parsePlotFileName } from '../model/plotFile';
 import { isOutlineFilled, mergeOutline, outlineOverlaps } from '../model/outlineFile';
 import { hasContent } from '../model/markdown';
 import { stampState } from '../model/characterState';
+import { keepGender } from '../model/gender';
 import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections } from '../model/types';
 import { CreationTarget, SETTING_DOC_LABEL, WriteMode, plotOfTarget } from '../model/pipeline';
 import { Artifact, ChapterRange, PlotFields, RosterEntry } from '../features/artifact';
@@ -189,6 +190,7 @@ async function acceptRoster(project: NovelProject, ws: Workspace, entries: Roste
         ...existing,
         aliases: [...new Set([...existing.aliases, ...entry.aliases])],
         tags: existing.tags.length > 0 ? existing.tags : entry.role ? [entry.role] : [],
+        gender: keepGender(existing.gender, entry.gender),
         sections,
       };
       // 新图谱给了「当前状态」就是机器写的开篇状态（D15）：盖章，定稿时才认得出它归机器。
@@ -212,6 +214,7 @@ async function acceptRoster(project: NovelProject, ws: Workspace, entries: Roste
           name: entry.name,
           aliases: entry.aliases,
           tags: entry.role ? [entry.role] : [],
+          gender: entry.gender,
           sections: { ...emptyCharacterSections(), ...entry.sections },
         },
         0
@@ -424,6 +427,7 @@ async function createPlannedCards(project: NovelProject, ws: Workspace, items: B
         name: c.name,
         aliases: [],
         tags: c.role ? [c.role] : [],
+        gender: c.gender,
         sections: {
           ...emptyCharacterSections(),
           身份: `第 ${item.no} 章《${item.title}》登场${c.role ? `的${c.role}` : ''}。那一章：${item.purpose}`,

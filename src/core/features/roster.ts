@@ -19,6 +19,7 @@
  * 落盘卡片上列出来。角色图谱是一次一份、摊在卡片上给作者看的产物，
  * 作者看得见缺了什么；作废它只是让他再花一轮钱。
  */
+import { normalizeGender } from '../model/gender';
 import { CHARACTER_DETAIL_LIMITS, CHARACTER_SECTION_KEYS, CharacterSections } from '../model/types';
 import { roleLabel } from './blueprint';
 import { parseJson, singleJsonObject } from './structuredJson';
@@ -29,6 +30,8 @@ export interface RosterEntry {
   /** 主角 / 盟友 / 对手……落进角色卡的 tags。 */
   role: string;
   aliases: string[];
+  /** 落进角色卡 frontmatter 的 `gender`。 */
+  gender?: string;
   sections: Partial<CharacterSections>;
 }
 
@@ -38,6 +41,11 @@ export interface IdentitySlot {
   name: string;
   /** 已换成中文说法（主角 / 反派 / 配角 / 次要）。 */
   role: string;
+  /**
+   * 性别放在清单这一步定：一班人马男女怎么配是排角色时的事，到了补详情那一步再定，
+   * 每批只看得见三个人。
+   */
+  gender?: string;
   /** 这个人在故事里承担什么叙事职责。 */
   duty: string;
   relations: { target: string; relation: string }[];
@@ -102,6 +110,7 @@ export function decodeManifest(text: string): ManifestDecode {
       slotId,
       name,
       role: roleLabel(ROLES.includes(role) ? role : 'supporting'),
+      gender: normalizeGender(o.gender ?? o.性别),
       duty: str(o.narrativeDuty ?? o.duty),
       relations: [],
     };
@@ -246,18 +255,21 @@ export function assembleRoster(
     if (lines.length > 0) {
       sections.人物关系 = lines.join('\n');
     }
-    return { name: slot.name, role: slot.role, aliases: detail?.aliases ?? [], sections };
+    return { name: slot.name, role: slot.role, aliases: detail?.aliases ?? [], gender: slot.gender, sections };
   });
   return { entries, warnings };
 }
 
 /**
- * 规范化输出：`{"characters":[…]}`，键就是角色卡的七节。生成链最后交给气泡的那一份，
+ * 规范化输出：`{"characters":[…]}`，键就是角色卡的七节（外加性别）。生成链最后交给气泡的那一份，
  * 也是采纳时重新解析的那一份（artifact.ts 的 `parseRoster` 认得它）。
  */
 export function renderRoster(entries: readonly RosterEntry[]): string {
   const characters = entries.map((e) => {
     const row: Record<string, unknown> = { name: e.name, role: e.role };
+    if (e.gender) {
+      row.性别 = e.gender;
+    }
     if (e.aliases.length > 0) {
       row.aliases = e.aliases;
     }

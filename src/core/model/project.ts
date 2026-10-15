@@ -53,6 +53,7 @@ import {
 } from './fs';
 import { castFromText, parseCast } from './castParse';
 import { FinalizedFacts, parseContinuityFacts } from './continuity';
+import { normalizeGender } from './gender';
 
 const NOVEL_DIR = '.novelforge';
 /** 0.1.x 用的目录名。检测到就提示迁移，不静默改动用户文件。 */
@@ -893,6 +894,7 @@ export class NovelProject {
         name: asString(frontmatter.name) || extractH1(body) || baseName(abs),
         aliases: asArray(frontmatter.aliases),
         tags: asArray(frontmatter.tags),
+        gender: normalizeGender(frontmatter.gender),
         firstAppear: asNumber(frontmatter.firstAppear),
         lastSeen: asNumber(frontmatter.lastSeen),
         appearsIn: asNumberArray(frontmatter.appearsIn),
@@ -1011,6 +1013,7 @@ export function renderCharacterCard(card: WritableCharacterCard): string {
     name: card.name,
     aliases: card.aliases,
     tags: card.tags,
+    gender: card.gender,
     firstAppear: card.firstAppear,
     lastSeen: card.lastSeen,
     // 出场章节列表落在卡里，角色页不必读全部摘要就能显示「出场 12 章」，

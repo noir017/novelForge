@@ -87,6 +87,13 @@ export interface CharacterCard {
   name: string;
   aliases: string[];
   tags: string[];
+  /**
+   * 性别（「男」「女」，非人之类的照原样写）。缺席 = 没写。
+   *
+   * 落在 frontmatter 而不是正文那七节里：写正文时模型只能拿名字猜性别，「陆清河」这种
+   * 名字一猜就是男的。机器只在卡上没写时补，作者写了的永远不改。
+   */
+  gender?: string;
   /** 首次出场的章号。 */
   firstAppear?: number;
   /** 最后出场的章号。 */

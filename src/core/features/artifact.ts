@@ -29,6 +29,7 @@
  * 规范化的 JSON。这里认那几种形状，也认模型第一次调用的原样输出（agent 那条路、
  * 老会话），并照旧三层降级。合同本身在 features/blueprint.ts、roster.ts、novelConfig.ts。
  */
+import { normalizeGender } from '../model/gender';
 import { parseMarkdown, pickSections } from '../model/markdown';
 import { PLOT_SECTION_KEYS, PlotSections, emptyPlotSections } from '../model/plotFile';
 import {
@@ -385,6 +386,7 @@ export function parseRoster(text: string): RosterEntry[] {
       name: clipTitle(str(o.name ?? o.姓名 ?? o.名字)),
       role: str(o.role ?? o.定位 ?? o.角色定位),
       aliases: strList(o.aliases ?? o.别名),
+      gender: normalizeGender(o.性别 ?? o.gender),
       sections,
     });
   }

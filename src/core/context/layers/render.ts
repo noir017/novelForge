@@ -54,14 +54,19 @@ export function clipLine(text: string, max: number): string {
   return chars.length > max ? `${chars.slice(0, max).join('')}…` : one;
 }
 
+/** 名字后面那对括号：性别与别名，「（女；又称 清河）」。两样都没有就是空串。 */
+function cardNote(card: CharacterCard): string {
+  const parts = [card.gender, card.aliases.length > 0 ? `又称 ${card.aliases.join('、')}` : ''].filter(Boolean);
+  return parts.length > 0 ? `（${parts.join('；')}）` : '';
+}
+
 /**
- * 角色图谱一览里的一个人：名字、别名、定位，下面缩进三行身份 / 关系 / 当前状态的开头。
+ * 角色图谱一览里的一个人：名字、性别与别名、定位，下面缩进三行身份 / 关系 / 当前状态的开头。
  * 完整角色卡由 `characters` 层按需带（正文层）。
  */
 export function renderRosterLine(card: CharacterCard): string {
-  const alias = card.aliases.length > 0 ? `（又称 ${card.aliases.join('、')}）` : '';
   const tags = card.tags.length > 0 ? `［${card.tags.join('、')}］` : '';
-  const parts = [`- ${card.name}${alias}${tags}`];
+  const parts = [`- ${card.name}${cardNote(card)}${tags}`];
   const add = (label: string, text: string, max: number) => {
     if (text?.trim()) {
       parts.push(`  ${label}：${clipLine(text, max)}`);
@@ -75,7 +80,8 @@ export function renderRosterLine(card: CharacterCard): string {
 
 export function renderCharacter(card: CharacterCard, essentialOnly: boolean): string {
   const keys = essentialOnly ? CHARACTER_ESSENTIAL_KEYS : CHARACTER_SECTION_KEYS;
-  const header = card.aliases.length > 0 ? `【${card.name}（又称 ${card.aliases.join('、')}）】` : `【${card.name}】`;
+  // 性别跟着名字走，预算再紧只带三节时也在。
+  const header = `【${card.name}${cardNote(card)}】`;
   const body = stringifySections(card.sections as unknown as Record<string, string>, keys as readonly string[]);
   return `${header}\n${body || '（暂无设定）'}`;
 }

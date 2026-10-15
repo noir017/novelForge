@@ -1,3 +1,4 @@
+import { normalizeGender } from '../model/gender';
 import { emptyCharacterSections } from '../model/project';
 import { CHARACTER_SECTION_KEYS, CharacterSections } from '../model/types';
 import { sanitizeAliases } from '../model/naming';
@@ -7,6 +8,7 @@ export interface ParsedCard {
   sections: CharacterSections;
   aliases: string[];
   tags: string[];
+  gender?: string;
 }
 
 /**
@@ -53,5 +55,6 @@ export function parseCardResponse(raw: string): ParsedCard | undefined {
     sections,
     aliases: sanitizeAliases(unique(stringArray(obj.aliases))),
     tags: unique(stringArray(obj.tags)),
+    gender: normalizeGender(obj.性别 ?? obj.gender),
   };
 }

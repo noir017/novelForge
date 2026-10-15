@@ -246,7 +246,7 @@ export async function completeRoster(first: CallOutcome, io: ChainIO): Promise<C
   t.note(...manifest.warnings);
   const slots = manifest.slots;
   const frozen = JSON.stringify({
-    slots: slots.map((s) => ({ slotId: s.slotId, name: s.name, role: s.role, narrativeDuty: s.duty, relations: s.relations })),
+    slots: slots.map((s) => ({ slotId: s.slotId, name: s.name, role: s.role, gender: s.gender, narrativeDuty: s.duty, relations: s.relations })),
   });
 
   const details: CharacterDetail[] = [];

@@ -837,6 +837,7 @@ function rosterManifestContract(facts: PromptFacts): string {
     '- 至少 1 位与主角理念对立的竞争者/对手（有自己的正当动机）',
     '- 可选：1 位隐藏变数/灰色角色（立场不定，可能带来反转）',
     '- 可选：根据故事需要增加导师、阴谋家、势力代言人等',
+    '- 性别按人物与故事需要来定，别不假思索一律写成男性（门派、军营这类本就清一色的设定除外）',
     '',
     '3. 【核心矛盾交织网】',
     '想清所有角色如何因为世界观下的生存压力、资源争夺或信念冲突产生不可避免的碰撞，写进每个人的 narrativeDuty 与 relations。',
@@ -851,7 +852,7 @@ function rosterManifestContract(facts: PromptFacts): string {
     '这一步只规划角色身份、叙事职责和角色间关系，不生成角色详情。',
     '',
     '【身份清单合同】',
-    `只输出 {"slots":[...]}，角色数量必须为 ${ROSTER_MIN}–${ROSTER_MAX}。每项必须含 slotId、name、role、narrativeDuty、relations；relations 每项含 targetSlotId、relation。slotId 与 targetSlotId 必须是 JSON 字符串；slotId/name 必须唯一，role 仅 protagonist/antagonist/supporting/minor，且至少一个 protagonist；关系只能引用本清单其他 slotId。`,
+    `只输出 {"slots":[...]}，角色数量必须为 ${ROSTER_MIN}–${ROSTER_MAX}。每项必须含 slotId、name、role、gender、narrativeDuty、relations；relations 每项含 targetSlotId、relation。slotId 与 targetSlotId 必须是 JSON 字符串；slotId/name 必须唯一，role 仅 protagonist/antagonist/supporting/minor，且至少一个 protagonist；gender 写「男」或「女」（非人之类照实写）；关系只能引用本清单其他 slotId。`,
     '只输出一个可由 JSON.parse 读取的 {"slots":[...]} 对象，不得输出 Markdown、解释、代码围栏或思考过程。',
   ].join('\n');
 }
@@ -1144,7 +1145,7 @@ export function blueprintJsonContract(range?: { from: number; to: number }): str
     `keyEvents 写 100–300 字：主角做了什么，遭遇了什么反转，金手指怎么用的——可以写到具体场面（谁在哪、对谁做了什么、结果怎样），但它不是正文，不写成段的描写与对白；绝不得超过 ${L.keyEvents} 字。`,
     'suspenseHook 始终必填；即使本章没有谜团，也要写明一个制造推进压力的具体未决决定、威胁、揭示或后果。',
     `characters 必须是至少含一个唯一非空角色名的字符串数组，写完整姓名，最多 ${L.characters} 项。`,
-    'newCharacters 可选；只列由本章首次引入且预计后续还会出场的重要具名角色，每项 {"name":"…","role":"…"}，name 必须逐字复制 characters 中的一个完整姓名，role 只能是 protagonist、antagonist、supporting、minor；已经有角色卡的人、一次性路人都不要列。',
+    'newCharacters 可选；只列由本章首次引入且预计后续还会出场的重要具名角色，每项 {"name":"…","role":"…","gender":"…"}，name 必须逐字复制 characters 中的一个完整姓名，role 只能是 protagonist、antagonist、supporting、minor，gender 写「男」或「女」；已经有角色卡的人、一次性路人都不要列。',
     '不得省略必填字段、合并章节、输出近义字段、解释、Markdown 或代码围栏。',
     `【精确 JSON 形状】{"blueprints":[{"chapterNumber":${first},"title":"…","role":"…","purpose":"…","keyEvents":"…","characters":["…"],"suspenseHook":"…"}]}`,
   ].join('\n');

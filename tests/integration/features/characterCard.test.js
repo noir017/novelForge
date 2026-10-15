@@ -232,10 +232,12 @@ describe('增量更新', () => {
   before(async () => {
     project.invalidate();
     makePlot(6, '新章', ['林昭']);
+    // 作者在卡上写了性别：模型说什么都不改。
+    t.write(CARD, t.read(CARD).replace(/^name: 林昭$/m, 'name: 林昭\ngender: 男'));
     project.invalidate();
 
     expect('开始');
-    setReplies([cardJson({ 当前状态: '已渡河' })]);
+    setReplies([cardJson({ 当前状态: '已渡河', 性别: '女' })]);
     await cardMod.updateCharacterCard(project, CARD, 'incremental');
 
     corpus = fake.calls.map((m) => m[1].content).join('\n');
@@ -271,6 +273,12 @@ describe('增量更新', () => {
 
   test('增量写入了新内容', () => {
     assert.ok(card.includes('已渡河'));
+  });
+
+  test('卡上写了的性别给模型看，模型给的另一个不采纳', () => {
+    assert.ok(corpus.includes('性别：男'), corpus.slice(0, 300));
+    assert.match(card, /^gender: 男$/m);
+    assert.doesNotMatch(card, /gender: 女/);
   });
 
   test('没有新章节时不调模型', () => {
@@ -471,7 +479,7 @@ describe('给未建卡的人物建卡', () => {
     const before = await project.listCharacters();
     beforeCount = before.length;
     expect('开始');
-    setReplies([cardJson({ 身份: '停舟客栈的掌柜' })]);
+    setReplies([cardJson({ 身份: '停舟客栈的掌柜', 性别: '女性' })]);
     await cardMod.createCardForCast(project, '客栈掌柜');
 
     const after = await project.listCharacters();
@@ -503,6 +511,10 @@ describe('给未建卡的人物建卡', () => {
 
   test('新卡填上了模型产出', () => {
     assert.ok(created && created.sections.身份.includes('掌柜'), created && created.sections.身份);
+  });
+
+  test('卡上没写的性别从正文补上，规范成「女」', () => {
+    assert.equal(created && created.gender, '女');
   });
 
   // 刚建出来的空卡没有作者写的内容，不必走 diff。
