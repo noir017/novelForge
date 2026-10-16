@@ -19,7 +19,7 @@ import {
 import { InMessage, OutMessage } from '../../core/protocol';
 import { MCP_PATH, createNovelMcp } from '../../core/mcp';
 import { FileConfigStore, FileSecretStore } from '../../core/stores';
-import { assetBytes } from './assets';
+import { PRODUCT_VERSION, assetBytes } from './assets';
 import { FileHost } from './fileHost';
 import { standalonePage } from './page';
 import { currentScope, ScopedHost } from './scopedHost';
@@ -111,7 +111,7 @@ export async function startServer(opts: ServeOptions): Promise<number> {
           target.searchParams.set('project', fallback);
           return Response.redirect(target.toString(), 302);
         }
-        return new Response(standalonePage(project), {
+        return new Response(standalonePage(project, PRODUCT_VERSION), {
           headers: { 'content-type': 'text/html; charset=utf-8' },
         });
       }

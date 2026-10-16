@@ -1,5 +1,3 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import {
   chatPane,
   escapeHtml,
@@ -34,26 +32,12 @@ const LOGO_SVG =
   '<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H19v18H6.5A2.5 2.5 0 0 0 4 22z"/>' +
   '<path d="M8 6.5h7M8 10h7M8 13.5h4"/></svg>';
 
-function productVersion(): string {
-  const candidates = [
-    path.join(__dirname, '../../../package.json'),
-    path.join(process.cwd(), 'package.json'),
-  ];
-  for (const file of candidates) {
-    try {
-      const pkg = JSON.parse(fs.readFileSync(file, 'utf8')) as { version?: string };
-      if (typeof pkg.version === 'string' && pkg.version) {
-        return pkg.version;
-      }
-    } catch {
-      // 下一处
-    }
-  }
-  return '0.0.0';
-}
-
-export function standalonePage(root?: string): string {
-  const version = productVersion();
+/**
+ * @param version 「帮助 → 关于」里显示的版本号。由调用方传：它在编译时写进内嵌资源表
+ *   （`assets.ts` 的 `PRODUCT_VERSION`），这个模块不牵那张表。从前这里运行时去读
+ *   `package.json`，`bun build --compile` 出来的单文件旁边没有这个文件，装出来的版本永远是 0.0.0。
+ */
+export function standalonePage(root?: string, version = '0.0.0'): string {
   // 有内置编辑器、但取不到原生编辑器选区（「加入选区」在这里是粘贴框），
   // 也没有原生设置界面可跳；一个进程能同时开几个工程、每个窗口一个——这几个能力位就是这个壳与插件壳的全部界面差异。
   const caps = { builtinEditor: true, selectionFromEditor: false, nativeSettings: false, multiWindow: true };

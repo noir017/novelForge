@@ -1,5 +1,8 @@
 import { MEDIA_ASSETS } from './mediaAssets';
 
+/** 版本号与资源表同在一个生成文件里，编译时写死（见 scripts/embed-media.js）。 */
+export { PRODUCT_VERSION } from './mediaAssets';
+
 /**
  * `/media/*` 路由的字节来源：全部取自内嵌资源表，不读磁盘——`bun build --compile`
  * 出来的单文件可执行没有外部资源可读。

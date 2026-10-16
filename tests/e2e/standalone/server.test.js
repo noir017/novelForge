@@ -105,6 +105,13 @@ describe('静态资源', () => {
     assert.ok(html.includes('<title>Novel Forge</title>'), html.slice(0, 800));
   });
 
+  // 「关于」里的版本号是编译时写进资源表的那一份，不是运行时去找 package.json
+  // （单文件可执行旁边没有它，从前装出来一律是 0.0.0）。
+  test('「关于」的版本号是 package.json 的', () => {
+    const { version } = JSON.parse(fs.readFileSync(path.join(import.meta.dir, '..', '..', '..', 'package.json'), 'utf8'));
+    assert.ok(html.includes(`data-version="${version}"`), html.slice(0, 800));
+  });
+
   for (const asset of assets) {
     test(`${asset} 可取`, () => {
       assert.equal(status[asset], 200);
