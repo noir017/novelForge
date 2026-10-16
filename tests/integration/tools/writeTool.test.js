@@ -367,7 +367,7 @@ describe('八条守卫照旧拦着', () => {
 describe('写失败要留在出错的东西身上', () => {
   before(async () => {
     resetCtx();
-    await bundle.errorLog.clearFailures(project, 'plot', PLOT2_REL, 'agentWrite');
+    await bundle.errorLog.clearFailures(project, 'plot', PLOT2_REL, 'mcpWrite');
     // create 撞上已有文件：守卫拦下，这一章一字未改，但作者要看得出「刚才那一下没成」。
     await run({ path: PLOT2_REL, content: 'x' });
   });

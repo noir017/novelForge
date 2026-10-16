@@ -156,7 +156,7 @@ async function noteFailure(
   message: string
 ): Promise<void> {
   await recordFailure(ctx.project, {
-    scope: 'Agent',
+    scope: 'MCP',
     targetKind: 'plot',
     targetKey: plotRelPath,
     severity: 'error',

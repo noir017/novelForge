@@ -57,7 +57,7 @@ import {
   isValidAction,
 } from '../../model/pipeline';
 
-const log = scoped('Agent');
+const log = scoped('MCP');
 
 /**
  * 哪一层走哪一档。**列在这里的才走池**——不在表里的（正文、大纲）严格用

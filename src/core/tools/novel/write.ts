@@ -39,7 +39,7 @@ const MODES = ['create', 'overwrite', 'append'] as const;
 type WriteMode = (typeof MODES)[number];
 
 /** 失败记录的 op。清记录时按它筛，两处必须一致。 */
-export const WRITE_OP = 'agentWrite';
+export const WRITE_OP = 'mcpWrite';
 
 export const writeTool: ToolDef = {
   name: 'write',
@@ -232,7 +232,7 @@ async function noteFailure(ctx: ToolContext, path: PathKind, message: string): P
     return;
   }
   await recordFailure(ctx.project, {
-    scope: 'Agent',
+    scope: 'MCP',
     targetKind: 'plot',
     targetKey: plotRelPath,
     severity: 'error',

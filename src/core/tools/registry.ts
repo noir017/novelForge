@@ -32,7 +32,8 @@ import type {
   ToolSpec,
 } from './types';
 
-const log = scoped('Tools');
+// 日志来源按作者看到的入口叫：工具现在只经 MCP 端给外部 agent，同一次调用在日志页上归在一处。
+const log = scoped('MCP');
 
 export class ToolRegistry implements ToolInvoker {
   private readonly defs: ToolDef[];
