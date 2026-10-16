@@ -12,6 +12,7 @@ import {
   ChatSession,
   ChatTurn,
   deriveTitle,
+  isBuiltinAgentTurn,
   makeTurnId,
   normalizeRange,
   nowIso,
@@ -200,8 +201,9 @@ export async function runTurn(
   c.current.turns.push(assistantTurn);
   c.post({ type: 'turnDone', turn: serializeTurn(assistantTurn) });
 
-  // 历史是本轮之前的所有轮次（不含刚插入的两条）。
-  const history = c.current.turns.slice(0, -2).filter((t) => t.content.trim());
+  // 历史是本轮之前的所有轮次（不含刚插入的两条）。内置 agent 那几轮即使没说话也留着：
+  // 历史层要靠它认出前面那句是交给 agent 的指令，一起跳过。
+  const history = c.current.turns.slice(0, -2).filter((t) => t.content.trim() || isBuiltinAgentTurn(t));
 
   const action = { stage: c.current.stage, capability: c.current.capability };
   const range = rangeFor(action, normalizeRange(payload.range) ?? userTurn.range);

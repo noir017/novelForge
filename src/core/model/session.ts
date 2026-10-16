@@ -152,23 +152,11 @@ export interface ChatTurn {
   /**
    * 仅 assistant 轮：这一轮**按发生顺序**排下来的段——它说的话与它做的事交替。
    *
-   * 从前这里是 `content` 一整块 + `toolCalls` 一整串：所有工具挤在正文上方，
-   * 模型每一回合说的话全灌进同一块正文。真实过程是「读了三份 → 说一句 →
-   * 生成 → 再说一句」，画出来却是「所有工具 / 一整段话」，作者看不出哪句话
-   * 是在哪一步之后说的；而 `content` 存的还只是**最后一回合**那段文字，跑的
-   * 时候看到的和第二天翻回来看到的不是一份东西。
-   *
-   * 只有 MCP 那条路写它。单步创作（写细纲、写正文）没有工具，一块正文就是
-   * 全部——那条路不产生段，气泡照旧画成一块可就地编辑的正文。
+   * 只有 MCP 那条路写它，而且一定同时标 `mcp`。单步创作（写细纲、写正文）没有
+   * 工具，一块正文就是全部——那条路不产生段，气泡照旧画成一块可就地编辑的正文。
+   * 有段却没标 `mcp` 的，是已经移除的内置 agent 留下的（{@link isBuiltinAgentTurn}）。
    */
   segments?: TurnSegment[];
-  /**
-   * 仅 assistant 轮：这一轮 agent 调了哪些工具。**只读旧会话，不再写入。**
-   *
-   * 改成 `segments` 之前的形状。老会话文件里还有它，`serializeTurn` 读到时
-   * 归一成「工具们 + 正文」那几段（正是旧界面的顺序），于是界面只认一条路。
-   */
-  toolCalls?: TurnToolCall[];
   /**
    * 仅 assistant 轮：这是外部 agent 经 MCP 调工具留下的气泡（`controller/mcp.ts`）。
    * 连着几次调用接在同一个气泡里；作者说了话就另起一个。
@@ -474,6 +462,17 @@ export function turnPreview(turn: ChatTurn): string {
     return text;
   }
   return turn.command ? `/${turn.command}` : '';
+}
+
+/**
+ * 这一轮是不是已经移除的内置 agent 跑出来的。
+ *
+ * 认法只有一条：**有段、没标 `mcp`**——现在写段的只有 MCP 那条路，它一定标 `mcp`。
+ * 这些轮次只留着回看：界面上标明是谁，讨论时不随历史带（它说的是调度过程，
+ * 不是与作者的讨论，混进去会让模型以为自己刚才在读文件、调工具）。
+ */
+export function isBuiltinAgentTurn(turn: ChatTurn): boolean {
+  return turn.role === 'assistant' && !turn.mcp && (turn.segments?.length ?? 0) > 0;
 }
 
 function summarize(session: ChatSession): SessionSummary {

@@ -31,6 +31,13 @@ describe('MCP 留下的那一轮（重开面板时回放）', { skip: JSDOM_SKIP
             ],
           }),
           turn('a2', 'assistant', '普通回答'),
+          turn('a3', 'assistant', '我先看看。', {
+            builtinAgent: true,
+            segments: [
+              toolSeg({ callId: 'c3', name: 'read', title: 'read .novelforge/outline.md', ok: true, summary: '40 行', elapsedMs: 20 }),
+              textSeg('我先看看。'),
+            ],
+          }),
         ],
       }),
     });
@@ -57,6 +64,13 @@ describe('MCP 留下的那一轮（重开面板时回放）', { skip: JSDOM_SKIP
   test('普通回复还是「模型」，没有 MCP 标签', () => {
     assert.equal(head('a2').querySelector('.msg-role').textContent, '模型');
     assert.equal(head('a2').querySelector('.msg-tag'), null);
+  });
+
+  // 删掉的内置 agent 留下的旧轮次：不冒充模型，也不冒充 MCP。
+  test('内置 agent 的旧轮次写「内置 Agent」并挂「已移除」', () => {
+    assert.equal(head('a3').querySelector('.msg-role').textContent, '内置 Agent');
+    assert.equal(head('a3').querySelector('.msg-tag').textContent, '已移除');
+    assert.equal(rows(ui, 'a3').length, 1);
   });
 });
 

@@ -4,7 +4,9 @@
  *
  * ## 段区：说的话与做的事交替
  *
- * agent 那一轮画的是 `turn.segments`——**顺序就是它发生的顺序**：
+ * 有段的那一轮画的是 `turn.segments`——**顺序就是它发生的顺序**。外部 agent 经 MCP
+ * 留下的只有工具条与 generate 卡（它说的话不在这里）；文字段只出现在已经移除的内置
+ * agent 留下的旧轮次里：
  *
  * ```
  * 🔧 list 2 项            ┐ 相邻的工具段并进同一串
@@ -14,9 +16,7 @@
  * ┌ 大纲已经生成并落盘到…        ← 又一段文字
  * ```
  *
- * 从前是「所有工具挤在正文上方 + 所有话灌进同一个 `.msg-body`」，作者看不出
- * 哪句话是在哪一步之后说的，而 `generate` 产出的几千字还和模型的话拌在一个
- * 文本节点里。没有段的轮次（单步创作、纯聊天）照旧只有一块正文。
+ * 没有段的轮次（单步创作、纯聊天）只有一块正文。
  *
  * **生成中不可编辑**是这里最要紧的一条：contentEditable 的光标会被后续
  * delta 追加冲掉，用户改到一半的内容也会被 turnDone 的整体重建覆盖。
@@ -248,11 +248,16 @@ function buildTurn(turn: SerializedTurn): HTMLElement {
 
 function buildHead(turn: SerializedTurn): HTMLElement {
   const head = mk('div', 'msg-head');
-  head.appendChild(mk('span', 'msg-role', turn.role === 'user' ? '我' : turn.mcp ? '外部 Agent' : '模型'));
+  const role = turn.role === 'user' ? '我' : turn.mcp ? '外部 Agent' : turn.builtinAgent ? '内置 Agent' : '模型';
+  head.appendChild(mk('span', 'msg-role', role));
   if (turn.mcp) {
     // 经 MCP 接进来的调用（Claude Code 之类）：它说的话不在这里，这里只有它做的事。
     const tag = mk('span', 'msg-tag', 'MCP');
     tag.title = '外部 agent 经 MCP 调用 Novel Forge 的工具留下的记录';
+    head.appendChild(tag);
+  } else if (turn.builtinAgent) {
+    const tag = mk('span', 'msg-tag', '已移除');
+    tag.title = '已经移除的内置 agent 跑的一轮，只留着回看；讨论时不随历史带';
     head.appendChild(tag);
   }
   head.appendChild(mk('span', undefined, timeLabel(turn.at)));

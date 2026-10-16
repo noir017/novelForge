@@ -903,6 +903,63 @@ describe('装配：已写入的产物不随历史回灌（五期补遗 §1.4）'
   });
 });
 
+describe('装配：已经移除的内置 agent 那几轮不随历史带', () => {
+  // 旧会话：先让内置 agent 干了两次活（一次说了话、一次一句没说就停了），后来作者回到讨论。
+  const tool = (callId) => ({
+    kind: 'tool',
+    call: { callId, name: 'read', title: 'read', ok: true, summary: '20 行', elapsedMs: 1 },
+  });
+  const history = [
+    { id: 'g1', role: 'user', content: '帮我把第 2 章写了。', at: '2026-08-01T10:00:00Z' },
+    {
+      id: 'g2',
+      role: 'assistant',
+      content: '我先读一下第 1 章。写好了。',
+      segments: [tool('c1'), { kind: 'text', text: '我先读一下第 1 章。写好了。' }],
+      at: '2026-08-01T10:01:00Z',
+    },
+    { id: 'g3', role: 'user', content: '再查一遍伏笔。', at: '2026-08-01T10:02:00Z' },
+    { id: 'g4', role: 'assistant', content: '', segments: [tool('c2')], at: '2026-08-01T10:03:00Z' },
+    { id: 'd1', role: 'user', content: '第 2 章要不要让沈氏先开口？', at: '2026-08-01T10:04:00Z' },
+    { id: 'd2', role: 'assistant', content: '可以，让她先问残令的下落。', at: '2026-08-01T10:05:00Z' },
+    { id: 'm1', role: 'assistant', content: '', mcp: true, segments: [tool('c3')], at: '2026-08-01T10:06:00Z' },
+  ];
+  let conv;
+  let m;
+
+  before(async () => {
+    conv = await builderMod.buildContext(project, req('接着聊。', { history }), baseConfig);
+    m = ids(conv);
+  });
+
+  test('agent 那一轮与交给它的指令都不带，明细里说清为什么', () => {
+    for (const id of ['g2', 'g4']) {
+      assert.equal(m.get(`history:${id}`).status, 'dropped', id);
+      assert.match(m.get(`history:${id}`).note, /内置 agent 跑的一轮/, id);
+    }
+    for (const id of ['g1', 'g3']) {
+      assert.equal(m.get(`history:${id}`).status, 'dropped', id);
+      assert.match(m.get(`history:${id}`).note, /交给已经移除的内置 agent 的指令/, id);
+    }
+  });
+
+  test('之后的讨论照旧带', () => {
+    for (const id of ['d1', 'd2']) {
+      assert.equal(m.get(`history:${id}`).status, 'included', id);
+    }
+  });
+
+  // MCP 的气泡没有正文，按「空消息」处理，不冒充内置 agent。
+  test('MCP 的气泡不算内置 agent', () => {
+    assert.doesNotMatch(m.get('history:m1').note, /内置 agent/);
+  });
+
+  test('messages 里没有 agent 说过的话', () => {
+    assert.ok(!conv.messages.some((x) => x.content.includes('我先读一下第 1 章')));
+    assert.ok(!conv.messages.some((x) => x.content.includes('帮我把第 2 章写了')));
+  });
+});
+
 // ---------------------------------------------------------------------------
 
 describe('装配：历史预算封顶（由近及远保留）', () => {

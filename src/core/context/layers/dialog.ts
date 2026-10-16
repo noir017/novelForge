@@ -1,5 +1,6 @@
 import { STAGE_ROLE } from '../../model/pipeline';
 import { notYetOnStage } from '../../model/manuscriptCheck';
+import { isBuiltinAgentTurn } from '../../model/session';
 import { PromptFacts, buildSystemPrompt } from '../prompts';
 import { estimateTokens, takeHead, takeTail } from '../tokenizer';
 import { ContextItem } from '../types';
@@ -138,7 +139,10 @@ export const attachments: LayerFn = async (a, spec) => {
  * 大纲、细纲、前几章正文都留在历史里，写第 3 章时又整份装一遍。它们早就落盘了，专门的层按磁盘带
  * （设定、大纲切片、本章细纲、上一章结尾、前文全文、证据），而作者落盘之后可能手改过——历史里的
  * 还是改之前那一版。发起那一轮的命令（用户轮，带 `command`）一起跳过：要求已经落在产物里了。
- * 讨论（没有 `command`）与没写入的产物（作者点了不采纳，那份只在历史里有）照旧带。跳过的都记在
+ * 讨论（没有 `command`）与没写入的产物（作者点了不采纳，那份只在历史里有）照旧带。
+ *
+ * **已经移除的内置 agent 跑的那几轮也不带**，交给它的那句指令一起跳过：它说的是「我先读第 3 章」
+ * 这类调度过程，不是与作者的讨论，混进来模型会以为自己刚才在读文件、调工具。跳过的都记在
  * 明细里（第 2 条）。
  */
 export const history: LayerFn = async (a, spec) => {
@@ -163,6 +167,18 @@ export const history: LayerFn = async (a, spec) => {
     }
   });
 
+  // 内置 agent 跑的那一轮 → 不带；交给它的那句指令（紧挨在前面、没有 `command` 的用户轮）一起不带。
+  const byAgent = new Map<string, string>();
+  turns.forEach((turn, i) => {
+    if (isBuiltinAgentTurn(turn)) {
+      byAgent.set(turn.id, '已经移除的内置 agent 跑的一轮，只留着回看，不随历史带');
+      const asked = turns[i - 1];
+      if (asked && asked.role === 'user' && !asked.command) {
+        byAgent.set(asked.id, '这一句是交给已经移除的内置 agent 的指令，不随历史带');
+      }
+    }
+  });
+
   const kept: ContextItem[] = [];
   const skipped: ContextItem[] = [];
   for (let i = turns.length - 1; i >= 0; i--) {
@@ -175,6 +191,11 @@ export const history: LayerFn = async (a, spec) => {
       label: `${turn.role === 'user' ? '我' : '模型'} · 第 ${i + 1} 轮`,
     };
 
+    const agentNote = a.excluded.has(id) ? undefined : byAgent.get(turn.id);
+    if (agentNote) {
+      skipped.push({ ...base, text: '', tokens: 0, status: 'dropped', note: agentNote });
+      continue;
+    }
     if (a.excluded.has(id) || !turn.content.trim()) {
       skipped.push({
         ...base,

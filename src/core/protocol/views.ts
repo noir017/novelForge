@@ -324,12 +324,13 @@ export interface SerializedTurn {
    * 仅 assistant 轮：这一轮**按发生顺序**排下来的段——它说的话与它做的事交替。
    *
    * 界面认的就是这一个字段：有段就按段画（文字块 / 工具条 / generate 卡交替），
-   * 没有段就是一块正文（单步创作那条路，没有工具可交替）。**旧会话在
-   * `serializeTurn` 里已经归一过**，所以前端不必认第二种形状。
+   * 没有段就是一块正文（单步创作那条路，没有工具可交替）。
    */
   segments?: SerializedSegment[];
   /** 仅 assistant 轮：外部 agent 经 MCP 调工具留下的气泡。 */
   mcp?: boolean;
+  /** 仅 assistant 轮：已经移除的内置 agent 留下的旧轮次，只留着回看（`isBuiltinAgentTurn`）。 */
+  builtinAgent?: boolean;
 }
 
 /**
