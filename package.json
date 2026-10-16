@@ -519,6 +519,7 @@
     "presmoke": "node scripts/embed-media.js",
     "smoke": "npm run test:node",
     "test": "npm run typecheck && npm run test:node && npm run test:e2e",
+    "preversion": "npm test",
     "standalone": "node scripts/embed-media.js && bun run src/shells/standalone/main.ts",
     "dist": "node scripts/embed-media.js && bun build src/shells/standalone/main.ts --compile --outfile dist/novelforge",
     "sidecar": "node scripts/build-sidecar.js",

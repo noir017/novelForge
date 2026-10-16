@@ -1,37 +1,23 @@
-# 正式发布：手动点击，一次出齐三条发布路径的产物。
+# 正式发布：推一个 v* tag 触发，一次出齐三条发布路径的产物。
 #
-# 与 app.yml 的分工：app.yml 是 tag 推送时的桌面壳构建（日常验证「还能编出来」），
-# 这个文件是**人工决定发版**时才跑的一条完整流水线——桌面安装包 + VS Code 扩展
+# 与 app.yml 的分工：app.yml 是手动点的桌面壳构建（日常验证「还能编出来」），
+# 这个文件是**发版**时才跑的一条完整流水线——桌面安装包 + VS Code 扩展
 # .vsix + 独立版单文件可执行，最后汇总成一个 GitHub Release 草稿。
 #
-# 只有 workflow_dispatch 一个触发器：这条流水线要编两次 Rust 壳、跑两遍全量测试，
-# 是仓库里最贵的一个 job，不该由 push 自动引发。
+# 版本号只记在仓库根 package.json 一处（tauri.conf.json 指过去，独立版编译时写进程序）。
+# 发版在本地做：`npm version patch|minor|major` 先跑全量测试，再改版本号、提交、打 tag，
+# `git push --follow-tags` 推上来就到这里。所以这条流水线**不改版本号、不往 main 写**，
+# 只核对 tag 与 package.json 对得上。
 #
-# 注意：手动触发的按钮**只有当这个文件在默认分支上时才会出现**。仓库 origin 是
-# 局域网 Gitea，要在 GitHub 上点这个按钮，得先把 main 推到 github 远端
-# （项目约定里开源同步走 squash，见 .claude/CLAUDE.md）。
+# 只认 tag 触发：这条流水线要编两次 Rust 壳、跑两遍全量测试，是仓库里最贵的一个 job，
+# 不该由推 main 引发；而 tag 本身就是「决定发版」这件事。
 name: release
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: '版本号（不带 v 前缀，如 0.2.0）。留空则用 package.json 里的当前值。'
-        required: false
-        type: string
-      draft:
-        description: '发布成草稿（不勾选则直接公开）'
-        required: false
-        default: true
-        type: boolean
-      prerelease:
-        description: '标记为预发布'
-        required: false
-        default: false
-        type: boolean
+  push:
+    tags: ['v*']
 
-# 同一分支上重复点按钮时，掐掉旧的那次——两次发布跑在一起只会互相踩。
-# 这里不设 cancel-in-progress: false，因为发布本身是幂等的重跑。
+# 同一个 tag 重复触发时，掐掉旧的那次——两次发布跑在一起只会互相踩。
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
@@ -40,27 +26,32 @@ permissions:
   contents: write # 创建 Release 要写权限
 
 jobs:
-  # ── 1) 版本号定板 ───────────────────────────────────────────────
-  # 三个 job 都要知道版本号，各自去读 package.json 会重复三遍逻辑，
-  # 所以先在一个轻量 job 里定下来，后面统一引用。
+  # ── 1) 版本号核对 ───────────────────────────────────────────────
+  # tag 是谁打的不由这里管（本地 npm version 打），但 tag 与 package.json 对不上的话，
+  # Release 的名字与安装包里的版本号就是两个数，所以先核对，对不上就整条停下。
   version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.pick.outputs.version }}
-      tag: v${{ steps.pick.outputs.version }}
+      tag: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: 定板版本号
+      - name: 核对版本号
         id: pick
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            v="${{ inputs.version }}"
-          else
-            v="$(node -p "require('./package.json').version")"
+          tag="${{ github.ref_name }}"
+          v="${tag#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$v" != "$pkg" ]; then
+            echo "::error::tag $tag 与 package.json 的版本号 $pkg 对不上（应当用 npm version 打 tag）"
+            exit 1
           fi
-          # 手滑写成 v0.2.0 的话去掉前缀，免得后面拼出 vv0.2.0 这种 tag。
-          v="${v#v}"
+          # Windows MSI 只认纯数字的版本号，0.2.0-beta.0 这种在桌面构建那一步才会炸，这里先拦下。
+          if ! echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::版本号 $v 不是 X.Y.Z（只支持 npm version patch / minor / major）"
+            exit 1
+          fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "本次发布版本：$v"
 
@@ -87,10 +78,6 @@ jobs:
       # 闸门：测试挂了就不该有产物流出去。
       - name: 跑测试
         run: npm test
-
-      - name: 对齐版本号
-        if: inputs.version != ''
-        run: npm version "${{ needs.version.outputs.version }}" --no-git-tag-version
 
       # 独立版：两个平台都由 Bun 交叉编译，产物带平台后缀便于区分。
       - name: 构建独立版（linux + windows）
@@ -164,21 +151,6 @@ jobs:
       - name: 跑测试
         run: npm test
 
-      - name: 对齐版本号
-        if: inputs.version != ''
-        shell: bash
-        run: |
-          v="${{ needs.version.outputs.version }}"
-          npm version "$v" --no-git-tag-version
-          # tauri.conf.json 的 version 是安装包上显示的版本，与 package.json
-          # 各记一份，不同步的话装出来的包版本号是旧的。
-          node -e "
-            const fs=require('fs'),f='src/shells/desktop/tauri.conf.json';
-            const c=JSON.parse(fs.readFileSync(f,'utf8'));
-            c.version=process.argv[1];
-            fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n');
-          " "$v"
-
       - name: Linux 构建依赖
         if: matrix.name == 'linux'
         run: |
@@ -247,11 +219,11 @@ jobs:
             -exec cp {} out/ \;
           ls -lh out
 
+      # 一律先出草稿：作者在 GitHub 上看过产物再点公开。
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: Novel Forge ${{ needs.version.outputs.tag }}
-          draft: ${{ inputs.draft }}
-          prerelease: ${{ inputs.prerelease }}
+          draft: true
           files: out/*
           fail_on_unmatched_files: true

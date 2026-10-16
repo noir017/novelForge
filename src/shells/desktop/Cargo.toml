@@ -1,6 +1,8 @@
 [package]
 name = "novelforge-desktop"
-version = "0.1.0"
+# 不是这个应用的版本号。版本号只记在仓库根 package.json 一处：tauri.conf.json 的
+# `version` 指过去，安装包与 Windows 可执行的文件版本都从那里来，这里的值不被任何地方读。
+version = "0.0.0"
 description = "Novel Forge 桌面壳"
 edition = "2021"
 rust-version = "1.77"

@@ -118,3 +118,16 @@ npm run test:e2e         # 独立版服务（需 Bun）
 ## 提交约定
 
 中文正文可以，前缀用 `feat/refactor/chore/docs`。不要提交 `dist/`（已被 gitignore）。
+
+## 发版
+
+版本号**只记在仓库根 `package.json`**：`src/shells/desktop/tauri.conf.json` 的 `version` 指向它，独立版与桌面 sidecar 编译时由 `scripts/embed-media.js` 写进程序（「关于」显示的就是这一份），`Cargo.toml` 的 `0.0.0` 是占位、不被读。别处不要再写第二份（`tests/contract/version.test.js` 守着）。
+
+```powershell
+npm version patch        # 或 minor / major：先跑 npm test，再改版本号、提交「chore(release): vX.Y.Z」、打 tag
+git push --follow-tags   # 推 main 与 tag；tag 触发 .github/workflows/release.yml，出 GitHub Release 草稿
+```
+
+- `npm version` 要求工作区干净；测试不过就不改版本、不打 tag。只用 `patch` / `minor` / `major`——带字母的预发布号 Windows MSI 不认，release.yml 会直接拦下。
+- release.yml 只核对 tag 与 `package.json` 对得上，**不改版本号、不往 main 写**；产物先出草稿，作者看过再在 GitHub 上公开。
+- `app.yml` 是手动点的日常构建（只出 artifact），不认 tag，也不改版本号。

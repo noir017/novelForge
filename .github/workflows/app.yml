@@ -1,17 +1,14 @@
-# 桌面 app 的双平台构建。
+# 桌面 app 的双平台构建，手动点（日常验证「还能编出来」，产物只进 artifact，不发布）。
 #
 # 为什么必须用 CI：sidecar 能靠 Bun 交叉编译（在 Linux 上就能出 Windows 的 .exe），
 # 但 **Tauri 的 Rust 壳不能**——Windows 安装包得在 Windows 上编。所以每个平台
 # 一台 runner，各自原生编译自己的 sidecar 与安装包。
 #
-# 注意：仓库的 origin 是局域网 Gitea，这个文件在那边不会自动生效。要跑起来，
-# 要么给仓库加一个 GitHub remote 推上去，要么给 Gitea 注册一个 Windows
-# Actions runner（语法兼容，但 runner 要自己准备）。
+# 不认 tag：推 v* tag 是发版，由 release.yml 出齐全部产物；这里也认的话同一个 tag
+# 要编两遍。版本号用的是仓库里 package.json 当下的值，这里不改它。
 name: app
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 jobs:

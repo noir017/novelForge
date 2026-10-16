@@ -241,9 +241,10 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 
 | 文件 | 覆盖 |
 |---|---|
-| `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、WS 首条消息、`Origin` 校验；`selectPlot` 由后端算落在哪一层（已完成的章落正文层，**下一步转到全书的下一步**「拆细纲（第 4–8 章）」），且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返；**空窗口** ready 后无假工程、`openFolder` 热换、`mode: 'add'` 仍一份工作区、`closeFolder` 卸掉 |
+| `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、「关于」的版本号是 `package.json` 的（编译时写进资源表，不是运行时找文件）、WS 首条消息、`Origin` 校验；`selectPlot` 由后端算落在哪一层（已完成的章落正文层，**下一步转到全书的下一步**「拆细纲（第 4–8 章）」），且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返；**空窗口** ready 后无假工程、`openFolder` 热换、`mode: 'add'` 仍一份工作区、`closeFolder` 卸掉 |
 | `contract/layerBoundary.test.js` | 工具层与 MCP 端口的边界：`tools/` 一行都不 import `mcp/` 或 `controller/`、`mcp/` 只 import `./`、`node:`、`../tools/`、`../runtime/`（不碰 controller / workspace / generation，执行端由壳注入）、工具体里不出现 `ctx.budget`。这条守的是「工具能端出去」「端口不钉死在宿主上」两件事，**能悄悄长回来**，只能靠断言守 |
 | `contract/toolText.test.js` | 模型读得到的文字（十二个工具的描述、参数说明与枚举值、MCP 的 `instructions`）里没有旧链路的说法（卷、剧情段、中转站、拆分、`volumes/`、`manuscripts/`）；哪个工具的可用动作里都没有 `split` |
+| `contract/version.test.js` | 版本号只记在 `package.json` 一处：`tauri.conf.json` 的 `version` 按它所在目录解析指向仓库根 `package.json`、`Cargo.toml` 是占位的 `0.0.0`、版本号是 `X.Y.Z`（release.yml 只认这个形状） |
 | `contract/corePurity.test.js` | `src/core/` 零 vscode 依赖——分层架构的硬约束，也是 `external: ['vscode']` 成立的前提 |
 | `contract/shellPurity.test.js` | 壳的契约（[src/shells/README.md](../src/shells/README.md)）：`shells/shared/` 零宿主依赖（不碰 vscode / node: / bun:）、三个壳互不 import、全仓库没有 `host.name ===` 这类按身份分支的写法。三条都是**能悄悄长回来**的东西，只能靠断言守 |
 | `contract/sampleNovel.test.js` | `sample-novel/` 自洽：manifest 章数与磁盘一致（v1 结构，索引的是 `chapters`）、每章 `contentHash` / `summaryHash` / 摘要 `sourceHash` 对得上、摘要 frontmatter 指回章号、**细纲号 = 章号**、细纲的 `upstreamHash` / `writtenFrom` 都新鲜、架构三件都填过且配置解析得出规模参数、大纲覆盖到总章数、没有 `volumes/` 与 `manuscripts/`、示例纲要能命中 3 个角色 |
