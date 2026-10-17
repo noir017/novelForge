@@ -336,9 +336,15 @@ function buildArchitectureRow(a: ArchitectureRow, isNext: boolean, tree?: Projec
   }
 
   const idea = () => openIdeaForm(tree?.book);
+  const fromText = !!tree?.book.writtenThrough;
   if (isNext) {
     const go = mk('button', 'chip-btn row-go', '去生成');
-    go.title = a.key === 'config' ? '写一句话与规模，生成小说配置' : '进入这一层：对话页的主按钮就是生成它';
+    go.title =
+      a.key === 'config'
+        ? fromText
+          ? '定好规模，照已写正文生成小说配置'
+          : '写一句话与规模，生成小说配置'
+        : '进入这一层：对话页的主按钮就是生成它';
     go.addEventListener('click', (e) => {
       e.stopPropagation();
       if (a.key === 'config') {
@@ -352,7 +358,7 @@ function buildArchitectureRow(a: ArchitectureRow, isNext: boolean, tree?: Projec
 
   onContextMenu(row, () => [
     ...(a.key === 'characters' ? [] : [{ label: '打开', run: () => openPath(a.relPath) }]),
-    ...(a.key === 'config' ? [{ label: '从一句话生成…', run: idea }] : []),
+    ...(a.key === 'config' ? [{ label: fromText ? '照已写正文生成…' : '从一句话生成…', run: idea }] : []),
     // 已填的：讨论只是进入这一层（不花钱），重写直接发一轮生成（先问一句要求，覆盖前照样对比）。
     ...(a.filled
       ? [

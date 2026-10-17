@@ -36,24 +36,41 @@ function totalWords(n: number): string {
  * 提交就是一次普通的创作发送（架构层 · 生成 · 小说配置），外加 `setup`：规模以这里为准，
  * 作者这句话写进「一句话」那一节。`config.md` 已经写过东西时明说「保留原文，追加生成」
  * ——后端就是这么合的（generation/structured.ts 的 `completeConfig`）。
+ *
+ * 已经写了正文（`writtenThrough`）时是「照已写正文生成」：后端装配时自动带上已写正文
+ * （context/builder.ts 的 `settingFromText`），那句话变成可留空的补充要求。
  */
 export function openIdeaForm(defaults?: IdeaDefaults): void {
+  const written = defaults?.writtenThrough ?? 0;
+  const keep = defaults?.configHasContent ? '小说配置里已经写了东西：保留原文，生成的追加在后；你选过的类型、结构、视角不改。' : '';
   openForm({
-    title: '从一句话生成小说配置',
-    lead: defaults?.configHasContent
-      ? '小说配置里已经写了东西：保留原文，生成的追加在后；你选过的类型、结构、视角不改。'
-      : '写下你的脑洞，AI 把它展开成一份小说配置：类型、卖点、主角、金手指、跨章的全局要求。',
+    title: written > 0 ? '照已写正文生成小说配置' : '从一句话生成小说配置',
+    lead:
+      written > 0
+        ? `已经写了第 1–${written} 章：AI 照正文归纳类型、卖点、主角、金手指与跨章的全局要求，不另编正文里没有的设定。${keep}`
+        : keep || '写下你的脑洞，AI 把它展开成一份小说配置：类型、卖点、主角、金手指、跨章的全局要求。',
     fields: [
       {
         kind: 'textarea',
         key: 'idea',
-        label: '一句话 / 脑洞',
+        label: written > 0 ? '补充要求（可留空）' : '一句话 / 脑洞',
         value: defaults?.idea ?? '',
         rows: 5,
-        required: true,
-        placeholder: '比如：一个从火里活下来的人回到起火的地方，发现幸存者不止他一个。',
+        required: written === 0,
+        placeholder:
+          written > 0
+            ? '比如：卖点多写主角的反差；后面打算转向校园之外的大世界。'
+            : '比如：一个从火里活下来的人回到起火的地方，发现幸存者不止他一个。',
       },
-      { kind: 'number', key: 'totalChapters', label: '总章数', value: defaults?.totalChapters ?? DEFAULT_TOTAL, min: 1, max: 5000 },
+      {
+        kind: 'number',
+        key: 'totalChapters',
+        label: '总章数',
+        // 已经写了正文时与「从已写正文补齐」问总章数的缺省同一个算法（model/importText.ts 的 defaultTotalChapters）。
+        value: defaults?.totalChapters ?? Math.max(DEFAULT_TOTAL, Math.ceil((written * 2) / 50) * 50),
+        min: Math.max(1, written),
+        max: 5000,
+      },
       {
         kind: 'number',
         key: 'wordsPerChapter',

@@ -85,7 +85,8 @@ const system = (built) => built.messages[0].content;
 
 describe('derive · 平时不带', () => {
   test('架构、大纲、细纲三张配方不 derive 时没有 written，契约照旧', async () => {
-    const setting = await build({ action: { stage: 'setting', capability: 'generate' }, target: { kind: 'setting', doc: 'premise' } });
+    // 角色图谱不随正文自动整理（见下一条）。
+    const setting = await build({ action: { stage: 'setting', capability: 'generate' }, target: { kind: 'setting', doc: 'characters' } });
     const outline = await build({ action: { stage: 'outline', capability: 'generate' }, target: { kind: 'outline' }, range: { from: 1, to: 20 } });
     const plot = await build({
       action: { stage: 'plot', capability: 'generate' },
@@ -102,6 +103,22 @@ describe('derive · 平时不带', () => {
     assert.match(user(plot), /商业网文节奏设计原则/);
     // 平时规划阶段绑的技能照带。
     assert.ok(setting.items.some((i) => i.kind === 'skill' && i.status === 'included'));
+  });
+});
+
+describe('derive · 单件生成架构', () => {
+  test('已经写了正文：配置、前提、世界观自动照正文整理，写到第几章按连续有正文算；不带规划技能', async () => {
+    for (const doc of ['config', 'premise', 'world']) {
+      const b = await build({ action: { stage: 'setting', capability: 'generate' }, target: { kind: 'setting', doc } });
+      assert.ok(written(b).length > 0, doc);
+      assert.ok(user(b).includes('从已写正文整理'), doc);
+      assert.ok(!b.items.some((i) => i.kind === 'skill' && i.status === 'included'), doc);
+    }
+  });
+
+  test('讨论照旧，不带已写正文', async () => {
+    const b = await build({ action: { stage: 'setting', capability: 'discuss' }, target: { kind: 'setting', doc: 'premise' }, ask: '聊聊' });
+    assert.equal(written(b).length, 0);
   });
 });
 

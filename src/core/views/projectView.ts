@@ -259,7 +259,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     nextChapterNo: book.nextChapterNo,
     ...(next ? { next } : {}),
     book: {
-      ...ideaDefaultsOf(pipelineIndex.config),
+      ...ideaDefaultsOf(pipelineIndex.config, book.nextChapterNo - 1),
       outlineCoverage: Number.isFinite(coverage) && coverage > 0 ? coverage : undefined,
       plotFilledNos: [...book.plotFilledNos],
     },
@@ -267,12 +267,13 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
 }
 
 /** 一句话弹窗的默认值：`config.md` 里已经写了的那几样。 */
-export function ideaDefaultsOf(config: BookConfig): IdeaDefaults {
+export function ideaDefaultsOf(config: BookConfig, writtenThrough = 0): IdeaDefaults {
   return {
     idea: config.sections.一句话 ?? '',
     totalChapters: config.totalChapters,
     wordsPerChapter: config.wordsPerChapter,
     configHasContent: Object.values(config.sections).some((v) => hasContent(v)),
+    ...(writtenThrough > 0 ? { writtenThrough } : {}),
   };
 }
 

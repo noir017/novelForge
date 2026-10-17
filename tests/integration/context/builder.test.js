@@ -2424,9 +2424,11 @@ describe('装配：二期的新层与移植的契约', () => {
 
   // ------------------------------------------------------------ 小说配置
 
-  test('一句话发起的配置：规模按弹窗给的算，作者已有配置不许改写', () => {
+  test('一句话弹窗发起的配置：已经写了正文就照正文整理，那句话是补充要求；规模按弹窗给的算，作者已有配置不许改写', () => {
     const user = lastOf(config);
-    assert.ok(user.includes('# 我的脑洞') && user.includes('一个从火里活下来的人'), user.slice(-3500));
+    assert.ok(user.includes('# 已写正文') && user.includes('从已写正文整理'), user.slice(0, 4000));
+    assert.ok(user.includes('# 我的要求（最高优先级）') && user.includes('一个从火里活下来的人'), user.slice(-3500));
+    assert.ok(!user.includes('# 我的脑洞'), user.slice(-3500));
     assert.ok(user.includes('计划总章数：100 章') && user.includes('全书总字数约：100 × 3000 = 300000 字'), user.slice(0, 4000));
     assert.ok(user.includes('【作者已有配置】'), user.slice(-3500));
     assert.ok(user.includes('totalChapters 若输出必须严格等于 100'), user.slice(-1500));

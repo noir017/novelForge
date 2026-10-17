@@ -55,7 +55,7 @@ export function renderProject(tree: ProjectTree): void {
   el.projectBody.appendChild(
     buildGroup('architecture', '故事架构', `${filled}/${tree.architecture.length}`, {
       extraItems: () => [
-        { label: '从一句话生成小说配置…', run: () => openIdeaForm(tree.book) },
+        { label: tree.book.writtenThrough ? '照已写正文生成小说配置…' : '从一句话生成小说配置…', run: () => openIdeaForm(tree.book) },
         // 只补空白：已经有的那几件不动、不问（第 19 条的批量那一面）。
         { label: '补齐设定（只补空白）', run: () => projectAction('completeSettings') },
         // 已经有正文（导入的原稿、老工程）：照正文整理，不从一句话重新编。两次确认，次数在框里。

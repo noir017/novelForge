@@ -106,6 +106,8 @@ export interface IdeaDefaults {
   wordsPerChapter?: number;
   /** `config.md` 写过任何一节：弹窗据此写明「保留原文，追加生成」。 */
   configHasContent: boolean;
+  /** 第 1 章起连续有正文写到第几章。有就是照已写正文生成，那句话可以不写。 */
+  writtenThrough?: number;
 }
 
 /** 工程页两个弹窗要的全书事实。 */

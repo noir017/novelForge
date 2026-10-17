@@ -241,3 +241,36 @@ describe('补齐设定 · 一件失败就停', () => {
     assert.ok(h.toasts.some((x) => x.includes('故事前提没补上') && x.includes('已经停下')), h.toasts.join('|'));
   });
 });
+
+describe('补齐设定 · 已经写了正文', () => {
+  let w;
+  let n;
+  let configCall;
+
+  before(async () => {
+    w = await makeTempProject(bundle.project, { prefix: 'settings-written', title: '旧稿' });
+    w.write('chapters/001-第1章.md', '# 第1章\n\n林昭背着藤箱进了青崖镇。\n');
+    w.write('chapters/002-第2章.md', '# 第2章\n\n林昭在镇口撞见了守卫。\n');
+    w.project.invalidate();
+    fail = new Set();
+    fake.reset();
+    h.expect('开始补齐');
+    n = await bundle.batch.completeSettings(w.project);
+    configCall = fake.calls.find((c) => c[c.length - 1].content.includes('【JSON 字段结构】'));
+  });
+
+  after(() => {
+    if (w) cleanup(w.dir);
+  });
+
+  test('没有一句话也补得出配置：照已写正文整理', async () => {
+    assert.ok(n > 0);
+    assert.ok(configCall, JSON.stringify(order()));
+    assert.ok(configCall[configCall.length - 1].content.includes('从已写正文整理'));
+    assert.equal((await w.project.settingFilled()).config, true);
+  });
+
+  test('确认框说清照正文整理', () => {
+    assert.ok(h.confirms.some((c) => (c.detail ?? '').includes('照已写正文整理')), JSON.stringify(h.confirms));
+  });
+});

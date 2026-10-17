@@ -80,7 +80,8 @@ function build(request, cfg = config()) {
 const skillItem = (b) => b.items.find((i) => i.kind === 'skill');
 const userOf = (b) => b.messages[b.messages.length - 1].content;
 
-const SETTING = { action: { stage: 'setting', capability: 'generate' }, target: { kind: 'setting', doc: 'premise' } };
+// 角色图谱：工程里已经有正文，前提 / 配置 / 世界观会照正文整理（derive，不带技能）。
+const SETTING = { action: { stage: 'setting', capability: 'generate' }, target: { kind: 'setting', doc: 'characters' } };
 const OUTLINE = { action: { stage: 'outline', capability: 'generate' }, target: { kind: 'outline' } };
 const PLOT = (capability) => ({ action: { stage: 'plot', capability }, target: { kind: 'plot', plotRelPath: PLOT2 } });
 const WRITE = (extra = {}) => ({

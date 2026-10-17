@@ -18,6 +18,7 @@ import { promptFactsOf } from './layers/dialog';
 import { PromptFacts, askHeading, buildOutputContract } from './prompts';
 import { recipeFor } from './recipes';
 import { BuildRequest, BuiltContext, ContextItem, ItemKind } from './types';
+import { nextWritableChapterNo } from '../views/pipeline';
 
 export * from './types';
 
@@ -25,9 +26,10 @@ const SAFETY_MARGIN = 512;
 
 export async function buildContext(
   project: NovelProject,
-  request: BuildRequest,
+  requested: BuildRequest,
   config: NovelConfig
 ): Promise<BuiltContext> {
+  const request = await settingFromText(project, requested);
   const excluded = new Set(request.excludedIds ?? []);
   const items: ContextItem[] = [];
 
@@ -281,4 +283,18 @@ function byNoAsc(a: ContextItem, b: ContextItem): number {
 function noOf(item: ContextItem): number {
   const m = /:(\d+)$/.exec(item.id);
   return m ? Number(m[1]) : 0;
+}
+
+/**
+ * 已经写了正文的书，生成架构四件一律照正文整理（`derive`）：凭一句话编出来的设定与已写的章对不上，
+ * 后面每一章却都要读它。从已写正文补齐自己带着 `derive`，这里补上补齐设定、对话页与 MCP 的单件生成。
+ * 角色图谱除外：已写正文的书照摘要建卡（features/characterCard.ts），不走身份清单那条链。
+ */
+async function settingFromText(project: NovelProject, request: BuildRequest): Promise<BuildRequest> {
+  const { action, target } = request;
+  if (request.derive || action.stage !== 'setting' || action.capability !== 'generate' || (target.kind === 'setting' && target.doc === 'characters')) {
+    return request;
+  }
+  const through = nextWritableChapterNo(await project.listChapters()) - 1;
+  return through > 0 ? { ...request, derive: { through } } : request;
 }

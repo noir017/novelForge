@@ -39,6 +39,7 @@ import { NovelProject } from '../model/project';
 import { Plot, isPlotFilled } from '../model/plotFile';
 import { isOutlineFilled } from '../model/outlineFile';
 import { buildBookFacts, chapterTargetOf, plotContentHash } from '../views/pipeline';
+import { defaultTotalChapters } from '../model/importText';
 import { describeTaskModels } from '../model/tiers';
 import { CONTEXT_DETAIL_LABEL } from '../model/contextDetail';
 import { BuildRequest, buildContext } from '../context/builder';
@@ -201,8 +202,9 @@ export async function generatePlots(
 /**
  * 补齐故事架构：配置 → 前提 → 角色图谱 → 世界观，**只补空白、严格串行**（D21）。
  *
- * - 小说配置只在「一句话」那一节写了东西时才能补——没有脑洞可展开，这一步就是凭空编；
- *   规模缺省按一句话弹窗的默认值（100 章 × 3000 字），确认框里写明。
+ * - 小说配置要么照已写正文整理（第 1 章起有正文，装配器自动带 `derive`），要么展开「一句话」那一节——
+ *   两样都没有，这一步就是凭空编；规模缺省按一句话弹窗的默认值（100 章 × 3000 字，已写得多就往上取整），
+ *   确认框里写明。
  * - 角色图谱只在一张卡都没有时生成（有卡就算填过，见 `settingFilled`）。
  * - 一件失败就停：后面几件都吃它的产出。
  *
@@ -217,12 +219,13 @@ export async function completeSettings(project: NovelProject): Promise<number> {
   }
   const book = await project.readBookConfig();
   const idea = book.sections.一句话.trim();
-  if (missing.includes('config') && !idea) {
+  const written = facts.nextChapterNo - 1;
+  if (missing.includes('config') && !idea && written < 1) {
     getHost().toast('小说配置还没写，也没有「一句话」可以展开。先点「生成小说配置」写下你的脑洞。', 'error');
     return 0;
   }
   const setup = {
-    totalChapters: book.totalChapters ?? DEFAULT_SETUP.totalChapters,
+    totalChapters: book.totalChapters ?? (written > 0 ? defaultTotalChapters(written) : DEFAULT_SETUP.totalChapters),
     wordsPerChapter: book.wordsPerChapter ?? DEFAULT_SETUP.wordsPerChapter,
   };
   const estimate = missing
@@ -239,6 +242,8 @@ export async function completeSettings(project: NovelProject): Promise<number> {
       detail:
         `${describeTaskModels(config, 'setting')}\n` +
         '按 配置 → 前提 → 角色图谱 → 世界观 的顺序一件一件来，每件都吃前面几件的产出；已经有的不会被改动。一件失败就停。' +
+        (written > 0 ? `
+已经写了第 1–${written} 章：配置、前提与世界观照已写正文整理。` : '') +
         (missing.includes('config') && (!book.totalChapters || !book.wordsPerChapter)
           ? `\n小说配置里没写总章数或每章字数，按 ${setup.totalChapters} 章 × ${setup.wordsPerChapter} 字展开。`
           : ''),

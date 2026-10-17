@@ -240,6 +240,33 @@ describe('故事架构 · 第一件没填的是小说配置时', { skip: JSDOM_S
   });
 });
 
+describe('故事架构 · 已经写了正文时生成小说配置', { skip: JSDOM_SKIP }, () => {
+  let ui;
+
+  before(() => {
+    ui = mount();
+    const tree = sampleTree();
+    tree.architecture = tree.architecture.map((a) => ({ ...a, filled: a.key === 'outline' ? false : a.key !== 'config' && a.filled }));
+    tree.book = { ...tree.book, configHasContent: false, idea: '', totalChapters: undefined, writtenThrough: 3 };
+    ui.post({ type: 'project', tree });
+  });
+
+  test('「去生成」打开的是照已写正文生成的弹窗，补充要求可以留空', () => {
+    const go = [...ui.doc.querySelectorAll('#projectBody .row-architecture .row-go')];
+    ui.clickEl(go[0]);
+    assert.ok(isOpen(ui));
+    assert.ok(ui.doc.querySelector('.nf-form .form-lead').textContent.includes('已经写了第 1–3 章'));
+    assert.equal(field(ui, 'totalChapters').value, '100');
+    ui.sent.length = 0;
+    ui.clickEl(submitBtn(ui));
+    const sent = ui.last('send');
+    assert.ok(sent, JSON.stringify(ui.sent));
+    assert.equal(sent.payload.text, '');
+    assert.equal(JSON.stringify(sent.payload.target), JSON.stringify({ kind: 'setting', doc: 'config' }));
+    assert.equal(sent.payload.setup.totalChapters, 100);
+  });
+});
+
 /**
  * 批量写章弹窗（四期，W9）：区间、模式、调用上限与后端同一个 `planWriteBatch`；
  * 「写完即定稿」要点两下（按钮文案两段式，不叠弹窗）。
