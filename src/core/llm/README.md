@@ -23,7 +23,7 @@
 - **错误说人话**：HTTP 401/404/429 等都在 provider 内整理成面向作者的中文提示后以 `LlmError` 抛出；用户主动取消抛 `CancelledError`，调用方静默处理。
 - **API Key 按服务商 id 分开存**：同一种协议可以并存多个服务商（官方接口、路由型服务商、自建网关都可以是同一种 kind），各有各的 Key。`vscode-lm` 走 Copilot 授权，不需要 Key。
 - **硬配额上报**：`maxInputTokens()` 返回 provider 的硬性输入上限（vscode-lm 有配额），装配器会与 `contextWindow` 取小。
-- **思考深度只作用于作者选定的那个模型**：`StreamOptions.thinking` 由对话页的单次生成带上（作者在会话上选的那一档），**工程页的后台批量任务一律不带**。理由与第 12 条同源——那一档模型是作者按成本挑的，替他把七十六章的摘要都升级成深思考，账单上看不出是谁决定的。
+- **思考深度只作用于作者选定的那个模型**：`StreamOptions.thinking` 由对话页的单次生成带上（作者在会话上选的那一档），**工程页的后台批量任务一律不带**。理由与第 12 条同源——那一档模型是作者按成本挑的，替他把七十六章的定稿都升级成深思考，账单上看不出是谁决定的。
 
 ## 两条协议，两个梯子
 
@@ -59,14 +59,14 @@
 
 ### 收尾原因：`StopSignal`
 
-两家都把上游的收尾原因归一成 `StopSignal`（`end` / `maxTokens` / `other`），以 `stop` 事件交上去。用它的是正文续写链（[../generation/continuation.ts](../generation/continuation.ts)：`maxTokens` 往后接、`end` 说明结尾已落在章末钩子上）与工程页批量（[../features/pipelineBatch.ts](../features/pipelineBatch.ts)：判断结构化输出是否被截断）。
+两家都把上游的收尾原因归一成 `StopSignal`（`end` / `maxTokens` / `other`），以 `stop` 事件交上去。用它的是正文续写链（[../generation/continuation.ts](../generation/continuation.ts)：`maxTokens` 往后接、`end` 说明这一章已经收了尾）与工程页批量（[../features/pipelineBatch.ts](../features/pipelineBatch.ts)：判断结构化输出是否被截断）。
 
 - **上游不发就一个都不交**（`undefined` 意为「它没说」）。补一个默认值等于替它编一句话，而续写链会照着那句话决定回退还是往后接。
 - Anthropic 的 `stop_reason` 在 `message_delta` 上；认不出的值（`pause_turn`、`refusal`……）一律 `other`。Responses 那条路上 `response.completed` 报 `end`，`response.incomplete` 按 `incomplete_details.reason` 报 `maxTokens` 或 `other`。
 
 ## 模型池的五条规矩
 
-模型分为**三档**（快速 / 均衡 / 精标，见 [../model/tiers.ts](../model/tiers.ts)），每档各是一份有序清单。`createModelPool({ task })` 按任务所属的档取清单，把它变成一个能换人的池，但**只有工程页的后台任务**（补齐设定、批量拆细纲、批量写章与写完即审稿 / 定稿、摘要、角色卡、设定、文风、角色提取）以及经 MCP 接入的外部 agent 调生成工具时（只取首选，见 [../tools/novel/generate.ts](../tools/novel/generate.ts)）走它——对话页的单次生成（写正文、审稿、修稿……）与连接测试必须严格用用户选定的那个模型，中途换人会让文风断掉。
+模型分为**三档**（快速 / 均衡 / 精标，见 [../model/tiers.ts](../model/tiers.ts)），每档各是一份有序清单。`createModelPool({ task })` 按任务所属的档取清单，把它变成一个能换人的池，但**只有工程页的后台任务**（补齐设定、批量拆细纲、批量写章与写完即审稿 / 定稿、同步细纲、全书摘要、角色卡、设定、文风、角色提取）以及经 MCP 接入的外部 agent 调生成工具时（只取首选，见 [../tools/novel/generate.ts](../tools/novel/generate.ts)）走它——对话页的单次生成（写正文、审稿、修稿……）与连接测试必须严格用用户选定的那个模型，中途换人会让文风断掉。
 
 1. **空档位沿用「默认模型」**：某一档没配模型，归在该档的任务就用 `config.models`。三档都不配 = 不分档，行为与分档之前逐字节一致。这条是硬约束——静默把某些任务降级到便宜模型，等于替作者做了质量取舍。
 2. **起始模型看场景**：并发任务（`concurrent: true`）按游标轮转，把请求摊到几个服务商上；串行任务恒取该档的 `refs[0]`，与「档内第一个是首选」的直觉一致。
