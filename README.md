@@ -87,9 +87,41 @@ npm i -g novel-forge && novelforge             # 空窗口
 novelforge sample-novel                        # 打开该目录
 ```
 
-服务只绑定 `127.0.0.1`，无鉴权——设计上只服务本机作者。WebSocket 额外校验 `Origin`（只认本机同端口），挡住恶意网页跨源写入。配置与 API Key 存在 `~/.novelforge/config.json` / `secrets.json`（不再用 VS Code 的 settings.json / SecretStorage；插件壳首次激活时会把旧配置一次性迁移过去）。
+服务缺省只绑定 `127.0.0.1`、无鉴权——只服务本机作者。WebSocket 额外校验 `Origin`（只认本机同端口），挡住恶意网页跨源写入。要放到服务器上从别的机器访问，见下面的 [Docker 部署](#docker-部署放到服务器上远程访问)。配置与 API Key 存在 `~/.novelforge/config.json` / `secrets.json`（不再用 VS Code 的 settings.json / SecretStorage；插件壳首次激活时会把旧配置一次性迁移过去）。
 
 独立版是一个 VS Code 式的工作台：左边活动栏切「对话 / 工程 / 文件 / 历史 / 日志 / 设置」，右边是**内置文件编辑器**，中间的分隔条可拖拽（双击复位）。深浅主题用标题栏右上角的按钮切换，选择记在浏览器里。不带目录启动时是空窗口（Get Started + 文件 / 编辑 / 帮助）；文件 → 打开文件夹在同一进程里开工程，不必重启服务。**每个浏览器窗口各开一个工程**，几个工程可以同时开着、互不干扰：设置 → 通用 →「新窗口中打开项目」（默认开）开着时，在已经开着工程的窗口里再打开别的工程会开一个新窗口，关掉则换掉当前窗口里的那个。窗口的网址上带着 `?project=<工程目录>`，刷新、收藏都回到这个工程；标签页、展开的目录、输入框里没发出去的草稿也按工程分开记。上次关窗口时工程还开着，下次会恢复；先「关闭文件夹」再退出则仍进空窗口。记忆在 `~/.novelforge/window.json`。
+
+### Docker 部署（放到服务器上远程访问）
+
+每次发版都会往 GHCR 推一份独立版镜像，amd64 / arm64 都有：`ghcr.io/noir017/novelforge:latest`（或钉版本 `:X.Y.Z`；`:edge` 是在 CI 里手动点出来的最新构建）。
+
+镜像里服务绑 `0.0.0.0`，别的机器连得进来，所以**必须配访问令牌**（环境变量 `NOVELFORGE_TOKEN`，至少 16 位），没配就拒绝启动。用 docker compose：
+
+```yaml
+# docker-compose.yml；同目录的 .env 里写一行 NOVELFORGE_TOKEN=…（可用 openssl rand -hex 24 生成）
+services:
+  novelforge:
+    image: ghcr.io/noir017/novelforge:latest
+    restart: unless-stopped
+    ports:
+      - "3680:3680"
+    environment:
+      NOVELFORGE_TOKEN: ${NOVELFORGE_TOKEN}
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data:/data
+```
+
+```bash
+mkdir -p data && sudo chown -R 65532:65532 data   # 镜像以非 root 的 uid 65532 运行
+docker compose up -d
+```
+
+- **一个卷全装下**：`/data` 是容器里的家目录，配置与 API Key 在 `/data/.novelforge/`，书也放在 `/data` 下（「打开文件夹」从这里开始列）。备份它就够了。
+- **登录**：浏览器打开 `http://<服务器>:3680/`，输一次令牌，记住 30 天。换令牌重启之后，旧的登录全部作废。
+- **公网要套 HTTPS**：令牌在 http 上是明文传的，直连只适合内网。要经公网访问，就在前面加一层 HTTPS 反代，并且要转发 `Host`（或 `X-Forwarded-Host`）和 WebSocket 升级头（`Upgrade` / `Connection`），不然对话页连不上。
+- **MCP**：`claude mcp add --transport http novelforge http://<服务器>:3680/mcp --header "Authorization: Bearer <令牌>"`。
+- 不用 Docker 也行：独立版可以用 `--host 0.0.0.0` 绑到别的地址，规则一样，绑非回环地址就必须设 `NOVELFORGE_TOKEN`。只要设了令牌，即使只绑本机也照样要登录。
 
 ### 文件（资源管理器）
 
@@ -362,6 +394,8 @@ chapters/005-手记.txt       →  drafts/005-手记.txt
 ```
 claude mcp add --transport http novelforge http://127.0.0.1:3000/mcp
 ```
+
+服务配了访问令牌时（[Docker 部署](#docker-部署放到服务器上远程访问)），接入命令末尾再加 `--header "Authorization: Bearer <令牌>"`。
 
 它拿到的是和对话页同一套工具（读、搜、生成、写、改、工程动作），落在你**最近操作的那个网页窗口开着的工程**上；同时开着几个工程时，可以在地址后面加 `?project=<工程目录>` 把它钉在某一个工程上（如 `http://127.0.0.1:3000/mcp?project=D:/books/北境`），那个工程得在某个窗口里开着。它调 `generate` 产出的正文流进对话页里一个标着 MCP 的气泡，**不回到它那里**；要不要落盘照样在对话页当场问你，你点了才写，它等你答完才继续。改一段文字、装 / 绑写作技能这类没有 diff 可看的动作，动手前也先在对话页问你；覆盖已有内容照旧先让你逐行过目。「下一步该做什么」它从同一个状态机拿结论（附在工具结果末尾）。审稿它不做——在正文层打 `/审稿`。VS Code 插件暂时没有这个入口。
 
