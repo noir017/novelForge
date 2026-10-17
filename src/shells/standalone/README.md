@@ -8,8 +8,9 @@
 
 | 文件 | 职责 |
 |---|---|
-| [main.ts](main.ts) | 入口。`init` 装上 `TerminalHost` 后走 **core 的** `initProjectFlow`；否则起服务（端口被占顺延，最多 20 次）并按需开浏览器。 |
-| [cli.ts](cli.ts) | 参数解析：`novelforge`（空窗口）/ `novelforge [dir]` / `novelforge init [dir]`。不带位置参数时不再把当前目录当成工程。 |
+| [main.ts](main.ts) | 入口。`init` 装上 `TerminalHost` 后走 **core 的** `initProjectFlow`；否则先读 `NOVELFORGE_TOKEN` 过一遍 `exposureError`（绑非回环地址没令牌就拒绝启动），再起服务（端口被占顺延，最多 20 次）并按需开浏览器。 |
+| [cli.ts](cli.ts) | 参数解析：`novelforge`（空窗口）/ `novelforge [dir]` / `novelforge init [dir]`，外加 `--port` / `--host` / `--no-open` / `--verbose`。不带位置参数时不再把当前目录当成工程。令牌不走参数（会出现在 `ps` 里）。 |
+| [auth.ts](auth.ts) | 访问控制（纯函数）：什么时候必须配令牌（`exposureError`）、Bearer / cookie 认不认、Origin 白名单、登录页与 `/login`。 |
 | [server.ts](server.ts) | `Bun.serve`：`/` 出页面、`/media/*` 出内嵌资源、`/favicon.ico`、`/ws` WebSocket、`/mcp`（外部 agent 的 MCP 入口，见 [core/mcp](../../core/mcp/README.md)）。每条 WebSocket 是一个窗口，握手地址上的 `?project=` 说它开哪个工程；不带工程的 `/` 302 到最近操作的那个工程。消息全交给 `WorkspaceHub.receive`。启动时把 core 的日志接到终端（默认 info 及以上，`--verbose` 放开 debug）。 |
 | [workspaceHub.ts](workspaceHub.ts) | 工作区登记处：同时开几个工程，每个窗口各绑一个（或空着），同一个工程的几个窗口共用一份 `ChatController`；吃掉打开/关闭文件夹与设置类消息；没有窗口的工程空闲一分钟后关（最近操作的那个留着给 MCP）。 |
 | [scopedHost.ts](scopedHost.ts) | 注册给 core 的全局 Host：按 `AsyncLocalStorage` 里的窗口上下文把 `getHost()` 转给那个窗口自己的 `FileHost`，弹窗、toast、打开编辑器只落到对应的网页上。 |
@@ -25,8 +26,9 @@
 
 ## 关键设计
 
-- **单用户、只绑本机，工程可空**：`127.0.0.1`，无鉴权。工作区由 [workspaceHub.ts](workspaceHub.ts) 持有，一个进程同时开几个工程，每个浏览器窗口一个；网址上的 `?project=` 跟着窗口的工程走，刷新、重连都回到它。设置「新窗口中打开项目」（默认开）决定在已有工程的窗口里打开别的工程时开新窗口还是换掉当前的。前端的 localStorage（标签页、展开的目录、输入框草稿）按工程分开存。没有工程时不造假实例，创作类消息 toast「请先打开文件夹」。设置仍可用（配置在 `~/.novelforge`）。
-- **Origin 校验**：WebSocket 不受同源策略约束，恶意网页能向本机端口发消息。`server.ts` 因此校验 `Origin` 只认本机同端口；没有 `Origin` 头的（命令行工具、冒烟测试）放过。`/mcp` 用同一条规则。
+- **单用户、缺省只绑本机，工程可空**：缺省 `127.0.0.1`、无鉴权。工作区由 [workspaceHub.ts](workspaceHub.ts) 持有，一个进程同时开几个工程，每个浏览器窗口一个；网址上的 `?project=` 跟着窗口的工程走，刷新、重连都回到它。设置「新窗口中打开项目」（默认开）决定在已有工程的窗口里打开别的工程时开新窗口还是换掉当前的。前端的 localStorage（标签页、展开的目录、输入框草稿）按工程分开存。没有工程时不造假实例，创作类消息 toast「请先打开文件夹」。设置仍可用（配置在 `~/.novelforge`）。
+- **Origin 校验**：WebSocket 不受同源策略约束，恶意网页能向本机端口发消息。`server.ts` 因此校验 `Origin` 只认本机同端口；没有 `Origin` 头的（命令行工具、冒烟测试）放过。`/mcp` 用同一条规则。规则本身在 [auth.ts](auth.ts) 的 `isAllowedOrigin`。
+- **部署到服务器：`--host` + 令牌，fail-closed**：Docker 镜像（仓库根 `Dockerfile`）绑 `0.0.0.0`，「只有本机连得进来」这道墙就没了，所以绑非回环地址必须配 `NOVELFORGE_TOKEN`（至少 16 位），没配 `main.ts` 直接拒绝启动。配了令牌就全站鉴权（与绑在哪无关）：网页在登录页交一次令牌换 cookie（值由令牌派生，`HttpOnly; SameSite=Lax`，经 HTTPS 反代时加 `Secure`），MCP 带 `Authorization: Bearer`；`/media/*`、`/favicon.ico`、`/login` 不设防。这时 Origin 还认同源（与 `Host` / `X-Forwarded-Host` 一致）——**只在配了令牌时认**：没令牌时认同源会放过 DNS rebinding（`evil.com:3680` 解析到本机时 Origin 与 Host 恰好一致）。令牌不进日志，带令牌的请求头写法也不打（`logger.ts` 的脱敏见到 `Bearer` 就整段抹掉）。
 - **`/mcp` 关掉空闲超时**：一次工具调用可能跑几分钟（写一章），期间连接上一个字节都没有，而 Bun 缺省 10 秒空闲就断。`server.timeout(req, 0)` 只对这一个请求生效。MCP 调用落在地址 `?project=` 指定的那个工程上，不带就落到最近操作的那个窗口的工程；启动日志里那行 `claude mcp add …` 就是接入命令。
 - **openFile 的语义差异**：插件里是「打开 VS Code 的编辑器 tab」，这里是「在网页内置编辑器里打开」。刻意让 `openFile` 本身改道，这样 controller 里「产物落盘后打开」「点章节」「点上下文条目」三处调用点一次全对。非文本文件回落到系统默认程序。
 - **两块编辑区**：`openInEditor(rel, pane)` 的 `pane` 决定 `editorOpen` 落到哪一块，`openBeside` 就是 `pane: 'draft'`。`editorOpen` 广播时顺手带上 `draftPath`（由 `draftPathOf` 从章节路径推导），前端据此显示工具栏上的「草稿」按钮——前端不该自己复刻「什么算章节」。`editorSaved` 也必须带它，否则按钮会在首次保存后消失。
@@ -45,5 +47,7 @@
 ## 验证
 
 [`tests/e2e/standalone/server.test.js`](../../../tests/e2e/standalone/server.test.js)（`npm run test:e2e`，需 Bun）：静态资源、WS 首条消息、Origin 校验，内置编辑器的读写往返——保存落盘、过期基线触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒、无扩展名章节可打开，以及草稿的按需创建与并列打开；资源管理器的目录列举——点开头的目录列得出来、目录排在文件前、`editable` 标注、一次多目录、越界与不存在的目录降级成 `error`；空窗口（不传工程目录）ready 后 `currentId` 为空、`openFolder` 热换、`mode: 'add'` 仍只有一个工作区、`closeFolder` 回到空窗口。
+
+令牌鉴权：纯函数在 [`tests/unit/shells/auth.test.js`](../../../tests/unit/shells/auth.test.js)（什么时候拒绝启动、Bearer / cookie、Origin 的同源与 DNS rebinding、`next` 防外跳）；整条往返在 e2e 的「令牌鉴权」一节（未登录回 401 登录页、错令牌不种 cookie、带 cookie 的 WS 收得到 init、MCP 要 Bearer）。镜像本身由 CI 的 `docker.yml` 起容器冒烟。
 
 资源管理器的前端行为在 [`tests/dom/standalone/explorer.test.js`](../../../tests/dom/standalone/explorer.test.js) 里（jsdom 跑构建产物 `dist/media/explorer.js`，源码在 `media/src/explorer/`）：懒展开、折叠连带子目录、载入中占位、可编辑与否走不同消息、编辑器高亮联动、截断提示、右键菜单复用 view 的引擎。

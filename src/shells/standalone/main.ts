@@ -8,6 +8,7 @@ import { dirBaseName, initProjectFlow } from '../../core/actions';
 import { initHost } from '../../core/host';
 import { NovelProject } from '../../core/model/project';
 import { FileConfigStore } from '../../core/stores';
+import { TOKEN_ENV, exposureError } from './auth';
 import { parseArgs } from './cli';
 import { startServer } from './server';
 import { openWithSystem } from './systemOpen';
@@ -39,11 +40,19 @@ async function main(): Promise<void> {
     console.log('可先跑 novelforge init，或在网页上点「初始化工程」。');
   }
 
+  // 绑非回环地址却没配令牌：宁可起不来，也不要让别的机器免密连进来。
+  const token = process.env[TOKEN_ENV]?.trim() || undefined;
+  const exposure = exposureError(opts.host, token);
+  if (exposure) {
+    console.error(exposure);
+    process.exit(1);
+  }
+
   // 端口被占时顺延，最多试 20 次。
   let port = opts.port;
   for (let i = 0; ; i++) {
     try {
-      port = await startServer({ root: opts.root, port, verbose: opts.verbose });
+      port = await startServer({ root: opts.root, port, host: opts.host, token, verbose: opts.verbose });
       break;
     } catch (err) {
       if (i >= 20) {

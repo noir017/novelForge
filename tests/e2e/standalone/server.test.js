@@ -49,6 +49,8 @@ const EDIT_PORT = 3998;
 const EMPTY_PORT = 3997;
 /** 多窗口排在最后，理由同上。 */
 const MULTI_PORT = 3996;
+/** 令牌鉴权再排在多窗口之后，理由同上。 */
+const AUTH_PORT = 3995;
 const root = path.join(import.meta.dir, '..', '..', '..', 'sample-novel');
 const base = `http://127.0.0.1:${PORT}`;
 
@@ -763,5 +765,100 @@ describe('多窗口：每个窗口各开一个工程', () => {
   test('MCP 指向没开着的工程：说出是哪个', () => {
     assert.equal(mcpMissing.isError, true);
     assert.ok(mcpMissing.content[0].text.includes('没有打开这个小说工程'), mcpMissing.content[0].text);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+// 排在最后：startServer 的 initHost 是单例。仍绑 127.0.0.1——配了令牌就鉴权，与绑在哪无关。
+describe('令牌鉴权', () => {
+  const TOKEN = 'e2e-token-0123456789abcdef';
+  const authBase = `http://127.0.0.1:${AUTH_PORT}`;
+  const login = (token, next = '/') =>
+    fetch(`${authBase}/login`, {
+      method: 'POST',
+      body: new URLSearchParams({ token, next }),
+      redirect: 'manual',
+    });
+  const listTools = (headers = {}) =>
+    fetch(`${authBase}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    });
+
+  let cookie;
+  let win;
+
+  before(async () => {
+    const authWin = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-e2e-auth-'));
+    await startServer({ root, port: AUTH_PORT, windowDir: authWin, token: TOKEN });
+    const ok = await login(TOKEN, '/?from=login');
+    cookie = ok.headers.get('set-cookie')?.split(';')[0];
+  });
+
+  after(() => {
+    win?.ws.close();
+  });
+
+  test('没登录：首页回 401 登录页，交完跳回原地址', async () => {
+    const res = await fetch(`${authBase}/?project=x`, { redirect: 'manual' });
+    assert.equal(res.status, 401);
+    const html = await res.text();
+    assert.ok(html.includes('action="/login"'));
+    assert.ok(html.includes('value="/?project=x"'));
+  });
+
+  test('静态资源与 favicon 不设防', async () => {
+    assert.equal((await fetch(`${authBase}/media/view.js`)).status, 200);
+    assert.equal((await fetch(`${authBase}/favicon.ico`)).status, 200);
+  });
+
+  test('令牌错了：401，不种 cookie', async () => {
+    const res = await login('wrong-token');
+    assert.equal(res.status, 401);
+    assert.equal(res.headers.get('set-cookie'), null);
+    assert.ok((await res.text()).includes('令牌不对'));
+  });
+
+  test('令牌对了：303 跳回 next，cookie 是 HttpOnly + SameSite=Lax', async () => {
+    const res = await login(TOKEN, '/?from=login');
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get('location'), '/?from=login');
+    const set = res.headers.get('set-cookie');
+    assert.ok(set.includes('HttpOnly') && set.includes('SameSite=Lax'), set);
+    assert.ok(!set.includes(TOKEN), 'cookie 里不该有令牌原文');
+  });
+
+  test('next 指向外站时跳回首页', async () => {
+    const res = await login(TOKEN, '//evil.com/');
+    assert.equal(res.headers.get('location'), '/');
+  });
+
+  test('带 cookie：首页照常（跳到最近的工程）', async () => {
+    const res = await fetch(`${authBase}/`, { headers: { cookie }, redirect: 'manual' });
+    assert.equal(res.status, 302);
+    const page = await fetch(res.headers.get('location'), { headers: { cookie } });
+    assert.equal(page.status, 200);
+    assert.ok((await page.text()).includes('/media/view.js'));
+  });
+
+  test('WS 不带 cookie：握手前就回 401', async () => {
+    assert.equal((await fetch(`${authBase}/ws`)).status, 401);
+  });
+
+  test('WS 带 cookie：连得上、收得到 init', async () => {
+    win = connect(AUTH_PORT, undefined, { cookie });
+    await win.ready;
+    await win.waitFor((m) => m.type === 'init', 'init');
+  });
+
+  test('MCP 不带令牌 401，带 Bearer 列得出工具', async () => {
+    const denied = await listTools();
+    assert.equal(denied.status, 401);
+    assert.ok(denied.headers.get('www-authenticate')?.startsWith('Bearer'));
+    const ok = await listTools({ authorization: `Bearer ${TOKEN}` });
+    assert.equal(ok.status, 200);
+    assert.ok((await ok.json()).result.tools.length > 0);
   });
 });

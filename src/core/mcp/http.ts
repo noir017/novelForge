@@ -18,8 +18,8 @@
  *
  * 地址上可以带 `?project=<工程目录>` 指定落到哪个工程（独立版能同时开几个）；不带由壳决定。
  *
- * 没有鉴权，与网页那条 WebSocket 同一套理由：只绑 127.0.0.1。浏览器会带 `Origin`，
- * 这里只放本机同端口的那一个——挡掉恶意网页借浏览器打本机端口（DNS rebinding）。
+ * 鉴权归壳管，这里只管 `Origin`：浏览器会带它，认不认由壳给的 `allowOrigin` 定（独立版缺省只放
+ * 本机同端口，配了令牌再放同源）——挡掉恶意网页借浏览器打本机端口（DNS rebinding）。
  * 命令行客户端不带 `Origin`，放过。
  */
 import { randomUUID } from 'node:crypto';
@@ -42,8 +42,8 @@ const SESSION_HEADER = 'mcp-session-id';
 export const HEARTBEAT_MS = 15_000;
 
 export interface McpHttpOptions {
-  /** 浏览器发来的 `Origin` 认不认。不给就一律放过（测试用）。 */
-  allowOrigin?(origin: string | null): boolean;
+  /** 浏览器发来的 `Origin` 认不认（`req` 给壳比对 `Host` 用）。不给就一律放过（测试用）。 */
+  allowOrigin?(origin: string | null, req: Request): boolean;
   /** SSE 保活间隔，缺省 `HEARTBEAT_MS`（测试调小）。 */
   heartbeatMs?: number;
 }
@@ -54,7 +54,7 @@ export class McpHttpHandler {
   constructor(private readonly server: McpServer, private readonly opts: McpHttpOptions = {}) {}
 
   async handle(req: Request): Promise<Response> {
-    if (this.opts.allowOrigin && !this.opts.allowOrigin(req.headers.get('origin'))) {
+    if (this.opts.allowOrigin && !this.opts.allowOrigin(req.headers.get('origin'), req)) {
       log.warn('拒绝了一个跨源 MCP 请求', `Origin: ${req.headers.get('origin')}`);
       return new Response('Forbidden origin', { status: 403 });
     }

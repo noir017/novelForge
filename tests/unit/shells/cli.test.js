@@ -45,4 +45,15 @@ describe('parseArgs', () => {
     assert.equal(opts.open, false);
     assert.equal(opts.verbose, true);
   });
+
+  test('缺省只绑本机，--host 改监听地址', () => {
+    assert.equal(parseArgs([]).host, '127.0.0.1');
+    const opts = parseArgs(['--host', '0.0.0.0', '/books']);
+    assert.equal(opts.host, '0.0.0.0');
+    assert.equal(opts.root, path.resolve('/books'));
+  });
+
+  test('--host 后面没给值时退回本机', () => {
+    assert.equal(parseArgs(['--host']).host, '127.0.0.1');
+  });
 });

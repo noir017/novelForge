@@ -1,6 +1,7 @@
 /**
  * 独立版 Web 服务：Bun.serve 提供静态页 + /ws WebSocket。
- * 仅绑定 127.0.0.1，无鉴权——设计上只服务本机作者。
+ * 缺省只绑 127.0.0.1、无鉴权——服务本机作者。部署到服务器时绑别的地址、配上令牌，
+ * 规则与理由见 [auth.ts](auth.ts)。
  *
  * 工程由 WorkspaceHub 持有：一个进程同时开着几个，每个窗口（WebSocket）各绑一个或者空着，
  * 窗口网址上的 `?project=` 说它开的是哪个。ChatController 仍然一对一绑一份 NovelProject，
@@ -20,6 +21,7 @@ import { InMessage, OutMessage } from '../../core/protocol';
 import { MCP_PATH, createNovelMcp } from '../../core/mcp';
 import { FileConfigStore, FileSecretStore } from '../../core/stores';
 import { PRODUCT_VERSION, assetBytes } from './assets';
+import { LOGIN_PATH, TOKEN_ENV, handleLogin, isAllowedOrigin, isAuthorized, loginRequired } from './auth';
 import { FileHost } from './fileHost';
 import { standalonePage } from './page';
 import { currentScope, ScopedHost } from './scopedHost';
@@ -35,6 +37,10 @@ export interface ServeOptions {
   /** 小说工程目录。不传则按 window.json 恢复，或进空窗口。 */
   root?: string;
   port: number;
+  /** 监听地址，缺省 127.0.0.1。安不安全由调用方先过 `exposureError`。 */
+  host?: string;
+  /** 访问令牌。给了就所有页面、WS、MCP 都要鉴权。 */
+  token?: string;
   /** 终端里也打 debug 级日志。网页的日志页始终收全量，不受这里影响。 */
   verbose?: boolean;
   /** window.json 所在目录。测试注入，缺省为 ~/.novelforge。 */
@@ -70,16 +76,34 @@ export async function startServer(opts: ServeOptions): Promise<number> {
   // 外部 agent（Claude Code 之类）从这里接进来。地址带 `?project=<工程目录>` 就落到那个工程，
   // 不带落到作者最近操作的那个窗口的工程。没打开工程时工具照样列得出来，调用回一句「先打开工程」。
   let port = opts.port;
+  const host = opts.host ?? '127.0.0.1';
+  const token = opts.token;
   const mcp = createNovelMcp((project) => hub.mcpBackend(project), {
-    allowOrigin: (origin) => isAllowedOrigin(origin, port),
+    allowOrigin: (origin, req) => isAllowedOrigin(origin, req, port, !!token),
   });
 
   const server = Bun.serve({
     port: opts.port,
-    hostname: '127.0.0.1',
+    hostname: host,
 
     fetch(req, server) {
       const url = new URL(req.url);
+      if (token) {
+        // 静态资源与登录本身不设防：登录页要用 favicon，资源里也没有作者的东西。
+        if (url.pathname === LOGIN_PATH) {
+          return handleLogin(req, token);
+        }
+        const open = url.pathname.startsWith('/media/') || url.pathname === '/favicon.ico';
+        if (!open && !isAuthorized(req, token)) {
+          if (url.pathname === '/' || url.pathname === '/index.html') {
+            return loginRequired(url);
+          }
+          return new Response('Unauthorized', {
+            status: 401,
+            headers: { 'www-authenticate': 'Bearer realm="novelforge"' },
+          });
+        }
+      }
       if (url.pathname === MCP_PATH) {
         // 一次工具调用可能跑几分钟（写一章），期间连接上一个字节都没有。Bun 缺省 10 秒
         // 空闲就断，这里对这一个请求关掉。
@@ -87,10 +111,10 @@ export async function startServer(opts: ServeOptions): Promise<number> {
         return mcp.handle(req);
       }
       if (url.pathname === '/ws') {
-        // 服务无鉴权，只靠「仅绑 127.0.0.1」保护。恶意网页无法读跨源
+        // 没配令牌时只靠「仅绑 127.0.0.1」保护。恶意网页无法读跨源
         // WebSocket 的响应，但能发消息（WS 不受同源策略约束），
         // 所以这里显式校验 Origin，把 DNS rebinding 一类的写入攻击挡在外面。
-        if (!isAllowedOrigin(req.headers.get('origin'), server.port)) {
+        if (!isAllowedOrigin(req.headers.get('origin'), req, server.port, !!token)) {
           log.warn('拒绝了一个跨源 WebSocket 连接', `Origin: ${req.headers.get('origin')}`);
           return new Response('Forbidden origin', { status: 403 });
         }
@@ -170,28 +194,17 @@ export async function startServer(opts: ServeOptions): Promise<number> {
   port = server.port;
 
   // 走日志而不是裸 console.log：终端 sink 会把它打出来，网页的日志页也留一条。
+  // 令牌本身绝不进日志（网页日志页、docker logs 都看得到）。带令牌的请求头写法也不打：
+  // 日志脱敏（logger.ts 的 redact）见到 Bearer / Authorization 就整段抹掉，打出来也只剩省略号。
   const rootLabel = hub.defaultRoot() ?? '未打开工程';
-  log.info(`服务已启动：http://127.0.0.1:${server.port}/`, `工程根 ${rootLabel}`);
-  log.info(`MCP 已就绪：http://127.0.0.1:${server.port}${MCP_PATH}`, `claude mcp add --transport http novelforge http://127.0.0.1:${server.port}${MCP_PATH}`);
+  const wildcard = host === '0.0.0.0' || host === '::';
+  const shown = wildcard ? '127.0.0.1' : host.includes(':') ? `[${host}]` : host;
+  const base = `http://${shown}:${server.port}`;
+  log.info(`服务已启动：${base}/`, `工程根 ${rootLabel}${wildcard ? `；监听 ${host}（所有网卡）` : ''}`);
+  if (token) {
+    log.info('已开启令牌鉴权', `令牌取自环境变量 ${TOKEN_ENV}；网页先登录，MCP 客户端在请求头里带上它`);
+  }
+  const addCmd = `claude mcp add --transport http novelforge ${base}${MCP_PATH}`;
+  log.info(`MCP 已就绪：${base}${MCP_PATH}`, token ? `${addCmd}（另加 --header 带令牌，写法见 README「Docker 部署」）` : addCmd);
   return server.port;
-}
-
-/**
- * WS 的 Origin 白名单：只认本机同端口。
- *
- * 没有 Origin 头的一律放过——命令行工具（冒烟测试里的 Bun WebSocket、
- * wscat 等）不发这个头，浏览器一定发，所以缺失说明不是网页发起的请求。
- */
-function isAllowedOrigin(origin: string | null, port: number): boolean {
-  if (!origin) {
-    return true;
-  }
-  try {
-    const u = new URL(origin);
-    const host = u.hostname.toLowerCase();
-    const localhost = host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1';
-    return localhost && u.port === String(port);
-  } catch {
-    return false;
-  }
 }

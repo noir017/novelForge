@@ -19,6 +19,7 @@ const TIMEOUT_MS = 5000;
  *
  * @param {number} port 服务端口
  * @param {string} [project] 窗口网址上的 `?project=`（独立版一个窗口开一个工程）
+ * @param {Record<string, string>} [headers] 握手时多带的请求头
  * @returns {{
  *   ws: WebSocket,
  *   ready: Promise<void>,
@@ -27,9 +28,10 @@ const TIMEOUT_MS = 5000;
  *   drain: () => void,
  * }}
  */
-export function connect(port, project) {
+export function connect(port, project, headers) {
   const query = project ? `?project=${encodeURIComponent(project)}` : '';
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws${query}`);
+  // `headers` 是 Bun 的 WebSocket 扩展（浏览器没有）：鉴权用例拿它带登录换来的 cookie。
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws${query}`, headers ? { headers } : undefined);
   const inbox = [];
   const waiters = [];
 
