@@ -19,6 +19,7 @@ import {
 } from './pipeline';
 import { ThinkingDepth, isThinkingDepth } from './thinking';
 import { ReviewReport, normalizeReport } from './review';
+import { CONTEXT_DETAIL_LABEL, isContextDetail } from './contextDetail';
 
 /**
  * 会话存储：`.novelforge/sessions/<id>.json`。
@@ -68,6 +69,12 @@ export interface DigestItem {
   source?: string;
 }
 
+/** 发给模型的一条消息。与 `llm/provider.ts` 的 `ChatMessage` 同形，数据层不 import llm。 */
+export interface ContextMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
 export interface ChatTurn {
   id: string;
   role: 'user' | 'assistant';
@@ -107,6 +114,15 @@ export interface ChatTurn {
   revise?: { reviewTurnId: string; picks: string[]; items: string[] };
   /** 仅 assistant 轮：本次装配明细。 */
   context?: ContextDigest;
+  /**
+   * 仅 assistant 轮：这一次发给模型的完整消息（装配器的 `messages`，原样）。装配清单摘要行上
+   * 「复制完整上下文」取它（{@link renderContextText}）。
+   *
+   * **只随会话落盘，不随 `serializeTurn` 推给前端**：一轮几万到十几万字，每次推会话都带上
+   * 等于把整份 prompt 来回搬；前端只拿一个 `fullContext` 标记，点了再要。只记第一次调用的
+   * 那一份——续写、修复那几轮另行装配，装配清单说的也是第一次。
+   */
+  contextMessages?: ContextMessage[];
   /** 仅 assistant 轮：已采纳写入的目标路径。 */
   acceptedTo?: string;
   /** 仅 assistant 轮：生成被用户中断。 */
@@ -473,6 +489,53 @@ export function turnPreview(turn: ChatTurn): string {
  */
 export function isBuiltinAgentTurn(turn: ChatTurn): boolean {
   return turn.role === 'assistant' && !turn.mcp && (turn.segments?.length ?? 0) > 0;
+}
+
+/**
+ * 这一轮留下的完整消息。**手改坏了（不是数组、某一条缺 role 或 content）就当没有**，
+ * 不拼半份出来：复制出去的东西，作者会当成「当时发给模型的就是这些」。
+ */
+export function contextMessagesOf(turn: ChatTurn): ContextMessage[] | undefined {
+  const raw: unknown = turn.contextMessages;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return undefined;
+  }
+  const ok = raw.every((m) => {
+    const o = (m ?? {}) as Partial<ContextMessage>;
+    return (o.role === 'system' || o.role === 'user' || o.role === 'assistant') && typeof o.content === 'string';
+  });
+  return ok ? (raw as ContextMessage[]) : undefined;
+}
+
+/**
+ * 「复制完整上下文」复制出去的那份文字：一行说明，然后按发送顺序排每一条消息，消息之间
+ * 隔一行角色名（system / user / assistant，与服务商 API 的叫法一致）。**消息正文原样，
+ * 一个字都不改**——这份东西是拿去核对「当时到底发了什么」的。没留下完整消息时返回 undefined。
+ */
+export function renderContextText(turn: ChatTurn): string | undefined {
+  const messages = contextMessagesOf(turn);
+  if (!messages) {
+    return undefined;
+  }
+  const facts: string[] = [];
+  const digest = turn.context;
+  if (digest) {
+    facts.push(`估算 ${digest.usedTokens} / ${digest.budget} token`);
+    if (isContextDetail(digest.detail)) {
+      facts.push(`详细度：${CONTEXT_DETAIL_LABEL[digest.detail]}`);
+    }
+  }
+  facts.push(`${messages.length} 条消息`);
+  const lines = [`【完整上下文】${facts.join(' · ')}`];
+  // 续写、修复那几轮各自另装一份（续写是精简配方），这里与装配清单一样只说第一次。
+  const calls = turn.artifact?.calls ?? turn.review?.calls;
+  if (calls && calls > 1) {
+    lines.push(`这一轮一共调了 ${calls} 次模型，下面是第一次调用发出去的那一份；续写、修复那几轮另行装配。`);
+  }
+  for (const m of messages) {
+    lines.push('', `━━━━━━━━ ${m.role} ━━━━━━━━`, m.content);
+  }
+  return lines.join('\n');
 }
 
 function summarize(session: ChatSession): SessionSummary {

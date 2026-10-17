@@ -17,6 +17,7 @@ import {
   Attachment,
   ChatSession,
   SessionStore,
+  renderContextText,
 } from '../model/session';
 import {
   chapterLabel,
@@ -354,6 +355,23 @@ export class ChatController {
         this.current.turns.splice(idx, drop);
         await persist(this);
         this.post({ type: 'session', session: serializeSession(this.current) });
+        return;
+      }
+
+      case 'copyContext': {
+        const turn = this.current.turns.find((t) => t.id === msg.turnId);
+        const text = turn ? renderContextText(turn) : undefined;
+        this.post({
+          type: 'contextText',
+          requestId: msg.requestId,
+          ...(text !== undefined
+            ? { text }
+            : {
+                error: turn
+                  ? '这一轮没有留下完整上下文（这个功能加上之前的回复只存了清单）。'
+                  : '找不到这一轮，可能已经被删掉了。',
+              }),
+        });
         return;
       }
 

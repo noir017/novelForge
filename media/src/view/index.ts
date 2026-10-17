@@ -29,6 +29,7 @@ import {
   dropEmptyText,
   installMessages,
   lastSegment,
+  onContextText,
   renderSession,
   scrollToBottom,
   segmentAnchor,
@@ -187,6 +188,10 @@ onMessage((msg) => {
       }
       break;
     }
+
+    case 'contextText':
+      onContextText(msg);
+      break;
 
     case 'busy':
       setBusy(msg.value);

@@ -191,6 +191,11 @@ details.ctx > summary {
   list-style: revert;
 }
 
+/* 摘要行末尾的「复制完整上下文」：点它只复制，不开合折叠块（见 messages.ts）。 */
+details.ctx > summary .ctx-copy {
+  margin-left: 8px;
+}
+
 details.ctx ul {
   list-style: none;
   margin: 6px 0 2px;

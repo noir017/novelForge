@@ -288,6 +288,8 @@ export async function runTurn(
 
   if (built) {
     assistantTurn.context = serializeDigest(built);
+    // 发出去的那份原样留下，「复制完整上下文」取它。随会话落盘，不随 turnDone 推（见 ChatTurn.contextMessages）。
+    assistantTurn.contextMessages = built.messages.map(({ role, content }) => ({ role, content }));
     c.post({ type: 'context', turnId: assistantTurn.id, digest: assistantTurn.context });
   }
   // 修稿时重新定位清单的说明排在最前：「正文在审稿之后改过，两条作废」比续写几轮更要紧。

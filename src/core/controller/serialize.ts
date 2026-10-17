@@ -1,6 +1,6 @@
 import { readConfig } from '../config';
 import { BuiltContext, ContextItem } from '../context/builder';
-import { Attachment, ChatSession, ChatTurn, isBuiltinAgentTurn } from '../model/session';
+import { Attachment, ChatSession, ChatTurn, contextMessagesOf, isBuiltinAgentTurn } from '../model/session';
 import { NovelConfig } from '../model/types';
 import { modelLabel, providerLabel } from '../model/providers';
 import { DEFAULT_THINKING_DEPTH } from '../model/thinking';
@@ -69,6 +69,7 @@ export function serializeTurn(t: ChatTurn): SerializedTurn {
     command: t.command,
     attachments: t.attachments?.map(serializeAttachment),
     context: t.context,
+    ...(contextMessagesOf(t) ? { fullContext: true } : {}),
     acceptedTo: t.acceptedTo,
     interrupted: t.interrupted,
     error: t.error,

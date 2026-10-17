@@ -308,6 +308,11 @@ export interface SerializedTurn {
   command?: string;
   attachments?: SerializedAttachment[];
   context?: SerializedDigest;
+  /**
+   * 仅 assistant 轮：这一轮发给模型的完整消息留在会话文件里，装配清单上画「复制完整上下文」。
+   * 正文不随这里推（一轮几万字），点了再经 `copyContext` 要。
+   */
+  fullContext?: boolean;
   acceptedTo?: string;
   interrupted?: boolean;
   error?: string;

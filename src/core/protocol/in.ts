@@ -66,6 +66,11 @@ export type InMessage =
   | { type: 'requestPipeline'; plotRelPath?: string }
   | { type: 'editTurn'; turnId: string; text: string }
   | { type: 'deleteTurn'; turnId: string }
+  /**
+   * 「复制完整上下文」：要这一轮发给模型的完整消息（`ChatTurn.contextMessages`）。回的是
+   * `contextText`，带同一个 `requestId`——回复是广播，两个视图都收得到，只有点的那一边认它。
+   */
+  | { type: 'copyContext'; turnId: string; requestId: string }
   | { type: 'openSession'; id: string }
   | { type: 'newSession' }
   | { type: 'deleteSession'; id: string }

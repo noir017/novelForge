@@ -144,6 +144,11 @@ export type OutMessage =
   | { type: 'gateDone'; requestId: string; verdict: 'proceed' | 'skip' | 'cancelled' }
   | { type: 'turnDone'; turn: SerializedTurn }
   | { type: 'context'; turnId: string; digest: SerializedDigest }
+  /**
+   * 回 `copyContext`：拼好的完整上下文（`model/session.ts` 的 `renderContextText`），或者为什么
+   * 拿不到。认不出的 `requestId` 前端静默丢弃（另一个视图点的）。
+   */
+  | { type: 'contextText'; requestId: string; text?: string; error?: string }
   | { type: 'busy'; value: boolean }
   | { type: 'attachments'; items: SerializedAttachment[] }
   | { type: 'project'; tree: ProjectTree }

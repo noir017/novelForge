@@ -29,6 +29,7 @@
  */
 import { closestFrom, el as mk, spacer } from '../dom';
 import type {
+  OutMessage,
   SerializedDigest,
   SerializedToolCall,
   SerializedTurn,
@@ -240,7 +241,7 @@ function buildTurn(turn: SerializedTurn): HTMLElement {
   }
 
   if (turn.context) {
-    wrap.appendChild(buildContextDetails(turn.context));
+    wrap.appendChild(buildContextDetails(turn.context, turn.fullContext ? turn.id : undefined));
   }
   wrap.appendChild(buildActions(turn));
   return wrap;
@@ -696,8 +697,13 @@ function formatElapsed(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
-/** 上下文明细：装配器放进去了什么、各占多少 token、降级或丢弃的原因。 */
-export function buildContextDetails(digest: SerializedDigest): HTMLDetailsElement {
+/**
+ * 上下文明细：装配器放进去了什么、各占多少 token、降级或丢弃的原因。
+ *
+ * `copyTurnId` 给了（这一轮的完整消息留在会话文件里）就在摘要行末尾放一颗「复制完整上下文」：
+ * 放在摘要行而不是展开之后，是为了**一下就够**，不必先点开清单。点它不展开折叠块。
+ */
+export function buildContextDetails(digest: SerializedDigest, copyTurnId?: string): HTMLDetailsElement {
   const det = mk('details', 'ctx');
 
   const kept = digest.items.filter((i) => i.status === 'included' || i.status === 'degraded').length;
@@ -712,6 +718,14 @@ export function buildContextDetails(digest: SerializedDigest): HTMLDetailsElemen
   );
   if (digest.usedTokens > digest.budget) {
     sum.classList.add('over-budget');
+  }
+  if (copyTurnId) {
+    const copy = linkBtn('复制完整上下文', () => requestContextCopy(copyTurnId));
+    copy.classList.add('ctx-copy');
+    copy.title = '复制这一轮发给模型的全部消息（系统提示、历史与这一轮的话），原样';
+    // 按规范点 <summary> 里的按钮不开合折叠块，但有的引擎照样开合——取消默认动作，只复制。
+    copy.addEventListener('click', (e) => e.preventDefault());
+    sum.appendChild(copy);
   }
   det.appendChild(sum);
 
@@ -731,4 +745,49 @@ export function buildContextDetails(digest: SerializedDigest): HTMLDetailsElemen
   }
   det.appendChild(ul);
   return det;
+}
+
+// ---------------------------------------------------- 复制完整上下文
+
+/**
+ * 还没回的那一次「复制完整上下文」。回复是广播（侧栏与编辑器标签页挂同一个 controller），
+ * 只认自己发的这一个；连点两下只认最后一下。
+ */
+let pendingCopy: string | undefined;
+let copySeq = 0;
+
+function requestContextCopy(turnId: string): void {
+  copySeq += 1;
+  pendingCopy = `ctx-${Date.now().toString(36)}-${copySeq}`;
+  vscode.postMessage({ type: 'copyContext', turnId, requestId: pendingCopy });
+}
+
+/**
+ * 后端拼好的完整上下文回来了：写进剪贴板。
+ *
+ * 正文不在前端（一轮几万字，不随会话推），所以中间隔着一趟来回。写剪贴板要「刚点过」：
+ * Chromium 系与 Firefox 里这一趟还算数，WebKit（Linux 桌面壳、Safari）可能不认——写不进去时
+ * 提示条上给一颗「再点一下复制」，那一下是新的点击，文字已经在手上了。
+ */
+export function onContextText(msg: Extract<OutMessage, { type: 'contextText' }>): void {
+  if (msg.requestId !== pendingCopy) {
+    return;
+  }
+  pendingCopy = undefined;
+  const text = msg.text;
+  if (text === undefined) {
+    toast(msg.error ?? '没拿到这一轮的完整上下文。', true);
+    return;
+  }
+  if (!navigator.clipboard?.writeText) {
+    toast('当前环境不支持剪贴板。', true);
+    return;
+  }
+  const done = () => toast(`已复制完整上下文（${fmt(countWords(text))} 字）。`);
+  navigator.clipboard.writeText(text).then(done, () =>
+    toast('浏览器没让写剪贴板。', true, {
+      label: '再点一下复制',
+      run: () => void navigator.clipboard.writeText(text).then(done, () => toast('复制失败。', true)),
+    })
+  );
 }
