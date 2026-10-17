@@ -34,7 +34,7 @@ const CHAPTER = [A, B].join('\n\n');
 const TRIMMED = [A.replace('格外', ''), B.replace('狠狠', '')].join('\n\n');
 const GOOD = `[1] ${A.replace('格外', '')}\n\n[2] ${B.replace('狠狠', '')}`;
 
-const plotOf = (no) => `.novelforge/plots/00${no}-第${no}章.md`;
+const plotOf = (no) => `.novelforge/summaries/00${no}-第${no}章.md`;
 
 async function write(no) {
   script = [{ text: CHAPTER, stop: 'end' }, { text: GOOD, stop: 'end' }];
@@ -92,8 +92,8 @@ before(async () => {
   const ws = new bundle.ws.Workspace(t.project);
   for (const no of [1, 2, 3, 4]) {
     await ws.writePlot({
-      no, title: `第${no}章`, role: '', characters: [], targetWords: 1000, upstreamHash: '', done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '目的', 关键事件: '事件', 章末钩子: '钩子' },
+      no, title: `第${no}章`, targetWords: 1000, upstreamHash: '', done: false,
+      sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: '梗概', 关键事件: '事件' },
     });
   }
   await t.project.syncManifest();

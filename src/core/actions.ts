@@ -37,7 +37,7 @@ export async function initProjectFlow(project: NovelProject, defaultTitle: strin
 /**
  * 新建一章的细纲：**只建一份空骨架**，不问标题、不打开它。返回相对路径。
  *
- * 章号取 `plots/` 与 `chapters/` 两边的最大号 +1（`nextPlotNo`），落在 `plots/`
+ * 章号取细纲与 `chapters/` 两边的最大号 +1（`nextPlotNo`），落在 `summaries/`
  * 根下（细纲是平铺的）。正常路径上细纲是「拆细纲」一批一批生成的；这条留给作者
  * 想在末尾手工加一章。
  *
@@ -57,8 +57,6 @@ export async function newPlotFlow(project: NovelProject): Promise<string> {
   const relPath = await new Workspace(project).writePlot({
     no,
     title: '',
-    role: '',
-    characters: [],
     // 手工新建的细纲没有上游——**upstreamHash 留空**，它才永远不会挂 ⟳
     // （手写的产物永不标脏）。
     upstreamHash: '',

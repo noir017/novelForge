@@ -31,7 +31,7 @@ let ctx;
 let reports;
 let settings;
 
-const PLOT1 = '.novelforge/plots/001-夜入青云.md';
+const PLOT1 = '.novelforge/summaries/001-夜入青云.md';
 const CH1 = 'chapters/001-夜入青云.md';
 const CH2 = 'chapters/002-藏书阁.md';
 
@@ -46,11 +46,13 @@ function plotReply(messages) {
     blueprints.push({
       chapterNumber: no,
       title: '模型起的名',
-      role: '开篇',
-      purpose: '进入宗门',
-      keyEvents: '踩点、失手、翻墙；收在藏书阁门口。',
+      synopsis: '林昭夜里翻墙进宗门。',
       characters: ['林昭'],
-      suspenseHook: '墙内有人在等他。',
+      timePlace: '雨夜，青云宗山门',
+      keyEvents: ['踩点、失手、翻墙', '收在藏书阁门口。'],
+      highlights: ['墙内有人在等他。'],
+      foreshadowing: [],
+      stateChange: '',
     });
   }
   return JSON.stringify({ blueprints });
@@ -93,7 +95,6 @@ before(async () => {
     project: './src/core/model/project.ts',
     ws: './src/core/workspace/index.ts',
     plotFile: './src/core/model/plotFile.ts',
-    viewsPipeline: './src/core/views/pipeline.ts',
     registry: './src/core/llm/registry.ts',
     provider: './src/core/llm/provider.ts',
     tools: './src/core/tools/novel/index.ts',
@@ -131,11 +132,9 @@ before(async () => {
     await ws.writePlot({
       no,
       title,
-      role: '',
-      characters: [],
       upstreamHash: '',
       done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '进入宗门' },
+      sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: '进入宗门' },
     });
   }
   await project.syncManifest();
@@ -202,13 +201,14 @@ describe('批量拆细纲：作者同意', () => {
     assert.ok(plots.every((p) => bundle.plotFile.isPlotFilled(p.sections)), JSON.stringify(plots.map((p) => p.sections)));
   });
 
-  // 批量拆细纲改的是三个小节与规划字段：作者起的标题不该被抹掉。
+  // 批量拆细纲改的是八个小节：作者起的标题不该被抹掉。
   test('标题沿用磁盘那份', async () => {
     const plot = await project.readPlot(PLOT1);
     assert.equal(plot.title, '夜入青云');
   });
 
-  test('规划字段（计划出场的人）随产物落盘', async () => {
+  // 计划出场写进「出场人物」一节，读回来就是 characters（没定稿，取的是计划）。
+  test('计划出场的人随产物落盘', async () => {
     const plot = await project.readPlot(PLOT1);
     assert.deepEqual(plot.characters, ['林昭']);
   });
@@ -335,7 +335,7 @@ describe('批量写正文：正文直接落同号章节，并在细纲上记指�
   // ★ 少了这一步，细纲后来改过也不会让这一章挂 ⟳。
   test('细纲上记了 writtenFrom，且等于细纲当前内容的指纹', async () => {
     const plot = await project.readPlot(PLOT1);
-    assert.equal(plot.writtenFrom, bundle.viewsPipeline.plotContentHash(plot));
+    assert.equal(plot.writtenFrom, bundle.plotFile.plotContentHash(plot));
   });
 
   test('调了两次模型，账上也记两次', () => {
@@ -366,7 +366,7 @@ describe('newPlot 不花钱', () => {
   });
 
   test('建出了一份细纲', () => {
-    assert.ok(r.text.includes('.novelforge/plots/'), `${r.text}｜${r.error ?? ''}`);
+    assert.ok(r.text.includes('.novelforge/summaries/'), `${r.text}｜${r.error ?? ''}`);
   });
 
   test('一次模型都没调', () => {
@@ -374,11 +374,15 @@ describe('newPlot 不花钱', () => {
   });
 
   // 细纲号 = 章号：第 1、2 章已经有细纲和正文，新建的那一份就是第 3 章的。
-  test('新建的是第 3 章的细纲，平铺在 plots/ 根下', async () => {
+  test('新建的是第 3 章的细纲', async () => {
     const plots = await project.listPlots();
     assert.deepEqual(plots.map((p) => p.no), [1, 2, 3]);
-    assert.ok(plots[2].relPath.startsWith('.novelforge/plots/003'), plots[2].relPath);
-    assert.ok(!plots[2].relPath.slice('.novelforge/plots/'.length).includes('/'), plots[2].relPath);
+  });
+
+  // summaries/ 子目录里的不算细纲（判成 other），新建的那一份必须落在根下才认得出来。
+  test('新建的细纲平铺在 summaries/ 根下', async () => {
+    const plots = await project.listPlots();
+    assert.match(plots[2].relPath, /^\.novelforge\/summaries\/003[^/]*\.md$/, plots[2].relPath);
   });
 
   test('新建的细纲是空骨架（不算排过）', async () => {

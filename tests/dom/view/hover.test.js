@@ -1,7 +1,10 @@
 /**
- * 三个悬停浮窗：章节摘要、行内副标题（别名）、失败标记。
+ * 三个悬停浮窗：章节细纲、行内副标题（别名）、失败标记。
  *
- * 迁自 scripts/smoke-view.js 的这三节：
+ * 章节浮窗原来弹的是单章摘要；摘要并进细纲之后弹的是这一章的细纲——没定稿的是计划，
+ * 头上标「计划」；定稿过、正文后来又改过的标「已过期」（照着哪一种做判断都比没有更糟）。
+ *
+ * 迁自 scripts/smoke-view.js 的这三节（当时叫「章节摘要的悬停浮窗」）：
  *   == 章节摘要的悬停浮窗 ==（1893） == 行内副标题（别名）的悬停浮窗 ==（2170）
  *   == 失败标记与悬停浮窗 ==（2259）
  *
@@ -20,7 +23,7 @@ const { mount, JSDOM_SKIP, sampleTree } = require('../../helpers/dom');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
+describe('章节细纲的悬停浮窗', { skip: JSDOM_SKIP }, () => {
   let ui;
   const tip = () => ui.doc.querySelector('.summary-tip');
   // 浮窗只挂在**章节行**上（`.row-plot[data-plot]`）。「故事架构」那几行复用了
@@ -67,7 +70,7 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
   const summaryOf = (extra) =>
     Object.assign(
       {
-        no: 1, title: '楔子', label: '第 1 章《楔子》', exists: true, stale: false,
+        no: 1, title: '楔子', label: '第 1 章《楔子》', exists: true, finalized: true, stale: false,
         relPath: '.novelforge/summaries/001-楔子.md',
         sections: [
           { name: '梗概', text: '雨下了三天，林昭进入青崖镇。' },
@@ -126,9 +129,9 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(!tip());
   });
 
-  // 架构行与章节行共用 `.row-plot` 的样式，但它们不是一章，没有摘要可取。
-  // 抓手是 data-plot 而不是类名——漏了这一点，悬停「故事前提」会去要一份不存在的摘要。
-  test('故事架构的行不弹摘要浮窗', async () => {
+  // 架构行与章节行共用 `.row-plot` 的样式，但它们不是一章，没有细纲可取。
+  // 抓手是 data-plot 而不是类名——漏了这一点，悬停「故事前提」会去要一份不存在的细纲。
+  test('故事架构的行不弹细纲浮窗', async () => {
     ui.sent.length = 0;
     hover(archRow('故事前提'));
     await settle();
@@ -157,14 +160,14 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
   });
 
   test('数据没到时先显示读取中', () => {
-    assert.ok(tip().textContent.includes('读取摘要'), tip().textContent);
+    assert.ok(tip().textContent.includes('读取细纲'), tip().textContent);
   });
 
-  test('向后端要这一章的摘要', () => {
+  test('向后端要这一章的细纲', () => {
     const req = ui.last('requestSummary');
     assert.ok(req, '没发出 requestSummary');
-    // 要的是**路径**，不是序号：摘要文件名跟着标题走，只有路径能唯一
-    // 定位到一份摘要。这一章有正文，主路径因此指正文。
+    // 要的是**路径**，不是序号：行的身份就是路径，后端按章号认到同一章的细纲。
+    // 这一章有正文，主路径因此指正文。
     assert.equal(req.plotRelPath, 'chapters/001-楔子.md', JSON.stringify(req));
   });
 
@@ -172,10 +175,10 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.equal(tip().parentElement, ui.doc.body);
   });
 
-  // ---- 摘要到了
-  test('摘要到达后换掉内容', () => {
+  // ---- 细纲到了
+  test('细纲到达后换掉内容', () => {
     ui.post({ type: 'summary', summary: summaryOf() });
-    assert.ok(!tip().textContent.includes('读取摘要'), tip().textContent);
+    assert.ok(!tip().textContent.includes('读取细纲'), tip().textContent);
   });
 
   // 说法由后端给（`PlotSummaryView.label`），前端不按 `no` 自己拼——文案只有一份。
@@ -191,7 +194,8 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(tip().textContent.includes('雨下了三天'), tip().textContent);
   });
 
-  test('新鲜的摘要不打过期标', () => {
+  // 定稿过、正文没再改：这就是那一章写成的样子，不必提醒。
+  test('定稿过且对得上的细纲不打标', () => {
     assert.ok(!tip().querySelector('.summary-tip-stale'));
   });
 
@@ -215,7 +219,7 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(tip());
   });
 
-  // 浮窗自己内部的滚动不能把它收掉——摘要有六个小节，滚动条是给人用的。
+  // 浮窗自己内部的滚动不能把它收掉——细纲有八个小节，滚动条是给人用的。
   test('浮窗内部滚动不收起浮窗', () => {
     tip().dispatchEvent(new ui.window.Event('scroll', { bubbles: true }));
     assert.ok(tip());
@@ -270,7 +274,7 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
   });
 
   test('缓存命中时不经过「读取中」', () => {
-    assert.ok(!tip().textContent.includes('读取摘要'), tip().textContent);
+    assert.ok(!tip().textContent.includes('读取细纲'), tip().textContent);
   });
 
   // ---- 滚动 / Esc / 右键都要收（浮窗是 fixed 的，会和目标行脱节）
@@ -305,8 +309,8 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(ui.last('requestSummary'), JSON.stringify(ui.sent));
   });
 
-  // ---- 过期的摘要必须标出来（照着旧摘要做判断比没摘要更糟）
-  test('过期的摘要打标', () => {
+  // ---- 定稿之后正文又改过：细纲可能没跟上，必须标出来（照着旧档案做判断比没有更糟）
+  test('定稿后正文又改过的细纲打标', () => {
     ui.post({ type: 'summary', summary: summaryOf({ stale: true }) });
     assert.ok(tip().querySelector('.summary-tip-stale'));
   });
@@ -316,24 +320,44 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     await moveAway();
   });
 
-  // ---- 还没定稿过的章：说清楚，不给空浮窗
-  test('未总结时给出说明而非空白', async () => {
+  // ---- 还没定稿的细纲是计划：写的是这一章打算怎么走，不一定是正文写成的样子
+  test('没定稿的细纲打标', async () => {
+    hover(rowWith('楔子'));
+    await settle();
+    ui.post({ type: 'summary', summary: summaryOf({ finalized: false }) });
+    assert.ok(tip().querySelector('.summary-tip-stale'));
+  });
+
+  test('没定稿的标写着「计划」', () => {
+    assert.equal(tip().querySelector('.summary-tip-stale').textContent, '计划');
+  });
+
+  test('计划照样摊开小节', async () => {
+    assert.ok(tip().textContent.includes('雨下了三天'), tip().textContent);
+    await moveAway();
+  });
+
+  // ---- 还没有细纲的章：说清楚，不给空浮窗。那句话由后端给（有正文的才指到「定稿」）。
+  test('没有细纲时给出说明而非空白', async () => {
     hover(rowWith('楔子'));
     await settle();
     ui.post({
       type: 'summary',
-      summary: { no: 1, title: '楔子', exists: false, stale: true, relPath: '', sections: [] },
+      summary: {
+        no: 1, title: '楔子', label: '第 1 章《楔子》', exists: false, finalized: false, stale: false,
+        relPath: '', sections: [], emptyHint: '这一章还没有细纲。右键「定稿」可以照正文整理一份。',
+      },
     });
-    assert.ok(tip().textContent.includes('还没有摘要'), tip().textContent);
+    assert.ok(tip().textContent.includes('这一章还没有细纲。右键「定稿」可以照正文整理一份。'), tip().textContent);
   });
 
-  test('未总结时不打「已过期」标（说「还没有」就够了）', async () => {
+  test('没有细纲时不打标（说「还没有」就够了）', async () => {
     assert.ok(!tip().querySelector('.summary-tip-stale'));
     await moveAway();
   });
 
-  // ---- 摘要是模型写的，一律走 textContent，绝不拼 HTML
-  test('摘要正文不当 HTML 解析', async () => {
+  // ---- 细纲是模型写的，一律走 textContent，绝不拼 HTML
+  test('细纲正文不当 HTML 解析', async () => {
     ui.post({ type: 'project', tree: sampleTree() });
     hover(rowWith('楔子'));
     await settle();
@@ -344,7 +368,7 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(!tip().querySelector('img'), tip().innerHTML);
   });
 
-  test('摘要正文原样显示为文字', async () => {
+  test('细纲正文原样显示为文字', async () => {
     assert.ok(tip().textContent.includes('<img src=x onerror=alert(1)>'), tip().textContent);
     await moveAway();
   });
@@ -396,9 +420,9 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     await moveAway();
   });
 
-  // ④ 摘要很长、上下都放不下：压高度进可用空间，靠滚动看剩下的。
-  //    只翻转不压高度的话，长摘要在矮窗口里会有一截永远够不到。
-  test('超长摘要被压进可用空间', async () => {
+  // ④ 细纲很长、上下都放不下：压高度进可用空间，靠滚动看剩下的。
+  //    只翻转不压高度的话，长细纲在矮窗口里会有一截永远够不到。
+  test('超长细纲被压进可用空间', async () => {
     rowRect = { top: 280, bottom: 300, left: 20 };
     tipNaturalHeight = 2000;
     ui.post({ type: 'project', tree: sampleTree() });
@@ -406,7 +430,7 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(tipBox().bottom <= VIEWPORT.h, JSON.stringify(tipBox()));
   });
 
-  test('超长摘要不越过顶边', () => {
+  test('超长细纲不越过顶边', () => {
     assert.ok(tipBox().top >= 0, JSON.stringify(tipBox()));
   });
 
@@ -425,7 +449,7 @@ describe('章节摘要的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(tipBox().top >= rowRect.bottom, JSON.stringify(tipBox()));
   });
 
-  // 摘要到了，内容一下子撑高——不能就这么支棱到窗口外面去。
+  // 细纲到了，内容一下子撑高——不能就这么支棱到窗口外面去。
   test('内容到达撑高后重新定位，仍在视口内', async () => {
     tipNaturalHeight = 400;
     ui.post({ type: 'summary', summary: summaryOf() });
@@ -574,8 +598,8 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
 
   const CARD = '.novelforge/characters/林昭.md';
   // 失败挂在出错那份文件上（recordFailure 的 targetKey 就是它的路径）。
-  // 写细纲 / 写正文失败挂在细纲上，定稿（摘要）失败挂在正文上——章节行两侧都查。
-  const PLOT = '.novelforge/plots/001-楔子.md';
+  // 写细纲 / 写正文失败挂在细纲上，定稿失败挂在正文上——章节行两侧都查。
+  const PLOT = '.novelforge/summaries/001-楔子.md';
   const CHAPTER = 'chapters/002-入镇.md';
   // 生成架构文档失败挂在那份文档上。
   const PREMISE = '.novelforge/premise.md';
@@ -627,7 +651,7 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
         { at: '2026-08-10T11:20:00.000Z', severity: 'warn', message: '3 段解析失败，「已读到」只推进到第 2 段' },
       ],
       [CHAPTER]: [
-        { at: '2026-08-10T11:25:00.000Z', severity: 'error', message: '摘要解析失败，第 2 章未定稿' },
+        { at: '2026-08-10T11:25:00.000Z', severity: 'error', message: '定稿失败：模型返回无法解析' },
       ],
       [PREMISE]: [
         { at: '2026-08-10T11:10:00.000Z', severity: 'error', message: '故事前提解析失败，文件未改动' },
@@ -744,7 +768,7 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
     multi.failures = {
       [CARD]: [
         { at: '2026-08-10T11:31:40.000Z', severity: 'error', message: '角色卡失败' },
-        { at: '2026-08-10T10:00:00.000Z', severity: 'warn', message: '摘要也失败了' },
+        { at: '2026-08-10T10:00:00.000Z', severity: 'warn', message: '定稿也失败了' },
       ],
     };
     ui.post({ type: 'project', tree: multi });
@@ -767,7 +791,7 @@ describe('失败标记与悬停浮窗', { skip: JSDOM_SKIP }, () => {
     multi.failures = {
       [CARD]: [
         { at: '2026-08-10T11:31:40.000Z', severity: 'error', message: '角色卡失败' },
-        { at: '2026-08-10T10:00:00.000Z', severity: 'warn', message: '摘要也失败了' },
+        { at: '2026-08-10T10:00:00.000Z', severity: 'warn', message: '定稿也失败了' },
       ],
     };
     ui.post({ type: 'project', tree: multi });

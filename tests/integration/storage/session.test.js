@@ -73,7 +73,7 @@ describe('session.ts · SessionStore', () => {
 
     before(async () => {
       s = store.create({
-        target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/004-夜访.md' },
+        target: { kind: 'manuscript', plotRelPath: '.novelforge/summaries/004-夜访.md' },
         targetNo: 4,
       });
       // 「新会话无轮次」「新建不落盘」都必须在 push / write 之前取值。
@@ -121,7 +121,7 @@ describe('session.ts · SessionStore', () => {
     });
 
     test('新会话继承创作目标', () => {
-      assert.equal(s.target.plotRelPath, '.novelforge/plots/004-夜访.md');
+      assert.equal(s.target.plotRelPath, '.novelforge/summaries/004-夜访.md');
     });
 
     test('阶段跟着目标走', () => {
@@ -178,7 +178,7 @@ describe('session.ts · SessionStore', () => {
     });
 
     test('读回创作目标', () => {
-      assert.equal(back.target.plotRelPath, '.novelforge/plots/004-夜访.md');
+      assert.equal(back.target.plotRelPath, '.novelforge/summaries/004-夜访.md');
     });
 
     test('读回阶段与能力', () => {
@@ -316,7 +316,7 @@ describe('session.ts · SessionStore', () => {
 
       // 该阶段不支持的能力也要回落——正文阶段没有 split。
       fs.writeFileSync(path.join(sessionsDir, 'badcap.json'), JSON.stringify({
-        target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/001-x.md' },
+        target: { kind: 'manuscript', plotRelPath: '.novelforge/summaries/001-x.md' },
         stage: 'manuscript', capability: 'split', turns: [],
       }));
       badcap = await store.read('badcap');
@@ -409,7 +409,7 @@ describe('session.ts · SessionStore', () => {
     });
 
     test('但目标本身保留', () => {
-      assert.equal(badcap.target.plotRelPath, '.novelforge/plots/001-x.md');
+      assert.equal(badcap.target.plotRelPath, '.novelforge/summaries/001-x.md');
     });
   });
 
@@ -547,7 +547,7 @@ describe('session.ts · SessionStore', () => {
       fs.mkdirSync(path.join(legacyDir, 'summaries'), { recursive: true });
       fs.writeFileSync(path.join(legacyDir, 'project.json'), JSON.stringify({ version: 1, title: '旧工程', chapters: [] }));
       fs.writeFileSync(path.join(legacyDir, 'style.md'), '# 文风指南\n\n旧的内容。\n');
-      fs.writeFileSync(path.join(legacyDir, 'summaries', '001.md'), '摘要内容');
+      fs.writeFileSync(path.join(legacyDir, 'summaries', '001.md'), '细纲内容');
 
       const legacy = projectMod.NovelProject.open(legacyRoot);
       needsBefore = await legacy.needsMigration();

@@ -44,8 +44,8 @@ before(async () => {
   t.write('chapters/009-北行.md', '# 北行\n\n「我从没去过北境。」他说。\n那年他十七。\n');
   t.write('chapters/003-楔子.md', '# 楔子\n\n雨下了三天。\n北境的雪他见过三回。\n');
   t.write(
-    '.novelforge/plots/012-入宗.md',
-    '## 本章目的\n\n翻墙进宗门\n\n## 关键事件\n\n山门外等到天黑，三拍\n\n## 章末钩子\n\n令牌\n'
+    '.novelforge/summaries/012-入宗.md',
+    '## 梗概\n\n翻墙进宗门\n\n## 关键事件\n\n山门外等到天黑，三拍\n\n## 看点\n\n令牌\n'
   );
   // 100 行的长文件，用来逼出 read 的行数截断。
   t.write('chapters/020-长章.md', Array.from({ length: 100 }, (_, i) => `第 ${i + 1} 行`).join('\n'));
@@ -85,7 +85,7 @@ describe('list', () => {
 
   test('目录带斜杠后缀，与文件分得开', async () => {
     const r = await run(toolOf('list'), { path: '.novelforge' });
-    assert.ok(r.text.includes('plots/'), r.text);
+    assert.ok(r.text.includes('summaries/'), r.text);
   });
 
   test('留空 path 列工程根', async () => {
@@ -213,7 +213,7 @@ describe('search', () => {
   test('kinds 限定生效', async () => {
     const r = await run(toolOf('search'), { pattern: '山门', kinds: ['plot'] });
     assert.ok(!r.text.includes('chapters/'), r.text);
-    assert.ok(r.text.includes('.novelforge/plots/'), r.text);
+    assert.ok(r.text.includes('.novelforge/summaries/'), r.text);
   });
 
   test('认不出的 kinds 当没限定，不是搜出空结果', async () => {
@@ -222,7 +222,7 @@ describe('search', () => {
   });
 
   test('path 限定生效', async () => {
-    const r = await run(toolOf('search'), { pattern: '山门', path: '.novelforge/plots' });
+    const r = await run(toolOf('search'), { pattern: '山门', path: '.novelforge/summaries' });
     assert.ok(!r.text.includes('chapters/'), r.text);
   });
 

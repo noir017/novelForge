@@ -27,13 +27,14 @@ const { cleanup } = require('../../helpers/teardown');
 const fs = require('fs');
 
 const PLOT_JSON = JSON.stringify({
-  本章目的: '进入宗门',
+  梗概: '进入宗门',
+  出场人物: '林昭',
   关键事件: '踩点、失手、翻墙；收在藏书阁门口。三拍推进。',
-  章末钩子: '第三块令牌',
+  看点: '第三块令牌',
 });
 
-const P1 = '.novelforge/plots/001-夜入青云.md';
-const P2 = '.novelforge/plots/002-藏书阁.md';
+const P1 = '.novelforge/summaries/001-夜入青云.md';
+const P2 = '.novelforge/summaries/002-藏书阁.md';
 
 let bundle;
 let home;
@@ -83,8 +84,8 @@ before(async () => {
   const ws = new bundle.ws.Workspace(project);
   for (const [no, title] of [[1, '夜入青云'], [2, '藏书阁']]) {
     await ws.writePlot({
-      no, title, role: '', characters: [], upstreamHash: '', done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: `第 ${no} 章要达成的事` },
+      no, title, upstreamHash: '', done: false,
+      sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: `第 ${no} 章要达成的事` },
     });
   }
   await project.syncManifest();
@@ -180,7 +181,7 @@ describe('generate → 当场问 → 同意才落盘', () => {
 
   test('答了才落盘', async () => {
     const plot = await project.readPlot(P1);
-    assert.equal(plot.sections['本章目的'], '进入宗门');
+    assert.equal(plot.sections['梗概'], '进入宗门');
   });
 
   test('返回里没有正文，只有形状与结论', () => {
@@ -267,7 +268,7 @@ describe('edit：动手前先问', () => {
     const r = await call('edit', { path: P1, old: '进入宗门', new: '离开宗门' });
     assert.equal(r.isError, false, r.text);
     const plot = await project.readPlot(P1);
-    assert.equal(plot.sections['本章目的'], '离开宗门');
+    assert.equal(plot.sections['梗概'], '离开宗门');
   });
 });
 

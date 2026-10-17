@@ -7,8 +7,11 @@
  * | 确认框报 1 次调用与档位 | 第 4 条：动手之前写明 |
  * | 只追加新线，已有的、作者写的一个字不动 | 第 3 条、第 19 条的批量路径 |
  * | 同名跳过、区间越界的丢，提示里分开说 | 第 2 条：丢了什么要说出来 |
- * | 提示里有全部细纲与已有的线 | 修上游只给一章蓝图、看不到已有的线 |
+ * | 提示里有全部细纲（梗概、关键事件、看点）与已有的线 | 修上游只给一章蓝图、看不到已有的线；章末钩子并进了看点 |
  * | 解析不出来挂红 ❗、文件不动；成了清掉 | 第 16 条 |
+ *
+ * 细纲是 `summaries/NNN-标题.md` 的八节格式。排线读的是排过的细纲（「关键事件」填了的），
+ * 计划与定稿过的都算：排线本来就是在还没写的章之间排跨章的东西。
  *
  * 定稿第三步（判本章推进了哪几条线）：
  *
@@ -18,7 +21,7 @@
  * | 证据逐字找得到的才记，追加在那条线下 | 没有原文撑着的事件多半是编的；第 3 条 |
  * | 收了的线不送去判、模型提了也不记 | 收了就是收了 |
  * | 重新定稿不重复记 | 同一章、同一句只记一次 |
- * | 这一步失败摘要照样在，黄 ❗ 挂在章节上 | 第 16 条：部分完成 |
+ * | 这一步失败细纲照样更新了，黄 ❗ 挂在章节上 | 第 16 条：部分完成 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -38,10 +41,11 @@ let planReply;
 
 const THREADS = '.novelforge/threads.md';
 
-function plot(no, title, events, hook) {
+/** 写一份还没定稿的细纲（计划）：八节里只填排线读的那几节，钩子写在「看点」里。 */
+function plot(no, title, events, highlight) {
   t.write(
-    `.novelforge/plots/00${no}-${title}.md`,
-    `---\nno: ${no}\ntitle: ${title}\ntargetWords: 3000\n---\n\n# 第${no}章 ${title}\n\n## 本章目的\n\n第${no}章的目的\n\n## 关键事件\n\n${events}\n\n## 章末钩子\n\n${hook}\n`
+    `.novelforge/summaries/00${no}-${title}.md`,
+    `---\nno: ${no}\ntitle: ${title}\ntargetWords: 3000\n---\n\n# 第${no}章 ${title}\n\n## 梗概\n\n第${no}章的梗概\n\n## 关键事件\n\n${events}\n\n## 看点\n\n- ${highlight}\n`
   );
 }
 
@@ -121,7 +125,8 @@ describe('排叙事线', () => {
     t.write('.novelforge/premise.md', '# 故事前提\n\n## 悬念骨架\n\n谁放的那把火。\n');
     plot(1, '雪夜', '林昭在雪夜里被人追杀，怀里揣着一块玉佩。', '追兵举起了火把');
     plot(2, '入宗', '林昭拜入青云宗，看见执法堂的令牌上有云纹。', '有人认出了他');
-    plot(3, '试剑', '试剑大会上林昭断了剑。', '断剑里藏着字');
+    // 关键事件一条一行（计划与定稿同一个形状）。
+    plot(3, '试剑', '- 试剑大会上林昭断了剑。\n- 断剑落进了后山的深潭。', '断剑里藏着字');
     t.write(THREADS, HAND);
     project.invalidate();
     planReply = () =>
@@ -152,12 +157,17 @@ describe('排叙事线', () => {
     assert.equal(fake.callCount(), 1);
   });
 
-  test('提示里有全部细纲、前提、已有的线与总章数', () => {
+  test('提示里有全部细纲（梗概、关键事件、看点）、前提、已有的线与总章数', () => {
     assert.ok(system.includes('1..20 范围内的整数'), system);
-    for (const s of ['第1章 雪夜', '第2章 入宗', '第3章 试剑', '断剑里藏着字', '谁放的那把火', '少年背着旧案入宗']) {
+    for (const s of ['第1章 雪夜', '第2章 入宗', '第3章 试剑', '第3章的梗概', '断剑里藏着字', '谁放的那把火', '少年背着旧案入宗']) {
       assert.ok(user.includes(s), s);
     }
     assert.ok(user.includes('【已有的叙事线（不要重复）】\n- 玉佩的来历（第 2–8 章） · 伏笔'), user);
+  });
+
+  // 细纲一览一章一行：一条一行的关键事件、看点用「；」接起来，不留「- 」。
+  test('细纲一览里一条一行的几节压成一行', () => {
+    assert.ok(user.includes('第3章 试剑｜梗概：第3章的梗概｜关键事件：试剑大会上林昭断了剑。；断剑落进了后山的深潭。｜看点：断剑里藏着字'), user);
   });
 
   test('只追加新线：作者写的原样在前，同名的、越界的不收', () => {
@@ -228,6 +238,7 @@ const CH4_TEXT = [
 /** 叙事线那一次答什么。 */
 let eventReply;
 
+/** 定稿那几步的应答：更新细纲（有计划时是 REFINE_SYSTEM，它包着 SUMMARY_SYSTEM）、判叙事线，其余照排线。 */
 function finalizeReply(messages) {
   const system = messages[0]?.content ?? '';
   if (system.includes('建立可检索的章节档案')) {
@@ -292,14 +303,14 @@ describe('定稿 · 判本章推进了哪几条叙事线', () => {
           { thread: '已经收了', type: '推进', evidence: '院外有人提着灯走过', reason: '收了的线' },
         ],
       });
-    // 换成定稿要的那几种应答（摘要 / 叙事线），排线那一种照旧。
+    // 换成定稿要的那几种应答（更新细纲 / 叙事线），排线那一种照旧。
     fake = installFakeProvider(bundle.registry, { reply: finalizeReply });
     outcome = await bundle.finalize.finalizeChapter(project, await chapter4());
     const call = fake.calls.find((c) => c[0].content.includes('你是小说定稿事实审查员'));
     judgeUser = call[call.length - 1].content;
   });
 
-  test('出场的人都没卡：摘要 1 次 + 叙事线 1 次', () => {
+  test('出场的人都没卡：更新细纲 1 次 + 叙事线 1 次', () => {
     assert.equal(outcome.calls, 2);
     assert.equal(outcome.threads.calls, 1);
   });
@@ -348,7 +359,7 @@ describe('定稿 · 判本章推进了哪几条叙事线', () => {
     assert.equal(t.read(THREADS), before);
   });
 
-  test('判叙事线失败：摘要照样在，黄 ❗ 挂在章节上，threads.md 不动；再成了就清掉', async () => {
+  test('判叙事线失败：细纲照样更新了，黄 ❗ 挂在章节上，threads.md 不动；再成了就清掉', async () => {
     const before = t.read(THREADS);
     eventReply = () => '这一章没什么好说的。';
     const failed = await bundle.finalize.finalizeChapter(project, await chapter4());
@@ -368,7 +379,7 @@ describe('定稿 · 判本章推进了哪几条叙事线', () => {
     assert.ok(bundle.finalize.describeFinalize(4, ok).includes('叙事线没有新进展'));
   });
 
-  test('线都收了（或没有 threads.md）：不判，定稿只有摘要那一次', async () => {
+  test('线都收了（或没有 threads.md）：不判，定稿只有更新细纲那一次', async () => {
     t.remove(THREADS);
     project.invalidate();
     fake.reset();

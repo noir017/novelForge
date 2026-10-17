@@ -34,7 +34,7 @@ const MAX_DEPTH = 8;
 export interface SearchOptions {
   /** 限定目录，缺省全工程。 */
   path?: string;
-  /** 限定种类，如 `['chapter','summary']`。 */
+  /** 限定种类，如 `['chapter','plot']`。 */
   kinds?: ArtifactKind[];
   /** 正则还是字面量。缺省字面量（作者搜的是人名地名，不是正则）。 */
   regex?: boolean;

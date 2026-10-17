@@ -63,23 +63,19 @@ function setReplies(items) {
 }
 
 /**
- * 造一章：细纲 + `words` 字的成品正文 + 一份带 cast 的摘要。
+ * 造一章：`words` 字的成品正文 + 一份定稿过（带 sourceHash 与 cast）的细纲。
  *
- * 角色卡通读的是 `chapters/` 里的正文、出场统计来自按章的摘要——
- * 细纲里计划出场的人（`characters:`）不算出场（D13）。
+ * 角色卡通读的是 `chapters/` 里的正文、出场统计来自定稿过的细纲——
+ * 没定稿的细纲里「出场人物」写的是计划，不算出场（D13）。
  */
 function makePlot(no, title, cast, words = 400) {
   const pad = '雨下了三天，石板路泡得发白。'.repeat(Math.ceil(words / 14)).slice(0, words);
   const stem = `${String(no).padStart(3, '0')}-${title}`;
-  t.write(
-    `.novelforge/plots/${stem}.md`,
-    `---\nno: ${no}\ntitle: ${title}\n---\n\n## 本章目的\n\n略。\n\n## 关键事件\n\n甲乙丙。\n\n## 章末钩子\n\n略。\n`
-  );
   t.write(`chapters/${stem}.md`, `# ${title}\n\n${pad}\n`);
   t.write(
     `.novelforge/summaries/${stem}.md`,
-    `---\nchapter: ${no}\ntitle: ${title}\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
-      `# 第${no}章 ${title} · 摘要\n\n## 梗概\n\n略。\n\n## 出场人物\n\n${cast.join('、')}\n`
+    `---\nno: ${no}\ntitle: ${title}\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
+      `# 第${no}章 ${title}\n\n## 梗概\n\n略。\n\n## 出场人物\n\n${cast.join('、')}\n\n## 关键事件\n\n甲乙丙。\n\n## 看点\n\n略。\n`
   );
 }
 
@@ -439,7 +435,7 @@ describe('解析失败与取消', () => {
   });
 });
 
-describe('摘要里没有的角色', () => {
+describe('定稿里没出场过的角色', () => {
   let callCount;
   let toasts;
 
@@ -492,7 +488,7 @@ describe('给未建卡的人物建卡', () => {
     project.invalidate();
     index = await castMod.buildCastIndex(project);
 
-    // 摘要里已经没有的人不能凭空建卡。
+    // 定稿里没有的人不能凭空建卡。
     expect('开始');
     await cardMod.createCardForCast(project, '查无此人');
     missingToasts = [...h.toasts];
@@ -537,7 +533,7 @@ describe('给未建卡的人物建卡', () => {
     assert.ok(index.known.some((m) => m.card && m.card.name === '客栈掌柜'));
   });
 
-  test('摘要里没有的人不建卡', () => {
+  test('定稿里没有的人不建卡', () => {
     assert.ok(missingToasts.some((x) => x.startsWith('error:')), missingToasts.join(' | '));
   });
 });

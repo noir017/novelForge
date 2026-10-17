@@ -27,10 +27,10 @@ function makeDraft(over = {}) {
   return {
     id: 'd1',
     action: { stage: 'plot', capability: 'generate' },
-    target: { kind: 'plot', plotRelPath: '.novelforge/plots/001-夜入青云.md' },
+    target: { kind: 'plot', plotRelPath: '.novelforge/summaries/001-夜入青云.md' },
     raw: '{"关键事件":"进宗门"}',
-    artifact: { kind: 'plot', sections: { 本章目的: '', 关键事件: '进宗门', 章末钩子: '' } },
-    summary: '细纲 · 1/3 节',
+    artifact: { kind: 'plot', sections: { 梗概: '', 关键事件: '进宗门', 看点: '' } },
+    summary: '细纲 · 1/8 节',
     words: 3,
     createdAt: '2026-08-15T10:00:00.000Z',
     ...over,
@@ -136,7 +136,7 @@ describe('随会话往返一趟', () => {
       content: '{"关键事件":"进宗门"}',
       at: '2026-08-15T10:00:00.000Z',
       draftId: 'd1',
-      artifact: { where: '第 1 章 · 细纲', summary: '细纲 · 1/3 节', overwrites: false },
+      artifact: { where: '第 1 章 · 细纲', summary: '细纲 · 1/8 节', overwrites: false },
     });
     session.drafts = [makeDraft()];
     await store.write(session);
@@ -150,7 +150,7 @@ describe('随会话往返一趟', () => {
   });
 
   test('落点跟着一起回来了', () => {
-    assert.equal(reloaded.drafts[0].target.plotRelPath, '.novelforge/plots/001-夜入青云.md');
+    assert.equal(reloaded.drafts[0].target.plotRelPath, '.novelforge/summaries/001-夜入青云.md');
   });
 
   test('动作跟着一起回来了', () => {
@@ -167,11 +167,11 @@ describe('随会话往返一趟', () => {
   });
 
   test('展示快照也还在', () => {
-    assert.equal(reloaded.turns[0].artifact.summary, '细纲 · 1/3 节');
+    assert.equal(reloaded.turns[0].artifact.summary, '细纲 · 1/8 节');
   });
 
   test('装回内存后取得到', () => {
-    assert.equal(s.get('d1').summary, '细纲 · 1/3 节');
+    assert.equal(s.get('d1').summary, '细纲 · 1/8 节');
   });
 });
 
@@ -185,7 +185,7 @@ describe('正文草稿的写法与长度随会话往返', () => {
       makeDraft({
         id: 'm1',
         action: { stage: 'manuscript', capability: 'generate' },
-        target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/003-夜访.md' },
+        target: { kind: 'manuscript', plotRelPath: '.novelforge/summaries/003-夜访.md' },
         raw: '他推开了门。',
         writeMode: 'continue',
         length: { words: 2980, target: 3000, added: 1200, rounds: 2, reached: true },
@@ -220,7 +220,7 @@ describe('会话文件被手改坏', () => {
     session.turns.push({
       id: 't1', role: 'assistant', content: 'x', at: '2026-08-15T10:00:00.000Z',
       draftId: '这份草稿已经没了',
-      artifact: { where: '第 1 章 · 细纲', summary: '细纲 · 1/3 节', overwrites: false },
+      artifact: { where: '第 1 章 · 细纲', summary: '细纲 · 1/8 节', overwrites: false },
     });
     session.turns.push({
       id: 't2', role: 'assistant', content: 'y', at: '2026-08-15T10:01:00.000Z', draftId: 'd1',
@@ -260,7 +260,7 @@ describe('会话文件被手改坏', () => {
   // 草稿在不在已经与它无关了：写不写盘在产出的当下就问过了，气泡上没有
   // 任何能触发写入的按钮，也就没有「草稿过期了怎么办」这回事。
   test('展示快照留着', () => {
-    assert.equal(reloaded.turns[0].artifact.summary, '细纲 · 1/3 节');
+    assert.equal(reloaded.turns[0].artifact.summary, '细纲 · 1/8 节');
   });
 });
 

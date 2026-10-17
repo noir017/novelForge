@@ -89,18 +89,22 @@ const userOf = (i) => {
   return msgs[msgs.length - 1].content;
 };
 
+// 新合同：梗概 / 出场人物 / 时间地点 / 关键事件 / 看点 / 新增伏笔 / 状态变更（连续性事实定稿时才有）。
+// 章末钩子并进了看点，role 与 purpose 都没了。关键事件与定稿一样是一条一件事的数组（⚑B）。
 const bp = (no, over = {}) => ({
   chapterNumber: no,
   title: `第${no}章题`,
-  role: '铺垫',
-  purpose: `第 ${no} 章的目的`,
-  keyEvents: `第 ${no} 章的关键事件：林昭在两个场面上推进。`,
+  synopsis: `第 ${no} 章的梗概`,
   characters: ['林昭'],
-  suspenseHook: `第 ${no} 章的钩子`,
+  timePlace: '青云宗山门，入夜',
+  keyEvents: [`第 ${no} 章的关键事件：林昭在山门外踩点。`, '他翻墙进了后院，落在藏书阁门口。'],
+  highlights: [`第 ${no} 章的钩子`],
+  foreshadowing: [],
+  stateChange: '',
   ...over,
 });
 const batchOf = (...items) => JSON.stringify({ blueprints: items });
-const PLOT_T = (no) => ({ kind: 'plot', plotRelPath: `.novelforge/plots/${String(no).padStart(3, '0')}.md` });
+const PLOT_T = (no) => ({ kind: 'plot', plotRelPath: `.novelforge/summaries/${String(no).padStart(3, '0')}.md` });
 
 before(async () => {
   bundle = loadBundle({
@@ -324,9 +328,12 @@ describe('细纲批次 · 截断对半拆', () => {
     assert.ok(userOf(1).includes('第 1–2 章') && userOf(2).includes('第 3–5 章'), `${userOf(1).slice(-300)}\n${userOf(2).slice(-300)}`);
   });
 
-  // 后一半要接得上前一半——前一半还没落盘，前序细纲一览把它接在最后。
+  // 后一半要接得上前一半——前一半还没落盘，前序细纲一览把它接在最后；关键事件一章一行，条与条之间用「；」接。
   test('后一半看得见前一半刚排好的那两章', () => {
-    assert.ok(userOf(2).includes('第2章 第2章题（刚排好，还没写入文件）'), userOf(2).slice(0, 3000));
+    assert.ok(
+      userOf(2).includes('第2章 第2章题（刚排好，还没写入文件）：第 2 章的关键事件：林昭在山门外踩点。；他翻墙进了后院，落在藏书阁门口。'),
+      userOf(2).slice(0, 3000)
+    );
   });
 
   test('卡片：落点是第 1–5 章，列出会新建的角色卡与降级说明', () => {
@@ -335,12 +342,14 @@ describe('细纲批次 · 截断对半拆', () => {
     assert.ok(r.gate.detail.includes('被输出上限截断，拆成两半重试'), r.gate.detail);
   });
 
+  // 关键事件、看点都是一条一句的列表，落盘成 `- 一条` 一行，与定稿写出来的样子一致。
   test('五份细纲都落盘：标题进文件名，目标字数取配置的每章字数', async () => {
     const plots = await project.listPlots();
     assert.deepEqual(plots.map((p) => p.no), [1, 2, 3, 4, 5]);
-    assert.equal(plots[0].relPath, '.novelforge/plots/001-第1章题.md');
+    assert.equal(plots[0].relPath, '.novelforge/summaries/001-第1章题.md');
     assert.ok(plots.every((p) => p.targetWords === 400), JSON.stringify(plots.map((p) => p.targetWords)));
-    assert.equal(plots[2].sections.章末钩子, '第 3 章的钩子');
+    assert.equal(plots[2].sections.看点, '- 第 3 章的钩子');
+    assert.equal(plots[2].sections.关键事件, '- 第 3 章的关键事件：林昭在山门外踩点。\n- 他翻墙进了后院，落在藏书阁门口。');
   });
 
   test('新角色建了卡（D19），性别落在卡上', async () => {
@@ -398,7 +407,7 @@ describe('细纲批次 · 语法修复', () => {
 
   // 修复只许改标点——借机把关键事件改写一遍，就是一次没经过装配器的第二次生成。
   test('改了内容的修复拒收', async () => {
-    fake.reset([{ text: broken, stop: 'end' }, { text: batchOf(bp(6, { keyEvents: '改写过的事件' }), bp(7)), stop: 'end' }]);
+    fake.reset([{ text: broken, stop: 'end' }, { text: batchOf(bp(6, { keyEvents: ['改写过的事件'] }), bp(7)), stop: 'end' }]);
     const r = await send({ stage: 'plot', capability: 'generate', target: PLOT_T(6), range: { from: 6, to: 7 } });
     assert.equal(r.gate, undefined);
     assert.ok(r.errors.some((m) => m.includes('语法修复改动了细纲的内容')), r.errors.join('|'));
@@ -408,9 +417,10 @@ describe('细纲批次 · 语法修复', () => {
 describe('细纲批次 · 单章缺字段 → 紧凑重建', () => {
   let r;
 
+  // 梗概是必填的三个字段之一（另两个是 title、keyEvents）；看点、伏笔这类可以空着，空了不重建。
   before(async () => {
     fake.reset([
-      { text: batchOf(bp(6, { suspenseHook: '' })), stop: 'end' },
+      { text: batchOf(bp(6, { synopsis: '' })), stop: 'end' },
       { text: batchOf(bp(6)), stop: 'end' },
     ]);
     onGate = async () => 'skip';
@@ -419,11 +429,36 @@ describe('细纲批次 · 单章缺字段 → 紧凑重建', () => {
 
   test('重建那一次写明上次哪里不合格', () => {
     assert.equal(fake.callCount(), 2);
-    assert.ok(userOf(1).includes('blueprints[0].suspenseHook') && userOf(1).includes('必须且只能返回 chapterNumber=6 的一项'), userOf(1).slice(-600));
+    assert.ok(userOf(1).includes('blueprints[0].synopsis') && userOf(1).includes('必须且只能返回 chapterNumber=6 的一项'), userOf(1).slice(-600));
   });
 
   test('卡片上说出重建过', () => {
     assert.ok(r.gate.detail.includes('单章重建一次'), r.gate.detail);
+  });
+});
+
+// 关键事件是空数组：与缺梗概一样是必填项不合格，单章紧凑重建；重建时给成一段字（老合同的形状）照收。
+describe('细纲批次 · 关键事件空着 → 紧凑重建，一段字照收', () => {
+  let r;
+
+  before(async () => {
+    fake.reset([
+      { text: batchOf(bp(6, { keyEvents: [] })), stop: 'end' },
+      { text: batchOf(bp(6, { keyEvents: '林昭踩点；翻墙进了后院\n- 落在藏书阁门口' })), stop: 'end' },
+    ]);
+    onGate = async () => 'proceed';
+    r = await send({ stage: 'plot', capability: 'generate', target: PLOT_T(6), range: { from: 6, to: 6 } });
+  });
+
+  test('重建那一次写明是 keyEvents 空着', () => {
+    assert.equal(fake.callCount(), 2);
+    assert.ok(userOf(1).includes('blueprints[0].keyEvents') && userOf(1).includes('是空的'), userOf(1).slice(-600));
+    assert.ok(r.gate.detail.includes('单章重建一次'), r.gate.detail);
+  });
+
+  test('一段字按换行与分号切成条，落盘一条一行', async () => {
+    const plot = (await project.listPlots()).find((p) => p.no === 6);
+    assert.equal(plot?.sections.关键事件, '- 林昭踩点\n- 翻墙进了后院\n- 落在藏书阁门口', JSON.stringify(plot?.sections));
   });
 });
 

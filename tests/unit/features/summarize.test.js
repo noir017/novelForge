@@ -1,8 +1,9 @@
 /**
- * 摘要解析的三层降级：JSON → Markdown 小节 → 全文进梗概。
+ * 定稿解析的两层：JSON → Markdown 小节；两层都不中就什么都不收。
  * 迁自 scripts/smoke.js 的 `== summarize.ts · parseSummaryResponse ==` 一节。
  *
- * 这三层是硬约束：解析失败等于这一章的剧情永远进不了上下文。
+ * 能解析的一定要解析出来：解析失败等于这一章的连续性事实与出场人物进不了上下文。
+ * 解析不了的一个字都不收：定稿写回的是这一章的细纲，把没解析开的原文塞进去等于毁掉作者的计划。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -89,11 +90,19 @@ describe('summarize.ts · parseSummaryResponse', () => {
       assert.equal(loose.cast[1].name, '沈氏', JSON.stringify(loose.cast));
     });
 
-    // 语法合法但不相干的 JSON 不能被认成一份（空的）摘要——认下来就不会再降级，
-    // 结果是静默写出一份没有内容的摘要文件。降级后走小节解析，最终全文进梗概。
-    test('JSON：不相干的 JSON 不被当成摘要', () => {
+    // 语法合法但不相干的 JSON 不能被认成一份细纲：降级到小节解析也拿不到东西，八节全空，
+    // 定稿那一步据此报失败、细纲不动。
+    test('JSON：不相干的 JSON 不被当成细纲', () => {
       const irrelevant = sum.parseSummaryResponse('{"text":"模型答非所问"}');
-      assert.ok(irrelevant.sections.梗概.includes('模型答非所问'), irrelevant.sections.梗概);
+      assert.ok(Object.values(irrelevant.sections).every((v) => v === ''), JSON.stringify(irrelevant.sections));
+    });
+
+    // 真实模型试跑里撞上的：数组最后一项后面多一个逗号。JSON.parse 不认，自己去掉再解析。
+    test('JSON：尾逗号去掉再解析', () => {
+      const trailing = sum.parseSummaryResponse('{"梗概":"沈安回镇。","关键事件":["遇见云娘，",\n  "决定同行。",\n],"出场人物":[{"name":"沈安","aliases":[]},],}');
+      assert.equal(trailing.sections.梗概, '沈安回镇。');
+      assert.equal(trailing.sections.关键事件, '- 遇见云娘，\n- 决定同行。');
+      assert.equal(trailing.cast.length, 1, JSON.stringify(trailing.cast));
     });
 
     // 同上：模型把六小节写成 markdown 但外面裹了个 JSON 壳时，仍要拿到小节。
@@ -139,15 +148,13 @@ describe('summarize.ts · parseSummaryResponse', () => {
     });
   });
 
-  describe('第三层：全文进梗概', () => {
-    test('降级：完全无结构时全文进梗概', () => {
-      assert.equal(
-        sum.parseSummaryResponse('模型胡说了一通完全没有结构的内容。').sections.梗概,
-        '模型胡说了一通完全没有结构的内容。'
-      );
+  describe('两层都不中：什么都不收', () => {
+    test('完全无结构时八节全空（定稿报失败，细纲不动）', () => {
+      const none = sum.parseSummaryResponse('模型胡说了一通完全没有结构的内容。');
+      assert.ok(Object.values(none.sections).every((v) => v === ''), JSON.stringify(none.sections));
     });
 
-    test('降级：无结构时 cast 为空', () => {
+    test('无结构时 cast 为空', () => {
       assert.equal(sum.parseSummaryResponse('模型胡说了一通完全没有结构的内容。').cast.length, 0);
     });
 

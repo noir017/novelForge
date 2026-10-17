@@ -1,7 +1,7 @@
 {
   "name": "novel-forge",
   "displayName": "Novel Forge — 从脑洞到成书",
-  "description": "帮作者把一个脑洞逐层展开成一本完整的书：大纲 / 细纲 / 场景 / 正文四层流水线，分阶段上下文装配，摘要与角色卡整合。",
+  "description": "帮作者把一个脑洞逐层展开成一本完整的书：架构 / 大纲 / 细纲 / 正文逐层展开，分阶段装配上下文，定稿时照正文更新细纲、整合角色卡。",
   "version": "0.1.0",
   "publisher": "novel-forge",
   "license": "AGPL-3.0",
@@ -126,7 +126,7 @@
       },
       {
         "command": "novel.syncSummaries",
-        "title": "Novel: 同步所有过期摘要"
+        "title": "Novel: 照正文更新所有过期细纲"
       },
       {
         "command": "novel.rebuildGlobalSummary",
@@ -283,7 +283,7 @@
           "items": {
             "type": "string"
           },
-          "markdownDescription": "默认模型列表，按顺序，第一个是首选。格式为 `前缀/模型名`。工程页的摘要 / 角色卡 / 设定 / 文风任务串行时用第一个，失败会随机换用其余（见 `novel.fallbackAttempts`）；并发时在列表里轮转做负载均衡。分档后它是**所有未配置档位的兜底清单**（见 `novel.tierModels`）。留空则退化为 `novel.model` 单个模型。",
+          "markdownDescription": "默认模型列表，按顺序，第一个是首选。格式为 `前缀/模型名`。工程页的定稿 / 角色卡 / 设定 / 文风任务串行时用第一个，失败会随机换用其余（见 `novel.fallbackAttempts`）；并发时在列表里轮转做负载均衡。分档后它是**所有未配置档位的兜底清单**（见 `novel.tierModels`）。留空则退化为 `novel.model` 单个模型。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.tierModels": {
@@ -327,7 +327,7 @@
                 "balanced",
                 "quality"
               ],
-              "description": "单章摘要。默认 fast。"
+              "description": "定稿 · 照正文更新细纲。默认 fast。"
             },
             "globalSummaryStage": {
               "type": "string",
@@ -408,7 +408,7 @@
           "default": 3,
           "minimum": 1,
           "maximum": 16,
-          "markdownDescription": "工程页批量任务（同步摘要、重建全书摘要、批量更新角色卡、批量建卡、生成设定）的并发请求数。1 表示串行。调大能显著缩短等待，但更容易撞上服务商的限流（429）。",
+          "markdownDescription": "工程页批量任务（批量定稿、重建全书摘要、批量更新角色卡、批量建卡、生成设定）的并发请求数。1 表示串行。调大能显著缩短等待，但更容易撞上服务商的限流（429）。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.fallbackAttempts": {
@@ -424,7 +424,7 @@
           "default": 0.8,
           "minimum": 0,
           "maximum": 2,
-          "description": "采样温度。写小说建议 0.7 ~ 1.0。摘要类任务内部固定用 0.3。",
+          "description": "采样温度。写小说建议 0.7 ~ 1.0。定稿与全书摘要这类整理任务内部固定用 0.3。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.chaptersDir": {
@@ -443,7 +443,7 @@
           "type": "number",
           "default": 15,
           "minimum": 3,
-          "description": "重建全书摘要时，每批 reduce 多少章的单章摘要。",
+          "description": "重建全书摘要时，每批汇总多少章定稿过的细纲。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.requestTimeoutMs": {

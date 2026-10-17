@@ -32,9 +32,9 @@ const config = (extra = {}) => ({
   ...extra,
 });
 
-const PLOT2 = '.novelforge/plots/002-第2章.md';
+const PLOT2 = '.novelforge/summaries/002-第2章.md';
 const plotText = (no) =>
-  ['---', `no: ${no}`, `title: 第${no}章`, 'targetWords: 1200', '---', '', `# 第${no}章 第${no}章`, '', '## 本章目的', '', '往下查。', '', '## 关键事件', '', '林昭下井。', '', '## 章末钩子', '', '井底有人。', ''].join('\n');
+  ['---', `no: ${no}`, `title: 第${no}章`, 'targetWords: 1200', '---', '', `# 第${no}章 第${no}章`, '', '## 梗概', '', '往下查。', '', '## 出场人物', '', '林昭', '', '## 关键事件', '', '林昭下井。', '', '## 看点', '', '- 井底有人。', ''].join('\n');
 
 const BLOCK_HEAD = '【补充写作 Skill：';
 
@@ -54,7 +54,7 @@ before(async () => {
   home = makeTempDir('skillLayerHome');
   bundle.skills.setUserSkillsDir(home.rel('skills'));
   t = await makeTempProject(bundle.project, { prefix: 'skillLayer', title: '技能层测试' });
-  t.write('.novelforge/plots/001-第1章.md', plotText(1));
+  t.write('.novelforge/summaries/001-第1章.md', plotText(1));
   t.write(PLOT2, plotText(2));
   t.write('chapters/001-第1章.md', '# 第1章\n\n第一章的正文。\n');
   t.write('chapters/002-第2章.md', '# 第2章\n\n第二章已经写了一半。\n');

@@ -56,7 +56,7 @@ describe('章节条', { skip: JSDOM_SKIP }, () => {
 
   test('提示里写调用次数（与主按钮同一个数）', () => {
     assert.match(btn('continue').title, /预计 1–2 次调用，最多 9 次/);
-    // 四期：定稿 = 摘要 + 出场角色的当前状态（D17）；七期再加一次判叙事线。
+    // 定稿 = 照正文更新细纲 + 出场角色的当前状态（D17）+ 判叙事线（七期）。
     assert.match(btn('finalize').title, /预计 1–3 次调用/);
   });
 
@@ -71,7 +71,7 @@ describe('章节条', { skip: JSDOM_SKIP }, () => {
   });
 
   test('开着第 4 章的细纲（还没有正文）：认得出是哪一章，只亮「写这一章」', () => {
-    ui.post({ type: 'editorOpen', file: file('.novelforge/plots/004-北行.md', '# 第4章 北行') });
+    ui.post({ type: 'editorOpen', file: file('.novelforge/summaries/004-北行.md', '# 第4章 北行') });
     assert.equal(info(), '第 4 章《北行》 · 待写正文 · 还没有正文');
     assert.equal(btn('write').disabled, false);
     assert.equal(btn('continue').disabled, true);
@@ -81,7 +81,7 @@ describe('章节条', { skip: JSDOM_SKIP }, () => {
   });
 
   test('第 5 章细纲只是骨架：写这一章不亮，提示说先排细纲', () => {
-    ui.post({ type: 'editorOpen', file: file('.novelforge/plots/005-赤星.md', '# 第5章 赤星') });
+    ui.post({ type: 'editorOpen', file: file('.novelforge/summaries/005-赤星.md', '# 第5章 赤星') });
     assert.equal(btn('write').disabled, true);
     assert.match(btn('write').title, /先把这一章的细纲排好/);
   });
@@ -91,11 +91,11 @@ describe('章节条', { skip: JSDOM_SKIP }, () => {
     assert.equal(pair().textContent, '并排看细纲');
     ui.clickEl(pair());
     const open = ui.last('openEditor');
-    assert.deepEqual({ path: open.path, pane: open.pane }, { path: '.novelforge/plots/003-夜访.md', pane: 'draft' });
+    assert.deepEqual({ path: open.path, pane: open.pane }, { path: '.novelforge/summaries/003-夜访.md', pane: 'draft' });
   });
 
   test('细纲已经并排开着：不再给这颗按钮', () => {
-    ui.post({ type: 'editorOpen', file: file('.novelforge/plots/003-夜访.md', '# 第3章 夜访'), pane: 'draft' });
+    ui.post({ type: 'editorOpen', file: file('.novelforge/summaries/003-夜访.md', '# 第3章 夜访'), pane: 'draft' });
     ui.post({ type: 'editorOpen', file: file('chapters/003-夜访.md', '# 夜访\n\n正文') });
     assert.equal(pair(), null);
   });

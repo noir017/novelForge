@@ -129,7 +129,7 @@ function chapterNoOf(relPath: string): number | undefined {
  * 有逐项结果的动作额外推 filesOpDone，前端据此 remap 编辑器标签。
  *
  * **细纲单独分流**：它的文件名由章号与标题共同决定（改名只改标题，章号前缀
- * 由 `writePlot` 保留），而 `plots/` 根本不是三个可管理区之一，照走 fileOps 会被
+ * 由 `writePlot` 保留），而 `summaries/` 根本不是三个可管理区之一，照走 fileOps 会被
  * 区守卫直接拒掉（新建出来的细纲是纯序号名，第一次命名走的正是这条路）。
  */
 export async function fileAction(
@@ -164,7 +164,7 @@ export async function fileAction(
       }
       break;
     case 'move':
-      // 细纲没有「移动到…」：它平铺在 `plots/` 下，挪进子目录它就不在这条链上了。
+      // 细纲没有「移动到…」：它平铺在 `summaries/` 下，挪进子目录它就不在这条链上了。
       // 前端不给这一项，这里兜一层。
       if (relPath && !isPlot) {
         const to = await moveEntry(c.project, relPath, targetDir);

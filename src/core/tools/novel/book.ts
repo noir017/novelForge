@@ -17,7 +17,7 @@ export const bookTool = defineActionTool({
   name: 'book',
   summary:
     '拆书：作者有写好的稿子要接上来，或想学别人的书怎么写。txt 要先放在工程里。' +
-    '典型顺序：import 导入原稿 → derive 从已写正文补齐架构、大纲、细纲、摘要与角色卡。',
+    '典型顺序：import 导入原稿 → derive 从已写正文补齐细纲、角色卡、架构与大纲。',
 
   params: {
     path: str('工程里那本 txt 的相对路径。'),

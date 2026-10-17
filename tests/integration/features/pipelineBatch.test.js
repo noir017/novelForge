@@ -24,15 +24,17 @@ const { cleanup } = require('../../helpers/teardown');
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
 
-/** 模型交回的一章蓝图。标题故意和磁盘那份不一样。 */
+/** 模型交回的一章蓝图（细纲合同：八节里除连续性事实之外的字段）。标题故意和磁盘那份不一样。 */
 const bp = (no, over = {}) => ({
   chapterNumber: no,
   title: '模型起的名',
-  role: '铺垫',
-  purpose: '进入宗门',
-  keyEvents: '踩点、失手、翻墙；收在藏书阁门口。',
+  synopsis: '进入宗门',
   characters: ['林昭', '沈青'],
-  suspenseHook: '藏书阁里有人在等他',
+  timePlace: '入宗当夜，青云宗山门',
+  keyEvents: ['踩点、失手、翻墙', '收在藏书阁门口。'],
+  highlights: ['藏书阁里有人在等他'],
+  foreshadowing: [],
+  stateChange: '',
   ...over,
 });
 /** 按契约里写的区间应答：「chapterNumber 必须覆盖第 3–5 章的每一章」。 */
@@ -80,16 +82,14 @@ function configure(extra = {}) {
   h.answers.length = 0;
 }
 
-/** 建一章只有「本章目的」的骨架——还没排过（isPlotFilled 只看关键事件）。 */
+/** 建一章只有「梗概」的骨架——还没排过（isPlotFilled 只看关键事件）。 */
 async function skeleton(no, title, extra = {}) {
   return wsOf(project).writePlot({
     no,
     title,
-    role: '',
-    characters: [],
     upstreamHash: '',
     done: false,
-    sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: `第 ${no} 章要达成的事` },
+    sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: `第 ${no} 章要达成的事` },
     ...extra,
   });
 }
@@ -176,7 +176,7 @@ describe('批量拆细纲 · 前置检查', () => {
   });
 
   test('大纲为空时一章的细纲都没写', async () => {
-    const plot = await project.readPlot('.novelforge/plots/001-楔子.md');
+    const plot = await project.readPlot('.novelforge/summaries/001-楔子.md');
     assert.ok(!bundle.plotFile.isPlotFilled(plot.sections), JSON.stringify(plot.sections));
   });
 });
@@ -198,13 +198,11 @@ describe('批量拆细纲', () => {
     await wsOf(project).writePlot({
       no: 2,
       title: '入镇',
-      role: '',
-      characters: [],
       upstreamHash: '',
       done: false,
       sections: {
         ...bundle.plotFile.emptyPlotSections(),
-        本章目的: '进镇',
+        梗概: '进镇',
         关键事件: '这是作者手写的',
       },
     });
@@ -254,16 +252,32 @@ describe('批量拆细纲', () => {
     }
   });
 
-  test('细纲内容来自模型：三个字段对到三节', async () => {
-    const plot = await project.getPlot(1);
-    assert.equal(plot.sections.章末钩子, '藏书阁里有人在等他');
-    assert.equal(plot.sections.本章目的, '进入宗门');
+  test('细纲内容来自模型：synopsis 落进「梗概」', async () => {
+    assert.equal((await project.getPlot(1)).sections.梗概, '进入宗门');
   });
 
-  // 批量拆细纲改的是三个小节与规划字段，不该把作者起的名字、定的字数抹掉。
+  test('细纲内容来自模型：timePlace 落进「时间地点」', async () => {
+    assert.equal((await project.getPlot(1)).sections.时间地点, '入宗当夜，青云宗山门');
+  });
+
+  // 关键事件、看点、新增伏笔是一条一句的列表，落盘成 `- 一条` 一行，与定稿写出来的样子一致。
+  test('细纲内容来自模型：keyEvents 落进「关键事件」，一条一行', async () => {
+    assert.equal((await project.getPlot(1)).sections.关键事件, '- 踩点、失手、翻墙\n- 收在藏书阁门口。');
+  });
+
+  test('细纲内容来自模型：highlights 落进「看点」，一条一行', async () => {
+    assert.equal((await project.getPlot(1)).sections.看点, '- 藏书阁里有人在等他');
+  });
+
+  // 连续性事实要回正文定位证据，计划时没有正文，空着。
+  test('连续性事实空着：定稿时才从正文里摘', async () => {
+    assert.equal((await project.getPlot(1)).sections.连续性事实, '');
+  });
+
+  // 批量拆细纲改的是八节与规划字段，不该把作者起的名字、定的字数抹掉。
   test('标题沿用磁盘那份，文件名不变', () => {
-    assert.ok(t.has('.novelforge/plots/001-楔子.md'));
-    assert.ok(!t.has('.novelforge/plots/001-模型起的名.md'));
+    assert.ok(t.has('.novelforge/summaries/001-楔子.md'));
+    assert.ok(!t.has('.novelforge/summaries/001-模型起的名.md'));
   });
 
   test('作者定的目标字数原样留着', async () => {
@@ -271,17 +285,20 @@ describe('批量拆细纲', () => {
     assert.equal((await project.getPlot(3)).targetWords, 3000);
   });
 
-  test('结构功能与计划出场收下', async () => {
-    const plot = await project.getPlot(1);
-    assert.equal(plot.role, '铺垫');
-    assert.deepEqual(plot.characters, ['林昭', '沈青']);
+  // 计划出场写在「出场人物」一节（一行，顿号隔开）；没定稿，characters 从这一节读出来。
+  test('计划出场写进「出场人物」一节', async () => {
+    assert.equal((await project.getPlot(1)).sections.出场人物, '林昭、沈青');
+  });
+
+  test('没定稿的细纲，characters 就是计划出场', async () => {
+    assert.deepEqual((await project.getPlot(1)).characters, ['林昭', '沈青']);
   });
 
   // 只补不改：手写的那一份一个字都不能动。
   test('手写的细纲原样保留', () => {
     assert.ok(
-      t.read('.novelforge/plots/002-入镇.md').includes('这是作者手写的'),
-      t.read('.novelforge/plots/002-入镇.md').slice(0, 300)
+      t.read('.novelforge/summaries/002-入镇.md').includes('这是作者手写的'),
+      t.read('.novelforge/summaries/002-入镇.md').slice(0, 300)
     );
   });
 
@@ -308,12 +325,17 @@ describe('批量拆细纲', () => {
     assert.ok(!users[0].includes('# 前文正文'), users[0].slice(0, 200));
   });
 
-  // 契约是蓝图合同（purpose / keyEvents / suspenseHook 对到 D3 三节）；从前那条
+  // 契约是蓝图合同：字段对到细纲的八节（连续性事实除外，定稿时才有）。从前那条
   // 「不写画面台词」的禁令删掉了——关键事件可以写到具体场面。
-  test('细纲契约是蓝图合同的三个正文字段', () => {
-    for (const key of ['purpose', 'keyEvents', 'suspenseHook']) {
+  test('细纲契约是蓝图合同：字段对到细纲的七节', () => {
+    for (const key of ['synopsis', 'characters', 'timePlace', 'keyEvents', 'highlights', 'foreshadowing', 'stateChange']) {
       assert.ok(users[0].includes(key), `契约里没有 ${key}：${users[0].slice(-600)}`);
     }
+  });
+
+  // 目的并进了梗概、章末钩子并进了看点，合同里不再单列。
+  test('细纲契约不再要 purpose / suspenseHook', () => {
+    assert.ok(!/purpose|suspenseHook/.test(users[0]), users[0].slice(-600));
   });
 
   test('细纲契约不再要老四节', () => {
@@ -375,7 +397,7 @@ describe('批量拆细纲 · 一批失败就停', () => {
   });
 
   test('失败挂在那一批第一章的细纲上', () => {
-    assert.ok(!!failures['.novelforge/plots/006.md'], JSON.stringify(Object.keys(failures)));
+    assert.ok(!!failures['.novelforge/summaries/006.md'], JSON.stringify(Object.keys(failures)));
   });
 
   test('toast 说清停在哪', () => {
@@ -396,12 +418,12 @@ describe('用户取消', () => {
     // answers 空着 = 用户点了 ×。
     await bundle.batch.generatePlots(project);
     callCount = fake.calls.length;
-    const plot = await project.readPlot('.novelforge/plots/001-楔子.md');
+    const plot = await project.readPlot('.novelforge/summaries/001-楔子.md');
     stillSkeleton = !bundle.plotFile.isPlotFilled(plot.sections);
 
     // 写正文那一条同样：取消 = 一次都不调。
     await wsOf(project).writePlot({
-      no: 6, title: '雪夜', role: '', characters: [], upstreamHash: '', done: false,
+      no: 6, title: '雪夜', upstreamHash: '', done: false,
       sections: { ...bundle.plotFile.emptyPlotSections(), 关键事件: '雪下了一夜。' },
     });
     configure();

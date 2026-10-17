@@ -4,7 +4,7 @@
  * | 断言 | 为什么 |
  * |---|---|
  * | 近章全文 0 / 1 / 2 / 3 章 | 级别越高带得越多，这是开关的全部意思 |
- * | 「精简」只带最近 5 章摘要，更早的合成**一条** dropped，说明写级别 | 第 2 条：不静默截断；也不拿九十几行「不带」淹掉明细 |
+ * | 「精简」只带最近 5 章细纲，更早的合成**一条** dropped，说明写级别 | 第 2 条：不静默截断；也不拿九十几行「不带」淹掉明细 |
  * | 没写级别（老配置、手写的测试配置）= 「详细」 | 缺省第 3 级，与从前一样 |
  * | 「精简」不带定稿原文片段，出一条说明 | 第 2 条 |
  * | 「精简」上一章结尾不超过 1000 字、角色卡只带要点、叙事线 3 条 | 每一项都按级别 |
@@ -36,7 +36,7 @@ const config = (extra = {}) => ({
 
 const pad3 = (n) => String(n).padStart(3, '0');
 const CH = (no) => `chapters/${pad3(no)}-第${no}章.md`;
-const PLOT = (no) => `.novelforge/plots/${pad3(no)}-第${no}章.md`;
+const PLOT = (no) => `.novelforge/summaries/${pad3(no)}-第${no}章.md`;
 
 /** 一章约 2000 字，十来段：上一章结尾要真被截。 */
 function chapterText(no) {
@@ -50,28 +50,32 @@ function chapterText(no) {
   ].join('\n');
 }
 
+/** 一份还没定稿的细纲（计划）。 */
 function plotText(no) {
   return [
     '---',
     `no: ${no}`,
     `title: 第${no}章`,
-    'characters: [林昭]',
     'targetWords: 1200',
     '---',
     '',
     `# 第${no}章 第${no}章`,
     '',
-    '## 本章目的',
+    '## 梗概',
     '',
     '往下查。',
+    '',
+    '## 出场人物',
+    '',
+    '林昭',
     '',
     '## 关键事件',
     '',
     `林昭在第${no}章去井边。`,
     '',
-    '## 章末钩子',
+    '## 看点',
     '',
-    '井底有人。',
+    '- 井底有人。',
     '',
   ].join('\n');
 }
@@ -101,7 +105,7 @@ before(() => {
   bundle.host.initHost(makeFakeHost().host);
 });
 
-/** 第 1..12 章正文都写了、都定稿了；第 13 章排好细纲。 */
+/** 第 1..12 章正文都写了、细纲都定稿了（sourceHash 对得上）；第 13 章的细纲还是计划。 */
 async function setupManuscript() {
   const t = await makeTempProject(bundle.project, { prefix: 'contextDetail', title: '详细度测试' });
   for (let no = 1; no <= N; no++) {
@@ -119,7 +123,7 @@ async function setupManuscript() {
     const ch = chapters.find((c) => c.order === no);
     t.write(
       `.novelforge/summaries/${pad3(no)}-第${no}章.md`,
-      `---\nchapter: ${no}\nsourceHash: ${ch.contentHash}\ncast: [林昭]\n---\n\n# 第${no}章 · 摘要\n\n## 梗概\n\n第${no}章的事。\n\n## 出场人物\n\n林昭\n\n## 连续性事实\n\n- 林昭收起第${no}块令牌 〔证据：「林昭在第${no}章把第${no}块令牌塞进怀里。」〕\n`
+      `---\nno: ${no}\ntitle: 第${no}章\nsourceHash: ${ch.contentHash}\ncast: [林昭]\n---\n\n# 第${no}章 第${no}章\n\n## 梗概\n\n第${no}章的事。\n\n## 出场人物\n\n林昭\n\n## 连续性事实\n\n- 林昭收起第${no}块令牌 〔证据：「林昭在第${no}章把第${no}块令牌塞进怀里。」〕\n`
     );
   }
   t.project.invalidate();
@@ -166,7 +170,7 @@ describe('上下文详细度 · 写第 13 章（前 12 章都定稿了）', () =
     assert.ok(used[0] < used[1] && used[1] < used[2] && used[2] < used[3], used.join(' < '));
   });
 
-  test('「精简」只带最近 5 章摘要，更早的合成一条 dropped', () => {
+  test('「精简」只带最近 5 章细纲，更早的合成一条 dropped', () => {
     const b = built[1];
     assert.deepEqual(
       live(b, 'plotSummary').map((i) => i.id).sort(),
@@ -175,8 +179,8 @@ describe('上下文详细度 · 写第 13 章（前 12 章都定稿了）', () =
     const beyond = b.items.filter((i) => i.id === 'plotSummary:beyond');
     assert.equal(beyond.length, 1);
     assert.equal(beyond[0].status, 'dropped');
-    assert.equal(beyond[0].label, '第 1–7 章 · 摘要');
-    assert.match(beyond[0].note, /上下文详细度「精简」只带最近 5 章的摘要，更早的 7 章不带/);
+    assert.equal(beyond[0].label, '第 1–7 章 · 细纲');
+    assert.match(beyond[0].note, /上下文详细度「精简」只带最近 5 章的细纲，更早的 7 章不带/);
     assert.ok(!b.items.some((i) => /^plotSummary:[1-7]$/.test(i.id)), '封顶之外的不一章一条');
   });
 
@@ -289,7 +293,7 @@ describe('上下文详细度 · 细纲阶段（第 36 章，前面 35 章、后�
   const neighbours = (b) =>
     b.items
       .filter((i) => i.kind === 'plot' && i.status === 'included')
-      .map((i) => Number(/plots\/(\d+)/.exec(i.id)?.[1]))
+      .map((i) => Number(/summaries\/(\d+)/.exec(i.id)?.[1]))
       .filter((no) => no !== 36);
 
   test('前后几章细纲：「精简」1 / 1，「详细」3 / 1，「完整」5 / 2', () => {

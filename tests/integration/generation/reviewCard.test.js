@@ -33,9 +33,9 @@ let gates = [];
 let gateAnswer = 'proceed';
 let script = [];
 
-const P2 = '.novelforge/plots/002-客栈.md';
-const P3 = '.novelforge/plots/003-夜访.md';
-const P4 = '.novelforge/plots/004-井.md';
+const P2 = '.novelforge/summaries/002-客栈.md';
+const P3 = '.novelforge/summaries/003-夜访.md';
+const P4 = '.novelforge/summaries/004-井.md';
 
 const CH2 = [
   '雨下了一整夜。林昭推开客栈的门，檐下的灯笼被风吹得直晃。',
@@ -91,11 +91,18 @@ async function reviewChapter2() {
   return lastAssistant();
 }
 
+/** 写一份还没定稿的细纲：计划出场写在「出场人物」一节里，预检照它查谁已经死了。 */
 async function writePlot(ws, no, title, characters, extra = {}) {
   const empty = bundle.plotFile.emptyPlotSections();
   await ws.writePlot({
-    no, title, role: '', characters, targetWords: 800, upstreamHash: '', done: false,
-    sections: { ...empty, 本章目的: `第 ${no} 章的目的`, 关键事件: extra.events ?? `第 ${no} 章的关键事件`, 章末钩子: `第 ${no} 章的钩子` },
+    no, title, targetWords: 800, upstreamHash: '', done: false,
+    sections: {
+      ...empty,
+      梗概: `第 ${no} 章的梗概`,
+      出场人物: characters.join('、'),
+      关键事件: extra.events ?? `第 ${no} 章的关键事件`,
+      看点: `- 第 ${no} 章的看点`,
+    },
   });
 }
 

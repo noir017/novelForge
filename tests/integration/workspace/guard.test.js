@@ -104,8 +104,9 @@ describe('守卫 3 · 固定目录保护', () => {
     'chapters',
     'drafts',
     '.novelforge',
+    // 场景、卷、中转站三层删掉了，细纲也从 plots/ 搬进了 summaries/；代码不再读那几个目录，
+    // 但老工程磁盘上的它们是作者的文件（D11），不能被整棵搬走或删掉。
     '.novelforge/plots',
-    // 场景、卷、中转站三层删掉了，但老工程磁盘上那几个目录是作者的文件（D11）。
     '.novelforge/scenes',
     '.novelforge/volumes',
     '.novelforge/manuscripts',
@@ -220,7 +221,7 @@ describe('守卫 7 · 覆盖前审阅', () => {
     const withReview = makeFakeHost({ settings: () => ({}) });
     bundle.host.initHost(withReview.host);
     withReview.expect();
-    const { ok } = await G.reviewOverwrite('第 12 章的细纲', '.novelforge/plots/012.md', '旧', '新');
+    const { ok } = await G.reviewOverwrite('第 12 章的细纲', '.novelforge/summaries/012.md', '旧', '新');
     assert.equal(ok, true);
     assert.equal(withReview.reviewed.length, 1, JSON.stringify(withReview.reviewed));
     // 网关的覆盖审阅请求合并：独立版的合并视图可以交回作者挑过的那一份（五期 W11）。
@@ -233,8 +234,8 @@ describe('守卫 7 · 覆盖前审阅', () => {
   test('把落点路径交给 reviewReplace', async () => {
     const withReview = makeFakeHost({ settings: () => ({}) });
     bundle.host.initHost(withReview.host);
-    await G.reviewOverwrite('第 12 章的细纲', '.novelforge/plots/012.md', '旧', '新');
-    assert.equal(withReview.reviewed[0]?.relPath, '.novelforge/plots/012.md', JSON.stringify(withReview.reviewed));
+    await G.reviewOverwrite('第 12 章的细纲', '.novelforge/summaries/012.md', '旧', '新');
+    assert.equal(withReview.reviewed[0]?.relPath, '.novelforge/summaries/012.md', JSON.stringify(withReview.reviewed));
     bundle.host.initHost(h.host);
   });
 
@@ -242,7 +243,7 @@ describe('守卫 7 · 覆盖前审阅', () => {
     const withReview = makeFakeHost({ settings: () => ({}) });
     withReview.setReviewVerdict('discard');
     bundle.host.initHost(withReview.host);
-    const { ok } = await G.reviewOverwrite('第 12 章的细纲', '.novelforge/plots/012.md', '旧', '新');
+    const { ok } = await G.reviewOverwrite('第 12 章的细纲', '.novelforge/summaries/012.md', '旧', '新');
     assert.equal(ok, false);
     bundle.host.initHost(h.host);
   });

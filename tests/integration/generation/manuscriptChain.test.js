@@ -12,10 +12,11 @@
  * | 主按钮的顺序 | 第 20 条：写完一章先推定稿（D17、D23），定稿完转去下一章 |
  * | 写正文那几步的提示报「最多 8 次」 | D16：续写算进调用次数，动手之前写明 |
  * | 第 1 章用黄金第一章法则、后续章用连载法则 | 两套提示词（PT:720-855） |
- * | 第 2 章的装配：上一章结尾不许重演、后几章作边界、执行卡带钩子、全局要求 | 总计划 §2.3 |
+ * | 第 2 章的装配：上一章结尾不许重演、后几章作边界、执行卡重列关键事件、全局要求 | 总计划 §2.3 |
  * | 第 2 章被截断，自动续写一轮 | §2.4 |
  * | 第 3 章开头重演了第 2 章结尾：卡片标红、写入要点两下 | §2.4：不替作者拒收 |
- * | 一共调了几次 | 第 4 条：二期 7 次 + 1 + 2 + 2 + 2 + 1 = 15（定稿是摘要 + 角色状态两次） |
+ * | 一共调了几次 | 第 4 条：二期 7 次 + 1 + 2 + 2 + 2 + 1 = 15（定稿是更新细纲 + 角色状态两次） |
+ * | 定稿把同一份细纲照正文更新了 | 细纲并进摘要：定稿记 sourceHash、刷新 writtenFrom，不另存一份摘要 |
  * | 一张覆盖审阅都没弹 | 新章都是新建，没有东西可吞 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -78,6 +79,7 @@ const OUTLINE = [
 
 const TITLES = ['停舟', '令牌', '夜访', '井', '名册'];
 
+/** 定稿那一次的应答：照正文更新过的细纲（八个中文键，与从前的摘要 JSON 同一份）。 */
 const SUMMARY_JSON = (no) =>
   JSON.stringify({
     梗概: `第 ${no} 章：林昭在镇上又往前查了一步。`,
@@ -88,7 +90,7 @@ const SUMMARY_JSON = (no) =>
     状态变更: '林昭离真相近了一步。',
   });
 
-/** 每一章正文的脚本（按执行卡里的钩子认是第几章）。 */
+/** 每一章正文的脚本（按执行卡里重列的关键事件认是第几章）。 */
 function manuscript(no) {
   if (no === 1) {
     return { text: filler(900, 101), stop: 'end' };
@@ -107,7 +109,8 @@ function reply(messages) {
   const system = messages[0]?.content ?? '';
   const user = messages[messages.length - 1].content;
   if (system.includes('建立可检索的章节档案')) {
-    const no = Number(/第 (\d+) 章/.exec(user)?.[1] ?? 0);
+    // 定稿的 user 消息先给当前细纲再给正文，两块的块头都是「【第N章 标题 · …】」。
+    const no = Number(/【第(\d+)章 /.exec(user)?.[1] ?? 0);
     return SUMMARY_JSON(no);
   }
   if (system.includes('依据本章正文更新角色的「当前状态」')) {
@@ -116,9 +119,9 @@ function reply(messages) {
   if (user.includes('请无缝续写当前章节正文')) {
     return { text: filler(500, 202), stop: 'end' };
   }
-  const hook = /- 章节钩子：第 (\d+) 章结尾/.exec(user);
-  if (hook && (user.includes('黄金第一章') || user.includes('连载更新核心法则'))) {
-    return manuscript(Number(hook[1]));
+  const card = /- 必需事件：\n {2}- 第 (\d+) 章：/.exec(user);
+  if (card && (user.includes('黄金第一章') || user.includes('连载更新核心法则'))) {
+    return manuscript(Number(card[1]));
   }
   if (user.includes('【JSON 字段结构】')) return CONFIG_JSON;
   if (user.includes('【冻结身份与关系清单】')) {
@@ -141,11 +144,14 @@ function reply(messages) {
       blueprints.push({
         chapterNumber: no,
         title: TITLES[no - 1] ?? `第${no}章`,
-        role: no === 3 ? '小高潮' : '铺垫',
-        purpose: `第 ${no} 章林昭要弄清的一件事`,
-        keyEvents: `第 ${no} 章：林昭在镇上的两个场面里推进，残令照见一幕，付出代价。`,
+        synopsis: `第 ${no} 章林昭要弄清的一件事。`,
         characters: ['林昭', '沈氏'],
-        suspenseHook: `第 ${no} 章结尾：又一个持令人不见了。`,
+        timePlace: '青崖镇，夜。',
+        // 关键事件与定稿一样是一条一件事的数组（⚑B）；执行卡里多条缩进列在「必需事件」下面。
+        keyEvents: [`第 ${no} 章：林昭在镇上的两个场面里推进，残令照见一幕。`, '他为此付出代价。'],
+        highlights: [`第 ${no} 章结尾：又一个持令人不见了。`],
+        foreshadowing: [],
+        stateChange: '林昭离真相近了一步。',
       });
     }
     return JSON.stringify({ blueprints });
@@ -204,11 +210,11 @@ async function press(step) {
 
 /** 第 i 次调用的 user 消息。 */
 const userOf = (i) => fake.calls[i][fake.calls[i].length - 1].content;
-/** 第一次调用里认得出是第几章正文的那一次（按执行卡的钩子）。 */
+/** 第一次调用里认得出是第几章正文的那一次（按执行卡重列的关键事件）。 */
 const firstWriteCallOf = (no) =>
   fake.calls.findIndex((c) => {
     const u = c[c.length - 1].content;
-    return u.includes(`- 章节钩子：第 ${no} 章结尾`) && !u.includes('请无缝续写当前章节正文');
+    return u.includes(`- 必需事件：\n  - 第 ${no} 章：`) && !u.includes('请无缝续写当前章节正文');
   });
 
 describe('三期验收：一句话 → 写完前 3 章', () => {
@@ -224,7 +230,7 @@ describe('三期验收：一句话 → 写完前 3 章', () => {
       provider: './src/core/llm/provider.ts',
       controller: './src/core/controller/index.ts',
       pipelineModel: './src/core/model/pipeline.ts',
-      pipe: './src/core/views/pipeline.ts',
+      plotFile: './src/core/model/plotFile.ts',
       db: './src/core/runtime/db.ts',
     });
     const settings = {
@@ -280,7 +286,7 @@ describe('三期验收：一句话 → 写完前 3 章', () => {
   });
 
   // 第 4 条：二期 7 次 + 第 1 章 1 + 定稿 2 + 第 2 章 2（截断续写一轮）+ 定稿 2 + 第 3 章 1。
-  // 定稿两次：摘要一次，林昭有角色卡、再更新一次角色状态（四期，D17）。
+  // 定稿两次：照正文更新细纲一次，林昭有角色卡、再更新一次角色状态（四期，D17）。
   test('一共调了 15 次模型', () => {
     assert.equal(fake.callCount(), 15);
   });
@@ -311,14 +317,33 @@ describe('三期验收：一句话 → 写完前 3 章', () => {
     assert.ok(!u.includes('# 上一章结尾原文'));
   });
 
-  test('第 2 章的装配：上一章结尾不许重演、后几章作边界、执行卡带钩子、全局要求', () => {
+  test('第 2 章用连载法则', () => {
+    assert.match(userOf(firstWriteCallOf(2)), /【网文连载更新核心法则】/);
+  });
+
+  test('第 2 章的装配：上一章结尾只作边界，不许重演', () => {
     const u = userOf(firstWriteCallOf(2));
-    assert.match(u, /【网文连载更新核心法则】/);
     assert.ok(u.includes('# 上一章结尾原文（只作边界，不可重演）') || u.includes('不要重演它的结尾'), u.slice(0, 600));
+  });
+
+  test('第 2 章的装配：后几章的细纲作边界', () => {
+    const u = userOf(firstWriteCallOf(2));
     const boundary = u.slice(u.indexOf('# 后续章节预告'));
     assert.ok(['第3章', '第4章', '第5章'].every((x) => boundary.includes(x)), boundary.slice(0, 400));
-    assert.match(u, /- 章节钩子：第 2 章结尾：又一个持令人不见了。/);
-    assert.match(u, /# 全局要求（每一章都要遵守）[\s\S]*不写上帝视角/);
+  });
+
+  test('第 2 章的执行卡按原来的顺序一条一项重列本章细纲的关键事件', () => {
+    const u = userOf(firstWriteCallOf(2));
+    assert.ok(u.includes('- 必需事件：\n  - 第 2 章：林昭在镇上的两个场面里推进，残令照见一幕。\n  - 他为此付出代价。\n'), u.slice(-800));
+  });
+
+  // 章末钩子并进了「看点」：看点里爽点与章末悬念混在一起，不是一件件到期的动作，执行卡不重列它。
+  test('第 2 章的执行卡不再单列章节钩子', () => {
+    assert.doesNotMatch(userOf(firstWriteCallOf(2)), /- 章节钩子：/);
+  });
+
+  test('第 2 章的装配带着全局要求', () => {
+    assert.match(userOf(firstWriteCallOf(2)), /# 全局要求（每一章都要遵守）[\s\S]*不写上帝视角/);
   });
 
   test('第 2 章的装配里带着第 1 章（前文）', () => {
@@ -326,16 +351,32 @@ describe('三期验收：一句话 → 写完前 3 章', () => {
     assert.ok(u.includes('第 1 章《停舟》'), u.slice(0, 800));
   });
 
-  test('定稿写了摘要，细纲上记了 writtenFrom', async () => {
+  // 细纲并进摘要之后不另存一份单章摘要：定稿就是把同一份细纲照正文改写，记下正文的指纹。
+  test('第 1、2 章定稿过：细纲的 sourceHash 对得上正文', async () => {
     const chapters = await project.listChapters();
-    for (const ch of chapters.slice(0, 2)) {
-      const summary = await project.readSummary(ch.relPath);
-      assert.ok(summary?.content.includes('林昭'), ch.relPath);
-    }
-    for (const no of [1, 2, 3]) {
-      const plot = await project.getPlot(no);
-      assert.equal(plot.writtenFrom, bundle.pipe.plotContentHash(plot), `第 ${no} 章`);
-    }
+    const finalized = await Promise.all(chapters.map((ch) => project.finalizedPlotOf(ch)));
+    assert.deepEqual(finalized.map((p) => p?.no), [1, 2, undefined]);
+  });
+
+  test('定稿后的细纲换成了模型照正文更新的那一份', async () => {
+    const plots = await Promise.all([1, 2].map((no) => project.getPlot(no)));
+    assert.deepEqual(
+      plots.map((p) => p.sections.梗概),
+      ['第 1 章：林昭在镇上又往前查了一步。', '第 2 章：林昭在镇上又往前查了一步。']
+    );
+  });
+
+  test('第 3 章写完还没定稿：细纲仍是计划，没有 sourceHash', async () => {
+    assert.equal((await project.getPlot(3)).sourceHash, '');
+  });
+
+  // writtenFrom：第 1、2 章定稿时刷成更新后的内容指纹，第 3 章是正文落盘时记的——三章都不挂 ⟳。
+  test('三章细纲的 writtenFrom 都对得上内容指纹', async () => {
+    const plots = await Promise.all([1, 2, 3].map((no) => project.getPlot(no)));
+    assert.deepEqual(
+      plots.map((p) => p.writtenFrom),
+      plots.map((p) => bundle.plotFile.plotContentHash(p))
+    );
   });
 
   test('一张覆盖审阅都没弹', () => {

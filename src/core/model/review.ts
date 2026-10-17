@@ -76,12 +76,11 @@ export const GOAL_STATUS_LABEL: Record<GoalStatus, string> = {
 };
 
 /**
- * 冻结的一项目标。`hook` 是章末钩子——D3 里它是必填的，执行卡也重列它，所以单列成
- * 最后一项（⚑ 上游只冻结 keyEvents）。
+ * 冻结的一项目标：本章细纲「关键事件」里的一条（与上游一样只冻结 keyEvents）。从前细纲单列的
+ * 「章末钩子」也冻结成最后一项；它并进「看点」之后，看点里还有爽点，不是一件件到期的动作，不冻结。
  */
 export interface FrozenGoal {
   id: string;
-  kind: 'event' | 'hook';
   text: string;
 }
 
@@ -133,28 +132,23 @@ export const MIN_QUOTE_CHARS = 4;
  * 「only explicit list boundaries are split; prose is not semantically rewritten」）。
  * 一整段写成的关键事件就是一项，模型在判断里逐个列子动作。
  *
- * id 从 `g1` 起按顺序编，章末钩子排最后。
+ * id 从 `g1` 起按顺序编。
  */
-export function freezeGoals(keyEvents: string, hook: string): FrozenGoal[] {
-  const events = (keyEvents ?? '')
+export function freezeGoals(keyEvents: string): FrozenGoal[] {
+  return (keyEvents ?? '')
     .split(/\r?\n|[；;]/u)
     .map((t) => t.replace(/^\s*(?:[-*•·]|\d+[.)、．])\s*/u, '').trim())
-    .filter((t) => t && !isPlaceholder(t));
-  const goals: FrozenGoal[] = events.map((text, i) => ({ id: `g${i + 1}`, kind: 'event', text }));
-  const h = (hook ?? '').trim();
-  if (h && !isPlaceholder(h)) {
-    goals.push({ id: `g${goals.length + 1}`, kind: 'hook', text: h });
-  }
-  return goals;
+    .filter((t) => t && !isPlaceholder(t))
+    .map((text, i) => ({ id: `g${i + 1}`, text }));
 }
 
 function isPlaceholder(text: string): boolean {
   return /^[（(]待补充[）)]$/u.test(text.trim());
 }
 
-/** 交给模型的冻结清单（JSON）。章末钩子带上说法，模型才知道它要判的是「收在这里了没有」。 */
+/** 交给模型的冻结清单（JSON）。 */
 export function frozenGoalsJson(goals: readonly FrozenGoal[]): string {
-  return JSON.stringify(goals.map((g) => ({ id: g.id, text: g.kind === 'hook' ? `章末钩子：${g.text}` : g.text })));
+  return JSON.stringify(goals.map((g) => ({ id: g.id, text: g.text })));
 }
 
 // ---------------------------------------------------------------- 引文
@@ -539,7 +533,7 @@ export function renderRevisionBrief(report: ReviewReport, picks: readonly string
   for (const goal of report.goals) {
     if (chosen.has(goal.id) && goal.status !== 'completed') {
       n++;
-      const head = goal.kind === 'hook' ? `章末钩子：${goal.text}` : `关键事件：${goal.text}`;
+      const head = `关键事件：${goal.text}`;
       const quote = goal.quotes.length > 0 ? `\n   相关原文：${goal.quotes.join(' / ')}` : '';
       lines.push(`${n}. [本章目标 / ${GOAL_STATUS_LABEL[goal.status]}] ${head}\n   判断：${goal.judgment}${quote}`);
     }
@@ -564,7 +558,7 @@ export function describePicks(report: ReviewReport, picks: readonly string[]): s
     ...report.issues.filter((i) => chosen.has(i.id)).map((i) => `[${SEVERITY_LABEL[i.severity]}] ${i.category}：${i.description}`),
     ...report.goals
       .filter((g) => chosen.has(g.id) && g.status !== 'completed')
-      .map((g) => `[${GOAL_STATUS_LABEL[g.status]}] ${g.kind === 'hook' ? '章末钩子' : '关键事件'}：${g.text}`),
+      .map((g) => `[${GOAL_STATUS_LABEL[g.status]}] 关键事件：${g.text}`),
   ];
 }
 
@@ -710,7 +704,7 @@ export function renderReport(report: ReviewReport): string {
   if (report.goals.length > 0) {
     lines.push('', '## 本章目标');
     for (const g of report.goals) {
-      lines.push(`- ${GOAL_STATUS_LABEL[g.status]}｜${g.kind === 'hook' ? '章末钩子' : '关键事件'}：${g.text}`, `  ${g.judgment}`);
+      lines.push(`- ${GOAL_STATUS_LABEL[g.status]}｜关键事件：${g.text}`, `  ${g.judgment}`);
       for (const q of g.quotes) {
         lines.push(`  > ${q}`);
       }
@@ -785,7 +779,6 @@ export function normalizeReport(raw: unknown): ReviewReport | undefined {
       .filter((g) => str(g.id))
       .map((g) => ({
         id: str(g.id),
-        kind: g.kind === 'hook' ? ('hook' as const) : ('event' as const),
         text: str(g.text),
         status: status(g.status),
         judgment: str(g.judgment),

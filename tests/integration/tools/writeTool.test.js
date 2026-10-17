@@ -14,6 +14,9 @@
  *
  * 顺带钉住一期下沉到写入路径上的记账：细纲的 `upstreamHash` 记的是**大纲里覆盖
  * 本章那一节**的指纹，不是全书大纲的——续写后面一段大纲不该让前面的细纲挂 ⟳。
+ *
+ * 细纲在 `.novelforge/summaries/NNN-标题.md`（与单章摘要并成了一份，八节）；老工程的
+ * `plots/` 不再是细纲，细纲草稿写不进去。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -31,8 +34,8 @@ let ctx;
 let drafts;
 let reports;
 
-const PLOT_REL = '.novelforge/plots/001-夜入青云.md';
-const PLOT2_REL = '.novelforge/plots/002-藏书阁.md';
+const PLOT_REL = '.novelforge/summaries/001-夜入青云.md';
+const PLOT2_REL = '.novelforge/summaries/002-藏书阁.md';
 const CHAPTER_REL = 'chapters/003-雪夜.md';
 /** 两节的大纲：第 1 章落在前一节里。 */
 const OUTLINE = '# 大纲\n\n## 第1–20章：入宗\n\n林昭入宗。\n\n## 第21–40章：下山\n\n林昭下山。\n';
@@ -40,15 +43,18 @@ const OUTLINE = '# 大纲\n\n## 第1–20章：入宗\n\n林昭入宗。\n\n## �
 const tool = () => bundle.tools.NOVEL_TOOLS.find((x) => x.name === 'write');
 const run = (args) => tool().run(ctx, args);
 
-/** 一份「已解析出结构化产物」的细纲草稿（D3 三节 + 规划字段）。 */
+/**
+ * 一份「已解析出结构化产物」的细纲草稿：八节里排了四节，出场的人就写在「出场人物」一节里
+ * （产物上没有单独的 characters 字段）。
+ */
 function plotDraft(id, sections) {
   return {
     id,
     action: { stage: 'plot', capability: 'generate' },
     target: { kind: 'plot', plotRelPath: PLOT_REL },
     raw: '…',
-    artifact: { kind: 'plot', sections, role: '开篇', characters: ['林昭', '沈青'], title: '模型起的名字' },
-    summary: '细纲 · 3/3 节',
+    artifact: { kind: 'plot', sections, title: '模型起的名字' },
+    summary: '细纲 · 4/8 节',
     words: 620,
     createdAt: new Date().toISOString(),
   };
@@ -57,9 +63,10 @@ function plotDraft(id, sections) {
 function sections(events) {
   return {
     ...bundle.plotFile.emptyPlotSections(),
-    本章目的: '进入宗门',
+    梗概: '林昭进入宗门',
+    出场人物: '林昭、沈青',
     关键事件: events,
-    章末钩子: '第三块令牌',
+    看点: '第三块令牌',
   };
 }
 
@@ -98,14 +105,13 @@ before(async () => {
   // 大纲要有内容，upstreamHash 才记得上（空大纲不该凭空标脏）。
   await ws.write(project.relPath(project.outlinePath), { text: OUTLINE }, { mode: 'overwrite' });
   for (const [no, title] of [[1, '夜入青云'], [2, '藏书阁']]) {
+    // 只写了梗概、「关键事件」空着：还没排过，落盘前后的「排过没有」由它对照。
     await ws.writePlot({
       no,
       title,
-      role: '',
-      characters: [],
       upstreamHash: '',
       done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '进入宗门' },
+      sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: '林昭进入宗门' },
     });
   }
   await project.syncManifest();
@@ -169,10 +175,9 @@ describe('用 draftId 写一份细纲', () => {
     assert.equal(plot.title, '夜入青云');
   });
 
-  // 结构功能与计划出场的人是规划的一部分，跟着产物走。
-  test('规划字段（role / characters）随产物落盘', async () => {
+  // 计划出场的人写在「出场人物」一节里，跟着产物落盘；还没定稿的细纲，characters 就从这一节读。
+  test('计划出场的人随「出场人物」一节落盘', async () => {
     const plot = await project.readPlot(PLOT_REL);
-    assert.equal(plot.role, '开篇');
     assert.deepEqual(plot.characters, ['林昭', '沈青']);
   });
 
@@ -325,6 +330,30 @@ describe('讨论类 draft 不能写成产物', () => {
   });
 });
 
+/**
+ * 细纲的家是 `summaries/NNN-标题.md`；老工程的 `plots/` 判成 other，流水线不读。agent 照着
+ * 老提示词把细纲草稿往那里写，写进去也是一份没人认的文件——要当场拦下，而不是默默落一份。
+ */
+describe('老的 plots/ 路径不接细纲草稿', () => {
+  const LEGACY_REL = '.novelforge/plots/001-夜入青云.md';
+  let r;
+
+  before(async () => {
+    resetCtx();
+    h.setReviewVerdict('apply');
+    h.expect();
+    r = await run({ path: LEGACY_REL, draftId: 'd-plot', mode: 'overwrite' });
+  });
+
+  test('给 error', () => {
+    assert.ok(r.error, JSON.stringify(r));
+  });
+
+  test('没写盘', () => {
+    assert.ok(!t.has(LEGACY_REL));
+  });
+});
+
 describe('八条守卫照旧拦着', () => {
   test('越界路径给 error', async () => {
     resetCtx();
@@ -347,7 +376,7 @@ describe('八条守卫照旧拦着', () => {
 
   test('固定目录本身给 error', async () => {
     resetCtx();
-    const r = await run({ path: '.novelforge/plots', content: 'x', mode: 'overwrite' });
+    const r = await run({ path: '.novelforge/summaries', content: 'x', mode: 'overwrite' });
     assert.ok(r.error, JSON.stringify(r));
   });
 

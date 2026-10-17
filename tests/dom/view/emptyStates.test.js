@@ -59,7 +59,7 @@ const STEPS = {
     label: '拆细纲（第 1–5 章）',
     hint: '',
     range: { from: 1, to: 5 },
-    target: { kind: 'plot', plotRelPath: '.novelforge/plots/001.md' },
+    target: { kind: 'plot', plotRelPath: '.novelforge/summaries/001.md' },
     no: 1,
     calls: { low: 1, high: 1, max: 4 },
   },

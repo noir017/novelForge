@@ -40,15 +40,10 @@ import {
   sanitizeFileName,
   writeText,
 } from '../model/fs';
-import {
-  SUMMARY_SECTION_KEYS,
-  Chapter,
-  SummaryCast,
-  SummarySections,
-} from '../model/types';
-import { rewriteFrontmatter, stringifyFrontmatter, stringifySections } from '../model/markdown';
-import { renderCastEntry } from '../model/castParse';
+import { Chapter, SummaryCast } from '../model/types';
+import { rewriteFrontmatter, stringifyFrontmatter } from '../model/markdown';
 import { isMarkdownExt, isMarkdownPath } from '../model/chapterFile';
+import { isFallbackChapterTitle } from '../model/pipeline';
 import { endsMidSentence } from '../model/manuscriptCheck';
 import {
   NovelProject,
@@ -57,7 +52,14 @@ import {
   renderCharacterCard,
   renderLoreEntry,
 } from '../model/project';
-import { PreflightOk, WritablePlot, parsePlotFile, renderPlotFile, renderPreflightOk } from '../model/plotFile';
+import {
+  PlotSections,
+  PreflightOk,
+  WritablePlot,
+  parsePlotFile,
+  renderPlotFile,
+  renderPreflightOk,
+} from '../model/plotFile';
 import { Artifact } from '../features/artifact';
 import {
   ArtifactKind,
@@ -76,7 +78,7 @@ import {
   reviewOverwrite,
 } from './guard';
 import { Handler, HandlerCtx, handlerFor } from './handlers';
-import { trashRel } from './handlers/plot';
+import { renderFinalizedPlot } from './handlers/plot';
 import { SearchOptions, SearchResult, search } from './search';
 
 const log = scoped('工作区');
@@ -346,7 +348,7 @@ export class Workspace {
   /**
    * 改名/移动。**目标已存在一律拒绝**（第 3 条：不静默覆盖）。
    *
-   * 伴生搬迁交给 handler：章节带走草稿（摘要由 `fileOps` 的交互流程搬）。细纲没有伴生。
+   * 伴生搬迁交给 handler：章节带走草稿。细纲没有伴生（它按章号与正文配对）。
    */
   async move(from: string, to: string): Promise<WriteResult> {
     const fromAbs = await guardMutate(this.project, from);
@@ -467,15 +469,20 @@ export class Workspace {
   /**
    * 删一章的细纲：搬进 `.trash/`，不真删（AGENTS 第 6 条）。返回是否确实删掉了。
    *
-   * **不碰 `chapters/` 与摘要**：那两样是已经写出来的正文。删掉细纲只是放弃
-   * 这一章的规划稿，不该顺手把正文一起带走。
+   * **不碰 `chapters/`**：那是已经写出来的正文。删掉细纲只是放弃这一章的规划稿
+   * （定稿过的话连同档案），不该顺手把正文一起带走。
+   *
+   * 落点与 `remove`、`finalizePlot` 同一套（`trashPathFor`：保留原相对路径，同名加序号）——定稿时
+   * 复制进回收站的那一版旧计划，不能被这一次删除盖掉。
    */
   async deletePlot(plotRelPath: string): Promise<boolean> {
     const plot = await this.project.readPlot(plotRelPath);
     if (!plot) {
       return false;
     }
-    await trashRel(this.project, plotRelPath);
+    const dest = await trashPathFor(this.project, plotRelPath);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await fs.rename(this.project.pathOf(plotRelPath), dest);
     this.project.invalidate();
     return true;
   }
@@ -621,40 +628,43 @@ export class Workspace {
   }
 
   /**
-   * 写一章的摘要。落点镜像**章节**路径（`summaryPathForChapter`）。
+   * 定稿：把反向更新过的细纲写回**同号的那一份**（还没有就按章号与章节标题新建一份）。返回落点，
+   * 以及旧版在回收站里的位置（原来没有细纲时没有）。
    *
-   * `sourceHash` 记的是正文的 `contentHash`——摘要描述的是写出来的那一章
-   * （指纹链的最后一环）。
+   * 渲染规矩在 `handlers/plot.ts` 的 `renderFinalizedPlot`：八节整体替换，作者定的 frontmatter 留着，
+   * `sourceHash` 记正文的 `contentHash`（指纹链的最后一环），`writtenFrom` 刷成更新之后的指纹。
    *
-   * 落盘仍是 Markdown（第 14 条：作者要手改），结构化的出场人物写进
-   * frontmatter 的 `cast`。
+   * **旧版先复制一份进 `.trash/`**（保留原相对路径，同名加序号，与第 6 条同一个落点）：定稿按钮本身就是
+   * 作者的确认，所以直接写；但改的是一份作者可能逐字推敲过的计划，旧的那一版要找得回来。
    */
-  async writeSummary(
+  async finalizePlot(
     chapter: Chapter,
-    sourceHash: string,
-    sections: SummarySections,
-    cast: SummaryCast[] = []
-  ): Promise<string> {
-    const rel = this.project.relPath(this.project.summaryPathForChapter(chapter.relPath));
-    const fm = stringifyFrontmatter({
-      chapter: chapter.order,
-      title: chapter.title,
-      sourceHash,
-      // 机器可读的出场人物。别名跟在名字后的括号里：`林昭(阿昭)`——
-      // frontmatter 解析器只认字符串数组，不要为此引入嵌套 YAML。
-      cast: cast.map(renderCastEntry),
-      generatedBy: 'novel-forge',
+    sections: PlotSections,
+    cast: SummaryCast[]
+  ): Promise<{ rel: string; trashed?: string }> {
+    const current = await this.project.getPlot(chapter.order);
+    const title = isFallbackChapterTitle(chapter.order, chapter.title) ? '' : chapter.title;
+    const rel = current?.relPath ?? this.project.plotPathForNo(chapter.order, chapter.title);
+    const text = renderFinalizedPlot({
+      rel,
+      no: chapter.order,
+      title,
+      current,
+      sections,
+      cast,
+      sourceHash: chapter.contentHash,
     });
-    const body = stringifySections(
-      sections as unknown as Record<string, string>,
-      SUMMARY_SECTION_KEYS,
-      { keepEmpty: true }
-    );
-    const text = `${fm}\n\n# 第${chapter.order}章${chapter.title ? ` ${chapter.title}` : ''} · 摘要\n\n${body}\n`;
 
+    let trashed: string | undefined;
+    if (current) {
+      const dest = await trashPathFor(this.project, current.relPath);
+      await fs.mkdir(path.dirname(dest), { recursive: true });
+      await fs.copyFile(this.project.pathOf(current.relPath), dest);
+      trashed = this.project.relPath(dest);
+    }
     await writeText(this.project.pathOf(rel), text);
-    await this.project.markSummarized(chapter.relPath, sourceHash);
-    return rel;
+    this.project.invalidate();
+    return { rel, trashed };
   }
 
   /**
@@ -686,7 +696,7 @@ export class Workspace {
   /**
    * 写全书滚动摘要，并把水位线记进 manifest。
    *
-   * 它的上游是全部单章摘要，但那是一次显式的重建动作（`through` 水位线），
+   * 它的上游是全部定稿过的细纲，但那是一次显式的重建动作（`through` 水位线），
    * 不是 hash 传播——所以没有 `upstreamHash`。
    */
   async writeGlobalSummary(content: string, through: number): Promise<string> {

@@ -1,10 +1,11 @@
 /**
- * `summary` 工具：定稿与摘要（定稿一章、补齐过期摘要、重建全书摘要）。
+ * `summary` 工具：定稿与全书摘要（定稿一章、把没定稿的章的细纲照正文同步、重建全书摘要）。
  *
  * | 断言 | 为什么 |
  * |---|---|
- * | 定稿按章号认，给细纲路径也行 | agent 手里多半是细纲路径；摘要落在同号章节的镜像位置 |
- * | 还没有正文就不花钱 | 摘要描述的是写出来的那一章，没有正文时调一次模型只能复述细纲 |
+ * | 定稿按章号认，给细纲路径也行 | agent 手里多半是细纲路径；定稿改的就是那一份细纲，不另落一份 |
+ * | 定稿记上正文的指纹，旧版进回收站 | `sourceHash` 是「这一章写完」的判据；旧版是作者可能推敲过的计划，要找得回来 |
+ * | 还没有正文就不花钱 | 定稿是照正文改细纲，没有正文时调一次模型只能复述细纲 |
  * | 定稿调了几次、账上记几次 | 第 4 条：弹窗、账、回话三处的次数是同一个数 |
  * | 同步与重建的确认框照弹，作者取消就零调用 | 转发工程页那个动作，不给 agent 另开一条快路 |
  * | 越界路径给 error、不调模型 | 工程根之外的路径一律不认 |
@@ -25,8 +26,8 @@ let fake;
 let ctx;
 let reports;
 
-const PLOT1 = '.novelforge/plots/001-夜入青云.md';
-const PLOT2 = '.novelforge/plots/002-藏书阁.md';
+const PLOT1 = '.novelforge/summaries/001-夜入青云.md';
+const PLOT2 = '.novelforge/summaries/002-藏书阁.md';
 const CH1 = 'chapters/001-夜入青云.md';
 const SUMMARY_JSON = JSON.stringify({
   梗概: '林昭夜入青云宗。',
@@ -86,11 +87,9 @@ before(async () => {
     await ws.writePlot({
       no,
       title,
-      role: '',
-      characters: [],
       upstreamHash: '',
       done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '进入宗门', 关键事件: '踩点、翻墙。' },
+      sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: '进入宗门', 关键事件: '踩点、翻墙。' },
     });
   }
   t.write(CH1, '# 夜入青云\n\n雨下了三天。山门在雨里，林昭在门外。\n');
@@ -103,25 +102,31 @@ after(() => {
   if (t) cleanup(t.dir, bundle && bundle.db);
 });
 
-// 先跑取消的两条：此时第 1 章有正文、没摘要，同步与重建都有活可干，确认框一定会弹。
+// 先跑取消的两条：此时第 1 章有正文、细纲还没定稿，同步与重建都有活可干，确认框一定会弹。
 describe('同步与重建：确认框照弹，作者取消就零调用', () => {
   test('sync：框里写着几章过期、要调几次；取消后回话说清没调模型', async () => {
     resetCtx();
     h.expect();
     const r = await run({ action: 'sync' });
-    assert.equal(h.confirms.at(-1).message, '有 1 章摘要缺失或已过期，需要调用 1 次模型。现在同步？');
-    assert.ok(r.text.includes('摘要同步这一次没有调用模型'), r.text);
+    assert.equal(
+      h.confirms.at(-1).message,
+      '有 1 章的细纲还没照正文更新（没定稿，或定稿后正文又改过），需要调用 1 次模型。现在同步？'
+    );
+    assert.ok(r.text.includes('细纲同步这一次没有调用模型'), r.text);
     assert.ok(r.text.includes('不要重试'), r.text);
     assert.equal(fake.calls.length, 0);
     assert.equal(ctx.usage.calls, 0);
   });
 
   // 重建不报次数：回话只说交出去了，次数以确认框为准，账上记 0。
-  test('rebuildGlobal：先提醒有过期摘要；取消后零调用，回话说交出去了', async () => {
+  test('rebuildGlobal：先提醒有没定稿的章；取消后零调用，回话说交出去了', async () => {
     resetCtx();
     h.expect();
     const r = await run({ action: 'rebuildGlobal' });
-    assert.ok(h.confirms.at(-1).message.startsWith('有 1 章摘要缺失或过期'), h.confirms.at(-1).message);
+    assert.ok(
+      h.confirms.at(-1).message.startsWith('有 1 章的细纲还没照正文更新'),
+      h.confirms.at(-1).message
+    );
     assert.equal(r.error, undefined, r.error);
     assert.ok(r.text.includes('全书摘要重建已交给 Novel Forge 执行'), r.text);
     assert.equal(fake.calls.length, 0);
@@ -190,8 +195,15 @@ describe('定稿：按章号认，给细纲路径也行', () => {
     assert.ok(r.text.includes('第 1 章'), r.text);
   });
 
-  test('摘要落在同号章节的镜像位置', () => {
-    assert.ok(t.has('.novelforge/summaries/001-夜入青云.md'));
+  // 定稿改的是那一份细纲本身，不另落一份：同一章在 summaries/ 根下有两份就撞号了。
+  test('细纲照正文更新在原处，记上正文的指纹', async () => {
+    const plot = await project.readPlot(PLOT1);
+    const chapter = (await project.listChapters()).find((c) => c.order === 1);
+    assert.equal(plot.sourceHash, chapter.contentHash);
+  });
+
+  test('旧版细纲先复制一份进回收站', () => {
+    assert.ok(t.has('.novelforge/.trash/.novelforge/summaries/001-夜入青云.md'));
   });
 
   test('调了一次、记了一次，气泡里也说了', () => {
@@ -211,7 +223,7 @@ describe('定稿：按章号认，给细纲路径也行', () => {
     assert.equal(fake.calls.length, 0, String(fake.calls.length));
   });
 
-  // 只补空白：定稿之后没有过期的摘要，同步不弹框、不花钱。
+  // 只补没定稿的：定稿之后细纲与正文对得上，同步不弹框、不花钱。
   test('定稿之后再同步：没事可做，不花钱', async () => {
     resetCtx();
     const before = h.confirms.length;
@@ -233,11 +245,11 @@ describe('工具定义本身', () => {
     assert.deepEqual(tool().parameters.properties.action.enum, ['finalize', 'sync', 'rebuildGlobal']);
   });
 
-  // 四期：定稿 = 摘要（带连续性事实）+ 出场角色的当前状态；七期再记叙事线。
-  test('finalize 的说法是「定稿」：摘要与连续性事实，再更新角色状态、记叙事线', () => {
+  // 定稿 = 照正文反向更新细纲（带连续性事实）+ 出场角色的当前状态 + 叙事线。
+  test('finalize 的说法是「定稿」：反向更新细纲与连续性事实，再更新角色状态、记叙事线', () => {
     assert.ok(
       tool().description.includes(
-        'finalize=给一章定稿（摘要与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线）（调模型，要 path）'
+        'finalize=给一章定稿（照正文反向更新它的细纲与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线）（调模型，要 path）'
       ),
       tool().description
     );

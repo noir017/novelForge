@@ -1,17 +1,17 @@
 /**
- * 章节摘要的悬停浮窗。
+ * 章节细纲的悬停浮窗。
  *
- * 摘要此前只能在 `.novelforge/summaries/` 里手动翻，或右键「看摘要」开一个
- * 编辑器标签页——想快速回忆「第 37 章讲了什么」代价太大。悬停浮窗把这件事
- * 变成不打断写作的一瞥。
+ * 细纲此前只能右键「打开细纲」开一个编辑器标签页——想快速回忆「第 37 章讲了什么」
+ * 代价太大。悬停浮窗把这件事变成不打断写作的一瞥。定稿过的细纲就是那一章写成的样子，
+ * 没定稿的是计划，浮窗头上标出来。
  *
  * 四条设计取舍：
- * - **摘要正文不进 `ProjectTree`**：那棵树每次文件变动都全量重推，两百章
+ * - **细纲正文不进 `ProjectTree`**：那棵树每次文件变动都全量重推，两百章
  *   每章上千字等于每保存一次就推几百 KB。改成悬停时按路径单章去取。
- * - **前端缓存、收到新树即作废**：同一章反复扫过去只请求一次；正文一改
- *   （后端会重推树）缓存整体清掉，不会拿旧摘要糊弄人。
+ * - **前端缓存、收到新树即作废**：同一章反复扫过去只请求一次；正文或细纲一改
+ *   （后端会重推树）缓存整体清掉，不会拿旧细纲糊弄人。
  * - **半秒延迟**：鼠标从工具栏划到某一行的路上会扫过好几行，立刻弹会闪。
- * - **浮窗可以进得去**：摘要有六个小节、可能上千字，一瞥看不完。鼠标移上去
+ * - **浮窗可以进得去**：细纲有八个小节、可能上千字，一瞥看不完。鼠标移上去
  *   浮窗就一直留着（可滚动、可选中复制），移开才收。为此收起要延迟一点——
  *   从行挪到浮窗中间要跨过一道缝，那一两帧鼠标既不在行上也不在浮窗上，
  *   立刻收会让浮窗永远够不着。
@@ -127,7 +127,7 @@ function buildBody(view?: PlotSummaryView): DocumentFragment {
   const frag = document.createDocumentFragment();
 
   if (!view) {
-    frag.appendChild(mk('div', 'hint', '读取摘要…'));
+    frag.appendChild(mk('div', 'hint', '读取细纲…'));
     return frag;
   }
 
@@ -135,34 +135,36 @@ function buildBody(view?: PlotSummaryView): DocumentFragment {
   // 说法由后端给（`chapterLabel`：「第 12 章《夜访》」），前端不按 `no` 自己拼——
   // 标题取正文还是细纲那一侧、没有标题时怎么说，只在后端定一次。
   head.appendChild(mk('span', 'summary-tip-title', view.label));
-  // 过期必须说出来：照着一份写于三次修改之前的摘要做判断比没有摘要更糟。
-  if (view.exists && view.stale) {
+  // 计划与过期都必须说出来：照着一份写之前的计划、或写于三次修改之前的定稿做判断，比没有更糟。
+  if (view.exists && !view.finalized) {
+    head.appendChild(mk('span', 'summary-tip-stale', '计划'));
+  } else if (view.exists && view.stale) {
     head.appendChild(mk('span', 'summary-tip-stale', '已过期'));
   }
   frag.appendChild(head);
 
   if (!view.exists) {
-    // 原因分两种，后端给的那句话已经分好了：有正文的章是「还没定稿」，
-    // 只有细纲的章是「还没写正文，摘要挂在正文上」。
-    frag.appendChild(mk('div', 'hint', view.emptyHint ?? '还没有摘要。'));
+    // 原因分两种，后端给的那句话已经分好了：有正文的章可以右键定稿照正文整理一份，
+    // 什么都没有的章就只说没有。
+    frag.appendChild(mk('div', 'hint', view.emptyHint ?? '还没有细纲。'));
     return frag;
   }
 
   for (const section of view.sections) {
     frag.appendChild(mk('div', 'summary-tip-section', section.name));
-    // textContent 而非 innerHTML：摘要是模型写的，里面可能有任何字符。
+    // textContent 而非 innerHTML：细纲是模型写的，里面可能有任何字符。
     frag.appendChild(mk('div', 'summary-tip-text', section.text));
   }
   if (view.sections.length === 0) {
-    frag.appendChild(mk('div', 'hint', '摘要文件是空的。'));
+    frag.appendChild(mk('div', 'hint', '细纲文件是空的。'));
   }
   return frag;
 }
 
 /**
- * 摘要到了：填进缓存，正开着的浮窗就地换掉内容（不重建，免得闪）。
+ * 细纲到了：填进缓存，正开着的浮窗就地换掉内容（不重建，免得闪）。
  *
- * 摘要文件的路径与章节的路径不同（一个在 summaries/，一个在 plots/），
+ * 细纲文件的路径与行的路径常常不同（一个在 summaries/，一个在 chapters/），
  * 所以按**当前开着的那一章**回填——同一时刻只可能有一个浮窗。
  */
 export function applySummary(view: PlotSummaryView): void {
@@ -191,7 +193,7 @@ export function installSummaryTip(): void {
   // 逐行 addEventListener 会随重渲染次数堆积。
   el.projectBody.addEventListener('mouseover', (e) => {
     // 只认带 data-plot 的章节行。「故事架构」那几行为了与章节行同一个版式也带
-    // `.row-plot`，但它们没有摘要可弹：认进来的话会撤销收起却不另开一只，
+    // `.row-plot`，但它们没有细纲可弹：认进来的话会撤销收起却不另开一只，
     // 上一章的浮窗就一直挂着，指着一行鼠标早已不在的地方。
     const row = closestFrom<HTMLElement>(e.target, '.row-plot[data-plot]');
     if (row) {
@@ -220,7 +222,7 @@ export function installSummaryTip(): void {
   el.projectBody.addEventListener('contextmenu', hideSummaryTip);
 
   // 浮窗是 fixed 的，页面一滚就和目标行脱节（与右键菜单同一个理由）。
-  // 但**浮窗自己内部的滚动不算**——摘要有六个小节，滚动是要给用户用的，
+  // 但**浮窗自己内部的滚动不算**——细纲有八个小节，滚动是要给用户用的，
   // 一滚就把浮窗收掉等于这个滚动条形同虚设。捕获阶段才收得到内部容器
   // （.project-body）的滚动。
   document.addEventListener(

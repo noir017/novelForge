@@ -11,51 +11,57 @@ import { readConfig } from '../config';
 import { describeError, elapsed, formatDuration, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { castFromText, parseCastEntry, renderCastEntry } from '../model/castParse';
-import { NovelProject, emptySummarySections } from '../model/project';
-import { parsePlotFileName } from '../model/plotFile';
+import { NovelProject } from '../model/project';
+import { PLOT_SECTION_KEYS, Plot, PlotSectionKey, PlotSections, emptyPlotSections, parsePlotFileName } from '../model/plotFile';
 import { describeTaskModels } from '../model/tiers';
-import { SUMMARY_SECTION_KEYS, Chapter, SummaryCast, SummarySections } from '../model/types';
+import { Chapter, SummaryCast } from '../model/types';
 import { ContinuityFact, attachEvidence, parseContinuityFacts, renderContinuityFacts } from '../model/continuity';
 import { sanitizeAliases } from '../model/naming';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
-import { extractJsonObject, stripCodeFence } from './parse';
-import { GLOBAL_SYSTEM, STAGE_SYSTEM, SUMMARY_SYSTEM } from './summarizePrompt';
+import { extractJsonObject, stripCodeFence, stripTrailingCommas } from './parse';
+import { GLOBAL_SYSTEM, REFINE_SYSTEM, STAGE_SYSTEM, SUMMARY_SYSTEM } from './summarizePrompt';
 import { Workspace } from '../workspace';
 
-const log = scoped('摘要');
+const log = scoped('定稿');
+const globalLog = scoped('全书摘要');
 
 /**
- * 一章摘要的结构化形态：六个固定小节 + 机器可读的出场人物清单。
+ * 定稿时模型交回来的结构化形态：八个小节 + 机器可读的出场人物清单。
  *
- * 模型现在被要求直接输出这个形状的 JSON。小节仍然保留是因为它们最终要
- * 渲染成人类可读的 Markdown（作者会翻、会手改），`cast` 则是给程序用的——
- * 角色页的聚合、角色卡的关联都吃它。
+ * 模型被要求直接输出这个形状的 JSON。小节最终要渲染成人类可读的 Markdown（作者会翻、
+ * 会手改），`cast` 则是给程序用的——出场统计、角色卡的关联都吃它。
  */
 export interface SummaryData {
-  sections: SummarySections;
+  sections: PlotSections;
   cast: SummaryCast[];
 }
 
 /**
- * 写好的一份摘要：落盘的那些小节与出场人物，外加连续性事实挂证据的结果——
+ * 定稿第一步写好的那份细纲：落盘的八节与出场人物，外加连续性事实挂证据的结果——
  * 定稿（features/finalize.ts）要拿出场人物去更新角色状态，丢了几条事实要说出来。
  */
 export interface SummaryOutcome extends SummaryData {
   relPath: string;
-  /** 挂上了证据、写进摘要的连续性事实。 */
+  /** 旧版细纲在回收站里的位置。原来没有细纲（拆书导入、作者手写的正文）时没有。 */
+  trashed?: string;
+  /** 挂上了证据、写进细纲的连续性事实。 */
   facts: ContinuityFact[];
   /** 正文里找不到依据、丢掉的事实（D18，第 2 条：说出来）。 */
   dropped: string[];
 }
 
 /**
- * 总结一章的正文。返回写好的那一份；没有模型、正文是空的时返回 undefined（已经说过原因）。
+ * 照正文反向更新一章的细纲（定稿的第一步，1 次调用）。返回写好的那一份；没有模型、正文是空的时
+ * 返回 undefined（已经说过原因）。
  *
- * 读的是 `chapters/`：摘要描述的是写出来的那一章。老工程里那些从没经过本工具的章因此
- * 也能直接总结，不需要任何迁移。
+ * 读的是 `chapters/`：细纲定稿后描述的是写出来的那一章。**手上有细纲就拿它与正文对照着改**
+ * （`REFINE_SYSTEM`：以正文为准，一致的保留原措辞，写偏的改、没写到的删）——这是修改，不是重写；
+ * 细纲是空的（拆书导入、作者手写的正文）就照正文从头整理（`SUMMARY_SYSTEM`）。老工程里那些从没
+ * 经过本工具的章因此也能直接定稿，不需要任何迁移。
  *
  * 连续性事实（D18）的证据在这里挂：模型只给事实陈述，证据句用 bigram 在**整章**正文里找
- * （model/continuity.ts），不调模型。找不到依据的事实丢掉并记日志。
+ * （model/continuity.ts），不调模型。找不到依据的事实丢掉并记日志。落盘前旧版细纲复制一份进
+ * `.trash/`（`Workspace.finalizePlot`）。
  */
 export async function summarizeChapter(
   project: NovelProject,
@@ -79,7 +85,7 @@ export async function summarizeChapter(
   const text = await project.readChapterText(chapter);
   if (!text.trim()) {
     log.warn(`第 ${chapter.order} 章《${chapter.title}》还没有正文，跳过`);
-    getHost().toast(`第 ${chapter.order} 章还没有正文，跳过总结。`);
+    getHost().toast(`第 ${chapter.order} 章还没有正文，没有可定稿的东西。`);
     return undefined;
   }
 
@@ -96,29 +102,38 @@ export async function summarizeChapter(
   const usage: TokenUsage = {};
   const options: StreamOptions = {
     maxOutputTokens: window.maxOutputTokens,
-    temperature: 0.3, // 摘要要稳定、可复现，压低温度
+    temperature: 0.3, // 定稿要稳定、可复现，压低温度
     timeoutMs: config.requestTimeoutMs,
     signal,
   };
 
+  // 手上那份细纲（计划，或上一次定稿的档案）。一节都没填就当没有：照正文从头整理。
+  const plan = await project.getPlot(chapter.order);
+  const planText = plan ? renderPlanForPrompt(plan) : '';
+  const system = planText ? REFINE_SYSTEM : SUMMARY_SYSTEM;
+
   const startedAt = Date.now();
   log.debug(
     `第 ${chapter.order} 章《${chapter.title}》请求模型`,
-    `模型 ${llm.label}｜正文 ${body.length} 字（约 ${estimateTokens(body)} token）`
+    `模型 ${llm.label}｜正文 ${body.length} 字（约 ${estimateTokens(body)} token）｜` +
+      (planText ? `带当前细纲 ${planText.length} 字` : '没有细纲，照正文整理')
   );
 
   // 把已有角色卡的名字告诉模型：cast 里的 name 要能跟角色卡对上，
   // 「林昭」和「昭公子」各写一份会让角色页凭空多出一个人。
   const known = await knownNamesHint(project);
-  const userPrompt = `${known}请为下面这一章生成摘要。\n\n【第${chapter.order}章 ${chapter.title}】\n\n${body}`;
+  const head = `第${chapter.order}章 ${chapter.title}`;
+  const userPrompt = planText
+    ? `${known}请照下面这一章的正文，把它的当前细纲改成正文实际写成的样子。\n\n【${head} · 当前细纲】\n\n${planText}\n\n【${head} · 正文】\n\n${body}`
+    : `${known}请为下面这一章整理细纲。\n\n【${head}】\n\n${body}`;
   // 校准统计比的是「整个请求的输入」，因此估算也要含系统提示词，
   // 否则这条样本会系统性地偏低，把 tokenCounter 的比值带歪。
-  const estimated = estimateTokens(SUMMARY_SYSTEM) + estimateTokens(userPrompt);
+  const estimated = estimateTokens(system) + estimateTokens(userPrompt);
 
   const raw = await collectText(
     llm.stream(
       [
-        { role: 'system', content: SUMMARY_SYSTEM },
+        { role: 'system', content: system },
         { role: 'user', content: userPrompt },
       ],
       options
@@ -129,24 +144,24 @@ export async function summarizeChapter(
   const { sections, cast } = parseSummaryResponse(raw);
   if (!sections.梗概.trim() && !sections.关键事件.trim()) {
     log.error(
-      `第 ${chapter.order} 章摘要解析失败：模型返回既不是 JSON 也不符合小节格式`,
+      `第 ${chapter.order} 章定稿解析失败：模型返回既不是 JSON 也不符合小节格式`,
       `返回 ${raw.length} 字，开头：${raw.slice(0, 300)}`
     );
-    // 也在这里记一条，而不是只靠 syncSummaries 的 onSettled：右键「总结这一章」
+    // 也在这里记一条，而不是只靠 syncSummaries 的 onSettled：主按钮「定稿」
     // 走的是单章路径，那条异常会一路抛到命令外层，根本到不了批量编排里。
     // 同一章 + 同一动作只留最新一条，两条路径都记也不会重复显示。
     await recordFailure(project, {
-      scope: '摘要',
+      scope: '定稿',
       targetKind: 'chapter',
       targetKey: chapter.relPath,
       severity: 'error',
       op: 'summarize',
-      message: '摘要解析失败，模型返回无法解析',
+      message: '定稿失败：模型返回无法解析',
       detail:
-        `模型返回 ${raw.length} 字，既不是 JSON 也不符合小节格式。` +
-        '这一章的剧情不会进入上下文；换个模型或稍后重试。',
+        `模型返回 ${raw.length} 字，既不是 JSON 也不符合小节格式。细纲没有改动；` +
+        '这一章的连续性事实与出场人物不会进入上下文。换个模型或稍后重试。',
     });
-    throw new Error(`第 ${chapter.order} 章摘要解析失败，模型返回内容无法解析。`);
+    throw new Error(`第 ${chapter.order} 章定稿失败，模型返回内容无法解析。`);
   }
   // 连续性事实挂证据：在整章正文里找（截给模型的那一份可能只有前半章）。人名给出场人物的
   // 名字与别名——事实里提到谁，就先在提到他的句子里找。
@@ -163,26 +178,33 @@ export async function summarizeChapter(
       dropped.map((d) => `- ${d}`).join('\n')
     );
   }
-  const relPath = await new Workspace(project).writeSummary(
-    chapter,
-    chapter.contentHash,
-    sections,
-    cast
-  );
+  const { rel: relPath, trashed } = await new Workspace(project).finalizePlot(chapter, sections, cast);
   // 这一章好了：把它挂着的旧感叹号收掉（上次可能是超时/解析失败）。
   await clearFailures(project, 'chapter', chapter.relPath, 'summarize');
   // 批量同步一次要跑几十章，是最烧 token 的动作之一；有实测用量就记一笔，
   // 供 tokenCounter 的校准统计使用。
-  recordUsage('摘要', estimated, usage);
+  recordUsage('定稿', estimated, usage);
   const usageNote = describeUsage(estimated, usage);
   log.info(
-    `第 ${chapter.order} 章《${chapter.title}》摘要已写入`,
-    `${relPath}｜耗时 ${elapsed(startedAt)}｜摘要 ${raw.length} 字｜` +
+    `第 ${chapter.order} 章《${chapter.title}》细纲已照正文更新`,
+    `${relPath}｜耗时 ${elapsed(startedAt)}｜返回 ${raw.length} 字｜` +
       `出场 ${cast.length} 人${cast.length > 0 ? `（${cast.map((c) => c.name).join('、')}）` : ''}` +
       `｜连续性事实 ${facts.length} 条` +
+      `${trashed ? `｜旧版已放进回收站：${trashed}` : '｜原来没有细纲，新建了一份'}` +
       `${usageNote ? `｜${usageNote}` : ''}`
   );
-  return { relPath, sections, cast, facts, dropped };
+  return { relPath, trashed, sections, cast, facts, dropped };
+}
+
+/**
+ * 当前细纲 → 发给模型的那一段（`## 小节` 一节一段）。一节都没填（只起了个头的空壳）给空串——
+ * 那时照正文从头整理。连续性事实不给：那是上一次定稿从正文里摘的，证据要回原文逐字校验，
+ * 这一次照样从正文重新摘，把旧的给它只会让它照抄已经对不上的句子。
+ */
+function renderPlanForPrompt(plan: Plot): string {
+  return PLOT_SECTION_KEYS.filter((key) => key !== '连续性事实' && plan.sections[key].trim())
+    .map((key) => `## ${key}\n${plan.sections[key].trim()}`)
+    .join('\n\n');
 }
 
 /**
@@ -207,36 +229,38 @@ async function knownNamesHint(project: NovelProject): Promise<string> {
 
 
 /**
- * 批量补齐所有缺失/过期的摘要，带进度，可取消。各章之间无先后，按配置并发。
+ * 批量照正文更新所有没定稿、或定稿之后正文又改过的章的细纲（定稿的第一步，不更新角色状态与叙事线），
+ * 带进度，可取消。各章之间无先后，按配置并发。
  *
  * 返回**这一次计划调用几次模型**（确认框里那个数字；取消或无事可做时是 0）。
  * 只在这里算一次——MCP 的 `summary` 工具拿它记账。
  */
 export async function syncSummaries(project: NovelProject): Promise<number> {
-  log.info('开始检查摘要新鲜度');
+  log.info('开始检查哪些章还没定稿');
   const scanStart = Date.now();
   const stale = await project.staleChapters();
   const total = (await project.listChapters()).length;
   log.info(
-    `检查完成：${total} 章中有 ${stale.length} 章缺失或过期`,
+    `检查完成：${total} 章中有 ${stale.length} 章没定稿或定稿后正文改过`,
     `耗时 ${elapsed(scanStart)}${stale.length > 0 ? `｜待同步：${describeNos(stale)}` : ''}`
   );
 
   if (stale.length === 0) {
-    getHost().toast('所有摘要都是最新的。');
+    getHost().toast('所有写了正文的章都已定稿，细纲与正文对得上。');
     return 0;
   }
 
   const config = readConfig();
   const lanes = Math.min(config.concurrency, stale.length);
   const confirm = await getHost().confirm(
-    `有 ${stale.length} 章摘要缺失或已过期，需要调用 ${stale.length} 次模型。现在同步？`,
+    `有 ${stale.length} 章的细纲还没照正文更新（没定稿，或定稿后正文又改过），需要调用 ${stale.length} 次模型。现在同步？`,
     ['开始同步'],
     {
       modal: true,
       detail:
         `${describeTaskModels(config, 'plotSummary')}\n` +
-        (lanes > 1 ? `并发 ${lanes} 路，各章之间没有先后依赖。` : '串行逐章处理（并发数为 1）。'),
+        (lanes > 1 ? `并发 ${lanes} 路，各章之间没有先后依赖。` : '串行逐章处理（并发数为 1）。') +
+        '\n每章的旧版细纲先复制一份进 .novelforge/.trash/。只更新细纲，角色状态与叙事线要逐章「定稿」。',
     }
   );
   if (confirm !== '开始同步') {
@@ -252,7 +276,7 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
   log.info(`使用模型 ${pool.label}`, lanes > 1 ? `并发 ${lanes} 路，轮转负载均衡` : '串行');
 
   await runTask(
-    '同步章节摘要',
+    '同步章节细纲',
     async ({ signal, report }) => {
       const startedAt = Date.now();
       const { ok: okCount, failed } = await summarizeChapters(project, stale, { pool, lanes, signal, report });
@@ -270,17 +294,18 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
         );
       } else if (okCount > 0) {
         log.info(`同步结束：${okCount} 章全部成功`, `总耗时 ${elapsed(startedAt)}`);
-        getHost().toast(`已同步 ${okCount} 章摘要。`);
+        getHost().toast(`已照正文更新 ${okCount} 章细纲。`);
       }
     },
-    { scope: '摘要' }
+    { scope: '定稿' }
   );
   return stale.length;
 }
 
 /**
- * 并发总结这几章：`syncSummaries` 与「从已写正文补齐」（features/derive.ts）共用。**不弹框、不开任务**，
- * 确认与进度条归调用方。失败的挂在那一章上（第 16 条），按章号排好交回去；取消的不算失败。
+ * 并发照正文更新这几章的细纲：`syncSummaries` 与「从已写正文补齐」（features/derive.ts）共用。
+ * **不弹框、不开任务**，确认与进度条归调用方。失败的挂在那一章上（第 16 条），按章号排好交回去；
+ * 取消的不算失败。
  */
 export async function summarizeChapters(
   project: NovelProject,
@@ -337,15 +362,15 @@ export async function summarizeChapters(
             failed.push({ no: chapter.order, reason });
             log.error(`第 ${chapter.order} 章《${chapter.title}》失败：${reason}`, err);
             // toast 里只列得下章号，而它五秒就没了。挂到那一行上，
-            // 用户第二天回来还能看出是哪几章没总结成。
+            // 用户第二天回来还能看出是哪几章没更新成。
             void recordFailure(project, {
-              scope: '摘要',
+              scope: '定稿',
               targetKind: 'chapter',
               targetKey: chapter.relPath,
               severity: 'error',
               op: 'summarize',
-              message: `摘要生成失败：${reason}`,
-              detail: '这一章的剧情不会进入上下文。可右键「总结这一章」单独重试。',
+              message: `细纲没能照正文更新：${reason}`,
+              detail: '这一章的连续性事实与出场人物不会进入上下文。可右键「定稿」单独重试。',
             });
           }
         }
@@ -372,13 +397,13 @@ export async function summarizeChapters(
 /**
  * 「细纲路径或章节路径」→ 那一章的成品。
  *
- * 摘要挂在**正文**上，而作者点过来的路径可能是任意一侧：工程页那一行同时
+ * 定稿读的是**正文**，而作者点过来的路径可能是任意一侧：工程页那一行同时
  * 代表细纲与正文。先按路径直接找，找不到再按文件名里的章号找（细纲号 = 章号）——
  * 后者覆盖「传的是细纲、正文另有其名」这种正常情况。还没有正文时返回
  * undefined，调用方据此说「这一章还没有正文」。
  *
  * 放在这里而不是各调用方各写一份：工程页、命令面板与 MCP 的 `summary` 工具
- * 都要问同一个问题，答案分叉了就会出现「工程页总结得了、agent 说找不到」。
+ * 都要问同一个问题，答案分叉了就会出现「工程页定稿得了、agent 说找不到」。
  */
 export async function chapterForSummary(
   project: NovelProject,
@@ -409,7 +434,7 @@ export interface GlobalSummaryUpdate {
 }
 
 /**
- * 增量更新全书滚动摘要：旧摘要 + 它覆盖到的那一章之后、定稿过的各章的单章摘要，**1 次调用**出新的一版。
+ * 增量更新全书滚动摘要：旧摘要 + 它覆盖到的那一章之后、定稿过的各章的细纲，**1 次调用**出新的一版。
  * 批量写章「写完即定稿」每落后 `GLOBAL_SUMMARY_EVERY` 章调一次（百章实验里全书摘要从没生成过——
  * 它只有作者手动点「重建」这一个入口）。还没有旧摘要时就从第 1 章起汇总；新章太多、一次放不下时
  * 只并入放得下的前面那几章，`through` 停在那里，下一次接着并。不弹框、不开任务；调用失败抛错。
@@ -431,12 +456,13 @@ export async function updateGlobalSummary(
     if (chapter.order <= since || chapter.wordCount <= 0) {
       continue;
     }
-    const summary = await project.readSummary(chapter.relPath);
+    const plot = await project.finalizedPlotOf(chapter);
+    const content = plot ? plotDigest(plot) : '';
     // 一章没定稿就停在它前面：全书摘要是按时间顺序的主线，跳过一章就缺一块。
-    if (!summary || summary.sourceHash !== chapter.contentHash || !summary.content.trim()) {
+    if (!content) {
       break;
     }
-    units.push({ no: chapter.order, title: chapter.title, content: summary.content.trim() });
+    units.push({ no: chapter.order, title: chapter.title, content });
   }
   if (units.length === 0) {
     return { calls: 0, skipped: `第 ${since} 章之后还没有定稿过的章` };
@@ -451,7 +477,7 @@ export async function updateGlobalSummary(
     const block = `【第${u.no}章 ${u.title}】\n${u.content}`;
     const cost = estimateTokens(block);
     if (blocks.length > 0 && used + cost > inputBudget) {
-      log.warn('新定稿的章太多，这一次只并入前面几章', `并到第 ${through} 章，后面的下一次再并`);
+      globalLog.warn('新定稿的章太多，这一次只并入前面几章', `并到第 ${through} 章，后面的下一次再并`);
       break;
     }
     blocks.push(block);
@@ -460,8 +486,8 @@ export async function updateGlobalSummary(
   }
   const span = units[0].no === through ? `第 ${through} 章` : `第 ${units[0].no}–${through} 章`;
   const user = fresh
-    ? `以下是目前的全书滚动摘要（截至第 ${since} 章），以及之后${span}的逐章摘要。请在旧摘要上并入这几章，输出一份新的全书滚动摘要。\n\n# 目前的全书滚动摘要\n\n${old}\n\n# 新定稿的逐章摘要\n\n${blocks.join('\n\n')}`
-    : `以下是${span}的逐章摘要，请汇总成一份全书滚动摘要。\n\n${blocks.join('\n\n')}`;
+    ? `以下是目前的全书滚动摘要（截至第 ${since} 章），以及之后${span}定稿过的逐章细纲。请在旧摘要上并入这几章，输出一份新的全书滚动摘要。\n\n# 目前的全书滚动摘要\n\n${old}\n\n# 新定稿的逐章细纲\n\n${blocks.join('\n\n')}`
+    : `以下是${span}定稿过的逐章细纲，请汇总成一份全书滚动摘要。\n\n${blocks.join('\n\n')}`;
   const config = readConfig();
   const startedAt = Date.now();
   const text = await runner.run('更新全书摘要', (llm) =>
@@ -479,86 +505,98 @@ export async function updateGlobalSummary(
     throw new Error('模型返回的全书摘要是空的');
   }
   await new Workspace(project).writeGlobalSummary(text.trim(), through);
-  log.info(`全书摘要已更新到第 ${through} 章`, `并入${span}｜${text.trim().length} 字｜用时 ${elapsed(startedAt)}`);
+  globalLog.info(`全书摘要已更新到第 ${through} 章`, `并入${span}｜${text.trim().length} 字｜用时 ${elapsed(startedAt)}`);
   return { calls: 1, through };
+}
+
+/**
+ * 一份定稿过的细纲交给全书摘要的那一段：有内容的小节一节一段。没内容是空串。
+ * 连续性事实带着证据原句，与全书主线无关，不给。
+ */
+function plotDigest(plot: Plot): string {
+  return PLOT_SECTION_KEYS.filter((key) => key !== '连续性事实' && plot.sections[key].trim())
+    .map((key) => `### ${key}\n${plot.sections[key].trim()}`)
+    .join('\n\n');
 }
 
 /**
  * map-reduce 重建全书摘要。
  *
- * 单章摘要按 summaryBatchSize 分批 reduce 成阶段摘要，再把阶段摘要合并成
- * 一份全书摘要。这样即便有几百章，也不会一次性把所有摘要塞进窗口。
+ * 定稿过的各章细纲按 summaryBatchSize 分批 reduce 成阶段摘要，再把阶段摘要合并成
+ * 一份全书摘要。这样即便有几百章，也不会一次性把所有细纲塞进窗口。
  */
 export async function rebuildGlobalSummary(project: NovelProject): Promise<void> {
   const chapters = await project.listChapters();
   if (chapters.length === 0) {
-    log.warn('还没有章节，无法重建全书摘要');
+    globalLog.warn('还没有章节，无法重建全书摘要');
     getHost().toast('还没有章节。');
     return;
   }
 
   const stale = await project.staleChapters();
   if (stale.length > 0) {
-    log.warn(`有 ${stale.length} 章摘要缺失或过期`, `待同步：${describeNos(stale)}`);
+    globalLog.warn(`有 ${stale.length} 章没定稿或定稿后正文改过`, `待同步：${describeNos(stale)}`);
     const pick = await getHost().confirm(
-      `有 ${stale.length} 章摘要缺失或过期，直接重建会丢失这些章的信息。`,
-      ['先同步摘要', '仍然重建'],
+      `有 ${stale.length} 章的细纲还没照正文更新（没定稿，或定稿后正文又改过），直接重建会缺这些章的信息。`,
+      ['先同步细纲', '仍然重建'],
       { modal: true }
     );
     if (!pick) {
-      log.info('用户取消了重建');
+      globalLog.info('用户取消了重建');
       return;
     }
-    log.info(`用户选择「${pick}」`);
-    if (pick === '先同步摘要') {
+    globalLog.info(`用户选择「${pick}」`);
+    if (pick === '先同步细纲') {
       await syncSummaries(project);
     }
   }
 
   const config = readConfig();
 
-  // 收集可用的单章摘要
+  // 收集定稿过的细纲。定稿之后正文又改过的照样收（上面已经问过要不要先同步），
+  // 从没定稿过的只是计划，不进全书摘要。
   const units: { no: number; title: string; content: string }[] = [];
   const missing: number[] = [];
   for (const chapter of chapters) {
-    const summary = await project.readSummary(chapter.relPath);
-    if (summary?.content.trim()) {
-      units.push({ no: chapter.order, title: chapter.title, content: summary.content });
+    const plot = await project.getPlot(chapter.order);
+    const content = plot?.sourceHash ? plotDigest(plot) : '';
+    if (content) {
+      units.push({ no: chapter.order, title: chapter.title, content });
     } else {
       missing.push(chapter.order);
     }
   }
   if (units.length === 0) {
-    log.error('没有任何单章摘要，重建中止');
-    getHost().toast('没有任何单章摘要，请先运行「同步所有过期摘要」。');
+    globalLog.error('没有任何定稿过的章，重建中止');
+    getHost().toast('还没有任何一章定稿过，请先定稿，或运行「同步过期细纲」。');
     return;
   }
   if (missing.length > 0) {
     // 「不静默截断」：少了哪几章必须说出来，否则全书摘要凭空缺一块。
-    log.warn(
-      `${missing.length} 章没有摘要，不会进入全书摘要`,
+    globalLog.warn(
+      `${missing.length} 章没定稿过，不会进入全书摘要`,
       `缺失章：${missing.slice(0, 20).join('、')}${missing.length > 20 ? `…（共 ${missing.length} 章）` : ''}`
     );
   }
 
   const batches = chunk(units, Math.max(3, config.summaryBatchSize));
   const lanes = Math.min(config.concurrency, batches.length);
-  // 两个池，两档：分批汇总是几十次「把 15 章摘要压成一段」的体力活，
+  // 两个池，两档：分批汇总是几十次「把 15 章细纲压成一段」的体力活，
   // 最终合并全书只做一次却要跨几十万字取舍主线。这正是分档最大的收益点。
   const stagePool = await createModelPool({ task: 'globalSummaryStage', concurrent: lanes > 1 });
   if (!stagePool) {
-    log.error('没有可用的模型，重建中止');
+    globalLog.error('没有可用的模型，重建中止');
     return;
   }
   // 只有一批时根本不合并，不必为此构造第二个池（也不必弹它的 Key 输入框）。
   const mergePool =
     batches.length > 1 ? await createModelPool({ task: 'globalSummaryMerge', concurrent: false }) : stagePool;
   if (!mergePool) {
-    log.error('没有可用的模型，重建中止');
+    globalLog.error('没有可用的模型，重建中止');
     return;
   }
-  log.info(
-    `准备重建：${units.length} 章摘要分 ${batches.length} 批`,
+  globalLog.info(
+    `准备重建：${units.length} 章细纲分 ${batches.length} 批`,
     `分批汇总 ${stagePool.label}｜最终合并 ${mergePool.label}｜每批 ${Math.max(3, config.summaryBatchSize)} 章｜` +
       (lanes > 1 ? `汇总阶段并发 ${lanes} 路` : '汇总阶段串行')
   );
@@ -591,19 +629,19 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
           const range = rangeOf(batch);
           const joined = batch.map((u) => `【第${u.no}章 ${u.title}】\n${u.content}`).join('\n\n');
           const each = Date.now();
-          log.debug(`汇总 ${range}`, `${batch.length} 章摘要，约 ${estimateTokens(joined)} token`);
+          globalLog.debug(`汇总 ${range}`, `${batch.length} 章细纲，约 ${estimateTokens(joined)} token`);
           const text = await stagePool.run(range, (llm) =>
             collectText(
               llm.stream(
                 [
                   { role: 'system', content: STAGE_SYSTEM },
-                  { role: 'user', content: `以下是${range}的逐章摘要，请汇总成阶段摘要。\n\n${joined}` },
+                  { role: 'user', content: `以下是${range}定稿过的逐章细纲，请汇总成阶段摘要。\n\n${joined}` },
                 ],
                 options
               )
             )
           );
-          log.info(`阶段摘要完成（${range}）`, `产出 ${text.trim().length} 字，用时 ${elapsed(each)}`);
+          globalLog.info(`阶段摘要完成（${range}）`, `产出 ${text.trim().length} 字，用时 ${elapsed(each)}`);
           return `## ${range}\n\n${text.trim()}`;
         },
         {
@@ -617,7 +655,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
       );
 
       if (signal.aborted) {
-        log.warn(`重建被取消，已汇总 ${mapped}/${batches.length} 批`);
+        globalLog.warn(`重建被取消，已汇总 ${mapped}/${batches.length} 批`);
         return;
       }
 
@@ -632,11 +670,11 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
         }
       }
       if (lost.length > 0) {
-        log.error(`${lost.length} 批汇总失败，这几章不会进入全书摘要`, lost.join('\n'));
+        globalLog.error(`${lost.length} 批汇总失败，这几章不会进入全书摘要`, lost.join('\n'));
         getHost().toast(`${lost.length} 批汇总失败，全书摘要会缺这几章，详见日志页。`, 'error');
       }
       if (stageSummaries.length === 0) {
-        log.error('所有批次都汇总失败，全书摘要未改动');
+        globalLog.error('所有批次都汇总失败，全书摘要未改动');
         return;
       }
 
@@ -644,7 +682,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
       let finalText: string;
       if (stageSummaries.length === 1) {
         finalText = stageSummaries[0].replace(/^## .*\n+/, '');
-        log.debug('只有一批，直接用阶段摘要作为全书摘要');
+        globalLog.debug('只有一批，直接用阶段摘要作为全书摘要');
       } else {
         report({ message: '合并为全书摘要', current: batches.length, total: steps });
         const combined = stageSummaries.join('\n\n');
@@ -653,14 +691,14 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
         const inputBudget = Math.max(4000, mergeBudget.contextWindow - mergeBudget.maxOutputTokens - 2000);
         const clipped = takeHead(combined, inputBudget);
         if (clipped.length < combined.length) {
-          log.warn(
+          globalLog.warn(
             '阶段摘要总量超出输入预算，合并时已截断',
             `${combined.length} 字 → ${clipped.length} 字（预算 ${inputBudget} token）。` +
               '可把「全书摘要批大小」调大以减少批数。'
           );
         }
         const mergeStart = Date.now();
-        log.debug(`合并 ${stageSummaries.length} 份阶段摘要`, `约 ${estimateTokens(clipped)} token`);
+        globalLog.debug(`合并 ${stageSummaries.length} 份阶段摘要`, `约 ${estimateTokens(clipped)} token`);
         finalText = await mergePool.run('合并全书摘要', (llm) =>
           collectText(
             llm.stream(
@@ -675,36 +713,37 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
             )
           )
         );
-        log.info('阶段摘要已合并', `产出 ${finalText.trim().length} 字，用时 ${elapsed(mergeStart)}`);
+        globalLog.info('阶段摘要已合并', `产出 ${finalText.trim().length} 字，用时 ${elapsed(mergeStart)}`);
       }
 
       const through = units[units.length - 1].no;
       const relPath = await new Workspace(project).writeGlobalSummary(finalText.trim(), through);
       report({ message: '完成', current: steps, total: steps });
-      log.info(
+      globalLog.info(
         `全书摘要已重建，覆盖至第 ${through} 章`,
         `${relPath}｜${finalText.trim().length} 字（约 ${estimateTokens(finalText)} token）｜总耗时 ${elapsed(startedAt)}`
       );
       getHost().toast(`全书摘要已重建，覆盖至第 ${through} 章（约 ${estimateTokens(finalText)} token）。`);
       await getHost().openFile(project.relPath(project.globalSummaryPath));
     },
-    { scope: '摘要' }
+    { scope: '全书摘要' }
   );
 }
 
 // ---------------------------------------------------------------- 解析
 
 /**
- * 从模型返回中解析出结构化摘要。
+ * 从模型返回中解析出定稿后的八节。
  *
- * 三层降级，一层都不能少——模型不听话是常态，而摘要解析失败意味着这一章的
- * 剧情永远进不了上下文：
+ * 两层，解析不出来就什么都不收：
  *
- * 1. **JSON**（现在提示词要求的形状）。字段缺失、类型不对、数组/字符串混用
- *    都逐字段兜住，不整体作废。
- * 2. **Markdown 小节**（0.2.x 之前的提示词形状）。模型忽略 JSON 要求、
- *    改回老格式时走这条；作者手改过的摘要文件重新解析时也走这条。
- * 3. **全文塞进梗概**。信息密度低，但比丢掉整章强。
+ * 1. **JSON**（提示词要求的形状）。字段缺失、类型不对、数组/字符串混用
+ *    都逐字段兜住，不整体作废；多出来的尾逗号自己去掉再解析一次。
+ * 2. **Markdown 小节**。模型忽略 JSON 要求、照着细纲的样子写回来时走这条。
+ *
+ * 从前还有第三层「全文塞进梗概」。那时写坏的是一份单独的摘要；现在定稿写回的就是这一章的
+ * 细纲，全文塞进梗概等于拿一段没解析开的 JSON 换掉作者的计划，还记上 `sourceHash` 让这一章
+ * 看起来已经定稿。所以两层都不中就返回空的八节，由 {@link summarizeChapter} 报失败、细纲不动。
  *
  * `cast` 只在 JSON 路径上有结构化来源；其余路径从「出场人物」小节的文本反解。
  */
@@ -725,7 +764,7 @@ export function parseSummaryResponse(raw: string): SummaryData {
  *
  * 判据是**梗概或关键事件至少有一个非空**：模型有时会吐出一个语法合法但
  * 完全不相干的 JSON（比如把正文包成 `{"text": "..."}`），那种东西认下来
- * 会得到一份空摘要并且不再降级，比解析失败更糟。
+ * 会得到一份空细纲并且不再降级，比解析失败更糟。
  */
 function parseSummaryJson(text: string): SummaryData | undefined {
   const jsonText = extractJsonObject(text);
@@ -736,15 +775,19 @@ function parseSummaryJson(text: string): SummaryData | undefined {
   try {
     data = JSON.parse(jsonText);
   } catch {
-    return undefined;
+    try {
+      data = JSON.parse(stripTrailingCommas(jsonText));
+    } catch {
+      return undefined;
+    }
   }
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     return undefined;
   }
   const obj = data as Record<string, unknown>;
 
-  const sections = emptySummarySections();
-  for (const key of SUMMARY_SECTION_KEYS) {
+  const sections = emptyPlotSections();
+  for (const key of PLOT_SECTION_KEYS) {
     sections[key] = toSectionText(obj[key]);
   }
   if (!sections.梗概.trim() && !sections.关键事件.trim()) {
@@ -801,7 +844,7 @@ function parseCastField(v: unknown): SummaryCast[] {
       : typeof obj.aliases === 'string'
         ? obj.aliases.split(/[、,，/]/).map((a) => a.trim()).filter(Boolean)
         : [];
-    // 泛称在这里就挡住，不落进摘要 frontmatter：`姐姐`/`她`/`少女` 是好几个
+    // 泛称在这里就挡住，不落进细纲 frontmatter：`姐姐`/`她`/`少女` 是好几个
     // 角色的共同称呼，而 cast 的别名是 model/identity.ts 判断「谁是谁」的依据。
     push({ name, aliases: sanitizeAliases(aliases, name) });
   }
@@ -812,7 +855,7 @@ function parseCastField(v: unknown): SummaryCast[] {
  * JSON 里的小节值：字符串直接用，数组渲染成无序列表（关键事件常是数组）。
  *
  * 剥围栏与抠 JSON 对象在 [parse.ts](parse.ts)（`stripCodeFence` / `extractJsonObject`）：
- * 模型输出的容错解析在这个项目里就这一套，摘要、剧情、场景卡吃的是同一批坏习惯
+ * 模型输出的容错解析在这个项目里就这一套，定稿、细纲、角色卡吃的是同一批坏习惯
  * （该给字符串给了数组、该给数组给了顿号分隔的一行）。各写一份必然慢慢跑偏。
  */
 export function toSectionText(v: unknown): string {
@@ -842,24 +885,20 @@ export function toSectionText(v: unknown): string {
   return '';
 }
 
-/** 从 Markdown 抽出几个固定小节（SUMMARY_SECTION_KEYS）。允许模型多写、少写，缺的留空。 */
-function parseSummarySections(cleaned: string): SummarySections {
-  const picked = pickSections<keyof SummarySections>(cleaned, SUMMARY_SECTION_KEYS);
-  const sections = { ...emptySummarySections(), ...picked };
+/** 从 Markdown 抽出八个固定小节（PLOT_SECTION_KEYS）。允许模型多写、少写，缺的留空。 */
+function parseSummarySections(cleaned: string): PlotSections {
+  const picked = pickSections<PlotSectionKey>(cleaned, PLOT_SECTION_KEYS);
+  const sections = { ...emptyPlotSections(), ...picked };
 
   // 模型偶尔不带 `##`，改用 `梗概：xxx` 的行内写法，这里兜底一次。
   if (!sections.梗概.trim() && !sections.关键事件.trim()) {
-    for (const key of SUMMARY_SECTION_KEYS) {
+    for (const key of PLOT_SECTION_KEYS) {
       const re = new RegExp(`^\\s*(?:[-*]\\s*)?(?:\\*\\*)?${key}(?:\\*\\*)?\\s*[:：]\\s*(.+)$`, 'm');
       const m = re.exec(cleaned);
       if (m) {
         sections[key] = m[1].trim();
       }
     }
-  }
-  // 实在解析不出小节，就把全文塞进梗概，至少不丢信息。
-  if (!Object.values(sections).some((v) => v.trim())) {
-    sections.梗概 = cleaned.trim();
   }
   return sections;
 }

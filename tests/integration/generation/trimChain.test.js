@@ -21,7 +21,7 @@ let fake;
 let t;
 let script = [];
 
-const P1 = '.novelforge/plots/001-夜入青云.md';
+const P1 = '.novelforge/summaries/001-夜入青云.md';
 
 /** 两段正文，每段中间夹一个可删的程度副词；第三段是对白。目标 1000 字。 */
 const A = `${filler(520, 1).slice(0, -1)}格外${filler(30, 2)}`;
@@ -93,12 +93,11 @@ before(async () => {
   await ws.writePlot({
     no: 1,
     title: '夜入青云',
-    role: '',
-    characters: ['林昭'],
     targetWords: 1000,
     upstreamHash: '',
     done: false,
-    sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '目的', 关键事件: '事件', 章末钩子: '钩子' },
+    // 关键事件那一句是记号：写正文那一次的执行卡里有它，删修饰那一次不该有。
+    sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: '梗概', 出场人物: '林昭', 关键事件: '林昭夜闯青云山门' },
   });
   await t.project.syncManifest();
 });
@@ -136,10 +135,21 @@ describe('删得合格', () => {
     assert.equal(r.rec.resets.at(-1), r.draft.raw);
   });
 
-  test('删修饰那一次只给规矩与编号的正文，不带装配内容', () => {
+  test('删修饰那一次只有两条消息：规矩与编号的正文', () => {
     assert.equal(r.last.length, 2);
+  });
+
+  test('正文按段编号交给它，对白段也在', () => {
     assert.match(r.last[1].content, /\[3\] “这一句是对白，不许动。”/);
-    assert.ok(!r.last[1].content.includes('钩子'));
+  });
+
+  // 对照：记号确实在装配里，下一条「不在」才说明得了问题。
+  test('写正文那一次的装配带着本章细纲的关键事件', () => {
+    assert.ok(fake.calls[0].at(-1).content.includes('林昭夜闯青云山门'));
+  });
+
+  test('删修饰那一次不带装配内容：本章细纲的关键事件不在', () => {
+    assert.ok(!r.last[1].content.includes('林昭夜闯青云山门'));
   });
 });
 

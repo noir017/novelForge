@@ -10,7 +10,8 @@
  * 3. **失败挂在细纲上、成功清掉**（AGENTS 第 16 条），取消不算失败；架构与大纲没有
  *    归属的那一行，失败只进日志。
  *
- * 一章一纲之后细纲是 D3 三节；架构层四件同属一个阶段，解析要看 target 才分得清。
+ * 细纲与单章摘要并成一份之后是八节（梗概 / 出场人物 / 时间地点 / 关键事件 / 看点 / 新增伏笔 /
+ * 状态变更 / 连续性事实），落在 `summaries/`；架构层四件同属一个阶段，解析要看 target 才分得清。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -20,10 +21,11 @@ const { makeFakeHost, sleep } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 
+// 模型只答了八节里的三节：没写的小节留空，形状描述照实说「3/8 节」。
 const PLOT_JSON = JSON.stringify({
-  本章目的: '进入宗门',
+  梗概: '林昭夜里摸进青云宗',
   关键事件: '踩点、失手、翻墙；收在藏书阁门口。三拍推进。',
-  章末钩子: '第三块令牌',
+  看点: '第三块令牌',
 });
 
 let bundle;
@@ -105,11 +107,9 @@ before(async () => {
   await ws.writePlot({
     no: 1,
     title: '夜入青云',
-    role: '',
-    characters: [],
     upstreamHash: '',
     done: false,
-    sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '林昭进入宗门' },
+    sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: '林昭进入宗门' },
   });
   await project.syncManifest();
 });
@@ -118,7 +118,7 @@ after(() => {
   if (t) cleanup(t.dir, bundle && bundle.db);
 });
 
-const PLOT_TARGET = { kind: 'plot', plotRelPath: '.novelforge/plots/001-夜入青云.md' };
+const PLOT_TARGET = { kind: 'plot', plotRelPath: '.novelforge/summaries/001-夜入青云.md' };
 
 describe('细纲层 · 产出 Draft', () => {
   let out;
@@ -158,12 +158,13 @@ describe('细纲层 · 产出 Draft', () => {
     assert.equal(out.draft.artifact.kind, 'plot', JSON.stringify(out.draft.artifact));
   });
 
-  test('产物三节都在', () => {
-    assert.equal(out.draft.artifact.sections.章末钩子, '第三块令牌');
+  // 章末钩子不单列了，模型写进「看点」的那一下原样落在看点里。
+  test('产物的看点在', () => {
+    assert.equal(out.draft.artifact.sections.看点, '第三块令牌');
   });
 
   test('draft 自带一句话形状描述', () => {
-    assert.equal(out.draft.summary, '细纲 · 3/3 节', out.draft.summary);
+    assert.equal(out.draft.summary, '细纲 · 3/8 节', out.draft.summary);
   });
 
   test('draft 记下字数', () => {
@@ -253,7 +254,7 @@ describe('正文层 · cleanOutput 只在这一层跑', () => {
       plotRaw,
       PLOT_TARGET
     );
-    assert.equal(artifact.sections.章末钩子, '第三块令牌', JSON.stringify(artifact));
+    assert.equal(artifact.sections.看点, '第三块令牌', JSON.stringify(artifact));
   });
 });
 

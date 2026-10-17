@@ -1,7 +1,7 @@
 import { CONTEXT_DETAIL_LABEL, takeLast } from '../../model/contextDetail';
 import { plotLabel } from '../../model/pipeline';
 import { parseOutlineRanges } from '../../model/outlineFile';
-import { isPlotFilled } from '../../model/plotFile';
+import { isPlotFilled, sectionLine } from '../../model/plotFile';
 import {
   PLOT_STRUCTURE_LABEL,
   SETTING_DOC_HEADING,
@@ -20,7 +20,7 @@ import { clipLine, isPlaceholder, renderPlot, renderPlotBrief, renderRosterLine 
  * `chapter_blueprint_chunk` 的「最近 100 章」。
  */
 
-/** 批次模式下，一览里最后几章写得详细些（带章末钩子）——下一批要紧接着它们往下排。 */
+/** 批次模式下，一览里最后几章写得详细些（带看点）——下一批要紧接着它们往下排。 */
 const PLOT_LIST_DETAILED = 3;
 
 function span(from: number, to: number): string {
@@ -225,8 +225,8 @@ export const structure: LayerFn = async (a, spec) => {
  * 前序细纲一览：一章一行的目录进度（上游 `chapter_blueprint_chunk` 的 chapter_list）。
  *
  * - **单章**时，紧挨着的前几章由 `plotPrev` 详细带，这里只列更早的那些；
- * - **批次**时 `plotPrev` 不出场，这里全包：更早的一章一行，最后几章带上章末钩子——
- *   下一批要紧接着它们往下排。生成链里刚排好、还没落盘的那几章（`draftPlots`，
+ * - **批次**时 `plotPrev` 不出场，这里全包：更早的一章一行，最后几章带上看点（爽点与章末
+ *   吊着读者的东西）——下一批要紧接着它们往下排。生成链里刚排好、还没落盘的那几章（`draftPlots`，
  *   拆半重试时的前一半）接在最后。
  */
 export const plotList: LayerFn = async (a, spec) => {
@@ -238,7 +238,7 @@ export const plotList: LayerFn = async (a, spec) => {
       no: c.no,
       title: c.plot!.title || c.title,
       keyEvents: c.plot!.sections.关键事件,
-      suspenseHook: c.plot!.sections.章末钩子,
+      highlights: c.plot!.sections.看点,
       draft: false,
     }));
   const drafts = (a.request.draftPlots ?? []).map((d) => ({ ...d, draft: true }));
@@ -247,11 +247,14 @@ export const plotList: LayerFn = async (a, spec) => {
     return;
   }
   const detailedFrom = batch ? rows.length - PLOT_LIST_DETAILED : rows.length;
+  // 关键事件、看点都是一条一行的列表：一章一行时条与条之间用「；」接。
   const lines = rows.map((r, i) => {
     const head = `第${r.no}章 ${r.title || '（未命名）'}${r.draft ? '（刚排好，还没写入文件）' : ''}`;
+    const events = sectionLine(r.keyEvents);
+    const highlights = sectionLine(r.highlights);
     return i >= detailedFrom
-      ? `${head}：${clipLine(r.keyEvents, 400)}｜章末钩子：${clipLine(r.suspenseHook, 120)}`
-      : `${head}：${clipLine(r.keyEvents, 120)}`;
+      ? `${head}：${clipLine(events, 400)}${highlights ? `｜看点：${clipLine(highlights, 120)}` : ''}`
+      : `${head}：${clipLine(events, 120)}`;
   });
   a.admit(
     {
@@ -291,9 +294,9 @@ export const plotSelf: LayerFn = async (a, spec) => {
 /**
  * 前几章的细纲（上文）。
  *
- * 带**细纲**而不是摘要：摘要说「林昭进了宗门」，细纲说「他是靠那半枚令牌被破例
- * 放进去的，章末留了一句令牌来路的疑问」——接着往下排的人要的是后者。
- * 更早的章才降级成摘要（`plotSummary` 层）。
+ * 带梗概、关键事件与状态变更（`renderPlotBrief`）：梗概说「林昭进了宗门」，关键事件说「他是靠
+ * 那半枚令牌被破例放进去的」，状态变更说他此刻落在什么处境——接着往下排的人三样都要。
+ * 更早的章由前序细纲一览一章一行带。
  *
  * `focus.prevPlots` 已经滤掉没有细纲的章（老工程里那些），所以这里的
  * `c.plot` 一定在。
@@ -361,7 +364,7 @@ export const plotAhead: LayerFn = async (a, spec) => {
   }
   const lines = ahead.map(({ no, plot }) => {
     const title = plot!.title ? ` ${plot!.title}` : '';
-    return `第${no}章${title}：${clipLine(plot!.sections.关键事件, AHEAD_EVENT_CHARS)}`;
+    return `第${no}章${title}：${clipLine(sectionLine(plot!.sections.关键事件), AHEAD_EVENT_CHARS)}`;
   });
   const first = ahead[0].no;
   const last = ahead[ahead.length - 1].no;

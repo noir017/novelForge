@@ -5,7 +5,7 @@
  * |---|---|
  * | 确认框报区间、模式与上限，弹窗确认过的不再问 | 第 4 条；W9 不叠弹窗 |
  * | 已有正文的跳过，第一章没细纲的在它前面收住 | 第 19 条批量那一面；后一章要接着前一章写 |
- * | 写完即定稿：写一章、定稿一章，再写下一章 | D17：自动定稿只在这里 |
+ * | 写完即定稿：写一章、定稿一章（拿细纲与正文对照，把细纲改成正文写成的样子），再写下一章 | D17：自动定稿只在这里 |
  * | 一章写不出来就停，后面的不写 | 失败即停：后面的章接不上 |
  * | 重演、没写够：写进去然后停，挂黄 ❗ | 钱已经花了（D6），但不能踩着有问题的结尾往下写 |
  * | 后面几章才登场的人提前写进来：同上 | 五期补遗 §1.2：下一章要从他第一次露面写起 |
@@ -32,18 +32,41 @@ const finished = [];
 const pad3 = (n) => String(n).padStart(3, '0');
 const TITLES = ['停舟', '令牌', '夜访', '井', '名册'];
 const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.md`;
-const PLOT = (no) => `.novelforge/plots/${pad3(no)}-${TITLES[no - 1]}.md`;
+const PLOT = (no) => `.novelforge/summaries/${pad3(no)}-${TITLES[no - 1]}.md`;
 
-/** 按执行卡里的钩子认是第几章在写（续写那几轮另有契约）。 */
+/**
+ * 按执行卡里重列的必需事件认是第几章在写（续写那几轮另有契约）。每章的关键事件都以
+ * 「第 N 章」开头（{@link planSections} 与拆细纲的假应答），执行卡只剩这一项能认章。
+ */
 function chapterOf(messages) {
   const user = messages[messages.length - 1].content;
   if (user.includes('请无缝续写当前章节正文')) {
     return { continuation: true };
   }
-  const m = /- 章节钩子：第 (\d+) 章结尾/.exec(user);
+  const m = /- 必需事件：第 (\d+) 章/.exec(user);
   return m ? { no: Number(m[1]) } : {};
 }
 
+/**
+ * 写正文之前排好的一份细纲（计划）：梗概、计划出场、关键事件、看点（章末钩子并进了看点）；
+ * 连续性事实是空的——定稿时才从正文里摘。
+ */
+function planSections(no, { cast = '林昭', events = `第 ${no} 章林昭查到一点东西。` } = {}) {
+  return {
+    ...bundle.plotFile.emptyPlotSections(),
+    梗概: `第 ${no} 章的目的`,
+    出场人物: cast,
+    关键事件: events,
+    看点: `第 ${no} 章结尾：又一个人不见了。`,
+  };
+}
+
+/** 磁盘上第 N 章的细纲。有 `sourceHash` = 定稿过（细纲照正文反向更新过）。 */
+function plotOf(t, no) {
+  return bundle.plotFile.parsePlotFile(t.read(PLOT(no)), PLOT(no));
+}
+
+/** 定稿那一次（照正文更新细纲）。有细纲时系统提示是 REFINE_SYSTEM，它以 SUMMARY_SYSTEM 开头，同一句都认得出。 */
 function isSummary(messages) {
   return (messages[0]?.content ?? '').includes('建立可检索的章节档案');
 }
@@ -54,10 +77,10 @@ function isReview(messages) {
   return (messages[0]?.content ?? '').includes('严谨的小说审稿编辑');
 }
 
-/** 缺省的应答：正文一次写够，摘要与状态各给一份。 */
+/** 缺省的应答：正文一次写够，定稿（照正文更新细纲）与状态各给一份。 */
 function defaultReply(messages) {
   if (isSummary(messages)) {
-    const no = Number(/第 (\d+) 章/.exec(messages[messages.length - 1].content)?.[1] ?? 0);
+    const no = Number(/【第(\d+)章/.exec(messages[messages.length - 1].content)?.[1] ?? 0);
     return JSON.stringify({
       梗概: `第 ${no} 章的事。`,
       出场人物: [{ name: '林昭', aliases: [] }],
@@ -113,14 +136,10 @@ async function fresh(prefix, { written = [], blank = [] } = {}) {
     await ws.writePlot({
       no,
       title: TITLES[no - 1],
-      role: '铺垫',
-      characters: ['林昭'],
       targetWords: 600,
       upstreamHash: '',
       done: false,
-      sections: blank.includes(no)
-        ? bundle.plotFile.emptyPlotSections()
-        : { 本章目的: `第 ${no} 章的目的`, 关键事件: `第 ${no} 章林昭查到一点东西。`, 章末钩子: `第 ${no} 章结尾：又一个人不见了。` },
+      sections: blank.includes(no) ? bundle.plotFile.emptyPlotSections() : planSections(no),
     });
   }
   for (const no of written) {
@@ -173,10 +192,13 @@ describe('只写正文：下一可写章起 3 章', () => {
     assert.ok(user.includes(filler(700, 100).slice(-40)));
   });
 
-  test('细纲上记了 writtenFrom；只写正文不定稿', async () => {
-    t.project.invalidate();
-    assert.ok((await t.project.getPlot(1)).writtenFrom);
-    assert.ok(!t.has('.novelforge/summaries/001-停舟.md'));
+  test('细纲上记了 writtenFrom', () => {
+    assert.ok(plotOf(t, 1).writtenFrom);
+  });
+
+  // 细纲与定稿是同一份文件：没定稿 = 文件还在、只是没有 sourceHash。
+  test('只写正文不定稿：细纲上没有 sourceHash', () => {
+    assert.equal(plotOf(t, 1).sourceHash, '');
   });
 
   test('完成提示带「打开第 3 章」', () => {
@@ -199,7 +221,7 @@ describe('写完即定稿；已有正文的跳过；弹窗确认过的不再问'
     assert.equal(h.confirms.length, 0);
   });
 
-  test('写一章、定稿一章（摘要 + 角色状态），再写下一章；第 2 章跳过', () => {
+  test('写一章、定稿一章（更新细纲 + 角色状态），再写下一章；第 2 章跳过', () => {
     const order = fake.calls.map((m) => (isSummary(m) ? 'summary' : isState(m) ? 'state' : `write:${chapterOf(m).no}`));
     assert.deepEqual(order, ['write:1', 'summary', 'state', 'write:3', 'summary', 'state']);
     assert.equal(calls, 6);
@@ -209,9 +231,20 @@ describe('写完即定稿；已有正文的跳过；弹窗确认过的不再问'
     assert.equal(t.read(CH(2)), '# 令牌\n\n作者自己写的第 2 章。\n');
   });
 
-  test('两章都定了稿：摘要在、角色状态更新到第 3 章', () => {
-    assert.ok(t.has('.novelforge/summaries/001-停舟.md'));
-    assert.ok(t.has('.novelforge/summaries/003-夜访.md'));
+  // 手上有细纲（写之前排的计划）：定稿是拿它和正文对照着改，不是照正文从头整理。
+  test('定稿带上当前细纲：系统提示是 REFINE_SYSTEM', () => {
+    assert.ok(fake.calls.filter(isSummary).every((m) => m[0].content.includes('关于「当前细纲」')));
+  });
+
+  // 定稿是把细纲照正文反向更新：sourceHash 记的是正文那时的指纹。
+  test('两章都定了稿：细纲的 sourceHash 对得上正文', async () => {
+    t.project.invalidate();
+    for (const no of [1, 3]) {
+      assert.equal(plotOf(t, no).sourceHash, (await t.project.getChapter(no)).contentHash, `第 ${no} 章`);
+    }
+  });
+
+  test('角色状态更新到第 3 章', () => {
     assert.match(t.read('.novelforge/characters/林昭.md'), /stateThrough: 3/);
   });
 
@@ -284,7 +317,7 @@ describe('重演：写进去，然后停', () => {
 
   test('第 2 章写进去了、没定稿；第 3 章没写', () => {
     assert.ok(t.has(CH(2)));
-    assert.ok(!t.has('.novelforge/summaries/002-令牌.md'));
+    assert.equal(plotOf(t, 2).sourceHash, '');
     assert.ok(!t.has(CH(3)));
   });
 
@@ -310,12 +343,10 @@ describe('后面几章才登场的人提前写了进来：写进去，然后停�
     await ws.writePlot({
       no: 3,
       title: TITLES[2],
-      role: '铺垫',
-      characters: ['林昭', '沈秋'],
       targetWords: 600,
       upstreamHash: '',
       done: false,
-      sections: { 本章目的: '第 3 章的目的', 关键事件: '第 3 章林昭遇见沈秋。', 章末钩子: '第 3 章结尾：又一个人不见了。' },
+      sections: planSections(3, { cast: '林昭、沈秋', events: '第 3 章林昭遇见沈秋。' }),
     });
     replyFn = (messages) => {
       if (chapterOf(messages).no === 2) {
@@ -329,7 +360,7 @@ describe('后面几章才登场的人提前写了进来：写进去，然后停�
 
   test('第 2 章写进去了、没定稿；第 3 章没写', () => {
     assert.ok(t.has(CH(2)));
-    assert.ok(!t.has('.novelforge/summaries/002-令牌.md'));
+    assert.equal(plotOf(t, 2).sourceHash, '');
     assert.ok(!t.has(CH(3)));
   });
 
@@ -340,7 +371,7 @@ describe('后面几章才登场的人提前写了进来：写进去，然后停�
   });
 
   test('写第 2 章时执行卡后面就点了名', () => {
-    const asked = fake.calls.map((c) => c[c.length - 1].content).find((u) => /- 章节钩子：第 2 章结尾/.test(u));
+    const asked = fake.calls.map((c) => c[c.length - 1].content).find((u) => /- 必需事件：第 2 章/.test(u));
     assert.match(asked, /本章不出场：沈秋（第 3 章才登场）/);
   });
 });
@@ -388,7 +419,7 @@ describe('结尾停在半句上、续写也没接完：写进去，然后停', (
 
   test('第 1 章写了、没定稿，第 2 章没写', () => {
     assert.ok(t.has(CH(1)) && !t.has(CH(2)));
-    assert.ok(!t.has('.novelforge/summaries/001-停舟.md'));
+    assert.equal(plotOf(t, 1).sourceHash, '');
   });
 
   test('黄 ❗：结尾停在半句上', async () => {
@@ -402,7 +433,7 @@ describe('结尾停在半句上、续写也没接完：写进去，然后停', (
 
 const OUTLINE = '# 情节大纲\n\n## 第1–10章：第一幕\n\n林昭回镇查案。\n';
 
-/** 按契约里写的区间应答一批细纲。 */
+/** 按契约里写的区间应答一批细纲（新合同：八节里除连续性事实之外的字段）。 */
 function blueprintsFor(messages) {
   const user = messages[messages.length - 1].content;
   const m = /chapterNumber 必须覆盖第 (\d+)(?:–(\d+))? 章的每一章/.exec(user);
@@ -413,11 +444,13 @@ function blueprintsFor(messages) {
     blueprints.push({
       chapterNumber: no,
       title: TITLES[no - 1] ?? `第${no}章`,
-      role: '铺垫',
-      purpose: `第 ${no} 章的目的`,
-      keyEvents: `第 ${no} 章林昭又查到一点东西。`,
+      synopsis: `第 ${no} 章的目的`,
       characters: ['林昭'],
-      suspenseHook: `第 ${no} 章结尾：又一个人不见了。`,
+      timePlace: '',
+      keyEvents: [`第 ${no} 章林昭又查到一点东西。`],
+      highlights: [`第 ${no} 章结尾：又一个人不见了。`],
+      foreshadowing: [],
+      stateChange: '',
     });
   }
   return JSON.stringify({ blueprints });
@@ -427,7 +460,7 @@ const isPlotCheck = (messages) => (messages[0]?.content ?? '').includes('你是�
 const isEvents = (messages) => (messages[0]?.content ?? '').includes('你是小说定稿事实审查员');
 const isThreads = (messages) => (messages[0]?.content ?? '').includes('只从作者给的故事前提、情节大纲与各章细纲里提出跨章的伏笔');
 
-/** 每章正文带一句可查证的事实；摘要把它记成连续性事实。 */
+/** 每章正文带一句可查证的事实；定稿把它记成细纲里的连续性事实。 */
 function factfulReply(conflicts = () => []) {
   return (messages) => {
     if (isBlueprint(messages)) {
@@ -487,10 +520,18 @@ describe('边写边拆细纲：大纲覆盖之内没细纲的章，写到时先�
     assert.ok(blueprintPrompt.includes('既成历史'));
   });
 
-  test('第 3、4 章的细纲拆了、正文写了；区间外的第 5 章不动', () => {
+  test('第 3、4 章的正文写了；区间外的第 5 章没写', () => {
     assert.ok(t.has(CH(3)) && t.has(CH(4)) && !t.has(CH(5)));
-    assert.match(t.read(PLOT(4)), /第 4 章林昭又查到一点东西/);
-    assert.doesNotMatch(t.read(PLOT(5)), /林昭又查到/);
+  });
+
+  // 第 4 章写完即定稿，细纲已经照正文反向更新过了；拆出来的那一版要在写它的那次调用里找。
+  test('第 4 章照刚拆出来的细纲写：执行卡重列的是拆出来的关键事件', () => {
+    const users = fake.calls.map((c) => c[c.length - 1].content);
+    assert.ok(users.some((u) => u.includes('- 必需事件：第 4 章林昭又查到一点东西。')));
+  });
+
+  test('区间外的第 5 章细纲不动：仍是空的', () => {
+    assert.equal(plotOf(t, 5).sections.关键事件, '');
   });
 });
 
@@ -515,14 +556,15 @@ describe('全书滚动摘要增量更新', () => {
   });
   after(() => cleanup(t.dir, bundle.db));
 
-  test('还没有全书摘要：从第 1 章起汇总定稿过的章，through 记到最后一章', async () => {
+  // 全书摘要的输入是定稿过的细纲（单章摘要那一份已经并进细纲了）。
+  test('还没有全书摘要：从第 1 章起汇总定稿过的细纲，through 记到最后一章', async () => {
     const r = await bundle.summarize.updateGlobalSummary(t.project, runner);
     assert.deepEqual(r, { calls: 1, through: 2 });
-    assert.match(users[0], /第 1–2 章的逐章摘要/);
+    assert.match(users[0], /第 1–2 章定稿过的逐章细纲/);
     assert.match(t.read('.novelforge/summaries/global.md'), /through: 2[\s\S]*第 1 版：林昭一路丢玉佩/);
   });
 
-  test('之后只并入新定稿的章，旧摘要一起带上；没有新章就零调用', async () => {
+  test('之后只并入新定稿的章，旧的全书摘要一起带上；没有新章就零调用', async () => {
     t.project.invalidate();
     await bundle.batch.writeManuscripts(t.project, { range: { from: 3, to: 3 }, mode: 'finalize', confirmed: true });
     const r = await bundle.summarize.updateGlobalSummary(t.project, runner);
@@ -640,14 +682,14 @@ describe('没有可写的', () => {
 
 // ---------------------------------------------------------------- 一致性预检（五期）
 
-/** 第 2 章的细纲改成排着沈秋；沈秋的卡上「当前状态」写着 `state`。 */
+/** 第 2 章的细纲改成排着沈秋（计划出场写在「出场人物」一节）；沈秋的卡上「当前状态」写着 `state`。 */
 function scheduleShenQiu(t, state, through = 0) {
   t.write(
     PLOT(2),
     [
-      '---', 'no: 2', `title: ${TITLES[1]}`, 'characters: [林昭, 沈秋]', 'targetWords: 600', '---', '',
-      `# 第2章 ${TITLES[1]}`, '', '## 本章目的', '', '第 2 章的目的', '', '## 关键事件', '', '第 2 章林昭查到一点东西。', '',
-      '## 章末钩子', '', '第 2 章结尾：又一个人不见了。', '',
+      '---', 'no: 2', `title: ${TITLES[1]}`, 'targetWords: 600', '---', '',
+      `# 第2章 ${TITLES[1]}`, '', '## 梗概', '', '第 2 章的目的', '', '## 出场人物', '', '林昭、沈秋', '',
+      '## 关键事件', '', '第 2 章林昭查到一点东西。', '', '## 看点', '', '第 2 章结尾：又一个人不见了。', '',
     ].join('\n')
   );
   t.write('.novelforge/characters/沈秋.md', `---\nname: 沈秋\nstateThrough: ${through}\n---\n\n# 沈秋\n\n## 当前状态\n\n${state}\n`);
@@ -702,13 +744,13 @@ describe('一致性预检：开跑之前查一遍，有问题先问', () => {
     cleanup(t.dir, bundle.db);
   });
 
-  // 百章实验：钱执事第 10 章的摘要已记下「尸骨无存」，第 26 章细纲照排——他没有卡，预检没拦。
+  // 百章实验：钱执事第 10 章定稿时已记下「尸骨无存」，第 26 章细纲照排——他没有卡，预检没拦。
   test('没有卡的人：靠前面定稿的连续性事实认出来，停在那一章前面', async () => {
     const t = await fresh('wb-preflight-fact');
     scheduleShenQiu(t, '');
     t.remove('.novelforge/characters/沈秋.md');
     // 第 1 章也排着沈秋：他死在这一章（不算提前登场）。
-    t.write(PLOT(1), t.read(PLOT(1)).replace('characters: [林昭]', 'characters: [林昭, 沈秋]'));
+    t.write(PLOT(1), t.read(PLOT(1)).replace('## 出场人物\n\n林昭\n', '## 出场人物\n\n林昭、沈秋\n'));
     t.project.invalidate();
     replyFn = (messages) => {
       if (isSummary(messages)) {
@@ -730,7 +772,7 @@ describe('一致性预检：开跑之前查一遍，有问题先问', () => {
   });
 });
 
-describe('开写之前补建角色卡：摘要里出场两章以上、还没有卡的人', () => {
+describe('开写之前补建角色卡：定稿过的细纲里出场两章以上、还没有卡的人', () => {
   let t;
   before(async () => {
     t = await fresh('wb-cast-cards');
@@ -751,7 +793,7 @@ describe('开写之前补建角色卡：摘要里出场两章以上、还没有�
   test('确认框里说了给谁建卡、几次调用，并算进总数', () => {
     const c = h.confirms[0];
     assert.match(c.message, /预计 2–4 次调用/);
-    assert.match(c.detail, /开写之前先给老周建角色卡（摘要里已经出场 2 章以上、还没有卡；1 次调用/);
+    assert.match(c.detail, /开写之前先给老周建角色卡（定稿里已经出场 2 章以上、还没有卡；1 次调用/);
   });
 
   test('先建卡再写：老周有了卡，第 3 章写了', () => {
@@ -769,7 +811,8 @@ describe('写完即审稿', () => {
     replyFn = (messages) => {
       if (isReview(messages)) {
         const user = messages[messages.length - 1].content;
-        const no = Number(/- 章节钩子：第 (\d+) 章结尾/.exec(user)?.[1] ?? /第 (\d+) 章林昭查到/.exec(user)?.[1] ?? 0);
+        // 审稿冻结的目标只剩关键事件：「第 N 章林昭查到一点东西」。
+        const no = Number(/第 (\d+) 章林昭查到/.exec(user)?.[1] ?? 0);
         order.push(`审${no}`);
         if (no === 2) {
           return { text: '这不是 JSON', stop: 'end' };

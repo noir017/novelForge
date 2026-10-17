@@ -160,9 +160,8 @@ export interface ProjectPlotNode {
   wordCount: number;
   /** 目标字数（细纲的，或配置的每章字数）。都没有是 undefined。 */
   targetWords?: number;
-  /** 摘要缺失或过期（只对有正文的章有意义）。 */
+  /** 有正文却还没定稿，或定稿之后正文又改过（只对有正文的章有意义）。 */
   stale: boolean;
-  summaryPath: string;
   stage: PlotStage;
   progress: PipelineProgress;
   /** 细纲或正文的上游变过（⟳）。 */
@@ -208,6 +207,7 @@ export interface PlotPipelineView {
     /** 写完正文之后，这一章的细纲改过。 */
     upstreamStale: boolean;
   };
+  /** 定稿：`exists` = 细纲定稿过，`stale` = 没定稿过或定稿之后正文又改过。 */
   summary: { exists: boolean; stale: boolean };
   stage: PlotStage;
   progress: PipelineProgress;
@@ -274,18 +274,23 @@ export interface CastConflictView {
   cards: { name: string; relPath: string }[];
 }
 
+/** 工程页悬停在章节行上时那只浮窗：这一章的细纲（计划，或定稿过的档案）。 */
 export interface PlotSummaryView {
   no: number;
   title: string;
   /** 浮窗标题里那一行（「第 12 章《夜访》」）。由后端给，文案只有一份。 */
   label: string;
+  /** 有这份细纲。 */
   exists: boolean;
+  /** 定稿过（细纲照正文反向更新过）。没有就是计划。 */
+  finalized: boolean;
+  /** 定稿过、正文后来又改过。 */
   stale: boolean;
   relPath: string;
   sections: { name: string; text: string }[];
   /**
-   * 没有摘要时那句话。有正文是「还没定稿」（右键就能定稿），没有正文是
-   * 「还没写」——对一章还没写的说「右键定稿」是在指一条走不通的路。
+   * 没有细纲时那句话。有正文是「右键定稿可以照正文整理一份」，没有正文就只说没有——
+   * 对一章还没写的说「右键定稿」是在指一条走不通的路。
    */
   emptyHint?: string;
 }

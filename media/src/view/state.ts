@@ -54,7 +54,7 @@ export function renderState(state: ViewState): void {
 
   renderTargetSelect(state);
 
-  // 过期摘要的提示只在工程页出现（那份横幅由 project/groups.ts 画，还带进度条）。
+  // 没定稿的提示只在工程页出现（那份横幅由 project/groups.ts 画，还带进度条）。
   // 对话页不再挂一份纯文字版——同一句话说两遍，占的却是消息流的地方。
   // 独立版的活动栏上给「工程」挂一个小圆点，切走了也看得见待办。
   const dot = maybeById('projectStaleDot');

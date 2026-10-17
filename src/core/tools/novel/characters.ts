@@ -4,8 +4,8 @@
  * 每个动作都是工程页角色卡那几颗按钮背后的同一个函数，确认框、提示条都在 feature 自己那里。
  * 这几个 feature 不报调用次数，回给模型的只有一句「交出去了」（`handed`），次数以确认框为准。
  *
- * 出场人物的唯一真相是摘要（第 14 条）：建卡认的是摘要里出场、还没有卡的人，`name` 要与摘要
- * 里的写法一致。
+ * 出场人物的唯一真相是定稿过的细纲（第 14 条）：建卡认的是定稿里出场、还没有卡的人，`name` 要与
+ * 细纲里的写法一致。
  */
 import { str } from '../schema';
 import { defineActionTool, handed } from './actions';
@@ -23,11 +23,11 @@ const CARD = ['path'];
 
 export const charactersTool = defineActionTool({
   name: 'characters',
-  summary: '角色卡。出场人物以各章摘要为准：先定稿（summary finalize）再建卡、更新卡。',
+  summary: '角色卡。出场人物以各章定稿过的细纲为准：先定稿（summary finalize）再建卡、更新卡。',
 
   params: {
     path: str('那张角色卡的工程内相对路径。'),
-    name: str('出场人物的名字，与摘要里的写法一致。'),
+    name: str('出场人物的名字，与细纲里的写法一致。'),
   },
 
   actions: {
@@ -51,7 +51,7 @@ export const charactersTool = defineActionTool({
       },
     },
     createAll: {
-      label: '给摘要里所有还没有卡的出场人物建卡',
+      label: '给定稿里所有还没有卡的出场人物建卡',
       costly: true,
       async run(ctx) {
         await createCardsForAllCast(ctx.project);

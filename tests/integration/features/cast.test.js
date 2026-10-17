@@ -2,7 +2,7 @@
  * 「谁是谁」这条链路：泛称过滤、同一人聚类、出场索引、维护命令。
  * 迁自 scripts/smoke-cast.js（47 条断言）。
  *
- * 这条链路是一次实战事故的产物——摘要里 `方源` 与 `古月方源` 交替出现，
+ * 这条链路是一次实战事故的产物——定稿的出场人物里 `方源` 与 `古月方源` 交替出现，
  * 「全部建卡」于是给同一个人建了两张卡；与此同时 aliases 里堆满了 `她`、
  * `姐姐`、`少女`，其中还混进了她孪生弟弟的名字。
  *
@@ -28,31 +28,28 @@ let h;
 let t;
 
 /**
- * 造一章 + 它的成品正文 + 一份带 cast 的摘要。cast 用 `名(别名、别名)` 的写法。
+ * 造一份定稿过的细纲（带 sourceHash 与 cast）。cast 用 `名(别名、别名)` 的写法。
  *
- * 出场索引扫的是**发布章节**（`buildCastIndex` 走 `listChapters()` 再按章读摘要），
- * 所以章节文件必须在——只写摘要的话它一份都扫不到。
+ * 出场索引扫的是**定稿过的细纲**（`buildCastIndex` 走 `listPlots()`，只认有 sourceHash 的），
+ * 不看同号正文在不在、对不对得上——那是最后一次定稿时的实际出场，比没有强。
  */
-function makePlot(no, cast) {
+function makePlot(no, cast, dir = t) {
   const n = String(no).padStart(3, '0');
-  const stem = `${n}-第${no}章`;
-  t.write(`.novelforge/plots/${stem}.md`, `## 本章目的\n\n略。\n\n## 关键事件\n\n甲乙丙。\n\n## 章末钩子\n\n略。\n`);
-  t.write(`chapters/${stem}.md`, `# 第${no}章\n\n雨下了三天。\n`);
-  t.write(
-    `.novelforge/summaries/${stem}.md`,
-    `---\nchapter: ${no}\ntitle: 第${no}章\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
-      `# 第${no}章 · 摘要\n\n## 梗概\n\n略。\n\n## 出场人物\n\n${cast.join('、')}\n`
+  dir.write(
+    `.novelforge/summaries/${n}-第${no}章.md`,
+    `---\nno: ${no}\ntitle: 第${no}章\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
+      `# 第${no}章 第${no}章\n\n## 梗概\n\n略。\n\n## 出场人物\n\n${cast.join('、')}\n\n## 关键事件\n\n甲乙丙。\n`
   );
 }
 
-function makeCard(name, aliases, extra = {}) {
+function makeCard(name, aliases, extra = {}, dir = t) {
   const fm = [
     `name: ${name}`,
     `aliases: [${aliases.join(', ')}]`,
     'tags: [配角]',
     ...Object.entries(extra).map(([k, v]) => `${k}: ${Array.isArray(v) ? `[${v.join(', ')}]` : v}`),
   ].join('\n');
-  t.write(
+  dir.write(
     `.novelforge/characters/${name}.md`,
     `---\n${fm}\n---\n\n# ${name}\n\n## 身份\n\n作者手写的这一段一个字都不许动。\n`
   );
@@ -286,6 +283,69 @@ describe('出场索引', () => {
   });
 });
 
+/**
+ * 出场统计**只认定稿过的细纲**（第 14 条）。没定稿的细纲里「出场人物」写的是计划：排细纲的模型
+ * 想让他出场，正文里未必真写到了——混进出场统计会污染角色卡的出场章与语料（D13）。
+ * 老工程 `summaries/` 根下的单章摘要（frontmatter `chapter:`、带 sourceHash 与 cast）本来就是
+ * 定稿留下的，照样算。
+ */
+describe('出场索引 · 只认定稿过的细纲', () => {
+  let d;
+  let index;
+  let castPlots;
+
+  before(async () => {
+    d = makeTempDir('cast-finalized');
+    d.write('.novelforge/project.md', '---\ntitle: 测\n---\n\n# 测\n');
+    // 第 1 章：定稿过（新格式细纲）。
+    makePlot(1, ['林昭(阿昭)', '沈氏'], d);
+    // 第 2 章：还没定稿的计划，出场人物里排了林昭与韩七。
+    d.write(
+      '.novelforge/summaries/002-第2章.md',
+      '---\nno: 2\ntitle: 第2章\n---\n\n# 第2章 第2章\n\n## 梗概\n\n略。\n\n## 出场人物\n\n林昭、韩七\n\n## 关键事件\n\n甲乙丙。\n'
+    );
+    // 第 3 章：老工程留下的单章摘要，放在 summaries/ 根下。
+    d.write(
+      '.novelforge/summaries/003-第3章.md',
+      '---\nchapter: 3\ntitle: 第3章\nsourceHash: y\ncast: [林昭, 李叔]\n---\n\n# 第3章 · 摘要\n\n## 梗概\n\n略。\n\n## 出场人物\n\n林昭、李叔\n'
+    );
+    makeCard('林昭', [], {}, d);
+    const project = new projectMod.NovelProject(d.dir);
+    index = await castMod.buildCastIndex(project);
+    castPlots = await castMod.readCastPlots(project);
+  });
+
+  after(() => {
+    if (d) cleanup(d.dir);
+  });
+
+  test('已建卡的角色只记定稿过的章', () => {
+    assert.deepEqual(index.known.find((m) => m.name === '林昭')?.plots, [1, 3]);
+  });
+
+  test('只在计划里出场的人不进出场统计', () => {
+    assert.ok(!index.unknown.some((m) => m.name === '韩七'), index.unknown.map((m) => m.name).join('、'));
+  });
+
+  test('定稿过的细纲里没建卡的人照样列出来', () => {
+    assert.ok(index.unknown.some((m) => m.name === '沈氏'), index.unknown.map((m) => m.name).join('、'));
+  });
+
+  test('summaries/ 根下的老摘要算定稿过的细纲', () => {
+    assert.ok(index.unknown.some((m) => m.name === '李叔'), index.unknown.map((m) => m.name).join('、'));
+  });
+
+  // 上层据此决定说「没有出场人物」还是「还没定稿过」：计划不算数。
+  test('参与统计的细纲数不含计划', () => {
+    assert.equal(index.summaryCount, 2);
+  });
+
+  // 维护命令的聚类原料与出场索引同一个口径。
+  test('readCastPlots 也只给定稿过的章', () => {
+    assert.deepEqual(castPlots.map((c) => c.order), [1, 3]);
+  });
+});
+
 // ================================================================ 维护命令
 
 describe('维护：清理别名', () => {
@@ -321,7 +381,7 @@ describe('维护：清理别名', () => {
   });
 
   // 「古月方源」此刻也是另一张卡的正式名，同样会被删——那张卡是重复卡，
-  // 该走合并流程解决，而合并的判据来自摘要，不依赖这条别名。
+  // 该走合并流程解决，而合并的判据来自定稿过的细纲，不依赖这条别名。
   test('与另一张卡同名的别名也被删', () => {
     assert.ok(!card.aliases.includes('古月方源'), card.aliases.join('、'));
   });
@@ -383,7 +443,7 @@ describe('维护：合并重复卡', () => {
     assert.ok(!!dup, JSON.stringify(groups.map((g) => g.cards.map((c) => c.name))));
   });
 
-  test('这一组有摘要证据', () => {
+  test('这一组有定稿证据（strength 是 summary）', () => {
     assert.equal(dup && dup.strength, 'summary', dup && dup.strength);
   });
 
@@ -427,7 +487,7 @@ describe('「已读到」水位线', () => {
   before(async () => {
     // 合并进来的章节从没被保留卡读过，水位线必须退回它们之前，
     // 否则增量更新会整批跳过，而界面上看不出任何异常。
-    // 这一对在摘要里一次都没出现，走的是「名字包含」那条弱提示。
+    // 这一对在定稿里一次都没出现，走的是「名字包含」那条弱提示。
     t.remove('.novelforge/characters');
     makeCard('张三', [], { appearsIn: [10, 11], updatedThrough: 11, firstAppear: 10, lastSeen: 11 });
     makeCard('古月张三', [], { appearsIn: [4, 5], updatedThrough: 5, firstAppear: 4, lastSeen: 5 });

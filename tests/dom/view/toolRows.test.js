@@ -26,8 +26,8 @@ describe('MCP 留下的那一轮（重开面板时回放）', { skip: JSDOM_SKIP
           turn('a1', 'assistant', '', {
             mcp: true,
             segments: [
-              toolSeg({ callId: 'c1', name: 'read', title: 'read .novelforge/plots/012.md', ok: true, summary: '20 行', elapsedMs: 30 }),
-              toolSeg({ callId: 'c2', name: 'write', title: 'write .novelforge/plots/012.md', ok: false, summary: '作者跳过了这一步', elapsedMs: 0 }),
+              toolSeg({ callId: 'c1', name: 'read', title: 'read .novelforge/summaries/012.md', ok: true, summary: '20 行', elapsedMs: 30 }),
+              toolSeg({ callId: 'c2', name: 'write', title: 'write .novelforge/summaries/012.md', ok: false, summary: '作者跳过了这一步', elapsedMs: 0 }),
             ],
           }),
           turn('a2', 'assistant', '普通回答'),

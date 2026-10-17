@@ -1,8 +1,8 @@
 /**
- * `summary` —— 定稿与摘要：给一章定稿、补齐缺失或过期的摘要、重建全书摘要。
+ * `summary` —— 定稿与全书摘要：给一章定稿、把没定稿的章的细纲照正文补上、重建全书摘要。
  *
- * 定稿 = 摘要（带连续性事实）+ 出场角色的当前状态 + 本章推进了哪几条叙事线（第 23 条：
- * 这条链上唯一的人工闸口）。与工程页、章节工作台上的「定稿」是同一个函数。
+ * 定稿 = 反向更新细纲（照正文改那一章的细纲，带连续性事实）+ 出场角色的当前状态 + 本章推进了
+ * 哪几条叙事线（第 23 条：这条链上唯一的人工闸口）。与工程页、章节工作台上的「定稿」是同一个函数。
  */
 import { str } from '../schema';
 import { countedBy, defineActionTool, handed } from './actions';
@@ -11,7 +11,7 @@ import { describeFinalize, finalizeChapter } from '../../features/finalize';
 
 export const summaryTool = defineActionTool({
   name: 'summary',
-  summary: '定稿与摘要。摘要描述的是写出来的那一章，没有正文的章定不了稿。',
+  summary: '定稿与全书摘要。定稿 = 照正文反向更新那一章的细纲，没有正文的章定不了稿。',
 
   params: {
     path: str('那一章的章节路径或细纲路径（按章号认到同一章）。'),
@@ -19,7 +19,7 @@ export const summaryTool = defineActionTool({
 
   actions: {
     finalize: {
-      label: '给一章定稿（摘要与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线）',
+      label: '给一章定稿（照正文反向更新它的细纲与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线）',
       costly: true,
       uses: ['path'],
       requires: ['path'],
@@ -27,7 +27,7 @@ export const summaryTool = defineActionTool({
         const rel = String(args.path).trim();
         const chapter = await chapterForSummary(ctx.project, rel);
         if (!chapter) {
-          throw new Error(`${rel} 这一章还没有正文，没有可定稿的东西。摘要描述的是写出来的那一章。`);
+          throw new Error(`${rel} 这一章还没有正文，没有可定稿的东西。定稿是照正文改细纲，没有正文就无从改起。`);
         }
         const outcome = await finalizeChapter(ctx.project, chapter, { signal: ctx.signal });
         return outcome
@@ -36,14 +36,14 @@ export const summaryTool = defineActionTool({
       },
     },
     sync: {
-      label: '补齐所有缺失或过期的摘要',
+      label: '把所有没定稿、或定稿后正文又改过的章的细纲照正文更新（只更新细纲，不动角色状态与叙事线）',
       costly: true,
       async run(ctx) {
-        return countedBy(await syncSummaries(ctx.project), '摘要同步');
+        return countedBy(await syncSummaries(ctx.project), '细纲同步');
       },
     },
     rebuildGlobal: {
-      label: '从各章摘要重建全书摘要',
+      label: '从定稿过的各章细纲重建全书摘要',
       costly: true,
       async run(ctx) {
         await rebuildGlobalSummary(ctx.project);

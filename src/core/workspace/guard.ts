@@ -85,8 +85,8 @@ export const MAX_EDITABLE_BYTES = 2 * 1024 * 1024;
  * 工程的固定目录：改名/搬走会让工程结构散架（章节索引、草稿镜像、
  * 元数据与会话）。
  *
- * `.novelforge/` 下的每一个目录名都被代码写死在某处查找逻辑里：细纲、角色、设定、
- * 摘要与会话存储都是按目录名拼出来的，改了名就等于那批数据凭空
+ * `.novelforge/` 下的每一个目录名都被代码写死在某处查找逻辑里：细纲（连同全书摘要）、角色、
+ * 设定与会话存储都是按目录名拼出来的，改了名就等于那批数据凭空
  * 消失，**而界面上只会显示「还没生成过」**。所以这里列的是全部固定子目录，
  * 不只是作者常看见的那几个。
  */
@@ -102,11 +102,11 @@ export function isProtectedPath(project: NovelProject, relPath: string): boolean
     '.novelforge/characters',
     '.novelforge/lore',
     '.novelforge/summaries',
-    '.novelforge/plots',
     '.novelforge/skills',
-    // 场景、卷、中转站三层都已经删掉（见 model/pipeline.ts 的文件头），但老工程
-    // 磁盘上那几个目录还在，而且是作者的文件。留在这张表里，免得哪条文件操作把
-    // 它们整棵删掉——代码不再读它们，不等于可以替作者处置它们。
+    // 场景、卷、中转站三层都已经删掉（见 model/pipeline.ts 的文件头），细纲也从 `plots/`
+    // 搬进了 `summaries/`，但老工程磁盘上那几个目录还在，而且是作者的文件。留在这张表里，
+    // 免得哪条文件操作把它们整棵删掉——代码不再读它们，不等于可以替作者处置它们。
+    '.novelforge/plots',
     '.novelforge/scenes',
     '.novelforge/volumes',
     '.novelforge/manuscripts',

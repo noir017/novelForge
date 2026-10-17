@@ -245,17 +245,18 @@ const emptySession = (extra) =>
 const pipelineView = (extra) =>
   Object.assign(
     {
-      plotRelPath: '.novelforge/plots/012-夜入青云.md',
+      plotRelPath: '.novelforge/summaries/012-夜入青云.md',
       no: 12,
       title: '夜入青云',
       plot: {
-        relPath: '.novelforge/plots/012-夜入青云.md',
+        relPath: '.novelforge/summaries/012-夜入青云.md',
         exists: true,
         filled: true,
         upstreamStale: false,
       },
       // 同号的正文。还没写时 relPath 是空串；目标字数取细纲的 targetWords。
       chapter: { exists: false, relPath: '', words: 0, targetWords: 3000, upstreamStale: false },
+      // 定稿：`exists` = 细纲定稿过，`stale` = 没定稿或定稿之后正文又改过。
       summary: { exists: false, stale: true },
       stage: 'manuscript',
       progress: { plot: 1, manuscript: 0, summary: 0 },
@@ -269,8 +270,8 @@ const workbenchView = (extra) =>
     {
       stage: 'plot',
       title: '细纲 · 第 12 章《夜入青云》',
-      relPath: '.novelforge/plots/012-夜入青云.md',
-      sections: [{ key: '本章目的', text: '林昭成功进入青云宗' }],
+      relPath: '.novelforge/summaries/012-夜入青云.md',
+      sections: [{ key: '梗概', text: '林昭成功进入青云宗' }],
     },
     extra
   );
@@ -300,14 +301,15 @@ const viewState = (extra) =>
  * 形状与后端 `buildProjectTree` 一致（`src/core/views/projectView.ts`）：细纲号 = 章号，
  * 所以细纲与正文是同一行的两面——`relPath` 是主路径（有正文就是正文，否则是细纲），
  * `plotPath` 是细纲**应在**的位置（`plotExists` 说它在不在），`chapterPath` 没有正文时是空串。
+ * 定稿改的就是 `plotPath` 那一份细纲本身，不另落一份文件。
  *
- * 五种样本各一行，覆盖单章状态机的四档加「老工程里没有细纲的章」：
+ * 五种样本各一行，覆盖单章状态机的四档加「只有正文、没有细纲的章」：
  *
- * | 章 | 细纲 | 正文 | 摘要 | stage |
+ * | 章 | 细纲 | 正文 | 定稿 | stage |
  * |---|---|---|---|---|
- * | 1《楔子》 | 有 | 300 字，带草稿 | 新鲜 | done |
- * | 2《入镇》 | **没有**（老工程） | 2980 / 3000 | 过期 | finalize |
- * | 3《夜访》 | 有 | 300 字 | 新鲜 | done |
+ * | 1《楔子》 | 有 | 300 字，带草稿 | 对得上 | done |
+ * | 2《入镇》 | **没有**（作者手写的正文） | 2980 / 3000 | 没定稿 | finalize |
+ * | 3《夜访》 | 有 | 300 字 | 对得上 | done |
  * | 4《北行》 | 有，大纲那一节后来改过（⟳） | 没写 | — | manuscript |
  * | 5《赤星》 | 只有骨架 | 没写 | — | plot |
  *
@@ -324,7 +326,7 @@ function sampleTree() {
       idea: '一个从火里活下来的人回到起火的地方。', totalChapters: 30, wordsPerChapter: 400,
       configHasContent: true, outlineCoverage: 20, plotFilledNos: [1, 3, 4],
     },
-    plotsRoot: '.novelforge/plots',
+    plotsRoot: '.novelforge/summaries',
     chaptersRoot: 'chapters', charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
     globalSummaryThrough: 2, styleGuidePath: '.novelforge/style.md',
     outlinePath: '.novelforge/outline.md', globalSummaryPath: '.novelforge/summaries/global.md',
@@ -342,50 +344,50 @@ function sampleTree() {
     ],
     // 章节列表是扁平的，一个章号一行，升序。
     plots: [
-      // 第 1 章：写完且定稿过，摘要新鲜，还带一份草稿。
+      // 第 1 章：写完且定稿过，细纲与正文对得上，还带一份草稿。
       { no: 1, label: '第 1 章《楔子》', title: '楔子',
         relPath: 'chapters/001-楔子.md',
-        plotPath: '.novelforge/plots/001-楔子.md', plotExists: true,
+        plotPath: '.novelforge/summaries/001-楔子.md', plotExists: true,
         chapterPath: 'chapters/001-楔子.md',
-        wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/001-楔子.md',
+        wordCount: 300, stale: false,
         stage: 'done', upstreamStale: false,
         draftPath: 'drafts/001-楔子.md', hasDraft: true,
         progress: { plot: 1, manuscript: 1, summary: 1 } },
-      // 第 2 章：**老工程里的章**——只有正文、没有细纲（plotPath 是它应在的位置）。
-      // 写够了目标字数、摘要过期 → 待定稿。
+      // 第 2 章：**作者手写的章**——只有正文、没有细纲（plotPath 是它应在的位置，定稿时照正文
+      // 整理一份落在那里）。写够了目标字数、还没定稿 → 待定稿。
       { no: 2, label: '第 2 章《入镇》', title: '入镇',
         relPath: 'chapters/002-入镇.md',
-        plotPath: '.novelforge/plots/002-入镇.md', plotExists: false,
+        plotPath: '.novelforge/summaries/002-入镇.md', plotExists: false,
         chapterPath: 'chapters/002-入镇.md',
-        wordCount: 2980, targetWords: 3000, stale: true, summaryPath: '.novelforge/summaries/002-入镇.md',
+        wordCount: 2980, targetWords: 3000, stale: true,
         stage: 'finalize', upstreamStale: false,
         draftPath: 'drafts/002-入镇.md', hasDraft: false,
         progress: { plot: 0, manuscript: 1, summary: 0 } },
       // 第 3 章：写完且定稿过。
       { no: 3, label: '第 3 章《夜访》', title: '夜访',
         relPath: 'chapters/003-夜访.md',
-        plotPath: '.novelforge/plots/003-夜访.md', plotExists: true,
+        plotPath: '.novelforge/summaries/003-夜访.md', plotExists: true,
         chapterPath: 'chapters/003-夜访.md',
-        wordCount: 300, stale: false, summaryPath: '.novelforge/summaries/003-夜访.md',
+        wordCount: 300, stale: false,
         stage: 'done', upstreamStale: false,
         draftPath: '', hasDraft: false,
         progress: { plot: 1, manuscript: 1, summary: 1 } },
       // 第 4 章：细纲排好了、正文还没写（目标 3000 字）；情节大纲里覆盖它的那一节
       // 在细纲之后改过（⟳）。它就是 nextChapterNo——主路径因此是细纲。
       { no: 4, label: '第 4 章《北行》', title: '北行',
-        relPath: '.novelforge/plots/004-北行.md',
-        plotPath: '.novelforge/plots/004-北行.md', plotExists: true,
+        relPath: '.novelforge/summaries/004-北行.md',
+        plotPath: '.novelforge/summaries/004-北行.md', plotExists: true,
         chapterPath: '',
-        wordCount: 0, targetWords: 3000, stale: false, summaryPath: '',
+        wordCount: 0, targetWords: 3000, stale: false,
         stage: 'manuscript', upstreamStale: true,
         draftPath: '', hasDraft: false,
         progress: { plot: 1, manuscript: 0, summary: 0 } },
       // 第 5 章：细纲只有一个骨架（「关键事件」是空的）→ 待写细纲。
       { no: 5, label: '第 5 章《赤星》', title: '赤星',
-        relPath: '.novelforge/plots/005-赤星.md',
-        plotPath: '.novelforge/plots/005-赤星.md', plotExists: true,
+        relPath: '.novelforge/summaries/005-赤星.md',
+        plotPath: '.novelforge/summaries/005-赤星.md', plotExists: true,
         chapterPath: '',
-        wordCount: 0, stale: false, summaryPath: '',
+        wordCount: 0, stale: false,
         stage: 'plot', upstreamStale: false,
         draftPath: '', hasDraft: false,
         progress: { plot: 0, manuscript: 0, summary: 0 } },
@@ -401,13 +403,13 @@ function sampleTree() {
     // 正常工程这里是空对象——只有出错的目标才有记录。
     failures: {},
     castConflicts: [],
-    // 林昭出场三章、上次只更新到第 1 章 → 待更新 2 章；李叔从没在摘要里出现。
+    // 林昭出场三章、上次只更新到第 1 章 → 待更新 2 章；李叔从没在定稿过的细纲里出现。
     castByCard: {
       '.novelforge/characters/林昭.md': {
         plots: [1, 2, 3], detail: '第 1、2、3 章', updatedThrough: 1, pending: 2,
       },
       '.novelforge/characters/配角/李叔.md': {
-        plots: [], detail: '未在摘要中出现', updatedThrough: 0, pending: 0,
+        plots: [], detail: '未在定稿中出现', updatedThrough: 0, pending: 0,
       },
     },
     cast: [

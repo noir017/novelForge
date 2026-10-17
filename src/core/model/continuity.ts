@@ -1,5 +1,5 @@
 /**
- * 摘要里的「连续性事实」：后面各章必须保持一致的事实，每条挂一句正文里的证据原文（D18）。
+ * 定稿过的细纲里的「连续性事实」：后面各章必须保持一致的事实，每条挂一句正文里的证据原文（D18）。
  *
  * ```markdown
  * ## 连续性事实
@@ -18,7 +18,7 @@
  * 原文段落才是作者认可过的那一版（上游 CM:225：「索引、摘要和 currentState 都不是作者事实」）。
  */
 
-/** 一条连续性事实。`evidence` 是正文里的一句原文；手改的摘要里可能没有。 */
+/** 一条连续性事实。`evidence` 是正文里的一句原文；手改的细纲里可能没有。 */
 export interface ContinuityFact {
   statement: string;
   evidence?: string;
@@ -28,7 +28,7 @@ export interface ContinuityFact {
 export interface FinalizedFacts {
   no: number;
   title: string;
-  /** 摘要文件的相对路径。 */
+  /** 细纲文件的相对路径。 */
   relPath: string;
   facts: ContinuityFact[];
 }
@@ -147,9 +147,9 @@ function evidenceExcerpt(content: string, statement: string, entities: readonly 
 
 /**
  * 定稿时给每条事实挂证据。**找不到证据的事实丢掉**（与上游同）：没有原文撑着的「事实」
- * 多半是模型编的，留在摘要里会被后面几章当真。丢了哪几条交给调用方写进日志（第 2 条）。
+ * 多半是模型编的，留在细纲里会被后面几章当真。丢了哪几条交给调用方写进日志（第 2 条）。
  *
- * `entities` 是本章出场人物的名字与别名（摘要的「出场人物」）。
+ * `entities` 是本章出场人物的名字与别名（定稿时模型给的「出场人物」）。
  */
 export function attachEvidence(
   statements: readonly string[],

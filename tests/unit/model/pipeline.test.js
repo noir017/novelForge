@@ -271,51 +271,62 @@ describe('plotFile.ts · 文件名规则', () => {
   });
 });
 
-describe('plotFile.ts · 解析与渲染（D3 格式）', () => {
+describe('plotFile.ts · 解析与渲染（八节）', () => {
+  const sections = {
+    ...plotFile.emptyPlotSections(),
+    梗概: '林昭雨夜翻墙进宗门，靠半枚令牌被破例留下。',
+    出场人物: '林昭、沈青',
+    时间地点: '第 11 章当夜，青云宗外墙。',
+    关键事件: '雨夜翻墙，被巡夜弟子撞见，亮出半枚令牌。',
+    看点: '- 执事认出令牌，脸色变了。',
+    新增伏笔: '- 半枚令牌的另一半在谁手里。',
+    状态变更: '林昭成了记名弟子。',
+  };
   const plot = {
     no: 12,
     title: '夜入青云',
-    role: '小高潮',
-    characters: ['林昭', '沈青'],
     targetWords: 3000,
     upstreamHash: 'aaaa',
     writtenFrom: 'bbbb',
     done: false,
-    sections: {
-      本章目的: '林昭拿到入宗资格',
-      关键事件: '雨夜翻墙，被巡夜弟子撞见，亮出半枚令牌。',
-      章末钩子: '执事认出令牌，脸色变了。',
-    },
+    sections,
   };
   const text = plotFile.renderPlotFile(plot);
-  const back = plotFile.parsePlotFile(text, '.novelforge/plots/012-夜入青云.md');
+  const back = plotFile.parsePlotFile(text, '.novelforge/summaries/012-夜入青云.md');
 
-  test('往返：规划字段', () => {
+  test('往返：frontmatter', () => {
     assert.equal(back.no, 12);
     assert.equal(back.title, '夜入青云');
-    assert.equal(back.role, '小高潮');
-    assert.deepEqual(back.characters, ['林昭', '沈青']);
     assert.equal(back.targetWords, 3000);
     assert.equal(back.upstreamHash, 'aaaa');
     assert.equal(back.writtenFrom, 'bbbb');
+    assert.equal(back.sourceHash, '');
     assert.equal(back.done, false);
   });
 
-  test('往返：三节', () => {
-    assert.deepEqual(back.sections, plot.sections);
+  test('往返：八节', () => {
+    assert.deepEqual(back.sections, sections);
   });
 
-  test('只有三节', () => {
-    assert.deepEqual([...plotFile.PLOT_SECTION_KEYS], ['本章目的', '关键事件', '章末钩子']);
+  test('就是摘要那八节', () => {
+    assert.deepEqual(
+      [...plotFile.PLOT_SECTION_KEYS],
+      ['梗概', '出场人物', '时间地点', '关键事件', '看点', '新增伏笔', '状态变更', '连续性事实']
+    );
   });
 
   test('渲染带「第N章 标题」一行', () => {
     assert.match(text, /^# 第12章 夜入青云$/m);
   });
 
-  test('空的规划字段不写出来', () => {
-    const bare = plotFile.renderPlotFile({ ...plot, role: '', characters: [], targetWords: undefined, writtenFrom: '' });
-    assert.ok(!/^role:/m.test(bare) && !/^characters:/m.test(bare) && !/^writtenFrom:/m.test(bare), bare);
+  test('没定稿：计划出场从「出场人物」一节读，不写 cast', () => {
+    assert.deepEqual(back.characters, ['林昭', '沈青']);
+    assert.ok(!/^cast:/m.test(text), text);
+  });
+
+  test('空的字段不写出来', () => {
+    const bare = plotFile.renderPlotFile({ ...plot, targetWords: undefined, writtenFrom: '', upstreamHash: '' });
+    assert.ok(!/^targetWords:/m.test(bare) && !/^writtenFrom:/m.test(bare) && !/^upstreamHash:/m.test(bare), bare);
   });
 
   test('空小节写出占位，读回来是空串', () => {
@@ -327,13 +338,74 @@ describe('plotFile.ts · 解析与渲染（D3 格式）', () => {
   test('status: done 被读出', () => {
     assert.equal(plotFile.parsePlotFile(plotFile.renderPlotFile({ ...plot, done: true }), 'x/012.md').done, true);
   });
+
+  test('定稿过：sourceHash 与 cast 写进 frontmatter，出场的人取 cast', () => {
+    const cast = [{ name: '林昭', aliases: ['阿昭'] }, { name: '巡夜弟子', aliases: [] }];
+    const finalized = plotFile.renderPlotFile({ ...plot, sourceHash: 'cccc', cast });
+    assert.match(finalized, /^cast: \[林昭\(阿昭\), 巡夜弟子\]$/m);
+    const p = plotFile.parsePlotFile(finalized, 'x/012.md');
+    assert.equal(p.sourceHash, 'cccc');
+    assert.deepEqual(p.cast, cast);
+    assert.deepEqual(p.characters, ['林昭', '巡夜弟子']);
+  });
+});
+
+describe('plotFile.ts · 计划出场（「出场人物」一节）', () => {
+  const names = (text) => plotFile.plannedNames(text);
+
+  test('顿号、逗号、斜杠、分号都切', () => {
+    assert.deepEqual(names('林昭、沈青，李叔/年轻守卫；掌柜'), ['林昭', '沈青', '李叔', '年轻守卫', '掌柜']);
+  });
+
+  test('一行一个、带列表记号的也认', () => {
+    assert.deepEqual(names('- 林昭\n* 沈青\n1. 李叔'), ['林昭', '沈青', '李叔']);
+  });
+
+  test('括号里的别名不切开，只取名字', () => {
+    assert.deepEqual(names('林昭(阿昭/昭儿)、沈青（青姐、阿青）'), ['林昭', '沈青']);
+  });
+
+  // castFromText 为了挡住句子碎片会丢掉带「从」「和」的名字；计划里的名单是排细纲的人写的，不该漏人。
+  test('不按虚词过滤：带「从」「和」的名字照收', () => {
+    assert.deepEqual(names('沈从文、和珅'), ['沈从文', '和珅']);
+  });
+
+  test('占位与「无」不算人', () => {
+    assert.deepEqual(names('（待补充）'), []);
+    assert.deepEqual(names('无'), []);
+  });
+});
+
+// 关键事件、看点、新增伏笔落盘都是一条一行的列表（计划与定稿同一个形状）；一章一行的一览要把它压成一行。
+describe('plotFile.ts · 一条一行的那几节', () => {
+  test('按行切成条，去掉列表记号，空行与占位不算', () => {
+    assert.deepEqual(plotFile.sectionItems('- 林昭踩点\n\n* 翻墙进了后院\n1. 落在藏书阁门口\n（待补充）'), ['林昭踩点', '翻墙进了后院', '落在藏书阁门口']);
+    assert.deepEqual(plotFile.sectionItems(''), []);
+  });
+
+  // 一条里本来就可以有分号；作者手写成一整段的就是一项。
+  test('只按换行切：一条里的分号不切', () => {
+    assert.deepEqual(plotFile.sectionItems('- 林昭翻墙；落在后院'), ['林昭翻墙；落在后院']);
+    assert.deepEqual(plotFile.sectionItems('一整段写成的关键事件。'), ['一整段写成的关键事件。']);
+  });
+
+  test('压成一行：条与条之间用「；」接，不留「- 」', () => {
+    assert.equal(plotFile.sectionLine('- 林昭踩点\n- 翻墙进了后院'), '林昭踩点；翻墙进了后院');
+    assert.equal(plotFile.sectionLine('一整段。'), '一整段。');
+    assert.equal(plotFile.sectionLine('（待补充）'), '');
+  });
+
+  test('关键事件的上限：条数 8、合计 1200 字', () => {
+    assert.equal(plotFile.BLUEPRINT_LIMITS.keyEventItems, 8);
+    assert.equal(plotFile.BLUEPRINT_LIMITS.keyEvents, 1200);
+  });
 });
 
 describe('plotFile.ts · 排过没有 / 容错', () => {
   test('只看「关键事件」', () => {
     const empty = plotFile.emptyPlotSections();
     assert.equal(plotFile.isPlotFilled(empty), false);
-    assert.equal(plotFile.isPlotFilled({ ...empty, 本章目的: '有目的', 章末钩子: '有钩子' }), false);
+    assert.equal(plotFile.isPlotFilled({ ...empty, 梗概: '有梗概', 看点: '- 有看点' }), false);
     assert.equal(plotFile.isPlotFilled({ ...empty, 关键事件: '有事件' }), true);
   });
 
@@ -341,17 +413,16 @@ describe('plotFile.ts · 排过没有 / 容错', () => {
     assert.equal(plotFile.isPlotFilled({ ...plotFile.emptyPlotSections(), 关键事件: '（待补充）' }), false);
   });
 
-  // 老工程里的四节细纲一个字节都不动，读进来如实说「没排过」，不崩（第 1 条）。
-  test('老四节细纲读进来三节全空、不抛', () => {
-    const old = '---\nplot: 3\ntitle: 夜访\narc: 第一卷\n---\n\n## 目标\n\n甲\n\n## 剧情脉络\n\n乙\n';
-    const p = plotFile.parsePlotFile(old, '.novelforge/plots/003-夜访.md');
+  test('认不出的小节读进来全空、不抛', () => {
+    const odd = '---\nno: 3\ntitle: 夜访\n---\n\n## 目标\n\n甲\n\n## 剧情脉络\n\n乙\n';
+    const p = plotFile.parsePlotFile(odd, '.novelforge/summaries/003-夜访.md');
     assert.equal(p.no, 3);
     assert.equal(p.title, '夜访');
     assert.equal(plotFile.isPlotFilled(p.sections), false);
   });
 
   test('无 frontmatter、畸形 frontmatter、大白话、空文件都不抛', () => {
-    for (const t of ['## 关键事件\n\n甲', '---\n: :\n---\n', '就一句大白话', '']) {
+    for (const t of ['## 关键事件\n\n甲', '---\n: :\n---\n', '就一句大白话', '', '---\ncast: [(, )]\nsourceHash: x\n---\n']) {
       assert.doesNotThrow(() => plotFile.parsePlotFile(t, 'x/001.md'), t);
     }
   });
@@ -368,9 +439,96 @@ describe('plotFile.ts · 排过没有 / 容错', () => {
     assert.equal(plotFile.parsePlotFile('---\ntargetWords: 三千\n---\n', 'x/001.md').targetWords, undefined);
     assert.equal(plotFile.parsePlotFile('---\ntargetWords: 0\n---\n', 'x/001.md').targetWords, undefined);
   });
+});
 
-  test('characters 写成顿号分隔的一行也拆开', () => {
-    assert.deepEqual(plotFile.parsePlotFile('---\ncharacters: 林昭、沈青\n---\n', 'x/001.md').characters, ['林昭', '沈青']);
+// 老工程 summaries/ 根下的单章摘要本来就是这八节，带着 sourceHash 与 cast：直接当成定稿过的细纲读。
+describe('plotFile.ts · 老工程的单章摘要当成定稿过的细纲', () => {
+  const old = [
+    '---',
+    'chapter: 7',
+    'title: 入宗',
+    'sourceHash: f00d',
+    'cast: [林昭(阿昭), 沈青]',
+    'generatedBy: novel-forge',
+    '---',
+    '',
+    '# 第7章 入宗 · 摘要',
+    '',
+    '## 梗概',
+    '',
+    '林昭进了宗门。',
+    '',
+    '## 出场人物',
+    '',
+    '林昭、沈青',
+    '',
+    '## 关键事件',
+    '',
+    '- 林昭拜师。',
+    '',
+  ].join('\n');
+  const p = plotFile.parsePlotFile(old, '.novelforge/summaries/007-入宗.md');
+
+  test('章号取文件名前缀，frontmatter 的 chapter 不认', () => {
+    assert.equal(plotFile.parsePlotFile(old.replace('chapter: 7', 'chapter: 99'), 'x/007-入宗.md').no, 7);
+    assert.equal(p.no, 7);
+  });
+
+  test('sourceHash 在：算定稿过', () => {
+    assert.equal(p.sourceHash, 'f00d');
+  });
+
+  test('cast 照读，出场的人取它', () => {
+    assert.deepEqual(p.cast, [{ name: '林昭', aliases: ['阿昭'] }, { name: '沈青', aliases: [] }]);
+    assert.deepEqual(p.characters, ['林昭', '沈青']);
+  });
+
+  test('关键事件有内容：算排过', () => {
+    assert.equal(plotFile.isPlotFilled(p.sections), true);
+  });
+
+  test('没有 cast 字段的（手写的、更早的摘要）从「出场人物」反解', () => {
+    const q = plotFile.parsePlotFile(old.replace('cast: [林昭(阿昭), 沈青]\n', ''), 'x/007-入宗.md');
+    assert.deepEqual(q.cast.map((c) => c.name), ['林昭', '沈青']);
+  });
+});
+
+describe('plotFile.ts · 内容指纹', () => {
+  const base = plotFile.parsePlotFile(
+    plotFile.renderPlotFile({
+      no: 3,
+      title: '夜访',
+      upstreamHash: 'u',
+      done: false,
+      sections: { ...plotFile.emptyPlotSections(), 关键事件: '甲', 看点: '- 乙' },
+    }),
+    'x/003-夜访.md'
+  );
+  const h = plotFile.plotContentHash(base);
+
+  test('八节里任何一节变了指纹就变', () => {
+    for (const key of plotFile.PLOT_SECTION_KEYS) {
+      assert.notEqual(plotFile.plotContentHash({ sections: { ...base.sections, [key]: `${base.sections[key]}改` } }), h, key);
+    }
+  });
+
+  // 记一条预检放行、写前冲突检查放行、定稿记的 cast、改个标题，都不该让正文变成「细纲改过」。
+  test('preflightOk / factCheckOk / cast / 标题不进指纹', () => {
+    const other = plotFile.parsePlotFile(
+      plotFile.renderPlotFile({
+        no: 3,
+        title: '另一个标题',
+        upstreamHash: 'u2',
+        done: true,
+        sourceHash: 's',
+        cast: [{ name: '林昭', aliases: [] }],
+        preflightOk: [{ name: '沈秋', reason: '回忆' }],
+        factCheckOk: true,
+        sections: base.sections,
+      }),
+      'x/003-夜访.md'
+    );
+    assert.equal(plotFile.plotContentHash(other), h);
   });
 });
 
@@ -738,7 +896,7 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
     assert.deepEqual(step.calls, pipeline.FINALIZE_CALLS);
     assert.equal(
       pipeline.describeCalls(step.calls),
-      '预计 1–3 次调用（摘要 1 次；本章出场的人有角色卡时更新角色状态 1 次；有还没收的叙事线时判一次本章推进了哪几条）'
+      '预计 1–3 次调用（照正文更新细纲 1 次；本章出场的人有角色卡时更新角色状态 1 次；有还没收的叙事线时判一次本章推进了哪几条）'
     );
   });
 

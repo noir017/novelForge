@@ -11,14 +11,14 @@
  *
  * ## 正文层给的是细纲，不是正文
  *
- * 写正文时最常回头看的是「这一章要落实哪几件事、结尾留什么钩子」——所以正文层的
- * 卡片摊的是本章细纲的三节，外加字数与目标。正文本身上万字，塞进浮窗读不下去，
+ * 写正文时最常回头看的是「这一章要落实哪几件事、看点落在哪」——所以正文层的
+ * 卡片摊的是本章细纲的各节，外加字数与目标。正文本身上万字，塞进浮窗读不下去，
  * 真要读，「打开」按钮就在旁边。大纲同理只给预览——它可能有几千字。
  */
 import { scoped } from '../runtime/logger';
 import { basename } from 'node:path';
 import { NovelProject } from '../model/project';
-import { PLOT_SECTION_KEYS, parsePlotFileName } from '../model/plotFile';
+import { PLOT_SECTION_KEYS, parsePlotFileName, plotContentHash } from '../model/plotFile';
 import { SETTING_SECTION_KEYS } from '../model/settingFile';
 import { outlineUpstreamHash } from '../model/outlineFile';
 import {
@@ -28,7 +28,7 @@ import {
   plotLabel,
   stageOfTarget,
 } from '../model/pipeline';
-import { chapterOfPlotNo, plotContentHash } from './pipeline';
+import { chapterOfPlotNo } from './pipeline';
 import { WorkbenchSection, WorkbenchView } from '../protocol';
 
 const log = scoped('工作区');
@@ -123,7 +123,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
     };
   }
 
-  // 正文层：摊细纲三节 + 篇幅。见文件头。
+  // 正文层：摊细纲各节 + 篇幅。见文件头。
   const book = await project.readBookConfig();
   const words = chapter?.wordCount ?? 0;
   const goal = plot?.targetWords ?? book.wordsPerChapter;
@@ -142,7 +142,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       ...(goal ? [] : [{ key: '目标篇幅', text: '细纲与配置里都没写，所以有正文就算写够' }]),
       ...(plot ? sectionsOf(plot.sections, PLOT_SECTION_KEYS) : []),
     ],
-    warning: stale ? '这一章的细纲在正文写完之后改过，现有正文可能已经与它对不上。' : undefined,
+    warning: stale ? '这一章的细纲在正文写完（或定稿）之后改过，现有正文可能已经与它对不上。' : undefined,
     empty: plot ? undefined : '这一章没有细纲，写正文时模型只能照着前文往下编。',
   };
 }

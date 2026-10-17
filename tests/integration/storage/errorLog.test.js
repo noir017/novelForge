@@ -84,7 +84,7 @@ describe('errorLog · db', () => {
       handle.run(
         'INSERT INTO errors (at, scope, target_kind, target_key, severity, op, message, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         new Date().toISOString(),
-        '摘要',
+        '定稿',
         'chapter',
         'b.md',
         'error',
@@ -234,14 +234,14 @@ describe('errorLog · db', () => {
       }
       afterRetries = await errorLog.listActiveFailures(project);
 
-      // 不同动作各留各的：同一章可能既摘要失败、又角色卡失败。
+      // 不同动作各留各的：同一章可能既定稿失败、又角色卡失败。
       await errorLog.recordFailure(project, {
-        scope: '摘要',
+        scope: '定稿',
         targetKind: 'chapter',
         targetKey: CARD,
         severity: 'warn',
         op: 'summarize',
-        message: '摘要也失败了',
+        message: '定稿也失败了',
       });
       afterSecondOp = await errorLog.listActiveFailures(project);
 
@@ -307,7 +307,7 @@ describe('errorLog · db', () => {
     });
 
     test('别的动作的记录还在', () => {
-      assert.equal(afterClearOp[CARD][0].message, '摘要也失败了', afterClearOp[CARD][0].message);
+      assert.equal(afterClearOp[CARD][0].message, '定稿也失败了', afterClearOp[CARD][0].message);
     });
 
     test('不给 op 则全清', () => {

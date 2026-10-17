@@ -1,14 +1,14 @@
 /**
- * 从已写正文整理（拆书 A）的装配：`BuildRequest.derive` 时三张配方带上 `written` 层，契约换成
- * 「照正文整理」的说法。
+ * 从已写正文整理（拆书 A）的装配：`BuildRequest.derive` 时架构、大纲两张配方带上 `written` 层，
+ * 契约换成「照正文整理」的说法。细纲不再从正文整理：拆书第一步「先整理细纲」已经照正文写出了
+ * 定稿过的细纲，「补细纲」那一步连同细纲配方里的 `written` 层一起删了。
  *
  * | 断言 | 为什么 |
  * |---|---|
- * | 不是 derive 时一条 `written` 都没有、契约照旧 | 三张配方都挂着这一层，平时必须是空的 |
- * | 架构：均匀抽样 5 章的开头 + 全书梗概；系统提示说清「这一次是整理」 | 上游只看首末两章，长书中段全丢 |
+ * | 不是 derive 时一条 `written` 都没有、契约照旧 | 两张配方都挂着这一层，平时必须是空的 |
+ * | 架构：均匀抽样 5 章的开头 + 全书梗概（取自定稿过的细纲）；系统提示说清「这一次是整理」 | 上游只看首末两章，长书中段全丢 |
  * | 梗概放不下时降级或丢弃，写明原因 | 第 2 条：不静默截断 |
- * | 大纲：区间里各章的摘要；没摘要的退回正文头尾 | 大纲照「发生了什么」整理 |
- * | 细纲：区间里各章正文的头尾；JSON 合同与平常一字不差 | 第 22 条：几条路共用同一份蓝图合同 |
+ * | 大纲：区间里各章定稿过的细纲；没定稿的退回正文头尾 | 大纲照「发生了什么」整理；没定稿的细纲是计划，不是已经写成的东西 |
  * | 规划阶段绑了技能，derive 时也不带 | 照实整理，不按技能的排法改写已经发生的事 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -43,7 +43,6 @@ before(async () => {
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
     builder: './src/core/context/builder.ts',
-    prompts: './src/core/context/prompts.ts',
     ws: './src/core/workspace/index.ts',
     db: './src/core/runtime/db.ts',
   });
@@ -53,10 +52,10 @@ before(async () => {
     t.write(`chapters/00${no}-第${no}回.md`, `# 第${no}回\n\n${body(no)}\n`);
   }
   t.project.invalidate();
-  // 第 1–6 章有摘要；第 7、8 章没有。
+  // 第 1–6 章定稿过（细纲照正文更新、记了 sourceHash）；第 7、8 章还没定稿。
   const ws = new bundle.ws.Workspace(t.project);
   for (const chapter of (await t.project.listChapters()).filter((c) => c.order <= 6)) {
-    await ws.writeSummary(chapter, chapter.contentHash, {
+    await ws.finalizePlot(chapter, {
       梗概: `第${chapter.order}章梗概：林昭查到了第${chapter.order}条线索。`,
       出场人物: '林昭',
       时间地点: '青云山',
@@ -65,7 +64,7 @@ before(async () => {
       新增伏笔: '',
       状态变更: `第${chapter.order}章后林昭受了轻伤。`,
       连续性事实: '',
-    });
+    }, [{ name: '林昭', aliases: [] }]);
   }
   t.write('.novelforge/skills/排法/SKILL.md', '---\nname: 排法\n---\n每章三个场景。\n');
   t.write('.novelforge/skills.json', JSON.stringify({ version: 1, bindings: { planning: 'project:排法' } }));
@@ -84,13 +83,13 @@ const user = (built) => built.messages[built.messages.length - 1].content;
 const system = (built) => built.messages[0].content;
 
 describe('derive · 平时不带', () => {
-  test('架构、大纲、细纲三张配方不 derive 时没有 written，契约照旧', async () => {
+  test('架构、大纲不 derive 时没有 written，契约照旧；细纲配方从来不带', async () => {
     // 角色图谱不随正文自动整理（见下一条）。
     const setting = await build({ action: { stage: 'setting', capability: 'generate' }, target: { kind: 'setting', doc: 'characters' } });
     const outline = await build({ action: { stage: 'outline', capability: 'generate' }, target: { kind: 'outline' }, range: { from: 1, to: 20 } });
     const plot = await build({
       action: { stage: 'plot', capability: 'generate' },
-      target: { kind: 'plot', plotRelPath: '.novelforge/plots/003.md' },
+      target: { kind: 'plot', plotRelPath: '.novelforge/summaries/003.md' },
       range: { from: 3, to: 5 },
       targetNo: 3,
     });
@@ -140,7 +139,7 @@ describe('derive · 架构', () => {
     assert.match(synopsis.text, /第1章梗概/);
     // 看点跟在同一行梗概后面，多条用分号连起来。
     assert.match(synopsis.text, /第1章梗概：林昭查到了第1条线索。｜看点：第1章看点：执事当众被林昭拆穿；门外是谁/);
-    assert.match(synopsis.note, /2 章还没有摘要/);
+    assert.match(synopsis.note, /2 章还没定稿，没有梗概可带/);
 
     assert.match(system(b), /这一次不是从零创作：作者已经写到第 8 章/);
     const u = user(b);
@@ -189,8 +188,8 @@ describe('derive · 架构', () => {
   });
 });
 
-describe('derive · 大纲与细纲', () => {
-  test('大纲：区间里各章的摘要；没摘要的章退回正文头尾', async () => {
+describe('derive · 大纲', () => {
+  test('大纲：区间里各章定稿过的细纲；没定稿的章退回正文头尾', async () => {
     const b = await build({
       action: { stage: 'outline', capability: 'generate' },
       target: { kind: 'outline' },
@@ -201,32 +200,29 @@ describe('derive · 大纲与细纲', () => {
     assert.deepEqual(items.map((i) => i.id), ['written:5', 'written:6', 'written:7', 'written:8']);
     assert.match(items[0].text, /梗概：第5章梗概/);
     assert.match(items[0].text, /状态变更：第5章后林昭受了轻伤/);
+    assert.equal(items[0].source, '.novelforge/summaries/005-第5回.md');
     assert.match(items[2].text, /第7章开头/);
-    assert.match(items[2].note, /还没有摘要/);
+    assert.equal(items[2].note, '这一章还没定稿，带正文的开头与结尾');
     const u = user(b);
     assert.ok(u.includes('整理出这一段的情节大纲'));
     assert.ok(u.includes('「## 第a–b章：标题」'));
     assert.ok(!u.includes('结构拐点'));
   });
 
-  test('细纲：区间里各章正文的头尾，JSON 合同与平常一字不差', async () => {
-    const request = {
-      action: { stage: 'plot', capability: 'generate' },
-      target: { kind: 'plot', plotRelPath: '.novelforge/plots/003.md' },
-      range: { from: 3, to: 5 },
-      targetNo: 3,
-    };
-    const b = await build({ ...request, derive: { through: N } });
-    const items = written(b);
-    assert.deepEqual(items.map((i) => i.id), ['written:3', 'written:4', 'written:5']);
-    assert.match(items[0].text, /第3章开头/);
-    assert.match(items[0].text, /第3章结尾：门外有人敲了三下/);
-    assert.match(items[0].text, /（中略 \d+ 字）/);
-    const u = user(b);
-    assert.ok(u.includes('照正文实际写的提取，不可臆造'));
-    assert.ok(u.includes('不要输出 newCharacters'));
-    assert.ok(!u.includes('商业网文节奏设计原则'));
-    assert.ok(!u.includes('【章节容量合同】'));
-    assert.ok(u.includes(bundle.prompts.blueprintJsonContract({ from: 3, to: 5 })));
+  // 没定稿的细纲是写之前的计划，不是「已经写成的东西」：整理大纲时不拿它当依据。
+  test('大纲：只排了计划、没定稿的章照样退回正文头尾', async () => {
+    t.write('.novelforge/summaries/007-第7回.md', '---\nno: 7\ntitle: 第7回\n---\n\n# 第7章 第7回\n\n## 梗概\n\n计划里的第7章。\n\n## 关键事件\n\n计划里的事件。\n');
+    t.project.invalidate();
+    const b = await build({
+      action: { stage: 'outline', capability: 'generate' },
+      target: { kind: 'outline' },
+      range: { from: 7, to: 7 },
+      derive: { through: N },
+    });
+    const [item] = written(b);
+    assert.match(item.text, /第7章开头/);
+    assert.doesNotMatch(item.text, /计划里的第7章/);
+    t.remove('.novelforge/summaries/007-第7回.md');
+    t.project.invalidate();
   });
 });

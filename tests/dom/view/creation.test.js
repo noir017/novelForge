@@ -18,7 +18,7 @@ const {
   emptySession, pipelineView, workbenchView, viewState, sampleTree,
 } = require('../../helpers/dom');
 
-const PLOT_12 = '.novelforge/plots/012-夜入青云.md';
+const PLOT_12 = '.novelforge/summaries/012-夜入青云.md';
 
 describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
   let ui;
@@ -132,13 +132,13 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
         capability: 'generate',
         label: '拆细纲（第 1–5 章）',
         hint: '从情节大纲里把接下来几章拆成一章一份的细纲。',
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/001-楔子.md' },
+        target: { kind: 'plot', plotRelPath: '.novelforge/summaries/001-楔子.md' },
         range: { from: 1, to: 5 },
       },
     });
     sentStep = runStep();
     assert.equal(sentStep.payload.target.kind, 'plot', JSON.stringify(sentStep.payload));
-    assert.equal(sentStep.payload.target.plotRelPath, '.novelforge/plots/001-楔子.md', JSON.stringify(sentStep.payload));
+    assert.equal(sentStep.payload.target.plotRelPath, '.novelforge/summaries/001-楔子.md', JSON.stringify(sentStep.payload));
   });
 
   test('阶段与能力也跟着 step 走', () => {
@@ -251,7 +251,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.ok(!stage('细纲').querySelector('.pstage-stale'));
   });
 
-  // 定稿：写了正文还没有摘要 → 待定稿，并标成待办。
+  // 定稿：写了正文、细纲还没照正文更新过 → 待定稿，并标成待办。
   test('写了没定稿报「待定稿」', () => {
     assert.equal(summaryState()?.textContent, '待定稿');
     assert.ok(summaryState().classList.contains('stale'), summaryState().className);
@@ -448,11 +448,11 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
         capability: 'generate',
         label: '写第 13 章细纲',
         hint: '先把这一章要发生什么定下来。',
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/013.md' },
+        target: { kind: 'plot', plotRelPath: '.novelforge/summaries/013.md' },
       },
     });
     sentStep = runStep();
-    assert.equal(sentStep.payload.target.plotRelPath, '.novelforge/plots/013.md', JSON.stringify(sentStep.payload));
+    assert.equal(sentStep.payload.target.plotRelPath, '.novelforge/summaries/013.md', JSON.stringify(sentStep.payload));
     assert.equal(sentStep.payload.target.kind, 'plot', JSON.stringify(sentStep.payload));
   });
 
@@ -471,7 +471,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
         stage: 'manuscript',
         capability: 'generate',
         projectAction: 'finalizeChapter',
-        label: '定稿（生成摘要）',
+        label: '定稿第 12 章',
         hint: '正文写够了。',
         target: { kind: 'manuscript', plotRelPath: PLOT_12 },
       },
@@ -503,7 +503,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/013-另一章.md' },
+        target: { kind: 'plot', plotRelPath: '.novelforge/summaries/013-另一章.md' },
         stage: 'plot',
         capability: 'discuss',
       }),
@@ -544,7 +544,7 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
       pipeline: pipelineView(),
       workbench: workbenchView({
         sections: [
-          { key: '本章目的', text: '林昭混进青云宗，拿到入门的腰牌' },
+          { key: '梗概', text: '林昭混进青云宗，拿到入门的腰牌' },
           { key: '关键事件', text: '林昭把外衣搭在墙头\n数到第三盏灯才翻过去' },
         ],
       }),
@@ -1055,7 +1055,7 @@ describe('选中一章进入当前阶段', { skip: JSDOM_SKIP }, () => {
     const rows = [...ui.doc.querySelectorAll('#projectBody .row-plot:not(.row-architecture)')];
     ui.pick(ui.rightClick(rows.find((n) => n.textContent.includes('北行'))), '进入这一章');
     const fromTree = [...ui.sent].reverse().find((m) => m.type === 'selectPlot');
-    assert.equal(fromTree?.plotRelPath, '.novelforge/plots/004-北行.md', JSON.stringify(fromTree));
+    assert.equal(fromTree?.plotRelPath, '.novelforge/summaries/004-北行.md', JSON.stringify(fromTree));
   });
 
   // 「去写这一章」与右键「进入这一章」是同一件事，发的是同一条消息。
@@ -1097,7 +1097,7 @@ describe('独立版壳上的创作页', { skip: JSDOM_SKIP }, () => {
         stage: 'plot',
         capability: 'generate',
         label: '写第 12 章细纲',
-        hint: '先把这一章要发生什么定下来：本章目的、关键事件、章末钩子。',
+        hint: '先把这一章要发生什么定下来：梗概、出场人物、关键事件、看点。',
         target: { kind: 'plot', plotRelPath: PLOT_12 },
       },
     });

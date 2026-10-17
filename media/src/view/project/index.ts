@@ -59,7 +59,7 @@ export function renderProject(tree: ProjectTree): void {
         // 只补空白：已经有的那几件不动、不问（第 19 条的批量那一面）。
         { label: '补齐设定（只补空白）', run: () => projectAction('completeSettings') },
         // 已经有正文（导入的原稿、老工程）：照正文整理，不从一句话重新编。两次确认，次数在框里。
-        { label: '从已写正文补齐（摘要、角色卡、架构、大纲、细纲）…', run: () => projectAction('deriveFromText') },
+        { label: '从已写正文补齐（细纲、角色卡、架构、大纲）…', run: () => projectAction('deriveFromText') },
         { sep: true },
       ],
       build: () => buildArchitectureRows(tree.architecture, tree),
@@ -119,7 +119,7 @@ export function renderProject(tree: ProjectTree): void {
     })
   );
 
-  // 摘要里出现但还没建卡的人物。单独一组而不是混进角色树——
+  // 定稿过的细纲里出现、但还没建卡的人物。单独一组而不是混进角色树——
   // 那棵是文件树（能改名/移动/删除），这些人还没有文件。
   if (tree.cast && tree.cast.length > 0) {
     el.projectBody.appendChild(

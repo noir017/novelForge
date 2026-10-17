@@ -2,7 +2,7 @@
  * 「让用户挑一个」的清单构造（`src/core/choices.ts`）。
  *
  * 这两份清单原先长在插件壳的 extension.ts 里，其中「＋N 章待读」是算出来的：
- * 出场章（由摘要关联）里章号大于卡上 `updatedThrough` 的有几章。壳里抄一份这种
+ * 出场章（由定稿过的细纲关联）里章号大于卡上 `updatedThrough` 的有几章。壳里抄一份这种
  * 计算，迟早与工程页上的同一行说明分叉，所以它回到了 core，并且有了这份测试。
  */
 const { describe, test, before, after } = require('node:test');
@@ -15,16 +15,15 @@ const { cleanup } = require('../../helpers/teardown');
 let choices;
 let t;
 
-/** 一章：细纲 + 成品正文 + 一份带 cast 的摘要。 */
+/** 一章：成品正文 + 一份定稿过（带 sourceHash 与 cast）的细纲。 */
 function makePlot(no, title, text, cast) {
   const n = String(no).padStart(3, '0');
   const stem = `${n}-${title}`;
-  t.write(`.novelforge/plots/${stem}.md`, `## 本章目的\n\n略。\n\n## 关键事件\n\n甲乙丙。\n\n## 章末钩子\n\n略。\n`);
   t.write(`chapters/${stem}.md`, `# ${title}\n\n${text}\n`);
   t.write(
     `.novelforge/summaries/${stem}.md`,
-    `---\nchapter: ${no}\ntitle: ${title}\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
-      `# ${title} · 摘要\n\n## 梗概\n\n略。\n`
+    `---\nno: ${no}\ntitle: ${title}\nsourceHash: x\ncast: [${cast.join(', ')}]\n---\n\n` +
+      `# 第${no}章 ${title}\n\n## 梗概\n\n略。\n\n## 出场人物\n\n${cast.join('、')}\n\n## 关键事件\n\n甲乙丙。\n\n## 看点\n\n略。\n`
   );
 }
 
@@ -71,7 +70,7 @@ describe('plotChoices', () => {
 
   // 只排了细纲、还没写正文的章照样要列出来——那正是作者接下来要写的那些。
   test('没写正文的章说「还没有正文」', async () => {
-    t.write('.novelforge/plots/003-空的.md', '## 本章目的\n\n略。\n\n## 关键事件\n\n丁。\n');
+    t.write('.novelforge/summaries/003-空的.md', '## 梗概\n\n略。\n\n## 关键事件\n\n丁。\n');
     t.project.invalidate();
     const withEmpty = await choices.plotChoices(t.project);
     assert.equal(withEmpty.find((c) => c.value === 3).description, '还没有正文');
@@ -120,14 +119,14 @@ describe('characterChoices', () => {
     assert.equal(list.find((c) => c.label === '沈砚').description, '＋1 章待读');
   });
 
-  test('没在任何摘要里出现过的卡：不挂待读，detail 说「未在摘要中出现」', async () => {
+  test('没在任何定稿里出现过的卡：不挂待读，detail 说「未在定稿中出现」', async () => {
     // 从没更新过（无 updatedThrough）也不该凭空催人——出场 0 段就是待读 0 段。
     makeCard('无名', undefined);
     t.project.invalidate();
     const list = await choices.characterChoices(t.project);
     const anon = list.find((c) => c.label === '无名');
     assert.equal(anon.description, undefined);
-    assert.equal(anon.detail, '未在摘要中出现');
+    assert.equal(anon.detail, '未在定稿中出现');
   });
 
   test('detail 是出场章的人话描述', async () => {

@@ -181,8 +181,8 @@ async function mergeCharacters(
           gender: item.gender,
           firstAppear: range.firstNo,
           lastSeen: range.lastNo,
-          // 这一批章节就是目前已知的出场记录。摘要索引之后会给出更完整的清单，
-          // 这里先落一份，免得新卡在角色页上显示「未在摘要中出现」。
+          // 这一批章节就是目前已知的出场记录。出场索引（定稿过的细纲）之后会给出更完整的清单，
+          // 这里先落一份，免得新卡在角色页上显示「未在定稿中出现」。
           appearsIn: range.nos,
           updatedThrough: range.lastNo,
           sections: item.sections,

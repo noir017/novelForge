@@ -67,7 +67,7 @@ before(async () => {
     errors: { LlmError: bundle.provider.LlmError, CancelledError: bundle.provider.CancelledError },
   });
 
-  // 已写了第 1 章正文（还没摘要）：从已写正文补齐有活可干。
+  // 已写了第 1 章正文（还没细纲）：从已写正文补齐有活可干。
   t = await makeTempProject(bundle.project, { prefix: 'bookTool', title: '青云剑录' });
   t.write(CH1, '# 夜入青云\n\n雨下了三天。山门在雨里，林昭在门外。\n');
   t.project.invalidate();

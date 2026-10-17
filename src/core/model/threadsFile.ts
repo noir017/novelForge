@@ -418,7 +418,7 @@ export function appendEvents(raw: string, title: string, events: readonly Thread
 
 // ---------------------------------------------------------------- 写正文时带哪几条
 
-/** 写这一章的人手上有什么：章号、细纲原文（标题、目的、关键事件、钩子）、计划出场的人。 */
+/** 写这一章的人手上有什么：章号、细纲原文（标题与八节）、计划出场的人。 */
 export interface ThreadFocus {
   no: number;
   plotText: string;

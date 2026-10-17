@@ -19,7 +19,9 @@
  * | 写正文 | 答了才落到**同号的章节**上（没有就新建、有了就追加），并在细纲上记 `writtenFrom` |
  * | 拆细纲落在占位路径 | 细纲按产物的标题落盘之后，流水线条仍认得这一章 |
  *
- * 一章一纲之后细纲是 D3 三节（本章目的 / 关键事件 / 章末钩子），正文不再先落中转站。
+ * 细纲与单章摘要并成了一份：`summaries/NNN-标题.md`，八节（梗概 / 出场人物 / 时间地点 /
+ * 关键事件 / 看点 / 新增伏笔 / 状态变更 / 连续性事实）；「排过没有」仍只看关键事件。
+ * 正文不再先落中转站。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -30,14 +32,23 @@ const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 
+// 模型答的是八节里的三节：没写到的小节（出场人物、伏笔……）留空，形状描述照实说「3/8 节」。
 const PLOT_JSON = JSON.stringify({
-  本章目的: '进入宗门',
+  梗概: '林昭夜里摸进青云宗',
   关键事件: '踩点、失手、翻墙；收在藏书阁门口。三拍推进。',
-  章末钩子: '第三块令牌',
+  看点: '第三块令牌',
 });
 
-const P1 = '.novelforge/plots/001-夜入青云.md';
-const P2 = '.novelforge/plots/002-藏书阁.md';
+const P1 = '.novelforge/summaries/001-夜入青云.md';
+const P2 = '.novelforge/summaries/002-藏书阁.md';
+
+/** 一份只有梗概、还没排过（关键事件空着）的细纲：落盘前后的「排过没有」由它对照。 */
+function blankPlot(no, title) {
+  return {
+    no, title, upstreamHash: '', done: false,
+    sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: `第 ${no} 章要达成的事` },
+  };
+}
 
 let bundle;
 let h;
@@ -119,7 +130,6 @@ before(async () => {
     provider: './src/core/llm/provider.ts',
     controller: './src/core/controller/index.ts',
     plotFile: './src/core/model/plotFile.ts',
-    pipe: './src/core/views/pipeline.ts',
     db: './src/core/runtime/db.ts',
   });
   settings = {
@@ -139,10 +149,7 @@ before(async () => {
   project = t.project;
   const ws = new bundle.ws.Workspace(project);
   for (const [no, title] of [[1, '夜入青云'], [2, '藏书阁']]) {
-    await ws.writePlot({
-      no, title, role: '', characters: [], upstreamHash: '', done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: `第 ${no} 章要达成的事` },
-    });
+    await ws.writePlot(blankPlot(no, title));
   }
   await project.syncManifest();
 
@@ -183,7 +190,7 @@ describe('生成一轮 → 当场问一句', () => {
 
   test('说得出写到哪、是什么形状', () => {
     assert.ok(r.gate.title.includes('夜入青云'), r.gate.title);
-    assert.ok(r.gate.detail.includes('3/3 节'), r.gate.detail);
+    assert.ok(r.gate.detail.includes('3/8 节'), r.gate.detail);
   });
 
   // 叫停整轮不在这张卡上（那是输入框旁边那颗「停止」）；拒绝那颗写的是
@@ -209,7 +216,7 @@ describe('生成一轮 → 当场问一句', () => {
 
   // 展示快照仍在：翻回来看得出这一轮产出过什么。
   test('展示快照还在', () => {
-    assert.equal(r.assistant.artifact.summary, '细纲 · 3/3 节', JSON.stringify(r.assistant.artifact));
+    assert.equal(r.assistant.artifact.summary, '细纲 · 3/8 节', JSON.stringify(r.assistant.artifact));
   });
 });
 
@@ -218,10 +225,7 @@ describe('落点从 draft 里取，不看当下选中的那一章', () => {
 
   before(async () => {
     t.remove(P2);
-    await new bundle.ws.Workspace(project).writePlot({
-      no: 2, title: '藏书阁', role: '', characters: [], upstreamHash: '', done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '第 2 章要达成的事' },
-    });
+    await new bundle.ws.Workspace(project).writePlot(blankPlot(2, '藏书阁'));
     project.invalidate();
     replyFn = () => PLOT_JSON;
     h.answers.push('覆盖');
@@ -238,7 +242,7 @@ describe('落点从 draft 里取，不看当下选中的那一章', () => {
   });
 
   test('写进了生成时那一章', () => {
-    assert.ok(t.read('.novelforge/plots/001-夜入青云.md').includes('三拍推进'));
+    assert.ok(t.read(P1).includes('三拍推进'));
   });
 
   // 关键：切过去的那一章一个字都不该被写。
@@ -261,9 +265,9 @@ describe('落盘的是气泡里当下那份', () => {
         type: 'editTurn',
         turnId: msg.turnId,
         text: JSON.stringify({
-          本章目的: '进入宗门',
+          梗概: '林昭夜里摸进青云宗',
           关键事件: '踩点、失手、翻墙；收在藏书阁门口。我自己改成了两拍。',
-          章末钩子: '第三块令牌',
+          看点: '第三块令牌',
         }),
       });
       return 'proceed';
@@ -277,11 +281,11 @@ describe('落盘的是气泡里当下那份', () => {
 
   // 用 draft.raw 的话，作者改的那两个字就没了——而他改完才点的写入。
   test('落盘的是改过的那一版', () => {
-    assert.ok(t.read('.novelforge/plots/002-藏书阁.md').includes('我自己改成了两拍'));
+    assert.ok(t.read(P2).includes('我自己改成了两拍'));
   });
 
   test('模型原样输出的那一版没写进去', () => {
-    assert.ok(!t.read('.novelforge/plots/002-藏书阁.md').includes('三拍推进'));
+    assert.ok(!t.read(P2).includes('三拍推进'));
   });
 });
 
@@ -290,10 +294,7 @@ describe('答「不采纳」', () => {
 
   before(async () => {
     t.remove(P1);
-    await new bundle.ws.Workspace(project).writePlot({
-      no: 1, title: '夜入青云', role: '', characters: [], upstreamHash: '', done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '第 1 章要达成的事' },
-    });
+    await new bundle.ws.Workspace(project).writePlot(blankPlot(1, '夜入青云'));
     project.invalidate();
     replyFn = () => PLOT_JSON;
     onGate = async () => 'skip';
@@ -341,10 +342,7 @@ describe('刷新网页：没答的卡片跟着回来', () => {
 
   before(async () => {
     t.remove(P2);
-    await new bundle.ws.Workspace(project).writePlot({
-      no: 2, title: '藏书阁', role: '', characters: [], upstreamHash: '', done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '第 2 章要达成的事' },
-    });
+    await new bundle.ws.Workspace(project).writePlot(blankPlot(2, '藏书阁'));
     project.invalidate();
     replyFn = () => PLOT_JSON;
     onGate = async (msg) => {
@@ -371,7 +369,7 @@ describe('刷新网页：没答的卡片跟着回来', () => {
   });
 
   test('重推的那张答了照样落盘', () => {
-    assert.ok(t.read('.novelforge/plots/002-藏书阁.md').includes('三拍推进'));
+    assert.ok(t.read(P2).includes('三拍推进'));
   });
 });
 
@@ -384,10 +382,7 @@ describe('面板销毁：卡片作废，产物不落盘', () => {
 
   before(async () => {
     t.remove(P1);
-    await new bundle.ws.Workspace(project).writePlot({
-      no: 1, title: '夜入青云', role: '', characters: [], upstreamHash: '', done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '第 1 章要达成的事' },
-    });
+    await new bundle.ws.Workspace(project).writePlot(blankPlot(1, '夜入青云'));
     project.invalidate();
     replyFn = () => PLOT_JSON;
     let asked = false;
@@ -493,7 +488,7 @@ describe('写正文 → 当场问一句 → 落到同号章节', () => {
 
   test('细纲上记下 writtenFrom', async () => {
     const plot = await project.readPlot(P1);
-    assert.equal(plot.writtenFrom, bundle.pipe.plotContentHash(plot));
+    assert.equal(plot.writtenFrom, bundle.plotFile.plotContentHash(plot));
   });
 
   test('接着写追加在同一章末尾', () => {
@@ -511,8 +506,8 @@ describe('写正文 → 当场问一句 → 落到同号章节', () => {
  * `plotPathForNo(N, '')`）。细纲按产物带的标题落盘，文件名于是与占位路径不同。
  */
 describe('拆细纲落在占位路径上', () => {
-  const PLACEHOLDER = '.novelforge/plots/003.md';
-  const REAL = '.novelforge/plots/003-雪夜.md';
+  const PLACEHOLDER = '.novelforge/summaries/003.md';
+  const REAL = '.novelforge/summaries/003-雪夜.md';
   let r;
   let pipe;
 

@@ -1,5 +1,5 @@
 /**
- * 工程页里除了树行以外的东西：可折叠分组、工程标题头、摘要进度横幅，
+ * 工程页里除了树行以外的东西：可折叠分组、工程标题头、定稿进度横幅，
  * 以及「文风与摘要」那几行固定文件。
  */
 import { el as mk, spacer } from '../../dom';
@@ -119,27 +119,27 @@ export function buildProjectHead(tree: ProjectTree): HTMLElement {
 }
 
 /**
- * 摘要进度横幅。
+ * 定稿进度横幅。
  *
- * 只说「76 章摘要缺失或已过期」的话，用户不知道分母，也看不出同步跑到哪了。
- * 这里给出「已完成 N/M」与一条进度条，同步过程中每章刷新一次
+ * 只说「76 章还没定稿」的话，用户不知道分母，也看不出同步跑到哪了。
+ * 这里给出「已定稿 N/M」与一条进度条，同步过程中每章刷新一次
  * （后端 pushState 会重推整棵树）。
  *
  * 分母是**已有正文的章**（`summarizedCount + staleCount`），不是全部章：
- * 只有细纲、还没写正文的章没有摘要是正常的，算进分母会让进度条永远到不了头。
+ * 只有细纲、还没写正文的章无从定稿，算进分母会让进度条永远到不了头。
  */
 function buildSummaryBanner(tree: ProjectTree): HTMLElement {
   const banner = mk('div', 'banner banner-summary');
 
   const line = mk('div', 'banner-line');
   line.appendChild(
-    mk('span', undefined, `${tree.staleCount} 章摘要缺失或已过期，这些章的剧情不会进入上下文。`)
+    mk('span', undefined, `${tree.staleCount} 章写了正文还没定稿（或定稿之后正文又改过），这些章的连续性事实与出场人物不会进入上下文。`)
   );
   line.appendChild(spacer());
   // 同步在跑时不再显示「立即同步」——点第二次只会撞上「已有任务在进行」。
   // 任务名与 features/summarize.ts 的 runTask 名字必须一字不差，否则这里
   // 永远匹配不上，横幅上会一直挂着一个点了就报错的按钮。
-  if (!hasTask('同步章节摘要')) {
+  if (!hasTask('同步章节细纲')) {
     line.appendChild(linkBtn('立即同步', () => projectAction('syncSummaries')));
   }
   banner.appendChild(line);
@@ -153,20 +153,20 @@ function buildSummaryBanner(tree: ProjectTree): HTMLElement {
     fill.style.width = `${percent}%`;
     bar.appendChild(fill);
     banner.appendChild(bar);
-    banner.appendChild(mk('div', 'meta sum-meta', `已总结 ${done} / ${total} 章（${percent}%）`));
+    banner.appendChild(mk('div', 'meta sum-meta', `已定稿 ${done} / ${total} 章（${percent}%）`));
   }
   return banner;
 }
 
-/** 分组副标题：待办数与总量一起给，不必展开就知道摘要覆盖到什么程度。 */
+/** 分组副标题：待办数与总量一起给，不必展开就知道定稿覆盖到什么程度。 */
 export function summaryGroupLabel(tree: ProjectTree): string {
   const total = tree.summarizedCount + tree.staleCount;
   if (total === 0) {
     return tree.plotCount === 0 ? '还没有章节' : '还没有正文';
   }
   return tree.staleCount > 0
-    ? `已总结 ${tree.summarizedCount}/${total} 章 · ${tree.staleCount} 章待总结`
-    : `${total} 章已全部同步`;
+    ? `已定稿 ${tree.summarizedCount}/${total} 章 · ${tree.staleCount} 章待定稿`
+    : `${total} 章已全部定稿`;
 }
 
 /** 顶层分组的副标题：文件总数（含子文件夹里的）。 */
@@ -188,7 +188,7 @@ export function countLabel(nodes: ProjectNode[], unit: string): string {
 }
 
 /**
- * 「文风与摘要」那一组：全书摘要、文风指南、叙事线，外加一行批量动作（同步过期摘要、提取角色卡、
+ * 「文风与摘要」那一组：全书摘要、文风指南、叙事线，外加一行批量动作（同步过期细纲、提取角色卡、
  * 批量拆细纲、批量写章）。情节大纲在「故事架构」那一组。
  *
  * 这几行是工程的固定文件，不给类文件操作（`buildFileRow` 不传 depth 即可），
@@ -244,13 +244,13 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   const tools = mk('div', 'row row-tools');
   tools.appendChild(
     linkBtn(
-      tree.staleCount > 0 ? `同步 ${tree.staleCount} 章过期摘要` : '同步过期摘要',
+      tree.staleCount > 0 ? `同步 ${tree.staleCount} 章过期细纲` : '同步过期细纲',
       () => projectAction('syncSummaries')
     )
   );
   tools.appendChild(linkBtn('提取/更新角色卡', () => projectAction('extractCharacters')));
   onContextMenu(tools, () => [
-    { label: '同步过期摘要', run: () => projectAction('syncSummaries') },
+    { label: '同步过期细纲', run: () => projectAction('syncSummaries') },
     { label: '提取/更新角色卡', run: () => projectAction('extractCharacters') },
     { sep: true },
     // 两个批量动作都「只补不改」：已经有产物的章一律跳过。批量路径上

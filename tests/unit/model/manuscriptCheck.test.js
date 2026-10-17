@@ -123,69 +123,35 @@ describe('manuscriptCheck · 提前登场', () => {
   });
 });
 
+// 章末钩子并进「看点」之后不再按钩子找收尾那一场，一律从末尾按比例切。
 describe('manuscriptCheck · 回退点', () => {
   const para = (ch, n) => ch.repeat(n);
 
-  test('与钩子最像的那一段起切', () => {
-    const hook = '陆烬看清了枷锁缝隙里刻着的守门人族徽';
-    const text = [
-      para('甲', 300),
-      para('乙', 300),
-      para('丙', 200),
-      '他借着月光，终于看清了枷锁缝隙里刻着的那枚族徽——守门人的标志。',
-      '陆烬握紧了刀。',
-    ].join('\n\n');
-    const r = m.rewindPoint(text, hook);
-    assert.ok(r);
-    assert.equal(r.byHook, true);
-    assert.equal(r.paragraphs, 2);
-    assert.equal(r.keep, [para('甲', 300), para('乙', 300), para('丙', 200)].join('\n\n'));
-    assert.ok(r.cut.startsWith('他借着月光'));
-  });
-
-  test('找不到钩子：从末尾切约四分之一', () => {
+  test('从末尾切约四分之一', () => {
     const text = [para('甲', 400), para('乙', 300), para('丙', 200), para('丁', 100)].join('\n\n');
-    const r = m.rewindPoint(text, '一个根本没写到的钩子');
+    const r = m.rewindPoint(text);
     assert.ok(r);
-    assert.equal(r.byHook, false);
     // 最后两段 300 字，正好过了四分之一（250）。
     assert.equal(r.paragraphs, 2);
     assert.equal(r.keep, [para('甲', 400), para('乙', 300)].join('\n\n'));
+    assert.equal(r.cut, [para('丙', 200), para('丁', 100)].join('\n\n'));
   });
 
-  test('至少留一半：钩子落在前半截时不按它切', () => {
-    const hook = '守门人族徽';
-    const text = ['守门人族徽就在这里', para('乙', 400), para('丙', 400)].join('\n\n');
-    const r = m.rewindPoint(text, hook);
+  test('至少留一半', () => {
+    const text = [para('甲', 100), para('乙', 400), para('丙', 400)].join('\n\n');
+    const r = m.rewindPoint(text);
     assert.ok(r);
-    assert.equal(r.byHook, false);
     assert.ok(r.keep.length >= r.cut.length);
   });
 
   test('只有一段：没法切', () => {
-    assert.equal(m.rewindPoint(para('甲', 500), '钩子'), undefined);
+    assert.equal(m.rewindPoint(para('甲', 500)), undefined);
   });
 
-  // 真实正文一段只有六十来字，钩子那一幕拆在两三段里：单看哪一段都不够像，三段一窗才认得出。
-  test('钩子拆在几段短段落里：按窗口认', () => {
-    const hook = '陆烬借着月光看清了枷锁缝隙中刻着的族徽，那竟是属于守门人家族的标志';
-    const text = [
-      ...Array.from({ length: 12 }, (_, i) => para('甲乙丙丁戊己庚辛'[i % 8], 60)),
-      '他借着月光凑近了枷锁。',
-      '缝隙中刻着一枚族徽。',
-      '那竟是守门人家族的标志。',
-    ].join('\n\n');
-    const r = m.rewindPoint(text, hook);
-    assert.ok(r);
-    assert.equal(r.byHook, true);
-    assert.equal(r.paragraphs, 3);
-  });
-
-  test('认不出钩子时最多切 600 字', () => {
+  test('最多切 600 字', () => {
     const text = Array.from({ length: 20 }, (_, i) => para('甲乙丙丁戊己庚辛'[i % 8], 200)).join('\n\n');
-    const r = m.rewindPoint(text, '没写到的钩子');
+    const r = m.rewindPoint(text);
     assert.ok(r);
-    assert.equal(r.byHook, false);
     assert.equal(r.paragraphs, 3);
   });
 });

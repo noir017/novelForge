@@ -353,7 +353,7 @@ function goalRow(goal: ReviewGoal, checked: boolean, toggle: Toggle, quote: Quot
   const body = mk('div', 'review-item-body');
   const line = mk('div', 'review-item-line');
   line.appendChild(mk('span', `review-status status-${goal.status}`, GOAL_STATUS_LABEL[goal.status]));
-  line.appendChild(mk('span', 'review-desc', `${goal.kind === 'hook' ? '章末钩子' : '关键事件'}：${goal.text}`));
+  line.appendChild(mk('span', 'review-desc', `关键事件：${goal.text}`));
   body.appendChild(line);
   if (goal.judgment) {
     body.appendChild(mk('div', 'review-judgment', goal.judgment));

@@ -2,9 +2,11 @@
  * 七期验收：从排好前 5 章细纲的工程起，工程页「从细纲排出」叙事线，再「批量写章」第 1–3 章、
  * 写完即定稿。
  *
- *   排线 → 写第 1 章 → 定稿（摘要 + 叙事线）→ 写第 2 章 → 定稿 → 写第 3 章 → 定稿
+ *   排线 → 写第 1 章 → 定稿（照正文更新细纲 + 叙事线）→ 写第 2 章 → 定稿 → 写第 3 章 → 定稿
  *
- * 经 controller 发出去（与工程页那一颗按钮、弹窗提交的消息一样），假模型按脚本应答。
+ * 经 controller 发出去（与工程页那一颗按钮、弹窗提交的消息一样），假模型按脚本应答。细纲是
+ * `summaries/NNN-标题.md` 的八节计划（钩子写在「看点」里）；写正文那一次靠执行卡里的「必需事件」
+ * 认出是哪一章（执行卡不再列章末钩子）。
  * 没有角色卡：角色状态那一步不调，次数好数。
  *
  * | 断言 | 为什么 |
@@ -87,9 +89,9 @@ function reply(messages) {
   if (system.includes('你是小说定稿事实审查员')) {
     return JSON.stringify({ events: EVENTS[no] ?? [] });
   }
-  const hook = /- 章节钩子：第 (\d+) 章结尾/.exec(user);
-  if (hook) {
-    const n = Number(hook[1]);
+  const card = /- 必需事件：第 (\d+) 章/.exec(user);
+  if (card) {
+    const n = Number(card[1]);
     if (n === 3) {
       ch3Prompt = user;
     }
@@ -137,12 +139,19 @@ before(async () => {
     await ws.writePlot({
       no,
       title: TITLES[no - 1],
-      role: '铺垫',
-      characters: ['林昭', '沈氏'],
       targetWords: 600,
       upstreamHash: '',
       done: false,
-      sections: { 本章目的: `第 ${no} 章的目的`, 关键事件: `第 ${no} 章林昭又往前查了一步。`, 章末钩子: `第 ${no} 章结尾：又一个人不见了。` },
+      sections: {
+        梗概: `第 ${no} 章林昭接着查名册。`,
+        出场人物: '林昭、沈氏',
+        时间地点: '',
+        关键事件: `第 ${no} 章林昭又往前查了一步。`,
+        看点: `- 第 ${no} 章结尾：又一个人不见了。`,
+        新增伏笔: '',
+        状态变更: '',
+        连续性事实: '',
+      },
     });
   }
   project.invalidate();
@@ -209,7 +218,7 @@ describe('七期验收：排叙事线，再批量写章第 1–3 章、写完即
     assert.ok(t.read(THREADS).includes(AUTHOR_INTENT), t.read(THREADS));
   });
 
-  test('一共 12 次：排线 1 次，一章写一次、摘要一次、叙事线一次，第 2、3 章写前各比对一次；没超过两个确认框的上限', () => {
+  test('一共 12 次：排线 1 次，一章写一次、定稿更新细纲一次、叙事线一次，第 2、3 章写前各比对一次；没超过两个确认框的上限', () => {
     assert.equal(fake.callCount(), 12);
     const plan = bundle.pipelineModel.planWriteBatch({ from: 1, to: 3, mode: 'finalize', writtenNos: [], plotFilledNos: [1, 2, 3, 4, 5] });
     assert.ok(fake.callCount() <= 1 + plan.calls.max);

@@ -5,8 +5,8 @@ import type { ContextDetail, ContextLimits } from './contextDetail';
 /**
  * 章节：chapters/NNN-标题.md 中的一篇正文。
  *
- * **正文的唯一真相。** 生成的正文直接落在这里（与同号细纲 `plots/NNN-*.md` 互认），
- * 摘要、角色卡、设定、文风都从这里读。
+ * **正文的唯一真相。** 生成的正文直接落在这里（与同号细纲 `summaries/NNN-*.md` 互认），
+ * 定稿、角色卡、设定、文风都从这里读。
  */
 export interface Chapter {
   /** 序号，来自文件名前缀，决定顺序。 */
@@ -17,68 +17,17 @@ export interface Chapter {
   relPath: string;
   /** 正文字数（去掉空白后的字符数）。 */
   wordCount: number;
-  /** 正文内容的 hash，用于判断摘要是否过期。 */
+  /** 正文内容的 hash，与细纲的 `sourceHash` 比对：对不上就是定稿之后正文又改过。 */
   contentHash: string;
 }
 
-/** 一章的摘要，存于 .novelforge/summaries/ 下，与**发布章节**同名。 */
-export interface PlotSummary {
-  /** 章号。 */
-  no: number;
-  relPath: string;
-  /** 生成该摘要时所依据的正文 hash。与当前正文 contentHash 不同即为过期。 */
-  sourceHash: string;
-  /** 摘要全文（含各固定小节）。 */
-  content: string;
-  sections: SummarySections;
-  /**
-   * 出场人物的结构化清单。
-   *
-   * 与 `sections.出场人物`（人类可读的「林昭、沈氏」）是同一份信息的两种形态：
-   * 这一份来自 frontmatter 的 `cast`，供角色页聚合与角色卡关联用；那一份供
-   * 阅读与注入 prompt 用。**读取时以 frontmatter 为准，缺席则从小节文本回退解析**——
-   * 作者手写的摘要没有 cast 字段，不该因此在角色页上凭空少一批人。
-   */
-  cast: SummaryCast[];
-}
-
-/** 摘要里的一位出场人物。 */
+/** 定稿过的细纲里的一位出场人物（frontmatter `cast` 的一项）。 */
 export interface SummaryCast {
   /** 正式姓名（模型被要求沿用已有角色卡的名字）。 */
   name: string;
   /** 本章出现的别名/称呼。 */
   aliases: string[];
 }
-
-/** 单章摘要的固定小节。缺失的小节为空字符串。 */
-export interface SummarySections {
-  梗概: string;
-  出场人物: string;
-  时间地点: string;
-  关键事件: string;
-  /** 本章读者最爽、最想往下看的地方（爽点与钩子）。拆书整理架构与大纲时靠它提炼卖点。 */
-  看点: string;
-  新增伏笔: string;
-  状态变更: string;
-  /**
-   * 后面各章必须保持一致的事实，一条一行，每条挂一句正文里的证据原文（D18）：
-   * `- 林昭左臂被划伤，未愈 〔证据：「血顺着左臂往下淌」〕`。格式与解析在 model/continuity.ts。
-   *
-   * 写正文时不拿这一节当事实，而是拿证据原句回到那一章的正文里取原文段落（`evidence` 层）。
-   */
-  连续性事实: string;
-}
-
-export const SUMMARY_SECTION_KEYS: (keyof SummarySections)[] = [
-  '梗概',
-  '出场人物',
-  '时间地点',
-  '关键事件',
-  '看点',
-  '新增伏笔',
-  '状态变更',
-  '连续性事实',
-];
 
 /** 角色卡，存于 .novelforge/characters/<slug>.md。 */
 export interface CharacterCard {
@@ -102,9 +51,9 @@ export interface CharacterCard {
   /**
    * 该角色出场的全部章号（升序）。
    *
-   * 由摘要的 `cast` 反向聚合后写回 frontmatter，**是缓存而非真相**——
-   * 真相始终是各章摘要。落在卡里是为了两件事：不读全部摘要就能在角色页上
-   * 显示「出场 12 章」，以及日后按人物检索。摘要重算后这里会跟着更新。
+   * 由定稿过的细纲的 `cast` 反向聚合后写回 frontmatter，**是缓存而非真相**——
+   * 真相始终是各章定稿过的细纲。落在卡里是为了两件事：不读全部细纲就能在角色页上
+   * 显示「出场 12 章」，以及日后按人物检索。重新定稿后这里会跟着更新。
    */
   appearsIn: number[];
   /**
@@ -181,7 +130,7 @@ export interface ProjectManifest {
   version: number;
   title: string;
   author: string;
-  /** 章节索引。summaryHash 为生成摘要时的正文 hash。 */
+  /** 章节索引。 */
   chapters: ManifestChapter[];
   /** 上次重建全书摘要时，已覆盖到的最大章号。 */
   globalSummaryThrough?: number;
@@ -190,12 +139,11 @@ export interface ProjectManifest {
 /**
  * manifest 里的一章。
  *
- * 索引的是章节（`chapters/`）而不是细纲：这里的字段——字数、正文 hash、
- * 摘要 hash——描述的全是正文。
+ * 索引的是章节（`chapters/`）而不是细纲：这里的字段——字数、正文 hash——描述的全是正文。
  *
- * **只放可以重算的索引信息**：真相在 `chapters/` 与 `summaries/` 的文件里，
- * 这里是为了「不必读几百个文件就能画出工程页」。正文依据的细纲指纹**不在这里**
- * ——它记在细纲自己的 frontmatter 里（`writtenFrom`，见 model/plotFile.ts）。
+ * **只放可以重算的索引信息**：真相在 `chapters/` 的文件里，这里是为了「不必读几百个文件
+ * 就能画出工程页」。正文与细纲之间的指纹（`writtenFrom`、定稿的 `sourceHash`）**不在这里**
+ * ——它们记在细纲自己的 frontmatter 里（见 model/plotFile.ts）。
  */
 export interface ManifestChapter {
   /** 章节文件的工作区相对路径。 */
@@ -205,8 +153,6 @@ export interface ManifestChapter {
   wordCount: number;
   /** 这一章正文的 hash。 */
   contentHash: string;
-  /** 该章摘要所依据的正文 hash；无摘要则为 undefined。 */
-  summaryHash?: string;
 }
 
 /**

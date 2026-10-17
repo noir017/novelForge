@@ -158,7 +158,7 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
     assert.equal(row('世界观').querySelector('.row-detail')?.textContent, '待生成', row('世界观').outerHTML);
   });
 
-  // 架构行复用章节行的样式，但它们不是一章：不带 data-plot（摘要浮窗认的就是它）。
+  // 架构行复用章节行的样式，但它们不是一章：不带 data-plot（细纲浮窗认的就是它）。
   test('架构行不带章节行的抓手', () => {
     assert.ok(rows().every((r) => r.dataset.plot === undefined), rows().map((r) => r.outerHTML).join('\n'));
   });
@@ -307,14 +307,14 @@ describe('章节组：一个章号一行', { skip: JSDOM_SKIP }, () => {
     );
   });
 
-  // data-plot 是这一章在协议上的身份（悬停要摘要、selectPlot 都拿它）：
+  // data-plot 是这一章在协议上的身份（悬停要细纲、selectPlot 都拿它）：
   // 有正文就是正文，否则是细纲。
   test('有正文的章，行的身份是正文路径', () => {
     assert.equal(plotRow('楔子').dataset.plot, 'chapters/001-楔子.md');
   });
 
   test('还没写正文的章，行的身份是细纲路径', () => {
-    assert.equal(plotRow('北行').dataset.plot, '.novelforge/plots/004-北行.md');
+    assert.equal(plotRow('北行').dataset.plot, '.novelforge/summaries/004-北行.md');
   });
 
   // 从前这里还带「· 待写 N 段」——剧情段没了，只剩章数与字数。
@@ -339,7 +339,7 @@ describe('章节组：一个章号一行', { skip: JSDOM_SKIP }, () => {
     ui.clickEl(goBtns()[0]);
     const sel = ui.last('selectPlot');
     assert.ok(sel, JSON.stringify(ui.sent));
-    assert.equal(sel.plotRelPath, '.novelforge/plots/004-北行.md', JSON.stringify(sel));
+    assert.equal(sel.plotRelPath, '.novelforge/summaries/004-北行.md', JSON.stringify(sel));
   });
 
   test('点「去写这一章」不顺手打开文件，也不直接开写', () => {
@@ -414,7 +414,7 @@ describe('章节组：一个章号一行', { skip: JSDOM_SKIP }, () => {
     assert.ok(!metaOf('北行').includes('· 草稿'), metaOf('北行'));
   });
 
-  // ---- 行首圆点：定稿（摘要）新鲜度
+  // ---- 行首圆点：定稿过、细纲与正文对得上没有
   test('定稿过的章打实心点', () => {
     assert.equal(plotRow('楔子').querySelector('.dot').textContent, '●');
   });
@@ -424,7 +424,7 @@ describe('章节组：一个章号一行', { skip: JSDOM_SKIP }, () => {
     assert.ok(dot.textContent === '○' && dot.classList.contains('stale'), dot.outerHTML);
   });
 
-  // 还没写正文的章没有摘要可言——那不是「过期」，是还没到那一步。
+  // 还没写正文的章无从定稿——那不是「过期」，是还没到那一步。
   test('还没写正文的章不算过期', () => {
     const dot = plotRow('北行').querySelector('.dot');
     assert.ok(dot.textContent === '·' && !dot.classList.contains('stale'), dot.outerHTML);
@@ -482,7 +482,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(!ui.doc.querySelector('#projectBody .group-head .row-actions'));
   });
 
-  // ---- 写完且定稿过的章（第 1 章）：细纲、正文、摘要、草稿都在，菜单最全。
+  // ---- 写完且定稿过的章（第 1 章）：细纲、正文、草稿都在，菜单最全。
   test('右键章节行弹出菜单', () => {
     doneItems = ui.itemsOf(ui.rightClick(plotRow('楔子')));
     assert.ok(doneItems.length > 0);
@@ -490,12 +490,17 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
 
   // 「进入这一章」与「打开正文」是两件事：前者把创作页切到这一章当前该做
   // 的那一层，后者只是读文件。
-  for (const label of ['进入这一章', '打开正文', '打开细纲', '重新定稿', '看摘要',
+  for (const label of ['进入这一章', '打开正文', '打开细纲', '重新定稿',
     '打开草稿', '重命名', '删除（移到回收站）']) {
     test(`定稿过的章菜单含「${label}」`, () => {
       assert.ok(doneItems.includes(label), JSON.stringify(doneItems));
     });
   }
+
+  // 定稿改的就是细纲本身，没有另一份「摘要」可看——「打开细纲」就是它。
+  test('定稿过的章菜单没有「看摘要」', () => {
+    assert.ok(!doneItems.includes('看摘要'), JSON.stringify(doneItems));
+  });
 
   // 打开哪一份与点名字同序（正文 → 细纲）：点行做的那件事在菜单里排第一。
   test('「打开正文」排在「打开细纲」前面', () => {
@@ -530,7 +535,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
 
   test('还没写正文的章也发 openChapter（后端只开细纲）', () => {
     ui.clickEl(plotRow('北行').querySelector('.row-label'));
-    assert.equal(ui.last('openChapter').plotRelPath, '.novelforge/plots/004-北行.md');
+    assert.equal(ui.last('openChapter').plotRelPath, '.novelforge/summaries/004-北行.md');
   });
 
   test('点章节名不再切到对话页', () => {
@@ -555,10 +560,10 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     // 逐字段比：target 是在 jsdom 那个 realm 里造的，原型不是本 realm 的
     // Object.prototype，deepStrictEqual 会因此判不等。
     assert.equal(t.target.kind, 'manuscript', JSON.stringify(t));
-    assert.equal(t.target.plotRelPath, '.novelforge/plots/001-楔子.md', JSON.stringify(t));
+    assert.equal(t.target.plotRelPath, '.novelforge/summaries/001-楔子.md', JSON.stringify(t));
   });
 
-  // 定稿（本期只生成摘要）读的是正文，所以带的必须是 chapters/ 那条路径。
+  // 定稿是照正文更新细纲，读的是正文，所以带的必须是 chapters/ 那条路径。
   test('「重新定稿」发 finalizeChapter，带的是章节路径', () => {
     ui.pick(ui.rightClick(plotRow('楔子')), '重新定稿');
     const msg = ui.last('projectAction');
@@ -591,16 +596,17 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.last('fileAction').action, 'rename');
   });
 
-  // ---- 老工程里只有正文、没有细纲的章（第 2 章）：写够了，等着定稿。
+  // ---- 作者手写、只有正文没有细纲的章（第 2 章）：写够了，等着定稿（定稿时照正文整理一份细纲）。
   test('没有细纲的章不给「打开细纲」', () => {
     legacyItems = ui.itemsOf(ui.rightClick(plotRow('入镇')));
     assert.ok(!legacyItems.includes('打开细纲'), JSON.stringify(legacyItems));
     assert.ok(legacyItems.includes('打开正文'), JSON.stringify(legacyItems));
   });
 
-  // 四期：定稿 = 摘要（带连续性事实）+ 出场角色的当前状态，菜单上写着调用次数（D17）；七期再加叙事线。
-  test('没定稿的章给「定稿（摘要 + 角色状态 + 叙事线）」并写着调用次数', () => {
-    assert.ok(legacyItems.includes('定稿（摘要 + 角色状态 + 叙事线，预计 1–3 次调用）'), JSON.stringify(legacyItems));
+  // 定稿 = 照正文更新细纲（带连续性事实）+ 出场角色的当前状态（四期）+ 叙事线（七期），
+  // 菜单上写着调用次数（D17）。
+  test('没定稿的章给「定稿（细纲 + 角色状态 + 叙事线）」并写着调用次数', () => {
+    assert.ok(legacyItems.includes('定稿（细纲 + 角色状态 + 叙事线，预计 1–3 次调用）'), JSON.stringify(legacyItems));
     assert.ok(!legacyItems.includes('重新定稿'), JSON.stringify(legacyItems));
   });
 
@@ -610,7 +616,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   test('「定稿」发 finalizeChapter，带的是章节路径', () => {
-    ui.pick(ui.rightClick(plotRow('入镇')), '定稿（摘要 + 角色状态 + 叙事线，预计 1–3 次调用）');
+    ui.pick(ui.rightClick(plotRow('入镇')), '定稿（细纲 + 角色状态 + 叙事线，预计 1–3 次调用）');
     const msg = ui.last('projectAction');
     assert.equal(msg?.action, 'finalizeChapter', JSON.stringify(msg));
     assert.equal(msg?.relPath, 'chapters/002-入镇.md', JSON.stringify(msg));
@@ -621,7 +627,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     ui.pick(ui.rightClick(plotRow('入镇')), '细纲（0%）');
     const t = ui.last('setTarget');
     assert.equal(t?.target.kind, 'plot', JSON.stringify(t));
-    assert.equal(t?.target.plotRelPath, '.novelforge/plots/002-入镇.md', JSON.stringify(t));
+    assert.equal(t?.target.plotRelPath, '.novelforge/summaries/002-入镇.md', JSON.stringify(t));
   });
 
   // ---- 细纲排好、还没写正文的章（第 4 章）：正文那几项都没有。
@@ -631,8 +637,8 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(!planningItems.includes('打开正文'), JSON.stringify(planningItems));
   });
 
-  // 定稿、看摘要、草稿读的都是正文——没有正文就无从谈起。
-  for (const label of ['重新定稿', '定稿（摘要 + 角色状态，预计 1–2 次调用）', '看摘要', '打开草稿', '新建草稿']) {
+  // 定稿、草稿读的都是正文——没有正文就无从谈起。
+  for (const label of ['重新定稿', '定稿（细纲 + 角色状态 + 叙事线，预计 1–3 次调用）', '打开草稿', '新建草稿']) {
     test(`没写正文的章菜单不含「${label}」`, () => {
       assert.ok(!planningItems.includes(label), JSON.stringify(planningItems));
     });
@@ -647,12 +653,12 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
 
   test('没写正文的章「进入这一章」带的是细纲路径', () => {
     ui.pick(ui.rightClick(plotRow('北行')), '进入这一章');
-    assert.equal(ui.last('selectPlot')?.plotRelPath, '.novelforge/plots/004-北行.md');
+    assert.equal(ui.last('selectPlot')?.plotRelPath, '.novelforge/summaries/004-北行.md');
   });
 
   test('没写正文的章删除落在细纲上', () => {
     ui.pick(ui.rightClick(plotRow('北行')), '删除（移到回收站）');
-    assert.equal(ui.last('fileAction')?.relPath, '.novelforge/plots/004-北行.md');
+    assert.equal(ui.last('fileAction')?.relPath, '.novelforge/summaries/004-北行.md');
   });
 
   // ---- 文件夹行：「在此新建」的落点必须是这个文件夹，不是区根目录。
@@ -777,7 +783,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   // ---- 章节分组：两个新建项 + 两个批量动作。
-  // 章节组没有 section（`plots/` 不是作者的文件管理区，不给「新建文件夹」），
+  // 章节组没有 section（细纲目录不是作者的文件管理区，不给「新建文件夹」），
   // 所以它的菜单全部来自 extraItems，分隔线要自己写。
   let plotHead;
   let plotGroupItems;

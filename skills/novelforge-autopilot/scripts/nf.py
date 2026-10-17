@@ -91,6 +91,30 @@ def next_chapter_no():
     return n
 
 
+def plot_files():
+    """细纲：`summaries/` 根下数字开头的 .md，一章一份（`global.md` 是全书摘要，不算）。"""
+    d = nf('summaries')
+    return sorted(f for f in os.listdir(d) if re.match(r'\d+.*\.md$', f)) if os.path.isdir(d) else []
+
+
+def plot_of(chapter_file):
+    """章节文件同号的那份细纲（按数字前缀认，不看标题）。"""
+    no = int(re.match(r'\d+', chapter_file).group())
+    return next((p for p in plot_files() if int(re.match(r'\d+', p).group()) == no), None)
+
+
+def finalized(chapter_file):
+    """这一章定稿过没有：同号细纲的 frontmatter 里记了 `sourceHash`（定稿时记的正文指纹）。
+    细纲拆好之后文件就在，不能拿「文件在不在」判断。这里也不核对正文后来改没改——那要复刻
+    服务端的 contentHash；批量写章停下来的那几章都是从没定稿过的，这一条就够用。"""
+    plot = plot_of(chapter_file)
+    if not plot:
+        return False
+    head = open(nf('summaries', plot), encoding='utf8', errors='replace').read(2000)
+    m = re.match(r'^---\n(.*?)\n---', head, re.S)
+    return bool(m and re.search(r'^sourceHash:\s*\S', m.group(1), re.M))
+
+
 def outline_coverage():
     try:
         text = open(nf('outline.md'), encoding='utf8').read()
@@ -200,10 +224,9 @@ def cmd_status(a):
     if ws.get('currentId'):
         cfg = book_config()
         fs = chapter_files()
-        sm = nf('summaries')
         print('全书    ', cfg, '大纲覆盖到第', outline_coverage(), '章')
-        print('细纲    ', len(os.listdir(nf('plots'))) if os.path.isdir(nf('plots')) else 0, '份')
-        print('正文    ', len(fs), '章；未定稿', [f for f in fs if not os.path.exists(os.path.join(sm, f))][:20])
+        print('细纲    ', len(plot_files()), '份')
+        print('正文    ', len(fs), '章；未定稿', [f for f in fs if not finalized(f)][:20])
 
 
 def cmd_send(a):
@@ -270,7 +293,7 @@ def cmd_plots(a):
     send({'type': 'projectAction', 'action': 'generatePlots', 'range': {'from': a.from_, 'to': total}, 'confirmed': True})
     time.sleep(5)
     wait_tasks()
-    say('细纲', len(os.listdir(nf('plots'))), '份')
+    say('细纲', len(plot_files()), '份')
 
 
 def cmd_write(a):
@@ -287,17 +310,16 @@ def cmd_write(a):
         if load('tasks.json', []):
             wait_tasks()
             continue
-        sm = nf('summaries')
-        unfin = [f for f in chapter_files() if not os.path.exists(os.path.join(sm, f))]
+        unfin = [f for f in chapter_files() if not finalized(f)]
         if unfin:
             f = unfin[0]
             wc = char_count(os.path.join(chapters_dir(), f))
             if wc < floor and f not in tried:
                 tried.add(f)
-                plot = next((p for p in os.listdir(nf('plots')) if p[:3] == f[:3]), None)
+                plot = plot_of(f)
                 say('接着写', f, wc, '字')
                 if plot:
-                    send({'type': 'chapterAction', 'plotRelPath': f'.novelforge/plots/{plot}', 'action': 'continue'})
+                    send({'type': 'chapterAction', 'plotRelPath': f'.novelforge/summaries/{plot}', 'action': 'continue'})
                     if wait_pending():
                         answer_all()
                         time.sleep(4)

@@ -343,7 +343,7 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
     // 连上时后端推过一轮全量状态，里面就有一条 session。不清掉的话
     // 下面的 waitFor 会立刻拿到那条旧的，而不是这次切目标的结果。
     conn.drain();
-    conn.send({ type: 'selectPlot', plotRelPath: '.novelforge/plots/003-夜访.md' });
+    conn.send({ type: 'selectPlot', plotRelPath: '.novelforge/summaries/003-夜访.md' });
     session = await conn.waitFor((m) => m.type === 'session', 'session');
     pipe = await conn.waitFor((m) => m.type === 'pipeline', 'pipeline');
 
@@ -353,7 +353,7 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
     outlinePipe = await conn.waitFor((m) => m.type === 'pipeline', 'pipeline（大纲）');
 
     // 段刚被改名/删掉时不能让整条推送失败。
-    conn.send({ type: 'selectPlot', plotRelPath: '.novelforge/plots/不存在.md' });
+    conn.send({ type: 'selectPlot', plotRelPath: '.novelforge/summaries/不存在.md' });
     toasted = await conn.waitFor((m) => m.type === 'toast', 'toast');
   });
 
@@ -378,7 +378,7 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
   });
 
   test('目标指向那一段', () => {
-    assert.equal(session.session.target.plotRelPath, '.novelforge/plots/003-夜访.md');
+    assert.equal(session.session.target.plotRelPath, '.novelforge/summaries/003-夜访.md');
   });
 
   test('推来流水线', () => {
@@ -395,12 +395,19 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
   });
 
   // **这一章做完了就转去问全书**：从前做完就沉默，作者得自己去找下一章。
-  // sample-novel 写到第 3 章、第 4 章还没有细纲，于是主按钮是「拆细纲（第 4–8 章）」，
-  // 落点是第 4 章细纲应该在的位置。
+  // sample-novel 写到第 3 章，第 4 章《空匣》的细纲已经排好（计划，还没有正文），
+  // 于是全书的下一步落到第 4 章的单章状态机上：主按钮是「写第 4 章」，落点是那份细纲。
   test('已完成的章，下一步转到全书的下一步', () => {
-    assert.equal(pipe.next?.label, '拆细纲（第 4–8 章）', JSON.stringify(pipe.next));
-    assert.deepEqual(pipe.next?.range, { from: 4, to: 8 });
-    assert.equal(pipe.next?.target?.plotRelPath, '.novelforge/plots/004.md');
+    assert.equal(pipe.next?.label, '写第 4 章', JSON.stringify(pipe.next));
+  });
+
+  test('全书的下一步落在第 4 章的细纲上', () => {
+    assert.equal(pipe.next?.target?.plotRelPath, '.novelforge/summaries/004-空匣.md', JSON.stringify(pipe.next));
+  });
+
+  // 写正文那一步按的是单章，不是一段区间。
+  test('写正文这一步不带区间', () => {
+    assert.equal(pipe.next?.range, undefined, JSON.stringify(pipe.next));
   });
 
   test('已完成的章徽章是已完成', () => {

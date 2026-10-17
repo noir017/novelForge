@@ -2,18 +2,19 @@
  * 五期验收：审一章 → 丢掉伪造的引文 → 按勾选修稿（截断续写一轮、合并视图交回的那一份落盘）→
  * 修稿太短报错 → 下一章的细纲排了死人，主按钮先亮预检卡。
  *
- * 工程：第 1–2 章写好且定稿，第 3 章排好细纲（排着角色卡上已经死了的沈秋）。假模型按系统提示
+ * 工程：第 1–2 章写好且定稿（细纲的 sourceHash 对得上正文），第 3 章排好细纲（计划，「出场人物」
+ * 排着角色卡上已经死了的沈秋）。一章只有一份细纲 `summaries/NNN-标题.md`。假模型按系统提示
  * 认是哪一步：审稿 / 修稿 / 写正文。
  *
  * | 断言 | 为什么 |
  * |---|---|
  * | 报告只剩引文站得住的问题，notes 写着丢了哪条 | 引文找不到的丢弃（总计划 §5 五期验收第一条） |
- * | 目标 4 项（3 条关键事件 + 章末钩子），「未完成」没给引文的降待核实 | 「没写到」只能判待核实 |
+ * | 目标 3 项：只有关键事件，看点不冻结；「未完成」没给引文的降待核实 | 章末钩子并进看点后不再单列成目标；「没写到」只能判待核实 |
  * | 审稿 1 次调用、没有落盘卡片、会话文件里存着报告 | D22 |
  * | 修稿发出去的那一次：整章原文 + 只有勾选的两条 | 作者没勾的不该出现在模型眼前 |
  * | 截断一次再续完：调用 2 次；覆盖审阅拿到修订稿；落盘的是合并结果 | W11 |
  * | 修订稿不到原稿六成：报错，磁盘不变 | 修稿后长度低于阈值时报错（总计划 §5 五期验收第二条） |
- * | 修过稿，主按钮先推重新定稿第 2 章 | 摘要跟着修订稿走 |
+ * | 修过稿，主按钮先推重新定稿第 2 章 | 细纲（连续性事实、出场人物）要跟着修订稿走 |
  * | 主按钮写第 3 章：先亮预检卡，「先不写」零调用，再按一次「仅本次忽略」照写 | 一致性预检零调用、可以仅本次忽略 |
  * | 重写第 3 章选「记为刻意安排」：理由记进细纲、不动内容指纹；再写不再亮卡 | 五期补遗 §2：永久放行按章记 |
  * | 编辑报告：模型条目改了标已改、加的接着编号、找不到的引文清空；按作者加的修稿 | 五期补遗 §3 |
@@ -34,11 +35,12 @@ let t;
 let fake;
 let project;
 let controller;
+let ws;
 let posted = [];
 let gateAnswer = () => 'proceed';
 const queues = { review: [], revise: [], write: [] };
 
-const P2 = '.novelforge/plots/002-客栈.md';
+const P2 = '.novelforge/summaries/002-客栈.md';
 const CH2_REL = 'chapters/002-客栈.md';
 
 const CH2 = [
@@ -59,7 +61,6 @@ const REVIEW = JSON.stringify({
     { id: 'g1', status: 'completed', description: '回到了客栈', evidence: [{ quote: '林昭推开客栈的门' }] },
     { id: 'g2', status: 'unmet', description: '细纲要他当晚离开，正文里他说天亮再走', evidence: [{ quote: '天一亮就走' }] },
     { id: 'g3', status: 'unmet', description: '正文里没写到沈氏收下残令', evidence: [] },
-    { id: 'g4', status: 'unknown', description: '结尾没有写到敲门', evidence: [] },
   ],
 });
 
@@ -107,12 +108,37 @@ async function press(step) {
   });
 }
 
-function summary(no, title, hash, facts = '') {
-  return [
-    '---', `chapter: ${no}`, `title: ${title}`, `sourceHash: ${hash}`, 'generatedBy: novel-forge', '---', '',
-    `# 第${no}章 ${title} · 摘要`, '', '## 梗概', '', `第 ${no} 章的事。`, '', '## 出场人物', '', '林昭', '',
-    ...(facts ? ['## 连续性事实', '', facts, ''] : []),
-  ].join('\n');
+/**
+ * 三章的细纲。出场人物是预检读的（计划出场），关键事件是审稿冻结的目标；钩子并进了看点，不冻结。
+ */
+const PLANS = {
+  1: { title: '雨夜', cast: ['林昭'], events: '林昭回镇，把残令交给李叔', highlight: '- 李叔认出了残令' },
+  2: { title: '客栈', cast: ['林昭', '沈氏'], events: '林昭回到客栈；林昭当晚离开青崖镇；沈氏收下残令', highlight: '- 门外有人敲了三下' },
+  3: { title: '渡口', cast: ['林昭', '沈秋'], events: '林昭在渡口等沈秋', highlight: '- 船上没有人' },
+};
+
+/**
+ * 写第 no 章的细纲（同一章只有这一份）。给了 `sourceHash` 就是定稿过的：等于正文的 contentHash
+ * 才对得上，带着实际出场与连续性事实；不给就是写正文之前的计划。不记 writtenFrom（作者手写落盘的正文）。
+ */
+async function writeOutline(no, finalized) {
+  const p = PLANS[no];
+  await ws.writePlot({
+    no,
+    title: p.title,
+    targetWords: 1000,
+    upstreamHash: '',
+    done: false,
+    sections: {
+      ...bundle.plotFile.emptyPlotSections(),
+      梗概: `第 ${no} 章的事。`,
+      出场人物: p.cast.join('、'),
+      关键事件: p.events,
+      看点: p.highlight,
+      连续性事实: finalized?.facts ?? '',
+    },
+    ...(finalized ? { sourceHash: finalized.sourceHash, cast: p.cast.map((name) => ({ name, aliases: [] })) } : {}),
+  });
 }
 
 before(async () => {
@@ -124,7 +150,6 @@ before(async () => {
     provider: './src/core/llm/provider.ts',
     controller: './src/core/controller/index.ts',
     plotFile: './src/core/model/plotFile.ts',
-    views: './src/core/views/pipeline.ts',
     db: './src/core/runtime/db.ts',
   });
   const settings = {
@@ -147,21 +172,18 @@ before(async () => {
   t.write('.novelforge/premise.md', sample('premise.md'));
   t.write('.novelforge/world.md', sample('world.md'));
   t.write('.novelforge/outline.md', sample('outline.md'));
-  const ws = new bundle.ws.Workspace(project);
-  const empty = bundle.plotFile.emptyPlotSections();
-  const plot = async (no, title, characters, events, hook) =>
-    ws.writePlot({ no, title, role: '', characters, targetWords: 1000, upstreamHash: '', done: false, sections: { ...empty, 本章目的: `第 ${no} 章的目的`, 关键事件: events, 章末钩子: hook } });
-  await plot(1, '雨夜', ['林昭'], '林昭回镇，把残令交给李叔', '李叔认出了残令');
-  await plot(2, '客栈', ['林昭', '沈氏'], '林昭回到客栈；林昭当晚离开青崖镇；沈氏收下残令', '门外有人敲了三下');
-  await plot(3, '渡口', ['林昭', '沈秋'], '林昭在渡口等沈秋', '船上没有人');
+  ws = new bundle.ws.Workspace(project);
+  for (const no of [1, 2, 3]) {
+    await writeOutline(no);
+  }
   await ws.createChapter(1, '雨夜', filler(1000, 1));
   await ws.createChapter(2, '客栈', CH2);
   await project.syncManifest();
-  // 两章都定稿过：摘要的 sourceHash 对得上正文。
+  // 两章都定稿过：细纲的 sourceHash 对得上正文。
   const ch1 = await project.getChapter(1);
   const ch2 = await project.getChapter(2);
-  t.write('.novelforge/summaries/001-雨夜.md', summary(1, '雨夜', ch1.contentHash, '- 林昭把残令交给了李叔'));
-  t.write('.novelforge/summaries/002-客栈.md', summary(2, '客栈', ch2.contentHash));
+  await writeOutline(1, { sourceHash: ch1.contentHash, facts: '- 林昭把残令交给了李叔' });
+  await writeOutline(2, { sourceHash: ch2.contentHash });
   t.write('.novelforge/characters/林昭.md', '---\nname: 林昭\ntags: [主角]\nstateThrough: 2\n---\n\n# 林昭\n\n## 当前状态\n\n左臂受伤，住在客栈\n');
   t.write('.novelforge/characters/沈秋.md', '---\nname: 沈秋\nstateThrough: 2\n---\n\n# 沈秋\n\n## 当前状态\n\n已死亡（第 2 章夜里死在渡口）\n');
   project.invalidate();
@@ -202,13 +224,12 @@ describe('五期验收', () => {
       assert.match(reviewTurn.review.notes.join('\n'), /「正文里根本没有这一句」引文在正文里找不到/);
     });
 
-    test('目标 4 项：3 条关键事件 + 章末钩子；「未完成」没给引文的降待核实', () => {
+    test('目标 3 项：只有 3 条关键事件（看点不冻结）；「未完成」没给引文的降待核实', () => {
       const goals = reviewTurn.review.report.goals;
-      assert.deepEqual(goals.map((g) => [g.kind, g.status]), [
-        ['event', 'completed'],
-        ['event', 'unmet'],
-        ['event', 'unknown'],
-        ['hook', 'unknown'],
+      assert.deepEqual(goals.map((g) => [g.text, g.status]), [
+        ['林昭回到客栈', 'completed'],
+        ['林昭当晚离开青崖镇', 'unmet'],
+        ['沈氏收下残令', 'unknown'],
       ]);
     });
 
@@ -244,7 +265,8 @@ describe('五期验收', () => {
       assert.match(first, /1\. \[剧情合理性 \/ 严重\] 第 1 章林昭已经把残令交给了李叔/);
       assert.match(first, /2\. \[本章目标 \/ 未完成\] 关键事件：林昭当晚离开青崖镇/);
       assert.doesNotMatch(first, /他左臂有伤/);
-      assert.doesNotMatch(first, /门外有人敲了三下」?\n   判断/);
+      // 没勾的那一项目标（待核实）不进清单。
+      assert.doesNotMatch(first, /\[本章目标 \/ [^\]]*\] 关键事件：沈氏收下残令/);
     });
 
     test('截断一次再续完：调用 2 次', () => {
@@ -291,11 +313,12 @@ describe('五期验收', () => {
   });
 
   describe('主按钮写第 3 章：细纲排着已经死了的沈秋', () => {
-    // 修过稿，第 2 章的摘要就过期了：主按钮先推重新定稿（连续性事实与角色状态要跟着修订稿走）。
+    // 修过稿，第 2 章细纲的 sourceHash 就对不上正文了：主按钮先推重新定稿（连续性事实与角色状态
+    // 要跟着修订稿走）。定稿记的就是修订稿的 contentHash。
     test('修稿之后下一步是重新定稿第 2 章；定稿之后才是写第 3 章', async () => {
       assert.equal((await nextStep()).label, '定稿第 2 章');
       const ch2 = await project.getChapter(2);
-      t.write('.novelforge/summaries/002-客栈.md', summary(2, '客栈', ch2.contentHash));
+      await writeOutline(2, { sourceHash: ch2.contentHash });
       project.invalidate();
       assert.equal((await nextStep()).label, '写第 3 章');
     });
@@ -325,7 +348,7 @@ describe('五期验收', () => {
 
   // 五期补遗 §2：预检的永久放行。
   describe('重写第 3 章：记为刻意安排', () => {
-    const P3 = '.novelforge/plots/003-渡口.md';
+    const P3 = '.novelforge/summaries/003-渡口.md';
     const rewrite3 = async () => {
       posted = [];
       await controller.handle({
@@ -337,7 +360,7 @@ describe('五期验收', () => {
     test('预检卡带理由输入框；填了理由点「记为刻意安排」：照写，理由记进第 3 章细纲', async () => {
       gateAnswer = (m) => (m.name === 'preflight' ? { verdict: 'proceed', remember: '托梦里的一场' } : 'proceed');
       queues.write.push({ text: filler(950, 31), stop: 'end' });
-      const hashBefore = bundle.views.plotContentHash(await project.getPlot(3));
+      const hashBefore = bundle.plotFile.plotContentHash(await project.getPlot(3));
       await rewrite3();
       const [g] = gates();
       assert.equal(g.name, 'preflight');
@@ -347,7 +370,7 @@ describe('五期验收', () => {
       assert.deepEqual(JSON.parse(JSON.stringify(plot.preflightOk)), [{ name: '沈秋', reason: '托梦里的一场' }]);
       assert.match(t.read(P3), /preflightOk: \[沈秋：托梦里的一场\]/);
       // frontmatter 不进内容指纹：记下放行不会让正文变成「细纲改过」。
-      assert.equal(bundle.views.plotContentHash(plot), hashBefore);
+      assert.equal(bundle.plotFile.plotContentHash(plot), hashBefore);
     });
 
     test('落盘卡片的说明里写着记下了', () => {

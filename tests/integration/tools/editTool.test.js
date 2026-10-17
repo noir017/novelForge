@@ -7,8 +7,9 @@
  * 2. **找不到时指路「先 read 一遍」**，否则模型会把同一个 old 再发一遍。
  * 3. **守卫照旧**：越界、回收站一条都不放行。
  * 4. **记账照旧**：改一份细纲照样记 upstreamHash（`ws.edit` 走的是 `write`）。
- * 5. **指纹链不断**：改细纲只动小节文字，正文那一侧记下的 `writtenFrom` 原样留着——
- *    于是改过细纲之后，同号那一章的正文如实挂 ⟳（细纲在正文之后改过）。
+ * 5. **指纹链不断**：改细纲只动小节文字，正文落盘时记在细纲 frontmatter 上的 `writtenFrom`
+ *    原样留着——于是改过细纲之后，同号那一章的正文如实挂 ⟳（细纲在正文之后改过）。
+ *    定稿记的 `sourceHash` 也在同一份 frontmatter 里，同样原样留着：定稿过的章只挂 ⟳，不被拉回。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -23,7 +24,7 @@ let project;
 let h;
 let ctx;
 
-const PLOT_REL = '.novelforge/plots/001-夜入青云.md';
+const PLOT_REL = '.novelforge/summaries/001-夜入青云.md';
 const CHAPTER_REL = 'chapters/001-夜入青云.md';
 const NOTE_REL = '.novelforge/lore/门派.md';
 
@@ -50,7 +51,6 @@ before(async () => {
     ws: './src/core/workspace/index.ts',
     plotFile: './src/core/model/plotFile.ts',
     views: './src/core/views/projectView.ts',
-    viewsPipeline: './src/core/views/pipeline.ts',
     tools: './src/core/tools/novel/index.ts',
     errorLog: './src/core/runtime/errorLog.ts',
     db: './src/core/runtime/db.ts',
@@ -70,15 +70,14 @@ before(async () => {
   await ws.writePlot({
     no: 1,
     title: '夜入青云',
-    role: '开篇',
-    characters: ['林昭'],
     upstreamHash: '',
     done: false,
     sections: {
       ...bundle.plotFile.emptyPlotSections(),
-      本章目的: '进入宗门',
+      梗概: '进入宗门',
+      出场人物: '林昭',
       关键事件: '林昭踩点，林昭失手，最后翻墙进去。',
-      章末钩子: '第三块令牌',
+      看点: '第三块令牌',
     },
   });
   await ws.write(NOTE_REL, { text: '# 门派\n\n青云宗在北境。\n' }, { mode: 'create' });
@@ -130,8 +129,8 @@ describe('命中多处', () => {
     assert.ok(r.error, JSON.stringify(r));
   });
 
-  // frontmatter 的 characters 里也有一个「林昭」，所以是 3 处——编辑按整份文件的
-  // 原文算，不是只看小节。
+  // 「出场人物」一节里也有一个「林昭」，所以是 3 处——编辑按整份文件的原文算，
+  // 不是只看「关键事件」那一节。
   test('错误里说清了命中几处', () => {
     assert.ok(r.error.includes('3 处'), r.error);
   });
@@ -184,7 +183,7 @@ describe('改细纲之后，同号那一章的正文挂 ⟳', () => {
     // 按当前细纲写出第 1 章的正文，并像正文落盘那一步一样记下细纲指纹。
     await ws.createChapter(1, '夜入青云', '雨下了三天。林昀翻墙进了宗门。');
     const plot = await project.readPlot(PLOT_REL);
-    writtenFromBefore = bundle.viewsPipeline.plotContentHash(plot);
+    writtenFromBefore = bundle.plotFile.plotContentHash(plot);
     await ws.recordWrittenFrom(PLOT_REL, writtenFromBefore);
     await project.syncManifest();
     before_ = await bundle.views.buildPlotPipelineView(project, PLOT_REL);
@@ -213,6 +212,57 @@ describe('改细纲之后，同号那一章的正文挂 ⟳', () => {
 
   test('正文一个字都没动（编辑细纲不碰章节）', () => {
     assert.ok(t.read(CHAPTER_REL).includes('林昀翻墙进了宗门'), t.read(CHAPTER_REL));
+  });
+});
+
+/**
+ * 细纲与「定稿档案」现在是同一份文件：定稿记的 `sourceHash` 就在 edit 要改的那份 frontmatter 里。
+ * edit 只改小节文字，那条记录必须留着——抹掉它，一章写完的书会因为作者顺手改了一句细纲
+ * 退回「待定稿」，再定稿一次就是白花一次模型调用。留着它、而小节变了，正文挂 ⟳ 提醒
+ * 「定稿之后细纲又改过，正文可能没跟上」（作者定案 7），这一章仍算写完（第 18 条）。
+ */
+describe('改一份定稿过的细纲：正文挂 ⟳，这一章仍算定稿过', () => {
+  const FINAL_REL = '.novelforge/summaries/002-藏书阁.md';
+  let sourceHashBefore;
+  let after_;
+
+  before(async () => {
+    resetCtx();
+    const ws = new bundle.ws.Workspace(project);
+    await ws.createChapter(2, '藏书阁', '林昀摸进藏书阁，在最底层翻到第三块令牌。');
+    await project.syncManifest();
+    const chapter = (await project.listChapters()).find((c) => c.order === 2);
+    await ws.finalizePlot(
+      chapter,
+      {
+        ...bundle.plotFile.emptyPlotSections(),
+        梗概: '林昀夜探藏书阁。',
+        出场人物: '林昀',
+        关键事件: '林昀摸进藏书阁，翻到第三块令牌。',
+      },
+      [{ name: '林昀', aliases: [] }]
+    );
+    sourceHashBefore = (await project.readPlot(FINAL_REL)).sourceHash;
+
+    await run({ path: FINAL_REL, old: '翻到第三块令牌', new: '翻到半块令牌' });
+    after_ = await bundle.views.buildPlotPipelineView(project, FINAL_REL);
+  });
+
+  test('定稿前提成立：落盘时记下了 sourceHash', () => {
+    assert.ok(sourceHashBefore, JSON.stringify(sourceHashBefore));
+  });
+
+  test('edit 没抹掉定稿记的 sourceHash', async () => {
+    const plot = await project.readPlot(FINAL_REL);
+    assert.equal(plot.sourceHash, sourceHashBefore);
+  });
+
+  test('改之后正文挂 ⟳', () => {
+    assert.equal(after_.chapter.upstreamStale, true, JSON.stringify(after_.chapter));
+  });
+
+  test('这一章不被拉回，仍是完成', () => {
+    assert.equal(after_.stage, 'done', after_.stage);
   });
 });
 
@@ -248,7 +298,7 @@ describe('守卫照旧拦着', () => {
 
   test('不存在的文件给 error 而不是抛', async () => {
     resetCtx();
-    const r = await run({ path: '.novelforge/plots/999-没有这一章.md', old: 'a', new: 'b' });
+    const r = await run({ path: '.novelforge/summaries/999-没有这一章.md', old: 'a', new: 'b' });
     assert.ok(r.error, JSON.stringify(r));
   });
 

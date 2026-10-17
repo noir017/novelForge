@@ -62,8 +62,8 @@ before(async () => {
 
   // 第 8 章：细纲排过，正文也写好了 —— 两面俱全。
   await wsOf(project).writePlot({
-    no: 8, title: '夜访', role: '', characters: [], upstreamHash: '', done: false,
-    sections: { 本章目的: '暴露令牌', 关键事件: '甲、乙、丙。', 章末钩子: '' },
+    no: 8, title: '夜访', upstreamHash: '', done: false,
+    sections: { 梗概: '暴露令牌', 出场人物: '', 时间地点: '', 关键事件: '甲、乙、丙。', 看点: '', 新增伏笔: '', 状态变更: '', 连续性事实: '' },
   });
   t.write('chapters/008-夜访.md', '# 夜访\n\n三更，林昭醒了。\n');
   // 第 9 章：**只有正文**。老工程里的每一章都是这样（直接把已有的章放进 chapters/），
@@ -95,7 +95,7 @@ describe('工程页点章名（给的是主路径）', () => {
   // 目标一律落在**细纲那一侧**：流水线、工作区卡与写入都按细纲路径认这一章（细纲号 = 章号），
   // 让 target 指进 chapters/ 的话，同一章的细纲与正文会各找各的位置。
   test('目标归到细纲路径', () => {
-    assert.equal(r.session.target.plotRelPath, '.novelforge/plots/008-夜访.md');
+    assert.equal(r.session.target.plotRelPath, '.novelforge/summaries/008-夜访.md');
   });
 
   test('推来的流水线是第 8 章', () => {
@@ -119,7 +119,7 @@ describe('对话页下拉框选一个只有成品的章', () => {
   // 而不是标题。拼进文件名会得到 `009-第-9-章.md`——一个凭空的假名字，
   // 而作者哪天真去补规划时，writePlot 落的又是另一个文件名。
   test('回落标题不进细纲文件名', () => {
-    assert.equal(dropdownRel, '.novelforge/plots/009.md');
+    assert.equal(dropdownRel, '.novelforge/summaries/009.md');
   });
 
   test('不报「这一章不存在」', () => {
@@ -149,7 +149,7 @@ describe('真的不存在的章', () => {
   let r;
 
   before(async () => {
-    r = await select('.novelforge/plots/777-没这章.md');
+    r = await select('.novelforge/summaries/777-没这章.md');
   });
 
   // 两边都没有才是「不存在」。这条提示本身没错，错的是从前它太容易被撞上。
@@ -168,11 +168,11 @@ describe('状态机仍然在管落在哪一层', () => {
   before(async () => {
     // 一个关键事件还没排的新章：状态机该把作者留在细纲层，而不是丢进正文。
     await wsOf(project).writePlot({
-      no: 20, title: '', role: '', characters: [], upstreamHash: '', done: false,
-      sections: { 本章目的: '还没想好', 关键事件: '', 章末钩子: '' },
+      no: 20, title: '', upstreamHash: '', done: false,
+      sections: { 梗概: '还没想好', 出场人物: '', 时间地点: '', 关键事件: '', 看点: '', 新增伏笔: '', 状态变更: '', 连续性事实: '' },
     });
     project.invalidate();
-    planned = await select('.novelforge/plots/020.md');
+    planned = await select('.novelforge/summaries/020.md');
   });
 
   test('没排细纲的章落在细纲层', () => {

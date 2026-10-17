@@ -1,10 +1,10 @@
 /**
  * 创作流水线的数据层：路径规则、细纲读写、改名、新鲜度链、流水线索引、全书事实、工作区卡。
  *
- * 一章一纲之后只有**一条轴**：细纲号 = 章号。第 N 章的细纲（`plots/NNN-*.md`，平铺）、
- * 正文（同号的 `chapters/NNN-*`）、摘要按号互认，认号只在 `views/pipeline.ts` 里做。
- * 从前的卷、剧情段位次、中转站 `manuscripts/` 与拆章都删了；老工程磁盘上的那几个
- * 目录一个字节都不动，代码只是不再读它们。
+ * 一章一纲之后只有**一条轴**：细纲号 = 章号。第 N 章的细纲（`summaries/NNN-*.md`，平铺在根下）
+ * 与正文（同号的 `chapters/NNN-*`）按号互认，认号只在 `views/pipeline.ts` 里做；定稿反向更新的
+ * 也是同一份细纲，不再另写一份单章摘要。从前的卷、剧情段位次、中转站 `manuscripts/`、拆章与
+ * `plots/` 都不读了；老工程磁盘上的那几个目录一个字节都不动，代码只是不再读它们。
  *
  * 章节那一侧的读写（扫描、扩展名、草稿）另见 tests/integration/files/chapters.test.js。
  */
@@ -27,18 +27,26 @@ const dirs = [];
 /** 一份排过的细纲（「关键事件」非空，isPlotFilled 才认）。 */
 const filledSections = (extra = {}) => ({
   ...bundle.plotFile.emptyPlotSections(),
-  本章目的: '林昭成功进入青云宗。',
+  梗概: '林昭成功进入青云宗。',
   关键事件: '他在山门外等到天黑，翻过侧峰，被巡逻的人撞见。',
-  章末钩子: '他站在藏书阁门口，门里亮着灯。',
+  看点: '他站在藏书阁门口，门里亮着灯。',
   ...extra,
 });
 
 /** 一份最小的可写细纲。 */
 const writable = (no, title, extra = {}) => ({
-  no, title, role: '', characters: [], upstreamHash: '', done: false, sections: filledSections(), ...extra,
+  no, title, upstreamHash: '', done: false, sections: filledSections(), ...extra,
 });
 
-const SUMMARY = (text) => ({ 梗概: text, 出场人物: '林昭', 时间地点: '', 关键事件: '', 新增伏笔: '', 状态变更: '' });
+/** 定稿时模型答回来的八节（反向更新之后的样子）。 */
+const FINALIZED = (extra = {}) => ({
+  ...bundle.plotFile.emptyPlotSections(),
+  梗概: '夜入青云。',
+  出场人物: '林昭',
+  关键事件: '等、翻、被撞见。',
+  看点: '- 藏书阁门里亮着灯。',
+  ...extra,
+});
 
 before(async () => {
   bundle = loadBundle({
@@ -51,6 +59,8 @@ before(async () => {
     model: './src/core/model/pipeline.ts',
     pipe: './src/core/views/pipeline.ts',
     workbench: './src/core/views/workbench.ts',
+    guard: './src/core/workspace/guard.ts',
+    kind: './src/core/workspace/kind.ts',
   });
   wsMod = bundle.ws;
   h = makeFakeHost({ settings: () => ({}), overrides: { reviewReplace: undefined } });
@@ -71,15 +81,16 @@ after(() => {
 });
 
 describe('数据层 · 目录与路径规则', () => {
-  const plot = '.novelforge/plots/012-夜入青云.md';
+  const plot = '.novelforge/summaries/012-夜入青云.md';
 
-  test('初始化建出 plots/', () => {
-    assert.ok(t.has('.novelforge/plots'));
+  // 细纲与全书摘要（global.md）都在 summaries/。
+  test('初始化建出 summaries/', () => {
+    assert.ok(t.has('.novelforge/summaries'));
   });
 
-  // 卷与中转站两层删掉了：新工程不再建那两个目录（老工程里的原样留着，见 guard.ts）。
-  test('初始化不再建 volumes/ 与 manuscripts/', () => {
-    assert.ok(!t.has('.novelforge/volumes') && !t.has('.novelforge/manuscripts'));
+  // 卷与中转站两层删掉了，细纲也搬出了 plots/：新工程不再建那几个目录（老工程里的原样留着，见 guard.ts）。
+  test('初始化不再建 volumes/、manuscripts/ 与 plots/', () => {
+    assert.ok(!t.has('.novelforge/volumes') && !t.has('.novelforge/manuscripts') && !t.has('.novelforge/plots'));
   });
 
   // 架构三件写空模板：结构完整、全是占位，状态机于是从「生成小说配置」开始。
@@ -95,20 +106,6 @@ describe('数据层 · 目录与路径规则', () => {
     });
   });
 
-  // 摘要镜像的是**章节**：`chapters/012-夜入青云.md` → `summaries/012-夜入青云.md`。
-  test('摘要与章节同名', () => {
-    assert.equal(
-      project.summaryMirrorRelPath('chapters/012-夜入青云.md'),
-      '.novelforge/summaries/012-夜入青云.md'
-    );
-  });
-
-  // 细纲不在 chapters/ 之下，问它的摘要路径应当得到 undefined——
-  // 那正是 `carrySummary` 判断「搬出发布区了」的依据。
-  test('细纲路径问不出摘要镜像', () => {
-    assert.equal(project.summaryMirrorRelPath(plot), undefined);
-  });
-
   // 只有正文、还没有细纲的章要一个稳定的落点：界面上选中它、切到细纲层去补规划。
   test('没有细纲的章给出它应该在的位置', () => {
     assert.equal(project.plotPathForNo(12, '夜入青云'), plot);
@@ -116,7 +113,7 @@ describe('数据层 · 目录与路径规则', () => {
 
   // 「第 9 章」是 `listChapters` 给无标题章的回落值——那是没有名字，不是名字。
   test('回落标题不进细纲文件名', () => {
-    assert.equal(project.plotPathForNo(9, '第 9 章'), '.novelforge/plots/009.md');
+    assert.equal(project.plotPathForNo(9, '第 9 章'), '.novelforge/summaries/009.md');
   });
 });
 
@@ -128,12 +125,11 @@ describe('数据层 · 细纲读写', () => {
   let nextNo;
 
   before(async () => {
-    noPlot = await project.readPlot('.novelforge/plots/012-夜入青云.md');
+    noPlot = await project.readPlot('.novelforge/summaries/012-夜入青云.md');
     nextNo = await project.nextPlotNo();
 
     plotRel = await wsOf(project).writePlot(writable(12, '夜入青云', {
-      role: '小高潮',
-      characters: ['林昭', '沈青'],
+      sections: filledSections({ 出场人物: '林昭、沈青' }),
       targetWords: 3000,
       upstreamHash: 'OUTLINE_A',
     }));
@@ -149,14 +145,14 @@ describe('数据层 · 细纲读写', () => {
     assert.equal(nextNo, 1);
   });
 
-  test('细纲平铺在 plots/ 根下，名字带三位序号', () => {
-    assert.equal(plotRel, '.novelforge/plots/012-夜入青云.md', plotRel);
+  test('细纲平铺在 summaries/ 根下，名字带三位序号', () => {
+    assert.equal(plotRel, '.novelforge/summaries/012-夜入青云.md', plotRel);
   });
 
-  test('三节读得回来', () => {
-    assert.equal(plotBack.sections.本章目的, '林昭成功进入青云宗。');
+  test('八节读得回来', () => {
+    assert.equal(plotBack.sections.梗概, '林昭成功进入青云宗。');
     assert.ok(plotBack.sections.关键事件.includes('翻过侧峰'), plotBack.sections.关键事件);
-    assert.ok(plotBack.sections.章末钩子.includes('藏书阁'), plotBack.sections.章末钩子);
+    assert.ok(plotBack.sections.看点.includes('藏书阁'), plotBack.sections.看点);
   });
 
   test('章号来自文件名', () => {
@@ -167,76 +163,148 @@ describe('数据层 · 细纲读写', () => {
     assert.equal(plotBack.targetWords, 3000);
   });
 
-  test('结构功能与计划出场读得回来', () => {
-    assert.equal(plotBack.role, '小高潮');
+  // 没定稿时「出场人物」写的是计划出场：挑角色卡、预检用，按顿号切出名字。
+  test('计划出场从「出场人物」一节读回来', () => {
     assert.deepEqual(plotBack.characters, ['林昭', '沈青']);
+  });
+
+  test('还没定稿：sourceHash 是空串', () => {
+    assert.equal(plotBack.sourceHash, '');
   });
 
   test('listPlots 列得到它', () => {
     assert.equal(listed.filter((p) => p.no === 12).length, 1, JSON.stringify(listed.map((p) => p.no)));
   });
 
-  // 跨 plots/ 与 chapters/ 取最大号 +1（见 NovelProject.nextPlotNo 的注释）。
+  // 跨细纲与 chapters/ 取最大号 +1（见 NovelProject.nextPlotNo 的注释）。
   test('有第 12 章细纲之后，新建细纲落到第 13 章', async () => {
     assert.equal(await project.nextPlotNo(), 13);
   });
 });
 
 /**
- * 老工程留下的东西：按卷分的子目录里的细纲、老四节格式的细纲。**解析一律不抛**
- * （第 1 条），读进来如实退化，那些文件一个字节都不动。
+ * 老工程留下的东西：`plots/` 里的细纲、`summaries/` 子目录里按章节路径镜像的单章摘要、老四节格式的
+ * 细纲、`summaries/` 根下的老单章摘要。**解析一律不抛**（第 1 条），读进来如实退化，那些文件一个字节
+ * 都不动。不做迁移（作者定案 2）：`plots/` 与子目录判成 other，不读、不显示、不删，目录守卫照旧拦着；
+ * 根下的老摘要本来就是这八节、带着 sourceHash 与 cast，直接当成定稿过的细纲。
  */
-describe('数据层 · 老工程的细纲', () => {
-  const NESTED = '.novelforge/plots/01-觉醒/001-高烧.md';
-  const OLD = '.novelforge/plots/007-老格式.md';
-  const OLD_TEXT = '---\nno: 7\ntitle: 老格式\n---\n\n## 目标\n\n进宗门\n\n## 剧情脉络\n\n甲、乙、丙。\n';
+describe('数据层 · 老工程留下的文件', () => {
+  const LEGACY_PLOT = '.novelforge/plots/007-老细纲.md';
+  const LEGACY_PLOT_TEXT =
+    '---\nno: 7\ntitle: 老细纲\nrole: 开篇\n---\n\n## 本章目的\n\n进宗门\n\n## 关键事件\n\n甲、乙、丙。\n\n## 章末钩子\n\n门里有人。\n';
+  const NESTED = '.novelforge/summaries/卷一/001-高烧.md';
+  const OLD = '.novelforge/summaries/008-老格式.md';
+  const OLD_TEXT = '---\nno: 8\ntitle: 老格式\n---\n\n## 目标\n\n进宗门\n\n## 剧情脉络\n\n甲、乙、丙。\n';
+  const OLD_SUMMARY = '.novelforge/summaries/009-旧摘要.md';
   let listed;
+  let index;
   let old;
-  let pipe;
+  let oldPipe;
+  let oldSummary;
+  let oldSummaryPipe;
 
   before(async () => {
-    t.write(NESTED, '---\nno: 1\n---\n\n## 剧情脉络\n\n老卷里的一段。\n');
+    t.write(LEGACY_PLOT, LEGACY_PLOT_TEXT);
+    t.write(NESTED, '---\nchapter: 1\nsourceHash: x\n---\n\n## 关键事件\n\n老卷里的一章。\n');
     t.write(OLD, OLD_TEXT);
+    // 老工程的单章摘要：frontmatter 记的是 `chapter:`，带 sourceHash 与 cast，小节本来就是八节里的那几节。
+    t.write('chapters/009-旧摘要.md', '# 旧摘要\n\n他回到镇上。\n');
+    project.invalidate();
+    const chapter9 = (await project.listChapters()).find((c) => c.order === 9);
+    t.write(
+      OLD_SUMMARY,
+      `---\nchapter: 9\nsourceHash: ${chapter9.contentHash}\ncast: [林昭(阿昭)]\ngeneratedBy: novel-forge\n---\n\n` +
+        '# 第9章 旧摘要 · 摘要\n\n## 梗概\n\n他回到镇上。\n\n## 出场人物\n\n林昭\n\n## 关键事件\n\n回镇。\n'
+    );
     project.invalidate();
     listed = await project.listPlots();
+    index = await bundle.pipe.buildPipelineIndex(project);
     old = await project.readPlot(OLD);
-    pipe = await bundle.pipe.buildPlotPipeline(project, { no: 7, plot: old });
+    oldPipe = await bundle.pipe.buildPlotPipeline(project, { no: 8, plot: old });
+    oldSummary = listed.find((p) => p.relPath === OLD_SUMMARY);
+    oldSummaryPipe = index.byNo.get(9);
   });
 
   after(() => {
-    t.remove('.novelforge/plots/01-觉醒');
+    t.remove('.novelforge/plots');
+    t.remove('.novelforge/summaries/卷一');
     t.remove(OLD);
+    t.remove(OLD_SUMMARY);
+    t.remove('chapters/009-旧摘要.md');
     project.invalidate();
   });
 
+  test('plots/ 里的细纲不进 listPlots', () => {
+    assert.ok(!listed.some((p) => p.relPath === LEGACY_PLOT), listed.map((p) => p.relPath).join('|'));
+  });
+
+  test('plots/ 里的细纲不进流水线', () => {
+    assert.ok(!index.byNo.has(7), index.rows.map((r) => r.no).join(','));
+  });
+
+  test('plots/ 里的文件判成 other', () => {
+    assert.equal(bundle.kind.kindOfPath(project, LEGACY_PLOT).kind, 'other');
+  });
+
+  // 代码不再读它，不等于可以替作者处置它：整棵目录照旧不能改名、搬走或删除。
+  test('plots/ 目录照旧受保护', () => {
+    assert.equal(bundle.guard.isProtectedPath(project, '.novelforge/plots'), true);
+  });
+
+  test('读一遍不改动 plots/ 里的文件', () => {
+    assert.equal(t.read(LEGACY_PLOT), LEGACY_PLOT_TEXT);
+  });
+
   // 扫出来只会让同一个章号冒出两份细纲（D11）。
-  test('按卷分的子目录不扫', () => {
+  test('summaries/ 子目录里的不是细纲', () => {
     assert.ok(!listed.some((p) => p.relPath === NESTED), listed.map((p) => p.relPath).join('|'));
   });
 
+  test('summaries/ 子目录里的文件判成 other', () => {
+    assert.equal(bundle.kind.kindOfPath(project, NESTED).kind, 'other');
+  });
+
   test('老四节细纲读得出来，不抛', () => {
-    assert.equal(old?.no, 7);
+    assert.equal(old?.no, 8);
     assert.equal(old?.title, '老格式');
   });
 
-  // 「目标」「剧情脉络」都不是新三节里的名字：如实说「待写细纲」，而不是假装排过。
-  test('老四节细纲三节全空，算没排过', () => {
+  // 「目标」「剧情脉络」都不是八节里的名字：如实说「待写细纲」，而不是假装排过。
+  test('老四节细纲八节全空，算没排过', () => {
     assert.ok(!bundle.plotFile.isPlotFilled(old.sections), JSON.stringify(old.sections));
-    assert.equal(pipe.stage, 'plot', pipe.stage);
+    assert.equal(oldPipe.stage, 'plot', oldPipe.stage);
   });
 
   test('读一遍不改动那份文件', () => {
     assert.equal(t.read(OLD), OLD_TEXT);
   });
+
+  test('summaries/ 根下的老摘要当成一份细纲读进来，章号取文件名', () => {
+    assert.equal(oldSummary?.no, 9, listed.map((p) => p.relPath).join('|'));
+  });
+
+  test('老摘要带着的 sourceHash 读得回来', async () => {
+    const chapter9 = (await project.listChapters()).find((c) => c.order === 9);
+    assert.equal(oldSummary.sourceHash, chapter9.contentHash);
+  });
+
+  // 定稿过的细纲，出场人物取 frontmatter 的 cast（实际出场），别名一并读回来。
+  test('老摘要的 cast 就是这一章的实际出场', () => {
+    assert.deepEqual(JSON.parse(JSON.stringify(oldSummary.cast)), [{ name: '林昭', aliases: ['阿昭'] }]);
+  });
+
+  test('sourceHash 对得上正文：这一章算定稿过、写完了', () => {
+    assert.equal(oldSummaryPipe?.stage, 'done', JSON.stringify(oldSummaryPipe));
+  });
 });
 
 /**
- * 细纲改标题 = 改文件名。正文与摘要都挂在**章节**上，不跟着细纲走——从前改细纲名
- * 要连带搬走中转站里那份正文，一章一纲之后正文就是章节，改名不必带走任何东西。
+ * 细纲改标题 = 改文件名。正文挂在**章节**上，不跟着细纲走——从前改细纲名要连带搬走
+ * 中转站里那份正文，一章一纲之后正文就是章节，改名不必带走任何东西。
  */
 describe('数据层 · 细纲改名', () => {
-  const from = '.novelforge/plots/012-夜入青云.md';
-  const to = '.novelforge/plots/012-夜入.md';
+  const from = '.novelforge/summaries/012-夜入青云.md';
+  const to = '.novelforge/summaries/012-夜入.md';
   let renamed;
   let plotHashBefore;
   let plotHashAfter;
@@ -245,20 +313,14 @@ describe('数据层 · 细纲改名', () => {
   before(async () => {
     // 改名前的内容指纹。改名**绝不能**动它：一旦哪个字段进了哈希，
     // 改个名就会让这一章的正文凭空标脏（AGENTS.md 第 18 条 (b)）。
-    plotHashBefore = bundle.pipe.plotContentHash(await project.readPlot(from));
+    plotHashBefore = bundle.plotFile.plotContentHash(await project.readPlot(from));
     t.write('chapters/012-夜入青云.md', '# 夜入青云\n\n正文若干字。\n');
     project.invalidate();
-    await wsOf(project).writeSummary(
-      (await project.listChapters()).find((c) => c.order === 12),
-      'HASH_X',
-      SUMMARY('略'),
-      []
-    );
 
     const plot = await project.readPlot(from);
     renamed = await wsOf(project).writePlot({ ...plot, title: '夜入' });
     const after = await project.readPlot(to);
-    plotHashAfter = bundle.pipe.plotContentHash(after);
+    plotHashAfter = bundle.plotFile.plotContentHash(after);
     pipe = await bundle.pipe.buildPlotPipeline(project, { no: 12, plot: after });
   });
 
@@ -272,10 +334,6 @@ describe('数据层 · 细纲改名', () => {
 
   test('同号的章节不跟着改名', () => {
     assert.ok(t.has('chapters/012-夜入青云.md'));
-  });
-
-  test('摘要不跟着搬', () => {
-    assert.ok(t.has('.novelforge/summaries/012-夜入青云.md'));
   });
 
   // 按号认，不按名字：细纲叫「夜入」、章节叫「夜入青云」，仍然是同一章。
@@ -301,7 +359,7 @@ describe('数据层 · 给未命名的细纲起名', () => {
   let pipe;
 
   before(async () => {
-    bare = await wsOf(project).writePlot(writable(30, '', { sections: filledSections({ 本章目的: '起个名字。' }) }));
+    bare = await wsOf(project).writePlot(writable(30, '', { sections: filledSections({ 梗概: '起个名字。' }) }));
     // 起名之前就有了一章同号的正文（作者手贴的）。
     t.write('chapters/030.md', '未命名时就写了的正文。\n');
     project.invalidate();
@@ -309,20 +367,20 @@ describe('数据层 · 给未命名的细纲起名', () => {
     const plot = await project.readPlot(bare);
     named = await wsOf(project).writePlot({ ...plot, title: '风起' });
     plotRead = await project.readPlot(named);
-    plotText = t.read('.novelforge/plots/030-风起.md');
+    plotText = t.read('.novelforge/summaries/030-风起.md');
     pipe = await bundle.pipe.buildPlotPipeline(project, { no: 30, plot: plotRead });
   });
 
   test('未命名时落成纯序号名', () => {
-    assert.equal(bare, '.novelforge/plots/030.md', String(bare));
+    assert.equal(bare, '.novelforge/summaries/030.md', String(bare));
   });
 
   test('起名后序号前缀保留，后面补分隔符', () => {
-    assert.equal(named, '.novelforge/plots/030-风起.md', String(named));
+    assert.equal(named, '.novelforge/summaries/030-风起.md', String(named));
   });
 
   test('旧的纯序号文件被删掉，不会一章变两份', () => {
-    assert.ok(!t.has('.novelforge/plots/030.md'));
+    assert.ok(!t.has('.novelforge/summaries/030.md'));
   });
 
   test('title: 换成真标题', () => {
@@ -346,7 +404,7 @@ describe('数据层 · 给未命名的细纲起名', () => {
 });
 
 describe('新鲜度链', () => {
-  const plotRel = '.novelforge/plots/012-夜入.md';
+  const plotRel = '.novelforge/summaries/012-夜入.md';
   const CHAPTER = 'chapters/012-夜入青云.md';
   const OUTLINE = '# 大纲\n\n## 第1–20章：第一幕 · 入局\n\n林昭进青云宗。\n';
   let pFresh;
@@ -354,6 +412,8 @@ describe('新鲜度链', () => {
   let pWritten;
   let pPlotChanged;
   let pFinalized;
+  let pEditedAfterFinalize;
+  let pProseChanged;
 
   const build = async () => {
     project.invalidate();
@@ -379,7 +439,7 @@ describe('新鲜度链', () => {
     t.write(CHAPTER, `# 夜入青云\n\n${'雨'.repeat(2600)}\n`);
     project.invalidate();
     const current = await project.readPlot(plotRel);
-    await wsOf(project).recordWrittenFrom(plotRel, bundle.pipe.plotContentHash(current));
+    await wsOf(project).recordWrittenFrom(plotRel, bundle.plotFile.plotContentHash(current));
     pWritten = await build();
 
     // 改细纲 → 这一章的正文标脏。
@@ -388,10 +448,20 @@ describe('新鲜度链', () => {
     await wsOf(project).writePlot(p);
     pPlotChanged = await build();
 
-    // 定稿：摘要对上正文。定稿过的章即使细纲后来改了也不拉回「待写」。
+    // 定稿：细纲照正文反向更新，记下正文的 contentHash，writtenFrom 刷成更新后的指纹。
     const chapter = (await project.listChapters()).find((c) => c.order === 12);
-    await wsOf(project).writeSummary(chapter, chapter.contentHash, SUMMARY('夜入青云。'), []);
+    await wsOf(project).finalizePlot(chapter, FINALIZED(), [{ name: '林昭', aliases: [] }]);
     pFinalized = await build();
+
+    // 定稿之后作者又改了细纲。
+    const q = await project.readPlot(plotRel);
+    q.sections.关键事件 = '等、翻、被撞见，又被放走。';
+    await wsOf(project).writePlot(q);
+    pEditedAfterFinalize = await build();
+
+    // 定稿之后又改了正文。
+    await wsOf(project).write(CHAPTER, { text: '天快亮了。' }, { mode: 'append' });
+    pProseChanged = await build();
   });
 
   test('刚排的细纲不脏', () => {
@@ -420,23 +490,40 @@ describe('新鲜度链', () => {
     assert.equal(pPlotChanged.stage, 'manuscript', pPlotChanged.stage);
   });
 
+  test('定稿之后这一章写完了', () => {
+    assert.equal(pFinalized.stage, 'done', pFinalized.stage);
+  });
+
+  // 定稿把细纲改成了正文写成的样子，两者此刻是对得上的。
+  test('定稿刷新 writtenFrom，正文不再挂 ⟳', () => {
+    assert.equal(pFinalized.chapter.upstreamStale, false);
+  });
+
   // **定稿过的章不被拉回去**：那是作者已经认可的文字，把它标成「待写正文」是在撺掇他
   // 重写。工程页那一行仍会挂 ⟳ 提醒，够了。
   test('定稿过的章：细纲改了也不退回，只挂 ⟳', () => {
-    assert.equal(pFinalized.stage, 'done', pFinalized.stage);
-    assert.equal(pFinalized.chapter.upstreamStale, true);
+    assert.equal(pEditedAfterFinalize.stage, 'done', pEditedAfterFinalize.stage);
+    assert.equal(pEditedAfterFinalize.chapter.upstreamStale, true);
+  });
+
+  test('定稿之后正文又改过：定稿标过期', () => {
+    assert.equal(pProseChanged.summary.stale, true, JSON.stringify(pProseChanged.summary));
+  });
+
+  test('定稿之后正文又改过：不再算写完', () => {
+    assert.notEqual(pProseChanged.stage, 'done');
   });
 
   // 只改 frontmatter 里的 status 不该让下游标脏——`plotContentHash` 只哈希
-  // 三个小节（第 18b 条）。
+  // 八个小节（第 18b 条）。
   test('把细纲标成 done 不改变它的内容指纹', async () => {
     const p = await project.readPlot(plotRel);
-    const before = bundle.pipe.plotContentHash(p);
+    const before = bundle.plotFile.plotContentHash(p);
     await wsOf(project).writePlot({ ...p, done: true });
-    assert.equal(bundle.pipe.plotContentHash(await project.readPlot(plotRel)), before);
+    assert.equal(bundle.plotFile.plotContentHash(await project.readPlot(plotRel)), before);
   });
 
-  // 作者手工宣布「这一章过了」：只允许向前覆盖推导值。
+  // 作者手工宣布「这一章过了」：只允许向前覆盖推导值——定稿之后正文又改过也算。
   test('标了 done 的章算完成', async () => {
     const p = await build();
     assert.equal(p.stage, 'done', p.stage);
@@ -449,10 +536,10 @@ describe('新鲜度链 · 手写产物不标脏', () => {
   before(async () => {
     // 作者手写的细纲没有 upstreamHash，手写的正文没有 writtenFrom。拿一个凭空的
     // 过期标记去催他重做，比不标更糟——他会学会无视所有标记。
-    t.write('.novelforge/plots/020-手写.md', '## 本章目的\n\n我自己写的\n\n## 关键事件\n\nx');
+    t.write('.novelforge/summaries/020-手写.md', '## 梗概\n\n我自己写的\n\n## 关键事件\n\nx');
     t.write('chapters/020-手写.md', '# 手写\n\n正文');
     project.invalidate();
-    const plot = await project.readPlot('.novelforge/plots/020-手写.md');
+    const plot = await project.readPlot('.novelforge/summaries/020-手写.md');
     // 收的是「一章」（章号 + 细纲 + 成品）。直接把 `Plot` 递进去也**编译得过**
     // （它恰好有 `no`，另两个字段可选），但 plot/chapter 会双双是 undefined，
     // 于是整章按空事实推导——断言看着绿，测的却不是这一章。
@@ -501,13 +588,13 @@ describe('流水线索引', () => {
   });
 
   test('byNo 按章号索引', () => {
-    assert.equal(index.byNo.get(12)?.plot.relPath, '.novelforge/plots/012-夜入.md');
+    assert.equal(index.byNo.get(12)?.plot.relPath, '.novelforge/summaries/012-夜入.md');
   });
 
   test('只有正文的章也占一行，细纲路径是它应该在的位置', () => {
     const row = index.byNo.get(25);
     assert.equal(row?.plot.exists, false, JSON.stringify(row?.plot));
-    assert.equal(row?.plot.relPath, '.novelforge/plots/025-只有正文.md');
+    assert.equal(row?.plot.relPath, '.novelforge/summaries/025-只有正文.md');
   });
 
   // 老工程的章有字，于是是「待定稿」或「已完成」——不被倒回去要求补细纲。
@@ -526,11 +613,12 @@ describe('流水线索引', () => {
     assert.deepEqual(Object.keys(index.byNo.get(12).progress).sort(), ['manuscript', 'plot', 'summary']);
   });
 
-  // 大纲、配置、manifest 与摘要只读一次，跟索引一起返回：工程树与出场索引接着用这一份。
+  // 大纲、配置、manifest 与细纲列表只读一次，跟索引一起返回：工程树与出场索引接着用这一份
+  // （出场索引只认其中定稿过的细纲）。
   test('大纲与配置跟索引一起返回', async () => {
     assert.equal(index.outline, await project.readOutline());
     assert.equal(index.config.totalChapters, 60);
-    assert.ok(index.summaries && index.manifest, Object.keys(index).join(','));
+    assert.ok(index.plots && index.manifest, Object.keys(index).join(','));
   });
 
   // 单章不被倒回去要求补细纲，但**全书**是会被推回架构那一步的——这是有意的（D11）：
@@ -639,13 +727,13 @@ describe('全书事实 · 从空工程一路推到在写', () => {
   describe('chapterTargetOf · 正文该落在哪', () => {
     test('同号章节已存在（哪怕是空文件）就用它', async () => {
       await wsOf(pr).writePlot(writable(3, '夜渡'));
-      const dest = await bundle.pipe.chapterTargetOf(pr, '.novelforge/plots/003-夜渡.md');
+      const dest = await bundle.pipe.chapterTargetOf(pr, '.novelforge/summaries/003-夜渡.md');
       assert.deepEqual({ exists: dest.exists, rel: dest.rel, no: dest.no }, { exists: true, rel: 'chapters/003.md', no: 3 });
     });
 
     test('还没有就是 chapters/NNN-<细纲标题>.md', async () => {
       await wsOf(pr).writePlot(writable(5, '客栈里的女人'));
-      const dest = await bundle.pipe.chapterTargetOf(pr, '.novelforge/plots/005-客栈里的女人.md');
+      const dest = await bundle.pipe.chapterTargetOf(pr, '.novelforge/summaries/005-客栈里的女人.md');
       assert.deepEqual(
         { exists: dest.exists, rel: dest.rel, title: dest.title },
         { exists: false, rel: 'chapters/005-客栈里的女人.md', title: '客栈里的女人' }
@@ -654,18 +742,18 @@ describe('全书事实 · 从空工程一路推到在写', () => {
 
     test('细纲没有标题时落成纯序号名', async () => {
       await wsOf(pr).writePlot(writable(6, ''));
-      const dest = await bundle.pipe.chapterTargetOf(pr, '.novelforge/plots/006.md');
+      const dest = await bundle.pipe.chapterTargetOf(pr, '.novelforge/summaries/006.md');
       assert.equal(dest.rel, 'chapters/006.md');
     });
 
     test('认不出章号时抛错，而不是乱落', async () => {
-      await assert.rejects(() => bundle.pipe.chapterTargetOf(pr, '.novelforge/plots/没有号.md'), /认不出/);
+      await assert.rejects(() => bundle.pipe.chapterTargetOf(pr, '.novelforge/summaries/没有号.md'), /认不出/);
     });
   });
 });
 
 describe('工作区卡', () => {
-  const plotRel = '.novelforge/plots/012-夜入.md';
+  const plotRel = '.novelforge/summaries/012-夜入.md';
   let plotCard;
   let ms;
   let skeleton;
@@ -679,8 +767,8 @@ describe('工作区卡', () => {
 
     plotCard = await wb({ kind: 'plot', plotRelPath: plotRel });
 
-    // 正文层摊的是**本章细纲的三节**加篇幅：写正文时最常回头看的是「这一章要落实
-    // 哪几件事、结尾留什么钩子」。正文本身上万字，塞进浮窗读不下去。
+    // 正文层摊的是**本章细纲的各节**加篇幅：写正文时最常回头看的是「这一章要落实
+    // 哪几件事、看点落在哪」。正文本身上万字，塞进浮窗读不下去。
     ms = await wb({ kind: 'manuscript', plotRelPath: plotRel });
 
     // 「文件在但一节都没填」与「文件不在」对作者是同一件事：这一层还没做。
@@ -688,14 +776,14 @@ describe('工作区卡', () => {
     skeleton = await wb({ kind: 'plot', plotRelPath: bare });
 
     // 细纲刚被改名/删除时给一张说得清情况的空卡，而不是让整条推送失败。
-    gone = await wb({ kind: 'plot', plotRelPath: '.novelforge/plots/999-不存在.md' });
+    gone = await wb({ kind: 'plot', plotRelPath: '.novelforge/summaries/999-不存在.md' });
     outline = await wb({ kind: 'outline' });
     premiseCard = await wb({ kind: 'setting', doc: 'premise' });
     rosterCard = await wb({ kind: 'setting', doc: 'characters' });
   });
 
   test('细纲卡摊开小节', () => {
-    assert.deepEqual(plotCard.sections.map((s) => s.key), ['本章目的', '关键事件', '章末钩子']);
+    assert.deepEqual(plotCard.sections.map((s) => s.key), ['梗概', '出场人物', '关键事件', '看点']);
   });
 
   test('细纲卡标题带章号', () => {
@@ -720,7 +808,7 @@ describe('工作区卡', () => {
   });
 
   test('正文卡先报篇幅，再摊本章细纲', () => {
-    assert.deepEqual(ms.sections.map((s) => s.key), ['篇幅', '本章目的', '关键事件', '章末钩子']);
+    assert.deepEqual(ms.sections.map((s) => s.key), ['篇幅', '梗概', '出场人物', '关键事件', '看点']);
   });
 
   test('正文卡不摊正文全文', () => {
@@ -752,12 +840,12 @@ describe('工作区卡', () => {
     t.write('.novelforge/config.md', '---\nwordsPerChapter: 2500\n---\n\n# 小说配置\n');
     project.invalidate();
     const card = await bundle.workbench.buildWorkbench(project, {
-      kind: 'manuscript', plotRelPath: '.novelforge/plots/041-没写字数.md',
+      kind: 'manuscript', plotRelPath: '.novelforge/summaries/041-没写字数.md',
     });
     assert.ok(card.sections.every((s) => s.key !== '目标篇幅'), JSON.stringify(card.sections));
   });
 
-  // 上一组改过这一章的细纲，而正文记的还是改之前的指纹。
+  // 上一组在定稿之后又改过这一章的细纲，而正文那一侧记的还是定稿时的指纹。
   test('正文卡说出细纲在正文之后改过', () => {
     assert.ok(!!ms.warning, JSON.stringify(ms));
   });

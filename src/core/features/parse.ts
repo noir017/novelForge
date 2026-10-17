@@ -37,6 +37,40 @@ export function extractJson(text: string): string | undefined {
   return end > start ? text.slice(start, end + 1) : undefined;
 }
 
+/**
+ * 去掉 `]` / `}` 前面多出来的逗号（`["甲", "乙",]`）。模型最常见的 JSON 语法错就是这一个，
+ * 它不改任何值，可以放心地自己修，不必为它再调一次模型。字符串里的逗号不动。
+ */
+export function stripTrailingCommas(json: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < json.length; i++) {
+    const ch = json[i];
+    if (inString) {
+      out += ch;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === ',') {
+      const rest = json.slice(i + 1).trimStart();
+      if (rest.startsWith(']') || rest.startsWith('}')) {
+        continue;
+      }
+    }
+    out += ch;
+  }
+  return out;
+}
+
 /** 清理字符串并按首次出现顺序去重。 */
 export function unique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];

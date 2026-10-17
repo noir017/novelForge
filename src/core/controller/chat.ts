@@ -608,7 +608,7 @@ export async function askArtifact(
   if (result.skipped || !result.relPath) {
     return { verdict, message: result.message };
   }
-  // 细纲落在占位路径（`plots/003.md`）上时，文件其实按标题落成了 `003-雪夜.md`。
+  // 细纲落在占位路径（`summaries/003.md`）上时，文件其实按标题落成了 `003-雪夜.md`。
   // 会话还指着占位路径的话，下一轮写正文、再点一次写细纲都会对着一份「不存在」的细纲
   // ——改成真实路径。不走 setTarget：那会把能力重置、把页签切走。
   if (draft.target.kind === 'plot' && result.relPath !== draft.target.plotRelPath && isPlotPath(c.project, result.relPath)) {
@@ -1006,7 +1006,7 @@ export async function selectPlot(c: ChatController, plotRelPath: string): Promis
 /**
  * 前端给的路径 → 这一章（细纲与正文各自可能缺席）。两边都没有才算「不存在」。
  *
- * 只有落在 `plots/` 之下的路径才当细纲读：`readPlot` 是纯解析，喂它一个章节
+ * 只有认得出是细纲的路径（`summaries/` 根下）才当细纲读：`readPlot` 是纯解析，喂它一个章节
  * 文件也会**解析成功**（数字前缀 + `# 标题` 一样认得出），于是 target 会指进
  * `chapters/` 去。其余情况一律按章号认：章节路径取它的章号，还不存在的细纲路径
  * 取文件名里的号。
