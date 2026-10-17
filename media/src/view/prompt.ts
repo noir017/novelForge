@@ -18,7 +18,7 @@ import { vscode } from './store';
 
 type PromptMessage = Extract<OutMessage, { type: 'prompt' }>;
 
-/** 开着的那个弹窗的「取消」。遮罩上的 ×、点空白、Esc 都走它；不是这里开的就是 undefined。 */
+/** 开着的那个弹窗的「取消」。遮罩上的 ×、Esc 都走它；不是这里开的就是 undefined。 */
 let cancelActive: (() => void) | undefined;
 
 export function renderPrompt(msg: PromptMessage): void {
@@ -75,16 +75,11 @@ export function renderPrompt(msg: PromptMessage): void {
 }
 
 /**
- * 遮罩上的 ×、点空白、Esc：弹窗是这里开的才由这里关，并且照「取消」回后端——
+ * 遮罩上的 ×、Esc（点空白不关）：弹窗是这里开的才由这里关，并且照「取消」回后端——
  * 只把遮罩藏起来的话，后端那一头的 confirm / pick 会一直等着。服务商弹窗与表单各有自己的一套。
  */
 export function installPrompt(): void {
   el.providerModalClose.addEventListener('click', () => cancelActive?.());
-  el.providerModal.addEventListener('click', (e) => {
-    if (e.target === el.providerModal) {
-      cancelActive?.();
-    }
-  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       cancelActive?.();

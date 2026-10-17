@@ -349,12 +349,6 @@ function testModel(p: SerializedProvider, m: SerializedModel): void {
 
 export function installProviderModal(): void {
   el.providerModalClose.addEventListener('click', closeProviderModal);
-  el.providerModal.addEventListener('click', (e) => {
-    // 只有点遮罩本身才算关闭，点弹窗内容不算。
-    if (e.target === el.providerModal) {
-      closeProviderModal();
-    }
-  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closeProviderModal();

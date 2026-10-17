@@ -49,7 +49,7 @@ export interface FormSpec {
   onSubmit: (values: FormValues) => void;
 }
 
-/** 当前开着的那一个。关掉时置空，遮罩上的 × / Esc / 点空白都据此判断该不该由这里管。 */
+/** 当前开着的那一个。关掉时置空，遮罩上的 × / Esc 都据此判断该不该由这里管。 */
 let active: { close: () => void } | null = null;
 
 export function isFormOpen(): boolean {
@@ -212,16 +212,11 @@ export function openForm(spec: FormSpec): void {
 }
 
 /**
- * 遮罩上的 × 、Esc、点空白：只在表单开着时由这里关。服务商弹窗有它自己的一套
+ * 遮罩上的 × 与 Esc：只在表单开着时由这里关（点空白不关，免得误触丢了填到一半的内容）。服务商弹窗有它自己的一套
  * （settings/providerModal.ts），两边各自判断「是不是我开的」，互不干扰。
  */
 export function installForm(): void {
   el.providerModalClose.addEventListener('click', () => closeForm());
-  el.providerModal.addEventListener('click', (e) => {
-    if (e.target === el.providerModal) {
-      closeForm();
-    }
-  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && isFormOpen()) {
       closeForm();

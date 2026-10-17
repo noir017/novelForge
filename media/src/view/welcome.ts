@@ -312,11 +312,6 @@ function buildAbout(): HTMLElement {
   const close = mk('button', 'primary', '关闭');
   close.type = 'button';
   close.addEventListener('click', () => wrap.classList.remove('open'));
-  wrap.addEventListener('click', (e) => {
-    if (e.target === wrap) {
-      wrap.classList.remove('open');
-    }
-  });
   card.appendChild(close);
   wrap.appendChild(card);
   return wrap;

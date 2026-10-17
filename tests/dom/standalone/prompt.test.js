@@ -1,10 +1,11 @@
 /**
- * 独立版的小弹窗（media/src/view/prompt.ts）：右上角 ×、点遮罩、Esc 都按「取消」回后端。
+ * 独立版的小弹窗（media/src/view/prompt.ts）：右上角 ×、Esc 都按「取消」回后端；点遮罩空白不关。
  *
  * | 用例 | 钉的是什么 |
  * |---|---|
  * | × 关确认框 | 回 `no`（与「取消」按钮同一个回答），遮罩收起——只藏遮罩不回话，后端那头会一直等 |
- * | × 关选择框 / Esc 关输入框 / 点遮罩 | 回 `undefined` |
+ * | × 关选择框 / Esc 关输入框 | 回 `undefined` |
+ * | 点遮罩空白 | 不关、不回话——误触不该丢掉填到一半的内容 |
  * | 回过一次就不再回 | 输入框里的 Esc 与全局 Esc 同时触发也只回一条 |
  * | 确认框写出补充说明 | `Host.confirm` 的 detail（调几次、看哪几章、会覆盖什么）原来在网页上整段丢了 |
  * | 选本机文件（`kind: 'file'`） | 从给的目录起步；只列目录与允许的扩展名；确定回绝对路径，Esc / 取消回 undefined；粘完整路径回车直接选定 |
@@ -43,9 +44,13 @@ describe('小弹窗的关闭', { skip: JSDOM_SKIP }, () => {
     assert.deepEqual(answer(), ['k1', undefined]);
   });
 
-  test('点遮罩空白：回 undefined', () => {
+  test('点遮罩空白：不关、不回话', () => {
     open({ requestId: 'k2', kind: 'pick', options: ['两样都学'] });
+    const before = results().length;
     ui.clickEl(modal());
+    assert.equal(results().length, before);
+    assert.ok(!modal().classList.contains('hidden'));
+    ui.clickEl(ui.doc.getElementById('providerModalClose'));
     assert.deepEqual(answer(), ['k2', undefined]);
   });
 

@@ -92,7 +92,7 @@ export function openPicker(intent: Intent): void {
 }
 
 /**
- * 选本机文件：后端那头的 `pickHostFile` 在等，选定之外的一切关法（取消、×、Esc、点空白）都回一个
+ * 选本机文件：后端那头的 `pickHostFile` 在等，选定之外的一切关法（取消、×、Esc）都回一个
  * undefined，不能只把遮罩藏起来。
  */
 export function openHostFilePicker(requestId: string, title: string, startDir: string, extensions: string[]): void {
@@ -346,10 +346,5 @@ function build(): HTMLElement {
 
   card.append(titleEl, pathInput, listEl, actions);
   root.appendChild(card);
-  root.addEventListener('click', (e) => {
-    if (e.target === root) {
-      closePicker();
-    }
-  });
   return root;
 }
