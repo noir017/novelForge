@@ -1,4 +1,4 @@
-import { appearancesOf, buildCastIndex, CastMember, describePlots } from '../views/cast';
+import { appearancesOf, buildCastIndex, cardLookup, CastMember, describePlots } from '../views/cast';
 import { readConfig } from '../config';
 import { runPool, serialize } from '../runtime/concurrency';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
@@ -14,9 +14,9 @@ import {
   emptyCharacterSections,
   renderCharacterCard,
 } from '../model/project';
-import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
+import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections, SummaryCast } from '../model/types';
 import { describeTaskModels } from '../model/tiers';
-import { explainDroppedAliases, sanitizeAliases } from '../model/naming';
+import { explainDroppedAliases, normalizeName, sanitizeAliases } from '../model/naming';
 import { keepGender } from '../model/gender';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
@@ -57,6 +57,8 @@ export interface Batch {
   plots: Chapter[];
   /** 这一批的语料（已按预算截断）。 */
   corpus: string;
+  /** 这几章摘要里出场、但不是这个人的人物（见 {@link isSelfOf}）。 */
+  others: string[];
 }
 
 /**
@@ -155,6 +157,7 @@ export async function planAllUpdates(project: NovelProject, scope: UpdateScope):
   // 拿对话页模型的窗口来算，跑起来会超窗且数字对不上账。
   const budget = budgetForTask('characterCard');
   const allPlots = await project.listChapters();
+  const lookup = cardLookup(cards);
   const result: BatchUpdatePlan = { plans: [], skipped: [] };
 
   for (const card of cards) {
@@ -173,7 +176,7 @@ export async function planAllUpdates(project: NovelProject, scope: UpdateScope):
       result.skipped.push({ card, reason: '出场章节已不在磁盘上' });
       continue;
     }
-    const batches = await planBatches(project, plots, budget);
+    const batches = await planBatches(project, plots, budget, isSelfOf(lookup, card.name, card));
     if (batches.length === 0) {
       result.skipped.push({ card, reason: '章节正文都为空' });
       continue;
@@ -405,6 +408,7 @@ export async function planCastCards(project: NovelProject, opts: { minAppearance
   const min = Math.max(1, opts.minAppearances ?? 1);
   const cardBudget = budgetForTask('characterCard');
   const allPlots = await project.listChapters();
+  const lookup = cardLookup(await project.listCharacters());
   const plans: CastCardPlan[] = [];
   const skipped: { name: string; reason: string }[] = [];
   for (const member of index.unknown.filter((m) => m.plots.length >= min)) {
@@ -413,7 +417,7 @@ export async function planCastCards(project: NovelProject, opts: { minAppearance
       skipped.push({ name: member.name, reason: '出场章节已不在磁盘上' });
       continue;
     }
-    const batches = await planBatches(project, plots, cardBudget);
+    const batches = await planBatches(project, plots, cardBudget, isSelfOf(lookup, member.name, undefined, member.aliases));
     if (batches.length === 0) {
       skipped.push({ name: member.name, reason: '章节正文都为空' });
       continue;
@@ -644,7 +648,8 @@ async function runUpdate(
   opts: { scope: UpdateScope; allAppearances: number[]; skipReview?: boolean }
 ): Promise<void> {
   const config = readConfig();
-  const batches = await planBatches(project, plots, budgetForTask('characterCard'));
+  const lookup = cardLookup(await project.listCharacters());
+  const batches = await planBatches(project, plots, budgetForTask('characterCard'), isSelfOf(lookup, card.name, card));
   if (batches.length === 0) {
     log.warn(`「${card.name}」的出场章节都是空的`);
     getHost().toast('这些章节都是空的，没有可分析的内容。', 'error');
@@ -764,6 +769,7 @@ async function runCardUpdate(
    */
   const analyzed: number[] = [];
   const failed: number[] = [];
+  const others = new Set(batches.flatMap((b) => b.others.map(normalizeName)));
 
   for (let i = 0; i < batches.length; i++) {
     if (ctx.signal.aborted) {
@@ -834,6 +840,13 @@ async function runCardUpdate(
   // 泛称会把几个角色串成一个。顺带把存量脏别名一并清掉——差异走 diff 审阅，看得见。
   const droppedAliases = explainDroppedAliases(aliases, card.name);
   aliases = sanitizeAliases(aliases, card.name);
+  // 别人的名字：模型把同场的主角当成了这个人时，头一个症状就是把主角的名字记成别名
+  // （实战：配角「叶伦」的卡挂上了「林樾」）。提示词里叮嘱过，这里兜底。
+  const borrowed = aliases.filter((a) => others.has(normalizeName(a)));
+  if (borrowed.length > 0) {
+    aliases = aliases.filter((a) => !borrowed.includes(a));
+    droppedAliases.push(...borrowed.map((alias) => ({ alias, reason: '是别的角色的名字' })));
+  }
   if (droppedAliases.length > 0) {
     log.info(
       `「${card.name}」丢弃 ${droppedAliases.length} 个非专属称呼`,
@@ -905,7 +918,32 @@ async function runCardUpdate(
 }
 
 /**
+ * 摘要 cast 里的一条是不是这个人。认人走 {@link cardLookup}（正式名压过别名）：这张卡上
+ * 已经混进来的别人的名字照样算别人。未建卡的人物（`card` 不给）认自己的主名与聚类别称，
+ * 落到任何一张现有卡上的都不是他。
+ */
+function isSelfOf(
+  lookup: ReturnType<typeof cardLookup>,
+  name: string,
+  card?: CharacterCard,
+  aliases: readonly string[] = []
+): (entry: SummaryCast) => boolean {
+  const own = new Set([name, ...aliases].map(normalizeName));
+  return (entry) => {
+    const owner = lookup(entry);
+    if (card) {
+      return owner?.slug === card.slug || normalizeName(entry.name) === normalizeName(card.name);
+    }
+    return !owner && own.has(normalizeName(entry.name));
+  };
+}
+
+/**
  * 把出场章节按输入预算切成若干批。
+ *
+ * 每批顺带记下同场的其他人物（`others`）：配角那几章往往通篇是主角视角，只告诉模型
+ * 「归纳叶伦」，它会把戏份最重的那位当成叶伦，把主角的身份连同名字一起写进这张卡。
+ * 点名告诉它谁不是他，别名也拿这份名单拦。在计划阶段读好，执行时不再碰盘。
  *
  * 一章都放不下时仍然单独成批（正文会被 takeHead 截断并打 warn）——
  * 宁可读半章，也不能把这一章整个跳过而不吭声。
@@ -914,22 +952,24 @@ async function planBatches(
   project: NovelProject,
   plots: Chapter[],
   /** 干活那个模型的窗口（`budgetForTask('characterCard')` / `pool.primaryBudget`）。 */
-  window: { contextWindow: number; maxOutputTokens: number }
+  window: { contextWindow: number; maxOutputTokens: number },
+  isSelf: (entry: SummaryCast) => boolean
 ): Promise<Batch[]> {
   // 留出角色卡本体、提示词与输出的余量。
   const budget = Math.max(2000, window.contextWindow - window.maxOutputTokens - 3000);
   const batches: Batch[] = [];
-  let current: { plots: Chapter[]; parts: string[]; tokens: number } = {
+  let current: { plots: Chapter[]; parts: string[]; others: string[]; tokens: number } = {
     plots: [],
     parts: [],
+    others: [],
     tokens: 0,
   };
 
   const flush = () => {
     if (current.plots.length > 0) {
-      batches.push({ plots: current.plots, corpus: current.parts.join('\n\n') });
+      batches.push({ plots: current.plots, corpus: current.parts.join('\n\n'), others: current.others });
     }
-    current = { plots: [], parts: [], tokens: 0 };
+    current = { plots: [], parts: [], others: [], tokens: 0 };
   };
 
   for (const plot of plots) {
@@ -937,6 +977,9 @@ async function planBatches(
     if (!text.trim()) {
       continue;
     }
+    const others = ((await project.readSummary(plot.relPath))?.cast ?? [])
+      .filter((entry) => entry.name.trim() && !isSelf(entry))
+      .map((entry) => entry.name);
     const block = `【第${plot.order}章 ${plot.title}】\n${text}`;
     const tokens = estimateTokens(block);
 
@@ -948,7 +991,7 @@ async function planBatches(
         `第 ${plot.order} 章正文超出单批预算，已截断`,
         `${block.length} 字 → ${clipped.length} 字（预算 ${budget} token）`
       );
-      batches.push({ plots: [plot], corpus: clipped });
+      batches.push({ plots: [plot], corpus: clipped, others: unique(others) });
       continue;
     }
     if (current.tokens + tokens > budget) {
@@ -956,6 +999,7 @@ async function planBatches(
     }
     current.plots.push(plot);
     current.parts.push(block);
+    current.others = unique([...current.others, ...others]);
     current.tokens += tokens;
   }
   flush();
@@ -1006,7 +1050,13 @@ async function analyzeBatch(
             role: 'user',
             content:
               `${progress}要归纳的角色：${card.name}` +
-              `${card.aliases.length > 0 ? `（又称 ${card.aliases.join('、')}）` : ''}\n\n` +
+              `${card.aliases.length > 0 ? `（又称 ${card.aliases.join('、')}）` : ''}\n` +
+              (batch.others.length > 0
+                ? `这几章里出场的其他人物：${batch.others.join('、')}。他们都不是${card.name}，` +
+                  `不要把他们的身份、经历、对白写进这张卡，也不要把他们的名字填进 aliases。` +
+                  `正文多半以别人的视角展开，只归纳写到${card.name}本人的部分。\n`
+                : '') +
+              '\n' +
               `【当前的角色档案】\n${currentCard}\n\n` +
               `【正文】\n${batch.corpus}\n\n` +
               '请在当前档案的基础上修订，输出完整的 JSON。',

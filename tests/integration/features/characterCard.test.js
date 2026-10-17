@@ -479,7 +479,8 @@ describe('给未建卡的人物建卡', () => {
     const before = await project.listCharacters();
     beforeCount = before.length;
     expect('开始');
-    setReplies([cardJson({ 身份: '停舟客栈的掌柜', 性别: '女性' })]);
+    // 模型把同场的林昭当成了掌柜：别名里混进林昭的名字（实战里配角卡挂上了主角名）。
+    setReplies([cardJson({ 身份: '停舟客栈的掌柜', 性别: '女性', aliases: ['林昭', '老板娘', '沈氏'] })]);
     await cardMod.createCardForCast(project, '客栈掌柜');
 
     const after = await project.listCharacters();
@@ -524,6 +525,17 @@ describe('给未建卡的人物建卡', () => {
 
   test('只读该人物的出场章节', () => {
     assert.ok(calls.every((m) => !m[1].content.includes('入镇')), '第 2 章没有客栈掌柜');
+  });
+
+  test('提示词点名同场的其他人物不是他', () => {
+    assert.ok(
+      calls.some((m) => /出场的其他人物：林昭、沈氏。他们都不是客栈掌柜/.test(m[1].content)),
+      calls.map((m) => m[1].content.slice(0, 120)).join(' || ')
+    );
+  });
+
+  test('别名里别人的名字被拦下，专属称呼保留', () => {
+    assert.deepEqual(created && created.aliases, ['老板娘']);
   });
 
   test('建卡后离开未建卡列表', () => {
