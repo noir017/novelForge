@@ -19,6 +19,7 @@ import { completeSettings, generatePlots, writeManuscripts } from '../features/p
 import { extractStyle } from '../features/style';
 import { importManuscript } from '../features/importManuscript';
 import { deriveFromText } from '../features/derive';
+import { explainChapterGap } from '../features/chapterGap';
 import { learnFromReference } from '../features/reference';
 import { generateThreads } from '../features/threads';
 import { chapterForSummary, rebuildGlobalSummary, syncSummaries } from '../features/summarize';
@@ -147,6 +148,9 @@ export async function projectAction(
       break;
     case 'deriveFromText':
       await deriveFromText(c.project);
+      break;
+    case 'chapterGap':
+      await explainChapterGap(c.project);
       break;
     case 'learnFromReference':
       await learnFromReference(c.project);

@@ -589,6 +589,30 @@ describe('pipeline.ts · 全书状态推导', () => {
     assert.equal(pipeline.deriveBookStage(book({ outlineCoverage: Infinity, nextChapterNo: 300, totalChapters: undefined })), 'plots');
   });
 
+  // 第 25–31 章没有正文、后面还有 51 章：照「写到第 24 章」续写大纲，后面那些会被当成没写过。
+  test('正文断了一截 → 大纲那一档推「把章号接上」，不推续写', () => {
+    const gap = { from: 25, to: 31, later: 51, last: 82 };
+    const s = pipeline.deriveBookNextStep('outline', book({ outlineCoverage: 24, nextChapterNo: 25, gap }));
+    assert.equal(s.projectAction, 'chapterGap');
+    assert.equal(s.label, '第 25–31 章缺正文…');
+    assert.match(s.hint, /51 章已写（写到第 82 章）/);
+    assert.equal(s.calls, undefined);
+    assert.deepEqual(s.target, { kind: 'outline' });
+  });
+
+  test('正文断了一截 → 架构那一档也不推补齐', () => {
+    const gap = { from: 1, to: 3, later: 10, last: 13 };
+    const s = pipeline.deriveBookNextStep('setting', book({ settings: { ...all, world: false }, gap }));
+    assert.equal(s.projectAction, 'chapterGap');
+    assert.deepEqual(s.target, { kind: 'setting', doc: 'world' });
+  });
+
+  test('断了一截但大纲已覆盖缺口：拆细纲、写正文照常（跳着写是作者的自由）', () => {
+    const f = book({ outlineCoverage: 40, nextChapterNo: 25, gap: { from: 25, to: 31, later: 9, last: 40 } });
+    assert.equal(pipeline.deriveBookStage(f), 'plots');
+    assert.equal(pipeline.deriveBookNextStep('plots', f).projectAction, undefined);
+  });
+
   test('下一章没有细纲 → 拆细纲，一批 5 章', () => {
     const f = book({ nextChapterNo: 6 });
     assert.equal(pipeline.deriveBookStage(f), 'plots');

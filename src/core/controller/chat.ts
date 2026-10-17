@@ -2,6 +2,7 @@ import type { ChatController } from './index';
 import { basename } from 'node:path';
 import { describeArtifact } from '../features/artifact';
 import { describeOutlineRewrite, outlineRewritePlan, rewriteOutline } from '../features/outlineRewrite';
+import { confirmDespiteGap } from '../features/chapterGap';
 import { acceptArtifact as writeArtifact, plannedCards } from '../generation/accept';
 import { Draft, generate, parseDraftArtifact } from '../generation/generate';
 import { getHost } from '../host';
@@ -718,6 +719,9 @@ export async function rewriteArchitecture(c: ChatController, target: CreationTar
     return;
   }
   const where = describeTarget(target);
+  if (!(await confirmDespiteGap(await c.project.listChapters(), `重写${where}`))) {
+    return;
+  }
   // 有区间标题的大纲按段重写（features/outlineRewrite.ts）：一次写全书，后半段稀得像目录。
   const plan = target.kind === 'outline' ? await outlineRewritePlan(c.project) : undefined;
   const ask = await getHost().input({

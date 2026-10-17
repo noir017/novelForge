@@ -52,6 +52,10 @@ function stepButton(step: NextStepView, tree: ProjectTree): HintButton {
     // 已经有正文：照正文整理。后端先弹框报调用次数，点这一下不花钱。
     return { label: '补齐…', title: '照已写正文整理摘要、角色卡、架构、大纲与细纲；先报调用次数', run: () => projectAction('deriveFromText') };
   }
+  if (step.projectAction === 'chapterGap') {
+    // 章号断了一截：说明框里列着缺哪几号、哪几号重复，不花钱。
+    return { label: '看看…', title: step.hint, run: () => projectAction('chapterGap') };
+  }
   if (step.stage === 'plot') {
     // 弹窗缺省就是「下一可写章起 5 章」，与这一步同一个区间；调用次数写在弹窗上。
     return { label: '拆细纲…', title: '选好区间，看清调用几次再拆', run: () => openPlotBatchForm(tree) };

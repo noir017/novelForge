@@ -342,4 +342,34 @@ describe('从已写正文补齐 · 取消与没有正文', () => {
     assert.equal(n, 0);
     assert.ok(h.toasts.some((x) => x.startsWith('error:') && x.includes('从第 1 章起连续')), h.toasts.join('|'));
   });
+
+  // 第 3、4 章没有正文、后面还有 3 章：多半是章号没接上，先问一句再只照第 1–2 章做。
+  test('中间断了一截：先问要不要只照前一截做，不同意就一次都不调', async () => {
+    const t = await fresh('derive-mid-gap');
+    t.remove(CH(3));
+    t.remove(CH(4));
+    t.write('chapters/005-作话.md', '作者有话说');
+    t.project.invalidate();
+    const chapters = await t.project.listChapters();
+    assert.deepEqual(bundle.pipe.chapterGapOf(chapters), { from: 3, to: 4, later: 3, last: 7 });
+    assert.deepEqual(bundle.pipe.duplicateChapterNos(chapters), [5]);
+    const facts = await bundle.pipe.buildBookFacts(t.project);
+    assert.equal(bundle.pipeline.deriveBookNextStep(bundle.pipeline.deriveBookStage(facts), facts).projectAction, 'chapterGap');
+
+    const before = h.confirms.length;
+    h.expect(undefined);
+    const n = await bundle.derive.deriveFromText(t.project);
+    assert.equal(n, 0);
+    assert.equal(fake.callCount(), 0);
+    const c = h.confirms[before];
+    assert.match(c.message, /第 3–4 章没有正文，后面还有 3 章已写（写到第 7 章）/);
+    assert.deepEqual(c.actions, ['仍然继续']);
+  });
+
+  test('只到末尾没写完不算断：照常补齐', async () => {
+    const t = await fresh('derive-tail');
+    t.remove(CH(7));
+    t.project.invalidate();
+    assert.equal(bundle.pipe.chapterGapOf(await t.project.listChapters()), undefined);
+  });
 });

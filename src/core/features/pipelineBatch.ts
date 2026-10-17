@@ -49,6 +49,7 @@ import { describeFinalize, finalizeChapter } from './finalize';
 import { createCastCards, planCastCards } from './characterCard';
 import { checkPlotAgainstFacts } from './plotCheck';
 import { planThreads } from './threads';
+import { confirmDespiteGap } from './chapterGap';
 import { updateGlobalSummary } from './summarize';
 import { PLOT_CHECK_SUGGESTION, describeConflict } from '../model/plotCheck';
 import { PREFLIGHT_SUGGESTION, PreflightRisk, describeExempted, describeRisks, preflightChapter, riskKey } from './preflight';
@@ -215,6 +216,9 @@ export async function completeSettings(project: NovelProject): Promise<number> {
   const missing = SETTING_DOCS.filter((doc) => !facts.settings[doc]);
   if (missing.length === 0) {
     getHost().toast('故事架构四件都已经有了。');
+    return 0;
+  }
+  if (!(await confirmDespiteGap(await project.listChapters(), '补齐设定'))) {
     return 0;
   }
   const book = await project.readBookConfig();

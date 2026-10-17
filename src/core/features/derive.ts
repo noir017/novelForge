@@ -63,6 +63,7 @@ import { BuildRequest } from '../context/builder';
 import { ChainError, singleShotNotes } from '../generation/structured';
 import { acceptArtifact } from '../generation/accept';
 import { buildBookFacts, nextWritableChapterNo } from '../views/pipeline';
+import { confirmDespiteGap } from './chapterGap';
 import { Workspace } from '../workspace';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import { CastCardsPlan, createCastCards, planCastCards } from './characterCard';
@@ -90,10 +91,11 @@ export async function deriveFromText(project: NovelProject): Promise<number> {
     );
     return 0;
   }
-  const written = chapters.filter((c) => c.order <= through);
-  if (written.length < chapters.length) {
-    log.info(`第 ${through} 章之后有正文但不连续，这一次只整理第 1–${through} 章`);
+  if (!(await confirmDespiteGap(chapters, '从已写正文补齐'))) {
+    log.info('章号断了一截，作者没有继续从已写正文补齐');
+    return 0;
   }
+  const written = chapters.filter((c) => c.order <= through);
 
   let calls = 0;
   project.invalidate();

@@ -35,6 +35,7 @@ import { BookConfig } from '../model/settingFile';
 import { isOutlineFilled, outlineCoverage, outlineUpstreamHash } from '../model/outlineFile';
 import {
   BookFacts,
+  ChapterGap,
   NextStepFacts,
   PipelineFacts,
   PipelineProgress,
@@ -273,12 +274,14 @@ export async function buildBookFacts(
   const settings = await project.settingFilled({ config: built.config, characters: known?.characters });
   const nextChapterNo = nextWritableChapterNo(built.chapters);
   const nextPlot = built.plots.find((p) => p.no === nextChapterNo);
+  const gap = chapterGapOf(built.chapters);
   return {
     settings,
     outlineFilled: isOutlineFilled(built.outline),
     outlineCoverage: outlineCoverage(built.outline),
     totalChapters: built.config.totalChapters,
     nextChapterNo,
+    ...(gap ? { gap } : {}),
     nextPlotFilled: !!nextPlot && isPlotFilled(nextPlot.sections),
     plotFilledNos: built.plots.filter((p) => isPlotFilled(p.sections)).map((p) => p.no),
   };
@@ -296,6 +299,28 @@ export function nextWritableChapterNo(chapters: Chapter[]): number {
     n++;
   }
   return n;
+}
+
+/**
+ * 已写的正文中间断了一截：第 {@link nextWritableChapterNo} 章没有正文，后面却还有。
+ * 缺口后面一章正文都没有时 undefined——那只是还没写到。
+ */
+export function chapterGapOf(chapters: Chapter[]): ChapterGap | undefined {
+  const from = nextWritableChapterNo(chapters);
+  const later = [...new Set(chapters.filter((c) => c.wordCount > 0 && c.order > from).map((c) => c.order))].sort((a, b) => a - b);
+  if (later.length === 0) {
+    return undefined;
+  }
+  return { from, to: later[0] - 1, later: later.length, last: later[later.length - 1] };
+}
+
+/** 有不止一个文件的章号（升序）：工程只按文件名开头的数字认章，同号的几个文件会抢同一章。 */
+export function duplicateChapterNos(chapters: Chapter[]): number[] {
+  const seen = new Map<number, number>();
+  for (const c of chapters) {
+    seen.set(c.order, (seen.get(c.order) ?? 0) + 1);
+  }
+  return [...seen].filter(([, n]) => n > 1).map(([no]) => no).sort((a, b) => a - b);
 }
 
 /**

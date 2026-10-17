@@ -606,8 +606,9 @@ export interface NextStepPlan {
    * - 定稿（`finalizeChapter`）：它是工程页那条既有的「总结这一章」，不该假装成一轮对话。
    * - 从已写正文补齐（`deriveFromText`，拆书 A）：已经有正文、却缺架构或大纲没覆盖到它们。那是十几到
    *   几百次调用的批量动作，次数在它自己的确认框里报（要读摘要才算得准），所以这一步不带 `calls`。
+   * - 章号断了一截（`chapterGap`）：不花钱，弹一个说明框——缺哪几号、哪几号重复、怎么接上。
    */
-  projectAction?: 'finalizeChapter' | 'deriveFromText';
+  projectAction?: 'finalizeChapter' | 'deriveFromText' | 'chapterGap';
   /**
    * 这一步覆盖的章号区间（闭区间）。大纲一次写一段区间、细纲一批写几章，
    * 按钮上的「第 21–40 章」与发给后端的范围都读它。
@@ -1127,6 +1128,11 @@ export interface BookFacts {
    * 自由，但主按钮只推一个，推的应该是那个缺口。
    */
   nextChapterNo: number;
+  /**
+   * 第 {@link nextChapterNo} 章之后还有正文：中间断了一截（见 {@link ChapterGap}）。
+   * 只在缺口后面确实有已写的章时才有。
+   */
+  gap?: ChapterGap;
   /** 那一章有排好的细纲。 */
   nextPlotFilled: boolean;
   /**
@@ -1134,6 +1140,21 @@ export interface BookFacts {
    * 永远是空白的章，不会把作者排过的章圈进来再问一遍要不要覆盖。
    */
   plotFilledNos: readonly number[];
+}
+
+/**
+ * 已写的正文中间断了一截：第 from–to 章没有正文，后面却还有 `later` 章写到第 `last` 章。
+ *
+ * 多半不是真没写，是文件名开头的章号没接上（导入的原稿换过编号、一章拆成两个文件）。
+ * 照「连续写到第 from−1 章」往下排，大纲与补齐会把缺口后面那几十章当成没写过、从架构重新编。
+ */
+export interface ChapterGap {
+  from: number;
+  to: number;
+  /** 缺口之后有正文的章数。 */
+  later: number;
+  /** 有正文的最大章号。 */
+  last: number;
 }
 
 /**
@@ -1186,11 +1207,15 @@ function rangeText(from: number, to: number): string {
  *
  * **已经写过正文的章不再往前规划**：第 1 章起连续有正文（`nextChapterNo > 1`）时，缺架构、或大纲还没覆盖到
  * 已写的章，下一步是「从已写正文补齐」——照着写成的东西整理，而不是从一句话、从结构指导重新编一遍。
+ * 已写的正文中间断了一截（`gap`）时，这两档都先推「把章号接上」，见 `gapStep`。
  */
 export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan | undefined {
   switch (stage) {
     case 'setting': {
       const doc = SETTING_DOCS.find((d) => !f.settings[d]) ?? 'config';
+      if (f.gap) {
+        return gapStep(f.gap, { kind: 'setting', doc });
+      }
       if (f.nextChapterNo > 1) {
         return deriveStep(f, `还缺${SETTING_DOC_LABEL[doc]}`, { kind: 'setting', doc });
       }
@@ -1207,6 +1232,9 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
     }
 
     case 'outline': {
+      if (f.gap) {
+        return gapStep(f.gap, { kind: 'outline' });
+      }
       const from = f.outlineFilled && Number.isFinite(f.outlineCoverage) ? f.outlineCoverage + 1 : 1;
       if (from < f.nextChapterNo) {
         return deriveStep(
@@ -1270,5 +1298,25 @@ function deriveStep(f: BookFacts, missing: string, target: CreationTarget): Next
       '再接着往下写；动手之前会先列出要调几次模型。',
     target,
     projectAction: 'deriveFromText',
+  };
+}
+
+/**
+ * 正文中间断了一截（{@link ChapterGap}）时，架构与大纲那两档换成这一步：先把章号接上。
+ *
+ * 照「写到第 from−1 章」去补齐或续写大纲，缺口后面那几十章都会被当成没写过——补齐只整理前一截，
+ * 续写从架构重新编。所以不推花钱的那一步，推的是一个说明框（缺哪几号、哪几号重复、怎么接上）。
+ */
+function gapStep(gap: ChapterGap, target: CreationTarget): NextStepPlan {
+  return {
+    stage: target.kind === 'outline' ? 'outline' : 'setting',
+    capability: 'generate',
+    label: `${rangeText(gap.from, gap.to)}缺正文…`,
+    hint:
+      `后面还有 ${gap.later} 章已写（写到第 ${gap.last} 章），中间这一截没有正文，多半是文件名开头的章号没接上。` +
+      `不接上的话，补齐与大纲只认得${gap.from > 1 ? rangeText(1, gap.from - 1) : '前面'}，后面那些会被当成没写过。` +
+      '先把章号接上（改文件名开头的数字），或者把这几章补写出来。',
+    target,
+    projectAction: 'chapterGap',
   };
 }
