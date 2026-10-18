@@ -50,12 +50,22 @@ import { Chapter, CharacterCard, LoreEntry, ProjectManifest } from '../model/typ
 const log = scoped('流水线');
 
 /**
- * 每个工程上一次记进日志的标脏章号（按工程根目录）。
+ * 每个工程上一次记进日志的名单（按工程根目录 + 哪一条）。
  *
- * 索引每次 `pushState` 都要建一趟，编辑器里打几个字就是好几趟；标脏的章没变还照记，
- * 日志页就被同一行刷屏，别的线索被挤出缓冲。所以只在这份名单变了的时候记。
+ * 索引每次 `pushState` 都要建一趟，编辑器里打几个字就是好几趟；名单没变还照记，
+ * 日志页就被同一行刷屏，别的线索被挤出缓冲。所以只在名单变了的时候记。
  */
-const lastStaleLogged = new Map<string, string>();
+const lastLogged = new Map<string, string>();
+
+/** 这份名单与上一次记的不一样（顺手记下它）。空名单也记下：清掉之后再出现会重新记。 */
+function changedSinceLastLog(project: NovelProject, what: string, list: string): boolean {
+  const key = `${project.root}\n${what}`;
+  if (list === (lastLogged.get(key) ?? '')) {
+    return false;
+  }
+  lastLogged.set(key, list);
+  return true;
+}
 
 export interface PlotPipeline {
   /** 章号。 */
@@ -189,9 +199,9 @@ export async function buildPipelineIndex(project: NovelProject): Promise<Pipelin
   ]);
   const context = { outline, config, chapters };
 
-  const duplicates = duplicateChapterNos(chapters);
-  if (duplicates.length > 0) {
-    log.warn('有几个章号不止一个正文文件，流水线只认路径排序第一份', duplicates.map((n) => `第 ${n} 章`).join('、'));
+  const duplicates = duplicateChapterNos(chapters).map((n) => `第 ${n} 章`).join('、');
+  if (changedSinceLastLog(project, '撞号', duplicates) && duplicates) {
+    log.warn('有几个章号不止一个正文文件，流水线只认路径排序第一份', duplicates);
   }
   const nos = [...new Set([...plots.map((p) => p.no), ...chapters.map((c) => c.order)])].sort((a, b) => a - b);
 
@@ -203,12 +213,9 @@ export async function buildPipelineIndex(project: NovelProject): Promise<Pipelin
 
   const stale = rows.filter((p) => p.plot.upstreamStale || p.chapter.upstreamStale);
   const staleNos = stale.map((p) => `第 ${p.no} 章`).join('、');
-  if (staleNos !== (lastStaleLogged.get(project.root) ?? '')) {
-    lastStaleLogged.set(project.root, staleNos);
-    if (stale.length > 0) {
-      // 上游变更是「作者需要知道但不会主动去翻」的那类事，进日志才留得住。
-      log.debug(`${stale.length} 章的上游产物有变更`, `${staleNos}｜耗时 ${Date.now() - startedAt}ms`);
-    }
+  if (changedSinceLastLog(project, '上游变更', staleNos) && stale.length > 0) {
+    // 上游变更是「作者需要知道但不会主动去翻」的那类事，进日志才留得住。
+    log.debug(`${stale.length} 章的上游产物有变更`, `${staleNos}｜耗时 ${Date.now() - startedAt}ms`);
   }
   return { rows, byNo, plots, chapters, manifest, outline, config };
 }

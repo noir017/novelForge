@@ -712,6 +712,66 @@ describe('流水线索引 · 上游变更的日志不刷屏', () => {
   });
 });
 
+/** 「有几个章号不止一个正文文件」也是索引每趟都会碰到的，同样只在撞号的名单变了时记。 */
+describe('流水线索引 · 撞号的日志不刷屏', () => {
+  let p;
+  let pr;
+  let afterSame;
+  let afterMore;
+  let afterCleared;
+  let afterAgain;
+  const duplicateLogs = () =>
+    bundle.logger
+      .recentLogs()
+      .filter((e) => e.scope === '流水线' && e.message.startsWith('有几个章号不止一个正文文件'))
+      .map((e) => e.detail);
+  const rebuild = async (times) => {
+    pr.invalidate();
+    for (let i = 0; i < times; i++) {
+      await bundle.pipe.buildPipelineIndex(pr);
+    }
+    return duplicateLogs();
+  };
+
+  before(async () => {
+    p = await makeTempProject(bundle.project, { prefix: 'duplog', title: '撞号' });
+    dirs.push(p.dir);
+    pr = p.project;
+    bundle.logger.clearLogs();
+
+    p.write('chapters/090-a.md', '# a\n\n甲。\n');
+    p.write('chapters/090-b.md', '# b\n\n乙。\n');
+    afterSame = await rebuild(3);
+
+    p.write('chapters/091-a.md', '# a\n\n甲。\n');
+    p.write('chapters/091-b.md', '# b\n\n乙。\n');
+    afterMore = await rebuild(2);
+
+    p.remove('chapters/090-b.md');
+    p.remove('chapters/091-b.md');
+    afterCleared = await rebuild(2);
+
+    p.write('chapters/090-b.md', '# b\n\n乙。\n');
+    afterAgain = await rebuild(2);
+  });
+
+  test('撞号的章没变：建几趟索引都只记一条', () => {
+    assert.deepEqual(afterSame, ['第 90 章']);
+  });
+
+  test('又撞了一个号：再记一条', () => {
+    assert.deepEqual(afterMore, ['第 90 章', '第 90 章、第 91 章']);
+  });
+
+  test('都不撞了：不记', () => {
+    assert.deepEqual(afterCleared, afterMore);
+  });
+
+  test('解开之后又撞号：重新记', () => {
+    assert.deepEqual(afterAgain, [...afterMore, '第 90 章']);
+  });
+});
+
 /**
  * 全书状态机要的事实（`buildBookFacts`）。**只有这一份**：主按钮、工程页的全书阶段与
  * agent 的状态注入都吃它（第 20 条）。另起一个工程，从空白一步步推到「在写」。
