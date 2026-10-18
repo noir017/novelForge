@@ -1,0 +1,64 @@
+/*
+ * 正文的排版：字体、字号、行距、版心宽度、内边距是**一组 CSS 变量**，编辑区的 textarea、
+ * 高亮镜像层（highlight.ts 的 .ed-mirror-content，含量位置用的那一份）、Markdown 预览读同一组——下面那条规则
+ * 三处共用，别给哪一处单写一份：镜像层要与 textarea 排得一模一样，画在它上面的高亮、从它上面量出来的位置才对得上。
+ * 镜像层每次重画仍从 textarea 的计算样式抄一遍（两道保险，.mono 文件换了字体也跟得上）。
+ *
+ * 这里是缺省（与改造前写死的值一样）；要换正文的字体、字号、行距、版心，改的是这几个变量，不是哪一个元素。
+ * 窄屏（narrow.css）改小的也是内边距那两个变量。
+ */
+
+:root {
+  --nf-ed-font-family: var(--nf-prose-font-family);
+  --nf-ed-font-size: 15px;
+  --nf-ed-line-height: 1.95;
+  /* 一行最多几个字（按 em 写，全角字宽 = 字号）。100cqi = 整个编辑区宽，就是「铺满」。 */
+  --nf-ed-measure: 100cqi;
+  --nf-ed-pad-x: 24px;
+  --nf-ed-pad-y: 18px;
+  --nf-ed-pad-bottom: var(--nf-ed-pad-y);
+  /* 竖滚动条的宽（scrollbar.css 的 10px）：居中那一栏算宽度时让出来，一行才放得下那么多字。 */
+  --nf-ed-gutter: 10px;
+}
+
+.ed-area,
+.ed-mirror-content {
+  font-family: var(--nf-ed-font-family);
+  font-size: var(--nf-ed-font-size);
+  line-height: var(--nf-ed-line-height);
+  padding: var(--nf-ed-pad-y) var(--nf-ed-pad-x) var(--nf-ed-pad-bottom);
+}
+
+.ed-preview {
+  font-family: var(--nf-ed-font-family);
+  font-size: var(--nf-ed-font-size);
+  line-height: var(--nf-ed-line-height);
+  padding: var(--nf-ed-pad-y) var(--nf-ed-pad-x) 40px;
+}
+
+/*
+ * 版心：宽屏时左右内边距撑开，那一栏居中。按容器宽（.ed-stage 的 cqi）算，textarea 与镜像层落在同一个容器里，
+ * 算出来一样宽（按百分比算的话，镜像层的包含块比 textarea 窄一条滚动条，两边会差半条）。
+ * 不认容器单位的旧浏览器整段跳过：照旧铺满，不至于把内边距算成 0。
+ */
+@supports (width: 1cqi) {
+  .ed-stage {
+    container-type: inline-size;
+  }
+
+  .ed-area,
+  .ed-mirror-content,
+  .ed-preview {
+    padding-left: max(var(--nf-ed-pad-x), calc((100cqi - var(--nf-ed-measure) - var(--nf-ed-gutter)) / 2));
+    padding-right: max(var(--nf-ed-pad-x), calc((100cqi - var(--nf-ed-measure) - var(--nf-ed-gutter)) / 2));
+  }
+}
+
+/* json / yml：等宽字体、小两号（跟着字号缩放），不收版心。 */
+.ed-area.mono {
+  font-family: var(--vscode-editor-font-family);
+  font-size: calc(var(--nf-ed-font-size) - 2px);
+  line-height: 1.7;
+  padding-left: var(--nf-ed-pad-x);
+  padding-right: var(--nf-ed-pad-x);
+}

@@ -24,6 +24,8 @@
 @import './standalone/highlight.css';
 @import './standalone/find.css';
 @import './standalone/preview.css';
+/* 正文排版那组变量（textarea、镜像层、预览共用） */
+@import './standalone/look.css';
 @import './standalone/explorer.css';
 @import './standalone/merge.css';
 @import './standalone/versions.css';

@@ -64,9 +64,10 @@
     display: none;
   }
 
-  .ed-area,
-  .ed-preview {
-    padding: 14px 16px;
+  /* 编辑区与预览的内边距收窄一点：改的是 look.css 那一组变量，textarea 与镜像层一起跟着变。 */
+  :root {
+    --nf-ed-pad-x: 16px;
+    --nf-ed-pad-y: 14px;
   }
 }
 

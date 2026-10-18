@@ -2,14 +2,11 @@
 
 /* ---- 预览 */
 
+/* 字体、字号、行距、内边距（含版心）跟编辑区同一组变量，在 look.css。 */
 .ed-preview {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 26px 40px;
-  line-height: 1.95;
-  font-family: var(--nf-prose-font-family);
-  font-size: 15px;
 }
 
 .ed-preview > *:first-child {

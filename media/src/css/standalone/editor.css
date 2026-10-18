@@ -294,22 +294,19 @@
   isolation: isolate;
 }
 
-/* 背景透明、压在高亮镜像层上面：镜像里的 <mark> 底色要透过它看得见（底色由 .wb-editor 给）。 */
+/* 背景透明、压在高亮镜像层上面：镜像里的 <mark> 底色要透过它看得见（底色由 .wb-editor 给）。
+   字体、字号、行距、内边距（含版心）不在这里写：textarea 与镜像层共用 look.css 里那一组变量。 */
 .ed-area {
   position: relative;
   z-index: 1;
   flex: 1;
   min-height: 0;
   width: 100%;
-  padding: 18px 24px;
   border: none;
   border-radius: 0;
   resize: none;
   background: transparent;
   color: var(--vscode-foreground);
-  font-family: var(--nf-prose-font-family);
-  font-size: 15px;
-  line-height: 1.95;
   tab-size: 2;
 }
 
@@ -317,12 +314,7 @@
   outline: none;
 }
 
-/* Markdown 之外（json/yml）用等宽字体，改缩进才看得清。 */
-.ed-area.mono {
-  font-family: var(--vscode-editor-font-family);
-  font-size: 13px;
-  line-height: 1.7;
-}
+/* Markdown 之外（json/yml）用等宽字体，改缩进才看得清——也在 look.css（跟着字号缩放）。 */
 
 .ed-welcome {
   flex: 1;

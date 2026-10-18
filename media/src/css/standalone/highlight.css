@@ -1,9 +1,10 @@
 /*
  * 高亮镜像层（editor/highlight.ts）：textarea 背后一层排得一模一样的文字，只画 <mark> 的底色。
  *
- * 字体、字号、行高、字距、内边距、断行规则、tab-size 由脚本每次渲染时从 textarea 的计算样式抄过来，
- * 这里**不写死**——写死了，.mono 文件或以后改了正文字号就对不齐。textarea 自己背景透明、压在上面
- * （editor.css 的 .ed-area），所以底色透得上来，光标、选区、输入法、点击仍然全是 textarea 的。
+ * 字体、字号、行高、内边距与 textarea 读同一组变量（look.css 里那一条共用的规则）；字距、断行规则、tab-size
+ * 这些再由脚本每次渲染时从 textarea 的计算样式抄过来——这里**不写死**，写死了 .mono 文件或改了外观就对不齐。
+ * textarea 自己背景透明、压在上面（editor.css 的 .ed-area），所以底色透得上来，光标、选区、输入法、点击仍然全是
+ * textarea 的。
  */
 
 .ed-mirror {
