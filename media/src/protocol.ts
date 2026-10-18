@@ -247,3 +247,18 @@ export {
   paragraphIndent,
 } from '../../src/core/model/paragraphFormat';
 export type { ParagraphStyle, PunctEdit } from '../../src/core/model/paragraphFormat';
+
+/**
+ * 写作体检（独立版内置编辑器，`editor/check.ts`）：比喻词表与上限、找词的位置、拉丁缩写——**与写完一章之后数的是同一个
+ * 函数**（生成链的 `countSimiles` / `countBanned` / `latinAcronyms` 都建在这几个找位置的函数上）。禁用词与敏感词表由后端
+ * 算好推来（`checkTerms`）。`manuscriptCheck.ts` 是纯函数、零 import，打进浏览器产物是安全的。
+ */
+export {
+  SIMILE_LIMIT,
+  SIMILE_WORDS,
+  foldLatin,
+  latinAcronymRanges,
+  locateTerms,
+} from '../../src/core/model/manuscriptCheck';
+export type { TermHits } from '../../src/core/model/manuscriptCheck';
+export type { CheckSensitiveTerm, CheckTermsView } from '../../src/core/protocol';

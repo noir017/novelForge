@@ -14,7 +14,7 @@
  * 协议：
  *   发 openEditor{path,pane,preview?,replace?} / openDraft{path} / saveFile / reloadFile / openExternal / checkEditorFiles
  *   收 editorOpen{file,pane,preview?,replace?} / editorSaved / editorConflict / editorError / editorDiskChanged / editorDiskGone
- *   / chapterIndex（章节索引，chapterIndex.ts）
+ *   / chapterIndex（章节索引，chapterIndex.ts）/ checkTerms（写作体检的词表，check.ts）
  *   （核对磁盘那三条——checkEditorFiles / editorDiskChanged / editorDiskGone——由 diskSync.ts 收发）
  */
 import { maybeById } from '../dom';
@@ -23,6 +23,7 @@ import { toast } from '../globals';
 import { isImeComposing } from './api';
 import { createPane } from './pane';
 import { installChapterBar } from './chapterBar';
+import { installCheck } from './check';
 import { installChapterIndex } from './chapterIndex';
 import { installChapterNav, takeQuietOpen } from './chapterNav';
 import { installConflictMerge } from './conflictMerge';
@@ -96,6 +97,8 @@ function start(stage: HTMLElement): void {
   installWritingStats();
   // 查找替换（Ctrl+F / Ctrl+H / F3、「编辑」菜单的查找 / 替换）。
   installFind();
+  // 写作体检：正文里的 check 图层、状态栏「体检」那一格与它的面板、「视图 → 体检」、「编辑敏感词表…」。
+  installCheck(post);
 
   /**
    * 第二块编辑区惰性创建：没用过的人不该多出一块空编辑区。它放草稿，也放点开一章时

@@ -1,0 +1,284 @@
+/*
+ * 写作体检（editor/check.ts、editor/checkPanel.ts）：正文里的 check 图层、状态栏「体检」那一格、点它弹出来的小面板。
+ *
+ * ## check 图层怎么画
+ *
+ * 高亮镜像层上的一个命名图层（highlight.ts）。镜像里的字是透明的，所以**只画下划线**：text-decoration 不占排版，
+ * 镜像层与 textarea 照样一字不差地对齐（highlight.css 的规矩：<mark> 不许加内边距、边框、字重）；下划线的颜色
+ * 必须明写（缺省是 currentColor，而镜像里的字色是透明的）。四类四种样子：
+ *
+ * | 类 | 样子 |
+ * |---|---|
+ * | 敏感词 | 实线下划线 + 很淡的底色（发不出去，最要紧） |
+ * | 禁用词 | 红色波浪线 |
+ * | 比喻词（超了上限才画） | 黄色波浪线 |
+ * | 英文缩写 | 蓝色点线（只是提示） |
+ *
+ * ## 与别的图层叠在同一段字上
+ *
+ * 同一段字落在几层里时那一段 <mark> 带上几层的 class。查找（find）画底色、段落聚焦（focus）画字色、check 画下划线，
+ * 三样互不覆盖；只有敏感词那一层淡底色会和查找的底色撞上——这里的选择器套一层 :where() 降一级，查找的底色
+ * （.ed-mirror mark.ed-hl-find）总是盖过它，下划线照画。几类叠在一起时（禁用词又写进了敏感词表）后面那条的下划线样式生效，
+ * 面板里两类都列。
+ *
+ * 颜色是这里的三套变量（深 / 浅 / 护眼），在三套主题下都要看得清。
+ */
+
+:root,
+:root[data-theme='dark'] {
+  --nf-chk-sensitive: #d670d6;
+  --nf-chk-sensitive-bg: rgba(214, 112, 214, 0.2);
+  --nf-chk-banned: #f14c4c;
+  --nf-chk-simile: #e2c08d;
+  --nf-chk-acronym: #4daafc;
+}
+
+:root[data-theme='light'] {
+  --nf-chk-sensitive: #af00db;
+  --nf-chk-sensitive-bg: rgba(175, 0, 219, 0.12);
+  --nf-chk-banned: #e51400;
+  --nf-chk-simile: #b07800;
+  --nf-chk-acronym: #0066bf;
+}
+
+:root[data-theme='sepia'] {
+  --nf-chk-sensitive: #9b2f8c;
+  --nf-chk-sensitive-bg: rgba(155, 47, 140, 0.14);
+  --nf-chk-banned: #c4321b;
+  --nf-chk-simile: #9a6400;
+  --nf-chk-acronym: #2a5d9f;
+}
+
+/* ---- check 图层（只画下划线；敏感词另加淡底色，选择器降一级，查找的底色盖过它） */
+
+:where(.ed-mirror) mark.ed-hl-chk-sensitive {
+  background: var(--nf-chk-sensitive-bg);
+  text-decoration: underline solid var(--nf-chk-sensitive);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  text-decoration-skip-ink: none;
+}
+
+:where(.ed-mirror) mark.ed-hl-chk-banned {
+  text-decoration: underline wavy var(--nf-chk-banned);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-skip-ink: none;
+}
+
+:where(.ed-mirror) mark.ed-hl-chk-simile {
+  text-decoration: underline wavy var(--nf-chk-simile);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-skip-ink: none;
+}
+
+:where(.ed-mirror) mark.ed-hl-chk-acronym {
+  text-decoration: underline dotted var(--nf-chk-acronym);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  text-decoration-skip-ink: none;
+}
+
+/* ---- 状态栏「体检」那一格（样子照字数那一格） */
+
+.ed-status .ed-check {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
+  margin: 0 -4px 0 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ed-status .ed-check.has-issues {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.ed-status .ed-check:hover,
+.ed-status .ed-check[aria-expanded='true'] {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.18));
+}
+
+.ed-status .ed-check:not(.has-issues):hover,
+.ed-status .ed-check:not(.has-issues)[aria-expanded='true'] {
+  color: var(--vscode-foreground);
+}
+
+.ed-status .ed-check:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* ---- 面板（与码字统计面板同一档层级、同一个样子） */
+
+.ed-check-panel {
+  position: fixed;
+  z-index: 35;
+  box-sizing: border-box;
+  width: min(380px, calc(100vw - 16px));
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  box-shadow: var(--nf-shadow);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ed-check-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ed-check-title {
+  font-weight: 600;
+}
+
+.ed-check-aside {
+  margin-left: auto;
+  color: var(--vscode-descriptionForeground);
+}
+
+.ed-check-sec {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.ed-check-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ed-check-sec-label {
+  font-weight: 600;
+}
+
+.ed-check-sec-count {
+  margin-left: auto;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* 每一类前面一小截，样子与正文里的下划线一样。 */
+.ed-check-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 0;
+  border-bottom: 2px solid;
+}
+
+.ed-check-swatch-sensitive {
+  border-bottom-color: var(--nf-chk-sensitive);
+}
+
+.ed-check-swatch-banned {
+  border-bottom-color: var(--nf-chk-banned);
+  border-bottom-style: dashed;
+}
+
+.ed-check-swatch-simile {
+  border-bottom-color: var(--nf-chk-simile);
+  border-bottom-style: dashed;
+}
+
+.ed-check-swatch-acronym {
+  border-bottom-color: var(--nf-chk-acronym);
+  border-bottom-style: dotted;
+}
+
+.ed-check-note {
+  margin-top: 4px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.5;
+}
+
+.ed-check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.ed-check-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.ed-check-word {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.ed-check-word:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.18));
+}
+
+.ed-check-term {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ed-check-times,
+.ed-check-arrow {
+  flex: 0 0 auto;
+  color: var(--vscode-descriptionForeground);
+}
+
+.ed-check-replacement {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ed-check-replace-one {
+  margin-left: auto;
+}
+
+.ed-check-replace-one,
+.ed-check-replace-all {
+  flex: 0 0 auto;
+}
+
+.ed-check-foot {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.ed-check-rule {
+  flex: 1 1 auto;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ed-check-bad {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  cursor: help;
+}
+
+.ed-check-edit {
+  flex: 0 0 auto;
+}

@@ -14,7 +14,8 @@
  *   `nf-workspace-reset`，「编辑」菜单段落那几项的 `nf-paragraph-query` / `nf-paragraph-command`，
  *   「文件 → 历史版本…」的 `nf-versions-query` / `nf-versions-command`，「文件 → 转到…」的
  *   `nf-quickopen-query` / `nf-quickopen-command`，「视图」菜单的 `nf-view-query` / `nf-view-command`，
- *   「视图 → 统计」那一组的 `nf-stats-query` / `nf-stats-command`，
+ *   「视图 → 统计」那一组的 `nf-stats-query` / `nf-stats-command`，「视图 → 体检」那一组的 `nf-check-query` /
+ *   `nf-check-command`，
  *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录）。
  *   `nf-pick-folder` 给目录选择器拦欢迎页的占位 prompt。
  * - `__nfShowMenu`：view 出的「在某处弹一个菜单」（编辑器标签条末尾的「▾」用），与右键菜单是同一个引擎。
@@ -78,6 +79,8 @@ declare global {
     'nf-view-command': CustomEvent<{ name: ViewCommandName }>;
     'nf-stats-query': CustomEvent<StatsStatus>;
     'nf-stats-command': CustomEvent<{ name: StatsCommandName }>;
+    'nf-check-query': CustomEvent<CheckStatus>;
+    'nf-check-command': CustomEvent<{ name: CheckCommandName }>;
     'nf-reveal-in-files': CustomEvent<{ path: string; dir: boolean }>;
   }
 }
@@ -314,6 +317,36 @@ export function queryStats(): StatsStatus {
 
 export function commandStats(name: StatsCommandName): void {
   window.dispatchEvent(new CustomEvent('nf-stats-command', { detail: { name } }));
+}
+
+// ---------------------------------------------------------------- 「视图 → 体检」
+
+/**
+ * 「视图」菜单「体检」那一组问编辑器的状态（`editor/check.ts` 回答）：正文里画不画体检高亮、状态栏显示不显示「体检」
+ * 那一格（按浏览器记在 `novelforge.editor.prefs` 的 `check` 里），以及「编辑敏感词表…」能不能点（没打开工程不能）。
+ */
+export interface CheckStatus {
+  /** 编辑器装上了（插件没有，那时这一组置灰）。 */
+  available: boolean;
+  /** 体检高亮（缺省开）。 */
+  highlight: boolean;
+  /** 状态栏「体检」那一格（缺省开）。 */
+  status: boolean;
+  /** 打开着工程（「编辑敏感词表…」要它）。 */
+  canEditList: boolean;
+}
+
+/** 两个开关，外加「编辑敏感词表…」（没有就新建一份模板，然后在编辑器里打开）。 */
+export type CheckCommandName = 'toggleHighlight' | 'toggleStatus' | 'editList';
+
+export function queryCheck(): CheckStatus {
+  const status: CheckStatus = { available: false, highlight: true, status: true, canEditList: false };
+  window.dispatchEvent(new CustomEvent('nf-check-query', { detail: status }));
+  return status;
+}
+
+export function commandCheck(name: CheckCommandName): void {
+  window.dispatchEvent(new CustomEvent('nf-check-command', { detail: { name } }));
 }
 
 // ---------------------------------------------------------------- 在「文件」页定位
