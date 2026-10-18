@@ -72,6 +72,7 @@
 | `setting` | `config.md` / `premise.md` / `world.md`（带 `doc`） | `settingFile.ts`；配置的 frontmatter 产物没给就沿用磁盘那份 | — | — |
 | `outline` / `style` / `globalSummary` / `threads` | 固定路径 | 纯文本 | — | — |
 | `skill` | `.novelforge/skills.json` 与 `.novelforge/skills/**` | 纯文本（`plain`，不加 frontmatter） | — | — |
+| `sensitive` | `.novelforge/sensitive.txt`（自定义敏感词表，内置编辑器的写作体检用） | 纯文本（`plain`） | —（链外：没有创作阶段、不进装配器，改了它不让任何一章挂 ⟳） | — |
 | `plot` | `summaries/` 下（各级子目录都算，镜像正文的路径）+ 数字前缀 + markdown | `plotFile.ts`（八节） | 写入记大纲里覆盖本章那一节的指纹（`outlineUpstreamHash`）；定稿记的 `sourceHash` / `cast` 由 `finalizePlot` 写，重写细纲时原样沿用 | — |
 | `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | —（正文依据的细纲指纹记在细纲的 `writtenFrom` 上） | 改名/移动带草稿与细纲（整个卷目录也带，连同它们的历史版本）；写后 `syncManifest` |
 | `character` / `lore` | 各自区 + `.md` | frontmatter | — | — |
@@ -93,7 +94,8 @@
    （见 `model/plotFile.ts` 的文件头）。那些文件
    是作者的东西，磁盘上一个字节都不动，但代码里彻底不认——`guard.ts` 的
    `isProtectedPath` 仍然把那几个目录列为受保护目录，免得哪条文件操作把它们整棵删掉。
-5. **`.novelforge/history/` 下的东西都判成 `other`**：那是一份份旧稿（历史版本），装配器只按种类与固定目录读，
+5. **敏感词表单列一种 `sensitive`，不落 `other`**：它与 `other` 一样在指纹链之外、装配器不读，但它是作者手维护的词表，改坏了要找得回来——`other` 不存历史版本，`sensitive` 存。新建经「编辑敏感词表…」（`controller/check.ts`：`write` 的 `mode: 'create'`，同名报错、不覆盖；作者点的那一下就是那一问，文件本来不在，没有可审阅的），保存走内置编辑器那条路（乐观锁，`review: false`），都不弹覆盖审阅。
+6. **`.novelforge/history/` 下的东西都判成 `other`**：那是一份份旧稿（历史版本），装配器只按种类与固定目录读，
    碰不到它（与第 10 条「草稿不进上下文」同一个道理）；它们自己也就不会再被存历史版本。
 
 ## 历史版本（`history.ts`）
@@ -120,7 +122,7 @@
 
 | 情形 | 存不存 |
 |---|---|
-| `kindOfPath` 是 `other`（工程根的随手记、`README`、老工程的 `plots/`……）、还不是小说工程（没有 `.novelforge/`） | 不存——不替作者凭空建出一个工程目录 |
+| `kindOfPath` 是 `other`（工程根的随手记、`README`、老工程的 `plots/`……）、还不是小说工程（没有 `.novelforge/`） | 不存——不替作者凭空建出一个工程目录（敏感词表是 `sensitive`，存） |
 | 新内容与旧内容一样（什么都没覆盖）、旧内容与最新一个快照一样 | 不存 |
 | 最新快照不到 10 分钟，且「旧内容 ↔ 最新快照」「旧内容 ↔ 新内容」两处改动都在 300 字以内（公共前后缀粗算，`changedChars`） | 不存——自动保存每两秒存一次时攒不出几百个快照 |
 | 其余（第一次、隔了 10 分钟以上、整章重写 / 修稿 / 一键排版 / 定稿这类大改） | 存 |
