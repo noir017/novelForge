@@ -54,7 +54,7 @@ before(async () => {
   // 第 4 章示例工程里本来就排了细纲（计划）：审第 3 章时它是「后续章节计划」。
   const s2 = path.join(t.dir, '.novelforge/summaries/002-客栈里的女人.md');
   const facts = '- 沈氏住进走廊尽头的房间 〔证据：「住进走廊尽头的房间」〕\n- 林昭否认知道七年前的火';
-  fs.writeFileSync(s2, fs.readFileSync(s2, 'utf8').replace(/(## 连续性事实\n\n)（待补充）/, `$1${facts}`));
+  fs.writeFileSync(s2, fs.readFileSync(s2, 'utf8').replace(/(## 连续性事实\r?\n\r?\n)（待补充）/, `$1${facts}`));
   const s1 = path.join(t.dir, '.novelforge/summaries/001-楔子.md');
   fs.writeFileSync(s1, fs.readFileSync(s1, 'utf8').replace(/sourceHash: \w+/, 'sourceHash: stale000'));
 

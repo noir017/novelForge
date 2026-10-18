@@ -479,7 +479,7 @@ describe('装配：降级成细纲时，「计划」只标没定稿过的章', (
   });
 
   test('从没定稿过：块头与说明都写明是计划', async () => {
-    const item = await degradedP3((f) => f.write(PLOT3, f.read(PLOT3).replace(/^sourceHash: .*\n/m, '')));
+    const item = await degradedP3((f) => f.write(PLOT3, f.read(PLOT3).replace(/^sourceHash: .*\r?\n/m, '')));
     assert.equal(item.status, 'degraded', item.note);
     assert.ok(item.text.startsWith('【第 3 章《夜访》 · 细纲（计划，没定稿）】\n'), item.text.slice(0, 40));
     assert.match(item.note, /已降级为细纲（还没定稿，是写之前的计划）$/);
@@ -2216,7 +2216,7 @@ describe('细纲的计划出场：装配时认别名，但不进出场统计（D
     p = projectMod.NovelProject.open(fixture.dir);
     // 第 4 章只排了细纲（计划）：把计划出场改成别名「阿昭」，外加一个还没有卡的人。
     const plot4 = fixture.read(PLOT4);
-    fixture.write(PLOT4, plot4.replace('## 出场人物\n\n林昭、年轻守卫、李叔', '## 出场人物\n\n阿昭、陌生人甲'));
+    fixture.write(PLOT4, plot4.replace(/(## 出场人物\r?\n\r?\n)林昭、年轻守卫、李叔/, '$1阿昭、陌生人甲'));
     assert.notEqual(fixture.read(PLOT4), plot4, '示例工程第 4 章的「出场人物」一节变了，这里要跟着改');
     p.invalidate();
     built4 = await builderMod.buildContext(
