@@ -8,13 +8,14 @@
  * - **编辑器偏好**：按浏览器记、不进工程的开关，存 localStorage `novelforge.editor.prefs`（不按工程分键：
  *   这是作者的手感，不是这本书的设置）。三项：成对符号自动补全（缺省开）、自动保存（缺省关，见
  *   `autosave.ts`）、单击打开为临时标签（缺省开，标题栏「视图」菜单，见 `viewPrefs.ts`）。localStorage
- *   不可写（隐私模式、jsdom 的 about:blank）时照样在内存里生效，只是刷新后回到缺省。
+ *   不可写（隐私模式、jsdom 的 about:blank）时照样在内存里生效，只是刷新后回到缺省。同一个键里还有码字统计
+ *   的 `stats`（`stats.ts` 自己读写）——写的时候都是读出来合上再写（`storedPrefs`）。
  */
 import { DEFAULT_PARAGRAPH_STYLE, isParagraphStyle } from '../protocol';
 import type { ParagraphStyle } from '../protocol';
 import { onMessage } from '../vscodeApi';
 
-const PREFS_KEY = 'novelforge.editor.prefs';
+export const PREFS_KEY = 'novelforge.editor.prefs';
 
 interface EditorPrefs {
   autoPair: boolean;
@@ -105,8 +106,22 @@ function loadPrefs(): EditorPrefs {
 
 function savePrefs(): void {
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    // 别的模块也往这个键里记自己那几项（码字统计的 `stats`，见 `stats.ts`）：读出来合上再写，不冲掉它们。
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ ...storedPrefs(), ...prefs }));
   } catch {
     /* 不可写就只在内存里生效 */
+  }
+}
+
+/**
+ * localStorage 里 `novelforge.editor.prefs` 现存的那一整份（不是对象、读不了就是空对象）。往这个键里记东西的模块
+ * 都先读它、合上自己那几项再写（这里的 `savePrefs`、码字统计的 `stats.ts`），谁也不冲掉谁。
+ */
+export function storedPrefs(): Record<string, unknown> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null') as unknown;
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  } catch {
+    return {};
   }
 }

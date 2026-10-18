@@ -145,6 +145,16 @@ describe('chapterIndex：变了才推', () => {
     await controller.handle({ type: 'ready' });
     assert.equal(all('chapterIndex').length, 1);
   });
+
+  // 编辑器状态栏的「距目标」只认这个字段：它必须与写正文时判「写够没有」的目标是同一个数——
+  // 细纲的 targetWords，没写就是 config.md 的每章字数（controller/chat.ts 的 targetWordsOf 同一个式子）。
+  test('细纲没写目标字数的章：目标取小说配置的每章字数；细纲写了的照旧取细纲的', async () => {
+    t.write('.novelforge/config.md', '---\nwordsPerChapter: 2500\n---\n# 小说配置\n');
+    posted = [];
+    await controller.pushState();
+    const rows = lastOf('chapterIndex').chapters;
+    assert.deepEqual(rows.map((r) => [r.no, r.targetWords]), [[1, 2500], [2, 2500], [3, 3000]]);
+  });
 });
 
 describe('chapterIndex：还不是小说工程', () => {

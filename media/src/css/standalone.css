@@ -28,6 +28,7 @@
 @import './standalone/merge.css';
 @import './standalone/versions.css';
 @import './standalone/quickopen.css';
+@import './standalone/stats.css';
 
 /* 覆盖 view.css 的那几处 */
 @import './standalone/side-tweaks.css';

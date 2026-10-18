@@ -14,6 +14,7 @@
  *   `nf-workspace-reset`，「编辑」菜单段落那几项的 `nf-paragraph-query` / `nf-paragraph-command`，
  *   「文件 → 历史版本…」的 `nf-versions-query` / `nf-versions-command`，「文件 → 转到…」的
  *   `nf-quickopen-query` / `nf-quickopen-command`，「视图」菜单的 `nf-view-query` / `nf-view-command`，
+ *   「视图 → 统计」那一组的 `nf-stats-query` / `nf-stats-command`，
  *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录）。
  *   `nf-pick-folder` 给目录选择器拦欢迎页的占位 prompt。
  * - `__nfShowMenu`：view 出的「在某处弹一个菜单」（编辑器标签条末尾的「▾」用），与右键菜单是同一个引擎。
@@ -75,6 +76,8 @@ declare global {
     'nf-quickopen-command': CustomEvent<{ name: 'open' }>;
     'nf-view-query': CustomEvent<ViewPrefsStatus>;
     'nf-view-command': CustomEvent<{ name: ViewCommandName }>;
+    'nf-stats-query': CustomEvent<StatsStatus>;
+    'nf-stats-command': CustomEvent<{ name: StatsCommandName }>;
     'nf-reveal-in-files': CustomEvent<{ path: string; dir: boolean }>;
   }
 }
@@ -252,6 +255,36 @@ export function queryViewPrefs(): ViewPrefsStatus {
 
 export function commandViewPrefs(name: ViewCommandName): void {
   window.dispatchEvent(new CustomEvent('nf-view-command', { detail: { name } }));
+}
+
+// ---------------------------------------------------------------- 「视图 → 统计」
+
+/**
+ * 「视图」菜单「统计」那一组问编辑器的状态（`editor/stats.ts` 回答）：状态栏字数那一格除了全文 / 选中，还显示
+ * 哪几项（按浏览器记在 `novelforge.editor.prefs` 的 `stats` 里）。与 `ViewPrefsStatus` 分开一份：那是别的组的。
+ */
+export interface StatsStatus {
+  /** 编辑器装上了（插件没有，那时这一组置灰）。 */
+  available: boolean;
+  /** 正文显示本章字数与目标的进度（缺省开）。 */
+  goal: boolean;
+  /** 显示本次码字（缺省关）。 */
+  session: boolean;
+  /** 显示今日码字（缺省关）。 */
+  today: boolean;
+}
+
+/** 三个开关，外加「重新开始计时」（本次码字从现在起重新算）。 */
+export type StatsCommandName = 'toggleGoal' | 'toggleSession' | 'toggleToday' | 'restart';
+
+export function queryStats(): StatsStatus {
+  const status: StatsStatus = { available: false, goal: true, session: false, today: false };
+  window.dispatchEvent(new CustomEvent('nf-stats-query', { detail: status }));
+  return status;
+}
+
+export function commandStats(name: StatsCommandName): void {
+  window.dispatchEvent(new CustomEvent('nf-stats-command', { detail: { name } }));
 }
 
 // ---------------------------------------------------------------- 在「文件」页定位

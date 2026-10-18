@@ -76,7 +76,7 @@ import { extraTabItems } from './tabMenu';
 import { tabNames } from './tabLabels';
 import type { TabName } from './tabLabels';
 import { createTabStrip, tabText } from './tabStrip';
-import { countWords, formatWords } from './words';
+import { renderWordStatus } from './stats';
 
 /** 哪些扩展名有 Markdown 可预览。 */
 const MARKDOWN_RE = /\.(md|markdown)$/i;
@@ -492,7 +492,7 @@ export function createPane(
     }
 
     if (!file) {
-      el.statusWords.textContent = '';
+      renderWordStatus(el.statusWords, pane, undefined);
       el.statusPos.textContent = '';
       renderSaveState(el.statusSave, undefined);
       el.statusFile.textContent = '';
@@ -538,7 +538,8 @@ export function createPane(
     }
 
     el.statusFile.textContent = file.name;
-    el.statusWords.textContent = `${formatWords(countWords(file.draft))} · ${file.draft.length} 字符`;
+    // 字数那一格（全文 / 选中、距目标、本次 / 今日码字，点开是码字统计面板）归 stats.ts。
+    renderWordStatus(el.statusWords, pane, file);
 
     if (previewMode) {
       el.statusPos.textContent = '预览';

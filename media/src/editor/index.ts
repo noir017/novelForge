@@ -31,6 +31,7 @@ import { installParagraphTools } from './paragraph';
 import { installQuickOpen } from './quickOpen';
 import { installEditorReplace } from './replace';
 import { installSaveSafety } from './safety';
+import { installWritingStats } from './stats';
 import { installVersions } from './versions';
 import { installViewPrefs } from './viewPrefs';
 import { createPaneElements, mainRefs } from './paneElements';
@@ -89,6 +90,8 @@ function start(stage: HTMLElement): void {
   installChapterBar(stage, post);
   // 标题栏「视图」菜单的编辑器那一半（单击打开为临时标签）。
   installViewPrefs();
+  // 码字统计：状态栏字数那一格（选中、距目标、本次 / 今日码字）与它的面板、「视图 → 统计」。
+  installWritingStats();
   // 查找替换（Ctrl+F / Ctrl+H / F3、「编辑」菜单的查找 / 替换）。
   installFind();
 

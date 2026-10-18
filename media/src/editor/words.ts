@@ -46,10 +46,6 @@ export function countWords(text: string): number {
   return n;
 }
 
-export function formatWords(n: number): string {
-  return n >= 10000 ? `${(n / 10000).toFixed(2)} 万字` : `${n} 字`;
-}
-
 /** 千分位：3120 → 「3,120」。负数带负号。 */
 export function groupDigits(n: number): string {
   const s = String(Math.abs(Math.round(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ',');

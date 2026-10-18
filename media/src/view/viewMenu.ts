@@ -9,9 +9,10 @@
 import { commandViewPrefs, queryViewPrefs } from '../globals';
 import type { ViewPrefsStatus } from '../globals';
 import type { MenuEntry } from './menubar';
+import { statsMenuEntries } from './statsMenu';
 
-/** 「视图」里的各组，从上到下。 */
-const GROUPS: ((status: ViewPrefsStatus) => MenuEntry[])[] = [editorTabs];
+/** 「视图」里的各组，从上到下。「统计」那一组在 `statsMenu.ts`（状态自己问编辑器）。 */
+const GROUPS: ((status: ViewPrefsStatus) => MenuEntry[])[] = [editorTabs, statsMenuEntries];
 
 export function viewMenuEntries(): MenuEntry[] {
   const status = queryViewPrefs();

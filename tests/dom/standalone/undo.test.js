@@ -187,17 +187,21 @@ describe('撤销 / 重做：输入法组字', { skip: JSDOM_SKIP }, () => {
     const a = area();
     a.setSelectionRange(3, 3);
     a.dispatchEvent(new ui.window.CompositionEvent('compositionstart', { bubbles: true }));
+    const words = () => ui.doc.getElementById('edStatusWords').textContent;
     for (const step of ['l', 'li', 'lin', '林', '林昭']) {
       a.value = `雨夜。${step}`;
       a.setSelectionRange(3 + step.length, 3 + step.length);
       a.dispatchEvent(
         new ui.window.InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', isComposing: true })
       );
+      if (step === '林') {
+        // 组字中途字数照样跟着刷新（只是不记撤销）。
+        assert.match(words(), /全文 3 字/);
+      }
     }
     a.dispatchEvent(new ui.window.CompositionEvent('compositionend', { bubbles: true, data: '林昭' }));
     assert.equal(a.value, '雨夜。林昭');
-    // 组字中途字数照样跟着刷新（只是不记撤销）。
-    assert.match(ui.doc.getElementById('edStatusWords').textContent, /5 字符/);
+    assert.match(words(), /全文 4 字/);
 
     a.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
     assert.equal(a.value, '雨夜。', '一下就退掉整段，不会退出半截拼音');
