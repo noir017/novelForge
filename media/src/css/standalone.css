@@ -27,6 +27,7 @@
 @import './standalone/explorer.css';
 @import './standalone/merge.css';
 @import './standalone/versions.css';
+@import './standalone/quickopen.css';
 
 /* 覆盖 view.css 的那几处 */
 @import './standalone/side-tweaks.css';

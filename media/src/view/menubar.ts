@@ -6,6 +6,7 @@
 import { el as mk } from '../dom';
 import { commandEditor, queryEditor } from '../globals';
 import { versionsMenuEntry } from './versionsMenu';
+import { quickOpenMenuEntry } from './quickOpenMenu';
 import {
   closeFolder,
   hideWelcome,
@@ -140,6 +141,7 @@ function entriesOf(key: string): MenuEntry[] {
       { label: '新建工程…', action: 'newProject' },
       { label: 'sep' },
       { label: '打开文件…', action: 'openFile', disabled: !ws },
+      quickOpenMenuEntry(),
       { label: '打开文件夹…', action: 'openFolder', kbd: 'Ctrl+O' },
       { label: '打开最近打开的', submenu: recentEntries() },
       { label: 'sep' },

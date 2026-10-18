@@ -203,12 +203,16 @@ function readArtifact(name) {
  * @param {Array<keyof SHIMS>} [opts.shims] 补哪些 jsdom 缺的 API
  * @param {boolean} [opts.empty] 独立版空窗口（`no-workspace`）。默认按已打开工程挂，
  *   这样创作页 / 编辑器 / 资源管理器用例不必每条都先推一条 `workspaces`。
+ * @param {string} [opts.url] 页面地址。缺省是 `about:blank`——那是个不透明的源，`localStorage` 一碰就抛，
+ *   前端各处「记不进去就算了」；要测确实记进了 localStorage（按工程分键的那几样）时给一个
+ *   `http://localhost/?project=…`。
  */
 function mount({
   body = 'webview',
   scripts = ['view.js'],
   shims = ['clipboard', 'scrollIntoView'],
   empty = false,
+  url,
 } = {}) {
   if (!hasJsdom) throw new Error('未安装 jsdom');
 
@@ -218,7 +222,7 @@ function mount({
       ? `<!DOCTYPE html><html><body class="workbench${empty ? ' no-workspace' : ''}">${standaloneBodyHtml()}</body></html>`
       : `<!DOCTYPE html><html><body>${bodyHtml()}</body></html>`;
 
-  const dom = new JSDOM(html, { runScripts: 'outside-only' });
+  const dom = new JSDOM(html, { runScripts: 'outside-only', ...(url ? { url } : {}) });
   const { window } = dom;
   const sent = [];
   window.acquireVsCodeApi = () => ({

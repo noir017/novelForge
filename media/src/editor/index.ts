@@ -25,6 +25,7 @@ import { installChapterBar } from './chapterBar';
 import { installConflictMerge } from './conflictMerge';
 import { installFind } from './find';
 import { installParagraphTools } from './paragraph';
+import { installQuickOpen } from './quickOpen';
 import { installEditorReplace } from './replace';
 import { installSaveSafety } from './safety';
 import { installVersions } from './versions';
@@ -254,6 +255,9 @@ function start(stage: HTMLElement): void {
         break;
     }
   });
+
+  // 「转到…」（Ctrl+P）。要在上面那个 onMessage 之后装：editorOpen 先让编辑区收下文件，它才找得到该把焦点放进哪一块。
+  installQuickOpen(post);
 
   // ---------------------------------------------------------------- 启动
 

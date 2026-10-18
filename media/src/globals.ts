@@ -12,7 +12,8 @@
  * - 自定义事件：`nf-editor-active`、`nf-files-moved`，以及标题栏（view.js）
  *   与编辑器（editor.js）之间的 `nf-editor-query` / `nf-editor-command` /
  *   `nf-workspace-reset`，「编辑」菜单段落那几项的 `nf-paragraph-query` / `nf-paragraph-command`，
- *   「文件 → 历史版本…」的 `nf-versions-query` / `nf-versions-command`。
+ *   「文件 → 历史版本…」的 `nf-versions-query` / `nf-versions-command`，「文件 → 转到…」的
+ *   `nf-quickopen-query` / `nf-quickopen-command`。
  *   `nf-pick-folder` 给目录选择器拦欢迎页的占位 prompt。
  */
 
@@ -67,6 +68,8 @@ declare global {
     'nf-paragraph-command': CustomEvent<{ name: ParagraphCommandName }>;
     'nf-versions-query': CustomEvent<VersionsStatus>;
     'nf-versions-command': CustomEvent<{ name: 'open' }>;
+    'nf-quickopen-query': CustomEvent<QuickOpenStatus>;
+    'nf-quickopen-command': CustomEvent<{ name: 'open' }>;
   }
 }
 
@@ -195,4 +198,26 @@ export function queryVersions(): VersionsStatus {
 /** 打开当前那块编辑区的「历史版本」面板。 */
 export function commandVersions(name: 'open'): void {
   window.dispatchEvent(new CustomEvent('nf-versions-command', { detail: { name } }));
+}
+
+// ---------------------------------------------------------------- 「文件」菜单「转到…」
+
+/**
+ * 标题栏「文件 → 转到…」问编辑器「转到」面板能不能开（`editor/quickOpen.ts` 回答）：没打开工程时不能，
+ * 原因挂在菜单项的提示上。editor.js 没装（插件形态，也就没有标题栏）时没人回答，当不能用。
+ */
+export interface QuickOpenStatus {
+  available: boolean;
+  reason?: string;
+}
+
+export function queryQuickOpen(): QuickOpenStatus {
+  const status: QuickOpenStatus = { available: false, reason: '没有内置编辑器' };
+  window.dispatchEvent(new CustomEvent('nf-quickopen-query', { detail: status }));
+  return status;
+}
+
+/** 打开「转到」面板（与 Ctrl+P 同一件事）。 */
+export function commandQuickOpen(name: 'open'): void {
+  window.dispatchEvent(new CustomEvent('nf-quickopen-command', { detail: { name } }));
 }

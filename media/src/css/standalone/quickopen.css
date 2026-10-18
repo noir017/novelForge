@@ -1,0 +1,126 @@
+/*
+ * 「转到…」面板（editor/quickOpen.ts，Ctrl+P / 「文件 → 转到…」）：页面顶部居中一个输入框 + 候选列表，
+ * 不是全屏遮罩——正文、对话、工程页照样看得见，点面板外面就收起。DOM 由 quickOpen.ts 现造、关掉就拆，
+ * 挂在 body 上 `position: fixed`。层级压在提示条（30）上面、标题栏菜单（40）下面。
+ */
+
+.qo-panel {
+  position: fixed;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(620px, calc(100vw - 24px));
+  max-height: min(70vh, 560px);
+  padding: 6px;
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  box-shadow: var(--nf-shadow);
+}
+
+.qo-panel .qo-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+
+.qo-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 6px;
+}
+
+.qo-section {
+  padding: 6px 8px 2px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.qo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.qo-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.qo-item.active {
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+/* 类型标记：章 / 角色 / 设定 / 架构 / 文档 / 草稿。 */
+.qo-badge {
+  flex: 0 0 auto;
+  min-width: 2.6em;
+  margin-top: 1px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+}
+
+.qo-badge-chapter {
+  border-color: var(--vscode-focusBorder);
+  color: var(--vscode-textLink-foreground);
+}
+
+.qo-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.qo-name,
+.qo-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qo-name {
+  font-size: 13px;
+}
+
+.qo-detail {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* 匹配到的字：只换颜色加粗，不给底色——一行里几处底色会花。 */
+.qo-name mark,
+.qo-detail mark {
+  padding: 0;
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
+  font-weight: 600;
+}
+
+.qo-note {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.qo-foot {
+  margin-top: 4px;
+  padding: 4px 8px 0;
+  border-top: 1px solid var(--vscode-panel-border);
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
