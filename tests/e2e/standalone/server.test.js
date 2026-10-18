@@ -141,6 +141,11 @@ describe('WebSocket 与 Origin 校验', () => {
     assert.ok(first.type === 'init' || first.type === 'state', first.type);
   });
 
+  // 内置编辑器的回车、标题栏「段落格式」的勾在哪个页签都要用，所以分段格式随 state 推（工程树只在工程页签推）。
+  test('state 带分段格式，config.md 没写时是 blank', () => {
+    assert.equal(first.state.paragraphStyle, 'blank');
+  });
+
   test('跨源 Origin 被拒 403', () => {
     assert.equal(bad.status, 403);
   });

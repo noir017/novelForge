@@ -30,6 +30,7 @@ import { scoped } from '../runtime/logger';
 import { CharacterAction, ProjectAction } from '../protocol';
 import { normalizeRange } from '../model/session';
 import { isWriteBatchMode } from '../model/pipeline';
+import { PARAGRAPH_STYLE_LABEL, isParagraphStyle } from '../model/paragraphFormat';
 import { selectPlot } from './chat';
 
 const log = scoped('面板');
@@ -159,6 +160,28 @@ export async function projectAction(
 
   // 这些流程大多会改动磁盘，且不一定触发 watcher（比如刚初始化的空工程）。
   // pushState 会顺带刷新当前页签。
+  await c.pushState();
+}
+
+/**
+ * 内置编辑器「编辑 → 段落格式」：切换正文的分段格式。只改 `config.md` frontmatter 的
+ * `paragraphStyle` 这一个键，正文一个字节不动（`Workspace.setParagraphStyle`）。
+ * 还不是小说工程时不写——写一份 `config.md` 也不会让它变成工程，只会多出一个没人认的文件。
+ */
+export async function setParagraphStyle(c: ChatController, style: unknown): Promise<void> {
+  if (!isParagraphStyle(style)) {
+    log.warn(`认不出的分段格式：${String(style)}，忽略`);
+    return;
+  }
+  if (!(await c.project.isInitialized())) {
+    getHost().toast('还不是小说工程，先初始化工程再设段落格式。', 'error');
+    return;
+  }
+  const rel = await c.workspace.setParagraphStyle(style);
+  if (rel) {
+    log.info(`段落格式改为「${PARAGRAPH_STYLE_LABEL[style]}」`, rel);
+  }
+  // 前端的勾与编辑器的回车都跟着 state / project 走。
   await c.pushState();
 }
 

@@ -42,6 +42,8 @@ import {
 } from '../model/fs';
 import { Chapter, SummaryCast } from '../model/types';
 import { rewriteFrontmatter, stringifyFrontmatter } from '../model/markdown';
+import { setConfigParagraphStyle } from '../model/settingFile';
+import type { ParagraphStyle } from '../model/paragraphFormat';
 import { isMarkdownExt, isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
 import { isFallbackChapterTitle } from '../model/pipeline';
 import { endsMidSentence } from '../model/manuscriptCheck';
@@ -785,6 +787,31 @@ export class Workspace {
   async writeSkillBindings(text: string): Promise<string> {
     const rel = this.project.relPath(this.project.skillBindingsPath);
     await writeText(this.project.pathOf(rel), text);
+    return rel;
+  }
+
+  /**
+   * 切换正文的分段格式（内置编辑器「编辑 → 段落格式」）：**只改 `config.md` frontmatter 的
+   * `paragraphStyle` 这一行**，正文一个字节不动（`setConfigParagraphStyle`）。没有 `config.md` 时新建一份
+   * 只有这一段 frontmatter 的——它没有任何小节，「小说配置」照旧算没填，主按钮不变。
+   *
+   * 走 `write` 这一条网关（越界、大小这些守卫照过），不弹覆盖审阅：改的只是作者自己在菜单里点的那一个键，
+   * 没有内容会被吞掉。带上读到时的 hash 当乐观锁——读与写之间作者在编辑器里存过，就报冲突、不覆盖。
+   * 返回写到的相对路径；已经是这个值时不写，返回 undefined。
+   */
+  async setParagraphStyle(style: ParagraphStyle): Promise<string | undefined> {
+    const rel = this.project.relPath(this.project.configPath);
+    // 读不到（不存在）当空串；权限之类的错误照常上抛——吞掉它会拿一份最小的配置盖掉作者那份。
+    const raw = await readTextIfExists(this.project.configPath);
+    const next = setConfigParagraphStyle(raw ?? '', style);
+    if (raw !== undefined && next === raw) {
+      return undefined;
+    }
+    await this.write(
+      rel,
+      { text: next },
+      { mode: 'overwrite', review: false, baseHash: raw === undefined ? undefined : hash(raw) }
+    );
     return rel;
   }
 

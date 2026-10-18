@@ -11,6 +11,7 @@ import type {
 } from '../model/pipeline';
 import type { ThinkingDepth } from '../model/thinking';
 import type { ReviewReport } from '../model/review';
+import type { ParagraphStyle } from '../model/paragraphFormat';
 import type { SerializedAttachment } from './in';
 
 export interface ViewState {
@@ -36,6 +37,11 @@ export interface ViewState {
   models: { ref: string; label: string; group: string }[];
   contextWindow: number;
   maxOutputTokens: number;
+  /**
+   * 正文的分段格式（`config.md` 的 `paragraphStyle`，没写是 `blank`）。工程树里也有一份；这里再带一份，
+   * 是因为工程树只在「工程」页签开着时才推，而内置编辑器的回车、标题栏「段落格式」的勾在哪个页签都要用。
+   */
+  paragraphStyle: ParagraphStyle;
 }
 
 export interface ProjectTree {
@@ -83,6 +89,8 @@ export interface ProjectTree {
   next?: NextStepView;
   /** 一句话、拆细纲两个弹窗的默认值（W4 / W5）。 */
   book: BookView;
+  /** 正文的分段格式（`config.md` 的 `paragraphStyle`）。总是有值，没写是 `blank`。 */
+  paragraphStyle: ParagraphStyle;
 }
 
 /**

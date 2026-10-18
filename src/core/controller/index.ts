@@ -32,6 +32,7 @@ import {
 } from '../protocol';
 import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
 import { buildPipelineIndex } from '../views/pipeline';
+import { DEFAULT_PARAGRAPH_STYLE } from '../model/paragraphFormat';
 import {
   chapterAction,
   editReview,
@@ -46,7 +47,7 @@ import {
 import type { PendingGate } from './gate';
 import { cancelGates, resendGates, resolveGate } from './gate';
 import { fileAction, openChapter, openDraft, pushDirListings, revealQuote } from './files';
-import { characterAction, projectAction } from './project';
+import { characterAction, projectAction, setParagraphStyle } from './project';
 import {
   deleteSession,
   newSession,
@@ -546,6 +547,10 @@ export class ChatController {
         await bindSkillFrom(this, this, msg.stage, msg.id);
         return;
 
+      case 'setParagraphStyle':
+        await setParagraphStyle(this, msg.style);
+        return;
+
       case 'openNativeSettings':
         await getHost().openNativeSettings?.();
         return;
@@ -633,12 +638,13 @@ export class ChatController {
         models,
         contextWindow: 0,
         maxOutputTokens: 0,
+        paragraphStyle: DEFAULT_PARAGRAPH_STYLE,
       };
     }
     // 目标下拉框：**一个章号一行**（细纲号 = 章号），顺序即时间线。
     // `relPath` 是那一章细纲的路径——还没有细纲时是它应该在的位置，选中它就是
     // 「去给这一章补规划」，`readPlot` 读不到会如实退化成空壳。
-    const { rows: pipelineRows } = await buildPipelineIndex(this.project);
+    const { rows: pipelineRows, config: book } = await buildPipelineIndex(this.project);
     const rows: ViewState['plots'] = pipelineRows.map((p) => ({
       no: p.no,
       label: chapterLabel(p.no, p.title),
@@ -659,6 +665,8 @@ export class ChatController {
       models,
       contextWindow: config.contextWindow,
       maxOutputTokens: config.maxOutputTokens,
+      // 流水线索引那一趟已经读过 config.md，不另读。
+      paragraphStyle: book.paragraphStyle ?? DEFAULT_PARAGRAPH_STYLE,
     };
   }
 

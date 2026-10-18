@@ -9,6 +9,7 @@ import type {
 } from '../model/pipeline';
 import type { SerializedProvider } from './out';
 import type { SkillStage } from '../model/writingSkill';
+import type { ParagraphStyle } from '../model/paragraphFormat';
 
 export type Tab = 'chat' | 'project' | 'files' | 'history' | 'settings' | 'logs';
 
@@ -197,7 +198,12 @@ export type InMessage =
   /** 从我的技能库卸载（挪进回收站）。只认 `user:` 的。 */
   | { type: 'uninstallSkill'; id: string }
   /** 本工程某个阶段绑哪份；`id` 为 null 是不带。 */
-  | { type: 'bindSkill'; stage: SkillStage; id: string | null };
+  | { type: 'bindSkill'; stage: SkillStage; id: string | null }
+  /**
+   * 内置编辑器「编辑 → 段落格式」：切换正文的分段格式。后端只改 `config.md` frontmatter 的
+   * `paragraphStyle` 这一个键（`Workspace.setParagraphStyle`），然后 `pushState`。
+   */
+  | { type: 'setParagraphStyle'; style: ParagraphStyle };
 
 export type ProjectAction =
   | 'initProject'

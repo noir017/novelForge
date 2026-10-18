@@ -4,6 +4,7 @@ import { listActiveFailures } from '../runtime/errorLog';
 import { scoped } from '../runtime/logger';
 import { hasContent, stripH1 } from '../model/markdown';
 import { BookConfig } from '../model/settingFile';
+import { DEFAULT_PARAGRAPH_STYLE } from '../model/paragraphFormat';
 import { BookFacts, BookStage, SETTING_DOC_LABEL, chapterLabel, deriveBookNextStep, deriveBookStage } from '../model/pipeline';
 import { NovelProject } from '../model/project';
 import { PLOT_SECTION_KEYS, parsePlotFileName } from '../model/plotFile';
@@ -90,6 +91,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       bookStage: 'setting',
       nextChapterNo: 1,
       book: { idea: '', configHasContent: false, plotFilledNos: [] },
+      paragraphStyle: DEFAULT_PARAGRAPH_STYLE,
     };
   }
 
@@ -259,6 +261,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       outlineCoverage: Number.isFinite(coverage) && coverage > 0 ? coverage : undefined,
       plotFilledNos: [...book.plotFilledNos],
     },
+    paragraphStyle: pipelineIndex.config.paragraphStyle ?? DEFAULT_PARAGRAPH_STYLE,
   };
 }
 
