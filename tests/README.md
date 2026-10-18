@@ -127,6 +127,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `shells/hostFs.test.js` | 本机一层目录列举（打开文件夹用），只在临时目录里扫 |
 | `shells/windowState.test.js` | `~/.novelforge/window.json` 的读写（写进临时目录） |
 | `shells/workspaceHub.test.js` | WorkspaceHub：工程目录可空、可热换 |
+| `editor/history.test.js` | 内置编辑器的撤销历史（`media/src/editor/history.ts`，纯逻辑）：连续打字并成一步，超过 1 秒、不挨着、换类型、带换行另起；退格 / Delete 连删都并；`join` 并进刚记下的那一步、撤销过之后不再并；新改动清重做栈；上限丢最早的；与文字对不上整份作废；`diffText` 拿光标认对有歧义的位置、不切开代理对 |
 | `runtime/progress.test.js` | 长任务进度快照、字符串 `report` 只改文案、宿主进度带 `（n/N）`、取消、抛异常继续上抛且进日志、并发两个任务、结束后清表 |
 | `runtime/watchPolicy.test.js` | 「哪些改动值得刷新界面」：两个壳共用的这一份策略（从前各写一份，改了一处忘了另一处） |
 
@@ -241,6 +242,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `standalone/welcome.test.js` | 空窗口 Get Started：Start / Recent、打开文件夹与新建工程入口；侧栏每一页的遮罩上也有「打开文件夹…」（W12），与欢迎页那颗同一个动作 |
 | `standalone/picker.test.js` | 远程风目录选择器：本机列一层、进子目录、新建文件夹；打开文件走工程内 `listDir` |
 | `standalone/find.test.js` | 内置编辑器查找条：Ctrl+F、Enter 下一处 / Shift+Enter 上一处 |
+| `standalone/undo.test.js` | 内置编辑器自己管的撤销 / 重做（每个文件一份）：切到别的标签再切回来 Ctrl+Z 仍退得回去、连续打字并成一步且回车断开、连续退格并成一步、Ctrl+Y 与 Ctrl+Shift+Z 重做、撤销回原样时脏标记跟着变、`beforeinput` 的 historyUndo 也拦下、关标签历史丢弃；输入法组字中途不记、上屏整段一步、组字时的 Ctrl+Z 放行；「还原」「用磁盘版本覆盖」也记一步；右键粘贴经程序改写入口（`\r\n` 归一）；搬到另一块编辑区历史跟着走；标题栏「编辑 → 撤销 / 重做」焦点在编辑区时走编辑器、在别的输入框时照旧 `execCommand`，按菜单按钮不夺焦点 |
 
 ### `e2e/` 与 `contract/`
 

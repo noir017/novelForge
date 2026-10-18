@@ -8,26 +8,66 @@
  */
 import { announceEditorActive, projectStorageKey } from '../globals';
 import type { EditorFileView, InMessage } from '../protocol';
+import type { TextSelection } from './history';
 import type { CarriedDraft, OpenFile, PaneId } from './paneElements';
+
+/** `Pane.applyEdit` 的选项。 */
+export interface ApplyEditOptions {
+  /**
+   * 并进上一步撤销，而不是另起一步——例如成对标点补上的后半个，撤销时与前半个一起退。
+   * 只往**刚记下的那一步**里并：上一步不存在、或中间撤销 / 重做过时照常另起一步。
+   */
+  join?: boolean;
+}
 
 /** 一块编辑区对外的样子。createPane 的返回值实现它。 */
 export interface Pane {
   readonly id: PaneId;
   /** 这块区的根节点，供整块显示/隐藏。 */
   readonly root: HTMLElement;
+  /**
+   * 这块区的 textarea（所有标签共用一个，显示的是当前文件）。**只读**它的 value 与选区；
+   * 改内容一律走 `applyEdit`，直接写 `value` 会绕过撤销记账与脏标记。
+   */
+  readonly area: HTMLTextAreaElement;
   readonly files: Map<string, OpenFile>;
   activePath: string | null;
   activeFile(): OpenFile | undefined;
+  /** 当前是不是在 Markdown 预览里（textarea 藏着，收不到按键）。 */
+  isPreviewing(): boolean;
   hasDirty(): boolean;
   snapshot(): PaneSnapshot;
   activate(path: string): void;
   closeFile(path: string): void;
   /**
    * 不问不提示地移走一个文件。用于「同一路径被另一块编辑区接管」——
-   * 那不是关闭，是搬家：返回未保存内容（没有则返回 true）好让新的一块贴回去。
+   * 那不是关闭，是搬家：返回要带过去的东西（未保存内容与撤销历史）好让新的一块接上；
+   * 没开着这个文件时返回 false。
    */
-  closeSilently(path: string): CarriedDraft | boolean;
+  closeSilently(path: string): CarriedDraft | false;
   upsertFile(incoming: EditorFileView, carried?: CarriedDraft): void;
+  /**
+   * **编辑区里唯一的程序改写入口**（缩进、成对标点、一键排版、全部替换、剪切 / 粘贴……都走它，
+   * 不许直接写 `textarea.value`）。作用于这块区的**当前文件**。
+   *
+   * - **范围**：把 `[start, end)` 换成 `text`。位置按编辑区里**当下显示的文字**算，即
+   *   `area.value` 的下标（与 `selectionStart` / `selectionEnd` 同一套）；越界的夹进去，
+   *   `start > end` 时对调。整份替换就传 `0, area.value.length`。`text` 里的 `\r\n` / `\r`
+   *   归一成 `\n`（textarea 只认 `\n`）。
+   * - **选区**：`selection` 是改完之后的选区，位置按**新文字**算；缺省是光标落在插入文字末尾
+   *   （`start + text.length`）。越界的夹进去。
+   * - **撤销**：一次调用记**一步**，不与前后的打字合并（`opts.join` 例外，见 `ApplyEditOptions`）。
+   *   撤销回到改之前的文字与改之前的选区，重做回到改之后的文字与 `selection`。
+   * - **其余**：同时更新 `file.draft`、脏标记、状态栏、标签圆点、草稿持久化，清掉过期的冲突条，
+   *   并发一条 `onEditorChange` 的 `edit`（`source: 'program'`）。预览模式下也能用，预览跟着重画。
+   *
+   * 返回内容是否真的变了：没开文件、或替换前后一字不差时返回 false（这时只设选区，不记撤销）。
+   */
+  applyEdit(start: number, end: number, text: string, selection?: TextSelection, opts?: ApplyEditOptions): boolean;
+  /** 撤销当前文件的一步。没有可撤销的返回 false。 */
+  undo(): boolean;
+  /** 重做当前文件的一步。没有可重做的返回 false。 */
+  redo(): boolean;
   save(force: boolean): void;
   savePath(path: string, force: boolean): void;
   showFind(): void;

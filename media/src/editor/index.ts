@@ -18,6 +18,7 @@
 import { maybeById } from '../dom';
 import { acquireApi, onMessage } from '../vscodeApi';
 import { toast } from '../globals';
+import { isImeComposing } from './api';
 import { createPane } from './pane';
 import { installChapterBar } from './chapterBar';
 import { createPaneElements, mainRefs } from './paneElements';
@@ -79,7 +80,8 @@ function start(stage: HTMLElement): void {
   // ---------------------------------------------------------------- 全局快捷键
 
   document.addEventListener('keydown', (e) => {
-    if (!(e.ctrlKey || e.metaKey)) {
+    // 输入法组字中途的 Ctrl 组合键是输入法的，放行。
+    if (isImeComposing(e) || !(e.ctrlKey || e.metaKey)) {
       return;
     }
     const key = e.key.toLowerCase();
@@ -106,6 +108,8 @@ function start(stage: HTMLElement): void {
     e.detail.dirtyAny = Object.values(panes).some((p) => p.hasDirty());
     e.detail.path = file?.path ?? null;
     e.detail.text = file?.draft ?? '';
+    // 焦点在哪块编辑区的正文区里：标题栏「编辑 → 撤销 / 重做」据此交给编辑器自己的历史。
+    e.detail.areaFocused = Object.values(panes).some((p) => p.area === document.activeElement);
   });
 
   window.addEventListener('nf-editor-command', (e) => {
@@ -122,6 +126,10 @@ function start(stage: HTMLElement): void {
       activePane.closeFile(activePane.activePath);
     } else if (name === 'find') {
       activePane.showFind();
+    } else if (name === 'undo') {
+      activePane.undo();
+    } else if (name === 'redo') {
+      activePane.redo();
     }
   });
 
@@ -169,13 +177,14 @@ function start(stage: HTMLElement): void {
     if (!pane || !file) {
       return;
     }
-    const carry: CarriedDraft | undefined =
-      file.draft !== file.text ? { hash: file.hash, draft: file.draft, moved: true } : undefined;
+    const carry: CarriedDraft = { history: file.history, historyText: file.draft };
+    if (file.draft !== file.text) {
+      Object.assign(carry, { hash: file.hash, draft: file.draft, moved: true });
+    }
     pane.closeSilently(from);
     rekeyStorage(from, to);
-    if (carry) {
-      pendingDrafts.set(to, carry);
-    }
+    // 撤销历史也跟着搬：新路径的那份文件到了、内容对得上就接上。
+    pendingDrafts.set(to, carry);
     pendingActive.set(pane.id, to);
     post({ type: 'openEditor', path: to, pane: pane.id });
   });
@@ -192,7 +201,7 @@ function start(stage: HTMLElement): void {
         for (const pane of Object.values(panes)) {
           if (pane !== target) {
             const moved = pane.closeSilently(msg.file.path);
-            if (moved && moved !== true) {
+            if (moved) {
               carried = moved;
             }
           }

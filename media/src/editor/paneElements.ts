@@ -7,6 +7,7 @@
  */
 import { byId, el, spacer } from '../dom';
 import type { ArtifactKind, EditorPane } from '../protocol';
+import type { EditHistory } from './history';
 
 /** 一块编辑区里所有需要操作的节点。 */
 export interface PaneRefs {
@@ -59,6 +60,11 @@ export interface OpenFile {
   kind?: ArtifactKind;
   caret: number;
   scrollTop: number;
+  /**
+   * 这份文件自己的撤销历史（`history.ts`）。切标签不丢，关标签随文件一起丢，刷新不恢复；
+   * 搬到另一块编辑区 / 改名时跟着搬（见 `CarriedDraft`）。
+   */
+  history: EditHistory;
 }
 
 /** 冲突时暂存的磁盘版本，供「用磁盘版本覆盖」使用。 */
@@ -73,11 +79,16 @@ export interface Conflict {
  * `moved` 表示文件刚改名/搬家——那时 hash 基线必然变了，草稿照贴；
  * 其余情况（刷新恢复）仍要求磁盘没变过，否则拿旧内容盖新内容就是
  * 另一种静默覆盖。
+ *
+ * `history` / `historyText`：搬家时连撤销历史一起带上（刷新恢复没有）。只有接上之后的内容与
+ * 搬走时（`historyText`）一字不差才接——否则那份差异对不上位置。
  */
 export interface CarriedDraft {
   hash?: string;
   draft?: string;
   moved?: boolean;
+  history?: EditHistory;
+  historyText?: string;
 }
 
 /** 从页面上固定的 id 收集主区的节点引用。 */

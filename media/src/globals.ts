@@ -36,9 +36,12 @@ export interface EditorStatus {
   dirtyAny: boolean;
   path: string | null;
   text: string;
+  /** 焦点在内置编辑器的正文区里。「编辑 → 撤销 / 重做」这时交给编辑器自己的历史。 */
+  areaFocused: boolean;
 }
 
-export type EditorCommandName = 'save' | 'saveAll' | 'close' | 'find';
+/** `undo` / `redo` 作用于当前那块编辑区的当前文件（编辑器自己记的历史，不是浏览器原生的）。 */
+export type EditorCommandName = 'save' | 'saveAll' | 'close' | 'find' | 'undo' | 'redo';
 
 declare global {
   interface Window {
@@ -89,6 +92,7 @@ export function queryEditor(): EditorStatus {
     dirtyAny: false,
     path: null,
     text: '',
+    areaFocused: false,
   };
   window.dispatchEvent(new CustomEvent('nf-editor-query', { detail: status }));
   return status;

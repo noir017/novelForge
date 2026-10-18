@@ -45,6 +45,10 @@ export function installMenubar(): void {
     return;
   }
 
+  // 点菜单不抢焦点：「编辑」里的撤销 / 剪切 / 粘贴作用于点菜单之前光标所在的那个输入框，
+  // 按钮在 mousedown 时把焦点拿走的话（Chromium 会），那几项就一律置灰、也没处可作用。
+  bar.addEventListener('mousedown', keepFocus);
+
   bar.addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement | null)?.closest<HTMLButtonElement>('.wb-menu-btn');
     if (!btn?.dataset.menu) {
@@ -208,7 +212,15 @@ function buildDrop(entries: MenuEntry[], submenu = false): HTMLElement {
     menu.appendChild(btn);
   }
   menu.addEventListener('click', (e) => e.stopPropagation());
+  menu.addEventListener('mousedown', keepFocus);
   return menu;
+}
+
+/** 菜单按钮与菜单项上按下鼠标时不夺走焦点（只拦默认动作，click 照常触发）。 */
+function keepFocus(e: MouseEvent): void {
+  if ((e.target as HTMLElement | null)?.closest('.wb-menu-btn, .wb-menu-item')) {
+    e.preventDefault();
+  }
 }
 
 function showSubmenu(anchor: HTMLElement, entries: SubEntry[]): void {
@@ -238,6 +250,7 @@ function showSubmenu(anchor: HTMLElement, entries: SubEntry[]): void {
     });
     subDrop.appendChild(btn);
   }
+  subDrop.addEventListener('mousedown', keepFocus);
   document.body.appendChild(subDrop);
   const rect = anchor.getBoundingClientRect();
   subDrop.style.left = `${Math.round(rect.right)}px`;
@@ -284,6 +297,13 @@ function run(action: MenuAction): void {
       return;
     case 'undo':
     case 'redo':
+      // 焦点在内置编辑器的正文区：撤销 / 重做是编辑器自己记的（每个文件一份），不走浏览器原生的。
+      if (queryEditor().areaFocused) {
+        commandEditor(action === 'undo' ? 'undo' : 'redo');
+        return;
+      }
+      document.execCommand(action);
+      return;
     case 'cut':
     case 'copy':
     case 'paste':
