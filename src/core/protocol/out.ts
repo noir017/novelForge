@@ -6,6 +6,7 @@ import type { ArtifactKind } from '../workspace/kind';
 import type { QuickOpenIndex } from './quickOpen';
 import type { CheckTermsView } from './check';
 import type { NameIndex } from './nameIndex';
+import type { BookFindResult, BookReplaceSummary } from './bookFind';
 import type {
   EditorOpenIntent,
   EditorPane,
@@ -227,6 +228,10 @@ export type OutMessage =
   | { type: 'versions'; path: string; entries: VersionView[]; unavailable?: string }
   /** 回 `readVersion`：那一个快照的全文；读不到时给 `error`。 */
   | { type: 'versionText'; requestId: string; path: string; id: string; text?: string; error?: string }
+  /** 回 `bookFind`：全书查找（或预览替换）的结果。认不出的 `requestId` 前端静默丢弃（另一个窗口要的、或已经叫停的）。 */
+  | { type: 'bookFindResult'; requestId: string; result: BookFindResult }
+  /** 回 `bookReplace`：替换了几个文件几处、跳过了哪些与为什么、指纹链怎么处理的。之后紧跟一次 `pushState`。 */
+  | { type: 'bookReplaceDone'; requestId: string; summary: BookReplaceSummary }
   | { type: 'dirListings'; listings: DirListing[] }
   | { type: 'filesOpDone'; op: 'rename' | 'move' | 'copy'; results: FileOpResult[] }
   | { type: 'tasks'; tasks: TaskSnapshot[] }

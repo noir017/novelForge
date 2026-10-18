@@ -77,6 +77,22 @@ export type {
 export type { CheckSensitiveTerm, CheckTermsView } from './check';
 export type { NameEntry, NameIndex, NameSource } from './nameIndex';
 
+export type {
+  BookFindFile,
+  BookFindHit,
+  BookFindQuery,
+  BookFindResult,
+  BookFindScope,
+  BookFindSkip,
+  BookReplaceDone,
+  BookReplaceFileRequest,
+  BookReplaceRenamedCard,
+  BookReplaceRequest,
+  BookReplaceSkipReason,
+  BookReplaceSkipped,
+  BookReplaceSummary,
+} from './bookFind';
+
 export type { LogEntry, LogLevel } from '../runtime/logger';
 export type { TaskSnapshot } from '../runtime/progress';
 export type { DirListing, FsEntry } from '../files/fileTree';

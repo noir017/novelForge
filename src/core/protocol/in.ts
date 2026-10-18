@@ -10,6 +10,7 @@ import type {
 import type { SerializedProvider } from './out';
 import type { SkillStage } from '../model/writingSkill';
 import type { ParagraphStyle } from '../model/paragraphFormat';
+import type { BookFindQuery, BookReplaceRequest } from './bookFind';
 
 export type Tab = 'chat' | 'project' | 'files' | 'history' | 'settings' | 'logs';
 
@@ -167,6 +168,18 @@ export type InMessage =
    * 换进来的内容存下去之前，被它盖掉的那一份已经在历史里（节流拦不住它）。
    */
   | { type: 'saveVersion'; path: string; quiet?: boolean }
+  /**
+   * 全书查找替换（独立版「编辑 → 全书查找替换…」，`protocol/bookFind.ts`）：按范围逐份读盘找，回 `bookFindResult`
+   * （同一个 `requestId`）。带 `query.replacement` 就是「预览替换」：每一处多带换成什么、每份文件带读到时的 hash。
+   * 前端在输入停顿之后才发，新的一次发出之前先 `cancelBookFind` 上一次（后端在两份文件之间看一眼，叫停了就不回话）。
+   */
+  | { type: 'bookFind'; requestId: string; query: BookFindQuery }
+  | { type: 'cancelBookFind'; requestId: string }
+  /**
+   * 「替换所选」：预览里勾着的那几处，经网关逐份写（`review: false`，带预览时的 hash 当乐观锁，每份先强制存一版历史；
+   * `dirty` 里的那几份——编辑器里有未保存的修改——跳过）。回 `bookReplaceDone`（汇总）。
+   */
+  | { type: 'bookReplace'; requestId: string; request: BookReplaceRequest }
   | { type: 'listDir'; dirs: string[]; ephemeral?: boolean }
   | { type: 'openExternal'; path: string }
   | { type: 'syncSummaries' }

@@ -734,6 +734,86 @@ describe('临时工程（写入类用例）', () => {
       assert.equal(selfCheckChanged, false);
     });
   });
+
+  // 全书查找替换的主路径：查找 → 预览 → 替换（经网关、带预览时的 hash、先存一版历史）→ 历史里找得回替换前那一版。
+  // 放在这一节最后：要建 .novelforge/（小说工程才存历史版本），别影响前面那几节。
+  describe('全书查找替换：查找 → 预览 → 替换 → 历史里找得回', () => {
+    const target = 'chapters/003-全书.md';
+    const original = '# 全书\n\n林晚推开门。林晚没有说话。\n';
+    let found;
+    let preview;
+    let done;
+    let stateAfter;
+    let disk;
+    let versions;
+    let old;
+
+    before(async () => {
+      fs.mkdirSync(path.join(work, '.novelforge'), { recursive: true });
+      // 经编辑器存下这一章（网关新建、pushState 让章节列表的缓存失效），与作者在编辑器里新建一章同一条路。
+      edit.drain();
+      edit.send({ type: 'saveFile', path: target, text: original });
+      await edit.waitFor((m) => m.type === 'editorSaved' && m.file.path === target, '新建 editorSaved');
+      await edit.waitFor((m) => m.type === 'state', '新建之后的 state');
+
+      edit.send({ type: 'bookFind', requestId: 'e2e-bf-1', query: { query: '林晚', scopes: ['chapter'] } });
+      found = await edit.waitFor((m) => m.type === 'bookFindResult' && m.requestId === 'e2e-bf-1', '查找 bookFindResult');
+
+      edit.send({ type: 'bookFind', requestId: 'e2e-bf-2', query: { query: '林晚', scopes: ['chapter'], replacement: '林婉' } });
+      preview = await edit.waitFor((m) => m.type === 'bookFindResult' && m.requestId === 'e2e-bf-2', '预览 bookFindResult');
+
+      const file = preview.result.files.find((f) => f.path === target);
+      edit.drain();
+      edit.send({
+        type: 'bookReplace',
+        requestId: 'e2e-br-1',
+        request: {
+          query: '林晚',
+          replacement: '林婉',
+          scopes: ['chapter'],
+          dirty: [],
+          // 只勾第一处。
+          files: [{ path: file.path, hash: file.hash, hits: [{ start: file.hits[0].start, end: file.hits[0].end }] }],
+        },
+      });
+      done = await edit.waitFor((m) => m.type === 'bookReplaceDone' && m.requestId === 'e2e-br-1', 'bookReplaceDone');
+      stateAfter = await edit.waitFor((m) => m.type === 'state', '替换之后的 state');
+      disk = fs.readFileSync(path.join(work, target), 'utf8');
+
+      edit.send({ type: 'listVersions', path: target });
+      versions = await edit.waitFor((m) => m.type === 'versions' && m.path === target, 'versions');
+      edit.send({ type: 'readVersion', path: target, id: versions.entries[0]?.id ?? '', requestId: 'e2e-rv-1' });
+      old = await edit.waitFor((m) => m.type === 'versionText' && m.requestId === 'e2e-rv-1', 'versionText');
+    });
+
+    test('查找：按文件列出、带称呼与每一处的上下文', () => {
+      const file = found.result.files.find((f) => f.path === target);
+      assert.ok(file, JSON.stringify(found.result.files.map((f) => f.path)));
+      assert.equal(file.label, '第 3 章 全书');
+      assert.equal(file.count, 2);
+      assert.deepEqual([file.hits[0].line, file.hits[0].text, file.hits[0].after], [3, '林晚', '推开门。林晚没有说话。']);
+    });
+
+    test('预览：每一处带换成什么', () => {
+      const file = preview.result.files.find((f) => f.path === target);
+      assert.deepEqual(file.hits.map((h) => h.replacement), ['林婉', '林婉']);
+    });
+
+    test('替换：只换勾着的那一处，汇总说清几个文件几处', () => {
+      assert.equal(done.summary.files, 1);
+      assert.equal(done.summary.hits, 1);
+      assert.equal(disk, '# 全书\n\n林婉推开门。林晚没有说话。\n');
+    });
+
+    test('替换之后推 state（编辑器据此核对已开的标签）', () => {
+      assert.equal(stateAfter.type, 'state');
+    });
+
+    test('历史里找得回替换前那一版', () => {
+      assert.ok(versions.entries.length > 0, JSON.stringify(versions));
+      assert.equal(old.text, original);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

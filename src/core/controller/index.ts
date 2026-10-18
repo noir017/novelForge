@@ -70,6 +70,7 @@ import { pushSettings, saveSettings, selectModel, testConnection } from './setti
 import { compareVersion, listVersions, mergeWithDisk, readVersion, saveVersion } from './versions';
 import { editSensitiveWords, pushCheckTerms } from './check';
 import type { BookConfig } from '../model/settingFile';
+import { bookFind, bookReplace, cancelBookFind } from './bookFind';
 
 export { describeProvider } from './serialize';
 export { createMcpBackend } from './mcp';
@@ -518,6 +519,17 @@ export class ChatController {
         return;
       case 'saveVersion':
         await saveVersion(this, msg.path, msg.quiet === true);
+        return;
+
+      // 全书查找替换（controller/bookFind.ts）：查找与预览只读；替换经网关逐份写，完了 pushState。
+      case 'bookFind':
+        await bookFind(this, msg.requestId, msg.query);
+        return;
+      case 'cancelBookFind':
+        cancelBookFind(msg.requestId);
+        return;
+      case 'bookReplace':
+        await bookReplace(this, msg.requestId, msg.request);
         return;
 
       case 'listDir':

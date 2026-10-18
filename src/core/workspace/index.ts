@@ -129,8 +129,9 @@ export interface WriteOptions {
   /** 覆盖审阅框里显示的名字，如「第 12 章的细纲」。 */
   what?: string;
   /**
-   * 不跑写后的记账与伴生（`handler.after`），由调用方在一批写完之后补上。**只给 {@link Workspace.createChapters}
-   * 用**：章节的 after 只是重算 manifest，逐章重算是 O(n²) 次读盘；别的种类的 after 记的是指纹，不能延后。
+   * 不跑写后的记账与伴生（`handler.after`），由调用方在一批写完之后补上。**只给一次写好几章的调用方用**——
+   * {@link Workspace.createChapters}（导入原稿）与全书替换（`features/bookReplace.ts`）：章节的 after 只是重算
+   * manifest，逐章重算是 O(n²) 次读盘；**只对章节生效**，别的种类的 after 记的是指纹，不能延后。
    */
   deferAfter?: boolean;
 }
@@ -611,6 +612,40 @@ export class Workspace {
       await fs.writeFile(abs, next, 'utf8');
       this.project.invalidate();
     }
+    return true;
+  }
+
+  /**
+   * 全书替换收尾时给细纲的指纹链补账（`features/bookReplace.ts`，第 18 条）：只改 frontmatter 里给出的那几个
+   * 指纹键——`upstreamHash` / `writtenFrom` / `sourceHash`，值为 undefined 就是删掉这个键——正文一个字节不动。
+   * 与 {@link recordWrittenFrom} 同一种写法：只改 `---` 之间那一段、不存历史版本（不吞任何内容）、没有 frontmatter
+   * 的手写细纲不补。不是细纲路径就不动。返回是否改了。
+   */
+  async restampPlotChain(
+    plotRelPath: string,
+    patch: { upstreamHash?: string; writtenFrom?: string; sourceHash?: string }
+  ): Promise<boolean> {
+    const rel = normalizeRel(plotRelPath);
+    if (rel === undefined || kindOfPath(this.project, rel).kind !== 'plot') {
+      return false;
+    }
+    const allowed: Record<string, string | undefined> = {};
+    for (const key of ['upstreamHash', 'writtenFrom', 'sourceHash'] as const) {
+      if (key in patch) {
+        allowed[key] = patch[key] || undefined;
+      }
+    }
+    const abs = this.project.pathOf(rel);
+    const raw = await readTextIfExists(abs).catch(() => undefined);
+    if (raw === undefined || Object.keys(allowed).length === 0) {
+      return false;
+    }
+    const next = rewriteFrontmatter(raw, allowed);
+    if (next === undefined || next === raw) {
+      return false;
+    }
+    await fs.writeFile(abs, next, 'utf8');
+    this.project.invalidate();
     return true;
   }
 
