@@ -18,7 +18,7 @@ import { scoped } from '../runtime/logger';
 import { hash, sanitizeFileName, slugify, uniqueSlug } from '../model/fs';
 import { NovelProject, emptyCharacterSections, renderCharacterCard, renderLoreEntry } from '../model/project';
 import { isPlotFilled, parsePlotFileName, plotContentHash, plotFileName } from '../model/plotFile';
-import { LoreLookup, createLoreLookup, normalizeLoreName } from '../model/loreFile';
+import { LoreLookup, cleanLoreKeywords, createLoreLookup, normalizeLoreName } from '../model/loreFile';
 import { isOutlineFilled, mergeOutline, outlineOverlaps } from '../model/outlineFile';
 import { hasContent } from '../model/markdown';
 import { stampState } from '../model/characterState';
@@ -305,6 +305,11 @@ async function acceptLoreList(
   const handled = new Set<string>();
   const fresh = new Set<string>();
   let first: string | undefined;
+  // 模型给的关键词过一遍：人名与别的条目（已有的、清单里同一批的）的标题不要（model/loreFile.ts）。
+  const others = {
+    titles: [...entries.map((e) => e.title), ...artifact.entries.map((e) => e.title)],
+    people: cards.flatMap((c) => [c.name, ...c.aliases]),
+  };
 
   for (const entry of artifact.entries) {
     const key = normalizeLoreName(entry.title);
@@ -329,7 +334,7 @@ async function acceptLoreList(
       const text = renderLoreEntry({
         slug: existing.slug,
         title: existing.title,
-        keywords: unique([...existing.keywords, ...entry.keywords]),
+        keywords: unique([...existing.keywords, ...cleanLoreKeywords(existing.title, entry.keywords, others)]),
         brief: entry.brief || existing.brief,
         ...(body
           ? { body, updatedThrough: 0, bodyHash: hash(body) }
@@ -345,7 +350,7 @@ async function acceptLoreList(
     const rel = await ws.writeLore({
       slug,
       title: entry.title,
-      keywords: unique([entry.title, ...entry.keywords]),
+      keywords: [entry.title, ...cleanLoreKeywords(entry.title, entry.keywords, others)],
       brief: entry.brief,
       body: entry.body,
       updatedThrough: 0,

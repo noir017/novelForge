@@ -217,6 +217,33 @@ export function loreMentionIn(text: string, entry: Pick<LoreEntry, 'title' | 'ke
   return undefined;
 }
 
+/**
+ * 机器写进条目的关键词过一遍（建条目、整合、设定清单）：**人名不要**（角色卡上的名字与别称——
+ * 真跑时模型把「沈怀山」写成了「伪人」的关键词，写正文时一提到这个人就把「伪人」整条带进来），
+ * **别的条目的标题不要**（「青羊镇」与「沈家老宅」互相写进对方的关键词，提到一个就命中两条），
+ * 一个字的不要（子串命中会到处撞），与本条标题重复的去掉。作者手写的关键词不经过这里。
+ */
+export function cleanLoreKeywords(
+  title: string,
+  keywords: readonly string[],
+  others: { titles: readonly string[]; people: readonly string[] }
+): string[] {
+  const self = normalizeLoreName(title);
+  const banned = new Set([...others.titles, ...others.people].map(normalizeLoreName).filter((k) => k && k !== self));
+  const out: string[] = [];
+  const seen = new Set<string>([self]);
+  for (const raw of keywords) {
+    const word = oneLine(raw);
+    const key = normalizeLoreName(word);
+    if (Array.from(word).length < 2 || !key || seen.has(key) || banned.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(word);
+  }
+  return out;
+}
+
 function oneLine(value: string): string {
   return (value ?? '').replace(/\s+/g, ' ').trim();
 }

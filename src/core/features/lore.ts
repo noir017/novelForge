@@ -16,7 +16,7 @@ import { NovelProject, renderLoreEntry } from '../model/project';
 import { Plot, PLOT_SECTION_KEYS } from '../model/plotFile';
 import { parseContinuityFacts } from '../model/continuity';
 import { LoreEntry } from '../model/types';
-import { LORE_ENTRY_LIMITS, normalizeLoreCategory, normalizeLoreName } from '../model/loreFile';
+import { LORE_ENTRY_LIMITS, cleanLoreKeywords, normalizeLoreCategory, normalizeLoreName } from '../model/loreFile';
 import { runTask } from '../runtime/progress';
 import { Workspace } from '../workspace';
 import { finalizedPlots } from '../views/cast';
@@ -274,7 +274,8 @@ export async function createLoreEntries(
   ]);
   let created = 0;
   let failed = 0;
-  await runPool([...targets], opts.lanes, (u) => buildOne(project, u, plots, through, opts.pool, opts.signal), {
+  const siblings = targets.map((t) => t.name);
+  await runPool([...targets], opts.lanes, (u) => buildOne(project, u, plots, through, opts.pool, opts.signal, siblings), {
     signal: opts.signal,
     onSettled: (result, u, _i, done) => {
       if (result.status === 'fulfilled') {
@@ -296,7 +297,8 @@ async function buildOne(
   plots: readonly Plot[],
   through: number,
   pool: ModelPool,
-  signal: AbortSignal
+  signal: AbortSignal,
+  siblings: readonly string[]
 ): Promise<void> {
   const records = recordsAbout(plots, [u.name], u.notes);
   const category = normalizeLoreCategory(u.category);
@@ -310,15 +312,21 @@ async function buildOne(
     return;
   }
   // 等模型的时候作者可能已经手建了一条：撞上了就不建，不覆盖。
-  if ((await project.listLore()).some((e) => normalizeLoreName(e.title) === normalizeLoreName(u.name))) {
+  const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
+  if (entries.some((e) => normalizeLoreName(e.title) === normalizeLoreName(u.name))) {
     log.info(`设定「${u.name}」已经有条目了，这一条不建`);
     return;
   }
+  const keywords = cleanLoreKeywords(u.name, draft.keywords, {
+    // 同一批里一起建的那几个名字也算「别的条目」：它们这一刻还没有文件。
+    titles: [...entries.map((e) => e.title), ...siblings],
+    people: cards.flatMap((c) => [c.name, ...c.aliases]),
+  });
   const slug = await uniqueSlug(project.loreDir, `${category ? `${category}/` : ''}${slugify(u.name)}`);
   const relPath = await new Workspace(project).writeLore({
     slug,
     title: u.name,
-    keywords: unique([u.name, ...draft.keywords]),
+    keywords: [u.name, ...keywords],
     brief: draft.brief,
     body: draft.body,
     updatedThrough: through,
@@ -459,10 +467,16 @@ async function integrateOne(
   if (signal.aborted) {
     return false;
   }
+  // 已有的关键词原样留着（只增不减，可能是作者写的）；模型新给的过一遍人名与别的条目的标题。
+  const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
+  const fresh = cleanLoreKeywords(entry.title, draft.keywords, {
+    titles: entries.filter((e) => e.slug !== entry.slug).map((e) => e.title),
+    people: cards.flatMap((c) => [c.name, ...c.aliases]),
+  });
   const proposed = renderLoreEntry({
     slug: entry.slug,
     title: entry.title,
-    keywords: unique([...entry.keywords, ...draft.keywords]),
+    keywords: unique([...entry.keywords, ...fresh]),
     brief: draft.brief || entry.brief,
     body: draft.body,
     updatedThrough: through,

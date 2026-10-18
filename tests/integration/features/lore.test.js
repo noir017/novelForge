@@ -115,7 +115,7 @@ describe('建条目', () => {
     entryReply = (messages) => {
       const user = messages[1].content;
       return user.includes('设定：停舟客栈')
-        ? ENTRY('镇上唯一的客栈', '## 概要\n\n镇上唯一的客栈。\n\n## 规则与边界\n\n（未交代）\n\n## 现状\n\n二楼被烧了。', ['停舟'])
+        ? ENTRY('镇上唯一的客栈', '## 概要\n\n镇上唯一的客栈。\n\n## 规则与边界\n\n（未交代）\n\n## 现状\n\n二楼被烧了。', ['停舟', '青崖镇'])
         : ENTRY('镇外的后山', '## 概要\n\n镇外的后山。');
     };
     fake.reset();
@@ -145,6 +145,7 @@ describe('建条目', () => {
     const inn = (await project.listLore()).find((e) => e.title === '停舟客栈');
     assert.equal(inn.relPath, '.novelforge/lore/地域/青崖/停舟客栈.md');
     assert.equal(inn.brief, '镇上唯一的客栈');
+    // 模型把同一批建的「青崖镇」也写成了关键词：别的条目的标题不收（会把那一条的命中抢过来）。
     assert.deepEqual(inn.keywords, ['停舟客栈', '停舟']);
     // 第 4 章定稿之后正文又改过：水位停在第 3 章。
     assert.equal(inn.updatedThrough, 3);
@@ -188,7 +189,8 @@ describe('整合', () => {
   test('采纳后：关键词只增不减，水位到第 3 章，正文换成机器写的并盖上指纹', async () => {
     project.invalidate();
     const town = (await project.listLore()).find((e) => e.title === '青崖镇');
-    assert.deepEqual(town.keywords, ['青崖', '青崖镇', '镇子']);
+    // 作者写的「青崖」原样留着；模型给的「青崖镇」就是标题（匹配时本来就认标题），不重复收。
+    assert.deepEqual(town.keywords, ['青崖', '镇子']);
     assert.equal(town.updatedThrough, 3);
     assert.ok(town.body.includes('七年前遭过大火'));
     assert.ok(bundle.lore.loreOwnedByMachine(town));

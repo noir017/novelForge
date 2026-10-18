@@ -90,6 +90,18 @@ describe('条目的一句话与认名字', () => {
     assert.equal(lf.loreMentionIn('林昭把令牌交了出去', entry), '令牌');
     assert.equal(lf.loreMentionIn('门牌上写着字', entry), undefined);
   });
+
+  // 真跑（2026-10-18，gemini-3-flash-lite）：「伪人」的关键词里有人名「沈怀山」，「青羊镇」与「沈家老宅」
+  // 互相写进对方的关键词——写正文时一提到这个人、这个地方，就把不相干的条目整条带进来。
+  test('机器写的关键词：人名、别的条目的标题、一个字的、与标题重复的都不要', () => {
+    assert.deepEqual(
+      lf.cleanLoreKeywords('伪人', ['伪人', '沈怀山', '皮囊怪物', '鬼', '青羊镇', ' 皮囊怪物 '], {
+        titles: ['青羊镇', '伪人'],
+        people: ['沈默', '沈怀山'],
+      }),
+      ['皮囊怪物']
+    );
+  });
 });
 
 describe('细纲的第九节', () => {
