@@ -30,7 +30,7 @@
  */
 import { el } from '../dom';
 import { toast } from '../globals';
-import { isImeComposing, onEditorChange } from './api';
+import { isImeComposing, onEditorChange, paneContaining, paneForShortcut } from './api';
 import type { EditorEvent } from './api';
 import {
   escapeRegExp,
@@ -54,7 +54,8 @@ import {
   setHighlights,
   tooLargeToHighlight,
 } from './highlight';
-import { activePane, panes } from './store';
+import { shortcutLabel } from './shortcuts';
+import { activePane } from './store';
 import type { Pane } from './store';
 
 /** 高亮层的名字。 */
@@ -109,7 +110,7 @@ function buildFindDom(): FindDom {
   root.setAttribute('role', 'search');
 
   const findRow = el('div', 'ed-find-row');
-  const toggle = button('ed-find-toggle', '▸', '展开替换（Ctrl+H）');
+  const toggle = button('ed-find-toggle', '▸', `展开替换（${shortcutLabel('replace')}）`);
   toggle.setAttribute('aria-expanded', 'false');
   const input = textInput('ed-find-input', '查找');
   const caseBtn = toggleButton('ed-find-case', 'Aa', '区分大小写');
@@ -335,7 +336,7 @@ function createFindBar(pane: Pane): FindBar {
   function setReplaceOpen(on: boolean): void {
     dom.replaceRow.classList.toggle('hidden', !on);
     dom.toggle.textContent = on ? '▾' : '▸';
-    dom.toggle.title = on ? '收起替换' : '展开替换（Ctrl+H）';
+    dom.toggle.title = on ? '收起替换' : `展开替换（${shortcutLabel('replace')}）`;
     dom.toggle.setAttribute('aria-expanded', String(on));
   }
 
@@ -522,34 +523,6 @@ export function openFind(pane: Pane | undefined, opts: { replace?: boolean } = {
  */
 export function revealFindMatch(pane: Pane, query: string, opts: FindOptions, offset: number): boolean {
   return !!pane.activeFile() && barOf(pane).showMatch(query, opts, offset);
-}
-
-/** 事件目标落在哪一块编辑区里（查找条也算在那一块里）。 */
-function paneContaining(target: EventTarget | null): Pane | undefined {
-  if (!(target instanceof Node)) {
-    return undefined;
-  }
-  return Object.values(panes).find((p) => p.root.contains(target));
-}
-
-function isTextField(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement ||
-    (target instanceof HTMLElement && target.isContentEditable)
-  );
-}
-
-/**
- * 这一下查找快捷键该给哪块编辑区：焦点在某块里就是那一块；焦点在编辑区之外的输入框 / 文本框
- * （左侧对话输入框之类）时谁都不给，留给浏览器；其余（焦点在页面上、按钮上）给当前那一块。
- * 那一块没开文件也不给。
- */
-function paneForShortcut(e: KeyboardEvent): Pane | undefined {
-  const inside = paneContaining(e.target);
-  const pane = inside ?? (isTextField(e.target) ? undefined : activePane);
-  return pane?.activeFile() ? pane : undefined;
 }
 
 let installed = false;

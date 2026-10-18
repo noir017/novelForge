@@ -76,6 +76,7 @@ import { extraTabItems } from './tabMenu';
 import { tabNames } from './tabLabels';
 import type { TabName } from './tabLabels';
 import { createTabStrip, tabText } from './tabStrip';
+import { shortcutLabel } from './shortcuts';
 import { renderWordStatus } from './stats';
 
 /** 哪些扩展名有 Markdown 可预览。 */
@@ -1110,6 +1111,8 @@ export function createPane(
     persist();
   }
 
+  // 按钮上写的键按平台（Mac 上 ⌘S），从快捷键表取；页面模板里那一句只是没跑脚本时的样子。
+  el.saveBtn.title = `保存（${shortcutLabel('save')}）`;
   el.saveBtn.addEventListener('click', () => save(false));
 
   el.revertBtn.addEventListener('click', () => {

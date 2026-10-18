@@ -144,6 +144,10 @@ const SHIMS = {
       },
     };
   },
+  /** 假装是 Mac（`navigator.platform` 是 `MacIntel`）：快捷键按 ⌘ / ⌥ 写。 */
+  mac(window) {
+    Object.defineProperty(window.navigator, 'platform', { configurable: true, get: () => 'MacIntel' });
+  },
   /**
    * 假排版，只管量位置的那一份镜像（`.ed-mirror-probe`）：里面的标记 `offsetTop` = 上内边距 +
    * 它前面的换行数 × 行高，`offsetHeight` = 行高；textarea 的 `clientHeight` 是固定的视口高。

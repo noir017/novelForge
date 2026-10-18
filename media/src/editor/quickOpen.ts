@@ -47,6 +47,7 @@ import {
 } from './quickOpenCore';
 import type { QuickOpenCatalog, QuickOpenEntry, QuickOpenHit } from './quickOpenCore';
 import { claimRequest, newRequestId } from './replace';
+import { shortcutLabel } from './shortcuts';
 import { announceActive, paneOwning, setActivePane } from './store';
 
 const RECENT_KEY = 'novelforge.quickopen.recent';
@@ -175,7 +176,7 @@ function buildPanel(): PanelDom {
   input.setAttribute('aria-controls', list.id);
   const note = el('div', 'qo-note hidden');
   note.setAttribute('aria-live', 'polite');
-  const foot = el('div', 'qo-foot', '↑↓ 选择 · Enter 打开 · Ctrl+Enter 开在另一块编辑区 · Esc 关闭');
+  const foot = el('div', 'qo-foot', `↑↓ 选择 · Enter 打开 · ${shortcutLabel('quickOpenBeside')} 开在另一块编辑区 · Esc 关闭`);
   root.append(input, list, note, foot);
 
   input.addEventListener('input', (e) => {

@@ -37,6 +37,8 @@
 @import './standalone/check.css';
 /* 名词补全的候选框（Alt+/ 与边打边弹） */
 @import './standalone/names.css';
+/* 快捷键一览（「帮助 → 快捷键一览」与 Ctrl+/） */
+@import './standalone/keys.css';
 
 /* 覆盖 view.css 的那几处 */
 @import './standalone/side-tweaks.css';

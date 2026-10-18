@@ -36,6 +36,8 @@ import { installParagraphTools } from './paragraph';
 import { installQuickOpen } from './quickOpen';
 import { installEditorReplace } from './replace';
 import { installSaveSafety } from './safety';
+import { matchesShortcut } from './shortcuts';
+import { installShortcutsPanel } from './shortcutsPanel';
 import { installWritingStats } from './stats';
 import { installVersions } from './versions';
 import { installViewPrefs } from './viewPrefs';
@@ -120,20 +122,20 @@ function start(stage: HTMLElement): void {
 
   // ---------------------------------------------------------------- 全局快捷键
 
+  // 键都登记在 shortcuts.ts（新增快捷键先登记在那张表里，tests/dom/standalone/shortcuts.test.js 两头核对）。
   document.addEventListener('keydown', (e) => {
     // 输入法组字中途的 Ctrl 组合键是输入法的，放行。
-    if (isImeComposing(e) || !(e.ctrlKey || e.metaKey)) {
+    if (isImeComposing(e)) {
       return;
     }
-    const key = e.key.toLowerCase();
-    if (key === 's') {
+    if (matchesShortcut(e, 'save')) {
       // 浏览器的「保存网页」在这里毫无意义，一律拦掉。
       e.preventDefault();
       if (activePane.activeFile()) {
         activePane.save(false);
       }
-    } else if (key === 'w' && activePane.activeFile()) {
-      // Chrome 不允许拦 Ctrl+W，能拦到就顺手关标签页。
+    } else if (matchesShortcut(e, 'closeTab') && activePane.activeFile()) {
+      // Chrome 不允许拦 Ctrl+W（表里那一条写着），能拦到（桌面版）就顺手关标签页。
       e.preventDefault();
       activePane.closeFile(activePane.activePath!);
     }
@@ -293,6 +295,8 @@ function start(stage: HTMLElement): void {
   // 查找条关着时才退出专注模式（document 上的 keydown 按挂的先后跑，它看 defaultPrevented）。
   installLook();
   installFocus();
+  // 「帮助 → 快捷键一览」与 Ctrl+/（⚑）：按分组列出 shortcuts.ts 那张表、可以筛选。
+  installShortcutsPanel();
 
   // ---------------------------------------------------------------- 启动
 

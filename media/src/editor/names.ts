@@ -5,7 +5,7 @@
  *
  * ## 两种弹法
  *
- * - **按键弹（缺省）**：`Alt+/`（⚑ {@link NAMES_KEY_LABEL}；`Ctrl+Space` 在 Windows / Linux 上常被系统拿去切输入法，
+ * - **按键弹（缺省）**：`Alt+/`（⚑ 登记在 `shortcuts.ts` 的 `names`；`Ctrl+Space` 在 Windows / Linux 上常被系统拿去切输入法，
  *   浏览器与编辑器都没占 `Alt+/`，它也是 Emacs / Eclipse 的「补全一个词」）或「视图 → 名词补全」。用光标前几个字当查询词
  *   （`queryBefore`：往前 1~4 个字里能匹配上名字开头的最长那段），什么都匹配不上就列全部、最近在本文件出现的排前面。
  *   之后接着打字跟着筛，碰到空白标点、光标退到起点前面、一个都对不上就收起。`↑↓` 选，`Enter` / `Tab` 接受，`Esc` 收起。
@@ -53,8 +53,6 @@ import { onPrefsChange, setStoredPrefs, storedPrefs } from './paragraphState';
 import { highlightSegments } from './quickOpenCore';
 import { claimRequest, newRequestId } from './replace';
 
-/** 快捷键（⚑）。`view/namesMenu.ts` 写的是同一个。 */
-export const NAMES_KEY_LABEL = 'Alt+/';
 /** 偏好里边打边弹那一项的键（只认明明白白的 `true`）。 */
 const PREF_KEY = 'nameAutoPopup';
 /** 边打边弹时，表可能过期了多久最多问一次。 */

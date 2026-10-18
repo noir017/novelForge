@@ -16,6 +16,7 @@ import { el } from '../dom';
 import { currentLook, onLookChange, resetLook, setLook } from './look';
 import { FONT_CHOICES, FONT_SIZE, LINE_HEIGHT, MEASURE, measureLabel, normalizeFont } from './lookCore';
 import { THEMES, THEME_LABEL, currentTheme, setTheme } from './shell';
+import { shortcutLabel } from './shortcuts';
 import type { Theme } from './shell';
 
 interface Panel {
@@ -79,7 +80,7 @@ function buildPanel(): Panel {
   // ---- 字号：− [15] px +
   const sizeDec = el('button', 'secondary ed-look-size-dec', '−');
   sizeDec.type = 'button';
-  sizeDec.title = '缩小（编辑区里 Ctrl+-）';
+  sizeDec.title = `缩小（编辑区里 ${shortcutLabel('zoomOut')}）`;
   const size = el('input', 'ed-look-size');
   size.type = 'number';
   size.min = String(FONT_SIZE.min);
@@ -87,7 +88,7 @@ function buildPanel(): Panel {
   size.step = String(FONT_SIZE.step);
   const sizeInc = el('button', 'secondary ed-look-size-inc', '+');
   sizeInc.type = 'button';
-  sizeInc.title = '放大（编辑区里 Ctrl+=）';
+  sizeInc.title = `放大（编辑区里 ${shortcutLabel('zoomIn')}）`;
   sizeDec.addEventListener('click', () => setLook({ fontSize: currentLook().fontSize - FONT_SIZE.step }));
   sizeInc.addEventListener('click', () => setLook({ fontSize: currentLook().fontSize + FONT_SIZE.step }));
   // 打字时不跟（打「18」的那个「1」会被夹成 12）；按回车、离开输入框时才认，认完写回校验后的值。清空了不算数。

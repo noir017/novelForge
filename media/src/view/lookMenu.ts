@@ -3,6 +3,7 @@
  * （`nf-view-query` 的 `look` / `focus`，`editor/look.ts` 与 `editor/focus.ts` 回答），开关经 `nf-view-command`
  * 交过去。编辑器没装（插件、空窗口之外不会发生）时没人回答，两组置灰。
  */
+import { shortcutLabel } from '../editor/shortcuts';
 import { commandViewPrefs } from '../globals';
 import type { ViewPrefsStatus } from '../globals';
 import type { MenuEntry } from './menubar';
@@ -15,21 +16,21 @@ export function appearanceEntries(status: ViewPrefsStatus): MenuEntry[] {
   return [
     {
       label: '放大字号',
-      kbd: 'Ctrl+=',
+      kbd: shortcutLabel('zoomIn'),
       disabled: !look?.canZoomIn,
       detail: look?.canZoomIn === false ? `已经是最大字号（${look.fontSize}px）。` : `${size}${keys}`,
       run: () => commandViewPrefs('zoomIn'),
     },
     {
       label: '缩小字号',
-      kbd: 'Ctrl+-',
+      kbd: shortcutLabel('zoomOut'),
       disabled: !look?.canZoomOut,
       detail: look?.canZoomOut === false ? `已经是最小字号（${look.fontSize}px）。` : `${size}${keys}`,
       run: () => commandViewPrefs('zoomOut'),
     },
     {
       label: '还原字号',
-      kbd: 'Ctrl+0',
+      kbd: shortcutLabel('zoomReset'),
       disabled: !look,
       detail: `${size}${keys}`,
       run: () => commandViewPrefs('zoomReset'),
@@ -49,10 +50,10 @@ export function focusEntries(status: ViewPrefsStatus): MenuEntry[] {
   return [
     {
       label: '专注模式',
-      kbd: 'F8',
+      kbd: shortcutLabel('focusMode'),
       checked: !!focus?.focusMode,
       disabled: !focus,
-      detail: '只留正文：藏起侧栏、标签条、工具栏与章节条，状态栏淡成一行。两块编辑区都开着时只专注当前那一块。Esc 或再按 F8 退出。',
+      detail: `只留正文：藏起侧栏、标签条、工具栏与章节条，状态栏淡成一行。两块编辑区都开着时只专注当前那一块。Esc 或再按 ${shortcutLabel('focusMode')} 退出。`,
       run: () => commandViewPrefs('toggleFocusMode'),
     },
     {

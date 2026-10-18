@@ -14,7 +14,7 @@
  *   `nf-workspace-reset`，「编辑」菜单段落那几项的 `nf-paragraph-query` / `nf-paragraph-command`，
  *   「文件 → 历史版本…」的 `nf-versions-query` / `nf-versions-command`，「文件 → 转到…」的
  *   `nf-quickopen-query` / `nf-quickopen-command`，「编辑 → 全书查找替换…」的 `nf-bookfind-query` / `nf-bookfind-command`，
- *   「视图」菜单的 `nf-view-query` / `nf-view-command`，
+ *   「视图」菜单的 `nf-view-query` / `nf-view-command`，「帮助 → 快捷键一览」的 `nf-shortcuts-query` / `nf-shortcuts-command`，
  *   「视图 → 统计」那一组的 `nf-stats-query` / `nf-stats-command`，「视图 → 体检」那一组的 `nf-check-query` /
  *   `nf-check-command`，「视图 → 补全」那一组的 `nf-names-query` / `nf-names-command`，
  *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录）。
@@ -86,6 +86,8 @@ declare global {
     'nf-check-command': CustomEvent<{ name: CheckCommandName }>;
     'nf-names-query': CustomEvent<NamesStatus>;
     'nf-names-command': CustomEvent<{ name: NamesCommandName }>;
+    'nf-shortcuts-query': CustomEvent<{ available: boolean }>;
+    'nf-shortcuts-command': Event;
     'nf-reveal-in-files': CustomEvent<{ path: string; dir: boolean }>;
   }
 }
@@ -407,6 +409,20 @@ export function queryNames(): NamesStatus {
 
 export function commandNames(name: NamesCommandName): void {
   window.dispatchEvent(new CustomEvent('nf-names-command', { detail: { name } }));
+}
+
+// ---------------------------------------------------------------- 「帮助 → 快捷键一览」
+
+/** 快捷键一览面板能不能开（`editor/shortcutsPanel.ts` 回答）。editor.js 没装（插件形态，也就没有标题栏）时不能。 */
+export function queryShortcuts(): boolean {
+  const status = { available: false };
+  window.dispatchEvent(new CustomEvent('nf-shortcuts-query', { detail: status }));
+  return status.available;
+}
+
+/** 打开快捷键一览面板（与 `Ctrl+/` 同一件事；开着时再来一下就收起）。 */
+export function commandShortcuts(): void {
+  window.dispatchEvent(new Event('nf-shortcuts-command'));
 }
 
 // ---------------------------------------------------------------- 在「文件」页定位

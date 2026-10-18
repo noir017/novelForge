@@ -1,0 +1,101 @@
+/*
+ * 快捷键一览（editor/shortcutsPanel.ts，「帮助 → 快捷键一览」与 Ctrl+/）：面板样子是 modal.css 那一套，
+ * 层级与页内对话框一样（压在别的弹窗与浮窗之上、提示条之下）。一行三格：键、做什么（下面一行小字补充）、在哪儿管用。
+ */
+
+.ed-keys-overlay {
+  z-index: 28;
+  align-items: flex-start;
+  padding-top: 8vh;
+}
+
+.ed-keys {
+  max-width: 720px;
+  max-height: 80vh;
+}
+
+.ed-keys .modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.ed-keys-x {
+  flex: 0 0 auto;
+}
+
+.ed-keys-filter {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ed-keys-count {
+  margin: 0;
+  font-size: 0.85em;
+}
+
+.ed-keys-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ed-keys-group + .ed-keys-group {
+  margin-top: 10px;
+}
+
+.ed-keys-group-title {
+  margin: 0 0 4px;
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground);
+}
+
+.ed-keys-row {
+  display: grid;
+  grid-template-columns: minmax(9em, auto) minmax(0, 1fr) 11em;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 3px 4px;
+  border-radius: 4px;
+}
+
+.ed-keys-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.ed-keys-keys {
+  white-space: nowrap;
+}
+
+.ed-keys-keys kbd {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 3px;
+  background: var(--vscode-editorWidget-background);
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+.ed-keys-or {
+  color: var(--vscode-descriptionForeground);
+}
+
+.ed-keys-note {
+  display: block;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.ed-keys-where {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+}
+
+.ed-keys-empty {
+  margin: 12px 0;
+  color: var(--vscode-descriptionForeground);
+}

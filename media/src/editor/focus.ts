@@ -22,11 +22,9 @@ import type { FocusPrefs } from './lookCore';
 import { onPrefsChange, setStoredPrefs, storedPrefs } from './paragraphState';
 import { installParagraphFocus } from './paragraphFocus';
 import { revealEditor } from './shell';
+import { matchesShortcut } from './shortcuts';
 import { activePane, panes } from './store';
 import { installTypewriter } from './typewriter';
-
-/** 专注模式的快捷键（⚑）。 */
-export const FOCUS_MODE_KEY = 'F8';
 
 let prefs: FocusPrefs = { focusMode: false, typewriter: false, paragraphFocus: false };
 
@@ -160,7 +158,8 @@ export function installFocus(): void {
     if (isImeComposing(e)) {
       return;
     }
-    if (e.key === FOCUS_MODE_KEY && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+    // 专注模式的键（⚑ F8）登记在 shortcuts.ts。
+    if (matchesShortcut(e, 'focusMode')) {
       e.preventDefault();
       toggleFocusMode();
       return;

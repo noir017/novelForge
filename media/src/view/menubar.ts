@@ -4,6 +4,7 @@
  * 不复用右键菜单引擎：缺悬停切菜单和子菜单。
  */
 import { el as mk } from '../dom';
+import { matchesShortcut, shortcutLabel } from '../editor/shortcuts';
 import { commandEditor, queryEditor } from '../globals';
 import { versionsMenuEntry } from './versionsMenu';
 import { quickOpenMenuEntry } from './quickOpenMenu';
@@ -20,6 +21,7 @@ import {
 } from './welcome';
 import { hasWorkspace, store, vscode } from './store';
 import { paragraphMenuEntries } from './paragraphMenu';
+import { shortcutsMenuEntry } from './shortcutsMenu';
 import { viewMenuEntries } from './viewMenu';
 
 type MenuAction = string;
@@ -92,15 +94,15 @@ export function installMenubar(): void {
       closeMenubar();
       hideWelcome();
     }
-    if (!(e.ctrlKey || e.metaKey) || e.altKey) {
+    // 键登记在 editor/shortcuts.ts（Ctrl+N 在浏览器里多半拦不住，那一条上写着）。组字中途的是输入法的。
+    if (e.isComposing || e.keyCode === 229) {
       return;
     }
-    const key = e.key.toLowerCase();
-    if (key === 'o') {
+    if (matchesShortcut(e, 'openFolder')) {
       e.preventDefault();
       requestOpenFolder();
       closeMenubar();
-    } else if (key === 'n') {
+    } else if (matchesShortcut(e, 'newFile')) {
       e.preventDefault();
       if (hasWorkspace()) {
         run('newFile');
@@ -139,15 +141,15 @@ function entriesOf(key: string): MenuEntry[] {
   const ed = queryEditor();
   if (key === 'file') {
     return [
-      { label: '新建文件', action: 'newFile', disabled: !ws, kbd: 'Ctrl+N' },
+      { label: '新建文件', action: 'newFile', disabled: !ws, kbd: shortcutLabel('newFile') },
       { label: '新建工程…', action: 'newProject' },
       { label: 'sep' },
       { label: '打开文件…', action: 'openFile', disabled: !ws },
       quickOpenMenuEntry(),
-      { label: '打开文件夹…', action: 'openFolder', kbd: 'Ctrl+O' },
+      { label: '打开文件夹…', action: 'openFolder', kbd: shortcutLabel('openFolder') },
       { label: '打开最近打开的', submenu: recentEntries() },
       { label: 'sep' },
-      { label: '保存', action: 'save', disabled: !ed.dirtyCurrent, kbd: 'Ctrl+S' },
+      { label: '保存', action: 'save', disabled: !ed.dirtyCurrent, kbd: shortcutLabel('save') },
       { label: '另存为…', action: 'saveAs', disabled: !ed.hasFile },
       versionsMenuEntry(),
       { label: '全部保存', action: 'saveAll', disabled: !ed.dirtyAny },
@@ -165,23 +167,24 @@ function entriesOf(key: string): MenuEntry[] {
   }
   if (key === 'edit') {
     return [
-      { label: '撤销', action: 'undo', disabled: !editing, kbd: 'Ctrl+Z' },
-      { label: '重做', action: 'redo', disabled: !editing, kbd: 'Ctrl+Y' },
+      { label: '撤销', action: 'undo', disabled: !editing, kbd: shortcutLabel('undo') },
+      { label: '重做', action: 'redo', disabled: !editing, kbd: shortcutLabel('redo') },
       { label: 'sep' },
-      { label: '剪切', action: 'cut', disabled: !editing, kbd: 'Ctrl+X' },
-      { label: '复制', action: 'copy', disabled: !editing, kbd: 'Ctrl+C' },
-      { label: '粘贴', action: 'paste', disabled: !editing, kbd: 'Ctrl+V' },
+      { label: '剪切', action: 'cut', disabled: !editing, kbd: shortcutLabel('cut') },
+      { label: '复制', action: 'copy', disabled: !editing, kbd: shortcutLabel('copy') },
+      { label: '粘贴', action: 'paste', disabled: !editing, kbd: shortcutLabel('paste') },
       { label: 'sep' },
-      { label: '全选', action: 'selectAll', disabled: !editing, kbd: 'Ctrl+A' },
+      { label: '全选', action: 'selectAll', disabled: !editing, kbd: shortcutLabel('selectAll') },
       { label: 'sep' },
-      { label: '查找', action: 'find', disabled: !ws, kbd: 'Ctrl+F' },
-      { label: '替换', action: 'replace', disabled: !ws, kbd: 'Ctrl+H' },
+      { label: '查找', action: 'find', disabled: !ws, kbd: shortcutLabel('find') },
+      { label: '替换', action: 'replace', disabled: !ws, kbd: shortcutLabel('replace') },
       bookFindMenuEntry(),
     ];
   }
   return [
     { label: '欢迎页面', action: 'welcome' },
     { label: '使用说明', action: 'readme' },
+    shortcutsMenuEntry(),
     { label: '打开日志目录', action: 'openLogDir' },
     { label: 'sep' },
     { label: '关于', action: 'about' },

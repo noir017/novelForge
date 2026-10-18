@@ -26,6 +26,7 @@ import { FINALIZE_CALLS, PLOT_STAGE_LABEL, REVIEW_CALLS, WRITE_CALLS, describeCa
 import type { ChapterAction, ChapterIndexEntry, InMessage } from '../protocol';
 import { SIDE_LABEL, onChapterIndex, pathOn } from './chapterIndex';
 import { goChapter, neighborsOf } from './chapterNav';
+import { shortcutLabel } from './shortcuts';
 import { paneOwning } from './store';
 
 /** 挂到主区上方（标签栏与工具栏之间）。 */
@@ -109,7 +110,7 @@ export function installChapterBar(stage: HTMLElement, post: (msg: InMessage) => 
 function navButton(step: -1 | 1, to: ChapterIndexEntry | undefined, side: 'chapter' | 'plot'): HTMLButtonElement {
   const b = el('button', 'chip-btn ed-chapter-nav', step < 0 ? '‹ 上一章' : '下一章 ›');
   b.dataset.nav = step < 0 ? 'prev' : 'next';
-  const key = step < 0 ? 'Alt+PageUp' : 'Alt+PageDown';
+  const key = shortcutLabel(step < 0 ? 'prevChapter' : 'nextChapter');
   b.disabled = !to;
   b.title = !to
     ? step < 0

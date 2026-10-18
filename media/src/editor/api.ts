@@ -33,7 +33,7 @@
  */
 import type { TextChange, TextSelection } from './history';
 import type { OpenFile } from './paneElements';
-import { activePane } from './store';
+import { activePane, panes } from './store';
 import type { Pane } from './store';
 
 export type { TextChange, TextSelection } from './history';
@@ -124,6 +124,35 @@ export function runKeyHandlers(e: KeyboardEvent, ctx: EditorContext): boolean {
     }
   }
   return false;
+}
+
+/** 事件目标落在哪一块编辑区里（查找条、预览也算在那一块里）。 */
+export function paneContaining(target: EventTarget | null): Pane | undefined {
+  if (!(target instanceof Node)) {
+    return undefined;
+  }
+  return Object.values(panes).find((p) => p.root.contains(target));
+}
+
+/** 别的输入框（对话输入框、下拉框、可编辑区）——编辑区之外的快捷键在那里不该抢。 */
+export function isTextField(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
+}
+
+/**
+ * 「编辑区里或页面上」那一档快捷键（`shortcuts.ts` 的 `workbench`：查找、F3、预览……）这一下该给哪块编辑区：
+ * 焦点在某块里就是那一块；焦点在编辑区之外的输入框 / 文本框（左侧对话输入框之类）时谁都不给，留给浏览器；
+ * 其余（焦点在页面上、按钮上）给当前那一块。那一块没开文件也不给。
+ */
+export function paneForShortcut(e: KeyboardEvent): Pane | undefined {
+  const inside = paneContaining(e.target);
+  const pane = inside ?? (isTextField(e.target) ? undefined : activePane);
+  return pane?.activeFile() ? pane : undefined;
 }
 
 // ---------------------------------------------------------------- 变化通知
