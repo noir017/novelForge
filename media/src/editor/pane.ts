@@ -27,6 +27,7 @@ import {
 } from './api';
 import type { EditSource } from './api';
 import { areaCopy, areaCut, areaPaste } from './clipboard';
+import { scrollToOffset } from './highlight';
 import { EditHistory, diffText } from './history';
 import type { TextChange, TextSelection } from './history';
 import { indentLines, outdentLines } from './indent';
@@ -742,7 +743,7 @@ export function createPane(
 
   /**
    * 选中引文那一句。按编辑区里**当下**的文字找（可能有没保存的修改）；预览模式先切回编辑。
-   * 滚动按位置比例估：textarea 拿不到某个字符的像素位置，比例对长章来说足够准。
+   * 滚动用高亮镜像层量出那一句的纵向位置（`highlight.ts` 的 `scrollToOffset`），停在视口偏上三分之一。
    */
   function reveal(path: string, quote: string): boolean {
     if (!files.has(path)) {
@@ -757,8 +758,7 @@ export function createPane(
     }
     el.area.focus();
     el.area.setSelectionRange(at.start, at.end);
-    const len = Math.max(1, el.area.value.length);
-    el.area.scrollTop = Math.max(0, (at.start / len) * el.area.scrollHeight - el.area.clientHeight / 3);
+    scrollToOffset(pane, at.start);
     stashCaret();
     return true;
   }

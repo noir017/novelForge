@@ -1,0 +1,41 @@
+/*
+ * 高亮镜像层（editor/highlight.ts）：textarea 背后一层排得一模一样的文字，只画 <mark> 的底色。
+ *
+ * 字体、字号、行高、字距、内边距、断行规则、tab-size 由脚本每次渲染时从 textarea 的计算样式抄过来，
+ * 这里**不写死**——写死了，.mono 文件或以后改了正文字号就对不齐。textarea 自己背景透明、压在上面
+ * （editor.css 的 .ed-area），所以底色透得上来，光标、选区、输入法、点击仍然全是 textarea 的。
+ */
+
+.ed-mirror {
+  position: absolute;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.ed-mirror-content {
+  box-sizing: border-box;
+  margin: 0;
+  border: 0;
+  color: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* 量某个字的纵向位置用的那一份（scrollToOffset）：要排版，但不许被看见。 */
+.ed-mirror-probe {
+  visibility: hidden;
+}
+
+/* 只有底色：不许加内边距、边框、字重——任何一样都会让镜像与 textarea 排得不一样。 */
+.ed-mirror mark {
+  margin: 0;
+  padding: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: transparent;
+}
+
+/* ---- 各图层的颜色。新图层（禁用词、段落聚焦……）在这里加一组。 */

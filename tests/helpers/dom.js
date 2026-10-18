@@ -75,6 +75,13 @@ function standaloneBodyHtml() {
 
 // ---------------------------------------------------------------- 挂载
 
+/**
+ * `mirrorLayout` 这块假排版的尺寸。jsdom 没有排版，`offsetTop` / `clientHeight` 全是 0；
+ * 内置编辑器靠高亮镜像层量某个字的纵向位置来滚动（`editor/highlight.ts` 的 `scrollToOffset`），
+ * 要测「按量出来的位置滚」就得给它一个可预期的数。
+ */
+const MIRROR_LAYOUT = { line: 30, pad: 18, viewport: 300 };
+
 /** jsdom 缺的那些零碎，按名字取用。 */
 const SHIMS = {
   clipboard(window) {
@@ -89,6 +96,42 @@ const SHIMS = {
   },
   confirm(window) {
     window.confirm = () => true;
+  },
+  /**
+   * 假排版，只管量位置的那一份镜像（`.ed-mirror-probe`）：里面的标记 `offsetTop` = 上内边距 +
+   * 它前面的换行数 × 行高，`offsetHeight` = 行高；textarea 的 `clientHeight` 是固定的视口高。
+   * 一行一个换行、不模拟折行——测的是「滚动按量出来的位置走」，不是排版本身。别处照旧是 0。
+   * 量过哪些字记在 `window.__measured` 上（标记里包的就是目标那个字）。
+   */
+  mirrorLayout(window) {
+    const { line, pad, viewport } = MIRROR_LAYOUT;
+    window.__measured = [];
+    const inProbe = (node) => !!node.closest?.('.ed-mirror-probe');
+    Object.defineProperty(window.HTMLElement.prototype, 'offsetTop', {
+      configurable: true,
+      get() {
+        if (!inProbe(this) || this.classList.contains('ed-mirror-content')) {
+          return 0;
+        }
+        let before = '';
+        for (const node of this.parentNode.childNodes) {
+          if (node === this) break;
+          before += node.textContent;
+        }
+        window.__measured.push(this.textContent);
+        return pad + (before.split('\n').length - 1) * line;
+      },
+    });
+    Object.defineProperty(window.HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get() {
+        return inProbe(this) ? line : 0;
+      },
+    });
+    Object.defineProperty(window.HTMLTextAreaElement.prototype, 'clientHeight', {
+      configurable: true,
+      get: () => viewport,
+    });
   },
 };
 
@@ -446,6 +489,7 @@ module.exports = {
   hasJsdom, JSDOM_SKIP,
   extractBody, bodyHtml, standaloneBodyHtml,
   mount,
+  MIRROR_LAYOUT,
   turn, textSeg, toolSeg, emptySession, pipelineView, workbenchView, viewState, sampleTree,
   file, listing,
 };

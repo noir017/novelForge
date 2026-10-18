@@ -196,9 +196,14 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* 高亮镜像层（highlight.css）与 textarea 的上下关系只在这一格里排，不跟页面上别的层比。 */
+  isolation: isolate;
 }
 
+/* 背景透明、压在高亮镜像层上面：镜像里的 <mark> 底色要透过它看得见（底色由 .wb-editor 给）。 */
 .ed-area {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -206,7 +211,7 @@
   border: none;
   border-radius: 0;
   resize: none;
-  background: var(--vscode-editor-background);
+  background: transparent;
   color: var(--vscode-foreground);
   font-family: var(--nf-prose-font-family);
   font-size: 15px;
