@@ -8,7 +8,7 @@ import { StreamOptions } from '../llm/provider';
 import { budgetForTask, createModelPool, ModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
-import { readText, slugify, uniqueSlug, writeText } from '../model/fs';
+import { readText, slugify, uniqueSlug } from '../model/fs';
 import {
   NovelProject,
   emptyCharacterSections,
@@ -892,10 +892,10 @@ async function runCardUpdate(
     updatedThrough
   );
 
-  const abs = project.pathOf(card.relPath);
   const proposedText = renderCharacterCard(merged);
   if (opts.skipReview) {
-    await writeText(abs, proposedText);
+    // 作者已经点过头（批量的「全部直接采纳」/ 刚建的空卡）：经网关覆盖，旧内容先进历史版本，不再弹覆盖审阅。
+    await writeCardText(project, card, proposedText);
     log.info(`已写入角色卡「${card.name}」`, `${card.relPath}｜总耗时 ${elapsed(startedAt)}`);
   } else {
     const applied = await review(project, card, proposedText);
@@ -1099,8 +1099,19 @@ async function review(project: NovelProject, card: CharacterCard, proposedText: 
     log.info(`跳过角色卡「${card.name}」`, verdict === 'discard' ? '用户放弃' : '用户取消');
     return false;
   }
-  await writeText(abs, proposedText);
+  await writeCardText(project, card, proposedText);
   return true;
+}
+
+/**
+ * 把新版写回**这张卡原来的文件**：经网关（越界 / 大小守卫照过，覆盖之前旧内容先存一版历史），`review: false`——
+ * 到这里作者已经点过头（上面那张审阅，或批量确认框里的「全部直接采纳」），同一件事不问第二次。
+ *
+ * 走 `write(card.relPath)` 而不是 `writeCharacter`：后者按 slug 拼 `<slug>.md`，作者的卡若是 `林昭.MD`，
+ * 在分大小写的文件系统上会在旁边另起一张；它也不过 `guardWrite`。
+ */
+async function writeCardText(project: NovelProject, card: CharacterCard, text: string): Promise<void> {
+  await new Workspace(project).write(card.relPath, { text }, { mode: 'overwrite', review: false });
 }
 
 /**

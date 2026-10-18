@@ -1,4 +1,3 @@
-import * as path from 'node:path';
 import { getHost, plainVerdict } from '../host';
 import { collectText } from '../llm/collect';
 import { StreamOptions } from '../llm/provider';
@@ -8,7 +7,7 @@ import { contextLimitsOf, takeLast } from '../model/contextDetail';
 import { resolveSectionDir } from '../files/fileOps';
 import { elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
-import { readText, slugify, uniqueSlug, writeText } from '../model/fs';
+import { readText, slugify, uniqueSlug } from '../model/fs';
 import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../model/project';
 import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
 import { sanitizeAliases } from '../model/naming';
@@ -280,7 +279,8 @@ async function reviewCharacterUpdate(
   }
 
   if (verdict === 'apply') {
-    await writeText(currentAbs, proposedText);
+    // 作者在上面那张审阅里点了采纳：经网关写回（守卫照过、旧内容先进历史版本），`review: false`——不问第二次。
+    await new Workspace(project).write(existing.relPath, { text: proposedText }, { mode: 'overwrite', review: false });
     log.info(`已更新角色卡「${existing.name}」`, `${existing.relPath}｜${currentText.length} 字 → ${proposedText.length} 字`);
     getHost().toast(`已更新「${existing.name}」。`);
   } else {
@@ -336,14 +336,19 @@ export async function newLore(project: NovelProject, dir?: string, name?: string
   }
   const prefix = target === root ? '' : `${target.slice(root.length + 1)}/`;
   const slug = await uniqueSlug(project.loreDir, `${prefix}${slugify(title)}`);
-  const abs = path.join(project.loreDir, `${slug}.md`);
-  await writeText(
-    abs,
-    `---\ntitle: ${title.trim()}\nkeywords: [${title.trim()}]\n---\n\n# ${title.trim()}\n\n` +
-      '（在这里写这条设定：它是什么、有什么规则与边界、现在是什么状态。frontmatter 里可以加一行 brief 写一句话简介，' +
-      '名录里那一行显示它；keywords 写它的别称，正文或细纲里提到时会自动带进上下文。）\n'
+  const rel = `${root}/${slug}.md`;
+  // 经网关新建（`create`：同名报错退出、不覆盖——上面挑过不撞名的 slug，撞上只可能是这一瞬间别处刚建了同名的）。
+  await new Workspace(project).write(
+    rel,
+    {
+      text:
+        `---\ntitle: ${title.trim()}\nkeywords: [${title.trim()}]\n---\n\n# ${title.trim()}\n\n` +
+        '（在这里写这条设定：它是什么、有什么规则与边界、现在是什么状态。frontmatter 里可以加一行 brief 写一句话简介，' +
+        '名录里那一行显示它；keywords 写它的别称，正文或细纲里提到时会自动带进上下文。）\n',
+    },
+    { mode: 'create' }
   );
-  await getHost().openFile(project.relPath(abs));
+  await getHost().openFile(rel);
 }
 
 // ---------------------------------------------------------------- 解析

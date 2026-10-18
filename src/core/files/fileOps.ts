@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { getHost } from '../host';
 import { describeError, scoped } from '../runtime/logger';
 import { isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
-import { exists, readText, sanitizeFileName, writeText } from '../model/fs';
+import { exists, readText, sanitizeFileName } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { kindOfPath, normalizeRel } from '../workspace/kind';
 import { WsError, isProtectedPath } from '../workspace/guard';
@@ -284,18 +284,30 @@ async function renameEntryImpl(
   //
   // 只对 markdown 家族做：.txt 章节的标题本来就只取文件名，往里写一行 `# x`
   // 是凭空多出来的 markdown 痕迹；.json 章节则是直接写坏文件。
+  //
+  // 经网关写（覆盖之前旧内容先存一版历史、大小守卫照过），不弹覆盖审阅：新名字是作者刚在输入框里起的。
+  // chapter handler 写完只同步 manifest，**不碰这一章细纲上的 `writtenFrom`**——那一环只在生成落盘时由
+  // `recordWrittenFrom` 记（与编辑器保存正文同一条路），挂着 ⟳ 的章改个名照样挂着（第 18 条）。
+  // 网关拒写（如正文超过 2 MB）就整个不改名：不留下「标题改了、文件名没改」的半截。
+  const ws = new Workspace(project);
   if (!isDir && target.info?.section === 'chapters' && isMarkdownPath(rel)) {
     const body = await readText(abs);
     const updated = renamedBody(body, editable, nextStem);
     if (updated !== body) {
-      await writeText(abs, updated);
+      try {
+        await ws.write(rel, { text: updated }, { mode: 'overwrite', review: false });
+      } catch (err) {
+        log.warn(`重命名被拒：${describeWsError(err)}`, `${rel} → ${nextRel}`);
+        getHost().toast(describeWsError(err), 'error');
+        return undefined;
+      }
       log.debug(`正文里的 # 标题跟着改名同步`, `「${editable}」→「${nextStem}」`);
     }
   }
 
   // 经网关搬：同名不覆盖、固定目录保护、草稿跟随、manifest 同步都在那一层。
   try {
-    await new Workspace(project).move(rel, nextRel);
+    await ws.move(rel, nextRel);
   } catch (err) {
     log.warn(`重命名被拒：${describeWsError(err)}`, `${rel} → ${nextRel}`);
     getHost().toast(describeWsError(err), 'error');
