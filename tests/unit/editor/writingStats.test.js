@@ -159,6 +159,11 @@ describe('哪些改动算码字', () => {
     assert.equal(isWritingActivity('composition'), true);
   });
 
+  test('名词补全里挑的名字补上的字算（⚑ 与输入法挑候选词同理），也算「在写」', () => {
+    assert.equal(countsAsWriting('completion', change), true);
+    assert.equal(isWritingActivity('completion'), true);
+  });
+
   test('粘贴 / 剪切 / 拖放、程序改写、撤销重做都不按「打的字」算', () => {
     for (const source of ['input', 'program', 'undo', 'redo']) {
       assert.equal(countsAsWriting(source, change), false, source);

@@ -18,6 +18,11 @@ export interface ApplyEditOptions {
    * 只往**刚记下的那一步**里并：上一步不存在、或中间撤销 / 重做过时照常另起一步。
    */
   join?: boolean;
+  /**
+   * 这一下是作者在名词补全里挑了一个名字（`names.ts`）：`edit` 事件的 `source` 报 `completion` 而不是 `program`，
+   * 码字统计据此当作者打的字算（⚑，见 `writingStats.ts`）。别的程序改写不给。
+   */
+  source?: 'completion';
 }
 
 /** 一块编辑区对外的样子。createPane 的返回值实现它。 */
@@ -74,7 +79,8 @@ export interface Pane {
    * - **撤销**：一次调用记**一步**，不与前后的打字合并（`opts.join` 例外，见 `ApplyEditOptions`）。
    *   撤销回到改之前的文字与改之前的选区，重做回到改之后的文字与 `selection`。
    * - **其余**：同时更新 `file.draft`、脏标记、状态栏、标签圆点、草稿持久化，清掉过期的冲突条，
-   *   并发一条 `onEditorChange` 的 `edit`（`source: 'program'`）。预览模式下也能用，预览跟着重画。
+   *   并发一条 `onEditorChange` 的 `edit`（`source: 'program'`；名词补全给了 `opts.source` 时是 `completion`）。
+   *   预览模式下也能用，预览跟着重画。
    *
    * 返回内容是否真的变了：没开文件、或替换前后一字不差时返回 false（这时只设选区，不记撤销）。
    */

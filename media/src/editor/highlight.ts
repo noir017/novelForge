@@ -180,10 +180,11 @@ export function mapOffset(pos: number, change: TextChange): number {
 }
 
 /**
- * 量某个字（`area.value` 的下标）在 textarea 内容里的纵向位置：`top` 从内容顶上（含上内边距）算，
- * `height` 是那一行的高。textarea 藏着、文字超过 `HIGHLIGHT_LIMIT` 时量不了，返回 undefined。
+ * 量某个字（`area.value` 的下标）在 textarea 内容里的位置：`top` 从内容顶上（含上内边距）算，`left` 从内容左边
+ * （含左内边距与版心留白）算，`height` 是那一行的高。textarea 藏着、文字超过 `HIGHLIGHT_LIMIT` 时量不了，返回 undefined。
+ * 打字机滚动用 `top`，名词补全的弹出框（`names.ts`）用 `left` / `top` / `height` 贴着光标摆。
  */
-export function measureOffset(pane: Pane, offset: number): { top: number; height: number } | undefined {
+export function measureOffset(pane: Pane, offset: number): { top: number; left: number; height: number } | undefined {
   const area = pane.area;
   const text = area.value;
   if (tooLargeToHighlight(text) || !areaVisible(pane)) {
@@ -205,7 +206,7 @@ export function measureOffset(pane: Pane, offset: number): { top: number; height
   const markerEnd = code === undefined ? at : at + marker.textContent.length;
   // 这一行剩下的字也排上：英文长词会整个折到下一行，只排到这个字为止会量错。
   content.replaceChildren(text.slice(0, at), marker, text.slice(markerEnd, tailEnd));
-  const pos = { top: marker.offsetTop, height: marker.offsetHeight };
+  const pos = { top: marker.offsetTop, left: marker.offsetLeft, height: marker.offsetHeight };
   content.replaceChildren();
   return pos;
 }

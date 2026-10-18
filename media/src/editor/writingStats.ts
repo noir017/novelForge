@@ -8,8 +8,9 @@
  *
  * 「码了多少字」是**作者在编辑区里亲手打进去的净字数**（字数口径同 `words.ts`：中文按字、英文按词，标点空白不算）：
  *
- * - **算**：键盘打字（`typing`），输入法上屏的那一下（`composition` 带 `change`）。退格、Delete、打字盖掉选区
- *   删掉的字**倒扣**——所以是「净」增加，打了又删等于没打。
+ * - **算**：键盘打字（`typing`），输入法上屏的那一下（`composition` 带 `change`），在名词补全里挑了一个名字
+ *   补上的那几个字（`completion`，⚑：和输入法在候选词里挑一个是同一回事——名字是作者自己要写的字，只是打得快些；
+ *   不算的话常用补全的人码字数会偏少）。退格、Delete、打字盖掉选区删掉的字**倒扣**——所以是「净」增加，打了又删等于没打。
  * - **不算**：粘贴、剪切、拖放（`input`），一切程序改写（`program`：回车与 Tab 补的空白、成对符号补的半边、
  *   段落快捷键、一键排版、半角转全角、替换 / 全部替换、对比合并、历史版本恢复、还原、用磁盘版本覆盖、
  *   磁盘同步换进来的新版、右键粘贴），输入法组字中途（拼音还没上屏）。
@@ -55,14 +56,14 @@ export function wordDelta(after: string, change: TextChange): number {
   return countWords(head + change.inserted + tail) - countWords(head + change.removed + tail);
 }
 
-/** 这一下改动算不算作者码的字：键盘打字与输入法上屏（带 `change` 的那一下）。 */
+/** 这一下改动算不算作者码的字：键盘打字、输入法上屏（带 `change` 的那一下）、名词补全里挑的名字。 */
 export function countsAsWriting(source: EditSource, change: TextChange | undefined): boolean {
-  return !!change && (source === 'typing' || source === 'composition');
+  return !!change && (source === 'typing' || source === 'composition' || source === 'completion');
 }
 
-/** 这一下算不算「在写」（时长的心跳）：打字与输入法，组字中途也算——拼音还没上屏，人确实在写。 */
+/** 这一下算不算「在写」（时长的心跳）：打字与输入法（组字中途也算——拼音还没上屏，人确实在写）、挑了一个补全。 */
 export function isWritingActivity(source: EditSource): boolean {
-  return source === 'typing' || source === 'composition';
+  return source === 'typing' || source === 'composition' || source === 'completion';
 }
 
 // ---------------------------------------------------------------- Markdown 标题行

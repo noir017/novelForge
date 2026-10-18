@@ -131,9 +131,10 @@ export function runKeyHandlers(e: KeyboardEvent, ctx: EditorContext): boolean {
 /**
  * 内容是怎么变的：`typing` 连续打字 / 删除，`input` 其余的原生输入（粘贴、拖放、剪切），
  * `composition` 输入法上屏，`program` 经 `applyEdit` 的程序改写（含「还原」「用磁盘版本覆盖」），
- * `undo` / `redo` 撤销与重做。
+ * `completion` 作者在名词补全里挑了一个名字（也经 `applyEdit`，带 `opts.source`；码字统计当作者打的字算，
+ * 见 `writingStats.ts`），`undo` / `redo` 撤销与重做。
  */
-export type EditSource = 'typing' | 'input' | 'composition' | 'program' | 'undo' | 'redo';
+export type EditSource = 'typing' | 'input' | 'composition' | 'program' | 'completion' | 'undo' | 'redo';
 
 export type EditorEvent =
   /**

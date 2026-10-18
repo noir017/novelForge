@@ -680,7 +680,7 @@ export function createPane(
     if (!change) {
       return false;
     }
-    commitEdit(file, next, change, selectionOf(file), after, 'program', opts?.join);
+    commitEdit(file, next, change, selectionOf(file), after, opts?.source ?? 'program', opts?.join);
     return true;
   }
 
