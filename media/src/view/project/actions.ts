@@ -7,10 +7,11 @@ import { vscode } from '../store';
 
 /**
  * `relPath` 是动作的作用对象（如要总结哪一章）；`dir` 给新建类动作指定落点
- * 目录，缺省落在该区的根目录。
+ * 目录，缺省落在该区的根目录。`name` 只有 `newLore` 用：「出现过 · 未建条目」那一行
+ * 新建时把名字带过去，后端就不再弹框问标题（`dir` 那一层还没有时后端会建）。
  */
-export function projectAction(action: ProjectAction, relPath?: string, dir?: string): void {
-  vscode.postMessage({ type: 'projectAction', action, relPath, dir });
+export function projectAction(action: ProjectAction, relPath?: string, dir?: string, name?: string): void {
+  vscode.postMessage({ type: 'projectAction', action, relPath, dir, name });
 }
 
 export function fileAction(action: 'rename' | 'move' | 'delete', relPath: string): void {

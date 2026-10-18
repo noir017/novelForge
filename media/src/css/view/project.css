@@ -160,11 +160,85 @@
 }
 
 /* 「上次更新之后又出场了 N 章」。用强调色而非警告色——
-   角色卡没跟上正文不是错误，只是件待办。 */
+   角色卡没跟上正文不是错误，只是件待办。设定行的「＋N」（待整合）也用它。 */
 .cast-pending {
   flex: 0 0 auto;
   color: var(--vscode-textLink-foreground);
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 设定行右边的出现章（「第 3–57 章 · 12 章」）：不截断——几百条里扫一眼要看的就是
+ * 哪条用得多、用到哪了。它不让，标题就得留几个字，不然窄侧栏里标题会被挤到一个字都不剩
+ * （.row-label 的 flex-basis 是 0，挤的时候它先没）。被挤掉的是一句话副标题，浮窗看得全。
+ */
+.lore-span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.row-lore .row-label {
+  min-width: 4em;
+}
+
+/* 「出现过 · 未建条目」的建议分类（可以是好几层目录），太长就截。 */
+.lore-category {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 未建条目点名字不做事（新建在右键里），筛选中被强制展开的文件夹点了也不折叠——
+   都别给一个可点的样子。 */
+.row-lore-unfiled .row-label,
+.row-dir-forced > .caret,
+.row-dir-forced .row-label {
+  cursor: default;
+}
+
+.row-lore-unfiled .row-label:hover,
+.row-dir-forced .row-label:hover {
+  text-decoration: none;
+}
+
+/*
+ * 「设定」组标题旁的筛选框。挂在 .group-head 里、折叠开关（.group-toggle）之外——
+ * 点它、在里面打字都不会把组折起来。forms.css 给 input 的 padding / width 在这里收回来，
+ * 压成与标题栏一样矮。
+ */
+.lore-filter {
+  position: relative;
+  flex: 0 1 10em;
+  min-width: 5em;
+  align-self: center;
+  margin-right: 2px;
+}
+
+.lore-filter-input {
+  width: 100%;
+  height: 20px;
+  padding: 0 18px 0 6px;
+  font-size: 0.85em;
+  border-radius: 3px;
+}
+
+.lore-filter-clear {
+  position: absolute;
+  top: 50%;
+  right: 1px;
+  transform: translateY(-50%);
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1;
+}
+
+.lore-filter-clear:hover {
+  color: var(--vscode-foreground);
 }
 
 /*

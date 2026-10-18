@@ -518,6 +518,11 @@ function sampleTree() {
       { kind: 'file', label: '林昭', relPath: '.novelforge/characters/林昭.md', detail: '主角' },
     ],
     lore: [],
+    // 设定名录（views/lore.ts）：这棵树没有设定条目，定稿里也没出现过——三样都是空的。
+    // 设定组的行、未建条目与筛选框见 tests/dom/view/loreCatalog.test.js 的 `loreTree()`。
+    loreByEntry: {},
+    loreUnfiled: [],
+    loreUnrecorded: 0,
     summaryCount: 3,
     // 正常工程这里是空对象——只有出错的目标才有记录。
     failures: {},

@@ -96,7 +96,8 @@ export function charactersEmptyRow(tree: ProjectTree): HTMLElement {
 }
 
 /**
- * 设定组为空。设定条目是可选的，所以不说「下一步」：说清它是什么、什么时候用得上。
+ * 设定组为空。设定条目是可选的，所以不说「下一步」：说清它放什么、往后从哪儿长出来——
+ * 每章定稿时记下这一章出现了哪些设定，出现过却还没建条目的列在下面「出现过 · 未建条目」那一组。
  * 手建一条不调模型；已经有正文时可以从正文里生成（自带确认框）。
  */
 export function loreEmptyRow(tree: ProjectTree): HTMLElement {
@@ -110,5 +111,8 @@ export function loreEmptyRow(tree: ProjectTree): HTMLElement {
       run: () => projectAction('generateLore'),
     });
   }
-  return hintRow('还没有设定条目。地点、势力、物件这类要前后一致的东西写成一条，keywords 命中时自动带进上下文。', buttons);
+  return hintRow(
+    '还没有设定条目。地点、势力、物品、概念这类要前后一致的东西各写一条；每章定稿时会记下这一章出现了哪些设定，出现过却还没建条目的会列在下面。',
+    buttons
+  );
 }

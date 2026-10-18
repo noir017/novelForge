@@ -2,7 +2,7 @@
  * 工程页的装配：把树、分组、横幅拼成一整页。
  *
  * 折叠等 UI 状态完全留在前端（treeState.ts），切一下折叠走 `rerenderProject`
- * 拿最近那份快照重画，不必往后端要一次数据。
+ * 拿最近那份快照重画，不必往后端要一次数据。「设定」组的筛选也一样（loreFilter.ts）。
  */
 import { closestFrom, setHidden } from '../../dom';
 import type { ProjectTree } from '../../protocol';
@@ -22,6 +22,7 @@ import {
   buildArchitectureRows,
   buildCastRow,
   buildConflictRow,
+  buildLoreUnfiledRows,
   buildPlotRows,
   emptyRow,
   renderNodes,
@@ -30,11 +31,31 @@ import { openIdeaForm, openPlotBatchForm, openWriteBatchForm } from '../forms';
 import { charactersEmptyRow, loreEmptyRow, nextStepRow } from './nextSteps';
 import { hideDetailTip, installDetailTip } from './detailTip';
 import { hideFailureTip, installFailureTip } from './errorTip';
+import {
+  buildLoreFilter,
+  captureLoreFilterFocus,
+  filterUnfiled,
+  loreFilterComposing,
+  loreMatcher,
+  restoreLoreFilterFocus,
+} from './loreFilter';
 import { hideSummaryTip, installSummaryTip } from './summaryTip';
-import { lastTree, setLastTree } from './treeState';
+import { lastTree, loreView, setLastTree } from './treeState';
 
 export function renderProject(tree: ProjectTree): void {
   setLastTree(tree);
+  // 筛选框里正在用输入法组字：这时重画会换掉输入框、打了一半的字就没了。树先记下，
+  // 组字结束时（loreFilter.ts 的 compositionend）按最新的这一份重画。
+  if (loreFilterComposing()) {
+    return;
+  }
+  // 整页重建会换掉筛选框：焦点在里面（正打着字、旁边又推来一棵树）就把焦点与光标放回去。
+  const focus = captureLoreFilterFocus();
+  buildProjectPage(tree);
+  restoreLoreFilterFocus(focus);
+}
+
+function buildProjectPage(tree: ProjectTree): void {
   el.projectBody.innerHTML = '';
   // 全部行都被换掉了，开着的浮窗指向的是已丢弃的节点。
   hideSummaryTip();
@@ -133,6 +154,12 @@ export function renderProject(tree: ProjectTree): void {
     );
   }
 
+  // 设定名录（第九节攒出来的）：已建条目是按目录（= 分类）分组的树，每行带出现章与待整合；
+  // 标题旁一个筛选框，几百条时不用一层层翻目录。
+  const unfiledAll = tree.loreUnfiled ?? [];
+  const match = loreMatcher(tree);
+  // 没东西可筛就不摆框；正筛着的时候哪怕条目都没了也留着，不然筛选串看不见、也清不掉。
+  const showFilter = tree.lore.length > 0 || unfiledAll.length > 0 || loreView.filter !== '';
   el.projectBody.appendChild(
     buildGroup('lore', '设定', countLabel(tree.lore, '条'), {
       section: SECTIONS.lore,
@@ -141,9 +168,32 @@ export function renderProject(tree: ProjectTree): void {
         { label: '从已写正文生成/更新设定', run: () => projectAction('generateLore') },
         { sep: true },
       ],
-      build: () => (tree.lore.length === 0 ? [loreEmptyRow(tree)] : renderNodes(tree.lore, 0, SECTIONS.lore)),
+      head: showFilter ? buildLoreFilter(rerenderProject) : undefined,
+      build: () => {
+        if (tree.lore.length === 0) {
+          return [loreEmptyRow(tree)];
+        }
+        const rows = renderNodes(tree.lore, 0, SECTIONS.lore, tree, match);
+        if (rows.length === 0 && match) {
+          const none = emptyRow('没有匹配的设定');
+          none.classList.add('row-no-match');
+          return [none];
+        }
+        return rows;
+      },
     })
   );
+
+  // 定稿过的细纲第九节里出现、但还没有条目的名字。与「出场人物 · 未建卡」同一个道理单独一组：
+  // 设定那棵是文件树（能改名/移动/删除），这些还没有文件。筛选时一个都没匹配上就整组不画。
+  const unfiled = filterUnfiled(unfiledAll);
+  if (unfiled.length > 0) {
+    el.projectBody.appendChild(
+      buildGroup('loreUnfiled', '出现过 · 未建条目', `${unfiledAll.length} 个`, {
+        build: () => buildLoreUnfiledRows(unfiled, tree.loreRoot),
+      })
+    );
+  }
 
   el.projectBody.appendChild(
     buildGroup('meta', '文风与摘要', summaryGroupLabel(tree), {

@@ -21,11 +21,24 @@ export const openGroups: Record<string, boolean> = {
   characters: true,
   cast: true,
   lore: true,
+  loreUnfiled: true,
   meta: true,
 };
 
 /** 展开着的文件夹（relPath 集合）。 */
 export const openFolders = new Set<string>();
+
+/**
+ * 设定名录的两样前端状态，与折叠开合同一个待遇：只在前端，不进后端，重推树不清。
+ *
+ * - `filter`：「设定」组标题旁筛选框里的字。文件一变后端就整棵重推，筛选串要是跟着树走，
+ *   作者正筛着、旁边保存了一章，筛出来的东西就没了。
+ * - `showAllUnfiled`：「出现过 · 未建条目」点过「显示全部」。同样的理由：点开之后每次重推都缩回
+ *   前 30 个，等于这颗按钮白点。
+ *
+ * 用一个对象而不是两个 `export let`：别的模块改不了导入进来的 let 绑定。
+ */
+export const loreView = { filter: '', showAllUnfiled: false };
 
 /** 最近一次收到的树。折叠时拿它重画即可。 */
 export let lastTree: ProjectTree | null = null;

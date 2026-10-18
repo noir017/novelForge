@@ -18,12 +18,14 @@ import type {
   CastEntry,
   CreationTarget,
   FailureView,
+  LoreUnfiledEntry,
   ProjectPlotNode,
   ProjectDirNode,
   ProjectFile,
   ProjectNode,
   ProjectTree,
 } from '../../protocol';
+import { linkBtn } from '../buttons';
 import { formatWords } from '../format';
 import { openIdeaForm } from '../forms';
 import { onContextMenu } from '../menu';
@@ -39,7 +41,7 @@ import {
 } from './actions';
 import type { Section } from './actions';
 import { SECTIONS } from './actions';
-import { indentOf, lastTree, openFolders, openGroups } from './treeState';
+import { indentOf, lastTree, loreView, openFolders, openGroups } from './treeState';
 
 /**
  * 失败标记。有未解决的失败记录时插在文件名之前，鼠标移上去看原因
@@ -81,18 +83,30 @@ function revealGroup(id: string): void {
 /**
  * 递归渲染一层节点，返回扁平的行数组。
  *
- * `section` 决定文件图标与「在此新建」建什么；`tree` 只有角色区用得上
- * （要按 relPath 查出场统计），其余区传不传都行。
+ * `section` 决定文件图标与「在此新建」建什么；`tree` 只有角色区与设定区用得上
+ * （要按 relPath 查出场统计 / 出现章），其余区传不传都行。
+ *
+ * `match` 给了就是在筛选（「设定」组标题旁的筛选框）：只画匹配的文件，没有匹配的文件夹
+ * 整个不画，有匹配的文件夹一律展开——匹配的那一条藏在折叠着的目录里，等于没筛出来。
+ * 展开集合 `openFolders` 不动，清掉筛选就回到原来的开合。
  */
 export function renderNodes(
   nodes: ProjectNode[],
   depth: number,
   section: Section,
-  tree?: ProjectTree
+  tree?: ProjectTree,
+  match?: (f: ProjectFile) => boolean
 ): HTMLElement[] {
   const rows: HTMLElement[] = [];
   for (const node of nodes) {
     if (node.kind === 'dir') {
+      if (match) {
+        const inner = renderNodes(node.children, depth + 1, section, tree, match);
+        if (inner.length > 0) {
+          rows.push(buildFolderRow(node, depth, section, true), ...inner);
+        }
+        continue;
+      }
       rows.push(buildFolderRow(node, depth, section));
       if (openFolders.has(node.relPath)) {
         rows.push(
@@ -101,8 +115,12 @@ export function renderNodes(
             : renderNodes(node.children, depth + 1, section, tree))
         );
       }
+    } else if (match && !match(node)) {
+      continue;
     } else if (section === SECTIONS.characters) {
       rows.push(buildCharacterRow(node, depth, tree));
+    } else if (section === SECTIONS.lore) {
+      rows.push(buildLoreRow(node, depth, tree));
     } else {
       rows.push(buildFileRow(node, section.icon, depth));
     }
@@ -110,17 +128,22 @@ export function renderNodes(
   return rows;
 }
 
-/** 文件夹行。点行体展开/折叠，其余操作走右键。折叠状态不进后端。 */
-function buildFolderRow(node: ProjectDirNode, depth: number, section: Section): HTMLElement {
-  const row = mk('div', 'row row-dir');
+/**
+ * 文件夹行。点行体展开/折叠，其余操作走右键。折叠状态不进后端。
+ *
+ * `forced`：筛选中被强制展开的文件夹（见 `renderNodes`）。这时点它、右键「折叠」都没有
+ * 看得见的效果（筛选不清，它就一直开着），所以干脆不挂——免得悄悄改掉清筛选之后的开合。
+ */
+function buildFolderRow(node: ProjectDirNode, depth: number, section: Section, forced = false): HTMLElement {
+  const row = mk('div', `row row-dir${forced ? ' row-dir-forced' : ''}`);
   row.style.paddingLeft = `${indentOf(depth)}px`;
-  const open = openFolders.has(node.relPath);
+  const open = forced || openFolders.has(node.relPath);
 
   const caret = mk('span', 'caret', open ? '▾' : '▸');
   row.appendChild(caret);
 
   const label = mk('span', 'row-label row-dir-label', `${open ? '📂' : '📁'} ${node.label}`);
-  label.title = node.relPath;
+  label.title = forced ? `${node.relPath}\n筛选中：有匹配的文件夹一律展开` : node.relPath;
   row.appendChild(label);
 
   row.appendChild(mk('span', 'meta', node.fileCount > 0 ? `${node.fileCount} 项` : '空'));
@@ -133,17 +156,21 @@ function buildFolderRow(node: ProjectDirNode, depth: number, section: Section): 
     }
     rerender();
   };
-  caret.addEventListener('click', toggle);
-  label.addEventListener('click', toggle);
+  if (!forced) {
+    caret.addEventListener('click', toggle);
+    label.addEventListener('click', toggle);
+  }
 
-  onContextMenu(row, () => [
-    { label: open ? '折叠' : '展开', run: toggle },
-    { sep: true },
-    // 「在此新建」的落点是这个文件夹自己，不是区根目录。
-    ...newItemsIn(section, node.relPath),
-    { sep: true },
-    ...entryItems(node.relPath),
-  ]);
+  onContextMenu(row, () => {
+    const head: MenuItem[] = forced ? [] : [{ label: open ? '折叠' : '展开', run: toggle }, { sep: true }];
+    return [
+      ...head,
+      // 「在此新建」的落点是这个文件夹自己，不是区根目录。
+      ...newItemsIn(section, node.relPath),
+      { sep: true },
+      ...entryItems(node.relPath),
+    ];
+  });
   return row;
 }
 
@@ -497,6 +524,40 @@ function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): H
 }
 
 /**
+ * 设定行。比普通文件行多两样东西：出现章（「第 3–57 章 · 12 章」）与「＋N」待整合标记。
+ *
+ * 出现章来自后端的 `loreByEntry`（`views/lore.ts` 从定稿过的细纲第九节算的），前端不自己算——
+ * 与角色行的 `castByCard` 同一个道理。副标题仍是那一句 brief（没有就是关键词，后端给好了）。
+ *
+ * 出现章**另起一格放在右边、不截断**，不像角色行那样并进副标题：brief 常常二三十字，
+ * 并进同一格的话出现章永远被省略号吃掉，而几百条里扫一眼要看的恰恰是「哪条用得多、用到哪了」。
+ * 被挤掉的是 brief，悬停浮窗（detailTip）照样看得全。
+ *
+ * 右键菜单不变（打开 + 类文件操作，`buildFileRow` 挂的那一份）。
+ */
+function buildLoreRow(f: ProjectFile, depth: number, tree?: ProjectTree): HTMLElement {
+  // 旧后端推来的树没有 loreByEntry：可选链是有意的，那时就是一行普通的文件行。
+  const stats = tree?.loreByEntry?.[f.relPath] ?? null;
+  const row = buildFileRow(f, SECTIONS.lore.icon, depth);
+  row.classList.add('row-lore');
+
+  if (stats?.detail) {
+    row.appendChild(mk('span', 'meta lore-span', stats.detail));
+  }
+
+  // 水位之后又有几章写到了它：与角色卡的「＋N」同一个样子——没跟上正文不是错误，是件待办。
+  if (stats && stats.pending > 0) {
+    const flag = mk('span', 'meta cast-pending lore-pending', `＋${stats.pending}`);
+    flag.title =
+      stats.updatedThrough > 0
+        ? `第 ${stats.updatedThrough} 章之后又有 ${stats.pending} 章的新内容没整合进这一条`
+        : `有 ${stats.pending} 章的新内容还没整合进这一条`;
+    row.appendChild(flag);
+  }
+  return row;
+}
+
+/**
  * 「出场人物 · 未建卡」的一行。
  * 只有一个动作：建卡（建完立刻用它的出场段落跑一次提取）。
  */
@@ -522,6 +583,69 @@ export function buildCastRow(c: CastEntry): HTMLElement {
   onContextMenu(row, () => [
     { label: '创建角色卡（通读出场段落）', run: create },
     { label: `出场：${c.detail}`, disabled: true },
+    { sep: true },
+    ...baseMenuItems(),
+  ]);
+  return row;
+}
+
+/** 「出现过 · 未建条目」一次先画这么多行，再多的收在「显示全部 N 个」后面。 */
+const UNFILED_PAGE = 30;
+
+/**
+ * 「出现过 · 未建条目」那一组的全部行。
+ *
+ * 设定会比角色多一个数量级：后端按出现章数降序排好，前面那几十个才是真该建条目的，
+ * 长尾（只出现过一两次的地名、物件）一口气摊开会把下面「文风与摘要」顶出好几屏。
+ * 点过「显示全部」记在 `loreView` 上，重推树不缩回去。
+ */
+export function buildLoreUnfiledRows(list: LoreUnfiledEntry[], loreRoot: string): HTMLElement[] {
+  const shown = loreView.showAllUnfiled ? list : list.slice(0, UNFILED_PAGE);
+  const rows = shown.map((u) => buildLoreUnfiledRow(u, loreRoot));
+  if (shown.length < list.length) {
+    // 不是 `.row`：它不是名录里的一项，没有右键菜单，也不该被「这一组有几行」数进去。
+    const more = mk('div', 'hint row-empty row-more');
+    more.appendChild(
+      linkBtn(`显示全部 ${list.length} 个`, () => {
+        loreView.showAllUnfiled = true;
+        rerender();
+      })
+    );
+    rows.push(more);
+  }
+  return rows;
+}
+
+/**
+ * 「出现过 · 未建条目」的一行：`名〔分类〕· 5 章 · 第 3 章起`。
+ *
+ * 只有一个动作：右键「新建这条设定」——带着名字发 `newLore`，落在建议的分类目录里
+ * （各章第九节写的多数票；目录还没有时后端会建），不调模型。
+ * 与「出场人物 · 未建卡」不同，**点名字不做事**：那边点名字是建卡，这边建出来的是一份空条目，
+ * 扫列表时手一滑就在设定区里多出一个文件，不值得放在最省事的位置。
+ */
+function buildLoreUnfiledRow(u: LoreUnfiledEntry, loreRoot: string): HTMLElement {
+  // 复用 row-cast 的压暗：同样是「出现过、还没有文件」的东西。
+  const row = mk('div', 'row row-cast row-lore-unfiled');
+  row.style.paddingLeft = `${indentOf(0)}px`;
+
+  const dot = mk('span', 'dot', '○');
+  dot.title = '定稿里出现过，还没有设定条目';
+  row.appendChild(dot);
+
+  const label = mk('span', 'row-label', u.name);
+  label.title = `${u.chapters.length > 0 ? `出现在第 ${u.chapters.join('、')} 章\n` : ''}右键「新建这条设定」`;
+  row.appendChild(label);
+
+  if (u.category) {
+    row.appendChild(mk('span', 'meta lore-category', `〔${u.category}〕`));
+  }
+  row.appendChild(mk('span', 'meta row-detail', u.detail));
+
+  const sub = u.category.replace(/^\/+|\/+$/g, '');
+  const dir = sub ? `${loreRoot}/${sub}` : loreRoot;
+  onContextMenu(row, () => [
+    { label: '新建这条设定', run: () => projectAction('newLore', undefined, dir, u.name) },
     { sep: true },
     ...baseMenuItems(),
   ]);

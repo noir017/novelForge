@@ -36,6 +36,8 @@ export type {
   InMessage,
   LogEntry,
   LogLevel,
+  LoreSummary,
+  LoreUnfiledEntry,
   NextStepView,
   OutMessage,
   ProjectAction,

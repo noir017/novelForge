@@ -25,6 +25,11 @@ interface GroupOptions {
    * 没有 `section` 的分组只挂这些 + 通用项，所以自带的分隔线要自己写。
    */
   extraItems?: () => MenuItem[];
+  /**
+   * 标题栏上折叠开关之外的一样东西（「设定」组的筛选框）。挂在开关**旁边**而不是里面：
+   * 开关是一颗 `<button>`，放进去的话点输入框、在里面按空格回车都会把组折起来。
+   */
+  head?: HTMLElement;
   /** 惰性调用：折叠时不生成行。 */
   build: () => HTMLElement[];
 }
@@ -45,13 +50,16 @@ export function buildGroup(
   box.dataset.group = id;
 
   const head = mk('div', 'group-head');
-  // 折叠开关吃掉整行的可点面积：标题栏上现在只有它，点哪儿都能折叠。
+  // 折叠开关吃掉整行的可点面积：标题栏上除了它只有 `opts.head`（筛选框），点别处都能折叠。
   const toggle = mk('button', 'group-toggle');
   const caret = mk('span', 'caret', openGroups[id] ? '▾' : '▸');
   toggle.appendChild(caret);
   toggle.appendChild(mk('span', 'group-name', label));
   toggle.appendChild(mk('span', 'meta', description));
   head.appendChild(toggle);
+  if (opts.head) {
+    head.appendChild(opts.head);
+  }
   box.appendChild(head);
 
   const body = mk('div', 'group-body');
