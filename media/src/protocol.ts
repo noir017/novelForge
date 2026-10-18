@@ -83,6 +83,9 @@ export type {
   QuickOpenLore,
 } from '../../src/core/protocol';
 
+/** 「名词补全」的名词表（`core/protocol/nameIndex.ts`）。 */
+export type { NameEntry, NameIndex, NameSource } from '../../src/core/protocol';
+
 /**
  * 创作流水线的类型与那几张对照表。
  *
