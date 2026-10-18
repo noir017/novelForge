@@ -340,6 +340,29 @@ function syncButton(pane: Pane): void {
 
 let renderTimer: ReturnType<typeof setTimeout> | undefined;
 
+/** 保存之后重拉列表：离上一次不到一秒就挪到一秒之后（只发最后那一次）。 */
+const RELIST_GAP_MS = 1000;
+const relists = new WeakMap<Drawer, { last: number; timer?: ReturnType<typeof setTimeout> }>();
+
+function relist(drawer: Drawer): void {
+  const state = relists.get(drawer) ?? { last: 0 };
+  relists.set(drawer, state);
+  clearTimeout(state.timer);
+  const send = () => {
+    state.timer = undefined;
+    state.last = Date.now();
+    if (drawer.open && drawer.path && !drawer.unavailable) {
+      post({ type: 'listVersions', path: drawer.path });
+    }
+  };
+  const wait = state.last + RELIST_GAP_MS - Date.now();
+  if (wait <= 0) {
+    send();
+  } else {
+    state.timer = setTimeout(send, wait);
+  }
+}
+
 export function installVersions(postMessage: (msg: InMessage) => void): void {
   post = postMessage;
 
@@ -357,10 +380,10 @@ export function installVersions(postMessage: (msg: InMessage) => void): void {
       } else if (file.path !== drawer.path) {
         load(drawer);
       } else if (file.hash !== drawer.hash) {
-        // 保存过（或换了基线）：网关可能刚存了一版，重拉。
+        // 保存过（或换了基线）：网关可能刚存了一版，重拉。自动保存几秒一次时攒一攒，一秒最多一次。
         drawer.hash = file.hash;
         if (!drawer.unavailable) {
-          post({ type: 'listVersions', path: file.path });
+          relist(drawer);
         }
       }
       return;

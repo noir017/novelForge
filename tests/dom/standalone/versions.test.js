@@ -242,6 +242,15 @@ describe('历史版本面板', { skip: JSDOM_SKIP }, () => {
     assert.deepEqual({ ...h.ui.last('listVersions') }, { type: 'listVersions', path: PATH });
   });
 
+  test('连着几次保存回执（自动保存那样）：一秒之内只重拉一次，最后那次挪到一秒之后', async () => {
+    h.ui.sent.length = 0;
+    h.ui.post({ type: 'editorSaved', file: file(PATH, '挑过的那一份。', { kind: 'chapter', hash: 'h-saved-2' }) });
+    h.ui.post({ type: 'editorSaved', file: file(PATH, '挑过的那一份。', { kind: 'chapter', hash: 'h-saved-3' }) });
+    assert.equal(h.ui.sent.filter((m) => m.type === 'listVersions').length, 0, '上一次刚拉过，先攒着');
+    await new Promise((r) => setTimeout(r, 1100));
+    assert.equal(h.ui.sent.filter((m) => m.type === 'listVersions').length, 1);
+  });
+
   test('现在存一版：发 saveVersion，按钮上说清存的是磁盘上的那一份', () => {
     const save = h.drawer().querySelector('.ed-versions-save');
     assert.match(save.title, /磁盘上当前这一份/);
