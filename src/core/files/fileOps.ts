@@ -524,8 +524,8 @@ async function describeFolder(project: NovelProject, rel: string): Promise<strin
   return `里面有 ${files} 个文件${dirs > 0 ? `、${dirs} 个子文件夹` : ''}，会一并移走。`;
 }
 
-// 垃圾箱落点的计算（trashPathFor）搬进了 `core/workspace/`：删除一律经网关，
-// 「保留原相对路径、同名加序号」这条规则只该有一份。
+// 垃圾箱落点的计算（trashPathFor）在数据层（`model/project.ts`），由 `core/workspace/` 重新导出：删除一律经网关、
+// 会话删除也用它，「保留原相对路径、同名加序号」这条规则只该有一份。
 export { trashPathFor };
 
 // ---------------------------------------------------------------- 内部工具

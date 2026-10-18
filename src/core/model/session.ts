@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { exists, readText, writeText } from './fs';
-import { NovelProject } from './project';
+import { NovelProject, trashPathFor } from './project';
 import {
   Capability,
   CreationAction,
@@ -359,15 +359,20 @@ export class SessionStore {
     await writeText(this.filePath(session.id), `${JSON.stringify(session, null, 2)}\n`);
   }
 
-  /** core 无系统回收站能力：移到 .novelforge/.trash/ 下（保留原文件名可手动找回）。 */
+  /**
+   * 删除：搬进 `.novelforge/.trash/`，不真删（AGENTS 第 6 条）。**落点与工程页的删除同一套**（`trashPathFor`）：
+   * 保留原相对路径（`.trash/.novelforge/sessions/<id>.json`），同名加序号，不盖掉上一次删的那一份。
+   *
+   * 会话不走网关（它是 Novel Forge 自己的内部文件，网关拒写 `sessions/`），只共用落点规则。
+   */
   async delete(id: string): Promise<void> {
     const file = this.filePath(id);
     if (!(await exists(file))) {
       return;
     }
-    const trashDir = this.project.trashDir;
-    await fs.mkdir(trashDir, { recursive: true });
-    await fs.rename(file, path.join(trashDir, `${id}.json`));
+    const dest = await trashPathFor(this.project, this.project.relPath(file));
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await fs.rename(file, dest);
   }
 
   async rename(id: string, title: string): Promise<ChatSession | undefined> {

@@ -55,6 +55,7 @@ import {
   WritableLoreEntry,
   renderCharacterCard,
   renderLoreEntry,
+  trashPathFor,
 } from '../model/project';
 import {
   PlotSections,
@@ -932,30 +933,11 @@ function appendText(guarded: { existed: boolean; current?: string }, text: strin
   return `${existing}${glue}${text.trim()}\n`;
 }
 
-/** 垃圾箱里保留原相对路径；同名冲突时加序号，不覆盖之前删掉的东西。 */
-export async function trashPathFor(project: NovelProject, rel: string): Promise<string> {
-  const base = path.join(project.trashDir, rel);
-  if (!(await pathExists(base))) {
-    return base;
-  }
-  const ext = path.extname(base);
-  const stem = base.slice(0, base.length - ext.length);
-  for (let i = 2; ; i++) {
-    const candidate = `${stem}-${i}${ext}`;
-    if (!(await pathExists(candidate))) {
-      return candidate;
-    }
-  }
-}
-
-async function pathExists(abs: string): Promise<boolean> {
-  try {
-    await fs.stat(abs);
-    return true;
-  } catch {
-    return false;
-  }
-}
+/**
+ * 垃圾箱落点：保留原相对路径，同名冲突时加序号，不覆盖之前删掉的东西。实现下沉在数据层（`model/project.ts`），
+ * 会话删除（`model/session.ts`）也用这一份——`model/` 不能反过来依赖网关。这里重新导出，调用方不动。
+ */
+export { trashPathFor };
 
 async function wordsOf(abs: string): Promise<number | undefined> {
   try {

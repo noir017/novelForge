@@ -228,7 +228,7 @@ export class NovelProject {
     return path.join(this.novelDir, 'sessions');
   }
 
-  /** 删除的东西搬这里，不真删。会话存储也用这个目录。 */
+  /** 删除的东西搬这里，不真删。落点（保留原相对路径、同名加序号）见 {@link trashPathFor}，会话删除也用它。 */
   get trashDir(): string {
     return path.join(this.novelDir, '.trash');
   }
@@ -1053,6 +1053,31 @@ export class NovelProject {
       return '';
     }
     return stripH1(parseMarkdown(await readText(this.outlinePath)).body);
+  }
+}
+
+// ---------------------------------------------------------------- 回收站落点
+
+/**
+ * 删掉的东西搬进回收站的哪里（绝对路径）：**保留原相对路径**（`.trash/<rel>`），同名冲突时加序号
+ * （`003-深处-2.md`），不覆盖之前删掉的东西（AGENTS 第 6 条）。只算落点、只读（看一眼哪个名字没被占），不搬任何东西。
+ *
+ * 规则只有这一份：网关的 `remove` / `deletePlot` / 定稿前复制旧版（`core/workspace/` 重新导出它），与会话删除
+ * （`session.ts`，会话是 Novel Forge 自己的内部文件，网关拒写 `sessions/`，所以会话不走网关、只共用这条落点规则）。
+ * 放在数据层而不是网关里：`model/` 不能反过来依赖 `workspace/`。
+ */
+export async function trashPathFor(project: Pick<NovelProject, 'trashDir'>, rel: string): Promise<string> {
+  const base = path.join(project.trashDir, rel);
+  if (!(await exists(base))) {
+    return base;
+  }
+  const ext = path.extname(base);
+  const stem = base.slice(0, base.length - ext.length);
+  for (let i = 2; ; i++) {
+    const candidate = `${stem}-${i}${ext}`;
+    if (!(await exists(candidate))) {
+      return candidate;
+    }
   }
 }
 

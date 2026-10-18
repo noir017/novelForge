@@ -430,7 +430,8 @@ describe('session.ts · SessionStore', () => {
 
       await store.delete(older.id);
       deletedRead = await store.read(older.id);
-      trashed = fs.existsSync(path.join(WORK, '.novelforge', '.trash', `${older.id}.json`));
+      // 落点与工程页的删除同一套（`trashPathFor`）：回收站里保留原相对路径 `.novelforge/sessions/<id>.json`。
+      trashed = fs.existsSync(path.join(WORK, '.novelforge', '.trash', '.novelforge', 'sessions', `${older.id}.json`));
       ghostDelete = await store.delete('nope');
     });
 
@@ -454,12 +455,54 @@ describe('session.ts · SessionStore', () => {
       assert.equal(deletedRead, undefined);
     });
 
-    test('删除移入 .novelforge/.trash', () => {
+    test('删除移入 .novelforge/.trash，保留原相对路径（.trash/.novelforge/sessions/<id>.json）', () => {
       assert.ok(trashed);
     });
 
     test('删除不存在的会话不报错', () => {
       assert.equal(ghostDelete, undefined);
+    });
+  });
+
+  // 第 6 条：会话删除与工程页的删除同一套落点——同名加序号，不盖掉上一次删的。
+  describe('同一个 id 删两次：两份都留在回收站', () => {
+    const trashOf = (name) => path.join(WORK, '.novelforge', '.trash', '.novelforge', 'sessions', name);
+    let id;
+    let first;
+    let second;
+    let flatLeft;
+
+    before(async () => {
+      const a = store.create();
+      id = a.id;
+      a.title = '第一次的会话';
+      await store.write(a);
+      await store.delete(id);
+
+      // 同一个 id 再落盘一次（手抄回来的、或者撞了 id）：再删也不该盖掉回收站里那一份。
+      const b = { ...store.create(), id, title: '第二次的会话' };
+      await store.write(b);
+      await store.delete(id);
+
+      first = fs.existsSync(trashOf(`${id}.json`)) ? JSON.parse(fs.readFileSync(trashOf(`${id}.json`), 'utf8')) : undefined;
+      second = fs.existsSync(trashOf(`${id}-2.json`)) ? JSON.parse(fs.readFileSync(trashOf(`${id}-2.json`), 'utf8')) : undefined;
+      flatLeft = fs.existsSync(path.join(WORK, '.novelforge', '.trash', `${id}.json`));
+    });
+
+    test('第一次删的那一份原样在 <id>.json', () => {
+      assert.equal(first?.title, '第一次的会话');
+    });
+
+    test('第二次删的加序号落在 <id>-2.json', () => {
+      assert.equal(second?.title, '第二次的会话');
+    });
+
+    test('不再平铺在 .trash/ 根下', () => {
+      assert.equal(flatLeft, false);
+    });
+
+    test('会话目录里已经没有它', async () => {
+      assert.equal(await store.read(id), undefined);
     });
   });
 
