@@ -11,7 +11,7 @@
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
-const { mount, JSDOM_SKIP, MIRROR_LAYOUT, file, sampleTree } = require('../../helpers/dom');
+const { mount, JSDOM_SKIP, MIRROR_LAYOUT, file, sampleTree, sampleChapterIndex } = require('../../helpers/dom');
 
 const BODY = '# 入镇\n\n雨下了一整夜。林昭推开客栈的门，檐下的灯笼被风吹得直晃。\n\n沈氏在柜台后看着他，没说话。她把那块残令收进了袖中。\n';
 
@@ -21,7 +21,7 @@ describe('章节条「审稿」', { skip: JSDOM_SKIP }, () => {
 
   before(() => {
     ui = mount({ body: 'standalone', scripts: ['view.js', 'editor.js'], shims: ['pointerCapture', 'confirm'] });
-    ui.post({ type: 'project', tree: sampleTree() });
+    ui.post({ type: 'chapterIndex', chapters: sampleChapterIndex() });
   });
 
   test('有正文的章：亮，提示里写调用次数，点了发 chapterAction', () => {

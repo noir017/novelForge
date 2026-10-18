@@ -11,12 +11,14 @@
  * | 提示里写调用次数 | 与主按钮同一个数（D16） |
  * | 另一份没开着 | 「并排看细纲 / 正文」把它开到另一块 |
  * | 开着细纲 | 同样认得出是哪一章 |
+ * | 章节索引更新 | 条上的字数跟着变 |
  *
- * 数据只来自工程树（`project` 消息）与编辑器自己的「正在编辑哪个文件」，不新增推送。
+ * 数据来自章节索引（`chapterIndex` 消息，哪个页签都推）与编辑器自己的「正在编辑哪个文件」。
+ * 上一章 / 下一章在 chapterNav.test.js。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
-const { mount, JSDOM_SKIP, file, sampleTree } = require('../../helpers/dom');
+const { mount, JSDOM_SKIP, file, sampleTree, sampleChapterIndex } = require('../../helpers/dom');
 
 describe('章节条', { skip: JSDOM_SKIP }, () => {
   let ui;
@@ -27,7 +29,7 @@ describe('章节条', { skip: JSDOM_SKIP }, () => {
 
   before(() => {
     ui = mount({ body: 'standalone', scripts: ['view.js', 'editor.js'], shims: ['pointerCapture', 'confirm'] });
-    ui.post({ type: 'project', tree: sampleTree() });
+    ui.post({ type: 'chapterIndex', chapters: sampleChapterIndex() });
   });
 
   test('一开始没有开着章节：不出现', () => {
@@ -100,11 +102,11 @@ describe('章节条', { skip: JSDOM_SKIP }, () => {
     assert.equal(pair(), null);
   });
 
-  test('工程树更新（写完了一章）：条上的字数跟着变', () => {
+  test('章节索引更新（写完了一章）：条上的字数跟着变', () => {
     const tree = sampleTree();
     tree.plots[2].wordCount = 3100;
     tree.plots[2].targetWords = 3000;
-    ui.post({ type: 'project', tree });
+    ui.post({ type: 'chapterIndex', chapters: sampleChapterIndex(tree.plots) });
     assert.equal(info(), '第 3 章《夜访》 · 已完成 · 3100 / 3000 字');
   });
 });

@@ -14,6 +14,7 @@
  * 协议：
  *   发 openEditor{path,pane,preview?,replace?} / openDraft{path} / saveFile / reloadFile / openExternal / checkEditorFiles
  *   收 editorOpen{file,pane,preview?,replace?} / editorSaved / editorConflict / editorError / editorDiskChanged / editorDiskGone
+ *   / chapterIndex（章节索引，chapterIndex.ts）
  *   （核对磁盘那三条——checkEditorFiles / editorDiskChanged / editorDiskGone——由 diskSync.ts 收发）
  */
 import { maybeById } from '../dom';
@@ -22,6 +23,8 @@ import { toast } from '../globals';
 import { isImeComposing } from './api';
 import { createPane } from './pane';
 import { installChapterBar } from './chapterBar';
+import { installChapterIndex } from './chapterIndex';
+import { installChapterNav, takeQuietOpen } from './chapterNav';
 import { installConflictMerge } from './conflictMerge';
 import { installFind } from './find';
 import { installParagraphTools } from './paragraph';
@@ -79,6 +82,9 @@ function start(stage: HTMLElement): void {
   installVersions(post);
 
   setActivePane(registerPane(createPane('main', mainRefs(stage), post)));
+  // 章节索引（后端 chapterIndex，哪个页签都推）→ 章节条与上一章 / 下一章（Alt+PageUp / Alt+PageDown）。
+  installChapterIndex();
+  installChapterNav(post);
   // 正开着某一章的正文或细纲时，主区顶上那一条（W6 章节工作台）。
   installChapterBar(stage, post);
   // 标题栏「视图」菜单的编辑器那一半（单击打开为临时标签）。
@@ -227,8 +233,11 @@ function start(stage: HTMLElement): void {
           }
         }
         // 先认下当前这一块，再收文件：upsertFile 末尾会广播「正在编辑哪个
-        // 文件」，那句读的是 activePane，顺序反了会报出上一块的文件。
-        setActivePane(target);
+        // 文件」，那句读的是 activePane，顺序反了会报出上一块的文件。上一章 / 下一章时另一块里配对的
+        // 那一份不认（不抢焦点）。
+        if (!takeQuietOpen(target.id, msg.file.path)) {
+          setActivePane(target);
+        }
         // 临时标签 / 原位换掉：打开请求上带的标记，后端原样带回。
         target.upsertFile(msg.file, carried, { preview: msg.preview, replace: msg.replace });
         syncDraftVisibility();
