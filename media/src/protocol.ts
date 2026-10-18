@@ -154,6 +154,30 @@ export type { ReviewGoal, ReviewIssue, ReviewIssueEdit, ReviewReport } from '../
  */
 export { changeCount, diffParagraphs, joinMerge, sideText } from '../../src/core/model/paragraphDiff';
 export type { MergeSegment } from '../../src/core/model/paragraphDiff';
+
+/**
+ * 查找替换的匹配口径（大小写、正则、零长度、`$1`）。内置编辑器的查找条（`editor/findCore.ts` 原样转出）与
+ * 后端的全书查找替换必须是同一份——同一个查找串在一份文件里与在全书里找到的得是同一批。`textFind.ts` 是纯函数、
+ * 零 import，打进浏览器产物是安全的。
+ */
+export {
+  MATCH_LIMIT,
+  compileSearch,
+  escapeRegExp,
+  expandReplacement,
+  findMatches,
+  replaceAllIn,
+  replaceSelectedIn,
+  replacementFor,
+} from '../../src/core/model/textFind';
+export type {
+  CompiledSearch,
+  FindMatch,
+  FindOptions,
+  FindResult,
+  ReplaceAllEdit,
+  SelectedReplace,
+} from '../../src/core/model/textFind';
 export type {
   BookStage,
   CallEstimate,

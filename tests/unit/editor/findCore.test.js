@@ -1,6 +1,8 @@
 /**
- * 查找替换的纯函数（`media/src/editor/findCore.ts`）。查找条的整条链路（按键、高亮、撤销）在
- * tests/dom/standalone/find.test.js，这里钉口径：大小写、正则、坏正则、零长度、`$1`、中文、上限、定位。
+ * 查找替换的纯函数（`media/src/editor/findCore.ts`；匹配口径本身在 core 的 `src/core/model/textFind.ts`，
+ * findCore 原样转出——全书查找替换在后端用的也是它）。查找条的整条链路（按键、高亮、撤销）在
+ * tests/dom/standalone/find.test.js，这里钉口径：大小写、正则、坏正则、零长度、`$1`、中文、上限、定位，
+ * 以及全书替换要的「只换挑出来的那几处」（`replaceSelectedIn`）。
  */
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -17,9 +19,11 @@ const {
   matchBefore,
   nearestMatch,
   replaceAllIn,
+  replaceSelectedIn,
   replacementFor,
   seedFromSelection,
 } = loadModule('media/src/editor/findCore.ts');
+const core = loadModule('src/core/model/textFind.ts');
 
 /** 匹配到的字，按顺序。 */
 const found = (text, query, opts) => findMatches(text, query, opts).matches.map((m) => text.slice(m.start, m.end));
@@ -248,5 +252,75 @@ describe('选区预填', () => {
 
   test('escapeRegExp 让预填的字在正则模式下仍按字面找', () => {
     assert.deepEqual(found('a.b axb', escapeRegExp('a.b'), { regex: true }), ['a.b']);
+  });
+});
+
+describe('replaceSelectedIn：只换挑出来的那几处（全书替换）', () => {
+  const text = '林晚推门。林晚没说话。林晚霞走了。';
+  const all = findMatches(text, '林晚').matches;
+
+  test('全挑：与全部替换的结果一样', () => {
+    const r = replaceSelectedIn(text, all, '林晚', '林婉');
+    assert.equal(r.text, applyAll(text, '林晚', '林婉'));
+    assert.equal(r.replaced.length, 3);
+    assert.deepEqual(r.missed, []);
+  });
+
+  test('勾掉一处（「林晚霞」是另一个人）：那一处原样留着', () => {
+    const r = replaceSelectedIn(text, all.slice(0, 2), '林晚', '林婉');
+    assert.equal(r.text, '林婉推门。林婉没说话。林晚霞走了。');
+    assert.equal(r.replaced.length, 2);
+  });
+
+  test('挑的顺序无所谓，按位置排', () => {
+    const r = replaceSelectedIn(text, [all[2], all[0]], '林晚', '林婉');
+    assert.equal(r.text, '林婉推门。林晚没说话。林婉霞走了。');
+  });
+
+  test('一处都不挑：原文不动', () => {
+    const r = replaceSelectedIn(text, [], '林晚', '林婉');
+    assert.equal(r.text, text);
+    assert.deepEqual(r.replaced, []);
+  });
+
+  test('对不上的位置（文字变过、不是一处匹配、与前一处重叠）不换，记进 missed', () => {
+    const r = replaceSelectedIn(text, [{ start: 1, end: 3 }, all[1], { start: all[1].start, end: all[1].end }], '林晚', '林婉');
+    assert.equal(r.text, '林晚推门。林婉没说话。林晚霞走了。');
+    assert.equal(r.replaced.length, 1);
+    assert.equal(r.missed.length, 2);
+  });
+
+  test('正则：$1 在原文里逐处展开，前后文看整份文字', () => {
+    const t = '第1章 第2章 第3章';
+    const ms = findMatches(t, '第(\\d)章', { regex: true }).matches;
+    const r = replaceSelectedIn(t, [ms[0], ms[2]], '第(\\d)章', 'Ch$1', { regex: true });
+    assert.equal(r.text, 'Ch1 第2章 Ch3');
+    // 后行断言：只认「林」后面的「晚」，看的是整份原文
+    const t2 = '林晚 夜晚';
+    const ms2 = findMatches(t2, '(?<=林)晚', { regex: true }).matches;
+    assert.equal(ms2.length, 1);
+    assert.equal(replaceSelectedIn(t2, ms2, '(?<=林)晚', '婉', { regex: true }).text, '林婉 夜晚');
+  });
+
+  test('跨行的匹配照样换', () => {
+    const t = '上一行末尾\n下一行开头';
+    const ms = findMatches(t, '末尾\\n下', { regex: true }).matches;
+    assert.equal(ms.length, 1);
+    assert.equal(replaceSelectedIn(t, ms, '末尾\\n下', '末尾。下', { regex: true }).text, '上一行末尾。下一行开头');
+  });
+
+  test('坏正则、空查找串：undefined，不抛', () => {
+    assert.equal(replaceSelectedIn(text, all, '(', 'x', { regex: true }), undefined);
+    assert.equal(replaceSelectedIn(text, all, '', 'x'), undefined);
+  });
+});
+
+describe('匹配口径只有一份', () => {
+  test('编辑器的 findCore 转出的就是 core 的 textFind（全书查找替换在后端用的那一份）', () => {
+    const t = 'Abc abc ABC a.b';
+    for (const [q, o] of [['abc', {}], ['abc', { caseSensitive: true }], ['a.b', {}], ['a.b', { regex: true }], ['^', { regex: true }]]) {
+      assert.deepEqual(findMatches(t, q, o), core.findMatches(t, q, o));
+    }
+    assert.equal(MATCH_LIMIT, core.MATCH_LIMIT);
   });
 });
