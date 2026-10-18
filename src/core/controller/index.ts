@@ -463,9 +463,19 @@ export class ChatController {
           this.toast('当前环境没有内置编辑器。', 'error');
           return;
         }
-        await host.saveFromEditor(msg.path, msg.text, msg.baseHash);
+        await host.saveFromEditor(msg.path, msg.text, msg.baseHash, { recreate: msg.recreate === true });
         // 保存的可能是章节正文，字数/定稿状态都会变。
         await this.pushState();
+        return;
+      }
+
+      case 'checkEditorFiles': {
+        // 内置编辑器核对磁盘（定稿写回细纲、外部 agent 的 edit、外部编辑器改了文件之后）。
+        // 没有内置编辑器的宿主（插件）不会发这条；发了也只是什么都不做。
+        const host = getHost();
+        if (host.checkEditorFiles) {
+          await host.checkEditorFiles(Array.isArray(msg.files) ? msg.files : []);
+        }
         return;
       }
 

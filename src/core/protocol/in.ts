@@ -52,6 +52,12 @@ export interface SerializedAttachment {
 
 export type EditorPane = 'main' | 'draft';
 
+/** `checkEditorFiles` 的一项：编辑器里开着的一份文件，以及编辑器知道的它在磁盘上的 hash。 */
+export interface EditorFileCheck {
+  path: string;
+  hash: string;
+}
+
 /** 章节工作台工具条上的按钮。`review` 是五期的审稿：只出报告，不写文件。 */
 export type ChapterAction = 'write' | 'continue' | 'rewrite' | 'finalize' | 'review';
 
@@ -111,8 +117,19 @@ export type InMessage =
    * 能力时只打开文件，并提示那一句。
    */
   | { type: 'revealQuote'; relPath: string; quote: string }
-  | { type: 'saveFile'; path: string; text: string; baseHash?: string }
+  /**
+   * 内置编辑器保存。`baseHash` 是乐观锁基线（不带 = 作者明确选了强制保存）。带了基线而磁盘上已经没有这个
+   * 文件（被删、被改名）时**不在原路径重建**，回 `editorDiskGone`；作者答应重建之后才带 `recreate: true` 再发一次。
+   */
+  | { type: 'saveFile'; path: string; text: string; baseHash?: string; recreate?: boolean }
   | { type: 'reloadFile'; path: string }
+  /**
+   * 内置编辑器核对磁盘：两块编辑区里打开着的每份文件，带编辑器知道的那份磁盘版本的 hash（已经标成
+   * 「磁盘上没了」的给空串）。后端只读这几份：对不上的回 `editorDiskChanged`，读不到的回 `editorDiskGone`，
+   * 对得上的不回。前端在每条 `state` 之后去抖、窗口重新拿到焦点 / 页面重新可见时发。
+   * **不复用 `editorOpen`**——那条会把标签切成当前的、抢焦点。
+   */
+  | { type: 'checkEditorFiles'; files: EditorFileCheck[] }
   | { type: 'listDir'; dirs: string[]; ephemeral?: boolean }
   | { type: 'openExternal'; path: string }
   | { type: 'syncSummaries' }

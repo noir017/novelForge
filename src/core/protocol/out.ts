@@ -174,6 +174,17 @@ export type OutMessage =
   | { type: 'editorConflict'; path: string; diskText: string; diskHash: string }
   | { type: 'editorError'; path: string; message: string }
   /**
+   * `checkEditorFiles` 的回答：这份文件在磁盘上与编辑器知道的那份不一样了（定稿写回细纲、批量写章、
+   * 外部 agent 的 `edit`、外部编辑器 / git 改了它），带上磁盘上的新版。编辑器就地换掉没改过的标签、
+   * 给改过的挂冲突条——**不切标签、不抢焦点**（这正是它不复用 `editorOpen` 的原因）。
+   */
+  | { type: 'editorDiskChanged'; file: EditorFileView }
+  /**
+   * 磁盘上已经没有这份文件了（被删、被改名）。两处会发：`checkEditorFiles` 读不到它；`saveFile` 带了基线、
+   * 文件却不在、又没说 `recreate`（此时什么都没写）。
+   */
+  | { type: 'editorDiskGone'; path: string }
+  /**
    * 在编辑区里选中这一句并滚到它（五期 W10：点审稿报告上的引文）。紧跟在那一份的 `editorOpen`
    * 之后推。定位按 model/review.ts 的 `locateQuote`（与引文校验同一个归一化）。
    */

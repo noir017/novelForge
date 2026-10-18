@@ -3,8 +3,10 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { ConfigStore } from '../../core/config';
 import {
+  checkEditorFiles,
   FileConflictError,
   FileEditError,
+  FileGoneError,
   isEditablePath,
   readFileForEditor,
   writeFileFromEditor,
@@ -14,7 +16,7 @@ import { isChapterFileName } from '../../core/model/chapterFile';
 import { NovelProject } from '../../core/model/project';
 import { locateQuote } from '../../core/model/review';
 import { Attachment } from '../../core/model/session';
-import { EditorPane, OutMessage } from '../../core/protocol';
+import { EditorFileCheck, EditorPane, OutMessage } from '../../core/protocol';
 import { shouldIgnoreChange } from '../../core/watchPolicy';
 import { ArtifactKind, kindOfPath } from '../../core/workspace/kind';
 import { PromptHub } from './promptHub';
@@ -247,14 +249,17 @@ export class FileHost implements Host {
     return this.project ? kindOfPath(this.project, rel).kind : undefined;
   }
 
-  /** 保存编辑器内容。冲突不覆盖，改为把磁盘版本回给前端让用户取舍。 */
-  async saveFromEditor(relPath: string, text: string, baseHash?: string): Promise<void> {
+  /**
+   * 保存编辑器内容。冲突不覆盖，改为把磁盘版本回给前端让用户取舍；带了基线而文件已经不在时
+   * 也不重建（`FileGoneError` → `editorDiskGone`），作者答应了才带 `recreate` 再来。
+   */
+  async saveFromEditor(relPath: string, text: string, baseHash?: string, opts?: { recreate?: boolean }): Promise<void> {
     if (!this.root) {
       this.broadcastMsg({ type: 'editorError', path: relPath, message: '请先打开文件夹' });
       return;
     }
     try {
-      const file = await writeFileFromEditor(this.root, relPath, text, baseHash);
+      const file = await writeFileFromEditor(this.root, relPath, text, baseHash, opts);
       // draftPath 与 kind 要一并带回：前端的保存分支只更新 text/hash，
       // 这里漏掉 draftPath 的话工具栏上的「草稿」按钮会在首次保存后消失。
       this.broadcastMsg({
@@ -262,6 +267,10 @@ export class FileHost implements Host {
         file: { ...file, draftPath: this.draftPathOf(file.path), kind: this.kindOf(file.path) },
       });
     } catch (err) {
+      if (err instanceof FileGoneError) {
+        this.broadcastMsg({ type: 'editorDiskGone', path: relPath });
+        return;
+      }
       if (err instanceof FileConflictError) {
         this.broadcastMsg({
           type: 'editorConflict',
@@ -276,6 +285,26 @@ export class FileHost implements Host {
         return;
       }
       throw err;
+    }
+  }
+
+  /**
+   * 核对编辑器里开着的几份文件（`checkEditorFiles`）。变了的推 `editorDiskChanged`（带 draftPath / kind，
+   * 与 editorOpen 同一个形状），读不到的推 `editorDiskGone`，没变的什么都不推。
+   */
+  async checkEditorFiles(files: readonly EditorFileCheck[]): Promise<void> {
+    if (!this.root) {
+      return;
+    }
+    const report = await checkEditorFiles(this.root, files);
+    for (const file of report.changed) {
+      this.broadcastMsg({
+        type: 'editorDiskChanged',
+        file: { ...file, draftPath: this.draftPathOf(file.path), kind: this.kindOf(file.path) },
+      });
+    }
+    for (const gone of report.gone) {
+      this.broadcastMsg({ type: 'editorDiskGone', path: gone });
     }
   }
 

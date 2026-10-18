@@ -611,6 +611,96 @@ describe('临时工程（写入类用例）', () => {
       assert.ok(!phantomDraft);
     });
   });
+
+  // 不丢稿：核对磁盘（checkEditorFiles → editorDiskChanged / editorDiskGone），以及带了基线、文件却不在时不重建。
+  describe('内置编辑器：核对磁盘与「磁盘上没了」', () => {
+    const gone = 'chapters/007-被删了.md';
+    let changed;
+    let staleHash;
+    let echoedChange;
+    let goneReply;
+    let saveGone;
+    let createdByGoneSave;
+    let recreated;
+    let recreatedOnDisk;
+    let selfCheckChanged;
+
+    before(async () => {
+      // 外部改了这一章（外部编辑器 / agent 的 edit）：拿编辑器手里的旧 hash 来核对。
+      fs.writeFileSync(path.join(work, rel), '# 测试\n\n外部改过的。\n', 'utf8');
+      edit.drain();
+      staleHash = f1.file.hash;
+      edit.send({ type: 'checkEditorFiles', files: [{ path: rel, hash: staleHash }] });
+      changed = await edit.waitFor((m) => m.type === 'editorDiskChanged' && m.file.path === rel, 'editorDiskChanged');
+
+      // 拿新 hash 再核对一次，捎带一份不存在的当哨兵：后端先推「变了」再推「没了」，等到哨兵时没有「变了」就是没有。
+      edit.drain();
+      edit.send({
+        type: 'checkEditorFiles',
+        files: [{ path: rel, hash: changed.file.hash }, { path: gone, hash: 'h-gone' }],
+      });
+      goneReply = await edit.waitFor((m) => m.type === 'editorDiskGone' && m.path === gone, 'editorDiskGone');
+      echoedChange = edit.has((m) => m.type === 'editorDiskChanged' && m.file.path === rel);
+
+      // 带着基线保存一份已经不在的文件：不重建。
+      edit.drain();
+      edit.send({ type: 'saveFile', path: gone, text: '编辑器里的内容', baseHash: 'h-gone' });
+      saveGone = await edit.waitFor((m) => m.type === 'editorDiskGone' && m.path === gone, '保存时 editorDiskGone');
+      createdByGoneSave = fs.existsSync(path.join(work, gone));
+
+      // 作者答应了：带 recreate 再来。
+      edit.send({ type: 'saveFile', path: gone, text: '编辑器里的内容', baseHash: 'h-gone', recreate: true });
+      recreated = await edit.waitFor((m) => m.type === 'editorSaved' && m.file.path === gone, '重建 editorSaved');
+      recreatedOnDisk = fs.readFileSync(path.join(work, gone), 'utf8');
+
+      // 编辑器自己存了之后：等 state 到了再拿回执里的 hash 核对，不报「变了」。
+      edit.drain();
+      edit.send({ type: 'saveFile', path: rel, text: '# 测试\n\n编辑器存的。\n', baseHash: changed.file.hash });
+      const saved = await edit.waitFor((m) => m.type === 'editorSaved' && m.file.path === rel, '自己保存 editorSaved');
+      await edit.waitFor((m) => m.type === 'state', '保存之后的 state');
+      edit.send({
+        type: 'checkEditorFiles',
+        files: [{ path: rel, hash: saved.file.hash }, { path: 'chapters/008-哨兵.md', hash: 'h' }],
+      });
+      await edit.waitFor((m) => m.type === 'editorDiskGone' && m.path === 'chapters/008-哨兵.md', '哨兵 editorDiskGone');
+      selfCheckChanged = edit.has((m) => m.type === 'editorDiskChanged' && m.file.path === rel);
+    });
+
+    test('hash 对不上：推磁盘上的新版', () => {
+      assert.ok(changed.file.text.includes('外部改过的'), changed.file.text);
+      assert.notEqual(changed.file.hash, staleHash);
+    });
+
+    test('新版带 draftPath 与 kind', () => {
+      assert.equal(changed.file.kind, 'chapter');
+      assert.equal(changed.file.draftPath, 'drafts/001-测试.md');
+    });
+
+    test('hash 对得上：不推', () => {
+      assert.equal(echoedChange, false);
+    });
+
+    test('读不到：推磁盘上没了', () => {
+      assert.equal(goneReply.path, gone);
+    });
+
+    test('带了基线、文件却不在：保存回「没了」', () => {
+      assert.equal(saveGone.type, 'editorDiskGone');
+    });
+
+    test('没有静默在原路径重建', () => {
+      assert.equal(createdByGoneSave, false);
+    });
+
+    test('答应重建之后才写下去', () => {
+      assert.equal(recreated.file.text, '编辑器里的内容');
+      assert.equal(recreatedOnDisk, '编辑器里的内容');
+    });
+
+    test('自己保存之后核对不误报', () => {
+      assert.equal(selfCheckChanged, false);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

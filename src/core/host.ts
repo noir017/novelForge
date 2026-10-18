@@ -1,7 +1,7 @@
 import { ConfigStore, initConfigFromHost } from './config';
 import { NovelProject } from './model/project';
 import { Attachment } from './model/session';
-import { EditorPane } from './protocol';
+import { EditorFileCheck, EditorPane } from './protocol';
 
 /**
  * core 对宿主的唯一依赖面。VS Code 插件与独立 Web 服务各实现一份。
@@ -85,8 +85,16 @@ export interface Host {
    * 宿主不实现时 controller 回落到 openFile（退化为普通打开，不并列）。
    */
   openBeside?(relPath: string): Promise<void>;
-  /** 保存内置编辑器的内容。只有提供 openInEditor 的宿主才需要实现。 */
-  saveFromEditor?(relPath: string, text: string, baseHash?: string): Promise<void>;
+  /**
+   * 保存内置编辑器的内容。只有提供 openInEditor 的宿主才需要实现。
+   * 带了 `baseHash`、磁盘上却没有这个文件时不重建（回 `editorDiskGone`），`opts.recreate` 才重建。
+   */
+  saveFromEditor?(relPath: string, text: string, baseHash?: string, opts?: { recreate?: boolean }): Promise<void>;
+  /**
+   * 核对内置编辑器里开着的几份文件在磁盘上变没变（`checkEditorFiles`）：变了的推 `editorDiskChanged`，
+   * 读不到的推 `editorDiskGone`，没变的不推。只有提供 openInEditor 的宿主才需要实现。
+   */
+  checkEditorFiles?(files: readonly EditorFileCheck[]): Promise<void>;
   /** 用系统默认程序打开。独立版用它实现编辑器里的「在外部打开」。 */
   openExternal?(relPath: string): Promise<void>;
   /**

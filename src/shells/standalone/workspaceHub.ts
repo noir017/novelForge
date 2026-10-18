@@ -316,6 +316,12 @@ export class WorkspaceHub {
       case 'openNativeSettings':
         // 独立版没有原生设置页：空窗口也要吃掉这条，避免落到「请先打开文件夹」。
         return true;
+      case 'checkEditorFiles':
+        // 编辑器在后台核对磁盘：空窗口里没有工程可核对，静静吃掉，别为它弹「请先打开文件夹」。
+        if (!rt) {
+          return true;
+        }
+        break;
       default:
         break;
     }

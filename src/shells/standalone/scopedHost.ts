@@ -3,7 +3,7 @@ import { ConfigStore } from '../../core/config';
 import { Disposable, Host, InputOptions, PickChoice, ReviewVerdict } from '../../core/host';
 import { NovelProject } from '../../core/model/project';
 import { Attachment } from '../../core/model/session';
-import { EditorPane } from '../../core/protocol';
+import { EditorFileCheck, EditorPane } from '../../core/protocol';
 import { FileHost } from './fileHost';
 
 /**
@@ -95,8 +95,12 @@ export class ScopedHost implements Host {
     return this.target.openBeside(relPath);
   }
 
-  saveFromEditor(relPath: string, text: string, baseHash?: string): Promise<void> {
-    return this.target.saveFromEditor(relPath, text, baseHash);
+  saveFromEditor(relPath: string, text: string, baseHash?: string, opts?: { recreate?: boolean }): Promise<void> {
+    return this.target.saveFromEditor(relPath, text, baseHash, opts);
+  }
+
+  checkEditorFiles(files: readonly EditorFileCheck[]): Promise<void> {
+    return this.target.checkEditorFiles(files);
   }
 
   openExternal(relPath: string): Promise<void> {

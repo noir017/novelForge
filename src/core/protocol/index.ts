@@ -1,6 +1,7 @@
 export type {
   ChapterAction,
   CharacterAction,
+  EditorFileCheck,
   EditorPane,
   FileAction,
   InMessage,
