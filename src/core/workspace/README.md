@@ -167,7 +167,7 @@
 - **旧版先复制一份进 `.trash/`**（`trashPathFor`：保留原相对路径，同名加序号）。定稿按钮本身就是
   作者的确认，所以不弹覆盖审阅；但改的是一份作者可能逐字推敲过的计划，旧的那一版要找得回来。历史版本里也照常
   存一版（见「历史版本」），编辑器的「历史」面板里对比得了。
-- **八节整体换掉**；frontmatter 里 `no` / `title` / `targetWords` / `upstreamHash` / `status` /
+- **八节整体换掉**，第九节「设定」换成这一次定稿记下的（校验过的）；frontmatter 里 `no` / `title` / `targetWords` / `upstreamHash` / `status` /
   `preflightOk` / `factCheckOk` 原样留着。
 - **写 `sourceHash`（正文的 `contentHash`）与 `cast`，并把 `writtenFrom` 刷成更新后的内容指纹**：
   不刷的话定稿刚改完细纲，正文立刻挂 ⟳；刷了之后，作者定稿后再改细纲，正文才挂 ⟳。指纹按
@@ -223,6 +223,7 @@ workspace/
 | `writePlot` / `deletePlot` | 有正文：正文的镜像（文件名跟着正文，改标题只改 frontmatter 里的标题）；没有正文：已有那份所在的子目录，或调用方给的落点 `at` 的子目录，都没有就跟上一章同一个子目录，文件名按章号 + 标题（改章号要传原路径）。删除进 `.trash/` 的落点与 `remove` 同一套（`trashPathFor`），不会盖掉定稿时复制进去的旧版 |
 | `recordWrittenFrom` | 细纲路径（只改 frontmatter 的 `writtenFrom`，正文一个字节不动） |
 | `recordPreflightOk` | 细纲路径（只改 frontmatter 的 `preflightOk`：一致性预检的永久放行，一行「名字：理由」，同名换新理由；没有 frontmatter 的手写细纲不补，五期补遗 §2） |
+| `patchPlotLore` | 细纲路径（只换第九节「设定」，没有就加在末尾，另外八节与 frontmatter 一个字不动；单独记设定、补记用。第九节不进内容指纹，正文不会因此挂 ⟳） |
 | `createChapter` / `ensureDraft` | 章号 + 标题 / 章节路径的镜像 |
 | `createChapterAt(rel, content, plotRelPath)` | 调用方给的路径（照细纲写正文时由 `views/pipeline.ts` 的 `chapterTargetOf` 算：细纲所在的子目录）。细纲路径与新正文的镜像对不上（纯序号的 `030.md`、正文按标题落成 `030-雪夜.md`）就把细纲改名过去；镜像位置已有文件时不动、记 warn |
 | `createChapters(items)` | 同 `createChapter`，一次好几章（导入原稿）：每章照样过 `write`（同名报错退出、大小上限），只是 chapter handler 的 manifest 同步**延到最后做一次**（`WriteOptions.deferAfter`，只对章节生效）——逐章重扫全部章节是 O(n²) 次读盘，三百章十几秒。撞了同名就抛，前面写好的留着、manifest 照样同步 |

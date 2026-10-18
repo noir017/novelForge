@@ -10,7 +10,7 @@
 | [generation/](generation/README.md) | ★ 创作的一次单步：`generate.ts` **无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，不管并发）、`accept.ts` 六条落盘分派、`drafts.ts` 让还没落盘的产物活过一次刷新（`write draftId=…` 认它）。**`cleanOutput` 只对正文层做**，落盘时拿气泡里当下的文本重新解析——那一问在产出的当下就问了（`controller/gate.ts` 的卡片），不是气泡末尾一颗可以永远不点的按钮 |
 | [tools/](tools/README.md) | ★ **工具层**：契约（`ToolDef` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那十二个工具（读三件 + `generate` + `write` / `edit` + 六个工程动作：`pipeline` / `summary` / `characters` / `extract` / `book` / `skills`），**没有删除/改名/移动**；写入走的是与产物落盘同一条 `workspace.write`，没有新的保护代码。**不认识 `mcp/` 与 `controller/`** |
 | [mcp/](mcp/README.md) | ★ **把工具端给外部 agent**：MCP 协议与 Streamable HTTP 传输（独立版挂在 `/mcp`）。只认 `tools/` 的契约，执行端在 `controller/mcp.ts`。多步调度交给外部 agent，本项目不自带循环 |
-| [features/](features/README.md) | 功能编排：批量流水线（补齐设定 / 批量拆细纲 / 批量写章）、定稿（照正文更新细纲 + 角色当前状态）、一致性预检、全书摘要、角色卡、设定、文风提取。续写链在 `generation/` |
+| [features/](features/README.md) | 功能编排：批量流水线（补齐设定 / 批量拆细纲 / 批量写章）、定稿（照正文更新细纲与第九节「设定」 + 角色当前状态）、一致性预检、全书摘要、角色卡、设定名录（记设定、建条目、整合、按目录整理）、文风提取。续写链在 `generation/` |
 | [skills/](skills/README.md) | 写作技能（移植自 AI-Novel-Writer 的阶段 Skill）：三个来源（内置 / `~/.novelforge/skills/` / 工程的 `.novelforge/skills/`）、从 GitHub 先检查再安装、卸载进回收站、工程的阶段绑定（`.novelforge/skills.json`）。装配器的 `skill` 层只问它一句「这个阶段绑了什么」 |
 | [llm/](llm/README.md) | 模型接入：`LlmProvider` 接口、OpenAI / Anthropic 协议实现、provider 注册表 |
 | [files/](files/) | ★ 工程文件能力的**交互流程**：三区界限判断、弹输入框、拼 toast 文案，以及资源管理器目录列举与 `@` 引用候选。落盘一律转调 `workspace/`——不越界、不静默覆盖、删除搬进 `.trash/` 那几条守卫在网关里做一次。 |
