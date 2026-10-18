@@ -5,19 +5,18 @@
  * 这边把大纲 / 细纲 / 正文聚合成流水线状态。判断逻辑全在纯函数
  * [model/pipeline.ts](../model/pipeline.ts) 里，这里只负责取数。
  *
- * ## 一条轴，按号合并
+ * ## 一条轴，细纲镜像正文的路径
  *
- * 细纲号 = 章号。第 N 章的细纲（`summaries/NNN-*.md`）与正文（`chapters/NNN-*`）按号互认，
- * **认号只在这个文件里做**（{@link chapterOfPlotNo}）。同号的细纲或章节
- * 有两份时（作者手改文件名撞了号）取路径排序第一份，并记一条 warn——不猜、不崩，
- * 让作者在工程页上看得见两份。
+ * 一个章号一行。第 N 章的正文按文件名前缀认（同号有两份时取路径排序第一份，并记一条 warn——
+ * 不猜、不崩，让作者在工程页上看得见两份）；它的细纲**按路径配对**：正文在章节根下的相对路径
+ * 镜像到 `summaries/` 下（`NovelProject.plotFor`）。还没有正文的章只有细纲，按号认。
  *
  * ## 新鲜度链：把「变更影响」做成传播，而不是一次模型调用
  *
  * ```
- * outline.md 里覆盖第 N 章那一节 ─hash─▶ summaries/N.md (frontmatter.upstreamHash)
- * summaries/N.md 八个小节          ─hash─▶ summaries/N.md (frontmatter.writtenFrom，正文落盘时记、定稿时刷新)
- * chapters/N                       ─hash─▶ summaries/N.md (frontmatter.sourceHash，定稿反向更新时记)
+ * outline.md 里覆盖第 N 章那一节 ─hash─▶ 细纲 (frontmatter.upstreamHash)
+ * 细纲八个小节                    ─hash─▶ 细纲 (frontmatter.writtenFrom，正文落盘时记、定稿时刷新)
+ * chapters/…/N-标题               ─hash─▶ 细纲 (frontmatter.sourceHash，定稿反向更新时记)
  * ```
  *
  * 改了大纲的某一节，那一节覆盖的几章细纲标脏；改了某一章的细纲（包括定稿之后再改），
@@ -54,7 +53,7 @@ export interface PlotPipeline {
   /** 章号。 */
   no: number;
   title: string;
-  /** 这一章的细纲。**没有细纲时 `relPath` 是它应该在的位置**（`plotPathForNo`）。 */
+  /** 这一章的细纲。**没有细纲时 `relPath` 是它应该在的位置**（有正文就是正文的镜像）。 */
   plot: {
     relPath: string;
     /** 有这份文件。老工程里只有正文的章为 false。 */
@@ -132,7 +131,9 @@ export async function buildPlotPipeline(
     no,
     title: plot?.title || (chapter && !isFallbackChapterTitle(no, chapter.title) ? chapter.title : ''),
     plot: {
-      relPath: plot?.relPath ?? project.plotPathForNo(no, chapter?.title ?? ''),
+      relPath:
+        plot?.relPath ??
+        (chapter ? project.plotPathForChapter(chapter.relPath) : await project.plotPathForNewChapter(no)),
       exists: !!plot,
       filled: facts.plotFilled,
       upstreamStale: plotStale,
@@ -163,7 +164,7 @@ export interface PipelineIndex {
 }
 
 /**
- * 全书的流水线索引。**按号合并**两条列表（见文件头）。
+ * 全书的流水线索引。一个章号一行，细纲**按路径配对**（见文件头）。
  *
  * 大纲、配置、manifest 都只读一次，摊给所有章——五百章工程逐章重读
  * 这些文件会把工程页刷新变成几百次多余的读盘。细纲列表与 manifest 一并返回：
@@ -180,13 +181,15 @@ export async function buildPipelineIndex(project: NovelProject): Promise<Pipelin
   ]);
   const context = { outline, config, chapters };
 
-  const plotByNo = firstByNo(plots, (p) => p.no, 'plots');
-  const chapterNos = new Set(chapters.map((c) => c.order));
-  const nos = [...new Set([...plotByNo.keys(), ...chapterNos])].sort((a, b) => a - b);
+  const duplicates = duplicateChapterNos(chapters);
+  if (duplicates.length > 0) {
+    log.warn('有几个章号不止一个正文文件，流水线只认路径排序第一份', duplicates.map((n) => `第 ${n} 章`).join('、'));
+  }
+  const nos = [...new Set([...plots.map((p) => p.no), ...chapters.map((c) => c.order)])].sort((a, b) => a - b);
 
   const rows: PlotPipeline[] = [];
   for (const no of nos) {
-    rows.push(await buildPlotPipeline(project, { no, plot: plotByNo.get(no) }, context));
+    rows.push(await buildPlotPipeline(project, { no, plot: project.plotFor(no, plots, chapters) }, context));
   }
   const byNo = new Map(rows.map((r) => [r.no, r]));
 
@@ -202,43 +205,28 @@ export async function buildPipelineIndex(project: NovelProject): Promise<Pipelin
 }
 
 /**
- * 第 N 章的正文：同号章节里路径排序第一份。**认号只在这里做一次**。
+ * 第 N 章的正文：同号章节里路径排序第一份。
  *
  * 同号有两份时两份都还在工程页上（章节列表照常列出），只是流水线认第一份——
- * 作者看得见冲突，才能去改。
+ * 作者看得见冲突，才能去改。它的细纲是这一份正文的镜像（`NovelProject.plotFor`）。
  */
 export function chapterOfPlotNo(chapters: Chapter[], no: number): Chapter | undefined {
   return chapters.find((c) => c.order === no);
 }
 
-/** 按号取第一份，撞号时记一条 warn。 */
-function firstByNo<T>(items: T[], noOf: (item: T) => number, what: string): Map<number, T> {
-  const out = new Map<number, T>();
-  const dup = new Set<number>();
-  for (const item of items) {
-    const no = noOf(item);
-    if (out.has(no)) {
-      dup.add(no);
-    } else {
-      out.set(no, item);
-    }
-  }
-  if (dup.size > 0) {
-    log.warn(`${what} 里有撞号的文件，流水线只认路径排序第一份`, [...dup].map((n) => `第 ${n} 章`).join('、'));
-  }
-  return out;
-}
-
 /**
  * 第 N 章的正文该落在哪。**要读盘**，所以不放进纯函数 `pathOfTarget`。
  *
- * 同号章节已存在就用它（`exists: true`，落盘走追加）；否则是
- * `chapters/NNN-<细纲标题>.md`（细纲没有标题就是纯序号名）。
+ * 同号章节已存在就用它（`exists: true`，落盘走追加）；否则**落在细纲所在的那个子目录**
+ * （`summaries/第二卷/010-雪夜.md` → `chapters/第二卷/010-雪夜.md`），文件名沿用细纲的；细纲是
+ * 还没起名时建的纯序号名（`030.md`）而标题已经有了，就按标题起 `030-<标题>.md`，`plotRelPath`
+ * 交给 `Workspace.createChapterAt` 把细纲改名到新正文的镜像——两边从此按路径认得出彼此。
+ * 连细纲都没有时跟上一章放在一起，`NNN-<标题>.md`。
  */
 export async function chapterTargetOf(
   project: NovelProject,
   plotRelPath: string
-): Promise<{ no: number; rel: string; exists: boolean; title: string }> {
+): Promise<{ no: number; rel: string; exists: boolean; title: string; plotRelPath?: string }> {
   const no = parsePlotFileName(path.posix.basename(plotRelPath))?.no;
   if (no === undefined) {
     throw new Error(`认不出这份细纲的章号：${plotRelPath}`);
@@ -250,9 +238,15 @@ export async function chapterTargetOf(
   const plot = await project.resolvePlot(plotRelPath);
   const title = plot?.title?.trim() ?? '';
   const stem = title ? sanitizeFileName(title) : '';
-  const dir = project.relPath(project.chaptersDir);
-  const fileName = stem ? `${pad3(no)}-${stem}.md` : `${pad3(no)}.md`;
-  return { no, rel: dir ? `${dir}/${fileName}` : fileName, exists: false, title };
+  const named = stem ? `${pad3(no)}-${stem}.md` : `${pad3(no)}.md`;
+  const mirrored = plot ? project.chapterPathForPlot(plot.relPath) : undefined;
+  if (plot && mirrored) {
+    const keepName = !!parsePlotFileName(path.posix.basename(plot.relPath))?.stem.trim() || !stem;
+    const rel = keepName ? mirrored : `${path.posix.dirname(mirrored)}/${named}`;
+    return { no, rel, exists: false, title, plotRelPath: plot.relPath };
+  }
+  const dir = project.relPath(path.join(project.chaptersDir, await project.subdirForNewChapter(no)));
+  return { no, rel: dir ? `${dir}/${named}` : named, exists: false, title };
 }
 
 /**
@@ -271,7 +265,7 @@ export async function buildBookFacts(
   // 配置在索引里已经读过；角色卡调用方手上有就用它的（工程页刷新时已经列过一遍）。
   const settings = await project.settingFilled({ config: built.config, characters: known?.characters });
   const nextChapterNo = nextWritableChapterNo(built.chapters);
-  const nextPlot = built.plots.find((p) => p.no === nextChapterNo);
+  const nextPlot = project.plotFor(nextChapterNo, built.plots, built.chapters);
   const gap = chapterGapOf(built.chapters);
   return {
     settings,
@@ -281,7 +275,7 @@ export async function buildBookFacts(
     nextChapterNo,
     ...(gap ? { gap } : {}),
     nextPlotFilled: !!nextPlot && isPlotFilled(nextPlot.sections),
-    plotFilledNos: built.plots.filter((p) => isPlotFilled(p.sections)).map((p) => p.no),
+    plotFilledNos: project.pairPlots(built.plots, built.chapters).filter((p) => isPlotFilled(p.sections)).map((p) => p.no),
   };
 }
 

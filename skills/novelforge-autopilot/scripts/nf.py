@@ -78,13 +78,29 @@ def chapters_dir():
     return os.path.join(project_root(), cfg.get('chaptersDir') or 'chapters')
 
 
+def numbered_files(root, pattern):
+    """`root` 下各级子目录里文件名匹配 `pattern` 的文件，按章号再按路径排，给出相对 `root` 的路径（正斜杠）。
+    分卷的书章节在卷目录里，细纲镜像正文的相对路径也在同名的卷目录里。"""
+    out = []
+    for cur, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        for name in files:
+            if re.match(pattern, name):
+                out.append(os.path.relpath(os.path.join(cur, name), root).replace('\\', '/'))
+    return sorted(out, key=lambda r: (int(re.match(r'\d+', os.path.basename(r)).group()), r))
+
+
 def chapter_files():
     d = chapters_dir()
-    return sorted(f for f in os.listdir(d) if re.match(r'\d+', f)) if os.path.isdir(d) else []
+    return numbered_files(d, r'\d+') if os.path.isdir(d) else []
+
+
+def chapter_no(rel):
+    return int(re.match(r'\d+', os.path.basename(rel)).group())
 
 
 def next_chapter_no():
-    nos = {int(re.match(r'\d+', f).group()) for f in chapter_files()}
+    nos = {chapter_no(f) for f in chapter_files()}
     n = 1
     while n in nos:
         n += 1
@@ -92,19 +108,20 @@ def next_chapter_no():
 
 
 def plot_files():
-    """细纲：`summaries/` 根下数字开头的 .md，一章一份（`global.md` 是全书摘要，不算）。"""
+    """细纲：`summaries/` 下各级子目录里数字开头的 .md，一章一份（根下的 `global.md` 是全书摘要，不算）。"""
     d = nf('summaries')
-    return sorted(f for f in os.listdir(d) if re.match(r'\d+.*\.md$', f)) if os.path.isdir(d) else []
+    return numbered_files(d, r'\d+.*\.md$') if os.path.isdir(d) else []
 
 
 def plot_of(chapter_file):
-    """章节文件同号的那份细纲（按数字前缀认，不看标题）。"""
-    no = int(re.match(r'\d+', chapter_file).group())
-    return next((p for p in plot_files() if int(re.match(r'\d+', p).group()) == no), None)
+    """这一章的细纲：镜像正文在章节根下的相对路径，扩展名换成 .md（`第一卷/003-深处.txt` → `第一卷/003-深处.md`）。
+    还没有就是 None。"""
+    rel = os.path.splitext(chapter_file)[0] + '.md'
+    return rel if os.path.isfile(nf('summaries', rel)) else None
 
 
 def finalized(chapter_file):
-    """这一章定稿过没有：同号细纲的 frontmatter 里记了 `sourceHash`（定稿时记的正文指纹）。
+    """这一章定稿过没有：它镜像的那份细纲的 frontmatter 里记了 `sourceHash`（定稿时记的正文指纹）。
     细纲拆好之后文件就在，不能拿「文件在不在」判断。这里也不核对正文后来改没改——那要复刻
     服务端的 contentHash；批量写章停下来的那几章都是从没定稿过的，这一条就够用。"""
     plot = plot_of(chapter_file)
@@ -329,9 +346,9 @@ def cmd_write(a):
             send({'type': 'projectAction', 'action': 'finalizeChapter', 'relPath': os.path.relpath(os.path.join(chapters_dir(), f), project_root()).replace('\\', '/')})
             time.sleep(8)
             wait_tasks()
-            if not os.path.exists(os.path.join(sm, f)):
+            if not finalized(f):
                 time.sleep(15)
-                if not os.path.exists(os.path.join(sm, f)):
+                if not finalized(f):
                     sys.exit(f'{f} 定稿没成，停下看 log.txt')
             continue
         n = next_chapter_no()
@@ -344,7 +361,7 @@ def cmd_write(a):
               'confirmed': True, 'mode': 'finalize', 'review': bool(a.review)})
         time.sleep(10)
         wait_tasks()
-        if next_chapter_no() == n and not [f for f in chapter_files() if not os.path.exists(os.path.join(sm, f))]:
+        if next_chapter_no() == n and not [f for f in chapter_files() if not finalized(f)]:
             sys.exit(f'第 {n} 章这一批什么都没写出来，停下看 log.txt')
 
 

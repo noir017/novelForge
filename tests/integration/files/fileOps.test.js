@@ -928,22 +928,24 @@ describe('fileOps.ts', () => {
   /**
    * 细纲的改名与删除**不走区守卫那条路**。
    *
-   * `summaries/` 不是三个可管理区之一（`sectionOf` 认不出它），而且细纲的文件名由
-   * 「章号 + 标题」共同决定：改名要经 `writePlot` 按新标题重新落盘并清掉旧文件，
-   * 当成普通文件搬会让同一章冒出两份细纲。
+   * `summaries/` 不是三个可管理区之一（`sectionOf` 认不出它），而且细纲镜像正文的路径：还没有正文时
+   * 文件名由「章号 + 标题」共同决定，改名要经 `writePlot` 按新标题重新落盘并清掉旧文件；有正文时
+   * 文件名跟着正文不动，改名只换标题。当成普通文件搬会让同一章冒出两份细纲、或与正文对不上。
    *
    * 一章一纲之后正文就是同号的章节，是作者的文件：改细纲名、删细纲都**不碰它**。
    * 从前要连带搬走中转站里那份正文，那一层删掉了。
    */
   describe('细纲的改名与删除', () => {
     const NO = 40;
-    const CHAPTER = 'chapters/040.md';
+    const CHAPTER = 'chapters/040-入宗风波.md';
     const CHAPTER_TEXT = '正文内容。\n';
     let created;
     let renamed;
     let renamedExists;
     let oldGone;
     let sectionsKept;
+    let retitled;
+    let retitledTitle;
     let chapterUntouchedByRename;
     let staleAfterRename;
     let writtenFromKept;
@@ -961,24 +963,30 @@ describe('fileOps.ts', () => {
         no: NO, title: '', upstreamHash: '', done: false,
         sections: { ...plotFile.emptyPlotSections(), 梗概: '进宗门', 关键事件: '甲乙丙' },
       });
-      // 同号的章节已经写了正文，细纲上记着 writtenFrom（正文落盘那一步的样子）。
-      write(CHAPTER, CHAPTER_TEXT);
-      project.invalidate();
-      const plot = await project.readPlot(created);
-      await wsOf(project).recordWrittenFrom(created, plotFile.plotContentHash(plot));
-      const writtenFrom = (await project.readPlot(created)).writtenFrom;
-      await project.syncManifest();
-      project.invalidate();
 
-      // 纯序号名（新建出来的样子）的第一次命名。
+      // 纯序号名（新建出来的样子）的第一次命名：还没有正文，文件名跟着标题走。
       h.expect('入宗风波');
       renamed = await fileOps.renamePlot(project, created);
       renamedExists = !!renamed && has(renamed);
       oldGone = !has(created);
+      project.invalidate();
+      sectionsKept = (await project.readPlot(renamed))?.sections.关键事件;
+
+      // 照它写了正文（正文落在细纲反推出来的位置），细纲上记着 writtenFrom（正文落盘那一步的样子）。
+      write(CHAPTER, CHAPTER_TEXT);
+      project.invalidate();
+      await wsOf(project).recordWrittenFrom(renamed, plotFile.plotContentHash(await project.readPlot(renamed)));
+      const writtenFrom = (await project.readPlot(renamed)).writtenFrom;
+      await project.syncManifest();
+      project.invalidate();
+
+      // 有正文之后再改名：细纲镜像正文的路径，文件名不动，只换标题；正文也不动。
+      h.expect('风波');
+      retitled = await fileOps.renamePlot(project, renamed);
       chapterUntouchedByRename = has(CHAPTER) && read(CHAPTER) === CHAPTER_TEXT;
       project.invalidate();
       const after = await project.readPlot(renamed);
-      sectionsKept = after && after.sections.关键事件;
+      retitledTitle = after?.title;
       writtenFromKept = after && after.writtenFrom === writtenFrom;
       staleAfterRename = (await pipe.buildPlotPipeline(project, { no: NO, plot: after })).chapter.upstreamStale;
 
@@ -1014,6 +1022,12 @@ describe('fileOps.ts', () => {
 
     test('改名不动小节内容', () => {
       assert.equal(sectionsKept, '甲乙丙', String(sectionsKept));
+    });
+
+    // 有正文之后细纲是正文的镜像：改名只换标题，文件名跟着正文不动。
+    test('有正文时改名：文件名不动，只换标题', () => {
+      assert.equal(retitled, renamed, String(retitled));
+      assert.equal(retitledTitle, '风波', String(retitledTitle));
     });
 
     // 章节是作者的文件：给细纲起个名字不该顺手去改它的名字或内容。

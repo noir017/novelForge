@@ -220,7 +220,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   // 空状态（W12）说的「下一步」：与对话页主按钮在全书那一档给的同一步。
   const next = await bookStepView(bookStage, book, {
     config: () => pipelineIndex.config,
-    plotPathOf: (no) => rows.find((r) => r.no === no)?.plot.relPath ?? project.plotPathForNo(no, ''),
+    plotPathOf: (no) => rows.find((r) => r.no === no)?.plot.relPath ?? project.plotPathOfNo(no),
   });
   return {
     initialized: true,
@@ -309,7 +309,8 @@ export async function bookStepView(
  * 与 `buildPlotSummaryView` 同一套取舍：数据小、只在切目标时取一次，
  * 所以单独一条消息，不塞进每次文件变动都全量重推的 `ProjectTree`。
  *
- * 传的是**细纲路径**（可能还不存在）或**章节路径**，都按章号认到同一章。
+ * 传的是**细纲路径**（可能还不存在）或**章节路径**，都认到同一章：章节路径就是那一章、细纲是它的
+ * 镜像；细纲路径按 `resolvePlot` 认这一章现在的那一份。
  * 两边都没有时给一份空壳（「写第 N 章细纲」）——作者可能刚把它改了名，
  * 界面该显示「它还没有」而不是崩掉。
  */
@@ -320,7 +321,7 @@ export async function buildPlotPipelineView(
   const chapters = await project.listChapters();
   const direct = chapters.find((c) => c.relPath === plotRelPath);
   const no = direct?.order ?? parsePlotFileName(basename(plotRelPath))?.no ?? 0;
-  const plot = direct ? await project.getPlot(no) : await project.resolvePlot(plotRelPath);
+  const plot = direct ? await project.plotOfChapter(direct) : await project.resolvePlot(plotRelPath);
   const p = await buildPlotPipeline(
     project,
     { no, plot, chapter: direct ?? chapterOfPlotNo(chapters, no) },
@@ -369,7 +370,7 @@ function reportConflicts(root: string, conflicts: CastConflictView[]): void {
  * 与 `buildProjectTree` 分开是有意的：细纲正文上千字，而那棵树每次
  * 文件变动都全量重推，把细纲塞进去等于每保存一次正文就多推几百 KB。
  *
- * 传的是**细纲路径或章节路径**（工程页那一行同时代表两者），按章号认到同一章。
+ * 传的是**细纲路径或章节路径**（工程页那一行同时代表两者），认到同一章；细纲是正文镜像的那一份。
  *
  * 细纲不存在不是错误——那一章可以还没排、只有作者手写的正文。这时给 `exists: false`，
  * 让前端说清「还没有细纲」，而不是弹一个空浮窗或报错。没定稿的细纲是计划（`finalized: false`），
@@ -383,7 +384,7 @@ export async function buildPlotSummaryView(
   const direct = chapters.find((c) => c.relPath === plotRelPath);
   const no = direct?.order ?? parsePlotFileName(basename(plotRelPath))?.no ?? 0;
   const chapter = direct ?? chapterOfPlotNo(chapters, no);
-  const plot = await project.getPlot(no);
+  const plot = chapter ? await project.plotOfChapter(chapter) : await project.getPlot(no);
   const title = plot?.title || chapter?.title || '';
   const label = chapterLabel(no, title);
 

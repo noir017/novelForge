@@ -108,10 +108,10 @@ describe('对话页下拉框选一个只有成品的章', () => {
   let dropdownRel;
 
   before(async () => {
-    // 下拉框给的就是 buildState 里算出来的那个路径（`plotPathForNo`）——
+    // 下拉框给的就是 buildState 里算出来的那个路径（`plotPathOfNo`：有正文就是正文的镜像）——
     // 这一章还没规划过，所以那个文件并不存在。这正是 bug 的触发点。
     const ninth = (await project.listChapters()).find((c) => c.order === 9);
-    dropdownRel = project.plotPathForNo(ninth.order, ninth.title);
+    dropdownRel = await project.plotPathOfNo(ninth.order, ninth.title);
     r = await select(dropdownRel);
   });
 

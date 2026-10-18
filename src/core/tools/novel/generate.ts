@@ -32,8 +32,8 @@
  *
  * `kindOfPath` 一次给出 `stage` 与 `target`，不必让模型填 `{kind, chapterNo}`
  * 那种嵌套结构——路径是产物在这个工程里的身份，作者在文件管理器里看到的
- * 就是它。**章节路径是例外**：正文层的 target 以细纲路径为身份，章节路径要按
- * 章号去认同号的细纲（细纲号 = 章号），那一步要读盘，在这里做。
+ * 就是它。**章节路径是例外**：正文层的 target 以细纲路径为身份，章节路径要换成
+ * 这一章的细纲（正文在 `summaries/` 下的镜像），那一步要读盘，在这里做。
  */
 import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
 import { int, objectSchema, str } from '../schema';
@@ -104,9 +104,10 @@ export const generateTool: ToolDef = {
   description:
     '调用创作模型，为某一份产物生成内容。target 是那份产物的工程内相对路径，' +
     '层由路径决定：.novelforge/config.md、premise.md、world.md 是架构层，' +
-    '.novelforge/outline.md 是大纲层，.novelforge/summaries/<章号>-<标题>.md 是细纲层（一章一份），' +
-    '正文层给那一章的章节路径（chapters/<章号>-<标题>.md；还没写过的章写成 chapters/<章号>.md 即可，' +
-    '按章号认到同号的细纲）。**细纲路径永远是细纲层**，要写正文不要给细纲路径。' +
+    '.novelforge/outline.md 是大纲层，.novelforge/summaries/ 下的细纲是细纲层（一章一份，与正文同样的相对路径、扩展名 .md，' +
+    '如 .novelforge/summaries/上部/003-夜访.md），' +
+    '正文层给那一章的章节路径（chapters/ 下，可以在子目录里；还没写过的章写成 chapters/<章号>.md 即可，' +
+    '按章号认到这一章的细纲）。**细纲路径永远是细纲层**，要写正文不要给细纲路径。' +
     '这一章已经有正文时用 writeMode 说清是接着写（continue）还是整章重写（rewrite，缺省）。' +
     '各层可用的 capability 不同：' +
     Object.entries(STAGE_CAPABILITIES)
@@ -169,7 +170,7 @@ export const generateTool: ToolDef = {
         error:
           `认不出「${rel}」是哪一层的产物。` +
           '架构给 .novelforge/config.md / premise.md / world.md，大纲给 .novelforge/outline.md，' +
-          '细纲给 .novelforge/summaries/<章号>-<标题>.md，正文给那一章的章节路径（chapters/ 下）。' +
+          '细纲给 .novelforge/summaries/ 下那一章的细纲（与正文同样的相对路径），正文给那一章的章节路径（chapters/ 下）。' +
           '可以先用 list 看看那个目录下实际有什么。',
       };
     }
@@ -290,17 +291,17 @@ function toPositiveInt(value: unknown): number | undefined {
 }
 
 /**
- * 路径 → 层与目标。章节路径按章号认成正文层（target 以同号细纲的路径为身份，
- * 还没有细纲时是它应该在的位置）；其余交给 `kindOfPath`。
+ * 路径 → 层与目标。章节路径认成正文层（target 以这一章细纲的路径为身份——正文镜像到
+ * `summaries/` 下的那一份，还没有时就是它应该在的位置）；其余交给 `kindOfPath`。
  */
 async function resolveTargetPath(project: NovelProject, rel: string): Promise<PathKind> {
   const path = kindOfPath(project, rel);
   if (path.kind !== 'chapter' || path.no === undefined) {
     return path;
   }
-  const chapter = (await project.listChapters()).find((c) => c.relPath === path.rel);
-  const plotRelPath =
-    (await project.getPlot(path.no))?.relPath ?? project.plotPathForNo(path.no, chapter?.title ?? '');
+  const exists = (await project.listChapters()).some((c) => c.relPath === path.rel);
+  // 还不存在的章节路径（`chapters/021.md`）不拿来镜像：这一章的细纲可能早已排在子目录里。
+  const plotRelPath = exists ? project.plotPathForChapter(path.rel!) : await project.plotPathOfNo(path.no);
   return {
     ...path,
     stage: 'manuscript',

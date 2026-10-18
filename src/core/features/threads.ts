@@ -140,7 +140,7 @@ export async function planThreads(
   report: (p: { message: string; current?: number; total?: number }) => void = () => {}
 ): Promise<PlanThreadsOutcome> {
   const out: PlanThreadsOutcome = { calls: 0, added: [], same: 0, bad: 0 };
-  const plots = (await project.listPlots()).filter((p) => isPlotFilled(p.sections)).sort((a, b) => a.no - b.no);
+  const plots = (await project.listChapterPlots()).filter((p) => isPlotFilled(p.sections));
   if (plots.length === 0) {
     return { ...out, error: '还没有细纲' };
   }
@@ -291,7 +291,7 @@ export async function planThreads(
  * 工程页「从细纲排出叙事线」：先问一句（调用次数），再排。返回实际调用次数（取消、没有细纲时是 0）。
  */
 export async function generateThreads(project: NovelProject): Promise<number> {
-  const plots = (await project.listPlots()).filter((p) => isPlotFilled(p.sections)).sort((a, b) => a.no - b.no);
+  const plots = (await project.listChapterPlots()).filter((p) => isPlotFilled(p.sections));
   if (plots.length === 0) {
     getHost().toast('还没有细纲：先拆出细纲，再从细纲排出叙事线。', 'error');
     return 0;
@@ -393,7 +393,7 @@ export async function recordThreadEvents(
 ): Promise<ThreadEventOutcome> {
   const out: ThreadEventOutcome = { calls: 0, recorded: [], dropped: [], skipped: [] };
   const threads = await project.readThreads();
-  const plot = await project.getPlot(chapter.order);
+  const plot = await project.plotOfChapter(chapter);
   const config = readConfig();
   const { judged, skipped } = threadsToJudge(
     threads,

@@ -359,7 +359,7 @@ export async function runPlotBatch(
 ): Promise<{ ok: true; calls: number } | { ok: false; calls: number; cancelled: boolean; reason: string }> {
   const range = { from: batch[0], to: batch[batch.length - 1] };
   const span = rangeLabel(range.from, range.to);
-  const target = { kind: 'plot' as const, plotRelPath: (await project.getPlot(range.from))?.relPath ?? project.plotPathForNo(range.from, '') };
+  const target = { kind: 'plot' as const, plotRelPath: await project.plotPathOfNo(range.from) };
   const io = poolIO(project, pool, config, signal, {
     action: { stage: 'plot', capability: 'generate' },
     target,
@@ -996,16 +996,18 @@ async function writeOne(
   if (!result.raw.trim()) {
     throw new Error('模型返回的正文是空的');
   }
-  // 同号章节不在就新建，在（空文件）就填进去；然后在细纲上记 `writtenFrom`，
-  // 少了那一步这一章会永远显示「正文与细纲对不上」或永远不显示。
+  // 同号章节不在就新建（落在细纲所在的子目录，细纲文件名对不上时跟着改名），在（空文件）就填进去；
+  // 然后在细纲上记 `writtenFrom`，少了那一步这一章会永远显示「正文与细纲对不上」或永远不显示。
   const ws = new Workspace(project);
   const dest = await chapterTargetOf(project, plot.relPath);
   if (dest.exists) {
     await ws.write(dest.rel, { text: result.raw }, { mode: 'append' });
   } else {
-    await ws.createChapter(dest.no, dest.title, result.raw);
+    await ws.createChapterAt(dest.rel, result.raw, dest.plotRelPath);
   }
-  await ws.recordWrittenFrom(plot.relPath, plotContentHash(plot));
+  // 细纲可能刚跟着新正文改了名：按这一章现在的那一份记。
+  const writtenPlot = (await project.resolvePlot(plot.relPath)) ?? plot;
+  await ws.recordWrittenFrom(writtenPlot.relPath, plotContentHash(plot));
   await project.syncManifest();
   return { ...result, target: writing.target };
 }

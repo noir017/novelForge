@@ -930,7 +930,7 @@ describe('采纳 · 正文（落到同号章节）', () => {
 
 /**
  * 老工程里只有正文、没有细纲的章：target 上的细纲路径是它**应该**在的位置
- * （`plotPathForNo`），文件并不存在。正文照样落到那一章上，不凭空造细纲。
+ * （正文的镜像，`plotPathOfNo`），文件并不存在。正文照样落到那一章上，不凭空造细纲。
  */
 describe('采纳 · 正文（只有正文、没有细纲的老章）', () => {
   const CHAPTER = 'chapters/020-旧章.md';
@@ -942,7 +942,7 @@ describe('采纳 · 正文（只有正文、没有细纲的老章）', () => {
   before(async () => {
     t.write(CHAPTER, '# 旧章\n\n作者早就写好的。\n');
     project.invalidate();
-    plotPath = project.plotPathForNo(20, '旧章');
+    plotPath = await project.plotPathOfNo(20, '旧章');
     result = await accept({ kind: 'manuscript', plotRelPath: plotPath }, { kind: 'manuscript', text: '接着往下写的一段。' }, { writeMode: 'continue' });
     // 老会话里的 Draft 没记写法：宁可多问一句，也不把一整章叠到已有的后面。
     h.expect('保留原样');

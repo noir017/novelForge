@@ -64,13 +64,18 @@ const MAX_TREE_DEPTH = 8;
  * 约定：所有 read* 方法每次都读盘（作者随时可能在编辑器里手改文件），
  * 只有章节列表做了一层缓存，由 FileSystemWatcher 主动失效。
  *
- * ## 一条轴
+ * ## 一条轴，细纲镜像正文的路径
  *
- * 细纲 `summaries/NNN-标题.md` 的号就是章号：第 N 章的细纲与正文（`chapters/`）按号互认，
- * 定稿反向更新的也是同一份细纲。从前规划的单位是「剧情段」、发布的单位是章，
- * 两条轴之间隔着一个中转站（`manuscripts/`）；一章一纲之后那一层删掉了。细纲从前另放在
- * `plots/`、定稿另写一份单章摘要，两份并成一份之后 `plots/` 也不读了。老工程磁盘上的
- * `volumes/`、`manuscripts/`、`plots/` 一个字节都不动，这里只是不再读它们。
+ * 细纲（`summaries/` 下）**镜像正文在章节根下的相对路径**，扩展名换成 `.md`：
+ * `chapters/第一卷/003-深处.txt` ↔ `summaries/第一卷/003-深处.md`，与草稿（`drafts/`）同一套镜像。
+ * 有正文的章**按路径**认它的细纲（{@link plotPathForChapter}），定稿反向更新的也是这一份；
+ * 还没有正文的章只有细纲，按文件名的章号认，正文照它的路径反推着落（{@link chapterPathForPlot}）。
+ * 章号仍取文件名数字前缀，界面上一律称「第 N 章」。
+ *
+ * 从前规划的单位是「剧情段」、发布的单位是章，两条轴之间隔着一个中转站（`manuscripts/`）；
+ * 一章一纲之后那一层删掉了。细纲从前另放在 `plots/`、定稿另写一份单章摘要，两份并成一份之后
+ * `plots/` 也不读了。老工程磁盘上的 `volumes/`、`manuscripts/`、`plots/` 一个字节都不动，
+ * 这里只是不再读它们。
  *
  * 架构层的三份文档（`config.md` / `premise.md` / `world.md`）与大纲、文风同级，
  * 格式定义在 model/settingFile.ts。
@@ -179,9 +184,9 @@ export class NovelProject {
   }
 
   /**
-   * 细纲（`.novelforge/summaries/`）。**平铺**，一章一份：`summaries/012-夜入青云.md`。
-   * 只认根下数字开头的 `.md`：子目录里的（老工程按章节路径镜像的单章摘要）与 `global.md`
-   * 都不是细纲。老工程的 `plots/` 不再扫描——那些文件一个字节都不动。
+   * 细纲（`.novelforge/summaries/`）。一章一份，**镜像正文的相对路径**：`chapters/第一卷/012-夜入青云.md`
+   * 的细纲是 `summaries/第一卷/012-夜入青云.md`。各级子目录里数字开头的 `.md` 都是细纲，根下的
+   * `global.md` 是全书摘要。老工程的 `plots/` 不再扫描——那些文件一个字节都不动。
    */
   get plotsDir(): string {
     return this.summariesDir;
@@ -234,21 +239,124 @@ export class NovelProject {
     return path.join(this.summariesDir, 'global.md');
   }
 
+  /** 正文在章节根下的那段相对路径（正斜杠）。不在章节根下（配置被改坏等）时 undefined。 */
+  private underChapters(chapterRelPath: string): string | undefined {
+    const under = path.relative(this.chaptersDir, this.pathOf(chapterRelPath));
+    if (!under || under.startsWith('..') || path.isAbsolute(under)) {
+      return undefined;
+    }
+    return under.replace(/\\/g, '/');
+  }
+
   /**
-   * 章号 + 标题 → 这一章的细纲**应该**落在哪。纯计算，文件可能并不存在。
+   * 正文（文件或目录）→ 细纲那边的镜像（工作区相对路径，正斜杠）。不在章节根下时 undefined。
    *
-   * 给「这一章只有正文、还没有细纲」那种情况用（老工程里每一章都是），
-   * 以及「拆细纲」那一步给还没有细纲的章找落点：界面上要能选中它、
-   * 切到细纲层去补规划，那就需要一个稳定的落点路径。
+   * 文件：扩展名换成 `.md`（{@link plotPathForChapter} 用的就是它）。
+   * 目录：原样镜像——搬 `chapters/卷一/` 时 `summaries/卷一/` 整棵跟着走（`handlers/chapter.ts` 的 `carryPlot`）。
+   * 纯计算，不碰磁盘。
+   */
+  plotMirrorOf(chapterRelPath: string, isDir = false): string | undefined {
+    const under = this.underChapters(chapterRelPath);
+    if (!under) {
+      return undefined;
+    }
+    const parsed = path.posix.parse(under);
+    const mirror = isDir ? under : path.posix.join(parsed.dir, `${parsed.name}.md`);
+    return this.relPath(path.join(this.plotsDir, mirror));
+  }
+
+  /**
+   * 正文 → 它的细纲落在哪（工作区相对路径，正斜杠）。纯计算，文件可能并不存在。
+   *
+   * **镜像正文在章节根下的相对路径**，扩展名换成 `.md`（与草稿 {@link draftRelPathFor} 同一套）：
+   *   `chapters/第一卷/003-深处.txt` → `.novelforge/summaries/第一卷/003-深处.md`
+   *   `chapters/001 序.txt`          → `.novelforge/summaries/001 序.md`
+   * 同号的两个文件（`001 序.txt` 与 `001 正文.txt`）于是各有各的细纲，互不覆盖。
+   * 正文不在章节根下（配置被改坏）时退回 `summaries/NNN.md`，绝不抛。
+   */
+  plotPathForChapter(chapterRelPath: string): string {
+    const mirror = this.plotMirrorOf(chapterRelPath);
+    if (mirror) {
+      return mirror;
+    }
+    const order = parseChapterFileName(path.basename(chapterRelPath))?.order ?? 0;
+    return this.relPath(path.join(this.plotsDir, plotFileName(order, '')));
+  }
+
+  /**
+   * 细纲 → 照它写出来的正文该叫什么（{@link plotPathForChapter} 的逆运算，扩展名 `.md`）：
+   *   `.novelforge/summaries/第二卷/010-雪夜.md` → `chapters/第二卷/010-雪夜.md`
+   * 不在 `summaries/` 下的路径给 undefined。纯计算，不碰磁盘。
+   */
+  chapterPathForPlot(plotRelPath: string): string | undefined {
+    const under = path.relative(this.plotsDir, this.pathOf(plotRelPath));
+    if (!under || under.startsWith('..') || path.isAbsolute(under)) {
+      return undefined;
+    }
+    const parsed = path.posix.parse(under.replace(/\\/g, '/'));
+    return this.relPath(path.join(this.chaptersDir, parsed.dir, `${parsed.name}.md`));
+  }
+
+  /**
+   * 还没有正文、也还没有细纲的第 N 章落在哪个子目录（相对章节根与 `summaries/` 的同一段，`''` = 根）：
+   * **跟上一章放在一起**。上一章 = 章号比它小的里面最大的那一章；它有正文看正文所在的子目录，
+   * 只有细纲看细纲所在的子目录。前面一章都没有就是根。
+   *
+   * 分卷的书写到第二卷时，新排的细纲与新写的正文于是都落进 `第二卷/`，不会掉回根下。
+   */
+  async subdirForNewChapter(no: number): Promise<string> {
+    const [plots, chapters] = await Promise.all([this.listPlots(), this.listChapters()]);
+    let best: { no: number; dir: string } | undefined;
+    const consider = (candidate: number, dir: string | undefined) => {
+      if (dir !== undefined && candidate < no && (!best || candidate > best.no)) {
+        best = { no: candidate, dir };
+      }
+    };
+    const written = new Set<number>();
+    for (const chapter of chapters) {
+      const under = this.underChapters(chapter.relPath);
+      written.add(chapter.order);
+      consider(chapter.order, under === undefined ? undefined : path.posix.dirname(under));
+    }
+    for (const plot of plots) {
+      // 正文在的章看正文：上一轮已经按正文算过了，细纲只补「还没有正文」的那几号。
+      if (!written.has(plot.no)) {
+        const under = path.relative(this.plotsDir, this.pathOf(plot.relPath)).replace(/\\/g, '/');
+        consider(plot.no, path.posix.dirname(under));
+      }
+    }
+    const dir = best?.dir ?? '';
+    return dir === '.' ? '' : dir;
+  }
+
+  /**
+   * 还没有正文、也还没有细纲的第 N 章，细纲**应该**落在哪：与上一章同一个子目录
+   * （{@link subdirForNewChapter}），`NNN-标题.md`。纯推导，文件并不存在。
    *
    * **回落标题不进文件名**：没有名字的章（`009.md`）在 `listChapters` 那边会
    * 拿到「第 9 章」，那是「没有标题」的样子而不是标题——拼进去会得到
-   * `009-第-9-章.md`，一个凭空的假名字，而作者哪天真去补规划时，`writePlot`
-   * 按真标题落的又是另一个文件名，同一章于是有了两份细纲。
+   * `009-第-9-章.md`，一个凭空的假名字。
    */
-  plotPathForNo(no: number, title: string): string {
+  async plotPathForNewChapter(no: number, title = ''): Promise<string> {
     const stem = isFallbackChapterTitle(no, title) ? '' : safeStem(title);
-    return this.relPath(path.join(this.plotsDir, plotFileName(no, stem)));
+    const dir = await this.subdirForNewChapter(no);
+    return this.relPath(path.join(this.plotsDir, dir, plotFileName(no, stem)));
+  }
+
+  /**
+   * 第 N 章的细纲**应该**在哪：已有就是那一份；有正文就是正文的镜像（{@link plotPathForChapter}）；
+   * 两样都没有就跟上一章放在一起（{@link plotPathForNewChapter}）。
+   *
+   * 给「这一章还没有细纲」时找落点用：界面上要能选中它、切到细纲层去补规划，那就需要一个
+   * 稳定的落点路径，而且它必须就是之后真正落盘的那一份。
+   */
+  async plotPathOfNo(no: number, title = ''): Promise<string> {
+    const plot = await this.getPlot(no);
+    if (plot) {
+      return plot.relPath;
+    }
+    const chapter = await this.getChapter(no);
+    return chapter ? this.plotPathForChapter(chapter.relPath) : this.plotPathForNewChapter(no, title);
   }
 
   /** 绝对路径 → 工作区相对路径（正斜杠）。 */
@@ -526,16 +634,16 @@ export class NovelProject {
   }
 
   /**
-   * 第 N 章定稿过、而且对得上的那份细纲：同号细纲的 `sourceHash` 等于正文现在的 `contentHash`。
+   * 这一章定稿过、而且对得上的那份细纲：正文镜像的那份细纲的 `sourceHash` 等于正文现在的 `contentHash`。
    * 没定稿过、或定稿之后正文又改过，都是 undefined。
    */
   async finalizedPlotOf(chapter: Chapter): Promise<Plot | undefined> {
-    const plot = await this.getPlot(chapter.order);
+    const plot = await this.plotOfChapter(chapter);
     return plot?.sourceHash && plot.sourceHash === chapter.contentHash ? plot : undefined;
   }
 
   /**
-   * 该定稿还没定稿的章：有正文，同号细纲没有对得上的 `sourceHash`（从没定稿过，或定稿之后正文
+   * 该定稿还没定稿的章：有正文，镜像的那份细纲没有对得上的 `sourceHash`（从没定稿过，或定稿之后正文
    * 又改过）。以细纲 frontmatter 为准，不另记索引。
    *
    * **空章节不算**：那不是「定稿旧了」，是还没写。把它们混进来，批量定稿的确认框会报一个
@@ -586,8 +694,8 @@ export class NovelProject {
    * 方式就是改文件名前缀。号码撞车（手改重名）时按路径稳定排序，两条都留在
    * 列表里，让作者看得见冲突。
    *
-   * **只看 `summaries/` 根下**：子目录里是老工程按章节路径镜像的单章摘要，不再是这条链上的
-   * 东西，扫出来只会让同一个章号冒出两份细纲。
+   * **`summaries/` 下各级子目录都扫**：细纲镜像正文的相对路径，分卷的书细纲就在卷目录里。
+   * 根下的 `global.md` 没有数字前缀，天然不在里面。
    */
   async listPlots(): Promise<Plot[]> {
     if (this.plotCache) {
@@ -608,9 +716,7 @@ export class NovelProject {
 
   private async scanPlots(): Promise<Plot[]> {
     const generation = this.generation;
-    const files = (await listFilesDeep(this.plotsDir, isPlotFileName)).filter(
-      (abs) => path.dirname(abs) === this.plotsDir
-    );
+    const files = await listFilesDeep(this.plotsDir, isPlotFileName);
     const plots: Plot[] = [];
     for (const abs of files) {
       try {
@@ -645,26 +751,79 @@ export class NovelProject {
   }
 
   /**
-   * 按 target 里的细纲路径找那一章的细纲：路径上有就是它，**没有就按路径里的章号认
-   * 同号的那一份**。
+   * 按 target 里的细纲路径找那一章的细纲。
+   *
+   * 路径上那一份正是某一章正文的镜像、或者这个号还没有正文（只有计划）时就是它；**否则按路径里的
+   * 章号认这一章现在的那一份**（{@link getPlot}）。
    *
    * 主按钮给的落点常常是纯序号的占位路径（`summaries/003.md`——拆细纲那一刻标题还没定），
    * 而采纳时按产物带的标题落成了 `003-雪夜.md`。之后凡是「按 target 找细纲」的地方
    * 都要认得它：只按路径读的话，流水线会说「这一章还没有细纲」，再采纳一次就绕过了
-   * 覆盖审阅（第 3 条）。作者手里的文件路径（工程页右键、编辑器）不走这里，那是实打实的路径。
+   * 覆盖审阅（第 3 条）。反过来，路径上躺着一份**不归这一章**的细纲（作者在外面给正文改了名，
+   * 旧的那份成了孤儿）也不冒认——对话页与工程页看到的必须是同一份。作者手里的文件路径
+   * （工程页右键、编辑器）不走这里，那是实打实的路径。
    */
   async resolvePlot(plotRelPath: string): Promise<Plot | undefined> {
-    const direct = await this.readPlot(plotRelPath);
-    if (direct) {
-      return direct;
-    }
     const no = parsePlotFileNameOf(plotRelPath);
-    return no === undefined ? undefined : this.getPlot(no);
+    if (no === undefined) {
+      return undefined;
+    }
+    const [plots, chapters] = await Promise.all([this.listPlots(), this.listChapters()]);
+    const rel = plotRelPath.replace(/\\/g, '/');
+    const direct = plots.find((p) => p.relPath === rel);
+    if (direct) {
+      const sameNo = chapters.filter((c) => c.order === direct.no);
+      if (sameNo.length === 0 || sameNo.some((c) => this.plotPathForChapter(c.relPath) === direct.relPath)) {
+        return direct;
+      }
+    }
+    return this.plotFor(no, plots, chapters);
   }
 
-  /** 按章号取细纲。同号有多份时取路径排序第一份。 */
+  /** 第 N 章的细纲（配对规则见 {@link plotFor}）。 */
   async getPlot(no: number): Promise<Plot | undefined> {
-    return (await this.listPlots()).find((p) => p.no === no);
+    const [plots, chapters] = await Promise.all([this.listPlots(), this.listChapters()]);
+    return this.plotFor(no, plots, chapters);
+  }
+
+  /** 这一章正文的细纲：正文镜像的那一份（{@link plotPathForChapter}）。还没有就是 undefined。 */
+  async plotOfChapter(chapter: Chapter): Promise<Plot | undefined> {
+    const rel = this.plotPathForChapter(chapter.relPath);
+    return (await this.listPlots()).find((p) => p.relPath === rel);
+  }
+
+  /**
+   * 第 N 章的细纲，**按路径配对**：
+   *
+   * - 有正文：只认正文镜像的那一份。没有就是没有——作者在外面给正文改了名，那就是一章新的，
+   *   旧的细纲不冒认（同号的正文有两份时认路径排序第一份，与流水线同一个口径）。
+   * - 还没有正文：认同号的第一份（计划），正文照它的路径反推着落（{@link chapterPathForPlot}）。
+   *
+   * 手上已经有两份列表的调用方（流水线索引、装配器）直接用它，免得每章再读一遍。
+   */
+  plotFor(no: number, plots: readonly Plot[], chapters: readonly Chapter[]): Plot | undefined {
+    const chapter = chapters.find((c) => c.order === no);
+    if (chapter) {
+      const rel = this.plotPathForChapter(chapter.relPath);
+      return plots.find((p) => p.relPath === rel);
+    }
+    return plots.find((p) => p.no === no);
+  }
+
+  /**
+   * 每个章号认下的那一份细纲（{@link plotFor}），按章号升序。孤儿（作者在外面给正文改了名，旧细纲
+   * 没人认）不在里面——叙事线、出场统计、拆细纲区间这些「一章一份」的地方都吃这一份，与工程页
+   * 一行一章的口径一致。
+   */
+  pairPlots(plots: readonly Plot[], chapters: readonly Chapter[]): Plot[] {
+    const nos = [...new Set(plots.map((p) => p.no))].sort((a, b) => a - b);
+    return nos.map((no) => this.plotFor(no, plots, chapters)).filter((p): p is Plot => !!p);
+  }
+
+  /** {@link pairPlots} 的读盘版。 */
+  async listChapterPlots(): Promise<Plot[]> {
+    const [plots, chapters] = await Promise.all([this.listPlots(), this.listChapters()]);
+    return this.pairPlots(plots, chapters);
   }
 
   /**

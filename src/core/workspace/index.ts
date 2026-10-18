@@ -42,7 +42,7 @@ import {
 } from '../model/fs';
 import { Chapter, SummaryCast } from '../model/types';
 import { rewriteFrontmatter, stringifyFrontmatter } from '../model/markdown';
-import { isMarkdownExt, isMarkdownPath } from '../model/chapterFile';
+import { isMarkdownExt, isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
 import { isFallbackChapterTitle } from '../model/pipeline';
 import { endsMidSentence } from '../model/manuscriptCheck';
 import {
@@ -57,6 +57,7 @@ import {
   PreflightOk,
   WritablePlot,
   parsePlotFile,
+  plotFileName,
   renderPlotFile,
   renderPreflightOk,
 } from '../model/plotFile';
@@ -66,7 +67,6 @@ import {
   PathKind,
   kindOfPath,
   normalizeRel,
-  plotRelPathFor,
 } from './kind';
 import {
   MAX_EDITABLE_BYTES,
@@ -348,7 +348,7 @@ export class Workspace {
   /**
    * 改名/移动。**目标已存在一律拒绝**（第 3 条：不静默覆盖）。
    *
-   * 伴生搬迁交给 handler：章节带走草稿。细纲没有伴生（它按章号与正文配对）。
+   * 伴生搬迁交给 handler：章节带走草稿与细纲（两样都镜像正文的路径，正文一搬就得跟着走）。
    */
   async move(from: string, to: string): Promise<WriteResult> {
     const fromAbs = await guardMutate(this.project, from);
@@ -429,9 +429,15 @@ export class Workspace {
   /**
    * 写一章的细纲，返回工作区相对路径。
    *
-   * 文件名由**章号与标题**共同决定，所以改标题会改文件名，改章号也会。旧文件
-   * 必须删掉，否则 `007-入宗.md` 与 `007-入宗风波.md` 并存会变成同一章的两份细纲。
+   * 落点（细纲镜像正文的相对路径，见 model/project.ts 的 `plotPathForChapter`）：
    *
+   * - **这一章已经有正文**：正文的镜像。文件名跟着正文走，改标题只改 frontmatter 里那个标题。
+   * - **还没有正文、已有细纲**：留在那一份所在的子目录，文件名按「章号 + 标题」重拼——改标题会改
+   *   文件名，改章号也会。
+   * - **都没有**：`at`（调用方给的落点，如主按钮的占位路径 `summaries/第二卷/003.md`）所在的子目录；
+   *   没给就跟上一章放在一起（`plotPathForNewChapter`）。
+   *
+   * 旧文件必须删掉，否则 `007-入宗.md` 与 `007-入宗风波.md` 并存会变成同一章的两份细纲。
    * 「旧文件是哪一份」有两种问法：
    *
    * - **改标题**（章号没变）：按 `plot.no` 就找得到，这是绝大多数调用。
@@ -442,13 +448,14 @@ export class Workspace {
    * 它才永远不会挂 ⟳。
    *
    * @param fromRelPath 改章号时传原细纲路径；改标题或新建时不必传。
+   * @param at 新建时调用方想要的落点（只取它的子目录）；不是细纲路径就不认。
    */
-  async writePlot(plot: WritablePlot, fromRelPath?: string): Promise<string> {
+  async writePlot(plot: WritablePlot, fromRelPath?: string, at?: string): Promise<string> {
     // 换号时新号上是空的，只有调用方知道原来那份在哪。
     const previous = fromRelPath
       ? await this.project.readPlot(fromRelPath)
       : await this.project.getPlot(plot.no);
-    const rel = plotRelPathFor(this.project, plot.no, safeStem(plot.title));
+    const rel = await this.plotRelPathOf(plot, previous?.relPath, at);
     // 落点上已经有一份**别的**细纲（不是这一章要替换的那份）：不静默盖掉它（第 3 条）。
     // 手改文件名撞了号、或两章起了同一个标题都会走到这里。
     if (rel !== previous?.relPath && (await readTextIfExists(this.project.pathOf(rel)).catch(() => undefined)) !== undefined) {
@@ -464,6 +471,19 @@ export class Workspace {
     // 不出现在工程页上，改过标题的章还挂着旧名字。
     this.project.invalidate();
     return rel;
+  }
+
+  /** {@link writePlot} 的落点。规则见那里。 */
+  private async plotRelPathOf(plot: WritablePlot, previousRel?: string, at?: string): Promise<string> {
+    const chapter = await this.project.getChapter(plot.no);
+    if (chapter) {
+      return this.project.plotPathForChapter(chapter.relPath);
+    }
+    const anchor = previousRel ?? (at && kindOfPath(this.project, at).kind === 'plot' ? normalizeRel(at) : undefined);
+    const dir = anchor
+      ? path.posix.dirname(anchor)
+      : this.project.relPath(path.join(this.project.plotsDir, await this.project.subdirForNewChapter(plot.no)));
+    return `${dir}/${plotFileName(plot.no, safeStem(plot.title))}`;
   }
 
   /**
@@ -568,6 +588,32 @@ export class Workspace {
   }
 
   /**
+   * 在给定路径新建一章，返回那个路径。正文照细纲写出来时用：落点由 views/pipeline.ts 的
+   * `chapterTargetOf` 给（细纲所在的子目录）。标题行取文件名里的词干，与 {@link createChapter} 同一个规矩。
+   *
+   * `plotRelPath` 是这一章照着写的细纲。它的路径与新正文的镜像对不上（细纲是还没起名时建的
+   * `030.md`，正文按标题落成了 `030-雪夜.md`）就把细纲改名过去——细纲镜像正文的路径，不改的话
+   * 正文一落盘，这一章就「没有细纲」了。镜像位置已有别的文件时不动（不静默覆盖），记一条 warn。
+   */
+  async createChapterAt(rel: string, content = '', plotRelPath?: string): Promise<string> {
+    const parsed = parseChapterFileName(path.posix.basename(rel));
+    const stem = parsed?.stem.trim() ?? '';
+    const text = parsed && isMarkdownExt(parsed.ext) && stem ? `# ${stem}\n\n${content.trim()}\n` : `${content.trim()}\n`;
+    await this.write(rel, { text }, { mode: 'create' });
+
+    const mirror = this.project.plotMirrorOf(rel);
+    if (plotRelPath && mirror && mirror !== plotRelPath) {
+      try {
+        await this.move(plotRelPath, mirror);
+        log.info('细纲跟着新正文改名', `${plotRelPath} → ${mirror}`);
+      } catch (err) {
+        log.warn('细纲没能改名到新正文的镜像，这一章暂时认不出细纲', `${plotRelPath} → ${mirror}｜${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return rel;
+  }
+
+  /**
    * 一次新建好几章（导入原稿，features/importManuscript.ts）。每一章与 {@link createChapter} 走同一条
    * `write`（同名报错退出、大小上限一样不少），只是 manifest **最后同步一次**——chapter handler 每写一章
    * 就重扫全部章节，几百章逐章同步是 O(n²) 次读盘（三百章十几秒）。
@@ -628,7 +674,7 @@ export class Workspace {
   }
 
   /**
-   * 定稿：把反向更新过的细纲写回**同号的那一份**（还没有就按章号与章节标题新建一份）。返回落点，
+   * 定稿：把反向更新过的细纲写回**这一章正文镜像的那一份**（还没有就在镜像位置新建一份）。返回落点，
    * 以及旧版在回收站里的位置（原来没有细纲时没有）。
    *
    * 渲染规矩在 `handlers/plot.ts` 的 `renderFinalizedPlot`：八节整体替换，作者定的 frontmatter 留着，
@@ -642,9 +688,9 @@ export class Workspace {
     sections: PlotSections,
     cast: SummaryCast[]
   ): Promise<{ rel: string; trashed?: string }> {
-    const current = await this.project.getPlot(chapter.order);
+    const current = await this.project.plotOfChapter(chapter);
     const title = isFallbackChapterTitle(chapter.order, chapter.title) ? '' : chapter.title;
-    const rel = current?.relPath ?? this.project.plotPathForNo(chapter.order, chapter.title);
+    const rel = this.project.plotPathForChapter(chapter.relPath);
     const text = renderFinalizedPlot({
       rel,
       no: chapter.order,

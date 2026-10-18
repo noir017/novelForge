@@ -53,9 +53,9 @@ export const written: LayerFn = async (a, spec) => {
   }
 };
 
-/** 第 N 章定稿过的细纲（有 `sourceHash`）。没定稿过的是计划，不当已写的东西。 */
+/** 这一章定稿过的细纲（正文镜像的那一份，有 `sourceHash`）。没定稿过的是计划，不当已写的东西。 */
 async function finalizedPlot(project: NovelProject, chapter: Chapter): Promise<Plot | undefined> {
-  const plot = await project.getPlot(chapter.order);
+  const plot = await project.plotOfChapter(chapter);
   return plot?.sourceHash ? plot : undefined;
 }
 

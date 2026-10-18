@@ -43,7 +43,10 @@ export async function plotChoices(project: NovelProject): Promise<PickChoice<num
     byNo.set(chapter.order, { title: chapter.title, words: chapter.wordCount });
   }
   for (const plot of plots) {
-    // 细纲号 = 章号：字数就是同号那一章的。
+    // 有正文的章只认它镜像的那份细纲（`NovelProject.plotFor`）；字数是那一章正文的。
+    if (project.plotFor(plot.no, plots, chapters) !== plot) {
+      continue;
+    }
     byNo.set(plot.no, { title: plot.title || byNo.get(plot.no)?.title || '', words: byNo.get(plot.no)?.words ?? 0 });
   }
 

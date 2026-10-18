@@ -27,8 +27,9 @@ export const listTool: ToolDef = {
     '列出工程里某个目录的直接子项（不递归），带类型与字数。' +
     'path 是工程内相对路径、用正斜杠，留空则列工程根。' +
     '几个固定位置：小说配置、故事前提、世界观是 .novelforge/config.md、premise.md、world.md，' +
-    '情节大纲是 .novelforge/outline.md，细纲在 .novelforge/summaries/（一章一份，<章号>-<标题>.md，不分子目录；定稿会照正文改它），' +
-    '正文在章节根目录（默认 chapters/，与细纲同号），' +
+    '情节大纲是 .novelforge/outline.md，细纲在 .novelforge/summaries/（一章一份，与正文同样的相对路径、扩展名 .md：' +
+    'chapters/上部/003-夜访.txt 的细纲是 .novelforge/summaries/上部/003-夜访.md；定稿会照正文改它），' +
+    '正文在章节根目录（默认 chapters/，可以分子目录），' +
     '全书摘要是 .novelforge/summaries/global.md，角色卡在 .novelforge/characters/，设定在 .novelforge/lore/，' +
     '叙事线（跨章的伏笔与线索，可选）是 .novelforge/threads.md。' +
     `一次最多返回 ${LIST_LIMIT} 项，超出会截断并告诉你还有多少。`,

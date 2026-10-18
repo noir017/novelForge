@@ -122,16 +122,21 @@ describe('kindOfPath · 细纲', () => {
     assert.equal(kindOf('.novelforge/summaries/012-入宗.txt').kind, 'other');
   });
 
-  // 细纲是平铺的（一章一纲）。老工程按章节路径镜像在子目录里的单章摘要不再是这条链上的
-  // 东西——判成 other，但 rel 照给：文件确实在那儿，只是不再是产物。
-  test('summaries/ 下子目录里的文件不是细纲', () => {
+  // 细纲镜像正文在章节根下的相对路径：分卷的书，细纲就在卷目录里（`chapters/卷一/003-楼道.md`
+  // 的细纲是 `summaries/卷一/003-楼道.md`）。各级子目录里数字开头的 markdown 家族都是细纲。
+  test('summaries/ 下子目录里的文件也是细纲', () => {
     const k = kindOf('.novelforge/summaries/卷一/003-楼道.md');
-    assert.equal(k.kind, 'other');
-    assert.equal(k.rel, '.novelforge/summaries/卷一/003-楼道.md');
+    assert.equal(k.kind, 'plot');
+    assert.equal(k.no, 3);
+    assert.deepEqual(k.target, { kind: 'plot', plotRelPath: '.novelforge/summaries/卷一/003-楼道.md' });
   });
 
   test('summaries/ 根下没有数字前缀的不是细纲', () => {
     assert.equal(kindOf('.novelforge/summaries/说明.md').kind, 'other');
+  });
+
+  test('summaries/ 子目录里没有数字前缀的也不是细纲', () => {
+    assert.equal(kindOf('.novelforge/summaries/卷一/global.md').kind, 'other');
   });
 });
 

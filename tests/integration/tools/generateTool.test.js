@@ -495,15 +495,14 @@ describe('认不出的路径', () => {
     assert.ok(bad.error, JSON.stringify(bad));
   });
 
-  // 老工程磁盘上的中转站、卷纲、`plots/` 下的细纲（平铺的、按卷分目录的）、按章节路径镜像进
-  // summaries/ 子目录的单章摘要一个字节都不动，但代码不再认它们：对着它们生成，产物没有落点
-  // （流水线不读那里），只会白花一次钱。
+  // 老工程磁盘上的中转站、卷纲、`plots/` 下的细纲（平铺的、按卷分目录的）一个字节都不动，但代码
+  // 不再认它们：对着它们生成，产物没有落点（流水线不读那里），只会白花一次钱。
+  // （`summaries/` 子目录里的单章摘要不在此列：细纲镜像正文的相对路径，它就是那一章的细纲。）
   for (const [what, legacy] of [
     ['中转站正文', '.novelforge/manuscripts/001-夜入青云.md'],
     ['卷纲', '.novelforge/volumes/01-觉醒之日.md'],
     ['plots/ 下的细纲', '.novelforge/plots/001-夜入青云.md'],
     ['按卷分目录的细纲', '.novelforge/plots/01-觉醒之日/001-夜入青云.md'],
-    ['summaries/ 子目录里的单章摘要', '.novelforge/summaries/卷一/001-夜入青云.md'],
   ]) {
     test(`老工程的${what}路径认不出，不调模型`, async () => {
       resetCtx();

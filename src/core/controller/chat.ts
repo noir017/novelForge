@@ -460,7 +460,7 @@ export async function targetHasContent(
     return outlineOverlaps(await c.project.readOutline(), range);
   }
   if (range && target.kind === 'plot') {
-    const plots = await c.project.listPlots();
+    const plots = await c.project.listChapterPlots();
     return plots.some((p) => p.no >= range.from && p.no <= range.to && isPlotFilled(p.sections));
   }
   switch (target.kind) {
@@ -685,7 +685,7 @@ export async function chapterAction(c: ChatController, plotRelPath: string, acti
   }
   const target: CreationTarget = {
     kind: 'manuscript',
-    plotRelPath: entry.plot?.relPath ?? c.project.plotPathForNo(entry.no, entry.chapter?.title ?? ''),
+    plotRelPath: entry.plot?.relPath ?? (await c.project.plotPathOfNo(entry.no, entry.chapter?.title ?? '')),
   };
   await setTarget(c, target);
   await send(c, {
@@ -776,10 +776,9 @@ export async function reviseChapter(c: ChatController, turnId: string, picks: re
     c.toast('没有勾选任何可以修的条目。', 'error');
     return;
   }
-  const plot = await c.project.getPlot(report.chapterNo);
   const target: CreationTarget = {
     kind: 'manuscript',
-    plotRelPath: plot?.relPath ?? c.project.plotPathForNo(report.chapterNo, report.chapterTitle ?? ''),
+    plotRelPath: await c.project.plotPathOfNo(report.chapterNo, report.chapterTitle ?? ''),
   };
   await setTarget(c, target);
   await send(
@@ -987,8 +986,8 @@ export async function setTarget(c: ChatController, target: CreationTarget): Prom
  * 细纲排好了就落正文层。判断必须在后端：前端手上只有当前那一章的 pipeline。
  *
  * **收的是「哪一章」**，界面上几个入口给的路径形状各不相同——细纲路径（可能还
- * 不存在，下拉框与老工程的章给的就是 `plotPathForNo` 算出来的位置）或章节路径。
- * `resolvePlotTarget` 按章号把它们认到同一章（第 20 条：只在细纲号 = 章号这一条轴上认）。
+ * 不存在，下拉框与老工程的章给的就是 `plotPathOfNo` 算出来的位置）或章节路径。
+ * `resolvePlotTarget` 把它们认到同一章：章节路径就是那一章，细纲按路径配对（细纲镜像正文的路径）。
  */
 export async function selectPlot(c: ChatController, plotRelPath: string): Promise<void> {
   const entry = await resolvePlotTarget(c, plotRelPath);
@@ -998,9 +997,9 @@ export async function selectPlot(c: ChatController, plotRelPath: string): Promis
   }
   const pipeline = await buildPlotPipeline(c.project, entry);
   const next = deriveNextStep(pipeline.stage, factsOf(pipeline));
-  // 细纲还没有时落点用它**应该**在的位置（`plotPathForNo`）：选中它就是
+  // 细纲还没有时落点用它**应该**在的位置（有正文就是正文的镜像）：选中它就是
   // 「去给这一章补规划」，装配器与工作区卡都能如实退化成空壳。
-  const target = entry.plot?.relPath ?? c.project.plotPathForNo(entry.no, entry.chapter?.title ?? '');
+  const target = pipeline.plot.relPath;
 
   // 全做完了（next 为空）就停在正文——那是这一章的终点，也是最可能
   // 要回头改的一层。
@@ -1010,10 +1009,10 @@ export async function selectPlot(c: ChatController, plotRelPath: string): Promis
 /**
  * 前端给的路径 → 这一章（细纲与正文各自可能缺席）。两边都没有才算「不存在」。
  *
- * 只有认得出是细纲的路径（`summaries/` 根下）才当细纲读：`readPlot` 是纯解析，喂它一个章节
- * 文件也会**解析成功**（数字前缀 + `# 标题` 一样认得出），于是 target 会指进
- * `chapters/` 去。其余情况一律按章号认：章节路径取它的章号，还不存在的细纲路径
- * 取文件名里的号。
+ * - 章节路径：就是那一章，细纲是它的镜像（同号的正文有两份时也认得准是哪一份）。
+ * - 细纲路径（`summaries/` 下）：按 `resolvePlot` 认这一章现在的那一份细纲，正文是它镜像回去的那一章。
+ *   `readPlot` 是纯解析，喂它一个章节文件也会**解析成功**，所以只有认得出是细纲的路径才当细纲读。
+ * - 其余（还不存在的细纲路径）按文件名里的号认。
  */
 async function resolvePlotTarget(
   c: ChatController,
@@ -1022,17 +1021,17 @@ async function resolvePlotTarget(
   const chapters = await c.project.listChapters();
 
   const direct = chapters.find((ch) => ch.relPath === relPath);
-  const asPlot = !direct && isPlotPath(c.project, relPath) ? await c.project.readPlot(relPath) : undefined;
-  const no =
-    direct?.order ??
-    asPlot?.no ??
-    parsePlotFileName(basename(relPath))?.no ??
-    parseChapterFileName(basename(relPath))?.order;
+  if (direct) {
+    return { no: direct.order, plot: await c.project.plotOfChapter(direct), chapter: direct };
+  }
+  const no = parsePlotFileName(basename(relPath))?.no ?? parseChapterFileName(basename(relPath))?.order;
   if (no === undefined || no <= 0) {
     return undefined;
   }
-  const plot = asPlot ?? (await c.project.getPlot(no));
-  const chapter = direct ?? chapterOfPlotNo(chapters, no);
+  const plot = isPlotPath(c.project, relPath) ? await c.project.resolvePlot(relPath) : await c.project.getPlot(no);
+  const chapter =
+    (plot && chapters.find((ch) => ch.order === no && c.project.plotPathForChapter(ch.relPath) === plot.relPath)) ??
+    chapterOfPlotNo(chapters, no);
   return plot || chapter ? { no, plot, chapter } : undefined;
 }
 
@@ -1155,7 +1154,7 @@ export async function bookNextStep(c: ChatController): Promise<NextStepView | un
   const stage = deriveBookStage(facts);
   const step = await bookStepView(stage, facts, {
     config: () => c.project.readBookConfig(),
-    plotPathOf: async (no) => (await c.project.getPlot(no))?.relPath ?? c.project.plotPathForNo(no, ''),
+    plotPathOf: (no) => c.project.plotPathOfNo(no),
   });
   if (step || stage !== 'writing') {
     return step;

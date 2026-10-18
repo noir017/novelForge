@@ -1,10 +1,11 @@
 /**
  * 创作流水线的数据层：路径规则、细纲读写、改名、新鲜度链、流水线索引、全书事实、工作区卡。
  *
- * 一章一纲之后只有**一条轴**：细纲号 = 章号。第 N 章的细纲（`summaries/NNN-*.md`，平铺在根下）
- * 与正文（同号的 `chapters/NNN-*`）按号互认，认号只在 `views/pipeline.ts` 里做；定稿反向更新的
- * 也是同一份细纲，不再另写一份单章摘要。从前的卷、剧情段位次、中转站 `manuscripts/`、拆章与
- * `plots/` 都不读了；老工程磁盘上的那几个目录一个字节都不动，代码只是不再读它们。
+ * 一章一纲之后只有**一条轴**：细纲号 = 章号。细纲**镜像正文在章节根下的相对路径**
+ * （`chapters/第一卷/003-深处.txt` ↔ `summaries/第一卷/003-深处.md`），有正文的章按路径认它的细纲，
+ * 还没有正文的章按号认计划；定稿反向更新的也是同一份细纲，不再另写一份单章摘要。从前的卷、
+ * 剧情段位次、中转站 `manuscripts/`、拆章与 `plots/` 都不读了；老工程磁盘上的那几个目录一个字节都不动，
+ * 代码只是不再读它们。
  *
  * 章节那一侧的读写（扫描、扩展名、草稿）另见 tests/integration/files/chapters.test.js。
  */
@@ -106,14 +107,22 @@ describe('数据层 · 目录与路径规则', () => {
     });
   });
 
-  // 只有正文、还没有细纲的章要一个稳定的落点：界面上选中它、切到细纲层去补规划。
-  test('没有细纲的章给出它应该在的位置', () => {
-    assert.equal(project.plotPathForNo(12, '夜入青云'), plot);
+  // 细纲镜像正文在章节根下的相对路径，扩展名换成 .md（与草稿同一套）。
+  test('正文 → 细纲：相对路径相同，扩展名换成 .md', () => {
+    assert.equal(project.plotPathForChapter('chapters/012-夜入青云.md'), plot);
+    assert.equal(project.plotPathForChapter('chapters/第一卷/003-深处.txt'), '.novelforge/summaries/第一卷/003-深处.md');
+    assert.equal(project.plotPathForChapter('chapters/001 序'), '.novelforge/summaries/001 序.md');
   });
 
-  // 「第 9 章」是 `listChapters` 给无标题章的回落值——那是没有名字，不是名字。
-  test('回落标题不进细纲文件名', () => {
-    assert.equal(project.plotPathForNo(9, '第 9 章'), '.novelforge/summaries/009.md');
+  test('细纲 → 照它写出来的正文：反推回章节根', () => {
+    assert.equal(project.chapterPathForPlot('.novelforge/summaries/第二卷/010-雪夜.md'), 'chapters/第二卷/010-雪夜.md');
+    assert.equal(project.chapterPathForPlot('chapters/010-雪夜.md'), undefined);
+  });
+
+  // 前面一章都没有时落在根下。「第 9 章」是 `listChapters` 给无标题章的回落值——那是没有名字，不是名字。
+  test('还没有正文也没有细纲的章：落在根下，回落标题不进文件名', async () => {
+    assert.equal(await project.plotPathForNewChapter(12, '夜入青云'), plot);
+    assert.equal(await project.plotPathForNewChapter(9, '第 9 章'), '.novelforge/summaries/009.md');
   });
 });
 
@@ -145,7 +154,7 @@ describe('数据层 · 细纲读写', () => {
     assert.equal(nextNo, 1);
   });
 
-  test('细纲平铺在 summaries/ 根下，名字带三位序号', () => {
+  test('没有正文、前面也没有章：细纲落在 summaries/ 根下，名字带三位序号', () => {
     assert.equal(plotRel, '.novelforge/summaries/012-夜入青云.md', plotRel);
   });
 
@@ -185,8 +194,9 @@ describe('数据层 · 细纲读写', () => {
 /**
  * 老工程留下的东西：`plots/` 里的细纲、`summaries/` 子目录里按章节路径镜像的单章摘要、老四节格式的
  * 细纲、`summaries/` 根下的老单章摘要。**解析一律不抛**（第 1 条），读进来如实退化，那些文件一个字节
- * 都不动。不做迁移（作者定案 2）：`plots/` 与子目录判成 other，不读、不显示、不删，目录守卫照旧拦着；
- * 根下的老摘要本来就是这八节、带着 sourceHash 与 cast，直接当成定稿过的细纲。
+ * 都不动。`plots/` 不做迁移（作者定案 2）：判成 other，不读、不显示、不删，目录守卫照旧拦着；
+ * `summaries/` 下的老摘要（根下与子目录里的）本来就镜像正文的路径、就是这八节、带着 sourceHash 与 cast，
+ * 直接当成定稿过的细纲。
  */
 describe('数据层 · 老工程留下的文件', () => {
   const LEGACY_PLOT = '.novelforge/plots/007-老细纲.md';
@@ -255,13 +265,13 @@ describe('数据层 · 老工程留下的文件', () => {
     assert.equal(t.read(LEGACY_PLOT), LEGACY_PLOT_TEXT);
   });
 
-  // 扫出来只会让同一个章号冒出两份细纲（D11）。
-  test('summaries/ 子目录里的不是细纲', () => {
-    assert.ok(!listed.some((p) => p.relPath === NESTED), listed.map((p) => p.relPath).join('|'));
+  // 老工程的单章摘要本来就镜像正文的相对路径：分卷的书，摘要就在卷目录里。
+  test('summaries/ 子目录里的老摘要照样是细纲', () => {
+    assert.ok(listed.some((p) => p.relPath === NESTED), listed.map((p) => p.relPath).join('|'));
   });
 
-  test('summaries/ 子目录里的文件判成 other', () => {
-    assert.equal(bundle.kind.kindOfPath(project, NESTED).kind, 'other');
+  test('summaries/ 子目录里的文件判成 plot', () => {
+    assert.equal(bundle.kind.kindOfPath(project, NESTED).kind, 'plot');
   });
 
   test('老四节细纲读得出来，不抛', () => {
@@ -299,45 +309,48 @@ describe('数据层 · 老工程留下的文件', () => {
 });
 
 /**
- * 细纲改标题 = 改文件名。正文挂在**章节**上，不跟着细纲走——从前改细纲名要连带搬走
- * 中转站里那份正文，一章一纲之后正文就是章节，改名不必带走任何东西。
+ * 这一章已经有正文时改细纲的标题：细纲镜像正文的路径，**文件名跟着正文不动**，只换 frontmatter
+ * 里的标题。改文件名的是正文那一侧（工程页「重命名」，细纲跟着搬，见 files/fileOps.test.js）。
  */
-describe('数据层 · 细纲改名', () => {
-  const from = '.novelforge/summaries/012-夜入青云.md';
-  const to = '.novelforge/summaries/012-夜入.md';
+describe('数据层 · 有正文时改细纲标题', () => {
+  const rel = '.novelforge/summaries/012-夜入青云.md';
   let renamed;
   let plotHashBefore;
   let plotHashAfter;
+  let after;
   let pipe;
 
   before(async () => {
     // 改名前的内容指纹。改名**绝不能**动它：一旦哪个字段进了哈希，
     // 改个名就会让这一章的正文凭空标脏（AGENTS.md 第 18 条 (b)）。
-    plotHashBefore = bundle.plotFile.plotContentHash(await project.readPlot(from));
+    plotHashBefore = bundle.plotFile.plotContentHash(await project.readPlot(rel));
     t.write('chapters/012-夜入青云.md', '# 夜入青云\n\n正文若干字。\n');
     project.invalidate();
 
-    const plot = await project.readPlot(from);
+    const plot = await project.readPlot(rel);
     renamed = await wsOf(project).writePlot({ ...plot, title: '夜入' });
-    const after = await project.readPlot(to);
+    after = await project.readPlot(rel);
     plotHashAfter = bundle.plotFile.plotContentHash(after);
     pipe = await bundle.pipe.buildPlotPipeline(project, { no: 12, plot: after });
   });
 
-  test('改名成功', () => {
-    assert.equal(renamed, to, String(renamed));
+  test('落点仍是正文的镜像', () => {
+    assert.equal(renamed, rel, String(renamed));
   });
 
-  test('旧的细纲文件不再存在，不会一章两份', () => {
-    assert.ok(!t.has(from));
+  test('标题换了', () => {
+    assert.equal(after.title, '夜入');
   });
 
-  test('同号的章节不跟着改名', () => {
+  test('没有多出第二份细纲', async () => {
+    assert.equal((await project.listPlots()).filter((p) => p.no === 12).length, 1);
+  });
+
+  test('正文不跟着改名', () => {
     assert.ok(t.has('chapters/012-夜入青云.md'));
   });
 
-  // 按号认，不按名字：细纲叫「夜入」、章节叫「夜入青云」，仍然是同一章。
-  test('改名后按号仍认得同号的章节', () => {
+  test('细纲与正文按路径认到一起', () => {
     assert.equal(pipe.chapter.relPath, 'chapters/012-夜入青云.md', JSON.stringify(pipe.chapter));
   });
 
@@ -349,7 +362,7 @@ describe('数据层 · 细纲改名', () => {
 
 /**
  * 新建细纲那条路的主流程：建出来只有序号（`030.md`），细纲排出来才给它起名。
- * 起名走的是 `writePlot`（标题变 → 文件名变），不是 fileOps。
+ * 起名走的是 `writePlot`（还没有正文时：标题变 → 文件名变），不是 fileOps。
  */
 describe('数据层 · 给未命名的细纲起名', () => {
   let bare;
@@ -357,18 +370,16 @@ describe('数据层 · 给未命名的细纲起名', () => {
   let plotRead;
   let plotText;
   let pipe;
+  let dest;
 
   before(async () => {
     bare = await wsOf(project).writePlot(writable(30, '', { sections: filledSections({ 梗概: '起个名字。' }) }));
-    // 起名之前就有了一章同号的正文（作者手贴的）。
-    t.write('chapters/030.md', '未命名时就写了的正文。\n');
-    project.invalidate();
-
     const plot = await project.readPlot(bare);
     named = await wsOf(project).writePlot({ ...plot, title: '风起' });
     plotRead = await project.readPlot(named);
     plotText = t.read('.novelforge/summaries/030-风起.md');
     pipe = await bundle.pipe.buildPlotPipeline(project, { no: 30, plot: plotRead });
+    dest = await bundle.pipe.chapterTargetOf(project, named);
   });
 
   test('未命名时落成纯序号名', () => {
@@ -392,19 +403,23 @@ describe('数据层 · 给未命名的细纲起名', () => {
     assert.ok(plotText.includes('# 第30章 风起'), plotText.slice(0, 300));
   });
 
-  // 章节是作者的文件：给细纲起名不去改它的名字，按号照样认到一起。
-  test('同号的正文原地不动，按号照样认到一起', () => {
-    assert.ok(t.has('chapters/030.md'));
-    assert.equal(pipe.chapter.relPath, 'chapters/030.md', JSON.stringify(pipe.chapter));
+  // 正文照细纲的路径反推着落：落盘之后镜像回去正好是这一份。
+  test('写正文时落在细纲反推出来的位置', () => {
+    assert.deepEqual({ exists: dest.exists, rel: dest.rel }, { exists: false, rel: 'chapters/030-风起.md' });
   });
 
   test('流水线这一行的标题取细纲的', () => {
     assert.equal(pipe.title, '风起', pipe.title);
   });
+
+  after(() => {
+    t.remove('.novelforge/summaries/030-风起.md');
+    project.invalidate();
+  });
 });
 
 describe('新鲜度链', () => {
-  const plotRel = '.novelforge/summaries/012-夜入.md';
+  const plotRel = '.novelforge/summaries/012-夜入青云.md';
   const CHAPTER = 'chapters/012-夜入青云.md';
   const OUTLINE = '# 大纲\n\n## 第1–20章：第一幕 · 入局\n\n林昭进青云宗。\n';
   let pFresh;
@@ -588,7 +603,7 @@ describe('流水线索引', () => {
   });
 
   test('byNo 按章号索引', () => {
-    assert.equal(index.byNo.get(12)?.plot.relPath, '.novelforge/summaries/012-夜入.md');
+    assert.equal(index.byNo.get(12)?.plot.relPath, '.novelforge/summaries/012-夜入青云.md');
   });
 
   test('只有正文的章也占一行，细纲路径是它应该在的位置', () => {
@@ -753,7 +768,7 @@ describe('全书事实 · 从空工程一路推到在写', () => {
 });
 
 describe('工作区卡', () => {
-  const plotRel = '.novelforge/summaries/012-夜入.md';
+  const plotRel = '.novelforge/summaries/012-夜入青云.md';
   let plotCard;
   let ms;
   let skeleton;
@@ -874,5 +889,116 @@ describe('工作区卡', () => {
 
   test('角色图谱卡指向角色目录', () => {
     assert.equal(rosterCard.relPath, '.novelforge/characters');
+  });
+});
+
+/**
+ * 细纲镜像正文的相对路径（2026-10-18 作者定案：「必须保证相对路径，无相对路径是绝对错的」）。
+ * 合并细纲与摘要那一次曾把细纲改成平铺在 `summaries/` 根下、按章号配对，分卷的书里
+ * `summaries/第二卷/…` 的老摘要于是在工程页上一份都认不出、点章节打不开，而对话页按路径直接读
+ * 却读得到。另起一个工程，把那几条路都走一遍。
+ */
+describe('细纲镜像正文的相对路径', () => {
+  let p;
+  let pr;
+  const NESTED_PLOT = '.novelforge/summaries/第二卷/050-雪夜.md';
+  const NESTED_CHAPTER = 'chapters/第二卷/050-雪夜.txt';
+  const ORPHAN = '.novelforge/summaries/050-旧名.md';
+  let listed;
+  let index;
+  let byNo;
+  let resolved;
+  let pipeView;
+  let finalized;
+  let newPlot;
+  let dest;
+  let dupPlots;
+
+  before(async () => {
+    p = await makeTempProject(bundle.project, { prefix: 'mirror', title: '分卷' });
+    dirs.push(p.dir);
+    pr = p.project;
+    p.write('chapters/第一卷/049-渡口.md', '# 渡口\n\n他到了渡口。\n');
+    p.write(NESTED_CHAPTER, '雪下了一夜。\n');
+    p.write(NESTED_PLOT, '---\nno: 50\ntitle: 雪夜\n---\n\n# 第50章 雪夜\n\n## 梗概\n\n雪夜。\n\n## 关键事件\n\n- 雪下了一夜。\n');
+    // 作者在外面给正文改过名：旧名字的细纲成了孤儿，不冒认这一章。
+    p.write(ORPHAN, '---\nno: 50\ntitle: 旧名\n---\n\n## 关键事件\n\n- 旧的计划。\n');
+    pr.invalidate();
+
+    listed = await pr.listPlots();
+    index = await bundle.pipe.buildPipelineIndex(pr);
+    byNo = await pr.getPlot(50);
+    resolved = await pr.resolvePlot(ORPHAN);
+    pipeView = await bundle.pipe.buildPlotPipeline(pr, { no: 50, plot: byNo });
+
+    const chapter = (await pr.listChapters()).find((c) => c.order === 50);
+    finalized = await wsOf(pr).finalizePlot(chapter, FINALIZED(), [{ name: '林昭', aliases: [] }]);
+
+    // 新的一章（还没有正文也没有细纲）跟上一章放在一起：上一章在第二卷，它也落进第二卷。
+    newPlot = await wsOf(pr).writePlot(writable(51, '冰河'));
+    dest = await bundle.pipe.chapterTargetOf(pr, newPlot);
+
+    // 同号的两个文件（作话与正文）各有各的细纲，不再互相覆盖（7bf8ada 修过的那个 bug）。
+    p.write('chapters/060 序.txt', '序。\n');
+    p.write('chapters/060 正文.txt', '正文。\n');
+    pr.invalidate();
+    const sixty = (await pr.listChapters()).filter((c) => c.order === 60);
+    for (const c of sixty) {
+      await wsOf(pr).finalizePlot(c, FINALIZED({ 梗概: c.relPath }), []);
+    }
+    dupPlots = await Promise.all(sixty.map((c) => pr.plotOfChapter(c)));
+  });
+
+  test('子目录里的细纲列得出来', () => {
+    assert.ok(listed.some((x) => x.relPath === NESTED_PLOT), listed.map((x) => x.relPath).join('|'));
+  });
+
+  test('子目录里的细纲判成 plot', () => {
+    assert.equal(bundle.kind.kindOfPath(pr, NESTED_PLOT).kind, 'plot');
+  });
+
+  test('有正文的章只认正文镜像的那一份，孤儿不冒认', () => {
+    assert.equal(byNo?.relPath, NESTED_PLOT);
+    assert.equal(index.byNo.get(50)?.plot.relPath, NESTED_PLOT);
+    assert.equal(index.byNo.get(50)?.plot.exists, true);
+  });
+
+  // 对话页按 target 路径读、工程页按章号读，两边必须是同一份。
+  test('target 指着孤儿时也认到这一章现在的那一份', () => {
+    assert.equal(resolved?.relPath, NESTED_PLOT);
+  });
+
+  test('流水线这一行的细纲与正文配上了', () => {
+    assert.equal(pipeView.chapter.relPath, NESTED_CHAPTER);
+    assert.equal(pipeView.plot.relPath, NESTED_PLOT);
+  });
+
+  test('定稿写回镜像的那一份，不在根下另建一份', () => {
+    assert.equal(finalized.rel, NESTED_PLOT);
+    assert.ok(!p.has('.novelforge/summaries/050-雪夜.md'));
+  });
+
+  test('还没有正文的新一章：细纲跟上一章落进同一个子目录', () => {
+    assert.equal(newPlot, '.novelforge/summaries/第二卷/051-冰河.md');
+  });
+
+  test('照它写正文时，正文也落进那个子目录', () => {
+    assert.deepEqual({ exists: dest.exists, rel: dest.rel }, { exists: false, rel: 'chapters/第二卷/051-冰河.md' });
+  });
+
+  test('还没有细纲的新一章，落点也跟上一章走', async () => {
+    assert.equal(await pr.plotPathOfNo(52), '.novelforge/summaries/第二卷/052.md');
+  });
+
+  test('有正文没细纲的章，落点是正文的镜像', async () => {
+    assert.equal(await pr.plotPathOfNo(49), '.novelforge/summaries/第一卷/049-渡口.md');
+  });
+
+  test('同号的两个文件各有各的细纲', () => {
+    assert.deepEqual(
+      dupPlots.map((x) => x?.relPath).sort(),
+      ['.novelforge/summaries/060 序.md', '.novelforge/summaries/060 正文.md']
+    );
+    assert.deepEqual(dupPlots.map((x) => x?.sections.梗概).sort(), ['chapters/060 序.txt', 'chapters/060 正文.txt']);
   });
 });

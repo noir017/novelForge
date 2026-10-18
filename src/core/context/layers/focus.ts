@@ -73,37 +73,23 @@ export async function resolveFocus(
   const target = request.target;
   const [plots, chapters] = await Promise.all([project.listPlots(), project.listChapters()]);
 
-  // 两边按章号并起来（细纲号 = 章号）。老工程只有右边，新规划的章只有左边，
+  // 一个章号一条：正文按号认，细纲按路径配对（正文镜像的那一份；还没有正文的按号认计划），
+  // 与 views/pipeline.ts 同一条规则（`NovelProject.plotFor`）。老工程只有正文，新规划的章只有细纲，
   // 正常走完流水线的章两边都有。
-  const byNo = new Map<number, ChapterRef>();
-  for (const chapter of chapters) {
-    if (!byNo.has(chapter.order)) {
-      byNo.set(chapter.order, { no: chapter.order, title: chapter.title, chapter });
-    }
-  }
-  for (const plot of plots) {
-    const found = byNo.get(plot.no);
-    if (found?.plot) {
-      continue; // 撞号时认路径排序第一份，与 views/pipeline.ts 同一条规则。
-    }
-    byNo.set(plot.no, {
-      no: plot.no,
+  const nos = [...new Set([...chapters.map((c) => c.order), ...plots.map((p) => p.no)])];
+  const all: ChapterRef[] = nos
+    .map((n) => {
+      const chapter = chapters.find((c) => c.order === n);
+      const plot = project.plotFor(n, plots, chapters);
       // 细纲的标题优先：它是作者在流水线里给的那个名字。
-      title: plot.title || found?.title || '',
-      plot,
-      chapter: found?.chapter,
-    });
-  }
-  const all = [...byNo.values()].sort((a, b) => a.no - b.no);
+      return { no: n, title: plot?.title || chapter?.title || '', ...(plot ? { plot } : {}), ...(chapter ? { chapter } : {}) };
+    })
+    .sort((a, b) => a.no - b.no);
 
   const plotRelPath = plotOfTarget(target);
-  // 路径上没有就按章号认同号那份（与 `NovelProject.resolvePlot` 同一条规则）：主按钮
-  // 给的落点可能是纯序号的占位路径，而细纲已经按标题落成了 `003-雪夜.md`——认不出的话，
-  // 写正文时本章细纲那一层（P0 force）就空着。
-  const pathNo = plotRelPath ? parsePlotFileName(basename(plotRelPath))?.no : undefined;
-  const plot = plotRelPath
-    ? (plots.find((p) => p.relPath === plotRelPath) ?? (pathNo !== undefined ? plots.find((p) => p.no === pathNo) : undefined))
-    : undefined;
+  // 按这一章现在的那一份认（`NovelProject.resolvePlot`）：主按钮给的落点可能是纯序号的占位路径，
+  // 而细纲已经按标题落成了 `003-雪夜.md`——认不出的话，写正文时本章细纲那一层（P0 force）就空着。
+  const plot = plotRelPath ? await project.resolvePlot(plotRelPath) : undefined;
 
   // 细纲批次（给了区间）：前文的边界是区间第一章，后文从区间最后一章之后算起——
   // 区间里那几章正是这一次要写的，既不是前文也不是后文。
@@ -134,7 +120,7 @@ export async function resolveFocus(
     aheadPlots: wants('plotAhead')
       ? following.filter((c) => c.no <= last + AHEAD_PLOTS && c.plot && isPlotFilled(c.plot.sections))
       : [],
-    chapter: Number.isFinite(no) ? byNo.get(no)?.chapter : undefined,
+    chapter: Number.isFinite(no) ? all.find((c) => c.no === no)?.chapter : undefined,
   };
 }
 

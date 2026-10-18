@@ -19,7 +19,7 @@ export async function quickContinue(project: NovelProject): Promise<void> {
   // （第 20 条）。从前用「细纲号与章号里最大的 + 1」，排了十章细纲只写了三章时，
   // 快速续写会跳到第 11 章去。
   const no = (await buildBookFacts(project)).nextChapterNo;
-  const plot = await project.getPlot(no);
+  const plotRelPath = await project.plotPathOfNo(no);
   const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: '' });
   const editor = await vscode.window.showTextDocument(doc, { preview: false });
   // 这条路不开面板，也就没有 controller 替它管并发——自带一个 abort 即可。
@@ -37,9 +37,9 @@ export async function quickContinue(project: NovelProject): Promise<void> {
         project,
         {
           action: { stage: 'manuscript', capability: 'generate' },
-          // 那一章的细纲多半还不存在，target 指向它**应该**在的位置（细纲号 = 章号），
+          // 那一章的细纲多半还不存在，target 指向它**应该**在的位置（跟上一章放在一起），
           // 装配器按这个号定位前文。目标字数由生成层兜底（细纲 → 配置的每章字数）。
-          target: { kind: 'manuscript', plotRelPath: plot?.relPath ?? project.plotPathForNo(no, '') },
+          target: { kind: 'manuscript', plotRelPath },
           targetNo: no,
           ask: outline,
           // 这一章已经写了一半时从末尾接着写；还没有正文时生成层会按新写处理。

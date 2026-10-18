@@ -14,9 +14,9 @@
  *
  * ## 三条必须记住的取舍
  *
- * 1. **正文就是章节**。一章一纲之后正文直接落 `chapters/NNN-标题.md`，没有
- *    中转站了。章节路径**不带创作目标**：第 12 章的细纲在哪要按号去 `summaries/`
- *    里认，那一步要读盘，不在这里做（见 views/pipeline.ts 的 `chapterOfPlotNo`）。
+ * 1. **正文就是章节**。一章一纲之后正文直接落 `chapters/`，没有中转站了。章节路径
+ *    **不带创作目标**：第 12 章的细纲是正文路径在 `summaries/` 下的镜像
+ *    （`NovelProject.plotPathForChapter`），配对要读盘，不在这里做。
  * 2. **`chapter` 与 `other` 的边界不看是不是 `.md`**（AGENTS 第 9 条：章节
  *    不认扩展名）。章节根之下 + 数字前缀 + 扩展名不在二进制黑名单 → `chapter`。
  *    角色 / 设定 / 细纲**不**跟着放宽，它们是插件自己的数据格式。
@@ -28,15 +28,14 @@
  * 卷、中转站、场景三层都删掉了（见 `model/pipeline.ts` 的文件头）；细纲从 `plots/` 搬进了
  * `summaries/`，与单章摘要并成一份（见 `model/plotFile.ts` 的文件头）。老工程磁盘上
  * 那几个目录**一个字节都不动**——它们是作者的文件——但代码里彻底不认它们：判成
- * `other`，于是工程页不显示、装配器不读、网关按普通文本处理。`summaries/` 下的子目录
- * （老工程按章节路径镜像的单章摘要）同理。`guard.ts` 的 `isProtectedPath` 仍然把那几个
- * 目录列为受保护目录，免得哪条文件操作把它们整棵删掉。
+ * `other`，于是工程页不显示、装配器不读、网关按普通文本处理。`guard.ts` 的 `isProtectedPath`
+ * 仍然把那几个目录列为受保护目录，免得哪条文件操作把它们整棵删掉。
  */
 import * as path from 'node:path';
 import { NovelProject } from '../model/project';
 import { CreationStage, CreationTarget, SettingDoc } from '../model/pipeline';
 import { parseChapterFileName } from '../model/chapterFile';
-import { parsePlotFileName, plotFileName } from '../model/plotFile';
+import { parsePlotFileName } from '../model/plotFile';
 
 export type ArtifactKind =
   | 'setting'
@@ -180,12 +179,12 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
     return { kind: 'skill', rel };
   }
 
-  // ---- 细纲。**平铺**在 `summaries/` 根下，只认数字开头的 markdown 家族。子目录里的
-  // （老工程按章节路径镜像的单章摘要）判成 other；老工程的 `plots/` 落到最后的 other。
+  // ---- 细纲。`summaries/` 下各级子目录里数字开头的 markdown 家族（镜像正文的相对路径）。
+  // 根下的 `global.md` 上面已经判过；老工程的 `plots/` 落到最后的 other。
   const inPlots = under(rel, d.plots);
   if (inPlots !== undefined && inPlots) {
     const parsed = parsePlotFileName(path.posix.basename(inPlots));
-    if (parsed && !inPlots.includes('/')) {
+    if (parsed) {
       return {
         kind: 'plot',
         rel,
@@ -256,9 +255,4 @@ export function pathOfTarget(project: NovelProject, target: CreationTarget): str
  */
 export function isPlotPath(project: NovelProject, relPath: string): boolean {
   return kindOfPath(project, relPath).kind === 'plot';
-}
-
-/** 章号 + 标题 → 细纲**应该**落在哪。`plotFileName` 的薄包装，供网关内部拼路径。 */
-export function plotRelPathFor(project: NovelProject, no: number, safeTitle: string): string {
-  return `${project.relPath(project.plotsDir)}/${plotFileName(no, safeTitle)}`;
 }

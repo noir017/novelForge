@@ -7,8 +7,8 @@
  * 2. **记账**：写完之后要把哪个上游指纹落进 frontmatter。
  * 3. **伴生**：改名/移动时要连带搬走什么。
  *
- * 三件事都可选。`plain` 三件都不做，`plot` 只做前两件（细纲的落点由章号决定，改名不带走
- * 别的东西），`chapter` 做伴生（草稿跟着正文搬）。
+ * 三件事都可选。`plain` 三件都不做，`plot` 只做前两件（细纲改名不带走别的东西），`chapter` 做伴生
+ * （草稿与细纲都镜像正文的路径，跟着正文搬）。
  */
 import { NovelProject } from '../../model/project';
 import { Artifact } from '../../features/artifact';

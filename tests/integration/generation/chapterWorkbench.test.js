@@ -136,6 +136,24 @@ describe('openChapter', () => {
       h.host.openBeside = saved;
     }
   });
+
+  // 2026-10-18 的回归：分卷的书，细纲镜像正文的相对路径躺在 `summaries/第二卷/` 里。合并细纲与摘要那一次
+  // 只认 `summaries/` 根下，点章节名只开了正文，旁边那份细纲打不开。
+  test('正文在卷目录里：旁边打开的是 summaries/ 同一个卷目录里的那份细纲', async () => {
+    t.write('chapters/第二卷/003-雪夜.txt', '雪下了一夜。\n');
+    t.write('.novelforge/summaries/第二卷/003-雪夜.md', '---\nno: 3\ntitle: 雪夜\n---\n\n## 关键事件\n\n- 雪下了一夜。\n');
+    project.invalidate();
+    try {
+      const r = await open('chapters/第二卷/003-雪夜.txt');
+      assert.deepEqual(r.opened, ['chapters/第二卷/003-雪夜.txt']);
+      assert.deepEqual(r.beside, ['.novelforge/summaries/第二卷/003-雪夜.md']);
+    } finally {
+      // 第 3 章有正文、第 2 章没有会让后面「重写…」先问一句章号断了（features/chapterGap.ts）。
+      t.remove('chapters/第二卷');
+      t.remove('.novelforge/summaries/第二卷');
+      project.invalidate();
+    }
+  });
 });
 
 describe('chapterAction', () => {

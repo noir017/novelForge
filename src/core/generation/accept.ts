@@ -17,7 +17,7 @@
 import { scoped } from '../runtime/logger';
 import { sanitizeFileName } from '../model/fs';
 import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../model/project';
-import { isPlotFilled, parsePlotFileName, plotContentHash } from '../model/plotFile';
+import { isPlotFilled, parsePlotFileName, plotContentHash, plotFileName } from '../model/plotFile';
 import { isOutlineFilled, mergeOutline, outlineOverlaps } from '../model/outlineFile';
 import { hasContent } from '../model/markdown';
 import { stampState } from '../model/characterState';
@@ -314,15 +314,20 @@ async function acceptPlot(
   if (!no) {
     throw new Error(`认不出这份细纲的章号：${relPath}`);
   }
-  const rel = await ws.writePlot({
-    no,
-    title: fields.title ?? '',
-    // D3：目标字数必填。蓝图合同里没有它，缺省取配置的每章字数。
-    targetWords: fields.targetWords ?? (await project.readBookConfig()).wordsPerChapter,
-    upstreamHash: await plotUpstreamHash(project, relPath),
-    done: false,
-    sections: fields.sections,
-  });
+  // 落点由网关定（有正文就是正文的镜像）；target 上的占位路径只拿来定子目录。
+  const rel = await ws.writePlot(
+    {
+      no,
+      title: fields.title ?? '',
+      // D3：目标字数必填。蓝图合同里没有它，缺省取配置的每章字数。
+      targetWords: fields.targetWords ?? (await project.readBookConfig()).wordsPerChapter,
+      upstreamHash: await plotUpstreamHash(project, relPath),
+      done: false,
+      sections: fields.sections,
+    },
+    undefined,
+    relPath
+  );
   log.info(`第 ${no} 章的细纲已新建`, rel);
   return { relPath: rel, message: `已新建 ${rel}` };
 }
@@ -374,7 +379,7 @@ export async function acceptPlotBatch(
           no: item.no,
           title: existing?.title || fields.title || '',
           targetWords: existing?.targetWords ?? book.wordsPerChapter,
-          upstreamHash: await plotUpstreamHash(project, project.plotPathForNo(item.no, '')),
+          upstreamHash: await plotUpstreamHash(project, plotFileName(item.no, '')),
           writtenFrom: existing?.writtenFrom,
           sourceHash: existing?.sourceHash,
           cast: existing?.cast,
@@ -439,7 +444,8 @@ async function createPlannedCards(project: NovelProject, ws: Workspace, items: B
 /**
  * 正文：落在**同号的章节**上。三种写法（model/pipeline.ts 的 `WriteMode`）：
  *
- * - 章节还没有：新建 `chapters/NNN-<细纲标题>.md`（同名一律报错，见网关）。
+ * - 章节还没有：在细纲所在的子目录新建（`chapterTargetOf`；同名一律报错，见网关），细纲文件名与
+ *   新正文对不上时跟着改名，保证细纲仍是正文的镜像。
  * - 章节在、但一个字正文都没有（只有标题行）：直接填，不审阅——没有东西可吞。
  * - `continue`：**追加**在末尾，不审阅（不覆盖任何东西）。
  * - 其余（`write` / `rewrite`，以及老会话里没记写法的）：**覆盖**，写入前审阅 diff
@@ -465,7 +471,7 @@ async function acceptManuscript(
   let rel: string;
   let how: string;
   if (!dest.exists) {
-    rel = await ws.createChapter(dest.no, dest.title, text);
+    rel = await ws.createChapterAt(dest.rel, text, dest.plotRelPath);
     how = '新建';
   } else {
     const chapter = await project.getChapter(dest.no);

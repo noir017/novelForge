@@ -107,8 +107,8 @@ export async function summarizeChapter(
     signal,
   };
 
-  // 手上那份细纲（计划，或上一次定稿的档案）。一节都没填就当没有：照正文从头整理。
-  const plan = await project.getPlot(chapter.order);
+  // 手上那份细纲（计划，或上一次定稿的档案）：正文镜像的那一份。一节都没填就当没有：照正文从头整理。
+  const plan = await project.plotOfChapter(chapter);
   const planText = plan ? renderPlanForPrompt(plan) : '';
   const system = planText ? REFINE_SYSTEM : SUMMARY_SYSTEM;
 
@@ -414,6 +414,11 @@ export async function chapterForSummary(
   if (direct) {
     return direct;
   }
+  // 细纲镜像正文的路径：镜像对得上的那一章最准（同号的正文有两份也认得出），对不上再按号认。
+  const mirrored = chapters.find((ch) => project.plotPathForChapter(ch.relPath) === relPath);
+  if (mirrored) {
+    return mirrored;
+  }
   const no = parsePlotFileName(basename(relPath))?.no;
   return no === undefined ? undefined : chapters.find((ch) => ch.order === no);
 }
@@ -558,7 +563,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
   const units: { no: number; title: string; content: string }[] = [];
   const missing: number[] = [];
   for (const chapter of chapters) {
-    const plot = await project.getPlot(chapter.order);
+    const plot = await project.plotOfChapter(chapter);
     const content = plot?.sourceHash ? plotDigest(plot) : '';
     if (content) {
       units.push({ no: chapter.order, title: chapter.title, content });

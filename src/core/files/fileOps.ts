@@ -22,11 +22,11 @@ const log = scoped('文件');
  * 2. **不静默覆盖**：目标已存在就报错退出，绝不覆盖作者的文件。
  * 3. **不真删**：删除是搬进 `.novelforge/.trash/`，与会话删除同一套做法。
  *
- * 章节改名/移动时，`drafts/` 里对应的草稿一并搬走（由网关的 chapter handler 做）——
- * 草稿不是可管理区，但它的位置由章节路径推导，章节动了就必须跟着动。
+ * 章节改名/移动时，`drafts/` 里对应的草稿与 `summaries/` 里对应的细纲一并搬走（由网关的
+ * chapter handler 做）——两样都不是可管理区，但位置都由章节路径推导，章节动了就必须跟着动。
  *
- * **细纲走另一条路**（见下面的 `renamePlot` / `deletePlot`）：它的文件名由章号与
- * 标题共同决定，改名只改标题、章号前缀不动，那不是「改个文件名」能表达的事。
+ * **细纲走另一条路**（见下面的 `renamePlot` / `deletePlot`）：它镜像正文的路径，改名改的是标题——
+ * 还没有正文时文件名跟着标题、章号前缀不动，有正文时文件名跟着正文不动，那不是「改个文件名」能表达的事。
  */
 
 /** 三个可管理的区。每个区有自己的根目录，操作不跨区。 */
@@ -129,9 +129,10 @@ export async function newFolder(
 
 // ---------------------------------------------------------------- 细纲
 //
-// 细纲**不是**可管理区：它的文件名由「章号 + 标题」决定，落点是平铺的 `summaries/`，
-// 挪进子目录它就不在这条链上了。所以改名与删除绕开 resolveTarget 那套区守卫，
-// 交给网关的领域写入器做；也没有「移动到…」。
+// 细纲**不是**可管理区：它镜像正文的相对路径（`summaries/第一卷/003-深处.md` 跟着
+// `chapters/第一卷/003-深处.txt`），还没有正文时文件名由「章号 + 标题」决定。挪到别处它就与正文
+// 对不上了，所以改名与删除绕开 resolveTarget 那套区守卫，交给网关的领域写入器做；也没有
+// 「移动到…」——搬正文时它自己跟着走（`handlers/chapter.ts` 的 `carryPlot`）。
 
 /**
  * 这个路径是不是一份细纲。工程页的 rename/move/delete 据此分流。
@@ -143,11 +144,12 @@ export function isPlotPath(project: NovelProject, relPath: string): boolean {
 }
 
 /**
- * 重命名一份细纲：改的是**标题**，章号前缀由 `writePlot` 保留。
+ * 重命名一份细纲：改的是**标题**，返回它（可能变了的）路径。
  *
- * 手工新建的细纲是纯序号名（`007.md`，标题要等细纲排完才定），
- * 所以这条路也是「给这一章起个名字」的第一次命名入口。**正文不跟着改名**：
- * 那是作者的文件，要改就在章节那一行上改。
+ * - **还没有正文**：章号前缀由 `writePlot` 保留，文件名跟着新标题走。手工新建的细纲是纯序号名
+ *   （`007.md`，标题要等细纲排完才定），所以这条路也是「给这一章起个名字」的第一次命名入口。
+ * - **这一章已经有正文**：细纲镜像正文的路径，文件名跟着正文**不动**，只换细纲里的标题。
+ *   **正文不跟着改名**：那是作者的文件，要改就在章节那一行上改（细纲会跟着正文搬过去）。
  */
 export async function renamePlot(project: NovelProject, relPath: string): Promise<string | undefined> {
   const plot = await project.readPlot(relPath);
@@ -156,10 +158,13 @@ export async function renamePlot(project: NovelProject, relPath: string): Promis
     getHost().toast('找不到这份细纲，可能刚被改名或删除。', 'error');
     return undefined;
   }
+  const mirrored = (await project.listChapters()).some((c) => project.plotPathForChapter(c.relPath) === plot.relPath);
 
   const input = await getHost().input({
     title: `重命名第 ${plot.no} 章的细纲`,
-    prompt: `章号前缀会保留｜当前：${relPath}`,
+    prompt: mirrored
+      ? `这一章已经有正文，细纲的文件名跟着正文不变，只改标题｜当前：${relPath}`
+      : `章号前缀会保留｜当前：${relPath}`,
     value: plot.title,
     validate: (v) => validateName(v),
   });
@@ -167,13 +172,13 @@ export async function renamePlot(project: NovelProject, relPath: string): Promis
     return undefined;
   }
 
-  // 走 workspace.writePlot 而不是 fs.rename：文件名由章号与标题共同决定，
-  // 旧文件由它清掉。
+  // 走 workspace.writePlot 而不是 fs.rename：落点由它定（有正文就是正文的镜像，否则由章号与
+  // 标题共同决定），旧文件由它清掉。
   const to = await new Workspace(project).writePlot({ ...plot, title: input.trim() });
   await project.syncManifest();
   project.invalidate();
   log.info(`已重命名第 ${plot.no} 章的细纲`, `${relPath} → ${to}`);
-  getHost().toast(`已重命名：${to}`);
+  getHost().toast(to === relPath ? `已改标题：${input.trim()}` : `已重命名：${to}`);
   return to;
 }
 

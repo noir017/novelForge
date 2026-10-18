@@ -978,7 +978,7 @@ async function planBatches(
       continue;
     }
     // 与出场统计同一口径（views/cast 的 finalizedPlots）：定稿过就认，定稿后正文又改过也照样算。
-    const summary = await project.getPlot(plot.order);
+    const summary = await project.plotOfChapter(plot);
     const others = (summary?.sourceHash ? summary.cast : [])
       .filter((entry) => entry.name.trim() && !isSelf(entry))
       .map((entry) => entry.name);

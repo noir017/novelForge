@@ -37,9 +37,9 @@ export async function initProjectFlow(project: NovelProject, defaultTitle: strin
 /**
  * 新建一章的细纲：**只建一份空骨架**，不问标题、不打开它。返回相对路径。
  *
- * 章号取细纲与 `chapters/` 两边的最大号 +1（`nextPlotNo`），落在 `summaries/`
- * 根下（细纲是平铺的）。正常路径上细纲是「拆细纲」一批一批生成的；这条留给作者
- * 想在末尾手工加一章。
+ * 章号取细纲与 `chapters/` 两边的最大号 +1（`nextPlotNo`），与上一章落在同一个子目录
+ * （分卷的书写到第二卷时就在 `summaries/第二卷/`；写正文时正文照它落进 `chapters/第二卷/`）。
+ * 正常路径上细纲是「拆细纲」一批一批生成的；这条留给作者想在末尾手工加一章。
  *
  * ## 为什么不问标题
  *

@@ -1,13 +1,14 @@
 /**
- * 一章的细纲（`.novelforge/summaries/NNN-标题.md`）的格式定义。
+ * 一章的细纲（`.novelforge/summaries/<与正文相同的相对路径>.md`）的格式定义。
  *
  * **纯函数、零 I/O**，与 chapterFile.ts / settingFile.ts 同类；
  * 路径规则与读写在 model/project.ts，解析与渲染只在这里定义一次。
  *
  * ## 一份细纲 = 一章，前后两个阶段是同一份文件
  *
- * 细纲号（文件名前缀）**就是**章号，平铺在 `summaries/` 根下（子目录不认），
- * 正文落同号的 `chapters/NNN-标题.md`。
+ * 细纲**镜像正文在章节根下的相对路径**，扩展名换成 `.md`：`chapters/第一卷/003-深处.txt` 的细纲是
+ * `summaries/第一卷/003-深处.md`（与草稿同一套镜像，规则在 `NovelProject.plotPathForChapter`）。
+ * 文件名前缀就是章号；还没有正文的章，正文照细纲的路径反推着落。
  *
  * - **写正文之前它是计划**：正文照它写。
  * - **定稿之后它是档案**：作者点「定稿」，模型拿着它与正文把它改成正文实际写成的样子
@@ -47,8 +48,9 @@
  * - `factCheckOk: true`：批量写章写前冲突检查（features/plotCheck.ts）的放行。检查说本章细纲与前面
  *   定稿的事实矛盾、作者看过认为是刻意安排时手写这一行；与 `preflightOk` 一样不进内容指纹。
  *
- * 老工程 `summaries/` 根下的单章摘要（`001-楔子.md`）本来就是这八节，带着 `sourceHash` 与 `cast`，
- * 直接当成定稿过的细纲读；它 frontmatter 里的 `chapter:` 不认，章号取文件名前缀。
+ * 老工程 `summaries/` 下的单章摘要（`001-楔子.md`、`第一卷/003-深处.md`）本来就是这八节、本来就镜像
+ * 正文的路径，带着 `sourceHash` 与 `cast`，直接当成定稿过的细纲读；它 frontmatter 里的 `chapter:`
+ * 不认，章号取文件名前缀。
  *
  * ## 派生数据一律不写进这份文件
  *
@@ -126,7 +128,7 @@ export const BLUEPRINT_LIMITS = {
 } as const;
 
 export interface Plot {
-  /** 细纲文件的工作区相对路径。 */
+  /** 细纲文件的工作区相对路径（镜像正文的相对路径，见文件头）。 */
   relPath: string;
   /** 章号，来自文件名数字前缀。**文件名是身份**，与发布章节同一套规则。 */
   no: number;
@@ -213,6 +215,7 @@ const PLOT_EXTENSIONS: ReadonlySet<string> = new Set(['.md', '.markdown']);
  *
  * 与 parseChapterFileName 一样**先剥扩展名再匹配前缀**：分隔符集合里含 `.`，
  * 直接对整个文件名跑正则的话 `007.md` 会被吃成「第 007 章 + 词干 md」。
+ * 前缀位数也与章节一致（1–5 位）：细纲镜像正文的文件名，正文认得出的号这里必须也认得出。
  * `global.md`（全书摘要）没有数字前缀，天然不是细纲。
  */
 export function parsePlotFileName(fileName: string): PlotFileName | undefined {
@@ -221,7 +224,7 @@ export function parsePlotFileName(fileName: string): PlotFileName | undefined {
     return undefined;
   }
   const base = fileName.slice(0, fileName.length - ext.length);
-  const m = /^(\d{1,4})[-_.\s]*(.*)$/.exec(base);
+  const m = /^(\d{1,5})[-_.\s]*(.*)$/.exec(base);
   if (!m) {
     return undefined;
   }

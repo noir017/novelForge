@@ -628,7 +628,7 @@ export async function planWriting(project: NovelProject, request: Omit<BuildRequ
  * {@link AHEAD_PLOTS} 章里排过细纲的。本章细纲自己提到了的人不算（`dropMentioned`）。
  */
 async function notYetOf(project: NovelProject, no: number, plot: Plot | undefined): Promise<(NotYet & { aliases: string[] })[]> {
-  const plots = await project.listPlots();
+  const plots = await project.listChapterPlots();
   const list = notYetOnStage({
     self: plot?.characters ?? [],
     previous: plots.filter((p) => p.no < no),

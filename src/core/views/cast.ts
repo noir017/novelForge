@@ -79,7 +79,7 @@ export interface CastIndex {
  */
 export async function buildCastIndex(project: NovelProject, plots?: readonly Plot[]): Promise<CastIndex> {
   const cards = await project.listCharacters();
-  const finalized = finalizedPlots(plots ?? (await project.listPlots()));
+  const finalized = finalizedPlots(project.pairPlots(plots ?? (await project.listPlots()), await project.listChapters()));
 
   const { cardByName, conflicts } = indexCards(cards);
 
@@ -239,7 +239,7 @@ export function appearancesOf(index: CastIndex, card: CharacterCard): number[] {
  * 先按卡分开就什么也看不出来了。
  */
 export async function readCastPlots(project: NovelProject): Promise<IdentityChapter[]> {
-  return finalizedPlots(await project.listPlots())
+  return finalizedPlots(await project.listChapterPlots())
     .filter((plot) => plot.cast.length > 0)
     .map((plot) => ({
       order: plot.no,

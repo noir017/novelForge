@@ -77,10 +77,16 @@ export async function openDraft(c: ChatController, chapterRelPath: string): Prom
  * **并排是宿主的能力，不是壳的名字**：有 `openBeside` 的（独立版落在第二块编辑区，VS Code
  * 落在 `ViewColumn.Beside`）两份都开，没有的只开正文——与 `openDraft` 同一个判法。
  * 还没写正文的章只开细纲；两样都没有才说找不到。
+ *
+ * 细纲是**正文镜像的那一份**（`summaries/` 下与正文相同的相对路径）；给的是章节路径时就认那个文件，
+ * 同号的正文有两份也开得准。
  */
 export async function openChapter(c: ChatController, plotRelPath: string): Promise<void> {
-  const no = chapterNoOf(plotRelPath);
-  const [plot, chapter] = no !== undefined ? await Promise.all([c.project.getPlot(no), c.project.getChapter(no)]) : [];
+  const chapters = await c.project.listChapters();
+  const direct = chapters.find((ch) => ch.relPath === plotRelPath);
+  const no = direct?.order ?? chapterNoOf(plotRelPath);
+  const chapter = direct ?? (no !== undefined ? chapters.find((ch) => ch.order === no) : undefined);
+  const plot = chapter ? await c.project.plotOfChapter(chapter) : no !== undefined ? await c.project.getPlot(no) : undefined;
   const host = getHost();
   if (!plot && !chapter) {
     c.toast('这一章还没有细纲也没有正文。', 'error');
@@ -128,8 +134,8 @@ function chapterNoOf(relPath: string): number | undefined {
  * 文件页的 renameAny/paste 走 core/files/projectFiles（根范围）。
  * 有逐项结果的动作额外推 filesOpDone，前端据此 remap 编辑器标签。
  *
- * **细纲单独分流**：它的文件名由章号与标题共同决定（改名只改标题，章号前缀
- * 由 `writePlot` 保留），而 `summaries/` 根本不是三个可管理区之一，照走 fileOps 会被
+ * **细纲单独分流**：它镜像正文的路径，改名只改标题（有正文时文件名跟着正文不动，没有时由章号与
+ * 标题共同决定），而 `summaries/` 根本不是三个可管理区之一，照走 fileOps 会被
  * 区守卫直接拒掉（新建出来的细纲是纯序号名，第一次命名走的正是这条路）。
  */
 export async function fileAction(
@@ -164,7 +170,7 @@ export async function fileAction(
       }
       break;
     case 'move':
-      // 细纲没有「移动到…」：它平铺在 `summaries/` 下，挪进子目录它就不在这条链上了。
+      // 细纲没有「移动到…」：它镜像正文的路径，单挪它就与正文对不上了（搬正文时它自己跟着走）。
       // 前端不给这一项，这里兜一层。
       if (relPath && !isPlot) {
         const to = await moveEntry(c.project, relPath, targetDir);
@@ -195,6 +201,12 @@ export async function fileAction(
   }
   for (const m of moved) {
     await retargetPlot(c, m.from, m.to);
+    // 搬的是正文时细纲跟着搬了（handlers/chapter.ts 的 carryPlot）：目标指着那份细纲的也跟上。
+    const fromPlot = c.project.plotMirrorOf(m.from);
+    const toPlot = c.project.plotMirrorOf(m.to);
+    if (fromPlot && toPlot) {
+      await retargetPlot(c, fromPlot, toPlot);
+    }
   }
   if (results && results.length > 0) {
     c.post({

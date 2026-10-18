@@ -503,7 +503,7 @@ describe('写正文 → 当场问一句 → 落到同号章节', () => {
 
 /**
  * 拆细纲给下一章找的落点是纯序号的占位路径（主按钮的 target 就是
- * `plotPathForNo(N, '')`）。细纲按产物带的标题落盘，文件名于是与占位路径不同。
+ * `plotPathOfNo(N)`）。细纲按产物带的标题落盘，文件名于是与占位路径不同。
  */
 describe('拆细纲落在占位路径上', () => {
   const PLACEHOLDER = '.novelforge/summaries/003.md';

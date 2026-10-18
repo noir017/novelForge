@@ -1,7 +1,7 @@
 /**
  * 指纹链的记账**下沉到写入路径本身**：谁写都记。
  *
- * 一章只有一份细纲（`summaries/NNN-标题.md`），链上三环的上游指纹都记在它的 frontmatter 里：
+ * 一章只有一份细纲（正文在 `summaries/` 下的镜像，相对路径相同），链上三环的上游指纹都记在它的 frontmatter 里：
  *
  * ```
  * outline.md 里覆盖第 N 章那一节 ─▶ summaries/N.md 的 upstreamHash（写细纲时记）
@@ -524,8 +524,9 @@ describe('定稿 · 保留 frontmatter，旧版进回收站', () => {
         sections: OLD_SECTIONS(),
       })
     );
-    // 作者后来把章节改了个名：定稿认的是同号那一份细纲，标题也以细纲为准。
-    await ws.createChapter(60, '雨夜', '他蹲了两个时辰，雨一直没停。');
+    // 正文的标题行写的是另一个名字：定稿认的是正文镜像的那一份细纲，标题也以细纲为准。
+    t.write('chapters/060-夜雨.md', '# 雨夜\n\n他蹲了两个时辰，雨一直没停。\n');
+    project.invalidate();
     chapter = await chapterOf(60);
     before1 = t.read(plotRel);
     first = await ws.finalizePlot(chapter, finalized(), cast);
@@ -640,8 +641,8 @@ describe('删定稿过的细纲 · 不盖掉定稿时进回收站的旧版', () 
 });
 
 /**
- * 还没有细纲的章（拆书导入、作者手写的正文）定稿时新建一份：落点按章号与章节标题拼，
- * 回落标题「第 N 章」不进文件名（与 plotPathForNo 同一条规矩）。
+ * 还没有细纲的章（拆书导入、作者手写的正文）定稿时新建一份：落点是正文的镜像
+ * （`chapters/061-残灯.md` → `summaries/061-残灯.md`，纯序号名的正文就是纯序号名的细纲）。
  */
 describe('定稿 · 没有细纲的章新建一份', () => {
   let titled;
@@ -654,7 +655,7 @@ describe('定稿 · 没有细纲的章新建一份', () => {
     bare = await ws.finalizePlot(await chapterOf(62), finalized(), []);
   });
 
-  test('落在 summaries/NNN-<章节标题>.md', () => {
+  test('落在正文的镜像上', () => {
     assert.equal(titled.rel, '.novelforge/summaries/061-残灯.md', JSON.stringify(titled));
   });
 
@@ -671,7 +672,7 @@ describe('定稿 · 没有细纲的章新建一份', () => {
     assert.ok(!/upstreamHash|targetWords/.test(t.read(titled.rel)), t.read(titled.rel));
   });
 
-  test('回落标题不进文件名：summaries/NNN.md', () => {
+  test('纯序号名的正文，细纲也是纯序号名', () => {
     assert.equal(bare.rel, '.novelforge/summaries/062.md', JSON.stringify(bare));
   });
 });
@@ -817,55 +818,59 @@ describe('章节 · 一次新建好几章', () => {
 });
 
 /**
- * 细纲改名：正文挂在**章节**上，不跟着细纲走。从前改细纲名要连带搬走中转站里那份正文；
- * 一章一纲之后正文就是章节，细纲改名不必带走任何东西。定稿记的账在细纲自己的 frontmatter 里，
- * 跟着它走。
+ * 有正文时改细纲的标题：细纲镜像正文的路径，**文件名跟着正文不动**，正文也不跟着改名。
+ * 定稿记的账在细纲自己的 frontmatter 里，原样留着。
  */
-describe('细纲改名 · 章节不跟着走，定稿的账跟着细纲走', () => {
-  const from = '.novelforge/summaries/012-入宗.md';
-  const to = '.novelforge/summaries/012-入宗风波.md';
+describe('细纲改标题 · 有正文时文件名跟着正文不动，定稿的账留着', () => {
+  const rel = '.novelforge/summaries/012-入宗.md';
   let hashBefore;
   let sourceHashBefore;
+  let written;
   let renamed;
 
   before(async () => {
     project.invalidate();
-    const plot = await project.readPlot(from);
+    const plot = await project.readPlot(rel);
     hashBefore = bundle.plotFile.plotContentHash(plot);
     sourceHashBefore = plot.sourceHash;
-    await ws.writePlot({ ...plot, title: '入宗风波' });
+    written = await ws.writePlot({ ...plot, title: '入宗风波' });
     renamed = await pipelineOf(12);
   });
 
-  test('细纲改名成功', () => {
-    assert.ok(t.has(to));
+  test('落点仍是正文的镜像', () => {
+    assert.equal(written, rel);
+    assert.ok(t.has(rel));
   });
 
-  test('旧细纲没了，不会一章两份', () => {
-    assert.ok(!t.has(from));
+  test('标题换了', () => {
+    assert.equal(fm(rel, 'title'), '入宗风波');
+  });
+
+  test('没有多出一份按标题起名的细纲', () => {
+    assert.ok(!t.has('.novelforge/summaries/012-入宗风波.md'));
   });
 
   test('章节没被改名', () => {
     assert.ok(t.has('chapters/012-入宗.md'));
   });
 
-  test('定稿记的 sourceHash 跟着带过去', () => {
-    assert.equal(fm(to, 'sourceHash'), sourceHashBefore);
+  test('定稿记的 sourceHash 留着', () => {
+    assert.equal(fm(rel, 'sourceHash'), sourceHashBefore);
   });
 
   // 改个名字不该让这一章的正文凭空标脏：标题不在内容指纹里。
   test('改名不动内容指纹，正文不标脏', async () => {
-    assert.equal(bundle.plotFile.plotContentHash(await project.readPlot(to)), hashBefore);
+    assert.equal(bundle.plotFile.plotContentHash(await project.readPlot(rel)), hashBefore);
     assert.equal(renamed.chapter.upstreamStale, false, JSON.stringify(renamed.chapter));
   });
 
-  test('改名之后按号仍认得同号的章节', () => {
+  test('细纲与正文按路径认到一起', () => {
     assert.equal(renamed.chapter.relPath, 'chapters/012-入宗.md', JSON.stringify(renamed.chapter));
   });
 });
 
 describe('删细纲 · 不碰 chapters/', () => {
-  const rel = '.novelforge/summaries/012-入宗风波.md';
+  const rel = '.novelforge/summaries/012-入宗.md';
   let deleted;
   let missing;
 
@@ -879,7 +884,7 @@ describe('删细纲 · 不碰 chapters/', () => {
   });
 
   test('细纲进了回收站', () => {
-    assert.ok(t.has('.novelforge/.trash/.novelforge/summaries/012-入宗风波.md'));
+    assert.ok(t.has('.novelforge/.trash/.novelforge/summaries/012-入宗.md'));
   });
 
   // 那是已经写出来的正文。删掉细纲只是放弃这一章的规划稿（定稿过的话连同档案），
@@ -919,12 +924,11 @@ describe('细纲照样过八条守卫', () => {
     assert.equal(t.read(rel), before);
   });
 
-  // summaries/ 子目录（老工程按章节路径镜像的单章摘要）不在这条链上：判成普通文本，
-  // 写进去也不记账——它们一个字节都不该被这条链改动。
-  test('summaries/ 子目录里的老文件不记账', async () => {
-    const legacy = '.novelforge/summaries/卷一/001-高烧.md';
-    await ws.write(legacy, { text: '---\nchapter: 1\n---\n\n## 梗概\n\n老摘要\n' });
-    assert.ok(!t.read(legacy).includes('upstreamHash'), t.read(legacy));
+  // 细纲镜像正文的相对路径：分卷的书，细纲就在 summaries/ 的卷目录里，照样是这条链上的细纲、照样记账。
+  test('summaries/ 子目录里的细纲照样记账', async () => {
+    const nested = '.novelforge/summaries/卷一/001-高烧.md';
+    await ws.write(nested, { text: '---\nno: 1\n---\n\n## 关键事件\n\n- 高烧\n' });
+    assert.equal(fm(nested, 'upstreamHash'), await sliceHash(1));
   });
 
   // 老工程的 plots/ 同理：代码不再读它，写进去也只是普通文本。

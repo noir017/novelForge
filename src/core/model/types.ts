@@ -5,7 +5,7 @@ import type { ContextDetail, ContextLimits } from './contextDetail';
 /**
  * 章节：chapters/NNN-标题.md 中的一篇正文。
  *
- * **正文的唯一真相。** 生成的正文直接落在这里（与同号细纲 `summaries/NNN-*.md` 互认），
+ * **正文的唯一真相。** 生成的正文直接落在这里（细纲是它在 `summaries/` 下的镜像，相对路径相同、扩展名 `.md`），
  * 定稿、角色卡、设定、文风都从这里读。
  */
 export interface Chapter {

@@ -469,8 +469,8 @@ async function pickChapter(project: NovelProject): Promise<Chapter | undefined> 
   const active = vscode.window.activeTextEditor?.document.uri;
   if (active) {
     const rel = project.relPath(active.fsPath);
-    // 正开着正文就用它；开着细纲时按章号找回同号的那一章（细纲号 = 章号）。
-    const direct = chapters.find((c) => c.relPath === rel);
+    // 正开着正文就用它；开着细纲时找回它镜像的那一章（细纲与正文相对路径相同），对不上再按章号认。
+    const direct = chapters.find((c) => c.relPath === rel || project.plotPathForChapter(c.relPath) === rel);
     if (direct) {
       return direct;
     }
