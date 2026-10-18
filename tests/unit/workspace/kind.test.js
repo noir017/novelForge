@@ -76,6 +76,14 @@ describe('kindOfPath · 固定单文件', () => {
     );
   });
 
+  // 敏感词表（内置编辑器的写作体检用）：链外的固定文件，单列一种（不落 other，好存历史版本）；别处的同名文件不算。
+  test('.novelforge/sensitive.txt 是敏感词表，不带创作层与目标；别处的 sensitive.txt 是 other', () => {
+    const k = kindOf('.novelforge/sensitive.txt');
+    assert.deepEqual([k.kind, k.stage, k.target, k.rel], ['sensitive', undefined, undefined, '.novelforge/sensitive.txt']);
+    assert.equal(kindOf('sensitive.txt').kind, 'other');
+    assert.equal(kindOf('.novelforge/lore/sensitive.txt').kind, 'other');
+  });
+
   // 架构三件与大纲同级：各自是一份固定文件，带着「是哪一件」。
   for (const doc of ['config', 'premise', 'world']) {
     test(`${doc}.md 是架构文档，带上 doc 与创作目标`, () => {

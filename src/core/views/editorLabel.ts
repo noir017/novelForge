@@ -15,7 +15,7 @@
  * | 草稿 `drafts/003-夜访.md` | 草稿 | 003-夜访 | 草稿 › 第 3 章 夜访 |
  * | 角色 / 设定 | 角色 / 设定 | 林晚 | 角色 › 配角 › 林晚 |
  * | 架构三件、情节大纲 | （不带） | 小说配置 / 情节大纲 | 故事架构 › 小说配置 |
- * | 文风指南、全书摘要、叙事线 | （不带） | 文风指南 / 全书摘要 / 叙事线 | 文风与摘要 › 文风指南 |
+ * | 文风指南、全书摘要、叙事线、敏感词表 | （不带） | 文风指南 / 全书摘要 / 叙事线 / 敏感词表 | 文风与摘要 › 文风指南 |
  * | 写作技能 | 技能 | 技能目录名 | 技能 › 名字 |
  * | 其他 | （不带） | 原文件名（扩展名留着） | 按目录一段一段 |
  */
@@ -47,6 +47,7 @@ export const FIXED_DOC_LABEL = {
   style: '文风指南',
   threads: '叙事线',
   globalSummary: '全书摘要',
+  sensitive: '敏感词表',
 } as const;
 
 /** 有中文称呼的固定文件归在哪一组（与工程页的分组同一个说法）。 */
@@ -80,6 +81,8 @@ export function describeEditorFile(project: NovelProject, relPath: string): Edit
       return fixed(rel, STYLE_GROUP, FIXED_DOC_LABEL.globalSummary);
     case 'threads':
       return fixed(rel, STYLE_GROUP, FIXED_DOC_LABEL.threads);
+    case 'sensitive':
+      return fixed(rel, STYLE_GROUP, FIXED_DOC_LABEL.sensitive);
     case 'skill':
       return skillLabel(project, rel, base);
     default:

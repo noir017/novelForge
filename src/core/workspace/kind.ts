@@ -45,6 +45,11 @@ export type ArtifactKind =
   | 'threads'
   /** 写作技能：本工程的 `.novelforge/skills/**` 与阶段绑定 `.novelforge/skills.json`。 */
   | 'skill'
+  /**
+   * 自定义敏感词表 `.novelforge/sensitive.txt`（内置编辑器的写作体检用）。链外：没有创作阶段、不进装配器、
+   * 不记指纹；单列一种而不落 `other`，是为了它照样存历史版本（作者手维护的词表，改坏了要找得回来）。
+   */
+  | 'sensitive'
   | 'plot'
   | 'chapter'
   | 'draft'
@@ -103,6 +108,7 @@ interface Dirs {
   threads: string;
   skills: string;
   skillBindings: string;
+  sensitive: string;
 }
 
 function dirsOf(project: NovelProject): Dirs {
@@ -121,6 +127,7 @@ function dirsOf(project: NovelProject): Dirs {
     threads: project.relPath(project.threadsPath),
     skills: project.relPath(project.skillsDir),
     skillBindings: project.relPath(project.skillBindingsPath),
+    sensitive: project.relPath(project.sensitivePath),
   };
 }
 
@@ -177,6 +184,10 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
   // 写作技能：链外，没有创作阶段。装配器只经 core/skills/ 读绑定的那一份。
   if (rel === d.skillBindings || under(rel, d.skills) !== undefined) {
     return { kind: 'skill', rel };
+  }
+  // 敏感词表：链外的固定文件，与技能同类——没有创作阶段，装配器不读，只有内置编辑器的体检读它。
+  if (rel === d.sensitive) {
+    return { kind: 'sensitive', rel };
   }
 
   // ---- 细纲。`summaries/` 下各级子目录里数字开头的 markdown 家族（镜像正文的相对路径）。

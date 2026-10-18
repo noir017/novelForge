@@ -74,6 +74,8 @@ export type {
   QuickOpenLore,
 } from './quickOpen';
 
+export type { CheckSensitiveTerm, CheckTermsView } from './check';
+
 export type { LogEntry, LogLevel } from '../runtime/logger';
 export type { TaskSnapshot } from '../runtime/progress';
 export type { DirListing, FsEntry } from '../files/fileTree';

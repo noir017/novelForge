@@ -42,8 +42,8 @@ import { describeError, elapsed, scoped } from '../runtime/logger';
 import { countWords } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { Plot, isPlotFilled, parsePlotFileName } from '../model/plotFile';
-import { NotYet, bannedTerms, dropMentioned, notYetOnStage } from '../model/manuscriptCheck';
-import { pickSections } from '../model/markdown';
+import { NotYet, dropMentioned, notYetOnStage } from '../model/manuscriptCheck';
+import { readBannedTerms } from '../views/checkTerms';
 import { AHEAD_PLOTS } from '../context/layers/focus';
 import {
   CAPABILITY_LABEL,
@@ -603,11 +603,8 @@ export async function planWriting(project: NovelProject, request: Omit<BuildRequ
   const no = plot?.no ?? (relPath ? parsePlotFileName(basename(relPath))?.no : undefined) ?? request.targetNo;
   const book = await project.readBookConfig();
   const target = request.targetWords ?? plot?.targetWords ?? book.wordsPerChapter;
-  const banned = bannedTerms({
-    styleBanList: pickSections(await project.readStyleGuide(), ['禁用词表']).禁用词表,
-    guidance: book.sections.全局要求,
-    genre: `${book.genre} ${book.subGenre}`,
-  });
+  // 与内置编辑器的写作体检同一个函数、同一份输入（views/checkTerms.ts）：编辑器里标出来的就是这里写完数的。
+  const banned = await readBannedTerms(project, { book });
   const chapter = no ? await project.getChapter(no) : undefined;
   const body = chapter ? await project.readChapterText(chapter) : '';
   const mode = resolveWriteMode(body, request.writeMode);

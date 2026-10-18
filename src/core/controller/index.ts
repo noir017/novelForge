@@ -67,6 +67,8 @@ import {
 } from './serialize';
 import { pushSettings, saveSettings, selectModel, testConnection } from './settings';
 import { compareVersion, listVersions, mergeWithDisk, readVersion, saveVersion } from './versions';
+import { editSensitiveWords, pushCheckTerms } from './check';
+import type { BookConfig } from '../model/settingFile';
 
 export { describeProvider } from './serialize';
 export { createMcpBackend } from './mcp';
@@ -293,8 +295,9 @@ export class ChatController {
   async resendFullState(): Promise<void> {
     const snap = await this.snapshot();
     this.post({ type: 'init', state: snap.state });
-    // 新连上的前端手上什么都没有：章节索引不论变没变都推一份。
+    // 新连上的前端手上什么都没有：章节索引与体检词表不论变没变都推一份。
     this.pushChapterIndex(snap.chapters, true);
+    await pushCheckTerms(this, { force: true, book: snap.book });
     this.post({ type: 'tab', tab: this.tab });
     this.post({ type: 'session', session: serializeSession(this.current) });
     this.post({ type: 'attachments', items: this.pending.map(serializeAttachment) });
@@ -531,6 +534,11 @@ export class ChatController {
         this.post({ type: 'quickOpenIndex', requestId: msg.requestId, index: await buildQuickOpenIndex(this.project) });
         return;
 
+      case 'editSensitiveWords':
+        // 内置编辑器的写作体检（controller/check.ts）：没有就新建模板，然后打开。
+        await editSensitiveWords(this);
+        return;
+
       case 'projectAction':
         await projectAction(this, msg.action, msg.relPath, msg.dir, {
           range: msg.range,
@@ -667,9 +675,10 @@ export class ChatController {
 
   /**
    * `ViewState` 与内置编辑器的章节索引：两样出自同一趟流水线索引（`buildPipelineIndex`，目标下拉框本来
-   * 就要它），章节索引只是从同一份 rows 里多投影几个字段。还不是小说工程时章节索引是空的。
+   * 就要它），章节索引只是从同一份 rows 里多投影几个字段。还不是小说工程时章节索引是空的。`book` 是那一趟读到的
+   * 小说配置，体检词表（`controller/check.ts`）拿它，不再读一遍 `config.md`。
    */
-  private async snapshot(): Promise<{ state: ViewState; chapters: ChapterIndexEntry[] }> {
+  private async snapshot(): Promise<{ state: ViewState; chapters: ChapterIndexEntry[]; book?: BookConfig }> {
     const initialized = await this.project.isInitialized();
     const config = readConfig();
     const host = getHost();
@@ -730,6 +739,7 @@ export class ChatController {
         paragraphStyle: book.paragraphStyle ?? DEFAULT_PARAGRAPH_STYLE,
       },
       chapters: chapterIndexOf(pipelineRows),
+      book,
     };
   }
 
@@ -758,12 +768,13 @@ export class ChatController {
   async pushState(): Promise<void> {
     this.project.invalidate();
     if (this.hosts.size > 0) {
-      // 一份快照发给所有宿主（从前每个宿主各建一遍，结果一样）；章节索引跟着它，变了才推。
+      // 一份快照发给所有宿主（从前每个宿主各建一遍，结果一样）；章节索引与体检词表跟着它，变了才推。
       const snap = await this.snapshot();
       for (const host of this.hosts) {
         host.post({ type: 'state', state: snap.state });
       }
       this.pushChapterIndex(snap.chapters);
+      await pushCheckTerms(this, { book: snap.book });
     }
     if (await this.project.isInitialized()) {
       try {

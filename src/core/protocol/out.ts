@@ -4,6 +4,7 @@ import type { TaskOpen, TaskSnapshot } from '../runtime/progress';
 import type { SkillSource, SkillStage } from '../model/writingSkill';
 import type { ArtifactKind } from '../workspace/kind';
 import type { QuickOpenIndex } from './quickOpen';
+import type { CheckTermsView } from './check';
 import type {
   EditorOpenIntent,
   EditorPane,
@@ -162,6 +163,11 @@ export type OutMessage =
    * 目标下拉那份同一趟流水线索引，不多读盘），**内容变了才推**。
    */
   | { type: 'chapterIndex'; chapters: ChapterIndexEntry[] }
+  /**
+   * 内置编辑器「写作体检」的词表（禁用词与自定义敏感词表，`protocol/check.ts`）。随 `init` 推一次，之后每次
+   * `pushState` 都现算，**内容变了才推**；只给有内置编辑器的宿主推。
+   */
+  | { type: 'checkTerms'; terms: CheckTermsView }
   | { type: 'summary'; summary: PlotSummaryView }
   /** 回 `requestQuickOpen`：「转到…」面板要的索引。认不出的 `requestId` 前端静默丢弃（另一个视图要的）。 */
   | { type: 'quickOpenIndex'; requestId: string; index: QuickOpenIndex }

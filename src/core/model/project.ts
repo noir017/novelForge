@@ -50,6 +50,7 @@ import {
 } from './fs';
 import { FinalizedFacts, parseContinuityFacts } from './continuity';
 import { normalizeGender } from './gender';
+import { SENSITIVE_FILE_NAME } from './sensitiveWords';
 
 const NOVEL_DIR = '.novelforge';
 /** 0.1.x 用的目录名。检测到就提示迁移，不静默改动用户文件。 */
@@ -169,6 +170,14 @@ export class NovelProject {
   /** 这个工程每个阶段绑了哪份技能（`.novelforge/skills.json`）。没绑过就没有这份文件。 */
   get skillBindingsPath(): string {
     return path.join(this.novelDir, 'skills.json');
+  }
+
+  /**
+   * 自定义敏感词表（`.novelforge/sensitive.txt`，格式见 `model/sensitiveWords.ts`）。可选：作者在内置编辑器里点
+   * 「编辑敏感词表…」时才建。只给编辑器的写作体检用，不进生成链。
+   */
+  get sensitivePath(): string {
+    return path.join(this.novelDir, SENSITIVE_FILE_NAME);
   }
 
   get charactersDir(): string {

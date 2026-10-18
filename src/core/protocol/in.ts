@@ -178,6 +178,11 @@ export type InMessage =
    */
   | { type: 'requestQuickOpen'; requestId: string }
   /**
+   * 内置编辑器「编辑敏感词表…」（体检面板、「视图 → 体检」）：`.novelforge/sensitive.txt` 不在就经网关新建一份
+   * 带说明注释的模板（`mode: 'create'`，同名不覆盖），然后在编辑器里打开它。还不是小说工程时只说一句。
+   */
+  | { type: 'editSensitiveWords' }
+  /**
    * `range` 只有「批量拆细纲」用：弹窗里选的区间（W5）。`confirmed` 表示弹窗已经把
    * 调用次数写给作者看过了，后端不再弹第二个确认框（弹窗与确认框算的是同一个
    * `planPlotBatches`，不叠弹窗）。「批量写章」（W9）同样带 `range` / `confirmed`，另带

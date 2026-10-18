@@ -29,6 +29,8 @@ export function describeForReview(path: PathKind, rel: string): string {
       return '叙事线';
     case 'skill':
       return rel.endsWith('skills.json') ? '技能的阶段绑定' : `技能 ${rel}`;
+    case 'sensitive':
+      return '敏感词表';
     case 'plot':
       return no === undefined ? '这一章的细纲' : `第 ${no} 章的细纲`;
     case 'chapter':

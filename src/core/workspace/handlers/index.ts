@@ -19,6 +19,7 @@ const REGISTRY: Partial<Record<ArtifactKind, Handler>> = {
   globalSummary: docHandler,
   threads: docHandler,
   skill: plainHandler,
+  sensitive: plainHandler,
   character: docHandler,
   lore: docHandler,
   plot: plotHandler,

@@ -127,6 +127,12 @@ describe('editorLabel · 有中文称呼的固定文件', () => {
     assert.equal(describeFile('.novelforge/summaries/global.md').title, '全书摘要');
     assert.equal(crumbs('.novelforge/threads.md'), '文风与摘要[.novelforge] › 叙事线');
   });
+
+  test('敏感词表（写作体检用）也是中文称呼、归在文风与摘要', () => {
+    const l = describeFile('.novelforge/sensitive.txt');
+    assert.deepEqual({ tag: l.tag, title: l.title }, { tag: '', title: '敏感词表' });
+    assert.equal(crumbs('.novelforge/sensitive.txt'), '文风与摘要[.novelforge] › 敏感词表');
+  });
 });
 
 describe('editorLabel · 其他文件', () => {
