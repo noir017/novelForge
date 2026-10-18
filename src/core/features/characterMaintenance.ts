@@ -1,16 +1,14 @@
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import { buildCastIndex, readCastPlots } from '../views/cast';
 import { buildIdentityGroups } from '../model/identity';
-import { trashPathFor } from '../files/fileOps';
 import { getHost } from '../host';
 import { elapsed, scoped } from '../runtime/logger';
 import { rewriteFrontmatter } from '../model/markdown';
-import { readText, writeText } from '../model/fs';
+import { readText } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { CharacterCard } from '../model/types';
 import { DroppedAlias, explainDroppedAliases, normalizeName, sanitizeAliases } from '../model/naming';
 import { runTask } from '../runtime/progress';
+import { Workspace } from '../workspace';
 
 const log = scoped('角色卡');
 
@@ -26,7 +24,8 @@ const log = scoped('角色卡');
  *   根因已在 [../identity.ts](../identity.ts) 修掉，但已经建出来的卡还在。
  *
  * 两条动作都只改 frontmatter（经 `rewriteFrontmatter`），**作者手写的正文一个
- * 字节都不动**；被合并掉的卡按「不真删」搬进 `.novelforge/.trash/`。
+ * 字节都不动**；被合并掉的卡按「不真删」搬进 `.novelforge/.trash/`。写回与搬走都经网关（`write`
+ * 传 `review: false`——动手前的确认框就是那一问；`remove`），守卫照过，改写之前的旧卡存一版历史（AGENTS 第 7 条）。
  */
 
 // ---------------------------------------------------------------- 清理别名
@@ -107,6 +106,7 @@ export async function cleanCharacterAliases(project: NovelProject): Promise<void
     '清理角色卡别名',
     async ({ signal, report }) => {
       const startedAt = Date.now();
+      const ws = new Workspace(project);
       let done = 0;
       let failed = 0;
       for (const plan of plans) {
@@ -122,7 +122,8 @@ export async function cleanCharacterAliases(project: NovelProject): Promise<void
           log.warn(`「${plan.card.name}」没有 frontmatter，跳过`, plan.card.relPath);
           continue;
         }
-        await writeText(abs, rewritten);
+        // 经网关写（第 7 条）：守卫照过，覆盖之前旧卡存一版历史（删掉的称呼找得回来）；不弹审阅——上面的确认框就是那一问。
+        await ws.write(plan.card.relPath, { text: rewritten }, { mode: 'overwrite', review: false });
         done++;
         log.info(
           `「${plan.card.name}」删掉 ${plan.dropped.length} 个称呼`,
@@ -377,13 +378,14 @@ async function mergeInto(project: NovelProject, keeper: CharacterCard, losers: C
     getHost().toast(`「${keeper.name}」的角色卡缺少 frontmatter，无法合并。`, 'error');
     return false;
   }
-  await writeText(abs, rewritten);
+  // 经网关写（第 7 条）：守卫照过，覆盖之前旧卡存一版历史；不弹审阅——逐组的「保留「…」」就是那一问。
+  const ws = new Workspace(project);
+  await ws.write(keeper.relPath, { text: rewritten }, { mode: 'overwrite', review: false });
 
   for (const loser of losers) {
-    const dest = await trashPathFor(project, loser.relPath);
-    await fs.mkdir(path.dirname(dest), { recursive: true });
-    await fs.rename(project.pathOf(loser.relPath), dest);
-    log.info(`「${loser.name}」已并入「${keeper.name}」`, `原卡移到 ${project.relPath(dest)}`);
+    // 经网关删：搬进 `.trash/` 并保留原相对路径（第 6 条，落点与工程页的删除同一套 `trashPathFor`）。
+    await ws.remove(loser.relPath);
+    log.info(`「${loser.name}」已并入「${keeper.name}」`, `原卡移到回收站：${loser.relPath}`);
   }
 
   log.info(

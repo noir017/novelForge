@@ -24,8 +24,37 @@ let castMod;
 let markdown;
 let projectMod;
 let maintenance;
+let wsMod;
 let h;
 let t;
+
+/**
+ * 给 `Workspace` 的某几个方法记一笔再照常执行（同一个 bundle 里的类，维护命令 new 出来的就是它）。
+ * 用来证明维护命令的写盘经网关（AGENTS 第 7 条），返回记下的 `[方法名, 路径]`。
+ */
+async function spyWorkspace(names, fn) {
+  const proto = wsMod.Workspace.prototype;
+  const calls = [];
+  const originals = Object.fromEntries(names.map((n) => [n, proto[n]]));
+  for (const n of names) {
+    proto[n] = function (rel, ...rest) {
+      calls.push([n, rel]);
+      return originals[n].call(this, rel, ...rest);
+    };
+  }
+  try {
+    await fn();
+  } finally {
+    Object.assign(proto, originals);
+  }
+  return calls;
+}
+
+/** 这份文件在历史版本里的快照全文（`.novelforge/history/<相对路径>/`），新旧不论。 */
+function snapshotTexts(rel) {
+  const dir = t.rel('.novelforge/history', rel);
+  return fs.existsSync(dir) ? fs.readdirSync(dir).map((n) => fs.readFileSync(`${dir}/${n}`, 'utf8')) : [];
+}
 
 /**
  * 造一份定稿过的细纲（带 sourceHash 与 cast）。cast 用 `名(别名、别名)` 的写法。
@@ -64,8 +93,9 @@ before(() => {
     markdown: './src/core/model/markdown.ts',
     project: './src/core/model/project.ts',
     maintenance: './src/core/features/characterMaintenance.ts',
+    ws: './src/core/workspace/index.ts',
   });
-  ({ naming, identity, cast: castMod, markdown, project: projectMod, maintenance } = bundle);
+  ({ naming, identity, cast: castMod, markdown, project: projectMod, maintenance, ws: wsMod } = bundle);
 
   // 原脚本的假宿主没有 reviewReplace，摘掉它才与原行为一致。
   h = makeFakeHost({
@@ -355,13 +385,16 @@ describe('维护：清理别名', () => {
   let firstConfirms;
   let secondConfirms;
   let secondToasts;
+  let calls;
+  let snapshots;
 
   before(async () => {
     const project = new projectMod.NovelProject(t.dir);
     beforeText = t.read('.novelforge/characters/方源.md');
     h.expect('清理');
-    await maintenance.cleanCharacterAliases(project);
+    calls = await spyWorkspace(['write'], () => maintenance.cleanCharacterAliases(project));
     afterText = t.read('.novelforge/characters/方源.md');
+    snapshots = snapshotTexts('.novelforge/characters/方源.md');
     card = (await project.listCharacters()).find((c) => c.name === '方源');
     firstConfirms = [...h.confirms];
 
@@ -412,6 +445,15 @@ describe('维护：清理别名', () => {
   test('没得清理时明说', () => {
     assert.ok(secondToasts.some((x) => x.includes('无需清理')), secondToasts.join(' | '));
   });
+
+  // 从前直接 writeText（grep 把这份源文件当成二进制跳过了，上一次普查没扫到）：不过守卫、覆盖之前不存历史。
+  test('经网关写回（第 7 条）', () => {
+    assert.ok(calls.some(([n, rel]) => n === 'write' && rel === '.novelforge/characters/方源.md'), JSON.stringify(calls));
+  });
+
+  test('清理之前的旧卡在历史版本里留了一份（删掉的称呼找得回来）', () => {
+    assert.ok(snapshots.includes(beforeText), JSON.stringify(snapshots));
+  });
 });
 
 describe('维护：合并重复卡', () => {
@@ -421,6 +463,7 @@ describe('维护：合并重复卡', () => {
   let keeper;
   let inTrash;
   let index;
+  let calls;
 
   before(async () => {
     const project = new projectMod.NovelProject(t.dir);
@@ -430,7 +473,7 @@ describe('维护：合并重复卡', () => {
     );
 
     h.expect('逐组处理', '保留「方源」');
-    await maintenance.mergeDuplicateCharacterCards(project);
+    calls = await spyWorkspace(['write', 'remove'], () => maintenance.mergeDuplicateCharacterCards(project));
     cards = await project.listCharacters();
     keeper = cards.find((c) => c.name === '方源');
     inTrash =
@@ -473,6 +516,15 @@ describe('维护：合并重复卡', () => {
 
   test('保留卡的正文没被重渲染', () => {
     assert.ok(t.read('.novelforge/characters/方源.md').includes('作者手写的这一段一个字都不许动'));
+  });
+
+  test('保留卡经网关写回、被合并的卡经网关删（第 7 条）', () => {
+    assert.ok(calls.some(([n, rel]) => n === 'write' && rel === '.novelforge/characters/方源.md'), JSON.stringify(calls));
+    assert.ok(calls.some(([n, rel]) => n === 'remove' && rel === '.novelforge/characters/古月方源.md'), JSON.stringify(calls));
+  });
+
+  test('被合并的卡在回收站里保留原相对路径（第 6 条）', () => {
+    assert.ok(fs.existsSync(t.rel('.novelforge/.trash/.novelforge/characters/古月方源.md')));
   });
 
   test('合并后不再有抢名冲突', () => {
