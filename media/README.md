@@ -24,7 +24,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 | 路径 | 产物（在 `dist/media/`） | 加载于 | 职责 |
 |---|---|---|---|
 | `src/view/` | view.js | 两者 | 面板主体：渲染 `ViewState`、tabbar 切页、消息流、工程页、日志页、设置页、右键菜单 |
-| `src/editor/` | editor.js | 仅独立版 | 内置文件编辑器：两块编辑区、多标签、乐观锁保存、磁盘上的改动同步到已开的标签、关标签时问「保存 / 不保存 / 取消」、保存状态与自动保存、冲突时对比合并、历史版本面板、自己管的撤销 / 重做、Tab 缩进、回车按分段格式另起一段、成对符号、段落快捷键、一键排版、查找替换（画在高亮镜像层上）、Markdown 预览、主题与拖拽调宽 |
+| `src/editor/` | editor.js | 仅独立版 | 内置文件编辑器：两块编辑区、多标签、乐观锁保存、磁盘上的改动同步到已开的标签、关标签时问「保存 / 不保存 / 取消」、保存状态与自动保存、冲突时对比合并、历史版本面板、「转到…」（Ctrl+P 按章号 / 名字 / 路径跳到一章或一个文件）、自己管的撤销 / 重做、Tab 缩进、回车按分段格式另起一段、成对符号、段落快捷键、一键排版、查找替换（画在高亮镜像层上）、Markdown 预览、主题与拖拽调宽 |
 | `src/explorer/` | explorer.js | 仅独立版 | 侧栏「文件」页的资源管理器 |
 | `src/bridge/` | bridge.js | 仅独立版 | 把 WebSocket 伪装成 webview API |
 | `src/css/view/` | view.css | 两者 | 面板样式，全部走 `--vscode-*` 变量 |
@@ -36,8 +36,8 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 
 各子目录的划分：
 
-- **`src/view/`** —— `refs`（页面上固定 id 的节点）、`store`（运行时状态与草稿存取）、`format` / `buttons` / `toast` / `menu` / `menubar` / `welcome` / `folderPicker` / `tip`（通用件；`menubar` / `welcome` / `folderPicker` 探测不到 `#wbMenubar` 就 return，插件不受影响）、`paragraphMenu`（标题栏「编辑」菜单里段落那一组：段落格式 ▸、成对符号开关、一键排版、半角标点转全角——经 `MenuEntry.run` 接进 `menubar`，不往它的 `run` 分支表里加）、`versionsMenu`（「文件」菜单「另存为…」后面那一项「历史版本…」，同一个做法；置灰时原因挂在 `MenuEntry.detail` 的提示上）、`tabs` / `state` / `messages` / `composer` / `history` / `tasks` / `logs` / `prompt`（各块）、`form` / `forms`（通用表单弹窗与一句话、拆细纲、批量写章三个具体弹窗——复用 `providerModal` 那层遮罩，两种形态都能用；调用次数的说明用的是 core 的 `describeCalls` / `planPlotBatches` / `planWriteBatch`，与后端确认框同源；表单支持 `select` 字段，`confirm` 让提交键两段式——「写完即定稿」第一下只换字、第二下才发，改了任何一个值退回第一段）、`pipeline` / `workbench` / `commands`（创作页的三块：流水线条与下一步、当前产物浮窗、`/` 命令面板），外加 `project/` 与 `settings/` 两个子目录（`settings/skills.ts` 是设置页第三个子页「技能」：阶段绑定、从 GitHub 检查与安装、技能库；那一页改了当场生效，不进 `draft`，切过去时藏起「保存设置」）。`index.ts` 只做装配与消息分发。
-- **`src/editor/`** —— `paneElements`（一块编辑区的类型与 DOM）、`pane`（工厂，两块编辑区是它的两个实例）、`store`（两块之间共享的状态与 localStorage，`Pane` 接口也在这里）、`api`（给编辑器里的功能模块用的公共接口：当前编辑区与文件、`isProse` / `indentUnit`、`isImeComposing`、`addKeyHandler`、`onEditorChange`）、`history`（每个文件一份的撤销历史，纯逻辑）、`indent`（Tab / Shift+Tab 缩进，纯函数）、`highlight`（高亮镜像层：按命名图层画 `<mark>`，顺带精确滚到某个字）、`find`（查找替换条）与 `findCore`（它的纯函数，零 DOM）、`paragraph`（下面五个的装配入口，`index.ts` 只调它一次）+ `paragraphState`（分段格式与编辑器偏好）/ `enter`（回车）/ `pairs`（成对符号）/ `lines`（段落快捷键）/ `layout`（一键排版、半角标点转全角、「排版」按钮）、`safety`（「不丢稿」那几样的装配入口，`index.ts` 同样只调一次）+ `diskSync`（磁盘上的改动同步到已开的标签）/ `saving`（保存本身：同一份只有一个在路上、状态栏的保存状态、磁盘上没了先问、自动保存的闸）/ `closing`（关标签时三选一、批量合成一次）/ `dialog`（页内对话框）/ `autosave`（自动保存）、`conflictMerge`（冲突条上的「对比合并…」）/ `replace`（`editorReplace` 的接收端：认 requestId、`rebase` + `applyEdit`）/ `versions`（工具栏「历史」与历史版本抽屉）、`shell`（主题/拖拽/窄屏）、`chapterBar`（章节工作台的章节条，W6；五期加「审稿」）、`preview` / `clipboard` / `words`。
+- **`src/view/`** —— `refs`（页面上固定 id 的节点）、`store`（运行时状态与草稿存取）、`format` / `buttons` / `toast` / `menu` / `menubar` / `welcome` / `folderPicker` / `tip`（通用件；`menubar` / `welcome` / `folderPicker` 探测不到 `#wbMenubar` 就 return，插件不受影响）、`paragraphMenu`（标题栏「编辑」菜单里段落那一组：段落格式 ▸、成对符号开关、一键排版、半角标点转全角——经 `MenuEntry.run` 接进 `menubar`，不往它的 `run` 分支表里加）、`versionsMenu`（「文件」菜单「另存为…」后面那一项「历史版本…」，同一个做法；置灰时原因挂在 `MenuEntry.detail` 的提示上）、`quickOpenMenu`（「文件」菜单「打开文件…」后面那一项「转到…」，同一个做法）、`tabs` / `state` / `messages` / `composer` / `history` / `tasks` / `logs` / `prompt`（各块）、`form` / `forms`（通用表单弹窗与一句话、拆细纲、批量写章三个具体弹窗——复用 `providerModal` 那层遮罩，两种形态都能用；调用次数的说明用的是 core 的 `describeCalls` / `planPlotBatches` / `planWriteBatch`，与后端确认框同源；表单支持 `select` 字段，`confirm` 让提交键两段式——「写完即定稿」第一下只换字、第二下才发，改了任何一个值退回第一段）、`pipeline` / `workbench` / `commands`（创作页的三块：流水线条与下一步、当前产物浮窗、`/` 命令面板），外加 `project/` 与 `settings/` 两个子目录（`settings/skills.ts` 是设置页第三个子页「技能」：阶段绑定、从 GitHub 检查与安装、技能库；那一页改了当场生效，不进 `draft`，切过去时藏起「保存设置」）。`index.ts` 只做装配与消息分发。
+- **`src/editor/`** —— `paneElements`（一块编辑区的类型与 DOM）、`pane`（工厂，两块编辑区是它的两个实例）、`store`（两块之间共享的状态与 localStorage，`Pane` 接口也在这里）、`api`（给编辑器里的功能模块用的公共接口：当前编辑区与文件、`isProse` / `indentUnit`、`isImeComposing`、`addKeyHandler`、`onEditorChange`）、`history`（每个文件一份的撤销历史，纯逻辑）、`indent`（Tab / Shift+Tab 缩进，纯函数）、`highlight`（高亮镜像层：按命名图层画 `<mark>`，顺带精确滚到某个字）、`find`（查找替换条）与 `findCore`（它的纯函数，零 DOM）、`paragraph`（下面五个的装配入口，`index.ts` 只调它一次）+ `paragraphState`（分段格式与编辑器偏好）/ `enter`（回车）/ `pairs`（成对符号）/ `lines`（段落快捷键）/ `layout`（一键排版、半角标点转全角、「排版」按钮）、`safety`（「不丢稿」那几样的装配入口，`index.ts` 同样只调一次）+ `diskSync`（磁盘上的改动同步到已开的标签）/ `saving`（保存本身：同一份只有一个在路上、状态栏的保存状态、磁盘上没了先问、自动保存的闸）/ `closing`（关标签时三选一、批量合成一次）/ `dialog`（页内对话框）/ `autosave`（自动保存）、`conflictMerge`（冲突条上的「对比合并…」）/ `replace`（`editorReplace` 的接收端：认 requestId、`rebase` + `applyEdit`）/ `versions`（工具栏「历史」与历史版本抽屉）、`quickOpen`（「转到…」面板，Ctrl+P）与 `quickOpenCore`（它的匹配与排序，纯函数、零 DOM）、`shell`（主题/拖拽/窄屏）、`chapterBar`（章节工作台的章节条，W6；五期加「审稿」）、`preview` / `clipboard` / `words`。
 - **`src/explorer/`** —— `state`（展开集合、剪贴板、高亮）、`actions`（发消息）、`rows`（建行与菜单）。
 
 ## 类型是真的会被检查的
@@ -85,7 +85,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 - **CSP**：webview 的 CSP 只允许本地资源与 nonce 脚本，不引任何 CDN / 外部脚本。独立版同样不引外部资源。
 - **两形态隔离**：`standalone.css` 与 `editor.js` / `explorer.js` **只**由独立版加载，插件的 `webviewHtml.ts` 里没有它们，也没有 `#wbEditor` / `#filesBody` 容器。给独立版加样式请只改 `src/css/standalone/`（必要时用 `.workbench` 前缀覆盖 view 的规则），不要为独立版去动 `src/css/view/`。
 - **能力探测而非环境判断**：`view/store.ts` 里用 `document.getElementById('wbEditor')` 判断有没有内置编辑器，据此决定「打开文件」发 `openEditor` 还是 `openFile`；`editor/index.ts` 与 `explorer/index.ts` 各自开头探测自己那块容器（`#wbEditor` / `#filesBody`），不在就直接 return（连 `acquireVsCodeApi()` 都不调——webview 里那个函数只允许调一次）。插件里没有这些容器，行为不变。
-- **跨文件只经三样东西**（全在 `src/globals.ts`）：`window.__nfToast`（view 出，editor / explorer 用）、`window.__nfContextMenu`（view 出的右键菜单登记函数）、几个自定义事件——`nf-editor-active`（editor → explorer，高亮当前文件）、`nf-files-moved`（explorer → editor，改名后搬标签），以及标题栏与编辑器之间的 `nf-editor-query` / `nf-editor-command`（保存、撤销那一组，外加「文件 → 自动保存」：`query` 里的 `autoSave`、`command` 的 `toggleAutoSave`）与 `nf-paragraph-query` / `nf-paragraph-command`（「编辑」菜单段落那一组）、`nf-versions-query` / `nf-versions-command`（「文件 → 历史版本…」）。别让 explorer 直接读 editor 的 `panes`——那会把编辑器的内部状态变成两个文件之间的契约，而资源管理器在插件形态里根本不存在。右键菜单尤其**不能各起一套**：全局 `contextmenu` 监听在 view 里，另起一个会两层菜单一起弹。
+- **跨文件只经三样东西**（全在 `src/globals.ts`）：`window.__nfToast`（view 出，editor / explorer 用）、`window.__nfContextMenu`（view 出的右键菜单登记函数）、几个自定义事件——`nf-editor-active`（editor → explorer，高亮当前文件）、`nf-files-moved`（explorer → editor，改名后搬标签），以及标题栏与编辑器之间的 `nf-editor-query` / `nf-editor-command`（保存、撤销那一组，外加「文件 → 自动保存」：`query` 里的 `autoSave`、`command` 的 `toggleAutoSave`）与 `nf-paragraph-query` / `nf-paragraph-command`（「编辑」菜单段落那一组）、`nf-versions-query` / `nf-versions-command`（「文件 → 历史版本…」）、`nf-quickopen-query` / `nf-quickopen-command`（「文件 → 转到…」）。别让 explorer 直接读 editor 的 `panes`——那会把编辑器的内部状态变成两个文件之间的契约，而资源管理器在插件形态里根本不存在。右键菜单尤其**不能各起一套**：全局 `contextmenu` 监听在 view 里，另起一个会两层菜单一起弹。
 - **不拼 HTML 字符串渲染用户内容**：一律 `createElement` + `textContent`（`src/dom.ts` 的 `el()` 就是干这个的），正文里写 `<script>` 也只是普通文字。
 - **一排控件共用一套尺寸，主按钮靠颜色跳出来**（`css/view/buttons.css` 的 `--nf-ctl-height` / `--nf-ctl-padding-x` / `--nf-ctl-radius`）：`.primary` / `.secondary` / `.danger` / `.chip-btn` / `.composer-tool` 与 composer、日志页工具栏里的下拉框、数字框同高。从前主次按钮是 `5px 12px` + 13px 字号，在一排 0.8em 的小控件中间粗一号——「写第 N 章」「保存」「发送」于是成了三块各占一角的色斑。要改高度只动那三个变量。
   - **尺寸挂在变体类上，不挂在裸 `button` 上**：页面上大半的 `button` 不是「一排控件里的一颗」——菜单项、页签、标签页的关闭叉、chip 上的 ×、命令面板的每一项、流水线条上的那几层，各有各的高度。`min-height` 写在裸 `button` 上会把它们全拽到 24px（`min-height` 压得过它们自己的 `height`，而它们都没声明 min-height 来挡）。裸 `button` 只留字体、光标、圆角这类人人都要的。
@@ -155,6 +155,17 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 - localStorage 的 `novelforge.editor.v1` 从 `{ open, active }` 升为 `{ v: 2, panes: { main, draft }, activePane }`；`restore()` 兼容旧形状（认得 `saved.open` 就当主区），老用户的标签页不会在升级后消失。
 - `activePane` 每次易主都要跟一句 `announceActive()`（`activate` / `upsertFile` / 两块之间的 `focusin`·`pointerdown` 切换、`dropFile` 关掉当前标签），资源管理器的高亮才不会停在上一个文件上。`upsertFile` 末尾那句读的是 `activePane`，所以 `editorOpen` 分支必须**先**认下目标块再 `upsertFile`。
 
+## 「转到…」（Ctrl+P）
+
+`editor/quickOpen.ts` 是面板（画、按键、打开、焦点、最近打开的），`editor/quickOpenCore.ts` 是匹配与排序（纯函数、零 DOM，`tests/unit/editor/quickOpenCore.test.js` 钉口径），标题栏那一项在 `view/quickOpenMenu.ts`。
+
+- **只在独立版**：它在 editor.js 里，`editor/index.ts` 探测不到 `#wbEditor` 就整个不装（能力探测），插件形态 Ctrl+P 原样交给 VS Code。
+- **数据按需要**：打开时发 `requestQuickOpen { requestId }`，后端回 `quickOpenIndex`（`core/views/quickOpen.ts`：章节、角色卡、设定、架构几件与大纲 / 文风 / 叙事线 / 全书摘要、草稿；读了哪些盘写在那个文件头上），认 requestId（回复是广播）。不进 `ProjectTree` / `ViewState`——那两份每次文件变动都全量重推。面板开着时工程变了不刷新；上一份索引留着，再打开先拿它画、新的到了换掉（输入没变时停在原来那一条上）。换工程（`nf-workspace-reset`）作废。
+- **键盘照 `/` 命令面板的教训**：过滤串从输入框的值算，重算挂在 `input` 上（组字中途的 `input` 不算，`compositionend` 再算），不在 keydown 里攒字；输入框只接管 ↑↓ / Enter / Ctrl+Enter / Esc / Tab，组字中途一个都不拦。全局的 Ctrl+P 挂在 document 的冒泡阶段：焦点在编辑区之外的输入框里（对话输入框）**照样开**——与查找（`find.ts`）不同，这个键在那些地方没有别的用处；组字中不响应；页内对话框（它在捕获阶段吞掉 Ctrl 组合键）、`.modal-overlay` 开着时不开；没开工程（`body.no-workspace`）时不开、说一句，「打印」照样拦下。
+- **不是遮罩**：挂在 `body` 上、`position: fixed` 顶部居中（`css/standalone/quickopen.css`），点外面（document 捕获阶段的 `mousedown`）关、不还焦点；Esc 关、焦点还回打开之前的地方。行上 `mousedown` 先 `preventDefault`，点一行焦点不离开输入框。
+- **打开什么**：章节发 `openChapter`（与工程页点章节行同一条：正文进主区、有细纲并排；没有正文给细纲路径），Ctrl+Enter / Ctrl+点击发 `openEditor { pane: 'draft' }` 开正文（没有正文开细纲）；其余发 `openEditor { pane: 'main' | 'draft' }`。**不带临时标签那类标记**——从这里打开是作者明确要去的地方。打开之后等那份文件的 `editorOpen`（3 秒之内）把焦点放进拥有它的那一块；章节并排的细纲随后才到（`index.ts` 那时把 `activePane` 认成第二块），到了也把焦点与 `activePane` 拉回正文那一块。所以 `installQuickOpen` **要在 `index.ts` 自己的 `onMessage` 之后装**：编辑区先收下文件，它才找得到拥有者。
+- **最近打开的**：编辑器每激活一份文件（`nf-editor-active`，不论从哪打开）记一笔，localStorage `novelforge.quickopen.recent` 按工程分键（`projectStorageKey`），最多 20 条；写不进去就算了。空输入时按路径认回条目（同一章的正文与细纲算一条，删了的、不在索引里的跳过），最多 8 条，后面接前 10 章。
+
 ## 资源管理器（「文件」页）
 
 - **与「工程」页是两件事**：工程页是按语义整理过的视图（章节一条列表，带流水线状态与定稿状态；角色带别名），只看得见几个可管理区里的文件；这一页是磁盘上真实的目录结构，一个都不藏。`.novelforge/` 里的会话、`project.json`，以及老工程留下、工程页不再认的 `plots/`，只有这里进得去——这就是它存在的理由，别为了「干净」把点开头的目录过滤掉（`fileTree.ts` 的 `HIDDEN_DIR_NAMES` 只挡 `node_modules` 与 `.git`）。
@@ -166,7 +177,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 
 ## 测试
 
-- [`../tests/dom/`](../tests/dom/) 用 jsdom 跑**构建产物**（`dist/media/*.js`，不是源码），从两个 html 模板里抠 body 保证结构与真实渲染一致，按页面与组件分文件（`view/` 下是对话页、创作页、工程页、表单、报告卡、合并视图、空状态、日志页、设置页、悬停浮窗……，`standalone/` 下是两块编辑区、撤销与 Tab 缩进、查找替换与高亮镜像层、回车、成对符号、段落快捷键、一键排版与「编辑」菜单段落那一组、磁盘同步、关标签的对话框、保存状态与自动保存、冲突时的对比合并、历史版本面板与「文件 → 历史版本…」、章节条、资源管理器、欢迎页），清单见 [tests/README.md](../tests/README.md)。改了 `media/src/**` 先 `npm run media` 再跑它，否则测的是上一次的产物（`npm run test:dom` / `npm test` 会自动先构建）。
+- [`../tests/dom/`](../tests/dom/) 用 jsdom 跑**构建产物**（`dist/media/*.js`，不是源码），从两个 html 模板里抠 body 保证结构与真实渲染一致，按页面与组件分文件（`view/` 下是对话页、创作页、工程页、表单、报告卡、合并视图、空状态、日志页、设置页、悬停浮窗……，`standalone/` 下是两块编辑区、撤销与 Tab 缩进、查找替换与高亮镜像层、回车、成对符号、段落快捷键、一键排版与「编辑」菜单段落那一组、磁盘同步、关标签的对话框、保存状态与自动保存、冲突时的对比合并、历史版本面板与「文件 → 历史版本…」、「转到…」面板与「文件 → 转到…」、章节条、资源管理器、欢迎页），清单见 [tests/README.md](../tests/README.md)。改了 `media/src/**` 先 `npm run media` 再跑它，否则测的是上一次的产物（`npm run test:dom` / `npm test` 会自动先构建）。
 - [`../scripts/verify-css.js`](../scripts/verify-css.js) 比对两份 CSS 是否等价：规则集合一条不多一条不少，且「同选择器 + 同属性」的相对顺序没被改变。拆分或重排样式片段后可以拿它对着旧产物验一遍。
 
 ## 新增产物
