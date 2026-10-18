@@ -246,12 +246,28 @@ describe('文件页：剪贴板与右键菜单', { skip: JSDOM_SKIP }, () => {
     ui.closeMenu();
   });
 
-  // 快捷键：焦点行上 Ctrl+C。
+  // 快捷键：焦点行上 Ctrl+C（按键落在那一行上——真的焦点在哪，keydown 就从哪发出来）。
   test('Ctrl+C 复制焦点行', () => {
     ui.post({ type: 'dirListings', listings: [listing('', { 'b.md': 'file' })] });
     const bRow = fileRowOf('b.md');
     bRow.dispatchEvent(new ui.window.FocusEvent('focus', { bubbles: true }));
-    ui.doc.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }));
+    bRow.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }));
     assert.ok(written.includes('b.md'), JSON.stringify(written));
+  });
+
+  // 从前只看「文件页开着、有选中行」：点开一个文件之后焦点进了编辑区，编辑区里的 Ctrl+C / X / V 被这里拦下，
+  // 复制的成了那个文件。现在按键得落在树上。
+  test('选中过一行之后，编辑区里的 Ctrl+C / Ctrl+X / Ctrl+V 照常归编辑区（不拦、不动文件剪贴板）', () => {
+    const bRow = fileRowOf('b.md');
+    bRow.dispatchEvent(new ui.window.FocusEvent('focus', { bubbles: true }));
+    const before = written.length;
+    const area = ui.doc.querySelector('#wbEditor textarea.ed-area');
+    const prevented = ['c', 'x', 'v'].map((key) => {
+      const ev = new ui.window.KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true });
+      area.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    });
+    assert.deepEqual(prevented, [false, false, false]);
+    assert.equal(written.length, before, JSON.stringify(written));
   });
 });

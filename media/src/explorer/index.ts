@@ -110,11 +110,15 @@ function start(body: HTMLElement): void {
     { label: '刷新', run: refresh },
   ]);
 
-  // 快捷键只认「文件」页激活且树里有选中行——编辑器里的文本 Ctrl+C/V
-  // 走不到这里（焦点不在树上），互不干扰。
+  // 快捷键只认「文件」页激活、树里有选中行、**这一下按在树上**（焦点在某一行上）。从前只看前两样：
+  // 在文件页点开一个文件之后焦点进了编辑区，那一行仍是「选中」的，于是编辑区里的 Ctrl+C / X / V
+  // 被这里拦下来，复制的成了那个文件、粘贴的成了文件粘贴（键登记在 editor/shortcuts.ts 的「文件页」那一组）。
   document.addEventListener('keydown', (e) => {
     const entry = state.selectedEntry;
-    if (!(e.ctrlKey || e.metaKey) || !entry) {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || !entry) {
+      return;
+    }
+    if (!(e.target instanceof Node) || !body.contains(e.target)) {
       return;
     }
     if (!maybeById('pane-files')?.classList.contains('active')) {
