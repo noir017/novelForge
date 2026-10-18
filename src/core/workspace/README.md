@@ -167,6 +167,7 @@ workspace/
 | `writeStyleGuide` / `writeGlobalSummary` | 固定路径 |
 | `writeSkillBindings(text)` | 固定路径（`skills.json`）。设置页「技能」与 `skills bind` 动手前都已经问过作者，这里不再弹覆盖审阅——每换一次下拉框弹一个 JSON 的 diff 只是噪声 |
 | `updateThreads(edit)` | 固定路径（`threads.md`）。读**此刻**的原文交给 `edit`、写回它给的新原文：排线、定稿要调几十秒模型，写之前重读，作者这期间的改动才不会被一份旧全文冲掉 |
+| `setParagraphStyle(style)` | 固定路径（`config.md`）。内置编辑器「编辑 → 段落格式」：**只改 frontmatter 的 `paragraphStyle` 这一行**（`setConfigParagraphStyle`），别的字节一个不动；没有 `config.md` 就新建一份只有这一段 frontmatter 的（没有小节，「小说配置」仍算没填，主按钮不变）。经 `write` 落盘、不弹覆盖审阅（改的只是作者在菜单里点的那一个键），带读到时的 hash 当乐观锁；已经是这个值时不写 |
 
 调用方手里只有对象，让它自己去拼路径等于把命名规则复制一份出去。
 
