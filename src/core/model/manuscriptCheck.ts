@@ -12,8 +12,81 @@
  * - **续写越过章末的收尾**：第一次调用已经收了尾、只是篇幅不够时，续写接在收尾后面必然越过它。
  *   这种情况先回退到结尾那一场之前（{@link rewindPoint}，见 generation/continuation.ts）。
  *
- * 零 import，不进前端打包。
+ * 零 import。内置编辑器的「写作体检」（`media/src/editor/checkCore.ts`）也打包这一份：编辑器里标出来的禁用词、
+ * 比喻词、拉丁缩写与写完一章之后数的是**同一个函数**——计数（{@link countBanned} / {@link countSimiles} /
+ * {@link latinAcronyms}）都建在找位置的那两个函数上（{@link locateTerms} / {@link latinAcronymRanges}），
+ * 编辑器拿位置画高亮，生成链拿个数写说明，两边不会一个说三次、一个画出四处。
  */
+
+// ---------------------------------------------------------------- 找位置
+
+/** 一个词在一段文字里出现在哪几处（起点，按 `text` 的下标，升序）。 */
+export interface TermHits {
+  term: string;
+  offsets: number[];
+}
+
+/**
+ * 拉丁字母不分大小写时的折法：半角大写、全角大小写一律折成半角小写。**一个字换一个字**（长度不变），
+ * 折过之后的下标与原文一一对应。只折拉丁字母——中文没有大小写，别的文字（希腊、西里尔……）不在这里管。
+ */
+export function foldLatin(text: string): string {
+  return (text ?? '').replace(/[A-ZＡ-Ｚａ-ｚ]/g, (ch) => {
+    const code = ch.charCodeAt(0);
+    if (code <= 0x5a) {
+      return String.fromCharCode(code + 0x20);
+    }
+    // 全角 Ａ-Ｚ（FF21–FF3A）、ａ-ｚ（FF41–FF5A）→ 半角 a-z。
+    return String.fromCharCode((code >= 0xff41 ? code - 0xff41 : code - 0xff21) + 0x61);
+  });
+}
+
+/**
+ * 这几个词各自出现在哪几处。每个词**各找各的**、从左往右、不重叠——与 `text.split(term).length - 1`
+ * 数出来的是同一批（{@link countBanned} 就是这么数的）；两个词叠在同一段字上（「数据」与「数据库」）各算各的。
+ *
+ * 一趟扫完：按词的第一个字建一张表，逐字只试以这个字开头的那几个词——几万字的正文、上千个词也只是一趟循环，
+ * 不是「词数 × 全文」。返回与 `terms` 一一对应（重复的词各给一份同样的结果，空串没有命中）。
+ *
+ * `foldCase`：拉丁字母不分大小写（{@link foldLatin}，全角当半角）。生成链的禁用词不折（与从前的 `split` 一样），
+ * 内置编辑器的敏感词表折。
+ */
+export function locateTerms(text: string, terms: readonly string[], opts: { foldCase?: boolean } = {}): TermHits[] {
+  const fold = opts.foldCase ? foldLatin : (s: string) => s ?? '';
+  const hay = fold(text ?? '');
+  const found = new Map<string, number[]>();
+  const byFirst = new Map<string, string[]>();
+  for (const raw of terms) {
+    const t = fold(raw ?? '');
+    if (!t || found.has(t)) {
+      continue;
+    }
+    found.set(t, []);
+    const list = byFirst.get(t[0]);
+    if (list) {
+      list.push(t);
+    } else {
+      byFirst.set(t[0], [t]);
+    }
+  }
+  if (found.size > 0) {
+    /** 每个词下一处最早能从哪里起（上一处的末尾）：同一个词不重叠。 */
+    const next = new Map<string, number>();
+    for (let i = 0; i < hay.length; i++) {
+      const candidates = byFirst.get(hay[i]);
+      if (!candidates) {
+        continue;
+      }
+      for (const t of candidates) {
+        if ((next.get(t) ?? 0) <= i && hay.startsWith(t, i)) {
+          found.get(t)!.push(i);
+          next.set(t, i + t.length);
+        }
+      }
+    }
+  }
+  return terms.map((raw) => ({ term: raw, offsets: found.get(fold(raw ?? '')) ?? [] }));
+}
 
 // ---------------------------------------------------------------- 比喻词
 
@@ -25,20 +98,21 @@ export const SIMILE_WORDS = ['仿佛', '犹如', '宛如', '如同', '好似', '
 /** 全章合计上限。 */
 export const SIMILE_LIMIT = 3;
 
+/** 这几个比喻词各自出现在哪几处（{@link locateTerms}）。内置编辑器的体检拿它画高亮。 */
+export function locateSimiles(text: string): TermHits[] {
+  return locateTerms(text, SIMILE_WORDS);
+}
+
 /** 这几个比喻词在这段文字里一共出现几次。 */
 export function countSimiles(text: string): number {
-  let n = 0;
-  for (const w of SIMILE_WORDS) {
-    n += (text ?? '').split(w).length - 1;
-  }
-  return n;
+  return locateSimiles(text).reduce((n, h) => n + h.offsets.length, 0);
 }
 
 /** 「仿佛 2 次、犹如 1 次」——说明里用，0 次的不列。 */
 export function describeSimiles(text: string): string {
-  return SIMILE_WORDS.map((w) => [w, (text ?? '').split(w).length - 1] as const)
-    .filter(([, n]) => n > 0)
-    .map(([w, n]) => `「${w}」${n} 次`)
+  return locateSimiles(text)
+    .filter((h) => h.offsets.length > 0)
+    .map((h) => `「${h.term}」${h.offsets.length} 次`)
     .join('、');
 }
 
@@ -123,8 +197,8 @@ export function bannedTerms(input: { styleBanList?: string; guidance?: string; g
 
 /** 这段文字里用到了哪几个禁用词、各几次（0 次的不列），按出现次数从多到少。 */
 export function countBanned(text: string, terms: readonly string[]): { term: string; count: number }[] {
-  return terms
-    .map((term) => ({ term, count: (text ?? '').split(term).length - 1 }))
+  return locateTerms(text, terms)
+    .map((h) => ({ term: h.term, count: h.offsets.length }))
     .filter((x) => x.count > 0)
     .sort((a, b) => b.count - a.count);
 }
@@ -137,15 +211,24 @@ export function describeBanned(list: readonly { term: string; count: number }[])
 // ---------------------------------------------------------------- 拉丁字母缩写
 
 /**
- * 正文里连续两个以上大写拉丁字母组成的缩写（PTSD、CPU、DNA……），去重、按出现顺序。
- * 全角字母先折成半角再找。
+ * 正文里每一处连续两个以上大写拉丁字母组成的缩写（PTSD、CPU、DNA……），按出现顺序、不去重。
+ * 全角字母先折成半角再找（一个字换一个字，`start` / `end` 仍是原文的下标）；`term` 是折过的写法。
  */
-export function latinAcronyms(text: string): string[] {
+export function latinAcronymRanges(text: string): { term: string; start: number; end: number }[] {
   const half = (text ?? '').replace(/[Ａ-Ｚ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
-  const seen: string[] = [];
+  const out: { term: string; start: number; end: number }[] = [];
   for (const m of half.matchAll(/(?<![A-Za-z])[A-Z]{2,}(?![A-Za-z])/g)) {
-    if (!seen.includes(m[0])) {
-      seen.push(m[0]);
+    out.push({ term: m[0], start: m.index!, end: m.index! + m[0].length });
+  }
+  return out;
+}
+
+/** 正文里的拉丁字母缩写（{@link latinAcronymRanges}），去重、按出现顺序。 */
+export function latinAcronyms(text: string): string[] {
+  const seen: string[] = [];
+  for (const r of latinAcronymRanges(text)) {
+    if (!seen.includes(r.term)) {
+      seen.push(r.term);
     }
   }
   return seen;

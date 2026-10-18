@@ -6,6 +6,8 @@
  * - 「本章不出场」：后面几章才排到的人，本章与前面排过的不算；
  * - 提前登场：名字或两个字以上的别名出现了，引那一句；
  * - 回退点：与钩子最像的那一段起切；找不到切最后约四分之一；至少留一半；只有一段不切。
+ * - 找位置（内置编辑器的写作体检也打包这几个）：`locateTerms` 每个词各找各的、不重叠，与 `split` 数的一样多
+ *   （计数都建在它上面）；`foldCase` 只折拉丁字母、长度不变；`latinAcronymRanges` 每一处都给、位置是原文的。
  */
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -63,6 +65,84 @@ describe('manuscriptCheck · 拉丁字母缩写', () => {
 
   test('全角字母折成半角', () => {
     assert.deepEqual(m.latinAcronyms('严重的ＰＴＳＤ'), ['PTSD']);
+  });
+});
+
+describe('manuscriptCheck · 找位置（计数都建在它上面）', () => {
+  test('每个词各找各的、从左往右、不重叠；叠在同一段字上的两个词各算各的', () => {
+    const hits = m.locateTerms('数据库里的数据，数据数据', ['数据', '数据库', '没有']);
+    assert.deepEqual(JSON.parse(JSON.stringify(hits)), [
+      { term: '数据', offsets: [0, 5, 8, 10] },
+      { term: '数据库', offsets: [0] },
+      { term: '没有', offsets: [] },
+    ]);
+  });
+
+  test('同一个词不重叠：「aaa」里的「aa」只有一处（与 split 一样）', () => {
+    assert.deepEqual(m.locateTerms('aaaa', ['aa'])[0].offsets, [0, 2]);
+    assert.deepEqual(m.locateTerms('aaa', ['aa'])[0].offsets, [0]);
+  });
+
+  test('重复的词各给一份、空串没有命中、空文字不抛', () => {
+    const hits = m.locateTerms('能量能量', ['能量', '', '能量']);
+    assert.deepEqual(hits.map((h) => h.offsets), [[0, 2], [], [0, 2]]);
+    assert.deepEqual(m.locateTerms(undefined, ['能量'])[0].offsets, []);
+  });
+
+  test('与 split 数出来的一样多（固定样本 + 随机 300 段）', () => {
+    const alphabet = ['能', '量', '数', '据', 'a', 'b', '，', '仿', '佛'];
+    const terms = ['能量', '数据', '量能', 'ab', 'aa', '仿佛', '能'];
+    let seed = 7;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    for (let k = 0; k < 300; k++) {
+      const text = Array.from({ length: Math.floor(rand() * 60) }, () => alphabet[Math.floor(rand() * alphabet.length)]).join('');
+      const hits = m.locateTerms(text, terms);
+      for (const h of hits) {
+        assert.equal(h.offsets.length, text.split(h.term).length - 1, `${text} / ${h.term}`);
+        for (const at of h.offsets) {
+          assert.equal(text.slice(at, at + h.term.length), h.term);
+        }
+      }
+    }
+  });
+
+  test('foldCase：英文不分大小写、全角字母当半角；位置是原文的', () => {
+    const text = 'Hello HELLO ｈｅｌｌｏ ＨＥＬＬＯ hello';
+    assert.deepEqual(m.locateTerms(text, ['hello'], { foldCase: true })[0].offsets, [0, 6, 12, 18, 24]);
+    assert.deepEqual(m.locateTerms(text, ['HeLLo'], { foldCase: true })[0].offsets, [0, 6, 12, 18, 24]);
+    // 不折时区分大小写（禁用词就是这么数的）。
+    assert.deepEqual(m.locateTerms(text, ['hello'])[0].offsets, [24]);
+  });
+
+  test('foldLatin 只折拉丁字母、一个字换一个字', () => {
+    const text = 'ABCｘｙｚＸＹＺ能量Ωé';
+    const folded = m.foldLatin(text);
+    assert.equal(folded, 'abcxyzxyz能量Ωé');
+    assert.equal(folded.length, text.length);
+  });
+
+  test('countBanned / countSimiles / describeSimiles 的数与 locateTerms 一致', () => {
+    const text = '能量涌动，仿佛潮水；能量退去，犹如梦醒，仿佛未醒。';
+    assert.deepEqual(m.countBanned(text, ['能量', '神经']), [{ term: '能量', count: 2 }]);
+    assert.equal(m.countSimiles(text), 3);
+    assert.equal(m.describeSimiles(text), '「仿佛」2 次、「犹如」1 次');
+    assert.deepEqual(m.locateSimiles(text).filter((h) => h.offsets.length).map((h) => [h.term, h.offsets]), [
+      ['仿佛', [5, 20]],
+      ['犹如', [15]],
+    ]);
+  });
+
+  test('latinAcronymRanges：每一处都给、按出现顺序、全角的位置是原文的', () => {
+    const text = 'PTSD 与ＰＴＳＤ，还有CPU。';
+    assert.deepEqual(JSON.parse(JSON.stringify(m.latinAcronymRanges(text))), [
+      { term: 'PTSD', start: 0, end: 4 },
+      { term: 'PTSD', start: 6, end: 10 },
+      { term: 'CPU', start: 13, end: 16 },
+    ]);
+    assert.deepEqual(m.latinAcronyms(text), ['PTSD', 'CPU']);
   });
 });
 
