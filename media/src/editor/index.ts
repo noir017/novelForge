@@ -27,6 +27,7 @@ import { installChapterIndex } from './chapterIndex';
 import { installChapterNav, takeQuietOpen } from './chapterNav';
 import { installConflictMerge } from './conflictMerge';
 import { installFind } from './find';
+import { installLook } from './look';
 import { installParagraphTools } from './paragraph';
 import { installQuickOpen } from './quickOpen';
 import { installEditorReplace } from './replace';
@@ -278,6 +279,8 @@ function start(stage: HTMLElement): void {
 
   // 「转到…」（Ctrl+P）。要在上面那个 onMessage 之后装：editorOpen 先让编辑区收下文件，它才找得到该把焦点放进哪一块。
   installQuickOpen(post);
+  // 「视图」菜单的「外观」那一组（look.ts）：排版变量、编辑区里的字号快捷键、外观面板。
+  installLook();
 
   // ---------------------------------------------------------------- 启动
 

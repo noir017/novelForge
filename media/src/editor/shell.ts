@@ -38,18 +38,53 @@ export function collectShell(): Shell {
 
 // ---------------------------------------------------------------- 主题
 
-export function initTheme(shell: Shell): void {
-  const apply = (theme: 'dark' | 'light') => {
-    document.documentElement.dataset.theme = theme;
-    shell.themeBtn.textContent = theme === 'dark' ? '☀' : '☾';
-    shell.themeBtn.title = theme === 'dark' ? '切换到浅色主题' : '切换到深色主题';
-    try {
-      localStorage.setItem(THEME_KEY, theme);
-    } catch {
-      /* 存不下就只在本次会话生效 */
-    }
-  };
+/**
+ * 三套主题：深色、浅色、护眼（米黄）。切换只有这一条路——`<html data-theme>` 换值，`css/standalone/theme.css`
+ * 里每套一组变量；记在 localStorage `novelforge.theme`（从前就在那儿，不并进编辑器偏好）。标题栏那颗按钮按
+ * 深色 → 浅色 → 护眼 → 深色轮着换，外观面板（`lookPanel.ts`）里可以直接挑。护眼管整个界面，不只编辑区（⚑）：
+ * 一半米黄一半深色，交界处更刺眼。
+ */
+export type Theme = 'dark' | 'light' | 'sepia';
 
+export const THEMES: readonly Theme[] = ['dark', 'light', 'sepia'];
+
+export const THEME_LABEL: Record<Theme, string> = { dark: '深色', light: '浅色', sepia: '护眼（米黄）' };
+
+/** 按钮上画的是**下一套**的样子（与从前「深色时画 ☀」一致）。 */
+const THEME_ICON: Record<Theme, string> = { dark: '☾', light: '☀', sepia: '◐' };
+
+let themeBtn: HTMLElement | undefined;
+
+function isTheme(value: unknown): value is Theme {
+  return (THEMES as readonly unknown[]).includes(value);
+}
+
+function nextTheme(theme: Theme): Theme {
+  return THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+}
+
+export function currentTheme(): Theme {
+  const value = document.documentElement.dataset.theme;
+  return isTheme(value) ? value : 'dark';
+}
+
+/** 换主题并记下来。 */
+export function setTheme(theme: Theme): void {
+  document.documentElement.dataset.theme = theme;
+  if (themeBtn) {
+    const next = nextTheme(theme);
+    themeBtn.textContent = THEME_ICON[next];
+    themeBtn.title = `切换到${THEME_LABEL[next]}主题`;
+  }
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    /* 存不下就只在本次会话生效 */
+  }
+}
+
+export function initTheme(shell: Shell): void {
+  themeBtn = shell.themeBtn;
   let saved: string | null = null;
   try {
     saved = localStorage.getItem(THEME_KEY);
@@ -57,11 +92,9 @@ export function initTheme(shell: Shell): void {
     /* 读不到就跟随系统 */
   }
   const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)').matches;
-  apply(saved === 'light' || saved === 'dark' ? saved : prefersLight ? 'light' : 'dark');
+  setTheme(isTheme(saved) ? saved : prefersLight ? 'light' : 'dark');
 
-  shell.themeBtn.addEventListener('click', () => {
-    apply(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
-  });
+  shell.themeBtn.addEventListener('click', () => setTheme(nextTheme(currentTheme())));
 }
 
 // ---------------------------------------------------------------- 拖拽调宽

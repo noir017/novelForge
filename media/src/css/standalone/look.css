@@ -1,11 +1,11 @@
 /*
- * 正文的排版：字体、字号、行距、版心宽度、内边距是**一组 CSS 变量**，编辑区的 textarea、
+ * 正文的排版（editor/look.ts）：字体、字号、行距、版心宽度、内边距是**一组 CSS 变量**，编辑区的 textarea、
  * 高亮镜像层（highlight.ts 的 .ed-mirror-content，含量位置用的那一份）、Markdown 预览读同一组——下面那条规则
  * 三处共用，别给哪一处单写一份：镜像层要与 textarea 排得一模一样，画在它上面的高亮、从它上面量出来的位置才对得上。
  * 镜像层每次重画仍从 textarea 的计算样式抄一遍（两道保险，.mono 文件换了字体也跟得上）。
  *
- * 这里是缺省（与改造前写死的值一样）；要换正文的字体、字号、行距、版心，改的是这几个变量，不是哪一个元素。
- * 窄屏（narrow.css）改小的也是内边距那两个变量。
+ * 前四个由 look.ts 按偏好写在 <html> 上（lookCore.ts 的 LOOK_VARS），这里是缺省（与改造前写死的值一样）；
+ * 内边距不给作者调，窄屏（narrow.css）改小。
  */
 
 :root {
@@ -61,4 +61,99 @@
   line-height: 1.7;
   padding-left: var(--nf-ed-pad-x);
   padding-right: var(--nf-ed-pad-x);
+}
+
+/* ---- 外观面板（editor/lookPanel.ts）：面板样子是 modal.css 那一套；外面那一层透明、不拦点击，正文照样能点能滚。 */
+
+.ed-look-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 26;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 46px 18px 18px;
+  pointer-events: none;
+}
+
+.ed-look {
+  max-width: 360px;
+  pointer-events: auto;
+  box-shadow: var(--nf-shadow);
+}
+
+.ed-look .modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ed-look-x {
+  flex: 0 0 auto;
+}
+
+.ed-look-row {
+  display: grid;
+  grid-template-columns: 4.5em minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ed-look-label {
+  color: var(--vscode-descriptionForeground);
+}
+
+.ed-look-control {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ed-look-control select {
+  width: 100%;
+}
+
+.ed-look-inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ed-look-size {
+  width: 4.5em;
+}
+
+.ed-look-line {
+  flex: 1;
+  min-width: 120px;
+}
+
+.ed-look-unit {
+  color: var(--vscode-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+}
+
+.ed-look-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+
+.ed-look-note,
+.ed-look-hint {
+  margin: 0;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.ed-look .modal-foot {
+  align-items: center;
+  margin-top: 2px;
+}
+
+.ed-look .modal-foot .spacer {
+  flex: 1;
 }

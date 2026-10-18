@@ -10,9 +10,10 @@
  * - **镜像在下、textarea 在上**。textarea 背景透明（底色由编辑区外框给），文字照常画；镜像里的文字是
  *   透明的，只有 `<mark>` 的底色看得见。所以光标、选区、输入法、点击、右键全是 textarea 自己的，
  *   镜像 `pointer-events: none`，一点都不碰。
- * - **排得一模一样**：每次渲染都从 textarea 的**计算样式**抄字体、字号、行高、字距、内边距、
+ * - **排得一模一样**：字体、字号、行距、内边距（含版心）与 textarea 读同一组 CSS 变量（`css/standalone/look.css`
+ *   里那一条共用的规则，外观面板改的就是它们）；每次渲染还从 textarea 的**计算样式**抄字体、字号、行高、字距、内边距、
  *   `white-space` / 断行规则、`tab-size`（`.mono` 文件换了字体也跟得上）；宽度取 textarea 的
- *   内容区（扣掉竖滚动条），滚动用 `transform` 跟着 textarea 平移。
+ *   内容区（扣掉竖滚动条），滚动用 `transform` 跟着 textarea 平移。外观一变由 `relayoutMirror` 当场重抄。
  * - **命名图层**：查找用 `find`，日后的禁用词、段落聚焦各用各的名字，互相不覆盖；
  *   同一段字落在几层里时，那一段的 `<mark>` 带上这几层的 class。
  *
@@ -148,6 +149,17 @@ export function clearHighlights(pane: Pane, layer: string): void {
   const m = mirrors.get(pane);
   if (m?.layers.delete(layer)) {
     m.version++;
+    render(m);
+  }
+}
+
+/**
+ * 排版变了（外观面板改了字体、字号、行距、版心，`look.ts` 调）：当场按 textarea 新的计算样式重抄一遍、重摆位置。
+ * 尺寸没变的时候 `ResizeObserver` 不会叫，换了字号却必须重排。没造过镜像的什么都不做。
+ */
+export function relayoutMirror(pane: Pane): void {
+  const m = mirrors.get(pane);
+  if (m) {
     render(m);
   }
 }

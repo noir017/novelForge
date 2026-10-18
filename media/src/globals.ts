@@ -242,9 +242,11 @@ export interface ViewPrefsStatus {
   available: boolean;
   /** 单击打开为临时标签（按浏览器记，缺省开）。 */
   previewTabs: boolean;
+  /** 「外观」那一组（`editor/look.ts` 回答；没人回答就是 undefined，那组置灰）。 */
+  look?: LookStatus;
 }
 
-export type ViewCommandName = 'togglePreviewTabs';
+export type ViewCommandName = 'togglePreviewTabs' | LookCommandName;
 
 /** 问编辑器「视图」那几项的状态。editor.js 没装时不可用（开关按缺省算）。 */
 export function queryViewPrefs(): ViewPrefsStatus {
@@ -256,6 +258,19 @@ export function queryViewPrefs(): ViewPrefsStatus {
 export function commandViewPrefs(name: ViewCommandName): void {
   window.dispatchEvent(new CustomEvent('nf-view-command', { detail: { name } }));
 }
+
+/** 「视图 → 外观」：正文字号（另几项在外观面板里）。 */
+export interface LookStatus {
+  /** 当前字号（px）与缺省字号。 */
+  fontSize: number;
+  defaultFontSize: number;
+  /** 到上限 / 下限了没有（「放大 / 缩小字号」据此置灰）。 */
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+}
+
+/** `zoomIn` / `zoomOut` / `zoomReset` 字号放大、缩小、还原；`openLook` 打开外观面板。 */
+export type LookCommandName = 'zoomIn' | 'zoomOut' | 'zoomReset' | 'openLook';
 
 // ---------------------------------------------------------------- 「视图 → 统计」
 

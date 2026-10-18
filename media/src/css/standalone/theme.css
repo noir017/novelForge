@@ -122,3 +122,63 @@
   --nf-find-match: rgba(234, 92, 0, 0.33);
   --nf-find-current: #a8ac94;
 }
+
+/*
+ * 护眼（米黄）：浅色的一套，底色换成暖的米黄、字换成深棕，对比度照样够（正文约 9:1、次要文字约 4.5:1）。
+ * 管整个界面（⚑）：只换编辑区的话，旁边深色的侧栏与米黄的正文交界处反而更刺眼。切换与深 / 浅同一个机制
+ * （`<html data-theme>`，editor/shell.ts）。
+ */
+:root[data-theme='sepia'] {
+  color-scheme: light;
+
+  --vscode-foreground: #4a3f2e;
+  --vscode-descriptionForeground: #7a6a4f;
+  --vscode-errorForeground: #b3261e;
+  --vscode-focusBorder: #a0712f;
+
+  --vscode-editor-background: #f6efdc;
+  --vscode-sideBar-background: #efe6cf;
+  --vscode-editorWidget-background: #f2e9d3;
+  --vscode-panel-border: #e0d3b2;
+  --vscode-widget-border: #d6c7a2;
+
+  --vscode-input-background: #fbf7ec;
+  --vscode-input-foreground: #4a3f2e;
+  --vscode-input-border: #d6c7a2;
+
+  --vscode-button-background: #8a6534;
+  --vscode-button-foreground: #fffaf0;
+  --vscode-button-hoverBackground: #77562b;
+  --vscode-button-secondaryBackground: #e6dbbf;
+  --vscode-button-secondaryForeground: #4a3f2e;
+  --vscode-button-secondaryHoverBackground: #dccfae;
+
+  --vscode-badge-background: #dccfae;
+  --vscode-badge-foreground: #4a3f2e;
+
+  --vscode-list-hoverBackground: #ebe1c7;
+  --vscode-list-activeSelectionBackground: #e2d4ae;
+  --vscode-toolbar-hoverBackground: #e6dbbf;
+
+  --vscode-textLink-foreground: #8a5a1f;
+  --vscode-textCodeBlock-background: #ede3c9;
+
+  --vscode-editorWarning-foreground: #9a6b00;
+  --vscode-inputValidation-errorBorder: #b3261e;
+  --vscode-inputValidation-warningBackground: #f3e7bf;
+  --vscode-inputValidation-warningBorder: #b08a1e;
+  --vscode-testing-iconPassed: #3d7a35;
+
+  --vscode-notifications-background: #fbf7ec;
+  --vscode-notifications-border: #d6c7a2;
+
+  --nf-titlebar-background: #ebe1c8;
+  --nf-activitybar-background: #ebe1c8;
+  --nf-tab-active-background: #f6efdc;
+  --nf-tab-inactive-background: #e9dfc4;
+  --nf-scrollbar: rgba(120, 95, 60, 0.35);
+  --nf-scrollbar-hover: rgba(100, 78, 45, 0.6);
+  --nf-shadow: 0 8px 30px rgba(80, 60, 20, 0.2);
+  --nf-find-match: rgba(214, 120, 20, 0.28);
+  --nf-find-current: #d8bd73;
+}
