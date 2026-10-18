@@ -512,6 +512,45 @@ describe('「视图 → 补全」', { skip: JSDOM_SKIP }, () => {
   });
 });
 
+describe('名词补全：贴着光标、靠底翻上去', { skip: JSDOM_SKIP }, () => {
+  // `mirrorLayout` 假排版：量位置那一份镜像里第 n 行（从 0 数）的 offsetTop = 18 + n × 30，行高 30。
+  // 编辑区占满 300px 高的视口，框假装 120px 高。
+  let h;
+  before(() => {
+    h = harness({ shims: [...SHIMS, 'mirrorLayout'] });
+    const { window } = h.ui;
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 300 });
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 });
+    const base = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, 'offsetHeight');
+    Object.defineProperty(window.HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get() {
+        return this.classList.contains('nc-box') ? 120 : base.get.call(this);
+      },
+    });
+    h.area().getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 300, width: 800, height: 300, x: 0, y: 0 });
+  });
+
+  test('光标在上面：框放在那一行下面', () => {
+    h.open(CH, '林');
+    h.trigger();
+    h.serve();
+    // 第 0 行：顶 18、底 48，框在 48 + 2。
+    assert.equal(h.box().style.top, '50px');
+    assert.equal(h.box().classList.contains('nc-above'), false);
+    h.key({ key: 'Escape' });
+  });
+
+  test('光标靠近底边：翻到那一行上面', () => {
+    h.open('chapters/002-入镇.md', '一\n二\n三\n四\n五\n六\n七\n林');
+    h.trigger();
+    // 第 7 行：顶 228、底 258；下面只剩 34px，放不下 120px，翻上去：228 − 120 − 2。
+    assert.equal(h.box().style.top, '106px');
+    assert.equal(h.box().classList.contains('nc-above'), true);
+    h.key({ key: 'Escape' });
+  });
+});
+
 describe('名词补全：码字统计', { skip: JSDOM_SKIP }, () => {
   let h;
   const session = () => /本次 ([+-]?[\d,]+) 字/.exec(h.ui.doc.getElementById('edStatusWords').textContent)?.[1];

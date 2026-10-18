@@ -61,6 +61,8 @@ const PREF_KEY = 'nameAutoPopup';
 const REFRESH_THROTTLE_MS = 3000;
 /** 按了键、表还没到：等多久，之后到的不再弹。 */
 const PENDING_TRIGGER_MS = 3000;
+/** 问出去多久没回音就当丢了（断线时消息可能一直在 outbox 里）。 */
+const WAIT_GIVE_UP_MS = 10_000;
 
 const NOT_HERE = '名词补全只在正文、草稿、细纲、角色卡、设定、情节大纲与叙事线里用。';
 
@@ -81,9 +83,9 @@ function fresh(): boolean {
   return !!catalog && fetchedEpoch === epoch;
 }
 
-/** 表可能过期了就问一次（在路上的不重复问）。`throttle`：边打边弹时，手上有表就至多 3 秒问一次。 */
+/** 表可能过期了就问一次（在路上的不重复问；问出去 10 秒没回音——断线了——就当丢了，可以再问）。`throttle`：边打边弹时，手上有表就至多 3 秒问一次。 */
 function refresh(throttle: boolean): void {
-  if (fresh() || waiting) {
+  if (fresh() || (waiting && Date.now() - lastAsk < WAIT_GIVE_UP_MS)) {
     return;
   }
   if (throttle && catalog && Date.now() - lastAsk < REFRESH_THROTTLE_MS) {
@@ -224,11 +226,12 @@ function show(ctx: EditorContext, mode: Session['mode'], q: NameQuery): void {
     session = { pane: ctx.pane, file: ctx.file, mode, start: q.start, query: q.query, items: [], total: 0, active: 0, hidden: false, ...dom };
   }
   const s = session;
+  // 接着打字、表换了新的一份时尽量停在原来选中的那一个上（新表里的条目是新对象，按名字与来源认）。
   const keep = s.pane === ctx.pane && s.file === ctx.file ? s.items[s.active]?.item : undefined;
   Object.assign(s, { pane: ctx.pane, file: ctx.file, mode, start: q.start, query: q.query, hidden: false });
   s.items = result.items;
   s.total = result.total;
-  const kept = keep ? s.items.findIndex((c) => c.item === keep) : -1;
+  const kept = keep ? s.items.findIndex((c) => c.item.name === keep.name && c.item.source === keep.source) : -1;
   s.active = kept >= 0 ? kept : 0;
   render();
   position();
