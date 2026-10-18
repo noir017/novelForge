@@ -123,14 +123,7 @@ ${settingsPane(caps)}
       <button class="chip-btn" id="edConflictForce">用编辑器内容强制保存</button>
     </div>
 
-    <div class="ed-find hidden" id="edFind">
-      <input type="search" id="edFindInput" placeholder="查找">
-      <span class="ed-find-count" id="edFindCount"></span>
-      <button type="button" class="chip-btn" id="edFindPrev">上一个</button>
-      <button type="button" class="chip-btn" id="edFindNext">下一个</button>
-      <button type="button" class="chip-btn" id="edFindClose" title="关闭查找">×</button>
-    </div>
-
+    <!-- 查找替换条不写在这里：两块编辑区的那一条都由 editor.js 的 find.ts 现造（DOM 只生成一份）。 -->
     <div class="ed-stage">
       <div class="nf-welcome" id="nfWelcome">
         <div class="nf-welcome-col">

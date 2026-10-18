@@ -154,6 +154,7 @@ function entriesOf(key: string): MenuEntry[] {
       { label: '全选', action: 'selectAll', disabled: !editing, kbd: 'Ctrl+A' },
       { label: 'sep' },
       { label: '查找', action: 'find', disabled: !ws, kbd: 'Ctrl+F' },
+      { label: '替换', action: 'replace', disabled: !ws, kbd: 'Ctrl+H' },
     ];
   }
   return [
@@ -312,6 +313,9 @@ function run(action: MenuAction): void {
       return;
     case 'find':
       commandEditor('find');
+      return;
+    case 'replace':
+      commandEditor('replace');
       return;
     case 'welcome':
       showWelcome();

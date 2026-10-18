@@ -40,8 +40,11 @@ export interface EditorStatus {
   areaFocused: boolean;
 }
 
-/** `undo` / `redo` 作用于当前那块编辑区的当前文件（编辑器自己记的历史，不是浏览器原生的）。 */
-export type EditorCommandName = 'save' | 'saveAll' | 'close' | 'find' | 'undo' | 'redo';
+/**
+ * `undo` / `redo` 作用于当前那块编辑区的当前文件（编辑器自己记的历史，不是浏览器原生的）；
+ * `find` / `replace` 打开那一块的查找条（`replace` 连替换行一起展开）。
+ */
+export type EditorCommandName = 'save' | 'saveAll' | 'close' | 'find' | 'replace' | 'undo' | 'redo';
 
 declare global {
   interface Window {

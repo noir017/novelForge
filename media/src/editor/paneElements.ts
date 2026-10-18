@@ -27,12 +27,6 @@ export interface PaneRefs {
   conflictText: HTMLElement;
   conflictTake: HTMLButtonElement;
   conflictForce: HTMLButtonElement;
-  find: HTMLElement;
-  findInput: HTMLInputElement;
-  findCount: HTMLElement;
-  findPrev: HTMLButtonElement;
-  findNext: HTMLButtonElement;
-  findClose: HTMLButtonElement;
   statusWords: HTMLElement;
   statusPos: HTMLElement;
   statusSave: HTMLElement;
@@ -110,12 +104,6 @@ export function mainRefs(root: HTMLElement): PaneRefs {
     conflictText: byId('edConflictText'),
     conflictTake: byId('edConflictTake'),
     conflictForce: byId('edConflictForce'),
-    find: byId('edFind'),
-    findInput: byId<HTMLInputElement>('edFindInput'),
-    findCount: byId('edFindCount'),
-    findPrev: byId<HTMLButtonElement>('edFindPrev'),
-    findNext: byId<HTMLButtonElement>('edFindNext'),
-    findClose: byId<HTMLButtonElement>('edFindClose'),
     statusWords: byId('edStatusWords'),
     statusPos: byId('edStatusPos'),
     statusSave: byId('edStatusSave'),
@@ -152,17 +140,7 @@ export function createPaneElements(welcomeText: string): PaneRefs {
   const conflictForce = el('button', 'chip-btn', '用编辑器内容强制保存');
   conflict.append(conflictText, conflictTake, conflictForce);
 
-  const find = el('div', 'ed-find hidden');
-  const findInput = document.createElement('input');
-  findInput.type = 'search';
-  findInput.placeholder = '查找';
-  const findCount = el('span', 'ed-find-count');
-  const findPrev = el('button', 'chip-btn', '上一个');
-  const findNext = el('button', 'chip-btn', '下一个');
-  const findClose = el('button', 'chip-btn', '×');
-  findClose.title = '关闭查找';
-  find.append(findInput, findCount, findPrev, findNext, findClose);
-
+  // 查找替换条不在这里：两块编辑区都由 find.ts 第一次用到时现造（DOM 只在那里生成一份）。
   const stage = el('div', 'ed-stage');
   const welcome = el('div', 'ed-welcome');
   welcome.appendChild(el('h2', undefined, welcomeText));
@@ -179,12 +157,11 @@ export function createPaneElements(welcomeText: string): PaneRefs {
   const statusSave = el('span', 'ed-save-state');
   status.append(statusFile, statusWords, spacer(), statusPos, statusSave);
 
-  root.append(tabs, toolbar, conflict, find, stage, status);
+  root.append(tabs, toolbar, conflict, stage, status);
 
   return {
     root, tabs, toolbar, path, saveBtn, revertBtn, previewBtn, draftBtn, externalBtn,
     area, preview, welcome, conflict, conflictText, conflictTake, conflictForce,
-    find, findInput, findCount, findPrev, findNext, findClose,
     statusWords, statusPos, statusSave, statusFile,
   };
 }

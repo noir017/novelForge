@@ -112,7 +112,6 @@ export function createPane(
     redo,
     save,
     savePath,
-    showFind,
     reveal,
     applySaved,
     applyConflict,
@@ -731,16 +730,6 @@ export function createPane(
     });
   }
 
-  function showFind(): void {
-    setHidden(el.find, false);
-    el.findInput.focus();
-    el.findInput.select();
-  }
-
-  function hideFind(): void {
-    setHidden(el.find, true);
-  }
-
   /**
    * 选中引文那一句。按编辑区里**当下**的文字找（可能有没保存的修改）；预览模式先切回编辑。
    * 滚动用高亮镜像层量出那一句的纵向位置（`highlight.ts` 的 `scrollToOffset`），停在视口偏上三分之一。
@@ -762,58 +751,6 @@ export function createPane(
     stashCaret();
     return true;
   }
-
-  function findStep(dir: 1 | -1): void {
-    const q = el.findInput.value;
-    const hay = el.area.value;
-    if (!q) {
-      el.findCount.textContent = '';
-      return;
-    }
-    const from = dir === 1 ? el.area.selectionEnd : Math.max(0, el.area.selectionStart - q.length);
-    let idx = dir === 1 ? hay.indexOf(q, from) : hay.lastIndexOf(q, Math.max(0, from - 1));
-    if (idx === -1) {
-      idx = dir === 1 ? hay.indexOf(q) : hay.lastIndexOf(q);
-    }
-    if (idx === -1) {
-      el.findCount.textContent = '无结果';
-      return;
-    }
-    el.area.focus();
-    el.area.setSelectionRange(idx, idx + q.length);
-    let n = 0;
-    let current = 0;
-    let at = 0;
-    while (at <= hay.length) {
-      const next = hay.indexOf(q, at);
-      if (next === -1) {
-        break;
-      }
-      n++;
-      if (next === idx) {
-        current = n;
-      }
-      at = next + (q.length || 1);
-    }
-    el.findCount.textContent = `${current}/${n}`;
-  }
-
-  el.findPrev.addEventListener('click', () => findStep(-1));
-  el.findNext.addEventListener('click', () => findStep(1));
-  el.findClose.addEventListener('click', hideFind);
-  el.findInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      findStep(e.shiftKey ? -1 : 1);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      hideFind();
-    }
-  });
-  el.findInput.addEventListener('input', () => {
-    el.area.selectionStart = el.area.selectionEnd = 0;
-    findStep(1);
-  });
 
   function applySaved(incoming: EditorFileView): void {
     const file = files.get(incoming.path);

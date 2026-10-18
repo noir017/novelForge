@@ -63,6 +63,9 @@
   --nf-scrollbar-hover: rgba(100, 100, 100, 0.7);
   --nf-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
   --nf-side-width: 460px;
+  /* 编辑区里查找的高亮（highlight.css）：全部匹配 / 当前那一处。取 Dark Modern 的 findMatch 两色。 */
+  --nf-find-match: rgba(234, 92, 0, 0.33);
+  --nf-find-current: #9e6a03;
 }
 
 :root[data-theme='light'] {
@@ -116,4 +119,6 @@
   --nf-scrollbar: rgba(100, 100, 100, 0.35);
   --nf-scrollbar-hover: rgba(80, 80, 80, 0.6);
   --nf-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  --nf-find-match: rgba(234, 92, 0, 0.33);
+  --nf-find-current: #a8ac94;
 }

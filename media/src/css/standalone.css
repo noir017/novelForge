@@ -21,6 +21,7 @@
 /* 内置编辑器与资源管理器（这两块 DOM 只有独立版才有） */
 @import './standalone/editor.css';
 @import './standalone/highlight.css';
+@import './standalone/find.css';
 @import './standalone/preview.css';
 @import './standalone/explorer.css';
 @import './standalone/merge.css';

@@ -1,0 +1,99 @@
+/*
+ * 查找替换条（editor/find.ts）：每块编辑区各一条，只作用于这一块的当前文件，不做工作区搜索。
+ * DOM 由 find.ts 现造（两块编辑区同一个生成函数），插在 .ed-stage 前面。
+ */
+
+.ed-find {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editorWidget-background);
+}
+
+.ed-find-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ed-find input {
+  flex: 1;
+  width: auto;
+  min-width: 80px;
+  padding: 3px 6px;
+}
+
+.ed-find input.invalid {
+  outline: 1px solid var(--vscode-inputValidation-errorBorder);
+  outline-offset: -1px;
+}
+
+/* 展开 / 收起替换行的小三角；替换行同一位置留一格空，让两个输入框左边对齐。 */
+.ed-find-toggle,
+.ed-find-gap {
+  flex: 0 0 18px;
+  width: 18px;
+}
+
+.ed-find-toggle {
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.8em;
+  cursor: pointer;
+}
+
+.ed-find-toggle:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+  color: var(--vscode-foreground);
+}
+
+/* 「Aa」「.*」两颗开关：按下去描边 + 底色。 */
+.ed-find-opt {
+  flex: 0 0 auto;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-editor-font-family);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ed-find-opt:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+  color: var(--vscode-foreground);
+}
+
+.ed-find-opt.on {
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-foreground);
+}
+
+.ed-find-count {
+  flex: 0 0 auto;
+  min-width: 3.5em;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* 正则写错了 / 文件太大不画高亮。 */
+.ed-find-note {
+  padding-left: 24px;
+  color: var(--vscode-editorWarning-foreground);
+  font-size: 12px;
+}

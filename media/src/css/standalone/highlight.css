@@ -39,3 +39,11 @@
 }
 
 /* ---- 各图层的颜色。新图层（禁用词、段落聚焦……）在这里加一组。 */
+
+.ed-mirror mark.ed-hl-find {
+  background: var(--nf-find-match);
+}
+
+.ed-mirror mark.ed-hl-find-current {
+  background: var(--nf-find-current);
+}

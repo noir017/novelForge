@@ -21,6 +21,7 @@ import { toast } from '../globals';
 import { isImeComposing } from './api';
 import { createPane } from './pane';
 import { installChapterBar } from './chapterBar';
+import { installFind } from './find';
 import { createPaneElements, mainRefs } from './paneElements';
 import type { CarriedDraft } from './paneElements';
 import {
@@ -62,6 +63,8 @@ function start(stage: HTMLElement): void {
   setActivePane(registerPane(createPane('main', mainRefs(stage), post)));
   // 正开着某一章的正文或细纲时，主区顶上那一条（W6 章节工作台）。
   installChapterBar(stage, post);
+  // 查找替换（Ctrl+F / Ctrl+H / F3、「编辑」菜单的查找 / 替换）。
+  installFind();
 
   /**
    * 第二块编辑区惰性创建：没用过的人不该多出一块空编辑区。它放草稿，也放点开一章时
@@ -91,9 +94,6 @@ function start(stage: HTMLElement): void {
       if (activePane.activeFile()) {
         activePane.save(false);
       }
-    } else if (key === 'f') {
-      e.preventDefault();
-      activePane.showFind();
     } else if (key === 'w' && activePane.activeFile()) {
       // Chrome 不允许拦 Ctrl+W，能拦到就顺手关标签页。
       e.preventDefault();
@@ -124,8 +124,6 @@ function start(stage: HTMLElement): void {
       }
     } else if (name === 'close' && activePane.activePath) {
       activePane.closeFile(activePane.activePath);
-    } else if (name === 'find') {
-      activePane.showFind();
     } else if (name === 'undo') {
       activePane.undo();
     } else if (name === 'redo') {
