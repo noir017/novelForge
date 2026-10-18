@@ -139,6 +139,8 @@ export type EditorEvent =
   /**
    * 某块编辑区里某份文件的内容变了（已经写进 `file.draft`，若是当前文件也已写进 textarea）。
    * `change` 是这一处改动（位置按改动之前的文字算）；撤销 / 重做可能一次退好几处，不给。
+   * 输入法组字中途（拼音还没上屏）也会发 `source: 'composition'` 好让显示跟上，但**不带 `change`**；
+   * 上屏的那一下才带——要对「用户刚输入了什么」做反应（例如成对标点）的，只认带 `change` 的。
    */
   | { type: 'edit'; pane: Pane; file: OpenFile; source: EditSource; change?: TextChange }
   /** 这块编辑区重画了：换了文件、开 / 关了标签、切了预览、保存回执到了……当前文件取 `editorOf(pane)`。 */
