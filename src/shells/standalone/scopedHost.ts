@@ -3,7 +3,7 @@ import { ConfigStore } from '../../core/config';
 import { Disposable, Host, InputOptions, MergeTextsOptions, PickChoice, ReviewVerdict } from '../../core/host';
 import { NovelProject } from '../../core/model/project';
 import { Attachment } from '../../core/model/session';
-import { EditorFileCheck, EditorPane } from '../../core/protocol';
+import { EditorFileCheck, EditorOpenIntent, EditorPane } from '../../core/protocol';
 import { FileHost } from './fileHost';
 
 /**
@@ -67,8 +67,8 @@ export class ScopedHost implements Host {
     return this.target.watch(project, onChange);
   }
 
-  openFile(relPath: string): Promise<void> {
-    return this.target.openFile(relPath);
+  openFile(relPath: string, intent?: EditorOpenIntent): Promise<void> {
+    return this.target.openFile(relPath, intent);
   }
 
   toast(message: string, level?: 'info' | 'error'): void {
@@ -87,12 +87,12 @@ export class ScopedHost implements Host {
     return this.target.pickHostFile(opts);
   }
 
-  openInEditor(relPath: string, pane?: EditorPane): Promise<void> {
-    return this.target.openInEditor(relPath, pane);
+  openInEditor(relPath: string, pane?: EditorPane, intent?: EditorOpenIntent): Promise<void> {
+    return this.target.openInEditor(relPath, pane, intent);
   }
 
-  openBeside(relPath: string): Promise<void> {
-    return this.target.openBeside(relPath);
+  openBeside(relPath: string, intent?: EditorOpenIntent): Promise<void> {
+    return this.target.openBeside(relPath, intent);
   }
 
   saveFromEditor(relPath: string, text: string, baseHash?: string, opts?: { recreate?: boolean }): Promise<void> {

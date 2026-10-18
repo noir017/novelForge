@@ -1,7 +1,7 @@
 import { ConfigStore, initConfigFromHost } from './config';
 import { NovelProject } from './model/project';
 import { Attachment } from './model/session';
-import { EditorFileCheck, EditorPane } from './protocol';
+import { EditorFileCheck, EditorOpenIntent, EditorPane } from './protocol';
 
 /**
  * core 对宿主的唯一依赖面。VS Code 插件与独立 Web 服务各实现一份。
@@ -54,8 +54,11 @@ export interface Host {
   progress<T>(title: string, fn: (signal: AbortSignal, report: (message: string) => void) => Promise<T>): Promise<T>;
   /** 监听工程目录变化（章节/元数据）。onChange 的防抖由实现方负责。 */
   watch(project: NovelProject, onChange: () => void): Disposable;
-  /** 打开某相对路径文件。独立版降级为 toast 提示路径。 */
-  openFile(relPath: string): Promise<void>;
+  /**
+   * 打开某相对路径文件。独立版降级为 toast 提示路径。
+   * `intent`（临时标签 / 原位换掉）只有内置编辑器认，原样带回 `editorOpen`；别的宿主不管它。
+   */
+  openFile(relPath: string, intent?: EditorOpenIntent): Promise<void>;
   toast(message: string, level?: 'info' | 'error'): void;
 
   /** 「加入选区」：插件取编辑器选区；独立版弹粘贴框。返回 undefined 表示放弃。 */
@@ -75,16 +78,16 @@ export interface Host {
    * 插件壳不实现——那边 openFile 已经开的是 VS Code 真正的编辑器 tab，
    * controller 会自动回落到 openFile。
    *
-   * `pane` 只有独立版认：指明开在主区还是草稿区。
+   * `pane` 只有独立版认：指明开在主区还是草稿区。`intent` 原样带回 `editorOpen`（见 `EditorOpenIntent`）。
    */
-  openInEditor?(relPath: string, pane?: EditorPane): Promise<void>;
+  openInEditor?(relPath: string, pane?: EditorPane, intent?: EditorOpenIntent): Promise<void>;
   /**
    * 「在旁边打开」：与当前正在编辑的文件并列显示。草稿走这一条。
    *
    * 插件用 ViewColumn.Beside 开第二栏，独立版开第二块编辑区。
    * 宿主不实现时 controller 回落到 openFile（退化为普通打开，不并列）。
    */
-  openBeside?(relPath: string): Promise<void>;
+  openBeside?(relPath: string, intent?: EditorOpenIntent): Promise<void>;
   /**
    * 保存内置编辑器的内容。只有提供 openInEditor 的宿主才需要实现。
    * 带了 `baseHash`、磁盘上却没有这个文件时不重建（回 `editorDiskGone`），`opts.recreate` 才重建。

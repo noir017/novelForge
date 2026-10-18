@@ -5,12 +5,14 @@ import type { SkillSource, SkillStage } from '../model/writingSkill';
 import type { ArtifactKind } from '../workspace/kind';
 import type { QuickOpenIndex } from './quickOpen';
 import type {
+  EditorOpenIntent,
   EditorPane,
   SerializedAttachment,
   SettingsPayload,
   Tab,
 } from './in';
 import type {
+  ChapterIndexEntry,
   PlotPipelineView,
   PlotSummaryView,
   NextStepView,
@@ -154,6 +156,12 @@ export type OutMessage =
   | { type: 'busy'; value: boolean }
   | { type: 'attachments'; items: SerializedAttachment[] }
   | { type: 'project'; tree: ProjectTree }
+  /**
+   * 内置编辑器的章节索引（章节条、上一章 / 下一章）：一个章号一行，升序。**哪个页签都推**——工程树只在
+   * 「工程」页签开着时推，作者大多待在对话页。随 `init` 推一次，之后每次 `pushState` 都算（与 `state` 里
+   * 目标下拉那份同一趟流水线索引，不多读盘），**内容变了才推**。
+   */
+  | { type: 'chapterIndex'; chapters: ChapterIndexEntry[] }
   | { type: 'summary'; summary: PlotSummaryView }
   /** 回 `requestQuickOpen`：「转到…」面板要的索引。认不出的 `requestId` 前端静默丢弃（另一个视图要的）。 */
   | { type: 'quickOpenIndex'; requestId: string; index: QuickOpenIndex }
@@ -172,7 +180,8 @@ export type OutMessage =
   /** 「检查」的结果：给了 `inspection` 是检查成了（不等于装得了，见 `blockers`），给了 `error` 是没检查成。 */
   | { type: 'skillInspection'; url: string; inspection?: SkillInspectionView; error?: string }
   | { type: 'toast'; message: string; level: 'info' | 'error' }
-  | { type: 'editorOpen'; file: EditorFileView; pane?: EditorPane }
+  /** `preview` / `replace` 是打开请求上带的那两个标记（`EditorOpenIntent`），原样带回。 */
+  | ({ type: 'editorOpen'; file: EditorFileView; pane?: EditorPane } & EditorOpenIntent)
   | { type: 'editorSaved'; file: EditorFileView }
   | { type: 'editorConflict'; path: string; diskText: string; diskHash: string }
   | { type: 'editorError'; path: string; message: string }
@@ -377,4 +386,25 @@ export interface EditorFileView {
    * 同一条原则：后端才知道什么算章节）。没打开工程时省略，前端当非正文。
    */
   kind?: ArtifactKind;
+  /**
+   * 标签与工具栏上怎么称呼这份文件（`views/editorLabel.ts`，按 `kindOfPath` 与章节 / 细纲的文件名规则算）。
+   * 与 `kind`、`draftPath` 同一条原则：前端不拿路径猜。没打开工程时省略，前端退回文件名与原始路径。
+   */
+  label?: EditorFileLabel;
+}
+
+/** 内置编辑器工具栏面包屑的一段。带 `dir`（工程内相对路径）的是目录，点了在「文件」页定位到它。 */
+export interface EditorCrumb {
+  label: string;
+  dir?: string;
+}
+
+/** 内置编辑器上这份文件的称呼。 */
+export interface EditorFileLabel {
+  /** 标签上名字前面那一小格：细纲「细纲」、草稿「草稿」、角色「角色」……正文与有中文称呼的固定文件不带（空串）。 */
+  tag: string;
+  /** 标签上的名字：去掉扩展名的文件名；架构几件、情节大纲这类固定文件是中文称呼；认不出的文件是原文件名。 */
+  title: string;
+  /** 工具栏面包屑：「细纲 › 第一卷 › 第 3 章 夜访」「角色 › 林晚」。 */
+  crumbs: EditorCrumb[];
 }

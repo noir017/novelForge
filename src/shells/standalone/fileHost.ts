@@ -16,7 +16,8 @@ import { isChapterFileName } from '../../core/model/chapterFile';
 import { NovelProject } from '../../core/model/project';
 import { locateQuote } from '../../core/model/review';
 import { Attachment } from '../../core/model/session';
-import { EditorFileCheck, EditorPane, OutMessage } from '../../core/protocol';
+import { EditorFileCheck, EditorFileView, EditorOpenIntent, EditorPane, OutMessage } from '../../core/protocol';
+import { describeEditorFile } from '../../core/views/editorLabel';
 import { shouldIgnoreChange } from '../../core/watchPolicy';
 import { ArtifactKind, kindOfPath } from '../../core/workspace/kind';
 import { PromptHub } from './promptHub';
@@ -185,16 +186,19 @@ export class FileHost implements Host {
    * 这里刻意让 openFile 也走编辑器：controller 里「采纳写入后打开」
    * 「点章节名」「点上下文条目」全都调它，改这一处，三处都对。
    */
-  async openFile(relPath: string): Promise<void> {
+  async openFile(relPath: string, intent?: EditorOpenIntent): Promise<void> {
     if (isEditablePath(relPath)) {
-      await this.openInEditor(relPath);
+      await this.openInEditor(relPath, undefined, intent);
       return;
     }
     await this.openExternal(relPath);
   }
 
-  /** 读一份快照广播给前端，网页里开标签页。失败只报错，不抛给 controller。 */
-  async openInEditor(relPath: string, pane?: EditorPane): Promise<void> {
+  /**
+   * 读一份快照广播给前端，网页里开标签页。失败只报错，不抛给 controller。
+   * `intent`（临时标签 / 原位换掉）后端不看，原样带回 `editorOpen`，由内置编辑器决定新开还是复用。
+   */
+  async openInEditor(relPath: string, pane?: EditorPane, intent?: EditorOpenIntent): Promise<void> {
     if (!this.root) {
       this.broadcastMsg({ type: 'editorError', path: relPath, message: '请先打开文件夹' });
       return;
@@ -203,8 +207,10 @@ export class FileHost implements Host {
       const file = await readFileForEditor(this.root, relPath);
       this.broadcastMsg({
         type: 'editorOpen',
-        file: { ...file, draftPath: this.draftPathOf(file.path), kind: this.kindOf(file.path) },
+        file: this.viewOf(file),
         pane,
+        ...(intent?.preview ? { preview: true } : {}),
+        ...(intent?.replace ? { replace: intent.replace } : {}),
       });
     } catch (err) {
       if (err instanceof FileEditError) {
@@ -216,12 +222,26 @@ export class FileHost implements Host {
   }
 
   /** 「在旁边打开」= 开在第二块编辑区（草稿区）。 */
-  async openBeside(relPath: string): Promise<void> {
+  async openBeside(relPath: string, intent?: EditorOpenIntent): Promise<void> {
     if (!isEditablePath(relPath)) {
       await this.openExternal(relPath);
       return;
     }
-    await this.openInEditor(relPath, 'draft');
+    await this.openInEditor(relPath, 'draft', intent);
+  }
+
+  /**
+   * 推给内置编辑器的那一份：磁盘上读来的内容，加上后端才说得清的三样——草稿在哪（`draftPath`）、
+   * 是什么（`kind`）、怎么称呼（`label`：标签上的短标记与名字、工具栏的面包屑）。`editorOpen` /
+   * `editorSaved` / `editorDiskChanged` 三处同一个形状，漏一处前端就会在保存一次之后忘掉。
+   */
+  private viewOf(file: EditorFileView): EditorFileView {
+    return {
+      ...file,
+      draftPath: this.draftPathOf(file.path),
+      kind: this.kindOf(file.path),
+      ...(this.project ? { label: describeEditorFile(this.project, file.path) } : {}),
+    };
   }
 
   /**
@@ -260,12 +280,9 @@ export class FileHost implements Host {
     }
     try {
       const file = await writeFileFromEditor(this.root, relPath, text, baseHash, opts);
-      // draftPath 与 kind 要一并带回：前端的保存分支只更新 text/hash，
+      // draftPath、kind 与 label 要一并带回：前端的保存分支只更新 text/hash，
       // 这里漏掉 draftPath 的话工具栏上的「草稿」按钮会在首次保存后消失。
-      this.broadcastMsg({
-        type: 'editorSaved',
-        file: { ...file, draftPath: this.draftPathOf(file.path), kind: this.kindOf(file.path) },
-      });
+      this.broadcastMsg({ type: 'editorSaved', file: this.viewOf(file) });
     } catch (err) {
       if (err instanceof FileGoneError) {
         this.broadcastMsg({ type: 'editorDiskGone', path: relPath });
@@ -298,10 +315,7 @@ export class FileHost implements Host {
     }
     const report = await checkEditorFiles(this.root, files);
     for (const file of report.changed) {
-      this.broadcastMsg({
-        type: 'editorDiskChanged',
-        file: { ...file, draftPath: this.draftPathOf(file.path), kind: this.kindOf(file.path) },
-      });
+      this.broadcastMsg({ type: 'editorDiskChanged', file: this.viewOf(file) });
     }
     for (const gone of report.gone) {
       this.broadcastMsg({ type: 'editorDiskGone', path: gone });

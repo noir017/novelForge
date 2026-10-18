@@ -2,6 +2,7 @@ export type {
   ChapterAction,
   CharacterAction,
   EditorFileCheck,
+  EditorOpenIntent,
   EditorPane,
   FileAction,
   InMessage,
@@ -13,6 +14,8 @@ export type {
 } from './in';
 
 export type {
+  EditorCrumb,
+  EditorFileLabel,
   EditorFileView,
   FileOpResult,
   HostDirEntry,
@@ -30,6 +33,7 @@ export type {
 export type {
   ArchitectureRow,
   BookView,
+  ChapterIndexEntry,
   IdeaDefaults,
   ThreadsView,
   CastConflictView,

@@ -180,6 +180,15 @@ export interface ProjectPlotNode {
 }
 
 /**
+ * 内置编辑器的章节索引里的一行（`chapterIndex` 消息）：工程树那一行里章节条与上一章 / 下一章要的那几个字段，
+ * 由同一个函数算（`views/chapterIndex.ts`），两处说法一字不差。
+ */
+export type ChapterIndexEntry = Pick<
+  ProjectPlotNode,
+  'no' | 'label' | 'title' | 'relPath' | 'plotPath' | 'plotExists' | 'chapterPath' | 'wordCount' | 'targetWords' | 'stage'
+>;
+
+/**
  * 角色 / 设定两个区的树节点。
  *
  * **没有「章节节点」**：章节不在这棵树里——它与细纲合成了 `ProjectPlotNode`

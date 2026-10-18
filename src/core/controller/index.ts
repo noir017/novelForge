@@ -25,6 +25,7 @@ import {
   normalizeTarget,
 } from '../model/pipeline';
 import {
+  ChapterIndexEntry,
   InMessage,
   OutMessage,
   Tab,
@@ -33,6 +34,7 @@ import {
 import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
 import { buildPipelineIndex } from '../views/pipeline';
 import { buildQuickOpenIndex } from '../views/quickOpen';
+import { chapterIndexOf } from '../views/chapterIndex';
 import { DEFAULT_PARAGRAPH_STYLE } from '../model/paragraphFormat';
 import {
   chapterAction,
@@ -149,6 +151,11 @@ export class ChatController {
   watchedDirs: string[] = [];
   /** dispose 过了。异步挂载的订阅据此就地退订，不往死通道上挂。 */
   private disposed = false;
+  /**
+   * 上一次推出去的章节索引（JSON）。`pushState` 每次都算一份（与目标下拉同一趟流水线索引，不多读盘），
+   * 内容没变就不推——作者每存一次盘就跑一次 `pushState`，绝大多数时候章节的顺序、状态、字数都没动。
+   */
+  private chapterIndexSig: string | undefined;
 
   constructor(project: NovelProject) {
     this.project = project;
@@ -284,7 +291,10 @@ export class ChatController {
    * webview 被销毁重建或网页刷新/重连后，靠这一套消息即可恢复。
    */
   async resendFullState(): Promise<void> {
-    this.post({ type: 'init', state: await this.buildState() });
+    const snap = await this.snapshot();
+    this.post({ type: 'init', state: snap.state });
+    // 新连上的前端手上什么都没有：章节索引不论变没变都推一份。
+    this.pushChapterIndex(snap.chapters, true);
     this.post({ type: 'tab', tab: this.tab });
     this.post({ type: 'session', session: serializeSession(this.current) });
     this.post({ type: 'attachments', items: this.pending.map(serializeAttachment) });
@@ -423,8 +433,12 @@ export class ChatController {
         // 回落到 openFile —— 那边打开的本来就是 VS Code 真正的编辑器。
         const host = getHost();
         if (host.openInEditor) {
-          // reloadFile 不带 pane：重载哪一块由前端按 path 自己认。
-          await host.openInEditor(msg.path, msg.type === 'openEditor' ? msg.pane : undefined);
+          // reloadFile 不带 pane：重载哪一块由前端按 path 自己认。临时标签 / 原位换掉的标记原样带回。
+          await host.openInEditor(
+            msg.path,
+            msg.type === 'openEditor' ? msg.pane : undefined,
+            msg.type === 'openEditor' ? { preview: msg.preview, replace: msg.replace } : undefined
+          );
         } else {
           await host.openFile(msg.path);
         }
@@ -436,7 +450,7 @@ export class ChatController {
         return;
 
       case 'openChapter':
-        await openChapter(this, msg.plotRelPath);
+        await openChapter(this, msg.plotRelPath, { preview: msg.preview === true });
         return;
 
       case 'reviseChapter':
@@ -647,6 +661,14 @@ export class ChatController {
 
   /** @internal controller/ 同包用；壳不要读。 */
   async buildState(): Promise<ViewState> {
+    return (await this.snapshot()).state;
+  }
+
+  /**
+   * `ViewState` 与内置编辑器的章节索引：两样出自同一趟流水线索引（`buildPipelineIndex`，目标下拉框本来
+   * 就要它），章节索引只是从同一份 rows 里多投影几个字段。还不是小说工程时章节索引是空的。
+   */
+  private async snapshot(): Promise<{ state: ViewState; chapters: ChapterIndexEntry[] }> {
     const initialized = await this.project.isInitialized();
     const config = readConfig();
     const host = getHost();
@@ -663,16 +685,19 @@ export class ChatController {
 
     if (!initialized) {
       return {
-        initialized: false,
-        plots: [],
-        nextNo: 1,
-        staleCount: 0,
-        model: config.model,
-        modelLabel: '',
-        models,
-        contextWindow: 0,
-        maxOutputTokens: 0,
-        paragraphStyle: DEFAULT_PARAGRAPH_STYLE,
+        state: {
+          initialized: false,
+          plots: [],
+          nextNo: 1,
+          staleCount: 0,
+          model: config.model,
+          modelLabel: '',
+          models,
+          contextWindow: 0,
+          maxOutputTokens: 0,
+          paragraphStyle: DEFAULT_PARAGRAPH_STYLE,
+        },
+        chapters: [],
       };
     }
     // 目标下拉框：**一个章号一行**（细纲号 = 章号），顺序即时间线。
@@ -687,21 +712,39 @@ export class ChatController {
       relPath: p.plot.relPath,
     }));
     return {
-      initialized: true,
-      plots: rows,
-      nextNo: await this.project.nextPlotNo(),
-      staleCount: (await this.project.staleChapters()).length,
-      model: config.model,
-      modelLabel: describeProvider(config),
-      // 只在解析失败时给出说明——正常情况下不要在输入框下方堆红字。
-      modelIssue:
-        lmOnlyIssue ?? (config.active ? undefined : describeModelIssue(config.providers, config.model)),
-      models,
-      contextWindow: config.contextWindow,
-      maxOutputTokens: config.maxOutputTokens,
-      // 流水线索引那一趟已经读过 config.md，不另读。
-      paragraphStyle: book.paragraphStyle ?? DEFAULT_PARAGRAPH_STYLE,
+      state: {
+        initialized: true,
+        plots: rows,
+        nextNo: await this.project.nextPlotNo(),
+        staleCount: (await this.project.staleChapters()).length,
+        model: config.model,
+        modelLabel: describeProvider(config),
+        // 只在解析失败时给出说明——正常情况下不要在输入框下方堆红字。
+        modelIssue:
+          lmOnlyIssue ?? (config.active ? undefined : describeModelIssue(config.providers, config.model)),
+        models,
+        contextWindow: config.contextWindow,
+        maxOutputTokens: config.maxOutputTokens,
+        // 流水线索引那一趟已经读过 config.md，不另读。
+        paragraphStyle: book.paragraphStyle ?? DEFAULT_PARAGRAPH_STYLE,
+      },
+      chapters: chapterIndexOf(pipelineRows),
     };
+  }
+
+  /**
+   * 推章节索引（`chapterIndex`）。内容与上一次推的一样就不推；`force` 给新连上的前端。
+   *
+   * 为什么单独一条、不塞进 `ViewState`：`state` 每次 `pushState` 都整份推，而章节索引绝大多数时候没变；
+   * 为什么不复用工程树：那棵树要额外读角色卡、设定、草稿、叙事线、出场索引，只在「工程」页签开着时才推。
+   */
+  private pushChapterIndex(chapters: ChapterIndexEntry[], force = false): void {
+    const sig = JSON.stringify(chapters);
+    if (!force && sig === this.chapterIndexSig) {
+      return;
+    }
+    this.chapterIndexSig = sig;
+    this.post({ type: 'chapterIndex', chapters });
   }
 
   /**
@@ -713,8 +756,13 @@ export class ChatController {
    */
   async pushState(): Promise<void> {
     this.project.invalidate();
-    for (const host of this.hosts) {
-      host.post({ type: 'state', state: await this.buildState() });
+    if (this.hosts.size > 0) {
+      // 一份快照发给所有宿主（从前每个宿主各建一遍，结果一样）；章节索引跟着它，变了才推。
+      const snap = await this.snapshot();
+      for (const host of this.hosts) {
+        host.post({ type: 'state', state: snap.state });
+      }
+      this.pushChapterIndex(snap.chapters);
     }
     if (await this.project.isInitialized()) {
       try {

@@ -11,7 +11,7 @@ import { listDirs } from '../files/fileTree';
 import { copyInto, moveInto, renameAny } from '../files/projectFiles';
 import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
-import { FileOpResult, InMessage } from '../protocol';
+import { EditorOpenIntent, FileOpResult, InMessage } from '../protocol';
 import { retargetPlot } from './chat';
 import { Workspace } from '../workspace';
 import { parsePlotFileName } from '../model/plotFile';
@@ -80,8 +80,10 @@ export async function openDraft(c: ChatController, chapterRelPath: string): Prom
  *
  * 细纲是**正文镜像的那一份**（`summaries/` 下与正文相同的相对路径）；给的是章节路径时就认那个文件，
  * 同号的正文有两份也开得准。
+ *
+ * `intent.preview`：工程页单击那一行的名字，两份都开成临时标签（内置编辑器认，原样带回 `editorOpen`）。
  */
-export async function openChapter(c: ChatController, plotRelPath: string): Promise<void> {
+export async function openChapter(c: ChatController, plotRelPath: string, intent?: EditorOpenIntent): Promise<void> {
   const chapters = await c.project.listChapters();
   const direct = chapters.find((ch) => ch.relPath === plotRelPath);
   const no = direct?.order ?? chapterNoOf(plotRelPath);
@@ -92,13 +94,14 @@ export async function openChapter(c: ChatController, plotRelPath: string): Promi
     c.toast('这一章还没有细纲也没有正文。', 'error');
     return;
   }
+  const open = intent?.preview ? { preview: true } : undefined;
   if (!chapter) {
-    await host.openFile(plot!.relPath);
+    await host.openFile(plot!.relPath, open);
     return;
   }
-  await host.openFile(chapter.relPath);
+  await host.openFile(chapter.relPath, open);
   if (plot && host.openBeside) {
-    await host.openBeside(plot.relPath);
+    await host.openBeside(plot.relPath, open);
   }
   log.info(`打开第 ${chapter.order} 章`, `${chapter.relPath}${plot && host.openBeside ? ` ｜ 并排 ${plot.relPath}` : ''}`);
 }

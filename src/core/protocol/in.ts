@@ -52,6 +52,20 @@ export interface SerializedAttachment {
 
 export type EditorPane = 'main' | 'draft';
 
+/**
+ * 打开文件时前端带上、后端在 `editorOpen` 里**原样带回**的两个标记。后端不看它们，内置编辑器据此决定
+ * 新开一个标签还是复用一个（`media/src/editor/pane.ts` 的 `upsertFile`）。插件壳没有内置编辑器，带了也只是被忽略。
+ */
+export interface EditorOpenIntent {
+  /**
+   * 单击打开（工程页 / 文件页的一行）：临时标签——每块编辑区最多一个，下一次单击打开别的文件时换掉它；
+   * 在里面编辑、保存，或双击就转正。不带 = 正常标签（落盘后自动打开、点引文、「并排看细纲」、双击那一行）。
+   */
+  preview?: boolean;
+  /** 没改过就在原位置换掉这一份（上一章 / 下一章）：新的一份占它的位置。改过了就另开一个标签。 */
+  replace?: string;
+}
+
 /** `checkEditorFiles` 的一项：编辑器里开着的一份文件，以及编辑器知道的它在磁盘上的 hash。 */
 export interface EditorFileCheck {
   path: string;
@@ -85,13 +99,15 @@ export type InMessage =
   | { type: 'pickAttachment' }
   | { type: 'addSelection' }
   | { type: 'openFile'; path: string }
-  | { type: 'openEditor'; path: string; pane?: EditorPane }
+  /** `preview` / `replace` 见 {@link EditorOpenIntent}：后端原样带回 `editorOpen`。 */
+  | { type: 'openEditor'; path: string; pane?: EditorPane; preview?: boolean; replace?: string }
   | { type: 'openDraft'; path: string }
   /**
    * 打开一章（W6 章节工作台）：正文在主区、这一章的细纲并排在旁边。宿主没有「并排打开」
    * 这一项能力时只开一份。收的是这一章的细纲路径（还没有细纲时是它应该在的位置）。
+   * `preview`：工程页单击那一行的名字，两份都开成临时标签（原样带回 `editorOpen`）。
    */
-  | { type: 'openChapter'; plotRelPath: string }
+  | { type: 'openChapter'; plotRelPath: string; preview?: boolean }
   /**
    * 章节工作台工具条上的按钮：对这一章做一件事。`write` / `continue` / `rewrite` 等于对这一章
    * 按下主按钮（切到它的正文层、按那种写法发一轮生成），`finalize` 走定稿。

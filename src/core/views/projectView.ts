@@ -12,6 +12,7 @@ import { isOutlineFilled, outlineCoverage } from '../model/outlineFile';
 import { describeStateThrough } from '../model/characterState';
 import { countThreads, parseThreads } from '../model/threadsFile';
 import { buildBookFacts, buildPlotPipeline, buildPipelineIndex, chapterOfPlotNo } from './pipeline';
+import { chapterIndexEntryOf } from './chapterIndex';
 import {
   ArchitectureRow,
   CastConflictView,
@@ -115,18 +116,10 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     const chapterPath = p.chapter.relPath;
     const draftPath = chapterPath ? (project.draftRelPathFor(chapterPath) ?? '') : '';
     return {
-      no: p.no,
-      label: chapterLabel(p.no, p.title),
-      title: p.title,
-      relPath: chapterPath || p.plot.relPath,
-      plotPath: p.plot.relPath,
-      plotExists: p.plot.exists,
-      chapterPath,
-      wordCount: p.chapter.words,
-      targetWords: p.chapter.targetWords,
+      // 章节条、上一章 / 下一章用的那几个字段与这里同一个函数算（views/chapterIndex.ts）。
+      ...chapterIndexEntryOf(p),
       // 空章不算没定稿：那不是「定稿旧了」，是还没写。
       stale: p.chapter.words > 0 && p.summary.stale,
-      stage: p.stage,
       progress: p.progress,
       upstreamStale: p.plot.upstreamStale || p.chapter.upstreamStale,
       draftPath,
