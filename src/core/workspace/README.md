@@ -32,6 +32,10 @@
 
 八条守卫只在这条路上做。绕过去等于给自己开一个后门，**而后门在界面上看不出来**。
 
+功能层自己已经问过作者的覆盖（更新角色卡、提取角色合并已有卡的审阅采纳，批量更新时的「全部直接采纳」，章节改名时
+同步正文的 `# 标题` 行）也走 `write`，传 `mode: 'overwrite', review: false`：网关不再问第二次，但守卫照过、覆盖之前
+旧内容照样存一版历史。新建（如手动新建设定条目）传 `mode: 'create'`，同名报错退出。
+
 ## 八条守卫（`guard.ts`）
 
 | # | 守卫 | 触发时 |
@@ -119,11 +123,16 @@
 **`.gitignore`**：只在建出 `.novelforge/history/` 的那一次放（内容 `*`，Git 默认不收快照）。作者删掉它就是想让 Git
 收这些快照，之后不再补回来。
 
-**哪些写入存**：`write`（`overwrite` 与 `append`；编辑器保存、生成落盘、`edit`、`setParagraphStyle` 都走它）、`writePlot`
+**哪些写入存**：`write`（`overwrite` 与 `append`；编辑器保存、生成落盘、`edit`、`setParagraphStyle`，以及功能层审阅过的
+覆盖——更新角色卡、提取角色合并已有卡、章节改名时同步正文的 `# 标题` 行——都走它）、`writePlot`
 （换掉的是这一章原来那份，改标题时它在旧路径上）、`finalizePlot`、`writeCharacter` / `writeLore` / `writeStyleGuide` /
 `writeGlobalSummary` / `updateThreads` / `writeSkillBindings`（经私有的 `overwrite`）。**只改 frontmatter 一个键的记账**
-（`recordWrittenFrom` / `recordPreflightOk`）不存——它们不吞任何内容。网关之外直接写盘的几处（`features/characterCard.ts`
-更新角色卡等）不经这里，也就没有历史版本。
+（`recordWrittenFrom` / `recordPreflightOk`）不存——它们不吞任何内容。覆盖创作产物的写入都经网关；网关之外剩下的写盘
+要么只新建、不覆盖（新工程的空模板、「文件」页的复制、新建文件夹），要么不是创作产物（会话文件、`project.json`、工程库、
+工程外的配置与我的技能库），都不存历史版本。
+
+**快照按路径存，不跟着改名走**：章节改名时同步标题行存下的那一版挂在**旧路径**的镜像目录下，在新路径上打开「历史」面板
+看不到它（`move` 不搬历史目录）。
 
 **定稿写回两份都留**：`.trash/` 那一份照旧（永不裁剪，定稿完成提示里说的就是它），历史版本里也存一版——编辑器的
 「历史」面板里找得到、对比得了；八节整体换掉，节流拦不住它。
@@ -150,7 +159,8 @@
 上游是**大纲里覆盖本章的那一节**（`plotUpstreamHash` → `outlineUpstreamHash`，大纲
 没有区间标题时退回全书的指纹）——大纲一段一段续写，续写第 21–40 章不该让前 20 章
 的细纲挂 ⟳。正文那一环（`writtenFrom`）由正文落盘那一步记（`recordWrittenFrom`），
-作者在编辑器里手改正文不动它。三条配套约束一条没变：
+作者在编辑器里手改正文不动它——chapter handler 写后只同步 manifest，所以任何一次 `write` 到章节路径（编辑器保存、
+章节改名时同步 `# 标题` 行）都不会把一章挂着的 ⟳ 刷掉。三条配套约束一条没变：
 
 - **手写的产物永不标脏**：`upstreamHash` / `writtenFrom` 为空 = 不是这条链生出来的，不给它补一个
 - **`plotContentHash` 只哈希八个小节**（定义在 `model/plotFile.ts`），不含 frontmatter——
