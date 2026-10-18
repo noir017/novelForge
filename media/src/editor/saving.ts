@@ -183,6 +183,14 @@ export function blockAutoSave(path: string, baseHash: string): void {
   blocked.set(path, baseHash);
 }
 
+/**
+ * 冲突解决了（冲突条上「对比合并…」放回编辑器，`Pane.rebase`）：这一份的自动保存放开。基线换了本来也会让
+ * {@link autoSaveAllowed} 自己失效，但磁盘那份正好又变回了撞冲突时的基线的话，hash 一样，闸就一直关着。
+ */
+export function unblockAutoSave(path: string): void {
+  blocked.delete(path);
+}
+
 /** 这一份的自动保存停着（磁盘上没了，或撞过冲突还没选）。状态栏据此写「自动保存已暂停」。 */
 export function autoSavePaused(file: OpenFile): boolean {
   return !!file.gone || blocked.get(file.path) === file.hash;

@@ -9,15 +9,18 @@
  * | 收到 `editorReplace`（带 base） | 内容换成合并结果、冲突条收起、仍是未保存；Ctrl+S 发的 baseHash 是磁盘那份的（不必强制保存）；一步撤销退回合并之前 |
  * | 合并结果与磁盘一样 | 换完就是已保存的样子 |
  * | 别的页面发的 requestId | 不认 |
+ * | 磁盘上没了（`gone`） | 冲突条亮着说「被删或改名」，「对比合并…」藏起来（没有磁盘版本可合并）；文件回来了又出现 |
+ * | 合并之后的自动保存 | 撞冲突停下的自动保存接着走：状态栏不再「已暂停」，停笔 2 秒就存，带的是磁盘那份的 hash |
+ * | 合并之后磁盘再变 | 核对磁盘带的是新基线；磁盘再变——哪怕变回撞冲突时见过的那一份——照样报、挂冲突条 |
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
-const { mount, JSDOM_SKIP, file } = require('../../helpers/dom');
+const { mount, JSDOM_SKIP, file, viewState } = require('../../helpers/dom');
 
 const PATH = 'chapters/001-雨夜.md';
 
-function harness() {
-  const ui = mount({ body: 'standalone', scripts: ['editor.js'], shims: ['pointerCapture', 'confirm', 'scrollIntoView'] });
+function harness(extraShims = []) {
+  const ui = mount({ body: 'standalone', scripts: ['editor.js'], shims: ['pointerCapture', 'confirm', 'scrollIntoView', ...extraShims] });
   const toasts = [];
   ui.window.__nfToast = (m) => toasts.push(m);
   const area = () => ui.doc.getElementById('edArea');
@@ -29,6 +32,24 @@ function harness() {
     mergeBtn: () => ui.doc.querySelector('#edConflict .ed-conflict-merge'),
     tab: () => ui.doc.querySelector('#edTabs .ed-tab'),
     status: () => ui.doc.getElementById('edStatusSave').textContent,
+    autoFlag: () => ui.doc.querySelector('#wbEditor .ed-status .ed-autosave'),
+    saves: () => ui.sent.filter((m) => m.type === 'saveFile'),
+    tick: (ms) => ui.window.__clock.tick(ms),
+    toggleAutoSave: () =>
+      ui.window.dispatchEvent(new ui.window.CustomEvent('nf-editor-command', { detail: { name: 'toggleAutoSave' } })),
+    /** 推一条 state，等核对磁盘的去抖过去，回那一次 checkEditorFiles 里这份文件带的 hash。 */
+    checkedHash(path) {
+      ui.post({ type: 'state', state: viewState() });
+      ui.window.__clock.tick(400);
+      const msg = ui.sent.filter((m) => m.type === 'checkEditorFiles').at(-1);
+      return msg?.files.find((f) => f.path === path)?.hash;
+    },
+    /** 点「对比合并…」，后端把 `text` 放回、基线换成 `base`。 */
+    merge(text, base) {
+      ui.clickEl(ui.doc.querySelector('#edConflict .ed-conflict-merge'));
+      const { requestId } = ui.sent.filter((m) => m.type === 'mergeWithDisk').at(-1);
+      ui.post({ type: 'editorReplace', requestId, path: PATH, text, base });
+    },
     type(text) {
       area().value = text;
       area().dispatchEvent(new ui.window.Event('input', { bubbles: true }));
@@ -138,5 +159,132 @@ describe('草稿区的冲突条', { skip: JSDOM_SKIP }, () => {
     const sent = h.ui.last('mergeWithDisk');
     assert.equal(sent.path, 'drafts/001-雨夜.md');
     assert.equal(sent.text, '草稿改了。');
+  });
+});
+
+describe('磁盘上没了：没有可合并的', { skip: JSDOM_SKIP }, () => {
+  let h;
+
+  before(() => {
+    h = harness();
+    h.ui.post({ type: 'editorOpen', file: file(PATH, '原文。', { kind: 'chapter', hash: 'h-old' }) });
+    h.type('编辑器里改过的。');
+    h.ui.post({ type: 'editorDiskGone', path: PATH });
+  });
+
+  test('冲突条亮着说「被删或改名」，「对比合并…」藏起来（与「用磁盘版本覆盖」同一个判法）', () => {
+    assert.ok(!h.bar().classList.contains('hidden'));
+    assert.match(h.ui.doc.getElementById('edConflictText').textContent, /磁盘上已经没有/);
+    assert.ok(h.mergeBtn().classList.contains('hidden'));
+    assert.ok(h.ui.doc.getElementById('edConflictTake').classList.contains('hidden'));
+  });
+
+  test('接着打字也不冒出来', () => {
+    h.type('编辑器里又改了。');
+    assert.ok(h.mergeBtn().classList.contains('hidden'));
+  });
+
+  test('磁盘上又有了、而且与编辑器里的不一样：冲突条换成「被改动」，「对比合并…」回来', () => {
+    h.ui.post({ type: 'editorDiskChanged', file: file(PATH, '别处又建了一份。', { kind: 'chapter', hash: 'h-back' }) });
+    assert.ok(!h.bar().classList.contains('hidden'));
+    assert.match(h.ui.doc.getElementById('edConflictText').textContent, /已被改动/);
+    assert.ok(!h.mergeBtn().classList.contains('hidden'));
+  });
+});
+
+describe('合并之后：撞冲突停下的自动保存接着走', { skip: JSDOM_SKIP }, () => {
+  let h;
+
+  before(() => {
+    h = harness(['fakeTimers']);
+    h.ui.post({ type: 'editorOpen', file: file(PATH, '甲。', { kind: 'chapter', hash: 'h0' }) });
+    h.toggleAutoSave();
+    h.type('甲，改了。');
+    h.tick(2000);
+    // 自动保存撞上冲突：这一份停下。
+    h.ui.post({ type: 'editorConflict', path: PATH, diskText: '甲（别处改的）。', diskHash: 'h-disk' });
+  });
+
+  test('起点：自动保存已暂停', () => {
+    assert.equal(h.autoFlag()?.textContent, '自动保存已暂停');
+    const before = h.saves().length;
+    h.tick(5000);
+    assert.equal(h.saves().length, before);
+  });
+
+  test('放回编辑器之后：不再暂停，停笔 2 秒就存，带的是磁盘那份的 hash', () => {
+    h.merge('甲（别处改的），改了。', { text: '甲（别处改的）。', hash: 'h-disk' });
+    assert.equal(h.autoFlag()?.textContent, '自动保存');
+    const before = h.saves().length;
+    h.tick(2000);
+    assert.equal(h.saves().length, before + 1);
+    const sent = h.saves().at(-1);
+    assert.equal(sent.text, '甲（别处改的），改了。');
+    assert.equal(sent.baseHash, 'h-disk');
+  });
+
+  test('回执到了：已保存，之后照常', () => {
+    h.ui.post({ type: 'editorSaved', file: file(PATH, '甲（别处改的），改了。', { kind: 'chapter', hash: 'h1' }) });
+    assert.match(h.status(), /^已保存/);
+    h.type('甲（别处改的），改了，再写一句。');
+    h.tick(2000);
+    assert.equal(h.saves().at(-1).baseHash, 'h1');
+  });
+
+  test('磁盘那份正好变回了撞冲突时的基线（hash 一样）：闸照样放开', () => {
+    const g = harness(['fakeTimers']);
+    g.ui.post({ type: 'editorOpen', file: file(PATH, '乙。', { kind: 'chapter', hash: 'h0' }) });
+    g.toggleAutoSave();
+    g.type('乙，改了。');
+    g.tick(2000);
+    g.ui.post({ type: 'editorConflict', path: PATH, diskText: '乙（别处改的）。', diskHash: 'h-disk' });
+    // 合并时读到的磁盘那份已经被人改回去了，hash 与撞冲突时编辑器的基线一样。
+    g.merge('乙，改了，合并过。', { text: '乙。', hash: 'h0' });
+    assert.equal(g.autoFlag()?.textContent, '自动保存');
+    const before = g.saves().length;
+    g.tick(2000);
+    assert.equal(g.saves().length, before + 1);
+    assert.equal(g.saves().at(-1).baseHash, 'h0');
+  });
+});
+
+describe('合并之后：磁盘再变照样报', { skip: JSDOM_SKIP }, () => {
+  let h;
+
+  before(() => {
+    h = harness(['fakeTimers']);
+    h.ui.post({ type: 'editorOpen', file: file(PATH, '丙。', { kind: 'chapter', hash: 'h0' }) });
+    h.type('丙，改了。');
+    // 核对磁盘发现别处改成了 h-seen：挂冲突条，这一份新版记下来（同一份不报第二次）。
+    h.ui.post({ type: 'editorDiskChanged', file: file(PATH, '丙（第一次别处改的）。', { kind: 'chapter', hash: 'h-seen' }) });
+  });
+
+  test('起点：冲突条亮着，核对磁盘带的是见过的那一份', () => {
+    assert.ok(!h.bar().classList.contains('hidden'));
+    assert.equal(h.checkedHash(PATH), 'h-seen');
+  });
+
+  test('放回编辑器（合并时磁盘已经又变成 h-now）：核对磁盘带的是新基线 h-now', () => {
+    h.merge('丙，改了，合并过。', { text: '丙（第二次别处改的）。', hash: 'h-now' });
+    assert.ok(h.bar().classList.contains('hidden'));
+    assert.equal(h.checkedHash(PATH), 'h-now');
+  });
+
+  test('磁盘变回撞冲突时见过的那一份（h-seen）：照样报，挂冲突条、标签上标「!」', () => {
+    h.ui.post({ type: 'editorDiskChanged', file: file(PATH, '丙（第一次别处改的）。', { kind: 'chapter', hash: 'h-seen' }) });
+    assert.ok(!h.bar().classList.contains('hidden'));
+    assert.ok(h.tab().querySelector('.ed-tab-flag'));
+    assert.equal(h.area().value, '丙，改了，合并过。', '编辑器里的一个字不动');
+  });
+
+  test('磁盘变成又一份新的：同样报', () => {
+    const g = harness(['fakeTimers']);
+    g.ui.post({ type: 'editorOpen', file: file(PATH, '丁。', { kind: 'chapter', hash: 'h0' }) });
+    g.type('丁，改了。');
+    g.ui.post({ type: 'editorDiskChanged', file: file(PATH, '丁（别处改的）。', { kind: 'chapter', hash: 'h-seen' }) });
+    g.merge('丁，合并过。', { text: '丁（别处改的）。', hash: 'h-seen' });
+    assert.ok(g.bar().classList.contains('hidden'));
+    g.ui.post({ type: 'editorDiskChanged', file: file(PATH, '丁（别处又改的）。', { kind: 'chapter', hash: 'h-later' }) });
+    assert.ok(!g.bar().classList.contains('hidden'));
   });
 });

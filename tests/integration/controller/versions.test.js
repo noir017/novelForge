@@ -10,6 +10,7 @@
  * | 没有 `mergeTexts` 的宿主：说一句，不抛 | 插件壳不用内置编辑器，但要防住 |
  * | 历史版本：列出来新的在前、读得回全文、对比交回挑过的那份（不带 base）、一处没挑不回 | 恢复从不直接写盘 |
  * | 现在存一版：存的是磁盘上的那一份，与最新一版一样时不重复存，之后重推列表 | 界面上说的「不是编辑器里没保存的那份」要成立 |
+ * | 对比合并 / 对比历史版本放回之前、「恢复这一版」（`saveVersion quiet`）：磁盘上那一份先强制存一版，**节流拦不住** | 放回去的内容一存盘（开着自动保存时停笔两秒）就盖掉它；按节流它可能因为「改动小」不存 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -118,6 +119,12 @@ describe('mergeWithDisk：冲突时对比合并', () => {
     assert.equal(t.read(CHAPTER), DISK);
   });
 
+  test('放回之前把磁盘上那一份（别处改过的）先存进历史：合并结果一存盘就盖掉它', () => {
+    const names = snapNames(CHAPTER);
+    assert.equal(names.length, 1);
+    assert.equal(fs.readFileSync(t.rel('.novelforge/history', CHAPTER, names[0]), 'utf8'), DISK);
+  });
+
   test('原样采纳（一处没动）：放回的就是编辑器里那份，照样换基线', async () => {
     answers.push('apply');
     await send({ type: 'mergeWithDisk', path: CHAPTER, text: EDITOR, requestId: 'r-merge-2' });
@@ -173,6 +180,7 @@ describe('历史版本：列、读、对比、现在存一版', () => {
   const V1 = '# 风起\n\n第一版。\n';
   const V2 = '# 风起\n\n第二版，' + '改得很多。'.repeat(80) + '\n';
   const V3 = '# 风起\n\n第三版。\n';
+  const V4 = '# 风起\n\n第四版，磁盘上又改过。\n';
   let list;
 
   before(async () => {
@@ -228,19 +236,37 @@ describe('历史版本：列、读、对比、现在存一版', () => {
     assert.match(toasts(), /没有挑快照里的任何一处/);
   });
 
-  test('现在存一版：存的是磁盘上的那一份（不是编辑器里的），之后重推列表', async () => {
-    await send({ type: 'saveVersion', path: REL });
+  test('对比放回之前，磁盘上那一份（V3）先进了历史', () => {
     const names = snapNames(REL);
     assert.equal(names.length, 3);
     assert.equal(fs.readFileSync(t.rel('.novelforge/history', REL, names[0]), 'utf8'), V3);
+  });
+
+  test('现在存一版：存的是磁盘上的那一份（不是编辑器里的），之后重推列表', async () => {
+    t.write(REL, V4);
+    await send({ type: 'saveVersion', path: REL });
+    const names = snapNames(REL);
+    assert.equal(names.length, 4);
+    assert.equal(fs.readFileSync(t.rel('.novelforge/history', REL, names[0]), 'utf8'), V4);
     assert.match(toasts(), /磁盘上现在这一份/);
-    assert.equal(ofType('versions')[0].entries.length, 3);
+    assert.equal(ofType('versions')[0].entries.length, 4);
   });
 
   test('与最新一版一字不差时不重复存', async () => {
     await send({ type: 'saveVersion', path: REL });
-    assert.equal(snapNames(REL).length, 3);
+    assert.equal(snapNames(REL).length, 4);
     assert.match(toasts(), /一字不差/);
+  });
+
+  test('quiet（「恢复这一版」放回之前发的）：照样存、一句话都不说、列表照样重推', async () => {
+    t.write(REL, V1);
+    await send({ type: 'saveVersion', path: REL, quiet: true });
+    assert.equal(snapNames(REL).length, 5);
+    assert.equal(toasts(), '');
+    assert.equal(ofType('versions')[0].entries.length, 5);
+    await send({ type: 'saveVersion', path: REL, quiet: true });
+    assert.equal(snapNames(REL).length, 5);
+    assert.equal(toasts(), '', '一样的不重复存，也不说');
   });
 
   test('不是创作产物：列表是空的、带原因；现在存一版报错不存', async () => {
@@ -260,5 +286,39 @@ describe('历史版本：列、读、对比、现在存一版', () => {
     const r = ofType('versions')[0];
     assert.deepEqual(r.entries, []);
     assert.equal(r.unavailable, undefined);
+  });
+});
+
+describe('放回之前那一下：节流本来会丢掉的那一份也留住', () => {
+  const REL = 'chapters/004-残灯.md';
+  const BIG = '灯芯烧到了底。'.repeat(200);
+  let snapshotId;
+
+  before(async () => {
+    t.write(REL, BIG);
+    // 第一次覆盖：存下 BIG。紧接着一处小改：不到 10 分钟、改动很小，节流不存——磁盘上是「BIG 一二」、历史里只有 BIG。
+    await controller.workspace.write(REL, { text: `${BIG}一` }, { mode: 'overwrite', review: false });
+    await controller.workspace.write(REL, { text: `${BIG}一二` }, { mode: 'overwrite', review: false });
+    snapshotId = snapNames(REL)[0];
+  });
+
+  test('起点：历史里只有 BIG（「BIG 一」那次被节流了）', () => {
+    assert.equal(snapNames(REL).length, 1);
+  });
+
+  test('对比 BIG 那一版、放回：磁盘上的「BIG 一二」先进了历史', async () => {
+    answers.push({ merged: BIG });
+    await send({ type: 'compareVersion', path: REL, id: snapshotId, text: `${BIG}一二`, requestId: 'r-keep' });
+    assert.equal(ofType('editorReplace')[0].text, BIG);
+    const names = snapNames(REL);
+    assert.equal(names.length, 2);
+    assert.equal(fs.readFileSync(t.rel('.novelforge/history', REL, names[0]), 'utf8'), `${BIG}一二`);
+  });
+
+  test('之后把放回的那份存盘（编辑器保存）：「BIG 一二」仍在历史里，可以再恢复回来', async () => {
+    await controller.workspace.write(REL, { text: BIG }, { mode: 'overwrite', review: false });
+    assert.equal(t.read(REL), BIG);
+    const texts = snapNames(REL).map((n) => fs.readFileSync(t.rel('.novelforge/history', REL, n), 'utf8'));
+    assert.ok(texts.includes(`${BIG}一二`));
   });
 });

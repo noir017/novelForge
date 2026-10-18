@@ -9,7 +9,8 @@
  *
  * 按钮不写进 `page.ts` / `createPaneElements`：与「排版」按钮（`layout.ts`）同一个做法，每块编辑区第一次
  * 重画时插进它的冲突条（`.ed-conflict`，说明文字后面），两块编辑区走同一条路，`pane.ts` 不必知道它。
- * 冲突条显隐、说明文字仍归 `pane.ts`。
+ * 冲突条显隐、说明文字仍归 `pane.ts`。磁盘上已经没有这一份（`OpenFile.gone`）时冲突条也亮着（说的是「被删或
+ * 改名」），那时没有磁盘版本可合并，这颗藏起来。
  */
 import { el } from '../dom';
 import type { InMessage } from '../protocol';
@@ -18,27 +19,33 @@ import type { Pane } from './api';
 import { newRequestId } from './replace';
 
 export function installConflictMerge(post: (msg: InMessage) => void): void {
-  const done = new WeakSet<Pane>();
+  const buttons = new WeakMap<Pane, HTMLButtonElement>();
   onEditorChange((ev) => {
-    if (ev.type !== 'render' || done.has(ev.pane)) {
+    if (ev.type !== 'render') {
       return;
     }
     const pane = ev.pane;
-    const bar = pane.root.querySelector<HTMLElement>('.ed-conflict');
-    if (!bar) {
-      return;
-    }
-    const btn = el('button', 'chip-btn ed-conflict-merge', '对比合并…');
-    btn.type = 'button';
-    btn.title = '左边磁盘上的、右边编辑器里的，逐处挑、可以手改；放回编辑器之后照常保存';
-    btn.addEventListener('click', () => {
-      const file = pane.activeFile();
-      if (file) {
-        post({ type: 'mergeWithDisk', path: file.path, text: file.draft, requestId: newRequestId('merge') });
+    let btn = buttons.get(pane);
+    if (!btn) {
+      const bar = pane.root.querySelector<HTMLElement>('.ed-conflict');
+      if (!bar) {
+        return;
       }
-    });
-    const text = bar.querySelector('.ed-conflict-text');
-    bar.insertBefore(btn, text ? text.nextSibling : bar.firstChild);
-    done.add(pane);
+      btn = el('button', 'chip-btn ed-conflict-merge', '对比合并…');
+      btn.type = 'button';
+      btn.title = '左边磁盘上的、右边编辑器里的，逐处挑、可以手改；放回编辑器之后照常保存';
+      btn.addEventListener('click', () => {
+        const file = pane.activeFile();
+        if (file && !file.gone) {
+          post({ type: 'mergeWithDisk', path: file.path, text: file.draft, requestId: newRequestId('merge') });
+        }
+      });
+      const text = bar.querySelector('.ed-conflict-text');
+      bar.insertBefore(btn, text ? text.nextSibling : bar.firstChild);
+      buttons.set(pane, btn);
+    }
+    // 磁盘上已经没有这一份（`OpenFile.gone`，冲突条这时说的是「被删或改名」）：没有磁盘版本可合并，藏起来——
+    // 与「用磁盘版本覆盖编辑器」同一个判法。
+    btn.classList.toggle('hidden', !!pane.activeFile()?.gone);
   });
 }

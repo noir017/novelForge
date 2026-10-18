@@ -145,8 +145,12 @@ export type InMessage =
    * 恢复与对比都**不写盘**，换进编辑区之后存不存由作者。
    */
   | { type: 'compareVersion'; path: string; id: string; text: string; requestId: string }
-  /** 「现在存一版」：把**磁盘上当前**这份强制存一个快照（编辑器里没保存的修改不算），之后重推 `versions`。 */
-  | { type: 'saveVersion'; path: string }
+  /**
+   * 「现在存一版」：把**磁盘上当前**这份强制存一个快照（编辑器里没保存的修改不算），之后重推 `versions`。
+   * `quiet`：「恢复这一版」放回编辑区之前顺手发的那一次——不说话（成了、一样不重复存都不弹提示），只保证
+   * 换进来的内容存下去之前，被它盖掉的那一份已经在历史里（节流拦不住它）。
+   */
+  | { type: 'saveVersion'; path: string; quiet?: boolean }
   | { type: 'listDir'; dirs: string[]; ephemeral?: boolean }
   | { type: 'openExternal'; path: string }
   | { type: 'syncSummaries' }

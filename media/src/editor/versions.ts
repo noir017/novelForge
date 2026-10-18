@@ -14,6 +14,10 @@
  *   - 「对比…」：`compareVersion`，后端开合并视图（快照 ↔ 编辑器当前内容，逐处挑），采纳之后经 `editorReplace`
  *     换进编辑区（`replace.ts`：一步撤销，基线不变，成为未保存）；
  *   - 「恢复这一版」：`replaceInEditor` 直接把编辑区换成这个快照（一步撤销，成为未保存，存不存由作者）。
+ * - **放回之前先把磁盘上那一份存一版**：恢复前发一条不说话的 `saveVersion { quiet }`（对比放回由后端自己先存），
+ *   跳过节流——放回去的内容一存盘（开着自动保存时停笔 2 秒就存）就盖掉磁盘上那一份，而节流按「改动小」可能
+ *   不存它。所以开着自动保存时恢复会很快写回磁盘，这是可以接受的：被盖掉的那一版已经在列表里，可以再恢复回来
+ *   （面板上这时多说一句）。
  */
 import { el, setHidden } from '../dom';
 import { toast } from '../globals';
@@ -21,7 +25,9 @@ import type { InMessage, OutMessage, VersionView } from '../protocol';
 import { onMessage } from '../vscodeApi';
 import { activeEditor, onEditorChange } from './api';
 import type { OpenFile, Pane } from './api';
+import { autoSaveEnabled, onPrefsChange } from './paragraphState';
 import { claimRequest, newRequestId, replaceInEditor } from './replace';
+import { paneOwning } from './store';
 import { countWords } from './words';
 
 type VersionsMessage = Extract<OutMessage, { type: 'versions' }>;
@@ -103,6 +109,8 @@ export function unavailableReason(file: Pick<OpenFile, 'kind'> | undefined): str
 const NOTE =
   '每次覆盖保存这份文件之前，磁盘上的旧内容会先存成一版（10 分钟内的零星小改并成一版，每份文件留最近 50 版）。' +
   '对比、恢复都只换编辑区里的内容，存不存由你。';
+/** 自动保存开着时多说的那一句（`autosave.ts`：停笔 2 秒就存）。 */
+const AUTOSAVE_NOTE = '自动保存开着：恢复或对比放回之后，停笔 2 秒就会写回磁盘——被它盖掉的那一版会先存进这里，可以再恢复回来。';
 
 function drawerOf(pane: Pane): Drawer | undefined {
   const existing = drawers.get(pane);
@@ -173,6 +181,7 @@ function render(drawer: Drawer): void {
   const file = drawer.pane.activeFile();
   drawer.file.textContent = file ? file.name : '';
   drawer.file.title = file?.path ?? '';
+  drawer.note.textContent = autoSaveEnabled() ? `${NOTE}${AUTOSAVE_NOTE}` : NOTE;
   setHidden(drawer.note, !!drawer.unavailable);
   setHidden(drawer.saveNow, !!drawer.unavailable);
   drawer.list.replaceChildren();
@@ -259,6 +268,12 @@ function select(drawer: Drawer, id: string | undefined): void {
 }
 
 function restoreVersion(path: string, text: string, when: string): void {
+  const file = paneOwning(path)?.files.get(path);
+  if (file && normalizeEol(file.draft) !== normalizeEol(text)) {
+    // 放回之前先让后端把磁盘上现在那一份存一版（跳过节流、不说话）：换进来的内容一旦存盘（开着自动保存时停笔
+    // 两秒就存），被它盖掉的那一份得已经在历史里。消息按顺序到，排在之后任何一次 saveFile 前面。
+    post({ type: 'saveVersion', path, quiet: true });
+  }
   const result = replaceInEditor(path, text);
   if (result === 'closed') {
     toast('这份文件已经关掉了。', true);
@@ -267,6 +282,10 @@ function restoreVersion(path: string, text: string, when: string): void {
   } else {
     toast(`已把「${when}」那一版放进编辑区：还没保存，Ctrl+Z 可以退回。`);
   }
+}
+
+function normalizeEol(text: string): string {
+  return text.includes('\r') ? text.replace(/\r\n?/g, '\n') : text;
 }
 
 /** 预览：开头几行非空行，太长截断。 */
@@ -408,6 +427,15 @@ export function installVersions(postMessage: (msg: InMessage) => void): void {
         for (const pane of [...buttons.keys()]) {
           syncButton(pane);
         }
+      }
+    }
+  });
+
+  // 「文件 → 自动保存」切了：开着的面板上那句说明跟着变。
+  onPrefsChange(() => {
+    for (const drawer of drawers.values()) {
+      if (drawer.open) {
+        render(drawer);
       }
     }
   });

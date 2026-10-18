@@ -49,6 +49,7 @@ import {
   renderSaveState,
   requestSave,
   settleSave,
+  unblockAutoSave,
 } from './saving';
 import {
   activePane,
@@ -946,6 +947,11 @@ export function createPane(
     return diskSeen.get(path) ?? file.hash;
   }
 
+  /**
+   * 「对比合并…」放回编辑器之后（`replace.ts`）：基线换成合并时读到的磁盘那份，冲突就此解决——与冲突条上
+   * 「用磁盘版本覆盖」同一套收尾：冲突条收起、见过的磁盘新版（`diskSeen`）作废（之后磁盘再变、哪怕变回那一份，
+   * 核对时照样报）、自动保存的闸放开（之后照常停笔就存，带的是新基线）。磁盘上读得到才合并得了，所以也不再是「没了」。
+   */
   function rebase(path: string, text: string, hash: string): void {
     const file = files.get(path);
     if (!file) {
@@ -953,6 +959,9 @@ export function createPane(
     }
     file.text = text;
     file.hash = hash;
+    file.gone = false;
+    diskSeen.delete(path);
+    unblockAutoSave(path);
     conflicts.delete(path);
     renderAll();
     persist();

@@ -54,6 +54,8 @@ export async function mergeWithDisk(c: ChatController, rel: string, text: string
     return;
   }
   log.info(`对比合并 ${rel}：放回编辑器`, `${merged.length} 字符，基线换成磁盘上的 ${disk.hash}`);
+  // 磁盘上那一份（别处改过的）先存一版：放回去的合并结果一存盘就盖掉它，而节流按「改动小」可能不存。
+  await snapshotNow(c.project, rel);
   c.post({ type: 'editorReplace', requestId, path: rel, text: merged, base: { text: disk.text, hash: disk.hash } });
 }
 
@@ -116,21 +118,31 @@ export async function compareVersion(
     return;
   }
   log.info(`对比 ${rel} 的 ${id}：放回编辑器`, `${merged.length} 字符`);
+  // 放回之前先把磁盘上现在那一份存一版（跳过节流，一样的不重复存）：放回去的内容一旦存盘——开着自动保存时
+  // 停笔两秒就存——被盖掉的那一份得已经在历史里。节流按「改动小」可能不存它，这里不能靠节流。
+  await snapshotNow(c.project, rel);
   c.post({ type: 'editorReplace', requestId, path: rel, text: merged });
 }
 
 /**
  * 「现在存一版」：把**磁盘上当前**这份存一个快照（跳过节流）。编辑器里没保存的修改不在里面——那一份要
  * 先保存，保存本身就会把被覆盖的旧内容存一版。之后重推 `versions`。
+ *
+ * `quiet`：「恢复这一版」放回编辑区之前前端顺手发的（与 {@link compareVersion} 放回之前那一下同一个理由）。
+ * 什么提示都不弹——作者点的是「恢复」，不是「存一版」；存不下的原因已经记了 warn。
  */
-export async function saveVersion(c: ChatController, rel: string): Promise<void> {
+export async function saveVersion(c: ChatController, rel: string, quiet = false): Promise<void> {
   const unavailable = await historyUnavailable(c.project, rel);
   if (unavailable) {
-    c.toast(unavailable, 'error');
+    if (!quiet) {
+      c.toast(unavailable, 'error');
+    }
     return;
   }
   const r = await snapshotNow(c.project, rel);
-  if (r.saved) {
+  if (quiet) {
+    // 不说话；列表照样重推（多了一版的话面板上跟着出现）。
+  } else if (r.saved) {
     c.toast('已把磁盘上现在这一份存成一版（编辑器里没保存的修改不在里面）。');
   } else if (r.skipped === 'same') {
     c.toast('磁盘上这一份与最近一版一字不差，没有重复存。');

@@ -498,7 +498,7 @@ export class ChatController {
         await compareVersion(this, msg.path, msg.id, msg.text, msg.requestId);
         return;
       case 'saveVersion':
-        await saveVersion(this, msg.path);
+        await saveVersion(this, msg.path, msg.quiet === true);
         return;
 
       case 'listDir':

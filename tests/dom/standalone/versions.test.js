@@ -8,7 +8,8 @@
  * | 「文件」菜单 | 「历史版本…」紧跟「另存为…」，置灰与否、原因同上；点了打开面板 |
  * | 列表 | 打开就发 `listVersions`；新的在前「3 分钟前 · 14:32」、字数、比当前多 / 少几个字；空的照实说什么时候会存 |
  * | 选中 | 发 `readVersion`、收到全文给预览，「恢复这一版」这才能点 |
- * | 恢复 | 编辑区换成快照：一步撤销、成为未保存、**不写盘**（不发 saveFile） |
+ * | 恢复 | 编辑区换成快照：一步撤销、成为未保存、**不写盘**（不发 saveFile）；放回之前先发一条不说话的 `saveVersion`，磁盘上那一份先进历史 |
+ * | 开着自动保存时恢复 | 面板上多说一句；停笔 2 秒照常存，`saveVersion` 排在那次 `saveFile` 前面；内容一样不发 |
  * | 对比 | 发 `compareVersion`（带编辑器当前内容），收到 `editorReplace`（不带 base）换进来，基线不变 |
  * | 现在存一版 | 发 `saveVersion`，提示里说清存的是磁盘上的那一份 |
  * | 跟着当前文件走 | 换了文件重拉列表；换到不存历史版本的文件照实说；后端说不存时也照实说 |
@@ -31,8 +32,8 @@ function whenOf(time, now = Date.now()) {
     : `昨天 · ${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function harness() {
-  const ui = mount({ body: 'standalone', scripts: ['view.js', 'editor.js'], shims: ['pointerCapture', 'confirm', 'scrollIntoView', 'clipboard'] });
+function harness(extraShims = []) {
+  const ui = mount({ body: 'standalone', scripts: ['view.js', 'editor.js'], shims: ['pointerCapture', 'confirm', 'scrollIntoView', 'clipboard', ...extraShims] });
   const toasts = [];
   ui.window.__nfToast = (m) => toasts.push(m);
   ui.post({ type: 'state', state: viewState() });
@@ -212,6 +213,10 @@ describe('历史版本面板', { skip: JSDOM_SKIP }, () => {
     assert.match(h.toasts.at(-1), /还没保存/);
   });
 
+  test('放回之前先让后端把磁盘上那一份存一版（不说话，节流拦不住）', () => {
+    assert.deepEqual({ ...h.ui.last('saveVersion') }, { type: 'saveVersion', path: PATH, quiet: true });
+  });
+
   test('一步撤销退回恢复之前', () => {
     h.key('z');
     assert.equal(h.area().value, '他推开门，雨下了三天三夜。');
@@ -298,5 +303,51 @@ describe('草稿区也有自己的「历史」', { skip: JSDOM_SKIP }, () => {
     h.ui.clickEl(btn);
     assert.ok(draft.querySelector('.ed-versions:not(.hidden)'));
     assert.equal(h.ui.last('listVersions').path, 'drafts/001-雨夜.md');
+  });
+});
+
+describe('开着自动保存时恢复一版', { skip: JSDOM_SKIP }, () => {
+  let h;
+  const now = Date.now();
+
+  before(() => {
+    h = harness(['fakeTimers']);
+    h.open(PATH, '现在磁盘上的。', { hash: 'h-disk' });
+    h.ui.window.dispatchEvent(new h.ui.window.CustomEvent('nf-editor-command', { detail: { name: 'toggleAutoSave' } }));
+    h.ui.clickEl(h.btn());
+    h.ui.post({ type: 'versions', path: PATH, entries: [{ id: 'a.txt', time: now - 5 * MIN, words: 4, bytes: 12 }] });
+    h.ui.clickEl(h.rows()[0].querySelector('.ed-version-pick'));
+    const req = h.ui.last('readVersion');
+    h.ui.post({ type: 'versionText', requestId: req.requestId, path: PATH, id: 'a.txt', text: '旧的那一版。' });
+  });
+
+  test('面板上说清：恢复之后停笔 2 秒就写回磁盘，被盖掉的那一版先进历史', () => {
+    assert.match(h.drawer().querySelector('.ed-versions-note').textContent, /自动保存开着.*停笔 2 秒.*先存进这里/);
+  });
+
+  test('恢复：先发不说话的 saveVersion，停笔 2 秒照常自动保存，saveFile 排在它后面', () => {
+    h.ui.sent.length = 0;
+    h.ui.clickEl(h.rows()[0].querySelector('.ed-version-restore'));
+    assert.equal(h.area().value, '旧的那一版。');
+    assert.equal(h.ui.last('saveFile'), undefined, '当场不写盘');
+    h.ui.window.__clock.tick(2000);
+    const types = h.ui.sent.map((m) => m.type);
+    const snap = types.indexOf('saveVersion');
+    const save = types.indexOf('saveFile');
+    assert.ok(snap >= 0 && save > snap, types.join(' → '));
+    assert.equal(h.ui.sent[save].text, '旧的那一版。');
+    assert.equal(h.ui.sent[save].baseHash, 'h-disk');
+  });
+
+  test('编辑区里已经是这一版：不发 saveVersion', () => {
+    h.ui.sent.length = 0;
+    h.ui.clickEl(h.rows()[0].querySelector('.ed-version-restore'));
+    assert.equal(h.ui.last('saveVersion'), undefined);
+    assert.match(h.toasts.at(-1), /已经是这一版/);
+  });
+
+  test('关掉自动保存：那句说明跟着撤掉', () => {
+    h.ui.window.dispatchEvent(new h.ui.window.CustomEvent('nf-editor-command', { detail: { name: 'toggleAutoSave' } }));
+    assert.doesNotMatch(h.drawer().querySelector('.ed-versions-note').textContent, /自动保存开着/);
   });
 });
