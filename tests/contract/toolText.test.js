@@ -46,8 +46,8 @@ function assertClean(where, text) {
 }
 
 describe('工具说明不提旧链路', () => {
-  test('十二个工具都查到了', () => {
-    assert.equal(bundle.tools.NOVEL_TOOLS.length, 12);
+  test('十三个工具都查到了', () => {
+    assert.equal(bundle.tools.NOVEL_TOOLS.length, 13);
   });
 
   test('描述、参数说明与枚举值', () => {

@@ -68,7 +68,7 @@ intent: (args, project) => ({
 所以路径不由 agent 给（固定落在 `<技能库>/<frontmatter 的 name>/SKILL.md`，名字过 `isSkillName`），
 只装检查过、重新下载核对过 hash 的那一份，闸门是 `always`——动手前先问。见 [skills/README.md](../skills/README.md)。
 
-## 十二个工具
+## 十三个工具
 
 | 工具 | 动作 / 用法 | 参数 |
 |---|---|---|
@@ -78,7 +78,8 @@ intent: (args, project) => ({
 | `pipeline` | `completeSettings` `batchPlots` `batchManuscripts` `newPlot` | `from` `to` `mode` `review` |
 | `summary` | 定稿与全书摘要：`finalize`（照正文反向更新那一章的细纲，再更新角色状态、记叙事线）`sync`（没定稿、或定稿后正文又改过的章，只更新细纲）`rebuildGlobal`（从定稿过的细纲重建全书摘要） | `path` |
 | `characters` | `extract` `create` `createAll` `update` `rebuild` `updateAll` `rebuildAll` `cleanAliases` `mergeDuplicates` `reviewState` | `path` `name` |
-| `extract` | `style` `lore` `threads` | — |
+| `lore` | 设定名录：`record`（单独记一章 / 补记还没记过的定稿章，只换细纲第九节）`build`（给出现过、还没有条目的建条目）`integrate`（把定稿里的新内容并进条目）。**没有「按目录整理」**：它会搬文件，移动不给外部 agent（第 25 条） | `path` `name` |
+| `extract` | `style` `threads` | — |
 | `book` | `import` `derive` `learn` | `path` |
 | `skills` | `list` `inspect` `install` `bind` | `url` `id` `stage` |
 
@@ -86,8 +87,8 @@ intent: (args, project) => ({
 「哪个动作认哪个参数」；工具之间按作者心里的那几块分，与工程页按钮的分组一致。每个动作声明自己认
 哪几个参数（`uses`）、哪几个必填（`requires`），给了不认的当场报错（[novel/actions.ts](novel/actions.ts)）。
 
-后六个都是工程页按钮背后的同一个函数，确认框照弹，**没有为外部 agent 加任何一条绕过它的路**。
-大多数 feature 报回计划调用次数（`countedBy`），角色卡与全书摘要那几个不报，只回一句「交出去了」
+后七个都是工程页按钮背后的同一个函数，确认框照弹，**没有为外部 agent 加任何一条绕过它的路**。
+大多数 feature 报回计划调用次数（`countedBy`），角色卡、设定条目与全书摘要那几个不报，只回一句「交出去了」
 （`handed`），次数以确认框为准。
 
 ### `generate` 的写法

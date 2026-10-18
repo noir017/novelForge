@@ -98,17 +98,17 @@ export function charactersEmptyRow(tree: ProjectTree): HTMLElement {
 /**
  * 设定组为空。设定条目是可选的，所以不说「下一步」：说清它放什么、往后从哪儿长出来——
  * 每章定稿时记下这一章出现了哪些设定，出现过却还没建条目的列在下面「出现过 · 未建条目」那一组。
- * 手建一条不调模型；已经有正文时可以从正文里生成（自带确认框）。
+ * 手建一条不调模型；有定稿过、还没记过设定的章（这个功能之前定稿的）时给「补记设定」（自带确认框）。
  */
 export function loreEmptyRow(tree: ProjectTree): HTMLElement {
   const buttons: HintButton[] = [
     { label: '＋ 设定', title: '新建一条设定（不调模型）', run: () => projectAction('newLore') },
   ];
-  if (hasText(tree)) {
+  if ((tree.loreUnrecorded ?? 0) > 0) {
     buttons.push({
-      label: '从正文生成…',
-      title: '逐章通读正文，整理出地点、势力、物件这类设定；动手前会告诉你调用几次',
-      run: () => projectAction('generateLore'),
+      label: '补记设定…',
+      title: `${tree.loreUnrecorded} 章定稿过、还没记过设定：读这几章正文，记下出现了哪些设定；动手前会告诉你调用几次`,
+      run: () => projectAction('recordLore'),
     });
   }
   return hintRow(

@@ -14,7 +14,7 @@ import {
 } from '../features/characterCard';
 import { cleanCharacterAliases, mergeDuplicateCharacterCards } from '../features/characterMaintenance';
 import { extractCharacters, newCharacter, newLore } from '../features/characters';
-import { generateLore } from '../features/lore';
+import { buildLoreEntries, integrateLore, organizeLore } from '../features/lore';
 import { recordLore } from '../features/loreRecord';
 import { completeSettings, generatePlots, writeManuscripts } from '../features/pipelineBatch';
 import { extractStyle } from '../features/style';
@@ -142,11 +142,17 @@ export async function projectAction(
     case 'extractCharacters':
       await extractCharacters(c.project);
       break;
-    case 'generateLore':
-      await generateLore(c.project);
-      break;
     case 'recordLore':
       await recordLore(c.project, relPath);
+      break;
+    case 'buildLore':
+      await buildLoreEntries(c.project, batch.name ? [batch.name] : undefined);
+      break;
+    case 'integrateLore':
+      await integrateLore(c.project, relPath ? [relPath] : undefined);
+      break;
+    case 'organizeLore':
+      await organizeLore(c.project);
       break;
     case 'extractStyle':
       await extractStyle(c.project);

@@ -1,12 +1,12 @@
 /**
- * `extract` —— 从已写的东西里提炼：文风指南、设定条目、叙事线。
+ * `extract` —— 从已写的东西里提炼：文风指南、叙事线。
  *
- * 三样都是工程页工具栏上的按钮背后的同一个函数。叙事线由机器**只追加**（第 19 条）：
- * 在 `threads.md` 末尾加新线，同名跳过，作者写的字一个都不动。
+ * 两样都是工程页工具栏上的按钮背后的同一个函数。叙事线由机器**只追加**（第 19 条）：
+ * 在 `threads.md` 末尾加新线，同名跳过，作者写的字一个都不动。设定条目从前也在这里（通读全书生成），
+ * 那一套删了，换成 `lore` 工具（定稿时顺手记、按名录建条目与整合）。
  */
 import { countedBy, defineActionTool } from './actions';
 import { extractStyle } from '../../features/style';
-import { generateLore } from '../../features/lore';
 import { generateThreads } from '../../features/threads';
 
 export const extractTool = defineActionTool({
@@ -25,14 +25,6 @@ export const extractTool = defineActionTool({
           text: '文风指南已交给 Novel Forge 执行（覆盖前会先问作者）。要看结果用 read 读 .novelforge/style.md。',
           calls: 0,
         };
-      },
-    },
-    lore: {
-      label: '通读正文生成设定条目',
-      costly: true,
-      async run(ctx) {
-        await generateLore(ctx.project);
-        return { text: '设定生成已交给 Novel Forge 执行（调用次数见确认框与日志）。', calls: 0 };
       },
     },
     threads: {

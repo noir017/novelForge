@@ -5,7 +5,7 @@
  * |---|---|
  * | 章节组 | 空分组、以及「下一章还没有细纲那一行」时写出全书的下一步（与主按钮同一句话）；按钮不直接花钱 |
  * | 角色组 | 全书下一步正是角色图谱时说它；老工程（已有正文）给「提取角色卡…」；否则只说清从哪来 |
- * | 设定组 | 不说「下一步」（设定是可选的）；说明写清放什么、定稿时会记下出现了哪些设定；「＋ 设定」不调模型；有正文时多一颗「从正文生成…」 |
+ * | 设定组 | 不说「下一步」（设定是可选的）；说明写清放什么、定稿时会记下出现了哪些设定；「＋ 设定」不调模型；有定稿过、还没记过设定的章时多一颗「补记设定…」 |
  * | 对话页 · 还不是小说工程 | 消息区换成「下一步：初始化」那一块，按钮与工程页那颗同一个动作；页脚不再写 VS Code 命令名 |
  * | 历史页 | 空列表给「去对话页」 |
  *
@@ -78,6 +78,7 @@ const blankTree = (extra) => ({
   castByCard: {},
   loreByEntry: {},
   loreUnfiled: [],
+  loreUnrecorded: 0,
   ...extra,
 });
 
@@ -210,13 +211,19 @@ describe('W12 · 设定组', { skip: JSDOM_SKIP }, () => {
     );
   });
 
-  test('已经写过正文：多一颗「从正文生成…」', () => {
+  // 「从正文生成…」（整本重扫）删了（设定名录第三期）。有定稿过、还没记过设定的章时给「补记设定…」。
+  test('有正文但没有要补记的章：只有「＋ 设定」', () => {
     ui.post({ type: 'project', tree: blankTree({ totalWords: 12000 }) });
+    assert.deepEqual(buttonsIn(hintIn(ui, '设定')), ['＋ 设定']);
+  });
+
+  test('有定稿过、还没记过设定的章：多一颗「补记设定…」，发 recordLore', () => {
+    ui.post({ type: 'project', tree: blankTree({ totalWords: 12000, loreUnrecorded: 3 }) });
     const row = hintIn(ui, '设定');
-    assert.deepEqual(buttonsIn(row), ['＋ 设定', '从正文生成…']);
+    assert.deepEqual(buttonsIn(row), ['＋ 设定', '补记设定…']);
     ui.sent.length = 0;
-    ui.clickEl(buttonIn(row, '从正文生成…'));
-    assert.equal(ui.last('projectAction')?.action, 'generateLore');
+    ui.clickEl(buttonIn(row, '补记设定…'));
+    assert.equal(ui.last('projectAction')?.action, 'recordLore');
   });
 });
 

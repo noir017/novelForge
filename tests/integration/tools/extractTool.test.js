@@ -117,12 +117,12 @@ describe('文风与设定：交出去，账上记 0', () => {
     assert.equal(ctx.usage.calls, 0);
   });
 
-  test('lore：确认框写着逐章识别要调几次；作者取消，零调用、账上记 0', async () => {
+  // 设定条目不在 extract 里了（整本重扫删了，换成 lore 工具）。
+  test('没有 lore 动作：当场报错，零调用', async () => {
     resetCtx();
     h.expect();
     const r = await run({ action: 'lore' });
-    assert.ok(h.confirms.at(-1).message.startsWith('将通读已写的正文生成设定：逐章识别固定调用模型 1 次'), h.confirms.at(-1).message);
-    assert.ok(r.text.includes('设定生成已交给 Novel Forge 执行'), r.text);
+    assert.ok(r.error, JSON.stringify(r));
     assert.equal(fake.calls.length, 0);
     assert.equal(ctx.usage.calls, 0);
   });
@@ -131,7 +131,7 @@ describe('文风与设定：交出去，账上记 0', () => {
 describe('工具定义本身', () => {
   test('参数只有 action', () => {
     assert.deepEqual(Object.keys(tool().parameters.properties), ['action']);
-    assert.deepEqual(tool().parameters.properties.action.enum, ['style', 'lore', 'threads']);
+    assert.deepEqual(tool().parameters.properties.action.enum, ['style', 'threads']);
   });
 
   test('三个动作都调模型：costly、mutating', () => {

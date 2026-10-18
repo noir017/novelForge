@@ -292,6 +292,11 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
         label: p.stale ? `定稿（细纲 + 角色状态 + 叙事线，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）` : '重新定稿',
         run: () => projectAction('finalizeChapter', p.chapterPath),
       });
+      // 单独记设定（设定名录，作者定案）：只对定稿过、正文没再改过的章——没定稿的第九节是计划，
+      // 记了也会被定稿冲掉。定稿时本来就会顺手记，这里是重记一次、或补老章节。
+      if (!p.stale) {
+        items.push({ label: '记设定（调用模型 1 次）', run: () => projectAction('recordLore', p.chapterPath) });
+      }
     }
     if (p.chapterPath) {
       // 草稿按需创建：没有就建一个再打开，文案据此区分。
@@ -533,7 +538,7 @@ function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): H
  * 并进同一格的话出现章永远被省略号吃掉，而几百条里扫一眼要看的恰恰是「哪条用得多、用到哪了」。
  * 被挤掉的是 brief，悬停浮窗（detailTip）照样看得全。
  *
- * 右键菜单不变（打开 + 类文件操作，`buildFileRow` 挂的那一份）。
+ * 右键菜单在打开与类文件操作之间多一项「整合这一条」（有待整合的才有）。
  */
 function buildLoreRow(f: ProjectFile, depth: number, tree?: ProjectTree): HTMLElement {
   // 旧后端推来的树没有 loreByEntry：可选链是有意的，那时就是一行普通的文件行。
@@ -553,6 +558,16 @@ function buildLoreRow(f: ProjectFile, depth: number, tree?: ProjectTree): HTMLEl
         ? `第 ${stats.updatedThrough} 章之后又有 ${stats.pending} 章的新内容没整合进这一条`
         : `有 ${stats.pending} 章的新内容还没整合进这一条`;
     row.appendChild(flag);
+    onContextMenu(row, () => [
+      { label: '打开', run: () => openPath(f.relPath) },
+      { sep: true },
+      {
+        label: `整合这一条（新增 ${stats.pending} 章，调用模型 1 次）`,
+        run: () => projectAction('integrateLore', f.relPath),
+      },
+      { sep: true },
+      ...entryItems(f.relPath),
+    ]);
   }
   return row;
 }
@@ -619,10 +634,11 @@ export function buildLoreUnfiledRows(list: LoreUnfiledEntry[], loreRoot: string)
 /**
  * 「出现过 · 未建条目」的一行：`名〔分类〕· 5 章 · 第 3 章起`。
  *
- * 只有一个动作：右键「新建这条设定」——带着名字发 `newLore`，落在建议的分类目录里
- * （各章第九节写的多数票；目录还没有时后端会建），不调模型。
- * 与「出场人物 · 未建卡」不同，**点名字不做事**：那边点名字是建卡，这边建出来的是一份空条目，
- * 扫列表时手一滑就在设定区里多出一个文件，不值得放在最省事的位置。
+ * 两个动作，都在右键里：「建条目」调模型一次，拿定稿细纲里提到它的那几行写成一条（不重读正文）；
+ * 「新建这条设定」带着名字发 `newLore`，建一份空条目、不调模型。都落在建议的分类目录里
+ * （各章第九节写的多数票；目录还没有时后端会建）。
+ * 与「出场人物 · 未建卡」不同，**点名字不做事**：扫列表时手一滑就在设定区里多出一个文件，
+ * 不值得放在最省事的位置。
  */
 function buildLoreUnfiledRow(u: LoreUnfiledEntry, loreRoot: string): HTMLElement {
   // 复用 row-cast 的压暗：同样是「出现过、还没有文件」的东西。
@@ -634,7 +650,7 @@ function buildLoreUnfiledRow(u: LoreUnfiledEntry, loreRoot: string): HTMLElement
   row.appendChild(dot);
 
   const label = mk('span', 'row-label', u.name);
-  label.title = `${u.chapters.length > 0 ? `出现在第 ${u.chapters.join('、')} 章\n` : ''}右键「新建这条设定」`;
+  label.title = `${u.chapters.length > 0 ? `出现在第 ${u.chapters.join('、')} 章\n` : ''}右键「建条目」或「新建这条设定」`;
   row.appendChild(label);
 
   if (u.category) {
@@ -645,7 +661,8 @@ function buildLoreUnfiledRow(u: LoreUnfiledEntry, loreRoot: string): HTMLElement
   const sub = u.category.replace(/^\/+|\/+$/g, '');
   const dir = sub ? `${loreRoot}/${sub}` : loreRoot;
   onContextMenu(row, () => [
-    { label: '新建这条设定', run: () => projectAction('newLore', undefined, dir, u.name) },
+    { label: '建条目（调用模型 1 次）', run: () => projectAction('buildLore', undefined, undefined, u.name) },
+    { label: '新建这条设定（空的，不调模型）', run: () => projectAction('newLore', undefined, dir, u.name) },
     { sep: true },
     ...baseMenuItems(),
   ]);

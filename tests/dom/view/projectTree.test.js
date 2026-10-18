@@ -572,6 +572,14 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.equal(msg.relPath, 'chapters/001-楔子.md', JSON.stringify(msg));
   });
 
+  // 设定名录：定稿过、正文没再改过的章可以单独记一次设定（只换细纲第九节），带的也是章节路径。
+  test('定稿过的章：「记设定」发 recordLore，带章节路径', () => {
+    ui.pick(ui.rightClick(plotRow('楔子')), '记设定（调用模型 1 次）');
+    const msg = ui.last('projectAction');
+    assert.equal(msg?.action, 'recordLore', JSON.stringify(msg));
+    assert.equal(msg.relPath, 'chapters/001-楔子.md', JSON.stringify(msg));
+  });
+
   test('点「打开草稿」发 openDraft，带的是章节路径', () => {
     ui.pick(ui.rightClick(plotRow('楔子')), '打开草稿');
     const draftMsg = ui.last('openDraft');
@@ -608,6 +616,8 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   test('没定稿的章给「定稿（细纲 + 角色状态 + 叙事线）」并写着调用次数', () => {
     assert.ok(legacyItems.includes('定稿（细纲 + 角色状态 + 叙事线，预计 1–3 次调用）'), JSON.stringify(legacyItems));
     assert.ok(!legacyItems.includes('重新定稿'), JSON.stringify(legacyItems));
+    // 没定稿的章第九节是计划，记了也会被定稿冲掉：不给单独记设定。
+    assert.ok(!legacyItems.includes('记设定（调用模型 1 次）'), JSON.stringify(legacyItems));
   });
 
   test('没有草稿时给「新建草稿」', () => {
@@ -760,26 +770,20 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     ui.closeMenu();
   });
 
-  // ---- 设定分组：全书自动生成入口与手动新建并存。
+  // ---- 设定分组：名录的三件维护（有待办才出现，见 loreCatalog.test.js）与手动新建并存。
+  // 整本重扫的「从已写正文生成/更新设定」删了。
   let loreHead;
   let loreItems;
-  test('设定分组菜单含自动生成入口', () => {
+  test('设定分组菜单：没有整本重扫', () => {
     loreHead = [...ui.doc.querySelectorAll('#projectBody .group-head')]
       .find((n) => n.querySelector('.group-name').textContent === '设定');
     loreItems = ui.itemsOf(ui.rightClick(loreHead));
-    assert.ok(loreItems.includes('从已写正文生成/更新设定'), JSON.stringify(loreItems));
+    assert.ok(!loreItems.some((i) => i.includes('从已写正文生成')), JSON.stringify(loreItems));
+    ui.closeMenu();
   });
 
   test('设定分组菜单仍含手动新建', () => {
     assert.ok(loreItems.includes('在此新建设定'), JSON.stringify(loreItems));
-  });
-
-  test('自动生成设定发 generateLore', () => {
-    ui.pick(ui.rightClick(loreHead), '从已写正文生成/更新设定');
-    const generateLore = ui.last('projectAction');
-    assert.ok(generateLore, '没发出 projectAction');
-    assert.equal(generateLore.action, 'generateLore', JSON.stringify(generateLore));
-    ui.closeMenu();
   });
 
   // ---- 章节分组：两个新建项 + 两个批量动作。

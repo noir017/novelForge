@@ -39,6 +39,7 @@ import { editTool } from './edit';
 import { extractTool } from './extract';
 import { generateTool } from './generate';
 import { listTool } from './list';
+import { loreTool } from './lore';
 import { pipelineTool } from './pipeline';
 import { readTool } from './read';
 import { searchTool } from './search';
@@ -53,6 +54,7 @@ export {
   extractTool,
   generateTool,
   listTool,
+  loreTool,
   pipelineTool,
   readTool,
   searchTool,
@@ -75,6 +77,7 @@ export const NOVEL_TOOLS: ToolDef[] = [
   pipelineTool,
   summaryTool,
   charactersTool,
+  loreTool,
   extractTool,
   bookTool,
   skillsTool,

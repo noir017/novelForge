@@ -19,7 +19,7 @@ const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
 const { loadBundle } = require('../../helpers/load');
 
-const ACTION_TOOLS = ['pipeline', 'summary', 'characters', 'extract', 'book', 'skills'];
+const ACTION_TOOLS = ['pipeline', 'summary', 'characters', 'lore', 'extract', 'book', 'skills'];
 const REFUSED = ['delete', 'remove', 'trash', 'rename', 'move', 'initProject', 'newChapter', 'split', 'uninstall'];
 
 let bundle;
@@ -252,6 +252,7 @@ describe('描述与 schema', () => {
       pipeline: [true, true],
       summary: [true, true],
       characters: [true, true],
+      lore: [true, true],
       extract: [true, true],
       book: [true, true],
       skills: [false, true],

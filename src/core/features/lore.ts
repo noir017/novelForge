@@ -1,726 +1,705 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { readConfig } from '../config';
-import { runPool, Settled } from '../runtime/concurrency';
+import { runPool, serialize } from '../runtime/concurrency';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
-import { estimateTokens, takeHead } from '../context/tokenizer';
+import { takeHead } from '../context/tokenizer';
 import { getHost, plainVerdict } from '../host';
 import { collectText } from '../llm/collect';
 import { StreamOptions } from '../llm/provider';
-import { budgetForTask, createModelPool, ModelPool } from '../llm/pool';
+import { ModelPool, createModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../runtime/logger';
-import { readText, slugify, uniqueSlug } from '../model/fs';
+import { exists, hash, readText, sanitizeFileName, slugify, uniqueSlug } from '../model/fs';
 import { parseMarkdown, stripH1 } from '../model/markdown';
 import { describeTaskModels } from '../model/tiers';
-import {
-  NovelProject,
-  renderLoreEntry,
-} from '../model/project';
-import { LoreEntry, Chapter } from '../model/types';
+import { NovelProject, renderLoreEntry } from '../model/project';
+import { Plot, PLOT_SECTION_KEYS } from '../model/plotFile';
+import { parseContinuityFacts } from '../model/continuity';
+import { LoreEntry } from '../model/types';
+import { LORE_ENTRY_LIMITS, normalizeLoreCategory, normalizeLoreName } from '../model/loreFile';
 import { runTask } from '../runtime/progress';
 import { Workspace } from '../workspace';
-import { LORE_EXTRACT_SYSTEM, LORE_SYNTHESIS_SYSTEM } from './lorePrompt';
-import { extractJson, stringArray, stripCodeFence, unique, uniqueNumbers } from './parse';
+import { finalizedPlots } from '../views/cast';
+import { LoreFact, LoreRecord, UnfiledLore, buildLoreIndex } from '../views/lore';
+import { LORE_ENTRY_SYSTEM, LORE_ORGANIZE_SYSTEM } from './lorePrompt';
+import { extractJsonObject, stringArray, stripCodeFence, stripTrailingCommas, unique } from './parse';
 
 const log = scoped('设定');
 
-const LORE_CATEGORIES = ['世界观', '地理', '势力', '制度', '能力', '物件', '历史', '其他'] as const;
-type LoreCategory = (typeof LORE_CATEGORIES)[number];
+/**
+ * 设定条目的三件维护：**建条目**（名录里出现过、还没有条目的名字）、**整合**（条目水位之后的新事实
+ * 并进条目）、**按目录整理**（作者定案：分类就是目录，让模型出一份搬家清单）。
+ *
+ * 原料全来自**定稿过的细纲**（第九节、连续性事实、提到它的那几句），**不重读正文**——每章定稿时已经
+ * 照正文记过、校验过了（features/loreRecord.ts）。从前这里是「通读全书 → 每条整合」那一套，每跑一次
+ * 都从第 1 章扫起（三百章、五百条约 800 次调用），作者定案删掉：相似的东西不留两份。
+ *
+ * 写回的规矩（第 3 条：不静默覆盖）：
+ * - 新条目直接建（不覆盖任何东西）。
+ * - 整合时条目正文是机器写的（`bodyHash` 对得上，或正文是空的）：作者在确认框里选「逐条确认」还是
+ *   「直接采纳」，同批量更新角色卡；作者改过的一律先给对比。
+ * - 整合只并不删作者的字（提示词，第 27 条）；关键词只增不减。
+ */
 
-interface ParsedLoreCandidate {
-  title: string;
-  category: LoreCategory;
-  keywords: string[];
-  facts: string[];
-}
+/** 「全部建条目」只建出现至少这么多章的（与批量建卡同一个门槛）。 */
+export const BUILD_MIN_CHAPTERS = 2;
+/** 按目录整理一次调用最多看几条。 */
+const ORGANIZE_BATCH = 80;
+/** 新目录最多几层。 */
+const ORGANIZE_DEPTH = 3;
+/** 建条目、整合时给模型的记录最多多少 token（原料是一句一句的记录，很少到这么多）。 */
+const MATERIAL_TOKENS = 6000;
 
-interface LoreDraft extends ParsedLoreCandidate {
-  chapters: number[];
-  existing?: LoreEntry;
-}
-
-interface GeneratedLore {
-  draft: LoreDraft;
+/** 模型交回来的一条。 */
+interface EntryDraft {
+  brief: string;
   keywords: string[];
   body: string;
 }
 
-interface PlotScanUnit {
-  chapter: Chapter;
-  text: string;
-  part: number;
-  parts: number;
-}
+// ---------------------------------------------------------------- 水位
 
 /**
- * 从全书正文生成/更新世界观设定。
- *
- * 读的是 `chapters/` 里的成稿：设定要从正文里认，剧情脉络里那句
- * 「他去了后山」认不出「后山是什么地方」。
- *
- * 第一阶段严格按章节顺序逐章分析：后一章会看到此前已经发现的设定目录，
- * 尽量沿用同一个标题，避免同一地点或势力被拆成多条。第二阶段按设定并发
- * 精炼跨章事实。新条目直接创建，已有条目必须经过宿主审阅才会覆盖。
+ * 整合能推到第几章：**第一处没定稿（或定稿之后正文又改过）的章之前**。第 5 章没定稿、第 6 章定稿了，
+ * 水位最多到 4——否则第 5 章日后定稿，它的事实永远进不了条目（全书摘要的增量也是这么停的）。
+ * 一章都没写是 0。
  */
-export async function generateLore(project: NovelProject): Promise<void> {
-  const chapters = await project.listChapters();
-  if (chapters.length === 0) {
-    log.warn('还没有章节，无法生成设定');
-    getHost().toast('还没有写过正文。写过几章之后，才能从正文里生成设定。');
-    return;
-  }
-
-  const existing = await project.listLore();
-  const config = readConfig();
-  // 切扫描片段用**逐章识别那一档**的窗口：片段数 = 确认框里那句「调用 N 次」，
-  // 拿错窗口既会让那个数字失真，也会让每个片段超出干活模型的窗口。
-  const scanBudget = budgetForTask('loreScan');
-  const inputBudget = Math.max(2000, scanBudget.contextWindow - scanBudget.maxOutputTokens - 2500);
-  const scanUnits = await prepareScanUnits(project, chapters, Math.max(1000, Math.floor(inputBudget * 0.7)));
-  if (scanUnits.length === 0) {
-    log.error('没有可读的正文，设定生成中止');
-    getHost().toast('还没有写过正文，或正文都无法读取（详见日志页）。', 'error');
-    return;
-  }
-  const confirmed = await getHost().confirm(
-    `将通读已写的正文生成设定：逐章识别固定调用模型 ${scanUnits.length} 次，` +
-      '之后每发现一条设定再调用 1 次完成跨章整合。现在开始？',
-    ['开始生成'],
-    {
-      modal: true,
-      detail: [
-        `预计调用次数：${scanUnits.length} + 识别出的设定条数。` +
-          `${scanUnits.length > chapters.length ? `长章按输入预算拆成了多个完整片段，不会截掉后半部分。` : ''}` +
-          '扫描结束后会在进度与日志中给出实际总数。',
-        existing.length > 0
-          ? `现有 ${existing.length} 条设定只会生成修改建议，逐条确认后才覆盖。`
-          : '当前没有设定条目；新识别出的条目会自动创建。',
-        describeTaskModels(config, 'loreScan'),
-        describeTaskModels(config, 'loreSynthesis'),
-        config.concurrency > 1
-          ? `逐章识别保持串行；设定整合最多 ${config.concurrency} 路并发。`
-          : '全部串行处理（并发数为 1）。',
-      ].join('\n\n'),
+async function integrationWatermark(project: NovelProject): Promise<number> {
+  const chapters = [...(await project.listChapters())].sort((a, b) => a.order - b.order);
+  let through = 0;
+  for (const chapter of chapters) {
+    if (chapter.wordCount === 0) {
+      continue;
     }
-  );
-  if (confirmed !== '开始生成') {
-    log.info('用户取消了自动生成设定');
-    return;
+    const plot = await project.plotOfChapter(chapter);
+    if (!plot?.sourceHash || plot.sourceHash !== chapter.contentHash) {
+      return chapter.order - 1;
+    }
+    through = chapter.order;
   }
-
-  // 逐章识别有前后依赖，恒用首选模型；第二阶段的设定彼此独立，可轮转负载均衡。
-  const scanPool = await createModelPool({ task: 'loreScan', concurrent: false });
-  if (!scanPool) {
-    log.error('没有可用的模型，设定生成中止');
-    return;
-  }
-  // 两阶段是**两档**（逐章识别只做事实摘录，整合要合并跨章事实且不能推翻
-  // 作者已写的内容），所以哪怕串行也各建一个池——串行时复用扫描池会把
-  // 整合悄悄降级到快速档。只有两档解析到同一份清单时才是同一批模型。
-  const synthesisPool = await createModelPool({
-    task: 'loreSynthesis',
-    concurrent: config.concurrency > 1,
-  });
-  if (!synthesisPool) {
-    log.error('没有可用的模型，设定生成中止');
-    return;
-  }
-
-  log.info(
-    '开始从正文生成设定',
-    `${chapters.length} 章分 ${scanUnits.length} 个扫描片段｜已有 ${existing.length} 条｜` +
-      `逐章识别 ${scanPool.label}｜设定整合 ${synthesisPool.label}｜` +
-      (config.concurrency > 1 ? `整合并发 ${config.concurrency} 路` : '串行')
-  );
-
-  await runTask(
-    '生成世界观设定',
-    async ({ signal, report }) => {
-      const startedAt = Date.now();
-      const drafts = await scanChapters(scanUnits, existing, scanPool, signal, report);
-      if (signal.aborted) {
-        log.warn(`设定扫描被取消，已发现 ${drafts.length} 条；尚未写入文件`);
-        return;
-      }
-      if (drafts.length === 0) {
-        log.warn('通读完成，但没有识别出可复用的世界观设定');
-        getHost().toast('没有从正文中识别出可生成的设定。');
-        return;
-      }
-
-      const modelCalls = scanUnits.length + drafts.length;
-      const totalSteps = scanUnits.length + drafts.length * 2;
-      report({
-        message: `识别出 ${drafts.length} 条设定，开始逐条整合`,
-        current: scanUnits.length,
-        total: totalSteps,
-      });
-      log.info(
-        `逐章扫描完成，识别出 ${drafts.length} 条设定`,
-        `实际计划调用模型 ${modelCalls} 次（扫描 ${scanUnits.length} + 整合 ${drafts.length}）`
-      );
-
-      const generated = await synthesizeDrafts(
-        project,
-        drafts,
-        synthesisPool,
-        signal,
-        report,
-        scanUnits.length,
-        totalSteps,
-        config.concurrency
-      );
-      if (signal.aborted) {
-        log.warn(`设定整合被取消，已完成 ${generated.length}/${drafts.length} 条；尚未写入文件`);
-        return;
-      }
-      if (generated.length === 0) {
-        log.error('所有设定的整合结果都无法解析，磁盘未改动');
-        getHost().toast('设定生成失败：模型结果均无法解析，详见日志页。', 'error');
-        return;
-      }
-
-      const applied = await applyGeneratedLore(
-        project,
-        generated,
-        report,
-        scanUnits.length + drafts.length,
-        totalSteps,
-        signal
-      );
-      const failed = drafts.length - generated.length;
-      const summary = [
-        `新建 ${applied.created} 条`,
-        `更新 ${applied.updated} 条`,
-        applied.skipped > 0 ? `跳过 ${applied.skipped} 条` : '',
-        failed > 0 ? `生成失败 ${failed} 条` : '',
-      ]
-        .filter(Boolean)
-        .join('，');
-      log.info('自动生成设定结束', `${summary}｜总耗时 ${elapsed(startedAt)}`);
-      getHost().toast(`设定生成完成：${summary}。${failed > 0 ? '失败项详见日志页。' : ''}`);
-    },
-    { scope: '设定' }
-  );
+  return through;
 }
 
-/** 在确认前读盘并按输入预算切片，保证长章的后半部分也会被模型看到。 */
-async function prepareScanUnits(
-  project: NovelProject,
-  chapters: Chapter[],
-  maxTokens: number
-): Promise<PlotScanUnit[]> {
-  const units: PlotScanUnit[] = [];
-  for (const chapter of chapters) {
-    try {
-      const text = await project.readChapterText(chapter);
-      // 空章直接跳过。
-      if (!text.trim()) {
+/** 条目正文是不是机器写的：空的，或记下的指纹对得上。没盖过章的非空正文算作者的。 */
+export function loreOwnedByMachine(entry: Pick<LoreEntry, 'body' | 'bodyHash'>): boolean {
+  const body = entry.body.trim();
+  return !body || (!!entry.bodyHash && hash(body) === entry.bodyHash);
+}
+
+// ---------------------------------------------------------------- 原料
+
+/**
+ * 一个名字在定稿过的细纲里的**所有记录**，带章号：第九节冒号后那一句、连续性事实里提到它的、
+ * 另外几节里提到它的句子。建条目的原料。
+ */
+function recordsAbout(plots: readonly Plot[], words: readonly string[], notes: readonly LoreFact[]): LoreFact[] {
+  const out: LoreFact[] = [...notes];
+  const hit = (text: string): boolean => words.some((w) => w.length >= 2 && text.includes(w));
+  for (const plot of plots) {
+    for (const fact of parseContinuityFacts(plot.sections.连续性事实)) {
+      if (hit(fact.statement)) {
+        out.push({ no: plot.no, text: fact.statement, source: 'fact' });
+      }
+    }
+    for (const key of PLOT_SECTION_KEYS) {
+      if (key === '连续性事实' || key === '出场人物') {
         continue;
       }
-      const chunks = splitForBudget(text, maxTokens);
-      if (chunks.length > 1) {
-        log.info(
-          `第 ${chapter.order} 章正文拆分为 ${chunks.length} 个设定识别片段`,
-          `${estimateTokens(text)} token`
-        );
-      }
-      chunks.forEach((chunk, index) => {
-        units.push({ chapter, text: chunk, part: index + 1, parts: chunks.length });
-      });
-    } catch (err) {
-      log.error(`第 ${chapter.order} 章正文读取失败，跳过该章`, describeError(err));
-    }
-  }
-  return units;
-}
-
-function splitForBudget(text: string, maxTokens: number): string[] {
-  const normalized = text.trim();
-  if (!normalized || estimateTokens(normalized) <= maxTokens) {
-    return [normalized];
-  }
-  const out: string[] = [];
-  let rest = normalized;
-  while (rest) {
-    if (estimateTokens(rest) <= maxTokens) {
-      out.push(rest);
-      break;
-    }
-    let low = 1;
-    let high = rest.length;
-    while (low < high) {
-      const mid = Math.ceil((low + high) / 2);
-      if (estimateTokens(rest.slice(0, mid)) <= maxTokens) {
-        low = mid;
-      } else {
-        high = mid - 1;
-      }
-    }
-    let cut = Math.max(1, low);
-    const boundary = rest.lastIndexOf('\n\n', cut);
-    if (boundary > cut * 0.35) {
-      cut = boundary;
-    }
-    const chunk = rest.slice(0, cut).trim();
-    if (chunk) {
-      out.push(chunk);
-    }
-    rest = rest.slice(cut).trimStart();
-  }
-  return out.length > 0 ? out : [normalized];
-}
-
-async function scanChapters(
-  units: PlotScanUnit[],
-  existing: LoreEntry[],
-  pool: ModelPool,
-  signal: AbortSignal,
-  report: (update: { message?: string; current?: number; total?: number }) => void
-): Promise<LoreDraft[]> {
-  const drafts: LoreDraft[] = [];
-  const config = readConfig();
-  const budget = pool.primaryBudget;
-  const inputBudget = Math.max(2000, budget.contextWindow - budget.maxOutputTokens - 2500);
-  const options: StreamOptions = {
-    maxOutputTokens: budget.maxOutputTokens,
-    temperature: 0.2,
-    timeoutMs: config.requestTimeoutMs,
-    signal,
-  };
-
-  let scanned = 0;
-  for (const unit of units) {
-    if (signal.aborted) {
-      break;
-    }
-    const { chapter } = unit;
-    const partLabel = unit.parts > 1 ? `（片段 ${unit.part}/${unit.parts}）` : '';
-    report({
-      message: `识别第 ${chapter.order} 章《${chapter.title}》${partLabel}`,
-      current: scanned,
-      total: units.length,
-    });
-    const startedAt = Date.now();
-    try {
-      const catalog = buildCatalog(existing, drafts);
-      const catalogBudget = Math.max(600, Math.floor(inputBudget * 0.2));
-      const clippedCatalog = takeHead(catalog, catalogBudget);
-      if (clippedCatalog.length < catalog.length) {
-        log.warn(
-          `第 ${chapter.order} 章识别时，设定目录超出输入预算，已截断`,
-          `${catalog.length} 字 → ${clippedCatalog.length} 字（目录预算 ${catalogBudget} token）`
-        );
-      }
-      const raw = await pool.run(`第 ${chapter.order} 章设定识别`, (llm) =>
-        collectText(
-          llm.stream(
-            [
-              { role: 'system', content: LORE_EXTRACT_SYSTEM },
-              {
-                role: 'user',
-                content:
-                  `已有及此前发现的设定目录（同一对象必须沿用这里的标题）：\n${clippedCatalog || '（暂无）'}` +
-                  `
-
-【第 ${chapter.order} 章 ${chapter.title}${partLabel}】
-${unit.text}`,
-              },
-            ],
-            options
-          )
-        )
-      );
-      const parsed = parseLoreCandidates(raw);
-      mergeCandidates(drafts, existing, parsed, chapter.order);
-      log.info(
-        `第 ${chapter.order} 章${partLabel}设定识别完成`,
-        `识别 ${parsed.length} 项｜累计 ${drafts.length} 条｜产出 ${raw.length} 字｜用时 ${elapsed(startedAt)}`
-      );
-    } catch (err) {
-      if (signal.aborted) {
-        break;
-      }
-      log.error(`第 ${chapter.order} 章设定识别失败，继续下一章`, describeError(err));
-    } finally {
-      scanned++;
-      report({ current: scanned, total: units.length });
-    }
-  }
-  return drafts;
-}
-
-function buildCatalog(existing: LoreEntry[], drafts: LoreDraft[]): string {
-  const lines: string[] = [];
-  const seen = new Set<string>();
-  // 新发现的目录优先放前面：目录过长时，后续片段最需要看见的是本轮刚统一的标题。
-  for (const entry of drafts) {
-    const key = normalizeTitle(entry.title);
-    if (!key || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    lines.push(`- ${entry.title}${entry.keywords.length ? `（关键词：${entry.keywords.join('、')}）` : ''}`);
-  }
-  for (const draft of existing) {
-    const key = normalizeTitle(draft.title);
-    if (!key || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    lines.push(`- ${draft.title}${draft.keywords.length ? `（关键词：${draft.keywords.join('、')}）` : ''}`);
-  }
-  return lines.join('\n');
-}
-
-function mergeCandidates(
-  drafts: LoreDraft[],
-  existing: LoreEntry[],
-  candidates: ParsedLoreCandidate[],
-  chapterOrder: number
-): void {
-  for (const candidate of candidates) {
-    const match = findDraft(drafts, candidate) ?? findExisting(existing, candidate);
-    if (match && 'chapters' in match) {
-      match.keywords = unique([...match.keywords, ...candidate.keywords]);
-      match.facts = unique([...match.facts, ...candidate.facts]);
-      match.chapters = uniqueNumbers([...match.chapters, chapterOrder]);
-      continue;
-    }
-
-    const existingEntry = match && !('chapters' in match) ? match : undefined;
-    drafts.push({
-      title: existingEntry?.title ?? candidate.title,
-      category: candidate.category,
-      keywords: unique([...(existingEntry?.keywords ?? []), ...candidate.keywords, candidate.title]),
-      facts: candidate.facts,
-      chapters: [chapterOrder],
-      existing: existingEntry,
-    });
-  }
-}
-
-function findDraft(drafts: LoreDraft[], candidate: ParsedLoreCandidate): LoreDraft | undefined {
-  return drafts.find((draft) => sameLore(draft, candidate));
-}
-
-function findExisting(existing: LoreEntry[], candidate: ParsedLoreCandidate): LoreEntry | undefined {
-  return existing.find((entry) => sameLore(entry, candidate));
-}
-
-function sameLore(
-  left: Pick<LoreEntry, 'title' | 'keywords'>,
-  right: Pick<ParsedLoreCandidate, 'title' | 'keywords'>
-): boolean {
-  const leftTitle = normalizeTitle(left.title);
-  const rightTitle = normalizeTitle(right.title);
-  if (!leftTitle || !rightTitle) {
-    return false;
-  }
-  if (leftTitle === rightTitle) {
-    return true;
-  }
-  const leftAliases = new Set(left.keywords.map(normalizeTitle).filter(Boolean));
-  const rightAliases = new Set(right.keywords.map(normalizeTitle).filter(Boolean));
-  return leftAliases.has(rightTitle) && rightAliases.has(leftTitle);
-}
-
-async function synthesizeDrafts(
-  project: NovelProject,
-  drafts: LoreDraft[],
-  pool: ModelPool,
-  signal: AbortSignal,
-  report: (update: { message?: string; current?: number; total?: number }) => void,
-  baseDone: number,
-  totalSteps: number,
-  concurrency: number
-): Promise<GeneratedLore[]> {
-  const running = new Set<string>();
-  const lanes = Math.max(1, Math.min(concurrency, drafts.length));
-  const results = await runPool(
-    drafts,
-    lanes,
-    (draft) => synthesizeOne(draft, pool, signal),
-    {
-      signal,
-      onStart: (draft) => {
-        running.add(draft.title);
-        report({
-          message: `整合设定（进行中：${[...running].join('、')}）`,
-          current: baseDone,
-          total: totalSteps,
-        });
-      },
-      onSettled: (result, draft, _index, done) => {
-        running.delete(draft.title);
-        if (result.status === 'rejected') {
-          log.error(`设定「${draft.title}」生成失败`, describeError(result.reason));
-          // 只有**已存在**的条目挂得住标记：新条目此刻还没有文件，
-          // 记一条谁也看不到的记录不如不记（工程页按 relPath 匹配）。
-          // 那种情况仍然只有日志与「生成失败 N 条」的汇总——它本来也没有
-          // 可标记的对象，不为此在树上凭空造一行。
-          if (draft.existing) {
-            void recordFailure(project, {
-              scope: '设定',
-              targetKind: 'lore',
-              targetKey: draft.existing.relPath,
-              severity: 'error',
-              op: 'generateLore',
-              message: `整合失败：${describeError(result.reason)}`,
-              detail: `依据第 ${draft.chapters.join('、')} 章｜这一条未改动，可重新运行「从已写正文生成/更新设定」`,
-            });
-          }
-        } else {
-          log.info(
-            `设定「${draft.title}」生成完成`,
-            `依据 ${draft.chapters.length} 章｜正文 ${result.value.body.length} 字`
-          );
+      for (const sentence of plot.sections[key].split(/(?<=[。！？!?])|\n+/u)) {
+        const s = sentence.replace(/^\s*[-*·•]\s*/u, '').trim();
+        if (s && hit(s)) {
+          out.push({ no: plot.no, text: s, source: 'lore' });
         }
-        report({
-          message:
-            `已整合 ${done}/${drafts.length} 条` +
-            (running.size > 0 ? ` · ${running.size} 条进行中（${[...running].join('、')}）` : ''),
-          current: baseDone + done,
-          total: totalSteps,
-        });
-      },
+      }
     }
-  );
-  return fulfilled(results);
+  }
+  const seen = new Set<string>();
+  return out
+    .filter((f) => {
+      const key = `${f.no}|${f.text}`;
+      return !seen.has(key) && (seen.add(key), true);
+    })
+    .sort((a, b) => a.no - b.no);
 }
 
-async function synthesizeOne(draft: LoreDraft, pool: ModelPool, signal: AbortSignal): Promise<GeneratedLore> {
-  const config = readConfig();
-  const budget = pool.primaryBudget;
-  const inputBudget = Math.max(2000, budget.contextWindow - budget.maxOutputTokens - 2500);
-  const source = [
-    draft.existing?.body ? `作者现有内容（视为权威，除非正文明确更新，不得删除或改写其事实）：\n${draft.existing.body}` : '',
-    `正文中提取的事实（来自第 ${draft.chapters.join('、')} 章）：\n${draft.facts.map((f) => `- ${f}`).join('\n')}`,
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-  const clipped = takeHead(source, inputBudget);
-  if (clipped.length < source.length) {
-    log.warn(
-      `设定「${draft.title}」的素材超出整合预算，已截断`,
-      `${source.length} 字 → ${clipped.length} 字（预算 ${inputBudget} token）`
-    );
-  }
+function renderRecords(records: readonly LoreFact[]): string {
+  return takeHead(records.map((f) => `- 第 ${f.no} 章：${f.text}`).join('\n'), MATERIAL_TOKENS);
+}
 
+// ---------------------------------------------------------------- 调模型
+
+async function draftEntry(pool: ModelPool, label: string, user: string, signal: AbortSignal): Promise<EntryDraft> {
+  const budget = pool.primaryBudget;
   const options: StreamOptions = {
     maxOutputTokens: budget.maxOutputTokens,
     temperature: 0.2,
-    timeoutMs: config.requestTimeoutMs,
+    timeoutMs: readConfig().requestTimeoutMs,
     signal,
   };
-  const startedAt = Date.now();
-  const raw = await pool.run(`设定「${draft.title}」`, (llm) =>
+  const raw = await pool.run(label, (llm) =>
     collectText(
       llm.stream(
         [
-          { role: 'system', content: LORE_SYNTHESIS_SYSTEM },
-          {
-            role: 'user',
-            content:
-              `设定标题：${draft.title}\n分类：${draft.category}\n已有关键词：${draft.keywords.join('、')}` +
-              `\n\n${clipped}`,
-          },
+          { role: 'system', content: LORE_ENTRY_SYSTEM },
+          { role: 'user', content: user },
         ],
         options
       )
     )
   );
-  const parsed = parseLoreDocument(raw);
-  if (!parsed) {
+  const draft = parseEntryDraft(raw);
+  if (!draft) {
     throw new Error(`模型返回无法解析（${raw.length} 字）`);
   }
-  log.debug(`设定「${draft.title}」模型返回`, `${raw.length} 字｜用时 ${elapsed(startedAt)}`);
-  return {
-    draft,
-    keywords: unique([draft.title, ...draft.keywords, ...parsed.keywords]),
-    body: parsed.body,
-  };
+  return draft;
 }
 
-function fulfilled(results: Settled<GeneratedLore>[]): GeneratedLore[] {
-  return results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
-}
-
-async function applyGeneratedLore(
-  project: NovelProject,
-  generated: GeneratedLore[],
-  report: (update: { message?: string; current?: number; total?: number }) => void,
-  baseDone: number,
-  totalSteps: number,
-  signal: AbortSignal
-): Promise<{ created: number; updated: number; skipped: number }> {
-  let created = 0;
-  let updated = 0;
-  let skipped = 0;
-  for (const [index, item] of generated.entries()) {
-    if (signal.aborted) {
-      break;
-    }
-    report({
-      message: item.draft.existing ? `审阅设定「${item.draft.title}」` : `写入设定「${item.draft.title}」`,
-      current: baseDone + index,
-      total: totalSteps,
-    });
-    if (item.draft.existing) {
-      const verdict = await reviewExisting(project, item, signal);
-      if (verdict === 'updated') {
-        updated++;
-      } else {
-        skipped++;
-      }
-    } else {
-      const category = slugify(item.draft.category);
-      const base = `${category}/${slugify(item.draft.title)}`;
-      const slug = await uniqueSlug(project.loreDir, base);
-      const relPath = await new Workspace(project).writeLore({
-        slug,
-        title: item.draft.title,
-        keywords: item.keywords,
-        body: item.body,
-      });
-      created++;
-      log.info(`新建设定「${item.draft.title}」`, `${relPath}｜${item.body.length} 字`);
-    }
-    report({ current: baseDone + index + 1, total: totalSteps });
-  }
-  return { created, updated, skipped };
-}
-
-async function reviewExisting(
-  project: NovelProject,
-  item: GeneratedLore,
-  signal: AbortSignal
-): Promise<'updated' | 'skipped'> {
-  const existing = item.draft.existing!;
-  const currentText = await readText(project.pathOf(existing.relPath));
-  const proposedText = renderLoreEntry({
-    slug: existing.slug,
-    title: existing.title,
-    keywords: item.keywords,
-    body: item.body,
-  });
-  if (currentText.replace(/\r\n/g, '\n').trim() === proposedText.trim()) {
-    log.info(`设定「${existing.title}」无需更新`, existing.relPath);
-    // 内容一致也算这一条整合成功了（上次可能是失败挂着的），收掉感叹号。
-    await clearFailures(project, 'lore', existing.relPath, 'generateLore');
-    return 'skipped';
-  }
-
-  const host = getHost();
-  let verdict: 'apply' | 'discard' | undefined;
-  if (host.reviewReplace) {
-    verdict = plainVerdict(await host.reviewReplace(`设定「${existing.title}」`, currentText, proposedText, existing.relPath));
-  } else {
-    const picked = await host.confirm(`已生成设定「${existing.title}」的更新。采纳？`, ['采纳', '跳过'], {
-      modal: true,
-    });
-    verdict = picked === '采纳' ? 'apply' : picked === '跳过' ? 'discard' : undefined;
-  }
-  if (verdict !== 'apply') {
-    log.info(`跳过设定「${existing.title}」`, verdict === 'discard' ? '用户放弃' : '用户取消');
-    return 'skipped';
-  }
-  if (signal.aborted) {
-    log.info(`停止后不再写入设定「${existing.title}」`);
-    return 'skipped';
-  }
-  await new Workspace(project).writeLore({
-    slug: existing.slug,
-    title: existing.title,
-    keywords: item.keywords,
-    body: item.body,
-  });
-  // 写成了：这一条挂着的失败记录该清掉。
-  await clearFailures(project, 'lore', existing.relPath, 'generateLore');
-  log.info(
-    `已更新设定「${existing.title}」`,
-    `${existing.relPath}｜${currentText.length} 字 → ${proposedText.length} 字`
-  );
-  return 'updated';
-}
-
-/** 容错解析逐章识别结果；坏条目忽略，不让一章的脏输出带崩全书任务。 */
-export function parseLoreCandidates(raw: string): ParsedLoreCandidate[] {
-  const cleaned = stripCodeFence(raw);
-  const json = extractJson(cleaned);
-  if (!json) {
-    return [];
-  }
-  let data: unknown;
-  try {
-    data = JSON.parse(json);
-  } catch {
-    return [];
-  }
-  const list = Array.isArray(data)
-    ? data
-    : typeof data === 'object' && data !== null
-      ? ((data as Record<string, unknown>).settings ?? (data as Record<string, unknown>).lore)
-      : undefined;
-  if (!Array.isArray(list)) {
-    return [];
-  }
-
-  const out: ParsedLoreCandidate[] = [];
-  for (const value of list) {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      continue;
-    }
-    const obj = value as Record<string, unknown>;
-    const title = singleLineValue(obj.title ?? obj.name, 80);
-    const facts = stringArray(obj.facts ?? obj.content ?? obj.details);
-    if (!title || facts.length === 0) {
-      continue;
-    }
-    const categoryRaw = stringValue(obj.category);
-    const category = LORE_CATEGORIES.includes(categoryRaw as LoreCategory)
-      ? (categoryRaw as LoreCategory)
-      : '其他';
-    out.push({
-      title,
-      category,
-      keywords: unique(stringArray(obj.keywords)),
-      facts: unique(facts),
-    });
-  }
-  return out;
-}
-
-function parseLoreDocument(raw: string): { keywords: string[]; body: string } | undefined {
-  const cleaned = stripCodeFence(raw);
-  const json = extractJson(cleaned);
-  if (!json) {
+/** `{brief, keywords, body}`；正文为空或不是 JSON 返回 undefined。正文里带了一级标题就剥掉。 */
+export function parseEntryDraft(raw: string): EntryDraft | undefined {
+  const obj = jsonObject(raw);
+  if (!obj) {
     return undefined;
   }
-  let data: unknown;
-  try {
-    data = JSON.parse(json);
-  } catch {
-    return undefined;
-  }
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
-    return undefined;
-  }
-  const obj = data as Record<string, unknown>;
-  const rawBody = stringValue(obj.body ?? obj.content);
-  const body = stripH1(parseMarkdown(rawBody).body).trim();
+  const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+  const body = stripH1(parseMarkdown(text(obj.body ?? obj.content)).body).trim();
   if (!body) {
     return undefined;
   }
-  return { keywords: unique(stringArray(obj.keywords)), body };
+  return {
+    brief: text(obj.brief ?? obj.一句话).replace(/\s+/g, ' ').slice(0, LORE_ENTRY_LIMITS.brief),
+    keywords: unique(stringArray(obj.keywords ?? obj.关键词)),
+    body,
+  };
 }
 
-function stringValue(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
+function jsonObject(raw: string): Record<string, unknown> | undefined {
+  const json = extractJsonObject(stripCodeFence(raw));
+  if (!json) {
+    return undefined;
+  }
+  for (const candidate of [json, stripTrailingCommas(json)]) {
+    try {
+      const data: unknown = JSON.parse(candidate);
+      if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
+        return data as Record<string, unknown>;
+      }
+    } catch {
+      // 下一个写法
+    }
+  }
+  return undefined;
 }
 
-function singleLineValue(value: unknown, maxLength: number): string {
-  return stringValue(value).replace(/\s+/g, ' ').slice(0, maxLength).trim();
+// ---------------------------------------------------------------- 建条目
+
+/**
+ * 给名录里「出现过 · 未建条目」的名字建条目。给了 `names` 就建那几个；没给就建**出现 ≥2 章**的全部。
+ * 每条 1 次，原料是定稿细纲里提到它的记录（不重读正文），新文件建在它的分类目录里（不存在就建）。
+ */
+export async function buildLoreEntries(project: NovelProject, names?: readonly string[]): Promise<void> {
+  const host = getHost();
+  const index = await buildLoreIndex(project);
+  const wanted = names?.map(normalizeLoreName).filter(Boolean);
+  const targets = wanted?.length
+    ? index.unknown.filter((u) => wanted.includes(normalizeLoreName(u.name)))
+    : index.unknown.filter((u) => u.chapters.length >= BUILD_MIN_CHAPTERS);
+  if (targets.length === 0) {
+    host.toast(
+      wanted?.length
+        ? '名录里没有这个名字，或者它已经有条目了。'
+        : `没有出现 ${BUILD_MIN_CHAPTERS} 章以上、还没建条目的设定。`
+    );
+    return;
+  }
+  const config = readConfig();
+  const n = targets.length;
+  const lanes = Math.max(1, Math.min(config.concurrency, n));
+  const picked = await host.confirm(
+    `建 ${n} 条设定：每条调用模型 1 次，共 ${n} 次。只读定稿过的细纲里提到它们的那几行，不重读正文。`,
+    ['开始建'],
+    {
+      modal: true,
+      detail: [
+        `要建的：${targets.slice(0, 20).map((u) => u.name).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,
+        wanted?.length ? '' : `只建出现 ${BUILD_MIN_CHAPTERS} 章以上的；出现得少的可以在「出现过 · 未建条目」里一条一条建。`,
+        describeTaskModels(config, 'loreSynthesis'),
+        lanes > 1 ? `最多 ${lanes} 条同时建。` : '一条一条串行建（并发数为 1）。',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    }
+  );
+  if (picked !== '开始建') {
+    log.info('作者取消了建条目');
+    return;
+  }
+  const pool = await createModelPool({ task: 'loreSynthesis', concurrent: lanes > 1 });
+  if (!pool) {
+    log.error('没有可用的模型，建条目中止');
+    return;
+  }
+  const [plots, through] = await Promise.all([
+    project.listChapters().then(async (chapters) => finalizedPlots(project.pairPlots(await project.listPlots(), chapters))),
+    integrationWatermark(project),
+  ]);
+
+  await runTask(
+    '建设定条目',
+    async ({ signal, report }) => {
+      const startedAt = Date.now();
+      let created = 0;
+      let failed = 0;
+      await runPool(targets, lanes, (u) => buildOne(project, u, plots, through, pool, signal), {
+        signal,
+        onSettled: (result, u, _i, done) => {
+          if (result.status === 'fulfilled') {
+            created++;
+          } else {
+            failed++;
+            log.error(`设定「${u.name}」建条目失败`, describeError(result.reason));
+          }
+          report({ message: `已建 ${done}/${n} 条`, current: done, total: n });
+        },
+      });
+      project.invalidate();
+      const summary = `新建 ${created} 条设定${failed > 0 ? `，失败 ${failed} 条（详见日志页）` : ''}`;
+      log.info('建条目结束', `${summary}｜总耗时 ${elapsed(startedAt)}`);
+      host.toast(`${summary}。`);
+    },
+    { scope: '设定' }
+  );
 }
 
-function normalizeTitle(value: string): string {
-  return value.toLocaleLowerCase('zh-Hans-CN').replace(/[\s\p{P}\p{S}]/gu, '');
+async function buildOne(
+  project: NovelProject,
+  u: UnfiledLore,
+  plots: readonly Plot[],
+  through: number,
+  pool: ModelPool,
+  signal: AbortSignal
+): Promise<void> {
+  const records = recordsAbout(plots, [u.name], u.notes);
+  const category = normalizeLoreCategory(u.category);
+  const draft = await draftEntry(
+    pool,
+    `设定「${u.name}」建条目`,
+    `设定：${u.name}\n分类：${category || '未分类'}\n\n定稿细纲里关于它的记录（按章号）：\n${renderRecords(records)}`,
+    signal
+  );
+  if (signal.aborted) {
+    return;
+  }
+  // 等模型的时候作者可能已经手建了一条：撞上了就不建，不覆盖。
+  if ((await project.listLore()).some((e) => normalizeLoreName(e.title) === normalizeLoreName(u.name))) {
+    log.info(`设定「${u.name}」已经有条目了，这一条不建`);
+    return;
+  }
+  const slug = await uniqueSlug(project.loreDir, `${category ? `${category}/` : ''}${slugify(u.name)}`);
+  const relPath = await new Workspace(project).writeLore({
+    slug,
+    title: u.name,
+    keywords: unique([u.name, ...draft.keywords]),
+    brief: draft.brief,
+    body: draft.body,
+    updatedThrough: through,
+    bodyHash: hash(draft.body.trim()),
+  });
+  log.info(`新建设定「${u.name}」`, `${relPath}｜依据 ${records.length} 条记录｜${draft.body.length} 字`);
+}
+
+// ---------------------------------------------------------------- 整合
+
+/** 一条要整合的：条目与水位之内的新事实。 */
+interface IntegratePlan {
+  record: LoreRecord;
+  facts: LoreFact[];
+}
+
+/**
+ * 把条目水位之后、定稿过的新事实并进条目。给了 `relPaths` 就整合那几条；没给就是名录上挂 `＋N` 的全部。
+ * 每条 1 次。水位推到 {@link integrationWatermark}，更晚的事实留到下次（它们照样作为尾巴带进上下文）。
+ */
+export async function integrateLore(project: NovelProject, relPaths?: readonly string[]): Promise<void> {
+  const host = getHost();
+  const [index, through] = await Promise.all([buildLoreIndex(project), integrationWatermark(project)]);
+  const plans: IntegratePlan[] = index.known
+    .filter((r) => !relPaths?.length || relPaths.includes(r.entry.relPath))
+    .map((record) => ({ record, facts: record.pending.filter((f) => f.no <= through) }))
+    .filter((p) => p.facts.length > 0);
+  if (plans.length === 0) {
+    const waiting = index.known.some(
+      (r) => (!relPaths?.length || relPaths.includes(r.entry.relPath)) && r.pending.length > 0
+    );
+    host.toast(
+      waiting
+        ? `新内容在第 ${through + 1} 章之后：第 ${through + 1} 章还没定稿（或定稿之后正文又改过），整合停在它前面。`
+        : relPaths?.length
+          ? '这一条没有新内容要整合。'
+          : '没有要整合的设定：条目都跟上了定稿。'
+    );
+    return;
+  }
+  const config = readConfig();
+  const n = plans.length;
+  const authored = plans.filter((p) => !loreOwnedByMachine(p.record.entry)).length;
+  const lanes = Math.max(1, Math.min(config.concurrency, n));
+  const buttons = authored < n ? ['逐条确认后开始', '机器写的直接采纳并开始'] : ['逐条确认后开始'];
+  const picked = await host.confirm(
+    `整合 ${n} 条设定：每条调用模型 1 次，共 ${n} 次。把定稿里的新内容并进条目（整合到第 ${through} 章）。`,
+    buttons,
+    {
+      modal: true,
+      detail: [
+        `要整合的：${plans.slice(0, 20).map((p) => p.record.entry.title).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,
+        authored > 0 ? `其中 ${authored} 条你改过，不管选哪个都会先给你对比再写。` : '',
+        describeTaskModels(config, 'loreSynthesis'),
+        lanes > 1 ? `最多 ${lanes} 条同时整合；逐条确认时，对比按完成顺序一条一条弹出。` : '一条一条串行整合（并发数为 1）。',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    }
+  );
+  if (!picked) {
+    log.info('作者取消了整合设定');
+    return;
+  }
+  const autoApply = picked === '机器写的直接采纳并开始';
+  const pool = await createModelPool({ task: 'loreSynthesis', concurrent: lanes > 1 });
+  if (!pool) {
+    log.error('没有可用的模型，整合设定中止');
+    return;
+  }
+
+  await runTask(
+    '整合设定',
+    async ({ signal, report }) => {
+      const startedAt = Date.now();
+      let updated = 0;
+      let skipped = 0;
+      let failed = 0;
+      await runPool(plans, lanes, (p) => integrateOne(project, p, through, autoApply, pool, signal), {
+        signal,
+        onSettled: (result, p, _i, done) => {
+          if (result.status === 'fulfilled') {
+            if (result.value) {
+              updated++;
+            } else {
+              skipped++;
+            }
+          } else {
+            failed++;
+            log.error(`设定「${p.record.entry.title}」整合失败`, describeError(result.reason));
+            void recordFailure(project, {
+              scope: '设定',
+              targetKind: 'lore',
+              targetKey: p.record.entry.relPath,
+              severity: 'error',
+              op: 'integrateLore',
+              message: `整合失败：${describeError(result.reason)}`,
+              detail: `这一条没有改动｜要并进的是第 ${unique(p.facts.map((f) => String(f.no))).join('、')} 章的新内容`,
+            });
+          }
+          report({ message: `已整合 ${done}/${n} 条`, current: done, total: n });
+        },
+      });
+      project.invalidate();
+      const summary =
+        `更新 ${updated} 条设定` +
+        (skipped > 0 ? `，没采纳 ${skipped} 条` : '') +
+        (failed > 0 ? `，失败 ${failed} 条（详见日志页）` : '');
+      log.info('整合设定结束', `${summary}｜总耗时 ${elapsed(startedAt)}`);
+      host.toast(`${summary}。`);
+    },
+    { scope: '设定' }
+  );
+}
+
+/** 整合一条。返回是否写了。 */
+async function integrateOne(
+  project: NovelProject,
+  plan: IntegratePlan,
+  through: number,
+  autoApply: boolean,
+  pool: ModelPool,
+  signal: AbortSignal
+): Promise<boolean> {
+  const { entry } = plan.record;
+  const user = [
+    `设定：${entry.title}`,
+    `分类：${entry.category || '未分类'}`,
+    entry.keywords.length > 0 ? `已有关键词：${entry.keywords.join('、')}` : '',
+    '',
+    `现有条目（作者认可过的内容，记录没有明确推翻的不删）：\n一句话：${entry.brief || '（没写）'}\n${entry.body.trim() || '（还是空的）'}`,
+    '',
+    `第 ${entry.updatedThrough ?? 0} 章之后定稿细纲里关于它的新记录（按章号）：\n${renderRecords(plan.facts)}`,
+  ]
+    .filter((line, i, all) => line !== '' || all[i - 1] !== '')
+    .join('\n');
+  const draft = await draftEntry(pool, `设定「${entry.title}」整合`, user, signal);
+  if (signal.aborted) {
+    return false;
+  }
+  const proposed = renderLoreEntry({
+    slug: entry.slug,
+    title: entry.title,
+    keywords: unique([...entry.keywords, ...draft.keywords]),
+    brief: draft.brief || entry.brief,
+    body: draft.body,
+    updatedThrough: through,
+    bodyHash: hash(draft.body.trim()),
+  });
+  const abs = project.pathOf(entry.relPath);
+  const machine = loreOwnedByMachine(entry);
+  if (!(machine && autoApply)) {
+    const verdict = await serialize(async () => {
+      // 排到队之前文件可能已被别处改过，进队后再读一次才是当下的真相。
+      const current = await readText(abs);
+      const host = getHost();
+      if (host.reviewReplace) {
+        return plainVerdict(await host.reviewReplace(`设定「${entry.title}」`, current, proposed, entry.relPath));
+      }
+      const pick = await host.confirm(`已整合设定「${entry.title}」。采纳？`, ['采纳', '跳过'], { modal: true });
+      return pick === '采纳' ? 'apply' : pick === '跳过' ? 'discard' : undefined;
+    });
+    if (verdict !== 'apply' || signal.aborted) {
+      log.info(`没采纳设定「${entry.title}」的整合`, verdict === 'discard' ? '作者放弃' : '作者取消');
+      return false;
+    }
+  }
+  await new Workspace(project).write(entry.relPath, { text: proposed }, { mode: 'overwrite', review: false });
+  await clearFailures(project, 'lore', entry.relPath, 'integrateLore');
+  log.info(
+    `已整合设定「${entry.title}」`,
+    `${entry.relPath}｜并进 ${plan.facts.length} 条新记录｜整合到第 ${through} 章${machine ? '' : '｜作者改过，对比后采纳'}`
+  );
+  return true;
+}
+
+// ---------------------------------------------------------------- 按目录整理
+
+/** 整理的范围：只整理根目录下（未分类）的，还是全部。 */
+export type OrganizeScope = 'unfiled' | 'all';
+
+/** 校验过的一次搬家。 */
+export interface LoreMove {
+  from: string;
+  /** 现在所在的目录（相对 `lore/`，根目录是空串）。 */
+  category: string;
+  /** 目标目录（相对 `lore/`，根目录是空串）。 */
+  to: string;
+  title: string;
+}
+
+/**
+ * 按目录整理（作者定案）。模型只出一份搬家清单，程序校验，作者看过点了「照这样整理」才搬；
+ * 搬家走网关的 `move`（只在设定区里），**条目内容一个字不改**。`scope` 没给就先问。
+ */
+export async function organizeLore(project: NovelProject, scope?: OrganizeScope): Promise<void> {
+  const host = getHost();
+  const entries = await project.listLore();
+  if (entries.length === 0) {
+    host.toast('还没有设定条目，没什么可整理的。');
+    return;
+  }
+  const unfiled = entries.filter((e) => !e.category).length;
+  let range = scope;
+  if (!range) {
+    const ask = await host.confirm(
+      `按目录整理设定：让模型照本书的目录树给条目归类，先出一份搬家清单给你看，你点头了才搬。`,
+      [...(unfiled > 0 ? [`只整理未分类的 ${unfiled} 条`] : []), `全部 ${entries.length} 条都看一遍`],
+      { modal: true, detail: '目录就是分类，可以多层；模型可以提议新目录。只搬文件，条目内容一个字不改。' }
+    );
+    if (!ask) {
+      return;
+    }
+    range = ask.startsWith('只整理') ? 'unfiled' : 'all';
+  }
+  const targets = range === 'unfiled' ? entries.filter((e) => !e.category) : entries;
+  if (targets.length === 0) {
+    host.toast('根目录下没有未分类的条目。');
+    return;
+  }
+  const batches = chunk(targets, ORGANIZE_BATCH);
+  const config = readConfig();
+  const go = await host.confirm(
+    `整理 ${targets.length} 条设定：分 ${batches.length} 批，调用模型 ${batches.length} 次，出一份搬家清单。`,
+    ['开始'],
+    { modal: true, detail: describeTaskModels(config, 'loreSynthesis') }
+  );
+  if (go !== '开始') {
+    return;
+  }
+  const pool = await createModelPool({ task: 'loreSynthesis', concurrent: false });
+  if (!pool) {
+    log.error('没有可用的模型，整理中止');
+    return;
+  }
+
+  await runTask(
+    '按目录整理设定',
+    async ({ signal, report }) => {
+      const categories = await project.listLoreCategories();
+      const folders = new Set<string>();
+      const moves: LoreMove[] = [];
+      const notes: string[] = [];
+      for (const [i, batch] of batches.entries()) {
+        if (signal.aborted) {
+          return;
+        }
+        report({ message: `第 ${i + 1}/${batches.length} 批`, current: i, total: batches.length });
+        try {
+          const raw = await pool.run(`整理设定第 ${i + 1} 批`, (llm) =>
+            collectText(
+              llm.stream(
+                [
+                  { role: 'system', content: LORE_ORGANIZE_SYSTEM },
+                  { role: 'user', content: organizePrompt([...categories, ...folders], batch) },
+                ],
+                { maxOutputTokens: pool.primaryBudget.maxOutputTokens, temperature: 0.2, timeoutMs: config.requestTimeoutMs, signal }
+              )
+            )
+          );
+          const plan = checkOrganizePlan(raw, batch, [...categories, ...folders]);
+          plan.folders.forEach((f) => folders.add(f));
+          moves.push(...plan.moves);
+          notes.push(...plan.dropped);
+        } catch (err) {
+          if (signal.aborted) {
+            return;
+          }
+          log.error(`整理设定第 ${i + 1} 批失败`, describeError(err));
+          notes.push(`第 ${i + 1} 批失败：${describeError(err)}`);
+        }
+      }
+      if (notes.length > 0) {
+        log.warn(`搬家清单里有 ${notes.length} 处没收`, notes.join('\n'));
+      }
+      const used = new Set(moves.map((m) => m.to));
+      const newFolders = [...folders].filter((f) => used.has(f) || moves.some((m) => m.to.startsWith(`${f}/`)));
+      if (moves.length === 0) {
+        host.toast('都放得好好的，不用搬。');
+        return;
+      }
+      const listing = moves.slice(0, 60).map((m) => `${m.title}：${m.category || '未分类'} → ${m.to || '未分类'}`);
+      const ok = await host.confirm(
+        `搬 ${moves.length} 条设定${newFolders.length > 0 ? `，新建 ${newFolders.length} 个目录` : ''}。只搬文件，条目内容一个字不改。`,
+        ['照这样整理'],
+        {
+          modal: true,
+          detail: [
+            newFolders.length > 0 ? `新目录：${newFolders.join('、')}` : '',
+            listing.join('\n') + (moves.length > 60 ? `\n……还有 ${moves.length - 60} 条` : ''),
+            notes.length > 0 ? `另有 ${notes.length} 处没收（详见日志页）。` : '',
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        }
+      );
+      if (ok !== '照这样整理') {
+        log.info('作者没采纳搬家清单');
+        return;
+      }
+      const moved = await applyMoves(project, newFolders, moves);
+      host.toast(`已搬 ${moved} 条设定${moved < moves.length ? `，${moves.length - moved} 条没搬（详见日志页）` : ''}。`);
+    },
+    { scope: '设定' }
+  );
+}
+
+function organizePrompt(categories: readonly string[], batch: readonly LoreEntry[]): string {
+  return [
+    `本书现有目录：${categories.length > 0 ? categories.join('、') : '（还没有目录）'}`,
+    '',
+    '要整理的条目（路径｜标题｜一句话）：',
+    ...batch.map((e) => `- ${e.slug}｜${e.title}｜${e.brief || e.body.trim().split(/\n/)[0]?.slice(0, LORE_ENTRY_LIMITS.brief) || ''}`),
+  ].join('\n');
+}
+
+/**
+ * 校验模型给的搬家清单：`from` 得是这一批里的条目（认路径或标题），`to` 得是已有目录或这次提议的新目录
+ * （最多三层、每段是合法的文件名），位置没变的去掉，同一条只搬一次。没收的写进 `dropped`（第 2 条）。
+ */
+export function checkOrganizePlan(
+  raw: string,
+  batch: readonly LoreEntry[],
+  categories: readonly string[]
+): { folders: string[]; moves: LoreMove[]; dropped: string[] } {
+  const obj = jsonObject(raw);
+  if (!obj) {
+    throw new Error(`模型返回无法解析（${raw.length} 字）`);
+  }
+  const folders: string[] = [];
+  const dropped: string[] = [];
+  for (const f of stringArray(obj.folders)) {
+    const dir = normalizeLoreCategory(f);
+    const parts = dir.split('/');
+    if (!dir || parts.length > ORGANIZE_DEPTH || parts.some((p) => sanitizeFileName(p) !== p)) {
+      dropped.push(`新目录「${f}」不合规`);
+      continue;
+    }
+    if (!folders.includes(dir) && !categories.includes(dir)) {
+      folders.push(dir);
+    }
+  }
+  const allowed = new Set([...categories, ...folders, '']);
+  const bySlug = new Map(batch.map((e) => [e.slug, e]));
+  const byTitle = new Map(batch.map((e) => [normalizeLoreName(e.title), e]));
+  const moves: LoreMove[] = [];
+  const seen = new Set<string>();
+  for (const item of Array.isArray(obj.moves) ? obj.moves : []) {
+    const m = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
+    const from = typeof m.from === 'string' ? m.from.trim().replace(/^\.novelforge\/lore\//, '').replace(/\.md$/i, '') : '';
+    const entry = bySlug.get(from) ?? byTitle.get(normalizeLoreName(from));
+    if (!entry) {
+      dropped.push(`「${from}」不是这一批里的条目`);
+      continue;
+    }
+    const to = normalizeLoreCategory(typeof m.to === 'string' ? m.to : '');
+    if (!allowed.has(to)) {
+      dropped.push(`「${entry.title}」要去的「${to}」既不是已有目录，也没在 folders 里新建`);
+      continue;
+    }
+    if (to === entry.category || seen.has(entry.slug)) {
+      continue;
+    }
+    seen.add(entry.slug);
+    moves.push({ from: entry.relPath, category: entry.category, to, title: entry.title });
+  }
+  return { folders, moves, dropped };
+}
+
+/** 建目录、搬文件。目标位置已有同名文件的不搬、说出来。返回搬了几条。 */
+async function applyMoves(project: NovelProject, folders: readonly string[], moves: readonly LoreMove[]): Promise<number> {
+  const root = project.relPath(project.loreDir);
+  for (const dir of folders) {
+    await fs.mkdir(project.pathOf(`${root}/${dir}`), { recursive: true });
+  }
+  const ws = new Workspace(project);
+  let moved = 0;
+  for (const m of moves) {
+    const next = `${root}/${m.to ? `${m.to}/` : ''}${path.posix.basename(m.from)}`;
+    if (await exists(project.pathOf(next))) {
+      log.warn(`设定「${m.title}」没搬：目标位置已有同名文件`, `${m.from} → ${next}`);
+      continue;
+    }
+    try {
+      await ws.move(m.from, next);
+      // 失败记录按路径挂，搬了家就挂不住了：一并收掉，下次失败再挂。
+      await clearFailures(project, 'lore', m.from);
+      moved++;
+    } catch (err) {
+      log.warn(`设定「${m.title}」没搬：${describeError(err)}`, `${m.from} → ${next}`);
+    }
+  }
+  project.invalidate();
+  log.info('按目录整理设定', `搬了 ${moved}/${moves.length} 条｜新目录 ${folders.length} 个`);
+  return moved;
+}
+
+function chunk<T>(arr: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size));
+  }
+  return out;
 }

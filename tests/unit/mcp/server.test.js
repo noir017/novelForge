@@ -7,7 +7,7 @@
  * | 用例 | 钉的是什么 |
  * |---|---|
  * | initialize | 版本协商、回会话 id、带上使用说明 |
- * | tools/list | 十二个工具；`costly` / `mutating` 落成 readOnlyHint / destructiveHint |
+ * | tools/list | 十三个工具；`costly` / `mutating` 落成 readOnlyHint / destructiveHint |
  * | tools/call | 参数原样转给执行端；出错走 `isError`，不走 JSON-RPC 错误 |
  * | 没打开工程 | 回一句能照着做的话，`isError` |
  * | 状态简报 | 第一次必贴；没变不贴；变了再贴 |
@@ -112,7 +112,7 @@ describe('initialize', () => {
 
 describe('tools/list', () => {
   let tools;
-  test('十二个工具，按模型看到的顺序', async () => {
+  test('十三个工具，按模型看到的顺序', async () => {
     const h = makeHandler({ backend: fakeBackend().backend });
     const sid = await open(h);
     const body = await (await post(h, rpc('tools/list'), { 'mcp-session-id': sid })).json();
@@ -127,6 +127,7 @@ describe('tools/list', () => {
       'pipeline',
       'summary',
       'characters',
+      'lore',
       'extract',
       'book',
       'skills',
@@ -152,14 +153,14 @@ describe('tools/list', () => {
   test('带 action 的工具：标记由动作表推出', () => {
     assert.equal(tools.skills.annotations.readOnlyHint, false);
     assert.equal(tools.skills.annotations.destructiveHint, true);
-    for (const name of ['pipeline', 'summary', 'characters', 'extract', 'book']) {
+    for (const name of ['pipeline', 'summary', 'characters', 'lore', 'extract', 'book']) {
       assert.equal(tools[name].annotations.readOnlyHint, false, name);
       assert.equal(tools[name].annotations.destructiveHint, true, name);
     }
   });
 
   test('带 action 的工具：action 必填且是枚举', () => {
-    for (const name of ['pipeline', 'summary', 'characters', 'extract', 'book', 'skills']) {
+    for (const name of ['pipeline', 'summary', 'characters', 'lore', 'extract', 'book', 'skills']) {
       const schema = tools[name].inputSchema;
       assert.deepEqual(schema.required, ['action'], name);
       assert.ok(Array.isArray(schema.properties.action.enum), name);
@@ -169,7 +170,7 @@ describe('tools/list', () => {
   test('没打开工程也列得出来', async () => {
     const h = makeHandler({ backend: undefined });
     const body = await (await post(h, rpc('tools/list'))).json();
-    assert.equal(body.result.tools.length, 12);
+    assert.equal(body.result.tools.length, 13);
   });
 });
 

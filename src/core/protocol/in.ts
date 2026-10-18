@@ -193,7 +193,7 @@ export type InMessage =
       confirmed?: boolean;
       mode?: 'draft' | 'finalize';
       review?: boolean;
-      /** `newLore`：预填的标题（「出现过 · 未建条目」那一行右键新建时带上），给了就不再问。 */
+      /** `newLore`：预填的标题（「出现过 · 未建条目」那一行右键新建时带上），给了就不再问；`buildLore`：建哪一条。 */
       name?: string;
     }
   | { type: 'characterAction'; action: CharacterAction; name: string; relPath?: string }
@@ -282,12 +282,17 @@ export type ProjectAction =
   | 'completeSettings'
   | 'writeManuscripts'
   | 'extractCharacters'
-  | 'generateLore'
   /**
    * 记设定（设定名录）：给了 `relPath`（章节或细纲）就单独记那一章，没给就补记全部还没记过设定的
    * 定稿章。动手前后端报调用次数。
    */
   | 'recordLore'
+  /** 给「出现过 · 未建条目」建条目：给了 `name` 就建那一条，没给就建出现 ≥2 章的全部。 */
+  | 'buildLore'
+  /** 把定稿里的新内容并进条目：给了 `relPath`（条目）就整合那一条，没给就是挂 ＋N 的全部。 */
+  | 'integrateLore'
+  /** 按目录整理：模型出搬家清单，作者看过再搬（范围由后端问）。 */
+  | 'organizeLore'
   | 'extractStyle'
   | 'generateThreads'
   /** 拆书 A：把工程里的一本 txt 切成章节（零调用；后端弹框挑文件、报切分结果）。 */

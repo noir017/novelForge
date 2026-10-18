@@ -164,10 +164,21 @@ function buildProjectPage(tree: ProjectTree): void {
     buildGroup('lore', '设定', countLabel(tree.lore, '条'), {
       section: SECTIONS.lore,
       root: tree.loreRoot,
-      extraItems: () => [
-        { label: '从已写正文生成/更新设定', run: () => projectAction('generateLore') },
-        { sep: true },
-      ],
+      // 设定名录的三件维护（第三期）。次数都在后端的确认框里报，这里只说有几件待办。
+      extraItems: () => {
+        const unrecorded = tree.loreUnrecorded ?? 0;
+        const pending = Object.values(tree.loreByEntry ?? {}).filter((s) => s.pending > 0).length;
+        const items = [
+          ...(unrecorded > 0
+            ? [{ label: `补记设定（${unrecorded} 章定稿过、还没记）`, run: () => projectAction('recordLore') }]
+            : []),
+          ...(pending > 0
+            ? [{ label: `整合设定（${pending} 条有新内容）`, run: () => projectAction('integrateLore') }]
+            : []),
+          ...(tree.lore.length > 0 ? [{ label: '按目录整理…', run: () => projectAction('organizeLore') }] : []),
+        ];
+        return items.length > 0 ? [...items, { sep: true as const }] : [];
+      },
       head: showFilter ? buildLoreFilter(rerenderProject) : undefined,
       build: () => {
         if (tree.lore.length === 0) {
@@ -188,8 +199,13 @@ function buildProjectPage(tree: ProjectTree): void {
   // 设定那棵是文件树（能改名/移动/删除），这些还没有文件。筛选时一个都没匹配上就整组不画。
   const unfiled = filterUnfiled(unfiledAll);
   if (unfiled.length > 0) {
+    const frequent = unfiledAll.filter((u) => u.chapters.length >= 2).length;
     el.projectBody.appendChild(
       buildGroup('loreUnfiled', '出现过 · 未建条目', `${unfiledAll.length} 个`, {
+        extraItems: () =>
+          frequent > 0
+            ? [{ label: `给出现 2 章以上的 ${frequent} 个建条目`, run: () => projectAction('buildLore') }, { sep: true }]
+            : [],
         build: () => buildLoreUnfiledRows(unfiled, tree.loreRoot),
       })
     );

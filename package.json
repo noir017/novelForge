@@ -137,8 +137,20 @@
         "title": "Novel: 提取/更新角色卡"
       },
       {
-        "command": "novel.generateLore",
-        "title": "Novel: 从已写正文生成/更新设定"
+        "command": "novel.recordLore",
+        "title": "Novel: 补记设定（定稿过、还没记设定的章）"
+      },
+      {
+        "command": "novel.buildLore",
+        "title": "Novel: 给出现过的设定建条目"
+      },
+      {
+        "command": "novel.integrateLore",
+        "title": "Novel: 整合设定（把定稿里的新内容并进条目）"
+      },
+      {
+        "command": "novel.organizeLore",
+        "title": "Novel: 按目录整理设定"
       },
       {
         "command": "novel.updateCharacterCard",
@@ -354,7 +366,7 @@
                 "balanced",
                 "quality"
               ],
-              "description": "设定 · 逐章识别。默认 fast。"
+              "description": "设定 · 记设定（单独记一章、补记）。默认 fast。"
             },
             "loreSynthesis": {
               "type": "string",
@@ -363,7 +375,7 @@
                 "balanced",
                 "quality"
               ],
-              "description": "设定 · 条目整合。默认 balanced。"
+              "description": "设定 · 建条目、整合与按目录整理。默认 balanced。"
             },
             "characterCard": {
               "type": "string",

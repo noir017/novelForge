@@ -5,7 +5,8 @@
  * | 用例组 | 钉的是什么 |
  * |---|---|
  * | 设定行 | 右边写出现章（`loreByEntry[relPath].detail`，后端算的）、副标题仍是一句话；待整合的挂「＋N」（样子同角色卡）、tooltip 分水位有没有两种说法；没出现过的两样都不挂；失败标记、右键菜单照旧；旧后端没有 `loreByEntry` 不崩 |
- * | 出现过 · 未建条目 | 只在有时出现、紧跟在「设定」组后面、副标题写个数；一行是 名字〔分类〕· 出现章；右键「新建这条设定」发 `newLore` 带 `name` 与分类目录（没分类落在设定根目录）；点名字不新建；一次先画 30 个，「显示全部 N 个」摊开，重推树不缩回 |
+ * | 三件维护（第三期） | 设定组菜单按待办写「补记设定（N 章）」「整合设定（K 条）」，外加「按目录整理…」，没待办只剩整理；有新内容的设定行右键「整合这一条」带路径；未建条目组菜单「给出现 2 章以上的 M 个建条目」 |
+ * | 出现过 · 未建条目 | 只在有时出现、紧跟在「设定」组后面、副标题写个数；一行是 名字〔分类〕· 出现章；右键「建条目」发 `buildLore` 带名字，「新建这条设定」发 `newLore` 带 `name` 与分类目录（没分类落在设定根目录）；点名字不新建；一次先画 30 个，「显示全部 N 个」摊开，重推树不缩回 |
  * | 筛选框 | 在标题栏上、折叠开关之外（点它不折叠）；按标题 / 一句话 / 关键词筛（不分大小写），匹配项的祖先文件夹自动展开、没匹配的文件夹不画；也按名字 / 分类筛未建条目；一个都不匹配时说「没有匹配的设定」；重推树筛选还在；打字与推树都不丢焦点和光标；**组字期间不重画**；Esc 与 × 清空；不发任何消息给后端；组折着时开始筛就展开 |
  */
 const { describe, test, before } = require('node:test');
@@ -195,6 +196,79 @@ describe('设定行：出现章与「＋N」', { skip: JSDOM_SKIP }, () => {
   });
 });
 
+describe('名录的三件维护：补记、整合、按目录整理、建条目（第三期）', { skip: JSDOM_SKIP }, () => {
+  let ui;
+  const loreHead = () => groupOf(ui, '设定').querySelector('.group-head');
+  const unfiledHead = () => unfiledGroup(ui).querySelector('.group-head');
+
+  before(() => {
+    ui = mount();
+    ui.post({ type: 'project', tree: loreTree({ loreUnrecorded: 4 }) });
+    ui.clickEl(dirLabel(ui, '地域'));
+  });
+
+  test('设定组菜单：有几件待办就写几件，外加按目录整理', () => {
+    const items = ui.itemsOf(ui.rightClick(loreHead()));
+    ui.closeMenu();
+    for (const label of ['补记设定（4 章定稿过、还没记）', '整合设定（2 条有新内容）', '按目录整理…']) {
+      assert.ok(items.includes(label), JSON.stringify(items));
+    }
+  });
+
+  test('三项各发各的动作，都不带对象（次数在后端的确认框里报）', () => {
+    for (const [label, action] of [
+      ['补记设定（4 章定稿过、还没记）', 'recordLore'],
+      ['整合设定（2 条有新内容）', 'integrateLore'],
+      ['按目录整理…', 'organizeLore'],
+    ]) {
+      ui.sent.length = 0;
+      ui.pick(ui.rightClick(loreHead()), label);
+      const msg = ui.last('projectAction');
+      assert.equal(msg?.action, action, JSON.stringify(ui.sent));
+      assert.equal(msg.relPath, undefined, JSON.stringify(msg));
+    }
+  });
+
+  test('没有待办时只剩按目录整理', () => {
+    const quiet = loreTree({ loreUnrecorded: 0 });
+    for (const s of Object.values(quiet.loreByEntry)) {
+      s.pending = 0;
+    }
+    ui.post({ type: 'project', tree: quiet });
+    const items = ui.itemsOf(ui.rightClick(loreHead()));
+    ui.closeMenu();
+    assert.ok(items.includes('按目录整理…'), JSON.stringify(items));
+    assert.ok(!items.some((i) => i.startsWith('补记设定') || i.startsWith('整合设定')), JSON.stringify(items));
+    ui.post({ type: 'project', tree: loreTree({ loreUnrecorded: 4 }) });
+  });
+
+  test('有新内容的设定行：右键「整合这一条」发 integrateLore，带这一条的路径', () => {
+    const items = ui.itemsOf(ui.rightClick(loreRow(ui, '青崖镇')));
+    assert.ok(items.includes('整合这一条（新增 3 章，调用模型 1 次）'), JSON.stringify(items));
+    ui.sent.length = 0;
+    ui.pick(ui.doc.querySelector('.ctx-menu'), '整合这一条（新增 3 章，调用模型 1 次）');
+    const msg = ui.last('projectAction');
+    assert.equal(msg?.action, 'integrateLore', JSON.stringify(ui.sent));
+    assert.equal(msg.relPath, `${LORE}/地域/青崖镇.md`);
+  });
+
+  test('没有新内容的设定行：没有「整合这一条」', () => {
+    const items = ui.itemsOf(ui.rightClick(loreRow(ui, '崖字令牌')));
+    ui.closeMenu();
+    assert.ok(!items.some((i) => i.startsWith('整合这一条')), JSON.stringify(items));
+  });
+
+  test('未建条目组菜单：给出现 2 章以上的建条目，发 buildLore 不带名字', () => {
+    const items = ui.itemsOf(ui.rightClick(unfiledHead()));
+    assert.ok(items.includes('给出现 2 章以上的 2 个建条目'), JSON.stringify(items));
+    ui.sent.length = 0;
+    ui.pick(ui.doc.querySelector('.ctx-menu'), '给出现 2 章以上的 2 个建条目');
+    const msg = ui.last('projectAction');
+    assert.equal(msg?.action, 'buildLore', JSON.stringify(ui.sent));
+    assert.equal(msg.name, undefined, JSON.stringify(msg));
+  });
+});
+
 describe('「出现过 · 未建条目」', { skip: JSDOM_SKIP }, () => {
   let ui;
 
@@ -232,16 +306,24 @@ describe('「出现过 · 未建条目」', { skip: JSDOM_SKIP }, () => {
     assert.deepEqual(unfiledNames(ui).slice(0, 3), ['黑水渡', '断魂香', '杂项1']);
   });
 
-  // 这些名字还没有文件：没有类文件操作，只有新建。
-  test('右键只给「新建这条设定」与刷新', () => {
+  // 这些名字还没有文件：没有类文件操作，只有建条目（调模型）与新建空条目（不调）。
+  test('右键给「建条目」「新建这条设定」与刷新', () => {
     const items = ui.itemsOf(ui.rightClick(unfiledRow(ui, '黑水渡')));
-    assert.deepEqual(items, ['新建这条设定', '刷新'], JSON.stringify(items));
+    assert.deepEqual(items, ['建条目（调用模型 1 次）', '新建这条设定（空的，不调模型）', '刷新'], JSON.stringify(items));
     ui.closeMenu();
+  });
+
+  test('「建条目」发 buildLore，带名字', () => {
+    ui.sent.length = 0;
+    ui.pick(ui.rightClick(unfiledRow(ui, '黑水渡')), '建条目（调用模型 1 次）');
+    const msg = ui.last('projectAction');
+    assert.equal(msg?.action, 'buildLore', JSON.stringify(ui.sent));
+    assert.equal(msg.name, '黑水渡', JSON.stringify(msg));
   });
 
   test('「新建这条设定」发 newLore，带名字，落在建议的分类目录里', () => {
     ui.sent.length = 0;
-    ui.pick(ui.rightClick(unfiledRow(ui, '黑水渡')), '新建这条设定');
+    ui.pick(ui.rightClick(unfiledRow(ui, '黑水渡')), '新建这条设定（空的，不调模型）');
     const msg = ui.last('projectAction');
     assert.equal(msg?.action, 'newLore', JSON.stringify(ui.sent));
     assert.equal(msg.name, '黑水渡', JSON.stringify(msg));
@@ -249,7 +331,7 @@ describe('「出现过 · 未建条目」', { skip: JSDOM_SKIP }, () => {
   });
 
   test('没有分类的落在设定根目录', () => {
-    ui.pick(ui.rightClick(unfiledRow(ui, '断魂香')), '新建这条设定');
+    ui.pick(ui.rightClick(unfiledRow(ui, '断魂香')), '新建这条设定（空的，不调模型）');
     const msg = ui.last('projectAction');
     assert.equal(msg.name, '断魂香', JSON.stringify(msg));
     assert.equal(msg.dir, LORE, JSON.stringify(msg));

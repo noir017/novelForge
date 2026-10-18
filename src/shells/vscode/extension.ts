@@ -6,7 +6,8 @@ import { ChatController } from '../../core/controller';
 import { promoteModel, setLegacyConfigReader } from '../../core/config';
 import { extractCharacters, newCharacter, newLore } from '../../core/features/characters';
 import { updateCharacterCard } from '../../core/features/characterCard';
-import { generateLore } from '../../core/features/lore';
+import { buildLoreEntries, integrateLore, organizeLore } from '../../core/features/lore';
+import { recordLore } from '../../core/features/loreRecord';
 import { newFolder, sectionRoots } from '../../core/files/fileOps';
 import { extractStyle } from '../../core/features/style';
 import { rebuildGlobalSummary, syncSummaries } from '../../core/features/summarize';
@@ -296,13 +297,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   });
 
-  register('novel.generateLore', async () => {
-    const target = await requireProject();
-    if (target) {
-      await generateLore(target);
-      await refresh();
-    }
-  });
+  // 设定名录：补记 / 建条目 / 整合 / 按目录整理。工程页设定组的右键走的是同一批 core 流程。
+  const loreCommands: [string, (project: NovelProject) => Promise<void>][] = [
+    ['novel.recordLore', (p) => recordLore(p)],
+    ['novel.buildLore', (p) => buildLoreEntries(p)],
+    ['novel.integrateLore', (p) => integrateLore(p)],
+    ['novel.organizeLore', (p) => organizeLore(p)],
+  ];
+  for (const [id, run] of loreCommands) {
+    register(id, async () => {
+      const target = await requireProject();
+      if (target) {
+        await run(target);
+        await refresh();
+      }
+    });
+  }
 
   /**
    * 更新单个角色的档案。命令面板入口——工程页的角色行右键走的是同一条
