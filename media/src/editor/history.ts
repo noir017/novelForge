@@ -65,6 +65,8 @@ export const MERGE_WINDOW_MS = 1000;
 export const HISTORY_LIMIT = 500;
 
 interface Entry {
+  /** 这一步的编号：一个 `EditHistory` 里每记一步加一，并进来的不换号。 */
+  id: number;
   /** 按发生顺序。撤销时倒着退。 */
   changes: TextChange[];
   before: TextSelection;
@@ -84,8 +86,17 @@ export class EditHistory {
   private typing: Typing | undefined;
   /** 刚记下的那一步；`join` 只往它里面并。撤销 / 重做后清掉。 */
   private last: Entry | undefined;
+  private seq = 0;
 
   constructor(private readonly limit = HISTORY_LIMIT) {}
+
+  /**
+   * 撤销栈顶那一步的编号（并进去的不换号；没有可撤销的是 undefined）。码字统计（`writingStats.ts` 的
+   * `StepLedger`）按它认出撤销 / 重做的是哪一步——撤销自己打的字要减回去，撤销一次粘贴不该动码字数。
+   */
+  get topId(): number | undefined {
+    return this.undoStack[this.undoStack.length - 1]?.id;
+  }
 
   get canUndo(): boolean {
     return this.undoStack.length > 0;
@@ -122,7 +133,7 @@ export class EditHistory {
       return;
     }
 
-    const entry: Entry = { changes: [{ ...change }], before: { ...before }, after: { ...after } };
+    const entry: Entry = { id: ++this.seq, changes: [{ ...change }], before: { ...before }, after: { ...after } };
     this.undoStack.push(entry);
     if (this.undoStack.length > this.limit) {
       this.undoStack.splice(0, this.undoStack.length - this.limit);

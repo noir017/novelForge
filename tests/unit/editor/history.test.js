@@ -197,6 +197,22 @@ describe('EditHistory：栈', () => {
     h.record({ at: 0, removed: '甲', inserted: '甲' }, caret(0), caret(0));
     assert.equal(h.size, 0);
   });
+
+  test('每一步一个编号（码字统计认撤销的是哪一步）：并进去的不换号，撤销后栈顶回到上一步、重做回来还是原来那个号', () => {
+    const h = new EditHistory();
+    assert.equal(h.topId, undefined);
+    let t = apply(h, '', { at: 0, removed: '', inserted: '甲' }, { merge: true, now: 0 });
+    const first = h.topId;
+    t = apply(h, t, { at: 1, removed: '', inserted: '乙' }, { merge: true, now: 10 });
+    assert.equal(h.topId, first, '并进同一步');
+    t = apply(h, t, { at: 2, removed: '', inserted: '丙丁' });
+    const second = h.topId;
+    assert.notEqual(second, first);
+    t = h.undo(t).text;
+    assert.equal(h.topId, first);
+    t = h.redo(t).text;
+    assert.equal(h.topId, second);
+  });
 });
 
 describe('diffText', () => {
