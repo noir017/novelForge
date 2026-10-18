@@ -16,12 +16,16 @@
  * 只重算 manifest，什么伴生都不搬。
  *
  * 只有经网关的改名、移动才搬得动伴生：作者在外面直接给正文改名，细纲留在原处，那就是一章新的。
+ *
+ * 伴生的草稿、细纲搬过去之后，它们的历史版本（`.novelforge/history/` 下的快照目录）也跟着挪（`history.ts` 的
+ * `moveHistory`）；正文自己的快照由 `Workspace.move` 挪。
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getHost } from '../../host';
 import { scoped } from '../../runtime/logger';
 import { NovelProject } from '../../model/project';
+import { moveHistory } from '../history';
 import { Handler, HandlerCtx } from './types';
 
 const log = scoped('工作区');
@@ -121,7 +125,8 @@ async function carryMirror(
   await fs.mkdir(path.dirname(toAbs), { recursive: true });
   await fs.rename(fromAbs, toAbs);
   log.info(`${what}已跟随移动`, `${from} → ${to}`);
-  return [`${what} ${from} → ${to}`];
+  // 伴生搬家不经 `Workspace.move`，它们的快照在这里跟上（绝不抛）。没搬动的（目标已有、移出了 chapters/）快照也留在原处。
+  return [`${what} ${from} → ${to}`, ...(await moveHistory(project, from, to))];
 }
 
 async function pathExists(abs: string): Promise<boolean> {

@@ -84,7 +84,7 @@ import {
 } from './guard';
 import { Handler, HandlerCtx, handlerFor } from './handlers';
 import { renderFinalizedPlot } from './handlers/plot';
-import { snapshotBeforeWrite } from './history';
+import { moveHistory, snapshotBeforeWrite } from './history';
 import { SearchOptions, SearchResult, search } from './search';
 
 const log = scoped('工作区');
@@ -361,6 +361,8 @@ export class Workspace {
    * 改名/移动。**目标已存在一律拒绝**（第 3 条：不静默覆盖）。
    *
    * 伴生搬迁交给 handler：章节带走草稿与细纲（两样都镜像正文的路径，正文一搬就得跟着走）。
+   * 历史版本也跟着走（`history.ts` 的 `moveHistory`）：搬的这一份（或整个目录）的快照目录挪到新路径下，伴生的草稿、
+   * 细纲各自的快照由 handler 那边跟着挪。搬快照失败只记 warn，不挡搬家。
    */
   async move(from: string, to: string): Promise<WriteResult> {
     const { fromAbs, fromRel, toRel } = await this.guardMove(from, to);
@@ -377,7 +379,9 @@ export class Workspace {
     await fs.rename(fromAbs, this.project.pathOf(toRel));
     this.project.invalidate();
 
-    const side = handler.companions ? await handler.companions(ctx, fromRel, toRel) : [];
+    // 主文件已经搬过去了：快照先跟上（绝不抛），伴生那一步出了错也不会把它们落在旧路径下。
+    const history = await moveHistory(this.project, fromRel, toRel);
+    const side = [...history, ...(handler.companions ? await handler.companions(ctx, fromRel, toRel) : [])];
     if (side.length > 0) {
       log.info(`${fromRel} → ${toRel} 时连带`, side.join('｜'));
     }
@@ -515,6 +519,8 @@ export class Workspace {
 
     if (previous && previous.relPath !== rel) {
       await fs.unlink(this.project.pathOf(previous.relPath)).catch(() => undefined);
+      // 改标题（还没有正文）、改章号都换了文件名：这一份的快照（连同刚存的那一版）跟着搬到新路径下，绝不抛。
+      await moveHistory(this.project, previous.relPath, rel);
     }
     // 细纲列表有缓存，写完不失效的话下一次读到的还是写之前那份——新建的章
     // 不出现在工程页上，改过标题的章还挂着旧名字。

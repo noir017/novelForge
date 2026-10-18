@@ -39,6 +39,12 @@
  * 删它们不违背第 6 条「不真删」——第 6 条护的是作者的东西（章节、角色卡、会话……），而这里删的是网关为了
  * 「找得回来」额外抄的那几份，作者自己的文件一个字节都没动。
  *
+ * ## 改名 / 搬家：快照跟着走（{@link moveHistory}）
+ *
+ * 快照按路径存。网关 `move` 成功之后（连同它带走的草稿、细纲，以及 `writePlot` 换了文件名的细纲），快照目录挪到新路径下；
+ * 新路径下已经有快照就两边合并（撞名加序号、合并完按保留上限修剪）。搬不动只记 warn，**不挡搬家、不回滚**。删除（进回收站）
+ * 不搬：快照留在原路径，文件从回收站搬回原处，历史也就回来了。
+ *
  * ## 绝不挡住保存
  *
  * 存快照的任何一步失败（磁盘满、`.novelforge/history` 被占成了文件、权限……）都只记一条 warn，照常写盘
@@ -50,6 +56,7 @@
  * `.trash/` 同理：搜出来的是一份旧稿）；`watchPolicy` 挡掉它的变动；`isProtectedPath` 把这个目录列为固定目录，
  * 类文件操作搬不走、删不掉它。「文件」页照常看得见、点得开。
  */
+import { constants as fsConstants } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { scoped } from '../runtime/logger';
@@ -345,6 +352,131 @@ async function snapshot(
     log.debug(`裁掉 ${normalized} 最旧的 ${pruned.length} 个历史版本`, `只留最近 ${HISTORY_KEEP} 个`);
   }
   return { saved: name };
+}
+
+// ---------------------------------------------------------------- 搬
+
+/**
+ * 网关把 `from` 搬到了 `to`（一份文件或整个目录，`move` 本身与它连带搬走的草稿、细纲）之后，把快照目录也搬过去：
+ * 在新路径上打开「历史」面板，看得到改名之前存的那几版。目录搬的是整棵——分卷目录改名，下面每份文件的快照都跟着走。
+ *
+ * - 新路径下还没有快照目录：整个挪过去。
+ * - 已经有（以前那里有过同名文件，或者从回收站搬回来过）：两边合并。撞了名的按 {@link writeUnique} 的规矩加序号
+ *   （同一刻、序号往上加，绝不盖掉已有的那一个），合并完的那几个目录按 {@link HISTORY_KEEP} 修剪。
+ * - 搬不动（新位置被一个文件占了、磁盘满、权限……）：只记一条 warn，**绝不抛**——搬家已经成了，不能因为几份副本
+ *   让它失败或回滚，与「存快照失败不挡保存」同一个口径。没搬过去的留在旧路径下，一个不丢。
+ *
+ * 删除（进回收站）不调它：快照留在原路径，作者从回收站把文件搬回原处，历史也就回来了。
+ * 返回补进 `side` 的说明（没有快照目录时空数组）。
+ */
+export async function moveHistory(project: NovelProject, from: string, to: string): Promise<string[]> {
+  try {
+    return await carryHistory(project, from, to);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn(`没能把 ${from} 的历史版本搬到 ${to}，搬家照常`, `没搬过去的快照留在旧路径下｜${message}`);
+    return [`历史版本没能跟过去，没搬过去的留在 ${from} 的旧路径下`];
+  }
+}
+
+async function carryHistory(project: NovelProject, from: string, to: string): Promise<string[]> {
+  const fromRel = normalizeRel(from);
+  const toRel = normalizeRel(to);
+  if (fromRel === undefined || toRel === undefined || fromRel === toRel) {
+    return [];
+  }
+  // 历史目录里的东西本身不存历史（`kindOfPath` 判 `other`）；搬进、搬出它都不该再套一层 `history/.novelforge/history/…`。
+  const root = project.relPath(project.historyDir);
+  if ([fromRel, toRel].some((r) => r === root || r.startsWith(`${root}/`))) {
+    return [];
+  }
+  const src = project.pathOf(historyDirOf(project, fromRel)!);
+  if (!(await isDir(src))) {
+    return [];
+  }
+  const dst = project.pathOf(historyDirOf(project, toRel)!);
+  const there = await statOf(dst);
+  if (!there) {
+    await fs.mkdir(path.dirname(dst), { recursive: true });
+    await fs.rename(src, dst);
+    log.debug(`历史版本跟着搬了`, `${fromRel} → ${toRel}`);
+    return [`历史版本 ${fromRel} → ${toRel}`];
+  }
+  if (!there.isDirectory()) {
+    throw new Error(`新路径的快照目录被一个文件占了：${project.relPath(dst)}`);
+  }
+  const renamed = await mergeHistoryDir(src, dst);
+  log.debug(`历史版本跟着搬了，与新路径下原有的合并`, `${fromRel} → ${toRel}｜撞名加序号 ${renamed} 个`);
+  return [`历史版本 ${fromRel} → ${toRel}（与那里原有的合并）`];
+}
+
+/**
+ * 把快照目录 `src` 并进 `dst`（两边都是目录），返回撞了名、加了序号的有几个。子目录递归（整个分卷的快照），文件一个一个
+ * 拷过去再删源（拷用 `COPYFILE_EXCL`：绝不盖掉 `dst` 里已有的那一个）。并进了文件的目录按保留上限修剪；`src` 搬空了就删掉
+ * （只删空目录，那是网关自己建的）。
+ */
+async function mergeHistoryDir(src: string, dst: string): Promise<number> {
+  let renamed = 0;
+  let received = false;
+  for (const entry of await fs.readdir(src, { withFileTypes: true })) {
+    const from = path.join(src, entry.name);
+    const into = path.join(dst, entry.name);
+    if (entry.isDirectory()) {
+      const there = await statOf(into);
+      if (!there) {
+        await fs.rename(from, into);
+      } else if (there.isDirectory()) {
+        renamed += await mergeHistoryDir(from, into);
+      } else {
+        throw new Error(`快照目录被一个文件占了：${into}`);
+      }
+      continue;
+    }
+    const name = await copyUnique(from, dst, entry.name);
+    await fs.unlink(from);
+    received = true;
+    if (name !== entry.name) {
+      renamed++;
+    }
+  }
+  if (received) {
+    const names = await snapshotNamesIn(dst);
+    for (const stale of snapshotsToPrune(names)) {
+      await fs.unlink(path.join(dst, stale)).catch(() => undefined);
+    }
+  }
+  await fs.rmdir(src).catch(() => undefined);
+  return renamed;
+}
+
+/**
+ * 把 `file` 拷进 `dir`，名字撞了就加序号：快照名去掉原有的序号、从 2 往上加（与 {@link writeUnique} 同一个规矩，那一刻与时区
+ * 原样留着）；不是快照的名字（作者放进来的别的文件）在扩展名前加 `-2`、`-3`。返回落下的名字。
+ */
+async function copyUnique(file: string, dir: string, name: string): Promise<string> {
+  const snap = SNAPSHOT_RE.test(name);
+  const ext = snap ? '.txt' : path.extname(name);
+  const stem = snap ? name.replace(/(?:-\d+)?\.txt$/, '') : name.slice(0, name.length - ext.length);
+  for (let dup = 1; dup < 1000; dup++) {
+    const candidate = dup === 1 ? name : `${stem}-${dup}${ext}`;
+    try {
+      await fs.copyFile(file, path.join(dir, candidate), fsConstants.COPYFILE_EXCL);
+      return candidate;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') {
+        throw err;
+      }
+    }
+  }
+  throw new Error(`${name} 撞名太多`);
+}
+
+async function statOf(abs: string): Promise<import('node:fs').Stats | undefined> {
+  try {
+    return await fs.stat(abs);
+  } catch {
+    return undefined;
+  }
 }
 
 /**

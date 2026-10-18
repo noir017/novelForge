@@ -373,6 +373,7 @@ describe('章节改名：同步正文的 # 标题 行', () => {
   let newText;
   let oldGone;
   let history;
+  let historyLeftBehind;
   let reviewedCount;
   let confirmCount;
   let toasts;
@@ -417,7 +418,8 @@ describe('章节改名：同步正文的 # 标题 行', () => {
     toasts = [...h.toasts];
     newText = t.has(NEW) ? t.read(NEW) : undefined;
     oldGone = !t.has(OLD);
-    history = snapTexts(OLD);
+    history = snapTexts(NEW);
+    historyLeftBehind = snaps(OLD).length;
     project.invalidate();
     const plot = await project.readPlot('.novelforge/summaries/010-新名.md');
     plotMoved = !!plot && !t.has('.novelforge/summaries/010-旧名.md');
@@ -437,8 +439,9 @@ describe('章节改名：同步正文的 # 标题 行', () => {
     assert.equal(newText, BODY.replace('# 旧名', '# 新名'));
   });
 
-  test('改名之前的正文在历史版本里留了一份（挂在旧路径下）', () => {
+  test('改名之前的正文在历史版本里留了一份，快照跟着搬到新路径下（在新路径上打开「历史」面板看得到）', () => {
     assert.deepEqual(history, [BODY]);
+    assert.equal(historyLeftBehind, 0);
   });
 
   test('不弹审阅也不弹确认：新名字是作者刚在输入框里起的', () => {

@@ -73,7 +73,7 @@
 | `outline` / `style` / `globalSummary` / `threads` | 固定路径 | 纯文本 | — | — |
 | `skill` | `.novelforge/skills.json` 与 `.novelforge/skills/**` | 纯文本（`plain`，不加 frontmatter） | — | — |
 | `plot` | `summaries/` 下（各级子目录都算，镜像正文的路径）+ 数字前缀 + markdown | `plotFile.ts`（八节） | 写入记大纲里覆盖本章那一节的指纹（`outlineUpstreamHash`）；定稿记的 `sourceHash` / `cast` 由 `finalizePlot` 写，重写细纲时原样沿用 | — |
-| `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | —（正文依据的细纲指纹记在细纲的 `writtenFrom` 上） | 改名/移动带草稿与细纲（整个卷目录也带）；写后 `syncManifest` |
+| `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | —（正文依据的细纲指纹记在细纲的 `writtenFrom` 上） | 改名/移动带草稿与细纲（整个卷目录也带，连同它们的历史版本）；写后 `syncManifest` |
 | `character` / `lore` | 各自区 + `.md` | frontmatter | — | — |
 | `draft` | `drafts/` 下 | 纯文本 | — | **永不自动进上下文** |
 | `other` | 其余工程内文本（含老工程的 `plots/` 与历史版本 `.novelforge/history/`） | 纯文本 | — | — |
@@ -141,8 +141,19 @@
 要么只新建、不覆盖（新工程的空模板、「文件」页的复制、新建文件夹），要么不是创作产物（会话文件、`project.json`、工程库、
 工程外的配置与我的技能库），都不存历史版本。
 
-**快照按路径存，不跟着改名走**：章节改名时同步标题行存下的那一版挂在**旧路径**的镜像目录下，在新路径上打开「历史」面板
-看不到它（`move` 不搬历史目录）。
+**快照跟着改名、搬家走**（`moveHistory`）：快照按路径存，所以网关 `move` 成功之后，把搬的那一份（或整个目录）在
+`.novelforge/history/` 下的快照目录也挪到新路径下——在新路径上打开「历史」面板，看得到改名之前存的版本（章节改名时同步
+标题行存下的那一版也在里面）。
+
+- **覆盖面**：单个文件；整个目录（分卷目录改名，下面每份文件的快照整棵跟着走）；伴生搬家——章节改名、移动时草稿与细纲
+  跟着搬，它们不经 `move`（`handlers/chapter.ts` 的 `carryMirror` 直接 rename），快照在那里各自跟上；没搬动的伴生（目标已有、
+  移出了 `chapters/`）快照也留在原处。`writePlot` 改标题（还没有正文）、改章号换了文件名，细纲的快照同样跟过去。
+- **新路径下已经有快照目录**（以前那里有过同名文件）：两边合并，文件名撞了按存快照时的去重规矩加序号（同一刻，序号往上
+  加；拷贝用 `COPYFILE_EXCL`，绝不盖掉已有的那一个），合并完按保留上限（50 个）修剪。
+- **搬快照失败不挡搬家**：新位置被一个文件占了、磁盘满、权限……都只记一条 warn（「没能把 … 的历史版本搬到 …，搬家照常」），
+  `moveHistory` 不抛，搬家本身不失败也不回滚（与「存快照失败不挡保存」同一个口径）；没搬过去的快照留在旧路径下，一个不丢。
+- **删除不搬**：`remove` / `deletePlot` 进回收站时快照留在原路径。作者从 `.trash/` 把文件搬回原处，历史也就回来了。
+- 搬进、搬出 `.novelforge/history/` 本身的东西不搬快照（那里的东西本来就不存历史）。
 
 **定稿写回两份都留**：`.trash/` 那一份照旧（永不裁剪，定稿完成提示里说的就是它），历史版本里也存一版——编辑器的
 「历史」面板里找得到、对比得了；八节整体换掉，节流拦不住它。
@@ -222,14 +233,14 @@ workspace/
 ├── index.ts        Workspace 门面：list / read / write / edit / move（另有只读预检 checkMove）/ remove / search
 ├── kind.ts         ★ 路径 → 种类（纯函数，零 I/O，绝不抛）
 ├── guard.ts        ★ 统一入口守卫（八条）
-├── history.ts      历史版本：覆盖之前存旧内容（布局、节流、保留；绝不挡住保存）
+├── history.ts      历史版本：覆盖之前存旧内容（布局、节流、保留；绝不挡住保存）；搬家时快照跟着走（moveHistory，绝不挡住搬家）
 ├── search.ts       全文检索（朴素扫描，零模型调用）
 └── handlers/
     ├── index.ts    种类 → handler 注册表（认不出落 plain，绝不抛）
     ├── types.ts    Handler 的四件事：render / resolve / after / companions
     ├── setting.ts  架构三件（小节换新、配置 frontmatter 合并）
     ├── plot.ts     渲染 + 记 upstreamHash；定稿写回的渲染（renderFinalizedPlot）
-    ├── chapter.ts  草稿与细纲跟随（carryDraft / carryPlot）+ manifest 同步（删章节不删草稿、不删细纲）
+    ├── chapter.ts  草稿与细纲跟随（carryDraft / carryPlot，连同它们的快照）+ manifest 同步（删章节不删草稿、不删细纲）
     ├── doc.ts      outline / style / globalSummary / threads / character / lore
     └── plain.ts    other / draft（纯文本，无记账）
 ```

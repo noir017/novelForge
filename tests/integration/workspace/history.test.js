@@ -3,7 +3,8 @@
  *
  * 守的是「凡是走网关覆盖一份创作产物，旧内容都先留一版」，以及几条不能出错的边：新建不存、相同不存、
  * 节流、大改总存、只留 50 个、存不下也照常写盘、`.gitignore` 只放一次、`other` 与还不是工程的目录不存、
- * 不进检索、监听挡掉、类文件操作删不掉这个目录。
+ * 不进检索、监听挡掉、类文件操作删不掉这个目录；改名 / 搬家时快照跟着走（单个文件、整个目录、伴生的细纲与草稿、
+ * 合并时撞名加序号并修剪），搬不动也照常搬家、删除时留在原路径。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -424,5 +425,171 @@ describe('不进上下文、不触发重扫、删不掉', () => {
   test('「文件」页照常列得出来', async () => {
     const names = (await ws.list('.novelforge')).map((e) => e.name);
     assert.ok(names.includes('history'), names.join('、'));
+  });
+});
+
+// ---------------------------------------------------------------- 改名 / 搬家：快照跟着走
+//
+// 快照按路径存。从前 `move` 不搬历史目录，在新路径上打开「历史」面板看不到改名之前存的版本。
+
+/** 手放几个快照：`items` 是 `[毫秒时间戳, 内容, 序号?]`。返回快照文件名。 */
+function seed(t, rel, items) {
+  return items.map(([ms, text, dup]) => {
+    const name = bundle.history.snapshotFileName(new Date(ms), dup);
+    t.write(`.novelforge/history/${rel}/${name}`, text);
+    return name;
+  });
+}
+
+const histDir = (t, rel) => t.rel('.novelforge/history', rel);
+
+describe('改名 / 搬家：快照跟着走', () => {
+  let t;
+  let ws;
+
+  before(async () => {
+    ({ t, ws } = await fresh('hist-move'));
+  });
+
+  test('单个文件：快照目录搬到新路径下，旧路径不留', async () => {
+    await ws.write('chapters/001-甲.md', { text: BIG }, { mode: 'create' });
+    await overwrite(ws, 'chapters/001-甲.md', '改过一版。');
+    await ws.move('chapters/001-甲.md', 'chapters/001-乙.md');
+    assert.equal(snaps(t, 'chapters/001-乙.md').length, 1);
+    assert.equal(snapText(t, 'chapters/001-乙.md', snaps(t, 'chapters/001-乙.md')[0]), BIG);
+    assert.equal(fs.existsSync(histDir(t, 'chapters/001-甲.md')), false);
+  });
+
+  test('在新路径上列得出来（「历史」面板读的就是它）', async () => {
+    const list = await bundle.history.listSnapshots(t.project, 'chapters/001-乙.md');
+    assert.equal(list.length, 1);
+    assert.equal(await bundle.history.readSnapshot(t.project, 'chapters/001-乙.md', list[0].id), BIG);
+  });
+
+  test('章节改名时细纲、草稿跟着改名，它们的快照也跟着走', async () => {
+    await ws.write('chapters/002-旧.md', { text: BIG }, { mode: 'create' });
+    for (const rel of ['.novelforge/summaries/002-旧.md', 'drafts/002-旧.md']) {
+      t.write(rel, `${rel} 的旧内容`);
+      await overwrite(ws, rel, `${rel} 的新内容`);
+    }
+    await ws.move('chapters/002-旧.md', 'chapters/002-新.md');
+    assert.ok(t.has('.novelforge/summaries/002-新.md') && t.has('drafts/002-新.md'));
+    assert.equal(snapText(t, '.novelforge/summaries/002-新.md', snaps(t, '.novelforge/summaries/002-新.md')[0]), '.novelforge/summaries/002-旧.md 的旧内容');
+    assert.equal(snapText(t, 'drafts/002-新.md', snaps(t, 'drafts/002-新.md')[0]), 'drafts/002-旧.md 的旧内容');
+    assert.equal(fs.existsSync(histDir(t, '.novelforge/summaries/002-旧.md')), false);
+    assert.equal(fs.existsSync(histDir(t, 'drafts/002-旧.md')), false);
+  });
+
+  test('整个分卷目录改名：下面每份文件（连同伴生的细纲、草稿）的快照都跟着走', async () => {
+    const files = ['chapters/第一卷/003-雪.md', 'chapters/第一卷/004-风.txt', '.novelforge/summaries/第一卷/003-雪.md', 'drafts/第一卷/003-雪.md'];
+    for (const rel of files) {
+      t.write(rel, `${rel} 的旧内容`);
+      await overwrite(ws, rel, `${rel} 的新内容`);
+    }
+    await ws.move('chapters/第一卷', 'chapters/第二卷');
+    for (const rel of files) {
+      const moved = rel.replace('第一卷', '第二卷');
+      assert.ok(t.has(moved), moved);
+      assert.equal(snapText(t, moved, snaps(t, moved)[0]), `${rel} 的旧内容`, moved);
+      assert.equal(fs.existsSync(histDir(t, rel)), false, rel);
+    }
+  });
+
+  test('新路径下已经有快照（以前有过同名文件）：两边合并，撞名的按同一刻加序号，一份都不丢', async () => {
+    const base = Date.UTC(2026, 5, 1, 8);
+    // 新路径上从前那份文件留下的两版。
+    const [a, b] = seed(t, 'chapters/005-丙.md', [[base, '从前的丙·一'], [base + 60_000, '从前的丙·二']]);
+    // 要搬过来的这份的两版：第一版与 a 同一刻、同一个文件名。
+    const [c, d] = seed(t, 'chapters/005-丁.md', [[base, '丁·一'], [base + 120_000, '丁·二']]);
+    assert.equal(c, a);
+    t.write('chapters/005-丁.md', '丁的现在。');
+    await ws.move('chapters/005-丁.md', 'chapters/005-丙.md');
+
+    const names = snaps(t, 'chapters/005-丙.md');
+    assert.equal(names.length, 4, names.join('、'));
+    const texts = Object.fromEntries(names.map((n) => [n, snapText(t, 'chapters/005-丙.md', n)]));
+    assert.equal(texts[a], '从前的丙·一');
+    assert.equal(texts[b], '从前的丙·二');
+    assert.equal(texts[d], '丁·二');
+    assert.equal(texts[bundle.history.snapshotFileName(new Date(base), 2)], '丁·一');
+    assert.equal(fs.existsSync(histDir(t, 'chapters/005-丁.md')), false);
+  });
+
+  test('合并之后按保留上限修剪：只留最近 50 个', async () => {
+    const base = Date.UTC(2026, 6, 1);
+    seed(t, 'chapters/006-甲.md', Array.from({ length: 30 }, (_, i) => [base + i * 1000, `旧·${i}`]));
+    seed(t, 'chapters/006-乙.md', Array.from({ length: 30 }, (_, i) => [base + 100_000 + i * 1000, `新·${i}`]));
+    t.write('chapters/006-乙.md', '乙的现在。');
+    await ws.move('chapters/006-乙.md', 'chapters/006-甲.md');
+    const names = snaps(t, 'chapters/006-甲.md');
+    assert.equal(names.length, 50);
+    assert.equal(snapText(t, 'chapters/006-甲.md', names[0]), '新·29');
+    // 最旧的 10 个（旧·0 … 旧·9）裁掉了。
+    assert.equal(snapText(t, 'chapters/006-甲.md', names[names.length - 1]), '旧·10');
+  });
+
+  test('删除（进回收站）时快照留在原路径；从回收站搬回原处，历史还在', async () => {
+    await ws.write('chapters/007-残灯.md', { text: BIG }, { mode: 'create' });
+    await overwrite(ws, 'chapters/007-残灯.md', '灯灭了。');
+    await ws.remove('chapters/007-残灯.md');
+    assert.equal(snaps(t, 'chapters/007-残灯.md').length, 1);
+    fs.renameSync(t.rel('.novelforge/.trash/chapters/007-残灯.md'), t.rel('chapters/007-残灯.md'));
+    assert.equal((await bundle.history.listSnapshots(t.project, 'chapters/007-残灯.md')).length, 1);
+  });
+
+  test('写细纲时改了标题、文件名跟着变（还没有正文）：细纲的快照也跟着走', async () => {
+    const plot = {
+      no: 40,
+      title: '',
+      upstreamHash: '',
+      done: false,
+      sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: '还没起名时的计划。', 关键事件: '甲。' },
+    };
+    const first = await ws.writePlot(plot);
+    await ws.writePlot({ ...plot, sections: { ...plot.sections, 梗概: '改过的计划。'.repeat(80) } });
+    assert.equal(snaps(t, first).length, 1);
+    const renamed = await ws.writePlot({ ...plot, title: '入宗', sections: { ...plot.sections, 梗概: '改过的计划。'.repeat(80) } });
+    assert.notEqual(renamed, first);
+    assert.ok(snaps(t, renamed).length >= 1, renamed);
+    assert.equal(fs.existsSync(histDir(t, first)), false);
+  });
+});
+
+describe('搬快照失败绝不挡住搬家', () => {
+  let t;
+  let ws;
+  let result;
+  const from = 'chapters/008-甲.md';
+  const to = 'chapters/008-乙.md';
+
+  before(async () => {
+    ({ t, ws } = await fresh('hist-move-fail'));
+    await ws.write(from, { text: BIG }, { mode: 'create' });
+    await overwrite(ws, from, '改过一版。');
+    // 新路径的快照目录被一个同名文件占了：搬不过去。
+    t.write(`.novelforge/history/${to}`, '不是目录');
+    bundle.logger.clearLogs();
+    result = await ws.move(from, to);
+  });
+
+  test('照常搬家', () => {
+    assert.equal(result.rel, to);
+    assert.equal(t.read(to), '改过一版。');
+    assert.equal(t.has(from), false);
+  });
+
+  test('快照留在旧路径下，一个不丢', () => {
+    assert.equal(snaps(t, from).length, 1);
+    assert.equal(snapText(t, from, snaps(t, from)[0]), BIG);
+  });
+
+  test('占位的那个文件原样没动', () => {
+    assert.equal(t.read(`.novelforge/history/${to}`), '不是目录');
+  });
+
+  test('记一条 warn，说清搬家照常', () => {
+    const warn = bundle.logger.recentLogs().find((e) => e.level === 'warn' && e.message.includes('历史版本'));
+    assert.ok(warn, JSON.stringify(bundle.logger.recentLogs().map((e) => e.message)));
+    assert.ok(warn.message.includes(from) && warn.message.includes('照常'), warn.message);
   });
 });
