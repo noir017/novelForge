@@ -11,7 +11,7 @@
  * | `features/creation.ts` | `confirmOverwrite` / `reviewReplace` |
  *
  * 这就是为什么从前不敢给 agent 一个 `write`。八条守卫收进这一份，
- * `workspace/index.ts` 的六个方法全过一遍，**新代码不许绕过这里直接
+ * `workspace/index.ts` 的每个写盘方法全过一遍，**新代码不许绕过这里直接
  * `fs.writeFile`**。
  *
  * | # | 守卫 | 触发时怎么办 |
@@ -19,7 +19,7 @@
  * | 1 | 路径规范化（绝对路径 / `..` 逃逸 / 空串） | `WsError('outOfRoot')` |
  * | 2 | 工程根包含检查（解析成绝对路径再比一次） | `WsError('outOfRoot')` |
  * | 3 | 固定目录保护（改名/删除） | `WsError('protected')` |
- * | 4 | `.trash/` 内容不可**改**（读得到，作者要能找回东西） | `WsError('inTrash')` |
+ * | 4 | `.trash/` 内容不可**改**（读得到，作者要能找回东西）；历史版本 `.novelforge/history/` 写不进去（同样读得到） | `WsError('inTrash')` / `WsError('inHistory')` |
  * | 5 | 大小上限 2MB（读、写各一次） | `WsError('tooLarge')` |
  * | 6 | 同名不覆盖（`mode: 'create'`） | `WsError('exists')` |
  * | 7 | 覆盖前审阅（`reviewReplace` 或确认框） | 用户拒绝 → 调用方 `{skipped:true}` |
@@ -43,6 +43,10 @@ export type WsErrorCode =
   | 'outOfRoot'
   | 'protected'
   | 'inTrash'
+  /** 历史版本（`.novelforge/history/`）里写不进去：那是网关自己存的副本。读得到。 */
+  | 'inHistory'
+  /** 目录复制进它自己里面。 */
+  | 'intoSelf'
   | 'tooLarge'
   | 'exists'
   | 'notFound'
@@ -225,7 +229,7 @@ export interface GuardWriteResult {
 /**
  * 写之前过一遍。返回绝对路径与「目标是否已存在」。
  *
- * 检查顺序是有意的：越界 → 回收站 → 大小 → 存在性 → 同名 → 乐观锁。
+ * 检查顺序是有意的：越界 → 内部文件 / 回收站 / 历史版本 → 大小 → 存在性 → 同名 → 乐观锁。
  * 先拦最便宜、最致命的，最后才读盘。
  */
 export async function guardWrite(
@@ -236,12 +240,7 @@ export async function guardWrite(
   const abs = resolveInRoot(project.root, relPath);
   const rel = normalizeRel(relPath)!;
 
-  if (isInternalPath(project, rel)) {
-    throw new WsError('protected', `「${rel}」是 Novel Forge 自己的内部文件，不能写。`);
-  }
-  if (isInTrash(project, rel)) {
-    throw new WsError('inTrash', `回收站里的内容不能写：${rel}`);
-  }
+  guardArea(project, rel);
   if (opts.text !== undefined && Buffer.byteLength(opts.text, 'utf8') > MAX_EDITABLE_BYTES) {
     throw new WsError('tooLarge', '内容超过大小上限，未写入。');
   }
@@ -278,6 +277,76 @@ export async function guardWrite(
   }
 
   return { abs, existed: stat !== undefined, current };
+}
+
+/**
+ * 写、建、复制的落点共用的一道：这三处**不是作者的操作对象**，什么都写不进去——
+ *
+ * - Novel Forge 自己的内部文件（会话、工程库）：`protected`
+ * - 回收站：`inTrash`（里面躺着删掉的东西，往里写等于伪造一份「删掉过的」）
+ * - 历史版本：`inHistory`（网关自己存的副本；往里塞文件，「历史」面板里就多出一份作者从没存过的「旧版」）
+ *
+ * 三处都**读得到**（会话除外，它读当不存在）：回收站与历史版本是作者找回东西的地方。
+ */
+function guardArea(project: NovelProject, rel: string): void {
+  if (isInternalPath(project, rel)) {
+    throw new WsError('protected', `「${rel}」是 Novel Forge 自己的内部文件，不能写。`);
+  }
+  if (isInTrash(project, rel)) {
+    throw new WsError('inTrash', `回收站里的内容不能写：${rel}`);
+  }
+  if (isInHistory(project, rel)) {
+    throw new WsError('inHistory', `历史版本是网关自己存的副本，不能往里写：${rel}`);
+  }
+}
+
+/**
+ * 新建一个东西（目录，或复制出来的一份）之前过一遍：越界、写不进去的三处（{@link guardArea}）、落点上已经有东西。
+ * 与 `guardWrite` 的 `mode: 'create'` 同一套，只是**落点上有什么都算同名**——目录也算（`guardWrite` 把它报成
+ * `notFile`，对「建一个目录」「复制一个目录过去」来说那句话说反了）。返回绝对路径。
+ */
+export async function guardCreate(project: NovelProject, relPath: string): Promise<string> {
+  const abs = resolveInRoot(project.root, relPath);
+  const rel = normalizeRel(relPath)!;
+  guardArea(project, rel);
+  try {
+    await fs.lstat(abs);
+  } catch {
+    return abs;
+  }
+  throw new WsError('exists', `已存在：${rel}`);
+}
+
+/**
+ * 复制的来源过一遍：在工程内、存在、不是符号链接、不是固定目录（整个 `chapters/`、`.novelforge/` 这种复制一份出来只是一堆
+ * 重号的章，与文件页从前的规矩一样不收）、不是内部文件（会话与工程库读当不存在，也就复制不出来）。
+ *
+ * **回收站与历史版本里的东西可以复制出来**：复制只读来源，读得到就复制得出来——这是在工程里找回一份的入口，
+ * 回收站与历史一个字节都不动（搬出来仍然不行，那是改回收站，见 `guardMutate`）。
+ */
+export async function guardCopySource(
+  project: NovelProject,
+  relPath: string
+): Promise<{ abs: string; rel: string; isDir: boolean }> {
+  const abs = resolveInRoot(project.root, relPath);
+  const rel = normalizeRel(relPath)!;
+  if (isProtectedPath(project, rel)) {
+    throw new WsError('protected', `「${rel}」是工程的固定目录，不能整个复制。`);
+  }
+  if (isInternalPath(project, rel)) {
+    throw new WsError('protected', `「${rel}」是 Novel Forge 自己的内部文件，不能复制。`);
+  }
+  let stat: import('node:fs').Stats;
+  try {
+    stat = await fs.lstat(abs);
+  } catch {
+    throw new WsError('notFound', `找不到：${rel}`);
+  }
+  // 符号链接不跟：链到工程外的东西不该被抄进工程（守卫 2 只比逻辑路径，不解析链接）。
+  if (stat.isSymbolicLink()) {
+    throw new WsError('notFile', `「${rel}」是符号链接，不复制。`);
+  }
+  return { abs, rel, isDir: stat.isDirectory() };
 }
 
 /**

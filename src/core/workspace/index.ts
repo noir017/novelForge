@@ -28,6 +28,7 @@
  * 绕过去等于给自己开一个后门，而后门在界面上看不出来。
  */
 import * as fs from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import * as path from 'node:path';
 import { scoped } from '../runtime/logger';
 import { decodeFileText } from '../model/importText';
@@ -76,6 +77,8 @@ import {
 import {
   MAX_EDITABLE_BYTES,
   WsError,
+  guardCopySource,
+  guardCreate,
   guardMutate,
   guardRead,
   guardWrite,
@@ -454,6 +457,78 @@ export class Workspace {
     return { rel: normalized, message: `已移到回收站：${normalized}`, side };
   }
 
+  // ---------------------------------------------------------------- copy
+
+  /**
+   * 复制一份文件或一整个目录（文件页的「复制 → 粘贴」）。**目标已有就拒绝**：不加序号、不覆盖（第 3 条）。
+   *
+   * 守卫两头都过：
+   *
+   * - **来源**（`guardCopySource`）：在工程内、存在、不是固定目录、不是内部文件（会话、工程库）、不是符号链接。
+   *   回收站与历史版本里的东西**复制得出来**——复制只读来源，读得到就复制得出来，原件一个字节不动。
+   * - **落点**（`guardCreate`）：在工程内、不在回收站 / 会话目录 / 历史版本里、没有同名；目录不能复制进它自己里面。
+   *   复制目录时先把整棵树列出来、**逐个文件**过一遍，全过了才动手，守卫拦下一份就整个不复制。
+   *
+   * 字节原样拷贝（`COPYFILE_EXCL`：竞态里也绝不盖掉别处刚建的文件）：GBK 的章节、图片都不转码。没有大小上限——与 `move`
+   * 一样，复制不把内容读进编辑器或模型。目录里的符号链接不跟进去，跳过并在 `side` 里说出来（链到工程外的东西不该被抄进来）。
+   *
+   * 拷完按**副本**的种类补账（handler 的 `afterCopy`）：细纲副本去掉定稿那一侧的指纹（`handlers/plot.ts`，第 18 条）；
+   * 复制进 `chapters/` 的章节最后统一同步一次 manifest，像新建一样。**没有伴生**：复制一章不带草稿、也不带细纲——副本是
+   * 一章新的（第 8 条：细纲按路径认，旧细纲不冒认），草稿是作者对原章的笔记，跟着复制会变成两份各自漂移的东西。
+   * 没覆盖任何东西，所以不存历史版本；原件的历史也不抄过去。
+   */
+  async copy(from: string, to: string): Promise<WriteResult> {
+    const source = await guardCopySource(this.project, from);
+    const toRel = normalizeRel(to);
+    if (toRel === undefined) {
+      throw new WsError('outOfRoot', `路径超出工程目录：${to}`);
+    }
+    if (source.isDir && toRel.startsWith(`${source.rel}/`)) {
+      throw new WsError('intoSelf', `不能把「${source.rel}」复制进它自己里面：${toRel}`);
+    }
+    await guardCreate(this.project, toRel);
+
+    const plan = source.isDir
+      ? await copyPlanOf(this.project, source.rel, toRel)
+      : { dirs: [], files: [{ from: source.rel, to: toRel }], skipped: [] };
+    for (const rel of [...plan.dirs, ...plan.files.map((f) => f.to)]) {
+      await guardCreate(this.project, rel);
+    }
+
+    if (!source.isDir) {
+      await fs.mkdir(path.dirname(this.project.pathOf(toRel)), { recursive: true });
+    }
+    for (const dir of plan.dirs) {
+      await fs.mkdir(this.project.pathOf(dir), { recursive: true });
+    }
+    for (const file of plan.files) {
+      await fs.copyFile(this.project.pathOf(file.from), this.project.pathOf(file.to), fsConstants.COPYFILE_EXCL);
+    }
+    this.project.invalidate();
+
+    const side = plan.skipped.map((rel) => `${rel} 是符号链接，没复制`);
+    let chapters = false;
+    for (const file of plan.files) {
+      const ctx = this.ctxOf(file.to);
+      if (ctx.path.kind === 'chapter') {
+        chapters = true;
+        continue;
+      }
+      const handler = handlerFor(ctx.path.kind);
+      if (handler.afterCopy) {
+        side.push(...(await handler.afterCopy(ctx, file.from)));
+      }
+    }
+    if (chapters) {
+      await this.project.syncManifest();
+    }
+    // 与 move 同一个口径：有连带的事才记一条（去掉了哪份细纲的指纹、跳过了哪个链接）。
+    if (side.length > 0) {
+      log.info(`${source.rel} → ${toRel} 复制时连带`, side.join('｜'));
+    }
+    return { rel: toRel, message: `已复制到 ${toRel}`, side };
+  }
+
   // ---------------------------------------------------------------- search
 
   /**
@@ -468,7 +543,7 @@ export class Workspace {
 
   // ---------------------------------------------------------------- 领域写入器
   //
-  // 上面六个方法收的是**路径**。下面这几个收的是**领域对象**（一份细纲、
+  // 上面那几个方法收的是**路径**。下面这几个收的是**领域对象**（一份细纲、
   // 一章正文），因为它们的落点由内容决定：细纲的文件名是「章号 + 标题」，
   // 改标题就是改文件名。调用方手里只有对象，让它自己去拼路径等于把命名规则
   // 复制一份出去。
@@ -1011,6 +1086,34 @@ function appendText(guarded: { existed: boolean; current?: string }, text: strin
  * 会话删除（`model/session.ts`）也用这一份——`model/` 不能反过来依赖网关。这里重新导出，调用方不动。
  */
 export { trashPathFor };
+
+/**
+ * 复制一个目录要建哪些目录、拷哪些文件（工作区相对路径，父目录在前）。符号链接不跟进去，记进 `skipped`；
+ * 别的特殊文件（管道、套接字）不认，直接略过。
+ */
+async function copyPlanOf(
+  project: NovelProject,
+  fromRel: string,
+  toRel: string
+): Promise<{ dirs: string[]; files: { from: string; to: string }[]; skipped: string[] }> {
+  const plan = { dirs: [toRel], files: [] as { from: string; to: string }[], skipped: [] as string[] };
+  const walk = async (from: string, to: string): Promise<void> => {
+    for (const dirent of await fs.readdir(project.pathOf(from), { withFileTypes: true })) {
+      const childFrom = `${from}/${dirent.name}`;
+      const childTo = `${to}/${dirent.name}`;
+      if (dirent.isSymbolicLink()) {
+        plan.skipped.push(childFrom);
+      } else if (dirent.isDirectory()) {
+        plan.dirs.push(childTo);
+        await walk(childFrom, childTo);
+      } else if (dirent.isFile()) {
+        plan.files.push({ from: childFrom, to: childTo });
+      }
+    }
+  };
+  await walk(fromRel, toRel);
+  return plan;
+}
 
 async function wordsOf(abs: string): Promise<number | undefined> {
   try {

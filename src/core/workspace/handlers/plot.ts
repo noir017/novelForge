@@ -13,6 +13,8 @@
  *    标题时退回全书大纲的指纹）。谁写都记——作者在内置编辑器里改一份细纲，
  *    指纹链照样接得上。
  *
+ * 复制出来的副本另有一条（`afterCopy`）：去掉定稿那一侧的指纹，`upstreamHash` 不重记——副本是一份还没写、没定稿的计划。
+ *
  * 另有定稿那一次写入的渲染（{@link renderFinalizedPlot}）：它不走 `write`，由
  * `Workspace.finalizePlot` 调，不记大纲指纹——反向更新的依据是正文，不是大纲。
  *
@@ -28,7 +30,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { hash, readTextIfExists } from '../../model/fs';
-import { rewriteFrontmatter } from '../../model/markdown';
+import { parseMarkdown, rewriteFrontmatter } from '../../model/markdown';
 import { NovelProject } from '../../model/project';
 import {
   Plot,
@@ -79,6 +81,46 @@ export const plotHandler: Handler = {
    */
   async after(ctx: HandlerCtx, text: string) {
     return recordUpstream(ctx, text, await plotUpstreamHash(ctx.project, ctx.rel), '大纲指纹');
+  },
+
+  /**
+   * 复制出来的一份细纲（文件页的「复制 → 粘贴」，或整个分卷目录复制一份）：**去掉定稿那一侧的账**，其余一个字不动。
+   *
+   * - `writtenFrom` / `sourceHash` / `cast` 删掉：它们说的是「有一份正文照这份写成过、定稿时正文是这个指纹、实际出场
+   *   这几个人」——那是原件那一章的事。副本落在别的路径上，镜像的是另一章（或者还没有正文），带着它们会被当成
+   *   定稿过的细纲：出场统计、设定名录多数一章（第 14 条），镜像位置上要是恰好有正文，还会被说成「定稿之后正文改过」
+   *   或「细纲在正文之后改过」（第 18 条）。副本是一份还没写、没定稿的计划。
+   * - `upstreamHash` **原样留着，不重算**：内容一字没变、章号没变（文件名照抄），它据以生成的仍是大纲里的同一节——
+   *   原件挂着 ⟳ 的副本照样挂着，不被复制顺手刷成「新鲜」（`after` 会按大纲此刻的指纹重记，所以复制不走它）。
+   *   **章号变了**（网关直接复制成另一个文件名）就删掉：那是另一章的那一节，留着只会凭空报 ⟳。
+   * - 作者自己定的（标题、目标字数、`status: done`、预检与冲突检查的放行）与八节、第九节原样留着。
+   * - 没有 frontmatter 的手写细纲不补（第 18a 条）。
+   */
+  async afterCopy(ctx: HandlerCtx, from: string) {
+    const abs = ctx.project.pathOf(ctx.rel);
+    const raw = await readTextIfExists(abs).catch(() => undefined);
+    if (raw === undefined) {
+      return [];
+    }
+    const sameNo =
+      parsePlotFileName(path.posix.basename(from))?.no === parsePlotFileName(path.posix.basename(ctx.rel))?.no;
+    const patch: Record<string, undefined> = { writtenFrom: undefined, sourceHash: undefined, cast: undefined };
+    if (!sameNo) {
+      patch.upstreamHash = undefined;
+    }
+    // 一个要去掉的键都没有（手写的、没写过的计划）就一个字节不碰：`rewriteFrontmatter` 会把整段 frontmatter 重新排一遍。
+    const keys = Object.keys(parseMarkdown(raw).frontmatter);
+    const dropped = Object.keys(patch).filter((key) => keys.includes(key));
+    if (dropped.length === 0) {
+      return [];
+    }
+    const next = rewriteFrontmatter(raw, patch);
+    if (next === undefined || next === raw) {
+      return [];
+    }
+    await fs.writeFile(abs, next, 'utf8');
+    ctx.project.invalidate();
+    return [`细纲副本 ${ctx.rel} 去掉了 ${dropped.join(' / ')}（副本没写过、没定稿过）`];
   },
 };
 

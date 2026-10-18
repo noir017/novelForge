@@ -154,6 +154,41 @@ describe('守卫 4 · 回收站里的内容不可操作', () => {
   });
 });
 
+// 历史版本（`.novelforge/history/`）是网关自己存的副本：从前守卫只拦 `.trash/` 与 `sessions/`，往这里写、搬、复制都放行，
+// 作者的操作能往「历史」面板里塞一份假快照。现在与回收站同一个口径：读得到，写不进去。
+describe('守卫 4 · 历史版本写不进去（读得到）', () => {
+  const SNAP = '.novelforge/history/chapters/001-楔子.md/2026-10-18_14-32-05+0800.txt';
+
+  before(() => {
+    t.write(SNAP, '旧稿');
+  });
+
+  test('往历史版本里新建文件被拒', async () => {
+    assert.equal(
+      await codeOf(() => G.guardWrite(project, '.novelforge/history/chapters/001-楔子.md/伪造.txt', { mode: 'create' })),
+      'inHistory'
+    );
+  });
+
+  test('覆盖一份快照被拒', async () => {
+    assert.equal(await codeOf(() => G.guardWrite(project, SNAP, { mode: 'overwrite' })), 'inHistory');
+  });
+
+  test('历史版本目录本身也写不进去', async () => {
+    assert.equal(await codeOf(() => G.guardWrite(project, '.novelforge/history', { mode: 'create' })), 'inHistory');
+  });
+
+  test('快照读得到', async () => {
+    const abs = await G.guardRead(project, SNAP);
+    assert.equal(abs, t.rel(SNAP));
+  });
+
+  test('名字只是像的目录不算（`.novelforge/history2/`）', async () => {
+    const r = await G.guardWrite(project, '.novelforge/history2/随手记.md', { mode: 'create' });
+    assert.equal(r.existed, false);
+  });
+});
+
 describe('守卫 5 · 大小上限', () => {
   before(() => {
     t.write('chapters/002-巨物.md', 'x'.repeat(G.MAX_EDITABLE_BYTES + 10));

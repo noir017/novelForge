@@ -20,10 +20,14 @@ const log = scoped('文件页');
  * 1. **不出工程根**：`..` 逃逸与绝对路径一律拒绝。
  * 2. **不静默覆盖**：目标同名逐项拒绝，其余项继续。
  * 3. **固定目录不动**：chapters/、drafts/、.novelforge 及其关键子目录受保护。
- * 4. **垃圾箱不搬**：`.novelforge/.trash/` 里的内容不是操作对象。
+ * 4. **垃圾箱不搬**：`.novelforge/.trash/` 里的内容不是操作对象（复制出来可以，见下）。
  *
- * 章节联动：源在 chapters/ 下的移动带草稿跟随与 manifest 同步；
- * 章节被移出 chapters/ 时草稿留在原镜像路径，只记日志提醒。
+ * 移动与复制都经网关（`Workspace.move` / `Workspace.copy`），守卫、伴生、manifest 同步都在那一层做一次：
+ *
+ * - **移动**：章节带草稿与细纲跟随、manifest 同步；章节被移出 chapters/ 时草稿留在原镜像路径，只记日志提醒。
+ * - **复制**：来源与落点都过守卫——复制不进回收站、会话目录、历史版本；会话文件与工程库复制不出来；回收站与
+ *   历史版本里的东西**复制得出来**（读得到就复制得出来，原件一字不动——在工程里找回一份的入口）。没有伴生：
+ *   复制一章不带草稿与细纲（副本是一章新的）；细纲副本去掉定稿那一侧的指纹；复制进 chapters/ 的同步 manifest。
  */
 
 /** 工程根范围的重命名。逐项结果的形状与 move/copy 对齐。 */
@@ -87,9 +91,8 @@ async function pasteAll(
     results.push(r);
   }
 
-  // 移动章节改了路径；复制进 chapters/ 的可能带来新章节。两种都重算 manifest。
-  const chaptersRoot = project.relPath(project.chaptersDir);
-  if (chaptersTouched || (copy && (dest === chaptersRoot || dest.startsWith(`${chaptersRoot}/`)))) {
+  // 移动章节改了路径：重算 manifest。复制进 chapters/ 的新章节由 `Workspace.copy` 自己同步过了。
+  if (!copy && chaptersTouched) {
     await project.syncManifest();
   }
   project.invalidate();
@@ -122,7 +125,8 @@ async function pasteOne(
     log.warn(`粘贴被拒：${rel} 是工程的固定目录`);
     return { from: rel, ok: false, error: `「${rel}」是固定目录` };
   }
-  if (rel === '.novelforge/.trash' || rel.startsWith('.novelforge/.trash/')) {
+  // 回收站里的东西搬不出来（那是改回收站）；**复制得出来**——网关的复制只读来源（`guardCopySource`）。
+  if (!copy && (rel === '.novelforge/.trash' || rel.startsWith('.novelforge/.trash/'))) {
     log.warn(`粘贴被拒：${rel} 在回收站里`);
     return { from: rel, ok: false, error: '回收站里的内容不能操作' };
   }
@@ -153,14 +157,17 @@ async function pasteOne(
   }
 
   try {
+    const ws = new Workspace(project);
     if (copy) {
-      // **复制没有伴生**：复制一章不该顺手把草稿也复制一份——那份草稿是
-      // 作者对原章写的笔记，跟着副本走会变成两份各自漂移的东西。
-      await fs.cp(abs, nextAbs, { recursive: true });
+      // 经网关复制：来源与落点都过守卫（复制不进回收站 / 会话目录 / 历史版本，会话与工程库复制不出来），
+      // 目录逐个文件过；字节原样；细纲副本去掉定稿那一侧的指纹，复制进 chapters/ 的同步 manifest。
+      // **复制没有伴生**：复制一章不该顺手把草稿、细纲也复制一份——草稿是作者对原章写的笔记，细纲是原章的计划与
+      // 档案，跟着副本走会变成两份各自漂移的东西（副本是一章新的，第 8 条）。
+      await ws.copy(rel, nextRel);
     } else {
       // 经网关搬：草稿跟随、manifest 同步、章节被移出 chapters/ 时的提示
       // 都在 chapter handler 里做一次。
-      await new Workspace(project).move(rel, nextRel);
+      await ws.move(rel, nextRel);
     }
   } catch (err) {
     log.warn(`粘贴失败：${rel} → ${nextRel}`, describeError(err));

@@ -47,6 +47,12 @@ export interface Handler {
   after?(ctx: HandlerCtx, text: string): Promise<string[]>;
   /** 改名/移动时要连带搬走什么。返回补进 `side` 的说明。 */
   companions?(ctx: HandlerCtx, from: string, to: string): Promise<string[]>;
+  /**
+   * 复制出一份之后（`Workspace.copy`，字节原样拷过来）要补的账。`ctx` 是副本，`from` 是原件的路径。
+   * 返回补进 `side` 的说明。**复制没有伴生**：草稿、细纲都不跟着复制（副本是新的一份，见 `Workspace.copy`）。
+   * 章节不实现它——复制进来的章节由 `copy` 在最后统一同步一次 manifest（与 `deferAfter` 同一个理由）。
+   */
+  afterCopy?(ctx: HandlerCtx, from: string): Promise<string[]>;
   /** 删除时要连带搬走什么。返回补进 `side` 的说明。 */
   onRemove?(ctx: HandlerCtx, rel: string): Promise<string[]>;
 }
