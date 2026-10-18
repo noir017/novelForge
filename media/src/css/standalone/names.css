@@ -1,0 +1,109 @@
+/*
+ * 名词补全的候选框（editor/names.ts，Alt+/ 或边打边弹）：贴在光标那一行下面（靠近底边翻到上面），挂在 body 上
+ * `position: fixed`、由 names.ts 现造现拆、算好 left / top / max-height。不是遮罩，正文照样看得见。层级压在提示条（30）
+ * 上面、「转到…」面板（35）与标题栏菜单（40）下面。
+ */
+
+.nc-box {
+  position: fixed;
+  z-index: 33;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 220px;
+  max-width: min(460px, calc(100vw - 12px));
+  max-height: min(50vh, 320px);
+  padding: 4px;
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  box-shadow: var(--nf-shadow);
+  font-size: 13px;
+}
+
+.nc-box.hidden {
+  display: none;
+}
+
+.nc-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.nc-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.nc-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.nc-item.active {
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+.nc-name {
+  flex: 0 0 auto;
+}
+
+/* 打过的那几个字：只换颜色加粗，不给底色（与「转到…」一样）。 */
+.nc-name mark {
+  padding: 0;
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
+  font-weight: 600;
+}
+
+/* 别名命中时后面那一截「→ 正名」。 */
+.nc-canon {
+  color: var(--vscode-descriptionForeground);
+}
+
+/* 类型：角色 / 地点 / 门派 / 设定…… */
+.nc-badge {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.nc-character .nc-badge {
+  border-color: var(--vscode-focusBorder);
+  color: var(--vscode-textLink-foreground);
+}
+
+.nc-brief {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.nc-note,
+.nc-foot {
+  padding: 4px 8px 0;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.nc-foot {
+  margin-top: 2px;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.nc-note.hidden {
+  display: none;
+}

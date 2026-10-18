@@ -11,11 +11,12 @@ import type { ViewPrefsStatus } from '../globals';
 import { checkMenuEntries } from './checkMenu';
 import { appearanceEntries, focusEntries } from './lookMenu';
 import type { MenuEntry } from './menubar';
+import { namesMenuEntries } from './namesMenu';
 import { statsMenuEntries } from './statsMenu';
 
 /**
- * 「视图」里的各组，从上到下：标签 → 外观 → 专注 → 统计 → 体检。「外观」「专注」两组在 `lookMenu.ts`，「统计」在
- * `statsMenu.ts`，「体检」在 `checkMenu.ts`（后两组的状态自己问编辑器）。
+ * 「视图」里的各组，从上到下：标签 → 外观 → 专注 → 统计 → 体检 → 补全。「外观」「专注」两组在 `lookMenu.ts`，「统计」在
+ * `statsMenu.ts`，「体检」在 `checkMenu.ts`，「补全」在 `namesMenu.ts`（后三组的状态自己问编辑器）。
  */
 const GROUPS: ((status: ViewPrefsStatus) => MenuEntry[])[] = [
   editorTabs,
@@ -23,6 +24,7 @@ const GROUPS: ((status: ViewPrefsStatus) => MenuEntry[])[] = [
   focusEntries,
   statsMenuEntries,
   checkMenuEntries,
+  namesMenuEntries,
 ];
 
 export function viewMenuEntries(): MenuEntry[] {

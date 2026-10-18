@@ -15,7 +15,7 @@
  *   「文件 → 历史版本…」的 `nf-versions-query` / `nf-versions-command`，「文件 → 转到…」的
  *   `nf-quickopen-query` / `nf-quickopen-command`，「视图」菜单的 `nf-view-query` / `nf-view-command`，
  *   「视图 → 统计」那一组的 `nf-stats-query` / `nf-stats-command`，「视图 → 体检」那一组的 `nf-check-query` /
- *   `nf-check-command`，
+ *   `nf-check-command`，「视图 → 补全」那一组的 `nf-names-query` / `nf-names-command`，
  *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录）。
  *   `nf-pick-folder` 给目录选择器拦欢迎页的占位 prompt。
  * - `__nfShowMenu`：view 出的「在某处弹一个菜单」（编辑器标签条末尾的「▾」用），与右键菜单是同一个引擎。
@@ -81,6 +81,8 @@ declare global {
     'nf-stats-command': CustomEvent<{ name: StatsCommandName }>;
     'nf-check-query': CustomEvent<CheckStatus>;
     'nf-check-command': CustomEvent<{ name: CheckCommandName }>;
+    'nf-names-query': CustomEvent<NamesStatus>;
+    'nf-names-command': CustomEvent<{ name: NamesCommandName }>;
     'nf-reveal-in-files': CustomEvent<{ path: string; dir: boolean }>;
   }
 }
@@ -347,6 +349,36 @@ export function queryCheck(): CheckStatus {
 
 export function commandCheck(name: CheckCommandName): void {
   window.dispatchEvent(new CustomEvent('nf-check-command', { detail: { name } }));
+}
+
+// ---------------------------------------------------------------- 「视图 → 补全」
+
+/**
+ * 「视图」菜单「补全」那一组问编辑器的状态（`editor/names.ts` 回答）：边打边弹开着没有（按浏览器记在
+ * `novelforge.editor.prefs` 的 `nameAutoPopup`），当前那块编辑区里的文件能不能补全。与 `ViewPrefsStatus` 分开一份。
+ */
+export interface NamesStatus {
+  /** 编辑器装上了（插件没有，那时这一组置灰）。 */
+  available: boolean;
+  /** 边打边弹名词补全（缺省关）。 */
+  auto: boolean;
+  /** 当前那块编辑区开着的文件能补全（正文、细纲、角色卡、设定……看后端给的 kind）。 */
+  canTrigger: boolean;
+  /** 不能补全的原因（菜单项置灰时挂在提示上）。 */
+  reason?: string;
+}
+
+/** `toggleAuto` 开关边打边弹；`trigger` 在当前那块编辑区的光标处弹出名词补全（与快捷键同一件事）。 */
+export type NamesCommandName = 'toggleAuto' | 'trigger';
+
+export function queryNames(): NamesStatus {
+  const status: NamesStatus = { available: false, auto: false, canTrigger: false, reason: '没有内置编辑器' };
+  window.dispatchEvent(new CustomEvent('nf-names-query', { detail: status }));
+  return status;
+}
+
+export function commandNames(name: NamesCommandName): void {
+  window.dispatchEvent(new CustomEvent('nf-names-command', { detail: { name } }));
 }
 
 // ---------------------------------------------------------------- 在「文件」页定位

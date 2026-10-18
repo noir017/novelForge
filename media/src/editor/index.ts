@@ -30,6 +30,7 @@ import { installConflictMerge } from './conflictMerge';
 import { installFind } from './find';
 import { installFocus } from './focus';
 import { installLook } from './look';
+import { installNames } from './names';
 import { installParagraphTools } from './paragraph';
 import { installQuickOpen } from './quickOpen';
 import { installEditorReplace } from './replace';
@@ -76,6 +77,8 @@ function start(stage: HTMLElement): void {
   const shell = collectShell();
   // ensurePane：「移到另一侧」往第二块搬东西时，它还没造出来就现造。
   bindStore({ post, draftResizer: shell.draftResizer, ensurePane: (id) => (id === 'draft' ? ensureDraftPane() : panes.main!) });
+  // 名词补全（Alt+/ 与边打边弹，names.ts）。要在段落工具之前装：候选框开着时回车 / Tab 先归它，按键处理按挂的先后跑。
+  installNames(post);
   // 回车、成对符号、段落快捷键、一键排版。要在造编辑区之前装：「排版」按钮挂在第一次重画上。
   installParagraphTools();
   // 不丢稿：磁盘改动同步到已开的标签、保存状态、自动保存（safety.ts）。
