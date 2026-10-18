@@ -3,10 +3,10 @@ import * as path from 'node:path';
 import { getHost } from '../host';
 import { describeError, scoped } from '../runtime/logger';
 import { isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
-import { exists, readText, sanitizeFileName } from '../model/fs';
+import { exists, hash, readText, sanitizeFileName } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { kindOfPath, normalizeRel } from '../workspace/kind';
-import { WsError, isProtectedPath } from '../workspace/guard';
+import { WsConflictError, WsError, isProtectedPath } from '../workspace/guard';
 import { trashPathFor } from '../workspace';
 import { Workspace } from '../workspace';
 
@@ -288,19 +288,27 @@ async function renameEntryImpl(
   // 经网关写（覆盖之前旧内容先存一版历史、大小守卫照过），不弹覆盖审阅：新名字是作者刚在输入框里起的。
   // chapter handler 写完只同步 manifest，**不碰这一章细纲上的 `writtenFrom`**——那一环只在生成落盘时由
   // `recordWrittenFrom` 记（与编辑器保存正文同一条路），挂着 ⟳ 的章改个名照样挂着（第 18 条）。
-  // 网关拒写（如正文超过 2 MB）就整个不改名：不留下「标题改了、文件名没改」的半截。
+  //
+  // 不留下「标题改了、文件名没改」的半截（第 3 条），分三道：
+  // 1. 写标题之前先问网关搬不搬得成（`checkMove`：与 `move` 同一套守卫，外加细纲那一侧不会撞——细纲要跟着正文改名，
+  //    第 8 条），搬不成就什么都不动、直接报错；
+  // 2. 网关拒写标题（如正文超过 2 MB）就整个不改名；
+  // 3. 写完标题之后 `move` 仍然失败（预检与搬家之间别处刚建了同名文件）：把正文改回原样再报错，改不回去就照实说。
   const ws = new Workspace(project);
+  let titled: { body: string; updated: string } | undefined;
   if (!isDir && target.info?.section === 'chapters' && isMarkdownPath(rel)) {
     const body = await readText(abs);
     const updated = renamedBody(body, editable, nextStem);
     if (updated !== body) {
       try {
+        await ws.checkMove(rel, nextRel, { plot: true });
         await ws.write(rel, { text: updated }, { mode: 'overwrite', review: false });
       } catch (err) {
         log.warn(`重命名被拒：${describeWsError(err)}`, `${rel} → ${nextRel}`);
         getHost().toast(describeWsError(err), 'error');
         return undefined;
       }
+      titled = { body, updated };
       log.debug(`正文里的 # 标题跟着改名同步`, `「${editable}」→「${nextStem}」`);
     }
   }
@@ -309,13 +317,51 @@ async function renameEntryImpl(
   try {
     await ws.move(rel, nextRel);
   } catch (err) {
-    log.warn(`重命名被拒：${describeWsError(err)}`, `${rel} → ${nextRel}`);
-    getHost().toast(describeWsError(err), 'error');
+    const why = describeWsError(err);
+    if (titled) {
+      const notRestored = await restoreTitle(project, ws, rel, titled.body, titled.updated);
+      if (notRestored) {
+        log.error(`改名没成，正文的标题行也没能改回「# ${editable}」：${rel}`, `${rel} → ${nextRel}｜${why}｜没改回去：${notRestored}`);
+        getHost().toast(
+          `改名没成（${why}），${rel} 的标题行也没能改回「# ${editable}」：${notRestored}。请打开它看一眼第一行。`,
+          'error'
+        );
+        return undefined;
+      }
+      log.warn(`重命名被拒：${why}`, `${rel} → ${nextRel}｜正文的标题行已改回「# ${editable}」`);
+    } else {
+      log.warn(`重命名被拒：${why}`, `${rel} → ${nextRel}`);
+    }
+    getHost().toast(why, 'error');
     return undefined;
   }
   log.info(`已重命名${isDir ? '文件夹' : ''}`, `${rel} → ${nextRel}`);
   getHost().toast(`已重命名为 ${nextRel}`);
   return nextRel;
+}
+
+/**
+ * 章节改名写完 `# 标题` 行之后搬家没成：把正文改回原样（经网关，不弹审阅）。改回去了给 undefined，否则给一句原因。
+ *
+ * 只在正文还在原处、而且还是刚才写下去的那一份时改：不在原处说明搬家其实已经把它搬走了，在原处写等于凭空多出一章；
+ * 内容变过说明这期间有人改过它，拿改名之前那一版盖回去会吞掉那几笔（第 3 条）——`baseHash` 乐观锁拦住。
+ */
+async function restoreTitle(
+  project: NovelProject,
+  ws: Workspace,
+  rel: string,
+  original: string,
+  written: string
+): Promise<string | undefined> {
+  if (!(await exists(project.pathOf(rel)))) {
+    return `${rel} 已经不在原处`;
+  }
+  try {
+    await ws.write(rel, { text: original }, { mode: 'overwrite', review: false, baseHash: hash(written) });
+    return undefined;
+  } catch (err) {
+    return err instanceof WsConflictError ? `这期间它又被改过，没有拿改名之前那一版盖掉` : describeWsError(err);
+  }
 }
 
 /**

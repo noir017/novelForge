@@ -39,6 +39,13 @@
 同步正文的 `# 标题` 行）也走 `write`，传 `mode: 'overwrite', review: false`：网关不再问第二次，但守卫照过、覆盖之前
 旧内容照样存一版历史。新建（如手动新建设定条目）传 `mode: 'create'`，同名报错退出。
 
+**先写后搬的调用方先问 `checkMove`**：章节改名要先改正文的 `# 标题` 行、再 `move`（`files/fileOps.ts`）。新名字被占用时
+`move` 被拒，标题却已经改了——正文被悄悄改掉（第 3 条）。所以写标题之前先 `checkMove(from, to, { plot: true })`：与 `move`
+同一套守卫（来源在、不是固定目录 / 内部文件 / 回收站；落点在工程内、没有同名），外加细纲那一侧——正文镜像的细纲在、新镜像
+的位置上已经有东西（`move` 本身遇到这种情况照样搬正文、细纲留在原处说一句；先改了标题的这条路把它当成搬不成）。只读，
+搬不成抛 `WsError`，什么都不动。预检过了 `move` 仍可能失败（中间别处刚建了同名文件）：调用方把正文改回原样（经 `write`，
+`review: false`，带写下去那一份的 hash 当乐观锁——这期间又被改过就不盖），改不回去就在 toast 与日志里照实说。
+
 ## 八条守卫（`guard.ts`）
 
 | # | 守卫 | 触发时 |
@@ -212,7 +219,7 @@
 
 ```
 workspace/
-├── index.ts        Workspace 门面：list / read / write / edit / move / remove / search
+├── index.ts        Workspace 门面：list / read / write / edit / move（另有只读预检 checkMove）/ remove / search
 ├── kind.ts         ★ 路径 → 种类（纯函数，零 I/O，绝不抛）
 ├── guard.ts        ★ 统一入口守卫（八条）
 ├── history.ts      历史版本：覆盖之前存旧内容（布局、节流、保留；绝不挡住保存）

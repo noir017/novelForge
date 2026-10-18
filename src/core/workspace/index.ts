@@ -363,15 +363,7 @@ export class Workspace {
    * 伴生搬迁交给 handler：章节带走草稿与细纲（两样都镜像正文的路径，正文一搬就得跟着走）。
    */
   async move(from: string, to: string): Promise<WriteResult> {
-    const fromAbs = await guardMutate(this.project, from);
-    const fromRel = normalizeRel(from)!;
-    const toRel = normalizeRel(to);
-    if (toRel === undefined) {
-      throw new WsError('outOfRoot', `路径超出工程目录：${to}`);
-    }
-    // 落点也要过保护与回收站两条：把一份细纲搬成 `.novelforge/plots` 本身，
-    // 或者搬进回收站装作删掉，都不该放行。
-    await guardWrite(this.project, toRel, { mode: 'create' });
+    const { fromAbs, fromRel, toRel } = await this.guardMove(from, to);
 
     const ctx = this.ctxOf(fromRel);
     // 目录不进种类表（`chapters/第一卷` 没有数字前缀），但草稿镜像跟着**整棵
@@ -390,6 +382,46 @@ export class Workspace {
       log.info(`${fromRel} → ${toRel} 时连带`, side.join('｜'));
     }
     return { rel: toRel, message: `已移动到 ${toRel}`, side };
+  }
+
+  /**
+   * 搬家之前的预检，**只读、不碰磁盘上的任何东西**：与 {@link move} 同一套守卫——来源在、不是固定目录 / 内部文件 /
+   * 回收站里的东西；落点在工程内、不在回收站、没有同名。能搬就正常返回，搬不成抛 `WsError`（与 `move` 抛的同一种）。
+   *
+   * `plot: true` 再多查一样：这是一章正文，它镜像的细纲在、新路径镜像的位置上却已经有东西。`move` 遇到这种情况照样搬
+   * 正文，细纲留在原处、说一句（第 7 条：目标已有就不动）；但**先改了正文的 `# 标题` 行再搬家**的调用方（`files/fileOps.ts`
+   * 的章节改名）要把它当成搬不成——写标题之前就停下，什么都不动（第 3 条），不然标题与文件名换了，细纲却留在旧路径上。
+   *
+   * 预检过了不等于一定搬得成（预检与搬家之间别处可能刚建了同名文件）：调用方仍要接住 `move` 的失败。
+   */
+  async checkMove(from: string, to: string, opts: { plot?: boolean } = {}): Promise<void> {
+    const { fromRel, toRel } = await this.guardMove(from, to);
+    if (!opts.plot || this.ctxOf(fromRel).path.kind !== 'chapter') {
+      return;
+    }
+    const mine = this.project.plotMirrorOf(fromRel);
+    const next = this.project.plotMirrorOf(toRel);
+    if (!mine || !next || mine === next) {
+      return;
+    }
+    if ((await exists(this.project.pathOf(mine))) && (await exists(this.project.pathOf(next)))) {
+      throw new WsError('exists', `已存在：${next}（新名字对应的细纲位置上已经有一份，这一章的细纲 ${mine} 跟不过去）`);
+    }
+  }
+
+  /**
+   * `move` 与 `checkMove` 共用的守卫。来源过「改名 / 删除」那一套（固定目录、内部文件、回收站、存在），落点过写入那一套：
+   * 把一份细纲搬成 `.novelforge/plots` 本身，或者搬进回收站装作删掉，都不该放行；同名一律拒绝（第 3 条）。
+   */
+  private async guardMove(from: string, to: string): Promise<{ fromAbs: string; fromRel: string; toRel: string }> {
+    const fromAbs = await guardMutate(this.project, from);
+    const fromRel = normalizeRel(from)!;
+    const toRel = normalizeRel(to);
+    if (toRel === undefined) {
+      throw new WsError('outOfRoot', `路径超出工程目录：${to}`);
+    }
+    await guardWrite(this.project, toRel, { mode: 'create' });
+    return { fromAbs, fromRel, toRel };
   }
 
   // ---------------------------------------------------------------- remove

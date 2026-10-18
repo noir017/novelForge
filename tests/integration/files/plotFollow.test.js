@@ -4,7 +4,8 @@
  *
  * - 工程页给正文改名、移动（单章或整个卷目录）时，细纲一并搬过去（`handlers/chapter.ts` 的 `carryPlot`）；
  *   不搬的话这一章立刻变成「还没有细纲」，排好的计划与定稿的档案都还躺在旧路径下。
- * - 目标位置已有细纲时不覆盖，两份都留着、说出来（第 3 条）。
+ * - 目标位置已有细纲时不覆盖，两份都留着、说出来（第 3 条）；要同步正文 `# 标题` 行的改名干脆整个不做（写标题之前
+ *   `Workspace.checkMove` 就拦下），不然标题与文件名换了，细纲却留在旧路径上。
  * - 删正文不删细纲：它退回这一章的计划。
  * - 照细纲新写一章正文时，细纲的文件名与新正文对不上（还没起名时建的 `030.md`）就跟着改名
  *   （`Workspace.createChapterAt`），两边从此按路径认得出彼此。
@@ -125,21 +126,77 @@ describe('细纲跟着正文走', () => {
     });
   });
 
-  describe('目标位置已有细纲时不覆盖', () => {
+  // 要同步正文 `# 标题` 行的改名（`.md` 正文、标题与旧文件名一致）先写标题、再搬家：细纲那一侧会撞时
+  // 写标题之前就停下，什么都不动（第 3 条）——不然正文的标题、文件名改了，细纲却留在旧路径上。
+  describe('目标位置已有细纲时不覆盖：要同步标题的改名整个不做', () => {
+    const CH = 'chapters/020-甲.md';
+    const BODY = '# 甲\n\n正文\n';
+    const MINE = PLOT(20, '甲');
+    const THEIRS = PLOT(20, '乙', '（占位）');
+    let result;
+    let body;
     let targetBody;
-    let oldKept;
+    let oldPlot;
+    let renamedTo;
     let toasts;
 
     before(async () => {
-      t.write('chapters/020-甲.md', '# 甲\n\n正文\n');
-      t.write('.novelforge/summaries/020-甲.md', PLOT(20, '甲'));
-      t.write('.novelforge/summaries/020-乙.md', PLOT(20, '乙', '（占位）'));
+      t.write(CH, BODY);
+      t.write('.novelforge/summaries/020-甲.md', MINE);
+      t.write('.novelforge/summaries/020-乙.md', THEIRS);
       project.invalidate();
       h.expect('乙');
-      await fileOps.renameEntry(project, 'chapters/020-甲.md');
+      result = await fileOps.renameEntry(project, CH);
+      body = t.has(CH) ? t.read(CH) : undefined;
       targetBody = t.read('.novelforge/summaries/020-乙.md');
-      oldKept = t.has('.novelforge/summaries/020-甲.md');
+      oldPlot = t.has('.novelforge/summaries/020-甲.md') ? t.read('.novelforge/summaries/020-甲.md') : undefined;
+      renamedTo = t.has('chapters/020-乙.md');
       toasts = [...h.toasts];
+    });
+
+    test('没有改名', () => {
+      assert.equal(result, undefined);
+      assert.equal(renamedTo, false);
+    });
+
+    test('正文一字不动（# 标题行没被改成新名字）', () => {
+      assert.equal(body, BODY);
+    });
+
+    test('目标细纲没被盖掉', () => {
+      assert.equal(targetBody, THEIRS);
+    });
+
+    test('这一章的细纲原样留在原处', () => {
+      assert.equal(oldPlot, MINE);
+    });
+
+    test('说出来了', () => {
+      assert.ok(toasts.some((x) => x.startsWith('error:') && x.includes('020-乙.md')), toasts.join(' | '));
+    });
+  });
+
+  // 不同步标题的改名（`.txt` 正文、标题与文件名不一致）行为照旧：正文照样改名，细纲留在原处并说出来。
+  describe('目标位置已有细纲时不覆盖：不同步标题的改名照旧', () => {
+    let targetBody;
+    let oldKept;
+    let renamed;
+    let toasts;
+
+    before(async () => {
+      t.write('chapters/021-甲.txt', '正文\n');
+      t.write('.novelforge/summaries/021-甲.md', PLOT(21, '甲'));
+      t.write('.novelforge/summaries/021-乙.md', PLOT(21, '乙', '（占位）'));
+      project.invalidate();
+      h.expect('乙');
+      renamed = await fileOps.renameEntry(project, 'chapters/021-甲.txt');
+      targetBody = t.read('.novelforge/summaries/021-乙.md');
+      oldKept = t.has('.novelforge/summaries/021-甲.md');
+      toasts = [...h.toasts];
+    });
+
+    test('正文照样改名', () => {
+      assert.equal(renamed, 'chapters/021-乙.txt');
     });
 
     test('目标细纲没被盖掉', () => {
@@ -151,7 +208,7 @@ describe('细纲跟着正文走', () => {
     });
 
     test('说出来了', () => {
-      assert.ok(toasts.some((x) => x.startsWith('error:') && x.includes('020-乙.md')), toasts.join(' | '));
+      assert.ok(toasts.some((x) => x.startsWith('error:') && x.includes('021-乙.md')), toasts.join(' | '));
     });
   });
 
