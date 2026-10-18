@@ -59,6 +59,7 @@ export type {
 export type { LogEntry, LogLevel } from '../runtime/logger';
 export type { TaskSnapshot } from '../runtime/progress';
 export type { DirListing, FsEntry } from '../files/fileTree';
+export type { ArtifactKind } from '../workspace/kind';
 export type {
   BookStage,
   Capability,

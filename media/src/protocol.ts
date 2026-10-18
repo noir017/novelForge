@@ -10,6 +10,7 @@
  */
 export type {
   ArchitectureRow,
+  ArtifactKind,
   BookView,
   IdeaDefaults,
   ThreadsView,

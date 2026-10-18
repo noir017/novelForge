@@ -6,7 +6,7 @@
  * 收在这里，pane.ts 就只关心行为。
  */
 import { byId, el, spacer } from '../dom';
-import type { EditorPane } from '../protocol';
+import type { ArtifactKind, EditorPane } from '../protocol';
 
 /** 一块编辑区里所有需要操作的节点。 */
 export interface PaneRefs {
@@ -52,6 +52,11 @@ export interface OpenFile {
   draft: string;
   /** 这份文件是某章正文时，它草稿的路径（后端给，前端不自己判断什么算章节）。 */
   draftPath?: string;
+  /**
+   * 这份文件在工程里是什么（后端 `kindOfPath` 给的）。`chapter` / `draft` 是正文（`api.ts` 的
+   * `isProse`），其余是角色卡、细纲、设定等。后端没给（没打开工程、旧数据）时当非正文。
+   */
+  kind?: ArtifactKind;
   caret: number;
   scrollTop: number;
 }

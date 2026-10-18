@@ -122,6 +122,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `runtime/pool.test.js` | 模型池：并发轮转均摊、串行恒用首选、失败换人、重试不超 `fallbackAttempts`、取消不 fallback、剔除备选**不弹 API Key 输入框**；**分档**：空档位继承 `models`、**fallback 绝不跨档**、`primaryBudget` 取该档首选窗口 |
 | `runtime/logger.test.js` | 脱敏（`sk-`／`Bearer`／`api_key=`／`x-api-key`）、环形缓冲上限、sink 级别过滤、坏 sink 不抛给调用方、detail 截断带说明 |
 | `shells/mergeReview.test.js` | 独立版的覆盖审阅（五期 W11 后端一半）：推 `prompt kind: 'merge'` 带两个版本与能不能合并、请求了合并才认 `merged`、认不出与没回答当取消；`revealText` 找得到才推 `editorReveal` |
+| `shells/editorKind.test.js` | 内置编辑器的文件负载带 `kind`（`kindOfPath` 算的）：章节 / 草稿 / 角色卡 / 不在任何区里的文件各是各的，保存回执也带 |
 | `shells/cli.test.js` | 独立版 CLI：不带目录时 root 为空，不把 cwd 当成工程 |
 | `shells/hostFs.test.js` | 本机一层目录列举（打开文件夹用），只在临时目录里扫 |
 | `shells/windowState.test.js` | `~/.novelforge/window.json` 的读写（写进临时目录） |

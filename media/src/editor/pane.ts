@@ -509,6 +509,9 @@ export function createPane(
     if (incoming.draftPath !== undefined) {
       file.draftPath = incoming.draftPath;
     }
+    if (incoming.kind !== undefined) {
+      file.kind = incoming.kind;
+    }
     conflicts.delete(file.path);
     renderAll();
     persist();
@@ -613,6 +616,9 @@ export function createPane(
       if (incoming.draftPath !== undefined) {
         existing.draftPath = incoming.draftPath;
       }
+      if (incoming.kind !== undefined) {
+        existing.kind = incoming.kind;
+      }
       pane.activePath = incoming.path;
     } else {
       files.set(incoming.path, newFile(incoming, carried?.draft !== undefined ? carried : pending));
@@ -633,6 +639,7 @@ export function createPane(
       hash: incoming.hash,
       draft: incoming.text,
       draftPath: incoming.draftPath,
+      kind: incoming.kind,
       caret: 0,
       scrollTop: 0,
     };

@@ -2,6 +2,7 @@ import type { DirListing } from '../files/fileTree';
 import type { LogEntry } from '../runtime/logger';
 import type { TaskOpen, TaskSnapshot } from '../runtime/progress';
 import type { SkillSource, SkillStage } from '../model/writingSkill';
+import type { ArtifactKind } from '../workspace/kind';
 import type {
   EditorPane,
   SerializedAttachment,
@@ -327,4 +328,10 @@ export interface EditorFileView {
   hash: string;
   bytes: number;
   draftPath?: string;
+  /**
+   * 这份文件在工程里是什么（`kindOfPath` 算的）。内置编辑器据此分「正文」（`chapter` / `draft`）
+   * 与其余文件——Tab 缩进用全角还是半角就看它。前端不自己拿路径或扩展名去猜（与 `draftPath`
+   * 同一条原则：后端才知道什么算章节）。没打开工程时省略，前端当非正文。
+   */
+  kind?: ArtifactKind;
 }

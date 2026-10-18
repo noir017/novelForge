@@ -16,6 +16,7 @@ import { locateQuote } from '../../core/model/review';
 import { Attachment } from '../../core/model/session';
 import { EditorPane, OutMessage } from '../../core/protocol';
 import { shouldIgnoreChange } from '../../core/watchPolicy';
+import { ArtifactKind, kindOfPath } from '../../core/workspace/kind';
 import { PromptHub } from './promptHub';
 import { openWithSystem } from './systemOpen';
 
@@ -200,7 +201,7 @@ export class FileHost implements Host {
       const file = await readFileForEditor(this.root, relPath);
       this.broadcastMsg({
         type: 'editorOpen',
-        file: { ...file, draftPath: this.draftPathOf(file.path) },
+        file: { ...file, draftPath: this.draftPathOf(file.path), kind: this.kindOf(file.path) },
         pane,
       });
     } catch (err) {
@@ -238,6 +239,14 @@ export class FileHost implements Host {
     return isChapterFileName(path.basename(rel)) ? draft : undefined;
   }
 
+  /**
+   * 这份文件在工程里是什么（`kindOfPath`，与网关同一张表）。前端据此分「正文」与其余文件
+   * （Tab 缩进全角还是半角），不自己拿路径猜。没打开工程时 undefined，前端当非正文。
+   */
+  private kindOf(rel: string): ArtifactKind | undefined {
+    return this.project ? kindOfPath(this.project, rel).kind : undefined;
+  }
+
   /** 保存编辑器内容。冲突不覆盖，改为把磁盘版本回给前端让用户取舍。 */
   async saveFromEditor(relPath: string, text: string, baseHash?: string): Promise<void> {
     if (!this.root) {
@@ -246,9 +255,12 @@ export class FileHost implements Host {
     }
     try {
       const file = await writeFileFromEditor(this.root, relPath, text, baseHash);
-      // draftPath 要一并带回：前端的保存分支只更新 text/hash，
-      // 这里漏掉的话工具栏上的「草稿」按钮会在首次保存后消失。
-      this.broadcastMsg({ type: 'editorSaved', file: { ...file, draftPath: this.draftPathOf(file.path) } });
+      // draftPath 与 kind 要一并带回：前端的保存分支只更新 text/hash，
+      // 这里漏掉 draftPath 的话工具栏上的「草稿」按钮会在首次保存后消失。
+      this.broadcastMsg({
+        type: 'editorSaved',
+        file: { ...file, draftPath: this.draftPathOf(file.path), kind: this.kindOf(file.path) },
+      });
     } catch (err) {
       if (err instanceof FileConflictError) {
         this.broadcastMsg({
