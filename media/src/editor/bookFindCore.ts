@@ -176,7 +176,7 @@ export function summaryLines(s: BookReplaceSummary): SummaryLine[] {
   for (const card of s.renamedCards) {
     out.push({
       text: card.nameChanged
-        ? `${card.label}：卡里的名字改成了「${card.name}」，文件名没跟着改（认人看的是卡里的名字与别名，不看文件名）；想改文件名，在工程页右键「改名」。`
+        ? `${card.label}：卡里的名字改成了「${card.name}」，文件名没跟着改（认人看的是卡里的名字与别名，不看文件名）；想改文件名，在工程页右键「重命名」。`
         : `${card.label}：别名改了（认人看的是卡里的名字与别名）。`,
     });
   }
