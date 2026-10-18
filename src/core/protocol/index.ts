@@ -75,6 +75,7 @@ export type {
 } from './quickOpen';
 
 export type { CheckSensitiveTerm, CheckTermsView } from './check';
+export type { NameEntry, NameIndex, NameSource } from './nameIndex';
 
 export type { LogEntry, LogLevel } from '../runtime/logger';
 export type { TaskSnapshot } from '../runtime/progress';

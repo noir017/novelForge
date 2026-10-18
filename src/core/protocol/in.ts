@@ -183,6 +183,12 @@ export type InMessage =
    */
   | { type: 'editSensitiveWords' }
   /**
+   * 内置编辑器「名词补全」要名词表（角色卡的名字与别名、设定条目的标题与关键词、名录里出现过还没建条目的名字，
+   * `views/nameIndex.ts`）。回 `nameIndex`，带同一个 `requestId`（回复是广播，只有发问的那一边认它）。`have` 是前端
+   * 手上那一份的 `sig`：对得上就只回 `sig`、不带表。按需要，不常驻推送。
+   */
+  | { type: 'requestNameIndex'; requestId: string; have?: string }
+  /**
    * `range` 只有「批量拆细纲」用：弹窗里选的区间（W5）。`confirmed` 表示弹窗已经把
    * 调用次数写给作者看过了，后端不再弹第二个确认框（弹窗与确认框算的是同一个
    * `planPlotBatches`，不叠弹窗）。「批量写章」（W9）同样带 `range` / `confirmed`，另带

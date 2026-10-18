@@ -64,11 +64,17 @@ export interface LoreIndex {
 /**
  * 扫全部定稿过的细纲，建设定名录。`plots` / `entries` / `cards` 传进来就直接用（工程页刷新时
  * 已经读过了，同一次刷新里一个文件只读一次——tests/integration/views/projectTreeReads），不传就自己读。
+ *
+ * `opts.pending: false`：不算待整合的新事实（`known[].pending` 一律空）。那一步要拿每一章的连续性事实去对每一条
+ * 条目，几百章 × 几百条时是这里最贵的一段；只要出现章与未建条目的调用方（编辑器的名词补全，`views/nameIndex.ts`）
+ * 用不着它。
  */
 export async function buildLoreIndex(
   project: NovelProject,
-  read: { plots?: readonly Plot[]; entries?: readonly LoreEntry[]; cards?: readonly CharacterCard[] } = {}
+  read: { plots?: readonly Plot[]; entries?: readonly LoreEntry[]; cards?: readonly CharacterCard[] } = {},
+  opts: { pending?: boolean } = {}
 ): Promise<LoreIndex> {
+  const withPending = opts.pending !== false;
   const [entries, cards, chapters] = await Promise.all([
     read.entries ?? project.listLore(),
     read.cards ?? project.listCharacters(),
@@ -108,7 +114,7 @@ export async function buildLoreIndex(
       if (entry) {
         const set = chaptersOf.get(entry.slug) ?? chaptersOf.set(entry.slug, new Set()).get(entry.slug)!;
         set.add(plot.no);
-        if (line.note && plot.no > watermark(entry)) {
+        if (withPending && line.note && plot.no > watermark(entry)) {
           addPending(entry, { no: plot.no, text: line.note, source: 'lore' });
         }
         continue;
@@ -129,6 +135,9 @@ export async function buildLoreIndex(
       }
     }
     // 连续性事实里提到的：状态的变化记在那里。只认水位之后的章。
+    if (!withPending) {
+      continue;
+    }
     const facts = parseContinuityFacts(plot.sections.连续性事实);
     if (facts.length === 0) {
       continue;

@@ -34,6 +34,7 @@ import {
 import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
 import { buildPipelineIndex } from '../views/pipeline';
 import { buildQuickOpenIndex } from '../views/quickOpen';
+import { buildNameIndex, nameIndexSig } from '../views/nameIndex';
 import { chapterIndexOf } from '../views/chapterIndex';
 import { DEFAULT_PARAGRAPH_STYLE } from '../model/paragraphFormat';
 import {
@@ -538,6 +539,14 @@ export class ChatController {
         // 内置编辑器的写作体检（controller/check.ts）：没有就新建模板，然后打开。
         await editSensitiveWords(this);
         return;
+
+      case 'requestNameIndex': {
+        // 编辑器「名词补全」要名词表。前端手上那份（`have`）还是最新的就只回指纹，不再发一遍表。
+        const index = await buildNameIndex(this.project);
+        const sig = nameIndexSig(index);
+        this.post({ type: 'nameIndex', requestId: msg.requestId, sig, ...(msg.have === sig ? {} : { index }) });
+        return;
+      }
 
       case 'projectAction':
         await projectAction(this, msg.action, msg.relPath, msg.dir, {

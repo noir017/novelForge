@@ -1203,9 +1203,10 @@ async function listFilesDeep(
 
 /**
  * 只列 `.md`。角色 / 设定用这一条——那两个区是插件自己的数据格式
- * （frontmatter + 固定小节），不跟着章节一起放宽扩展名。
+ * （frontmatter + 固定小节），不跟着章节一起放宽扩展名。名词补全的表（`views/nameIndex.ts`）
+ * 用同一条列文件，好跟 `listCharacters` / `listLore` 认的是同一批。
  */
-async function listMarkdownDeep(dir: string): Promise<string[]> {
+export async function listMarkdownDeep(dir: string): Promise<string[]> {
   return listFilesDeep(dir, (name) => name.toLowerCase().endsWith('.md'));
 }
 

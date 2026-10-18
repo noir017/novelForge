@@ -5,6 +5,7 @@ import type { SkillSource, SkillStage } from '../model/writingSkill';
 import type { ArtifactKind } from '../workspace/kind';
 import type { QuickOpenIndex } from './quickOpen';
 import type { CheckTermsView } from './check';
+import type { NameIndex } from './nameIndex';
 import type {
   EditorOpenIntent,
   EditorPane,
@@ -171,6 +172,11 @@ export type OutMessage =
   | { type: 'summary'; summary: PlotSummaryView }
   /** 回 `requestQuickOpen`：「转到…」面板要的索引。认不出的 `requestId` 前端静默丢弃（另一个视图要的）。 */
   | { type: 'quickOpenIndex'; requestId: string; index: QuickOpenIndex }
+  /**
+   * 回 `requestNameIndex`：「名词补全」要的名词表。`sig` 是这份表的指纹；与请求里的 `have` 对得上时不带 `index`
+   * （前端手上那份就是最新的）。认不出的 `requestId` 前端静默丢弃。
+   */
+  | { type: 'nameIndex'; requestId: string; sig: string; index?: NameIndex }
   | {
       type: 'pipeline';
       pipeline?: PlotPipelineView;
