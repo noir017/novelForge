@@ -49,6 +49,14 @@ import { Chapter, CharacterCard, LoreEntry, ProjectManifest } from '../model/typ
 
 const log = scoped('流水线');
 
+/**
+ * 每个工程上一次记进日志的标脏章号（按工程根目录）。
+ *
+ * 索引每次 `pushState` 都要建一趟，编辑器里打几个字就是好几趟；标脏的章没变还照记，
+ * 日志页就被同一行刷屏，别的线索被挤出缓冲。所以只在这份名单变了的时候记。
+ */
+const lastStaleLogged = new Map<string, string>();
+
 export interface PlotPipeline {
   /** 章号。 */
   no: number;
@@ -194,12 +202,13 @@ export async function buildPipelineIndex(project: NovelProject): Promise<Pipelin
   const byNo = new Map(rows.map((r) => [r.no, r]));
 
   const stale = rows.filter((p) => p.plot.upstreamStale || p.chapter.upstreamStale);
-  if (stale.length > 0) {
-    // 上游变更是「作者需要知道但不会主动去翻」的那类事，进日志才留得住。
-    log.debug(
-      `${stale.length} 章的上游产物有变更`,
-      `${stale.map((p) => `第 ${p.no} 章`).join('、')}｜耗时 ${Date.now() - startedAt}ms`
-    );
+  const staleNos = stale.map((p) => `第 ${p.no} 章`).join('、');
+  if (staleNos !== (lastStaleLogged.get(project.root) ?? '')) {
+    lastStaleLogged.set(project.root, staleNos);
+    if (stale.length > 0) {
+      // 上游变更是「作者需要知道但不会主动去翻」的那类事，进日志才留得住。
+      log.debug(`${stale.length} 章的上游产物有变更`, `${staleNos}｜耗时 ${Date.now() - startedAt}ms`);
+    }
   }
   return { rows, byNo, plots, chapters, manifest, outline, config };
 }

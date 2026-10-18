@@ -62,6 +62,7 @@ before(async () => {
     workbench: './src/core/views/workbench.ts',
     guard: './src/core/workspace/guard.ts',
     kind: './src/core/workspace/kind.ts',
+    logger: './src/core/runtime/logger.ts',
   });
   wsMod = bundle.ws;
   h = makeFakeHost({ settings: () => ({}), overrides: { reviewReplace: undefined } });
@@ -643,6 +644,71 @@ describe('流水线索引', () => {
     const facts = await bundle.pipe.buildBookFacts(project, index);
     assert.equal(bundle.model.deriveBookStage(facts), 'setting');
     assert.deepEqual(bundle.model.deriveBookNextStep('setting', facts)?.target, { kind: 'setting', doc: 'config' });
+  });
+});
+
+/**
+ * 「N 章的上游产物有变更」只在标脏的那几章变了时记：索引每次 `pushState` 都建一趟，
+ * 名单不变还照记，编辑器里打几个字日志页就被同一行刷屏。
+ */
+describe('流水线索引 · 上游变更的日志不刷屏', () => {
+  let p;
+  let pr;
+  let afterSame;
+  let afterMore;
+  let afterCleared;
+  let afterAgain;
+  /** 排过之后大纲那一节改过的细纲：upstreamHash 对不上，标脏。 */
+  const stalePlot = (no, title) => `---\nno: ${no}\ntitle: ${title}\nupstreamHash: 旧的指纹\n---\n\n## 关键事件\n\n- 计划。\n`;
+  /** 手写的细纲：没有 upstreamHash，不标脏。 */
+  const handPlot = (no, title) => `---\nno: ${no}\ntitle: ${title}\n---\n\n## 关键事件\n\n- 计划。\n`;
+  const staleLogs = () =>
+    bundle.logger
+      .recentLogs()
+      .filter((e) => e.scope === '流水线' && e.message.endsWith('章的上游产物有变更'))
+      .map((e) => e.detail.split('｜')[0]);
+  const rebuild = async (times) => {
+    pr.invalidate();
+    for (let i = 0; i < times; i++) {
+      await bundle.pipe.buildPipelineIndex(pr);
+    }
+    return staleLogs();
+  };
+
+  before(async () => {
+    p = await makeTempProject(bundle.project, { prefix: 'stalelog', title: '刷屏' });
+    dirs.push(p.dir);
+    pr = p.project;
+    bundle.logger.clearLogs();
+
+    p.write('.novelforge/summaries/082-雪夜.md', stalePlot(82, '雪夜'));
+    afterSame = await rebuild(3);
+
+    p.write('.novelforge/summaries/083-冰河.md', stalePlot(83, '冰河'));
+    afterMore = await rebuild(2);
+
+    p.write('.novelforge/summaries/082-雪夜.md', handPlot(82, '雪夜'));
+    p.write('.novelforge/summaries/083-冰河.md', handPlot(83, '冰河'));
+    afterCleared = await rebuild(2);
+
+    p.write('.novelforge/summaries/082-雪夜.md', stalePlot(82, '雪夜'));
+    afterAgain = await rebuild(2);
+  });
+
+  test('标脏的章没变：建几趟索引都只记一条', () => {
+    assert.deepEqual(afterSame, ['第 82 章']);
+  });
+
+  test('又有一章标脏：再记一条', () => {
+    assert.deepEqual(afterMore, ['第 82 章', '第 82 章、第 83 章']);
+  });
+
+  test('都不脏了：不记', () => {
+    assert.deepEqual(afterCleared, afterMore);
+  });
+
+  test('消掉之后又标脏：重新记', () => {
+    assert.deepEqual(afterAgain, [...afterMore, '第 82 章']);
   });
 });
 
