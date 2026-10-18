@@ -129,6 +129,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `shells/workspaceHub.test.js` | WorkspaceHub：工程目录可空、可热换 |
 | `editor/history.test.js` | 内置编辑器的撤销历史（`media/src/editor/history.ts`，纯逻辑）：连续打字并成一步，超过 1 秒、不挨着、换类型、带换行另起；退格 / Delete 连删都并；`join` 并进刚记下的那一步、撤销过之后不再并；新改动清重做栈；上限丢最早的；与文字对不上整份作废；`diffText` 拿光标认对有歧义的位置、不切开代理对 |
 | `editor/indent.test.js` | Tab / Shift+Tab 缩进的纯函数（`media/src/editor/indent.ts`）的边角：只有空白的行跳过、全是空行不动、选区从行中间起时起点平移、文首是换行时认对第一行；去缩进时光标在被去掉的那段中间挪到行首、一处都没去返回 undefined |
+| `editor/findCore.test.js` | 查找替换的纯函数（`media/src/editor/findCore.ts`）：缺省不区分大小写、字面量里的元字符不当正则、中文按字、匹配不重叠；正则（`^` 认每一行的头、`u` 下不合法的写法退回普通模式、代理对按一个字、**坏正则给 error 不抛**）；**零长度匹配跳过**且不劈开代理对；数到上限标 truncated；替换串的 `$1` / `$&` / `` $` `` / `$'` / `$$` / `$<名字>` / `$10` / `$01` **与 `String.prototype.replace` 逐条对拍**、逐处替换看整份文字的前后文（后行断言、`` $` ``）、这一处对不上时不替换、不按正则时 `$1` 是字面量；全部替换只覆盖第一处到最后一处、不受计数上限限制；在匹配表里往后 / 往前绕回、最近一处、正好那一处；选区预填的条件（非空、不跨行、不太长） |
 | `runtime/progress.test.js` | 长任务进度快照、字符串 `report` 只改文案、宿主进度带 `（n/N）`、取消、抛异常继续上抛且进日志、并发两个任务、结束后清表 |
 | `runtime/watchPolicy.test.js` | 「哪些改动值得刷新界面」：两个壳共用的这一份策略（从前各写一份，改了一处忘了另一处） |
 
@@ -236,13 +237,13 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `view/hover.test.js` | 三组悬停浮窗（章节细纲 / 行内别名 / 失败标记）：延迟才弹、缓存与作废、可进入（能选中复制）、没定稿的细纲标「计划」且照样摊开小节、定稿之后正文又改过的标「已过期」、没有细纲时给说明不打标、**夹进视口**（下方放不下翻上方、贴右收左、超长压 `max-height`）、失败标记挂在章节行与架构行上、按最严重的算；**从章节行挪到架构行时浮窗收起**（架构行也带 `.row-plot` 但没有细纲） |
 | `standalone/editor.test.js` | 内置编辑器：草稿区惰性创建、`pane` 分派、「草稿」按钮可见性与 `openDraft` 负载、保存回执不冲掉 `draftPath`、右键菜单与标签搬家 |
 | `standalone/merge.test.js` | 覆盖审阅的合并视图（W11）：相同的段一行带过、改动两栏 + 结果格（缺省新版）、进度计数；什么都不动交回 `apply`；保留原文交回合并结果；**手改过的那一格「采用」「全部采用」「全部保留」都不动它**、「撤销手改」才放开；结果格清空整段删；只读模式没有结果格与逐段按钮 |
-| `standalone/reveal.test.js` | 章节条「审稿」（有正文才亮、提示写调用次数、发 `chapterAction`）；`editorReveal` 之后选区落在那一句上（标点不同也认）、切回那份文件；找不到时不动选区并提示 |
+| `standalone/reveal.test.js` | 章节条「审稿」（有正文才亮、提示写调用次数、发 `chapterAction`）；`editorReveal` 之后选区落在那一句上（标点不同也认）、切回那份文件；找不到时不动选区并提示；**滚动按高亮镜像层量出来的位置**——那一句停在视口偏上三分之一（第一行特别长时按比例估会差很远）、量的是那一句的第一个字、量完标记撤掉 |
 | `standalone/chapterBar.test.js` | 章节条（W6）：只在开着某一章的正文或细纲时出现、写这一章在哪一步写了多少、四颗按钮按状态亮灭且提示里写调用次数、点了发 `chapterAction`、另一份没开着时「并排看细纲 / 正文」、工程树更新时跟着变 |
 | `standalone/explorer.test.js` | 资源管理器：点开头目录列得出来且压暗、目录排在文件前、懒展开、折叠连带子目录、可编辑与否走不同消息、截断如实告知、读失败降级；文件页剪贴板与右键菜单 |
 | `standalone/menubar.test.js` | 文件 / 编辑 / 帮助菜单栏：点击打开、hover 隔壁切换、Esc / 点外面关闭；空窗口时部分项 disabled |
 | `standalone/welcome.test.js` | 空窗口 Get Started：Start / Recent、打开文件夹与新建工程入口；侧栏每一页的遮罩上也有「打开文件夹…」（W12），与欢迎页那颗同一个动作 |
 | `standalone/picker.test.js` | 远程风目录选择器：本机列一层、进子目录、新建文件夹；打开文件走工程内 `listDir` |
-| `standalone/find.test.js` | 内置编辑器查找条：Ctrl+F、Enter 下一处 / Shift+Enter 上一处 |
+| `standalone/find.test.js` | 内置编辑器的查找替换条与高亮镜像层（jsdom 没有排版，镜像层测 DOM 内容不测像素）：**页面模板里没有查找条**（两块编辑区都由脚本现造、插在正文区前面，草稿区有自己的那一条）；Ctrl+F 打开、焦点进查找框；**打字时从光标往后找**最近一处、计数「k/N」、焦点留在查找框；Enter / Shift+Enter / F3 / Shift+F3 / 按钮上下一处、到头绕回，组字中途的 Enter 不算；一行之内的短选区预填、焦点已在查找框里时不拿选区盖掉写好的正则；Aa / .*、**正则写错了说一句不抛**；镜像层里的文字与 textarea 一字不差、`<mark>` 与匹配一一对应、当前那一处另一种 class、样式从 textarea 的计算样式抄；正文改了下一帧重算、当前序号留在原处；**换文件旧高亮当场清掉**、按新文件重算；Esc（查找框里、按钮上、编辑区里）关掉、清高亮、焦点回编辑区；超过 30 万字不画高亮并说一句；Ctrl+H 展开替换行、小三角收放；选区不是当前那一处时「替换」只选中下一处，是的话换掉并跳下一处、替换框 Enter 同样，**一处一步撤销**；**全部替换一次改完、提示替换了 N 处、Ctrl+Z 一步退回**；正则替换的 `$1`；**焦点在对话输入框时 Ctrl+F / Ctrl+H 不拦**；预览模式下先切回编辑（查找框里打字时焦点不被抢走）；「编辑」菜单「查找」后面紧跟「替换（Ctrl+H）」；查找跳转的滚动（已在视口里不滚，否则停在视口偏上三分之一，用 `mirrorLayout` 假排版） |
 | `standalone/undo.test.js` | 内置编辑器自己管的撤销 / 重做（每个文件一份）：切到别的标签再切回来 Ctrl+Z 仍退得回去、连续打字并成一步且回车断开、连续退格并成一步、Ctrl+Y 与 Ctrl+Shift+Z 重做、撤销回原样时脏标记跟着变、`beforeinput` 的 historyUndo 也拦下、关标签历史丢弃；输入法组字中途不记、上屏整段一步、组字时的 Ctrl+Z 放行；「还原」「用磁盘版本覆盖」也记一步；右键粘贴经程序改写入口（`\r\n` 归一）；搬到另一块编辑区历史跟着走；标题栏「编辑 → 撤销 / 重做」焦点在编辑区时走编辑器、在别的输入框时照旧 `execCommand`，按菜单按钮不夺焦点 |
 | `standalone/indent.test.js` | 内置编辑器的 Tab / Shift+Tab：正文（kind 是 chapter / draft）两个全角空格、其余两个半角、没给 kind 当非正文；**选中一行里的几个字按 Tab 字不丢**、行首加一级且选区平移；多行每行加一级、空行跳过、选区仍覆盖、止于下一行行首时那一行不算；一次按键一步撤销；Shift+Tab 每行最多去一级（全角两个 / 单个全角 / 两个半角 / 一个半角 / \t）、没有选区去光标那一行、没得去时不记撤销；组字时的 Tab（`isComposing` 或 keyCode 229）放行 |
 
@@ -268,7 +269,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `fakeProvider.js` | 假模型，一律经 `registerProviderFactory` 且 `kind: 'vscode-lm'`——那是唯一不碰 SecretStore 的路径（其余 kind 会去要 API Key）。支持应答队列、函数应答、按模型注入 `unavailable`/`fail`/`cancel`、并发峰值观察；应答可以是 `{ text, stop, reasoning, chunks }`（测续写要靠 `stop: 'maxTokens'`），`filler(n, seed)` 造恰好 n 字、不同 seed 之间无公共 8-gram 的正文 |
 | `vscodeStub.js` | 四档能力的 `vscode` 模块桩（`minimal`/`config`/`workspace`/`full`），`full` 带真实文件系统支撑的 `workspace.fs`。**返回 `restore()`，请挂到 `after()`** |
 | `teardown.js` | `cleanup(dir, db)`——**先关库再删目录**：SQLite 连接开着时 Windows 上删不掉 `.novelforge/novelforge.db`，临时工程会全留在 temp 里 |
-| `dom.js` | jsdom 挂载：从 `webviewHtml.ts` / `html.ts` 抠 `<body>`、`window.eval` 加载 `dist/media/*.js`、`acquireVsCodeApi` 桩与消息泵、视图数据的夹具工厂 |
+| `dom.js` | jsdom 挂载：从 `webviewHtml.ts` / `html.ts` 抠 `<body>`、`window.eval` 加载 `dist/media/*.js`、`acquireVsCodeApi` 桩与消息泵、视图数据的夹具工厂；`mirrorLayout` 这个补丁给高亮镜像层一份可预期的假排版（量位置那一份镜像里标记的 `offsetTop` 按换行数 × 行高算、textarea 的视口高固定，尺寸在 `MIRROR_LAYOUT`），测「滚动按量出来的位置走」用 |
 | `ws.js` | e2e 的 WebSocket 客户端（收件箱 + `waitFor(match, label)` 超时） |
 
 ## 约定

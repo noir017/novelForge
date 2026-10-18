@@ -24,7 +24,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 | 路径 | 产物（在 `dist/media/`） | 加载于 | 职责 |
 |---|---|---|---|
 | `src/view/` | view.js | 两者 | 面板主体：渲染 `ViewState`、tabbar 切页、消息流、工程页、日志页、设置页、右键菜单 |
-| `src/editor/` | editor.js | 仅独立版 | 内置文件编辑器：两块编辑区、多标签、乐观锁保存、自己管的撤销 / 重做、Tab 缩进、Markdown 预览、主题与拖拽调宽 |
+| `src/editor/` | editor.js | 仅独立版 | 内置文件编辑器：两块编辑区、多标签、乐观锁保存、自己管的撤销 / 重做、Tab 缩进、查找替换（画在高亮镜像层上）、Markdown 预览、主题与拖拽调宽 |
 | `src/explorer/` | explorer.js | 仅独立版 | 侧栏「文件」页的资源管理器 |
 | `src/bridge/` | bridge.js | 仅独立版 | 把 WebSocket 伪装成 webview API |
 | `src/css/view/` | view.css | 两者 | 面板样式，全部走 `--vscode-*` 变量 |
@@ -37,7 +37,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 各子目录的划分：
 
 - **`src/view/`** —— `refs`（页面上固定 id 的节点）、`store`（运行时状态与草稿存取）、`format` / `buttons` / `toast` / `menu` / `menubar` / `welcome` / `folderPicker` / `tip`（通用件；`menubar` / `welcome` / `folderPicker` 探测不到 `#wbMenubar` 就 return，插件不受影响）、`tabs` / `state` / `messages` / `composer` / `history` / `tasks` / `logs` / `prompt`（各块）、`form` / `forms`（通用表单弹窗与一句话、拆细纲、批量写章三个具体弹窗——复用 `providerModal` 那层遮罩，两种形态都能用；调用次数的说明用的是 core 的 `describeCalls` / `planPlotBatches` / `planWriteBatch`，与后端确认框同源；表单支持 `select` 字段，`confirm` 让提交键两段式——「写完即定稿」第一下只换字、第二下才发，改了任何一个值退回第一段）、`pipeline` / `workbench` / `commands`（创作页的三块：流水线条与下一步、当前产物浮窗、`/` 命令面板），外加 `project/` 与 `settings/` 两个子目录（`settings/skills.ts` 是设置页第三个子页「技能」：阶段绑定、从 GitHub 检查与安装、技能库；那一页改了当场生效，不进 `draft`，切过去时藏起「保存设置」）。`index.ts` 只做装配与消息分发。
-- **`src/editor/`** —— `paneElements`（一块编辑区的类型与 DOM）、`pane`（工厂，两块编辑区是它的两个实例）、`store`（两块之间共享的状态与 localStorage，`Pane` 接口也在这里）、`api`（给编辑器里的功能模块用的公共接口：当前编辑区与文件、`isProse` / `indentUnit`、`isImeComposing`、`addKeyHandler`、`onEditorChange`）、`history`（每个文件一份的撤销历史，纯逻辑）、`indent`（Tab / Shift+Tab 缩进，纯函数）、`shell`（主题/拖拽/窄屏）、`chapterBar`（章节工作台的章节条，W6；五期加「审稿」）、`preview` / `clipboard` / `words`。
+- **`src/editor/`** —— `paneElements`（一块编辑区的类型与 DOM）、`pane`（工厂，两块编辑区是它的两个实例）、`store`（两块之间共享的状态与 localStorage，`Pane` 接口也在这里）、`api`（给编辑器里的功能模块用的公共接口：当前编辑区与文件、`isProse` / `indentUnit`、`isImeComposing`、`addKeyHandler`、`onEditorChange`）、`history`（每个文件一份的撤销历史，纯逻辑）、`indent`（Tab / Shift+Tab 缩进，纯函数）、`highlight`（高亮镜像层：按命名图层画 `<mark>`，顺带精确滚到某个字）、`find`（查找替换条）与 `findCore`（它的纯函数，零 DOM）、`shell`（主题/拖拽/窄屏）、`chapterBar`（章节工作台的章节条，W6；五期加「审稿」）、`preview` / `clipboard` / `words`。
 - **`src/explorer/`** —— `state`（展开集合、剪贴板、高亮）、`actions`（发消息）、`rows`（建行与菜单）。
 
 ## 类型是真的会被检查的
@@ -80,7 +80,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 - **四只浮窗共用一份定位**（`view/tip.ts` 的 `placeTip`）：挂 `body`、`position: fixed`、横向左对齐目标（右溢出往左收）、纵向优先下方（放不下翻上方、两边都不够就压 `max-height`）。从前这套几何在 `summaryTip` / `detailTip` / `errorTip` 里各抄了一遍。`minHeight: 0` 关掉压高度那一步，只有 `detailTip` 用它——那只浮窗只有一行、`pointer-events: none`、滚不动，压出来的 `max-height` 等于把字截掉。
 - **右键菜单靠 WeakMap 登记**：构建某一行时用 `onContextMenu(row, () => items)` 把「这行右键给什么」记在元素上（那一刻上下文最全，不用右键时反查最近那棵树；行被重渲染丢弃后自动回收）。全局 `contextmenu` 监听从 `e.target` 向上找第一个登记过的祖先，找不到就用兜底的「刷新」。**刷新复用已有的 `projectAction: 'refresh'`**——后端那个分支只是 `pushState()`，会按当前页签推数据，天然适用于所有页面，无需新增协议。
 - **右键一律接管**：全局监听里无条件 `preventDefault()`，输入框 / 文本域 / 内置编辑器里也一样，所以**原生的复制/粘贴/剪切菜单不会出现**。这是有意的取舍（菜单风格统一），代价是这几处的编辑项要自己实现（编辑器正文区与文件页已经做了，见 `editor/clipboard.ts` 与 `explorer/rows.ts`；输入框里目前只有「刷新」）。插件形态另需 [../src/shells/vscode/webviewHtml.ts](../src/shells/vscode/webviewHtml.ts) 的 `<body data-vscode-context='{"preventDefaultContextMenuItems": true}'>`：VS Code 给 webview 右键菜单加的复制/粘贴项由宿主渲染，JS 的 `preventDefault` 压不住，不加会同时冒出两层菜单。**监听挂在 `window` 的捕获阶段**，并额外接管副键的 `auxclick`：冒泡阶段的监听会被中途任何一处 `stopPropagation()` 挡掉，而触控板双指点击在部分浏览器/驱动上只发 `auxclick`、不发 `contextmenu`——两种漏法的现象都是「弹出原生右键菜单」。同一次点击的尾巴（落点没动、300ms 内）只挡不弹，免得一下点击弹两遍。`pointerdown` / `mousedown` 的默认行为**不碰**：按规范取消它们拦不住 `contextmenu`，却会把 `mousedown` 一起吃掉，于是文本域里右键不再挪光标，菜单里的「粘贴」会贴到上一次光标的位置去。触摸长按的原生 callout 走的不是 `contextmenu`，在 CSS 里用 `-webkit-touch-callout: none` 关（`css/view/base.css`）。
-- **DOM 结构只有一份**：工程页工具栏等结构在 [../src/shells/shared/panes.ts](../src/shells/shared/panes.ts)，两个壳都从那里取，**加按钮只改那一处**。（从前两个壳各存一份，这条规矩是「要同时改两处」；现在前提没了。）两处例外：一是工作台外壳与编辑器容器只在独立版的 `page.ts` 里——那是布局，本该按宿主分叉；二是草稿那块编辑区的 DOM 由 `editor/paneElements.ts` 的 `createPaneElements()` 克隆主区结构现造，`page.ts` 里只有容器 `#wbEditors` 与分隔条 `#wbDraftResizer`。
+- **DOM 结构只有一份**：工程页工具栏等结构在 [../src/shells/shared/panes.ts](../src/shells/shared/panes.ts)，两个壳都从那里取，**加按钮只改那一处**。（从前两个壳各存一份，这条规矩是「要同时改两处」；现在前提没了。）两处例外：一是工作台外壳与编辑器容器只在独立版的 `page.ts` 里——那是布局，本该按宿主分叉；二是草稿那块编辑区的 DOM 由 `editor/paneElements.ts` 的 `createPaneElements()` 克隆主区结构现造，`page.ts` 里只有容器 `#wbEditors` 与分隔条 `#wbDraftResizer`。编辑区里由脚本现造的几样（章节条 `chapterBar.ts`、查找替换条 `find.ts`、高亮镜像层 `highlight.ts`）**两边模板里都没有**，各自只有一个生成函数，两块编辑区共用。
 - **宿主差异用能力探测，不判断环境**：只有 VS Code 有原生设置界面，所以「在 VS Code 设置中打开」这颗按钮**在独立版的页面里根本不存在**（`settingsPane({ nativeSettings })`），前端用 `maybeById` 取不到就跳过。别改回「渲染出来再 hidden 掉」或「看 state 里的某个环境位」——那条路走过，界面文案会跟着腐烂（见 [../src/shells/README.md](../src/shells/README.md)）。
 - **CSP**：webview 的 CSP 只允许本地资源与 nonce 脚本，不引任何 CDN / 外部脚本。独立版同样不引外部资源。
 - **两形态隔离**：`standalone.css` 与 `editor.js` / `explorer.js` **只**由独立版加载，插件的 `webviewHtml.ts` 里没有它们，也没有 `#wbEditor` / `#filesBody` 容器。给独立版加样式请只改 `src/css/standalone/`（必要时用 `.workbench` 前缀覆盖 view 的规则），不要为独立版去动 `src/css/view/`。
@@ -109,12 +109,23 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 - **输入法保护**：编辑区里所有 keydown 处理先过 `isImeComposing(e)`（`e.isComposing || e.keyCode === 229`），组字时的 Tab、回车、Ctrl 组合键一律放行给输入法；全局的 Ctrl+S / F / W 同样。组字期间的 `input` 只刷新显示、不记撤销，`compositionend` 之后整段记一步。用 `addKeyHandler` 挂的处理函数不会收到组字中途的按键。
 - **正文与否由后端说**：`editorOpen` / `editorSaved` 带 `kind`（`kindOfPath` 算的），`chapter` / `draft` 是正文（`isProse`），其余不是；没给（没打开工程）当非正文。与 `draftPath` 同一条原则，前端不拿路径或扩展名猜。Tab 的缩进单位就看它：正文两个全角空格，其余两个半角空格（`indentUnit`）。
 - **Tab 不吞字**：有选区时给碰到的每一行行首加一级（空行跳过），选中的字一个不删、选区跟着平移；Shift+Tab 每行最多去一级（认两个全角、单个全角、两个半角、一个半角、`\t`）。规则在 `editor/indent.ts`。
+- **高亮镜像层是共用设施**（`editor/highlight.ts`，样式在 `css/standalone/highlight.css`）：textarea 自己画不了高亮，于是在每块编辑区的 textarea 背后叠一层镜像 div（`.ed-mirror`，第一次用到时现造在 `.ed-stage` 里），文字排得与 textarea 一模一样但颜色透明，只有 `<mark>` 的底色看得见。
+  - **为什么 textarea 背景透明**：镜像在下、textarea 在上（`.ed-area` 是 `position: relative; z-index: 1; background: transparent`，`.ed-stage` 用 `isolation: isolate` 把这层叠关系关在格子里，底色由 `.wb-editor` 给），底色才透得上来；光标、选区、输入法、点击、右键仍然全是 textarea 的，镜像 `pointer-events: none`、`aria-hidden`。
+  - **排得一模一样**靠每次渲染时从 textarea 的**计算样式**抄（字体、字号、行高、字距、内边距、`white-space` / 断行规则、`tab-size`……，`.mono` 文件换了字体也跟得上），宽度取 textarea 的内容区（扣掉竖滚动条，用 `getBoundingClientRect` 的小数宽度），滚动用 `transform` 跟着平移。CSS 里**不许**给 `<mark>` 加内边距、边框、字重——任何一样都会让两层排得不一样。
+  - **接口按命名图层**：`setHighlights(pane, layer, ranges)` / `clearHighlights(pane, layer)`，`ranges` 是 `{ start, end, cls }`（`area.value` 的下标，`cls` 是那一段 `<mark>` 的 class，颜色写在 `highlight.css`）；几层叠在同一段字上时那一段带上几层的 class。查找用 `find` 这一层，禁用词高亮、段落聚焦另起图层名即可，**别另起一层镜像**（各抄一遍排版，对不齐的地方会翻倍）。
+  - **什么时候重画**：`setHighlights` / `clearHighlights` 当场画；换了文件所有图层清空（范围是给上一个文件算的）；内容变了各层先按这一处改动平移（压在改动上的丢掉）、下一帧重画——调用方自己下一帧重算再 `setHighlights` 的话那一帧只画一次；切预览当场藏；尺寸变了只重摆位置（`ResizeObserver`，没有就不管）。超过 `HIGHLIGHT_LIMIT`（30 万字符）不画，要不要告诉人由调用方定（`tooLargeToHighlight`，查找条会说一句）。
+  - **顺带的精确定位**：`scrollToOffset(pane, offset, { onlyIfHidden })` 在一份看不见的镜像（`.ed-mirror-probe`）里排出这个字之前的文字与它所在那一行、把这个字包进标记量 `offsetTop`，把它滚到视口偏上三分之一。审稿引文定位（`Pane.reveal`）与查找跳转（`onlyIfHidden`：已经看得见就不滚）都用它；从前按字符位置占全文的比例估，段落长短不一时能差出好几屏。量不了（太大、textarea 藏着）时退回按比例估。
+- **查找替换条**（`editor/find.ts`，纯函数在零 DOM 的 `editor/findCore.ts`）：每块编辑区一条，只作用于这一块的当前文件。
+  - **结构约定**：DOM 只由 `find.ts` 的 `buildFindDom()` 生成，两块编辑区都在第一次用到时现造、插在 `.ed-stage` 前面；`page.ts` 与 `createPaneElements()` 里都没有它（`tests/dom/standalone/find.test.js` 守着：渲染出来的页面模板里不许出现 `ed-find`）。从前查找条两边各写一份、靠人对齐，加了替换行与两颗开关之后再抄两份只会越抄越歪。节点没有 id（两块各一条），按 class 取：第一行 `.ed-find-toggle` / `.ed-find-input` / `.ed-find-case` / `.ed-find-regex` / `.ed-find-count` / `.ed-find-prev` / `.ed-find-next` / `.ed-find-close`，第二行 `.ed-replace-row` 里的 `.ed-replace-input` / `.ed-replace-one` / `.ed-replace-all`，底下一行提示 `.ed-find-note`。
+  - **改写只走 `applyEdit`**：替换一处一步撤销；全部替换由 `findCore.replaceAllIn` 算出「第一处到最后一处那一段」的新文字，一次 `applyEdit`、只记一步。
+  - **不夺焦点**：打字时从光标往后找、选中匹配，但焦点留在查找框（人还在打字）；textarea 没焦点时原生选区看不见，当前那一处靠高亮层的另一种颜色（`ed-hl-find-current`）标出来。`Esc` 关掉时焦点才回编辑区。
+  - **快捷键**由 `installFind()` 挂在 document 上：`Ctrl+F` / `Ctrl+H` / `F3` 给焦点所在的那一块（焦点在页面上、按钮上时给当前那一块）；焦点在编辑区之外的输入框 / 文本框（对话输入框之类）时**不拦**，留给浏览器；那一块没开文件也不拦。编辑区里的 `Esc` 收起查找条。标题栏「编辑 → 查找 / 替换」经 `nf-editor-command`（`find` / `replace`）。
 
 ## 两块编辑区
 
 - `createPane(id, refs, post)`（`editor/pane.ts`）是工厂，两块编辑区是它的两个实例，各自持有 `files` / `conflicts` / `activePath` / 预览开关。主区绑页面上固定 id 的节点，第二块（`pane: 'draft'`）在首次收到 `editorOpen{pane:'draft'}` 时惰性创建——它放草稿，也放点开一章时并排打开的那份细纲（W6）。
 - **章节工作台（W6）**：工程页点章节行名发 `openChapter`，后端按宿主能力开——正文进主区，细纲经 `openBeside` 进第二块（VS Code 壳落在 `ViewColumn.Beside`，前端什么都不用做）。主区顶上的**章节条**（`editor/chapterBar.ts`）在任一块正开着某一章的正文或细纲时出现：这一章在哪一步、写了多少，「写这一章 / 接着写 / 重写 / 审稿 / 定稿」按状态亮灭（提示里写调用次数），另一份没开着时给「并排看细纲 / 正文」。按钮发 `chapterAction`，后端当成对这一章按下主按钮（审稿是正文层的 `review`，只出报告）。数据只取工程树（`project` 消息）与 `nf-editor-active`，不新增推送。
-- **点引文定位（五期 W10）**：后端推 `editorReveal { path, quote }`（紧跟在那一份的 `editorOpen` 之后），拥有那份文件的那一块 `Pane.reveal` 选中那一句并按位置比例滚过去。定位用 core 的 `locateQuote`（`model/review.ts`，与后端校验引文同一个归一化：去空白与标点），按编辑区里**当下**的文字找——有没保存的修改时照样认得出。
+- **点引文定位（五期 W10）**：后端推 `editorReveal { path, quote }`（紧跟在那一份的 `editorOpen` 之后），拥有那份文件的那一块 `Pane.reveal` 选中那一句，用高亮镜像层量出它的位置、滚到视口偏上三分之一（`highlight.ts` 的 `scrollToOffset`）。定位用 core 的 `locateQuote`（`model/review.ts`，与后端校验引文同一个归一化：去空白与标点），按编辑区里**当下**的文字找——有没保存的修改时照样认得出。
 - **一个路径同一时刻只属于一块**。`editorSaved` / `editorConflict` / `editorError` 都只带 `path`，靠这条不变量才认得出该送给谁（`paneOwning`）。因此收到 `editorOpen` 时会先让另一块 `closeSilently` 掉同路径，未保存内容与撤销历史一并搬过来（`CarriedDraft`；历史只在接上之后的内容与搬走时一字不差才接，改名搬家 `nf-files-moved` 同理）——不是关闭，是搬家。破坏这条会导致从错的那块保存时用错 `baseHash`，触发假冲突。
 - **一块区只有一个 textarea**，所有标签共用，显示的是当前文件（`Pane.area`）。切标签时整份换 `value`，所以光标位置、滚动位置、撤销历史都记在 `OpenFile` 上，而不是指望 textarea 自己记得。别的模块要拿「当前那块区 + 当前文件 + 它的 textarea」，用 `api.ts` 的 `activeEditor()` / `editorOf(pane)`。
 - `activePane` 靠两块根元素上的 `focusin` / `pointerdown` 跟踪，`Ctrl+S` / `Ctrl+W` 作用于它，`beforeunload` 则扫两块。标题栏的撤销 / 重做也作用于它（焦点在哪块区，它就是哪块）。
@@ -133,7 +144,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 
 ## 测试
 
-- [`../tests/dom/`](../tests/dom/) 用 jsdom 跑**构建产物**（`dist/media/*.js`，不是源码），从两个 html 模板里抠 body 保证结构与真实渲染一致，按页面与组件分文件（`view/` 下是对话页、创作页、工程页、表单、报告卡、合并视图、空状态、日志页、设置页、悬停浮窗……，`standalone/` 下是两块编辑区、撤销与 Tab 缩进、章节条、资源管理器、欢迎页），清单见 [tests/README.md](../tests/README.md)。改了 `media/src/**` 先 `npm run media` 再跑它，否则测的是上一次的产物（`npm run test:dom` / `npm test` 会自动先构建）。
+- [`../tests/dom/`](../tests/dom/) 用 jsdom 跑**构建产物**（`dist/media/*.js`，不是源码），从两个 html 模板里抠 body 保证结构与真实渲染一致，按页面与组件分文件（`view/` 下是对话页、创作页、工程页、表单、报告卡、合并视图、空状态、日志页、设置页、悬停浮窗……，`standalone/` 下是两块编辑区、撤销与 Tab 缩进、查找替换与高亮镜像层、章节条、资源管理器、欢迎页），清单见 [tests/README.md](../tests/README.md)。改了 `media/src/**` 先 `npm run media` 再跑它，否则测的是上一次的产物（`npm run test:dom` / `npm test` 会自动先构建）。
 - [`../scripts/verify-css.js`](../scripts/verify-css.js) 比对两份 CSS 是否等价：规则集合一条不多一条不少，且「同选择器 + 同属性」的相对顺序没被改变。拆分或重排样式片段后可以拿它对着旧产物验一遍。
 
 ## 新增产物
