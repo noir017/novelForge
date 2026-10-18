@@ -229,8 +229,8 @@ export {
 export type { SkillSource, SkillStage } from '../../src/core/model/writingSkill';
 
 /**
- * 正文的分段格式与一键排版。回车插什么、「一键排版」排成什么样、标题栏「段落格式」的说法，都必须与
- * 后端认的 `paragraphStyle` 同源。`paragraphFormat.ts` 是纯函数、零 import，打进浏览器产物是安全的。
+ * 正文的分段格式与一键排版。回车插什么、「一键排版」排成什么样、标题栏「段落格式」的说法、段落聚焦认哪一段，
+ * 都必须与后端认的 `paragraphStyle` 同源。`paragraphFormat.ts` 是纯函数、零 import，打进浏览器产物是安全的。
  */
 export {
   DEFAULT_PARAGRAPH_STYLE,
@@ -238,7 +238,9 @@ export {
   PARAGRAPH_STYLE_HINT,
   PARAGRAPH_STYLE_LABEL,
   fullWidthPunct,
+  isHeadingLine,
   isParagraphStyle,
+  isSceneBreakLine,
   layoutProse,
   paragraphBreak,
   paragraphGap,

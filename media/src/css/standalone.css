@@ -24,8 +24,9 @@
 @import './standalone/highlight.css';
 @import './standalone/find.css';
 @import './standalone/preview.css';
-/* 正文排版那组变量（textarea、镜像层、预览共用） */
+/* 正文排版那组变量（textarea、镜像层、预览共用）与外观面板；专注模式、打字机滚动、段落聚焦 */
 @import './standalone/look.css';
+@import './standalone/focus.css';
 @import './standalone/explorer.css';
 @import './standalone/merge.css';
 @import './standalone/versions.css';

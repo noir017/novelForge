@@ -1,0 +1,77 @@
+/*
+ * 专注（editor/focus.ts、typewriter.ts、paragraphFocus.ts）。
+ *
+ * 专注模式：<body> 挂 .nf-focus，当前那一块编辑区挂 .ed-focused。藏起活动栏、侧栏、标题栏里菜单以外的杂项、
+ * 另一块编辑区、标签条、工具栏、章节条，状态栏淡成一行；冲突条、查找条、历史版本抽屉照常（一个是「不丢稿」的提醒，
+ * 两个是作者自己打开的）。菜单栏留着：退出不靠记快捷键（视图 → 专注模式）。
+ */
+
+body.nf-focus .tabbar,
+body.nf-focus .wb-side,
+body.nf-focus #wbResizer,
+body.nf-focus .wb-draft-resizer,
+body.nf-focus .wb-logo,
+body.nf-focus .wb-title-text,
+body.nf-focus #wbEditorToggle,
+body.nf-focus #wbThemeBtn {
+  display: none !important;
+}
+
+body.nf-focus .wb-title {
+  background: var(--vscode-editor-background);
+  border-bottom-color: transparent;
+}
+
+/* 只专注当前那一块：另一块藏起来，这一块占满（草稿区平时是固定宽度）。 */
+body.nf-focus .wb-editor:not(.ed-focused) {
+  display: none !important;
+}
+
+body.nf-focus .wb-editor.ed-focused {
+  display: flex;
+  flex: 1 1 auto;
+  width: auto;
+  border-left: none;
+}
+
+body.nf-focus .ed-focused .ed-tabs,
+body.nf-focus .ed-focused .ed-toolbar,
+body.nf-focus .ed-focused .ed-chapter-bar {
+  display: none !important;
+}
+
+/* 淡归淡，照样能点：字数那一格点开码字统计面板（挂在 body 上，不跟着淡）。鼠标移上去、键盘焦点进来、面板开着时
+   都恢复清楚。 */
+body.nf-focus .ed-focused .ed-status {
+  border-top-color: transparent;
+  background: transparent;
+  opacity: 0.35;
+  transition: opacity 160ms ease;
+}
+
+body.nf-focus .ed-focused .ed-status:hover,
+body.nf-focus .ed-focused .ed-status:focus-within {
+  opacity: 1;
+}
+
+/* 单独一条：不认 :has 的浏览器只丢这一条，不连累上面那条。 */
+body.nf-focus .ed-focused .ed-status:has([aria-expanded='true']) {
+  opacity: 1;
+}
+
+/*
+ * 打字机滚动：编辑区底下垫半屏，最后一行也滚得到中间。textarea 与镜像层读的是同一个变量（look.css），
+ * 镜像层每次重画也照抄计算样式，两边一样高。
+ */
+body.nf-typewriter {
+  --nf-ed-pad-bottom: 50vh;
+}
+
+/*
+ * 段落聚焦：textarea 的字整体调淡（前景色 × 30% 的半透明色），光标颜色不变；当前那一段由高亮镜像层
+ * 的 focus 图层用实色画在底下（highlight.css 的 .ed-hl-focus），半透明的淡字叠在同一个字形上看起来就是实色。
+ */
+.ed-area.ed-para-dim {
+  color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
+  caret-color: var(--vscode-foreground);
+}

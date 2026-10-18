@@ -5,7 +5,7 @@
  * 镜像层每次重画仍从 textarea 的计算样式抄一遍（两道保险，.mono 文件换了字体也跟得上）。
  *
  * 前四个由 look.ts 按偏好写在 <html> 上（lookCore.ts 的 LOOK_VARS），这里是缺省（与改造前写死的值一样）；
- * 内边距不给作者调，窄屏（narrow.css）改小。
+ * 内边距不给作者调，窄屏（narrow.css）改小；底部内边距打字机滚动开着时垫半屏（focus.css）。
  */
 
 :root {

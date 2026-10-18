@@ -48,3 +48,9 @@
 .ed-mirror mark.ed-hl-find-current {
   background: var(--nf-find-current);
 }
+
+/* 段落聚焦（editor/paragraphFocus.ts）：这一层不画底色，用实色画字——textarea 的字整体调淡了（focus.css），
+   当前那一段在底下用实色再画一遍，淡字叠在实色字上看起来就是实色。只改颜色，不碰排版。 */
+.ed-mirror mark.ed-hl-focus {
+  color: var(--vscode-foreground);
+}

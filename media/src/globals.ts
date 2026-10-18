@@ -244,9 +244,11 @@ export interface ViewPrefsStatus {
   previewTabs: boolean;
   /** 「外观」那一组（`editor/look.ts` 回答；没人回答就是 undefined，那组置灰）。 */
   look?: LookStatus;
+  /** 「专注」那一组（`editor/focus.ts` 回答；没人回答就是 undefined，那组置灰）。 */
+  focus?: FocusStatus;
 }
 
-export type ViewCommandName = 'togglePreviewTabs' | LookCommandName;
+export type ViewCommandName = 'togglePreviewTabs' | LookCommandName | FocusCommandName;
 
 /** 问编辑器「视图」那几项的状态。editor.js 没装时不可用（开关按缺省算）。 */
 export function queryViewPrefs(): ViewPrefsStatus {
@@ -271,6 +273,18 @@ export interface LookStatus {
 
 /** `zoomIn` / `zoomOut` / `zoomReset` 字号放大、缩小、还原；`openLook` 打开外观面板。 */
 export type LookCommandName = 'zoomIn' | 'zoomOut' | 'zoomReset' | 'openLook';
+
+/** 「视图 → 专注」：三个开关（记在 `novelforge.editor.prefs`）与全屏（不记）。 */
+export interface FocusStatus {
+  focusMode: boolean;
+  typewriter: boolean;
+  paragraphFocus: boolean;
+  fullscreen: boolean;
+  /** 页面能不能全屏（Fullscreen API 的能力探测；不能就置灰）。 */
+  fullscreenSupported: boolean;
+}
+
+export type FocusCommandName = 'toggleFocusMode' | 'toggleFullscreen' | 'toggleTypewriter' | 'toggleParagraphFocus';
 
 // ---------------------------------------------------------------- 「视图 → 统计」
 

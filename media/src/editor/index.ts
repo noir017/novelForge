@@ -27,6 +27,7 @@ import { installChapterIndex } from './chapterIndex';
 import { installChapterNav, takeQuietOpen } from './chapterNav';
 import { installConflictMerge } from './conflictMerge';
 import { installFind } from './find';
+import { installFocus } from './focus';
 import { installLook } from './look';
 import { installParagraphTools } from './paragraph';
 import { installQuickOpen } from './quickOpen';
@@ -279,8 +280,10 @@ function start(stage: HTMLElement): void {
 
   // 「转到…」（Ctrl+P）。要在上面那个 onMessage 之后装：editorOpen 先让编辑区收下文件，它才找得到该把焦点放进哪一块。
   installQuickOpen(post);
-  // 「视图」菜单的「外观」那一组（look.ts）：排版变量、编辑区里的字号快捷键、外观面板。
+  // 「视图」菜单的「外观」与「专注」两组（look.ts / focus.ts）。专注要在查找之后装：编辑区里的 Esc 先收查找条，
+  // 查找条关着时才退出专注模式（document 上的 keydown 按挂的先后跑，它看 defaultPrevented）。
   installLook();
+  installFocus();
 
   // ---------------------------------------------------------------- 启动
 
