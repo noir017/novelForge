@@ -11,13 +11,14 @@
 import { kindOfPath } from '../../workspace';
 import type { PathKind } from '../../workspace';
 import type { NovelProject } from '../../model/project';
+import { SETTING_DOC_LABEL } from '../../model/pipeline';
 
 /** 覆盖审阅框上显示的名字。 */
 export function describeForReview(path: PathKind, rel: string): string {
   const no = path.no;
   switch (path.kind) {
     case 'setting':
-      return path.doc === 'config' ? '小说配置' : path.doc === 'premise' ? '故事前提' : '世界观';
+      return path.doc ? SETTING_DOC_LABEL[path.doc] : '世界观';
     case 'outline':
       return '情节大纲';
     case 'style':

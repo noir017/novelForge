@@ -1,7 +1,7 @@
 /**
  * 三期验收：从空工程开始，**跟着主按钮走**，一路写完前 3 章。
  *
- *   一句话 → 架构四件 → 情节大纲 → 第 1–5 章细纲（二期那一段，7 次调用）
+ *   一句话 → 架构五件 → 情节大纲 → 第 1–5 章细纲（二期那一段，9 次调用）
  *   → 写第 1 章 → 定稿 → 写第 2 章 → 定稿 → 写第 3 章
  *
  * 每一步照前端的做法：取后端推来的下一步（`pipeline.next`），按它的 stage / capability /
@@ -15,7 +15,7 @@
  * | 第 2 章的装配：上一章结尾不许重演、后几章作边界、执行卡重列关键事件、全局要求 | 总计划 §2.3 |
  * | 第 2 章被截断，自动续写一轮 | §2.4 |
  * | 第 3 章开头重演了第 2 章结尾：卡片标红、写入要点两下 | §2.4：不替作者拒收 |
- * | 一共调了几次 | 第 4 条：二期 7 次 + 1 + 2 + 2 + 2 + 1 = 15（定稿是更新细纲 + 角色状态两次） |
+ * | 一共调了几次 | 第 4 条：二期 9 次 + 1 + 2 + 2 + 2 + 1 = 17（定稿是更新细纲 + 角色状态两次） |
  * | 定稿把同一份细纲照正文更新了 | 细纲并进摘要：定稿记 sourceHash、刷新 writtenFrom，不另存一份摘要 |
  * | 一张覆盖审阅都没弹 | 新章都是新建，没有东西可吞 |
  */
@@ -124,6 +124,21 @@ function reply(messages) {
     return manuscript(Number(card[1]));
   }
   if (user.includes('【JSON 字段结构】')) return CONFIG_JSON;
+  // 设定清单：三条一批就补完详情。
+  if (user.includes('【设定清单合同】')) {
+    return JSON.stringify({
+      categories: ['地域', '信物', '制度'],
+      entries: [
+        { title: '青崖镇', category: '地域', keywords: [], brief: '偏僻小镇' },
+        { title: '残令', category: '信物', keywords: [], brief: '照见最后一幕的令牌' },
+        { title: '名册', category: '制度', keywords: [], brief: '决定谁算镇上的人' },
+      ],
+    });
+  }
+  if (user.includes('【冻结设定清单】')) {
+    const titles = /【本批必须完整生成的条目】\n([^\n]+)/.exec(user)[1].split('、');
+    return JSON.stringify({ entries: titles.map((title) => ({ title, body: `## 概要\n${title}。` })) });
+  }
   if (user.includes('【冻结身份与关系清单】')) {
     const ids = /【本批必须完整生成的 slotId】\n([^\n]+)/.exec(user)[1].split('、');
     const names = { 1: '林昭', 2: '沈氏', 3: '李叔' };
@@ -249,8 +264,8 @@ describe('三期验收：一句话 → 写完前 3 章', () => {
     controller = new bundle.controller.ChatController(project);
     attach();
 
-    // 二期那六步 + 写 / 定稿 / 写 / 定稿 / 写。
-    for (let i = 0; i < 11; i++) {
+    // 二期那七步 + 写 / 定稿 / 写 / 定稿 / 写。
+    for (let i = 0; i < 12; i++) {
       const step = await nextStep();
       assert.ok(step, `第 ${i + 1} 步没有下一步`);
       steps.push(step);
@@ -265,7 +280,7 @@ describe('三期验收：一句话 → 写完前 3 章', () => {
   });
 
   test('主按钮的顺序：拆完细纲之后，写一章、定稿一章', () => {
-    assert.deepEqual(steps.slice(6).map((s) => s.label), [
+    assert.deepEqual(steps.slice(7).map((s) => s.label), [
       '写第 1 章',
       '定稿第 1 章',
       '写第 2 章',
@@ -285,10 +300,10 @@ describe('三期验收：一句话 → 写完前 3 章', () => {
     }
   });
 
-  // 第 4 条：二期 7 次 + 第 1 章 1 + 定稿 2 + 第 2 章 2（截断续写一轮）+ 定稿 2 + 第 3 章 1。
+  // 第 4 条：二期 9 次 + 第 1 章 1 + 定稿 2 + 第 2 章 2（截断续写一轮）+ 定稿 2 + 第 3 章 1。
   // 定稿两次：照正文更新细纲一次，林昭有角色卡、再更新一次角色状态（四期，D17）。
-  test('一共调了 15 次模型', () => {
-    assert.equal(fake.callCount(), 15);
+  test('一共调了 17 次模型', () => {
+    assert.equal(fake.callCount(), 17);
   });
 
   test('三章都落在 chapters/，标题取细纲的，正文写了进去', async () => {
@@ -301,14 +316,14 @@ describe('三期验收：一句话 → 写完前 3 章', () => {
   test('第 2 章：截断后续写的那一轮拼在后面', () => {
     const text = t.read('chapters/002-令牌.md');
     assert.ok(text.includes(`${filler(600, 201)}\n\n${filler(500, 202)}`), text.slice(0, 80));
-    assert.match(gates[8].detail, /1100 \/ 1000 字 · 已达标/);
-    assert.match(gates[8].detail, /这一轮一共调了 2 次模型（续写 1 轮）/);
+    assert.match(gates[9].detail, /1100 \/ 1000 字 · 已达标/);
+    assert.match(gates[9].detail, /这一轮一共调了 2 次模型（续写 1 轮）/);
   });
 
   test('第 3 章：开头重演了第 2 章结尾——卡片标红、写入要点两下', () => {
-    assert.match(gates[10].danger, /与上一章结尾大段重合/);
-    assert.equal(gates[10].confirm, '确定仍要写入');
-    assert.ok(gates[6].danger === undefined && gates[8].danger === undefined);
+    assert.match(gates[11].danger, /与上一章结尾大段重合/);
+    assert.equal(gates[11].confirm, '确定仍要写入');
+    assert.ok(gates[7].danger === undefined && gates[9].danger === undefined);
   });
 
   test('第 1 章用黄金第一章法则', () => {

@@ -280,7 +280,7 @@ function assembleMessages(
     );
   }
 
-  // target 也要给：架构层四件同属一个阶段，契约要看是哪一件。写正文时目标字数也在契约里
+  // target 也要给：架构层五件同属一个阶段，契约要看是哪一件。写正文时目标字数也在契约里
   // （篇幅合同 ±20%），从前这里另有一行「约 N 字（±15%）」，两个比例作者与模型都分不清哪个算数。
   sections.push(buildOutputContract(request.action, facts));
 
@@ -298,13 +298,16 @@ function noOf(item: ContextItem): number {
 }
 
 /**
- * 已经写了正文的书，生成架构四件一律照正文整理（`derive`）：凭一句话编出来的设定与已写的章对不上，
+ * 已经写了正文的书，生成架构几件一律照正文整理（`derive`）：凭一句话编出来的设定与已写的章对不上，
  * 后面每一章却都要读它。从已写正文补齐自己带着 `derive`，这里补上补齐设定、对话页与 MCP 的单件生成。
  * 角色图谱除外：已写正文的书照定稿过的细纲建卡（features/characterCard.ts），不走身份清单那条链。
+ * 设定清单同理：有正文的书这一件本来就算填过（`isLoreListFilled`），设定从定稿里长、从名录建条目；
+ * 作者硬要重排一份时照新书的清单链走，不另编一套「照正文整理」的合同。
  */
 async function settingFromText(project: NovelProject, request: BuildRequest): Promise<BuildRequest> {
   const { action, target } = request;
-  if (request.derive || action.stage !== 'setting' || action.capability !== 'generate' || (target.kind === 'setting' && target.doc === 'characters')) {
+  const chained = target.kind === 'setting' && (target.doc === 'characters' || target.doc === 'lore');
+  if (request.derive || action.stage !== 'setting' || action.capability !== 'generate' || chained) {
     return request;
   }
   const through = nextWritableChapterNo(await project.listChapters()) - 1;

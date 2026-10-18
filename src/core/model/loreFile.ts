@@ -49,6 +49,12 @@ export const LORE_ENTRY_LIMITS = {
 /** 机器写条目正文时用的三节。 */
 export const LORE_BODY_KEYS = ['概要', '规则与边界', '现状'] as const;
 
+/**
+ * 架构 · 设定清单起步时一条正文三节合计最多几字：那是写之前排的，现状多半还没交代，写到了再从定稿里
+ * 整合（整合时的上限是 {@link LORE_ENTRY_LIMITS}.body）。提示词与解码共用。
+ */
+export const LORE_LIST_BODY_MAX = 300;
+
 /** 第九节的一行：`- 名〔分类〕：本章确立的定义或规则`。 */
 export interface LoreLine {
   name: string;

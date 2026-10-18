@@ -313,6 +313,12 @@ describe('pathOfTarget · 与 kindOfPath 往返', () => {
     assert.equal(bundle.kind.pathOfTarget(project, { kind: 'setting', doc: 'characters' }), '.novelforge/characters');
   });
 
+  // 设定清单同理：它是 lore/ 下那一组条目。目录本身不是一件可写的产物，种类表照旧判成 other。
+  test('设定清单的落点是设定目录，目录本身仍是 other', () => {
+    assert.equal(bundle.kind.pathOfTarget(project, { kind: 'setting', doc: 'lore' }), '.novelforge/lore');
+    assert.equal(kindOf('.novelforge/lore').kind, 'other');
+  });
+
   // 正文落在同号的章节上，那一章在不在、叫什么要读盘才知道——纯函数不猜，
   // 抛出来让调用方改用 chapterTargetOf。
   test('正文的落点不在这里算', () => {

@@ -4,6 +4,7 @@
  * | 用例组 | 钉的是什么 |
  * |---|---|
  * | 全套 | 两次确认（先只报细纲，细纲出来再报其余）；按 细纲 → 配置 → 前提 → 角色卡 → 世界观 → 大纲 → 全书摘要 的顺序；第一步照正文写出 `summaries/NNN-<章名>.md`、带 sourceHash，直接算定稿过（不再另排一遍细纲）；之后主按钮照常续写大纲 |
+ * | 设定条目 | 一条条目都没有时，建卡之后从名录建（出现 ≥2 章，没有就降到 1 章），次数算进第二次确认；没建成挂黄 ❗、后面照常补 |
  * | 再来一次 | 什么都齐了：零调用 |
  * | 只补空白 | 作者写过的前提、定稿过的细纲一个字不动；只排过计划的那一章拿着计划对照正文改，旧版进回收站 |
  * | 一件失败就停 | 大纲没整理成就不更新全书摘要，失败挂在大纲上（第 16 条） |
@@ -50,6 +51,7 @@ function kindOf(messages) {
   const user = messages[messages.length - 1].content;
   if (sys.includes('建立可检索的章节档案')) return 'plot';
   if (sys.includes('负责维护一部长篇小说的人物档案')) return 'card';
+  if (sys.includes('把定稿细纲里关于一个设定的记录整理成一条设定条目')) return 'lore';
   if (sys.includes('全书滚动摘要')) return 'global';
   if (user.includes('【JSON 字段结构】')) return 'config';
   if (user.includes('整理出这一段的情节大纲')) return 'outline';
@@ -57,6 +59,9 @@ function kindOf(messages) {
   if (user.includes('「世界观」')) return 'world';
   return '?';
 }
+
+/** 整理细纲时第 no 章记下的「设定」（第九节）。缺省一条都没有。 */
+let loreOf = () => [];
 
 function defaultReply(messages) {
   const user = messages[messages.length - 1].content;
@@ -68,10 +73,13 @@ function defaultReply(messages) {
         出场人物: [{ name: '林昭', aliases: [] }, { name: '沈青', aliases: [] }],
         关键事件: [`第 ${no} 章查到一条线索`],
         连续性事实: [],
+        设定: loreOf(no),
       });
     }
     case 'card':
       return JSON.stringify({ aliases: [], tags: ['主角'], 身份: '宗门弟子', 性格: '隐忍', 当前状态: '在渡口' });
+    case 'lore':
+      return JSON.stringify({ brief: '青云宗的山门', keywords: ['山门'], body: '## 概要\n山门很高。\n\n## 规则与边界\n（未交代）\n\n## 现状\n（未交代）' });
     case 'global':
       return '## 主线\n\n林昭入宗查旧案，到了渡口。';
     case 'config':
@@ -103,6 +111,7 @@ before(() => {
     registry: './src/core/llm/registry.ts',
     derive: './src/core/features/derive.ts',
     pipe: './src/core/views/pipeline.ts',
+    lore: './src/core/views/lore.ts',
     pipeline: './src/core/model/pipeline.ts',
     errorLog: './src/core/runtime/errorLog.ts',
     db: './src/core/runtime/db.ts',
@@ -130,6 +139,7 @@ async function fresh(prefix) {
   t.project.invalidate();
   fake.reset();
   replyFn = defaultReply;
+  loreOf = () => [];
   return t;
 }
 const kinds = () => fake.calls.map(kindOf);
@@ -208,10 +218,11 @@ describe('从已写正文补齐 · 全套', () => {
     assert.ok(plotCalls.every((m) => m[m.length - 1].content.includes('请为下面这一章整理细纲')));
   });
 
-  test('架构四件都补上了；配置的规模按作者给的总章数与已写的平均字数', async () => {
+  // 设定清单不在补齐的件数里：有正文的书那一件本来就算填过。
+  test('架构几件都补上了；配置的规模按作者给的总章数与已写的平均字数', async () => {
     t.project.invalidate();
     const facts = await bundle.pipe.buildBookFacts(t.project);
-    assert.deepEqual(facts.settings, { config: true, premise: true, characters: true, world: true });
+    assert.deepEqual(facts.settings, { config: true, premise: true, characters: true, world: true, lore: true });
     const book = await t.project.readBookConfig();
     assert.equal(book.totalChapters, 100);
     assert.ok(book.wordsPerChapter >= 100 && book.wordsPerChapter % 100 === 0, String(book.wordsPerChapter));
@@ -290,6 +301,93 @@ describe('从已写正文补齐 · 全套', () => {
     assert.equal(fake.callCount(), 0);
     assert.equal(h.confirms.length, 0);
     assert.ok(h.toasts.some((x) => x.includes('都已经有了')), h.toasts.join('|'));
+  });
+});
+
+describe('从已写正文补齐 · 设定条目（从名录建）', () => {
+  let t;
+  let calls;
+  let failures;
+  before(async () => {
+    t = await fresh('derive-lore');
+    // 每一章都记下「山门」（7 章）；「门外」只在第 3 章记过（1 章，不到 2 章的门槛）。
+    loreOf = (no) => [
+      { name: '山门', category: '地域', fact: '山门很高' },
+      ...(no === 3 ? [{ name: '门外', category: '地域', fact: '' }] : []),
+    ];
+    h.expect('先整理细纲', '100', '开始补齐');
+    calls = await bundle.derive.deriveFromText(t.project);
+    failures = await bundle.errorLog.listActiveFailures(t.project);
+  });
+
+  test('确认框把设定条目算进去：出现 2 章以上的那几条，每条 1 次', () => {
+    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 设定条目 1 + 大纲 1 + 全书摘要 1（上限 5）
+    assert.equal(
+      h.confirms[1].message,
+      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、设定条目、情节大纲、全书摘要，预计 8 次调用，最多 14 次。现在补？'
+    );
+    assert.match(h.confirms[1].detail, /设定条目：给山门建条目（细纲里出现 2 章以上、还没有条目/);
+    assert.ok(!/门外/.test(h.confirms[1].detail), h.confirms[1].detail);
+  });
+
+  test('建卡之后、大纲之前建条目', () => {
+    assert.deepEqual(kinds(), [...Array(7).fill('plot'), 'config', 'premise', 'card', 'card', 'world', 'lore', 'outline', 'global']);
+    assert.equal(calls, 15);
+  });
+
+  test('条目建在名录给的分类目录里：标题、关键词、一句话、机器写的指纹、水位到最后一章定稿', async () => {
+    t.project.invalidate();
+    const entries = await t.project.listLore();
+    assert.deepEqual(entries.map((e) => e.relPath), ['.novelforge/lore/地域/山门.md']);
+    const [e] = entries;
+    assert.equal(e.title, '山门');
+    assert.equal(e.category, '地域');
+    assert.equal(e.brief, '青云宗的山门');
+    assert.equal(e.updatedThrough, 7);
+    assert.ok(e.bodyHash && e.body.includes('山门很高'));
+    // 建条目的原料只是定稿细纲里提到它的那几行，不重读正文。
+    const lore = fake.calls.find((m) => kindOf(m) === 'lore');
+    assert.match(lore[lore.length - 1].content, /- 第 1 章：山门很高/);
+  });
+
+  test('完成提示报出建了几条；没有挂失败', () => {
+    assert.ok(h.toasts.some((x) => x.includes('设定条目 1 条')), h.toasts.join('|'));
+    assert.equal(failures['.novelforge/lore'], undefined);
+  });
+
+  test('之后名录里「山门」有了条目，「门外」仍是未建条目', async () => {
+    const index = await bundle.lore.buildLoreIndex(t.project);
+    assert.deepEqual(index.unknown.map((u) => u.name), ['门外']);
+    assert.deepEqual(index.known.map((r) => r.chapters.length), [7]);
+  });
+});
+
+describe('从已写正文补齐 · 设定条目没建成也不停', () => {
+  let t;
+  let failures;
+  before(async () => {
+    t = await fresh('derive-lore-fail');
+    // 只有一章记过设定：门槛降到 1 章。
+    loreOf = (no) => (no === 3 ? [{ name: '山门', category: '地域', fact: '' }] : []);
+    replyFn = (messages) => (kindOf(messages) === 'lore' ? '不是 JSON' : defaultReply(messages));
+    h.expect('先整理细纲', '100', '开始补齐');
+    await bundle.derive.deriveFromText(t.project);
+    failures = await bundle.errorLog.listActiveFailures(t.project);
+  });
+
+  test('名录里没有出现 2 章以上的：降到 1 章', () => {
+    assert.match(h.confirms[1].detail, /给山门建条目（细纲里出现 1 章以上/);
+  });
+
+  test('后面的大纲与全书摘要照常补', () => {
+    assert.deepEqual(kinds().slice(-3), ['lore', 'outline', 'global']);
+    assert.ok(!h.toasts.some((x) => x.startsWith('error:')), h.toasts.join('|'));
+  });
+
+  test('黄 ❗ 挂在「设定清单」那一行（设定目录）上；一条都没建', async () => {
+    const onLore = failures['.novelforge/lore'] ?? [];
+    assert.ok(onLore.some((f) => f.severity === 'warn' && f.message.includes('设定条目一条都没建成')), JSON.stringify(failures));
+    assert.deepEqual(await t.project.listLore(), []);
   });
 });
 

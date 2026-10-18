@@ -403,6 +403,56 @@ describe('对架构文档调 generate', () => {
   });
 });
 
+/*
+ * 设定清单（设定名录）没有自己的文件：target 给设定目录本身，与 `pathOfTarget` 的落点是同一个路径。
+ * 两段式的链照样跑（清单 → 详情），返回里只有形状，条目正文不回灌。
+ */
+describe('对设定清单调 generate（target 是设定目录）', () => {
+  let r;
+  let intent;
+
+  before(async () => {
+    resetCtx();
+    replyFn = (messages) => {
+      const user = messages[messages.length - 1].content;
+      return user.includes('【冻结设定清单】')
+        ? JSON.stringify({ entries: [{ title: '青云宗', body: '## 概要\n正道第一大宗，山门在北。' }] })
+        : JSON.stringify({ categories: ['宗门'], entries: [{ title: '青云宗', category: '宗门', keywords: [], brief: '正道大宗' }] });
+    };
+    intent = tool().intent({ target: '.novelforge/lore' }, project);
+    r = await run({ target: '.novelforge/lore/', capability: 'generate' });
+  });
+
+  test('确认框说的是「设定清单」，不是一个光秃秃的目录', () => {
+    assert.ok(intent.title.includes('「设定清单」'), intent.title);
+  });
+
+  test('认成架构层的设定清单，没有 error', () => {
+    assert.equal(r.error, undefined, r.error);
+    assert.deepEqual(stored[0].draft.target, { kind: 'setting', doc: 'lore' });
+  });
+
+  test('两段式：清单 1 次 + 详情 1 次', () => {
+    assert.equal(fake.calls.length, 2);
+    assert.ok(lastUser().includes('【冻结设定清单】'), lastUser().slice(-600));
+  });
+
+  test('返回只有形状，没有条目正文', () => {
+    assert.ok(r.text.includes('设定清单 · 1 条 · 1 个分类'), r.text);
+    assert.ok(!r.text.includes('山门在北'), r.text);
+  });
+
+  test('确实没写盘', async () => {
+    assert.deepEqual(await project.listLore(), []);
+  });
+
+  // 别的目录不认：角色区、章节区里的目录不是一件产物。
+  test('设定目录下的子目录不认，给 error', async () => {
+    const res = await run({ target: '.novelforge/lore/宗门', capability: 'generate' });
+    assert.ok(res.error && res.error.includes('设定清单给 .novelforge/lore'), res.error);
+  });
+});
+
 describe('能力由 STAGE_CAPABILITIES 说了算', () => {
   // 拆卷、拆段、拆章都删了。agent 拿着老提示词来试的话，要在这里被拦住，
   // 并被告知现在有哪几种能力。

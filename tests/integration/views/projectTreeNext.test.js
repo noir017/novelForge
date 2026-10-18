@@ -59,13 +59,28 @@ describe('工程页的全书下一步与对话页主按钮逐字一致', () => {
     assert.deepEqual(tree.next, chat);
   });
 
-  test('架构四件齐了：生成情节大纲（第 1–20 章）', async () => {
+  // 设定名录：世界观之后是设定清单。一条条目都没有时，工程页「设定」组的空状态说的也是这一步。
+  test('前四件齐了：生成设定清单，带调用次数', async () => {
     t.write('.novelforge/premise.md', '# 故事前提\n\n## 核心冲突链\n\n宗门要他死。\n');
     t.write('.novelforge/characters/林昭.md', '---\nname: 林昭\ntags: [主角]\n---\n\n# 林昭\n\n## 身份\n\n少年。\n');
     t.write('.novelforge/world.md', '# 世界观\n\n## 规则与漏洞\n\n灵根定命。\n');
     const { tree, chat } = await both();
+    assert.equal(tree.next?.label, '生成设定清单', JSON.stringify(tree.next));
+    assert.deepEqual(tree.next.target, { kind: 'setting', doc: 'lore' });
+    assert.deepEqual(tree.next.calls, { low: 3, high: 6, max: 12 });
+    assert.deepEqual(tree.next, chat);
+    const row = tree.architecture.find((r) => r.key === 'lore');
+    assert.deepEqual(row, { key: 'lore', label: '设定清单', relPath: '.novelforge/lore', filled: false, detail: '待生成' });
+  });
+
+  test('架构五件齐了：生成情节大纲（第 1–20 章）', async () => {
+    t.write('.novelforge/lore/宗门/青云宗.md', '---\ntitle: 青云宗\nkeywords: [青云宗]\nbrief: 正道大宗\n---\n\n# 青云宗\n');
+    const { tree, chat } = await both();
     assert.equal(tree.next?.label, '生成情节大纲（第 1–20 章）', JSON.stringify(tree.next));
     assert.deepEqual(tree.next, chat);
+    const row = tree.architecture.find((r) => r.key === 'lore');
+    assert.equal(row.filled, true);
+    assert.equal(row.detail, '1 条');
   });
 
   test('有大纲、没细纲：拆细纲（第 1–5 章），落在第 1 章细纲应该在的位置', async () => {

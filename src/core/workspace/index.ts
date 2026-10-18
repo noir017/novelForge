@@ -33,6 +33,7 @@ import { scoped } from '../runtime/logger';
 import { decodeFileText } from '../model/importText';
 import {
   countWords,
+  exists,
   hash,
   pad3,
   readText,
@@ -768,6 +769,34 @@ export class Workspace {
     return rel;
   }
 
+  /**
+   * 在设定区里建分类目录（`宗门/正道` 这样的相对 `lore/` 的路径，可多层）。设定清单落盘时用：分类就是
+   * 目录，空的也建，作者看得到这本书的分类表。已有的不动；每一段过一遍文件名清洗，`.` 开头的段不要，
+   * 出不了 `lore/`（第 7 条）。返回新建了哪几个。
+   */
+  async ensureLoreFolders(categories: readonly string[]): Promise<string[]> {
+    const root = this.project.loreDir;
+    const created: string[] = [];
+    for (const category of categories) {
+      const parts = category
+        .split('/')
+        .map((s) => s.trim())
+        .filter((s) => s && !s.startsWith('.'))
+        .map(sanitizeFileName);
+      const abs = path.join(root, ...parts);
+      const inside = path.relative(root, abs);
+      if (parts.length === 0 || !inside || inside.startsWith('..') || path.isAbsolute(inside) || (await exists(abs))) {
+        continue;
+      }
+      await fs.mkdir(abs, { recursive: true });
+      created.push(parts.join('/'));
+    }
+    if (created.length > 0) {
+      this.project.invalidate();
+    }
+    return created;
+  }
+
   /** 写文风指南。同样在链外——它约束怎么写，不由任何一层产物生出来。 */
   async writeStyleGuide(content: string): Promise<string> {
     const rel = this.project.relPath(this.project.stylePath);
@@ -950,7 +979,7 @@ function safeStem(title: string): string {
 
 export { WsError, WsConflictError, MAX_EDITABLE_BYTES } from './guard';
 export type { WsErrorCode } from './guard';
-export { kindOfPath, pathOfTarget } from './kind';
+export { kindOfPath, normalizeRel, pathOfTarget } from './kind';
 export type { ArtifactKind, PathKind } from './kind';
 // 检索既是 `Workspace` 上的一个方法，也直接导出：三期的 agent 工具手里只有
 // 一个 `NovelProject`，不必为了搜一次而先造一个门面。

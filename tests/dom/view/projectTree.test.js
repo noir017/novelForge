@@ -91,7 +91,7 @@ describe('工程页目录树', { skip: JSDOM_SKIP }, () => {
 });
 
 /*
- * 「故事架构」组：小说配置 / 故事前提 / 角色图谱 / 世界观 / 情节大纲。
+ * 「故事架构」组：小说配置 / 故事前提 / 角色图谱 / 世界观 / 设定清单 / 情节大纲。
  *
  * 它是后面一切的上游（写正文要读前提、角色与世界观），所以排在章节组之前，
  * 组标题直接报「填了几件」——缺哪件，全书状态机的主按钮就推哪件。
@@ -119,17 +119,17 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
     assert.ok(names.indexOf('故事架构') < names.indexOf('章节'), names.join('|'));
   });
 
-  // 顺序即生成顺序：每一件都吃前面几件的产出。
-  test('五行，顺序即生成顺序', () => {
+  // 顺序即生成顺序：每一件都吃前面几件的产出。设定清单排在世界观之后、情节大纲之前。
+  test('六行，顺序即生成顺序', () => {
     assert.deepEqual(
       rows().map((r) => r.querySelector('.row-label').textContent),
-      ['小说配置', '故事前提', '角色图谱', '世界观', '情节大纲']
+      ['小说配置', '故事前提', '角色图谱', '世界观', '设定清单', '情节大纲']
     );
   });
 
-  // 夹具里世界观还没写，其余四件都填过。
-  test('组标题报填了几件（x/5）', () => {
-    assert.equal(groupMeta(), '4/5', groupMeta());
+  // 夹具里世界观还没写，其余五件都填过。
+  test('组标题报填了几件（x/6）', () => {
+    assert.equal(groupMeta(), '5/6', groupMeta());
   });
 
   test('填过的那一件打实心点', () => {
@@ -217,6 +217,57 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
     assert.equal(t.target.doc, 'characters', JSON.stringify(t));
   });
 
+  // 设定清单同角色图谱：没有自己的文件（它就是 lore/ 下那一组条目），填过时点它跳到「设定」那一组。
+  test('设定清单的副标题报条数', () => {
+    assert.equal(row('设定清单').querySelector('.row-detail')?.textContent, '0 条', row('设定清单').outerHTML);
+  });
+
+  test('设定清单填过：点它展开「设定」组，不进入那一层、不打开文件', () => {
+    const lore = () =>
+      [...ui.doc.querySelectorAll('#projectBody .group')].find((g) => g.querySelector('.group-name')?.textContent === '设定');
+    ui.clickEl(lore().querySelector('.group-toggle'));
+    assert.equal(lore().querySelector('.group-body').children.length, 0, '先折起来');
+    ui.sent.length = 0;
+    ui.clickEl(row('设定清单').querySelector('.row-label'));
+    assert.ok(lore().querySelector('.group-body').children.length > 0, lore().outerHTML);
+    assert.ok(!ui.last('setTarget'), JSON.stringify(ui.sent));
+    assert.ok(!ui.last('openFile'), JSON.stringify(ui.sent));
+    assert.match(row('设定清单').querySelector('.row-label').title, /跳到下面「设定」那一组/);
+  });
+
+  test('设定清单的菜单没有「打开」', () => {
+    const items = ui.itemsOf(ui.rightClick(row('设定清单')));
+    assert.ok(!items.includes('打开'), JSON.stringify(items));
+    assert.ok(items.includes('讨论') && items.includes('重写…'), JSON.stringify(items));
+    ui.closeMenu();
+  });
+
+  // 新书走到世界观之后：设定清单是第一件没填的，「去生成」挂在它上面，点了进入那一层（与别的几件一样）。
+  test('设定清单还没填、是第一件没填的：「去生成」进入那一层；点名字也进入那一层', () => {
+    const ui2 = mount();
+    const tree = sampleTree();
+    tree.architecture = tree.architecture.map((a) =>
+      a.key === 'world' ? { ...a, filled: true, detail: '' } : a.key === 'lore' ? { ...a, filled: false, detail: '待生成' } : a
+    );
+    ui2.post({ type: 'project', tree });
+    const r = [...ui2.doc.querySelectorAll('#projectBody .row-architecture')].find(
+      (n) => n.querySelector('.row-label')?.textContent === '设定清单'
+    );
+    const go = [...ui2.doc.querySelectorAll('#projectBody .row-architecture .row-go')];
+    assert.equal(go.length, 1);
+    assert.equal(go[0].closest('.row-architecture'), r);
+    ui2.sent.length = 0;
+    ui2.clickEl(go[0]);
+    const t = ui2.last('setTarget');
+    assert.equal(t?.target.kind, 'setting', JSON.stringify(ui2.sent));
+    assert.equal(t?.target.doc, 'lore', JSON.stringify(ui2.sent));
+    assert.ok(!ui2.sent.some((m) => m.type === 'send'), JSON.stringify(ui2.sent));
+    ui2.sent.length = 0;
+    ui2.clickEl(r.querySelector('.row-label'));
+    assert.equal(ui2.last('setTarget')?.target.doc, 'lore', JSON.stringify(ui2.sent));
+    assert.ok(!ui2.last('openFile'), JSON.stringify(ui2.sent));
+  });
+
   let worldItems;
   test('没填的那一件右键给「进入这一层（去生成）」', () => {
     worldItems = ui.itemsOf(ui.rightClick(row('世界观')));
@@ -271,11 +322,11 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
     ui.closeMenu();
   });
 
-  test('全部填满后组标题是 5/5', () => {
+  test('全部填满后组标题是 6/6', () => {
     const full = sampleTree();
     full.architecture = full.architecture.map((a) => ({ ...a, filled: true }));
     ui.post({ type: 'project', tree: full });
-    assert.equal(groupMeta(), '5/5', groupMeta());
+    assert.equal(groupMeta(), '6/6', groupMeta());
   });
 });
 

@@ -56,7 +56,7 @@ export interface ProjectTree {
   totalWords: number;
   staleCount: number;
   summarizedCount: number;
-  /** 「故事架构」组的五行：架构四件 + 情节大纲。 */
+  /** 「故事架构」组的六行：架构五件 + 情节大纲。 */
   architecture: ArchitectureRow[];
   /** 章节组的全部行，一个章号一行，升序。 */
   plots: ProjectPlotNode[];
@@ -135,15 +135,15 @@ export interface BookView extends IdeaDefaults {
 /**
  * 「故事架构」组里的一行。
  *
- * `key` 是架构四件之一或 `outline`（情节大纲）。角色图谱那一行没有自己的文件，
- * `relPath` 给角色目录；点它是跳到「角色」那一组，不是打开文件。
+ * `key` 是架构五件之一或 `outline`（情节大纲）。角色图谱、设定清单那两行没有自己的文件，
+ * `relPath` 给角色目录 / 设定目录；点它是跳到「角色」/「设定」那一组，不是打开文件。
  */
 export interface ArchitectureRow {
   key: SettingDoc | 'outline';
   label: string;
   relPath: string;
   filled: boolean;
-  /** 一句话副标题（「3 人」「覆盖到第 20 章」）。 */
+  /** 一句话副标题（「3 人」「24 条」「覆盖到第 20 章」）。 */
   detail: string;
 }
 

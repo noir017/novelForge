@@ -233,7 +233,7 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
  *
  * **正文不在这里**：它落在同号的章节上，而同号的章节在不在、叫什么名字要读盘才
  * 知道——这个函数是纯的。正文的落点走 views/pipeline.ts 的 `chapterTargetOf`。
- * 角色图谱给的是角色目录：它是一组卡，不是一个文件。
+ * 角色图谱给的是角色目录、设定清单给的是设定目录：它们是一组卡 / 一组条目，不是一个文件。
  */
 export function pathOfTarget(project: NovelProject, target: CreationTarget): string {
   switch (target.kind) {

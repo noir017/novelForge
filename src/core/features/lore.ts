@@ -238,36 +238,56 @@ export async function buildLoreEntries(project: NovelProject, names?: readonly s
     log.error('没有可用的模型，建条目中止');
     return;
   }
-  const [plots, through] = await Promise.all([
-    project.listChapters().then(async (chapters) => finalizedPlots(project.pairPlots(await project.listPlots(), chapters))),
-    integrationWatermark(project),
-  ]);
 
   await runTask(
     '建设定条目',
     async ({ signal, report }) => {
       const startedAt = Date.now();
-      let created = 0;
-      let failed = 0;
-      await runPool(targets, lanes, (u) => buildOne(project, u, plots, through, pool, signal), {
-        signal,
-        onSettled: (result, u, _i, done) => {
-          if (result.status === 'fulfilled') {
-            created++;
-          } else {
-            failed++;
-            log.error(`设定「${u.name}」建条目失败`, describeError(result.reason));
-          }
-          report({ message: `已建 ${done}/${n} 条`, current: done, total: n });
-        },
-      });
-      project.invalidate();
+      const { created, failed } = await createLoreEntries(project, targets, { signal, pool, lanes, report });
       const summary = `新建 ${created} 条设定${failed > 0 ? `，失败 ${failed} 条（详见日志页）` : ''}`;
       log.info('建条目结束', `${summary}｜总耗时 ${elapsed(startedAt)}`);
       host.toast(`${summary}。`);
     },
     { scope: '设定' }
   );
+}
+
+/**
+ * 建条目本身：**不问、不弹框**，调用方已经把条数与次数报过了（第 4 条）。每条 1 次，最多 `lanes` 条同时建；
+ * 原料是定稿细纲里提到它的记录，水位记到 {@link integrationWatermark}。「建条目」与拆书「从已写正文补齐」
+ * （features/derive.ts）共用。一条失败不连累别的，失败的写日志、计进 `failed`。
+ */
+export async function createLoreEntries(
+  project: NovelProject,
+  targets: readonly UnfiledLore[],
+  opts: {
+    signal: AbortSignal;
+    pool: ModelPool;
+    lanes: number;
+    report: (p: { message?: string; current?: number; total?: number }) => void;
+  }
+): Promise<{ created: number; failed: number }> {
+  const n = targets.length;
+  const [plots, through] = await Promise.all([
+    project.listChapters().then(async (chapters) => finalizedPlots(project.pairPlots(await project.listPlots(), chapters))),
+    integrationWatermark(project),
+  ]);
+  let created = 0;
+  let failed = 0;
+  await runPool([...targets], opts.lanes, (u) => buildOne(project, u, plots, through, opts.pool, opts.signal), {
+    signal: opts.signal,
+    onSettled: (result, u, _i, done) => {
+      if (result.status === 'fulfilled') {
+        created++;
+      } else {
+        failed++;
+        log.error(`设定「${u.name}」建条目失败`, describeError(result.reason));
+      }
+      opts.report({ message: `已建 ${done}/${n} 条`, current: done, total: n });
+    },
+  });
+  project.invalidate();
+  return { created, failed };
 }
 
 async function buildOne(

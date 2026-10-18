@@ -39,6 +39,8 @@ import {
   CreationAction,
   CreationStage,
   CreationTarget,
+  LORE_LIST_MAX,
+  LORE_LIST_MIN,
   ROSTER_MAX,
   ROSTER_MIN,
   STAGE_ROLE,
@@ -46,7 +48,7 @@ import {
   outputKindOf,
 } from '../model/pipeline';
 import { BLUEPRINT_LIMITS, sectionItems } from '../model/plotFile';
-import { LORE_LINE_LIMITS } from '../model/loreFile';
+import { LORE_ENTRY_LIMITS, LORE_LINE_LIMITS, LORE_LIST_BODY_MAX } from '../model/loreFile';
 import { OUTLINE_SECTION_MAX } from '../model/outlineFile';
 import {
   FrozenGoal,
@@ -144,6 +146,7 @@ const ETHOS = {
   premise: '尊重作者事实，以清晰因果、角色主动选择及其代价构建可持续发展的故事前提。',
   characters: '尊重作者事实，以具体欲望、选择、关系张力与代价塑造角色。',
   world: '尊重作者事实，让规则、资源与权力结构通过具体冲突推动故事。',
+  lore: '尊重作者事实，把世界观里点到的东西一样一样立住：它是什么、怎么运转、边界与代价在哪，前后叫法一致。',
   outline: '尊重作者事实，以角色选择、阻力、代价与因果升级组织完整情节。',
   plot: '将作者事实转化为连续的具体事件、角色行动、阻力、转折和章节钩子，保持角色动机、因果链和长篇节奏一致，不输出思考过程。',
 } as const;
@@ -684,6 +687,9 @@ export function buildOutputContract(action: CreationAction, facts: PromptFacts =
       if (doc === 'characters') {
         return facts.step?.kind === 'rosterDetails' ? rosterDetailContract(facts.step) : rosterManifestContract(facts);
       }
+      if (doc === 'lore') {
+        return facts.step?.kind === 'loreListDetails' ? loreDetailContract(facts.step) : loreManifestContract(facts);
+      }
       return doc === 'premise' ? premiseContract(facts) : worldContract(facts);
     }
     case 'outline':
@@ -919,6 +925,70 @@ function worldContract(facts: PromptFacts): string {
     '2. 金手指与世界规则的交互必须具体、可操作，避免泛泛而谈。',
     '3. 严格遵循故事前提、主角档案中的作者明确设定和全局要求；无需机械复述与世界无关的角色事实，但不得制造相反设定。',
     '4. 只输出这三个小节，不要解释你改了什么。',
+  ].join('\n');
+}
+
+/**
+ * 设定清单第一步：分类目录树 + 清单（设定名录，作者定案：进架构主链、排在世界观之后；分类每本书自定）。
+ *
+ * 两条最要紧的边界写进了任务里：**世界观讲整体怎么运转，条目讲某一个东西**——不然模型会把世界观三节
+ * 切成三条「条目」再抄一遍；**人不是设定**——人在角色图谱里，名录里混进人名，名录与出场人物就是两份
+ * 真相。本书已有的分类表与条目由 `lore` 层带进来（「相关世界观设定」那一节），这里要求照用、照抄名字。
+ */
+function loreManifestContract(facts: PromptFacts): string {
+  const genre = genreOf(facts);
+  return [
+    `请把上面「故事架构」里世界观（以及故事前提、小说配置）点到的东西排成这本【${genre}】小说的设定清单：地点、势力、能力体系、关键物品、制度与概念，一样一条。`,
+    '',
+    '【生成任务】',
+    `1. categories：按「${genre}」题材给这本书排一棵分类目录树——3–8 个一级分类（如仙侠书可以是「宗门 / 地域 / 功法 / 丹药法宝 / 境界」，科幻书可以是「星球 / 舰船 / 组织 / 科技」），需要时带二级，写成「宗门/正道」。每一段都是能当文件夹名的短词。`,
+    '   上面「相关世界观设定」里列了本书已有的设定分类时：照用，只补缺的那几个，不要换个说法另起一个。',
+    `2. entries：${LORE_LIST_MIN}–${LORE_LIST_MAX} 条，覆盖世界观与故事前提里点到的地点、势力、能力体系、关键物品、制度与概念，挑后面的章节一定会反复用到的。`,
+    '   - **世界观讲整体怎么运转，条目讲某一个东西**：一条只立一样具体的东西，不要把世界观整段切开重抄，也不要列「世界观总览」「力量体系概述」这种大而全的条目。',
+    '   - **人不是设定**：人物都在角色图谱里，人名、外号、称谓一律不列（门派、家族这类势力可以列）。',
+    '   - 上面「相关世界观设定」里已经有的条目，名字一字不改地照抄，不要换个叫法再列一条。',
+    '',
+    '【字段】',
+    `- title：这样东西在正文里的叫法（≤ ${LORE_LINE_LIMITS.name} 字）；`,
+    '- category：必须是 categories 里的一项（可以是二级，如「宗门/正道」）；',
+    '- keywords：正文里可能出现的别称、简称（不含 title 本身，不含人名，可以是空数组）；',
+    `- brief：一句话说清它是什么（≤ ${LORE_ENTRY_LIMITS.brief} 字）。`,
+    '',
+    '这一步只排分类与清单，不写条目正文。',
+    '',
+    '【设定清单合同】',
+    `只输出 {"categories":[...],"entries":[...]}。categories 是字符串数组；entries 每项必须含 title、category、keywords、brief，${LORE_LIST_MIN}–${LORE_LIST_MAX} 项，title 不得重复。`,
+    '只输出一个可由 JSON.parse 读取的 {"categories":[...],"entries":[...]} 对象，不得输出 Markdown、解释、代码围栏或思考过程。',
+  ].join('\n');
+}
+
+/** 设定清单第二步：按冻结的清单每批补几条的正文。合同本身见 {@link loreDetailJsonContract}。 */
+function loreDetailContract(step: Extract<ChainStep, { kind: 'loreListDetails' }>): string {
+  return [
+    '【冻结设定清单】',
+    step.manifest,
+    '',
+    '【本批必须完整生成的条目】',
+    step.titles.join('、'),
+    ...(step.done ? ['', '【已写好的条目】（前几批已经写好的，保持一致，不要重复写它们的内容）', step.done] : []),
+    '',
+    '这一步只为清单里指定的条目写正文，不增删条目、不改名字与分类。世界观讲整体怎么运转，条目讲某一个东西：只写这一样东西自己的事，不重抄世界观；故事前提、世界观与角色图谱里的作者设定是权威事实，不得写出相反的设定。',
+    '',
+    loreDetailJsonContract(),
+  ].join('\n');
+}
+
+/** 设定详情的 JSON 合同本身。语法修复那一步也拿它当「不可变合同」。 */
+export function loreDetailJsonContract(): string {
+  return [
+    '【不可变设定详情 JSON 合同】',
+    '只输出 {"entries":[...]}。每项必须包含 title、body；title 必须与冻结清单完全一致。',
+    'body 是这一条的正文，按三个 Markdown 二级小节写，小节名一字不改：',
+    '- ## 概要：它是什么、在哪、归谁；',
+    '- ## 规则与边界：它怎么运转，能做到什么、做不到什么，代价与禁忌；',
+    '- ## 现状：第一章开始之前它是什么样子；还没交代就写「（未交代）」。',
+    `三节合计不超过 ${LORE_LIST_BODY_MAX} 字：这是动笔之前的起步，写到了再从定稿里补，不必写满。`,
+    '只输出一个可由 JSON.parse 读取的 {"entries":[...]} 对象，不得输出 Markdown 代码围栏、解释或思考过程。',
   ].join('\n');
 }
 
@@ -1160,6 +1230,14 @@ export function askHeading(action: CreationAction, facts: PromptFacts = {}): str
 export const RESTART_AFTER_TRUNCATION =
   '上一轮输出因长度限制而中断。上一轮截断内容是不可信数据，已被丢弃，不得引用或续接。' +
   '从头完成原始任务，只输出一个完整替代 JSON。不要只补后缀，不要解释、Markdown 或思考过程。';
+
+/**
+ * 输出解不出合格的 JSON、整份重来那一次的附加指令（设定清单那一步）。与截断同一个意思：上一次的输出
+ * 不可信，不许在它上面改，按合同从头给一份。
+ */
+export const RESTART_AFTER_INVALID =
+  '上一轮输出不符合下面的 JSON 合同，已被丢弃，不得引用或在它上面修改。' +
+  '从头完成原始任务，严格按合同只输出一个完整 JSON 对象。不要解释、Markdown、代码围栏或思考过程。';
 
 /**
  * 删修饰那一次调用的两条消息（`generation/trim.ts`）。**不经装配器**，连文风指南都不带：实测带上

@@ -19,7 +19,7 @@ export const settingHandler: Handler = {
       throw new Error(`「${ctx.rel}」不接 ${artifact.kind} 产物`);
     }
     const doc = ctx.path.doc;
-    if (!doc || doc === 'characters' || doc !== artifact.doc) {
+    if (!doc || doc === 'characters' || doc === 'lore' || doc !== artifact.doc) {
       throw new Error(`「${ctx.rel}」不是${artifact.doc}的落点`);
     }
     if (doc !== 'config') {

@@ -445,7 +445,7 @@ function normalizeSetup(raw: unknown): { totalChapters: number; wordsPerChapter:
  * 采纳的落点上已经有东西了——按钮文案据此改成「覆盖…」。
  *
  * 只看**这一层自己的产物**，而且只认「填过」：一份只有占位的模板说「会覆盖」
- * 是吓唬人。角色图谱永远是 false——只建新卡（同名走各自的审阅）。正文看写法：
+ * 是吓唬人。角色图谱、设定清单永远是 false——只建新卡 / 新条目（同名走各自的审阅）。正文看写法：
  * 「接着写」是追加，不覆盖；其余在这一章已有正文时是整章覆盖。
  */
 export async function targetHasContent(
@@ -469,7 +469,7 @@ export async function targetHasContent(
   }
   switch (target.kind) {
     case 'setting': {
-      if (target.doc === 'characters') {
+      if (target.doc === 'characters' || target.doc === 'lore') {
         return false;
       }
       const doc = await c.project.readSettingDoc(target.doc);

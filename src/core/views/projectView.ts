@@ -7,7 +7,7 @@ import { scoped } from '../runtime/logger';
 import { hasContent, stripH1 } from '../model/markdown';
 import { BookConfig } from '../model/settingFile';
 import { DEFAULT_PARAGRAPH_STYLE } from '../model/paragraphFormat';
-import { BookFacts, BookStage, SETTING_DOC_LABEL, chapterLabel, deriveBookNextStep, deriveBookStage } from '../model/pipeline';
+import { BookFacts, BookStage, SETTING_DOCS, SETTING_DOC_LABEL, SettingDoc, chapterLabel, deriveBookNextStep, deriveBookStage } from '../model/pipeline';
 import { NovelProject } from '../model/project';
 import { PLOT_SECTION_KEYS, parsePlotFileName } from '../model/plotFile';
 import { isOutlineFilled, outlineCoverage } from '../model/outlineFile';
@@ -46,7 +46,7 @@ const lastConflictSignature = new Map<string, string>();
  *
  * ## 「故事架构」与「章节」两组
  *
- * - **故事架构**：小说配置 / 故事前提 / 角色图谱 / 世界观 / 情节大纲五行，各带
+ * - **故事架构**：小说配置 / 故事前提 / 角色图谱 / 世界观 / 设定清单 / 情节大纲六行，各带
  *   「填过没有」。它们是后面一切的上游，排在最前面。
  * - **章节**：一个章号一行（细纲号 = 章号）。一行同时报细纲与正文两面：排过没有、
  *   写了多少、定稿没有、上游变没变。
@@ -117,7 +117,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   // 章节列表、细纲列表、manifest 与大纲原文都用流水线那一趟读到的同一份，
   // 不再单独读一次。
   const { rows, chapters, plots, manifest, outline } = pipelineIndex;
-  const book = await buildBookFacts(project, pipelineIndex, { characters });
+  const book = await buildBookFacts(project, pipelineIndex, { characters, lore });
 
   const plotRows: ProjectPlotNode[] = rows.map((p) => {
     const chapterPath = p.chapter.relPath;
@@ -135,13 +135,16 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   });
 
   const coverage = outlineCoverage(outline);
+  // 角色图谱、设定清单两行报的是条数：它们没有自己的文件，「填过」看的就是那一组里有没有东西。
+  // 设定清单在有正文的书上算填过（`isLoreListFilled`），一条都没有时照实说 0 条；没填过才说「待生成」。
+  const counted: Partial<Record<SettingDoc, string>> = { characters: `${characters.length} 人`, lore: `${lore.length} 条` };
   const architecture: ArchitectureRow[] = [
-    ...(['config', 'premise', 'characters', 'world'] as const).map((doc) => ({
+    ...SETTING_DOCS.map((doc) => ({
       key: doc,
       label: SETTING_DOC_LABEL[doc],
       relPath: project.relPath(project.settingPath(doc)),
       filled: book.settings[doc],
-      detail: doc === 'characters' ? `${characters.length} 人` : book.settings[doc] ? '' : '待生成',
+      detail: doc === 'characters' || book.settings[doc] ? counted[doc] ?? '' : '待生成',
     })),
     {
       key: 'outline' as const,

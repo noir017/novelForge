@@ -46,7 +46,7 @@ export const bookTool = defineActionTool({
       },
     },
     derive: {
-      label: '从已写正文补齐：照第 1 章起连续写成的正文，补上缺的摘要、角色卡、架构四件、情节大纲、细纲与全书摘要（只补空白，已有的不动；动手前报调用次数）',
+      label: '从已写正文补齐：照第 1 章起连续写成的正文，补上缺的摘要、角色卡、架构几件、设定条目、情节大纲、细纲与全书摘要（只补空白，已有的不动；动手前报调用次数）',
       costly: true,
       async run(ctx) {
         return countedBy(await deriveFromText(ctx.project), '从已写正文补齐', '那几样都已经有了，或者还没有正文');

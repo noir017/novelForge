@@ -68,6 +68,22 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
         empty: cards.length > 0 ? undefined : '还没有角色卡。按前提排出主角、盟友与对手。',
       };
     }
+    // 设定清单同理：没有自己的文件，卡上按分类（目录）列出已有的条目名。
+    if (target.doc === 'lore') {
+      const entries = await project.listLore();
+      const byCategory = new Map<string, string[]>();
+      for (const e of entries) {
+        const list = byCategory.get(e.category) ?? byCategory.set(e.category, []).get(e.category)!;
+        list.push(e.title);
+      }
+      return {
+        stage: 'setting',
+        title: `架构 · ${label}`,
+        relPath: project.relPath(project.loreDir),
+        sections: [...byCategory].map(([category, titles]) => ({ key: category || '未分类', text: titles.join('、') })),
+        empty: entries.length > 0 ? undefined : '还没有设定条目。把世界观里点到的地点、势力、能力体系、关键物品排成一份清单。',
+      };
+    }
     const doc = await project.readSettingDoc(target.doc);
     const sections = sectionsOf(doc.sections, SETTING_SECTION_KEYS[target.doc]);
     return {

@@ -16,7 +16,7 @@
  * 展开的链（思路来自 AI-Novel-Writer，GPL-3.0，源自 AI_NovelGenerator）：
  *
  * ```
- * 一句话 ─▶ 架构：小说配置 → 故事前提 → 角色图谱 → 世界观
+ * 一句话 ─▶ 架构：小说配置 → 故事前提 → 角色图谱 → 世界观 → 设定清单
  *        ─▶ 情节大纲（按章号区间分节）
  *        ─▶ 细纲 summaries/…/NNN-标题.md（一章一份，每批 5 章；与正文相对路径相同）
  *        ─▶ 正文 chapters/…/NNN-标题.md（直接落盘，可以按卷分子目录）
@@ -78,27 +78,42 @@ export function isCreationStage(value: unknown): value is CreationStage {
   return typeof value === 'string' && (CREATION_STAGES as string[]).includes(value);
 }
 
-// ---------------------------------------------------------------- 架构的四件文档
+// ---------------------------------------------------------------- 架构的五件文档
 
 /**
- * 架构层的四件文档，顺序即生成顺序：每一件都吃前面几件的产出。
+ * 架构层的五件文档，顺序即生成顺序：每一件都吃前面几件的产出。
  *
- * `characters`（角色图谱）没有自己的文件——它就是 `characters/` 下那一组角色卡。
- * 另外三件各是一份文件（见 model/settingFile.ts）。
+ * `characters`（角色图谱）与 `lore`（设定清单）没有自己的文件——它们就是 `characters/`、`lore/`
+ * 下那一组角色卡、设定条目。另外三件各是一份文件（见 model/settingFile.ts）。
+ *
+ * 设定清单排在世界观之后（作者定案，设定名录）：世界观讲整体怎么运转，清单把里面点到的地点、势力、
+ * 体系、物品一样一样排出来，各建一条条目。
  */
-export type SettingDoc = 'config' | 'premise' | 'characters' | 'world';
+export type SettingDoc = 'config' | 'premise' | 'characters' | 'world' | 'lore';
 
-export const SETTING_DOCS: SettingDoc[] = ['config', 'premise', 'characters', 'world'];
+export const SETTING_DOCS: SettingDoc[] = ['config', 'premise', 'characters', 'world', 'lore'];
 
 export const SETTING_DOC_LABEL: Record<SettingDoc, string> = {
   config: '小说配置',
   premise: '故事前提',
   characters: '角色图谱',
   world: '世界观',
+  lore: '设定清单',
 };
 
 export function isSettingDoc(value: unknown): value is SettingDoc {
   return typeof value === 'string' && (SETTING_DOCS as string[]).includes(value);
+}
+
+/**
+ * 设定清单填过没有：至少有一条设定条目，**或者这本书已经有正文**（哪一章字数 > 0）。
+ *
+ * 后一半是给在写的书的：它们没排过清单，设定从定稿里长出来、再从名录建条目——不能因为架构多了
+ * 一件，就把写到第 80 章的书推回架构那一档（第 20 条：主按钮只推一个下一步，推的得是对的那个）。
+ * 读盘在 `NovelProject.settingFilled`，判据只在这里写一次。
+ */
+export function isLoreListFilled(entries: number, hasProse: boolean): boolean {
+  return entries > 0 || hasProse;
 }
 
 // ---------------------------------------------------------------- Capability
@@ -811,6 +826,35 @@ export function rosterCalls(): CallEstimate {
   };
 }
 
+/** 设定清单的条数上下限与详情每批几条（设定名录）。 */
+export const LORE_LIST_MIN = 12;
+export const LORE_LIST_MAX = 30;
+export const LORE_LIST_DETAIL_BATCH = 6;
+
+/**
+ * 设定清单：清单 1 次 + 详情每批 6 条，1 + ⌈n/6⌉。
+ *
+ * 低 3（12 条）/ 高 6（30 条）。上限照角色图谱那样算会是几十次（30 条逐批对半拆到底），报给作者
+ * 吓人又不真实；这里封顶 12：清单截断重来 1 次，详情 5 批里最多拆半几批、修一次语法——再坏下去链
+ * 就停（`completeLoreList` 按这个数刹车，第 4 条：说了上限就不越过）。
+ */
+export function loreListCalls(): CallEstimate {
+  const batches = (n: number) => Math.ceil(n / LORE_LIST_DETAIL_BATCH);
+  return {
+    low: 1 + batches(LORE_LIST_MIN),
+    high: 1 + batches(LORE_LIST_MAX),
+    max: LORE_LIST_CALLS_MAX,
+  };
+}
+
+/** 设定清单一共最多调几次模型。生成链到了这个数就不再拆半重试，没出来的条目只按清单建。 */
+export const LORE_LIST_CALLS_MAX = 12;
+
+/** 架构那一件要调几次：主按钮、补齐设定的确认框共用这一份。 */
+export function settingCalls(doc: SettingDoc): CallEstimate {
+  return doc === 'config' ? CONFIG_CALLS : doc === 'characters' ? rosterCalls() : doc === 'lore' ? loreListCalls() : ONE_CALL;
+}
+
 /**
  * 一批 n 章细纲：1 次；截断或解码失败时对半拆（满二叉树 2n − 1 次）、每章至多
  * 一次紧凑重建（n 次）、全程一次语法修复（1 次）——上限 3n。与上游
@@ -1112,7 +1156,10 @@ export const PLOT_BATCH = 5;
 export type BookStage = 'setting' | 'outline' | 'plots' | 'writing' | 'complete';
 
 export interface BookFacts {
-  /** 架构四件各自填过没有（角色图谱 = 至少有一张角色卡）。 */
+  /**
+   * 架构五件各自填过没有（角色图谱 = 至少有一张角色卡；设定清单 = 至少有一条设定条目，或者已经有正文，
+   * 见 {@link isLoreListFilled}）。
+   */
   settings: Record<SettingDoc, boolean>;
   /** 情节大纲有内容。 */
   outlineFilled: boolean;
@@ -1162,7 +1209,7 @@ export interface ChapterGap {
 /**
  * 判据自上而下取第一个不满足的：
  *
- * 1. 架构四件缺哪件 → 按顺序生成（每一件都吃前面几件）；
+ * 1. 架构五件缺哪件 → 按顺序生成（每一件都吃前面几件）；
  * 2. 写满了总章数 → 完成；
  * 3. 大纲缺失，或下一章已经超出大纲的覆盖 → 生成 / 续写大纲；
  * 4. 下一章没有细纲 → 拆细纲；
@@ -1188,12 +1235,13 @@ export function deriveBookStage(f: BookFacts): BookStage {
   return 'writing';
 }
 
-/** 架构四件各自那句「为什么是这一步」。 */
+/** 架构五件各自那句「为什么是这一步」。 */
 const SETTING_HINT: Record<SettingDoc, string> = {
   config: '先把这个脑洞展开成一份小说配置：类型、卖点、主角、金手指，以及全书写多少章、每章多少字。',
   premise: '从配置里提炼故事前提：一句话前提、核心冲突链、爽点循环、悬念骨架。',
   characters: '按前提排出角色图谱：主角、盟友、对手，以及他们之间的关系。',
   world: '把世界观立起来：规则与它的漏洞、阶层与资源、深层危机。',
+  lore: '把世界观里点到的地点、势力、能力体系、关键物品排成一份设定清单，每样建一条设定条目。',
 };
 
 /** 「第 3 章」或「第 3–7 章」。 */
@@ -1227,7 +1275,7 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
         label: `生成${SETTING_DOC_LABEL[doc]}`,
         hint: SETTING_HINT[doc],
         target: { kind: 'setting', doc },
-        calls: doc === 'config' ? CONFIG_CALLS : doc === 'characters' ? rosterCalls() : ONE_CALL,
+        calls: settingCalls(doc),
         // 配置要作者先给一句话和规模，点了是打开表单而不是直接发送。
         ...(doc === 'config' ? { form: 'idea' as const } : {}),
       };

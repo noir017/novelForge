@@ -5,6 +5,7 @@
  * ```
  * 一、细纲（第 1–N 章里没定稿的、定稿后正文改过的）  ← 第一次确认：只报细纲的次数
  * 二、配置 → 前提 → 角色卡 → 世界观（只补空白）     ← 第二次确认：细纲出来之后次数才算得准
+ *     → 设定条目（还一条都没有时，从名录建）
  *     → 情节大纲（每次 20 章，照细纲）
  *     → 全书摘要（落后就增量更新）
  * ```
@@ -20,7 +21,13 @@
  * ## 为什么是这个顺序
  *
  * 与新链路往下展开的顺序一致，每一件都吃前面几件：前提照着配置写，世界观照着前提与角色，大纲要架构
- * 四件。细纲排最前：建卡要从定稿过的细纲里认出场人物，大纲照细纲整理。
+ * 几件。细纲排最前：建卡要从定稿过的细纲里认出场人物，大纲照细纲整理。设定条目排在建卡之后：名录里
+ * 撞上角色卡的名字是人、不是设定，卡建好了才认得出来。
+ *
+ * 设定条目不走架构那一件「设定清单」：有正文的书那一件本来就算填过（`isLoreListFilled`），设定照名录
+ * 来——定稿过的细纲第九节里出现过、还没有条目的名字，出现 ≥2 章的（一个都没有就降到 1 章，同建卡），
+ * 与名录上「全部建条目」同一份 `createLoreEntries`。它是额外的一道：没建成不算补齐失败，挂黄 ❗、
+ * 后面几样照常补。
  *
  * ## 两次确认（第 4 条）
  *
@@ -60,9 +67,12 @@ import { BuildRequest } from '../context/builder';
 import { ChainError, singleShotNotes } from '../generation/structured';
 import { acceptArtifact } from '../generation/accept';
 import { buildBookFacts, nextWritableChapterNo } from '../views/pipeline';
+import { UnfiledLore, buildLoreIndex } from '../views/lore';
+import { normalizeLoreName } from '../model/loreFile';
 import { confirmDespiteGap } from './chapterGap';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import { CastCardsPlan, createCastCards, planCastCards } from './characterCard';
+import { BUILD_MIN_CHAPTERS, createLoreEntries } from './lore';
 import { poolIO, settingKey, settingRaw } from './pipelineBatch';
 import { summarizeChapters, updateGlobalSummary } from './summarize';
 
@@ -70,6 +80,8 @@ const log = scoped('补齐');
 
 /** 补建角色卡：定稿过的细纲里出场至少这么多章的人；一个都没有就降到 1。 */
 export const DERIVE_CARD_MIN_APPEARANCES = 2;
+/** 补建设定条目：名录里出现至少这么多章的（与「全部建条目」同一个门槛）；一个都没有就降到 1。 */
+export const DERIVE_LORE_MIN_CHAPTERS = BUILD_MIN_CHAPTERS;
 /** 全书摘要一次并不完时最多再并几次。 */
 export const GLOBAL_SUMMARY_ROUNDS = 5;
 /** 小说配置没写每章字数、已写的章也量不出来时的缺省（与补齐设定一致）。 */
@@ -167,6 +179,8 @@ interface DerivePlan {
   /** 要补的架构几件，按链路顺序。 */
   settings: SettingDoc[];
   cards?: CastCardsPlan & { min: number };
+  /** 要建的设定条目（还一条都没有时，名录里出现 ≥`min` 章的）。每条 1 次。 */
+  lore?: { targets: UnfiledLore[]; min: number };
   /** 情节大纲每次整理的区间。 */
   outline: { from: number; to: number }[];
   globalSummary: boolean;
@@ -182,6 +196,7 @@ async function deriveRest(project: NovelProject, through: number, written: Chapt
   const estimate = estimateOf(plan);
   const labels = [
     ...plan.settings.map((doc) => (doc === 'characters' ? '角色卡' : SETTING_DOC_LABEL[doc])),
+    ...(plan.lore ? ['设定条目'] : []),
     ...(plan.outline.length > 0 ? ['情节大纲'] : []),
     ...(plan.globalSummary ? ['全书摘要'] : []),
   ];
@@ -204,6 +219,9 @@ async function deriveRest(project: NovelProject, through: number, written: Chapt
   const settingPool = needSetting ? await createModelPool({ task: 'setting', concurrent: false }) : undefined;
   const lanes = plan.cards ? Math.min(config.concurrency, Math.max(1, plan.cards.plans.length)) : 1;
   const cardPool = plan.cards ? await createModelPool({ task: 'characterCard', concurrent: lanes > 1 }) : undefined;
+  const loreLanes = plan.lore ? Math.min(config.concurrency, Math.max(1, plan.lore.targets.length)) : 1;
+  // 建条目这一道是额外的：池建不出来不拦整件事，走到那一步时挂黄、接着往下补。
+  const lorePool = plan.lore ? await createModelPool({ task: 'loreSynthesis', concurrent: loreLanes > 1 }) : undefined;
   const plotPool = plan.outline.length > 0 ? await createModelPool({ task: 'plotOutline', concurrent: false }) : undefined;
   const summaryPool = plan.globalSummary ? await createModelPool({ task: 'plotSummary', concurrent: false }) : undefined;
   if ((needSetting && !settingPool) || (plan.cards && !cardPool) || (plan.outline.length > 0 && !plotPool)) {
@@ -231,7 +249,7 @@ async function deriveRest(project: NovelProject, through: number, written: Chapt
         return 'failed';
       };
 
-      // 架构四件：配置 → 前提 → 角色卡 → 世界观。
+      // 架构几件：配置 → 前提 → 角色卡 → 世界观。
       for (const doc of plan.settings) {
         const label = doc === 'characters' ? '角色卡' : SETTING_DOC_LABEL[doc];
         report({ message: label, current: step, total: steps });
@@ -285,9 +303,21 @@ async function deriveRest(project: NovelProject, through: number, written: Chapt
         }
         project.invalidate();
       }
+      const settingsDone = done.length === plan.settings.length;
+
+      // 设定条目：建卡之后（名录才认得出哪些名字是人）。额外的一道，没建成挂黄、后面照常补。
+      if (plan.lore && !halt && !signal.aborted && settingsDone) {
+        report({ message: '设定条目', current: step, total: steps });
+        const r = await deriveLore(project, plan.lore, { signal, pool: lorePool, lanes: loreLanes, report });
+        calls += r.calls;
+        if (r.created > 0) {
+          done.push(`设定条目 ${r.created} 条`);
+        }
+        step++;
+      }
 
       // 情节大纲：每次 20 章，照那几章定稿过的细纲。
-      if (!halt && !signal.aborted && done.length === plan.settings.length) {
+      if (!halt && !signal.aborted && settingsDone) {
         for (const range of plan.outline) {
           const span = rangeLabel(range.from, range.to);
           report({ message: `情节大纲 · ${span}`, current: step, total: steps });
@@ -379,7 +409,13 @@ async function deriveRest(project: NovelProject, through: number, written: Chapt
 /** 细纲齐了之后，其余几样各要做什么。零调用。总章数没写时问一句（取消就返回 undefined）。 */
 async function planRest(project: NovelProject, through: number, written: Chapter[]): Promise<DerivePlan | undefined> {
   project.invalidate();
-  const [facts, book, manifest] = await Promise.all([buildBookFacts(project), project.readBookConfig(), project.readManifest()]);
+  const [facts, book, manifest, entries] = await Promise.all([
+    buildBookFacts(project),
+    project.readBookConfig(),
+    project.readManifest(),
+    project.listLore(),
+  ]);
+  // 设定清单不在这里：有正文的书那一件算填过，设定条目单独一步从名录建（见 `planLore`）。
   const settings: SettingDoc[] = (['config', 'premise', 'characters', 'world'] as SettingDoc[]).filter((doc) => !facts.settings[doc]);
 
   let cards: DerivePlan['cards'];
@@ -434,17 +470,40 @@ async function planRest(project: NovelProject, through: number, written: Chapter
   return {
     settings,
     cards,
+    lore: entries.length === 0 ? await planLore(project) : undefined,
     outline,
     globalSummary: (manifest.globalSummaryThrough ?? 0) < through,
     setup,
   };
 }
 
+/**
+ * 要建哪几条设定条目：名录里「出现过 · 未建条目」的、出现 ≥{@link DERIVE_LORE_MIN_CHAPTERS} 章的；
+ * 一个都没有就降到 1 章（与建卡同一个降法）。名录里一个名字都没有（老细纲没记过设定）就不建。零调用。
+ */
+async function planLore(project: NovelProject): Promise<DerivePlan['lore']> {
+  const { unknown } = await buildLoreIndex(project);
+  let min = DERIVE_LORE_MIN_CHAPTERS;
+  let targets = unknown.filter((u) => u.chapters.length >= min);
+  if (targets.length === 0) {
+    min = 1;
+    targets = unknown;
+  }
+  if (targets.length === 0) {
+    log.info('定稿过的细纲里没记下设定（或者都已经有条目），设定条目这一步跳过');
+    return undefined;
+  }
+  return { targets, min };
+}
+
 /** 确认框上那个数：每一样的次数加起来。 */
-export function estimateOf(plan: Pick<DerivePlan, 'settings' | 'cards' | 'outline' | 'globalSummary'>): CallEstimate {
+export function estimateOf(plan: Pick<DerivePlan, 'settings' | 'cards' | 'lore' | 'outline' | 'globalSummary'>): CallEstimate {
   const parts: CallEstimate[] = [];
   for (const doc of plan.settings) {
     parts.push(doc === 'config' ? CONFIG_CALLS : doc === 'characters' ? EXACT_CALLS(plan.cards?.calls ?? 0) : ONE_CALL);
+  }
+  if (plan.lore) {
+    parts.push(EXACT_CALLS(plan.lore.targets.length));
   }
   if (plan.outline.length > 0) {
     parts.push(EXACT_CALLS(plan.outline.length));
@@ -463,6 +522,9 @@ function describePlan(plan: DerivePlan, through: number, config: ReturnType<type
   if (plan.cards) {
     lines.push(describeTaskModels(config, 'characterCard'));
   }
+  if (plan.lore) {
+    lines.push(describeTaskModels(config, 'loreSynthesis'));
+  }
   if (plan.outline.length > 0) {
     lines.push(describeTaskModels(config, 'plotOutline'));
   }
@@ -470,7 +532,7 @@ function describePlan(plan: DerivePlan, through: number, config: ReturnType<type
     lines.push(describeTaskModels(config, 'plotSummary'));
   }
   lines.push(
-    '按 配置 → 前提 → 角色卡 → 世界观 → 情节大纲 → 全书摘要 的顺序一件一件来，每件都照已写正文整理；已经有的不会被改动。一件失败就停，已经写好的留着。'
+    '按 配置 → 前提 → 角色卡 → 世界观 → 设定条目 → 情节大纲 → 全书摘要 的顺序一件一件来，每件都照已写正文整理；已经有的不会被改动。一件失败就停，已经写好的留着（设定条目没建成不停）。'
   );
   if (plan.setup) {
     lines.push(`小说配置按 ${plan.setup.totalChapters} 章 × ${plan.setup.wordsPerChapter} 字展开（没写每章字数时取已写各章的平均）。`);
@@ -480,6 +542,13 @@ function describePlan(plan: DerivePlan, through: number, config: ReturnType<type
     lines.push(
       `角色卡：给${names.slice(0, 12).join('、')}${names.length > 12 ? `等 ${names.length} 人` : ''}建卡（细纲里出场 ${plan.cards.min} 章以上、还没有卡；读他们出场的那几章正文，${plan.cards.calls} 次调用）。` +
         (plan.cards.skipped.length > 0 ? `跳过 ${plan.cards.skipped.map((s) => `「${s.name}」（${s.reason}）`).join('、')}。` : '')
+    );
+  }
+  if (plan.lore) {
+    const names = plan.lore.targets.map((u) => u.name);
+    lines.push(
+      `设定条目：给${names.slice(0, 12).join('、')}${names.length > 12 ? `等 ${names.length} 条` : ''}建条目（细纲里出现 ${plan.lore.min} 章以上、还没有条目；` +
+        `只读定稿细纲里提到它们的那几行，${names.length} 次调用）。建卡之后认得出是人的不建，次数只会更少。`
     );
   }
   if (plan.outline.length > 0) {
@@ -534,4 +603,68 @@ async function deriveCards(
 
 function rangeLabel(from: number, to: number): string {
   return from === to ? `第 ${from} 章` : `第 ${from}–${to} 章`;
+}
+
+/**
+ * 建设定条目那一步：与名录上「全部建条目」同一份 `createLoreEntries`。**不抛、不停**：没建成写日志、
+ * 挂在「设定清单」那一行上（黄 ❗，第 16 条），后面几样照常补；全建成了收掉那条记录。
+ *
+ * 动手前按刚建好的角色卡再认一遍名录：确认框里列的名字有的是人（卡在这一次才建出来），那些不建——
+ * 次数只会比报的少（第 4 条）。
+ */
+async function deriveLore(
+  project: NovelProject,
+  plan: NonNullable<DerivePlan['lore']>,
+  opts: {
+    signal: AbortSignal;
+    pool?: ModelPool;
+    lanes: number;
+    report: (p: { message?: string; current?: number; total?: number }) => void;
+  }
+): Promise<{ calls: number; created: number }> {
+  const key = settingKey(project, 'lore');
+  const warn = (message: string, detail: string): void => {
+    log.warn(message, detail);
+    void recordFailure(project, {
+      scope: '补齐',
+      targetKind: 'setting',
+      targetKey: key,
+      severity: 'warn',
+      op: 'deriveLore',
+      message,
+      detail,
+    });
+  };
+  project.invalidate();
+  const still = new Set((await buildLoreIndex(project)).unknown.map((u) => normalizeLoreName(u.name)));
+  const targets = plan.targets.filter((u) => still.has(normalizeLoreName(u.name)));
+  if (targets.length === 0) {
+    return { calls: 0, created: 0 };
+  }
+  if (!opts.pool) {
+    warn('设定条目没建：没有可用的模型', '从已写正文补齐的其余几样照常补齐。配好模型后可以在设定组「出现过 · 未建条目」里建。');
+    return { calls: 0, created: 0 };
+  }
+  try {
+    const r = await createLoreEntries(project, targets, {
+      signal: opts.signal,
+      pool: opts.pool,
+      lanes: opts.lanes,
+      report: (p) => opts.report({ message: `设定条目 · ${p.message}` }),
+    });
+    if (r.failed > 0 && !opts.signal.aborted) {
+      warn(
+        r.created > 0 ? `设定条目建了 ${r.created} 条，${r.failed} 条没建成` : `设定条目一条都没建成（${r.failed} 条失败）`,
+        '原因见日志页。其余几样照常补齐；没建成的仍在设定组「出现过 · 未建条目」里，可以再建。'
+      );
+    } else if (r.failed === 0) {
+      await clearFailures(project, 'setting', key, 'deriveLore');
+    }
+    return { calls: r.created + r.failed, created: r.created };
+  } catch (err) {
+    if (!(err instanceof CancelledError || opts.signal.aborted)) {
+      warn(`设定条目没建成（${describeError(err)}）`, '从已写正文补齐的其余几样照常补齐。');
+    }
+    return { calls: 0, created: 0 };
+  }
 }

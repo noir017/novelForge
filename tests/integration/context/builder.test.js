@@ -213,8 +213,9 @@ describe('NovelProject 读取示例工程', () => {
     assert.equal(bookConfig.wordsPerChapter, 400);
   });
 
-  test('架构四件都填过', () => {
-    assert.deepEqual(filled, { config: true, premise: true, characters: true, world: true });
+  // 设定清单：示例工程已经写了正文，这一件算填过（在写的书不被推回架构）。
+  test('架构五件都填过', () => {
+    assert.deepEqual(filled, { config: true, premise: true, characters: true, world: true, lore: true });
   });
 
   test('读到 4 张角色卡', () => {
@@ -1929,7 +1930,7 @@ describe('工程页数据', () => {
     assert.ok(plots.every((p) => !p.upstreamStale), JSON.stringify(plots.map((p) => p.upstreamStale)));
   });
 
-  // 架构四件与大纲都齐了、第 1–3 章写完，第 4 章细纲已经排好 → 全书下一步是写正文。
+  // 架构五件与大纲都齐了、第 1–3 章写完，第 4 章细纲已经排好 → 全书下一步是写正文。
   test('全书阶段是「写正文」', () => {
     assert.equal(tree.bookStage, 'writing', tree.bookStage);
   });
@@ -1938,18 +1939,25 @@ describe('工程页数据', () => {
     assert.equal(tree.nextChapterNo, 4);
   });
 
-  // 「故事架构」组：四件文档 + 情节大纲，顺序即生成顺序。
-  test('故事架构组五行，顺序是 配置 → 前提 → 角色图谱 → 世界观 → 大纲', () => {
-    assert.deepEqual(tree.architecture.map((r) => r.key), ['config', 'premise', 'characters', 'world', 'outline']);
+  // 「故事架构」组：五件文档 + 情节大纲，顺序即生成顺序。
+  test('故事架构组六行，顺序是 配置 → 前提 → 角色图谱 → 世界观 → 设定清单 → 大纲', () => {
+    assert.deepEqual(tree.architecture.map((r) => r.key), ['config', 'premise', 'characters', 'world', 'lore', 'outline']);
   });
 
-  test('示例工程的故事架构 5/5 都填过', () => {
+  test('示例工程的故事架构 6/6 都填过', () => {
     assert.ok(tree.architecture.every((r) => r.filled), JSON.stringify(tree.architecture));
   });
 
   test('角色图谱那一行报人数、指向角色目录', () => {
     const row = tree.architecture.find((r) => r.key === 'characters');
     assert.ok(row.detail === '4 人' && row.relPath === '.novelforge/characters', JSON.stringify(row));
+  });
+
+  test('设定清单那一行报条数、指向设定目录', () => {
+    const row = tree.architecture.find((r) => r.key === 'lore');
+    assert.equal(row.label, '设定清单');
+    assert.equal(row.relPath, '.novelforge/lore');
+    assert.match(row.detail, /^\d+ 条$/);
   });
 
   test('情节大纲那一行报覆盖到第几章', () => {

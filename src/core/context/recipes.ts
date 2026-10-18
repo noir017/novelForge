@@ -56,9 +56,11 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // ——这一层在第一章之前，也不该被已经写出来的东西带着走。（从已写正文整理时例外：
   // 那时正文就是要整理的东西，经 `written` 带。）
   //
-  // ★ `settingDocs` 与 `rosterDoc` 是 P0：架构四件一件吃一件，前提要照着配置写，
+  // ★ `settingDocs` 与 `rosterDoc` 是 P0：架构几件一件吃一件，前提要照着配置写，
   //   世界观要照着前提与角色写，少了上一件，这一件就是凭空编的。角色图谱一览不强制
   //   ——老工程可能有几十张卡，放不下时说一声，完整的卡在 P1 还有一次机会。
+  // `lore` P2（设定名录）：只有设定清单与世界观两件用得上——清单要本书的分类表与已有条目
+  //   （照用目录、照抄名字），世界观带作者点名的那几条；其余几件层里自己跳过（layers/background.ts）。
   setting: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
@@ -69,6 +71,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'skill', priority: 0 },
     { layer: 'history', priority: 1 },
     { layer: 'characters', priority: 1 },
+    { layer: 'lore', priority: 2 },
   ],
 
   // ---------------------------------------------------------------- 大纲

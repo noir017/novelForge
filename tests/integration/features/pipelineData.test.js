@@ -103,7 +103,7 @@ describe('数据层 · 目录与路径规则', () => {
 
   test('空模板都不算填过', async () => {
     assert.deepEqual(await project.settingFilled(), {
-      config: false, premise: false, characters: false, world: false,
+      config: false, premise: false, characters: false, world: false, lore: false,
     });
   });
 
@@ -656,6 +656,7 @@ describe('全书事实 · 从空工程一路推到在写', () => {
   const facts = async () => bundle.pipe.buildBookFacts(pr);
   const stageOf = async () => bundle.model.deriveBookStage(await facts());
   let empty;
+  let beforeLore;
   let afterSettings;
   let afterPlot;
   let afterChapters;
@@ -667,12 +668,17 @@ describe('全书事实 · 从空工程一路推到在写', () => {
     pr = p.project;
     empty = { facts: await facts(), stage: await stageOf() };
 
-    // 架构四件与一节大纲。
+    // 架构前四件与一节大纲。
     p.write('.novelforge/config.md', '---\ntotalChapters: 30\nwordsPerChapter: 400\n---\n\n# 小说配置\n\n## 核心梗概\n\n回镇查火。\n');
     p.write('.novelforge/premise.md', '# 故事前提\n\n## 核心冲突链\n\n回镇 → 被认出。\n');
     p.write('.novelforge/world.md', '# 世界观\n\n## 规则与漏洞\n\n过所制度。\n');
     p.write('.novelforge/characters/林昭.md', '---\nname: 林昭\n---\n\n# 林昭\n');
     p.write('.novelforge/outline.md', '# 大纲\n\n## 第1–20章：第一幕\n\n进镇。\n');
+    pr.invalidate();
+    beforeLore = { facts: await facts(), stage: await stageOf() };
+
+    // 第五件设定清单：一条条目就算填过（与角色图谱一张卡就算同理）。
+    p.write('.novelforge/lore/地域/青崖镇.md', '---\ntitle: 青崖镇\nkeywords: [青崖镇]\n---\n\n# 青崖镇\n');
     pr.invalidate();
     afterSettings = { facts: await facts(), stage: await stageOf() };
 
@@ -692,8 +698,8 @@ describe('全书事实 · 从空工程一路推到在写', () => {
     afterEmptyChapter = await facts();
   });
 
-  test('空工程：架构四件都没有，从「架构」开始', () => {
-    assert.deepEqual(empty.facts.settings, { config: false, premise: false, characters: false, world: false });
+  test('空工程：架构五件都没有，从「架构」开始', () => {
+    assert.deepEqual(empty.facts.settings, { config: false, premise: false, characters: false, world: false, lore: false });
     assert.equal(empty.stage, 'setting');
   });
 
@@ -708,8 +714,15 @@ describe('全书事实 · 从空工程一路推到在写', () => {
     assert.equal(empty.facts.nextPlotFilled, false);
   });
 
-  test('架构齐了：四件都认', () => {
-    assert.deepEqual(afterSettings.facts.settings, { config: true, premise: true, characters: true, world: true });
+  // 设定名录：大纲写在前面也不跳过——五件按顺序，世界观之后是设定清单。
+  test('前四件齐了、还没有设定条目：架构那一档推设定清单', () => {
+    assert.equal(beforeLore.facts.settings.lore, false);
+    assert.equal(beforeLore.stage, 'setting');
+    assert.deepEqual(bundle.model.deriveBookNextStep('setting', beforeLore.facts).target, { kind: 'setting', doc: 'lore' });
+  });
+
+  test('架构齐了：五件都认', () => {
+    assert.deepEqual(afterSettings.facts.settings, { config: true, premise: true, characters: true, world: true, lore: true });
   });
 
   test('大纲按区间标题算覆盖到第几章', () => {

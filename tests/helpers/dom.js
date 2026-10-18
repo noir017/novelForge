@@ -433,7 +433,7 @@ const viewState = (extra) =>
  * | 5《赤星》 | 只有骨架 | 没写 | — | plot |
  *
  * `nextChapterNo` 是 4：从第 1 章起连续有正文的最大章号 + 1。**只有这一行**挂
- * 「去写这一章」。故事架构四件填了三件、外加大纲，所以组标题是 4/5。
+ * 「去写这一章」。故事架构五件填了四件（设定清单因为已经写了正文算填过）、外加大纲，所以组标题是 5/6。
  */
 function sampleTree() {
   return {
@@ -452,13 +452,15 @@ function sampleTree() {
     // 叙事线（七期）：排过 4 条，一条已收，一条过了回收章还开着。
     threadsPath: '.novelforge/threads.md',
     threads: { exists: true, total: 4, open: 3, closed: 1, overdue: 1 },
-    // 故事架构：四件文档 + 情节大纲，顺序即生成顺序。世界观还没写。
-    // 角色图谱没有自己的文件，relPath 给的是角色目录。
+    // 故事架构：五件文档 + 情节大纲，顺序即生成顺序。世界观还没写。
+    // 角色图谱、设定清单没有自己的文件，relPath 给的是角色目录、设定目录。这棵树已经写了正文，
+    // 设定清单算填过（一条条目都没有也照实说 0 条）。
     architecture: [
       { key: 'config', label: '小说配置', relPath: '.novelforge/config.md', filled: true, detail: '' },
       { key: 'premise', label: '故事前提', relPath: '.novelforge/premise.md', filled: true, detail: '' },
       { key: 'characters', label: '角色图谱', relPath: '.novelforge/characters', filled: true, detail: '2 人' },
       { key: 'world', label: '世界观', relPath: '.novelforge/world.md', filled: false, detail: '待生成' },
+      { key: 'lore', label: '设定清单', relPath: '.novelforge/lore', filled: true, detail: '0 条' },
       { key: 'outline', label: '情节大纲', relPath: '.novelforge/outline.md', filled: true, detail: '覆盖到第 20 章' },
     ],
     // 章节列表是扁平的，一个章号一行，升序。

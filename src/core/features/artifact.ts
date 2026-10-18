@@ -24,10 +24,10 @@
  *
  * ## 多步生成交来的是规范化结果
  *
- * 小说配置、角色图谱、细纲批次由生成链（generation/structured.ts）分几次调用拼出来，
- * 交到气泡里的是**将要落盘的样子**：配置是 `config.md` 全文、角色图谱与细纲批次是
+ * 小说配置、角色图谱、设定清单、细纲批次由生成链（generation/structured.ts）分几次调用拼出来，
+ * 交到气泡里的是**将要落盘的样子**：配置是 `config.md` 全文、角色图谱、设定清单与细纲批次是
  * 规范化的 JSON。这里认那几种形状，也认模型第一次调用的原样输出（agent 那条路、
- * 老会话），并照旧三层降级。合同本身在 features/blueprint.ts、roster.ts、novelConfig.ts。
+ * 老会话），并照旧三层降级。合同本身在 features/blueprint.ts、roster.ts、loreList.ts、novelConfig.ts。
  */
 import { normalizeGender } from '../model/gender';
 import { parseMarkdown, pickSections } from '../model/markdown';
@@ -46,12 +46,13 @@ import {
 import { CHARACTER_SECTION_KEYS, CharacterSections } from '../model/types';
 import { CreationAction, CreationTarget, SettingDoc } from '../model/pipeline';
 import { BlueprintItem, decodeBlueprints, keyEventList } from './blueprint';
+import { LoreListEntry, parseLoreList } from './loreList';
 import { STYLE_DRAFT_HEADING, decodeNovelConfig } from './novelConfig';
 import { extractJsonObject, stripCodeFence } from './parse';
 import type { RosterEntry } from './roster';
 import { toSectionText } from './summarize';
 
-export type { RosterEntry };
+export type { RosterEntry, LoreListEntry };
 
 // ---------------------------------------------------------------- 产物形状
 
@@ -73,8 +74,8 @@ export interface PlotFields {
 }
 
 /**
- * 解析出来的产物。`kind` 与 `CreationTarget.kind` 不完全对应：架构层四件里
- * 「角色图谱」产出的是一组角色卡，其余三件是一份文档。
+ * 解析出来的产物。`kind` 与 `CreationTarget.kind` 不完全对应：架构层五件里
+ * 「角色图谱」产出的是一组角色卡、「设定清单」产出的是一组设定条目（外加分类目录），其余三件是一份文档。
  */
 export type Artifact =
   | {
@@ -86,6 +87,8 @@ export type Artifact =
       style?: string;
     }
   | { kind: 'characterRoster'; characters: RosterEntry[] }
+  /** 设定清单：本书的分类目录（落盘时建成 `lore/` 下的目录，空的也建）与条目。 */
+  | { kind: 'loreList'; categories: string[]; entries: LoreListEntry[] }
   /** `range` 给了就只替换大纲里与它重叠的那几节（model/outlineFile.ts 的 `mergeOutline`）。 */
   | { kind: 'outlineDoc'; text: string; range?: ChapterRange }
   | ({ kind: 'plot' } & PlotFields)
@@ -103,7 +106,7 @@ export interface ChapterRange {
  * 按 action 解析。**绝不抛**：解析这一步出异常，用户丢的是刚花掉的那次调用。
  * 实在认不出就退回一个「全文塞进主字段」的产物，让他至少能手工取用。
  *
- * 架构层要看 target 才分得清是哪一件（四件同属一个阶段）；其余阶段只看 action。
+ * 架构层要看 target 才分得清是哪一件（五件同属一个阶段）；其余阶段只看 action。
  *
  * `range` 只对两层有意义：大纲（续写的那一段，落盘时按区间合并）与细纲（**给了区间
  * 就是一批**，按批次合同严格解码，不做全文兜底——见 {@link parsePlotStrict} 为什么）。
@@ -128,9 +131,10 @@ export function parseArtifact(
       return { kind: 'plot', ...(parsePlotStrict(text) ?? { sections: { ...emptyPlotSections(), 关键事件: text } }) };
     case 'setting': {
       const doc: SettingDoc = target?.kind === 'setting' ? target.doc : 'config';
-      return doc === 'characters'
-        ? { kind: 'characterRoster', characters: parseRoster(text) }
-        : parseSettingArtifact(doc, text);
+      if (doc === 'characters') {
+        return { kind: 'characterRoster', characters: parseRoster(text) };
+      }
+      return doc === 'lore' ? { kind: 'loreList', ...parseLoreList(text) } : parseSettingArtifact(doc, text);
     }
   }
 }
@@ -145,6 +149,8 @@ export function isArtifactEmpty(artifact: Artifact): boolean {
       return !Object.values(artifact.sections).some((v) => v.trim());
     case 'characterRoster':
       return artifact.characters.length === 0;
+    case 'loreList':
+      return artifact.entries.length === 0;
     case 'plot':
       return !Object.values(artifact.sections).some((v) => v.trim());
     case 'plotBatch':
@@ -162,6 +168,8 @@ export function describeArtifact(artifact: Artifact): string {
     }
     case 'characterRoster':
       return `角色图谱 · ${artifact.characters.length} 人`;
+    case 'loreList':
+      return `设定清单 · ${artifact.entries.length} 条 · ${artifact.categories.length} 个分类`;
     case 'outlineDoc':
       return `情节大纲 · ${artifact.text.length} 字`;
     case 'plot': {

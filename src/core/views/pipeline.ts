@@ -45,7 +45,7 @@ import {
   isFallbackChapterTitle,
   manuscriptRatio,
 } from '../model/pipeline';
-import { Chapter, CharacterCard, ProjectManifest } from '../model/types';
+import { Chapter, CharacterCard, LoreEntry, ProjectManifest } from '../model/types';
 
 const log = scoped('流水线');
 
@@ -259,11 +259,16 @@ export async function chapterTargetOf(
 export async function buildBookFacts(
   project: NovelProject,
   index?: PipelineIndex,
-  known?: { characters?: CharacterCard[] }
+  known?: { characters?: CharacterCard[]; lore?: readonly LoreEntry[] }
 ): Promise<BookFacts> {
   const built = index ?? (await buildPipelineIndex(project));
-  // 配置在索引里已经读过；角色卡调用方手上有就用它的（工程页刷新时已经列过一遍）。
-  const settings = await project.settingFilled({ config: built.config, characters: known?.characters });
+  // 配置与章节在索引里已经读过；角色卡、设定条目调用方手上有就用它的（工程页刷新时已经列过一遍）。
+  const settings = await project.settingFilled({
+    config: built.config,
+    chapters: built.chapters,
+    characters: known?.characters,
+    lore: known?.lore,
+  });
   const nextChapterNo = nextWritableChapterNo(built.chapters);
   const nextPlot = project.plotFor(nextChapterNo, built.plots, built.chapters);
   const gap = chapterGapOf(built.chapters);

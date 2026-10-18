@@ -121,17 +121,28 @@ export const characters: LayerFn = async (a, spec) => {
  * 整条 = 一句话 + 正文 + 尾巴（水位之后、本章之前定稿的章里关于它的新事实，`loreTail` 行）：条目落后于
  * 正文时，模型照样拿得到新的那几句，不必每章定稿都调一次模型去改条目。整条超了 `loreFull`、超了
  * `loreChars` 或预算放不下就降成一行；一行也超了上限就丢。
+ *
+ * 架构那一层只有两件用得上它：**设定清单**当规划看（分类表 + 已有条目一行一条，清单要照用目录、照抄
+ * 名字）；世界观不当规划看，只带作者点名的（已经写了正文的书再加近几章定稿里出现过的一句话）。其余几件
+ * （配置、前提、角色图谱）一条都不带——它们在设定之前。
  */
 export const lore: LayerFn = async (a, spec) => {
+  const { stage } = a.request.action;
+  const doc = a.request.target.kind === 'setting' ? a.request.target.doc : undefined;
+  if (stage === 'setting' && doc !== 'lore' && doc !== 'world') {
+    return;
+  }
+  const listing = stage === 'setting' && doc === 'lore';
   const entries = await a.project.listLore();
-  if (entries.length === 0) {
+  // 排设定清单时一条条目都没有也要往下走：分类表（目录，空的也算）照样要给。
+  if (entries.length === 0 && !listing) {
     return;
   }
   const index = await buildLoreIndex(a.project, { entries });
   const records = new Map(index.known.map((r) => [r.entry.slug, r]));
   const lookup = createLoreLookup(entries);
   const continuation = a.request.step?.kind === 'continuation';
-  const planning = a.request.action.stage === 'outline' || a.request.action.stage === 'plot';
+  const planning = listing || stage === 'outline' || stage === 'plot';
 
   // 规划时新引入的设定要归类：分类就是目录、每本书自己的，空目录也算，模型只能从这一行里知道有哪些。
   if (planning) {

@@ -36,7 +36,7 @@ import {
   parseSettingDoc,
   settingTemplate,
 } from './settingFile';
-import { SettingDoc, isFallbackChapterTitle } from './pipeline';
+import { SettingDoc, isFallbackChapterTitle, isLoreListFilled } from './pipeline';
 import { Thread, parseThreads } from './threadsFile';
 import {
   countWords,
@@ -208,7 +208,7 @@ export class NovelProject {
     return path.join(this.novelDir, 'world.md');
   }
 
-  /** 架构文档的绝对路径。角色图谱没有自己的文件，给的是角色目录。 */
+  /** 架构文档的绝对路径。角色图谱、设定清单没有自己的文件，给的是角色目录、设定目录。 */
   settingPath(doc: SettingDoc): string {
     switch (doc) {
       case 'config':
@@ -219,6 +219,8 @@ export class NovelProject {
         return this.worldPath;
       case 'characters':
         return this.charactersDir;
+      case 'lore':
+        return this.loreDir;
     }
   }
 
@@ -869,26 +871,37 @@ export class NovelProject {
   }
 
   /**
-   * 架构四件各自填过没有。全书状态机的第一格读它。
+   * 架构五件各自填过没有。全书状态机的第一格读它。
    *
    * 角色图谱没有自己的文件，**至少有一张角色卡就算**——作者手写的卡、从正文里
-   * 提取的卡都算数。
+   * 提取的卡都算数。设定清单同理（至少一条条目），另外**已经有正文的书一律算填过**
+   * （`isLoreListFilled`）：在写的书的设定从定稿里长出来，不被推回架构。有正文时连目录都不必扫。
    *
-   * `known` 收调用方手上已经读过的：工程页一次刷新里配置与角色卡都已经读过一遍，
+   * `known` 收调用方手上已经读过的：工程页一次刷新里配置、角色卡、设定条目与章节都已经读过一遍，
    * 再读一遍只是多几次 I/O（`tests/integration/views/projectTreeReads.test.js` 盯着）。
    */
-  async settingFilled(known?: { config?: BookConfig; characters?: CharacterCard[] }): Promise<Record<SettingDoc, boolean>> {
-    const [config, premise, world, characters] = await Promise.all([
+  async settingFilled(known?: {
+    config?: BookConfig;
+    characters?: CharacterCard[];
+    lore?: readonly LoreEntry[];
+    chapters?: readonly Chapter[];
+  }): Promise<Record<SettingDoc, boolean>> {
+    const [config, premise, world, characters, chapters] = await Promise.all([
       known?.config ? { sections: known.config.sections as Record<string, string> } : this.readSettingDoc('config'),
       this.readSettingDoc('premise'),
       this.readSettingDoc('world'),
       known?.characters ?? this.listCharacters(),
+      known?.chapters ?? this.listChapters(),
     ]);
+    const hasProse = chapters.some((c) => c.wordCount > 0);
+    // 只要知道有没有：不读条目内容，列一下文件就够了。
+    const entries = hasProse ? 0 : known?.lore ? known.lore.length : (await listMarkdownDeep(this.loreDir)).length;
     return {
       config: isSettingFilled('config', config.sections),
       premise: isSettingFilled('premise', premise.sections),
       world: isSettingFilled('world', world.sections),
       characters: characters.length > 0,
+      lore: isLoreListFilled(entries, hasProse),
     };
   }
 

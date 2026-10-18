@@ -69,9 +69,11 @@ import {
   chaptersOf,
   completeBlueprints,
   completeConfig,
+  completeLoreList,
   completeRoster,
   singleShotNotes,
 } from './structured';
+import { LoreListKnown } from '../features/loreList';
 import { writingAim } from '../model/trimProse';
 import { ManuscriptChainResult, WriteProgress, completeManuscript } from './continuation';
 import { ReviewChainContext, completeReview } from './review';
@@ -212,7 +214,7 @@ export function parseDraftArtifact(
   if (outputKindOf(action) !== 'artifact') {
     return undefined;
   }
-  // 架构层要看 target 才分得清是哪一件（四件同属一个阶段）；细纲与大纲还要看区间。
+  // 架构层要看 target 才分得清是哪一件（五件同属一个阶段）；细纲与大纲还要看区间。
   const artifact = parseArtifact(action, raw, target, range);
   return isArtifactEmpty(artifact) ? undefined : artifact;
 }
@@ -513,6 +515,8 @@ async function runChain(
       });
     case 'roster':
       return completeRoster(first, io);
+    case 'loreList':
+      return completeLoreList(first, io, await loreListKnown(project));
     case 'blueprints':
       return completeBlueprints(first, io, chaptersOf(request.range!));
     case 'manuscript':
@@ -522,6 +526,15 @@ async function runChain(
     case 'review':
       throw new Error('审稿链缺了待审的正文。');
   }
+}
+
+/**
+ * 设定清单那条链要对照的：本书的目录树（照用、只补缺的）、已有条目（照抄名字）、角色卡上的人
+ * （人不是设定）。对话页与补齐设定（features/pipelineBatch.ts）共用。
+ */
+export async function loreListKnown(project: NovelProject): Promise<LoreListKnown> {
+  const [categories, entries, cards] = await Promise.all([project.listLoreCategories(), project.listLore(), project.listCharacters()]);
+  return { categories, entries, people: cards.flatMap((c) => [c.name, ...c.aliases]) };
 }
 
 // ---------------------------------------------------------------- 写正文

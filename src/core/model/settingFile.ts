@@ -36,7 +36,7 @@ import {
 } from './markdown';
 import { PARAGRAPH_STYLES, PARAGRAPH_STYLE_LABEL, ParagraphStyle } from './paragraphFormat';
 
-/** 有自己文件的三件。第四件「角色图谱」就是 `characters/` 目录。 */
+/** 有自己文件的三件。「角色图谱」就是 `characters/` 目录，「设定清单」就是 `lore/` 目录。 */
 export type SettingFileDoc = 'config' | 'premise' | 'world';
 
 export const SETTING_FILE_DOCS: readonly SettingFileDoc[] = ['config', 'premise', 'world'];

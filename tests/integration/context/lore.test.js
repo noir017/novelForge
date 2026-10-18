@@ -12,6 +12,7 @@
  * | 续写那几轮也带（只带点名与命中的） | 从前续写一条设定都不带 |
  * | 取消勾选的不占名额 | 作者排除一条，后面的补上来 |
  * | 整条的空行隔开，一句话的并成一张清单 | 消息里好读 |
+ * | 架构层只有设定清单（分类表 + 已有条目一览，空目录也算）与世界观（点名的）带设定 | 清单要照用目录、照抄名字；配置、前提、角色图谱在设定之前 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -279,5 +280,57 @@ describe('续写那几轮', () => {
       loreItems(b).map((i) => i.label),
       ['设定 · 崖字令牌', '设定 · 青崖镇', '设定 · 过所']
     );
+  });
+});
+
+/*
+ * 架构那一层（设定名录第四期）：只有设定清单与世界观两件用得上设定。清单当规划看——分类表 + 已有条目
+ * 一行一条（照用目录、照抄名字）；世界观只带作者这次点名的；其余几件在设定之前，一条都不带。
+ */
+describe('架构那一层', () => {
+  const setting = (doc, ask = '') =>
+    bundle.builder.buildContext(
+      t.project,
+      { action: { stage: 'setting', capability: 'generate' }, target: { kind: 'setting', doc }, ask },
+      config(3)
+    );
+
+  test('设定清单：分类表 + 已有条目一行一条', async () => {
+    const items = loreItems(await setting('lore'));
+    assert.equal(items[0].id, 'lore:categories');
+    assert.equal(items[0].text, '本书的设定分类：地域、信物、宗门、宗门/正道（新设定的 category 从这里挑）。');
+    const lines = items.filter((i) => i.id !== 'lore:categories');
+    assert.deepEqual(lines.map((i) => i.label).sort(), ['设定 · 后山', '设定 · 过所', '设定 · 青崖镇', '设定 · 青云宗', '设定 · 崖字令牌'].sort());
+    assert.ok(lines.every((i) => i.text.startsWith('- ')), lines.map((i) => i.text).join('\n'));
+  });
+
+  // 世界观不当规划看：没有分类表、没有全部条目的一览；作者点名的整条带（近几章定稿里出现过的照常一句话）。
+  test('世界观：作者点名的整条带，不列分类表与一览', async () => {
+    const items = loreItems(await setting('world', '把青云宗的规矩写进去'));
+    assert.deepEqual([items[0].label, items[0].note], ['设定 · 青云宗', '上下文中出现「青云宗」']);
+    assert.ok(items[0].text.startsWith('【青云宗〔宗门/正道〕】'), items[0].text);
+    assert.ok(!items.some((i) => i.id === 'lore:categories' || i.note?.startsWith('已有设定')), items.map((i) => `${i.label}:${i.note}`).join('\n'));
+  });
+
+  test('配置、前提、角色图谱：一条都不带', async () => {
+    for (const doc of ['config', 'premise', 'characters']) {
+      assert.deepEqual(loreItems(await setting(doc, '青云宗')), [], doc);
+    }
+  });
+
+  test('设定清单：一条条目都没有也给分类表（空目录也算）', async () => {
+    const empty = await makeTempProject(bundle.project, { prefix: 'loreLayerEmpty', title: '空' });
+    try {
+      empty.write('.novelforge/lore/宗门/.keep', '');
+      empty.project.invalidate();
+      const b = await bundle.builder.buildContext(
+        empty.project,
+        { action: { stage: 'setting', capability: 'generate' }, target: { kind: 'setting', doc: 'lore' }, ask: '' },
+        config(3)
+      );
+      assert.deepEqual(loreItems(b).map((i) => i.text), ['本书的设定分类：宗门（新设定的 category 从这里挑）。']);
+    } finally {
+      cleanup(empty.dir);
+    }
   });
 });

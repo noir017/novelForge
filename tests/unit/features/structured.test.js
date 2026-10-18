@@ -9,6 +9,7 @@
  * | 语法修复证据 | 修过的那份只许补闭合括号、改标点；改一个字就拒收（不许借修复补造事实） |
  * | 细纲批次 | 缺必填字段报诊断（交给拆半 / 紧凑重建）；可以空着的四个字段宽松收；超长截断不作废；新角色必须在出场名单里；关键事件是一条一件事的数组，给成一段字按换行与分号切 |
  * | 角色图谱 | 清单里关系不闭合、没标主角照收并说明；详情以冻结清单为准；关系由清单生成到双方卡上 |
+ * | 设定清单 | 分类规范成目录路径；已有条目照抄名字、以实际目录为准；人名丢掉；超过 30 条只留 30 条；详情以冻结清单为准、三节合计 300 字 |
  * | 小说配置 | 英文键映射到七节；「全局要求」的合同；保留作者原文；规范化草稿能按 config.md 读回来 |
  */
 const { describe, test } = require('node:test');
@@ -18,6 +19,7 @@ const { loadModule } = require('../../helpers/load');
 const J = loadModule('src/core/features/structuredJson.ts');
 const B = loadModule('src/core/features/blueprint.ts');
 const R = loadModule('src/core/features/roster.ts');
+const L = loadModule('src/core/features/loreList.ts');
 const C = loadModule('src/core/features/novelConfig.ts');
 const A = loadModule('src/core/features/artifact.ts');
 const S = loadModule('src/core/model/settingFile.ts');
@@ -350,6 +352,152 @@ describe('roster.ts · 角色图谱两段式', () => {
     const text = R.renderRoster(entries);
     assert.match(text, /"性别": "女"/);
     assert.deepEqual(A.parseRoster(text).map((e) => e.gender), ['男', '女', undefined]);
+  });
+});
+
+describe('loreList.ts · 设定清单两段式', () => {
+  /** 已有条目的最小形状（listLore 读出来的样子）。 */
+  const entry = (title, category = '', keywords = []) => ({
+    slug: `${category ? `${category}/` : ''}${title}`,
+    relPath: `.novelforge/lore/${category ? `${category}/` : ''}${title}.md`,
+    title,
+    keywords,
+    brief: '',
+    category,
+    body: '',
+  });
+  const none = { categories: [], entries: [], people: [] };
+  const row = (title, category, over = {}) => ({ title, category, keywords: [], brief: `${title}是什么`, ...over });
+  const twelve = Array.from({ length: 12 }, (_, i) => row(`地点${i + 1}`, '地域'));
+
+  test('清单：分类规范成目录路径，条目带一句话与关键词；人名丢掉并说明', () => {
+    const r = L.decodeLoreManifest(
+      JSON.stringify({
+        categories: ['宗门／正道', ' 地域 ', '丹药法宝', '宗门/正道', '..'],
+        entries: [
+          row('青云宗', '宗门/正道', { keywords: ['青云门', '青云宗', '林昭'], brief: '正道第一大宗'.repeat(10) }),
+          row('林昭', '地域'),
+          row('青崖镇', ''),
+          row('青云宗', '宗门/正道'),
+          ...twelve,
+        ],
+      }),
+      { ...none, people: ['林昭'] }
+    );
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.categories, ['宗门/正道', '地域', '丹药法宝']);
+    const qy = r.slots.find((s) => s.title === '青云宗');
+    assert.equal(qy.category, '宗门/正道');
+    // 关键词去掉标题本身与人名；一句话截到 40 字。
+    assert.deepEqual(qy.keywords, ['青云门']);
+    assert.equal(Array.from(qy.brief).length, 40);
+    assert.ok(!r.slots.some((s) => s.title === '林昭'));
+    assert.equal(r.slots.find((s) => s.title === '青崖镇').category, '');
+    const warnings = r.warnings.join('\n');
+    assert.match(warnings, /林昭.*人不是设定/);
+    assert.match(warnings, /青崖镇.*未分类/);
+    assert.match(warnings, /青云宗.*不止一次/);
+    assert.match(warnings, /「\.\.」当不了目录名/);
+    assert.match(warnings, /一句话超过 40 字/);
+  });
+
+  test('清单：已有条目照抄名字、分类以实际目录为准；分类不在表里的补进目录树并说明', () => {
+    const known = { categories: ['宗门'], entries: [entry('青云宗', '宗门', ['青云门'])], people: [] };
+    const r = L.decodeLoreManifest(
+      JSON.stringify({ categories: ['地域'], entries: [row('青云门', '地域'), row('镇妖塔', '禁地'), ...twelve] }),
+      known
+    );
+    assert.equal(r.ok, true);
+    assert.equal(r.slots[0].title, '青云宗');
+    assert.equal(r.slots[0].category, '宗门');
+    assert.equal(r.slots[1].category, '禁地');
+    assert.deepEqual(r.categories, ['地域', '禁地']);
+    assert.match(r.warnings.join('\n'), /镇妖塔.*禁地.*不在 categories 里/);
+    // 一级分类按本书已有的加这次新排的数：宗门 + 地域 + 禁地 = 3 个，够数不报。
+    assert.ok(!/一级分类/.test(r.warnings.join('\n')), r.warnings.join('\n'));
+  });
+
+  test('清单：条数不够照收并说明，超过 30 条只留前 30 条（次数是按 30 条报的）；一条能用的都没有才失败', () => {
+    const few = L.decodeLoreManifest(JSON.stringify({ categories: ['甲', '乙', '丙'], entries: [row('青崖镇', '甲')] }), none);
+    assert.equal(few.ok, true);
+    assert.match(few.warnings.join('\n'), /1 条，合同要求 12–30 条/);
+    const many = L.decodeLoreManifest(
+      JSON.stringify({ categories: ['甲', '乙', '丙'], entries: Array.from({ length: 33 }, (_, i) => row(`物${i + 1}`, '甲')) }),
+      none
+    );
+    assert.equal(many.slots.length, 30);
+    assert.match(many.warnings.join('\n'), /超过 30 条，「物31」及之后的没收/);
+    assert.equal(L.decodeLoreManifest('{"categories":[],"entries":[]}', none).ok, false);
+    assert.equal(L.decodeLoreManifest('不是 JSON', none).ok, false);
+    assert.equal(L.decodeLoreManifest('{"slots":[{"name":"甲"}]}', none).ok, false);
+  });
+
+  test('详情：以冻结清单为准，清单外的丢掉；三节规范化，超过 300 字截断并说明', () => {
+    const { slots } = L.decodeLoreManifest(
+      JSON.stringify({ categories: ['地域', '宗门', '法宝'], entries: [row('青崖镇', '地域'), row('青云宗', '宗门'), row('崖字令', '法宝')] }),
+      none
+    );
+    const r = L.decodeLoreDetails(
+      JSON.stringify({
+        entries: [
+          { title: '青崖镇', body: '## 概要\n偏僻小镇。\n\n## 规则与边界\n镇口设卡查过所。' },
+          { title: '青云宗', body: { 概要: '正道大宗。', 规则与边界: '门规森严。'.repeat(60), 现状: '封山。' } },
+          { title: '路人甲', body: '## 概要\n随便' },
+        ],
+      }),
+      slots
+    );
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.items.map((d) => d.title), ['青崖镇', '青云宗']);
+    // 没写的那一节写「（未交代）」：节在，作者一眼看得出这里还没东西。
+    assert.equal(r.items[0].body, '## 概要\n偏僻小镇。\n\n## 规则与边界\n镇口设卡查过所。\n\n## 现状\n（未交代）');
+    const qy = r.items[1].body;
+    assert.match(qy, /^## 概要\n正道大宗。\n\n## 规则与边界\n/);
+    // 规则与边界单节上限 250 字。
+    assert.equal(Array.from(/## 规则与边界\n([^\n]*)/.exec(qy)[1]).length, 250);
+    const warnings = r.warnings.join('\n');
+    assert.match(warnings, /青云宗.*正文超长，已截断/);
+    assert.match(warnings, /路人甲/);
+    assert.equal(L.decodeLoreDetails('{"items":[]}', slots).ok, false);
+  });
+
+  test('正文：三节合计不超过 300 字，从超出的那一节起截掉；一节都认不出的整段当概要', () => {
+    const long = L.normalizeLoreBody({ 概要: '甲'.repeat(150), 规则与边界: '乙'.repeat(200), 现状: '丙'.repeat(100) });
+    assert.equal(long.clipped, true);
+    const chars = long.body.replace(/## \S+\n/g, '').replace(/（未交代）/g, '').replace(/\n/g, '');
+    assert.equal(Array.from(chars).length, 300);
+    assert.match(long.body, /## 现状\n（未交代）/);
+    assert.deepEqual(L.normalizeLoreBody('一座塔，镇着妖。'), { body: '## 概要\n一座塔，镇着妖。\n\n## 规则与边界\n（未交代）\n\n## 现状\n（未交代）', clipped: false });
+    assert.deepEqual(L.normalizeLoreBody(''), { body: '', clipped: false });
+  });
+
+  test('拼条目：正文缺席的照样建（只有一句话）；规范化输出能被采纳时读回来', () => {
+    const { categories, slots } = L.decodeLoreManifest(
+      JSON.stringify({ categories: ['地域', '宗门', '法宝'], entries: [row('青崖镇', '地域', { keywords: ['青崖'] }), row('青云宗', '宗门')] }),
+      none
+    );
+    const { entries, warnings } = L.assembleLoreList(slots, [{ title: '青崖镇', body: '## 概要\n偏僻小镇。' }]);
+    assert.deepEqual(entries.map((e) => [e.title, e.category, !!e.body]), [['青崖镇', '地域', true], ['青云宗', '宗门', false]]);
+    assert.match(warnings.join('\n'), /青云宗.*正文没有生成出来/);
+    const art = A.parseArtifact(
+      { stage: 'setting', capability: 'generate' },
+      L.renderLoreList(categories, entries),
+      { kind: 'setting', doc: 'lore' }
+    );
+    assert.equal(art.kind, 'loreList');
+    assert.deepEqual(art.categories, ['地域', '宗门', '法宝']);
+    assert.deepEqual(art.entries[0].keywords, ['青崖']);
+    assert.equal(art.entries[0].brief, '青崖镇是什么');
+    assert.equal(A.describeArtifact(art), '设定清单 · 2 条 · 3 个分类');
+    assert.equal(A.isArtifactEmpty(art), false);
+    // 模型第一次调用的原样清单（agent 那条路）也认：没有正文就是空的。
+    const raw = A.parseArtifact({ stage: 'setting', capability: 'generate' }, JSON.stringify({ entries: [row('青崖镇', '地域')] }), {
+      kind: 'setting',
+      doc: 'lore',
+    });
+    assert.deepEqual(raw.categories, ['地域']);
+    assert.equal(raw.entries[0].body, '');
+    assert.equal(A.isArtifactEmpty(A.parseArtifact({ stage: 'setting', capability: 'generate' }, '没有清单', { kind: 'setting', doc: 'lore' })), true);
   });
 });
 

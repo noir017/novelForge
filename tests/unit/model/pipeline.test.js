@@ -178,14 +178,18 @@ describe('pipeline.ts · Target', () => {
   test('描述', () => {
     assert.equal(pipeline.describeTarget({ kind: 'outline' }), '情节大纲');
     assert.equal(pipeline.describeTarget({ kind: 'setting', doc: 'characters' }), '故事架构 · 角色图谱');
+    assert.equal(pipeline.describeTarget({ kind: 'setting', doc: 'lore' }), '故事架构 · 设定清单');
     assert.equal(pipeline.describeTarget(P, { no: 12, title: '夜访' }), '第 12 章《夜访》 · 细纲');
     assert.equal(pipeline.describeTarget(M, { no: 12, title: '夜访' }), '第 12 章《夜访》 · 正文');
     assert.equal(pipeline.describeTarget(M), `${M.plotRelPath} · 正文`);
   });
 
-  test('四件架构文档各有中文名', () => {
-    assert.deepEqual(pipeline.SETTING_DOCS, ['config', 'premise', 'characters', 'world']);
+  // 设定名录（作者定案）：设定清单进架构主链，排在世界观之后、情节大纲之前。
+  test('五件架构文档各有中文名，设定清单排在世界观之后', () => {
+    assert.deepEqual(pipeline.SETTING_DOCS, ['config', 'premise', 'characters', 'world', 'lore']);
     assert.ok(pipeline.SETTING_DOCS.every((d) => pipeline.SETTING_DOC_LABEL[d]));
+    assert.equal(pipeline.SETTING_DOC_LABEL.lore, '设定清单');
+    assert.equal(pipeline.isSettingDoc('lore'), true);
   });
 });
 
@@ -687,7 +691,7 @@ describe('pipeline.ts · 单章下一步', () => {
 // ---------------------------------------------------------------- 全书状态机
 
 describe('pipeline.ts · 全书状态推导', () => {
-  const all = { config: true, premise: true, characters: true, world: true };
+  const all = { config: true, premise: true, characters: true, world: true, lore: true };
   const book = (over = {}) => ({
     settings: all,
     outlineFilled: true,
@@ -699,9 +703,9 @@ describe('pipeline.ts · 全书状态推导', () => {
     ...over,
   });
 
-  test('架构缺哪件推哪件，按 配置 → 前提 → 角色 → 世界观 的顺序', () => {
+  test('架构缺哪件推哪件，按 配置 → 前提 → 角色 → 世界观 → 设定清单 的顺序', () => {
     const order = [];
-    let settings = { config: false, premise: false, characters: false, world: false };
+    let settings = { config: false, premise: false, characters: false, world: false, lore: false };
     for (const doc of pipeline.SETTING_DOCS) {
       const f = book({ settings });
       assert.equal(pipeline.deriveBookStage(f), 'setting');
@@ -709,7 +713,32 @@ describe('pipeline.ts · 全书状态推导', () => {
       order.push(step.target.doc);
       settings = { ...settings, [doc]: true };
     }
-    assert.deepEqual(order, ['config', 'premise', 'characters', 'world']);
+    assert.deepEqual(order, ['config', 'premise', 'characters', 'world', 'lore']);
+    // 五件齐了才轮到情节大纲。
+    assert.equal(pipeline.deriveBookStage(book({ settings, outlineFilled: false, outlineCoverage: 0 })), 'outline');
+  });
+
+  test('世界观之后、情节大纲之前是设定清单：按钮、提示与 target', () => {
+    const f = book({ settings: { ...all, lore: false }, outlineFilled: false, outlineCoverage: 0 });
+    assert.equal(pipeline.deriveBookStage(f), 'setting');
+    const s = pipeline.deriveBookNextStep('setting', f);
+    assert.equal(s.label, '生成设定清单');
+    assert.deepEqual(s.target, { kind: 'setting', doc: 'lore' });
+    assert.match(s.hint, /地点、势力、能力体系、关键物品/);
+    assert.equal(s.form, undefined);
+  });
+
+  // 作者定案：在写的书不被新加的这一件推回架构。判据只在纯函数层写一次，读盘在 settingFilled。
+  test('设定清单「填过」：有条目，或者这本书已经有正文', () => {
+    assert.equal(pipeline.isLoreListFilled(0, false), false);
+    assert.equal(pipeline.isLoreListFilled(3, false), true);
+    assert.equal(pipeline.isLoreListFilled(0, true), true);
+  });
+
+  test('已经写了正文、一条设定都没有的书：照常往下走，不被推回架构', () => {
+    const lore = pipeline.isLoreListFilled(0, true);
+    const f = book({ settings: { ...all, lore }, nextChapterNo: 31, outlineCoverage: 40, nextPlotFilled: true });
+    assert.equal(pipeline.deriveBookStage(f), 'writing');
   });
 
   test('架构那一档的按钮与 target', () => {
@@ -803,7 +832,7 @@ describe('pipeline.ts · 全书状态推导', () => {
   });
 
   test('每一档都写明要调几次模型', () => {
-    const none = { config: false, premise: false, characters: false, world: false };
+    const none = { config: false, premise: false, characters: false, world: false, lore: false };
     const config = pipeline.deriveBookNextStep('setting', book({ settings: none }));
     assert.deepEqual(config.calls, pipeline.CONFIG_CALLS);
     // 配置要先填一句话与规模，主按钮打开表单而不是直接发送。
@@ -815,6 +844,14 @@ describe('pipeline.ts · 全书状态推导', () => {
 
     const premise = pipeline.deriveBookNextStep('setting', book({ settings: { ...all, premise: false } }));
     assert.deepEqual(premise.calls, pipeline.ONE_CALL);
+
+    // 设定清单：清单 1 次 + 详情每批 6 条（12–30 条）；上限封顶 12。
+    const lore = pipeline.deriveBookNextStep('setting', book({ settings: { ...all, lore: false } }));
+    assert.deepEqual(lore.calls, { low: 3, high: 6, max: 12 });
+    assert.deepEqual(pipeline.loreListCalls(), lore.calls);
+    assert.equal(pipeline.LORE_LIST_CALLS_MAX, 12);
+    assert.deepEqual(pipeline.settingCalls('lore'), lore.calls);
+    assert.deepEqual(pipeline.settingCalls('characters'), pipeline.rosterCalls());
 
     const outline = pipeline.deriveBookNextStep('outline', book({ outlineFilled: false, outlineCoverage: 0 }));
     assert.deepEqual(outline.calls, pipeline.ONE_CALL);
@@ -843,7 +880,7 @@ describe('pipeline.ts · 全书状态推导', () => {
   // D11：老工程（有正文、没有架构）被推回第一格——新链路写正文要读前提、角色与世界观。
   // 拆书 A 之后这一格的动作换成「从已写正文补齐」：照正文整理，不从一句话重新编。
   test('有正文但没有架构的老工程 → 先补架构，动作是从已写正文补齐', () => {
-    const f = book({ settings: { config: false, premise: false, characters: true, world: false }, nextChapterNo: 100 });
+    const f = book({ settings: { config: false, premise: false, characters: true, world: false, lore: true }, nextChapterNo: 100 });
     assert.equal(pipeline.deriveBookStage(f), 'setting');
     const s = pipeline.deriveBookNextStep('setting', f);
     assert.equal(s.target.doc, 'config');

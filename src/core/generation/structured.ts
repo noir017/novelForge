@@ -1,12 +1,13 @@
 /**
  * 生成链：一件产物要分几次调用才拼得出来时，把那几次串起来。
  *
- * 三条链，都移植自 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator）：
+ * 三条链移植自 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator），设定清单照角色图谱的路子补了一条：
  *
  * | 产物 | 链 | 上游出处 |
  * |---|---|---|
  * | 小说配置 | 截断就整份重来 1 次；「全局要求」不合格只重写这一节 1 次 | `GenerateConfigCommand`（AC:980-1163） |
  * | 角色图谱 | 身份清单 → 按冻结清单每批 3 人补详情；截断拆半 | `GenerateCharactersCommand`（AC:1254-1647） |
+ * | 设定清单 | 分类目录树 + 清单 → 按冻结清单每批 6 条补正文；截断拆半；调用次数封顶 | 本项目（设定名录） |
  * | 细纲批次 | 截断或解不出来：多章对半拆、单章紧凑重建；语法坏了修一次；漏章 fail-closed | `structured-batch-executor.ts` |
  *
  * ## 单步与批量共用
@@ -30,18 +31,29 @@
 import type { ChatMessage, StopSignal } from '../llm/provider';
 import type { BuildRequest, DraftPlotLine } from '../context/types';
 import {
+  RESTART_AFTER_INVALID,
   RESTART_AFTER_TRUNCATION,
   blueprintJsonContract,
   guidanceRetryMessages,
+  loreDetailJsonContract,
   rosterDetailJsonContract,
   syntaxRepairMessages,
 } from '../context/prompts';
-import { PLOT_BATCH, ROSTER_DETAIL_BATCH } from '../model/pipeline';
+import { LORE_LIST_CALLS_MAX, LORE_LIST_DETAIL_BATCH, PLOT_BATCH, ROSTER_DETAIL_BATCH, SettingDoc } from '../model/pipeline';
 import { BookConfig } from '../model/settingFile';
 import { hasContent } from '../model/markdown';
 import { OUTLINE_SECTION_MAX, oversizedSections, parseOutlineRanges } from '../model/outlineFile';
 import { BlueprintItem, blueprintToPlot, checkCoverage, decodeBlueprints, renderBlueprints } from '../features/blueprint';
 import { CharacterDetail, IdentitySlot, assembleRoster, decodeDetails, decodeManifest, renderRoster } from '../features/roster';
+import {
+  LoreDetail,
+  LoreListKnown,
+  LoreListSlot,
+  assembleLoreList,
+  decodeLoreDetails,
+  decodeLoreManifest,
+  renderLoreList,
+} from '../features/loreList';
 import {
   decodeNovelConfig,
   guidanceProblem,
@@ -304,6 +316,100 @@ export async function completeRoster(first: CallOutcome, io: ChainIO): Promise<C
   return { raw: renderRoster(entries), notes: t.notes, calls: t.calls };
 }
 
+// ---------------------------------------------------------------- 设定清单
+
+/**
+ * 设定清单（设定名录）：清单（截断或解不出来重来 1 次）→ 按冻结清单每批 6 条补正文 → 拼条目。路子同
+ * {@link completeRoster}：
+ *
+ * - 清单不合格就停：分类与名字只在清单里定一次，后面每一批都以它为准。
+ * - 详情截断或解不出来对半拆；单条还是不行就只按清单建（一句话），并说明。JSON 语法坏了全程只修一次，
+ *   只许改标点（`preservesJsonEvidence`）。
+ * - **调用次数封顶 {@link LORE_LIST_CALLS_MAX}**（主按钮报的上限，第 4 条）：到了就不再拆半，剩下的
+ *   条目只按清单建。三十条逐批拆到底是几十次调用，报给作者的数不能是摆设。
+ */
+export async function completeLoreList(first: CallOutcome, io: ChainIO, known: LoreListKnown): Promise<ChainResult> {
+  // 显式标注类型：`t.fail()` 返回 never，TS 只对显式标注的变量做控制流收窄。
+  const t: Tally = new Tally(true);
+  let out = first;
+  let retried = false;
+  if (out.stop === 'maxTokens') {
+    t.note('设定清单被输出上限截断，已丢弃并重来一次');
+    out = await t.call(io, await io.build({ extraInstruction: RESTART_AFTER_TRUNCATION }), '设定清单被截断，重来');
+    retried = true;
+  }
+  let manifest = decodeLoreManifest(out.text, known);
+  if (!manifest.ok && !retried && out.stop !== 'maxTokens') {
+    t.note(`设定清单不合格（${manifest.message}），重来一次`);
+    out = await t.call(io, await io.build({ extraInstruction: RESTART_AFTER_INVALID }), '设定清单不合格，重来');
+    manifest = decodeLoreManifest(out.text, known);
+  }
+  if (!manifest.ok) {
+    t.fail(`设定清单不合格：${manifest.message}。这一次没有产出可写入的设定清单。`);
+  }
+  t.note(...manifest.warnings);
+  const { categories, slots } = manifest;
+  const frozen = JSON.stringify({ categories, entries: slots.map((s) => ({ title: s.title, category: s.category, brief: s.brief })) });
+
+  const details: LoreDetail[] = [];
+  let repairUsed = false;
+  const runBatch = async (batch: LoreListSlot[]): Promise<void> => {
+    const names = batch.map((s) => s.title).join('、');
+    if (t.calls >= LORE_LIST_CALLS_MAX) {
+      t.note(`已经调了 ${t.calls} 次模型（上限 ${LORE_LIST_CALLS_MAX}），「${names}」只按清单建条目`);
+      return;
+    }
+    const done = details.length
+      ? details.map((d) => `- ${d.title}：${slots.find((s) => s.title === d.title)?.brief ?? ''}`).join('\n')
+      : '';
+    const messages = await io.build({
+      step: { kind: 'loreListDetails', manifest: frozen, titles: batch.map((s) => s.title), done },
+    });
+    const res = await t.call(io, messages, `设定详情（${names}）`);
+    const split = async (why: string) => {
+      t.note(`${names}的正文${why}，拆成两半重试`);
+      const mid = Math.floor(batch.length / 2);
+      await runBatch(batch.slice(0, mid));
+      await runBatch(batch.slice(mid));
+    };
+    if (res.stop === 'maxTokens') {
+      if (batch.length > 1) {
+        return split('被输出上限截断');
+      }
+      t.note(`「${names}」的正文被输出上限截断，只按清单建条目`);
+      return;
+    }
+    let text = res.text;
+    if (isRepairableJsonSyntax(text) && !repairUsed && t.calls < LORE_LIST_CALLS_MAX) {
+      repairUsed = true;
+      const fix = await t.call(io, syntaxRepairMessages(loreDetailJsonContract(), text), '设定详情的 JSON 语法坏了，修一次');
+      if (fix.stop !== 'maxTokens' && preservesJsonEvidence(text, fix.text)) {
+        text = fix.text;
+        t.note('设定详情的 JSON 语法坏了，修了一次（只改标点）');
+      } else {
+        t.note('设定详情的语法修复改动了内容或没修好，没有采用');
+      }
+    }
+    const decoded = decodeLoreDetails(text, batch);
+    if (!decoded.ok) {
+      if (batch.length > 1) {
+        return split(`解不出来（${decoded.message}）`);
+      }
+      t.note(`「${names}」的正文解不出来（${decoded.message}），只按清单建条目`);
+      return;
+    }
+    t.note(...decoded.warnings);
+    details.push(...decoded.items);
+  };
+
+  for (let i = 0; i < slots.length; i += LORE_LIST_DETAIL_BATCH) {
+    await runBatch(slots.slice(i, i + LORE_LIST_DETAIL_BATCH));
+  }
+  const { entries, warnings } = assembleLoreList(slots, details);
+  t.note(...warnings);
+  return { raw: renderLoreList(categories, entries), notes: t.notes, calls: t.calls };
+}
+
 // ---------------------------------------------------------------- 细纲批次
 
 export interface BlueprintChainResult extends ChainResult {
@@ -487,7 +593,10 @@ export function singleShotNotes(
  * **审稿必须在正文之前认出来**：它也在正文层，按「正文层不是讨论就走续写链」的旧判据，一份审稿
  * JSON 会被当成一章正文去续写、去查重演。
  */
-export type ChainKind = 'config' | 'roster' | 'blueprints' | 'manuscript' | 'review' | 'revision';
+export type ChainKind = 'config' | 'roster' | 'loreList' | 'blueprints' | 'manuscript' | 'review' | 'revision';
+
+/** 架构那几件里要接链的：配置、角色图谱、设定清单。前提、世界观一次就完。 */
+const SETTING_CHAIN: Partial<Record<SettingDoc, ChainKind>> = { config: 'config', characters: 'roster', lore: 'loreList' };
 
 export function chainOf(request: Pick<BuildRequest, 'action' | 'target' | 'range' | 'writeMode'>): ChainKind | undefined {
   const { stage, capability } = request.action;
@@ -501,7 +610,7 @@ export function chainOf(request: Pick<BuildRequest, 'action' | 'target' | 'range
     return request.writeMode === 'revise' ? 'revision' : 'manuscript';
   }
   if (stage === 'setting' && request.target.kind === 'setting') {
-    return request.target.doc === 'config' ? 'config' : request.target.doc === 'characters' ? 'roster' : undefined;
+    return SETTING_CHAIN[request.target.doc];
   }
   if (stage === 'plot' && capability === 'generate' && request.range) {
     return 'blueprints';

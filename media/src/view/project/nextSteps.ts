@@ -96,11 +96,16 @@ export function charactersEmptyRow(tree: ProjectTree): HTMLElement {
 }
 
 /**
- * 设定组为空。设定条目是可选的，所以不说「下一步」：说清它放什么、往后从哪儿长出来——
+ * 设定组为空。全书的下一步正是设定清单时就说它（同角色组），按钮进入那一层。否则不说「下一步」：
+ * 设定条目是可选的，说清它放什么、往后从哪儿长出来——
  * 每章定稿时记下这一章出现了哪些设定，出现过却还没建条目的列在下面「出现过 · 未建条目」那一组。
  * 手建一条不调模型；有定稿过、还没记过设定的章（这个功能之前定稿的）时给「补记设定」（自带确认框）。
  */
 export function loreEmptyRow(tree: ProjectTree): HTMLElement {
+  const next = tree.next;
+  if (next && next.target.kind === 'setting' && next.target.doc === 'lore') {
+    return nextStepRow(next, tree);
+  }
   const buttons: HintButton[] = [
     { label: '＋ 设定', title: '新建一条设定（不调模型）', run: () => projectAction('newLore') },
   ];

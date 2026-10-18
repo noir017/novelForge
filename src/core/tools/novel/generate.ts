@@ -37,13 +37,13 @@
  */
 import type { ToolContext, ToolDef, ToolIntent, ToolResult } from '../types';
 import { int, objectSchema, str } from '../schema';
-import { clip, describePath, text } from './naming';
+import { clip, describeForReview, describePath, text } from './naming';
 import { generate } from '../../generation/generate';
 import { createModelPool } from '../../llm/pool';
 import type { LlmProvider } from '../../llm/provider';
 import { scoped } from '../../runtime/logger';
 import type { LlmTask } from '../../model/tiers';
-import { kindOfPath } from '../../workspace';
+import { kindOfPath, normalizeRel, pathOfTarget } from '../../workspace';
 import type { PathKind } from '../../workspace';
 import type { NovelProject } from '../../model/project';
 import {
@@ -87,9 +87,10 @@ export const generateTool: ToolDef = {
    */
   intent(args, project): ToolIntent {
     const target = text(args.target);
+    const lore = project ? loreListPath(project, target) : undefined;
     return {
       gate: 'costly',
-      title: `为「${describePath(target, project)}」调一次创作模型`,
+      title: `为「${lore ? describeForReview(lore, target) : describePath(target, project)}」调一次创作模型`,
       detail: [
         target,
         text(args.writeMode) === 'continue' ? '接着已有的正文往下写' : text(args.writeMode) === 'rewrite' ? '整章重写' : '',
@@ -103,7 +104,7 @@ export const generateTool: ToolDef = {
 
   description:
     '调用创作模型，为某一份产物生成内容。target 是那份产物的工程内相对路径，' +
-    '层由路径决定：.novelforge/config.md、premise.md、world.md 是架构层，' +
+    '层由路径决定：.novelforge/config.md、premise.md、world.md 是架构层，设定清单给设定目录 .novelforge/lore 本身（一次排一批设定条目），' +
     '.novelforge/outline.md 是大纲层，.novelforge/summaries/ 下的细纲是细纲层（一章一份，与正文同样的相对路径、扩展名 .md，' +
     '如 .novelforge/summaries/上部/003-夜访.md），' +
     '正文层给那一章的章节路径（chapters/ 下，可以在子目录里；还没写过的章写成 chapters/<章号>.md 即可，' +
@@ -169,7 +170,7 @@ export const generateTool: ToolDef = {
         text: '',
         error:
           `认不出「${rel}」是哪一层的产物。` +
-          '架构给 .novelforge/config.md / premise.md / world.md，大纲给 .novelforge/outline.md，' +
+          '架构给 .novelforge/config.md / premise.md / world.md（设定清单给 .novelforge/lore），大纲给 .novelforge/outline.md，' +
           '细纲给 .novelforge/summaries/ 下那一章的细纲（与正文同样的相对路径），正文给那一章的章节路径（chapters/ 下）。' +
           '可以先用 list 看看那个目录下实际有什么。',
       };
@@ -292,9 +293,14 @@ function toPositiveInt(value: unknown): number | undefined {
 
 /**
  * 路径 → 层与目标。章节路径认成正文层（target 以这一章细纲的路径为身份——正文镜像到
- * `summaries/` 下的那一份，还没有时就是它应该在的位置）；其余交给 `kindOfPath`。
+ * `summaries/` 下的那一份，还没有时就是它应该在的位置）；设定目录本身认成架构 · 设定清单；
+ * 其余交给 `kindOfPath`。
  */
 async function resolveTargetPath(project: NovelProject, rel: string): Promise<PathKind> {
+  const lore = loreListPath(project, rel);
+  if (lore) {
+    return lore;
+  }
   const path = kindOfPath(project, rel);
   if (path.kind !== 'chapter' || path.no === undefined) {
     return path;
@@ -308,4 +314,16 @@ async function resolveTargetPath(project: NovelProject, rel: string): Promise<Pa
     target: { kind: 'manuscript', plotRelPath },
     plotRelPath,
   };
+}
+
+/**
+ * 设定目录本身（`.novelforge/lore`）= 架构 · 设定清单（`pathOfTarget` 的落点就是它）。**只在这个工具里认**：
+ * 网关的种类表（`kindOfPath`）不把一个目录当成可写的产物——写入、改名、删除都不该落在它上面。
+ */
+function loreListPath(project: NovelProject, rel: string): PathKind | undefined {
+  const normalized = normalizeRel(rel);
+  if (!normalized || normalized !== pathOfTarget(project, { kind: 'setting', doc: 'lore' })) {
+    return undefined;
+  }
+  return { kind: 'setting', rel: normalized, doc: 'lore', stage: 'setting', target: { kind: 'setting', doc: 'lore' } };
 }

@@ -7,7 +7,7 @@
  * | 没有线时「从细纲排出」，有了「从细纲补充」，都发 generateThreads | 按钮不直接花钱：后端先弹确认框 |
  * | 还没有细纲时不给按钮，说明写清先做什么 | 没有东西可排 |
  * | 文件不存在时点名字不去开它、菜单里没有「打开」 | 没有文件可开 |
- * | 不进「故事架构」那一组 | 叙事线是可选的，不挡路（x/5 不变） |
+ * | 不进「故事架构」那一组 | 叙事线是可选的，不挡路（x/6 不变） |
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -79,9 +79,9 @@ describe('工程页 · 叙事线一行', { skip: JSDOM_SKIP }, () => {
     ui.closeMenu();
   });
 
-  test('「故事架构」组标题仍是 x/5', () => {
+  test('「故事架构」组标题仍是 x/6', () => {
     ui.post({ type: 'project', tree: sampleTree() });
     const head = [...ui.doc.querySelectorAll('#projectBody .group')].find((g) => g.querySelector('.group-name')?.textContent === '故事架构');
-    assert.match(head.querySelector('.group-head').textContent, /4\/5/);
+    assert.match(head.querySelector('.group-head').textContent, /5\/6/);
   });
 });

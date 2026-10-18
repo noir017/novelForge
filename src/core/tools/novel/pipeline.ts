@@ -33,10 +33,10 @@ export const pipelineTool = defineActionTool({
 
   actions: {
     completeSettings: {
-      label: '补齐故事架构（小说配置 / 故事前提 / 角色图谱 / 世界观，只补空白）',
+      label: '补齐故事架构（小说配置 / 故事前提 / 角色图谱 / 世界观 / 设定清单，只补空白）',
       costly: true,
       async run(ctx) {
-        return countedBy(await completeSettings(ctx.project), '补齐故事架构', '四件都已经有了，或者小说配置还没有「一句话」可以展开');
+        return countedBy(await completeSettings(ctx.project), '补齐故事架构', '五件都已经有了，或者小说配置还没有「一句话」可以展开');
       },
     },
     batchPlots: {

@@ -76,7 +76,7 @@ after(() => {
   if (t) cleanup(t.dir, bundle && bundle.db);
 });
 
-describe('全新工程 · 架构四件一件都没有', () => {
+describe('全新工程 · 架构五件一件都没有', () => {
   let text;
   let expected;
 
@@ -97,7 +97,7 @@ describe('全新工程 · 架构四件一件都没有', () => {
     assert.ok(text.includes('当前目标：还没选定某一章'), text);
   });
 
-  // 全书那一层：架构四件按 配置 → 前提 → 角色图谱 → 世界观 的顺序，缺哪件推哪件。
+  // 全书那一层：架构五件按 配置 → 前提 → 角色图谱 → 世界观 → 设定清单 的顺序，缺哪件推哪件。
   test('下一步是生成小说配置', () => {
     assert.ok(text.includes('生成小说配置'), text);
   });
@@ -125,6 +125,7 @@ describe('全新工程 · 架构四件一件都没有', () => {
 describe('架构齐了、还没有大纲', () => {
   let text;
   let expected;
+  let beforeLore;
 
   before(async () => {
     t.write(
@@ -135,8 +136,16 @@ describe('架构齐了、还没有大纲', () => {
     t.write('.novelforge/world.md', '# 世界观\n\n## 规则与漏洞\n\n宗门认令牌不认人。\n');
     t.write('.novelforge/characters/林昭.md', '---\nname: 林昭\ntags: [主角]\n---\n\n# 林昭\n\n## 身份\n\n北地少年。\n');
     project.invalidate();
+    beforeLore = await brief();
+    // 第五件设定清单：一条条目就算填过。
+    t.write('.novelforge/lore/宗门/青云宗.md', '---\ntitle: 青云宗\nkeywords: [青云宗]\n---\n\n# 青云宗\n');
+    project.invalidate();
     text = await brief();
     ({ step: expected } = await bookStepOf());
+  });
+
+  test('前四件齐了、还没有设定条目：agent 听到的下一步是生成设定清单', () => {
+    assert.ok(beforeLore.includes('下一步（由状态机算出，不要另做判断）：生成设定清单'), beforeLore);
   });
 
   test('报出计划章数（config.md 的总章数）', () => {

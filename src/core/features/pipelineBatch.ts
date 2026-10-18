@@ -55,10 +55,8 @@ import { PLOT_CHECK_SUGGESTION, describeConflict } from '../model/plotCheck';
 import { PREFLIGHT_SUGGESTION, PreflightRisk, describeExempted, describeRisks, preflightChapter, riskKey } from './preflight';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import {
-  CONFIG_CALLS,
   CallEstimate,
   GLOBAL_SUMMARY_EVERY,
-  ONE_CALL,
   PLOT_BATCH,
   SETTING_DOCS,
   SETTING_DOC_LABEL,
@@ -70,14 +68,22 @@ import {
   describeCalls,
   planPlotBatches,
   planWriteBatch,
-  rosterCalls,
+  settingCalls,
 } from '../model/pipeline';
 import { Workspace } from '../workspace';
 import { acceptArtifact, acceptPlotBatch } from '../generation/accept';
-import { CallOutcome, ChainError, ChainIO, completeBlueprints, completeConfig, completeRoster } from '../generation/structured';
+import {
+  CallOutcome,
+  ChainError,
+  ChainIO,
+  completeBlueprints,
+  completeConfig,
+  completeLoreList,
+  completeRoster,
+} from '../generation/structured';
 import { writingAim } from '../model/trimProse';
 import { ManuscriptChainResult, WriteProgress, completeManuscript } from '../generation/continuation';
-import { planReview, planWriting } from '../generation/generate';
+import { loreListKnown, planReview, planWriting } from '../generation/generate';
 import { completeReview } from '../generation/review';
 import { ReviewReport, describeReport, renderReport } from '../model/review';
 import { ChatSession, SessionStore, makeTurnId, nowIso } from '../model/session';
@@ -201,12 +207,13 @@ export async function generatePlots(
 }
 
 /**
- * 补齐故事架构：配置 → 前提 → 角色图谱 → 世界观，**只补空白、严格串行**（D21）。
+ * 补齐故事架构：配置 → 前提 → 角色图谱 → 世界观 → 设定清单，**只补空白、严格串行**（D21）。
  *
  * - 小说配置要么照已写正文整理（第 1 章起有正文，装配器自动带 `derive`），要么展开「一句话」那一节——
  *   两样都没有，这一步就是凭空编；规模缺省按一句话弹窗的默认值（100 章 × 3000 字，已写得多就往上取整），
  *   确认框里写明。
- * - 角色图谱只在一张卡都没有时生成（有卡就算填过，见 `settingFilled`）。
+ * - 角色图谱只在一张卡都没有时生成（有卡就算填过，见 `settingFilled`）；设定清单同理（一条条目都没有，
+ *   而且还没有正文——有正文的书设定从定稿里长）。
  * - 一件失败就停：后面几件都吃它的产出。
  *
  * 走分档池的 `setting` 档，不带思考深度（第 26 条：工程页的批量任务一律不带）。
@@ -215,7 +222,7 @@ export async function completeSettings(project: NovelProject): Promise<number> {
   const facts = await buildBookFacts(project);
   const missing = SETTING_DOCS.filter((doc) => !facts.settings[doc]);
   if (missing.length === 0) {
-    getHost().toast('故事架构四件都已经有了。');
+    getHost().toast('故事架构五件都已经有了。');
     return 0;
   }
   if (!(await confirmDespiteGap(await project.listChapters(), '补齐设定'))) {
@@ -232,9 +239,7 @@ export async function completeSettings(project: NovelProject): Promise<number> {
     totalChapters: book.totalChapters ?? (written > 0 ? defaultTotalChapters(written) : DEFAULT_SETUP.totalChapters),
     wordsPerChapter: book.wordsPerChapter ?? DEFAULT_SETUP.wordsPerChapter,
   };
-  const estimate = missing
-    .map((doc): CallEstimate => (doc === 'config' ? CONFIG_CALLS : doc === 'characters' ? rosterCalls() : ONE_CALL))
-    .reduce(addCalls);
+  const estimate = missing.map(settingCalls).reduce(addCalls);
   const labels = missing.map((doc) => SETTING_DOC_LABEL[doc]);
 
   const config = readConfig();
@@ -245,7 +250,7 @@ export async function completeSettings(project: NovelProject): Promise<number> {
       modal: true,
       detail:
         `${describeTaskModels(config, 'setting')}\n` +
-        '按 配置 → 前提 → 角色图谱 → 世界观 的顺序一件一件来，每件都吃前面几件的产出；已经有的不会被改动。一件失败就停。' +
+        '按 配置 → 前提 → 角色图谱 → 世界观 → 设定清单 的顺序一件一件来，每件都吃前面几件的产出；已经有的不会被改动。一件失败就停。' +
         (written > 0 ? `
 已经写了第 1–${written} 章：配置、前提与世界观照已写正文整理。` : '') +
         (missing.includes('config') && (!book.totalChapters || !book.wordsPerChapter)
@@ -318,12 +323,12 @@ export async function completeSettings(project: NovelProject): Promise<number> {
   return calls;
 }
 
-/** 故事架构那一行的失败记在哪：它的文件（角色图谱是角色目录）。与工程页那一行的 `relPath` 一致。 */
+/** 故事架构那一行的失败记在哪：它的文件（角色图谱是角色目录、设定清单是设定目录）。与工程页那一行的 `relPath` 一致。 */
 export function settingKey(project: NovelProject, doc: SettingDoc): string {
   return project.relPath(project.settingPath(doc));
 }
 
-/** 补齐设定的一件：第一次调用，配置与角色图谱再接上各自的链。从已写正文补齐（features/derive.ts）也走它。 */
+/** 补齐设定的一件：第一次调用，配置、角色图谱与设定清单再接上各自的链。从已写正文补齐（features/derive.ts）也走它。 */
 export async function settingRaw(
   project: NovelProject,
   doc: SettingDoc,
@@ -340,6 +345,9 @@ export async function settingRaw(
   }
   if (doc === 'characters') {
     return (await completeRoster(first, chain)).raw;
+  }
+  if (doc === 'lore') {
+    return (await completeLoreList(first, chain, await loreListKnown(project))).raw;
   }
   void request;
   return first.text.trim();

@@ -53,6 +53,14 @@ const STEPS = {
     target: { kind: 'setting', doc: 'characters' },
     calls: { low: 2, high: 4, max: 6 },
   },
+  lore: {
+    stage: 'setting',
+    capability: 'generate',
+    label: '生成设定清单',
+    hint: '',
+    target: { kind: 'setting', doc: 'lore' },
+    calls: { low: 3, high: 6, max: 12 },
+  },
   plots: {
     stage: 'plot',
     capability: 'generate',
@@ -224,6 +232,17 @@ describe('W12 · 设定组', { skip: JSDOM_SKIP }, () => {
     ui.sent.length = 0;
     ui.clickEl(buttonIn(row, '补记设定…'));
     assert.equal(ui.last('projectAction')?.action, 'recordLore');
+  });
+
+  // 同角色组：全书的下一步正是设定清单时就说它（同一步、同一句话），按钮进入那一层，不直接花钱。
+  test('全书下一步正是设定清单：说它，「去生成」进入那一层', () => {
+    ui.post({ type: 'project', tree: blankTree({ next: STEPS.lore }) });
+    const row = hintIn(ui, '设定');
+    assert.equal(row.querySelector('.row-hint-text').textContent, '下一步：生成设定清单');
+    ui.sent.length = 0;
+    ui.clickEl(buttonIn(row, '去生成'));
+    assert.deepEqual(ui.last('setTarget')?.target, { kind: 'setting', doc: 'lore' });
+    assert.ok(!ui.last('send'));
   });
 });
 
