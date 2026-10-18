@@ -208,3 +208,21 @@ export {
   isSkillStage,
 } from '../../src/core/model/writingSkill';
 export type { SkillSource, SkillStage } from '../../src/core/model/writingSkill';
+
+/**
+ * 正文的分段格式与一键排版。回车插什么、「一键排版」排成什么样、标题栏「段落格式」的说法，都必须与
+ * 后端认的 `paragraphStyle` 同源。`paragraphFormat.ts` 是纯函数、零 import，打进浏览器产物是安全的。
+ */
+export {
+  DEFAULT_PARAGRAPH_STYLE,
+  PARAGRAPH_STYLES,
+  PARAGRAPH_STYLE_HINT,
+  PARAGRAPH_STYLE_LABEL,
+  fullWidthPunct,
+  isParagraphStyle,
+  layoutProse,
+  paragraphBreak,
+  paragraphGap,
+  paragraphIndent,
+} from '../../src/core/model/paragraphFormat';
+export type { ParagraphStyle, PunctEdit } from '../../src/core/model/paragraphFormat';

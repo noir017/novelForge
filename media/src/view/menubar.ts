@@ -16,23 +16,30 @@ import {
   showWelcome,
 } from './welcome';
 import { hasWorkspace, store, vscode } from './store';
+import { paragraphMenuEntries } from './paragraphMenu';
 
 type MenuAction = string;
 
-interface MenuEntry {
+export interface MenuEntry {
   label: string;
   action?: MenuAction;
   disabled?: boolean;
   kbd?: string;
   submenu?: SubEntry[];
+  /** 可勾选的项：给了就在左边画 ✓（true）或留空（false）。 */
+  checked?: boolean;
+  /** 点了做什么。给了就不走 `action` 那张表（功能模块自带的项用它，不必往 `run` 里加分支）。 */
+  run?: () => void;
 }
 
-interface SubEntry {
+export interface SubEntry {
   label: string;
   detail?: string;
   action?: MenuAction;
   arg?: string;
   disabled?: boolean;
+  checked?: boolean;
+  run?: () => void;
 }
 
 let openKey: string | null = null;
@@ -101,7 +108,8 @@ function openMenu(key: string, btn: HTMLElement): void {
   closeMenubar();
   openKey = key;
   btn.classList.add('open');
-  drop = buildDrop(entriesOf(key));
+  // 功能模块自带的项接在后面（「编辑」里段落那一组，见 paragraphMenu.ts）。
+  drop = buildDrop([...entriesOf(key), ...(key === 'edit' ? paragraphMenuEntries() : [])]);
   document.body.appendChild(drop);
   const rect = btn.getBoundingClientRect();
   drop.style.left = `${Math.round(rect.left)}px`;
@@ -190,6 +198,7 @@ function buildDrop(entries: MenuEntry[], submenu = false): HTMLElement {
     if (entry.disabled) {
       btn.disabled = true;
     }
+    addCheck(btn, entry.checked);
     btn.appendChild(mk('span', 'wb-menu-label', entry.label));
     if (entry.kbd) {
       btn.appendChild(mk('span', 'wb-menu-kbd', entry.kbd));
@@ -197,16 +206,21 @@ function buildDrop(entries: MenuEntry[], submenu = false): HTMLElement {
       btn.appendChild(mk('span', 'wb-menu-arrow', '›'));
     }
     if (entry.submenu) {
-      btn.addEventListener('mouseenter', () => showSubmenu(btn, entry.submenu!));
+      // 置灰的子菜单不展开（「段落格式」在没开工程时就是这样）。
+      btn.addEventListener('mouseenter', () => (entry.disabled ? hideSubmenu() : showSubmenu(btn, entry.submenu!)));
       btn.addEventListener('click', (e) => e.stopPropagation());
     } else {
       btn.addEventListener('mouseenter', () => hideSubmenu());
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (entry.disabled || !entry.action) {
+        if (entry.disabled || (!entry.action && !entry.run)) {
           return;
         }
-        run(entry.action);
+        if (entry.run) {
+          entry.run();
+        } else {
+          run(entry.action!);
+        }
         closeMenubar();
       });
     }
@@ -215,6 +229,17 @@ function buildDrop(entries: MenuEntry[], submenu = false): HTMLElement {
   menu.addEventListener('click', (e) => e.stopPropagation());
   menu.addEventListener('mousedown', keepFocus);
   return menu;
+}
+
+/** 可勾选的项在左边距里画一个 ✓（没勾时留空位），不挤动标签，与不可勾选的项对齐。 */
+function addCheck(btn: HTMLElement, checked: boolean | undefined): void {
+  if (checked === undefined) {
+    return;
+  }
+  btn.classList.add('checkable');
+  btn.setAttribute('role', 'menuitemcheckbox');
+  btn.setAttribute('aria-checked', String(checked));
+  btn.appendChild(mk('span', 'wb-menu-check', checked ? '✓' : ''));
 }
 
 /** 菜单按钮与菜单项上按下鼠标时不夺走焦点（只拦默认动作，click 照常触发）。 */
@@ -234,6 +259,7 @@ function showSubmenu(anchor: HTMLElement, entries: SubEntry[]): void {
     if (entry.disabled) {
       btn.disabled = true;
     }
+    addCheck(btn, entry.checked);
     const label = mk('span', 'wb-menu-label', entry.label);
     btn.appendChild(label);
     if (entry.detail) {
@@ -244,7 +270,9 @@ function showSubmenu(anchor: HTMLElement, entries: SubEntry[]): void {
       if (entry.disabled) {
         return;
       }
-      if (entry.action === 'recent' && entry.arg) {
+      if (entry.run) {
+        entry.run();
+      } else if (entry.action === 'recent' && entry.arg) {
         openRecent(entry.arg);
       }
       closeMenubar();

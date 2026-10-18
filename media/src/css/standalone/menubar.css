@@ -107,3 +107,16 @@
 .wb-menu-drop.submenu {
   min-width: 260px;
 }
+
+/* 可勾选的项（段落格式、成对符号自动补全）：✓ 画在左边距里，不挤动标签，与不可勾选的项对齐。 */
+.wb-menu-item.checkable {
+  position: relative;
+}
+
+.wb-menu-item .wb-menu-check {
+  position: absolute;
+  left: 0;
+  width: 12px;
+  text-align: center;
+  font-size: 12px;
+}

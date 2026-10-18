@@ -22,6 +22,7 @@ import { isImeComposing } from './api';
 import { createPane } from './pane';
 import { installChapterBar } from './chapterBar';
 import { installFind } from './find';
+import { installParagraphTools } from './paragraph';
 import { createPaneElements, mainRefs } from './paneElements';
 import type { CarriedDraft } from './paneElements';
 import {
@@ -59,6 +60,8 @@ function start(stage: HTMLElement): void {
   const post = vscode.postMessage.bind(vscode);
   const shell = collectShell();
   bindStore({ post, draftResizer: shell.draftResizer });
+  // 回车、成对符号、段落快捷键、一键排版。要在造编辑区之前装：「排版」按钮挂在第一次重画上。
+  installParagraphTools();
 
   setActivePane(registerPane(createPane('main', mainRefs(stage), post)));
   // 正开着某一章的正文或细纲时，主区顶上那一条（W6 章节工作台）。

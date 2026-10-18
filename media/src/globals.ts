@@ -11,7 +11,8 @@
  *   view 里有一份，另起一套会两层菜单一起弹。
  * - 自定义事件：`nf-editor-active`、`nf-files-moved`，以及标题栏（view.js）
  *   与编辑器（editor.js）之间的 `nf-editor-query` / `nf-editor-command` /
- *   `nf-workspace-reset`。`nf-pick-folder` 给目录选择器拦欢迎页的占位 prompt。
+ *   `nf-workspace-reset`，「编辑」菜单段落那几项的 `nf-paragraph-query` / `nf-paragraph-command`。
+ *   `nf-pick-folder` 给目录选择器拦欢迎页的占位 prompt。
  */
 
 /** 菜单项。`{ sep: true }` 是分隔线，其余是可点的一条。 */
@@ -59,6 +60,8 @@ declare global {
     'nf-editor-query': CustomEvent<EditorStatus>;
     'nf-editor-command': CustomEvent<{ name: EditorCommandName }>;
     'nf-workspace-reset': Event;
+    'nf-paragraph-query': CustomEvent<ParagraphStatus>;
+    'nf-paragraph-command': CustomEvent<{ name: ParagraphCommandName }>;
   }
 }
 
@@ -134,4 +137,32 @@ export function windowProject(): string | null {
 export function projectStorageKey(base: string): string {
   const project = windowProject();
   return project ? `${base}@${project}` : base;
+}
+
+// ---------------------------------------------------------------- 「编辑」菜单段落那几项
+
+/**
+ * 标题栏「编辑」菜单段落那几项问编辑器的状态（`editor/paragraph.ts` 回答）。与 `EditorStatus` 分开一份：
+ * 那是保存 / 撤销那一组的，这一组只管正文排版。分段格式本身不在这里——它是工程的设置，菜单从
+ * `ViewState.paragraphStyle` 读。
+ */
+export interface ParagraphStatus {
+  /** 当前那块编辑区开着的是正文（章节或草稿）。「一键排版」「半角标点转全角」只对正文亮。 */
+  prose: boolean;
+  /** 成对符号自动补全开着没有（按浏览器记，缺省开）。 */
+  autoPair: boolean;
+}
+
+/** `toggleAutoPair` 开关成对符号；另两个作用于当前那块编辑区的当前文件（有选区只改选中的那几行）。 */
+export type ParagraphCommandName = 'toggleAutoPair' | 'formatProse' | 'fullWidthPunct';
+
+/** 问编辑器段落那几项的状态。editor.js 没装时全是关的（自动补全按缺省算开）。 */
+export function queryParagraph(): ParagraphStatus {
+  const status: ParagraphStatus = { prose: false, autoPair: true };
+  window.dispatchEvent(new CustomEvent('nf-paragraph-query', { detail: status }));
+  return status;
+}
+
+export function commandParagraph(name: ParagraphCommandName): void {
+  window.dispatchEvent(new CustomEvent('nf-paragraph-command', { detail: { name } }));
 }
