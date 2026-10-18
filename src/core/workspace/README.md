@@ -1,7 +1,8 @@
 # workspace — 工程的唯一读写网关
 
-`list` / `read` / `write` / `edit` / `move` / `remove` / `search` 七个方法，
-是整个工程**唯一**允许写盘的地方。
+`list` / `read` / `write` / `edit` / `move` / `copy` / `mkdir` / `remove` / `search` 九个方法（外加一批收领域对象的写入器，
+见末尾「领域写入器」），是整个工程**唯一**允许写盘的地方。网关之外还剩的写盘都是按设计不走这里的（见「历史版本」一节
+末尾那张清单），`tests/contract/gatewayWrites.test.js` 逐个文件数着，多出一处就红。
 
 ## 为什么要有这一层
 
@@ -58,7 +59,7 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 | 1 | 路径规范化（绝对路径 / `..` 逃逸 / 空串） | `WsError('outOfRoot')` |
 | 2 | 工程根包含检查（解析成绝对路径再比一次） | `WsError('outOfRoot')` |
 | 3 | 固定目录保护（改名/删除） | `WsError('protected')` |
-| 4 | `.trash/` 内容不可改（**读得到**，作者要能找回东西） | `WsError('inTrash')` |
+| 4 | `.trash/` 内容不可改（**读得到**，作者要能找回东西）；历史版本 `.novelforge/history/` **写不进去**（同样读得到）——往里写、搬进去、复制进去、在里面建目录都拒 | `WsError('inTrash')` / `WsError('inHistory')` |
 | 5 | 大小上限 2MB（读、写各一次） | `WsError('tooLarge')` |
 | 6 | 同名不覆盖（`mode: 'create'`） | `WsError('exists')` |
 | 7 | 覆盖前审阅（`reviewReplace` 或确认框）。请求合并（`opts.merge`），独立版的合并视图交回作者挑过、改过的那一份时写它（五期 W11） | 用户拒绝 → `{ skipped: true }` |
@@ -66,6 +67,33 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 
 **区界限不在这里**：`fileOps` 的三区约束（章节挪不进角色目录）是**工程页的
 产品承诺**，比这里的工程根约束更严。那一层留在 `fileOps` 里，先判区再调网关。
+
+**写不进去的三处**（`guardWrite`、`guardCreate` 共用一道）：Novel Forge 自己的内部文件（会话 `sessions/`、工程库，`protected`）、
+回收站（`inTrash`）、历史版本（`inHistory`）。`write`、`move` 的落点、`copy` 的落点、`mkdir` 都过它。历史版本那一条是后补的：
+从前守卫只拦前两处，作者的操作能往「历史」面板里塞一份从没存过的「旧版」。回收站与历史版本都**读得到**（会话读当不存在）。
+
+## 复制与建目录（`copy` / `mkdir`）
+
+从前「文件」页粘贴的复制直接 `fs.cp`、新建文件夹直接 `fs.mkdir`，都不过守卫：能把文件复制进回收站、会话目录、历史版本，
+也能把会话文件、工程库复制出来。现在两条都在网关里。
+
+**`mkdir(rel)`**：可以一次建几层。落点过 `guardCreate`——工程内、不在写不进去的三处、**落点上有什么都算同名**（目录或文件，
+报 `exists`，什么都不动）。只建目录，没有种类、没有记账。工程页 / 文件页的「新建文件夹」走它（区界限仍由 `fileOps` 先判）。
+设定区的分类目录另有 `ensureLoreFolders`（锁在 `lore/` 里，设定清单落盘时建）；「按目录整理」不先建目录——`move` 落盘前自己补齐
+父目录，新目录只在真有条目搬进去时出现，搬不成不留空目录。
+
+**`copy(from, to)`**——文件页的「复制 → 粘贴」：
+
+| | 规则 |
+|---|---|
+| 来源（`guardCopySource`） | 工程内、存在、不是符号链接、不是固定目录（整个 `chapters/`、`.novelforge/` 不收，与文件页从前一样）、不是内部文件（会话、工程库复制不出来）。**⚑ 回收站与历史版本里的东西复制得出来**：复制只读来源，读得到就复制得出来，原件一个字节不动——这是在工程里找回一份的入口（搬出来仍然不行，那是改回收站，`guardMutate`） |
+| 落点（`guardCreate`） | 写不进去的三处一律拒；**同名不覆盖、不加序号**（第 3 条，与文件页从前的粘贴一样：粘回原目录报「已经在这个目录里」，目标已有报「同名」）；目录不能复制进它自己里面（`intoSelf`）；父目录不在就补齐（与 `move` 一样） |
+| 目录 | 先把整棵树列出来、**逐个文件**过一遍落点守卫，全过了才动手——拦下一份就整个不复制，不留半棵树。目录里的符号链接不跟进去，跳过并在 `side` 里说出来 |
+| 字节 | 原样拷贝（`COPYFILE_EXCL`，竞态里也不盖掉别处刚建的文件）：GBK 的章节、图片都不转码。没有大小上限——与 `move` 一样，复制不把内容读进编辑器或模型 |
+| 章节 | 复制进 `chapters/` 的最后统一同步一次 manifest，像新建一样 |
+| **⚑ 伴生** | **没有**：复制一章不带草稿、也不带细纲（「移动」带）。副本是一章新的——第 8 条细纲按路径认，作者在外面复制出来的正文也是一章新的、旧细纲不冒认；草稿是作者对原章的笔记，细纲是原章的计划与档案，跟着复制会变成两份各自漂移的东西，带着定稿指纹的那份还会让出场统计、设定名录多数一章 |
+| **细纲副本**（`handlers/plot.ts` 的 `afterCopy`，第 18 条） | 去掉定稿那一侧的账：`writtenFrom` / `sourceHash` / `cast`——副本没写过、没定稿过，带着它们镜像位置上要是有正文，会被说成「定稿之后正文改过」或「细纲在正文之后改过」。`upstreamHash` **原样不重算**：内容一字没变、章号没变，它据以生成的仍是大纲里同一节——原件挂 ⟳ 的副本照样挂，不被复制顺手刷成新鲜（所以复制不走 `after`，`after` 会按大纲此刻的指纹重记）；**章号变了**（网关直接复制成另一个文件名）就去掉。作者定的（标题、目标字数、`status: done`、预检放行）与九节原样；没有 frontmatter 的手写细纲一个字节不碰 |
+| 历史版本 | 不存（没覆盖任何东西）；原件的快照也不抄过去 |
 
 ## 种类表（`kind.ts`）
 
@@ -82,7 +110,7 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 | `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | —（正文依据的细纲指纹记在细纲的 `writtenFrom` 上） | 改名/移动带草稿与细纲（整个卷目录也带，连同它们的历史版本）；写后 `syncManifest` |
 | `character` / `lore` | 各自区 + `.md` | frontmatter | — | — |
 | `draft` | `drafts/` 下 | 纯文本 | — | **永不自动进上下文** |
-| `other` | 其余工程内文本（含老工程的 `plots/` 与历史版本 `.novelforge/history/`） | 纯文本 | — | — |
+| `other` | 其余工程内文本（含老工程的 `plots/` 与历史版本 `.novelforge/history/`——后者读得到、写不进，守卫 4） | 纯文本 | — | — |
 
 三条判定上的取舍：
 
@@ -145,9 +173,14 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 （换掉的是这一章原来那份，改标题时它在旧路径上）、`finalizePlot`、`writeCharacter` / `writeLore` / `writeStyleGuide` /
 `writeGlobalSummary` / `updateThreads` / `writeSkillBindings`（经私有的 `overwrite`）。**只改 frontmatter 一个键的记账**
 （`recordWrittenFrom` / `recordPreflightOk` / `restampPlotChain`）不存——它们不吞任何内容。全书替换在 `write` 之前另外
-`snapshotNow` 一次（跳过节流），之后 `write` 自己那一次与它一字不差、不重复存。覆盖创作产物的写入都经网关；网关之外剩下的写盘
-要么只新建、不覆盖（新工程的空模板、「文件」页的复制、新建文件夹），要么不是创作产物（会话文件、`project.json`、工程库、
-工程外的配置与我的技能库），都不存历史版本。
+`snapshotNow` 一次（跳过节流），之后 `write` 自己那一次与它一字不差、不重复存。覆盖创作产物的写入都经网关（角色卡的清理别名、
+合并重复卡也是：`write` 传 `review: false`，动手前的确认框就是那一问；被合并的卡经 `remove` 进回收站）。只新建、不覆盖的
+（`copy`、`mkdir`、`createChapter`、新工程的空模板 `initializeProject`）没有旧内容可存。
+
+**网关之外剩下的写盘**都不是作者的创作产物、按设计不走这里（`tests/contract/gatewayWrites.test.js` 逐个文件数着）：会话文件
+（`model/session.ts`，内部文件，网关拒写 `sessions/`；删会话只共用 `trashPathFor` 落点）、新工程的固定目录与 manifest
+（`model/project.ts` 的 `scaffold` / `createManifest`）、`.novel/` → `.novelforge/` 迁移、工程库（SQLite，第 17 条）、
+工程外的配置（`stores.ts`，`~/.novelforge/`）与我的技能库（`skills/library.ts`）。它们都不存历史版本。
 
 **快照跟着改名、搬家走**（`moveHistory`）：快照按路径存，所以网关 `move` 成功之后，把搬的那一份（或整个目录）在
 `.novelforge/history/` 下的快照目录也挪到新路径下——在新路径上打开「历史」面板，看得到改名之前存的版本（章节改名时同步
@@ -169,9 +202,10 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 **绝不挡住保存**：存快照的任何一步失败都只记一条 warn（「没能给 … 存历史版本，照常写盘」），`snapshotBeforeWrite`
 不抛，调用方照常写盘（第 1 条）。
 
-**不进上下文、不触发重扫、删不掉**：`kindOfPath` 判 `other`；全文检索跳过它（`isInHistory`，与 `.trash/` 同一个理由：
+**不进上下文、不触发重扫、删不掉、写不进**：`kindOfPath` 判 `other`；全文检索跳过它（`isInHistory`，与 `.trash/` 同一个理由：
 搜出来的不是现在的书）；`watchPolicy.shouldIgnoreChange` 挡掉它的变动；`isProtectedPath` 把 `.novelforge/history`
-列为固定目录（类文件操作搬不走、删不掉整个目录；工程页的三个区本来就够不着它）。「文件」页照常看得见、点得开。
+列为固定目录（类文件操作搬不走、删不掉整个目录；工程页的三个区本来就够不着它）；守卫 4 拒绝作者的操作往里写、搬、复制、
+建目录（`inHistory`——快照只由这一层自己存）。「文件」页照常看得见、点得开，单份快照也**复制得出来**。
 
 读的一半（列出快照、读全文、现在存一版）由 `controller/versions.ts` 接给内置编辑器的「历史」面板；恢复与对比都只换
 编辑区里的内容，从不直接写盘。**放回编辑区之前**（对比放回、冲突时的对比合并、「恢复这一版」发的 `saveVersion { quiet }`）
@@ -238,16 +272,16 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 
 ```
 workspace/
-├── index.ts        Workspace 门面：list / read / write / edit / move（另有只读预检 checkMove）/ remove / search
+├── index.ts        Workspace 门面：list / read / write / edit / move（另有只读预检 checkMove）/ copy / mkdir / remove / search，外加领域写入器与新工程的 initializeProject
 ├── kind.ts         ★ 路径 → 种类（纯函数，零 I/O，绝不抛）
-├── guard.ts        ★ 统一入口守卫（八条）
+├── guard.ts        ★ 统一入口守卫（八条；写、建、复制的落点共用「写不进去的三处」，复制的来源另有 guardCopySource）
 ├── history.ts      历史版本：覆盖之前存旧内容（布局、节流、保留；绝不挡住保存）；搬家时快照跟着走（moveHistory，绝不挡住搬家）
 ├── search.ts       全文检索（朴素扫描，零模型调用）
 └── handlers/
     ├── index.ts    种类 → handler 注册表（认不出落 plain，绝不抛）
-    ├── types.ts    Handler 的四件事：render / resolve / after / companions
+    ├── types.ts    Handler 的五件事：render / resolve / after / companions / afterCopy（另有 onRemove）
     ├── setting.ts  架构三件（小节换新、配置 frontmatter 合并）
-    ├── plot.ts     渲染 + 记 upstreamHash；定稿写回的渲染（renderFinalizedPlot）
+    ├── plot.ts     渲染 + 记 upstreamHash；定稿写回的渲染（renderFinalizedPlot）；副本去掉定稿那一侧的指纹（afterCopy）
     ├── chapter.ts  草稿与细纲跟随（carryDraft / carryPlot，连同它们的快照）+ manifest 同步（删章节不删草稿、不删细纲）
     ├── doc.ts      outline / style / globalSummary / threads / character / lore
     └── plain.ts    other / draft（纯文本，无记账）
@@ -255,7 +289,7 @@ workspace/
 
 ## 领域写入器
 
-上面七个方法收的是**路径**。另有一批收**领域对象**：
+上面九个方法收的是**路径**。另有一批收**领域对象**：
 
 | 方法 | 落点由什么决定 |
 |---|---|
@@ -273,6 +307,7 @@ workspace/
 | `writeSkillBindings(text)` | 固定路径（`skills.json`）。设置页「技能」与 `skills bind` 动手前都已经问过作者，这里不再弹覆盖审阅——每换一次下拉框弹一个 JSON 的 diff 只是噪声 |
 | `updateThreads(edit)` | 固定路径（`threads.md`）。读**此刻**的原文交给 `edit`、写回它给的新原文：排线、定稿要调几十秒模型，写之前重读，作者这期间的改动才不会被一份旧全文冲掉 |
 | `setParagraphStyle(style)` | 固定路径（`config.md`）。内置编辑器「编辑 → 段落格式」：**只改 frontmatter 的 `paragraphStyle` 这一行**（`setConfigParagraphStyle`），别的字节一个不动；没有 `config.md` 就新建一份只有这一段 frontmatter 的（没有小节，「小说配置」仍算没填，主按钮不变）。经 `write` 落盘、不弹覆盖审阅（改的只是作者在菜单里点的那一个键），带读到时的 hash 当乐观锁；已经是这个值时不写 |
+| `initializeProject(meta)` | 新工程（`actions.ts` 的 `initProjectFlow`：插件命令、网页按钮、CLI 共用）：固定目录（`model` 的 `scaffold`）→ 几份空模板（架构三件、文风、情节大纲、全书摘要；落点与内容由 `model` 的 `newProjectTemplates` 给，纯数据）→ manifest（`model` 的 `createManifest`，最后写：模板写到一半失败时工程不算建好，再点一次就补齐）。**模板经 `write` 写，`mode: 'create'`，落点上已经有东西（文件或目录）就一个字节不动**——与从前 `model/project.ts` 里的 `writeIfAbsent` 同一个口径，那一处绕过了网关，而 `model/` 不能反过来依赖网关，所以拆成「数据层给脚手架与模板内容、网关写模板」。经网关不多出动作：create 不弹审阅、不存历史；这几种（setting / outline / style / globalSummary）的 handler 不记账，不写细纲，已有细纲不会被补上 `upstreamHash`、没有东西因此挂 ⟳；没有伴生也就不记日志。返回新建了哪几份 |
 
 调用方手里只有对象，让它自己去拼路径等于把命名规则复制一份出去。
 
