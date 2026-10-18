@@ -603,9 +603,13 @@ describe('写作体检：「视图 → 体检」', { skip: JSDOM_SKIP }, () => {
     h.open(CH, TEXT, { kind: 'chapter' });
   });
 
-  test('「视图」最后一组：体检高亮、状态栏显示体检（缺省都开）、编辑敏感词表…', () => {
+  test('「视图」里「统计」之后那一组：体检高亮、状态栏显示体检（缺省都开）、编辑敏感词表…', () => {
     const labels = [...h.viewMenu().querySelectorAll('.wb-menu-item')].map((b) => b.querySelector('.wb-menu-label').textContent);
-    assert.deepEqual(labels.slice(-3), ['体检高亮', '状态栏显示体检', '编辑敏感词表…']);
+    // 后面还跟着「补全」那一组（名词补全），体检这三项连在一起、排在它前面。
+    const at = labels.indexOf('体检高亮');
+    assert.deepEqual(labels.slice(at, at + 3), ['体检高亮', '状态栏显示体检', '编辑敏感词表…']);
+    assert.ok(at > labels.indexOf('重新开始计时'), '在「统计」那一组后面');
+    assert.ok(at < labels.indexOf('名词补全'), '在「补全」那一组前面');
     assert.equal(h.menuItem('体检高亮').getAttribute('aria-checked'), 'true');
     assert.equal(h.menuItem('状态栏显示体检').getAttribute('aria-checked'), 'true');
     assert.equal(h.menuItem('编辑敏感词表…').disabled, false);

@@ -38,8 +38,9 @@ export const RECENT_AFTER = 5_000;
 
 /**
  * 哪些文件补全：正文（章节、草稿）、细纲、角色卡、设定条目，外加情节大纲与叙事线（⚑）——作者会写到名字的
- * Markdown。小说配置、故事前提、世界观后端都给 `setting`，分不出哪份是配置，一律不补；文风、全书摘要、技能、
- * 别的文件不补。看后端给的 `kind`，前端不拿路径猜。
+ * Markdown。小说配置、故事前提、世界观后端都给 `setting`，分不出哪份是配置，一律不补；敏感词表（`sensitive`，
+ * `.novelforge/sensitive.txt`，写作体检读它）、文风、全书摘要、技能、别的文件不补。是白名单：以后新加的种类缺省不补。
+ * 看后端给的 `kind`，前端不拿路径猜。
  */
 const COMPLETION_KINDS: ReadonlySet<string> = new Set(['chapter', 'draft', 'plot', 'character', 'lore', 'outline', 'threads']);
 

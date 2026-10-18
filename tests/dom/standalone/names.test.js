@@ -298,6 +298,12 @@ describe('名词补全：按键弹出', { skip: JSDOM_SKIP }, () => {
     assert.match(h.toasts.at(-1), /只在正文/);
   });
 
+  test('敏感词表（kind: sensitive，写作体检读的 sensitive.txt）也不弹', () => {
+    h.open('.novelforge/sensitive.txt', '林', 'sensitive');
+    h.trigger();
+    assert.equal(h.box(), null);
+  });
+
   test('没给 kind（没打开工程）也不弹', () => {
     h.open('notes.md', '林', null);
     h.trigger();

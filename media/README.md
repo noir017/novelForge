@@ -229,7 +229,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 - **边打边弹**（「视图 → 边打边弹名词补全」，缺省关，`nameAutoPopup`）：只认带 `change` 的 `typing` / `composition`（上屏那一下）、刚插入了字、光标就在插进来的字后面、没有选区；查询词至少 2 个字（⚑）、不是哪个叫法的全称（打完整了不弹）、剩下那截不在光标后面（`autoPopQuery`）。框里只列还没打完的。**不抢回车**：回车照常换段（框收起，按键放给 `enter.ts`），`Tab` 接受（⚑），`↑↓` 在框里选；接着打字按同一个判定重看，不再成立就收起。
 - **输入法**：组字中途的键根本到不了 `addKeyHandler`；自动弹只认上屏那一下；框开着时一开始组字就先藏起来（document 捕获阶段的 `compositionstart`，比编辑区自己的监听先跑），上屏之后按新的文字重筛，取消组字（编辑区不发 `edit`）也在下一拍重看一眼。
 - **插入**：`insertionFor` 算出换掉哪一段（查询词，连同选区），经 `Pane.applyEdit(…, { source: 'completion' })`，一步撤销，光标落在名字后面；自己那一下的 `edit` 不当成作者在打字。
-- **只对作者会写到名字的文件**：后端给的 `kind`（`completionApplies`：`chapter` / `draft` / `plot` / `character` / `lore` / `outline` / `threads`），前端不拿路径猜；小说配置、前提、世界观后端都给 `setting`、分不出哪份是配置，一律不补（⚑）。按键时说一句、不发请求。
+- **只对作者会写到名字的文件**：后端给的 `kind`（`completionApplies`：`chapter` / `draft` / `plot` / `character` / `lore` / `outline` / `threads`），前端不拿路径猜；小说配置、前提、世界观后端都给 `setting`、分不出哪份是配置，一律不补（⚑）；敏感词表（`sensitive`）、文风、全书摘要这些也不补——是白名单，以后新加的种类缺省不补。按键时说一句、不发请求。
 - **候选框**：挂在 `body` 上 `position: fixed`（`css/standalone/names.css`），现造现拆。位置借高亮镜像层的 `measureOffset` 量查询词开头那个字（**不另起测量 DOM**），放在那一行下面、放不下翻到上面、两边都不够压 `max-height`、横向夹进视口；量不了（30 万字以上、textarea 藏着）就摆在编辑区左上角附近。框里按下鼠标 `preventDefault`（不夺编辑区焦点），点一行接受。**收起**：document 捕获阶段 `mousedown` 在框外、编辑区换了文件或切了预览、滚轮、别处滚动、窗口改大小、编辑区失焦、撤销 / 重做、改动落在查询词前面；编辑区自己滚（打字机滚动、打到底自动滚）时在微任务里重摆，光标那一行滚出视口才收。用户内容一律 `textContent`。
 - **Esc**：收起并 `stopPropagation`——查找条的 Esc 监听不看 `defaultPrevented`，不拦的话一下 Esc 会把查找条也收了；专注模式同理。
 
