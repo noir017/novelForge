@@ -556,3 +556,56 @@ describe('全书查找替换 · 页面模板与插件形态', { skip: JSDOM_SKIP
     assert.equal(ui.doc.querySelector('.bf-panel'), null);
   });
 });
+
+describe('全书查找替换 · 与名词补全互不打扰', { skip: JSDOM_SKIP }, () => {
+  const NAMES = {
+    initialized: true,
+    names: [{ name: '林晚', aliases: ['阿晚'], source: 'character', category: '', brief: '', path: '.novelforge/characters/林晚.md' }],
+  };
+  const box = (h) => h.doc.querySelector('.nc-box');
+  const boxShown = (h) => !!box(h) && !box(h).classList.contains('hidden');
+  const altSlash = (h, target) => h.key(target, '/', { code: 'Slash', altKey: true });
+  const serveNames = (h) => {
+    const req = h.last('requestNameIndex');
+    if (req) {
+      h.ui.post({ type: 'nameIndex', requestId: req.requestId, sig: 'n1', index: NAMES });
+    }
+  };
+
+  test('面板里的输入框打字、按 Alt+/：不弹名词补全（补全只认编辑区的 textarea）', () => {
+    const h = harness();
+    h.open(C1, T1);
+    serveNames(h);
+    h.ctrlShift('f');
+    for (const cls of ['bf-query', 'bf-replace']) {
+      h.q(cls).focus();
+      h.type(h.q(cls), '林', { inputType: 'insertText', data: '林' });
+      altSlash(h, h.q(cls));
+      h.tick(500);
+      serveNames(h);
+      assert.equal(boxShown(h), false, `${cls} 里弹了名词补全`);
+    }
+    assert.equal(h.isOpen(), true, 'Alt+/ 不该收起面板');
+  });
+
+  test('编辑区里 Alt+/ 是名词补全、不开全书面板；Ctrl+Shift+F / Ctrl+Shift+H 是全书面板、不弹补全', () => {
+    const h = harness();
+    h.open(C1, '# 入宗\n\n林');
+    const a = h.area();
+    a.focus();
+    a.setSelectionRange(a.value.length, a.value.length);
+    altSlash(h, a);
+    serveNames(h);
+    assert.equal(boxShown(h), true, 'Alt+/ 应该弹名词补全');
+    assert.equal(h.isOpen(), false, 'Alt+/ 不该开全书面板');
+    const asked = h.sent('requestNameIndex').length;
+    const ev = h.ctrlShift('f', a);
+    assert.equal(ev.defaultPrevented, true);
+    assert.equal(h.isOpen(), true);
+    h.key(h.q('bf-query'), 'Escape');
+    a.focus();
+    h.ctrlShift('h', a);
+    assert.equal(h.isOpen(), true);
+    assert.equal(h.sent('requestNameIndex').length, asked, 'Ctrl+Shift+F / H 不该去要名词表');
+  });
+});

@@ -218,7 +218,8 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 
 - **只在独立版**：在 editor.js 里，探测不到 `#wbEditor` 就整个不装（插件形态 `Ctrl+Shift+F` 原样放行）。`Ctrl+Shift+F` 开面板、焦点进
   查找框，`Ctrl+Shift+H` 焦点进替换框（查找框空着时仍进查找框）；挂在 document 上，焦点在对话输入框里也开（这个键在那里没有别的用处）；
-  组字中途、页内对话框与 `.modal-overlay` 开着时不开；没开工程（`body.no-workspace`）说一句、不开。查找条（`find.ts`）不接带 Shift 的那两下。
+  组字中途、页内对话框与 `.modal-overlay` 开着时不开；没开工程（`body.no-workspace`）说一句、不开。查找条（`find.ts`）不接带 Shift 的那两下；
+  名词补全的 `Alt+/` 带 Alt、这两下带 Ctrl+Shift，互不相干，补全只认编辑区的 textarea（`addKeyHandler` / `onEditorChange`），面板里的输入框不弹。
 - **放在哪（⚑）**：**压在侧栏上**，与 VS Code 的「搜索」视图一样——面板现造、挂进 `#wbSide`，侧栏挂 `bf-open`、`css/standalone/bookfind.css`
   把那几页 `.pane` 藏起来（页头任务条照常），编辑区一点都不挡：点一处，右边跳过去，左边的结果还在。不是遮罩、不进 `.modal-overlay`。
   点活动栏任一页签（document 上的 `click`，认 `.tabbar .tab`）、×、面板里任何一处的 `Esc` 收起（不删 DOM，结果、勾选、展开状态都留着）；
