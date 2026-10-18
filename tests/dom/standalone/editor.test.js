@@ -228,9 +228,11 @@ describe('内置编辑器：再次打开不冲掉未保存的修改', { skip: JS
     assert.ok(conflictBar().classList.contains('hidden'));
   });
 
-  test('点「还原」之后的那次打开照旧冲掉修改', () => {
+  test('点「还原」之后的那次打开照旧冲掉修改', async () => {
     type('又改了一笔');
     ui.clickEl(ui.doc.getElementById('edRevertBtn'));
+    // 有未保存的修改：先在页内对话框里问一句（不再是 window.confirm）。
+    await ui.answer('放弃修改');
     assert.ok(ui.last('reloadFile'), '没发出 reloadFile');
     open('磁盘上的版本', 'h-disk');
     assert.equal(area().value, '磁盘上的版本', area().value);

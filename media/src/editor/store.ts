@@ -38,7 +38,10 @@ export interface Pane {
   hasDirty(): boolean;
   snapshot(): PaneSnapshot;
   activate(path: string): void;
+  /** 关一个标签。有未保存的修改时先问「保存 / 不保存 / 取消」（`closing.ts`），所以可能过一会儿才关、或者不关。 */
   closeFile(path: string): void;
+  /** 关掉这几份，不再问（`closing.ts` 已经问过了）。不在这块里的跳过。 */
+  discard(paths: string[]): void;
   /**
    * 不问不提示地移走一个文件。用于「同一路径被另一块编辑区接管」——
    * 那不是关闭，是搬家：返回要带过去的东西（未保存内容与撤销历史）好让新的一块接上；
@@ -69,6 +72,7 @@ export interface Pane {
   /** 重做当前文件的一步。没有可重做的返回 false。 */
   redo(): boolean;
   save(force: boolean): void;
+  /** 保存这一份（经 `saving.ts`：同一份同一时刻只有一个保存在路上；磁盘上没了的先问要不要重建）。 */
   savePath(path: string, force: boolean): void;
   /**
    * 切到这份文件、选中这一句并滚到它（五期：点审稿报告上的引文）。定位按 `locateQuote`——与后端
@@ -77,6 +81,21 @@ export interface Pane {
   reveal(path: string, quote: string): boolean;
   applySaved(incoming: EditorFileView): void;
   applyConflict(path: string, diskText: string, diskHash: string): void;
+  /**
+   * 磁盘上这一份变了（`editorDiskChanged`；或别的窗口存了它，那条 `editorSaved` 不是这边要的）。
+   * 没改过的标签就地换成新内容（记一步撤销、光标与滚动夹进新长度、正看着的在状态栏说一句），
+   * 改过的一个字不动、挂冲突条、标签上标出来。**不切标签、不抢焦点。**
+   */
+  applyDiskChange(incoming: EditorFileView): void;
+  /** 磁盘上已经没有这一份了（`editorDiskGone`）：标签标成已删除，正在路上的那次保存就此作罢。 */
+  markGone(path: string): void;
+  /**
+   * 编辑器知道的这一份在磁盘上的 hash，核对磁盘时带给后端：标成已删除的给空串（磁盘上又出现了就会回话），
+   * 见过一份还没载入的磁盘新版就给那一份的（同一个新版不必再报一次），否则是保存基线。
+   */
+  knownDiskHash(path: string): string;
+  /** 重画标签与状态栏（保存状态变了，`saving.ts` 调）。 */
+  refresh(): void;
 }
 
 export interface PaneSnapshot {
@@ -112,6 +131,11 @@ export function bindStore(deps: {
 }): void {
   post = deps.post;
   draftResizer = deps.draftResizer;
+}
+
+/** 发一条消息给后端（不在某一块编辑区里的模块用：保存、核对磁盘）。 */
+export function postToHost(msg: InMessage): void {
+  post(msg);
 }
 
 /** 当前这一块——Ctrl+S / Ctrl+W 作用于它。 */

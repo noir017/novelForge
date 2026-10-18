@@ -143,6 +143,7 @@ function entriesOf(key: string): MenuEntry[] {
       { label: '保存', action: 'save', disabled: !ed.dirtyCurrent, kbd: 'Ctrl+S' },
       { label: '另存为…', action: 'saveAs', disabled: !ed.hasFile },
       { label: '全部保存', action: 'saveAll', disabled: !ed.dirtyAny },
+      { label: '自动保存', checked: ed.autoSave, run: () => commandEditor('toggleAutoSave') },
       { label: 'sep' },
       { label: '关闭编辑器', action: 'closeEditor', disabled: !ed.hasFile },
       { label: '关闭文件夹', action: 'closeFolder', disabled: !ws },

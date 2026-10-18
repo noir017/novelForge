@@ -5,8 +5,12 @@
  *
  * 保存带**内容 hash 乐观锁**：磁盘上的 hash 与编辑器基线不一致（作者在别处
  * 改过、或插件写入过）时保存被拒，弹冲突条让用户在「用磁盘版本覆盖编辑器」
- * 和「用编辑器内容强制保存」之间选。只有明确点了「强制保存」才会发不带
- * `baseHash` 的 saveFile。
+ * 和「用编辑器内容强制保存」之间选。只有明确点了「强制保存」（页内对话框里再确认一次）
+ * 才会发不带 `baseHash` 的 saveFile。
+ *
+ * **不丢稿那几样不在这里写**：保存本身（同一份只有一个在路上、状态栏的保存状态、磁盘上没了先问）
+ * 经 `saving.ts`，关标签时的三选一经 `closing.ts`，对话框是 `dialog.ts`；这里只认它们的几个函数。
+ * 磁盘上的改动由 `diskSync.ts` 收来，经 `applyDiskChange` / `markGone` 落到标签上。
  *
  * **撤销 / 重做是编辑器自己记的**（`history.ts`，每个文件一份）：打字在 `input` 里拿
  * `file.draft` 与 textarea 的当前值求差异记账；程序改写一律走 `applyEdit`；Ctrl+Z / Ctrl+Y /
@@ -27,12 +31,25 @@ import {
 } from './api';
 import type { EditSource } from './api';
 import { areaCopy, areaCut, areaPaste } from './clipboard';
+import { requestClose } from './closing';
+import { askDialog } from './dialog';
 import { scrollToOffset } from './highlight';
 import { EditHistory, diffText } from './history';
 import type { TextChange, TextSelection } from './history';
 import { indentLines, outdentLines } from './indent';
 import type { CarriedDraft, OpenFile, PaneId, PaneRefs } from './paneElements';
 import { renderPreview } from './preview';
+import {
+  blockAutoSave,
+  holdSave,
+  isAutoSaving,
+  isSaving,
+  noteStatus,
+  releaseSave,
+  renderSaveState,
+  requestSave,
+  settleSave,
+} from './saving';
 import {
   activePane,
   announceActive,
@@ -88,6 +105,12 @@ export function createPane(
    */
   const conflicts = new Map<string, { text: string; hash: string; reopen?: boolean }>();
   /**
+   * 见过、但还没载入编辑器的那份磁盘版本的 hash（保存撞上冲突、再次打开、核对磁盘时知道的）。
+   * 冲突条会因为作者接着打字而收起，这一笔不跟着丢：核对磁盘时带它，同一个新版不再报第二次。
+   * 基线换了（载入了、存成了）就清掉。
+   */
+  const diskSeen = new Map<string, string>();
+  /**
    * 作者点过「还原」、正在等后端回磁盘版的路径。只有它们的 editorOpen 才允许
    * 冲掉未保存的修改；其余的 editorOpen 一律当成「再打开一次」。
    */
@@ -105,6 +128,7 @@ export function createPane(
     snapshot,
     activate,
     closeFile,
+    discard,
     closeSilently,
     upsertFile,
     applyEdit,
@@ -115,6 +139,10 @@ export function createPane(
     reveal,
     applySaved,
     applyConflict,
+    applyDiskChange,
+    markGone,
+    knownDiskHash,
+    refresh,
   };
 
   /** 预览开关是这块区的私事，不进 Pane 接口。 */
@@ -164,6 +192,23 @@ export function createPane(
     name.textContent = file.name;
     tab.appendChild(name);
 
+    // 磁盘上被改了而编辑器里的修改没覆盖、或磁盘上已经没有这一份：标签上挂一个醒目的「!」（不切过去）。
+    const flag = conflicts.has(file.path)
+      ? '磁盘上已被改动，编辑器里的修改没有覆盖'
+      : file.gone
+        ? '磁盘上已经没有这个文件（被删或改名）'
+        : '';
+    tab.classList.toggle('conflict', conflicts.has(file.path));
+    tab.classList.toggle('gone', !!file.gone);
+    if (flag) {
+      const mark = document.createElement('span');
+      mark.className = 'ed-tab-flag';
+      mark.textContent = '!';
+      mark.title = flag;
+      tab.appendChild(mark);
+      tab.title = `${file.path}\n${flag}`;
+    }
+
     const close = document.createElement('button');
     close.className = 'ed-tab-close';
     close.textContent = '×';
@@ -188,18 +233,14 @@ export function createPane(
 
   /**
    * 标签右键菜单：关闭当前/左侧/右侧/其它。
-   * 批量关闭**逐个确认**：每个脏标签各问一次，取消哪个跳过哪个、继续其余。
+   * 批量关闭**合成一个对话框问一次**（几份没保存就列出几份），见 `closing.ts`。
    */
   function tabMenuItems(anchor: string): MenuItem[] {
     const order = [...files.keys()];
     const idx = order.indexOf(anchor);
     const left = order.slice(0, idx);
     const right = order.slice(idx + 1);
-    const closeMany = (paths: string[]) => {
-      for (const p of paths) {
-        closeFile(p);
-      }
-    };
+    const closeMany = (paths: string[]) => void requestClose(pane, paths);
 
     const items: MenuItem[] = [{ label: '关闭', run: () => closeFile(anchor) }];
     if (left.length > 0) {
@@ -248,15 +289,21 @@ export function createPane(
   }
 
   function closeFile(path: string): void {
-    const file = files.get(path);
-    if (!file) {
+    // 未保存内容不能一点就没：先问「保存 / 不保存 / 取消」，保存的要等回执回来才关。
+    void requestClose(pane, [path]);
+  }
+
+  function discard(paths: string[]): void {
+    let dropped = false;
+    for (const path of paths) {
+      if (files.has(path)) {
+        dropFile(path);
+        dropped = true;
+      }
+    }
+    if (!dropped) {
       return;
     }
-    // 未保存内容不能一点就没，必须问一句。
-    if (file.draft !== file.text && !window.confirm(`「${file.name}」有未保存的修改，仍要关闭吗？`)) {
-      return;
-    }
-    dropFile(path);
     renderAll();
     syncDraftVisibility();
     persist();
@@ -281,6 +328,7 @@ export function createPane(
   function dropFile(path: string): void {
     files.delete(path);
     conflicts.delete(path);
+    diskSeen.delete(path);
     if (pane.activePath === path) {
       pane.activePath = [...files.keys()].pop() || null;
       announceActive();
@@ -299,10 +347,17 @@ export function createPane(
     setHidden(el.preview, !file || !previewMode);
 
     const conflict = file ? conflicts.get(file.path) : undefined;
-    setHidden(el.conflict, !conflict);
-    if (conflict && file) {
+    const gone = !!file?.gone && !conflict;
+    setHidden(el.conflict, !conflict && !gone);
+    // 磁盘上已经没有这一份：没有磁盘版本可载入。保存（含冲突条上的强制保存）会先问要不要在原路径重建。
+    setHidden(el.conflictTake, gone);
+    if (gone && file) {
+      el.conflictText.textContent =
+        `磁盘上已经没有「${file.name}」这个文件（被删或改名）。编辑器里的内容还在；` +
+        '要保存的话，会先问你要不要在原路径重建。';
+    } else if (conflict && file) {
       el.conflictText.textContent = conflict.reopen
-        ? `「${file.name}」在磁盘上已被改动（可能刚写入了新内容），编辑器里还有未保存的修改，没有覆盖。`
+        ? `「${file.name}」在磁盘上已被改动（刚写入了新内容，或在别处改过），编辑器里还有未保存的修改，没有覆盖。`
         : `「${file.name}」在磁盘上已被改动（可能是你在别处编辑，或插件写入了内容）。` +
           '为不覆盖别人的修改，这次保存已取消。';
     }
@@ -310,8 +365,7 @@ export function createPane(
     if (!file) {
       el.statusWords.textContent = '';
       el.statusPos.textContent = '';
-      el.statusSave.textContent = '';
-      el.statusSave.classList.remove('dirty');
+      renderSaveState(el.statusSave, undefined);
       el.statusFile.textContent = '';
       el.draftBtn.classList.add('hidden');
       emitEditorChange({ type: 'render', pane });
@@ -353,7 +407,6 @@ export function createPane(
     if (!file) {
       return;
     }
-    const dirty = file.draft !== file.text;
 
     el.statusFile.textContent = file.name;
     el.statusWords.textContent = `${formatWords(countWords(file.draft))} · ${file.draft.length} 字符`;
@@ -367,8 +420,14 @@ export function createPane(
       el.statusPos.textContent = `行 ${line}，列 ${col}`;
     }
 
-    el.statusSave.textContent = dirty ? '● 未保存（Ctrl+S）' : '已保存';
-    el.statusSave.classList.toggle('dirty', dirty);
+    // 「● 未保存」→「保存中…」→「已保存 14:32」，自动保存开着时旁边挂一枚（saving.ts）。
+    renderSaveState(el.statusSave, file);
+  }
+
+  /** 保存状态变了（saving.ts 调）：标签与状态栏重画，正文不动。 */
+  function refresh(): void {
+    renderTabs();
+    updateStatus();
   }
 
   // ---------------------------------------------------------------- 编辑
@@ -402,11 +461,11 @@ export function createPane(
    * 文字已经写进 `file.draft`（当前文件也已写进 textarea）。
    */
   function afterContentChange(file: OpenFile, source: EditSource, change?: TextChange): void {
-    // 内容一变，之前那次冲突提示就过期了。
+    // 内容一变，之前那次冲突提示就过期了（磁盘上没了这件事不会因为打字就过期）。
     conflicts.delete(file.path);
     renderTabs();
     if (file === activeFile()) {
-      el.conflict.classList.add('hidden');
+      setHidden(el.conflict, !file.gone);
       const dirty = file.draft !== file.text;
       el.saveBtn.disabled = !dirty;
       el.revertBtn.disabled = !dirty;
@@ -718,16 +777,8 @@ export function createPane(
   }
 
   function savePath(path: string, force: boolean): void {
-    const file = files.get(path);
-    if (!file || (file.draft === file.text && !force)) {
-      return;
-    }
-    post({
-      type: 'saveFile',
-      path: file.path,
-      text: file.draft,
-      baseHash: force ? undefined : file.hash,
-    });
+    // 经 saving.ts：同一份同一时刻只有一个保存在路上，状态栏跟着走；磁盘上没了的先问要不要重建。
+    void requestSave(pane, path, { force });
   }
 
   /**
@@ -755,14 +806,19 @@ export function createPane(
   function applySaved(incoming: EditorFileView): void {
     const file = files.get(incoming.path);
     if (!file) {
+      settleSave(incoming.path, 'saved');
+      return;
+    }
+    // 这边没有保存在路上：是别的窗口存了同一份（回执是广播的）。对这边来说那是磁盘变了，不是存成了——
+    // 照「磁盘上变了」处理。从前这里直接把基线换成别人存的那一份，下一次保存就把别人的改动盖掉了。
+    if (!isSaving(incoming.path)) {
+      applyDiskChange(incoming);
       return;
     }
     file.text = incoming.text;
     file.hash = incoming.hash;
-    // 保存期间用户可能又敲了几个字：只在内容一致时才提示成功。
-    if (file.draft === incoming.text) {
-      toast(`已保存 ${file.path}`);
-    }
+    file.gone = false;
+    diskSeen.delete(file.path);
     // draftPath 后端每次都会带回；万一缺席也不要把已有的值冲掉，
     // 否则工具栏上的「草稿」按钮会在首次保存后消失。
     if (incoming.draftPath !== undefined) {
@@ -774,19 +830,119 @@ export function createPane(
     conflicts.delete(file.path);
     renderAll();
     persist();
+    // 存成了不弹 toast：状态栏写「已保存 14:32」。保存期间又敲了字的仍是脏的，状态栏照实写「未保存」；
+    // 在路上时又要存过的，settleSave 接着再存一次。
+    settleSave(file.path, 'saved');
   }
 
   function applyConflict(path: string, diskText: string, diskHash: string): void {
-    if (!files.has(path)) {
+    const file = files.get(path);
+    if (!file) {
+      settleSave(path, 'conflict');
       return;
     }
+    if (!isSaving(path)) {
+      // 不是这边那一次（别的窗口的保存撞了冲突，回执是广播的）：只当它带来了一份磁盘版本。
+      applyDiskChange({ path, name: file.name, text: diskText, hash: diskHash, bytes: diskText.length });
+      return;
+    }
+    const auto = isAutoSaving(path);
     conflicts.set(path, { text: diskText, hash: diskHash });
-    if (pane.activePath !== path) {
+    diskSeen.set(path, diskHash);
+    file.gone = false;
+    // 撞上冲突：这一份不再自动保存，直到作者在冲突条上选了（基线换了）。绝不替他强制保存。
+    blockAutoSave(path, file.hash);
+    settleSave(path, 'conflict');
+    // 手动保存撞上的切过去给人看；自动保存撞上的不切（作者可能正在别的标签里写），标签上挂着「!」。
+    if (!auto && pane.activePath !== path) {
       activate(path);
     } else {
       renderAll();
     }
-    toast('文件已被外部修改，保存已取消。', true);
+    toast(
+      auto
+        ? `「${file.name}」在磁盘上已被改过，这一份先不自动保存了，编辑器里的修改留着。`
+        : '文件已被外部修改，保存已取消。',
+      true
+    );
+  }
+
+  function applyDiskChange(incoming: EditorFileView): void {
+    const file = files.get(incoming.path);
+    if (!file) {
+      return;
+    }
+    const wasGone = !!file.gone;
+    file.gone = false;
+    if (incoming.draftPath !== undefined) {
+      file.draftPath = incoming.draftPath;
+    }
+    if (incoming.kind !== undefined) {
+      file.kind = incoming.kind;
+    }
+    if (incoming.hash === file.hash) {
+      // 磁盘上就是基线那一份（又出现了、或别处存回了同一份）：之前见过的新版与冲突都作废。
+      diskSeen.delete(file.path);
+      conflicts.delete(file.path);
+      renderAll();
+      return;
+    }
+    if (!wasGone && incoming.hash === diskSeen.get(file.path)) {
+      return; // 这一份新版已经知道了（冲突条收起了也一样），不再报第二次。
+    }
+    if (file.draft === file.text) {
+      // 没改过：就地换成新内容。记一步撤销（与「再次打开时磁盘有新版」同一处理），不切标签、不抢焦点，
+      // 光标与滚动留在原处（夹进新长度）。
+      file.text = incoming.text;
+      file.hash = incoming.hash;
+      diskSeen.delete(file.path);
+      conflicts.delete(file.path);
+      replaceAll(file, incoming.text);
+      if (file === activeFile()) {
+        noteStatus(file.path, '磁盘上有新版本，已载入');
+      }
+    } else if (viewText(incoming.text) === viewText(file.draft)) {
+      // 磁盘上的正好就是编辑器里这一份（别处存了同样的字）：认下来，不算冲突。
+      file.text = incoming.text;
+      file.hash = incoming.hash;
+      diskSeen.delete(file.path);
+      conflicts.delete(file.path);
+    } else {
+      // 改过：编辑器里的修改一个字不动，挂冲突条，标签上标出来；自动保存先停下（存了也是撞冲突）。
+      conflicts.set(file.path, { text: incoming.text, hash: incoming.hash, reopen: true });
+      diskSeen.set(file.path, incoming.hash);
+      blockAutoSave(file.path, file.hash);
+      toast(`「${file.name}」在磁盘上被改过，编辑器里的修改留着、没有覆盖（标签上标了「!」）。`, true);
+    }
+    renderAll();
+    persist();
+  }
+
+  function markGone(path: string): void {
+    const file = files.get(path);
+    const saving = isSaving(path);
+    settleSave(path, 'gone');
+    if (!file) {
+      return;
+    }
+    const fresh = !file.gone;
+    file.gone = true;
+    conflicts.delete(path);
+    diskSeen.delete(path);
+    if (saving) {
+      toast(`「${file.name}」在磁盘上已经没有了（被删或改名），这次没有保存。再按一次保存会先问你要不要在原路径重建。`, true);
+    } else if (fresh && file.draft !== file.text) {
+      toast(`「${file.name}」在磁盘上已经没有了（被删或改名），编辑器里的修改还在。`, true);
+    }
+    renderAll();
+  }
+
+  function knownDiskHash(path: string): string {
+    const file = files.get(path);
+    if (!file || file.gone) {
+      return '';
+    }
+    return diskSeen.get(path) ?? file.hash;
   }
 
   el.saveBtn.addEventListener('click', () => save(false));
@@ -796,11 +952,30 @@ export function createPane(
     if (!file) {
       return;
     }
-    if (file.draft !== file.text && !window.confirm(`放弃「${file.name}」的未保存修改？`)) {
+    const reload = (): void => {
+      reloading.add(file.path);
+      // 磁盘版回来之前别让自动保存把要丢掉的修改存下去。
+      holdSave(file.path);
+      post({ type: 'reloadFile', path: file.path });
+    };
+    if (file.draft === file.text) {
+      reload();
       return;
     }
-    reloading.add(file.path);
-    post({ type: 'reloadFile', path: file.path });
+    void askDialog({
+      title: '还原',
+      message: `放弃「${file.name}」的未保存修改，重新从磁盘读取？`,
+      detail: '放弃之后还能按 Ctrl+Z 撤销回来。',
+      buttons: [
+        { value: 'cancel', label: '取消' },
+        { value: 'revert', label: '放弃修改', primary: true, danger: true },
+      ],
+      cancel: 'cancel',
+    }).then((answer) => {
+      if (answer === 'revert' && files.get(file.path) === file) {
+        reload();
+      }
+    });
   });
 
   el.previewBtn.addEventListener('click', () => {
@@ -832,6 +1007,7 @@ export function createPane(
     }
     file.text = disk.text;
     file.hash = disk.hash;
+    diskSeen.delete(file.path);
     // 整份换内容也记一步：点错了可以撤销回编辑器里原来那份。
     replaceAll(file, disk.text);
     conflicts.delete(file.path);
@@ -845,10 +1021,24 @@ export function createPane(
     if (!file) {
       return;
     }
-    if (!window.confirm(`确定用编辑器里的内容覆盖磁盘上的「${file.name}」？磁盘上的改动会丢失。`)) {
+    // 磁盘上已经没有这一份：没有「别人的改动」可丢，保存那条路会问要不要在原路径重建（重建照样带基线）。
+    if (file.gone) {
+      savePath(file.path, true);
       return;
     }
-    save(true);
+    void askDialog({
+      title: '用编辑器内容强制保存',
+      message: `确定用编辑器里的内容覆盖磁盘上的「${file.name}」？磁盘上的改动会丢失。`,
+      buttons: [
+        { value: 'cancel', label: '取消' },
+        { value: 'force', label: '覆盖磁盘上的版本', primary: true, danger: true },
+      ],
+      cancel: 'cancel',
+    }).then((answer) => {
+      if (answer === 'force') {
+        savePath(file.path, true);
+      }
+    });
   });
 
   // ---------------------------------------------------------------- 收文件
@@ -863,15 +1053,23 @@ export function createPane(
       // 自动打开、工程页再点一次）碰上脏草稿就不动它——磁盘版变了就挂冲突条
       // 让作者自己选，没变就只是切过去。
       const reload = reloading.delete(incoming.path);
+      if (reload) {
+        releaseSave(incoming.path);
+      }
       const dirty = existing.draft !== existing.text;
       if (reload || !dirty) {
         existing.text = incoming.text;
         existing.hash = incoming.hash;
+        existing.gone = false;
+        diskSeen.delete(incoming.path);
         // 「还原」也记一步撤销：作者可以退回刚才没保存的那份。
         replaceAll(existing, incoming.text);
         conflicts.delete(incoming.path);
       } else if (incoming.hash !== existing.hash) {
         conflicts.set(incoming.path, { text: incoming.text, hash: incoming.hash, reopen: true });
+        diskSeen.set(incoming.path, incoming.hash);
+        existing.gone = false;
+        blockAutoSave(incoming.path, existing.hash);
         toast(`「${existing.name}」在磁盘上已被改过，编辑器里的未保存修改保留着。`, true);
       }
       if (incoming.draftPath !== undefined) {

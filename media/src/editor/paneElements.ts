@@ -59,6 +59,11 @@ export interface OpenFile {
    * 搬到另一块编辑区 / 改名时跟着搬（见 `CarriedDraft`）。
    */
   history: EditHistory;
+  /**
+   * 磁盘上已经没有这份了（被删、被改名；`editorDiskGone`）。编辑器里的内容还在；保存时先问要不要在原路径
+   * 重建，自动保存跳过它；磁盘上又出现了（核对磁盘时）就清掉。
+   */
+  gone?: boolean;
 }
 
 /** 冲突时暂存的磁盘版本，供「用磁盘版本覆盖」使用。 */

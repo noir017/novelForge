@@ -22,6 +22,7 @@ export type {
   CharacterAction,
   DirListing,
   EditorFileView,
+  EditorFileCheck,
   ChapterAction,
   EditorPane,
   FailureView,

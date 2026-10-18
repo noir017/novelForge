@@ -6,8 +6,9 @@
  *   没收到之前按缺省 `blank`。前端不改它——切换走标题栏「编辑 → 段落格式」发 `setParagraphStyle`，
  *   后端写完 `pushState`，新值随下一条 `state` 回来。
  * - **编辑器偏好**：按浏览器记、不进工程的开关，存 localStorage `novelforge.editor.prefs`（不按工程分键：
- *   这是作者的手感，不是这本书的设置）。现在只有一项：成对符号自动补全，缺省开。localStorage 不可写
- *   （隐私模式、jsdom 的 about:blank）时照样在内存里生效，只是刷新后回到缺省。
+ *   这是作者的手感，不是这本书的设置）。两项：成对符号自动补全（缺省开）、自动保存（缺省关，见
+ *   `autosave.ts`）。localStorage 不可写（隐私模式、jsdom 的 about:blank）时照样在内存里生效，只是刷新后
+ *   回到缺省。
  */
 import { DEFAULT_PARAGRAPH_STYLE, isParagraphStyle } from '../protocol';
 import type { ParagraphStyle } from '../protocol';
@@ -17,6 +18,7 @@ const PREFS_KEY = 'novelforge.editor.prefs';
 
 interface EditorPrefs {
   autoPair: boolean;
+  autoSave: boolean;
 }
 
 let style: ParagraphStyle = DEFAULT_PARAGRAPH_STYLE;
@@ -34,17 +36,30 @@ export function autoPairEnabled(): boolean {
 }
 
 export function setAutoPair(on: boolean): void {
-  if (prefs.autoPair === on) {
+  setPref('autoPair', on);
+}
+
+/** 自动保存开着没有（缺省关）。 */
+export function autoSaveEnabled(): boolean {
+  return prefs.autoSave;
+}
+
+export function setAutoSave(on: boolean): void {
+  setPref('autoSave', on);
+}
+
+function setPref(key: keyof EditorPrefs, on: boolean): void {
+  if (prefs[key] === on) {
     return;
   }
-  prefs = { ...prefs, autoPair: on };
+  prefs = { ...prefs, [key]: on };
   savePrefs();
   for (const fn of [...prefListeners]) {
     fn();
   }
 }
 
-/** 偏好变了时通知（成对符号关掉时要丢掉手上记着的那几对）。 */
+/** 偏好变了时通知（成对符号关掉时要丢掉手上记着的那几对；自动保存开关要刷新状态栏）。 */
 export function onPrefsChange(fn: () => void): () => void {
   prefListeners.add(fn);
   return () => prefListeners.delete(fn);
@@ -71,9 +86,10 @@ function take(value: unknown): void {
 function loadPrefs(): EditorPrefs {
   try {
     const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null') as Partial<EditorPrefs> | null;
-    return { autoPair: raw?.autoPair !== false };
+    // 自动保存只认明明白白的 true：缺省关，写坏了也当关。
+    return { autoPair: raw?.autoPair !== false, autoSave: raw?.autoSave === true };
   } catch {
-    return { autoPair: true };
+    return { autoPair: true, autoSave: false };
   }
 }
 

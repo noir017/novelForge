@@ -98,6 +98,53 @@ const SHIMS = {
     window.confirm = () => true;
   },
   /**
+   * 手拨的时钟：窗口里的 `setTimeout` / `clearTimeout` / `setInterval` / `clearInterval` 换成假的，
+   * `window.__clock.tick(ms)` 往前拨——拨到点的按时间先后跑，跑的时候新挂上的只要也在这段里照样跑。
+   * 测停笔 2 秒、10 秒没回音、收到 `state` 之后的去抖这些，不必真等。`Date` 不动。
+   */
+  fakeTimers(window) {
+    let now = 0;
+    let seq = 0;
+    const timers = new Map();
+    const add = (fn, ms, args, every) => {
+      const id = ++seq;
+      timers.set(id, { at: now + Math.max(0, Number(ms) || 0), fn, args, every });
+      return id;
+    };
+    window.setTimeout = (fn, ms, ...args) => add(fn, ms, args, 0);
+    window.setInterval = (fn, ms, ...args) => add(fn, ms, args, Math.max(1, Number(ms) || 0));
+    window.clearTimeout = (id) => timers.delete(id);
+    window.clearInterval = (id) => timers.delete(id);
+    window.__clock = {
+      tick(ms) {
+        const end = now + ms;
+        for (;;) {
+          let nextId;
+          let next;
+          for (const [id, t] of timers) {
+            if (t.at <= end && (!next || t.at < next.at)) {
+              next = t;
+              nextId = id;
+            }
+          }
+          if (!next) {
+            break;
+          }
+          now = next.at;
+          if (next.every) {
+            next.at += next.every;
+          } else {
+            timers.delete(nextId);
+          }
+          if (typeof next.fn === 'function') {
+            next.fn(...next.args);
+          }
+        }
+        now = end;
+      },
+    };
+  },
+  /**
    * 假排版，只管量位置的那一份镜像（`.ed-mirror-probe`）：里面的标记 `offsetTop` = 上内边距 +
    * 它前面的换行数 × 行高，`offsetHeight` = 行高；textarea 的 `clientHeight` 是固定的视口高。
    * 一行一个换行、不模拟折行——测的是「滚动按量出来的位置走」，不是排版本身。别处照旧是 0。
@@ -231,12 +278,30 @@ function mount({
   /** 收起当前打开的菜单（点一下 body），免得它挂在那儿影响后续断言。 */
   const closeMenu = () => doc.body.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 
+  // ---- 内置编辑器的页内对话框（editor/dialog.ts）
+  /** 等页面里排着的 Promise 后续跑完（对话框答完之后的保存、关标签都在 then 里）。 */
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  /** 开着的那个对话框，没有就是 null。 */
+  const dialog = () => doc.querySelector('.ed-dialog');
+  /** 对话框上几颗按钮的字，从左到右。 */
+  const dialogButtons = () => [...(dialog()?.querySelectorAll('.modal-foot button') ?? [])].map((b) => b.textContent);
+  /** 在开着的对话框上点那颗按钮（按字认），再等后续跑完。 */
+  const answer = async (label) => {
+    const btn = [...(dialog()?.querySelectorAll('.modal-foot button') ?? [])].find((b) => b.textContent === label);
+    if (!btn) {
+      throw new Error(`对话框上没有「${label}」：${JSON.stringify(dialogButtons())}`);
+    }
+    clickEl(btn);
+    await flush();
+  };
+
   return {
     window, doc, sent, post,
     bubble, bodyOf,
     panes,
     rows, names, click,
     clickEl, rightClick, auxClick, itemsOf, pick, last, closeMenu,
+    flush, dialog, dialogButtons, answer,
   };
 }
 

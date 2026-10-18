@@ -39,13 +39,15 @@ export interface EditorStatus {
   text: string;
   /** 焦点在内置编辑器的正文区里。「编辑 → 撤销 / 重做」这时交给编辑器自己的历史。 */
   areaFocused: boolean;
+  /** 自动保存开着没有（按浏览器记，缺省关）。「文件 → 自动保存」据此打 ✓。 */
+  autoSave: boolean;
 }
 
 /**
  * `undo` / `redo` 作用于当前那块编辑区的当前文件（编辑器自己记的历史，不是浏览器原生的）；
- * `find` / `replace` 打开那一块的查找条（`replace` 连替换行一起展开）。
+ * `find` / `replace` 打开那一块的查找条（`replace` 连替换行一起展开）；`toggleAutoSave` 开关自动保存。
  */
-export type EditorCommandName = 'save' | 'saveAll' | 'close' | 'find' | 'replace' | 'undo' | 'redo';
+export type EditorCommandName = 'save' | 'saveAll' | 'close' | 'find' | 'replace' | 'undo' | 'redo' | 'toggleAutoSave';
 
 declare global {
   interface Window {
@@ -99,6 +101,7 @@ export function queryEditor(): EditorStatus {
     path: null,
     text: '',
     areaFocused: false,
+    autoSave: false,
   };
   window.dispatchEvent(new CustomEvent('nf-editor-query', { detail: status }));
   return status;

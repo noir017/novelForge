@@ -1,0 +1,97 @@
+/*
+ * 不丢稿那几样（独立版内置编辑器）：页内对话框（editor/dialog.ts）、标签上的冲突 / 已删除标记、
+ * 状态栏的保存状态与「自动保存」那一枚（editor/saving.ts）。弹窗外观本身来自 view 的 modal.css。
+ */
+
+/* ---- 对话框：压在别的弹窗（20）与浮窗（25）之上，低于 toast（30）——等回执时弹的提示要看得见。居中偏上。 */
+
+.ed-dialog-overlay {
+  z-index: 28;
+  align-items: flex-start;
+  padding-top: 15vh;
+}
+
+.ed-dialog {
+  max-width: 440px;
+}
+
+.ed-dialog .modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ed-dialog-message,
+.ed-dialog-detail {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.ed-dialog-list {
+  margin: 0;
+  padding-left: 1.4em;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.ed-dialog-list li {
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.ed-dialog-note {
+  margin-left: 4px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+}
+
+.ed-dialog .modal-foot {
+  margin-top: 4px;
+}
+
+/* ---- 标签：磁盘上被改了（编辑器里的修改没覆盖）/ 磁盘上没了，挂一个醒目的「!」。 */
+
+.ed-tab-flag {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--vscode-editorWarning-foreground, #cca700);
+  color: var(--vscode-editor-background, #1e1e1e);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.ed-tab.gone .ed-tab-flag {
+  background: var(--vscode-errorForeground, #f48771);
+}
+
+.ed-tab.gone .ed-tab-name {
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+
+/* ---- 状态栏：保存中 / 很久没回音 / 自动保存那一枚。 */
+
+.ed-status .ed-save-state.busy {
+  color: var(--vscode-foreground);
+}
+
+.ed-status .ed-save-state.slow {
+  color: var(--vscode-editorWarning-foreground);
+}
+
+.ed-status .ed-autosave {
+  padding: 0 6px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.4));
+  border-radius: 8px;
+}
+
+.ed-status .ed-autosave.paused {
+  border-color: var(--vscode-inputValidation-warningBorder, #b89500);
+  color: var(--vscode-editorWarning-foreground);
+}

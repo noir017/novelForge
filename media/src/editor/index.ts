@@ -12,8 +12,9 @@
  * 从错的那块保存时用错 baseHash，触发假冲突。
  *
  * 协议：
- *   发 openEditor{path,pane} / openDraft{path} / saveFile / reloadFile / openExternal
- *   收 editorOpen{file,pane} / editorSaved / editorConflict / editorError
+ *   发 openEditor{path,pane} / openDraft{path} / saveFile / reloadFile / openExternal / checkEditorFiles
+ *   收 editorOpen{file,pane} / editorSaved / editorConflict / editorError / editorDiskChanged / editorDiskGone
+ *   （核对磁盘那三条——checkEditorFiles / editorDiskChanged / editorDiskGone——由 diskSync.ts 收发）
  */
 import { maybeById } from '../dom';
 import { acquireApi, onMessage } from '../vscodeApi';
@@ -23,6 +24,7 @@ import { createPane } from './pane';
 import { installChapterBar } from './chapterBar';
 import { installFind } from './find';
 import { installParagraphTools } from './paragraph';
+import { installSaveSafety } from './safety';
 import { createPaneElements, mainRefs } from './paneElements';
 import type { CarriedDraft } from './paneElements';
 import {
@@ -62,6 +64,8 @@ function start(stage: HTMLElement): void {
   bindStore({ post, draftResizer: shell.draftResizer });
   // 回车、成对符号、段落快捷键、一键排版。要在造编辑区之前装：「排版」按钮挂在第一次重画上。
   installParagraphTools();
+  // 不丢稿：磁盘改动同步到已开的标签、保存状态、自动保存（safety.ts）。
+  installSaveSafety();
 
   setActivePane(registerPane(createPane('main', mainRefs(stage), post)));
   // 正开着某一章的正文或细纲时，主区顶上那一条（W6 章节工作台）。

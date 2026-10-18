@@ -161,11 +161,12 @@ describe('撤销 / 重做：每个文件一份', { skip: JSDOM_SKIP }, () => {
     assert.equal(area().value, '雨夜。林昭来了！');
   });
 
-  test('关掉标签，历史随之丢弃：再打开从头记', () => {
+  test('关掉标签，历史随之丢弃：再打开从头记', async () => {
     ui.clickEl(tab('林昭.md'));
     t.caret(4);
     t.type('甲');
     ui.clickEl(tab('林昭.md').querySelector('.ed-tab-close'));
+    await ui.answer('不保存');
     ui.post({ type: 'editorOpen', file: file('.novelforge/characters/林昭.md', '# 林昭', { kind: 'character' }) });
     assert.equal(area().value, '# 林昭');
     k.undo();
@@ -233,10 +234,11 @@ describe('撤销 / 重做：整份换内容也记一步', { skip: JSDOM_SKIP }, 
     t = typer(ui, area);
   });
 
-  test('「还原」之后可以撤销回刚才没保存的那份，那时它又是脏的', () => {
+  test('「还原」之后可以撤销回刚才没保存的那份，那时它又是脏的', async () => {
     area().setSelectionRange(2, 2);
     t.type('，改了一半');
     ui.clickEl(ui.doc.getElementById('edRevertBtn'));
+    await ui.answer('放弃修改');
     assert.ok(ui.last('reloadFile'), '没发出 reloadFile');
     ui.post({ type: 'editorOpen', file: file('chapters/001-雨夜.md', '原文', { kind: 'chapter' }) });
     assert.equal(area().value, '原文');
@@ -249,6 +251,8 @@ describe('撤销 / 重做：整份换内容也记一步', { skip: JSDOM_SKIP }, 
 
   test('「用磁盘版本覆盖编辑器」之后也可以撤销', () => {
     // 保存撞上冲突：磁盘上是别人写的新版。
+    area().dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true }));
+    assert.equal(ui.last('saveFile')?.text, '原文，改了一半');
     ui.post({ type: 'editorConflict', path: 'chapters/001-雨夜.md', diskText: '磁盘新版', diskHash: 'h-disk' });
     ui.clickEl(ui.doc.getElementById('edConflictTake'));
     assert.equal(area().value, '磁盘新版');
