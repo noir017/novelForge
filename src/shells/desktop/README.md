@@ -78,6 +78,12 @@ npm run sidecar:all  # 连 Windows 的一起编（Bun 交叉编译）
   Tauri 的小体积优势在纯壳方案里没有——这是换来"零 core 改动"的代价。
 - **未签名**：Windows 首次运行会有 SmartScreen 警告。
 - **启动多一跳**：spawn + 起服务约 0.5~1.5 秒，splash 页负责让这段时间不难看。
+- **「视图 → 全屏」在 Windows 上不是真全屏**：页面用的是标准 Fullscreen API（能力探测，
+  不分是不是桌面壳）。Linux 的 WebKitGTK 自己会把窗口一起全屏；Windows 的 WebView2 只把元素
+  撑满 webview，窗口不变（标题栏、任务栏都还在）。要真全屏得在 `main.rs` 里经 `with_webview`
+  拿到 WebView2，接 `ContainsFullScreenElementChanged`、按 `ContainsFullScreenElement` 调
+  `window.set_fullscreen()`——页面是远程内容、拿不到 IPC（见上面第 3 条），前端做不了这件事。
+  还没做（这台开发机上编不了 Windows 壳，没法验证）；在那之前 Windows 上用「最大化」加专注模式代替。
 
 ## 排查
 

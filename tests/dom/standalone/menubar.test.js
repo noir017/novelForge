@@ -1,5 +1,6 @@
 /**
- * 独立版标题栏「文件 / 编辑 / 视图 / 帮助」：结构、点开、悬停切隔壁。「视图」里那几项在 previewTabs.test.js。
+ * 独立版标题栏「文件 / 编辑 / 视图 / 帮助」：结构、点开、悬停切隔壁。「视图」里那几项在 previewTabs.test.js（临时标签）、
+ * look.test.js（外观）与 focus.test.js（专注）。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
