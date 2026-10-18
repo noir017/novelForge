@@ -59,6 +59,24 @@ describe('shouldIgnoreChange（吃事件流的宿主）', () => {
     assert.equal(shouldIgnoreChange('.novelforge/.trash/chapters/003.md'), true);
   });
 
+  test('挡掉历史版本——网关每覆盖一份产物就先存一版，不挡会每存一个快照多一轮全量重扫', () => {
+    assert.equal(shouldIgnoreChange('.novelforge/history/chapters/003.md/2026-10-18_14-32-05+0800.txt'), true);
+    assert.equal(shouldIgnoreChange('.novelforge/history'), true);
+    assert.equal(shouldIgnoreChange('/home/me/书/.novelforge/history/.gitignore'), true);
+    assert.equal(shouldIgnoreChange('.novelforge\\history\\chapters\\003.md'), true);
+  });
+
+  test('只挡 .novelforge/history，不挡名字里恰好带 history 的章节与目录', () => {
+    assert.equal(shouldIgnoreChange('chapters/history/001-往事.md'), false);
+    assert.equal(shouldIgnoreChange('.novelforge/historyx.md'), false);
+  });
+
+  test('插件壳的 glob 本来就扫不到快照（快照一律 .txt，.novelforge 下只认 .md）', () => {
+    const globs = watchGlobs(CONFIG);
+    assert.ok(globs.includes('.novelforge/**/*.md'));
+    assert.ok(!globs.some((g) => g.startsWith('.novelforge/history') || g === '.novelforge/**'));
+  });
+
   test('挡掉 node_modules', () => {
     assert.equal(shouldIgnoreChange('node_modules/foo/index.js'), true);
   });

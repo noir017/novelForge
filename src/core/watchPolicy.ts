@@ -34,6 +34,9 @@ export function watchGlobs(config: NovelConfig): string[] {
   ];
 }
 
+/** `.novelforge/history` 本身或它下面的任何东西（相对、绝对路径都认）。 */
+const HISTORY_RE = /(^|\/)\.novelforge\/history(\/|$)/;
+
 /**
  * 给吃事件流的宿主用的过滤：这条变更该不该忽略。
  *
@@ -50,6 +53,11 @@ export function shouldIgnoreChange(name: string): boolean {
   // 依赖目录与回收站里的动静与工程内容无关。回收站尤其要挡：删除是「搬进
   // .trash/」，不挡的话每次删除都会多触发一轮重扫。
   if (name.includes('node_modules') || name.includes('.trash')) {
+    return true;
+  }
+  // 历史版本同理：网关每覆盖一份产物就先往 `.novelforge/history/` 存一版（workspace/history.ts），
+  // 不挡的话每存一个快照就多一轮全量重扫。插件壳那边快照是 `.txt`，`watchGlobs` 本来就扫不到。
+  if (HISTORY_RE.test(name.replace(/\\/g, '/'))) {
     return true;
   }
   const ext = path.extname(name).toLowerCase();

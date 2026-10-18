@@ -230,6 +230,14 @@ export class NovelProject {
     return path.join(this.novelDir, '.trash');
   }
 
+  /**
+   * 历史版本（`.novelforge/history/`）：网关覆盖一份创作产物之前存下的旧内容，镜像原文件的相对路径
+   * （布局与节流见 workspace/history.ts）。是网关自己存的副本，不是作者的文件。
+   */
+  get historyDir(): string {
+    return path.join(this.novelDir, 'history');
+  }
+
   /** 0.1.x 的 `.novel/` 目录，仅用于迁移检测。 */
   get legacyNovelDir(): string {
     return path.join(this.root, LEGACY_NOVEL_DIR);

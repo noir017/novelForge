@@ -81,6 +81,7 @@ import {
 } from './guard';
 import { Handler, HandlerCtx, handlerFor } from './handlers';
 import { renderFinalizedPlot } from './handlers/plot';
+import { snapshotBeforeWrite } from './history';
 import { SearchOptions, SearchResult, search } from './search';
 
 const log = scoped('工作区');
@@ -296,6 +297,10 @@ export class Workspace {
     }
 
     const final = mode === 'append' ? appendText(guarded, text, ctx.path.kind === 'chapter') : text;
+    if (guarded.existed) {
+      // 覆盖（含追加）之前先把磁盘上的旧内容存一版（history.ts：只管创作产物、有节流）。绝不抛——存不下也照常写盘。
+      await snapshotBeforeWrite(this.project, target, final);
+    }
     await writeText(guarded.abs, final);
     this.project.invalidate();
 
@@ -464,7 +469,12 @@ export class Workspace {
       throw new WsError('exists', `已经有一份细纲叫 ${rel}，没有覆盖它。`);
     }
 
-    await writeText(this.project.pathOf(rel), renderPlotFile(plot));
+    const text = renderPlotFile(plot);
+    if (previous) {
+      // 换掉的是这一章原来那份（改标题、改章号时它在旧路径上），旧内容先存一版。
+      await snapshotBeforeWrite(this.project, previous.relPath, text);
+    }
+    await writeText(this.project.pathOf(rel), text);
 
     if (previous && previous.relPath !== rel) {
       await fs.unlink(this.project.pathOf(previous.relPath)).catch(() => undefined);
@@ -710,6 +720,9 @@ export class Workspace {
       await fs.copyFile(this.project.pathOf(current.relPath), dest);
       trashed = this.project.relPath(dest);
     }
+    // 回收站那一份照旧（永不裁剪，定稿完成提示里说的就是它）；历史版本里再存一版，编辑器的「历史」面板里
+    // 找得到、对比得了——八节整体换掉，节流拦不住它。
+    await snapshotBeforeWrite(this.project, rel, text);
     await writeText(this.project.pathOf(rel), text);
     this.project.invalidate();
     return { rel, trashed };
@@ -723,21 +736,21 @@ export class Workspace {
    */
   async writeCharacter(card: WritableCharacterCard): Promise<string> {
     const rel = `${this.project.relPath(this.project.charactersDir)}/${card.slug}.md`;
-    await writeText(this.project.pathOf(rel), renderCharacterCard(card));
+    await this.overwrite(rel, renderCharacterCard(card));
     return rel;
   }
 
   /** 写一条设定。与角色卡同类：链外的横切知识，无上游指纹。 */
   async writeLore(entry: WritableLoreEntry): Promise<string> {
     const rel = `${this.project.relPath(this.project.loreDir)}/${entry.slug}.md`;
-    await writeText(this.project.pathOf(rel), renderLoreEntry(entry));
+    await this.overwrite(rel, renderLoreEntry(entry));
     return rel;
   }
 
   /** 写文风指南。同样在链外——它约束怎么写，不由任何一层产物生出来。 */
   async writeStyleGuide(content: string): Promise<string> {
     const rel = this.project.relPath(this.project.stylePath);
-    await writeText(this.project.pathOf(rel), `# 文风指南\n\n${content.trim()}\n`);
+    await this.overwrite(rel, `# 文风指南\n\n${content.trim()}\n`);
     return rel;
   }
 
@@ -750,10 +763,7 @@ export class Workspace {
   async writeGlobalSummary(content: string, through: number): Promise<string> {
     const rel = this.project.relPath(this.project.globalSummaryPath);
     const fm = stringifyFrontmatter({ through, generatedBy: 'novel-forge' });
-    await writeText(
-      this.project.pathOf(rel),
-      `${fm}\n\n# 全书滚动摘要\n\n${content.trim()}\n`
-    );
+    await this.overwrite(rel, `${fm}\n\n# 全书滚动摘要\n\n${content.trim()}\n`);
     const manifest = await this.project.readManifest();
     manifest.globalSummaryThrough = through;
     await this.project.writeManifest(manifest);
@@ -775,7 +785,7 @@ export class Workspace {
     if (next === undefined || next === raw) {
       return undefined;
     }
-    await writeText(this.project.pathOf(rel), next);
+    await this.overwrite(rel, next);
     return rel;
   }
 
@@ -786,7 +796,7 @@ export class Workspace {
    */
   async writeSkillBindings(text: string): Promise<string> {
     const rel = this.project.relPath(this.project.skillBindingsPath);
-    await writeText(this.project.pathOf(rel), text);
+    await this.overwrite(rel, text);
     return rel;
   }
 
@@ -816,6 +826,15 @@ export class Workspace {
   }
 
   // ---------------------------------------------------------------- 内部
+
+  /**
+   * 领域写入器的落盘：目标已有内容就先存一版历史（history.ts，绝不抛），再整份写下去。
+   * 只改 frontmatter 一个键的记账（`recordWrittenFrom` / `recordPreflightOk`）不走这里——它们不吞任何内容。
+   */
+  private async overwrite(rel: string, text: string): Promise<void> {
+    await snapshotBeforeWrite(this.project, rel, text);
+    await writeText(this.project.pathOf(rel), text);
+  }
 
   private ctxOf(rel: string): HandlerCtx {
     const path: PathKind = kindOfPath(this.project, rel);

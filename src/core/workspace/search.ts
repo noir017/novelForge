@@ -10,7 +10,8 @@
  *
  * ## 四条实现约束
  *
- * 1. **跳过 `.trash/`、内部文件与二进制**：回收站里躺着刚删掉的东西，搜出来等于没删；工程库与会话记录（`isInternalPath`）不是作品内容；
+ * 1. **跳过 `.trash/`、历史版本、内部文件与二进制**：回收站里躺着刚删掉的东西，搜出来等于没删；`.novelforge/history/`
+ *    是一份份被覆盖掉的旧稿（同一个理由：搜出来的不是现在的书）；工程库与会话记录（`isInternalPath`）不是作品内容；
  *    二进制读成 utf8 是一屏乱码。
  * 2. **单文件读入有上限**（复用 `MAX_EDITABLE_BYTES`），超了跳过并计入 `dropped`。
  * 3. **`dropped > 0` 时必须在返回值里说出来**（第 2 条：不静默截断）——
@@ -24,7 +25,7 @@ import { scoped } from '../runtime/logger';
 import { decodeFileText } from '../model/importText';
 import { NovelProject } from '../model/project';
 import { ArtifactKind, kindOfPath, normalizeRel } from './kind';
-import { MAX_EDITABLE_BYTES, isInTrash, isInternalPath } from './guard';
+import { MAX_EDITABLE_BYTES, isInHistory, isInTrash, isInternalPath } from './guard';
 
 const log = scoped('工作区');
 
@@ -211,6 +212,7 @@ async function collectFiles(
       const childRel = relDir === '' ? entry.name : `${relDir}/${entry.name}`;
       if (
         isInTrash(project, childRel) ||
+        isInHistory(project, childRel) ||
         isInternalPath(project, childRel) ||
         entry.name === 'node_modules' ||
         entry.name === '.git'

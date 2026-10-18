@@ -112,6 +112,8 @@ export function isProtectedPath(project: NovelProject, relPath: string): boolean
     '.novelforge/manuscripts',
     '.novelforge/sessions',
     '.novelforge/.trash',
+    // 历史版本：网关自己存的副本（workspace/history.ts）。整个目录搬走或删掉，所有文件的历史一起没了。
+    '.novelforge/history',
   ];
   return fixed.includes(rel);
 }
@@ -134,6 +136,15 @@ export function isInternalPath(project: NovelProject, rel: string): boolean {
 export function isInTrash(project: NovelProject, rel: string): boolean {
   const trash = project.relPath(project.trashDir);
   return rel === trash || rel.startsWith(`${trash}/`);
+}
+
+/**
+ * 这条路径在历史版本里（`.novelforge/history/`，见 workspace/history.ts）。那是一份份旧稿：检索跳过它，
+ * 与回收站同一个理由——搜出来的不是现在的书。
+ */
+export function isInHistory(project: NovelProject, rel: string): boolean {
+  const history = project.relPath(project.historyDir);
+  return rel === history || rel.startsWith(`${history}/`);
 }
 
 /**
