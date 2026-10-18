@@ -7,6 +7,7 @@ import { el as mk } from '../dom';
 import { commandEditor, queryEditor } from '../globals';
 import { versionsMenuEntry } from './versionsMenu';
 import { quickOpenMenuEntry } from './quickOpenMenu';
+import { bookFindMenuEntry } from './bookFindMenu';
 import {
   closeFolder,
   hideWelcome,
@@ -175,6 +176,7 @@ function entriesOf(key: string): MenuEntry[] {
       { label: 'sep' },
       { label: '查找', action: 'find', disabled: !ws, kbd: 'Ctrl+F' },
       { label: '替换', action: 'replace', disabled: !ws, kbd: 'Ctrl+H' },
+      bookFindMenuEntry(),
     ];
   }
   return [

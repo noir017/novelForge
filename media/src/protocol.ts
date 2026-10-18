@@ -72,6 +72,32 @@ export type {
   WorkbenchView,
 } from '../../src/core/protocol';
 
+/** 全书查找替换（`core/protocol/bookFind.ts`）。 */
+export type {
+  BookFindFile,
+  BookFindHit,
+  BookFindQuery,
+  BookFindResult,
+  BookFindScope,
+  BookFindSkip,
+  BookReplaceRequest,
+  BookReplaceSkipReason,
+  BookReplaceSummary,
+} from '../../src/core/protocol';
+
+/**
+ * 全书查找替换的范围表与上限：面板上的勾选框写着「角色卡」，后端搜的就得是角色卡那个区。`bookFindScope.ts` 是纯数据、
+ * 零 import，打进浏览器产物是安全的。
+ */
+export {
+  BOOK_FIND_LIMIT,
+  BOOK_FIND_SCOPES,
+  BOOK_FIND_SCOPE_HINT,
+  BOOK_FIND_SCOPE_LABEL,
+  DEFAULT_BOOK_FIND_SCOPES,
+  isBookFindScope,
+} from '../../src/core/model/bookFindScope';
+
 /** 「转到…」（Ctrl+P）的索引（`core/protocol/quickOpen.ts`）。 */
 export type {
   QuickOpenChapter,

@@ -13,7 +13,8 @@
  *   与编辑器（editor.js）之间的 `nf-editor-query` / `nf-editor-command` /
  *   `nf-workspace-reset`，「编辑」菜单段落那几项的 `nf-paragraph-query` / `nf-paragraph-command`，
  *   「文件 → 历史版本…」的 `nf-versions-query` / `nf-versions-command`，「文件 → 转到…」的
- *   `nf-quickopen-query` / `nf-quickopen-command`，「视图」菜单的 `nf-view-query` / `nf-view-command`，
+ *   `nf-quickopen-query` / `nf-quickopen-command`，「编辑 → 全书查找替换…」的 `nf-bookfind-query` / `nf-bookfind-command`，
+ *   「视图」菜单的 `nf-view-query` / `nf-view-command`，
  *   「视图 → 统计」那一组的 `nf-stats-query` / `nf-stats-command`，「视图 → 体检」那一组的 `nf-check-query` /
  *   `nf-check-command`，「视图 → 补全」那一组的 `nf-names-query` / `nf-names-command`，
  *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录）。
@@ -75,6 +76,8 @@ declare global {
     'nf-versions-command': CustomEvent<{ name: 'open' }>;
     'nf-quickopen-query': CustomEvent<QuickOpenStatus>;
     'nf-quickopen-command': CustomEvent<{ name: 'open' }>;
+    'nf-bookfind-query': CustomEvent<BookFindStatus>;
+    'nf-bookfind-command': CustomEvent<{ name: BookFindCommandName }>;
     'nf-view-query': CustomEvent<ViewPrefsStatus>;
     'nf-view-command': CustomEvent<{ name: ViewCommandName }>;
     'nf-stats-query': CustomEvent<StatsStatus>;
@@ -234,6 +237,31 @@ export function queryQuickOpen(): QuickOpenStatus {
 /** 打开「转到」面板（与 Ctrl+P 同一件事）。 */
 export function commandQuickOpen(name: 'open'): void {
   window.dispatchEvent(new CustomEvent('nf-quickopen-command', { detail: { name } }));
+}
+
+// ---------------------------------------------------------------- 「编辑」菜单「全书查找替换…」
+
+/**
+ * 标题栏「编辑 → 全书查找替换…」问编辑器那块面板能不能开（`editor/bookFind.ts` 回答）：没打开工程时不能，原因挂在
+ * 菜单项的提示上。editor.js 没装（插件形态，也就没有标题栏）时没人回答，当不能用。
+ */
+export interface BookFindStatus {
+  available: boolean;
+  reason?: string;
+}
+
+/** `open` 打开面板、焦点进查找框；`openReplace` 打开面板、焦点进替换框。 */
+export type BookFindCommandName = 'open' | 'openReplace';
+
+export function queryBookFind(): BookFindStatus {
+  const status: BookFindStatus = { available: false, reason: '没有内置编辑器' };
+  window.dispatchEvent(new CustomEvent('nf-bookfind-query', { detail: status }));
+  return status;
+}
+
+/** 打开全书查找替换面板（与 Ctrl+Shift+F / Ctrl+Shift+H 同一件事）。 */
+export function commandBookFind(name: BookFindCommandName): void {
+  window.dispatchEvent(new CustomEvent('nf-bookfind-command', { detail: { name } }));
 }
 
 // ---------------------------------------------------------------- 「视图」菜单

@@ -22,6 +22,7 @@ import { acquireApi, onMessage } from '../vscodeApi';
 import { toast } from '../globals';
 import { isImeComposing } from './api';
 import { createPane } from './pane';
+import { installBookFind } from './bookFind';
 import { installChapterBar } from './chapterBar';
 import { installCheck } from './check';
 import { installChapterIndex } from './chapterIndex';
@@ -286,6 +287,8 @@ function start(stage: HTMLElement): void {
 
   // 「转到…」（Ctrl+P）。要在上面那个 onMessage 之后装：editorOpen 先让编辑区收下文件，它才找得到该把焦点放进哪一块。
   installQuickOpen(post);
+  // 全书查找替换（Ctrl+Shift+F、「编辑 → 全书查找替换…」）。同一个理由：点了一处要等那份文件的 editorOpen 先进编辑区。
+  installBookFind(post);
   // 「视图」菜单的「外观」与「专注」两组（look.ts / focus.ts）。专注要在查找之后装：编辑区里的 Esc 先收查找条，
   // 查找条关着时才退出专注模式（document 上的 keydown 按挂的先后跑，它看 defaultPrevented）。
   installLook();

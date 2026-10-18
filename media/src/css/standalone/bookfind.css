@@ -1,0 +1,244 @@
+/*
+ * 全书查找替换（editor/bookFind.ts，Ctrl+Shift+F / 「编辑 → 全书查找替换…」）：压在侧栏上，与 VS Code 的「搜索」视图一样。
+ * 面板挂进 #wbSide，开着时侧栏挂 .bf-open、原来那几页先藏起来（页头的任务条照常），编辑区一点都不挡。
+ * DOM 由 bookFind.ts 现造（页面模板里没有它）。用户内容一律 textContent；命中的字用 <mark>、预览用 <del> / <ins>。
+ */
+
+.wb-side.bf-open > .pane {
+  display: none !important;
+}
+
+.bf-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 6px;
+  padding: 8px 10px 0;
+  color: var(--vscode-foreground);
+}
+
+.bf-panel.hidden {
+  display: none;
+}
+
+.bf-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bf-title {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.bf-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bf-row input {
+  flex: 1;
+  width: auto;
+  min-width: 60px;
+  padding: 3px 6px;
+}
+
+.bf-query.invalid {
+  outline: 1px solid var(--vscode-inputValidation-errorBorder);
+  outline-offset: -1px;
+}
+
+/* 「Aa」「.*」借查找条那两颗开关的样子（.ed-find-opt，find.css）。 */
+.bf-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  font-size: 12px;
+}
+
+.bf-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bf-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.bf-status {
+  flex: 1;
+  min-width: 0;
+}
+
+.bf-notes,
+.bf-summary {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.bf-note {
+  color: var(--vscode-editorWarning-foreground);
+}
+
+.bf-summary {
+  position: relative;
+  padding: 6px 24px 6px 8px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background);
+}
+
+.bf-summary-line + .bf-summary-line {
+  margin-top: 3px;
+}
+
+.bf-summary-line.warn {
+  color: var(--vscode-editorWarning-foreground);
+}
+
+.bf-summary-line.error {
+  color: var(--vscode-errorForeground);
+}
+
+.bf-summary-close {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+}
+
+.bf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bf-replace-selected.confirm {
+  background: var(--vscode-inputValidation-warningBorder, var(--vscode-button-background));
+}
+
+.bf-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -10px;
+  padding: 0 0 8px;
+  font-size: 12px;
+}
+
+.bf-group {
+  padding: 6px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground);
+}
+
+.bf-file-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.bf-file-head:hover,
+.bf-hit:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.bf-twisty {
+  flex: 0 0 12px;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.bf-file-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bf-file-count {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  font-size: 11px;
+}
+
+.bf-dirty {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--vscode-editorWarning-foreground);
+}
+
+.bf-file.collapsed .bf-hits {
+  display: none;
+}
+
+.bf-hit {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 10px 1px 26px;
+  cursor: pointer;
+}
+
+.bf-hit:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.bf-line {
+  flex: 0 0 auto;
+  min-width: 2.2em;
+  text-align: right;
+  color: var(--vscode-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+}
+
+.bf-ctx {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bf-mark {
+  padding: 0;
+  border-radius: 2px;
+  background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+  color: inherit;
+}
+
+.bf-old {
+  background: var(--vscode-diffEditor-removedTextBackground, rgba(255, 0, 0, 0.2));
+  text-decoration: line-through;
+}
+
+.bf-new {
+  background: var(--vscode-diffEditor-insertedTextBackground, rgba(155, 185, 85, 0.25));
+  text-decoration: none;
+}
+
+.bf-file.dirty .bf-hit {
+  opacity: 0.7;
+}

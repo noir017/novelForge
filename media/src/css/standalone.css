@@ -31,6 +31,7 @@
 @import './standalone/merge.css';
 @import './standalone/versions.css';
 @import './standalone/quickopen.css';
+@import './standalone/bookfind.css';
 @import './standalone/stats.css';
 /* 写作体检：check 图层的颜色（深 / 浅 / 护眼三套）、状态栏「体检」那一格与面板 */
 @import './standalone/check.css';

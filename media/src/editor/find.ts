@@ -15,7 +15,9 @@
  * ## 行为
  *
  * - `Ctrl+F` 打开（当前选区是一行之内的短文字时预填它）；`Ctrl+H` 打开并展开替换行；预览模式下先切回编辑。
- *   焦点在编辑区之外的输入框 / 文本框（左侧对话输入框之类）时不拦，留给浏览器。
+ *   焦点在编辑区之外的输入框 / 文本框（左侧对话输入框之类）时不拦，留给浏览器。加了 Shift 的（`Ctrl+Shift+F` /
+ *   `Ctrl+Shift+H`）是全书查找替换（`bookFind.ts`），不归这里；全书查找点了一处时借这一条定位（`revealFindMatch`：
+ *   换成那边的查找串与开关、选中离那一处最近的匹配）。
  * - 查找框里打字：**从当前光标往后**找最近的一处，选中并滚过去（目标停在视口偏上三分之一，已经看得见就不滚）。
  *   选中时不把焦点拿回编辑区，人还在查找框里接着打字；textarea 没焦点时原生选区看不见，所以当前那一处
  *   另用一种颜色画在高亮层上（`highlight.ts`）。
@@ -141,6 +143,8 @@ interface FindBar {
   isOpen(): boolean;
   /** F3 / Shift+F3：没开着就开（焦点不动），有查找串就跳一处。 */
   stepFromEditor(dir: 1 | -1): void;
+  /** 换成这个查找串与两颗开关，选中离 `offset` 最近的那一处（全书查找点了一处）。一处都没有返回 false。 */
+  showMatch(query: string, o: FindOptions, offset: number): boolean;
   onChange(ev: EditorEvent): void;
 }
 
@@ -407,6 +411,31 @@ function createFindBar(pane: Pane): FindBar {
     }
   }
 
+  /**
+   * 全书查找点了一处：查找条亮出来、换成那边的查找串与两颗开关（这一份文件里的每一处都画上高亮，F3 接着往下跳），
+   * 选中离 `offset` 最近的那一处并滚过去，焦点进编辑区（选区看得见）。与查找框里打字之后的选中同一个办法（`select`）。
+   */
+  function showMatch(q: string, o: FindOptions, offset: number): boolean {
+    ensureEditing();
+    dom.root.classList.remove('hidden');
+    dom.input.value = q;
+    for (const [btn, key] of [[dom.caseBtn, 'caseSensitive'], [dom.regexBtn, 'regex']] as const) {
+      opts[key] = o[key] === true;
+      btn.classList.toggle('on', opts[key]);
+      btn.setAttribute('aria-pressed', String(opts[key]));
+    }
+    path = pane.activePath;
+    currentPos = undefined;
+    compute(false);
+    if (matches.length === 0) {
+      paint();
+      return false;
+    }
+    select(nearestMatch(matches, offset));
+    area.focus();
+    return true;
+  }
+
   function onChange(ev: EditorEvent): void {
     if (ev.type === 'render') {
       if (pane.activePath === path) {
@@ -474,7 +503,7 @@ function createFindBar(pane: Pane): FindBar {
   dom.replaceOne.addEventListener('click', replaceCurrent);
   dom.replaceAll.addEventListener('click', replaceEverything);
 
-  return { open, close, isOpen, stepFromEditor, onChange };
+  return { open, close, isOpen, stepFromEditor, showMatch, onChange };
 }
 
 // ---------------------------------------------------------------- 全局
@@ -484,6 +513,15 @@ export function openFind(pane: Pane | undefined, opts: { replace?: boolean } = {
   if (pane?.activeFile()) {
     barOf(pane).open(opts);
   }
+}
+
+/**
+ * 全书查找（`bookFind.ts`）点了一处：这一块的查找条换成同一个查找串与两颗开关，选中离 `offset`（编辑区里的下标）最近的
+ * 那一处、滚过去、焦点进编辑区——定位的办法与查找框里打字之后选中一处同一个。这一块的当前文件就是要去的那一份
+ * （调用方先 `activate`）。一处都找不到（编辑区里有没保存的修改、那几个字改掉了）返回 false。
+ */
+export function revealFindMatch(pane: Pane, query: string, opts: FindOptions, offset: number): boolean {
+  return !!pane.activeFile() && barOf(pane).showMatch(query, opts, offset);
 }
 
 /** 事件目标落在哪一块编辑区里（查找条也算在那一块里）。 */
@@ -530,7 +568,8 @@ export function installFind(): void {
     }
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-    if (ctrl && !e.altKey && (key === 'f' || key === 'h')) {
+    // Ctrl+Shift+F / Ctrl+Shift+H 是全书查找替换（bookFind.ts），不归这一条。
+    if (ctrl && !e.altKey && !e.shiftKey && (key === 'f' || key === 'h')) {
       const pane = paneForShortcut(e);
       if (pane) {
         // Chrome 允许拦 Ctrl+H（历史记录），拦得到。
