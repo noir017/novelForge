@@ -413,6 +413,17 @@ describe('novelConfig.ts · 小说配置', () => {
     assert.ok(!Object.values(art.sections).some((v) => /冷峻克制/.test(v)));
   });
 
+  test('重写配置：作者在编辑器里切的分段格式原样带过去（模型不生成它）', () => {
+    const existing = S.parseBookConfig('---\nparagraphStyle: indent\n---\n# 小说配置\n## 一句话\n少年入宗', '');
+    const { value } = C.decodeNovelConfig(JSON.stringify(generated));
+    for (const preserve of [true, false]) {
+      const merged = C.mergeWithAuthor(existing, value, { preserve });
+      assert.equal(merged.paragraphStyle, 'indent');
+      const art = A.parseArtifact({ stage: 'setting', capability: 'generate' }, C.renderConfigDraft(merged), { kind: 'setting', doc: 'config' });
+      assert.equal(art.config.paragraphStyle, 'indent', '草稿读回来那份也带着');
+    }
+  });
+
   test('模型第一次调用的原样输出（英文键 JSON）也认得', () => {
     const art = A.parseArtifact({ stage: 'setting', capability: 'generate' }, JSON.stringify(generated), { kind: 'setting', doc: 'config' });
     assert.equal(art.sections.核心梗概, generated.coreOutline);

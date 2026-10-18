@@ -147,3 +147,50 @@ describe('isSettingFilled', () => {
     assert.ok(Object.values(c.sections).every((v) => v === ''), JSON.stringify(c.sections));
   });
 });
+
+describe('分段格式 paragraphStyle', () => {
+  test('英文值与中文说法都认', () => {
+    assert.equal(S.parseBookConfig('---\nparagraphStyle: indent\n---\n', 'x').paragraphStyle, 'indent');
+    assert.equal(S.parseBookConfig('---\nparagraphStyle: 缩进加空行\n---\n', 'x').paragraphStyle, 'both');
+  });
+
+  test('没写、写坏了都是缺席（第 1 条）', () => {
+    assert.equal(S.parseBookConfig(CONFIG, 'x').paragraphStyle, undefined);
+    assert.equal(S.parseBookConfig('---\nparagraphStyle: 随便\n---\n', 'x').paragraphStyle, undefined);
+  });
+
+  test('渲染：有值才写这一行，往返一致', () => {
+    const c = S.parseBookConfig(CONFIG, 'x');
+    assert.doesNotMatch(S.renderBookConfig(c), /paragraphStyle/);
+    const text = S.renderBookConfig({ ...c, paragraphStyle: 'both' });
+    assert.match(text, /^paragraphStyle: both$/m);
+    assert.equal(S.parseBookConfig(text, 'x').paragraphStyle, 'both');
+  });
+
+  test('只改这一行：已有就换值，别的字节一个不动', () => {
+    const text = '---\ngenre: 玄幻  # 作者的注释\nparagraphStyle: blank\ntotalChapters: 100\n---\n\n# 小说配置\n\n## 自己加的一节\n随便写\n';
+    assert.equal(S.setConfigParagraphStyle(text, 'indent'), text.replace('paragraphStyle: blank', 'paragraphStyle: indent'));
+  });
+
+  test('有 frontmatter 没有这一行：加在收尾的 --- 之前', () => {
+    const text = '---\ngenre: 玄幻\n---\n# 小说配置\n';
+    assert.equal(S.setConfigParagraphStyle(text, 'both'), '---\ngenre: 玄幻\nparagraphStyle: both\n---\n# 小说配置\n');
+  });
+
+  test('没有 frontmatter：最前面补一段只有这一行的，正文原样接在后面', () => {
+    assert.equal(S.setConfigParagraphStyle('# 小说配置\n## 一句话\n少年\n', 'indent'), '---\nparagraphStyle: indent\n---\n# 小说配置\n## 一句话\n少年\n');
+  });
+
+  test('空文件：只有那一段 frontmatter，且「小说配置」照旧算没填', () => {
+    const text = S.setConfigParagraphStyle('', 'indent');
+    assert.equal(text, '---\nparagraphStyle: indent\n---\n');
+    const c = S.parseBookConfig(text, 'x');
+    assert.equal(c.paragraphStyle, 'indent');
+    assert.equal(S.isSettingFilled('config', c.sections), false);
+  });
+
+  test('CRLF 与 BOM 原样留着', () => {
+    const text = '﻿---\r\ngenre: 玄幻\r\n---\r\n正文\r\n';
+    assert.equal(S.setConfigParagraphStyle(text, 'both'), '﻿---\r\ngenre: 玄幻\r\nparagraphStyle: both\r\n---\r\n正文\r\n');
+  });
+});

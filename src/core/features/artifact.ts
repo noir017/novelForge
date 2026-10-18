@@ -56,7 +56,10 @@ export type { RosterEntry };
 
 /** 配置的 frontmatter 字段。产物给了就用产物的，没给就沿用磁盘那份。 */
 export type ConfigFields = Partial<
-  Pick<BookConfig, 'genre' | 'subGenre' | 'audience' | 'structure' | 'pov' | 'totalChapters' | 'wordsPerChapter'>
+  Pick<
+    BookConfig,
+    'genre' | 'subGenre' | 'audience' | 'structure' | 'pov' | 'totalChapters' | 'wordsPerChapter' | 'paragraphStyle'
+  >
 >;
 
 /** 一章细纲：八节，外加文件名要用的标题与目标字数。出场的人就写在「出场人物」一节里。 */
@@ -326,6 +329,8 @@ function parseConfigDraft(text: string): Extract<Artifact, { kind: 'settingDoc' 
     pov: c.pov,
     totalChapters: c.totalChapters,
     wordsPerChapter: c.wordsPerChapter,
+    // 草稿是 `config.md` 全文，frontmatter 里带着作者的分段格式（mergeWithAuthor 从磁盘那份抄来的）。
+    paragraphStyle: c.paragraphStyle,
   });
 
   if (/^---\s*\r?\n/.test(text)) {

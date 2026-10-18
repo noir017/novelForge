@@ -34,6 +34,7 @@ import {
   stringifyFrontmatter,
   stringifySections,
 } from './markdown';
+import { PARAGRAPH_STYLES, PARAGRAPH_STYLE_LABEL, ParagraphStyle } from './paragraphFormat';
 
 /** 有自己文件的三件。第四件「角色图谱」就是 `characters/` 目录。 */
 export type SettingFileDoc = 'config' | 'premise' | 'world';
@@ -167,6 +168,11 @@ export interface BookConfig {
   totalChapters?: number;
   /** 每章目标字数。细纲没写 `targetWords` 时正文按它判写够没有。 */
   wordsPerChapter?: number;
+  /**
+   * 正文的分段格式（`model/paragraphFormat.ts`）：内置编辑器的回车、一键排版按它来。没写或写坏了是缺席，
+   * 用的地方按缺省 `blank`（空行分段）。**会重写 `config.md` 的路径都要把它带过去**，不许静默丢掉。
+   */
+  paragraphStyle?: ParagraphStyle;
   sections: Record<ConfigSectionKey, string>;
   /** frontmatter 之外的正文全文。作者可能加了自定义小节，读回来时保留。 */
   body: string;
@@ -208,6 +214,7 @@ export function parseBookConfig(text: string, relPath: string): BookConfig {
     pov: pickEnum(asString(frontmatter.pov), NARRATIVE_POVS, NARRATIVE_POV_LABEL),
     totalChapters: positiveInt(frontmatter.totalChapters),
     wordsPerChapter: positiveInt(frontmatter.wordsPerChapter),
+    paragraphStyle: pickEnum(asString(frontmatter.paragraphStyle), PARAGRAPH_STYLES, PARAGRAPH_STYLE_LABEL),
     sections: pickFilled<ConfigSectionKey>(body, CONFIG_SECTION_KEYS),
     body,
   };
@@ -217,7 +224,7 @@ export function parseBookConfig(text: string, relPath: string): BookConfig {
  * 渲染成落盘的 Markdown。空小节保留占位，作者手改时知道该往哪填。
  *
  * 字符串字段是空串时**也写出这一行**（`genre: `）：这份文件是给人填的表，
- * 空着的键正好告诉作者「这里可以写」。数字与枚举缺席就不写。
+ * 空着的键正好告诉作者「这里可以写」。数字与枚举（含 `paragraphStyle`）缺席就不写。
  */
 export function renderBookConfig(config: WritableBookConfig): string {
   const fm = stringifyFrontmatter({
@@ -228,10 +235,43 @@ export function renderBookConfig(config: WritableBookConfig): string {
     pov: config.pov,
     totalChapters: config.totalChapters,
     wordsPerChapter: config.wordsPerChapter,
+    paragraphStyle: config.paragraphStyle,
     generatedBy: 'novel-forge',
   });
   const body = stringifySections(config.sections, CONFIG_SECTION_KEYS, { keepEmpty: true });
   return `${fm}\n\n# ${SETTING_DOC_HEADING.config}\n\n${body}\n`;
+}
+
+/**
+ * 只改 `config.md` frontmatter 里 `paragraphStyle` 这一行（切换分段格式用），**别的字节一个不动**——
+ * 不经 `renderBookConfig` 整份重渲染：作者手排的小节、注释、键的顺序与写法都原样留着。
+ *
+ * - frontmatter 里已有这一行：只换它的值。
+ * - 有 frontmatter 但没有这一行：加在收尾的 `---` 之前。
+ * - 没有 frontmatter（作者手写的、或文件根本不存在传了空串）：最前面补一段只有这一行的 frontmatter。
+ *   这不加任何小节，「小说配置」照旧算没填（`isSettingFilled` 只看「核心梗概」）。
+ *
+ * BOM 与换行符（`\r\n` / `\n`）原样留着。
+ */
+export function setConfigParagraphStyle(text: string, style: ParagraphStyle): string {
+  const bom = text.startsWith('﻿') ? '﻿' : '';
+  const rest = bom ? text.slice(1) : text;
+  const eol = rest.includes('\r\n') ? '\r\n' : '\n';
+  const line = `paragraphStyle: ${style}`;
+  // 与 markdown.ts 的 `parseMarkdown` 同一个认法：解析认得出的 frontmatter，这里才去改它。
+  const fence = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(rest);
+  if (!fence) {
+    return `${bom}---${eol}${line}${eol}---${eol}${rest}`;
+  }
+  const bodyStart = rest.indexOf('\n') + 1;
+  const body = fence[1];
+  const existing = /^paragraphStyle[ \t]*:.*$/m.exec(body);
+  if (existing) {
+    const at = bodyStart + existing.index;
+    return bom + rest.slice(0, at) + line + rest.slice(at + existing[0].length);
+  }
+  const bodyEnd = bodyStart + body.length;
+  return bom + rest.slice(0, bodyEnd) + eol + line + rest.slice(bodyEnd);
 }
 
 // ---------------------------------------------------------------- 前提 / 世界观

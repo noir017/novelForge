@@ -2,7 +2,7 @@
  * `setting` handler：架构层的三份文档（小说配置 / 故事前提 / 世界观）。
  *
  * **渲染**：`Artifact{kind:'settingDoc'}` → 按那一件的小节表重排成文件。
- * 小节换新；配置的 frontmatter（类型、结构、总章数、每章字数……）**产物给了就用
+ * 小节换新；配置的 frontmatter（类型、结构、总章数、每章字数、分段格式……）**产物给了就用
  * 产物的，没给就沿用磁盘那份**——作者手定的「全书 100 章」不该因为重写一次梗概
  * 就被抹掉。
  *
@@ -36,6 +36,8 @@ export const settingHandler: Handler = {
       pov: fields.pov ?? current.pov,
       totalChapters: fields.totalChapters ?? current.totalChapters,
       wordsPerChapter: fields.wordsPerChapter ?? current.wordsPerChapter,
+      // 分段格式：产物（配置草稿的 frontmatter）没带就沿用磁盘那份，绝不静默丢掉。
+      paragraphStyle: fields.paragraphStyle ?? current.paragraphStyle,
       sections: { ...current.sections, ...artifact.sections } as typeof current.sections,
     });
   },

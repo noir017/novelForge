@@ -236,6 +236,8 @@ export function mergeWithAuthor(existing: BookConfig, generated: GeneratedConfig
     pov: choose(existing.pov, generated.pov),
     totalChapters: opts.setup?.totalChapters ?? existing.totalChapters ?? generated.totalChapters,
     wordsPerChapter: opts.setup?.wordsPerChapter ?? existing.wordsPerChapter ?? generated.wordsPerChapter,
+    // 分段格式是作者在编辑器里切的，模型不生成它：磁盘上那份原样带过去，重写配置不能把它丢了。
+    paragraphStyle: existing.paragraphStyle,
     sections,
   };
 }
