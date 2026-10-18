@@ -119,8 +119,11 @@ export interface Host {
    * 两份还没落盘的文字逐段挑（删修饰：删之前 ↔ 删之后）。与 `reviewReplace` 的差别是左边不是磁盘上的
    * 文件。交回 `{ merged }`（挑过）、`'apply'`（原样用 `after`）、`'discard'` 或 undefined（放弃，不写）。
    * 独立版用合并视图实现；VS Code 的 diff 编辑器左边认的是磁盘文件，不实现——调用方就直接用 `after`。
+   *
+   * `opts`（可选，不给就是从前的样子）：两栏叫什么、采纳那颗按钮写什么、标题下面那一行（文件路径）。
+   * 内置编辑器冲突时的「对比合并」（磁盘上的 ↔ 编辑器里的）与历史版本的「对比」（快照 ↔ 编辑器里的）用它。
    */
-  mergeTexts?(title: string, before: string, after: string): Promise<ReviewVerdict>;
+  mergeTexts?(title: string, before: string, after: string, opts?: MergeTextsOptions): Promise<ReviewVerdict>;
   /**
    * 在编辑器里打开这份文件并选中这一句（五期：点审稿报告上的引文）。找不到那一句时只打开、
    * 返回 false。宿主不实现时 controller 退回 `openFile` 并提示那一句。
@@ -132,6 +135,16 @@ export interface Host {
 
 /** 覆盖审阅的回答：采纳新版、保留原样、取消，或者作者在合并视图里挑过、改过的那一份。 */
 export type ReviewVerdict = 'apply' | 'discard' | undefined | { merged: string };
+
+/** `Host.mergeTexts` 的可选项。 */
+export interface MergeTextsOptions {
+  /** 两栏的称呼：左边 `before`、右边 `after`。缺省「原文 / 新版」。 */
+  sides?: { before: string; after: string };
+  /** 采纳那颗按钮上的字。缺省「写入合并结果」。 */
+  applyLabel?: string;
+  /** 标题下面那一行（文件路径之类）。 */
+  message?: string;
+}
 
 /**
  * 没请求合并的调用方拿到的回答。宿主只在 `opts.merge` 时才可能交回 `{ merged }`；万一交回了

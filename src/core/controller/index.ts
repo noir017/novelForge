@@ -63,6 +63,7 @@ import {
   serializeSession,
 } from './serialize';
 import { pushSettings, saveSettings, selectModel, testConnection } from './settings';
+import { compareVersion, listVersions, mergeWithDisk, readVersion, saveVersion } from './versions';
 
 export { describeProvider } from './serialize';
 export { createMcpBackend } from './mcp';
@@ -481,6 +482,23 @@ export class ChatController {
 
       case 'openExternal':
         await (getHost().openExternal ?? getHost().openFile)(msg.path);
+        return;
+
+      // 冲突时的对比合并与历史版本（controller/versions.ts）。都不写盘，结果经 editorReplace 换进编辑区。
+      case 'mergeWithDisk':
+        await mergeWithDisk(this, msg.path, msg.text, msg.requestId);
+        return;
+      case 'listVersions':
+        await listVersions(this, msg.path);
+        return;
+      case 'readVersion':
+        await readVersion(this, msg.path, msg.id, msg.requestId);
+        return;
+      case 'compareVersion':
+        await compareVersion(this, msg.path, msg.id, msg.text, msg.requestId);
+        return;
+      case 'saveVersion':
+        await saveVersion(this, msg.path);
         return;
 
       case 'listDir':

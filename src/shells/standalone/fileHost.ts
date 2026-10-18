@@ -11,7 +11,7 @@ import {
   readFileForEditor,
   writeFileFromEditor,
 } from '../../core/files/fileEditing';
-import { Disposable, Host, InputOptions, PickChoice, ReviewVerdict } from '../../core/host';
+import { Disposable, Host, InputOptions, MergeTextsOptions, PickChoice, ReviewVerdict } from '../../core/host';
 import { isChapterFileName } from '../../core/model/chapterFile';
 import { NovelProject } from '../../core/model/project';
 import { locateQuote } from '../../core/model/review';
@@ -390,8 +390,17 @@ export class FileHost implements Host {
     return parseMergeReply(value, !!opts?.merge);
   }
 
-  async mergeTexts(title: string, before: string, after: string): Promise<ReviewVerdict> {
-    const value = await this.prompts.ask({ kind: 'merge', title, current: before, proposed: after, mergeable: true });
+  async mergeTexts(title: string, before: string, after: string, opts?: MergeTextsOptions): Promise<ReviewVerdict> {
+    const value = await this.prompts.ask({
+      kind: 'merge',
+      title,
+      message: opts?.message,
+      current: before,
+      proposed: after,
+      mergeable: true,
+      sides: opts?.sides && { current: opts.sides.before, proposed: opts.sides.after },
+      applyLabel: opts?.applyLabel,
+    });
     return parseMergeReply(value, true);
   }
 

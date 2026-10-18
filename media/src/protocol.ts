@@ -58,6 +58,7 @@ export type {
   SkillsView,
   Tab,
   TaskSnapshot,
+  VersionView,
   WorkspaceItem,
   WorkspaceRecent,
   ViewState,

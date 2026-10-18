@@ -130,6 +130,23 @@ export type InMessage =
    * **不复用 `editorOpen`**——那条会把标签切成当前的、抢焦点。
    */
   | { type: 'checkEditorFiles'; files: EditorFileCheck[] }
+  /**
+   * 内置编辑器冲突条「对比合并…」：编辑器里的这一份（`text`）与磁盘上此刻的那一份逐段挑（左边磁盘上的、
+   * 右边编辑器里的，`Host.mergeTexts`）。采纳后回 `editorReplace`（带 `base`：乐观锁基线换成磁盘那份）；
+   * 放弃什么都不回。宿主没有合并视图时只回一句说明。
+   */
+  | { type: 'mergeWithDisk'; path: string; text: string; requestId: string }
+  /** 历史版本（`workspace/history.ts`）：列出这份文件的快照，回 `versions`。 */
+  | { type: 'listVersions'; path: string }
+  /** 读某一个快照的全文，回 `versionText`（同一个 `requestId`）。 */
+  | { type: 'readVersion'; path: string; id: string; requestId: string }
+  /**
+   * 快照 ↔ 编辑器里当前的这一份（`text`）逐段挑；采纳后回 `editorReplace`（不带 `base`：基线不变）。
+   * 恢复与对比都**不写盘**，换进编辑区之后存不存由作者。
+   */
+  | { type: 'compareVersion'; path: string; id: string; text: string; requestId: string }
+  /** 「现在存一版」：把**磁盘上当前**这份强制存一个快照（编辑器里没保存的修改不算），之后重推 `versions`。 */
+  | { type: 'saveVersion'; path: string }
   | { type: 'listDir'; dirs: string[]; ephemeral?: boolean }
   | { type: 'openExternal'; path: string }
   | { type: 'syncSummaries' }

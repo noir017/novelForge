@@ -74,6 +74,39 @@ describe('FileHost.reviewReplace', () => {
   });
 });
 
+describe('FileHost.mergeTexts', () => {
+  test('不给称呼：与从前一样（可合并、没有 sides / applyLabel）', async () => {
+    const sent = [];
+    const host = hostWith(sent);
+    const pending = host.mergeTexts('删修饰：删之前 ↔ 删之后', '前', '后');
+    const msg = sent.find((m) => m.type === 'prompt');
+    assert.equal(msg.kind, 'merge');
+    assert.equal(msg.mergeable, true);
+    assert.equal(msg.sides, undefined);
+    assert.equal(msg.applyLabel, undefined);
+    host.prompts.resolve(msg.requestId, JSON.stringify({ verdict: 'apply' }));
+    assert.equal(await pending, 'apply');
+  });
+
+  test('给了称呼：两栏、采纳按钮与标题下那一行原样带给合并视图', async () => {
+    const sent = [];
+    const host = hostWith(sent);
+    const pending = host.mergeTexts('对比合并', '磁盘', '编辑器', {
+      sides: { before: '磁盘上的', after: '编辑器里的' },
+      applyLabel: '放回编辑器',
+      message: 'chapters/001-雨夜.md',
+    });
+    const msg = sent.find((m) => m.type === 'prompt');
+    assert.deepEqual(msg.sides, { current: '磁盘上的', proposed: '编辑器里的' });
+    assert.equal(msg.applyLabel, '放回编辑器');
+    assert.equal(msg.message, 'chapters/001-雨夜.md');
+    assert.equal(msg.current, '磁盘');
+    assert.equal(msg.proposed, '编辑器');
+    host.prompts.resolve(msg.requestId, JSON.stringify({ verdict: 'apply', merged: '合' }));
+    assert.deepEqual(await pending, { merged: '合' });
+  });
+});
+
 describe('FileHost.revealText', () => {
   test('找得到：先打开，再推 editorReveal', async () => {
     const sent = [];

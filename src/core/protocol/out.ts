@@ -189,6 +189,20 @@ export type OutMessage =
    * 之后推。定位按 model/review.ts 的 `locateQuote`（与引文校验同一个归一化）。
    */
   | { type: 'editorReveal'; path: string; quote: string }
+  /**
+   * 把编辑区里这份文件换成这段文字（`Pane.applyEdit`：一步撤销，成为未保存，不写盘）。冲突条「对比合并」
+   * 采纳之后带 `base`：乐观锁基线换成磁盘上那一份（冲突条随之收起，之后照常 Ctrl+S，不必强制保存）；
+   * 对比历史版本之后不带，基线不变。**只有发起的那个页面认**（`requestId`）——回复是广播，同一个工程
+   * 开着两个窗口时，另一个窗口里那一份不该被换掉。
+   */
+  | { type: 'editorReplace'; requestId: string; path: string; text: string; base?: { text: string; hash: string } }
+  /**
+   * 这份文件的历史版本（`workspace/history.ts`），新的在前。`unavailable`：不存历史版本的原因（不是工程里的
+   * 创作产物、还不是小说工程……），这时 `entries` 是空的。
+   */
+  | { type: 'versions'; path: string; entries: VersionView[]; unavailable?: string }
+  /** 回 `readVersion`：那一个快照的全文；读不到时给 `error`。 */
+  | { type: 'versionText'; requestId: string; path: string; id: string; text?: string; error?: string }
   | { type: 'dirListings'; listings: DirListing[] }
   | { type: 'filesOpDone'; op: 'rename' | 'move' | 'copy'; results: FileOpResult[] }
   | { type: 'tasks'; tasks: TaskSnapshot[] }
@@ -203,7 +217,9 @@ export type OutMessage =
       /**
        * `merge`（五期 W11）：覆盖审阅的段级 diff / 合并视图。`current` / `proposed` 是两个版本，
        * `mergeable` 为真时可以逐段挑、结果可以手改，回的是 `{"verdict":"apply"|"discard","merged"?}`
-       * 的 JSON；为假时只读，只有采纳 / 放弃。
+       * 的 JSON；为假时只读，只有采纳 / 放弃。`sides` 是两栏的称呼（缺省「原文 / 新版」，按钮上的字跟着变），
+       * `applyLabel` 是采纳那颗按钮上的字（缺省「写入合并结果」）——冲突时的对比合并与历史版本的对比
+       * 不写盘，是「放回编辑器」。
        *
        * `file`：选本机任意一个文件（`Host.pickHostFile`）。`value` 是起始目录，`options` 是允许的扩展名
        * （不带点），回的是选中文件的绝对路径；取消回 undefined。
@@ -221,6 +237,8 @@ export type OutMessage =
       current?: string;
       proposed?: string;
       mergeable?: boolean;
+      sides?: { current: string; proposed: string };
+      applyLabel?: string;
     }
   /**
    * 当前打开的工作区。独立版空窗口 `currentId` 为 null。
@@ -330,6 +348,17 @@ export interface FileOpResult {
   to?: string;
   ok: boolean;
   error?: string;
+}
+
+/**
+ * 一个历史版本（快照，`workspace/history.ts` 的 `SnapshotInfo`）。`id` 是快照的文件名，读它、对比它时认它；
+ * `time` 是这一版在磁盘上被覆盖掉的那一刻（毫秒时间戳）。
+ */
+export interface VersionView {
+  id: string;
+  time: number;
+  words: number;
+  bytes: number;
 }
 
 export interface EditorFileView {

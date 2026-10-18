@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { ConfigStore } from '../../core/config';
-import { Disposable, Host, InputOptions, PickChoice, ReviewVerdict } from '../../core/host';
+import { Disposable, Host, InputOptions, MergeTextsOptions, PickChoice, ReviewVerdict } from '../../core/host';
 import { NovelProject } from '../../core/model/project';
 import { Attachment } from '../../core/model/session';
 import { EditorFileCheck, EditorPane } from '../../core/protocol';
@@ -117,8 +117,8 @@ export class ScopedHost implements Host {
     return this.target.reviewReplace(name, currentText, proposedText, relPath, opts);
   }
 
-  mergeTexts(title: string, before: string, after: string): Promise<ReviewVerdict> {
-    return this.target.mergeTexts(title, before, after);
+  mergeTexts(title: string, before: string, after: string, opts?: MergeTextsOptions): Promise<ReviewVerdict> {
+    return this.target.mergeTexts(title, before, after, opts);
   }
 
   revealText(relPath: string, quote: string): Promise<boolean> {

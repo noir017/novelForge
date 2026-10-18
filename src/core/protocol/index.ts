@@ -22,6 +22,7 @@ export type {
   SkillInspectionView,
   SkillRow,
   SkillsView,
+  VersionView,
   WorkspaceItem,
   WorkspaceRecent,
 } from './out';
