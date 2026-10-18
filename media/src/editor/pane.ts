@@ -21,6 +21,7 @@ import { locateQuote } from '../protocol';
 import {
   clampSelection,
   emitEditorChange,
+  indentUnit,
   isImeComposing,
   runKeyHandlers,
 } from './api';
@@ -28,6 +29,7 @@ import type { EditSource } from './api';
 import { areaCopy, areaCut, areaPaste } from './clipboard';
 import { EditHistory, diffText } from './history';
 import type { TextChange, TextSelection } from './history';
+import { indentLines, outdentLines } from './indent';
 import type { CarriedDraft, OpenFile, PaneId, PaneRefs } from './paneElements';
 import { renderPreview } from './preview';
 import {
@@ -652,22 +654,26 @@ export function createPane(
   });
 
   /**
-   * Tab 在 textarea 里默认是切焦点；写作时更需要它插缩进。
-   * Shift+Tab 反向：行首有两个空格就去掉。
+   * Tab 在 textarea 里默认是切焦点；写作时更需要它缩进（规则见 `indent.ts`，单位见 `indentUnit`：
+   * 正文两个全角空格，其余两个半角空格）。没有选区时在光标处插一级；有选区时给碰到的每一行
+   * 行首加一级，**选中的字一个不删**；Shift+Tab 去掉一级。一次按键一步撤销。
    */
   function handleTab(shift: boolean): void {
-    const value = el.area.value;
-    const start = el.area.selectionStart;
-    const end = el.area.selectionEnd;
-    if (shift) {
-      const lineStart = value.lastIndexOf('\n', start - 1) + 1;
-      if (value.slice(lineStart, lineStart + 2) === '  ') {
-        const caret = Math.max(lineStart, start - 2);
-        applyEdit(lineStart, lineStart + 2, '', { start: caret, end: caret });
-      }
+    const file = activeFile();
+    if (!file) {
       return;
     }
-    applyEdit(start, end, '  ');
+    const value = el.area.value;
+    const sel = currentSelection();
+    const unit = indentUnit(file);
+    if (!shift && sel.start === sel.end) {
+      applyEdit(sel.start, sel.end, unit);
+      return;
+    }
+    const edit = shift ? outdentLines(value, sel) : indentLines(value, sel, unit);
+    if (edit) {
+      applyEdit(edit.start, edit.end, edit.text, edit.selection);
+    }
   }
 
   // 标签条空白处右键：以当前激活标签为准。
