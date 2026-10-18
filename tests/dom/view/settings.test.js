@@ -158,11 +158,12 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
       taskNames().join('|'));
   });
 
-  test('第一行是单章摘要', () => {
-    assert.equal(nameOf(0), '单章摘要', nameOf(0));
+  // 单章摘要并进了细纲：定稿那一次调用就是照正文更新细纲，任务名照实说。
+  test('第一行是定稿（照正文更新细纲）', () => {
+    assert.equal(nameOf(0), '定稿 · 照正文更新细纲', nameOf(0));
   });
 
-  test('单章摘要默认落在快速档', () => {
+  test('定稿默认落在快速档', () => {
     assert.equal(selOf(0).value, 'fast', selOf(0).value);
   });
 

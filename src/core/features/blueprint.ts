@@ -14,11 +14,19 @@
  * 但**超长不算错**：上游在 `value_too_long` 时同样截断后再收（`normalizeGeneratedBlueprintText`）。
  * 超了几十个字就作废整批、再花一次调用，不划算；截断写进 `warnings`，落到卡片上。
  *
- * ## 与 D3 三节的对应
+ * ## 与细纲八节的对应
  *
- * `purpose` → 本章目的，`keyEvents` → 关键事件，`suspenseHook` → 章末钩子。上游的
- * `relationships` 不要（D3 的细纲里没有它的位置）；`newCharacters` 可选，写入细纲时
- * 直接给新角色建卡（D19）。
+ * `synopsis` → 梗概，`characters` → 出场人物（计划），`timePlace` → 时间地点，`keyEvents` → 关键事件，
+ * `highlights` → 看点（爽点与章末吊着读者的东西，从前单列的章末钩子并在这里），`foreshadowing` → 新增伏笔，
+ * `stateChange` → 状态变更。连续性事实计划时没有（证据要回正文定位），定稿时才生成。
+ * 上游的 `relationships` 不要（细纲里没有它的位置）；`newCharacters` 可选，写入细纲时直接给新角色建卡（D19）。
+ *
+ * `keyEvents` 是一条一件事的列表，与定稿时写出来的「关键事件」同一个形状（定稿才能逐条改，
+ * 而不是把一整段重写一遍）。给成一段字也认（老合同的形状）：按换行与分号切成条。
+ *
+ * `title` / `synopsis` 必须非空、`keyEvents` 至少一条、`characters` 至少一个人；其余四个字段可以是空的——
+ * 过渡章没有新伏笔是常事，为一个空数组作废整批、再花一次调用不划算。写成别的形状（该是数组给了一行字）
+ * 照收，不报诊断。
  */
 import { normalizeGender } from '../model/gender';
 import { BLUEPRINT_LIMITS } from '../model/plotFile';
@@ -29,13 +37,20 @@ import { parseJson, singleJsonObject } from './structuredJson';
 export interface BlueprintItem {
   no: number;
   title: string;
-  role: string;
-  purpose: string;
-  keyEvents: string;
+  /** 梗概：这一章计划发生什么，写清因果链。 */
+  synopsis: string;
+  /** 计划出场的人。 */
   characters: string[];
+  timePlace: string;
+  /** 关键事件：按发生的顺序一条一件事，至少一条。 */
+  keyEvents: string[];
+  /** 看点：一条一句。 */
+  highlights: string[];
+  /** 新增伏笔：一条一句。 */
+  foreshadowing: string[];
+  stateChange: string;
   /** 本章首次登场、后面还会出场的重要角色。名字一定在 `characters` 里；性别建卡时落进卡上。 */
   newCharacters: { name: string; role: string; gender?: string }[];
-  suspenseHook: string;
 }
 
 export { BLUEPRINT_LIMITS };
@@ -86,6 +101,37 @@ function clip(s: string, max: number): string {
 function clipTitle(s: string): string {
   const head = s.split(/[。！？；;\n]/)[0].trim() || s.trim();
   return chars(head) > BLUEPRINT_LIMITS.title ? clip(head, BLUEPRINT_LIMITS.title) : head;
+}
+
+/** 列表元素行首的编号与「-」：合同说了不要写，模型照写的也不少。 */
+function stripMarker(s: string): string {
+  return s.replace(/^\s*(?:[-*·•]|\d+[.、)])\s*/, '').trim();
+}
+
+/**
+ * 关键事件给成了一段字 → 一条一项：按换行与分号（`；` `;`）切，去掉行首的列表记号。
+ * 不按句号切——一条里可以有好几句。
+ */
+export function splitKeyEvents(text: string): string[] {
+  return text.split(/\r?\n|[；;]/).map(stripMarker).filter(Boolean);
+}
+
+/**
+ * 关键事件的原值 → 一条一项。数组按元素收（某一条带了换行就按行拆开：落盘后一行就是一条，
+ * 拆开了读回来才是同一份），一段字走 {@link splitKeyEvents}；都去掉行首的列表记号。
+ * 形状不对（数字、对象、元素不全是字符串的数组）返回 undefined。
+ *
+ * 批次（{@link decodeBlueprints}）与单章（features/artifact.ts 的 `parsePlotStrict`）共用这一份：
+ * 两个入口的输出契约一致（第 22 条）。
+ */
+export function keyEventList(v: unknown): string[] | undefined {
+  if (typeof v === 'string') {
+    return splitKeyEvents(v);
+  }
+  if (Array.isArray(v) && v.every((x): x is string => typeof x === 'string')) {
+    return v.flatMap((x) => x.split(/\r?\n/)).map(stripMarker).filter(Boolean);
+  }
+  return undefined;
 }
 
 /**
@@ -156,10 +202,7 @@ export function decodeBlueprints(text: string): BlueprintDecode {
 
     const fields = {
       title: field('title', ['title', '标题'], Number.MAX_SAFE_INTEGER),
-      role: field('role', ['role', '结构功能'], BLUEPRINT_LIMITS.role),
-      purpose: field('purpose', ['purpose', '本章目的'], BLUEPRINT_LIMITS.purpose),
-      keyEvents: field('keyEvents', ['keyEvents', 'key_events', '关键事件'], BLUEPRINT_LIMITS.keyEvents),
-      suspenseHook: field('suspenseHook', ['suspenseHook', 'suspense_hook', '章末钩子'], BLUEPRINT_LIMITS.suspenseHook),
+      synopsis: field('synopsis', ['synopsis', '梗概'], BLUEPRINT_LIMITS.synopsis),
     };
     for (const v of Object.values(fields)) {
       if (typeof v !== 'string') {
@@ -168,7 +211,42 @@ export function decodeBlueprints(text: string): BlueprintDecode {
     }
     const f = fields as Record<keyof typeof fields, string>;
 
-    const rawCast = pick(o, ['characters', '出场角色']);
+    const keyEvents = eventsField(o, path, no, warnings);
+    if (!Array.isArray(keyEvents)) {
+      return { ok: false, diagnostic: keyEvents };
+    }
+
+    /** 可以空着的一行字。给成数组就拼起来；超长截断并记一条。 */
+    const loose = (name: string, keys: readonly string[], max: number): string => {
+      const v = pick(o, keys);
+      const s = (Array.isArray(v) ? v.filter((x) => typeof x === 'string').join('；') : typeof v === 'string' ? v : '').trim();
+      if (chars(s) > max) {
+        warnings.push(`第 ${no} 章的 ${name} 超过 ${max} 字，已截断`);
+        return clip(s, max);
+      }
+      return s;
+    };
+    /** 可以空着的一条一句的列表。给成一行字就当一条；条数、每条字数超了截断并记一条。 */
+    const listField = (name: string, keys: readonly string[]): string[] => {
+      const v = pick(o, keys);
+      const raw = (Array.isArray(v) ? v : typeof v === 'string' ? [v] : [])
+        .filter((x): x is string => typeof x === 'string')
+        .map(stripMarker)
+        .filter(Boolean);
+      if (raw.length > BLUEPRINT_LIMITS.listItems) {
+        warnings.push(`第 ${no} 章的 ${name} 列了 ${raw.length} 条，只留前 ${BLUEPRINT_LIMITS.listItems} 条`);
+        raw.length = BLUEPRINT_LIMITS.listItems;
+      }
+      return raw.map((x) => {
+        if (chars(x) > BLUEPRINT_LIMITS.listItem) {
+          warnings.push(`第 ${no} 章的 ${name} 有一条超过 ${BLUEPRINT_LIMITS.listItem} 字，已截断`);
+          return clip(x, BLUEPRINT_LIMITS.listItem);
+        }
+        return x;
+      });
+    };
+
+    const rawCast = pick(o, ['characters', '出场人物', '出场角色']);
     if (!Array.isArray(rawCast)) {
       return {
         ok: false,
@@ -212,15 +290,62 @@ export function decodeBlueprints(text: string): BlueprintDecode {
     items.push({
       no,
       title: clipTitle(f.title),
-      role: f.role,
-      purpose: f.purpose,
-      keyEvents: f.keyEvents,
+      synopsis: f.synopsis,
       characters: cast,
+      timePlace: loose('timePlace', ['timePlace', 'time_place', '时间地点'], BLUEPRINT_LIMITS.timePlace),
+      keyEvents,
+      highlights: listField('highlights', ['highlights', '看点']),
+      foreshadowing: listField('foreshadowing', ['foreshadowing', '新增伏笔']),
+      stateChange: loose('stateChange', ['stateChange', 'state_change', '状态变更'], BLUEPRINT_LIMITS.stateChange),
       newCharacters,
-      suspenseHook: f.suspenseHook,
     });
   }
   return { ok: true, items, warnings };
+}
+
+/**
+ * 关键事件：一条一件事的列表，至少一条（{@link keyEventList}）。条数超过 `BLUEPRINT_LIMITS.keyEventItems`
+ * 只留前面的，合计字数超过 `BLUEPRINT_LIMITS.keyEvents` 从超出的那一条起截掉；两样都记一条说明，不作废。
+ */
+function eventsField(
+  o: Record<string, unknown>,
+  path: string,
+  no: number,
+  warnings: string[]
+): string[] | BlueprintDiagnostic {
+  const at = `${path}.keyEvents`;
+  const v = pick(o, ['keyEvents', 'key_events', '关键事件']);
+  if (v === undefined) {
+    return { code: 'missing_field', path: at, message: `第 ${no} 章缺 keyEvents` };
+  }
+  const raw = keyEventList(v);
+  if (!raw) {
+    return { code: 'invalid_type', path: at, message: `第 ${no} 章的 keyEvents 不是一条一件事的文本列表` };
+  }
+  if (raw.length === 0) {
+    return { code: 'empty_value', path: at, message: `第 ${no} 章的 keyEvents 是空的` };
+  }
+
+  const maxItems = BLUEPRINT_LIMITS.keyEventItems;
+  if (raw.length > maxItems) {
+    warnings.push(`第 ${no} 章的 keyEvents 列了 ${raw.length} 条，只留前 ${maxItems} 条`);
+    raw.length = maxItems;
+  }
+  const maxChars = BLUEPRINT_LIMITS.keyEvents;
+  if (raw.reduce((n, event) => n + chars(event), 0) <= maxChars) {
+    return raw;
+  }
+  warnings.push(`第 ${no} 章的 keyEvents 超过 ${maxChars} 字，已截断`);
+  const out: string[] = [];
+  let left = maxChars;
+  for (const event of raw) {
+    if (left <= 0) {
+      break;
+    }
+    out.push(chars(event) > left ? clip(event, left) : event);
+    left -= chars(event);
+  }
+  return out;
 }
 
 /** 解出来的章号与这一批该有的章号对不对得上。 */
@@ -251,14 +376,28 @@ export function checkCoverage(items: readonly BlueprintItem[], expected: readonl
   };
 }
 
-/** 一章蓝图 → 细纲的规划字段（落盘时用）。 */
+/**
+ * 一章蓝图 → 细纲的八节（落盘时用）。出场人物写成「林昭、沈氏」一行，关键事件、看点与新增伏笔
+ * 一条一行（`- …`），与定稿写出来的样子一致；连续性事实计划时是空的。
+ */
 export function blueprintToPlot(item: BlueprintItem): PlotFields {
   return {
-    sections: { 本章目的: item.purpose, 关键事件: item.keyEvents, 章末钩子: item.suspenseHook },
+    sections: {
+      梗概: item.synopsis,
+      出场人物: item.characters.join('、'),
+      时间地点: item.timePlace,
+      关键事件: listText(item.keyEvents),
+      看点: listText(item.highlights),
+      新增伏笔: listText(item.foreshadowing),
+      状态变更: item.stateChange,
+      连续性事实: '',
+    },
     title: item.title,
-    role: item.role,
-    characters: item.characters,
   };
+}
+
+function listText(items: readonly string[]): string {
+  return items.map((x) => `- ${x}`).join('\n');
 }
 
 /**
@@ -271,12 +410,14 @@ export function renderBlueprints(items: readonly BlueprintItem[]): string {
   const blueprints = items.map((b) => ({
     chapterNumber: b.no,
     title: b.title,
-    role: b.role,
-    purpose: b.purpose,
-    keyEvents: b.keyEvents,
+    synopsis: b.synopsis,
     characters: b.characters,
+    timePlace: b.timePlace,
+    keyEvents: b.keyEvents,
+    highlights: b.highlights,
+    foreshadowing: b.foreshadowing,
+    stateChange: b.stateChange,
     ...(b.newCharacters.length > 0 ? { newCharacters: b.newCharacters } : {}),
-    suspenseHook: b.suspenseHook,
   }));
   return JSON.stringify({ blueprints }, null, 2);
 }

@@ -11,7 +11,6 @@ import { plainHandler } from './plain';
 import { settingHandler } from './setting';
 import { plotHandler } from './plot';
 import { chapterHandler } from './chapter';
-import { summaryHandler } from './summary';
 
 const REGISTRY: Partial<Record<ArtifactKind, Handler>> = {
   setting: settingHandler,
@@ -24,7 +23,6 @@ const REGISTRY: Partial<Record<ArtifactKind, Handler>> = {
   lore: docHandler,
   plot: plotHandler,
   chapter: chapterHandler,
-  summary: summaryHandler,
   other: plainHandler,
   draft: plainHandler,
 };

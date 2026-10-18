@@ -129,7 +129,7 @@ export async function newFolder(
 
 // ---------------------------------------------------------------- 细纲
 //
-// 细纲**不是**可管理区：它的文件名由「章号 + 标题」决定，落点是平铺的 `plots/`，
+// 细纲**不是**可管理区：它的文件名由「章号 + 标题」决定，落点是平铺的 `summaries/`，
 // 挪进子目录它就不在这条链上了。所以改名与删除绕开 resolveTarget 那套区守卫，
 // 交给网关的领域写入器做；也没有「移动到…」。
 
@@ -177,7 +177,7 @@ export async function renamePlot(project: NovelProject, relPath: string): Promis
   return to;
 }
 
-/** 删一章的细纲：搬进 `.trash/`。**正文与摘要不受影响。** */
+/** 删一章的细纲：搬进 `.trash/`。**正文不受影响。** */
 export async function deletePlot(project: NovelProject, relPath: string): Promise<boolean> {
   const plot = await project.readPlot(relPath);
   if (!plot) {
@@ -190,7 +190,7 @@ export async function deletePlot(project: NovelProject, relPath: string): Promis
     modal: true,
     detail: [
       // 说出来免得作者以为正文也没了。
-      '这一章的正文与摘要不受影响。',
+      '这一章的正文不受影响。',
       '会移到 .novelforge/.trash/，可手动找回。',
     ].join('\n'),
   });

@@ -7,13 +7,14 @@ import { CharacterCard } from '../../model/types';
 import { ContextItem } from '../types';
 import { estimateTokens } from '../tokenizer';
 import type { LayerFn } from './assembly';
-import { readChapterText, readPrevManuscript } from './focus';
+import { ChapterRef, readChapterText, readPrevManuscript } from './focus';
 import {
   continuationTail,
   focusText,
   isPlaceholder,
   matchesKeywords,
   renderCharacter,
+  renderPlotSections,
   selectCharacters,
   tailByChars,
 } from './render';
@@ -56,7 +57,7 @@ export const globalSummary: LayerFn = async (a, spec) => {
 
 export const characters: LayerFn = async (a, spec) => {
   const all = await a.project.listCharacters();
-  const relevant = await selectCharacters(a.project, all, a.request.ask, a.focus, a.limits.castSummaries);
+  const relevant = selectCharacters(all, a.request.ask, a.focus, a.limits.castSummaries);
   for (const { card, reason } of relevant) {
     const id = `character:${card.slug}`;
     const base = {
@@ -150,7 +151,7 @@ export const prevTail: LayerFn = async (a, spec) => {
 /**
  * 前面几章的**正文全文**。只有正文阶段带（配方里只有那一张有这一层）。
  *
- * 放不下时降级为该章摘要，再放不下才丢弃——三档都要留在明细里说清原因
+ * 放不下时降级为该章细纲，再放不下才丢弃——三档都要留在明细里说清原因
  * （AGENTS.md 第 2 条：不静默截断）。
  */
 export const manuscriptFull: LayerFn = async (a, spec) => {
@@ -179,12 +180,12 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
     const manuscript = await readChapterText(a.project, ref);
     if (!manuscript?.text.trim()) {
       // 只排了细纲、还没写正文——这不是错误，是这一章还没到那一步。
-      // **不认领它**（不进 fullTextNos）：认领了摘要那一层就会跳过它，
-      // 而它既没有正文也没有摘要，于是从上下文里凭空消失，明细上还看不出
-      // 少了什么。留给摘要层，那里会退化成只带「本章目的」并说明原因。
+      // **不认领它**（不进 fullTextNos）：认领了细纲那一层（`plotSummary`）就会跳过它，
+      // 而它没有正文，于是从上下文里凭空消失，明细上还看不出少了什么。
+      // 留给细纲那一层，那里带它的计划并标明。
       continue;
     }
-    // 确实注入了（哪怕后面降级成摘要）才认领：摘要层据此避免重复注入。
+    // 确实注入了（哪怕后面降级成细纲）才认领：细纲那一层据此避免重复注入。
     a.scratch.fullTextNos.add(plot.no);
     const block = `【${label}】\n${manuscript.text}`;
     const tokens = estimateTokens(block);
@@ -218,20 +219,21 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
       continue;
     }
 
-    const summary = ref.chapter ? await a.project.readSummary(ref.chapter.relPath) : undefined;
-    if (summary?.content.trim()) {
-      const summaryBlock = `【${label} · 摘要】\n${summary.content}`;
-      const summaryTokens = estimateTokens(summaryBlock);
-      if (summaryTokens <= a.remaining) {
+    const outline = ref.plot ? renderPlotSections(ref.plot) : '';
+    if (outline) {
+      const planned = !ref.plot!.sourceHash;
+      const outlineBlock = `【${label} · 细纲${planned ? '（计划，没定稿）' : ''}】\n${outline}`;
+      const outlineTokens = estimateTokens(outlineBlock);
+      if (outlineTokens <= a.remaining) {
         a.accept(
           {
             ...base,
-            source: summary.relPath,
-            text: summaryBlock,
+            source: ref.plot!.relPath,
+            text: outlineBlock,
             status: 'degraded',
-            note: `正文需 ${tokens} token 放不下，已降级为摘要`,
+            note: `正文需 ${tokens} token 放不下，已降级为细纲${planned ? '（还没定稿，是写之前的计划）' : ''}`,
           },
-          summaryTokens
+          outlineTokens
         );
         continue;
       }
@@ -239,18 +241,22 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
     a.reject(
       { ...base, text: '' },
       'dropped',
-      summary ? '正文与摘要都放不下' : `正文需 ${tokens} token 放不下，且这一章尚无摘要`
+      outline ? '正文与细纲都放不下' : `正文需 ${tokens} token 放不下，且这一章没有细纲`
     );
   }
 };
 
+/** 这一章定稿过、而且定稿之后正文没再改过（细纲的 `sourceHash` 对得上正文）。 */
+function isFinalized(ref: ChapterRef): boolean {
+  return !!ref.plot?.sourceHash && !!ref.chapter && ref.plot.sourceHash === ref.chapter.contentHash;
+}
+
 /**
- * 更早那些章的摘要，由近及远填充，最多带最近 `summaryChapters` 章（上下文详细度，缺省 60）。
+ * 更早那些章的细纲，由近及远填充，最多带最近 `summaryChapters` 章（上下文详细度，缺省 60）。
  *
- * **还没写正文的章退化成只带「本章目的」**，并在明细里注明原因。这是「不静默截断」
- * 在这条链上最要紧的一处：作者常常先把一百章细纲排完再回头写，那些章没有正文
- * 也就没有摘要——直接跳过的话，排第 60 章时模型对前 59 章一无所知，却看不出
- * 少了什么。带一行目的很便宜，而且诚实。
+ * 定稿过的细纲是那一章实际写成的样子；**还没定稿的照样带，标明是「计划」**——作者常常先把
+ * 一百章细纲排完再回头写，那些章的细纲就是这里唯一的前情，直接跳过的话模型对前面一无所知，
+ * 却看不出少了什么。定稿之后正文又改过的标 ⚠。
  *
  * **封顶之外的合成一条 dropped**，不是一章一条：一百多章的书封在 5 章时，明细里摆九十几行
  * 「不带」只会把真正带了什么淹掉。更早的前情由全书摘要接着（它在 P2，比这一层先拿预算）。
@@ -267,51 +273,36 @@ export const plotSummary: LayerFn = async (a, spec) => {
       id,
       kind: 'plotSummary' as const,
       priority: spec.priority,
-      label: `${label} · 摘要`,
-      source: ref.chapter?.relPath ?? ref.plot?.relPath ?? '',
+      label: `${label} · 细纲`,
+      source: ref.plot?.relPath ?? ref.chapter?.relPath ?? '',
     };
     if (a.excluded.has(id)) {
       a.admit({ ...base, source: undefined, text: '' });
       continue;
     }
 
-    // 摘要挂在正文上；还没写的章自然没有。
-    const summary = ref.chapter ? await a.project.readSummary(ref.chapter.relPath) : undefined;
-    if (!summary?.content.trim()) {
-      const goal = ref.plot?.sections.本章目的.trim() ?? '';
-      if (!goal) {
-        a.reject({ ...base, text: '' }, 'dropped', '这一章还没写正文，也没有本章目的可带');
-        continue;
-      }
-      const block = `【${label}】\n${goal}`;
-      const tokens = estimateTokens(block);
-      if (tokens > a.remaining) {
-        a.reject({ ...base, text: '' }, 'dropped', '预算已满，更早的章不再注入');
-        continue;
-      }
-      a.accept(
-        { ...base, text: block, status: 'degraded', note: '这一章还没写正文，只带本章目的' },
-        tokens
-      );
+    const content = ref.plot ? renderPlotSections(ref.plot) : '';
+    if (!content) {
+      a.reject({ ...base, text: '' }, 'dropped', ref.chapter ? '这一章有正文，但还没有细纲（定稿之后才有）' : '这一章还没有细纲');
       continue;
     }
-
-    const block = `【${label}】\n${summary.content}`;
+    const finalized = !!ref.plot!.sourceHash;
+    const block = `【${label}${finalized ? '' : ' · 计划'}】\n${content}`;
     const tokens = estimateTokens(block);
     if (tokens > a.remaining) {
-      a.reject({ ...base, source: summary.relPath, text: '' }, 'dropped', '预算已满，更早的章不再注入');
+      a.reject({ ...base, text: '' }, 'dropped', '预算已满，更早的章不再注入');
       continue;
     }
     a.accept(
       {
         ...base,
-        source: summary.relPath,
         text: block,
         status: 'included',
-        note:
-          // 摘要的上游是正文，直接比它的 hash——不必再读一遍正文。
-          ref.chapter && summary.sourceHash !== ref.chapter.contentHash
-            ? '⚠ 该摘要已过期（正文有改动）'
+        note: !finalized
+          ? '还没定稿：带的是写之前的计划'
+          : // 定稿的上游是正文，直接比它的 hash——不必再读一遍正文。
+            ref.chapter && ref.plot!.sourceHash !== ref.chapter.contentHash
+            ? '⚠ 定稿之后正文又改过，这份细纲可能没跟上'
             : undefined,
       },
       tokens
@@ -326,11 +317,11 @@ export const plotSummary: LayerFn = async (a, spec) => {
         id: 'plotSummary:beyond',
         kind: 'plotSummary',
         priority: spec.priority,
-        label: first === last ? `${plotLabel(first, beyond[0].title)} · 摘要` : `第 ${first}–${last} 章 · 摘要`,
+        label: first === last ? `${plotLabel(first, beyond[0].title)} · 细纲` : `第 ${first}–${last} 章 · 细纲`,
         text: '',
       },
       'dropped',
-      `上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」只带最近 ${cap} 章的摘要，更早的 ${beyond.length} 章不带`
+      `上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」只带最近 ${cap} 章的细纲，更早的 ${beyond.length} 章不带`
     );
   }
 };
@@ -389,11 +380,11 @@ function releaseEvidence(a: Parameters<LayerFn>[0], ev: ContextItem | undefined)
 }
 
 /**
- * 前面各章的**定稿原文片段**（D18）：拿摘要里每条连续性事实的证据原句回到那一章的正文里
+ * 前面各章的**定稿原文片段**（D18）：拿定稿过的细纲里每条连续性事实的证据原句回到那一章的正文里
  * 逐字定位，取所在段落与前后各一段（model/continuity.ts 的 `locateEvidence`）。
  *
  * 移植自 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator）`chapter-materials.ts` 的
- * `assembleChapterMaterials`（CM:120-187）：写正文时不拿摘要当事实，按证据回到定稿原文里取段落。
+ * `assembleChapterMaterials`（CM:120-187）：写正文时不拿细纲当事实，按证据回到定稿原文里取段落。
  * 不搬它的定稿收据、来源 hash 与租约（总计划 §1 #14）。
  *
  * 取多少按上下文详细度（`evidenceRecent` / `evidenceChapters` / `evidenceChars`，缺省 5 / 12 / 6000）：
@@ -403,9 +394,11 @@ function releaseEvidence(a: Parameters<LayerFn>[0], ev: ContextItem | undefined)
  * | 前 `evidenceRecent` 章 | 全部连续性事实 |
  * | 更早的章，一共不超过 `evidenceChapters` 章 | 只取提到本章角色的事实 |
  *
+ * - 只认定稿之后正文没再改过的章（细纲的 `sourceHash` 对得上正文）：正文改过的，证据句多半已经
+ *   不在原处，事实本身也可能正是改掉的那一处。
  * - 由近及远填，一共不超过 `evidenceChars` 字；放不下的章 dropped 并写原因（第 2 条）。
- * - **定位不到**（作者改过正文）的那几条换成事实原句，条目标 degraded 并写明几条（第 2 条）。
- * - 上一章有正文却还没定稿：明细里多一条 dropped，说清没有事实、角色状态截至第几章（D23）。
+ * - **定位不到**（作者手改过细纲里的事实或证据句）的那几条换成事实原句，条目标 degraded 并写明几条（第 2 条）。
+ * - 上一章有正文却还没定稿（或定稿之后正文又改过）：明细里多一条 dropped，说清没有事实、角色状态截至第几章（D23）。
  *   不挡路——写第 N 章不强制第 N−1 章已定稿——但不静默。
  * - 「精简」整层不带：前面有写好的章时出一条 dropped 说明，不一章一条。
  */
@@ -439,21 +432,23 @@ export const evidence: LayerFn = async (a, spec) => {
     }
     const label = `${plotLabel(ref.no, ref.title)} · 定稿原文`;
     const base = { id: `evidence:${ref.no}`, kind: 'evidence' as const, priority: spec.priority, label, source: ref.chapter.relPath };
-    const summary = await a.project.readSummary(ref.chapter.relPath);
-    const finalized = !!summary && summary.sourceHash === ref.chapter.contentHash;
+    const finalized = isFinalized(ref);
     if (ref === prev && !finalized) {
       const through = latestState(cards, names);
       a.reject(
         { ...base, text: '' },
         'dropped',
-        `第 ${ref.no} 章还没定稿：没有连续性事实${through !== undefined ? `，角色状态截至第 ${through} 章` : ''}`
+        ref.plot?.sourceHash
+          ? `第 ${ref.no} 章定稿之后正文又改过：连续性事实不作数${through !== undefined ? `，角色状态截至第 ${through} 章` : ''}`
+          : `第 ${ref.no} 章还没定稿：没有连续性事实${through !== undefined ? `，角色状态截至第 ${through} 章` : ''}`
       );
       continue;
     }
-    if (!summary) {
+    // 只认对得上的定稿：定稿之后正文改过的，证据句多半已经不在原处，事实本身也可能正是改掉的那一处。
+    if (!finalized) {
       continue;
     }
-    const all = parseContinuityFacts(summary.sections.连续性事实);
+    const all = parseContinuityFacts(ref.plot!.sections.连续性事实);
     const facts = i >= recentFrom ? all : all.filter((f) => names.some((n) => f.statement.includes(n)));
     if (facts.length === 0) {
       continue;
@@ -469,16 +464,13 @@ export const evidence: LayerFn = async (a, spec) => {
       a.reject({ ...base, text: '' }, 'dropped', `定稿原文片段一共只带 ${evidenceChars} 字，更近的几章已经用完了`);
       continue;
     }
-    const notes = [
-      i >= recentFrom ? `${facts.length} 条连续性事实` : `${facts.length} 条涉及本章角色的连续性事实`,
-      ...(finalized ? [] : ['⚠ 摘要已过期（正文有改动）']),
-    ];
+    const notes = [i >= recentFrom ? `${facts.length} 条连续性事实` : `${facts.length} 条涉及本章角色的连续性事实`];
     const item = a.admit({ ...base, text: block, note: notes.join('；') });
     if (item.status === 'included') {
       budget -= block.length;
       if (missing > 0) {
         item.status = 'degraded';
-        item.note = `${notes.join('；')}；${missing} 条证据在正文里找不到（正文改过），换成事实原句`;
+        item.note = `${notes.join('；')}；${missing} 条证据在正文里找不到（细纲里的事实被手改过），换成事实原句`;
       }
       a.scratch.evidence.set(ref.no, item);
     }
@@ -636,8 +628,8 @@ export const chapterFull: LayerFn = async (a, spec) => {
  * 最多几章、一共几字按上下文详细度（`factsChapters` / `factsChars`，缺省 12 章 / 3000 字）。
  *
  * 上游审稿读的是「已定稿历史的连续性投影」——每一章的要点与事实（RV:121-154），明说它是
- * 「唯一已发生事实源」。这里对应四期摘要里的「连续性事实」一节。没定稿的章（没有摘要、或摘要
- * 过期）不带并说清楚：拿一份过期的事实去判「本章与前文矛盾」，判出来的可能正是作者改过的地方。
+ * 「唯一已发生事实源」。这里对应定稿过的细纲里的「连续性事实」一节。没定稿、或定稿之后正文又改过
+ * 的章不带并说清楚：拿一份过期的事实去判「本章与前文矛盾」，判出来的可能正是作者改过的地方。
  */
 export const recentFacts: LayerFn = async (a, spec) => {
   const previous = a.focus.previous;
@@ -657,12 +649,15 @@ export const recentFacts: LayerFn = async (a, spec) => {
       label: `${plotLabel(ref.no, ref.title)} · 连续性事实`,
       source: ref.chapter.relPath,
     };
-    const summary = await a.project.readSummary(ref.chapter.relPath);
-    if (!summary || summary.sourceHash !== ref.chapter.contentHash) {
-      a.reject({ ...base, text: '' }, 'dropped', summary ? '摘要已过期（正文有改动），事实不作数' : '这一章还没定稿，没有连续性事实');
+    if (!isFinalized(ref)) {
+      a.reject(
+        { ...base, text: '' },
+        'dropped',
+        ref.plot?.sourceHash ? '定稿之后正文又改过，事实不作数' : '这一章还没定稿，没有连续性事实'
+      );
       continue;
     }
-    const facts = parseContinuityFacts(summary.sections.连续性事实);
+    const facts = parseContinuityFacts(ref.plot!.sections.连续性事实);
     if (facts.length === 0) {
       continue;
     }
@@ -671,7 +666,7 @@ export const recentFacts: LayerFn = async (a, spec) => {
       a.reject({ ...base, text: '' }, 'dropped', `连续性事实一共只带 ${factsChars} 字，更近的几章已经用完了`);
       continue;
     }
-    const item = a.admit({ ...base, source: summary.relPath, text: block, note: `${facts.length} 条` });
+    const item = a.admit({ ...base, source: ref.plot!.relPath, text: block, note: `${facts.length} 条` });
     if (item.status === 'included') {
       budget -= block.length;
     }

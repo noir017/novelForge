@@ -40,7 +40,7 @@ import { PLOT_BATCH, ROSTER_DETAIL_BATCH } from '../model/pipeline';
 import { BookConfig } from '../model/settingFile';
 import { hasContent } from '../model/markdown';
 import { OUTLINE_SECTION_MAX, oversizedSections, parseOutlineRanges } from '../model/outlineFile';
-import { BlueprintItem, checkCoverage, decodeBlueprints, renderBlueprints } from '../features/blueprint';
+import { BlueprintItem, blueprintToPlot, checkCoverage, decodeBlueprints, renderBlueprints } from '../features/blueprint';
 import { CharacterDetail, IdentitySlot, assembleRoster, decodeDetails, decodeManifest, renderRoster } from '../features/roster';
 import {
   decodeNovelConfig,
@@ -310,8 +310,10 @@ export interface BlueprintChainResult extends ChainResult {
   items: BlueprintItem[];
 }
 
+/** 刚排好的一章在前序细纲一览里的样子：关键事件、看点都照落盘后那两节的样子（一条一行）。 */
 function draftLine(b: BlueprintItem): DraftPlotLine {
-  return { no: b.no, title: b.title, keyEvents: b.keyEvents, suspenseHook: b.suspenseHook };
+  const { sections } = blueprintToPlot(b);
+  return { no: b.no, title: b.title, keyEvents: sections.关键事件, highlights: sections.看点 };
 }
 
 /**

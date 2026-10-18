@@ -10,7 +10,7 @@
  * | 目标任何一句引文找不到 → 整项待核实 | 上游同一口径 |
  * | 「未完成」没有证据 → 待核实 | 「没写到」只能是待核实（总计划 §5） |
  * | 漏项、重复、认不出的 id → 覆盖不完整 | 完整不等于全部完成，但不完整要说出来 |
- * | 章末钩子单列一项 | D3 里钩子必填 |
+ * | 只冻结关键事件 | 章末钩子并进了「看点」，看点不是一件件到期的动作 |
  * | 清单只有勾选项；勾了待核实要带边界 | 作者没勾的不该出现在模型眼前 |
  */
 const { describe, test } = require('node:test');
@@ -28,32 +28,41 @@ const TEXT = [
 const CTX = { text: TEXT, chapterNo: 2, chapterTitle: '客栈', chapterRelPath: 'chapters/002-客栈.md', chapterHash: 'h' };
 
 describe('review.ts · 目标冻结', () => {
-  test('按换行与分号切，去掉列表记号；章末钩子单列最后一项', () => {
-    const goals = r.freezeGoals('- 林昭回到客栈；沈氏收下残令\n2. 林昭决定北上', '门外有人敲了三下');
+  test('按换行与分号切，去掉列表记号', () => {
+    const goals = r.freezeGoals('- 林昭回到客栈；沈氏收下残令\n2. 林昭决定北上');
     assert.deepEqual(
-      goals.map((g) => [g.id, g.kind, g.text]),
+      goals.map((g) => [g.id, g.text]),
       [
-        ['g1', 'event', '林昭回到客栈'],
-        ['g2', 'event', '沈氏收下残令'],
-        ['g3', 'event', '林昭决定北上'],
-        ['g4', 'hook', '门外有人敲了三下'],
+        ['g1', '林昭回到客栈'],
+        ['g2', '沈氏收下残令'],
+        ['g3', '林昭决定北上'],
       ]
     );
   });
 
   test('一整段写成的关键事件就是一项，不按句号切', () => {
-    const goals = r.freezeGoals('林昭回到客栈。沈氏收下残令。', '');
+    const goals = r.freezeGoals('林昭回到客栈。沈氏收下残令。');
     assert.equal(goals.length, 1);
     assert.equal(goals[0].text, '林昭回到客栈。沈氏收下残令。');
   });
 
-  test('占位与空的不算', () => {
-    assert.deepEqual(r.freezeGoals('（待补充）', '（待补充）'), []);
+  // 计划与定稿的关键事件都是一条一行的列表（⚑B）：一条一项，顺序不变。
+  test('细纲落盘的样子（一条一行）一条冻结成一项', () => {
+    const goals = r.freezeGoals('- 林昭随年轻守卫赶到镇西旧宅，木匣空着。\n- 两人回镇口当面问李叔。\n- 李叔说出持牌的人七年前都在那场火里。');
+    assert.deepEqual(
+      goals.map((g) => g.text),
+      ['林昭随年轻守卫赶到镇西旧宅，木匣空着。', '两人回镇口当面问李叔。', '李叔说出持牌的人七年前都在那场火里。']
+    );
   });
 
-  test('交给模型的清单里钩子带说法', () => {
-    const json = JSON.parse(r.frozenGoalsJson(r.freezeGoals('甲', '乙')));
-    assert.deepEqual(json, [{ id: 'g1', text: '甲' }, { id: 'g2', text: '章末钩子：乙' }]);
+  test('占位与空的不算', () => {
+    assert.deepEqual(r.freezeGoals('（待补充）'), []);
+    assert.deepEqual(r.freezeGoals(''), []);
+  });
+
+  test('交给模型的清单只有 id 与目标原文', () => {
+    const json = JSON.parse(r.frozenGoalsJson(r.freezeGoals('甲；乙')));
+    assert.deepEqual(json, [{ id: 'g1', text: '甲' }, { id: 'g2', text: '乙' }]);
   });
 });
 
@@ -134,7 +143,7 @@ function raw(items, goalReviews) {
 }
 
 describe('review.ts · 校验', () => {
-  const goals = r.freezeGoals('沈氏收下残令；林昭决定北上', '门外有人敲门');
+  const goals = r.freezeGoals('沈氏收下残令；林昭决定北上；门外有人敲门');
 
   test('引文找得到的问题留下，找不到的丢掉并说明', () => {
     const { report, notes } = r.verifyReview(
@@ -228,7 +237,7 @@ describe('review.ts · 校验', () => {
 });
 
 describe('review.ts · 勾选与清单', () => {
-  const goals = r.freezeGoals('沈氏收下残令；林昭决定北上', '门外有人敲门');
+  const goals = r.freezeGoals('沈氏收下残令；林昭决定北上；门外有人敲门');
   const { report } = r.verifyReview(
     raw(
       [
@@ -261,7 +270,7 @@ describe('review.ts · 勾选与清单', () => {
   test('勾了待核实：前面带边界那一句', () => {
     const brief = r.renderRevisionBrief(report, ['g3']);
     assert.match(brief, /^【待核实项处理边界】/);
-    assert.match(brief, /章末钩子：门外有人敲门/);
+    assert.match(brief, /关键事件：门外有人敲门/);
   });
 
   test('一条都没勾：空串；已完成的目标勾了也不算', () => {
@@ -285,7 +294,7 @@ describe('review.ts · 勾选与清单', () => {
   });
 
   test('用户气泡上的那几行', () => {
-    assert.deepEqual(r.describePicks(report, ['i2', 'g3']), ['[建议] 角色状态：他左臂有伤却点头如常', '[待核实] 章末钩子：门外有人敲门']);
+    assert.deepEqual(r.describePicks(report, ['i2', 'g3']), ['[建议] 角色状态：他左臂有伤却点头如常', '[待核实] 关键事件：门外有人敲门']);
   });
 });
 
@@ -302,7 +311,7 @@ describe('review.ts · 编辑报告', () => {
       { id: 'i2', category: '角色状态', severity: 'warning', quote: '林昭点了点头', description: '左臂有伤' },
     ],
     passes: [],
-    goals: [{ id: 'g1', kind: 'event', text: '林昭回到客栈', status: 'unmet', judgment: '判断', quotes: ['林昭推开客栈的门'] }],
+    goals: [{ id: 'g1', text: '林昭回到客栈', status: 'unmet', judgment: '判断', quotes: ['林昭推开客栈的门'] }],
     coverage: 'complete',
     dropped: [],
   };

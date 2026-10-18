@@ -6,9 +6,10 @@
  *
  * 1. **产物不回灌**——返回文本里只有形状与 draftId，一个正文字都没有。
  *    三千字正文塞回循环，agent 每走一步重烧一遍。
- * 2. **层由路径决定**：架构三件、大纲、细纲各有自己的路径；**正文层给章节路径**
+ * 2. **层由路径决定**：架构三件、大纲、细纲各有自己的路径（细纲在
+ *    `.novelforge/summaries/NNN-标题.md`，与单章摘要并成了一份）；**正文层给章节路径**
  *    （`chapters/NNN-标题.md`），工具按章号去认同号的细纲（细纲号 = 章号），
- *    target 以那份细纲的路径为身份。老工程的中转站、卷纲路径认不出，一律拦下。
+ *    target 以那份细纲的路径为身份。老工程的中转站、卷纲、`plots/` 路径认不出，一律拦下。
  * 3. **能力由 STAGE_CAPABILITIES 说了算**（discuss / generate / settle / review），`split` 随卷与中转站一起删了；
  *    `settle` 与 `review` 这个工具不做（一个要一段讨论，一个要作者勾选）。
  * 4. **`settle` 明确不支持**：它要沉淀的是一段讨论，而 agent 手上没有。
@@ -23,14 +24,24 @@ const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 
-/** 细纲层的应答：D3 三节 + 规划字段。 */
+/**
+ * 细纲层的应答：单章也用批次合同的单项形式（`{"blueprints":[{…}]}`），字段对到八节。
+ * 连续性事实不在合同里（证据要回正文定位，定稿时才有），所以填满也只有 7/8 节。
+ */
 const PLOT_JSON = JSON.stringify({
-  title: '夜入青云',
-  role: '开篇',
-  characters: ['林昭'],
-  本章目的: '进入宗门',
-  关键事件: '踩点、失手、翻墙；收在藏书阁门口。',
-  章末钩子: '第三块令牌在墙内等着他',
+  blueprints: [
+    {
+      chapterNumber: 1,
+      title: '夜入青云',
+      synopsis: '林昭夜探青云宗，想查清令牌的来历。',
+      characters: ['林昭'],
+      timePlace: '深夜，青云宗山门外',
+      keyEvents: ['踩点、失手、翻墙', '收在藏书阁门口。'],
+      highlights: ['第三块令牌在墙内等着他'],
+      foreshadowing: ['守门弟子认得那块令牌'],
+      stateChange: '林昭混进了外门',
+    },
+  ],
 });
 
 let bundle;
@@ -47,7 +58,7 @@ let deltas;
 /** 存进 DraftStore 的草稿。 */
 let stored;
 
-const PLOT_REL = '.novelforge/plots/001-夜入青云.md';
+const PLOT_REL = '.novelforge/summaries/001-夜入青云.md';
 /** 第 1 章的正文路径。文件还不存在——正文就是要写到这里。 */
 const CHAPTER_REL = 'chapters/001-夜入青云.md';
 const CONFIG_REL = '.novelforge/config.md';
@@ -111,15 +122,13 @@ before(async () => {
   t = await makeTempProject(bundle.project, { prefix: 'agentgen', title: '青云剑录' });
   project = t.project;
   const ws = new bundle.ws.Workspace(project);
-  // 只起了个头的细纲：「关键事件」空着，所以还不算排过。
+  // 只起了个头的细纲：只写了梗概，「关键事件」空着，所以还不算排过。
   await ws.writePlot({
     no: 1,
     title: '夜入青云',
-    role: '',
-    characters: [],
     upstreamHash: '',
     done: false,
-    sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '林昭进入宗门' },
+    sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: '林昭进入宗门' },
   });
   await project.syncManifest();
   resetCtx();
@@ -159,9 +168,9 @@ describe('对细纲调 generate', () => {
     assert.ok(r.text.includes(stored[0].draft.id), r.text);
   });
 
-  // D3 三节：本章目的 / 关键事件 / 章末钩子。
-  test('返回文本里有形状摘要', () => {
-    assert.ok(r.text.includes('细纲 · 3/3 节'), r.text);
+  // 八节里模型答了七节（连续性事实计划时为空）。
+  test('返回文本里有形状描述', () => {
+    assert.ok(r.text.includes('细纲 · 7/8 节'), r.text);
   });
 
   test('返回文本里有落点', () => {
@@ -215,7 +224,7 @@ describe('history 恒为空', () => {
     await run({ target: PLOT_REL, capability: 'generate', ask: '排一下' });
   });
 
-  // agent 的工具调用不是作者的讨论。混进去，装配器会把 `list .novelforge/plots`
+  // agent 的工具调用不是作者的讨论。混进去，装配器会把 `list .novelforge/summaries`
   // 当成作者提的创作要求。
   test('装配出的消息里没有工具调用的痕迹', () => {
     const all = JSON.stringify(fake.calls[0]);
@@ -297,7 +306,7 @@ describe('给章节路径：按章号认成正文层', () => {
     project.invalidate();
     resetCtx();
     await run({ target: 'chapters/003-雪夜.md', capability: 'generate' });
-    assert.deepEqual(stored[0].draft.target, { kind: 'manuscript', plotRelPath: '.novelforge/plots/003-雪夜.md' });
+    assert.deepEqual(stored[0].draft.target, { kind: 'manuscript', plotRelPath: '.novelforge/summaries/003-雪夜.md' });
   });
 
   test('章节还不存在、也没有细纲时同样认成正文层', async () => {
@@ -305,7 +314,7 @@ describe('给章节路径：按章号认成正文层', () => {
     await run({ target: 'chapters/002-藏书阁.md', capability: 'generate' });
     const target = stored[0].draft.target;
     assert.equal(target.kind, 'manuscript', JSON.stringify(target));
-    assert.ok(target.plotRelPath.startsWith('.novelforge/plots/002'), JSON.stringify(target));
+    assert.ok(target.plotRelPath.startsWith('.novelforge/summaries/002'), JSON.stringify(target));
   });
 });
 
@@ -385,7 +394,7 @@ describe('对架构文档调 generate', () => {
     assert.ok(lastUser().includes('"coreOutline"') && lastUser().includes('"globalGuidance"'), lastUser().slice(-600));
   });
 
-  test('返回文本里有形状摘要', () => {
+  test('返回文本里有形状描述', () => {
     assert.ok(r.text.includes('小说配置 · 2/8 节'), r.text);
   });
 
@@ -471,7 +480,7 @@ describe('认不出的路径', () => {
   });
 
   test('error 里给出各层正确的路径形状', () => {
-    assert.ok(r.error.includes('.novelforge/plots/'), r.error);
+    assert.ok(r.error.includes('.novelforge/summaries/'), r.error);
     assert.ok(r.error.includes('chapters/'), r.error);
     assert.ok(r.error.includes('list'), r.error);
   });
@@ -486,12 +495,15 @@ describe('认不出的路径', () => {
     assert.ok(bad.error, JSON.stringify(bad));
   });
 
-  // 老工程磁盘上的中转站、卷纲、按卷分的细纲子目录一个字节都不动，但代码不再认它们：
-  // 对着它们生成，产物没有落点，只会白花一次钱。
+  // 老工程磁盘上的中转站、卷纲、`plots/` 下的细纲（平铺的、按卷分目录的）、按章节路径镜像进
+  // summaries/ 子目录的单章摘要一个字节都不动，但代码不再认它们：对着它们生成，产物没有落点
+  // （流水线不读那里），只会白花一次钱。
   for (const [what, legacy] of [
     ['中转站正文', '.novelforge/manuscripts/001-夜入青云.md'],
     ['卷纲', '.novelforge/volumes/01-觉醒之日.md'],
+    ['plots/ 下的细纲', '.novelforge/plots/001-夜入青云.md'],
     ['按卷分目录的细纲', '.novelforge/plots/01-觉醒之日/001-夜入青云.md'],
+    ['summaries/ 子目录里的单章摘要', '.novelforge/summaries/卷一/001-夜入青云.md'],
   ]) {
     test(`老工程的${what}路径认不出，不调模型`, async () => {
       resetCtx();
@@ -582,7 +594,12 @@ describe('工具定义本身', () => {
 
   test('描述里给出各层的路径形状（架构 / 细纲 / 章节）', () => {
     const d = tool().description;
-    assert.ok(d.includes('config.md') && d.includes('.novelforge/plots/') && d.includes('chapters/'), d);
+    assert.ok(d.includes('config.md') && d.includes('.novelforge/summaries/') && d.includes('chapters/'), d);
+  });
+
+  // agent 照着描述里的老路径给 `plots/`，会被当场拦下（见上面「认不出的路径」）——白走一趟。
+  test('描述里不再提老的 plots/ 目录', () => {
+    assert.ok(!tool().description.includes('plots/'), tool().description);
   });
 
   test('描述里的能力清单没有 split', () => {

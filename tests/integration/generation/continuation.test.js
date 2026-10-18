@@ -16,7 +16,7 @@
  * | 重演 | 开头搬了上一章结尾：Draft 带 `replay`，说明里写明 |
  * | 接着写 | 只含新增的那一段，字数连已有的算 |
  * | 重写 | 上一版正文作底稿带进 prompt |
- * | 收尾过早（五期补遗 §1.1） | 先回退到钩子那一段之前再写；回退之后又收尾就停；回退那一轮没写成就把原结尾放回去 |
+ * | 收尾过早（五期补遗 §1.1） | 先切掉结尾约四分之一再写；回退之后又收尾就停；回退那一轮没写成就把原结尾放回去 |
  * | 本章边界（§1.2、§1.3） | 执行卡后面点名「本章不出场」的人与比喻词上限；续写那一轮说已经用了几次 |
  * | 写完查（§1.2、§1.3、§1.5） | 提前登场、比喻词超标、英文缩写都记进说明 |
  */
@@ -37,9 +37,8 @@ let project;
 let settings = {};
 let script = [];
 
-const P1 = '.novelforge/plots/001-夜入青云.md';
-const P2 = '.novelforge/plots/002-客栈.md';
-const P3 = '.novelforge/plots/003-夜访.md';
+const P2 = '.novelforge/summaries/002-客栈.md';
+const P3 = '.novelforge/summaries/003-夜访.md';
 
 /** 第 1 章的正文（写第 2 章时，它的结尾是重演检测的对照）。 */
 const CH1_END = [
@@ -108,18 +107,23 @@ before(async () => {
   project = t.project;
   const ws = new bundle.ws.Workspace(project);
   const empty = bundle.plotFile.emptyPlotSections();
-  // 第 3 章才排沈秋：写第 2 章时他在「本章不出场」的名单上（五期补遗 §1.2）。
-  const cast = { 1: ['林昭'], 2: ['林昭'], 3: ['林昭', '沈秋'] };
+  // 第 3 章才排沈秋：写第 2 章时他在「本章不出场」的名单上（五期补遗 §1.2）。没定稿的细纲，
+  // 计划出场就写在「出场人物」一节里。
+  const cast = { 1: '林昭', 2: '林昭', 3: '林昭、沈秋' };
   for (const [no, title] of [[1, '夜入青云'], [2, '客栈'], [3, '夜访']]) {
     await ws.writePlot({
       no,
       title,
-      role: '',
-      characters: cast[no],
       targetWords: 1000,
       upstreamHash: '',
       done: false,
-      sections: { ...empty, 本章目的: `第 ${no} 章的目的`, 关键事件: `第 ${no} 章的关键事件`, 章末钩子: `第 ${no} 章的钩子` },
+      sections: {
+        ...empty,
+        梗概: `第 ${no} 章的梗概`,
+        出场人物: cast[no],
+        关键事件: `第 ${no} 章的关键事件`,
+        看点: `- 第 ${no} 章的看点`,
+      },
     });
   }
   await ws.createChapter(1, '夜入青云', `${filler(900, 1)}\n\n${CH1_END}`);
@@ -415,41 +419,58 @@ describe('重写第 3 章（不带写法，这一章已有正文）', () => {
 
 // ---------------------------------------------------------------- 五期补遗
 
-/** 第一次调用：四段，最后一段收在第 2 章的钩子上（一共 420 字左右，不到八成）。 */
-const LANDED = [filler(150, 200), filler(150, 201), filler(100, 202), '他回头望去，第 2 章的钩子就这样落了下来。'];
+/**
+ * 第一次调用：四段一共 420 字，正常收尾、不到八成。最后一句是收尾那一下，只有 20 字，不够全文的
+ * 四分之一——按比例切要连它前面那 100 字一起拿掉（rewindPoint：切到约 25% 为止，最多 600 字，
+ * 至少留一半）。从前细纲单列章末钩子，续写链按它认出收尾那一段、只切那一段；钩子并进「看点」之后
+ * （看点里还有爽点，拿来找收尾会切错地方）只按比例切。
+ */
+const LANDED = [filler(150, 200), filler(150, 201), filler(100, 202), '他回头望去，巷口那盏灯不知什么时候已经灭了。'];
 
-describe('收尾过早：先回退到钩子那一段之前再写', () => {
+describe('收尾过早：先切掉结尾约四分之一再写', () => {
   let r;
   before(async () => {
     r = await write(P2, [{ text: LANDED.join('\n\n'), stop: 'end' }, { text: filler(600, 203), stop: 'end' }]);
   });
 
-  test('2 次调用，写够了', () => {
+  test('2 次调用', () => {
     assert.equal(r.calls, 2);
+  });
+
+  test('切完 300 字、再写 600 字：写够了', () => {
     assert.equal(r.draft.length.reached, true);
   });
 
-  test('收在钩子上的那一段拿掉了，新写的接在它前面', () => {
-    assert.equal(r.draft.raw, [...LANDED.slice(0, 3), filler(600, 203)].join('\n\n'));
-    assert.ok(!r.draft.raw.includes('钩子就这样落了下来'));
+  test('结尾两段拿掉了，新写的接在切点后面', () => {
+    assert.equal(r.draft.raw, [...LANDED.slice(0, 2), filler(600, 203)].join('\n\n'));
   });
 
   test('气泡退回到切点', () => {
-    assert.deepEqual(r.rec.resets, [LANDED.slice(0, 3).join('\n\n')]);
+    assert.deepEqual(r.rec.resets, [LANDED.slice(0, 2).join('\n\n')]);
   });
 
-  test('续写那一轮说清收尾拿掉了、要重新落到钩子上，差多少按切完算', () => {
+  test('续写那一轮说清收尾那一段已经拿掉了', () => {
     assert.match(r.users[1], /收尾那一段已经拿掉了/);
-    assert.match(r.users[1], /重新落到章末钩子上/);
-    assert.match(r.users[1], /大约再写 600 字/);
   });
 
-  test('说明里写了切了几段', () => {
-    assert.ok(r.draft.notes.some((n) => /按章末钩子收了尾：拿掉结尾 1 段/.test(n)), JSON.stringify(r.draft.notes));
+  // 不再说「重新落到章末钩子上」：细纲里没有单列的钩子了，结尾落在哪由细纲整份约定。
+  test('续写那一轮要它写足之后按细纲约定的结束状态重新收尾', () => {
+    assert.match(r.users[1], /最后按本章细纲约定的结束状态重新收尾/);
+  });
+
+  test('还差多少按切完之后算：1000 − 300', () => {
+    assert.match(r.users[1], /大约再写 700 字/);
+  });
+
+  test('说明里写了写到多少字收的尾、切了几段几个字', () => {
+    assert.ok(
+      r.draft.notes.includes('写到 420 / 1000 字就收了尾：拿掉结尾 2 段（约 120 字），从它前面接着写，写足之后重新收尾'),
+      JSON.stringify(r.draft.notes)
+    );
   });
 });
 
-describe('回退之后又收尾、仍不够八成：不再往钩子后面续', () => {
+describe('回退之后又收尾、仍不够八成：不再往收尾后面续', () => {
   let r;
   before(async () => {
     r = await write(P2, [
@@ -461,19 +482,30 @@ describe('回退之后又收尾、仍不够八成：不再往钩子后面续', (
 
   test('2 次调用就停', () => {
     assert.equal(r.calls, 2);
+  });
+
+  test('没写够', () => {
     assert.equal(r.draft.length.reached, false);
   });
 
-  test('说明里写为什么停、未写够', () => {
-    const notes = r.draft.notes.join('\n');
-    assert.match(notes, /没有再往章末钩子后面续写/);
-    assert.match(notes, /未写够/);
+  // 切完 300 + 新写 350 = 650，只比回退之前的 420 多了 230 字：再切再写也是在原地打转。
+  test('说明里写为什么停', () => {
+    assert.ok(
+      r.draft.notes.includes('回退重写那一轮只比回退之前多了 230 字，模型又收了尾，没有再往收尾后面续写'),
+      JSON.stringify(r.draft.notes)
+    );
+  });
+
+  test('说明里写了未写够', () => {
+    assert.ok(r.draft.notes.some((n) => /^未写够：这一章写到 650 \/ 1000 字/.test(n)), JSON.stringify(r.draft.notes));
   });
 });
 
 // 真实模型试跑：一次只写一千字上下，一章要回退两三轮。每次只在上一轮新写的那一段里切。
-describe('回退之后又收在钩子上、仍不够：再回退一次，只切上一轮那一段', () => {
-  const AGAIN = [filler(200, 250), filler(150, 251), '他抬起头，第 2 章的钩子又一次落了下来。'];
+describe('回退之后又收了尾、仍不够：再回退一次，只切上一轮那一段', () => {
+  // 第二轮新写 467 字（到 767 字，比回退之前多了 347 字，够得上再回退一次）：仍按比例切，
+  // 结尾那一句太短，连前面 200 字一起拿掉。
+  const AGAIN = [filler(250, 250), filler(200, 251), '他抬起头，檐下的冰凌正一滴一滴往下落。'];
   let r;
   before(async () => {
     r = await write(P2, [
@@ -483,18 +515,24 @@ describe('回退之后又收在钩子上、仍不够：再回退一次，只切�
     ]);
   });
 
-  test('3 次调用，写够了', () => {
+  test('3 次调用', () => {
     assert.equal(r.calls, 3);
+  });
+
+  test('写够了', () => {
     assert.equal(r.draft.length.reached, true);
   });
 
-  test('两次收在钩子上的那一段都拿掉了；前面接受过的一个字没动', () => {
-    assert.equal(r.draft.raw, [...LANDED.slice(0, 3), ...AGAIN.slice(0, 2), filler(500, 252)].join('\n\n'));
+  test('两次收尾都拿掉了；第一次切完留下的一个字没动', () => {
+    assert.equal(r.draft.raw, [...LANDED.slice(0, 2), AGAIN[0], filler(500, 252)].join('\n\n'));
   });
 
-  test('第二次回退那一轮也说清了', () => {
+  test('第二次回退那一轮也说清收尾那一段已经拿掉了', () => {
     assert.match(r.users[2], /收尾那一段已经拿掉了/);
-    assert.equal(r.draft.notes.filter((n) => /拿掉结尾 1 段/.test(n)).length, 2, JSON.stringify(r.draft.notes));
+  });
+
+  test('说明里两次回退各记一条', () => {
+    assert.equal(r.draft.notes.filter((n) => /就收了尾：拿掉结尾 2 段/.test(n)).length, 2, JSON.stringify(r.draft.notes));
   });
 });
 
@@ -590,7 +628,8 @@ describe('本章细纲自己提到了后面才登场的人：不点名、写完�
   before(async () => {
     const ws = new bundle.ws.Workspace(project);
     const plot = await project.readPlot(P2);
-    await ws.writePlot({ ...plot, sections: { ...plot.sections, 章末钩子: '有人提醒林昭：沈秋已经在找他了' } }, P2);
+    // 章末吊着读者的那一下如今写在「看点」里：细纲哪一节提到了他都算本章自己的安排。
+    await ws.writePlot({ ...plot, sections: { ...plot.sections, 看点: '- 有人提醒林昭：沈秋已经在找他了' } }, P2);
     r = await write(P2, [{ text: `${filler(900, 260)}。“沈秋已经在找你了。”有人低声说。`, stop: 'end' }]);
     await ws.writePlot(plot, P2);
   });

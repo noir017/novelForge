@@ -31,10 +31,10 @@ function queueAnswer(...values) {
   h.answers.push(...values);
 }
 
-/** 造一章 + 它的正文。设定扫描按章遍历 `chapters/`。 */
+/** 造一章：细纲 + 它的正文。设定扫描按章遍历 `chapters/`。 */
 function makePlot(no, title, text) {
   const stem = `${String(no).padStart(3, '0')}-${title}`;
-  t.write(`.novelforge/plots/${stem}.md`, '## 本章目的\n\n略。\n\n## 关键事件\n\n甲乙丙。\n\n## 章末钩子\n\n略。\n');
+  t.write(`.novelforge/summaries/${stem}.md`, '## 梗概\n\n略。\n\n## 关键事件\n\n甲乙丙。\n\n## 看点\n\n略。\n');
   t.write(`chapters/${stem}.md`, `# ${title}\n\n${text}\n`);
 }
 

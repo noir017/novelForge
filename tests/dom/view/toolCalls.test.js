@@ -158,7 +158,7 @@ describe('工具调用流（重开面板时回放）', { skip: JSDOM_SKIP }, () 
           turn('u1', 'user', '排一下第 12 章'),
           turn('a1', 'assistant', '排好了，收在藏书阁门口。', {
             segments: [
-              toolSeg({ callId: 'c1', name: 'read', title: 'read .novelforge/plots/012.md', ok: true, summary: '20 行', elapsedMs: 30 }),
+              toolSeg({ callId: 'c1', name: 'read', title: 'read .novelforge/summaries/012.md', ok: true, summary: '20 行', elapsedMs: 30 }),
               toolSeg({
                 callId: 'c2',
                 name: 'generate',
@@ -179,7 +179,7 @@ describe('工具调用流（重开面板时回放）', { skip: JSDOM_SKIP }, () 
   test('工具那一条画回来了', () => {
     assert.equal(rows(ui, 'a1').length, 1);
     assert.deepEqual(textsOf(rows(ui, 'a1')[0]), {
-      title: 'read .novelforge/plots/012.md',
+      title: 'read .novelforge/summaries/012.md',
       summary: '20 行',
       elapsed: '30ms',
     });
@@ -202,7 +202,7 @@ describe('工具调用流（重开面板时回放）', { skip: JSDOM_SKIP }, () 
 
   // 一章正文几千字，摊在气泡里会把作者真正要看的那段回答挤到屏幕外。
   test('气泡里没有工具的完整返回值', () => {
-    assert.ok(!ui.bubble('a1').textContent.includes('.novelforge/plots/012.md\n'), ui.bubble('a1').textContent);
+    assert.ok(!ui.bubble('a1').textContent.includes('.novelforge/summaries/012.md\n'), ui.bubble('a1').textContent);
   });
 
   test('回答本身照常显示', () => {

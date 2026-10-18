@@ -15,7 +15,7 @@
  * ## 三条必须记住的取舍
  *
  * 1. **正文就是章节**。一章一纲之后正文直接落 `chapters/NNN-标题.md`，没有
- *    中转站了。章节路径**不带创作目标**：第 12 章的细纲在哪要按号去 `plots/`
+ *    中转站了。章节路径**不带创作目标**：第 12 章的细纲在哪要按号去 `summaries/`
  *    里认，那一步要读盘，不在这里做（见 views/pipeline.ts 的 `chapterOfPlotNo`）。
  * 2. **`chapter` 与 `other` 的边界不看是不是 `.md`**（AGENTS 第 9 条：章节
  *    不认扩展名）。章节根之下 + 数字前缀 + 扩展名不在二进制黑名单 → `chapter`。
@@ -23,13 +23,14 @@
  * 3. **规则各自只定义一次**：章节名规则在 `model/chapterFile.ts`，细纲名在
  *    `model/plotFile.ts`。这里只 import，绝不复制一份正则出来。
  *
- * ## 老工程的 `volumes/`、`manuscripts/`、`scenes/` 现在是 `other`
+ * ## 老工程的 `volumes/`、`manuscripts/`、`scenes/`、`plots/` 现在是 `other`
  *
- * 卷、中转站、场景三层都删掉了（见 `model/pipeline.ts` 的文件头）。老工程磁盘上
+ * 卷、中转站、场景三层都删掉了（见 `model/pipeline.ts` 的文件头）；细纲从 `plots/` 搬进了
+ * `summaries/`，与单章摘要并成一份（见 `model/plotFile.ts` 的文件头）。老工程磁盘上
  * 那几个目录**一个字节都不动**——它们是作者的文件——但代码里彻底不认它们：判成
- * `other`，于是工程页不显示、装配器不读、网关按普通文本处理。`plots/` 下按卷分的
- * 子目录同理。`guard.ts` 的 `isProtectedPath` 仍然把它们列为受保护目录，免得哪条
- * 文件操作把它们整棵删掉。
+ * `other`，于是工程页不显示、装配器不读、网关按普通文本处理。`summaries/` 下的子目录
+ * （老工程按章节路径镜像的单章摘要）同理。`guard.ts` 的 `isProtectedPath` 仍然把那几个
+ * 目录列为受保护目录，免得哪条文件操作把它们整棵删掉。
  */
 import * as path from 'node:path';
 import { NovelProject } from '../model/project';
@@ -47,7 +48,6 @@ export type ArtifactKind =
   | 'skill'
   | 'plot'
   | 'chapter'
-  | 'summary'
   | 'draft'
   | 'character'
   | 'lore'
@@ -93,7 +93,6 @@ interface Dirs {
   chapters: string;
   drafts: string;
   plots: string;
-  summaries: string;
   characters: string;
   lore: string;
   config: string;
@@ -112,7 +111,6 @@ function dirsOf(project: NovelProject): Dirs {
     chapters: project.relPath(project.chaptersDir),
     drafts: project.relPath(project.draftsDir),
     plots: project.relPath(project.plotsDir),
-    summaries: project.relPath(project.summariesDir),
     characters: project.relPath(project.charactersDir),
     lore: project.relPath(project.loreDir),
     config: project.relPath(project.configPath),
@@ -139,7 +137,7 @@ function under(rel: string, root: string): string | undefined {
   return rel.startsWith(`${root}/`) ? rel.slice(root.length + 1) : undefined;
 }
 
-/** 只认 markdown 家族的那几个区（细纲 / 角色 / 设定 / 摘要）共用。 */
+/** 只认 markdown 家族的那几个区（角色 / 设定）共用。细纲的名字规则在 `model/plotFile.ts`。 */
 function isMd(rel: string): boolean {
   const ext = path.posix.extname(rel).toLowerCase();
   return ext === '.md' || ext === '.markdown';
@@ -149,7 +147,7 @@ function isMd(rel: string): boolean {
  * 路径 → 种类。**绝不抛。**
  *
  * 判定顺序有讲究：固定单文件（架构三件 / outline / style / global.md）排在各自所属
- * 目录之前——`summaries/global.md` 不是「第 0 章的摘要」。
+ * 目录之前——`summaries/global.md` 是全书摘要，不是一份细纲。
  */
 export function kindOfPath(project: NovelProject, relPath: string): PathKind {
   const rel = normalizeRel(relPath);
@@ -182,7 +180,8 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
     return { kind: 'skill', rel };
   }
 
-  // ---- 细纲。**平铺**，只认根下的 markdown 家族。老工程按卷分的子目录判成 other。
+  // ---- 细纲。**平铺**在 `summaries/` 根下，只认数字开头的 markdown 家族。子目录里的
+  // （老工程按章节路径镜像的单章摘要）判成 other；老工程的 `plots/` 落到最后的 other。
   const inPlots = under(rel, d.plots);
   if (inPlots !== undefined && inPlots) {
     const parsed = parsePlotFileName(path.posix.basename(inPlots));
@@ -194,19 +193,6 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
         stage: 'plot',
         target: { kind: 'plot', plotRelPath: rel },
         plotRelPath: rel,
-      };
-    }
-    return { kind: 'other', rel };
-  }
-
-  // ---- 摘要。镜像 `chapters/` 下的相对路径，可能有分卷子目录。
-  const inSummaries = under(rel, d.summaries);
-  if (inSummaries !== undefined && inSummaries) {
-    if (isMd(inSummaries)) {
-      return {
-        kind: 'summary',
-        rel,
-        no: parseChapterFileName(path.posix.basename(inSummaries))?.order,
       };
     }
     return { kind: 'other', rel };

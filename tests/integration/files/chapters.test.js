@@ -211,8 +211,8 @@ describe('章节文件规则（磁盘）', () => {
   });
 
   /**
-   * manifest 索引的是**章节正文**：字数、正文 hash、摘要 hash 描述的全是 `chapters/`
-   * 里的文件。细纲不进索引（它的新鲜度记在自己的 frontmatter 里）。
+   * manifest 索引的是**章节正文**：字数、正文 hash 描述的全是 `chapters/` 里的文件。
+   * 细纲不进索引（它的新鲜度与定稿记在自己的 frontmatter 里：upstreamHash / writtenFrom / sourceHash）。
    *
    * 任意扩展名都算章节（`.txt` / 无扩展名 / `.json`），所以它们也都要进。
    */

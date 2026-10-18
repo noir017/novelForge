@@ -76,7 +76,7 @@ intent: (args, project) => ({
 | `generate` | 为一份产物调一次创作模型；产出当场问作者落不落盘 | `target` `capability` `ask` `targetWords` `writeMode` |
 | `write` / `edit` | 写一份文件 / 改一段文字 | 各自的 |
 | `pipeline` | `completeSettings` `batchPlots` `batchManuscripts` `newPlot` | `from` `to` `mode` `review` |
-| `summary` | `finalize` `sync` `rebuildGlobal` | `path` |
+| `summary` | 定稿与全书摘要：`finalize`（照正文反向更新那一章的细纲，再更新角色状态、记叙事线）`sync`（没定稿、或定稿后正文又改过的章，只更新细纲）`rebuildGlobal`（从定稿过的细纲重建全书摘要） | `path` |
 | `characters` | `extract` `create` `createAll` `update` `rebuild` `updateAll` `rebuildAll` `cleanAliases` `mergeDuplicates` `reviewState` | `path` `name` |
 | `extract` | `style` `lore` `threads` | — |
 | `book` | `import` `derive` `learn` | `path` |

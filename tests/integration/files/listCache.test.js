@@ -1,7 +1,7 @@
 /**
  * 章节与细纲两份列表缓存的并发语义。
  *
- * 两者都会读**每一份文件**（章节要算字数与 contentHash，细纲要解析四个小节），
+ * 两者都会读**每一份文件**（章节要算字数与 contentHash，细纲要解析八个小节），
  * 所以它们是全书刷新里最贵的两步，缓存不是锦上添花。但缓存只在扫完之后才填得上，
  * 于是有两条容易长回来的坑：
  *
@@ -28,7 +28,7 @@ const { cleanup } = require('../../helpers/teardown');
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
 
-/** 造多少段。与章节数分开，断言里就看得出读的是哪一批。 */
+/** 造多少份细纲。与章节数分开，断言里就看得出读的是哪一批。 */
 const PLOTS = 7;
 
 let bundle;
@@ -50,7 +50,7 @@ before(async () => {
     const p = String(args[0]).replace(/\\/g, '/');
     if (p.includes('/chapters/')) {
       chapterReads++;
-    } else if (p.includes('/plots/')) {
+    } else if (p.includes('/.novelforge/summaries/')) {
       plotReads++;
     }
     return original.apply(fsp, args);
@@ -73,7 +73,7 @@ before(async () => {
   }
   for (let i = 1; i <= PLOTS; i++) {
     const n = String(i).padStart(3, '0');
-    t.write(`.novelforge/plots/${n}-第${i}章.md`, `---\nno: ${i}\n---\n\n## 关键事件\n事件。\n`);
+    t.write(`.novelforge/summaries/${n}-第${i}章.md`, `---\nno: ${i}\n---\n\n## 关键事件\n事件。\n`);
   }
 });
 
@@ -152,7 +152,7 @@ describe('章节列表缓存', () => {
 /**
  * 细纲列表缓存。与章节那一份同构，但它是**更热的那条路**：
  * 流水线索引与出场索引在同一次 `buildProjectTree` 里都要 `listPlots()`，
- * 不共享的话每次刷新都把 `plots/` 整个读两遍。
+ * 不共享的话每次刷新都把 `summaries/` 里的细纲整个读两遍。
  *
  * 另外多一条章节没有的约束：`writePlot` / `deletePlot` 自己会写盘，
  * **它们必须让缓存失效**——否则新建的章不出现在工程页上，改过标题的章
@@ -168,7 +168,7 @@ describe('细纲列表缓存', () => {
 
   test('并发的两次调用只扫一遍', async () => {
     const [a, b] = await Promise.all([project.listPlots(), project.listPlots()]);
-    assert.equal(plotReads, PLOTS, `并发时读了 ${plotReads} 个段文件，应当只读 ${PLOTS} 个`);
+    assert.equal(plotReads, PLOTS, `并发时读了 ${plotReads} 个细纲文件，应当只读 ${PLOTS} 个`);
     assert.equal(a, b);
   });
 
@@ -184,25 +184,25 @@ describe('细纲列表缓存', () => {
     const inFlight = project.listPlots();
     project.invalidate();
     await inFlight;
-    t.write('.novelforge/plots/013-新章.md', '---\nno: 13\n---\n\n## 关键事件\n新排的。\n');
+    t.write('.novelforge/summaries/013-新章.md', '---\nno: 13\n---\n\n## 关键事件\n新排的。\n');
     try {
       const plots = await project.listPlots();
       assert.equal(plots.length, PLOTS + 1, '缓存里应当没有那份过期结果');
     } finally {
-      t.remove('.novelforge/plots/013-新段.md');
+      t.remove('.novelforge/summaries/013-新章.md');
       project.invalidate();
     }
   });
 
   // 写盘的那两条路自己失效缓存，调用方不必记得调 invalidate()。
-  test('writePlot 之后读得到新段', async () => {
+  test('writePlot 之后读得到新的一章', async () => {
     await project.listPlots();
     try {
       await wsOf(project).writePlot({ no: 99, title: '新写的', sections: { 关键事件: '事件' } });
       const plots = await project.listPlots();
       assert.ok(plots.some((p) => p.no === 99), plots.map((p) => p.no).join('|'));
     } finally {
-      t.remove('.novelforge/plots/099-新写的.md');
+      t.remove('.novelforge/summaries/099-新写的.md');
       project.invalidate();
     }
   });
@@ -213,9 +213,9 @@ describe('细纲列表缓存', () => {
       await project.listPlots();
       await wsOf(project).writePlot({ no: 99, title: '改过的名字', sections: { 关键事件: '事件' } });
       const found = (await project.listPlots()).find((p) => p.no === 99);
-      assert.equal(found?.relPath, '.novelforge/plots/099-改过的名字.md', found?.relPath);
+      assert.equal(found?.relPath, '.novelforge/summaries/099-改过的名字.md', found?.relPath);
     } finally {
-      t.remove('.novelforge/plots/099-改过的名字.md');
+      t.remove('.novelforge/summaries/099-改过的名字.md');
       project.invalidate();
     }
   });
@@ -223,7 +223,7 @@ describe('细纲列表缓存', () => {
   test('deletePlot 之后读不到了', async () => {
     await wsOf(project).writePlot({ no: 99, title: '待删', sections: { 关键事件: '事件' } });
     await project.listPlots();
-    await wsOf(project).deletePlot('.novelforge/plots/099-待删.md');
+    await wsOf(project).deletePlot('.novelforge/summaries/099-待删.md');
     const plots = await project.listPlots();
     assert.ok(!plots.some((p) => p.no === 99), plots.map((p) => p.no).join('|'));
   });

@@ -1,0 +1,19 @@
+# 镜像在容器里自己 npm ci、自己出前端产物，宿主机上的这些只会拖慢上下文、还可能是别的架构。
+# 其余与 .gitignore 对齐：构建产物、本机私有目录一律不进构建上下文。
+.git
+node_modules
+dist
+out
+*.vsix
+*.db
+*.db-wal
+*.db-shm
+.claude
+.cursor
+.worktrees
+temp
+local
+src/shells/standalone/mediaAssets.ts
+src/shells/desktop/target
+src/shells/desktop/binaries
+sample-novel/.novelforge/sessions

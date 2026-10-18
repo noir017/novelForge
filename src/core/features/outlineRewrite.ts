@@ -3,7 +3,7 @@
  * 不是一次把全书塞给模型——一次写一百章，后半段会稀得像目录（D20）。
  *
  * ```
- * 第 1–N 章已经写成   → 每段照那几章的摘要整理（与拆书补齐同一份契约，`derive`）
+ * 第 1–N 章已经写成   → 每段照那几章定稿过的细纲整理（与拆书补齐同一份契约，`derive`）
  * 第 N+1 章以后       → 每段照架构重新规划（平常的续写契约）
  * ```
  *
@@ -34,7 +34,7 @@ const log = scoped('重写大纲');
 export interface OutlineRewriteBatch {
   from: number;
   to: number;
-  /** 这一段已经写成：照摘要整理，不重新规划。 */
+  /** 这一段已经写成：照定稿过的细纲整理，不重新规划。 */
   derive: boolean;
 }
 
@@ -80,7 +80,7 @@ export function describeOutlineRewrite(plan: OutlineRewritePlan): string {
   const derived = plan.batches.filter((b) => b.derive);
   const planned = plan.batches.filter((b) => !b.derive);
   if (derived.length > 0) {
-    parts.push(`${span(1, plan.through)}已经写成，照各章摘要整理`);
+    parts.push(`${span(1, plan.through)}已经写成，照各章定稿过的细纲整理`);
   }
   if (planned.length > 0) {
     parts.push(`${span(planned[0].from, plan.end)}照架构重新规划`);

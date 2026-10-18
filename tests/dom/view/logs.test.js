@@ -26,9 +26,9 @@ describe('日志页', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'logs',
       entries: [
-        entry(1, 'debug', '摘要', '第 1 章请求模型'),
-        entry(2, 'info', '摘要', '第 1 章摘要已写入', '耗时 3.2s'),
-        entry(3, 'warn', '摘要', '第 2 章是空的'),
+        entry(1, 'debug', '定稿', '第 1 章请求模型'),
+        entry(2, 'info', '定稿', '第 1 章细纲已照正文更新', '耗时 3.2s'),
+        entry(3, 'warn', '定稿', '第 2 章是空的'),
         entry(4, 'error', '模型', '连接失败'),
       ],
     });
@@ -44,11 +44,11 @@ describe('日志页', { skip: JSDOM_SKIP }, () => {
   });
 
   test('显示来源', () => {
-    assert.ok(texts()[0].includes('摘要'), texts()[0]);
+    assert.ok(texts()[0].includes('定稿'), texts()[0]);
   });
 
   test('显示消息', () => {
-    assert.ok(texts()[0].includes('第 1 章摘要已写入'), texts()[0]);
+    assert.ok(texts()[0].includes('第 1 章细纲已照正文更新'), texts()[0]);
   });
 
   test('警告行带级别样式', () => {
@@ -111,17 +111,17 @@ describe('日志页', { skip: JSDOM_SKIP }, () => {
 
   // 增量追加。
   test('增量追加一条', () => {
-    ui.post({ type: 'log', entry: entry(5, 'info', '摘要', '第 3 章摘要已写入') });
+    ui.post({ type: 'log', entry: entry(5, 'info', '定稿', '第 3 章细纲已照正文更新') });
     assert.equal(rows().length, 4, `${rows().length}`);
   });
 
   test('追加在末尾', () => {
-    assert.ok(texts().at(-1).includes('第 3 章摘要已写入'), texts().at(-1));
+    assert.ok(texts().at(-1).includes('第 3 章细纲已照正文更新'), texts().at(-1));
   });
 
   // 被过滤掉的级别，增量也不该冒出来。
   test('增量也走过滤', () => {
-    ui.post({ type: 'log', entry: entry(6, 'debug', '摘要', '不该显示的调试') });
+    ui.post({ type: 'log', entry: entry(6, 'debug', '定稿', '不该显示的调试') });
     assert.ok(!texts().some((t) => t.includes('不该显示的调试')), texts().join(' | '));
   });
 
@@ -142,7 +142,7 @@ describe('日志页', { skip: JSDOM_SKIP }, () => {
   // 默认路径（切到日志页）仍然只看缓冲，一次查询都不做，所以这里要验的是
   // 「只有点了按钮才发消息」。
   test('切到日志页不主动要历史', () => {
-    ui.post({ type: 'logs', entries: [entry(20, 'info', '摘要', '本次会话的一条')] });
+    ui.post({ type: 'logs', entries: [entry(20, 'info', '定稿', '本次会话的一条')] });
     ui.sent.length = 0;
     assert.ok(!ui.sent.some((m) => m.type === 'requestLogHistory'));
   });
@@ -168,7 +168,7 @@ describe('日志页', { skip: JSDOM_SKIP }, () => {
       type: 'logHistory',
       entries: [
         { seq: -2, level: 'error', scope: '角色卡', message: '上次会话的失败', at: new Date(2026, 0, 1, 9, 0, 0).toISOString() },
-        { seq: -1, level: 'info', scope: '摘要', message: '上次会话的一条', at: new Date(2026, 0, 1, 9, 0, 1).toISOString() },
+        { seq: -1, level: 'info', scope: '定稿', message: '上次会话的一条', at: new Date(2026, 0, 1, 9, 0, 1).toISOString() },
       ],
       exhausted: false,
     });

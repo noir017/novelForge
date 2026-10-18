@@ -29,7 +29,7 @@ let fake;
 let ctx;
 let settings;
 
-const PLOT_REL = '.novelforge/plots/001-夜入青云.md';
+const PLOT_REL = '.novelforge/summaries/001-夜入青云.md';
 const CHAPTER_REL = 'chapters/001-夜入青云.md';
 const OUTLINE_REL = '.novelforge/outline.md';
 const CONFIG_REL = '.novelforge/config.md';
@@ -89,11 +89,20 @@ before(async () => {
   };
   bundle.host.initHost(makeFakeHost({ supportsVscodeLm: true, settings: () => settings }).host);
   fake = installFakeProvider(bundle.registry, {
+    // 这里只看每一层用的是哪个模型，产物长什么样无所谓；给的是细纲合同的单项形式，
+    // 细纲层拿到的是一份像样的应答。
     reply: () =>
       JSON.stringify({
-        本章目的: '进入宗门',
-        关键事件: '踩点、失手、翻墙。',
-        章末钩子: '墙内有人在等他。',
+        blueprints: [
+          {
+            chapterNumber: 1,
+            title: '夜入青云',
+            synopsis: '林昭进入宗门。',
+            characters: ['林昭'],
+            keyEvents: ['踩点、失手、翻墙。'],
+            highlights: ['墙内有人在等他。'],
+          },
+        ],
       }),
     errors: { LlmError: bundle.provider.LlmError, CancelledError: bundle.provider.CancelledError },
   });
@@ -104,11 +113,9 @@ before(async () => {
   await ws.writePlot({
     no: 1,
     title: '夜入青云',
-    role: '',
-    characters: [],
     upstreamHash: '',
     done: false,
-    sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '进入宗门' },
+    sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: '进入宗门' },
   });
   await project.syncManifest();
   resetCtx();

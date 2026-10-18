@@ -14,8 +14,7 @@
  * 要连草稿一起丢。确认框里会说一句，否则「删了这一章」之后草稿还在，
  * 下次看见会以为闹鬼。所以 `onRemove` 只重算 manifest，什么伴生都不搬。
  *
- * 摘要同理不跟着删：它挂在成品上，但那是 `fileOps` 的 `carrySummary` 管的
- * 交互流程（工程页的删除要说清连带什么），不是网关的默认行为。
+ * 同号的细纲也不跟着搬、不跟着删：它按章号与正文配对，正文改名、移动之后照样认得出。
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';

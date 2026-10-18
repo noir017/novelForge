@@ -23,7 +23,7 @@ export function promptFactsOf(a: Pick<Assembly, 'request' | 'book' | 'focus'>): 
     step: r.step,
     book: a.book,
     no: Number.isFinite(a.focus.no) ? a.focus.no : undefined,
-    plot: plot ? { keyEvents: plot.sections.关键事件, hook: plot.sections.章末钩子 } : undefined,
+    plot: plot ? { keyEvents: plot.sections.关键事件 } : undefined,
     ask: r.ask,
     writeMode: r.writeMode,
     written: r.writeMode === 'continue' ? a.focus.chapter?.wordCount : undefined,

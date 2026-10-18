@@ -34,7 +34,7 @@ import { FailureView } from '../protocol';
 /**
  * 失败挂在什么东西上。与工程页的分区一一对应。
  *
- * `plot` 是创作流水线那一区（细纲）；`chapter` 是发布章节（摘要失败挂这里）。库里可能还躺着
+ * `plot` 是创作流水线那一区（细纲）；`chapter` 是发布章节（定稿失败挂这里）。库里可能还躺着
  * 换轴之前记下的行——它们指向 `chapters/` 下的路径，读出来只是挂不到任何
  * 一行上，不该因此让整张表读不出来。
  */
@@ -47,7 +47,7 @@ export type FailureTargetKind = 'character' | 'plot' | 'chapter' | 'lore' | 'set
 export type FailureSeverity = 'error' | 'warn';
 
 export interface FailureRecord {
-  /** 日志来源名，与 `scoped()` 用的那个一致（「角色卡」「摘要」「设定」）。 */
+  /** 日志来源名，与 `scoped()` 用的那个一致（「角色卡」「定稿」「设定」）。 */
   scope: string;
   targetKind: FailureTargetKind;
   /** 目标的工作区相对路径。 */
@@ -110,7 +110,7 @@ export async function recordFailure(project: NovelProject, record: FailureRecord
 /**
  * 目标成功了，把它挂着的失败记录清掉。
  *
- * `op` 给了就只清那个动作的——「摘要成功了」不该顺手把「角色卡失败了」
+ * `op` 给了就只清那个动作的——「定稿成功了」不该顺手把「角色卡失败了」
  * 一起抹掉。不给则清该目标的全部。
  */
 export async function clearFailures(

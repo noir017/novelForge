@@ -219,7 +219,7 @@ export type ProjectAction =
   | 'generateThreads'
   /** 拆书 A：把工程里的一本 txt 切成章节（零调用；后端弹框挑文件、报切分结果）。 */
   | 'importManuscript'
-  /** 拆书 A：从已写正文补齐摘要、角色卡、架构、大纲、细纲（只补空白，两次确认）。 */
+  /** 拆书 A：从已写正文补齐细纲、角色卡、架构、大纲（只补空白，两次确认）。 */
   | 'deriveFromText'
   | 'chapterGap'
   /** 拆书 B：从工程里的一本参考书学文风与写法。 */

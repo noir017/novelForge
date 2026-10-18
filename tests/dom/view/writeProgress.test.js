@@ -193,7 +193,7 @@ describe('写入卡：重演时红色块与两段式写入', { skip: JSDOM_SKIP 
 describe('主按钮「接着写」把写法带给后端', { skip: JSDOM_SKIP }, () => {
   test('send 带 writeMode: continue', () => {
     const ui = mount();
-    const PLOT = '.novelforge/plots/012-夜入青云.md';
+    const PLOT = '.novelforge/summaries/012-夜入青云.md';
     ui.post({
       type: 'session',
       session: emptySession({ target: { kind: 'manuscript', plotRelPath: PLOT }, stage: 'manuscript', capability: 'discuss' }),

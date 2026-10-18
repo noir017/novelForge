@@ -27,8 +27,8 @@ let posted = [];
 let beside = [];
 let replies = [];
 
-const P1 = '.novelforge/plots/001-夜入青云.md';
-const P2 = '.novelforge/plots/002-客栈.md';
+const P1 = '.novelforge/summaries/001-夜入青云.md';
+const P2 = '.novelforge/summaries/002-客栈.md';
 const CH1 = 'chapters/001-夜入青云.md';
 
 before(async () => {
@@ -65,8 +65,8 @@ before(async () => {
   const empty = bundle.plotFile.emptyPlotSections();
   for (const [no, title] of [[1, '夜入青云'], [2, '客栈']]) {
     await ws.writePlot({
-      no, title, role: '', characters: [], targetWords: 1000, upstreamHash: '', done: false,
-      sections: { ...empty, 本章目的: `第 ${no} 章的目的`, 关键事件: `第 ${no} 章的关键事件`, 章末钩子: `第 ${no} 章的钩子` },
+      no, title, targetWords: 1000, upstreamHash: '', done: false,
+      sections: { ...empty, 梗概: `第 ${no} 章的梗概`, 关键事件: `第 ${no} 章的关键事件`, 看点: `第 ${no} 章的看点` },
     });
   }
   await ws.createChapter(1, '夜入青云', filler(300, 1));
@@ -120,7 +120,7 @@ describe('openChapter', () => {
   });
 
   test('两样都没有：说找不到，什么都不开', async () => {
-    const r = await open('.novelforge/plots/009.md');
+    const r = await open('.novelforge/summaries/009.md');
     assert.deepEqual(r.opened, []);
     assert.ok(r.toasts.some((m) => m.startsWith('error:')), JSON.stringify(r.toasts));
   });

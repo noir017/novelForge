@@ -140,7 +140,7 @@ describe('交替（实时）', { skip: JSDOM_SKIP }, () => {
       callId: 'c9',
       name: 'generate',
       title: 'generate 正文·生成',
-      argsText: '{ "target": ".novelforge/plots/012.md" }',
+      argsText: '{ "target": ".novelforge/summaries/012.md" }',
     });
     const det = card(fresh, 'a1', 'c9').querySelector('details.gen-args');
     assert.ok(det, card(fresh, 'a1', 'c9').innerHTML);

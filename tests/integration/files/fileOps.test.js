@@ -1,6 +1,6 @@
 /**
  * 层级目录与类文件操作：递归扫描、树折叠、路径守卫，以及新建/重命名/移动/删除，
- * 外加摘要的新鲜度与路径映射。迁自 scripts/smoke-fileops.js（全部 112 条）。
+ * 外加细纲的悬停浮窗（计划 / 定稿 / 过期）与细纲的改名、删除。迁自 scripts/smoke-fileops.js。
  *
  * 时序敏感（两类，都按「操作后当场取值」处理）：
  * - `erred()` 读的是距上一次 expect() 以来攒下的 toast，晚一步取值就串味；
@@ -23,12 +23,12 @@ let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
 
 describe('fileOps.ts', () => {
-  let projectMod;
   let projectView;
   let fileOps;
   let charactersMod;
   let actionsMod;
   let pipe;
+  let plotFile;
   let h;
   let project;
   let dir;
@@ -47,14 +47,15 @@ describe('fileOps.ts', () => {
       characters: './src/core/features/characters.ts',
       actions: './src/core/actions.ts',
       pipe: './src/core/views/pipeline.ts',
+      plotFile: './src/core/model/plotFile.ts',
     });
     wsMod = bundle.ws;
-    projectMod = bundle.project;
     projectView = bundle.projectView;
     fileOps = bundle.fileOps;
     charactersMod = bundle.characters;
     actionsMod = bundle.actions;
     pipe = bundle.pipe;
+    plotFile = bundle.plotFile;
     // 原脚本的 host 字面量里没有 reviewReplace，必须显式抹掉：
     // characters.ts 用 `host.reviewReplace ? … : host.confirm(…)` 分支，
     // 默认 fakeHost 带着它会把用例送进另一条路径。
@@ -481,7 +482,7 @@ describe('fileOps.ts', () => {
     });
 
     // 本来没有 H1 的章节**不该被凭空塞进一行**：那会改动正文，contentHash
-    // 一变这一章的摘要立刻过期，而作者只是给它起了个名字。标题从文件名取
+    // 一变这一章的定稿立刻过期，而作者只是给它起了个名字。标题从文件名取
     // 就够了（listChapters 的回落链本来就这么做）。
     test('无 H1 的章节改名后正文仍是空的', () => {
       assert.equal(renamedBody.trim(), '', JSON.stringify(renamedBody));
@@ -757,80 +758,17 @@ describe('fileOps.ts', () => {
   });
 
   /**
-   * 摘要挂在**章节**上：它描述的是成品。
+   * 单章细纲的浮窗视图（工程页鼠标悬停在章节行上时按需取一次）。
    *
-   * 落点镜像章节在 `chapters/` 之下的相对路径（含分卷子目录），扩展名换 `.md`。
-   * 同章号不同文件名的两章因此各有独立摘要，互不覆盖——这正是不能用章号
-   * 当键的理由。
-   */
-  describe('摘要挂在章节上', () => {
-    let chA;
-    let chB;
-    let seqSaved;
-    let bodySaved;
-    let ra;
-    let rb;
-
-    before(async () => {
-      const sections = (text) => {
-        const s = projectMod.emptySummarySections();
-        s.梗概 = text;
-        return s;
-      };
-      // 同一个章号、不同标题：作者手改文件名撞车时两条都要留住。
-      write('chapters/020-序.md', '# 序\n\n序章正文。\n');
-      write('chapters/020-正文.md', '# 正文\n\n正文内容。\n');
-      project.invalidate();
-
-      const listed = await project.listChapters();
-      chA = listed.find((c) => c.relPath === 'chapters/020-序.md');
-      chB = listed.find((c) => c.relPath === 'chapters/020-正文.md');
-      await wsOf(project).writeSummary(chA, 'HASH_A', sections('序章的梗概。'), []);
-      await wsOf(project).writeSummary(chB, 'HASH_B', sections('正文的梗概。'), []);
-
-      seqSaved = has('.novelforge/summaries/020-序.md');
-      bodySaved = has('.novelforge/summaries/020-正文.md');
-      ra = await project.readSummary(chA.relPath);
-      rb = await project.readSummary(chB.relPath);
-    });
-
-    test('第一章的摘要按章节名落盘', () => {
-      assert.ok(seqSaved);
-    });
-
-    test('同号不同名的第二章摘要独立落盘', () => {
-      assert.ok(bodySaved);
-    });
-
-    test('第一章读回自己的内容', () => {
-      assert.equal(ra && ra.sections.梗概, '序章的梗概。', JSON.stringify(ra && ra.sections));
-    });
-
-    test('第二章读回自己的内容', () => {
-      assert.equal(rb && rb.sections.梗概, '正文的梗概。', JSON.stringify(rb && rb.sections));
-    });
-
-    test('两份摘要互不覆盖', () => {
-      assert.notEqual(ra.sections.梗概, rb.sections.梗概);
-    });
-
-    // 分卷子目录也要镜像进去，否则两卷里的同名章会撞成一份摘要。
-    test('子目录跟着镜像', () => {
-      assert.equal(
-        project.summaryMirrorRelPath('chapters/第一卷/003-深处.md'),
-        '.novelforge/summaries/第一卷/003-深处.md'
-      );
-    });
-  });
-
-  /**
-   * 单章摘要的浮窗视图（工程页鼠标悬停在章节行上时按需取一次）。
+   * 与 `buildProjectTree` 分开是有意的：细纲正文上千字，而那棵树每次文件变动
+   * 都全量重推，把细纲塞进去等于每保存一次正文就多推几百 KB。
    *
-   * 与 `buildProjectTree` 分开是有意的：摘要正文上千字，而那棵树每次文件变动
-   * 都全量重推，把摘要塞进去等于每保存一次正文就多推几百 KB。
+   * 同一份细纲写正文之前是计划、定稿之后是档案，浮窗要说清是哪一种：没定稿标「计划」
+   * （`finalized: false`），定稿之后正文又改过标「已过期」，否则作者会照着旧档案做判断。
    */
-  describe('单章摘要视图（悬停浮窗的数据源）', () => {
-    const PLOT = '.novelforge/plots/030-有摘要.md';
+  describe('单章细纲视图（悬停浮窗的数据源）', () => {
+    const PLOT = '.novelforge/summaries/030-夜行.md';
+    let planned;
     let view;
     let staleAfterEdit;
     let none;
@@ -838,74 +776,87 @@ describe('fileOps.ts', () => {
     let handEdited;
     let allPlaceholder;
 
-    const chapterOf = async (no) => (await project.listChapters()).find((c) => c.order === no);
+    const chapterOf = async (no) => {
+      project.invalidate();
+      return (await project.listChapters()).find((c) => c.order === no);
+    };
 
     before(async () => {
       await wsOf(project).writePlot({
-        no: 30, title: '有摘要', role: '', characters: [], upstreamHash: '', done: false,
-        sections: { 本章目的: 'x', 关键事件: '甲乙丙', 章末钩子: '' },
+        no: 30, title: '夜行', upstreamHash: '', done: false,
+        sections: { ...plotFile.emptyPlotSections(), 梗概: '计划的梗概。', 关键事件: '甲乙丙' },
       });
-      // 摘要挂在同号的章节上，所以这一章要先有正文。
-      write('chapters/030-有摘要.md', '# 有摘要\n\n正文内容。\n');
       project.invalidate();
-      const secs = projectMod.emptySummarySections();
-      secs.梗概 = '摘要正文。';
-      await wsOf(project).writeSummary(await chapterOf(30), (await chapterOf(30)).contentHash, secs, []);
+      planned = await projectView.buildPlotSummaryView(project, PLOT);
+
+      // 写了正文、定稿：细纲照正文反向更新成档案。
+      write('chapters/030-夜行.md', '# 夜行\n\n正文内容。\n');
+      await wsOf(project).finalizePlot(
+        await chapterOf(30),
+        { ...plotFile.emptyPlotSections(), 梗概: '定稿的梗概。' },
+        []
+      );
       project.invalidate();
       view = await projectView.buildPlotSummaryView(project, PLOT);
 
-      // 正文改过 → 浮窗必须说「已过期」，否则用户会照着旧摘要做判断。
-      write('chapters/030-有摘要.md', '# 有摘要\n\n正文内容。又加了一段。\n');
+      // 正文改过 → 浮窗必须说「已过期」。
+      write('chapters/030-夜行.md', '# 夜行\n\n正文内容。又加了一段。\n');
       project.invalidate();
       staleAfterEdit = (await projectView.buildPlotSummaryView(project, PLOT)).stale;
 
-      // 没总结过的章不是错误，给 exists:false 让前端说清楚。
-      const bare = await wsOf(project).writePlot({
-        no: 31, title: '没摘要', role: '', characters: [], upstreamHash: '', done: false,
-        sections: { 本章目的: 'y', 关键事件: '丁', 章末钩子: '' },
+      // 只有正文、还没有细纲的章不是错误，给 exists:false 让前端说清楚。
+      write('chapters/031-没细纲.md', '# 没细纲\n\n随便写点。\n');
+      project.invalidate();
+      none = await projectView.buildPlotSummaryView(project, 'chapters/031-没细纲.md');
+
+      // 不存在的章：不抛异常，退化成「没有细纲」。
+      ghost = await projectView.buildPlotSummaryView(project, '.novelforge/summaries/999-不存在.md');
+
+      // 作者手写细纲、一个 `## 小节` 都没有 → 退回全文，不给空浮窗。
+      write('.novelforge/summaries/031-没细纲.md', '---\nno: 31\n---\n\n# 第31章 没细纲\n\n我自己写的一段话。\n');
+      project.invalidate();
+      handEdited = await projectView.buildPlotSummaryView(project, 'chapters/031-没细纲.md');
+
+      // 八个小节全是占位的空细纲：不退回全文，否则浮窗里摊八行「（待补充）」。
+      await wsOf(project).writePlot({
+        no: 31, title: '没细纲', upstreamHash: '', done: false, sections: plotFile.emptyPlotSections(),
       });
-      write('chapters/031-没摘要.md', '# 没摘要\n\n随便写点。\n');
       project.invalidate();
-      none = await projectView.buildPlotSummaryView(project, bare);
-
-      // 不存在的章：不抛异常，退化成「没有摘要」。
-      ghost = await projectView.buildPlotSummaryView(project, '.novelforge/plots/999-不存在.md');
-
-      // 作者手改摘要、把小节标题全删了 → 退回全文，不给空浮窗。
-      const secs2 = projectMod.emptySummarySections();
-      secs2.梗概 = '会被覆盖掉。';
-      await wsOf(project).writeSummary(await chapterOf(31), 'H', secs2, []);
-      const summaryFile = rel('.novelforge/summaries/031-没摘要.md');
-      const raw = fs.readFileSync(summaryFile, 'utf8');
-      // 留下 frontmatter 与 H1，正文改成没有任何 `## 小节` 的大白话。
-      fs.writeFileSync(
-        summaryFile,
-        `${raw.split('\n\n#')[0]}\n\n# 第31章 没摘要 · 摘要\n\n我自己写的一段话。\n`
-      );
-      project.invalidate();
-      handEdited = await projectView.buildPlotSummaryView(project, bare);
-
-      // 六个小节全是占位的空摘要：不退回全文，否则浮窗里摊六行「（待补充）」。
-      await wsOf(project).writeSummary(await chapterOf(31), 'H', projectMod.emptySummarySections(), []);
-      project.invalidate();
-      allPlaceholder = await projectView.buildPlotSummaryView(project, bare);
+      allPlaceholder = await projectView.buildPlotSummaryView(project, 'chapters/031-没细纲.md');
     });
 
-    test('摘要存在', () => {
-      assert.equal(view.exists, true);
+    test('没定稿的细纲也给浮窗', () => {
+      assert.equal(planned.exists, true);
+    });
+
+    test('没定稿的细纲标成计划', () => {
+      assert.equal(planned.finalized, false);
+    });
+
+    // 计划谈不上过期：过期说的是「定稿之后正文又改过」。
+    test('计划不标过期', () => {
+      assert.equal(planned.stale, false);
+    });
+
+    test('计划给出它的非空小节', () => {
+      assert.deepEqual(planned.sections.map((s) => s.name), ['梗概', '关键事件']);
+    });
+
+    test('定稿之后标成定稿过', () => {
+      assert.equal(view.finalized, true);
     });
 
     test('带章号与标题', () => {
       assert.equal(view.no, 30, view.title);
-      assert.equal(view.title, '有摘要', view.title);
+      assert.equal(view.title, '夜行', view.title);
     });
 
-    test('新鲜的摘要不标过期', () => {
+    test('刚定稿的细纲不标过期', () => {
       assert.equal(view.stale, false);
     });
 
-    test('给出摘要文件路径', () => {
-      assert.ok(view.relPath.endsWith('030-有摘要.md'), view.relPath);
+    test('给出细纲文件路径', () => {
+      assert.equal(view.relPath, PLOT, view.relPath);
     });
 
     test('只给非空小节', () => {
@@ -914,8 +865,8 @@ describe('fileOps.ts', () => {
       assert.equal(view.sections[0].name, '梗概', names);
     });
 
-    test('小节带正文', () => {
-      assert.equal(view.sections[0].text, '摘要正文。', view.sections[0].text);
+    test('小节带正文（定稿反向更新之后的那一版）', () => {
+      assert.equal(view.sections[0].text, '定稿的梗概。', view.sections[0].text);
     });
 
     test('「（待补充）」占位不进浮窗', () => {
@@ -925,28 +876,29 @@ describe('fileOps.ts', () => {
       );
     });
 
-    test('改正文后标为过期', () => {
+    test('定稿之后改正文标为过期', () => {
       assert.equal(staleAfterEdit, true);
     });
 
-    test('未总结的章 exists 为 false', () => {
+    test('没有细纲的章 exists 为 false', () => {
       assert.equal(none.exists, false);
     });
 
-    test('未总结时仍带标题（浮窗标题行要用）', () => {
-      assert.equal(none.title, '没摘要', none.title);
+    test('没有细纲时仍带标题（浮窗标题行要用）', () => {
+      assert.equal(none.title, '没细纲', none.title);
     });
 
-    test('未总结时算过期', () => {
-      assert.equal(none.stale, true);
-    });
-
-    test('未总结时小节为空', () => {
+    test('没有细纲时小节为空', () => {
       assert.equal(none.sections.length, 0);
     });
 
-    test('未总结时不给摘要路径', () => {
+    test('没有细纲时不给细纲路径', () => {
       assert.equal(none.relPath, '');
+    });
+
+    // 有正文就能定稿：浮窗顺手告诉作者怎么补一份。
+    test('有正文没细纲时提示可以定稿', () => {
+      assert.equal(none.emptyHint, '这一章还没有细纲。右键「定稿」可以照正文整理一份。');
     });
 
     test('不存在的章退化为空视图', () => {
@@ -954,17 +906,21 @@ describe('fileOps.ts', () => {
       assert.equal(ghost.title, '');
     });
 
-    test('小节全被删掉时退回摘要全文', () => {
+    test('不存在的章只说还没有细纲', () => {
+      assert.equal(ghost.emptyHint, '这一章还没有细纲。');
+    });
+
+    test('小节全被删掉时退回细纲全文', () => {
       const dump = JSON.stringify(handEdited.sections);
       assert.equal(handEdited.sections.length, 1, dump);
       assert.equal(handEdited.sections[0].text, '我自己写的一段话。', dump);
     });
 
-    test('全占位的摘要不退回全文', () => {
+    test('全占位的细纲不退回全文', () => {
       assert.equal(allPlaceholder.sections.length, 0, JSON.stringify(allPlaceholder.sections));
     });
 
-    test('全占位的摘要仍算存在（前端说「摘要文件是空的」）', () => {
+    test('全占位的细纲仍算存在（前端说「细纲是空的」）', () => {
       assert.equal(allPlaceholder.exists, true);
     });
   });
@@ -972,18 +928,17 @@ describe('fileOps.ts', () => {
   /**
    * 细纲的改名与删除**不走区守卫那条路**。
    *
-   * `plots/` 不是三个可管理区之一（`sectionOf` 认不出它），而且细纲的文件名由
+   * `summaries/` 不是三个可管理区之一（`sectionOf` 认不出它），而且细纲的文件名由
    * 「章号 + 标题」共同决定：改名要经 `writePlot` 按新标题重新落盘并清掉旧文件，
    * 当成普通文件搬会让同一章冒出两份细纲。
    *
-   * 一章一纲之后正文就是同号的章节，是作者的文件：改细纲名、删细纲都**不碰它**，
-   * 也不碰挂在它上面的摘要。从前要连带搬走中转站里那份正文，那一层删掉了。
+   * 一章一纲之后正文就是同号的章节，是作者的文件：改细纲名、删细纲都**不碰它**。
+   * 从前要连带搬走中转站里那份正文，那一层删掉了。
    */
   describe('细纲的改名与删除', () => {
     const NO = 40;
     const CHAPTER = 'chapters/040.md';
     const CHAPTER_TEXT = '正文内容。\n';
-    const SUMMARY = '.novelforge/summaries/040.md';
     let created;
     let renamed;
     let renamedExists;
@@ -996,7 +951,6 @@ describe('fileOps.ts', () => {
     let plotTrashed;
     let chapterKept;
     let chapterTrashed;
-    let summaryKept;
     let cancelled;
     let cancelledKept;
     let missing;
@@ -1004,17 +958,15 @@ describe('fileOps.ts', () => {
 
     before(async () => {
       created = await wsOf(project).writePlot({
-        no: NO, title: '', role: '', characters: [], upstreamHash: '', done: false,
-        sections: { 本章目的: '进宗门', 关键事件: '甲乙丙', 章末钩子: '' },
+        no: NO, title: '', upstreamHash: '', done: false,
+        sections: { ...plotFile.emptyPlotSections(), 梗概: '进宗门', 关键事件: '甲乙丙' },
       });
       // 同号的章节已经写了正文，细纲上记着 writtenFrom（正文落盘那一步的样子）。
       write(CHAPTER, CHAPTER_TEXT);
       project.invalidate();
       const plot = await project.readPlot(created);
-      await wsOf(project).recordWrittenFrom(created, pipe.plotContentHash(plot));
+      await wsOf(project).recordWrittenFrom(created, plotFile.plotContentHash(plot));
       const writtenFrom = (await project.readPlot(created)).writtenFrom;
-      const chapter = (await project.listChapters()).find((c) => c.relPath === CHAPTER);
-      await wsOf(project).writeSummary(chapter, chapter.contentHash, projectMod.emptySummarySections(), []);
       await project.syncManifest();
       project.invalidate();
 
@@ -1037,10 +989,9 @@ describe('fileOps.ts', () => {
 
       h.expect('删除');
       deleted = await fileOps.deletePlot(project, renamed);
-      plotTrashed = has('.novelforge/.trash/.novelforge/plots/040-入宗风波.md');
+      plotTrashed = has('.novelforge/.trash/.novelforge/summaries/040-入宗风波.md');
       chapterKept = has(CHAPTER) && read(CHAPTER) === CHAPTER_TEXT;
       chapterTrashed = has(`.novelforge/.trash/${CHAPTER}`);
-      summaryKept = has(SUMMARY);
 
       // 已经删掉的细纲再删一次：报错退出，不抛。
       h.expect('删除');
@@ -1054,7 +1005,7 @@ describe('fileOps.ts', () => {
     });
 
     test('改名保留序号前缀', () => {
-      assert.equal(renamed, '.novelforge/plots/040-入宗风波.md', String(renamed));
+      assert.equal(renamed, '.novelforge/summaries/040-入宗风波.md', String(renamed));
     });
 
     test('旧文件不再并存', () => {
@@ -1096,12 +1047,6 @@ describe('fileOps.ts', () => {
     test('删细纲不动同号的章节', () => {
       assert.ok(chapterKept);
       assert.ok(!chapterTrashed);
-    });
-
-    // 摘要**不**跟着走：它挂在章节上。
-    test('删细纲不动摘要', () => {
-      assert.ok(summaryKept);
-      assert.ok(!has(`.novelforge/.trash/${SUMMARY}`));
     });
 
     test('删不存在的细纲返回 false', () => {

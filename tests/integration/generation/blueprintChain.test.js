@@ -96,12 +96,16 @@ function reply(messages) {
       blueprints.push({
         chapterNumber: no,
         title: ['停舟', '令牌', '夜访', '井', '名册'][no - 1] ?? `第${no}章`,
-        role: no === 3 ? '小高潮' : '铺垫',
-        purpose: `第 ${no} 章林昭要弄清的一件事`,
-        keyEvents: `第 ${no} 章：林昭在镇上的两个场面里推进，残令照见一幕，付出代价。`,
+        synopsis: `第 ${no} 章林昭要弄清的一件事`,
         characters: no === 4 ? ['林昭', '周老汉'] : ['林昭', '沈氏'],
+        timePlace: '青崖镇，入夜',
+        // 关键事件与定稿一样是一条一件事的数组（⚑B）。
+        keyEvents: [`第 ${no} 章：林昭在镇上追查，残令照见一幕。`, '他为此付出代价。'],
+        // 章末钩子不单列了，并进看点。
+        highlights: [`第 ${no} 章结尾：又一个持令人不见了。`],
+        foreshadowing: [],
+        stateChange: '',
         ...(no === 4 ? { newCharacters: [{ name: '周老汉', role: 'minor' }] } : {}),
-        suspenseHook: `第 ${no} 章结尾：又一个持令人不见了。`,
       });
     }
     return JSON.stringify({ blueprints });
@@ -261,16 +265,19 @@ describe('二期验收：一句话 → 前 5 章细纲', () => {
     assert.ok(plots.includes('第一幕 · 停舟') && !plots.includes('名册的存在被揭开'), plots.slice(0, 4000));
   });
 
+  // 细纲与单章摘要并成一份之后落在 summaries/ 根下；钩子并进了「看点」，每章都该有一条。
   test('第 1–5 章的细纲都落了盘：标题进文件名，目标字数取每章字数', async () => {
     const plots = await project.listPlots();
     assert.deepEqual(plots.map((p) => p.relPath), [
-      '.novelforge/plots/001-停舟.md',
-      '.novelforge/plots/002-令牌.md',
-      '.novelforge/plots/003-夜访.md',
-      '.novelforge/plots/004-井.md',
-      '.novelforge/plots/005-名册.md',
+      '.novelforge/summaries/001-停舟.md',
+      '.novelforge/summaries/002-令牌.md',
+      '.novelforge/summaries/003-夜访.md',
+      '.novelforge/summaries/004-井.md',
+      '.novelforge/summaries/005-名册.md',
     ]);
-    assert.ok(plots.every((p) => p.targetWords === 3000 && p.sections.章末钩子.trim()), JSON.stringify(plots.map((p) => p.targetWords)));
+    assert.ok(plots.every((p) => p.targetWords === 3000 && p.sections.看点.trim()), JSON.stringify(plots.map((p) => p.targetWords)));
+    // 关键事件落盘成一条一行，与定稿写出来的样子一致。
+    assert.equal(plots[1].sections.关键事件, '- 第 2 章：林昭在镇上追查，残令照见一幕。\n- 他为此付出代价。');
   });
 
   test('细纲里的新角色建了卡，卡片上事先列出过', async () => {

@@ -32,8 +32,8 @@ let project;
 let settings = {};
 let script = [];
 
-const P2 = '.novelforge/plots/002-客栈.md';
-const P3 = '.novelforge/plots/003-夜访.md';
+const P2 = '.novelforge/summaries/002-客栈.md';
+const P3 = '.novelforge/summaries/003-夜访.md';
 
 const CH2 = [
   '雨下了一整夜。林昭推开客栈的门，檐下的灯笼被风吹得直晃。',
@@ -84,7 +84,7 @@ function reviewJson({ items, goals } = {}) {
     goalReviews: goals ?? [
       { id: 'g1', status: 'completed', description: '回到客栈', evidence: [{ quote: '林昭推开客栈的门' }] },
       { id: 'g2', status: 'unmet', description: '细纲要他今晚就走，正文里他说明天走', evidence: [{ quote: '天一亮就走' }] },
-      { id: 'g3', status: 'unknown', description: '没写到敲门', evidence: [] },
+      { id: 'g3', status: 'unknown', description: '没写到李叔', evidence: [] },
     ],
   });
 }
@@ -123,13 +123,21 @@ before(async () => {
   project = t.project;
   const ws = new bundle.ws.Workspace(project);
   const empty = bundle.plotFile.emptyPlotSections();
+  // 冻结清单只取关键事件（三条）。「看点」里写着章末悬念，但它不进清单：看点里爽点与悬念混在一起，
+  // 不是一件件到期的动作（从前单列的章末钩子会冻成一项，钩子并进看点之后就没有这一项了）。
   await ws.writePlot({
-    no: 2, title: '客栈', role: '', characters: [], targetWords: 800, upstreamHash: '', done: false,
-    sections: { ...empty, 本章目的: '落脚', 关键事件: '林昭回到客栈；林昭当晚离开青崖镇', 章末钩子: '门外有人敲了三下' },
+    no: 2, title: '客栈', targetWords: 800, upstreamHash: '', done: false,
+    sections: {
+      ...empty,
+      梗概: '林昭回镇落脚',
+      出场人物: '林昭、沈氏',
+      关键事件: '林昭回到客栈；林昭当晚离开青崖镇；李叔来客栈找林昭',
+      看点: '- 门外有人敲了三下',
+    },
   });
   await ws.writePlot({
-    no: 3, title: '夜访', role: '', characters: [], targetWords: 800, upstreamHash: '', done: false,
-    sections: { ...empty, 本章目的: 'x', 关键事件: '夜访', 章末钩子: 'y' },
+    no: 3, title: '夜访', targetWords: 800, upstreamHash: '', done: false,
+    sections: { ...empty, 梗概: 'x', 关键事件: '夜访' },
   });
   await ws.createChapter(2, '客栈', CH2);
   await project.syncManifest();
@@ -159,12 +167,15 @@ describe('审稿 · 一次成功', () => {
     assert.match(r.draft.notes.join('\n'), /丢掉 1 条引文站不住的意见/);
   });
 
-  test('目标：两条关键事件 + 章末钩子；未完成有证据留着，待核实照收', () => {
-    assert.deepEqual(r.draft.review.goals.map((g) => [g.kind, g.status]), [
-      ['event', 'completed'],
-      ['event', 'unmet'],
-      ['hook', 'unknown'],
+  test('目标：三条关键事件按序冻结；未完成有证据留着，待核实照收', () => {
+    assert.deepEqual(r.draft.review.goals.map((g) => [g.id, g.status]), [
+      ['g1', 'completed'],
+      ['g2', 'unmet'],
+      ['g3', 'unknown'],
     ]);
+  });
+
+  test('清单里每一项都有判断：覆盖完整', () => {
     assert.equal(r.draft.review.coverage, 'complete');
   });
 
@@ -174,9 +185,17 @@ describe('审稿 · 一次成功', () => {
     assert.equal(r.draft.raw, r.rec.done);
   });
 
-  test('发出去的那一次是审稿：全文与冻结清单都在', () => {
+  test('发出去的那一次是审稿：全文在', () => {
     assert.match(r.users[0], /# 待审正文/);
-    assert.match(r.users[0], /冻结清单：\[\{"id":"g1","text":"林昭回到客栈"\}/);
+  });
+
+  test('冻结清单只有关键事件那三条，看点里的章末悬念不进', () => {
+    assert.ok(
+      r.users[0].includes(
+        '冻结清单：[{"id":"g1","text":"林昭回到客栈"},{"id":"g2","text":"林昭当晚离开青崖镇"},{"id":"g3","text":"李叔来客栈找林昭"}]'
+      ),
+      r.users[0].slice(r.users[0].indexOf('冻结清单'), r.users[0].indexOf('冻结清单') + 200)
+    );
   });
 });
 

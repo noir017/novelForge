@@ -267,7 +267,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
 
-    // 定稿 = 摘要（带连续性事实）+ 出场角色的当前状态，与工程页、主按钮同一份。
+    // 定稿 = 照正文更新细纲（带连续性事实）+ 出场角色的当前状态 + 叙事线，与工程页、主按钮同一份。
     await finalizeChapterTask(target, chapter);
     await refresh();
   });
@@ -308,7 +308,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * 更新单个角色的档案。命令面板入口——工程页的角色行右键走的是同一条
    * core 流程（controller 的 characterAction），两处行为不会分叉。
    *
-   * 出场章节由摘要自动关联，所以这里只需要问「更新谁」。清单（含「＋N 章待读」）
+   * 出场章节由定稿过的细纲自动关联，所以这里只需要问「更新谁」。清单（含「＋N 章待读」）
    * 由 core/choices.ts 算，这里只负责把它交给宿主的选择器。
    */
   register('novel.updateCharacterCard', async () => {
@@ -420,7 +420,7 @@ async function offerMigration(project: NovelProject): Promise<void> {
 
 /**
  * 监听章节与元数据变化，刷新面板。
- * 保存正文会改变 contentHash，从而让对应章节的摘要标记为过期。
+ * 保存正文会改变 contentHash，从而让对应章节的定稿对不上（要重新定稿）。
  */
 function registerWatcher(
   context: vscode.ExtensionContext,

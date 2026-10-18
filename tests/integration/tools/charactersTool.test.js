@@ -122,10 +122,10 @@ describe('参数不对就当场报错，不花钱', () => {
     });
   }
 
-  test('create 缺人名，说明里要求与摘要写法一致', async () => {
+  test('create 缺人名，说明里要求与细纲写法一致', async () => {
     resetCtx();
     const r = await run({ action: 'create' });
-    assert.ok(r.error?.startsWith('create 需要参数：name。name：出场人物的名字，与摘要里的写法一致'), r.error);
+    assert.ok(r.error?.startsWith('create 需要参数：name。name：出场人物的名字，与细纲里的写法一致'), r.error);
   });
 
   // 空白字符串算没给：不放它拿一个空名字去建卡。

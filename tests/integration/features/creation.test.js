@@ -12,7 +12,7 @@
  * | 小说配置 / 前提 / 世界观 | `config.md` / `premise.md` / `world.md` | 覆盖前审阅；配置的 frontmatter 合并 |
  * | 角色图谱 | `characters/` 下每人一张卡 | **同名跳过**，绝不覆盖，也就不必审阅 |
  * | 情节大纲 | `outline.md` | 覆盖前审阅 |
- * | 细纲 | `plots/NNN-标题.md` | 覆盖前审阅；标题 / 目标字数沿用磁盘那份 |
+ * | 细纲 | `summaries/NNN-标题.md` | 覆盖前审阅；八节换新，标题 / 目标字数 / 定稿记的 sourceHash 与 cast 沿用磁盘那份 |
  * | 正文 | 同号的 `chapters/NNN-标题.md` | **追加**；落盘后在细纲上记 `writtenFrom` |
  *
  * 落盘的守卫在 `workspace/`，这里测的是分派与那几条取舍。
@@ -67,11 +67,16 @@ after(() => {
   if (t) cleanup(t.dir);
 });
 
-/** 三节都填了的细纲小节。 */
+/** 排过的细纲八节（计划时「连续性事实」空着，几节可以不写）。关键事件一条一行，与定稿的写法一样。 */
 const SECTIONS = {
-  本章目的: '林昭进入青云宗',
-  关键事件: '他在山门外踩点，失手惊动守卫，翻墙进了后院；收在藏书阁门口。',
-  章末钩子: '藏书阁里亮着一盏灯。',
+  梗概: '林昭进入青云宗',
+  出场人物: '林昭、沈青',
+  时间地点: '',
+  关键事件: '- 他在山门外踩点，失手惊动守卫，翻墙进了后院。\n- 收在藏书阁门口。',
+  看点: '藏书阁里亮着一盏灯。',
+  新增伏笔: '',
+  状态变更: '',
+  连续性事实: '',
 };
 
 const settingT = (doc) => ({ kind: 'setting', doc });
@@ -82,6 +87,7 @@ describe('artifact.ts · 细纲三层降级', () => {
   const act = { stage: 'plot', capability: 'generate' };
   let json;
   let english;
+  let wrapped;
   let md;
   let plain;
   let irrelevant;
@@ -89,22 +95,25 @@ describe('artifact.ts · 细纲三层降级', () => {
   before(() => {
     json = A.parseArtifact(act, JSON.stringify({
       title: '夜入青云',
-      role: '小高潮',
-      characters: ['林昭', '沈青'],
       targetWords: 3000,
       ...SECTIONS,
     }));
-    // 移植过来的蓝图合同用的是英文键；`characters` 写成一个串、字数写成字符串也得认。
+    // 蓝图合同用的是英文键；`characters` 写成一个串、字数写成字符串也得认。
     english = A.parseArtifact(act, JSON.stringify({
       title: '林昭在暴雨的深夜翻越青云宗的侧峰围墙并且成功进入了藏书阁',
-      purpose: '进宗门',
+      synopsis: '进宗门',
       keyEvents: ['踩点', '翻墙'],
-      suspenseHook: '门后有人',
-      characters: '林昭、沈青',
+      highlights: ['门后有人'],
+      characters: '林昭，沈青',
       targetWords: '3000',
     }));
+    // 单章也用批次合同的单项形式（第 22 条）：`{"blueprints":[{…}]}` 取里面那一项。
+    // 关键事件给成一段字（老合同的形状）也照收，与批次一样按分号切成条。
+    wrapped = A.parseArtifact(act, JSON.stringify({
+      blueprints: [{ chapterNumber: 12, title: '夜入青云', synopsis: '进宗门', characters: ['林昭', '沈青'], keyEvents: '踩点；翻墙' }],
+    }));
     // 模型忘了 JSON，改回 Markdown 小节——这是最常见的不听话方式。
-    md = A.parseArtifact(act, '## 本章目的\n\n林昭进入青云宗\n\n## 关键事件\n\n踩点、失手、翻墙');
+    md = A.parseArtifact(act, '## 梗概\n\n林昭进入青云宗\n\n## 关键事件\n\n踩点、失手、翻墙');
     // 什么结构都没有：全文塞进主字段，好过整次生成作废。
     plain = A.parseArtifact(act, '这一章讲林昭翻墙进宗门。');
     // 语法合法但完全不相干的 JSON 不能认下来——认了会得到一份空细纲**且不再降级**。
@@ -113,28 +122,39 @@ describe('artifact.ts · 细纲三层降级', () => {
 
   test('第一层 JSON', () => {
     assert.equal(json.kind, 'plot');
-    assert.equal(json.sections.本章目的, '林昭进入青云宗');
+    assert.equal(json.sections.梗概, '林昭进入青云宗');
   });
 
-  test('JSON 三节都收下', () => {
-    assert.equal(json.sections.章末钩子, '藏书阁里亮着一盏灯。');
+  test('JSON 八节都收下', () => {
+    assert.equal(json.sections.看点, '藏书阁里亮着一盏灯。');
+    assert.equal(json.sections.关键事件, SECTIONS.关键事件);
   });
 
   test('JSON 带的规划字段也收下', () => {
     assert.equal(json.title, '夜入青云');
-    assert.equal(json.role, '小高潮');
-    assert.deepEqual(json.characters, ['林昭', '沈青']);
     assert.equal(json.targetWords, 3000);
   });
 
-  test('英文键也认', () => {
-    assert.equal(english.sections.本章目的, '进宗门');
-    assert.ok(english.sections.关键事件.includes('翻墙'), english.sections.关键事件);
-    assert.equal(english.sections.章末钩子, '门后有人');
+  // 关键事件是一条一件事的列表，落盘成 `- 一条` 一行（与定稿写法一致）。
+  test('英文键也认，关键事件数组落成一条一行', () => {
+    assert.equal(english.sections.梗概, '进宗门');
+    assert.equal(english.sections.关键事件, '- 踩点\n- 翻墙');
   });
 
-  test('写成一个串的出场人物被拆开', () => {
-    assert.deepEqual(english.characters, ['林昭', '沈青']);
+  // 看点是一条一句的列表，落盘成 `- 一条` 一行（与定稿写法一致）。
+  test('看点数组落成一条一行', () => {
+    assert.equal(english.sections.看点, '- 门后有人');
+  });
+
+  // 出场人物是一行名单（「林昭、沈青」），不是一条一行的列表——与蓝图落盘的样子一致。
+  test('写成一个串的出场人物拆开后落成一行名单', () => {
+    assert.equal(english.sections.出场人物, '林昭、沈青');
+  });
+
+  test('批次合同的单项形式也认；一段字的关键事件按分号切成一条一行', () => {
+    assert.equal(wrapped.title, '夜入青云');
+    assert.equal(wrapped.sections.出场人物, '林昭、沈青');
+    assert.equal(wrapped.sections.关键事件, '- 踩点\n- 翻墙');
   });
 
   test('字符串的目标字数转成数字', () => {
@@ -147,11 +167,11 @@ describe('artifact.ts · 细纲三层降级', () => {
   });
 
   test('第二层 Markdown 小节', () => {
-    assert.equal(md.sections.本章目的, '林昭进入青云宗');
+    assert.equal(md.sections.梗概, '林昭进入青云宗');
     assert.equal(md.sections.关键事件, '踩点、失手、翻墙');
   });
 
-  // 兜底落「关键事件」而不是「本章目的」：isPlotFilled 只看关键事件，兜底进别的
+  // 兜底落「关键事件」而不是「梗概」：isPlotFilled 只看关键事件，兜底进别的
   // 那一节的话，这一章采纳后会显示成「还没排细纲」的空壳。
   test('第三层全文兜底进关键事件', () => {
     assert.equal(plain.sections.关键事件, '这一章讲林昭翻墙进宗门。');
@@ -169,9 +189,10 @@ describe('artifact.ts · 细纲三层降级', () => {
   });
 
   test('严格解析仍认 JSON', () => {
-    assert.equal(A.parsePlotStrict('{"关键事件":"进宗门"}')?.sections.关键事件, '进宗门');
+    assert.equal(A.parsePlotStrict('{"关键事件":"进宗门"}')?.sections.关键事件, '- 进宗门');
   });
 
+  // Markdown 小节是作者（或不听话的模型）写的原文，原样收，不切。
   test('严格解析仍认 Markdown 小节', () => {
     assert.equal(A.parsePlotStrict('## 关键事件\n\n进宗门')?.sections.关键事件, '进宗门');
   });
@@ -183,22 +204,22 @@ describe('artifact.ts · 细纲三层降级', () => {
   test('代码块包裹能剥掉', () => {
     assert.equal(
       A.parseArtifact(act, '```json\n{"关键事件":"进宗门"}\n```').sections.关键事件,
-      '进宗门'
+      '- 进宗门'
     );
   });
 
   test('JSON 前后的废话不影响解析', () => {
     assert.equal(
       A.parseArtifact(act, '好的，以下是细纲：\n{"关键事件":"进宗门"}\n希望有帮助').sections.关键事件,
-      '进宗门'
+      '- 进宗门'
     );
   });
 
   // 落定与写细纲产出的是同一种产物，走的是同一条解析路（第 22 条）。
   test('落定与写细纲解析成同一种产物', () => {
-    const settled = A.parseArtifact({ stage: 'plot', capability: 'settle' }, '{"关键事件":"进宗门"}');
+    const settled = A.parseArtifact({ stage: 'plot', capability: 'settle' }, '{"关键事件":["进宗门"]}');
     assert.equal(settled.kind, 'plot');
-    assert.equal(settled.sections.关键事件, '进宗门');
+    assert.equal(settled.sections.关键事件, '- 进宗门');
   });
 });
 
@@ -345,8 +366,8 @@ describe('artifact.ts · 空产物与描述', () => {
   });
 
   test('细纲描述带填了几节', () => {
-    const a = A.parseArtifact({ stage: 'plot', capability: 'generate' }, '{"本章目的":"x","关键事件":"y"}');
-    assert.equal(A.describeArtifact(a), '细纲 · 2/3 节');
+    const a = A.parseArtifact({ stage: 'plot', capability: 'generate' }, '{"梗概":"x","关键事件":"y"}');
+    assert.equal(A.describeArtifact(a), '细纲 · 2/8 节');
   });
 
   test('架构文档描述带填了几节', () => {
@@ -571,12 +592,12 @@ describe('采纳 · 角色图谱（新卡直接建，同名的先审阅）', () 
 });
 
 /**
- * 拆细纲给下一章找的落点是**纯序号的占位路径**（`plots/012.md`）：标题要等细纲
+ * 拆细纲给下一章找的落点是**纯序号的占位路径**（`summaries/012.md`）：标题要等细纲
  * 出来才定得下来。采纳时按章号与产物带的标题新建。
  */
 describe('采纳 · 细纲（新建：落点是占位路径）', () => {
-  const placeholder = { kind: 'plot', plotRelPath: '.novelforge/plots/012.md' };
-  const REL = '.novelforge/plots/012-夜入青云.md';
+  const placeholder = { kind: 'plot', plotRelPath: '.novelforge/summaries/012.md' };
+  const REL = '.novelforge/summaries/012-夜入青云.md';
   let result;
   let confirms;
   let plot;
@@ -587,8 +608,6 @@ describe('采纳 · 细纲（新建：落点是占位路径）', () => {
     result = await accept(placeholder, {
       kind: 'plot',
       title: '夜入青云',
-      role: '小高潮',
-      characters: ['林昭', '沈青'],
       targetWords: 3000,
       sections: { ...SECTIONS },
     });
@@ -614,10 +633,13 @@ describe('采纳 · 细纲（新建：落点是占位路径）', () => {
     assert.equal(confirms, 0);
   });
 
-  test('规划字段都落进 frontmatter', () => {
-    assert.equal(plot.role, '小高潮');
-    assert.deepEqual(plot.characters, ['林昭', '沈青']);
+  test('目标字数落进 frontmatter', () => {
     assert.equal(plot.targetWords, 3000);
+  });
+
+  // 没定稿时「出场人物」写的是计划出场：挑角色卡、预检用。
+  test('计划出场从「出场人物」一节读得回来', () => {
+    assert.deepEqual(plot.characters, ['林昭', '沈青']);
   });
 
   // 上游是大纲里**覆盖本章那一节**：改第 21–40 章那一节不该让这一章挂 ⟳。
@@ -644,21 +666,22 @@ describe('采纳 · 细纲（新建：落点是占位路径）', () => {
   test(
     '同号已有细纲时，按占位路径再采纳一次也要先问覆盖',
     async () => {
-      await accept({ kind: 'plot', plotRelPath: '.novelforge/plots/013.md' }, {
+      await accept({ kind: 'plot', plotRelPath: '.novelforge/summaries/013.md' }, {
         kind: 'plot', title: '藏书阁', sections: { ...SECTIONS, 关键事件: '第一版。' },
       });
       h.expect(); // 不排答案：真弹了审阅就当取消
-      const second = await accept({ kind: 'plot', plotRelPath: '.novelforge/plots/013.md' }, {
+      const second = await accept({ kind: 'plot', plotRelPath: '.novelforge/summaries/013.md' }, {
         kind: 'plot', title: '藏书阁', sections: { ...SECTIONS, 关键事件: '第二版。' },
       });
       assert.equal(h.confirms.length, 1, `弹了 ${h.confirms.length} 次审阅：${second.message}`);
-      assert.ok(t.read('.novelforge/plots/013-藏书阁.md').includes('第一版'), '第一版被静默覆盖了');
+      assert.ok(t.read('.novelforge/summaries/013-藏书阁.md').includes('第一版'), '第一版被静默覆盖了');
     }
   );
 });
 
 describe('采纳 · 细纲（覆盖要审阅）', () => {
-  const target = { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' };
+  const target = { kind: 'plot', plotRelPath: '.novelforge/summaries/012-夜入青云.md' };
+  const FINALIZED = '.novelforge/summaries/014-定稿过.md';
   const next = {
     ...SECTIONS,
     关键事件: '改成三拍：踩点、被狗惊动、翻墙；收在藏书阁门口。',
@@ -669,6 +692,7 @@ describe('采纳 · 细纲（覆盖要审阅）', () => {
   let plot;
   let same;
   let sameConfirms;
+  let refinalized;
 
   before(async () => {
     // 已有内容且不同 → 必须问。答「保留原样」就不能写。
@@ -677,15 +701,25 @@ describe('采纳 · 细纲（覆盖要审阅）', () => {
     afterKept = t.read(target.plotRelPath);
 
     // 产物带的标题与目标字数都与磁盘不同：「重写细纲」改的是这一章怎么走，
-    // 不该顺手把作者起的名字、定的字数抹掉。结构功能是规划的一部分，跟着换。
+    // 不该顺手把作者起的名字、定的字数抹掉。
     h.expect('覆盖');
-    written = await accept(target, { kind: 'plot', title: '别的名字', role: '转折', targetWords: 5000, sections: next });
+    written = await accept(target, { kind: 'plot', title: '别的名字', targetWords: 5000, sections: next });
     plot = await project.readPlot(target.plotRelPath);
 
     // 一字未变时不该弹框——弹了只会让人以为自己点错了。
     h.expect();
     same = await accept(target, { kind: 'plot', sections: next });
     sameConfirms = h.confirms.length;
+
+    // 一份定稿过的细纲（有 sourceHash 与 cast）被重写。
+    t.write(FINALIZED, plotFile.renderPlotFile({
+      no: 14, title: '定稿过', upstreamHash: '', done: false,
+      sourceHash: 'SRC14', cast: [{ name: '林昭', aliases: ['阿昭'] }], sections: { ...SECTIONS },
+    }));
+    project.invalidate();
+    h.expect('覆盖');
+    await accept({ kind: 'plot', plotRelPath: FINALIZED }, { kind: 'plot', sections: next });
+    refinalized = await project.readPlot(FINALIZED);
   });
 
   test('拒绝覆盖时不写盘', () => {
@@ -703,19 +737,24 @@ describe('采纳 · 细纲（覆盖要审阅）', () => {
 
   test('标题沿用磁盘那份（文件名不变）', () => {
     assert.equal(plot.title, '夜入青云');
-    assert.ok(!t.has('.novelforge/plots/012-别的名字.md'));
+    assert.ok(!t.has('.novelforge/summaries/012-别的名字.md'));
   });
 
   test('目标字数沿用磁盘那份', () => {
     assert.equal(plot.targetWords, 3000);
   });
 
-  test('结构功能随产物更新', () => {
-    assert.equal(plot.role, '转折');
+  // 定稿过的章重写细纲：定稿记的账沿用磁盘那份——这一章不被拉回「待定稿」，正文只挂 ⟳（第 18 条）。
+  test('重写定稿过的细纲：sourceHash 沿用磁盘那份', () => {
+    assert.equal(refinalized.sourceHash, 'SRC14');
   });
 
-  test('没给出场人物时沿用磁盘那份', () => {
-    assert.deepEqual(plot.characters, ['林昭', '沈青']);
+  test('重写定稿过的细纲：cast 沿用磁盘那份', () => {
+    assert.deepEqual(JSON.parse(JSON.stringify(refinalized.cast)), [{ name: '林昭', aliases: ['阿昭'] }]);
+  });
+
+  test('重写定稿过的细纲：八节照样换新', () => {
+    assert.ok(refinalized.sections.关键事件.includes('改成三拍'), refinalized.sections.关键事件);
   });
 
   test('内容相同不弹框直接通过', () => {
@@ -726,7 +765,7 @@ describe('采纳 · 细纲（覆盖要审阅）', () => {
   // 落定走的是同一条落盘路（`acceptPlot`），只是上游那次调用的提示词不同。
   test('落定产出的细纲走同一条落盘路', async () => {
     h.expect('覆盖');
-    const r = await accept(target, { kind: 'plot', sections: { ...next, 章末钩子: '讨论里定下的：灯灭了' } });
+    const r = await accept(target, { kind: 'plot', sections: { ...next, 看点: '讨论里定下的：灯灭了' } });
     assert.equal(r.relPath, target.plotRelPath, r.message);
     assert.ok(t.read(target.plotRelPath).includes('讨论里定下的'));
   });
@@ -738,7 +777,7 @@ describe('采纳 · 细纲（覆盖要审阅）', () => {
  * 这一章会永远显示（或永远不显示）「正文与细纲对不上」。
  */
 describe('采纳 · 正文（落到同号章节）', () => {
-  const plotRelPath = '.novelforge/plots/012-夜入青云.md';
+  const plotRelPath = '.novelforge/summaries/012-夜入青云.md';
   const CHAPTER = 'chapters/012-夜入青云.md';
   const target = { kind: 'manuscript', plotRelPath };
   let result;
@@ -775,7 +814,7 @@ describe('采纳 · 正文（落到同号章节）', () => {
   });
 
   test('细纲上记下 writtenFrom = 细纲的内容指纹', () => {
-    assert.equal(plot.writtenFrom, bundle.pipe.plotContentHash(plot));
+    assert.equal(plot.writtenFrom, plotFile.plotContentHash(plot));
   });
 
   // 章节是作者的文件：正文那一环的指纹记在细纲这一侧，章节里一笔都不记。
@@ -963,12 +1002,12 @@ describe('采纳 · 认不出是哪一章时报错而不是乱写', () => {
 
   before(async () => {
     try {
-      await accept({ kind: 'plot', plotRelPath: '.novelforge/plots/没有章号.md' }, { kind: 'plot', sections: SECTIONS });
+      await accept({ kind: 'plot', plotRelPath: '.novelforge/summaries/没有章号.md' }, { kind: 'plot', sections: SECTIONS });
     } catch (err) {
       plotMessage = String(err.message ?? err);
     }
     try {
-      await accept({ kind: 'manuscript', plotRelPath: '.novelforge/plots/没有章号.md' }, { kind: 'manuscript', text: 'x' });
+      await accept({ kind: 'manuscript', plotRelPath: '.novelforge/summaries/没有章号.md' }, { kind: 'manuscript', text: 'x' });
     } catch (err) {
       manuscriptMessage = String(err.message ?? err);
     }
@@ -983,7 +1022,7 @@ describe('采纳 · 认不出是哪一章时报错而不是乱写', () => {
   });
 
   test('没有凭空造出细纲或章节', () => {
-    assert.ok(!t.has('.novelforge/plots/没有章号.md'));
+    assert.ok(!t.has('.novelforge/summaries/没有章号.md'));
     assert.ok(!t.has('chapters/没有章号.md'));
   });
 
@@ -991,9 +1030,9 @@ describe('采纳 · 认不出是哪一章时报错而不是乱写', () => {
   // 正文，那就按号新建一个没有标题的章节——不拿路径里的词干当标题（那不是作者起的），
   // 也不凭空造一份细纲；没有细纲，writtenFrom 就无处可记，这一章永不标脏（第 18a 条）。
   test('细纲与同号章节都不存在时，按号新建章节、不造细纲', async () => {
-    await accept({ kind: 'manuscript', plotRelPath: '.novelforge/plots/999-不存在.md' }, { kind: 'manuscript', text: '雨停了。' });
+    await accept({ kind: 'manuscript', plotRelPath: '.novelforge/summaries/999-不存在.md' }, { kind: 'manuscript', text: '雨停了。' });
     assert.ok(t.has('chapters/999.md'), '没有按号新建章节');
     assert.ok(t.read('chapters/999.md').includes('雨停了。'));
-    assert.ok(!t.has('.novelforge/plots/999-不存在.md') && !t.has('.novelforge/plots/999.md'), '凭空造了细纲');
+    assert.ok(!t.has('.novelforge/summaries/999-不存在.md') && !t.has('.novelforge/summaries/999.md'), '凭空造了细纲');
   });
 });

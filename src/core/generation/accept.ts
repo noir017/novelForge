@@ -17,7 +17,7 @@
 import { scoped } from '../runtime/logger';
 import { sanitizeFileName } from '../model/fs';
 import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../model/project';
-import { isPlotFilled, parsePlotFileName } from '../model/plotFile';
+import { isPlotFilled, parsePlotFileName, plotContentHash } from '../model/plotFile';
 import { isOutlineFilled, mergeOutline, outlineOverlaps } from '../model/outlineFile';
 import { hasContent } from '../model/markdown';
 import { stampState } from '../model/characterState';
@@ -26,7 +26,7 @@ import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections } from '../mod
 import { CreationTarget, SETTING_DOC_LABEL, WriteMode, plotOfTarget } from '../model/pipeline';
 import { Artifact, ChapterRange, PlotFields, RosterEntry } from '../features/artifact';
 import { BlueprintItem, blueprintToPlot } from '../features/blueprint';
-import { chapterTargetOf, plotContentHash } from '../views/pipeline';
+import { chapterTargetOf } from '../views/pipeline';
 import { Workspace, pathOfTarget } from '../workspace';
 import { plotUpstreamHash } from '../workspace/handlers/plot';
 
@@ -295,7 +295,7 @@ async function acceptPlot(
   if (!relPath) {
     throw new Error('这份细纲不属于任何章。');
   }
-  // 按章号认：占位路径（`plots/003.md`）上采纳过一次之后，文件已经落成
+  // 按章号认：占位路径（`summaries/003.md`）上采纳过一次之后，文件已经落成
   // `003-雪夜.md`，再采纳要覆盖它并先审阅，而不是当成新的再写一份。
   const existing = await project.resolvePlot(relPath);
   if (existing) {
@@ -317,8 +317,6 @@ async function acceptPlot(
   const rel = await ws.writePlot({
     no,
     title: fields.title ?? '',
-    role: fields.role ?? '',
-    characters: fields.characters ?? [],
     // D3：目标字数必填。蓝图合同里没有它，缺省取配置的每章字数。
     targetWords: fields.targetWords ?? (await project.readBookConfig()).wordsPerChapter,
     upstreamHash: await plotUpstreamHash(project, relPath),
@@ -339,17 +337,13 @@ async function acceptPlot(
  *
  * 然后给蓝图里的新角色建卡（D19，同名已有的不动）。批量那条路（features/pipelineBatch.ts）
  * 也走这里——它只给空白的章，于是一张审阅都不会弹。
- *
- * 从已写正文整理（拆书 A，features/derive.ts）多两个选项：`targetWords` 按章给目标字数（导入的章用
- * 它自己的字数——拿配置的每章字数去量一章已经写完的正文，短章会被判成「接着写」）；`newCards: false`
- * 不建新卡（角色卡另外从正文建，细纲里冒出来的名字不该再建一张空卡）。
  */
 export async function acceptPlotBatch(
   project: NovelProject,
   ws: Workspace,
   items: BlueprintItem[],
   range: ChapterRange,
-  opts: { onlyBlank?: boolean; targetWords?: ReadonlyMap<number, number>; newCards?: boolean } = {}
+  opts: { onlyBlank?: boolean } = {}
 ): Promise<AcceptResult> {
   const book = await project.readBookConfig();
   const written: string[] = [];
@@ -379,11 +373,11 @@ export async function acceptPlotBatch(
         {
           no: item.no,
           title: existing?.title || fields.title || '',
-          role: fields.role ?? '',
-          characters: fields.characters ?? [],
-          targetWords: existing?.targetWords ?? opts.targetWords?.get(item.no) ?? book.wordsPerChapter,
+          targetWords: existing?.targetWords ?? book.wordsPerChapter,
           upstreamHash: await plotUpstreamHash(project, project.plotPathForNo(item.no, '')),
           writtenFrom: existing?.writtenFrom,
+          sourceHash: existing?.sourceHash,
+          cast: existing?.cast,
           done: existing?.done ?? false,
           sections: fields.sections,
         },
@@ -391,7 +385,7 @@ export async function acceptPlotBatch(
       )
     );
   }
-  const cards = opts.newCards === false ? [] : await createPlannedCards(project, ws, items);
+  const cards = await createPlannedCards(project, ws, items);
 
   const where = range.from === range.to ? `第 ${range.from} 章` : `第 ${range.from}–${range.to} 章`;
   const parts = [
@@ -408,7 +402,7 @@ export async function acceptPlotBatch(
 /**
  * 蓝图里新登场、后面还会出场的人：直接建卡（D19）。同名（或别名撞上）已有的不动。
  *
- * 卡上只写得出这么多：定位、在哪一章登场、那一章要他做什么。其余等写到了、有了摘要，
+ * 卡上只写得出这么多：定位、在哪一章登场、那一章的梗概。其余等写到了、定稿过，
  * 再从正文里更新——细纲里的「计划出场」不进出场统计（D13），这里也不写 `firstAppear`。
  */
 async function createPlannedCards(project: NovelProject, ws: Workspace, items: BlueprintItem[]): Promise<string[]> {
@@ -430,7 +424,7 @@ async function createPlannedCards(project: NovelProject, ws: Workspace, items: B
         gender: c.gender,
         sections: {
           ...emptyCharacterSections(),
-          身份: `第 ${item.no} 章《${item.title}》登场${c.role ? `的${c.role}` : ''}。那一章：${item.purpose}`,
+          身份: `第 ${item.no} 章《${item.title}》登场${c.role ? `的${c.role}` : ''}。那一章：${item.synopsis}`,
         },
       });
       created.push(c.name);
@@ -500,7 +494,7 @@ async function acceptManuscript(
   }
   await project.syncManifest();
 
-  log.info(`已${how}第 ${dest.no} 章：${text.length} 字`, `${rel}｜该章摘要将变为过期`);
+  log.info(`已${how}第 ${dest.no} 章：${text.length} 字`, `${rel}｜定稿过的话要重新定稿`);
   return { relPath: rel, message: how === '追加' ? `已追加到 ${rel}` : `已写入 ${rel}` };
 }
 

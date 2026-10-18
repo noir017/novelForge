@@ -78,7 +78,7 @@ describe('工程页的全书下一步与对话页主按钮逐字一致', () => {
 
   // 在写那一档：下一步是单章状态机的事（「写第 1 章」），工程页那一行自己带「去写这一章」。
   test('下一章有细纲了：工程页不再给全书下一步', async () => {
-    t.write('.novelforge/plots/001-夜入青云.md', '---\nno: 1\ntitle: 夜入青云\n---\n\n## 本章目的\n\n入宗。\n\n## 关键事件\n\n翻墙。\n\n## 章末钩子\n\n墙内有人。\n');
+    t.write('.novelforge/summaries/001-夜入青云.md', '---\nno: 1\ntitle: 夜入青云\n---\n\n## 梗概\n\n入宗。\n\n## 关键事件\n\n翻墙。\n\n## 看点\n\n墙内有人。\n');
     const { tree, chat } = await both();
     assert.equal(tree.next, undefined, JSON.stringify(tree.next));
     assert.equal(tree.bookStage, 'writing');

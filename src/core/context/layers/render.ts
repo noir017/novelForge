@@ -2,7 +2,7 @@ import { exists, readText } from '../../model/fs';
 import { takeLast } from '../../model/contextDetail';
 import { stringifySections } from '../../model/markdown';
 import { plotLabel } from '../../model/pipeline';
-import { Plot, PLOT_SECTION_KEYS } from '../../model/plotFile';
+import { Plot, PLOT_SECTION_KEYS, sectionItems } from '../../model/plotFile';
 import { NovelProject } from '../../model/project';
 import { Attachment } from '../../model/session';
 import {
@@ -13,30 +13,43 @@ import {
 import type { Focus } from './focus';
 
 export function renderPlot(plot: Plot): string {
-  const head = `【${plotLabel(plot.no, plot.title)} · 细纲${plot.role ? ` ｜ ${plot.role}` : ''}】`;
-  const body = stringifySections(
-    plot.sections as unknown as Record<string, string>,
-    PLOT_SECTION_KEYS as readonly string[]
-  );
-  return `${head}\n${body || '（尚未填写）'}`;
+  const head = `【${plotLabel(plot.no, plot.title)} · 细纲】`;
+  return `${head}\n${renderPlotSections(plot) || '（尚未填写）'}`;
+}
+
+/** 细纲有内容的那几节，`## 小节` 一节一段。一节都没填是空串。 */
+export function renderPlotSections(plot: Plot): string {
+  return stringifySections(plot.sections as unknown as Record<string, string>, PLOT_SECTION_KEYS as readonly string[]);
 }
 
 /**
- * 前后章只注入两节——够让排这一章的人知道上文停在哪个局面、下文要接到哪：
- * 上文给「关键事件 / 章末钩子」（发生了什么、留下了什么悬念），下文给
- * 「本章目的 / 关键事件」（要去哪、要发生什么）。第三节是那一章自己的账，
+ * 前后章只注入几节——够让排这一章的人知道上文停在哪个局面、下文要接到哪：
+ * 上文给「梗概 / 关键事件 / 状态变更」（发生了什么、人物落在什么处境），下文给
+ * 「梗概 / 关键事件」（要去哪、要发生什么）。其余几节是那一章自己的账，
  * 摊在这里只会挤掉本章的预算，还容易被误当成本章要处理的东西。
  */
 export function renderPlotBrief(plot: Plot, relation: '上文' | '下文'): string {
   const lines = [`【${plotLabel(plot.no, plot.title)} · ${relation}】`];
-  const keys = relation === '上文' ? (['关键事件', '章末钩子'] as const) : (['本章目的', '关键事件'] as const);
+  const keys = relation === '上文' ? (['梗概', '关键事件', '状态变更'] as const) : (['梗概', '关键事件'] as const);
   for (const key of keys) {
     const value = plot.sections[key]?.trim();
     if (value) {
-      lines.push(`${key}：${value}`);
+      lines.push(labeledSection(key, value));
     }
   }
   return lines.join('\n');
+}
+
+/**
+ * 「小节：内容」一行。内容是一条一行的列表（关键事件、看点……）时另起一行照原样列，
+ * 不然第一条会挤在冒号后面（「关键事件：- 甲」）；只有一条就去掉列表记号接在冒号后面。
+ */
+export function labeledSection(key: string, value: string): string {
+  const v = value.trim();
+  if (v.includes('\n')) {
+    return `${key}：\n${v}`;
+  }
+  return `${key}：${sectionItems(v)[0] ?? v}`;
 }
 
 /** 本层产物的文本，供设定关键词匹配。 */
@@ -160,17 +173,16 @@ export interface CharacterHit {
  * 计划出场、提及人物、近邻章人物与主角的有序并集。
  *
  * **第一条是本章细纲的 `characters[]`**（D13）：细纲里明写了这一章有谁，那比在
- * 用户那句话里做子串匹配准得多。它只在**这里**用——那是计划出场，出场统计仍然
- * 只认摘要（第 14 条），两者混在一起会污染统计。之后才是这一轮的输入、前几章
- * （`castWindow`，上下文详细度，缺省 2）的摘要与主角。
+ * 用户那句话里做子串匹配准得多。还没定稿时那是计划出场，只在**这里**用——出场统计
+ * 只认定稿过的细纲（第 14 条），两者混在一起会污染统计。之后才是这一轮的输入、前几章
+ * （`castWindow`，上下文详细度，缺省 2）定稿过的出场人物与主角。
  */
-export async function selectCharacters(
-  project: NovelProject,
+export function selectCharacters(
   cards: CharacterCard[],
   ask: string,
   focus: Focus,
   castWindow: number
-): Promise<CharacterHit[]> {
+): CharacterHit[] {
   const hits = new Map<string, CharacterHit>();
 
   const planned = focus.plot?.characters ?? [];
@@ -192,9 +204,8 @@ export async function selectCharacters(
   }
 
   for (const ref of takeLast(focus.previous, castWindow)) {
-    // 摘要挂在正文上；还没写的章没有摘要，也就无从取出场人物。
-    const summary = ref.chapter ? await project.readSummary(ref.chapter.relPath) : undefined;
-    const cast = summary?.sections.出场人物 ?? '';
+    // 只认定稿过的细纲：没定稿的那一节写的是计划出场，不是这一章实际写到了谁。
+    const cast = ref.plot?.sourceHash ? ref.plot.sections.出场人物 : '';
     if (!cast.trim()) {
       continue;
     }

@@ -34,30 +34,34 @@ const config = () => ({
 });
 
 const pad3 = (n) => String(n).padStart(3, '0');
-const PLOT = (no) => `.novelforge/plots/${pad3(no)}-第${no}章.md`;
+const PLOT = (no) => `.novelforge/summaries/${pad3(no)}-第${no}章.md`;
 
+/** 一份还没定稿的细纲（计划）。 */
 function plotText(no, events) {
   return [
     '---',
     `no: ${no}`,
     `title: 第${no}章`,
-    'characters: [林昭]',
     'targetWords: 1200',
     '---',
     '',
     `# 第${no}章 第${no}章`,
     '',
-    '## 本章目的',
+    '## 梗概',
     '',
     '往下查。',
+    '',
+    '## 出场人物',
+    '',
+    '林昭',
     '',
     '## 关键事件',
     '',
     events,
     '',
-    '## 章末钩子',
+    '## 看点',
     '',
-    '井底有人。',
+    '- 井底有人。',
     '',
   ].join('\n');
 }

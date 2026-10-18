@@ -463,7 +463,7 @@ export class ChatController {
           return;
         }
         await host.saveFromEditor(msg.path, msg.text, msg.baseHash);
-        // 保存的可能是章节正文，字数/摘要新鲜度都会变。
+        // 保存的可能是章节正文，字数/定稿状态都会变。
         await this.pushState();
         return;
       }
@@ -478,7 +478,7 @@ export class ChatController {
 
       case 'requestSummary':
         // 只回给发问的那个前端就够了，但 post 是广播——多开一个面板时
-        // 另一边收到一份用不上的摘要，代价只是一次无害的缓存写入。
+        // 另一边收到一份用不上的细纲浮窗，代价只是一次无害的缓存写入。
         this.post({ type: 'summary', summary: await buildPlotSummaryView(this.project, msg.plotRelPath) });
         return;
 
@@ -686,7 +686,7 @@ export class ChatController {
 
   /**
    * 补齐当前页签需要的数据。
-   * 只推可见页签的——工程页要遍历全部章节算摘要新鲜度，
+   * 只推可见页签的——工程页要遍历全部章节算定稿状态，
    * 每保存一次正文都跑一遍没必要。
    * @internal controller/ 同包用；壳不要读。
    */

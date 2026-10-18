@@ -1,36 +1,36 @@
 /**
  * 流水线的读取聚合：把磁盘上散落的产物合成一份「这一章 / 这本书现在到哪一步了」。
  *
- * 与 [cast.ts](cast.ts) 同级、同类——那边把各章摘要反向聚合成出场索引，
- * 这边把大纲 / 细纲 / 正文 / 摘要聚合成流水线状态。判断逻辑全在纯函数
+ * 与 [cast.ts](cast.ts) 同级、同类——那边把定稿过的细纲反向聚合成出场索引，
+ * 这边把大纲 / 细纲 / 正文聚合成流水线状态。判断逻辑全在纯函数
  * [model/pipeline.ts](../model/pipeline.ts) 里，这里只负责取数。
  *
  * ## 一条轴，按号合并
  *
- * 细纲号 = 章号。第 N 章的细纲（`plots/NNN-*.md`）、正文（`chapters/NNN-*`）、
- * 摘要按号互认，**认号只在这个文件里做**（{@link chapterOfPlotNo}）。同号的细纲或章节
+ * 细纲号 = 章号。第 N 章的细纲（`summaries/NNN-*.md`）与正文（`chapters/NNN-*`）按号互认，
+ * **认号只在这个文件里做**（{@link chapterOfPlotNo}）。同号的细纲或章节
  * 有两份时（作者手改文件名撞了号）取路径排序第一份，并记一条 warn——不猜、不崩，
  * 让作者在工程页上看得见两份。
  *
  * ## 新鲜度链：把「变更影响」做成传播，而不是一次模型调用
  *
  * ```
- * outline.md 里覆盖第 N 章那一节 ─hash─▶ plots/N.md    (frontmatter.upstreamHash)
- * plots/N.md 三个小节              ─hash─▶ plots/N.md    (frontmatter.writtenFrom，正文落盘时记)
- * chapters/N                       ─hash─▶ summaries/N   (frontmatter.sourceHash)
+ * outline.md 里覆盖第 N 章那一节 ─hash─▶ summaries/N.md (frontmatter.upstreamHash)
+ * summaries/N.md 八个小节          ─hash─▶ summaries/N.md (frontmatter.writtenFrom，正文落盘时记、定稿时刷新)
+ * chapters/N                       ─hash─▶ summaries/N.md (frontmatter.sourceHash，定稿反向更新时记)
  * ```
  *
- * 改了大纲的某一节，那一节覆盖的几章细纲标脏；改了某一章的细纲，那一章的正文
- * 标脏；改了正文，摘要过期。**代价是零次模型调用、零幻觉、零 token。**
+ * 改了大纲的某一节，那一节覆盖的几章细纲标脏；改了某一章的细纲（包括定稿之后再改），
+ * 那一章的正文标脏；改了正文，定稿对不上了。**代价是零次模型调用、零幻觉、零 token。**
  *
  * 正文那一环的指纹记在**细纲**上而不是章节上：章节是作者的文件，可以是 `.txt`、
  * 没有 frontmatter（第 9 条）。架构 → 大纲那一环还没有：改了设定四件，大纲不会挂 ⟳。
  */
 import * as path from 'node:path';
 import { scoped } from '../runtime/logger';
-import { hash, pad3, sanitizeFileName } from '../model/fs';
+import { pad3, sanitizeFileName } from '../model/fs';
 import { NovelProject } from '../model/project';
-import { Plot, PLOT_SECTION_KEYS, isPlotFilled, parsePlotFileName } from '../model/plotFile';
+import { Plot, isPlotFilled, parsePlotFileName, plotContentHash } from '../model/plotFile';
 import { BookConfig } from '../model/settingFile';
 import { isOutlineFilled, outlineCoverage, outlineUpstreamHash } from '../model/outlineFile';
 import {
@@ -47,7 +47,6 @@ import {
   manuscriptRatio,
 } from '../model/pipeline';
 import { Chapter, CharacterCard, ProjectManifest } from '../model/types';
-import { SummaryIndex, buildSummaryIndex, summaryOf } from './summaryIndex';
 
 const log = scoped('流水线');
 
@@ -75,6 +74,7 @@ export interface PlotPipeline {
     /** 写完正文之后，这一章的细纲改过——正文可能已经与它对不上。 */
     upstreamStale: boolean;
   };
+  /** 定稿：`exists` = 细纲定稿过（有 `sourceHash`），`stale` = 没定稿过或定稿之后正文又改过。 */
   summary: { exists: boolean; stale: boolean };
   stage: PlotStage;
   progress: PipelineProgress;
@@ -84,8 +84,8 @@ export interface PlotPipeline {
  * 一章的流水线状态。`plot` 与 `chapter` 至少有一个在，都没有时就是一份空壳
  * （「写第 N 章细纲」）。
  *
- * `context` 由调用方传入：批量构建（工程页要为几百章各算一份）时大纲、配置只读
- * 一次、摘要整体读一次，否则每章都去读一遍同样的文件。
+ * `context` 由调用方传入：批量构建（工程页要为几百章各算一份）时大纲、配置、章节列表只读
+ * 一次，否则每章都去读一遍同样的文件。
  *
  * `entry` 上那个 `sections?: never` 是防呆：`Plot` 自己就有 `no`，另外两个字段
  * 又是可选的，所以**直接把一份 `Plot` 递进来是编译得过的**，代价是 plot 与
@@ -97,7 +97,6 @@ export async function buildPlotPipeline(
   context?: {
     outline?: string;
     config?: BookConfig;
-    summaries?: SummaryIndex;
     chapters?: Chapter[];
   }
 ): Promise<PlotPipeline> {
@@ -106,14 +105,15 @@ export async function buildPlotPipeline(
   const config = context?.config ?? (await project.readBookConfig());
   const chapters = context?.chapters ?? (await project.listChapters());
   const chapter = entry.chapter ?? chapterOfPlotNo(chapters, no);
-  const summary = chapter ? await summaryOf(project, chapter.relPath, context?.summaries) : undefined;
 
   // upstreamHash 为空 = 这份细纲是作者手写的（或来自还没记录指纹的旧版本）——
   // **不标脏**：手写的东西没有「上游」，拿一个凭空的过期标记去催作者重做，比不标更糟。
   const plotStale = !!plot?.upstreamHash && plot.upstreamHash !== outlineUpstreamHash(outline, no);
   // 同理：没记过 writtenFrom（正文是作者自己写的）不标脏——只有「记录过一次、
-  // 现在对不上」才说明细纲确实在正文之后改过（第 18a 条）。
+  // 现在对不上」才说明细纲确实在正文（或定稿）之后改过（第 18a 条）。
   const chapterStale = !!chapter && !!plot?.writtenFrom && plot.writtenFrom !== plotContentHash(plot);
+  // 定稿过 = 细纲上记着 sourceHash；对得上 = 定稿之后正文没再改过（第 23 条）。
+  const finalized = !!plot?.sourceHash;
 
   const targetWords = plot?.targetWords ?? config.wordsPerChapter;
   const facts: PipelineFacts = {
@@ -123,8 +123,8 @@ export async function buildPlotPipeline(
     targetWords,
     upstreamStale: chapterStale,
     chapterExists: !!chapter,
-    summaryExists: !!summary,
-    summaryStale: !chapter || !summary || summary.sourceHash !== chapter.contentHash,
+    summaryExists: finalized,
+    summaryStale: !chapter || !finalized || plot!.sourceHash !== chapter.contentHash,
     markedDone: !!plot?.done,
   };
 
@@ -157,7 +157,6 @@ export interface PipelineIndex {
   byNo: Map<number, PlotPipeline>;
   plots: Plot[];
   chapters: Chapter[];
-  summaries: SummaryIndex;
   manifest: ProjectManifest;
   outline: string;
   config: BookConfig;
@@ -166,8 +165,8 @@ export interface PipelineIndex {
 /**
  * 全书的流水线索引。**按号合并**两条列表（见文件头）。
  *
- * 大纲、配置、manifest 与摘要都只读一次，摊给所有章——五百章工程逐章重读
- * 这些文件会把工程页刷新变成几百次多余的读盘。建好的摘要索引与 manifest 一并返回：
+ * 大纲、配置、manifest 都只读一次，摊给所有章——五百章工程逐章重读
+ * 这些文件会把工程页刷新变成几百次多余的读盘。细纲列表与 manifest 一并返回：
  * 工程树与出场索引要的是同一批，让它们接着用这一份。
  */
 export async function buildPipelineIndex(project: NovelProject): Promise<PipelineIndex> {
@@ -179,8 +178,7 @@ export async function buildPipelineIndex(project: NovelProject): Promise<Pipelin
     project.readManifest(),
     project.readBookConfig(),
   ]);
-  const summaries = await buildSummaryIndex(project, chapters);
-  const context = { outline, config, summaries, chapters };
+  const context = { outline, config, chapters };
 
   const plotByNo = firstByNo(plots, (p) => p.no, 'plots');
   const chapterNos = new Set(chapters.map((c) => c.order));
@@ -200,7 +198,7 @@ export async function buildPipelineIndex(project: NovelProject): Promise<Pipelin
       `${stale.map((p) => `第 ${p.no} 章`).join('、')}｜耗时 ${Date.now() - startedAt}ms`
     );
   }
-  return { rows, byNo, plots, chapters, summaries, manifest, outline, config };
+  return { rows, byNo, plots, chapters, manifest, outline, config };
 }
 
 /**
@@ -343,15 +341,4 @@ export function factsOf(p: {
     ratio: manuscriptRatio({ words, targetWords }),
     upstreamStale,
   };
-}
-
-/**
- * 细纲的内容指纹——**这一章正文的上游**。
- *
- * 只哈希**三个小节**，不含 frontmatter：`upstreamHash` / `writtenFrom` 自己就在
- * frontmatter 里，把它算进去会让「排一次细纲」立刻使刚写好的正文过期。同理不含
- * `status`——作者把这一章标成 done 不该让它的正文标脏。
- */
-export function plotContentHash(plot: Plot): string {
-  return hash(PLOT_SECTION_KEYS.map((key) => plot.sections[key]).join('\n---\n'));
 }

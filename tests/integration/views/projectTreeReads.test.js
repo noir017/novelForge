@@ -73,30 +73,25 @@ async function measure() {
 }
 
 /**
- * 一章「全都齐了」的内容：细纲 + 同号章节 + 摘要，三条取数路径都会走到。
- * 一章一纲之后没有中转站那一份了，正文就是章节。
+ * 一章「全都齐了」的内容：定稿过的细纲 + 同号章节，各条取数路径（流水线、出场索引、定稿新鲜度）
+ * 都会走到。一章一纲之后没有中转站那一份了，正文就是章节；定稿反向更新的也是同一份细纲，
+ * 不再另读一份单章摘要。
  */
 async function writePlot(i, { full = true } = {}) {
   const n = String(i).padStart(3, '0');
   const stem = `${n}-第${i}章`;
-  const plotRel = `.novelforge/plots/${stem}.md`;
-  t.write(
-    plotRel,
-    `---\nno: ${i}\ntitle: 第${i}章\nupstreamHash: h\n---\n\n# 第${i}章\n\n## 本章目的\n目的\n\n## 关键事件\n事件\n` +
-      (full ? '\n## 章末钩子\n钩子\n' : '')
-  );
-  // 不写 writtenFrom：随手写一个就会让它永远显示「细纲在正文之后改过」，这一章于是
-  // 卡在 manuscript 阶段——那样摘要那条取数路径的回潮就测不出来了。从没记录过
-  // 指纹的正文永不标脏（第 18a 条）。
   const chapterRel = `chapters/${stem}.md`;
   t.write(chapterRel, `# 第${i}章\n\n${'正文。'.repeat(50)}`);
   project.invalidate();
-  // 摘要的 sourceHash 要对上章节，否则停在「待定稿」，同样走不到「已完成」。
+  // sourceHash 要对上章节，否则停在「待定稿」，走不到「已完成」；带 cast 才让出场索引真的干活。
+  // 不写 writtenFrom：从没记录过指纹的正文永不标脏（第 18a 条），这里不必去算细纲的内容指纹。
   const sourceHash =
     (await project.listChapters()).find((c) => c.relPath === chapterRel)?.contentHash ?? '';
   t.write(
     `.novelforge/summaries/${stem}.md`,
-    `---\nsourceHash: ${sourceHash}\ncast: []\n---\n\n## 梗概\n梗概\n`
+    `---\nno: ${i}\ntitle: 第${i}章\nupstreamHash: h\nsourceHash: ${sourceHash}\ncast: [林昭]\n---\n\n` +
+      `# 第${i}章\n\n## 梗概\n梗概\n\n## 出场人物\n林昭\n\n## 关键事件\n事件\n` +
+      (full ? '\n## 看点\n看点\n' : '')
   );
 }
 
@@ -130,8 +125,8 @@ describe('工程页刷新 · 读盘次数', () => {
     assert.deepEqual(tree.threads, { exists: true, total: 1, open: 1, closed: 0, overdue: 1 });
   });
 
-  // 全齐了才说明各条取数路径都真的走到了：只建细纲不写正文的话，
-  // 摘要那一层会被跳过，这份计数就挡不住它回潮。
+  // 全齐了才说明各条取数路径都真的走到了：只建细纲不写正文、或者没定稿的话，
+  // 定稿新鲜度那一层会被跳过，这份计数就挡不住它回潮。
   test('夹具的各层都齐了', async () => {
     const tree = await measure();
     assert.ok(
@@ -157,23 +152,21 @@ describe('工程页刷新 · 读盘次数', () => {
     );
   });
 
-  test('每章的 fs 调用数不超过 4 次', async () => {
+  test('每章的 fs 调用数不超过 3 次', async () => {
     await measure();
-    // 一章的下限是 3：细纲 1 + 同号章节 1 + 摘要 1，每份文件恰好读一次，再少就得
-    // 砍功能了。
+    // 一章的下限是 2：细纲 1 + 同号章节 1，每份文件恰好读一次，再少就得砍功能了。
     //
-    // 从前是 4（还有中转站那一份正文），再往前有场景层时是 9。一章一纲之后正文
-    // 就是章节，每章少读一个文件——这份用例正是那笔收益的度量。
+    // 从前是 3（定稿另写一份单章摘要），再往前是 4（还有中转站那一份正文），有场景层时是 9。
+    // 细纲并进摘要之后定稿改的就是那份细纲，每章又少读一个文件——这份用例正是那笔收益的度量。
     //
-    // 上限 4 是给全书那几次常数开销（大纲、配置与架构三件、manifest、角色/设定/
-    // 草稿目录）摊下来的余量，它们不随章数增长，章数越多这个比值越贴近 3。
-    // 真正要挡的是「每章再多读一个文件」那类回潮：那会让这个数直接跳过 4。
-    // （从前上限是 5、下限是 4；下限掉到 3 之后上限跟着收紧，否则多读一个文件
-    // 也还在余量里，这条就挡不住了。）
+    // 上限 3 是给全书那几次常数开销（大纲、配置与架构三件、manifest、角色/设定/
+    // 草稿目录）摊下来的余量，它们不随章数增长，章数越多这个比值越贴近 2。
+    // 真正要挡的是「每章再多读一个文件」那类回潮：那会让这个数直接跳过 3。
+    // （下限每降一档上限跟着收紧一档，否则多读一个文件也还在余量里，这条就挡不住了。）
     const perPlot = calls / PLOTS;
     assert.ok(
-      perPlot <= 4,
-      `每章 ${perPlot.toFixed(1)} 次 fs 调用（共 ${calls} 次 / ${PLOTS} 章），上限 4`
+      perPlot <= 3,
+      `每章 ${perPlot.toFixed(1)} 次 fs 调用（共 ${calls} 次 / ${PLOTS} 章），上限 3`
     );
   });
 

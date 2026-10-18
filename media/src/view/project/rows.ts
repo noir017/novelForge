@@ -171,15 +171,15 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
   row.dataset.plot = p.relPath;
   row.style.paddingLeft = `${indentOf(0)}px`;
 
-  // 圆点报摘要（定稿）新鲜度。还没写正文的章没有摘要可言——那不是「过期」，
+  // 圆点报定稿：细纲照正文更新过、而且对得上。还没写正文的章无从定稿——那不是「过期」，
   // 是还没到那一步，给它一个空心点会让整列看起来全是待办。
   const written = !!p.chapterPath && p.wordCount > 0;
   const dot = mk('span', `dot${written && p.stale ? ' stale' : ''}`, written ? (p.stale ? '○' : '●') : '·');
-  dot.title = !written ? '还没写正文' : p.stale ? '还没定稿（摘要缺失或已过期）' : '已定稿（摘要为最新）';
+  dot.title = !written ? '还没写正文' : p.stale ? '还没定稿（或定稿之后正文又改过）' : '已定稿（细纲与正文对得上）';
   row.appendChild(dot);
 
   // 生成失败过：与「过期」是两回事——过期只说明该重跑，这个说明跑过但没成。
-  // 两侧路径都要查：摘要失败挂在正文上，写细纲/写正文失败挂在细纲上。
+  // 两侧路径都要查：定稿失败挂在正文上，写细纲/写正文失败挂在细纲上。
   const mark = (p.chapterPath ? failureMark(p.chapterPath) : undefined) ?? failureMark(p.plotPath);
   if (mark) {
     row.appendChild(mark);
@@ -254,25 +254,22 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
       { sep: true }
     );
 
-    // 定稿、看摘要、草稿都只对有正文的章成立——三者读的都是正文。
+    // 定稿、草稿都只对有正文的章成立——两者读的都是正文。
     if (written) {
-      // 定稿 = 摘要（带连续性事实）+ 出场角色的当前状态（四期，D17）+ 本章推进了哪几条叙事线（七期）。
-      // 调用次数与主按钮同源。
+      // 定稿 = 照正文更新细纲（带连续性事实）+ 出场角色的当前状态（四期，D17）+ 本章推进了哪几条
+      // 叙事线（七期）。调用次数与主按钮同源。
       items.push({
-        label: p.stale ? `定稿（摘要 + 角色状态 + 叙事线，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）` : '重新定稿',
+        label: p.stale ? `定稿（细纲 + 角色状态 + 叙事线，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）` : '重新定稿',
         run: () => projectAction('finalizeChapter', p.chapterPath),
       });
     }
     if (p.chapterPath) {
-      if (p.summaryPath && written) {
-        items.push({ label: '看摘要', run: () => openPath(p.summaryPath) });
-      }
       // 草稿按需创建：没有就建一个再打开，文案据此区分。
       items.push({ label: p.hasDraft ? '打开草稿' : '新建草稿', run: () => openDraft(p.chapterPath) });
       items.push({ sep: true });
     }
 
-    // 改名/删除落在**主路径**上：有正文就是正文（摘要与草稿跟着走），
+    // 改名/删除落在**主路径**上：有正文就是正文（草稿跟着走），
     // 只有细纲就是细纲。**没有「移动到…」**：顺序由章号决定。
     items.push(
       { label: '重命名', run: () => fileAction('rename', p.relPath) },
@@ -446,7 +443,7 @@ export function buildFileRow(
 /**
  * 角色行。比普通文件行多两样东西：出场段落副标题，以及「更新角色卡」菜单。
  *
- * 出场统计来自后端的 `castByCard`（按摘要聚合），前端不自己算——
+ * 出场统计来自后端的 `castByCard`（按定稿过的细纲聚合），前端不自己算——
  * 「第 3、7、12 章」这句话在日志里也要出现，两处文案必须一致。
  */
 function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): HTMLElement {
@@ -478,7 +475,7 @@ function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): H
         { label: `出场：${stats.detail}`, disabled: true }
       );
     } else {
-      items.push({ label: '未在摘要中出现，无法自动更新', disabled: true });
+      items.push({ label: '未在定稿中出现，无法自动更新', disabled: true });
     }
     // 定稿时这张卡的当前状态你改过、没被覆盖（D15）：拿机器给的那一版对比，决定用不用。
     const guarded = lastTree?.failures?.[f.relPath]?.find((x) => x.op === 'cardState');
@@ -504,7 +501,7 @@ export function buildCastRow(c: CastEntry): HTMLElement {
   row.style.paddingLeft = `${indentOf(0)}px`;
 
   const dot = mk('span', 'dot', '○');
-  dot.title = '摘要里出现过，还没有角色卡';
+  dot.title = '定稿里出现过，还没有角色卡';
   row.appendChild(dot);
 
   const label = mk('span', 'row-label', c.name);

@@ -3,11 +3,11 @@
  *
  * | 用例组 | 钉的是什么 |
  * |---|---|
- * | 全套 | 两次确认（先只报摘要，摘要出来再报其余）；按 摘要 → 配置 → 前提 → 角色卡 → 世界观 → 大纲 → 细纲 → 全书摘要 的顺序；细纲标题用章节的、目标字数记实际字数、不记 writtenFrom、上游指纹对得上；之后主按钮照常续写大纲 |
+ * | 全套 | 两次确认（先只报细纲，细纲出来再报其余）；按 细纲 → 配置 → 前提 → 角色卡 → 世界观 → 大纲 → 全书摘要 的顺序；第一步照正文写出 `summaries/NNN-<章名>.md`、带 sourceHash，直接算定稿过（不再另排一遍细纲）；之后主按钮照常续写大纲 |
  * | 再来一次 | 什么都齐了：零调用 |
- * | 只补空白 | 作者写过的前提、排过的细纲一个字不动 |
- * | 一件失败就停 | 大纲没整理成就不排细纲，失败挂在大纲上（第 16 条） |
- * | 取消 | 摘要那一步不同意就一次都不调 |
+ * | 只补空白 | 作者写过的前提、定稿过的细纲一个字不动；只排过计划的那一章拿着计划对照正文改，旧版进回收站 |
+ * | 一件失败就停 | 大纲没整理成就不更新全书摘要，失败挂在大纲上（第 16 条） |
+ * | 取消 | 细纲那一步不同意就一次都不调 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -26,8 +26,8 @@ const projects = [];
 const TITLES = ['入宗', '雪夜', '旧案', '夜探', '执法堂', '下山', '渡口'];
 const pad3 = (n) => String(n).padStart(3, '0');
 const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.md`;
-const PLOT = (no) => `.novelforge/plots/${pad3(no)}-${TITLES[no - 1]}.md`;
-/** 第 no 章的正文：长短不一，好看出目标字数记的是实际字数。 */
+const PLOT = (no) => `.novelforge/summaries/${pad3(no)}-${TITLES[no - 1]}.md`;
+/** 第 no 章的正文：长短不一，好看出每章字数取的是已写各章的平均。 */
 const text = (no) => `林昭第${no}次见到沈青。${'山门很高。'.repeat(40 + no * 10)}门外有人敲了三下。`;
 
 const CONFIG_JSON = JSON.stringify({
@@ -44,16 +44,15 @@ const CONFIG_JSON = JSON.stringify({
   writingStyle: '冷峻克制。',
 });
 
-/** 这一次调用是哪一步。 */
+/** 这一次调用是哪一步。整理细纲（定稿的第一步）有没有当前细纲都以同一句开头。 */
 function kindOf(messages) {
   const sys = messages[0]?.content ?? '';
   const user = messages[messages.length - 1].content;
-  if (sys.includes('建立可检索的章节档案')) return 'summary';
+  if (sys.includes('建立可检索的章节档案')) return 'plot';
   if (sys.includes('负责维护一部长篇小说的人物档案')) return 'card';
   if (sys.includes('全书滚动摘要')) return 'global';
   if (user.includes('【JSON 字段结构】')) return 'config';
   if (user.includes('整理出这一段的情节大纲')) return 'outline';
-  if (user.includes('照正文实际写的提取')) return 'plots';
   if (user.includes('「故事前提」')) return 'premise';
   if (user.includes('「世界观」')) return 'world';
   return '?';
@@ -62,7 +61,7 @@ function kindOf(messages) {
 function defaultReply(messages) {
   const user = messages[messages.length - 1].content;
   switch (kindOf(messages)) {
-    case 'summary': {
+    case 'plot': {
       const no = Number(/第\s*(\d+)\s*章/.exec(user)?.[1] ?? 0);
       return JSON.stringify({
         梗概: `第 ${no} 章：林昭与沈青查旧案。`,
@@ -91,25 +90,6 @@ function defaultReply(messages) {
         sections.push(`## 第${a}–${b}章：查案\n\n林昭在第 ${a}–${b} 章一路查下去。`);
       }
       return sections.join('\n\n');
-    }
-    case 'plots': {
-      const m = /chapterNumber 必须覆盖第 (\d+)(?:–(\d+))? 章的每一章/.exec(user);
-      const from = Number(m[1]);
-      const to = Number(m[2] ?? m[1]);
-      const blueprints = [];
-      for (let no = from; no <= to; no++) {
-        blueprints.push({
-          chapterNumber: no,
-          title: '模型起的名',
-          role: '发展',
-          purpose: `第 ${no} 章查线索`,
-          keyEvents: `第 ${no} 章林昭见到沈青，查到一条线索。`,
-          characters: ['林昭', '沈青'],
-          suspenseHook: '门外有人敲了三下',
-          newCharacters: [{ name: '路人甲', role: 'minor' }],
-        });
-      }
-      return JSON.stringify({ blueprints });
     }
     default:
       return '';
@@ -159,15 +139,20 @@ describe('从已写正文补齐 · 全套', () => {
   let calls;
   before(async () => {
     t = await fresh('derive-all');
-    // 先同步摘要 → 总章数 → 开始补齐
-    h.expect('先同步摘要', '100', '开始补齐');
+    // 先整理细纲 → 总章数 → 开始补齐
+    h.expect('先整理细纲', '100', '开始补齐');
     calls = await bundle.derive.deriveFromText(t.project);
   });
 
-  test('第一次只报摘要的次数，说清其余的摘要出来再问', () => {
-    const c = h.confirms[0];
-    assert.equal(c.message, '从已写正文补齐第 1–7 章：先给 7 章同步摘要（缺失或已过期），调用 7 次模型。现在开始？');
-    assert.match(c.detail, /摘要出来之后再算建卡、设定、情节大纲与细纲要调几次/);
+  test('第一次只报细纲的次数', () => {
+    assert.equal(
+      h.confirms[0].message,
+      '从已写正文补齐第 1–7 章：先照正文给 7 章整理细纲（没定稿的、定稿后正文改过的），调用 7 次模型。现在开始？'
+    );
+  });
+
+  test('第一次说清其余几样细纲出来再问：建卡次数要看细纲里认出了谁', () => {
+    assert.match(h.confirms[0].detail, /细纲出来之后再算建卡、设定与情节大纲要调几次/);
   });
 
   test('总章数没写就问一句，缺省 100', () => {
@@ -177,34 +162,50 @@ describe('从已写正文补齐 · 全套', () => {
     assert.equal(h.inputs[0].validate('120'), undefined);
   });
 
-  test('第二次把其余几样一次列全，次数按摘要算准', () => {
-    const c = h.confirms[1];
-    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 大纲 1 + 细纲两批 2（上限 3×7=21，不排叙事线）+ 全书摘要 1（上限 5）
+  test('第二次把其余几样一次列全，次数按细纲算准；不再另排细纲', () => {
+    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 大纲 1 + 全书摘要 1（上限 5）
     assert.equal(
-      c.message,
-      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、情节大纲、细纲、全书摘要，预计 9 次调用，最多 34 次。现在补？'
+      h.confirms[1].message,
+      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、情节大纲、全书摘要，预计 7 次调用，最多 13 次。现在补？'
     );
-    assert.match(c.detail, /按 100 章 × \d+ 字展开/);
-    assert.match(c.detail, /给林昭、沈青建卡（摘要里出场 2 章以上/);
-    assert.match(c.detail, /照摘要整理第 1–7 章，每次 20 章，1 次调用/);
-    assert.match(c.detail, /标题用章节自己的，目标字数记那一章的实际字数/);
-    assert.match(c.detail, /叙事线不排/);
   });
 
-  test('按链路顺序一件一件来，返回实际次数', () => {
+  test('第二次的说明：配置按总章数与已写的平均字数展开', () => {
+    assert.match(h.confirms[1].detail, /按 100 章 × \d+ 字展开/);
+  });
+
+  test('第二次的说明：建卡的人取细纲里出场 2 章以上的', () => {
+    assert.match(h.confirms[1].detail, /给林昭、沈青建卡（细纲里出场 2 章以上/);
+  });
+
+  test('第二次的说明：大纲照细纲整理', () => {
+    assert.match(h.confirms[1].detail, /照细纲整理第 1–7 章，每次 20 章，1 次调用/);
+  });
+
+  test('第二次的说明：叙事线不排', () => {
+    assert.match(h.confirms[1].detail, /叙事线不排/);
+  });
+
+  test('按链路顺序一件一件来', () => {
     assert.deepEqual(kinds(), [
-      ...Array(7).fill('summary'),
+      ...Array(7).fill('plot'),
       'config',
       'premise',
       'card',
       'card',
       'world',
       'outline',
-      'plots',
-      'plots',
       'global',
     ]);
-    assert.equal(calls, 16);
+  });
+
+  test('返回实际次数', () => {
+    assert.equal(calls, 14);
+  });
+
+  test('没有细纲的章照正文从头整理：一次都没带「当前细纲」', () => {
+    const plotCalls = fake.calls.filter((m) => kindOf(m) === 'plot');
+    assert.ok(plotCalls.every((m) => m[m.length - 1].content.includes('请为下面这一章整理细纲')));
   });
 
   test('架构四件都补上了；配置的规模按作者给的总章数与已写的平均字数', async () => {
@@ -222,26 +223,46 @@ describe('从已写正文补齐 · 全套', () => {
     assert.equal(facts.outlineCoverage, 7);
   });
 
-  test('细纲：标题用章节的、目标字数是实际字数、不记 writtenFrom、上游指纹对得上、不建新卡', async () => {
-    t.project.invalidate();
-    const chapters = await t.project.listChapters();
-    for (let no = 1; no <= 7; no++) {
-      assert.ok(t.has(PLOT(no)), PLOT(no));
-      const plot = await t.project.getPlot(no);
-      assert.equal(plot.title, TITLES[no - 1]);
-      assert.equal(plot.targetWords, chapters.find((c) => c.order === no).wordCount);
-      assert.ok(!plot.writtenFrom, `第 ${no} 章不该记 writtenFrom`);
-      const row = await bundle.pipe.buildPlotPipeline(t.project, { no, plot });
-      assert.equal(row.plot.upstreamStale, false);
-      assert.equal(row.stage, 'done');
-    }
-    assert.ok(!t.has('.novelforge/characters/路人甲.md'));
+  test('细纲落在 summaries/NNN-<章名>.md，一章一份', () => {
+    const missing = [1, 2, 3, 4, 5, 6, 7].filter((no) => !t.has(PLOT(no)));
+    assert.deepEqual(missing, []);
   });
 
-  test('写作时不带技能、提示词说清是整理', () => {
-    const plotCall = fake.calls.find((m) => kindOf(m) === 'plots');
-    assert.match(plotCall[0].content, /这一次不是从零创作：作者已经写到第 7 章/);
-    assert.ok(!plotCall[plotCall.length - 1].content.includes('补充写作 Skill'));
+  test('细纲的标题用章节自己的', async () => {
+    t.project.invalidate();
+    const titles = [];
+    for (let no = 1; no <= 7; no++) titles.push((await t.project.getPlot(no)).title);
+    assert.deepEqual(titles, TITLES);
+  });
+
+  test('细纲带着正文的 sourceHash：这几章直接算定稿过', async () => {
+    const chapters = await t.project.listChapters();
+    const unfinalized = [];
+    for (const chapter of chapters) {
+      if (!(await t.project.finalizedPlotOf(chapter))) unfinalized.push(chapter.order);
+    }
+    assert.deepEqual(unfinalized, []);
+  });
+
+  test('照正文整理出来的细纲不记目标字数（那是计划那一侧的账）', async () => {
+    const plot = await t.project.getPlot(3);
+    assert.equal(plot.targetWords, undefined);
+  });
+
+  test('流水线：每一章都是完成，正文不挂 ⟳', async () => {
+    const rows = [];
+    for (let no = 1; no <= 7; no++) {
+      const plot = await t.project.getPlot(no);
+      const row = await bundle.pipe.buildPlotPipeline(t.project, { no, plot });
+      rows.push(`${row.stage}${row.chapter?.upstreamStale ? '⟳' : ''}`);
+    }
+    assert.deepEqual(rows, Array(7).fill('done'));
+  });
+
+  test('写大纲时不带技能、提示词说清是整理', () => {
+    const outlineCall = fake.calls.find((m) => kindOf(m) === 'outline');
+    assert.match(outlineCall[0].content, /这一次不是从零创作：作者已经写到第 7 章/);
+    assert.ok(!outlineCall[outlineCall.length - 1].content.includes('补充写作 Skill'));
   });
 
   test('之后主按钮照常往后规划：续写第 8 章起的大纲', async () => {
@@ -253,9 +274,12 @@ describe('从已写正文补齐 · 全套', () => {
     assert.equal(step.projectAction, undefined);
   });
 
-  test('全书摘要更新到第 7 章；完成提示报出补了什么与次数', async () => {
+  test('全书摘要更新到第 7 章', async () => {
     assert.equal((await t.project.readManifest()).globalSummaryThrough, 7);
-    assert.ok(h.toasts.some((x) => x.includes('已从第 1–7 章补上：7 章摘要、') && x.includes('调用 16 次')), h.toasts.join('|'));
+  });
+
+  test('完成提示报出补了什么与次数', () => {
+    assert.ok(h.toasts.some((x) => x.includes('已从第 1–7 章补上：7 章细纲、') && x.includes('调用 14 次')), h.toasts.join('|'));
   });
 
   test('再来一次：什么都齐了，零调用、不弹框', async () => {
@@ -271,16 +295,29 @@ describe('从已写正文补齐 · 全套', () => {
 
 describe('从已写正文补齐 · 只补空白', () => {
   let t;
+  /** 第 2 章：作者定稿过、sourceHash 对得上正文的细纲。 */
+  let finalizedText;
+  /** 第 3 章：作者排过、还没定稿的计划。 */
+  let planText;
   before(async () => {
     t = await fresh('derive-blank');
     t.write('.novelforge/config.md', '---\ntotalChapters: 50\nwordsPerChapter: 2000\n---\n\n# 小说配置\n\n## 核心梗概\n\n作者自己写的梗概。\n');
     t.write('.novelforge/premise.md', '# 故事前提\n\n## 一句话前提\n\n作者写的前提。\n\n## 核心冲突链\n\n作者写的冲突链。\n');
-    t.write(
-      PLOT(2),
-      ['---', 'no: 2', 'title: 作者的标题', 'targetWords: 999', '---', '', '# 第2章 作者的标题', '', '## 本章目的', '', '作者排的。', '', '## 关键事件', '', '作者排的事件。', '', '## 章末钩子', '', '作者的钩子。', ''].join('\n')
-    );
+    const ch2 = (await t.project.listChapters()).find((c) => c.order === 2);
+    finalizedText = [
+      '---', 'no: 2', 'title: 作者的标题', `sourceHash: ${ch2.contentHash}`, 'cast: [林昭, 沈青]', '---', '',
+      '# 第2章 作者的标题', '', '## 梗概', '', '作者定稿的梗概。', '', '## 出场人物', '', '林昭、沈青', '',
+      '## 关键事件', '', '作者定稿的事件。', '',
+    ].join('\n');
+    t.write(PLOT(2), finalizedText);
+    planText = [
+      '---', 'no: 3', 'title: 作者排的', 'targetWords: 999', '---', '',
+      '# 第3章 作者排的', '', '## 梗概', '', '作者排的梗概。', '', '## 关键事件', '', '作者排的事件。', '',
+      '## 看点', '', '- 作者想的看点。', '',
+    ].join('\n');
+    t.write(PLOT(3), planText);
     t.project.invalidate();
-    h.expect('先同步摘要', '开始补齐');
+    h.expect('先整理细纲', '开始补齐');
     await bundle.derive.deriveFromText(t.project);
   });
 
@@ -291,11 +328,32 @@ describe('从已写正文补齐 · 只补空白', () => {
     assert.match(t.read('.novelforge/premise.md'), /作者写的冲突链/);
   });
 
-  test('作者排过的第 2 章细纲一个字不动，细纲分成 1、3–7 两段', () => {
-    assert.match(t.read(PLOT(2)), /作者排的事件/);
-    assert.match(h.confirms[1].detail, /已经有细纲的 1 章跳过/);
-    const plotUsers = fake.calls.filter((m) => kindOf(m) === 'plots').map((m) => /chapterNumber 必须覆盖(第 \d+(?:–\d+)? 章)/.exec(m[m.length - 1].content)[1]);
-    assert.deepEqual(plotUsers, ['第 1 章', '第 3–7 章']);
+  test('定稿过、对得上正文的第 2 章不算在内：只给 6 章整理细纲', () => {
+    assert.match(h.confirms[0].message, /先照正文给 6 章整理细纲/);
+  });
+
+  test('定稿过的第 2 章细纲一个字不动', () => {
+    assert.equal(t.read(PLOT(2)), finalizedText);
+  });
+
+  test('排过计划的第 3 章：拿着当前细纲与正文对照着改', () => {
+    const call = fake.calls.find((m) => kindOf(m) === 'plot' && m[m.length - 1].content.includes('【第3章 旧案 · 当前细纲】'));
+    assert.match(call[call.length - 1].content, /## 梗概\n作者排的梗概。/);
+  });
+
+  test('第 3 章的计划原样进了回收站', () => {
+    assert.equal(t.read(`.novelforge/.trash/${PLOT(3)}`), planText);
+  });
+
+  test('第 3 章反向更新之后：作者起的标题与目标字数留着', async () => {
+    t.project.invalidate();
+    const plot = await t.project.getPlot(3);
+    assert.deepEqual({ title: plot.title, targetWords: plot.targetWords }, { title: '作者排的', targetWords: 999 });
+  });
+
+  test('第 3 章反向更新之后：八节换成照正文整理的那一版', async () => {
+    const plot = await t.project.getPlot(3);
+    assert.equal(plot.sections.梗概, '第 3 章：林昭与沈青查旧案。');
   });
 });
 
@@ -304,13 +362,16 @@ describe('从已写正文补齐 · 一件失败就停', () => {
   before(async () => {
     t = await fresh('derive-fail');
     replyFn = (messages) => (kindOf(messages) === 'outline' ? '' : defaultReply(messages));
-    h.expect('先同步摘要', '100', '开始补齐');
+    h.expect('先整理细纲', '100', '开始补齐');
     await bundle.derive.deriveFromText(t.project);
   });
 
-  test('大纲没整理成：不排细纲、不更新全书摘要', () => {
-    assert.ok(!kinds().includes('plots') && !kinds().includes('global'), kinds().join(','));
-    assert.ok(!t.has(PLOT(1)));
+  test('大纲没整理成：不更新全书摘要', () => {
+    assert.ok(!kinds().includes('global'), kinds().join(','));
+  });
+
+  test('第一步整理好的细纲留着', () => {
+    assert.ok(t.has(PLOT(1)));
   });
 
   test('失败挂在大纲上，提示说清停在哪、前面补上了什么', async () => {
@@ -325,7 +386,7 @@ describe('从已写正文补齐 · 一件失败就停', () => {
 });
 
 describe('从已写正文补齐 · 取消与没有正文', () => {
-  test('摘要那一步不同意：一次都不调', async () => {
+  test('细纲那一步不同意：一次都不调', async () => {
     const t = await fresh('derive-cancel');
     h.expect(undefined);
     const n = await bundle.derive.deriveFromText(t.project);

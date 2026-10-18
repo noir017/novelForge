@@ -2,13 +2,12 @@ import { basename } from 'node:path';
 import { buildCastIndex, describePlots } from './cast';
 import { listActiveFailures } from '../runtime/errorLog';
 import { scoped } from '../runtime/logger';
-import { SECTION_PLACEHOLDER, hasContent } from '../model/markdown';
+import { hasContent, stripH1 } from '../model/markdown';
 import { BookConfig } from '../model/settingFile';
 import { BookFacts, BookStage, SETTING_DOC_LABEL, chapterLabel, deriveBookNextStep, deriveBookStage } from '../model/pipeline';
 import { NovelProject } from '../model/project';
-import { parsePlotFileName } from '../model/plotFile';
+import { PLOT_SECTION_KEYS, parsePlotFileName } from '../model/plotFile';
 import { isOutlineFilled, outlineCoverage } from '../model/outlineFile';
-import { SUMMARY_SECTION_KEYS } from '../model/types';
 import { describeStateThrough } from '../model/characterState';
 import { countThreads, parseThreads } from '../model/threadsFile';
 import { buildBookFacts, buildPlotPipeline, buildPipelineIndex, chapterOfPlotNo } from './pipeline';
@@ -101,19 +100,17 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     project.listFolders(project.loreDir),
     // 一次遍历拿到全部已存在的草稿，胜过每章一次 stat。
     project.listDraftPaths(),
-    // 全书流水线索引：大纲、配置、manifest 与全书摘要都只读一次摊给所有章。
+    // 全书流水线索引：大纲、配置、manifest、细纲与章节都只读一次摊给所有章。
     buildPipelineIndex(project),
     project.readThreadsText(),
   ]);
-  // 章节列表、manifest、全书摘要与大纲原文都用流水线那一趟读到的同一份，
+  // 章节列表、细纲列表、manifest 与大纲原文都用流水线那一趟读到的同一份，
   // 不再单独读一次。
-  const { rows, chapters, summaries, manifest, outline } = pipelineIndex;
+  const { rows, chapters, plots, manifest, outline } = pipelineIndex;
   const book = await buildBookFacts(project, pipelineIndex, { characters });
 
   const plotRows: ProjectPlotNode[] = rows.map((p) => {
     const chapterPath = p.chapter.relPath;
-    const summary = chapterPath ? summaries.get(chapterPath) : undefined;
-    const chapter = chapterPath ? chapters.find((c) => c.relPath === chapterPath) : undefined;
     const draftPath = chapterPath ? (project.draftRelPathFor(chapterPath) ?? '') : '';
     return {
       no: p.no,
@@ -125,9 +122,8 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       chapterPath,
       wordCount: p.chapter.words,
       targetWords: p.chapter.targetWords,
-      // 空章不算过期：那不是「摘要旧了」，是还没写。
-      stale: !!chapter && chapter.wordCount > 0 && (!summary || summary.sourceHash !== chapter.contentHash),
-      summaryPath: chapterPath ? (project.summaryMirrorRelPath(chapterPath) ?? '') : '',
+      // 空章不算没定稿：那不是「定稿旧了」，是还没写。
+      stale: p.chapter.words > 0 && p.summary.stale,
       stage: p.stage,
       progress: p.progress,
       upstreamStale: p.plot.upstreamStale || p.chapter.upstreamStale,
@@ -179,8 +175,8 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
 
   // 出场人物索引：已建卡的补出场统计，未建卡的单列一组。
   // 与角色树分开——那是文件树，这些人还没有文件。
-  // 摘要复用流水线那一趟读到的索引：同一次刷新里这已经是第三个要它的人了。
-  const castIndex = await buildCastIndex(project, summaries);
+  // 细纲复用流水线那一趟读到的列表：同一次刷新里这已经是第三个要它的人了。
+  const castIndex = await buildCastIndex(project, plots);
   const castByCard: Record<string, CastSummary> = {};
   for (const member of castIndex.known) {
     if (!member.card) {
@@ -213,7 +209,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   }));
   reportConflicts(project.root, castConflicts);
 
-  // 摘要新鲜度只算**有正文**的章：还没写的章无从总结，算进来会让顶部黄条报一个
+  // 定稿只算**有正文**的章：还没写的章无从定稿，算进来会让顶部黄条报一个
   // 永远清不掉的待办数。
   const written = plotRows.filter((p) => p.chapterPath && p.wordCount > 0);
   const staleCount = written.filter((p) => p.stale).length;
@@ -368,15 +364,16 @@ function reportConflicts(root: string, conflicts: CastConflictView[]): void {
 }
 
 /**
- * 单章摘要的浮窗视图。工程页鼠标悬停在章节行上时按需取一次。
+ * 单章细纲的浮窗视图。工程页鼠标悬停在章节行上时按需取一次。
  *
- * 与 `buildProjectTree` 分开是有意的：摘要正文上千字，而那棵树每次
- * 文件变动都全量重推，把摘要塞进去等于每保存一次正文就多推几百 KB。
+ * 与 `buildProjectTree` 分开是有意的：细纲正文上千字，而那棵树每次
+ * 文件变动都全量重推，把细纲塞进去等于每保存一次正文就多推几百 KB。
  *
  * 传的是**细纲路径或章节路径**（工程页那一行同时代表两者），按章号认到同一章。
  *
- * 摘要不存在不是错误——那一章可以还没定稿、甚至还没写。这时给 `exists: false`，
- * 让前端说清「还没有摘要」，而不是弹一个空浮窗或报错。
+ * 细纲不存在不是错误——那一章可以还没排、只有作者手写的正文。这时给 `exists: false`，
+ * 让前端说清「还没有细纲」，而不是弹一个空浮窗或报错。没定稿的细纲是计划（`finalized: false`），
+ * 定稿过、正文后来又改过的标过期。
  */
 export async function buildPlotSummaryView(
   project: NovelProject,
@@ -387,46 +384,42 @@ export async function buildPlotSummaryView(
   const no = direct?.order ?? parsePlotFileName(basename(plotRelPath))?.no ?? 0;
   const chapter = direct ?? chapterOfPlotNo(chapters, no);
   const plot = await project.getPlot(no);
-
-  const summary = chapter ? await project.readSummary(chapter.relPath) : undefined;
   const title = plot?.title || chapter?.title || '';
   const label = chapterLabel(no, title);
 
-  if (!summary) {
+  if (!plot) {
     return {
       no,
       title,
       label,
       exists: false,
-      stale: true,
+      finalized: false,
+      stale: false,
       relPath: '',
       sections: [],
       emptyHint: chapter
-        ? '这一章还没有摘要。右键「定稿」可以生成。'
-        : '这一章还没写正文。摘要挂在正文上，写完定稿才有。',
+        ? '这一章还没有细纲。右键「定稿」可以照正文整理一份。'
+        : '这一章还没有细纲。',
     };
   }
   // 与 staleChapters() / buildProjectTree 同一套判据：以 sourceHash 为准。
-  // 章本身没了（摘要成了孤儿）也算过期——浮窗里那句提示总比默认「新鲜」诚实。
-  const stale = !chapter || summary.sourceHash !== chapter.contentHash;
+  // 正文没了（细纲成了孤儿）也算过期——浮窗里那句提示总比默认「新鲜」诚实。
+  const finalized = !!plot.sourceHash;
+  const stale = finalized && (!chapter || plot.sourceHash !== chapter.contentHash);
 
-  const parsed = SUMMARY_SECTION_KEYS.map((name) => ({
-    name: name as string,
-    text: (summary.sections[name] ?? '').trim(),
-  }));
-  // `keepEmpty` 写出的摘要里，没内容的小节留着标题和「（待补充）」占位。
-  // 浮窗里六行占位是纯噪声，滤掉。
-  const sections = parsed.filter((s) => s.text !== '' && s.text !== SECTION_PLACEHOLDER);
+  // 没内容的小节（占位文字读回来就是空串）在浮窗里是纯噪声，滤掉。
+  const sections = PLOT_SECTION_KEYS.map((name) => ({ name: name as string, text: plot.sections[name].trim() })).filter(
+    (s) => s.text !== ''
+  );
 
-  // 一个小节都没认出来（作者手改摘要、把 `## 小节名` 全删了改成大白话）时
-  // 退回摘要全文，总比给一个空浮窗好。
-  //
-  // 只在「什么都没解析出来」时才退：小节解析得出来、只是内容全是占位的，
-  // 那就是一份货真价实的空摘要，退回全文只会把六行「（待补充）」摊在浮窗里。
-  if (sections.length === 0 && parsed.every((s) => s.text === '') && summary.content.trim() !== '') {
-    sections.push({ name: '摘要', text: summary.content.trim() });
+  // 一个小节都没认出来（作者手改细纲、把 `## 小节名` 全删了改成大白话）时
+  // 退回细纲全文，总比给一个空浮窗好。只在「一个小节标题都没有」时才退：小节都在、
+  // 只是内容全是占位的，那就是一份货真价实的空细纲，退回全文只会把八行「（待补充）」摊在浮窗里。
+  const body = stripH1(plot.body.trim()).trim();
+  if (sections.length === 0 && !/^#{2,3}\s/m.test(body) && body !== '') {
+    sections.push({ name: '细纲', text: body });
   }
-  return { no, title, label, exists: true, stale, relPath: summary.relPath, sections };
+  return { no, title, label, exists: true, finalized, stale, relPath: plot.relPath, sections };
 }
 
 /**

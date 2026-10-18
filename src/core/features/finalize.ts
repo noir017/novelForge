@@ -2,10 +2,13 @@
  * 定稿一章（D17、D18、D15、七期）：
  *
  * ```
- * 1. 摘要（1 次）：六节 + 连续性事实 → 证据用 bigram 在正文里找（0 次）→ 落盘
+ * 1. 反向更新细纲（1 次）：当前细纲 + 正文 → 八节（含连续性事实）→ 证据用 bigram 在正文里找（0 次）
+ *    → 旧版进回收站 → 落盘（记 sourceHash / cast，writtenFrom 刷新）
  * 2. 角色状态（0–1 次）：本章出场、已经建卡的人 → 按归属写、或挂黄 ❗
  * 3. 叙事线（0–1 次）：还没收的线 → 判本章推进了哪几条 → 证据逐字校验 → 追加事件
  * ```
+ *
+ * 后两步读的都是第一步更新过的那份细纲（出场人物）与正文。
  *
  * 前两步移植自 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator）`finalize-chapter.command.ts` 的
  * `buildFinalizePostProcessSteps`（FC:246-563）的后两步。知识库导入、定稿收据、来源 hash、
@@ -14,15 +17,14 @@
  *
  * ## 几步的失败各算各的
  *
- * 摘要是这一章能不能「记住」的那一步：它失败了整个定稿就算没成，红 ❗ 挂在章节上（与从前
- * 「总结这一章」一样）。角色状态、叙事线失败时摘要照样算数——黄 ❗ 挂在章节上（第 16 条：
+ * 更新细纲是这一章能不能「记住」的那一步：它失败了整个定稿就算没成，红 ❗ 挂在章节上，细纲
+ * 一个字不动。角色状态、叙事线失败时细纲照样算数——黄 ❗ 挂在章节上（第 16 条：
  * 部分完成），角色卡 / `threads.md` 停在上一次，下次重新定稿会再来一遍。
  *
  * ## 用哪个模型
  *
- * 单章入口（主按钮、章节工作台、右键、MCP 的 `summary finalize`）用对话页选定的那个，与从前的
- * 「总结这一章」一致。批量入口各走各的档（摘要与叙事线 `plotSummary`、角色状态 `characterCard`），
- * 失败换同档其余。
+ * 单章入口（主按钮、章节工作台、右键、MCP 的 `summary finalize`）用对话页选定的那个。批量入口
+ * 各走各的档（细纲与叙事线 `plotSummary`、角色状态 `characterCard`），失败换同档其余。
  */
 import { getHost } from '../host';
 import { readConfig } from '../config';
@@ -56,11 +58,11 @@ export function singleModel(llm: LlmProvider): ModelRunner {
 
 export interface FinalizeOptions {
   signal?: AbortSignal;
-  /** 摘要那一步用谁。缺省对话页选定的那个。 */
+  /** 更新细纲那一步用谁。缺省对话页选定的那个。 */
   summary?: ModelRunner;
-  /** 角色状态那一步用谁。缺省同摘要。 */
+  /** 角色状态那一步用谁。缺省同更新细纲。 */
   state?: ModelRunner;
-  /** 叙事线那一步用谁。缺省同摘要（读一章、按合同摘出东西，与摘要是同一种活）。 */
+  /** 叙事线那一步用谁。缺省同更新细纲（读一章、按合同摘出东西，是同一种活）。 */
   threads?: ModelRunner;
   /** 走到第几步了（任务条上那一行）。 */
   onStep?(step: 'summary' | 'state' | 'threads'): void;
@@ -71,16 +73,16 @@ export interface FinalizeOutcome {
   calls: number;
   summary: SummaryOutcome;
   states?: StateUpdateOutcome;
-  /** 角色状态那一步没成（摘要照样算数）。 */
+  /** 角色状态那一步没成（细纲照样算数）。 */
   stateError?: string;
   threads?: ThreadEventOutcome;
-  /** 叙事线那一步没成（摘要照样算数）。 */
+  /** 叙事线那一步没成（细纲照样算数）。 */
   threadsError?: string;
 }
 
 /**
- * 定稿一章。没有可用的模型、正文是空的时返回 undefined（已经说过原因）；摘要解析失败时抛错
- * （失败已经挂在章节上）。
+ * 定稿一章。没有可用的模型、正文是空的时返回 undefined（已经说过原因）；模型返回解析不出时抛错
+ * （失败已经挂在章节上，细纲没动）。
  */
 export async function finalizeChapter(
   project: NovelProject,
@@ -98,7 +100,7 @@ export async function finalizeChapter(
     summaryRunner = singleModel(llm);
   }
   opts.onStep?.('summary');
-  const summary = await summaryRunner.run(`第 ${chapter.order} 章 · 摘要`, (llm) =>
+  const summary = await summaryRunner.run(`第 ${chapter.order} 章 · 细纲`, (llm) =>
     summarizeChapter(project, chapter, llm, opts.signal, summaryRunner!.primaryBudget)
   );
   if (!summary) {
@@ -130,7 +132,7 @@ export async function finalizeChapter(
       targetKey: chapter.relPath,
       severity: 'warn',
       op: STATE_OP,
-      message: `摘要已写好，但角色状态没更新成：${outcome.stateError}`,
+      message: `细纲已照正文更新，但角色状态没更新成：${outcome.stateError}`,
       detail: '角色卡的当前状态停在上一次。重新定稿这一章会再更新一遍。',
     });
   }
@@ -158,7 +160,7 @@ export async function finalizeChapter(
       targetKey: chapter.relPath,
       severity: 'warn',
       op: THREADS_OP,
-      message: `摘要已写好，但叙事线没判成：${outcome.threadsError}`,
+      message: `细纲已照正文更新，但叙事线没判成：${outcome.threadsError}`,
       detail: 'threads.md 没有改动。重新定稿这一章会再判一遍。',
     });
   }
@@ -166,11 +168,13 @@ export async function finalizeChapter(
 }
 
 /**
- * 「第 3 章已定稿：摘要与 7 条连续性事实；林昭、沈氏的当前状态更新到这一章；叙事线：玉佩的来历埋下。」
- * 丢了的事实、没覆盖的卡、没记的事件、没成的那一步都说出来（第 2 条）。
+ * 「第 3 章已定稿：细纲照正文更新，7 条连续性事实；林昭、沈氏的当前状态更新到这一章；叙事线：玉佩的来历埋下。」
+ * 丢了的事实、没覆盖的卡、没记的事件、没成的那一步都说出来（第 2 条）；旧版细纲进了回收站也说。
  */
 export function describeFinalize(no: number, o: FinalizeOutcome): string {
-  const parts = [`第 ${no} 章已定稿：摘要与 ${o.summary.facts.length} 条连续性事实`];
+  const parts = [
+    `第 ${no} 章已定稿：细纲照正文${o.summary.trashed ? '更新（旧版已放进回收站）' : '整理了一份'}，${o.summary.facts.length} 条连续性事实`,
+  ];
   if (o.summary.dropped.length > 0) {
     parts.push(`另有 ${o.summary.dropped.length} 条在正文里找不到依据，没有收`);
   }
@@ -213,7 +217,7 @@ export async function finalizeChapterTask(project: NovelProject, chapter: Chapte
   await runTask(
     `定稿第 ${chapter.order} 章`,
     async ({ signal, report }) => {
-      report({ message: `《${chapter.title}》 · 摘要`, current: 0, total: 3 });
+      report({ message: `《${chapter.title}》 · 细纲`, current: 0, total: 3 });
       const outcome = await finalizeChapter(project, chapter, {
         signal,
         onStep: (step) => {

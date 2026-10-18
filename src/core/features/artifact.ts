@@ -7,7 +7,7 @@
  * 写进文件就意味着解析失败＝这一次生成白花钱，而且用户看着一段像模像样的回答
  * 却等不来那张「写入吗」的卡片，只会以为是插件坏了。
  *
- * 所以沿用摘要那一套**三层降级**（summarize.ts 的 parseSummaryResponse）：
+ * 所以沿用定稿那一套**三层降级**（summarize.ts 的 parseSummaryResponse）：
  *
  * 1. **JSON**——提示词要求的形状。字段缺失、类型不对、数组/字符串混用逐个兜住，
  *    不整体作废。
@@ -44,7 +44,7 @@ import {
 } from '../model/settingFile';
 import { CHARACTER_SECTION_KEYS, CharacterSections } from '../model/types';
 import { CreationAction, CreationTarget, SettingDoc } from '../model/pipeline';
-import { BlueprintItem, decodeBlueprints } from './blueprint';
+import { BlueprintItem, decodeBlueprints, keyEventList } from './blueprint';
 import { STYLE_DRAFT_HEADING, decodeNovelConfig } from './novelConfig';
 import { extractJsonObject, stripCodeFence } from './parse';
 import type { RosterEntry } from './roster';
@@ -59,12 +59,10 @@ export type ConfigFields = Partial<
   Pick<BookConfig, 'genre' | 'subGenre' | 'audience' | 'structure' | 'pov' | 'totalChapters' | 'wordsPerChapter'>
 >;
 
-/** 一章细纲的规划字段（三节之外的那些）。 */
+/** 一章细纲：八节，外加文件名要用的标题与目标字数。出场的人就写在「出场人物」一节里。 */
 export interface PlotFields {
   sections: PlotSections;
   title?: string;
-  role?: string;
-  characters?: string[];
   targetWords?: number;
 }
 
@@ -148,7 +146,7 @@ export function isArtifactEmpty(artifact: Artifact): boolean {
   }
 }
 
-/** 一句话描述，给落盘卡片与气泡末尾那一行用（「细纲 · 3/3 节」「角色图谱 · 5 人」）。 */
+/** 一句话描述，给落盘卡片与气泡末尾那一行用（「细纲 · 7/8 节」「角色图谱 · 5 人」）。 */
 export function describeArtifact(artifact: Artifact): string {
   switch (artifact.kind) {
     case 'settingDoc': {
@@ -183,11 +181,16 @@ const SETTING_TITLE: Record<SettingFileDoc, string> = {
 
 // ---------------------------------------------------------------- 细纲
 
-/** JSON 里三节的别名：移植过来的蓝图合同用的是英文键。 */
+/** JSON 里八节的别名：蓝图合同用的是英文键。 */
 const PLOT_KEY_ALIASES: Record<(typeof PLOT_SECTION_KEYS)[number], string[]> = {
-  本章目的: ['本章目的', 'purpose', '目的', 'goal', '目标'],
-  关键事件: ['关键事件', 'keyEvents', 'events', '事件'],
-  章末钩子: ['章末钩子', 'suspenseHook', 'hook', '钩子'],
+  梗概: ['梗概', 'synopsis', 'summary'],
+  出场人物: ['出场人物', 'characters', '出场角色', '人物'],
+  时间地点: ['时间地点', 'timePlace', 'time_place'],
+  关键事件: ['关键事件', 'keyEvents', 'key_events', 'events', '事件'],
+  看点: ['看点', 'highlights'],
+  新增伏笔: ['新增伏笔', 'foreshadowing'],
+  状态变更: ['状态变更', 'stateChange', 'state_change'],
+  连续性事实: ['连续性事实', 'continuityFacts'],
 };
 
 /**
@@ -212,14 +215,22 @@ export function parsePlotStrict(text: string): PlotFields | undefined {
     for (const key of PLOT_SECTION_KEYS) {
       sections[key] = toSectionText(pickAlias(fromJson, PLOT_KEY_ALIASES[key]));
     }
+    // 出场人物是一行名单（「林昭、沈氏」），不是一条一行的列表——与蓝图落盘的样子一致。
+    const cast = strList(pickAlias(fromJson, PLOT_KEY_ALIASES.出场人物));
+    if (cast.length > 0) {
+      sections.出场人物 = cast.join('、');
+    }
+    // 关键事件一条一行，与批次同一套规矩：给成一段字也按换行与分号切成条。
+    const events = keyEventList(pickAlias(fromJson, PLOT_KEY_ALIASES.关键事件));
+    if (events) {
+      sections.关键事件 = events.map((e) => `- ${e}`).join('\n');
+    }
     // 语法合法但完全不相干的 JSON（`{"text":"..."}`）认下来会得到一份空细纲
     // **并且不再降级**，比解析失败更糟。
     if (Object.values(sections).some((v) => v.trim())) {
       return {
         sections,
         title: clipTitle(str(fromJson.title ?? fromJson.标题)),
-        role: str(fromJson.role ?? fromJson.结构功能 ?? fromJson.功能),
-        characters: strList(fromJson.characters ?? fromJson.出场角色 ?? fromJson.人物),
         targetWords: num(fromJson.targetWords ?? fromJson.目标字数),
       };
     }

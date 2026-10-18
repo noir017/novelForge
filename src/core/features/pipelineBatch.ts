@@ -36,9 +36,9 @@ import { ChatMessage, CancelledError, LlmProvider, StopSignal } from '../llm/pro
 import { ModelPool, createModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
-import { Plot, isPlotFilled } from '../model/plotFile';
+import { Plot, isPlotFilled, plotContentHash } from '../model/plotFile';
 import { isOutlineFilled } from '../model/outlineFile';
-import { buildBookFacts, chapterTargetOf, plotContentHash } from '../views/pipeline';
+import { buildBookFacts, chapterTargetOf } from '../views/pipeline';
 import { defaultTotalChapters } from '../model/importText';
 import { describeTaskModels } from '../model/tiers';
 import { CONTEXT_DETAIL_LABEL } from '../model/contextDetail';
@@ -346,22 +346,8 @@ export async function settingRaw(
 }
 
 /**
- * 批量那条路的 {@link ChainIO}：每次调用走分档池（失败换同档其余，第 12 条），
- * 装配用干活那个模型的窗口（第 13 条：`pool.primaryBudget`），不带思考深度（第 26 条）。
- */
-/** {@link runPlotBatch} 从已写正文整理时要的东西：写到第几章、每章的实际字数与标题（按章号）。 */
-export interface PlotBatchDerive {
-  through: number;
-  targetWords: ReadonlyMap<number, number>;
-  titles: ReadonlyMap<number, string>;
-}
-
-/**
  * 拆一批细纲：生成链（截断拆半、语法修复、漏章 fail-closed）→ 只补空白地落盘。批量拆细纲与批量写章
  * 「边写边拆」共用。**不抛**：失败挂在这一批第一章的细纲上（第 16 条），由调用方决定停不停；取消单列。
- *
- * `derive`：从已写正文整理（拆书 A，features/derive.ts）。装配带上这几章的正文，契约换成「照正文提取」；
- * 标题用章节自己的（作者起的名字，模型改了不算），目标字数记那一章的实际字数，不建新卡。
  */
 export async function runPlotBatch(
   project: NovelProject,
@@ -369,8 +355,7 @@ export async function runPlotBatch(
   pool: ModelPool,
   config: ReturnType<typeof readConfig>,
   signal: AbortSignal,
-  batch: readonly number[],
-  derive?: PlotBatchDerive
+  batch: readonly number[]
 ): Promise<{ ok: true; calls: number } | { ok: false; calls: number; cancelled: boolean; reason: string }> {
   const range = { from: batch[0], to: batch[batch.length - 1] };
   const span = rangeLabel(range.from, range.to);
@@ -381,20 +366,13 @@ export async function runPlotBatch(
     targetNo: range.from,
     range,
     ask: '',
-    ...(derive ? { derive: { through: derive.through } } : {}),
   });
   try {
     const result = await completeBlueprints(undefined, io.chain, [...batch]);
     if (result.notes.length > 0) {
       log.warn(`${span}：${result.notes.length} 处降级`, result.notes.join('\n'));
     }
-    const items = derive
-      ? result.items.map((item) => ({ ...item, title: derive.titles.get(item.no) || item.title, newCharacters: [] }))
-      : result.items;
-    const r = await acceptPlotBatch(project, ws, items, range, {
-      onlyBlank: true,
-      ...(derive ? { targetWords: derive.targetWords, newCards: false } : {}),
-    });
+    const r = await acceptPlotBatch(project, ws, result.items, range, { onlyBlank: true });
     log.info(`${span}的细纲已落盘`, r.message);
     void clearFailures(project, 'plot', target.plotRelPath, 'plotOutline');
     return { ok: true, calls: result.calls };
@@ -418,6 +396,10 @@ export async function runPlotBatch(
   }
 }
 
+/**
+ * 批量那条路的 {@link ChainIO}：每次调用走分档池（失败换同档其余，第 12 条），
+ * 装配用干活那个模型的窗口（第 13 条：`pool.primaryBudget`），不带思考深度（第 26 条）。
+ */
 export function poolIO(
   project: NovelProject,
   pool: ModelPool,
@@ -462,7 +444,7 @@ const MODE_LABEL: Record<WriteBatchMode, string> = {
  *   写（续写链，与对话页同一个 completeManuscript；一章之内续写那几轮钉住同一个模型）
  *   → 新建 chapters/NNN-标题.md、记 writtenFrom
  *   → 写完即审稿：审一遍，报告进「批量审稿」那个会话（五期补遗 §4）
- *   → 写完即定稿：定稿（摘要 + 角色状态，features/finalize.ts）
+ *   → 写完即定稿：定稿（照正文更新细纲 + 角色状态，features/finalize.ts）
  *   → 作者点过「写完这一章就停」：停
  * ```
  *
@@ -470,7 +452,7 @@ const MODE_LABEL: Record<WriteBatchMode, string> = {
  *   更新过的角色状态与证据原文。并发写出来的几章彼此接不上。所以不看并发设置。
  * - **只补空白**（第 19 条）：已有正文的章跳过；区间里第一章没有细纲的就在它前面收住
  *   （`planWriteBatch`，前端弹窗与这里的确认框同源）。
- * - **失败即停**：写不出来（调用失败、思考吃光、空正文）或定稿的摘要失败——停，红 ❗ 挂在
+ * - **失败即停**：写不出来（调用失败、思考吃光、空正文）或定稿时细纲没更新成——停，红 ❗ 挂在
  *   那一章上，已经写好的留着。
  * - **写出来但不能往下接的也停**：重演命中（开头把上一章最后一场又演了一遍）、后面几章才登场的人
  *   提前写了进来（五期补遗 §1.2：下一章要从他「第一次露面」写起）、最后仍不到目标的八成。这几种照样
@@ -489,7 +471,7 @@ const MODE_LABEL: Record<WriteBatchMode, string> = {
  * `confirmed`：工程页弹窗已经把切分与调用次数写给作者看过了，不再弹第二个确认框。agent 的
  * MCP 的 `pipeline` 工具不带它，照旧先问。返回实际调了几次模型（取消、无事可做、没有模型时是 0）。
  */
-/** 批量写章开跑前补建角色卡：摘要里至少出场这么多章的人。 */
+/** 批量写章开跑前补建角色卡：定稿过的细纲里至少出场这么多章的人。 */
 export const CAST_CARD_MIN_APPEARANCES = 2;
 
 export async function writeManuscripts(
@@ -561,13 +543,13 @@ export async function writeManuscripts(
     }
   }
 
-  // 开写之前补建角色卡：已经在摘要里出场两章以上、还没有卡的人。没有卡就没有「当前状态」可维护，
+  // 开写之前补建角色卡：已经在定稿里出场两章以上、还没有卡的人。没有卡就没有「当前状态」可维护，
   // 定稿时不更新、预检也只能靠定稿事实认人（百章实验里 13 张卡有 8 张是写完才建的）。
   const castCards = await planCastCards(project, { minAppearances: CAST_CARD_MIN_APPEARANCES });
   const cardCalls: CallEstimate = { low: castCards.calls, high: castCards.calls, max: castCards.calls };
   const totalCalls = castCards.calls > 0 ? addCalls(plan.calls, cardCalls) : plan.calls;
   const config = readConfig();
-  // 前端弹窗算不出补卡那几次（要读摘要），所以有卡要补时照样再问一次（第 4 条）。
+  // 前端弹窗算不出补卡那几次（要读定稿过的细纲），所以有卡要补时照样再问一次（第 4 条）。
   if (!opts.confirmed || castCards.calls > 0) {
     const pick = await getHost().confirm(
       `${writing}：要写 ${plan.chapters.length} 章正文（${MODE_LABEL[mode]}${reviewing ? '、写完即审稿' : ''}），${describeCalls(totalCalls)}。现在写？`,
@@ -580,7 +562,7 @@ export async function writeManuscripts(
           describeTaskModels(config, 'plotSummary'),
           plan.plotBatches.length > 0 ? describeTaskModels(config, 'plotOutline') : '',
           castCards.plans.length > 0
-            ? `开写之前先给${castCards.plans.map((p) => p.member.name).join('、')}建角色卡（摘要里已经出场 ${CAST_CARD_MIN_APPEARANCES} 章以上、还没有卡；${castCards.calls} 次调用，算在上面的数里）。`
+            ? `开写之前先给${castCards.plans.map((p) => p.member.name).join('、')}建角色卡（定稿里已经出场 ${CAST_CARD_MIN_APPEARANCES} 章以上、还没有卡；${castCards.calls} 次调用，算在上面的数里）。`
             : '',
           '一章一章串行写：后一章接着前一章的结尾写。没写够时自动续写（算在上限里）。',
           `上下文详细度：${CONTEXT_DETAIL_LABEL[config.contextDetail]}（设置 → 上下文管理；只改每次带多少前文，不改调用次数）。`,
@@ -589,7 +571,7 @@ export async function writeManuscripts(
             : '',
           '每章写之前先比对一次细纲与前面定稿的连续性事实（前面没定稿过的章就不调）；对不上就停在那一章前面。',
           reviewing ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不会停。' : '',
-          mode === 'finalize' ? '每写完一章就定稿（摘要 + 出场角色的当前状态），再写下一章。' : '只写正文，不定稿；之后在主按钮上逐章定稿。',
+          mode === 'finalize' ? '每写完一章就定稿（照正文更新细纲 + 出场角色的当前状态），再写下一章。' : '只写正文，不定稿；之后在主按钮上逐章定稿。',
           plan.globalSummaryAt.length > 0
             ? `第 ${plan.globalSummaryAt.join('、')} 章定稿之后各更新一次全书滚动摘要（落后 ${GLOBAL_SUMMARY_EVERY} 章就更新，每次 1 次调用）。`
             : '',
@@ -623,7 +605,7 @@ export async function writeManuscripts(
     }
   }
   const cardPool = castCards.plans.length > 0 ? (statePool ?? (await createModelPool({ task: 'characterCard', concurrent: false }))) : undefined;
-  // 写前冲突检查与摘要同档：读两份短文字、按合同摘出东西。
+  // 写前冲突检查与定稿同档：读两份短文字、按合同摘出东西。
   const checkPool = summaryPool ?? (await createModelPool({ task: 'plotSummary', concurrent: false }));
   const plotPool = plan.plotBatches.length > 0 ? await createModelPool({ task: 'plotOutline', concurrent: false }) : undefined;
   if (plan.plotBatches.length > 0 && !plotPool) {
@@ -843,7 +825,7 @@ export async function writeManuscripts(
           project.invalidate();
           const chapter = await project.getChapter(no);
           try {
-            // 叙事线那一步与摘要同档：读一章、按合同摘出东西，是同一种活。
+            // 叙事线那一步与更新细纲同档：读一章、按合同摘出东西，是同一种活。
             const outcome = chapter
               ? await finalizeChapter(project, chapter, { signal, summary: summaryPool, state: statePool, threads: summaryPool })
               : undefined;
@@ -870,7 +852,7 @@ export async function writeManuscripts(
               }
             }
           } catch (err) {
-            // 请求发出去了钱就花了：摘要那一次算上。
+            // 请求发出去了钱就花了：更新细纲那一次算上。
             calls += 1;
             if (err instanceof CancelledError || signal.aborted) {
               log.warn(`批量写章被取消，${name}写好了、没定稿`);
@@ -1005,7 +987,6 @@ async function writeOne(
     aim,
     prevEnding: writing.prevEnding,
     reasoned: false,
-    hook: writing.hook,
     notYet: writing.notYet,
     banned: writing.banned,
     trim: config.trimModifiers,

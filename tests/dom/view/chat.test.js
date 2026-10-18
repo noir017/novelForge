@@ -242,7 +242,7 @@ describe('空输入', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
+        target: { kind: 'plot', plotRelPath: '.novelforge/summaries/012-夜入青云.md' },
         stage: 'plot',
         capability: 'discuss',
       }),
@@ -290,7 +290,7 @@ describe('产物那一行', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
+        target: { kind: 'plot', plotRelPath: '.novelforge/summaries/012-夜入青云.md' },
         stage: 'plot',
         capability: 'generate',
       }),
@@ -339,7 +339,7 @@ describe('产物那一行', { skip: JSDOM_SKIP }, () => {
       type: 'turnDone',
       turn: turn('a4', 'assistant', 'x', {
         artifact: { where: 'y', summary: 'z', overwrites: false },
-        acceptedTo: '.novelforge/plots/012-夜入青云.md',
+        acceptedTo: '.novelforge/summaries/012-夜入青云.md',
       }),
     });
     assert.ok(ui.bubble('a4').querySelector('.accepted'));
@@ -467,7 +467,7 @@ describe('命令类消息的气泡', { skip: JSDOM_SKIP }, () => {
     ui.post({
       type: 'session',
       session: emptySession({
-        target: { kind: 'plot', plotRelPath: '.novelforge/plots/012-夜入青云.md' },
+        target: { kind: 'plot', plotRelPath: '.novelforge/summaries/012-夜入青云.md' },
         stage: 'plot',
         capability: 'generate',
       }),

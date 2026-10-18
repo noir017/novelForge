@@ -28,9 +28,9 @@ let posted = [];
 let gates = [];
 let script = [];
 
-const P2 = '.novelforge/plots/002-客栈.md';
-const P3 = '.novelforge/plots/003-夜访.md';
-const P4 = '.novelforge/plots/004-井.md';
+const P2 = '.novelforge/summaries/002-客栈.md';
+const P3 = '.novelforge/summaries/003-夜访.md';
+const P4 = '.novelforge/summaries/004-井.md';
 
 const CH1_END =
   '客栈的灯还亮着，沈氏坐在柜台后面拨算盘，看见他进门，手指停在半空，半晌才说了一句：“李叔来过，问你去了哪里，我说你出城收账去了。”林昭没有答话，把湿透的斗篷挂在门后，从灶上端下那碗早就凉了的姜汤，一口一口喝完。';
@@ -104,8 +104,8 @@ before(async () => {
   const empty = bundle.plotFile.emptyPlotSections();
   for (const [no, title] of [[1, '夜入青云'], [2, '客栈'], [3, '夜访'], [4, '井']]) {
     await ws.writePlot({
-      no, title, role: '', characters: [], targetWords: 1000, upstreamHash: '', done: false,
-      sections: { ...empty, 本章目的: `第 ${no} 章的目的`, 关键事件: `第 ${no} 章的关键事件`, 章末钩子: `第 ${no} 章的钩子` },
+      no, title, targetWords: 1000, upstreamHash: '', done: false,
+      sections: { ...empty, 梗概: `第 ${no} 章的梗概`, 关键事件: `第 ${no} 章的关键事件`, 看点: `- 第 ${no} 章的看点` },
     });
   }
   await ws.createChapter(1, '夜入青云', `${filler(900, 1)}\n\n${CH1_END}`);

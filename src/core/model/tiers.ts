@@ -77,7 +77,7 @@ export const LLM_TASKS: LlmTask[] = [
 
 /** 任务的中文名。确认框与日志里出现的就是它。 */
 export const TASK_LABEL: Record<LlmTask, string> = {
-  plotSummary: '单章摘要',
+  plotSummary: '定稿 · 照正文更新细纲',
   globalSummaryStage: '全书摘要 · 分批汇总',
   globalSummaryMerge: '全书摘要 · 最终合并',
   setting: '故事架构',
@@ -93,11 +93,11 @@ export const TASK_LABEL: Record<LlmTask, string> = {
 
 /** 设置页那张表里每行的补充说明：这活为什么归在这一档。 */
 export const TASK_HINT: Record<LlmTask, string> = {
-  plotSummary: '一章一次调用，几十上百次；输入只有单章正文，输出是固定结构。批量写章「写完即定稿」时判本章推进了哪几条叙事线也走这一档',
+  plotSummary: '一章一次调用，几十上百次；输入只有单章正文与它的细纲，输出是固定结构。批量写章「写完即定稿」时判本章推进了哪几条叙事线也走这一档',
   globalSummaryStage: '每批一次调用，批数多且各批独立',
   globalSummaryMerge: '全书只调一次，要跨几十万字取舍主线',
   setting: '配置、前提、角色图谱、世界观各一次（角色图谱分两步）；全书只跑一次，后面每一章都吃它',
-  plotOutline: '每批 5 章一次调用；要在大纲与前后章之间排出这几章的关键事件与钩子，写歪了后面全歪。工程页「从细纲排出」叙事线也走这一档',
+  plotOutline: '每批 5 章一次调用；要在大纲与前后章之间排出这几章的关键事件与看点，写歪了后面全歪。工程页「从细纲排出」叙事线也走这一档',
   manuscript: '一章一次调用，是最烧 token 的活；文风与语气全看它',
   review: '批量写章「写完即审稿」时一章一次；要逐字引正文、判细纲的每一项落实了没有，判错了作者会照着去改',
   loreScan: '逐章通读一遍，只做事实摘录',

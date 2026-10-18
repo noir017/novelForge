@@ -6,7 +6,7 @@ import { describeError, elapsed, formatDuration, scoped } from './logger';
  * 长任务登记处。
  *
  * `Host.progress` 只把进度交给宿主自己的 UI（VS Code 的通知条 / 独立版的
- * toast），网页里看不见——「同步 76 章摘要」跑起来之后界面上什么都没有，
+ * toast），网页里看不见——「同步 76 章细纲」跑起来之后界面上什么都没有，
  * 只能干等。这里在它外面补一层：把每次进度同时记进一张进程内的表，
  * 由 `ChatController` 订阅后广播给所有前端，工程页据此画进度条。
  *
@@ -18,7 +18,7 @@ import { describeError, elapsed, formatDuration, scoped } from './logger';
 
 export interface TaskSnapshot {
   id: string;
-  /** 展示名，如「同步章节摘要」。不带「Novel Forge：」前缀。 */
+  /** 展示名，如「同步章节细纲」。不带「Novel Forge：」前缀。 */
   title: string;
   /** 当前在做什么，如「第 12 章《夜访》」。 */
   message: string;
@@ -170,7 +170,7 @@ function notify(): void {
 /**
  * 跑一个长任务。
  *
- * @param title 展示名，如「同步章节摘要」。
+ * @param title 展示名，如「同步章节细纲」。
  * @param fn 任务体。拿到 `signal` 与 `report`。
  * @param opts.scope 日志来源名，缺省用 title。
  */

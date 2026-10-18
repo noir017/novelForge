@@ -4,7 +4,7 @@
  * | 用例组 | 钉的是什么 |
  * |---|---|
  * | 分段 | 已写 / 没写各自按 20 章切、段不跨线；散文式与空大纲不分段 |
- * | 全套 | 已写的段照摘要整理、其余照架构规划；要求每段都带；后一段看得见前一段的新版；一次审阅、整份写入 |
+ * | 全套 | 已写的段照定稿过的细纲整理、其余照架构规划；要求每段都带；后一段看得见前一段的新版；一次审阅、整份写入 |
  * | 中途失败 | 已重写的几段照样审阅写入，没轮到的保留旧版，报错 |
  * | 不写入 | 审阅时放弃：磁盘不动 |
  */
@@ -142,7 +142,7 @@ describe('全套', () => {
     calls = await bundle.rewrite.rewriteOutline(t.project, plan, '节奏再快一点');
   });
 
-  test('第 1–7 章照摘要整理，第 8–45 章分两段重新规划，说明里写明次数', () => {
+  test('第 1–7 章照定稿过的细纲整理，第 8–45 章分两段重新规划，说明里写明次数', () => {
     assert.deepEqual(
       plan.batches.map((b) => [b.from, b.to, b.derive]),
       [
@@ -153,7 +153,7 @@ describe('全套', () => {
     );
     const text = bundle.rewrite.describeOutlineRewrite(plan);
     assert.match(text, /调用 3 次模型/);
-    assert.match(text, /第 1–7 章已经写成，照各章摘要整理/);
+    assert.match(text, /第 1–7 章已经写成，照各章定稿过的细纲整理/);
     assert.match(text, /第 8–45 章照架构重新规划/);
     assert.equal(calls, 3);
     assert.deepEqual(fake.calls.map((m) => rangeOf(m)), plan.batches);

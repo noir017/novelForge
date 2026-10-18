@@ -98,8 +98,8 @@ export async function projectAction(
         break;
       }
       // 传进来的可能是细纲路径（从流水线那一侧点的），也可能是章节路径
-      // （从工程页那一行点的）。摘要挂在正文上，所以统一解析成章节。
-      // 定稿 = 摘要（带连续性事实）+ 出场角色的当前状态（features/finalize.ts）。
+      // （从工程页那一行点的）。定稿读的是正文，所以统一解析成章节。
+      // 定稿 = 照正文更新细纲（带连续性事实）+ 出场角色的当前状态 + 叙事线（features/finalize.ts）。
       const chapter = await chapterForSummary(c.project, relPath);
       if (!chapter) {
         log.warn(`找不到 ${relPath} 对应的章节，可能还没写正文或刚被改名`);

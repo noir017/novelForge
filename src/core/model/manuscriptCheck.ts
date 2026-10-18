@@ -9,12 +9,11 @@
  *   「本章不出场」的人（{@link notYetOnStage}），写完查一遍（{@link findEarlyEntrances}）。
  * - **年代不符的现代术语**：民国背景的书里冒出「PTSD」。正文里的拉丁字母缩写提示一句
  *   （{@link latinAcronyms}）——只提示：都市、科幻题材里的 CEO、AI 是正常的。
- * - **续写越过章末钩子**：第一次调用已经收在钩子上、只是篇幅不够时，续写接在钩子后面必然越过它。
+ * - **续写越过章末的收尾**：第一次调用已经收了尾、只是篇幅不够时，续写接在收尾后面必然越过它。
  *   这种情况先回退到结尾那一场之前（{@link rewindPoint}，见 generation/continuation.ts）。
  *
- * 只依赖 continuity.ts 的 bigram（钩子落在哪一段与证据句用的是同一种相似度），不进前端打包。
+ * 零 import，不进前端打包。
  */
-import { textBigrams } from './continuity';
 
 // ---------------------------------------------------------------- 比喻词
 
@@ -261,18 +260,9 @@ function sentenceAround(text: string, at: number): string {
 
 // ---------------------------------------------------------------- 续写回退
 
-/** 结尾那几段与章末钩子的 bigram 覆盖率到这个数，算「钩子落在这里」。 */
-export const HOOK_MATCH = 0.35;
-/**
- * 按几段一窗算覆盖率。真实正文的段落很短（一章四五十段、一段六十来字），钩子那一幕常常拆在两三段里，
- * 一段一段算的话最像的那一段也只有 0.3 上下（三期首跑的三章实测）。
- */
-const HOOK_WINDOW = 3;
-/** 只在最后这么多比例的段落里找钩子：再往前就不是结尾了。 */
-const HOOK_SEARCH_SPAN = 0.4;
-/** 找不到钩子时切掉最后多少比例（按字数）…… */
+/** 切掉最后多少比例（按字数）…… */
 const FALLBACK_CUT = 0.25;
-/** ……最多切这么多字：认不出钩子时切多了是白扔。 */
+/** ……最多切这么多字：认不出收尾从哪起，切多了是白扔。 */
 const FALLBACK_MAX_CHARS = 600;
 /** 至少留下这么多比例（按字数）：切多了等于重写一章。 */
 const MIN_KEEP = 0.5;
@@ -284,8 +274,6 @@ export interface Rewind {
   cut: string;
   /** 切掉了几段。 */
   paragraphs: number;
-  /** 是按钩子找到的切点（否则是按比例切的）。 */
-  byHook: boolean;
 }
 
 function paragraphsOf(text: string): string[] {
@@ -295,29 +283,16 @@ function paragraphsOf(text: string): string[] {
     .filter(Boolean);
 }
 
-function coverage(hook: Set<string>, paragraph: string): number {
-  if (hook.size === 0) {
-    return 0;
-  }
-  const own = textBigrams(paragraph);
-  let hit = 0;
-  for (const b of hook) {
-    if (own.has(b)) {
-      hit++;
-    }
-  }
-  return hit / hook.size;
-}
-
 /**
  * 一章写到收尾了、篇幅却不够时，回退到哪里：从结尾那一场之前切开，后面的丢掉重写。
  *
- * - 在最后 40% 的段落里，按 {@link HOOK_WINDOW} 段一窗找与章末钩子最像的那一窗（bigram 覆盖率 ≥
- *   {@link HOOK_MATCH}，并列取靠后的），从窗口第一段开始切——那里就是收尾的地方；
- * - 找不到（钩子空着、或者模型没写到它）就从末尾往前切，切到约 25%、最多 600 字为止；
+ * - 从末尾往前切，切到约 25%、最多 600 字为止；
  * - 至少切一段、至少留一半。只有一段时没法切，返回 undefined——调用方自己决定怎么办。
+ *
+ * 从前细纲单列一节「章末钩子」，这里按它找与之最像的那几段起切。钩子并进「看点」之后（看点里还有
+ * 爽点，拿来找收尾那一场会切错地方），只按比例切。
  */
-export function rewindPoint(text: string, hook: string): Rewind | undefined {
+export function rewindPoint(text: string): Rewind | undefined {
   const paras = paragraphsOf(text ?? '');
   if (paras.length < 2) {
     return undefined;
@@ -327,33 +302,18 @@ export function rewindPoint(text: string, hook: string): Rewind | undefined {
   const before = (i: number) => paras.slice(0, i).reduce((s, p) => s + p.length, 0);
   const allowed = (i: number) => i >= 1 && i < paras.length && before(i) >= total * MIN_KEEP;
 
-  const bigrams = textBigrams(hook ?? '');
-  const from = Math.max(1, Math.floor(paras.length * (1 - HOOK_SEARCH_SPAN)));
-  let best = -1;
-  let bestScore = 0;
-  for (let i = from; i < paras.length; i++) {
-    const score = coverage(bigrams, paras.slice(i, i + HOOK_WINDOW).join('\n'));
-    if (score >= HOOK_MATCH && score >= bestScore && allowed(i)) {
-      best = i;
-      bestScore = score;
-    }
+  // 从末尾往前数，切够四分之一（最多 600 字）为止。
+  const want = Math.min(total * FALLBACK_CUT, FALLBACK_MAX_CHARS);
+  let at = paras.length - 1;
+  while (at > 1 && total - before(at) < want && allowed(at - 1)) {
+    at--;
   }
-  let at = best;
-  if (at < 0) {
-    // 从末尾往前数，切够四分之一（最多 600 字）为止。
-    const want = Math.min(total * FALLBACK_CUT, FALLBACK_MAX_CHARS);
-    at = paras.length - 1;
-    while (at > 1 && total - before(at) < want && allowed(at - 1)) {
-      at--;
-    }
-    if (!allowed(at)) {
-      return undefined;
-    }
+  if (!allowed(at)) {
+    return undefined;
   }
   return {
     keep: paras.slice(0, at).join('\n\n'),
     cut: paras.slice(at).join('\n\n'),
     paragraphs: paras.length - at,
-    byHook: best >= 0,
   };
 }

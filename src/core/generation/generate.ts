@@ -399,7 +399,6 @@ export async function generate(
           aim,
           prevEnding: writing.prevEnding,
           reasoned: !!reasoning,
-          hook: writing.hook,
           notYet: writing.notYet,
           banned: writing.banned,
           trim: config.trimModifiers,
@@ -551,8 +550,6 @@ export interface WritingPlan {
   existing: string;
   prevEnding?: string;
   revision?: { previousDraft: string; feedback: string };
-  /** 本章细纲的章末钩子：收尾过早要回退时按它找收尾那一段（五期补遗 §1.1）。 */
-  hook?: string;
   /**
    * 后面几章才登场的人（带角色卡上的专属称呼）：写完查有没有提前写进来（§1.2）。与执行卡里
    * 「本章不出场」那一行同一个函数、同一个窗口算的（context/layers/dialog.ts 的 `promptFactsOf`）。
@@ -621,7 +618,6 @@ export async function planWriting(project: NovelProject, request: Omit<BuildRequ
     existing: mode === 'continue' ? body : '',
     prevEnding: prevText.trim() ? previousEnding(prevText) : undefined,
     revision: mode === 'rewrite' ? { previousDraft: body, feedback: REWRITE_FEEDBACK } : undefined,
-    ...(plot?.sections.章末钩子.trim() ? { hook: plot.sections.章末钩子 } : {}),
     notYet: no ? await notYetOf(project, no, plot) : [],
     banned,
   };
@@ -664,7 +660,7 @@ export async function planReview(
   }
   return {
     text,
-    goals: plot ? freezeGoals(plot.sections.关键事件, plot.sections.章末钩子) : [],
+    goals: plot ? freezeGoals(plot.sections.关键事件) : [],
     chapterNo: no,
     chapterTitle: plot?.title || (isFallbackChapterTitle(no, chapter.title) ? undefined : chapter.title),
     chapterRelPath: chapter.relPath,

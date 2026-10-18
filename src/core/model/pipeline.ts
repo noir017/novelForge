@@ -18,9 +18,9 @@
  * ```
  * 一句话 ─▶ 架构：小说配置 → 故事前提 → 角色图谱 → 世界观
  *        ─▶ 情节大纲（按章号区间分节）
- *        ─▶ 细纲 plots/NNN-标题.md（一章一份，每批 5 章）
+ *        ─▶ 细纲 summaries/NNN-标题.md（一章一份，每批 5 章）
  *        ─▶ 正文 chapters/NNN-标题.md（直接落盘）
- *        ─▶ 定稿（摘要）
+ *        ─▶ 定稿（照正文反向更新同一份细纲）
  * ```
  *
  * **一条轴：细纲号 = 章号。** 从前是两条：规划的单位是「剧情段」，一段写完再由
@@ -322,7 +322,7 @@ export function commandOf(stage: CreationStage, capability: Capability): StageCo
  * 也会给出「第 7 章」；模板一套就成了「第 7 章《第 7 章》」——读起来像出了 bug。
  * 判据就是「标题恰好等于那个回落值」，因为那正是「没有标题」在数据里的样子。
  *
- * 细纲（`plots/`）与正文（`chapters/`）说的是同一章，所以只有这一个说法。
+ * 细纲（`summaries/`）与正文（`chapters/`）说的是同一章，所以只有这一个说法。
  */
 export function chapterLabel(order: number, title?: string): string {
   const named = title?.trim();
@@ -541,8 +541,9 @@ export function manuscriptRatio(f: Pick<PipelineFacts, 'words' | 'targetWords'>)
  * **先看正文在不在**：没有正文时，细纲排没排过决定是写细纲还是写正文。
  * 有正文之后：
  *
- * 1. 定稿过（摘要在且不过期）或作者宣布过了 → 完成。**定稿过的章即使细纲后来
- *    改了也不拉回「待写」**——那是作者已经认可的文字，界面只挂 ⟳ 提醒。
+ * 1. 定稿过（细纲记的 `sourceHash` 对得上正文）或作者宣布过了 → 完成。**定稿过的章即使细纲后来
+ *    改了也不拉回「待写」**——那是作者已经认可的文字，界面只挂 ⟳ 提醒。定稿之后正文又改过的
+ *    回到待定稿（第 23 条：对得上才算写完），主按钮就是重新定稿。
  * 2. 细纲在正文之后改过，或正文还没写够 → 写正文（重写 / 接着写）。
  * 3. 其余 → 待定稿。
  *
@@ -603,9 +604,9 @@ export interface NextStepPlan {
   /**
    * 这一步不是一次模型对话，而是一个工程动作。
    *
-   * - 定稿（`finalizeChapter`）：它是工程页那条既有的「总结这一章」，不该假装成一轮对话。
+   * - 定稿（`finalizeChapter`）：它是工程页那条既有的「定稿」，不该假装成一轮对话。
    * - 从已写正文补齐（`deriveFromText`，拆书 A）：已经有正文、却缺架构或大纲没覆盖到它们。那是十几到
-   *   几百次调用的批量动作，次数在它自己的确认框里报（要读摘要才算得准），所以这一步不带 `calls`。
+   *   几百次调用的批量动作，次数在它自己的确认框里报（要读定稿过的细纲才算得准），所以这一步不带 `calls`。
    * - 章号断了一截（`chapterGap`）：不花钱，弹一个说明框——缺哪几号、哪几号重复、怎么接上。
    */
   projectAction?: 'finalizeChapter' | 'deriveFromText' | 'chapterGap';
@@ -713,7 +714,7 @@ export function addCalls(a: CallEstimate, b: CallEstimate): CallEstimate {
   return { low: a.low + b.low, high: a.high + b.high, max: a.max + b.max };
 }
 
-/** 一次就完的那种：前提、世界观、大纲、单章细纲、定稿的摘要。 */
+/** 一次就完的那种：前提、世界观、大纲、单章细纲、定稿时更新细纲。 */
 export const ONE_CALL: CallEstimate = { low: 1, high: 1, max: 1 };
 
 /**
@@ -752,15 +753,15 @@ export const PLOT_CHECK_CALLS: CallEstimate = {
 export const CONFIG_CALLS: CallEstimate = { low: 1, high: 1, max: 3 };
 
 /**
- * 定稿一章：摘要 1 次（连续性事实的证据用 bigram 找，不调模型），再用 1 次更新本章出场角色的
- * 「当前状态」（D15、D17），再用 1 次判本章推进了哪几条叙事线（七期）。出场的人一个都没建卡时
- * 没有状态可更新，没有还没收的叙事线时没有线可判——最少只有摘要那一次。
+ * 定稿一章：照正文反向更新细纲 1 次（连续性事实的证据用 bigram 找，不调模型），再用 1 次更新本章出场
+ * 角色的「当前状态」（D15、D17），再用 1 次判本章推进了哪几条叙事线（七期）。出场的人一个都没建卡时
+ * 没有状态可更新，没有还没收的叙事线时没有线可判——最少只有更新细纲那一次。
  */
 export const FINALIZE_CALLS: CallEstimate = {
   low: 1,
   high: 3,
   max: 3,
-  why: '摘要 1 次；本章出场的人有角色卡时更新角色状态 1 次；有还没收的叙事线时判一次本章推进了哪几条',
+  why: '照正文更新细纲 1 次；本章出场的人有角色卡时更新角色状态 1 次；有还没收的叙事线时判一次本章推进了哪几条',
 };
 
 /**
@@ -875,7 +876,7 @@ export function planPlotBatches(input: { from: number; to: number; filledNos: re
 // ---------------------------------------------------------------- 批量写章
 
 /**
- * 批量写章「写完即定稿」时，全书滚动摘要落后这么多章就增量更新一次（1 次调用：旧摘要 + 之后各章的单章摘要）。
+ * 批量写章「写完即定稿」时，全书滚动摘要落后这么多章就增量更新一次（1 次调用：旧摘要 + 之后各章定稿过的细纲）。
  * 百章实验里全书摘要从没生成过：它要作者手动点「重建」。
  */
 export const GLOBAL_SUMMARY_EVERY = 10;
@@ -1037,7 +1038,7 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
         stage: 'plot',
         capability: 'generate',
         label: `写第 ${f.no} 章细纲`,
-        hint: '先把这一章要发生什么定下来：本章目的、关键事件、章末钩子。',
+        hint: '先把这一章要发生什么定下来：梗概、出场人物、关键事件、看点。',
         calls: ONE_CALL,
       };
 
@@ -1082,7 +1083,7 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
         projectAction: 'finalizeChapter',
         label: `定稿第 ${f.no} 章`,
         hint:
-          '正文写够了。定稿生成摘要与连续性事实，并把本章出场角色的当前状态更新到这一章——' +
+          '正文写够了。定稿照正文更新这一章的细纲与连续性事实，并把本章出场角色的当前状态更新到这一章——' +
           '后面几百章靠它们记住这里发生过什么。',
         calls: FINALIZE_CALLS,
       };
@@ -1271,7 +1272,7 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
         stage: 'plot',
         capability: 'generate',
         label: `拆细纲（${rangeText(from, to)}）`,
-        hint: '从情节大纲里把接下来几章拆成一章一份的细纲：本章目的、关键事件、章末钩子。',
+        hint: '从情节大纲里把接下来几章拆成一章一份的细纲：梗概、出场人物、关键事件、看点。',
         range: { from, to },
         calls: blueprintCalls(to - from + 1),
       };
@@ -1284,7 +1285,7 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
 }
 
 /**
- * 「从已写正文补齐」那一步（拆书 A）。不带 `calls`：次数要读摘要才算得准，由 features/derive.ts 的
+ * 「从已写正文补齐」那一步（拆书 A）。不带 `calls`：次数要读定稿过的细纲才算得准，由 features/derive.ts 的
  * 确认框在动手之前报（第 4 条）——点主按钮本身不花钱。
  */
 function deriveStep(f: BookFacts, missing: string, target: CreationTarget): NextStepPlan {
@@ -1294,7 +1295,7 @@ function deriveStep(f: BookFacts, missing: string, target: CreationTarget): Next
     capability: 'generate',
     label: '从已写正文补齐…',
     hint:
-      `已经写了${rangeText(1, through)}，${missing}。照已写正文把摘要、角色卡、架构、情节大纲与细纲整理出来（只补空白），` +
+      `已经写了${rangeText(1, through)}，${missing}。照已写正文把细纲、角色卡、架构与情节大纲整理出来（只补空白），` +
       '再接着往下写；动手之前会先列出要调几次模型。',
     target,
     projectAction: 'deriveFromText',

@@ -1,8 +1,9 @@
-# 正式发布：推一个 v* tag 触发，一次出齐三条发布路径的产物。
+# 正式发布：推一个 v* tag 触发，一次出齐四条发布路径的产物。
 #
 # 与 app.yml 的分工：app.yml 是手动点的桌面壳构建（日常验证「还能编出来」），
 # 这个文件是**发版**时才跑的一条完整流水线——桌面安装包 + VS Code 扩展
-# .vsix + 独立版单文件可执行，最后汇总成一个 GitHub Release 草稿。
+# .vsix + 独立版单文件可执行，汇总成一个 GitHub Release 草稿；另外调 docker.yml
+# 往 GHCR 推独立版的 Docker 镜像。
 #
 # 版本号只记在仓库根 package.json 一处（tauri.conf.json 指过去，独立版编译时写进程序）。
 # 发版在本地做：`npm version patch|minor|major` 先跑全量测试，再改版本号、提交、打 tag，
@@ -199,7 +200,21 @@ jobs:
             src/shells/desktop/target/release/bundle/*/*.msi
           if-no-files-found: error
 
-  # ── 4) 汇总成 Release ───────────────────────────────────────────
+  # ── 4) Docker 镜像 ──────────────────────────────────────────────
+  # 整条流程在 docker.yml 里（手动点也走它，自带测试闸门与冒烟），这里只给版本号。
+  # 和别的 job 并行，不拦 Release 草稿。注意镜像推上 GHCR 就公开了（:latest 也跟着动），
+  # 不等作者在 GitHub 上把草稿点成公开。
+  docker:
+    needs: version
+    uses: ./.github/workflows/docker.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    # 被调用的 workflow 只能在这里给的权限内再收紧，所以推 GHCR 的写权限得从这里给。
+    permissions:
+      contents: read
+      packages: write
+
+  # ── 5) 汇总成 Release ───────────────────────────────────────────
   release:
     needs: [version, bundles, desktop]
     runs-on: ubuntu-latest

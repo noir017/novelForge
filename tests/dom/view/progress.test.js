@@ -1,14 +1,15 @@
 /**
- * 进度显示：工程页的摘要同步横幅，以及长任务进度条。
+ * 进度显示：工程页的定稿进度横幅（写了正文的章有几章定稿过、细纲与正文对得上），以及长任务进度条。
  *
- * 迁自 scripts/smoke-view.js 的这两节：
+ * 迁自 scripts/smoke-view.js 的这两节（当时叫「摘要进度」；单章摘要并进细纲之后，
+ * 「总结过」就是「定稿过」）：
  *   == 摘要进度显示 ==（1437） == 长任务进度条 ==（1475）
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
 const { mount, JSDOM_SKIP, sampleTree, viewState } = require('../../helpers/dom');
 
-describe('摘要进度显示', { skip: JSDOM_SKIP }, () => {
+describe('定稿进度显示', { skip: JSDOM_SKIP }, () => {
   let ui;
   const banner = () => ui.doc.querySelector('#projectBody .banner-summary');
   const groupMeta = (name) =>
@@ -21,16 +22,17 @@ describe('摘要进度显示', { skip: JSDOM_SKIP }, () => {
     ui.post({ type: 'project', tree: sampleTree() });
   });
 
-  test('有过期摘要时出现进度横幅', () => {
+  test('有没定稿的章时出现进度横幅', () => {
     assert.ok(banner());
   });
 
-  test('横幅说明有几章过期', () => {
-    assert.ok(banner().textContent.includes('1 章摘要缺失或已过期'), banner().textContent);
+  // 「定稿之后正文又改过」也算：那一章的细纲已经跟不上正文了。
+  test('横幅说明有几章没定稿', () => {
+    assert.ok(banner().textContent.includes('1 章写了正文还没定稿（或定稿之后正文又改过）'), banner().textContent);
   });
 
   test('横幅给出已完成／总数', () => {
-    assert.ok(banner().textContent.includes('已总结 2 / 3 章'), banner().textContent);
+    assert.ok(banner().textContent.includes('已定稿 2 / 3 章'), banner().textContent);
   });
 
   test('横幅给出百分比', () => {
@@ -51,14 +53,14 @@ describe('摘要进度显示', { skip: JSDOM_SKIP }, () => {
   });
 
   test('分组副标题带进度', () => {
-    assert.ok(groupMeta('文风与摘要').includes('已总结 2/3 章'), groupMeta('文风与摘要'));
+    assert.ok(groupMeta('文风与摘要').includes('已定稿 2/3 章 · 1 章待定稿'), groupMeta('文风与摘要'));
   });
 
   // 同步跑起来后，重复点只会撞上「已有任务」，所以按钮撤掉。
   test('同步进行中不再显示「立即同步」', () => {
     ui.post({
       type: 'tasks',
-      tasks: [{ id: 't1', title: '同步章节摘要', message: '第 3 章', current: 0, total: 1, elapsedMs: 0 }],
+      tasks: [{ id: 't1', title: '同步章节细纲', message: '第 3 章', current: 0, total: 1, elapsedMs: 0 }],
     });
     ui.post({ type: 'project', tree: sampleTree() });
     assert.ok(![...banner().querySelectorAll('button')].some((b) => b.textContent === '立即同步'));
@@ -71,19 +73,19 @@ describe('摘要进度显示', { skip: JSDOM_SKIP }, () => {
     assert.ok(!banner());
   });
 
-  test('分组副标题改为已同步', () => {
-    assert.ok(groupMeta('文风与摘要').includes('已全部同步'), groupMeta('文风与摘要'));
+  test('分组副标题改为已全部定稿', () => {
+    assert.ok(groupMeta('文风与摘要').includes('3 章已全部定稿'), groupMeta('文风与摘要'));
   });
 });
 
 /**
- * 过期摘要的提示只长在工程页。
+ * 没定稿的提示只长在工程页。
  *
  * 对话页从前也挂着一份纯文字横幅（`#staleBanner`），说的是同一句话，却常年
  * 占着消息流本就不宽裕的宽度；要处理这件事也只能去工程页。切走时由活动栏
  * 「工程」上的小圆点留记号。
  */
-describe('过期摘要提示只在工程页', { skip: JSDOM_SKIP }, () => {
+describe('没定稿的提示只在工程页', { skip: JSDOM_SKIP }, () => {
   let ui;
 
   before(() => {
@@ -127,7 +129,7 @@ describe('长任务进度条', { skip: JSDOM_SKIP }, () => {
   test('有任务时露出来', () => {
     ui.post({
       type: 'tasks',
-      tasks: [{ id: 't1', title: '同步章节摘要', message: '第 12 章《夜访》', current: 11, total: 76, elapsedMs: 65000 }],
+      tasks: [{ id: 't1', title: '同步章节细纲', message: '第 12 章《夜访》', current: 11, total: 76, elapsedMs: 65000 }],
     });
     assert.ok(!taskList().classList.contains('hidden'));
   });
@@ -137,7 +139,7 @@ describe('长任务进度条', { skip: JSDOM_SKIP }, () => {
   });
 
   test('显示标题', () => {
-    assert.ok(textOf(0).includes('同步章节摘要'), textOf(0));
+    assert.ok(textOf(0).includes('同步章节细纲'), textOf(0));
   });
 
   test('显示当前在做什么', () => {
@@ -241,7 +243,7 @@ describe('页头任务条 · 所有页签都看得见', { skip: JSDOM_SKIP }, ()
   });
 
   test('不能停在中间的任务没有这一颗', () => {
-    ui.post({ type: 'tasks', tasks: [{ id: 's1', title: '定稿第 3 章', message: '摘要', current: 0, total: 2, elapsedMs: 0 }] });
+    ui.post({ type: 'tasks', tasks: [{ id: 's1', title: '定稿第 3 章', message: '《夜访》 · 细纲', current: 0, total: 3, elapsedMs: 0 }] });
     assert.ok(!buttons().some((b) => b.textContent === '写完这一章就停'));
   });
 
@@ -251,7 +253,7 @@ describe('页头任务条 · 所有页签都看得见', { skip: JSDOM_SKIP }, ()
       title: '批量写章',
       message: '第 1–3 章已写好（调用 3 次）。',
       level: 'info',
-      open: { plotRelPath: '.novelforge/plots/003-夜访.md', label: '打开第 3 章' },
+      open: { plotRelPath: '.novelforge/summaries/003-夜访.md', label: '打开第 3 章' },
     });
     const toast = ui.doc.getElementById('toast');
     assert.ok(!toast.classList.contains('hidden'));
@@ -260,7 +262,7 @@ describe('页头任务条 · 所有页签都看得见', { skip: JSDOM_SKIP }, ()
     assert.equal(btn?.textContent, '打开第 3 章');
     ui.sent.length = 0;
     ui.clickEl(btn);
-    assert.ok(ui.sent.some((m) => m.type === 'openChapter' && m.plotRelPath === '.novelforge/plots/003-夜访.md'), JSON.stringify(ui.sent));
+    assert.ok(ui.sent.some((m) => m.type === 'openChapter' && m.plotRelPath === '.novelforge/summaries/003-夜访.md'), JSON.stringify(ui.sent));
     assert.ok(toast.classList.contains('hidden'));
   });
 

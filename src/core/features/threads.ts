@@ -37,7 +37,7 @@ import { runTask } from '../runtime/progress';
 import { NovelProject } from '../model/project';
 import { Chapter } from '../model/types';
 import { LlmProvider } from '../llm/provider';
-import { isPlotFilled } from '../model/plotFile';
+import { isPlotFilled, sectionLine } from '../model/plotFile';
 import { ONE_CALL, describeCalls } from '../model/pipeline';
 import { describeTaskModels } from '../model/tiers';
 import { hasContent } from '../model/markdown';
@@ -184,12 +184,13 @@ export async function planThreads(
     '请按要求输出 JSON。',
   ].filter(Boolean);
 
+  // 关键事件、看点是一条一行的列表：一章一行时条与条之间用「；」接。
   const plotLines = plots.map(
     (p) =>
-      `第${p.no}章 ${p.title}｜目的：${clip(p.sections.本章目的, 80)}｜关键事件：${clip(
-        p.sections.关键事件,
+      `第${p.no}章 ${p.title}｜梗概：${clip(p.sections.梗概, 80)}｜关键事件：${clip(
+        sectionLine(p.sections.关键事件),
         threadPlanEvents
-      )}｜章末钩子：${clip(p.sections.章末钩子, 60)}`
+      )}｜看点：${clip(sectionLine(p.sections.看点), 60)}`
   );
   // 输入预算：放不下时从细纲一览的最后截（越往后越是还没写到的，判回收章时也最远）。
   const budget = Math.max(3000, pool.primaryBudget.contextWindow - pool.primaryBudget.maxOutputTokens - 2000);
@@ -378,7 +379,7 @@ function judgeLine(full: Thread, no: number): string {
  * 定稿第三步：判这一章推进了哪几条还没收的叙事线，证据逐字校验后追加进 `threads.md`。
  *
  * `run` 决定怎么调模型（同 `updateCharacterStates`）：单章入口直接用对话页选定的那个，批量
- * 入口传「单章摘要」档的池。调用失败或解析不出来时抛错——摘要已经写好了，由调用方把失败
+ * 入口传「定稿」档（`plotSummary`）的池。调用失败或解析不出来时抛错——细纲已经更新好了，由调用方把失败
  * 挂在章节上。
  */
 export async function recordThreadEvents(

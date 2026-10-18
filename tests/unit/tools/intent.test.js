@@ -24,7 +24,7 @@ const tools = loadModule('src/core/tools/novel/index.ts');
 const byName = (name) => tools.NOVEL_TOOLS.find((t) => t.name === name);
 const intentOf = (name, args) => byName(name).intent(args);
 
-const PLOT = '.novelforge/plots/012-入宗.md';
+const PLOT = '.novelforge/summaries/012-入宗.md';
 
 describe('读三件套：不问', () => {
   for (const name of ['list', 'read', 'search']) {

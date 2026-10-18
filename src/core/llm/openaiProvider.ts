@@ -310,7 +310,7 @@ export function readResponsesEvent(event: ResponsesEvent, label: string): Stream
         });
       }
       // `completed` 也要报 `end`：正文续写链（generation/continuation.ts）要分清「模型自己收了尾」
-      // 与「网关没说」——前者说明结尾已经落在章末钩子上，不够八成时先回退再写（五期补遗 §1.1），
+      // 与「网关没说」——前者说明这一章已经收了尾，不够八成时先回退再写（五期补遗 §1.1），
       // 后者不敢回退。
       if (event.type === 'response.incomplete' || event.response?.status === 'incomplete') {
         const reason = event.response?.incomplete_details?.reason;

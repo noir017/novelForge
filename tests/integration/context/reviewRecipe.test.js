@@ -3,9 +3,9 @@
  *
  * | 钉住什么 | 为什么 |
  * |---|---|
- * | 审稿带这一章全文、细纲、冻结的目标清单 | 审的就是它；目标从细纲冻结 |
+ * | 审稿带这一章全文、细纲、冻结的目标清单（只有关键事件） | 审的就是它；目标从细纲的关键事件冻结，看点不是一件件到期的动作 |
  * | 后续章节标「非既定历史」 | 审稿最常见的误判是拿计划当历史 |
- * | 前几章的连续性事实：定稿过的带、没定稿的说清楚 | 上游审稿读的就是已定稿历史；过期的不作数（第 2 条） |
+ * | 前几章的连续性事实：定稿过的带、定稿之后正文又改过的说清楚 | 上游审稿读的就是已定稿历史；对不上正文的不作数（第 2 条） |
  * | 审稿不带历史对话与文风 | 审稿判的是正文，文笔不在审查范围里 |
  * | 修稿带整章原文与勾选清单，没有写正文那一套法则 | 那一套在教它「写一章」，修稿要「只改这几处」 |
  * | 修稿续写带原文与已修订的末尾 | 模型得知道剩下那半章原来怎么写的 |
@@ -22,7 +22,7 @@ const { cleanup } = require('../../helpers/teardown');
 
 const REVIEW = { stage: 'manuscript', capability: 'review' };
 const WRITE = { stage: 'manuscript', capability: 'generate' };
-const P3 = '.novelforge/plots/003-夜访.md';
+const P3 = '.novelforge/summaries/003-夜访.md';
 
 const config = {
   providers: [{ id: 'p', kind: 'openai', baseUrl: 'https://x/v1', models: [{ name: 'm' }] }],
@@ -50,16 +50,13 @@ const byKind = (b, kind) => b.items.filter((i) => i.kind === kind);
 before(async () => {
   t = copyFixture('review-recipe');
   vs = installVscodeStub({ level: 'full', root: t.dir, config: {} });
-  // 第 2 章定稿过、带连续性事实；第 1 章的摘要改成过期的（sourceHash 对不上）。
+  // 第 2 章的细纲定稿过、对得上正文，填上连续性事实；第 1 章的改成定稿之后正文又改过（sourceHash 对不上）。
+  // 第 4 章示例工程里本来就排了细纲（计划）：审第 3 章时它是「后续章节计划」。
   const s2 = path.join(t.dir, '.novelforge/summaries/002-客栈里的女人.md');
-  fs.appendFileSync(s2, '\n## 连续性事实\n\n- 沈氏住进走廊尽头的房间 〔证据：「住进走廊尽头的房间」〕\n- 林昭否认知道七年前的火\n');
+  const facts = '- 沈氏住进走廊尽头的房间 〔证据：「住进走廊尽头的房间」〕\n- 林昭否认知道七年前的火';
+  fs.writeFileSync(s2, fs.readFileSync(s2, 'utf8').replace(/(## 连续性事实\n\n)（待补充）/, `$1${facts}`));
   const s1 = path.join(t.dir, '.novelforge/summaries/001-楔子.md');
   fs.writeFileSync(s1, fs.readFileSync(s1, 'utf8').replace(/sourceHash: \w+/, 'sourceHash: stale000'));
-  // 第 4 章排了细纲：审第 3 章时它是「后续章节计划」。
-  fs.writeFileSync(
-    path.join(t.dir, '.novelforge/plots/004-井.md'),
-    ['---', 'no: 4', 'title: 井', 'characters: [林昭]', 'targetWords: 650', '---', '', '# 第4章 井', '', '## 本章目的', '', '下井', '', '## 关键事件', '', '林昭夜里下到镇东的枯井。', '', '## 章末钩子', '', '井底有人咳了一声。', ''].join('\n')
-  );
 
   const bundle = loadBundle({
     project: './src/core/model/project.ts',
@@ -82,7 +79,7 @@ describe('审稿配方 · 第 3 章', () => {
   let goals;
   before(async () => {
     const plot = await project.getPlot(3);
-    goals = review.freezeGoals(plot.sections.关键事件, plot.sections.章末钩子);
+    goals = review.freezeGoals(plot.sections.关键事件);
     b = await builderMod.buildContext(
       project,
       {
@@ -111,12 +108,19 @@ describe('审稿配方 · 第 3 章', () => {
     assert.ok(lastUser(b).includes('# 待审正文'));
   });
 
-  test('本章细纲与冻结清单都在；钩子单列最后一项', () => {
+  test('本章细纲与冻结清单都在', () => {
     assert.ok(byKind(b, 'plot').some((i) => i.source === P3));
     assert.match(lastUser(b), /【本章目标逐项核对｜冻结清单】/);
     const listed = JSON.parse(/冻结清单：(\[.*\])/.exec(lastUser(b))[1]);
-    assert.equal(listed.length, goals.length);
-    assert.match(listed[listed.length - 1].text, /^章末钩子：/);
+    assert.deepEqual(listed, goals.map((g) => ({ id: g.id, text: g.text })));
+  });
+
+  // 章末钩子并进了「看点」：爽点与章末悬念混在一起，不是一件件到期的动作，不冻结成目标。
+  test('冻结清单只有关键事件，一条一项；契约不再提章末钩子', () => {
+    assert.equal(goals.length, 5);
+    assert.match(goals[0].text, /^年轻守卫夜里潜入林昭房间/);
+    assert.match(lastUser(b), /冻结清单来自本章细纲的关键事件；/);
+    assert.doesNotMatch(lastUser(b), /章末钩子/);
   });
 
   test('后续章节标「非既定历史」', () => {
@@ -125,7 +129,7 @@ describe('审稿配方 · 第 3 章', () => {
     assert.doesNotMatch(lastUser(b), /后续章节预告/);
   });
 
-  test('前几章的连续性事实：定稿过的带，过期的说清楚为什么不带', () => {
+  test('前几章的连续性事实：定稿过的带，定稿之后正文又改过的说清楚为什么不带', () => {
     const facts = byKind(b, 'facts');
     const f2 = facts.find((i) => i.id === 'facts:2');
     assert.equal(f2.status, 'included');
@@ -133,7 +137,7 @@ describe('审稿配方 · 第 3 章', () => {
     assert.doesNotMatch(f2.text, /证据/);
     const f1 = facts.find((i) => i.id === 'facts:1');
     assert.equal(f1.status, 'dropped');
-    assert.match(f1.note, /过期/);
+    assert.equal(f1.note, '定稿之后正文又改过，事实不作数');
     assert.ok(lastUser(b).includes('# 前几章的连续性事实（已定稿'));
   });
 
@@ -210,7 +214,7 @@ describe('修稿配方 · 第 3 章', () => {
     assert.doesNotMatch(lastUser(b), /连载更新核心法则/);
   });
 
-  test('文风、全局要求强制带；细纲、角色卡、上一章结尾作参照；不带近章全文与摘要', () => {
+  test('文风、全局要求强制带；本章细纲、角色卡、上一章结尾作参照；不带近章全文与早前细纲', () => {
     assert.equal(byKind(b, 'style')[0]?.status, 'included');
     assert.equal(byKind(b, 'guidance')[0]?.status, 'included');
     assert.ok(byKind(b, 'plot').length > 0);

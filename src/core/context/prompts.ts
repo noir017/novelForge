@@ -45,7 +45,7 @@ import {
   WriteMode,
   outputKindOf,
 } from '../model/pipeline';
-import { BLUEPRINT_LIMITS } from '../model/plotFile';
+import { BLUEPRINT_LIMITS, sectionItems } from '../model/plotFile';
 import { OUTLINE_SECTION_MAX } from '../model/outlineFile';
 import {
   FrozenGoal,
@@ -85,8 +85,8 @@ export interface PromptFacts {
   book?: BookConfig;
   /** 目标章的章号（单章细纲要写「第 N 章」）。 */
   no?: number;
-  /** 本章细纲里执行卡要重列的几项（写正文时）。 */
-  plot?: { keyEvents: string; hook: string };
+  /** 本章细纲里执行卡要重列的那一项（写正文时）：「关键事件」一节的原文（一条一行）。 */
+  plot?: { keyEvents: string };
   /** 作者这一轮说的话：写正文时它是「作者本章指导」，进执行卡。 */
   ask?: string;
   /** 写正文的写法（`continue` 时契约改成「只写新增的那一段」）。 */
@@ -123,8 +123,8 @@ const STAGE_DUTY: Record<CreationStage, string> = {
   // 从前这一层禁止写画面与动作、只许写抽象的因果链。那是让模型去「扩写」一条梗概，
   // 写出来是流水账。现在一章一纲，关键事件可以写到具体场面。
   plot:
-    '你负责把这一章要发生什么定下来：本章目的、落在哪几个具体场面上的关键事件、' +
-    '以及把读者拽进下一章的章末钩子。\n' +
+    '你负责把这一章要发生什么定下来：梗概、谁出场、在哪、落在哪几个具体场面上的关键事件、' +
+    '读者最爽的那一下与把读者拽进下一章的东西（看点）、埋下哪些伏笔、人物之后变成什么样。\n' +
     '**关键事件可以写具体场面**——谁在哪、对谁做了什么、结果怎样；但它不是正文，' +
     '不写成段的描写与对白。每一章都要有实质推进，不要写「继续发展」这种空话。',
   manuscript:
@@ -282,7 +282,7 @@ function isFirstChapter(facts: PromptFacts): boolean {
  * `systemRole` 与 `systemSuffix`（PT:724、758-780、787、831-854）。
  *
  * 原有的六条硬性要求保留了前五条。第 6 条从前是「不要在结尾强行收束，留出继续往下写的
- * 余地」——那是一段细纲拆成几章写时的规矩；一章一纲之后这一章就该停在细纲的钩子上，
+ * 余地」——那是一段细纲拆成几章写时的规矩；一章一纲之后这一章就该停在细纲约定的结束状态上，
  * 于是换成上游的「按约定的结束状态收束」。
  *
  * 上游的「不可偏离的作者事实」在它那里是把故事架构全文塞进系统提示；这里事实由装配器
@@ -300,7 +300,7 @@ function manuscriptSystemPrompt(config: NovelConfig, facts: PromptFacts): string
       ? '4. 不要用长篇大论介绍世界观，设定只在情节需要时通过动作与对话带出来。'
       : '4. 不要复述前情，不要写「上回说到」，直接从上一章结尾的情境自然接续。',
     '5. 只输出正文。不要输出章节标题、小标题、分隔线、创作说明、字数统计或任何元信息，也不要用 Markdown 符号（* 、# 之类）。',
-    '6. 按本章细纲约定的结束状态或章末钩子收束；不在结尾做总结陈词，不擅自新增高潮、突发变故或后续章节的事件。',
+    '6. 按本章细纲约定的结束状态收束（看点里写的章末悬念落在结尾）；不在结尾做总结陈词，不擅自新增高潮、突发变故或后续章节的事件。',
     `7. ${ERA_RULE}`,
     ...(words ? [`8. 篇幅约 ${words} 字，不必精确。`] : []),
   ];
@@ -365,11 +365,11 @@ function manuscriptContract(facts: PromptFacts): string {
       );
     }
     if (step?.rewound) {
-      // 五期补遗 §1.1：上一轮已经收在钩子上、篇幅不够，收尾那一段刚被拿掉。往钩子后面接只会
-      // 越过它、写进下一章；所以让它从收尾之前接着写，写足之后重新落到钩子上。
+      // 五期补遗 §1.1：上一轮已经收了尾、篇幅不够，收尾那一段刚被拿掉。往收尾后面接只会
+      // 越过它、写进下一章；所以让它从收尾之前接着写，写足之后重新收尾。
       lines.push(
         '上一轮写到本章收尾时篇幅还不够，收尾那一段已经拿掉了：上面「本章已写正文」停在收尾之前。',
-        '请从它的末尾接着写，把本章细纲里还没写足的事件写足（场面、动作、对白、人物的反应），最后重新落到章末钩子上收束。',
+        '请从它的末尾接着写，把本章细纲里还没写足的事件写足（场面、动作、对白、人物的反应），最后按本章细纲约定的结束状态重新收尾。',
         ''
       );
     }
@@ -385,7 +385,7 @@ function manuscriptContract(facts: PromptFacts): string {
       '- 不要输出标题、解释、总结、Markdown、思考过程或「点我继续」。',
       '- 避免重复已写正文中的整句、整段、动作链和意象。',
       `- ${DIALOGUE_RULE}`,
-      '- 不提前写后续章节，只完成本章细纲允许的内容；写到章末钩子就收住，不越过它去写之后的事。'
+      '- 不提前写后续章节，只完成本章细纲允许的内容；写到本章细纲约定的结束状态就收住，不越过它去写之后的事。'
     );
   } else if (isFirstChapter(facts)) {
     lines.push(
@@ -472,14 +472,15 @@ function boundaryCard(facts: PromptFacts): string {
 /**
  * 本章执行卡：把细纲里「必须落实的事」在消息最末原样重列一遍。移植自 GD:645-656。
  *
- * **补上上游的缺口**：单章入口（`chapter-creation-parameters.ts:43-58`）不收章末钩子，
- * 那条路上执行卡里只有必需事件——这里钩子一律从细纲里取。
+ * 只列关键事件（与上游单章入口 `chapter-creation-parameters.ts:43-58` 一样）：看点里爽点与章末悬念
+ * 混在一起，不是一件件到期的动作，本章细纲整份已经在上面。关键事件是一条一行的列表：只有一条就接在
+ * 冒号后面，多条就按原来的顺序缩进列在下面，一条一项地核对。
  */
 function executionCard(facts: PromptFacts): string | undefined {
+  const events = sectionItems(facts.plot?.keyEvents ?? '');
   const items: [string, string | undefined][] = [
-    ['必需事件', facts.plot?.keyEvents],
-    ['章节钩子', facts.plot?.hook],
-    ['作者本章指导', facts.ask],
+    ['必需事件', events.length > 1 ? `\n${events.map((e) => `  - ${e}`).join('\n')}` : events[0]],
+    ['作者本章指导', facts.ask?.trim()],
   ];
   const filled = items.filter(([, v]) => v?.trim());
   if (filled.length === 0) {
@@ -488,7 +489,7 @@ function executionCard(facts: PromptFacts): string | undefined {
   return [
     '【本章执行卡（细纲原文重列）】',
     '以下各项是本章应落实的动作和收束，不是新增事实。请在输出前核对各项已通过正文里的动作或结果落实；后一项动作必须承接正文实际形成的物品持有、人物知情和计划完成状态。',
-    ...filled.map(([k, v]) => `- ${k}：${v!.trim()}`),
+    ...filled.map(([k, v]) => `- ${k}：${v!}`),
   ].join('\n');
 }
 
@@ -558,11 +559,11 @@ function reviewContract(facts: PromptFacts): string {
   } else {
     lines.push(
       '【本章目标逐项核对｜冻结清单】',
-      '在同一个 JSON 根对象里增加 goalReviews 数组（不受 items 的条数限制）。冻结清单来自本章细纲的关键事件与章末钩子；按 id、evidence、description、status 顺序逐项返回 {"id":"原始id","evidence":[{"quote":"待审正文逐字引文"}],"description":"逐个列出目标原文中的每个当章子动作及其判断，再汇总","status":"completed|unmet|unknown"}，不得删项、改写目标或自创 id。',
+      '在同一个 JSON 根对象里增加 goalReviews 数组（不受 items 的条数限制）。冻结清单来自本章细纲的关键事件；按 id、evidence、description、status 顺序逐项返回 {"id":"原始id","evidence":[{"quote":"待审正文逐字引文"}],"description":"逐个列出目标原文中的每个当章子动作及其判断，再汇总","status":"completed|unmet|unknown"}，不得删项、改写目标或自创 id。',
       '依次判断：',
-      '1. 先按原意区分当章行动与背景/未来约束；仅当目标要求达成约定时，本章达成约定即可，不要求提前执行。背景、本章目的、未来计划不是已发生事实，也不自动变成到期行动。',
+      '1. 先按原意区分当章行动与背景/未来约束；仅当目标要求达成约定时，本章达成约定即可，不要求提前执行。背景、梗概里的意图、未来计划不是已发生事实，也不自动变成到期行动。',
       '2. 当章到期行动有明确延期、拒绝或相反结果的正文证据 → unmet。准备/承诺不能代替要求现在完成的行动；部分完成不等于整项目标完成。',
-      '3. 全部到期动作有完成证据，或正文明确支持该项约束 → completed。章末钩子一项看本章结尾有没有落下这个悬念或结束状态。',
+      '3. 全部到期动作有完成证据，或正文明确支持该项约束 → completed。',
       '4. 仅未提及、无法判断或证据不足 → unknown，不能以「没写到」断言「没发生」。例如要求归还借书，正文只写走进图书馆：应 unknown，不能判 unmet。',
       '最后汇总所有子动作：任一 unmet → unmet；否则任一 unknown → unknown；仅全部完成 → completed。不得用多数已完成掩盖一个延期或不明子动作。',
       'completed/unmet 都须待审正文的逐字证据；unknown 可 evidence:[]。不拼接或改写引文，不引用计划证明行动；引文存在不证明推断成立。不检查字数或强求背景细节。',
@@ -663,7 +664,7 @@ function span(from: number, to: number): string {
  * 输出契约：附在 user 消息末尾的那段「现在请你产出什么」。
  *
  * 结构化产物一律要求 JSON。解析侧必须能降级（JSON → Markdown 小节 → 全文），
- * 与单章摘要同一套——模型不听话是常态，而解析失败等于这一次生成白花钱。
+ * 与定稿同一套——模型不听话是常态，而解析失败等于这一次生成白花钱。
  */
 export function buildOutputContract(action: CreationAction, facts: PromptFacts = {}): string {
   if (outputKindOf(action) === 'text') {
@@ -980,7 +981,7 @@ const OUTLINE_HIGHLIGHT_RULE =
   '每节正文后另起一行写「- 本段看点：」：这一段读者最爽的那一下（打脸、逆袭、收获、反转、揭秘，写清谁被打脸、主角凭什么赢、围观者怎样反应）和吊着读者往下翻的钩子。不写「精彩纷呈」「高潮迭起」这类空话。';
 
 /**
- * 从已写正文整理一段情节大纲（拆书 A）：依据是那几章的摘要（`written` 层）。分节格式与续写大纲
+ * 从已写正文整理一段情节大纲（拆书 A）：依据是那几章定稿过的细纲（`written` 层）。分节格式与续写大纲
  * 同一份（`## 第a–b章：标题`、每节最多 {@link OUTLINE_SECTION_MAX} 章）——后面续写大纲、拆细纲、
  * 指纹链都认这个格式。去掉的是规划用的那几条：结构拐点、节奏策略、终局事件只发生一次。
  */
@@ -1001,7 +1002,7 @@ function deriveOutlineContract(facts: PromptFacts): string {
     '【故事结构】按正文实际的走向分节；「故事结构指导」只用来判断这一段在全书结构里处在哪个位置，不要为了贴合它改写已经发生的事。',
     '',
     '【要求】',
-    '1. 每一节概括这几章实际推进到哪、经过哪些关键事件：写已经发生了什么，不预告、不改写后文。抓主干与转折，不要把摘要里的每个动作都搬进来。',
+    '1. 每一节概括这几章实际推进到哪、经过哪些关键事件：写已经发生了什么，不预告、不改写后文。抓主干与转折，不要把细纲里的每个动作都搬进来。',
     `2. 每一节最多覆盖 ${OUTLINE_SECTION_MAX} 章，按正文自然的段落（一个小事件、一次转折）分节。`,
     '3. 有修炼、等级或实力体系时，每节末尾照正文写明主角此时的境界与关键资源。',
     `4. ${OUTLINE_HIGHLIGHT_RULE}看点照正文提炼，不另编。`,
@@ -1018,9 +1019,6 @@ function deriveOutlineContract(facts: PromptFacts): string {
  * 两个入口的输出契约必须一致。
  */
 function blueprintContract(facts: PromptFacts): string {
-  if (facts.derive) {
-    return deriveBlueprintContract(facts);
-  }
   const no = facts.no;
   const range = facts.range ?? (no !== undefined ? { from: no, to: no } : undefined);
   const { total, words } = scaleOf(facts);
@@ -1053,7 +1051,7 @@ function blueprintContract(facts: PromptFacts): string {
       : '这是全书开篇，前面没有已生成的章节。',
     ...(range && range.from > 1
       ? [
-          '- 前面各章已定稿的摘要与连续性事实是既成历史：已经死了的人不再出场（回忆、幻象除外），已经毁掉、交出去的东西不再出现在谁手里，境界只进不退。细纲与大纲有出入时以既成历史为准。',
+          '- 前面各章定稿过的细纲与连续性事实是既成历史：已经死了的人不再出场（回忆、幻象除外），已经毁掉、交出去的东西不再出现在谁手里，境界只进不退。细纲与大纲有出入时以既成历史为准。',
           '- 已经发生过的终局级事件（核心大阵被毁、主要反派身死、秘境崩塌、主角动用终极手段）不得再排一次；后续只写它的余波与代价。',
         ]
       : []),
@@ -1074,7 +1072,7 @@ function blueprintContract(facts: PromptFacts): string {
     lines.push(
       '',
       '【章节容量合同】',
-      `每章正文目标约 ${target} 字，可接受范围 ${low}–${high} 字；据此控制情节点容量。作者指定事件与字数目标均为权威事实，不得删除、改写或擅自调整。合并 role、purpose、keyEvents、架构与前章列表中对同一事件的重复表述，只计一个语义事件；不擅自增加独立事件，也不为凑字数补事件。背景设定只作为约束和参考；除非作者指定事件明确要求，不得把全部背景逐项演成场景。JSON 输出合同不变；容量兼容时，keyEvents 只写能在上述范围内完整演绎的推进与结果。若语义去重后仍不兼容，保留作者指定事件，并在现有 keyEvents 字符串中简短指出「容量冲突：…」供作者调整；不新增字段、不代替作者取舍，也不写章节正文。`
+      `每章正文目标约 ${target} 字，可接受范围 ${low}–${high} 字；据此控制情节点容量。作者指定事件与字数目标均为权威事实，不得删除、改写或擅自调整。合并 synopsis、keyEvents、架构与前章列表中对同一事件的重复表述，只计一个语义事件；不擅自增加独立事件，也不为凑字数补事件。背景设定只作为约束和参考；除非作者指定事件明确要求，不得把全部背景逐项演成场景。JSON 输出合同不变；容量兼容时，keyEvents 只写能在上述范围内完整演绎的推进与结果。若语义去重后仍不兼容，保留作者指定事件，并在 keyEvents 末尾追加一条「容量冲突：…」简短指出，供作者调整；不新增字段、不代替作者取舍，也不写章节正文。`
     );
   }
 
@@ -1091,45 +1089,12 @@ function blueprintContract(facts: PromptFacts): string {
 }
 
 /**
- * 从已写正文整理细纲（拆书 A）：依据是那几章正文的头尾（`written` 层）。上游 `infer_blueprints_per_chapter`
- * 的那句「keyEvents 必须基于正文实际内容提取，不可臆造」照搬；规划用的几段（接力推演、商业网文节奏、
- * 章节容量合同）不要——这几章已经写完了。JSON 合同与平常**一字不差**（第 22 条：几条路共用同一份
- * 蓝图合同），于是解码、修复链、落盘全部复用。
- */
-function deriveBlueprintContract(facts: PromptFacts): string {
-  const no = facts.no;
-  const range = facts.range ?? (no !== undefined ? { from: no, to: no } : undefined);
-  const compact = facts.step?.kind === 'blueprintCompact' ? facts.step : undefined;
-  const where = range ? span(range.from, range.to) : '这一章';
-  const L = BLUEPRINT_LIMITS;
-  const lines = [
-    `${where}的正文已经写成（见上面「已写正文」）。请为${where}各整理一份细纲，一章一份：照正文实际写的提取，不可臆造，不预告后文。`,
-    '',
-    ...deriveLead(facts),
-    '【整理要求】',
-    `- title：这一章的章名（「已写正文」里每章开头那一行写着；没有章名就按本章内容起一个，不超过 ${L.title} 字，不带「第N章」）。`,
-    '- role：本章在全书结构中的功能（建置、发展、转折、小高潮……），按正文判断。',
-    '- purpose：本章主角实际想解决的那一件事。',
-    '- keyEvents：按正文实际发生的顺序写清谁在哪、对谁做了什么、结果怎样；必须基于正文实际内容提取，不可臆造。',
-    '- suspenseHook：本章结尾实际留下的悬念、威胁或未决的事（看正文的结尾）。',
-    '- characters：本章实际出场的主要人物，写完整姓名。',
-    '- 不要输出 newCharacters：角色卡另外从正文建。',
-    '',
-    blueprintJsonContract(range),
-  ];
-  if (compact) {
-    lines.push(
-      '',
-      `【上次输出不合格】${compact.diagnostic ?? '输出被截断或无法解析'}。丢弃上次输出，按上述合同完整重建。`,
-      `必须且只能返回 chapterNumber=${range?.from} 的一项；每个字段写精炼，keyEvents 控制在 150 字左右。`
-    );
-  }
-  return lines.join('\n');
-}
-
-/**
  * 蓝图 JSON 合同本身。语法修复那一步也用它当「不可变合同」（generation/structured.ts）：
  * 修复只能照着它补标点，不能照着任务去补内容。
+ *
+ * 字段就是细纲的八节（连续性事实除外：证据要回正文定位，定稿时才有），说法照定稿那份提示词
+ * （features/summarizePrompt.ts 的 `SUMMARY_SYSTEM`）改成「计划」的口吻——同一份文件，计划与定稿
+ * 写的是同一件事，只是一个在写之前、一个在写之后。
  */
 export function blueprintJsonContract(range?: { from: number; to: number }): string {
   const L = BLUEPRINT_LIMITS;
@@ -1139,15 +1104,19 @@ export function blueprintJsonContract(range?: { from: number; to: number }): str
   const first = range?.from ?? 1;
   return [
     '【不可变细纲 JSON 合同】',
-    '只输出 {"blueprints":[...]}，每项必须完整包含：chapterNumber、title、role、purpose、keyEvents、characters、suspenseHook；newCharacters 可选。',
-    `${cover}；title、role、purpose、keyEvents、suspenseHook 必须是非空字符串。`,
-    `title 是这一章的标题（不超过 ${L.title} 字，不带「第N章」）；role 写本章在全书结构中的功能（如建置、发展、转折、小高潮）；purpose 写本章主角最想解决的一件事。`,
-    `keyEvents 写 100–300 字：主角做了什么，遭遇了什么反转，金手指怎么用的——可以写到具体场面（谁在哪、对谁做了什么、结果怎样），但它不是正文，不写成段的描写与对白；绝不得超过 ${L.keyEvents} 字。`,
-    'suspenseHook 始终必填；即使本章没有谜团，也要写明一个制造推进压力的具体未决决定、威胁、揭示或后果。',
-    `characters 必须是至少含一个唯一非空角色名的字符串数组，写完整姓名，最多 ${L.characters} 项。`,
+    '只输出 {"blueprints":[...]}，每项必须完整包含：chapterNumber、title、synopsis、characters、timePlace、keyEvents、highlights、foreshadowing、stateChange；newCharacters 可选。',
+    `${cover}；title、synopsis 必须是非空字符串，keyEvents 至少一条，characters 至少一人；timePlace、stateChange 没有就给 ""，highlights、foreshadowing 没有就给 []。`,
+    `title 是这一章的标题（不超过 ${L.title} 字，不带「第N章」）。`,
+    `synopsis 用 3–5 句话写清本章计划发生什么，写清因果链（不超过 ${L.synopsis} 字）。`,
+    `characters 是本章计划登场、有实质动作的人，字符串数组，写完整姓名（已有角色卡的人照抄卡上的名字），被别人提到一句的不算，最多 ${L.characters} 项。`,
+    'timePlace 写本章的时间点（与上一章的相对关系亦可）与主要场景。',
+    `keyEvents 是字符串数组，按发生的顺序一条一件事，3–6 条，合计 100–300 字：主角计划做什么，会遭遇什么反转，金手指怎么用——每条可以写到具体场面（谁在哪、对谁做了什么、结果怎样），但它不是正文，不写成段的描写与对白；最多 ${L.keyEventItems} 条，合计绝不得超过 ${L.keyEvents} 字。`,
+    `highlights 是字符串数组，1–3 条、一条一句：本章计划让读者最爽、最想往下看的地方——爽点写清谁被谁打脸/压制、主角凭什么赢、围观者怎样反应（打脸、逆袭、收获、反转、揭秘、高光对决）；钩子写清章末吊着读者想知道什么；过渡章没有爽点就只写钩子。写具体的那一下，不写「精彩」「爽快」这类评价词。`,
+    `foreshadowing 是字符串数组，一条一句：本章计划埋下、留到后面回收的线索、疑问、承诺；没有就给 []，最多 ${L.listItems} 条。`,
+    'stateChange 写本章之后，主要人物的处境、关系、实力、心态计划变成什么样。',
     'newCharacters 可选；只列由本章首次引入且预计后续还会出场的重要具名角色，每项 {"name":"…","role":"…","gender":"…"}，name 必须逐字复制 characters 中的一个完整姓名，role 只能是 protagonist、antagonist、supporting、minor，gender 写「男」或「女」；已经有角色卡的人、一次性路人都不要列。',
-    '不得省略必填字段、合并章节、输出近义字段、解释、Markdown 或代码围栏。',
-    `【精确 JSON 形状】{"blueprints":[{"chapterNumber":${first},"title":"…","role":"…","purpose":"…","keyEvents":"…","characters":["…"],"suspenseHook":"…"}]}`,
+    '数组的元素里不要写编号或「-」。不得省略必填字段、合并章节、输出近义字段、解释、Markdown 或代码围栏。',
+    `【精确 JSON 形状】{"blueprints":[{"chapterNumber":${first},"title":"…","synopsis":"…","characters":["…"],"timePlace":"…","keyEvents":["…"],"highlights":["…"],"foreshadowing":["…"],"stateChange":"…"}]}`,
   ].join('\n');
 }
 

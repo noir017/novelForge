@@ -59,7 +59,7 @@ export async function checkPlotAgainstFacts(
     return { calls: 0, conflicts: [], dropped: 0, skipped: '前面没有定稿过、留下连续性事实的章' };
   }
 
-  const text = [plot.sections.本章目的, plot.sections.关键事件, plot.sections.章末钩子].filter((s) => s.trim()).join('\n\n');
+  const text = [plot.sections.梗概, plot.sections.关键事件, plot.sections.看点].filter((s) => s.trim()).join('\n\n');
   const user = plotCheckUser({ no, title: plot.title, text }, facts);
   const options: StreamOptions = {
     maxOutputTokens: runner.primaryBudget.maxOutputTokens,

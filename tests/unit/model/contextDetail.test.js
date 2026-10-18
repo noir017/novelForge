@@ -111,7 +111,7 @@ describe('model/contextDetail · 容错与解析', () => {
     assert.match(m.describeContextDetail(1), /近章全文 不带/);
     assert.match(m.describeContextDetail(1), /定稿原文片段 不带/);
     assert.match(m.describeContextDetail(1), /角色卡只带要点/);
-    assert.match(m.describeContextDetail(4), /更早章摘要 不限/);
+    assert.match(m.describeContextDetail(4), /更早章细纲 不限/);
     assert.doesNotMatch(m.describeContextDetail(4), /Infinity/);
   });
 });

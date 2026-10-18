@@ -32,8 +32,6 @@ export function describeForReview(path: PathKind, rel: string): string {
       return no === undefined ? '这一章的细纲' : `第 ${no} 章的细纲`;
     case 'chapter':
       return no === undefined ? '这一章' : `第 ${no} 章`;
-    case 'summary':
-      return no === undefined ? '这一章的摘要' : `第 ${no} 章的摘要`;
     case 'character':
       return `角色卡 ${rel}`;
     case 'lore':

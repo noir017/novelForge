@@ -49,6 +49,8 @@ const EDIT_PORT = 3998;
 const EMPTY_PORT = 3997;
 /** 多窗口排在最后，理由同上。 */
 const MULTI_PORT = 3996;
+/** 令牌鉴权再排在多窗口之后，理由同上。 */
+const AUTH_PORT = 3995;
 const root = path.join(import.meta.dir, '..', '..', '..', 'sample-novel');
 const base = `http://127.0.0.1:${PORT}`;
 
@@ -341,7 +343,7 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
     // 连上时后端推过一轮全量状态，里面就有一条 session。不清掉的话
     // 下面的 waitFor 会立刻拿到那条旧的，而不是这次切目标的结果。
     conn.drain();
-    conn.send({ type: 'selectPlot', plotRelPath: '.novelforge/plots/003-夜访.md' });
+    conn.send({ type: 'selectPlot', plotRelPath: '.novelforge/summaries/003-夜访.md' });
     session = await conn.waitFor((m) => m.type === 'session', 'session');
     pipe = await conn.waitFor((m) => m.type === 'pipeline', 'pipeline');
 
@@ -351,7 +353,7 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
     outlinePipe = await conn.waitFor((m) => m.type === 'pipeline', 'pipeline（大纲）');
 
     // 段刚被改名/删掉时不能让整条推送失败。
-    conn.send({ type: 'selectPlot', plotRelPath: '.novelforge/plots/不存在.md' });
+    conn.send({ type: 'selectPlot', plotRelPath: '.novelforge/summaries/不存在.md' });
     toasted = await conn.waitFor((m) => m.type === 'toast', 'toast');
   });
 
@@ -376,7 +378,7 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
   });
 
   test('目标指向那一段', () => {
-    assert.equal(session.session.target.plotRelPath, '.novelforge/plots/003-夜访.md');
+    assert.equal(session.session.target.plotRelPath, '.novelforge/summaries/003-夜访.md');
   });
 
   test('推来流水线', () => {
@@ -393,12 +395,19 @@ describe('选中一章 → 状态机决定落在哪一层', () => {
   });
 
   // **这一章做完了就转去问全书**：从前做完就沉默，作者得自己去找下一章。
-  // sample-novel 写到第 3 章、第 4 章还没有细纲，于是主按钮是「拆细纲（第 4–8 章）」，
-  // 落点是第 4 章细纲应该在的位置。
+  // sample-novel 写到第 3 章，第 4 章《空匣》的细纲已经排好（计划，还没有正文），
+  // 于是全书的下一步落到第 4 章的单章状态机上：主按钮是「写第 4 章」，落点是那份细纲。
   test('已完成的章，下一步转到全书的下一步', () => {
-    assert.equal(pipe.next?.label, '拆细纲（第 4–8 章）', JSON.stringify(pipe.next));
-    assert.deepEqual(pipe.next?.range, { from: 4, to: 8 });
-    assert.equal(pipe.next?.target?.plotRelPath, '.novelforge/plots/004.md');
+    assert.equal(pipe.next?.label, '写第 4 章', JSON.stringify(pipe.next));
+  });
+
+  test('全书的下一步落在第 4 章的细纲上', () => {
+    assert.equal(pipe.next?.target?.plotRelPath, '.novelforge/summaries/004-空匣.md', JSON.stringify(pipe.next));
+  });
+
+  // 写正文那一步按的是单章，不是一段区间。
+  test('写正文这一步不带区间', () => {
+    assert.equal(pipe.next?.range, undefined, JSON.stringify(pipe.next));
   });
 
   test('已完成的章徽章是已完成', () => {
@@ -763,5 +772,100 @@ describe('多窗口：每个窗口各开一个工程', () => {
   test('MCP 指向没开着的工程：说出是哪个', () => {
     assert.equal(mcpMissing.isError, true);
     assert.ok(mcpMissing.content[0].text.includes('没有打开这个小说工程'), mcpMissing.content[0].text);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+// 排在最后：startServer 的 initHost 是单例。仍绑 127.0.0.1——配了令牌就鉴权，与绑在哪无关。
+describe('令牌鉴权', () => {
+  const TOKEN = 'e2e-token-0123456789abcdef';
+  const authBase = `http://127.0.0.1:${AUTH_PORT}`;
+  const login = (token, next = '/') =>
+    fetch(`${authBase}/login`, {
+      method: 'POST',
+      body: new URLSearchParams({ token, next }),
+      redirect: 'manual',
+    });
+  const listTools = (headers = {}) =>
+    fetch(`${authBase}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    });
+
+  let cookie;
+  let win;
+
+  before(async () => {
+    const authWin = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-e2e-auth-'));
+    await startServer({ root, port: AUTH_PORT, windowDir: authWin, token: TOKEN });
+    const ok = await login(TOKEN, '/?from=login');
+    cookie = ok.headers.get('set-cookie')?.split(';')[0];
+  });
+
+  after(() => {
+    win?.ws.close();
+  });
+
+  test('没登录：首页回 401 登录页，交完跳回原地址', async () => {
+    const res = await fetch(`${authBase}/?project=x`, { redirect: 'manual' });
+    assert.equal(res.status, 401);
+    const html = await res.text();
+    assert.ok(html.includes('action="/login"'));
+    assert.ok(html.includes('value="/?project=x"'));
+  });
+
+  test('静态资源与 favicon 不设防', async () => {
+    assert.equal((await fetch(`${authBase}/media/view.js`)).status, 200);
+    assert.equal((await fetch(`${authBase}/favicon.ico`)).status, 200);
+  });
+
+  test('令牌错了：401，不种 cookie', async () => {
+    const res = await login('wrong-token');
+    assert.equal(res.status, 401);
+    assert.equal(res.headers.get('set-cookie'), null);
+    assert.ok((await res.text()).includes('令牌不对'));
+  });
+
+  test('令牌对了：303 跳回 next，cookie 是 HttpOnly + SameSite=Lax', async () => {
+    const res = await login(TOKEN, '/?from=login');
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get('location'), '/?from=login');
+    const set = res.headers.get('set-cookie');
+    assert.ok(set.includes('HttpOnly') && set.includes('SameSite=Lax'), set);
+    assert.ok(!set.includes(TOKEN), 'cookie 里不该有令牌原文');
+  });
+
+  test('next 指向外站时跳回首页', async () => {
+    const res = await login(TOKEN, '//evil.com/');
+    assert.equal(res.headers.get('location'), '/');
+  });
+
+  test('带 cookie：首页照常（跳到最近的工程）', async () => {
+    const res = await fetch(`${authBase}/`, { headers: { cookie }, redirect: 'manual' });
+    assert.equal(res.status, 302);
+    const page = await fetch(res.headers.get('location'), { headers: { cookie } });
+    assert.equal(page.status, 200);
+    assert.ok((await page.text()).includes('/media/view.js'));
+  });
+
+  test('WS 不带 cookie：握手前就回 401', async () => {
+    assert.equal((await fetch(`${authBase}/ws`)).status, 401);
+  });
+
+  test('WS 带 cookie：连得上、收得到 init', async () => {
+    win = connect(AUTH_PORT, undefined, { cookie });
+    await win.ready;
+    await win.waitFor((m) => m.type === 'init', 'init');
+  });
+
+  test('MCP 不带令牌 401，带 Bearer 列得出工具', async () => {
+    const denied = await listTools();
+    assert.equal(denied.status, 401);
+    assert.ok(denied.headers.get('www-authenticate')?.startsWith('Bearer'));
+    const ok = await listTools({ authorization: `Bearer ${TOKEN}` });
+    assert.equal(ok.status, 200);
+    assert.ok((await ok.json()).result.tools.length > 0);
   });
 });

@@ -86,7 +86,7 @@ describe('角色的出场统计与更新菜单', { skip: JSDOM_SKIP }, () => {
     assert.equal(full.action, 'rebuildCard', JSON.stringify(full));
   });
 
-  // ---- 摘要里没出现过的角色：不给更新入口，说明为什么。
+  // ---- 定稿过的细纲里没出现过的角色：不给更新入口，说明为什么。
   test('未出场的角色行不显示出场章数', () => {
     ui.clickEl(dirLabel('配角'));
     liRow = rowWith('李叔');
@@ -103,7 +103,7 @@ describe('角色的出场统计与更新菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   test('未出场的角色说明原因', () => {
-    assert.ok(liItems.includes('未在摘要中出现，无法自动更新'), JSON.stringify(liItems));
+    assert.ok(liItems.includes('未在定稿中出现，无法自动更新'), JSON.stringify(liItems));
     ui.closeMenu();
   });
 

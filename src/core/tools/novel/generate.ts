@@ -104,7 +104,7 @@ export const generateTool: ToolDef = {
   description:
     '调用创作模型，为某一份产物生成内容。target 是那份产物的工程内相对路径，' +
     '层由路径决定：.novelforge/config.md、premise.md、world.md 是架构层，' +
-    '.novelforge/outline.md 是大纲层，.novelforge/plots/<章号>-<标题>.md 是细纲层（一章一份），' +
+    '.novelforge/outline.md 是大纲层，.novelforge/summaries/<章号>-<标题>.md 是细纲层（一章一份），' +
     '正文层给那一章的章节路径（chapters/<章号>-<标题>.md；还没写过的章写成 chapters/<章号>.md 即可，' +
     '按章号认到同号的细纲）。**细纲路径永远是细纲层**，要写正文不要给细纲路径。' +
     '这一章已经有正文时用 writeMode 说清是接着写（continue）还是整章重写（rewrite，缺省）。' +
@@ -169,7 +169,7 @@ export const generateTool: ToolDef = {
         error:
           `认不出「${rel}」是哪一层的产物。` +
           '架构给 .novelforge/config.md / premise.md / world.md，大纲给 .novelforge/outline.md，' +
-          '细纲给 .novelforge/plots/<章号>-<标题>.md，正文给那一章的章节路径（chapters/ 下）。' +
+          '细纲给 .novelforge/summaries/<章号>-<标题>.md，正文给那一章的章节路径（chapters/ 下）。' +
           '可以先用 list 看看那个目录下实际有什么。',
       };
     }

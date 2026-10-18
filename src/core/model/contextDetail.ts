@@ -13,7 +13,7 @@
  *
  * ## 第 3 级就是从前的行为
  *
- * 「详细」那一行逐项等于这个开关出现之前写死的常量，只多了一条：更早章的摘要最多带最近
+ * 「详细」那一行逐项等于这个开关出现之前写死的常量，只多了一条：更早章的细纲最多带最近
  * 60 章。从前这一层没有上限，长篇写到七八十章会把整个窗口填满。
  *
  * ## 不分级的东西
@@ -22,7 +22,7 @@
  *   也用同一个窗口，两边必须一致。
  * - **本章已写末尾**、**@ 引用**、**落定细纲时的历史**：前两样是这一次任务本身，后一样是
  *   `settle` 要沉淀的讨论。
- * - **单章摘要、全书摘要、角色状态、建卡、设定扫描**：输入就是那一章本身，或按窗口分批——
+ * - **定稿、全书摘要、角色状态、建卡、设定扫描**：输入就是那一章本身，或按窗口分批——
  *   调低只会截掉要整理的东西、或多拆几次调用，不会少花。
  *
  * 任何一级都不改调用次数（第 4 条）。
@@ -32,7 +32,7 @@ export type ContextDetail = 1 | 2 | 3 | 4;
 
 export const CONTEXT_DETAILS: ContextDetail[] = [1, 2, 3, 4];
 
-/** 缺省「详细」：升级后除了更早章摘要封顶，别的一样不变。 */
+/** 缺省「详细」：升级后除了更早章细纲封顶，别的一样不变。 */
 export const DEFAULT_CONTEXT_DETAIL: ContextDetail = 3;
 
 /** 下拉框、装配清单与日志共用这一份说法，前端不另写。 */
@@ -46,8 +46,8 @@ export const CONTEXT_DETAIL_LABEL: Record<ContextDetail, string> = {
 export const CONTEXT_DETAIL_HINT: Record<ContextDetail, string> = {
   1: '只带写这一章必需的，最省 token；长篇前情主要靠全书摘要',
   2: '近一章全文、少量定稿原文片段，日常够用',
-  3: '近两章全文、定稿原文片段、最近 60 章摘要（缺省）',
-  4: '近三章全文、更多片段，摘要不封顶，窗口能装多少装多少',
+  3: '近两章全文、定稿原文片段、最近 60 章细纲（缺省）',
+  4: '近三章全文、更多片段，细纲不封顶，窗口能装多少装多少',
 };
 
 /**
@@ -61,7 +61,7 @@ export interface ContextLimits {
   readonly fullTextChapters: number;
   /** 上一章结尾原文带多少字（`prevTail`）。 */
   readonly prevTailChars: number;
-  /** 更早章的摘要最多带最近几章（`plotSummary`，正文、大纲、细纲三张配方）。 */
+  /** 更早章的细纲最多带最近几章（`plotSummary`，正文、大纲两张配方）。 */
   readonly summaryChapters: number;
   /** 定稿原文片段：前几章的连续性事实全取（`evidence`）。 */
   readonly evidenceRecent: number;
@@ -87,7 +87,7 @@ export interface ContextLimits {
   readonly historyCap: number;
   /** 角色卡一律只带身份 / 当前状态 / 未收伏笔。 */
   readonly essentialCards: boolean;
-  /** 挑出场角色时看前几章摘要的「出场人物」。 */
+  /** 挑出场角色时看前几章定稿过的细纲的「出场人物」。 */
   readonly castSummaries: number;
   /** 从已写正文补齐架构时均匀抽样几章（`written`）。 */
   readonly deriveSamples: number;
@@ -105,7 +105,7 @@ export interface ContextLimits {
   readonly threadJudge: number;
 }
 
-/** 每一级的上限。第 3 级逐项等于从前写死的常量（外加摘要封顶 60 章）。 */
+/** 每一级的上限。第 3 级逐项等于从前写死的常量（外加细纲封顶 60 章）。 */
 export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits>> = Object.freeze({
   1: Object.freeze({
     fullTextChapters: 0,
@@ -253,7 +253,7 @@ export function describeContextDetail(detail: ContextDetail): string {
   return [
     `近章全文 ${n(l.fullTextChapters, '章')}`,
     `上一章结尾 ${n(l.prevTailChars, '字')}`,
-    `更早章摘要 ${l.summaryChapters === Infinity ? '不限' : `最近 ${l.summaryChapters} 章`}`,
+    `更早章细纲 ${l.summaryChapters === Infinity ? '不限' : `最近 ${l.summaryChapters} 章`}`,
     `定稿原文片段 ${l.evidenceChapters <= 0 ? '不带' : `${l.evidenceChapters} 章内 ${l.evidenceChars} 字`}`,
     `叙事线 ${l.threadCount} 条`,
     `对话历史 ${Math.round(l.historyCap * 100)}%`,

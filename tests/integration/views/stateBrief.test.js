@@ -24,7 +24,7 @@ let t;
 let project;
 let ws;
 
-const PLOT1 = '.novelforge/plots/001-北行.md';
+const PLOT1 = '.novelforge/summaries/001-北行.md';
 const CH1 = 'chapters/001-北行.md';
 
 const brief = (target) => bundle.stateBrief.buildStateBrief(project, target);
@@ -42,16 +42,14 @@ async function bookStepOf(p = project) {
   return { stage, step: bundle.pipeline.deriveBookNextStep(stage, facts) };
 }
 
-/** 一份 D3 细纲。`events` 为空时这一章就还没排过。 */
+/** 一份细纲（八节）。`events`（关键事件）为空时这一章就还没排过。 */
 function writePlot1(events) {
   return ws.writePlot({
     no: 1,
     title: '北行',
-    role: '开篇',
-    characters: ['林昭'],
     upstreamHash: '',
     done: false,
-    sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '林昭北上', 关键事件: events },
+    sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: '林昭北上', 出场人物: '林昭', 关键事件: events },
   });
 }
 
@@ -195,7 +193,7 @@ describe('选中一章 · 注入的下一步与单章状态机一字不差', () 
     assert.ok(text.includes(PLOT1), text);
   });
 
-  // 「关键事件」空着就不算排过——只写了本章目的的骨架，状态机如实说待写细纲。
+  // 「关键事件」空着就不算排过——只写了梗概的骨架，状态机如实说待写细纲。
   test('状态用的是状态机的说法', () => {
     assert.ok(text.includes('状态：待写细纲'), text);
   });
@@ -262,11 +260,14 @@ describe('这一章定稿之后转去报全书的下一步', () => {
   let expected;
 
   before(async () => {
+    // 定稿：细纲照正文反向更新，记下正文的 contentHash。
+    project.invalidate();
     const chapter = (await project.listChapters()).find((c) => c.order === 1);
-    await ws.writeSummary(chapter, chapter.contentHash, {
-      ...bundle.project.emptySummarySections(),
-      梗概: '林昭出城北上。',
-    });
+    await ws.finalizePlot(
+      chapter,
+      { ...bundle.plotFile.emptyPlotSections(), 梗概: '林昭出城北上。', 出场人物: '林昭', 关键事件: '出城、遇雪、投宿。' },
+      [{ name: '林昭', aliases: [] }]
+    );
     project.invalidate();
     text = await brief({ kind: 'plot', plotRelPath: PLOT1 });
     ({ step: expected } = await bookStepOf());
@@ -312,7 +313,7 @@ describe('这一章定稿之后转去报全书的下一步', () => {
  * `buildPlotPipelineView` 给一份空壳，主按钮说「写第 2 章细纲」；状态注入也必须说同一句。
  */
 describe('target 是还没落盘的下一章细纲', () => {
-  const pending = '.novelforge/plots/002.md';
+  const pending = '.novelforge/summaries/002.md';
 
   // 索引里只有「有文件」的章号；那一号既无细纲也无正文时，findPipeline 要自己补一份
   // 空壳，否则会报成「还没选定某一章」+ 全书的「拆细纲」，与主按钮分叉（第 20 条）。
@@ -334,11 +335,9 @@ describe('⟳ 上游变更提醒', () => {
     await ws.writePlot({
       no,
       title: `第${no}章`,
-      role: '',
-      characters: [],
       upstreamHash: 'old-hash',
       done: false,
-      sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: 'x', 关键事件: 'y' },
+      sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: 'x', 关键事件: 'y' },
     });
   }
 

@@ -17,7 +17,7 @@ const { cleanup } = require('../../helpers/teardown');
 let bundle;
 let t;
 let ws;
-const P8 = '.novelforge/plots/008-渡口.md';
+const P8 = '.novelforge/summaries/008-渡口.md';
 
 before(async () => {
   bundle = loadBundle({
@@ -32,7 +32,7 @@ before(async () => {
   t = await makeTempProject(bundle.project, { prefix: 'preflight-ok', title: '青崖记' });
   ws = new bundle.ws.Workspace(t.project);
   const empty = bundle.plotFile.emptyPlotSections();
-  await ws.writePlot({ no: 8, title: '渡口', role: '', characters: ['林昭', '沈秋'], upstreamHash: '', done: false, sections: { ...empty, 关键事件: '林昭在渡口梦见沈秋', 章末钩子: '船上没有人' } });
+  await ws.writePlot({ no: 8, title: '渡口', upstreamHash: '', done: false, sections: { ...empty, 出场人物: '林昭、沈秋', 关键事件: '林昭在渡口梦见沈秋', 看点: '船上没有人' } });
 });
 
 after(() => {
@@ -59,7 +59,7 @@ describe('recordPreflightOk', () => {
   });
 
   test('手写的细纲（没有 frontmatter）不补', async () => {
-    const rel = '.novelforge/plots/009-手写.md';
+    const rel = '.novelforge/summaries/009-手写.md';
     t.write(rel, '# 第9章 手写\n\n## 关键事件\n\n沈秋出场\n');
     assert.equal(await ws.recordPreflightOk(rel, [{ name: '沈秋', reason: '回忆' }]), false);
     assert.doesNotMatch(t.read(rel), /preflightOk/);
@@ -76,7 +76,7 @@ describe('recordPreflightOk', () => {
     t.project.invalidate();
     const rel = (await t.project.getPlot(8)).relPath;
     const empty = bundle.plotFile.emptyPlotSections();
-    await ws.write(rel, { artifact: { kind: 'plot', title: '夜渡', role: '', characters: ['林昭', '沈秋'], sections: { ...empty, 关键事件: '林昭在渡口又梦见沈秋', 章末钩子: '船上没有人' } } }, { mode: 'overwrite', review: false });
+    await ws.write(rel, { artifact: { kind: 'plot', title: '夜渡', sections: { ...empty, 出场人物: '林昭、沈秋', 关键事件: '林昭在渡口又梦见沈秋', 看点: '船上没有人' } } }, { mode: 'overwrite', review: false });
     assert.deepEqual(await okOf(rel), []);
   });
 });

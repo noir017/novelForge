@@ -3,13 +3,14 @@
  * 四阶段配方与身份（架构 / 大纲 / 细纲 / 正文）、provider 配额压缩，外加工程页
  * 快照与出场人物索引。
  *
- * 轴是**章**，而且只有一条：细纲号 = 章号。`plots/NNN-标题.md` 是那一章的细纲
- * （本章目的 / 关键事件 / 章末钩子），`chapters/NNN-标题.md` 是那一章的正文（装配器
- * 读它），架构三件是 `config.md` / `premise.md` / `world.md`。从前的卷、剧情段、
- * 中转站 `manuscripts/` 与拆章都删掉了。
+ * 轴是**章**，而且只有一条：细纲号 = 章号。`summaries/NNN-标题.md` 是那一章的细纲
+ * （梗概 / 出场人物 / 时间地点 / 关键事件 / 看点 / 新增伏笔 / 状态变更 / 连续性事实；
+ * 写正文之前是计划，定稿时照正文反向更新成正文写成的样子），`chapters/NNN-标题.md` 是
+ * 那一章的正文（装配器读它），架构三件是 `config.md` / `premise.md` / `world.md`。从前的
+ * 卷、剧情段、中转站 `manuscripts/`、拆章与单独一份的单章摘要都删掉了。
  *
  * 示例工程（sample-novel）：config 30 章 × 400 字，大纲三段区间，第 1–3 章细纲与
- * 正文都在、摘要都新鲜，第 4 章什么都还没有。
+ * 正文都在、细纲都定稿过且与正文对得上；第 4 章《空匣》只排了细纲（计划），还没写正文。
  *
  * ## 写盘用例一律跑临时副本
  *
@@ -31,13 +32,6 @@ const { loadBundle } = require('../../helpers/load');
 const { installVscodeStub } = require('../../helpers/vscodeStub');
 const { SAMPLE, copyFixture } = require('../../helpers/tmpProject');
 const { cleanup } = require('../../helpers/teardown');
-
-/**
- * 细纲的写入在 `core/workspace/`：写入要记上游指纹、删除要进 `.trash/`，那些是
- * 网关的活。`NovelProject` 这一层只留领域查询。
- */
-let wsMod;
-const wsOf = (p) => new wsMod.Workspace(p);
 
 // 装配请求带 action（阶段 × 能力）与 target（在改哪个产物）。
 const WRITE = { stage: 'manuscript', capability: 'generate' };
@@ -62,18 +56,17 @@ const baseConfig = {
   requestTimeoutMs: 300000,
 };
 
-const PLOT1 = '.novelforge/plots/001-楔子.md';
-const PLOT2 = '.novelforge/plots/002-客栈里的女人.md';
-const PLOT3 = '.novelforge/plots/003-夜访.md';
-/** 第 4 章细纲**应该**在的位置。文件还不存在——状态机给出的 target 就是这个样子。 */
-const PLOT4 = '.novelforge/plots/004.md';
-// 摘要挂在**正文**（章节）上（见 model/project.ts 的路径分界）。
+const PLOT1 = '.novelforge/summaries/001-楔子.md';
+const PLOT2 = '.novelforge/summaries/002-客栈里的女人.md';
+const PLOT3 = '.novelforge/summaries/003-夜访.md';
+/** 第 4 章的细纲：排好了（计划），还没写正文——全书的下一步就是写它。 */
+const PLOT4 = '.novelforge/summaries/004-空匣.md';
 const CH1 = 'chapters/001-楔子.md';
 const CH3 = 'chapters/003-夜访.md';
 
 /**
- * 默认目标是「第 4 章的正文」——它的细纲还没落盘，target 指向细纲应在的位置，
- * 装配器按路径里的章号定位「前文」边界。这正是往下写新一章的真实情形。
+ * 默认目标是「第 4 章的正文」——细纲排好了、正文还没写，装配器按细纲的章号定位
+ * 「前文」边界。这正是往下写新一章的真实情形。
  */
 function req(ask, extra = {}) {
   return {
@@ -105,7 +98,7 @@ let byId;
 let inc;
 let upToP2Tokens;
 let p3Full;
-let p3SummaryTokens;
+let p3OutlineTokens;
 
 before(async () => {
   vs = installVscodeStub({ level: 'full', root: SAMPLE, config: {} });
@@ -113,13 +106,12 @@ before(async () => {
   // builder / projectView / cast 拿到的就不是同一个类了。
   const bundle = loadBundle({
     project: './src/core/model/project.ts',
-    ws: './src/core/workspace/index.ts',
     builder: './src/core/context/builder.ts',
     tokenizer: './src/core/context/tokenizer.ts',
     projectView: './src/core/views/projectView.ts',
     cast: './src/core/views/cast.ts',
+    render: './src/core/context/layers/render.ts',
   });
-  wsMod = bundle.ws;
   projectMod = bundle.project;
   builderMod = bundle.builder;
   tokenizerMod = bundle.tokenizer;
@@ -135,8 +127,9 @@ before(async () => {
   const sumTokens = (pred) => built.items.filter(pred).reduce((s, i) => s + i.tokens, 0);
   upToP2Tokens = sumTokens((i) => i.priority <= 2);
   p3Full = built.items.find((i) => i.id === 'manuscriptFull:3').tokens;
-  const p3Summary = (await project.readSummary(CH3)).content;
-  p3SummaryTokens = tokenizerMod.estimateTokens(`【第 3 章《夜访》 · 摘要】\n${p3Summary}`);
+  // 整章正文放不下时降级成的那一块：第 3 章定稿过的细纲（有内容的那几节）。
+  const p3Outline = bundle.render.renderPlotSections(await project.getPlot(3));
+  p3OutlineTokens = tokenizerMod.estimateTokens(`【第 3 章《夜访》 · 细纲】\n${p3Outline}`);
 });
 
 after(() => vs.restore());
@@ -172,16 +165,17 @@ describe('NovelProject 读取示例工程', () => {
     filled = await project.settingFilled();
   });
 
-  test('扫描到 3 章细纲', () => {
-    assert.equal(plots.length, 3);
+  test('扫描到 4 章细纲', () => {
+    assert.equal(plots.length, 4);
   });
 
   test('细纲按章号排序', () => {
-    assert.equal(plots.map((p) => p.no).join(','), '1,2,3');
+    assert.equal(plots.map((p) => p.no).join(','), '1,2,3,4');
   });
 
-  test('细纲平铺在 plots/ 根下', () => {
-    assert.deepEqual(plots.map((p) => p.relPath), [PLOT1, PLOT2, PLOT3]);
+  // 全书摘要 `summaries/global.md` 与细纲同目录，但它不是数字开头，不算细纲。
+  test('细纲平铺在 summaries/ 根下，global.md 不算', () => {
+    assert.deepEqual(plots.map((p) => p.relPath), [PLOT1, PLOT2, PLOT3, PLOT4]);
   });
 
   test('标题取自 frontmatter', () => {
@@ -193,17 +187,23 @@ describe('NovelProject 读取示例工程', () => {
     assert.ok(plots.every((p) => p.sections.关键事件.trim()), plots.map((p) => p.no).join(','));
   });
 
-  test('细纲带规划字段（role / characters / targetWords）', () => {
-    assert.equal(plots[2].role, '小高潮');
+  test('定稿过的细纲：出场的人取 frontmatter 的 cast，带 targetWords 与 sourceHash', () => {
     assert.deepEqual(plots[2].characters, ['林昭', '年轻守卫']);
     assert.equal(plots[2].targetWords, 650);
+    assert.ok(plots[2].sourceHash, '第 3 章定稿过');
+  });
+
+  test('没定稿的细纲：出场的人取「出场人物」一节（计划），没有 sourceHash', () => {
+    assert.deepEqual(plots[3].characters, ['林昭', '年轻守卫', '李叔']);
+    assert.equal(plots[3].sourceHash, '');
   });
 
   test('正文读得到，字数统计合理', () => {
     assert.ok(manuscript.length > 200 && manuscript.length < 600, String(manuscript.length));
   });
 
-  test('示例工程无过期摘要', () => {
+  // 待定稿 = 有正文、细纲没有对得上的 sourceHash。第 4 章还没写正文，不算。
+  test('示例工程没有待定稿的章', () => {
     assert.equal(stale.length, 0, `stale: ${stale.map((c) => c.order).join(',')}`);
   });
 
@@ -249,8 +249,8 @@ describe('NovelProject 读取示例工程', () => {
     assert.ok(global.includes('未收伏笔'));
   });
 
-  test('下一个细纲号为 4', () => {
-    assert.equal(nextNo, 4);
+  test('下一个细纲号为 5（第 4 章已经排过）', () => {
+    assert.equal(nextNo, 5);
   });
 });
 
@@ -281,13 +281,14 @@ describe('装配：预算充裕（128k）', () => {
     assert.ok(inc('manuscriptFull:2'));
   });
 
-  test('P4 第 1 章降级为摘要注入', () => {
+  // 近章全文只带两章（第 2、3 章），更早的第 1 章带它定稿过的细纲。
+  test('P4 第 1 章带它定稿过的细纲', () => {
     assert.ok(inc('plotSummary:1'));
+    assert.ok(byId.get('plotSummary:1').text.startsWith('【第 1 章《楔子》】'), byId.get('plotSummary:1').text.slice(0, 40));
   });
 
-  // 第 4 章的细纲还没落盘：本章细纲那一层是空的，不凭空造一条。
-  test('细纲未落盘时不注入本章细纲', () => {
-    assert.ok(![...byId.keys()].some((k) => k.startsWith('plot:')), [...byId.keys()].join(','));
+  test('第 4 章的细纲作为写作依据注入', () => {
+    assert.ok(inc(`plot:${PLOT4}`), [...byId.keys()].join(','));
   });
 
   // 预算充裕时整章正文已含结尾，P0 的结尾片段应被撤掉以免重复。
@@ -396,14 +397,14 @@ describe('装配：预算充裕（128k）', () => {
 
 // 预算阈值由实测的条目大小反推，避免示例文本长度变化后测试失效。
 // 注意要把 P0~P2 已占用的量都算进去，否则轮到 P3 时剩余预算不是预期值。
-describe('装配：预算刚好放不下整章正文（应降级为摘要）', () => {
+describe('装配：预算刚好放不下整章正文（应降级为细纲）', () => {
   let deg;
   let dById;
   let item;
 
   before(async () => {
     // 关掉结尾片段，单独考察 manuscriptFull 的降级链。
-    const mid = p3SummaryTokens + Math.floor((p3Full - p3SummaryTokens) / 2);
+    const mid = p3OutlineTokens + Math.floor((p3Full - p3OutlineTokens) / 2);
     const window = upToP2Tokens + mid + 2000 + 512;
     const cfg = { ...baseConfig, contextOverrides: { prevTailChars: 0 }, maxOutputTokens: 2000, contextWindow: window };
     deg = await builderMod.buildContext(project, req(ASK), cfg);
@@ -415,16 +416,17 @@ describe('装配：预算刚好放不下整章正文（应降级为摘要）', (
     assert.ok(!dById.has('prevTail:3'));
   });
 
-  test('第 3 章正文降级为摘要', () => {
+  test('第 3 章正文降级为细纲', () => {
     assert.equal(
       item.status,
       'degraded',
-      `full=${p3Full}, summary=${p3SummaryTokens}, budget=${deg.budget}, note=${item.note}`
+      `full=${p3Full}, outline=${p3OutlineTokens}, budget=${deg.budget}, note=${item.note}`
     );
   });
 
-  test('降级后内容确实是摘要', () => {
-    assert.ok(item.text.includes('· 摘要】'), item.text.slice(0, 40));
+  // 第 3 章定稿过、对得上正文：不标「计划」。
+  test('降级后内容确实是那一章定稿过的细纲', () => {
+    assert.ok(item.text.startsWith('【第 3 章《夜访》 · 细纲】\n## 梗概'), item.text.slice(0, 40));
   });
 
   test('降级后不含原文句子', () => {
@@ -432,7 +434,7 @@ describe('装配：预算刚好放不下整章正文（应降级为摘要）', (
   });
 
   test('降级说明写明了原因', () => {
-    assert.ok(item.note.includes('降级为摘要'), item.note);
+    assert.equal(item.note, `正文需 ${p3Full} token 放不下，已降级为细纲`);
   });
 
   test('降级后 tokens 小于原文', () => {
@@ -445,6 +447,42 @@ describe('装配：预算刚好放不下整章正文（应降级为摘要）', (
 
   test('用量不超预算', () => {
     assert.ok(deg.usedTokens <= deg.budget, `${deg.usedTokens} / ${deg.budget}`);
+  });
+});
+
+/**
+ * 降级成的那份细纲标不标「计划」，只看这一章定稿过没有（有没有 sourceHash）：从没定稿的是写之前的
+ * 计划；定稿过、之后正文又改过的仍是照正文更新过的那一版，不是计划。
+ */
+describe('装配：降级成细纲时，「计划」只标没定稿过的章', () => {
+  /** 第 3 章正文差 5 个 token 放不下时，它降级成的那一条。 */
+  async function degradedP3(edit) {
+    const fixture = copyFixture('builder-degrade-plan');
+    try {
+      edit(fixture);
+      const p = projectMod.NovelProject.open(fixture.dir);
+      const cfg = { ...baseConfig, contextOverrides: { prevTailChars: 0 }, maxOutputTokens: 2000 };
+      const roomy = await builderMod.buildContext(p, req(ASK), cfg);
+      const upToP2 = roomy.items.filter((i) => i.priority <= 2).reduce((sum, i) => sum + i.tokens, 0);
+      const full = roomy.items.find((i) => i.id === 'manuscriptFull:3').tokens;
+      const tight = await builderMod.buildContext(p, req(ASK), { ...cfg, contextWindow: upToP2 + full - 5 + 2000 + 512 });
+      return tight.items.find((i) => i.id === 'manuscriptFull:3');
+    } finally {
+      cleanup(fixture.dir);
+    }
+  }
+
+  test('定稿之后正文又改过：不标「计划」', async () => {
+    const item = await degradedP3((f) => f.write(CH3, `${f.read(CH3)}\n\n作者后来补的一句。\n`));
+    assert.equal(item.status, 'degraded', item.note);
+    assert.ok(item.text.startsWith('【第 3 章《夜访》 · 细纲】\n'), item.text.slice(0, 40));
+  });
+
+  test('从没定稿过：块头与说明都写明是计划', async () => {
+    const item = await degradedP3((f) => f.write(PLOT3, f.read(PLOT3).replace(/^sourceHash: .*\n/m, '')));
+    assert.equal(item.status, 'degraded', item.note);
+    assert.ok(item.text.startsWith('【第 3 章《夜访》 · 细纲（计划，没定稿）】\n'), item.text.slice(0, 40));
+    assert.match(item.note, /已降级为细纲（还没定稿，是写之前的计划）$/);
   });
 });
 
@@ -571,9 +609,11 @@ describe('装配：provider 配额压缩', () => {
   let clamped;
 
   before(async () => {
+    // 上限要盖得住强制项（系统提示、文风、本章细纲、上一章结尾……约 3.7k token）：强制项本来就
+    // 可以超预算，这里考察的是压缩之后其余条目照新预算取舍。
     clamped = await builderMod.buildContext(
       project,
-      req(ASK, { providerMaxInputTokens: 8000 }),
+      req(ASK, { providerMaxInputTokens: 10000 }),
       baseConfig
     );
   });
@@ -583,7 +623,7 @@ describe('装配：provider 配额压缩', () => {
   });
 
   test('预算按 provider 上限算', () => {
-    assert.equal(clamped.budget, 8000 - 4096 - 512);
+    assert.equal(clamped.budget, 10000 - 4096 - 512);
   });
 
   test('用量不超压缩后预算', () => {
@@ -1126,9 +1166,10 @@ describe('装配：discuss 模式', () => {
  * - **架构层**带 `settingDocs`（P0 force）：四件一件吃一件，前提要照着配置写、世界观
  *   要照着前提与角色写，少了上一件，这一件就是凭空编的。它**不看正文**——这一层在
  *   第一章之前，也不该被已经写出来的东西带着走。
- * - **大纲层**看全局：架构三件 + 大纲全文 + 全书摘要，不读正文原文。
+ * - **大纲层**看全局：架构三件 + 大纲全文 + 全书摘要 + 各章细纲，不读正文原文。
  * - **细纲层**看这一章在大纲里的位置、前几章排到哪（上文）、下一章要接到哪（下文），
- *   不读正文原文——排细纲要的是走向，不是措辞。
+ *   不读正文原文——排细纲要的是走向，不是措辞。更早几章不再另带一份（`plotSummary`）：
+ *   细纲与定稿是同一份文件，上文与前序细纲一览已经带了。
  * - **正文层**的 `plotSelf` 与文风指南都是 P0 force：细纲**就是**写正文的依据，
  *   文风是「读者感觉不到换人执笔」的唯一保障。
  */
@@ -1260,7 +1301,7 @@ describe('装配：四阶段配方', () => {
     );
   });
 
-  test('架构阶段也不带摘要（不被已经写出来的东西带着走）', () => {
+  test('架构阶段也不带早前细纲与全书摘要（不被已经写出来的东西带着走）', () => {
     assert.ok(keysOf(sIds, 'plotSummary:').length === 0 && !sIds.has('globalSummary'), [...sIds.keys()].join(','));
   });
 
@@ -1337,11 +1378,19 @@ describe('装配：四阶段配方', () => {
     assert.ok(keysOf(oIds, 'manuscriptFull:').length === 0, keysOf(oIds, 'manuscriptFull:').join(','));
   });
 
-  test('大纲阶段全书摘要都在', () => {
+  test('大纲阶段各章细纲都在', () => {
     assert.ok(
-      [1, 2, 3].every((n) => alive(oIds, `plotSummary:${n}`)),
+      [1, 2, 3, 4].every((n) => alive(oIds, `plotSummary:${n}`)),
       keysOf(oIds, 'plotSummary:').join(',')
     );
+  });
+
+  // 第 4 章只排了细纲、还没写：带它的计划，块头标明，模型才不会把计划当成已经发生的事。
+  test('大纲阶段没定稿的第 4 章标「计划」，定稿过的不标', () => {
+    assert.ok(oIds.get('plotSummary:4').text.startsWith('【第 4 章《空匣》 · 计划】'), oIds.get('plotSummary:4').text.slice(0, 40));
+    assert.equal(oIds.get('plotSummary:4').note, '还没定稿：带的是写之前的计划');
+    assert.ok(oIds.get('plotSummary:3').text.startsWith('【第 3 章《夜访》】'), oIds.get('plotSummary:3').text.slice(0, 40));
+    assert.ok(lastOf(oc).includes('# 早前各章细纲（由远及近；标「计划」的还没定稿，不一定是正文写成的样子）'));
   });
 
   test('大纲阶段不写「只输出正文」', () => {
@@ -1385,22 +1434,30 @@ describe('装配：四阶段配方', () => {
     assert.ok(alive(pIds, `plot:${PLOT3}`) && pIds.get(`plot:${PLOT3}`).label.includes('下文'), keysOf(pIds, 'plot:').join(','));
   });
 
-  // 前后章只注入两节：上文要「发生了什么、留下了什么悬念」，下文要「要去哪、要发生什么」。
-  test('上文只给关键事件与章末钩子', () => {
+  // 前后章只注入几节：上文要「发生了什么、人物落在什么处境」，下文要「要去哪、要发生什么」。
+  test('上文给梗概、关键事件与状态变更', () => {
     const text = pIds.get(`plot:${PLOT1}`).text;
-    assert.ok(text.includes('关键事件：') && text.includes('章末钩子：') && !text.includes('本章目的：'), text);
+    assert.ok(text.includes('梗概：') && text.includes('关键事件：') && text.includes('状态变更：'), text);
+    // 关键事件是一条一行的列表：另起一行照原样列，第一条不挤在冒号后面。
+    assert.ok(text.includes('关键事件：\n- 林昭进入青崖镇，自称从「江那边」来。\n- 林昭以一块'), text);
   });
 
-  test('下文只给本章目的与关键事件', () => {
+  test('上文不带那一章自己的账（看点、伏笔、出场人物）', () => {
+    const text = pIds.get(`plot:${PLOT1}`).text;
+    assert.ok(!text.includes('看点：') && !text.includes('新增伏笔：') && !text.includes('出场人物：'), text);
+  });
+
+  test('下文只给梗概与关键事件', () => {
     const text = pIds.get(`plot:${PLOT3}`).text;
-    assert.ok(text.includes('本章目的：') && text.includes('关键事件：') && !text.includes('章末钩子：'), text);
+    assert.ok(text.includes('梗概：') && text.includes('关键事件：') && !text.includes('状态变更：') && !text.includes('看点：'), text);
   });
 
-  test('三份细纲都进了「# 细纲」段', () => {
+  // `role` 删了：标题行只剩「第 N 章《标题》 · 细纲」。
+  test('三份细纲都进了「# 细纲」段，标题行不带 role', () => {
     const user = lastOf(pc);
     assert.ok(user.includes('# 细纲'), user.slice(-800));
     assert.ok(
-      user.includes('【第 2 章《客栈里的女人》 · 细纲 ｜ 铺垫】') &&
+      user.includes('【第 2 章《客栈里的女人》 · 细纲】\n## 梗概') &&
         user.includes('【第 1 章《楔子》 · 上文】') &&
         user.includes('【第 3 章《夜访》 · 下文】'),
       user.slice(-1500)
@@ -1422,8 +1479,15 @@ describe('装配：四阶段配方', () => {
     assert.ok(keysOf(pIds, 'manuscriptFull:').length === 0, keysOf(pIds, 'manuscriptFull:').join(','));
   });
 
-  test('细纲阶段前文只到第 1 章', () => {
-    assert.ok(alive(pIds, 'plotSummary:1') && !pIds.has('plotSummary:2') && !pIds.has('plotSummary:3'));
+  // 细纲与定稿是同一份文件：前几章已经由上文（plotPrev）与前序细纲一览带了，同一份不带两遍。
+  test('细纲阶段不带早前细纲那一层', () => {
+    assert.equal(keysOf(pIds, 'plotSummary:').length, 0, keysOf(pIds, 'plotSummary:').join(','));
+    assert.ok(!lastOf(pc).includes('# 早前各章细纲'));
+  });
+
+  // 拆书的「补细纲」一步删了，细纲配方不再挂 `written`（已写正文）层。
+  test('细纲阶段不带已写正文', () => {
+    assert.equal(pc.items.filter((i) => i.kind === 'written').length, 0);
   });
 
   // 这里不比总量：示例工程一章才三四百字，省下的绝对值看不出来；
@@ -1436,21 +1500,36 @@ describe('装配：四阶段配方', () => {
     assert.equal(fullTokens(pc), 0);
   });
 
-  // 单章也用批次合同的单项形式（第 22 条：两个入口契约一致），三个字段对到 D3 三节。
-  test('细纲的输出契约是蓝图合同的单项形式', () => {
-    const user = lastOf(pg);
+  // 单章也用批次合同的单项形式（第 22 条：两个入口契约一致），字段对到细纲的八节（连续性事实除外）。
+  // 关键事件与定稿的写法一样是一条一件事的数组（⚑B）。
+  test('细纲的输出契约是蓝图合同的单项形式，字段对到八节', () => {
     assert.ok(
-      ['{"blueprints":[...]}', 'purpose', 'keyEvents', 'suspenseHook', '"chapterNumber":2'].every((k) => user.includes(k)),
-      user.slice(-1600)
+      lastOf(pg).includes(
+        '【精确 JSON 形状】{"blueprints":[{"chapterNumber":2,"title":"…","synopsis":"…","characters":["…"],"timePlace":"…","keyEvents":["…"],"highlights":["…"],"foreshadowing":["…"],"stateChange":"…"}]}'
+      ),
+      lastOf(pg).slice(-1600)
     );
   });
 
-  test('契约要 role 与计划出场的人', () => {
-    assert.ok(lastOf(pg).includes('"role":"…"') && lastOf(pg).includes('"characters":["…"]'), lastOf(pg).slice(-600));
+  test('契约的关键事件按发生顺序一条一件事，必填项只要至少一条', () => {
+    const user = lastOf(pg);
+    assert.ok(user.includes('keyEvents 是字符串数组，按发生的顺序一条一件事，3–6 条，合计 100–300 字'), user.slice(-1600));
+    assert.ok(user.includes('title、synopsis 必须是非空字符串，keyEvents 至少一条'), user.slice(-1600));
+    assert.ok(user.includes('在 keyEvents 末尾追加一条「容量冲突：…」'), user.slice(-2400));
+    assert.ok(!user.includes('keyEvents 字符串'), user.slice(-2400));
   });
 
-  test('契约说章末钩子必填', () => {
-    assert.ok(lastOf(pg).includes('suspenseHook 始终必填'), lastOf(pg).slice(-1600));
+  // role 删了（上面的 JSON 形状里没有它；newCharacters 里那个 role 是角色定位，另一回事）。
+  test('契约不再要 purpose 与 suspenseHook', () => {
+    const user = lastOf(pg);
+    assert.ok(!user.includes('purpose') && !user.includes('suspenseHook'), user.slice(-1600));
+  });
+
+  // 章末钩子并进了「看点」：不单列，也不再逼每章都有一条（作者：单列的钩子反而带偏模型）。
+  test('契约的看点照摘要的写法，不强制每章一条章末钩子', () => {
+    const user = lastOf(pg);
+    assert.ok(user.includes('过渡章没有爽点就只写钩子'), user.slice(-1600));
+    assert.ok(!user.includes('每章都要有一条章末的钩子'), user.slice(-1600));
   });
 
   // 容量合同（上游 DC:131-142）：单章按细纲自己的目标字数算 ±20%。
@@ -1575,7 +1654,7 @@ describe('装配：架构文档填过的才带', () => {
 /**
  * 挑角色卡：**第一优先是本章细纲的 `characters[]`**（D13）。细纲里明写了这一章
  * 有谁，那比在作者那句话里做子串匹配准得多——作者说「接着写」，一个名字都没提，
- * 该出场的人仍然要在。其后才是这一轮的要求、前两章的摘要与主角。
+ * 该出场的人仍然要在。其后才是这一轮的要求、前两章定稿过的细纲里的出场人物与主角。
  */
 describe('装配：挑角色卡先看本章细纲的计划出场（D13）', () => {
   let plain;
@@ -1748,80 +1827,6 @@ describe('装配：落定细纲时历史保得住', () => {
 
 // ---------------------------------------------------------------------------
 
-/**
- * 没写正文的早期章退化成「只带本章目的」。
- *
- * 作者常常先把一批细纲排完再回头写，那些章没有正文也就没有摘要——直接跳过
- * 的话，写第 60 章时模型对前面几章一无所知，却看不出少了什么（AGENTS.md 第 2 条：
- * 不静默截断）。
- */
-describe('装配：没写正文的章退化成只带本章目的', () => {
-  let fixture;
-  let degProject;
-  let b;
-  let item;
-
-  before(async () => {
-    fixture = copyFixture('builder-goalonly');
-    degProject = projectMod.NovelProject.open(fixture.dir);
-    // 建一章只排了细纲、没写正文的第 4 章，然后从第 5 章的位置装配。
-    await wsOf(degProject).writePlot({
-      no: 4,
-      title: '第三块令牌',
-      role: '转折',
-      characters: ['林昭', '年轻守卫'],
-      upstreamHash: '',
-      done: false,
-      sections: {
-        本章目的: '林昭见到年轻守卫的母亲，第三块令牌现身。',
-        关键事件: '天亮后两人上山，母亲拿出令牌，却说不出它的来路。',
-        章末钩子: '母亲认出了林昭。',
-      },
-    });
-    degProject.invalidate();
-    b = await builderMod.buildContext(
-      degProject,
-      { action: WRITE, target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/005.md' }, ask: '接着写。' },
-      baseConfig
-    );
-    item = ids(b).get('plotSummary:4');
-  });
-
-  after(() => cleanup(fixture.dir));
-
-  test('没正文的章仍出现在明细里', () => {
-    assert.ok(!!item, [...ids(b).keys()].filter((k) => k.startsWith('plotSummary:')).join(','));
-  });
-
-  test('标为 degraded 而不是悄悄跳过', () => {
-    assert.equal(item.status, 'degraded', JSON.stringify(item));
-  });
-
-  test('注明了退化原因', () => {
-    assert.ok(item.note.includes('还没写正文'), item.note);
-  });
-
-  test('带的是「本章目的」那一节', () => {
-    assert.ok(item.text.includes('第三块令牌现身'), item.text);
-  });
-
-  test('不带关键事件（那是给细纲层看的）', () => {
-    assert.ok(!item.text.includes('天亮后两人上山'), item.text);
-  });
-
-  test('退化后的内容进了 messages', () => {
-    assert.ok(b.messages[1].content.includes('第三块令牌现身'));
-  });
-
-  // 第 4 章还没写，第 5 章不该「从第 3 章结尾无缝接下去」——那等于让模型跳过第 4 章
-  // 的事件。builder.ts 的兜底提示只在「结尾片段被整章正文取代」时才说。
-  test('前一章还没写时，不让模型从更早那一章的结尾无缝接下去', () => {
-    assert.ok(!b.messages[1].content.includes('「第 3 章《夜访》」的结尾处无缝接下去'), b.messages[1].content.slice(-300));
-  });
-});
-
-// ---------------------------------------------------------------------------
-
 describe('工程页数据', () => {
   let tree;
   let plots;
@@ -1848,7 +1853,7 @@ describe('工程页数据', () => {
   });
 
   test('章数与磁盘一致', () => {
-    assert.equal(plots.length, 3);
+    assert.equal(plots.length, 4);
   });
 
   test('章节组是扁平列表', () => {
@@ -1857,7 +1862,7 @@ describe('工程页数据', () => {
 
   // 工程页正序展示（第 1 章在上），与文件名顺序一致。
   test('章按章号正序', () => {
-    assert.equal(plots.map((p) => p.no).join(','), '1,2,3');
+    assert.equal(plots.map((p) => p.no).join(','), '1,2,3,4');
   });
 
   test('每一章都带阶段徽章', () => {
@@ -1874,31 +1879,32 @@ describe('工程页数据', () => {
     );
   });
 
-  // 示例工程的三章细纲、正文都在，也都定稿过 → 已完成。
-  test('写完且摘要新鲜的章 → 已完成', () => {
-    assert.ok(plots.every((p) => p.stage === 'done'), JSON.stringify(plots.map((p) => p.stage)));
+  // 示例工程第 1–3 章细纲、正文都在，细纲定稿过且对得上正文 → 已完成。
+  test('定稿过且细纲与正文对得上的章 → 已完成', () => {
+    assert.ok(plots.slice(0, 3).every((p) => p.stage === 'done'), JSON.stringify(plots.map((p) => p.stage)));
+  });
+
+  test('第 4 章细纲排好了、还没写正文 → 待写', () => {
+    assert.equal(plots[3].stage, 'manuscript');
+    assert.equal(plots[3].chapterPath, '');
   });
 
   test('总字数为各章之和', () => {
     assert.equal(tree.totalWords, plots.reduce((s, p) => s + p.wordCount, 0));
   });
 
-  test('示例工程摘要都是新鲜的', () => {
+  test('示例工程没有待定稿的章', () => {
     assert.ok(tree.staleCount === 0 && plots.every((p) => !p.stale));
   });
 
   // 前端画进度条要分母：staleCount + summarizedCount 必须等于有正文的章数。
-  test('已总结数与过期数互补', () => {
+  test('已定稿数与待定稿数互补', () => {
     const withText = plots.filter((p) => p.chapterPath !== '').length;
     assert.equal(
       tree.staleCount + tree.summarizedCount,
       withText,
       `${tree.staleCount} + ${tree.summarizedCount} ≠ ${withText}`
     );
-  });
-
-  test('新鲜的章带摘要路径', () => {
-    assert.ok(plots[0].summaryPath.endsWith('001-楔子.md'), plots[0].summaryPath);
   });
 
   test('写过的章带正文路径', () => {
@@ -1923,9 +1929,9 @@ describe('工程页数据', () => {
     assert.ok(plots.every((p) => !p.upstreamStale), JSON.stringify(plots.map((p) => p.upstreamStale)));
   });
 
-  // 架构四件与大纲都齐了、第 1–3 章写完，第 4 章还没有细纲 → 全书下一步是拆细纲。
-  test('全书阶段是「拆细纲」', () => {
-    assert.equal(tree.bookStage, 'plots', tree.bookStage);
+  // 架构四件与大纲都齐了、第 1–3 章写完，第 4 章细纲已经排好 → 全书下一步是写正文。
+  test('全书阶段是「写正文」', () => {
+    assert.equal(tree.bookStage, 'writing', tree.bookStage);
   });
 
   test('下一个该写的是第 4 章', () => {
@@ -1969,14 +1975,15 @@ describe('工程页数据', () => {
 
   test('给出各区的根目录', () => {
     assert.ok(
-      tree.plotsRoot === '.novelforge/plots' && tree.chaptersRoot === 'chapters' &&
+      tree.plotsRoot === '.novelforge/summaries' && tree.chaptersRoot === 'chapters' &&
         tree.charactersRoot === '.novelforge/characters' && tree.loreRoot === '.novelforge/lore',
       [tree.plotsRoot, tree.chaptersRoot, tree.charactersRoot, tree.loreRoot].join(' ')
     );
   });
 
   // 出场人物：已建卡的挂 castByCard（按 relPath 索引），未建卡的进 cast。
-  test('树上带摘要数', () => {
+  // 只数定稿过的细纲：第 4 章是计划，不算。
+  test('树上带定稿过的细纲数', () => {
     assert.equal(tree.summaryCount, 3);
   });
 
@@ -2040,7 +2047,7 @@ describe('工程页数据', () => {
       fixture = copyFixture('builder-stale');
       const staleProject = projectMod.NovelProject.open(fixture.dir);
       const base = await projectViewMod.buildProjectTree(staleProject);
-      // 摘要的上游是 chapters/ 下那份正文（指纹链的最后一环）。
+      // 细纲 sourceHash 的上游是 chapters/ 下那份正文（指纹链的最后一环）。
       const target = path.join(fixture.dir, byNo(base.plots, 3).chapterPath);
       const backup = fs.readFileSync(target, 'utf8');
 
@@ -2055,7 +2062,7 @@ describe('工程页数据', () => {
 
     after(() => cleanup(fixture.dir));
 
-    test('改正文后那一章标记为过期', () => {
+    test('改正文后那一章标记为待定稿（过期）', () => {
       assert.equal(byNo(dirty.plots, 3).stale, true);
     });
 
@@ -2063,15 +2070,15 @@ describe('工程页数据', () => {
       assert.equal(dirty.staleCount, 1);
     });
 
-    test('已总结计数跟着减 1', () => {
+    test('已定稿计数跟着减 1', () => {
       assert.equal(dirty.summarizedCount, 2);
     });
 
-    test('过期的章仍带旧摘要路径（可点开对照）', () => {
-      assert.ok(byNo(dirty.plots, 3).summaryPath.endsWith('003-夜访.md'));
+    test('过期的章仍指向它那份定稿过的细纲（可点开对照）', () => {
+      assert.equal(byNo(dirty.plots, 3).plotPath, PLOT3);
     });
 
-    // 定稿的判据是「摘要在且不过期」：正文改过，这一章就不再算已完成。
+    // 写完的判据是「细纲定稿过且 sourceHash 对得上正文」：正文改过，这一章就不再算已完成。
     test('过期的章不再算已完成', () => {
       assert.notEqual(byNo(dirty.plots, 3).stage, 'done', byNo(dirty.plots, 3).stage);
     });
@@ -2089,9 +2096,9 @@ describe('工程页数据', () => {
 // ---------------------------------------------------------------------------
 
 describe('出场人物索引', () => {
-  // 示例工程刻意混了两种摘要：第 3 章带 frontmatter.cast（新格式），
-  // 第 1、2 章没有（旧格式）。真实工程升级后就是这个样子，索引必须同时
-  // 吃下两种，否则老章节的人会在角色页上凭空消失。
+  // 示例工程刻意混了两种定稿过的细纲：第 3 章带 frontmatter.cast，第 1、2 章没有
+  // （手写的、或老工程里的单章摘要直接当细纲读进来就是这样）。索引必须同时吃下两种，
+  // 否则老章节的人会在角色页上凭空消失。第 4 章是计划，不进统计。
   let s3;
   let s1;
   let index;
@@ -2099,30 +2106,30 @@ describe('出场人物索引', () => {
   let linCard;
 
   before(async () => {
-    s3 = await project.readSummary(CH3);
-    s1 = await project.readSummary(CH1);
+    s3 = await project.getPlot(3);
+    s1 = await project.getPlot(1);
     index = await castMod.buildCastIndex(project);
     lin = index.known.find((m) => m.card && m.card.name === '林昭');
     linCard = (await project.listCharacters()).find((c) => c.name === '林昭');
   });
 
-  test('新格式摘要读到结构化 cast', () => {
+  test('frontmatter 带 cast 的细纲读到结构化出场', () => {
     assert.equal(s3.cast.length, 2, JSON.stringify(s3.cast));
   });
 
-  test('新格式 cast 带别名', () => {
+  test('cast 带别名', () => {
     assert.ok(s3.cast.find((c) => c.name === '年轻守卫').aliases.includes('那个年轻人'), JSON.stringify(s3.cast));
   });
 
-  test('旧格式摘要从小节文本反解 cast', () => {
+  test('没有 cast 的细纲从「出场人物」一节反解', () => {
     assert.equal(s1.cast.length, 3, JSON.stringify(s1.cast));
   });
 
-  test('旧格式反解出的名字正确', () => {
+  test('反解出的名字正确', () => {
     assert.equal(s1.cast.map((c) => c.name).join('、'), '林昭、李叔、年轻守卫');
   });
 
-  test('统计到 3 份摘要', () => {
+  test('统计到 3 份定稿过的细纲（第 4 章的计划不算）', () => {
     assert.equal(index.summaryCount, 3);
   });
 
@@ -2138,12 +2145,12 @@ describe('出场人物索引', () => {
     assert.ok(lin && lin.plots.every((o, i, a) => i === 0 || o > a[i - 1]), lin && lin.plots.join(','));
   });
 
-  // 别名匹配：某一章摘要里写「阿昭」也该记到林昭头上，不该多出一个人。
+  // 别名匹配：某一章细纲里写「阿昭」也该记到林昭头上，不该多出一个人。
   test('未建卡列表里没有已知别名', () => {
     assert.ok(!index.unknown.some((m) => m.name === '阿昭'), index.unknown.map((m) => m.name).join('、'));
   });
 
-  // 摘要里出现、没有角色卡的人（示例工程里是「客栈掌柜」）。
+  // 定稿过的细纲里出现、没有角色卡的人（示例工程里是「客栈掌柜」）。
   test('未建卡人物被单列', () => {
     assert.ok(index.unknown.some((m) => m.name.includes('掌柜')), index.unknown.map((m) => m.name).join('、'));
   });
@@ -2186,15 +2193,15 @@ describe('出场人物索引', () => {
   });
 
   test('describePlots 空列表有说法', () => {
-    assert.equal(castMod.describePlots([]), '未在摘要中出现');
+    assert.equal(castMod.describePlots([]), '未在定稿中出现');
   });
 });
 
 // ---------------------------------------------------------------------------
 
 /**
- * D13 的另一半：细纲里的 `characters[]` 是**计划**出场，**只给装配器挑角色卡用**。
- * 出场统计只认摘要（第 14 条）——计划与实际混在一起，角色页上会冒出「第 4 章出场」
+ * D13 的另一半：没定稿的细纲里「出场人物」一节是**计划**出场，**只给装配器挑角色卡用**。
+ * 出场统计只认定稿过的细纲（第 14 条）——计划与实际混在一起，角色页上会冒出「第 4 章出场」
  * 而那一章其实还没写，或者计划里有、写的时候被删掉的人。
  */
 describe('细纲的计划出场：装配时认别名，但不进出场统计（D13）', () => {
@@ -2207,24 +2214,14 @@ describe('细纲的计划出场：装配时认别名，但不进出场统计（D
   before(async () => {
     fixture = copyFixture('builder-planned');
     p = projectMod.NovelProject.open(fixture.dir);
-    // 第 4 章只排了细纲：计划出场写的是别名「阿昭」，外加一个还没有卡的人。
-    await wsOf(p).writePlot({
-      no: 4,
-      title: '第三块令牌',
-      role: '转折',
-      characters: ['阿昭', '陌生人甲'],
-      upstreamHash: '',
-      done: false,
-      sections: {
-        本章目的: '第三块令牌现身。',
-        关键事件: '天亮后上山，母亲拿出令牌。',
-        章末钩子: '母亲认出了他。',
-      },
-    });
+    // 第 4 章只排了细纲（计划）：把计划出场改成别名「阿昭」，外加一个还没有卡的人。
+    const plot4 = fixture.read(PLOT4);
+    fixture.write(PLOT4, plot4.replace('## 出场人物\n\n林昭、年轻守卫、李叔', '## 出场人物\n\n阿昭、陌生人甲'));
+    assert.notEqual(fixture.read(PLOT4), plot4, '示例工程第 4 章的「出场人物」一节变了，这里要跟着改');
     p.invalidate();
     built4 = await builderMod.buildContext(
       p,
-      { action: WRITE, target: { kind: 'manuscript', plotRelPath: '.novelforge/plots/004-第三块令牌.md' }, ask: '写。' },
+      { action: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT4 }, ask: '写。' },
       baseConfig
     );
     b4 = ids(built4);
@@ -2256,14 +2253,15 @@ describe('细纲的计划出场：装配时认别名，但不进出场统计（D
 
 /**
  * 二期加的几层与移植过来的契约（AI-Novel-Writer 的配置 / 前提 / 角色图谱 / 世界观 /
- * 情节大纲 / 细纲批次）。示例工程：三幕、30 章 × 400 字，大纲三段区间，第 1–3 章细纲都在。
+ * 情节大纲 / 细纲批次）。示例工程：三幕、30 章 × 400 字，大纲三段区间，第 1–4 章细纲都在
+ * （第 4 章是计划）。
  *
  * | 用例组 | 钉的是什么 |
  * |---|---|
  * | 结构指导 | 大纲层 P0 force 带按总章数算好的章号区间，并点明本批落在哪几段 |
  * | 角色图谱一览 | 架构后几件、大纲、细纲都知道「书里有谁、彼此什么关系」，不带完整角色卡 |
  * | 大纲续写 | 契约写明本次只写哪几章、前面的不许重写 |
- * | 细纲批次 | 没有「本章」：plotSelf / plotPrev 不出场，前序细纲一览全包，最后几章带钩子 |
+ * | 细纲批次 | 没有「本章」：plotSelf / plotPrev 不出场，前序细纲一览全包，最后几章带看点 |
  * | 拆半后的后一半 | 看得见前一半刚排好、还没落盘的那几章 |
  * | 链里的后几步 | 角色详情带冻结清单；紧凑重建写明上次哪里不合格 |
  */
@@ -2289,14 +2287,15 @@ describe('装配：二期的新层与移植的契约', () => {
       range: { from: 4, to: 8 },
     });
     bIds = ids(batch);
+    // 排第 5–8 章那一批拆了半：前一半（第 5、6 章）刚排好、还没落盘，现在排后一半。
     split = await build({
       action: GEN('plot'),
-      target: { kind: 'plot', plotRelPath: '.novelforge/plots/006.md' },
+      target: { kind: 'plot', plotRelPath: '.novelforge/summaries/007.md' },
       ask: '',
-      range: { from: 6, to: 8 },
+      range: { from: 7, to: 8 },
       draftPlots: [
-        { no: 4, title: '第二块令牌', keyEvents: '林昭找到守卫的母亲。', suspenseHook: '她说令牌共有五块。' },
-        { no: 5, title: '雨夜', keyEvents: '持牌人坠井。', suspenseHook: '井边有沈氏的簪子。' },
+        { no: 5, title: '第二块令牌', keyEvents: '- 林昭找到守卫的母亲。', highlights: '- 她说令牌共有五块。' },
+        { no: 6, title: '雨夜', keyEvents: '- 持牌人坠井。\n- 有人在井口捡到半截簪子。', highlights: '- 井边有沈氏的簪子。\n- 簪子是谁扔下的。' },
       ],
     });
     details = await build({
@@ -2310,7 +2309,7 @@ describe('装配：二期的新层与移植的契约', () => {
       target: { kind: 'plot', plotRelPath: PLOT4 },
       ask: '',
       range: { from: 4, to: 4 },
-      step: { kind: 'blueprintCompact', diagnostic: 'blueprints[0].suspenseHook 是空的' },
+      step: { kind: 'blueprintCompact', diagnostic: 'blueprints[0].keyEvents 是空的' },
     });
     config = await build({
       action: GEN('setting'),
@@ -2375,12 +2374,15 @@ describe('装配：二期的新层与移植的契约', () => {
     assert.ok(!bIds.has(`plot:${PLOT4}`) && ![PLOT1, PLOT2, PLOT3].some((p) => bIds.has(`plot:${p}`)), [...bIds.keys()].join(','));
   });
 
-  test('★ 前序细纲一览全包：最后几章带章末钩子', () => {
+  test('★ 前序细纲一览全包：最后几章带看点', () => {
     const list = bIds.get('plotList');
     assert.ok(list && list.status === 'included', JSON.stringify(list));
     const lines = list.text.split('\n');
     assert.equal(lines.length, 3);
-    assert.ok(lines.every((l) => l.includes('｜章末钩子：')), list.text);
+    assert.ok(lines.every((l) => l.includes('｜看点：')), list.text);
+    assert.ok(lines[2].includes('第3章 夜访：') && lines[2].includes('我娘手上有一块一模一样的牌子'), lines[2]);
+    // 定稿过的关键事件是一条一行的列表，一章一行时用「；」接起来。
+    assert.ok(lines[0].startsWith('第1章 楔子：林昭进入青崖镇，自称从「江那边」来。；林昭以一块残缺「崖」字的旧牌子代替过所。'), lines[0]);
     assert.ok(lastOf(batch).includes('# 前序细纲一览（已生成的目录进度）'));
   });
 
@@ -2388,7 +2390,7 @@ describe('装配：二期的新层与移植的契约', () => {
     assert.ok(bIds.has('outlineSlice:4-8') && bIds.get('outlineSlice:4-8').text.includes('第一幕 · 停舟'), [...bIds.keys()].join(','));
   });
 
-  test('批次契约：覆盖第 4–8 章、容量按每章字数、钩子必填', () => {
+  test('批次契约：覆盖第 4–8 章、容量按每章字数', () => {
     const user = lastOf(batch);
     assert.ok(user.includes('为接下来的第 4–8 章生成极其严密的「保姆级执行目录细纲」'), user.slice(-3000));
     assert.ok(user.includes('chapterNumber 必须覆盖第 4–8 章的每一章'), user.slice(-3000));
@@ -2404,9 +2406,11 @@ describe('装配：二期的新层与移植的契约', () => {
 
   test('拆半后的后一半看得见前一半刚排好、还没落盘的那几章', () => {
     const list = ids(split).get('plotList').text;
-    assert.ok(list.includes('第4章 第二块令牌（刚排好，还没写入文件）') && list.includes('第5章 雨夜'), list);
-    // 最后三章（第 3、4、5 章）带钩子：下一章要紧接着第 5 章往下排。
-    assert.ok(list.includes('井边有沈氏的簪子'), list);
+    assert.ok(list.includes('第5章 第二块令牌（刚排好，还没写入文件）') && list.includes('第6章 雨夜'), list);
+    // 最后三章（第 4、5、6 章）带看点：下一章要紧接着第 6 章往下排。
+    // 关键事件、看点都是一条一行的列表：一章一行时条与条之间用「；」接，不留「- 」。
+    assert.ok(list.includes('第6章 雨夜（刚排好，还没写入文件）：持牌人坠井。；有人在井口捡到半截簪子。｜看点：井边有沈氏的簪子。；簪子是谁扔下的。'), list);
+    assert.ok(!list.includes('- '), list);
   });
 
   // ------------------------------------------------------------ 链里的后几步
@@ -2419,7 +2423,7 @@ describe('装配：二期的新层与移植的契约', () => {
 
   test('紧凑重建写明上次哪里不合格，只要这一章', () => {
     const user = lastOf(compact);
-    assert.ok(user.includes('blueprints[0].suspenseHook 是空的') && user.includes('必须且只能返回 chapterNumber=4 的一项'), user.slice(-800));
+    assert.ok(user.includes('blueprints[0].keyEvents 是空的') && user.includes('必须且只能返回 chapterNumber=4 的一项'), user.slice(-800));
   });
 
   // ------------------------------------------------------------ 小说配置

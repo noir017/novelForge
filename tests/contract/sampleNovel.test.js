@@ -5,11 +5,11 @@
  * 这是**只读**断言：任何写入类用例都不许碰 sample-novel（写了这里就会红），
  * 需要写盘的先经 helpers/tmpProject.js 的 copyFixture 复制一份。
  *
- * 一条轴：细纲号 = 章号。`chapters/NNN-标题.md` 是正文，摘要按同一个词干镜像到
- * `summaries/`，细纲（`plots/`）与它同号。指纹链的三环都在这里验：大纲那一节 →
- * 细纲（`upstreamHash`）、细纲 → 正文（`writtenFrom`）、正文 → 摘要（`sourceHash`）。
+ * 一条轴：细纲号 = 章号。`chapters/NNN-标题.md` 是正文，细纲是 `summaries/` 根下同号的那一份，
+ * 定稿时照正文反向更新的也是它。指纹链的三环都在这里验：大纲那一节 → 细纲（`upstreamHash`）、
+ * 细纲 → 正文（`writtenFrom`，定稿时刷成更新之后的指纹）、正文 → 定稿（`sourceHash`）。
  * 架构三件（config / premise / world）都要是填过的——示例工程是一份走完整条
- * 链路、写到第 3 章的书。
+ * 链路、写到第 3 章、第 4 章已经排好细纲还没写的书。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -34,8 +34,14 @@ const read = (rel) => fs.readFileSync(path.join(SAMPLE, rel), 'utf8');
 /** 章节清单要在收集用例时就读到（每章生成好几条用例），所以放在模块顶层。 */
 const manifest = JSON.parse(read('.novelforge/project.json'));
 
-/** 章节路径 → 镜像词干（`chapters/001-楔子.md` → `001-楔子`）。 */
+/** 章节路径 → 词干（`chapters/001-楔子.md` → `001-楔子`）。示例工程里细纲与正文同名。 */
 const stemOf = (file) => path.basename(file, path.extname(file));
+
+/** `summaries/` 根下的细纲文件名（`global.md` 不是）。 */
+function plotFiles() {
+  const plotFile = loadModule('src/core/model/plotFile.ts');
+  return fs.readdirSync(path.join(SAMPLE, '.novelforge/summaries')).filter((f) => plotFile.isPlotFileName(f));
+}
 
 describe('示例工程数据一致性', () => {
   let md;
@@ -58,18 +64,24 @@ describe('示例工程数据一致性', () => {
     assert.equal(manifest.plots, undefined);
   });
 
-  /** 卷与中转站两层都删了：示例工程里不该再出现它们。 */
-  test('没有 volumes/ 与 manuscripts/', () => {
+  /** 卷与中转站两层都删了，细纲也并进了 summaries/：示例工程里不该再出现它们。 */
+  test('没有 volumes/、manuscripts/ 与 plots/', () => {
     assert.ok(!fs.existsSync(path.join(SAMPLE, '.novelforge/volumes')));
     assert.ok(!fs.existsSync(path.join(SAMPLE, '.novelforge/manuscripts')));
+    assert.ok(!fs.existsSync(path.join(SAMPLE, '.novelforge/plots')));
   });
 
-  /** 每一章都有同号的细纲：示例工程是走完整条流水线写出来的。 */
-  test('每一章都有同号的细纲（细纲号 = 章号）', () => {
+  /** 每一章都有同号的细纲（示例工程是走完整条流水线写出来的），外加第 4 章排好了还没写。 */
+  test('写过的每一章都有同号的细纲，第 4 章只有细纲（细纲号 = 章号）', () => {
     const plotFile = loadModule('src/core/model/plotFile.ts');
-    const plots = fs.readdirSync(path.join(SAMPLE, '.novelforge/plots')).filter((f) => f.endsWith('.md'));
-    const nos = plots.map((f) => plotFile.parsePlotFileName(f).no).sort((a, b) => a - b);
-    assert.deepEqual(nos, manifest.chapters.map((c) => c.order).sort((a, b) => a - b));
+    const nos = plotFiles().map((f) => plotFile.parsePlotFileName(f).no).sort((a, b) => a - b);
+    assert.deepEqual(nos, [...manifest.chapters.map((c) => c.order).sort((a, b) => a - b), 4]);
+  });
+
+  test('manifest 不再记 summaryHash（定稿记在细纲上）', () => {
+    for (const entry of manifest.chapters) {
+      assert.equal(entry.summaryHash, undefined, entry.file);
+    }
   });
 
   test('架构三件都填过，配置能解析出规模参数', () => {
@@ -91,9 +103,7 @@ describe('示例工程数据一致性', () => {
 
   describe('每章的指纹链', () => {
     for (const entry of manifest.chapters) {
-      const stem = stemOf(entry.file);
-      const summaryRel = `.novelforge/summaries/${stem}.md`;
-      const plotRel = `.novelforge/plots/${stem}.md`;
+      const plotRel = `.novelforge/summaries/${stemOf(entry.file)}.md`;
 
       test(`第 ${entry.order} 章有正文`, () => {
         assert.ok(fs.existsSync(path.join(SAMPLE, entry.file)), entry.file);
@@ -103,7 +113,7 @@ describe('示例工程数据一致性', () => {
         assert.ok(fs.existsSync(path.join(SAMPLE, plotRel)), plotRel);
       });
 
-      // 细纲的两个指纹都对得上：它依据的那一节大纲没改过，正文依据的细纲也没改过。
+      // 细纲的两个指纹都对得上：它依据的那一节大纲没改过，定稿之后细纲也没再改过。
       test(`第 ${entry.order} 章细纲的 upstreamHash / writtenFrom 都是新鲜的`, () => {
         const plotFile = loadModule('src/core/model/plotFile.ts');
         const outlineFile = loadModule('src/core/model/outlineFile.ts');
@@ -120,27 +130,29 @@ describe('示例工程数据一致性', () => {
         assert.equal(contentHash(read(entry.file)), entry.contentHash);
       });
 
-      test(`第 ${entry.order} 章摘要标记为最新`, () => {
-        assert.equal(entry.summaryHash, entry.contentHash);
+      test(`第 ${entry.order} 章定稿过：细纲的 sourceHash 匹配正文`, () => {
+        assert.equal(md.parseMarkdown(read(plotRel)).frontmatter.sourceHash, entry.contentHash);
       });
 
-      test(`第 ${entry.order} 章摘要文件存在`, () => {
-        assert.ok(fs.existsSync(path.join(SAMPLE, summaryRel)), summaryRel);
-      });
-
-      test(`第 ${entry.order} 章摘要 sourceHash 匹配正文`, () => {
-        const sumFm = md.parseMarkdown(read(summaryRel)).frontmatter;
-        assert.equal(sumFm.sourceHash, entry.contentHash);
-      });
-
-      // 摘要的 frontmatter 指回它属于哪一章。
-      // frontmatter 解析出来一律是字符串，`readSummary` 用 asNumber 收口，
-      // 这里比字符串即可——要验的是「指回去了」，不是解析器的类型。
-      test(`第 ${entry.order} 章摘要指回章号`, () => {
-        const fm = md.parseMarkdown(read(summaryRel)).frontmatter;
-        assert.equal(String(fm.chapter), String(entry.order), JSON.stringify(fm.chapter));
+      // 细纲的 frontmatter 指回它属于哪一章（身份仍以文件名为准，这一行给人看）。
+      test(`第 ${entry.order} 章细纲指回章号`, () => {
+        const fm = md.parseMarkdown(read(plotRel)).frontmatter;
+        assert.equal(String(fm.no), String(entry.order), JSON.stringify(fm.no));
       });
     }
+
+    test('第 4 章是计划：关键事件排好了，没有正文、没定稿、没记 writtenFrom，上游指纹新鲜', () => {
+      const plotFile = loadModule('src/core/model/plotFile.ts');
+      const outlineFile = loadModule('src/core/model/outlineFile.ts');
+      const [name] = plotFiles().filter((f) => plotFile.parsePlotFileName(f).no === 4);
+      const plot = plotFile.parsePlotFile(read(`.novelforge/summaries/${name}`), `.novelforge/summaries/${name}`);
+      const outline = md.stripH1(md.parseMarkdown(read('.novelforge/outline.md')).body);
+      assert.ok(plotFile.isPlotFilled(plot.sections));
+      assert.equal(plot.sourceHash, '');
+      assert.equal(plot.writtenFrom, '');
+      assert.equal(plot.upstreamHash, outlineFile.outlineUpstreamHash(outline, 4));
+      assert.ok(!manifest.chapters.some((c) => c.order === 4));
+    });
   });
 
   test('示例纲要能命中 3 个角色（林昭/沈氏/年轻守卫）', () => {

@@ -7,7 +7,7 @@
  * | 用例组 | 钉的是什么 |
  * |---|---|
  * | 语法修复证据 | 修过的那份只许补闭合括号、改标点；改一个字就拒收（不许借修复补造事实） |
- * | 细纲批次 | 缺必填字段报诊断（交给拆半 / 紧凑重建）；超长截断不作废；新角色必须在出场名单里 |
+ * | 细纲批次 | 缺必填字段报诊断（交给拆半 / 紧凑重建）；可以空着的四个字段宽松收；超长截断不作废；新角色必须在出场名单里；关键事件是一条一件事的数组，给成一段字按换行与分号切 |
  * | 角色图谱 | 清单里关系不闭合、没标主角照收并说明；详情以冻结清单为准；关系由清单生成到双方卡上 |
  * | 小说配置 | 英文键映射到七节；「全局要求」的合同；保留作者原文；规范化草稿能按 config.md 读回来 |
  */
@@ -25,11 +25,13 @@ const S = loadModule('src/core/model/settingFile.ts');
 const item = (no, over = {}) => ({
   chapterNumber: no,
   title: `第${no}章标题`,
-  role: '铺垫',
-  purpose: `第 ${no} 章的目的`,
-  keyEvents: `第 ${no} 章的关键事件，落在两个场面上。`,
+  synopsis: `第 ${no} 章的梗概`,
   characters: ['林昭', '沈青'],
-  suspenseHook: `第 ${no} 章的钩子`,
+  timePlace: `第 ${no} 章的时间地点`,
+  keyEvents: [`第 ${no} 章林昭在山门外踩点`, `第 ${no} 章翻墙进了后院`],
+  highlights: [`第 ${no} 章的爽点`, `第 ${no} 章的钩子`],
+  foreshadowing: [`第 ${no} 章的伏笔`],
+  stateChange: `第 ${no} 章之后的处境`,
   ...over,
 });
 
@@ -61,7 +63,7 @@ describe('structuredJson.ts · 语法修复的证据校验', () => {
 });
 
 describe('blueprint.ts · 细纲批次', () => {
-  test('合格的一批：三节对上 D3，新角色带出来', () => {
+  test('合格的一批：字段对上细纲八节，新角色带出来', () => {
     const r = B.decodeBlueprints(JSON.stringify({
       blueprints: [item(1, { newCharacters: [{ name: '沈青', role: 'supporting' }] }), item(2)],
     }));
@@ -69,8 +71,41 @@ describe('blueprint.ts · 细纲批次', () => {
     assert.deepEqual(r.items.map((b) => b.no), [1, 2]);
     assert.deepEqual(r.items[0].newCharacters, [{ name: '沈青', role: '配角' }]);
     const plot = B.blueprintToPlot(r.items[0]);
-    assert.equal(plot.sections.本章目的, '第 1 章的目的');
-    assert.equal(plot.sections.章末钩子, '第 1 章的钩子');
+    assert.deepEqual(plot.sections, {
+      梗概: '第 1 章的梗概',
+      出场人物: '林昭、沈青',
+      时间地点: '第 1 章的时间地点',
+      关键事件: '- 第 1 章林昭在山门外踩点\n- 第 1 章翻墙进了后院',
+      看点: '- 第 1 章的爽点\n- 第 1 章的钩子',
+      新增伏笔: '- 第 1 章的伏笔',
+      状态变更: '第 1 章之后的处境',
+      连续性事实: '',
+    });
+    assert.equal(plot.title, '第1章标题');
+  });
+
+  // 过渡章没有新伏笔是常事：为一个空数组作废整批再调一次不划算。
+  test('时间地点 / 看点 / 新增伏笔 / 状态变更可以缺、可以空，形状写错了照收', () => {
+    const { timePlace, highlights, foreshadowing, stateChange, ...bare } = item(1);
+    void timePlace;
+    void highlights;
+    void foreshadowing;
+    void stateChange;
+    const r = B.decodeBlueprints(JSON.stringify({ blueprints: [bare, item(2, { highlights: '一行写成的看点', foreshadowing: [], stateChange: ['甲', '乙'] })] }));
+    assert.equal(r.ok, true);
+    assert.deepEqual([r.items[0].timePlace, r.items[0].highlights, r.items[0].foreshadowing, r.items[0].stateChange], ['', [], [], '']);
+    assert.deepEqual(r.items[1].highlights, ['一行写成的看点']);
+    assert.equal(r.items[1].stateChange, '甲；乙');
+  });
+
+  test('看点、新增伏笔超过条数与字数：截断并说明', () => {
+    const r = B.decodeBlueprints(JSON.stringify({
+      blueprints: [item(1, { highlights: Array.from({ length: 7 }, (_, i) => `看点${i}`), foreshadowing: ['伏'.repeat(200)] })],
+    }));
+    assert.equal(r.items[0].highlights.length, 5);
+    assert.equal(r.items[0].foreshadowing[0].length, 120);
+    assert.match(r.warnings.join('\n'), /highlights 列了 7 条/);
+    assert.match(r.warnings.join('\n'), /foreshadowing 有一条超过 120 字/);
   });
 
   test('裸数组、围栏、JSON 前后的废话都认', () => {
@@ -79,28 +114,107 @@ describe('blueprint.ts · 细纲批次', () => {
     assert.equal(B.decodeBlueprints('好的：' + JSON.stringify({ blueprints: [item(3)] }) + '祝顺利').ok, true);
   });
 
-  test('缺必填字段、钩子为空、没有出场角色：报诊断，路径说得出是哪一格', () => {
-    const noHook = B.decodeBlueprints(JSON.stringify({ blueprints: [item(1), item(2, { suspenseHook: '' })] }));
-    assert.equal(noHook.ok, false);
-    assert.equal(noHook.diagnostic.code, 'empty_value');
-    assert.equal(noHook.diagnostic.path, 'blueprints[1].suspenseHook');
+  test('缺必填字段、梗概为空、没有出场角色：报诊断，路径说得出是哪一格', () => {
+    const noSynopsis = B.decodeBlueprints(JSON.stringify({ blueprints: [item(1), item(2, { synopsis: '' })] }));
+    assert.equal(noSynopsis.ok, false);
+    assert.equal(noSynopsis.diagnostic.code, 'empty_value');
+    assert.equal(noSynopsis.diagnostic.path, 'blueprints[1].synopsis');
 
     const { keyEvents, ...rest } = item(1);
     void keyEvents;
-    assert.equal(B.decodeBlueprints(JSON.stringify({ blueprints: [rest] })).diagnostic.code, 'missing_field');
+    const missing = B.decodeBlueprints(JSON.stringify({ blueprints: [rest] }));
+    assert.equal(missing.diagnostic.code, 'missing_field');
+    assert.equal(missing.diagnostic.path, 'blueprints[0].keyEvents');
     assert.equal(B.decodeBlueprints(JSON.stringify({ blueprints: [item(1, { characters: [] })] })).diagnostic.path, 'blueprints[0].characters');
     assert.equal(B.decodeBlueprints('{"blueprints": [').diagnostic.code, 'not_json');
     assert.equal(B.decodeBlueprints('{"x": 1}').diagnostic.code, 'no_list');
   });
 
-  test('超长不作废：截断并说明；标题在标点处断开', () => {
+  test('标题在标点处断开', () => {
     const r = B.decodeBlueprints(JSON.stringify({
-      blueprints: [item(1, { keyEvents: '事'.repeat(1300), title: '夜入青云。林昭在雨夜翻进了宗门的后墙' })],
+      blueprints: [item(1, { title: '夜入青云。林昭在雨夜翻进了宗门的后墙' })],
     }));
     assert.equal(r.ok, true);
-    assert.equal(r.items[0].keyEvents.length, 1200);
     assert.equal(r.items[0].title, '夜入青云');
-    assert.match(r.warnings.join('\n'), /第 1 章的 keyEvents 超过 1200 字/);
+  });
+
+  // 关键事件和定稿写出来的一样是一条一件事的列表（⚑B）：定稿才能逐条改，而不是把一整段重写一遍。
+  describe('关键事件：一条一件事的列表', () => {
+    const events = (keyEvents) => B.decodeBlueprints(JSON.stringify({ blueprints: [item(1, { keyEvents })] }));
+
+    test('数组按条收，去掉行首的编号与「-」，空条不算', () => {
+      const r = events(['1. 林昭踩点', '- 失手惊动守卫', '  ', '翻墙进了后院']);
+      assert.equal(r.ok, true);
+      assert.deepEqual(r.items[0].keyEvents, ['林昭踩点', '失手惊动守卫', '翻墙进了后院']);
+      assert.deepEqual(r.warnings, []);
+    });
+
+    test('一条里带了换行就按行拆开：落盘后一行就是一条', () => {
+      assert.deepEqual(events(['林昭踩点\n失手惊动守卫']).items[0].keyEvents, ['林昭踩点', '失手惊动守卫']);
+    });
+
+    // 一条里的分号不切：一件事可以有前后两拍。
+    test('数组里一条带分号不切', () => {
+      assert.deepEqual(events(['林昭翻墙；落在后院']).items[0].keyEvents, ['林昭翻墙；落在后院']);
+    });
+
+    test('给成一段字照收：按换行与分号切成条，去掉列表记号', () => {
+      assert.deepEqual(events('林昭踩点；失手惊动守卫;翻墙进了后院').items[0].keyEvents, ['林昭踩点', '失手惊动守卫', '翻墙进了后院']);
+      assert.deepEqual(events('- 林昭踩点\n- 翻墙进了后院').items[0].keyEvents, ['林昭踩点', '翻墙进了后院']);
+      assert.deepEqual(events('一整段写成的关键事件，没有分号。').items[0].keyEvents, ['一整段写成的关键事件，没有分号。']);
+    });
+
+    test('空数组、只有空白或记号：empty_value', () => {
+      for (const v of [[], [''], ['  ', '-'], '', '；', '- \n-']) {
+        const r = events(v);
+        assert.equal(r.ok, false, JSON.stringify(v));
+        assert.equal(r.diagnostic.code, 'empty_value', JSON.stringify(v));
+        assert.equal(r.diagnostic.path, 'blueprints[0].keyEvents');
+      }
+    });
+
+    test('形状不对：invalid_type', () => {
+      for (const v of [42, { a: '林昭踩点' }, ['林昭踩点', 3], [{ event: '林昭踩点' }], null, true]) {
+        const r = events(v);
+        assert.equal(r.ok, false, JSON.stringify(v));
+        assert.equal(r.diagnostic.code, 'invalid_type', JSON.stringify(v));
+        assert.equal(r.diagnostic.path, 'blueprints[0].keyEvents');
+      }
+    });
+
+    test('超过 8 条：只留前面的，并说明', () => {
+      assert.equal(B.BLUEPRINT_LIMITS.keyEventItems, 8);
+      const r = events(Array.from({ length: 10 }, (_, i) => `事件${i}`));
+      assert.equal(r.ok, true);
+      assert.deepEqual(r.items[0].keyEvents, Array.from({ length: 8 }, (_, i) => `事件${i}`));
+      assert.match(r.warnings.join('\n'), /第 1 章的 keyEvents 列了 10 条，只留前 8 条/);
+    });
+
+    test('合计超过 1200 字：从超出的那一条起截掉，并说明', () => {
+      const r = events(['甲'.repeat(500), '乙'.repeat(500), '丙'.repeat(500), '丁'.repeat(10)]);
+      assert.equal(r.ok, true);
+      assert.deepEqual(r.items[0].keyEvents, ['甲'.repeat(500), '乙'.repeat(500), '丙'.repeat(200)]);
+      assert.equal(r.items[0].keyEvents.join('').length, 1200);
+      assert.match(r.warnings.join('\n'), /第 1 章的 keyEvents 超过 1200 字，已截断/);
+    });
+
+    test('合计正好 1200 字：不截、不说明', () => {
+      const r = events(['甲'.repeat(600), '乙'.repeat(600)]);
+      assert.equal(r.items[0].keyEvents.join('').length, 1200);
+      assert.deepEqual(r.warnings, []);
+    });
+
+    test('一段字超长：切完再按合计字数截', () => {
+      const r = events('事'.repeat(1300));
+      assert.deepEqual(r.items[0].keyEvents, ['事'.repeat(1200)]);
+      assert.match(r.warnings.join('\n'), /第 1 章的 keyEvents 超过 1200 字/);
+    });
+
+    test('落盘成一条一行，规范化输出写回数组', () => {
+      const r = events('林昭踩点；翻墙进了后院');
+      assert.equal(B.blueprintToPlot(r.items[0]).sections.关键事件, '- 林昭踩点\n- 翻墙进了后院');
+      assert.deepEqual(JSON.parse(B.renderBlueprints(r.items)).blueprints[0].keyEvents, ['林昭踩点', '翻墙进了后院']);
+    });
   });
 
   test('新角色不在出场名单里：不建卡，并说明', () => {
@@ -311,7 +425,7 @@ describe('artifact.ts · 细纲批次与单章', () => {
 
   test('给了区间就是一批：只留区间内的章，按章号升序', () => {
     const raw = JSON.stringify({ blueprints: [item(3), item(1), item(9), item(2)] });
-    const art = A.parseArtifact(act, raw, { kind: 'plot', plotRelPath: '.novelforge/plots/001.md' }, { from: 1, to: 3 });
+    const art = A.parseArtifact(act, raw, { kind: 'plot', plotRelPath: '.novelforge/summaries/001.md' }, { from: 1, to: 3 });
     assert.equal(art.kind, 'plotBatch');
     assert.deepEqual(art.items.map((b) => b.no), [1, 2, 3]);
     assert.match(A.describeArtifact(art), /第 1–3 章（3 章）/);
@@ -324,13 +438,15 @@ describe('artifact.ts · 细纲批次与单章', () => {
   });
 
   test('单章也认批次合同的单项形式（生成与落定契约一致）', () => {
-    const raw = JSON.stringify({ blueprints: [item(4, { role: '小高潮' })] });
+    const raw = JSON.stringify({ blueprints: [item(4)] });
     for (const capability of ['generate', 'settle']) {
       const art = A.parseArtifact({ stage: 'plot', capability }, raw);
       assert.equal(art.kind, 'plot');
-      assert.equal(art.sections.关键事件, item(4).keyEvents);
-      assert.equal(art.role, '小高潮');
-      assert.deepEqual(art.characters, ['林昭', '沈青']);
+      assert.equal(art.sections.关键事件, '- 第 4 章林昭在山门外踩点\n- 第 4 章翻墙进了后院');
+      assert.equal(art.sections.梗概, '第 4 章的梗概');
+      assert.equal(art.sections.出场人物, '林昭、沈青');
+      assert.equal(art.sections.看点, '- 第 4 章的爽点\n- 第 4 章的钩子');
+      assert.equal(art.title, '第4章标题');
     }
   });
 

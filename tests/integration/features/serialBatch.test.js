@@ -1,13 +1,13 @@
 /**
  * 四期验收：从排好前 5 章细纲的工程起，工程页「批量写章」第 1–3 章、写完即定稿。
  *
- *   写第 1 章 → 定稿（摘要 + 角色状态）→ 写第 2 章 → 定稿 → 写第 3 章 → 定稿
+ *   写第 1 章 → 定稿（照正文更新细纲 + 角色状态）→ 写第 2 章 → 定稿 → 写第 3 章 → 定稿
  *
  * 经 controller 发出去（与工程页弹窗提交的那一条消息一样），假模型按脚本应答。
  *
  * | 断言 | 为什么 |
  * |---|---|
- * | 三章正文与三份摘要都在，摘要里的连续性事实每条带证据 | D18：证据确定性地找 |
+ * | 三章正文都在，三份细纲都定了稿（sourceHash 对得上正文），连续性事实每条带证据 | 第 23 条：细纲定稿过且对得上才算写完；D18：证据确定性地找 |
  * | 第 2 章定稿后，角色卡的当前状态换成第 2 章给出的那一版 | D15：机器的那一节由定稿维护 |
  * | **第 3 章写正文那一次的装配里**：角色卡是第 2 章更新过的状态，定稿原文片段里有第 2 章证据所在的那一段 | 这一期存在的理由：后一章读得到前一章定稿留下的东西 |
  * | 作者在第 1 章之后手改过沈氏的当前状态：后两章定稿都没覆盖，卡上挂黄 ❗ | 第 3 条：不静默覆盖 |
@@ -35,7 +35,7 @@ const finished = [];
 const TITLES = ['停舟', '令牌', '夜访', '井', '名册'];
 const pad3 = (n) => String(n).padStart(3, '0');
 const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.md`;
-const PLOT = (no) => `.novelforge/plots/${pad3(no)}-${TITLES[no - 1]}.md`;
+const PLOT = (no) => `.novelforge/summaries/${pad3(no)}-${TITLES[no - 1]}.md`;
 const LIN = '.novelforge/characters/林昭.md';
 const SHEN = '.novelforge/characters/沈氏.md';
 const AUTHOR_STATE = '作者写的：沈氏其实早就认出了林昭，只是不说。';
@@ -81,9 +81,10 @@ function reply(messages) {
       ],
     });
   }
-  const hook = /- 章节钩子：第 (\d+) 章结尾/.exec(user);
-  if (hook) {
-    const no = Number(hook[1]);
+  // 写正文那一次：执行卡重列的必需事件以「第 N 章」开头，靠它认是哪一章。
+  const card = /- 必需事件：第 (\d+) 章/.exec(user);
+  if (card) {
+    const no = Number(card[1]);
     if (no === 2) {
       // 第 1 章已经定稿：作者这时候手改了沈氏的当前状态。
       const card = t.read(SHEN);
@@ -103,6 +104,7 @@ before(async () => {
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
     ws: './src/core/workspace/index.ts',
+    plotFile: './src/core/model/plotFile.ts',
     registry: './src/core/llm/registry.ts',
     provider: './src/core/llm/provider.ts',
     controller: './src/core/controller/index.ts',
@@ -141,12 +143,16 @@ before(async () => {
     await ws.writePlot({
       no,
       title: TITLES[no - 1],
-      role: '铺垫',
-      characters: ['林昭', '沈氏'],
       targetWords: 600,
       upstreamHash: '',
       done: false,
-      sections: { 本章目的: `第 ${no} 章的目的`, 关键事件: `第 ${no} 章林昭又往前查了一步。`, 章末钩子: `第 ${no} 章结尾：又一个人不见了。` },
+      sections: {
+        ...bundle.plotFile.emptyPlotSections(),
+        梗概: `第 ${no} 章的目的`,
+        出场人物: '林昭、沈氏',
+        关键事件: `第 ${no} 章林昭又往前查了一步。`,
+        看点: `第 ${no} 章结尾：又一个人不见了。`,
+      },
     });
   }
   // 两张卡都是角色图谱建的：开篇状态、归机器（与 acceptRoster 盖的章一样）。
@@ -186,18 +192,25 @@ after(() => {
 });
 
 describe('四期验收：批量写章第 1–3 章、写完即定稿', () => {
-  test('三章正文与三份摘要都在', () => {
+  test('三章正文都在，第 4 章没写', () => {
     for (const no of [1, 2, 3]) {
       assert.ok(t.has(CH(no)), CH(no));
-      assert.ok(t.has(`.novelforge/summaries/${pad3(no)}-${TITLES[no - 1]}.md`), `第 ${no} 章摘要`);
     }
     assert.ok(!t.has(CH(4)));
   });
 
-  test('摘要里的连续性事实每条都带一句正文原句', async () => {
+  // 定稿 = 同一份细纲照正文反向更新，sourceHash 记下正文那时的指纹。
+  test('三份细纲都定了稿：sourceHash 对得上正文', async () => {
+    project.invalidate();
     for (const no of [1, 2, 3]) {
       const chapter = await project.getChapter(no);
-      const s = await project.readSummary(chapter.relPath);
+      assert.equal((await project.getPlot(no)).sourceHash, chapter.contentHash, `第 ${no} 章`);
+    }
+  });
+
+  test('细纲里的连续性事实每条都带一句正文原句', async () => {
+    for (const no of [1, 2, 3]) {
+      const s = await project.getPlot(no);
       const facts = s.sections.连续性事实.split('\n').filter(Boolean);
       assert.equal(facts.length, 2, s.sections.连续性事实);
       for (const f of facts) {
@@ -241,7 +254,7 @@ describe('四期验收：批量写章第 1–3 章、写完即定稿', () => {
   });
 
   // 写前冲突检查：第 1 章前面没有定稿过的章，不调；第 2、3 章各一次。
-  test('一共 11 次：一章写一次、摘要一次、角色状态一次，第 2、3 章写前各比对一次；没超过确认框的上限', () => {
+  test('一共 11 次：一章写一次、更新细纲一次、角色状态一次，第 2、3 章写前各比对一次；没超过确认框的上限', () => {
     assert.equal(fake.callCount(), 11);
     const plan = bundle.pipelineModel.planWriteBatch({ from: 1, to: 3, mode: 'finalize', writtenNos: [], plotFilledNos: [1, 2, 3, 4, 5] });
     assert.ok(fake.callCount() <= plan.calls.max);

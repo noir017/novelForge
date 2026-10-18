@@ -38,7 +38,7 @@ const log = scoped('角色卡');
  *
  * 三件事是这条流程存在的理由：
  *
- * 1. **自动关联出场章节**。作者不必再手输章节号——出场章节由摘要索引给出。
+ * 1. **自动关联出场章节**。作者不必再手输章节号——出场章节由定稿过的细纲聚合出来（出场索引）。
  * 2. **控制上下文**。主角可能出现在几十章里，一次塞不进窗口，按输入预算
  *    切成多批、逐批精炼同一张卡（后一批看得到前一批的产出）。
  * 3. **先说要调几次模型**。分批意味着 N 次请求，动手前必须把 N 告诉作者
@@ -57,7 +57,7 @@ export interface Batch {
   plots: Chapter[];
   /** 这一批的语料（已按预算截断）。 */
   corpus: string;
-  /** 这几章摘要里出场、但不是这个人的人物（见 {@link isSelfOf}）。 */
+  /** 这几章定稿过的细纲里出场、但不是这个人的人物（见 {@link isSelfOf}）。 */
   others: string[];
 }
 
@@ -84,15 +84,15 @@ export async function updateCharacterCard(
   const all = appearancesOf(index, card);
   if (all.length === 0) {
     log.warn(
-      `「${card.name}」未在任何章节摘要中出现`,
+      `「${card.name}」未在任何定稿过的章里出现`,
       index.summaryCount === 0
-        ? '这个工程还没有任何章节摘要，先运行「同步过期摘要」。'
-        : '摘要里没有这个名字。可能是角色卡的 name/aliases 与正文里的写法对不上。'
+        ? '这个工程还没有任何一章定稿过，先定稿，或运行「同步过期细纲」。'
+        : '定稿过的细纲里没有这个名字。可能是角色卡的 name/aliases 与正文里的写法对不上。'
     );
     getHost().toast(
       index.summaryCount === 0
-        ? '还没有章节摘要，请先运行「同步过期摘要」。'
-        : `摘要里没有出现「${card.name}」，无法自动关联章节。`,
+        ? '还没有定稿过的章，请先定稿，或运行「同步过期细纲」。'
+        : `定稿过的细纲里没有出现「${card.name}」，无法自动关联章节。`,
       'error'
     );
     return;
@@ -117,7 +117,7 @@ export async function updateCharacterCard(
 
   const plots = (await project.listChapters()).filter((c) => nos.includes(c.order));
   if (plots.length === 0) {
-    log.warn(`「${card.name}」的出场章都已不在磁盘上`, `摘要记录：${describePlots(nos)}`);
+    log.warn(`「${card.name}」的出场章都已不在磁盘上`, `定稿记录：${describePlots(nos)}`);
     getHost().toast('这些出场章的正文已不存在。', 'error');
     return;
   }
@@ -147,7 +147,7 @@ export interface BatchUpdatePlan {
 
 /**
  * 批量计划：列出全部角色卡，逐卡算出要读哪些章、分几批。
- * 增量模式只取 updatedThrough 之后的新出场；无新出场/未在摘要出现/
+ * 增量模式只取 updatedThrough 之后的新出场；无新出场/未在定稿中出现/
  * 出场章节已不在磁盘/正文全空的卡计入 skipped。导出供总确认与冒烟测试。
  */
 export async function planAllUpdates(project: NovelProject, scope: UpdateScope): Promise<BatchUpdatePlan> {
@@ -163,7 +163,7 @@ export async function planAllUpdates(project: NovelProject, scope: UpdateScope):
   for (const card of cards) {
     const all = appearancesOf(index, card);
     if (all.length === 0) {
-      result.skipped.push({ card, reason: '未在摘要中出现' });
+      result.skipped.push({ card, reason: '未在定稿中出现' });
       continue;
     }
     const nos = scope === 'incremental' ? all.filter((n) => n > (card.updatedThrough ?? 0)) : all;
@@ -351,15 +351,15 @@ export async function updateAllCharacterCards(project: NovelProject, scope: Upda
 }
 
 /**
- * 给摘要里出现、但还没建卡的人物建一张卡，并立刻用它的出场章节跑一次提取。
+ * 给定稿里出现、但还没建卡的人物建一张卡，并立刻用它的出场章节跑一次提取。
  * 工程页「出场人物 · 未建卡」那一组的右键动作。
  */
 export async function createCardForCast(project: NovelProject, name: string): Promise<void> {
   const index = await buildCastIndex(project);
   const member = index.unknown.find((m) => m.name === name);
   if (!member) {
-    log.warn(`摘要里已经没有「${name}」了，可能摘要刚被重算`);
-    getHost().toast(`摘要里没有「${name}」了，请刷新工程页。`, 'error');
+    log.warn(`定稿过的细纲里已经没有「${name}」了，可能刚重新定稿过`);
+    getHost().toast(`定稿过的细纲里没有「${name}」了，请刷新工程页。`, 'error');
     return;
   }
 
@@ -400,7 +400,7 @@ export interface CastCardsPlan {
 }
 
 /**
- * 摘要里出现过、还没建卡的人，各要通读哪几章、分几批。`minAppearances` 只收出场至少这么多章的人
+ * 定稿里出现过、还没建卡的人，各要通读哪几章、分几批。`minAppearances` 只收出场至少这么多章的人
  * （批量写章开跑前补卡用 2：只露过一面的路人不值得一张卡）。零调用。
  */
 export async function planCastCards(project: NovelProject, opts: { minAppearances?: number } = {}): Promise<CastCardsPlan> {
@@ -538,14 +538,14 @@ export async function createCastCards(
  * 各人之间没有先后依赖，按配置并发。新卡都是空卡，一律 `skipReview`，
  * 没有 diff 排队的问题。
  *
- * 「不偷偷烧 token」：确认框里报清人数、章数与预计调用次数——摘要里
+ * 「不偷偷烧 token」：确认框里报清人数、章数与预计调用次数——定稿里
  * 冒出十几个路人是常事，一次点下去可能是几十次模型调用。
  */
 export async function createCardsForAllCast(project: NovelProject): Promise<void> {
   const index = await buildCastIndex(project);
   if (index.unknown.length === 0) {
     log.info('没有未建卡的出场人物');
-    getHost().toast('摘要里出现的人都已经有角色卡了。');
+    getHost().toast('定稿里出现的人都已经有角色卡了。');
     return;
   }
 
@@ -918,7 +918,7 @@ async function runCardUpdate(
 }
 
 /**
- * 摘要 cast 里的一条是不是这个人。认人走 {@link cardLookup}（正式名压过别名）：这张卡上
+ * 定稿过的细纲 cast 里的一条是不是这个人。认人走 {@link cardLookup}（正式名压过别名）：这张卡上
  * 已经混进来的别人的名字照样算别人。未建卡的人物（`card` 不给）认自己的主名与聚类别称，
  * 落到任何一张现有卡上的都不是他。
  */
@@ -977,7 +977,9 @@ async function planBatches(
     if (!text.trim()) {
       continue;
     }
-    const others = ((await project.readSummary(plot.relPath))?.cast ?? [])
+    // 与出场统计同一口径（views/cast 的 finalizedPlots）：定稿过就认，定稿后正文又改过也照样算。
+    const summary = await project.getPlot(plot.order);
+    const others = (summary?.sourceHash ? summary.cast : [])
       .filter((entry) => entry.name.trim() && !isSelf(entry))
       .map((entry) => entry.name);
     const block = `【第${plot.order}章 ${plot.title}】\n${text}`;

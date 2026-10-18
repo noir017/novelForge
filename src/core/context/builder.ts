@@ -97,7 +97,7 @@ export async function buildContext(
   };
 
   // 强制项可能已经吃掉全部预算，后续条目自然会被判 dropped——这是有意的：
-  // 系统提示、用户这句话、本层产物本来就比「早前第 3 章的摘要」重要。
+  // 系统提示、用户这句话、本层产物本来就比「早前第 3 章的细纲」重要。
   for (const spec of recipe) {
     await LAYERS[spec.layer](assembly, spec);
   }
@@ -172,12 +172,12 @@ function assembleMessages(
   section('# 故事结构指导', pick('guide'));
   section('# 相关角色设定', pick('character'));
   section('# 相关世界观设定', pick('lore'));
-  // 摘要与正文都由远及近排列，读起来是正序的时间线。
-  section('# 早前剧情摘要（由远及近）', pick('plotSummary').slice().sort(byNoAsc));
-  // 证据原文排在摘要后面、前文正文前面：读的时候是「摘要这么说 → 原文是这样写的 → 紧挨着的那几章」。
+  // 细纲与正文都由远及近排列，读起来是正序的时间线。
+  section('# 早前各章细纲（由远及近；标「计划」的还没定稿，不一定是正文写成的样子）', pick('plotSummary').slice().sort(byNoAsc));
+  // 证据原文排在细纲后面、前文正文前面：读的时候是「细纲这么说 → 原文是这样写的 → 紧挨着的那几章」。
   // 说法移植自上游 chapter-materials.ts:223-227（「索引、摘要和 currentState 都不是作者事实」）。
   section(
-    '# 定稿原文片段（前情以这些原文为准；摘要、角色状态与它有出入时信原文）',
+    '# 定稿原文片段（前情以这些原文为准；细纲、角色状态与它有出入时信原文）',
     pick('evidence').slice().sort(byNoAsc)
   );
   // 审稿对照的前情：上游标的是「已确认定稿历史｜唯一已发生事实源」（RV:212-227）。
@@ -288,7 +288,7 @@ function noOf(item: ContextItem): number {
 /**
  * 已经写了正文的书，生成架构四件一律照正文整理（`derive`）：凭一句话编出来的设定与已写的章对不上，
  * 后面每一章却都要读它。从已写正文补齐自己带着 `derive`，这里补上补齐设定、对话页与 MCP 的单件生成。
- * 角色图谱除外：已写正文的书照摘要建卡（features/characterCard.ts），不走身份清单那条链。
+ * 角色图谱除外：已写正文的书照定稿过的细纲建卡（features/characterCard.ts），不走身份清单那条链。
  */
 async function settingFromText(project: NovelProject, request: BuildRequest): Promise<BuildRequest> {
   const { action, target } = request;

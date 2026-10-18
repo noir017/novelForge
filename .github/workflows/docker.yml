@@ -1,0 +1,131 @@
+# 独立版的 Docker 镜像（linux/amd64 + linux/arm64），推到 GHCR：ghcr.io/noir017/novelforge。
+#
+# 两种跑法：
+# - 手动点：推 :edge 与 :sha-<短哈希>，日常验证「还能编出来、起得来」；
+# - 发版时由 release.yml 调过来（workflow_call，带 version）：推 :X.Y.Z 与 :latest。
+#
+# 镜像怎么编见仓库根的 Dockerfile：两个架构都由 Bun 交叉编译，不用 QEMU。
+# GHCR 用 GITHUB_TOKEN 登录，不另配 secret。包第一次推上去默认是私有的，要在包设置里改一次 public，
+# 否则拉镜像前得先 docker login。
+name: docker
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: 发布的版本号（X.Y.Z，不带 v）
+        type: string
+        required: true
+
+# 与 release.yml 的 concurrency 组名不能相同：被调用时两边同名会互相等，卡死。
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write # 推 GHCR
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    env:
+      # 冒烟用的一次性令牌，只活在这台 runner 上，不是机密。
+      SMOKE_TOKEN: smoke-token-0123456789abcdef
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: npm ci
+
+      # 闸门：测试挂了就不要出镜像。镜像里的构建不跑测试，所以在这里跑。
+      - name: 跑测试
+        run: npm test
+
+      - name: 定镜像名与标签
+        id: meta
+        run: |
+          # GHCR 的镜像名必须全小写（仓库名里有大写 F）。
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          version="${{ inputs.version }}"
+          if [ -n "$version" ]; then
+            tags="$image:$version,$image:latest"
+          else
+            version="$(node -p "require('./package.json').version")-edge"
+            tags="$image:edge,$image:sha-${GITHUB_SHA::7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "本次推：$tags"
+
+      - uses: docker/setup-buildx-action@v3
+
+      # 先只编 amd64、装进本机 docker 做冒烟，过了再编双架构推送——坏镜像不该推上去。
+      # 第二次编 amd64 全吃这次的缓存。
+      - name: 编 amd64（冒烟用）
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: novelforge:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 冒烟：起容器、走一遍登录
+        run: |
+          # 镜像里绑 0.0.0.0：不给令牌必须拒绝启动（退出码 1）。起来了会一直跑，所以套个 timeout。
+          status=0
+          timeout 30 docker run --rm novelforge:smoke || status=$?
+          if [ "$status" != 1 ]; then
+            echo "::error::没给 NOVELFORGE_TOKEN 时应当拒绝启动（退出码 1），实际是 $status"
+            exit 1
+          fi
+
+          docker run -d --name smoke -p 3680:3680 -e NOVELFORGE_TOKEN="$SMOKE_TOKEN" novelforge:smoke
+          trap 'docker logs smoke; docker rm -f smoke >/dev/null' EXIT
+          for i in $(seq 30); do
+            curl -s -o /dev/null http://127.0.0.1:3680/media/view.js && break
+            sleep 1
+          done
+
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          test "$(code http://127.0.0.1:3680/media/view.js)" = 200
+          test "$(code http://127.0.0.1:3680/)" = 401
+          test "$(code -d token=wrong http://127.0.0.1:3680/login)" = 401
+          cookie="$(curl -s -o /dev/null -D - -d "token=$SMOKE_TOKEN" http://127.0.0.1:3680/login \
+            | grep -i '^set-cookie:' | sed -E 's/^[^:]+: *([^;]+).*/\1/')"
+          test -n "$cookie"
+          test "$(code -H "cookie: $cookie" http://127.0.0.1:3680/)" = 200
+          echo "冒烟通过"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 编双架构并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          # source 这条把 GHCR 上的包关联到本仓库。
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=AGPL-3.0
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

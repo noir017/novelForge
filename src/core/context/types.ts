@@ -45,7 +45,7 @@ export type ItemKind =
   | 'character'
   /** 前面某章的正文全文。 */
   | 'manuscriptFull'
-  /** 前面某章的摘要。 */
+  /** 前面某章的细纲（定稿过的，或标明是计划的）。 */
   | 'plotSummary'
   /** 前面某章的定稿原文片段：连续性事实的证据所在的那几段（D18）。 */
   | 'evidence'
@@ -128,7 +128,7 @@ export type LayerId =
   | 'prevTail'
   | 'manuscriptFull'
   | 'plotSummary'
-  /** 前面各章的定稿原文片段：拿摘要里连续性事实的证据原句回到正文里取的那几段（D18）。 */
+  /** 前面各章的定稿原文片段：拿定稿过的细纲里连续性事实的证据原句回到正文里取的那几段（D18）。 */
   | 'evidence'
   /** 前面各章定稿留下的连续性事实，只带事实文字（审稿，五期）。 */
   | 'recentFacts'
@@ -269,12 +269,15 @@ export type ChainStep =
    */
   | { kind: 'reviewRetry'; why: 'truncated' | 'invalid'; reason?: string };
 
-/** 一章已经排好、还没落盘的细纲，给前序细纲一览用。 */
+/**
+ * 一章已经排好、还没落盘的细纲，给前序细纲一览用。`keyEvents` / `highlights` 是「关键事件」「看点」
+ * 两节落盘后的样子（一条一行）。
+ */
 export interface DraftPlotLine {
   no: number;
   title: string;
   keyEvents: string;
-  suspenseHook: string;
+  highlights: string;
 }
 
 export interface BuiltContext {

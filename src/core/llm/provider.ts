@@ -27,8 +27,8 @@ export type StreamEvent =
  * 上游报的收尾原因，归一成三档。
  *
  * 用它的是需要分清「模型自己收了尾」与「被输出上限截断」的调用方：正文续写链
- * （`generation/continuation.ts`）据 `maxTokens` 接着写、据 `end` 判断结尾已经
- * 落在章末钩子上；工程页批量（`features/pipelineBatch.ts`）据 `maxTokens` 判断
+ * （`generation/continuation.ts`）据 `maxTokens` 接着写、据 `end` 判断这一章已经
+ * 收了尾；工程页批量（`features/pipelineBatch.ts`）据 `maxTokens` 判断
  * 结构化输出是否被截断。`undefined`（上游没说）与 `other` 都不敢当成任何一种。
  */
 export type StopSignal = 'end' | 'maxTokens' | 'other';

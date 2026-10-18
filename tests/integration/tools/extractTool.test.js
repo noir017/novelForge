@@ -69,11 +69,9 @@ before(async () => {
   await ws.writePlot({
     no: 1,
     title: '夜入青云',
-    role: '',
-    characters: [],
     upstreamHash: '',
     done: false,
-    sections: { ...bundle.plotFile.emptyPlotSections(), 本章目的: '进入宗门', 关键事件: '踩点、失手、翻墙。' },
+    sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: '进入宗门', 关键事件: '踩点、失手、翻墙。' },
   });
   t.write('chapters/001-夜入青云.md', '# 夜入青云\n\n雨下了三天。山门在雨里，林昭在门外。\n');
   t.project.invalidate();
@@ -145,7 +143,7 @@ describe('工具定义本身', () => {
   test('给了参数当场报错，不弹框', async () => {
     resetCtx();
     const before = h.confirms.length;
-    const r = await run({ action: 'threads', path: '.novelforge/plots/001-夜入青云.md' });
+    const r = await run({ action: 'threads', path: '.novelforge/summaries/001-夜入青云.md' });
     assert.equal(r.error, 'threads 不认 path。');
     assert.equal(h.confirms.length, before);
   });

@@ -46,7 +46,7 @@ const SETTLE_HISTORY_CAP = 0.6;
  * （移植自 AI-Novel-Writer 的阶段 Skill）。不 force——作者事实先拿预算，技能再拿，放不下整份
  * 不带并写明原因。讨论不带，由层自己判（`model/writingSkill.ts` 的 `skillStageOf`）。
  *
- * 架构、大纲、细纲三张另挂一层 `written`（已写正文，拆书 A）：只有「从已写正文整理」
+ * 架构、大纲两张另挂一层 `written`（已写正文，拆书 A）：只有「从已写正文整理」
  * （`BuildRequest.derive`）时才有内容，平时是空的。它排在本层产物之后、技能之前——整理时正文是
  * 这一次唯一的依据，比技能要紧。
  */
@@ -72,7 +72,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   ],
 
   // ---------------------------------------------------------------- 大纲
-  // 策划编辑要看全局：架构四件 + 结构指导 + 现有大纲全文 + 全书摘要。**不看正文原文**——
+  // 策划编辑要看全局：架构四件 + 结构指导 + 现有大纲全文 + 全书摘要与各章细纲。**不看正文原文**——
   // 讨论故事结构时读三章原文既没用又昂贵。
   //
   // ★ `structure` P0 force：大纲按总章数排结构拐点，没有章号区间，模型会按它熟悉的
@@ -101,12 +101,13 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // 后面已经排好了什么。**不看正文原文**：排细纲要的是走向，不是措辞。
   //
   // 单章与批次共用这一张：`plotSelf` / `plotPrev` 只在单章时出场，批次时由
-  // `plotList` 全包（见 layers/artifacts.ts）。
+  // `plotList` 全包（见 layers/artifacts.ts）。更早几章不另带一份（从前的 `plotSummary`）：
+  // 细纲与定稿是同一份文件，`plotPrev` 与 `plotList` 已经带了，同一份不带两遍。
   //
   // ★ `outlineSlice` P0 force：细纲是从大纲里拆出来的，少了这几节就是凭空编。
   // ★ `plotNext` 少了它，改中间某一章时模型不知道后面已经排好了什么，收尾会与
   //   下一章的开头撞车或断裂——「转折突兀」多半出在这里。
-  // ★ `recentFacts` P1：已定稿各章的连续性事实是既成历史。早前摘要排在 P2，预算紧时先被挤掉，
+  // ★ `recentFacts` P1：已定稿各章的连续性事实是既成历史。全书摘要排在 P2，预算紧时先被挤掉，
   //   细纲就会排出与正文矛盾的事（死了的人再出场、已经炸掉的大阵再炸一次）。
   plot: [
     { layer: 'system', priority: 0, force: true },
@@ -116,7 +117,6 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'settingDocs', priority: 0, force: true },
     { layer: 'rosterDoc', priority: 0, force: true },
     { layer: 'outlineSlice', priority: 0, force: true },
-    { layer: 'written', priority: 0, force: true },
     { layer: 'skill', priority: 0 },
     { layer: 'history', priority: 1 },
     { layer: 'plotPrev', priority: 1 },
@@ -125,7 +125,6 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'recentFacts', priority: 1 },
     { layer: 'structure', priority: 1 },
     { layer: 'globalSummary', priority: 2 },
-    { layer: 'plotSummary', priority: 2 },
     { layer: 'characters', priority: 2 },
     { layer: 'lore', priority: 3 },
   ],
@@ -141,7 +140,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // ★ `plotAhead` P0 force：后 5 章的细纲是**边界**。没有它，模型写到钩子时最顺手的
   //   就是把下一章的事提前演掉。
   // ★ `chapterSoFar` P0 force：「接着写」要从本章已写的末尾往下接，少了它就是另起一章。
-  // ★ `evidence` 排在 P2 的最前面（四期，D18）：摘要是模型对正文的转述，会走样；证据所在的
+  // ★ `evidence` 排在 P2 的最前面（四期，D18）：定稿过的细纲是模型对正文的转述，会走样；证据所在的
   //   原文段落才是作者认可过的那一版。它比全书摘要、设定条目更接近「这里到底写了什么」。
   // ★ `threads` P1、紧跟大纲那一节（七期）：叙事线和大纲一样是「计划」，而且很短（≤1200 字）。
   //   它还带着「没到回收章不许提前揭开」——这一句挤掉了，模型照样知道要揭开什么，只是不知道
@@ -177,7 +176,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
  *
  * 上游续写时把整个材料包再发一遍（GD:1036）。这里只带「接着写」真正要看的：这一章要落实
  * 什么（细纲）、不许写到哪（边界）、从哪接（已写末尾）、怎么写（文风、全局要求）、谁在场
- * （出场角色）。前情摘要、前几章全文这些第一次调用已经用过了，那一场怎么开头已经写在
+ * （出场角色）。前几章细纲、前几章全文这些第一次调用已经用过了，那一场怎么开头已经写在
  * 已写的正文里——再发一遍只是让每一轮都付一次全价。
  *
  * ★ `recentFacts` P1：近几章定稿留下的连续性事实（≤3000 字）。百章实验里首轮常只写到一半，
@@ -224,7 +223,7 @@ const REVIEW_RECIPE: LayerSpec[] = [
 /**
  * 按勾选的审稿意见修稿（五期）。移植自 AI-Novel-Writer 的 `refine_from_review`（PT:1023-1055）：
  * 上游只给「审稿清单 + 待修稿全文 + 全局要求」。这里多带几样修得对要看的东西，但**不带**写正文
- * 那一套（大纲、前情摘要、近章全文）——修稿不是再写一章。
+ * 那一套（大纲、前几章细纲、近章全文）——修稿不是再写一章。
  *
  * ★ `revision` P0 force：整章原文 + 勾选清单，这就是这一次的全部任务。
  * ★ `style` / `guidance` P0 force：改过的那几句要与全章同一个声音。

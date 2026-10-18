@@ -9,10 +9,7 @@ import {
   LoreEntry,
   MANIFEST_VERSION,
   NovelConfig,
-  PlotSummary,
   ProjectManifest,
-  SUMMARY_SECTION_KEYS,
-  SummarySections,
 } from './types';
 import {
   asArray,
@@ -45,13 +42,11 @@ import {
   exists,
   hash,
   isIgnoredDir,
-  pad3,
   readText,
   readTextIfExists,
   sanitizeFileName,
   writeText,
 } from './fs';
-import { castFromText, parseCast } from './castParse';
 import { FinalizedFacts, parseContinuityFacts } from './continuity';
 import { normalizeGender } from './gender';
 
@@ -71,10 +66,11 @@ const MAX_TREE_DEPTH = 8;
  *
  * ## 一条轴
  *
- * 细纲 `plots/NNN-标题.md` 的号就是章号：第 N 章的细纲、正文（`chapters/`）、
- * 摘要（`summaries/`）按号互认。从前规划的单位是「剧情段」、发布的单位是章，
- * 两条轴之间隔着一个中转站（`manuscripts/`）；一章一纲之后那一层删掉了，
- * 老工程磁盘上的 `volumes/`、`manuscripts/` 一个字节都不动，这里只是不再读它们。
+ * 细纲 `summaries/NNN-标题.md` 的号就是章号：第 N 章的细纲与正文（`chapters/`）按号互认，
+ * 定稿反向更新的也是同一份细纲。从前规划的单位是「剧情段」、发布的单位是章，
+ * 两条轴之间隔着一个中转站（`manuscripts/`）；一章一纲之后那一层删掉了。细纲从前另放在
+ * `plots/`、定稿另写一份单章摘要，两份并成一份之后 `plots/` 也不读了。老工程磁盘上的
+ * `volumes/`、`manuscripts/`、`plots/` 一个字节都不动，这里只是不再读它们。
  *
  * 架构层的三份文档（`config.md` / `premise.md` / `world.md`）与大纲、文风同级，
  * 格式定义在 model/settingFile.ts。
@@ -93,8 +89,8 @@ export class NovelProject {
    *
    * 缓存只在扫完之后才填得上，所以**并发**的两个调用方都会看到空缓存，
    * 各扫一遍全书。`buildProjectTree` 正是这样：`Promise.all` 里
-   * `listChapters()` 与 `buildPipelineIndex()` 同时起跑，五百段工程于是
-   * 把 `plots/` 读了两遍（流水线一遍、出场索引一遍）。记住这个在途的
+   * `listChapters()` 与 `buildPipelineIndex()` 同时起跑，五百章工程于是
+   * 把细纲读了两遍（流水线一遍、出场索引一遍）。记住这个在途的
    * promise，让后来者搭同一班车。
    */
   private chapterScan: Promise<Chapter[]> | undefined;
@@ -177,16 +173,18 @@ export class NovelProject {
     return path.join(this.novelDir, 'lore');
   }
 
+  /** `summaries/`：一章一份的细纲，外加全书摘要 `global.md`。 */
   get summariesDir(): string {
     return path.join(this.novelDir, 'summaries');
   }
 
   /**
-   * 细纲（`.novelforge/plots/`）。**平铺**，一章一份：`plots/012-夜入青云.md`。
-   * 老工程按卷分的子目录（`plots/01-卷名/`）不再扫描——那些文件一个字节都不动。
+   * 细纲（`.novelforge/summaries/`）。**平铺**，一章一份：`summaries/012-夜入青云.md`。
+   * 只认根下数字开头的 `.md`：子目录里的（老工程按章节路径镜像的单章摘要）与 `global.md`
+   * 都不是细纲。老工程的 `plots/` 不再扫描——那些文件一个字节都不动。
    */
   get plotsDir(): string {
-    return path.join(this.novelDir, 'plots');
+    return this.summariesDir;
   }
 
   /** 小说配置（`.novelforge/config.md`）：类型、卖点、规模参数。 */
@@ -253,68 +251,6 @@ export class NovelProject {
     return this.relPath(path.join(this.plotsDir, plotFileName(no, stem)));
   }
 
-  // ------------------------------------------------- 章节（发布区）的路径
-  //
-  // 摘要与草稿两套伴生文件挂在**章节**上，因为它们描述的是成品：
-  //
-  //   chapters/007-入宗风波.md
-  //     → .novelforge/summaries/007-入宗风波.md
-  //     → drafts/007-入宗风波.md
-  //
-
-  /**
-   * 章节在**章节根之下**的那段相对路径；不在其下时 undefined。
-   *
-   * 摘要与草稿两套镜像共用这一条判据。分开写过两遍之后，
-   * 「作者把 chaptersDir 配成 `.`」这种边角只会在其中一处被想到。
-   */
-  private underChapters(chapterRelPath: string): string | undefined {
-    const under = path.relative(this.chaptersDir, this.pathOf(chapterRelPath));
-    return !under || under.startsWith('..') || path.isAbsolute(under) ? undefined : under;
-  }
-
-  /**
-   * 章节（文件）→ 它的摘要文件路径。
-   *
-   * 镜像章节在**章节根之下**的相对路径到 summaries/ 下，扩展名换成 `.md`：
-   *   chapters/001 序.txt        → .novelforge/summaries/001 序.md
-   *   chapters/卷一/003 夜访.md  → .novelforge/summaries/卷一/003 夜访.md
-   *
-   * 这样同序号但不同文件名/路径的章节各有独立摘要，不再互相覆盖。与草稿的
-   * 镜像策略（`draftRelPathFor`）一致——目录层级只是收纳，文件名（含扩展名）
-   * 才是身份。
-   *
-   * 章节不在章节根之下（配置被改坏等极端情况）时回落到序号命名，绝不抛错。
-   */
-  summaryPathForChapter(chapterRelPath: string): string {
-    const under = this.underChapters(chapterRelPath);
-    if (!under) {
-      const order = parseChapterFileName(path.basename(chapterRelPath))?.order ?? 0;
-      return path.join(this.summariesDir, `${pad3(order)}.md`);
-    }
-    const parsed = path.parse(under);
-    return path.join(this.summariesDir, path.join(parsed.dir, `${parsed.name}.md`));
-  }
-
-  /**
-   * 章节（文件或目录）→ 摘要在 summaries/ 下的**工作区相对路径**（正斜杠）。
-   *
-   * 文件：扩展名换成 `.md`（与 `summaryPathForChapter` 同一套规则）。
-   * 目录：原样镜像（目录下的每章摘要各自落在镜像位置，搬目录时整体跟着走）。
-   *
-   * 不在章节根之下时返回 undefined——`carrySummary` 据此判断「搬出 chapters/
-   * 了，摘要留在原处」。纯计算，不碰磁盘。
-   */
-  summaryMirrorRelPath(chapterRelPath: string, isDir = false): string | undefined {
-    const under = this.underChapters(chapterRelPath);
-    if (!under) {
-      return undefined;
-    }
-    const parsed = path.parse(under);
-    const mirror = isDir ? under : path.join(parsed.dir, `${parsed.name}.md`);
-    return this.relPath(path.join(this.summariesDir, mirror));
-  }
-
   /** 绝对路径 → 工作区相对路径（正斜杠）。 */
   relPath(absPath: string): string {
     return path.relative(this.root, absPath).replace(/\\/g, '/');
@@ -363,7 +299,6 @@ export class NovelProject {
     await fs.mkdir(this.charactersDir, { recursive: true });
     await fs.mkdir(this.loreDir, { recursive: true });
     await fs.mkdir(this.summariesDir, { recursive: true });
-    await fs.mkdir(this.plotsDir, { recursive: true });
     await fs.mkdir(this.sessionsDir, { recursive: true });
 
     // 架构三件写空模板：结构完整、全是占位，`isSettingFilled` 为 false，
@@ -394,7 +329,7 @@ export class NovelProject {
   /**
    * 递归扫描 chapters/ 下所有章节文件，按序号排序。
    *
-   * **章节是正文的唯一真相**：生成的正文直接落在这里，摘要、角色卡、设定、
+   * **章节是正文的唯一真相**：生成的正文直接落在这里，定稿、角色卡、设定、
    * 文风全都从这里读。
    *
    * 「什么算章节」由 model/chapterFile.ts 定义：数字前缀 + 扩展名不在
@@ -442,7 +377,7 @@ export class NovelProject {
         title,
         relPath: this.relPath(abs),
         wordCount: countWords(markdown ? stripH1(body) : body),
-        // 哈希的永远是整份正文（含标题行）——摘要新鲜度靠它，口径不能变。
+        // 哈希的永远是整份正文（含标题行）——定稿对不对得上靠它，口径不能变。
         contentHash: hash(body),
       });
     }
@@ -575,69 +510,41 @@ export class NovelProject {
   }
 
   /**
-   * 用磁盘上的实际章节刷新 manifest 索引，保留已记录的 summaryHash。
-   * 返回刷新后的 manifest。
-   *
-   * 按 file 匹配，匹配不上再按 order 兜底——作者给某章改了标题（文件名跟着变）
-   * 之后路径变了，但那仍是同一章，不该因此丢掉「已总结」的记录。
+   * 用磁盘上的实际章节刷新 manifest 索引。返回刷新后的 manifest。
    */
   async syncManifest(): Promise<ProjectManifest> {
     const manifest = await this.readManifest();
-    const oldByFile = new Map(manifest.chapters.map((c) => [c.file, c]));
-    const oldByOrder = new Map(manifest.chapters.map((c) => [c.order, c]));
-    const chapters = await this.listChapters();
-
-    manifest.chapters = chapters.map((chapter) => {
-      const old = oldByFile.get(chapter.relPath) ?? oldByOrder.get(chapter.order);
-      return {
-        file: chapter.relPath,
-        order: chapter.order,
-        title: chapter.title,
-        wordCount: chapter.wordCount,
-        contentHash: chapter.contentHash,
-        summaryHash: old?.summaryHash,
-      };
-    });
-
+    manifest.chapters = (await this.listChapters()).map((chapter) => ({
+      file: chapter.relPath,
+      order: chapter.order,
+      title: chapter.title,
+      wordCount: chapter.wordCount,
+      contentHash: chapter.contentHash,
+    }));
     await this.writeManifest(manifest);
     return manifest;
   }
 
   /**
-   * 记录某章摘要已基于 hash 生成。
-   *
-   * 按 relPath 匹配 manifest 条目，找不到再按章号兜底。
+   * 第 N 章定稿过、而且对得上的那份细纲：同号细纲的 `sourceHash` 等于正文现在的 `contentHash`。
+   * 没定稿过、或定稿之后正文又改过，都是 undefined。
    */
-  async markSummarized(chapterRelPath: string, sourceHash: string): Promise<void> {
-    const manifest = await this.syncManifest();
-    const order = parseChapterFileName(path.basename(chapterRelPath))?.order;
-    const entry =
-      manifest.chapters.find((c) => c.file === chapterRelPath) ??
-      (order === undefined ? undefined : manifest.chapters.find((c) => c.order === order));
-    if (entry) {
-      entry.summaryHash = sourceHash;
-      await this.writeManifest(manifest);
-    }
+  async finalizedPlotOf(chapter: Chapter): Promise<Plot | undefined> {
+    const plot = await this.getPlot(chapter.order);
+    return plot?.sourceHash && plot.sourceHash === chapter.contentHash ? plot : undefined;
   }
 
   /**
-   * 摘要过期/缺失的章节列表。
+   * 该定稿还没定稿的章：有正文，同号细纲没有对得上的 `sourceHash`（从没定稿过，或定稿之后正文
+   * 又改过）。以细纲 frontmatter 为准，不另记索引。
    *
-   * 以磁盘上摘要文件里的 sourceHash 为准，manifest 只作兜底——这样即使
-   * manifest 被误删，也不会把所有章都当成过期而重刷一遍。
-   *
-   * **空章节不算过期**：那不是「摘要旧了」，是还没写。把它们混进来，
-   * 同步摘要的确认框会报一个虚高的调用次数，而那几次调用只会撞上
-   * 「这一章是空的，跳过」。
+   * **空章节不算**：那不是「定稿旧了」，是还没写。把它们混进来，批量定稿的确认框会报一个
+   * 虚高的调用次数，而那几次调用只会撞上「这一章是空的，跳过」。
    */
   async staleChapters(): Promise<Chapter[]> {
     const stale: Chapter[] = [];
     for (const chapter of await this.listChapters()) {
-      if (chapter.wordCount === 0) {
-        continue;
-      }
-      const summary = await this.readSummary(chapter.relPath);
-      if (!summary || summary.sourceHash !== chapter.contentHash) {
+      if (chapter.wordCount > 0 && !(await this.finalizedPlotOf(chapter))) {
         stale.push(chapter);
       }
     }
@@ -645,21 +552,18 @@ export class NovelProject {
   }
 
   /**
-   * 第 `beforeNo` 章之前、**定稿过**的各章留下的连续性事实，按章号升序。摘要过期（正文改过）或
-   * 没有摘要的章不收：拿一份过期的事实去判矛盾，判出来的可能正是作者改过的地方。没有事实的章也不收。
+   * 第 `beforeNo` 章之前、**定稿过**的各章留下的连续性事实，按章号升序。定稿之后正文又改过、
+   * 或从没定稿过的章不收：拿一份过期的事实去判矛盾，判出来的可能正是作者改过的地方。没有事实的章也不收。
    * 预检、写前冲突检查与装配器的 `recentFacts` 层共用这一份。
    */
   async finalizedFacts(beforeNo = Number.POSITIVE_INFINITY): Promise<FinalizedFacts[]> {
     const out: FinalizedFacts[] = [];
     const chapters = (await this.listChapters()).filter((c) => c.order < beforeNo && c.wordCount > 0);
     for (const chapter of chapters.sort((a, b) => a.order - b.order)) {
-      const summary = await this.readSummary(chapter.relPath);
-      if (!summary || summary.sourceHash !== chapter.contentHash) {
-        continue;
-      }
-      const facts = parseContinuityFacts(summary.sections.连续性事实);
-      if (facts.length > 0) {
-        out.push({ no: chapter.order, title: chapter.title, relPath: summary.relPath, facts });
+      const plot = await this.finalizedPlotOf(chapter);
+      const facts = plot ? parseContinuityFacts(plot.sections.连续性事实) : [];
+      if (plot && facts.length > 0) {
+        out.push({ no: chapter.order, title: chapter.title, relPath: plot.relPath, facts });
       }
     }
     return out;
@@ -682,15 +586,15 @@ export class NovelProject {
    * 方式就是改文件名前缀。号码撞车（手改重名）时按路径稳定排序，两条都留在
    * 列表里，让作者看得见冲突。
    *
-   * **只看 `plots/` 根下**：老工程按卷分的子目录里那些四节细纲不再是这条链上的
-   * 东西（D11），扫出来只会让同一个章号冒出两份细纲。
+   * **只看 `summaries/` 根下**：子目录里是老工程按章节路径镜像的单章摘要，不再是这条链上的
+   * 东西，扫出来只会让同一个章号冒出两份细纲。
    */
   async listPlots(): Promise<Plot[]> {
     if (this.plotCache) {
       return this.plotCache;
     }
     // 与 listChapters 同构：已经有人在扫了就搭它的车。工程页刷新时
-    // 流水线索引与出场索引会同时要这份列表，各扫一遍等于把 plots/ 读两遍。
+    // 流水线索引与出场索引会同时要这份列表，各扫一遍等于把细纲读两遍。
     if (this.plotScan) {
       return this.plotScan;
     }
@@ -744,7 +648,7 @@ export class NovelProject {
    * 按 target 里的细纲路径找那一章的细纲：路径上有就是它，**没有就按路径里的章号认
    * 同号的那一份**。
    *
-   * 主按钮给的落点常常是纯序号的占位路径（`plots/003.md`——拆细纲那一刻标题还没定），
+   * 主按钮给的落点常常是纯序号的占位路径（`summaries/003.md`——拆细纲那一刻标题还没定），
    * 而采纳时按产物带的标题落成了 `003-雪夜.md`。之后凡是「按 target 找细纲」的地方
    * 都要认得它：只按路径读的话，流水线会说「这一章还没有细纲」，再采纳一次就绕过了
    * 覆盖审阅（第 3 条）。作者手里的文件路径（工程页右键、编辑器）不走这里，那是实打实的路径。
@@ -764,9 +668,9 @@ export class NovelProject {
   }
 
   /**
-   * 下一个可用章号。**跨 `plots/` 与 `chapters/` 取最大号再 +1。**
+   * 下一个可用章号。**跨细纲与 `chapters/` 取最大号再 +1。**
    *
-   * 两边都要看：只看 `plots/` 的话，一个写了 99 章、从没用过本工具的老工程会
+   * 两边都要看：只看细纲的话，一个写了 99 章、从没用过本工具的老工程会
    * 从第 1 章开始规划，直接撞上已有的章；只看 `chapters/` 的话，规划了但还没写
    * 的章会被反复重号。工程页「新建细纲」用它。
    */
@@ -819,45 +723,7 @@ export class NovelProject {
     };
   }
 
-  // ---------------------------------------------------------------- 摘要
-
-  /**
-   * 读一章的摘要。
-   *
-   * 传的是**章节**的相对路径（`chapters/007-入宗风波.md`）：摘要描述的是
-   * 成品，所以身份跟着发布文件走。老工程里那些从没经过本工具的章一样读得到
-   * 自己的摘要，不需要任何迁移。
-   */
-  async readSummary(chapterRelPath: string): Promise<PlotSummary | undefined> {
-    const abs = this.summaryPathForChapter(chapterRelPath);
-    // 直接读、读不到才当没有：省掉一次 stat（全书刷新时那是每章一次），
-    // 也避开「查到了、读之前被删掉」的竞态。作者手里真会出现一个叫
-    // `001-楔子.md` 的**目录**，`readTextIfExists` 把那种情况也当成「没有」。
-    const raw = await readTextIfExists(abs);
-    if (raw === undefined) {
-      return undefined;
-    }
-    const { frontmatter, body } = parseMarkdown(raw);
-    const sections = pickSections<keyof SummarySections>(body, SUMMARY_SECTION_KEYS) as SummarySections;
-    return {
-      no:
-        parseChapterFileName(path.basename(chapterRelPath))?.order ??
-        asNumber(frontmatter.chapter) ??
-        asNumber(frontmatter.plot) ??
-        0,
-      relPath: this.relPath(abs),
-      sourceHash: asString(frontmatter.sourceHash),
-      content: stripH1(body),
-      sections,
-      // frontmatter 的 cast 是结构化真相；没有它（作者手写的摘要）就从
-      // 「出场人物」小节的文本回退解析，不让角色页少人。
-      cast: parseCast(frontmatter.cast) ?? castFromText(sections.出场人物),
-    };
-  }
-
-  // 摘要的写入（writeSummary）搬进了 `core/workspace/`：它要渲染 frontmatter、
-  // 记 sourceHash、同步 manifest。这一层只留读取与 markSummarized
-  // （那是 manifest 的索引维护，不是产物写入）。
+  // ---------------------------------------------------------------- 全书摘要 / 叙事线
 
   async readGlobalSummary(): Promise<string> {
     if (!(await exists(this.globalSummaryPath))) {
@@ -1016,7 +882,7 @@ export function renderCharacterCard(card: WritableCharacterCard): string {
     gender: card.gender,
     firstAppear: card.firstAppear,
     lastSeen: card.lastSeen,
-    // 出场章节列表落在卡里，角色页不必读全部摘要就能显示「出场 12 章」，
+    // 出场章节列表落在卡里，角色页不必读全部细纲就能显示「出场 12 章」，
     // 也方便作者/日后的检索功能按人物找章节。
     appearsIn: card.appearsIn?.length ? card.appearsIn.map(String) : undefined,
     updatedThrough: card.updatedThrough,
@@ -1049,19 +915,6 @@ export function emptyCharacterSections(): CharacterSections {
     人物关系: '',
     当前状态: '',
     未收伏笔: '',
-  };
-}
-
-export function emptySummarySections(): SummarySections {
-  return {
-    梗概: '',
-    出场人物: '',
-    时间地点: '',
-    关键事件: '',
-    看点: '',
-    新增伏笔: '',
-    状态变更: '',
-    连续性事实: '',
   };
 }
 
