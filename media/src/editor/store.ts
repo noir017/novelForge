@@ -96,6 +96,11 @@ export interface Pane {
   knownDiskHash(path: string): string;
   /** 重画标签与状态栏（保存状态变了，`saving.ts` 调）。 */
   refresh(): void;
+  /**
+   * 换掉这份文件的乐观锁基线（`text` / `hash`，即「磁盘上是什么」），并收起它的冲突条。编辑区里的内容
+   * 不动。冲突时「对比合并」采纳之后用（`editor/replace.ts`）：作者看过了磁盘上的那一份，之后照常保存。
+   */
+  rebase(path: string, text: string, hash: string): void;
 }
 
 export interface PaneSnapshot {

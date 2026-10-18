@@ -1,0 +1,149 @@
+/*
+ * 内置编辑器的「不丢稿」两件（DOM 只有独立版有）：冲突条上的「对比合并…」（editor/conflictMerge.ts）与
+ * 历史版本面板（editor/versions.ts）。
+ *
+ * 历史版本是编辑区右侧的一只抽屉，挂在 .ed-stage 里：开着时 .ed-stage 让出右边那一截（padding-right），
+ * 正文区跟着变窄、仍然看得见——对着正文挑哪一版，比弹一个盖住正文的窗口好用。高亮镜像层按 textarea 的
+ * 实际宽度排（ResizeObserver），让出宽度不会让它对不齐。
+ */
+
+/* 冲突条上的主要动作：比另外两颗醒目一点。 */
+.ed-conflict .ed-conflict-merge {
+  border-color: var(--vscode-focusBorder, #007fd4);
+  font-weight: 600;
+}
+
+.ed-versions-btn.active {
+  border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.ed-stage {
+  --nf-versions-width: 300px;
+}
+
+.ed-stage.ed-stage-versions {
+  padding-right: var(--nf-versions-width);
+}
+
+.ed-versions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: var(--nf-versions-width);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-left: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  overflow: hidden;
+  font-size: 0.9em;
+}
+
+.ed-versions-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ed-versions-title {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+
+.ed-versions-file {
+  color: var(--vscode-descriptionForeground);
+  word-break: break-all;
+}
+
+.ed-versions-note {
+  margin: 0;
+}
+
+.ed-versions-save {
+  align-self: flex-start;
+}
+
+.ed-versions-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ed-versions-empty {
+  margin: 4px 0;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.6;
+}
+
+.ed-version {
+  border: 1px solid transparent;
+  border-radius: var(--nf-ctl-radius, 3px);
+}
+
+.ed-version.selected {
+  border-color: var(--vscode-focusBorder, #007fd4);
+  background: var(--vscode-list-inactiveSelectionBackground, rgba(128, 128, 128, 0.12));
+}
+
+.ed-version-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 5px 7px;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ed-version-pick:hover {
+  background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.1));
+}
+
+.ed-version-meta {
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.ed-version-preview {
+  margin: 0 7px;
+  padding: 6px 8px;
+  max-height: 9em;
+  overflow: hidden;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  border-left: 2px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+}
+
+.ed-version-preview.error {
+  color: var(--vscode-errorForeground);
+}
+
+.ed-version-actions {
+  display: flex;
+  gap: 6px;
+  padding: 6px 7px 7px;
+}
+
+/* 窄屏：抽屉盖在正文上，不再让出宽度（一半宽度都让出去，正文就读不成了）。 */
+@media (max-width: 720px) {
+  .ed-stage.ed-stage-versions {
+    padding-right: 0;
+  }
+
+  .ed-versions {
+    width: min(var(--nf-versions-width), 85%);
+    box-shadow: -4px 0 12px rgba(0, 0, 0, 0.25);
+  }
+}

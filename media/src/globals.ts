@@ -11,7 +11,8 @@
  *   view 里有一份，另起一套会两层菜单一起弹。
  * - 自定义事件：`nf-editor-active`、`nf-files-moved`，以及标题栏（view.js）
  *   与编辑器（editor.js）之间的 `nf-editor-query` / `nf-editor-command` /
- *   `nf-workspace-reset`，「编辑」菜单段落那几项的 `nf-paragraph-query` / `nf-paragraph-command`。
+ *   `nf-workspace-reset`，「编辑」菜单段落那几项的 `nf-paragraph-query` / `nf-paragraph-command`，
+ *   「文件 → 历史版本…」的 `nf-versions-query` / `nf-versions-command`。
  *   `nf-pick-folder` 给目录选择器拦欢迎页的占位 prompt。
  */
 
@@ -64,6 +65,8 @@ declare global {
     'nf-workspace-reset': Event;
     'nf-paragraph-query': CustomEvent<ParagraphStatus>;
     'nf-paragraph-command': CustomEvent<{ name: ParagraphCommandName }>;
+    'nf-versions-query': CustomEvent<VersionsStatus>;
+    'nf-versions-command': CustomEvent<{ name: 'open' }>;
   }
 }
 
@@ -168,4 +171,28 @@ export function queryParagraph(): ParagraphStatus {
 
 export function commandParagraph(name: ParagraphCommandName): void {
   window.dispatchEvent(new CustomEvent('nf-paragraph-command', { detail: { name } }));
+}
+
+// ---------------------------------------------------------------- 「文件」菜单「历史版本…」
+
+/**
+ * 标题栏「文件 → 历史版本…」问编辑器的状态（`editor/versions.ts` 回答）：当前那块编辑区开着的文件存不存
+ * 历史版本，不存的话为什么（菜单项置灰时挂在提示上）。
+ */
+export interface VersionsStatus {
+  available: boolean;
+  /** 不能用的原因（没开文件、没打开工程、不是创作产物……）。 */
+  reason?: string;
+}
+
+/** 问编辑器「历史版本」能不能用。editor.js 没装时不能用。 */
+export function queryVersions(): VersionsStatus {
+  const status: VersionsStatus = { available: false, reason: '没有打开的文件' };
+  window.dispatchEvent(new CustomEvent('nf-versions-query', { detail: status }));
+  return status;
+}
+
+/** 打开当前那块编辑区的「历史版本」面板。 */
+export function commandVersions(name: 'open'): void {
+  window.dispatchEvent(new CustomEvent('nf-versions-command', { detail: { name } }));
 }

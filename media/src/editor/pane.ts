@@ -143,6 +143,7 @@ export function createPane(
     markGone,
     knownDiskHash,
     refresh,
+    rebase,
   };
 
   /** 预览开关是这块区的私事，不进 Pane 接口。 */
@@ -943,6 +944,18 @@ export function createPane(
       return '';
     }
     return diskSeen.get(path) ?? file.hash;
+  }
+
+  function rebase(path: string, text: string, hash: string): void {
+    const file = files.get(path);
+    if (!file) {
+      return;
+    }
+    file.text = text;
+    file.hash = hash;
+    conflicts.delete(path);
+    renderAll();
+    persist();
   }
 
   el.saveBtn.addEventListener('click', () => save(false));

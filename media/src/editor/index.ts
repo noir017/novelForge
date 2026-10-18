@@ -22,9 +22,12 @@ import { toast } from '../globals';
 import { isImeComposing } from './api';
 import { createPane } from './pane';
 import { installChapterBar } from './chapterBar';
+import { installConflictMerge } from './conflictMerge';
 import { installFind } from './find';
 import { installParagraphTools } from './paragraph';
+import { installEditorReplace } from './replace';
 import { installSaveSafety } from './safety';
+import { installVersions } from './versions';
 import { createPaneElements, mainRefs } from './paneElements';
 import type { CarriedDraft } from './paneElements';
 import {
@@ -66,6 +69,10 @@ function start(stage: HTMLElement): void {
   installParagraphTools();
   // 不丢稿：磁盘改动同步到已开的标签、保存状态、自动保存（safety.ts）。
   installSaveSafety();
+  // 不丢稿：冲突条的「对比合并…」、工具栏「历史」与历史版本面板、两者共用的 editorReplace。同样挂在第一次重画上。
+  installEditorReplace();
+  installConflictMerge(post);
+  installVersions(post);
 
   setActivePane(registerPane(createPane('main', mainRefs(stage), post)));
   // 正开着某一章的正文或细纲时，主区顶上那一条（W6 章节工作台）。

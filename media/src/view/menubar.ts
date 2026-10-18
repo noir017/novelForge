@@ -5,6 +5,7 @@
  */
 import { el as mk } from '../dom';
 import { commandEditor, queryEditor } from '../globals';
+import { versionsMenuEntry } from './versionsMenu';
 import {
   closeFolder,
   hideWelcome,
@@ -30,6 +31,8 @@ export interface MenuEntry {
   checked?: boolean;
   /** 点了做什么。给了就不走 `action` 那张表（功能模块自带的项用它，不必往 `run` 里加分支）。 */
   run?: () => void;
+  /** 悬停提示（置灰时说为什么）。 */
+  detail?: string;
 }
 
 export interface SubEntry {
@@ -142,6 +145,7 @@ function entriesOf(key: string): MenuEntry[] {
       { label: 'sep' },
       { label: '保存', action: 'save', disabled: !ed.dirtyCurrent, kbd: 'Ctrl+S' },
       { label: '另存为…', action: 'saveAs', disabled: !ed.hasFile },
+      versionsMenuEntry(),
       { label: '全部保存', action: 'saveAll', disabled: !ed.dirtyAny },
       { label: '自动保存', checked: ed.autoSave, run: () => commandEditor('toggleAutoSave') },
       { label: 'sep' },
@@ -198,6 +202,9 @@ function buildDrop(entries: MenuEntry[], submenu = false): HTMLElement {
     btn.type = 'button';
     if (entry.disabled) {
       btn.disabled = true;
+    }
+    if (entry.detail) {
+      btn.title = entry.detail;
     }
     addCheck(btn, entry.checked);
     btn.appendChild(mk('span', 'wb-menu-label', entry.label));

@@ -126,4 +126,33 @@ describe('合并视图', { skip: JSDOM_SKIP }, () => {
     ui.clickEl(ui.doc.getElementById('mergeApply'));
     assert.deepEqual(reply(), { verdict: 'apply' });
   });
+
+  test('带两栏称呼（冲突时的对比合并）：两栏、逐处与整体的按钮、状态、采纳按钮都换说法', () => {
+    open(ui, {
+      requestId: 'p7',
+      sides: { current: '磁盘上的', proposed: '编辑器里的' },
+      applyLabel: '放回编辑器',
+    });
+    const h0 = hunks()[0];
+    assert.equal(h0.querySelector('.merge-old .merge-side-label').textContent, '磁盘上的');
+    assert.equal(h0.querySelector('.merge-new .merge-side-label').textContent, '编辑器里的');
+    assert.equal(btn(0, 'merge-take-old').textContent, '用磁盘上的');
+    assert.equal(btn(0, 'merge-take-new').textContent, '用编辑器里的');
+    assert.equal(h0.querySelector('.merge-state').textContent, '未处理（缺省是编辑器里的）');
+    assert.equal(ui.doc.getElementById('mergeAllOld').textContent, '全部用磁盘上的');
+    assert.equal(ui.doc.getElementById('mergeAllNew').textContent, '全部用编辑器里的');
+    assert.equal(ui.doc.getElementById('mergeApply').textContent, '放回编辑器');
+    ui.clickEl(btn(0, 'merge-take-old'));
+    assert.equal(h0.querySelector('.merge-state').textContent, '已用磁盘上的');
+    ui.clickEl(ui.doc.getElementById('mergeDiscard'));
+  });
+
+  test('下一次不带称呼：回到「原文 / 新版」与「写入合并结果」', () => {
+    open(ui, { requestId: 'p8' });
+    assert.equal(hunks()[0].querySelector('.merge-old .merge-side-label').textContent, '原文');
+    assert.equal(btn(0, 'merge-take-old').textContent, '保留原文');
+    assert.equal(ui.doc.getElementById('mergeAllNew').textContent, '全部采用新版');
+    assert.equal(ui.doc.getElementById('mergeApply').textContent, '写入合并结果');
+    ui.clickEl(ui.doc.getElementById('mergeDiscard'));
+  });
 });

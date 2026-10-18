@@ -30,6 +30,12 @@
  *
  * 没请求合并的调用方（角色卡、设定条目那几处）收不下一份作者拼出来的文字：只画两栏 diff，
  * 底部是「采纳 / 放弃」。
+ *
+ * ## 两栏叫什么由后端说
+ *
+ * 缺省是「原文 / 新版」（覆盖审阅、删修饰）。内置编辑器冲突时的「对比合并」是「磁盘上的 / 编辑器里的」，
+ * 历史版本的「对比」是「快照 / 编辑器里的」——消息带 `sides` 时两栏、逐处与整体的按钮、状态都跟着换成
+ * 「用……」的说法；`applyLabel` 换掉「写入合并结果」（那两处不写盘，是「放回编辑器」）。
  */
 import { el as mk, maybeById, setHidden } from '../dom';
 import type { MergeSegment, OutMessage } from '../protocol';
@@ -50,6 +56,55 @@ interface HunkState {
 /** 相同的段连着超过这么多段就折起来，只露头尾。 */
 const SAME_FOLD = 3;
 
+/** 两栏与那几颗按钮上的字。 */
+interface MergeLabels {
+  colOld: string;
+  colNew: string;
+  takeOld: string;
+  takeNew: string;
+  allOld: string;
+  allNew: string;
+  stateOld: string;
+  stateNew: string;
+  pending: string;
+  hint: string;
+}
+
+/** 覆盖审阅与删修饰的说法（从前写死的那一套，一字不改）。 */
+const DEFAULT_LABELS: MergeLabels = {
+  colOld: '原文',
+  colNew: '新版',
+  takeOld: '保留原文',
+  takeNew: '采用新版',
+  allOld: '全部保留原文',
+  allNew: '全部采用新版',
+  stateOld: '已保留原文',
+  stateNew: '已采用新版',
+  pending: '未处理（缺省是新版）',
+  hint: '结果格可以手改；手改过的那一格，「采用」与「全部采用」都不会动它。',
+};
+
+function labelsOf(msg: PromptMessage): MergeLabels {
+  const sides = msg.sides;
+  if (!sides) {
+    return DEFAULT_LABELS;
+  }
+  const a = sides.current;
+  const b = sides.proposed;
+  return {
+    colOld: a,
+    colNew: b,
+    takeOld: `用${a}`,
+    takeNew: `用${b}`,
+    allOld: `全部用${a}`,
+    allNew: `全部用${b}`,
+    stateOld: `已用${a}`,
+    stateNew: `已用${b}`,
+    pending: `未处理（缺省是${b}）`,
+    hint: '结果格可以手改；手改过的那一格，逐处与整体的按钮都不会再动它。',
+  };
+}
+
 export function renderMerge(msg: PromptMessage): void {
   // 这一块只有独立版的页面上有（插件用 VS Code 自己的 diff 编辑器）：能力探测，不判断是哪个壳。
   const modal = maybeById('mergeModal');
@@ -59,6 +114,7 @@ export function renderMerge(msg: PromptMessage): void {
     return;
   }
   const mergeable = !!msg.mergeable;
+  const labels = labelsOf(msg);
   const segments = diffParagraphs(msg.current ?? '', msg.proposed ?? '');
   const total = changeCount(segments);
   const states = new Map<number, HunkState>();
@@ -79,10 +135,10 @@ export function renderMerge(msg: PromptMessage): void {
   modal.classList.toggle('merge-readonly', !mergeable);
   setHidden(allNew, !mergeable || total === 0);
   setHidden(allOld, !mergeable || total === 0);
-  apply.textContent = mergeable ? '写入合并结果' : '采纳';
-  hint.textContent = mergeable
-    ? '结果格可以手改；手改过的那一格，「采用」与「全部采用」都不会动它。'
-    : '只能整份采纳或放弃。';
+  allNew.textContent = labels.allNew;
+  allOld.textContent = labels.allOld;
+  apply.textContent = mergeable ? (msg.applyLabel ?? '写入合并结果') : '采纳';
+  hint.textContent = mergeable ? labels.hint : '只能整份采纳或放弃。';
 
   const syncProgress = () => {
     const done = [...states.values()].filter((s) => s.choice || s.edited).length;
@@ -96,7 +152,7 @@ export function renderMerge(msg: PromptMessage): void {
     }
     const state: HunkState = { edited: false };
     states.set(k, state);
-    body.appendChild(hunkBlock(seg, k, state, mergeable, syncProgress));
+    body.appendChild(hunkBlock(seg, k, state, mergeable, labels, syncProgress));
   });
   syncProgress();
 
@@ -156,13 +212,20 @@ function sameBlock(paragraphs: string[]): HTMLElement {
   return block;
 }
 
-function hunkBlock(seg: Change, k: number, state: HunkState, mergeable: boolean, onChange: () => void): HTMLElement {
+function hunkBlock(
+  seg: Change,
+  k: number,
+  state: HunkState,
+  mergeable: boolean,
+  labels: MergeLabels,
+  onChange: () => void
+): HTMLElement {
   const block = mk('div', 'merge-hunk');
   block.dataset.hunk = String(k);
 
   const sides = mk('div', 'merge-sides');
-  sides.appendChild(side('原文', seg.old, 'merge-old'));
-  sides.appendChild(side('新版', seg.new, 'merge-new'));
+  sides.appendChild(side(labels.colOld, seg.old, 'merge-old'));
+  sides.appendChild(side(labels.colNew, seg.new, 'merge-new'));
   block.appendChild(sides);
   if (!mergeable) {
     return block;
@@ -176,8 +239,8 @@ function hunkBlock(seg: Change, k: number, state: HunkState, mergeable: boolean,
   block.appendChild(area);
 
   const actions = mk('div', 'merge-actions');
-  const takeNew = mk('button', 'secondary small merge-take-new', '采用新版');
-  const takeOld = mk('button', 'secondary small merge-take-old', '保留原文');
+  const takeNew = mk('button', 'secondary small merge-take-new', labels.takeNew);
+  const takeOld = mk('button', 'secondary small merge-take-old', labels.takeOld);
   const undo = mk('button', 'link merge-undo', '撤销手改');
   const label = mk('span', 'merge-state');
   actions.append(takeOld, takeNew, undo, label);
@@ -199,10 +262,10 @@ function hunkBlock(seg: Change, k: number, state: HunkState, mergeable: boolean,
     label.textContent = state.edited
       ? '已手改'
       : state.choice === 'old'
-        ? '已保留原文'
+        ? labels.stateOld
         : state.choice === 'new'
-          ? '已采用新版'
-          : '未处理（缺省是新版）';
+          ? labels.stateNew
+          : labels.pending;
   };
   takeNew.addEventListener('click', () => {
     if (!state.edited) {
