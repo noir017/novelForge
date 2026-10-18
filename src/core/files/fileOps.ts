@@ -114,14 +114,15 @@ export async function newFolder(
   }
 
   const rel = `${parent}/${sanitizeFileName(name)}`;
-  const abs = project.pathOf(rel);
-  if (await exists(abs)) {
-    log.warn(`新建文件夹被拒：已存在 ${rel}`);
-    getHost().toast(`已存在：${rel}`, 'error');
+  // 经网关建（第 7 条）：落点过守卫——出不了工程根、建不进回收站 / 会话目录 / 历史版本；已有同名（目录或文件）就拒绝。
+  try {
+    await new Workspace(project).mkdir(rel);
+  } catch (err) {
+    const why = err instanceof WsError && err.code === 'exists' ? `已存在：${rel}` : describeWsError(err);
+    log.warn(`新建文件夹被拒：${why}`, rel);
+    getHost().toast(why, 'error');
     return undefined;
   }
-  await fs.mkdir(abs, { recursive: true });
-  project.invalidate();
   log.info(`已新建文件夹 ${rel}`);
   getHost().toast(`已新建文件夹 ${rel}`);
   return rel;

@@ -529,6 +529,22 @@ export class Workspace {
     return { rel: toRel, message: `已复制到 ${toRel}`, side };
   }
 
+  // ---------------------------------------------------------------- mkdir
+
+  /**
+   * 建一个目录，可以一次建几层（`宗门/正道`）。工程页 / 文件页的「新建文件夹」走它。
+   *
+   * 守卫与复制的落点同一套（`guardCreate`）：在工程内、不在回收站 / 会话目录 / 历史版本里；落点上已经有东西（目录或文件）
+   * 报 `exists`、什么都不动（第 3 条）。只建目录，不写任何文件，所以没有种类、没有记账。
+   */
+  async mkdir(rel: string): Promise<WriteResult> {
+    const abs = await guardCreate(this.project, rel);
+    const normalized = normalizeRel(rel)!;
+    await fs.mkdir(abs, { recursive: true });
+    this.project.invalidate();
+    return { rel: normalized, message: `已新建文件夹 ${normalized}` };
+  }
+
   // ---------------------------------------------------------------- search
 
   /**

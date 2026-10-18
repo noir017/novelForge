@@ -254,4 +254,23 @@ describe('按目录整理', () => {
     await bundle.lore.organizeLore(project, 'unfiled');
     assert.ok(t.has('.novelforge/lore/黑市.md'));
   });
+
+  // 从前搬家之前先直接 `fs.mkdir` 建出清单上的新目录（绕过网关，第 7 条）；`ws.move` 落盘前本来就会补齐父目录，
+  // 那一步唯一的效果是：搬不成的时候留下一个空目录。现在新目录只在真有条目搬进去时由网关建出来。
+  test('搬不成就不留下空目录：新目录由搬家时经网关补齐，不先建', async () => {
+    t.write('.novelforge/lore/令牌.md', '---\ntitle: 令牌\nkeywords: []\n---\n\n# 令牌\n\n出入用。\n');
+    project.invalidate();
+    // 模型答完清单、作者点头之前，这一条被作者在别处删了：搬家必然失败。
+    organizeReply = () => {
+      fs.rmSync(t.rel('.novelforge/lore/令牌.md'));
+      return JSON.stringify({ folders: ['信物'], moves: [{ from: '令牌', to: '信物' }] });
+    };
+    fake.reset();
+    h.expect('开始', '照这样整理');
+    await bundle.lore.organizeLore(project, 'unfiled');
+    const plan = h.confirms.at(-1);
+    assert.match(plan.message, /新建 1 个目录/);
+    assert.equal(t.has('.novelforge/lore/信物'), false);
+    assert.match(h.toasts.map((x) => x.message ?? x).join('\n'), /1 条没搬/);
+  });
 });

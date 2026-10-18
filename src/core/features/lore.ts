@@ -1,4 +1,3 @@
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { readConfig } from '../config';
 import { runPool, serialize } from '../runtime/concurrency';
@@ -702,12 +701,14 @@ export function checkOrganizePlan(
   return { folders, moves, dropped };
 }
 
-/** 建目录、搬文件。目标位置已有同名文件的不搬、说出来。返回搬了几条。 */
+/**
+ * 搬文件。返回搬了几条。目标位置已有同名文件的不搬、说出来。
+ *
+ * **新目录不先建**：`ws.move` 落盘前自己补齐父目录（落点过网关的守卫，第 7 条），所以新目录只在真有条目搬进去时出现。
+ * 从前这里先直接 `fs.mkdir` 建出清单上的每个新目录（绕过网关）——它唯一的效果是：搬不成的时候留下一个空目录。
+ */
 async function applyMoves(project: NovelProject, folders: readonly string[], moves: readonly LoreMove[]): Promise<number> {
   const root = project.relPath(project.loreDir);
-  for (const dir of folders) {
-    await fs.mkdir(project.pathOf(`${root}/${dir}`), { recursive: true });
-  }
   const ws = new Workspace(project);
   let moved = 0;
   for (const m of moves) {
@@ -726,7 +727,11 @@ async function applyMoves(project: NovelProject, folders: readonly string[], mov
     }
   }
   project.invalidate();
-  log.info('按目录整理设定', `搬了 ${moved}/${moves.length} 条｜新目录 ${folders.length} 个`);
+  let created = 0;
+  for (const dir of folders) {
+    created += (await exists(project.pathOf(`${root}/${dir}`))) ? 1 : 0;
+  }
+  log.info('按目录整理设定', `搬了 ${moved}/${moves.length} 条｜新目录 ${created}/${folders.length} 个`);
   return moved;
 }
 
