@@ -49,7 +49,13 @@ export async function projectAction(
   action: ProjectAction,
   relPath?: string,
   dir?: string,
-  batch: { range?: { from: number; to: number }; confirmed?: boolean; mode?: 'draft' | 'finalize'; review?: boolean } = {}
+  batch: {
+    range?: { from: number; to: number };
+    confirmed?: boolean;
+    mode?: 'draft' | 'finalize';
+    review?: boolean;
+    name?: string;
+  } = {}
 ): Promise<void> {
   // refresh 每次切页/刷盘都来一趟，记了只会淹掉别的；其余动作都值得留痕。
   if (action !== 'refresh') {
@@ -83,7 +89,7 @@ export async function projectAction(
       await newCharacter(c.project, dir);
       break;
     case 'newLore':
-      await newLore(c.project, dir);
+      await newLore(c.project, dir, batch.name);
       break;
     case 'newFolder': {
       // 落点目录决定建到哪个区；没给就问用户。

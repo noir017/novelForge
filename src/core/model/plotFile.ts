@@ -52,6 +52,17 @@
  * 正文的路径，带着 `sourceHash` 与 `cast`，直接当成定稿过的细纲读；它 frontmatter 里的 `chapter:`
  * 不认，章号取文件名前缀。
  *
+ * ## 第九节「设定」
+ *
+ * 八节之后另有一节「设定」（`Plot.lore`），一行一个东西：`- 名〔分类〕：本章确立的定义或规则`
+ * （格式在 model/loreFile.ts）。写之前是**计划**用到、要引入的设定，定稿后是正文里**实际**出现的。
+ *
+ * - **不进内容指纹**（{@link plotContentHash} 只算八节），与 frontmatter 的 `cast` 一样当机器读的旁注：
+ *   给老章节补记设定时要往定稿过的细纲里加这一节，算进指纹会把这些章全挂上 ⟳；只改了「计划用到
+ *   哪些设定」也不值得把正文标成过期。
+ * - **有没有记过看标题在不在**：`lore` 为 undefined = 文件里没有这一节（老细纲、还没补记）；
+ *   空数组 = 记过、这一章没有设定（落盘写「（无）」）。
+ *
  * ## 派生数据一律不写进这份文件
  *
  * 「这一章写了几个字」「写到几成」都是别处算得出来的东西，写进来就会漂移。
@@ -70,6 +81,7 @@ import {
   stringifySections,
 } from './markdown';
 import { castFromText, parseCast, parseCastEntry, renderCastEntry } from './castParse';
+import { LoreLine, PLOT_LORE_KEY, parseLoreLines, renderLoreLines } from './loreFile';
 import type { SummaryCast } from './types';
 
 /**
@@ -158,6 +170,11 @@ export interface Plot {
   /** 写前冲突检查的放行（frontmatter `factCheckOk: true`）。见文件头。 */
   factCheckOk?: boolean;
   sections: PlotSections;
+  /**
+   * 第九节「设定」（见文件头）。undefined = 文件里没有这一节（老细纲、还没记过）；
+   * 空数组 = 记过、没有设定。
+   */
+  lore?: LoreLine[];
   /** frontmatter 之外的正文全文。作者可能加了自定义小节，读回来时保留。 */
   body: string;
 }
@@ -302,7 +319,7 @@ export function sectionLine(text: string): string {
  * 只哈希**八个小节**，不含 frontmatter：`upstreamHash` / `writtenFrom` / `sourceHash` / `cast`
  * 自己就在 frontmatter 里，把它算进去会让「排一次细纲」「定稿一次」立刻使刚写好的正文过期。
  * 同理不含 `status`、`preflightOk`、`factCheckOk` 与标题——作者把这一章标成 done、记一条预检放行、
- * 改个标题，都不该让它的正文标脏。
+ * 改个标题，都不该让它的正文标脏。第九节「设定」也不进（见文件头）。
  */
 export function plotContentHash(plot: Pick<Plot, 'sections'>): string {
   return hash(PLOT_SECTION_KEYS.map((key) => plot.sections[key]).join('\n---\n'));
@@ -373,6 +390,9 @@ export function parsePlotFile(text: string, relPath: string): Plot {
   const sourceHash = asString(frontmatter.sourceHash);
   // frontmatter 的 cast 是结构化真相；没有它（作者手写的老摘要）就从「出场人物」小节反解。
   const cast = parseCast(frontmatter.cast) ?? castFromText(sections.出场人物);
+  const lore = LORE_HEADING.test(body)
+    ? parseLoreLines(pickSections(body, [PLOT_LORE_KEY])[PLOT_LORE_KEY])
+    : undefined;
   return {
     relPath,
     no: fromName?.no ?? asNumber(frontmatter.no) ?? 0,
@@ -387,9 +407,13 @@ export function parsePlotFile(text: string, relPath: string): Plot {
     preflightOk: parsePreflightOk(asArray(frontmatter.preflightOk)),
     ...(asString(frontmatter.factCheckOk).toLowerCase() === 'true' ? { factCheckOk: true } : {}),
     sections,
+    ...(lore ? { lore } : {}),
     body,
   };
 }
+
+/** 第九节的标题行（`##` 或 `###`，前后空白不计）。 */
+const LORE_HEADING = new RegExp(`^#{2,3}[ \\t]*${PLOT_LORE_KEY}[ \\t]*$`, 'm');
 
 /** 渲染成落盘的 Markdown。空小节保留占位，作者手改时知道该往哪填。 */
 export function renderPlotFile(plot: WritablePlot): string {
@@ -411,8 +435,9 @@ export function renderPlotFile(plot: WritablePlot): string {
   const body = stringifySections(plot.sections as unknown as Record<string, string>, PLOT_SECTION_KEYS, {
     keepEmpty: true,
   });
+  const lore = plot.lore ? `\n\n## ${PLOT_LORE_KEY}\n\n${renderLoreLines(plot.lore)}` : '';
   const heading = `# 第${plot.no}章${plot.title ? ` ${plot.title}` : ''}`;
-  return `${fm}\n\n${heading}\n\n${body}\n`;
+  return `${fm}\n\n${heading}\n\n${body}${lore}\n`;
 }
 
 function positive(n: number | undefined): number | undefined {

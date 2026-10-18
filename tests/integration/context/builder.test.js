@@ -1969,8 +1969,18 @@ describe('工程页数据', () => {
     assert.equal(lore.length, 2);
   });
 
-  test('设定副标题为 keywords', () => {
-    assert.ok(lore.some((l) => l.detail.includes('令牌')));
+  // 几百条的名录里要一眼看出它是什么：副标题是一句话简介，没写 brief 就取正文第一句。
+  test('设定副标题是一句话简介（没写 brief 取正文第一句）', () => {
+    const token = lore.find((l) => l.label === '崖字令牌');
+    assert.ok(token && token.detail.startsWith('巴掌大的木牌或铜牌'), token && token.detail);
+  });
+
+  // 示例工程的三章定稿细纲都早于第九节「设定」，名录是空的、三章都等着补记。
+  test('设定名录：已建条目都有一行统计，还没记过设定的定稿章计数', () => {
+    assert.deepEqual(Object.keys(tree.loreByEntry).sort(), lore.map((l) => l.relPath).sort());
+    assert.equal(tree.loreByEntry[lore[0].relPath].detail, '');
+    assert.deepEqual(tree.loreUnfiled, []);
+    assert.equal(tree.loreUnrecorded, 3);
   });
 
   test('给出各区的根目录', () => {

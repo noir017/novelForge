@@ -1,5 +1,7 @@
 import { basename } from 'node:path';
 import { buildCastIndex, describePlots } from './cast';
+import { buildLoreIndex, describeSpan, pendingChapters } from './lore';
+import { loreBrief } from '../model/loreFile';
 import { listActiveFailures } from '../runtime/errorLog';
 import { scoped } from '../runtime/logger';
 import { hasContent, stripH1 } from '../model/markdown';
@@ -18,6 +20,8 @@ import {
   CastConflictView,
   CastEntry,
   CastSummary,
+  LoreSummary,
+  LoreUnfiledEntry,
   PlotPipelineView,
   PlotSummaryView,
   ProjectDirNode,
@@ -76,6 +80,9 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       lore: [],
       cast: [],
       castByCard: {},
+      loreByEntry: {},
+      loreUnfiled: [],
+      loreUnrecorded: 0,
       castConflicts: [],
       failures: {},
       summaryCount: 0,
@@ -161,11 +168,32 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     ].join(' · '),
   }));
 
+  // 设定行的副标题是一句话简介（没写就是正文第一句，再没有才是关键词）：几百条的名录里，
+  // 一眼要看出它是什么，关键词帮不上这个忙。
   const loreLeaves = lore.map<ProjectFileNode>((entry) => ({
     kind: 'file',
     label: entry.title,
     relPath: entry.relPath,
-    detail: entry.keywords.join('/'),
+    detail: loreBrief(entry) || entry.keywords.join('/'),
+  }));
+
+  // 设定名录（views/lore.ts）：已建条目补出现章与待整合，未建条目单列一组。
+  const loreIndex = await buildLoreIndex(project, { plots, entries: lore, cards: characters });
+  const loreByEntry: Record<string, LoreSummary> = {};
+  for (const record of loreIndex.known) {
+    loreByEntry[record.entry.relPath] = {
+      chapters: record.chapters,
+      detail: describeSpan(record.chapters),
+      updatedThrough: record.entry.updatedThrough ?? 0,
+      pending: pendingChapters(record),
+      keywords: record.entry.keywords,
+    };
+  }
+  const loreUnfiled: LoreUnfiledEntry[] = loreIndex.unknown.map((item) => ({
+    name: item.name,
+    category: item.category,
+    chapters: item.chapters,
+    detail: `${item.chapters.length} 章 · 第 ${item.chapters[0]} 章起`,
   }));
 
   // 出场人物索引：已建卡的补出场统计，未建卡的单列一组。
@@ -232,6 +260,9 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     lore: nest(loreRoot, loreLeaves, loreDirs),
     cast,
     castByCard,
+    loreByEntry,
+    loreUnfiled,
+    loreUnrecorded: loreIndex.unrecorded.length,
     castConflicts,
     failures,
     summaryCount: castIndex.summaryCount,

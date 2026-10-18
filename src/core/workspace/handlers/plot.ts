@@ -40,6 +40,7 @@ import {
   renderPlotFile,
 } from '../../model/plotFile';
 import { SummaryCast } from '../../model/types';
+import type { LoreLine } from '../../model/loreFile';
 import { outlineUpstreamHash } from '../../model/outlineFile';
 import { Handler, HandlerCtx } from './types';
 
@@ -64,6 +65,8 @@ export const plotHandler: Handler = {
       cast: current?.cast,
       done: current?.done ?? false,
       sections: artifact.sections,
+      // 第九节「设定」不在八节里：产物带了就换新（重排的计划），没带就沿用磁盘那份。
+      lore: artifact.lore ?? current?.lore,
     });
   },
 
@@ -100,6 +103,7 @@ export function renderFinalizedPlot(input: {
   sections: PlotSections;
   cast: SummaryCast[];
   sourceHash: string;
+  lore?: LoreLine[];
 }): string {
   const { current } = input;
   const plot: WritablePlot = {
@@ -113,6 +117,8 @@ export function renderFinalizedPlot(input: {
     sourceHash: input.sourceHash,
     cast: input.cast,
     sections: input.sections,
+    // 第九节「设定」：定稿记下的实际出现；没给（老调用）就沿用磁盘那份。
+    lore: input.lore ?? current?.lore,
   };
   const writtenFrom = plotContentHash(parsePlotFile(renderPlotFile(plot), input.rel));
   return renderPlotFile({ ...plot, writtenFrom });

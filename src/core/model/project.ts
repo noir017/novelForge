@@ -25,6 +25,7 @@ import {
 } from './markdown';
 import { isChapterFileName, isMarkdownExt, isMarkdownPath, parseChapterFileName } from './chapterFile';
 import { Plot, isPlotFileName, parsePlotFile, parsePlotFileName, plotFileName } from './plotFile';
+import { loreCategoryOfSlug } from './loreFile';
 import {
   BookConfig,
   SETTING_FILE_DOCS,
@@ -427,7 +428,8 @@ export class NovelProject {
     await writeIfAbsent(this.globalSummaryPath, GLOBAL_SUMMARY_TEMPLATE);
     // **不再放示例角色卡**：角色图谱「有没有」看 `characters/` 下有没有卡，
     // 一张示例卡会让新工程一出生就跳过「生成角色图谱」。卡的格式见 README。
-    await writeIfAbsent(path.join(this.loreDir, 'example-setting.md'), LORE_TEMPLATE);
+    // 示例设定条目同理（设定清单「有没有」看 `lore/` 下有没有条目），何况它的关键词「设定」
+    // 会被任何一句带这两个字的话命中、混进上下文。
 
     this.invalidate();
     const manifest: ProjectManifest = {
@@ -949,15 +951,30 @@ export class NovelProject {
       const raw = await readText(abs);
       const { frontmatter, body } = parseMarkdown(raw);
       const slug = this.slugUnder(this.loreDir, abs);
+      const updatedThrough = asNumber(frontmatter.updatedThrough);
+      const bodyHash = asString(frontmatter.bodyHash);
       entries.push({
         slug,
         relPath: this.relPath(abs),
         title: asString(frontmatter.title) || extractH1(body) || baseName(abs),
         keywords: asArray(frontmatter.keywords),
+        brief: asString(frontmatter.brief),
+        category: loreCategoryOfSlug(slug),
+        ...(updatedThrough !== undefined && updatedThrough >= 0 ? { updatedThrough } : {}),
+        ...(bodyHash ? { bodyHash } : {}),
         body: stripH1(body),
       });
     }
     return entries;
+  }
+
+  /**
+   * 本书的分类表：`lore/` 下的全部目录（相对 `lore/`，可多层，空目录也算）。每本书的分类不一样，
+   * 没有固定表（model/loreFile.ts）。
+   */
+  async listLoreCategories(): Promise<string[]> {
+    const root = this.relPath(this.loreDir);
+    return (await this.listFolders(this.loreDir)).map((rel) => rel.slice(root.length + 1));
   }
 
   /**
@@ -1038,8 +1055,11 @@ export type WritableCharacterCard = Omit<CharacterCard, 'relPath' | 'body' | 'ap
   appearsIn?: number[];
 };
 
-/** 写设定条目时的入参。slug 可以带子目录前缀。 */
-export type WritableLoreEntry = Omit<LoreEntry, 'relPath'>;
+/**
+ * 写设定条目时的入参。slug 可以带子目录前缀（就是分类）。`brief` / `updatedThrough` / `bodyHash`
+ * 没给就不写——改写一条已有条目时由调用方把读回来的原样带上。
+ */
+export type WritableLoreEntry = Omit<LoreEntry, 'relPath' | 'category' | 'brief'> & { brief?: string };
 
 export function renderCharacterCard(card: WritableCharacterCard): string {
   const fm = stringifyFrontmatter({
@@ -1069,6 +1089,9 @@ export function renderLoreEntry(entry: WritableLoreEntry): string {
   const fm = stringifyFrontmatter({
     title: entry.title,
     keywords: entry.keywords,
+    brief: entry.brief?.trim() || undefined,
+    updatedThrough: entry.updatedThrough,
+    bodyHash: entry.bodyHash || undefined,
   });
   return `${fm}\n\n# ${entry.title}\n\n${entry.body.trim()}\n`;
 }
@@ -1215,14 +1238,4 @@ generatedBy: novel-forge
 ## 未收伏笔
 
 ## 人物关系变动
-`;
-
-const LORE_TEMPLATE = `---
-title: 示例设定
-keywords: [示例, 设定]
----
-
-# 示例设定
-
-（世界观、势力、功法、地理等设定条目。keywords 命中续写纲要时会自动注入。）
 `;

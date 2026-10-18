@@ -141,9 +141,9 @@ export async function buildCastIndex(project: NovelProject, plots?: readonly Plo
 /**
  * 出场统计认的那几份细纲：**定稿过的**（有 `sourceHash`，第 14 条），同号只认路径排序第一份
  * （与流水线认号同一个口径）。定稿之后正文又改过的照样算——那是最后一次定稿时的实际出场，
- * 比没有强；重新定稿就跟上了。
+ * 比没有强；重新定稿就跟上了。设定名录（views/lore.ts）认的也是这几份。
  */
-function finalizedPlots(plots: readonly Plot[]): Plot[] {
+export function finalizedPlots(plots: readonly Plot[]): Plot[] {
   const seen = new Set<number>();
   return plots.filter((p) => p.sourceHash && !seen.has(p.no) && (seen.add(p.no), true));
 }

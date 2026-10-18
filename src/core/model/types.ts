@@ -114,13 +114,27 @@ export const CHARACTER_DETAIL_LIMITS: Record<Exclude<keyof CharacterSections, '�
 /** 续写时优先保留的角色卡小节（预算不足时只留这几节）。 */
 export const CHARACTER_ESSENTIAL_KEYS: (keyof CharacterSections)[] = ['身份', '当前状态', '未收伏笔'];
 
-/** 世界观设定条目，存于 .novelforge/lore/<slug>.md。 */
+/**
+ * 设定条目，存于 `.novelforge/lore/<分类>/<名>.md`。格式与认法在 model/loreFile.ts。
+ */
 export interface LoreEntry {
+  /** 去掉扩展名的相对路径（`宗门/正道/青云宗`）。 */
   slug: string;
   relPath: string;
   title: string;
-  /** 用于与剧情纲要做关键词匹配。 */
+  /** 别称与触发词：认「同一个东西」、关键词命中都用它。 */
   keywords: string[];
+  /**
+   * 一句话简介（frontmatter `brief`）。没写是空串——名录与上下文里「一行带」用
+   * `loreBrief`（model/loreFile.ts）取，它会回落到正文第一句。
+   */
+  brief: string;
+  /** 分类：所在目录相对 `lore/` 的路径（可多层），根目录下是空串（未分类）。由路径推出，不是字段。 */
+  category: string;
+  /** 整合到第几章（水位）。没有 = 从没整合过。 */
+  updatedThrough?: number;
+  /** 机器最后一次写入正文时正文的指纹；与现在的正文对不上 = 作者改过。 */
+  bodyHash?: string;
   body: string;
 }
 

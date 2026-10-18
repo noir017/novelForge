@@ -1,5 +1,6 @@
 import { PickChoice } from '../host';
 import { NovelProject } from '../model/project';
+import { loreBrief } from '../model/loreFile';
 import { Attachment, AttachmentKind } from '../model/session';
 
 /**
@@ -49,7 +50,8 @@ export async function listAttachmentChoices(project: NovelProject): Promise<Pick
   for (const entry of await project.listLore()) {
     choices.push({
       label: entry.title,
-      description: entry.keywords.join('/'),
+      // 一句话简介比关键词更说得清这是什么；都没有才退回关键词。
+      description: loreBrief(entry) || entry.keywords.join('/'),
       detail: entry.relPath,
       group: '设定',
       value: fileAttachment('lore', `设定 ${entry.title}`, entry.relPath),

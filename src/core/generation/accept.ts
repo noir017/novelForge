@@ -324,6 +324,7 @@ async function acceptPlot(
       upstreamHash: await plotUpstreamHash(project, relPath),
       done: false,
       sections: fields.sections,
+      lore: fields.lore,
     },
     undefined,
     relPath
@@ -385,6 +386,7 @@ export async function acceptPlotBatch(
           cast: existing?.cast,
           done: existing?.done ?? false,
           sections: fields.sections,
+          lore: fields.lore ?? existing?.lore,
         },
         existing?.relPath
       )

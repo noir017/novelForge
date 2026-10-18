@@ -64,6 +64,12 @@ export interface ProjectTree {
   lore: ProjectNode[];
   cast: CastEntry[];
   castByCard: Record<string, CastSummary>;
+  /** 设定名录（views/lore.ts）：已建条目的出现章与待整合，按条目 relPath 索引。 */
+  loreByEntry: Record<string, LoreSummary>;
+  /** 定稿里出现过、还没有条目的名字，按出现章数降序。 */
+  loreUnfiled: LoreUnfiledEntry[];
+  /** 定稿过、但还没记过设定（细纲没有第九节）的章数。 */
+  loreUnrecorded: number;
   summaryCount: number;
   failures: Record<string, FailureView[]>;
   castConflicts: CastConflictView[];
@@ -271,6 +277,29 @@ export interface CastSummary {
   detail: string;
   updatedThrough: number;
   pending: number;
+}
+
+/** 一条设定在定稿里的出现与落后（工程页设定行的副标题与 `＋N`）。 */
+export interface LoreSummary {
+  /** 定稿过的细纲第九节点名它的章，升序。 */
+  chapters: number[];
+  /** `第 3–57 章 · 12 章`；一次都没出现是空串。 */
+  detail: string;
+  updatedThrough: number;
+  /** 水位之后还有几章的新事实没整合。 */
+  pending: number;
+  /** 关键词（别称）。行上不显示，名录筛选框按它也能找到。 */
+  keywords: string[];
+}
+
+/** 「出现过 · 未建条目」那一组的一行。 */
+export interface LoreUnfiledEntry {
+  name: string;
+  /** 建议的分类（各章写的多数票），没写过是空串。 */
+  category: string;
+  chapters: number[];
+  /** `5 章 · 第 3 章起`。 */
+  detail: string;
 }
 
 export interface FailureView {

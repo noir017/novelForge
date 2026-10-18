@@ -39,6 +39,8 @@ export type {
   CastConflictView,
   CastEntry,
   CastSummary,
+  LoreSummary,
+  LoreUnfiledEntry,
   PlotPipelineView,
   PlotSummaryView,
   FailureView,

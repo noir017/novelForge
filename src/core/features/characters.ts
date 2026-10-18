@@ -317,15 +317,20 @@ export async function newCharacter(project: NovelProject, dir?: string): Promise
   await getHost().openFile(relPath);
 }
 
-/** 手动新建一条设定。`dir` 同 newCharacter。 */
-export async function newLore(project: NovelProject, dir?: string): Promise<void> {
+/**
+ * 手动新建一条设定。`dir` 同 newCharacter（目录就是分类，还不存在就一并建出来）。
+ * `name` 给了就不再问标题——工程页「出现过 · 未建条目」那一行右键新建时带着名字。
+ */
+export async function newLore(project: NovelProject, dir?: string, name?: string): Promise<void> {
   const target = resolveSectionDir(project, 'lore', dir);
   const root = project.relPath(project.loreDir);
-  const title = await getHost().input({
-    title: '新建设定条目',
-    prompt: target === root ? '设定标题（如「玄门七宗」）' : `设定标题（建到 ${target}/）`,
-    validate: (v) => (v.trim() ? undefined : '不能为空'),
-  });
+  const title =
+    name?.trim() ||
+    (await getHost().input({
+      title: '新建设定条目',
+      prompt: target === root ? '设定标题（如「玄门七宗」）' : `设定标题（建到 ${target}/）`,
+      validate: (v) => (v.trim() ? undefined : '不能为空'),
+    }));
   if (!title) {
     return;
   }
@@ -334,7 +339,9 @@ export async function newLore(project: NovelProject, dir?: string): Promise<void
   const abs = path.join(project.loreDir, `${slug}.md`);
   await writeText(
     abs,
-    `---\ntitle: ${title.trim()}\nkeywords: [${title.trim()}]\n---\n\n# ${title.trim()}\n\n（在这里写设定内容。keywords 命中续写纲要时会自动注入上下文。）\n`
+    `---\ntitle: ${title.trim()}\nkeywords: [${title.trim()}]\n---\n\n# ${title.trim()}\n\n` +
+      '（在这里写这条设定：它是什么、有什么规则与边界、现在是什么状态。frontmatter 里可以加一行 brief 写一句话简介，' +
+      '名录里那一行显示它；keywords 写它的别称，正文或细纲里提到时会自动带进上下文。）\n'
   );
   await getHost().openFile(project.relPath(abs));
 }

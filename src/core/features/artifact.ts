@@ -32,6 +32,7 @@
 import { normalizeGender } from '../model/gender';
 import { parseMarkdown, pickSections } from '../model/markdown';
 import { PLOT_SECTION_KEYS, PlotSections, emptyPlotSections } from '../model/plotFile';
+import type { LoreLine } from '../model/loreFile';
 import {
   BookConfig,
   NARRATIVE_POVS,
@@ -67,6 +68,8 @@ export interface PlotFields {
   sections: PlotSections;
   title?: string;
   targetWords?: number;
+  /** 第九节「设定」（计划用到、要引入的设定）。没带就沿用磁盘那份（handlers/plot.ts）。 */
+  lore?: LoreLine[];
 }
 
 /**

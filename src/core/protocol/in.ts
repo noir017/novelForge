@@ -193,6 +193,8 @@ export type InMessage =
       confirmed?: boolean;
       mode?: 'draft' | 'finalize';
       review?: boolean;
+      /** `newLore`：预填的标题（「出现过 · 未建条目」那一行右键新建时带上），给了就不再问。 */
+      name?: string;
     }
   | { type: 'characterAction'; action: CharacterAction; name: string; relPath?: string }
   | {

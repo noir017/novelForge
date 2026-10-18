@@ -1,0 +1,207 @@
+import { NovelProject } from '../model/project';
+import { Plot } from '../model/plotFile';
+import { parseContinuityFacts } from '../model/continuity';
+import { createLoreLookup, loreMentionIn, normalizeLoreName } from '../model/loreFile';
+import { CharacterCard, LoreEntry } from '../model/types';
+import { normalizeName } from '../model/naming';
+import { finalizedPlots } from './cast';
+
+/**
+ * 设定名录：把各章**定稿过的**细纲第九节「设定」反向聚合成「哪个东西在哪几章出现过、
+ * 有没有条目、条目落后了几章」。和出场人物索引（views/cast.ts）是一个路子：
+ *
+ * - **定稿过的细纲是真相**（第 14 条同理）。没定稿的第九节写的是计划，不进统计——只给装配器挑条目用。
+ * - **两趟认条目**：先按标题、再按关键词（model/loreFile.ts 的 `createLoreLookup`），关键词抢不走
+ *   别人的标题。
+ * - **待整合的新事实**：水位（条目的 `updatedThrough`）之后的定稿章里，第九节冒号后面那句、
+ *   以及连续性事实里提到它的标题或关键词的那一条。会变的状态（谁拿走了、毁了）一直记在连续性事实里，
+ *   名录去那里认，不另存一份。
+ * - **人名不是设定**：第九节里的名字撞上角色卡的名字或别名就不算（模型偶尔把人也列进来）。
+ *
+ * 纯读盘、不调模型、不落盘（第 18 条：状态一律从磁盘推导）。
+ */
+
+/** 一条关于某个设定的新事实。 */
+export interface LoreFact {
+  /** 章号。 */
+  no: number;
+  text: string;
+  /** `lore`：第九节冒号后面那句；`fact`：连续性事实里提到它的那一条。 */
+  source: 'lore' | 'fact';
+}
+
+/** 一条已建的设定。 */
+export interface LoreRecord {
+  entry: LoreEntry;
+  /** 定稿过的细纲第九节点名它的章，升序。 */
+  chapters: number[];
+  /** 水位之后、定稿过的章里关于它的新事实，按章号升序。 */
+  pending: LoreFact[];
+}
+
+/** 定稿里出现过、还没有条目的名字。 */
+export interface UnfiledLore {
+  /** 展示名：各章写法里出现最多的那个。 */
+  name: string;
+  /** 建议的分类：各章 `〔分类〕` 的多数票，没写过是空串。 */
+  category: string;
+  chapters: number[];
+  /** 各章冒号后面那句（建条目的原料）。 */
+  notes: LoreFact[];
+}
+
+export interface LoreIndex {
+  /** 全部条目（含一次都没在定稿里出现过的），按 `listLore` 的顺序。 */
+  known: LoreRecord[];
+  /** 定稿里出现、还没有条目的名字，按出现章数降序。 */
+  unknown: UnfiledLore[];
+  /** 定稿过、但第九节标题不在的章（还没记过设定），升序。 */
+  unrecorded: number[];
+  /** 参与统计的（定稿过的）细纲数。 */
+  finalizedCount: number;
+}
+
+/**
+ * 扫全部定稿过的细纲，建设定名录。`plots` / `entries` / `cards` 传进来就直接用（工程页刷新时
+ * 已经读过了，同一次刷新里一个文件只读一次——tests/integration/views/projectTreeReads），不传就自己读。
+ */
+export async function buildLoreIndex(
+  project: NovelProject,
+  read: { plots?: readonly Plot[]; entries?: readonly LoreEntry[]; cards?: readonly CharacterCard[] } = {}
+): Promise<LoreIndex> {
+  const [entries, cards, chapters] = await Promise.all([
+    read.entries ?? project.listLore(),
+    read.cards ?? project.listCharacters(),
+    project.listChapters(),
+  ]);
+  const finalized = finalizedPlots(project.pairPlots(read.plots ?? (await project.listPlots()), chapters));
+  const lookup = createLoreLookup(entries);
+
+  const people = new Set<string>();
+  for (const card of cards) {
+    for (const name of [card.name, ...card.aliases]) {
+      people.add(normalizeName(name));
+    }
+  }
+
+  const chaptersOf = new Map<string, Set<number>>();
+  const pendingOf = new Map<string, LoreFact[]>();
+  /** 归一后的名字 → 各章的写法、分类的票、章号与说明。 */
+  const unfiled = new Map<string, UnfiledGroup>();
+  const unrecorded: number[] = [];
+
+  const watermark = (entry: LoreEntry): number => entry.updatedThrough ?? 0;
+  const addPending = (entry: LoreEntry, fact: LoreFact): void => {
+    const list = pendingOf.get(entry.slug) ?? pendingOf.set(entry.slug, []).get(entry.slug)!;
+    list.push(fact);
+  };
+
+  for (const plot of finalized) {
+    if (!plot.lore) {
+      unrecorded.push(plot.no);
+    }
+    for (const line of plot.lore ?? []) {
+      if (people.has(normalizeName(line.name))) {
+        continue;
+      }
+      const entry = lookup.find(line.name);
+      if (entry) {
+        const set = chaptersOf.get(entry.slug) ?? chaptersOf.set(entry.slug, new Set()).get(entry.slug)!;
+        set.add(plot.no);
+        if (line.note && plot.no > watermark(entry)) {
+          addPending(entry, { no: plot.no, text: line.note, source: 'lore' });
+        }
+        continue;
+      }
+      const key = normalizeLoreName(line.name);
+      const group =
+        unfiled.get(key) ??
+        unfiled
+          .set(key, { names: new Map(), categories: new Map(), chapters: new Set(), notes: [] })
+          .get(key)!;
+      group.names.set(line.name, (group.names.get(line.name) ?? 0) + 1);
+      if (line.category) {
+        group.categories.set(line.category, (group.categories.get(line.category) ?? 0) + 1);
+      }
+      group.chapters.add(plot.no);
+      if (line.note) {
+        group.notes.push({ no: plot.no, text: line.note, source: 'lore' });
+      }
+    }
+    // 连续性事实里提到的：状态的变化记在那里。只认水位之后的章。
+    const facts = parseContinuityFacts(plot.sections.连续性事实);
+    if (facts.length === 0) {
+      continue;
+    }
+    for (const entry of entries) {
+      if (plot.no <= watermark(entry)) {
+        continue;
+      }
+      for (const fact of facts) {
+        if (loreMentionIn(fact.statement, entry)) {
+          addPending(entry, { no: plot.no, text: fact.statement, source: 'fact' });
+        }
+      }
+    }
+  }
+
+  const known: LoreRecord[] = entries.map((entry) => ({
+    entry,
+    chapters: [...(chaptersOf.get(entry.slug) ?? [])].sort((a, b) => a - b),
+    pending: (pendingOf.get(entry.slug) ?? []).sort((a, b) => a.no - b.no),
+  }));
+
+  const unknown: UnfiledLore[] = [...unfiled.values()].map((group) => ({
+    name: topOf(group.names),
+    category: topOf(group.categories),
+    chapters: [...group.chapters].sort((a, b) => a - b),
+    notes: group.notes,
+  }));
+  // 出现得多的排前面：作者要建的条目多半是这些；同样多的按第一次出现的章号。
+  unknown.sort(
+    (a, b) =>
+      b.chapters.length - a.chapters.length ||
+      a.chapters[0] - b.chapters[0] ||
+      a.name.localeCompare(b.name, 'zh-Hans-CN')
+  );
+
+  return { known, unknown, unrecorded, finalizedCount: finalized.length };
+}
+
+/** 还要整合几章：待整合事实来自几个不同的章。工程页的 `＋N`。 */
+export function pendingChapters(record: LoreRecord): number {
+  return new Set(record.pending.map((f) => f.no)).size;
+}
+
+/**
+ * `第 3–57 章 · 12 章` / `第 3 章`；一次都没出现是空串。设定比人多得多、一条常常出现几十章，
+ * 不像出场人物那样逐个列章号（`describePlots`），只给首尾与章数。
+ */
+export function describeSpan(nos: readonly number[]): string {
+  if (nos.length === 0) {
+    return '';
+  }
+  const first = nos[0];
+  const last = nos[nos.length - 1];
+  return first === last ? `第 ${first} 章` : `第 ${first}–${last} 章 · ${nos.length} 章`;
+}
+
+interface UnfiledGroup {
+  names: Map<string, number>;
+  categories: Map<string, number>;
+  chapters: Set<number>;
+  notes: LoreFact[];
+}
+
+/** 票数最多的那一项（同票取先出现的），没有就是空串。 */
+function topOf(votes: Map<string, number>): string {
+  let best = '';
+  let max = 0;
+  for (const [value, count] of votes) {
+    if (count > max) {
+      best = value;
+      max = count;
+    }
+  }
+  return best;
+}
