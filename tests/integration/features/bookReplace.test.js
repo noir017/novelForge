@@ -327,6 +327,18 @@ describe('features/bookReplace › 第 18 条：指纹链', () => {
   });
 });
 
+describe('features/bookReplace › 第 18 条：细纲在这一次里却被跳过', () => {
+  test('正文换了、细纲因为未保存被跳过：定稿过的章同样回到待定稿，汇总里说「只改了正文」', async () => {
+    const t = await setup('plot-dirty');
+    const { request } = await previewAndRequest(t, { scopes: ['chapter', 'plot'] }, { dirty: ['.novelforge/summaries/001-入宗.md'] });
+    const summary = await replace(t, request);
+    assert.deepEqual(summary.skipped.map((s) => [s.path, s.reason]), [['.novelforge/summaries/001-入宗.md', 'dirty']]);
+    assert.equal((await row(t, 1)).summary.stale, true);
+    assert.ok(summary.bodyOnly.includes('第 1 章 入宗'), JSON.stringify(summary.bodyOnly));
+    assert.ok(!summary.chainKept.includes('第 1 章 入宗'));
+  });
+});
+
 describe('features/bookReplace › 第 18 条：大纲与细纲', () => {
   test('大纲与细纲一起改的对得上；大纲改了、细纲没跟着改的挂 ⟳，汇总里说出来', async () => {
     const t = await setup('outline');

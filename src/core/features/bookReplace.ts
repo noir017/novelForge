@@ -237,19 +237,23 @@ export async function replaceInBook(project: NovelProject, req: BookReplaceReque
       sourceFresh: !!chapter && !!plot.sourceHash && plot.sourceHash === chapter.contentHash,
     });
   }
-  // 只改正文、细纲没跟着改的定稿过的章：替换之前细纲在、定稿对得上正文。
-  const preparedRels = new Set(prepared.map((p) => p.rel));
-  const finalizedBodies = new Map<string, string>();
+  // 要换的正文：替换之前它镜像的那份细纲定稿过、对得上它没有（细纲也在这一次里的，上面已经算过；没在的这里读一次）。
+  // 写完之后正文换了、细纲没换（不在这一次里，或者在、却被跳过了）的，就是「只改了正文」。
+  const contentHashOf = new Map(chapters.map((c) => [c.relPath, c.contentHash]));
+  const finalizedBodies = new Map<string, { mirror: string; fresh: boolean }>();
   for (const p of prepared.filter((x) => x.kind === 'chapter')) {
     const mirror = project.plotMirrorOf(p.rel);
-    if (!mirror || preparedRels.has(mirror)) {
+    if (!mirror) {
+      continue;
+    }
+    const known = chainBefore.get(mirror);
+    if (known) {
+      finalizedBodies.set(p.rel, { mirror, fresh: known.sourceFresh });
       continue;
     }
     const plot = await project.readPlot(mirror);
-    const before = chapters.find((c) => c.relPath === p.rel);
-    if (plot?.sourceHash && before && plot.sourceHash === before.contentHash) {
-      finalizedBodies.set(p.rel, mirror);
-    }
+    const bodyHash = contentHashOf.get(p.rel);
+    finalizedBodies.set(p.rel, { mirror, fresh: !!plot?.sourceHash && !!bodyHash && plot.sourceHash === bodyHash });
   }
 
   // ---- 3. 逐份存一版历史、经网关写
@@ -341,8 +345,8 @@ export async function replaceInBook(project: NovelProject, req: BookReplaceReque
       await ws.restampPlotChain(plotRel, patch);
     }
   }
-  for (const [chapterRel] of finalizedBodies) {
-    if (written.has(chapterRel)) {
+  for (const [chapterRel, { mirror, fresh }] of finalizedBodies) {
+    if (fresh && written.has(chapterRel) && !written.has(mirror)) {
       summary.bodyOnly.push(bookFileLabel(project, chapterRel));
     }
   }
