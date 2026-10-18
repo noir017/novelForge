@@ -12,6 +12,7 @@
  * | 没开工程 | 不开、不发请求、说一句；菜单项置灰 |
  * | 最近打开的 | 编辑器里开过的文件按工程记在 localStorage，空输入时列在前面 |
  * | 插件形态 | 没有 `#wbEditor` 就不装 |
+ * | 与临时标签 | 从这里打开的不带 `preview`，开成正常标签、不换掉别的临时标签；打开一份已经开成临时标签的，它就此转正 |
  */
 const { describe, test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -371,6 +372,19 @@ describe('「转到…」面板 · 打开什么', { skip: JSDOM_SKIP }, () => {
     assert.equal(status.path, 'chapters/第一卷/003-夜访.md');
   });
 
+  // 后端的 openChapter 在一条消息里先开正文、再开细纲（按顺序推）；就算哪天两份回来的先后反了
+  // （独立版对每条 WebSocket 消息并发处理，连发两条打开请求时就是这样），焦点也还是落在正文那一块。
+  test('细纲先到、正文后到：焦点照样落在正文那一块', () => {
+    h.type('夜访');
+    h.key(h.input(), 'Enter');
+    h.ui.post({ type: 'editorOpen', file: file('.novelforge/summaries/第一卷/003-夜访.md', '细纲', { kind: 'plot' }), pane: 'draft' });
+    h.ui.post({ type: 'editorOpen', file: file('chapters/第一卷/003-夜访.md', '正文', { kind: 'chapter' }) });
+    assert.equal(h.doc.activeElement, h.mainArea());
+    const status = { hasFile: false, path: null };
+    h.ui.window.dispatchEvent(new h.ui.window.CustomEvent('nf-editor-query', { detail: status }));
+    assert.equal(status.path, 'chapters/第一卷/003-夜访.md');
+  });
+
   test('Ctrl+Enter 之后焦点进第二块编辑区', () => {
     h.type('林昭');
     h.key(h.input(), 'Enter', { ctrlKey: true });
@@ -532,6 +546,49 @@ describe('「转到…」 · 最近打开的', { skip: JSDOM_SKIP }, () => {
     h.ui.post({ type: 'editorOpen', file: file('.novelforge/characters/林昭.md', '# 林昭', { kind: 'character' }) });
     h.open();
     assert.deepEqual(h.sections(), ['章节']);
+  });
+});
+
+describe('「转到…」 · 与临时标签', { skip: JSDOM_SKIP }, () => {
+  let h;
+  const previews = () => [...h.doc.querySelectorAll('.ed-tab.preview')].map((t) => t.dataset.path);
+  const tabs = () => [...h.doc.querySelectorAll('.wb-editor')][0].querySelectorAll('.ed-tab');
+  /** 后端照请求回 editorOpen（不带 preview——请求上就没有）。 */
+  const echo = (msg) =>
+    h.ui.post({ type: 'editorOpen', file: file(msg.path ?? msg.plotRelPath, '正文'), ...(msg.pane ? { pane: msg.pane } : {}), ...(msg.preview ? { preview: true } : {}) });
+
+  beforeEach(() => {
+    h = harness();
+    // 工程页 / 文件页单击打开的：第 1 章正文是临时标签。
+    h.ui.post({ type: 'editorOpen', file: file('chapters/001-楔子.md', '正文'), preview: true });
+  });
+
+  test('打开章节：openChapter 不带 preview', () => {
+    h.open();
+    h.key(h.input(), 'Enter');
+    const msg = h.ui.last('openChapter');
+    assert.equal(msg.plotRelPath, 'chapters/001-楔子.md');
+    assert.equal('preview' in msg, false);
+  });
+
+  test('打开的正是那个临时标签：它就此转正（被不带 preview 的打开请求打开一次）', () => {
+    assert.deepEqual(previews(), ['chapters/001-楔子.md']);
+    h.open();
+    h.key(h.input(), 'Enter');
+    echo({ path: 'chapters/001-楔子.md' });
+    assert.deepEqual(previews(), []);
+  });
+
+  test('打开别的文件：开成正常标签，不换掉那个临时标签', () => {
+    h.open();
+    h.type('林昭');
+    h.key(h.input(), 'Enter');
+    const msg = h.ui.last('openEditor');
+    assert.equal(msg.path, '.novelforge/characters/林昭.md');
+    assert.equal('preview' in msg, false);
+    echo(msg);
+    assert.equal(tabs().length, 2);
+    assert.deepEqual(previews(), ['chapters/001-楔子.md']);
   });
 });
 

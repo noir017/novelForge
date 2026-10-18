@@ -7,7 +7,7 @@
  * | 两卷里各一个「003-夜访」 | 同一种、不同目录的再加最短的区分目录；只剩一个时不再加 |
  * | 两块编辑区各开一份同名的 | 放在一起比，也加区分目录 |
  * | 后端没给称呼 | 标签写文件名、工具栏写原始路径（一段，不能点） |
- * | 面包屑 | 「细纲 › 第一卷 › 第 3 章 夜访」，原始路径在悬停提示上；目录段是按钮，文件段不是 |
+ * | 面包屑 | 「细纲 › 第一卷 › 第 3 章 夜访」，原始路径在悬停提示上；目录段是按钮，文件段不是；章节的标题取章节索引（改了标题、文件名没动时也对） |
  * | 点面包屑的目录段 | 「文件」页切出来、展开到那个目录、那一行标出来 |
  * | 标签条 | 滚轮横着滚；激活的那个滚进视野；重画不把滚动位置归零 |
  * | 「▾」 | 两块编辑区开着的全部文件按块分组、标出没保存的；点了切过去；关掉的列在「最近关闭」，点了重新打开 |
@@ -158,6 +158,19 @@ describe('工具栏面包屑', { skip: JSDOM_SKIP }, () => {
     const row = ui.doc.querySelector('#filesBody .fx-row.fx-revealed');
     assert.ok(row, '没有标出来的行');
     assert.equal(row.dataset.path, '.novelforge/summaries/第一卷');
+  });
+
+  test('章节那一段的标题取章节索引（有正文的章改了标题、文件名不动时，与章节条、「转到…」说的一样）', () => {
+    open(ui, 'chapters/003-夜访.md', L.ch3);
+    assert.deepEqual(segs(), ['正文', '›', '第 3 章 夜访']);
+    ui.post({ type: 'chapterIndex', chapters: [{
+      no: 3, label: '第 3 章《夜半来客》', title: '夜半来客', relPath: 'chapters/003-夜访.md',
+      plotPath: '.novelforge/summaries/003-夜访.md', plotExists: true, chapterPath: 'chapters/003-夜访.md',
+      wordCount: 300, stage: 'finalize',
+    }] });
+    assert.deepEqual(segs(), ['正文', '›', '第 3 章 夜半来客']);
+    // 标签上仍写文件名：它说的是这个文件。
+    assert.equal(ui.doc.querySelector('.ed-tab.active .ed-tab-name').textContent, '003-夜访');
   });
 
   test('后端没给称呼：只写原始路径一段，不能点', () => {

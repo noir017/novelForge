@@ -3,6 +3,7 @@ import { parseChapterFileName } from '../model/chapterFile';
 import { exists } from '../model/fs';
 import { SETTING_DOC_LABEL, isFallbackChapterTitle } from '../model/pipeline';
 import { NovelProject } from '../model/project';
+import { FIXED_DOC_LABEL } from './editorLabel';
 import type {
   QuickOpenChapter,
   QuickOpenDoc,
@@ -91,10 +92,11 @@ async function listDocs(project: NovelProject): Promise<QuickOpenDoc[]> {
     { key: 'config', label: SETTING_DOC_LABEL.config, abs: project.configPath },
     { key: 'premise', label: SETTING_DOC_LABEL.premise, abs: project.premisePath },
     { key: 'world', label: SETTING_DOC_LABEL.world, abs: project.worldPath },
-    { key: 'outline', label: '情节大纲', abs: project.outlinePath },
-    { key: 'style', label: '文风指南', abs: project.stylePath },
-    { key: 'threads', label: '叙事线', abs: project.threadsPath },
-    { key: 'globalSummary', label: '全书摘要', abs: project.globalSummaryPath },
+    // 称呼与内置编辑器的标签、面包屑共用一张表（`views/editorLabel.ts`），同一份文件不叫两个名字。
+    { key: 'outline', label: FIXED_DOC_LABEL.outline, abs: project.outlinePath },
+    { key: 'style', label: FIXED_DOC_LABEL.style, abs: project.stylePath },
+    { key: 'threads', label: FIXED_DOC_LABEL.threads, abs: project.threadsPath },
+    { key: 'globalSummary', label: FIXED_DOC_LABEL.globalSummary, abs: project.globalSummaryPath },
   ];
   const present = await Promise.all(candidates.map((c) => exists(c.abs)));
   return candidates

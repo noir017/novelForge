@@ -15,7 +15,7 @@
  * | 草稿 `drafts/003-夜访.md` | 草稿 | 003-夜访 | 草稿 › 第 3 章 夜访 |
  * | 角色 / 设定 | 角色 / 设定 | 林晚 | 角色 › 配角 › 林晚 |
  * | 架构三件、情节大纲 | （不带） | 小说配置 / 情节大纲 | 故事架构 › 小说配置 |
- * | 文风、全书摘要、叙事线 | （不带） | 文风 / 全书摘要 / 叙事线 | 文风与摘要 › 文风 |
+ * | 文风指南、全书摘要、叙事线 | （不带） | 文风指南 / 全书摘要 / 叙事线 | 文风与摘要 › 文风指南 |
  * | 写作技能 | 技能 | 技能目录名 | 技能 › 名字 |
  * | 其他 | （不带） | 原文件名（扩展名留着） | 按目录一段一段 |
  */
@@ -35,6 +35,18 @@ const AREA_LABEL = {
   character: '角色',
   lore: '设定',
   skill: '技能',
+} as const;
+
+/**
+ * 架构三件之外那几份固定文件的中文称呼。**与「转到…」的索引（`views/quickOpen.ts`）共用这一张表**，
+ * 与工程页那几行的叫法一致——同一份文件在标签上、面包屑上、Ctrl+P 的候选里不许叫两个名字。
+ * 架构三件用 `SETTING_DOC_LABEL`（同样三处共用）。
+ */
+export const FIXED_DOC_LABEL = {
+  outline: '情节大纲',
+  style: '文风指南',
+  threads: '叙事线',
+  globalSummary: '全书摘要',
 } as const;
 
 /** 有中文称呼的固定文件归在哪一组（与工程页的分组同一个说法）。 */
@@ -61,13 +73,13 @@ export function describeEditorFile(project: NovelProject, relPath: string): Edit
     case 'setting':
       return fixed(rel, ARCHITECTURE, info.doc ? SETTING_DOC_LABEL[info.doc] : stem(base));
     case 'outline':
-      return fixed(rel, ARCHITECTURE, '情节大纲');
+      return fixed(rel, ARCHITECTURE, FIXED_DOC_LABEL.outline);
     case 'style':
-      return fixed(rel, STYLE_GROUP, '文风');
+      return fixed(rel, STYLE_GROUP, FIXED_DOC_LABEL.style);
     case 'globalSummary':
-      return fixed(rel, STYLE_GROUP, '全书摘要');
+      return fixed(rel, STYLE_GROUP, FIXED_DOC_LABEL.globalSummary);
     case 'threads':
-      return fixed(rel, STYLE_GROUP, '叙事线');
+      return fixed(rel, STYLE_GROUP, FIXED_DOC_LABEL.threads);
     case 'skill':
       return skillLabel(project, rel, base);
     default:

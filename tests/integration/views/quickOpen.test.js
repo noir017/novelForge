@@ -34,6 +34,7 @@ before(async () => {
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
     quickOpen: './src/core/views/quickOpen.ts',
+    editorLabel: './src/core/views/editorLabel.ts',
     controller: './src/core/controller/index.ts',
     db: './src/core/runtime/db.ts',
   });
@@ -156,6 +157,12 @@ describe('views/quickOpen › 索引', () => {
         ['globalSummary', '全书摘要', '.novelforge/summaries/global.md'],
       ]
     );
+  });
+
+  test('每份文档的称呼与内置编辑器标签上的一字不差（views/editorLabel.ts 同一张表）', () => {
+    for (const doc of index.docs) {
+      assert.equal(bundle.editorLabel.describeEditorFile(project, doc.path).title, doc.label, doc.path);
+    }
   });
 
   test('草稿：路径、文件名、文件名里的章号（认不出就缺席）', () => {

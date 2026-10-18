@@ -122,8 +122,8 @@ describe('editorLabel · 有中文称呼的固定文件', () => {
     assert.equal(crumbs('.novelforge/outline.md'), '故事架构[.novelforge] › 情节大纲');
   });
 
-  test('文风、全书摘要、叙事线归在文风与摘要', () => {
-    assert.equal(describeFile('.novelforge/style.md').title, '文风');
+  test('文风指南、全书摘要、叙事线归在文风与摘要（与工程页、「转到…」同一个叫法）', () => {
+    assert.equal(describeFile('.novelforge/style.md').title, '文风指南');
     assert.equal(describeFile('.novelforge/summaries/global.md').title, '全书摘要');
     assert.equal(crumbs('.novelforge/threads.md'), '文风与摘要[.novelforge] › 叙事线');
   });
