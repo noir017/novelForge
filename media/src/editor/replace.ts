@@ -44,9 +44,10 @@ export function replaceInEditor(path: string, text: string, base?: { text: strin
   if (base) {
     pane.rebase(path, base.text, base.hash);
   }
-  if (pane.activePath !== path || pane.isPreviewing()) {
+  if (pane.activePath !== path) {
     pane.activate(path);
   }
+  pane.setPreviewing(false);
   return pane.applyEdit(0, pane.area.value.length, text) ? 'changed' : 'unchanged';
 }
 

@@ -471,10 +471,10 @@ function freshEntry(pane: Pane, entry: Pick<CheckEntry, 'category' | 'term'>): {
   return { file, entry: result.entries.find((e) => e.category === entry.category && e.term === entry.term) };
 }
 
-/** 预览里先切回编辑（`activate` 同一个文件就是切回来，光标与滚动位置照旧）。 */
+/** 预览里先切回编辑（`setPreviewing(false)`：滚到预览里看着的那一处）。 */
 function ensureEditing(pane: Pane): void {
-  if (pane.isPreviewing() && pane.activePath) {
-    pane.activate(pane.activePath);
+  if (pane.isPreviewing()) {
+    pane.setPreviewing(false);
   }
 }
 

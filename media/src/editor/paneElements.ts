@@ -63,6 +63,13 @@ export interface OpenFile {
    * **有未保存修改的标签永远不是临时的**（一改就转正），所以换掉它从来不会丢字。
    */
   preview?: boolean;
+  /**
+   * 这一份此刻在 Markdown 预览里（不是在编辑）。**每个标签各记各的**：切走再切回来照旧，搬到另一块、改名搬家、刷新恢复
+   * 都跟着（⚑ 刷新也记）。只对 `.md` / `.markdown` 有意义。别和上面的 `preview`（临时标签）混了。
+   */
+  markdownPreview?: boolean;
+  /** 在预览里时切走那一刻预览的滚动位置，切回来放回去。 */
+  previewScrollTop?: number;
   caret: number;
   scrollTop: number;
   /**
@@ -93,7 +100,7 @@ export interface Conflict {
  * `history` / `historyText`：搬家时连撤销历史一起带上（刷新恢复没有）。只有接上之后的内容与
  * 搬走时（`historyText`）一字不差才接——否则那份差异对不上位置。
  *
- * `preview`：搬走时是不是临时标签（刷新恢复、改名搬家时照旧）。
+ * `preview`：搬走时是不是临时标签（刷新恢复、改名搬家时照旧）。`markdownPreview`：搬走时是不是在 Markdown 预览里（同样照旧）。
  *
  * `local`：标签右键「移到另一侧」——就在页面里从一块搬到另一块，接手的那一块收到的文件就是搬走时的
  * 基线（不经后端重读），所以连冲突条、见过的磁盘新版、「磁盘上没了」与光标位置一起接上。
@@ -105,6 +112,7 @@ export interface CarriedDraft {
   history?: EditHistory;
   historyText?: string;
   preview?: boolean;
+  markdownPreview?: boolean;
   local?: boolean;
   gone?: boolean;
   conflict?: { text: string; hash: string; reopen?: boolean };

@@ -38,11 +38,22 @@ export interface Pane {
   readonly files: Map<string, OpenFile>;
   activePath: string | null;
   activeFile(): OpenFile | undefined;
-  /** 当前是不是在 Markdown 预览里（textarea 藏着，收不到按键）。 */
+  /** 当前这一份是不是在 Markdown 预览里（textarea 藏着，收不到按键）。每个标签各记各的（`OpenFile.markdownPreview`）。 */
   isPreviewing(): boolean;
+  /** 当前这一份有没有 Markdown 可预览（`.md` / `.markdown`）。 */
+  canPreview(): boolean;
+  /**
+   * 当前这一份切到预览 / 切回编辑，两边滚到同一处（编辑区视口顶上那一行 ↔ 预览里对应的那一块，`previewSync.ts`）。
+   * 要「先切回编辑」的地方（查找、体检、对比合并、点引文……）调 `setPreviewing(false)`——`activate` 只切标签、不改预览。
+   * 没开文件、要预览的不是 Markdown 时返回 false。`focus: false`：焦点不动（缺省进正文区 / 预览）。
+   */
+  setPreviewing(on: boolean, opts?: { focus?: boolean }): boolean;
   hasDirty(): boolean;
   snapshot(): PaneSnapshot;
-  /** 切到这份文件（认下这一块、焦点进正文区）。`focus: false`：只换这一块显示的那份，不抢「当前这一块」与焦点。 */
+  /**
+   * 切到这份文件（认下这一块、焦点进正文区；这一份在预览里就照旧在预览里、焦点进预览）。`focus: false`：只换这一块显示的
+   * 那份，不抢「当前这一块」与焦点。
+   */
   activate(path: string, opts?: { focus?: boolean }): void;
   /** 关一个标签。有未保存的修改时先问「保存 / 不保存 / 取消」（`closing.ts`），所以可能过一会儿才关、或者不关。 */
   closeFile(path: string): void;
@@ -122,7 +133,7 @@ export interface Pane {
 }
 
 export interface PaneSnapshot {
-  open: { path: string; hash: string; draft?: string; preview?: boolean }[];
+  open: { path: string; hash: string; draft?: string; preview?: boolean; markdownPreview?: boolean }[];
   active: string | null;
 }
 
@@ -349,15 +360,17 @@ export function restore(): void {
       continue;
     }
     pendingActive.set(paneId, typeof data.active === 'string' ? data.active : null);
-    for (const item of data.open as { path?: unknown; hash?: unknown; draft?: unknown; preview?: unknown }[]) {
+    for (const item of data.open as { path?: unknown; hash?: unknown; draft?: unknown; preview?: unknown; markdownPreview?: unknown }[]) {
       if (!item || typeof item.path !== 'string') {
         continue;
       }
-      // 临时标签记着（⚑）：刷新前斜体的那一个，刷新后还是它。标记只记在前端，不随打开请求发出去。
+      // 临时标签记着（⚑）：刷新前斜体的那一个，刷新后还是它。在预览里的也照旧在预览里（⚑）。
+      // 两个标记都只记在前端，不随打开请求发出去。
       pendingDrafts.set(item.path, {
         hash: typeof item.hash === 'string' ? item.hash : undefined,
         draft: typeof item.draft === 'string' ? item.draft : undefined,
         preview: item.preview === true,
+        markdownPreview: item.markdownPreview === true,
       });
       post({ type: 'openEditor', path: item.path, pane: paneId });
     }

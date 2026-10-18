@@ -20,7 +20,7 @@
 import { maybeById } from '../dom';
 import { acquireApi, onMessage } from '../vscodeApi';
 import { toast } from '../globals';
-import { isImeComposing } from './api';
+import { isImeComposing, paneForShortcut } from './api';
 import { createPane } from './pane';
 import { installBookFind } from './bookFind';
 import { installChapterBar } from './chapterBar';
@@ -138,6 +138,14 @@ function start(stage: HTMLElement): void {
       // Chrome 不允许拦 Ctrl+W（表里那一条写着），能拦到（桌面版）就顺手关标签页。
       e.preventDefault();
       activePane.closeFile(activePane.activePath!);
+    } else if (matchesShortcut(e, 'preview')) {
+      // 预览 / 编辑（⚑ Ctrl+Shift+V，与 VS Code 的「打开预览」同一个键）：只对 Markdown 文件拦，
+      // 别的文件（.txt 章节之类）照常是浏览器的「粘贴为纯文本」；焦点在对话输入框里不拦。
+      const pane = paneForShortcut(e);
+      if (pane?.canPreview()) {
+        e.preventDefault();
+        pane.setPreviewing(!pane.isPreviewing());
+      }
     }
   });
 
@@ -217,7 +225,12 @@ function start(stage: HTMLElement): void {
       return;
     }
     // 临时标签改了名还是临时的（单击打开、没动过它）。
-    const carry: CarriedDraft = { history: file.history, historyText: file.draft, preview: !!file.preview };
+    const carry: CarriedDraft = {
+      history: file.history,
+      historyText: file.draft,
+      preview: !!file.preview,
+      markdownPreview: !!file.markdownPreview,
+    };
     if (file.draft !== file.text) {
       Object.assign(carry, { hash: file.hash, draft: file.draft, moved: true });
     }

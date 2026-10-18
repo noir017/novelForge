@@ -182,16 +182,14 @@ function createFindBar(pane: Pane): FindBar {
   const query = () => dom.input.value;
 
   /**
-   * 预览模式下先切回编辑（`activate` 同一个文件就是切回来，光标与滚动位置照旧）。`activate` 会把焦点给
-   * textarea；人正在查找条里打字的话，焦点还回去。
+   * 预览模式下先切回编辑（`setPreviewing(false)`：滚到预览里看着的那一处）。人正在查找条里打字的话焦点留在那里，
+   * 否则进正文区。
    */
   function ensureEditing(): void {
-    if (pane.isPreviewing() && pane.activePath) {
+    if (pane.isPreviewing()) {
       const focused = document.activeElement;
-      pane.activate(pane.activePath);
-      if (focused instanceof HTMLElement && dom.root.contains(focused)) {
-        focused.focus();
-      }
+      const typing = focused instanceof HTMLElement && dom.root.contains(focused);
+      pane.setPreviewing(false, { focus: !typing });
     }
   }
 

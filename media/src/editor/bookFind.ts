@@ -512,12 +512,13 @@ function revealHit(path: string, hit: BookFindHit, query: BookFindQuery): void {
   if (!pane) {
     return;
   }
-  if (pane.activePath !== path || pane.isPreviewing()) {
+  if (pane.activePath !== path) {
     pane.activate(path);
   } else {
     setActivePane(pane);
     announceActive();
   }
+  pane.setPreviewing(false);
   revealEditor();
   const offset = offsetAt(pane.area.value, hit.line, hit.col);
   if (!revealFindMatch(pane, query.query, { caseSensitive: query.caseSensitive, regex: query.regex }, offset)) {

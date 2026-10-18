@@ -9,6 +9,11 @@
   overflow-y: auto;
 }
 
+/* 预览能拿焦点（tabIndex -1，切过来时焦点进它，方向键与翻页键滚的是它），整块不画焦点框。 */
+.ed-preview:focus {
+  outline: none;
+}
+
 .ed-preview > *:first-child {
   margin-top: 0;
 }

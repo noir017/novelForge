@@ -1,15 +1,27 @@
 /**
  * 够用的 Markdown 块级渲染：标题、引用、列表、代码块、分隔线、frontmatter，
- * 行内支持 `**粗**` `*斜*` `` `码` `` `[文本](链接)`。
+ * 行内支持 `**粗**` `*斜*` `` `码` `` `[文本](链接)`。怎么切块在零 DOM 的 `previewCore.ts`（`previewBlocks`）。
  *
  * 全部走 createElement + textContent，**不拼 HTML 字符串**——正文里出现
  * `<script>` 也只是普通文字。这不是要做一个完整的 Markdown 实现，只是让
  * 作者能预览自己写的东西；缺的语法原样显示即可，不该为此引一个解析库。
+ *
+ * **每一块记着它是源文件的哪几行**：`data-line`（第一行，从 0 数）与 `data-line-end`（最后一行的下一行），
+ * 挂在 frontmatter、标题、段落、代码块、分隔线、引用与每一个列表项上（不挂在 `<ul>` / `<ol>` 上，各块互不重叠）。
+ * 切预览 / 切回编辑时按它两边滚到同一处（`previewSync.ts`）。
  */
 import { el } from '../dom';
+import { previewBlocks } from './previewCore';
 
 /** 工程内的相对链接点开时的回调（在哪一块预览里点的，就开在哪一块）。 */
 export type OpenLink = (path: string) => void;
+
+/** 给一块记上它是第几行到第几行。 */
+function mark<T extends HTMLElement>(node: T, span: { start: number; end: number }): T {
+  node.dataset.line = String(span.start);
+  node.dataset.lineEnd = String(span.end);
+  return node;
+}
 
 export function renderPreview(
   target: HTMLElement,
@@ -18,101 +30,48 @@ export function renderPreview(
   openLink: OpenLink
 ): void {
   target.innerHTML = '';
-  const lines = text.split('\n');
-  let i = 0;
-
-  // frontmatter 是元数据，单独框起来，不混进正文。
-  if (lines[0] !== undefined && lines[0].trim() === '---') {
-    const end = lines.indexOf('---', 1);
-    if (end > 0) {
-      target.appendChild(el('div', 'ed-frontmatter', lines.slice(1, end).join('\n')));
-      i = end + 1;
-    }
-  }
-
-  let paragraph: string[] = [];
-  const flush = () => {
-    if (paragraph.length === 0) {
-      return;
-    }
-    const p = el('p');
-    appendInline(p, paragraph.join('\n'), fromPath, openLink);
-    target.appendChild(p);
-    paragraph = [];
-  };
-
-  let list: HTMLElement | null = null;
-  const endList = () => {
-    list = null;
-  };
-
-  for (; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (trimmed === '') {
-      flush();
-      endList();
-      continue;
-    }
-
-    if (trimmed.startsWith('```')) {
-      flush();
-      endList();
-      const buf: string[] = [];
-      for (i++; i < lines.length && !lines[i].trim().startsWith('```'); i++) {
-        buf.push(lines[i]);
+  for (const block of previewBlocks(text)) {
+    switch (block.kind) {
+      case 'frontmatter':
+        // frontmatter 是元数据，单独框起来，不混进正文。
+        target.appendChild(mark(el('div', 'ed-frontmatter', block.text), block));
+        break;
+      case 'heading': {
+        const h = document.createElement(`h${block.level}`);
+        appendInline(h, block.text, fromPath, openLink);
+        target.appendChild(mark(h, block));
+        break;
       }
-      target.appendChild(el('pre', undefined, buf.join('\n')));
-      continue;
-    }
-
-    const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed);
-    if (heading) {
-      flush();
-      endList();
-      // h4 以下都当 h3 画：预览是给人快速扫一眼的，再细分层级没有意义。
-      const h = document.createElement(`h${Math.min(heading[1].length, 3)}`);
-      appendInline(h, heading[2], fromPath, openLink);
-      target.appendChild(h);
-      continue;
-    }
-
-    if (/^([-*_])\1{2,}$/.test(trimmed.replace(/\s/g, ''))) {
-      flush();
-      endList();
-      target.appendChild(el('hr'));
-      continue;
-    }
-
-    if (trimmed.startsWith('>')) {
-      flush();
-      endList();
-      const quote = el('blockquote');
-      appendInline(quote, trimmed.replace(/^>\s?/, ''), fromPath, openLink);
-      target.appendChild(quote);
-      continue;
-    }
-
-    const bullet = /^[-*+]\s+(.*)$/.exec(trimmed);
-    const ordered = /^(\d+)[.)]\s+(.*)$/.exec(trimmed);
-    if (bullet || ordered) {
-      flush();
-      const want = bullet ? 'UL' : 'OL';
-      if (!list || list.tagName !== want) {
-        list = el(bullet ? 'ul' : 'ol');
+      case 'paragraph': {
+        const p = el('p');
+        appendInline(p, block.text, fromPath, openLink);
+        target.appendChild(mark(p, block));
+        break;
+      }
+      case 'code':
+        target.appendChild(mark(el('pre', undefined, block.text), block));
+        break;
+      case 'hr':
+        target.appendChild(mark(el('hr'), block));
+        break;
+      case 'quote': {
+        const quote = el('blockquote');
+        appendInline(quote, block.text, fromPath, openLink);
+        target.appendChild(mark(quote, block));
+        break;
+      }
+      case 'list': {
+        const list = el(block.ordered ? 'ol' : 'ul');
+        for (const item of block.items) {
+          const li = el('li');
+          appendInline(li, item.text, fromPath, openLink);
+          list.appendChild(mark(li, item));
+        }
         target.appendChild(list);
+        break;
       }
-      const li = el('li');
-      appendInline(li, bullet ? bullet[1] : ordered![2], fromPath, openLink);
-      list.appendChild(li);
-      continue;
     }
-
-    endList();
-    paragraph.push(line);
   }
-  flush();
 }
 
 /** 行内：`**粗**`、`*斜*`、`` `码` ``、`[文本](链接)`。其余原样。 */

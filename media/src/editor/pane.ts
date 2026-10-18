@@ -1,6 +1,6 @@
 /**
  * 一块编辑区。两块（正文 / 草稿）是这个工厂的两个实例，各自持有自己的
- * 文件表、冲突表、当前路径与预览开关，互相不读对方的内部字段——
+ * 文件表、冲突表与当前路径（预览还是编辑按文件记），互相不读对方的内部字段——
  * 它们之间只通过 store.ts 的 `panes` 表与 `paneOwning()` 打交道。
  *
  * 保存带**内容 hash 乐观锁**：磁盘上的 hash 与编辑器基线不一致（作者在别处
@@ -20,6 +20,10 @@
  * **标签**：名字与短标记来自后端（`OpenFile.label`），同名的加区分目录（`tabLabels.ts`）；标签条的滚动与
  * 「▾」在 `tabStrip.ts`，右键菜单里关闭类之后的那几项（移到另一侧、定位、复制路径、重新打开、固定）在
  * `tabMenu.ts`。**临时标签**（`OpenFile.preview`）的规矩都在 `upsertFile` / `slotFor` 与几处转正的地方。
+ *
+ * **Markdown 预览按标签记**（`OpenFile.markdownPreview`，方案 D3）：切走再切回来还是原来那样，刷新恢复也记着（⚑）。
+ * 切换走 `setPreviewing`（工具栏「预览 / 编辑」、`Ctrl+Shift+V`、查找与体检之类「先切回编辑」的地方）：编辑区视口
+ * 顶上那一行与预览里对应的那一块互相滚到一处（`previewSync.ts`）。`activate` 只是切标签，不再顺手切回编辑。
  */
 import { setHidden } from '../dom';
 import { onContextMenu, toast } from '../globals';
@@ -45,6 +49,8 @@ import { indentLines, outdentLines } from './indent';
 import { previewTabsEnabled } from './paragraphState';
 import type { CarriedDraft, OpenFile, PaneId, PaneRefs } from './paneElements';
 import { renderPreview } from './preview';
+import { lineOfOffset, lineStarts } from './previewCore';
+import { areaScrollForLine, areaTopLine, previewTopLine, scrollPreviewToLine } from './previewSync';
 import {
   blockAutoSave,
   holdSave,
@@ -139,7 +145,9 @@ export function createPane(
     files,
     activePath: null,
     activeFile,
-    isPreviewing: () => previewMode,
+    isPreviewing: () => previewing(activeFile()),
+    canPreview: () => canPreview(activeFile()),
+    setPreviewing,
     hasDirty,
     snapshot,
     activate,
@@ -164,11 +172,18 @@ export function createPane(
     rebase,
   };
 
-  /** 预览开关是这块区的私事，不进 Pane 接口。 */
-  let previewMode = false;
-
   function activeFile(): OpenFile | undefined {
     return pane.activePath ? files.get(pane.activePath) : undefined;
+  }
+
+  /** 这份文件有没有 Markdown 可预览（`.txt` / 无扩展名的章节没有，隐藏「预览」按钮）。 */
+  function canPreview(file: OpenFile | undefined): boolean {
+    return !!file && MARKDOWN_RE.test(file.path);
+  }
+
+  /** 这份文件此刻是不是在预览里（每个标签各记各的）。 */
+  function previewing(file: OpenFile | undefined): boolean {
+    return !!file?.markdownPreview && canPreview(file);
   }
 
   function hasDirty(): boolean {
@@ -182,6 +197,7 @@ export function createPane(
         hash: f.hash,
         draft: f.draft === f.text ? undefined : f.draft,
         preview: f.preview || undefined,
+        markdownPreview: f.markdownPreview || undefined,
       })),
       active: pane.activePath,
     };
@@ -349,29 +365,90 @@ export function createPane(
     stashCaret();
     activeFile()?.history.seal();
     pane.activePath = path;
-    previewMode = false;
     if (!quiet) {
       setActivePane(pane);
     }
     renderAll();
     announceActive();
-    if (!quiet) {
-      el.area.focus();
+    if (previewing(file)) {
+      // 这一份切走时在预览里：照旧在预览里，滚到切走时的位置。
+      el.preview.scrollTop = file.previewScrollTop ?? 0;
+      if (!quiet) {
+        el.preview.focus({ preventScroll: true });
+      }
+    } else {
+      if (!quiet) {
+        el.area.focus();
+      }
+      if (file.caret !== undefined) {
+        el.area.selectionStart = el.area.selectionEnd = Math.min(file.caret, el.area.value.length);
+      }
+      el.area.scrollTop = file.scrollTop || 0;
     }
-    if (file.caret !== undefined) {
-      el.area.selectionStart = el.area.selectionEnd = Math.min(file.caret, el.area.value.length);
-    }
-    el.area.scrollTop = file.scrollTop || 0;
     persist();
   }
 
+  /** 切走之前把这一份的光标与滚动（在预览里就是预览的滚动）留住。 */
   function stashCaret(): void {
     const file = activeFile();
-    if (!file || previewMode) {
+    if (!file) {
+      return;
+    }
+    if (previewing(file)) {
+      file.previewScrollTop = el.preview.scrollTop;
       return;
     }
     file.caret = el.area.selectionStart;
     file.scrollTop = el.area.scrollTop;
+  }
+
+  /**
+   * 当前这一份切到预览 / 切回编辑（工具栏「预览 / 编辑」、`Ctrl+Shift+V`，以及查找、体检、对比合并这些「先切回编辑」的地方）。
+   * 两边滚到同一处：编辑区视口顶上那一行（带小数，一段折成几行时滚到一半就是一半）在预览里对应的那一块停在顶上，反过来同理
+   * （`previewSync.ts`）。切回编辑时光标留在原处——它要是不在视口里了，就放到视口顶上那一行的行首（⚑），免得一打字又跳回去。
+   * 没有文件、要预览的不是 Markdown 时返回 false。`focus: false`：焦点不动（缺省进正文区 / 预览）。
+   */
+  function setPreviewing(on: boolean, opts?: { focus?: boolean }): boolean {
+    const file = activeFile();
+    if (!file || (on && !canPreview(file))) {
+      return false;
+    }
+    if (previewing(file) === on) {
+      return true;
+    }
+    const focus = opts?.focus !== false;
+    const lineCount = lineStarts(el.area.value).length;
+    if (on) {
+      const pos = areaTopLine(pane);
+      stashCaret();
+      file.markdownPreview = true;
+      renderAll();
+      scrollPreviewToLine(el.preview, pos, lineCount);
+      file.previewScrollTop = el.preview.scrollTop;
+      if (focus) {
+        el.preview.focus({ preventScroll: true });
+      }
+    } else {
+      const pos = previewTopLine(el.preview, lineCount);
+      file.previewScrollTop = el.preview.scrollTop;
+      file.markdownPreview = false;
+      renderAll();
+      if (focus) {
+        el.area.focus({ preventScroll: true });
+      }
+      const target = areaScrollForLine(pane, pos);
+      const starts = lineStarts(el.area.value);
+      const caretLine = lineOfOffset(starts, Math.min(file.caret, el.area.value.length));
+      if (caretLine < Math.floor(target.top) || caretLine > target.bottom) {
+        file.caret = starts[Math.min(starts.length - 1, Math.ceil(target.top - 1e-6))];
+      }
+      // 先落光标、再滚：落选区时浏览器可能自己把光标滚进视野。
+      el.area.setSelectionRange(file.caret, file.caret);
+      el.area.scrollTop = target.scrollTop;
+      file.scrollTop = el.area.scrollTop;
+    }
+    persist();
+    return true;
   }
 
   function closeFile(path: string): void {
@@ -414,6 +491,7 @@ export function createPane(
       history: file.history,
       historyText: file.draft,
       preview: !!file.preview,
+      markdownPreview: !!file.markdownPreview,
       gone: !!file.gone,
       conflict: conflicts.get(path),
       diskSeen: diskSeen.get(path),
@@ -471,10 +549,11 @@ export function createPane(
     renderTabs();
     const file = activeFile();
 
+    const showing = previewing(file);
     setHidden(el.welcome, !!file);
     setHidden(el.toolbar, !file);
-    setHidden(el.area, !file || previewMode);
-    setHidden(el.preview, !file || !previewMode);
+    setHidden(el.area, !file || showing);
+    setHidden(el.preview, !file || !showing);
 
     const conflict = file ? conflicts.get(file.path) : undefined;
     const gone = !!file?.gone && !conflict;
@@ -505,8 +584,9 @@ export function createPane(
     // 面包屑（后端给的称呼），原始路径在悬停提示上；目录段点了在「文件」页定位。
     renderBreadcrumb(el.path, file);
 
-    setHidden(el.previewBtn, !MARKDOWN_RE.test(file.path));
-    el.previewBtn.textContent = previewMode ? '编辑' : '预览';
+    setHidden(el.previewBtn, !canPreview(file));
+    el.previewBtn.textContent = showing ? '编辑' : '预览';
+    el.previewBtn.title = `${showing ? '回到编辑' : '预览 Markdown'}（${shortcutLabel('preview')}）`;
     el.area.classList.toggle('mono', CODE_RE.test(file.path));
     // draftPath 由后端给出（它知道什么算章节），前端不自己判断。
     setHidden(el.draftBtn, !file.draftPath);
@@ -514,7 +594,7 @@ export function createPane(
     if (el.area.value !== viewText(file.draft)) {
       el.area.value = file.draft;
     }
-    if (previewMode) {
+    if (showing) {
       showPreview(file);
     }
 
@@ -525,11 +605,14 @@ export function createPane(
     emitEditorChange({ type: 'render', pane });
   }
 
+  /** 重画预览。滚动位置留着：保存回执、磁盘上的新版进来都会重画，不该把人弹回顶上。 */
   function showPreview(file: OpenFile): void {
+    const top = el.preview.scrollTop;
     renderPreview(el.preview, file.draft, file.path, (path) =>
       // 在哪一块预览里点的，就开在哪一块。
       post({ type: 'openEditor', path, pane: pane.id })
     );
+    el.preview.scrollTop = top;
   }
 
   function updateStatus(): void {
@@ -542,7 +625,7 @@ export function createPane(
     // 字数那一格（全文 / 选中、距目标、本次 / 今日码字，点开是码字统计面板）归 stats.ts。
     renderWordStatus(el.statusWords, pane, file);
 
-    if (previewMode) {
+    if (previewing(file)) {
       el.statusPos.textContent = '预览';
     } else {
       const upto = el.area.value.slice(0, el.area.selectionStart);
@@ -605,7 +688,7 @@ export function createPane(
       const dirty = file.draft !== file.text;
       el.saveBtn.disabled = !dirty;
       el.revertBtn.disabled = !dirty;
-      if (previewMode) {
+      if (previewing(file)) {
         showPreview(file);
       }
       updateStatus();
@@ -618,7 +701,7 @@ export function createPane(
   function showDraft(file: OpenFile, selection: TextSelection): void {
     const sel = clampSelection(selection, viewText(file.draft).length);
     file.caret = sel.start;
-    if (file !== activeFile() || previewMode) {
+    if (file !== activeFile() || previewing(file)) {
       return;
     }
     const top = el.area.scrollTop;
@@ -647,7 +730,7 @@ export function createPane(
 
   /** 改动之前的选区：当前文件取 textarea 的，否则取切走时留下的光标。 */
   function selectionOf(file: OpenFile): TextSelection {
-    return file === activeFile() && !previewMode
+    return file === activeFile() && !previewing(file)
       ? currentSelection()
       : { start: file.caret, end: file.caret };
   }
@@ -876,7 +959,7 @@ export function createPane(
 
   // 正文区菜单：预览模式没有可编辑内容，provider 返回空数组即不弹。
   onContextMenu(el.area, () => {
-    if (previewMode) {
+    if (previewing(activeFile())) {
       return [];
     }
     const hasSel = el.area.selectionStart !== el.area.selectionEnd;
@@ -929,9 +1012,10 @@ export function createPane(
     if (!files.has(path)) {
       return false;
     }
-    if (pane.activePath !== path || previewMode) {
+    if (pane.activePath !== path) {
       activate(path);
     }
+    setPreviewing(false);
     const at = locateQuote(el.area.value, quote);
     if (!at) {
       return false;
@@ -1147,9 +1231,16 @@ export function createPane(
   });
 
   el.previewBtn.addEventListener('click', () => {
-    stashCaret();
-    previewMode = !previewMode;
-    renderAll();
+    setPreviewing(!previewing(activeFile()));
+  });
+
+  // 预览能拿焦点（不进 Tab 顺序）：切到预览之后方向键、翻页键滚的是它，再按一下 Ctrl+Shift+V 也认得出是这一块。
+  el.preview.tabIndex = -1;
+  el.preview.addEventListener('scroll', () => {
+    const file = activeFile();
+    if (file && previewing(file)) {
+      file.previewScrollTop = el.preview.scrollTop;
+    }
   });
 
   el.externalBtn.addEventListener('click', () => {
@@ -1276,7 +1367,6 @@ export function createPane(
       claimActivePath(incoming.path);
     }
 
-    previewMode = false;
     renderAll();
     announceActive();
     persist();
@@ -1381,6 +1471,10 @@ export function createPane(
       } else {
         toast(`「${file.name}」在离开期间被改过，已放弃未保存的草稿。`, true);
       }
+    }
+    // 预览还是编辑：搬家、刷新恢复都照原样（⚑ 刷新恢复也记着）。
+    if (restore?.markdownPreview) {
+      file.markdownPreview = true;
     }
     // 搬家带来的撤销历史：内容与搬走时一字不差才接上，否则那份差异对不上位置。
     if (restore?.history && restore.historyText === file.draft) {

@@ -81,6 +81,8 @@ function standaloneBodyHtml() {
  * 要测「按量出来的位置滚」就得给它一个可预期的数。
  */
 const MIRROR_LAYOUT = { line: 30, pad: 18, viewport: 300 };
+/** 预览假排版（`previewLayout`）：一行多高。 */
+const PREVIEW_LAYOUT = { line: 40 };
 
 /** jsdom 缺的那些零碎，按名字取用。 */
 const SHIMS = {
@@ -147,6 +149,24 @@ const SHIMS = {
   /** 假装是 Mac（`navigator.platform` 是 `MacIntel`）：快捷键按 ⌘ / ⌥ 写。 */
   mac(window) {
     Object.defineProperty(window.navigator, 'platform', { configurable: true, get: () => 'MacIntel' });
+  },
+  /**
+   * 预览的假排版：`.ed-preview` 里带 `data-line` 的每一块，顶 = 第几行 × `PREVIEW_LAYOUT.line`（随预览的 `scrollTop`
+   * 往上挪），高 = 占几行 × 同一个数；预览自己的顶是 0。测「切预览 / 切回编辑时两边滚到同一处」用，别处照旧是 0。
+   */
+  previewLayout(window) {
+    const { line } = PREVIEW_LAYOUT;
+    const original = window.Element.prototype.getBoundingClientRect;
+    window.Element.prototype.getBoundingClientRect = function () {
+      const preview = this.closest?.('.ed-preview');
+      if (preview && this !== preview && this.dataset?.line !== undefined) {
+        const start = Number(this.dataset.line);
+        const end = Number(this.dataset.lineEnd);
+        const top = start * line - preview.scrollTop;
+        return { top, bottom: top + (end - start) * line, left: 0, right: 0, width: 0, height: (end - start) * line, x: 0, y: top };
+      }
+      return original.call(this);
+    };
   },
   /**
    * 假排版，只管量位置的那一份镜像（`.ed-mirror-probe`）：里面的标记 `offsetTop` = 上内边距 +
@@ -585,7 +605,7 @@ module.exports = {
   hasJsdom, JSDOM_SKIP,
   extractBody, bodyHtml, standaloneBodyHtml,
   mount,
-  MIRROR_LAYOUT,
+  MIRROR_LAYOUT, PREVIEW_LAYOUT,
   turn, textSeg, toolSeg, emptySession, pipelineView, workbenchView, viewState, sampleTree, sampleChapterIndex,
   file, listing,
 };

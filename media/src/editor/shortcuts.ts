@@ -157,6 +157,14 @@ export const SHORTCUTS = [
 
   // ---------------------------------------------------------------- 视图
   {
+    id: 'preview',
+    keys: ['Mod+Shift+V'],
+    label: '预览 / 编辑切换',
+    group: '视图',
+    scope: 'workbench',
+    note: '只对 Markdown（.md）文件；别的文件照常是粘贴',
+  },
+  {
     id: 'zoomIn',
     keys: ['Mod+='],
     also: ['Mod+Plus'],
