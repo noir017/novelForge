@@ -26,6 +26,7 @@ describe('errorLog · db', () => {
   let logger;
   let projectMod;
   let projectView;
+  let wsMod;
   let WORK;
 
   /** 与原脚本的 newProject 一致：WORK 下开子工程，不删示例文件（本文件无计数断言）。 */
@@ -33,7 +34,7 @@ describe('errorLog · db', () => {
     const root = path.join(WORK, name);
     fs.mkdirSync(root, { recursive: true });
     const project = projectMod.NovelProject.open(root);
-    await project.initialize({ title: name, author: '测试' });
+    await new wsMod.Workspace(project).initializeProject({ title: name, author: '测试' });
     return project;
   }
 
@@ -45,8 +46,9 @@ describe('errorLog · db', () => {
       db: './src/core/runtime/db.ts',
       errorLog: './src/core/runtime/errorLog.ts',
       projectView: './src/core/views/projectView.ts',
+      ws: './src/core/workspace/index.ts',
     });
-    ({ logger, project: projectMod, db, errorLog, projectView } = bundle);
+    ({ logger, project: projectMod, db, errorLog, projectView, ws: wsMod } = bundle);
     // 原脚本的 host 字面量里没有 reviewReplace，显式抹掉，与原 host 形状一致。
     bundle.host.initHost(makeFakeHost({ overrides: { reviewReplace: undefined } }).host);
     ({ dir: WORK } = makeTempDir('errorlog'));

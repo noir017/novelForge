@@ -26,7 +26,8 @@ export async function initProjectFlow(project: NovelProject, defaultTitle: strin
     return false;
   }
   const author = await getHost().input({ title: '初始化小说工程（2/2）', prompt: '作者名（可留空）' });
-  await project.initialize({ title: title.trim(), author: (author ?? '').trim() });
+  // 固定目录与 manifest 在数据层，几份空模板经网关写（`mode: 'create'`，已有的不动），见 `Workspace.initializeProject`。
+  await new Workspace(project).initializeProject({ title: title.trim(), author: (author ?? '').trim() });
   getHost().toast(`已初始化《${title.trim()}》。`);
   // **不追问「要不要新建第 1 章」**：新工程的第一步是生成小说配置，创作页的
   // 主按钮已经明写着这件事（`deriveBookNextStep`）。这里再弹一个问句等于给出

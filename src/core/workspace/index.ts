@@ -1042,6 +1042,48 @@ export class Workspace {
     return rel;
   }
 
+  // ---------------------------------------------------------------- 新工程
+
+  /**
+   * 初始化一个新工程（`actions.ts` 的 `initProjectFlow`：插件命令、网页按钮、CLI 共用）：固定目录 → 空模板 → manifest。
+   * 返回新建了哪几份模板。
+   *
+   * **分层**：建固定目录、写 manifest 是元数据与脚手架，留在 `model/project.ts`（`scaffold` / `createManifest`，按设计不走
+   * 网关）；几份模板的落点与内容也在那里定义（`newProjectTemplates`，纯数据）；**写模板经这里的 `write`**——`model/`
+   * 不能反过来依赖网关。
+   *
+   * 每份模板 `mode: 'create'`，**落点上已经有东西（文件或目录）就一个字节不动**——与从前 `writeIfAbsent` 同一个口径：在一个
+   * 已经写了一部分的文件夹里初始化，作者的大纲、配置原样留着。经网关不多出别的动作：
+   *
+   * - 不弹审阅（只有 `overwrite` 才问）、不存历史版本（没覆盖任何东西）；
+   * - 不碰指纹链（第 18 条）：这几份的种类是 setting / outline / style / globalSummary，它们的 handler 都不记账；没有一份
+   *   细纲被写，已有的细纲不会被补上 `upstreamHash`，也就没有东西因此挂 ⟳；
+   * - 不刷日志：`write` 只在有伴生时记一条 debug，这几种没有伴生。
+   *
+   * manifest 最后写：`isInitialized` 看的是它。模板写到一半失败（磁盘满、没权限）时工程不算建好，作者再点一次就补齐。
+   */
+  async initializeProject(meta: { title: string; author: string }): Promise<string[]> {
+    await this.project.scaffold();
+    const created: string[] = [];
+    for (const { rel, text } of this.project.newProjectTemplates(meta.title)) {
+      if (await exists(this.project.pathOf(rel))) {
+        continue;
+      }
+      try {
+        await this.write(rel, { text }, { mode: 'create' });
+        created.push(rel);
+      } catch (err) {
+        // 刚查过不在、写的时候却有了（别处刚建）：与已有的一样，不动它。
+        if (err instanceof WsError && (err.code === 'exists' || err.code === 'notFile')) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    await this.project.createManifest(meta);
+    return created;
+  }
+
   // ---------------------------------------------------------------- 内部
 
   /**

@@ -421,27 +421,38 @@ export class NovelProject {
   }
 
   // ---------------------------------------------------------------- 初始化
+  //
+  // 新工程分三步，由网关的 `Workspace.initializeProject` 串起来：固定目录（`scaffold`）→ 空模板（经网关 `write`，
+  // `mode: 'create'`）→ manifest（`createManifest`）。这一层只留元数据与脚手架——建目录、写 `project.json`——以及模板
+  // 的落点与内容（纯数据）；**写模板不在这里**：模板是作者的创作产物，写盘只经网关（AGENTS 第 7 条），而 `model/`
+  // 不能反过来依赖网关。
 
-  async initialize(meta: { title: string; author: string }): Promise<void> {
-    await fs.mkdir(this.chaptersDir, { recursive: true });
-    await fs.mkdir(this.charactersDir, { recursive: true });
-    await fs.mkdir(this.loreDir, { recursive: true });
-    await fs.mkdir(this.summariesDir, { recursive: true });
-    await fs.mkdir(this.sessionsDir, { recursive: true });
-
-    // 架构三件写空模板：结构完整、全是占位，`isSettingFilled` 为 false，
-    // 主按钮于是从「生成小说配置」开始。
-    for (const doc of SETTING_FILE_DOCS) {
-      await writeIfAbsent(this.settingPath(doc), settingTemplate(doc));
+  /** 建固定目录（已有的不动）。不写任何文件。 */
+  async scaffold(): Promise<void> {
+    for (const dir of [this.chaptersDir, this.charactersDir, this.loreDir, this.summariesDir, this.sessionsDir]) {
+      await fs.mkdir(dir, { recursive: true });
     }
-    await writeIfAbsent(this.stylePath, STYLE_TEMPLATE);
-    await writeIfAbsent(this.outlinePath, OUTLINE_TEMPLATE(meta.title));
-    await writeIfAbsent(this.globalSummaryPath, GLOBAL_SUMMARY_TEMPLATE);
-    // **不再放示例角色卡**：角色图谱「有没有」看 `characters/` 下有没有卡，
-    // 一张示例卡会让新工程一出生就跳过「生成角色图谱」。卡的格式见 README。
-    // 示例设定条目同理（设定清单「有没有」看 `lore/` 下有没有条目），何况它的关键词「设定」
-    // 会被任何一句带这两个字的话命中、混进上下文。
+  }
 
+  /**
+   * 新工程的几份空模板：架构三件、文风、情节大纲、全书摘要。**只给落点（工作区相对路径）与内容，不碰磁盘。**
+   *
+   * 架构三件是结构完整、全是占位的空模板，`isSettingFilled` 为 false，主按钮于是从「生成小说配置」开始。
+   * **不放示例角色卡**：角色图谱「有没有」看 `characters/` 下有没有卡，一张示例卡会让新工程一出生就跳过「生成角色图谱」
+   * （卡的格式见 README）。示例设定条目同理（设定清单「有没有」看 `lore/` 下有没有条目），何况它的关键词「设定」会被
+   * 任何一句带这两个字的话命中、混进上下文。
+   */
+  newProjectTemplates(title: string): { rel: string; text: string }[] {
+    return [
+      ...SETTING_FILE_DOCS.map((doc) => ({ rel: this.relPath(this.settingPath(doc)), text: settingTemplate(doc) })),
+      { rel: this.relPath(this.stylePath), text: STYLE_TEMPLATE },
+      { rel: this.relPath(this.outlinePath), text: OUTLINE_TEMPLATE(title) },
+      { rel: this.relPath(this.globalSummaryPath), text: GLOBAL_SUMMARY_TEMPLATE },
+    ];
+  }
+
+  /** 写新工程的 manifest（`project.json`）并同步章节索引。有了它 `isInitialized` 才为真。 */
+  async createManifest(meta: { title: string; author: string }): Promise<void> {
     this.invalidate();
     const manifest: ProjectManifest = {
       version: MANIFEST_VERSION,
@@ -1156,12 +1167,6 @@ export function emptyCharacterSections(): CharacterSections {
 }
 
 // ---------------------------------------------------------------- 工具函数
-
-async function writeIfAbsent(absPath: string, text: string): Promise<void> {
-  if (!(await exists(absPath))) {
-    await writeText(absPath, text);
-  }
-}
 
 /**
  * 递归列出目录下满足 `accept` 的文件的绝对路径（按路径排序，保证稳定）。
