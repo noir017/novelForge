@@ -9,12 +9,19 @@ import {
   CHARACTER_ESSENTIAL_KEYS,
   CHARACTER_SECTION_KEYS,
   CharacterCard,
+  LoreEntry,
 } from '../../model/types';
+import { PLOT_LORE_KEY, loreBrief, renderLoreLines } from '../../model/loreFile';
 import type { Focus } from './focus';
 
+/**
+ * 本章自己的细纲（`plotSelf`）。第九节「设定」只在这里带：这一章打算引入什么、用到什么，写的人要知道；
+ * 前几章细纲、细纲一览、全书摘要的输入都不带它，免得几十章的细纲一起变长。
+ */
 export function renderPlot(plot: Plot): string {
   const head = `【${plotLabel(plot.no, plot.title)} · 细纲】`;
-  return `${head}\n${renderPlotSections(plot) || '（尚未填写）'}`;
+  const lore = plot.lore?.length ? `\n\n## ${PLOT_LORE_KEY}\n\n${renderLoreLines(plot.lore)}` : '';
+  return `${head}\n${renderPlotSections(plot) || '（尚未填写）'}${lore}`;
 }
 
 /** 细纲有内容的那几节，`## 小节` 一节一段。一节都没填是空串。 */
@@ -59,6 +66,35 @@ export function focusText(focus: Focus): string {
     parts.push(...Object.values(focus.plot.sections));
   }
   return parts.filter(Boolean).join('\n');
+}
+
+/** 设定名后面的 `〔分类〕`（分类就是目录，根目录下的不写）。 */
+function loreHead(entry: LoreEntry): string {
+  return `${entry.title}${entry.category ? `〔${entry.category}〕` : ''}`;
+}
+
+/**
+ * 整条带的设定：`【名〔分类〕】一句话`，下面是正文，最后是还没整合进条目的新事实（带章号）。
+ * 尾巴是条目落后于正文时的那几句——没有它，模型拿到的是整合那时候的样子。
+ */
+export function renderLoreFull(entry: LoreEntry, tail: readonly { no: number; text: string }[]): string {
+  // 没写 brief 时一句话就是正文第一句，下面整份正文还会再带一遍，标题行上不重复。
+  const brief = entry.brief.trim() ? loreBrief(entry) : '';
+  const lines = [`【${loreHead(entry)}】${brief}`];
+  if (entry.body.trim()) {
+    lines.push(entry.body.trim());
+  }
+  if (tail.length > 0) {
+    const since = entry.updatedThrough ? `第 ${entry.updatedThrough} 章之后` : '定稿里';
+    lines.push(`${since}新出现的（还没整合进这一条）：`, ...tail.map((f) => `- 第 ${f.no} 章：${f.text}`));
+  }
+  return lines.join('\n');
+}
+
+/** 只带一句话的设定：`- 名〔分类〕：一句话`。 */
+export function renderLoreLine(entry: LoreEntry): string {
+  const brief = loreBrief(entry);
+  return `- ${loreHead(entry)}${brief ? `：${brief}` : ''}`;
 }
 
 /** 压成一行并截短：换行变空格，超过 `max` 字截断并补省略号。 */

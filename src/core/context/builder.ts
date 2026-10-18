@@ -171,7 +171,19 @@ function assembleMessages(
   section('# 情节大纲', pick('outlineDoc'));
   section('# 故事结构指导', pick('guide'));
   section('# 相关角色设定', pick('character'));
-  section('# 相关世界观设定', pick('lore'));
+  // 设定（设定名录）：整条带的在前、空行隔开；只带一句话的并成一张清单跟在后面，一行一条。
+  const loreItems = pick('lore');
+  const loreLines = loreItems.filter((i) => i.text.trimStart().startsWith('- '));
+  const loreFull = loreItems.filter((i) => !loreLines.includes(i));
+  if (loreItems.length > 0) {
+    const parts = [
+      join(loreFull),
+      loreLines.length > 0
+        ? `其余相关设定（只列一句话；提到它们时沿用这些名字）：\n${loreLines.map((i) => i.text.trim()).join('\n')}`
+        : '',
+    ].filter(Boolean);
+    sections.push(`# 相关世界观设定\n\n${parts.join('\n\n')}`);
+  }
   // 细纲与正文都由远及近排列，读起来是正序的时间线。
   section('# 早前各章细纲（由远及近；标「计划」的还没定稿，不一定是正文写成的样子）', pick('plotSummary').slice().sort(byNoAsc));
   // 证据原文排在细纲后面、前文正文前面：读的时候是「细纲这么说 → 原文是这样写的 → 紧挨着的那几章」。

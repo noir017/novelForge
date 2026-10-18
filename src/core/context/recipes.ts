@@ -126,7 +126,9 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'structure', priority: 1 },
     { layer: 'globalSummary', priority: 2 },
     { layer: 'characters', priority: 2 },
-    { layer: 'lore', priority: 3 },
+    // 设定名录（2026-10-18）：从 P3 提到 P2——排细纲时最该知道已有哪些地点、势力、物品，
+    // 不然新的一章会另起一个名字。几百条也不怕：lore 层按上下文详细度封顶，其余只列一句话。
+    { layer: 'lore', priority: 2 },
   ],
 
   // ---------------------------------------------------------------- 正文
@@ -181,6 +183,8 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
  *
  * ★ `recentFacts` P1：近几章定稿留下的连续性事实（≤3000 字）。百章实验里首轮常只写到一半，
  *   续写那几轮写出了一章的大半——它们一条前情都不带时，已经死了的人在续写里又活过来。
+ * ★ `lore` P2（设定名录）：只带本章细纲点名的与关键词命中的（含本章已写的末尾）。从前续写一条设定
+ *   都不带，后半章里的地点、法宝全凭模型记忆。
  */
 const CONTINUATION_RECIPE: LayerSpec[] = [
   { layer: 'system', priority: 0, force: true },
@@ -193,6 +197,7 @@ const CONTINUATION_RECIPE: LayerSpec[] = [
   { layer: 'skill', priority: 0 },
   { layer: 'characters', priority: 1 },
   { layer: 'recentFacts', priority: 1 },
+  { layer: 'lore', priority: 2 },
 ];
 
 /**

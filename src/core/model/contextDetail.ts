@@ -103,9 +103,20 @@ export interface ContextLimits {
   readonly threadPlanEvents: number;
   /** 定稿判叙事线：最多送几条线去判。 */
   readonly threadJudge: number;
+  /** 设定：整条带（正文 + 还没整合的新事实）最多几条（`lore`）。 */
+  readonly loreFull: number;
+  /** 设定：只带一句话的最多几条。 */
+  readonly loreLines: number;
+  /** 设定：整层一共多少字。 */
+  readonly loreChars: number;
+  /** 设定：整条带时，水位之后还没整合进条目的新事实跟几行。 */
+  readonly loreTail: number;
 }
 
-/** 每一级的上限。第 3 级逐项等于从前写死的常量（外加细纲封顶 60 章）。 */
+/**
+ * 每一级的上限。第 3 级逐项等于从前写死的常量，只多两样：细纲封顶 60 章；设定从前命中就整条塞、
+ * 不排序不封顶，几百条的书会把窗口填满，现在按 `lore*` 四项封顶（设定名录，2026-10-18）。
+ */
 export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits>> = Object.freeze({
   1: Object.freeze({
     fullTextChapters: 0,
@@ -131,6 +142,10 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     threadPlanOutlineChars: 4000,
     threadPlanEvents: 60,
     threadJudge: 6,
+    loreFull: 2,
+    loreLines: 10,
+    loreChars: 1500,
+    loreTail: 1,
   }),
   2: Object.freeze({
     fullTextChapters: 1,
@@ -156,6 +171,10 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     threadPlanOutlineChars: 6000,
     threadPlanEvents: 90,
     threadJudge: 9,
+    loreFull: 4,
+    loreLines: 20,
+    loreChars: 3000,
+    loreTail: 2,
   }),
   3: Object.freeze({
     fullTextChapters: 2,
@@ -181,6 +200,10 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     threadPlanOutlineChars: 8000,
     threadPlanEvents: 120,
     threadJudge: 12,
+    loreFull: 6,
+    loreLines: 40,
+    loreChars: 5000,
+    loreTail: 3,
   }),
   4: Object.freeze({
     fullTextChapters: 3,
@@ -206,6 +229,10 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     threadPlanOutlineChars: 12000,
     threadPlanEvents: 200,
     threadJudge: 16,
+    loreFull: 10,
+    loreLines: 80,
+    loreChars: 8000,
+    loreTail: 5,
   }),
 });
 

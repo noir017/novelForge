@@ -3,7 +3,9 @@ import { describeStateThrough } from '../../model/characterState';
 import { CONTEXT_DETAIL_LABEL, takeLast } from '../../model/contextDetail';
 import { ContinuityFact, locateEvidence, parseContinuityFacts } from '../../model/continuity';
 import { Thread, pickActiveThreads, threadCandidates } from '../../model/threadsFile';
-import { CharacterCard } from '../../model/types';
+import { CharacterCard, LoreEntry } from '../../model/types';
+import { createLoreLookup, loreMentionIn } from '../../model/loreFile';
+import { LoreFact, LoreRecord, buildLoreIndex } from '../../views/lore';
 import { ContextItem } from '../types';
 import { estimateTokens } from '../tokenizer';
 import type { LayerFn } from './assembly';
@@ -12,8 +14,9 @@ import {
   continuationTail,
   focusText,
   isPlaceholder,
-  matchesKeywords,
   renderCharacter,
+  renderLoreFull,
+  renderLoreLine,
   renderPlotSections,
   selectCharacters,
   tailByChars,
@@ -103,25 +106,194 @@ export const characters: LayerFn = async (a, spec) => {
   }
 };
 
+/**
+ * 设定（设定名录，2026-10-18）。几百条的书不能「命中就整条塞」：先排序，再分两种形态装，按上下文
+ * 详细度封顶，降级与丢弃都留在明细里（第 2 条）。
+ *
+ * 顺位：
+ * - R0 本章细纲第九节「设定」点名的（没定稿是计划，定稿过是实际）——整条；
+ * - R1 关键词命中：作者这次的话 + 本章细纲（接着写时再加本章已写的末尾）——整条；
+ * - R2 前几章（`castSummaries` 章）定稿细纲第九节出现过的——一行；
+ * - R3 只在大纲、细纲阶段：其余条目按出现章数降序——一行，让规划时照抄已有的名字，不另起一个。
+ *
+ * 续写那几轮只要 R0、R1：前文那几章的设定第一次调用已经带过了。
+ *
+ * 整条 = 一句话 + 正文 + 尾巴（水位之后、本章之前定稿的章里关于它的新事实，`loreTail` 行）：条目落后于
+ * 正文时，模型照样拿得到新的那几句，不必每章定稿都调一次模型去改条目。整条超了 `loreFull`、超了
+ * `loreChars` 或预算放不下就降成一行；一行也超了上限就丢。
+ */
 export const lore: LayerFn = async (a, spec) => {
-  const haystack = [a.request.ask, focusText(a.focus)].join('\n');
   const entries = await a.project.listLore();
-  for (const entry of entries) {
-    const hit = matchesKeywords(haystack, [entry.title, ...entry.keywords]);
-    if (!hit) {
-      continue;
+  if (entries.length === 0) {
+    return;
+  }
+  const index = await buildLoreIndex(a.project, { entries });
+  const records = new Map(index.known.map((r) => [r.entry.slug, r]));
+  const lookup = createLoreLookup(entries);
+  const continuation = a.request.step?.kind === 'continuation';
+  const planning = a.request.action.stage === 'outline' || a.request.action.stage === 'plot';
+
+  const picked = new Map<string, { entry: LoreEntry; full: boolean; reason: string }>();
+  const pick = (entry: LoreEntry, full: boolean, reason: string): void => {
+    if (!picked.has(entry.slug)) {
+      picked.set(entry.slug, { entry, full, reason });
     }
-    a.admit({
-      id: `lore:${entry.slug}`,
-      kind: 'lore',
+  };
+
+  for (const line of a.focus.plot?.lore ?? []) {
+    const entry = lookup.find(line.name);
+    if (entry) {
+      pick(entry, true, `本章细纲的设定里有「${line.name}」`);
+    }
+  }
+  // R1 里也分先后：作者这次亲口说的 → 本章细纲 → 本章已写的末尾。整条名额有限，先给最确定要用的。
+  const haystacks = [a.request.ask, focusText(a.focus), await chapterTailText(a)];
+  for (const haystack of haystacks) {
+    for (const entry of entries) {
+      const hit = loreMentionIn(haystack, entry);
+      if (hit) {
+        pick(entry, true, `上下文中出现「${hit}」`);
+      }
+    }
+  }
+  let catalog = 0;
+  if (!continuation) {
+    const recent = a.focus.previous.filter((r) => r.plot?.sourceHash && r.plot.lore).slice(-a.limits.castSummaries);
+    for (const ref of recent.reverse()) {
+      for (const line of ref.plot?.lore ?? []) {
+        const entry = lookup.find(line.name);
+        if (entry) {
+          pick(entry, false, `第 ${ref.no} 章出现过`);
+        }
+      }
+    }
+    if (planning) {
+      // 稳定排序：出现章数一样的保持 listLore 的顺序（按路径，也就是按分类）。
+      const rest = index.known
+        .filter((r) => !picked.has(r.entry.slug))
+        .sort((x, y) => y.chapters.length - x.chapters.length);
+      for (const r of rest) {
+        pick(r.entry, false, r.chapters.length > 0 ? `已有设定（出现 ${r.chapters.length} 章）` : '已有设定');
+        catalog++;
+      }
+    }
+  }
+
+  const level = `上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」`;
+  let fullCount = 0;
+  let lineCount = 0;
+  let chars = 0;
+  /** R3 的一览超了上限不逐条报（几百条全是「没带」只会淹掉明细），最后并成一条。 */
+  let catalogDropped = 0;
+  let catalogWhy = '';
+  for (const { entry, full, reason } of picked.values()) {
+    const id = `lore:${entry.slug}`;
+    const base = {
+      id,
+      kind: 'lore' as const,
       priority: spec.priority,
       label: `设定 · ${entry.title}`,
       source: entry.relPath,
-      text: `【${entry.title}】\n${entry.body}`,
-      note: `上下文中出现「${hit}」`,
-    });
+    };
+    if (a.excluded.has(id)) {
+      a.admit({ ...base, text: '' });
+      continue;
+    }
+    const spoiler = spoilerNote(entry, a.focus.no);
+    const why = spoiler ? `${reason}；${spoiler}` : reason;
+
+    let degraded = '';
+    if (full) {
+      const text = renderLoreFull(entry, loreTail(records.get(entry.slug), a.focus.no, a.limits.loreTail));
+      if (fullCount >= a.limits.loreFull) {
+        degraded = `整条的已带满 ${a.limits.loreFull} 条（${level}）`;
+      } else if (chars + text.length > a.limits.loreChars) {
+        degraded = `设定已带 ${chars} 字，整条带会超过 ${a.limits.loreChars} 字（${level}）`;
+      } else if (estimateTokens(text) > a.remaining) {
+        degraded = '预算不足';
+      } else {
+        a.admit({ ...base, text, note: why });
+        fullCount++;
+        chars += text.length;
+        continue;
+      }
+    }
+
+    const line = renderLoreLine(entry);
+    const tokens = estimateTokens(line);
+    const over =
+      lineCount >= a.limits.loreLines
+        ? `一句话的已带满 ${a.limits.loreLines} 条（${level}）`
+        : chars + line.length > a.limits.loreChars
+          ? `设定已带满 ${a.limits.loreChars} 字（${level}）`
+          : tokens > a.remaining
+            ? '预算不足'
+            : '';
+    if (over) {
+      if (!full && reason.startsWith('已有设定')) {
+        catalogDropped++;
+        catalogWhy ||= over;
+        continue;
+      }
+      a.reject({ ...base, text: '' }, 'dropped', `${why}；${over}`);
+      continue;
+    }
+    if (degraded) {
+      a.accept({ ...base, text: line, status: 'degraded', note: `${why}；${degraded}，只带一句话` }, tokens);
+    } else {
+      a.admit({ ...base, text: line, note: why });
+    }
+    lineCount++;
+    chars += line.length;
+  }
+  if (catalogDropped > 0) {
+    a.reject(
+      {
+        id: 'lore:catalog',
+        kind: 'lore',
+        priority: spec.priority,
+        label: `设定 · 其余 ${catalogDropped} 条`,
+        text: '',
+      },
+      'dropped',
+      `规划时的已有设定一览共 ${catalog} 条，${catalogWhy}，其余 ${catalogDropped} 条没带`
+    );
   }
 };
+
+/** 接着写时本章已写的末尾（续写那几轮是 step 里那一截）：关键词命中也看它。 */
+async function chapterTailText(a: Parameters<LayerFn>[0]): Promise<string> {
+  const step = a.request.step?.kind === 'continuation' ? a.request.step : undefined;
+  if (step) {
+    return step.tail ?? '';
+  }
+  if (a.request.writeMode === 'continue' && a.focus.chapter) {
+    return continuationTail(await a.project.readChapterText(a.focus.chapter));
+  }
+  return '';
+}
+
+/** 水位之后、本章之前定稿的章里关于它的新事实，最近的 `max` 条。 */
+function loreTail(record: LoreRecord | undefined, beforeNo: number, max: number): LoreFact[] {
+  if (!record || max <= 0) {
+    return [];
+  }
+  return takeLast(
+    record.pending.filter((f) => f.no < beforeNo),
+    max
+  );
+}
+
+/**
+ * 条目整合到的章不早于本章（回头重写前面的章时）：条目里可能写着之后才发生的事。同角色卡的
+ * 「当前状态写到第几章」。架构、大纲阶段（`no` 是无穷大）不提。
+ */
+function spoilerNote(entry: LoreEntry, no: number): string {
+  if (entry.updatedThrough === undefined || !Number.isFinite(no) || entry.updatedThrough < no) {
+    return '';
+  }
+  return `条目整合到第 ${entry.updatedThrough} 章，可能含第 ${no} 章之后才发生的事`;
+}
 
 export const prevTail: LayerFn = async (a, spec) => {
   const prev = a.focus.previous[a.focus.previous.length - 1];

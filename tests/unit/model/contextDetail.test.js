@@ -26,7 +26,8 @@ describe('model/contextDetail · 级别表', () => {
     );
   });
 
-  test('第 3 级逐项等于从前写死的常量，外加摘要封顶 60 章', () => {
+  // 设定那四项是新加的：从前命中就整条塞、不封顶，几百条的书会把窗口填满（设定名录，2026-10-18）。
+  test('第 3 级逐项等于从前写死的常量，外加摘要封顶 60 章与设定封顶', () => {
     assert.deepEqual(
       { ...m.CONTEXT_DETAIL_LIMITS[3] },
       {
@@ -53,6 +54,10 @@ describe('model/contextDetail · 级别表', () => {
         threadPlanOutlineChars: 8000,
         threadPlanEvents: 120,
         threadJudge: 12,
+        loreFull: 6,
+        loreLines: 40,
+        loreChars: 5000,
+        loreTail: 3,
       }
     );
   });

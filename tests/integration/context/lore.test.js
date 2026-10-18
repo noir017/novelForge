@@ -1,0 +1,279 @@
+/**
+ * `lore` 层（设定名录，2026-10-18）：几百条设定的书，先排序、再分两种形态装、按上下文详细度封顶。
+ *
+ * | 断言 | 为什么 |
+ * |---|---|
+ * | 本章细纲第九节点名的整条带，关键词命中的也整条带 | 写这一章最用得上的就是这几条 |
+ * | 前几章定稿出现过的只带一句话 | 够提醒有这个东西，不挤预算 |
+ * | 整条后面跟水位之后的新事实（只到本章之前） | 条目落后于正文时模型照样拿得到新的那几句 |
+ * | 条目整合到本章或更晚时 note 提醒可能剧透 | 回头重写前面的章时，条目里有之后的事 |
+ * | 整条超了上限降成一句话、一句话超了上限丢，都写原因 | 第 2 条：不静默截断 |
+ * | 排细纲时其余条目按出现章数列一览，超了的并成一条 | 规划时照抄已有的名字；几百条不逐条刷明细 |
+ * | 续写那几轮也带（只带点名与命中的） | 从前续写一条设定都不带 |
+ * | 取消勾选的不占名额 | 作者排除一条，后面的补上来 |
+ * | 整条的空行隔开，一句话的并成一张清单 | 消息里好读 |
+ */
+const { describe, test, before, after } = require('node:test');
+const assert = require('node:assert/strict');
+const { loadBundle } = require('../../helpers/load');
+const { makeTempProject } = require('../../helpers/tmpProject');
+const { makeFakeHost } = require('../../helpers/fakeHost');
+const { cleanup } = require('../../helpers/teardown');
+
+const WRITE = { stage: 'manuscript', capability: 'generate' };
+const PLAN = { stage: 'plot', capability: 'generate' };
+
+const config = (contextDetail = 3) => ({
+  providers: [{ id: 'p', kind: 'openai', baseUrl: 'https://x/v1', models: [{ name: 'm' }] }],
+  model: 'p/m',
+  contextWindow: 128000,
+  maxOutputTokens: 4096,
+  temperature: 0.8,
+  chaptersDir: 'chapters',
+  draftsDir: 'drafts',
+  summaryBatchSize: 15,
+  requestTimeoutMs: 300000,
+  contextDetail,
+});
+
+const pad3 = (n) => String(n).padStart(3, '0');
+const PLOT = (no) => `.novelforge/summaries/${pad3(no)}-第${no}章.md`;
+
+function plotText(no, { finalized = true, events = '- 林昭往前走。', lore, facts } = {}) {
+  return [
+    '---',
+    `no: ${no}`,
+    `title: 第${no}章`,
+    ...(finalized ? [`sourceHash: h${no}`] : []),
+    '---',
+    '',
+    `# 第${no}章 第${no}章`,
+    '',
+    '## 梗概',
+    '',
+    '往下查。',
+    '',
+    '## 关键事件',
+    '',
+    events,
+    '',
+    '## 连续性事实',
+    '',
+    facts ?? '（待补充）',
+    ...(lore === undefined ? [] : ['', '## 设定', '', lore]),
+    '',
+  ].join('\n');
+}
+
+function entry(title, { keywords = [], brief = '', body = '', updatedThrough } = {}) {
+  return [
+    '---',
+    `title: ${title}`,
+    `keywords: [${keywords.join(', ')}]`,
+    ...(brief ? [`brief: ${brief}`] : []),
+    ...(updatedThrough !== undefined ? [`updatedThrough: ${updatedThrough}`] : []),
+    '---',
+    '',
+    `# ${title}`,
+    '',
+    body,
+    '',
+  ].join('\n');
+}
+
+let bundle;
+let t;
+
+before(async () => {
+  bundle = loadBundle({
+    host: './src/core/host.ts',
+    project: './src/core/model/project.ts',
+    builder: './src/core/context/builder.ts',
+    db: './src/core/runtime/db.ts',
+  });
+  bundle.host.initHost(makeFakeHost().host);
+  t = await makeTempProject(bundle.project, { prefix: 'loreLayer', title: '设定测试' });
+  for (let no = 1; no <= 4; no++) {
+    t.write(`chapters/${pad3(no)}-第${no}章.md`, `# 第${no}章\n\n第${no}章的正文。\n`);
+  }
+  t.write(
+    '.novelforge/lore/地域/青崖镇.md',
+    entry('青崖镇', { keywords: ['青崖'], brief: '偏僻小镇', body: '镇口设卡。', updatedThrough: 1 })
+  );
+  t.write('.novelforge/lore/信物/崖字令牌.md', entry('崖字令牌', { keywords: ['令牌'], body: '木牌，残缺的崖字。' }));
+  t.write('.novelforge/lore/宗门/正道/青云宗.md', entry('青云宗', { brief: '正道第一宗', body: '剑修。' }));
+  t.write('.novelforge/lore/地域/后山.md', entry('后山', { brief: '后山禁地', body: '有阵法。' }));
+  t.write('.novelforge/lore/过所.md', entry('过所', { brief: '出入凭证', body: '镇口查验。' }));
+
+  t.write(PLOT(1), plotText(1, { lore: '- 青崖镇〔地域〕：镇口查过所\n- 后山〔地域〕' }));
+  t.write(
+    PLOT(2),
+    plotText(2, { lore: '- 青崖镇：七年前大火\n- 青云宗〔宗门/正道〕', facts: '- 青崖镇的城门被烧毁' })
+  );
+  t.write(PLOT(3), plotText(3, { lore: '- 后山' }));
+  t.write(PLOT(4), plotText(4, { finalized: false, events: '- 林昭回到青崖，摸了摸怀里。', lore: '- 崖字令牌〔信物〕：不止一块' }));
+  t.project.invalidate();
+});
+
+after(() => {
+  if (t) cleanup(t.dir, bundle?.db);
+});
+
+function build(no, extra = {}, detail = 3) {
+  return bundle.builder.buildContext(
+    t.project,
+    { action: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT(no) }, ask: '', targetWords: 1200, ...extra },
+    config(detail)
+  );
+}
+
+const loreItems = (b) => b.items.filter((i) => i.kind === 'lore');
+const byLabel = (b, title) => loreItems(b).find((i) => i.label === `设定 · ${title}`);
+const userOf = (b) => b.messages[b.messages.length - 1].content;
+
+describe('写第 4 章正文', () => {
+  let b;
+  before(async () => {
+    b = await build(4);
+  });
+
+  test('本章细纲点名的、关键词命中的整条带；前两章定稿出现过的只带一句话；无关的不带', () => {
+    assert.deepEqual(
+      loreItems(b).map((i) => [i.label, i.status]),
+      [
+        ['设定 · 崖字令牌', 'included'],
+        ['设定 · 青崖镇', 'included'],
+        ['设定 · 后山', 'included'],
+        ['设定 · 青云宗', 'included'],
+      ]
+    );
+    assert.equal(byLabel(b, '崖字令牌').note, '本章细纲的设定里有「崖字令牌」');
+    assert.equal(byLabel(b, '青崖镇').note, '上下文中出现「青崖」');
+    assert.equal(byLabel(b, '后山').note, '第 3 章出现过');
+    assert.equal(byLabel(b, '青云宗').note, '第 2 章出现过');
+  });
+
+  test('整条：一句话、分类、正文，后面跟水位之后、本章之前的新事实', () => {
+    assert.equal(
+      byLabel(b, '青崖镇').text,
+      [
+        '【青崖镇〔地域〕】偏僻小镇',
+        '镇口设卡。',
+        '第 1 章之后新出现的（还没整合进这一条）：',
+        '- 第 2 章：七年前大火',
+        '- 第 2 章：青崖镇的城门被烧毁',
+      ].join('\n')
+    );
+    // 没写 brief 的不在标题行上重复正文第一句。
+    assert.equal(byLabel(b, '崖字令牌').text, '【崖字令牌〔信物〕】\n木牌，残缺的崖字。');
+  });
+
+  test('一句话：名〔分类〕：一句话', () => {
+    assert.equal(byLabel(b, '青云宗').text, '- 青云宗〔宗门/正道〕：正道第一宗');
+  });
+
+  test('本章细纲带着第九节（计划引入什么），别的细纲不带', () => {
+    const self = b.items.find((i) => i.id === `plot:${PLOT(4)}`);
+    assert.ok(self.text.endsWith('## 设定\n\n- 崖字令牌〔信物〕：不止一块'), self.text);
+    const others = b.items.filter((i) => i.kind === 'plotSummary' && i.text);
+    assert.ok(others.every((i) => !i.text.includes('## 设定')), others.map((i) => i.text).join('\n---\n'));
+  });
+
+  test('消息里一节：整条的空行隔开，一句话的并成一张清单跟在后面', () => {
+    const user = userOf(b);
+    const at = user.indexOf('# 相关世界观设定');
+    assert.ok(at > 0, user.slice(0, 1500));
+    const section = user.slice(at, user.indexOf('\n---\n', at) > 0 ? user.indexOf('\n---\n', at) : undefined);
+    assert.ok(section.includes('【崖字令牌〔信物〕】\n木牌，残缺的崖字。\n\n【青崖镇〔地域〕】'), section);
+    assert.ok(
+      section.includes(
+        '其余相关设定（只列一句话；提到它们时沿用这些名字）：\n- 后山〔地域〕：后山禁地\n- 青云宗〔宗门/正道〕：正道第一宗'
+      ),
+      section
+    );
+  });
+});
+
+describe('回头重写第 1 章', () => {
+  test('条目整合到本章或更晚：note 提醒可能含之后的事；尾巴只到本章之前', async () => {
+    const b = await build(1);
+    const qing = byLabel(b, '青崖镇');
+    assert.equal(qing.status, 'included');
+    assert.ok(qing.note.includes('条目整合到第 1 章，可能含第 1 章之后才发生的事'), qing.note);
+    assert.ok(!qing.text.includes('第 2 章'), qing.text);
+  });
+});
+
+describe('上限', () => {
+  // 命中的先后：本章细纲点名的 → 作者这次说的 → 本章细纲里提到的。整条名额先给最确定要用的。
+  test('精简：整条只带 2 条，其余降成一句话并写原因', async () => {
+    const b = await build(4, { ask: '青云宗、后山与过所' }, 1);
+    const full = loreItems(b).filter((i) => i.status === 'included' && i.text.startsWith('【'));
+    assert.deepEqual(
+      full.map((i) => i.label),
+      ['设定 · 崖字令牌', '设定 · 后山']
+    );
+    const degraded = loreItems(b).filter((i) => i.status === 'degraded');
+    assert.deepEqual(
+      degraded.map((i) => i.label),
+      ['设定 · 青云宗', '设定 · 过所', '设定 · 青崖镇']
+    );
+    assert.ok(degraded.every((i) => i.text.startsWith('- ')));
+    assert.ok(degraded[0].note.includes('整条的已带满 2 条（上下文详细度「精简」），只带一句话'), degraded[0].note);
+  });
+
+  test('取消勾选的不占名额', async () => {
+    const b = await build(4, { ask: '青云宗、后山与过所', excludedIds: ['lore:信物/崖字令牌'] }, 1);
+    assert.equal(byLabel(b, '崖字令牌').status, 'excluded');
+    const full = loreItems(b).filter((i) => i.status === 'included' && i.text.startsWith('【'));
+    assert.deepEqual(
+      full.map((i) => i.label),
+      ['设定 · 后山', '设定 · 青云宗']
+    );
+  });
+});
+
+describe('排细纲', () => {
+  before(() => {
+    for (let i = 1; i <= 12; i++) {
+      t.write(`.novelforge/lore/杂项/物件${i}.md`, entry(`物件${i}`, { brief: `第${i}件` }));
+    }
+    t.project.invalidate();
+  });
+  after(() => {
+    t.remove('.novelforge/lore/杂项');
+    t.project.invalidate();
+  });
+
+  test('其余条目按出现章数列一览；超了上限的并成一条写明', async () => {
+    const b = await bundle.builder.buildContext(
+      t.project,
+      { action: PLAN, target: { kind: 'plot', plotRelPath: PLOT(5) }, ask: '' },
+      config(1)
+    );
+    const items = loreItems(b);
+    // 精简：一句话最多 10 条。前两章（第 3、4 章只有第 3 章定稿）出现过的先占，
+    // 其余按出现章数降序：青崖镇 2 章、后山已带、青云宗 1 章……
+    const lines = items.filter((i) => i.status === 'included');
+    assert.equal(lines.length, 10, items.map((i) => `${i.label}:${i.status}`).join(' '));
+    assert.equal(lines[0].label, '设定 · 后山');
+    assert.equal(lines[1].label, '设定 · 青崖镇');
+    assert.ok(lines[1].note.startsWith('已有设定（出现 2 章）'), lines[1].note);
+    const rest = items.find((i) => i.id === 'lore:catalog');
+    assert.equal(rest.status, 'dropped');
+    assert.equal(rest.label, '设定 · 其余 7 条');
+    assert.ok(rest.note.includes('一句话的已带满 10 条'), rest.note);
+  });
+});
+
+describe('续写那几轮', () => {
+  test('只带点名的与命中的（含已写的末尾），前几章的不带', async () => {
+    const b = await build(4, {
+      step: { kind: 'continuation', tail: '他想起了过所的事。', written: 300, recovery: false },
+    });
+    assert.deepEqual(
+      loreItems(b).map((i) => i.label),
+      ['设定 · 崖字令牌', '设定 · 青崖镇', '设定 · 过所']
+    );
+  });
+});
