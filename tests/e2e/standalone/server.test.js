@@ -125,11 +125,13 @@ describe('静态资源', () => {
 
 describe('WebSocket 与 Origin 校验', () => {
   let first;
+  let index;
   let bad;
   let good;
 
   before(async () => {
     first = await conn.waitFor((m) => m.type === 'init' || m.type === 'state', 'init');
+    index = await conn.waitFor((m) => m.type === 'chapterIndex', 'chapterIndex');
     // 浏览器发得出跨源 WS 请求，所以 Origin 必须在服务端挡。
     bad = await fetch(`${base}/ws`, {
       headers: { origin: 'http://evil.example.com', upgrade: 'websocket', connection: 'Upgrade' },
@@ -144,6 +146,15 @@ describe('WebSocket 与 Origin 校验', () => {
   // 内置编辑器的回车、标题栏「段落格式」的勾在哪个页签都要用，所以分段格式随 state 推（工程树只在工程页签推）。
   test('state 带分段格式，config.md 没写时是 blank', () => {
     assert.equal(first.state.paragraphStyle, 'blank');
+  });
+
+  // 内置编辑器的章节条与上一章 / 下一章：连上就有，不等作者切到工程页（工程树只在那一页推）。
+  test('连上就推章节索引：一章一行、按章号升序，正文与细纲的路径都在', () => {
+    assert.deepEqual(index.chapters.map((c) => c.no), [1, 2, 3, 4]);
+    const [ch1, , , ch4] = index.chapters;
+    assert.deepEqual([ch1.chapterPath, ch1.plotPath, ch1.plotExists], ['chapters/001-楔子.md', '.novelforge/summaries/001-楔子.md', true]);
+    // 第 4 章只排了细纲：没有正文，主路径是细纲。
+    assert.deepEqual([ch4.chapterPath, ch4.relPath], ['', '.novelforge/summaries/004-空匣.md']);
   });
 
   test('跨源 Origin 被拒 403', () => {
@@ -213,11 +224,16 @@ describe('内置编辑器：只读用例', () => {
   let opened;
   let escaped;
   let json;
+  let preview;
 
   before(async () => {
     // 取正文：示例工程写到第 3 章，正文在 `chapters/` 里。
     conn.send({ type: 'openEditor', path: 'chapters/001-楔子.md' });
     opened = await conn.waitFor((m) => m.type === 'editorOpen', 'editorOpen');
+
+    // 单击打开（临时标签）与「原位换掉」的标记：后端不看，原样带回。
+    conn.send({ type: 'openEditor', path: '.novelforge/summaries/001-楔子.md', pane: 'draft', preview: true, replace: 'x.md' });
+    preview = await conn.waitFor((m) => m.type === 'editorOpen', 'preview editorOpen');
 
     conn.send({ type: 'openEditor', path: '../../../package.json' });
     escaped = await conn.waitFor((m) => m.type === 'editorError', '越界 editorError');
@@ -244,6 +260,23 @@ describe('内置编辑器：只读用例', () => {
 
   test('工程内 json 可打开', () => {
     assert.equal(json.file.name, 'project.json');
+  });
+
+  test('带称呼：正文不带短标记、面包屑写第几章', () => {
+    assert.deepEqual(opened.file.label, {
+      tag: '',
+      title: '001-楔子',
+      crumbs: [{ label: '正文', dir: 'chapters' }, { label: '第 1 章 楔子' }],
+    });
+  });
+
+  test('打开请求上的 preview / replace 原样带回，细纲带「细纲」', () => {
+    assert.deepEqual([preview.pane, preview.preview, preview.replace], ['draft', true, 'x.md']);
+    assert.equal(preview.file.label.tag, '细纲');
+  });
+
+  test('认不出的文件：称呼是原文件名，扩展名留着', () => {
+    assert.equal(json.file.label.title, 'project.json');
   });
 });
 
