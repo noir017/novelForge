@@ -36,8 +36,13 @@
 八条守卫只在这条路上做。绕过去等于给自己开一个后门，**而后门在界面上看不出来**。
 
 功能层自己已经问过作者的覆盖（更新角色卡、提取角色合并已有卡的审阅采纳，批量更新时的「全部直接采纳」，章节改名时
-同步正文的 `# 标题` 行）也走 `write`，传 `mode: 'overwrite', review: false`：网关不再问第二次，但守卫照过、覆盖之前
-旧内容照样存一版历史。新建（如手动新建设定条目）传 `mode: 'create'`，同名报错退出。
+同步正文的 `# 标题` 行，全书替换——预览就是那一问）也走 `write`，传 `mode: 'overwrite', review: false`：网关不再问第二次，
+但守卫照过、覆盖之前旧内容照样存一版历史。新建（如手动新建设定条目）传 `mode: 'create'`，同名报错退出。
+
+**全书替换**（`features/bookReplace.ts`）是这条路上一次写得最多的调用方，每一份都照这几条写：编辑器里有未保存修改的跳过；
+`write` 之前先 `snapshotNow`（**跳过节流**强制存一版——跨文件没有一步撤销，退路就是每份的替换前那一版；存不下就不换这一份），
+再 `write`（`overwrite`、`review: false`、带预览时读到的 `baseHash`：预览之后被改过就拒，不拿旧的盖新的）；章节传 `deferAfter`，
+manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下面「领域写入器」与 `features/README.md`）。
 
 **先写后搬的调用方先问 `checkMove`**：章节改名要先改正文的 `# 标题` 行、再 `move`（`files/fileOps.ts`）。新名字被占用时
 `move` 被拒，标题却已经改了——正文被悄悄改掉（第 3 条）。所以写标题之前先 `checkMove(from, to, { plot: true })`：与 `move`
@@ -139,7 +144,8 @@
 覆盖——更新角色卡、提取角色合并已有卡、章节改名时同步正文的 `# 标题` 行——都走它）、`writePlot`
 （换掉的是这一章原来那份，改标题时它在旧路径上）、`finalizePlot`、`writeCharacter` / `writeLore` / `writeStyleGuide` /
 `writeGlobalSummary` / `updateThreads` / `writeSkillBindings`（经私有的 `overwrite`）。**只改 frontmatter 一个键的记账**
-（`recordWrittenFrom` / `recordPreflightOk`）不存——它们不吞任何内容。覆盖创作产物的写入都经网关；网关之外剩下的写盘
+（`recordWrittenFrom` / `recordPreflightOk` / `restampPlotChain`）不存——它们不吞任何内容。全书替换在 `write` 之前另外
+`snapshotNow` 一次（跳过节流），之后 `write` 自己那一次与它一字不差、不重复存。覆盖创作产物的写入都经网关；网关之外剩下的写盘
 要么只新建、不覆盖（新工程的空模板、「文件」页的复制、新建文件夹），要么不是创作产物（会话文件、`project.json`、工程库、
 工程外的配置与我的技能库），都不存历史版本。
 
@@ -256,6 +262,7 @@ workspace/
 | `writePlot` / `deletePlot` | 有正文：正文的镜像（文件名跟着正文，改标题只改 frontmatter 里的标题）；没有正文：已有那份所在的子目录，或调用方给的落点 `at` 的子目录，都没有就跟上一章同一个子目录，文件名按章号 + 标题（改章号要传原路径）。删除进 `.trash/` 的落点与 `remove` 同一套（`trashPathFor`），不会盖掉定稿时复制进去的旧版 |
 | `recordWrittenFrom` | 细纲路径（只改 frontmatter 的 `writtenFrom`，正文一个字节不动） |
 | `recordPreflightOk` | 细纲路径（只改 frontmatter 的 `preflightOk`：一致性预检的永久放行，一行「名字：理由」，同名换新理由；没有 frontmatter 的手写细纲不补，五期补遗 §2） |
+| `restampPlotChain(rel, patch)` | 细纲路径（只改 frontmatter 里给出的指纹键：`upstreamHash` / `writtenFrom` / `sourceHash`，值为空就删掉这个键；别的键与正文一个字节不动，不存历史版本，没有 frontmatter 的手写细纲不补）。只给全书替换的指纹链收尾用（第 18 条，`features/bookReplace.ts`）：同一次里细纲与正文都改了、原本对得上的，`writtenFrom` / `sourceHash` 刷成替换后的；细纲的 `upstreamHash` 退回替换前的判断——`write` 写细纲时总是记下大纲此刻的指纹（「谁写都记」），这一次替换不该顺手把本来挂着的 ⟳ 擦掉、也不该把没记过的手写细纲拉进链 |
 | `patchPlotLore` | 细纲路径（只换第九节「设定」，没有就加在末尾，另外八节与 frontmatter 一个字不动；单独记设定、补记用。第九节不进内容指纹，正文不会因此挂 ⟳） |
 | `createChapter` / `ensureDraft` | 章号 + 标题 / 章节路径的镜像 |
 | `createChapterAt(rel, content, plotRelPath)` | 调用方给的路径（照细纲写正文时由 `views/pipeline.ts` 的 `chapterTargetOf` 算：细纲所在的子目录）。细纲路径与新正文的镜像对不上（纯序号的 `030.md`、正文按标题落成 `030-雪夜.md`）就把细纲改名过去；镜像位置已有文件时不动、记 warn |

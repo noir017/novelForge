@@ -43,13 +43,13 @@ npm run test:e2e         # 独立版服务（需 Bun）
 |---|---|---|
 | `src/` | 两层架构总览与一条创作请求的完整链路 | [src/README.md](src/README.md) |
 | `src/core/` | 核心逻辑层入口（含协议 `protocol/`、读写网关 `workspace/`、文件能力 `files/`、只读聚合与界面快照 `views/`、运行时设施 `runtime/`）。`views/pipeline.ts` 是磁盘 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，绝不搬进 `views/`。 | [src/core/README.md](src/core/README.md) |
-| `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**（全书与单章两级状态机、调用次数）、架构三件 settingFile.ts、情节大纲 outlineFile.ts、细纲 plotFile.ts（八节加第九节「设定」，计划与定稿是同一份）、设定的格式与认法 loreFile.ts（第九节一行一条、条目一句话、分类就是目录）、连续性事实 continuity.ts、角色当前状态 characterState.ts、叙事线 threadsFile.ts、写作技能 writingSkill.ts、拆书的切章与抽样 importText.ts、审稿报告 review.ts、一致性预检 preflight.ts、段级 diff paragraphDiff.ts、服务商配置、思考深度 thinking.ts、上下文详细度 contextDetail.ts、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
+| `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**（全书与单章两级状态机、调用次数）、架构三件 settingFile.ts、情节大纲 outlineFile.ts、细纲 plotFile.ts（八节加第九节「设定」，计划与定稿是同一份）、设定的格式与认法 loreFile.ts（第九节一行一条、条目一句话、分类就是目录）、连续性事实 continuity.ts、角色当前状态 characterState.ts、叙事线 threadsFile.ts、写作技能 writingSkill.ts、拆书的切章与抽样 importText.ts、审稿报告 review.ts、一致性预检 preflight.ts、段级 diff paragraphDiff.ts、查找替换的匹配口径 textFind.ts（内置编辑器的查找条与全书查找替换同一份）与全书查找替换在一份文件上的口径 bookFind.ts、服务商配置、思考深度 thinking.ts、上下文详细度 contextDetail.ts、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/workspace/` | ★ **工程的唯一读写网关**：路径 → 种类（`kind.ts`）→ 八条守卫（`guard.ts`）→ 解析/渲染/记账/伴生（`handlers/`）。写盘从前散在六处、各带一部分保护，现在收成一处；`upstreamHash` 与 `writtenFrom` 的记账下沉到写入路径本身，谁写都记；定稿写回细纲（`finalizePlot`，旧版先复制进回收站）也在这里 | [src/core/workspace/README.md](src/core/workspace/README.md) |
 | `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器。每张配方都带一层 `skill`（这个阶段绑的写作技能，P0 那一组的最后，整份带或整份不带）；架构、大纲两张另挂一层 `written`（已写正文，只在「从已写正文补齐」时有内容） | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/generation/` | ★ 创作的一次单步：**无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，并发控制在 controller），外加几条链：结构化产物的降级修复（`structured.ts`）、正文自动续写（`continuation.ts`，最后一步是只许删的删修饰 `trim.ts`）、审稿（`review.ts`）、按勾选修稿（`revision.ts`）；六条落盘分派、Draft store（随会话落盘，`write draftId=…` 认它） | [src/core/generation/README.md](src/core/generation/README.md) |
 | `src/core/tools/` | ★ **工具层**：契约（`ToolDef` / `ToolIntent` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那十三个工具：读三件 + `generate` + `write` / `edit` + 七个按职责分的工程动作（`pipeline` 流水线批量 / `summary` 定稿与全书摘要 / `characters` 角色卡 / `lore` 设定名录 / `extract` 文风与叙事线 / `book` 拆书 / `skills` 写作技能，每个只带自己用得到的参数），**没有删除/改名/移动，也不做审稿修稿**。**不认识 `mcp/` 与 `controller/`**（形状照 MCP 的 `tools/list` + `tools/call` 摆） | [src/core/tools/README.md](src/core/tools/README.md) |
 | `src/core/mcp/` | ★ **把工具端给外部 agent**（Claude Code、Codex……）：MCP 协议（`initialize` / `tools/list` / `tools/call` / 取消）与 Streamable HTTP 传输，独立版挂在 `/mcp`。只认 `tools/` 的契约；执行端在 `controller/mcp.ts`（生成锁、对话页上的 MCP 气泡、两问）。多步调度交给外部 agent，本项目没有自己的循环 | [src/core/mcp/README.md](src/core/mcp/README.md) |
-| `src/core/features/` | 功能编排：批量流水线（补齐设定 / 批量拆细纲 / 批量写章）、定稿（照正文反向更新细纲与第九节「设定」 + 角色当前状态 + 叙事线事件）、叙事线（从细纲排出）、一致性预检、全书摘要、角色卡、设定名录（单独记设定 / 补记、建条目、整合、按目录整理）、文风提取、拆书（导入原稿 / 从已写正文补齐 / 从参考书学写法） | [src/core/features/README.md](src/core/features/README.md) |
+| `src/core/features/` | 功能编排：批量流水线（补齐设定 / 批量拆细纲 / 批量写章）、定稿（照正文反向更新细纲与第九节「设定」 + 角色当前状态 + 叙事线事件）、叙事线（从细纲排出）、一致性预检、全书摘要、角色卡、设定名录（单独记设定 / 补记、建条目、整合、按目录整理）、文风提取、拆书（导入原稿 / 从已写正文补齐 / 从参考书学写法）、全书替换（预览里勾着的那几处经网关逐份写，每份先存一版历史） | [src/core/features/README.md](src/core/features/README.md) |
 | `src/core/skills/` | 写作技能（移植自 AI-Novel-Writer 的阶段 Skill）：三个来源（内置 / 我的技能库 / 本工程）、从 GitHub **先检查再安装**、卸载进回收站、工程的阶段绑定。纯函数（`SKILL.md` 解析与兼容检查、绑定文件格式、`skillStageOf`）在 `model/writingSkill.ts`；注入在 `context/` 的 `skill` 层 | [src/core/skills/README.md](src/core/skills/README.md) |
 | `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
 | `src/shells/` | ★ 三个壳并排放这里，外加 `shared/panes.ts`（所有 pane 的 DOM 唯一来源）。**壳的契约在这份 README 里**：壳只做实现 Host、传输与生命周期、平台专属入口三件事 | [src/shells/README.md](src/shells/README.md) |
@@ -61,7 +61,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 | `scripts/` | 构建与诊断工具（build-media / embed-media / build-sidecar / verify-css / diag-stream） | [scripts/README.md](scripts/README.md) |
 | `sample-novel/` | 示例工程 / 测试夹具，勿随手改正文（hash 断言会挂） | [sample-novel/README.md](sample-novel/README.md) |
 | `src/core/runtime/` | 宿主无关的运行时设施：日志、SQLite 痕迹库、失败记录、长任务登记、有界并发 | [src/core/runtime/README.md](src/core/runtime/README.md) |
-| `src/core/views/` | 只读聚合与界面快照：工程树、单章流水线、出场人物索引、设定名录 | [src/core/views/README.md](src/core/views/README.md) |
+| `src/core/views/` | 只读聚合与界面快照：工程树、单章流水线、出场人物索引、设定名录、全书查找 | [src/core/views/README.md](src/core/views/README.md) |
 
 其他关键位置：
 
