@@ -172,6 +172,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `files/fileOps.test.js` | 层级目录与类文件操作：递归扫描（含 `.trash/` 排除）、`ProjectTree` 折叠、路径越界守卫、新建/重命名（保留序号前缀、H1 同步）/移动（跨区/自嵌套/同名拒绝）/删除（搬回收站、不覆盖）；**细纲走另一条路**——还没有正文时第一次起名文件名跟着标题（序号前缀保留、旧的纯序号文件删掉），有了正文之后再改名文件名不动、只换标题；改名/删除不动这一章的正文、改名带着 `writtenFrom`（正文不标脏），且没有「移动到…」；`buildPlotSummaryView`（悬停浮窗的细纲：没定稿标计划、定稿之后改正文标过期、有正文没细纲时提示可以定稿、小节全删退回全文、全占位的不退回） |
 | `files/projectFiles.test.js` | 工程根范围的文件操作：重命名/移动/复制、固定目录保护、同名拒绝、垃圾箱豁免、章节联动 |
 | `files/chapters.test.js` | 非 markdown 章节不解析 H1、角色区仍只认 `.md`、`isEditablePath` 放行无扩展名章节 |
+| `files/editorDisk.test.js` | 内置编辑器的磁盘核对与「磁盘上没了」（后端一半，`files/fileEditing.ts` + 独立版 `FileHost`）：`checkEditorFiles` hash 对得上不报、对不上报新版（`path` 原样用前端给的）、前端给空 hash 而文件在照样报、读不到（删了 / 那里现在是目录）报没了、**越界 / 不可编辑 / 坏条目跳过不抛**、同一路径只报一次、**只读**（mtime 与内容不变、不凭空建文件）；`writeFileFromEditor` **带了基线、文件却不在时抛 `FileGoneError` 不重建**、答应重建（`recreate`）才写、重建时原路径又有了别的内容照样撞冲突、不带基线的强制保存照旧；`FileHost` 推 `editorDiskChanged`（带 `draftPath` / `kind`）/ `editorDiskGone`、都对得上一条不推、保存时文件不在推 `editorDiskGone` 且不写、带 `recreate` 再来回 `editorSaved`、**自己存下去的那份再核对不报「变了」**、没打开工程什么都不推 |
 | `files/listCache.test.js` | 章节与**细纲**两份列表缓存的并发语义：并发调用只扫一遍全书、`invalidate` 后重扫、**扫描途中失效的那一轮不回填缓存**（否则界面会停在变更之前的字数与过期标记）；外加 `writePlot`/`deletePlot` 自己让缓存失效（否则新建的章不出现在工程页上，且不报错） |
 | `views/projectTreeReads.test.js` | 工程页刷新的**读盘次数**：同一个文件一次刷新至多读一次（含 `config.md`）、每章 fs 调用不超过 3 次（细纲 + 章节各一次，再加全书常数的余量）、章数翻倍不超过线性增长。这条路由文件监听触发，作者每存一次盘就跑一次，重复读盘不报错只变慢，只能靠断言守 |
 | `views/projectTreeNext.test.js` | 工程页快照里的「全书下一步」（W12）与对话页主按钮在全书那一档给的逐字一致：从空工程一路走到「在写」，每一档都比一遍；进入「在写」之后工程页不再给 |
@@ -238,7 +239,10 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `view/contextDigest.test.js` | 装配清单的摘要行写「详细度：精简」；没有 `detail` 的旧会话不说 |
 | `view/contextCopy.test.js` | 摘要行末尾的「复制完整上下文」：只有标了 `fullContext` 的回复有、点了发 `copyContext` 且折叠块不开合；**只认自己发的 `requestId`**（两个视图都收得到广播）、同一个回复只认一次；原样写进剪贴板、后端说拿不到就报那一句；剪贴板不让写时提示条上给「再点一下复制」 |
 | `view/hover.test.js` | 三组悬停浮窗（章节细纲 / 行内别名 / 失败标记）：延迟才弹、缓存与作废、可进入（能选中复制）、没定稿的细纲标「计划」且照样摊开小节、定稿之后正文又改过的标「已过期」、没有细纲时给说明不打标、**夹进视口**（下方放不下翻上方、贴右收左、超长压 `max-height`）、失败标记挂在章节行与架构行上、按最严重的算；**从章节行挪到架构行时浮窗收起**（架构行也带 `.row-plot` 但没有细纲） |
-| `standalone/editor.test.js` | 内置编辑器：草稿区惰性创建、`pane` 分派、「草稿」按钮可见性与 `openDraft` 负载、保存回执不冲掉 `draftPath`、右键菜单与标签搬家 |
+| `standalone/editor.test.js` | 内置编辑器：草稿区惰性创建、`pane` 分派、「草稿」按钮可见性与 `openDraft` 负载、保存回执不冲掉 `draftPath`、右键菜单与标签搬家；再次打开不冲掉未保存的修改（「还原」先在页内对话框里问） |
+| `standalone/diskSync.test.js` | 磁盘上的改动同步到已开的标签：收到 `state` 去抖 400ms、连着几条只核对一次、窗口拿回焦点 / 页面重新可见时核对（藏起来不核对）、一个标签都没开不发，`checkEditorFiles` 带两块编辑区里全部文件的 hash；**没改过的标签就地换、不切标签、焦点不被抢走、不弹 toast**、换进来记一步撤销、正看着的光标留在原处并在状态栏说一句（几秒后退回）、光标夹进新长度、之后核对带新 hash；**改过的一个字不动、标签挂「!」、不切标签**、冲突条说没有覆盖（不说保存已取消）、同一份新版不报第二次（冲突条因打字收起之后也不报）、核对带见过的磁盘新版的 hash、磁盘上又变一次再挂、「用磁盘版本覆盖」之后基线换成那一份、磁盘上的正好是编辑器里这份就认下；**磁盘上没了**：标签划掉挂「!」不切过去、冲突条说没了且没有「用磁盘版本覆盖」、打字不收起、核对给空 hash、保存（含强制保存）先问要不要在原路径重建、取消什么都不发、答应才发 `recreate` 且带基线、存成了清掉标记、普通保存撞上「没了」提示没有保存且不再「保存中」、磁盘上又出现了清掉标记；**自己保存之后不误报**（保存在路上时核对不带它、路上收到的「变了」不认、回执先到 state 后到之后带新 hash、迟到的同一份「变了」什么都不动）；**别的窗口存了同一份**：没改过就地换、改过挂冲突条且基线不换成别人的；`editorOpen` 照旧切标签 |
+| `standalone/closeDialog.test.js` | 关标签时的「保存 / 不保存 / 取消」与还原 / 强制保存的确认（编辑器里用到 `window.confirm` 就当场炸）：没改过的直接关；改过的弹 `role=dialog`、三颗按钮、焦点在「保存」；取消留着、Esc 等于取消、Tab / Shift+Tab 不出对话框、开着时 Ctrl+S 不往下传；**Enter 选「保存」、回执回来之前标签还在、回执到了才关**；不保存直接关不发保存；**撞上冲突不关、切过去挂着冲突条**、出错不关、等回执时又改了也不关；**批量关闭只弹一个对话框**、列出哪几份、取消一个都不关、全部保存各发一次、存成的与没改过的关掉而冲突的留着、全部不保存一下关完；Ctrl+W（连按不叠两个）与「关闭编辑器」命令同样先问；还原两颗按钮（取消不发 `reloadFile`、没改过不问）、强制保存两颗按钮（取消什么都不发、确认才发不带基线的保存）、关掉之后焦点回到原处 |
+| `standalone/autosave.test.js` | 保存状态：没存过「已保存」→「● 未保存」→「保存中…」→「已保存 时:分」且**不弹 toast**、10 秒没回音说一句（`fakeTimers` 手拨时钟）、冲突与出错照样弹、保存期间又打字回执后照实写未保存；**同一份只有一个保存在路上**（再按 Ctrl+S 不发第二个、存成了接着再存一次且带新基线、撞上冲突不再接着存）；自动保存开关：「文件」菜单里紧跟「全部保存」、**缺省关**（没有 ✓、状态栏不挂、停笔不存）、打开打 ✓ 挂「自动保存」、再点关掉；三个时机：停笔 2 秒（一直打字就不存）、**组字中途不算停笔**、切走标签存它、窗口失焦与页面藏起来存全部；闸：同一份期间又改了等回执后再存、**撞上冲突不强制保存、不切标签、之后停笔切标签失焦都不再存它**（写「自动保存已暂停」）、在冲突条上选了之后接着存、磁盘上没了的不存也不弹重建、核对发现改过的标签磁盘变了也停、**对话框开着不存**、点了「还原」磁盘版回来之前不把要丢的修改存下去 |
 | `standalone/merge.test.js` | 覆盖审阅的合并视图（W11）：相同的段一行带过、改动两栏 + 结果格（缺省新版）、进度计数；什么都不动交回 `apply`；保留原文交回合并结果；**手改过的那一格「采用」「全部采用」「全部保留」都不动它**、「撤销手改」才放开；结果格清空整段删；只读模式没有结果格与逐段按钮 |
 | `standalone/reveal.test.js` | 章节条「审稿」（有正文才亮、提示写调用次数、发 `chapterAction`）；`editorReveal` 之后选区落在那一句上（标点不同也认）、切回那份文件；找不到时不动选区并提示；**滚动按高亮镜像层量出来的位置**——那一句停在视口偏上三分之一（第一行特别长时按比例估会差很远）、量的是那一句的第一个字、量完标记撤掉 |
 | `standalone/chapterBar.test.js` | 章节条（W6）：只在开着某一章的正文或细纲时出现、写这一章在哪一步写了多少、四颗按钮按状态亮灭且提示里写调用次数、点了发 `chapterAction`、另一份没开着时「并排看细纲 / 正文」、工程树更新时跟着变 |
@@ -258,7 +262,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 
 | 文件 | 覆盖 |
 |---|---|
-| `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、「关于」的版本号是 `package.json` 的（编译时写进资源表，不是运行时找文件）、WS 首条消息（`state` 带分段格式，没写是 `blank`）、`Origin` 校验；`selectPlot` 由后端算落在哪一层（已完成的章落正文层，**下一步转到全书的下一步**「写第 4 章」，落在第 4 章那份细纲上、不带区间），且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返；**空窗口** ready 后无假工程、`openFolder` 热换、`mode: 'add'` 仍一份工作区、`closeFolder` 卸掉 |
+| `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、「关于」的版本号是 `package.json` 的（编译时写进资源表，不是运行时找文件）、WS 首条消息（`state` 带分段格式，没写是 `blank`）、`Origin` 校验；`selectPlot` 由后端算落在哪一层（已完成的章落正文层，**下一步转到全书的下一步**「写第 4 章」，落在第 4 章那份细纲上、不带区间），且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；**核对磁盘**（hash 对不上推新版且带 `draftPath` / `kind`、对得上不推、读不到推没了）、**带了基线、文件却不在时回「没了」且不在原路径重建**、带 `recreate` 才写、自己保存之后核对不误报；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返；**空窗口** ready 后无假工程、`openFolder` 热换、`mode: 'add'` 仍一份工作区、`closeFolder` 卸掉 |
 | `contract/layerBoundary.test.js` | 工具层与 MCP 端口的边界：`tools/` 一行都不 import `mcp/` 或 `controller/`、`mcp/` 只 import `./`、`node:`、`../tools/`、`../runtime/`（不碰 controller / workspace / generation，执行端由壳注入）、工具体里不出现 `ctx.budget`。这条守的是「工具能端出去」「端口不钉死在宿主上」两件事，**能悄悄长回来**，只能靠断言守 |
 | `contract/toolText.test.js` | 模型读得到的文字（十二个工具的描述、参数说明与枚举值、MCP 的 `instructions`）里没有旧链路的说法（卷、剧情段、中转站、拆分、`volumes/`、`manuscripts/`）；哪个工具的可用动作里都没有 `split` |
 | `contract/version.test.js` | 版本号只记在 `package.json` 一处：`tauri.conf.json` 的 `version` 按它所在目录解析指向仓库根 `package.json`、`Cargo.toml` 是占位的 `0.0.0`、版本号是 `X.Y.Z`（release.yml 只认这个形状） |
@@ -276,7 +280,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `fakeProvider.js` | 假模型，一律经 `registerProviderFactory` 且 `kind: 'vscode-lm'`——那是唯一不碰 SecretStore 的路径（其余 kind 会去要 API Key）。支持应答队列、函数应答、按模型注入 `unavailable`/`fail`/`cancel`、并发峰值观察；应答可以是 `{ text, stop, reasoning, chunks }`（测续写要靠 `stop: 'maxTokens'`），`filler(n, seed)` 造恰好 n 字、不同 seed 之间无公共 8-gram 的正文 |
 | `vscodeStub.js` | 四档能力的 `vscode` 模块桩（`minimal`/`config`/`workspace`/`full`），`full` 带真实文件系统支撑的 `workspace.fs`。**返回 `restore()`，请挂到 `after()`** |
 | `teardown.js` | `cleanup(dir, db)`——**先关库再删目录**：SQLite 连接开着时 Windows 上删不掉 `.novelforge/novelforge.db`，临时工程会全留在 temp 里 |
-| `dom.js` | jsdom 挂载：从 `webviewHtml.ts` / `html.ts` 抠 `<body>`、`window.eval` 加载 `dist/media/*.js`、`acquireVsCodeApi` 桩与消息泵、视图数据的夹具工厂；`mirrorLayout` 这个补丁给高亮镜像层一份可预期的假排版（量位置那一份镜像里标记的 `offsetTop` 按换行数 × 行高算、textarea 的视口高固定，尺寸在 `MIRROR_LAYOUT`），测「滚动按量出来的位置走」用 |
+| `dom.js` | jsdom 挂载：从 `webviewHtml.ts` / `html.ts` 抠 `<body>`、`window.eval` 加载 `dist/media/*.js`、`acquireVsCodeApi` 桩与消息泵、视图数据的夹具工厂；`mirrorLayout` 这个补丁给高亮镜像层一份可预期的假排版（量位置那一份镜像里标记的 `offsetTop` 按换行数 × 行高算、textarea 的视口高固定，尺寸在 `MIRROR_LAYOUT`），测「滚动按量出来的位置走」用；`fakeTimers` 把窗口里的定时器换成手拨的（`window.__clock.tick(ms)`），测停笔 2 秒、10 秒没回音、去抖不必真等；编辑器页内对话框的 `dialog()` / `dialogButtons()` / `answer(label)`（点了按钮再等 Promise 后续跑完）与 `flush()` |
 | `ws.js` | e2e 的 WebSocket 客户端（收件箱 + `waitFor(match, label)` 超时） |
 
 ## 约定

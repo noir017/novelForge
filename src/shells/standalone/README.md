@@ -32,7 +32,9 @@
 - **`/mcp` 关掉空闲超时**：一次工具调用可能跑几分钟（写一章），期间连接上一个字节都没有，而 Bun 缺省 10 秒空闲就断。`server.timeout(req, 0)` 只对这一个请求生效。MCP 调用落在地址 `?project=` 指定的那个工程上，不带就落到最近操作的那个窗口的工程；启动日志里那行 `claude mcp add …` 就是接入命令。
 - **openFile 的语义差异**：插件里是「打开 VS Code 的编辑器 tab」，这里是「在网页内置编辑器里打开」。刻意让 `openFile` 本身改道，这样 controller 里「产物落盘后打开」「点章节」「点上下文条目」三处调用点一次全对。非文本文件回落到系统默认程序。
 - **两块编辑区**：`openInEditor(rel, pane)` 的 `pane` 决定 `editorOpen` 落到哪一块，`openBeside` 就是 `pane: 'draft'`。`editorOpen` 广播时顺手带上 `draftPath`（由 `draftPathOf` 从章节路径推导），前端据此显示工具栏上的「草稿」按钮——前端不该自己复刻「什么算章节」。`editorSaved` 也必须带它，否则按钮会在首次保存后消失。同一个理由，两条消息都带 `kind`（`kindOfPath` 算的这份文件是什么）：前端拿它分「正文」（`chapter` / `draft`）与其余文件，Tab 缩进用全角还是半角就看它；没打开工程时省略，前端当非正文。
-- **文件读写全部经 [../core/files/fileEditing.ts](../../core/files/fileEditing.ts)**：路径包含校验、可编辑判定（扩展名白名单 ∪ 章节文件名规则）、大小上限、保存的 hash 乐观锁都在那里。本层只负责把异常翻译成 `editorError` / `editorConflict` 广播出去，不要绕过它直接 `fs.writeFile`。
+- **文件读写全部经 [../core/files/fileEditing.ts](../../core/files/fileEditing.ts)**：路径包含校验、可编辑判定（扩展名白名单 ∪ 章节文件名规则）、大小上限、保存的 hash 乐观锁都在那里。本层只负责把异常翻译成 `editorError` / `editorConflict` / `editorDiskGone` 广播出去，不要绕过它直接 `fs.writeFile`。
+- **核对磁盘（不丢稿）**：前端每收到一条 `state`（去抖）、窗口拿回焦点时发 `checkEditorFiles { files: [{ path, hash }] }`，`checkEditorFiles()` 只读那几份，hash 对不上的推 `editorDiskChanged`（带新版，形状与 `editorOpen` 的文件一样：带 `draftPath` / `kind`），读不到的推 `editorDiskGone`，对得上的不推。**不复用 `editorOpen`**——那条会把标签切成当前的、抢焦点。回话照常广播给开着这个工程的所有窗口，各窗口按自己开着的标签认。空窗口发来的静静吃掉（`workspaceHub.ts`），不弹「请先打开文件夹」。
+- **带了基线、文件却不在：编辑器这条路不重建**。网关对这种情况当新建处理（`workspace/guard.ts` 守卫 8 的口径），`writeFileFromEditor` 收紧一档：抛 `FileGoneError`，这里推 `editorDiskGone`、一个字节不写；作者在网页上答应「在原路径重建」之后，`saveFile` 带 `recreate: true` 再来（照样带着基线，期间原路径又有了别的内容照样撞冲突）。不带基线的强制保存不受影响。
 - **多一个「文件」页**：侧栏比插件形态多一个资源管理器（[../core/files/fileTree.ts](../../core/files/fileTree.ts) 出数据，`media/src/explorer/` 渲染），列的是磁盘上的真实目录结构，**含 `.novelforge/` 等点开头的文件夹**——插件形态里这件事由 VS Code 自己的资源管理器承担，独立版没有它，作者就没有任何入口去手改会话/`project.json`。它只读不写：新建/改名/删除仍然只在「工程」页走 `core/files/fileOps.ts`。
 - **watcher 只挡二进制，而且规则不在这里**：过滤走 [../../core/watchPolicy.ts](../../core/watchPolicy.ts) 的 `shouldIgnoreChange`（黑名单——章节可以是 `.txt`/无扩展名，目录事件也没有扩展名，白名单式过滤会让这些改动看不见）。插件壳用同一份策略的 glob 形态。因为放行面宽，`onChange` 带 250ms 去抖：它会触发 `pushState`，那是一次全量重扫。
 - **进度不再是 toast**：`FileHost.progress` 过去每收到一次 `report` 就弹一条 toast，跑一次「同步章节细纲」、同步 76 章等于刷 76 条提示、把别的消息全盖掉。现在同一份进度由 `core/runtime/progress.ts` 结构化推成 `tasks` 消息，侧栏顶上的任务条画进度条（n/N、计时、可停止，所有页签都看得见），`FileHost.progress` 只负责给出 signal 与报告失败。
@@ -42,7 +44,7 @@
 
 ## 与插件壳的能力差异
 
-`Host` 上的可选方法就是差异点：`browseFile`（这里提示输入相对路径）、`pickHostFile`（拆书选 txt：推 `prompt kind: 'file'`，网页里复用「打开文件夹」那个本机目录选择器的选文件模式，只列目录与允许的扩展名，回绝对路径；插件是 `showOpenDialog`）、`reviewReplace`（五期起推 `prompt kind: 'merge'`，网页上开段级 diff / 合并视图：网关请求合并时作者可以逐段挑、手改，交回 `{ merged }`；其余调用方只读，只有采纳 / 放弃；插件照旧 `vscode.diff`）、`revealText`（点审稿报告上的引文：先 `editorOpen` 那一章，再推 `editorReveal` 让内置编辑器选中那一句；插件是 `showTextDocument` + `revealRange`）、`openNativeSettings`（**这里不实现**，于是 `page.ts` 渲染时就不产出那颗按钮——不是渲染出来再隐藏）、`openInEditor` / `saveFromEditor` / `openExternal`（只有这里实现）、`openBeside`（这里开第二块编辑区，插件是 `ViewColumn.Beside`）。`supportsVscodeLm` 为 `false`，Copilot 模型在设置页与下拉框里都被过滤掉。
+`Host` 上的可选方法就是差异点：`browseFile`（这里提示输入相对路径）、`pickHostFile`（拆书选 txt：推 `prompt kind: 'file'`，网页里复用「打开文件夹」那个本机目录选择器的选文件模式，只列目录与允许的扩展名，回绝对路径；插件是 `showOpenDialog`）、`reviewReplace`（五期起推 `prompt kind: 'merge'`，网页上开段级 diff / 合并视图：网关请求合并时作者可以逐段挑、手改，交回 `{ merged }`；其余调用方只读，只有采纳 / 放弃；插件照旧 `vscode.diff`）、`revealText`（点审稿报告上的引文：先 `editorOpen` 那一章，再推 `editorReveal` 让内置编辑器选中那一句；插件是 `showTextDocument` + `revealRange`）、`openNativeSettings`（**这里不实现**，于是 `page.ts` 渲染时就不产出那颗按钮——不是渲染出来再隐藏）、`openInEditor` / `saveFromEditor` / `checkEditorFiles` / `openExternal`（只有这里实现）、`openBeside`（这里开第二块编辑区，插件是 `ViewColumn.Beside`）。`supportsVscodeLm` 为 `false`，Copilot 模型在设置页与下拉框里都被过滤掉。
 
 ## 验证
 

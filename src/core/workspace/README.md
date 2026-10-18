@@ -42,7 +42,7 @@
 | 5 | 大小上限 2MB（读、写各一次） | `WsError('tooLarge')` |
 | 6 | 同名不覆盖（`mode: 'create'`） | `WsError('exists')` |
 | 7 | 覆盖前审阅（`reviewReplace` 或确认框）。请求合并（`opts.merge`），独立版的合并视图交回作者挑过、改过的那一份时写它（五期 W11） | 用户拒绝 → `{ skipped: true }` |
-| 8 | 内容 hash 乐观锁 | `WsConflictError(diskText, diskHash)` |
+| 8 | 内容 hash 乐观锁（给了基线、文件却不在：不算冲突，当新建写——内置编辑器那条路比这严一档，停下来问作者，见 `files/fileEditing.ts` 的 `FileGoneError`） | `WsConflictError(diskText, diskHash)` |
 
 **区界限不在这里**：`fileOps` 的三区约束（章节挪不进角色目录）是**工程页的
 产品承诺**，比这里的工程根约束更严。那一层留在 `fileOps` 里，先判区再调网关。
