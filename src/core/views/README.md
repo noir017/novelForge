@@ -7,10 +7,11 @@
 - `workbench.ts`：读取当前创作目标，构造「当前产物」浮窗的内容；
 - `cast.ts`：从各章**定稿过的**细纲（有 `sourceHash`）反向聚合出场人物索引（第 14 条）。没定稿的细纲里写的是计划出场，不算。
 - `quickOpen.ts`：「转到…」（独立版 Ctrl+P）要的索引——章节（一个章号一条：章号、标题、卷目录、正文 / 细纲路径、字数）、角色卡（名字与别名）、设定、架构几件与大纲 / 文风 / 叙事线 / 全书摘要（有文件的；称呼与 `editorLabel.ts` 共用 `SETTING_DOC_LABEL` / `FIXED_DOC_LABEL`）、草稿。按需要（`requestQuickOpen`），不进工程树；章节与细纲借 `listChapters()` / `listPlots()` 的缓存，不为它多读一章（读了哪些盘写在文件头上）。
+- `nameIndex.ts`：内置编辑器「名词补全」（独立版 Alt+/ 与边打边弹）的名词表——角色卡（名字、别名与名字里括号内外各一截，一个字的不要；一句话取「身份」第一句，没写取标签）、设定条目（标题、关键词、分类即目录、`loreBrief`）、设定名录里出现过还没建条目的名字（`lore.ts` 的 `unknown`：建议分类、最近一章的说明）。**不调模型**。按需要（`requestNameIndex`），前端带着手上那份的指纹（`have`）来，对得上只回指纹（`nameIndexSig`，controller 比）。读盘：卡与条目按「路径 · 大小 · 修改时间」的签名记在内存里（按工程实例），没变一份都不读，变了才整份重读（与 `listCharacters` / `listLore` 同一个解析）；未建条目借 `listPlots()` / `listChapters()` 的缓存、关掉名录的「待整合」那一步（`buildLoreIndex(…, { pending: false })`）。
 - `chapterIndex.ts`：内置编辑器的章节索引（`chapterIndex` 消息：章节条与上一章 / 下一章要的那几个字段）。与工程树章节那一行**同一个函数投影**（`projectView.ts` 在它上面再加定稿、草稿、⟳），数据是 controller 构建 `ViewState` 时本来就跑的那一趟流水线索引，不多读盘；controller 只在内容变了时推。
 - `checkTerms.ts`：内置编辑器「写作体检」的词表（`checkTerms` 消息）：禁用词（`readBannedTerms`——`style.md` 的「禁用词表」、小说配置「全局要求」、`config.md` 的类型 / 子类型交给 `model/manuscriptCheck.ts` 的 `bannedTerms`；**写正文的 `generation/generate.ts` 的 `planWriting` 也调它**，两边同一个函数、同一份输入）+ 自定义敏感词表（`.novelforge/sensitive.txt`，`model/sensitiveWords.ts` 解析，坏行带行号）。读 `style.md` 与 `sensitive.txt` 各一次，`config.md` 由调用方给（controller 构建 `ViewState` 那一趟已经读过）；读不到当没有、绝不抛。controller 每次 `pushState` 都调、内容变了才推（`controller/check.ts`）。
 - `editorLabel.ts`：内置编辑器怎么称呼一份文件（标签上的类型短标记与名字、工具栏面包屑），按 `kindOfPath` 与章节 / 细纲的文件名规则算，纯函数、零 I/O、绝不抛（输入是前端传上来的路径）。标题取文件名里的那一段，不读 H1。固定文件的中文称呼（`FIXED_DOC_LABEL`）与「转到…」的索引共用。
-- `lore.ts`：设定名录（2026-10-18）。同一个路子：从定稿过的细纲**第九节「设定」**聚合出已建条目（出现章、水位之后待整合的新事实——第九节冒号后那句与提到它的连续性事实，工程页的 `＋N`）、**未建条目**（出现过、没有条目的名字，按出现章数排，分类取多数票）、**还没记过设定的定稿章**（第九节标题不在的，补记用）。认条目先标题后关键词，人名不算。工程页刷新时由 `projectView.ts` 把已读的细纲、条目、角色卡传进来，同一次刷新里一个文件只读一次；装配器的 `lore` 层也用它算尾巴。
+- `lore.ts`：设定名录（2026-10-18）。同一个路子：从定稿过的细纲**第九节「设定」**聚合出已建条目（出现章、水位之后待整合的新事实——第九节冒号后那句与提到它的连续性事实，工程页的 `＋N`）、**未建条目**（出现过、没有条目的名字，按出现章数排，分类取多数票）、**还没记过设定的定稿章**（第九节标题不在的，补记用）。认条目先标题后关键词，人名不算。工程页刷新时由 `projectView.ts` 把已读的细纲、条目、角色卡传进来，同一次刷新里一个文件只读一次；装配器的 `lore` 层也用它算尾巴。只要出现章与未建条目的调用方（名词补全的 `nameIndex.ts`）传 `{ pending: false }`，跳过「待整合」那一步——它要拿每一章的连续性事实去对每一条条目，几百章 × 几百条时是这里最贵的一段。
 
 新鲜度链：`outline.md` 里覆盖第 N 章那一节 →（`upstreamHash`）这一章的细纲 →
 （`writtenFrom`，记在细纲上，定稿时刷新）`chapters/…/N-标题` →（`sourceHash`，定稿时记）同一份
