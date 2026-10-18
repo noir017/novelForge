@@ -56,7 +56,7 @@ src/
 2. 先扫一遍哪些章写了正文却没定稿、或定稿之后正文又改过（`NovelProject.staleChapters`），**记进日志**（共几章、待同步几章、哪几章），再弹确认框——不偷偷烧 token。
 3. `core/runtime/progress.runTask('同步章节细纲', …)` 起任务。它一次做三件事：包住 `Host.progress` 拿到宿主原生进度与取消信号；把 `report({ message, current, total })` 登记进任务表；开始/结束进日志附耗时。
 4. 任务表一变，`ChatController` 构造时挂的 `onTasksChanged` 就把 `tasks` 快照广播给所有前端 → 页头的任务条动起来（所有页签都看得见）；任务说完那一句（`finish`）时推 `taskDone`，前端出一条带「打开第 N 章」的提示。
-5. 逐章 `summarizeChapter`：照 `chapters/` 里的正文更新同号的细纲（只做定稿的第一步，不动角色状态与叙事线；旧版先复制一份进 `.novelforge/.trash/`），每章一条 `info`（用时、平均速度、预计剩余）。**失败不中断整批**，记 `error` 后继续；`signal.aborted` 则停在当前章，已更新的细纲保留。
+5. 逐章 `summarizeChapter`：照 `chapters/` 里的正文更新这一章的细纲（`summaries/` 下与正文相对路径相同的那一份；只做定稿的第一步，不动角色状态与叙事线；旧版先复制一份进 `.novelforge/.trash/`），每章一条 `info`（用时、平均速度、预计剩余）。**失败不中断整批**，记 `error` 后继续；`signal.aborted` 则停在当前章，已更新的细纲保留。
 6. 每条日志同时经 `addLogSink` 推成 `log` 消息 → 日志页实时追加。
 
 ## 构建

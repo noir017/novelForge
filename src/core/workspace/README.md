@@ -18,7 +18,7 @@
 
 既有落盘路径背着一批不变量，绕过任何一条都会**安静地**损坏工程：
 
-- 细纲的文件名由「章号 + 标题」决定，改标题要清掉旧文件名
+- 细纲镜像正文在章节根下的相对路径：正文改名/移动时细纲要跟着搬；还没有正文时文件名由「章号 + 标题」决定，改标题要清掉旧文件名
 - 写细纲要记 `upstreamHash`（大纲里覆盖本章那一节的指纹），写正文要在细纲上记
   `writtenFrom`（正文据以写成的细纲指纹），定稿要在同一份细纲上记 `sourceHash`（正文的指纹）
   并刷新 `writtenFrom`，漏了新鲜度链就断
@@ -57,24 +57,25 @@
 | `setting` | `config.md` / `premise.md` / `world.md`（带 `doc`） | `settingFile.ts`；配置的 frontmatter 产物没给就沿用磁盘那份 | — | — |
 | `outline` / `style` / `globalSummary` / `threads` | 固定路径 | 纯文本 | — | — |
 | `skill` | `.novelforge/skills.json` 与 `.novelforge/skills/**` | 纯文本（`plain`，不加 frontmatter） | — | — |
-| `plot` | `summaries/` **根下** + 数字前缀 + markdown | `plotFile.ts`（八节） | 写入记大纲里覆盖本章那一节的指纹（`outlineUpstreamHash`）；定稿记的 `sourceHash` / `cast` 由 `finalizePlot` 写，重写细纲时原样沿用 | — |
-| `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | —（正文依据的细纲指纹记在细纲的 `writtenFrom` 上） | 改名/移动带草稿；写后 `syncManifest` |
+| `plot` | `summaries/` 下（各级子目录都算，镜像正文的路径）+ 数字前缀 + markdown | `plotFile.ts`（八节） | 写入记大纲里覆盖本章那一节的指纹（`outlineUpstreamHash`）；定稿记的 `sourceHash` / `cast` 由 `finalizePlot` 写，重写细纲时原样沿用 | — |
+| `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | —（正文依据的细纲指纹记在细纲的 `writtenFrom` 上） | 改名/移动带草稿与细纲（整个卷目录也带）；写后 `syncManifest` |
 | `character` / `lore` | 各自区 + `.md` | frontmatter | — | — |
 | `draft` | `drafts/` 下 | 纯文本 | — | **永不自动进上下文** |
-| `other` | 其余工程内文本（含老工程的 `plots/` 与 `summaries/` 下的子目录） | 纯文本 | — | — |
+| `other` | 其余工程内文本（含老工程的 `plots/`） | 纯文本 | — | — |
 
 三条判定上的取舍：
 
 1. **`chapter` 不看是不是 `.md`**（AGENTS 第 9 条：章节不认扩展名）。
    `001-楔子.txt`、`001-楔子`（无扩展名）、`004.json` 都算章节；
    角色 / 设定 / 细纲**不**跟着放宽，它们是插件自己的数据格式。
-2. **章节路径不带创作目标**：正文就是章节，第 N 章的细纲在哪要按号去 `summaries/`
-   里认——那一步要读盘，不在这里做（`views/pipeline.ts` 的 `chapterTargetOf`）。
+2. **章节路径不带创作目标**：正文就是章节，第 N 章的细纲是正文路径在 `summaries/` 下的镜像
+   （`NovelProject.plotPathForChapter`），配对要读盘，不在这里做；还没有正文的章，正文落点由细纲
+   反推（`views/pipeline.ts` 的 `chapterTargetOf`）。
    `pathOfTarget` 对正文 target 直接抛，提示调用方改用它。
 3. **`summaries/global.md` 排在细纲之前判**：它是全书摘要（`globalSummary`），不是一份细纲。
-4. **老工程留下的 `scenes/`、`volumes/`、`manuscripts/`、`plots/` 与 `summaries/` 下的子目录
-   都判成 `other`**：那几层已经删掉（见 `model/pipeline.ts` 的文件头），细纲从 `plots/` 搬进了
-   `summaries/` 根下、与单章摘要并成一份（见 `model/plotFile.ts` 的文件头）。那些文件
+4. **老工程留下的 `scenes/`、`volumes/`、`manuscripts/`、`plots/` 都判成 `other`**：那几层已经删掉
+   （见 `model/pipeline.ts` 的文件头），细纲从 `plots/` 搬进了 `summaries/`、与单章摘要并成一份
+   （见 `model/plotFile.ts` 的文件头）。那些文件
    是作者的东西，磁盘上一个字节都不动，但代码里彻底不认——`guard.ts` 的
    `isProtectedPath` 仍然把那几个目录列为受保护目录，免得哪条文件操作把它们整棵删掉。
 
@@ -109,7 +110,7 @@
 - **写 `sourceHash`（正文的 `contentHash`）与 `cast`，并把 `writtenFrom` 刷成更新后的内容指纹**：
   不刷的话定稿刚改完细纲，正文立刻挂 ⟳；刷了之后，作者定稿后再改细纲，正文才挂 ⟳。指纹按
   「渲染 → 解析回来」的样子算，与流水线判脏同一个口径。
-- 还没有细纲的章（拆书导入、作者手写的正文）按章号与章节标题新建一份（`plotPathForNo`）。
+- 写回的永远是**正文镜像的那一份**（`plotOfChapter`）；还没有细纲的章（拆书导入、作者手写的正文）就在镜像位置新建一份（`plotPathForChapter`），不在根下另起一份。
 
 反过来，重写一份定稿过的细纲（`write` 到 plot 路径）时 `sourceHash` 与 `cast` 沿用磁盘那份：
 定稿过的章不被拉回「待写」，只让正文挂 ⟳（第 18 条）。
@@ -144,7 +145,7 @@ workspace/
     ├── types.ts    Handler 的四件事：render / resolve / after / companions
     ├── setting.ts  架构三件（小节换新、配置 frontmatter 合并）
     ├── plot.ts     渲染 + 记 upstreamHash；定稿写回的渲染（renderFinalizedPlot）
-    ├── chapter.ts  草稿跟随 + manifest 同步（删章节不删草稿）
+    ├── chapter.ts  草稿与细纲跟随（carryDraft / carryPlot）+ manifest 同步（删章节不删草稿、不删细纲）
     ├── doc.ts      outline / style / globalSummary / threads / character / lore
     └── plain.ts    other / draft（纯文本，无记账）
 ```
@@ -155,12 +156,13 @@ workspace/
 
 | 方法 | 落点由什么决定 |
 |---|---|
-| `writePlot` / `deletePlot` | 章号 + 标题（平铺在 `summaries/` 根下；改章号要传原路径）。删除进 `.trash/` 的落点与 `remove` 同一套（`trashPathFor`），不会盖掉定稿时复制进去的旧版 |
+| `writePlot` / `deletePlot` | 有正文：正文的镜像（文件名跟着正文，改标题只改 frontmatter 里的标题）；没有正文：已有那份所在的子目录，或调用方给的落点 `at` 的子目录，都没有就跟上一章同一个子目录，文件名按章号 + 标题（改章号要传原路径）。删除进 `.trash/` 的落点与 `remove` 同一套（`trashPathFor`），不会盖掉定稿时复制进去的旧版 |
 | `recordWrittenFrom` | 细纲路径（只改 frontmatter 的 `writtenFrom`，正文一个字节不动） |
 | `recordPreflightOk` | 细纲路径（只改 frontmatter 的 `preflightOk`：一致性预检的永久放行，一行「名字：理由」，同名换新理由；没有 frontmatter 的手写细纲不补，五期补遗 §2） |
 | `createChapter` / `ensureDraft` | 章号 + 标题 / 章节路径的镜像 |
+| `createChapterAt(rel, content, plotRelPath)` | 调用方给的路径（照细纲写正文时由 `views/pipeline.ts` 的 `chapterTargetOf` 算：细纲所在的子目录）。细纲路径与新正文的镜像对不上（纯序号的 `030.md`、正文按标题落成 `030-雪夜.md`）就把细纲改名过去；镜像位置已有文件时不动、记 warn |
 | `createChapters(items)` | 同 `createChapter`，一次好几章（导入原稿）：每章照样过 `write`（同名报错退出、大小上限），只是 chapter handler 的 manifest 同步**延到最后做一次**（`WriteOptions.deferAfter`，只对章节生效）——逐章重扫全部章节是 O(n²) 次读盘，三百章十几秒。撞了同名就抛，前面写好的留着、manifest 照样同步 |
-| `finalizePlot` | 章号：同号那一份细纲，没有就按章号 + 章节标题新建（见上一节「定稿写回」） |
+| `finalizePlot` | 章节：正文镜像的那一份细纲，没有就在镜像位置新建（见上一节「定稿写回」） |
 | `writeCharacter` / `writeLore` | slug（可带子目录） |
 | `writeStyleGuide` / `writeGlobalSummary` | 固定路径 |
 | `writeSkillBindings(text)` | 固定路径（`skills.json`）。设置页「技能」与 `skills bind` 动手前都已经问过作者，这里不再弹覆盖审阅——每换一次下拉框弹一个 JSON 的 diff 只是噪声 |

@@ -60,7 +60,7 @@ $NF write                                           # 批量写章（写完即�
 | 情节大纲 | `send`，payload 为 `stage:'outline'`、`target:{kind:'outline'}`、`range:{from,to}` | `gate` |
 | 拆细纲 | `projectAction generatePlots`，带 `range`、`confirmed:true` | 无（`confirmed` 表示调用次数已经报过） |
 | 批量写章 | `projectAction writeManuscripts`，带 `range`、`confirmed:true`、`mode:'finalize'`、`review:false` | 可能有一致性预检的 `confirm` |
-| 接着写 | `chapterAction`，带 `plotRelPath:'.novelforge/summaries/NNN-….md'`、`action:'continue'` | `gate` |
+| 接着写 | `chapterAction`，带 `plotRelPath:'.novelforge/summaries/<与正文相同的相对路径>.md'`、`action:'continue'` | `gate` |
 | 定稿 | `projectAction finalizeChapter`，带 `relPath:'chapters/NNN-….md'` | 无 |
 
 协议的权威定义在仓库的 `src/core/protocol/in.ts` / `out.ts`。主按钮的下一步在 `last-pipeline.json` 的 `next` 里；`nf.py next` 就是「按一下主按钮」。
@@ -73,7 +73,7 @@ $NF write                                           # 批量写章（写完即�
   - 写不到目标字数的八成。
   - 重演（开头与上一章结尾大段重合）。
 
-  `write` 的处理是：先找出没定稿的章；字数不到八成就按一次「接着写」；然后单章定稿；再从下一个缺口起下一批。**不定稿就往下写，后面章节拿不到它的连续性事实，前情也只是写之前的计划**。定稿与否以服务端为准：`summaries/NNN-….md` 那份细纲的 `sourceHash` 等于正文现在的 `contentHash` 才算定稿——细纲拆好之后这份文件就在，不能拿「文件在不在」来判断。
+  `write` 的处理是：先找出没定稿的章；字数不到八成就按一次「接着写」；然后单章定稿；再从下一个缺口起下一批。**不定稿就往下写，后面章节拿不到它的连续性事实，前情也只是写之前的计划**。定稿与否以服务端为准：正文镜像到 `summaries/` 下的那份细纲（相对路径相同、扩展名 `.md`，如 `summaries/第一卷/003-深处.md`）的 `sourceHash` 等于正文现在的 `contentHash` 才算定稿——细纲拆好之后这份文件就在，不能拿「文件在不在」来判断。
 - **一致性预检**：例如「某人已死亡，细纲仍安排出场」。脚本会选「仅本次忽略，照写」。这是内容问题，**要记下来写进最后的报告**：在 `log.txt` 里 grep `一致性预检`。
 - **服务重启或本机闪退**：
   - 驱动会自动重连。服务端的批量任务不随 WS 断开而停，重连后 `tasks.json` 里还能看到它。

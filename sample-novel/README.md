@@ -22,7 +22,7 @@ chapters/                    正文，NNN-标题.md。**唯一真相**：定稿�
 ├── style.md                 文风指南（写正文时必注入）
 ├── characters/              角色卡（frontmatter + 固定小节）——也就是角色图谱
 ├── lore/                    世界观设定条目（含 keywords，命中即注入）
-└── summaries/               细纲，一章一份，NNN-标题.md，细纲号 = 章号；外加全书滚动摘要 global.md
+└── summaries/               细纲，一章一份，与 chapters/ 里的正文相对路径相同（扩展名 .md），细纲号 = 章号；外加全书滚动摘要 global.md
     ├── 001-楔子.md              001–003 定稿过（sourceHash 对得上正文）
     ├── 002-客栈里的女人.md
     ├── 003-夜访.md
@@ -33,7 +33,7 @@ chapters/                    正文，NNN-标题.md。**唯一真相**：定稿�
 链路是一条轴：
 
 ```
-config / premise / characters / world → outline.md → summaries/NNN.md（细纲）→ chapters/NNN.md → 定稿反向更新同一份细纲
+config / premise / characters / world → outline.md → summaries/…/NNN.md（细纲）→ chapters/…/NNN.md（与细纲相对路径相同）→ 定稿反向更新同一份细纲
 ```
 
 格式细节（细纲的八个小节——示例里的「连续性事实」是占位、角色卡固定小节、frontmatter 字段）见根目录 [README.md](../README.md) 与 [../src/core/model/README.md](../src/core/model/README.md)。
