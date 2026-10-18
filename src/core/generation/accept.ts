@@ -15,9 +15,10 @@
  * 默默少建三张角色卡，作者要到写到那里才发现。
  */
 import { scoped } from '../runtime/logger';
-import { sanitizeFileName } from '../model/fs';
+import { sanitizeFileName, slugify, uniqueSlug } from '../model/fs';
 import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../model/project';
 import { isPlotFilled, parsePlotFileName, plotContentHash, plotFileName } from '../model/plotFile';
+import { createLoreLookup, normalizeLoreName } from '../model/loreFile';
 import { isOutlineFilled, mergeOutline, outlineOverlaps } from '../model/outlineFile';
 import { hasContent } from '../model/markdown';
 import { stampState } from '../model/characterState';
@@ -72,6 +73,21 @@ export async function plannedCards(project: NovelProject, artifact: Artifact): P
 
 function takenNames(cards: CharacterCard[]): Set<string> {
   return new Set(cards.flatMap((c) => [c.name, ...c.aliases, c.slug]));
+}
+
+/**
+ * 同 {@link plannedCards}：细纲带出的新设定（`settings` 里 `isNew` 的）落盘时会建哪几条空条目，
+ * 写入卡片上列出来（设定名录）。名字或关键词已被已有条目占了的、是角色卡上的人的，不建。
+ */
+export async function plannedLore(project: NovelProject, artifact: Artifact): Promise<string[]> {
+  if (artifact.kind !== 'plotBatch') {
+    return [];
+  }
+  const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
+  const lookup = createLoreLookup(entries);
+  const people = takenNames(cards);
+  const names = artifact.items.flatMap((b) => (b.settings ?? []).filter((s) => s.isNew).map((s) => s.name));
+  return [...new Set(names)].filter((name) => !lookup.find(name) && !people.has(name));
 }
 
 /**
@@ -393,15 +409,17 @@ export async function acceptPlotBatch(
     );
   }
   const cards = await createPlannedCards(project, ws, items);
+  const lore = await createPlannedLore(project, ws, items);
 
   const where = range.from === range.to ? `第 ${range.from} 章` : `第 ${range.from}–${range.to} 章`;
   const parts = [
     `已写入${where}的细纲 ${written.length} 份`,
     kept.length > 0 ? `保留原样的第 ${kept.join('、')} 章` : '',
     cards.length > 0 ? `新建角色卡：${cards.join('、')}` : '',
+    lore.length > 0 ? `新建设定条目：${lore.join('、')}` : '',
   ].filter(Boolean);
   log.info(`${where}的细纲已落盘`, parts.join('；'));
-  return written.length === 0 && cards.length === 0
+  return written.length === 0 && cards.length === 0 && lore.length === 0
     ? { skipped: true, message: `没有改动${where}的细纲。` }
     : { relPath: written[0], message: `${parts.join('，')}。` };
 }
@@ -439,6 +457,38 @@ async function createPlannedCards(project: NovelProject, ws: Workspace, items: B
   }
   if (created.length > 0) {
     log.info(`细纲里的新角色已建卡：${created.join('、')}`);
+  }
+  return created;
+}
+
+/**
+ * 蓝图里本章首次引入、后面还会用到的设定：直接建一条空条目（设定名录，同 D19 新角色建卡）。
+ * 名字或关键词已被已有条目占了的不动，是角色卡上的人的不建。
+ *
+ * 条目上只写得出这么多：标题、所在目录（就是分类，不存在就建）、一句话（蓝图里的 note）。正文留空，
+ * 等写到了、定稿过，再从名录里「整合」。
+ */
+async function createPlannedLore(project: NovelProject, ws: Workspace, items: BlueprintItem[]): Promise<string[]> {
+  const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
+  const lookup = createLoreLookup(entries);
+  const people = takenNames(cards);
+  const taken = new Set<string>();
+  const created: string[] = [];
+  for (const item of items) {
+    for (const s of item.settings ?? []) {
+      const key = normalizeLoreName(s.name);
+      if (!s.isNew || !key || taken.has(key) || lookup.find(s.name) || people.has(s.name)) {
+        continue;
+      }
+      taken.add(key);
+      const base = `${s.category ? `${s.category}/` : ''}${slugify(s.name)}`;
+      const slug = await uniqueSlug(project.loreDir, base);
+      await ws.writeLore({ slug, title: s.name, keywords: [s.name], brief: s.note, body: '' });
+      created.push(s.name);
+    }
+  }
+  if (created.length > 0) {
+    log.info(`细纲里的新设定已建条目：${created.join('、')}`);
   }
   return created;
 }

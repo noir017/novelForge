@@ -41,7 +41,8 @@ import {
   writeText,
 } from '../model/fs';
 import { Chapter, SummaryCast } from '../model/types';
-import { rewriteFrontmatter, stringifyFrontmatter } from '../model/markdown';
+import { replaceSection, rewriteFrontmatter, stringifyFrontmatter } from '../model/markdown';
+import { LoreLine, PLOT_LORE_KEY, renderLoreLines } from '../model/loreFile';
 import { setConfigParagraphStyle } from '../model/settingFile';
 import type { ParagraphStyle } from '../model/paragraphFormat';
 import { isMarkdownExt, isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
@@ -572,6 +573,24 @@ export class Workspace {
   }
 
   /**
+   * 单独记设定（设定名录）：只换掉这一章细纲的第九节「设定」，没有就加在末尾，另外八节与 frontmatter
+   * 一个字不动（`replaceSection`）。第九节不进内容指纹，所以这样补记不会让正文挂 ⟳。返回是否写了。
+   */
+  async patchPlotLore(plotRelPath: string, lines: readonly LoreLine[]): Promise<boolean> {
+    const abs = this.project.pathOf(plotRelPath);
+    const raw = await readTextIfExists(abs).catch(() => undefined);
+    if (raw === undefined) {
+      return false;
+    }
+    const next = replaceSection(raw, PLOT_LORE_KEY, renderLoreLines(lines));
+    if (next !== raw) {
+      await fs.writeFile(abs, next, 'utf8');
+      this.project.invalidate();
+    }
+    return true;
+  }
+
+  /**
    * 新建章节文件，返回工作区相对路径。
    *
    * `dir` 是工作区相对的落点目录（如 `chapters/第一卷`），缺省落在 chapters/ 根下。
@@ -698,7 +717,8 @@ export class Workspace {
   async finalizePlot(
     chapter: Chapter,
     sections: PlotSections,
-    cast: SummaryCast[]
+    cast: SummaryCast[],
+    lore?: LoreLine[]
   ): Promise<{ rel: string; trashed?: string }> {
     const current = await this.project.plotOfChapter(chapter);
     const title = isFallbackChapterTitle(chapter.order, chapter.title) ? '' : chapter.title;
@@ -711,6 +731,7 @@ export class Workspace {
       sections,
       cast,
       sourceHash: chapter.contentHash,
+      lore,
     });
 
     let trashed: string | undefined;

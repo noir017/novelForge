@@ -150,3 +150,88 @@ describe('细纲的第九节', () => {
     assert.ok(empty.includes('## 设定\n\n（无）'));
   });
 });
+
+describe('模型给的「设定」', () => {
+  test('对象、字符串、整段多行都认；同名只留一条', () => {
+    assert.deepEqual(
+      lf.loreLinesFromJson([
+        { name: '青崖镇', category: '地域', fact: '镇口设卡' },
+        { title: '过所', note: '出入凭证' },
+        '崖字令牌〔信物〕：不止一块',
+        { name: '「青崖镇」', fact: '重复的' },
+        { category: '没有名字' },
+        42,
+      ]),
+      [
+        { name: '青崖镇', category: '地域', note: '镇口设卡' },
+        { name: '过所', category: '', note: '出入凭证' },
+        { name: '崖字令牌', category: '信物', note: '不止一块' },
+      ]
+    );
+    assert.deepEqual(lf.loreLinesFromJson('- 后山〔地域〕\n- 黑市'), [
+      { name: '后山', category: '地域', note: '' },
+      { name: '黑市', category: '', note: '' },
+    ]);
+    assert.deepEqual(lf.loreLinesFromJson(undefined), []);
+  });
+
+  const TEXT = '林昭进了青崖镇。镇口的守卫查验过所，见了令牌就放行。停舟客栈是镇上唯一的客栈。';
+  const entries = [
+    { slug: '地域/青崖镇', title: '青崖镇', keywords: ['青崖'], category: '地域' },
+    { slug: '信物/崖字令牌', title: '崖字令牌', keywords: ['令牌'], category: '信物' },
+  ];
+
+  test('名字要逐字出现在正文里；人名不算；已有条目换成标题与实际目录', () => {
+    const r = lf.verifyLoreLines(
+      [
+        { name: '青崖', category: '地点', note: '' },
+        { name: '令牌', category: '物品', note: '' },
+        { name: '黑市', category: '地点', note: '' },
+        { name: '林昭', category: '人物', note: '' },
+        { name: '停舟客栈', category: '地域/青崖', note: '' },
+      ],
+      TEXT,
+      { entries, people: ['林昭'] }
+    );
+    assert.deepEqual(r.lines, [
+      { name: '青崖镇', category: '地域', note: '' },
+      { name: '崖字令牌', category: '信物', note: '' },
+      { name: '停舟客栈', category: '地域/青崖', note: '' },
+    ]);
+    assert.deepEqual(
+      r.dropped.map((d) => [d.name, d.why]),
+      [
+        ['黑市', '正文里没有这个名字'],
+        ['林昭', '是角色卡上的人'],
+      ]
+    );
+  });
+
+  test('说明要在正文里找得到依据，找不到清空说明、留下名字', () => {
+    const r = lf.verifyLoreLines(
+      [
+        { name: '停舟客栈', category: '', note: '镇上唯一的客栈' },
+        { name: '青崖镇', category: '', note: '建在海底的城市' },
+      ],
+      TEXT,
+      { entries, people: [] }
+    );
+    assert.deepEqual(r.lines, [
+      { name: '停舟客栈', category: '', note: '镇上唯一的客栈' },
+      { name: '青崖镇', category: '地域', note: '' },
+    ]);
+    assert.equal(r.cleared.length, 1);
+    assert.ok(r.cleared[0].why.includes('建在海底的城市'));
+  });
+
+  test('最多 12 行', () => {
+    const names = Array.from({ length: 15 }, (_, i) => `地名${String.fromCharCode(0x4e00 + i)}`);
+    const r = lf.verifyLoreLines(
+      names.map((name) => ({ name, category: '', note: '' })),
+      names.join('，'),
+      { entries: [], people: [] }
+    );
+    assert.equal(r.lines.length, lf.LORE_LINE_LIMITS.lines);
+    assert.equal(r.dropped.length, 3);
+  });
+});

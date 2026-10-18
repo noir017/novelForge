@@ -46,6 +46,7 @@ import {
   outputKindOf,
 } from '../model/pipeline';
 import { BLUEPRINT_LIMITS, sectionItems } from '../model/plotFile';
+import { LORE_LINE_LIMITS } from '../model/loreFile';
 import { OUTLINE_SECTION_MAX } from '../model/outlineFile';
 import {
   FrozenGoal,
@@ -1104,7 +1105,7 @@ export function blueprintJsonContract(range?: { from: number; to: number }): str
   const first = range?.from ?? 1;
   return [
     '【不可变细纲 JSON 合同】',
-    '只输出 {"blueprints":[...]}，每项必须完整包含：chapterNumber、title、synopsis、characters、timePlace、keyEvents、highlights、foreshadowing、stateChange；newCharacters 可选。',
+    '只输出 {"blueprints":[...]}，每项必须完整包含：chapterNumber、title、synopsis、characters、timePlace、keyEvents、highlights、foreshadowing、stateChange；newCharacters、settings 可选。',
     `${cover}；title、synopsis 必须是非空字符串，keyEvents 至少一条，characters 至少一人；timePlace、stateChange 没有就给 ""，highlights、foreshadowing 没有就给 []。`,
     `title 是这一章的标题（不超过 ${L.title} 字，不带「第N章」）。`,
     `synopsis 用 3–5 句话写清本章计划发生什么，写清因果链（不超过 ${L.synopsis} 字）。`,
@@ -1115,6 +1116,7 @@ export function blueprintJsonContract(range?: { from: number; to: number }): str
     `foreshadowing 是字符串数组，一条一句：本章计划埋下、留到后面回收的线索、疑问、承诺；没有就给 []，最多 ${L.listItems} 条。`,
     'stateChange 写本章之后，主要人物的处境、关系、实力、心态计划变成什么样。',
     'newCharacters 可选；只列由本章首次引入且预计后续还会出场的重要具名角色，每项 {"name":"…","role":"…","gender":"…"}，name 必须逐字复制 characters 中的一个完整姓名，role 只能是 protagonist、antagonist、supporting、minor，gender 写「男」或「女」；已经有角色卡的人、一次性路人都不要列。',
+    `settings 可选；本章计划用到或引入的有专名的设定（地点、势力与组织、物品、功法与能力、制度与规矩、历史事件、专有概念；人物不算，放 characters），每项 {"name":"…","category":"…","isNew":false,"note":"…"}，最多 8 项：「相关世界观设定」里已有的照抄它的名字、isNew 给 false，note 写本章用到它的哪一面（没有就给 ""）；本章首次引入、后面还会用到的新设定 isNew 给 true，note 一句话写清它是什么（${LORE_LINE_LIMITS.note} 字以内），category 从本书的设定分类里挑（可以写子分类，如「宗门/正道」）。`,
     '数组的元素里不要写编号或「-」。不得省略必填字段、合并章节、输出近义字段、解释、Markdown 或代码围栏。',
     `【精确 JSON 形状】{"blueprints":[{"chapterNumber":${first},"title":"…","synopsis":"…","characters":["…"],"timePlace":"…","keyEvents":["…"],"highlights":["…"],"foreshadowing":["…"],"stateChange":"…"}]}`,
   ].join('\n');

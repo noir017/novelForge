@@ -133,6 +133,22 @@ export const lore: LayerFn = async (a, spec) => {
   const continuation = a.request.step?.kind === 'continuation';
   const planning = a.request.action.stage === 'outline' || a.request.action.stage === 'plot';
 
+  // 规划时新引入的设定要归类：分类就是目录、每本书自己的，空目录也算，模型只能从这一行里知道有哪些。
+  if (planning) {
+    const categories = await a.project.listLoreCategories();
+    if (categories.length > 0) {
+      a.admit({
+        id: 'lore:categories',
+        kind: 'lore',
+        priority: spec.priority,
+        label: '设定 · 分类表',
+        source: a.project.relPath(a.project.loreDir),
+        text: `本书的设定分类：${categories.join('、')}（新设定的 category 从这里挑）。`,
+        note: '规划时新设定要归进哪一类',
+      });
+    }
+  }
+
   const picked = new Map<string, { entry: LoreEntry; full: boolean; reason: string }>();
   const pick = (entry: LoreEntry, full: boolean, reason: string): void => {
     if (!picked.has(entry.slug)) {

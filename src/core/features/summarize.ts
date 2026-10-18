@@ -17,6 +17,8 @@ import { describeTaskModels } from '../model/tiers';
 import { Chapter, SummaryCast } from '../model/types';
 import { ContinuityFact, attachEvidence, parseContinuityFacts, renderContinuityFacts } from '../model/continuity';
 import { sanitizeAliases } from '../model/naming';
+import { LoreLine, PLOT_LORE_KEY, loreLinesFromJson, parseLoreLines, renderLoreLines } from '../model/loreFile';
+import { checkLore, loreHint } from './loreRecord';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
 import { extractJsonObject, stripCodeFence, stripTrailingCommas } from './parse';
 import { GLOBAL_SYSTEM, REFINE_SYSTEM, STAGE_SYSTEM, SUMMARY_SYSTEM } from './summarizePrompt';
@@ -26,14 +28,16 @@ const log = scoped('定稿');
 const globalLog = scoped('全书摘要');
 
 /**
- * 定稿时模型交回来的结构化形态：八个小节 + 机器可读的出场人物清单。
+ * 定稿时模型交回来的结构化形态：八个小节 + 机器可读的出场人物清单 + 第九节「设定」（设定名录）。
  *
  * 模型被要求直接输出这个形状的 JSON。小节最终要渲染成人类可读的 Markdown（作者会翻、
- * 会手改），`cast` 则是给程序用的——出场统计、角色卡的关联都吃它。
+ * 会手改），`cast` 则是给程序用的——出场统计、角色卡的关联都吃它。`lore` 是模型给的原样，
+ * 写盘之前还要过一遍校验（features/loreRecord.ts 的 `checkLore`）。
  */
 export interface SummaryData {
   sections: PlotSections;
   cast: SummaryCast[];
+  lore: LoreLine[];
 }
 
 /**
@@ -120,12 +124,13 @@ export async function summarizeChapter(
   );
 
   // 把已有角色卡的名字告诉模型：cast 里的 name 要能跟角色卡对上，
-  // 「林昭」和「昭公子」各写一份会让角色页凭空多出一个人。
+  // 「林昭」和「昭公子」各写一份会让角色页凭空多出一个人。设定同理：分类表与这一章提到的已有设定。
   const known = await knownNamesHint(project);
+  const loreKnown = await loreHint(project, text, plan);
   const head = `第${chapter.order}章 ${chapter.title}`;
   const userPrompt = planText
-    ? `${known}请照下面这一章的正文，把它的当前细纲改成正文实际写成的样子。\n\n【${head} · 当前细纲】\n\n${planText}\n\n【${head} · 正文】\n\n${body}`
-    : `${known}请为下面这一章整理细纲。\n\n【${head}】\n\n${body}`;
+    ? `${known}${loreKnown}请照下面这一章的正文，把它的当前细纲改成正文实际写成的样子。\n\n【${head} · 当前细纲】\n\n${planText}\n\n【${head} · 正文】\n\n${body}`
+    : `${known}${loreKnown}请为下面这一章整理细纲。\n\n【${head}】\n\n${body}`;
   // 校准统计比的是「整个请求的输入」，因此估算也要含系统提示词，
   // 否则这条样本会系统性地偏低，把 tokenCounter 的比值带歪。
   const estimated = estimateTokens(system) + estimateTokens(userPrompt);
@@ -141,7 +146,7 @@ export async function summarizeChapter(
     { onUsage: (u) => mergeUsage(usage, u) }
   );
 
-  const { sections, cast } = parseSummaryResponse(raw);
+  const { sections, cast, lore: rawLore } = parseSummaryResponse(raw);
   if (!sections.梗概.trim() && !sections.关键事件.trim()) {
     log.error(
       `第 ${chapter.order} 章定稿解析失败：模型返回既不是 JSON 也不符合小节格式`,
@@ -178,7 +183,9 @@ export async function summarizeChapter(
       dropped.map((d) => `- ${d}`).join('\n')
     );
   }
-  const { rel: relPath, trashed } = await new Workspace(project).finalizePlot(chapter, sections, cast);
+  // 第九节「设定」：名字要逐字出现在正文里、说明要找得到依据、人名不算（不调模型）。
+  const lore = await checkLore(project, chapter, rawLore, text, cast.flatMap((c) => [c.name, ...c.aliases]));
+  const { rel: relPath, trashed } = await new Workspace(project).finalizePlot(chapter, sections, cast, lore);
   // 这一章好了：把它挂着的旧感叹号收掉（上次可能是超时/解析失败）。
   await clearFailures(project, 'chapter', chapter.relPath, 'summarize');
   // 批量同步一次要跑几十章，是最烧 token 的动作之一；有实测用量就记一笔，
@@ -189,22 +196,30 @@ export async function summarizeChapter(
     `第 ${chapter.order} 章《${chapter.title}》细纲已照正文更新`,
     `${relPath}｜耗时 ${elapsed(startedAt)}｜返回 ${raw.length} 字｜` +
       `出场 ${cast.length} 人${cast.length > 0 ? `（${cast.map((c) => c.name).join('、')}）` : ''}` +
-      `｜连续性事实 ${facts.length} 条` +
+      `｜连续性事实 ${facts.length} 条｜设定 ${lore.length} 条` +
       `${trashed ? `｜旧版已放进回收站：${trashed}` : '｜原来没有细纲，新建了一份'}` +
       `${usageNote ? `｜${usageNote}` : ''}`
   );
-  return { relPath, trashed, sections, cast, facts, dropped };
+  return { relPath, trashed, sections, cast, lore, facts, dropped };
 }
 
 /**
  * 当前细纲 → 发给模型的那一段（`## 小节` 一节一段）。一节都没填（只起了个头的空壳）给空串——
  * 那时照正文从头整理。连续性事实不给：那是上一次定稿从正文里摘的，证据要回原文逐字校验，
- * 这一次照样从正文重新摘，把旧的给它只会让它照抄已经对不上的句子。
+ * 这一次照样从正文重新摘，把旧的给它只会让它照抄已经对不上的句子。第九节「设定」给：那是计划用到的，
+ * 要改成实际出现的。
  */
 function renderPlanForPrompt(plan: Plot): string {
-  return PLOT_SECTION_KEYS.filter((key) => key !== '连续性事实' && plan.sections[key].trim())
-    .map((key) => `## ${key}\n${plan.sections[key].trim()}`)
-    .join('\n\n');
+  const sections = PLOT_SECTION_KEYS.filter((key) => key !== '连续性事实' && plan.sections[key].trim()).map(
+    (key) => `## ${key}\n${plan.sections[key].trim()}`
+  );
+  if (sections.length === 0) {
+    return '';
+  }
+  if (plan.lore?.length) {
+    sections.push(`## ${PLOT_LORE_KEY}\n${renderLoreLines(plan.lore)}`);
+  }
+  return sections.join('\n\n');
 }
 
 /**
@@ -761,7 +776,11 @@ export function parseSummaryResponse(raw: string): SummaryData {
   }
 
   const sections = parseSummarySections(cleaned);
-  return { sections, cast: castFromText(sections.出场人物) };
+  return {
+    sections,
+    cast: castFromText(sections.出场人物),
+    lore: parseLoreLines(pickSections(cleaned, [PLOT_LORE_KEY])[PLOT_LORE_KEY]),
+  };
 }
 
 /**
@@ -805,7 +824,7 @@ function parseSummaryJson(text: string): SummaryData | undefined {
   if (cast.length > 0) {
     sections.出场人物 = cast.map(renderCastEntry).join('、');
   }
-  return { sections, cast };
+  return { sections, cast, lore: loreLinesFromJson(obj[PLOT_LORE_KEY] ?? obj.settings) };
 }
 
 /**

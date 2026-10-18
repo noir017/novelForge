@@ -431,6 +431,8 @@ export interface SerializedArtifact {
   declined?: boolean;
   /** 写入时会新建的角色卡（D19：细纲里的新角色直接建卡，卡片上先列出来）。 */
   creates?: string[];
+  /** 写入时会新建的设定空条目（设定名录：细纲里本章首次引入的设定，同 D19）。 */
+  createsLore?: string[];
   /** 生成这一路上的降级与说明（截断重来、拆半重试、漏字段……，第 2 条）。 */
   notes?: string[];
   /** 这一轮一共调了几次模型。 */

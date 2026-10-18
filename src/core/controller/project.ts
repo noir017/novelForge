@@ -15,6 +15,7 @@ import {
 import { cleanCharacterAliases, mergeDuplicateCharacterCards } from '../features/characterMaintenance';
 import { extractCharacters, newCharacter, newLore } from '../features/characters';
 import { generateLore } from '../features/lore';
+import { recordLore } from '../features/loreRecord';
 import { completeSettings, generatePlots, writeManuscripts } from '../features/pipelineBatch';
 import { extractStyle } from '../features/style';
 import { importManuscript } from '../features/importManuscript';
@@ -143,6 +144,9 @@ export async function projectAction(
       break;
     case 'generateLore':
       await generateLore(c.project);
+      break;
+    case 'recordLore':
+      await recordLore(c.project, relPath);
       break;
     case 'extractStyle':
       await extractStyle(c.project);

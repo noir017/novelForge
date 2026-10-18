@@ -19,6 +19,7 @@
  * （作者定案：每本书的分类不一样）。不另设字段，作者把文件拖到别的目录就是改分类，不会出现
  * 「字段说 A、目录说 B」两份真相。第九节里的 `〔分类〕` 只是给还没建条目的名字定去向用的建议。
  */
+import { attachEvidence } from './continuity';
 import { hasContent } from './markdown';
 import type { LoreEntry } from './types';
 
@@ -212,4 +213,106 @@ export function loreMentionIn(text: string, entry: Pick<LoreEntry, 'title' | 'ke
 
 function oneLine(value: string): string {
   return (value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+// ---------------------------------------------------------------- 模型给的「设定」
+
+/**
+ * 模型输出里的「设定」字段 → 一行一条。写法五花八门都收（第 1 条）：
+ * `[{name, category, fact}]`（`title` / `note` / `说明` 也认）、`["名〔分类〕：说明"]`、整段多行字符串。
+ * 定稿、单独记设定、排细纲（`settings`）三处共用。
+ */
+export function loreLinesFromJson(value: unknown): LoreLine[] {
+  if (typeof value === 'string') {
+    return parseLoreLines(value);
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out: LoreLine[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    let line: LoreLine | undefined;
+    if (typeof item === 'string') {
+      line = parseLoreLines(item)[0];
+    } else if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+      const obj = item as Record<string, unknown>;
+      const text = (v: unknown): string => (typeof v === 'string' ? v : '');
+      line = clipLine({
+        name: text(obj.name ?? obj.title ?? obj.名称 ?? obj.名字),
+        category: text(obj.category ?? obj.分类),
+        note: text(obj.fact ?? obj.note ?? obj.说明 ?? obj.事实),
+      });
+    }
+    const key = line ? normalizeLoreName(line.name) : '';
+    if (!line || !key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(line);
+  }
+  return out;
+}
+
+/** 校验时丢掉或改动的一行，写进日志（第 2 条）。 */
+export interface LoreLineIssue {
+  name: string;
+  why: string;
+}
+
+/**
+ * 定稿与单独记设定写进第九节之前的校验，**不调模型**：
+ *
+ * - 名字（已有条目时它的标题或任一关键词）必须**逐字出现在正文里**，否则整行丢——第九节是名录的
+ *   唯一来源，模型编出来的名字会变成一条凭空的「未建条目」；
+ * - 是角色卡上的人（名字或别名）就丢：人不是设定；
+ * - 认得出已有条目的，名字换成条目的标题、分类换成条目所在的目录（已建条目以实际目录为准）；
+ * - 说明要在正文里找得到依据（与连续性事实同一套 `attachEvidence`），找不到就清空说明、留下名字；
+ * - 最多 {@link LORE_LINE_LIMITS}.lines 行。
+ */
+export function verifyLoreLines(
+  lines: readonly LoreLine[],
+  content: string,
+  known: { entries: readonly LoreEntry[]; people: readonly string[] }
+): { lines: LoreLine[]; dropped: LoreLineIssue[]; cleared: LoreLineIssue[] } {
+  const lookup = createLoreLookup(known.entries);
+  const people = new Set(known.people.map(normalizeLoreName).filter(Boolean));
+  const kept: LoreLine[] = [];
+  const seen = new Set<string>();
+  const dropped: LoreLineIssue[] = [];
+  const cleared: LoreLineIssue[] = [];
+  for (const raw of lines) {
+    const line = clipLine(raw);
+    const key = normalizeLoreName(line.name);
+    if (!key) {
+      continue;
+    }
+    if (people.has(key)) {
+      dropped.push({ name: line.name, why: '是角色卡上的人' });
+      continue;
+    }
+    const entry = lookup.find(line.name);
+    const words = entry ? [line.name, entry.title, ...entry.keywords] : [line.name];
+    if (!words.some((w) => w.trim() && content.includes(w.trim()))) {
+      dropped.push({ name: line.name, why: '正文里没有这个名字' });
+      continue;
+    }
+    const name = entry?.title ?? line.name;
+    const dedupe = normalizeLoreName(name);
+    if (seen.has(dedupe)) {
+      continue;
+    }
+    let note = line.note;
+    if (note && attachEvidence([note], content, words).facts.length === 0) {
+      cleared.push({ name, why: `说明在正文里找不到依据：${note}` });
+      note = '';
+    }
+    if (kept.length >= LORE_LINE_LIMITS.lines) {
+      dropped.push({ name, why: `超过 ${LORE_LINE_LIMITS.lines} 行` });
+      continue;
+    }
+    seen.add(dedupe);
+    kept.push({ name, category: entry ? entry.category : line.category, note });
+  }
+  return { lines: kept, dropped, cleared };
 }

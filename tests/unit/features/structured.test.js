@@ -84,6 +84,41 @@ describe('blueprint.ts · 细纲批次', () => {
     assert.equal(plot.title, '第1章标题');
   });
 
+  // 设定名录：settings 可选、宽松收；isNew 的随细纲建空条目，其余只进第九节。
+  test('settings：可选、宽松收，落盘成第九节；超过 8 条只留前 8 条', () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({ name: `地名${i}`, category: '地域' }));
+    const r = B.decodeBlueprints(JSON.stringify({
+      blueprints: [
+        item(1, { settings: [{ name: '古井', category: '地域/青崖', isNew: true, note: '镇北的枯井' }, '青崖镇〔地域〕'] }),
+        item(2),
+        item(3, { settings: many }),
+        item(4, { settings: '不是数组也不作废' }),
+      ],
+    }));
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.items[0].settings, [
+      { name: '古井', category: '地域/青崖', note: '镇北的枯井', isNew: true },
+      { name: '青崖镇', category: '地域', note: '', isNew: false },
+    ]);
+    assert.deepEqual(B.blueprintToPlot(r.items[0]).lore, [
+      { name: '古井', category: '地域/青崖', note: '镇北的枯井' },
+      { name: '青崖镇', category: '地域', note: '' },
+    ]);
+    assert.deepEqual(r.items[1].settings, []);
+    assert.equal(r.items[2].settings.length, 8);
+    assert.ok(r.warnings.some((w) => w.includes('第 3 章列了 10 条设定')), r.warnings.join('\n'));
+    assert.equal(r.items[3].settings.length, 1);
+    // 生成链交给气泡、采纳时重新解析的是规范化的那一份：settings 不能在这一步丢掉。
+    assert.deepEqual(B.decodeBlueprints(B.renderBlueprints(r.items)).items[0].settings, r.items[0].settings);
+  });
+
+  test('单章（落定 / 写细纲）也认 settings；没写就不带，落盘时沿用磁盘那份', () => {
+    const withLore = A.parsePlotStrict(JSON.stringify({ blueprints: [item(1, { settings: [{ name: '古井', category: '地域' }] })] }));
+    assert.deepEqual(withLore.lore, [{ name: '古井', category: '地域', note: '' }]);
+    const without = A.parsePlotStrict(JSON.stringify({ blueprints: [item(1)] }));
+    assert.equal(without.lore, undefined);
+  });
+
   // 过渡章没有新伏笔是常事：为一个空数组作废整批再调一次不划算。
   test('时间地点 / 看点 / 新增伏笔 / 状态变更可以缺、可以空，形状写错了照收', () => {
     const { timePlace, highlights, foreshadowing, stateChange, ...bare } = item(1);

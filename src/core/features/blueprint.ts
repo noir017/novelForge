@@ -30,6 +30,7 @@
  */
 import { normalizeGender } from '../model/gender';
 import { BLUEPRINT_LIMITS } from '../model/plotFile';
+import { LoreLine, loreLinesFromJson } from '../model/loreFile';
 import type { PlotFields } from './artifact';
 import { parseJson, singleJsonObject } from './structuredJson';
 
@@ -51,6 +52,11 @@ export interface BlueprintItem {
   stateChange: string;
   /** 本章首次登场、后面还会出场的重要角色。名字一定在 `characters` 里；性别建卡时落进卡上。 */
   newCharacters: { name: string; role: string; gender?: string }[];
+  /**
+   * 本章计划用到或引入的设定（第九节「设定」，设定名录）。`isNew` 的是本章首次引入、后面还会用到的，
+   * 随细纲一起建空条目（同新角色建卡，D19）；`note` 一句话写它是什么。
+   */
+  settings: (LoreLine & { isNew: boolean })[];
 }
 
 export { BLUEPRINT_LIMITS };
@@ -298,6 +304,7 @@ export function decodeBlueprints(text: string): BlueprintDecode {
       foreshadowing: listField('foreshadowing', ['foreshadowing', '新增伏笔']),
       stateChange: loose('stateChange', ['stateChange', 'state_change', '状态变更'], BLUEPRINT_LIMITS.stateChange),
       newCharacters,
+      settings: blueprintSettings(pick(o, ['settings', 'lore', '设定']), no, warnings),
     });
   }
   return { ok: true, items, warnings };
@@ -377,8 +384,8 @@ export function checkCoverage(items: readonly BlueprintItem[], expected: readonl
 }
 
 /**
- * 一章蓝图 → 细纲的八节（落盘时用）。出场人物写成「林昭、沈氏」一行，关键事件、看点与新增伏笔
- * 一条一行（`- …`），与定稿写出来的样子一致；连续性事实计划时是空的。
+ * 一章蓝图 → 细纲的八节（落盘时用），外加第九节「设定」。出场人物写成「林昭、沈氏」一行，关键事件、
+ * 看点与新增伏笔一条一行（`- …`），与定稿写出来的样子一致；连续性事实计划时是空的。
  */
 export function blueprintToPlot(item: BlueprintItem): PlotFields {
   return {
@@ -393,7 +400,36 @@ export function blueprintToPlot(item: BlueprintItem): PlotFields {
       连续性事实: '',
     },
     title: item.title,
+    // 会话里存着的老草稿没有这个字段（第 1 条）。
+    lore: (item.settings ?? []).map(({ name, category, note }) => ({ name, category, note })),
   };
+}
+
+/** 一章最多计划几条设定。 */
+const BLUEPRINT_SETTINGS = 8;
+
+/**
+ * 蓝图的 `settings`（可选，宽松收）：写法与定稿的「设定」字段同一套（`loreLinesFromJson`），
+ * 外加 `isNew`。不是数组、没写都当没有，不让一个可选字段拖垮整批；超出 8 条只留前 8 条并说明。
+ */
+function blueprintSettings(raw: unknown, no: number, warnings: string[]): BlueprintItem['settings'] {
+  if (raw === undefined || raw === null) {
+    return [];
+  }
+  const lines = loreLinesFromJson(raw);
+  const flags = Array.isArray(raw) ? raw : [];
+  const out = lines.map((line) => {
+    const src = flags.find(
+      (x) => x && typeof x === 'object' && (x as Record<string, unknown>).name === line.name
+    ) as Record<string, unknown> | undefined;
+    const isNew = src?.isNew === true || src?.isNew === 'true' || src?.新 === true;
+    return { ...line, isNew };
+  });
+  if (out.length > BLUEPRINT_SETTINGS) {
+    warnings.push(`第 ${no} 章列了 ${out.length} 条设定，只留前 ${BLUEPRINT_SETTINGS} 条`);
+    out.length = BLUEPRINT_SETTINGS;
+  }
+  return out;
 }
 
 function listText(items: readonly string[]): string {
@@ -418,6 +454,7 @@ export function renderBlueprints(items: readonly BlueprintItem[]): string {
     foreshadowing: b.foreshadowing,
     stateChange: b.stateChange,
     ...(b.newCharacters.length > 0 ? { newCharacters: b.newCharacters } : {}),
+    ...(b.settings?.length ? { settings: b.settings.map(({ name, category, isNew, note }) => ({ name, category, isNew, note })) } : {}),
   }));
   return JSON.stringify({ blueprints }, null, 2);
 }

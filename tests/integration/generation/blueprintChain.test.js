@@ -106,6 +106,15 @@ function reply(messages) {
         foreshadowing: [],
         stateChange: '',
         ...(no === 4 ? { newCharacters: [{ name: '周老汉', role: 'minor' }] } : {}),
+        // 设定名录：第 4 章引入一口古井（新设定，建空条目），也用到青崖镇（不是新的，不建）。
+        ...(no === 4
+          ? {
+              settings: [
+                { name: '古井', category: '地域/青崖', isNew: true, note: '镇北废宅里的枯井' },
+                { name: '青崖镇', category: '地域', isNew: false, note: '' },
+              ],
+            }
+          : {}),
       });
     }
     return JSON.stringify({ blueprints });
@@ -283,6 +292,22 @@ describe('二期验收：一句话 → 前 5 章细纲', () => {
   test('细纲里的新角色建了卡，卡片上事先列出过', async () => {
     assert.ok((await project.listCharacters()).some((c) => c.name === '周老汉'));
     assert.ok(gates[5].detail.includes('会新建角色卡：周老汉'), gates[5].detail);
+  });
+
+  // 设定名录：新设定随细纲一起建空条目（同 D19），建在它的分类目录里，一句话取蓝图的 note；
+  // 用到的已有设定只记进第九节，不建。
+  test('细纲里的新设定建了空条目，卡片上事先列出过；第九节记下计划用到的设定', async () => {
+    const well = (await project.listLore()).find((e) => e.title === '古井');
+    assert.ok(well, '建了「古井」');
+    assert.equal(well.relPath, '.novelforge/lore/地域/青崖/古井.md');
+    assert.equal(well.category, '地域/青崖');
+    assert.equal(well.brief, '镇北废宅里的枯井');
+    assert.ok(!(await project.listLore()).some((e) => e.title === '青崖镇'));
+    assert.ok(gates[5].detail.includes('会新建设定条目：古井'), gates[5].detail);
+    assert.deepEqual((await project.getPlot(4)).lore, [
+      { name: '古井', category: '地域/青崖', note: '镇北废宅里的枯井' },
+      { name: '青崖镇', category: '地域', note: '' },
+    ]);
   });
 
   test('拆完细纲，主按钮转到「写第 1 章」', () => {

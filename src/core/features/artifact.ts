@@ -32,7 +32,7 @@
 import { normalizeGender } from '../model/gender';
 import { parseMarkdown, pickSections } from '../model/markdown';
 import { PLOT_SECTION_KEYS, PlotSections, emptyPlotSections } from '../model/plotFile';
-import type { LoreLine } from '../model/loreFile';
+import { LoreLine, loreLinesFromJson } from '../model/loreFile';
 import {
   BookConfig,
   NARRATIVE_POVS,
@@ -234,10 +234,13 @@ export function parsePlotStrict(text: string): PlotFields | undefined {
     // 语法合法但完全不相干的 JSON（`{"text":"..."}`）认下来会得到一份空细纲
     // **并且不再降级**，比解析失败更糟。
     if (Object.values(sections).some((v) => v.trim())) {
+      const settings = fromJson.settings ?? fromJson.设定;
       return {
         sections,
         title: clipTitle(str(fromJson.title ?? fromJson.标题)),
         targetWords: num(fromJson.targetWords ?? fromJson.目标字数),
+        // 第九节「设定」：合同里可选，没写就不带（落盘时沿用磁盘那份）。
+        ...(settings !== undefined ? { lore: loreLinesFromJson(settings) } : {}),
       };
     }
   }

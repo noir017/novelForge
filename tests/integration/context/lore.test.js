@@ -252,9 +252,13 @@ describe('排细纲', () => {
       config(1)
     );
     const items = loreItems(b);
+    // 规划时先给分类表：分类就是目录、每本书自己的，新设定要从这里挑。
+    const categories = items.find((i) => i.id === 'lore:categories');
+    // 目录按拼音排（listFolders 的 zh-Hans-CN 排序）。
+    assert.equal(categories.text, '本书的设定分类：地域、信物、杂项、宗门、宗门/正道（新设定的 category 从这里挑）。');
     // 精简：一句话最多 10 条。前两章（第 3、4 章只有第 3 章定稿）出现过的先占，
     // 其余按出现章数降序：青崖镇 2 章、后山已带、青云宗 1 章……
-    const lines = items.filter((i) => i.status === 'included');
+    const lines = items.filter((i) => i.status === 'included' && i.id !== 'lore:categories');
     assert.equal(lines.length, 10, items.map((i) => `${i.label}:${i.status}`).join(' '));
     assert.equal(lines[0].label, '设定 · 后山');
     assert.equal(lines[1].label, '设定 · 青崖镇');

@@ -3,7 +3,7 @@ import { basename } from 'node:path';
 import { describeArtifact } from '../features/artifact';
 import { describeOutlineRewrite, outlineRewritePlan, rewriteOutline } from '../features/outlineRewrite';
 import { confirmDespiteGap } from '../features/chapterGap';
-import { acceptArtifact as writeArtifact, plannedCards } from '../generation/accept';
+import { acceptArtifact as writeArtifact, plannedCards, plannedLore } from '../generation/accept';
 import { Draft, generate, parseDraftArtifact } from '../generation/generate';
 import { getHost } from '../host';
 import { askGate, askGateNoted, cancelGates } from './gate';
@@ -317,11 +317,13 @@ export async function runTurn(
     c.drafts.put(draft, c.current.id);
     c.current.drafts = c.drafts.bySession(c.current.id);
     const creates = await plannedCards(c.project, draft.artifact);
+    const createsLore = await plannedLore(c.project, draft.artifact);
     assistantTurn.artifact = {
       where: await describeTargetOf(c, draft.target, draft.range),
       summary: draft.summary ?? describeArtifact(draft.artifact),
       overwrites: await targetHasContent(c, action, draft.target, draft.range, draft.writeMode),
       ...(creates.length > 0 ? { creates } : {}),
+      ...(createsLore.length > 0 ? { createsLore } : {}),
       ...(draft.notes?.length ? { notes: draft.notes } : {}),
       ...(draft.calls ? { calls: draft.calls } : {}),
       ...writingOf(draft),
@@ -386,11 +388,13 @@ export async function describeArtifactOf(
     return undefined;
   }
   const creates = await plannedCards(c.project, artifact);
+  const createsLore = await plannedLore(c.project, artifact);
   return {
     where: await describeTargetOf(c, target, draft?.range),
     summary: describeArtifact(artifact),
     overwrites: await targetHasContent(c, action, target, draft?.range, draft?.writeMode),
     ...(creates.length > 0 ? { creates } : {}),
+    ...(createsLore.length > 0 ? { createsLore } : {}),
     ...(draft?.notes?.length ? { notes: draft.notes } : {}),
     ...(draft?.calls ? { calls: draft.calls } : {}),
     ...(draft ? writingOf(draft) : {}),
@@ -634,6 +638,9 @@ function artifactDetail(art: SerializedArtifact): string {
   }
   if (art.creates?.length) {
     lines.push(`会新建角色卡：${art.creates.join('、')}`);
+  }
+  if (art.createsLore?.length) {
+    lines.push(`会新建设定条目：${art.createsLore.join('、')}`);
   }
   if (art.overwrites) {
     lines.push('那里已经有内容了，写入前会让你先对比一遍。');
