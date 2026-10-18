@@ -29,6 +29,7 @@ import { Artifact, ChapterRange, LoreListEntry, PlotFields, RosterEntry } from '
 import { BlueprintItem, blueprintToPlot } from '../features/blueprint';
 import { unique } from '../features/parse';
 import { chapterTargetOf } from '../views/pipeline';
+import { buildLoreIndex } from '../views/lore';
 import { Workspace, pathOfTarget } from '../workspace';
 import { plotUpstreamHash } from '../workspace/handlers/plot';
 
@@ -305,10 +306,12 @@ async function acceptLoreList(
   const handled = new Set<string>();
   const fresh = new Set<string>();
   let first: string | undefined;
-  // 模型给的关键词过一遍：人名与别的条目（已有的、清单里同一批的）的标题不要（model/loreFile.ts）。
+  // 模型给的关键词过一遍：人名、别的条目（已有的、清单里同一批的）的标题、名录里另记着的名字都不要
+  // （model/loreFile.ts）。动笔之前名录是空的；写到一半再排清单时，定稿里记下的名字不能被一条吞掉。
   const others = {
     titles: [...entries.map((e) => e.title), ...artifact.entries.map((e) => e.title)],
     people: cards.flatMap((c) => [c.name, ...c.aliases]),
+    recorded: (await buildLoreIndex(project, { entries, cards }, { pending: false })).unknown.map((u) => u.name),
   };
 
   for (const entry of artifact.entries) {

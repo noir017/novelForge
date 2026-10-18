@@ -221,15 +221,20 @@ export function loreMentionIn(text: string, entry: Pick<LoreEntry, 'title' | 'ke
  * 机器写进条目的关键词过一遍（建条目、整合、设定清单）：**人名不要**（角色卡上的名字与别称——
  * 真跑时模型把「沈怀山」写成了「伪人」的关键词，写正文时一提到这个人就把「伪人」整条带进来），
  * **别的条目的标题不要**（「青羊镇」与「沈家老宅」互相写进对方的关键词，提到一个就命中两条），
- * 一个字的不要（子串命中会到处撞），与本条标题重复的去掉。作者手写的关键词不经过这里。
+ * **名录里另记着的名字不要**（`recorded`：定稿时单独记下、还没建条目的。「魔法体系」把「寒冰锁」收成
+ * 关键词，往后各章记下的「寒冰锁」都被认成「魔法体系」，它永远建不出自己的条目——旧的整本重扫就是
+ * 这样把几十个法术并进了一条），一个字的不要（子串命中会到处撞），与本条标题重复的去掉。
+ * 作者手写的关键词不经过这里：作者认定两个名字是同一个东西，自己加。
  */
 export function cleanLoreKeywords(
   title: string,
   keywords: readonly string[],
-  others: { titles: readonly string[]; people: readonly string[] }
+  others: { titles: readonly string[]; people: readonly string[]; recorded?: readonly string[] }
 ): string[] {
   const self = normalizeLoreName(title);
-  const banned = new Set([...others.titles, ...others.people].map(normalizeLoreName).filter((k) => k && k !== self));
+  const banned = new Set(
+    [...others.titles, ...others.people, ...(others.recorded ?? [])].map(normalizeLoreName).filter((k) => k && k !== self)
+  );
   const out: string[] = [];
   const seen = new Set<string>([self]);
   for (const raw of keywords) {

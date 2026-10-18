@@ -11,7 +11,7 @@
  */
 import { el as mk } from '../../dom';
 import type { MenuItem } from '../../globals';
-import { FINALIZE_CALLS, PLOT_STAGE_LABEL, describeCalls } from '../../protocol';
+import { FINALIZE_CALLS, LORE_ENTRY_CALLS, PLOT_STAGE_LABEL, describeCalls } from '../../protocol';
 import type {
   ArchitectureRow,
   CastConflictView,
@@ -569,7 +569,7 @@ function buildLoreRow(f: ProjectFile, depth: number, tree?: ProjectTree): HTMLEl
       { label: '打开', run: () => openPath(f.relPath) },
       { sep: true },
       {
-        label: `整合这一条（新增 ${stats.pending} 章，调用模型 1 次）`,
+        label: `整合这一条（新增 ${stats.pending} 章，${describeCalls(LORE_ENTRY_CALLS).replace(/（.*）$/, '')}）`,
         run: () => projectAction('integrateLore', f.relPath),
       },
       { sep: true },
@@ -668,7 +668,10 @@ function buildLoreUnfiledRow(u: LoreUnfiledEntry, loreRoot: string): HTMLElement
   const sub = u.category.replace(/^\/+|\/+$/g, '');
   const dir = sub ? `${loreRoot}/${sub}` : loreRoot;
   onContextMenu(row, () => [
-    { label: '建条目（调用模型 1 次）', run: () => projectAction('buildLore', undefined, undefined, u.name) },
+    {
+      label: `建条目（${describeCalls(LORE_ENTRY_CALLS).replace(/（.*）$/, '')}）`,
+      run: () => projectAction('buildLore', undefined, undefined, u.name),
+    },
     { label: '新建这条设定（空的，不调模型）', run: () => projectAction('newLore', undefined, dir, u.name) },
     { sep: true },
     ...baseMenuItems(),

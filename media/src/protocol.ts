@@ -158,6 +158,8 @@ export {
   // 审稿与修稿（五期）：章节条、报告卡上的调用次数与后端同一份。
   REVIEW_CALLS,
   REVISE_CALLS,
+  // 设定名录：建条目、整合这一条的右键菜单与后端确认框同一个数。
+  LORE_ENTRY_CALLS,
 } from '../../src/core/model/pipeline';
 
 /**

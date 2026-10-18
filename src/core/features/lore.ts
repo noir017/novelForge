@@ -11,6 +11,7 @@ import { describeError, elapsed, scoped } from '../runtime/logger';
 import { exists, hash, readText, sanitizeFileName, slugify, uniqueSlug } from '../model/fs';
 import { parseMarkdown, stripH1 } from '../model/markdown';
 import { describeTaskModels } from '../model/tiers';
+import { LORE_ENTRY_CALLS, describeCalls, loreEntryCalls } from '../model/pipeline';
 import { NovelProject, renderLoreEntry } from '../model/project';
 import { Plot, PLOT_SECTION_KEYS } from '../model/plotFile';
 import { parseContinuityFacts } from '../model/continuity';
@@ -127,7 +128,17 @@ function renderRecords(records: readonly LoreFact[]): string {
 
 // ---------------------------------------------------------------- 调模型
 
-async function draftEntry(pool: ModelPool, label: string, user: string, signal: AbortSignal): Promise<EntryDraft> {
+/**
+ * 要一条 `{brief, keywords, body}`。交回来的解析不了就这一条重来一次（{@link LORE_ENTRY_CALLS}，确认框里
+ * 报过上限），还不行才算失败。`onCall` 每调一次记一下：拆书补齐要报实际调了几次。
+ */
+async function draftEntry(
+  pool: ModelPool,
+  label: string,
+  user: string,
+  signal: AbortSignal,
+  onCall?: () => void
+): Promise<EntryDraft> {
   const budget = pool.primaryBudget;
   const options: StreamOptions = {
     maxOutputTokens: budget.maxOutputTokens,
@@ -135,22 +146,28 @@ async function draftEntry(pool: ModelPool, label: string, user: string, signal: 
     timeoutMs: readConfig().requestTimeoutMs,
     signal,
   };
-  const raw = await pool.run(label, (llm) =>
-    collectText(
-      llm.stream(
-        [
-          { role: 'system', content: LORE_ENTRY_SYSTEM },
-          { role: 'user', content: user },
-        ],
-        options
+  for (let attempt = 1; ; attempt++) {
+    onCall?.();
+    const raw = await pool.run(label, (llm) =>
+      collectText(
+        llm.stream(
+          [
+            { role: 'system', content: LORE_ENTRY_SYSTEM },
+            { role: 'user', content: user },
+          ],
+          options
+        )
       )
-    )
-  );
-  const draft = parseEntryDraft(raw);
-  if (!draft) {
-    throw new Error(`模型返回无法解析（${raw.length} 字）`);
+    );
+    const draft = parseEntryDraft(raw);
+    if (draft) {
+      return draft;
+    }
+    if (attempt >= LORE_ENTRY_CALLS.max || signal.aborted) {
+      throw new Error(`模型返回无法解析（${raw.length} 字${attempt > 1 ? `，重来了 ${attempt - 1} 次` : ''}）`);
+    }
+    log.warn(`${label}：模型返回无法解析（${raw.length} 字），这一条重来一次`);
   }
-  return draft;
 }
 
 /** `{brief, keywords, body}`；正文为空或不是 JSON 返回 undefined。正文里带了一级标题就剥掉。 */
@@ -193,7 +210,7 @@ function jsonObject(raw: string): Record<string, unknown> | undefined {
 
 /**
  * 给名录里「出现过 · 未建条目」的名字建条目。给了 `names` 就建那几个；没给就建**出现 ≥2 章**的全部。
- * 每条 1 次，原料是定稿细纲里提到它的记录（不重读正文），新文件建在它的分类目录里（不存在就建）。
+ * 每条 1 次（解析不了的重来一次），原料是定稿细纲里提到它的记录（不重读正文），新文件建在它的分类目录里（不存在就建）。
  */
 export async function buildLoreEntries(project: NovelProject, names?: readonly string[]): Promise<void> {
   const host = getHost();
@@ -214,7 +231,7 @@ export async function buildLoreEntries(project: NovelProject, names?: readonly s
   const n = targets.length;
   const lanes = Math.max(1, Math.min(config.concurrency, n));
   const picked = await host.confirm(
-    `建 ${n} 条设定：每条调用模型 1 次，共 ${n} 次。只读定稿过的细纲里提到它们的那几行，不重读正文。`,
+    `建 ${n} 条设定：${describeCalls(loreEntryCalls(n))}。只读定稿过的细纲里提到它们的那几行，不重读正文。`,
     ['开始建'],
     {
       modal: true,
@@ -252,9 +269,10 @@ export async function buildLoreEntries(project: NovelProject, names?: readonly s
 }
 
 /**
- * 建条目本身：**不问、不弹框**，调用方已经把条数与次数报过了（第 4 条）。每条 1 次，最多 `lanes` 条同时建；
- * 原料是定稿细纲里提到它的记录，水位记到 {@link integrationWatermark}。「建条目」与拆书「从已写正文补齐」
- * （features/derive.ts）共用。一条失败不连累别的，失败的写日志、计进 `failed`。
+ * 建条目本身：**不问、不弹框**，调用方已经把条数与次数报过了（第 4 条）。每条 1 次（解析不了的重来一次），
+ * 最多 `lanes` 条同时建；原料是定稿细纲里提到它的记录，水位记到 {@link integrationWatermark}。「建条目」与
+ * 拆书「从已写正文补齐」（features/derive.ts）共用。一条失败不连累别的，失败的写日志、计进 `failed`；
+ * `calls` 是实际调了几次。
  */
 export async function createLoreEntries(
   project: NovelProject,
@@ -265,16 +283,24 @@ export async function createLoreEntries(
     lanes: number;
     report: (p: { message?: string; current?: number; total?: number }) => void;
   }
-): Promise<{ created: number; failed: number }> {
+): Promise<{ created: number; failed: number; calls: number }> {
   const n = targets.length;
-  const [plots, through] = await Promise.all([
-    project.listChapters().then(async (chapters) => finalizedPlots(project.pairPlots(await project.listPlots(), chapters))),
+  const [allPlots, chapters, through] = await Promise.all([
+    project.listPlots(),
+    project.listChapters(),
     integrationWatermark(project),
   ]);
+  const plots = finalizedPlots(project.pairPlots(allPlots, chapters));
+  // 名录里另记着的名字都算，不只是这一批：建出来的关键词不收它们（model/loreFile.ts 的 cleanLoreKeywords）。
+  const { unknown } = await buildLoreIndex(project, { plots: allPlots }, { pending: false });
+  const recorded = unique([...targets.map((t) => t.name), ...unknown.map((u) => u.name)]);
   let created = 0;
   let failed = 0;
-  const siblings = targets.map((t) => t.name);
-  await runPool([...targets], opts.lanes, (u) => buildOne(project, u, plots, through, opts.pool, opts.signal, siblings), {
+  let calls = 0;
+  const onCall = (): void => {
+    calls++;
+  };
+  await runPool([...targets], opts.lanes, (u) => buildOne(project, u, plots, through, opts.pool, opts.signal, recorded, onCall), {
     signal: opts.signal,
     onSettled: (result, u, _i, done) => {
       if (result.status === 'fulfilled') {
@@ -287,7 +313,7 @@ export async function createLoreEntries(
     },
   });
   project.invalidate();
-  return { created, failed };
+  return { created, failed, calls };
 }
 
 async function buildOne(
@@ -297,7 +323,8 @@ async function buildOne(
   through: number,
   pool: ModelPool,
   signal: AbortSignal,
-  siblings: readonly string[]
+  recorded: readonly string[],
+  onCall: () => void
 ): Promise<void> {
   const records = recordsAbout(plots, [u.name], u.notes);
   const category = normalizeLoreCategory(u.category);
@@ -305,7 +332,8 @@ async function buildOne(
     pool,
     `设定「${u.name}」建条目`,
     `设定：${u.name}\n分类：${category || '未分类'}\n\n定稿细纲里关于它的记录（按章号）：\n${renderRecords(records)}`,
-    signal
+    signal,
+    onCall
   );
   if (signal.aborted) {
     return;
@@ -317,9 +345,10 @@ async function buildOne(
     return;
   }
   const keywords = cleanLoreKeywords(u.name, draft.keywords, {
-    // 同一批里一起建的那几个名字也算「别的条目」：它们这一刻还没有文件。
-    titles: [...entries.map((e) => e.title), ...siblings],
+    titles: entries.map((e) => e.title),
     people: cards.flatMap((c) => [c.name, ...c.aliases]),
+    // 同一批一起建的、名录里另记着的：这一刻还没有文件，但都是别的东西。
+    recorded,
   });
   const slug = await uniqueSlug(project.loreDir, `${category ? `${category}/` : ''}${slugify(u.name)}`);
   const relPath = await new Workspace(project).writeLore({
@@ -344,7 +373,8 @@ interface IntegratePlan {
 
 /**
  * 把条目水位之后、定稿过的新事实并进条目。给了 `relPaths` 就整合那几条；没给就是名录上挂 `＋N` 的全部。
- * 每条 1 次。水位推到 {@link integrationWatermark}，更晚的事实留到下次（它们照样作为尾巴带进上下文）。
+ * 每条 1 次（解析不了的重来一次）。水位推到 {@link integrationWatermark}，更晚的事实留到下次（它们照样作为
+ * 尾巴带进上下文）。
  */
 export async function integrateLore(project: NovelProject, relPaths?: readonly string[]): Promise<void> {
   const host = getHost();
@@ -372,7 +402,7 @@ export async function integrateLore(project: NovelProject, relPaths?: readonly s
   const lanes = Math.max(1, Math.min(config.concurrency, n));
   const buttons = authored < n ? ['逐条确认后开始', '机器写的直接采纳并开始'] : ['逐条确认后开始'];
   const picked = await host.confirm(
-    `整合 ${n} 条设定：每条调用模型 1 次，共 ${n} 次。把定稿里的新内容并进条目（整合到第 ${through} 章）。`,
+    `整合 ${n} 条设定：${describeCalls(loreEntryCalls(n))}。把定稿里的新内容并进条目（整合到第 ${through} 章）。`,
     buttons,
     {
       modal: true,
@@ -404,7 +434,8 @@ export async function integrateLore(project: NovelProject, relPaths?: readonly s
       let updated = 0;
       let skipped = 0;
       let failed = 0;
-      await runPool(plans, lanes, (p) => integrateOne(project, p, through, autoApply, pool, signal), {
+      const recorded = index.unknown.map((u) => u.name);
+      await runPool(plans, lanes, (p) => integrateOne(project, p, through, autoApply, pool, signal, recorded), {
         signal,
         onSettled: (result, p, _i, done) => {
           if (result.status === 'fulfilled') {
@@ -441,14 +472,15 @@ export async function integrateLore(project: NovelProject, relPaths?: readonly s
   );
 }
 
-/** 整合一条。返回是否写了。 */
+/** 整合一条。返回是否写了。`recorded` 是名录里另记着、还没建条目的名字（新关键词不收）。 */
 async function integrateOne(
   project: NovelProject,
   plan: IntegratePlan,
   through: number,
   autoApply: boolean,
   pool: ModelPool,
-  signal: AbortSignal
+  signal: AbortSignal,
+  recorded: readonly string[]
 ): Promise<boolean> {
   const { entry } = plan.record;
   const user = [
@@ -466,11 +498,12 @@ async function integrateOne(
   if (signal.aborted) {
     return false;
   }
-  // 已有的关键词原样留着（只增不减，可能是作者写的）；模型新给的过一遍人名与别的条目的标题。
+  // 已有的关键词原样留着（只增不减，可能是作者写的）；模型新给的过一遍人名、别的条目的标题与名录里另记着的名字。
   const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
   const fresh = cleanLoreKeywords(entry.title, draft.keywords, {
     titles: entries.filter((e) => e.slug !== entry.slug).map((e) => e.title),
     people: cards.flatMap((c) => [c.name, ...c.aliases]),
+    recorded,
   });
   const proposed = renderLoreEntry({
     slug: entry.slug,

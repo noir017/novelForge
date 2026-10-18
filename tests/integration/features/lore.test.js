@@ -8,6 +8,8 @@
  * | 整合只并水位之后、第一处没定稿的章之前的新事实 | 否则那一章日后定稿，它的事实永远进不了条目 |
  * | 机器写的可以直接采纳；作者改过的一律先对比 | 第 3 条：不静默覆盖 |
  * | 关键词只增不减，水位推到能推的地方 | 作者写的关键词不能被模型拿掉 |
+ * | 建条目、整合新收的关键词不收名录里另记着的名字 | 收了那个名字就再也建不出自己的条目（旧的整本重扫把几十个法术并进了「魔法体系」） |
+ * | 交回来的解析不了就这一条重来一次，还不行算失败、名字留在未建条目里；次数按上限报 | 旧的整本重扫解析不了的直接丢；第 4 条 |
  * | 整理：搬家清单先校验（认不出的条目、没建的目录、太深的目录不收），作者点头才搬，内容一字不改 | 作者定案：只搬不改 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -86,6 +88,7 @@ before(async () => {
     project: './src/core/model/project.ts',
     registry: './src/core/llm/registry.ts',
     lore: './src/core/features/lore.ts',
+    loreIndex: './src/core/views/lore.ts',
     db: './src/core/runtime/db.ts',
   });
   h = makeFakeHost({ supportsVscodeLm: true, settings: makeSettings({ concurrency: 1 }) });
@@ -102,7 +105,7 @@ before(async () => {
     [2, { lore: '- 停舟客栈〔地域〕\n- 青崖镇〔地域〕：镇口设卡', facts: '- 停舟客栈的二楼被烧了' }],
     [3, { lore: '- 青崖镇：七年前大火' }],
     [4, { lore: '- 青崖镇：城门重修', stale: true }],
-    [5, { lore: '- 青崖镇：新来了守军' }],
+    [5, { lore: '- 青崖镇：新来了守军\n- 城隍庙〔地域〕：镇北的庙' }],
   ]);
 });
 
@@ -115,7 +118,7 @@ describe('建条目', () => {
     entryReply = (messages) => {
       const user = messages[1].content;
       return user.includes('设定：停舟客栈')
-        ? ENTRY('镇上唯一的客栈', '## 概要\n\n镇上唯一的客栈。\n\n## 规则与边界\n\n（未交代）\n\n## 现状\n\n二楼被烧了。', ['停舟', '青崖镇'])
+        ? ENTRY('镇上唯一的客栈', '## 概要\n\n镇上唯一的客栈。\n\n## 规则与边界\n\n（未交代）\n\n## 现状\n\n二楼被烧了。', ['停舟', '青崖镇', '后山'])
         : ENTRY('镇外的后山', '## 概要\n\n镇外的后山。');
     };
     fake.reset();
@@ -124,9 +127,12 @@ describe('建条目', () => {
   });
 
   // 出现 2 章以上、还没建条目的：停舟客栈（第 1、2 章）与青崖镇（第 2–5 章）；后山只出现过一章，不建。
-  test('先报次数：只建出现 2 章以上的，每条 1 次', () => {
+  test('先报次数：只建出现 2 章以上的，每条 1 次，解析不了的重来一次', () => {
     const c = h.confirms[h.confirms.length - 1];
-    assert.match(c.message, /^建 2 条设定：每条调用模型 1 次，共 2 次。只读定稿过的细纲里提到它们的那几行，不重读正文。/);
+    assert.match(
+      c.message,
+      /^建 2 条设定：预计 2 次调用，最多 4 次（交回来的解析不了时这一条重来 1 次）。只读定稿过的细纲里提到它们的那几行，不重读正文。/
+    );
     assert.match(c.detail, /要建的：青崖镇、停舟客栈/);
     assert.equal(fake.callCount(), 2);
   });
@@ -146,6 +152,7 @@ describe('建条目', () => {
     assert.equal(inn.relPath, '.novelforge/lore/地域/青崖/停舟客栈.md');
     assert.equal(inn.brief, '镇上唯一的客栈');
     // 模型把同一批建的「青崖镇」也写成了关键词：别的条目的标题不收（会把那一条的命中抢过来）。
+    // 「后山」不在这一批（只出现过一章），但名录里单独记着它：也不收，否则它永远建不出自己的条目。
     assert.deepEqual(inn.keywords, ['停舟客栈', '停舟']);
     // 第 4 章定稿之后正文又改过：水位停在第 3 章。
     assert.equal(inn.updatedThrough, 3);
@@ -172,7 +179,8 @@ describe('整合', () => {
   });
 
   test('作者改过的条目：只能逐条确认；新事实只到第一处没定稿的章之前', async () => {
-    entryReply = () => ENTRY('偏僻小镇', '## 概要\n\n偏僻小镇。\n\n## 现状\n\n七年前遭过大火。', ['青崖镇', '镇子']);
+    entryReply = () =>
+      ENTRY('偏僻小镇', '## 概要\n\n偏僻小镇。\n\n## 现状\n\n七年前遭过大火。', ['青崖镇', '镇子', '城隍庙']);
     fake.reset();
     h.expect('逐条确认后开始');
     await bundle.lore.integrateLore(project, ['.novelforge/lore/地域/青崖镇.md']);
@@ -189,7 +197,8 @@ describe('整合', () => {
   test('采纳后：关键词只增不减，水位到第 3 章，正文换成机器写的并盖上指纹', async () => {
     project.invalidate();
     const town = (await project.listLore()).find((e) => e.title === '青崖镇');
-    // 作者写的「青崖」原样留着；模型给的「青崖镇」就是标题（匹配时本来就认标题），不重复收。
+    // 作者写的「青崖」原样留着；模型给的「青崖镇」就是标题（匹配时本来就认标题），不重复收；
+    // 「城隍庙」是第 5 章单独记下、还没建条目的名字，不收。
     assert.deepEqual(town.keywords, ['青崖', '镇子']);
     assert.equal(town.updatedThrough, 3);
     assert.ok(town.body.includes('七年前遭过大火'));
@@ -272,5 +281,37 @@ describe('按目录整理', () => {
     assert.match(plan.message, /新建 1 个目录/);
     assert.equal(t.has('.novelforge/lore/信物'), false);
     assert.match(h.toasts.map((x) => x.message ?? x).join('\n'), /1 条没搬/);
+  });
+});
+
+describe('模型返回解析不了', () => {
+  before(async () => {
+    t.write(CH(6), '# 第6章\n\n第6章的正文。\n');
+    await finalizeAll([[6, { lore: '- 黑水渡〔地域〕：镇外的渡口\n- 鬼市〔地域〕：夜里才开' }]]);
+  });
+
+  test('这一条重来一次，第二次解得出来就照常建', async () => {
+    let n = 0;
+    entryReply = () => (++n === 1 ? '这不是 JSON' : ENTRY('镇外的渡口', '## 概要\n\n镇外的渡口。'));
+    fake.reset();
+    h.expect('开始建');
+    await bundle.lore.buildLoreEntries(project, ['黑水渡']);
+    assert.match(h.confirms[h.confirms.length - 1].message, /^建 1 条设定：预计 1 次调用，最多 2 次/);
+    assert.equal(fake.callCount(), 2);
+    project.invalidate();
+    assert.ok((await project.listLore()).some((e) => e.title === '黑水渡'));
+  });
+
+  test('重来还不行才算失败：不建，名字留在「出现过 · 未建条目」里，下次还能建', async () => {
+    entryReply = () => '还是不是 JSON';
+    fake.reset();
+    h.toasts.length = 0;
+    h.expect('开始建');
+    await bundle.lore.buildLoreEntries(project, ['鬼市']);
+    assert.equal(fake.callCount(), 2, '最多 2 次，报过的上限');
+    assert.match(h.toasts.map((x) => x.message ?? x).join('\n'), /新建 0 条设定，失败 1 条/);
+    project.invalidate();
+    assert.ok(!(await project.listLore()).some((e) => e.title === '鬼市'));
+    assert.ok((await bundle.loreIndex.buildLoreIndex(project)).unknown.some((u) => u.name === '鬼市'));
   });
 });

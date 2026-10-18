@@ -58,6 +58,7 @@ import {
   SettingDoc,
   addCalls,
   describeCalls,
+  loreEntryCalls,
 } from '../model/pipeline';
 import { describeTaskModels } from '../model/tiers';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
@@ -179,7 +180,7 @@ interface DerivePlan {
   /** 要补的架构几件，按链路顺序。 */
   settings: SettingDoc[];
   cards?: CastCardsPlan & { min: number };
-  /** 要建的设定条目（还一条都没有时，名录里出现 ≥`min` 章的）。每条 1 次。 */
+  /** 要建的设定条目（还一条都没有时，名录里出现 ≥`min` 章的）。每条 1 次，解析不了的重来一次。 */
   lore?: { targets: UnfiledLore[]; min: number };
   /** 情节大纲每次整理的区间。 */
   outline: { from: number; to: number }[];
@@ -503,7 +504,7 @@ export function estimateOf(plan: Pick<DerivePlan, 'settings' | 'cards' | 'lore' 
     parts.push(doc === 'config' ? CONFIG_CALLS : doc === 'characters' ? EXACT_CALLS(plan.cards?.calls ?? 0) : ONE_CALL);
   }
   if (plan.lore) {
-    parts.push(EXACT_CALLS(plan.lore.targets.length));
+    parts.push(loreEntryCalls(plan.lore.targets.length));
   }
   if (plan.outline.length > 0) {
     parts.push(EXACT_CALLS(plan.outline.length));
@@ -548,7 +549,7 @@ function describePlan(plan: DerivePlan, through: number, config: ReturnType<type
     const names = plan.lore.targets.map((u) => u.name);
     lines.push(
       `设定条目：给${names.slice(0, 12).join('、')}${names.length > 12 ? `等 ${names.length} 条` : ''}建条目（细纲里出现 ${plan.lore.min} 章以上、还没有条目；` +
-        `只读定稿细纲里提到它们的那几行，${names.length} 次调用）。建卡之后认得出是人的不建，次数只会更少。`
+        `只读定稿细纲里提到它们的那几行，${describeCalls(loreEntryCalls(names.length))}）。建卡之后认得出是人的不建，次数只会更少。`
     );
   }
   if (plan.outline.length > 0) {
@@ -660,7 +661,7 @@ async function deriveLore(
     } else if (r.failed === 0) {
       await clearFailures(project, 'setting', key, 'deriveLore');
     }
-    return { calls: r.created + r.failed, created: r.created };
+    return { calls: r.calls, created: r.created };
   } catch (err) {
     if (!(err instanceof CancelledError || opts.signal.aborted)) {
       warn(`设定条目没建成（${describeError(err)}）`, '从已写正文补齐的其余几样照常补齐。');

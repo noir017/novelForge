@@ -806,6 +806,23 @@ export const REVISE_CALLS: CallEstimate = {
   why: `被输出上限截断时接着写，最多再续 ${REVISE_CONTINUE_ROUNDS} 轮`,
 };
 
+/**
+ * 建一条设定条目、整合一条（`features/lore.ts`）：1 次；交回来的解析不了时这一条重来 1 次——从前整本
+ * 重扫时解析不了的条目直接丢了，一次跑下来少了 7 条。
+ */
+export const LORE_ENTRY_CALLS: CallEstimate = {
+  low: 1,
+  high: 1,
+  max: 2,
+  why: '交回来的解析不了时这一条重来 1 次',
+};
+
+/** n 条设定各建（或整合）一次：{@link LORE_ENTRY_CALLS} 乘 n。 */
+export function loreEntryCalls(n: number): CallEstimate {
+  const { low, high, max, why } = LORE_ENTRY_CALLS;
+  return { low: n * low, high: n * high, max: n * max, why };
+}
+
 /** 角色图谱的人数上下限与详情每批几人（上游 `architecture.command.ts:719-721`）。 */
 export const ROSTER_MIN = 3;
 export const ROSTER_MAX = 8;

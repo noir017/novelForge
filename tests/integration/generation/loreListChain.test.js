@@ -258,3 +258,35 @@ describe('设定清单 · 调用次数封顶', () => {
     assert.ok(result.notes.some((n) => n.includes(`上限 ${P.LORE_LIST_CALLS_MAX}`)), result.notes.join('\n'));
   });
 });
+
+// 写到一半再排清单：定稿里单独记下的名字不能被清单里的一条收成关键词（收了它就再也建不出自己的条目）。
+describe('设定清单 · 名录里另记着的名字', () => {
+  before(async () => {
+    t.write('chapters/001-第1章.md', '# 第1章\n\n他抬手一道寒冰锁。\n');
+    project.invalidate();
+    const [ch] = await project.listChapters();
+    t.write(
+      '.novelforge/summaries/001-第1章.md',
+      `---\nno: 1\ntitle: 第1章\nsourceHash: ${ch.contentHash}\n---\n\n# 第1章 第1章\n\n## 设定\n\n- 寒冰锁〔法术〕：缚住对手的冰锁\n`
+    );
+    project.invalidate();
+    fake.reset([
+      {
+        text: JSON.stringify({
+          categories: ['法术'],
+          entries: [{ title: '魔法体系', category: '法术', keywords: ['寒冰锁', '施法'], brief: '这本书的魔法' }],
+        }),
+        stop: 'end',
+      },
+      { text: detailsOf('魔法体系'), stop: 'end' },
+    ]);
+    await generateLoreList();
+    project.invalidate();
+  });
+
+  test('「魔法体系」不收「寒冰锁」', async () => {
+    const magic = (await project.listLore()).find((e) => e.title === '魔法体系');
+    assert.ok(magic, JSON.stringify(posted.filter((m) => m.type === 'toast')));
+    assert.deepEqual(magic.keywords, ['魔法体系', '施法']);
+  });
+});

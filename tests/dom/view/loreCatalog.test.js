@@ -244,9 +244,9 @@ describe('名录的三件维护：补记、整合、按目录整理、建条目�
 
   test('有新内容的设定行：右键「整合这一条」发 integrateLore，带这一条的路径', () => {
     const items = ui.itemsOf(ui.rightClick(loreRow(ui, '青崖镇')));
-    assert.ok(items.includes('整合这一条（新增 3 章，调用模型 1 次）'), JSON.stringify(items));
+    assert.ok(items.includes('整合这一条（新增 3 章，预计 1 次调用，最多 2 次）'), JSON.stringify(items));
     ui.sent.length = 0;
-    ui.pick(ui.doc.querySelector('.ctx-menu'), '整合这一条（新增 3 章，调用模型 1 次）');
+    ui.pick(ui.doc.querySelector('.ctx-menu'), '整合这一条（新增 3 章，预计 1 次调用，最多 2 次）');
     const msg = ui.last('projectAction');
     assert.equal(msg?.action, 'integrateLore', JSON.stringify(ui.sent));
     assert.equal(msg.relPath, `${LORE}/地域/青崖镇.md`);
@@ -309,13 +309,13 @@ describe('「出现过 · 未建条目」', { skip: JSDOM_SKIP }, () => {
   // 这些名字还没有文件：没有类文件操作，只有建条目（调模型）与新建空条目（不调）。
   test('右键给「建条目」「新建这条设定」与刷新', () => {
     const items = ui.itemsOf(ui.rightClick(unfiledRow(ui, '黑水渡')));
-    assert.deepEqual(items, ['建条目（调用模型 1 次）', '新建这条设定（空的，不调模型）', '刷新'], JSON.stringify(items));
+    assert.deepEqual(items, ['建条目（预计 1 次调用，最多 2 次）', '新建这条设定（空的，不调模型）', '刷新'], JSON.stringify(items));
     ui.closeMenu();
   });
 
   test('「建条目」发 buildLore，带名字', () => {
     ui.sent.length = 0;
-    ui.pick(ui.rightClick(unfiledRow(ui, '黑水渡')), '建条目（调用模型 1 次）');
+    ui.pick(ui.rightClick(unfiledRow(ui, '黑水渡')), '建条目（预计 1 次调用，最多 2 次）');
     const msg = ui.last('projectAction');
     assert.equal(msg?.action, 'buildLore', JSON.stringify(ui.sent));
     assert.equal(msg.name, '黑水渡', JSON.stringify(msg));
