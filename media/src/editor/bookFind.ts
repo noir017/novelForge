@@ -585,12 +585,11 @@ function renderStatus(): void {
     const blockedFiles = result.files.filter((f) => dirty.has(f.path)).length;
     const isPreview = resultQuery?.replacement !== undefined;
     setStatus(resultStatus(result, isPreview ? pickedCount(result.files, excluded, dirty) : undefined, isPreview ? blockedFiles : 0));
-    if (result.error) {
-      p.status.title = result.error;
-    }
   } else {
     setStatus('');
   }
+  // 正则写错时，浏览器给的原因放在提示里。
+  p.status.title = result?.error && !waiting ? result.error : '';
 }
 
 function renderSummary(): void {

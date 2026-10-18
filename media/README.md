@@ -222,7 +222,8 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 - **放在哪（⚑）**：**压在侧栏上**，与 VS Code 的「搜索」视图一样——面板现造、挂进 `#wbSide`，侧栏挂 `bf-open`、`css/standalone/bookfind.css`
   把那几页 `.pane` 藏起来（页头任务条照常），编辑区一点都不挡：点一处，右边跳过去，左边的结果还在。不是遮罩、不进 `.modal-overlay`。
   点活动栏任一页签（document 上的 `click`，认 `.tabbar .tab`）、×、面板里任何一处的 `Esc` 收起（不删 DOM，结果、勾选、展开状态都留着）；
-  `Esc` 关掉时焦点还回打开之前的地方。换工程（`nf-workspace-reset`）清空。页面模板里没有它（`bookFind.test.js` 守着）。
+  `Esc` 关掉时焦点还回打开之前的地方。换工程（`nf-workspace-reset`）清空。页面模板里没有它（`bookFind.test.js` 守着）。专注模式藏起侧栏，
+  但开着的面板照常露出来（`body.nf-focus .wb-side.bf-open`，与查找条、历史版本抽屉同一个说法）；面板里的 `Esc` 不往上冒，先收面板、不退出专注。
 - **停顿再搜**：查找框的 `input`（组字中途不算，`compositionend` 再算）停顿 `BOOK_FIND_DEBOUNCE_MS`（300ms）才发 `bookFind`；开关、范围一换、
   查找框里按 `Enter` 当场发。新的一次发出去之前先 `cancelBookFind` 上一次并作废它的 requestId（`replace.ts` 的 `newRequestId` / `claimRequest`，
   回复是广播），「停止」同理。叫停**按请求认**：后端几个窗口共用一个 controller，不能「新的一次顶掉同一个 controller 上的上一次」。

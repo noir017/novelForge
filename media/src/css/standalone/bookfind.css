@@ -8,6 +8,11 @@
   display: none !important;
 }
 
+/* 专注模式（focus.css）藏起侧栏；作者自己开的全书查找照常露出来（与查找条、历史版本抽屉同一个说法）。 */
+body.nf-focus .wb-side.bf-open {
+  display: flex !important;
+}
+
 .bf-panel {
   display: flex;
   flex-direction: column;
