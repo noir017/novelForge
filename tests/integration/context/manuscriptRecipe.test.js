@@ -362,7 +362,7 @@ describe('正文配方 · 续写那几轮（精简配方）', () => {
   before(async () => {
     // 第 2 章的细纲定稿过、填上连续性事实：续写那几轮也要看见它（百章实验里续写写了一章的大半）。
     const s2 = path.join(t.dir, '.novelforge/summaries/002-客栈里的女人.md');
-    fs.writeFileSync(s2, fs.readFileSync(s2, 'utf8').replace(/(## 连续性事实\n\n)（待补充）/, '$1- 沈氏住进走廊尽头的房间'));
+    fs.writeFileSync(s2, fs.readFileSync(s2, 'utf8').replace(/(## 连续性事实\r?\n\r?\n)（待补充）/, '$1- 沈氏住进走廊尽头的房间'));
     project.invalidate();
     const base = { action: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT(4, '空匣') }, ask: ASK, targetWords: 1200 };
     b = await builderMod.buildContext(project, { ...base, step }, config);
