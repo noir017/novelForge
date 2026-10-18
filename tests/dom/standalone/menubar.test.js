@@ -1,5 +1,5 @@
 /**
- * 独立版标题栏「文件 / 编辑 / 帮助」：结构、点开、悬停切隔壁。
+ * 独立版标题栏「文件 / 编辑 / 视图 / 帮助」：结构、点开、悬停切隔壁。「视图」里那几项在 previewTabs.test.js。
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -16,14 +16,13 @@ describe('独立版标题栏菜单', { skip: JSDOM_SKIP }, () => {
     });
   });
 
-  test('有菜单栏和三个菜单按钮', () => {
+  test('有菜单栏和四个菜单按钮，「视图」在「编辑」与「帮助」之间', () => {
     const bar = ui.doc.getElementById('wbMenubar');
     assert.ok(bar);
     const btns = [...bar.querySelectorAll('.wb-menu-btn')];
-    assert.equal(btns.length, 3);
     assert.deepEqual(
       btns.map((b) => b.textContent),
-      ['文件', '编辑', '帮助']
+      ['文件', '编辑', '视图', '帮助']
     );
   });
 

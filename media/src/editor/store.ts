@@ -7,7 +7,7 @@
  * 把状态放这儿，方向就只剩 index → pane → store 一条。
  */
 import { announceEditorActive, projectStorageKey } from '../globals';
-import type { EditorFileView, InMessage } from '../protocol';
+import type { EditorFileView, EditorOpenIntent, InMessage } from '../protocol';
 import type { TextSelection } from './history';
 import type { CarriedDraft, OpenFile, PaneId } from './paneElements';
 
@@ -37,7 +37,8 @@ export interface Pane {
   isPreviewing(): boolean;
   hasDirty(): boolean;
   snapshot(): PaneSnapshot;
-  activate(path: string): void;
+  /** 切到这份文件（认下这一块、焦点进正文区）。`focus: false`：只换这一块显示的那份，不抢「当前这一块」与焦点。 */
+  activate(path: string, opts?: { focus?: boolean }): void;
   /** 关一个标签。有未保存的修改时先问「保存 / 不保存 / 取消」（`closing.ts`），所以可能过一会儿才关、或者不关。 */
   closeFile(path: string): void;
   /** 关掉这几份，不再问（`closing.ts` 已经问过了）。不在这块里的跳过。 */
@@ -48,7 +49,18 @@ export interface Pane {
    * 没开着这个文件时返回 false。
    */
   closeSilently(path: string): CarriedDraft | false;
-  upsertFile(incoming: EditorFileView, carried?: CarriedDraft): void;
+  /**
+   * 「移到另一侧」的搬出一半：不经后端，把这份文件连同未保存内容、撤销历史、冲突条、「磁盘上没了」、
+   * 光标一起交出来（`carried.local`），`view` 是它此刻的基线（不重读磁盘）。没开着时 undefined。
+   */
+  moveOut(path: string): { view: EditorFileView; carried: CarriedDraft } | undefined;
+  /**
+   * 收一份文件（`editorOpen`，或「移到另一侧」从另一块搬来）。`intent` 是打开请求上带的那两个标记，
+   * 后端原样带回：`preview` 开成临时标签（换掉这一块现有的临时标签），`replace` 没改过就在原位置换掉那一份。
+   */
+  upsertFile(incoming: EditorFileView, carried?: CarriedDraft, intent?: EditorOpenIntent): void;
+  /** 临时标签转正（双击标签、右键「固定」、关掉「单击打开为临时标签」）。不是临时的什么都不做。 */
+  pin(path: string): void;
   /**
    * **编辑区里唯一的程序改写入口**（缩进、成对标点、一键排版、全部替换、剪切 / 粘贴……都走它，
    * 不许直接写 `textarea.value`）。作用于这块区的**当前文件**。
@@ -104,7 +116,7 @@ export interface Pane {
 }
 
 export interface PaneSnapshot {
-  open: { path: string; hash: string; draft?: string }[];
+  open: { path: string; hash: string; draft?: string; preview?: boolean }[];
   active: string | null;
 }
 
@@ -129,13 +141,97 @@ export function registerPane(pane: Pane): Pane {
 let post: (msg: InMessage) => void = () => {};
 /** 草稿区没有打开的文件时，连同那条分隔条一起收起来。 */
 let draftResizer: HTMLElement | undefined;
+/** 第二块编辑区惰性创建：要往那里搬东西的模块（「移到另一侧」）经它拿，没有就现造。 */
+let makePane: (id: PaneId) => Pane = (id) => panes[id]!;
 
 export function bindStore(deps: {
   post: (msg: InMessage) => void;
   draftResizer: HTMLElement;
+  ensurePane?: (id: PaneId) => Pane;
 }): void {
   post = deps.post;
   draftResizer = deps.draftResizer;
+  if (deps.ensurePane) {
+    makePane = deps.ensurePane;
+  }
+}
+
+/** 另一块编辑区。`create`：第二块还没造出来时现造（往那边搬东西时）；否则没有就是 undefined。 */
+export function otherPane(pane: Pane, create = false): Pane | undefined {
+  const id: PaneId = pane.id === 'main' ? 'draft' : 'main';
+  return panes[id] ?? (create ? makePane(id) : undefined);
+}
+
+/** 两块编辑区里开着的全部文件（标签上同名的要放在一起比，见 `tabLabels.ts`）。 */
+export function allOpenFiles(): OpenFile[] {
+  return Object.values(panes).flatMap((p) => [...p.files.values()]);
+}
+
+/**
+ * 一块的文件开了 / 关了，另一块的标签可能要改写法（同名的区分目录）。开着的每一块都重画一遍标签
+ * （`Pane.refresh`：只画标签与状态栏，正文不动）。
+ */
+export function refreshOtherTabs(except: Pane): void {
+  for (const pane of Object.values(panes)) {
+    if (pane !== except) {
+      pane.refresh();
+    }
+  }
+}
+
+// ---------------------------------------------------------------- 最近关闭
+
+/** 最近关掉的标签，**按块记**（最新的在最后）。只记作者亲手关的（关标签、关闭其它……），搬家、换掉临时标签不算。 */
+export interface ClosedTab {
+  path: string;
+  pane: PaneId;
+  /** 关掉那一刻标签上写的名字（「▾」列表与右键菜单上说「重新打开 003-夜访」）。 */
+  title: string;
+}
+
+const CLOSED_LIMIT = 20;
+const closedTabs: ClosedTab[] = [];
+
+export function noteClosed(entry: ClosedTab): void {
+  forgetClosed(entry.path);
+  closedTabs.push(entry);
+  if (closedTabs.length > CLOSED_LIMIT) {
+    closedTabs.shift();
+  }
+}
+
+/** 又开着了（不论从哪条路）：从最近关闭里拿掉。 */
+export function forgetClosed(path: string): void {
+  const i = closedTabs.findIndex((c) => c.path === path);
+  if (i >= 0) {
+    closedTabs.splice(i, 1);
+  }
+}
+
+/** 这一块最近关掉的那一个。 */
+export function lastClosed(pane: PaneId): ClosedTab | undefined {
+  for (let i = closedTabs.length - 1; i >= 0; i--) {
+    if (closedTabs[i].pane === pane) {
+      return closedTabs[i];
+    }
+  }
+  return undefined;
+}
+
+/** 最近关掉的几个，新的在前。 */
+export function recentClosed(limit = 8): ClosedTab[] {
+  return closedTabs.slice(-limit).reverse();
+}
+
+/** 重新打开：开回它原来那一块（正常标签）。 */
+export function reopenClosed(entry: ClosedTab): void {
+  forgetClosed(entry.path);
+  post({ type: 'openEditor', path: entry.path, pane: entry.pane });
+}
+
+/** 换工程：上一个工程关掉的那些不再有意义。 */
+export function clearClosed(): void {
+  closedTabs.length = 0;
 }
 
 /** 发一条消息给后端（不在某一块编辑区里的模块用：保存、核对磁盘）。 */
@@ -247,13 +343,15 @@ export function restore(): void {
       continue;
     }
     pendingActive.set(paneId, typeof data.active === 'string' ? data.active : null);
-    for (const item of data.open as { path?: unknown; hash?: unknown; draft?: unknown }[]) {
+    for (const item of data.open as { path?: unknown; hash?: unknown; draft?: unknown; preview?: unknown }[]) {
       if (!item || typeof item.path !== 'string') {
         continue;
       }
+      // 临时标签记着（⚑）：刷新前斜体的那一个，刷新后还是它。标记只记在前端，不随打开请求发出去。
       pendingDrafts.set(item.path, {
         hash: typeof item.hash === 'string' ? item.hash : undefined,
         draft: typeof item.draft === 'string' ? item.draft : undefined,
+        preview: item.preview === true,
       });
       post({ type: 'openEditor', path: item.path, pane: paneId });
     }

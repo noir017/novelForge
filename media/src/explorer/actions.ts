@@ -85,8 +85,9 @@ export function openExternal(path: string): void {
   post({ type: 'openExternal', path });
 }
 
-export function openInEditor(path: string): void {
-  post({ type: 'openEditor', path });
+/** 打开进内置编辑器。`preview`：单击那一行开成临时标签（后端原样带回，编辑器的开关关着时当正常标签）。 */
+export function openInEditor(path: string, preview = false): void {
+  post({ type: 'openEditor', path, ...(preview ? { preview: true } : {}) });
 }
 
 export function copyPath(relPath: string): void {

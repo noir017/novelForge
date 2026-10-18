@@ -6,9 +6,9 @@
  *   没收到之前按缺省 `blank`。前端不改它——切换走标题栏「编辑 → 段落格式」发 `setParagraphStyle`，
  *   后端写完 `pushState`，新值随下一条 `state` 回来。
  * - **编辑器偏好**：按浏览器记、不进工程的开关，存 localStorage `novelforge.editor.prefs`（不按工程分键：
- *   这是作者的手感，不是这本书的设置）。两项：成对符号自动补全（缺省开）、自动保存（缺省关，见
- *   `autosave.ts`）。localStorage 不可写（隐私模式、jsdom 的 about:blank）时照样在内存里生效，只是刷新后
- *   回到缺省。
+ *   这是作者的手感，不是这本书的设置）。三项：成对符号自动补全（缺省开）、自动保存（缺省关，见
+ *   `autosave.ts`）、单击打开为临时标签（缺省开，标题栏「视图」菜单，见 `viewPrefs.ts`）。localStorage
+ *   不可写（隐私模式、jsdom 的 about:blank）时照样在内存里生效，只是刷新后回到缺省。
  */
 import { DEFAULT_PARAGRAPH_STYLE, isParagraphStyle } from '../protocol';
 import type { ParagraphStyle } from '../protocol';
@@ -19,6 +19,7 @@ const PREFS_KEY = 'novelforge.editor.prefs';
 interface EditorPrefs {
   autoPair: boolean;
   autoSave: boolean;
+  previewTabs: boolean;
 }
 
 let style: ParagraphStyle = DEFAULT_PARAGRAPH_STYLE;
@@ -46,6 +47,15 @@ export function autoSaveEnabled(): boolean {
 
 export function setAutoSave(on: boolean): void {
   setPref('autoSave', on);
+}
+
+/** 单击打开为临时标签（缺省开）。 */
+export function previewTabsEnabled(): boolean {
+  return prefs.previewTabs;
+}
+
+export function setPreviewTabs(on: boolean): void {
+  setPref('previewTabs', on);
 }
 
 function setPref(key: keyof EditorPrefs, on: boolean): void {
@@ -86,10 +96,10 @@ function take(value: unknown): void {
 function loadPrefs(): EditorPrefs {
   try {
     const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null') as Partial<EditorPrefs> | null;
-    // 自动保存只认明明白白的 true：缺省关，写坏了也当关。
-    return { autoPair: raw?.autoPair !== false, autoSave: raw?.autoSave === true };
+    // 自动保存只认明明白白的 true：缺省关，写坏了也当关。临时标签与成对符号缺省开，只认明明白白的 false。
+    return { autoPair: raw?.autoPair !== false, autoSave: raw?.autoSave === true, previewTabs: raw?.previewTabs !== false };
   } catch {
-    return { autoPair: true, autoSave: false };
+    return { autoPair: true, autoSave: false, previewTabs: true };
   }
 }
 

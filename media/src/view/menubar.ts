@@ -1,5 +1,5 @@
 /**
- * 独立版标题栏「文件 / 编辑 / 帮助」。没有 `#wbMenubar` 就直接 return（插件）。
+ * 独立版标题栏「文件 / 编辑 / 视图 / 帮助」。没有 `#wbMenubar` 就直接 return（插件）。
  *
  * 不复用右键菜单引擎：缺悬停切菜单和子菜单。
  */
@@ -19,6 +19,7 @@ import {
 } from './welcome';
 import { hasWorkspace, store, vscode } from './store';
 import { paragraphMenuEntries } from './paragraphMenu';
+import { viewMenuEntries } from './viewMenu';
 
 type MenuAction = string;
 
@@ -156,6 +157,10 @@ function entriesOf(key: string): MenuEntry[] {
       { label: 'sep' },
       { label: '退出', action: 'quit' },
     ];
+  }
+  if (key === 'view') {
+    // 「视图」整个由 viewMenu.ts 给（一组一个函数，之后的阶段往里加）。
+    return viewMenuEntries();
   }
   if (key === 'edit') {
     return [

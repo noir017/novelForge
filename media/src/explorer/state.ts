@@ -36,10 +36,16 @@ export const state: {
   clipboard: Clipboard | null;
   /** 当前选中行（点击或键盘焦点到达的行）。Ctrl+X/C/V 作用在它上面。 */
   selectedEntry: FsEntry | null;
+  /** 编辑器那边「在文件页中定位」的那一个（文件或目录），那一行标出来。 */
+  revealed: string | null;
+  /** 定位了、但那一行还没画出来（它所在的目录还在载入）：画出来那一次滚过去。 */
+  pendingScroll: string | null;
 } = {
   activeFile: null,
   clipboard: null,
   selectedEntry: null,
+  revealed: null,
+  pendingScroll: null,
 };
 
 export function parentOf(relPath: string): string {

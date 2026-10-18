@@ -71,6 +71,12 @@
   border-left-color: var(--vscode-focusBorder);
 }
 
+/* 编辑器那边「在文件页中定位」的那一行（文件或目录），直到下一次定位。 */
+.fx-row.fx-revealed {
+  outline: 1px dashed var(--vscode-focusBorder, rgba(128, 128, 128, 0.6));
+  outline-offset: -1px;
+}
+
 .fx-caret {
   flex: 0 0 12px;
   width: 12px;

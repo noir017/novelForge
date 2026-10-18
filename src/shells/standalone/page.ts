@@ -17,7 +17,7 @@ import {
  * 独立版的页面。
  *
  * pane 的 DOM 全部来自 [../shared/panes.ts](../shared/panes.ts)，与插件壳同一份；
- * 这里只剩**布局**——一套 VS Code 式工作台：标题栏（文件 / 编辑 / 帮助）+ 活动栏 + 侧栏 + 内置编辑器。
+ * 这里只剩**布局**——一套 VS Code 式工作台：标题栏（文件 / 编辑 / 视图 / 帮助）+ 活动栏 + 侧栏 + 内置编辑器。
  * 无工程时 body 带 `no-workspace`，编辑器区是 Get Started；工程名不写进首屏 HTML，
  * 由前端跟 `workspaces` 更新。
  * 布局本来就该按宿主分叉，内容不该。
@@ -60,6 +60,7 @@ export function standalonePage(root?: string, version = '0.0.0'): string {
   <nav class="wb-menubar" id="wbMenubar">
     <button type="button" class="wb-menu-btn" data-menu="file">文件</button>
     <button type="button" class="wb-menu-btn" data-menu="edit">编辑</button>
+    <button type="button" class="wb-menu-btn" data-menu="view">视图</button>
     <button type="button" class="wb-menu-btn" data-menu="help">帮助</button>
   </nav>
   <span class="wb-title-text" id="wbTitleText">Novel Forge</span>

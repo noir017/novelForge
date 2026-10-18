@@ -6,7 +6,7 @@
  * 收在这里，pane.ts 就只关心行为。
  */
 import { byId, el, spacer } from '../dom';
-import type { ArtifactKind, EditorPane } from '../protocol';
+import type { ArtifactKind, EditorFileLabel, EditorPane } from '../protocol';
 import type { EditHistory } from './history';
 
 /** 一块编辑区里所有需要操作的节点。 */
@@ -52,6 +52,17 @@ export interface OpenFile {
    * `isProse`），其余是角色卡、细纲、设定等。后端没给（没打开工程、旧数据）时当非正文。
    */
   kind?: ArtifactKind;
+  /**
+   * 标签与工具栏上怎么称呼它（后端 `views/editorLabel.ts` 算的：类型短标记、去掉扩展名的名字、面包屑）。
+   * 没给（没打开工程）时标签写文件名、工具栏写原始路径。
+   */
+  label?: EditorFileLabel;
+  /**
+   * 临时标签（单击打开的，名字斜体）：每块编辑区最多一个，下一次单击打开别的文件时它的位置被换掉。
+   * 编辑、保存、双击标签、在工程页 / 文件页双击那一行、「固定」，或被别的路子正常打开一次，就转正。
+   * **有未保存修改的标签永远不是临时的**（一改就转正），所以换掉它从来不会丢字。
+   */
+  preview?: boolean;
   caret: number;
   scrollTop: number;
   /**
@@ -81,6 +92,11 @@ export interface Conflict {
  *
  * `history` / `historyText`：搬家时连撤销历史一起带上（刷新恢复没有）。只有接上之后的内容与
  * 搬走时（`historyText`）一字不差才接——否则那份差异对不上位置。
+ *
+ * `preview`：搬走时是不是临时标签（刷新恢复、改名搬家时照旧）。
+ *
+ * `local`：标签右键「移到另一侧」——就在页面里从一块搬到另一块，接手的那一块收到的文件就是搬走时的
+ * 基线（不经后端重读），所以连冲突条、见过的磁盘新版、「磁盘上没了」与光标位置一起接上。
  */
 export interface CarriedDraft {
   hash?: string;
@@ -88,6 +104,13 @@ export interface CarriedDraft {
   moved?: boolean;
   history?: EditHistory;
   historyText?: string;
+  preview?: boolean;
+  local?: boolean;
+  gone?: boolean;
+  conflict?: { text: string; hash: string; reopen?: boolean };
+  diskSeen?: string;
+  caret?: number;
+  scrollTop?: number;
 }
 
 /** 从页面上固定的 id 收集主区的节点引用。 */

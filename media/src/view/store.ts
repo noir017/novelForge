@@ -81,8 +81,15 @@ export function persistDraft(): void {
  */
 const hasBuiltInEditor = !!document.getElementById('wbEditor');
 
-export function openPath(path: string): void {
-  if (path) {
-    vscode.postMessage({ type: hasBuiltInEditor ? 'openEditor' : 'openFile', path });
+export function openPath(path: string, opts?: { preview?: boolean }): void {
+  if (!path) {
+    return;
   }
+  // 单击工程页的一行：内置编辑器里开成临时标签（`preview`，后端原样带回，编辑器的开关关着时当正常标签）。
+  // 插件那边 openFile 开的是 VS Code 自己的编辑器，它有自己的预览规矩，不带这个标记。
+  vscode.postMessage(
+    hasBuiltInEditor
+      ? { type: 'openEditor', path, ...(opts?.preview ? { preview: true } : {}) }
+      : { type: 'openFile', path }
+  );
 }

@@ -61,16 +61,21 @@ export function renderDir(relPath: string, depth: number): HTMLElement[] {
   return rows;
 }
 
-/** 一行的公共骨架：缩进 + 可聚焦（Ctrl+X/C/V 的作用对象）。 */
-function baseRow(depth: number): HTMLDivElement {
+/** 一行的公共骨架：缩进 + 可聚焦（Ctrl+X/C/V 的作用对象）。`path` 给「定位」认行用。 */
+function baseRow(depth: number, path?: string): HTMLDivElement {
   const row = el('div', 'fx-row');
   row.style.paddingLeft = `${INDENT_BASE + depth * INDENT_STEP}px`;
   row.tabIndex = 0;
+  if (path !== undefined) {
+    row.dataset.path = path;
+    // 编辑器那边点了「在文件页中定位」的那一行：标出来，直到下一次定位。
+    row.classList.toggle('fx-revealed', state.revealed === path);
+  }
   return row;
 }
 
 function dirRow(entry: FsEntry, depth: number): HTMLElement {
-  const row = baseRow(depth);
+  const row = baseRow(depth, entry.relPath);
   row.classList.add('fx-dir');
   const open = openDirs.has(entry.relPath);
 
@@ -106,7 +111,7 @@ function dirRow(entry: FsEntry, depth: number): HTMLElement {
 }
 
 function fileRow(entry: FsEntry, depth: number): HTMLElement {
-  const row = baseRow(depth);
+  const row = baseRow(depth, entry.relPath);
   row.classList.add('fx-file');
   if (entry.relPath === state.activeFile) {
     row.classList.add('active');
@@ -132,9 +137,11 @@ function fileRow(entry: FsEntry, depth: number): HTMLElement {
   row.addEventListener('focus', () => {
     state.selectedEntry = entry;
   });
-  row.addEventListener('click', () => {
+  // 单击开成临时标签（下一次单击别的文件换掉它）；双击（第二下点击）开成正常标签，临时的就此转正。
+  // 按这一下的点击次数认：第一下打开之后整棵树会因为高亮换了而重画，dblclick 不一定落在同一个元素上。
+  row.addEventListener('click', (e) => {
     state.selectedEntry = entry;
-    openEntry(entry);
+    openEntry(entry, e.detail < 2);
   });
 
   onContextMenu(row, () => [
@@ -174,9 +181,9 @@ function clipboardItems(entry: FsEntry): MenuItem[] {
  * 「能不能编辑」由后端算好（与 fileEditing.ts 同一份规则），
  * 前端不复刻扩展名白名单，也就不会去撞一个必然失败的 openEditor。
  */
-function openEntry(entry: FsEntry): void {
+function openEntry(entry: FsEntry, preview = false): void {
   if (entry.editable) {
-    openInEditor(entry.relPath);
+    openInEditor(entry.relPath, preview);
   } else {
     openExternal(entry.relPath);
   }

@@ -12,8 +12,8 @@
  * 从错的那块保存时用错 baseHash，触发假冲突。
  *
  * 协议：
- *   发 openEditor{path,pane} / openDraft{path} / saveFile / reloadFile / openExternal / checkEditorFiles
- *   收 editorOpen{file,pane} / editorSaved / editorConflict / editorError / editorDiskChanged / editorDiskGone
+ *   发 openEditor{path,pane,preview?,replace?} / openDraft{path} / saveFile / reloadFile / openExternal / checkEditorFiles
+ *   收 editorOpen{file,pane,preview?,replace?} / editorSaved / editorConflict / editorError / editorDiskChanged / editorDiskGone
  *   （核对磁盘那三条——checkEditorFiles / editorDiskChanged / editorDiskGone——由 diskSync.ts 收发）
  */
 import { maybeById } from '../dom';
@@ -29,6 +29,7 @@ import { installQuickOpen } from './quickOpen';
 import { installEditorReplace } from './replace';
 import { installSaveSafety } from './safety';
 import { installVersions } from './versions';
+import { installViewPrefs } from './viewPrefs';
 import { createPaneElements, mainRefs } from './paneElements';
 import type { CarriedDraft } from './paneElements';
 import {
@@ -43,6 +44,7 @@ import {
   announceActive,
   bindStore,
   cancelScheduledPersist,
+  clearClosed,
   paneOwning,
   panes,
   pendingActive,
@@ -65,7 +67,8 @@ function start(stage: HTMLElement): void {
   const vscode = acquireApi();
   const post = vscode.postMessage.bind(vscode);
   const shell = collectShell();
-  bindStore({ post, draftResizer: shell.draftResizer });
+  // ensurePane：「移到另一侧」往第二块搬东西时，它还没造出来就现造。
+  bindStore({ post, draftResizer: shell.draftResizer, ensurePane: (id) => (id === 'draft' ? ensureDraftPane() : panes.main!) });
   // 回车、成对符号、段落快捷键、一键排版。要在造编辑区之前装：「排版」按钮挂在第一次重画上。
   installParagraphTools();
   // 不丢稿：磁盘改动同步到已开的标签、保存状态、自动保存（safety.ts）。
@@ -78,6 +81,8 @@ function start(stage: HTMLElement): void {
   setActivePane(registerPane(createPane('main', mainRefs(stage), post)));
   // 正开着某一章的正文或细纲时，主区顶上那一条（W6 章节工作台）。
   installChapterBar(stage, post);
+  // 标题栏「视图」菜单的编辑器那一半（单击打开为临时标签）。
+  installViewPrefs();
   // 查找替换（Ctrl+F / Ctrl+H / F3、「编辑」菜单的查找 / 替换）。
   installFind();
 
@@ -152,6 +157,7 @@ function start(stage: HTMLElement): void {
     cancelScheduledPersist();
     pendingDrafts.clear();
     pendingActive.clear();
+    clearClosed();
     for (const pane of Object.values(panes)) {
       for (const path of [...pane.files.keys()]) {
         pane.closeSilently(path);
@@ -190,7 +196,8 @@ function start(stage: HTMLElement): void {
     if (!pane || !file) {
       return;
     }
-    const carry: CarriedDraft = { history: file.history, historyText: file.draft };
+    // 临时标签改了名还是临时的（单击打开、没动过它）。
+    const carry: CarriedDraft = { history: file.history, historyText: file.draft, preview: !!file.preview };
     if (file.draft !== file.text) {
       Object.assign(carry, { hash: file.hash, draft: file.draft, moved: true });
     }
@@ -222,7 +229,8 @@ function start(stage: HTMLElement): void {
         // 先认下当前这一块，再收文件：upsertFile 末尾会广播「正在编辑哪个
         // 文件」，那句读的是 activePane，顺序反了会报出上一块的文件。
         setActivePane(target);
-        target.upsertFile(msg.file, carried);
+        // 临时标签 / 原位换掉：打开请求上带的标记，后端原样带回。
+        target.upsertFile(msg.file, carried, { preview: msg.preview, replace: msg.replace });
         syncDraftVisibility();
         revealEditor();
         break;

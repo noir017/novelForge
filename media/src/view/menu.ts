@@ -85,10 +85,10 @@ export function buildMenuElement(items: MenuItem[], className: string): HTMLElem
  * 右键可能发生在任何容器里（含内部滚动的工程页），跟着容器走会被裁掉。
  * 贴近右/下边缘时向左/向上翻转，不让菜单掉出屏幕。
  */
-function showContextMenu(items: MenuItem[], x: number, y: number): void {
+function showContextMenu(items: MenuItem[], x: number, y: number): HTMLElement | undefined {
   closeMenu();
   if (items.length === 0) {
-    return;
+    return undefined;
   }
 
   const menu = buildMenuElement(items, 'ctx-menu');
@@ -104,6 +104,7 @@ function showContextMenu(items: MenuItem[], x: number, y: number): void {
   const vh = window.innerHeight || 0;
   menu.style.left = `${w > 0 && x + w > vw ? Math.max(0, x - w) : x}px`;
   menu.style.top = `${h > 0 && y + h > vh ? Math.max(0, y - h) : y}px`;
+  return menu;
 }
 
 /** 贴着某个按钮弹出的 ⋯ 菜单。挂在按钮的容器里，跟着气泡一起滚。 */
@@ -156,6 +157,8 @@ function resolveMenuItems(target: EventTarget | null): MenuItem[] | null {
  */
 export function installMenus(fallback: () => MenuItem[]): void {
   window.__nfContextMenu = onContextMenu;
+  // 编辑器标签条末尾的「▾」：不是右键，但弹的是同一种菜单（同时只有一个、点别处收起）。
+  window.__nfShowMenu = showContextMenu;
 
   /** 副键（右键 / 触控板双指点击 / 长按）。主键与中键不接管。 */
   const isSecondary = (e: MouseEvent): boolean => e.button === 2;

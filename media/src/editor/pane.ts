@@ -16,11 +16,15 @@
  * `file.draft` 与 textarea 的当前值求差异记账；程序改写一律走 `applyEdit`；Ctrl+Z / Ctrl+Y /
  * Ctrl+Shift+Z 与 `beforeinput` 的 `historyUndo` / `historyRedo` 都拦下来走自己的，原生撤销不用。
  * 输入法组字期间不记，`compositionend` 之后整段记一步。
+ *
+ * **标签**：名字与短标记来自后端（`OpenFile.label`），同名的加区分目录（`tabLabels.ts`）；标签条的滚动与
+ * 「▾」在 `tabStrip.ts`，右键菜单里关闭类之后的那几项（移到另一侧、定位、复制路径、重新打开、固定）在
+ * `tabMenu.ts`。**临时标签**（`OpenFile.preview`）的规矩都在 `upsertFile` / `slotFor` 与几处转正的地方。
  */
 import { setHidden } from '../dom';
 import { onContextMenu, toast } from '../globals';
 import type { MenuItem } from '../globals';
-import type { EditorFileView, InMessage } from '../protocol';
+import type { EditorFileView, EditorOpenIntent, InMessage } from '../protocol';
 import { locateQuote } from '../protocol';
 import {
   clampSelection,
@@ -30,6 +34,7 @@ import {
   runKeyHandlers,
 } from './api';
 import type { EditSource } from './api';
+import { renderBreadcrumb } from './breadcrumb';
 import { areaCopy, areaCut, areaPaste } from './clipboard';
 import { requestClose } from './closing';
 import { askDialog } from './dialog';
@@ -37,6 +42,7 @@ import { scrollToOffset } from './highlight';
 import { EditHistory, diffText } from './history';
 import type { TextChange, TextSelection } from './history';
 import { indentLines, outdentLines } from './indent';
+import { previewTabsEnabled } from './paragraphState';
 import type { CarriedDraft, OpenFile, PaneId, PaneRefs } from './paneElements';
 import { renderPreview } from './preview';
 import {
@@ -53,15 +59,23 @@ import {
 } from './saving';
 import {
   activePane,
+  allOpenFiles,
   announceActive,
+  forgetClosed,
+  noteClosed,
   pendingActive,
   pendingDrafts,
   persist,
+  refreshOtherTabs,
   schedulePersist,
   setActivePane,
   syncDraftVisibility,
 } from './store';
 import type { ApplyEditOptions, Pane } from './store';
+import { extraTabItems } from './tabMenu';
+import { tabNames } from './tabLabels';
+import type { TabName } from './tabLabels';
+import { createTabStrip, tabText } from './tabStrip';
 import { countWords, formatWords } from './words';
 
 /** 哪些扩展名有 Markdown 可预览。 */
@@ -131,7 +145,9 @@ export function createPane(
     closeFile,
     discard,
     closeSilently,
+    moveOut,
     upsertFile,
+    pin,
     applyEdit,
     undo,
     redo,
@@ -164,6 +180,7 @@ export function createPane(
         path: f.path,
         hash: f.hash,
         draft: f.draft === f.text ? undefined : f.draft,
+        preview: f.preview || undefined,
       })),
       active: pane.activePath,
     };
@@ -171,28 +188,68 @@ export function createPane(
 
   // ---------------------------------------------------------------- 标签
 
-  function renderTabs(): void {
-    el.tabs.innerHTML = '';
-    for (const file of files.values()) {
-      el.tabs.appendChild(buildTab(file));
+  /** 标签条：横着滚、当前那个滚进视野、末尾的「▾」（`tabStrip.ts`）。 */
+  const strip = createTabStrip(el.tabs);
+
+  /** 每份文件在标签上怎么写：两块编辑区开着的放在一起比，同名的加区分目录。 */
+  function currentNames(): Map<string, TabName> {
+    const all = new Map(allOpenFiles().map((f) => [f.path, f]));
+    for (const f of files.values()) {
+      all.set(f.path, f);
     }
+    return tabNames([...all.values()]);
   }
 
-  function buildTab(file: OpenFile): HTMLElement {
+  function renderTabs(): void {
+    const keep = strip.beforeRender();
+    const names = currentNames();
+    let active: HTMLElement | null = null;
+    strip.list.replaceChildren();
+    for (const file of files.values()) {
+      const tab = buildTab(file, names.get(file.path) ?? { tag: '', title: file.name, desc: '' });
+      if (file.path === pane.activePath) {
+        active = tab;
+      }
+      strip.list.appendChild(tab);
+    }
+    setHidden(el.tabs, files.size === 0);
+    strip.afterRender(keep, active);
+  }
+
+  function buildTab(file: OpenFile, label: TabName): HTMLElement {
     const tab = document.createElement('div');
     tab.className = 'ed-tab';
     tab.classList.toggle('active', file.path === pane.activePath);
     tab.classList.toggle('dirty', file.draft !== file.text);
-    tab.title = file.path;
+    // 临时标签：名字斜体，下一次单击打开别的文件时这个位置被换掉。
+    tab.classList.toggle('preview', !!file.preview);
+    tab.dataset.path = file.path;
+    tab.title = file.preview ? `${file.path}\n临时标签：编辑、保存或双击就会固定下来` : file.path;
 
     const dot = document.createElement('span');
     dot.className = 'ed-tab-dirty';
     tab.appendChild(dot);
 
+    // 类型短标记（细纲 / 草稿 / 角色……，后端给的）：同一章的正文、细纲、草稿一眼分得开。
+    if (label.tag) {
+      const tag = document.createElement('span');
+      tag.className = 'ed-tab-tag';
+      tag.textContent = label.tag;
+      tab.appendChild(tag);
+    }
+
     const name = document.createElement('span');
     name.className = 'ed-tab-name';
-    name.textContent = file.name;
+    name.textContent = label.title;
     tab.appendChild(name);
+
+    // 仍然同名的（同一种、不同目录）：后面淡一点写区分它们的最短目录。
+    if (label.desc) {
+      const desc = document.createElement('span');
+      desc.className = 'ed-tab-desc';
+      desc.textContent = label.desc;
+      tab.appendChild(desc);
+    }
 
     // 磁盘上被改了而编辑器里的修改没覆盖、或磁盘上已经没有这一份：标签上挂一个醒目的「!」（不切过去）。
     const flag = conflicts.has(file.path)
@@ -208,7 +265,7 @@ export function createPane(
       mark.textContent = '!';
       mark.title = flag;
       tab.appendChild(mark);
-      tab.title = `${file.path}\n${flag}`;
+      tab.title = `${tab.title}\n${flag}`;
     }
 
     const close = document.createElement('button');
@@ -221,7 +278,15 @@ export function createPane(
     });
     tab.appendChild(close);
 
-    tab.addEventListener('click', () => activate(file.path));
+    tab.addEventListener('click', (e) => {
+      // 双击临时标签：转正。点第一下 activate 就把整排标签重画了，第二下落在新的那个元素上——
+      // 所以按这一下的点击次数认，不指望 dblclick 落在同一个元素上（下面那个 dblclick 是兜底）。
+      if (e.detail >= 2 && file.preview) {
+        file.preview = false;
+      }
+      activate(file.path);
+    });
+    tab.addEventListener('dblclick', () => pin(file.path));
     // 中键关闭，与浏览器/编辑器一致。
     tab.addEventListener('auxclick', (e) => {
       if (e.button === 1) {
@@ -257,23 +322,41 @@ export function createPane(
         run: () => closeMany([...left, ...right]),
       });
     }
-    return items;
+    // 移到另一侧、在文件页中定位、复制相对路径、重新打开刚关闭的、固定（tabMenu.ts）。
+    return [...items, ...extraTabItems(pane, anchor)];
   }
 
-  function activate(path: string): void {
+  /** 临时标签转正。 */
+  function pin(path: string): void {
+    const file = files.get(path);
+    if (!file?.preview) {
+      return;
+    }
+    file.preview = false;
+    renderTabs();
+    persist();
+  }
+
+  function activate(path: string, opts?: { focus?: boolean }): void {
     const file = files.get(path);
     if (!file) {
       return;
     }
+    // 不抢焦点地切（上一章 / 下一章时另一块里配对的那一份）：不认下「当前这一块」，焦点留在原处。
+    const quiet = opts?.focus === false;
     // 切走前把光标位置留住，切回来还在原处；正在打的那一步也收口，切回来再打另起一步。
     stashCaret();
     activeFile()?.history.seal();
     pane.activePath = path;
     previewMode = false;
-    setActivePane(pane);
+    if (!quiet) {
+      setActivePane(pane);
+    }
     renderAll();
     announceActive();
-    el.area.focus();
+    if (!quiet) {
+      el.area.focus();
+    }
     if (file.caret !== undefined) {
       el.area.selectionStart = el.area.selectionEnd = Math.min(file.caret, el.area.value.length);
     }
@@ -297,8 +380,12 @@ export function createPane(
 
   function discard(paths: string[]): void {
     let dropped = false;
+    const names = currentNames();
     for (const path of paths) {
       if (files.has(path)) {
+        // 作者亲手关的才进「最近关闭」（右键「重新打开刚关闭的」、「▾」列表底下）。
+        const name = names.get(path);
+        noteClosed({ path, pane: pane.id, title: name ? tabText(name) : path });
         dropFile(path);
         dropped = true;
       }
@@ -309,6 +396,7 @@ export function createPane(
     renderAll();
     syncDraftVisibility();
     persist();
+    refreshOtherTabs(pane);
   }
 
   function closeSilently(path: string): CarriedDraft | false {
@@ -316,15 +404,54 @@ export function createPane(
     if (!file) {
       return false;
     }
-    // 搬家不是关闭：未保存内容与撤销历史都带走，接手的那一块接得上就接。
-    const carry: CarriedDraft = { history: file.history, historyText: file.draft };
+    if (file === activeFile()) {
+      stashCaret();
+    }
+    // 搬家不是关闭：未保存内容与撤销历史都带走，接手的那一块接得上就接。冲突条、见过的磁盘新版、
+    // 「磁盘上没了」与光标只有页面里直接搬（`moveOut`，`local`）才接——经后端重读来的那一份可能已经不是它们说的那一份。
+    const carry: CarriedDraft = {
+      history: file.history,
+      historyText: file.draft,
+      preview: !!file.preview,
+      gone: !!file.gone,
+      conflict: conflicts.get(path),
+      diskSeen: diskSeen.get(path),
+      caret: file.caret,
+      scrollTop: file.scrollTop,
+    };
     if (file.draft !== file.text) {
       carry.hash = file.hash;
       carry.draft = file.draft;
     }
     dropFile(path);
     renderAll();
+    refreshOtherTabs(pane);
     return carry;
+  }
+
+  function moveOut(path: string): { view: EditorFileView; carried: CarriedDraft } | undefined {
+    const file = files.get(path);
+    if (!file) {
+      return undefined;
+    }
+    // 接手的那一块收到的就是这一份的基线（不经后端重读），未保存内容按 hash 对得上原样接上。
+    const view: EditorFileView = {
+      path: file.path,
+      name: file.name,
+      text: file.text,
+      hash: file.hash,
+      bytes: file.text.length,
+      draftPath: file.draftPath,
+      kind: file.kind,
+      label: file.label,
+    };
+    const carried = closeSilently(path);
+    if (!carried) {
+      return undefined;
+    }
+    syncDraftVisibility();
+    persist();
+    return { view, carried: { ...carried, hash: file.hash, local: true } };
   }
 
   function dropFile(path: string): void {
@@ -374,8 +501,8 @@ export function createPane(
       return;
     }
 
-    el.path.textContent = file.path;
-    el.path.title = file.path;
+    // 面包屑（后端给的称呼），原始路径在悬停提示上；目录段点了在「文件」页定位。
+    renderBreadcrumb(el.path, file);
 
     setHidden(el.previewBtn, !MARKDOWN_RE.test(file.path));
     el.previewBtn.textContent = previewMode ? '编辑' : '预览';
@@ -465,6 +592,11 @@ export function createPane(
   function afterContentChange(file: OpenFile, source: EditSource, change?: TextChange): void {
     // 内容一变，之前那次冲突提示就过期了（磁盘上没了这件事不会因为打字就过期）。
     conflicts.delete(file.path);
+    // 在临时标签里改了东西：转正。有未保存修改的标签永远不会被换掉，靠的就是这一句。
+    if (file.preview && file.draft !== file.text) {
+      file.preview = false;
+      schedulePersist();
+    }
     renderTabs();
     if (file === activeFile()) {
       setHidden(el.conflict, !file.gone);
@@ -775,6 +907,10 @@ export function createPane(
   // ---------------------------------------------------------------- 保存
 
   function save(force: boolean): void {
+    // 在临时标签上按了保存（Ctrl+S、工具栏、「文件 → 保存」）：转正，哪怕没有可存的。
+    if (pane.activePath) {
+      pin(pane.activePath);
+    }
     savePath(pane.activePath ?? '', force);
   }
 
@@ -829,6 +965,9 @@ export function createPane(
     if (incoming.kind !== undefined) {
       file.kind = incoming.kind;
     }
+    if (incoming.label !== undefined) {
+      file.label = incoming.label;
+    }
     conflicts.delete(file.path);
     renderAll();
     persist();
@@ -881,6 +1020,9 @@ export function createPane(
     }
     if (incoming.kind !== undefined) {
       file.kind = incoming.kind;
+    }
+    if (incoming.label !== undefined) {
+      file.label = incoming.label;
     }
     if (incoming.hash === file.hash) {
       // 磁盘上就是基线那一份（又出现了、或别处存回了同一份）：之前见过的新版与冲突都作废。
@@ -1065,10 +1207,12 @@ export function createPane(
 
   // ---------------------------------------------------------------- 收文件
 
-  function upsertFile(incoming: EditorFileView, carried?: CarriedDraft): void {
+  function upsertFile(incoming: EditorFileView, carried?: CarriedDraft, intent?: EditorOpenIntent): void {
     const existing = files.get(incoming.path);
     const pending = pendingDrafts.get(incoming.path);
     pendingDrafts.delete(incoming.path);
+    // 单击打开（工程页 / 文件页的一行）且开关开着：开成临时标签。
+    const wantPreview = !!intent?.preview && previewTabsEnabled();
 
     if (existing) {
       // 已打开。只有「还原」发起的那一次才冲掉未保存的修改；其余的（落盘后
@@ -1100,11 +1244,31 @@ export function createPane(
       if (incoming.kind !== undefined) {
         existing.kind = incoming.kind;
       }
+      if (incoming.label !== undefined) {
+        existing.label = incoming.label;
+      }
+      // 已经开着的被别的路子正常打开了一次（落盘后自动打开、点引文、双击那一行……）：临时标签就此转正。
+      // 单击打开一份已经开着的什么都不改——不把一个固定的标签降回临时的。
+      if (!intent?.preview) {
+        existing.preview = false;
+      }
       pane.activePath = incoming.path;
     } else {
       // 从另一块搬来的（带着草稿或撤销历史）优先；否则看刷新前存下的草稿。
       const restore = carried && (carried.draft !== undefined || carried.history) ? carried : pending;
-      files.set(incoming.path, newFile(incoming, restore));
+      const file = newFile(incoming, restore);
+      if (restore?.local) {
+        // 页面里直接搬过来的：冲突条与见过的磁盘新版照旧挂着（基线没换，它们还作数）。
+        if (restore.conflict) {
+          conflicts.set(file.path, restore.conflict);
+        }
+        if (restore.diskSeen) {
+          diskSeen.set(file.path, restore.diskSeen);
+        }
+      }
+      file.preview = previewOf(file, carried, pending, wantPreview);
+      insertFile(file, slotFor(file, intent));
+      forgetClosed(file.path);
       claimActivePath(incoming.path);
     }
 
@@ -1112,6 +1276,82 @@ export function createPane(
     renderAll();
     announceActive();
     persist();
+    refreshOtherTabs(pane);
+  }
+
+  /**
+   * 新收进来的这一份是不是临时标签。有未保存修改的一律不是；从另一块经 `editorOpen` 搬来的保持原样
+   * （单击打开才保持临时，别的路子打开的转正）；「移到另一侧」搬来的转正（作者明说要它在那边）；刷新恢复、
+   * 改名搬家的照存下来的那样（开关关了就不是）；其余看这一次是不是单击打开的。
+   */
+  function previewOf(
+    file: OpenFile,
+    carried: CarriedDraft | undefined,
+    pending: CarriedDraft | undefined,
+    wantPreview: boolean
+  ): boolean {
+    if (file.draft !== file.text) {
+      return false;
+    }
+    if (carried) {
+      return !carried.local && !!carried.preview && wantPreview;
+    }
+    if (pending?.preview !== undefined) {
+      return pending.preview && previewTabsEnabled();
+    }
+    return wantPreview;
+  }
+
+  /**
+   * 新的一份占谁的位置：
+   * 1. `replace`（上一章 / 下一章）指着的那一份**没改过**就在它的位置换掉（它是临时的，新的一份接着是临时的）；
+   *    改过了就另开一个标签。
+   * 2. 新的一份是临时标签：这一块已有的那个临时标签被换掉（它一改就转正了，所以总是没改过的；万一改过，转正、不换）。
+   * 3. 都不是：开在最后。
+   */
+  function slotFor(file: OpenFile, intent: EditorOpenIntent | undefined): string | undefined {
+    const target = intent?.replace;
+    if (target && target !== file.path) {
+      const old = files.get(target);
+      if (old && old.draft === old.text) {
+        if (old.preview && previewTabsEnabled() && file.draft === file.text) {
+          file.preview = true;
+        }
+        return target;
+      }
+    }
+    if (file.preview) {
+      const old = [...files.values()].find((f) => f.preview && f.path !== file.path);
+      if (old && old.draft === old.text) {
+        return old.path;
+      }
+      if (old) {
+        old.preview = false;
+      }
+    }
+    return undefined;
+  }
+
+  /** 把新的一份放进标签表：给了 `at` 就占它的位置（它被换掉，不进「最近关闭」），否则排在最后。 */
+  function insertFile(file: OpenFile, at: string | undefined): void {
+    if (!at || !files.has(at)) {
+      files.set(file.path, file);
+      return;
+    }
+    const entries = [...files.entries()];
+    files.clear();
+    for (const [path, f] of entries) {
+      if (path === at) {
+        files.set(file.path, file);
+      } else if (path !== file.path) {
+        files.set(path, f);
+      }
+    }
+    conflicts.delete(at);
+    diskSeen.delete(at);
+    if (pane.activePath === at) {
+      pane.activePath = file.path;
+    }
   }
 
   function newFile(incoming: EditorFileView, restore?: CarriedDraft): OpenFile {
@@ -1123,6 +1363,7 @@ export function createPane(
       draft: incoming.text,
       draftPath: incoming.draftPath,
       kind: incoming.kind,
+      label: incoming.label,
       caret: 0,
       scrollTop: 0,
       history: new EditHistory(),
@@ -1140,6 +1381,12 @@ export function createPane(
     // 搬家带来的撤销历史：内容与搬走时一字不差才接上，否则那份差异对不上位置。
     if (restore?.history && restore.historyText === file.draft) {
       file.history = restore.history;
+    }
+    // 页面里直接搬过来的（「移到另一侧」）：「磁盘上没了」与光标、滚动位置也接上。
+    if (restore?.local) {
+      file.gone = !!restore.gone;
+      file.caret = restore.caret ?? 0;
+      file.scrollTop = restore.scrollTop ?? 0;
     }
     return file;
   }

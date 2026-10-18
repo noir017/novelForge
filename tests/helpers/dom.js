@@ -206,6 +206,8 @@ function readArtifact(name) {
  * @param {string} [opts.url] 页面地址。缺省是 `about:blank`——那是个不透明的源，`localStorage` 一碰就抛，
  *   前端各处「记不进去就算了」；要测确实记进了 localStorage（按工程分键的那几样）时给一个
  *   `http://localhost/?project=…`。
+ * @param {Record<string, string>} [opts.storage] 跑脚本之前写进 localStorage 的几项（测刷新恢复用）。
+ *   给了而没给 `url` 时页面挂在 `http://localhost/` 上。
  */
 function mount({
   body = 'webview',
@@ -213,6 +215,7 @@ function mount({
   shims = ['clipboard', 'scrollIntoView'],
   empty = false,
   url,
+  storage,
 } = {}) {
   if (!hasJsdom) throw new Error('未安装 jsdom');
 
@@ -222,8 +225,12 @@ function mount({
       ? `<!DOCTYPE html><html><body class="workbench${empty ? ' no-workspace' : ''}">${standaloneBodyHtml()}</body></html>`
       : `<!DOCTYPE html><html><body>${bodyHtml()}</body></html>`;
 
-  const dom = new JSDOM(html, { runScripts: 'outside-only', ...(url ? { url } : {}) });
+  const pageUrl = url ?? (storage ? 'http://localhost/' : undefined);
+  const dom = new JSDOM(html, { runScripts: 'outside-only', ...(pageUrl ? { url: pageUrl } : {}) });
   const { window } = dom;
+  for (const [key, value] of Object.entries(storage ?? {})) {
+    window.localStorage.setItem(key, value);
+  }
   const sent = [];
   window.acquireVsCodeApi = () => ({
     postMessage: (m) => sent.push(m),
@@ -531,6 +538,15 @@ function sampleTree() {
   };
 }
 
+/**
+ * 内置编辑器的章节索引（`chapterIndex` 消息的 `chapters`）：工程树章节那一行里章节条与上一章 / 下一章要的
+ * 那几个字段，与后端 `views/chapterIndex.ts` 同形。缺省取 {@link sampleTree} 的五章。
+ */
+const CHAPTER_INDEX_KEYS = ['no', 'label', 'title', 'relPath', 'plotPath', 'plotExists', 'chapterPath', 'wordCount', 'targetWords', 'stage'];
+function sampleChapterIndex(plots = sampleTree().plots) {
+  return plots.map((p) => Object.fromEntries(CHAPTER_INDEX_KEYS.filter((k) => k in p).map((k) => [k, p[k]])));
+}
+
 /** 一份编辑器文件负载。 */
 const file = (p, text, extra) =>
   Object.assign({ path: p, name: p.split('/').pop(), text, hash: `h-${p}`, bytes: text.length }, extra);
@@ -559,6 +575,6 @@ module.exports = {
   extractBody, bodyHtml, standaloneBodyHtml,
   mount,
   MIRROR_LAYOUT,
-  turn, textSeg, toolSeg, emptySession, pipelineView, workbenchView, viewState, sampleTree,
+  turn, textSeg, toolSeg, emptySession, pipelineView, workbenchView, viewState, sampleTree, sampleChapterIndex,
   file, listing,
 };

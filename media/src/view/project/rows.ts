@@ -193,7 +193,10 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
   // 点名字 = **打开这一章**（W6 章节工作台）：正文在主区、细纲并排在旁边。在工程页上扫
   // 章节列表时，想看的多半就是这一章写成了什么样、对不对得上细纲。并排是宿主的能力，
   // 由后端按能力决定开几份；「进入这一章」在右键菜单与行尾那颗按钮里。
-  label.addEventListener('click', () => vscode.postMessage({ type: 'openChapter', plotRelPath: p.relPath }));
+  // 单击开成临时标签（下一次单击别的章换掉它），双击（第二下点击）开成正常标签——转正。
+  label.addEventListener('click', (e) =>
+    vscode.postMessage({ type: 'openChapter', plotRelPath: p.relPath, ...(e.detail < 2 ? { preview: true } : {}) })
+  );
   row.appendChild(label);
 
   // 状态徽章：这一章现在该做哪一步。**已完成的不挂**——一列「已完成」只是噪声。
@@ -317,9 +320,9 @@ function buildArchitectureRow(a: ArchitectureRow, isNext: boolean, tree?: Projec
       : a.filled
         ? '跳到下面「角色」那一组；右键「讨论」或「重写…」'
         : '进入这一层：对话页的主按钮就是生成它';
-  label.addEventListener('click', () => {
+  label.addEventListener('click', (e) => {
     if (a.key !== 'characters') {
-      openPath(a.relPath);
+      openPath(a.relPath, { preview: e.detail < 2 });
     } else if (a.filled) {
       revealGroup('characters');
     } else {
@@ -423,7 +426,8 @@ export function buildFileRow(
   const label = mk('span', 'row-label', f.label);
   label.title = f.relPath;
   if (opts.openable !== false) {
-    label.addEventListener('click', () => openPath(f.relPath));
+    // 单击开成临时标签，双击转正（见章节那一行）。
+    label.addEventListener('click', (e) => openPath(f.relPath, { preview: e.detail < 2 }));
   }
   row.appendChild(label);
 

@@ -13,8 +13,10 @@
  *   与编辑器（editor.js）之间的 `nf-editor-query` / `nf-editor-command` /
  *   `nf-workspace-reset`，「编辑」菜单段落那几项的 `nf-paragraph-query` / `nf-paragraph-command`，
  *   「文件 → 历史版本…」的 `nf-versions-query` / `nf-versions-command`，「文件 → 转到…」的
- *   `nf-quickopen-query` / `nf-quickopen-command`。
+ *   `nf-quickopen-query` / `nf-quickopen-command`，「视图」菜单的 `nf-view-query` / `nf-view-command`，
+ *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录）。
  *   `nf-pick-folder` 给目录选择器拦欢迎页的占位 prompt。
+ * - `__nfShowMenu`：view 出的「在某处弹一个菜单」（编辑器标签条末尾的「▾」用），与右键菜单是同一个引擎。
  */
 
 /** 菜单项。`{ sep: true }` 是分隔线，其余是可点的一条。 */
@@ -55,6 +57,7 @@ declare global {
   interface Window {
     __nfToast?: (message: string, isError?: boolean) => void;
     __nfContextMenu?: ContextMenuRegistrar;
+    __nfShowMenu?: (items: MenuItem[], x: number, y: number) => HTMLElement | undefined;
   }
 
   interface WindowEventMap {
@@ -70,6 +73,9 @@ declare global {
     'nf-versions-command': CustomEvent<{ name: 'open' }>;
     'nf-quickopen-query': CustomEvent<QuickOpenStatus>;
     'nf-quickopen-command': CustomEvent<{ name: 'open' }>;
+    'nf-view-query': CustomEvent<ViewPrefsStatus>;
+    'nf-view-command': CustomEvent<{ name: ViewCommandName }>;
+    'nf-reveal-in-files': CustomEvent<{ path: string; dir: boolean }>;
   }
 }
 
@@ -220,4 +226,51 @@ export function queryQuickOpen(): QuickOpenStatus {
 /** 打开「转到」面板（与 Ctrl+P 同一件事）。 */
 export function commandQuickOpen(name: 'open'): void {
   window.dispatchEvent(new CustomEvent('nf-quickopen-command', { detail: { name } }));
+}
+
+// ---------------------------------------------------------------- 「视图」菜单
+
+/**
+ * 标题栏「视图」菜单问编辑器的状态（`editor/viewPrefs.ts` 回答）。之后的阶段往「视图」里加的项各自往这里
+ * 加一个字段、往 `ViewCommandName` 加一个名字即可（菜单那一半在 `view/viewMenu.ts`，一组一个函数）。
+ */
+export interface ViewPrefsStatus {
+  /** 编辑器装上了（插件与空窗口没有，那时这几项置灰）。 */
+  available: boolean;
+  /** 单击打开为临时标签（按浏览器记，缺省开）。 */
+  previewTabs: boolean;
+}
+
+export type ViewCommandName = 'togglePreviewTabs';
+
+/** 问编辑器「视图」那几项的状态。editor.js 没装时不可用（开关按缺省算）。 */
+export function queryViewPrefs(): ViewPrefsStatus {
+  const status: ViewPrefsStatus = { available: false, previewTabs: true };
+  window.dispatchEvent(new CustomEvent('nf-view-query', { detail: status }));
+  return status;
+}
+
+export function commandViewPrefs(name: ViewCommandName): void {
+  window.dispatchEvent(new CustomEvent('nf-view-command', { detail: { name } }));
+}
+
+// ---------------------------------------------------------------- 在「文件」页定位
+
+/**
+ * 在「文件」页定位到某个文件或目录（编辑器的面包屑目录段、标签右键「在文件页中定位」）。资源管理器展开到它、
+ * 高亮那一行；view 切到「文件」页。编辑器不碰资源管理器的状态，资源管理器也不读编辑器的。
+ */
+export function revealInFiles(path: string, dir = false): void {
+  window.dispatchEvent(new CustomEvent('nf-reveal-in-files', { detail: { path, dir } }));
+}
+
+// ---------------------------------------------------------------- 在某处弹一个菜单
+
+/**
+ * 在视口坐标 (x, y) 弹一个菜单（与右键菜单同一个引擎、同一种样子，同时只有一个；点别处 / Esc 收起）。
+ * 返回菜单节点，view 没装时返回 undefined。**调用方要 `stopPropagation()` 那一下点击**，否则它冒到
+ * document 上就把刚弹出来的菜单收掉了。
+ */
+export function showMenuAt(items: MenuItem[], x: number, y: number): HTMLElement | undefined {
+  return window.__nfShowMenu?.(items, x, y);
 }

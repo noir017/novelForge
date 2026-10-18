@@ -42,6 +42,29 @@ function start(body: HTMLElement): void {
       body.appendChild(row);
     }
     body.scrollTop = scroll;
+    // 刚定位的那一行画出来了：滚到它（它所在的目录可能要等下一次 dirListings 才有）。
+    if (state.pendingScroll) {
+      const row = [...body.querySelectorAll<HTMLElement>('.fx-row')].find((r) => r.dataset.path === state.pendingScroll);
+      if (row) {
+        state.pendingScroll = null;
+        row.scrollIntoView?.({ block: 'nearest' });
+      }
+    }
+  }
+
+  /**
+   * 编辑器那边要在「文件」页定位到某个文件或目录（面包屑的目录段、标签右键「在文件页中定位」）：
+   * 展开到它（目录连它自己一起展开）、标出那一行、画出来就滚过去。切页签是 view 的事。
+   */
+  function reveal(path: string, dir: boolean): void {
+    if (path) {
+      expandTo(dir ? `${path}/_` : path);
+    }
+    state.revealed = path || null;
+    state.pendingScroll = path || null;
+    persistOpen();
+    requestDirs();
+    render();
   }
 
   function setActive(path: string | null): void {
@@ -148,6 +171,8 @@ function start(body: HTMLElement): void {
 
   // editor.js 在切标签页/关标签页时广播当前激活的文件，高亮跟着它走。
   window.addEventListener('nf-editor-active', (e) => setActive(e.detail.path));
+  // 编辑器的面包屑目录段、标签右键「在文件页中定位」。
+  window.addEventListener('nf-reveal-in-files', (e) => reveal(e.detail.path, e.detail.dir));
 
   // ---------------------------------------------------------------- 启动
 

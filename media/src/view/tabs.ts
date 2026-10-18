@@ -32,6 +32,15 @@ export function isTabActive(tab: string): boolean {
 }
 
 export function installTabs(): void {
+  // 编辑器里「在文件页中定位」、点面包屑的目录段：切到「文件」页（展开、高亮那一行是资源管理器自己的事）。
+  // 插件里没有这一页，什么都不做。
+  window.addEventListener('nf-reveal-in-files', () => {
+    if (document.getElementById('pane-files') && !isTabActive('files')) {
+      showTab('files');
+      vscode.postMessage({ type: 'switchTab', tab: 'files' });
+    }
+  });
+
   el.tabbar.addEventListener('click', (e) => {
     const btn = closestFrom<HTMLElement>(e.target, '.tab');
     if (!btn?.dataset.tab) {

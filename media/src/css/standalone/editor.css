@@ -35,26 +35,49 @@
   margin-right: -3px;
 }
 
-/* ---- 标签条 */
+/* ---- 标签条：一行能横着滚的标签（.ed-tabs-list）+ 末尾的「▾」（.ed-tabs-more），都由 editor/tabStrip.ts 现造。
+   一个标签都没有时整条藏起来（pane.ts 给 .ed-tabs 挂 hidden）。 */
 
 .ed-tabs {
   display: flex;
   align-items: stretch;
   flex: 0 0 auto;
   min-height: 35px;
-  overflow-x: auto;
-  overflow-y: hidden;
   background: var(--nf-tab-inactive-background);
   border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+/* 滚轮横着滚、当前那个自动滚进视野（tabStrip.ts）；滚动条藏起来，与 VS Code 一样。
+   position: relative 让标签的 offsetLeft 量的是相对这一格的位置。 */
+.ed-tabs-list {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
 }
 
-.ed-tabs::-webkit-scrollbar {
+.ed-tabs-list::-webkit-scrollbar {
   height: 0;
 }
 
-.ed-tabs:empty {
-  display: none;
+.ed-tabs-more {
+  flex: 0 0 auto;
+  width: 28px;
+  border: none;
+  border-left: 1px solid var(--vscode-panel-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+}
+
+.ed-tabs-more:hover {
+  background: var(--vscode-list-hoverBackground);
+  color: var(--vscode-foreground);
 }
 
 .ed-tab {
@@ -87,6 +110,34 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 临时标签：名字斜体（下一次单击打开别的文件时换掉它）。 */
+.ed-tab.preview .ed-tab-name {
+  font-style: italic;
+}
+
+/* 类型短标记（细纲 / 草稿 / 角色……，后端给的）：同一章的正文、细纲、草稿一眼分得开。正文不带。 */
+.ed-tab-tag {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  font-size: 0.72em;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* 同名的（同一种、不同目录）后面淡一点写区分它们的最短目录。 */
+.ed-tab-desc {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8em;
+  color: var(--vscode-descriptionForeground);
 }
 
 /* 脏标记：圆点占位常驻，避免关闭按钮在保存前后左右跳动。 */
@@ -160,9 +211,15 @@
   flex: 0 0 auto;
 }
 
-.ed-chapter-actions button:disabled {
+.ed-chapter-actions button:disabled,
+.ed-chapter-nav:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* 「‹ 上一章」「下一章 ›」夹着这一章的说明。 */
+.ed-chapter-nav {
+  flex: 0 0 auto;
 }
 
 .ed-toolbar {
@@ -175,17 +232,54 @@
   background: var(--vscode-editor-background);
 }
 
+/* 面包屑（editor/breadcrumb.ts）：「细纲 › 第一卷 › 第 3 章 夜访」，原始路径在悬停提示上。
+   太长时前面的段先省略（收缩权重大十倍），最后一段（这份文件）最后才让。
+   从前这里是原始路径 + direction: rtl 做左侧省略，`.novelforge/…` 开头的路径会把点号排到末尾。 */
 .ed-path {
+  display: flex;
+  align-items: center;
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.ed-crumb {
+  flex: 0 10 auto;
+  min-width: 1.5em;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
-  font-family: var(--vscode-editor-font-family);
-  font-size: 0.82em;
-  color: var(--vscode-descriptionForeground);
+}
+
+.ed-crumb-file {
+  flex: 0 1 auto;
+  min-width: 3em;
+  color: var(--vscode-foreground);
+}
+
+/* 目录段：点了在「文件」页定位到它。 */
+.ed-crumb-dir {
+  padding: 0 2px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ed-crumb-dir:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.ed-crumb-sep {
+  flex: 0 0 auto;
+  padding: 0 3px;
+  opacity: 0.6;
 }
 
 /* ---- 内容区 */
