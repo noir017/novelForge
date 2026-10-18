@@ -66,6 +66,17 @@ export type {
   WorkbenchView,
 } from '../../src/core/protocol';
 
+/** 「转到…」（Ctrl+P）的索引（`core/protocol/quickOpen.ts`）。 */
+export type {
+  QuickOpenChapter,
+  QuickOpenCharacter,
+  QuickOpenDoc,
+  QuickOpenDocKey,
+  QuickOpenDraft,
+  QuickOpenIndex,
+  QuickOpenLore,
+} from '../../src/core/protocol';
+
 /**
  * 创作流水线的类型与那几张对照表。
  *

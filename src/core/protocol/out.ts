@@ -3,6 +3,7 @@ import type { LogEntry } from '../runtime/logger';
 import type { TaskOpen, TaskSnapshot } from '../runtime/progress';
 import type { SkillSource, SkillStage } from '../model/writingSkill';
 import type { ArtifactKind } from '../workspace/kind';
+import type { QuickOpenIndex } from './quickOpen';
 import type {
   EditorPane,
   SerializedAttachment,
@@ -154,6 +155,8 @@ export type OutMessage =
   | { type: 'attachments'; items: SerializedAttachment[] }
   | { type: 'project'; tree: ProjectTree }
   | { type: 'summary'; summary: PlotSummaryView }
+  /** 回 `requestQuickOpen`：「转到…」面板要的索引。认不出的 `requestId` 前端静默丢弃（另一个视图要的）。 */
+  | { type: 'quickOpenIndex'; requestId: string; index: QuickOpenIndex }
   | {
       type: 'pipeline';
       pipeline?: PlotPipelineView;

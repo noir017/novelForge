@@ -58,6 +58,16 @@ export type {
   WorkbenchView,
 } from './views';
 
+export type {
+  QuickOpenChapter,
+  QuickOpenCharacter,
+  QuickOpenDoc,
+  QuickOpenDocKey,
+  QuickOpenDraft,
+  QuickOpenIndex,
+  QuickOpenLore,
+} from './quickOpen';
+
 export type { LogEntry, LogLevel } from '../runtime/logger';
 export type { TaskSnapshot } from '../runtime/progress';
 export type { DirListing, FsEntry } from '../files/fileTree';

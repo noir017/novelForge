@@ -156,6 +156,12 @@ export type InMessage =
   | { type: 'syncSummaries' }
   | { type: 'requestSummary'; plotRelPath: string }
   /**
+   * 「转到…」（独立版 Ctrl+P）打开时要一份索引：章节、角色卡、设定、架构几件与大纲 / 文风 / 叙事线 /
+   * 全书摘要、草稿（`views/quickOpen.ts`）。回 `quickOpenIndex`，带同一个 `requestId`——回复是广播，
+   * 两个视图都收得到，只有发问的那一边认它。按需要，不常驻推送。
+   */
+  | { type: 'requestQuickOpen'; requestId: string }
+  /**
    * `range` 只有「批量拆细纲」用：弹窗里选的区间（W5）。`confirmed` 表示弹窗已经把
    * 调用次数写给作者看过了，后端不再弹第二个确认框（弹窗与确认框算的是同一个
    * `planPlotBatches`，不叠弹窗）。「批量写章」（W9）同样带 `range` / `confirmed`，另带

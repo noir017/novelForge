@@ -32,6 +32,7 @@ import {
 } from '../protocol';
 import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
 import { buildPipelineIndex } from '../views/pipeline';
+import { buildQuickOpenIndex } from '../views/quickOpen';
 import { DEFAULT_PARAGRAPH_STYLE } from '../model/paragraphFormat';
 import {
   chapterAction,
@@ -509,6 +510,11 @@ export class ChatController {
         // 只回给发问的那个前端就够了，但 post 是广播——多开一个面板时
         // 另一边收到一份用不上的细纲浮窗，代价只是一次无害的缓存写入。
         this.post({ type: 'summary', summary: await buildPlotSummaryView(this.project, msg.plotRelPath) });
+        return;
+
+      case 'requestQuickOpen':
+        // 「转到…」（Ctrl+P）面板打开时要一份索引。回复是广播，前端认 requestId。
+        this.post({ type: 'quickOpenIndex', requestId: msg.requestId, index: await buildQuickOpenIndex(this.project) });
         return;
 
       case 'projectAction':
