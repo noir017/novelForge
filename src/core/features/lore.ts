@@ -41,7 +41,7 @@ import { ChainError, ChainResult, completeLoreExpand } from '../generation/struc
 import { parseLoreExpansion } from './loreExpand';
 import { LORE_ENTRY_SYSTEM, LORE_ORGANIZE_SYSTEM } from './lorePrompt';
 import { extractJsonObject, stringArray, stripCodeFence, stripTrailingCommas, unique } from './parse';
-import { poolIO } from './pipelineBatch';
+import { poolIO } from './poolIO';
 
 const log = scoped('设定');
 

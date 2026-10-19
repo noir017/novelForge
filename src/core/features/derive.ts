@@ -74,7 +74,8 @@ import { confirmDespiteGap } from './chapterGap';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import { CastCardsPlan, createCastCards, planCastCards } from './characterCard';
 import { BUILD_MIN_CHAPTERS, createLoreEntries } from './lore';
-import { poolIO, settingKey, settingRaw } from './pipelineBatch';
+import { settingKey, settingRaw } from './pipelineBatch';
+import { poolIO } from './poolIO';
 import { summarizeChapters, updateGlobalSummary } from './summarize';
 
 const log = scoped('补齐');

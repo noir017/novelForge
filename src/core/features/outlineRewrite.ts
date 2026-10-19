@@ -27,7 +27,7 @@ import { ChainError, singleShotNotes } from '../generation/structured';
 import { acceptArtifact } from '../generation/accept';
 import { nextWritableChapterNo } from '../views/pipeline';
 import { isArtifactEmpty, parseArtifact } from './artifact';
-import { poolIO } from './pipelineBatch';
+import { poolIO } from './poolIO';
 
 const log = scoped('重写大纲');
 
