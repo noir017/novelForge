@@ -1,7 +1,7 @@
 // Novel Forge 独立版的 WebSocket 驱动：常驻连接，把 cmd.jsonl 新追加的每一行原样发给服务，
 // 收到的消息写成摘要日志与几份「最新快照」，弹窗 / 权限卡片写进 pending.json 等人（或脚本）回答。
 //
-// 用法：node drv.mjs [--port 3680] [--state D:/tmp/nfdrv]
+// 用法：node drv.mjs [--port 36800] [--state D:/tmp/nfdrv]
 // 断线自动重连（服务重启后端口不变就能接上；服务端的批量任务不随连接断开而停）。
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,7 +10,7 @@ const arg = (name, dflt) => {
   const i = process.argv.indexOf(`--${name}`);
   return i > 0 ? process.argv[i + 1] : process.env[`NF_${name.toUpperCase()}`] ?? dflt;
 };
-const PORT = arg('port', '3680');
+const PORT = arg('port', '36800');
 const DIR = path.resolve(arg('state', path.join(process.cwd(), 'nf-state')));
 fs.mkdirSync(DIR, { recursive: true });
 const P = (f) => path.join(DIR, f);

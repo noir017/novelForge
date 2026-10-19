@@ -42,4 +42,4 @@ ENV HOME=/data
 WORKDIR /data
 VOLUME /data
 EXPOSE 3680
-ENTRYPOINT ["/usr/local/bin/novelforge", "--host", "0.0.0.0", "--no-open"]
+ENTRYPOINT ["/usr/local/bin/novelforge", "--host", "0.0.0.0", "--port", "3680", "--no-open"]

@@ -1,5 +1,11 @@
 import * as path from 'node:path';
 
+/**
+ * 避开 Windows 的动态端口段（Hyper-V / WinNAT 会在里面随机整段保留，被保留的端口
+ * listen 直接报 EADDRINUSE，顺延 20 个也可能跳不出去）：默认 49152 起，改过的机器常是 1024 起。
+ */
+export const DEFAULT_PORT = 36800;
+
 export interface CliOptions {
   /** 小说工程目录。不带位置参数且不是 `init` 时为空——进空窗口。 */
   root: string | undefined;
@@ -21,7 +27,7 @@ export interface CliOptions {
  * 令牌不走参数（会出现在 `ps` 里），只认环境变量 `NOVELFORGE_TOKEN`，由 main.ts 读。
  */
 export function parseArgs(argv: string[]): CliOptions {
-  let port = 3680;
+  let port = DEFAULT_PORT;
   let host = '127.0.0.1';
   let open = true;
   let init = false;
@@ -30,7 +36,7 @@ export function parseArgs(argv: string[]): CliOptions {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--port') {
-      port = Number(argv[++i]) || 3680;
+      port = Number(argv[++i]) || DEFAULT_PORT;
     } else if (a === '--host') {
       host = argv[++i]?.trim() || '127.0.0.1';
     } else if (a === '--no-open') {

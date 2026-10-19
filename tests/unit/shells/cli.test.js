@@ -15,7 +15,7 @@ describe('parseArgs', () => {
 
   test('无参数时仍有默认端口并打开浏览器', () => {
     const opts = parseArgs([]);
-    assert.equal(opts.port, 3680);
+    assert.equal(opts.port, 36800);
     assert.equal(opts.open, true);
     assert.equal(opts.init, false);
     assert.equal(opts.verbose, false);
