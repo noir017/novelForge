@@ -226,6 +226,8 @@ export type InMessage =
       review?: boolean;
       /** `newLore`：预填的标题（「出现过 · 未建条目」那一行右键新建时带上），给了就不再问；`buildLore`：建哪一条。 */
       name?: string;
+      /** 「批量拆细纲」弹窗上「拆完展开本批新设定」选了「是」（完善设定三期）：拆完后端再问一次次数。 */
+      expandLore?: boolean;
     }
   | { type: 'characterAction'; action: CharacterAction; name: string; relPath?: string }
   | {
@@ -322,6 +324,11 @@ export type ProjectAction =
   | 'buildLore'
   /** 把定稿里的新内容并进条目：给了 `relPath`（条目）就整合那一条，没给就是挂 ＋N 的全部。 */
   | 'integrateLore'
+  /**
+   * 「待完善」组标题右键「全部展开」（完善设定三期）：只写空的、占位的与机器写的薄条目，作者写过的跳过；还没有条目的
+   * 先建空条目。动手前后端报调用次数。
+   */
+  | 'expandLoreAll'
   /** 按目录整理：模型出搬家清单，作者看过再搬（范围由后端问）。 */
   | 'organizeLore'
   | 'extractStyle'

@@ -5,6 +5,7 @@ import { LoreThinKind, createLoreLookup, loreMentionIn, loreThin, normalizeLoreN
 import { CharacterCard, LoreEntry } from '../model/types';
 import { normalizeName } from '../model/naming';
 import { finalizedPlots } from './cast';
+import { loreBatchExpandable } from './loreMaterial';
 
 /**
  * 设定名录：把各章**定稿过的**细纲第九节「设定」反向聚合成「哪个东西在哪几章出现过、
@@ -18,7 +19,8 @@ import { finalizedPlots } from './cast';
  *   名录去那里认，不另存一份。
  * - **人名不是设定**：第九节里的名字撞上角色卡的名字或别名就不算（模型偶尔把人也列进来）。
  * - **待完善**（完善设定，2026-10-19，按需算）：唯一往前看的一块——还没写的那几章细纲第九节点名、却还没有条目
- *   或条目还只有一句话的，工程页「待完善」那一组列它（{@link thinLore}）。
+ *   或条目还只有一句话的，工程页「待完善」那一组列它（{@link thinLore}）；写前提醒（工作台、批量写章确认框）取其中
+ *   要用到那几章的（{@link thinLoreFor}，三期）。
  *
  * 纯读盘、不调模型、不落盘（第 18 条：状态一律从磁盘推导）。
  */
@@ -79,6 +81,11 @@ export interface ThinLore {
   chapters: number[];
   /** 最早要用到的那一章。 */
   first: number;
+  /**
+   * 条目里有作者的字（三节全是「（未交代）」却没盖过机器的章、明面空着但写过暗设）：「全部展开」跳过它，
+   * 要展开就单条展开、先对比（`loreBatchExpandable`，完善设定三期）。还没有条目的、空的、占位的没有这一项。
+   */
+  authored?: true;
 }
 
 export interface LoreIndex {
@@ -267,9 +274,27 @@ function thinLore(
       kind,
       chapters: nos,
       first: nos[0],
+      ...(entry && !loreBatchExpandable(entry) ? { authored: true as const } : {}),
     };
   });
   return out.sort((a, b) => a.first - b.first || a.name.localeCompare(b.name, 'zh-Hans-CN'));
+}
+
+/**
+ * 这几章要用、却还只有一句话的设定（写前提醒，完善设定三期）：就是「待完善」里要用到这几章的那几条（{@link thinLore}），
+ * 口径一字不差——没定稿、也还没写正文的细纲第九节点名的，没有条目或条目还只有一句话。每条的 `chapters` 只留这几章里的。
+ * 工作台正文目标与批量写章的确认框用它；零调用、只读盘。
+ */
+export async function thinLoreFor(project: NovelProject, nos: readonly number[]): Promise<ThinLore[]> {
+  const wanted = new Set(nos);
+  if (wanted.size === 0) {
+    return [];
+  }
+  const { thin } = await buildLoreIndex(project, {}, { pending: false, thin: true });
+  return thin
+    .map((item) => ({ ...item, chapters: item.chapters.filter((no) => wanted.has(no)) }))
+    .filter((item) => item.chapters.length > 0)
+    .map((item) => ({ ...item, first: item.chapters[0] }));
 }
 
 /** 还要整合几章：待整合事实来自几个不同的章。工程页的 `＋N`。 */

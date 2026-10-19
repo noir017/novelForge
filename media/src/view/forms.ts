@@ -10,6 +10,7 @@ import {
   WRITE_BATCH_DEFAULT,
   WRITE_BATCH_MAX,
   describeCalls,
+  describeThinLore,
   planPlotBatches,
   planWriteBatch,
 } from '../protocol';
@@ -115,6 +116,9 @@ export function openIdeaForm(defaults?: IdeaDefaults): void {
  * 缺省是下一可写章起 {@link PLOT_BATCH} 章，不越过大纲的覆盖与总章数。实时说明写出
  * 这一段要拆几章、跳过几章、分几批、预计与最多调用几次——提交时带上 `confirmed`，
  * 后端不再弹第二个确认框（不叠弹窗）。
+ *
+ * 「拆完展开本批新设定」（完善设定三期，缺省「否」）：拆完把这一次顺带新建的设定空条目批量展开。新设定有几条要拆完才知道，
+ * 所以这里不报那几次，后端拆完再问一次（同批量写章补建角色卡那一问，第 4 条）。
  */
 export function openPlotBatchForm(tree: ProjectTree): void {
   const { book } = tree;
@@ -128,6 +132,16 @@ export function openPlotBatchForm(tree: ProjectTree): void {
     fields: [
       { kind: 'number', key: 'from', label: '从第几章', value: from, min: 1, max: 99999 },
       { kind: 'number', key: 'to', label: '到第几章', value: to, min: 1, max: 99999 },
+      {
+        kind: 'select',
+        key: 'expandLore',
+        label: '拆完展开本批新设定',
+        value: 'off',
+        options: [
+          { value: 'off', label: '否' },
+          { value: 'on', label: '是（拆完再报次数、再问一次）' },
+        ],
+      },
     ],
     note: (v) => {
       const a = Number(v.from);
@@ -154,7 +168,10 @@ export function openPlotBatchForm(tree: ProjectTree): void {
         text:
           `要拆 ${plan.chapters.length} 章，分 ${plan.batches.length} 批（每批最多 ${PLOT_BATCH} 章）` +
           `${plan.skipped.length > 0 ? `，跳过已有细纲的 ${plan.skipped.length} 章` : ''}。` +
-          `${describeCalls(plan.calls)}（输出被截断或格式不对时自动拆小重试）。`,
+          `${describeCalls(plan.calls)}（输出被截断或格式不对时自动拆小重试）。` +
+          (v.expandLore === 'on'
+            ? '拆完展开本批新设定：每条 1 次，有几条要拆完才知道，到时再报次数、再问一次；不在这里的数里。'
+            : ''),
       };
     },
     submitLabel: '开始拆细纲',
@@ -164,6 +181,7 @@ export function openPlotBatchForm(tree: ProjectTree): void {
         action: 'generatePlots',
         range: { from: Number(v.from), to: Number(v.to) },
         confirmed: true,
+        ...(v.expandLore === 'on' ? { expandLore: true } : {}),
       });
     },
   });
@@ -180,6 +198,7 @@ function span(from: number, to: number): string {
  * 缺省从下一可写章起 {@link WRITE_BATCH_DEFAULT} 章，一次最多 {@link WRITE_BATCH_MAX} 章。实时说明
  * 写出这一段要写几章、跳过几章、在哪收住、调用次数上限——提交时带上 `confirmed`，后端不再弹
  * 第二个确认框。「写完即定稿」「写完即审稿」会自动多花那几次调用（D17、五期补遗 §4），提交键要点两下。
+ * 要写的几章用到、却还只有一句话的设定（工程树上的「待完善」）在说明末尾提一句，不拦（完善设定三期 · 写前提醒）。
  */
 export function openWriteBatchForm(tree: ProjectTree): void {
   const writtenNos = tree.plots.filter((p) => p.chapterPath && p.wordCount > 0).map((p) => p.no);
@@ -246,6 +265,9 @@ export function openWriteBatchForm(tree: ProjectTree): void {
       }
       const first = p.chapters[0];
       const last = p.chapters[p.chapters.length - 1];
+      // 写前提醒（完善设定三期，零调用、不拦）：要写的这几章用到、却还只有一句话的设定——就是「待完善」里要用到它们的那几条。
+      const writing = new Set(p.chapters);
+      const thin = (tree.loreThin ?? []).filter((t) => t.chapters.some((no) => writing.has(no)));
       return {
         text:
           `要写 ${p.chapters.length} 章（${span(first, last)}）` +
@@ -256,7 +278,8 @@ export function openWriteBatchForm(tree: ProjectTree): void {
             : '') +
           `${describeCalls(p.calls)}（没写够时自动续写、开着删修饰时写完再删一次、每章写前比对一次细纲与既成事实，都算在上限里）。` +
           (p.review ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不停。' : '') +
-          (p.mode === 'finalize' ? '每写完一章就定稿：照正文更新细纲与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线。' : '只写正文，之后在主按钮上逐章定稿。'),
+          (p.mode === 'finalize' ? '每写完一章就定稿：照正文更新细纲与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线。' : '只写正文，之后在主按钮上逐章定稿。') +
+          (thin.length > 0 ? describeThinLore('区间里', thin.map((t) => t.name)) : ''),
       };
     },
     submitLabel: '开始写章',

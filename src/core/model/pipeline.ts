@@ -966,6 +966,35 @@ export const LORE_EXPAND_CALLS: CallEstimate = {
  */
 export const LORE_SETTLE_CALLS: CallEstimate = LORE_EXPAND_CALLS;
 
+/**
+ * 批量展开一条（完善设定三期，`features/lore.ts` 的 `expandLoreEntries`）：同一条展开链，上限仍是 2 次——
+ * 语法坏了修一次（同 {@link LORE_EXPAND_CALLS}）；没得修的解析不了，这一条重来一次（同 {@link LORE_ENTRY_CALLS}：
+ * 批量没有气泡可看，留一段没解析开的原文没人收拾）。两样不叠加，被输出上限截断不重来。
+ */
+export const LORE_EXPAND_BATCH_CALLS: CallEstimate = {
+  low: 1,
+  high: 1,
+  max: 2,
+  why: '语法坏了修一次、解析不了重来一次，两样合计最多再 1 次',
+};
+
+/** n 条设定各批量展开一次：{@link LORE_EXPAND_BATCH_CALLS} 乘 n。 */
+export function loreExpandCalls(n: number): CallEstimate {
+  const { low, high, max, why } = LORE_EXPAND_BATCH_CALLS;
+  return { low: n * low, high: n * high, max: n * max, why };
+}
+
+/**
+ * 写前提醒（完善设定三期，零调用、不拦、不进主按钮）：要写的章细纲第九节点名、却还只有一句话的设定（「待完善」的口径，
+ * views/lore.ts 的 `thinLoreFor`）。工作台正文目标（`本章`）与批量写章的弹窗、确认框（`区间里`）同一句；名字最多列 5 个。
+ */
+export function describeThinLore(scope: '本章' | '区间里', names: readonly string[]): string {
+  const list = `${names.slice(0, 5).join('、')}${names.length > 5 ? ` 等 ${names.length} 条` : ''}`;
+  return scope === '本章'
+    ? `本章要用的 ${list} 还只有一句话，写之前可以先展开（在工程页「待完善」里右键「展开…」）。`
+    : `区间里 ${names.length} 条要用到的设定还只有一句话（${list}），写之前可以先在工程页「待完善」里展开；不展开也照写。`;
+}
+
 /** 角色图谱的人数上下限与详情每批几人（上游 `architecture.command.ts:719-721`）。 */
 export const ROSTER_MIN = 3;
 export const ROSTER_MAX = 8;

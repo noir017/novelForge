@@ -163,6 +163,9 @@ export {
   LORE_ENTRY_CALLS,
   // 完善设定：展开一条的右键菜单与后端问要求的那一句同一个数；单条设定目标的说法也同源。
   LORE_EXPAND_CALLS,
+  // 完善设定三期：「全部展开」与后端确认框同一个数；写前提醒在弹窗与确认框里同一句。
+  loreExpandCalls,
+  describeThinLore,
   describeTarget,
   loreOfTarget,
 } from '../../src/core/model/pipeline';

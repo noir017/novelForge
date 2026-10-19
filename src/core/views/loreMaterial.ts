@@ -1,14 +1,15 @@
 import { NovelProject } from '../model/project';
+import { hash } from '../model/fs';
 import { Plot, PLOT_SECTION_KEYS } from '../model/plotFile';
 import { parseContinuityFacts } from '../model/continuity';
-import { createLoreLookup, loreCategoryOfSlug, loreMentionIn } from '../model/loreFile';
+import { createLoreLookup, loreCategoryOfSlug, loreMentionIn, loreThin, splitLoreHidden } from '../model/loreFile';
 import { LoreEntry } from '../model/types';
 import { finalizedPlots } from './cast';
 import type { LoreFact } from './lore';
 
 /**
  * 一条设定的原料：定稿过的细纲里关于它的记录（建条目、整合、展开共用）、没定稿的细纲里用到它的地方
- * （展开用），以及写完之后水位记到第几章。
+ * （展开用），以及写完之后水位记到第几章、条目正文是不是机器写的。
  *
  * 纯读盘、不调模型、不落盘。从 features/lore.ts 挪过来（完善设定，2026-10-19）：装配器展开一条设定时要
  * 同一份原料，而 context/ 不依赖 features/（见 context/README.md）。挪过来的那几样行为一字不变。
@@ -74,6 +75,34 @@ export function recordsAbout(plots: readonly Plot[], words: readonly string[], n
       return !seen.has(key) && (seen.add(key), true);
     })
     .sort((a, b) => a.no - b.no);
+}
+
+// ---------------------------------------------------------------- 谁写的
+
+/**
+ * 条目正文是不是机器写的：空的，或记下的指纹对得上。没盖过章的非空正文算作者的。从 features/lore.ts 挪过来
+ * （完善设定三期）：名录算「待完善」时要判批量展开会不会写它（{@link loreBatchExpandable}），而 views/ 不依赖 features/。
+ */
+export function loreOwnedByMachine(entry: Pick<LoreEntry, 'body' | 'bodyHash'>): boolean {
+  const body = entry.body.trim();
+  return !body || (!!entry.bodyHash && hash(body) === entry.bodyHash);
+}
+
+/**
+ * 批量展开（完善设定三期）会不会写这一条：还只有一句话（`loreThin`），而且没有作者的字。第 19 条批量那一面——
+ * 没有卡片、不问，只写吞不掉东西的：明面空的、新建设定的占位（都没有暗设），以及机器写的（`bodyHash` 对得上，
+ * 设定清单起步时留下的三节「（未交代）」就是这种）。三节全是「（未交代）」却没盖过章的、明面空着但写过暗设的，
+ * 都可能是作者手写的，批量跳过——要展开就单条展开，先对比。
+ */
+export function loreBatchExpandable(entry: Pick<LoreEntry, 'body' | 'bodyHash'>): boolean {
+  const thin = loreThin(entry);
+  if (!thin) {
+    return false;
+  }
+  if (loreOwnedByMachine(entry)) {
+    return true;
+  }
+  return thin !== 'untold' && !splitLoreHidden(entry.body).hidden;
 }
 
 // ---------------------------------------------------------------- 展开要的原料

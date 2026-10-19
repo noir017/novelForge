@@ -550,9 +550,10 @@ export async function loreListKnown(project: NovelProject): Promise<LoreListKnow
 
 /**
  * 展开一条设定那条链要对照的：这一条的标题、全部条目（子条目名字已有条目的不另建，别的条目的标题不进关键词）、
- * 角色卡上的人（人不是设定）、名录里另记着的名字（不进关键词，同建条目、整合）。
+ * 角色卡上的人（人不是设定）、名录里另记着的名字（不进关键词，同建条目、整合）。对话页与批量展开
+ * （features/lore.ts 的 `expandLoreEntries`）共用。
  */
-async function loreExpandKnown(project: NovelProject, target: CreationTarget): Promise<LoreExpandKnown> {
+export async function loreExpandKnown(project: NovelProject, target: CreationTarget): Promise<LoreExpandKnown> {
   const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
   const { entry } = await loreEntryAt(project, target.kind === 'lore' ? target.relPath : '', entries);
   const { unknown } = await buildLoreIndex(project, { entries, cards }, { pending: false });

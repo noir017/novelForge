@@ -49,6 +49,8 @@ import { describeFinalize, finalizeChapter } from './finalize';
 import { createCastCards, planCastCards } from './characterCard';
 import { checkPlotAgainstFacts } from './plotCheck';
 import { planThreads } from './threads';
+import { expandLoreEntries } from './lore';
+import { thinLoreFor } from '../views/lore';
 import { confirmDespiteGap } from './chapterGap';
 import { updateGlobalSummary } from './summarize';
 import { PLOT_CHECK_SUGGESTION, describeConflict } from '../model/plotCheck';
@@ -66,6 +68,7 @@ import {
   addCalls,
   commandOf,
   describeCalls,
+  describeThinLore,
   planPlotBatches,
   planWriteBatch,
   settingCalls,
@@ -104,10 +107,14 @@ const DEFAULT_SETUP = { totalChapters: 100, wordsPerChapter: 3000 };
  *
  * `confirmed`：工程页弹窗已经把切分与调用次数写给作者看过了（同一个 `planPlotBatches`），
  * 不再弹第二个确认框。MCP 的 `pipeline` 工具不带它，照旧先问。
+ *
+ * `expandLore`（完善设定三期，弹窗上「拆完展开本批新设定」，缺省否）：拆完把这一次顺带新建的设定空条目批量展开
+ * （features/lore.ts 的 `expandLoreEntries`）。新设定有几条要拆完才知道，所以拆完**再问一次次数**（同批量写章补建角色卡
+ * 那一问，第 4 条）；取消了只是不展开。中途被取消就不问。返回值含展开那几次。
  */
 export async function generatePlots(
   project: NovelProject,
-  opts: { range?: { from: number; to: number }; confirmed?: boolean } = {}
+  opts: { range?: { from: number; to: number }; confirmed?: boolean; expandLore?: boolean } = {}
 ): Promise<number> {
   const outline = await project.readOutline();
   if (!isOutlineFilled(outline)) {
@@ -147,6 +154,7 @@ export async function generatePlots(
           `${describeTaskModels(config, 'plotOutline')}\n` +
           (plan.skipped.length > 0 ? `已经排过的第 ${plan.skipped.join('、')} 章跳过，不会被改动。\n` : '') +
           '每批写完就落盘，后一批接着前一批往下排；一批失败就停，已经写好的留着。拆完再从细纲排一次叙事线（只追加新线）。\n' +
+          (opts.expandLore ? '拆完展开本批新设定：新设定有几条要拆完才知道，到时再问一次次数。\n' : '') +
           '输出被截断或格式不对时会自动拆小重试，所以给的是上限。',
       }
     );
@@ -163,6 +171,9 @@ export async function generatePlots(
   }
   const ws = new Workspace(project);
   let calls = 0;
+  /** 这一次顺带新建的设定空条目（拆完展开本批新设定用）。 */
+  const newLore: string[] = [];
+  let cancelled = false;
   await runTask(
     '批量拆细纲',
     async ({ signal, report }) => {
@@ -176,8 +187,10 @@ export async function generatePlots(
         calls += r.calls;
         if (r.ok) {
           done += batch.length;
+          newLore.push(...r.lore);
         } else {
           if (r.cancelled) {
+            cancelled = true;
             log.warn(`批量拆细纲被取消，已完成 ${done}/${plan.chapters.length} 章`);
             return;
           }
@@ -194,6 +207,7 @@ export async function generatePlots(
       const th = await planThreads(project, pool, signal);
       calls += th.calls;
       if (th.cancelled) {
+        cancelled = true;
         return;
       }
       report({ message: '收尾', current: done, total: plan.chapters.length });
@@ -203,6 +217,14 @@ export async function generatePlots(
     },
     { scope: '流水线' }
   );
+  // 拆完展开本批新设定（完善设定三期）：几条要拆完才知道，展开那边自己再问一次次数。
+  if (opts.expandLore && !cancelled) {
+    if (newLore.length > 0) {
+      calls += await expandLoreEntries(project, newLore, { lead: `${where}拆出了 ${newLore.length} 条新设定。` });
+    } else {
+      log.info('拆完展开本批新设定：这一次没有新设定，不用展开');
+    }
+  }
   return calls;
 }
 
@@ -356,6 +378,7 @@ export async function settingRaw(
 /**
  * 拆一批细纲：生成链（截断拆半、语法修复、漏章 fail-closed）→ 只补空白地落盘。批量拆细纲与批量写章
  * 「边写边拆」共用。**不抛**：失败挂在这一批第一章的细纲上（第 16 条），由调用方决定停不停；取消单列。
+ * 成功时 `lore` 是这一批顺带新建的设定空条目（第九节 `isNew`）：批量拆细纲「拆完展开本批新设定」按它接着展开。
  */
 export async function runPlotBatch(
   project: NovelProject,
@@ -364,7 +387,7 @@ export async function runPlotBatch(
   config: ReturnType<typeof readConfig>,
   signal: AbortSignal,
   batch: readonly number[]
-): Promise<{ ok: true; calls: number } | { ok: false; calls: number; cancelled: boolean; reason: string }> {
+): Promise<{ ok: true; calls: number; lore: string[] } | { ok: false; calls: number; cancelled: boolean; reason: string }> {
   const range = { from: batch[0], to: batch[batch.length - 1] };
   const span = rangeLabel(range.from, range.to);
   const target = { kind: 'plot' as const, plotRelPath: await project.plotPathOfNo(range.from) };
@@ -383,7 +406,7 @@ export async function runPlotBatch(
     const r = await acceptPlotBatch(project, ws, result.items, range, { onlyBlank: true });
     log.info(`${span}的细纲已落盘`, r.message);
     void clearFailures(project, 'plot', target.plotRelPath, 'plotOutline');
-    return { ok: true, calls: result.calls };
+    return { ok: true, calls: result.calls, lore: r.createdLore ?? [] };
   } catch (err) {
     const calls = err instanceof ChainError ? err.calls : io.calls();
     if (err instanceof CancelledError || signal.aborted) {
@@ -475,6 +498,8 @@ const MODE_LABEL: Record<WriteBatchMode, string> = {
  *   「批量审稿 · 第 a–b 章」，每审完一章落盘一次；作者打开它在报告卡上逐章勾选、修稿（走对话页那条路）。
  *   **审出问题不停**（要人勾了才修，批量停下也没人勾），**审稿失败也不停**（后面几章不靠这份报告往下写），
  *   都在完成提示里说清。走 `review` 档。写进去但要停下的那一章（重演、提前登场、没写够）照样审完再停。
+ * - **写前提醒**（完善设定三期）：确认框里多一行「区间里 K 条要用到的设定还只有一句话」（`thinLoreFor`，零调用）。
+ *   不拦，也不在这里顺带展开——批量写章不再多一类调用。
  *
  * `confirmed`：工程页弹窗已经把切分与调用次数写给作者看过了，不再弹第二个确认框。agent 的
  * MCP 的 `pipeline` 工具不带它，照旧先问。返回实际调了几次模型（取消、无事可做、没有模型时是 0）。
@@ -556,6 +581,8 @@ export async function writeManuscripts(
   const castCards = await planCastCards(project, { minAppearances: CAST_CARD_MIN_APPEARANCES });
   const cardCalls: CallEstimate = { low: castCards.calls, high: castCards.calls, max: castCards.calls };
   const totalCalls = castCards.calls > 0 ? addCalls(plan.calls, cardCalls) : plan.calls;
+  // 写前提醒（完善设定三期，零调用、不拦）：要写的这几章细纲点名、却还只有一句话的设定。前端弹窗算的是同一份（「待完善」）。
+  const thin = await thinLoreFor(project, plan.chapters);
   const config = readConfig();
   // 前端弹窗算不出补卡那几次（要读定稿过的细纲），所以有卡要补时照样再问一次（第 4 条）。
   if (!opts.confirmed || castCards.calls > 0) {
@@ -585,6 +612,7 @@ export async function writeManuscripts(
             : '',
           plan.skipped.length > 0 ? `已经写过正文的第 ${plan.skipped.join('、')} 章跳过，不会被改动。` : '',
           plan.stopAt !== undefined ? `第 ${plan.stopAt} 章还没有细纲、情节大纲也没覆盖到它，写到它前面为止。` : '',
+          thin.length > 0 ? describeThinLore('区间里', thin.map((t) => t.name)) : '',
           '一章写不出来就停；写出来但开头重演了上一章、把后面几章的人提前写了进来、没写够八成或结尾停在半句上，也写进去然后停下，等你看过再继续。',
         ]
           .filter(Boolean)

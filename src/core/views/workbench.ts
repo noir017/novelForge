@@ -28,10 +28,12 @@ import {
   SETTING_DOC_LABEL,
   STAGE_LABEL,
   describeTarget,
+  describeThinLore,
   plotLabel,
   stageOfTarget,
 } from '../model/pipeline';
 import { chapterOfPlotNo } from './pipeline';
+import { thinLoreFor } from './lore';
 import { loreEntryAt } from './loreMaterial';
 import { WorkbenchSection, WorkbenchView } from '../protocol';
 
@@ -180,6 +182,10 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
   // 与 pipeline.ts 同一条判据：记录过、且现在对不上，才算脏。没记录过
   // （正文是作者自己写的）不标脏——凭空的过期标记比不标更糟。
   const stale = !!chapter && !!plot?.writtenFrom && plotContentHash(plot) !== plot.writtenFrom;
+  // 写前提醒（完善设定三期）：还没写的这一章细纲点名、却还只有一句话的设定。零调用、不拦、不进主按钮（第 20 条）；
+  // 口径就是「待完善」（没定稿、也还没写正文的细纲），所以已经写了字的章不提。第九节空着就不读设定区。
+  const thin =
+    plot && !plot.sourceHash && words === 0 && (plot.lore?.length ?? 0) > 0 ? await thinLoreFor(project, [plot.no]) : [];
   return {
     stage: 'manuscript',
     title: `正文 · ${head}`,
@@ -193,6 +199,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       ...(plot ? sectionsOf(plot.sections, PLOT_SECTION_KEYS) : []),
     ],
     warning: stale ? '这一章的细纲在正文写完（或定稿）之后改过，现有正文可能已经与它对不上。' : undefined,
+    ...(thin.length > 0 ? { notice: describeThinLore('本章', thin.map((t) => t.name)) } : {}),
     empty: plot ? undefined : '这一章没有细纲，写正文时模型只能照着前文往下编。',
   };
 }

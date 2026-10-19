@@ -424,8 +424,16 @@ export async function completeLoreList(first: CallOutcome, io: ChainIO, known: L
  * **截断与解析不了都不给写入**：截断的那一半不可信，没解析开的原文盖掉条目比没写更糟（同定稿）——链停下，
  * 已经收到的输出留在气泡里，没有落盘卡片。解出来的照程序的规矩过一遍（features/loreExpand.ts：截长、关键词与
  * 子条目对照磁盘上的条目与角色卡），交给气泡的是规范化结果，丢掉了什么写进说明（第 2 条）。
+ *
+ * `opts.repair: false`：不修（批量展开第二次重来时，上限已经用掉一次——features/lore.ts 的 `expandLoreEntries`，
+ * `LORE_EXPAND_BATCH_CALLS`）。
  */
-export async function completeLoreExpand(first: CallOutcome, io: ChainIO, known: LoreExpandKnown): Promise<ChainResult> {
+export async function completeLoreExpand(
+  first: CallOutcome,
+  io: ChainIO,
+  known: LoreExpandKnown,
+  opts: { repair?: boolean } = {}
+): Promise<ChainResult> {
   // 显式标注类型：`t.fail()` 返回 never，TS 只对显式标注的变量做控制流收窄。
   const t: Tally = new Tally(true);
   if (first.stop === 'maxTokens') {
@@ -433,7 +441,7 @@ export async function completeLoreExpand(first: CallOutcome, io: ChainIO, known:
   }
   let text = first.text;
   let decoded = decodeLoreExpansion(text, known);
-  if (!decoded.ok && isRepairableJsonSyntax(text)) {
+  if (!decoded.ok && opts.repair !== false && isRepairableJsonSyntax(text)) {
     const fix = await t.call(io, syntaxRepairMessages(loreExpandJsonContract(), text), '展开的 JSON 语法坏了，修一次');
     if (fix.stop !== 'maxTokens' && preservesJsonEvidence(text, fix.text)) {
       text = fix.text;

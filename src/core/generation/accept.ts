@@ -51,6 +51,8 @@ export interface AcceptResult {
   skipped?: boolean;
   /** 一句人话，直接进 toast。 */
   message: string;
+  /** 顺带新建的设定空条目在哪（一批细纲的第九节 `isNew`）：批量拆细纲「拆完展开本批新设定」按它接着展开。 */
+  createdLore?: string[];
 }
 
 /**
@@ -579,11 +581,12 @@ export async function acceptPlotBatch(
     );
   }
   const cards = await createPlannedCards(project, ws, items);
-  const lore = await createPlannedLore(
+  const created = await createPlannedLoreAt(
     project,
     ws,
     items.flatMap((b) => (b.settings ?? []).filter((s) => s.isNew))
   );
+  const lore = created.map((c) => c.name);
 
   const where = range.from === range.to ? `第 ${range.from} 章` : `第 ${range.from}–${range.to} 章`;
   const parts = [
@@ -593,9 +596,10 @@ export async function acceptPlotBatch(
     lore.length > 0 ? `新建设定条目：${lore.join('、')}` : '',
   ].filter(Boolean);
   log.info(`${where}的细纲已落盘`, parts.join('；'));
+  const createdLore = created.length > 0 ? { createdLore: created.map((c) => c.relPath) } : {};
   return written.length === 0 && cards.length === 0 && lore.length === 0
     ? { skipped: true, message: `没有改动${where}的细纲。` }
-    : { relPath: written[0], message: `${parts.join('，')}。` };
+    : { relPath: written[0], message: `${parts.join('，')}。`, ...createdLore };
 }
 
 /**
@@ -644,20 +648,32 @@ async function createPlannedCards(project: NovelProject, ws: Workspace, items: B
  * 正文留空，等写到了、定稿过，再从名录里「整合」——或者在工程页右键「展开」。
  */
 async function createPlannedLore(project: NovelProject, ws: Workspace, lines: readonly LoreLine[]): Promise<string[]> {
+  return (await createPlannedLoreAt(project, ws, lines)).map((c) => c.name);
+}
+
+/**
+ * 同 {@link createPlannedLore}，交回建在哪：批量拆细纲「拆完展开本批新设定」与批量展开拆出来的子条目要按路径接着认
+ * （完善设定三期）。
+ */
+export async function createPlannedLoreAt(
+  project: NovelProject,
+  ws: Workspace,
+  lines: readonly LoreLine[]
+): Promise<{ name: string; relPath: string }[]> {
   if (lines.length === 0) {
     return [];
   }
   const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
-  const created: string[] = [];
+  const created: { name: string; relPath: string }[] = [];
   for (const s of plannableLore(lines, createLoreLookup(entries), takenNames(cards))) {
     const base = `${s.category ? `${s.category}/` : ''}${slugify(s.name)}`;
     const slug = await uniqueSlug(project.loreDir, base);
-    await ws.writeLore({ slug, title: s.name, keywords: [s.name], brief: s.note, body: '' });
-    created.push(s.name);
+    const relPath = await ws.writeLore({ slug, title: s.name, keywords: [s.name], brief: s.note, body: '' });
+    created.push({ name: s.name, relPath });
   }
   if (created.length > 0) {
     project.invalidate();
-    log.info(`新设定已建空条目：${created.join('、')}`);
+    log.info(`新设定已建空条目：${created.map((c) => c.name).join('、')}`);
   }
   return created;
 }

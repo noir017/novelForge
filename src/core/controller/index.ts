@@ -572,6 +572,7 @@ export class ChatController {
           mode: msg.mode,
           review: msg.review,
           name: msg.name,
+          expandLore: msg.expandLore,
         });
         return;
 

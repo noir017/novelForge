@@ -260,6 +260,11 @@ export interface WorkbenchView {
   relPath: string;
   sections: WorkbenchSection[];
   warning?: string;
+  /**
+   * 不是出了问题、只是提个醒（完善设定三期 · 写前提醒）：正文目标上「本章要用的 天机阁 还只有一句话」。零调用、不拦，
+   * 不进主按钮（第 20 条）。与 `warning`（上游变过，⟳）分开：两件事长得一样，作者就分不清哪个要紧。
+   */
+  notice?: string;
   empty?: string;
 }
 
@@ -325,6 +330,8 @@ export interface LoreThinEntry {
   chapters: number[];
   /** `第 12 章起要用 · 只有一句话`。 */
   detail: string;
+  /** 条目里有作者的字：「全部展开」跳过它（完善设定三期，`views/lore.ts` 的 `ThinLore.authored`）。 */
+  authored?: true;
 }
 
 export interface FailureView {

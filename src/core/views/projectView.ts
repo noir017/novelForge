@@ -208,6 +208,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     kind: item.kind,
     chapters: item.chapters,
     detail: `第 ${item.first} 章起要用 · ${THIN_LORE_LABEL[item.kind]}`,
+    ...(item.authored ? { authored: true as const } : {}),
   }));
 
   // 出场人物索引：已建卡的补出场统计，未建卡的单列一组。

@@ -14,7 +14,7 @@ import {
 } from '../features/characterCard';
 import { cleanCharacterAliases, mergeDuplicateCharacterCards } from '../features/characterMaintenance';
 import { extractCharacters, newCharacter, newLore } from '../features/characters';
-import { buildLoreEntries, integrateLore, organizeLore } from '../features/lore';
+import { buildLoreEntries, expandLoreEntries, integrateLore, organizeLore } from '../features/lore';
 import { recordLore } from '../features/loreRecord';
 import { completeSettings, generatePlots, writeManuscripts } from '../features/pipelineBatch';
 import { extractStyle } from '../features/style';
@@ -56,6 +56,7 @@ export async function projectAction(
     mode?: 'draft' | 'finalize';
     review?: boolean;
     name?: string;
+    expandLore?: boolean;
   } = {}
 ): Promise<void> {
   // refresh 每次切页/刷盘都来一趟，记了只会淹掉别的；其余动作都值得留痕。
@@ -125,7 +126,12 @@ export async function projectAction(
       break;
     case 'generatePlots':
       // 区间与「弹窗已经报过调用次数」来自工程页的拆细纲弹窗（W5）；不带就是下一批 5 章，先问。
-      await generatePlots(c.project, { range: normalizeRange(batch.range), confirmed: batch.confirmed === true });
+      // `expandLore`：弹窗上「拆完展开本批新设定」（完善设定三期），拆完后端再问一次次数。
+      await generatePlots(c.project, {
+        range: normalizeRange(batch.range),
+        confirmed: batch.confirmed === true,
+        expandLore: batch.expandLore === true,
+      });
       break;
     case 'completeSettings':
       await completeSettings(c.project);
@@ -150,6 +156,9 @@ export async function projectAction(
       break;
     case 'integrateLore':
       await integrateLore(c.project, relPath ? [relPath] : undefined);
+      break;
+    case 'expandLoreAll':
+      await expandLoreEntries(c.project);
       break;
     case 'organizeLore':
       await organizeLore(c.project);

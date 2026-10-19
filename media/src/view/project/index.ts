@@ -5,6 +5,7 @@
  * 拿最近那份快照重画，不必往后端要一次数据。「设定」组的筛选也一样（loreFilter.ts）。
  */
 import { closestFrom, setHidden } from '../../dom';
+import { describeCalls, loreExpandCalls } from '../../protocol';
 import type { ProjectTree } from '../../protocol';
 import { formatWords } from '../format';
 import { el } from '../refs';
@@ -200,11 +201,22 @@ function buildProjectPage(tree: ProjectTree): void {
 
   // 待完善（完善设定，2026-10-19）：还没写的几章细纲第九节点名、却还没有条目或条目还只有一句话的设定。
   // 往前看的一组，排在往回记的「出现过 · 未建条目」前面；一个都没有就整组不画，筛选时同未建条目。
-  // 「全部展开」不在这一期（批量没有卡片，待定的问题没处放），这一组标题上没有批量项。
+  // 标题右键「全部展开」（三期）：次数与后端确认框同一个数，只算批量会写的（作者写过的跳过，`authored`）。
   const thin = filterUnfiled(thinAll);
   if (thin.length > 0) {
+    const expandable = thinAll.filter((t) => !t.authored).length;
     el.projectBody.appendChild(
       buildGroup('loreThin', '待完善', `${thinAll.length} 个`, {
+        extraItems: () =>
+          expandable > 0
+            ? [
+                {
+                  label: `全部展开（${expandable} 条，${describeCalls(loreExpandCalls(expandable)).replace(/（.*）$/, '')}）`,
+                  run: () => projectAction('expandLoreAll'),
+                },
+                { sep: true },
+              ]
+            : [],
         build: () => buildLoreThinRows(thin),
       })
     );

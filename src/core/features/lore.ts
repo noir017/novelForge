@@ -5,13 +5,20 @@ import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { takeHead } from '../context/tokenizer';
 import { getHost, plainVerdict } from '../host';
 import { collectText } from '../llm/collect';
-import { StreamOptions } from '../llm/provider';
+import { CancelledError, StreamOptions } from '../llm/provider';
 import { ModelPool, createModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { exists, hash, readText, sanitizeFileName, slugify, uniqueSlug } from '../model/fs';
 import { parseMarkdown, stripH1 } from '../model/markdown';
 import { describeTaskModels } from '../model/tiers';
-import { LORE_ENTRY_CALLS, describeCalls, loreEntryCalls } from '../model/pipeline';
+import {
+  CreationTarget,
+  LORE_ENTRY_CALLS,
+  LORE_EXPAND_BATCH_CALLS,
+  describeCalls,
+  loreEntryCalls,
+  loreExpandCalls,
+} from '../model/pipeline';
 import { NovelProject, renderLoreEntry } from '../model/project';
 import { Plot } from '../model/plotFile';
 import { LoreEntry } from '../model/types';
@@ -20,25 +27,40 @@ import { runTask } from '../runtime/progress';
 import { Workspace } from '../workspace';
 import { finalizedPlots } from '../views/cast';
 import { LoreFact, LoreRecord, UnfiledLore, buildLoreIndex } from '../views/lore';
-import { MATERIAL_TOKENS, integrationWatermark, recordsAbout } from '../views/loreMaterial';
+import {
+  MATERIAL_TOKENS,
+  integrationWatermark,
+  loreBatchExpandable,
+  loreEntryAt,
+  loreOwnedByMachine,
+  recordsAbout,
+} from '../views/loreMaterial';
+import { createPlannedLoreAt } from '../generation/accept';
+import { loreExpandKnown } from '../generation/generate';
+import { ChainError, ChainResult, completeLoreExpand } from '../generation/structured';
+import { parseLoreExpansion } from './loreExpand';
 import { LORE_ENTRY_SYSTEM, LORE_ORGANIZE_SYSTEM } from './lorePrompt';
 import { extractJsonObject, stringArray, stripCodeFence, stripTrailingCommas, unique } from './parse';
+import { poolIO } from './pipelineBatch';
 
 const log = scoped('设定');
 
 /**
- * 设定条目的三件维护：**建条目**（名录里出现过、还没有条目的名字）、**整合**（条目水位之后的新事实
- * 并进条目）、**按目录整理**（作者定案：分类就是目录，让模型出一份搬家清单）。
+ * 设定条目的四件维护：**建条目**（名录里出现过、还没有条目的名字）、**整合**（条目水位之后的新事实
+ * 并进条目）、**批量展开**（「待完善」里还只有一句话的，照已排的细纲往前想细，完善设定三期）、**按目录整理**
+ * （作者定案：分类就是目录，让模型出一份搬家清单）。
  *
- * 原料全来自**定稿过的细纲**（第九节、连续性事实、提到它的那几句），**不重读正文**——每章定稿时已经
+ * 建条目与整合的原料全来自**定稿过的细纲**（第九节、连续性事实、提到它的那几句），**不重读正文**——每章定稿时已经
  * 照正文记过、校验过了（features/loreRecord.ts）。从前这里是「通读全书 → 每条整合」那一套，每跑一次
- * 都从第 1 章扫起（三百章、五百条约 800 次调用），作者定案删掉：相似的东西不留两份。
+ * 都从第 1 章扫起（三百章、五百条约 800 次调用），作者定案删掉：相似的东西不留两份。批量展开走的是对话页展开
+ * 同一条装配与生成链（单条设定这个目标），只是没有卡片。
  *
  * 写回的规矩（第 3 条：不静默覆盖）：
  * - 新条目直接建（不覆盖任何东西）。
  * - 整合时条目正文是机器写的（`bodyHash` 对得上，或正文是空的）：作者在确认框里选「逐条确认」还是
  *   「直接采纳」，同批量更新角色卡；作者改过的一律先给对比。
  * - 整合只并不删作者的字（提示词，第 27 条）；关键词只增不减。
+ * - 批量展开只写还只有一句话、又没有作者的字的（`loreBatchExpandable`），作者写过的跳过（第 19 条批量那一面）。
  */
 
 /** 「全部建条目」只建出现至少这么多章的（与批量建卡同一个门槛）。 */
@@ -57,12 +79,8 @@ interface EntryDraft {
 
 // ---------------------------------------------------------------- 水位
 // 整合能推到第几章（`integrationWatermark`）挪到了 views/loreMaterial.ts：展开一条设定落盘时记同一个水位。
-
-/** 条目正文是不是机器写的：空的，或记下的指纹对得上。没盖过章的非空正文算作者的。 */
-export function loreOwnedByMachine(entry: Pick<LoreEntry, 'body' | 'bodyHash'>): boolean {
-  const body = entry.body.trim();
-  return !body || (!!entry.bodyHash && hash(body) === entry.bodyHash);
-}
+// 正文是不是机器写的（`loreOwnedByMachine`）也挪了过去：名录算「待完善」时要判批量展开会不会写它。这里转出一份，调用方不用改。
+export { loreOwnedByMachine };
 
 // ---------------------------------------------------------------- 原料
 // 一个名字在定稿细纲里的全部记录（`recordsAbout`）也在 views/loreMaterial.ts：装配器展开一条设定时要同一份，
@@ -489,6 +507,258 @@ async function integrateOne(
     }`
   );
   return true;
+}
+
+// ---------------------------------------------------------------- 批量展开（完善设定三期）
+
+/** 批量展开一条的结果。 */
+type ExpandOutcome =
+  | { written: true; children: string[] }
+  | { written: false; why: string };
+
+/**
+ * 批量展开（完善设定三期，设计稿 §5）：把还只有一句话的设定照已排的细纲往前想细，**写完直接落盘，没有卡片**。
+ *
+ * - 范围：给了 `relPaths` 就是那几条（批量拆细纲「拆完展开本批新设定」）；没给就是「待完善」里的全部——还没有条目的
+ *   先按细纲第九节的分类建空条目（同单条「展开…」与细纲带出新设定，`createPlannedLoreAt`）。
+ * - 只写 {@link loreBatchExpandable} 的（空的、占位的、机器写的薄条目）：作者写过的跳过，确认框与完成提示里都说出来
+ *   （第 19 条批量那一面：不问、不覆盖）。跑的这几十秒里作者改了某一条，落盘前再认一遍，改过就不写。
+ * - 同一份展开合同与装配（对话页单条设定那个目标，`poolIO`），每条 1 次；语法坏了修一次、解析不了重来一次，合计上限 2 次
+ *   （{@link LORE_EXPAND_BATCH_CALLS}）；被输出上限截断不重来。写下的记作机器写的（`bodyHash`），水位同整合、不往回退。
+ * - 建议拆出的子条目照建空条目，**不在同一批里接着展开**；还没定的问题批量没处放，丢掉（要问题就单条展开）。
+ * - 模型走「故事架构」档（设计稿 #12：展开是创作，和设定清单同一档），不带思考深度（第 26 条）。失败挂在那一条上（第 16 条）。
+ *
+ * `opts.lead`：确认框开头那句换成调用方的说法（拆细纲之后「第 1–5 章拆出了 3 条新设定」）。返回实际调了几次模型。
+ */
+export async function expandLoreEntries(
+  project: NovelProject,
+  relPaths?: readonly string[],
+  opts: { lead?: string } = {}
+): Promise<number> {
+  const host = getHost();
+  const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
+  let found: LoreEntry[];
+  let missing: { name: string; category: string }[] = [];
+  if (relPaths) {
+    found = relPaths.map((rel) => entries.find((e) => e.relPath === rel)).filter((e): e is LoreEntry => !!e);
+  } else {
+    const { thin } = await buildLoreIndex(project, { entries, cards }, { pending: false, thin: true });
+    found = thin.map((t) => entries.find((e) => e.relPath === t.relPath)).filter((e): e is LoreEntry => !!e);
+    missing = thin.filter((t) => !t.relPath).map((t) => ({ name: t.name, category: t.category }));
+  }
+  const ready = found.filter(loreBatchExpandable);
+  const authored = found.filter((e) => !loreBatchExpandable(e));
+  const n = ready.length + missing.length;
+  const authoredNote =
+    authored.length > 0
+      ? `跳过你写过的 ${authored.length} 条：${authored.slice(0, 10).map((e) => e.title).join('、')}${authored.length > 10 ? ' 等' : ''}` +
+        '（要展开就在那一条上右键「展开…」，先对比再写）。'
+      : '';
+  if (n === 0) {
+    host.toast(
+      authored.length > 0
+        ? `没有能直接展开的设定。${authoredNote}`
+        : relPaths
+          ? '这几条设定都不在了，或者已经写过内容。'
+          : '「待完善」里没有要展开的设定。'
+    );
+    return 0;
+  }
+
+  const config = readConfig();
+  const lanes = Math.max(1, Math.min(config.concurrency, n));
+  const names = [...ready.map((e) => e.title), ...missing.map((m) => m.name)];
+  const picked = await host.confirm(
+    `${opts.lead ?? ''}展开 ${n} 条设定：${describeCalls(loreExpandCalls(n))}。照已排的细纲把它们往前想细，写完直接落盘。`,
+    ['开始展开'],
+    {
+      modal: true,
+      detail: [
+        `要展开的：${names.slice(0, 20).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,
+        missing.length > 0 ? `其中 ${missing.length} 条还没有条目，先按细纲第九节里的分类建空条目。` : '',
+        '只写还只有一句话、没有你的字的条目（空的、占位的、机器写的）；写下的记作机器写的，以后整合可以直接采纳。',
+        authoredNote,
+        '建议拆出的子条目建成空条目，不在这一批里接着展开；还没定的问题批量不留——要看问题就单条展开。',
+        describeTaskModels(config, 'setting'),
+        lanes > 1 ? `最多 ${lanes} 条同时展开。` : '一条一条串行展开（并发数为 1）。',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    }
+  );
+  if (picked !== '开始展开') {
+    log.info('作者取消了批量展开设定');
+    return 0;
+  }
+  const pool = await createModelPool({ task: 'setting', concurrent: lanes > 1 });
+  if (!pool) {
+    log.error('没有可用的模型，批量展开设定中止');
+    return 0;
+  }
+
+  let calls = 0;
+  await runTask(
+    '展开设定',
+    async ({ signal, report }) => {
+      const startedAt = Date.now();
+      const targets = [...ready.map((e) => e.relPath)];
+      if (missing.length > 0) {
+        // 「待完善」里还没有条目的：先建空条目（名字这时已被别的条目或角色卡占了的不建，同细纲带出新设定）。
+        const made = await createPlannedLoreAt(
+          project,
+          new Workspace(project),
+          missing.map((m) => ({ name: m.name, category: m.category, note: '' }))
+        );
+        targets.push(...made.map((c) => c.relPath));
+        if (made.length < missing.length) {
+          log.info(`展开之前有 ${missing.length - made.length} 个名字没建空条目`, '名字已被别的条目或角色卡占了');
+        }
+      }
+      const total = targets.length;
+      let written = 0;
+      let failed = 0;
+      const skipped: string[] = [];
+      const children: string[] = [];
+      /** 失败记账等收尾时一起等完：完成提示出来时，红 ❗ 已经挂在那一条上了。 */
+      const records: Promise<void>[] = [];
+      await runPool(
+        targets,
+        lanes,
+        (rel) =>
+          expandOne(project, rel, pool, config, signal, () => {
+            calls++;
+          }),
+        {
+          signal,
+          onSettled: (result, rel, _i, done) => {
+            if (result.status === 'fulfilled') {
+              if (result.value.written) {
+                written++;
+                children.push(...result.value.children);
+              } else {
+                skipped.push(result.value.why);
+              }
+            } else if (!(result.reason instanceof CancelledError) && !signal.aborted) {
+              failed++;
+              log.error(`设定 ${rel} 展开失败`, describeError(result.reason));
+              records.push(
+                recordFailure(project, {
+                  scope: '设定',
+                  targetKind: 'lore',
+                  targetKey: rel,
+                  severity: 'error',
+                  op: 'expandLore',
+                  message: `展开失败：${describeError(result.reason)}`,
+                  detail: '批量展开，这一条没有改动。可以在这一条上右键「展开…」单条再试。',
+                })
+              );
+            }
+            report({ message: `已展开 ${done}/${total} 条`, current: done, total });
+          },
+        }
+      );
+      await Promise.all(records);
+      project.invalidate();
+      if (signal.aborted) {
+        log.warn(`批量展开设定被取消，已写 ${written} 条`);
+        return;
+      }
+      const summary =
+        `展开 ${written} 条设定` +
+        (children.length > 0 ? `，新建子条目 ${children.length} 条：${children.join('、')}` : '') +
+        (skipped.length > 0 ? `，没写 ${skipped.length} 条（${skipped.join('；')}）` : '') +
+        (authored.length > 0 ? `，跳过你写过的 ${authored.length} 条` : '') +
+        (failed > 0 ? `，失败 ${failed} 条（详见日志页）` : '');
+      log.info('批量展开设定结束', `${summary}｜调用 ${calls} 次｜总耗时 ${elapsed(startedAt)}`);
+      host.toast(`${summary}。`);
+    },
+    { scope: '设定' }
+  );
+  return calls;
+}
+
+/**
+ * 展开一条并落盘（批量那条路）。对话页那条路是 generation/generate.ts 的单条设定目标 + 卡片 + `acceptLoreEntries`；
+ * 这里同一份装配与链，落盘按批量的规矩：落盘前按磁盘再认一遍——不在了、作者在这期间写了字的不写。
+ */
+async function expandOne(
+  project: NovelProject,
+  relPath: string,
+  pool: ModelPool,
+  config: ReturnType<typeof readConfig>,
+  signal: AbortSignal,
+  onCall: () => void
+): Promise<ExpandOutcome> {
+  const target: CreationTarget = { kind: 'lore', relPath };
+  const known = await loreExpandKnown(project, target);
+  const label = `展开设定「${known.title}」`;
+  const io = poolIO(project, pool, config, signal, { action: { stage: 'setting', capability: 'generate' }, target, ask: '' });
+  const counted = { ...io.chain, call: (...args: Parameters<typeof io.chain.call>) => (onCall(), io.chain.call(...args)) };
+  const messages = await counted.build({});
+  let result: ChainResult | undefined;
+  for (let attempt = 1; !result; attempt++) {
+    const first = await counted.call(messages, label);
+    try {
+      // 第二次是重来：上限只剩这一次，不再修（LORE_EXPAND_BATCH_CALLS）。
+      result = await completeLoreExpand(first, { ...counted, messages }, known, { repair: attempt === 1 });
+    } catch (err) {
+      const again =
+        err instanceof ChainError && !signal.aborted && first.stop !== 'maxTokens' && io.calls() < LORE_EXPAND_BATCH_CALLS.max;
+      if (!again) {
+        throw err;
+      }
+      log.warn(`${label}：${err.message}这一条重来一次`);
+    }
+  }
+  if (result.notes.length > 0) {
+    log.info(`${label}：${result.notes.length} 处说明`, result.notes.join('\n'));
+  }
+  const { entries: drafts } = parseLoreExpansion(result.raw, relPath);
+  const [main, ...children] = drafts;
+  if (!main || signal.aborted) {
+    throw new Error('展开解析不出来');
+  }
+  return serialize(async () => {
+    // 排到队之前文件可能已被别处改过，进队后再读一次才是当下的真相。
+    const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
+    const { entry, exists: there } = await loreEntryAt(project, relPath, entries);
+    if (!there) {
+      return { written: false, why: `「${entry.title}」不在了` };
+    }
+    if (!loreBatchExpandable(entry)) {
+      return { written: false, why: `「${entry.title}」展开期间有人写了内容` };
+    }
+    const fresh = cleanLoreKeywords(entry.title, main.keywords, {
+      titles: [...entries.filter((e) => e.relPath !== relPath).map((e) => e.title), ...children.map((c) => c.title)],
+      people: cards.flatMap((c) => [c.name, ...c.aliases]),
+      recorded: known.recorded,
+    });
+    const body = main.body.trim();
+    const text = renderLoreEntry({
+      slug: entry.slug,
+      title: entry.title,
+      keywords: unique([...(entry.keywords.length > 0 ? entry.keywords : [entry.title]), ...fresh]),
+      brief: main.brief || entry.brief,
+      body,
+      // 同单条展开：只往前推不往回退。
+      updatedThrough: Math.max(entry.updatedThrough ?? 0, await integrationWatermark(project)),
+      bodyHash: hash(body),
+    });
+    const ws = new Workspace(project);
+    await ws.write(relPath, { text }, { mode: 'overwrite', review: false });
+    const made = await createPlannedLoreAt(
+      project,
+      ws,
+      children.map((c) => ({ name: c.title, category: c.category, note: c.brief }))
+    );
+    await clearFailures(project, 'lore', relPath, 'expandLore');
+    await clearFailures(project, 'lore', relPath, 'creation');
+    log.info(
+      `已展开设定「${entry.title}」`,
+      `${relPath}｜正文 ${body.length} 字｜批量，直接写${made.length > 0 ? `｜新建子条目 ${made.map((c) => c.name).join('、')}` : ''}`
+    );
+    return { written: true, children: made.map((c) => c.name) };
+  });
 }
 
 // ---------------------------------------------------------------- 按目录整理

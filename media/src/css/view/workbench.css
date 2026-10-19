@@ -62,6 +62,11 @@
   color: var(--vscode-descriptionForeground);
 }
 
+/* 写前提醒（完善设定三期）：只是提个醒，淡色，不与 ⟳ 同色。 */
+.wbt-entry-mark.is-notice {
+  color: var(--vscode-descriptionForeground);
+}
+
 /* ---- 浮窗
 
    与 .summary-tip 同一套取舍：z-index 25（低于 toast 30 与右键菜单 40，那两个
@@ -155,6 +160,13 @@
   font-size: 0.85em;
   line-height: 1.5;
   color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+/* 写前提醒（完善设定三期）：本章要用的设定还只有一句话。不拦，所以不用警告色。 */
+.wbt-notice {
+  font-size: 0.85em;
+  line-height: 1.5;
+  color: var(--vscode-descriptionForeground);
 }
 
 /* 这一层还没有产物。说清楚缺什么，不要留一只空浮窗。 */

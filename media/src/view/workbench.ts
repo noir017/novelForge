@@ -79,10 +79,13 @@ function redrawEntry(): void {
   box.appendChild(mk('span', 'wbt-entry-icon', '▤'));
   box.appendChild(mk('span', 'wbt-entry-title', current.title));
   // 上游变过 / 这一层还是空的：入口上就得看得见，否则用户没有理由把它打开。
+  // 写前提醒（完善设定三期）只是提个醒：换一个淡色的记号，不跟 ⟳ 抢。
   if (current.warning) {
     box.appendChild(mk('span', 'wbt-entry-mark', '⟳'));
   } else if (current.empty) {
     box.appendChild(mk('span', 'wbt-entry-mark is-empty', '○'));
+  } else if (current.notice) {
+    box.appendChild(mk('span', 'wbt-entry-mark is-notice', '◌'));
   }
   box.title = `${current.title}——悬停查看这一层的产物，点击钉住`;
 }
@@ -159,6 +162,10 @@ function fill(box: HTMLElement, view: WorkbenchView): void {
     // 上游变更在这里是一句人话，不只是流水线条上那个 ⟳。作者正盯着这份
     // 产物看，此刻正是告诉他「它依据的东西已经改了」最有用的时机。
     box.appendChild(mk('div', 'wbt-warning', `⟳ ${view.warning}`));
+  }
+  if (view.notice) {
+    // 写前提醒（完善设定三期）：不是出了问题，零调用、不拦——淡色一句，与 ⟳ 分开。
+    box.appendChild(mk('div', 'wbt-notice', `◌ ${view.notice}`));
   }
   if (view.empty) {
     box.appendChild(mk('div', 'wbt-empty', view.empty));
