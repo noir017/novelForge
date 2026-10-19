@@ -2,7 +2,7 @@
   "name": "novel-forge",
   "displayName": "Novel Forge — 从脑洞到成书",
   "description": "帮作者把一个脑洞逐层展开成一本完整的书：架构 / 大纲 / 细纲 / 正文逐层展开，分阶段装配上下文，定稿时照正文更新细纲、整合角色卡。",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "novel-forge",
   "license": "AGPL-3.0",
   "repository": {
