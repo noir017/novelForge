@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "novelforge": {
+      "url": "http://127.0.0.1:36800/mcp"
+    }
+  }
+}
