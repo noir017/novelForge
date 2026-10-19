@@ -100,8 +100,8 @@ export function chatPane(opts: PaneOptions = {}): string {
        的那件事本身也只能在工程页上处理。活动栏「工程」上的小圆点负责在别的
        页面上留个记号。 -->
 
-  <!-- 流水线条：这一章走到哪一步了。点任一格切到那一层。
-       目标是架构或大纲时只剩面包屑，三格隐藏。 -->
+  <!-- 流水线条：这一章走到哪一步了。点细纲 / 正文那一格切到那一层。
+       目标是架构或大纲时只剩面包屑，下面那一行隐藏。 -->
   <div class="pipeline" id="pipeline">
     <div class="pipeline-top" id="pipelineTop">
       <div class="pipeline-crumb" id="pipelineCrumb"></div>
@@ -111,7 +111,7 @@ export function chatPane(opts: PaneOptions = {}): string {
       <button class="pipeline-new hidden" id="renamePlotBtn" title="重命名当前章节" aria-label="重命名当前章节">✎</button>
       <button class="pipeline-new" id="newSessionBtn" title="开始新对话" aria-label="开始新对话">＋</button>
     </div>
-    <!-- 细纲 / 正文 / 定稿 三格。内容由 view/pipeline.ts 画。 -->
+    <!-- 细纲 / 正文两格（可点）与定稿状态（只读）。内容由 view/pipeline.ts 画。 -->
     <div class="pipeline-stages" id="pipelineStages"></div>
     <!-- 「当前产物」的入口：一行标题。悬停浮出这一层的产物，点击钉住。
          从前它是消息流顶部一张 sticky 卡片——关不掉、藏不起来，还长期占着
@@ -121,8 +121,8 @@ export function chatPane(opts: PaneOptions = {}): string {
 
   <div class="messages" id="messages">
     <div class="empty" id="emptyHint">
-      <p><strong>跟着上面的主按钮走：它永远是这本书现在该做的那一步</strong></p>
-      <p>从一句话开始：先生成小说配置、故事前提、角色图谱与世界观，再排情节大纲、拆细纲，最后一章一章写正文。想接着写某一章，在「工程」页右键「进入这一章」，或用下面的下拉框选它。</p>
+      <p><strong>跟着输入框上方的主按钮走：它永远是这本书现在该做的那一步</strong></p>
+      <p>从一句话开始：先生成小说配置、故事前提、角色图谱、世界观与设定清单，再排情节大纲、拆细纲，最后一章一章写正文。想接着写某一章，在「工程」页右键「进入这一章」，或用下面的下拉框选它。</p>
       <p>用 <kbd>@</kbd> 引用正文、角色卡或任意文件；在输入框里打 <kbd>/</kbd> 可以挑其它命令。</p>${editorHint}
     </div>
     <!-- 打开的文件夹还不是小说工程：消息区只放这一块（W12）。由 #messages 上的 uninit 类切换。 -->
@@ -381,7 +381,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
   <div class="settings-panel" id="settingsPanelSkills" data-settings-panel="skills" role="tabpanel" aria-labelledby="settingsTabSkills">
     <div class="hint">
       写作技能是一份<b>补充的写作方法</b>（一个目录里一份 <code>SKILL.md</code>）。给本工程的某个阶段绑上一份，
-      这个阶段往后的每一次生成都会把它放在提示词最前面——对话页、Agent、工程页批量都一样。
+      这个阶段往后的每一次生成都会把它放在提示词最前面——对话页、外部 Agent 经 MCP 生成、工程页批量都一样。
       它只能补充写法：<b>作者事实和输出格式始终优先</b>。讨论与定稿不带。这一页的改动当场生效，不用点「保存设置」。
     </div>
 

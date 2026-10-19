@@ -134,7 +134,7 @@ function buildProjectPage(tree: ProjectTree): void {
       ],
       build: () => [
         // 冲突排在最前面：它说明这棵树上的出场统计有一处是错的。
-        ...(tree.castConflicts ?? []).map(buildConflictRow),
+        ...tree.castConflicts.map(buildConflictRow),
         ...(tree.characters.length === 0
           ? [charactersEmptyRow(tree)]
           : renderNodes(tree.characters, 0, SECTIONS.characters, tree)),
@@ -144,7 +144,7 @@ function buildProjectPage(tree: ProjectTree): void {
 
   // 定稿过的细纲里出现、但还没建卡的人物。单独一组而不是混进角色树——
   // 那棵是文件树（能改名/移动/删除），这些人还没有文件。
-  if (tree.cast && tree.cast.length > 0) {
+  if (tree.cast.length > 0) {
     el.projectBody.appendChild(
       buildGroup('cast', '出场人物 · 未建卡', `${tree.cast.length} 人`, {
         extraItems: () => [
@@ -158,9 +158,8 @@ function buildProjectPage(tree: ProjectTree): void {
 
   // 设定名录（第九节攒出来的）：已建条目是按目录（= 分类）分组的树，每行带出现章与待整合；
   // 标题旁一个筛选框，几百条时不用一层层翻目录。
-  const unfiledAll = tree.loreUnfiled ?? [];
-  // 旧后端推来的树没有 loreThin：可选链是有意的，那时就是没有这一组。
-  const thinAll = tree.loreThin ?? [];
+  const unfiledAll = tree.loreUnfiled;
+  const thinAll = tree.loreThin;
   const match = loreMatcher(tree);
   // 没东西可筛就不摆框；正筛着的时候哪怕条目都没了也留着，不然筛选串看不见、也清不掉。
   const showFilter = tree.lore.length > 0 || unfiledAll.length > 0 || thinAll.length > 0 || loreView.filter !== '';
@@ -170,8 +169,8 @@ function buildProjectPage(tree: ProjectTree): void {
       root: tree.loreRoot,
       // 设定名录的三件维护（第三期）。次数都在后端的确认框里报，这里只说有几件待办。
       extraItems: () => {
-        const unrecorded = tree.loreUnrecorded ?? 0;
-        const pending = Object.values(tree.loreByEntry ?? {}).filter((s) => s.pending > 0).length;
+        const unrecorded = tree.loreUnrecorded;
+        const pending = Object.values(tree.loreByEntry).filter((s) => s.pending > 0).length;
         const items = [
           ...(unrecorded > 0
             ? [{ label: `补记设定（${unrecorded} 章定稿过、还没记）`, run: () => projectAction('recordLore') }]

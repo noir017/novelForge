@@ -189,7 +189,6 @@ export type InMessage =
   | { type: 'bookReplace'; requestId: string; request: BookReplaceRequest }
   | { type: 'listDir'; dirs: string[]; ephemeral?: boolean }
   | { type: 'openExternal'; path: string }
-  | { type: 'syncSummaries' }
   | { type: 'requestSummary'; plotRelPath: string }
   /**
    * 「转到…」（独立版 Ctrl+P）打开时要一份索引：章节、角色卡、设定、架构几件与大纲 / 文风 / 叙事线 /

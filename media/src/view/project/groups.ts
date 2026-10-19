@@ -4,7 +4,7 @@
  */
 import { el as mk, spacer } from '../../dom';
 import type { MenuItem } from '../../globals';
-import type { ProjectNode, ProjectTree, ThreadsView } from '../../protocol';
+import type { ProjectNode, ProjectTree } from '../../protocol';
 import { linkBtn } from '../buttons';
 import { formatWords } from '../format';
 import { onContextMenu } from '../menu';
@@ -273,8 +273,6 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   return rows;
 }
 
-const NO_THREADS: ThreadsView = { exists: false, total: 0, open: 0, closed: 0, overdue: 0 };
-
 /**
  * 「叙事线」一行（七期）：可选的固定文件，与全书摘要同类，不进「故事架构」的 x/5——它不挡路。
  *
@@ -283,8 +281,8 @@ const NO_THREADS: ThreadsView = { exists: false, total: 0, open: 0, closed: 0, o
  * 写明 1 次调用。
  */
 function buildThreadsRow(tree: ProjectTree): HTMLElement {
-  const th = tree.threads ?? NO_THREADS;
-  const canPlan = (tree.book?.plotFilledNos ?? []).length > 0;
+  const th = tree.threads;
+  const canPlan = tree.book.plotFilledNos.length > 0;
   const detail =
     th.total === 0
       ? canPlan

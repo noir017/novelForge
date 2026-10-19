@@ -247,7 +247,7 @@
  * 章节行上的流水线徽章：这一章现在该做哪一步。
  *
  * 做得很小很淡——它是全书扫一眼时的定位标记，不该跟剧情名抢注意力。
- * 只有「已完成」给了颜色，因为那是唯一一个「不用再管了」的状态。
+ * 已完成的章不挂徽章（rows.ts），只有「待定稿」另给了颜色。
  */
 .row-stage {
   flex: 0 0 auto;
@@ -259,15 +259,9 @@
   white-space: nowrap;
 }
 
-.row-stage.stage-done {
-  color: var(--vscode-charts-green, #89d185);
-  border-color: currentColor;
-  opacity: 0.75;
-}
-
 /*
- * 待定稿：正文写够了，等作者点一下定稿（生成摘要）。用醒目一点的颜色——
- * 它是流水线上最容易被忘掉的一步，而后面几百章都靠那份摘要记住这一章。
+ * 待定稿：正文写够了，等作者点一下定稿（照正文更新细纲）。用醒目一点的颜色——
+ * 它是流水线上最容易被忘掉的一步，而后面几百章都靠定稿过的细纲记住这一章。
  */
 .row-stage.stage-finalize {
   color: var(--vscode-charts-blue, #4daafc);
@@ -297,14 +291,14 @@
 }
 
 /*
- * 「故事架构」那五行。**复用章节行的全套样式**（同样的 .row-plot / .row-label），
+ * 「故事架构」那六行。**复用章节行的全套样式**（同样的 .row-plot / .row-label），
  * 这里只把名字加粗一点——它们是后面一切的上游，扫一眼要先看见。
  */
 .row-architecture .row-label {
   font-weight: 600;
 }
 
-/* 摘要里出现、还没建卡的人物：整行压暗，与真正的角色卡区分开。 */
+/* 定稿过的细纲里出现、还没建卡的人物：整行压暗，与真正的角色卡区分开。 */
 .row-cast .row-label {
   color: var(--vscode-descriptionForeground);
 }

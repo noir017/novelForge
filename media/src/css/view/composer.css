@@ -116,11 +116,10 @@
 }
 
 /*
- * 下拉框与数字框跟按钮同高（`--nf-ctl-*`），否则这一行会高低不齐——
+ * 下拉框跟按钮同高（`--nf-ctl-*`），否则这一行会高低不齐——
  * 那是「按钮突兀」里最容易被漏掉的一半原因。
  */
-.composer-bar select,
-.composer-bar input[type='number'] {
+.composer-bar select {
   width: auto;
   flex: 0 1 auto;
   max-width: 45%;
@@ -132,20 +131,14 @@
   color: var(--vscode-descriptionForeground);
 }
 
-.composer-bar select:hover,
-.composer-bar input[type='number']:hover {
+.composer-bar select:hover {
   background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
   color: var(--vscode-foreground);
 }
 
-.composer-bar select:focus,
-.composer-bar input[type='number']:focus {
+.composer-bar select:focus {
   background: var(--vscode-input-background);
   color: var(--vscode-input-foreground);
-}
-
-.composer-bar input[type='number'] {
-  flex: 0 0 62px;
 }
 
 .composer-meta.warn {

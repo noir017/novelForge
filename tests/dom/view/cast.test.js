@@ -1,6 +1,6 @@
 /**
  * 角色的出场统计与更新菜单：已建卡行的出场章数与增量更新、未出场角色的
- * 说明、未建卡出场人物的独立分组、旧后端缺字段时的兼容。
+ * 说明、未建卡出场人物的独立分组。
  *
  * 夹具是 helpers/dom.js 的 `sampleTree()`（一章一纲之后的形状：「故事架构」组 +
  * 一个章号一行）。出场统计按**章号**算，与架构组、章节组的行怎么画无关。
@@ -20,7 +20,6 @@ describe('角色的出场统计与更新菜单', { skip: JSDOM_SKIP }, () => {
   let castGroup;
   let castRow;
   let castItems;
-  let legacyItems;
   const rowWith = (text) =>
     [...ui.doc.querySelectorAll('#projectBody .row')].find((n) => n.textContent.includes(text));
   const dirLabel = (name) =>
@@ -162,24 +161,5 @@ describe('角色的出场统计与更新菜单', { skip: JSDOM_SKIP }, () => {
     ui.post({ type: 'project', tree: { ...sampleTree(), cast: [] } });
     assert.ok(![...ui.doc.querySelectorAll('#projectBody .group-name')]
       .some((n) => n.textContent.includes('未建卡')));
-  });
-
-  // 旧后端（还没有 cast 字段）推来的树不能让前端崩。
-  test('缺 cast 字段时仍能渲染', () => {
-    const legacy = sampleTree();
-    delete legacy.cast;
-    delete legacy.castByCard;
-    ui.post({ type: 'project', tree: legacy });
-    assert.ok(rowWith('林昭'));
-  });
-
-  test('缺 castByCard 时角色行不显示出场', () => {
-    assert.ok(!rowWith('林昭').textContent.includes('出场'));
-  });
-
-  test('缺 castByCard 时不给更新入口', () => {
-    legacyItems = ui.itemsOf(ui.rightClick(rowWith('林昭')));
-    assert.ok(!legacyItems.some((l) => l.startsWith('更新角色卡')), JSON.stringify(legacyItems));
-    ui.closeMenu();
   });
 });

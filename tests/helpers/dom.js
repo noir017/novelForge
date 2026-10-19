@@ -469,10 +469,9 @@ function sampleTree() {
       idea: '一个从火里活下来的人回到起火的地方。', totalChapters: 30, wordsPerChapter: 400,
       configHasContent: true, outlineCoverage: 20, plotFilledNos: [1, 3, 4],
     },
-    plotsRoot: '.novelforge/summaries',
-    chaptersRoot: 'chapters', charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
+    charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
     globalSummaryThrough: 2, styleGuidePath: '.novelforge/style.md',
-    outlinePath: '.novelforge/outline.md', globalSummaryPath: '.novelforge/summaries/global.md',
+    globalSummaryPath: '.novelforge/summaries/global.md',
     // 叙事线（七期）：排过 4 条，一条已收，一条过了回收章还开着。
     threadsPath: '.novelforge/threads.md',
     threads: { exists: true, total: 4, open: 3, closed: 1, overdue: 1 },
@@ -548,8 +547,8 @@ function sampleTree() {
     // 设定组的行、未建条目与筛选框见 tests/dom/view/loreCatalog.test.js 的 `loreTree()`。
     loreByEntry: {},
     loreUnfiled: [],
+    loreThin: [],
     loreUnrecorded: 0,
-    summaryCount: 3,
     // 正常工程这里是空对象——只有出错的目标才有记录。
     failures: {},
     castConflicts: [],

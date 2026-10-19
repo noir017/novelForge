@@ -181,19 +181,6 @@ describe('设定行：出现章与「＋N」', { skip: JSDOM_SKIP }, () => {
     assert.ok(mark >= 0 && mark < label, row.outerHTML);
     assert.ok(row.querySelector('.row-failure').classList.contains('is-warn'));
   });
-
-  // 旧后端推来的树没有 loreByEntry：就是一行普通的文件行，不崩。
-  test('缺 loreByEntry 时照样画，只是没有出现章', () => {
-    const legacy = loreTree();
-    delete legacy.loreByEntry;
-    delete legacy.loreUnfiled;
-    ui.post({ type: 'project', tree: legacy });
-    const row = loreRow(ui, '青崖镇');
-    assert.ok(row, groupOf(ui, '设定').outerHTML);
-    assert.equal(row.querySelector('.lore-span'), null);
-    assert.equal(row.querySelector('.cast-pending'), null);
-    assert.equal(unfiledGroup(ui), undefined);
-  });
 });
 
 describe('名录的三件维护：补记、整合、按目录整理、建条目（第三期）', { skip: JSDOM_SKIP }, () => {

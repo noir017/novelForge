@@ -109,7 +109,7 @@ export function loreEmptyRow(tree: ProjectTree): HTMLElement {
   const buttons: HintButton[] = [
     { label: '＋ 设定', title: '新建一条设定（不调模型）', run: () => projectAction('newLore') },
   ];
-  if ((tree.loreUnrecorded ?? 0) > 0) {
+  if (tree.loreUnrecorded > 0) {
     buttons.push({
       label: '补记设定…',
       title: `${tree.loreUnrecorded} 章定稿过、还没记过设定：读这几章正文，记下出现了哪些设定；动手前会告诉你调用几次`,

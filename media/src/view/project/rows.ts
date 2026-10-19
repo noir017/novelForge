@@ -85,8 +85,8 @@ function revealGroup(id: string): void {
 /**
  * 递归渲染一层节点，返回扁平的行数组。
  *
- * `section` 决定文件图标与「在此新建」建什么；`tree` 只有角色区与设定区用得上
- * （要按 relPath 查出场统计 / 出现章），其余区传不传都行。
+ * `section` 是角色区或设定区（工程页只有这两个区按目录树画），决定文件行怎么画与「在此新建」建什么；
+ * `tree` 用来按 relPath 查出场统计 / 出现章。
  *
  * `match` 给了就是在筛选（「设定」组标题旁的筛选框）：只画匹配的文件，没有匹配的文件夹
  * 整个不画，有匹配的文件夹一律展开——匹配的那一条藏在折叠着的目录里，等于没筛出来。
@@ -121,10 +121,8 @@ export function renderNodes(
       continue;
     } else if (section === SECTIONS.characters) {
       rows.push(buildCharacterRow(node, depth, tree));
-    } else if (section === SECTIONS.lore) {
-      rows.push(buildLoreRow(node, depth, tree));
     } else {
-      rows.push(buildFileRow(node, section.icon, depth));
+      rows.push(buildLoreRow(node, depth, tree));
     }
   }
   return rows;
@@ -492,7 +490,7 @@ export function buildFileRow(
  * 「第 3、7、12 章」这句话在日志里也要出现，两处文案必须一致。
  */
 function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): HTMLElement {
-  const stats = tree?.castByCard?.[f.relPath] ?? null;
+  const stats = tree?.castByCard[f.relPath] ?? null;
   const detail = [f.detail, stats && stats.plots.length > 0 ? `出场 ${stats.plots.length} 章` : '']
     .filter(Boolean)
     .join(' · ');
@@ -550,8 +548,7 @@ function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): H
  * 右键菜单在打开与类文件操作之间多两项：「整合这一条」（有待整合的才有）与「展开…」（每一条都有，完善设定）。
  */
 function buildLoreRow(f: ProjectFile, depth: number, tree?: ProjectTree): HTMLElement {
-  // 旧后端推来的树没有 loreByEntry：可选链是有意的，那时就是一行普通的文件行。
-  const stats = tree?.loreByEntry?.[f.relPath] ?? null;
+  const stats = tree?.loreByEntry[f.relPath] ?? null;
   const row = buildFileRow(f, SECTIONS.lore.icon, depth);
   row.classList.add('row-lore');
 

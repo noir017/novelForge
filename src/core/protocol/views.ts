@@ -76,16 +76,12 @@ export interface ProjectTree {
   loreThin: LoreThinEntry[];
   /** 定稿过、但还没记过设定（细纲没有第九节）的章数。 */
   loreUnrecorded: number;
-  summaryCount: number;
   failures: Record<string, FailureView[]>;
   castConflicts: CastConflictView[];
-  plotsRoot: string;
-  chaptersRoot: string;
   charactersRoot: string;
   loreRoot: string;
   globalSummaryThrough: number;
   styleGuidePath: string;
-  outlinePath: string;
   globalSummaryPath: string;
   /** 叙事线（七期）。可选的文件：`threads.exists` 为 false 时还没排过。 */
   threadsPath: string;

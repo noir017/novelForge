@@ -1,7 +1,7 @@
 /**
  * 页面上那些固定 id 的节点。
  *
- * 全部 `byId`（取不到就抛）——这些 id 在 webviewHtml.ts 与 html.ts 里都有，
+ * 全部 `byId`（取不到就抛）——这些 id 都在 src/shells/shared/panes.ts 里，
  * 缺一个说明模板与前端不同步，早点炸比晚点炸好。**可选的**那几个
  * （独立版专属的徽标、内置编辑器容器）各自就地 `maybeById` 探测，不进这里。
  */

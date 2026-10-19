@@ -78,14 +78,12 @@ function renderTargetSelect(state: ViewState): void {
   const bookOpt = document.createElement('option');
   bookOpt.value = '0';
   bookOpt.textContent = '全书（架构与大纲）';
-  bookOpt.dataset.mode = 'book';
   el.targetSelect.appendChild(bookOpt);
 
   for (const p of [...state.plots].reverse()) {
     const opt = document.createElement('option');
     opt.value = String(p.no);
     opt.textContent = p.label;
-    opt.dataset.mode = 'append';
     opt.dataset.rel = p.relPath;
     el.targetSelect.appendChild(opt);
   }
