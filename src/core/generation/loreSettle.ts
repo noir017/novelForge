@@ -9,7 +9,7 @@
 import { scoped } from '../runtime/logger';
 import { hash, slugify, uniqueSlug } from '../model/fs';
 import { NovelProject, renderLoreEntry } from '../model/project';
-import { cleanLoreKeywords, createLoreLookup, loreThin, normalizeLoreName, splitLoreHidden } from '../model/loreFile';
+import { cleanLoreKeywords, createLoreLookup, normalizeLoreName } from '../model/loreFile';
 import type { LoreEntry } from '../model/types';
 import type { LoreDraft } from '../features/loreExpand';
 import { findSettledEntry } from '../features/loreSettle';
@@ -76,8 +76,8 @@ export async function plannedLoreSettle(
  *   `bodyHash`；水位 `updatedThrough: 0`（同设定清单新建的）。
  * - **已有的**逐条落：关键词只增不减（新给的过一遍人名、别的条目的标题、名录里另记着的名字）、一句话新的优先、
  *   正文换成合并后的完整版，记作机器写的（`bodyHash`）。**水位不动**：这是在原有内容上并进讨论结论，不是整条换新
- *   ——不能照设定清单撞名时那样归 0，不然已经整合进去的那些章又挂上 ＋N。明面是空的、是占位、又没有暗设的直接写
- *   （没有东西可吞，同展开）；其余走覆盖审阅，一条一审（第 3 条），放弃了那一条就原样留着。
+ *   ——不能照设定清单撞名时那样归 0，不然已经整合进去的那些章又挂上 ＋N。**一律走覆盖审阅**，一条一审（第 3 条），
+ *   放弃了那一条就原样留着；只有一句话的也先对比（作者 2026-10-19 定的，不照展开那样直接写）。
  * - 是角色卡上的人的不建（人不是设定）。
  *
  * 还没定的问题（`questions`）不在这里——它只上卡片，不写进任何文件。建了几条、更新了几条、保留了哪几条，必须说出来。
@@ -102,8 +102,6 @@ export async function acceptSettledLore(project: NovelProject, ws: Workspace, dr
       continue;
     }
     if (existing) {
-      const thin = loreThin(existing);
-      const direct = (thin === 'empty' || thin === 'placeholder') && !splitLoreHidden(existing.body).hidden;
       const text = renderLoreEntry({
         slug: existing.slug,
         title: existing.title,
@@ -113,7 +111,7 @@ export async function acceptSettledLore(project: NovelProject, ws: Workspace, dr
           ? { body, updatedThrough: existing.updatedThrough, bodyHash: hash(body) }
           : { body: existing.body, updatedThrough: existing.updatedThrough, bodyHash: existing.bodyHash }),
       });
-      const r = await ws.write(existing.relPath, { text }, { mode: 'overwrite', what: `设定「${existing.title}」`, review: !direct });
+      const r = await ws.write(existing.relPath, { text }, { mode: 'overwrite', what: `设定「${existing.title}」`, review: true });
       (r.skipped ? kept : updated).push(existing.title);
       first ??= r.skipped ? undefined : existing.relPath;
       continue;
