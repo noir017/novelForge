@@ -57,7 +57,7 @@ export async function buildWorkbench(
   } catch (err) {
     log.warn('工作区卡取数失败', String(err));
     const stage = stageOfTarget(target);
-    return { stage, title: STAGE_LABEL[stage], relPath: '', sections: [] };
+    return { stage, title: STAGE_LABEL[stage], layer: STAGE_LABEL[stage], relPath: '', sections: [] };
   }
 }
 
@@ -69,6 +69,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       return {
         stage: 'setting',
         title: `架构 · ${label}`,
+        layer: label,
         relPath: project.relPath(project.charactersDir),
         sections: cards.length > 0 ? [{ key: '角色', text: cards.map((c) => c.name).join('、') }] : [],
         empty: cards.length > 0 ? undefined : '还没有角色卡。按前提排出主角、盟友与对手。',
@@ -85,6 +86,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       return {
         stage: 'setting',
         title: `架构 · ${label}`,
+        layer: label,
         relPath: project.relPath(project.loreDir),
         sections: [...byCategory].map(([category, titles]) => ({ key: category || '未分类', text: titles.join('、') })),
         empty: entries.length > 0 ? undefined : '还没有设定条目。把世界观里点到的地点、势力、能力体系、关键物品排成一份清单。',
@@ -95,6 +97,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
     return {
       stage: 'setting',
       title: `架构 · ${label}`,
+      layer: label,
       relPath: doc.relPath,
       sections,
       empty: sections.length > 0 ? undefined : `还没有${label}。`,
@@ -106,6 +109,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
     return {
       stage: 'outline',
       title: '情节大纲',
+      layer: '情节大纲',
       relPath: project.relPath(project.outlinePath),
       sections: text.trim() ? [{ key: '大纲', text: clip(text, OUTLINE_PREVIEW) }] : [],
       empty: text.trim() ? undefined : '这部书还没有情节大纲。按章号区间把全书的走向排出来。',
@@ -132,6 +136,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
     return {
       stage: 'setting',
       title: describeTarget(target, { title: entry.title }),
+      layer: '设定条目',
       relPath: exists ? entry.relPath : '',
       sections,
       empty: !exists
@@ -152,6 +157,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       return {
         stage: 'plot',
         title: `细纲 · ${head}`,
+        layer: STAGE_LABEL.plot,
         relPath: chapter?.relPath ?? '',
         sections: [],
         empty: chapter ? '这一章已经有正文了，但还没有细纲。' : '这一章还没排细纲。',
@@ -162,6 +168,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
     return {
       stage: 'plot',
       title: `细纲 · ${head}`,
+      layer: STAGE_LABEL.plot,
       relPath: plot.relPath,
       sections,
       // 上游变更在这里是一句人话，不只是流水线条上那个 ⟳。作者正在看这一章，
@@ -189,6 +196,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
   return {
     stage: 'manuscript',
     title: `正文 · ${head}`,
+    layer: STAGE_LABEL.manuscript,
     relPath: chapter?.relPath ?? '',
     sections: [
       {

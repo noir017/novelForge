@@ -73,11 +73,6 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.ok(renameBtn().classList.contains('hidden'));
   });
 
-  // 徽章说的是「这一章走到哪了」，大纲不是一章。
-  test('大纲层不挂章节状态徽章', () => {
-    assert.equal(ui.doc.querySelector('#pipelineCrumb .cstage'), null);
-  });
-
   // 全书那一层同样有下一步（生成 / 续写大纲、拆细纲），而且带章号区间。
   test('大纲层也给下一步', () => {
     ui.post({
@@ -216,11 +211,11 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.deepEqual(stages().map((n) => n.querySelector('.pstage-label').textContent), ['细纲', '正文']);
   });
 
-  // 这一章的状态徽章：与工程页那一列同一份文案（PLOT_STAGE_LABEL）。
-  test('信息条带这一章的状态徽章', () => {
-    const badge = ui.doc.querySelector('#pipelineCrumb .cstage');
-    assert.ok(badge, '没有徽章');
-    assert.equal(badge.textContent, '待写正文', badge?.textContent);
+  // 章名后面不再挂状态徽章：这一章走到哪，下一行的两格加定稿状态已经说了，同一件事不说两遍。
+  test('信息条只有章名，没有状态徽章', () => {
+    const crumb = ui.doc.getElementById('pipelineCrumb');
+    assert.equal(crumb.querySelector('.cstage'), null, crumb.outerHTML);
+    assert.ok(!crumb.textContent.includes('待写正文'), crumb.textContent);
   });
 
   // 三态圆点：细纲完成、正文进行中——不是百分比条。
@@ -510,10 +505,6 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     });
     assert.ok(!crumbs().some((c) => c.includes('夜入青云')), crumbs().join('|'));
   });
-
-  test('换章后不再显示上一章的徽章', () => {
-    assert.equal(ui.doc.querySelector('#pipelineCrumb .cstage'), null);
-  });
 });
 
 /*
@@ -572,9 +563,14 @@ describe('当前产物浮窗', { skip: JSDOM_SKIP }, () => {
     assert.equal(entry().parentElement?.id, 'pipeline', entry().parentElement?.id);
   });
 
-  test('入口上就写着在改哪一层', () => {
+  // 入口只写这一层叫什么：章名在上面的面包屑上，入口再写一遍就是同一句话说两次。完整标题在浮窗头上。
+  test('入口上写着在改哪一层，不重复章名', () => {
     const title = entry().querySelector('.wbt-entry-title');
-    assert.ok(title?.textContent.includes('细纲 · 第 12 章'), title?.textContent);
+    assert.equal(title?.textContent, '当前产物 · 细纲', title?.textContent);
+  });
+
+  test('入口不再挂 ▤（与标题栏「显示 / 隐藏编辑器」撞图标）', () => {
+    assert.ok(!entry().textContent.includes('▤'), entry().textContent);
   });
 
   test('默认不显示浮窗', () => {

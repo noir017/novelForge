@@ -3,7 +3,7 @@
  *
  * 界面要回答三个问题，这里管前两个（第三个是工作区卡，见 workbench.ts）：
  *
- * - **我现在在哪一层？** —— 位置信息条 + 状态徽章 + 细纲 / 正文 / 定稿三格
+ * - **我现在在哪一层？** —— 位置信息条 + 细纲 / 正文两格与定稿状态
  * - **我接下来该干什么？** —— 下一步条（一个主按钮；其余动作在输入区的 `/` 命令里）
  *
  * ## 为什么是一个按钮而不是七个
@@ -21,7 +21,6 @@
  */
 import { el as mk, clear, maybeById, setHidden } from '../dom';
 import {
-  PLOT_STAGE_LABEL,
   SETTING_DOC_LABEL,
   STAGE_LABEL,
   STAGE_QUESTION,
@@ -170,16 +169,9 @@ function renderCrumb(): void {
   if (!title) {
     return;
   }
+  // 从前章名后面还挂一枚状态徽章（「待写正文」），与下一行的两格加「未写正文 / 待定稿 / 已定稿」
+  // 说的是同一件事，挤在同一块里说两遍。这一章走到哪，只在下一行报一次。
   box.appendChild(mk('span', 'crumb', title));
-
-  // 这一章的状态徽章，与工程页那一列同一份文案（PLOT_STAGE_LABEL）。
-  // 它是「这一章整体走到哪了」，与下面三格各自的状态不重复。
-  if (current && relPath) {
-    box.appendChild(mk('span', 'spacer'));
-    const badge = mk('span', `cstage cstage-${current.stage}`, PLOT_STAGE_LABEL[current.stage]);
-    badge.title = '这一章当前所处的阶段。由磁盘上的产物推导，不落盘。';
-    box.appendChild(badge);
-  }
 }
 
 // ---------------------------------------------------------------- 三格状态

@@ -154,10 +154,21 @@ button.composer-tool.active {
   color: var(--vscode-foreground);
 }
 
-/* 前导的 @ / 斜杠：等宽字体压住，好认成「一个键」而不是标点。 */
+/* @ / 斜杠：等宽字体压住，好认成「一个键」而不是标点。 */
 button.composer-tool .tool-key {
   font-family: var(--vscode-editor-font-family);
   opacity: 0.75;
+}
+
+/* 只剩一个键的两颗（@、/）：方一点，键帽字略大，不跟「加入选区」那种带字的抢宽度。 */
+button.composer-tool.key-only {
+  min-width: var(--nf-ctl-height);
+  padding: 0 4px;
+}
+
+button.composer-tool.key-only .tool-key {
+  font-size: 1.1em;
+  opacity: 0.85;
 }
 
 button.composer-tool.active .tool-key {

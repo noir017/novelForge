@@ -67,7 +67,12 @@ export function renderWorkbench(view: WorkbenchView | null): void {
   }
 }
 
-/** 流水线条上那个入口：只有一行「▤ 标题」，占一行不到。 */
+/**
+ * 流水线条上那个入口：一行「当前产物 · 正文」，占一行不到。
+ *
+ * 只写这一层叫什么（`layer`），不写章名——章名在上面那行面包屑上，从前入口上再写一遍「正文 · 第 4 章《空匣》」，
+ * 同一句话说两次。前面也不再挂 ▤：独立版标题栏「显示 / 隐藏编辑器」是同一个图标。完整标题在浮窗头上。
+ */
 function redrawEntry(): void {
   const box = el.workbench;
   box.innerHTML = '';
@@ -76,8 +81,7 @@ function redrawEntry(): void {
     return;
   }
 
-  box.appendChild(mk('span', 'wbt-entry-icon', '▤'));
-  box.appendChild(mk('span', 'wbt-entry-title', current.title));
+  box.appendChild(mk('span', 'wbt-entry-title', `当前产物 · ${current.layer}`));
   // 上游变过 / 这一层还是空的：入口上就得看得见，否则用户没有理由把它打开。
   // 写前提醒（完善设定三期）只是提个醒：换一个淡色的记号，不跟 ⟳ 抢。
   if (current.warning) {

@@ -22,8 +22,8 @@ export interface PaneOptions {
    */
   builtinEditor?: boolean;
   /**
-   * 宿主能取到**原生编辑器的选区**（插件壳）。取不到的宿主（独立版）
-   * 那颗按钮是「粘贴一段原文」，title 因此不同。
+   * 宿主能取到**原生编辑器的选区**（插件壳）。取不到的宿主（独立版）由前端问内置编辑器要选区，
+   * 没选中时弹粘贴框，title 因此多说一句。
    */
   selectionFromEditor?: boolean;
   /**
@@ -93,7 +93,9 @@ export function chatPane(opts: PaneOptions = {}): string {
   const editorHint = opts.builtinEditor
     ? '\n      <p>右侧是内置编辑器：在「工程」页点任意文件即可打开编辑，<kbd>Ctrl</kbd>+<kbd>S</kbd> 保存。</p>'
     : '';
-  const selTitle = opts.selectionFromEditor ? '把编辑器中选中的文字加入上下文' : '粘贴一段原文加入上下文';
+  const selTitle = opts.selectionFromEditor
+    ? '把编辑器中选中的文字加入上下文'
+    : '把编辑器中选中的文字加入上下文（没有选中时粘贴一段原文）';
   return `<section class="pane active" id="pane-chat">
   <!-- 没定稿的横幅只长在工程页（那边还带进度条与分母）。对话页从前也挂着
        一份纯文字版，说的是同一句话，却常年占着本就不宽裕的消息流；这里要提示
@@ -154,10 +156,12 @@ export function chatPane(opts: PaneOptions = {}): string {
       <div class="pending-cmd hidden" id="pendingCmd"></div>
       <textarea id="input" rows="3" placeholder="补充要求（可留空）…（Enter 发送，Shift+Enter 换行）"></textarea>
     </div>
+    <!-- 这一行常年挤着九个控件，侧栏一窄就折成两三行。@ 与 / 在输入框里直接打效果一样，
+         这两颗因此只留那一个键（文字在 title 与 aria-label 里），省出宽度给三个下拉框。 -->
     <div class="composer-bar">
-      <button class="composer-tool" id="atBtn" title="引用文件或正文"><span class="tool-key">@</span>引用</button>
+      <button class="composer-tool key-only" id="atBtn" title="引用文件或正文（在输入框里打 @ 也一样）" aria-label="引用文件或正文"><span class="tool-key">@</span></button>
       <button class="composer-tool" id="selBtn" title="${selTitle}">加入选区</button>
-      <button class="composer-tool" id="cmdBtn" title="其它命令（在输入框里直接打 / 也一样）"><span class="tool-key">/</span>命令</button>
+      <button class="composer-tool key-only" id="cmdBtn" title="其它命令（在输入框里直接打 / 也一样）" aria-label="其它命令"><span class="tool-key">/</span></button>
       <select id="modelSelect" title="使用哪个模型"></select>
       <!-- 思考深度：跟着**会话**走，不是设置项（见 core/model/session.ts）。 -->
       <select id="thinkSelect" title="让模型想多深"></select>

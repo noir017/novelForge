@@ -1,4 +1,4 @@
-import { listAttachmentChoices } from '../files/attachments';
+import { listAttachmentChoices, selectionAttachmentOf } from '../files/attachments';
 import { readConfig } from '../config';
 import { closeDatabase, installLogPersistence, readLogHistory } from '../runtime/db';
 import { DraftStore } from '../generation/drafts';
@@ -420,7 +420,11 @@ export class ChatController {
       }
 
       case 'addSelection': {
-        const att = await getHost().selectionAttachment(this.project);
+        // 内置编辑器里的选区由前端带上来（宿主取不到网页里的选区）；没带才交给宿主。
+        const sel = msg.selection;
+        const att = sel?.text.trim()
+          ? selectionAttachmentOf(sel.relPath, sel.text.trim(), { start: sel.start, end: sel.end })
+          : await getHost().selectionAttachment(this.project);
         if (!att) {
           this.toast('没有可加入的文本。', 'error');
           return;

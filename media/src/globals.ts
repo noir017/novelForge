@@ -17,7 +17,8 @@
  *   「视图」菜单的 `nf-view-query` / `nf-view-command`，「帮助 → 快捷键一览」的 `nf-shortcuts-query` / `nf-shortcuts-command`，
  *   「视图 → 统计」那一组的 `nf-stats-query` / `nf-stats-command`，「视图 → 体检」那一组的 `nf-check-query` /
  *   `nf-check-command`，「视图 → 补全」那一组的 `nf-names-query` / `nf-names-command`，
- *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录）。
+ *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录），
+ *   对话页「加入选区」问内置编辑器选区的 `nf-selection-query`。
  *   `nf-pick-folder` 给目录选择器拦欢迎页的占位 prompt。
  * - `__nfShowMenu`：view 出的「在某处弹一个菜单」（编辑器标签条末尾的「▾」用），与右键菜单是同一个引擎。
  */
@@ -89,6 +90,7 @@ declare global {
     'nf-shortcuts-query': CustomEvent<{ available: boolean }>;
     'nf-shortcuts-command': Event;
     'nf-reveal-in-files': CustomEvent<{ path: string; dir: boolean }>;
+    'nf-selection-query': CustomEvent<EditorSelection>;
   }
 }
 
@@ -444,4 +446,27 @@ export function revealInFiles(path: string, dir = false): void {
  */
 export function showMenuAt(items: MenuItem[], x: number, y: number): HTMLElement | undefined {
   return window.__nfShowMenu?.(items, x, y);
+}
+
+// ---------------------------------------------------------------- 对话页「加入选区」
+
+/**
+ * 内置编辑器当前那块编辑区里选中的文字（`editor/index.ts` 回答）。`relPath` 是工作区相对路径，`start` / `end` 是
+ * 1-based 闭区间的行号，`text` 已去掉首尾空白。
+ */
+export interface EditorSelection {
+  relPath: string;
+  text: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * 问内置编辑器的选区。没选中、在 Markdown 预览里、或者根本没有内置编辑器（插件形态，editor.js 没装）时返回
+ * undefined——对话页就照旧发不带选区的 `addSelection`，交给宿主（插件读 VS Code 编辑器的选区，独立版弹粘贴框）。
+ */
+export function querySelection(): EditorSelection | undefined {
+  const sel: EditorSelection = { relPath: '', text: '', start: 0, end: 0 };
+  window.dispatchEvent(new CustomEvent('nf-selection-query', { detail: sel }));
+  return sel.relPath && sel.text ? sel : undefined;
 }

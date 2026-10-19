@@ -61,7 +61,10 @@ export interface Host {
   openFile(relPath: string, intent?: EditorOpenIntent): Promise<void>;
   toast(message: string, level?: 'info' | 'error'): void;
 
-  /** 「加入选区」：插件取编辑器选区；独立版弹粘贴框。返回 undefined 表示放弃。 */
+  /**
+   * 「加入选区」：插件取编辑器选区；独立版弹粘贴框。返回 undefined 表示放弃。
+   * 独立版内置编辑器里选着字时前端直接把选区带上来（`addSelection.selection`），不走这里。
+   */
   selectionAttachment(project: NovelProject): Promise<Attachment | undefined>;
   /** 「浏览工作区文件」：插件弹文件对话框；独立版提示输入相对路径。可选。 */
   browseFile?(project: NovelProject): Promise<string | undefined>;

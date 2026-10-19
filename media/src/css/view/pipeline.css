@@ -174,27 +174,6 @@
   color: var(--vscode-editorWarning-foreground, #cca700);
 }
 
-/* ---------------------------------------------------------------- 章的状态徽章 */
-
-/*
- * 「待写正文」这一格。与工程页那一列同一份文案，也该是同一种观感——
- * 作者在两个页面上看到的是同一件事。
- */
-.cstage {
-  font-size: 0.74em;
-  padding: 0 6px;
-  border-radius: 8px;
-  white-space: nowrap;
-  background: var(--vscode-badge-background);
-  color: var(--vscode-badge-foreground);
-  opacity: 0.85;
-}
-
-.cstage-done {
-  background: var(--vscode-charts-green, #89d185);
-  color: var(--vscode-editor-background);
-}
-
 /* ---------------------------------------------------------------- 下一步 */
 
 /*

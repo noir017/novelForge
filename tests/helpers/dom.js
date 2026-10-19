@@ -407,9 +407,12 @@ const pipelineView = (extra) =>
     extra
   );
 
-/** 一份工作区卡视图，字段与 `WorkbenchView` 一致。缺省是第 12 章细纲那一层。 */
-const workbenchView = (extra) =>
-  Object.assign(
+/**
+ * 一份工作区卡视图，字段与 `WorkbenchView` 一致。缺省是第 12 章细纲那一层。
+ * `layer` 没给就照后端的口径从标题推：「架构 · 故事前提」→「故事前提」，「正文 · 第 12 章…」→「正文」。
+ */
+const workbenchView = (extra) => {
+  const view = Object.assign(
     {
       stage: 'plot',
       title: '细纲 · 第 12 章《夜入青云》',
@@ -418,6 +421,11 @@ const workbenchView = (extra) =>
     },
     extra
   );
+  if (view.layer === undefined) {
+    view.layer = view.title.startsWith('架构 · ') ? view.title.slice('架构 · '.length) : view.title.split(' · ')[0];
+  }
+  return view;
+};
 
 /** 一份 `ViewState`。只填必需字段，其余给能过渲染的最小值。 */
 const viewState = (extra) =>

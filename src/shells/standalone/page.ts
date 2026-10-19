@@ -38,7 +38,7 @@ const LOGO_SVG =
  *   `package.json`，`bun build --compile` 出来的单文件旁边没有这个文件，装出来的版本永远是 0.0.0。
  */
 export function standalonePage(root?: string, version = '0.0.0'): string {
-  // 有内置编辑器、但取不到原生编辑器选区（「加入选区」在这里是粘贴框），
+  // 有内置编辑器、但宿主取不到原生编辑器选区（「加入选区」由前端问内置编辑器要，没选中才弹粘贴框），
   // 也没有原生设置界面可跳；一个进程能同时开几个工程、每个窗口一个——这几个能力位就是这个壳与插件壳的全部界面差异。
   const caps = { builtinEditor: true, selectionFromEditor: false, nativeSettings: false, multiWindow: true };
   const bodyClass = root ? 'workbench' : 'workbench no-workspace';

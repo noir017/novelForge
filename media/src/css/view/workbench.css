@@ -39,11 +39,6 @@
   color: var(--vscode-foreground);
 }
 
-.wbt-entry-icon {
-  flex: 0 0 auto;
-  opacity: 0.7;
-}
-
 .wbt-entry-title {
   min-width: 0;
   overflow: hidden;
