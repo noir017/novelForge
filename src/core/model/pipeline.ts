@@ -1039,7 +1039,7 @@ export function loreListCalls(): CallEstimate {
 /** 设定清单一共最多调几次模型。生成链到了这个数就不再拆半重试，没出来的条目只按清单建。 */
 export const LORE_LIST_CALLS_MAX = 12;
 
-/** 架构那一件要调几次：主按钮、补齐设定的确认框共用这一份。 */
+/** 架构那一件要调几次：主按钮、补齐架构的确认框共用这一份。 */
 export function settingCalls(doc: SettingDoc): CallEstimate {
   return doc === 'config' ? CONFIG_CALLS : doc === 'characters' ? rosterCalls() : doc === 'lore' ? loreListCalls() : ONE_CALL;
 }

@@ -18,6 +18,14 @@
   flex: 1;
 }
 
+/* 批量动作（要调模型）与新建（不调模型）之间的一道竖线：同一种按钮，两种分量。 */
+.project-toolbar .toolbar-sep {
+  align-self: stretch;
+  width: 1px;
+  margin: 3px 3px;
+  background: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+
 .project-body {
   flex: 1;
   min-height: 0;
@@ -191,17 +199,15 @@
   white-space: nowrap;
 }
 
-/* 未建条目点名字不做事（新建在右键里），「待完善」里还没有条目的那几行同样（展开在右键里），
-   筛选中被强制展开的文件夹点了也不折叠——都别给一个可点的样子。 */
-.row-lore-unfiled .row-label,
-.row-lore-thin.row-cast .row-label,
+/* 还没有文件的那几种行（`.row-cast`：未建卡的人物、未建条目、「待完善」里还没有条目的）点名字不做事
+   （建卡、建条目、展开都在右键里），筛选中被强制展开的文件夹点了也不折叠——都别给一个可点的样子。 */
+.row-cast .row-label,
 .row-dir-forced > .caret,
 .row-dir-forced .row-label {
   cursor: default;
 }
 
-.row-lore-unfiled .row-label:hover,
-.row-lore-thin.row-cast .row-label:hover,
+.row-cast .row-label:hover,
 .row-dir-forced .row-label:hover {
   text-decoration: none;
 }
@@ -308,7 +314,7 @@
 }
 
 /* 行内操作平时藏起来，免得每行都挂一串链接。
-   工程页的树行已经全部改走右键菜单，这里只剩「文风与摘要」那几行的链接。 */
+   工程页的树行已经全部改走右键菜单，这里只剩「文风与摘要」那三行的链接。 */
 .row-actions {
   display: flex;
   gap: 5px;
@@ -319,12 +325,6 @@
 .row:hover .row-actions,
 .row-actions:focus-within {
   opacity: 1;
-}
-
-.row-tools {
-  padding-left: 16px;
-  gap: 10px;
-  flex-wrap: wrap;
 }
 
 .row-empty {

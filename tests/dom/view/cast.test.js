@@ -150,10 +150,23 @@ describe('角色的出场统计与更新菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(!create.relPath, JSON.stringify(create));
   });
 
-  // 点名字也是建卡（最常用的动作放在最省事的位置）。
-  test('点未建卡的名字直接建卡', () => {
+  // 点名字不建卡（与「出现过 · 未建条目」一样）：扫列表时手一滑就在角色区多出一张空卡。
+  test('点未建卡的名字什么都不发', () => {
+    const before = ui.sent.length;
     ui.clickEl([...ui.doc.querySelectorAll('#projectBody .row-label')].find((n) => n.textContent === '老周'));
-    assert.equal(ui.last('characterAction').name, '老周', JSON.stringify(ui.last('characterAction')));
+    assert.equal(ui.sent.length, before, JSON.stringify(ui.sent.slice(before)));
+  });
+
+  test('名字的提示说去右键建卡', () => {
+    assert.ok(castRow.querySelector('.row-label').title.includes('右键「创建角色卡」'), castRow.querySelector('.row-label').title);
+  });
+
+  test('「角色」组右键有「提取/更新角色卡」，发 extractCharacters', () => {
+    const head = [...ui.doc.querySelectorAll('#projectBody .group-name')].find((n) => n.textContent === '角色');
+    const items = ui.itemsOf(ui.rightClick(head));
+    assert.ok(items.includes('提取/更新角色卡（挑几章正文）…'), JSON.stringify(items));
+    ui.pick(ui.rightClick(head), '提取/更新角色卡（挑几章正文）…');
+    assert.equal(ui.last('projectAction')?.action, 'extractCharacters', JSON.stringify(ui.last('projectAction')));
   });
 
   // 没有未建卡的人时，整组不出现——不该留一个空分组占地方。

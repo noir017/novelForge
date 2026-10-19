@@ -184,15 +184,16 @@ export function taskBar(): string {
 export function projectPane(): string {
   return `<section class="pane" id="pane-project">
   <div class="project-toolbar" id="projectToolbar">
-    <!-- 两个批量入口（W5）。「补齐设定」只补空白、先问；「拆细纲…」先开弹窗选区间。 -->
-    <button class="chip-btn" data-action="completeSettings" title="配置、前提、角色图谱、世界观：只补还没有的，已有的不动">补齐设定</button>
+    <!-- 三个批量入口（W5、W9）：都只补空白，要调模型的先问（「补齐架构」）或先开弹窗选区间（另两个）。
+         分隔线后面是两个不调模型的新建，落在区根目录。新建细纲、新建章节文件、新建文件夹在分组的右键里——
+         新建细纲是罕用的手工路径（正常是拆细纲）；工具栏上的「＋ 文件夹」会让人建在章节区，而章节组是
+         一个章号一行的平铺列表，建了也看不见。 -->
+    <button class="chip-btn" data-action="completeSettings" title="故事架构五件（小说配置、故事前提、角色图谱、世界观、设定清单）：只补还没有的，已有的不动">补齐架构</button>
     <button class="chip-btn" data-form="plotBatch" title="选一段章号，把还没有细纲的章拆出来（每批 5 章）">拆细纲…</button>
-    <!-- 批量写章（W9）：选一段章号与模式，一章一章串行写，先开弹窗说清调用上限。 -->
     <button class="chip-btn" data-form="writeBatch" title="选一段章号，一章一章写正文（已有正文的跳过；可选写完即定稿）">批量写章…</button>
-    <button class="chip-btn" data-action="newPlot">＋ 新建细纲</button>
-    <button class="chip-btn" data-action="newCharacter">＋ 角色卡</button>
-    <button class="chip-btn" data-action="newLore">＋ 设定</button>
-    <button class="chip-btn" data-action="newFolder">＋ 文件夹</button>
+    <span class="toolbar-sep" aria-hidden="true"></span>
+    <button class="chip-btn" data-action="newCharacter" title="在角色区新建一张角色卡（不调模型）">＋ 角色卡</button>
+    <button class="chip-btn" data-action="newLore" title="在设定区新建一条设定（不调模型）">＋ 设定</button>
     <span class="spacer"></span>
     <button class="icon-btn" data-action="refresh" title="刷新">⟳</button>
   </div>

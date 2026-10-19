@@ -86,7 +86,7 @@ export const DERIVE_CARD_MIN_APPEARANCES = 2;
 export const DERIVE_LORE_MIN_CHAPTERS = BUILD_MIN_CHAPTERS;
 /** 全书摘要一次并不完时最多再并几次。 */
 export const GLOBAL_SUMMARY_ROUNDS = 5;
-/** 小说配置没写每章字数、已写的章也量不出来时的缺省（与补齐设定一致）。 */
+/** 小说配置没写每章字数、已写的章也量不出来时的缺省（与补齐架构一致）。 */
 const DEFAULT_WORDS = 3000;
 
 const EXACT_CALLS = (n: number): CallEstimate => ({ low: n, high: n, max: n });

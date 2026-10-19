@@ -8,7 +8,6 @@ import type { ProjectNode, ProjectTree } from '../../protocol';
 import { linkBtn } from '../buttons';
 import { formatWords } from '../format';
 import { onContextMenu } from '../menu';
-import { openWriteBatchForm } from '../forms';
 import { openPath } from '../store';
 import { hasTask } from '../tasks';
 import { baseMenuItems, newItemsIn, projectAction } from './actions';
@@ -196,11 +195,14 @@ export function countLabel(nodes: ProjectNode[], unit: string): string {
 }
 
 /**
- * 「文风与摘要」那一组：全书摘要、文风指南、叙事线，外加一行批量动作（同步过期细纲、提取角色卡、
- * 批量拆细纲、批量写章）。情节大纲在「故事架构」那一组。
+ * 「文风与摘要」那一组：全书摘要、文风指南、叙事线三行。情节大纲在「故事架构」那一组。
  *
  * 这几行是工程的固定文件，不给类文件操作（`buildFileRow` 不传 depth 即可），
- * 但它们的「重建」「从正文提取」是常用动作，照旧留在行内。
+ * 但它们的「重建」「从正文提取」是常用动作，照旧留在行内（悬停才亮）。
+ *
+ * 从前这一组底下还有一行工具（同步过期细纲、提取/更新角色卡，右键再加批量拆细纲、批量写章），
+ * 是单章摘要时代留下的：细纲并进 summaries/ 之后只改了字没挪地方，四件事在别处都有入口——
+ * 同步在页顶的黄条上，提取角色卡在「角色」组右键，两个批量在工具栏与「章节」组右键。
  */
 export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   const rows: HTMLElement[] = [];
@@ -247,28 +249,7 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
 
   rows.push(buildThreadsRow(tree));
 
-  // 情节大纲不在这一组：它是「故事架构」那一组的第五行（后面一切的上游）。
-
-  const tools = mk('div', 'row row-tools');
-  tools.appendChild(
-    linkBtn(
-      tree.staleCount > 0 ? `同步 ${tree.staleCount} 章过期细纲` : '同步过期细纲',
-      () => projectAction('syncSummaries')
-    )
-  );
-  tools.appendChild(linkBtn('提取/更新角色卡', () => projectAction('extractCharacters')));
-  onContextMenu(tools, () => [
-    { label: '同步过期细纲', run: () => projectAction('syncSummaries') },
-    { label: '提取/更新角色卡', run: () => projectAction('extractCharacters') },
-    { sep: true },
-    // 两个批量动作都「只补不改」：已经有产物的章一律跳过。批量路径上
-    // 没有逐个审阅的余地，跳过是唯一安全的做法。批量写章先开弹窗选区间与模式（W9）。
-    { label: '批量拆细纲（只补缺）', run: () => projectAction('generatePlots') },
-    { label: '批量写章…', run: () => openWriteBatchForm(tree) },
-    { sep: true },
-    ...baseMenuItems(),
-  ]);
-  rows.push(tools);
+  // 情节大纲不在这一组：它是「故事架构」那一组的第六行（后面一切的上游）。
 
   return rows;
 }

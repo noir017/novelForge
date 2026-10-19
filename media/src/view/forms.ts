@@ -22,7 +22,7 @@ import { setBusy } from './state';
 import { store, vscode } from './store';
 import { showTab } from './tabs';
 
-/** 一句话弹窗的默认规模（与后端「补齐设定」没写规模时的默认一致）。 */
+/** 一句话弹窗的默认规模（与后端「补齐架构」没写规模时的默认一致）。 */
 const DEFAULT_TOTAL = 100;
 const DEFAULT_WORDS = 3000;
 

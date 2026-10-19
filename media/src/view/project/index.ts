@@ -63,7 +63,7 @@ function buildProjectPage(tree: ProjectTree): void {
   hideSummaryTip();
   hideDetailTip();
   hideFailureTip();
-  // 还不是小说工程时，工具栏上的「新建细纲」等按钮点了只会报错。
+  // 还不是小说工程时，工具栏上的「补齐架构」「＋ 角色卡」等按钮点了只会报错。
   setHidden(el.projectToolbar, !tree.initialized);
 
   if (!tree.initialized) {
@@ -80,7 +80,7 @@ function buildProjectPage(tree: ProjectTree): void {
       extraItems: () => [
         { label: tree.book.writtenThrough ? '照已写正文生成小说配置…' : '从一句话生成小说配置…', run: () => openIdeaForm(tree.book) },
         // 只补空白：已经有的那几件不动、不问（第 19 条的批量那一面）。
-        { label: '补齐设定（只补空白）', run: () => projectAction('completeSettings') },
+        { label: '补齐架构（只补空白）', run: () => projectAction('completeSettings') },
         // 已经有正文（导入的原稿、老工程）：照正文整理，不从一句话重新编。两次确认，次数在框里。
         { label: '从已写正文补齐（细纲、角色卡、架构、大纲）…', run: () => projectAction('deriveFromText') },
         { sep: true },
@@ -127,6 +127,8 @@ function buildProjectPage(tree: ProjectTree): void {
       extraItems: () => [
         { label: '更新所有角色卡', run: () => characterAction('updateAllCards') },
         { label: '从头重建所有角色卡', run: () => characterAction('rebuildAllCards') },
+        // 挑几章正文一次提一批（新角色直接建，已有的走对比）。不依赖定稿，上面两条依赖。
+        { label: '提取/更新角色卡（挑几章正文）…', run: () => projectAction('extractCharacters') },
         { sep: true },
         { label: '清理别名（删掉「她」「姐姐」这类泛称）', run: () => characterAction('cleanAliases') },
         { label: '查找并合并重复角色卡', run: () => characterAction('mergeDuplicates') },

@@ -56,7 +56,7 @@ export interface AcceptResult {
 }
 
 /**
- * `onlyBlank`：批量那条路（工程页「补齐设定」）。第 19 条的批量那一面——不问、不覆盖：
+ * `onlyBlank`：批量那条路（工程页「补齐架构」）。第 19 条的批量那一面——不问、不覆盖：
  * 作者写过的节一个字不动，只填空着的节，也就不必弹审阅。
  */
 export interface AcceptOptions {

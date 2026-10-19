@@ -5,9 +5,9 @@
  * 行数组，层级靠 `paddingLeft` 缩进表达而非嵌套 DOM——折叠一个文件夹只需要
  * 重画它所在的分组，不必搬 DOM 子树。
  *
- * 树上的行**一律不挂行内按钮**，全部操作走右键菜单（页面才干净）。例外是
- * 「文风与摘要」那几行——它们不是文件管理区，「重建」「从正文提取」照旧
- * 留在行内。
+ * 树上的行**不挂行内按钮**，全部操作走右键菜单（页面才干净）。例外只有三处：
+ * 下一个该写的章行尾的「去写这一章」、故事架构第一件没填的那一行的「去生成」（全页各一颗），
+ * 以及「文风与摘要」那三行悬停才亮的「重建」「从正文提取」之类——它们不是文件管理区。
  */
 import { el as mk } from '../../dom';
 import type { MenuItem } from '../../globals';
@@ -648,7 +648,10 @@ function buildLoreThinRow(t: LoreThinEntry): HTMLElement {
 
 /**
  * 「出场人物 · 未建卡」的一行。
- * 只有一个动作：建卡（建完立刻用它的出场段落跑一次提取）。
+ *
+ * 只有一个动作：建卡（先建一张空卡，再问要不要用它的出场段落跑一次提取），在右键里。
+ * 与「出现过 · 未建条目」一样**点名字不做事**：从前点名字就建卡，扫列表时手一滑角色区就多出
+ * 一张空卡，后面那一问取消了它也留着。
  */
 export function buildCastRow(c: CastEntry): HTMLElement {
   const row = mk('div', 'row row-cast');
@@ -659,18 +662,12 @@ export function buildCastRow(c: CastEntry): HTMLElement {
   row.appendChild(dot);
 
   const label = mk('span', 'row-label', c.name);
-  if (c.aliases.length > 0) {
-    label.title = `又称 ${c.aliases.join('、')}`;
-  }
+  label.title = `${c.aliases.length > 0 ? `又称 ${c.aliases.join('、')}\n` : ''}右键「创建角色卡」`;
   row.appendChild(label);
   row.appendChild(mk('span', 'meta row-detail', c.detail));
 
-  // 最常用的动作放在最省事的位置：点名字就是建卡。
-  const create = () => characterAction('createCard', c.name);
-  label.addEventListener('click', create);
-
   onContextMenu(row, () => [
-    { label: '创建角色卡（通读出场段落）', run: create },
+    { label: '创建角色卡（通读出场段落）', run: () => characterAction('createCard', c.name) },
     { label: `出场：${c.detail}`, disabled: true },
     { sep: true },
     ...baseMenuItems(),
