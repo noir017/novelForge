@@ -13,7 +13,7 @@ import { LORE_BODY_KEYS, LORE_ENTRY_LIMITS, LORE_EXPAND_LIMITS, LORE_HIDDEN_KEY,
 
 /** 产出时那一句做事原则（`ethosOf` 在单条设定目标上接它）。 */
 export const LORE_EXPAND_ETHOS =
-  '这一次只管一条设定：把它往前想细，让已经排好的情节撑得住；定稿里已经写进正文的一个字都不推翻，作者写过的只补、只细化。';
+  '这一次只管一条设定：把它往前想细，让已经排好的情节撑得住；定稿里已经写进正文的一个字都不推翻，这一条现有的具体内容一处都不丢，只补、只细化。';
 
 /** 输出合同：要求 1–6 条与 JSON 形状（{@link loreExpandJsonContract}）。 */
 export function loreExpandContract(): string {
@@ -23,7 +23,8 @@ export function loreExpandContract(): string {
     '',
     '【要求】',
     '1. 为已排的情节服务：细纲里打算让它做什么，它就得撑得住；和剧情无关的百科不写。',
-    '2. 「定稿过的记录」里已经确立的不许改；「当前这一条设定」里作者现有的内容是作者认过的，没有理由不删，只补、只细化。',
+    '2. 「定稿过的记录」里已经确立的不许改。「当前这一条设定」里现有的每一处具体内容（名字、规则、做得到与做不到的、已经发生的事）' +
+      '都是作者认过的，一处都不许丢：可以换说法、并句子；字数放不下先压缩措辞，再放不下就把整块拆进 children。只补、只细化。',
     `3. 字数：${LORE_BODY_KEYS.map((k) => `${k} ≤ ${L[k]} 字`).join('、')}，三节合计 ≤ ${L.body} 字；${LORE_HIDDEN_KEY} ≤ ${L[LORE_HIDDEN_KEY]} 字，不算进那 ${L.body} 字，没有就给空字符串。做减法，不写逐章经过。`,
     `4. keywords 3–${LORE_EXPAND_LIMITS.keywords} 个，只放读者在正文里会看到的叫法（别称、简称）；人名不算。${LORE_HIDDEN_KEY}里的东西不进关键词，也不进一句话（brief）。`,
     `5. children：写不下、值得单独立一条的部分，≤ ${LORE_EXPAND_LIMITS.children} 条，只给名字、分类、一句话；已有的设定、人物不要拆。没有就给 []。`,
