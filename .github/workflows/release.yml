@@ -219,9 +219,17 @@ jobs:
     needs: [version, bundles, desktop]
     runs-on: ubuntu-latest
     steps:
+      # 按名字只取 bundles 与 desktop-*，不能不带名字全拉：docker job 里的
+      # build-push-action 会顺手传两个「<仓库>~XXXX.dockerbuild」构建记录，
+      # download-artifact 解不开，整步失败（v0.2.0～v0.2.2 的 Release 都死在这）。
       - uses: actions/download-artifact@v4
         with:
+          pattern: desktop-*
           path: artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundles
+          path: artifacts/bundles
 
       # 三个 job 的产物散在各自子目录里，摊平到一层好上传。
       - name: 摊平产物
