@@ -10,6 +10,7 @@ import { runTask } from '../runtime/progress';
 import { readText, slugify, uniqueSlug } from '../model/fs';
 import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../model/project';
 import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
+import { LORE_PLACEHOLDER_PREFIX } from '../model/loreFile';
 import { sanitizeAliases } from '../model/naming';
 import { keepGender, normalizeGender } from '../model/gender';
 import { estimateTokens, takeHead } from '../context/tokenizer';
@@ -343,7 +344,7 @@ export async function newLore(project: NovelProject, dir?: string, name?: string
     {
       text:
         `---\ntitle: ${title.trim()}\nkeywords: [${title.trim()}]\n---\n\n# ${title.trim()}\n\n` +
-        '（在这里写这条设定：它是什么、有什么规则与边界、现在是什么状态。frontmatter 里可以加一行 brief 写一句话简介，' +
+        `${LORE_PLACEHOLDER_PREFIX}：它是什么、有什么规则与边界、现在是什么状态。frontmatter 里可以加一行 brief 写一句话简介，` +
         '名录里那一行显示它；keywords 写它的别称，正文或细纲里提到时会自动带进上下文。）\n',
     },
     { mode: 'create' }

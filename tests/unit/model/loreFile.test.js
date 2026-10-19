@@ -9,6 +9,8 @@
  * | 第九节不进内容指纹 | 补记老章节不能把它们全挂上 ⟳ |
  * | 没有这一节是 undefined，有标题没内容是空数组 | 「还没记过」与「记过、没有」是两回事 |
  * | 两趟认条目：关键词抢不走别人的标题 | 同 views/cast.ts 的角色卡 |
+ * | 「暗设」一节拆得出来，一句话不取它 | 写正文时不带暗设（完善设定） |
+ * | 待完善只认空的、占位、全是「（未交代）」 | 不按字数猜：作者写了两行就是够了 |
  */
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -68,12 +70,61 @@ describe('第九节「设定」的一行一条', () => {
   });
 });
 
-describe('条目的一句话与认名字', () => {
+describe('条目的一句话与认名字（含暗设与待完善：完善设定，2026-10-19）', () => {
   test('有 brief 用 brief；没有取正文第一句，跳过小标题与列表记号，截到 40 字', () => {
     assert.equal(lf.loreBrief({ brief: '一句话', body: '别的' }), '一句话');
     assert.equal(lf.loreBrief({ brief: '', body: '## 概要\n\n- 偏僻小镇，前不着村。镇口设卡。' }), '偏僻小镇，前不着村。');
     assert.equal(lf.loreBrief({ brief: '', body: '字'.repeat(80) }).length, lf.LORE_ENTRY_LIMITS.brief);
     assert.equal(lf.loreBrief({ brief: '', body: '' }), '');
+  });
+
+  test('缺 brief 取第一句时跳过「暗设」：一句话会进写正文的上下文', () => {
+    assert.equal(lf.loreBrief({ brief: '', body: '## 暗设\n\n阁主是魔尊转世。\n\n## 概要\n\n九层木楼。' }), '九层木楼。');
+  });
+
+  test('暗设：以「暗设」开头的二级标题到下一个一二级标题为止，几节都收', () => {
+    const body = [
+      '## 概要',
+      '',
+      '九层木楼。',
+      '',
+      '## 暗设（未揭示）',
+      '',
+      '阁主是魔尊转世。',
+      '### 细节',
+      '三层以上无人上去过。',
+      '',
+      '## 现状',
+      '',
+      '闭阁。',
+      '',
+      '## 暗设',
+      '密道通往后山。',
+    ].join('\n');
+    const { visible, hidden } = lf.splitLoreHidden(body);
+    assert.equal(visible, '## 概要\n\n九层木楼。\n\n## 现状\n\n闭阁。');
+    assert.equal(hidden, '阁主是魔尊转世。\n### 细节\n三层以上无人上去过。\n\n密道通往后山。');
+  });
+
+  test('没有暗设原样返回；别的标题、三级标题「### 暗设」不认（当明面）；空的、undefined 不崩', () => {
+    assert.deepEqual(lf.splitLoreHidden('## 概要\n\n九层木楼。'), { visible: '## 概要\n\n九层木楼。', hidden: '' });
+    assert.equal(lf.splitLoreHidden('### 暗设\n秘密').hidden, '');
+    assert.equal(lf.splitLoreHidden('## 秘密\n秘密').hidden, '');
+    assert.deepEqual(lf.splitLoreHidden(''), { visible: '', hidden: '' });
+    assert.deepEqual(lf.splitLoreHidden(undefined), { visible: '', hidden: '' });
+  });
+
+  test('待完善：空的、新建设定的占位、三节全是「（未交代）」；写了一点就不算', () => {
+    assert.equal(lf.loreThin({ body: '' }), 'empty');
+    assert.equal(lf.loreThin({ body: '## 暗设\n\n阁主是魔尊转世。' }), 'empty');
+    assert.equal(lf.loreThin({ body: '## 概要\n\n## 现状\n' }), 'empty');
+    assert.equal(lf.loreThin({ body: `${lf.LORE_PLACEHOLDER_PREFIX}：它是什么……）` }), 'placeholder');
+    assert.equal(
+      lf.loreThin({ body: '## 概要\n\n（未交代）\n\n## 规则与边界\n\n- (未交代)\n\n## 现状\n\n（未交代）' }),
+      'untold'
+    );
+    assert.equal(lf.loreThin({ body: '## 概要\n\n九层木楼。\n\n## 现状\n\n（未交代）' }), undefined);
+    assert.equal(lf.loreThin({ body: '两行字，作者觉得够了。' }), undefined);
   });
 
   test('先标题后关键词：关键词抢不走别人的标题', () => {

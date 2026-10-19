@@ -36,7 +36,8 @@ export const LORE_LINE_LIMITS = {
 
 /**
  * 条目的字数上限（新增第 27 条：设定条目不能无限膨胀）。正文三节只是机器写入时的格式，
- * 作者写成什么样都照读；整合、建条目的提示词按这几个数做减法。
+ * 作者写成什么样都照读；整合、建条目的提示词按这几个数做减法。`body` 指明面三节合计，
+ * 「暗设」另算（完善设定，2026-10-19）。
  */
 export const LORE_ENTRY_LIMITS = {
   brief: 40,
@@ -44,10 +45,81 @@ export const LORE_ENTRY_LIMITS = {
   规则与边界: 250,
   现状: 150,
   body: 600,
+  暗设: 200,
 } as const;
 
-/** 机器写条目正文时用的三节。 */
+/** 机器写条目正文时用的三节（明面）。 */
 export const LORE_BODY_KEYS = ['概要', '规则与边界', '现状'] as const;
+
+/**
+ * 可选的第四节：读者还不知道的真相（完善设定，2026-10-19）。规划时（设定 / 大纲 / 细纲）带，
+ * 写正文时不带——揭开靠那一章的细纲。以它开头的二级标题都认（`## 暗设`、`## 暗设（未揭示）`）。
+ */
+export const LORE_HIDDEN_KEY = '暗设';
+
+/**
+ * 工程页「新建设定」写进正文的那段占位的开头。认「还只有一句话」的条目（{@link loreThin}）
+ * 要把它当空的，所以写的地方（features/characters.ts）与认的地方共用这一份。
+ */
+export const LORE_PLACEHOLDER_PREFIX = '（在这里写这条设定';
+
+const HIDDEN_HEADING = new RegExp(`^##(?!#)\\s*${LORE_HIDDEN_KEY}`, 'u');
+const ANY_HEADING = /^#{1,2}(?!#)\s*\S/u;
+
+/**
+ * 把条目正文拆成明面与暗设。暗设 = 以「暗设」开头的二级标题，到下一个一、二级标题或文末为止；
+ * 有几节都收（按出现顺序接起来）。`visible` 是去掉这些节之后的正文，`hidden` 是暗设的内容（不含标题）。
+ * 作者写成别的标题就当明面（第 1 条：认不出照常读）。**绝不抛。**
+ */
+export function splitLoreHidden(body: string): { visible: string; hidden: string } {
+  const visible: string[] = [];
+  const hidden: string[] = [];
+  let inHidden = false;
+  for (const line of (body ?? '').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (HIDDEN_HEADING.test(trimmed)) {
+      inHidden = true;
+      continue;
+    }
+    if (inHidden && ANY_HEADING.test(trimmed)) {
+      inHidden = false;
+    }
+    (inHidden ? hidden : visible).push(line);
+  }
+  return { visible: tidy(visible), hidden: tidy(hidden) };
+}
+
+/** 去掉首尾空行、把连着的空行并成一行。 */
+function tidy(lines: string[]): string {
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * 条目是不是「还只有一句话」（待完善）。三种：明面正文是空的（`empty`，含只剩一句话 `brief` 的）、
+ * 是「新建设定」留下的占位（`placeholder`）、三节都只写着「（未交代）」（`untold`，设定清单起步时
+ * 没写到的节）。都不是返回 `undefined`。**不按字数猜**——作者写了两行就是作者认为够了。
+ */
+export type LoreThinKind = 'empty' | 'placeholder' | 'untold';
+
+export function loreThin(entry: Pick<LoreEntry, 'body'>): LoreThinKind | undefined {
+  const { visible } = splitLoreHidden(entry.body ?? '');
+  if (!visible) {
+    return 'empty';
+  }
+  if (visible.startsWith(LORE_PLACEHOLDER_PREFIX)) {
+    return 'placeholder';
+  }
+  const content = visible
+    .split(/\r?\n/)
+    .map((raw) => raw.replace(LIST_MARKER, '').trim())
+    .filter((line) => line && !/^#/.test(line));
+  if (content.length === 0) {
+    return 'empty';
+  }
+  return content.every((line) => UNTOLD.test(line)) ? 'untold' : undefined;
+}
+
+const UNTOLD = /^[（(]\s*未交代\s*[)）]$/u;
 
 /**
  * 架构 · 设定清单起步时一条正文三节合计最多几字：那是写之前排的，现状多半还没交代，写到了再从定稿里
@@ -155,15 +227,15 @@ export function normalizeLoreName(value: string): string {
 }
 
 /**
- * 条目的一句话：frontmatter 的 `brief`，没写就取正文第一句（跳过小标题与列表记号），
- * 截到 {@link LORE_ENTRY_LIMITS}.brief 字。名录那一行与上下文里「一行带」都用它。
+ * 条目的一句话：frontmatter 的 `brief`，没写就取正文第一句（跳过小标题、列表记号与「暗设」那一节——
+ * 一句话会进写正文的上下文），截到 {@link LORE_ENTRY_LIMITS}.brief 字。名录那一行与上下文里「一行带」都用它。
  */
 export function loreBrief(entry: Pick<LoreEntry, 'brief' | 'body'>): string {
   const brief = oneLine(entry.brief ?? '');
   if (brief) {
     return brief.slice(0, LORE_ENTRY_LIMITS.brief);
   }
-  for (const raw of (entry.body ?? '').split(/\r?\n/)) {
+  for (const raw of splitLoreHidden(entry.body ?? '').visible.split(/\r?\n/)) {
     const line = raw.replace(LIST_MARKER, '').trim();
     if (!hasContent(line) || /^#/.test(line)) {
       continue;

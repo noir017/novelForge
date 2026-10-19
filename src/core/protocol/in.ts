@@ -120,6 +120,13 @@ export type InMessage =
    */
   | { type: 'rewriteArchitecture'; target: CreationTarget }
   /**
+   * 工程页设定条目、「待完善」那一行右键「展开…」（完善设定，2026-10-19）：先问一句要求（可留空），
+   * 再把对话页的目标换成这一条设定、发一轮生成（展开）——同 `rewriteArchitecture` 那条路。
+   * `relPath` 是已有条目；还没有条目时给 `name` 与 `category`（细纲第九节里的名字与分类），
+   * 后端先按分类建空条目再展开。
+   */
+  | { type: 'expandLore'; relPath?: string; name?: string; category?: string }
+  /**
    * 审稿报告卡底部「按勾选的 n 条修稿」（五期 W10）：报告在哪一轮、勾了哪几条（条目 id）。
    * 后端按那一轮的报告拼清单、按磁盘上此刻的正文重新定位引文，发一轮修稿。
    */
