@@ -25,7 +25,7 @@
  * 撞上角色卡的名字是人、不是设定，卡建好了才认得出来。
  *
  * 设定条目不走架构那一件「设定清单」：有正文的书那一件本来就算填过（`isLoreListFilled`），设定照名录
- * 来——定稿过的细纲第九节里出现过、还没有条目的名字，出现 ≥2 章的（一个都没有就降到 1 章，同建卡），
+ * 来——定稿过的细纲第九节里出现过、还没有条目的名字，出现过的全部，
  * 与名录上「全部建条目」同一份 `createLoreEntries`。它是额外的一道：没建成不算补齐失败，挂黄 ❗、
  * 后面几样照常补。
  *
@@ -82,11 +82,11 @@ const log = scoped('补齐');
 
 /** 补建角色卡：定稿过的细纲里出场至少这么多章的人；一个都没有就降到 1。 */
 export const DERIVE_CARD_MIN_APPEARANCES = 2;
-/** 补建设定条目：名录里出现至少这么多章的（与「全部建条目」同一个门槛）；一个都没有就降到 1。 */
+/** 补建设定条目：名录里出现至少这么多章的（与「全部建条目」同一个门槛）。 */
 export const DERIVE_LORE_MIN_CHAPTERS = BUILD_MIN_CHAPTERS;
 /** 全书摘要一次并不完时最多再并几次。 */
 export const GLOBAL_SUMMARY_ROUNDS = 5;
-/** 小说配置没写每章字数、已写的章也量不出来时的缺省（与补齐设定一致）。 */
+/** 小说配置没写每章字数、已写的章也量不出来时的缺省（与补齐架构一致）。 */
 const DEFAULT_WORDS = 3000;
 
 const EXACT_CALLS = (n: number): CallEstimate => ({ low: n, high: n, max: n });

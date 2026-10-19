@@ -794,6 +794,16 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(metaItems.includes('打开') && metaItems.includes('刷新'), JSON.stringify(metaItems));
   });
 
+  // 从前这一组底下还挂着一行「同步过期细纲 / 提取/更新角色卡」（单章摘要时代的遗留），
+  // 那四件事在别处都有入口：同步在页顶黄条，提取在「角色」组右键，两个批量在工具栏与「章节」组右键。
+  test('「文风与摘要」只有全书摘要、文风指南、叙事线三行，没有工具行', () => {
+    const group = [...ui.doc.querySelectorAll('#projectBody .group')]
+      .find((g) => g.querySelector('.group-name')?.textContent === '文风与摘要');
+    const labels = [...group.querySelectorAll('.group-body > .row .row-label')].map((n) => n.textContent);
+    assert.deepEqual(labels, ['全书摘要', '文风指南', '叙事线'], group.outerHTML);
+    assert.ok(!group.textContent.includes('同步过期细纲') && !group.textContent.includes('提取/更新角色卡'), group.textContent);
+  });
+
   // ---- 角色分组：批量更新/重建。
   let charItems;
   test('角色分组菜单含批量项', () => {
@@ -875,14 +885,26 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     });
   }
 
-  // 工具栏上的「新建」与分组菜单是同一件事：新建的是下一个没有细纲的章的细纲。
-  test('工具栏「＋ 新建细纲」发 newPlot', () => {
-    const btn = [...ui.doc.querySelectorAll('#projectToolbar [data-action]')]
-      .find((b) => b.dataset.action === 'newPlot');
-    assert.ok(btn, ui.doc.getElementById('projectToolbar').outerHTML);
-    assert.ok(btn.textContent.includes('新建细纲'), btn.textContent);
-    ui.clickEl(btn);
-    assert.equal(ui.last('projectAction')?.action, 'newPlot');
+  // 新建细纲只在「章节」组的右键里（上面那条）：它是罕用的手工路径，正常是拆细纲。
+  // 工具栏上的「＋ 文件夹」也拿掉了——会让人建在章节区，而章节组是平铺的，建了看不见。
+  test('工具栏上没有「＋ 新建细纲」「＋ 文件夹」', () => {
+    const actions = [...ui.doc.querySelectorAll('#projectToolbar [data-action]')].map((b) => b.dataset.action);
+    assert.ok(!actions.includes('newPlot') && !actions.includes('newFolder'), JSON.stringify(actions));
+  });
+
+  test('工具栏：三个批量入口，一道分隔线，两个新建，刷新', () => {
+    const bar = ui.doc.getElementById('projectToolbar');
+    const parts = [...bar.children].map((n) =>
+      n.classList.contains('toolbar-sep') ? '|' : n.classList.contains('spacer') ? '~' : n.textContent.trim()
+    );
+    assert.deepEqual(parts, ['补齐架构', '拆细纲…', '批量写章…', '|', '＋ 角色卡', '＋ 设定', '~', '⟳'], JSON.stringify(parts));
+  });
+
+  test('工具栏「＋ 角色卡」「＋ 设定」发 newCharacter / newLore', () => {
+    for (const action of ['newCharacter', 'newLore']) {
+      ui.clickEl(ui.doc.querySelector(`#projectToolbar [data-action="${action}"]`));
+      assert.equal(ui.last('projectAction')?.action, action);
+    }
   });
 });
 

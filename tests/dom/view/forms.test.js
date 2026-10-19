@@ -148,9 +148,9 @@ describe('拆细纲弹窗', { skip: JSDOM_SKIP }, () => {
     ui.clickEl(toolbarBtn());
   });
 
-  test('工具栏上有「补齐设定」「拆细纲…」', () => {
+  test('工具栏上有「补齐架构」「拆细纲…」', () => {
     assert.ok(toolbarBtn());
-    assert.equal(ui.doc.querySelector('#projectToolbar [data-action="completeSettings"]')?.textContent, '补齐设定');
+    assert.equal(ui.doc.querySelector('#projectToolbar [data-action="completeSettings"]')?.textContent, '补齐架构');
   });
 
   // 下一可写章是第 4 章，缺省拆 5 章，不越过大纲覆盖（20）与总章数（30）。
@@ -210,7 +210,7 @@ describe('拆细纲弹窗', { skip: JSDOM_SKIP }, () => {
     key(ui, ui.doc, 'Escape');
   });
 
-  test('「补齐设定」发 completeSettings（后端先问）', () => {
+  test('「补齐架构」发 completeSettings（后端先问）', () => {
     ui.sent.length = 0;
     ui.clickEl(ui.doc.querySelector('#projectToolbar [data-action="completeSettings"]'));
     assert.equal(ui.last('projectAction')?.action, 'completeSettings', JSON.stringify(ui.sent));

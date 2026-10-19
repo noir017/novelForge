@@ -79,7 +79,7 @@
   white-space: nowrap;
 }
 
-/* ---------------------------------------------------------------- 三层状态 */
+/* ---------------------------------------------------------------- 细纲 / 正文两格与定稿状态 */
 
 .pipeline-stages {
   display: flex;
@@ -172,27 +172,6 @@
 
 .psummary.stale {
   color: var(--vscode-editorWarning-foreground, #cca700);
-}
-
-/* ---------------------------------------------------------------- 章的状态徽章 */
-
-/*
- * 「待写正文」这一格。与工程页那一列同一份文案，也该是同一种观感——
- * 作者在两个页面上看到的是同一件事。
- */
-.cstage {
-  font-size: 0.74em;
-  padding: 0 6px;
-  border-radius: 8px;
-  white-space: nowrap;
-  background: var(--vscode-badge-background);
-  color: var(--vscode-badge-foreground);
-  opacity: 0.85;
-}
-
-.cstage-done {
-  background: var(--vscode-charts-green, #89d185);
-  color: var(--vscode-editor-background);
 }
 
 /* ---------------------------------------------------------------- 下一步 */
@@ -363,7 +342,7 @@
 
 /* ---------------------------------------------------------------- 采纳卡片 */
 
-/* 产物的落点说明，紧挨着采纳按钮：写到哪、多少东西。 */
+/* 产物的落点说明，在模型气泡行尾：写到哪、多少东西。 */
 .artifact-where {
   font-size: 0.78em;
   color: var(--vscode-descriptionForeground);

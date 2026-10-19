@@ -342,7 +342,7 @@ export class FileHost implements Host {
 
   async selectionAttachment(project: NovelProject): Promise<Attachment | undefined> {
     void project;
-    // 独立版没有编辑器选区：弹粘贴框，存快照。
+    // 内置编辑器里选着字时前端已经把选区带上来了（controller 不会走到这里）；走到这里是没选中，弹粘贴框，存快照。
     const text = await this.input({
       title: '加入选区',
       prompt: '粘贴要引用的原文',

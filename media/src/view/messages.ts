@@ -270,7 +270,7 @@ function buildHead(turn: SerializedTurn): HTMLElement {
     head.appendChild(mk('span', undefined, '· 已中断'));
   }
   // 低频且有破坏性的操作（重新生成/删除）收进右上角的 ⋯，
-  // 不和「采纳写入」「复制」挤在一起。
+  // 不和行尾的「打开」「复制」挤在一起。
   head.appendChild(spacer());
   head.appendChild(buildMenuBtn(turn));
   return head;

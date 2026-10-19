@@ -5,9 +5,9 @@
  * 行数组，层级靠 `paddingLeft` 缩进表达而非嵌套 DOM——折叠一个文件夹只需要
  * 重画它所在的分组，不必搬 DOM 子树。
  *
- * 树上的行**一律不挂行内按钮**，全部操作走右键菜单（页面才干净）。例外是
- * 「文风与摘要」那几行——它们不是文件管理区，「重建」「从正文提取」照旧
- * 留在行内。
+ * 树上的行**不挂行内按钮**，全部操作走右键菜单（页面才干净）。例外只有三处：
+ * 下一个该写的章行尾的「去写这一章」、故事架构第一件没填的那一行的「去生成」（全页各一颗），
+ * 以及「文风与摘要」那三行悬停才亮的「重建」「从正文提取」之类——它们不是文件管理区。
  */
 import { el as mk } from '../../dom';
 import type { MenuItem } from '../../globals';
@@ -85,8 +85,8 @@ function revealGroup(id: string): void {
 /**
  * 递归渲染一层节点，返回扁平的行数组。
  *
- * `section` 决定文件图标与「在此新建」建什么；`tree` 只有角色区与设定区用得上
- * （要按 relPath 查出场统计 / 出现章），其余区传不传都行。
+ * `section` 是角色区或设定区（工程页只有这两个区按目录树画），决定文件行怎么画与「在此新建」建什么；
+ * `tree` 用来按 relPath 查出场统计 / 出现章。
  *
  * `match` 给了就是在筛选（「设定」组标题旁的筛选框）：只画匹配的文件，没有匹配的文件夹
  * 整个不画，有匹配的文件夹一律展开——匹配的那一条藏在折叠着的目录里，等于没筛出来。
@@ -121,10 +121,8 @@ export function renderNodes(
       continue;
     } else if (section === SECTIONS.characters) {
       rows.push(buildCharacterRow(node, depth, tree));
-    } else if (section === SECTIONS.lore) {
-      rows.push(buildLoreRow(node, depth, tree));
     } else {
-      rows.push(buildFileRow(node, section.icon, depth));
+      rows.push(buildLoreRow(node, depth, tree));
     }
   }
   return rows;
@@ -492,7 +490,7 @@ export function buildFileRow(
  * 「第 3、7、12 章」这句话在日志里也要出现，两处文案必须一致。
  */
 function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): HTMLElement {
-  const stats = tree?.castByCard?.[f.relPath] ?? null;
+  const stats = tree?.castByCard[f.relPath] ?? null;
   const detail = [f.detail, stats && stats.plots.length > 0 ? `出场 ${stats.plots.length} 章` : '']
     .filter(Boolean)
     .join(' · ');
@@ -550,8 +548,7 @@ function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): H
  * 右键菜单在打开与类文件操作之间多两项：「整合这一条」（有待整合的才有）与「展开…」（每一条都有，完善设定）。
  */
 function buildLoreRow(f: ProjectFile, depth: number, tree?: ProjectTree): HTMLElement {
-  // 旧后端推来的树没有 loreByEntry：可选链是有意的，那时就是一行普通的文件行。
-  const stats = tree?.loreByEntry?.[f.relPath] ?? null;
+  const stats = tree?.loreByEntry[f.relPath] ?? null;
   const row = buildFileRow(f, SECTIONS.lore.icon, depth);
   row.classList.add('row-lore');
 
@@ -651,7 +648,10 @@ function buildLoreThinRow(t: LoreThinEntry): HTMLElement {
 
 /**
  * 「出场人物 · 未建卡」的一行。
- * 只有一个动作：建卡（建完立刻用它的出场段落跑一次提取）。
+ *
+ * 只有一个动作：建卡（先建一张空卡，再问要不要用它的出场段落跑一次提取），在右键里。
+ * 与「出现过 · 未建条目」一样**点名字不做事**：从前点名字就建卡，扫列表时手一滑角色区就多出
+ * 一张空卡，后面那一问取消了它也留着。
  */
 export function buildCastRow(c: CastEntry): HTMLElement {
   const row = mk('div', 'row row-cast');
@@ -662,18 +662,12 @@ export function buildCastRow(c: CastEntry): HTMLElement {
   row.appendChild(dot);
 
   const label = mk('span', 'row-label', c.name);
-  if (c.aliases.length > 0) {
-    label.title = `又称 ${c.aliases.join('、')}`;
-  }
+  label.title = `${c.aliases.length > 0 ? `又称 ${c.aliases.join('、')}\n` : ''}右键「创建角色卡」`;
   row.appendChild(label);
   row.appendChild(mk('span', 'meta row-detail', c.detail));
 
-  // 最常用的动作放在最省事的位置：点名字就是建卡。
-  const create = () => characterAction('createCard', c.name);
-  label.addEventListener('click', create);
-
   onContextMenu(row, () => [
-    { label: '创建角色卡（通读出场段落）', run: create },
+    { label: '创建角色卡（通读出场段落）', run: () => characterAction('createCard', c.name) },
     { label: `出场：${c.detail}`, disabled: true },
     { sep: true },
     ...baseMenuItems(),

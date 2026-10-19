@@ -245,7 +245,7 @@ export function listModelChoices(providers: ProviderProfile[], includeVscodeLm =
  */
 export function describeModelIssue(providers: ProviderProfile[], ref: string): string {
   if (providers.length === 0) {
-    return '还没有配置任何服务商。打开侧边栏「设置」页添加一个，或运行命令「Novel: 打开设置页」。';
+    return '还没有配置任何服务商。到「设置」页添加一个。';
   }
   const trimmed = (ref ?? '').trim();
   if (!trimmed) {

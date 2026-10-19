@@ -51,8 +51,9 @@ export function baseMenuItems(): MenuItem[] {
 }
 
 /**
- * 三个可管理区各自的差异：新建什么、菜单上怎么称呼、文件行用什么图标。
- * 与 core/files/fileOps.ts 的 Section 一一对应。
+ * 工程页上两个按目录树画的区各自的差异：新建什么、菜单上怎么称呼、文件行用什么图标。
+ * 与 core/files/fileOps.ts 的 Section 对应；章节区在工程页上是一个章号一行的平铺列表，
+ * 不走目录树，所以这里没有它。
  */
 export interface Section {
   newAction: ProjectAction;
@@ -61,7 +62,6 @@ export interface Section {
 }
 
 export const SECTIONS = {
-  chapters: { newAction: 'newChapter', newLabel: '在此新建章节', icon: '📄' },
   characters: { newAction: 'newCharacter', newLabel: '在此新建角色卡', icon: '👤' },
   lore: { newAction: 'newLore', newLabel: '在此新建设定', icon: '🌐' },
 } as const satisfies Record<string, Section>;

@@ -541,7 +541,7 @@ async function runChain(
 
 /**
  * 设定清单那条链要对照的：本书的目录树（照用、只补缺的）、已有条目（照抄名字）、角色卡上的人
- * （人不是设定）。对话页与补齐设定（features/pipelineBatch.ts）共用。
+ * （人不是设定）。对话页与补齐架构（features/pipelineBatch.ts）共用。
  */
 export async function loreListKnown(project: NovelProject): Promise<LoreListKnown> {
   const [categories, entries, cards] = await Promise.all([project.listLoreCategories(), project.listLore(), project.listCharacters()]);

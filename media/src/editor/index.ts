@@ -160,6 +160,28 @@ function start(stage: HTMLElement): void {
     e.detail.areaFocused = Object.values(panes).some((p) => p.area === document.activeElement);
   });
 
+  // 对话页「加入选区」：当前那块编辑区里选中的文字。预览里的 textarea 藏着，它的选区作者看不见，不算。
+  window.addEventListener('nf-selection-query', (e) => {
+    const file = activePane?.activeFile();
+    if (!file || activePane.isPreviewing()) {
+      return;
+    }
+    const { value, selectionStart, selectionEnd } = activePane.area;
+    const raw = value.slice(selectionStart, selectionEnd);
+    const text = raw.trim();
+    if (!text) {
+      return;
+    }
+    // 行号按去掉首尾空白之后的那一段算：多选了一个换行不该让范围多出一行。
+    const from = selectionStart + (raw.length - raw.trimStart().length);
+    const last = selectionEnd - (raw.length - raw.trimEnd().length) - 1;
+    const lineOf = (offset: number) => value.slice(0, offset).split('\n').length;
+    e.detail.relPath = file.path;
+    e.detail.text = text;
+    e.detail.start = lineOf(from);
+    e.detail.end = lineOf(last);
+  });
+
   window.addEventListener('nf-editor-command', (e) => {
     const name = e.detail.name;
     if (name === 'save') {

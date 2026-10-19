@@ -22,8 +22,8 @@ export interface PaneOptions {
    */
   builtinEditor?: boolean;
   /**
-   * 宿主能取到**原生编辑器的选区**（插件壳）。取不到的宿主（独立版）
-   * 那颗按钮是「粘贴一段原文」，title 因此不同。
+   * 宿主能取到**原生编辑器的选区**（插件壳）。取不到的宿主（独立版）由前端问内置编辑器要选区，
+   * 没选中时弹粘贴框，title 因此多说一句。
    */
   selectionFromEditor?: boolean;
   /**
@@ -93,15 +93,17 @@ export function chatPane(opts: PaneOptions = {}): string {
   const editorHint = opts.builtinEditor
     ? '\n      <p>右侧是内置编辑器：在「工程」页点任意文件即可打开编辑，<kbd>Ctrl</kbd>+<kbd>S</kbd> 保存。</p>'
     : '';
-  const selTitle = opts.selectionFromEditor ? '把编辑器中选中的文字加入上下文' : '粘贴一段原文加入上下文';
+  const selTitle = opts.selectionFromEditor
+    ? '把编辑器中选中的文字加入上下文'
+    : '把编辑器中选中的文字加入上下文（没有选中时粘贴一段原文）';
   return `<section class="pane active" id="pane-chat">
   <!-- 没定稿的横幅只长在工程页（那边还带进度条与分母）。对话页从前也挂着
        一份纯文字版，说的是同一句话，却常年占着本就不宽裕的消息流；这里要提示
        的那件事本身也只能在工程页上处理。活动栏「工程」上的小圆点负责在别的
        页面上留个记号。 -->
 
-  <!-- 流水线条：这一章走到哪一步了。点任一格切到那一层。
-       目标是架构或大纲时只剩面包屑，三格隐藏。 -->
+  <!-- 流水线条：这一章走到哪一步了。点细纲 / 正文那一格切到那一层。
+       目标是架构或大纲时只剩面包屑，下面那一行隐藏。 -->
   <div class="pipeline" id="pipeline">
     <div class="pipeline-top" id="pipelineTop">
       <div class="pipeline-crumb" id="pipelineCrumb"></div>
@@ -111,7 +113,7 @@ export function chatPane(opts: PaneOptions = {}): string {
       <button class="pipeline-new hidden" id="renamePlotBtn" title="重命名当前章节" aria-label="重命名当前章节">✎</button>
       <button class="pipeline-new" id="newSessionBtn" title="开始新对话" aria-label="开始新对话">＋</button>
     </div>
-    <!-- 细纲 / 正文 / 定稿 三格。内容由 view/pipeline.ts 画。 -->
+    <!-- 细纲 / 正文两格（可点）与定稿状态（只读）。内容由 view/pipeline.ts 画。 -->
     <div class="pipeline-stages" id="pipelineStages"></div>
     <!-- 「当前产物」的入口：一行标题。悬停浮出这一层的产物，点击钉住。
          从前它是消息流顶部一张 sticky 卡片——关不掉、藏不起来，还长期占着
@@ -121,8 +123,8 @@ export function chatPane(opts: PaneOptions = {}): string {
 
   <div class="messages" id="messages">
     <div class="empty" id="emptyHint">
-      <p><strong>跟着上面的主按钮走：它永远是这本书现在该做的那一步</strong></p>
-      <p>从一句话开始：先生成小说配置、故事前提、角色图谱与世界观，再排情节大纲、拆细纲，最后一章一章写正文。想接着写某一章，在「工程」页右键「进入这一章」，或用下面的下拉框选它。</p>
+      <p><strong>跟着输入框上方的主按钮走：它永远是这本书现在该做的那一步</strong></p>
+      <p>从一句话开始：先生成小说配置、故事前提、角色图谱、世界观与设定清单，再排情节大纲、拆细纲，最后一章一章写正文。想接着写某一章，在「工程」页右键「进入这一章」，或用下面的下拉框选它。</p>
       <p>用 <kbd>@</kbd> 引用正文、角色卡或任意文件；在输入框里打 <kbd>/</kbd> 可以挑其它命令。</p>${editorHint}
     </div>
     <!-- 打开的文件夹还不是小说工程：消息区只放这一块（W12）。由 #messages 上的 uninit 类切换。 -->
@@ -154,10 +156,12 @@ export function chatPane(opts: PaneOptions = {}): string {
       <div class="pending-cmd hidden" id="pendingCmd"></div>
       <textarea id="input" rows="3" placeholder="补充要求（可留空）…（Enter 发送，Shift+Enter 换行）"></textarea>
     </div>
+    <!-- 这一行常年挤着九个控件，侧栏一窄就折成两三行。@ 与 / 在输入框里直接打效果一样，
+         这两颗因此只留那一个键（文字在 title 与 aria-label 里），省出宽度给三个下拉框。 -->
     <div class="composer-bar">
-      <button class="composer-tool" id="atBtn" title="引用文件或正文"><span class="tool-key">@</span>引用</button>
+      <button class="composer-tool key-only" id="atBtn" title="引用文件或正文（在输入框里打 @ 也一样）" aria-label="引用文件或正文"><span class="tool-key">@</span></button>
       <button class="composer-tool" id="selBtn" title="${selTitle}">加入选区</button>
-      <button class="composer-tool" id="cmdBtn" title="其它命令（在输入框里直接打 / 也一样）"><span class="tool-key">/</span>命令</button>
+      <button class="composer-tool key-only" id="cmdBtn" title="其它命令（在输入框里直接打 / 也一样）" aria-label="其它命令"><span class="tool-key">/</span></button>
       <select id="modelSelect" title="使用哪个模型"></select>
       <!-- 思考深度：跟着**会话**走，不是设置项（见 core/model/session.ts）。 -->
       <select id="thinkSelect" title="让模型想多深"></select>
@@ -184,15 +188,16 @@ export function taskBar(): string {
 export function projectPane(): string {
   return `<section class="pane" id="pane-project">
   <div class="project-toolbar" id="projectToolbar">
-    <!-- 两个批量入口（W5）。「补齐设定」只补空白、先问；「拆细纲…」先开弹窗选区间。 -->
-    <button class="chip-btn" data-action="completeSettings" title="配置、前提、角色图谱、世界观：只补还没有的，已有的不动">补齐设定</button>
+    <!-- 三个批量入口（W5、W9）：都只补空白，要调模型的先问（「补齐架构」）或先开弹窗选区间（另两个）。
+         分隔线后面是两个不调模型的新建，落在区根目录。新建细纲、新建章节文件、新建文件夹在分组的右键里——
+         新建细纲是罕用的手工路径（正常是拆细纲）；工具栏上的「＋ 文件夹」会让人建在章节区，而章节组是
+         一个章号一行的平铺列表，建了也看不见。 -->
+    <button class="chip-btn" data-action="completeSettings" title="故事架构五件（小说配置、故事前提、角色图谱、世界观、设定清单）：只补还没有的，已有的不动">补齐架构</button>
     <button class="chip-btn" data-form="plotBatch" title="选一段章号，把还没有细纲的章拆出来（每批 5 章）">拆细纲…</button>
-    <!-- 批量写章（W9）：选一段章号与模式，一章一章串行写，先开弹窗说清调用上限。 -->
     <button class="chip-btn" data-form="writeBatch" title="选一段章号，一章一章写正文（已有正文的跳过；可选写完即定稿）">批量写章…</button>
-    <button class="chip-btn" data-action="newPlot">＋ 新建细纲</button>
-    <button class="chip-btn" data-action="newCharacter">＋ 角色卡</button>
-    <button class="chip-btn" data-action="newLore">＋ 设定</button>
-    <button class="chip-btn" data-action="newFolder">＋ 文件夹</button>
+    <span class="toolbar-sep" aria-hidden="true"></span>
+    <button class="chip-btn" data-action="newCharacter" title="在角色区新建一张角色卡（不调模型）">＋ 角色卡</button>
+    <button class="chip-btn" data-action="newLore" title="在设定区新建一条设定（不调模型）">＋ 设定</button>
     <span class="spacer"></span>
     <button class="icon-btn" data-action="refresh" title="刷新">⟳</button>
   </div>
@@ -381,7 +386,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
   <div class="settings-panel" id="settingsPanelSkills" data-settings-panel="skills" role="tabpanel" aria-labelledby="settingsTabSkills">
     <div class="hint">
       写作技能是一份<b>补充的写作方法</b>（一个目录里一份 <code>SKILL.md</code>）。给本工程的某个阶段绑上一份，
-      这个阶段往后的每一次生成都会把它放在提示词最前面——对话页、Agent、工程页批量都一样。
+      这个阶段往后的每一次生成都会把它放在提示词最前面——对话页、外部 Agent 经 MCP 生成、工程页批量都一样。
       它只能补充写法：<b>作者事实和输出格式始终优先</b>。讨论与定稿不带。这一页的改动当场生效，不用点「保存设置」。
     </div>
 

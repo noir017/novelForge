@@ -17,7 +17,6 @@ import type { ProjectTree } from '../../protocol';
 export const openGroups: Record<string, boolean> = {
   architecture: true,
   plots: true,
-  chapters: true,
   characters: true,
   cast: true,
   lore: true,

@@ -10,6 +10,7 @@
  * 三条都走同一个 `send()`：附件、草稿、busy 只在一处管。
  */
 import { el as mk, setHidden } from '../dom';
+import { querySelection } from '../globals';
 import {
   CAPABILITY_LABEL,
   DEFAULT_THINKING_DEPTH,
@@ -208,7 +209,12 @@ export function installComposer(): void {
   el.sendBtn.addEventListener('click', send);
   el.stopBtn.addEventListener('click', () => vscode.postMessage({ type: 'stop' }));
   el.atBtn.addEventListener('click', () => vscode.postMessage({ type: 'pickAttachment' }));
-  el.selBtn.addEventListener('click', () => vscode.postMessage({ type: 'addSelection' }));
+  // 内置编辑器（独立版）里选着字就直接带上：宿主取不到网页里的选区，只会弹粘贴框。没选中、或者没有内置编辑器（插件）
+  // 时照旧交给宿主——插件读 VS Code 编辑器的选区，独立版弹粘贴框。
+  el.selBtn.addEventListener('click', () => {
+    const selection = querySelection();
+    vscode.postMessage(selection ? { type: 'addSelection', selection } : { type: 'addSelection' });
+  });
   el.cmdBtn.addEventListener('click', toggleCommands);
 
   // 面板的开合是**输入框内容的函数**（见 commands.ts）：打 `/` 就开、删掉

@@ -3,12 +3,12 @@
  *
  * 三个动作都**严格串行**、**一件失败就停**，已经写好的留着：
  *
- * - 补齐设定：前提要照着配置写，世界观要照着前提与角色写。
+ * - 补齐架构：前提要照着配置写，世界观要照着前提与角色写。
  * - 批量拆细纲：后一批要接着前一批往下排（前序细纲一览）。
  * - 批量写章（四期，D10）：后一章接着前一章的结尾写，写完即定稿时还要读前一章更新过的
  *   角色状态与证据原文。
  *
- * 补齐设定与拆细纲走 generation/structured.ts 的生成链，写章走 generation/continuation.ts
+ * 补齐架构与拆细纲走 generation/structured.ts 的生成链，写章走 generation/continuation.ts
  * 的续写链——与对话页同一份，截断拆半、语法修复、自动续写、重演检测一样不少。
  *
  * 结构与 `syncSummaries` 对齐（runTask + recordFailure + 分档确认框），因为作者对这类批量
@@ -93,7 +93,7 @@ import { ChatSession, SessionStore, makeTurnId, nowIso } from '../model/session'
 
 const log = scoped('流水线');
 
-/** 没有写总章数、每章字数时，补齐设定按这个规模展开配置（与一句话弹窗的默认值一致）。 */
+/** 没有写总章数、每章字数时，补齐架构按这个规模展开配置（与一句话弹窗的默认值一致）。 */
 const DEFAULT_SETUP = { totalChapters: 100, wordsPerChapter: 3000 };
 
 /**
@@ -247,7 +247,7 @@ export async function completeSettings(project: NovelProject): Promise<number> {
     getHost().toast('故事架构五件都已经有了。');
     return 0;
   }
-  if (!(await confirmDespiteGap(await project.listChapters(), '补齐设定'))) {
+  if (!(await confirmDespiteGap(await project.listChapters(), '补齐架构'))) {
     return 0;
   }
   const book = await project.readBookConfig();
@@ -281,18 +281,18 @@ export async function completeSettings(project: NovelProject): Promise<number> {
     }
   );
   if (pick !== '开始补齐') {
-    log.info('用户取消了补齐设定');
+    log.info('用户取消了补齐架构');
     return 0;
   }
   const pool = await createModelPool({ task: 'setting', concurrent: false });
   if (!pool) {
-    log.error('没有可用的模型，补齐设定中止');
+    log.error('没有可用的模型，补齐架构中止');
     return 0;
   }
 
   let calls = 0;
   await runTask(
-    '补齐设定',
+    '补齐架构',
     async ({ signal, report }) => {
       for (let i = 0; i < missing.length; i++) {
         const doc = missing[i];
@@ -318,11 +318,11 @@ export async function completeSettings(project: NovelProject): Promise<number> {
         } catch (err) {
           calls += err instanceof ChainError ? err.calls : io.calls();
           if (err instanceof CancelledError || signal.aborted) {
-            log.warn(`补齐设定被取消，停在${label}`);
+            log.warn(`补齐架构被取消，停在${label}`);
             return;
           }
           const reason = describeError(err);
-          log.error(`补齐设定：${label}失败：${reason}`, err instanceof ChainError ? err.notes.join('\n') : err);
+          log.error(`补齐架构：${label}失败：${reason}`, err instanceof ChainError ? err.notes.join('\n') : err);
           // 挂在「故事架构」那一行上（第 16 条）：toast 五秒就没了。
           void recordFailure(project, {
             scope: '流水线',
@@ -331,7 +331,7 @@ export async function completeSettings(project: NovelProject): Promise<number> {
             severity: 'error',
             op: 'setting',
             message: `${label}生成失败：${reason}`,
-            detail: '补齐设定停在这一件。后面几件依赖它，没有继续。',
+            detail: '补齐架构停在这一件。后面几件依赖它，没有继续。',
           });
           getHost().toast(`${label}没补上（${reason}）。后面几件依赖它，已经停下。`, 'error');
           return;
@@ -350,7 +350,7 @@ export function settingKey(project: NovelProject, doc: SettingDoc): string {
   return project.relPath(project.settingPath(doc));
 }
 
-/** 补齐设定的一件：第一次调用，配置、角色图谱与设定清单再接上各自的链。从已写正文补齐（features/derive.ts）也走它。 */
+/** 补齐架构的一件：第一次调用，配置、角色图谱与设定清单再接上各自的链。从已写正文补齐（features/derive.ts）也走它。 */
 export async function settingRaw(
   project: NovelProject,
   doc: SettingDoc,

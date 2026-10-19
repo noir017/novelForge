@@ -42,7 +42,7 @@ export function loreMatcher(tree: ProjectTree): ((f: ProjectFile) => boolean) | 
   if (!q) {
     return undefined;
   }
-  return (f) => hits(q, f.label, f.detail, ...(tree.loreByEntry?.[f.relPath]?.keywords ?? []));
+  return (f) => hits(q, f.label, f.detail, ...(tree.loreByEntry[f.relPath]?.keywords ?? []));
 }
 
 /** 「出现过 · 未建条目」「待完善」里按名字与分类匹配的那些（没在筛选时原样返回）。 */

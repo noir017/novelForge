@@ -63,7 +63,7 @@ function buildProjectPage(tree: ProjectTree): void {
   hideSummaryTip();
   hideDetailTip();
   hideFailureTip();
-  // 还不是小说工程时，工具栏上的「新建细纲」等按钮点了只会报错。
+  // 还不是小说工程时，工具栏上的「补齐架构」「＋ 角色卡」等按钮点了只会报错。
   setHidden(el.projectToolbar, !tree.initialized);
 
   if (!tree.initialized) {
@@ -80,7 +80,7 @@ function buildProjectPage(tree: ProjectTree): void {
       extraItems: () => [
         { label: tree.book.writtenThrough ? '照已写正文生成小说配置…' : '从一句话生成小说配置…', run: () => openIdeaForm(tree.book) },
         // 只补空白：已经有的那几件不动、不问（第 19 条的批量那一面）。
-        { label: '补齐设定（只补空白）', run: () => projectAction('completeSettings') },
+        { label: '补齐架构（只补空白）', run: () => projectAction('completeSettings') },
         // 已经有正文（导入的原稿、老工程）：照正文整理，不从一句话重新编。两次确认，次数在框里。
         { label: '从已写正文补齐（细纲、角色卡、架构、大纲）…', run: () => projectAction('deriveFromText') },
         { sep: true },
@@ -127,6 +127,8 @@ function buildProjectPage(tree: ProjectTree): void {
       extraItems: () => [
         { label: '更新所有角色卡', run: () => characterAction('updateAllCards') },
         { label: '从头重建所有角色卡', run: () => characterAction('rebuildAllCards') },
+        // 挑几章正文一次提一批（新角色直接建，已有的走对比）。不依赖定稿，上面两条依赖。
+        { label: '提取/更新角色卡（挑几章正文）…', run: () => projectAction('extractCharacters') },
         { sep: true },
         { label: '清理别名（删掉「她」「姐姐」这类泛称）', run: () => characterAction('cleanAliases') },
         { label: '查找并合并重复角色卡', run: () => characterAction('mergeDuplicates') },
@@ -134,7 +136,7 @@ function buildProjectPage(tree: ProjectTree): void {
       ],
       build: () => [
         // 冲突排在最前面：它说明这棵树上的出场统计有一处是错的。
-        ...(tree.castConflicts ?? []).map(buildConflictRow),
+        ...tree.castConflicts.map(buildConflictRow),
         ...(tree.characters.length === 0
           ? [charactersEmptyRow(tree)]
           : renderNodes(tree.characters, 0, SECTIONS.characters, tree)),
@@ -144,7 +146,7 @@ function buildProjectPage(tree: ProjectTree): void {
 
   // 定稿过的细纲里出现、但还没建卡的人物。单独一组而不是混进角色树——
   // 那棵是文件树（能改名/移动/删除），这些人还没有文件。
-  if (tree.cast && tree.cast.length > 0) {
+  if (tree.cast.length > 0) {
     el.projectBody.appendChild(
       buildGroup('cast', '出场人物 · 未建卡', `${tree.cast.length} 人`, {
         extraItems: () => [
@@ -158,9 +160,8 @@ function buildProjectPage(tree: ProjectTree): void {
 
   // 设定名录（第九节攒出来的）：已建条目是按目录（= 分类）分组的树，每行带出现章与待整合；
   // 标题旁一个筛选框，几百条时不用一层层翻目录。
-  const unfiledAll = tree.loreUnfiled ?? [];
-  // 旧后端推来的树没有 loreThin：可选链是有意的，那时就是没有这一组。
-  const thinAll = tree.loreThin ?? [];
+  const unfiledAll = tree.loreUnfiled;
+  const thinAll = tree.loreThin;
   const match = loreMatcher(tree);
   // 没东西可筛就不摆框；正筛着的时候哪怕条目都没了也留着，不然筛选串看不见、也清不掉。
   const showFilter = tree.lore.length > 0 || unfiledAll.length > 0 || thinAll.length > 0 || loreView.filter !== '';
@@ -170,8 +171,8 @@ function buildProjectPage(tree: ProjectTree): void {
       root: tree.loreRoot,
       // 设定名录的三件维护（第三期）。次数都在后端的确认框里报，这里只说有几件待办。
       extraItems: () => {
-        const unrecorded = tree.loreUnrecorded ?? 0;
-        const pending = Object.values(tree.loreByEntry ?? {}).filter((s) => s.pending > 0).length;
+        const unrecorded = tree.loreUnrecorded;
+        const pending = Object.values(tree.loreByEntry).filter((s) => s.pending > 0).length;
         const items = [
           ...(unrecorded > 0
             ? [{ label: `补记设定（${unrecorded} 章定稿过、还没记）`, run: () => projectAction('recordLore') }]
@@ -226,12 +227,12 @@ function buildProjectPage(tree: ProjectTree): void {
   // 设定那棵是文件树（能改名/移动/删除），这些还没有文件。筛选时一个都没匹配上就整组不画。
   const unfiled = filterUnfiled(unfiledAll);
   if (unfiled.length > 0) {
-    const frequent = unfiledAll.filter((u) => u.chapters.length >= 2).length;
+    const frequent = unfiledAll.filter((u) => u.chapters.length >= 1).length;
     el.projectBody.appendChild(
       buildGroup('loreUnfiled', '出现过 · 未建条目', `${unfiledAll.length} 个`, {
         extraItems: () =>
           frequent > 0
-            ? [{ label: `给出现 2 章以上的 ${frequent} 个建条目`, run: () => projectAction('buildLore') }, { sep: true }]
+            ? [{ label: `给全部 ${frequent} 个建条目`, run: () => projectAction('buildLore') }, { sep: true }]
             : [],
         build: () => buildLoreUnfiledRows(unfiled, tree.loreRoot),
       })

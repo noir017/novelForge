@@ -1993,18 +1993,13 @@ describe('工程页数据', () => {
 
   test('给出各区的根目录', () => {
     assert.ok(
-      tree.plotsRoot === '.novelforge/summaries' && tree.chaptersRoot === 'chapters' &&
-        tree.charactersRoot === '.novelforge/characters' && tree.loreRoot === '.novelforge/lore',
-      [tree.plotsRoot, tree.chaptersRoot, tree.charactersRoot, tree.loreRoot].join(' ')
+      tree.charactersRoot === '.novelforge/characters' && tree.loreRoot === '.novelforge/lore',
+      [tree.charactersRoot, tree.loreRoot].join(' ')
     );
   });
 
   // 出场人物：已建卡的挂 castByCard（按 relPath 索引），未建卡的进 cast。
   // 只数定稿过的细纲：第 4 章是计划，不算。
-  test('树上带定稿过的细纲数', () => {
-    assert.equal(tree.summaryCount, 3);
-  });
-
   test('已建卡角色带出场统计', () => {
     assert.ok(!!linStats && linStats.plots.length > 0, JSON.stringify(linStats));
   });
@@ -2049,8 +2044,8 @@ describe('工程页数据', () => {
 
   test('元数据路径都在 .novelforge 下', () => {
     assert.ok(
-      [tree.styleGuidePath, tree.outlinePath, tree.globalSummaryPath].every((p) => p.startsWith('.novelforge/')),
-      [tree.styleGuidePath, tree.outlinePath, tree.globalSummaryPath].join(' ')
+      [tree.styleGuidePath, tree.globalSummaryPath].every((p) => p.startsWith('.novelforge/')),
+      [tree.styleGuidePath, tree.globalSummaryPath].join(' ')
     );
   });
 

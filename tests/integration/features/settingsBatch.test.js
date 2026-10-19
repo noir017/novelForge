@@ -1,5 +1,5 @@
 /**
- * 工程页「补齐设定」：配置 → 前提 → 角色图谱 → 世界观 → 设定清单，只补空白、严格串行（D21）。
+ * 工程页「补齐架构」：配置 → 前提 → 角色图谱 → 世界观 → 设定清单，只补空白、严格串行（D21）。
  *
  * | 用例组 | 钉的是什么 |
  * |---|---|
@@ -136,7 +136,7 @@ after(() => {
   if (t) cleanup(t.dir, bundle?.db);
 });
 
-describe('补齐设定 · 没有一句话', () => {
+describe('补齐架构 · 没有一句话', () => {
   test('配置缺席又没有脑洞可展开：不调模型，说清先做什么', async () => {
     h.expect('开始补齐');
     fake.reset();
@@ -147,7 +147,7 @@ describe('补齐设定 · 没有一句话', () => {
   });
 });
 
-describe('补齐设定', () => {
+describe('补齐架构', () => {
   let confirm;
   let calls;
   let returned;
@@ -240,7 +240,7 @@ describe('补齐设定', () => {
   });
 });
 
-describe('补齐设定 · 一件失败就停', () => {
+describe('补齐架构 · 一件失败就停', () => {
   let calls;
   let failures;
 
@@ -271,7 +271,7 @@ describe('补齐设定 · 一件失败就停', () => {
   });
 });
 
-describe('补齐设定 · 已经写了正文', () => {
+describe('补齐架构 · 已经写了正文', () => {
   let w;
   let n;
   let configCall;

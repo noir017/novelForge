@@ -76,16 +76,12 @@ export interface ProjectTree {
   loreThin: LoreThinEntry[];
   /** 定稿过、但还没记过设定（细纲没有第九节）的章数。 */
   loreUnrecorded: number;
-  summaryCount: number;
   failures: Record<string, FailureView[]>;
   castConflicts: CastConflictView[];
-  plotsRoot: string;
-  chaptersRoot: string;
   charactersRoot: string;
   loreRoot: string;
   globalSummaryThrough: number;
   styleGuidePath: string;
-  outlinePath: string;
   globalSummaryPath: string;
   /** 叙事线（七期）。可选的文件：`threads.exists` 为 false 时还没排过。 */
   threadsPath: string;
@@ -256,7 +252,13 @@ export interface WorkbenchSection {
 
 export interface WorkbenchView {
   stage: CreationStage;
+  /** 浮窗标题（「正文 · 第 4 章《空匣》」「架构 · 故事前提」）。 */
   title: string;
+  /**
+   * 这一层叫什么（「正文」「细纲」「故事前提」「情节大纲」「设定条目」）。流水线条上的入口只写它——
+   * 章名、文档名已经在上面那行面包屑上，入口再写一遍就是同一句话说两次。
+   */
+  layer: string;
   relPath: string;
   sections: WorkbenchSection[];
   warning?: string;

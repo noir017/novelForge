@@ -60,8 +60,6 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   const outlinePath = project.relPath(project.outlinePath);
   const globalSummaryPath = project.relPath(project.globalSummaryPath);
   const threadsPath = project.relPath(project.threadsPath);
-  const plotsRoot = project.relPath(project.plotsDir);
-  const chaptersRoot = project.relPath(project.chaptersDir);
   const charactersRoot = project.relPath(project.charactersDir);
   const loreRoot = project.relPath(project.loreDir);
 
@@ -87,14 +85,10 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       loreUnrecorded: 0,
       castConflicts: [],
       failures: {},
-      summaryCount: 0,
-      plotsRoot,
-      chaptersRoot,
       charactersRoot,
       loreRoot,
       globalSummaryThrough: 0,
       styleGuidePath,
-      outlinePath,
       globalSummaryPath,
       threadsPath,
       threads: { exists: false, total: 0, open: 0, closed: 0, overdue: 0 },
@@ -281,14 +275,10 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     loreUnrecorded: loreIndex.unrecorded.length,
     castConflicts,
     failures,
-    summaryCount: castIndex.summaryCount,
-    plotsRoot,
-    chaptersRoot,
     charactersRoot,
     loreRoot,
     globalSummaryThrough: manifest.globalSummaryThrough ?? 0,
     styleGuidePath,
-    outlinePath,
     globalSummaryPath,
     threadsPath,
     // 「写到第几章」以下一可写章 − 1 算，与主按钮同一个口径。空文件当没有。

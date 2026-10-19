@@ -98,7 +98,11 @@ export type InMessage =
   | { type: 'deleteSession'; id: string }
   | { type: 'renameSession'; id: string }
   | { type: 'pickAttachment' }
-  | { type: 'addSelection' }
+  /**
+   * 「加入选区」。有内置编辑器的页面（独立版）在那里选着字时，前端直接把选区带上来（`selection`，路径是工作区相对路径、
+   * 行号 1-based 闭区间）——宿主取不到网页里的选区。不带就交给宿主：插件读 VS Code 编辑器的选区，独立版弹粘贴框。
+   */
+  | { type: 'addSelection'; selection?: { relPath: string; text: string; start: number; end: number } }
   | { type: 'openFile'; path: string }
   /** `preview` / `replace` 见 {@link EditorOpenIntent}：后端原样带回 `editorOpen`。 */
   | { type: 'openEditor'; path: string; pane?: EditorPane; preview?: boolean; replace?: string }
@@ -189,7 +193,6 @@ export type InMessage =
   | { type: 'bookReplace'; requestId: string; request: BookReplaceRequest }
   | { type: 'listDir'; dirs: string[]; ephemeral?: boolean }
   | { type: 'openExternal'; path: string }
-  | { type: 'syncSummaries' }
   | { type: 'requestSummary'; plotRelPath: string }
   /**
    * 「转到…」（独立版 Ctrl+P）打开时要一份索引：章节、角色卡、设定、架构几件与大纲 / 文风 / 叙事线 /
@@ -320,7 +323,7 @@ export type ProjectAction =
    * 定稿章。动手前后端报调用次数。
    */
   | 'recordLore'
-  /** 给「出现过 · 未建条目」建条目：给了 `name` 就建那一条，没给就建出现 ≥2 章的全部。 */
+  /** 给「出现过 · 未建条目」建条目：给了 `name` 就建那一条，没给就建出现过的全部。 */
   | 'buildLore'
   /** 把定稿里的新内容并进条目：给了 `relPath`（条目）就整合那一条，没给就是挂 ＋N 的全部。 */
   | 'integrateLore'

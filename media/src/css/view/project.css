@@ -18,6 +18,14 @@
   flex: 1;
 }
 
+/* 批量动作（要调模型）与新建（不调模型）之间的一道竖线：同一种按钮，两种分量。 */
+.project-toolbar .toolbar-sep {
+  align-self: stretch;
+  width: 1px;
+  margin: 3px 3px;
+  background: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+
 .project-body {
   flex: 1;
   min-height: 0;
@@ -191,17 +199,15 @@
   white-space: nowrap;
 }
 
-/* 未建条目点名字不做事（新建在右键里），「待完善」里还没有条目的那几行同样（展开在右键里），
-   筛选中被强制展开的文件夹点了也不折叠——都别给一个可点的样子。 */
-.row-lore-unfiled .row-label,
-.row-lore-thin.row-cast .row-label,
+/* 还没有文件的那几种行（`.row-cast`：未建卡的人物、未建条目、「待完善」里还没有条目的）点名字不做事
+   （建卡、建条目、展开都在右键里），筛选中被强制展开的文件夹点了也不折叠——都别给一个可点的样子。 */
+.row-cast .row-label,
 .row-dir-forced > .caret,
 .row-dir-forced .row-label {
   cursor: default;
 }
 
-.row-lore-unfiled .row-label:hover,
-.row-lore-thin.row-cast .row-label:hover,
+.row-cast .row-label:hover,
 .row-dir-forced .row-label:hover {
   text-decoration: none;
 }
@@ -247,7 +253,7 @@
  * 章节行上的流水线徽章：这一章现在该做哪一步。
  *
  * 做得很小很淡——它是全书扫一眼时的定位标记，不该跟剧情名抢注意力。
- * 只有「已完成」给了颜色，因为那是唯一一个「不用再管了」的状态。
+ * 已完成的章不挂徽章（rows.ts），只有「待定稿」另给了颜色。
  */
 .row-stage {
   flex: 0 0 auto;
@@ -259,15 +265,9 @@
   white-space: nowrap;
 }
 
-.row-stage.stage-done {
-  color: var(--vscode-charts-green, #89d185);
-  border-color: currentColor;
-  opacity: 0.75;
-}
-
 /*
- * 待定稿：正文写够了，等作者点一下定稿（生成摘要）。用醒目一点的颜色——
- * 它是流水线上最容易被忘掉的一步，而后面几百章都靠那份摘要记住这一章。
+ * 待定稿：正文写够了，等作者点一下定稿（照正文更新细纲）。用醒目一点的颜色——
+ * 它是流水线上最容易被忘掉的一步，而后面几百章都靠定稿过的细纲记住这一章。
  */
 .row-stage.stage-finalize {
   color: var(--vscode-charts-blue, #4daafc);
@@ -297,14 +297,14 @@
 }
 
 /*
- * 「故事架构」那五行。**复用章节行的全套样式**（同样的 .row-plot / .row-label），
+ * 「故事架构」那六行。**复用章节行的全套样式**（同样的 .row-plot / .row-label），
  * 这里只把名字加粗一点——它们是后面一切的上游，扫一眼要先看见。
  */
 .row-architecture .row-label {
   font-weight: 600;
 }
 
-/* 摘要里出现、还没建卡的人物：整行压暗，与真正的角色卡区分开。 */
+/* 定稿过的细纲里出现、还没建卡的人物：整行压暗，与真正的角色卡区分开。 */
 .row-cast .row-label {
   color: var(--vscode-descriptionForeground);
 }
@@ -314,7 +314,7 @@
 }
 
 /* 行内操作平时藏起来，免得每行都挂一串链接。
-   工程页的树行已经全部改走右键菜单，这里只剩「文风与摘要」那几行的链接。 */
+   工程页的树行已经全部改走右键菜单，这里只剩「文风与摘要」那三行的链接。 */
 .row-actions {
   display: flex;
   gap: 5px;
@@ -325,12 +325,6 @@
 .row:hover .row-actions,
 .row-actions:focus-within {
   opacity: 1;
-}
-
-.row-tools {
-  padding-left: 16px;
-  gap: 10px;
-  flex-wrap: wrap;
 }
 
 .row-empty {

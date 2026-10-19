@@ -1,6 +1,6 @@
 ---
 name: novelforge-autopilot
-description: 操作一个已经跑起来的 Novel Forge 独立版服务（Bun，127.0.0.1 上的 /ws），从一句话把一本小说从头生成到全部定稿：小说配置 → 补齐设定 → 情节大纲 → 批量拆细纲 → 批量写章（写完即定稿）。用户说「通过本项目创建一本 xx 小说」「从头生成一本书」「把这个工程写完」「接着把剩下的章写完」时用它。只操作、不审内容。
+description: 操作一个已经跑起来的 Novel Forge 独立版服务（Bun，127.0.0.1 上的 /ws），从一句话把一本小说从头生成到全部定稿：小说配置 → 补齐架构 → 情节大纲 → 批量拆细纲 → 批量写章（写完即定稿）。用户说「通过本项目创建一本 xx 小说」「从头生成一本书」「把这个工程写完」「接着把剩下的章写完」时用它。只操作、不审内容。
 ---
 
 # Novel Forge 自动驾驶
@@ -42,7 +42,7 @@ description: 操作一个已经跑起来的 Novel Forge 独立版服务（Bun，
 ```sh
 NF="python <skill>/scripts/nf.py --state $STATE --model newapi/gemini-3-flash-lite"
 $NF idea "一句话脑洞……" --chapters 100 --words 3000   # 小说配置（对话页单步 + 写入卡片）
-$NF settings                                        # 工程页「补齐设定」：前提 / 角色图谱 / 世界观
+$NF settings                                        # 工程页「补齐架构」：前提 / 角色图谱 / 世界观
 $NF outline                                         # 情节大纲，每段 20 章，续写到覆盖全书
 $NF plots                                           # 工程页「批量拆细纲」第 1–N 章
 $NF write                                           # 批量写章（写完即定稿），一直跑到全书写完
@@ -56,7 +56,7 @@ $NF write                                           # 批量写章（写完即�
 | 阶段 | 发的消息 | 落盘前要答什么 |
 |---|---|---|
 | 小说配置 | `send`，payload 为 `stage:'setting'`、`target:{kind:'setting',doc:'config'}`、`setup:{totalChapters,wordsPerChapter}` | 一张 `gate`（`name:'artifact'`），答 `gateResult proceed` |
-| 补齐设定 | `projectAction completeSettings` | 一个 `prompt kind:'confirm'`，答 `promptResult value:'yes'` |
+| 补齐架构 | `projectAction completeSettings` | 一个 `prompt kind:'confirm'`，答 `promptResult value:'yes'` |
 | 情节大纲 | `send`，payload 为 `stage:'outline'`、`target:{kind:'outline'}`、`range:{from,to}` | `gate` |
 | 拆细纲 | `projectAction generatePlots`，带 `range`、`confirmed:true` | 无（`confirmed` 表示调用次数已经报过） |
 | 批量写章 | `projectAction writeManuscripts`，带 `range`、`confirmed:true`、`mode:'finalize'`、`review:false` | 可能有一致性预检的 `confirm` |

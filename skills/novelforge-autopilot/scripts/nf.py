@@ -8,7 +8,7 @@
   python nf.py answer [proceed|skip]          # 回答全部未决的弹窗 / 权限卡片
   python nf.py next                           # 按一下主按钮（发 pipeline.next 那一步）
   python nf.py idea "一句话" [--chapters 100] [--words 3000]
-  python nf.py settings                       # 工程页「补齐设定」：前提 / 角色图谱 / 世界观
+  python nf.py settings                       # 工程页「补齐架构」：前提 / 角色图谱 / 世界观
   python nf.py outline                        # 情节大纲一段段续写，直到覆盖全书
   python nf.py plots [--from 1] [--to N]      # 工程页「批量拆细纲」
   python nf.py write [--to N] [--review]      # 批量写章（写完即定稿），停了就补、接着下一批
@@ -283,7 +283,7 @@ def cmd_settings(a):
     send({'type': 'projectAction', 'action': 'completeSettings'})
     time.sleep(5)
     wait_tasks()
-    say('补齐设定完成；角色卡：', os.listdir(nf('characters')))
+    say('补齐架构完成；角色卡：', os.listdir(nf('characters')))
 
 
 def cmd_outline(a):

@@ -2,6 +2,7 @@ import { PickChoice } from '../host';
 import { NovelProject } from '../model/project';
 import { loreBrief } from '../model/loreFile';
 import { Attachment, AttachmentKind } from '../model/session';
+import { normalizeRel } from '../workspace/kind';
 
 /**
  * 构建 @ 引用的候选列表；展示与选择交给 Host.pick。
@@ -78,4 +79,25 @@ export async function listAttachmentChoices(project: NovelProject): Promise<Pick
 
 function fileAttachment(kind: AttachmentKind, label: string, relPath: string): Attachment {
   return { id: `${kind}:${relPath}`, kind, label, relPath };
+}
+
+/**
+ * 对话页从内置编辑器（独立版）带上来的一处选区 → 附件。存快照：选的时候是那个样子，之后文件改了
+ * 不该让历史对话跟着变。id 与名字和插件壳读 VS Code 选区的那一份（shells/vscode/attachments.ts）一个样：
+ * 同一处选区重复添加时 id 相同，前端去重。路径越界（绝对路径、`..`）就只留文字，不留一个点不开的路径。
+ */
+export function selectionAttachmentOf(relPath: string, text: string, range: { start: number; end: number }): Attachment {
+  const rel = normalizeRel(relPath);
+  if (!rel) {
+    return { id: `sel:${Date.now().toString(36)}`, kind: 'selection', label: '选区', text };
+  }
+  const name = rel.slice(rel.lastIndexOf('/') + 1);
+  return {
+    id: `sel:${rel}:${range.start}-${range.end}`,
+    kind: 'selection',
+    label: `${name}:${range.start}-${range.end}`,
+    relPath: rel,
+    range: { start: range.start, end: range.end },
+    text,
+  };
 }
