@@ -47,6 +47,7 @@ import { CHARACTER_SECTION_KEYS, CharacterSections } from '../model/types';
 import { CreationAction, CreationTarget, SettingDoc } from '../model/pipeline';
 import { BlueprintItem, decodeBlueprints, keyEventList } from './blueprint';
 import { LoreDraft, parseLoreExpansion } from './loreExpand';
+import { parseLoreSettle } from './loreSettle';
 import { LoreListEntry, parseLoreList } from './loreList';
 import { STYLE_DRAFT_HEADING, decodeNovelConfig } from './novelConfig';
 import { extractJsonObject, stripCodeFence } from './parse';
@@ -98,8 +99,11 @@ export type Artifact =
   /**
    * 一批要落盘的设定条目（完善设定，2026-10-19）。展开一条设定时第一项是目标条目（按 `relPath` 认），
    * 其余是建议拆出来的子条目（建空条目）。`questions` 是还没定、要作者拍板的问题：**只上卡片，不落盘**。
+   *
+   * `settle`：落定设定（二期）交来的一批——新建的与改已有的（带 `relPath`）都在里面，没有「目标条目」与子条目之分，
+   * 落盘走另一条路（generation/loreSettle.ts）。
    */
-  | { kind: 'loreEntries'; entries: LoreDraft[]; questions: string[] }
+  | { kind: 'loreEntries'; entries: LoreDraft[]; questions: string[]; settle?: boolean }
   /** `range` 给了就只替换大纲里与它重叠的那几节（model/outlineFile.ts 的 `mergeOutline`）。 */
   | { kind: 'outlineDoc'; text: string; range?: ChapterRange }
   | ({ kind: 'plot' } & PlotFields)
@@ -118,7 +122,8 @@ export interface ChapterRange {
  * 实在认不出就退回一个「全文塞进主字段」的产物，让他至少能手工取用。
  *
  * 架构层要看 target 才分得清是哪一件（五件同属一个阶段）；其余阶段只看 action。单条设定（展开）也在架构层，
- * 按目标认，**不做全文兜底**：解析不了就是空的，没有落盘卡片（{@link parseLoreExpansion}）。
+ * 按目标认，**不做全文兜底**：解析不了就是空的，没有落盘卡片（{@link parseLoreExpansion}）。落定设定（二期）
+ * 按能力认、排在设定清单（`doc === 'lore'`）之前——两者目标相同，同样不做全文兜底（{@link parseLoreSettle}）。
  *
  * `range` 只对两层有意义：大纲（续写的那一段，落盘时按区间合并）与细纲（**给了区间
  * 就是一批**，按批次合同严格解码，不做全文兜底——见 {@link parsePlotStrict} 为什么）。
@@ -142,6 +147,9 @@ export function parseArtifact(
       }
       return { kind: 'plot', ...(parsePlotStrict(text) ?? { sections: { ...emptyPlotSections(), 关键事件: text } }) };
     case 'setting': {
+      if (action.capability === 'settle') {
+        return { kind: 'loreEntries', settle: true, ...parseLoreSettle(text) };
+      }
       if (target?.kind === 'lore') {
         return { kind: 'loreEntries', ...parseLoreExpansion(text, target.relPath) };
       }
@@ -209,11 +217,17 @@ export function describeArtifact(artifact: Artifact): string {
 /** 写成「（未交代）」的节不算展开了。 */
 const UNTOLD = /^[（(]\s*未交代\s*[)）]$/u;
 
-/** 「设定 · 天机阁 · 展开 3/3 节 + 暗设 · 拆出 2 条 · 还没定的 3 问」。 */
+/**
+ * 「设定 · 天机阁 · 展开 3/3 节 + 暗设 · 拆出 2 条 · 还没定的 3 问」；落定设定是「落定设定 · 4 条（改已有的 1 条）·
+ * 还没定的 2 问」（改不改已有的按气泡里带没带路径算，落盘时还会按磁盘再认一遍，卡片上那两行以那一遍为准）。
+ */
 function describeLoreEntries(artifact: Extract<Artifact, { kind: 'loreEntries' }>): string {
   const [head, ...rest] = artifact.entries;
   const parts: string[] = [];
-  if (head?.relPath) {
+  if (artifact.settle) {
+    const old = artifact.entries.filter((e) => e.relPath).length;
+    parts.push(`落定设定 · ${artifact.entries.length} 条${old > 0 ? `（改已有的 ${old} 条）` : ''}`);
+  } else if (head?.relPath) {
     const { visible, hidden } = splitLoreHidden(head.body);
     const filled = pickSections(visible, LORE_BODY_KEYS);
     const n = LORE_BODY_KEYS.filter((k) => hasContent(filled[k]) && !UNTOLD.test(filled[k].trim())).length;
@@ -221,7 +235,7 @@ function describeLoreEntries(artifact: Extract<Artifact, { kind: 'loreEntries' }
   } else {
     parts.push(`设定 · ${artifact.entries.length} 条`);
   }
-  if (head?.relPath && rest.length > 0) {
+  if (!artifact.settle && head?.relPath && rest.length > 0) {
     parts.push(`拆出 ${rest.length} 条`);
   }
   if (artifact.questions.length > 0) {

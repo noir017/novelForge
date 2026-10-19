@@ -60,10 +60,18 @@ describe('pipeline.ts · Stage × Capability', () => {
     });
   }
 
-  // 第 22 条：细纲是唯一一层「先聊、聊出结论再落文件」的东西。
-  test('只有细纲层能落定', () => {
+  // 第 22 条：细纲是「先聊、聊出结论再落文件」的东西；完善设定二期起，架构那一层的设定目录也能落定（落定设定）。
+  test('能落定的是细纲与设定目录，别的架构文档不开', () => {
     const withSettle = pipeline.CREATION_STAGES.filter((s) => pipeline.STAGE_CAPABILITIES[s].includes('settle'));
-    assert.deepEqual(withSettle, ['plot']);
+    assert.deepEqual(withSettle, ['setting', 'plot']);
+    const on = (target) => pipeline.capabilitiesOn('setting', target);
+    assert.deepEqual(on({ kind: 'setting', doc: 'lore' }), ['discuss', 'generate', 'settle']);
+    for (const doc of ['config', 'premise', 'characters', 'world']) {
+      assert.deepEqual(on({ kind: 'setting', doc }), ['discuss', 'generate'], doc);
+    }
+    assert.deepEqual(on({ kind: 'lore', relPath: '.novelforge/lore/a.md' }), ['discuss', 'generate']);
+    assert.deepEqual(on(undefined), ['discuss', 'generate']);
+    assert.deepEqual(pipeline.capabilitiesOn('plot', { kind: 'plot', plotRelPath: 'x' }), ['discuss', 'settle', 'generate']);
   });
 
   test('默认能力一律是讨论（不偷偷烧 token）', () => {
@@ -84,9 +92,43 @@ describe('pipeline.ts · Stage × Capability', () => {
       assert.ok(cmds.length > 0, s);
       assert.ok(cmds.every((c) => c.capability !== 'discuss'), s);
     }
-    assert.deepEqual(pipeline.commandsFor('plot').map((c) => c.label), ['落定细纲', '写细纲']);
-    assert.deepEqual(pipeline.commandsFor('manuscript').map((c) => c.label), ['写正文', '审稿']);
+    assert.deepEqual(pipeline.commandsFor('plot').map((c) => c.label), ['落定细纲', '写细纲', '落定设定']);
+    assert.deepEqual(pipeline.commandsFor('manuscript').map((c) => c.label), ['写正文', '审稿', '落定设定']);
     assert.ok(pipeline.commandOf('manuscript', 'review').keys.includes('sg'));
+  });
+
+  // 完善设定二期：聊细纲、聊正文时定下的设定当场就能落，不必先切到设定目录。
+  test('/落定设定 每一层都有：带着自己的阶段与目标，挂在末尾', () => {
+    for (const s of pipeline.CREATION_STAGES) {
+      const last = pipeline.commandsFor(s).at(-1);
+      assert.equal(last.label, '落定设定', s);
+      assert.equal(last.capability, 'settle');
+      assert.equal(last.stage, 'setting');
+      assert.deepEqual(last.target, { kind: 'setting', doc: 'lore' });
+      assert.ok(last.keys.includes('ldsd') && last.keys.includes('ld'), last.keys.join(','));
+      assert.ok(last.hint.includes('预计 1 次调用，最多 2 次'), last.hint);
+    }
+  });
+
+  test('目标就是设定目录时它是这一层自己的 settle，不重复挂', () => {
+    const cmds = pipeline.commandsFor('setting', { kind: 'setting', doc: 'lore' });
+    assert.deepEqual(cmds.map((c) => c.label), ['生成这份架构文档', '落定设定']);
+    assert.equal(cmds[1].stage, undefined);
+    assert.equal(pipeline.commandOf('setting', 'settle', { kind: 'setting', doc: 'lore' }).label, '落定设定');
+  });
+
+  // 别的层挂过来的那一条只在 setting 认：细纲层问 settle 得到的是落定细纲，正文层问 settle 什么都没有。
+  test('commandOf 只认这一层自己的', () => {
+    assert.equal(pipeline.commandOf('plot', 'settle').label, '落定细纲');
+    assert.equal(pipeline.commandOf('manuscript', 'settle'), undefined);
+    assert.equal(pipeline.commandOf('setting', 'settle', { kind: 'setting', doc: 'config' }), undefined);
+  });
+
+  test('isLoreSettle：架构那一层的 settle', () => {
+    assert.equal(pipeline.isLoreSettle({ stage: 'setting', capability: 'settle' }), true);
+    assert.equal(pipeline.isLoreSettle({ stage: 'plot', capability: 'settle' }), false);
+    assert.equal(pipeline.isLoreSettle({ stage: 'setting', capability: 'generate' }), false);
+    assert.equal(pipeline.labelOf('setting', 'settle', { kind: 'setting', doc: 'lore' }), '落定设定');
   });
 
   // 审稿报告不是可以落盘的产物：按「不是讨论就是产物」判断的地方会把它写进章节。

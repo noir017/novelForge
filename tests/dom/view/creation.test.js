@@ -757,10 +757,10 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
     assert.ok(ui.doc.querySelector('#composerInput .cmd-panel'));
   });
 
-  // 讨论不进面板（打字就是在讨论）。细纲层有 `/落定细纲` 与 `/写细纲` 两条——
-  // 细纲是唯一一层「先跟人聊、聊出结论再落文件」的东西，所以只有它有 settle。
-  test('细纲层两个命令', () => {
-    assert.equal(items().length, 2, items().join('|'));
+  // 讨论不进面板（打字就是在讨论）。细纲层有 `/落定细纲` 与 `/写细纲` 两条——细纲是「先跟人聊、聊出结论
+  // 再落文件」的东西；末尾再挂一条哪一层都有的 `/落定设定`（完善设定二期：聊定了的设定当场落成条目）。
+  test('细纲层三个命令：两条自己的，加上哪一层都有的落定设定', () => {
+    assert.deepEqual(items(), ['/落定细纲', '/写细纲', '/落定设定']);
   });
 
   test('面板里没有讨论', () => {
@@ -784,18 +784,17 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   // 面板里剩下的每一条都会写文件（讨论不是命令），每条都标出来。
   test('每条命令都标记写文件', () => {
     const writes = [...ui.doc.querySelectorAll('.cmd-item')].filter((n) => n.classList.contains('cmd-writes'));
-    assert.equal(writes.length, 2, String(writes.length));
+    assert.equal(writes.length, 3, String(writes.length));
   });
 
   test('每条命令都挂「写文件」标签', () => {
-    assert.equal(ui.doc.querySelectorAll('.cmd-item .cmd-tag').length, 2);
+    assert.equal(ui.doc.querySelectorAll('.cmd-item .cmd-tag').length, 3);
   });
 
-  // 键入过滤：ascii 别名与中文标签都认。
+  // 键入过滤：ascii 别名与中文标签都认。`ld` 是「落定」，两条落定都在；`ldsd` 只剩落定设定。
   test('按拼音首字母过滤', () => {
     type('ld');
-    assert.equal(items().length, 1, items().join('|'));
-    assert.equal(items()[0], '/落定细纲', items().join('|'));
+    assert.deepEqual(items(), ['/落定细纲', '/落定设定']);
   });
 
   test('过滤串跟着输入框走', () => {
@@ -805,7 +804,7 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   test('退格恢复全部', () => {
     backspace();
     backspace();
-    assert.equal(items().length, 2, items().join('|'));
+    assert.equal(items().length, 3, items().join('|'));
   });
 
   // 退到 `/` 之前就不是在下命令了，面板该收。
@@ -860,6 +859,23 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
 
   test('发完清掉 chip', () => {
     assert.ok(ui.doc.getElementById('pendingCmd').classList.contains('hidden'));
+    ui.post({ type: 'busy', value: false });
+  });
+
+  // `/落定设定` 带着自己的阶段与目标：发出去的是架构那一层、设定目录上的 settle，不是这一章的落定细纲；
+  // 回到哪一章由后端管（会话那份目标没动）。
+  test('挑落定设定：发的是设定目录上的 settle', () => {
+    setValue('');
+    type('/ldsd');
+    assert.deepEqual(items(), ['/落定设定']);
+    key('Enter');
+    assert.ok(ui.doc.querySelector('#pendingCmd .cmd-chip').textContent.includes('落定设定'));
+    ui.clickEl(ui.doc.getElementById('sendBtn'));
+    const sent = [...ui.sent].reverse().find((m) => m.type === 'send');
+    assert.equal(sent.payload.stage, 'setting', JSON.stringify(sent.payload));
+    assert.equal(sent.payload.capability, 'settle');
+    // 跨 realm（jsdom 那边的对象），按 JSON 比。
+    assert.equal(JSON.stringify(sent.payload.target), JSON.stringify({ kind: 'setting', doc: 'lore' }));
     ui.post({ type: 'busy', value: false });
   });
 
@@ -921,7 +937,7 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
       session: emptySession({ target: { kind: 'setting', doc: 'config' }, stage: 'setting', capability: 'discuss' }),
     });
     type('/');
-    assert.deepEqual(items(), ['/生成这份架构文档']);
+    assert.deepEqual(items(), ['/生成这份架构文档', '/落定设定']);
     key('Escape');
     setValue('');
   });

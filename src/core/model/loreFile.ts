@@ -64,6 +64,14 @@ export const LORE_EXPAND_LIMITS = {
 } as const;
 
 /**
+ * 落定设定（完善设定二期）一次最多写几条。讨论里定下的东西再多，一次也只落这么多——多出来的丢掉、写进说明，
+ * 下一轮接着落。关键词与问题的上限同 {@link LORE_EXPAND_LIMITS}，条目字数同 {@link LORE_ENTRY_LIMITS}（第 27 条）。
+ */
+export const LORE_SETTLE_LIMITS = {
+  entries: 12,
+} as const;
+
+/**
  * 可选的第四节：读者还不知道的真相（完善设定，2026-10-19）。规划时（设定 / 大纲 / 细纲）带，
  * 写正文时不带——揭开靠那一章的细纲。以它开头的二级标题都认（`## 暗设`、`## 暗设（未揭示）`）。
  */

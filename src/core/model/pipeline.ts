@@ -158,7 +158,8 @@ export function isCapability(value: unknown): value is Capability {
  * 用它是对的；界面上有阶段做上下文，说得具体些更好懂。
  */
 const CAPABILITY_LABEL_IN: Partial<Record<CreationStage, Partial<Record<Capability, string>>>> = {
-  setting: { generate: '生成这份架构文档' },
+  // 架构那一层的 `settle` 只在设定目录上有（{@link capabilitiesOn}），所以就叫「落定设定」。
+  setting: { generate: '生成这份架构文档', settle: '落定设定' },
   outline: { generate: '生成情节大纲' },
   plot: { generate: '写细纲', settle: '落定细纲' },
   manuscript: { generate: '写正文' },
@@ -184,15 +185,44 @@ export function labelOf(stage: CreationStage, capability: Capability, target?: C
 /**
  * 每个阶段合法的能力。**前端的命令面板经 `commandsFor` 读它**，不在前端另写一份。
  *
- * **只有 `plot` 有 `settle`**：细纲是唯一一层「先跟人聊、聊出结论再落文件」的
- * 东西（第 22 条）。架构与大纲通常一次成型，正文是从细纲展开而不是从对话展开。
+ * `settle` 只有两处（第 22 条）：细纲（「先跟人聊、聊出结论再落文件」），与架构那一层的**设定目录**
+ * （落定设定，完善设定二期：把讨论里定下来的设定写成一批条目）。架构其余几件与大纲通常一次成型，
+ * 正文是从细纲展开而不是从对话展开。设定目录之外的架构文档不开 `settle`——按目标再筛一道在
+ * {@link capabilitiesOn}，这张表只按阶段。
  */
 export const STAGE_CAPABILITIES: Record<CreationStage, Capability[]> = {
-  setting: ['discuss', 'generate'],
+  setting: ['discuss', 'generate', 'settle'],
   outline: ['discuss', 'generate'],
   plot: ['discuss', 'settle', 'generate'],
   manuscript: ['discuss', 'generate', 'review'],
 };
+
+/**
+ * 落定设定（完善设定二期）的目标：设定目录本身。它在任何阶段都能下（{@link commandsFor} 在每一层的命令面板
+ * 末尾挂一条 `/落定设定`），这一轮临时把目标换成这里，落完回到原来的目标（controller/chat.ts）。
+ *
+ * 与设定清单是同一个目标，能力不同：清单是 `generate`（整批排一份），落定是 `settle`（照讨论写一批）。
+ */
+export const LORE_SETTLE_TARGET: CreationTarget = { kind: 'setting', doc: 'lore' };
+
+/** 这一个动作是不是落定设定：架构那一层的 `settle` 只开在设定目录上，所以只看动作就认得出。 */
+export function isLoreSettle(action: { stage: CreationStage; capability: Capability }): boolean {
+  return action.stage === 'setting' && action.capability === 'settle';
+}
+
+/** 目标是不是设定目录（设定清单 / 落定设定落在这里）。 */
+function isLoreDir(target?: CreationTarget): boolean {
+  return target?.kind === 'setting' && target.doc === 'lore';
+}
+
+/**
+ * 这一层、这个目标上能用的能力：{@link STAGE_CAPABILITIES} 再按目标筛一道——架构那一层只有设定目录有 `settle`
+ * （小说配置、前提、角色图谱、世界观、单条设定都不开）。不给目标就当不是设定目录。
+ */
+export function capabilitiesOn(stage: CreationStage, target?: CreationTarget): Capability[] {
+  const all = STAGE_CAPABILITIES[stage] ?? [];
+  return stage === 'setting' && !isLoreDir(target) ? all.filter((c) => c !== 'settle') : all;
+}
 
 /**
  * 切到某阶段时默认高亮哪个能力。
@@ -290,6 +320,12 @@ export interface StageCommand {
   hint: string;
   /** `/` 面板的过滤键。中文标签之外再给 ascii 别名，免得为了打一个命令切输入法。 */
   keys: string[];
+  /**
+   * 这条命令不在当前这一层下：发送时阶段与目标换成这两个（`/落定设定`，任何一层的面板里都有）。
+   * 缺席就是当前这一层、当前的目标。
+   */
+  stage?: CreationStage;
+  target?: CreationTarget;
 }
 
 /** 各能力的 ascii 别名。全拼 + 拼音首字母，两种都认。 */
@@ -303,6 +339,9 @@ const CAPABILITY_KEYS: Record<Capability, string[]> = {
 /** 单条设定上「展开」多认两个别名（`/展开` 的全拼与首字母）。 */
 const CAPABILITY_KEYS_ON_LORE: Partial<Record<Capability, string[]>> = { generate: ['expand', 'zk'] };
 
+/** `/落定设定` 多认两个别名：首字母 `ldsd`，以及 `lore`（与 `/ld` 一起打时和落定细纲分得开）。 */
+const LORE_SETTLE_KEYS = ['ldsd', 'lore'];
+
 /**
  * 这个阶段能下哪些命令。顺序即面板里的顺序。
  *
@@ -311,18 +350,41 @@ const CAPABILITY_KEYS_ON_LORE: Partial<Record<Capability, string[]>> = { generat
  * 审稿只出报告），这正是它们值得显式挑一下的原因。也因此命令都**不要求输入**：输入是可选的
  * 补充要求；`settle` 尤其不能要求输入——它要沉淀的是已经发生过的对话。
  *
- * `target` 给了且是单条设定时，「生成」换成「展开这条设定」（`/展开`）；可用的能力仍按阶段算。
+ * `target` 给了且是单条设定时，「生成」换成「展开这条设定」（`/展开`）；可用的能力按阶段与目标算
+ * （{@link capabilitiesOn}）。
+ *
+ * **`/落定设定` 每一层都有**（完善设定二期）：讨论细纲、正文时聊定了的设定，当场就能落成条目，不必先切到
+ * 设定目录。它挂在末尾，带着自己的阶段与目标（{@link LORE_SETTLE_TARGET}）；目标本来就是设定目录时它就是
+ * 这一层自己的 `settle`，不重复挂。
  */
 export function commandsFor(stage: CreationStage, target?: CreationTarget): StageCommand[] {
   const onLore = target?.kind === 'lore';
-  return (STAGE_CAPABILITIES[stage] ?? [])
+  const own = capabilitiesOn(stage, target)
     .filter((capability) => capability !== 'discuss')
     .map((capability) => ({
       capability,
       label: labelOf(stage, capability, target),
       hint: hintOf(stage, capability, target),
-      keys: [...CAPABILITY_KEYS[capability], ...((onLore && CAPABILITY_KEYS_ON_LORE[capability]) || [])],
+      keys: [
+        ...CAPABILITY_KEYS[capability],
+        ...((onLore && CAPABILITY_KEYS_ON_LORE[capability]) || []),
+        ...(isLoreSettle({ stage, capability }) ? LORE_SETTLE_KEYS : []),
+      ],
     }));
+  if (own.some((c) => isLoreSettle({ stage, capability: c.capability }))) {
+    return own;
+  }
+  return [
+    ...own,
+    {
+      capability: 'settle',
+      label: labelOf('setting', 'settle', LORE_SETTLE_TARGET),
+      hint: hintOf('setting', 'settle', LORE_SETTLE_TARGET),
+      keys: [...CAPABILITY_KEYS.settle, ...LORE_SETTLE_KEYS],
+      stage: 'setting',
+      target: LORE_SETTLE_TARGET,
+    },
+  ];
 }
 
 /**
@@ -336,6 +398,12 @@ function hintOf(stage: CreationStage, capability: Capability, target?: CreationT
   if (target?.kind === 'lore' && capability === 'generate') {
     return '照已排细纲里要用到它的地方把这一条往前想细（含暗设），附几条还没定的问题；定稿里写过的不推翻，可采纳写入';
   }
+  if (isLoreSettle({ stage, capability })) {
+    return (
+      '把刚才讨论里已经定下来的设定写成一批条目（新建的、改已有的都在里面），还没定的列在卡片上；' +
+      `已有的条目写入前逐条对比。${describeCalls(LORE_SETTLE_CALLS)}`
+    );
+  }
   if (stage === 'plot') {
     if (capability === 'settle') {
       return '把刚才讨论出的走向整理成这一章的细纲，以讨论里的结论为准';
@@ -347,9 +415,14 @@ function hintOf(stage: CreationStage, capability: Capability, target?: CreationT
   return CAPABILITY_HINT[capability];
 }
 
-/** 某阶段的某个能力对应的命令；不支持时 undefined。`target` 同 {@link commandsFor}。 */
+/**
+ * 某阶段的某个能力对应的命令；不支持时 undefined。`target` 同 {@link commandsFor}。
+ *
+ * 只认**这一层、这个目标自己的**：别的层挂过来的 `/落定设定` 发送时阶段与目标已经换成设定目录，在那里它就是
+ * 那一层自己的 `settle`；在细纲层问 `settle` 得到的是落定细纲，在小说配置上问 `settle` 什么都没有。
+ */
 export function commandOf(stage: CreationStage, capability: Capability, target?: CreationTarget): StageCommand | undefined {
-  return commandsFor(stage, target).find((c) => c.capability === capability);
+  return commandsFor(stage, target).find((c) => c.capability === capability && !c.stage);
 }
 
 /**
@@ -886,6 +959,12 @@ export const LORE_EXPAND_CALLS: CallEstimate = {
   max: 2,
   why: 'JSON 语法坏了时修一次，只改标点',
 };
+
+/**
+ * 落定设定（完善设定二期）：1 次；JSON 语法坏了时修一次，只许改标点（generation/structured.ts 的
+ * `completeLoreSettle`），同展开。截断与解析不了都不重来：没有产物、不给写入。命令面板上那一句报的是这一份（第 4 条）。
+ */
+export const LORE_SETTLE_CALLS: CallEstimate = LORE_EXPAND_CALLS;
 
 /** 角色图谱的人数上下限与详情每批几人（上游 `architecture.command.ts:719-721`）。 */
 export const ROSTER_MIN = 3;

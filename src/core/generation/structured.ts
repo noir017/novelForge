@@ -41,7 +41,8 @@ import {
   syntaxRepairMessages,
 } from '../context/prompts';
 import { loreExpandJsonContract } from '../context/loreExpandPrompt';
-import { LORE_LIST_CALLS_MAX, LORE_LIST_DETAIL_BATCH, PLOT_BATCH, ROSTER_DETAIL_BATCH, SettingDoc } from '../model/pipeline';
+import { loreSettleJsonContract } from '../context/loreSettlePrompt';
+import { LORE_LIST_CALLS_MAX, LORE_LIST_DETAIL_BATCH, PLOT_BATCH, ROSTER_DETAIL_BATCH, SettingDoc, isLoreSettle } from '../model/pipeline';
 import { BookConfig } from '../model/settingFile';
 import { hasContent } from '../model/markdown';
 import { OUTLINE_SECTION_MAX, oversizedSections, parseOutlineRanges } from '../model/outlineFile';
@@ -64,6 +65,7 @@ import {
   renderConfigDraft,
 } from '../features/novelConfig';
 import { LoreExpandKnown, decodeLoreExpansion, renderLoreExpansion } from '../features/loreExpand';
+import { LoreSettleKnown, decodeLoreSettle, renderLoreSettle, renderNothingSettled } from '../features/loreSettle';
 import { isRepairableJsonSyntax, preservesJsonEvidence } from '../features/structuredJson';
 
 /** 一次调用的结果。`stop` 缺席 = 网关没报收尾原因（有的兼容实现压根不发）。 */
@@ -448,6 +450,44 @@ export async function completeLoreExpand(first: CallOutcome, io: ChainIO, known:
   return { raw: renderLoreExpansion(decoded.value), notes: t.notes, calls: t.calls };
 }
 
+// ---------------------------------------------------------------- 落定设定
+
+/**
+ * 落定设定（完善设定二期）：1 次；JSON 语法坏了修一次，只许改标点——上限 2 次，与报给作者的 `LORE_SETTLE_CALLS`
+ * 同一个数（第 4 条）。截断与解析不了都不给写入（同展开）。解出来的照程序的规矩过一遍（features/loreSettle.ts：
+ * 截长、人名、重名、按磁盘认出改的是哪一条已有条目），交给气泡的是规范化结果，丢掉了什么写进说明（第 2 条）。
+ *
+ * 讨论里一条都没定下来（`entries` 是空的）不算失败：气泡里换成一段人话，说清没写什么、列出还没定的——没有落盘卡片，
+ * 作者接着聊。
+ */
+export async function completeLoreSettle(first: CallOutcome, io: ChainIO, known: LoreSettleKnown): Promise<ChainResult> {
+  // 显式标注类型：`t.fail()` 返回 never，TS 只对显式标注的变量做控制流收窄。
+  const t: Tally = new Tally(true);
+  if (first.stop === 'maxTokens') {
+    t.fail('落定设定被输出上限截断，截断的那一半不可信，这一次没有产出可写入的设定。调大设置页的「最大输出 token」，或降低思考深度再试。');
+  }
+  let text = first.text;
+  let decoded = decodeLoreSettle(text, known);
+  if (!decoded.ok && isRepairableJsonSyntax(text)) {
+    const fix = await t.call(io, syntaxRepairMessages(loreSettleJsonContract(), text), '落定设定的 JSON 语法坏了，修一次');
+    if (fix.stop !== 'maxTokens' && preservesJsonEvidence(text, fix.text)) {
+      text = fix.text;
+      decoded = decodeLoreSettle(text, known);
+      t.note('落定设定的 JSON 语法坏了，修了一次（只改标点）');
+    } else {
+      t.note('落定设定的语法修复改动了内容或没修好，没有采用');
+    }
+  }
+  if (!decoded.ok) {
+    t.fail(`落定设定解析不出来（${decoded.message}），这一次没有产出可写入的设定。`);
+  }
+  t.note(...decoded.warnings);
+  if (decoded.value.entries.length === 0) {
+    return { raw: renderNothingSettled(decoded.value.questions), notes: t.notes, calls: t.calls };
+  }
+  return { raw: renderLoreSettle(decoded.value), notes: t.notes, calls: t.calls };
+}
+
 // ---------------------------------------------------------------- 细纲批次
 
 export interface BlueprintChainResult extends ChainResult {
@@ -631,7 +671,16 @@ export function singleShotNotes(
  * **审稿必须在正文之前认出来**：它也在正文层，按「正文层不是讨论就走续写链」的旧判据，一份审稿
  * JSON 会被当成一章正文去续写、去查重演。
  */
-export type ChainKind = 'config' | 'roster' | 'loreList' | 'loreExpand' | 'blueprints' | 'manuscript' | 'review' | 'revision';
+export type ChainKind =
+  | 'config'
+  | 'roster'
+  | 'loreList'
+  | 'loreExpand'
+  | 'loreSettle'
+  | 'blueprints'
+  | 'manuscript'
+  | 'review'
+  | 'revision';
 
 /** 架构那几件里要接链的：配置、角色图谱、设定清单。前提、世界观一次就完。 */
 const SETTING_CHAIN: Partial<Record<SettingDoc, ChainKind>> = { config: 'config', characters: 'roster', lore: 'loreList' };
@@ -646,6 +695,10 @@ export function chainOf(request: Pick<BuildRequest, 'action' | 'target' | 'range
   }
   if (stage === 'manuscript') {
     return request.writeMode === 'revise' ? 'revision' : 'manuscript';
+  }
+  // 落定设定（完善设定二期）：目标是设定目录，但不是设定清单那条链——按能力认，排在那张表之前。
+  if (isLoreSettle(request.action)) {
+    return 'loreSettle';
   }
   if (stage === 'setting' && request.target.kind === 'setting') {
     return SETTING_CHAIN[request.target.doc];

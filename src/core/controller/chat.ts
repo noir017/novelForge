@@ -5,6 +5,7 @@ import { loreFolderOf } from '../features/loreList';
 import { describeOutlineRewrite, outlineRewritePlan, rewriteOutline } from '../features/outlineRewrite';
 import { confirmDespiteGap } from '../features/chapterGap';
 import { acceptArtifact as writeArtifact, plannedCards, plannedLore } from '../generation/accept';
+import { plannedLoreSettle } from '../generation/loreSettle';
 import { Draft, generate, parseDraftArtifact } from '../generation/generate';
 import { getHost } from '../host';
 import { askGate, askGateNoted, cancelGates } from './gate';
@@ -26,9 +27,10 @@ import {
   CreationTarget,
   DEFAULT_CAPABILITY,
   LORE_EXPAND_CALLS,
+  LORE_SETTLE_TARGET,
   PLOT_BATCH,
-  STAGE_CAPABILITIES,
   WriteMode,
+  capabilitiesOn,
   commandOf,
   describeWriteLength,
   deriveBookStage,
@@ -36,6 +38,8 @@ import {
   describeCalls,
   describeTarget,
   isCreationStage,
+  isLoreSettle,
+  isSameTarget,
   normalizeTarget,
   outputKindOf,
   plotOfTarget,
@@ -119,6 +123,14 @@ export async function send(
       c.toast('请先输入内容。', 'error');
       return;
     }
+    // `/落定设定`（完善设定二期）在任何一层都能下：这一轮临时把目标换成设定目录，落完回到原来的地方。要沉淀的是
+    // 刚才的讨论——一句都没聊过、输入框也空着，模型只能凭空编一批「定下来的设定」，不如不调。
+    const settlingLore = isLoreSettle(payload) && isSameTarget(normalizeTarget(payload.target), LORE_SETTLE_TARGET);
+    if (settlingLore && !payload.text.trim() && !c.current.turns.some((t) => t.content.trim())) {
+      c.toast('落定设定要把刚才讨论里定下来的设定写成条目，可这个对话里还没有讨论。先聊几句，或者在输入框里写明要定下什么。', 'error');
+      return;
+    }
+    const back = settlingLore ? spotOf(c) : undefined;
 
     const userTurn: ChatTurn = {
       id: makeTurnId(),
@@ -134,6 +146,7 @@ export async function send(
       range: normalizeRange(payload.range),
       setup: normalizeSetup(payload.setup),
       writeMode: normalizeWriteMode(payload.writeMode),
+      ...(settlingLore ? { settleLore: true } : {}),
       ...(extra ?? {}),
     };
     c.current.turns.push(userTurn);
@@ -150,7 +163,13 @@ export async function send(
 
     // 位子交给 runTurn，由它在 finally 里还——这里不能再还一次。
     handedOff = true;
-    await runTurn(c, payload, userTurn, lease);
+    try {
+      await runTurn(c, payload, userTurn, lease);
+    } finally {
+      if (back) {
+        await returnTo(c, back);
+      }
+    }
   } finally {
     if (!handedOff) {
       lease.release();
@@ -175,7 +194,44 @@ export async function retry(c: ChatController, turnId: string, payload: SendPayl
   // 丢掉这条用户消息之后的所有轮次——重来意味着从这里分叉。
   c.current.turns.splice(idx + 1);
   c.post({ type: 'session', session: serializeSession(c.current) });
-  await runTurn(c, { ...payload, text: userTurn.content }, userTurn);
+  // `/落定设定` 那一轮：会话早已回到原来的目标，照样换过去、跑完再换回来（同 `send`）。
+  const back = userTurn.settleLore ? spotOf(c) : undefined;
+  if (back) {
+    c.current.target = LORE_SETTLE_TARGET;
+    c.current.stage = 'setting';
+    c.current.capability = 'settle';
+  }
+  try {
+    await runTurn(c, { ...payload, text: userTurn.content }, userTurn);
+  } finally {
+    if (back) {
+      await returnTo(c, back);
+    }
+  }
+}
+
+/** 会话停在哪：目标、阶段、能力。`/落定设定` 那一轮之前记下，落完回到这里。 */
+type Spot = Pick<ChatSession, 'target' | 'stage' | 'capability'>;
+
+function spotOf(c: ChatController): Spot {
+  return { target: c.current.target, stage: c.current.stage, capability: c.current.capability };
+}
+
+/**
+ * `/落定设定` 那一轮完了（写了、没写、出错、被停）：回到之前停着的那个目标。这一轮期间作者已经另选了目标的
+ * （生成跑完、落盘卡片还在等的那会儿，切目标不被挡）不动——那是他自己选的。
+ */
+async function returnTo(c: ChatController, back: Spot): Promise<void> {
+  if (!isLoreSettle(c.current) || !isSameTarget(c.current.target, LORE_SETTLE_TARGET)) {
+    return;
+  }
+  c.current.target = back.target;
+  c.current.stage = back.stage;
+  c.current.capability = back.capability;
+  log.info(`落定设定完了，创作目标回到 ${await describeCurrentTarget(c)}`);
+  await persist(c);
+  c.post({ type: 'session', session: serializeSession(c.current) });
+  await pushPipeline(c);
 }
 
 export async function runTurn(
@@ -326,11 +382,12 @@ export async function runTurn(
     const creates = await plannedCards(c.project, draft.artifact);
     const createsLore = await plannedLore(c.project, draft.artifact);
     assistantTurn.artifact = {
-      where: await describeTargetOf(c, draft.target, draft.range),
+      where: await whereOf(c, action, draft.target, draft.range),
       summary: draft.summary ?? describeArtifact(draft.artifact),
       overwrites: await targetHasContent(c, action, draft.target, draft.range, draft.writeMode),
       ...(creates.length > 0 ? { creates } : {}),
       ...(createsLore.length > 0 ? { createsLore } : {}),
+      ...(await settledOf(c, draft.artifact)),
       ...questionsOf(draft.artifact),
       ...(draft.notes?.length ? { notes: draft.notes } : {}),
       ...(draft.calls ? { calls: draft.calls } : {}),
@@ -398,11 +455,12 @@ export async function describeArtifactOf(
   const creates = await plannedCards(c.project, artifact);
   const createsLore = await plannedLore(c.project, artifact);
   return {
-    where: await describeTargetOf(c, target, draft?.range),
+    where: await whereOf(c, action, target, draft?.range),
     summary: describeArtifact(artifact),
     overwrites: await targetHasContent(c, action, target, draft?.range, draft?.writeMode),
     ...(creates.length > 0 ? { creates } : {}),
     ...(createsLore.length > 0 ? { createsLore } : {}),
+    ...(await settledOf(c, artifact)),
     ...questionsOf(artifact),
     ...(draft?.notes?.length ? { notes: draft.notes } : {}),
     ...(draft?.calls ? { calls: draft.calls } : {}),
@@ -410,7 +468,28 @@ export async function describeArtifactOf(
   };
 }
 
-/** 展开一条设定附的「还没定的问题」：只上卡片（`SerializedArtifact.questions`），不落盘。 */
+/**
+ * 产物落到哪：卡片标题与气泡末尾那一行。落定设定的目标是设定目录，可它写的不是设定清单——说成「设定名录」。
+ */
+async function whereOf(
+  c: ChatController,
+  action: { stage: CreationStage; capability: Capability },
+  target: CreationTarget,
+  range?: { from: number; to: number }
+): Promise<string> {
+  return isLoreSettle(action) ? '设定名录' : describeTargetOf(c, target, range);
+}
+
+/** 落定设定会更新的已有条目（按磁盘认，与落盘同一遍，generation/loreSettle.ts）。「会新建」那一半在 `plannedLore`。 */
+async function settledOf(c: ChatController, artifact: Artifact): Promise<Partial<SerializedArtifact>> {
+  if (artifact.kind !== 'loreEntries' || !artifact.settle) {
+    return {};
+  }
+  const { updates } = await plannedLoreSettle(c.project, artifact.entries);
+  return updates.length > 0 ? { updatesLore: updates } : {};
+}
+
+/** 展开一条设定、落定设定附的「还没定的问题」：只上卡片（`SerializedArtifact.questions`），不落盘。 */
 function questionsOf(artifact: Artifact): Partial<SerializedArtifact> {
   return artifact.kind === 'loreEntries' && artifact.questions.length > 0 ? { questions: [...artifact.questions] } : {};
 }
@@ -662,9 +741,13 @@ function artifactDetail(art: SerializedArtifact): string {
   if (art.createsLore?.length) {
     lines.push(`会新建设定条目：${art.createsLore.join('、')}`);
   }
-  // 展开一条设定附的问题：只在这里列，不写进任何文件；作者在对话里答完再展开一次。
+  // 落定设定（二期）：改已有条目的，写过内容的写入前逐条对比。
+  if (art.updatesLore?.length) {
+    lines.push(`会更新设定条目：${art.updatesLore.join('、')}（写过内容的写入前逐条对比）`);
+  }
+  // 展开一条设定、落定设定附的问题：只在这里列，不写进任何文件；作者在对话里答完再来一次。
   if (art.questions?.length) {
-    lines.push(`还没定的（不写进文件，答完可以再展开一次）：\n${art.questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`);
+    lines.push(`还没定的（不写进文件，在对话里答完可以再来一次）：\n${art.questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`);
   }
   if (art.overwrites) {
     lines.push('那里已经有内容了，写入前会让你先对比一遍。');
@@ -1166,12 +1249,13 @@ export async function retargetPlot(
  * 把这一轮请求里的 stage/capability/target 记进会话。
  *
  * 前端每次发送都带全量（它才知道用户点了哪个按钮），后端**校验一遍**：
- * 阶段认不出、或该阶段不支持这个能力时回落，绝不照单全收——那会让
+ * 阶段认不出、或该阶段（在这个目标上）不支持这个能力时回落，绝不照单全收——那会让
  * `STAGE_CAPABILITIES` 这张表形同虚设。
  */
 export function applyAction(c: ChatController, payload: SendPayload): void {
   const stage = isCreationStage(payload.stage) ? payload.stage : c.current.stage;
-  const capability: Capability = STAGE_CAPABILITIES[stage].includes(payload.capability)
+  // 按这一层、这个目标算：架构那一层只有设定目录有 `settle`（落定设定）。
+  const capability: Capability = capabilitiesOn(stage, normalizeTarget(payload.target)).includes(payload.capability)
     ? payload.capability
     : DEFAULT_CAPABILITY[stage];
   if (capability !== payload.capability) {

@@ -20,6 +20,7 @@ import {
 import type {
   Capability,
   CreationStage,
+  CreationTarget,
   NextStepView,
   SendPayload,
   StageCommand,
@@ -43,8 +44,10 @@ import { toast } from './toast';
  *
  * 只活到下一次发送为止：命令是**一次性的选择**，不是模式。挑了「挑刺」
  * 发出去之后，下一句话多半又是普通的讨论——让它粘住只会让人误发。
+ *
+ * `target`：命令自带的目标（`/落定设定` 在哪一层都能下，目标是设定目录）。缺席就是会话当下的目标。
  */
-let pending: { stage: CreationStage; capability: Capability; label: string } | null = null;
+let pending: { stage: CreationStage; capability: Capability; label: string; target?: CreationTarget } | null = null;
 
 /** 当前输入框里的那一套参数。发送与「重新生成」共用。 */
 export function payload(): SendPayload {
@@ -54,7 +57,7 @@ export function payload(): SendPayload {
     // 否则就是在当前阶段讨论——每一层都有讨论。后端还会再校验一遍。
     stage: pending?.stage ?? store.session.stage,
     capability: pending?.capability ?? 'discuss',
-    target: store.session.target,
+    target: pending?.target ?? store.session.target,
     targetNo: Number(el.targetSelect.value) || 1,
     attachments: store.attachments,
     excludedIds: [...store.excluded],
@@ -86,7 +89,13 @@ export function renderChips(): void {
 
 /** 挑中一个命令：变成输入框上方的一枚 chip，等一次发送。 */
 export function setPendingCommand(cmd: StageCommand): void {
-  pending = { stage: store.session.stage, capability: cmd.capability, label: cmd.label };
+  // 别的层挂过来的命令（`/落定设定`）带着自己的阶段与目标；后端跑完那一轮再回到会话原来的目标。
+  pending = {
+    stage: cmd.stage ?? store.session.stage,
+    capability: cmd.capability,
+    label: cmd.label,
+    ...(cmd.target ? { target: cmd.target } : {}),
+  };
   renderPending();
   el.input.focus();
 }

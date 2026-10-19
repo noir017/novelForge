@@ -116,9 +116,9 @@ function strings(v: unknown, sep: RegExp): string[] {
 
 /**
  * 最外层那个对象：整段就是 JSON → 唯一一个完整对象 → 去掉 `]` `}` 前多出来的逗号再试一次（模型最常见的
- * 语法错，不改任何值，不必为它调一次模型）。都不行返回 undefined。
+ * 语法错，不改任何值，不必为它调一次模型）。都不行返回 undefined。展开与落定设定共用（`loreJsonObject`）。
  */
-function objectOf(text: string): Record<string, unknown> | undefined {
+export function loreJsonObject(text: string): Record<string, unknown> | undefined {
   const whole = parseJson(text);
   if (whole && typeof whole === 'object' && !Array.isArray(whole)) {
     return whole as Record<string, unknown>;
@@ -170,27 +170,15 @@ const NO_HIDDEN = /^[（(]?\s*(?:未交代|无|暂无|没有|空)\s*[)）]?$/u;
  * （采纳时拿气泡文本重新解析）。明面三节一节内容都没有算解析不了。
  */
 export function decodeLoreExpansion(text: string, known?: LoreExpandKnown): LoreExpandDecode {
-  const o = objectOf(text);
+  const o = loreJsonObject(text);
   if (!o) {
     return { ok: false, message: '不是 {"brief","keywords","body",…} 形状的 JSON 对象' };
   }
   const warnings: string[] = [];
-  const { visible, hidden: rawHidden } = splitBody(bodyValueOf(o), o);
-  const { body: visibleBody, clipped } = normalizeLoreBody(visible, LORE_ENTRY_LIMITS.body);
-  if (!visibleBody) {
+  const body = decodeLoreBody(o, warnings);
+  if (!body) {
     return { ok: false, message: '正文三节（概要 / 规则与边界 / 现状）一节内容都没有' };
   }
-  if (clipped) {
-    warnings.push(
-      `正文超长，已截断（每节不超过 ${LORE_BODY_KEYS.map((k) => LORE_ENTRY_LIMITS[k]).join(' / ')} 字，合计不超过 ${LORE_ENTRY_LIMITS.body} 字）`
-    );
-  }
-  const hiddenText = hasContent(rawHidden) && !NO_HIDDEN.test(rawHidden.trim()) ? rawHidden.trim() : '';
-  const hidden = Array.from(hiddenText).slice(0, LORE_ENTRY_LIMITS.暗设).join('').trim();
-  if (hidden.length < hiddenText.length) {
-    warnings.push(`暗设超过 ${LORE_ENTRY_LIMITS.暗设} 字，已截断`);
-  }
-  const body = hidden ? `${visibleBody}\n\n## ${LORE_HIDDEN_KEY}\n${hidden}` : visibleBody;
 
   const rawBrief = str(o.brief ?? o.一句话 ?? o.简介);
   if (length(rawBrief) > LORE_ENTRY_LIMITS.brief) {
@@ -200,8 +188,32 @@ export function decodeLoreExpansion(text: string, known?: LoreExpandKnown): Lore
 
   const children = decodeChildren(o.children ?? o.子条目 ?? o.split, known, warnings);
   const keywords = decodeKeywords(strings(o.keywords ?? o.关键词, /[,，、]/), children, known);
-  const questions = decodeQuestions(o.questions ?? o.问题 ?? o.还没定的, warnings);
+  const questions = decodeLoreQuestions(o.questions ?? o.问题 ?? o.还没定的, warnings);
   return { ok: true, value: { brief, keywords, body, children, questions }, warnings };
+}
+
+/**
+ * 一条的正文：明面三节按上限截（合计 {@link LORE_ENTRY_LIMITS}.body，做法同设定清单的 `normalizeLoreBody`），
+ * 暗设另截 {@link LORE_ENTRY_LIMITS}.暗设，有就接在最后一节 `## 暗设`。明面一节内容都没有返回空串。截了什么写进
+ * `warnings`，`who` 是前缀（落定设定一次好几条，说清是哪一条）。展开与落定设定（features/loreSettle.ts）共用。
+ */
+export function decodeLoreBody(o: Record<string, unknown>, warnings: string[], who = ''): string {
+  const { visible, hidden: rawHidden } = splitBody(bodyValueOf(o), o);
+  const { body: visibleBody, clipped } = normalizeLoreBody(visible, LORE_ENTRY_LIMITS.body);
+  if (!visibleBody) {
+    return '';
+  }
+  if (clipped) {
+    warnings.push(
+      `${who}正文超长，已截断（每节不超过 ${LORE_BODY_KEYS.map((k) => LORE_ENTRY_LIMITS[k]).join(' / ')} 字，合计不超过 ${LORE_ENTRY_LIMITS.body} 字）`
+    );
+  }
+  const hiddenText = hasContent(rawHidden) && !NO_HIDDEN.test(rawHidden.trim()) ? rawHidden.trim() : '';
+  const hidden = Array.from(hiddenText).slice(0, LORE_ENTRY_LIMITS.暗设).join('').trim();
+  if (hidden.length < hiddenText.length) {
+    warnings.push(`${who}暗设超过 ${LORE_ENTRY_LIMITS.暗设} 字，已截断`);
+  }
+  return hidden ? `${visibleBody}\n\n## ${LORE_HIDDEN_KEY}\n${hidden}` : visibleBody;
 }
 
 /**
@@ -261,8 +273,11 @@ function decodeChildren(raw: unknown, known: LoreExpandKnown | undefined, warnin
   return out;
 }
 
-/** 还没定的问题：一条一行，去重，每条截 {@link LORE_EXPAND_LIMITS}.question 字，最多 {@link LORE_EXPAND_LIMITS}.questions 条。 */
-function decodeQuestions(raw: unknown, warnings: string[]): string[] {
+/**
+ * 还没定的问题：一条一行，去重，每条截 {@link LORE_EXPAND_LIMITS}.question 字，最多 {@link LORE_EXPAND_LIMITS}.questions 条。
+ * 展开与落定设定共用。
+ */
+export function decodeLoreQuestions(raw: unknown, warnings: string[]): string[] {
   // 问题里常有逗号，写成一个字符串时只按换行拆。
   const list = strings(raw, /\n+/).map((q) => q.replace(/^\s*(?:[-*·•]|\d+[.、)．])\s*/u, ''));
   const out: string[] = [];

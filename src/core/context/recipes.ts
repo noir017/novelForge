@@ -18,10 +18,10 @@ import { ChainStep, LayerSpec } from './types';
 const ATTACHMENT_CAP = 0.35;
 /*
  * 全部历史对话最多吃掉多少预算：不写在配方上，按上下文详细度那一级的 `historyCap`
- * （缺省 0.3，见 model/contextDetail.ts）。只有落定细纲写死在下面。
+ * （缺省 0.3，见 model/contextDetail.ts）。只有落定（细纲与设定）写死在下面。
  */
 /**
- * 「落定细纲」时历史对话的封顶。
+ * 落定（「落定细纲」，以及完善设定二期的「落定设定」）时历史对话的封顶。
  *
  * `settle` 要沉淀的**就是那段对话**。按常规的 30% 装，一段聊了十几轮的讨论会
  * 被由远及近截掉开头——而开头往往正是定调子的地方（「这一章主角不能赢」）。
@@ -277,7 +277,8 @@ const REVISE_CONTINUATION_RECIPE: LayerSpec[] = [
  *
  * `capability` 影响两处：`settle` 要把历史对话抬成 P0 并放宽封顶（做成「按能力微调既有配方」
  * 而不是再写一张完整配方，是因为其余十一层与 `generate` 一模一样——复制一份，下次改剧情层的
- * 装配策略就会漏掉一边）；`review` 换成审稿那一张（它要的东西与写正文几乎不重合）。
+ * 装配策略就会漏掉一边；不分阶段，落定设定走的是架构那一张，同样抬），落定设定再把 `lore` 提到历史后面；
+ * `review` 换成审稿那一张（它要的东西与写正文几乎不重合）。
  *
  * `step` 是续写那几轮时换成精简配方（见 {@link CONTINUATION_RECIPE}）；`writeMode` 是修稿时
  * 换成修稿那两张。
@@ -296,7 +297,16 @@ export function recipeFor(stage: CreationStage, capability?: Capability, step?: 
   if (capability !== 'settle') {
     return recipe;
   }
-  return recipe.map((spec) =>
+  const settled = recipe.map((spec) =>
     spec.layer === 'history' ? { ...spec, priority: 0 as const, cap: SETTLE_HISTORY_CAP } : spec
   );
+  // 落定设定（完善设定二期）：讨论里提到的已有条目要合并，得看得见原文——`lore` 从 P2 的末尾提到历史后面（P1），
+  // 不让角色卡先把预算拿走。
+  if (stage !== 'setting') {
+    return settled;
+  }
+  const lore = settled.find((spec) => spec.layer === 'lore');
+  const rest = settled.filter((spec) => spec.layer !== 'lore');
+  const at = rest.findIndex((spec) => spec.layer === 'history') + 1;
+  return lore ? [...rest.slice(0, at), { ...lore, priority: 1 as const }, ...rest.slice(at)] : settled;
 }

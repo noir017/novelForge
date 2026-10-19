@@ -45,6 +45,7 @@ import {
   ROSTER_MIN,
   STAGE_ROLE,
   WriteMode,
+  isLoreSettle,
   outputKindOf,
 } from '../model/pipeline';
 import { BLUEPRINT_LIMITS, sectionItems } from '../model/plotFile';
@@ -70,6 +71,7 @@ import {
 import { CHARACTER_DETAIL_LIMITS, NovelConfig } from '../model/types';
 import { DIALOGUE_FLOOR, NotYet, SIMILE_LIMIT, SIMILE_WORDS } from '../model/manuscriptCheck';
 import { LORE_EXPAND_ETHOS, loreExpandContract } from './loreExpandPrompt';
+import { LORE_SETTLE_ETHOS, LORE_SETTLE_TASK, loreSettleContract } from './loreSettlePrompt';
 import type { ChainStep } from './types';
 
 /**
@@ -204,13 +206,16 @@ export function buildSystemPrompt(action: CreationAction, config: NovelConfig, f
   }
 
   const producing = outputKindOf(action) === 'artifact';
-  const ethos = producing ? ethosOf(stage, facts.target) : undefined;
+  // 落定设定（完善设定二期）有自己的一句原则与任务：`CAPABILITY_TASK.settle` 说的是「这一章」，还要模型在产物之外
+  // 说明没定的——与 JSON 合同打架（context/loreSettlePrompt.ts）。
+  const settlingLore = isLoreSettle(action);
+  const ethos = producing ? (settlingLore ? LORE_SETTLE_ETHOS : ethosOf(stage, facts.target)) : undefined;
   const lines = [
     `你是一位${STAGE_ROLE[stage]}，正在协助作者推进一部长篇中文小说。${ethos ?? ''}`,
     '',
     STAGE_DUTY[stage],
     '',
-    CAPABILITY_TASK[capability],
+    settlingLore ? LORE_SETTLE_TASK : CAPABILITY_TASK[capability],
     ...(producing && facts.derive ? ['', deriveTask(facts.derive.through)] : []),
     '',
     '通用要求：',
@@ -685,6 +690,10 @@ export function buildOutputContract(action: CreationAction, facts: PromptFacts =
 
   switch (action.stage) {
     case 'setting': {
+      // 落定设定（完善设定二期）：目标就是设定目录，但不是排设定清单——按能力认，排在 `doc === 'lore'` 之前。
+      if (action.capability === 'settle') {
+        return loreSettleContract();
+      }
       // 单条设定（展开）有自己的合同，不落到「不是架构五件就当配置」那一支（context/loreExpandPrompt.ts）。
       if (facts.target?.kind === 'lore') {
         return loreExpandContract();

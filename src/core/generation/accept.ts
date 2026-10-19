@@ -41,6 +41,7 @@ import { buildLoreIndex } from '../views/lore';
 import { integrationWatermark, loreEntryAt } from '../views/loreMaterial';
 import { Workspace, pathOfTarget } from '../workspace';
 import { plotUpstreamHash } from '../workspace/handlers/plot';
+import { acceptSettledLore, plannedLoreSettle } from './loreSettle';
 
 const log = scoped('创作');
 
@@ -94,8 +95,12 @@ function takenNames(cards: CharacterCard[]): Set<string> {
  * - 设定清单：清单里还没有条目的那几条（已有的走覆盖审阅，不算新建）。
  *
  * 前两种是同一条规矩（{@link createPlannedLore}）：名字或关键词已被已有条目占了的、是角色卡上的人的，不建。
+ * 落定设定（二期）另有一套认法（generation/loreSettle.ts），这里只取它「会新建」那一半。
  */
 export async function plannedLore(project: NovelProject, artifact: Artifact): Promise<string[]> {
+  if (artifact.kind === 'loreEntries' && artifact.settle) {
+    return (await plannedLoreSettle(project, artifact.entries)).creates;
+  }
   const lines = newLoreLines(artifact);
   if (artifact.kind !== 'loreList' && lines.length === 0) {
     return [];
@@ -165,7 +170,8 @@ export async function acceptArtifact(
     case 'loreList':
       return acceptLoreList(project, ws, artifact, opts);
     case 'loreEntries':
-      return acceptLoreEntries(project, ws, target, artifact.entries);
+      // 落定设定（二期）是一批、没有目标条目，走自己的那条路（generation/loreSettle.ts）。
+      return artifact.settle ? acceptSettledLore(project, ws, artifact.entries) : acceptLoreEntries(project, ws, target, artifact.entries);
     case 'outlineDoc':
       return acceptOutline(project, ws, artifact.text, artifact.range);
     case 'plot':

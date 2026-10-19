@@ -8,7 +8,7 @@
  *    这一份正文被算了十次钱。要看内容让它显式 `read`。
  * 2. **`history` 传空数组**。agent 的工具调用不是作者的讨论，混进装配器会被
  *    当成创作要求装进 prompt（「用户刚才说：list .novelforge/plots」）。唯一
- *    该带历史的能力是 `settle`——它要沉淀的就是一段讨论，而**这一期不支持它**。
+ *    该带历史的能力是 `settle`（落定细纲、落定设定）——它要沉淀的就是一段讨论，所以**不支持它**。
  * 3. **哪一层用哪个模型**，AGENTS 第 12 条的延伸：
  *
  *    | 层 | 用哪个模型 | 为什么 |
@@ -112,8 +112,9 @@ export const generateTool: ToolDef = {
     '按章号认到这一章的细纲）。**细纲路径永远是细纲层**，要写正文不要给细纲路径。' +
     '这一章已经有正文时用 writeMode 说清是接着写（continue）还是整章重写（rewrite，缺省）。' +
     '各层可用的 capability 不同：' +
+    // 架构那一层的 settle（落定设定）只给对话页：它要沉淀作者刚才的讨论，这里没有那段讨论（见 run 里的拒绝）。
     Object.entries(STAGE_CAPABILITIES)
-      .map(([stage, caps]) => `${stage}=${caps.filter((c) => c !== 'review').join('/')}`)
+      .map(([stage, caps]) => `${stage}=${caps.filter((c) => c !== 'review' && !(stage === 'setting' && c === 'settle')).join('/')}`)
       .join('；') +
     '（审稿只能由作者在对话页发起，这个工具不做）。' +
     '**返回的只有形状与 draftId，没有正文**——正文会直接流给作者看；' +
@@ -145,13 +146,13 @@ export const generateTool: ToolDef = {
     }
     // `settle` 沉淀的是**一段已经发生过的讨论**，而 agent 手里没有那段讨论
     // （history 恒为空，见文件头第 2 条）。喂它一个空历史，它会凭空编一份
-    // 「刚才讨论出的结论」——那比不支持更糟。
+    // 「刚才讨论出的结论」——那比不支持更糟。落定细纲、落定设定（完善设定二期）都一样。
     if (capability === 'settle') {
       return {
         text: '',
         error:
           'settle 要沉淀的是作者与模型刚刚讨论出的结论，而你手上没有那段讨论。' +
-          '请让作者在对话页手动执行「落定细纲」；要按你自己的思路排细纲用 capability=generate。',
+          '请让作者在对话页手动落定（/落定细纲、/落定设定）；要按你自己的思路排细纲、展开一条设定用 capability=generate。',
       };
     }
 
@@ -191,7 +192,7 @@ export const generateTool: ToolDef = {
         text: '',
         error:
           `${STAGE_LABEL[path.stage]}层不支持 ${capability}。` +
-          `这一层可用：${STAGE_CAPABILITIES[path.stage].join(' / ')}。`,
+          `这一层可用：${STAGE_CAPABILITIES[path.stage].filter((c) => c !== 'settle' && c !== 'review').join(' / ')}。`,
       };
     }
 

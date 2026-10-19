@@ -1,10 +1,10 @@
-import { loreOfTarget, plotLabel } from '../../model/pipeline';
+import { isLoreSettle, loreOfTarget, plotLabel } from '../../model/pipeline';
 import { describeStateThrough } from '../../model/characterState';
 import { CONTEXT_DETAIL_LABEL, takeLast } from '../../model/contextDetail';
 import { ContinuityFact, locateEvidence, parseContinuityFacts } from '../../model/continuity';
 import { Thread, pickActiveThreads, threadCandidates } from '../../model/threadsFile';
 import { CharacterCard, LoreEntry } from '../../model/types';
-import { createLoreLookup, loreMentionIn } from '../../model/loreFile';
+import { LORE_ENTRY_LIMITS, LORE_SETTLE_LIMITS, createLoreLookup, loreMentionIn } from '../../model/loreFile';
 import { LoreFact, LoreRecord, buildLoreIndex } from '../../views/lore';
 import { expansionMaterial, loreEntryAt } from '../../views/loreMaterial';
 import { ContextItem } from '../types';
@@ -135,6 +135,11 @@ export const characters: LayerFn = async (a, spec) => {
  * **单条设定（展开，完善设定 2026-10-19）**：这一条自己是焦点（`loreSelf` 层），这里去掉它、只挑相关的——
  * 关键词命中（来源在作者的话之外，再加上这一条的标题、关键词、一句话与正文，以及已排细纲里用到它的那几句）
  * 整条带；同一个分类目录里的一行带。给分类表（建议拆出的子条目要归类），不给 R2、R3。
+ *
+ * **落定设定（完善设定二期）**：目标是设定目录，照设定清单那样当规划看（分类表 + 已有条目一行一条）；关键词命中的
+ * 来源再加上历史那几轮——讨论里提到的已有条目要合并，就得看得见原文，整条带（含暗设）。整条的名额放宽到一次落定的
+ * 上限（{@link LORE_SETTLE_LIMITS}），字数另加这么多条的上限，不受上下文详细度那一档的整条名额限制；预算放不下照样降级、
+ * 写进明细。
  */
 export const lore: LayerFn = async (a, spec) => {
   const { stage } = a.request.action;
@@ -154,6 +159,7 @@ export const lore: LayerFn = async (a, spec) => {
   const lookup = createLoreLookup(entries);
   const continuation = a.request.step?.kind === 'continuation';
   const planning = listing || stage === 'outline' || stage === 'plot';
+  const settling = listing && isLoreSettle(a.request.action);
   // 「暗设」的去留（完善设定，2026-10-19）：正文阶段（写、接着写、重写、讨论正文）与续写整条只带明面，
   // 揭开靠那一章的细纲；其余阶段（设定 / 大纲 / 细纲，含展开一条设定）整条带全部，暗设标明读者还不知道。
   const writing = stage === 'manuscript' || continuation;
@@ -191,8 +197,16 @@ export const lore: LayerFn = async (a, spec) => {
   // R1 里也分先后：作者这次亲口说的 → 本章细纲 → 本章已写的末尾。整条名额有限，先给最确定要用的。
   // 展开一条时再加：这一条自己写着什么、已排细纲里用到它的那几句。
   const self = selfPath ? await loreEntryAt(a.project, selfPath, entries) : undefined;
+  // 落定设定时再加历史那几轮（近的在前）：讨论里提到的已有条目要合并。
+  const discussed = settling
+    ? (a.request.history ?? [])
+        .map((t) => t.content)
+        .filter((text) => text.trim())
+        .reverse()
+    : [];
   const haystacks = [
     a.request.ask,
+    ...discussed,
     focusText(a.focus),
     await chapterTailText(a),
     ...(self ? [selfText(self.entry), ...(await expansionMaterial(a.project, self.entry, { entries })).uses.map((u) => u.text)] : []),
@@ -201,7 +215,7 @@ export const lore: LayerFn = async (a, spec) => {
     for (const entry of entries) {
       const hit = loreMentionIn(haystack, entry);
       if (hit) {
-        pick(entry, true, `上下文中出现「${hit}」`);
+        pick(entry, true, discussed.includes(haystack) ? `讨论里提到「${hit}」` : `上下文中出现「${hit}」`);
       }
     }
   }
@@ -237,6 +251,11 @@ export const lore: LayerFn = async (a, spec) => {
   }
 
   const level = `上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」`;
+  // 落定设定：讨论里提到的要整条看得见原文才合并得了，整条名额放宽到一次落定的上限，字数另加这么多条的上限。
+  const fullCap = settling ? Math.max(a.limits.loreFull, LORE_SETTLE_LIMITS.entries) : a.limits.loreFull;
+  const charCap = settling
+    ? a.limits.loreChars + LORE_SETTLE_LIMITS.entries * (LORE_ENTRY_LIMITS.body + LORE_ENTRY_LIMITS.暗设)
+    : a.limits.loreChars;
   let fullCount = 0;
   let lineCount = 0;
   let chars = 0;
@@ -262,10 +281,10 @@ export const lore: LayerFn = async (a, spec) => {
     let degraded = '';
     if (full) {
       const text = renderLoreFull(entry, loreTail(records.get(entry.slug), a.focus.no, a.limits.loreTail), !writing);
-      if (fullCount >= a.limits.loreFull) {
-        degraded = `整条的已带满 ${a.limits.loreFull} 条（${level}）`;
-      } else if (chars + text.length > a.limits.loreChars) {
-        degraded = `设定已带 ${chars} 字，整条带会超过 ${a.limits.loreChars} 字（${level}）`;
+      if (fullCount >= fullCap) {
+        degraded = `整条的已带满 ${fullCap} 条（${settling ? '一次落定的上限' : level}）`;
+      } else if (chars + text.length > charCap) {
+        degraded = `设定已带 ${chars} 字，整条带会超过 ${charCap} 字（${level}）`;
       } else if (estimateTokens(text) > a.remaining) {
         degraded = '预算不足';
       } else {
@@ -283,8 +302,8 @@ export const lore: LayerFn = async (a, spec) => {
     const over =
       lineCount >= a.limits.loreLines
         ? `一句话的已带满 ${a.limits.loreLines} 条（${level}）`
-        : chars + line.length > a.limits.loreChars
-          ? `设定已带满 ${a.limits.loreChars} 字（${level}）`
+        : chars + line.length > charCap
+          ? `设定已带满 ${charCap} 字（${level}）`
           : tokens > a.remaining
             ? '预算不足'
             : '';

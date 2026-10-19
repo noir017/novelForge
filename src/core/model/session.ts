@@ -8,8 +8,8 @@ import {
   CreationStage,
   CreationTarget,
   DEFAULT_CAPABILITY,
-  STAGE_CAPABILITIES,
   WriteMode,
+  capabilitiesOn,
   isCapability,
   isCreationStage,
   isWriteMode,
@@ -112,6 +112,11 @@ export interface ChatTurn {
    * （`describePicks`）。重来一轮时按 `reviewTurnId` + `picks` 重新拼清单——正文这期间可能又改过。
    */
   revise?: { reviewTurnId: string; picks: string[]; items: string[] };
+  /**
+   * 仅 user 轮：这一轮是 `/落定设定`（完善设定二期）。它在任何一层都能下，这一轮临时把目标换成设定目录、
+   * 落完回到原来的目标——于是事后会话停在哪一层都推不出它来。记下来是为了「重来一轮」照样换过去再换回来。
+   */
+  settleLore?: boolean;
   /** 仅 assistant 轮：本次装配明细。 */
   context?: ContextDigest;
   /**
@@ -566,10 +571,10 @@ function normalize(id: string, raw: unknown): ChatSession {
   const o = (raw ?? {}) as Partial<ChatSession>;
   const at = typeof o.createdAt === 'string' ? o.createdAt : nowIso();
   const target = normalizeTarget(o.target);
-  // 阶段认不出、或该阶段不支持记下来的那个能力时，都回落到该阶段的默认值。
+  // 阶段认不出、或该阶段（在这个目标上）不支持记下来的那个能力时，都回落到该阶段的默认值。
   const stage: CreationStage = isCreationStage(o.stage) ? o.stage : stageOfTarget(target);
   const capability: Capability =
-    isCapability(o.capability) && STAGE_CAPABILITIES[stage].includes(o.capability)
+    isCapability(o.capability) && capabilitiesOn(stage, target).includes(o.capability)
       ? o.capability
       : DEFAULT_CAPABILITY[stage];
   const drafts = normalizeDrafts(o.drafts);

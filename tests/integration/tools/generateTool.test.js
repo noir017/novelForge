@@ -517,6 +517,28 @@ describe('settle 明确不支持', () => {
   });
 });
 
+// 完善设定二期：落定设定同样要沉淀作者刚才的讨论，agent 手里没有那段讨论。
+describe('落定设定也不给', () => {
+  test('设定目录上的 settle 同样拒绝，指路 /落定设定，不调模型、不报账', async () => {
+    resetCtx();
+    const r = await run({ target: '.novelforge/lore', capability: 'settle' });
+    assert.ok(r.error && r.error.includes('/落定设定') && r.error.includes('/落定细纲'), r.error);
+    assert.equal(fake.calls.length, 0);
+    assert.equal(ctx.usage.calls, 0);
+  });
+
+  test('描述里架构那一层不列 settle', () => {
+    assert.ok(tool().description.includes('setting=discuss/generate；'), tool().description);
+  });
+
+  test('别的架构文档上给 settle：说这一层能用的，不列 settle', async () => {
+    resetCtx();
+    const r = await run({ target: CONFIG_REL, capability: 'settle' });
+    assert.ok(r.error, JSON.stringify(r));
+    assert.equal(fake.calls.length, 0);
+  });
+});
+
 describe('认不出的路径', () => {
   let r;
 

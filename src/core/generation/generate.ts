@@ -71,12 +71,14 @@ import {
   completeBlueprints,
   completeConfig,
   completeLoreExpand,
+  completeLoreSettle,
   completeLoreList,
   completeRoster,
   singleShotNotes,
 } from './structured';
 import { LoreListKnown } from '../features/loreList';
 import { LoreExpandKnown } from '../features/loreExpand';
+import { LoreSettleKnown } from '../features/loreSettle';
 import { buildLoreIndex } from '../views/lore';
 import { loreEntryAt } from '../views/loreMaterial';
 import { writingAim } from '../model/trimProse';
@@ -524,6 +526,8 @@ async function runChain(
       return completeLoreList(first, io, await loreListKnown(project));
     case 'loreExpand':
       return completeLoreExpand(first, io, await loreExpandKnown(project, request.target));
+    case 'loreSettle':
+      return completeLoreSettle(first, io, await loreSettleKnown(project));
     case 'blueprints':
       return completeBlueprints(first, io, chaptersOf(request.range!));
     case 'manuscript':
@@ -558,6 +562,16 @@ async function loreExpandKnown(project: NovelProject, target: CreationTarget): P
     people: cards.flatMap((c) => [c.name, ...c.aliases]),
     recorded: unknown.map((u) => u.name),
   };
+}
+
+/**
+ * 落定设定那条链要对照的：全部条目（认出改的是哪一条；别的条目的标题不进关键词）、角色卡上的人（人不是设定）、
+ * 名录里另记着的名字（不进关键词）。
+ */
+async function loreSettleKnown(project: NovelProject): Promise<LoreSettleKnown> {
+  const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
+  const { unknown } = await buildLoreIndex(project, { entries, cards }, { pending: false });
+  return { entries, people: cards.flatMap((c) => [c.name, ...c.aliases]), recorded: unknown.map((u) => u.name) };
 }
 
 // ---------------------------------------------------------------- 写正文
