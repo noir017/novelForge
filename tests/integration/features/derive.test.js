@@ -310,7 +310,7 @@ describe('从已写正文补齐 · 设定条目（从名录建）', () => {
   let failures;
   before(async () => {
     t = await fresh('derive-lore');
-    // 每一章都记下「山门」（7 章）；「门外」只在第 3 章记过（1 章，不到 2 章的门槛）。
+    // 每一章都记下「山门」（7 章）；「门外」只在第 3 章记过（1 章）。门槛是 1 章，两条都建。
     loreOf = (no) => [
       { name: '山门', category: '地域', fact: '山门很高' },
       ...(no === 3 ? [{ name: '门外', category: '地域', fact: '' }] : []),
@@ -320,28 +320,26 @@ describe('从已写正文补齐 · 设定条目（从名录建）', () => {
     failures = await bundle.errorLog.listActiveFailures(t.project);
   });
 
-  test('确认框把设定条目算进去：出现 2 章以上的那几条，每条 1 次，解析不了的重来一次', () => {
-    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 设定条目 1（上限 2）+ 大纲 1 + 全书摘要 1（上限 5）
+  test('确认框把设定条目算进去：出现过的都建，每条 1 次，解析不了的重来一次', () => {
+    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 设定条目 2（上限 4）+ 大纲 1 + 全书摘要 1（上限 5）
     assert.equal(
       h.confirms[1].message,
-      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、设定条目、情节大纲、全书摘要，预计 8 次调用，最多 15 次。现在补？'
+      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、设定条目、情节大纲、全书摘要，预计 9 次调用，最多 17 次。现在补？'
     );
-    assert.match(h.confirms[1].detail, /设定条目：给山门建条目（细纲里出现 2 章以上、还没有条目/);
-    assert.match(h.confirms[1].detail, /只读定稿细纲里提到它们的那几行，预计 1 次调用，最多 2 次/);
-    assert.ok(!/门外/.test(h.confirms[1].detail), h.confirms[1].detail);
+    assert.match(h.confirms[1].detail, /设定条目：给山门、门外建条目（细纲里出现 1 章以上、还没有条目/);
+    assert.match(h.confirms[1].detail, /只读定稿细纲里提到它们的那几行，预计 2 次调用，最多 4 次/);
   });
 
   test('建卡之后、大纲之前建条目', () => {
-    assert.deepEqual(kinds(), [...Array(7).fill('plot'), 'config', 'premise', 'card', 'card', 'world', 'lore', 'outline', 'global']);
-    assert.equal(calls, 15);
+    assert.deepEqual(kinds(), [...Array(7).fill('plot'), 'config', 'premise', 'card', 'card', 'world', 'lore', 'lore', 'outline', 'global']);
+    assert.equal(calls, 16);
   });
 
   test('条目建在名录给的分类目录里：标题、关键词、一句话、机器写的指纹、水位到最后一章定稿', async () => {
     t.project.invalidate();
     const entries = await t.project.listLore();
-    assert.deepEqual(entries.map((e) => e.relPath), ['.novelforge/lore/地域/山门.md']);
-    const [e] = entries;
-    assert.equal(e.title, '山门');
+    assert.ok(entries.some((e) => e.relPath === '.novelforge/lore/地域/山门.md'));
+    const e = entries.find((e) => e.title === '山门');
     assert.equal(e.category, '地域');
     assert.equal(e.brief, '青云宗的山门');
     assert.equal(e.updatedThrough, 7);
@@ -352,14 +350,15 @@ describe('从已写正文补齐 · 设定条目（从名录建）', () => {
   });
 
   test('完成提示报出建了几条；没有挂失败', () => {
-    assert.ok(h.toasts.some((x) => x.includes('设定条目 1 条')), h.toasts.join('|'));
+    assert.ok(h.toasts.some((x) => x.includes('设定条目 2 条')), h.toasts.join('|'));
     assert.equal(failures['.novelforge/lore'], undefined);
   });
 
-  test('之后名录里「山门」有了条目，「门外」仍是未建条目', async () => {
+  test('之后名录里两条都有了条目，没有未建条目', async () => {
     const index = await bundle.lore.buildLoreIndex(t.project);
-    assert.deepEqual(index.unknown.map((u) => u.name), ['门外']);
-    assert.deepEqual(index.known.map((r) => r.chapters.length), [7]);
+    assert.deepEqual(index.unknown.map((u) => u.name), []);
+    assert.ok(index.known.some((r) => r.entry.title === '山门'));
+    assert.ok(index.known.some((r) => r.entry.title === '门外'));
   });
 });
 
@@ -376,7 +375,7 @@ describe('从已写正文补齐 · 设定条目没建成也不停', () => {
     failures = await bundle.errorLog.listActiveFailures(t.project);
   });
 
-  test('名录里没有出现 2 章以上的：降到 1 章', () => {
+  test('只出现过 1 章也正常建', () => {
     assert.match(h.confirms[1].detail, /给山门建条目（细纲里出现 1 章以上/);
   });
 

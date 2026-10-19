@@ -5,7 +5,7 @@
  * | 用例组 | 钉的是什么 |
  * |---|---|
  * | 设定行 | 右边写出现章（`loreByEntry[relPath].detail`，后端算的）、副标题仍是一句话；待整合的挂「＋N」（样子同角色卡）、tooltip 分水位有没有两种说法；没出现过的两样都不挂；失败标记、右键菜单照旧；旧后端没有 `loreByEntry` 不崩 |
- * | 三件维护（第三期） | 设定组菜单按待办写「补记设定（N 章）」「整合设定（K 条）」，外加「按目录整理…」，没待办只剩整理；有新内容的设定行右键「整合这一条」带路径；未建条目组菜单「给出现 2 章以上的 M 个建条目」 |
+ * | 三件维护（第三期） | 设定组菜单按待办写「补记设定（N 章）」「整合设定（K 条）」，外加「按目录整理…」，没待办只剩整理；有新内容的设定行右键「整合这一条」带路径；未建条目组菜单「给全部 M 个建条目」 |
  * | 出现过 · 未建条目 | 只在有时出现、紧跟在「设定」组后面、副标题写个数；一行是 名字〔分类〕· 出现章；右键「建条目」发 `buildLore` 带名字，「新建这条设定」发 `newLore` 带 `name` 与分类目录（没分类落在设定根目录）；点名字不新建；一次先画 30 个，「显示全部 N 个」摊开，重推树不缩回 |
  * | 筛选框 | 在标题栏上、折叠开关之外（点它不折叠）；按标题 / 一句话 / 关键词筛（不分大小写），匹配项的祖先文件夹自动展开、没匹配的文件夹不画；也按名字 / 分类筛未建条目；一个都不匹配时说「没有匹配的设定」；重推树筛选还在；打字与推树都不丢焦点和光标；**组字期间不重画**；Esc 与 × 清空；不发任何消息给后端；组折着时开始筛就展开 |
  */
@@ -245,11 +245,11 @@ describe('名录的三件维护：补记、整合、按目录整理、建条目�
     assert.ok(!items.some((i) => i.startsWith('整合这一条')), JSON.stringify(items));
   });
 
-  test('未建条目组菜单：给出现 2 章以上的建条目，发 buildLore 不带名字', () => {
+  test('未建条目组菜单：给全部建条目，发 buildLore 不带名字', () => {
     const items = ui.itemsOf(ui.rightClick(unfiledHead()));
-    assert.ok(items.includes('给出现 2 章以上的 2 个建条目'), JSON.stringify(items));
+    assert.ok(items.includes('给全部 35 个建条目'), JSON.stringify(items));
     ui.sent.length = 0;
-    ui.pick(ui.doc.querySelector('.ctx-menu'), '给出现 2 章以上的 2 个建条目');
+    ui.pick(ui.doc.querySelector('.ctx-menu'), '给全部 35 个建条目');
     const msg = ui.last('projectAction');
     assert.equal(msg?.action, 'buildLore', JSON.stringify(ui.sent));
     assert.equal(msg.name, undefined, JSON.stringify(msg));

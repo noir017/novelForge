@@ -63,8 +63,8 @@ const log = scoped('设定');
  * - 批量展开只写还只有一句话、又没有作者的字的（`loreBatchExpandable`），作者写过的跳过（第 19 条批量那一面）。
  */
 
-/** 「全部建条目」只建出现至少这么多章的（与批量建卡同一个门槛）。 */
-export const BUILD_MIN_CHAPTERS = 2;
+/** 「全部建条目」只建出现至少这么多章的。 */
+export const BUILD_MIN_CHAPTERS = 1;
 /** 按目录整理一次调用最多看几条。 */
 const ORGANIZE_BATCH = 80;
 /** 新目录最多几层。 */
@@ -173,7 +173,7 @@ function jsonObject(raw: string): Record<string, unknown> | undefined {
 // ---------------------------------------------------------------- 建条目
 
 /**
- * 给名录里「出现过 · 未建条目」的名字建条目。给了 `names` 就建那几个；没给就建**出现 ≥2 章**的全部。
+ * 给名录里「出现过 · 未建条目」的名字建条目。给了 `names` 就建那几个；没给就建**出现过**的全部。
  * 每条 1 次（解析不了的重来一次），原料是定稿细纲里提到它的记录（不重读正文），新文件建在它的分类目录里（不存在就建）。
  */
 export async function buildLoreEntries(project: NovelProject, names?: readonly string[]): Promise<void> {
@@ -187,7 +187,7 @@ export async function buildLoreEntries(project: NovelProject, names?: readonly s
     host.toast(
       wanted?.length
         ? '名录里没有这个名字，或者它已经有条目了。'
-        : `没有出现 ${BUILD_MIN_CHAPTERS} 章以上、还没建条目的设定。`
+        : '没有还没建条目的设定。'
     );
     return;
   }
@@ -201,7 +201,7 @@ export async function buildLoreEntries(project: NovelProject, names?: readonly s
       modal: true,
       detail: [
         `要建的：${targets.slice(0, 20).map((u) => u.name).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,
-        wanted?.length ? '' : `只建出现 ${BUILD_MIN_CHAPTERS} 章以上的；出现得少的可以在「出现过 · 未建条目」里一条一条建。`,
+        '',
         describeTaskModels(config, 'loreSynthesis'),
         lanes > 1 ? `最多 ${lanes} 条同时建。` : '一条一条串行建（并发数为 1）。',
       ]

@@ -227,12 +227,12 @@ function buildProjectPage(tree: ProjectTree): void {
   // 设定那棵是文件树（能改名/移动/删除），这些还没有文件。筛选时一个都没匹配上就整组不画。
   const unfiled = filterUnfiled(unfiledAll);
   if (unfiled.length > 0) {
-    const frequent = unfiledAll.filter((u) => u.chapters.length >= 2).length;
+    const frequent = unfiledAll.filter((u) => u.chapters.length >= 1).length;
     el.projectBody.appendChild(
       buildGroup('loreUnfiled', '出现过 · 未建条目', `${unfiledAll.length} 个`, {
         extraItems: () =>
           frequent > 0
-            ? [{ label: `给出现 2 章以上的 ${frequent} 个建条目`, run: () => projectAction('buildLore') }, { sep: true }]
+            ? [{ label: `给全部 ${frequent} 个建条目`, run: () => projectAction('buildLore') }, { sep: true }]
             : [],
         build: () => buildLoreUnfiledRows(unfiled, tree.loreRoot),
       })

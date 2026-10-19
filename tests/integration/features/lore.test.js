@@ -4,7 +4,7 @@
  * | 断言 | 为什么 |
  * |---|---|
  * | 建条目只读定稿细纲里提到它的那几行，不重读正文；先报次数 | 从前每跑一次都从第 1 章扫起；第 4 条 |
- * | 「全部建条目」只建出现 ≥2 章的；建在它的分类目录里，记水位与正文指纹 | 长尾不值得一条一次；分类就是目录 |
+ * | 「全部建条目」建出现过的全部；建在它的分类目录里，记水位与正文指纹 | 出现过就值得建一条 |
  * | 整合只并水位之后、第一处没定稿的章之前的新事实 | 否则那一章日后定稿，它的事实永远进不了条目 |
  * | 机器写的可以直接采纳；作者改过的一律先对比 | 第 3 条：不静默覆盖 |
  * | 原来有暗设、整合完没了的，机器写的也先对比 | 分不清是正文揭开了还是模型漏了（完善设定，第 27 条） |
@@ -128,15 +128,15 @@ describe('建条目', () => {
     await bundle.lore.buildLoreEntries(project);
   });
 
-  // 出现 2 章以上、还没建条目的：停舟客栈（第 1、2 章）与青崖镇（第 2–5 章）；后山只出现过一章，不建。
-  test('先报次数：只建出现 2 章以上的，每条 1 次，解析不了的重来一次', () => {
+  // 出现过、还没建条目的：停舟客栈（第 1、2 章）、青崖镇（第 2–5 章）、后山（第 1 章）、城隍庙（第 5 章），全建。
+  test('先报次数：出现过的全部建，每条 1 次，解析不了的重来一次', () => {
     const c = h.confirms[h.confirms.length - 1];
     assert.match(
       c.message,
-      /^建 2 条设定：预计 2 次调用，最多 4 次（交回来的解析不了时这一条重来 1 次）。只读定稿过的细纲里提到它们的那几行，不重读正文。/
+      /^建 4 条设定：预计 4 次调用，最多 8 次（交回来的解析不了时这一条重来 1 次）。只读定稿过的细纲里提到它们的那几行，不重读正文。/
     );
-    assert.match(c.detail, /要建的：青崖镇、停舟客栈/);
-    assert.equal(fake.callCount(), 2);
+    assert.match(c.detail, /要建的：/);
+    assert.equal(fake.callCount(), 4);
   });
 
   test('原料是定稿细纲里的记录：第九节那一句、连续性事实、提到它的句子，带章号', () => {
@@ -154,19 +154,27 @@ describe('建条目', () => {
     assert.equal(inn.relPath, '.novelforge/lore/地域/青崖/停舟客栈.md');
     assert.equal(inn.brief, '镇上唯一的客栈');
     // 模型把同一批建的「青崖镇」也写成了关键词：别的条目的标题不收（会把那一条的命中抢过来）。
-    // 「后山」不在这一批（只出现过一章），但名录里单独记着它：也不收，否则它永远建不出自己的条目。
+    // 「后山」也在同一批：名录里另记着的名字不收关键词（recorded），否则它永远建不出自己的条目。
     assert.deepEqual(inn.keywords, ['停舟客栈', '停舟']);
     // 第 4 章定稿之后正文又改过：水位停在第 3 章。
     assert.equal(inn.updatedThrough, 3);
     assert.ok(bundle.lore.loreOwnedByMachine(inn));
   });
 
-  test('给了名字就只建那一条，哪怕只出现过一章', async () => {
+  test('给了名字就只建那一条', async () => {
+    // 批量建完后追加一章定稿细纲，让名录里出现一个新的未建条目。
+    project.invalidate();
+    const ch6hash = (await project.listChapters()).find((c) => c.order === 5)?.contentHash ?? 'x';
+    t.write(CH(6), `# 第6章\n\n第6章的正文。\n`);
+    project.invalidate();
+    const ch6 = (await project.listChapters()).find((c) => c.order === 6);
+    t.write(PLOT(6), plotText(6, ch6.contentHash, { lore: '- 铁匠铺〔地域〕：镇西的铺子' }));
+    project.invalidate();
     fake.reset();
     h.expect('开始建');
-    await bundle.lore.buildLoreEntries(project, ['后山']);
+    await bundle.lore.buildLoreEntries(project, ['铁匠铺']);
     project.invalidate();
-    assert.ok((await project.listLore()).some((e) => e.relPath === '.novelforge/lore/地域/后山.md'));
+    assert.ok((await project.listLore()).some((e) => e.title === '铁匠铺'));
     assert.equal(fake.callCount(), 1);
   });
 });
