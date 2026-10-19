@@ -3,7 +3,7 @@
  *
  * **纯前端**：筛选串记在 `treeState.loreView.filter`，不发给后端、不进推送；后端每次文件变动
  * 都整棵重推树，筛选照样留着（同折叠开合）。按标题、一句话（行副标题）与关键词筛已建条目，
- * 按名字与分类筛「出现过 · 未建条目」，不分大小写的子串匹配。
+ * 按名字与分类筛「出现过 · 未建条目」与「待完善」，不分大小写的子串匹配。
  *
  * 难点是**重画会把输入框换掉**：工程页每次都整页重建（`renderProject`），打一个字重画一次，
  * 文件监视推来的树也随时会重画。所以：
@@ -45,8 +45,8 @@ export function loreMatcher(tree: ProjectTree): ((f: ProjectFile) => boolean) | 
   return (f) => hits(q, f.label, f.detail, ...(tree.loreByEntry?.[f.relPath]?.keywords ?? []));
 }
 
-/** 「出现过 · 未建条目」里匹配的那些（没在筛选时原样返回）。 */
-export function filterUnfiled(list: LoreUnfiledEntry[]): LoreUnfiledEntry[] {
+/** 「出现过 · 未建条目」「待完善」里按名字与分类匹配的那些（没在筛选时原样返回）。 */
+export function filterUnfiled<T extends Pick<LoreUnfiledEntry, 'name' | 'category'>>(list: T[]): T[] {
   const q = needle();
   return q ? list.filter((u) => hits(q, u.name, u.category)) : list;
 }

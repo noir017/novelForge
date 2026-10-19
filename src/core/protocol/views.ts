@@ -12,6 +12,7 @@ import type {
 import type { ThinkingDepth } from '../model/thinking';
 import type { ReviewReport } from '../model/review';
 import type { ParagraphStyle } from '../model/paragraphFormat';
+import type { LoreThinKind } from '../model/loreFile';
 import type { SerializedAttachment } from './in';
 
 export interface ViewState {
@@ -68,6 +69,11 @@ export interface ProjectTree {
   loreByEntry: Record<string, LoreSummary>;
   /** 定稿里出现过、还没有条目的名字，按出现章数降序。 */
   loreUnfiled: LoreUnfiledEntry[];
+  /**
+   * 待完善（完善设定，2026-10-19）：还没写的那几章细纲第九节点名、却还没有条目或条目还只有一句话的设定，
+   * 按最早要用到的章升序。
+   */
+  loreThin: LoreThinEntry[];
   /** 定稿过、但还没记过设定（细纲没有第九节）的章数。 */
   loreUnrecorded: number;
   summaryCount: number;
@@ -302,6 +308,25 @@ export interface LoreUnfiledEntry {
   detail: string;
 }
 
+/**
+ * 「待完善」那一组的一行（完善设定，2026-10-19）。右键「展开…」：有条目发 `expandLore` 带 `relPath`，
+ * 没有条目带 `name` 与 `category`（后端先按分类建空条目）。
+ */
+export interface LoreThinEntry {
+  /** 有条目是条目的标题；没有是细纲第九节里的写法。 */
+  name: string;
+  /** 有条目是条目所在的目录；没有是各章第九节写的多数票。没有是空串。 */
+  category: string;
+  /** 条目路径；还没有条目时缺席。 */
+  relPath?: string;
+  /** 还没有条目 / 正文是空的 / 新建设定的占位 / 三节全是「（未交代）」。 */
+  kind: 'missing' | LoreThinKind;
+  /** 要用到它的章，升序。 */
+  chapters: number[];
+  /** `第 12 章起要用 · 只有一句话`。 */
+  detail: string;
+}
+
 export interface FailureView {
   at: string;
   severity: 'error' | 'warn';
@@ -431,8 +456,13 @@ export interface SerializedArtifact {
   declined?: boolean;
   /** 写入时会新建的角色卡（D19：细纲里的新角色直接建卡，卡片上先列出来）。 */
   creates?: string[];
-  /** 写入时会新建的设定空条目（设定名录：细纲里本章首次引入的设定，同 D19）。 */
+  /** 写入时会新建的设定空条目（设定名录：细纲里本章首次引入的设定，同 D19；展开一条设定时建议拆出的子条目）。 */
   createsLore?: string[];
+  /**
+   * 展开一条设定时附的「还没定的问题」（完善设定，2026-10-19）。**只上卡片，不写进任何文件**：
+   * 作者在对话里答完再展开一次。
+   */
+  questions?: string[];
   /** 生成这一路上的降级与说明（截断重来、拆半重试、漏字段……，第 2 条）。 */
   notes?: string[];
   /** 这一轮一共调了几次模型。 */

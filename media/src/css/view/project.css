@@ -191,15 +191,17 @@
   white-space: nowrap;
 }
 
-/* 未建条目点名字不做事（新建在右键里），筛选中被强制展开的文件夹点了也不折叠——
-   都别给一个可点的样子。 */
+/* 未建条目点名字不做事（新建在右键里），「待完善」里还没有条目的那几行同样（展开在右键里），
+   筛选中被强制展开的文件夹点了也不折叠——都别给一个可点的样子。 */
 .row-lore-unfiled .row-label,
+.row-lore-thin.row-cast .row-label,
 .row-dir-forced > .caret,
 .row-dir-forced .row-label {
   cursor: default;
 }
 
 .row-lore-unfiled .row-label:hover,
+.row-lore-thin.row-cast .row-label:hover,
 .row-dir-forced .row-label:hover {
   text-decoration: none;
 }

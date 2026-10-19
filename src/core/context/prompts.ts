@@ -48,7 +48,7 @@ import {
   outputKindOf,
 } from '../model/pipeline';
 import { BLUEPRINT_LIMITS, sectionItems } from '../model/plotFile';
-import { LORE_ENTRY_LIMITS, LORE_LINE_LIMITS, LORE_LIST_BODY_MAX } from '../model/loreFile';
+import { LORE_ENTRY_LIMITS, LORE_HIDDEN_MARK, LORE_LINE_LIMITS, LORE_LIST_BODY_MAX } from '../model/loreFile';
 import { OUTLINE_SECTION_MAX } from '../model/outlineFile';
 import {
   FrozenGoal,
@@ -69,6 +69,7 @@ import {
 } from '../model/settingFile';
 import { CHARACTER_DETAIL_LIMITS, NovelConfig } from '../model/types';
 import { DIALOGUE_FLOOR, NotYet, SIMILE_LIMIT, SIMILE_WORDS } from '../model/manuscriptCheck';
+import { LORE_EXPAND_ETHOS, loreExpandContract } from './loreExpandPrompt';
 import type { ChainStep } from './types';
 
 /**
@@ -173,6 +174,10 @@ const CAPABILITY_TASK: Record<Capability, string> = {
 
 function ethosOf(stage: CreationStage, target?: CreationTarget): string | undefined {
   if (stage === 'setting') {
+    // 单条设定（展开）不是架构五件里的哪一件：它有自己的一句（context/loreExpandPrompt.ts）。
+    if (target?.kind === 'lore') {
+      return LORE_EXPAND_ETHOS;
+    }
     return ETHOS[target?.kind === 'setting' ? target.doc : 'config'];
   }
   return stage === 'outline' ? ETHOS.outline : stage === 'plot' ? ETHOS.plot : undefined;
@@ -680,6 +685,10 @@ export function buildOutputContract(action: CreationAction, facts: PromptFacts =
 
   switch (action.stage) {
     case 'setting': {
+      // 单条设定（展开）有自己的合同，不落到「不是架构五件就当配置」那一支（context/loreExpandPrompt.ts）。
+      if (facts.target?.kind === 'lore') {
+        return loreExpandContract();
+      }
       const doc = facts.target?.kind === 'setting' ? facts.target.doc : 'config';
       if (doc === 'config') {
         return configContract(facts);
@@ -1043,9 +1052,17 @@ function outlineContract(facts: PromptFacts): string {
     '8. 终局级事件（主角动用终极手段、核心反派身死、核心大阵或秘境毁灭、主要角色死亡）全书只发生一次：写明发生在哪一节，此前只能铺垫或局部发生，此后只写余波与代价。',
     '9. 有修炼、等级或实力体系时，每节末尾写明主角此时的境界与关键资源；境界只进不退，跨度与章数相称，不要几十章原地不动，也不要越级太多。',
     `10. ${OUTLINE_HIGHLIGHT_RULE}`,
-    '11. 只输出情节大纲本身，禁止一切废话或旁白。',
+    `11. ${OUTLINE_HIDDEN_RULE}`,
+    '12. 只输出情节大纲本身，禁止一切废话或旁白。',
   ].join('\n');
 }
+
+/**
+ * 「暗设」的规矩，大纲那一份（完善设定，2026-10-19）。大纲覆盖这一章的那几节会进写正文的上下文（正文配方的
+ * `outlineSlice`，context/recipes.ts），写正文时看不见暗设——大纲里提前点破了，正文照样会说漏。所以与细纲
+ * 同一个口径：哪一节揭开写明「揭开：……」，之前只写读者看得到的那一面。
+ */
+const OUTLINE_HIDDEN_RULE = `上面「相关世界观设定」里标着「${LORE_HIDDEN_MARK}」的是读者还不知道的真相：打算在哪一节揭开，就在那一节写明「揭开：……」；揭开之前的各节只写读者看得到的那一面（铺垫、疑点），不点破。大纲会进写正文的上下文，写正文时看不见暗设。`;
 
 /** 大纲每节的看点行：规划与整理两条路共用。没有它，大纲只剩事件流水账，看不出这一段凭什么好看。 */
 const OUTLINE_HIGHLIGHT_RULE =
@@ -1080,6 +1097,19 @@ function deriveOutlineContract(facts: PromptFacts): string {
     '5. 只输出情节大纲本身，禁止一切废话或旁白。',
   ].join('\n');
 }
+
+/**
+ * 「暗设」的规矩，细纲那一份（完善设定，2026-10-19）。条目里读者还不知道的真相，排细纲时看得见（lore 层把
+ * 那一节标成 {@link LORE_HIDDEN_MARK}），写正文时看不见——揭开那一章的正文模型只能从细纲知道这件事；没揭开的
+ * 写进了细纲（连第九节那句 note 也算，它随本章细纲进正文），正文照样会说漏。写细纲、落定细纲、批量拆细纲都走
+ * {@link blueprintContract}，同一句（第 22 条：几条路输出一字不差）。
+ */
+const BLUEPRINT_HIDDEN_RULE = [
+  '【暗设】',
+  `上面「相关世界观设定」里标着「${LORE_HIDDEN_MARK}」的，是读者还不知道的真相。`,
+  '- 不打算在这一章揭开：别写进 synopsis、keyEvents、highlights，settings 的 note 也不写；要铺垫，写进 foreshadowing，只写读者看得到的那一面（异样、传闻、疑点），不点破。',
+  '- 打算在这一章揭开：在 keyEvents 里单列一条「揭开：……」，写清揭开什么、怎么揭开。细纲会进写正文的上下文，写正文时看不见暗设，要揭开的只能从这里知道。',
+].join('\n');
 
 /**
  * 细纲：一批（给了区间）或一章。移植自 `chapter_blueprint_chunk`（PT:643-714）、
@@ -1134,7 +1164,9 @@ function blueprintContract(facts: PromptFacts): string {
     '- 小高潮循环：维持每 3–5 章一个小高潮的节奏。',
     '- 伏笔强制回收与释放：如果前面章节留下了危机，这里必须引爆或解决。',
     '- 避免水文与流水账：每一章都必须发生「实质性的事件变动」。',
-    '- 悬念钩子机制：每章结尾必须有一个让读者想连续翻页的变数。'
+    '- 悬念钩子机制：每章结尾必须有一个让读者想连续翻页的变数。',
+    '',
+    BLUEPRINT_HIDDEN_RULE
   );
 
   if (target) {

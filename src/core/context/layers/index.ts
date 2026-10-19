@@ -29,6 +29,7 @@ import {
   threads,
 } from './background';
 import { ask, attachments, history, system } from './dialog';
+import { loreMaterial, loreSelf } from './loreFocus';
 import { skill } from './skill';
 import { written } from './written';
 import type { LayerFn } from './assembly';
@@ -65,6 +66,8 @@ export const LAYERS: Record<LayerId, LayerFn> = {
   revision,
   skill,
   written,
+  loreSelf,
+  loreMaterial,
 };
 
 export { resolveFocus } from './focus';

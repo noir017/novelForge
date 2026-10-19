@@ -52,10 +52,29 @@ export const LORE_ENTRY_LIMITS = {
 export const LORE_BODY_KEYS = ['概要', '规则与边界', '现状'] as const;
 
 /**
+ * 展开一条设定（完善设定，2026-10-19）交回来的那几样的上限：关键词几个、建议拆出几条子条目、附几条还没定的
+ * 问题、一条问题多长。提示词（context/loreExpandPrompt.ts）与解码（features/loreExpand.ts）共用。条目本身的
+ * 字数照 {@link LORE_ENTRY_LIMITS}（第 27 条）。
+ */
+export const LORE_EXPAND_LIMITS = {
+  keywords: 8,
+  children: 3,
+  questions: 5,
+  question: 60,
+} as const;
+
+/**
  * 可选的第四节：读者还不知道的真相（完善设定，2026-10-19）。规划时（设定 / 大纲 / 细纲）带，
  * 写正文时不带——揭开靠那一章的细纲。以它开头的二级标题都认（`## 暗设`、`## 暗设（未揭示）`）。
  */
 export const LORE_HIDDEN_KEY = '暗设';
+
+/**
+ * 规划时（设定 / 大纲 / 细纲）暗设进上下文用的标题（不带 `## `）：作者写的是 `## 暗设` 还是 `## 暗设（未揭示）`，
+ * 一律换成这一个，让模型知道这一节是读者还不知道的事。装配（context/layers/render.ts 的 `loreBodyFor`）与
+ * 细纲、大纲的提示词（context/prompts.ts）共用，提示词指的就是上下文里写着的那个标题。
+ */
+export const LORE_HIDDEN_MARK = `${LORE_HIDDEN_KEY}（读者还不知道）`;
 
 /**
  * 工程页「新建设定」写进正文的那段占位的开头。认「还只有一句话」的条目（{@link loreThin}）

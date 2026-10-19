@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { buildCastIndex, describePlots } from './cast';
-import { buildLoreIndex, describeSpan, pendingChapters } from './lore';
+import { THIN_LORE_LABEL, buildLoreIndex, describeSpan, pendingChapters } from './lore';
 import { loreBrief } from '../model/loreFile';
 import { listActiveFailures } from '../runtime/errorLog';
 import { scoped } from '../runtime/logger';
@@ -21,6 +21,7 @@ import {
   CastEntry,
   CastSummary,
   LoreSummary,
+  LoreThinEntry,
   LoreUnfiledEntry,
   PlotPipelineView,
   PlotSummaryView,
@@ -82,6 +83,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       castByCard: {},
       loreByEntry: {},
       loreUnfiled: [],
+      loreThin: [],
       loreUnrecorded: 0,
       castConflicts: [],
       failures: {},
@@ -180,8 +182,9 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     detail: loreBrief(entry) || entry.keywords.join('/'),
   }));
 
-  // 设定名录（views/lore.ts）：已建条目补出现章与待整合，未建条目单列一组。
-  const loreIndex = await buildLoreIndex(project, { plots, entries: lore, cards: characters });
+  // 设定名录（views/lore.ts）：已建条目补出现章与待整合，未建条目单列一组；还没写的几章要用、却还是空的
+  // 设定（待完善）也单列一组。
+  const loreIndex = await buildLoreIndex(project, { plots, entries: lore, cards: characters }, { thin: true });
   const loreByEntry: Record<string, LoreSummary> = {};
   for (const record of loreIndex.known) {
     loreByEntry[record.entry.relPath] = {
@@ -197,6 +200,14 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     category: item.category,
     chapters: item.chapters,
     detail: `${item.chapters.length} 章 · 第 ${item.chapters[0]} 章起`,
+  }));
+  const loreThin: LoreThinEntry[] = loreIndex.thin.map((item) => ({
+    name: item.name,
+    category: item.category,
+    ...(item.relPath ? { relPath: item.relPath } : {}),
+    kind: item.kind,
+    chapters: item.chapters,
+    detail: `第 ${item.first} 章起要用 · ${THIN_LORE_LABEL[item.kind]}`,
   }));
 
   // 出场人物索引：已建卡的补出场统计，未建卡的单列一组。
@@ -265,6 +276,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     castByCard,
     loreByEntry,
     loreUnfiled,
+    loreThin,
     loreUnrecorded: loreIndex.unrecorded.length,
     castConflicts,
     failures,

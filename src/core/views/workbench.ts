@@ -20,15 +20,19 @@ import { basename } from 'node:path';
 import { NovelProject } from '../model/project';
 import { PLOT_SECTION_KEYS, parsePlotFileName, plotContentHash } from '../model/plotFile';
 import { SETTING_SECTION_KEYS } from '../model/settingFile';
+import { hasContent, pickSections } from '../model/markdown';
+import { LORE_BODY_KEYS, LORE_HIDDEN_KEY, loreThin, splitLoreHidden } from '../model/loreFile';
 import { outlineUpstreamHash } from '../model/outlineFile';
 import {
   CreationTarget,
   SETTING_DOC_LABEL,
   STAGE_LABEL,
+  describeTarget,
   plotLabel,
   stageOfTarget,
 } from '../model/pipeline';
 import { chapterOfPlotNo } from './pipeline';
+import { loreEntryAt } from './loreMaterial';
 import { WorkbenchSection, WorkbenchView } from '../protocol';
 
 const log = scoped('工作区');
@@ -103,6 +107,36 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       relPath: project.relPath(project.outlinePath),
       sections: text.trim() ? [{ key: '大纲', text: clip(text, OUTLINE_PREVIEW) }] : [],
       empty: text.trim() ? undefined : '这部书还没有情节大纲。按章号区间把全书的走向排出来。',
+    };
+  }
+
+  // 单条设定（展开，完善设定 2026-10-19）：卡上摊这一条的一句话与各节（暗设也摊——作者自己看，不进写正文的上下文）。
+  if (target.kind === 'lore') {
+    const { entry, exists } = await loreEntryAt(project, target.relPath);
+    const { visible, hidden } = splitLoreHidden(entry.body);
+    const picked = pickSections(visible, LORE_BODY_KEYS);
+    // 还只有一句话的（空的、占位、三节全是「（未交代）」）正文不摊：摊出来全是空话。
+    const thin = exists ? loreThin(entry) : 'empty';
+    const body = thin
+      ? []
+      : LORE_BODY_KEYS.some((k) => hasContent(picked[k]))
+        ? sectionsOf(picked, LORE_BODY_KEYS)
+        : [{ key: '正文', text: visible }];
+    const sections: WorkbenchSection[] = [
+      ...(entry.brief.trim() ? [{ key: '一句话', text: entry.brief.trim() }] : []),
+      ...body,
+      ...(hidden ? [{ key: LORE_HIDDEN_KEY, text: hidden }] : []),
+    ];
+    return {
+      stage: 'setting',
+      title: describeTarget(target, { title: entry.title }),
+      relPath: exists ? entry.relPath : '',
+      sections,
+      empty: !exists
+        ? '还没有这条设定（文件不在了，可能刚被改名或删除）。'
+        : sections.length === 0
+          ? '这条设定还只有一句话。打 /展开 按已排的细纲把它往前想细。'
+          : undefined,
     };
   }
 

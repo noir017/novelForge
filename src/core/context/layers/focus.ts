@@ -94,8 +94,10 @@ export async function resolveFocus(
   // 细纲批次（给了区间）：前文的边界是区间第一章，后文从区间最后一章之后算起——
   // 区间里那几章正是这一次要写的，既不是前文也不是后文。
   const range = target.kind === 'plot' ? request.range : undefined;
+  // 架构、大纲与单条设定（展开）都不在哪一章上：全书都算前文。单条设定不能落到下面按 `targetNo` 定位那一支——
+  // 对话页发生成时总带着一个章号，拿它当边界，定稿记录与相关设定就只看得到那一章之前的。
   const no =
-    target.kind === 'outline' || target.kind === 'setting'
+    target.kind === 'outline' || target.kind === 'setting' || target.kind === 'lore'
       ? Number.POSITIVE_INFINITY
       : (range?.from ??
         plot?.no ??

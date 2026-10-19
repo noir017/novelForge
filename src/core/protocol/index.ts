@@ -40,6 +40,7 @@ export type {
   CastEntry,
   CastSummary,
   LoreSummary,
+  LoreThinEntry,
   LoreUnfiledEntry,
   PlotPipelineView,
   PlotSummaryView,

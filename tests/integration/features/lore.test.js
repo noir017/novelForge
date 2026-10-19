@@ -7,12 +7,13 @@
  * | 「全部建条目」只建出现 ≥2 章的；建在它的分类目录里，记水位与正文指纹 | 长尾不值得一条一次；分类就是目录 |
  * | 整合只并水位之后、第一处没定稿的章之前的新事实 | 否则那一章日后定稿，它的事实永远进不了条目 |
  * | 机器写的可以直接采纳；作者改过的一律先对比 | 第 3 条：不静默覆盖 |
+ * | 原来有暗设、整合完没了的，机器写的也先对比 | 分不清是正文揭开了还是模型漏了（完善设定，第 27 条） |
  * | 关键词只增不减，水位推到能推的地方 | 作者写的关键词不能被模型拿掉 |
  * | 建条目、整合新收的关键词不收名录里另记着的名字 | 收了那个名字就再也建不出自己的条目（旧的整本重扫把几十个法术并进了「魔法体系」） |
  * | 交回来的解析不了就这一条重来一次，还不行算失败、名字留在未建条目里；次数按上限报 | 旧的整本重扫解析不了的直接丢；第 4 条 |
  * | 整理：搬家清单先校验（认不出的条目、没建的目录、太深的目录不收），作者点头才搬，内容一字不改 | 作者定案：只搬不改 |
  */
-const { describe, test, before, after } = require('node:test');
+const { describe, test, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { loadBundle } = require('../../helpers/load');
@@ -90,6 +91,7 @@ before(async () => {
     lore: './src/core/features/lore.ts',
     loreIndex: './src/core/views/lore.ts',
     db: './src/core/runtime/db.ts',
+    fs: './src/core/model/fs.ts',
   });
   h = makeFakeHost({ supportsVscodeLm: true, settings: makeSettings({ concurrency: 1 }) });
   bundle.host.initHost(h.host);
@@ -211,6 +213,39 @@ describe('整合', () => {
     await bundle.lore.integrateLore(project, ['.novelforge/lore/地域/青崖镇.md']);
     assert.equal(fake.callCount(), 0);
     assert.match(h.toasts.map((x) => x.message ?? x).join('\n'), /第 4 章还没定稿/);
+  });
+
+  // 完善设定（2026-10-19）：分不清是正文全揭开了还是模型漏了，暗设不能悄悄没了。
+  describe('原来有暗设的机器写条目', () => {
+    const INN = '.novelforge/lore/地域/青崖/停舟客栈.md';
+    const BODY = '## 概要\n\n镇上唯一的客栈。\n\n## 暗设\n\n掌柜是前朝暗卫。';
+    beforeEach(() => {
+      t.write(
+        INN,
+        `---\ntitle: 停舟客栈\nkeywords: [停舟]\nupdatedThrough: 0\nbodyHash: ${bundle.fs.hash(BODY)}\n---\n\n# 停舟客栈\n\n${BODY}\n`
+      );
+      project.invalidate();
+    });
+
+    test('整合完暗设一句都没了：选了直接采纳也先给对比', async () => {
+      entryReply = () => ENTRY('镇上唯一的客栈', '## 概要\n\n镇上唯一的客栈。\n\n## 现状\n\n二楼被烧了。');
+      fake.reset();
+      h.expect('机器写的直接采纳并开始');
+      await bundle.lore.integrateLore(project, [INN]);
+      assert.equal(h.reviewed.length, 1, '暗设没了，先对比');
+    });
+
+    test('暗设还在：照作者选的直接采纳', async () => {
+      entryReply = () =>
+        ENTRY('镇上唯一的客栈', '## 概要\n\n镇上唯一的客栈。\n\n## 现状\n\n二楼被烧了。\n\n## 暗设\n\n掌柜是前朝暗卫。');
+      fake.reset();
+      h.expect('机器写的直接采纳并开始');
+      await bundle.lore.integrateLore(project, [INN]);
+      assert.equal(h.reviewed.length, 0);
+      project.invalidate();
+      const inn = (await project.listLore()).find((e) => e.relPath === INN);
+      assert.ok(inn.body.includes('掌柜是前朝暗卫'));
+    });
   });
 });
 

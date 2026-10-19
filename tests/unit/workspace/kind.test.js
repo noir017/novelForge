@@ -250,6 +250,20 @@ describe('kindOfPath · 角色 / 设定 / 草稿', () => {
     assert.equal(kindOf('.novelforge/lore/青云宗.md').kind, 'lore');
   });
 
+  // 完善设定（2026-10-19）：一条条目是架构那一层的单条设定目标（展开），分类目录里的也是；MCP 的 generate 不用特判。
+  test('设定条目给出架构层与单条设定目标', () => {
+    const k = kindOf('.novelforge/lore/宗门/正道/天机阁.md');
+    assert.equal(k.kind, 'lore');
+    assert.equal(k.stage, 'setting');
+    assert.deepEqual(k.target, { kind: 'lore', relPath: '.novelforge/lore/宗门/正道/天机阁.md' });
+  });
+
+  test('设定区里不是 .md 的不是目标', () => {
+    const k = kindOf('.novelforge/lore/宗门/天机阁.txt');
+    assert.equal(k.kind, 'other');
+    assert.equal(k.target, undefined);
+  });
+
   // 角色/设定区不跟着章节放宽扩展名，仍然只认 .md。
   test('角色区的 .txt 不是角色卡', () => {
     assert.equal(kindOf('.novelforge/characters/林昭.txt').kind, 'other');
@@ -297,6 +311,7 @@ describe('pathOfTarget · 与 kindOfPath 往返', () => {
     { kind: 'setting', doc: 'world' },
     { kind: 'outline' },
     { kind: 'plot', plotRelPath: '.novelforge/summaries/012-入宗.md' },
+    { kind: 'lore', relPath: '.novelforge/lore/宗门/天机阁.md' },
   ];
 
   for (const target of targets) {

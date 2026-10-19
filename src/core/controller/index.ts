@@ -40,6 +40,7 @@ import { DEFAULT_PARAGRAPH_STYLE } from '../model/paragraphFormat';
 import {
   chapterAction,
   editReview,
+  expandLore,
   pushPipeline,
   retry,
   reviseChapter,
@@ -476,6 +477,10 @@ export class ChatController {
 
       case 'rewriteArchitecture':
         await rewriteArchitecture(this, normalizeTarget(msg.target));
+        return;
+
+      case 'expandLore':
+        await expandLore(this, msg);
         return;
 
       case 'saveFile': {

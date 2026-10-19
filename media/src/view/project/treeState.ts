@@ -21,6 +21,7 @@ export const openGroups: Record<string, boolean> = {
   characters: true,
   cast: true,
   lore: true,
+  loreThin: true,
   loreUnfiled: true,
   meta: true,
 };

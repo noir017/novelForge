@@ -596,7 +596,8 @@ function normalize(id: string, raw: unknown): ChatSession {
  *
  * **只要 `id` 在就不整体作废**：坏掉的字段按默认值补，气泡上那一轮至少还
  * 认得出产出过什么。`target` 走 `normalizeTarget`（认不出回落全书大纲），
- * `action` 走 `normalizeAction`，两者都不抛。
+ * `action` 走 `normalizeAction`，两者都不抛。展开一条设定的草稿（`{ kind: 'lore', relPath }`）原样认回来——
+ * 采纳时它还是那一条设定，不会被当成整批设定清单（`{ kind: 'setting', doc: 'lore' }`）。
  *
  * `artifact` 原样收下不重新校验：它只是生成那一刻的展示快照，采纳时会拿
  * 气泡里当下的文本重新解析（用户可能改过）。

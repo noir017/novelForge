@@ -7,9 +7,10 @@
 | 文件 | 职责 |
 |---|---|
 | [creation.ts](creation.ts) | 设置页的连接测试（`testConnection`——严格用指定的那个模型，不走分档池）+ 两个纯文本工具：`cleanOutput`（**只对正文层用**，在 JSON 产物上跑会切坏结构）与 `suggestTitle`。从前的 `CreationSession` 类没了，四件事各自搬了家，见下表。 |
-| [artifact.ts](artifact.ts) | ★ 模型输出 → 可采纳的结构化产物。三层降级（JSON → Markdown 小节 → 全文兜底），前两层的写法与定稿（`summarize.ts` 的 `parseSummaryResponse`）一致，定稿不做全文兜底；**细纲给了区间就是一批**，按批次合同严格解码、不做全文兜底。**只解析，一个字都不写盘。** |
+| [artifact.ts](artifact.ts) | ★ 模型输出 → 可采纳的结构化产物。三层降级（JSON → Markdown 小节 → 全文兜底），前两层的写法与定稿（`summarize.ts` 的 `parseSummaryResponse`）一致，定稿不做全文兜底；**细纲给了区间就是一批**，按批次合同严格解码、不做全文兜底。单章细纲第九节里 `isNew` 的另记一份 `newLore`（采纳时建空条目，完善设定 §3）。单条设定目标（展开）解析成 `loreEntries`（`{ entries, questions }`，第一项是目标条目、按 `relPath` 认，其余是子条目），**不做全文兜底**：解析不了就是空的、没有落盘卡片。**只解析，一个字都不写盘。** |
 | [blueprint.ts](blueprint.ts) | 细纲批次（章节蓝图）的严格解码：`title` / `synopsis` 缺了、`keyEvents` 一条都没有或 `characters` 一个人都没有给出带路径的诊断（`keyEvents` 是一条一件事的列表，最多 8 条；给成一段字就按换行与分号拆开照收），时间地点、看点、新增伏笔、状态变更可以空着、形状不对照收；超长截断不作废，新角色必须逐字出现在出场名单里；覆盖检查（漏章 / 重复 / 越界）。`blueprintToPlot` 把一章蓝图落成细纲的八节（连续性事实空着，定稿时才有）。合同移植自 AI-Novel-Writer。 |
 | [roster.ts](roster.ts) | 角色图谱两段式的解码：身份清单 → 按冻结清单补详情 → 拼成角色卡，「人物关系」由清单生成到双方卡上。性别也在清单那一步定（一班人马男女怎么配是排人时的事），跟着冻结清单进详情、落进卡的 `gender`。比上游宽松：只有一个能用的人都没有才算失败。 |
+| [loreExpand.ts](loreExpand.ts) | 展开一条设定（完善设定，2026-10-19）的解码：`{brief, keywords, body:{概要, 规则与边界, 现状, 暗设}, children, questions}`。程序校验不加调用：明面三节按上限截（合计 600，`normalizeLoreBody` 给 600 的那一版）、暗设截 200、一句话截 40，截了都写进说明；关键词与子条目给了 `known`（磁盘上的条目、角色卡、名录里另记着的名字）时过滤——关键词过 `cleanLoreKeywords`（拆出去的子条目也算别的条目），子条目丢掉名字已有条目的、人名、重名、与本条同名的，最多 3 条；问题最多 5 条、每条 60 字。明面三节一节都没有、不是 JSON 的都算解析不了（`]` `}` 前多出来的逗号自己修，不调模型）。`renderLoreExpansion` / `parseLoreExpansion` 是气泡往返（与合同同一个形状，`questions` 也在，往返不丢字段）。 |
 | [loreList.ts](loreList.ts) | 设定清单（架构第五件，设定名录）两段式的解码：清单（按这本书的题材排的分类目录树 + 12–30 条：标题、分类、关键词、一句话；已有目录照用，已有条目照抄名字）→ 每 6 条补正文三节（初稿每节有上限、合计 300 字，没写的节写「（未交代）」）。调用次数 `loreListCalls()` 低 3 / 高 6 / 上限 12，链里调到 12 次就停手，剩下的条目只按清单建。落盘在 `generation/accept.ts`：先建分类目录（空的也建），新条目建在分类目录里、记 `bodyHash`；撞上已有条目的走覆盖审阅（关键词合并、一句话新的优先、正文新的为空就保留旧的）。已经写了正文的书这一件算填过，不走这条链。 |
 | [novelConfig.ts](novelConfig.ts) | 小说配置的 JSON 合同：上游英文键 → `config.md` 八节与 frontmatter，「全局要求」4–8 条 600 字的质检，一句话弹窗时「保留原文，追加生成」的合并，规范化草稿（`config.md` 全文 + 一节文风）。 |
 | [structuredJson.ts](structuredJson.ts) | 结构化输出的 JSON 小工具：认出「语法坏了但值得修」的输出；校验修过的那份只改了标点（标量逐个一致，只许在末尾补闭合括号）；「唯一一个完整对象」。 |
@@ -25,9 +26,9 @@
 | [summarizePrompt.ts](summarizePrompt.ts) | 定稿（`SUMMARY_SYSTEM` 照正文整理细纲；`REFINE_SYSTEM` 是它加一段怎么对待「当前细纲」）/ 阶段摘要 / 全书摘要四条系统提示。 |
 | [characters.ts](characters.ts) | 从选定的几段正文**批量**提取/更新角色卡（缺省勾最近几章随上下文详细度，缺省 3 章，作者可改）。系统提示词在 [charactersPrompt.ts](charactersPrompt.ts)。 |
 | [charactersPrompt.ts](charactersPrompt.ts) | 批量提取角色卡的系统提示。 |
-| [lore.ts](lore.ts) | ★ 设定条目的三件维护（设定名录，2026-10-18）：**建条目**（`buildLoreEntries`：名录里出现过、还没有条目的名字，「全部」只建出现 ≥2 章的；原料是定稿细纲里提到它的记录——第九节那一句、连续性事实、提到它的句子——**不重读正文**；建在它的分类目录里，记水位与 `bodyHash`）、**整合**（`integrateLore`：条目水位之后的新事实并进条目，水位停在第一处没定稿或定稿后正文又改过的章之前；机器写的可选直接采纳，作者改过的一律先对比；关键词只增不减）、**按目录整理**（`organizeLore`：模型照本书目录树出搬家清单，`checkOrganizePlan` 校验，作者看过才搬、只搬不改，不给外部 agent；新目录不先建，`workspace.move` 落盘前自己补齐父目录，搬不成不留空目录）。每条 / 每批 1 次，走 `loreSynthesis` 档；建条目与整合交回来的解析不了时这一条重来一次（`LORE_ENTRY_CALLS`，确认框按上限报），还不行才算失败，名字留在「出现过 · 未建条目」里。新收的关键词过 `cleanLoreKeywords`，名录里另记着的名字不收。从前这里是「通读全书 → 每条整合」，每跑一次都从第 1 章扫起，删了。系统提示词在 [lorePrompt.ts](lorePrompt.ts)。 |
+| [lore.ts](lore.ts) | ★ 设定条目的三件维护（设定名录，2026-10-18）：**建条目**（`buildLoreEntries`：名录里出现过、还没有条目的名字，「全部」只建出现 ≥2 章的；原料是定稿细纲里提到它的记录——第九节那一句、连续性事实、提到它的句子——**不重读正文**；建在它的分类目录里，记水位与 `bodyHash`）、**整合**（`integrateLore`：条目水位之后的新事实并进条目，水位停在第一处没定稿或定稿后正文又改过的章之前；机器写的可选直接采纳，作者改过的一律先对比；关键词只增不减）、**按目录整理**（`organizeLore`：模型照本书目录树出搬家清单，`checkOrganizePlan` 校验，作者看过才搬、只搬不改，不给外部 agent；新目录不先建，`workspace.move` 落盘前自己补齐父目录，搬不成不留空目录）。每条 / 每批 1 次，走 `loreSynthesis` 档；建条目与整合交回来的解析不了时这一条重来一次（`LORE_ENTRY_CALLS`，确认框按上限报），还不行才算失败，名字留在「出现过 · 未建条目」里。新收的关键词过 `cleanLoreKeywords`，名录里另记着的名字不收。从前这里是「通读全书 → 每条整合」，每跑一次都从第 1 章扫起，删了。系统提示词在 [lorePrompt.ts](lorePrompt.ts)。原料与水位（`recordsAbout`、`integrationWatermark`、`MATERIAL_TOKENS`）在 [../views/loreMaterial.ts](../views/loreMaterial.ts)：装配器展开一条设定时要同一份，而 context/ 不依赖 features/。 |
 | [loreRecord.ts](loreRecord.ts) | 记设定：定稿第一步顺手记进细纲第九节（`loreHint` 给本书的分类表与这一章提到的已有设定，`checkLore` 写盘前校验——名字逐字在正文里、人名不算、已有条目换成标题与目录、说明找不到依据就清空），以及作者定的**单独记一章 / 补记**（`recordLore`：只对定稿过、正文没再改过的章，每章 1 次、串行，只换第九节，走 `loreScan` 档）。 |
-| [lorePrompt.ts](lorePrompt.ts) | 「设定」字段说明（定稿与单独记设定一字不差共用）、单独记设定、建条目与整合（字数上限是第 27 条的锚点）、按目录整理四段提示。 |
+| [lorePrompt.ts](lorePrompt.ts) | 「设定」字段说明（定稿与单独记设定一字不差共用）、单独记设定、建条目与整合（字数上限是第 27 条的锚点；600 字只指明面三节）、按目录整理四段提示。建条目与整合的那一段管「暗设」（完善设定，2026-10-19）：现有条目带着就原样留作第四节（≤200 字、不算进 600），记录表明正文已经揭开的挪进前三节、没揭开的一字不改，建条目（没有现有条目）不写，暗设里的东西不进一句话与关键词。整合的解析（`lore.ts` 的 `parseEntryDraft`）整份照收模型给的正文，第四节不会在解析时丢。 |
 | [characterCard.ts](characterCard.ts) | ★ **单个角色**的档案更新编排。解析见 [characterCardParse.ts](characterCardParse.ts)，控篇幅提示词见 [characterCardPrompt.ts](characterCardPrompt.ts)。 |
 | [characterCardParse.ts](characterCardParse.ts) | 角色卡更新的 JSON 解析（`parseCardResponse`）。 |
 | [characterCardPrompt.ts](characterCardPrompt.ts) | 更新角色卡的系统提示（字数上限与「性格 / 语言习惯」优先）；定稿时更新当前状态的系统提示（`STATE_SYSTEM`）。 |
@@ -46,7 +47,7 @@
 
 创作按 `Stage × Capability × Target` 展开（定义在 [../model/pipeline.ts](../model/pipeline.ts)）：架构 → 大纲 → 细纲 → 正文。同一层可以被讨论（默认动作，挑刺、检查设定都靠直接打字说），也可以被生成；细纲层另有一个 `settle`（落定细纲），把刚才那段讨论里**已经达成的结论**沉淀成细纲。改写不是独立能力：目标已有内容时的生成就是改写，作者那句话就是修改意见。从前还有 `split`（大纲拆卷、卷拆剧情段）与拆章，卷那一层删掉之后都没了。
 
-**创作编排本身已经不在本层了**——它是 [../generation/](../generation/README.md)：`generate.ts` 无状态地装配 → 调模型 → （需要时接 `structured.ts` 的生成链）→ 解析成 `Draft`，`accept.ts` 按产物分派到六条落盘路径，`drafts.ts` 让草稿活过一次刷新。并发控制在 `controller/`（那是调度的责任）。本层留下的是 `artifact.ts`（解析）与 `pipelineBatch.ts`（工程页批量）。
+**创作编排本身已经不在本层了**——它是 [../generation/](../generation/README.md)：`generate.ts` 无状态地装配 → 调模型 → （需要时接 `structured.ts` 的生成链）→ 解析成 `Draft`，`accept.ts` 按产物分派到八条落盘路径，`drafts.ts` 让草稿活过一次刷新。并发控制在 `controller/`（那是调度的责任）。本层留下的是 `artifact.ts`（解析）与 `pipelineBatch.ts`（工程页批量）。
 
 **生成与落盘是两步**，这是这条路上最要紧的一条：
 

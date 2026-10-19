@@ -37,6 +37,7 @@ export type {
   LogEntry,
   LogLevel,
   LoreSummary,
+  LoreThinEntry,
   LoreUnfiledEntry,
   NextStepView,
   OutMessage,
@@ -160,6 +161,10 @@ export {
   REVISE_CALLS,
   // 设定名录：建条目、整合这一条的右键菜单与后端确认框同一个数。
   LORE_ENTRY_CALLS,
+  // 完善设定：展开一条的右键菜单与后端问要求的那一句同一个数；单条设定目标的说法也同源。
+  LORE_EXPAND_CALLS,
+  describeTarget,
+  loreOfTarget,
 } from '../../src/core/model/pipeline';
 
 /**

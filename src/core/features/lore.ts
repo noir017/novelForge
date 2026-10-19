@@ -13,14 +13,14 @@ import { parseMarkdown, stripH1 } from '../model/markdown';
 import { describeTaskModels } from '../model/tiers';
 import { LORE_ENTRY_CALLS, describeCalls, loreEntryCalls } from '../model/pipeline';
 import { NovelProject, renderLoreEntry } from '../model/project';
-import { Plot, PLOT_SECTION_KEYS } from '../model/plotFile';
-import { parseContinuityFacts } from '../model/continuity';
+import { Plot } from '../model/plotFile';
 import { LoreEntry } from '../model/types';
-import { LORE_ENTRY_LIMITS, cleanLoreKeywords, normalizeLoreCategory, normalizeLoreName } from '../model/loreFile';
+import { LORE_ENTRY_LIMITS, cleanLoreKeywords, normalizeLoreCategory, normalizeLoreName, splitLoreHidden } from '../model/loreFile';
 import { runTask } from '../runtime/progress';
 import { Workspace } from '../workspace';
 import { finalizedPlots } from '../views/cast';
 import { LoreFact, LoreRecord, UnfiledLore, buildLoreIndex } from '../views/lore';
+import { MATERIAL_TOKENS, integrationWatermark, recordsAbout } from '../views/loreMaterial';
 import { LORE_ENTRY_SYSTEM, LORE_ORGANIZE_SYSTEM } from './lorePrompt';
 import { extractJsonObject, stringArray, stripCodeFence, stripTrailingCommas, unique } from './parse';
 
@@ -47,8 +47,6 @@ export const BUILD_MIN_CHAPTERS = 2;
 const ORGANIZE_BATCH = 80;
 /** 新目录最多几层。 */
 const ORGANIZE_DEPTH = 3;
-/** 建条目、整合时给模型的记录最多多少 token（原料是一句一句的记录，很少到这么多）。 */
-const MATERIAL_TOKENS = 6000;
 
 /** 模型交回来的一条。 */
 interface EntryDraft {
@@ -58,27 +56,7 @@ interface EntryDraft {
 }
 
 // ---------------------------------------------------------------- 水位
-
-/**
- * 整合能推到第几章：**第一处没定稿（或定稿之后正文又改过）的章之前**。第 5 章没定稿、第 6 章定稿了，
- * 水位最多到 4——否则第 5 章日后定稿，它的事实永远进不了条目（全书摘要的增量也是这么停的）。
- * 一章都没写是 0。
- */
-async function integrationWatermark(project: NovelProject): Promise<number> {
-  const chapters = [...(await project.listChapters())].sort((a, b) => a.order - b.order);
-  let through = 0;
-  for (const chapter of chapters) {
-    if (chapter.wordCount === 0) {
-      continue;
-    }
-    const plot = await project.plotOfChapter(chapter);
-    if (!plot?.sourceHash || plot.sourceHash !== chapter.contentHash) {
-      return chapter.order - 1;
-    }
-    through = chapter.order;
-  }
-  return through;
-}
+// 整合能推到第几章（`integrationWatermark`）挪到了 views/loreMaterial.ts：展开一条设定落盘时记同一个水位。
 
 /** 条目正文是不是机器写的：空的，或记下的指纹对得上。没盖过章的非空正文算作者的。 */
 export function loreOwnedByMachine(entry: Pick<LoreEntry, 'body' | 'bodyHash'>): boolean {
@@ -87,40 +65,8 @@ export function loreOwnedByMachine(entry: Pick<LoreEntry, 'body' | 'bodyHash'>):
 }
 
 // ---------------------------------------------------------------- 原料
-
-/**
- * 一个名字在定稿过的细纲里的**所有记录**，带章号：第九节冒号后那一句、连续性事实里提到它的、
- * 另外几节里提到它的句子。建条目的原料。
- */
-function recordsAbout(plots: readonly Plot[], words: readonly string[], notes: readonly LoreFact[]): LoreFact[] {
-  const out: LoreFact[] = [...notes];
-  const hit = (text: string): boolean => words.some((w) => w.length >= 2 && text.includes(w));
-  for (const plot of plots) {
-    for (const fact of parseContinuityFacts(plot.sections.连续性事实)) {
-      if (hit(fact.statement)) {
-        out.push({ no: plot.no, text: fact.statement, source: 'fact' });
-      }
-    }
-    for (const key of PLOT_SECTION_KEYS) {
-      if (key === '连续性事实' || key === '出场人物') {
-        continue;
-      }
-      for (const sentence of plot.sections[key].split(/(?<=[。！？!?])|\n+/u)) {
-        const s = sentence.replace(/^\s*[-*·•]\s*/u, '').trim();
-        if (s && hit(s)) {
-          out.push({ no: plot.no, text: s, source: 'lore' });
-        }
-      }
-    }
-  }
-  const seen = new Set<string>();
-  return out
-    .filter((f) => {
-      const key = `${f.no}|${f.text}`;
-      return !seen.has(key) && (seen.add(key), true);
-    })
-    .sort((a, b) => a.no - b.no);
-}
+// 一个名字在定稿细纲里的全部记录（`recordsAbout`）也在 views/loreMaterial.ts：装配器展开一条设定时要同一份，
+// 而 context/ 不依赖 features/。
 
 function renderRecords(records: readonly LoreFact[]): string {
   return takeHead(records.map((f) => `- 第 ${f.no} 章：${f.text}`).join('\n'), MATERIAL_TOKENS);
@@ -516,7 +462,9 @@ async function integrateOne(
   });
   const abs = project.pathOf(entry.relPath);
   const machine = loreOwnedByMachine(entry);
-  if (!(machine && autoApply)) {
+  // 原来有暗设、整合完一句都没了：分不清是正文全揭开了还是模型漏了，机器写的也先对比，不直接采纳（第 27 条）。
+  const hiddenGone = splitLoreHidden(entry.body).hidden !== '' && splitLoreHidden(draft.body).hidden === '';
+  if (!(machine && autoApply) || hiddenGone) {
     const verdict = await serialize(async () => {
       // 排到队之前文件可能已被别处改过，进队后再读一次才是当下的真相。
       const current = await readText(abs);
@@ -536,7 +484,9 @@ async function integrateOne(
   await clearFailures(project, 'lore', entry.relPath, 'integrateLore');
   log.info(
     `已整合设定「${entry.title}」`,
-    `${entry.relPath}｜并进 ${plan.facts.length} 条新记录｜整合到第 ${through} 章${machine ? '' : '｜作者改过，对比后采纳'}`
+    `${entry.relPath}｜并进 ${plan.facts.length} 条新记录｜整合到第 ${through} 章${
+      !machine ? '｜作者改过，对比后采纳' : hiddenGone ? '｜暗设没了，对比后采纳' : ''
+    }`
   );
   return true;
 }

@@ -1,6 +1,7 @@
 import type { ChatController } from './index';
 import { basename } from 'node:path';
-import { describeArtifact } from '../features/artifact';
+import { Artifact, describeArtifact } from '../features/artifact';
+import { loreFolderOf } from '../features/loreList';
 import { describeOutlineRewrite, outlineRewritePlan, rewriteOutline } from '../features/outlineRewrite';
 import { confirmDespiteGap } from '../features/chapterGap';
 import { acceptArtifact as writeArtifact, plannedCards, plannedLore } from '../generation/accept';
@@ -24,6 +25,7 @@ import {
   CreationStage,
   CreationTarget,
   DEFAULT_CAPABILITY,
+  LORE_EXPAND_CALLS,
   PLOT_BATCH,
   STAGE_CAPABILITIES,
   WriteMode,
@@ -31,6 +33,7 @@ import {
   describeWriteLength,
   deriveBookStage,
   deriveNextStep,
+  describeCalls,
   describeTarget,
   isCreationStage,
   normalizeTarget,
@@ -39,6 +42,10 @@ import {
   stageOfTarget,
 } from '../model/pipeline';
 import { isSettingFilled } from '../model/settingFile';
+import { createLoreLookup, loreThin, splitLoreHidden } from '../model/loreFile';
+import { slugify, uniqueSlug } from '../model/fs';
+import { loreEntryAt } from '../views/loreMaterial';
+import { Workspace, normalizeRel } from '../workspace';
 import { isOutlineFilled, outlineOverlaps } from '../model/outlineFile';
 import {
   ChapterAction,
@@ -107,7 +114,7 @@ export async function send(
     // 「请生成」，那句话还会被当成要求装进 prompt。
     //
     // 讨论例外：它的全部内容就是作者那句话，没有话就没有讨论。
-    const command = commandOf(payload.stage, payload.capability);
+    const command = commandOf(payload.stage, payload.capability, normalizeTarget(payload.target));
     if (!payload.text.trim() && !command) {
       c.toast('请先输入内容。', 'error');
       return;
@@ -324,6 +331,7 @@ export async function runTurn(
       overwrites: await targetHasContent(c, action, draft.target, draft.range, draft.writeMode),
       ...(creates.length > 0 ? { creates } : {}),
       ...(createsLore.length > 0 ? { createsLore } : {}),
+      ...questionsOf(draft.artifact),
       ...(draft.notes?.length ? { notes: draft.notes } : {}),
       ...(draft.calls ? { calls: draft.calls } : {}),
       ...writingOf(draft),
@@ -395,10 +403,16 @@ export async function describeArtifactOf(
     overwrites: await targetHasContent(c, action, target, draft?.range, draft?.writeMode),
     ...(creates.length > 0 ? { creates } : {}),
     ...(createsLore.length > 0 ? { createsLore } : {}),
+    ...questionsOf(artifact),
     ...(draft?.notes?.length ? { notes: draft.notes } : {}),
     ...(draft?.calls ? { calls: draft.calls } : {}),
     ...(draft ? writingOf(draft) : {}),
   };
+}
+
+/** 展开一条设定附的「还没定的问题」：只上卡片（`SerializedArtifact.questions`），不落盘。 */
+function questionsOf(artifact: Artifact): Partial<SerializedArtifact> {
+  return artifact.kind === 'loreEntries' && artifact.questions.length > 0 ? { questions: [...artifact.questions] } : {};
 }
 
 /** 正文那几样要摊在卡片上的事：写了多长、是不是追加、有没有重演上一章结尾（W7）。 */
@@ -446,7 +460,8 @@ function normalizeSetup(raw: unknown): { totalChapters: number; wordsPerChapter:
  *
  * 只看**这一层自己的产物**，而且只认「填过」：一份只有占位的模板说「会覆盖」
  * 是吓唬人。角色图谱、设定清单永远是 false——只建新卡 / 新条目（同名走各自的审阅）。正文看写法：
- * 「接着写」是追加，不覆盖；其余在这一章已有正文时是整章覆盖。
+ * 「接着写」是追加，不覆盖；其余在这一章已有正文时是整章覆盖。单条设定（展开）与落盘同一个判据
+ * （generation/accept.ts 的 `acceptLoreEntries`）：明面正文是空的、是占位、又没有暗设才不算覆盖。
  */
 export async function targetHasContent(
   c: ChatController,
@@ -488,6 +503,11 @@ export async function targetHasContent(
       const no = parsePlotFileName(basename(target.plotRelPath))?.no ?? (await c.project.resolvePlot(target.plotRelPath))?.no;
       const chapter = no !== undefined ? await c.project.getChapter(no) : undefined;
       return !!chapter && chapter.wordCount > 0;
+    }
+    case 'lore': {
+      const { entry, exists } = await loreEntryAt(c.project, target.relPath);
+      const thin = loreThin(entry);
+      return exists && !((thin === 'empty' || thin === 'placeholder') && !splitLoreHidden(entry.body).hidden);
     }
   }
 }
@@ -642,6 +662,10 @@ function artifactDetail(art: SerializedArtifact): string {
   if (art.createsLore?.length) {
     lines.push(`会新建设定条目：${art.createsLore.join('、')}`);
   }
+  // 展开一条设定附的问题：只在这里列，不写进任何文件；作者在对话里答完再展开一次。
+  if (art.questions?.length) {
+    lines.push(`还没定的（不写进文件，答完可以再展开一次）：\n${art.questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`);
+  }
   if (art.overwrites) {
     lines.push('那里已经有内容了，写入前会让你先对比一遍。');
   }
@@ -747,6 +771,77 @@ export async function rewriteArchitecture(c: ChatController, target: CreationTar
     await c.pushState();
     return;
   }
+  await setTarget(c, target);
+  await send(c, {
+    text: ask.trim(),
+    stage: stageOfTarget(target),
+    capability: 'generate',
+    target,
+    targetNo: c.current.targetNo ?? 1,
+    attachments: [],
+    excludedIds: [],
+  });
+}
+
+/**
+ * 工程页设定条目、「待完善」那一行右键「展开…」（完善设定，2026-10-19）：把对话页的目标换成这一条设定，
+ * **直接发一轮生成**（展开）。照 {@link rewriteArchitecture} 那条路：先问一句要求（留空就照已排的细纲去想；
+ * 取消就什么都不做），生成照样在对话页流式输出、照样当场问写不写，已经有内容的条目覆盖前先对比（第 19、3 条）。
+ * 模型严格用会话选定的那个（第 12 条，`send` 那条路本来就是）。
+ *
+ * 只给了名字（「待完善」里还没有条目的）：问完要求之后先在第九节给的分类目录下建一条空条目（同细纲带出新设定），
+ * 再展开它。名字已被已有条目（标题或关键词）占了就展开那一条；是角色卡上的人就报错退出——人不是设定。
+ */
+export async function expandLore(c: ChatController, msg: { relPath?: string; name?: string; category?: string }): Promise<void> {
+  if (c.busy) {
+    c.toast('已有一个生成任务在进行中。', 'error');
+    return;
+  }
+  const entries = await c.project.listLore();
+  const rel = msg.relPath ? normalizeRel(msg.relPath) : undefined;
+  const name = msg.name?.trim() ?? '';
+  let entry = rel ? entries.find((e) => e.relPath === rel) : name ? createLoreLookup(entries).find(name) : undefined;
+  if (rel && !entry) {
+    c.toast('这条设定不在了，可能刚被改名或删除。', 'error');
+    return;
+  }
+  if (!entry && !name) {
+    c.toast('没说要展开哪一条设定。', 'error');
+    return;
+  }
+  if (!entry) {
+    const cards = await c.project.listCharacters();
+    if (cards.some((card) => card.name === name || card.aliases.includes(name))) {
+      c.toast(`「${name}」是角色卡上的人，人不是设定，没法展开。`, 'error');
+      return;
+    }
+  }
+  const label = entry?.title ?? name;
+  const ask = await getHost().input({
+    title: `展开设定「${label}」`,
+    prompt:
+      `这次有什么要求？留空就照已排的细纲去想。${describeCalls(LORE_EXPAND_CALLS)}。` +
+      (entry ? '' : '还没有这一条，会先建一条空条目。') +
+      '写入前卡片上会列出展开的内容、建议拆出的子条目与还没定的问题；已经写过内容的条目会先让你对比。',
+    placeHolder: '例如：阁规要严一些；暗设里交代它和魔宗的旧账',
+    multiline: true,
+  });
+  if (ask === undefined) {
+    return;
+  }
+  if (!entry) {
+    const folder = loreFolderOf(msg.category ?? '');
+    const slug = await uniqueSlug(c.project.loreDir, `${folder ? `${folder}/` : ''}${slugify(name)}`);
+    const created = await new Workspace(c.project).writeLore({ slug, title: name, keywords: [name], brief: '', body: '' });
+    c.project.invalidate();
+    log.info(`展开之前先建了空条目「${name}」`, created);
+    entry = (await c.project.listLore()).find((e) => e.relPath === created);
+    if (!entry) {
+      c.toast(`没建成「${name}」的条目。`, 'error');
+      return;
+    }
+  }
+  const target: CreationTarget = { kind: 'lore', relPath: entry.relPath };
   await setTarget(c, target);
   await send(c, {
     text: ask.trim(),
@@ -1110,6 +1205,10 @@ export async function describeTargetOf(
   if (range && (target.kind === 'plot' || target.kind === 'outline')) {
     const span = range.from === range.to ? `第 ${range.from} 章` : `第 ${range.from}–${range.to} 章`;
     return target.kind === 'plot' ? `${span} · 细纲` : `情节大纲 · ${span}`;
+  }
+  // 单条设定报条目的标题（文件名与标题偶尔不一样：同名时 `uniqueSlug` 会加后缀）。
+  if (target.kind === 'lore') {
+    return describeTarget(target, { title: (await loreEntryAt(c.project, target.relPath)).entry.title });
   }
   const relPath = plotOfTarget(target);
   if (!relPath) {

@@ -33,6 +33,14 @@ export function openDraft(relPath: string): void {
 }
 
 /**
+ * 展开一条设定（完善设定，2026-10-19）：后端先问一句要求，再在对话页把目标换成这一条、发一轮生成。
+ * 已有条目给 `relPath`；「待完善」里还没有条目的给 `name` 与 `category`（后端先按分类建空条目）。
+ */
+export function expandLore(target: { relPath: string } | { name: string; category: string }): void {
+  vscode.postMessage({ type: 'expandLore', ...target });
+}
+
+/**
  * 所有页面都有的兜底菜单：一个刷新。
  *
  * **复用已有的 `projectAction: 'refresh'`**——后端那个分支只是 `pushState()`，

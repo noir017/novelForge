@@ -27,7 +27,8 @@
  * 判据是「整个输入框只有一个 `/词`」（`/^\/\S*$/`）：`/` 在中文正文里是普通
  * 字符（日期、比值、网址），只要后面跟了空格或前面有别的字，就不是在下命令。
  *
- * 命令表来自 core 的 `commandsFor(stage)`（零 import 的纯函数，前端直接打包）。
+ * 命令表来自 core 的 `commandsFor(stage, target)`（零 import 的纯函数，前端直接打包）。目标是单条设定时
+ * 「生成」叫「展开这条设定」（`/展开`）。
  * 前端不自己维护一份——否则界面上会出现一个后端不认的命令，点了什么都不发生。
  */
 import { el as mk, clear, closestFrom } from '../dom';
@@ -123,7 +124,7 @@ export function toggleCommands(): void {
 
 export function openCommands(): void {
   closeCommands();
-  if (commandsFor(store.session.stage).length === 0) {
+  if (commandsFor(store.session.stage, store.session.target).length === 0) {
     return;
   }
 
@@ -158,7 +159,7 @@ function redraw(): void {
   clear(panel);
 
   const filter = slashQuery(el.input.value) ?? '';
-  items = matching(commandsFor(store.session.stage), filter);
+  items = matching(commandsFor(store.session.stage, store.session.target), filter);
   active = Math.min(active, Math.max(0, items.length - 1));
 
   const head = mk('div', 'cmd-head');

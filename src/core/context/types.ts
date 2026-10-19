@@ -56,6 +56,12 @@ export type ItemKind =
   /** 这一章的正文全文：审稿审的就是它。 */
   | 'chapterFull'
   | 'lore'
+  /** 单条设定（展开，完善设定 2026-10-19）这一条现有的全部内容，含暗设。 */
+  | 'loreSelf'
+  /** 没定稿的细纲里用到这一条设定的地方（第九节那一行、梗概与关键事件里提到它的句子），带章号。 */
+  | 'lorePlan'
+  /** 定稿过的细纲里关于这一条设定的记录（已经写进正文的，不能推翻），带章号。 */
+  | 'loreRecord'
   | 'revision'
   /** 这一阶段绑的写作技能：补充的写作方法，排在用户消息最前面。 */
   | 'skill'
@@ -140,7 +146,11 @@ export type LayerId =
   /** 这一阶段绑的写作技能（`.novelforge/skills.json`），整份带或整份不带。 */
   | 'skill'
   /** 已写正文（拆书 A，`BuildRequest.derive`）：不是从正文整理时什么都不带。 */
-  | 'written';
+  | 'written'
+  /** 单条设定（展开）这一条现有的全部内容。目标不是单条设定时什么都不带。 */
+  | 'loreSelf'
+  /** 单条设定的原料：已排细纲里用到它的地方 + 定稿过的记录，合计封顶。目标不是单条设定时什么都不带。 */
+  | 'loreMaterial';
 
 export interface LayerSpec {
   layer: LayerId;

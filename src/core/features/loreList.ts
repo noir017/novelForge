@@ -266,10 +266,11 @@ function pickBodyFields(o: Record<string, unknown>): Record<string, unknown> | u
 /**
  * 正文规范成三节：`## 概要` / `## 规则与边界` / `## 现状`。给成对象按键取，给成 Markdown 按小节取，
  * 一个小节都认不出的整段当「概要」。每节不超过条目的上限（{@link LORE_ENTRY_LIMITS}），三节合计不超过
- * {@link LORE_LIST_BODY_MAX} 字——超了从超出的那一节起截掉。空着的节写「（未交代）」：起步时不必写满，
- * 节在，作者一眼看得出这里还没东西。三节全空就是空串。
+ * `max` 字（缺省 {@link LORE_LIST_BODY_MAX}，设定清单起步时的数；展开一条设定给 `LORE_ENTRY_LIMITS.body`）——
+ * 超了从超出的那一节起截掉。空着的节写「（未交代）」：起步时不必写满，节在，作者一眼看得出这里还没东西。
+ * 三节全空就是空串。
  */
-export function normalizeLoreBody(value: unknown): { body: string; clipped: boolean } {
+export function normalizeLoreBody(value: unknown, max: number = LORE_LIST_BODY_MAX): { body: string; clipped: boolean } {
   const sections: Record<string, string> = {};
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const o = value as Record<string, unknown>;
@@ -287,7 +288,7 @@ export function normalizeLoreBody(value: unknown): { body: string; clipped: bool
   if (!LORE_BODY_KEYS.some((k) => hasContent(sections[k]))) {
     return { body: '', clipped: false };
   }
-  let left = LORE_LIST_BODY_MAX;
+  let left = max;
   let clipped = false;
   const parts = LORE_BODY_KEYS.map((key) => {
     const chars = Array.from(hasContent(sections[key]) ? sections[key].trim() : '');

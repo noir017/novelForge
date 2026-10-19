@@ -1,4 +1,4 @@
-import { plotLabel } from '../../model/pipeline';
+import { loreOfTarget, plotLabel } from '../../model/pipeline';
 import { describeStateThrough } from '../../model/characterState';
 import { CONTEXT_DETAIL_LABEL, takeLast } from '../../model/contextDetail';
 import { ContinuityFact, locateEvidence, parseContinuityFacts } from '../../model/continuity';
@@ -6,14 +6,17 @@ import { Thread, pickActiveThreads, threadCandidates } from '../../model/threads
 import { CharacterCard, LoreEntry } from '../../model/types';
 import { createLoreLookup, loreMentionIn } from '../../model/loreFile';
 import { LoreFact, LoreRecord, buildLoreIndex } from '../../views/lore';
+import { expansionMaterial, loreEntryAt } from '../../views/loreMaterial';
 import { ContextItem } from '../types';
 import { estimateTokens } from '../tokenizer';
 import type { LayerFn } from './assembly';
 import { ChapterRef, readChapterText, readPrevManuscript } from './focus';
 import {
+  LORE_HIDDEN_DROPPED_NOTE,
   continuationTail,
   focusText,
   isPlaceholder,
+  loreBodyFor,
   renderCharacter,
   renderLoreFull,
   renderLoreLine,
@@ -122,20 +125,28 @@ export const characters: LayerFn = async (a, spec) => {
  * 正文时，模型照样拿得到新的那几句，不必每章定稿都调一次模型去改条目。整条超了 `loreFull`、超了
  * `loreChars` 或预算放不下就降成一行；一行也超了上限就丢。
  *
+ * 「暗设」（完善设定，2026-10-19）：整条带时，正文阶段与续写只带明面、明细里注一句（第 2 条）；规划时整份带，
+ * 暗设那一节换成「暗设（读者还不知道）」的标题（`render.ts` 的 `loreBodyFor`）。一行带的一句话本来就跳过暗设。
+ *
  * 架构那一层只有两件用得上它：**设定清单**当规划看（分类表 + 已有条目一行一条，清单要照用目录、照抄
  * 名字）；世界观不当规划看，只带作者点名的（已经写了正文的书再加近几章定稿里出现过的一句话）。其余几件
  * （配置、前提、角色图谱）一条都不带——它们在设定之前。
+ *
+ * **单条设定（展开，完善设定 2026-10-19）**：这一条自己是焦点（`loreSelf` 层），这里去掉它、只挑相关的——
+ * 关键词命中（来源在作者的话之外，再加上这一条的标题、关键词、一句话与正文，以及已排细纲里用到它的那几句）
+ * 整条带；同一个分类目录里的一行带。给分类表（建议拆出的子条目要归类），不给 R2、R3。
  */
 export const lore: LayerFn = async (a, spec) => {
   const { stage } = a.request.action;
   const doc = a.request.target.kind === 'setting' ? a.request.target.doc : undefined;
-  if (stage === 'setting' && doc !== 'lore' && doc !== 'world') {
+  const selfPath = loreOfTarget(a.request.target);
+  if (stage === 'setting' && doc !== 'lore' && doc !== 'world' && !selfPath) {
     return;
   }
   const listing = stage === 'setting' && doc === 'lore';
   const entries = await a.project.listLore();
-  // 排设定清单时一条条目都没有也要往下走：分类表（目录，空的也算）照样要给。
-  if (entries.length === 0 && !listing) {
+  // 排设定清单时一条条目都没有也要往下走：分类表（目录，空的也算）照样要给。展开一条时同理（子条目要归类）。
+  if (entries.length === 0 && !listing && !selfPath) {
     return;
   }
   const index = await buildLoreIndex(a.project, { entries });
@@ -143,9 +154,12 @@ export const lore: LayerFn = async (a, spec) => {
   const lookup = createLoreLookup(entries);
   const continuation = a.request.step?.kind === 'continuation';
   const planning = listing || stage === 'outline' || stage === 'plot';
+  // 「暗设」的去留（完善设定，2026-10-19）：正文阶段（写、接着写、重写、讨论正文）与续写整条只带明面，
+  // 揭开靠那一章的细纲；其余阶段（设定 / 大纲 / 细纲，含展开一条设定）整条带全部，暗设标明读者还不知道。
+  const writing = stage === 'manuscript' || continuation;
 
   // 规划时新引入的设定要归类：分类就是目录、每本书自己的，空目录也算，模型只能从这一行里知道有哪些。
-  if (planning) {
+  if (planning || selfPath) {
     const categories = await a.project.listLoreCategories();
     if (categories.length > 0) {
       a.admit({
@@ -162,7 +176,8 @@ export const lore: LayerFn = async (a, spec) => {
 
   const picked = new Map<string, { entry: LoreEntry; full: boolean; reason: string }>();
   const pick = (entry: LoreEntry, full: boolean, reason: string): void => {
-    if (!picked.has(entry.slug)) {
+    // 展开的那一条自己不在这里带：它是焦点，`loreSelf` 层整份带着。
+    if (!picked.has(entry.slug) && entry.relPath !== selfPath) {
       picked.set(entry.slug, { entry, full, reason });
     }
   };
@@ -174,7 +189,14 @@ export const lore: LayerFn = async (a, spec) => {
     }
   }
   // R1 里也分先后：作者这次亲口说的 → 本章细纲 → 本章已写的末尾。整条名额有限，先给最确定要用的。
-  const haystacks = [a.request.ask, focusText(a.focus), await chapterTailText(a)];
+  // 展开一条时再加：这一条自己写着什么、已排细纲里用到它的那几句。
+  const self = selfPath ? await loreEntryAt(a.project, selfPath, entries) : undefined;
+  const haystacks = [
+    a.request.ask,
+    focusText(a.focus),
+    await chapterTailText(a),
+    ...(self ? [selfText(self.entry), ...(await expansionMaterial(a.project, self.entry, { entries })).uses.map((u) => u.text)] : []),
+  ];
   for (const haystack of haystacks) {
     for (const entry of entries) {
       const hit = loreMentionIn(haystack, entry);
@@ -183,8 +205,16 @@ export const lore: LayerFn = async (a, spec) => {
       }
     }
   }
+  // 展开一条时同一个分类目录里的一行带：拆子条目、写规则时看得见旁边已经有什么。根目录（未分类）不算一类。
+  if (self?.entry.category) {
+    for (const entry of entries) {
+      if (entry.category === self.entry.category) {
+        pick(entry, false, `与「${self.entry.title}」同在「${self.entry.category}」`);
+      }
+    }
+  }
   let catalog = 0;
-  if (!continuation) {
+  if (!continuation && !self) {
     const recent = a.focus.previous.filter((r) => r.plot?.sourceHash && r.plot.lore).slice(-a.limits.castSummaries);
     for (const ref of recent.reverse()) {
       for (const line of ref.plot?.lore ?? []) {
@@ -231,7 +261,7 @@ export const lore: LayerFn = async (a, spec) => {
 
     let degraded = '';
     if (full) {
-      const text = renderLoreFull(entry, loreTail(records.get(entry.slug), a.focus.no, a.limits.loreTail));
+      const text = renderLoreFull(entry, loreTail(records.get(entry.slug), a.focus.no, a.limits.loreTail), !writing);
       if (fullCount >= a.limits.loreFull) {
         degraded = `整条的已带满 ${a.limits.loreFull} 条（${level}）`;
       } else if (chars + text.length > a.limits.loreChars) {
@@ -239,7 +269,9 @@ export const lore: LayerFn = async (a, spec) => {
       } else if (estimateTokens(text) > a.remaining) {
         degraded = '预算不足';
       } else {
-        a.admit({ ...base, text, note: why });
+        // 这一条真有暗设被去掉才注：没有暗设的条目注了只是噪音。
+        const hidden = writing && loreBodyFor(entry.body, false).dropped;
+        a.admit({ ...base, text, note: hidden ? `${why}；${LORE_HIDDEN_DROPPED_NOTE}` : why });
         fullCount++;
         chars += text.length;
         continue;
@@ -287,6 +319,11 @@ export const lore: LayerFn = async (a, spec) => {
     );
   }
 };
+
+/** 展开一条设定时，这一条自己写着的东西（标题、关键词、一句话、正文含暗设）：关键词命中也看它。 */
+function selfText(entry: LoreEntry): string {
+  return [entry.title, ...entry.keywords, entry.brief, entry.body].join('\n');
+}
 
 /** 接着写时本章已写的末尾（续写那几轮是 step 里那一截）：关键词命中也看它。 */
 async function chapterTailText(a: Parameters<LayerFn>[0]): Promise<string> {

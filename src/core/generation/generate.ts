@@ -53,6 +53,7 @@ import {
   WriteMode,
   describeTarget,
   isFallbackChapterTitle,
+  loreOfTarget,
   outputKindOf,
   plotOfTarget,
 } from '../model/pipeline';
@@ -69,11 +70,15 @@ import {
   chaptersOf,
   completeBlueprints,
   completeConfig,
+  completeLoreExpand,
   completeLoreList,
   completeRoster,
   singleShotNotes,
 } from './structured';
 import { LoreListKnown } from '../features/loreList';
+import { LoreExpandKnown } from '../features/loreExpand';
+import { buildLoreIndex } from '../views/lore';
+import { loreEntryAt } from '../views/loreMaterial';
 import { writingAim } from '../model/trimProse';
 import { ManuscriptChainResult, WriteProgress, completeManuscript } from './continuation';
 import { ReviewChainContext, completeReview } from './review';
@@ -517,6 +522,8 @@ async function runChain(
       return completeRoster(first, io);
     case 'loreList':
       return completeLoreList(first, io, await loreListKnown(project));
+    case 'loreExpand':
+      return completeLoreExpand(first, io, await loreExpandKnown(project, request.target));
     case 'blueprints':
       return completeBlueprints(first, io, chaptersOf(request.range!));
     case 'manuscript':
@@ -535,6 +542,22 @@ async function runChain(
 export async function loreListKnown(project: NovelProject): Promise<LoreListKnown> {
   const [categories, entries, cards] = await Promise.all([project.listLoreCategories(), project.listLore(), project.listCharacters()]);
   return { categories, entries, people: cards.flatMap((c) => [c.name, ...c.aliases]) };
+}
+
+/**
+ * 展开一条设定那条链要对照的：这一条的标题、全部条目（子条目名字已有条目的不另建，别的条目的标题不进关键词）、
+ * 角色卡上的人（人不是设定）、名录里另记着的名字（不进关键词，同建条目、整合）。
+ */
+async function loreExpandKnown(project: NovelProject, target: CreationTarget): Promise<LoreExpandKnown> {
+  const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
+  const { entry } = await loreEntryAt(project, target.kind === 'lore' ? target.relPath : '', entries);
+  const { unknown } = await buildLoreIndex(project, { entries, cards }, { pending: false });
+  return {
+    title: entry.title,
+    entries,
+    people: cards.flatMap((c) => [c.name, ...c.aliases]),
+    recorded: unknown.map((u) => u.name),
+  };
 }
 
 // ---------------------------------------------------------------- 写正文
@@ -700,21 +723,24 @@ async function describe(project: NovelProject, target: CreationTarget): Promise<
   return describeTarget(target, { no: plot?.no, title: plot?.title });
 }
 
-/** 失败挂在**细纲**上（工程页那一行）。大纲没有归属行，只进日志。 */
+/**
+ * 失败挂在**细纲**上（工程页那一行）；展开一条设定失败挂在那一条设定上（第 16 条，同整合）。
+ * 大纲没有归属行，只进日志。
+ */
 async function noteFailure(
   project: NovelProject,
   target: CreationTarget,
   message: string,
   detail: string
 ): Promise<void> {
-  const relPath = plotOfTarget(target);
-  if (!relPath) {
+  const owner = failureOwnerOf(target);
+  if (!owner) {
     return;
   }
   await recordFailure(project, {
     scope: '创作',
-    targetKind: 'plot',
-    targetKey: relPath,
+    targetKind: owner.kind,
+    targetKey: owner.key,
     severity: 'error',
     op: 'creation',
     message,
@@ -723,10 +749,19 @@ async function noteFailure(
 }
 
 async function clearFailure(project: NovelProject, target: CreationTarget): Promise<void> {
-  const relPath = plotOfTarget(target);
-  if (relPath) {
-    await clearFailures(project, 'plot', relPath, 'creation');
+  const owner = failureOwnerOf(target);
+  if (owner) {
+    await clearFailures(project, owner.kind, owner.key, 'creation');
   }
+}
+
+function failureOwnerOf(target: CreationTarget): { kind: 'plot' | 'lore'; key: string } | undefined {
+  const plot = plotOfTarget(target);
+  if (plot) {
+    return { kind: 'plot', key: plot };
+  }
+  const lore = loreOfTarget(target);
+  return lore ? { kind: 'lore', key: lore } : undefined;
 }
 
 /**

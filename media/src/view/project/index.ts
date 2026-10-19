@@ -22,6 +22,7 @@ import {
   buildArchitectureRows,
   buildCastRow,
   buildConflictRow,
+  buildLoreThinRows,
   buildLoreUnfiledRows,
   buildPlotRows,
   emptyRow,
@@ -157,9 +158,11 @@ function buildProjectPage(tree: ProjectTree): void {
   // 设定名录（第九节攒出来的）：已建条目是按目录（= 分类）分组的树，每行带出现章与待整合；
   // 标题旁一个筛选框，几百条时不用一层层翻目录。
   const unfiledAll = tree.loreUnfiled ?? [];
+  // 旧后端推来的树没有 loreThin：可选链是有意的，那时就是没有这一组。
+  const thinAll = tree.loreThin ?? [];
   const match = loreMatcher(tree);
   // 没东西可筛就不摆框；正筛着的时候哪怕条目都没了也留着，不然筛选串看不见、也清不掉。
-  const showFilter = tree.lore.length > 0 || unfiledAll.length > 0 || loreView.filter !== '';
+  const showFilter = tree.lore.length > 0 || unfiledAll.length > 0 || thinAll.length > 0 || loreView.filter !== '';
   el.projectBody.appendChild(
     buildGroup('lore', '设定', countLabel(tree.lore, '条'), {
       section: SECTIONS.lore,
@@ -194,6 +197,18 @@ function buildProjectPage(tree: ProjectTree): void {
       },
     })
   );
+
+  // 待完善（完善设定，2026-10-19）：还没写的几章细纲第九节点名、却还没有条目或条目还只有一句话的设定。
+  // 往前看的一组，排在往回记的「出现过 · 未建条目」前面；一个都没有就整组不画，筛选时同未建条目。
+  // 「全部展开」不在这一期（批量没有卡片，待定的问题没处放），这一组标题上没有批量项。
+  const thin = filterUnfiled(thinAll);
+  if (thin.length > 0) {
+    el.projectBody.appendChild(
+      buildGroup('loreThin', '待完善', `${thinAll.length} 个`, {
+        build: () => buildLoreThinRows(thin),
+      })
+    );
+  }
 
   // 定稿过的细纲第九节里出现、但还没有条目的名字。与「出场人物 · 未建卡」同一个道理单独一组：
   // 设定那棵是文件树（能改名/移动/删除），这些还没有文件。筛选时一个都没匹配上就整组不画。

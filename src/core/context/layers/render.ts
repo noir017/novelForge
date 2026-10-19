@@ -11,7 +11,7 @@ import {
   CharacterCard,
   LoreEntry,
 } from '../../model/types';
-import { PLOT_LORE_KEY, loreBrief, renderLoreLines } from '../../model/loreFile';
+import { LORE_HIDDEN_MARK, PLOT_LORE_KEY, loreBrief, renderLoreLines, splitLoreHidden } from '../../model/loreFile';
 import type { Focus } from './focus';
 
 /**
@@ -73,16 +73,48 @@ function loreHead(entry: LoreEntry): string {
   return `${entry.title}${entry.category ? `〔${entry.category}〕` : ''}`;
 }
 
+/** 写正文时去掉了一条设定的暗设，明细里注的那一句（第 2 条）。lore 层与 @ 引用共用。 */
+export const LORE_HIDDEN_DROPPED_NOTE = '暗设没带：写正文不带读者还不知道的事，要让这一章揭开就写进本章细纲';
+
+/**
+ * 条目正文按场合处理「暗设」那一节（完善设定，2026-10-19）：
+ *
+ * - 写正文（`withHidden: false`）：只带明面（`splitLoreHidden` 的 `visible`）。写正文本来不需要知道真相，
+ *   需要的铺垫细纲里已经写了；带上了，正文模型看见就容易说漏。`dropped` 告诉调用方有没有真去掉东西，
+ *   去掉了要在明细里注一句（第 2 条）。
+ * - 规划时（设定 / 大纲 / 细纲）：整份带，暗设挪到最后、标题换成 {@link LORE_HIDDEN_MARK}。
+ *
+ * 没有暗设的条目原样带（只是去掉首尾空白）。
+ */
+export function loreBodyFor(body: string, withHidden: boolean): { text: string; dropped: boolean } {
+  const { visible, hidden } = splitLoreHidden(body);
+  if (!hidden) {
+    // 有个空的「## 暗设」标题时写正文也去掉它：一个空标题只会让模型去猜下面藏了什么。
+    return { text: withHidden ? (body ?? '').trim() : visible, dropped: false };
+  }
+  if (!withHidden) {
+    return { text: visible, dropped: true };
+  }
+  return { text: [visible, `## ${LORE_HIDDEN_MARK}\n\n${hidden}`].filter(Boolean).join('\n\n'), dropped: false };
+}
+
 /**
  * 整条带的设定：`【名〔分类〕】一句话`，下面是正文，最后是还没整合进条目的新事实（带章号）。
  * 尾巴是条目落后于正文时的那几句——没有它，模型拿到的是整合那时候的样子。
+ *
+ * `withHidden`：带不带「暗设」那一节（{@link loreBodyFor}）。写正文与续写不带，规划时带并标明。
  */
-export function renderLoreFull(entry: LoreEntry, tail: readonly { no: number; text: string }[]): string {
+export function renderLoreFull(
+  entry: LoreEntry,
+  tail: readonly { no: number; text: string }[],
+  withHidden: boolean
+): string {
   // 没写 brief 时一句话就是正文第一句，下面整份正文还会再带一遍，标题行上不重复。
   const brief = entry.brief.trim() ? loreBrief(entry) : '';
   const lines = [`【${loreHead(entry)}】${brief}`];
-  if (entry.body.trim()) {
-    lines.push(entry.body.trim());
+  const body = loreBodyFor(entry.body, withHidden).text;
+  if (body) {
+    lines.push(body);
   }
   if (tail.length > 0) {
     const since = entry.updatedThrough ? `第 ${entry.updatedThrough} 章之后` : '定稿里';

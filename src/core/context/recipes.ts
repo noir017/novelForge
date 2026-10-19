@@ -61,6 +61,10 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   //   ——老工程可能有几十张卡，放不下时说一声，完整的卡在 P1 还有一次机会。
   // `lore` P2（设定名录）：只有设定清单与世界观两件用得上——清单要本书的分类表与已有条目
   //   （照用目录、照抄名字），世界观带作者点名的那几条；其余几件层里自己跳过（layers/background.ts）。
+  // ★ 单条设定（展开，完善设定 2026-10-19）挂在这一张上：`loreSelf` P0 force 是焦点（这一条现有的全部
+  //   内容，含暗设）；`loreMaterial` P1 是已排细纲里用到它的地方与定稿过的记录，合计封顶；`lore` 在这个目标上
+  //   挑相关的条目（同目录的、关键词命中的），去掉它自己。目标不是单条设定时这两层什么都不带
+  //   （layers/loreFocus.ts）。
   setting: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
@@ -68,8 +72,10 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'settingDocs', priority: 0, force: true },
     { layer: 'rosterDoc', priority: 0 },
     { layer: 'written', priority: 0, force: true },
+    { layer: 'loreSelf', priority: 0, force: true },
     { layer: 'skill', priority: 0 },
     { layer: 'history', priority: 1 },
+    { layer: 'loreMaterial', priority: 1 },
     { layer: 'characters', priority: 1 },
     { layer: 'lore', priority: 2 },
   ],

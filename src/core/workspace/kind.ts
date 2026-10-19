@@ -213,9 +213,13 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
   if (inCharacters !== undefined && inCharacters) {
     return { kind: isMd(inCharacters) ? 'character' : 'other', rel };
   }
+  // 一条设定条目是架构那一层的一个目标（展开，完善设定 2026-10-19）：MCP 的 `generate` 给条目路径就是展开它。
+  // 设定目录本身仍是设定清单，那一条只在 `generate` 里认（tools/novel/generate.ts 的 `loreListPath`）。
   const inLore = under(rel, d.lore);
   if (inLore !== undefined && inLore) {
-    return { kind: isMd(inLore) ? 'lore' : 'other', rel };
+    return isMd(inLore)
+      ? { kind: 'lore', rel, stage: 'setting', target: { kind: 'lore', relPath: rel } }
+      : { kind: 'other', rel };
   }
 
   // ---- 草稿。判定必须排在章节之前：`chaptersDir` 被配成 `.` 时
@@ -245,6 +249,7 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
  * **正文不在这里**：它落在同号的章节上，而同号的章节在不在、叫什么名字要读盘才
  * 知道——这个函数是纯的。正文的落点走 views/pipeline.ts 的 `chapterTargetOf`。
  * 角色图谱给的是角色目录、设定清单给的是设定目录：它们是一组卡 / 一组条目，不是一个文件。
+ * 单条设定就是那一条条目自己的路径。
  */
 export function pathOfTarget(project: NovelProject, target: CreationTarget): string {
   switch (target.kind) {
@@ -254,6 +259,8 @@ export function pathOfTarget(project: NovelProject, target: CreationTarget): str
       return project.relPath(project.outlinePath);
     case 'plot':
       return target.plotRelPath;
+    case 'lore':
+      return target.relPath;
     case 'manuscript':
       throw new Error('正文的落点要按章号去认同号的章节，请改用 views/pipeline.ts 的 chapterTargetOf。');
   }

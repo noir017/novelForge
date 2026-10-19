@@ -1,7 +1,7 @@
 import { NovelProject } from '../model/project';
 import { Plot } from '../model/plotFile';
 import { parseContinuityFacts } from '../model/continuity';
-import { createLoreLookup, loreMentionIn, normalizeLoreName } from '../model/loreFile';
+import { LoreThinKind, createLoreLookup, loreMentionIn, loreThin, normalizeLoreName } from '../model/loreFile';
 import { CharacterCard, LoreEntry } from '../model/types';
 import { normalizeName } from '../model/naming';
 import { finalizedPlots } from './cast';
@@ -17,6 +17,8 @@ import { finalizedPlots } from './cast';
  *   以及连续性事实里提到它的标题或关键词的那一条。会变的状态（谁拿走了、毁了）一直记在连续性事实里，
  *   名录去那里认，不另存一份。
  * - **人名不是设定**：第九节里的名字撞上角色卡的名字或别名就不算（模型偶尔把人也列进来）。
+ * - **待完善**（完善设定，2026-10-19，按需算）：唯一往前看的一块——还没写的那几章细纲第九节点名、却还没有条目
+ *   或条目还只有一句话的，工程页「待完善」那一组列它（{@link thinLore}）。
  *
  * 纯读盘、不调模型、不落盘（第 18 条：状态一律从磁盘推导）。
  */
@@ -50,6 +52,35 @@ export interface UnfiledLore {
   notes: LoreFact[];
 }
 
+/** 「待完善」的哪一种：还没有条目，或条目还只有一句话（{@link LoreThinKind}）。 */
+export type ThinLoreKind = 'missing' | LoreThinKind;
+
+/** 工程页「待完善」那一行写的种类。 */
+export const THIN_LORE_LABEL: Record<ThinLoreKind, string> = {
+  missing: '还没有条目',
+  empty: '只有一句话',
+  placeholder: '只有占位',
+  untold: '三节全是未交代',
+};
+
+/**
+ * 接下来要用、却还是空的一条设定（完善设定 · 待完善，2026-10-19）：没定稿、也还没写正文的细纲第九节点名了它，
+ * 而它还没有条目，或条目还只有一句话。
+ */
+export interface ThinLore {
+  /** 有条目是条目的标题；没有是各章第九节写法里出现最多的那个。 */
+  name: string;
+  /** 有条目是条目所在的目录；没有是各章 `〔分类〕` 的多数票，没写过是空串。 */
+  category: string;
+  /** 条目路径；还没有条目时缺席。 */
+  relPath?: string;
+  kind: ThinLoreKind;
+  /** 要用到它的章（细纲第九节点名它的），升序。 */
+  chapters: number[];
+  /** 最早要用到的那一章。 */
+  first: number;
+}
+
 export interface LoreIndex {
   /** 全部条目（含一次都没在定稿里出现过的），按 `listLore` 的顺序。 */
   known: LoreRecord[];
@@ -59,6 +90,8 @@ export interface LoreIndex {
   unrecorded: number[];
   /** 参与统计的（定稿过的）细纲数。 */
   finalizedCount: number;
+  /** 待完善（`opts.thin` 打开时才算，不然是空的），按最早要用到的章升序。 */
+  thin: ThinLore[];
 }
 
 /**
@@ -68,11 +101,13 @@ export interface LoreIndex {
  * `opts.pending: false`：不算待整合的新事实（`known[].pending` 一律空）。那一步要拿每一章的连续性事实去对每一条
  * 条目，几百章 × 几百条时是这里最贵的一段；只要出现章与未建条目的调用方（编辑器的名词补全，`views/nameIndex.ts`）
  * 用不着它。
+ *
+ * `opts.thin: true`：顺带算「待完善」（{@link thinLore}）。只有工程页要，缺省不算。
  */
 export async function buildLoreIndex(
   project: NovelProject,
   read: { plots?: readonly Plot[]; entries?: readonly LoreEntry[]; cards?: readonly CharacterCard[] } = {},
-  opts: { pending?: boolean } = {}
+  opts: { pending?: boolean; thin?: boolean } = {}
 ): Promise<LoreIndex> {
   const withPending = opts.pending !== false;
   const [entries, cards, chapters] = await Promise.all([
@@ -80,7 +115,8 @@ export async function buildLoreIndex(
     read.cards ?? project.listCharacters(),
     project.listChapters(),
   ]);
-  const finalized = finalizedPlots(project.pairPlots(read.plots ?? (await project.listPlots()), chapters));
+  const paired = project.pairPlots(read.plots ?? (await project.listPlots()), chapters);
+  const finalized = finalizedPlots(paired);
   const lookup = createLoreLookup(entries);
 
   const people = new Set<string>();
@@ -174,7 +210,66 @@ export async function buildLoreIndex(
       a.name.localeCompare(b.name, 'zh-Hans-CN')
   );
 
-  return { known, unknown, unrecorded, finalizedCount: finalized.length };
+  const thin = opts.thin ? thinLore(paired, chapters, lookup, people) : [];
+  return { known, unknown, unrecorded, finalizedCount: finalized.length, thin };
+}
+
+/**
+ * 待完善（完善设定，2026-10-19）：**往前看**——没定稿、也还没写正文（没有章节文件，或有文件但 0 字）的细纲
+ * 第九节点名的设定里，还没有条目的、条目还只有一句话的（`loreThin`：空的、新建设定的占位、三节全是「（未交代）」）。
+ * 名录别处都只认定稿过的第九节（第 14 条），这里反过来只认计划：要提醒的正是「接下来几章要用、却还是空的」。
+ * 已经写了正文、还没定稿的章不算——那一章已经写过去了，再展开也帮不上它。
+ *
+ * 人名照样不算（同上）。复用 {@link buildLoreIndex} 已经读进来的细纲、章节与条目，不多读盘。按最早要用到的章升序，
+ * 同一章的按名字。
+ */
+function thinLore(
+  plots: readonly Plot[],
+  chapters: readonly { order: number; wordCount: number }[],
+  lookup: ReturnType<typeof createLoreLookup>,
+  people: ReadonlySet<string>
+): ThinLore[] {
+  const written = new Set(chapters.filter((c) => c.wordCount > 0).map((c) => c.order));
+  /** 有条目的按 slug，没有的按归一后的名字。 */
+  const byKey = new Map<string, { entry?: LoreEntry; kind: ThinLoreKind; group: UnfiledGroup }>();
+  for (const plot of plots) {
+    if (plot.sourceHash || written.has(plot.no)) {
+      continue;
+    }
+    for (const line of plot.lore ?? []) {
+      if (people.has(normalizeName(line.name))) {
+        continue;
+      }
+      const entry = lookup.find(line.name);
+      const kind: ThinLoreKind | undefined = entry ? loreThin(entry) : 'missing';
+      if (!kind) {
+        continue;
+      }
+      const key = entry ? `entry:${entry.slug}` : `name:${normalizeLoreName(line.name)}`;
+      const item =
+        byKey.get(key) ??
+        byKey
+          .set(key, { entry, kind, group: { names: new Map(), categories: new Map(), chapters: new Set(), notes: [] } })
+          .get(key)!;
+      item.group.names.set(line.name, (item.group.names.get(line.name) ?? 0) + 1);
+      if (line.category) {
+        item.group.categories.set(line.category, (item.group.categories.get(line.category) ?? 0) + 1);
+      }
+      item.group.chapters.add(plot.no);
+    }
+  }
+  const out: ThinLore[] = [...byKey.values()].map(({ entry, kind, group }) => {
+    const nos = [...group.chapters].sort((a, b) => a - b);
+    return {
+      name: entry?.title ?? topOf(group.names),
+      category: entry ? entry.category : topOf(group.categories),
+      ...(entry ? { relPath: entry.relPath } : {}),
+      kind,
+      chapters: nos,
+      first: nos[0],
+    };
+  });
+  return out.sort((a, b) => a.first - b.first || a.name.localeCompare(b.name, 'zh-Hans-CN'));
 }
 
 /** 还要整合几章：待整合事实来自几个不同的章。工程页的 `＋N`。 */

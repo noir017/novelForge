@@ -5,7 +5,7 @@ import { PromptFacts, buildSystemPrompt } from '../prompts';
 import { estimateTokens, takeHead, takeTail } from '../tokenizer';
 import { ContextItem } from '../types';
 import type { Assembly, LayerFn } from './assembly';
-import { ATTACHMENT_NOTE, resolveAttachment } from './render';
+import { ATTACHMENT_NOTE, LORE_HIDDEN_DROPPED_NOTE, loreBodyFor, resolveAttachment } from './render';
 
 /**
  * 这一次装配交给提示词的事实。系统提示（这里）与输出契约（builder.ts）必须拿同一份，
@@ -84,6 +84,9 @@ export const ask: LayerFn = async (a, spec) => {
 
 export const attachments: LayerFn = async (a, spec) => {
   const attachmentCap = Math.floor(a.budget * (spec.cap ?? 1));
+  // 正文阶段作者 @ 引用一条设定：同 lore 层，暗设不带、明细里注一句（完善设定，2026-10-19）。要让正文知道，
+  // 就写进这一章细纲。别的阶段、别的种类照旧整份带。
+  const manuscript = a.request.action.stage === 'manuscript';
   for (const att of a.request.attachments ?? []) {
     const id = `attachment:${att.id}`;
     const base = {
@@ -97,17 +100,25 @@ export const attachments: LayerFn = async (a, spec) => {
       a.admit({ ...base, text: '' });
       continue;
     }
-    const body = await resolveAttachment(a.project, att);
+    let body = await resolveAttachment(a.project, att);
     if (!body.trim()) {
       a.reject({ ...base, text: '' }, 'dropped', '内容为空或文件已不存在');
       continue;
+    }
+    let hiddenNote = '';
+    if (manuscript && att.kind === 'lore') {
+      const split = loreBodyFor(body, false);
+      if (split.dropped) {
+        body = split.text;
+        hiddenNote = `；${LORE_HIDDEN_DROPPED_NOTE}`;
+      }
     }
 
     const raw = `【引用 · ${att.label}】\n${body}`;
     const rawTokens = estimateTokens(raw);
     const cap = Math.min(attachmentCap, Math.max(0, a.remaining));
     if (rawTokens <= cap) {
-      a.accept({ ...base, text: raw, status: 'included', note: ATTACHMENT_NOTE[att.kind] }, rawTokens);
+      a.accept({ ...base, text: raw, status: 'included', note: `${ATTACHMENT_NOTE[att.kind]}${hiddenNote}` }, rawTokens);
       continue;
     }
     if (cap < 200) {
@@ -125,7 +136,7 @@ export const attachments: LayerFn = async (a, spec) => {
         ...base,
         text: clipped,
         status: 'degraded',
-        note: `原文需 ${rawTokens} token，已截断至 ${clippedTokens}`,
+        note: `原文需 ${rawTokens} token，已截断至 ${clippedTokens}${hiddenNote}`,
       },
       clippedTokens
     );

@@ -1,5 +1,5 @@
 /**
- * 采纳：把一份产物写进磁盘。按产物种类分派到六条落盘路径。
+ * 采纳：把一份产物写进磁盘。按产物种类分派到八条落盘路径。
  *
  * ## 与生成分开的那一步
  *
@@ -18,18 +18,27 @@ import { scoped } from '../runtime/logger';
 import { hash, sanitizeFileName, slugify, uniqueSlug } from '../model/fs';
 import { NovelProject, emptyCharacterSections, renderCharacterCard, renderLoreEntry } from '../model/project';
 import { isPlotFilled, parsePlotFileName, plotContentHash, plotFileName } from '../model/plotFile';
-import { LoreLookup, cleanLoreKeywords, createLoreLookup, normalizeLoreName } from '../model/loreFile';
+import {
+  LoreLine,
+  LoreLookup,
+  cleanLoreKeywords,
+  createLoreLookup,
+  loreThin,
+  normalizeLoreName,
+  splitLoreHidden,
+} from '../model/loreFile';
 import { isOutlineFilled, mergeOutline, outlineOverlaps } from '../model/outlineFile';
 import { hasContent } from '../model/markdown';
 import { stampState } from '../model/characterState';
 import { keepGender } from '../model/gender';
 import { CHARACTER_SECTION_KEYS, CharacterCard, CharacterSections, LoreEntry } from '../model/types';
-import { CreationTarget, SETTING_DOC_LABEL, WriteMode, plotOfTarget } from '../model/pipeline';
-import { Artifact, ChapterRange, LoreListEntry, PlotFields, RosterEntry } from '../features/artifact';
+import { CreationTarget, SETTING_DOC_LABEL, WriteMode, loreOfTarget, plotOfTarget } from '../model/pipeline';
+import { Artifact, ChapterRange, LoreDraft, LoreListEntry, PlotFields, RosterEntry } from '../features/artifact';
 import { BlueprintItem, blueprintToPlot } from '../features/blueprint';
 import { unique } from '../features/parse';
 import { chapterTargetOf } from '../views/pipeline';
 import { buildLoreIndex } from '../views/lore';
+import { integrationWatermark, loreEntryAt } from '../views/loreMaterial';
 import { Workspace, pathOfTarget } from '../workspace';
 import { plotUpstreamHash } from '../workspace/handlers/plot';
 
@@ -80,11 +89,15 @@ function takenNames(cards: CharacterCard[]): Set<string> {
 /**
  * 同 {@link plannedCards}：落盘时会新建哪几条设定条目，写入卡片上列出来（设定名录）。
  *
- * - 细纲批次：`settings` 里 `isNew` 的新设定建空条目。名字或关键词已被已有条目占了的、是角色卡上的人的，不建。
+ * - 细纲（批次与单章，完善设定 §3）：第九节里 `isNew` 的新设定建空条目。
+ * - 展开一条设定：建议拆出来的子条目建空条目（完善设定 §1）。
  * - 设定清单：清单里还没有条目的那几条（已有的走覆盖审阅，不算新建）。
+ *
+ * 前两种是同一条规矩（{@link createPlannedLore}）：名字或关键词已被已有条目占了的、是角色卡上的人的，不建。
  */
 export async function plannedLore(project: NovelProject, artifact: Artifact): Promise<string[]> {
-  if (artifact.kind !== 'plotBatch' && artifact.kind !== 'loreList') {
+  const lines = newLoreLines(artifact);
+  if (artifact.kind !== 'loreList' && lines.length === 0) {
     return [];
   }
   const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
@@ -93,8 +106,37 @@ export async function plannedLore(project: NovelProject, artifact: Artifact): Pr
   if (artifact.kind === 'loreList') {
     return artifact.entries.filter((e) => !existingLore(lookup, e) && !people.has(e.title)).map((e) => e.title);
   }
-  const names = artifact.items.flatMap((b) => (b.settings ?? []).filter((s) => s.isNew).map((s) => s.name));
-  return [...new Set(names)].filter((name) => !lookup.find(name) && !people.has(name));
+  return plannableLore(lines, lookup, people).map((l) => l.name);
+}
+
+/**
+ * 产物里要建空条目的那几行：细纲批次与单章细纲是第九节里 `isNew` 的，展开是建议拆出来的子条目（没有 `relPath`
+ * 的那几项，一句话当说明）。别的产物没有。
+ */
+function newLoreLines(artifact: Artifact): LoreLine[] {
+  switch (artifact.kind) {
+    case 'plotBatch':
+      return artifact.items.flatMap((b) => (b.settings ?? []).filter((s) => s.isNew));
+    case 'plot':
+      return artifact.newLore ?? [];
+    case 'loreEntries':
+      return artifact.entries.filter((e) => !e.relPath).map((e) => ({ name: e.title, category: e.category, note: e.brief }));
+    default:
+      return [];
+  }
+}
+
+/** 真会建的那几行：同名（归一后）只留第一行；名字或关键词已被已有条目占了的、是角色卡上的人的不建。 */
+function plannableLore(lines: readonly LoreLine[], lookup: LoreLookup, people: ReadonlySet<string>): LoreLine[] {
+  const seen = new Set<string>();
+  return lines.filter((l) => {
+    const key = normalizeLoreName(l.name);
+    if (!key || seen.has(key) || lookup.find(l.name) || people.has(l.name)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 /** 设定清单里的一条认不认得出已有条目：先按名字，再按它的关键词（与名录同一张表，`createLoreLookup`）。 */
@@ -122,6 +164,8 @@ export async function acceptArtifact(
       return acceptRoster(project, ws, artifact.characters);
     case 'loreList':
       return acceptLoreList(project, ws, artifact, opts);
+    case 'loreEntries':
+      return acceptLoreEntries(project, ws, target, artifact.entries);
     case 'outlineDoc':
       return acceptOutline(project, ws, artifact.text, artifact.range);
     case 'plot':
@@ -435,8 +479,9 @@ async function acceptPlot(
     if (r.skipped) {
       return { skipped: true, message: '没有改动这一章。' };
     }
+    const lore = await createPlannedLore(project, ws, fields.newLore ?? []);
     log.info(`第 ${existing.no} 章的细纲已写入`, existing.relPath);
-    return { relPath: existing.relPath, message: `已写入 ${existing.relPath}` };
+    return { relPath: existing.relPath, message: `已写入 ${existing.relPath}${loreNote(lore)}` };
   }
 
   const no = parsePlotFileName(relPath.split('/').pop() ?? '')?.no;
@@ -458,8 +503,14 @@ async function acceptPlot(
     undefined,
     relPath
   );
+  const lore = await createPlannedLore(project, ws, fields.newLore ?? []);
   log.info(`第 ${no} 章的细纲已新建`, rel);
-  return { relPath: rel, message: `已新建 ${rel}` };
+  return { relPath: rel, message: `已新建 ${rel}${loreNote(lore)}` };
+}
+
+/** 单章细纲顺带建了空条目时，toast 里那半句。 */
+function loreNote(created: readonly string[]): string {
+  return created.length > 0 ? `，新建设定条目：${created.join('、')}` : '';
 }
 
 /**
@@ -522,7 +573,11 @@ export async function acceptPlotBatch(
     );
   }
   const cards = await createPlannedCards(project, ws, items);
-  const lore = await createPlannedLore(project, ws, items);
+  const lore = await createPlannedLore(
+    project,
+    ws,
+    items.flatMap((b) => (b.settings ?? []).filter((s) => s.isNew))
+  );
 
   const where = range.from === range.to ? `第 ${range.from} 章` : `第 ${range.from}–${range.to} 章`;
   const parts = [
@@ -575,35 +630,118 @@ async function createPlannedCards(project: NovelProject, ws: Workspace, items: B
 }
 
 /**
- * 蓝图里本章首次引入、后面还会用到的设定：直接建一条空条目（设定名录，同 D19 新角色建卡）。
- * 名字或关键词已被已有条目占了的不动，是角色卡上的人的不建。
+ * 细纲里本章首次引入、后面还会用到的设定（批次与单章都是第九节里 `isNew` 的那几行），以及展开一条设定时建议
+ * 拆出来的子条目：直接建一条空条目（设定名录，同 D19 新角色建卡；第 19 条的例外）。名字或关键词已被已有条目
+ * 占了的不动，是角色卡上的人的不建（{@link plannableLore}，卡片上列的是同一份）。
  *
- * 条目上只写得出这么多：标题、所在目录（就是分类，不存在就建）、一句话（蓝图里的 note）。正文留空，
- * 等写到了、定稿过，再从名录里「整合」。
+ * 条目上只写得出这么多：标题、所在目录（就是分类，不存在就建）、一句话（第九节的说明 / 子条目的一句话）。
+ * 正文留空，等写到了、定稿过，再从名录里「整合」——或者在工程页右键「展开」。
  */
-async function createPlannedLore(project: NovelProject, ws: Workspace, items: BlueprintItem[]): Promise<string[]> {
+async function createPlannedLore(project: NovelProject, ws: Workspace, lines: readonly LoreLine[]): Promise<string[]> {
+  if (lines.length === 0) {
+    return [];
+  }
   const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
-  const lookup = createLoreLookup(entries);
-  const people = takenNames(cards);
-  const taken = new Set<string>();
   const created: string[] = [];
-  for (const item of items) {
-    for (const s of item.settings ?? []) {
-      const key = normalizeLoreName(s.name);
-      if (!s.isNew || !key || taken.has(key) || lookup.find(s.name) || people.has(s.name)) {
-        continue;
-      }
-      taken.add(key);
-      const base = `${s.category ? `${s.category}/` : ''}${slugify(s.name)}`;
-      const slug = await uniqueSlug(project.loreDir, base);
-      await ws.writeLore({ slug, title: s.name, keywords: [s.name], brief: s.note, body: '' });
-      created.push(s.name);
-    }
+  for (const s of plannableLore(lines, createLoreLookup(entries), takenNames(cards))) {
+    const base = `${s.category ? `${s.category}/` : ''}${slugify(s.name)}`;
+    const slug = await uniqueSlug(project.loreDir, base);
+    await ws.writeLore({ slug, title: s.name, keywords: [s.name], brief: s.note, body: '' });
+    created.push(s.name);
   }
   if (created.length > 0) {
-    log.info(`细纲里的新设定已建条目：${created.join('、')}`);
+    project.invalidate();
+    log.info(`新设定已建空条目：${created.join('、')}`);
   }
   return created;
+}
+
+/**
+ * 展开一条设定（完善设定，2026-10-19）。`entries` 里按 `relPath` 认出目标条目（展开不改名），其余是建议拆出来的
+ * 子条目。还没定的问题（`questions`）不在这里——它只上卡片，不写进任何文件。
+ *
+ * 目标条目：
+ * - 正文整份换成展开后的（暗设是第四节 `## 暗设`）；关键词只增不减（新给的过一遍人名、别的条目的标题——含这一次
+ *   拆出去的子条目——与名录里另记着的名字）；一句话新的优先。
+ * - 记作机器写的：`bodyHash` = 新正文的指纹（作者定案 4：正文写偏了以正文为准，整合可以直接改）；水位同整合
+ *   （`integrationWatermark`）——展开喂的定稿记录就是整合会喂的那一份，写完 `＋N` 也就收了。
+ * - **明面正文是空的、是占位，又没有暗设**才直接写（没有东西可吞）；其余走覆盖审阅（第 3 条）。三节都写着
+ *   「（未交代）」的也先对比：那可能是作者手写的。
+ * - 文件还不在（MCP 给了一条新路径、展开期间被删了）：按这个路径新建，标题取文件名；名字已被别的条目占了、
+ *   是角色卡上的人的不建。
+ *
+ * 子条目：建空条目（{@link createPlannedLore}，与细纲带出新设定同一条规矩）。作者在覆盖审阅里放弃了这一条的
+ * 展开时，拆出来的子条目也不建——它们是这一次展开的一部分。
+ */
+async function acceptLoreEntries(
+  project: NovelProject,
+  ws: Workspace,
+  target: CreationTarget,
+  drafts: readonly LoreDraft[]
+): Promise<AcceptResult> {
+  const relPath = loreOfTarget(target);
+  const main = relPath ? drafts.find((d) => d.relPath === relPath) : undefined;
+  if (!relPath || !main) {
+    return { skipped: true, message: '这份产物里没有要展开的那一条设定，没有写入任何文件。' };
+  }
+  const children = drafts.filter((d) => d !== main && !d.relPath);
+  const [entries, cards] = await Promise.all([project.listLore(), project.listCharacters()]);
+  const { entry, exists } = await loreEntryAt(project, relPath, entries);
+  const people = cards.flatMap((c) => [c.name, ...c.aliases]);
+  if (!exists) {
+    const owner = createLoreLookup(entries).find(entry.title);
+    if (owner || takenNames(cards).has(entry.title)) {
+      const why = owner ? `已经有条目了（${owner.relPath}）` : '是角色卡上的人';
+      log.warn(`展开的设定「${entry.title}」没有新建：${why}`, relPath);
+      return { skipped: true, message: `「${entry.title}」${why}，没有新建 ${relPath}。` };
+    }
+  }
+
+  const fresh = cleanLoreKeywords(entry.title, main.keywords, {
+    titles: [...entries.filter((e) => e.relPath !== relPath).map((e) => e.title), ...children.map((c) => c.title)],
+    people,
+    recorded: (await buildLoreIndex(project, { entries, cards }, { pending: false })).unknown.map((u) => u.name),
+  });
+  const body = main.body.trim();
+  const text = renderLoreEntry({
+    slug: entry.slug,
+    title: entry.title,
+    keywords: unique([...(exists ? entry.keywords : [entry.title]), ...fresh]),
+    brief: main.brief || entry.brief,
+    body,
+    // 只往前推不往回退：条目早就整合到了更后面（之后前面某章正文又改过、水位停在了那里），不能把它拉回去，
+    // 不然已经并进条目的那些章又挂上 ＋N。
+    updatedThrough: Math.max(exists ? entry.updatedThrough ?? 0 : 0, await integrationWatermark(project)),
+    bodyHash: hash(body),
+  });
+  const thin = exists ? loreThin(entry) : 'empty';
+  const direct = (thin === 'empty' || thin === 'placeholder') && !splitLoreHidden(entry.body).hidden;
+  const what = `设定「${entry.title}」`;
+  const r = exists
+    ? await ws.write(relPath, { text }, { mode: 'overwrite', what, review: !direct })
+    : await ws.write(relPath, { text }, { mode: 'create', what });
+  if (r.skipped) {
+    log.info(`没有采纳${what}的展开`, children.length > 0 ? `拆出来的 ${children.length} 条也没建` : relPath);
+    return {
+      skipped: true,
+      message: `没有改动${what}${children.length > 0 ? `（拆出来的 ${children.map((c) => c.title).join('、')} 也没建）` : ''}。`,
+    };
+  }
+  const created = await createPlannedLore(
+    project,
+    ws,
+    children.map((c) => ({ name: c.title, category: c.category, note: c.brief }))
+  );
+  project.invalidate();
+  log.info(
+    `已展开${what}`,
+    `${relPath}｜正文 ${body.length} 字｜${direct ? '原来只有一句话，直接写' : '对比后采纳'}` +
+      `${created.length > 0 ? `｜新建子条目 ${created.join('、')}` : ''}`
+  );
+  return {
+    relPath,
+    message: `已展开${what}${created.length > 0 ? `，新建设定条目：${created.join('、')}` : ''}。`,
+  };
 }
 
 /**

@@ -8,6 +8,7 @@
  * | 小说配置 | 截断就整份重来 1 次；「全局要求」不合格只重写这一节 1 次 | `GenerateConfigCommand`（AC:980-1163） |
  * | 角色图谱 | 身份清单 → 按冻结清单每批 3 人补详情；截断拆半 | `GenerateCharactersCommand`（AC:1254-1647） |
  * | 设定清单 | 分类目录树 + 清单 → 按冻结清单每批 6 条补正文；截断拆半；调用次数封顶 | 本项目（设定名录） |
+ * | 展开一条设定 | 1 次；语法坏了修一次；截断、解析不了都不给写入 | 本项目（完善设定） |
  * | 细纲批次 | 截断或解不出来：多章对半拆、单章紧凑重建；语法坏了修一次；漏章 fail-closed | `structured-batch-executor.ts` |
  *
  * ## 单步与批量共用
@@ -39,6 +40,7 @@ import {
   rosterDetailJsonContract,
   syntaxRepairMessages,
 } from '../context/prompts';
+import { loreExpandJsonContract } from '../context/loreExpandPrompt';
 import { LORE_LIST_CALLS_MAX, LORE_LIST_DETAIL_BATCH, PLOT_BATCH, ROSTER_DETAIL_BATCH, SettingDoc } from '../model/pipeline';
 import { BookConfig } from '../model/settingFile';
 import { hasContent } from '../model/markdown';
@@ -61,6 +63,7 @@ import {
   mergeWithAuthor,
   renderConfigDraft,
 } from '../features/novelConfig';
+import { LoreExpandKnown, decodeLoreExpansion, renderLoreExpansion } from '../features/loreExpand';
 import { isRepairableJsonSyntax, preservesJsonEvidence } from '../features/structuredJson';
 
 /** 一次调用的结果。`stop` 缺席 = 网关没报收尾原因（有的兼容实现压根不发）。 */
@@ -410,6 +413,41 @@ export async function completeLoreList(first: CallOutcome, io: ChainIO, known: L
   return { raw: renderLoreList(categories, entries), notes: t.notes, calls: t.calls };
 }
 
+// ---------------------------------------------------------------- 展开一条设定
+
+/**
+ * 展开一条设定（完善设定，2026-10-19）：1 次；JSON 语法坏了（标点错、内容是全的）修一次，只许改标点
+ * （`preservesJsonEvidence`）——上限 2 次，与报给作者的 `LORE_EXPAND_CALLS` 同一个数（第 4 条）。
+ *
+ * **截断与解析不了都不给写入**：截断的那一半不可信，没解析开的原文盖掉条目比没写更糟（同定稿）——链停下，
+ * 已经收到的输出留在气泡里，没有落盘卡片。解出来的照程序的规矩过一遍（features/loreExpand.ts：截长、关键词与
+ * 子条目对照磁盘上的条目与角色卡），交给气泡的是规范化结果，丢掉了什么写进说明（第 2 条）。
+ */
+export async function completeLoreExpand(first: CallOutcome, io: ChainIO, known: LoreExpandKnown): Promise<ChainResult> {
+  // 显式标注类型：`t.fail()` 返回 never，TS 只对显式标注的变量做控制流收窄。
+  const t: Tally = new Tally(true);
+  if (first.stop === 'maxTokens') {
+    t.fail('展开被输出上限截断，截断的那一半不可信，这一次没有产出可写入的设定。调大设置页的「最大输出 token」，或降低思考深度再试。');
+  }
+  let text = first.text;
+  let decoded = decodeLoreExpansion(text, known);
+  if (!decoded.ok && isRepairableJsonSyntax(text)) {
+    const fix = await t.call(io, syntaxRepairMessages(loreExpandJsonContract(), text), '展开的 JSON 语法坏了，修一次');
+    if (fix.stop !== 'maxTokens' && preservesJsonEvidence(text, fix.text)) {
+      text = fix.text;
+      decoded = decodeLoreExpansion(text, known);
+      t.note('展开的 JSON 语法坏了，修了一次（只改标点）');
+    } else {
+      t.note('展开的语法修复改动了内容或没修好，没有采用');
+    }
+  }
+  if (!decoded.ok) {
+    t.fail(`展开解析不出来（${decoded.message}），这一次没有产出可写入的设定。`);
+  }
+  t.note(...decoded.warnings);
+  return { raw: renderLoreExpansion(decoded.value), notes: t.notes, calls: t.calls };
+}
+
 // ---------------------------------------------------------------- 细纲批次
 
 export interface BlueprintChainResult extends ChainResult {
@@ -593,7 +631,7 @@ export function singleShotNotes(
  * **审稿必须在正文之前认出来**：它也在正文层，按「正文层不是讨论就走续写链」的旧判据，一份审稿
  * JSON 会被当成一章正文去续写、去查重演。
  */
-export type ChainKind = 'config' | 'roster' | 'loreList' | 'blueprints' | 'manuscript' | 'review' | 'revision';
+export type ChainKind = 'config' | 'roster' | 'loreList' | 'loreExpand' | 'blueprints' | 'manuscript' | 'review' | 'revision';
 
 /** 架构那几件里要接链的：配置、角色图谱、设定清单。前提、世界观一次就完。 */
 const SETTING_CHAIN: Partial<Record<SettingDoc, ChainKind>> = { config: 'config', characters: 'roster', lore: 'loreList' };
@@ -611,6 +649,10 @@ export function chainOf(request: Pick<BuildRequest, 'action' | 'target' | 'range
   }
   if (stage === 'setting' && request.target.kind === 'setting') {
     return SETTING_CHAIN[request.target.doc];
+  }
+  // 单条设定（展开）：不落到架构五件那张表上——`doc === 'lore'` 是整批清单那条链。
+  if (stage === 'setting' && request.target.kind === 'lore') {
+    return 'loreExpand';
   }
   if (stage === 'plot' && capability === 'generate' && request.range) {
     return 'blueprints';

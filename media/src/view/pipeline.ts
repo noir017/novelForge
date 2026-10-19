@@ -28,6 +28,7 @@ import {
   chapterLabel,
   plotOfTarget,
   describeCalls,
+  describeTarget,
 } from '../protocol';
 import type {
   CreationStage,
@@ -133,6 +134,10 @@ function headLabel(): string {
   }
   if (target.kind === 'outline') {
     return '情节大纲';
+  }
+  // 单条设定（展开）：「设定 · 天机阁」，名字取文件名（与后端 `describeTarget` 同一份）。
+  if (target.kind === 'lore') {
+    return describeTarget(target);
   }
   return current ? chapterLabel(current.no, current.title) : '';
 }
@@ -311,9 +316,14 @@ function renderNextStep(): void {
  * 细节」）。而多数命令的输入是**可选**的，提示语要说出这一点。
  */
 function updatePlaceholder(): void {
-  const { stage, capability } = store.session;
+  const { stage, capability, target } = store.session;
   if (stage === 'manuscript' && capability === 'generate') {
     el.input.placeholder = '这一章的补充要求…（可留空，Enter 发送）';
+    return;
+  }
+  // 单条设定：打字是聊这一条，`/展开` 是生成——架构那一句「这是个什么故事？」问的不是它。
+  if (target.kind === 'lore') {
+    el.input.placeholder = '聊聊这一条设定…（打 /展开 把它往前想细）';
     return;
   }
   el.input.placeholder = `${STAGE_LABEL[stage]}：${STAGE_QUESTION[stage]}（可留空，打 / 挑命令）`;

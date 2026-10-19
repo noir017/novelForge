@@ -28,6 +28,7 @@ import {
   deriveBookNextStep,
   deriveBookStage,
   deriveNextStep,
+  describeTarget,
   plotOfTarget,
 } from '../model/pipeline';
 import { parsePlotFileName } from '../model/plotFile';
@@ -81,7 +82,7 @@ export async function buildStateBrief(
           ))
     );
   } else {
-    lines.push(target?.kind === 'setting' || target?.kind === 'outline' ? `当前目标：${target.kind === 'setting' ? '故事架构' : '情节大纲'}` : '当前目标：还没选定某一章');
+    lines.push(currentTargetLine(target));
     lines.push(...describeNext(bookStep(index, facts), '全书都写完了。需要改动的话作者会说。'));
   }
 
@@ -92,6 +93,20 @@ export async function buildStateBrief(
     lines.push(`提醒：${named}${rest}的上游产物改过，现有内容可能已经对不上（⟳）`);
   }
   return lines.join('\n');
+}
+
+/** 不在某一章上时「当前目标」那一行：架构、大纲，或者一条设定（展开，完善设定 2026-10-19，带上它的路径）。 */
+function currentTargetLine(target?: CreationTarget): string {
+  switch (target?.kind) {
+    case 'setting':
+      return '当前目标：故事架构';
+    case 'outline':
+      return '当前目标：情节大纲';
+    case 'lore':
+      return `当前目标：${describeTarget(target)}（${target.relPath}）`;
+    default:
+      return '当前目标：还没选定某一章';
+  }
 }
 
 /**

@@ -15,8 +15,9 @@
  *    `factCheckOk` / `paragraphStyle` / `generatedBy`）。搜一个「3」换成「三」，不该顺手把 `sourceHash` 里的 3
  *    也换掉、让几百章悄悄退回待定稿。**名字、别名、标题、出场（`cast`）、关键词、一句话这些人写的值照常搜、照常换**——
  *    「把林晚全书改成林婉」要连角色卡的 `name`、细纲的 `cast` 一起改才改得干净。
- * 2. **解析器认的小节标题**：细纲的八节与第九节「设定」、角色卡的七节、设定条目的三节、架构三件的各节、文风指南的
- *    「禁用词表」——`## 关键事件` 被换成 `## 关键事情`，这一节就读不出来了，那一章从「排过细纲」退回「待写细纲」。
+ * 2. **解析器认的小节标题**：细纲的八节与第九节「设定」、角色卡的七节、设定条目的三节与「暗设」（以它开头的标题都算）、
+ *    架构三件的各节、文风指南的「禁用词表」——`## 关键事件` 被换成 `## 关键事情`，这一节就读不出来了，
+ *    那一章从「排过细纲」退回「待写细纲」。
  *    标题行整行不搜。情节大纲的区间标题（`## 第1–20章：标题`）只护住「第1–20章」那一截（第几章到第几章决定
  *    每一章细纲的上游是哪一节），后面的标题照常。
  *
@@ -24,7 +25,7 @@
  */
 import { CONFIG_SECTION_KEYS, PREMISE_SECTION_KEYS, WORLD_SECTION_KEYS } from './settingFile';
 import { CHARACTER_SECTION_KEYS } from './types';
-import { LORE_BODY_KEYS, PLOT_LORE_KEY } from './loreFile';
+import { LORE_BODY_KEYS, LORE_HIDDEN_KEY, PLOT_LORE_KEY } from './loreFile';
 import { PLOT_SECTION_KEYS } from './plotFile';
 import { RANGE_HEADING } from './outlineFile';
 import { BOOK_FIND_CONTEXT } from './bookFindScope';
@@ -66,6 +67,14 @@ const STRUCTURAL_HEADINGS: Record<string, readonly string[]> = {
   lore: LORE_BODY_KEYS,
   setting: [...CONFIG_SECTION_KEYS, ...PREMISE_SECTION_KEYS, ...WORLD_SECTION_KEYS],
   style: ['禁用词表'],
+};
+
+/**
+ * 以它开头就算的小节标题：设定条目的「暗设」（完善设定，2026-10-19）。`## 暗设（未揭示）` 也认
+ * （与 loreFile.ts 的 `splitLoreHidden` 同一个认法）——「暗设」两个字被换掉，这一节就成了明面，写正文时也带进去。
+ */
+const STRUCTURAL_PREFIXES: Record<string, readonly string[]> = {
+  lore: [LORE_HIDDEN_KEY],
 };
 
 /** 正文与草稿：作者的文件，一个字都不护。 */
@@ -111,13 +120,15 @@ export function protectionOf(text: string, kind: string): Protection {
   }
   const headings = STRUCTURAL_HEADINGS[kind];
   const keys = headings ? new Set(headings.map(normalizeKey)) : undefined;
+  const prefixes = (STRUCTURAL_PREFIXES[kind] ?? []).map(normalizeKey);
   if (!keys && kind !== 'outline') {
     return out;
   }
   for (const line of linesFrom(text, bodyStart)) {
     if (keys) {
       const heading = /^#{2,3}\s+(.+?)\s*$/.exec(line.text);
-      if (heading && keys.has(normalizeKey(heading[1].replace(/[:：]\s*$/, '')))) {
+      const key = heading ? normalizeKey(heading[1].replace(/[:：]\s*$/, '')) : '';
+      if (heading && (keys.has(key) || prefixes.some((p) => key.startsWith(p)))) {
         out.blocked.push({ start: line.start, end: line.start + line.text.length });
       }
     } else {

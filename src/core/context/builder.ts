@@ -237,6 +237,12 @@ function assembleMessages(
   // 已经排好的目录进度：细纲批次要紧接着它的最后一章往下排。
   section('# 前序细纲一览（已生成的目录进度）', pick('plotList'));
 
+  // 单条设定（展开，完善设定 2026-10-19）：定稿记录 → 已排细纲 → 这一条本身，紧挨着指令。读的时候是
+  // 「已经写进正文的（不能推翻）→ 接下来要它做什么 → 它现在写到哪了」。
+  section('# 定稿过的记录（已经写进正文的事实，不能推翻）', pick('loreRecord'));
+  section('# 已排细纲里用到它的地方（计划，还没写成正文；这一条要撑得住这些情节）', pick('lorePlan'));
+  section('# 当前这一条设定（现有内容；作者写过的只补、只细化，不删）', pick('loreSelf'));
+
   // 本层产物紧挨着指令：这一章的细纲才是这一轮真正要动的东西。
   section('# 细纲', pick('plot'));
 
@@ -303,10 +309,11 @@ function noOf(item: ContextItem): number {
  * 角色图谱除外：已写正文的书照定稿过的细纲建卡（features/characterCard.ts），不走身份清单那条链。
  * 设定清单同理：有正文的书这一件本来就算填过（`isLoreListFilled`），设定从定稿里长、从名录建条目；
  * 作者硬要重排一份时照新书的清单链走，不另编一套「照正文整理」的合同。
+ * 单条设定（展开）也不走这条：它的原料本来就是定稿过的记录（`loreMaterial` 层），合同是往前想，不是照正文整理。
  */
 async function settingFromText(project: NovelProject, request: BuildRequest): Promise<BuildRequest> {
   const { action, target } = request;
-  const chained = target.kind === 'setting' && (target.doc === 'characters' || target.doc === 'lore');
+  const chained = target.kind !== 'setting' || target.doc === 'characters' || target.doc === 'lore';
   if (request.derive || action.stage !== 'setting' || action.capability !== 'generate' || chained) {
     return request;
   }

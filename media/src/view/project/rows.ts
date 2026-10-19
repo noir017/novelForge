@@ -11,13 +11,14 @@
  */
 import { el as mk } from '../../dom';
 import type { MenuItem } from '../../globals';
-import { FINALIZE_CALLS, LORE_ENTRY_CALLS, PLOT_STAGE_LABEL, describeCalls } from '../../protocol';
+import { FINALIZE_CALLS, LORE_ENTRY_CALLS, LORE_EXPAND_CALLS, PLOT_STAGE_LABEL, describeCalls } from '../../protocol';
 import type {
   ArchitectureRow,
   CastConflictView,
   CastEntry,
   CreationTarget,
   FailureView,
+  LoreThinEntry,
   LoreUnfiledEntry,
   ProjectPlotNode,
   ProjectDirNode,
@@ -34,6 +35,7 @@ import {
   baseMenuItems,
   characterAction,
   entryItems,
+  expandLore,
   fileAction,
   newItemsIn,
   openDraft,
@@ -545,7 +547,7 @@ function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): H
  * 并进同一格的话出现章永远被省略号吃掉，而几百条里扫一眼要看的恰恰是「哪条用得多、用到哪了」。
  * 被挤掉的是 brief，悬停浮窗（detailTip）照样看得全。
  *
- * 右键菜单在打开与类文件操作之间多一项「整合这一条」（有待整合的才有）。
+ * 右键菜单在打开与类文件操作之间多两项：「整合这一条」（有待整合的才有）与「展开…」（每一条都有，完善设定）。
  */
 function buildLoreRow(f: ProjectFile, depth: number, tree?: ProjectTree): HTMLElement {
   // 旧后端推来的树没有 loreByEntry：可选链是有意的，那时就是一行普通的文件行。
@@ -565,17 +567,85 @@ function buildLoreRow(f: ProjectFile, depth: number, tree?: ProjectTree): HTMLEl
         ? `第 ${stats.updatedThrough} 章之后又有 ${stats.pending} 章的新内容没整合进这一条`
         : `有 ${stats.pending} 章的新内容还没整合进这一条`;
     row.appendChild(flag);
-    onContextMenu(row, () => [
-      { label: '打开', run: () => openPath(f.relPath) },
-      { sep: true },
-      {
-        label: `整合这一条（新增 ${stats.pending} 章，${describeCalls(LORE_ENTRY_CALLS).replace(/（.*）$/, '')}）`,
-        run: () => projectAction('integrateLore', f.relPath),
-      },
-      { sep: true },
-      ...entryItems(f.relPath),
-    ]);
   }
+  onContextMenu(row, () => [
+    { label: '打开', run: () => openPath(f.relPath) },
+    { sep: true },
+    ...(stats && stats.pending > 0
+      ? [
+          {
+            label: `整合这一条（新增 ${stats.pending} 章，${describeCalls(LORE_ENTRY_CALLS).replace(/（.*）$/, '')}）`,
+            run: () => projectAction('integrateLore', f.relPath),
+          },
+        ]
+      : []),
+    expandItem({ relPath: f.relPath }),
+    { sep: true },
+    ...entryItems(f.relPath),
+  ]);
+  return row;
+}
+
+/**
+ * 「展开…」那一项（完善设定，2026-10-19）：往前想细一条设定——后端先问一句要求，再在对话页把目标换成这一条、
+ * 发一轮生成，写好的照常上卡片、作者点了才落盘。次数写法同「建条目」「整合这一条」（第 4 条：动手前写明）。
+ */
+function expandItem(target: Parameters<typeof expandLore>[0]): MenuItem {
+  return { label: `展开…（${describeCalls(LORE_EXPAND_CALLS).replace(/（.*）$/, '')}）`, run: () => expandLore(target) };
+}
+
+/**
+ * 「待完善」那一组的全部行（完善设定，2026-10-19）。后端按最早要用到的章排好；这一组只列接下来几章要用的，
+ * 不会像「出现过 · 未建条目」那样拖一条长尾，不分页。
+ */
+export function buildLoreThinRows(list: LoreThinEntry[]): HTMLElement[] {
+  return list.map(buildLoreThinRow);
+}
+
+/**
+ * 「待完善」的一行：`天机阁〔宗门〕· 第 12 章起要用 · 只有一句话`。
+ *
+ * 往前看的一组：还没写的几章细纲第九节点名、却还没有条目或条目还只有一句话的设定——与「出现过 · 未建条目」
+ * （往回记）正好相反，所以排在它前面。有条目的点名字打开那一条（同别的设定行）；还没有条目的点名字不做事
+ * （同未建条目：没有文件可开，也不该手一滑就多出一个）。右键「展开…」，没有条目的后端先按分类建空条目再展开。
+ */
+function buildLoreThinRow(t: LoreThinEntry): HTMLElement {
+  const missing = !t.relPath;
+  // 还没有条目的复用 row-cast 的压暗：同样是「还没有文件」的东西。
+  const row = mk('div', `row row-lore-thin${missing ? ' row-cast' : ''}`);
+  row.style.paddingLeft = `${indentOf(0)}px`;
+
+  const dot = mk('span', 'dot', missing ? '○' : SECTIONS.lore.icon);
+  dot.title = missing ? '接下来要用，还没有设定条目' : '接下来要用，条目还只有一句话';
+  row.appendChild(dot);
+
+  if (t.relPath) {
+    const mark = failureMark(t.relPath);
+    if (mark) {
+      row.appendChild(mark);
+    }
+  }
+
+  const label = mk('span', 'row-label', t.name);
+  label.title = `第 ${t.chapters.join('、')} 章要用到\n右键「展开…」把它往前想细`;
+  if (t.relPath) {
+    const relPath = t.relPath;
+    label.addEventListener('click', (e) => openPath(relPath, { preview: e.detail < 2 }));
+  }
+  row.appendChild(label);
+
+  if (t.category) {
+    row.appendChild(mk('span', 'meta lore-category', `〔${t.category}〕`));
+  }
+  row.appendChild(mk('span', 'meta row-detail', t.detail));
+
+  onContextMenu(row, () => [
+    ...(t.relPath ? [{ label: '打开', run: () => openPath(t.relPath!) }, { sep: true as const }] : []),
+    expandItem(t.relPath ? { relPath: t.relPath } : { name: t.name, category: t.category }),
+    { label: `要用到：第 ${t.chapters.join('、')} 章`, disabled: true },
+    { sep: true },
+    ...baseMenuItems(),
+  ]);
   return row;
 }
 

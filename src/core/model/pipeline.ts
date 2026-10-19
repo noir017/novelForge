@@ -164,8 +164,20 @@ const CAPABILITY_LABEL_IN: Partial<Record<CreationStage, Partial<Record<Capabili
   manuscript: { generate: '写正文' },
 };
 
-/** 某阶段下某能力在按钮上的说法。 */
-export function labelOf(stage: CreationStage, capability: Capability): string {
+/**
+ * 单条设定（展开，完善设定 2026-10-19）这个目标上的说法。它在架构那一层（阶段是 `setting`），做的事却不是
+ * 「生成这份架构文档」——所以按目标分，不按阶段分；设定清单、世界观等几件的说法不动。
+ */
+const CAPABILITY_LABEL_ON_LORE: Partial<Record<Capability, string>> = { generate: '展开这条设定' };
+
+/**
+ * 某阶段下某能力在按钮上的说法。`target` 只在分得出单条设定时用得上（同一个阶段，两种说法），
+ * 不给就按阶段说。
+ */
+export function labelOf(stage: CreationStage, capability: Capability, target?: CreationTarget): string {
+  if (target?.kind === 'lore') {
+    return CAPABILITY_LABEL_ON_LORE[capability] ?? CAPABILITY_LABEL[capability];
+  }
   return CAPABILITY_LABEL_IN[stage]?.[capability] ?? CAPABILITY_LABEL[capability];
 }
 
@@ -288,6 +300,9 @@ const CAPABILITY_KEYS: Record<Capability, string[]> = {
   review: ['review', 'sg'],
 };
 
+/** 单条设定上「展开」多认两个别名（`/展开` 的全拼与首字母）。 */
+const CAPABILITY_KEYS_ON_LORE: Partial<Record<Capability, string[]>> = { generate: ['expand', 'zk'] };
+
 /**
  * 这个阶段能下哪些命令。顺序即面板里的顺序。
  *
@@ -295,15 +310,18 @@ const CAPABILITY_KEYS: Record<Capability, string[]> = {
  * 于是面板里剩下的每一条都会花钱，除审稿外都产出可采纳的产物（会问一次落盘；
  * 审稿只出报告），这正是它们值得显式挑一下的原因。也因此命令都**不要求输入**：输入是可选的
  * 补充要求；`settle` 尤其不能要求输入——它要沉淀的是已经发生过的对话。
+ *
+ * `target` 给了且是单条设定时，「生成」换成「展开这条设定」（`/展开`）；可用的能力仍按阶段算。
  */
-export function commandsFor(stage: CreationStage): StageCommand[] {
+export function commandsFor(stage: CreationStage, target?: CreationTarget): StageCommand[] {
+  const onLore = target?.kind === 'lore';
   return (STAGE_CAPABILITIES[stage] ?? [])
     .filter((capability) => capability !== 'discuss')
     .map((capability) => ({
       capability,
-      label: labelOf(stage, capability),
-      hint: hintOf(stage, capability),
-      keys: CAPABILITY_KEYS[capability],
+      label: labelOf(stage, capability, target),
+      hint: hintOf(stage, capability, target),
+      keys: [...CAPABILITY_KEYS[capability], ...((onLore && CAPABILITY_KEYS_ON_LORE[capability]) || [])],
     }));
 }
 
@@ -314,7 +332,10 @@ export function commandsFor(stage: CreationStage): StageCommand[] {
  * 通用文案说不清它们的差别，而那个差别（以讨论为准还是以你这句话为准）正是
  * 作者要选的东西。
  */
-function hintOf(stage: CreationStage, capability: Capability): string {
+function hintOf(stage: CreationStage, capability: Capability, target?: CreationTarget): string {
+  if (target?.kind === 'lore' && capability === 'generate') {
+    return '照已排细纲里要用到它的地方把这一条往前想细（含暗设），附几条还没定的问题；定稿里写过的不推翻，可采纳写入';
+  }
   if (stage === 'plot') {
     if (capability === 'settle') {
       return '把刚才讨论出的走向整理成这一章的细纲，以讨论里的结论为准';
@@ -326,9 +347,9 @@ function hintOf(stage: CreationStage, capability: Capability): string {
   return CAPABILITY_HINT[capability];
 }
 
-/** 某阶段的某个能力对应的命令；不支持时 undefined。 */
-export function commandOf(stage: CreationStage, capability: Capability): StageCommand | undefined {
-  return commandsFor(stage).find((c) => c.capability === capability);
+/** 某阶段的某个能力对应的命令；不支持时 undefined。`target` 同 {@link commandsFor}。 */
+export function commandOf(stage: CreationStage, capability: Capability, target?: CreationTarget): StageCommand | undefined {
+  return commandsFor(stage, target).find((c) => c.capability === capability);
 }
 
 /**
@@ -367,26 +388,37 @@ export const plotLabel = chapterLabel;
  * 细纲与正文**一律用 `plotRelPath` 而不是章号**：号会撞（作者手改文件名时
  * `007-a.md` 与 `007-b.md` 并存是允许的），路径不会。正文的落点由细纲号去认
  * 同号的章节——那一步要读盘，不在这里做（见 views/pipeline.ts 的 `chapterOfPlotNo`）。
+ *
+ * **单条设定（`lore`，完善设定 2026-10-19）**：展开一条设定条目，阶段是 `setting`，照细纲的路子目标自己带着
+ * 文件身份（`relPath`，条目在 `lore/` 下的工程相对路径）。不复用 `{ kind: 'setting', doc: 'lore' }` 加一个
+ * 路径：凡是 `doc === 'lore'` 的分支都会走设定清单那条链，`targetKey` 会把单条和整批当成同一个目标，
+ * 随会话存下的草稿重开后会被当成整批清单采纳。
  */
 export type CreationTarget =
   | { kind: 'setting'; doc: SettingDoc }
   | { kind: 'outline' }
   | { kind: 'plot'; plotRelPath: string }
-  | { kind: 'manuscript'; plotRelPath: string };
+  | { kind: 'manuscript'; plotRelPath: string }
+  | { kind: 'lore'; relPath: string };
 
 /**
  * target 属于哪个阶段。两者不是同一件事：target 是名词，stage 是动词的所在层。
  *
- * 现在是恒等映射。留着这个函数是因为调用点分属两条取数路径，读代码时能看出
- * 手里拿的是名词还是动词。
+ * 只有单条设定不是恒等：它是架构那一层的东西（`setting`）。留着这个函数是因为调用点分属两条取数路径，
+ * 读代码时能看出手里拿的是名词还是动词。
  */
 export function stageOfTarget(target: CreationTarget): CreationStage {
-  return target.kind;
+  return target.kind === 'lore' ? 'setting' : target.kind;
 }
 
 /** 该 target 归属的细纲路径；架构与大纲都没有归属章。 */
 export function plotOfTarget(target: CreationTarget): string | undefined {
   return target.kind === 'plot' || target.kind === 'manuscript' ? target.plotRelPath : undefined;
+}
+
+/** 该 target 是哪一条设定条目（工程相对路径）；不是单条设定时 undefined。 */
+export function loreOfTarget(target: CreationTarget): string | undefined {
+  return target.kind === 'lore' ? target.relPath : undefined;
 }
 
 /** 该 target 是架构的哪一件；不是架构时 undefined。 */
@@ -408,6 +440,8 @@ export function targetKey(target: CreationTarget): string {
       return `plot:${target.plotRelPath}`;
     case 'manuscript':
       return `manuscript:${target.plotRelPath}`;
+    case 'lore':
+      return `lore:${target.relPath}`;
   }
 }
 
@@ -416,9 +450,12 @@ export function isSameTarget(a: CreationTarget, b: CreationTarget): boolean {
 }
 
 /**
- * 人类可读的位置描述，如「第 12 章《入宗风波》· 正文」。
+ * 人类可读的位置描述，如「第 12 章《入宗风波》· 正文」「设定 · 天机阁」。
  *
  * 后端生成、前端直接显示：文案只有一份，气泡里、历史页、日志里不会分叉。
+ *
+ * 单条设定的名字：调用方读得到条目时传 `info.title`（条目的标题），没传就取文件名（去掉 `.md`）——
+ * 这里零 I/O，而条目的文件名就是按标题起的（`slugify`），两者通常一样。
  */
 export function describeTarget(
   target: CreationTarget,
@@ -430,8 +467,17 @@ export function describeTarget(
   if (target.kind === 'outline') {
     return '情节大纲';
   }
+  if (target.kind === 'lore') {
+    return `设定 · ${info?.title?.trim() || loreStem(target.relPath)}`;
+  }
   const head = info?.no !== undefined ? plotLabel(info.no, info.title) : target.plotRelPath;
   return target.kind === 'plot' ? `${head} · 细纲` : `${head} · 正文`;
+}
+
+/** 条目路径的文件名（不含目录与 `.md`）。这个文件零 import，不用 `node:path`。 */
+function loreStem(relPath: string): string {
+  const base = relPath.slice(relPath.lastIndexOf('/') + 1);
+  return base.replace(/\.(md|markdown)$/i, '') || relPath;
 }
 
 /**
@@ -442,6 +488,8 @@ export function describeTarget(
  * - 老会话里的 `scene` 落到 `plot`：它记着的 `plotRelPath` 仍然有效。
  * - 老会话里的 `volume` 落到 `outline`：卷那一层删掉了。
  * - `setting` 带着认不出的 `doc` 落到 `config`：那是架构的第一件。
+ * - `lore`（单条设定）缺路径也落到 `outline`，**不落到设定清单**：随会话存下的展开草稿被认成整批清单，
+ *   采纳时会照清单那条路建一批条目。
  */
 export function normalizeTarget(raw: unknown): CreationTarget {
   const o = (raw ?? {}) as Record<string, unknown>;
@@ -456,6 +504,10 @@ export function normalizeTarget(raw: unknown): CreationTarget {
       return plotRelPath ? { kind: 'plot', plotRelPath } : { kind: 'outline' };
     case 'manuscript':
       return plotRelPath ? { kind: 'manuscript', plotRelPath } : { kind: 'outline' };
+    case 'lore': {
+      const relPath = typeof o.relPath === 'string' ? o.relPath.trim() : '';
+      return relPath ? { kind: 'lore', relPath } : { kind: 'outline' };
+    }
     default:
       return { kind: 'outline' };
   }
@@ -822,6 +874,18 @@ export function loreEntryCalls(n: number): CallEstimate {
   const { low, high, max, why } = LORE_ENTRY_CALLS;
   return { low: n * low, high: n * high, max: n * max, why };
 }
+
+/**
+ * 展开一条设定（完善设定，2026-10-19）：1 次；交回来的 JSON 语法坏了（标点错，内容是全的）时修一次——
+ * 只许改标点（generation/structured.ts 的 `completeLoreExpand`）。截断与解析不了都不重来：没有产物、不给写入。
+ * 右键菜单、对话页问要求的那一句与 MCP 报的都是这一份（第 4 条）。
+ */
+export const LORE_EXPAND_CALLS: CallEstimate = {
+  low: 1,
+  high: 1,
+  max: 2,
+  why: 'JSON 语法坏了时修一次，只改标点',
+};
 
 /** 角色图谱的人数上下限与详情每批几人（上游 `architecture.command.ts:719-721`）。 */
 export const ROSTER_MIN = 3;

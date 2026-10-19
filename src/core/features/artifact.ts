@@ -30,9 +30,9 @@
  * 老会话），并照旧三层降级。合同本身在 features/blueprint.ts、roster.ts、loreList.ts、novelConfig.ts。
  */
 import { normalizeGender } from '../model/gender';
-import { parseMarkdown, pickSections } from '../model/markdown';
+import { hasContent, parseMarkdown, pickSections } from '../model/markdown';
 import { PLOT_SECTION_KEYS, PlotSections, emptyPlotSections } from '../model/plotFile';
-import { LoreLine, loreLinesFromJson } from '../model/loreFile';
+import { LORE_BODY_KEYS, LoreLine, loreLinesFromJson, normalizeLoreName, splitLoreHidden } from '../model/loreFile';
 import {
   BookConfig,
   NARRATIVE_POVS,
@@ -46,13 +46,14 @@ import {
 import { CHARACTER_SECTION_KEYS, CharacterSections } from '../model/types';
 import { CreationAction, CreationTarget, SettingDoc } from '../model/pipeline';
 import { BlueprintItem, decodeBlueprints, keyEventList } from './blueprint';
+import { LoreDraft, parseLoreExpansion } from './loreExpand';
 import { LoreListEntry, parseLoreList } from './loreList';
 import { STYLE_DRAFT_HEADING, decodeNovelConfig } from './novelConfig';
 import { extractJsonObject, stripCodeFence } from './parse';
 import type { RosterEntry } from './roster';
 import { toSectionText } from './summarize';
 
-export type { RosterEntry, LoreListEntry };
+export type { RosterEntry, LoreListEntry, LoreDraft };
 
 // ---------------------------------------------------------------- 产物形状
 
@@ -71,6 +72,11 @@ export interface PlotFields {
   targetWords?: number;
   /** 第九节「设定」（计划用到、要引入的设定）。没带就沿用磁盘那份（handlers/plot.ts）。 */
   lore?: LoreLine[];
+  /**
+   * 第九节里 `isNew` 的那几行（本章首次引入、后面还会用到的新设定）：采纳单章细纲时建空条目（完善设定 §3，
+   * 同批量拆细纲的 `createPlannedLore`）。不写进细纲文件——那里只有 `lore`。
+   */
+  newLore?: LoreLine[];
 }
 
 /**
@@ -89,6 +95,11 @@ export type Artifact =
   | { kind: 'characterRoster'; characters: RosterEntry[] }
   /** 设定清单：本书的分类目录（落盘时建成 `lore/` 下的目录，空的也建）与条目。 */
   | { kind: 'loreList'; categories: string[]; entries: LoreListEntry[] }
+  /**
+   * 一批要落盘的设定条目（完善设定，2026-10-19）。展开一条设定时第一项是目标条目（按 `relPath` 认），
+   * 其余是建议拆出来的子条目（建空条目）。`questions` 是还没定、要作者拍板的问题：**只上卡片，不落盘**。
+   */
+  | { kind: 'loreEntries'; entries: LoreDraft[]; questions: string[] }
   /** `range` 给了就只替换大纲里与它重叠的那几节（model/outlineFile.ts 的 `mergeOutline`）。 */
   | { kind: 'outlineDoc'; text: string; range?: ChapterRange }
   | ({ kind: 'plot' } & PlotFields)
@@ -106,7 +117,8 @@ export interface ChapterRange {
  * 按 action 解析。**绝不抛**：解析这一步出异常，用户丢的是刚花掉的那次调用。
  * 实在认不出就退回一个「全文塞进主字段」的产物，让他至少能手工取用。
  *
- * 架构层要看 target 才分得清是哪一件（五件同属一个阶段）；其余阶段只看 action。
+ * 架构层要看 target 才分得清是哪一件（五件同属一个阶段）；其余阶段只看 action。单条设定（展开）也在架构层，
+ * 按目标认，**不做全文兜底**：解析不了就是空的，没有落盘卡片（{@link parseLoreExpansion}）。
  *
  * `range` 只对两层有意义：大纲（续写的那一段，落盘时按区间合并）与细纲（**给了区间
  * 就是一批**，按批次合同严格解码，不做全文兜底——见 {@link parsePlotStrict} 为什么）。
@@ -130,6 +142,9 @@ export function parseArtifact(
       }
       return { kind: 'plot', ...(parsePlotStrict(text) ?? { sections: { ...emptyPlotSections(), 关键事件: text } }) };
     case 'setting': {
+      if (target?.kind === 'lore') {
+        return { kind: 'loreEntries', ...parseLoreExpansion(text, target.relPath) };
+      }
       const doc: SettingDoc = target?.kind === 'setting' ? target.doc : 'config';
       if (doc === 'characters') {
         return { kind: 'characterRoster', characters: parseRoster(text) };
@@ -151,6 +166,8 @@ export function isArtifactEmpty(artifact: Artifact): boolean {
       return artifact.characters.length === 0;
     case 'loreList':
       return artifact.entries.length === 0;
+    case 'loreEntries':
+      return artifact.entries.length === 0;
     case 'plot':
       return !Object.values(artifact.sections).some((v) => v.trim());
     case 'plotBatch':
@@ -170,6 +187,8 @@ export function describeArtifact(artifact: Artifact): string {
       return `角色图谱 · ${artifact.characters.length} 人`;
     case 'loreList':
       return `设定清单 · ${artifact.entries.length} 条 · ${artifact.categories.length} 个分类`;
+    case 'loreEntries':
+      return describeLoreEntries(artifact);
     case 'outlineDoc':
       return `情节大纲 · ${artifact.text.length} 字`;
     case 'plot': {
@@ -185,6 +204,30 @@ export function describeArtifact(artifact: Artifact): string {
     case 'manuscript':
       return `正文 · ${artifact.text.length} 字`;
   }
+}
+
+/** 写成「（未交代）」的节不算展开了。 */
+const UNTOLD = /^[（(]\s*未交代\s*[)）]$/u;
+
+/** 「设定 · 天机阁 · 展开 3/3 节 + 暗设 · 拆出 2 条 · 还没定的 3 问」。 */
+function describeLoreEntries(artifact: Extract<Artifact, { kind: 'loreEntries' }>): string {
+  const [head, ...rest] = artifact.entries;
+  const parts: string[] = [];
+  if (head?.relPath) {
+    const { visible, hidden } = splitLoreHidden(head.body);
+    const filled = pickSections(visible, LORE_BODY_KEYS);
+    const n = LORE_BODY_KEYS.filter((k) => hasContent(filled[k]) && !UNTOLD.test(filled[k].trim())).length;
+    parts.push(`设定 · ${head.title} · 展开 ${n}/${LORE_BODY_KEYS.length} 节${hidden ? ' + 暗设' : ''}`);
+  } else {
+    parts.push(`设定 · ${artifact.entries.length} 条`);
+  }
+  if (head?.relPath && rest.length > 0) {
+    parts.push(`拆出 ${rest.length} 条`);
+  }
+  if (artifact.questions.length > 0) {
+    parts.push(`还没定的 ${artifact.questions.length} 问`);
+  }
+  return parts.join(' · ');
 }
 
 const SETTING_TITLE: Record<SettingFileDoc, string> = {
@@ -247,14 +290,33 @@ export function parsePlotStrict(text: string): PlotFields | undefined {
         sections,
         title: clipTitle(str(fromJson.title ?? fromJson.标题)),
         targetWords: num(fromJson.targetWords ?? fromJson.目标字数),
-        // 第九节「设定」：合同里可选，没写就不带（落盘时沿用磁盘那份）。
-        ...(settings !== undefined ? { lore: loreLinesFromJson(settings) } : {}),
+        // 第九节「设定」：合同里可选，没写就不带（落盘时沿用磁盘那份）。`isNew` 的另记一份，采纳时建空条目。
+        ...(settings !== undefined ? { lore: loreLinesFromJson(settings), ...newLoreOf(settings) } : {}),
       };
     }
   }
 
   const picked = pickSections(text, PLOT_SECTION_KEYS) as PlotSections;
   return Object.values(picked).some((v) => v.trim()) ? { sections: { ...emptyPlotSections(), ...picked } } : undefined;
+}
+
+/**
+ * 蓝图 `settings` 里 `isNew` 的那几行（写法同批次的 `blueprintSettings`）：名字截长，同名只留第一行。
+ * 一行都没有就不带这个字段。
+ */
+function newLoreOf(raw: unknown): { newLore?: LoreLine[] } {
+  if (!Array.isArray(raw)) {
+    return {};
+  }
+  const flagged = new Set<string>();
+  for (const item of raw) {
+    const o = item && typeof item === 'object' ? (item as Record<string, unknown>) : undefined;
+    if (o && (o.isNew === true || o.isNew === 'true' || o.新 === true)) {
+      flagged.add(normalizeLoreName(str(o.name ?? o.title ?? o.名称 ?? o.名字)));
+    }
+  }
+  const fresh = loreLinesFromJson(raw).filter((line) => flagged.has(normalizeLoreName(line.name)));
+  return fresh.length > 0 ? { newLore: fresh } : {};
 }
 
 /**
