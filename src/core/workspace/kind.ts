@@ -214,7 +214,7 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
     return { kind: isMd(inCharacters) ? 'character' : 'other', rel };
   }
   // 一条设定条目是架构那一层的一个目标（展开，完善设定 2026-10-19）：MCP 的 `generate` 给条目路径就是展开它。
-  // 设定目录本身仍是设定清单，那一条只在 `generate` 里认（tools/novel/generate.ts 的 `loreListPath`）。
+  // 设定目录本身仍是设定清单（角色目录本身同理是角色图谱），那一条只在 `generate` 里认（tools/novel/generate.ts 的 `settingDirPath`）。
   const inLore = under(rel, d.lore);
   if (inLore !== undefined && inLore) {
     return isMd(inLore)

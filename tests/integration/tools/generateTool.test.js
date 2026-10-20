@@ -453,6 +453,47 @@ describe('对设定清单调 generate（target 是设定目录）', () => {
   });
 });
 
+/*
+ * 角色图谱同样没有自己的文件：target 给角色目录本身（工程页「故事架构」那一行的路径）。从前这里只认设定目录，
+ * 外部 agent 照 `list` 的说法给 .novelforge/characters 会被当成认不出的路径，只能绕去「补齐架构」。
+ */
+describe('对角色图谱调 generate（target 是角色目录）', () => {
+  let r;
+  let intent;
+
+  before(async () => {
+    resetCtx();
+    replyFn = () =>
+      JSON.stringify({
+        characters: [
+          { name: '林昭', role: '主角', 身份: '火场里活下来的孤儿' },
+          { name: '沈青', role: '盟友', 身份: '客栈老板娘' },
+        ],
+      });
+    intent = tool().intent({ target: '.novelforge/characters' }, project);
+    r = await run({ target: '.novelforge/characters/', capability: 'generate' });
+  });
+
+  test('确认框说的是「角色图谱」', () => {
+    assert.ok(intent.title.includes('「角色图谱」'), intent.title);
+  });
+
+  test('认成架构层的角色图谱，没有 error', () => {
+    assert.equal(r.error, undefined, r.error);
+    assert.deepEqual(stored[0].draft.target, { kind: 'setting', doc: 'characters' });
+    assert.equal(stored[0].draft.artifact.kind, 'characterRoster');
+  });
+
+  test('确实没建角色卡', async () => {
+    assert.deepEqual((await project.listCharacters()).map((c) => c.name), []);
+  });
+
+  test('角色目录下的子目录照样不认，报错里说清角色图谱给哪个路径', async () => {
+    const res = await run({ target: '.novelforge/characters/主角', capability: 'generate' });
+    assert.ok(res.error && res.error.includes('角色图谱给 .novelforge/characters'), res.error);
+  });
+});
+
 describe('能力由 STAGE_CAPABILITIES 说了算', () => {
   // 拆卷、拆段、拆章都删了。agent 拿着老提示词来试的话，要在这里被拦住，
   // 并被告知现在有哪几种能力。

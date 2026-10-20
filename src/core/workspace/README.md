@@ -108,7 +108,7 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 | `sensitive` | `.novelforge/sensitive.txt`（自定义敏感词表，内置编辑器的写作体检用） | 纯文本（`plain`） | —（链外：没有创作阶段、不进装配器，改了它不让任何一章挂 ⟳） | — |
 | `plot` | `summaries/` 下（各级子目录都算，镜像正文的路径）+ 数字前缀 + markdown | `plotFile.ts`（八节） | 写入记大纲里覆盖本章那一节的指纹（`outlineUpstreamHash`）；定稿记的 `sourceHash` / `cast` 由 `finalizePlot` 写，重写细纲时原样沿用 | — |
 | `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | —（正文依据的细纲指纹记在细纲的 `writtenFrom` 上） | 改名/移动带草稿与细纲（整个卷目录也带，连同它们的历史版本）；写后 `syncManifest` |
-| `character` / `lore` | 各自区 + `.md`（设定条目另给 `stage: 'setting'` 与单条设定目标 `{ kind: 'lore', relPath }`，完善设定：MCP 的 `generate` 给条目路径就是展开它；设定目录本身仍是 `other`，设定清单只在 `generate` 里认） | frontmatter | — | — |
+| `character` / `lore` | 各自区 + `.md`（设定条目另给 `stage: 'setting'` 与单条设定目标 `{ kind: 'lore', relPath }`，完善设定：MCP 的 `generate` 给条目路径就是展开它；设定目录、角色目录本身仍是 `other`，设定清单、角色图谱只在 `generate` 里认） | frontmatter | — | — |
 | `draft` | `drafts/` 下 | 纯文本 | — | **永不自动进上下文** |
 | `other` | 其余工程内文本（含老工程的 `plots/` 与历史版本 `.novelforge/history/`——后者读得到、写不进，守卫 4） | 纯文本 | — | — |
 

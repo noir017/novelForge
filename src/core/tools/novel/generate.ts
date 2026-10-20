@@ -87,10 +87,10 @@ export const generateTool: ToolDef = {
    */
   intent(args, project): ToolIntent {
     const target = text(args.target);
-    const lore = project ? loreListPath(project, target) : undefined;
+    const dir = project ? settingDirPath(project, target) : undefined;
     return {
       gate: 'costly',
-      title: `为「${lore ? describeForReview(lore, target) : describePath(target, project)}」调一次创作模型`,
+      title: `为「${dir ? describeForReview(dir, target) : describePath(target, project)}」调一次创作模型`,
       detail: [
         target,
         text(args.writeMode) === 'continue' ? '接着已有的正文往下写' : text(args.writeMode) === 'rewrite' ? '整章重写' : '',
@@ -104,7 +104,8 @@ export const generateTool: ToolDef = {
 
   description:
     '调用创作模型，为某一份产物生成内容。target 是那份产物的工程内相对路径，' +
-    '层由路径决定：.novelforge/config.md、premise.md、world.md 是架构层，设定清单给设定目录 .novelforge/lore 本身（一次排一批设定条目），' +
+    '层由路径决定：.novelforge/config.md、premise.md、world.md 是架构层，角色图谱给角色目录 .novelforge/characters 本身（一次排出一批角色卡），' +
+    '设定清单给设定目录 .novelforge/lore 本身（一次排一批设定条目），' +
     '展开一条设定给那一条条目的路径（.novelforge/lore/ 下的 .md，如 .novelforge/lore/宗门/天机阁.md：照已排的细纲把它往前想细，可能建议拆出几条空条目），' +
     '.novelforge/outline.md 是大纲层，.novelforge/summaries/ 下的细纲是细纲层（一章一份，与正文同样的相对路径、扩展名 .md，' +
     '如 .novelforge/summaries/上部/003-夜访.md），' +
@@ -172,7 +173,7 @@ export const generateTool: ToolDef = {
         text: '',
         error:
           `认不出「${rel}」是哪一层的产物。` +
-          '架构给 .novelforge/config.md / premise.md / world.md（设定清单给 .novelforge/lore，展开一条设定给 .novelforge/lore/ 下那一条的 .md），大纲给 .novelforge/outline.md，' +
+          '架构给 .novelforge/config.md / premise.md / world.md（角色图谱给 .novelforge/characters，设定清单给 .novelforge/lore，展开一条设定给 .novelforge/lore/ 下那一条的 .md），大纲给 .novelforge/outline.md，' +
           '细纲给 .novelforge/summaries/ 下那一章的细纲（与正文同样的相对路径），正文给那一章的章节路径（chapters/ 下）。' +
           '可以先用 list 看看那个目录下实际有什么。',
       };
@@ -295,13 +296,13 @@ function toPositiveInt(value: unknown): number | undefined {
 
 /**
  * 路径 → 层与目标。章节路径认成正文层（target 以这一章细纲的路径为身份——正文镜像到
- * `summaries/` 下的那一份，还没有时就是它应该在的位置）；设定目录本身认成架构 · 设定清单；
+ * `summaries/` 下的那一份，还没有时就是它应该在的位置）；角色目录、设定目录本身认成架构 · 角色图谱 / 设定清单；
  * 其余交给 `kindOfPath`（一条设定条目它直接给出单条设定这个目标——展开，走 `setting` 档，不用特判）。
  */
 async function resolveTargetPath(project: NovelProject, rel: string): Promise<PathKind> {
-  const lore = loreListPath(project, rel);
-  if (lore) {
-    return lore;
+  const dir = settingDirPath(project, rel);
+  if (dir) {
+    return dir;
   }
   const path = kindOfPath(project, rel);
   if (path.kind !== 'chapter' || path.no === undefined) {
@@ -319,13 +320,15 @@ async function resolveTargetPath(project: NovelProject, rel: string): Promise<Pa
 }
 
 /**
- * 设定目录本身（`.novelforge/lore`）= 架构 · 设定清单（`pathOfTarget` 的落点就是它）。**只在这个工具里认**：
- * 网关的种类表（`kindOfPath`）不把一个目录当成可写的产物——写入、改名、删除都不该落在它上面。
+ * 架构里没有自己文件的两件：角色目录本身（`.novelforge/characters`）= 角色图谱，设定目录本身（`.novelforge/lore`）=
+ * 设定清单（`pathOfTarget` 的落点就是它们，工程页「故事架构」那两行的路径也是）。**只在这个工具里认**：网关的种类表
+ * （`kindOfPath`）不把一个目录当成可写的产物——写入、改名、删除都不该落在它上面。
  */
-function loreListPath(project: NovelProject, rel: string): PathKind | undefined {
+function settingDirPath(project: NovelProject, rel: string): PathKind | undefined {
   const normalized = normalizeRel(rel);
-  if (!normalized || normalized !== pathOfTarget(project, { kind: 'setting', doc: 'lore' })) {
+  const doc = (['characters', 'lore'] as const).find((d) => normalized && normalized === pathOfTarget(project, { kind: 'setting', doc: d }));
+  if (!normalized || !doc) {
     return undefined;
   }
-  return { kind: 'setting', rel: normalized, doc: 'lore', stage: 'setting', target: { kind: 'setting', doc: 'lore' } };
+  return { kind: 'setting', rel: normalized, doc, stage: 'setting', target: { kind: 'setting', doc } };
 }
