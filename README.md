@@ -118,6 +118,7 @@ docker compose up -d
 ```
 
 - **一个卷全装下**：`/data` 是容器里的家目录，配置与 API Key 在 `/data/.novelforge/`，书也放在 `/data` 下（「打开文件夹」从这里开始列）。备份它就够了。
+- **用 git 同步书**：镜像里带 git 与 ssh，在容器里直接用，例如 `docker compose exec novelforge git -C /data/我的书 pull`（要进 shell 就 `docker compose exec novelforge bash`）。git 的身份（`git config --global user.name …`）记在 `/data/.gitconfig`，SSH 密钥放 `/data/.ssh/`，都在卷里、重建容器不丢。Novel Forge 自己不碰 `.git`——app 里的版本管理是存档点，git 只是你自己的同步工具。
 - **登录**：浏览器打开 `http://<服务器>:3680/`，输一次令牌，记住 30 天。换令牌重启之后，旧的登录全部作废。
 - **公网要套 HTTPS**：令牌在 http 上是明文传的，直连只适合内网。要经公网访问，就在前面加一层 HTTPS 反代，并且要转发 `Host`（或 `X-Forwarded-Host`）和 WebSocket 升级头（`Upgrade` / `Connection`），不然对话页连不上。
 - **MCP**：`claude mcp add --transport http novelforge http://<服务器>:3680/mcp --header "Authorization: Bearer <令牌>"`。

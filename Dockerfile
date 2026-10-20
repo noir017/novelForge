@@ -7,9 +7,12 @@
 #
 # 两段：
 # 1) 构建段**固定跑在构建机的架构上**（--platform=$BUILDPLATFORM），由 Bun 交叉编译出目标架构的
-#    单文件可执行。两个架构都不经 QEMU 模拟——和 release.yml 在 Linux 上编 Windows .exe 是一个办法。
-# 2) 运行段只放那一个文件。distroless/cc：有 glibc（Bun 单文件要）、CA 证书（调模型的 HTTPS 要）
-#    与时区数据，没有 shell 与包管理器；整段没有 RUN，所以 arm64 那份也不用模拟。
+#    单文件可执行。编译不经 QEMU 模拟——和 release.yml 在 Linux 上编 Windows .exe 是一个办法。
+# 2) 运行段：debian-slim，放那一个文件，外加 git 与 ssh——作者在容器里用 git 同步书
+#    （`docker compose exec novelforge git -C /data/<书> pull`）。Novel Forge 自己不碰 `.git`：
+#    app 里的版本管理是它自己的存档点，git 只是作者自己的同步工具。
+#    从前是 distroless/cc（没有 shell 与包管理器，装不了 git）；换成 slim 之后运行段有一条 RUN，
+#    arm64 那份的 apt 要经 QEMU 模拟（docker.yml 里的 setup-qemu-action），只有这一层。
 
 # 必须是带 --platform 的命名阶段：直接 `COPY --from=oven/bun:1` 拉的是**目标**架构的 bun，
 # 在构建机上跑不起来。
@@ -33,12 +36,21 @@ RUN case "$TARGETARCH" in \
     esac \
  && bun build src/shells/standalone/main.ts --compile --target="$target" --outfile /out/novelforge
 
-# :nonroot 以 uid 65532 运行。挂宿主目录时先 `chown -R 65532:65532` 那个目录。
-FROM gcr.io/distroless/cc-debian12:nonroot
+# 以 uid 65532 运行（与从前 distroless:nonroot 同一个号，已经 chown 过的宿主目录不用重来）。
+# 挂宿主目录时先 `chown -R 65532:65532` 那个目录。
+# ca-certificates：调模型的 HTTPS 与 git 的 https 远端都要；tzdata：TZ 环境变量要；less：git log 的分页。
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates tzdata git openssh-client less \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --gid 65532 nonroot \
+ && useradd --uid 65532 --gid 65532 --home-dir /data --no-create-home --shell /bin/bash nonroot
 COPY --from=build /out/novelforge /usr/local/bin/novelforge
-# 配置与 API Key 在 $HOME/.novelforge，书也放在这下面：一个卷全装下。
+# 配置与 API Key 在 $HOME/.novelforge，书也放在这下面：一个卷全装下。git 的身份（.gitconfig）与 SSH 密钥（.ssh/）
+# 也落在 $HOME，同样在卷里。
 COPY --from=build --chown=65532:65532 /out/data /data
 ENV HOME=/data
+USER 65532:65532
 WORKDIR /data
 VOLUME /data
 EXPOSE 3680

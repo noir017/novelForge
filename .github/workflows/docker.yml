@@ -4,7 +4,8 @@
 # - 手动点：推 :edge 与 :sha-<短哈希>，日常验证「还能编出来、起得来」；
 # - 发版时由 release.yml 调过来（workflow_call，带 version）：推 :X.Y.Z 与 :latest。
 #
-# 镜像怎么编见仓库根的 Dockerfile：两个架构都由 Bun 交叉编译，不用 QEMU。
+# 镜像怎么编见仓库根的 Dockerfile：可执行文件两个架构都由 Bun 交叉编译；运行段有一条 apt（装 git），
+# arm64 那一层经 QEMU 模拟（setup-qemu-action）。
 # GHCR 用 GITHUB_TOKEN 登录，不另配 secret。包第一次推上去默认是私有的，要在包设置里改一次 public，
 # 否则拉镜像前得先 docker login。
 name: docker
@@ -67,6 +68,9 @@ jobs:
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
           echo "本次推：$tags"
 
+      # 运行段的 apt-get（装 git）在 arm64 上要模拟执行。
+      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
 
       # 先只编 amd64、装进本机 docker 做冒烟，过了再编双架构推送——坏镜像不该推上去。
@@ -106,6 +110,10 @@ jobs:
             | grep -i '^set-cookie:' | sed -E 's/^[^:]+: *([^;]+).*/\1/')"
           test -n "$cookie"
           test "$(code -H "cookie: $cookie" http://127.0.0.1:3680/)" = 200
+          # 作者要在容器里用 git 同步书：git 与 ssh 得在，而且以非 root 身份跑得起来。
+          docker exec smoke git --version
+          docker exec smoke ssh -V
+          test "$(docker exec smoke id -u)" = 65532
           echo "冒烟通过"
 
       - uses: docker/login-action@v3
