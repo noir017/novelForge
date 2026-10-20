@@ -132,7 +132,7 @@ export class WorkspaceHub {
   async receive(conn: WindowConn, msg: InMessage): Promise<void> {
     await conn.ready;
     if (msg.type === 'promptResult') {
-      (conn.runtime?.host ?? conn.host).prompts.resolve(msg.requestId, msg.value);
+      (conn.runtime?.host ?? conn.host).prompts.resolve(msg.requestId, { value: msg.value, choice: msg.choice });
       return;
     }
     this.touch(conn);

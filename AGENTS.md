@@ -43,7 +43,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 |---|---|---|
 | `src/` | 两层架构总览与一条创作请求的完整链路 | [src/README.md](src/README.md) |
 | `src/core/` | 核心逻辑层入口（含协议 `protocol/`、读写网关 `workspace/`、文件能力 `files/`、只读聚合与界面快照 `views/`、运行时设施 `runtime/`）。`views/pipeline.ts` 是磁盘 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，绝不搬进 `views/`。 | [src/core/README.md](src/core/README.md) |
-| `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**（全书与单章两级状态机、调用次数）、架构三件 settingFile.ts、情节大纲 outlineFile.ts、细纲 plotFile.ts（八节加第九节「设定」，计划与定稿是同一份）、设定的格式与认法 loreFile.ts（第九节一行一条、条目一句话、分类就是目录、「暗设」一节与「还只有一句话」的认法）、连续性事实 continuity.ts、角色当前状态 characterState.ts、叙事线 threadsFile.ts、写作技能 writingSkill.ts、拆书的切章与抽样 importText.ts、审稿报告 review.ts、一致性预检 preflight.ts、段级 diff paragraphDiff.ts、查找替换的匹配口径 textFind.ts（内置编辑器的查找条与全书查找替换同一份）与全书查找替换在一份文件上的口径 bookFind.ts、服务商配置、思考深度 thinking.ts、上下文详细度 contextDetail.ts、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
+| `src/core/model/` | 数据层：NovelProject（**只剩领域查询**，写盘全在 workspace/）、Markdown 解析、章节文件名规则、**创作流水线领域模型 pipeline.ts**（全书与单章两级状态机、调用次数）、架构三件 settingFile.ts、情节大纲 outlineFile.ts、细纲 plotFile.ts（八节加第九节「设定」，计划与定稿是同一份）、设定的格式与认法 loreFile.ts（第九节一行一条、条目一句话、分类就是目录、「暗设」一节与「还只有一句话」的认法）、连续性事实 continuity.ts、角色当前状态 characterState.ts、叙事线 threadsFile.ts、写作技能 writingSkill.ts、拆书的切章与抽样 importText.ts、审稿报告 review.ts、一致性预检 preflight.ts、段级 diff paragraphDiff.ts、查找替换的匹配口径 textFind.ts（内置编辑器的查找条与全书查找替换同一份）与全书查找替换在一份文件上的口径 bookFind.ts、服务商配置、思考深度 thinking.ts、上下文详细度 contextDetail.ts、确认框上的两个下拉框 callChoice.ts、会话存储 | [src/core/model/README.md](src/core/model/README.md) |
 | `src/core/workspace/` | ★ **工程的唯一读写网关**：路径 → 种类（`kind.ts`）→ 八条守卫（`guard.ts`）→ 解析/渲染/记账/伴生（`handlers/`）。写盘从前散在六处、各带一部分保护，现在收成一处；`upstreamHash` 与 `writtenFrom` 的记账下沉到写入路径本身，谁写都记；定稿写回细纲（`finalizePlot`，旧版先复制进回收站）也在这里 | [src/core/workspace/README.md](src/core/workspace/README.md) |
 | `src/core/context/` | ★ 分阶段装配（配方 × 层）+ 身份化提示词 + 可替换的 token 计数器。每张配方都带一层 `skill`（这个阶段绑的写作技能，P0 那一组的最后，整份带或整份不带）；架构、大纲两张另挂一层 `written`（已写正文，只在「从已写正文补齐」时有内容） | [src/core/context/README.md](src/core/context/README.md) |
 | `src/core/generation/` | ★ 创作的一次单步：**无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，并发控制在 controller），外加几条链：结构化产物的降级修复（`structured.ts`）、正文自动续写（`continuation.ts`，最后一步是只许删的删修饰 `trim.ts`）、审稿（`review.ts`）、按勾选修稿（`revision.ts`）；八条落盘分派、Draft store（随会话落盘，`write draftId=…` 认它） | [src/core/generation/README.md](src/core/generation/README.md) |
@@ -60,7 +60,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 | `tests/` | 自动化测试，按类型分目录（也是理解核心行为的最佳入口） | [tests/README.md](tests/README.md) |
 | `scripts/` | 构建与诊断工具（build-media / embed-media / build-sidecar / verify-css / diag-stream） | [scripts/README.md](scripts/README.md) |
 | `sample-novel/` | 示例工程 / 测试夹具，勿随手改正文（hash 断言会挂） | [sample-novel/README.md](sample-novel/README.md) |
-| `src/core/runtime/` | 宿主无关的运行时设施：日志、SQLite 痕迹库、失败记录、长任务登记、有界并发 | [src/core/runtime/README.md](src/core/runtime/README.md) |
+| `src/core/runtime/` | 宿主无关的运行时设施：日志、SQLite 痕迹库、失败记录、长任务登记、有界并发、「这一次」（作者在确认框上挑的模型与详细度，`callScope.ts`） | [src/core/runtime/README.md](src/core/runtime/README.md) |
 | `src/core/views/` | 只读聚合与界面快照：工程树、单章流水线、出场人物索引、设定名录、全书查找 | [src/core/views/README.md](src/core/views/README.md) |
 
 其他关键位置：
@@ -91,7 +91,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 1. **容错优先**：作者会手改任何 Markdown；解析失败退化为忽略，绝不抛崩。见 [src/core/model/README.md](src/core/model/README.md)。
 2. **不静默截断**：装配器降级/丢弃任何条目都必须留在明细里并附原因。见 [src/core/context/README.md](src/core/context/README.md)、[src/core/README.md](src/core/README.md)。
 3. **不静默覆盖**：任何可能吞掉已有内容的动作，落盘前都要先给用户一个判断的机会——卡片 diff、覆盖前确认、同名报错退出、编辑器内容 hash 乐观锁，形式因场景而异，这条原则不变。见 [src/core/generation/README.md](src/core/generation/README.md)、[src/core/workspace/README.md](src/core/workspace/README.md)、[media/README.md](media/README.md)。
-4. **不偷偷烧 token**：没定稿、或定稿后正文又改过的章不自动补，只在工程页提示；单章写完不自动定稿，下一步按钮给「定稿第 N 章」，只有批量的「写完即定稿」模式里自动定稿。要调模型的动作一律在动手之前写明预计调用次数——主按钮、卡片、批量确认框都报，自动续写与修复重试算在上限里，并发不改变这个数。见 [src/core/features/README.md](src/core/features/README.md)。
+4. **不偷偷烧 token**：没定稿、或定稿后正文又改过的章不自动补，只在工程页提示；单章写完不自动定稿，下一步按钮给「定稿第 N 章」，只有批量的「写完即定稿」模式里自动定稿。要调模型的动作一律在动手之前写明预计调用次数——主按钮、卡片、批量确认框都报，自动续写与修复重试算在上限里，并发不改变这个数。调模型之前的确认框一律经 `features/askCall.ts` 问：作者可以为这一次换模型与上下文详细度（不写回设置，见 [docs/design/plans/2026-10-20-call-choice.md](docs/design/plans/2026-10-20-call-choice.md)）。见 [src/core/features/README.md](src/core/features/README.md)。
 5. **模型引用只在第一个斜杠处切分**：`openrouter/z-ai/glm-4.6` 中服务商前缀是 `openrouter`。见 [src/core/model/README.md](src/core/model/README.md)。
 6. **不真删**：工程页的删除、会话删除、类文件操作的删除，一律搬进 `.novelforge/.trash/` 并保留原相对路径。见 [src/core/workspace/README.md](src/core/workspace/README.md)。
 7. **文件访问不越界**：所有写盘经 `core/workspace/` 这一个网关，工程页的类文件操作在此之上再锁章节/角色/设定三个区，细纲（`summaries/` 下）的改名、删除与定稿写回走专门方法（改名只改标题：还没有正文时文件名由章号与标题共同决定，有正文时文件名跟着正文不动）；章节改名、移动时草稿与细纲跟着搬（目标已有就不动、说出来）；独立版的读写另有工程根/大小/白名单一层。见 [src/core/workspace/README.md](src/core/workspace/README.md)、[src/core/README.md](src/core/README.md)。
@@ -99,7 +99,7 @@ npm run test:e2e         # 独立版服务（需 Bun）
 9. **章节不认扩展名**：章节根下「数字前缀 + 扩展名不在二进制黑名单里」的文件都是章节，规则只在 [src/core/model/chapterFile.ts](src/core/model/chapterFile.ts) 定义一次；角色/设定区仍只认 `.md`。见 [src/core/model/README.md](src/core/model/README.md)。
 10. **草稿不进上下文**：`drafts/` 只有作者显式 `@` 引用才进 prompt，装配器永不自动读它；按需创建，删章节不删草稿。见 [src/core/README.md](src/core/README.md)。
 11. **不闷着干活**：任何要调模型或跑几十秒的动作都走 `runTask`（进度条 + 日志），日志里绝不出现 API Key 或 prompt/正文全文。见 [src/core/runtime/README.md](src/core/runtime/README.md)。
-12. **模型引用只在工程页任务里 fallback，且换人只在档内**：串行恒用该档首选、失败随机换同档其余，绝不跨档换人；对话页创作页的单次生成严格用用户选定的模型，不走池。见 [src/core/llm/README.md](src/core/llm/README.md)。
+12. **模型引用只在工程页任务里 fallback，且换人只在档内**：串行恒用该档首选、失败随机换同档其余，绝不跨档换人；对话页创作页的单次生成严格用用户选定的模型，不走池；作者在调模型之前的确认框上为这一次指定了模型，这一次的每次调用都只用它、不换人。见 [src/core/llm/README.md](src/core/llm/README.md)。
 13. **切批与截断用干活那个模型的窗口**：`config.contextWindow` 只代表对话页选定的模型，走池时用 `pool.primaryBudget`。见 [src/core/llm/README.md](src/core/llm/README.md)。
 14. **定稿过的细纲是出场人物的唯一真相**：角色卡的 `appearsIn` / `updatedThrough` 只是缓存，要用就经 `buildCastIndex()` 从定稿过的细纲（有 `sourceHash`）重算；`cast` 的 aliases 只收专属称呼，判定同一个人只信同章共现。没定稿的细纲里「出场人物」是**计划**出场，只给装配器挑角色卡与写前的预检用，不进 `buildCastIndex`。设定出现在哪几章同理：只认定稿过的细纲第九节「设定」，经 `buildLoreIndex()` 现算，没定稿的第九节是计划、只给装配器挑条目用。见 [src/core/README.md](src/core/README.md)、[src/core/model/README.md](src/core/model/README.md)、[src/core/views/README.md](src/core/views/README.md)。
 15. **角色卡不能无限膨胀**：更新角色卡的提示词给每一节都定了字数上限，加字段或改提示词时别把这条抹掉。见 [src/core/features/README.md](src/core/features/README.md)。

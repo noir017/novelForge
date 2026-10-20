@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { ConfigStore } from '../../core/config';
 import { Disposable, Host, InputOptions, MergeTextsOptions, PickChoice, ReviewVerdict } from '../../core/host';
+import { CallAnswer, CallPrompt } from '../../core/model/callChoice';
 import { NovelProject } from '../../core/model/project';
 import { Attachment } from '../../core/model/session';
 import { EditorFileCheck, EditorOpenIntent, EditorPane } from '../../core/protocol';
@@ -53,6 +54,10 @@ export class ScopedHost implements Host {
 
   confirm(message: string, actions: string[], opts?: { modal?: boolean; detail?: string }): Promise<string | undefined> {
     return this.target.confirm(message, actions, opts);
+  }
+
+  confirmCall(message: string, actions: string[], opts: { detail?: string; call: CallPrompt }): Promise<CallAnswer | undefined> {
+    return this.target.confirmCall(message, actions, opts);
   }
 
   pick<T>(choices: PickChoice<T>[], title: string): Promise<T | undefined> {

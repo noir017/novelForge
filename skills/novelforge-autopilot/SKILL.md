@@ -56,10 +56,10 @@ $NF write                                           # 批量写章（写完即�
 | 阶段 | 发的消息 | 落盘前要答什么 |
 |---|---|---|
 | 小说配置 | `send`，payload 为 `stage:'setting'`、`target:{kind:'setting',doc:'config'}`、`setup:{totalChapters,wordsPerChapter}` | 一张 `gate`（`name:'artifact'`），答 `gateResult proceed` |
-| 补齐架构 | `projectAction completeSettings` | 一个 `prompt kind:'confirm'`，答 `promptResult value:'yes'` |
+| 补齐架构 | `projectAction completeSettings` | 一个 `prompt kind:'confirm'`，答 `promptResult`，`value` 是第一颗按钮上的字（`actions[0]`）；带 `call` 的那一问不带 `choice` 就是模型按分档、详细度照设置 |
 | 情节大纲 | `send`，payload 为 `stage:'outline'`、`target:{kind:'outline'}`、`range:{from,to}` | `gate` |
-| 拆细纲 | `projectAction generatePlots`，带 `range`、`confirmed:true` | 无（`confirmed` 表示调用次数已经报过） |
-| 批量写章 | `projectAction writeManuscripts`，带 `range`、`confirmed:true`、`mode:'finalize'`、`review:false` | 可能有一致性预检的 `confirm` |
+| 拆细纲 | `projectAction generatePlots`，带 `range`、`call:{}` | 无（带 `call` 表示弹窗已经问过：调用次数已经报过，`{}` 是模型按分档、详细度照设置） |
+| 批量写章 | `projectAction writeManuscripts`，带 `range`、`call:{}`、`mode:'finalize'`、`review:false` | 可能有一致性预检的 `confirm`；要补建角色卡时还有一个带 `call` 的 `confirm` |
 | 接着写 | `chapterAction`，带 `plotRelPath:'.novelforge/summaries/<与正文相同的相对路径>.md'`、`action:'continue'` | `gate` |
 | 定稿 | `projectAction finalizeChapter`，带 `relPath:'chapters/NNN-….md'` | 无 |
 

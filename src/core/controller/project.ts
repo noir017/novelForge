@@ -30,6 +30,7 @@ import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
 import { CharacterAction, ProjectAction } from '../protocol';
 import { normalizeRange } from '../model/session';
+import { CallChoice, normalizeCallChoice } from '../model/callChoice';
 import { isWriteBatchMode } from '../model/pipeline';
 import { PARAGRAPH_STYLE_LABEL, isParagraphStyle } from '../model/paragraphFormat';
 import { selectPlot } from './chat';
@@ -52,7 +53,7 @@ export async function projectAction(
   dir?: string,
   batch: {
     range?: { from: number; to: number };
-    confirmed?: boolean;
+    call?: CallChoice;
     mode?: 'draft' | 'finalize';
     review?: boolean;
     name?: string;
@@ -125,11 +126,11 @@ export async function projectAction(
       await rebuildGlobalSummary(c.project);
       break;
     case 'generatePlots':
-      // 区间与「弹窗已经报过调用次数」来自工程页的拆细纲弹窗（W5）；不带就是下一批 5 章，先问。
-      // `expandLore`：弹窗上「拆完展开本批新设定」（完善设定三期），拆完后端再问一次次数。
+      // 区间与「弹窗已经问过」（`call`：作者在弹窗上挑的模型与详细度）来自工程页的拆细纲弹窗（W5）；
+      // 不带就是下一批 5 章，先问。`expandLore`：弹窗上「拆完展开本批新设定」（完善设定三期），拆完后端再问一次次数。
       await generatePlots(c.project, {
         range: normalizeRange(batch.range),
-        confirmed: batch.confirmed === true,
+        call: normalizeCallChoice(batch.call),
         expandLore: batch.expandLore === true,
       });
       break;
@@ -137,12 +138,12 @@ export async function projectAction(
       await completeSettings(c.project);
       break;
     case 'writeManuscripts':
-      // 区间、模式与「弹窗已经报过调用次数」来自批量写章弹窗（W9）；不带就是下一可写章起 3 章、只写正文，先问。
+      // 区间、模式与「弹窗已经问过」（`call`）来自批量写章弹窗（W9）；不带就是下一可写章起 3 章、只写正文，先问。
       await writeManuscripts(c.project, {
         range: normalizeRange(batch.range),
         mode: isWriteBatchMode(batch.mode) ? batch.mode : 'draft',
         review: batch.review === true,
-        confirmed: batch.confirmed === true,
+        call: normalizeCallChoice(batch.call),
       });
       break;
     case 'extractCharacters':

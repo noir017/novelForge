@@ -1,4 +1,5 @@
 import type { DirListing } from '../files/fileTree';
+import type { CallPrompt } from '../model/callChoice';
 import type { LogEntry } from '../runtime/logger';
 import type { TaskOpen, TaskSnapshot } from '../runtime/progress';
 import type { SkillSource, SkillStage } from '../model/writingSkill';
@@ -253,9 +254,13 @@ export type OutMessage =
        * `file`：选本机任意一个文件（`Host.pickHostFile`）。`value` 是起始目录，`options` 是允许的扩展名
        * （不带点），回的是选中文件的绝对路径；取消回 undefined。
        *
-       * `confirm` 的 `value` 是补充说明（`Host.confirm` 的 `detail`），多行。
+       * `confirm` 的 `value` 是补充说明（`Host.confirm` 的 `detail`），多行；`actions` 是按钮，一个一颗，回的是点的那颗上的字，
+       * 取消回 undefined。带 `call` 的是调模型之前的那一问（`Host.confirmCall`）：按钮上面多两个下拉框（模型、上下文详细度），
+       * 回答另带 `promptResult.choice`。
        */
       kind: 'input' | 'confirm' | 'pick' | 'merge' | 'file';
+      actions?: string[];
+      call?: CallPrompt;
       title: string;
       message?: string;
       placeholder?: string;

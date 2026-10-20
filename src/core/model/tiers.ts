@@ -32,6 +32,7 @@ export const TIER_LABEL: Record<ModelTier, string> = {
   quality: '精标档',
 };
 
+
 /** 档位说明，只给设置页用。 */
 export const TIER_HINT: Record<ModelTier, string> = {
   fast: '便宜、快，用于量大而单次简单的活',
@@ -160,6 +161,8 @@ export interface TierConfig {
   models: string[];
   tierModels: TierModels;
   taskTiers: Partial<Record<LlmTask, ModelTier>>;
+  /** 作者在确认框上为这一次指定的模型（`readConfig()` 从调用链上取，见 runtime/callScope.ts）。 */
+  pinnedModel?: string;
 }
 
 export interface TaskModels {
@@ -168,6 +171,8 @@ export interface TaskModels {
   refs: string[];
   /** true 表示该档没配模型，这份清单是从「默认模型」继承来的。 */
   inherited: boolean;
+  /** true 表示作者为这一次指定了模型：清单只有它一个，不按档、不换人。 */
+  pinned: boolean;
 }
 
 /**
@@ -175,14 +180,19 @@ export interface TaskModels {
  *
  * **确认框与日志的文案必须从这里取**，不能再打印 `config.models`——
  * 弹窗写着一个模型、实际跑另一个，是「不偷偷烧 token」这条产品承诺的反面。
+ *
+ * 作者在确认框上指定了模型（`pinnedModel`）就只给它：选了谁就是谁，与对话页同一条规矩。
  */
 export function refsForTask(config: TierConfig, task: LlmTask): TaskModels {
   const tier = tierOf(config, task);
+  if (config.pinnedModel) {
+    return { tier, refs: [config.pinnedModel], inherited: false, pinned: true };
+  }
   const refs = config.tierModels[tier] ?? [];
   if (refs.length > 0) {
-    return { tier, refs, inherited: false };
+    return { tier, refs, inherited: false, pinned: false };
   }
-  return { tier, refs: config.models, inherited: true };
+  return { tier, refs: config.models, inherited: true, pinned: false };
 }
 
 /**
@@ -213,16 +223,19 @@ export function describeTierConfig(
   return parts.join('｜');
 }
 
-/** 给确认框和日志用的一句话，如「快速档（未配置，沿用默认模型）」。 */
+/** 给确认框和日志用的一句话，如「快速档（未配置，沿用默认模型）」「这一次指定」。 */
 export function describeTier(picked: TaskModels): string {
+  if (picked.pinned) {
+    return '这一次指定';
+  }
   return picked.inherited ? `${TIER_LABEL[picked.tier]}（未配置，沿用默认模型）` : TIER_LABEL[picked.tier];
 }
 
 /**
  * 确认框里那一行「这活交给谁做」。
  *
- * 五个功能的确认框共用这一行，因为它们都要回答同一个问题，而**说错的代价是
- * 用户以为省了钱其实没省**（或反过来）。所以档位、实际模型清单、会不会换人、
+ * 调模型之前的确认框（`features/askCall.ts`）在「按分档」下面逐项列它，因为它们都要回答同一个问题，
+ * 而**说错的代价是用户以为省了钱其实没省**（或反过来）。所以档位、实际模型清单、会不会换人、
  * 是不是继承来的，四件事都写在这里。
  */
 export function describeTaskModels(config: TierConfig, task: LlmTask): string {

@@ -7,7 +7,8 @@ import { LlmProvider, StreamOptions } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
-import { describeTaskModels } from '../model/tiers';
+import { withCallChoice } from '../runtime/callScope';
+import { askCall } from './askCall';
 import { NovelProject } from '../model/project';
 import { Plot } from '../model/plotFile';
 import { Chapter } from '../model/types';
@@ -246,77 +247,76 @@ export async function recordLore(project: NovelProject, relPath?: string): Promi
     }
   }
 
-  const config = readConfig();
   const n = targets.length;
   const what = relPath ? `第 ${targets[0].order} 章` : `${n} 章`;
-  const picked = await host.confirm(
-    `记设定：读${what}正文，每章调用模型 1 次，共 ${n} 次。只换掉${relPath ? '这一章' : '这几章'}细纲的「设定」一节，别的不动。`,
-    ['开始记'],
-    {
-      modal: true,
-      detail: [
-        relPath
-          ? '这一章细纲原来的「设定」一节（定稿时记的）会被这一次的结果替换。'
-          : `补记的是定稿过、但还没记过设定的章（这个功能之前定稿的章都是）。${skipped > 0 ? `另有 ${skipped} 章定稿之后正文又改过，这次不记，先重新定稿。` : ''}`,
-        describeTaskModels(config, 'loreScan'),
-        n > 1 ? '一章一章串行记，可以随时停下，已经记好的留着。' : '',
-      ]
-        .filter(Boolean)
-        .join('\n\n'),
-    }
-  );
-  if (picked !== '开始记') {
+  const answer = await askCall({
+    message: `记设定：读${what}正文，每章调用模型 1 次，共 ${n} 次。只换掉${relPath ? '这一章' : '这几章'}细纲的「设定」一节，别的不动。`,
+    actions: ['开始记'],
+    detail: [
+      relPath
+        ? '这一章细纲原来的「设定」一节（定稿时记的）会被这一次的结果替换。'
+        : `补记的是定稿过、但还没记过设定的章（这个功能之前定稿的章都是）。${skipped > 0 ? `另有 ${skipped} 章定稿之后正文又改过，这次不记，先重新定稿。` : ''}`,
+      n > 1 ? '一章一章串行记，可以随时停下，已经记好的留着。' : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    tasks: ['loreScan'],
+    contextDetail: false,
+  });
+  if (answer?.action !== '开始记') {
     log.info('作者取消了记设定');
     return;
   }
-  const pool = await createModelPool({ task: 'loreScan', concurrent: false });
-  if (!pool) {
-    log.error('没有可用的模型，记设定中止');
-    return;
-  }
-  log.info('开始记设定', `${n} 章｜${pool.label}`);
+  return withCallChoice(answer.choice, async () => {
+    const pool = await createModelPool({ task: 'loreScan', concurrent: false });
+    if (!pool) {
+      log.error('没有可用的模型，记设定中止');
+      return;
+    }
+    log.info('开始记设定', `${n} 章｜${pool.label}`);
 
-  await runTask(
-    '记设定',
-    async ({ signal, report }) => {
-      const startedAt = Date.now();
-      let done = 0;
-      let failed = 0;
-      let lines = 0;
-      for (const chapter of targets) {
-        if (signal.aborted) {
-          break;
-        }
-        report({ message: `记第 ${chapter.order} 章《${chapter.title}》的设定`, current: done, total: n });
-        try {
-          const recorded = await pool.run(`第 ${chapter.order} 章记设定`, (llm) =>
-            recordChapterLore(project, chapter, llm, signal, pool.primaryBudget)
-          );
-          lines += recorded.length;
-        } catch (err) {
+    await runTask(
+      '记设定',
+      async ({ signal, report }) => {
+        const startedAt = Date.now();
+        let done = 0;
+        let failed = 0;
+        let lines = 0;
+        for (const chapter of targets) {
           if (signal.aborted) {
             break;
           }
-          failed++;
-          log.error(`第 ${chapter.order} 章记设定失败`, describeError(err));
-          await recordFailure(project, {
-            scope: '设定',
-            targetKind: 'chapter',
-            targetKey: chapter.relPath,
-            severity: 'warn',
-            op: 'loreRecord',
-            message: `记设定失败：${describeError(err)}`,
-            detail: '细纲的「设定」一节没有改动；可以在这一章上右键「记设定」再试一次。',
-          });
-        } finally {
-          done++;
-          report({ current: done, total: n });
+          report({ message: `记第 ${chapter.order} 章《${chapter.title}》的设定`, current: done, total: n });
+          try {
+            const recorded = await pool.run(`第 ${chapter.order} 章记设定`, (llm) =>
+              recordChapterLore(project, chapter, llm, signal, pool.primaryBudget)
+            );
+            lines += recorded.length;
+          } catch (err) {
+            if (signal.aborted) {
+              break;
+            }
+            failed++;
+            log.error(`第 ${chapter.order} 章记设定失败`, describeError(err));
+            await recordFailure(project, {
+              scope: '设定',
+              targetKind: 'chapter',
+              targetKey: chapter.relPath,
+              severity: 'warn',
+              op: 'loreRecord',
+              message: `记设定失败：${describeError(err)}`,
+              detail: '细纲的「设定」一节没有改动；可以在这一章上右键「记设定」再试一次。',
+            });
+          } finally {
+            done++;
+            report({ current: done, total: n });
+          }
         }
-      }
-      const summary = `记了 ${done - failed} 章，共 ${lines} 条设定${failed > 0 ? `，失败 ${failed} 章（详见日志页）` : ''}`;
-      log.info('记设定结束', `${summary}｜总耗时 ${elapsed(startedAt)}`);
-      host.toast(`${summary}。`);
-    },
-    { scope: '设定' }
-  );
+        const summary = `记了 ${done - failed} 章，共 ${lines} 条设定${failed > 0 ? `，失败 ${failed} 章（详见日志页）` : ''}`;
+        log.info('记设定结束', `${summary}｜总耗时 ${elapsed(startedAt)}`);
+        host.toast(`${summary}。`);
+      },
+      { scope: '设定' }
+    );
+  });
 }

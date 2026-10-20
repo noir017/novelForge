@@ -371,6 +371,42 @@ describe('资源管理器：目录列举', () => {
 // 这条跑的是**真控制器 + 真传输**：前端只知道「我点了第 3 章」，落在哪一层
 // 由后端算。判定本身另有一组更细的用例（tests/integration/features/selectPlot.test.js
 // 覆盖三种路径形状），这里守的是它经 WS 走一遭之后还对。
+describe('确认框：一个 action 一颗按钮，调模型之前那一问带两个下拉框', () => {
+  let scope;
+  let call;
+
+  // 按目录整理设定：先问整理范围（两颗按钮），再问调模型（`confirmCall`）。sample-novel 的两条设定都在根目录（未分类）。
+  // 点第二颗按钮：从前网页弹窗只认第一颗，这一步就走不下去。最后取消，不调模型、不写盘。
+  before(async () => {
+    conn.drain();
+    conn.send({ type: 'projectAction', action: 'organizeLore' });
+    scope = await conn.waitFor((m) => m.type === 'prompt' && m.kind === 'confirm', '整理范围');
+    conn.send({ type: 'promptResult', requestId: scope.requestId, value: scope.actions[1] });
+    call = await conn.waitFor((m) => m.type === 'prompt' && m.kind === 'confirm' && m.call, '调模型之前那一问');
+    conn.send({ type: 'promptResult', requestId: call.requestId });
+    // 工程页动作收尾时推一轮状态（流水线在最后）：等它推完，免得落进下一节的 waitFor。
+    await conn.waitFor((m) => m.type === 'pipeline', '整理取消之后的状态');
+  });
+
+  test('普通确认框带上全部按钮', () => {
+    assert.deepEqual(scope.actions, ['只整理未分类的 2 条', '全部 2 条都看一遍']);
+    assert.equal(scope.call, undefined);
+  });
+
+  test('点第二颗按钮也走得下去：接着问调模型', () => {
+    assert.ok(call.message.startsWith('整理 2 条设定'), call.message);
+    assert.deepEqual(call.actions, ['开始']);
+  });
+
+  test('调模型那一问：缺省按分档，列出分档那一行；整理不看详细度，没有那个下拉框', () => {
+    assert.equal(call.call.model, '');
+    assert.ok(Array.isArray(call.call.models));
+    assert.equal(call.call.tiers.length, 1);
+    assert.ok(call.call.tiers[0].startsWith('设定 · 建条目与整合'), call.call.tiers[0]);
+    assert.equal(call.call.contextDetail, undefined);
+  });
+});
+
 describe('选中一章 → 状态机决定落在哪一层', () => {
   let session;
   let pipe;

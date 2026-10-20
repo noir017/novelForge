@@ -13,7 +13,9 @@ import { runTask } from '../runtime/progress';
 import { castFromText, parseCastEntry, renderCastEntry } from '../model/castParse';
 import { NovelProject } from '../model/project';
 import { PLOT_SECTION_KEYS, Plot, PlotSectionKey, PlotSections, emptyPlotSections, parsePlotFileName } from '../model/plotFile';
-import { describeTaskModels } from '../model/tiers';
+import { CallChoice } from '../model/callChoice';
+import { withCallChoice } from '../runtime/callScope';
+import { askCall } from './askCall';
 import { CallEstimate, FINALIZE_CALLS, describeCalls } from '../model/pipeline';
 import { Chapter, SummaryCast } from '../model/types';
 import { ContinuityFact, attachEvidence, parseContinuityFacts, renderContinuityFacts } from '../model/continuity';
@@ -274,93 +276,93 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
     return 0;
   }
 
-  const config = readConfig();
-  const lanes = Math.min(config.concurrency, stale.length);
+  const lanes = Math.min(readConfig().concurrency, stale.length);
   const each = FINALIZE_CALLS;
   const calls: CallEstimate = { low: stale.length * each.low, high: stale.length * each.high, max: stale.length * each.max };
-  const confirm = await getHost().confirm(
-    `有 ${stale.length} 章写了正文还没定稿（或定稿后正文又改过），逐章定稿：照正文更新细纲、更新出场角色的当前状态、记下推进了哪几条叙事线。${describeCalls(calls)}。现在同步？`,
-    ['开始同步'],
-    {
-      modal: true,
-      detail:
-        `每章 ${each.low}–${each.high} 次（${each.why}）。\n` +
-        `${describeTaskModels(config, 'plotSummary')}\n${describeTaskModels(config, 'characterCard')}\n` +
-        (lanes > 1 ? `照正文更新细纲并发 ${lanes} 路；` : '照正文更新细纲逐章串行（并发数为 1）；') +
-        '角色状态与叙事线按章号逐章串行（要一章一章往后推）。\n每章的旧版细纲先复制一份进 .novelforge/.trash/。',
-    }
-  );
-  if (confirm !== '开始同步') {
+  const answer = await askCall({
+    message: `有 ${stale.length} 章写了正文还没定稿（或定稿后正文又改过），逐章定稿：照正文更新细纲、更新出场角色的当前状态、记下推进了哪几条叙事线。${describeCalls(calls)}。现在同步？`,
+    actions: ['开始同步'],
+    detail:
+      `每章 ${each.low}–${each.high} 次（${each.why}）。\n` +
+      (lanes > 1 ? `照正文更新细纲并发 ${lanes} 路；` : '照正文更新细纲逐章串行（并发数为 1）；') +
+      '角色状态与叙事线按章号逐章串行（要一章一章往后推）。\n每章的旧版细纲先复制一份进 .novelforge/.trash/。',
+    tasks: ['plotSummary', 'characterCard'],
+    // 定稿判线带几条随详细度（`recordThreadEvents`）。
+    contextDetail: true,
+  });
+  if (answer?.action !== '开始同步') {
     log.info('用户取消了同步');
     return 0;
   }
 
-  const pool = await createModelPool({ task: 'plotSummary', concurrent: lanes > 1 });
-  if (!pool) {
-    log.error('没有可用的模型，同步中止');
-    return 0;
-  }
-  // 角色状态走「角色卡」档（与批量写章「写完即定稿」同一个分法），没配就沿用定稿那一档。
-  const statePool = (await createModelPool({ task: 'characterCard', concurrent: false })) ?? pool;
-  log.info(`使用模型 ${pool.label}`, lanes > 1 ? `并发 ${lanes} 路，轮转负载均衡` : '串行');
+  return withCallChoice(answer.choice, async () => {
+    const pool = await createModelPool({ task: 'plotSummary', concurrent: lanes > 1 });
+    if (!pool) {
+      log.error('没有可用的模型，同步中止');
+      return 0;
+    }
+    // 角色状态走「角色卡」档（与批量写章「写完即定稿」同一个分法），没配就沿用定稿那一档。
+    const statePool = (await createModelPool({ task: 'characterCard', concurrent: false })) ?? pool;
+    log.info(`使用模型 ${pool.label}`, lanes > 1 ? `并发 ${lanes} 路，轮转负载均衡` : '串行');
 
-  let used = 0;
-  await runTask(
-    '同步章节细纲',
-    async ({ signal, report }) => {
-      const startedAt = Date.now();
-      const { ok: okCount, failed, updated } = await summarizeChapters(project, stale, { pool, lanes, signal, report });
-      used += okCount + failed.length;
-      if (signal.aborted) {
-        log.warn(`同步被取消，已更新 ${okCount} 章细纲，角色状态与叙事线一章都没走`);
-        await markHalfDone(project, updated);
-        return;
-      }
-
-      // 第二步：按章号串行（updated 已按章号排好）。
-      const partial: number[] = [];
-      for (let i = 0; i < updated.length; i++) {
-        const { chapter, summary } = updated[i];
-        report({ message: `角色状态与叙事线 · 第 ${chapter.order} 章《${chapter.title}》`, current: i, total: updated.length });
-        try {
-          const rest = await updateStateAndThreads(project, chapter, summary.cast, {
-            state: statePool,
-            threads: pool,
-            signal,
-          });
-          used += rest.calls;
-          if (rest.stateError || rest.threadsError) {
-            partial.push(chapter.order);
-          }
-        } catch (err) {
-          if (err instanceof CancelledError || signal.aborted) {
-            log.warn(`同步被取消，停在第 ${chapter.order} 章的角色状态与叙事线`);
-            await markHalfDone(project, updated.slice(i));
-            return;
-          }
-          throw err;
+    let used = 0;
+    await runTask(
+      '同步章节细纲',
+      async ({ signal, report }) => {
+        const startedAt = Date.now();
+        const { ok: okCount, failed, updated } = await summarizeChapters(project, stale, { pool, lanes, signal, report });
+        used += okCount + failed.length;
+        if (signal.aborted) {
+          log.warn(`同步被取消，已更新 ${okCount} 章细纲，角色状态与叙事线一章都没走`);
+          await markHalfDone(project, updated);
+          return;
         }
-      }
 
-      report({ message: '收尾', current: updated.length, total: updated.length });
-      const notes = [
-        failed.length > 0 ? `第 ${failed.map((f) => f.no).join('、')} 章细纲没更新成` : '',
-        partial.length > 0 ? `第 ${partial.join('、')} 章的角色状态或叙事线没更新成（挂了黄 ❗）` : '',
-      ].filter(Boolean);
-      if (notes.length > 0) {
-        log.warn(
-          `同步结束：定稿 ${okCount} 章，${notes.join('；')}`,
-          failed.map((f) => `第 ${f.no} 章：${f.reason}`).join('\n')
-        );
-        getHost().toast(`定稿 ${okCount} 章；${notes.join('；')}，可在日志页看原因。`);
-      } else if (okCount > 0) {
-        log.info(`同步结束：${okCount} 章全部定稿`, `总耗时 ${elapsed(startedAt)}`);
-        getHost().toast(`已定稿 ${okCount} 章：细纲照正文更新，角色状态与叙事线跟到了这几章。`);
-      }
-    },
-    { scope: '定稿' }
-  );
-  return used;
+        // 第二步：按章号串行（updated 已按章号排好）。
+        const partial: number[] = [];
+        for (let i = 0; i < updated.length; i++) {
+          const { chapter, summary } = updated[i];
+          report({ message: `角色状态与叙事线 · 第 ${chapter.order} 章《${chapter.title}》`, current: i, total: updated.length });
+          try {
+            const rest = await updateStateAndThreads(project, chapter, summary.cast, {
+              state: statePool,
+              threads: pool,
+              signal,
+            });
+            used += rest.calls;
+            if (rest.stateError || rest.threadsError) {
+              partial.push(chapter.order);
+            }
+          } catch (err) {
+            if (err instanceof CancelledError || signal.aborted) {
+              log.warn(`同步被取消，停在第 ${chapter.order} 章的角色状态与叙事线`);
+              await markHalfDone(project, updated.slice(i));
+              return;
+            }
+            throw err;
+          }
+        }
+
+        report({ message: '收尾', current: updated.length, total: updated.length });
+        const notes = [
+          failed.length > 0 ? `第 ${failed.map((f) => f.no).join('、')} 章细纲没更新成` : '',
+          partial.length > 0 ? `第 ${partial.join('、')} 章的角色状态或叙事线没更新成（挂了黄 ❗）` : '',
+        ].filter(Boolean);
+        if (notes.length > 0) {
+          log.warn(
+            `同步结束：定稿 ${okCount} 章，${notes.join('；')}`,
+            failed.map((f) => `第 ${f.no} 章：${f.reason}`).join('\n')
+          );
+          getHost().toast(`定稿 ${okCount} 章；${notes.join('；')}，可在日志页看原因。`);
+        } else if (okCount > 0) {
+          log.info(`同步结束：${okCount} 章全部定稿`, `总耗时 ${elapsed(startedAt)}`);
+          getHost().toast(`已定稿 ${okCount} 章：细纲照正文更新，角色状态与叙事线跟到了这几章。`);
+        }
+      },
+      { scope: '定稿' }
+    );
+    return used;
+  });
 }
 
 /**
@@ -628,200 +630,206 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
   }
 
   const stale = await project.staleChapters();
+  /** 有没定稿的章时问过一句，作者在那里挑的；没问就是设置。 */
+  let choice: CallChoice = {};
   if (stale.length > 0) {
     globalLog.warn(`有 ${stale.length} 章没定稿或定稿后正文改过`, `待同步：${describeNos(stale)}`);
-    const pick = await getHost().confirm(
-      `有 ${stale.length} 章的细纲还没照正文更新（没定稿，或定稿后正文又改过），直接重建会缺这些章的信息。`,
-      ['先同步细纲', '仍然重建'],
-      { modal: true }
-    );
-    if (!pick) {
+    const answer = await askCall({
+      message: `有 ${stale.length} 章的细纲还没照正文更新（没定稿，或定稿后正文又改过），直接重建会缺这些章的信息。`,
+      actions: ['先同步细纲', '仍然重建'],
+      detail: '先同步细纲：同步那一步还会再问一次次数，缺省跟着这里的选择。',
+      tasks: ['globalSummaryStage', 'globalSummaryMerge'],
+      contextDetail: false,
+    });
+    if (!answer) {
       globalLog.info('用户取消了重建');
       return;
     }
-    globalLog.info(`用户选择「${pick}」`);
-    if (pick === '先同步细纲') {
-      await syncSummaries(project);
+    globalLog.info(`用户选择「${answer.action}」`);
+    choice = answer.choice;
+    if (answer.action === '先同步细纲') {
+      await withCallChoice(choice, () => syncSummaries(project));
     }
   }
 
-  const config = readConfig();
-
-  // 收集定稿过的细纲。定稿之后正文又改过的照样收（上面已经问过要不要先同步），
-  // 从没定稿过的只是计划，不进全书摘要。
-  const units: { no: number; title: string; content: string }[] = [];
-  const missing: number[] = [];
-  for (const chapter of chapters) {
-    const plot = await project.plotOfChapter(chapter);
-    const content = plot?.sourceHash ? plotDigest(plot) : '';
-    if (content) {
-      units.push({ no: chapter.order, title: chapter.title, content });
-    } else {
-      missing.push(chapter.order);
+  return withCallChoice(choice, async () => {
+    const config = readConfig();
+    // 收集定稿过的细纲。定稿之后正文又改过的照样收（上面已经问过要不要先同步），
+    // 从没定稿过的只是计划，不进全书摘要。
+    const units: { no: number; title: string; content: string }[] = [];
+    const missing: number[] = [];
+    for (const chapter of chapters) {
+      const plot = await project.plotOfChapter(chapter);
+      const content = plot?.sourceHash ? plotDigest(plot) : '';
+      if (content) {
+        units.push({ no: chapter.order, title: chapter.title, content });
+      } else {
+        missing.push(chapter.order);
+      }
     }
-  }
-  if (units.length === 0) {
-    globalLog.error('没有任何定稿过的章，重建中止');
-    getHost().toast('还没有任何一章定稿过，请先定稿，或运行「同步过期细纲」。');
-    return;
-  }
-  if (missing.length > 0) {
-    // 「不静默截断」：少了哪几章必须说出来，否则全书摘要凭空缺一块。
-    globalLog.warn(
-      `${missing.length} 章没定稿过，不会进入全书摘要`,
-      `缺失章：${missing.slice(0, 20).join('、')}${missing.length > 20 ? `…（共 ${missing.length} 章）` : ''}`
+    if (units.length === 0) {
+      globalLog.error('没有任何定稿过的章，重建中止');
+      getHost().toast('还没有任何一章定稿过，请先定稿，或运行「同步过期细纲」。');
+      return;
+    }
+    if (missing.length > 0) {
+      // 「不静默截断」：少了哪几章必须说出来，否则全书摘要凭空缺一块。
+      globalLog.warn(
+        `${missing.length} 章没定稿过，不会进入全书摘要`,
+        `缺失章：${missing.slice(0, 20).join('、')}${missing.length > 20 ? `…（共 ${missing.length} 章）` : ''}`
+      );
+    }
+
+    const batches = chunk(units, Math.max(3, config.summaryBatchSize));
+    const lanes = Math.min(config.concurrency, batches.length);
+    // 两个池，两档：分批汇总是几十次「把 15 章细纲压成一段」的体力活，
+    // 最终合并全书只做一次却要跨几十万字取舍主线。这正是分档最大的收益点。
+    const stagePool = await createModelPool({ task: 'globalSummaryStage', concurrent: lanes > 1 });
+    if (!stagePool) {
+      globalLog.error('没有可用的模型，重建中止');
+      return;
+    }
+    // 只有一批时根本不合并，不必为此构造第二个池（也不必弹它的 Key 输入框）。
+    const mergePool =
+      batches.length > 1 ? await createModelPool({ task: 'globalSummaryMerge', concurrent: false }) : stagePool;
+    if (!mergePool) {
+      globalLog.error('没有可用的模型，重建中止');
+      return;
+    }
+    globalLog.info(
+      `准备重建：${units.length} 章细纲分 ${batches.length} 批`,
+      `分批汇总 ${stagePool.label}｜最终合并 ${mergePool.label}｜每批 ${Math.max(3, config.summaryBatchSize)} 章｜` +
+        (lanes > 1 ? `汇总阶段并发 ${lanes} 路` : '汇总阶段串行')
     );
-  }
 
-  const batches = chunk(units, Math.max(3, config.summaryBatchSize));
-  const lanes = Math.min(config.concurrency, batches.length);
-  // 两个池，两档：分批汇总是几十次「把 15 章细纲压成一段」的体力活，
-  // 最终合并全书只做一次却要跨几十万字取舍主线。这正是分档最大的收益点。
-  const stagePool = await createModelPool({ task: 'globalSummaryStage', concurrent: lanes > 1 });
-  if (!stagePool) {
-    globalLog.error('没有可用的模型，重建中止');
-    return;
-  }
-  // 只有一批时根本不合并，不必为此构造第二个池（也不必弹它的 Key 输入框）。
-  const mergePool =
-    batches.length > 1 ? await createModelPool({ task: 'globalSummaryMerge', concurrent: false }) : stagePool;
-  if (!mergePool) {
-    globalLog.error('没有可用的模型，重建中止');
-    return;
-  }
-  globalLog.info(
-    `准备重建：${units.length} 章细纲分 ${batches.length} 批`,
-    `分批汇总 ${stagePool.label}｜最终合并 ${mergePool.label}｜每批 ${Math.max(3, config.summaryBatchSize)} 章｜` +
-      (lanes > 1 ? `汇总阶段并发 ${lanes} 路` : '汇总阶段串行')
-  );
+    await runTask(
+      '重建全书摘要',
+      async ({ signal, report }) => {
+        const startedAt = Date.now();
+        const options: StreamOptions = {
+          maxOutputTokens: stagePool.primaryBudget.maxOutputTokens,
+          temperature: 0.3,
+          timeoutMs: config.requestTimeoutMs,
+          signal,
+        };
 
-  await runTask(
-    '重建全书摘要',
-    async ({ signal, report }) => {
-      const startedAt = Date.now();
-      const options: StreamOptions = {
-        maxOutputTokens: stagePool.primaryBudget.maxOutputTokens,
-        temperature: 0.3,
-        timeoutMs: config.requestTimeoutMs,
-        signal,
-      };
+        // 合并那一步也算一格进度，否则最后一批跑完进度条会停在 100% 干等。
+        const steps = batches.length + (batches.length > 1 ? 1 : 0);
 
-      // 合并那一步也算一格进度，否则最后一批跑完进度条会停在 100% 干等。
-      const steps = batches.length + (batches.length > 1 ? 1 : 0);
+        // ---- map：每批 reduce 成阶段摘要 ----
+        // 各批彼此独立（只有最后的合并才要全部到齐），因此按配置并发。
+        // runPool 的结果按 index 对齐，阶段小节的先后不会因完成顺序而乱。
+        let mapped = 0;
+        const rangeOf = (batch: typeof batches[number]): string =>
+          `第 ${batch[0].no} - ${batch[batch.length - 1].no} 章`;
 
-      // ---- map：每批 reduce 成阶段摘要 ----
-      // 各批彼此独立（只有最后的合并才要全部到齐），因此按配置并发。
-      // runPool 的结果按 index 对齐，阶段小节的先后不会因完成顺序而乱。
-      let mapped = 0;
-      const rangeOf = (batch: typeof batches[number]): string =>
-        `第 ${batch[0].no} - ${batch[batch.length - 1].no} 章`;
+        const results = await runPool(
+          batches,
+          lanes,
+          async (batch) => {
+            const range = rangeOf(batch);
+            const joined = batch.map((u) => `【第${u.no}章 ${u.title}】\n${u.content}`).join('\n\n');
+            const each = Date.now();
+            globalLog.debug(`汇总 ${range}`, `${batch.length} 章细纲，约 ${estimateTokens(joined)} token`);
+            const text = await stagePool.run(range, (llm) =>
+              collectText(
+                llm.stream(
+                  [
+                    { role: 'system', content: STAGE_SYSTEM },
+                    { role: 'user', content: `以下是${range}定稿过的逐章细纲，请汇总成阶段摘要。\n\n${joined}` },
+                  ],
+                  options
+                )
+              )
+            );
+            globalLog.info(`阶段摘要完成（${range}）`, `产出 ${text.trim().length} 字，用时 ${elapsed(each)}`);
+            return `## ${range}\n\n${text.trim()}`;
+          },
+          {
+            signal,
+            onStart: (batch) => report({ message: `汇总 ${rangeOf(batch)}`, current: mapped, total: steps }),
+            onSettled: (_result, _batch, _index, finished) => {
+              mapped = finished;
+              report({ current: mapped, total: steps });
+            },
+          }
+        );
 
-      const results = await runPool(
-        batches,
-        lanes,
-        async (batch) => {
-          const range = rangeOf(batch);
-          const joined = batch.map((u) => `【第${u.no}章 ${u.title}】\n${u.content}`).join('\n\n');
-          const each = Date.now();
-          globalLog.debug(`汇总 ${range}`, `${batch.length} 章细纲，约 ${estimateTokens(joined)} token`);
-          const text = await stagePool.run(range, (llm) =>
+        if (signal.aborted) {
+          globalLog.warn(`重建被取消，已汇总 ${mapped}/${batches.length} 批`);
+          return;
+        }
+
+        // 「不静默截断」：某一批失败时全书摘要会凭空缺一块，必须说出来。
+        const stageSummaries: string[] = [];
+        const lost: string[] = [];
+        for (const [i, r] of results.entries()) {
+          if (r.status === 'fulfilled') {
+            stageSummaries.push(r.value);
+          } else {
+            lost.push(`${rangeOf(batches[i])}：${describeError(r.reason)}`);
+          }
+        }
+        if (lost.length > 0) {
+          globalLog.error(`${lost.length} 批汇总失败，这几章不会进入全书摘要`, lost.join('\n'));
+          getHost().toast(`${lost.length} 批汇总失败，全书摘要会缺这几章，详见日志页。`, 'error');
+        }
+        if (stageSummaries.length === 0) {
+          globalLog.error('所有批次都汇总失败，全书摘要未改动');
+          return;
+        }
+
+        // ---- reduce：阶段摘要合并成全书摘要 ----
+        let finalText: string;
+        if (stageSummaries.length === 1) {
+          finalText = stageSummaries[0].replace(/^## .*\n+/, '');
+          globalLog.debug('只有一批，直接用阶段摘要作为全书摘要');
+        } else {
+          report({ message: '合并为全书摘要', current: batches.length, total: steps });
+          const combined = stageSummaries.join('\n\n');
+          // 合并这一步用**精标档**的窗口：它和分批汇总很可能不是同一个模型。
+          const mergeBudget = mergePool.primaryBudget;
+          const inputBudget = Math.max(4000, mergeBudget.contextWindow - mergeBudget.maxOutputTokens - 2000);
+          const clipped = takeHead(combined, inputBudget);
+          if (clipped.length < combined.length) {
+            globalLog.warn(
+              '阶段摘要总量超出输入预算，合并时已截断',
+              `${combined.length} 字 → ${clipped.length} 字（预算 ${inputBudget} token）。` +
+                '可把「全书摘要批大小」调大以减少批数。'
+            );
+          }
+          const mergeStart = Date.now();
+          globalLog.debug(`合并 ${stageSummaries.length} 份阶段摘要`, `约 ${estimateTokens(clipped)} token`);
+          finalText = await mergePool.run('合并全书摘要', (llm) =>
             collectText(
               llm.stream(
                 [
-                  { role: 'system', content: STAGE_SYSTEM },
-                  { role: 'user', content: `以下是${range}定稿过的逐章细纲，请汇总成阶段摘要。\n\n${joined}` },
+                  { role: 'system', content: GLOBAL_SYSTEM },
+                  {
+                    role: 'user',
+                    content: `以下是各阶段摘要，请合并成一份全书滚动摘要。\n\n${clipped}`,
+                  },
                 ],
-                options
+                { ...options, maxOutputTokens: mergeBudget.maxOutputTokens }
               )
             )
           );
-          globalLog.info(`阶段摘要完成（${range}）`, `产出 ${text.trim().length} 字，用时 ${elapsed(each)}`);
-          return `## ${range}\n\n${text.trim()}`;
-        },
-        {
-          signal,
-          onStart: (batch) => report({ message: `汇总 ${rangeOf(batch)}`, current: mapped, total: steps }),
-          onSettled: (_result, _batch, _index, finished) => {
-            mapped = finished;
-            report({ current: mapped, total: steps });
-          },
+          globalLog.info('阶段摘要已合并', `产出 ${finalText.trim().length} 字，用时 ${elapsed(mergeStart)}`);
         }
-      );
 
-      if (signal.aborted) {
-        globalLog.warn(`重建被取消，已汇总 ${mapped}/${batches.length} 批`);
-        return;
-      }
-
-      // 「不静默截断」：某一批失败时全书摘要会凭空缺一块，必须说出来。
-      const stageSummaries: string[] = [];
-      const lost: string[] = [];
-      for (const [i, r] of results.entries()) {
-        if (r.status === 'fulfilled') {
-          stageSummaries.push(r.value);
-        } else {
-          lost.push(`${rangeOf(batches[i])}：${describeError(r.reason)}`);
-        }
-      }
-      if (lost.length > 0) {
-        globalLog.error(`${lost.length} 批汇总失败，这几章不会进入全书摘要`, lost.join('\n'));
-        getHost().toast(`${lost.length} 批汇总失败，全书摘要会缺这几章，详见日志页。`, 'error');
-      }
-      if (stageSummaries.length === 0) {
-        globalLog.error('所有批次都汇总失败，全书摘要未改动');
-        return;
-      }
-
-      // ---- reduce：阶段摘要合并成全书摘要 ----
-      let finalText: string;
-      if (stageSummaries.length === 1) {
-        finalText = stageSummaries[0].replace(/^## .*\n+/, '');
-        globalLog.debug('只有一批，直接用阶段摘要作为全书摘要');
-      } else {
-        report({ message: '合并为全书摘要', current: batches.length, total: steps });
-        const combined = stageSummaries.join('\n\n');
-        // 合并这一步用**精标档**的窗口：它和分批汇总很可能不是同一个模型。
-        const mergeBudget = mergePool.primaryBudget;
-        const inputBudget = Math.max(4000, mergeBudget.contextWindow - mergeBudget.maxOutputTokens - 2000);
-        const clipped = takeHead(combined, inputBudget);
-        if (clipped.length < combined.length) {
-          globalLog.warn(
-            '阶段摘要总量超出输入预算，合并时已截断',
-            `${combined.length} 字 → ${clipped.length} 字（预算 ${inputBudget} token）。` +
-              '可把「全书摘要批大小」调大以减少批数。'
-          );
-        }
-        const mergeStart = Date.now();
-        globalLog.debug(`合并 ${stageSummaries.length} 份阶段摘要`, `约 ${estimateTokens(clipped)} token`);
-        finalText = await mergePool.run('合并全书摘要', (llm) =>
-          collectText(
-            llm.stream(
-              [
-                { role: 'system', content: GLOBAL_SYSTEM },
-                {
-                  role: 'user',
-                  content: `以下是各阶段摘要，请合并成一份全书滚动摘要。\n\n${clipped}`,
-                },
-              ],
-              { ...options, maxOutputTokens: mergeBudget.maxOutputTokens }
-            )
-          )
+        const through = units[units.length - 1].no;
+        const relPath = await new Workspace(project).writeGlobalSummary(finalText.trim(), through);
+        report({ message: '完成', current: steps, total: steps });
+        globalLog.info(
+          `全书摘要已重建，覆盖至第 ${through} 章`,
+          `${relPath}｜${finalText.trim().length} 字（约 ${estimateTokens(finalText)} token）｜总耗时 ${elapsed(startedAt)}`
         );
-        globalLog.info('阶段摘要已合并', `产出 ${finalText.trim().length} 字，用时 ${elapsed(mergeStart)}`);
-      }
-
-      const through = units[units.length - 1].no;
-      const relPath = await new Workspace(project).writeGlobalSummary(finalText.trim(), through);
-      report({ message: '完成', current: steps, total: steps });
-      globalLog.info(
-        `全书摘要已重建，覆盖至第 ${through} 章`,
-        `${relPath}｜${finalText.trim().length} 字（约 ${estimateTokens(finalText)} token）｜总耗时 ${elapsed(startedAt)}`
-      );
-      getHost().toast(`全书摘要已重建，覆盖至第 ${through} 章（约 ${estimateTokens(finalText)} token）。`);
-      await getHost().openFile(project.relPath(project.globalSummaryPath));
-    },
-    { scope: '全书摘要' }
-  );
+        getHost().toast(`全书摘要已重建，覆盖至第 ${through} 章（约 ${estimateTokens(finalText)} token）。`);
+        await getHost().openFile(project.relPath(project.globalSummaryPath));
+      },
+      { scope: '全书摘要' }
+    );
+  });
 }
 
 // ---------------------------------------------------------------- 解析

@@ -3,11 +3,13 @@
  *
  * | 用例 | 钉的是什么 |
  * |---|---|
- * | × 关确认框 | 回 `no`（与「取消」按钮同一个回答），遮罩收起——只藏遮罩不回话，后端那头会一直等 |
+ * | × 关确认框 | 回 `undefined`（与「取消」按钮同一个回答），遮罩收起——只藏遮罩不回话，后端那头会一直等 |
  * | × 关选择框 / Esc 关输入框 | 回 `undefined` |
  * | 点遮罩空白 | 不关、不回话——误触不该丢掉填到一半的内容 |
  * | 回过一次就不再回 | 输入框里的 Esc 与全局 Esc 同时触发也只回一条 |
  * | 确认框写出补充说明 | `Host.confirm` 的 detail（调几次、看哪几章、会覆盖什么）原来在网页上整段丢了 |
+ * | 确认框一个 action 一颗按钮 | 回的是按钮上的字。从前只画「确定 / 取消」，第二个 action（「全部直接采纳并开始」「保留原样」……）点不到 |
+ * | 调模型之前的那一问（`call`） | 两个下拉框（按分档 + 各模型；四级详细度），按分档时列出各项活交给谁；回答带 `choice`；不看详细度时只有模型那一个 |
  * | 选本机文件（`kind: 'file'`） | 从给的目录起步；只列目录与允许的扩展名；确定回绝对路径，Esc / 取消回 undefined；粘完整路径回车直接选定 |
  */
 const { describe, test, before } = require('node:test');
@@ -30,11 +32,11 @@ describe('小弹窗的关闭', { skip: JSDOM_SKIP }, () => {
     ui = mount({ body: 'standalone', scripts: ['view.js'] });
   });
 
-  test('× 关确认框：回 no，遮罩收起', () => {
-    open({ requestId: 'c1', kind: 'confirm', message: '现在开始？' });
+  test('× 关确认框：回 undefined，遮罩收起', () => {
+    open({ requestId: 'c1', kind: 'confirm', message: '现在开始？', actions: ['开始'] });
     assert.ok(!modal().classList.contains('hidden'));
     ui.clickEl(ui.doc.getElementById('providerModalClose'));
-    assert.deepEqual(answer(), ['c1', 'no']);
+    assert.deepEqual(answer(), ['c1', undefined]);
     assert.ok(modal().classList.contains('hidden'));
   });
 
@@ -74,6 +76,77 @@ describe('小弹窗的关闭', { skip: JSDOM_SKIP }, () => {
     const lines = [...modal().querySelectorAll('.prompt-detail')].map((p) => p.textContent);
     assert.deepEqual(lines, ['文件：D:\\书\\a.txt（UTF-8）', '只学怎么写。']);
     ui.clickEl(ui.doc.getElementById('providerModalClose'));
+  });
+
+  test('确认框一个 action 一颗按钮，回的是按钮上的字', () => {
+    open({ requestId: 'c3', kind: 'confirm', message: '更新 3 张角色卡？', actions: ['逐张确认后开始', '全部直接采纳并开始'] });
+    const labels = [...modal().querySelectorAll('.actions button')].map((b) => b.textContent);
+    assert.deepEqual(labels, ['逐张确认后开始', '全部直接采纳并开始', '取消']);
+    assert.ok(modal().querySelector('.actions button').classList.contains('primary'));
+    ui.clickEl([...modal().querySelectorAll('.actions button')][1]);
+    assert.deepEqual(answer(), ['c3', '全部直接采纳并开始']);
+    assert.equal(ui.last('promptResult').choice, undefined);
+  });
+});
+
+describe('调模型之前的那一问（confirm 带 call）', { skip: JSDOM_SKIP }, () => {
+  let ui;
+  const modal = () => ui.doc.getElementById('providerModal');
+  const selects = () => [...modal().querySelectorAll('.call-picker select')];
+  const tiers = () => modal().querySelector('.call-tiers');
+  const CALL = {
+    models: [
+      { ref: 'glm/glm-4-plus', label: 'glm-4-plus', group: '智谱 GLM' },
+      { ref: 'or/claude', label: 'claude', group: 'OpenRouter' },
+    ],
+    model: '',
+    tiers: ['批量写正文 → 均衡档：glm/glm-4-plus'],
+    contextDetail: 3,
+  };
+  const open = (extra) =>
+    ui.post({ type: 'prompt', title: '开始写章', kind: 'confirm', message: '要写 3 章？', actions: ['开始写章'], call: CALL, ...extra });
+  const choose = (sel, value) => {
+    sel.value = value;
+    sel.dispatchEvent(new ui.window.Event('change', { bubbles: true }));
+  };
+
+  before(() => {
+    ui = mount({ body: 'standalone', scripts: ['view.js'] });
+  });
+
+  test('两个下拉框：缺省按分档、打开时那一级；按分档时列出各项活交给谁', () => {
+    open({ requestId: 'k1' });
+    const [model, detail] = selects();
+    assert.equal(model.value, '');
+    assert.deepEqual([...model.options].map((o) => o.value), ['', 'glm/glm-4-plus', 'or/claude']);
+    assert.equal(detail.value, '3');
+    assert.ok(!tiers().classList.contains('hidden'));
+    assert.ok(tiers().textContent.includes('均衡档'));
+  });
+
+  test('挑了模型：那几行收起；点按钮回按钮上的字与作者的选择', () => {
+    const [model, detail] = selects();
+    choose(model, 'or/claude');
+    assert.ok(tiers().classList.contains('hidden'));
+    choose(detail, '1');
+    ui.clickEl(modal().querySelector('.actions button.primary'));
+    const m = ui.last('promptResult');
+    assert.deepEqual([m.requestId, m.value], ['k1', '开始写章']);
+    assert.equal(JSON.stringify(m.choice), JSON.stringify({ model: 'or/claude', contextDetail: 1 }));
+  });
+
+  test('这一次不看详细度：只有模型那一个下拉框', () => {
+    open({ requestId: 'k2', call: { ...CALL, contextDetail: undefined } });
+    assert.equal(selects().length, 1);
+    ui.clickEl(modal().querySelector('.actions button.primary'));
+    assert.equal(JSON.stringify(ui.last('promptResult').choice), JSON.stringify({}));
+  });
+
+  test('取消：不带选择', () => {
+    open({ requestId: 'k3' });
+    ui.clickEl(ui.doc.getElementById('providerModalClose'));
+    const m = ui.last('promptResult');
+    assert.deepEqual([m.requestId, m.value, m.choice], ['k3', undefined, undefined]);
   });
 });
 

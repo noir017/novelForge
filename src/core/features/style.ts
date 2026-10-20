@@ -11,6 +11,9 @@ import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
 import { pickPlotsByInput } from './pickPlots';
 import { INCOMPLETE_RETRIES, STYLE_SYSTEM, collectComplete } from './stylePrompt';
+import { CallChoice } from '../model/callChoice';
+import { withCallChoice } from '../runtime/callScope';
+import { askCall } from './askCall';
 
 const log = scoped('文风');
 
@@ -29,12 +32,11 @@ export async function extractStyle(project: NovelProject): Promise<void> {
   }
 
   // 默认勾前几章当样章（上下文详细度，缺省前两章），用户可改成写得最顺手的那几章。
-  const config = readConfig();
   const picked = await pickPlotsByInput(
     written.map((c) => ({ no: c.order, title: c.title, chapter: c })),
     '选取 1~3 章最能代表文风的样章',
     '输入章号，逗号分隔，如 1,2,3',
-    written.slice(0, Math.min(3, contextLimitsOf(config).styleSamples)).map((c) => c.order)
+    written.slice(0, Math.min(3, contextLimitsOf(readConfig()).styleSamples)).map((c) => c.order)
   );
   if (!picked || picked.length === 0) {
     log.info('用户取消了样章选择');
@@ -46,98 +48,106 @@ export async function extractStyle(project: NovelProject): Promise<void> {
   }
 
   const existing = await project.readStyleGuide();
+  /** 要覆盖已有的文风指南时问过一句，作者在那里挑的；没问就是设置。 */
+  let choice: CallChoice = {};
   if (existing.trim() && !isTemplate(existing)) {
-    const confirm = await getHost().confirm(
-      '已存在文风指南，重新提取会覆盖当前内容（可用 Git 或撤销恢复）。',
-      ['覆盖'],
-      { modal: true }
-    );
-    if (confirm !== '覆盖') {
+    const answer = await askCall({
+      message: '已存在文风指南，重新提取会覆盖当前内容（可用 Git 或撤销恢复）。',
+      actions: ['覆盖'],
+      tasks: ['extractStyle'],
+      // 带哪几章上一步已经选定了，详细度管不着这一次。
+      contextDetail: false,
+    });
+    if (answer?.action !== '覆盖') {
       log.info('用户拒绝覆盖已有文风指南');
       return;
     }
+    choice = answer.choice;
     log.warn('用户确认覆盖已有文风指南', `原内容 ${existing.length} 字`);
   }
 
-  // 只有一次调用，谈不上并发；走池是为了拿到「首选失败就换模型」。
-  const pool = await createModelPool({ task: 'extractStyle', concurrent: false });
-  if (!pool) {
-    log.error('没有可用的模型，提取中止');
-    return;
-  }
-  const samples = picked.slice(0, 3);
-  log.info(
-    `准备从 ${samples.length} 章样章提取文风`,
-    `章节 ${samples.map((p) => p.no).join('、')}｜模型 ${pool.label}`
-  );
+  return withCallChoice(choice, async () => {
+    const config = readConfig();
+    // 只有一次调用，谈不上并发；走池是为了拿到「首选失败就换模型」。
+    const pool = await createModelPool({ task: 'extractStyle', concurrent: false });
+    if (!pool) {
+      log.error('没有可用的模型，提取中止');
+      return;
+    }
+    const samples = picked.slice(0, 3);
+    log.info(
+      `准备从 ${samples.length} 章样章提取文风`,
+      `章节 ${samples.map((p) => p.no).join('、')}｜模型 ${pool.label}`
+    );
 
-  await runTask(
-    '提取文风指南',
-    async ({ signal, report }) => {
-      const startedAt = Date.now();
-      report({ message: '读取样章', current: 0, total: 2 });
-      const parts: string[] = [];
-      for (const sample of samples) {
-        parts.push(
-          `【样章：第${sample.no}章 ${sample.title}】\n${await project.readChapterText(sample.chapter)}`
+    await runTask(
+      '提取文风指南',
+      async ({ signal, report }) => {
+        const startedAt = Date.now();
+        report({ message: '读取样章', current: 0, total: 2 });
+        const parts: string[] = [];
+        for (const sample of samples) {
+          parts.push(
+            `【样章：第${sample.no}章 ${sample.title}】\n${await project.readChapterText(sample.chapter)}`
+          );
+        }
+        const joined = parts.join('\n\n');
+        const budget = Math.max(
+          3000,
+          pool.primaryBudget.contextWindow - pool.primaryBudget.maxOutputTokens - 2000
         );
-      }
-      const joined = parts.join('\n\n');
-      const budget = Math.max(
-        3000,
-        pool.primaryBudget.contextWindow - pool.primaryBudget.maxOutputTokens - 2000
-      );
-      const corpus = takeHead(joined, budget);
-      if (corpus.length < joined.length) {
-        log.warn(
-          '样章正文超出输入预算，已截断',
-          `${joined.length} 字 → ${corpus.length} 字（预算 ${budget} token）。少选一章可让归纳更完整。`
+        const corpus = takeHead(joined, budget);
+        if (corpus.length < joined.length) {
+          log.warn(
+            '样章正文超出输入预算，已截断',
+            `${joined.length} 字 → ${corpus.length} 字（预算 ${budget} token）。少选一章可让归纳更完整。`
+          );
+        }
+        log.debug('样章已读取', `${corpus.length} 字（约 ${estimateTokens(corpus)} token）`);
+
+        report({ message: '分析文风特征', current: 1, total: 2 });
+        const options: StreamOptions = {
+          maxOutputTokens: pool.primaryBudget.maxOutputTokens,
+          temperature: 0.3,
+          timeoutMs: config.requestTimeoutMs,
+          signal,
+        };
+        const modelStart = Date.now();
+        const raw = await pool.run('提取文风', (llm) =>
+          collectComplete(
+            STYLE_SYSTEM,
+            () =>
+              collect(
+                llm.stream(
+                  [
+                    { role: 'system', content: STYLE_SYSTEM },
+                    { role: 'user', content: corpus },
+                  ],
+                  options
+                )
+              ),
+            {
+              maxOut: options.maxOutputTokens,
+              signal,
+              onRetry: (attempt, reason) => log.warn(`回答不完整，重问（第 ${attempt}/${INCOMPLETE_RETRIES} 次）`, reason),
+            }
+          )
         );
-      }
-      log.debug('样章已读取', `${corpus.length} 字（约 ${estimateTokens(corpus)} token）`);
+        log.info('模型已返回', `${raw.length} 字，用时 ${elapsed(modelStart)}`);
+        if (signal.aborted) {
+          log.warn('提取被取消，未写盘');
+          return;
+        }
 
-      report({ message: '分析文风特征', current: 1, total: 2 });
-      const options: StreamOptions = {
-        maxOutputTokens: pool.primaryBudget.maxOutputTokens,
-        temperature: 0.3,
-        timeoutMs: config.requestTimeoutMs,
-        signal,
-      };
-      const modelStart = Date.now();
-      const raw = await pool.run('提取文风', (llm) =>
-        collectComplete(
-          STYLE_SYSTEM,
-          () =>
-            collect(
-              llm.stream(
-                [
-                  { role: 'system', content: STYLE_SYSTEM },
-                  { role: 'user', content: corpus },
-                ],
-                options
-              )
-            ),
-          {
-            maxOut: options.maxOutputTokens,
-            signal,
-            onRetry: (attempt, reason) => log.warn(`回答不完整，重问（第 ${attempt}/${INCOMPLETE_RETRIES} 次）`, reason),
-          }
-        )
-      );
-      log.info('模型已返回', `${raw.length} 字，用时 ${elapsed(modelStart)}`);
-      if (signal.aborted) {
-        log.warn('提取被取消，未写盘');
-        return;
-      }
-
-      const relPath = await new Workspace(project).writeStyleGuide(raw);
-      report({ message: '完成', current: 2, total: 2 });
-      log.info('文风指南已写入', `${relPath}｜总耗时 ${elapsed(startedAt)}`);
-      getHost().toast('文风指南已生成，建议人工过一遍再用。');
-      await getHost().openFile(project.relPath(project.stylePath));
-    },
-    { scope: '文风' }
-  );
+        const relPath = await new Workspace(project).writeStyleGuide(raw);
+        report({ message: '完成', current: 2, total: 2 });
+        log.info('文风指南已写入', `${relPath}｜总耗时 ${elapsed(startedAt)}`);
+        getHost().toast('文风指南已生成，建议人工过一遍再用。');
+        await getHost().openFile(project.relPath(project.stylePath));
+      },
+      { scope: '文风' }
+    );
+  });
 }
 
 function isTemplate(text: string): boolean {

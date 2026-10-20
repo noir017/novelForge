@@ -280,6 +280,13 @@ export {
 export type { ContextDetail } from '../../src/core/model/contextDetail';
 
 /**
+ * 调模型之前的确认框（与工程页批量表单）上那两个下拉框：作者为这一次挑模型与详细度。「按分档」那一项的说法与后端、
+ * VS Code 的 QuickPick 同一份。`callChoice.ts` 只 import 零 import 的 `contextDetail.ts`，打进浏览器产物是安全的。
+ */
+export { TIERED_LABEL } from '../../src/core/model/callChoice';
+export type { CallChoice, CallPrompt } from '../../src/core/model/callChoice';
+
+/**
  * 写作技能的阶段、来源与不兼容原因的说法。与分档同一套理由：设置页上写着「写正文」而后端按
  * 别的阶段带，作者就再也不信这张表了。`writingSkill.ts` 零运行时 import，打进浏览器产物是安全的。
  */

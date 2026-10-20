@@ -1,6 +1,7 @@
 import type { LlmTask, ModelTier } from '../model/tiers';
 import type { ThinkingDepth } from '../model/thinking';
 import type { ContextDetail } from '../model/contextDetail';
+import type { CallChoice } from '../model/callChoice';
 import type { ReviewIssueEdit } from '../model/review';
 import type {
   Capability,
@@ -212,9 +213,9 @@ export type InMessage =
    */
   | { type: 'requestNameIndex'; requestId: string; have?: string }
   /**
-   * `range` 只有「批量拆细纲」用：弹窗里选的区间（W5）。`confirmed` 表示弹窗已经把
-   * 调用次数写给作者看过了，后端不再弹第二个确认框（弹窗与确认框算的是同一个
-   * `planPlotBatches`，不叠弹窗）。「批量写章」（W9）同样带 `range` / `confirmed`，另带
+   * `range` 只有「批量拆细纲」用：弹窗里选的区间（W5）。`call` 表示弹窗已经把
+   * 调用次数写给作者看过了，带着作者在弹窗上为这一次挑的模型与详细度，后端不再弹第二个确认框
+   * （弹窗与确认框算的是同一个 `planPlotBatches`，不叠弹窗）。「批量写章」（W9）同样带 `range` / `call`，另带
    * `mode`：只写正文，还是写完一章就定稿（`planWriteBatch`）；`review`：写完一章先审一遍，
    * 报告放进一个新会话（五期补遗 §4）。
    */
@@ -224,7 +225,7 @@ export type InMessage =
       relPath?: string;
       dir?: string;
       range?: { from: number; to: number };
-      confirmed?: boolean;
+      call?: CallChoice;
       mode?: 'draft' | 'finalize';
       review?: boolean;
       /** `newLore`：预填的标题（「出现过 · 未建条目」那一行右键新建时带上），给了就不再问；`buildLore`：建哪一条。 */
@@ -261,7 +262,11 @@ export type InMessage =
   | { type: 'requestLogs' }
   | { type: 'requestLogHistory'; before?: string }
   | { type: 'clearLogs' }
-  | { type: 'promptResult'; requestId: string; value?: string }
+  /**
+   * 网页弹窗的回答（独立版的 `Host.input` / `confirm` / `confirmCall` / `pick`……）。确认框回的是点的那颗按钮上的字，
+   * 取消回 undefined；`confirmCall` 另带作者为这一次挑的模型与详细度（`choice`）。
+   */
+  | { type: 'promptResult'; requestId: string; value?: string; choice?: CallChoice }
   /**
    * 作者在对话页那张权限卡片上点了一颗按钮（`gate` 的回答）。**只有两个值**
    * ——叫停整轮走的是 `stop`，不在这张卡上。卡片带 `remember` 时，点那第三颗按钮也是

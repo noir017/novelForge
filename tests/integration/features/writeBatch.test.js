@@ -213,7 +213,7 @@ describe('写完即定稿；已有正文的跳过；弹窗确认过的不再问'
   let calls;
   before(async () => {
     t = await fresh('wb-finalize', { written: [2] });
-    calls = await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', confirmed: true });
+    calls = await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', call: {} });
   });
   after(() => cleanup(t.dir, bundle.db));
 
@@ -279,7 +279,7 @@ describe('一章写不出来就停', () => {
       }
       return defaultReply(messages);
     };
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, call: {} });
   });
   after(() => cleanup(t.dir, bundle.db));
 
@@ -311,7 +311,7 @@ describe('重演：写进去，然后停', () => {
       }
       return defaultReply(messages);
     };
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', call: {} });
   });
   after(() => cleanup(t.dir, bundle.db));
 
@@ -354,7 +354,7 @@ describe('后面几章才登场的人提前写了进来：写进去，然后停�
       }
       return defaultReply(messages);
     };
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', call: {} });
   });
   after(() => cleanup(t.dir, bundle.db));
 
@@ -386,7 +386,7 @@ describe('续写到最后仍不到八成：写进去，然后停', () => {
       }
       return { text: filler(100, chapterOf(messages).continuation ? 7 : 8), stop: 'end' };
     };
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, call: {} });
   });
   after(() => cleanup(t.dir, bundle.db));
 
@@ -413,7 +413,7 @@ describe('结尾停在半句上、续写也没接完：写进去，然后停', (
       // 第一次字数够了、停在半句上；续写那两轮都只多几个字。
       return chapterOf(messages).continuation ? { text: '的骨头', stop: 'end' } : { text: `${filler(700, 9).slice(0, -1)}，全身`, stop: 'end' };
     };
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', call: {} });
   });
   after(() => cleanup(t.dir, bundle.db));
 
@@ -493,7 +493,7 @@ describe('边写边拆细纲：大纲覆盖之内没细纲的章，写到时先�
     t.write('.novelforge/outline.md', OUTLINE);
     t.project.invalidate();
     replyFn = factfulReply();
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 4 }, mode: 'finalize', confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 4 }, mode: 'finalize', call: {} });
     order = fake.calls.map((m) =>
       isBlueprint(m) ? 'plots' : isThreads(m) ? 'threads' : isEvents(m) ? 'events' : isPlotCheck(m) ? 'check' : isSummary(m) ? 'summary' : isState(m) ? 'state' : `write:${chapterOf(m).no}`
     );
@@ -552,7 +552,7 @@ describe('全书滚动摘要增量更新', () => {
   before(async () => {
     t = await fresh('wb-global');
     replyFn = factfulReply();
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', call: {} });
   });
   after(() => cleanup(t.dir, bundle.db));
 
@@ -566,7 +566,7 @@ describe('全书滚动摘要增量更新', () => {
 
   test('之后只并入新定稿的章，旧的全书摘要一起带上；没有新章就零调用', async () => {
     t.project.invalidate();
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 3, to: 3 }, mode: 'finalize', confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 3, to: 3 }, mode: 'finalize', call: {} });
     const r = await bundle.summarize.updateGlobalSummary(t.project, runner);
     assert.deepEqual(r, { calls: 1, through: 3 });
     assert.match(users[1], /截至第 2 章/);
@@ -585,7 +585,7 @@ describe('写前冲突检查：细纲与前面定稿的事实对不上，停在�
       { plot: '第 2 章林昭查到一点东西', fact: '林昭在第1章丢了第1块玉佩', chapter: 1, why: '玉佩已经丢了' },
       { plot: '细纲里没有这句', fact: '林昭在第1章丢了第1块玉佩', chapter: 1, why: '编的' },
     ]);
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', call: {} });
     const f = finished.find((x) => x.title === '批量写章');
     assert.ok(t.has(CH(1)) && !t.has(CH(2)));
     assert.match(f.message, /第 2 章的细纲与前面定稿的事实有 1 处对不上/, f.message);
@@ -603,7 +603,7 @@ describe('写前冲突检查：细纲与前面定稿的事实对不上，停在�
     t.write(PLOT(2), t.read(PLOT(2)).replace('targetWords: 600', 'targetWords: 600\nfactCheckOk: true'));
     t.project.invalidate();
     replyFn = factfulReply(() => [{ plot: '第 2 章林昭查到一点东西', fact: '林昭在第1章丢了第1块玉佩', chapter: 1, why: '玉佩已经丢了' }]);
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', call: {} });
     assert.ok(t.has(CH(2)));
     assert.ok(!fake.calls.some(isPlotCheck));
     cleanup(t.dir, bundle.db);
@@ -622,7 +622,7 @@ describe('写完这一章就停；停止', () => {
       }
       return defaultReply(messages);
     };
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, call: {} });
     assert.ok(t.has(CH(1)) && !t.has(CH(2)));
     assert.match(finished.find((x) => x.title === '批量写章').message, /写完第 1 章停下了。后面的第 2–3 章没写。/);
     cleanup(t.dir, bundle.db);
@@ -638,7 +638,7 @@ describe('写完这一章就停；停止', () => {
       }
       return defaultReply(messages);
     };
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, call: {} });
     assert.ok(t.has(CH(1)) && !t.has(CH(2)));
     assert.deepEqual(await failuresOf(t, PLOT(2)), []);
     cleanup(t.dir, bundle.db);
@@ -659,7 +659,7 @@ describe('一章之内续写那几轮不换模型', () => {
       const { continuation } = chapterOf(messages);
       return continuation ? { text: filler(400, 3), stop: 'end' } : { text: filler(200, 4), stop: 'maxTokens' };
     };
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 1 }, confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 1 }, call: {} });
   });
   after(() => cleanup(t.dir, bundle.db));
 
@@ -701,7 +701,7 @@ describe('一致性预检：开跑之前查一遍，有问题先问', () => {
     const t = await fresh('wb-preflight-ignore');
     scheduleShenQiu(t, '已死亡');
     h.expect('仅本次忽略，照写');
-    const calls = await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, confirmed: true });
+    const calls = await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, call: {} });
     assert.equal(h.confirms.length, 1);
     assert.match(h.confirms[0].message, /^一致性预检：第 1–3 章里有 1 处要留意（这一步没有调用模型）/);
     assert.match(h.confirms[0].detail, /第 2 章：沈秋的当前状态（开篇状态）写着「已死亡」/);
@@ -714,7 +714,7 @@ describe('一致性预检：开跑之前查一遍，有问题先问', () => {
     const t = await fresh('wb-preflight-cancel');
     scheduleShenQiu(t, '已死亡');
     h.expect(undefined);
-    const calls = await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, confirmed: true });
+    const calls = await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, call: {} });
     assert.equal(calls, 0);
     assert.equal(fake.calls.length, 0);
     cleanup(t.dir, bundle.db);
@@ -733,7 +733,7 @@ describe('一致性预检：开跑之前查一遍，有问题先问', () => {
       }
       return defaultReply(messages);
     };
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', call: {} });
     assert.equal(h.confirms.length, 0, '开跑时还没有问题');
     assert.ok(t.has(CH(1)));
     assert.ok(!t.has(CH(2)), '第 2 章没写');
@@ -762,7 +762,7 @@ describe('一致性预检：开跑之前查一遍，有问题先问', () => {
       }
       return defaultReply(messages);
     };
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', call: {} });
     const f = finished.find((x) => x.title === '批量写章');
     assert.ok(t.has(CH(1)) && !t.has(CH(2)));
     assert.match(f.message, /第 2 章的一致性预检发现 1 处问题（沈秋已经死了/);
@@ -782,7 +782,7 @@ describe('开写之前补建角色卡：定稿过的细纲里出场两章以上�
       }
       return defaultReply(messages);
     };
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', call: {} });
     fake.reset();
     h.confirms.length = 0;
     h.expect('开始写章');
@@ -834,7 +834,7 @@ describe('写完即审稿', () => {
       }
       return defaultReply(messages);
     };
-    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', review: true, confirmed: true });
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', review: true, call: {} });
   });
   after(() => cleanup(t.dir, bundle.db));
 

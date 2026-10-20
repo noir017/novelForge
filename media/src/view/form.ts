@@ -25,8 +25,35 @@ export type FormField =
       required?: boolean;
     }
   | { kind: 'number'; key: string; label: string; value?: number; min?: number; max?: number; step?: number }
-  /** 几选一（批量写章的模式）。值是字符串。 */
-  | { kind: 'select'; key: string; label: string; value?: string; options: { value: string; label: string }[] };
+  /** 几选一（批量写章的模式、这一次用哪个模型）。值是字符串。 */
+  | { kind: 'select'; key: string; label: string; value?: string; options: SelectOption[] };
+
+/** 下拉框的一项。`group` 相同的相邻几项收进一个 `optgroup`（模型按服务商分组，同对话页）。 */
+export interface SelectOption {
+  value: string;
+  label: string;
+  group?: string;
+}
+
+/** 一个下拉框。表单与独立版确认框（prompt.ts）共用：同一种下拉框只有一种画法。 */
+export function buildSelect(options: SelectOption[], value?: string): HTMLSelectElement {
+  const sel = mk('select');
+  let group: HTMLOptGroupElement | undefined;
+  for (const o of options) {
+    if (o.group && o.group !== group?.label) {
+      group = mk('optgroup');
+      group.label = o.group;
+      sel.appendChild(group);
+    } else if (!o.group) {
+      group = undefined;
+    }
+    const opt = mk('option', undefined, o.label);
+    opt.value = o.value;
+    (group ?? sel).appendChild(opt);
+  }
+  sel.value = value ?? options[0]?.value ?? '';
+  return sel;
+}
 
 export type FormValues = Record<string, string | number>;
 
@@ -78,14 +105,7 @@ export function openForm(spec: FormSpec): void {
     label.appendChild(mk('span', undefined, f.label));
     let input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
     if (f.kind === 'select') {
-      const sel = mk('select');
-      for (const o of f.options) {
-        const opt = mk('option', undefined, o.label);
-        opt.value = o.value;
-        sel.appendChild(opt);
-      }
-      sel.value = f.value ?? f.options[0]?.value ?? '';
-      input = sel;
+      input = buildSelect(f.options, f.value);
       grid.appendChild(label);
     } else if (f.kind === 'textarea') {
       const ta = mk('textarea');

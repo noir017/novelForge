@@ -39,13 +39,14 @@ import { Plot, isPlotFilled, plotContentHash } from '../model/plotFile';
 import { isOutlineFilled } from '../model/outlineFile';
 import { buildBookFacts, chapterTargetOf } from '../views/pipeline';
 import { defaultTotalChapters } from '../model/importText';
-import { describeTaskModels } from '../model/tiers';
-import { CONTEXT_DETAIL_LABEL } from '../model/contextDetail';
+import { CallChoice } from '../model/callChoice';
+import { withCallChoice } from '../runtime/callScope';
+import { askCall } from './askCall';
 import { BuildRequest, buildContext } from '../context/builder';
 import { runTask } from '../runtime/progress';
 import { countWords } from '../model/fs';
 import { describeFinalize, finalizeChapter } from './finalize';
-import { createCastCards, planCastCards } from './characterCard';
+import { CastCardsPlan, createCastCards, planCastCards } from './characterCard';
 import { checkPlotAgainstFacts } from './plotCheck';
 import { planThreads } from './threads';
 import { expandLoreEntries } from './lore';
@@ -60,11 +61,13 @@ import {
   CallEstimate,
   GLOBAL_SUMMARY_EVERY,
   PLOT_BATCH,
+  PlotBatchPlan,
   SETTING_DOCS,
   SETTING_DOC_LABEL,
   SettingDoc,
   WRITE_BATCH_DEFAULT,
   WriteBatchMode,
+  WriteBatchPlan,
   addCalls,
   commandOf,
   describeCalls,
@@ -105,8 +108,8 @@ const DEFAULT_SETUP = { totalChapters: 100, wordsPerChapter: 3000 };
  *   接着它往下排，接不上的细纲比没有更糟。失败挂在那一批第一章的细纲上（第 16 条）。
  * - 新角色照样建卡（D19）。
  *
- * `confirmed`：工程页弹窗已经把切分与调用次数写给作者看过了（同一个 `planPlotBatches`），
- * 不再弹第二个确认框。MCP 的 `pipeline` 工具不带它，照旧先问。
+ * `call`：工程页弹窗已经把切分与调用次数写给作者看过了（同一个 `planPlotBatches`），这是作者在那里为这一次挑的
+ * 模型与详细度，不再弹第二个确认框。MCP 的 `pipeline` 工具不带它，照旧先问（`askCall`）。
  *
  * `expandLore`（完善设定三期，弹窗上「拆完展开本批新设定」，缺省否）：拆完把这一次顺带新建的设定空条目批量展开
  * （features/lore.ts 的 `expandLoreEntries`）。新设定有几条要拆完才知道，所以拆完**再问一次次数**（同批量写章补建角色卡
@@ -114,7 +117,7 @@ const DEFAULT_SETUP = { totalChapters: 100, wordsPerChapter: 3000 };
  */
 export async function generatePlots(
   project: NovelProject,
-  opts: { range?: { from: number; to: number }; confirmed?: boolean; expandLore?: boolean } = {}
+  opts: { range?: { from: number; to: number }; call?: CallChoice; expandLore?: boolean } = {}
 ): Promise<number> {
   const outline = await project.readOutline();
   if (!isOutlineFilled(outline)) {
@@ -143,27 +146,36 @@ export async function generatePlots(
     return 0;
   }
 
-  const config = readConfig();
-  if (!opts.confirmed) {
-    const pick = await getHost().confirm(
-      `${where}：要拆 ${plan.chapters.length} 章细纲，分 ${plan.batches.length} 批，${describeCalls(plan.calls)}。现在拆？`,
-      ['开始拆细纲'],
-      {
-        modal: true,
-        detail:
-          `${describeTaskModels(config, 'plotOutline')}\n` +
-          (plan.skipped.length > 0 ? `已经排过的第 ${plan.skipped.join('、')} 章跳过，不会被改动。\n` : '') +
-          '每批写完就落盘，后一批接着前一批往下排；一批失败就停，已经写好的留着。拆完再从细纲排一次叙事线（只追加新线）。\n' +
-          (opts.expandLore ? '拆完展开本批新设定：新设定有几条要拆完才知道，到时再问一次次数。\n' : '') +
-          '输出被截断或格式不对时会自动拆小重试，所以给的是上限。',
-      }
-    );
-    if (pick !== '开始拆细纲') {
+  let choice = opts.call;
+  if (!choice) {
+    const answer = await askCall({
+      message: `${where}：要拆 ${plan.chapters.length} 章细纲，分 ${plan.batches.length} 批，${describeCalls(plan.calls)}。现在拆？`,
+      actions: ['开始拆细纲'],
+      detail:
+        (plan.skipped.length > 0 ? `已经排过的第 ${plan.skipped.join('、')} 章跳过，不会被改动。\n` : '') +
+        '每批写完就落盘，后一批接着前一批往下排；一批失败就停，已经写好的留着。拆完再从细纲排一次叙事线（只追加新线）。\n' +
+        (opts.expandLore ? '拆完展开本批新设定：新设定有几条要拆完才知道，到时再问一次次数。\n' : '') +
+        '输出被截断或格式不对时会自动拆小重试，所以给的是上限。',
+      tasks: ['plotOutline'],
+      contextDetail: true,
+    });
+    if (answer?.action !== '开始拆细纲') {
       log.info('用户取消了批量拆细纲');
       return 0;
     }
+    choice = answer.choice;
   }
+  return withCallChoice(choice, () => runPlotBatches(project, plan, where, opts.expandLore === true));
+}
 
+/** 批量拆细纲问过之后：一批一批拆，拆完排叙事线，按需展开本批新设定。返回调用次数。 */
+async function runPlotBatches(
+  project: NovelProject,
+  plan: PlotBatchPlan,
+  where: string,
+  expandLore: boolean
+): Promise<number> {
+  const config = readConfig();
   const pool = await createModelPool({ task: 'plotOutline', concurrent: false });
   if (!pool) {
     log.error('没有可用的模型，批量拆细纲中止');
@@ -217,8 +229,8 @@ export async function generatePlots(
     },
     { scope: '流水线' }
   );
-  // 拆完展开本批新设定（完善设定三期）：几条要拆完才知道，展开那边自己再问一次次数。
-  if (opts.expandLore && !cancelled) {
+  // 拆完展开本批新设定（完善设定三期）：几条要拆完才知道，展开那边自己再问一次次数（缺省跟着这一次）。
+  if (expandLore && !cancelled) {
     if (newLore.length > 0) {
       calls += await expandLoreEntries(project, newLore, { lead: `${where}拆出了 ${newLore.length} 条新设定。` });
     } else {
@@ -264,26 +276,34 @@ export async function completeSettings(project: NovelProject): Promise<number> {
   const estimate = missing.map(settingCalls).reduce(addCalls);
   const labels = missing.map((doc) => SETTING_DOC_LABEL[doc]);
 
-  const config = readConfig();
-  const pick = await getHost().confirm(
-    `要补齐${labels.join('、')}，${describeCalls(estimate)}。现在补？`,
-    ['开始补齐'],
-    {
-      modal: true,
-      detail:
-        `${describeTaskModels(config, 'setting')}\n` +
-        '按 配置 → 前提 → 角色图谱 → 世界观 → 设定清单 的顺序一件一件来，每件都吃前面几件的产出；已经有的不会被改动。一件失败就停。' +
-        (written > 0 ? `
-已经写了第 1–${written} 章：配置、前提与世界观照已写正文整理。` : '') +
-        (missing.includes('config') && (!book.totalChapters || !book.wordsPerChapter)
-          ? `\n小说配置里没写总章数或每章字数，按 ${setup.totalChapters} 章 × ${setup.wordsPerChapter} 字展开。`
-          : ''),
-    }
-  );
-  if (pick !== '开始补齐') {
+  const answer = await askCall({
+    message: `要补齐${labels.join('、')}，${describeCalls(estimate)}。现在补？`,
+    actions: ['开始补齐'],
+    detail:
+      '按 配置 → 前提 → 角色图谱 → 世界观 → 设定清单 的顺序一件一件来，每件都吃前面几件的产出；已经有的不会被改动。一件失败就停。' +
+      (written > 0 ? `\n已经写了第 1–${written} 章：配置、前提与世界观照已写正文整理。` : '') +
+      (missing.includes('config') && (!book.totalChapters || !book.wordsPerChapter)
+        ? `\n小说配置里没写总章数或每章字数，按 ${setup.totalChapters} 章 × ${setup.wordsPerChapter} 字展开。`
+        : ''),
+    tasks: ['setting'],
+    contextDetail: true,
+  });
+  if (answer?.action !== '开始补齐') {
     log.info('用户取消了补齐架构');
     return 0;
   }
+  return withCallChoice(answer.choice, () => fillSettings(project, missing, idea, setup));
+}
+
+/** 补齐架构问过之后：按顺序一件一件补，一件失败就停。返回调用次数。 */
+async function fillSettings(
+  project: NovelProject,
+  missing: SettingDoc[],
+  idea: string,
+  setup: { totalChapters: number; wordsPerChapter: number }
+): Promise<number> {
+  const config = readConfig();
+  const labels = missing.map((doc) => SETTING_DOC_LABEL[doc]);
   const pool = await createModelPool({ task: 'setting', concurrent: false });
   if (!pool) {
     log.error('没有可用的模型，补齐架构中止');
@@ -467,15 +487,16 @@ const MODE_LABEL: Record<WriteBatchMode, string> = {
  * - **写前提醒**（完善设定三期）：确认框里多一行「区间里 K 条要用到的设定还只有一句话」（`thinLoreFor`，零调用）。
  *   不拦，也不在这里顺带展开——批量写章不再多一类调用。
  *
- * `confirmed`：工程页弹窗已经把切分与调用次数写给作者看过了，不再弹第二个确认框。agent 的
- * MCP 的 `pipeline` 工具不带它，照旧先问。返回实际调了几次模型（取消、无事可做、没有模型时是 0）。
+ * `call`：工程页弹窗已经把切分与调用次数写给作者看过了，这是作者在那里为这一次挑的模型与详细度，不再弹第二个
+ * 确认框（有角色卡要补建时除外）。MCP 的 `pipeline` 工具不带它，照旧先问。返回实际调了几次模型（取消、无事可做、
+ * 没有模型时是 0）。
  */
 /** 批量写章开跑前补建角色卡：定稿过的细纲里至少出场这么多章的人。 */
 export const CAST_CARD_MIN_APPEARANCES = 2;
 
 export async function writeManuscripts(
   project: NovelProject,
-  opts: { range?: { from: number; to: number }; mode?: WriteBatchMode; review?: boolean; confirmed?: boolean } = {}
+  opts: { range?: { from: number; to: number }; mode?: WriteBatchMode; review?: boolean; call?: CallChoice } = {}
 ): Promise<number> {
   const [facts, chapters, manifest] = await Promise.all([buildBookFacts(project), project.listChapters(), project.readManifest()]);
   const mode = opts.mode ?? 'draft';
@@ -549,48 +570,59 @@ export async function writeManuscripts(
   const totalCalls = castCards.calls > 0 ? addCalls(plan.calls, cardCalls) : plan.calls;
   // 写前提醒（完善设定三期，零调用、不拦）：要写的这几章细纲点名、却还只有一句话的设定。前端弹窗算的是同一份（「待完善」）。
   const thin = await thinLoreFor(project, plan.chapters);
-  const config = readConfig();
-  // 前端弹窗算不出补卡那几次（要读定稿过的细纲），所以有卡要补时照样再问一次（第 4 条）。
-  if (!opts.confirmed || castCards.calls > 0) {
-    const pick = await getHost().confirm(
-      `${writing}：要写 ${plan.chapters.length} 章正文（${MODE_LABEL[mode]}${reviewing ? '、写完即审稿' : ''}），${describeCalls(totalCalls)}。现在写？`,
-      ['开始写章'],
-      {
-        modal: true,
-        detail: [
-          describeTaskModels(config, 'manuscript'),
-          reviewing ? describeTaskModels(config, 'review') : '',
-          describeTaskModels(config, 'plotSummary'),
-          plan.plotBatches.length > 0 ? describeTaskModels(config, 'plotOutline') : '',
-          castCards.plans.length > 0
-            ? `开写之前先给${castCards.plans.map((p) => p.member.name).join('、')}建角色卡（定稿里已经出场 ${CAST_CARD_MIN_APPEARANCES} 章以上、还没有卡；${castCards.calls} 次调用，算在上面的数里）。`
-            : '',
-          '一章一章串行写：后一章接着前一章的结尾写。没写够时自动续写（算在上限里）。',
-          `上下文详细度：${CONTEXT_DETAIL_LABEL[config.contextDetail]}（设置 → 上下文管理；只改每次带多少前文，不改调用次数）。`,
-          plan.plotBatches.length > 0
-            ? `${plan.plotBatches.map((b) => rangeLabel(b[0], b[b.length - 1])).join('、')}还没有细纲：写到时先按情节大纲拆这一批，拆的时候看得见前面已经定稿的事实。`
-            : '',
-          '每章写之前先比对一次细纲与前面定稿的连续性事实（前面没定稿过的章就不调）；对不上就停在那一章前面。',
-          reviewing ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不会停。' : '',
-          mode === 'finalize' ? '每写完一章就定稿（照正文更新细纲 + 出场角色的当前状态），再写下一章。' : '只写正文，不定稿；之后在主按钮上逐章定稿。',
-          plan.globalSummaryAt.length > 0
-            ? `第 ${plan.globalSummaryAt.join('、')} 章定稿之后各更新一次全书滚动摘要（落后 ${GLOBAL_SUMMARY_EVERY} 章就更新，每次 1 次调用）。`
-            : '',
-          plan.skipped.length > 0 ? `已经写过正文的第 ${plan.skipped.join('、')} 章跳过，不会被改动。` : '',
-          plan.stopAt !== undefined ? `第 ${plan.stopAt} 章还没有细纲、情节大纲也没覆盖到它，写到它前面为止。` : '',
-          thin.length > 0 ? describeThinLore('区间里', thin.map((t) => t.name)) : '',
-          '一章写不出来就停；写出来但开头重演了上一章、把后面几章的人提前写了进来、没写够八成或结尾停在半句上，也写进去然后停下，等你看过再继续。',
-        ]
-          .filter(Boolean)
-          .join('\n'),
-      }
-    );
-    if (pick !== '开始写章') {
+  // 前端弹窗算不出补卡那几次（要读定稿过的细纲），所以有卡要补时照样再问一次（第 4 条），缺省是弹窗上的选择。
+  let choice = opts.call;
+  if (!choice || castCards.calls > 0) {
+    const answer = await askCall({
+      message: `${writing}：要写 ${plan.chapters.length} 章正文（${MODE_LABEL[mode]}${reviewing ? '、写完即审稿' : ''}），${describeCalls(totalCalls)}。现在写？`,
+      actions: ['开始写章'],
+      detail: [
+        castCards.plans.length > 0
+          ? `开写之前先给${castCards.plans.map((p) => p.member.name).join('、')}建角色卡（定稿里已经出场 ${CAST_CARD_MIN_APPEARANCES} 章以上、还没有卡；${castCards.calls} 次调用，算在上面的数里）。`
+          : '',
+        '一章一章串行写：后一章接着前一章的结尾写。没写够时自动续写（算在上限里）。',
+        plan.plotBatches.length > 0
+          ? `${plan.plotBatches.map((b) => rangeLabel(b[0], b[b.length - 1])).join('、')}还没有细纲：写到时先按情节大纲拆这一批，拆的时候看得见前面已经定稿的事实。`
+          : '',
+        '每章写之前先比对一次细纲与前面定稿的连续性事实（前面没定稿过的章就不调）；对不上就停在那一章前面。',
+        reviewing ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不会停。' : '',
+        mode === 'finalize' ? '每写完一章就定稿（照正文更新细纲 + 出场角色的当前状态），再写下一章。' : '只写正文，不定稿；之后在主按钮上逐章定稿。',
+        plan.globalSummaryAt.length > 0
+          ? `第 ${plan.globalSummaryAt.join('、')} 章定稿之后各更新一次全书滚动摘要（落后 ${GLOBAL_SUMMARY_EVERY} 章就更新，每次 1 次调用）。`
+          : '',
+        plan.skipped.length > 0 ? `已经写过正文的第 ${plan.skipped.join('、')} 章跳过，不会被改动。` : '',
+        plan.stopAt !== undefined ? `第 ${plan.stopAt} 章还没有细纲、情节大纲也没覆盖到它，写到它前面为止。` : '',
+        thin.length > 0 ? describeThinLore('区间里', thin.map((t) => t.name)) : '',
+        '一章写不出来就停；写出来但开头重演了上一章、把后面几章的人提前写了进来、没写够八成或结尾停在半句上，也写进去然后停下，等你看过再继续。',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      tasks: [
+        'manuscript',
+        ...(reviewing ? ['review' as const] : []),
+        'plotSummary',
+        ...(plan.plotBatches.length > 0 ? ['plotOutline' as const] : []),
+        ...(mode === 'finalize' || castCards.plans.length > 0 ? ['characterCard' as const] : []),
+      ],
+      contextDetail: true,
+      preset: opts.call,
+    });
+    if (answer?.action !== '开始写章') {
       log.info('用户取消了批量写章');
       return 0;
     }
+    choice = answer.choice;
   }
+  return withCallChoice(choice, () => runWriteBatch(project, { plan, mode, reviewing, castCards, ignored }));
+}
 
+/** 批量写章问过之后：建池、补建角色卡，然后一章一章写（审、定稿）。返回调用次数。 */
+async function runWriteBatch(
+  project: NovelProject,
+  batch: { plan: WriteBatchPlan; mode: WriteBatchMode; reviewing: boolean; castCards: CastCardsPlan; ignored: Set<string> }
+): Promise<number> {
+  const { plan, mode, reviewing, castCards, ignored } = batch;
+  const config = readConfig();
   const pool = await createModelPool({ task: 'manuscript', concurrent: false });
   if (!pool) {
     log.error('没有可用的模型，批量写章中止');

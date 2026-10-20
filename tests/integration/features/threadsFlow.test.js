@@ -164,13 +164,13 @@ before(async () => {
   // 作者看了一眼，改了一条线的意图。
   t.write(THREADS, t.read(THREADS).replace('- 意图：名册上少了一页。', AUTHOR_INTENT));
   project.invalidate();
-  // 与工程页弹窗提交的那一条一样：弹窗已经报过调用次数，带 confirmed。
+  // 与工程页弹窗提交的那一条一样：弹窗已经报过调用次数，带 call（作者在弹窗上没改模型与详细度）。
   await controller.handle({
     type: 'projectAction',
     action: 'writeManuscripts',
     range: { from: 1, to: 3 },
     mode: 'finalize',
-    confirmed: true,
+    call: {},
   });
 });
 

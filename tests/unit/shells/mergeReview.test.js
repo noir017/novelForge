@@ -59,7 +59,7 @@ describe('FileHost.reviewReplace', () => {
     assert.equal(msg.proposed, '新');
     assert.equal(msg.mergeable, true);
     assert.match(msg.title, /第 1 章的正文/);
-    host.prompts.resolve(msg.requestId, JSON.stringify({ verdict: 'apply', merged: '合' }));
+    host.prompts.resolve(msg.requestId, { value: JSON.stringify({ verdict: 'apply', merged: '合' }) });
     assert.deepEqual(await pending, { merged: '合' });
   });
 
@@ -69,7 +69,7 @@ describe('FileHost.reviewReplace', () => {
     const pending = host.reviewReplace('角色卡', '旧', '新');
     const msg = sent.find((m) => m.type === 'prompt');
     assert.equal(msg.mergeable, false);
-    host.prompts.resolve(msg.requestId, JSON.stringify({ verdict: 'apply' }));
+    host.prompts.resolve(msg.requestId, { value: JSON.stringify({ verdict: 'apply' }) });
     assert.equal(await pending, 'apply');
   });
 });
@@ -84,7 +84,7 @@ describe('FileHost.mergeTexts', () => {
     assert.equal(msg.mergeable, true);
     assert.equal(msg.sides, undefined);
     assert.equal(msg.applyLabel, undefined);
-    host.prompts.resolve(msg.requestId, JSON.stringify({ verdict: 'apply' }));
+    host.prompts.resolve(msg.requestId, { value: JSON.stringify({ verdict: 'apply' }) });
     assert.equal(await pending, 'apply');
   });
 
@@ -102,7 +102,7 @@ describe('FileHost.mergeTexts', () => {
     assert.equal(msg.message, 'chapters/001-雨夜.md');
     assert.equal(msg.current, '磁盘');
     assert.equal(msg.proposed, '编辑器');
-    host.prompts.resolve(msg.requestId, JSON.stringify({ verdict: 'apply', merged: '合' }));
+    host.prompts.resolve(msg.requestId, { value: JSON.stringify({ verdict: 'apply', merged: '合' }) });
     assert.deepEqual(await pending, { merged: '合' });
   });
 });

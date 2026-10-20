@@ -8,7 +8,7 @@
 | 文件 | 职责 |
 |---|---|
 | [extension.ts](extension.ts) | ★ `activate()`：注册全部 `novel.*` 命令、「Novel Forge」输出面板（core 日志的 sink）、FileSystemWatcher（章节保存 → 刷新定稿状态：正文改了，那一章的定稿就对不上了）、`.novel` → `.novelforge` 迁移询问、无工作区时的占位视图。 |
-| [vscodeHost.ts](vscodeHost.ts) | `Host` 的实现：弹窗/进度/文件监听接回原生 API。`openFile` 开在第一栏，`openBeside` 用 `ViewColumn.Beside` 让草稿与正文并排。 |
+| [vscodeHost.ts](vscodeHost.ts) | `Host` 的实现：弹窗/进度/文件监听接回原生 API。`openFile` 开在第一栏，`openBeside` 用 `ViewColumn.Beside` 让草稿与正文并排。`confirmCall`（调模型之前的那一问）：原生模态框放不了下拉框，多一颗「换模型 / 详细度…」，点了依次弹 QuickPick（Esc 是不改那一项），选完回到模态框；补充说明末尾写着「按分档」时各项活交给谁与「这一次：……」。 |
 | [chatViewProvider.ts](chatViewProvider.ts) | 侧边栏宿主（`WebviewViewProvider`，视图 id `novelForge.chat`）。实现 `ViewHost` 挂到 `ChatController`。 |
 | [chatPanel.ts](chatPanel.ts) | 编辑器宿主（`WebviewPanel` 单例）。侧边栏太窄时用 ⧉ 打开，两边是同一个会话。 |
 | [webviewHtml.ts](webviewHtml.ts) | 两个宿主共用的页面模板：head / CSP / tabbar / 装配顺序。五个页签的 DOM 来自 [../shared/panes.ts](../shared/panes.ts)，**这里没有第二份**。它是纯函数——`asset` 与 `cspSource` 由调用方给，全文件零 vscode 依赖，因此 jsdom 能直接执行它拿真实页面。 |

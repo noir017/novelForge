@@ -5,13 +5,13 @@
  * |---|---|
  * | 一句话 · 主按钮 | 「生成小说配置」打开表单而不直接发送；默认值来自后端；提交发 send 带 setup、切到对话页 |
  * | 一句话 · 校验 | 脑洞空着不许提交；全书字数实时算；Esc 关掉什么都不发 |
- * | 拆细纲 | 缺省区间、实时说明（跳过几章、分几批、预计与最多几次）与后端同一个纯函数；提交带 confirmed |
+ * | 拆细纲 | 缺省区间、实时说明（跳过几章、分几批、预计与最多几次）与后端同一个纯函数；提交带 call |
  * | 拆细纲 · 越界 | 超出大纲覆盖时不许提交，并说清先续写大纲 |
  * | 调用次数 | 主按钮提示后面写「预计 1 次调用，最多 15 次」（第 4 条） |
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
-const { mount, JSDOM_SKIP, emptySession, workbenchView, sampleTree } = require('../../helpers/dom');
+const { mount, JSDOM_SKIP, emptySession, workbenchView, sampleTree, viewState } = require('../../helpers/dom');
 
 const modal = (ui) => ui.doc.getElementById('providerModal');
 const isOpen = (ui) => !modal(ui).classList.contains('hidden');
@@ -186,8 +186,8 @@ describe('拆细纲弹窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(note(ui).includes('都已经排过细纲了'), note(ui));
   });
 
-  // 弹窗已经报过调用次数：带 confirmed，后端不再弹第二个确认框（不叠弹窗）。
-  test('提交发 generatePlots，带区间与 confirmed', () => {
+  // 弹窗已经报过调用次数：带 call（这一次的模型与详细度，缺省按分档、设置页那一级），后端不再弹第二个确认框（不叠弹窗）。
+  test('提交发 generatePlots，带区间与 call', () => {
     type(ui, 'from', 5);
     type(ui, 'to', 9);
     ui.sent.length = 0;
@@ -196,7 +196,7 @@ describe('拆细纲弹窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(msg, JSON.stringify(ui.sent));
     assert.equal(msg.action, 'generatePlots');
     assert.equal(JSON.stringify(msg.range), JSON.stringify({ from: 5, to: 9 }));
-    assert.equal(msg.confirmed, true);
+    assert.equal(JSON.stringify(msg.call), JSON.stringify({ contextDetail: 3 }));
     assert.ok(!isOpen(ui));
   });
 
@@ -349,14 +349,14 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     assert.equal(submitBtn(ui).textContent, '开始写章');
   });
 
-  test('第二下才发：writeManuscripts，带区间、模式与 confirmed', () => {
+  test('第二下才发：writeManuscripts，带区间、模式与 call', () => {
     ui.clickEl(submitBtn(ui));
     ui.clickEl(submitBtn(ui));
     const msg = ui.last('projectAction');
     assert.equal(msg?.action, 'writeManuscripts', JSON.stringify(ui.sent));
     assert.equal(JSON.stringify(msg.range), JSON.stringify({ from: 4, to: 5 }));
     assert.equal(msg.mode, 'finalize');
-    assert.equal(msg.confirmed, true);
+    assert.equal(JSON.stringify(msg.call), JSON.stringify({ contextDetail: 3 }));
     assert.ok(!isOpen(ui));
   });
 
@@ -395,5 +395,55 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(isOpen(ui));
     assert.ok(!ui.sent.some((m) => m.type === 'projectAction'), JSON.stringify(ui.sent));
     key(ui, ui.doc, 'Escape');
+  });
+});
+
+// 调模型之前那两个下拉框（2026-10-20）：批量表单上作者为这一次挑模型与详细度，提交时作为 `call` 带给后端。
+describe('批量表单上的模型与上下文详细度', { skip: JSDOM_SKIP }, () => {
+  let ui;
+  const options = (key) => [...field(ui, key).querySelectorAll('option')].map((o) => o.value);
+  const choose = (key, value) => {
+    const sel = field(ui, key);
+    sel.value = value;
+    sel.dispatchEvent(new ui.window.Event('change', { bubbles: true }));
+  };
+
+  before(() => {
+    ui = mount();
+    ui.post({
+      type: 'state',
+      state: viewState({
+        contextDetail: 2,
+        models: [
+          { ref: 'glm/glm-4-plus', label: 'glm-4-plus', group: '智谱 GLM' },
+          { ref: 'or/claude', label: 'claude', group: 'OpenRouter' },
+        ],
+      }),
+    });
+    ui.post({ type: 'project', tree: sampleTree() });
+    ui.clickEl(ui.doc.querySelector('#projectToolbar [data-form="plotBatch"]'));
+  });
+
+  test('模型：第一项按分档（缺省），其余按服务商分组', () => {
+    assert.deepEqual(options('callModel'), ['', 'glm/glm-4-plus', 'or/claude']);
+    assert.equal(field(ui, 'callModel').value, '');
+    assert.equal(field(ui, 'callModel').options[0].textContent, '按分档');
+    const groups = [...field(ui, 'callModel').querySelectorAll('optgroup')].map((g) => g.label);
+    assert.deepEqual(groups, ['智谱 GLM', 'OpenRouter']);
+  });
+
+  test('详细度：四级，缺省是设置页那一级', () => {
+    assert.deepEqual(options('callDetail'), ['1', '2', '3', '4']);
+    assert.equal(field(ui, 'callDetail').value, '2');
+  });
+
+  test('挑了模型与级别：提交的 call 带上这两样', () => {
+    choose('callModel', 'or/claude');
+    choose('callDetail', '1');
+    ui.sent.length = 0;
+    ui.clickEl(submitBtn(ui));
+    const msg = ui.last('projectAction');
+    assert.equal(msg?.action, 'generatePlots', JSON.stringify(ui.sent));
+    assert.equal(JSON.stringify(msg.call), JSON.stringify({ model: 'or/claude', contextDetail: 1 }));
   });
 });

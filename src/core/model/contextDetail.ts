@@ -9,7 +9,8 @@
  *
  * 它是成本偏好，不是某一轮的难度：批量写章最费上下文，而批量不跟对话走。所以与
  * `trimModifiers` 一样存在 `~/.novelforge/config.json`，对话页、工程页批量、外部 agent
- * 三条路都经 `readConfig()` 拿到同一个值。
+ * 三条路都经 `readConfig()` 拿到同一个值。调模型之前的确认框上可以只为这一次换一级
+ * （`runtime/callScope.ts`，不写回设置）：那之后 `readConfig()` 读到的就是换过的那一级。
  *
  * ## 第 3 级就是从前的行为
  *

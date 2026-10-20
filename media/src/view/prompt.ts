@@ -9,8 +9,9 @@
  * （这条消息只在用户触发某个动作后到达），共用一层省一套样式。
  */
 import { el as mk, setHidden } from '../dom';
-import type { OutMessage } from '../protocol';
+import type { CallChoice, OutMessage } from '../protocol';
 import { primaryBtn, secondaryBtn } from './buttons';
+import { buildCallPicker } from './callFields';
 import { openHostFilePicker } from './folderPicker';
 import { renderMerge } from './merge';
 import { el } from './refs';
@@ -36,17 +37,17 @@ export function renderPrompt(msg: PromptMessage): void {
   el.providerModalTitle.textContent = msg.title;
   body.innerHTML = '';
 
-  const reply = (value?: string) => {
+  const reply = (value?: string, choice?: CallChoice) => {
     if (cancelActive !== cancel) {
       return;
     }
     cancelActive = undefined;
     setHidden(el.providerModal, true);
     body.innerHTML = '';
-    vscode.postMessage({ type: 'promptResult', requestId: msg.requestId, value });
+    vscode.postMessage({ type: 'promptResult', requestId: msg.requestId, value, ...(choice ? { choice } : {}) });
   };
-  // 与「取消」按钮同一个回答：确认框回 no，其余回 undefined。
-  const cancel = () => reply(msg.kind === 'confirm' ? 'no' : undefined);
+  // 与「取消」按钮同一个回答：undefined。
+  const cancel = () => reply(undefined);
   cancelActive = cancel;
 
   if (msg.message) {
@@ -54,11 +55,23 @@ export function renderPrompt(msg: PromptMessage): void {
   }
 
   if (msg.kind === 'confirm') {
-    // 补充说明（Host.confirm 的 detail）：要调几次、看哪几章、会覆盖什么——作者点「确定」前要看得见。
+    // 补充说明（Host.confirm 的 detail）：要调几次、看哪几章、会覆盖什么——作者点按钮前要看得见。
     for (const line of (msg.value ?? '').split('\n').filter((l) => l.trim())) {
       body.appendChild(mk('p', 'hint prompt-detail', line));
     }
-    body.appendChild(actionRow(primaryBtn('确定', () => reply('yes')), secondaryBtn('取消', () => reply('no'))));
+    // 调模型之前的那一问（Host.confirmCall）：按钮上面多两个下拉框，回答带上作者的选择。
+    const picker = msg.call ? buildCallPicker(msg.call) : undefined;
+    if (picker) {
+      body.appendChild(picker.element);
+    }
+    // 一个 action 一颗按钮（第一颗是主按钮），回的是按钮上的字。
+    const actions = msg.actions?.length ? msg.actions : ['确定'];
+    body.appendChild(
+      actionRow(
+        ...actions.map((a, i) => (i === 0 ? primaryBtn : secondaryBtn)(a, () => reply(a, picker?.choice()))),
+        secondaryBtn('取消', cancel)
+      )
+    );
   } else if (msg.kind === 'pick') {
     body.appendChild(buildPickList(msg.options ?? [], reply));
     body.appendChild(actionRow(secondaryBtn('取消', () => reply(undefined))));

@@ -1,5 +1,5 @@
 import { listAttachmentChoices, selectionAttachmentOf } from '../files/attachments';
-import { readConfig } from '../config';
+import { readConfig, settingsContextDetail } from '../config';
 import { closeDatabase, installLogPersistence, readLogHistory } from '../runtime/db';
 import { DraftStore } from '../generation/drafts';
 import { CancelledError } from '../llm/provider';
@@ -572,7 +572,7 @@ export class ChatController {
       case 'projectAction':
         await projectAction(this, msg.action, msg.relPath, msg.dir, {
           range: msg.range,
-          confirmed: msg.confirmed,
+          call: msg.call,
           mode: msg.mode,
           review: msg.review,
           name: msg.name,
@@ -734,6 +734,7 @@ export class ChatController {
           model: config.model,
           modelLabel: '',
           models,
+          contextDetail: settingsContextDetail(),
           contextWindow: 0,
           maxOutputTokens: 0,
           paragraphStyle: DEFAULT_PARAGRAPH_STYLE,
@@ -764,6 +765,7 @@ export class ChatController {
         modelIssue:
           lmOnlyIssue ?? (config.active ? undefined : describeModelIssue(config.providers, config.model)),
         models,
+        contextDetail: settingsContextDetail(),
         contextWindow: config.contextWindow,
         maxOutputTokens: config.maxOutputTokens,
         // 流水线索引那一趟已经读过 config.md，不另读。

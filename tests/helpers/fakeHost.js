@@ -70,6 +70,17 @@ function makeFakeHost(opts = {}) {
       confirms.push({ message, actions, detail: o && o.detail });
       return answers.shift();
     },
+    // 调模型之前的那一问（Host.confirmCall）：与 confirm 共用答案队列，录进 `confirms`（多一个 `call`：两个下拉框的
+    // 选项与缺省）。排的是字符串 = 点那颗按钮、下拉框不动（回的是打开时的缺省，同真宿主）；排 `{ action, choice }` =
+    // 作者另挑了模型 / 详细度。
+    confirmCall: async (message, actions, o) => {
+      confirms.push({ message, actions, detail: o.detail, call: o.call });
+      const a = answers.shift();
+      if (a === undefined) return undefined;
+      if (typeof a !== 'string') return a;
+      const { model, contextDetail } = o.call;
+      return { action: a, choice: { ...(model ? { model } : {}), ...(contextDetail ? { contextDetail } : {}) } };
+    },
     pick: async (choices, title) => {
       picks.push({ choices, title });
       return answers.shift();

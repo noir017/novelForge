@@ -367,7 +367,7 @@ describe('批量拆细纲 · 一批失败就停', () => {
     // 而里面什么都没有。拆半、单章重建都救不回来。
     replyFn = () => '我不太确定这几章要写什么。';
     // 弹窗已经把切分与调用次数报过了：不再弹第二个确认框。
-    await bundle.batch.generatePlots(project, { range: { from: 6, to: 12 }, confirmed: true });
+    await bundle.batch.generatePlots(project, { range: { from: 6, to: 12 }, call: {} });
     calls = fake.calls.length;
     users = fake.calls.map((c) => c.find((m) => m.role === 'user').content);
     toastsSnapshot = [...h.toasts];

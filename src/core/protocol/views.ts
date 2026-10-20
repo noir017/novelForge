@@ -10,6 +10,7 @@ import type {
   SettingDoc,
 } from '../model/pipeline';
 import type { ThinkingDepth } from '../model/thinking';
+import type { ContextDetail } from '../model/contextDetail';
 import type { ReviewReport } from '../model/review';
 import type { ParagraphStyle } from '../model/paragraphFormat';
 import type { LoreThinKind } from '../model/loreFile';
@@ -36,6 +37,8 @@ export interface ViewState {
   modelLabel: string;
   modelIssue?: string;
   models: { ref: string; label: string; group: string }[];
+  /** 设置页上的上下文详细度：工程页批量表单上那个下拉框的缺省（表单只为这一次换，不改它）。 */
+  contextDetail: ContextDetail;
   contextWindow: number;
   maxOutputTokens: number;
   /**

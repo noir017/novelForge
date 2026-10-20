@@ -151,7 +151,7 @@ describe('排叙事线', () => {
 
   test('确认框报 1 次调用、哪一档、追加不改', () => {
     assert.ok(confirm.message.includes('要从第 1–3 章的细纲排出叙事线，预计 1 次调用'), confirm.message);
-    assert.ok(confirm.detail.includes('剧情细纲'), confirm.detail);
+    assert.ok(confirm.call.tiers.join('\n').includes('剧情细纲'), confirm.call.tiers.join('\n'));
     assert.ok(confirm.detail.includes('已有的 1 条不会改动'), confirm.detail);
     assert.equal(returned, 1);
     assert.equal(fake.callCount(), 1);

@@ -150,7 +150,7 @@ def char_count(path):
 # ---- 等待与回答 ----
 
 def answer_all(verdict='proceed', log_only_types=()):
-    """回答全部未决：gate→verdict；confirm→yes（skip 时取消）；pick→第一项；input→取消。"""
+    """回答全部未决：gate→verdict；confirm→第一颗按钮（skip 时取消；模型与详细度照缺省）；pick→第一项；input→取消。"""
     n = 0
     for p in load('pending.json', []):
         brief = (p.get('message') or '') + ' ' + (p.get('detail') or p.get('value') or '')
@@ -158,7 +158,8 @@ def answer_all(verdict='proceed', log_only_types=()):
         if p['type'] == 'gate':
             send({'type': 'gateResult', 'requestId': p['requestId'], 'verdict': verdict})
         elif p['kind'] == 'confirm':
-            send({'type': 'promptResult', 'requestId': p['requestId'], **({'value': 'yes'} if verdict == 'proceed' else {})})
+            first = (p.get('actions') or ['确定'])[0]
+            send({'type': 'promptResult', 'requestId': p['requestId'], **({'value': first} if verdict == 'proceed' else {})})
         elif p['kind'] == 'pick' and verdict == 'proceed':
             send({'type': 'promptResult', 'requestId': p['requestId'], 'value': (p.get('options') or [''])[0]})
         elif p['kind'] == 'merge' and verdict == 'proceed':
@@ -307,7 +308,8 @@ def cmd_plots(a):
     select_model()
     total = a.to or book_config().get('totalChapters') or outline_coverage()
     send({'type': 'switchTab', 'tab': 'project'})
-    send({'type': 'projectAction', 'action': 'generatePlots', 'range': {'from': a.from_, 'to': total}, 'confirmed': True})
+    # call：弹窗已经问过（模型按分档、详细度照设置），后端不再弹确认框。
+    send({'type': 'projectAction', 'action': 'generatePlots', 'range': {'from': a.from_, 'to': total}, 'call': {}})
     time.sleep(5)
     wait_tasks()
     say('细纲', len(plot_files()), '份')
@@ -358,7 +360,7 @@ def cmd_write(a):
         hi = min(n + 9, total)
         say('批量写章', n, '-', hi)
         send({'type': 'projectAction', 'action': 'writeManuscripts', 'range': {'from': n, 'to': hi},
-              'confirmed': True, 'mode': 'finalize', 'review': bool(a.review)})
+              'call': {}, 'mode': 'finalize', 'review': bool(a.review)})
         time.sleep(10)
         wait_tasks()
         if next_chapter_no() == n and not [f for f in chapter_files() if not finalized(f)]:

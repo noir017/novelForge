@@ -440,6 +440,7 @@ const viewState = (extra) =>
       model: 'glm/glm-4-plus',
       modelLabel: '智谱 GLM · glm-4-plus',
       models: [{ ref: 'glm/glm-4-plus', label: 'glm-4-plus', group: '智谱 GLM' }],
+      contextDetail: 3,
       contextWindow: 128000,
       maxOutputTokens: 8192,
     },

@@ -201,13 +201,19 @@ export interface NovelConfig {
   tierModels: TierModels;
   /** 任务 → 档位的覆盖，缺席的任务用 `DEFAULT_TASK_TIERS`。 */
   taskTiers: Partial<Record<LlmTask, ModelTier>>;
+  /**
+   * 作者在调模型之前的确认框上为这一次指定的模型（runtime/callScope.ts），不从 config.json 读。
+   * 有它时分档池只用它、不换人（`refsForTask`）；对话页那个模型（`model` / `active`）不受影响。
+   */
+  pinnedModel?: string;
   /** 当前模型的上下文窗口（模型配置优先，缺省使用兼容值）。 */
   contextWindow: number;
   maxOutputTokens: number;
   temperature: number;
   /**
    * 上下文详细度（model/contextDetail.ts）：每一次调用带多少前文与设定。各层与后台任务
-   * 经 `contextLimitsOf(config)` 取上限，不直接读这个数。
+   * 经 `contextLimitsOf(config)` 取上限，不直接读这个数。确认框上为这一次换过级别的，
+   * 在那之后读到的是换过的（runtime/callScope.ts）。
    */
   contextDetail: ContextDetail;
   /**

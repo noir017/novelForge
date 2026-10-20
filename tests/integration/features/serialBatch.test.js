@@ -175,13 +175,13 @@ before(async () => {
 
   controller = new bundle.controller.ChatController(project);
   controller.attach({ kind: 'sidebar', post: () => {}, reveal() {} });
-  // 与工程页弹窗提交的那一条一样：弹窗已经报过调用次数，带 confirmed。
+  // 与工程页弹窗提交的那一条一样：弹窗已经报过调用次数，带 call（作者在弹窗上没改模型与详细度）。
   await controller.handle({
     type: 'projectAction',
     action: 'writeManuscripts',
     range: { from: 1, to: 3 },
     mode: 'finalize',
-    confirmed: true,
+    call: {},
   });
 });
 

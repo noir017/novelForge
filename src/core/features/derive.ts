@@ -60,7 +60,10 @@ import {
   describeCalls,
   loreEntryCalls,
 } from '../model/pipeline';
-import { describeTaskModels } from '../model/tiers';
+import { LlmTask } from '../model/tiers';
+import { CallChoice } from '../model/callChoice';
+import { withCallChoice } from '../runtime/callScope';
+import { askCall } from './askCall';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
@@ -108,6 +111,8 @@ export async function deriveFromText(project: NovelProject): Promise<number> {
   const written = chapters.filter((c) => c.order <= through);
 
   let calls = 0;
+  /** 先整理细纲那一问的选择：其余几样那一问打开时缺省跟着它（同一件事的两步）。 */
+  let preset: CallChoice | undefined;
   project.invalidate();
   const stale = (await project.staleChapters()).filter((c) => c.order <= through && c.wordCount > 0);
   if (stale.length > 0) {
@@ -116,9 +121,10 @@ export async function deriveFromText(project: NovelProject): Promise<number> {
     if (!r.ok) {
       return calls;
     }
+    preset = r.choice;
     project.invalidate();
   }
-  return calls + (await deriveRest(project, through, written, calls));
+  return calls + (await deriveRest(project, through, written, calls, preset));
 }
 
 // ---------------------------------------------------------------- 一、细纲
@@ -127,52 +133,51 @@ async function summarizeFirst(
   project: NovelProject,
   stale: Chapter[],
   through: number
-): Promise<{ ok: boolean; calls: number }> {
-  const config = readConfig();
-  const lanes = Math.min(config.concurrency, stale.length);
-  const pick = await getHost().confirm(
-    `从已写正文补齐第 1–${through} 章：先照正文给 ${stale.length} 章整理细纲（没定稿的、定稿后正文改过的），调用 ${stale.length} 次模型。现在开始？`,
-    ['先整理细纲'],
-    {
-      modal: true,
-      detail: [
-        describeTaskModels(config, 'plotSummary'),
-        lanes > 1 ? `并发 ${lanes} 路，各章之间没有先后依赖。` : '串行逐章处理（并发数为 1）。',
-        '已经有细纲的章拿着它与正文对照着改，旧版先复制一份进 .novelforge/.trash/。',
-        '细纲出来之后再算建卡、设定与情节大纲要调几次（建卡次数要看细纲里认出了谁），到时再问你一次。',
-      ].join('\n'),
-    }
-  );
-  if (pick !== '先整理细纲') {
+): Promise<{ ok: boolean; calls: number; choice?: CallChoice }> {
+  const lanes = Math.min(readConfig().concurrency, stale.length);
+  const answer = await askCall({
+    message: `从已写正文补齐第 1–${through} 章：先照正文给 ${stale.length} 章整理细纲（没定稿的、定稿后正文改过的），调用 ${stale.length} 次模型。现在开始？`,
+    actions: ['先整理细纲'],
+    detail: [
+      lanes > 1 ? `并发 ${lanes} 路，各章之间没有先后依赖。` : '串行逐章处理（并发数为 1）。',
+      '已经有细纲的章拿着它与正文对照着改，旧版先复制一份进 .novelforge/.trash/。',
+      '细纲出来之后再算建卡、设定与情节大纲要调几次（建卡次数要看细纲里认出了谁），到时再问你一次。',
+    ].join('\n'),
+    tasks: ['plotSummary'],
+    contextDetail: false,
+  });
+  if (answer?.action !== '先整理细纲') {
     log.info('作者没有开始从已写正文补齐（细纲那一步）');
     return { ok: false, calls: 0 };
   }
-  const pool = await createModelPool({ task: 'plotSummary', concurrent: lanes > 1 });
-  if (!pool) {
-    log.error('没有可用的模型，从已写正文补齐中止');
-    return { ok: false, calls: 0 };
-  }
-  let ok = false;
-  await runTask(
-    '从已写正文补齐 · 细纲',
-    async ({ signal, report }) => {
-      const r = await summarizeChapters(project, stale, { pool, lanes, signal, report });
-      if (signal.aborted) {
-        log.warn(`从已写正文补齐被取消，细纲完成 ${r.ok}/${stale.length} 章`);
-        return;
-      }
-      if (r.failed.length > 0) {
-        getHost().toast(
-          `第 ${r.failed.map((f) => f.no).join('、')} 章的细纲没整理成（可在日志页看原因）。建卡与大纲要照细纲来，已经停下；补上这几章再来一次。`,
-          'error'
-        );
-        return;
-      }
-      ok = true;
-    },
-    { scope: '补齐' }
-  );
-  return { ok, calls: stale.length };
+  return withCallChoice(answer.choice, async () => {
+    const pool = await createModelPool({ task: 'plotSummary', concurrent: lanes > 1 });
+    if (!pool) {
+      log.error('没有可用的模型，从已写正文补齐中止');
+      return { ok: false, calls: 0 };
+    }
+    let ok = false;
+    await runTask(
+      '从已写正文补齐 · 细纲',
+      async ({ signal, report }) => {
+        const r = await summarizeChapters(project, stale, { pool, lanes, signal, report });
+        if (signal.aborted) {
+          log.warn(`从已写正文补齐被取消，细纲完成 ${r.ok}/${stale.length} 章`);
+          return;
+        }
+        if (r.failed.length > 0) {
+          getHost().toast(
+            `第 ${r.failed.map((f) => f.no).join('、')} 章的细纲没整理成（可在日志页看原因）。建卡与大纲要照细纲来，已经停下；补上这几章再来一次。`,
+            'error'
+          );
+          return;
+        }
+        ok = true;
+      },
+      { scope: '补齐' }
+    );
+    return { ok, calls: stale.length, choice: answer.choice };
+  });
 }
 
 // ---------------------------------------------------------------- 二、其余几样
@@ -189,8 +194,14 @@ interface DerivePlan {
   setup?: { totalChapters: number; wordsPerChapter: number };
 }
 
-/** `before`：前面细纲那一步已经调了几次（完成提示报的是总数）。 */
-async function deriveRest(project: NovelProject, through: number, written: Chapter[], before: number): Promise<number> {
+/** `before`：前面细纲那一步已经调了几次（完成提示报的是总数）；`preset`：那一步作者挑的模型与详细度。 */
+async function deriveRest(
+  project: NovelProject,
+  through: number,
+  written: Chapter[],
+  before: number,
+  preset?: CallChoice
+): Promise<number> {
   const plan = await planRest(project, through, written);
   if (!plan) {
     return 0;
@@ -206,206 +217,211 @@ async function deriveRest(project: NovelProject, through: number, written: Chapt
     getHost().toast(`第 1–${through} 章的细纲、架构与情节大纲都已经有了。`);
     return 0;
   }
-  const config = readConfig();
-  const pick = await getHost().confirm(
-    `从已写正文补齐第 1–${through} 章：${labels.join('、')}，${describeCalls(estimate)}。现在补？`,
-    ['开始补齐'],
-    { modal: true, detail: describePlan(plan, through, config) }
-  );
-  if (pick !== '开始补齐') {
+  const answer = await askCall({
+    message: `从已写正文补齐第 1–${through} 章：${labels.join('、')}，${describeCalls(estimate)}。现在补？`,
+    actions: ['开始补齐'],
+    detail: describePlan(plan, through),
+    tasks: tasksOf(plan),
+    contextDetail: true,
+    preset,
+  });
+  if (answer?.action !== '开始补齐') {
     log.info('作者没有开始从已写正文补齐');
     return 0;
   }
 
-  const needSetting = plan.settings.some((d) => d !== 'characters');
-  const settingPool = needSetting ? await createModelPool({ task: 'setting', concurrent: false }) : undefined;
-  const lanes = plan.cards ? Math.min(config.concurrency, Math.max(1, plan.cards.plans.length)) : 1;
-  const cardPool = plan.cards ? await createModelPool({ task: 'characterCard', concurrent: lanes > 1 }) : undefined;
-  const loreLanes = plan.lore ? Math.min(config.concurrency, Math.max(1, plan.lore.targets.length)) : 1;
-  // 建条目这一道是额外的：池建不出来不拦整件事，走到那一步时挂黄、接着往下补。
-  const lorePool = plan.lore ? await createModelPool({ task: 'loreSynthesis', concurrent: loreLanes > 1 }) : undefined;
-  const plotPool = plan.outline.length > 0 ? await createModelPool({ task: 'plotOutline', concurrent: false }) : undefined;
-  const summaryPool = plan.globalSummary ? await createModelPool({ task: 'plotSummary', concurrent: false }) : undefined;
-  if ((needSetting && !settingPool) || (plan.cards && !cardPool) || (plan.outline.length > 0 && !plotPool)) {
-    log.error('没有可用的模型，从已写正文补齐中止');
-    return 0;
-  }
+  return withCallChoice(answer.choice, async () => {
+    const config = readConfig();
+    const needSetting = plan.settings.some((d) => d !== 'characters');
+    const settingPool = needSetting ? await createModelPool({ task: 'setting', concurrent: false }) : undefined;
+    const lanes = plan.cards ? Math.min(config.concurrency, Math.max(1, plan.cards.plans.length)) : 1;
+    const cardPool = plan.cards ? await createModelPool({ task: 'characterCard', concurrent: lanes > 1 }) : undefined;
+    const loreLanes = plan.lore ? Math.min(config.concurrency, Math.max(1, plan.lore.targets.length)) : 1;
+    // 建条目这一道是额外的：池建不出来不拦整件事，走到那一步时挂黄、接着往下补。
+    const lorePool = plan.lore ? await createModelPool({ task: 'loreSynthesis', concurrent: loreLanes > 1 }) : undefined;
+    const plotPool = plan.outline.length > 0 ? await createModelPool({ task: 'plotOutline', concurrent: false }) : undefined;
+    const summaryPool = plan.globalSummary ? await createModelPool({ task: 'plotSummary', concurrent: false }) : undefined;
+    if ((needSetting && !settingPool) || (plan.cards && !cardPool) || (plan.outline.length > 0 && !plotPool)) {
+      log.error('没有可用的模型，从已写正文补齐中止');
+      return 0;
+    }
 
-  let calls = 0;
-  await runTask(
-    '从已写正文补齐',
-    async ({ signal, report }) => {
-      const startedAt = Date.now();
-      const steps = labels.length;
-      let step = 0;
-      const done: string[] = [];
-      /** 停在哪、为什么。没有就是全补完了。 */
-      let halt: string | undefined;
-      const stop = (what: string, err: unknown): 'cancelled' | 'failed' => {
-        if (err instanceof CancelledError || signal.aborted) {
-          log.warn(`从已写正文补齐被取消，停在${what}`);
-          return 'cancelled';
-        }
-        halt = `${what}没补上（${describeError(err)}）`;
-        log.error(`从已写正文补齐：${halt}`, err instanceof ChainError ? err.notes.join('\n') : err);
-        return 'failed';
-      };
-
-      // 架构几件：配置 → 前提 → 角色卡 → 世界观。
-      for (const doc of plan.settings) {
-        const label = doc === 'characters' ? '角色卡' : SETTING_DOC_LABEL[doc];
-        report({ message: label, current: step, total: steps });
-        if (doc === 'characters') {
-          const r = await deriveCards(project, plan.cards!, { signal, pool: cardPool!, config, lanes, report });
-          calls += r.calls;
-          if (r.outcome !== 'ok') {
-            if (r.outcome === 'failed') {
-              halt = r.why;
-            }
-            break;
+    let calls = 0;
+    await runTask(
+      '从已写正文补齐',
+      async ({ signal, report }) => {
+        const startedAt = Date.now();
+        const steps = labels.length;
+        let step = 0;
+        const done: string[] = [];
+        /** 停在哪、为什么。没有就是全补完了。 */
+        let halt: string | undefined;
+        const stop = (what: string, err: unknown): 'cancelled' | 'failed' => {
+          if (err instanceof CancelledError || signal.aborted) {
+            log.warn(`从已写正文补齐被取消，停在${what}`);
+            return 'cancelled';
           }
-          done.push(`角色卡 ${r.created} 张`);
-          step++;
-          continue;
-        }
-        const request: Omit<BuildRequest, 'providerMaxInputTokens'> = {
-          action: { stage: 'setting', capability: 'generate' },
-          target: { kind: 'setting', doc },
-          ask: '',
-          derive: { through },
-          ...(doc === 'config' && plan.setup ? { setup: plan.setup } : {}),
+          halt = `${what}没补上（${describeError(err)}）`;
+          log.error(`从已写正文补齐：${halt}`, err instanceof ChainError ? err.notes.join('\n') : err);
+          return 'failed';
         };
-        const io = poolIO(project, settingPool!, config, signal, request);
-        try {
-          const raw = await settingRaw(project, doc, request, io, '', plan.setup ?? { totalChapters: 0, wordsPerChapter: 0 });
-          const artifact = parseArtifact(request.action, raw, request.target);
-          if (isArtifactEmpty(artifact)) {
-            throw new Error('模型返回的内容里解析不出这一件');
-          }
-          const r = await acceptArtifact(project, request.target, artifact, { onlyBlank: true });
-          log.info(`${label}已从正文整理`, r.message);
-          void clearFailures(project, 'setting', settingKey(project, doc), 'setting');
-          calls += io.calls();
-          done.push(label);
-          step++;
-        } catch (err) {
-          calls += err instanceof ChainError ? err.calls : io.calls();
-          if (stop(label, err) === 'failed') {
-            void recordFailure(project, {
-              scope: '补齐',
-              targetKind: 'setting',
-              targetKey: settingKey(project, doc),
-              severity: 'error',
-              op: 'setting',
-              message: `从已写正文整理${label}失败：${describeError(err)}`,
-              detail: '从已写正文补齐停在这一件。后面几件依赖它，没有继续。',
-            });
-          }
-          break;
-        }
-        project.invalidate();
-      }
-      const settingsDone = done.length === plan.settings.length;
 
-      // 设定条目：建卡之后（名录才认得出哪些名字是人）。额外的一道，没建成挂黄、后面照常补。
-      if (plan.lore && !halt && !signal.aborted && settingsDone) {
-        report({ message: '设定条目', current: step, total: steps });
-        const r = await deriveLore(project, plan.lore, { signal, pool: lorePool, lanes: loreLanes, report });
-        calls += r.calls;
-        if (r.created > 0) {
-          done.push(`设定条目 ${r.created} 条`);
-        }
-        step++;
-      }
-
-      // 情节大纲：每次 20 章，照那几章定稿过的细纲。
-      if (!halt && !signal.aborted && settingsDone) {
-        for (const range of plan.outline) {
-          const span = rangeLabel(range.from, range.to);
-          report({ message: `情节大纲 · ${span}`, current: step, total: steps });
+        // 架构几件：配置 → 前提 → 角色卡 → 世界观。
+        for (const doc of plan.settings) {
+          const label = doc === 'characters' ? '角色卡' : SETTING_DOC_LABEL[doc];
+          report({ message: label, current: step, total: steps });
+          if (doc === 'characters') {
+            const r = await deriveCards(project, plan.cards!, { signal, pool: cardPool!, config, lanes, report });
+            calls += r.calls;
+            if (r.outcome !== 'ok') {
+              if (r.outcome === 'failed') {
+                halt = r.why;
+              }
+              break;
+            }
+            done.push(`角色卡 ${r.created} 张`);
+            step++;
+            continue;
+          }
           const request: Omit<BuildRequest, 'providerMaxInputTokens'> = {
-            action: { stage: 'outline', capability: 'generate' },
-            target: { kind: 'outline' },
-            range,
+            action: { stage: 'setting', capability: 'generate' },
+            target: { kind: 'setting', doc },
             ask: '',
             derive: { through },
+            ...(doc === 'config' && plan.setup ? { setup: plan.setup } : {}),
           };
-          const io = poolIO(project, plotPool!, config, signal, request);
+          const io = poolIO(project, settingPool!, config, signal, request);
           try {
-            const first = await io.chain.call(await io.chain.build({}), `情节大纲（${span}）`);
-            const notes = singleShotNotes('outline', first.text, first.stop, range);
-            if (notes.length > 0) {
-              log.warn(`情节大纲${span}：${notes.length} 条说明`, notes.join('\n'));
-            }
-            const artifact = parseArtifact(request.action, first.text, request.target, range);
+            const raw = await settingRaw(project, doc, request, io, '', plan.setup ?? { totalChapters: 0, wordsPerChapter: 0 });
+            const artifact = parseArtifact(request.action, raw, request.target);
             if (isArtifactEmpty(artifact)) {
-              throw new Error('模型返回的大纲是空的');
+              throw new Error('模型返回的内容里解析不出这一件');
             }
-            await acceptArtifact(project, request.target, artifact);
+            const r = await acceptArtifact(project, request.target, artifact, { onlyBlank: true });
+            log.info(`${label}已从正文整理`, r.message);
+            void clearFailures(project, 'setting', settingKey(project, doc), 'setting');
             calls += io.calls();
-            project.invalidate();
-            const covered = outlineCoverage(await project.readOutline());
-            if (!(covered >= range.to)) {
-              throw new Error(`整理出来的大纲只覆盖到第 ${Number.isFinite(covered) ? covered : 0} 章（这一次要到第 ${range.to} 章）`);
-            }
-            void clearFailures(project, 'setting', project.relPath(project.outlinePath), 'outline');
+            done.push(label);
+            step++;
           } catch (err) {
             calls += err instanceof ChainError ? err.calls : io.calls();
-            if (stop(`情节大纲（${span}）`, err) === 'failed') {
+            if (stop(label, err) === 'failed') {
               void recordFailure(project, {
                 scope: '补齐',
                 targetKind: 'setting',
-                targetKey: project.relPath(project.outlinePath),
+                targetKey: settingKey(project, doc),
                 severity: 'error',
-                op: 'outline',
-                message: `从已写正文整理情节大纲（${span}）失败：${describeError(err)}`,
-                detail: '从已写正文补齐停在这一段。后面的段要接着它整理，没有继续。',
+                op: 'setting',
+                message: `从已写正文整理${label}失败：${describeError(err)}`,
+                detail: '从已写正文补齐停在这一件。后面几件依赖它，没有继续。',
               });
             }
             break;
           }
+          project.invalidate();
         }
-        if (!halt && !signal.aborted && plan.outline.length > 0) {
-          done.push('情节大纲');
+        const settingsDone = done.length === plan.settings.length;
+
+        // 设定条目：建卡之后（名录才认得出哪些名字是人）。额外的一道，没建成挂黄、后面照常补。
+        if (plan.lore && !halt && !signal.aborted && settingsDone) {
+          report({ message: '设定条目', current: step, total: steps });
+          const r = await deriveLore(project, plan.lore, { signal, pool: lorePool, lanes: loreLanes, report });
+          calls += r.calls;
+          if (r.created > 0) {
+            done.push(`设定条目 ${r.created} 条`);
+          }
           step++;
         }
-      }
 
-      // 全书摘要：落后就增量更新；它是额外的一道，没更新成不算补齐失败。
-      if (!halt && !signal.aborted && plan.globalSummary && summaryPool) {
-        report({ message: '全书摘要', current: step, total: steps });
-        try {
-          for (let round = 0; round < GLOBAL_SUMMARY_ROUNDS; round++) {
-            const g = await updateGlobalSummary(project, summaryPool, signal);
-            calls += g.calls;
-            if (g.calls === 0 || (g.through ?? 0) >= through) {
+        // 情节大纲：每次 20 章，照那几章定稿过的细纲。
+        if (!halt && !signal.aborted && settingsDone) {
+          for (const range of plan.outline) {
+            const span = rangeLabel(range.from, range.to);
+            report({ message: `情节大纲 · ${span}`, current: step, total: steps });
+            const request: Omit<BuildRequest, 'providerMaxInputTokens'> = {
+              action: { stage: 'outline', capability: 'generate' },
+              target: { kind: 'outline' },
+              range,
+              ask: '',
+              derive: { through },
+            };
+            const io = poolIO(project, plotPool!, config, signal, request);
+            try {
+              const first = await io.chain.call(await io.chain.build({}), `情节大纲（${span}）`);
+              const notes = singleShotNotes('outline', first.text, first.stop, range);
+              if (notes.length > 0) {
+                log.warn(`情节大纲${span}：${notes.length} 条说明`, notes.join('\n'));
+              }
+              const artifact = parseArtifact(request.action, first.text, request.target, range);
+              if (isArtifactEmpty(artifact)) {
+                throw new Error('模型返回的大纲是空的');
+              }
+              await acceptArtifact(project, request.target, artifact);
+              calls += io.calls();
+              project.invalidate();
+              const covered = outlineCoverage(await project.readOutline());
+              if (!(covered >= range.to)) {
+                throw new Error(`整理出来的大纲只覆盖到第 ${Number.isFinite(covered) ? covered : 0} 章（这一次要到第 ${range.to} 章）`);
+              }
+              void clearFailures(project, 'setting', project.relPath(project.outlinePath), 'outline');
+            } catch (err) {
+              calls += err instanceof ChainError ? err.calls : io.calls();
+              if (stop(`情节大纲（${span}）`, err) === 'failed') {
+                void recordFailure(project, {
+                  scope: '补齐',
+                  targetKind: 'setting',
+                  targetKey: project.relPath(project.outlinePath),
+                  severity: 'error',
+                  op: 'outline',
+                  message: `从已写正文整理情节大纲（${span}）失败：${describeError(err)}`,
+                  detail: '从已写正文补齐停在这一段。后面的段要接着它整理，没有继续。',
+                });
+              }
               break;
             }
           }
-          done.push('全书摘要');
-        } catch (err) {
-          calls += 1;
-          if (!(err instanceof CancelledError || signal.aborted)) {
-            log.warn(`全书摘要没更新成（${describeError(err)}），之后可在工程页点「重建」`);
+          if (!halt && !signal.aborted && plan.outline.length > 0) {
+            done.push('情节大纲');
+            step++;
           }
         }
-      }
 
-      report({ message: '收尾', current: steps, total: steps });
-      log.info(`从已写正文补齐结束：${done.join('、') || '什么都没补上'}`, `调用 ${calls} 次，总耗时 ${elapsed(startedAt)}`);
-      if (signal.aborted) {
-        return;
-      }
-      const head = done.length > 0 ? `已从第 1–${through} 章补上：${before > 0 ? `${before} 章细纲、` : ''}${done.join('、')}` : '';
-      if (halt) {
-        getHost().toast(`${head ? `${head}。` : ''}${halt}，后面的已经停下。`, 'error');
-        return;
-      }
-      getHost().toast(`${head}（调用 ${before + calls} 次）。接下来可以续写大纲、批量写第 ${through + 1} 章以后的章。`);
-    },
-    { scope: '补齐' }
-  );
-  return calls;
+        // 全书摘要：落后就增量更新；它是额外的一道，没更新成不算补齐失败。
+        if (!halt && !signal.aborted && plan.globalSummary && summaryPool) {
+          report({ message: '全书摘要', current: step, total: steps });
+          try {
+            for (let round = 0; round < GLOBAL_SUMMARY_ROUNDS; round++) {
+              const g = await updateGlobalSummary(project, summaryPool, signal);
+              calls += g.calls;
+              if (g.calls === 0 || (g.through ?? 0) >= through) {
+                break;
+              }
+            }
+            done.push('全书摘要');
+          } catch (err) {
+            calls += 1;
+            if (!(err instanceof CancelledError || signal.aborted)) {
+              log.warn(`全书摘要没更新成（${describeError(err)}），之后可在工程页点「重建」`);
+            }
+          }
+        }
+
+        report({ message: '收尾', current: steps, total: steps });
+        log.info(`从已写正文补齐结束：${done.join('、') || '什么都没补上'}`, `调用 ${calls} 次，总耗时 ${elapsed(startedAt)}`);
+        if (signal.aborted) {
+          return;
+        }
+        const head = done.length > 0 ? `已从第 1–${through} 章补上：${before > 0 ? `${before} 章细纲、` : ''}${done.join('、')}` : '';
+        if (halt) {
+          getHost().toast(`${head ? `${head}。` : ''}${halt}，后面的已经停下。`, 'error');
+          return;
+        }
+        getHost().toast(`${head}（调用 ${before + calls} 次）。接下来可以续写大纲、批量写第 ${through + 1} 章以后的章。`);
+      },
+      { scope: '补齐' }
+    );
+    return calls;
+  });
 }
 
 /** 细纲齐了之后，其余几样各要做什么。零调用。总章数没写时问一句（取消就返回 undefined）。 */
@@ -516,23 +532,19 @@ export function estimateOf(plan: Pick<DerivePlan, 'settings' | 'cards' | 'lore' 
   return parts.reduce(addCalls, { low: 0, high: 0, max: 0 });
 }
 
-function describePlan(plan: DerivePlan, through: number, config: ReturnType<typeof readConfig>): string {
+/** 这一次要用到哪几项活（确认框「按分档」下面逐项列）。 */
+function tasksOf(plan: DerivePlan): LlmTask[] {
+  return [
+    ...(plan.settings.some((d) => d !== 'characters') ? ['setting' as const] : []),
+    ...(plan.cards ? ['characterCard' as const] : []),
+    ...(plan.lore ? ['loreSynthesis' as const] : []),
+    ...(plan.outline.length > 0 ? ['plotOutline' as const] : []),
+    ...(plan.globalSummary ? ['plotSummary' as const] : []),
+  ];
+}
+
+function describePlan(plan: DerivePlan, through: number): string {
   const lines: string[] = [];
-  if (plan.settings.some((d) => d !== 'characters')) {
-    lines.push(describeTaskModels(config, 'setting'));
-  }
-  if (plan.cards) {
-    lines.push(describeTaskModels(config, 'characterCard'));
-  }
-  if (plan.lore) {
-    lines.push(describeTaskModels(config, 'loreSynthesis'));
-  }
-  if (plan.outline.length > 0) {
-    lines.push(describeTaskModels(config, 'plotOutline'));
-  }
-  if (plan.globalSummary) {
-    lines.push(describeTaskModels(config, 'plotSummary'));
-  }
   lines.push(
     '按 配置 → 前提 → 角色卡 → 世界观 → 设定条目 → 情节大纲 → 全书摘要 的顺序一件一件来，每件都照已写正文整理；已经有的不会被改动。一件失败就停，已经写好的留着（设定条目没建成不停）。'
   );

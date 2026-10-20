@@ -5,6 +5,8 @@ import * as path from 'node:path';
 import { readConfig } from '../../core/config';
 import { Disposable, Host, InputOptions, PickChoice } from '../../core/host';
 import { CancelledError } from '../../core/llm/provider';
+import { CallAnswer, CallChoice, CallPrompt, describeCallChoice, TIERED_LABEL } from '../../core/model/callChoice';
+import { CONTEXT_DETAIL_HINT, CONTEXT_DETAIL_LABEL, CONTEXT_DETAILS, ContextDetail } from '../../core/model/contextDetail';
 import { NovelProject } from '../../core/model/project';
 import { locateQuote } from '../../core/model/review';
 import { Attachment } from '../../core/model/session';
@@ -15,6 +17,9 @@ import { selectionAttachment } from './attachments';
  * 插件壳的 Host 实现：把 core 的窄接口一一接回 VS Code 原生 API，
  * 交互体验与改造前保持一致。
  */
+/** 调模型之前的确认框上多的那一颗按钮（`confirmCall`）。 */
+const ADJUST_CALL = '换模型 / 详细度…';
+
 export class VsCodeHost implements Host {
   readonly name = 'vscode' as const;
   readonly supportsVscodeLm = true;
@@ -43,6 +48,67 @@ export class VsCodeHost implements Host {
       { modal: opts?.modal ?? false, detail: opts?.detail },
       ...actions
     );
+  }
+
+  /**
+   * 调模型之前的那一问。原生模态框放不了下拉框：多一颗「换模型 / 详细度…」，点了依次弹 QuickPick（模型；这一次看
+   * 详细度时再选级别，Esc 是不改那一项），选完回到模态框。补充说明里写着「按分档」时各项活交给谁与「这一次：……」。
+   */
+  async confirmCall(message: string, actions: string[], opts: { detail?: string; call: CallPrompt }): Promise<CallAnswer | undefined> {
+    const { call } = opts;
+    let choice: CallChoice = {
+      ...(call.model ? { model: call.model } : {}),
+      ...(call.contextDetail ? { contextDetail: call.contextDetail } : {}),
+    };
+    for (;;) {
+      const detail = [opts.detail, choice.model ? '' : call.tiers.join('\n'), `这一次：${describeCallChoice(choice)}`]
+        .filter(Boolean)
+        .join('\n\n');
+      const picked = await vscode.window.showInformationMessage(
+        `Novel Forge：${message}`,
+        { modal: true, detail },
+        ...actions,
+        ADJUST_CALL
+      );
+      if (picked !== ADJUST_CALL) {
+        return picked ? { action: picked, choice } : undefined;
+      }
+      choice = await this.adjustCall(call, choice);
+    }
+  }
+
+  /** 「换模型 / 详细度…」：两个 QuickPick，当前选着的那一项标「当前」。 */
+  private async adjustCall(call: CallPrompt, choice: CallChoice): Promise<CallChoice> {
+    const current = (on: boolean) => (on ? '当前' : undefined);
+    const model = await this.pick<string>(
+      [
+        { label: TIERED_LABEL, description: current(!choice.model), detail: '各项活按任务档位走，失败换同档其余模型', value: '' },
+        ...call.models.map((m) => ({ label: m.ref, description: current(choice.model === m.ref), group: m.group, value: m.ref })),
+      ],
+      '这一次用哪个模型'
+    );
+    const next: CallChoice = { ...choice };
+    if (model !== undefined) {
+      delete next.model;
+      if (model) {
+        next.model = model;
+      }
+    }
+    if (call.contextDetail) {
+      const detail = await this.pick<ContextDetail>(
+        CONTEXT_DETAILS.map((d) => ({
+          label: `${d} · ${CONTEXT_DETAIL_LABEL[d]}`,
+          description: current(next.contextDetail === d),
+          detail: CONTEXT_DETAIL_HINT[d],
+          value: d,
+        })),
+        '这一次带多少上下文'
+      );
+      if (detail !== undefined) {
+        next.contextDetail = detail;
+      }
+    }
+    return next;
   }
 
   async pick<T>(choices: PickChoice<T>[], title: string): Promise<T | undefined> {

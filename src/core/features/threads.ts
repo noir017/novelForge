@@ -39,7 +39,8 @@ import { Chapter } from '../model/types';
 import { LlmProvider } from '../llm/provider';
 import { isPlotFilled, sectionLine } from '../model/plotFile';
 import { ONE_CALL, describeCalls } from '../model/pipeline';
-import { describeTaskModels } from '../model/tiers';
+import { withCallChoice } from '../runtime/callScope';
+import { askCall } from './askCall';
 import { hasContent } from '../model/markdown';
 import { PREMISE_SECTION_KEYS } from '../model/settingFile';
 import {
@@ -298,56 +299,55 @@ export async function generateThreads(project: NovelProject): Promise<number> {
   }
   const existing = await project.readThreads();
   const rel = project.relPath(project.threadsPath);
-  const config = readConfig();
   const first = plots[0].no;
   const last = plots[plots.length - 1].no;
-  const pick = await getHost().confirm(
-    `要从第 ${first}–${last} 章的细纲排出叙事线，${describeCalls(ONE_CALL)}。现在排？`,
-    ['开始排'],
-    {
-      modal: true,
-      detail:
-        `${describeTaskModels(config, 'plotOutline')}\n` +
-        `一次最多排 ${THREAD_PLAN_LIMIT} 条，追加在 ${rel} 末尾，可以手改。` +
-        (existing.length > 0 ? `已有的 ${existing.length} 条不会改动，同名的跳过。` : ''),
-    }
-  );
-  if (pick !== '开始排') {
+  const answer = await askCall({
+    message: `要从第 ${first}–${last} 章的细纲排出叙事线，${describeCalls(ONE_CALL)}。现在排？`,
+    actions: ['开始排'],
+    detail:
+      `一次最多排 ${THREAD_PLAN_LIMIT} 条，追加在 ${rel} 末尾，可以手改。` +
+      (existing.length > 0 ? `已有的 ${existing.length} 条不会改动，同名的跳过。` : ''),
+    tasks: ['plotOutline'],
+    contextDetail: true,
+  });
+  if (answer?.action !== '开始排') {
     log.info('用户取消了排叙事线');
     return 0;
   }
-  const pool = await createModelPool({ task: 'plotOutline', concurrent: false });
-  if (!pool) {
-    log.error('没有可用的模型，排叙事线中止');
-    return 0;
-  }
+  return withCallChoice(answer.choice, async () => {
+    const pool = await createModelPool({ task: 'plotOutline', concurrent: false });
+    if (!pool) {
+      log.error('没有可用的模型，排叙事线中止');
+      return 0;
+    }
 
-  let calls = 0;
-  await runTask(
-    '排叙事线',
-    async ({ signal, report }) => {
-      const r = await planThreads(project, pool, signal, report);
-      calls = r.calls;
-      if (r.cancelled) {
-        return;
-      }
-      if (r.error) {
-        getHost().toast(`叙事线没排成（${r.error}）。`, 'error');
-        return;
-      }
-      const notes = [r.same > 0 ? `同名跳过 ${r.same} 条` : '', r.bad > 0 ? `${r.bad} 条不合格没收（见日志）` : ''].filter(Boolean);
-      getHost().toast(
-        r.added.length > 0
-          ? `排出 ${r.added.length} 条叙事线${notes.length > 0 ? `（${notes.join('，')}）` : ''}，已追加到 ${rel}。`
-          : `排出的线在 ${rel} 里都已经有了，没有改动。`
-      );
-      if (r.added.length > 0) {
-        await getHost().openFile(rel);
-      }
-    },
-    { scope: '叙事线' }
-  );
-  return calls;
+    let calls = 0;
+    await runTask(
+      '排叙事线',
+      async ({ signal, report }) => {
+        const r = await planThreads(project, pool, signal, report);
+        calls = r.calls;
+        if (r.cancelled) {
+          return;
+        }
+        if (r.error) {
+          getHost().toast(`叙事线没排成（${r.error}）。`, 'error');
+          return;
+        }
+        const notes = [r.same > 0 ? `同名跳过 ${r.same} 条` : '', r.bad > 0 ? `${r.bad} 条不合格没收（见日志）` : ''].filter(Boolean);
+        getHost().toast(
+          r.added.length > 0
+            ? `排出 ${r.added.length} 条叙事线${notes.length > 0 ? `（${notes.join('，')}）` : ''}，已追加到 ${rel}。`
+            : `排出的线在 ${rel} 里都已经有了，没有改动。`
+        );
+        if (r.added.length > 0) {
+          await getHost().openFile(rel);
+        }
+      },
+      { scope: '叙事线' }
+    );
+    return calls;
+  });
 }
 
 // ---------------------------------------------------------------- 定稿时判事件

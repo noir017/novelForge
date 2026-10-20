@@ -9,6 +9,7 @@
 | [errorLog.ts](errorLog.ts) | 失败记在目标身上（工程页那一行的红/黄标记），成功必须 `clearFailures` |
 | [concurrency.ts](concurrency.ts) | `runPool`：有界并发，`current` 只在一项真正结束时才 +1 |
 | [db.ts](db.ts) | 工程内 SQLite（`errors` / `logs` 两张表），见下 |
+| [callScope.ts](callScope.ts) | 「这一次」：作者在调模型之前的确认框上挑的模型与上下文详细度（`model/callChoice.ts`）。`withCallChoice(choice, fn)` 用 `AsyncLocalStorage.run` 把它挂在这一次的调用链上，**`readConfig()` 是唯一读它的地方**（详细度换掉 `contextDetail`，模型成了 `pinnedModel`）；嵌套时模型整项替换、详细度没问就沿用外面那一次；同时跑的两次互不串。不写回设置 |
 
 ## SQLite 只放痕迹（AGENTS 第 17 条的落点）
 

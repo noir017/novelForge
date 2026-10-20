@@ -10,7 +10,8 @@ import { ModelPool, createModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { exists, hash, readText, sanitizeFileName, slugify, uniqueSlug } from '../model/fs';
 import { parseMarkdown, stripH1 } from '../model/markdown';
-import { describeTaskModels } from '../model/tiers';
+import { withCallChoice } from '../runtime/callScope';
+import { askCall } from './askCall';
 import {
   CreationTarget,
   LORE_ENTRY_CALLS,
@@ -191,45 +192,41 @@ export async function buildLoreEntries(project: NovelProject, names?: readonly s
     );
     return;
   }
-  const config = readConfig();
   const n = targets.length;
-  const lanes = Math.max(1, Math.min(config.concurrency, n));
-  const picked = await host.confirm(
-    `建 ${n} 条设定：${describeCalls(loreEntryCalls(n))}。只读定稿过的细纲里提到它们的那几行，不重读正文。`,
-    ['开始建'],
-    {
-      modal: true,
-      detail: [
-        `要建的：${targets.slice(0, 20).map((u) => u.name).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,
-        '',
-        describeTaskModels(config, 'loreSynthesis'),
-        lanes > 1 ? `最多 ${lanes} 条同时建。` : '一条一条串行建（并发数为 1）。',
-      ]
-        .filter(Boolean)
-        .join('\n\n'),
-    }
-  );
-  if (picked !== '开始建') {
+  const lanes = Math.max(1, Math.min(readConfig().concurrency, n));
+  const answer = await askCall({
+    message: `建 ${n} 条设定：${describeCalls(loreEntryCalls(n))}。只读定稿过的细纲里提到它们的那几行，不重读正文。`,
+    actions: ['开始建'],
+    detail: [
+      `要建的：${targets.slice(0, 20).map((u) => u.name).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,
+      lanes > 1 ? `最多 ${lanes} 条同时建。` : '一条一条串行建（并发数为 1）。',
+    ].join('\n\n'),
+    tasks: ['loreSynthesis'],
+    contextDetail: false,
+  });
+  if (answer?.action !== '开始建') {
     log.info('作者取消了建条目');
     return;
   }
-  const pool = await createModelPool({ task: 'loreSynthesis', concurrent: lanes > 1 });
-  if (!pool) {
-    log.error('没有可用的模型，建条目中止');
-    return;
-  }
+  return withCallChoice(answer.choice, async () => {
+    const pool = await createModelPool({ task: 'loreSynthesis', concurrent: lanes > 1 });
+    if (!pool) {
+      log.error('没有可用的模型，建条目中止');
+      return;
+    }
 
-  await runTask(
-    '建设定条目',
-    async ({ signal, report }) => {
-      const startedAt = Date.now();
-      const { created, failed } = await createLoreEntries(project, targets, { signal, pool, lanes, report });
-      const summary = `新建 ${created} 条设定${failed > 0 ? `，失败 ${failed} 条（详见日志页）` : ''}`;
-      log.info('建条目结束', `${summary}｜总耗时 ${elapsed(startedAt)}`);
-      host.toast(`${summary}。`);
-    },
-    { scope: '设定' }
-  );
+    await runTask(
+      '建设定条目',
+      async ({ signal, report }) => {
+        const startedAt = Date.now();
+        const { created, failed } = await createLoreEntries(project, targets, { signal, pool, lanes, report });
+        const summary = `新建 ${created} 条设定${failed > 0 ? `，失败 ${failed} 条（详见日志页）` : ''}`;
+        log.info('建条目结束', `${summary}｜总耗时 ${elapsed(startedAt)}`);
+        host.toast(`${summary}。`);
+      },
+      { scope: '设定' }
+    );
+  });
 }
 
 /**
@@ -360,80 +357,78 @@ export async function integrateLore(project: NovelProject, relPaths?: readonly s
     );
     return;
   }
-  const config = readConfig();
   const n = plans.length;
   const authored = plans.filter((p) => !loreOwnedByMachine(p.record.entry)).length;
-  const lanes = Math.max(1, Math.min(config.concurrency, n));
-  const buttons = authored < n ? ['逐条确认后开始', '机器写的直接采纳并开始'] : ['逐条确认后开始'];
-  const picked = await host.confirm(
-    `整合 ${n} 条设定：${describeCalls(loreEntryCalls(n))}。把定稿里的新内容并进条目（整合到第 ${through} 章）。`,
-    buttons,
-    {
-      modal: true,
-      detail: [
-        `要整合的：${plans.slice(0, 20).map((p) => p.record.entry.title).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,
-        authored > 0 ? `其中 ${authored} 条你改过，不管选哪个都会先给你对比再写。` : '',
-        describeTaskModels(config, 'loreSynthesis'),
-        lanes > 1 ? `最多 ${lanes} 条同时整合；逐条确认时，对比按完成顺序一条一条弹出。` : '一条一条串行整合（并发数为 1）。',
-      ]
-        .filter(Boolean)
-        .join('\n\n'),
-    }
-  );
-  if (!picked) {
+  const lanes = Math.max(1, Math.min(readConfig().concurrency, n));
+  const answer = await askCall({
+    message: `整合 ${n} 条设定：${describeCalls(loreEntryCalls(n))}。把定稿里的新内容并进条目（整合到第 ${through} 章）。`,
+    actions: authored < n ? ['逐条确认后开始', '机器写的直接采纳并开始'] : ['逐条确认后开始'],
+    detail: [
+      `要整合的：${plans.slice(0, 20).map((p) => p.record.entry.title).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,
+      authored > 0 ? `其中 ${authored} 条你改过，不管选哪个都会先给你对比再写。` : '',
+      lanes > 1 ? `最多 ${lanes} 条同时整合；逐条确认时，对比按完成顺序一条一条弹出。` : '一条一条串行整合（并发数为 1）。',
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    tasks: ['loreSynthesis'],
+    contextDetail: false,
+  });
+  if (!answer) {
     log.info('作者取消了整合设定');
     return;
   }
-  const autoApply = picked === '机器写的直接采纳并开始';
-  const pool = await createModelPool({ task: 'loreSynthesis', concurrent: lanes > 1 });
-  if (!pool) {
-    log.error('没有可用的模型，整合设定中止');
-    return;
-  }
+  const autoApply = answer.action === '机器写的直接采纳并开始';
+  return withCallChoice(answer.choice, async () => {
+    const pool = await createModelPool({ task: 'loreSynthesis', concurrent: lanes > 1 });
+    if (!pool) {
+      log.error('没有可用的模型，整合设定中止');
+      return;
+    }
 
-  await runTask(
-    '整合设定',
-    async ({ signal, report }) => {
-      const startedAt = Date.now();
-      let updated = 0;
-      let skipped = 0;
-      let failed = 0;
-      const recorded = index.unknown.map((u) => u.name);
-      await runPool(plans, lanes, (p) => integrateOne(project, p, through, autoApply, pool, signal, recorded), {
-        signal,
-        onSettled: (result, p, _i, done) => {
-          if (result.status === 'fulfilled') {
-            if (result.value) {
-              updated++;
+    await runTask(
+      '整合设定',
+      async ({ signal, report }) => {
+        const startedAt = Date.now();
+        let updated = 0;
+        let skipped = 0;
+        let failed = 0;
+        const recorded = index.unknown.map((u) => u.name);
+        await runPool(plans, lanes, (p) => integrateOne(project, p, through, autoApply, pool, signal, recorded), {
+          signal,
+          onSettled: (result, p, _i, done) => {
+            if (result.status === 'fulfilled') {
+              if (result.value) {
+                updated++;
+              } else {
+                skipped++;
+              }
             } else {
-              skipped++;
+              failed++;
+              log.error(`设定「${p.record.entry.title}」整合失败`, describeError(result.reason));
+              void recordFailure(project, {
+                scope: '设定',
+                targetKind: 'lore',
+                targetKey: p.record.entry.relPath,
+                severity: 'error',
+                op: 'integrateLore',
+                message: `整合失败：${describeError(result.reason)}`,
+                detail: `这一条没有改动｜要并进的是第 ${unique(p.facts.map((f) => String(f.no))).join('、')} 章的新内容`,
+              });
             }
-          } else {
-            failed++;
-            log.error(`设定「${p.record.entry.title}」整合失败`, describeError(result.reason));
-            void recordFailure(project, {
-              scope: '设定',
-              targetKind: 'lore',
-              targetKey: p.record.entry.relPath,
-              severity: 'error',
-              op: 'integrateLore',
-              message: `整合失败：${describeError(result.reason)}`,
-              detail: `这一条没有改动｜要并进的是第 ${unique(p.facts.map((f) => String(f.no))).join('、')} 章的新内容`,
-            });
-          }
-          report({ message: `已整合 ${done}/${n} 条`, current: done, total: n });
-        },
-      });
-      project.invalidate();
-      const summary =
-        `更新 ${updated} 条设定` +
-        (skipped > 0 ? `，没采纳 ${skipped} 条` : '') +
-        (failed > 0 ? `，失败 ${failed} 条（详见日志页）` : '');
-      log.info('整合设定结束', `${summary}｜总耗时 ${elapsed(startedAt)}`);
-      host.toast(`${summary}。`);
-    },
-    { scope: '设定' }
-  );
+            report({ message: `已整合 ${done}/${n} 条`, current: done, total: n });
+          },
+        });
+        project.invalidate();
+        const summary =
+          `更新 ${updated} 条设定` +
+          (skipped > 0 ? `，没采纳 ${skipped} 条` : '') +
+          (failed > 0 ? `，失败 ${failed} 条（详见日志页）` : '');
+        log.info('整合设定结束', `${summary}｜总耗时 ${elapsed(startedAt)}`);
+        host.toast(`${summary}。`);
+      },
+      { scope: '设定' }
+    );
+  });
 }
 
 /** 整合一条。返回是否写了。`recorded` 是名录里另记着、还没建条目的名字（新关键词不收）。 */
@@ -565,116 +560,116 @@ export async function expandLoreEntries(
     return 0;
   }
 
-  const config = readConfig();
-  const lanes = Math.max(1, Math.min(config.concurrency, n));
+  const lanes = Math.max(1, Math.min(readConfig().concurrency, n));
   const names = [...ready.map((e) => e.title), ...missing.map((m) => m.name)];
-  const picked = await host.confirm(
-    `${opts.lead ?? ''}展开 ${n} 条设定：${describeCalls(loreExpandCalls(n))}。照已排的细纲把它们往前想细，写完直接落盘。`,
-    ['开始展开'],
-    {
-      modal: true,
-      detail: [
-        `要展开的：${names.slice(0, 20).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,
-        missing.length > 0 ? `其中 ${missing.length} 条还没有条目，先按细纲第九节里的分类建空条目。` : '',
-        '只写还只有一句话、没有你的字的条目（空的、占位的、机器写的）；写下的记作机器写的，以后整合可以直接采纳。',
-        authoredNote,
-        '建议拆出的子条目建成空条目，不在这一批里接着展开；还没定的问题批量不留——要看问题就单条展开。',
-        describeTaskModels(config, 'setting'),
-        lanes > 1 ? `最多 ${lanes} 条同时展开。` : '一条一条串行展开（并发数为 1）。',
-      ]
-        .filter(Boolean)
-        .join('\n\n'),
-    }
-  );
-  if (picked !== '开始展开') {
+  const answer = await askCall({
+    message: `${opts.lead ?? ''}展开 ${n} 条设定：${describeCalls(loreExpandCalls(n))}。照已排的细纲把它们往前想细，写完直接落盘。`,
+    actions: ['开始展开'],
+    detail: [
+      `要展开的：${names.slice(0, 20).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,
+      missing.length > 0 ? `其中 ${missing.length} 条还没有条目，先按细纲第九节里的分类建空条目。` : '',
+      '只写还只有一句话、没有你的字的条目（空的、占位的、机器写的）；写下的记作机器写的，以后整合可以直接采纳。',
+      authoredNote,
+      '建议拆出的子条目建成空条目，不在这一批里接着展开；还没定的问题批量不留——要看问题就单条展开。',
+      lanes > 1 ? `最多 ${lanes} 条同时展开。` : '一条一条串行展开（并发数为 1）。',
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    tasks: ['setting'],
+    contextDetail: true,
+  });
+  if (answer?.action !== '开始展开') {
     log.info('作者取消了批量展开设定');
     return 0;
   }
-  const pool = await createModelPool({ task: 'setting', concurrent: lanes > 1 });
-  if (!pool) {
-    log.error('没有可用的模型，批量展开设定中止');
-    return 0;
-  }
+  return withCallChoice(answer.choice, async () => {
+    const config = readConfig();
+    const pool = await createModelPool({ task: 'setting', concurrent: lanes > 1 });
+    if (!pool) {
+      log.error('没有可用的模型，批量展开设定中止');
+      return 0;
+    }
 
-  let calls = 0;
-  await runTask(
-    '展开设定',
-    async ({ signal, report }) => {
-      const startedAt = Date.now();
-      const targets = [...ready.map((e) => e.relPath)];
-      if (missing.length > 0) {
-        // 「待完善」里还没有条目的：先建空条目（名字这时已被别的条目或角色卡占了的不建，同细纲带出新设定）。
-        const made = await createPlannedLoreAt(
-          project,
-          new Workspace(project),
-          missing.map((m) => ({ name: m.name, category: m.category, note: '' }))
-        );
-        targets.push(...made.map((c) => c.relPath));
-        if (made.length < missing.length) {
-          log.info(`展开之前有 ${missing.length - made.length} 个名字没建空条目`, '名字已被别的条目或角色卡占了');
+    let calls = 0;
+    await runTask(
+      '展开设定',
+      async ({ signal, report }) => {
+        const startedAt = Date.now();
+        const targets = [...ready.map((e) => e.relPath)];
+        if (missing.length > 0) {
+          // 「待完善」里还没有条目的：先建空条目（名字这时已被别的条目或角色卡占了的不建，同细纲带出新设定）。
+          const made = await createPlannedLoreAt(
+            project,
+            new Workspace(project),
+            missing.map((m) => ({ name: m.name, category: m.category, note: '' }))
+          );
+          targets.push(...made.map((c) => c.relPath));
+          if (made.length < missing.length) {
+            log.info(`展开之前有 ${missing.length - made.length} 个名字没建空条目`, '名字已被别的条目或角色卡占了');
+          }
         }
-      }
-      const total = targets.length;
-      let written = 0;
-      let failed = 0;
-      const skipped: string[] = [];
-      const children: string[] = [];
-      /** 失败记账等收尾时一起等完：完成提示出来时，红 ❗ 已经挂在那一条上了。 */
-      const records: Promise<void>[] = [];
-      await runPool(
-        targets,
-        lanes,
-        (rel) =>
-          expandOne(project, rel, pool, config, signal, () => {
-            calls++;
-          }),
-        {
-          signal,
-          onSettled: (result, rel, _i, done) => {
-            if (result.status === 'fulfilled') {
-              if (result.value.written) {
-                written++;
-                children.push(...result.value.children);
-              } else {
-                skipped.push(result.value.why);
+        const total = targets.length;
+        let written = 0;
+        let failed = 0;
+        const skipped: string[] = [];
+        const children: string[] = [];
+        /** 失败记账等收尾时一起等完：完成提示出来时，红 ❗ 已经挂在那一条上了。 */
+        const records: Promise<void>[] = [];
+        await runPool(
+          targets,
+          lanes,
+          (rel) =>
+            expandOne(project, rel, pool, config, signal, () => {
+              calls++;
+            }),
+          {
+            signal,
+            onSettled: (result, rel, _i, done) => {
+              if (result.status === 'fulfilled') {
+                if (result.value.written) {
+                  written++;
+                  children.push(...result.value.children);
+                } else {
+                  skipped.push(result.value.why);
+                }
+              } else if (!(result.reason instanceof CancelledError) && !signal.aborted) {
+                failed++;
+                log.error(`设定 ${rel} 展开失败`, describeError(result.reason));
+                records.push(
+                  recordFailure(project, {
+                    scope: '设定',
+                    targetKind: 'lore',
+                    targetKey: rel,
+                    severity: 'error',
+                    op: 'expandLore',
+                    message: `展开失败：${describeError(result.reason)}`,
+                    detail: '批量展开，这一条没有改动。可以在这一条上右键「展开…」单条再试。',
+                  })
+                );
               }
-            } else if (!(result.reason instanceof CancelledError) && !signal.aborted) {
-              failed++;
-              log.error(`设定 ${rel} 展开失败`, describeError(result.reason));
-              records.push(
-                recordFailure(project, {
-                  scope: '设定',
-                  targetKind: 'lore',
-                  targetKey: rel,
-                  severity: 'error',
-                  op: 'expandLore',
-                  message: `展开失败：${describeError(result.reason)}`,
-                  detail: '批量展开，这一条没有改动。可以在这一条上右键「展开…」单条再试。',
-                })
-              );
-            }
-            report({ message: `已展开 ${done}/${total} 条`, current: done, total });
-          },
+              report({ message: `已展开 ${done}/${total} 条`, current: done, total });
+            },
+          }
+        );
+        await Promise.all(records);
+        project.invalidate();
+        if (signal.aborted) {
+          log.warn(`批量展开设定被取消，已写 ${written} 条`);
+          return;
         }
-      );
-      await Promise.all(records);
-      project.invalidate();
-      if (signal.aborted) {
-        log.warn(`批量展开设定被取消，已写 ${written} 条`);
-        return;
-      }
-      const summary =
-        `展开 ${written} 条设定` +
-        (children.length > 0 ? `，新建子条目 ${children.length} 条：${children.join('、')}` : '') +
-        (skipped.length > 0 ? `，没写 ${skipped.length} 条（${skipped.join('；')}）` : '') +
-        (authored.length > 0 ? `，跳过你写过的 ${authored.length} 条` : '') +
-        (failed > 0 ? `，失败 ${failed} 条（详见日志页）` : '');
-      log.info('批量展开设定结束', `${summary}｜调用 ${calls} 次｜总耗时 ${elapsed(startedAt)}`);
-      host.toast(`${summary}。`);
-    },
-    { scope: '设定' }
-  );
-  return calls;
+        const summary =
+          `展开 ${written} 条设定` +
+          (children.length > 0 ? `，新建子条目 ${children.length} 条：${children.join('、')}` : '') +
+          (skipped.length > 0 ? `，没写 ${skipped.length} 条（${skipped.join('；')}）` : '') +
+          (authored.length > 0 ? `，跳过你写过的 ${authored.length} 条` : '') +
+          (failed > 0 ? `，失败 ${failed} 条（详见日志页）` : '');
+        log.info('批量展开设定结束', `${summary}｜调用 ${calls} 次｜总耗时 ${elapsed(startedAt)}`);
+        host.toast(`${summary}。`);
+      },
+      { scope: '设定' }
+    );
+    return calls;
+  });
 }
 
 /**
@@ -806,90 +801,93 @@ export async function organizeLore(project: NovelProject, scope?: OrganizeScope)
     return;
   }
   const batches = chunk(targets, ORGANIZE_BATCH);
-  const config = readConfig();
-  const go = await host.confirm(
-    `整理 ${targets.length} 条设定：分 ${batches.length} 批，调用模型 ${batches.length} 次，出一份搬家清单。`,
-    ['开始'],
-    { modal: true, detail: describeTaskModels(config, 'loreSynthesis') }
-  );
-  if (go !== '开始') {
+  const answer = await askCall({
+    message: `整理 ${targets.length} 条设定：分 ${batches.length} 批，调用模型 ${batches.length} 次，出一份搬家清单。`,
+    actions: ['开始'],
+    tasks: ['loreSynthesis'],
+    contextDetail: false,
+  });
+  if (answer?.action !== '开始') {
     return;
   }
-  const pool = await createModelPool({ task: 'loreSynthesis', concurrent: false });
-  if (!pool) {
-    log.error('没有可用的模型，整理中止');
-    return;
-  }
+  return withCallChoice(answer.choice, async () => {
+    const config = readConfig();
+    const pool = await createModelPool({ task: 'loreSynthesis', concurrent: false });
+    if (!pool) {
+      log.error('没有可用的模型，整理中止');
+      return;
+    }
 
-  await runTask(
-    '按目录整理设定',
-    async ({ signal, report }) => {
-      const categories = await project.listLoreCategories();
-      const folders = new Set<string>();
-      const moves: LoreMove[] = [];
-      const notes: string[] = [];
-      for (const [i, batch] of batches.entries()) {
-        if (signal.aborted) {
-          return;
-        }
-        report({ message: `第 ${i + 1}/${batches.length} 批`, current: i, total: batches.length });
-        try {
-          const raw = await pool.run(`整理设定第 ${i + 1} 批`, (llm) =>
-            collectText(
-              llm.stream(
-                [
-                  { role: 'system', content: LORE_ORGANIZE_SYSTEM },
-                  { role: 'user', content: organizePrompt([...categories, ...folders], batch) },
-                ],
-                { maxOutputTokens: pool.primaryBudget.maxOutputTokens, temperature: 0.2, timeoutMs: config.requestTimeoutMs, signal }
-              )
-            )
-          );
-          const plan = checkOrganizePlan(raw, batch, [...categories, ...folders]);
-          plan.folders.forEach((f) => folders.add(f));
-          moves.push(...plan.moves);
-          notes.push(...plan.dropped);
-        } catch (err) {
+    await runTask(
+      '按目录整理设定',
+      async ({ signal, report }) => {
+        const categories = await project.listLoreCategories();
+        const folders = new Set<string>();
+        const moves: LoreMove[] = [];
+        const notes: string[] = [];
+        for (const [i, batch] of batches.entries()) {
           if (signal.aborted) {
             return;
           }
-          log.error(`整理设定第 ${i + 1} 批失败`, describeError(err));
-          notes.push(`第 ${i + 1} 批失败：${describeError(err)}`);
+          report({ message: `第 ${i + 1}/${batches.length} 批`, current: i, total: batches.length });
+          try {
+            const raw = await pool.run(`整理设定第 ${i + 1} 批`, (llm) =>
+              collectText(
+                llm.stream(
+                  [
+                    { role: 'system', content: LORE_ORGANIZE_SYSTEM },
+                    { role: 'user', content: organizePrompt([...categories, ...folders], batch) },
+                  ],
+                  { maxOutputTokens: pool.primaryBudget.maxOutputTokens, temperature: 0.2, timeoutMs: config.requestTimeoutMs, signal }
+                )
+              )
+            );
+            const plan = checkOrganizePlan(raw, batch, [...categories, ...folders]);
+            plan.folders.forEach((f) => folders.add(f));
+            moves.push(...plan.moves);
+            notes.push(...plan.dropped);
+          } catch (err) {
+            if (signal.aborted) {
+              return;
+            }
+            log.error(`整理设定第 ${i + 1} 批失败`, describeError(err));
+            notes.push(`第 ${i + 1} 批失败：${describeError(err)}`);
+          }
         }
-      }
-      if (notes.length > 0) {
-        log.warn(`搬家清单里有 ${notes.length} 处没收`, notes.join('\n'));
-      }
-      const used = new Set(moves.map((m) => m.to));
-      const newFolders = [...folders].filter((f) => used.has(f) || moves.some((m) => m.to.startsWith(`${f}/`)));
-      if (moves.length === 0) {
-        host.toast('都放得好好的，不用搬。');
-        return;
-      }
-      const listing = moves.slice(0, 60).map((m) => `${m.title}：${m.category || '未分类'} → ${m.to || '未分类'}`);
-      const ok = await host.confirm(
-        `搬 ${moves.length} 条设定${newFolders.length > 0 ? `，新建 ${newFolders.length} 个目录` : ''}。只搬文件，条目内容一个字不改。`,
-        ['照这样整理'],
-        {
-          modal: true,
-          detail: [
-            newFolders.length > 0 ? `新目录：${newFolders.join('、')}` : '',
-            listing.join('\n') + (moves.length > 60 ? `\n……还有 ${moves.length - 60} 条` : ''),
-            notes.length > 0 ? `另有 ${notes.length} 处没收（详见日志页）。` : '',
-          ]
-            .filter(Boolean)
-            .join('\n\n'),
+        if (notes.length > 0) {
+          log.warn(`搬家清单里有 ${notes.length} 处没收`, notes.join('\n'));
         }
-      );
-      if (ok !== '照这样整理') {
-        log.info('作者没采纳搬家清单');
-        return;
-      }
-      const moved = await applyMoves(project, newFolders, moves);
-      host.toast(`已搬 ${moved} 条设定${moved < moves.length ? `，${moves.length - moved} 条没搬（详见日志页）` : ''}。`);
-    },
-    { scope: '设定' }
-  );
+        const used = new Set(moves.map((m) => m.to));
+        const newFolders = [...folders].filter((f) => used.has(f) || moves.some((m) => m.to.startsWith(`${f}/`)));
+        if (moves.length === 0) {
+          host.toast('都放得好好的，不用搬。');
+          return;
+        }
+        const listing = moves.slice(0, 60).map((m) => `${m.title}：${m.category || '未分类'} → ${m.to || '未分类'}`);
+        const ok = await host.confirm(
+          `搬 ${moves.length} 条设定${newFolders.length > 0 ? `，新建 ${newFolders.length} 个目录` : ''}。只搬文件，条目内容一个字不改。`,
+          ['照这样整理'],
+          {
+            modal: true,
+            detail: [
+              newFolders.length > 0 ? `新目录：${newFolders.join('、')}` : '',
+              listing.join('\n') + (moves.length > 60 ? `\n……还有 ${moves.length - 60} 条` : ''),
+              notes.length > 0 ? `另有 ${notes.length} 处没收（详见日志页）。` : '',
+            ]
+              .filter(Boolean)
+              .join('\n\n'),
+          }
+        );
+        if (ok !== '照这样整理') {
+          log.info('作者没采纳搬家清单');
+          return;
+        }
+        const moved = await applyMoves(project, newFolders, moves);
+        host.toast(`已搬 ${moved} 条设定${moved < moves.length ? `，${moves.length - moved} 条没搬（详见日志页）` : ''}。`);
+      },
+      { scope: '设定' }
+    );
+  });
 }
 
 function organizePrompt(categories: readonly string[], batch: readonly LoreEntry[]): string {

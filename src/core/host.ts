@@ -2,6 +2,7 @@ import { ConfigStore, initConfigFromHost } from './config';
 import { NovelProject } from './model/project';
 import { Attachment } from './model/session';
 import { EditorFileCheck, EditorOpenIntent, EditorPane } from './protocol';
+import type { CallAnswer, CallPrompt } from './model/callChoice';
 
 /**
  * core 对宿主的唯一依赖面。VS Code 插件与独立 Web 服务各实现一份。
@@ -47,8 +48,14 @@ export interface Host {
   readonly config: ConfigStore;
 
   input(opts: InputOptions): Promise<string | undefined>;
-  /** 返回用户点选的 action 文案；取消返回 undefined。 */
+  /** 每个 action 都是一颗按钮，返回用户点选的那个文案；取消返回 undefined。 */
   confirm(message: string, actions: string[], opts?: { modal?: boolean; detail?: string }): Promise<string | undefined>;
+  /**
+   * 调模型之前的那一问：与 `confirm` 一样的按钮，另让作者为这一次挑模型与上下文详细度（`call` 是
+   * 两个下拉框的选项与缺省）。返回点的按钮与作者的选择；取消返回 undefined。core 只经
+   * `features/askCall.ts` 调它，挑完的活跑在 `withCallChoice` 里（runtime/callScope.ts）。
+   */
+  confirmCall(message: string, actions: string[], opts: { detail?: string; call: CallPrompt }): Promise<CallAnswer | undefined>;
   pick<T>(choices: PickChoice<T>[], title: string): Promise<T | undefined>;
   /** 可取消的长任务。report 用于更新进度文案。 */
   progress<T>(title: string, fn: (signal: AbortSignal, report: (message: string) => void) => Promise<T>): Promise<T>;

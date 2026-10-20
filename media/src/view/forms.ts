@@ -6,6 +6,7 @@
  */
 import {
   CONFIG_CALLS,
+  DEFAULT_CONTEXT_DETAIL,
   PLOT_BATCH,
   WRITE_BATCH_DEFAULT,
   WRITE_BATCH_MAX,
@@ -16,8 +17,9 @@ import {
 } from '../protocol';
 import type { WriteBatchMode } from '../protocol';
 import type { IdeaDefaults, ProjectTree } from '../protocol';
+import { callChoiceOf, callFields } from './callFields';
 import { openForm } from './form';
-import type { FormValues } from './form';
+import type { FormField, FormValues } from './form';
 import { setBusy } from './state';
 import { store, vscode } from './store';
 import { showTab } from './tabs';
@@ -25,6 +27,14 @@ import { showTab } from './tabs';
 /** 一句话弹窗的默认规模（与后端「补齐架构」没写规模时的默认一致）。 */
 const DEFAULT_TOTAL = 100;
 const DEFAULT_WORDS = 3000;
+
+/**
+ * 批量表单末尾的两个下拉框：这一次用哪个模型、带多少上下文（缺省按分档、设置页那一级）。提交时作为 `call` 带给后端——
+ * 带了就是表单已经问过，后端不再弹第二个确认框。
+ */
+function batchCallFields(): FormField[] {
+  return callFields(store.state?.models ?? [], store.state?.contextDetail ?? DEFAULT_CONTEXT_DETAIL);
+}
 
 /** 「30 万字」「4.5 万字」「8000 字」。 */
 function totalWords(n: number): string {
@@ -114,7 +124,7 @@ export function openIdeaForm(defaults?: IdeaDefaults): void {
  * 「批量拆细纲」：选一段章号，已有细纲的章跳过。
  *
  * 缺省是下一可写章起 {@link PLOT_BATCH} 章，不越过大纲的覆盖与总章数。实时说明写出
- * 这一段要拆几章、跳过几章、分几批、预计与最多调用几次——提交时带上 `confirmed`，
+ * 这一段要拆几章、跳过几章、分几批、预计与最多调用几次——提交时带上 `call`（这一次的模型与详细度），
  * 后端不再弹第二个确认框（不叠弹窗）。
  *
  * 「拆完展开本批新设定」（完善设定三期，缺省「否」）：拆完把这一次顺带新建的设定空条目批量展开。新设定有几条要拆完才知道，
@@ -142,6 +152,7 @@ export function openPlotBatchForm(tree: ProjectTree): void {
           { value: 'on', label: '是（拆完再报次数、再问一次）' },
         ],
       },
+      ...batchCallFields(),
     ],
     note: (v) => {
       const a = Number(v.from);
@@ -180,7 +191,7 @@ export function openPlotBatchForm(tree: ProjectTree): void {
         type: 'projectAction',
         action: 'generatePlots',
         range: { from: Number(v.from), to: Number(v.to) },
-        confirmed: true,
+        call: callChoiceOf(v),
         ...(v.expandLore === 'on' ? { expandLore: true } : {}),
       });
     },
@@ -196,8 +207,8 @@ function span(from: number, to: number): string {
  * 「批量写章」（W9）：选一段章号与模式，一章一章串行写。
  *
  * 缺省从下一可写章起 {@link WRITE_BATCH_DEFAULT} 章，一次最多 {@link WRITE_BATCH_MAX} 章。实时说明
- * 写出这一段要写几章、跳过几章、在哪收住、调用次数上限——提交时带上 `confirmed`，后端不再弹
- * 第二个确认框。「写完即定稿」「写完即审稿」会自动多花那几次调用（D17、五期补遗 §4），提交键要点两下。
+ * 写出这一段要写几章、跳过几章、在哪收住、调用次数上限——提交时带上 `call`（这一次的模型与详细度），后端不再弹
+ * 第二个确认框（有角色卡要补建时除外，缺省是这里的选择）。「写完即定稿」「写完即审稿」会自动多花那几次调用（D17、五期补遗 §4），提交键要点两下。
  * 要写的几章用到、却还只有一句话的设定（工程树上的「待完善」）在说明末尾提一句，不拦（完善设定三期 · 写前提醒）。
  */
 export function openWriteBatchForm(tree: ProjectTree): void {
@@ -246,6 +257,7 @@ export function openWriteBatchForm(tree: ProjectTree): void {
           { value: 'on', label: '写完即审稿（每写完一章审一遍，报告放进一个新会话）' },
         ],
       },
+      ...batchCallFields(),
     ],
     note: (v) => {
       const a = Number(v.from);
@@ -296,7 +308,7 @@ export function openWriteBatchForm(tree: ProjectTree): void {
         range: { from: Number(v.from), to: Number(v.to) },
         mode,
         ...(v.review === 'on' ? { review: true } : {}),
-        confirmed: true,
+        call: callChoiceOf(v),
       });
     },
   });

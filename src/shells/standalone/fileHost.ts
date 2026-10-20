@@ -12,6 +12,7 @@ import {
   writeFileFromEditor,
 } from '../../core/files/fileEditing';
 import { Disposable, Host, InputOptions, MergeTextsOptions, PickChoice, ReviewVerdict } from '../../core/host';
+import { CallAnswer, CallPrompt, normalizeCallChoice } from '../../core/model/callChoice';
 import { isChapterFileName } from '../../core/model/chapterFile';
 import { NovelProject } from '../../core/model/project';
 import { locateQuote } from '../../core/model/review';
@@ -67,7 +68,7 @@ export class FileHost implements Host {
   }
 
   async input(opts: InputOptions): Promise<string | undefined> {
-    const value = await this.prompts.ask({
+    const { value } = await this.prompts.ask({
       kind: 'input',
       title: opts.title ?? '输入',
       message: opts.prompt,
@@ -89,20 +90,28 @@ export class FileHost implements Host {
     return value;
   }
 
+  /** 网页确认框：一个 action 一颗按钮，回的是点的那颗上的字（标题取第一颗）。 */
   async confirm(message: string, actions: string[], opts?: { detail?: string }): Promise<string | undefined> {
-    // 网页弹窗只有 确定/取消；把第一个 action 当作「确定」的语义。
-    const value = await this.prompts.ask({
+    const { value } = await this.prompts.ask({ kind: 'confirm', title: actions[0] ?? '确认', message, value: opts?.detail, actions });
+    return value !== undefined && actions.includes(value) ? value : undefined;
+  }
+
+  /** 同一个网页确认框，按钮上面多两个下拉框（模型、上下文详细度），回答另带作者的选择。 */
+  async confirmCall(message: string, actions: string[], opts: { detail?: string; call: CallPrompt }): Promise<CallAnswer | undefined> {
+    const { value, choice } = await this.prompts.ask({
       kind: 'confirm',
       title: actions[0] ?? '确认',
       message,
-      value: opts?.detail,
+      value: opts.detail,
+      actions,
+      call: opts.call,
     });
-    return value === 'yes' ? (actions[0] ?? '确定') : undefined;
+    return value !== undefined && actions.includes(value) ? { action: value, choice: normalizeCallChoice(choice) ?? {} } : undefined;
   }
 
   async pick<T>(choices: PickChoice<T>[], title: string): Promise<T | undefined> {
     const labels = choices.map((c) => (c.description ? `${c.label}（${c.description}）` : c.label));
-    const picked = await this.prompts.ask({ kind: 'pick', title, options: labels });
+    const { value: picked } = await this.prompts.ask({ kind: 'pick', title, options: labels });
     if (!picked) {
       return undefined;
     }
@@ -112,7 +121,7 @@ export class FileHost implements Host {
 
   /** 网页里的本机目录选择器（`folderPicker.ts` 的选文件模式）：只列目录与这几种扩展名，回绝对路径。 */
   async pickHostFile(opts: { title: string; extensions: string[]; startDir?: string }): Promise<string | undefined> {
-    const picked = await this.prompts.ask({
+    const { value: picked } = await this.prompts.ask({
       kind: 'file',
       title: opts.title,
       value: opts.startDir ?? this.root,
@@ -393,7 +402,7 @@ export class FileHost implements Host {
     relPath?: string,
     opts?: { merge?: boolean }
   ): Promise<ReviewVerdict> {
-    const value = await this.prompts.ask({
+    const { value } = await this.prompts.ask({
       kind: 'merge',
       title: `对比「${name}」：现有 ↔ 新版`,
       message: relPath,
@@ -405,7 +414,7 @@ export class FileHost implements Host {
   }
 
   async mergeTexts(title: string, before: string, after: string, opts?: MergeTextsOptions): Promise<ReviewVerdict> {
-    const value = await this.prompts.ask({
+    const { value } = await this.prompts.ask({
       kind: 'merge',
       title,
       message: opts?.message,

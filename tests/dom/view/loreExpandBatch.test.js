@@ -103,7 +103,7 @@ describe('拆细纲弹窗的「拆完展开本批新设定」', { skip: JSDOM_SK
     ui.clickEl(submitBtn(ui));
     const msg = ui.last('projectAction');
     assert.equal(msg?.expandLore, true, JSON.stringify(msg));
-    assert.equal(msg.confirmed, true);
+    assert.ok(msg.call, JSON.stringify(msg));
   });
 });
 

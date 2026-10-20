@@ -268,7 +268,9 @@ describe('全部展开', () => {
     assert.ok(c.detail.includes('要展开的：天机阁、藏经阁、九层楼、断魂香'), c.detail);
     assert.ok(c.detail.includes('其中 1 条还没有条目，先按细纲第九节里的分类建空条目'), c.detail);
     assert.ok(c.detail.includes('跳过你写过的 2 条：后山、秘药'), c.detail);
-    assert.ok(c.detail.includes('故事架构'), c.detail);
+    // 用哪一档列在模型下拉框下面（「按分档」时）；展开看详细度，那个下拉框也在。
+    assert.ok(c.call.tiers.join('\n').includes('故事架构'), c.call.tiers.join('\n'));
+    assert.equal(c.call.contextDetail, 3);
     assert.deepEqual(c.actions, ['开始展开']);
   });
 
@@ -481,7 +483,7 @@ describe('拆完展开本批新设定', () => {
   test('缺省不展开：新设定照建空条目，拆完不再问', async () => {
     resetReplies({}, steps);
     h.expect();
-    await bundle.batch.generatePlots(project, { range: { from: 1, to: 1 }, confirmed: true });
+    await bundle.batch.generatePlots(project, { range: { from: 1, to: 1 }, call: {} });
     project.invalidate();
     assert.equal(h.confirms.length, 0);
     const e = (await project.listLore()).find((x) => x.title === '鬼市');
@@ -492,7 +494,7 @@ describe('拆完展开本批新设定', () => {
   test('选了展开、但这一次没有新建设定（名字已经有条目）：不问', async () => {
     resetReplies({}, steps);
     h.expect('开始展开');
-    const n = await bundle.batch.generatePlots(project, { range: { from: 2, to: 2 }, confirmed: true, expandLore: true });
+    const n = await bundle.batch.generatePlots(project, { range: { from: 2, to: 2 }, call: {}, expandLore: true });
     assert.equal(h.confirms.length, 0, JSON.stringify(h.confirms));
     assert.equal(n, fake.callCount());
   });
@@ -501,7 +503,7 @@ describe('拆完展开本批新设定', () => {
     resetChapter2();
     resetReplies({}, steps);
     h.expect('开始展开');
-    const n = await bundle.batch.generatePlots(project, { range: { from: 2, to: 2 }, confirmed: true, expandLore: true });
+    const n = await bundle.batch.generatePlots(project, { range: { from: 2, to: 2 }, call: {}, expandLore: true });
     project.invalidate();
     assert.equal(h.confirms.length, 1, JSON.stringify(h.confirms));
     assert.match(h.confirms[0].message, /^第 2 章拆出了 1 条新设定。展开 1 条设定：预计 1 次调用，最多 2 次/);
@@ -515,7 +517,7 @@ describe('拆完展开本批新设定', () => {
     resetChapter2();
     resetReplies({}, steps);
     h.expect(undefined);
-    await bundle.batch.generatePlots(project, { range: { from: 2, to: 2 }, confirmed: true, expandLore: true });
+    await bundle.batch.generatePlots(project, { range: { from: 2, to: 2 }, call: {}, expandLore: true });
     project.invalidate();
     assert.equal(h.confirms.length, 1);
     assert.ok(t.has(PLOT(2)));

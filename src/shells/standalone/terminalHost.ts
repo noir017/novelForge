@@ -1,6 +1,7 @@
 import { createInterface, Interface } from 'node:readline/promises';
 import { ConfigStore } from '../../core/config';
 import { Disposable, Host, InputOptions, PickChoice } from '../../core/host';
+import { CallAnswer } from '../../core/model/callChoice';
 import { NovelProject } from '../../core/model/project';
 import { Attachment } from '../../core/model/session';
 
@@ -72,11 +73,23 @@ export class TerminalHost implements Host {
     }
   }
 
-  /** 只认第一个动作为「是」，其余都当取消——与网页那边的确定/取消同构。 */
+  /** 一个动作问 y/N；几个动作时编号选一个，回车取消。 */
   async confirm(message: string, actions: string[]): Promise<string | undefined> {
+    if (actions.length > 1) {
+      return this.pick(
+        actions.map((a) => ({ label: a, value: a })),
+        message
+      );
+    }
     const yes = actions[0] ?? '确定';
     const answer = (await this.ask(`${message}（${yes}? y/N）：`))?.toLowerCase();
     return answer === 'y' || answer === 'yes' ? yes : undefined;
+  }
+
+  /** 命令行不问模型与详细度：这一次照设置来。 */
+  async confirmCall(message: string, actions: string[]): Promise<CallAnswer | undefined> {
+    const action = await this.confirm(message, actions);
+    return action === undefined ? undefined : { action, choice: {} };
   }
 
   async pick<T>(choices: PickChoice<T>[], title: string): Promise<T | undefined> {

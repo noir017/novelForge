@@ -1,5 +1,6 @@
 import { firstModelRef, normalizeProviders, resolveModelRef, seedFromLegacy } from './model/providers';
 import { scoped } from './runtime/logger';
+import { currentCallChoice } from './runtime/callScope';
 import { NovelConfig } from './model/types';
 import { isLlmTask, isModelTier, LlmTask, MODEL_TIERS, ModelTier, TierModels } from './model/tiers';
 import {
@@ -94,8 +95,13 @@ function raw(): PersistedSettings {
   return store?.read() ?? legacy?.read() ?? {};
 }
 
+/**
+ * 解析后的配置。在调模型之前的确认框之后（`withCallChoice` 里）读，带着作者为这一次挑的
+ * 模型（`pinnedModel`）与详细度——这是作者的选择唯一的落点（runtime/callScope.ts）。
+ */
 export function readConfig(): NovelConfig {
   const c = raw();
+  const choice = currentCallChoice();
   let providers = normalizeProviders(c.providers ?? []);
   let models = normalizeModelList(c.models);
   let model = (c.model ?? '').trim();
@@ -126,11 +132,12 @@ export function readConfig(): NovelConfig {
     active,
     tierModels: normalizeTierModels(c.tierModels),
     taskTiers: normalizeTaskTiers(c.taskTiers),
+    ...(choice?.model ? { pinnedModel: choice.model } : {}),
     // 模型自带的窗口优先——同一个服务商下 32k 和 200k 的模型常常并存。
     contextWindow: active?.model.contextWindow ?? fallbackBudget.contextWindow,
     maxOutputTokens: active?.model.maxOutputTokens ?? fallbackBudget.maxOutputTokens,
     temperature: c.temperature ?? 0.8,
-    contextDetail: readContextDetail(c.contextDetail),
+    contextDetail: choice?.contextDetail ?? readContextDetail(c.contextDetail),
     ...(contextOverride ? { contextOverrides: { ...contextOverride } } : {}),
     chaptersDir: c.chaptersDir ?? 'chapters',
     draftsDir: c.draftsDir ?? 'drafts',
@@ -218,6 +225,14 @@ function clamp(label: string, value: unknown, range: { min: number; max: number;
     log.warn(`${label} 设为 ${n}，超出 ${range.min}~${range.max}，按 ${bounded} 生效`);
   }
   return bounded;
+}
+
+/**
+ * 设置页上的那一级，**不看「这一次」**：工程页表单的缺省值用它。状态推送可能就发生在某一次任务的
+ * 调用链上（任务收尾时推一次），从 `readConfig()` 取会把作者只给那一次挑的级别当成设置推出去。
+ */
+export function settingsContextDetail(): ContextDetail {
+  return readContextDetail(raw().contextDetail);
 }
 
 /** 上下文详细度：认不出回落缺省，同一个坏值只说一次（理由同 `clamp`）。 */

@@ -115,3 +115,17 @@
 .nf-form .form-note.is-error {
   color: var(--vscode-errorForeground, #f48771);
 }
+
+/* 调模型之前的确认框（独立版 prompt.ts 的 confirmCall）：两个下拉框，「按分档」时下面列出各项活交给谁。 */
+.call-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.call-picker .hint {
+  margin: 0;
+}
