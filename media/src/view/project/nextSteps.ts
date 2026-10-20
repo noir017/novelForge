@@ -92,7 +92,7 @@ export function charactersEmptyRow(tree: ProjectTree): HTMLElement {
       { label: '提取角色卡…', title: '通读选定的几章，一次建一批角色卡；动手前会告诉你调用几次', run: () => projectAction('extractCharacters') },
     ]);
   }
-  return hintRow('还没有角色卡。故事架构里的「角色图谱」会一次建好主角、盟友与对手；轮到它时，上面那一组会给「去生成」。', []);
+  return hintRow('还没有角色卡。故事架构里的「角色图谱」会一次建好主角、盟友与对手；轮到它时，「概览」页的「故事架构」那一组会给「去生成」。', []);
 }
 
 /**

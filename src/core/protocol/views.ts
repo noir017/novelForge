@@ -50,8 +50,6 @@ export interface ViewState {
 
 export interface ProjectTree {
   initialized: boolean;
-  title: string;
-  author: string;
   /** 章节组的行数（每个出现过的章号一行）。 */
   plotCount: number;
   /** 已经有正文文件的章数。 */

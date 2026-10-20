@@ -1,12 +1,11 @@
 /**
- * 工程页里除了树行以外的东西：可折叠分组、工程标题头、定稿进度横幅，
+ * 工程页里除了树行以外的东西：可折叠分组、定稿进度横幅，
  * 以及「文风与摘要」那几行固定文件。
  */
 import { el as mk, spacer } from '../../dom';
 import type { MenuItem } from '../../globals';
 import type { ProjectNode, ProjectTree } from '../../protocol';
 import { linkBtn } from '../buttons';
-import { formatWords } from '../format';
 import { onContextMenu } from '../menu';
 import { openPath } from '../store';
 import { hasTask } from '../tasks';
@@ -29,6 +28,11 @@ interface GroupOptions {
    * 开关是一颗 `<button>`，放进去的话点输入框、在里面按空格回车都会把组折起来。
    */
   head?: HTMLElement;
+  /**
+   * 这一组是某个页签的主分组时传那一页的容器：页里分组下面的空白处右键也给这一组的菜单
+   * （「角色」页空白处右键就能「在此新建角色卡」）。
+   */
+  panel?: HTMLElement;
   /** 惰性调用：折叠时不生成行。 */
   build: () => HTMLElement[];
 }
@@ -64,17 +68,23 @@ export function buildGroup(
   const body = mk('div', 'group-body');
   box.appendChild(body);
 
-  if (opts.section) {
-    // 登记在整个分组上：标题栏、分组内的空白、空提示行都能右键新建。
-    onContextMenu(box, () => [
-      ...(opts.extraItems?.() ?? []),
-      ...newItemsIn(opts.section!, opts.root),
-      { sep: true },
-      ...baseMenuItems(),
-    ]);
-  } else if (opts.extraItems) {
-    // 没有落点目录的分组（「出场人物 · 未建卡」）：只挂批量动作与通用项。
-    onContextMenu(box, () => [...(opts.extraItems?.() ?? []), ...baseMenuItems()]);
+  // 登记在整个分组上：标题栏、分组内的空白、空提示行都能右键。
+  const menu = opts.section
+    ? () => [
+        ...(opts.extraItems?.() ?? []),
+        ...newItemsIn(opts.section!, opts.root),
+        { sep: true as const },
+        ...baseMenuItems(),
+      ]
+    : opts.extraItems
+      ? // 没有落点目录的分组（「出场人物 · 未建卡」）：只挂批量动作与通用项。
+        () => [...(opts.extraItems?.() ?? []), ...baseMenuItems()]
+      : undefined;
+  if (menu) {
+    onContextMenu(box, menu);
+    if (opts.panel) {
+      onContextMenu(opts.panel, menu);
+    }
   }
 
   const sync = () => {
@@ -108,25 +118,8 @@ export function buildInitPrompt(): HTMLElement {
   return box;
 }
 
-export function buildProjectHead(tree: ProjectTree): HTMLElement {
-  const head = mk('div', 'project-head');
-  head.appendChild(mk('div', 'project-title', tree.title || '未命名'));
-  // 字数是各章正文的字数之和（见 projectView），细纲不算。
-  head.appendChild(
-    mk(
-      'div',
-      'meta',
-      [tree.author, `${tree.plotCount} 章`, formatWords(tree.totalWords)].filter(Boolean).join(' · ')
-    )
-  );
-  if (tree.staleCount > 0) {
-    head.appendChild(buildSummaryBanner(tree));
-  }
-  return head;
-}
-
 /**
- * 定稿进度横幅。
+ * 定稿进度横幅，在「概览」页的最上面。
  *
  * 只说「76 章还没定稿」的话，用户不知道分母，也看不出同步跑到哪了。
  * 这里给出「已定稿 N/M」与一条进度条，同步过程中每章刷新一次
@@ -135,7 +128,7 @@ export function buildProjectHead(tree: ProjectTree): HTMLElement {
  * 分母是**已有正文的章**（`summarizedCount + staleCount`），不是全部章：
  * 只有细纲、还没写正文的章无从定稿，算进分母会让进度条永远到不了头。
  */
-function buildSummaryBanner(tree: ProjectTree): HTMLElement {
+export function buildSummaryBanner(tree: ProjectTree): HTMLElement {
   const banner = mk('div', 'banner banner-summary');
 
   const line = mk('div', 'banner-line');
@@ -202,7 +195,7 @@ export function countLabel(nodes: ProjectNode[], unit: string): string {
  *
  * 从前这一组底下还有一行工具（同步过期细纲、提取/更新角色卡，右键再加批量拆细纲、批量写章），
  * 是单章摘要时代留下的：细纲并进 summaries/ 之后只改了字没挪地方，四件事在别处都有入口——
- * 同步在页顶的黄条上，提取角色卡在「角色」组右键，两个批量在工具栏与「章节」组右键。
+ * 同步在「概览」页顶的黄条上，提取角色卡在「角色」组右键，两个批量在「章节」组右键。
  */
 export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   const rows: HTMLElement[] = [];

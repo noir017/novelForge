@@ -68,8 +68,6 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   if (!(await project.isInitialized())) {
     return {
       initialized: false,
-      title: '',
-      author: '',
       plotCount: 0,
       chapterCount: 0,
       totalWords: 0,
@@ -260,8 +258,6 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   });
   return {
     initialized: true,
-    title: manifest.title,
-    author: manifest.author,
     plotCount: plotRows.length,
     chapterCount: chapters.length,
     totalWords: plotRows.reduce((sum, p) => sum + p.wordCount, 0),

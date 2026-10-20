@@ -1849,10 +1849,6 @@ describe('工程页数据', () => {
     assert.equal(tree.initialized, true);
   });
 
-  test('带上作品名', () => {
-    assert.ok(tree.title.length > 0, tree.title);
-  });
-
   test('章数与磁盘一致', () => {
     assert.equal(plots.length, 4);
   });

@@ -26,6 +26,12 @@ function type(ui, key, value) {
 function key(ui, target, k, extra = {}) {
   target.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: k, bubbles: true, ...extra }));
 }
+/** 工程页某一组的标题栏右键，点其中一项。三个批量入口从前在工具栏上，现在只在分组右键里。 */
+function pickFromGroup(ui, group, label) {
+  const head = [...ui.doc.querySelectorAll('#projectBody .group-head')]
+    .find((n) => n.querySelector('.group-name').textContent === group);
+  ui.pick(ui.rightClick(head), label);
+}
 
 describe('一句话弹窗 · 从主按钮打开', { skip: JSDOM_SKIP }, () => {
   let ui;
@@ -140,17 +146,11 @@ describe('一句话弹窗 · 校验与关闭', { skip: JSDOM_SKIP }, () => {
 
 describe('拆细纲弹窗', { skip: JSDOM_SKIP }, () => {
   let ui;
-  const toolbarBtn = () => ui.doc.querySelector('#projectToolbar [data-form="plotBatch"]');
 
   before(() => {
     ui = mount();
     ui.post({ type: 'project', tree: sampleTree() });
-    ui.clickEl(toolbarBtn());
-  });
-
-  test('工具栏上有「补齐架构」「拆细纲…」', () => {
-    assert.ok(toolbarBtn());
-    assert.equal(ui.doc.querySelector('#projectToolbar [data-action="completeSettings"]')?.textContent, '补齐架构');
+    pickFromGroup(ui, '章节', '批量拆细纲…');
   });
 
   // 下一可写章是第 4 章，缺省拆 5 章，不越过大纲覆盖（20）与总章数（30）。
@@ -178,12 +178,12 @@ describe('拆细纲弹窗', { skip: JSDOM_SKIP }, () => {
   test('一条叙事线都没有：说明里 +1 次，写明先从情节大纲排一次', () => {
     key(ui, ui.doc, 'Escape');
     ui.post({ type: 'project', tree: { ...sampleTree(), threads: { exists: false, total: 0, open: 0, closed: 0, overdue: 0 } } });
-    ui.clickEl(toolbarBtn());
+    pickFromGroup(ui, '章节', '批量拆细纲…');
     assert.ok(note(ui).includes('预计 2 次调用，最多 13 次'), note(ui));
     assert.ok(note(ui).includes('还没有叙事线：开拆之前先从情节大纲排一次'), note(ui));
     key(ui, ui.doc, 'Escape');
     ui.post({ type: 'project', tree: sampleTree() });
-    ui.clickEl(toolbarBtn());
+    pickFromGroup(ui, '章节', '批量拆细纲…');
   });
 
   test('超出大纲覆盖不许提交，说清先续写大纲', () => {
@@ -213,19 +213,17 @@ describe('拆细纲弹窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(!isOpen(ui));
   });
 
-  test('章节组右键「批量拆细纲…」打开同一个弹窗', () => {
-    const head = [...ui.doc.querySelectorAll('#projectBody .group-head')]
-      .find((n) => n.querySelector('.group-name').textContent === '章节');
+  test('再从章节组右键打开，只开弹窗、什么都不发', () => {
     ui.sent.length = 0;
-    ui.pick(ui.rightClick(head), '批量拆细纲…');
+    pickFromGroup(ui, '章节', '批量拆细纲…');
     assert.ok(isOpen(ui));
     assert.ok(!ui.sent.some((m) => m.type === 'projectAction'), JSON.stringify(ui.sent));
     key(ui, ui.doc, 'Escape');
   });
 
-  test('「补齐架构」发 completeSettings（后端先问）', () => {
+  test('故事架构组右键「补齐架构（只补空白）」发 completeSettings（后端先问）', () => {
     ui.sent.length = 0;
-    ui.clickEl(ui.doc.querySelector('#projectToolbar [data-action="completeSettings"]'));
+    pickFromGroup(ui, '故事架构', '补齐架构（只补空白）');
     assert.equal(ui.last('projectAction')?.action, 'completeSettings', JSON.stringify(ui.sent));
   });
 });
@@ -288,7 +286,7 @@ describe('故事架构 · 已经写了正文时生成小说配置', { skip: JSDO
  */
 describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
   let ui;
-  const toolbarBtn = () => ui.doc.querySelector('#projectToolbar [data-form="writeBatch"]');
+  const open = () => pickFromGroup(ui, '章节', '批量写章…');
   function choose(value) {
     const sel = field(ui, 'mode');
     sel.value = value;
@@ -298,11 +296,10 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
   before(() => {
     ui = mount();
     ui.post({ type: 'project', tree: sampleTree() });
-    ui.clickEl(toolbarBtn());
+    open();
   });
 
-  test('工具栏上有「批量写章…」，点了打开弹窗', () => {
-    assert.equal(toolbarBtn()?.textContent, '批量写章…');
+  test('章节组右键「批量写章…」打开弹窗', () => {
     assert.ok(isOpen(ui));
   });
 
@@ -321,11 +318,11 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
 
   test('大纲只覆盖到第 4 章：第 5 章在它前面收住', () => {
     ui.post({ type: 'project', tree: { ...sampleTree(), book: { ...sampleTree().book, outlineCoverage: 4 } } });
-    ui.clickEl(toolbarBtn());
+    open();
     assert.ok(note(ui).includes('要写 1 章（第 4 章）；第 5 章还没有细纲、大纲也没覆盖到，写到它前面为止。'), note(ui));
     assert.ok(note(ui).includes('预计 1–3 次调用，最多 11 次'), note(ui));
     ui.post({ type: 'project', tree: sampleTree() });
-    ui.clickEl(toolbarBtn());
+    open();
   });
 
   test('一次最多 10 章', () => {
@@ -374,7 +371,7 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
   });
 
   test('只写正文一下就发', () => {
-    ui.clickEl(toolbarBtn());
+    open();
     ui.sent.length = 0;
     ui.clickEl(submitBtn(ui));
     const msg = ui.last('projectAction');
@@ -384,7 +381,7 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
 
   // 五期补遗 §4：写完即审稿，与模式分开选；多出审稿那几次，也要点两下。
   test('写完即审稿：说明里加上审稿那几次，点两下才发，带 review', () => {
-    ui.clickEl(toolbarBtn());
+    open();
     assert.equal(field(ui, 'review').value, 'off');
     const sel = field(ui, 'review');
     sel.value = 'on';
@@ -434,7 +431,7 @@ describe('批量表单上的模型与上下文详细度', { skip: JSDOM_SKIP }, 
       }),
     });
     ui.post({ type: 'project', tree: sampleTree() });
-    ui.clickEl(ui.doc.querySelector('#projectToolbar [data-form="plotBatch"]'));
+    pickFromGroup(ui, '章节', '批量拆细纲…');
   });
 
   test('模型：第一项按分档（缺省），其余按服务商分组', () => {

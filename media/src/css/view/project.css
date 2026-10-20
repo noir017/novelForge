@@ -1,29 +1,40 @@
-/* 工程页：工具栏、分组、树行。 */
+/* 工程页：页签条、分组、树行。 */
 
 #pane-project {
   overflow: hidden;
 }
 
-.project-toolbar {
+/* 四个页签（概览 / 章节 / 角色 / 设定），样子同设置页的分类页签；最右边一颗刷新。 */
+.project-tabs {
   display: flex;
   align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
-  padding: 8px 10px;
+  gap: 2px;
+  padding: 0 6px 0 4px;
   border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
   flex: 0 0 auto;
 }
 
-.project-toolbar .spacer {
+.project-tabs .spacer {
   flex: 1;
 }
 
-/* 批量动作（要调模型）与新建（不调模型）之间的一道竖线：同一种按钮，两种分量。 */
-.project-toolbar .toolbar-sep {
-  align-self: stretch;
-  width: 1px;
-  margin: 3px 3px;
-  background: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+button.project-tab {
+  padding: 7px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+}
+
+button.project-tab:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-list-hoverBackground);
+}
+
+button.project-tab.active {
+  color: var(--vscode-foreground);
+  border-bottom-color: var(--vscode-focusBorder);
 }
 
 .project-body {
@@ -31,6 +42,11 @@
   min-height: 0;
   overflow-y: auto;
   padding: 10px;
+}
+
+/* 撑满可见高度：分组下面的空白也属于这一页，右键给的是这一页主分组的菜单（groups.ts 的 `panel`）。 */
+.project-panel {
+  min-height: 100%;
 }
 
 .project-empty {
@@ -45,20 +61,8 @@
   margin: 0;
 }
 
-.project-head {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin-bottom: 10px;
-}
-
-.project-title {
-  font-size: 1.1em;
-  font-weight: 600;
-}
-
-.project-head .banner {
-  margin: 6px 0 0;
+.project-panel > .banner {
+  margin: 0 0 10px;
 }
 
 .group {

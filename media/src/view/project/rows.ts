@@ -43,6 +43,8 @@ import {
 } from './actions';
 import type { Section } from './actions';
 import { SECTIONS } from './actions';
+import { showProjectTab } from './tabs';
+import type { ProjectTab } from './tabs';
 import { indentOf, lastTree, loreView, openFolders, openGroups } from './treeState';
 
 /**
@@ -75,11 +77,12 @@ export function bindRerender(fn: () => void): void {
   rerender = fn;
 }
 
-/** 展开某个顶层分组并滚到它。重画会换掉全部节点，所以先重画再找。 */
-function revealGroup(id: string): void {
-  openGroups[id] = true;
+/** 切到某个顶层分组所在的页签，展开它并滚到它。重画会换掉全部节点，所以先重画再找。 */
+function revealGroup(group: { id: string; tab: ProjectTab }): void {
+  openGroups[group.id] = true;
   rerender();
-  document.querySelector<HTMLElement>(`#projectBody [data-group="${id}"]`)?.scrollIntoView?.({ block: 'start' });
+  showProjectTab(group.tab);
+  document.querySelector<HTMLElement>(`#projectBody [data-group="${group.id}"]`)?.scrollIntoView?.({ block: 'start' });
 }
 
 /**
@@ -323,8 +326,8 @@ export function buildPlotRows(plots: ProjectPlotNode[], nextNo: number): HTMLEle
 /**
  * 「故事架构」组的一行：小说配置 / 故事前提 / 角色图谱 / 世界观 / 设定清单 / 情节大纲。
  *
- * 点名字打开那份文件；角色图谱、设定清单没有自己的文件：已有卡 / 条目时点它展开并滚到下面「角色」/
- * 「设定」那一组，还没有时进入那一层（对话页的主按钮是「生成角色图谱 / 设定清单」）。已填的右键「讨论」
+ * 点名字打开那份文件；角色图谱、设定清单没有自己的文件：已有卡 / 条目时点它切到「角色」/「设定」
+ * 页签，还没有时进入那一层（对话页的主按钮是「生成角色图谱 / 设定清单」）。已填的右键「讨论」
  * 进入这一层，「重写…」问一句要求后直接重新生成；没填的右键「进入这一层」去生成。
  *
  * **第一件还没填的**在行尾多一个「去生成」（与章节组的「去写这一章」同一个道理：
@@ -351,13 +354,13 @@ function buildArchitectureRow(a: ArchitectureRow, isNext: boolean, tree?: Projec
   label.title = !group
     ? a.relPath
     : a.filled
-      ? `跳到下面「${group.label}」那一组；右键「讨论」或「重写…」`
+      ? `切到「${group.label}」页签；右键「讨论」或「重写…」`
       : '进入这一层：对话页的主按钮就是生成它';
   label.addEventListener('click', (e) => {
     if (!group) {
       openPath(a.relPath, { preview: e.detail < 2 });
     } else if (a.filled) {
-      revealGroup(group.id);
+      revealGroup(group);
     } else {
       setTarget(target);
     }
@@ -414,10 +417,13 @@ export function buildArchitectureRows(rows: ArchitectureRow[], tree?: ProjectTre
   return rows.map((r, i) => buildArchitectureRow(r, i === next, tree));
 }
 
-/** 没有自己文件的架构件 → 它在工程页上的那一组（分组 id 与 index.ts 的 `buildGroup` 一致）。 */
-const GROUP_OF: Partial<Record<ArchitectureRow['key'], { id: string; label: string }>> = {
-  characters: { id: 'characters', label: '角色' },
-  lore: { id: 'lore', label: '设定' },
+/**
+ * 没有自己文件的架构件 → 它在工程页上的那一组（分组 id 与 index.ts 的 `buildGroup` 一致）
+ * 与那一组所在的页签。
+ */
+const GROUP_OF: Partial<Record<ArchitectureRow['key'], { id: string; label: string; tab: ProjectTab }>> = {
+  characters: { id: 'characters', label: '角色', tab: 'characters' },
+  lore: { id: 'lore', label: '设定', tab: 'lore' },
 };
 
 /** 三段完成度，鼠标移上去看得见。 */

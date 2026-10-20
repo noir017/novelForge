@@ -35,6 +35,12 @@ const thin = [
   { name: '后山', category: '地域', relPath: `${LORE}/地域/后山.md`, kind: 'untold', chapters: [9], detail: '第 9 章起要用 · 三节全是未交代', authored: true },
 ];
 const treeWith = (loreThin) => ({ ...sampleTree(), loreThin });
+/** 「章节」组标题右键点一项：两个批量弹窗的入口。 */
+const pickFromChapters = (ui, label) =>
+  ui.pick(
+    ui.rightClick([...ui.doc.querySelectorAll('#projectBody .group-head')].find((n) => n.querySelector('.group-name').textContent === '章节')),
+    label
+  );
 const thinHead = (ui) =>
   [...ui.doc.querySelectorAll('#projectBody .group')]
     .find((g) => g.querySelector('.group-name')?.textContent === '待完善')
@@ -72,7 +78,7 @@ describe('「待完善」组标题的「全部展开」', { skip: JSDOM_SKIP }, 
 
 describe('拆细纲弹窗的「拆完展开本批新设定」', { skip: JSDOM_SKIP }, () => {
   let ui;
-  const open = () => ui.clickEl(ui.doc.querySelector('#projectToolbar [data-form="plotBatch"]'));
+  const open = () => pickFromChapters(ui, '批量拆细纲…');
 
   before(() => {
     ui = mount();
@@ -113,7 +119,7 @@ describe('批量写章弹窗的写前提醒', { skip: JSDOM_SKIP }, () => {
   before(() => {
     ui = mount();
     ui.post({ type: 'project', tree: treeWith(thin) });
-    ui.clickEl(ui.doc.querySelector('#projectToolbar [data-form="writeBatch"]'));
+    pickFromChapters(ui, '批量写章…');
   });
 
   // 缺省写第 4–6 章：九层楼（第 5、6 章）、天机阁（第 5 章）在区间里，后山（第 9 章）不在。

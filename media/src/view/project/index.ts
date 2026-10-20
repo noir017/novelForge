@@ -1,10 +1,10 @@
 /**
- * 工程页的装配：把树、分组、横幅拼成一整页。
+ * 工程页的装配：把树、分组、横幅拼成四个页签（概览 / 章节 / 角色 / 设定，见 tabs.ts）。
  *
  * 折叠等 UI 状态完全留在前端（treeState.ts），切一下折叠走 `rerenderProject`
  * 拿最近那份快照重画，不必往后端要一次数据。「设定」组的筛选也一样（loreFilter.ts）。
  */
-import { closestFrom, setHidden } from '../../dom';
+import { setHidden } from '../../dom';
 import { describeCalls, loreExpandCalls } from '../../protocol';
 import type { ProjectTree } from '../../protocol';
 import { formatWords } from '../format';
@@ -14,7 +14,7 @@ import {
   buildGroup,
   buildInitPrompt,
   buildMetaRows,
-  buildProjectHead,
+  buildSummaryBanner,
   countLabel,
   summaryGroupLabel,
 } from './groups';
@@ -42,6 +42,7 @@ import {
   restoreLoreFilterFocus,
 } from './loreFilter';
 import { hideSummaryTip, installSummaryTip } from './summaryTip';
+import { buildPanel, installProjectTabs } from './tabs';
 import { lastTree, loreView, setLastTree } from './treeState';
 
 export function renderProject(tree: ProjectTree): void {
@@ -63,19 +64,27 @@ function buildProjectPage(tree: ProjectTree): void {
   hideSummaryTip();
   hideDetailTip();
   hideFailureTip();
-  // 还不是小说工程时，工具栏上的「补齐架构」「＋ 角色卡」等按钮点了只会报错。
-  setHidden(el.projectToolbar, !tree.initialized);
+  // 还不是小说工程时，页签切过去都是空的。
+  setHidden(el.projectTabs, !tree.initialized);
 
   if (!tree.initialized) {
     el.projectBody.appendChild(buildInitPrompt());
     return;
   }
 
-  el.projectBody.appendChild(buildProjectHead(tree));
+  const overview = buildPanel('overview');
+  const chapters = buildPanel('chapters');
+  const characters = buildPanel('characters');
+  const lore = buildPanel('lore');
+  el.projectBody.append(overview, chapters, characters, lore);
+
+  if (tree.staleCount > 0) {
+    overview.appendChild(buildSummaryBanner(tree));
+  }
 
   // 故事架构：后面一切的上游，排在最前面。
   const filled = tree.architecture.filter((a) => a.filled).length;
-  el.projectBody.appendChild(
+  overview.appendChild(
     buildGroup('architecture', '故事架构', `${filled}/${tree.architecture.length}`, {
       extraItems: () => [
         { label: tree.book.writtenThrough ? '照已写正文生成小说配置…' : '从一句话生成小说配置…', run: () => openIdeaForm(tree.book) },
@@ -89,9 +98,16 @@ function buildProjectPage(tree: ProjectTree): void {
     })
   );
 
+  overview.appendChild(
+    buildGroup('meta', '文风与摘要', summaryGroupLabel(tree), {
+      build: () => buildMetaRows(tree),
+    })
+  );
+
   // 一个章号一行（细纲号 = 章号）。细纲与正文是同一行的两面。
-  el.projectBody.appendChild(
+  chapters.appendChild(
     buildGroup('plots', '章节', `${tree.chapterCount} 章 · ${formatWords(tree.totalWords)}`, {
+      panel: chapters,
       extraItems: () => [
         { label: '新建细纲（接在最后一章之后）', run: () => projectAction('newPlot') },
         { label: '新建章节文件（直接粘正文用）', run: () => projectAction('newChapter') },
@@ -123,10 +139,11 @@ function buildProjectPage(tree: ProjectTree): void {
     })
   );
 
-  el.projectBody.appendChild(
+  characters.appendChild(
     buildGroup('characters', '角色', countLabel(tree.characters, '人'), {
       section: SECTIONS.characters,
       root: tree.charactersRoot,
+      panel: characters,
       extraItems: () => [
         { label: '更新所有角色卡', run: () => characterAction('updateAllCards') },
         { label: '从头重建所有角色卡', run: () => characterAction('rebuildAllCards') },
@@ -150,7 +167,7 @@ function buildProjectPage(tree: ProjectTree): void {
   // 定稿过的细纲里出现、但还没建卡的人物。单独一组而不是混进角色树——
   // 那棵是文件树（能改名/移动/删除），这些人还没有文件。
   if (tree.cast.length > 0) {
-    el.projectBody.appendChild(
+    characters.appendChild(
       buildGroup('cast', '出场人物 · 未建卡', `${tree.cast.length} 人`, {
         extraItems: () => [
           { label: `给全部 ${tree.cast.length} 人建卡`, run: () => characterAction('createAllCards') },
@@ -168,10 +185,11 @@ function buildProjectPage(tree: ProjectTree): void {
   const match = loreMatcher(tree);
   // 没东西可筛就不摆框；正筛着的时候哪怕条目都没了也留着，不然筛选串看不见、也清不掉。
   const showFilter = tree.lore.length > 0 || unfiledAll.length > 0 || thinAll.length > 0 || loreView.filter !== '';
-  el.projectBody.appendChild(
+  lore.appendChild(
     buildGroup('lore', '设定', countLabel(tree.lore, '条'), {
       section: SECTIONS.lore,
       root: tree.loreRoot,
+      panel: lore,
       // 设定名录的三件维护（第三期）。次数都在后端的确认框里报，这里只说有几件待办。
       extraItems: () => {
         const unrecorded = tree.loreUnrecorded;
@@ -209,7 +227,7 @@ function buildProjectPage(tree: ProjectTree): void {
   const thin = filterUnfiled(thinAll);
   if (thin.length > 0) {
     const expandable = thinAll.filter((t) => !t.authored).length;
-    el.projectBody.appendChild(
+    lore.appendChild(
       buildGroup('loreThin', '待完善', `${thinAll.length} 个`, {
         extraItems: () =>
           expandable > 0
@@ -231,7 +249,7 @@ function buildProjectPage(tree: ProjectTree): void {
   const unfiled = filterUnfiled(unfiledAll);
   if (unfiled.length > 0) {
     const frequent = unfiledAll.filter((u) => u.chapters.length >= 1).length;
-    el.projectBody.appendChild(
+    lore.appendChild(
       buildGroup('loreUnfiled', '出现过 · 未建条目', `${unfiledAll.length} 个`, {
         extraItems: () =>
           frequent > 0
@@ -241,12 +259,6 @@ function buildProjectPage(tree: ProjectTree): void {
       })
     );
   }
-
-  el.projectBody.appendChild(
-    buildGroup('meta', '文风与摘要', summaryGroupLabel(tree), {
-      build: () => buildMetaRows(tree),
-    })
-  );
 }
 
 /** 折叠状态变了：拿最近一次收到的树重画，不往后端要数据。 */
@@ -261,22 +273,10 @@ export function installProject(): void {
   installSummaryTip();
   installDetailTip();
   installFailureTip();
+  installProjectTabs();
 
-  el.projectToolbar.addEventListener('click', (e) => {
-    const form = closestFrom<HTMLElement>(e.target, '[data-form]');
-    if (form?.dataset.form === 'plotBatch' && lastTree) {
-      openPlotBatchForm(lastTree);
-      return;
-    }
-    if (form?.dataset.form === 'writeBatch' && lastTree) {
-      openWriteBatchForm(lastTree);
-      return;
-    }
-    const btn = closestFrom<HTMLElement>(e.target, '[data-action]');
-    if (btn?.dataset.action) {
-      projectAction(btn.dataset.action as Parameters<typeof projectAction>[0]);
-    }
-  });
+  // 页签条上除了页签只剩「刷新」。
+  el.projectTabs.querySelector('[data-action="refresh"]')?.addEventListener('click', () => projectAction('refresh'));
 }
 
 export { applySummary, invalidateSummaries } from './summaryTip';

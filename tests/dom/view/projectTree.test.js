@@ -114,9 +114,11 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
     assert.ok(group(), [...ui.doc.querySelectorAll('#projectBody .group-name')].map((n) => n.textContent).join('|'));
   });
 
-  test('排在章节组之前（它是章节的上游）', () => {
-    const names = [...ui.doc.querySelectorAll('#projectBody .group-name')].map((n) => n.textContent);
-    assert.ok(names.indexOf('故事架构') < names.indexOf('章节'), names.join('|'));
+  // 它是章节的上游：「概览」页签的第一组；章节在自己的页签里。
+  test('在「概览」页签，排第一', () => {
+    const panel = group().closest('[data-project-panel]');
+    assert.equal(panel?.dataset.projectPanel, 'overview');
+    assert.equal(panel.querySelector('.group'), group());
   });
 
   // 顺序即生成顺序：每一件都吃前面几件的产出。设定清单排在世界观之后、情节大纲之前。
@@ -186,9 +188,9 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.last('openFile')?.path, '.novelforge/premise.md', JSON.stringify(ui.sent));
   });
 
-  // 角色图谱没有自己的文件（它就是 characters/ 下那一组卡）：已有卡时点它跳到「角色」那一组，
+  // 角色图谱没有自己的文件（它就是 characters/ 下那一组卡）：已有卡时点它切到「角色」页签、展开那一组，
   // 不切到对话页；打开一个目录在编辑器里什么都看不到。
-  test('已有角色卡：点「角色图谱」展开「角色」组，不进入那一层、不打开文件', () => {
+  test('已有角色卡：点「角色图谱」切到「角色」页签、展开「角色」组，不进入那一层、不打开文件', () => {
     const chars = () =>
       [...ui.doc.querySelectorAll('#projectBody .group')].find((g) => g.querySelector('.group-name')?.textContent === '角色');
     ui.clickEl(chars().querySelector('.group-toggle'));
@@ -196,6 +198,9 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
     ui.sent.length = 0;
     ui.clickEl(row('角色图谱').querySelector('.row-label'));
     assert.ok(chars().querySelector('.group-body').children.length > 0, chars().outerHTML);
+    assert.equal(chars().closest('[data-project-panel]').hidden, false, '「角色」页露出来');
+    assert.equal(group().closest('[data-project-panel]').hidden, true, '「概览」页藏起来');
+    assert.equal(ui.doc.querySelector('#projectTabs .project-tab.active')?.textContent, '角色');
     assert.ok(!ui.last('setTarget'), JSON.stringify(ui.sent));
     assert.ok(!ui.last('openFile'), JSON.stringify(ui.sent));
   });
@@ -217,12 +222,12 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
     assert.equal(t.target.doc, 'characters', JSON.stringify(t));
   });
 
-  // 设定清单同角色图谱：没有自己的文件（它就是 lore/ 下那一组条目），填过时点它跳到「设定」那一组。
+  // 设定清单同角色图谱：没有自己的文件（它就是 lore/ 下那一组条目），填过时点它切到「设定」页签。
   test('设定清单的副标题报条数', () => {
     assert.equal(row('设定清单').querySelector('.row-detail')?.textContent, '0 条', row('设定清单').outerHTML);
   });
 
-  test('设定清单填过：点它展开「设定」组，不进入那一层、不打开文件', () => {
+  test('设定清单填过：点它切到「设定」页签、展开「设定」组，不进入那一层、不打开文件', () => {
     const lore = () =>
       [...ui.doc.querySelectorAll('#projectBody .group')].find((g) => g.querySelector('.group-name')?.textContent === '设定');
     ui.clickEl(lore().querySelector('.group-toggle'));
@@ -230,9 +235,10 @@ describe('「故事架构」组', { skip: JSDOM_SKIP }, () => {
     ui.sent.length = 0;
     ui.clickEl(row('设定清单').querySelector('.row-label'));
     assert.ok(lore().querySelector('.group-body').children.length > 0, lore().outerHTML);
+    assert.equal(lore().closest('[data-project-panel]').hidden, false, '「设定」页露出来');
     assert.ok(!ui.last('setTarget'), JSON.stringify(ui.sent));
     assert.ok(!ui.last('openFile'), JSON.stringify(ui.sent));
-    assert.match(row('设定清单').querySelector('.row-label').title, /跳到下面「设定」那一组/);
+    assert.match(row('设定清单').querySelector('.row-label').title, /切到「设定」页签/);
   });
 
   test('设定清单的菜单没有「打开」', () => {
@@ -504,6 +510,8 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   const plotRow = (text) => chapterRowsOf(ui).find((n) => n.textContent.includes(text));
   const dirLabel = (name) =>
     [...ui.doc.querySelectorAll('#projectBody .row-dir-label')].find((n) => n.textContent.includes(name));
+  const treeGroups = () =>
+    ['architecture', 'plots', 'characters'].map((id) => ui.doc.querySelector(`#projectBody .group[data-group="${id}"]`));
 
   before(() => {
     ui = mount();
@@ -515,16 +523,14 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   // ——各自全组只有一颗，不会变成一排按钮。
   // （「文风与摘要」不是文件管理区，它的「重建」「从正文提取」链接照旧留在行内。）
   test('树上的行没有行内操作区', () => {
-    const treeRows = [...ui.doc.querySelectorAll('#projectBody .group')]
-      .slice(0, 3)
+    const treeRows = treeGroups()
       .flatMap((g) => [...g.querySelectorAll('.row')]);
     assert.ok(treeRows.length > 0 && treeRows.every((r) => !r.querySelector('.row-actions')),
       `${treeRows.length} 行`);
   });
 
   test('树上的行里只有「去生成」与「去写这一章」两颗按钮', () => {
-    const buttons = [...ui.doc.querySelectorAll('#projectBody .group')]
-      .slice(0, 3)
+    const buttons = treeGroups()
       .flatMap((g) => [...g.querySelectorAll('.row button')]);
     assert.deepEqual(buttons.map((b) => b.textContent), ['去生成', '去写这一章']);
   });
@@ -891,26 +897,118 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     });
   }
 
-  // 新建细纲只在「章节」组的右键里（上面那条）：它是罕用的手工路径，正常是拆细纲。
-  // 工具栏上的「＋ 文件夹」也拿掉了——会让人建在章节区，而章节组是平铺的，建了看不见。
-  test('工具栏上没有「＋ 新建细纲」「＋ 文件夹」', () => {
-    const actions = [...ui.doc.querySelectorAll('#projectToolbar [data-action]')].map((b) => b.dataset.action);
-    assert.ok(!actions.includes('newPlot') && !actions.includes('newFolder'), JSON.stringify(actions));
+  // 页签条上原来的五颗按钮（补齐架构、拆细纲…、批量写章…、＋ 角色卡、＋ 设定）在分组右键里都有，拿掉了：
+  // 「故事架构」组右键「补齐架构（只补空白）」，「章节」组右键两个批量，「角色」「设定」组右键「在此新建…」。
+  test('页签条：四个页签与刷新，没有别的按钮', () => {
+    const bar = ui.doc.getElementById('projectTabs');
+    const parts = [...bar.children].map((n) => (n.classList.contains('spacer') ? '~' : n.textContent.trim()));
+    assert.deepEqual(parts, ['概览', '章节', '角色', '设定', '~', '⟳'], JSON.stringify(parts));
+    assert.equal(bar.querySelectorAll('[data-form], .chip-btn').length, 0);
+    assert.deepEqual([...bar.querySelectorAll('[data-action]')].map((b) => b.dataset.action), ['refresh']);
   });
 
-  test('工具栏：三个批量入口，一道分隔线，两个新建，刷新', () => {
-    const bar = ui.doc.getElementById('projectToolbar');
-    const parts = [...bar.children].map((n) =>
-      n.classList.contains('toolbar-sep') ? '|' : n.classList.contains('spacer') ? '~' : n.textContent.trim()
-    );
-    assert.deepEqual(parts, ['补齐架构', '拆细纲…', '批量写章…', '|', '＋ 角色卡', '＋ 设定', '~', '⟳'], JSON.stringify(parts));
+  test('「刷新」发 refresh', () => {
+    ui.sent.length = 0;
+    ui.clickEl(ui.doc.querySelector('#projectTabs [data-action="refresh"]'));
+    assert.equal(ui.last('projectAction')?.action, 'refresh', JSON.stringify(ui.sent));
   });
 
-  test('工具栏「＋ 角色卡」「＋ 设定」发 newCharacter / newLore', () => {
-    for (const action of ['newCharacter', 'newLore']) {
-      ui.clickEl(ui.doc.querySelector(`#projectToolbar [data-action="${action}"]`));
-      assert.equal(ui.last('projectAction')?.action, action);
-    }
+  // 页里分组下面的空白也属于这一页：右键给的是这一页主分组的菜单，不只是一个「刷新」。
+  for (const [tab, label, action, dir] of [
+    ['characters', '在此新建角色卡', 'newCharacter', '.novelforge/characters'],
+    ['lore', '在此新建设定', 'newLore', '.novelforge/lore'],
+    ['chapters', '新建细纲（接在最后一章之后）', 'newPlot', undefined],
+  ]) {
+    test(`「${tab}」页的空白处右键「${label}」发 ${action}`, () => {
+      const panel = ui.doc.querySelector(`#projectBody [data-project-panel="${tab}"]`);
+      ui.sent.length = 0;
+      ui.pick(ui.rightClick(panel), label);
+      const msg = ui.last('projectAction');
+      assert.equal(msg?.action, action, JSON.stringify(ui.sent));
+      assert.equal(msg.dir, dir, JSON.stringify(msg));
+      ui.closeMenu();
+    });
+  }
+});
+
+/**
+ * 工程页的四个页签（概览 / 章节 / 角色 / 设定）：章节、角色、设定各占一页，其余留在「概览」。
+ * 四页全画、只露当前那一页；切页签不往后端要数据，重推树不换页。
+ */
+describe('工程页的页签', { skip: JSDOM_SKIP }, () => {
+  let ui;
+  const panel = (tab) => ui.doc.querySelector(`#projectBody [data-project-panel="${tab}"]`);
+  const tabBtn = (tab) => ui.doc.querySelector(`#projectTabs [data-project-tab="${tab}"]`);
+  const groupsIn = (tab) => [...panel(tab).querySelectorAll('.group-name')].map((n) => n.textContent);
+  const shown = () => [...ui.doc.querySelectorAll('#projectBody [data-project-panel]')].filter((p) => !p.hidden).map((p) => p.dataset.projectPanel);
+
+  before(() => {
+    ui = mount();
+    ui.post({ type: 'project', tree: sampleTree() });
+  });
+
+  test('缺省是「概览」，只露这一页', () => {
+    assert.deepEqual(shown(), ['overview']);
+    assert.equal(tabBtn('overview').getAttribute('aria-selected'), 'true');
+    assert.ok(tabBtn('overview').classList.contains('active'));
+  });
+
+  test('「概览」是故事架构与文风与摘要；章节、角色、设定各在自己那一页', () => {
+    assert.deepEqual(groupsIn('overview'), ['故事架构', '文风与摘要']);
+    assert.deepEqual(groupsIn('chapters'), ['章节']);
+    assert.deepEqual(groupsIn('characters'), ['角色', '出场人物 · 未建卡']);
+    assert.equal(groupsIn('lore')[0], '设定');
+  });
+
+  test('没有作品名那一块', () => {
+    assert.equal(ui.doc.querySelector('#projectBody .project-head, #projectBody .project-title'), null);
+  });
+
+  test('定稿进度横幅在「概览」页最上面', () => {
+    const banner = ui.doc.querySelector('#projectBody .banner-summary');
+    assert.equal(banner?.parentElement, panel('overview'));
+    assert.equal(panel('overview').firstElementChild, banner);
+  });
+
+  test('点页签切页，不往后端发东西', () => {
+    ui.sent.length = 0;
+    ui.clickEl(tabBtn('chapters'));
+    assert.deepEqual(shown(), ['chapters']);
+    assert.equal(tabBtn('chapters').getAttribute('aria-selected'), 'true');
+    assert.equal(tabBtn('overview').getAttribute('aria-selected'), 'false');
+    assert.equal(tabBtn('chapters').tabIndex, 0);
+    assert.equal(tabBtn('overview').tabIndex, -1);
+    assert.deepEqual(ui.sent, []);
+  });
+
+  test('重推树不换页', () => {
+    ui.post({ type: 'project', tree: sampleTree() });
+    assert.deepEqual(shown(), ['chapters']);
+    assert.ok(tabBtn('chapters').classList.contains('active'));
+  });
+
+  test('方向键与 Home / End 在页签之间走', () => {
+    const press = (key) =>
+      ui.doc.querySelector('#projectTabs .project-tab.active').dispatchEvent(new ui.window.KeyboardEvent('keydown', { key, bubbles: true }));
+    press('ArrowRight');
+    assert.deepEqual(shown(), ['characters']);
+    press('End');
+    assert.deepEqual(shown(), ['lore']);
+    press('ArrowRight');
+    assert.deepEqual(shown(), ['overview']);
+    press('ArrowLeft');
+    assert.deepEqual(shown(), ['lore']);
+    press('Home');
+    assert.deepEqual(shown(), ['overview']);
+    assert.equal(ui.doc.activeElement, tabBtn('overview'));
+  });
+
+  test('还不是小说工程：页签条藏起来', () => {
+    ui.post({ type: 'project', tree: { ...sampleTree(), initialized: false } });
+    assert.ok(ui.doc.getElementById('projectTabs').classList.contains('hidden'));
+    assert.ok(ui.doc.querySelector('#projectBody .project-empty'));
+    ui.post({ type: 'project', tree: sampleTree() });
+    assert.ok(!ui.doc.getElementById('projectTabs').classList.contains('hidden'));
   });
 });
 

@@ -32,7 +32,7 @@ export const el = {
   sendBtn: byId<HTMLButtonElement>('sendBtn'),
   stopBtn: byId<HTMLButtonElement>('stopBtn'),
   providerMeta: byId('providerMeta'),
-  projectToolbar: byId('projectToolbar'),
+  projectTabs: byId('projectTabs'),
   projectBody: byId('projectBody'),
   taskList: byId('taskList'),
   historyMeta: byId('historyMeta'),
