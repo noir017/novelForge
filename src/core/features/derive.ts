@@ -85,6 +85,7 @@ import { confirmDespiteGap } from './chapterGap';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import { CastCardsPlan, createCastCards, planCastCards } from './characterCard';
 import { BUILD_MIN_CHAPTERS, createLoreEntries } from './lore';
+import { checkpointBefore } from './checkpoint';
 import { settingKey, settingRaw } from './pipelineBatch';
 import { poolIO } from './poolIO';
 import { summarizeChapters, updateGlobalSummary } from './summarize';
@@ -124,6 +125,8 @@ export async function deriveFromText(project: NovelProject): Promise<number> {
   let calls = 0;
   /** 先整理细纲那一问的选择：其余几样那一问打开时缺省跟着它（同一件事的两步）。 */
   let preset: CallChoice | undefined;
+  /** 细纲那一步已经先存了存档点：其余几样接着做，不另存。 */
+  let checkpointed = false;
   project.invalidate();
   const stale = (await project.staleChapters()).filter((c) => c.order <= through && c.wordCount > 0);
   if (stale.length > 0) {
@@ -133,9 +136,10 @@ export async function deriveFromText(project: NovelProject): Promise<number> {
       return calls;
     }
     preset = r.choice;
+    checkpointed = r.checkpoint !== undefined;
     project.invalidate();
   }
-  return calls + (await deriveRest(project, through, written, calls, preset));
+  return calls + (await deriveRest(project, through, written, calls, preset, checkpointed));
 }
 
 // ---------------------------------------------------------------- 一、细纲
@@ -144,7 +148,7 @@ async function summarizeFirst(
   project: NovelProject,
   stale: Chapter[],
   through: number
-): Promise<{ ok: boolean; calls: number; choice?: CallChoice }> {
+): Promise<{ ok: boolean; calls: number; choice?: CallChoice; checkpoint?: string }> {
   const lanes = Math.min(readConfig().concurrency, stale.length);
   const answer = await askCall({
     message: `从已写正文补齐第 1–${through} 章：先照正文给 ${stale.length} 章整理细纲（没定稿的、定稿后正文改过的），调用 ${stale.length} 次模型。现在开始？`,
@@ -168,9 +172,12 @@ async function summarizeFirst(
       return { ok: false, calls: 0 };
     }
     let ok = false;
+    let checkpoint: string | undefined;
     await runTask(
       '从已写正文补齐 · 细纲',
       async ({ signal, report }) => {
+        // 先存一个存档点（features/checkpoint.ts）：一次改很多份细纲，整本退得回去。
+        checkpoint = await checkpointBefore(project, '从已写正文补齐之前');
         const r = await summarizeChapters(project, stale, { pool, lanes, signal, report });
         if (signal.aborted) {
           log.warn(`从已写正文补齐被取消，细纲完成 ${r.ok}/${stale.length} 章`);
@@ -187,7 +194,7 @@ async function summarizeFirst(
       },
       { scope: '补齐' }
     );
-    return { ok, calls: stale.length, choice: answer.choice };
+    return { ok, calls: stale.length, choice: answer.choice, checkpoint };
   });
 }
 
@@ -207,13 +214,17 @@ interface DerivePlan {
   threads?: ThreadsBackfillPlan;
 }
 
-/** `before`：前面细纲那一步已经调了几次（完成提示报的是总数）；`preset`：那一步作者挑的模型与详细度。 */
+/**
+ * `before`：前面细纲那一步已经调了几次（完成提示报的是总数）；`preset`：那一步作者挑的模型与详细度；
+ * `checkpointed`：那一步已经先存了存档点（同一件事的两步，退回去就是整件事之前）。
+ */
 async function deriveRest(
   project: NovelProject,
   through: number,
   written: Chapter[],
   before: number,
-  preset?: CallChoice
+  preset?: CallChoice,
+  checkpointed = false
 ): Promise<number> {
   const plan = await planRest(project, through, written);
   if (!plan) {
@@ -267,6 +278,10 @@ async function deriveRest(
     await runTask(
       '从已写正文补齐',
       async ({ signal, report }) => {
+        // 先存一个存档点（features/checkpoint.ts）：一次补好几样，整本退得回去。细纲那一步刚存过就不另存。
+        if (!checkpointed) {
+          await checkpointBefore(project, '从已写正文补齐之前');
+        }
         const startedAt = Date.now();
         const steps = labels.length;
         let step = 0;

@@ -16,6 +16,7 @@ import { describeError, elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { Workspace } from '../workspace';
 import { formatWordCount, pickBookText, readBookText } from './bookText';
+import { checkpointBefore } from './checkpoint';
 import { deriveFromText } from './derive';
 
 const log = scoped('导入');
@@ -88,6 +89,8 @@ export async function importManuscript(project: NovelProject, opts: { path?: str
   await runTask(
     '导入原稿',
     async ({ signal, report }) => {
+      // 先存一个存档点（features/checkpoint.ts）：一次建很多章，整本退得回去。
+      await checkpointBefore(project, '导入原稿之前');
       const startedAt = Date.now();
       report({ message: describe(start, chapters[0]), current: 0, total: chapters.length });
       try {

@@ -10,14 +10,16 @@
  *    内容替换完盖上去（第 3 条）。写的时候再带一次基线（`baseHash`），读与写之间又被改过，网关照样拒。
  * 3. **勾着的那几处在磁盘上那一份里逐处核对**（与预览同一个口径：`model/bookFind.ts` 的 `fileHits`，护住的字不算），
  *    再用 `textFind.replaceSelectedIn` 只换这几处——`$1` 在原文里逐处展开。
- * 4. **先强制存一版历史**（`snapshotNow`，跳过节流，与「恢复历史版本前强制存一版」同一个做法）：跨文件的替换没有一步撤销，
- *    退路就是每份文件在「历史」里的替换前那一版。存不下（还不是小说工程、超过 2 MB、出错）就**不换这一份**，说出来。
+ * 4. **先强制存一版历史**（`snapshotNow`，跳过节流，与「恢复历史版本前强制存一版」同一个做法）：存档点（见下）存不下不挡替换，
+ *    兜底的退路是每份文件在「历史」里的替换前那一版。存不下（还不是小说工程、超过 2 MB、出错）就**不换这一份**，说出来。
  * 5. **经网关写**：`workspace.write`，`mode: 'overwrite'`、`review: false`（预览本身就是审阅，第 19 条：落盘前人看过了，
  *    网关不再弹第二次覆盖审阅）、带 `baseHash`。守卫照过、种类的记账照做（细纲照常记 `upstreamHash`）、覆盖前的那一版
  *    网关自己也会再试着存（与刚存的一样，不重复存）。章节的写后记账（重算 manifest）延到最后做一次（`deferAfter`）。
  *
  * 写的顺序按范围：其他创作文件（情节大纲在里面）→ 细纲 → 正文 → 草稿 → 角色卡 → 设定。大纲排在细纲之前：细纲写下去时
  * 网关记的是大纲**此刻**那一节的指纹，大纲先换完，同一次里一起换了的细纲才对得上换过的大纲。
+ *
+ * 逐份写之前（有要换的才）先存一个存档点（`features/checkpoint.ts`）：整本退得回替换之前。
  *
  * ## 指纹链（第 18 条，⚑）
  *
@@ -43,8 +45,8 @@
  * ## 不做的事
  *
  * 不改文件名、不搬文件（角色卡的名字换了，`林晚.md` 还叫 `林晚.md`——认人看的是卡里的名字与别名，汇总里提一句）；
- * 跨文件没有一步撤销（每份文件的历史版本就是退路）；派生数据（工程树、出场索引、设定名录）不在这里算——它们都从磁盘现算，
- * 控制器替换完照常 `pushState`。
+ * 跨文件的一步撤销不在这里（整本退回走存档点，每份文件的历史版本兜底）；派生数据（工程树、出场索引、设定名录）
+ * 不在这里算——它们都从磁盘现算，控制器替换完照常 `pushState`。
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -63,6 +65,7 @@ import type { ArtifactKind } from '../workspace';
 import { WsConflictError, WsError, guardRead } from '../workspace/guard';
 import { snapshotNow } from '../workspace/history';
 import { bookFileLabel, clip, scopeOfKind } from '../views/bookFind';
+import { checkpointBefore } from './checkpoint';
 import type {
   BookReplaceDone,
   BookReplaceRenamedCard,
@@ -257,6 +260,10 @@ export async function replaceInBook(project: NovelProject, req: BookReplaceReque
   }
 
   // ---- 3. 逐份存一版历史、经网关写
+  if (prepared.length > 0) {
+    // 先存一个存档点（features/checkpoint.ts）：一次改很多份，整本退得回去（每份的历史版本照存）。
+    await checkpointBefore(project, `全书替换之前（「${clip(query, 12)}」→「${clip(replacement, 12)}」，${prepared.length} 份）`);
+  }
   const ws = new Workspace(project);
   const written = new Set<string>();
   let wroteChapter = false;

@@ -43,6 +43,7 @@ import { parseLoreExpansion } from './loreExpand';
 import { LORE_ENTRY_SYSTEM, LORE_ORGANIZE_SYSTEM } from './lorePrompt';
 import { extractJsonObject, stringArray, stripCodeFence, stripTrailingCommas, unique } from './parse';
 import { poolIO } from './poolIO';
+import { checkpointBefore } from './checkpoint';
 
 const log = scoped('设定');
 
@@ -594,6 +595,8 @@ export async function expandLoreEntries(
     await runTask(
       '展开设定',
       async ({ signal, report }) => {
+        // 先存一个存档点（features/checkpoint.ts）：没有卡片、写完直接落盘，整本退得回去。
+        await checkpointBefore(project, `展开设定之前（${n} 条）`);
         const startedAt = Date.now();
         const targets = [...ready.map((e) => e.relPath)];
         if (missing.length > 0) {
@@ -882,6 +885,8 @@ export async function organizeLore(project: NovelProject, scope?: OrganizeScope)
           log.info('作者没采纳搬家清单');
           return;
         }
+        // 先存一个存档点（features/checkpoint.ts）：一次搬很多条，整本退得回去。
+        await checkpointBefore(project, '按目录整理设定之前');
         const moved = await applyMoves(project, newFolders, moves);
         host.toast(`已搬 ${moved} 条设定${moved < moves.length ? `，${moves.length - moved} 条没搬（详见日志页）` : ''}。`);
       },

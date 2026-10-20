@@ -227,8 +227,8 @@ function skipReason(err: unknown): string {
   return `读不了：${err instanceof Error ? err.message : String(err)}`;
 }
 
-/** 日志里的查找串（第 11 条：日志里不出现正文全文；查找串本来就短，再截一下）。 */
-export function clip(text: string): string {
+/** 日志里的查找串（第 11 条：日志里不出现正文全文；查找串本来就短，再截一下）。存档点的备注截得更短（`max`）。 */
+export function clip(text: string, max = 30): string {
   const one = text.replace(/\s+/g, ' ');
-  return one.length > 30 ? `${one.slice(0, 30)}…` : one;
+  return one.length > max ? `${one.slice(0, max)}…` : one;
 }

@@ -51,6 +51,7 @@ import { checkPlotAgainstFacts } from './plotCheck';
 import { describePlanned, planThreadsFromOutline } from './threads';
 import { expandLoreEntries } from './lore';
 import { poolIO } from './poolIO';
+import { checkpointBefore } from './checkpoint';
 import { thinLoreFor } from '../views/lore';
 import { threadReminders } from '../views/threads';
 import { confirmDespiteGap } from './chapterGap';
@@ -194,6 +195,8 @@ async function runPlotBatches(
   await runTask(
     '批量拆细纲',
     async ({ signal, report }) => {
+      // 先存一个存档点（features/checkpoint.ts）：一次拆好几批、还要排叙事线，整本退得回去。
+      await checkpointBefore(project, `批量拆细纲之前（${where}）`);
       const startedAt = Date.now();
       let done = 0;
       let threadsNote = '';
@@ -324,6 +327,8 @@ async function fillSettings(
   await runTask(
     '补齐架构',
     async ({ signal, report }) => {
+      // 先存一个存档点（features/checkpoint.ts）：一次补好几件，整本退得回去。
+      await checkpointBefore(project, '补齐架构之前');
       for (let i = 0; i < missing.length; i++) {
         const doc = missing[i];
         const label = SETTING_DOC_LABEL[doc];
@@ -676,6 +681,10 @@ async function runWriteBatch(
   await runTask(
     '批量写章',
     async ({ signal, report, stopRequested, finish }) => {
+      // 先存一个存档点（features/checkpoint.ts）：补卡、边写边拆、写章、定稿都在后面，整本退得回去。
+      // 「边写边拆」拆细纲走的是 runPlotBatch，不另存。
+      const writing = rangeLabel(plan.chapters[0], plan.chapters[plan.chapters.length - 1]);
+      await checkpointBefore(project, `批量写章${mode === 'finalize' ? `（${MODE_LABEL.finalize}）` : ''}之前（${writing}）`);
       const startedAt = Date.now();
       const total = plan.chapters.length;
       const written: number[] = [];

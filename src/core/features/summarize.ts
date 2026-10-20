@@ -24,6 +24,7 @@ import { LoreLine, PLOT_LORE_KEY, loreLinesFromJson, parseLoreLines, renderLoreL
 import { checkLore, loreHint } from './loreRecord';
 import { STATE_OP } from './characterState';
 import { StateAndThreadsOutcome, updateStateAndThreads } from './finalizeSteps';
+import { checkpointBefore } from './checkpoint';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
 import { extractJsonObject, stripCodeFence, stripTrailingCommas } from './parse';
 import { GLOBAL_SYSTEM, REFINE_SYSTEM, STAGE_SYSTEM, SUMMARY_SYSTEM } from './summarizePrompt';
@@ -312,6 +313,8 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
     await runTask(
       '同步章节细纲',
       async ({ signal, report }) => {
+        // 先存一个存档点（features/checkpoint.ts）：逐章改细纲、角色卡与叙事线，整本退得回去。
+        await checkpointBefore(project, `同步章节细纲之前（${stale.length} 章）`);
         const startedAt = Date.now();
         const { ok: okCount, failed, updated } = await summarizeChapters(project, stale, { pool, lanes, signal, report });
         used += okCount + failed.length;
