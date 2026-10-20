@@ -1,6 +1,6 @@
 /**
  * 叙事线（2026-10-20 重做，设计见 docs/design/plans/2026-10-20-narrative-threads.md）：从情节大纲排出叙事线
- * （{@link generateThreads}、{@link planThreadsFromOutline}），定稿时判这一章推进了哪几条（{@link recordThreadEvents}）。
+ * （{@link generateThreads}、{@link planThreadsFromOutline}），定稿时认这一章在叙事线上发生了什么（{@link recordThreads}）。
  *
  * ## 排线
  *
@@ -18,13 +18,13 @@
  * 不进主按钮（第 20 条只推一个下一步，设计稿 ⚑8）：入口是工程页（七期那一行，第 8 个提交换成「叙事线」组
  * 标题旁的按钮）与 agent 的 `extract threads`；批量拆细纲开跑时一条线都没有，先排一次（features/pipelineBatch.ts）。
  *
- * ## 定稿时判事件
+ * ## 定稿时认事件、更新当前进度、归并
  *
- * 移植自同一个文件的 `generateEventCandidates`。上游要作者在编辑器里一条线一条线点「AI 识别
- * 定稿事件」再逐条确认；这里是定稿的第三步，**自动做、直接写**——与 D15 角色状态同一个理由：
- * 批量「写完即定稿」时没人看，而事件只是在一条线的「进展」里**追加**一行带原文的记录，
- * 不吞任何东西；证据逐字校验（`verifyThreadEvents`）就是那道闸。一次调用判所有还没收的线
- * （上游一次一条）。
+ * 认事件移植自同一个文件的 `generateEventCandidates`。上游要作者在编辑器里一条线一条线点「AI 识别定稿事件」再逐条
+ * 确认；这里是定稿的第三步，**自动做、直接写**——与 D15 角色状态同一个理由：批量「写完即定稿」时没人看，而事件只是在
+ * 一条线的「进展」里**追加**一行带原文的记录，不吞任何东西；证据逐字校验（`verifyFinds`）就是那道闸。线是空的也认：
+ * 正文里长出来的线只能在这里认出来（设计稿 ⚑6：定稿每章最少 2 次）。当前进度由机器维护、指纹守着（作者改过就不写），
+ * 照角色卡「当前状态」的做法。详见 {@link recordThreads}。
  */
 import { readConfig } from '../config';
 import { contextLimitsOf } from '../model/contextDetail';
@@ -41,37 +41,52 @@ import { NovelProject } from '../model/project';
 import { Chapter } from '../model/types';
 import { LlmProvider } from '../llm/provider';
 import { ONE_CALL, describeCalls } from '../model/pipeline';
+import { sectionLine } from '../model/plotFile';
 import { isOutlineFilled } from '../model/outlineFile';
 import { withCallChoice } from '../runtime/callScope';
 import { askCall } from './askCall';
 import { hasContent } from '../model/markdown';
 import { PREMISE_SECTION_KEYS } from '../model/settingFile';
 import {
-  Thread,
-  ThreadEvent,
-  ThreadEventType,
-  asOf,
-  fromThreadBook,
-  lastEvent,
-  threadStatus,
-  threadsToJudge,
-  toFileEvent,
-  verifyThreadEvents,
-} from '../model/threadsFile';
-import {
+  FoundEvent,
+  FoundForeshadow,
+  Foreshadowing,
+  JudgedForeshadow,
   NewThread,
   SAME_THREAD,
   THREAD_PLAN_LIMIT,
   Thread as LineThread,
+  ThreadEvent,
+  ThreadFinds,
+  ThreadKind,
+  ThreadMerge,
+  UNFILED_NAME,
+  UNFILED_TEMPLATE,
+  actualEvents,
   appendEvents,
+  appendForeshadowing,
+  applyMerges,
+  completeFinds,
   foreshadowNames,
+  foreshadowToJudge,
+  isForeshadowEvent,
+  parseThreadFile,
+  patchProgress,
+  plannedFor,
+  progressOwnedByMachine,
+  pruneChapterEvents,
   threadFileName,
   threadKey,
+  threadStatus,
+  threadsToJudge,
+  verifyFinds,
+  verifyMerges,
+  verifyProgress,
   verifyThreadPlans,
 } from '../model/threadFile';
 import { Workspace } from '../workspace';
-import { jsonList } from './parse';
-import { THREAD_EVENT_SYSTEM, threadPlanSystem } from './threadsPrompt';
+import { extractJsonObject, jsonList, stripCodeFence, stripTrailingCommas } from './parse';
+import { THREAD_FIND_SYSTEM, THREAD_MERGE_SYSTEM, THREAD_PROGRESS_SYSTEM, threadPlanSystem } from './threadsPrompt';
 
 const log = scoped('叙事线');
 
@@ -342,139 +357,417 @@ export function describePlanned(r: PlanThreadsOutcome, rel: string): string {
     : `排出的线在 ${rel}/ 里都已经有了，没有改动。`;
 }
 
-// ---------------------------------------------------------------- 定稿时判事件
+// ---------------------------------------------------------------- 定稿第三步：认事件、当前进度、归并
 
-export interface ThreadEventOutcome {
-  /** 调了几次模型：没有还没收的线时是 0。 */
+/** 失败记录的 op：定稿给一条线记了新进展，「当前进度」作者改过、没覆盖（挂在那条线的文件上）。 */
+export const PROGRESS_OP = 'threadProgress';
+
+/** {@link recordThreads} 的结果。 */
+export interface ThreadsOutcome {
+  /** 调了几次模型：认事件 1 次，当前进度、归并各 0–1 次。 */
   calls: number;
-  /** 记下的事件：哪条线、什么类型。 */
-  recorded: { title: string; type: ThreadEventType }[];
-  /** 没记的：证据找不到、认不出线、类型不对。 */
-  dropped: { thread: string; why: string }[];
-  /** 还没收的线超过一次能判的条数，没送去判的那几条。 */
+  /** 记下的实际事件：落在哪条线上（缺席是「未归属的伏笔」）。 */
+  recorded: FoundEvent[];
+  /** 从正文里认出、新建了文件的线。 */
+  newThreads: { name: string; kind: ThreadKind }[];
+  /** 新登记的伏笔：挂在哪条线上（缺席是「未归属的伏笔」）。 */
+  newForeshadowing: { name: string; line?: string }[];
+  /** 新认出的、其实是已有的那一条（并进去了，不另建）。 */
+  merged: ThreadMerge[];
+  /** 当前进度换成了这一章的那几条线。 */
+  progressed: string[];
+  /** 当前进度作者改过、没有覆盖的那几条线（挂了黄 ❗）。 */
+  guarded: string[];
+  /** 没记的：证据找不到、认不出是哪一条…… */
+  dropped: { what: string; why: string }[];
+  /** 重新定稿时清掉的、证据已经不在正文里的旧事件（设计稿 ⚑7）。 */
+  pruned: number;
+  /** 线与伏笔太多、这一次没送去认的。 */
   skipped: string[];
+  /** 当前进度那一次没成（认出来的照样记下了）。 */
+  progressError?: string;
+  /** 归并那一次没成（新认出的照新的建了）。 */
+  mergeError?: string;
 }
 
-/**
- * 送去判的一条线：名字、类型、状态、区间、意图、最近一次推进（都按写到这一章时算）。意图不截
- * （判得准要看全）。
- */
-function judgeLine(full: Thread, no: number): string {
-  const t = asOf(full, no);
-  const range = t.from !== undefined && t.to !== undefined ? `计划第 ${t.from}–${t.to} 章` : '';
-  const head = [t.kind, threadStatus(t), range].filter(Boolean).join(' · ');
-  const last = lastEvent(t);
-  return `- ${t.title}（${head}）${t.intent ? `意图：${t.intent}` : ''}${last ? `；最近：第 ${last.chapter} 章${last.type}` : ''}`;
+interface StepOpts {
+  run: <T>(what: string, fn: (llm: LlmProvider) => Promise<T>) => Promise<T>;
+  budget: { contextWindow: number; maxOutputTokens: number };
+  signal?: AbortSignal;
 }
 
-/**
- * 定稿第三步：判这一章推进了哪几条还没收的叙事线，证据逐字校验后追加进那条线的「进展」。
- *
- * `run` 决定怎么调模型（同 `updateCharacterStates`）：单章入口直接用对话页选定的那个，批量
- * 入口传「定稿」档（`plotSummary`）的池。调用失败或解析不出来时抛错——细纲已经更新好了，由调用方把失败
- * 挂在章节上。
- */
-export async function recordThreadEvents(
-  project: NovelProject,
-  chapter: Chapter,
-  opts: {
-    run: <T>(what: string, fn: (llm: LlmProvider) => Promise<T>) => Promise<T>;
-    budget: { contextWindow: number; maxOutputTokens: number };
-    signal?: AbortSignal;
-  }
-): Promise<ThreadEventOutcome> {
-  const out: ThreadEventOutcome = { calls: 0, recorded: [], dropped: [], skipped: [] };
-  const threads = fromThreadBook(await project.readThreads());
-  const plot = await project.plotOfChapter(chapter);
+/** 调一次模型、取回 JSON 对象。解析不出来抛错（`what` 写进错误里）。 */
+async function askJson(opts: StepOpts, label: string, system: string, user: string, temperature: number, what: string): Promise<Record<string, unknown>> {
   const config = readConfig();
-  const { judged, skipped } = threadsToJudge(
-    threads,
-    {
-      no: chapter.order,
-      plotText: plot ? [plot.title, ...Object.values(plot.sections)].join('\n') : chapter.title,
-      names: plot?.characters ?? [],
-    },
-    contextLimitsOf(config).threadJudge
-  );
-  out.skipped = skipped.map((t) => t.title);
-  if (judged.length === 0) {
-    log.info(`第 ${chapter.order} 章定稿：没有还没收的叙事线，不判`);
-    return out;
-  }
-  if (skipped.length > 0) {
-    log.warn(`还没收的叙事线超过 ${judged.length} 条，第 ${chapter.order} 章只判了前 ${judged.length} 条`, `没判：${out.skipped.join('、')}`);
-  }
-
-  const text = await project.readChapterText(chapter);
-  const roster = judged.map((t) => judgeLine(t, chapter.order)).join('\n');
-  const inputBudget = Math.max(2000, opts.budget.contextWindow - opts.budget.maxOutputTokens - 1500 - estimateTokens(roster));
-  const body = takeHead(text, inputBudget);
-  if (body.length < text.length) {
-    log.warn(`第 ${chapter.order} 章正文超出输入预算，判叙事线时已截断`, `${text.length} 字 → ${body.length} 字`);
-  }
-  const user =
-    `【第${chapter.order}章 ${chapter.title}】\n\n${body}\n\n` + `【还没收的叙事线】\n${roster}\n\n请按要求输出 JSON。`;
   const options: StreamOptions = {
     maxOutputTokens: opts.budget.maxOutputTokens,
-    temperature: 0.2,
+    temperature,
     timeoutMs: config.requestTimeoutMs,
     signal: opts.signal,
   };
-
-  out.calls = 1;
-  const raw = await opts.run(`第 ${chapter.order} 章 · 叙事线`, (llm) =>
+  const raw = await opts.run(label, (llm) =>
     collectText(
       llm.stream(
         [
-          { role: 'system', content: THREAD_EVENT_SYSTEM },
+          { role: 'system', content: system },
           { role: 'user', content: user },
         ],
         options
       )
     )
   );
-  const list = jsonList(raw, 'events');
-  if (!list) {
-    throw new Error('模型返回的叙事线事件解析不出来');
+  const json = extractJsonObject(stripCodeFence(raw));
+  try {
+    const value: unknown = json ? JSON.parse(stripTrailingCommas(json)) : undefined;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+  } catch {
+    // 落到下面那一句。
   }
-  // 证据对的是整章正文（不是截过的那一截）：截掉的后半章里的原句同样是正文。
-  const { events, dropped } = verifyThreadEvents(list, judged, chapter.order, text);
-  out.dropped = dropped;
+  throw new Error(`模型返回的${what}解析不出来`);
+}
 
-  if (events.length > 0) {
-    const byThread = new Map<string, { title: string; relPath: string; events: ThreadEvent[] }>();
-    for (const { thread, event } of events) {
-      const entry = byThread.get(thread.title) ?? { title: thread.title, relPath: thread.relPath ?? '', events: [] };
-      entry.events.push(event);
-      byThread.set(thread.title, entry);
-    }
-    // 写之前重读（同排线）：只在此刻的原文上追加。这几十秒里作者把哪条线删了，就记不上它。
-    const ws = new Workspace(project);
-    for (const entry of byThread.values()) {
-      let gone = false;
-      await ws.updateThread(entry.relPath, (raw) => {
-        if (!raw.trim()) {
-          gone = true;
-          return undefined;
-        }
-        return appendEvents(raw, entry.events.map(toFileEvent)).text;
-      });
-      if (gone) {
-        out.dropped.push({ thread: entry.title, why: '这条线的文件找不到了（改了名或删了）' });
-        continue;
+/** 送去认的一条线：名字、种类、状态、区间、意图、现在走到哪、最近一次实际事件（都按写到这一章时算）。 */
+function judgeLine(t: LineThread): string {
+  const range = t.from !== undefined || t.to !== undefined ? `计划第 ${t.from ?? '?'}–${t.to ?? '?'} 章` : '';
+  const head = [t.kind, threadStatus(t), range].filter(Boolean).join(' · ');
+  const last = actualEvents(t).slice(-1)[0];
+  return [
+    `- ${t.name}（${head}）`,
+    t.intent ? `意图：${clipLine(t.intent, 80)}` : '',
+    t.progress ? `；现在：${clipLine(t.progress, 80)}` : '',
+    last ? `；最近：第 ${last.chapter} 章${last.type}${last.foreshadowing ? `〈${last.foreshadowing}〉` : ''}：${clipLine(last.what, 40)}` : '',
+  ].join('');
+}
+
+/** 送去认的一条伏笔。 */
+function judgeForeshadow(f: JudgedForeshadow): string {
+  const when = f.resolve !== undefined ? ` · 计划第 ${f.resolve} 章前收` : '';
+  return `- ${f.name}（挂在「${f.line ?? UNFILED_NAME}」· ${f.status}${when}）${f.what ? `是什么：${clipLine(f.what, 60)}` : ''}`;
+}
+
+/**
+ * 定稿第三步（设计稿「三」）：叙事线 1–3 次。
+ *
+ * ```
+ * a. 认事件（1 次，线是空的也跑）：正文 + 没收束的线 + 没收的伏笔 + 本章计划 → 实际事件、新线、新伏笔、关系变动
+ *    （verifyFinds：证据逐字校验）
+ * c. 归并（0–1 次）：a 报了新线 / 新伏笔、又有已有的可比 → 是不是已有的那一条换了个说法
+ * 写盘：清掉这一章证据已经不在正文里的旧事件 → 新线建文件、新伏笔与事件追加（只追加，第 19 条）
+ * b. 当前进度（0–1 次）：本章有实际事件的那几条线（作者改过的不送、挂黄 ❗）→ 各自的当前进度（指纹守着）
+ * ```
+ *
+ * 归并排在当前进度之前（⚑，设计稿把它列在 b 后面）：先定下事件落在哪条线上，当前进度才写得到对的那几条线。
+ *
+ * 一期细纲的「新增伏笔」一节还在（二期换成计划事件后删），定稿时把它当作本章计划要埋的伏笔一起交给模型。
+ *
+ * `run` 决定怎么调模型（同 `updateCharacterStates`）：单章入口直接用对话页选定的那个，批量入口传「定稿」档
+ * （`plotSummary`）的池。a 调用失败或解析不出来时抛错——细纲已经更新好了，由调用方把失败挂在章节上；b、c 失败只记在
+ * 结果里（a 记下的照样算数），取消照样抛出去。
+ */
+export async function recordThreads(project: NovelProject, chapter: Chapter, opts: StepOpts): Promise<ThreadsOutcome> {
+  const out: ThreadsOutcome = {
+    calls: 0,
+    recorded: [],
+    newThreads: [],
+    newForeshadowing: [],
+    merged: [],
+    progressed: [],
+    guarded: [],
+    dropped: [],
+    pruned: 0,
+    skipped: [],
+  };
+  const no = chapter.order;
+  const book = await project.readThreads();
+  const plot = await project.plotOfChapter(chapter);
+  const limits = contextLimitsOf(readConfig());
+  const plotText = plot ? [plot.title, ...Object.values(plot.sections)].join('\n') : chapter.title;
+  const lines = threadsToJudge(book, no, plotText, limits.threadJudge);
+  const fores = foreshadowToJudge(book, no, limits.foreshadowJudge);
+  out.skipped = [...lines.skipped.map((t) => t.name), ...fores.skipped.map((f) => `〈${f.name}〉`)];
+  if (out.skipped.length > 0) {
+    log.warn(`第 ${no} 章定稿：还没收的线与伏笔超过一次能认的条数，有 ${out.skipped.length} 条没送去`, out.skipped.join('、'));
+  }
+
+  // 本章计划：各条线里这一章的计划事件；一期细纲的「新增伏笔」还在，当作本章计划要埋的伏笔。
+  const plan = plannedFor(book, no).map(
+    (p) => `- ${p.line ?? UNFILED_NAME}：${p.event.type}${p.event.foreshadowing ? `〈${p.event.foreshadowing}〉` : ''}——${p.event.what}`
+  );
+  if (plot && hasContent(plot.sections.新增伏笔)) {
+    plan.push(`- 细纲「新增伏笔」：${sectionLine(plot.sections.新增伏笔)}`);
+  }
+  const rest = [
+    plan.length > 0 ? `【本章计划（这一章本来要干什么，只帮你认；正文没写到的不要列）】\n${plan.join('\n')}` : '',
+    `【还没收束的叙事线】\n${lines.judged.map(judgeLine).join('\n') || '（还没有）'}`,
+    `【还没收的伏笔】\n${fores.judged.map(judgeForeshadow).join('\n') || '（还没有）'}`,
+    '请按要求输出 JSON。',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  const text = await project.readChapterText(chapter);
+  const inputBudget = Math.max(2000, opts.budget.contextWindow - opts.budget.maxOutputTokens - 1500 - estimateTokens(rest));
+  const body = takeHead(text, inputBudget);
+  if (body.length < text.length) {
+    log.warn(`第 ${no} 章正文超出输入预算，认叙事线时已截断`, `${text.length} 字 → ${body.length} 字`);
+  }
+
+  // a. 认事件。
+  out.calls = 1;
+  const found = await askJson(
+    opts,
+    `第 ${no} 章 · 叙事线`,
+    THREAD_FIND_SYSTEM,
+    `【第${no}章 ${chapter.title}】\n\n${body}\n\n${rest}`,
+    0.2,
+    '叙事线事件'
+  );
+  // 证据对的是整章正文（不是截过的那一截）：截掉的后半章里的原句同样是正文。
+  let finds = verifyFinds(found, { chapter: no, text, judged: lines.judged, book });
+  out.dropped = [...finds.dropped];
+
+  // c. 归并：新认出的线 / 伏笔，是不是已有的那一条换了个说法。
+  const knownFore = foreshadowNames(book);
+  if ((finds.newThreads.length > 0 && book.threads.length > 0) || (finds.newForeshadowing.length > 0 && knownFore.length > 0)) {
+    out.calls += 1;
+    try {
+      const user = [
+        finds.newThreads.length > 0 ? `【新认出的叙事线】\n${finds.newThreads.map((t) => `- ${t.name}（${t.kind}）${t.intent}`).join('\n')}` : '',
+        finds.newThreads.length > 0 ? `【已有的叙事线】\n${book.threads.map((t) => `- ${t.name}（${t.kind}）${clipLine(t.intent, 60)}`).join('\n')}` : '',
+        finds.newForeshadowing.length > 0 ? `【新认出的伏笔】\n${finds.newForeshadowing.map((f) => `- ${f.name}：${f.what}`).join('\n')}` : '',
+        finds.newForeshadowing.length > 0 ? `【已有的伏笔】\n${knownFore.join('、')}` : '',
+        '请按要求输出 JSON。',
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+      const merged = await askJson(opts, `第 ${no} 章 · 叙事线归并`, THREAD_MERGE_SYSTEM, user, 0.1, '归并结果');
+      out.merged = verifyMerges(Array.isArray(merged.merges) ? merged.merges : [], finds, book);
+      finds = applyMerges(finds, out.merged, book);
+    } catch (err) {
+      if (err instanceof CancelledError || opts.signal?.aborted) {
+        throw err;
       }
-      out.recorded.push(...entry.events.map((e) => ({ title: entry.title, type: e.type })));
+      out.mergeError = describeError(err);
+      log.warn(`第 ${no} 章的叙事线归并没成：${out.mergeError}（新认出的照新的建）`, err);
     }
   }
+  finds = completeFinds(finds, no);
+
+  await writeFinds(project, finds, no, text, out);
+  await updateProgress(project, chapter, out, opts);
 
   log.info(
-    `第 ${chapter.order} 章的叙事线已处理`,
+    `第 ${no} 章的叙事线已处理`,
     [
-      out.recorded.length > 0 ? `记下 ${out.recorded.map((r) => `${r.title}·${r.type}`).join('、')}` : '本章没有推进哪条线',
-      out.dropped.length > 0 ? `没记 ${out.dropped.map((d) => `${d.thread}（${d.why}）`).join('、')}` : '',
+      describeThreads(out),
+      out.dropped.length > 0 ? `没记 ${out.dropped.map((d) => `${d.what}（${d.why}）`).join('、')}` : '',
     ]
       .filter(Boolean)
       .join('｜')
   );
   return out;
+}
+
+/** 落在哪条线上的键（缺席是「未归属的伏笔」，键是空串）。 */
+const lineKey = (line: string | undefined): string => (line ? threadKey(line) : '');
+
+/**
+ * 写盘：清掉这一章证据已经不在正文里的机器事件（⚑7）→ 新线一条一个新文件 → 已有的线与「未归属的伏笔」追加新伏笔与
+ * 事件。都在写之前那一刻重读（`updateThread`）：这几十秒里作者删了哪条线，就记不上它、说出来。
+ */
+async function writeFinds(project: NovelProject, finds: ThreadFinds, no: number, text: string, out: ThreadsOutcome): Promise<void> {
+  const ws = new Workspace(project);
+  const events = new Map<string, FoundEvent[]>();
+  for (const e of finds.events) {
+    events.set(lineKey(e.line), [...(events.get(lineKey(e.line)) ?? []), e]);
+  }
+  const fores = new Map<string, FoundForeshadow[]>();
+  for (const f of finds.newForeshadowing) {
+    fores.set(lineKey(f.line), [...(fores.get(lineKey(f.line)) ?? []), f]);
+  }
+  const done = new Set<string>();
+  const asForeshadowing = (list: FoundForeshadow[]): Foreshadowing[] => list.map((f) => ({ name: f.name, what: f.what }));
+
+  for (const t of finds.newThreads) {
+    const key = lineKey(t.name);
+    done.add(key);
+    const mine = events.get(key) ?? [];
+    const myFores = fores.get(key) ?? [];
+    const rel = await ws.createThread({
+      name: t.name,
+      kind: t.kind,
+      origin: '正文',
+      intent: t.intent,
+      foreshadowing: asForeshadowing(myFores),
+      events: mine.map((e) => e.event),
+    });
+    if (!rel) {
+      out.dropped.push({ what: `新线 ${t.name}`, why: '同名的文件已经有了' });
+      continue;
+    }
+    out.newThreads.push({ name: t.name, kind: t.kind });
+    out.newForeshadowing.push(...myFores.map((f) => ({ name: f.name, line: t.name })));
+    out.recorded.push(...mine);
+  }
+
+  const now = await project.readThreads();
+  const files: { rel: string; line?: string }[] = [
+    ...now.threads.map((t) => ({ rel: t.relPath, line: t.name })),
+    { rel: now.unfiled.relPath },
+  ];
+  for (const f of files) {
+    const key = lineKey(f.line);
+    if (done.has(key)) {
+      continue;
+    }
+    done.add(key);
+    const mine = events.get(key) ?? [];
+    const myFores = fores.get(key) ?? [];
+    let added: ThreadEvent[] = [];
+    let addedFore: Foreshadowing[] = [];
+    let removed = 0;
+    await ws.updateThread(f.rel, (raw) => {
+      const exists = !!raw.trim();
+      if (!exists && (f.line || (mine.length === 0 && myFores.length === 0))) {
+        // 线的文件这几十秒里没了；「未归属的伏笔」没有、也没有要写的，就不建。
+        return undefined;
+      }
+      const pruned = pruneChapterEvents(exists ? raw : UNFILED_TEMPLATE, no, text);
+      removed = pruned.removed.length;
+      const withFore = appendForeshadowing(pruned.text, asForeshadowing(myFores));
+      addedFore = withFore.added;
+      const withEvents = appendEvents(withFore.text, mine.map((e) => e.event));
+      added = withEvents.added;
+      return withEvents.text;
+    });
+    out.pruned += removed;
+    out.newForeshadowing.push(...addedFore.map((x) => ({ name: x.name, ...(f.line ? { line: f.line } : {}) })));
+    out.recorded.push(...mine.filter((e) => added.includes(e.event)));
+  }
+  // 落在一条已经找不到的线上的（这几十秒里作者删了、改了名）：记不上，说出来。
+  for (const [key, mine] of events) {
+    if (!done.has(key)) {
+      out.dropped.push(...mine.map((e) => ({ what: e.line ?? UNFILED_NAME, why: '这条线的文件找不到了（改了名或删了）' })));
+    }
+  }
+  if (out.pruned > 0) {
+    log.info(`第 ${no} 章重新定稿：清掉 ${out.pruned} 条证据已经不在正文里的旧事件（旧版存进了历史版本）`);
+  }
+}
+
+/**
+ * b. 当前进度：本章有实际事件的那几条线，一次写完。照角色卡「当前状态」的做法（第 19 条的例外）：空的或指纹对得上才写，
+ * 作者改过的不送去、挂黄 ❗ 在那条线上；已经写到更晚那一章的不回退（重新定稿早前的章时）。写之前那一刻再认一遍归属。
+ */
+async function updateProgress(project: NovelProject, chapter: Chapter, out: ThreadsOutcome, opts: StepOpts): Promise<void> {
+  const no = chapter.order;
+  const touched = new Set(out.recorded.filter((e) => e.line).map((e) => lineKey(e.line)));
+  if (touched.size === 0) {
+    return;
+  }
+  const book = await project.readThreads();
+  const ws = new Workspace(project);
+  const send: LineThread[] = [];
+  for (const t of book.threads) {
+    if (!touched.has(lineKey(t.name)) || (t.progressThrough !== undefined && t.progressThrough > no)) {
+      continue;
+    }
+    if (!progressOwnedByMachine(t)) {
+      out.guarded.push(t.name);
+      await recordFailure(project, {
+        scope: '叙事线',
+        targetKind: 'threads',
+        targetKey: t.relPath,
+        severity: 'warn',
+        op: PROGRESS_OP,
+        message: `第 ${no} 章定稿给这条线记了新进展，「当前进度」你改过，没有覆盖`,
+        detail: '这一节你改过，就归你写了，机器不再覆盖。想让定稿接着维护，把这一节清空，下次定稿就会写。',
+      });
+      continue;
+    }
+    send.push(t);
+  }
+  if (send.length === 0) {
+    return;
+  }
+  const mine = (t: LineThread): string =>
+    out.recorded
+      .filter((e) => lineKey(e.line) === lineKey(t.name))
+      .map((e) => `${e.event.type}${e.event.foreshadowing ? `〈${e.event.foreshadowing}〉` : ''}：${e.event.what}`)
+      .join('；');
+  const user =
+    `【第${no}章 ${chapter.title}】\n\n` +
+    send
+      .map((t) => `- ${t.name}（${t.kind}）意图：${t.intent || '（没写）'}\n  原来的当前进度：${t.progress || '（空）'}\n  这一章：${mine(t)}`)
+      .join('\n') +
+    '\n\n请按要求输出 JSON。';
+  out.calls += 1;
+  try {
+    const answer = await askJson(opts, `第 ${no} 章 · 叙事线当前进度`, THREAD_PROGRESS_SYSTEM, user, 0.3, '当前进度');
+    const items = verifyProgress(Array.isArray(answer.progress) ? answer.progress : [], send.map((t) => t.name));
+    for (const item of items) {
+      const t = send.find((x) => x.name === item.line)!;
+      let mineNow = true;
+      await ws.updateThread(t.relPath, (raw) => {
+        // 这几十秒里作者改了这一节：照样不覆盖。
+        if (!raw.trim() || !progressOwnedByMachine(parseThreadFile(raw, t.relPath))) {
+          mineNow = false;
+          return undefined;
+        }
+        return patchProgress(raw, item.text, no);
+      });
+      if (mineNow) {
+        await clearFailures(project, 'threads', t.relPath, PROGRESS_OP);
+        out.progressed.push(t.name);
+      } else {
+        out.guarded.push(t.name);
+      }
+    }
+  } catch (err) {
+    if (err instanceof CancelledError || opts.signal?.aborted) {
+      throw err;
+    }
+    out.progressError = describeError(err);
+    log.warn(`第 ${no} 章的叙事线当前进度没更新成：${out.progressError}`, err);
+  }
+}
+
+/**
+ * 完成提示里叙事线那一句（设计稿：一定说叙事线）：「叙事线：林昭与沈青推进、关系；埋〈玉佩的来历〉；新认出 1 条线〈沈家旧案〉
+ * （支线）」；什么都没认出就说「叙事线没有新进展」。当前进度、没记的、清掉的旧记录、没成的那一步跟在后面（第 2 条）。
+ */
+export function describeThreads(o: ThreadsOutcome): string {
+  const fresh = new Set(o.newThreads.map((t) => lineKey(t.name)));
+  const byLine = new Map<string, { line: string; types: string[] }>();
+  const fores: string[] = [];
+  for (const e of o.recorded) {
+    if (isForeshadowEvent(e.event.type)) {
+      const s = `${e.event.type}〈${e.event.foreshadowing}〉`;
+      if (!fores.includes(s)) {
+        fores.push(s);
+      }
+    } else if (e.line && !fresh.has(lineKey(e.line))) {
+      const entry = byLine.get(lineKey(e.line)) ?? { line: e.line, types: [] };
+      if (!entry.types.includes(e.event.type)) {
+        entry.types.push(e.event.type);
+      }
+      byLine.set(lineKey(e.line), entry);
+    }
+  }
+  const news = [
+    ...[...byLine.values()].map((x) => `${x.line}${x.types.join('、')}`),
+    ...fores,
+    o.newThreads.length > 0 ? `新认出 ${o.newThreads.length} 条线${o.newThreads.map((t) => `〈${t.name}〉（${t.kind}）`).join('')}` : '',
+    ...o.merged.map((m) => `〈${m.from}〉并进了〈${m.into}〉`),
+  ].filter(Boolean);
+  const extra = [
+    o.progressed.length > 0 ? `${o.progressed.join('、')}的当前进度更新到这一章` : '',
+    o.guarded.length > 0 ? `${o.guarded.join('、')}的当前进度你改过，没有覆盖（线上挂了黄 ❗）` : '',
+    o.dropped.length > 0 ? `另有 ${o.dropped.length} 条叙事线的记录没有收（证据在正文里找不到，或认不出是哪一条）` : '',
+    o.pruned > 0 ? `清掉 ${o.pruned} 条证据已经不在正文里的旧记录` : '',
+    o.progressError ? `叙事线的当前进度没更新成（${o.progressError}）` : '',
+    o.mergeError ? `叙事线的归并没判成（${o.mergeError}），新认出的照新的建了` : '',
+  ].filter(Boolean);
+  return [news.length > 0 ? `叙事线：${news.join('；')}` : '叙事线没有新进展', ...extra].join('；');
 }

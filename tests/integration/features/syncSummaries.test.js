@@ -35,6 +35,7 @@ let brokenNo;
 
 const STATE_MARK = '依据本章正文更新角色的「当前状态」';
 const THREAD_MARK = '你是小说定稿事实审查员';
+const PROGRESS_MARK = '给每一条写一两句「当前进度」';
 
 function reply(messages) {
   const system = messages[0]?.content ?? '';
@@ -59,8 +60,13 @@ function reply(messages) {
   }
   if (system.includes(THREAD_MARK)) {
     return JSON.stringify({
-      events: [{ thread: '玉佩的来历', type: '推进', evidence: `林昭在第${no}章摸了摸怀里的玉佩`, reason: '玉佩又露面' }],
+      events: [{ line: '玉佩的来历', type: '推进', what: '玉佩又露面', evidence: `林昭在第${no}章摸了摸怀里的玉佩` }],
+      newThreads: [],
+      newForeshadowing: [],
     });
+  }
+  if (system.includes(PROGRESS_MARK)) {
+    return JSON.stringify({ progress: [{ line: '玉佩的来历', text: `第 ${no} 章，玉佩还在林昭怀里。` }] });
   }
   return '（认不出这一步）';
 }
@@ -131,8 +137,8 @@ describe('同步：三章逐章定稿，角色状态与叙事线按章号走', (
   test('确认框写明三步与次数', () => {
     const { message, detail } = h.confirms.at(-1);
     assert.ok(message.startsWith('有 3 章写了正文还没定稿'), message);
-    assert.ok(message.includes('更新出场角色的当前状态、记下推进了哪几条叙事线'), message);
-    assert.ok(message.includes('预计 3–9 次调用'), message);
+    assert.ok(message.includes('更新出场角色的当前状态、认这一章在叙事线上发生了什么'), message);
+    assert.ok(message.includes('预计 6–15 次调用'), message);
     assert.ok(detail.includes('角色状态与叙事线按章号逐章串行'), detail);
   });
 
@@ -155,14 +161,24 @@ describe('同步：三章逐章定稿，角色状态与叙事线按章号走', (
     assert.ok(/stateThrough: 3/.test(text), text);
   });
 
-  test('那条线按章记上了三条事件', () => {
+  test('那条线按章记上了三条事件，当前进度推到了第 3 章', () => {
     const thread = bundle.threadFile.parseThreadFile(t.read(THREADS), THREADS);
     assert.deepEqual(thread.events.map((e) => e.chapter), [1, 2, 3]);
+    assert.equal(thread.progress, '第 3 章，玉佩还在林昭怀里。');
+    assert.equal(thread.progressThrough, 3);
   });
 
-  test('返回实际调用次数：3 章 × 3 步', () => {
-    assert.equal(used, 9);
-    assert.equal(fake.calls.length, 9);
+  test('返回实际调用次数：3 章 ×（细纲、角色状态、认叙事线、当前进度）', () => {
+    assert.equal(used, 12);
+    assert.equal(fake.calls.length, 12);
+  });
+
+  // 叙事线重做：按实际结果说，不再一律说「跟到了这几章」。
+  test('完成提示按实际结果说角色状态与叙事线', () => {
+    const done = h.toasts.map((m) => String(m.message ?? m)).find((m) => m.includes('已定稿 3 章'));
+    assert.ok(done, JSON.stringify(h.toasts));
+    assert.ok(done.includes('林昭的当前状态更新到了最后定稿的那一章') && done.includes('叙事线：记下 3 个事件'), done);
+    assert.ok(!done.includes('跟到了这几章'), done);
   });
 });
 
@@ -190,8 +206,8 @@ describe('同步：第一步没成的章不走后两步', () => {
     assert.ok(!(await project.readPlot(PLOT(4)))?.sourceHash);
   });
 
-  test('失败的那一次也算钱：2 次更新细纲 + 第 5 章的 2 次', () => {
-    assert.equal(used, 4);
+  test('失败的那一次也算钱：2 次更新细纲 + 第 5 章的 3 次', () => {
+    assert.equal(used, 5);
   });
 
   test('收尾提示说出哪一章细纲没更新成', () => {

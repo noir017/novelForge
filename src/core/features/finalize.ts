@@ -5,15 +5,16 @@
  * 1. 反向更新细纲（1 次）：当前细纲 + 正文 → 八节（含连续性事实）→ 证据用 bigram 在正文里找（0 次）
  *    → 旧版进回收站 → 落盘（记 sourceHash / cast，writtenFrom 刷新）
  * 2. 角色状态（0–1 次）：本章出场、已经建卡的人 → 按归属写、或挂黄 ❗
- * 3. 叙事线（0–1 次）：还没收的线 → 判本章推进了哪几条 → 证据逐字校验 → 追加事件
+ * 3. 叙事线（1–3 次）：a 认事件（线是空的也认）→ c 有新线 / 新伏笔时归并 → 证据逐字校验后追加
+ *    → b 本章动过的线更新当前进度（作者改过的不写）
  * ```
  *
  * 后两步读的都是第一步更新过的那份细纲（出场人物）与正文。
  *
  * 前两步移植自 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator）`finalize-chapter.command.ts` 的
  * `buildFinalizePostProcessSteps`（FC:246-563）的后两步。知识库导入、定稿收据、来源 hash、
- * 项目租约不搬（总计划 §1 #14）。第三步上游不在定稿里（是叙事线编辑器里的一颗按钮），见
- * features/threads.ts。
+ * 项目租约不搬（总计划 §1 #14）。第三步上游不在定稿里（是叙事线编辑器里的一颗按钮），叙事线重做之后
+ * 拆成认事件 / 当前进度 / 归并三段，见 features/threads.ts 的 `recordThreads`。
  *
  * ## 几步的失败各算各的
  *
@@ -39,6 +40,7 @@ import { NovelProject } from '../model/project';
 import { Chapter } from '../model/types';
 import { SummaryOutcome, summarizeChapter } from './summarize';
 import { ModelRunner, StateAndThreadsOutcome, updateStateAndThreads } from './finalizeSteps';
+import { describeThreads } from './threads';
 
 export type { ModelRunner } from './finalizeSteps';
 
@@ -59,14 +61,14 @@ export interface FinalizeOptions {
   summary?: ModelRunner;
   /** 角色状态那一步用谁。缺省同更新细纲。 */
   state?: ModelRunner;
-  /** 叙事线那一步用谁。缺省同更新细纲（读一章、按合同摘出东西，是同一种活）。 */
+  /** 叙事线那一步（认事件、当前进度、归并）用谁。缺省同更新细纲（读一章、按合同摘出东西，是同一种活）。 */
   threads?: ModelRunner;
   /** 走到第几步了（任务条上那一行）。 */
   onStep?(step: 'summary' | 'state' | 'threads'): void;
 }
 
 export interface FinalizeOutcome extends StateAndThreadsOutcome {
-  /** 实际调了几次模型（三步合计）。 */
+  /** 实际调了几次模型（三步合计，2–5）。 */
   calls: number;
   summary: SummaryOutcome;
 }
@@ -107,8 +109,9 @@ export async function finalizeChapter(
 }
 
 /**
- * 「第 3 章已定稿：细纲照正文更新，7 条连续性事实；林昭、沈氏的当前状态更新到这一章；叙事线：玉佩的来历埋下。」
- * 丢了的事实、没覆盖的卡、没记的事件、没成的那一步都说出来（第 2 条）；旧版细纲进了回收站也说。
+ * 「第 3 章已定稿：细纲照正文更新，7 条连续性事实；林昭、沈氏的当前状态更新到这一章；叙事线：林昭与沈青推进；
+ * 埋〈玉佩的来历〉」。叙事线一定说（设计稿：什么都没认出就说「叙事线没有新进展」）。丢了的事实、没覆盖的卡、没记的事件、
+ * 没成的那一步都说出来（第 2 条）；旧版细纲进了回收站也说。
  */
 export function describeFinalize(no: number, o: FinalizeOutcome): string {
   const parts = [
@@ -131,18 +134,10 @@ export function describeFinalize(no: number, o: FinalizeOutcome): string {
       parts.push('出场的人都还没有角色卡，没有状态可更新');
     }
   }
-  const th = o.threads;
   if (o.threadsError) {
-    parts.push(`叙事线没判成（${o.threadsError}）`);
-  } else if (th && th.calls > 0) {
-    parts.push(
-      th.recorded.length > 0
-        ? `叙事线：${th.recorded.map((r) => `${r.title}${r.type}`).join('、')}`
-        : '叙事线没有新进展'
-    );
-    if (th.dropped.length > 0) {
-      parts.push(`另有 ${th.dropped.length} 条叙事线事件没有记（证据在正文里找不到，或认不出是哪一条线）`);
-    }
+    parts.push(`叙事线没认成（${o.threadsError}）`);
+  } else if (o.threads) {
+    parts.push(describeThreads(o.threads));
   }
   return `${parts.join('；')}。`;
 }

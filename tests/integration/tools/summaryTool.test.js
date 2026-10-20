@@ -110,7 +110,7 @@ describe('同步与重建：确认框照弹，作者取消就零调用', () => {
     const r = await run({ action: 'sync' });
     assert.equal(
       h.confirms.at(-1).message,
-      '有 1 章写了正文还没定稿（或定稿后正文又改过），逐章定稿：照正文更新细纲、更新出场角色的当前状态、记下推进了哪几条叙事线。预计 1–3 次调用。现在同步？'
+      '有 1 章写了正文还没定稿（或定稿后正文又改过），逐章定稿：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么。预计 2–5 次调用。现在同步？'
     );
     assert.ok(r.text.includes('批量定稿这一次没有调用模型'), r.text);
     assert.ok(r.text.includes('不要重试'), r.text);
@@ -206,14 +206,15 @@ describe('定稿：按章号认，给细纲路径也行', () => {
     assert.ok(t.has('.novelforge/.trash/.novelforge/summaries/001-夜入青云.md'));
   });
 
-  test('调了一次、记了一次，气泡里也说了', () => {
-    assert.equal(fake.calls.length, 1, String(fake.calls.length));
-    assert.equal(ctx.usage.calls, 1);
-    assert.ok(reports.some((m) => m.includes('调用模型 1 次')), JSON.stringify(reports));
+  // 更新细纲 1 次 + 认叙事线 1 次（叙事线重做：线是空的也认）；没有角色卡，角色状态不调。
+  test('调了两次、记了两次，气泡里也说了', () => {
+    assert.equal(fake.calls.length, 2, String(fake.calls.length));
+    assert.equal(ctx.usage.calls, 2);
+    assert.ok(reports.some((m) => m.includes('调用模型 2 次')), JSON.stringify(reports));
   });
 
   test('display 写着这一下调了几次', () => {
-    assert.deepEqual(r.display, { title: 'summary finalize', detail: '1 次调用' });
+    assert.deepEqual(r.display, { title: 'summary finalize', detail: '2 次调用' });
   });
 
   test('越界路径给 error，且不调模型', async () => {

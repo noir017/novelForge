@@ -53,6 +53,7 @@ describe('model/contextDetail · 级别表', () => {
         referenceSamples: 5,
         threadPlanOutlineChars: 8000,
         threadJudge: 12,
+        foreshadowJudge: 16,
         loreFull: 6,
         loreLines: 40,
         loreChars: 5000,

@@ -76,9 +76,17 @@ function isState(messages) {
 function isReview(messages) {
   return (messages[0]?.content ?? '').includes('严谨的小说审稿编辑');
 }
+/** 定稿第三步认叙事线（叙事线重做：每次定稿都跑，线是空的也跑）。 */
+function isFind(messages) {
+  return (messages[0]?.content ?? '').includes('你是小说定稿事实审查员');
+}
+const NOTHING_FOUND = JSON.stringify({ events: [], newThreads: [], newForeshadowing: [] });
 
-/** 缺省的应答：正文一次写够，定稿（照正文更新细纲）与状态各给一份。 */
+/** 缺省的应答：正文一次写够，定稿（照正文更新细纲）与状态各给一份，叙事线什么都认不出。 */
 function defaultReply(messages) {
+  if (isFind(messages)) {
+    return NOTHING_FOUND;
+  }
   if (isSummary(messages)) {
     const no = Number(/【第(\d+)章/.exec(messages[messages.length - 1].content)?.[1] ?? 0);
     return JSON.stringify({
@@ -221,10 +229,10 @@ describe('写完即定稿；已有正文的跳过；弹窗确认过的不再问'
     assert.equal(h.confirms.length, 0);
   });
 
-  test('写一章、定稿一章（更新细纲 + 角色状态），再写下一章；第 2 章跳过', () => {
-    const order = fake.calls.map((m) => (isSummary(m) ? 'summary' : isState(m) ? 'state' : `write:${chapterOf(m).no}`));
-    assert.deepEqual(order, ['write:1', 'summary', 'state', 'write:3', 'summary', 'state']);
-    assert.equal(calls, 6);
+  test('写一章、定稿一章（更新细纲 + 角色状态 + 认叙事线），再写下一章；第 2 章跳过', () => {
+    const order = fake.calls.map((m) => (isSummary(m) ? 'summary' : isState(m) ? 'state' : isFind(m) ? 'threads' : `write:${chapterOf(m).no}`));
+    assert.deepEqual(order, ['write:1', 'summary', 'state', 'threads', 'write:3', 'summary', 'state', 'threads']);
+    assert.equal(calls, 8);
   });
 
   test('作者写的第 2 章一个字没动', () => {
@@ -457,7 +465,7 @@ function blueprintsFor(messages) {
 }
 const isBlueprint = (messages) => /chapterNumber 必须覆盖第/.test(messages[messages.length - 1].content);
 const isPlotCheck = (messages) => (messages[0]?.content ?? '').includes('你是长篇小说的连续性编辑');
-const isEvents = (messages) => (messages[0]?.content ?? '').includes('你是小说定稿事实审查员');
+const isEvents = isFind;
 const isThreads = (messages) => (messages[0]?.content ?? '').includes('只从作者给的小说配置、故事前提、角色图谱与情节大纲里排出这本书的叙事线');
 
 /** 每章正文带一句可查证的事实；定稿把它记成细纲里的连续性事实。 */
@@ -468,6 +476,9 @@ function factfulReply(conflicts = () => []) {
     }
     if (isPlotCheck(messages)) {
       return JSON.stringify({ conflicts: conflicts(messages) });
+    }
+    if (isEvents(messages)) {
+      return NOTHING_FOUND;
     }
     if (isSummary(messages)) {
       const no = Number(/【第(\d+)章/.exec(messages[messages.length - 1].content)?.[1] ?? 0);
@@ -498,13 +509,13 @@ describe('边写边拆细纲：大纲覆盖之内没细纲的章，写到时先�
   });
   after(() => cleanup(t.dir, bundle.db));
 
-  // 叙事线重做：拆完不再排线（计划随细纲写进线里）；一条线都没有，定稿不判叙事线。
+  // 叙事线重做：拆完不再排线（计划随细纲写进线里）；定稿每次都认一遍叙事线（线是空的也认）。
   test('写完第 2 章、定稿之后才拆第 3–4 章（只拆这次要写的），拆完不排叙事线；第 1 章前面没定稿的章，不比对', () => {
     assert.deepEqual(order, [
-      'write:1', 'summary', 'state',
-      'check', 'write:2', 'summary', 'state',
-      'plots', 'check', 'write:3', 'summary', 'state',
-      'check', 'write:4', 'summary', 'state',
+      'write:1', 'summary', 'state', 'events',
+      'check', 'write:2', 'summary', 'state', 'events',
+      'plots', 'check', 'write:3', 'summary', 'state', 'events',
+      'check', 'write:4', 'summary', 'state', 'events',
     ]);
     assert.ok(!t.has('.novelforge/threads'));
   });
@@ -823,7 +834,7 @@ describe('写完即审稿', () => {
       }
       if (isSummary(messages)) {
         order.push('定稿');
-      } else if (!isState(messages)) {
+      } else if (!isState(messages) && !isFind(messages)) {
         order.push('写');
       }
       return defaultReply(messages);

@@ -496,3 +496,206 @@ describe('threadFile.ts · 排线：校验模型的输出', () => {
     assert.deepEqual(t.foreshadowNames(book), ['玉佩', '断剑', '火折子']);
   });
 });
+
+describe('threadFile.ts · 定稿：送哪些去认', () => {
+  const pair = line([ev(3, '推进'), { ...ev(6, '推进'), planned: true }], {
+    name: '林昭与沈青',
+    kind: '感情线',
+    index: 1,
+    foreshadowing: [{ name: '玉佩', what: '旧物', resolve: 5 }, { name: '旧伤', what: '' }, { name: '名册', what: '', plant: 9 }],
+    progress: '结盟了',
+    progressThrough: 6,
+  });
+  const main = line([ev(2, '推进')], { name: '主线', kind: '主线', index: 0 });
+  const done = line([ev(2, '收束')], { name: '收了', index: 2 });
+  const quiet = line([ev(5, '推进')], { name: '沈家旧案', index: 3, foreshadowing: [{ name: '火折子', what: '', plant: 2 }] });
+  const book = {
+    threads: [main, pair, done, quiet],
+    unfiled: {
+      name: '未归属的伏笔',
+      relPath: 'u',
+      foreshadowing: [{ name: '提灯人', what: '' }],
+      events: [ev(4, '埋', { foreshadowing: '提灯人' }), { ...ev(6, '埋', { foreshadowing: '断剑' }), planned: true }],
+    },
+  };
+
+  test('本章的计划事件：各条线与未归属的都算，带在哪条线上', () => {
+    assert.deepEqual(t.plannedFor(book, 6).map((p) => [p.line, p.event.type, p.event.foreshadowing]), [
+      ['林昭与沈青', '推进', undefined],
+      [undefined, '埋', '断剑'],
+    ]);
+  });
+
+  test('线：本章有计划的 → 细纲提到的 → 主线 → 最近动过的；收了的不送；超出的跳过；当前进度写到这一章的不用', () => {
+    const r = t.threadsToJudge(book, 6, '沈家旧案又被提起', 3);
+    assert.deepEqual(r.judged.map((x) => x.name), ['林昭与沈青', '沈家旧案', '主线']);
+    assert.equal(r.judged[0].progress, '', '当前进度写到第 6 章，定稿第 6 章时不用');
+    assert.equal(r.judged[0].events.length, 1, '第 6 章及以后的事件去掉');
+    assert.deepEqual(t.threadsToJudge(book, 6, '', 1).skipped.map((x) => x.name), ['主线', '沈家旧案']);
+  });
+
+  // 只在本章计划事件里出现、还没登记的（断剑）不算「没收的伏笔」：它在「本章计划」那一节里交给模型。
+  test('伏笔：该收的（逾期的在前）→ 本章计划的 → 已埋的（近的在前）→ 其余；收了的不送；未归属的也在', () => {
+    const r = t.foreshadowToJudge(book, 6, 10);
+    assert.deepEqual(r.judged.map((f) => [f.name, f.line, f.status]), [
+      ['玉佩', '林昭与沈青', '计划'],
+      ['提灯人', undefined, '已埋'],
+      ['旧伤', '林昭与沈青', '计划'],
+      ['名册', '林昭与沈青', '计划'],
+      ['火折子', '沈家旧案', '计划'],
+    ]);
+    assert.equal(t.foreshadowToJudge(book, 6, 2).skipped.length, 3);
+  });
+});
+
+describe('threadFile.ts · 定稿：校验认出来的东西', () => {
+  const text = '夜里，沈青把玉佩翻过来，背面刻着一个沈字。从今往后，他不再疑她。院外有人提着灯走过。';
+  const pair = line([], { name: '林昭与沈青', kind: '感情线', foreshadowing: [{ name: '玉佩', what: '' }] });
+  const book = {
+    threads: [pair, line([], { name: '主线', kind: '主线' }), line([ev(1, '收束')], { name: '收了' })],
+    unfiled: { name: '未归属的伏笔', relPath: 'u', foreshadowing: [{ name: '提灯人', what: '' }], events: [] },
+  };
+  const verify = (raw, judged = [pair]) => t.verifyFinds(raw, { chapter: 6, text, judged, book });
+
+  test('事件：线的事件只认送去的线与新线；伏笔的事件跟着伏笔走；证据逐字找得到；同一条只记一次', () => {
+    const r = verify({
+      events: [
+        { line: '林昭与沈青', type: '关系', what: '猜忌 → 信任', evidence: '从今往后，他不再疑她' },
+        { line: '林昭与沈青', type: '关系', what: '重复', evidence: '从今往后他不再疑她。' },
+        { line: '随便写的', type: '收', foreshadowing: '玉 佩', what: '揭开', evidence: '背面刻着一个沈字' },
+        { type: '收', foreshadowing: '提灯人', what: '露面', evidence: '院外有人提着灯走过' },
+        { line: '收了', type: '推进', what: 'x', evidence: '院外有人提着灯走过' },
+        { line: '谁也不是', type: '推进', what: 'x', evidence: '院外有人提着灯走过' },
+        { line: '林昭与沈青', type: '升华', what: 'x', evidence: '院外有人提着灯走过' },
+        { line: '林昭与沈青', type: '推进', what: 'x', evidence: '编出来的一句话' },
+        { line: '林昭与沈青', type: '推进', what: 'x', evidence: '沈字' },
+        { line: '林昭与沈青', type: '收', foreshadowing: '没见过', what: 'x', evidence: '院外有人提着灯走过' },
+        { line: '林昭与沈青', type: '收', what: 'x', evidence: '院外有人提着灯走过' },
+      ],
+    });
+    assert.deepEqual(r.events.map((e) => [e.line, e.event.type, e.event.foreshadowing]), [
+      ['林昭与沈青', '关系', undefined],
+      ['林昭与沈青', '收', '玉佩'],
+      [undefined, '收', '提灯人'],
+    ]);
+    assert.deepEqual(r.dropped.map((d) => d.why), [
+      '这条线已经收束，或这一次没送去认',
+      '认不出是哪一条线',
+      '事件类型认不出',
+      '证据在正文里找不到',
+      '证据太短，认不出是哪一句',
+      '认不出是哪一条伏笔',
+      '没写是哪一条伏笔',
+    ]);
+  });
+
+  test('新线：种类四选一、不重名、主线已有不收、要有证据、一章最多 2 条；事件可以挂在新线上', () => {
+    const r = verify({
+      newThreads: [
+        { title: '沈家旧案', kind: '支线', intent: '沈家的事', evidence: '背面刻着一个沈字' },
+        { title: '林昭 与沈青', kind: '感情线', evidence: '背面刻着一个沈字' },
+        { title: '另一条主线', kind: '主线', evidence: '背面刻着一个沈字' },
+        { title: '奇怪的线', kind: '暗线', evidence: '背面刻着一个沈字' },
+        { title: '没证据', kind: '支线', evidence: '编出来的一句话' },
+        { title: '提灯人的身份', kind: '人物线', evidence: '院外有人提着灯走过' },
+        { title: '第三条', kind: '支线', evidence: '院外有人提着灯走过' },
+      ],
+      events: [{ line: '沈家旧案', type: '推进', what: '沈字露面', evidence: '背面刻着一个沈字' }],
+    });
+    assert.deepEqual(r.newThreads.map((x) => [x.name, x.kind]), [['沈家旧案', '支线'], ['提灯人的身份', '人物线']]);
+    assert.deepEqual(r.dropped.map((d) => d.why), [
+      '这条线已经有了',
+      '主线全书只能有一条，已经有了',
+      '种类不是主线 / 支线 / 感情线 / 人物线之一',
+      '证据在正文里找不到',
+      '一章最多认出 2 条新线',
+    ]);
+    assert.deepEqual(r.events.map((e) => e.line), ['沈家旧案']);
+  });
+
+  test('新伏笔：挂得上线就挂（已有的或新认出的），挂不上进未归属；没见过的被埋了也当新伏笔', () => {
+    const r = verify({
+      newThreads: [{ title: '沈家旧案', kind: '支线', evidence: '背面刻着一个沈字' }],
+      newForeshadowing: [
+        { title: '沈字', what: '玉佩背面的沈字', line: '沈家旧案', evidence: '背面刻着一个沈字' },
+        { title: '断剑', what: '', line: '没有这条线', evidence: '院外有人提着灯走过' },
+        { title: '玉佩', what: '重名', evidence: '院外有人提着灯走过' },
+      ],
+      events: [{ line: '林昭与沈青', type: '埋', foreshadowing: '那盏灯', what: '提灯', evidence: '院外有人提着灯走过' }],
+    });
+    assert.deepEqual(r.newForeshadowing.map((f) => [f.name, f.line]), [
+      ['沈字', '沈家旧案'],
+      ['断剑', undefined],
+      ['那盏灯', '林昭与沈青'],
+    ]);
+    assert.deepEqual(r.dropped.map((d) => [d.what, d.why]), [['新伏笔 玉佩', '这条伏笔已经有了']]);
+  });
+
+  test('一章最多 8 个事件（先校验后截）；整份不是对象也不崩', () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({ line: '林昭与沈青', type: '推进', what: `第${i}件`, evidence: i === 0 ? '编出来的一句话' : text.slice(i, i + 6) }));
+    const r = verify({ events: many });
+    assert.equal(r.events.length, 8);
+    assert.deepEqual(r.dropped.map((d) => d.why), ['证据在正文里找不到', '一章最多记 8 个事件']);
+    assert.deepEqual(verify(null), { events: [], newThreads: [], newForeshadowing: [], dropped: [] });
+    assert.deepEqual(verify([1, 2]).events, []);
+  });
+
+  test('归并：线并进线、伏笔并进伏笔，认不出的不并；用上之后事件改挂、不另建', () => {
+    const finds = verify({
+      newThreads: [{ title: '沈家的旧案', kind: '支线', evidence: '背面刻着一个沈字' }],
+      newForeshadowing: [{ title: '那块玉佩', what: '', line: '沈家的旧案', evidence: '背面刻着一个沈字' }],
+      events: [
+        { line: '沈家的旧案', type: '推进', what: '露面', evidence: '背面刻着一个沈字' },
+        { line: '林昭与沈青', type: '收', foreshadowing: '那块玉佩', what: '揭开', evidence: '院外有人提着灯走过' },
+      ],
+    });
+    const merges = t.verifyMerges(
+      [
+        { new: '沈家的旧案', into: '主线' },
+        { new: '沈家的旧案', into: '林昭与沈青' },
+        { new: '那块玉佩', into: '林昭与沈青' },
+        { new: '那块玉佩', into: '玉佩' },
+        { new: '不存在', into: '主线' },
+      ],
+      finds,
+      book
+    );
+    assert.deepEqual(merges, [
+      { kind: 'thread', from: '沈家的旧案', into: '主线' },
+      { kind: 'foreshadowing', from: '那块玉佩', into: '玉佩' },
+    ]);
+    const applied = t.applyMerges(finds, merges, book);
+    assert.deepEqual(applied.newThreads, []);
+    assert.deepEqual(applied.newForeshadowing, []);
+    assert.deepEqual(applied.events.map((e) => [e.line, e.event.type, e.event.foreshadowing]), [
+      ['主线', '推进', undefined],
+      ['林昭与沈青', '收', '玉佩'],
+    ]);
+  });
+
+  test('补上隐含的那一条：新线没有事件记一条推进，新伏笔没有埋记一条埋', () => {
+    const finds = verify({
+      newThreads: [{ title: '沈家旧案', kind: '支线', evidence: '背面刻着一个沈字' }],
+      newForeshadowing: [{ title: '那盏灯', what: '提灯', evidence: '院外有人提着灯走过' }],
+    });
+    const done = t.completeFinds(finds, 6);
+    assert.deepEqual(done.events.map((e) => [e.line, e.event.type, e.event.foreshadowing, e.event.evidence]), [
+      ['沈家旧案', '推进', undefined, '背面刻着一个沈字'],
+      [undefined, '埋', '那盏灯', '院外有人提着灯走过'],
+    ]);
+  });
+
+  test('当前进度：名字认得出、不是空的才收，截到 150 字，一条线一条', () => {
+    const long = '长'.repeat(200);
+    assert.deepEqual(
+      t.verifyProgress(
+        [{ line: '林昭 与沈青', text: '结盟了' }, { line: '林昭与沈青', text: '又一条' }, { line: '没送去的', text: 'x' }, { line: '主线', text: '' }, { thread: '主线', progress: long }],
+        ['林昭与沈青', '主线']
+      ).map((x) => [x.line, [...x.text].length]),
+      [
+        ['林昭与沈青', 3],
+        ['主线', 150],
+      ]
+    );
+  });
+});

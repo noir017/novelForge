@@ -23,7 +23,7 @@ import { sanitizeAliases } from '../model/naming';
 import { LoreLine, PLOT_LORE_KEY, loreLinesFromJson, parseLoreLines, renderLoreLines } from '../model/loreFile';
 import { checkLore, loreHint } from './loreRecord';
 import { STATE_OP } from './characterState';
-import { updateStateAndThreads } from './finalizeSteps';
+import { StateAndThreadsOutcome, updateStateAndThreads } from './finalizeSteps';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
 import { extractJsonObject, stripCodeFence, stripTrailingCommas } from './parse';
 import { GLOBAL_SYSTEM, REFINE_SYSTEM, STAGE_SYSTEM, SUMMARY_SYSTEM } from './summarizePrompt';
@@ -280,14 +280,14 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
   const each = FINALIZE_CALLS;
   const calls: CallEstimate = { low: stale.length * each.low, high: stale.length * each.high, max: stale.length * each.max };
   const answer = await askCall({
-    message: `有 ${stale.length} 章写了正文还没定稿（或定稿后正文又改过），逐章定稿：照正文更新细纲、更新出场角色的当前状态、记下推进了哪几条叙事线。${describeCalls(calls)}。现在同步？`,
+    message: `有 ${stale.length} 章写了正文还没定稿（或定稿后正文又改过），逐章定稿：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么。${describeCalls(calls)}。现在同步？`,
     actions: ['开始同步'],
     detail:
       `每章 ${each.low}–${each.high} 次（${each.why}）。\n` +
       (lanes > 1 ? `照正文更新细纲并发 ${lanes} 路；` : '照正文更新细纲逐章串行（并发数为 1）；') +
       '角色状态与叙事线按章号逐章串行（要一章一章往后推）。\n每章的旧版细纲先复制一份进 .novelforge/.trash/。',
     tasks: ['plotSummary', 'characterCard'],
-    // 定稿判线带几条随详细度（`recordThreadEvents`）。
+    // 定稿认叙事线带几条线、几条伏笔随详细度（`recordThreads`）。
     contextDetail: true,
   });
   if (answer?.action !== '开始同步') {
@@ -320,6 +320,7 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
 
         // 第二步：按章号串行（updated 已按章号排好）。
         const partial: number[] = [];
+        const results: StateAndThreadsOutcome[] = [];
         for (let i = 0; i < updated.length; i++) {
           const { chapter, summary } = updated[i];
           report({ message: `角色状态与叙事线 · 第 ${chapter.order} 章《${chapter.title}》`, current: i, total: updated.length });
@@ -330,7 +331,8 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
               signal,
             });
             used += rest.calls;
-            if (rest.stateError || rest.threadsError) {
+            results.push(rest);
+            if (rest.stateError || rest.threadsError || rest.threads?.progressError || rest.threads?.mergeError) {
               partial.push(chapter.order);
             }
           } catch (err) {
@@ -353,16 +355,35 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
             `同步结束：定稿 ${okCount} 章，${notes.join('；')}`,
             failed.map((f) => `第 ${f.no} 章：${f.reason}`).join('\n')
           );
-          getHost().toast(`定稿 ${okCount} 章；${notes.join('；')}，可在日志页看原因。`);
+          getHost().toast(`定稿 ${okCount} 章；${notes.join('；')}；${describeSynced(results)}。可在日志页看原因。`);
         } else if (okCount > 0) {
           log.info(`同步结束：${okCount} 章全部定稿`, `总耗时 ${elapsed(startedAt)}`);
-          getHost().toast(`已定稿 ${okCount} 章：细纲照正文更新，角色状态与叙事线跟到了这几章。`);
+          getHost().toast(`已定稿 ${okCount} 章：细纲照正文更新；${describeSynced(results)}。`);
         }
       },
       { scope: '定稿' }
     );
     return used;
   });
+}
+
+/**
+ * 「立即同步」完成提示里角色状态与叙事线那半句，按实际结果说（从前一律说「跟到了这几章」，一条线都没有时也这么说）：
+ * 「林昭的当前状态更新到了最后定稿的那一章；叙事线：记下 5 个事件，新认出 1 条线、2 条伏笔」，什么都没有就说
+ * 「叙事线没有新进展」。
+ */
+export function describeSynced(results: readonly StateAndThreadsOutcome[]): string {
+  const names = [...new Set(results.flatMap((r) => r.states?.updated ?? []))];
+  const events = results.reduce((n, r) => n + (r.threads?.recorded.length ?? 0), 0);
+  const lines = results.reduce((n, r) => n + (r.threads?.newThreads.length ?? 0), 0);
+  const fores = results.reduce((n, r) => n + (r.threads?.newForeshadowing.length ?? 0), 0);
+  const found = [lines > 0 ? `${lines} 条线` : '', fores > 0 ? `${fores} 条伏笔` : ''].filter(Boolean).join('、');
+  return [
+    names.length > 0 ? `${names.join('、')}的当前状态更新到了最后定稿的那一章` : '',
+    events > 0 ? `叙事线：记下 ${events} 个事件${found ? `，新认出 ${found}` : ''}` : '叙事线没有新进展',
+  ]
+    .filter(Boolean)
+    .join('；');
 }
 
 /**

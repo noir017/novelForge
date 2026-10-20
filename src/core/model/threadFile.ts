@@ -1161,6 +1161,422 @@ export function verifyThreadPlans(
   return { plans, dropped, foreshadowDropped };
 }
 
+// ---------------------------------------------------------------- 定稿：送哪些去认、校验认出来的东西
+
+/** 定稿时一章最多记几个事件（先校验后截）。 */
+export const FINALIZE_EVENT_LIMIT = 8;
+/** 定稿时一章最多认出几条新线。 */
+export const FINALIZE_NEW_THREAD_LIMIT = 2;
+/** 定稿时一章最多认出几条新伏笔。 */
+export const FINALIZE_NEW_FORESHADOW_LIMIT = 5;
+/** 证据最长多少字（上游 240）。 */
+export const EVIDENCE_MAX = 240;
+/** 事件那一句话最长多少字。 */
+export const EVENT_WHAT_MAX = 100;
+
+/** 送去认的一条伏笔：它是什么、挂在哪条线上（缺席是「未归属的伏笔」）、写到这一章时的状态。 */
+export interface JudgedForeshadow extends ForeshadowState {
+  line?: string;
+}
+
+/** 这一章的计划事件（各条线与「未归属的伏笔」里第 `no` 章、带「计划 ·」的），带它在哪条线上（缺席是未归属）。 */
+export function plannedFor(book: ThreadBook, no: number): { line?: string; event: ThreadEvent }[] {
+  return [
+    ...book.threads.flatMap((t) => plannedEvents(t).filter((e) => e.chapter === no).map((event) => ({ line: t.name, event }))),
+    ...plannedEvents(book.unfiled).filter((e) => e.chapter === no).map((event) => ({ event })),
+  ];
+}
+
+/**
+ * 定稿第 `no` 章时送哪几条线去认（设计稿「三、a」）：写到这一章时还没收束的（{@link asOf}），按要紧排——本章有计划事件的
+ * → 本章细纲提到了名字的 → 主线 → 最近动过的（近的在前）→ 其余按文件名；最多 `limit` 条（上下文详细度 `threadJudge`）。
+ * 返回的是 asOf 之后的样子（不带这一章及以后的事件、写到这一章或更晚的当前进度）。
+ */
+export function threadsToJudge(
+  book: ThreadBook,
+  no: number,
+  plotText: string,
+  limit: number
+): { judged: Thread[]; skipped: Thread[] } {
+  const plan = new Set(plannedFor(book, no).map((p) => p.line && threadKey(p.line)));
+  const plot = normalizeQuote(plotText);
+  const open = book.threads.map((t) => asOf(t, no)).filter((t) => !isClosed(threadStatus(t)));
+  const rank = (t: Thread): number => {
+    const key = threadKey(t.name);
+    if (plan.has(key)) {
+      return 0;
+    }
+    if (key.length >= 2 && plot.includes(key)) {
+      return 1;
+    }
+    return t.kind === '主线' ? 2 : 3;
+  };
+  const ordered = [...open].sort(
+    (a, b) => rank(a) - rank(b) || (lastActiveChapter(b) ?? 0) - (lastActiveChapter(a) ?? 0) || a.index - b.index
+  );
+  const n = Math.max(0, limit);
+  return { judged: ordered.slice(0, n), skipped: ordered.slice(n) };
+}
+
+/**
+ * 定稿第 `no` 章时送哪几条伏笔去认：写到这一章时还没收、也没弃的（各条线与「未归属的伏笔」里的都算，线收束了伏笔
+ * 照样可能还开着），按要紧排——计划在这一章或更早收的（逾期的、本章该收的，回收章早的在前）→ 本章计划埋或收的 →
+ * 已经埋下的（埋得近的在前）→ 其余还没埋的；最多 `limit` 条（上下文详细度 `foreshadowJudge`）。
+ */
+export function foreshadowToJudge(
+  book: ThreadBook,
+  no: number,
+  limit: number
+): { judged: JudgedForeshadow[]; skipped: JudgedForeshadow[] } {
+  const planned = new Set(
+    plannedFor(book, no)
+      .filter((p) => p.event.foreshadowing)
+      .map((p) => threadKey(p.event.foreshadowing!))
+  );
+  const all: JudgedForeshadow[] = [
+    ...book.threads.flatMap((t) => foreshadowingOf(asOf(t, no), no - 1).map((f) => ({ ...f, line: t.name }))),
+    ...foreshadowingOf(asOf(book.unfiled, no), no - 1).map((f) => ({ ...f })),
+  ].filter((f) => !isForeshadowClosed(f.status));
+  const rank = (f: JudgedForeshadow): number => {
+    if (f.resolve !== undefined && f.resolve <= no) {
+      return 0;
+    }
+    if (planned.has(threadKey(f.name))) {
+      return 1;
+    }
+    return f.status === '已埋' ? 2 : 3;
+  };
+  const tie = (f: JudgedForeshadow): number =>
+    rank(f) === 0 ? f.resolve! : rank(f) === 2 ? -(f.plantedAt ?? 0) : 0;
+  const ordered = all
+    .map((f, i) => ({ f, i }))
+    .sort((a, b) => rank(a.f) - rank(b.f) || tie(a.f) - tie(b.f) || a.i - b.i)
+    .map((x) => x.f);
+  const n = Math.max(0, limit);
+  return { judged: ordered.slice(0, n), skipped: ordered.slice(n) };
+}
+
+/** 定稿认出的一条事件：落在哪条线上（缺席是「未归属的伏笔」）。 */
+export interface FoundEvent {
+  line?: string;
+  event: ThreadEvent;
+}
+
+/** 定稿从正文里认出的一条新线。 */
+export interface FoundThread {
+  name: string;
+  kind: ThreadKind;
+  intent: string;
+  evidence: string;
+}
+
+/** 定稿从正文里认出的一条新伏笔：挂在哪条线上（已有的或这一次新认出的；缺席是「未归属的伏笔」）。 */
+export interface FoundForeshadow {
+  name: string;
+  what: string;
+  line?: string;
+  evidence: string;
+}
+
+/** 定稿第三步 a 认出来、校验过的全部。 */
+export interface ThreadFinds {
+  events: FoundEvent[];
+  newThreads: FoundThread[];
+  newForeshadowing: FoundForeshadow[];
+  /** 没收的：哪一条、为什么（第 2 条：说出来）。 */
+  dropped: { what: string; why: string }[];
+}
+
+function unquoteEvidence(v: unknown): string {
+  return cut(unquote(strOf(v)), EVIDENCE_MAX);
+}
+
+/**
+ * 定稿第三步 a 的输出 → 能记的东西（设计稿「三、a」）。沿用七期 `verifyThreadEvents` 的口径并扩到新线与新伏笔：
+ *
+ * - **证据**按审稿那套归一化后至少 4 个字、在**整章**正文里找得到（七期修过的上游 #11）；截到 {@link EVIDENCE_MAX} 字。
+ *   没有原文撑着的多半是编的，丢掉并说原因。
+ * - **新线**：名字合格、种类是四种之一、与已有的线不重名；**主线已有就不收新主线**；一章最多 {@link FINALIZE_NEW_THREAD_LIMIT} 条。
+ * - **新伏笔**：名字合格、与全书已有的伏笔不重名；`line` 认得出（已有的线、或这一次新认出的线）就挂上去，认不出的进
+ *   「未归属的伏笔」；一章最多 {@link FINALIZE_NEW_FORESHADOW_LIMIT} 条。
+ * - **事件**：类型认得出。线的事件（推进 / 关系 / 收束 / 放弃）的 `line` 要是送去认的线之一、或这一次新认出的线，挂不上的
+ *   丢掉（关系变动挂不上就丢，设计稿）；伏笔的事件（埋 / 收 / 弃）跟着那条伏笔走——落在它所在的那条线或「未归属的伏笔」
+ *   上；没见过的伏笔被「埋」了，当它是一条新伏笔（照上一条挂）；没见过的被「收」「弃」丢掉。同一条（同一处、同类型、同一
+ *   条伏笔、证据归一后相同）只记一次；一章最多 {@link FINALIZE_EVENT_LIMIT} 个（先校验后截）。
+ *
+ * `judged` 是送去认的线（只有它们收线的事件）；`book` 用来认全书已有的线名与伏笔名。
+ */
+export function verifyFinds(
+  raw: unknown,
+  ctx: { chapter: number; text: string; judged: readonly Pick<Thread, 'name'>[]; book: ThreadBook }
+): ThreadFinds {
+  const o = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+  const list = (v: unknown): Record<string, unknown>[] =>
+    (Array.isArray(v) ? v : []).map((x) => (x && typeof x === 'object' ? x : {}) as Record<string, unknown>);
+  const index = indexText(ctx.text);
+  const evidenceWhy = (evidence: string): string =>
+    quoteFound(index, evidence) ? '' : normalizeQuote(evidence).length < 4 ? '证据太短，认不出是哪一句' : '证据在正文里找不到';
+  const out: ThreadFinds = { events: [], newThreads: [], newForeshadowing: [], dropped: [] };
+
+  const allThreads = new Map(ctx.book.threads.map((t) => [threadKey(t.name), t.name]));
+  const judged = new Map(ctx.judged.map((t) => [threadKey(t.name), t.name]));
+  /** 全书已有的伏笔：名字 → 挂在哪条线上（缺席是未归属）。 */
+  const knownFore = new Map<string, { name: string; line?: string }>();
+  for (const t of ctx.book.threads) {
+    for (const f of foreshadowingOf(t, 0)) {
+      knownFore.set(threadKey(f.name), { name: f.name, line: t.name });
+    }
+  }
+  for (const f of foreshadowingOf(ctx.book.unfiled, 0)) {
+    if (!knownFore.has(threadKey(f.name))) {
+      knownFore.set(threadKey(f.name), { name: f.name });
+    }
+  }
+
+  // 新线先校验：事件与新伏笔可能挂在它上面。
+  let mainTaken = ctx.book.threads.some((t) => t.kind === '主线');
+  const newLines = new Map<string, string>();
+  for (const x of list(o.newThreads)) {
+    const name = strOf(x.title ?? x.name);
+    const kind = threadKindOf(strOf(x.kind ?? x.type));
+    const evidence = unquoteEvidence(x.evidence);
+    let why = nameProblem(name);
+    if (!why && allThreads.has(threadKey(name))) {
+      why = '这条线已经有了';
+    } else if (!why && newLines.has(threadKey(name))) {
+      why = '同一章里报了两次';
+    } else if (!why && !kind) {
+      why = '种类不是主线 / 支线 / 感情线 / 人物线之一';
+    } else if (!why && kind === '主线' && mainTaken) {
+      why = '主线全书只能有一条，已经有了';
+    } else if (!why) {
+      why = evidenceWhy(evidence);
+    }
+    if (!why && out.newThreads.length >= FINALIZE_NEW_THREAD_LIMIT) {
+      why = `一章最多认出 ${FINALIZE_NEW_THREAD_LIMIT} 条新线`;
+    }
+    if (why) {
+      out.dropped.push({ what: `新线 ${name || '（没有名字）'}`, why });
+      continue;
+    }
+    mainTaken ||= kind === '主线';
+    newLines.set(threadKey(name), name);
+    out.newThreads.push({ name, kind: kind!, intent: cut(strOf(x.intent), INTENT_MAX), evidence });
+  }
+  /** `line` 认到哪条线上：已有的线、这一次新认出的线；认不出是 undefined。 */
+  const lineOf = (v: unknown): string | undefined => {
+    const key = threadKey(strOf(v));
+    return key ? (allThreads.get(key) ?? newLines.get(key)) : undefined;
+  };
+
+  const newFore = new Map<string, FoundForeshadow>();
+  const addForeshadow = (name: string, what: string, line: string | undefined, evidence: string): string => {
+    let why = nameProblem(name);
+    if (!why && (knownFore.has(threadKey(name)) || newFore.has(threadKey(name)))) {
+      why = '这条伏笔已经有了';
+    } else if (!why) {
+      why = evidenceWhy(evidence);
+    }
+    if (!why && out.newForeshadowing.length >= FINALIZE_NEW_FORESHADOW_LIMIT) {
+      why = `一章最多认出 ${FINALIZE_NEW_FORESHADOW_LIMIT} 条新伏笔`;
+    }
+    if (why) {
+      return why;
+    }
+    const f: FoundForeshadow = { name, what: cut(what, FORESHADOW_WHAT_MAX), ...(line ? { line } : {}), evidence };
+    newFore.set(threadKey(name), f);
+    out.newForeshadowing.push(f);
+    return '';
+  };
+  for (const x of list(o.newForeshadowing)) {
+    const name = strOf(x.title ?? x.name);
+    const why = addForeshadow(name, strOf(x.what), lineOf(x.line ?? x.thread), unquoteEvidence(x.evidence));
+    if (why) {
+      out.dropped.push({ what: `新伏笔 ${name || '（没有名字）'}`, why });
+    }
+  }
+
+  const accepted: FoundEvent[] = [];
+  for (const x of list(o.events)) {
+    const lineName = strOf(x.line ?? x.thread);
+    const type = eventTypeOf(strOf(x.type));
+    const foreName = strOf(x.foreshadowing);
+    const what = cut(strOf(x.what ?? x.reason), EVENT_WHAT_MAX);
+    const evidence = unquoteEvidence(x.evidence);
+    const label = foreName ? `${lineName || '？'}〈${foreName}〉` : lineName || '（没有写是哪一条线）';
+    let why = !type ? '事件类型认不出' : evidenceWhy(evidence);
+    let found: FoundEvent | undefined;
+    if (!why && isForeshadowEvent(type!)) {
+      const key = threadKey(foreName);
+      const known = knownFore.get(key) ?? newFore.get(key);
+      if (!foreName) {
+        why = '没写是哪一条伏笔';
+      } else if (known) {
+        found = { ...(known.line ? { line: known.line } : {}), event: { chapter: ctx.chapter, planned: false, type: type!, foreshadowing: known.name, what, evidence } };
+      } else if (type === '埋') {
+        // 没见过的伏笔被埋下了：它就是一条新伏笔，照 `line` 挂。
+        const line = lineOf(lineName);
+        why = addForeshadow(foreName, what, line, evidence);
+        if (!why) {
+          found = { ...(line ? { line } : {}), event: { chapter: ctx.chapter, planned: false, type: '埋', foreshadowing: foreName, what, evidence } };
+        }
+      } else {
+        why = '认不出是哪一条伏笔';
+      }
+    } else if (!why) {
+      const key = threadKey(lineName);
+      const line = judged.get(key) ?? newLines.get(key);
+      if (line) {
+        found = { line, event: { chapter: ctx.chapter, planned: false, type: type!, what, evidence } };
+      } else {
+        why = allThreads.has(key) ? '这条线已经收束，或这一次没送去认' : '认不出是哪一条线';
+      }
+    }
+    if (why || !found) {
+      out.dropped.push({ what: label, why: why || '认不出' });
+      continue;
+    }
+    const dup = accepted.some(
+      (a) => threadKey(a.line ?? '') === threadKey(found!.line ?? '') && sameEvent(a.event, found!.event)
+    );
+    if (dup) {
+      continue;
+    }
+    if (accepted.length >= FINALIZE_EVENT_LIMIT) {
+      out.dropped.push({ what: label, why: `一章最多记 ${FINALIZE_EVENT_LIMIT} 个事件` });
+      continue;
+    }
+    accepted.push(found);
+  }
+  out.events = accepted;
+  return out;
+}
+
+/** 归并：一条新线 / 新伏笔其实是已有的哪一条（c 的输出校验过之后）。 */
+export interface ThreadMerge {
+  kind: 'thread' | 'foreshadowing';
+  from: string;
+  into: string;
+}
+
+/**
+ * 归并（c）的输出 → 认得出的几条：`new` 是这一次新认出的线或伏笔的名字，`into` 是同一类里已有的那一条（线并进线、伏笔并进
+ * 伏笔）；一个新名字只并一次。认不出的丢掉——不并就是照新的建，什么都不会丢。
+ */
+export function verifyMerges(raw: readonly unknown[], finds: ThreadFinds, book: ThreadBook): ThreadMerge[] {
+  const newThreads = new Map(finds.newThreads.map((t) => [threadKey(t.name), t.name]));
+  const newFore = new Map(finds.newForeshadowing.map((f) => [threadKey(f.name), f.name]));
+  const threads = new Map(book.threads.map((t) => [threadKey(t.name), t.name]));
+  const fore = new Map(foreshadowNames(book).map((n) => [threadKey(n), n]));
+  const out: ThreadMerge[] = [];
+  const done = new Set<string>();
+  for (const item of raw) {
+    const x = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    const from = threadKey(strOf(x.new ?? x.from));
+    const into = threadKey(strOf(x.into ?? x.existing));
+    if (!from || done.has(from)) {
+      continue;
+    }
+    if (newThreads.has(from) && threads.has(into)) {
+      out.push({ kind: 'thread', from: newThreads.get(from)!, into: threads.get(into)! });
+      done.add(from);
+    } else if (newFore.has(from) && fore.has(into)) {
+      out.push({ kind: 'foreshadowing', from: newFore.get(from)!, into: fore.get(into)! });
+      done.add(from);
+    }
+  }
+  return out;
+}
+
+/**
+ * 把归并用上：并掉的新线不建，挂在它上面的事件、新伏笔改挂到已有的那条线；并掉的新伏笔不登记，它的事件改叫已有的那条
+ * 伏笔、落到那条伏笔所在的线（或「未归属的伏笔」）上。返回新的一份（原来的不动）。
+ */
+export function applyMerges(finds: ThreadFinds, merges: readonly ThreadMerge[], book: ThreadBook): ThreadFinds {
+  if (merges.length === 0) {
+    return finds;
+  }
+  const lineInto = new Map(merges.filter((m) => m.kind === 'thread').map((m) => [threadKey(m.from), m.into]));
+  const foreInto = new Map(merges.filter((m) => m.kind === 'foreshadowing').map((m) => [threadKey(m.from), m.into]));
+  const ownerOf = new Map<string, string | undefined>();
+  for (const t of book.threads) {
+    for (const f of foreshadowingOf(t, 0)) {
+      ownerOf.set(threadKey(f.name), t.name);
+    }
+  }
+  for (const f of foreshadowingOf(book.unfiled, 0)) {
+    if (!ownerOf.has(threadKey(f.name))) {
+      ownerOf.set(threadKey(f.name), undefined);
+    }
+  }
+  const relink = (line: string | undefined): string | undefined => (line ? (lineInto.get(threadKey(line)) ?? line) : line);
+  const events = finds.events.map((e) => {
+    const fore = e.event.foreshadowing;
+    const into = fore ? foreInto.get(threadKey(fore)) : undefined;
+    if (into) {
+      const line = ownerOf.get(threadKey(into));
+      return { ...(line ? { line } : {}), event: { ...e.event, foreshadowing: into } };
+    }
+    const line = relink(e.line);
+    return { ...(line ? { line } : {}), event: e.event };
+  });
+  const dedup: FoundEvent[] = [];
+  for (const e of events) {
+    if (!dedup.some((d) => threadKey(d.line ?? '') === threadKey(e.line ?? '') && sameEvent(d.event, e.event))) {
+      dedup.push(e);
+    }
+  }
+  return {
+    events: dedup,
+    newThreads: finds.newThreads.filter((t) => !lineInto.has(threadKey(t.name))),
+    newForeshadowing: finds.newForeshadowing
+      .filter((f) => !foreInto.has(threadKey(f.name)))
+      .map((f) => {
+        const line = relink(f.line);
+        return { name: f.name, what: f.what, ...(line ? { line } : {}), evidence: f.evidence };
+      }),
+    dropped: finds.dropped,
+  };
+}
+
+/**
+ * 补上隐含的那一条事件：新认出的线这一章一个事件都没有，记一条「推进」（认出它的那一句就是证据）；新认出的伏笔这一章
+ * 没有「埋」，记一条「埋」。这样状态现算得出来（新线进行中、新伏笔已埋），不另记一份「从哪一章起」。
+ */
+export function completeFinds(finds: ThreadFinds, chapter: number): ThreadFinds {
+  const events = [...finds.events];
+  for (const t of finds.newThreads) {
+    if (!events.some((e) => threadKey(e.line ?? '') === threadKey(t.name))) {
+      events.push({ line: t.name, event: { chapter, planned: false, type: '推进', what: '正文里第一次出现', evidence: t.evidence } });
+    }
+  }
+  for (const f of finds.newForeshadowing) {
+    const planted = events.some((e) => e.event.type === '埋' && threadKey(e.event.foreshadowing ?? '') === threadKey(f.name));
+    if (!planted) {
+      events.push({
+        ...(f.line ? { line: f.line } : {}),
+        event: { chapter, planned: false, type: '埋', foreshadowing: f.name, what: f.what, evidence: f.evidence },
+      });
+    }
+  }
+  return { ...finds, events };
+}
+
+/** 当前进度（b）的输出：哪条线、新的当前进度（截到 {@link PROGRESS_MAX} 字）。名字认不出、空的丢掉。 */
+export function verifyProgress(raw: readonly unknown[], lines: readonly string[]): { line: string; text: string }[] {
+  const byKey = new Map(lines.map((n) => [threadKey(n), n]));
+  const out: { line: string; text: string }[] = [];
+  for (const item of raw) {
+    const x = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    const line = byKey.get(threadKey(strOf(x.line ?? x.thread ?? x.name)));
+    const text = cut(strOf(x.text ?? x.progress ?? x['当前进度']), PROGRESS_MAX);
+    if (line && text && !out.some((o) => o.line === line)) {
+      out.push({ line, text });
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- 当前进度（机器维护、指纹守着）
 
 /** 「当前进度」的指纹。只看内容：首尾空白不算，占位文字当空（同角色卡 `stateHashOf`）。 */

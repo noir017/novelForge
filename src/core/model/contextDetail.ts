@@ -100,8 +100,10 @@ export interface ContextLimits {
   readonly referenceSamples: number;
   /** 排叙事线：情节大纲最多带多少字。 */
   readonly threadPlanOutlineChars: number;
-  /** 定稿判叙事线：最多送几条线去判。 */
+  /** 定稿认叙事线：最多送几条线去认。 */
   readonly threadJudge: number;
+  /** 定稿认叙事线：最多送几条伏笔去认（叙事线重做，伏笔并进了叙事线）。 */
+  readonly foreshadowJudge: number;
   /** 设定：整条带（正文 + 还没整合的新事实）最多几条（`lore`）。 */
   readonly loreFull: number;
   /** 设定：只带一句话的最多几条。 */
@@ -140,6 +142,7 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     referenceSamples: 3,
     threadPlanOutlineChars: 4000,
     threadJudge: 6,
+    foreshadowJudge: 8,
     loreFull: 2,
     loreLines: 10,
     loreChars: 1500,
@@ -168,6 +171,7 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     referenceSamples: 4,
     threadPlanOutlineChars: 6000,
     threadJudge: 9,
+    foreshadowJudge: 12,
     loreFull: 4,
     loreLines: 20,
     loreChars: 3000,
@@ -196,6 +200,7 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     referenceSamples: 5,
     threadPlanOutlineChars: 8000,
     threadJudge: 12,
+    foreshadowJudge: 16,
     loreFull: 6,
     loreLines: 40,
     loreChars: 5000,
@@ -224,6 +229,7 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     referenceSamples: 8,
     threadPlanOutlineChars: 12000,
     threadJudge: 16,
+    foreshadowJudge: 24,
     loreFull: 10,
     loreLines: 80,
     loreChars: 8000,

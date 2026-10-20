@@ -16,6 +16,8 @@
  * | **第 3 章写正文那一次的装配里**有「进行中的叙事线」，带着第 2 章那条事件的证据；计划中、没到区间的那条不在 | 这一期存在的理由：后一章读得到前面埋下的线 |
  * | 作者手改过的一行在三次定稿之后原样还在 | 第 3 条：机器只追加 |
  * | 实际调用次数 ≤ 两个确认框报的上限之和 | 第 4 条 |
+ *
+ * 叙事线重做之后定稿第三步换成认事件 / 当前进度 / 归并，这一份照新格式改了夹具与应答；一期验收（第 11 个提交）另写。
  * | 工程页那一行的计数对得上 | 回收了的算已收 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -53,11 +55,11 @@ let ch3Prompt = '';
 /** 每一章判叙事线那一次答什么。 */
 const EVENTS = {
   1: [
-    { thread: '玉佩的来历', type: '埋下', evidence: '林昭在第1章摸了摸怀里的玉佩。', reason: '玉佩第一次露面' },
-    { thread: '名册之谜', type: '埋下', evidence: '名册上被人撕掉了一页', reason: '正文里没有这一句' },
+    { line: '玉佩的来历', type: '推进', evidence: '林昭在第1章摸了摸怀里的玉佩。', what: '玉佩第一次露面' },
+    { line: '名册之谜', type: '推进', evidence: '名册上被人撕掉了一页', what: '正文里没有这一句' },
   ],
-  2: [{ thread: '名册之谜', type: '埋下', evidence: '沈氏在第2章翻开名册', reason: '名册第一次出现' }],
-  3: [{ thread: '玉佩的来历', type: '回收', evidence: '林昭在第3章摸了摸怀里的玉佩', reason: '身世揭开' }],
+  2: [{ line: '名册之谜', type: '推进', evidence: '沈氏在第2章翻开名册', what: '名册第一次出现' }],
+  3: [{ line: '玉佩的来历', type: '收束', evidence: '林昭在第3章摸了摸怀里的玉佩', what: '身世揭开' }],
 };
 
 function reply(messages) {
@@ -88,7 +90,10 @@ function reply(messages) {
     });
   }
   if (system.includes('你是小说定稿事实审查员')) {
-    return JSON.stringify({ events: EVENTS[no] ?? [] });
+    return JSON.stringify({ events: EVENTS[no] ?? [], newThreads: [], newForeshadowing: [] });
+  }
+  if (system.includes('给每一条写一两句「当前进度」')) {
+    return JSON.stringify({ progress: (EVENTS[no] ?? []).map((e) => ({ line: e.line, text: `第 ${no} 章：${e.what}` })) });
   }
   const card = /- 必需事件：第 (\d+) 章/.exec(user);
   if (card) {
@@ -223,8 +228,9 @@ describe('七期验收：排叙事线，再批量写章第 1–3 章、写完即
     assert.ok(t.read(LEDGER).includes(AUTHOR_INTENT), t.read(LEDGER));
   });
 
-  test('一共 12 次：排线 1 次，一章写一次、定稿更新细纲一次、叙事线一次，第 2、3 章写前各比对一次；没超过两个确认框的上限', () => {
-    assert.equal(fake.callCount(), 12);
+  // 叙事线重做：定稿时认事件之后，本章有线动过就再更新一次当前进度（三章都有）。
+  test('一共 15 次：排线 1 次，一章写一次、定稿更新细纲一次、认叙事线一次、当前进度一次，第 2、3 章写前各比对一次；没超过两个确认框的上限', () => {
+    assert.equal(fake.callCount(), 15);
     const plan = bundle.pipelineModel.planWriteBatch({ from: 1, to: 3, mode: 'finalize', writtenNos: [], plotFilledNos: [1, 2, 3, 4, 5] });
     assert.ok(fake.callCount() <= 1 + plan.calls.max);
   });

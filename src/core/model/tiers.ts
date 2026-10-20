@@ -94,7 +94,7 @@ export const TASK_LABEL: Record<LlmTask, string> = {
 
 /** 设置页那张表里每行的补充说明：这活为什么归在这一档。 */
 export const TASK_HINT: Record<LlmTask, string> = {
-  plotSummary: '一章一次调用，几十上百次；输入只有单章正文与它的细纲，输出是固定结构。批量写章「写完即定稿」时判本章推进了哪几条叙事线也走这一档',
+  plotSummary: '一章一次调用，几十上百次；输入只有单章正文与它的细纲，输出是固定结构。批量定稿时认叙事线事件、更新当前进度、归并也走这一档',
   globalSummaryStage: '每批一次调用，批数多且各批独立',
   globalSummaryMerge: '全书只调一次，要跨几十万字取舍主线',
   setting: '配置、前提、角色图谱、世界观各一次（角色图谱分两步）；全书只跑一次，后面每一章都吃它',

@@ -6,7 +6,8 @@
  * `summarizeChapter`，而同步更新完细纲之后要接着走这两步。
  *
  * 两步的失败各算各的：细纲已经照正文更新好了，这两步没成只挂黄 ❗ 在章节上（第 16 条：部分完成），
- * 角色卡 / 叙事线停在上一次，下次重新定稿会再来一遍。取消照样抛出去。
+ * 角色卡 / 叙事线停在上一次，下次重新定稿会再来一遍。叙事线那一步里认事件没成算整步没成；认出来之后当前进度或归并
+ * 没成，认出来的照样记下，黄 ❗ 照样挂在章节上（说清是哪一段）。取消照样抛出去。
  */
 import { CancelledError, LlmProvider } from '../llm/provider';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
@@ -14,7 +15,7 @@ import { describeError, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import { Chapter, SummaryCast } from '../model/types';
 import { STATE_OP, StateUpdateOutcome, updateCharacterStates } from './characterState';
-import { THREADS_OP, ThreadEventOutcome, recordThreadEvents } from './threads';
+import { THREADS_OP, ThreadsOutcome, recordThreads } from './threads';
 
 const log = scoped('定稿');
 
@@ -25,18 +26,18 @@ export interface ModelRunner {
 }
 
 export interface StateAndThreadsOutcome {
-  /** 这两步实际调了几次模型（0–2）。 */
+  /** 这两步实际调了几次模型（1–4）。 */
   calls: number;
   states?: StateUpdateOutcome;
   /** 角色状态那一步没成（细纲照样算数）。 */
   stateError?: string;
-  threads?: ThreadEventOutcome;
-  /** 叙事线那一步没成（细纲照样算数）。 */
+  threads?: ThreadsOutcome;
+  /** 叙事线那一步（认事件）没成（细纲照样算数）。 */
   threadsError?: string;
 }
 
 /**
- * 细纲照正文更新好之后：更新本章出场角色的当前状态，再判本章推进了哪几条叙事线。`cast` 是第一步交回来的
+ * 细纲照正文更新好之后：更新本章出场角色的当前状态，再认这一章在叙事线上发生了什么（认事件 / 当前进度 / 归并）。`cast` 是第一步交回来的
  * 出场人物（定稿后的细纲为准，第 14 条）。
  */
 export async function updateStateAndThreads(
@@ -82,27 +83,45 @@ export async function updateStateAndThreads(
 
   opts.onStep?.('threads');
   try {
-    outcome.threads = await recordThreadEvents(project, chapter, {
+    const th = await recordThreads(project, chapter, {
       run: (what, fn) => opts.threads.run(what, fn),
       budget: opts.threads.primaryBudget,
       signal: opts.signal,
     });
-    outcome.calls += outcome.threads.calls;
-    await clearFailures(project, 'chapter', chapter.relPath, THREADS_OP);
+    outcome.threads = th;
+    outcome.calls += th.calls;
+    // 认出来了，但当前进度或归并那一次没成：认出来的照样记下了，黄 ❗ 照样挂在章节上（部分完成）。
+    const partial = [
+      th.progressError ? `当前进度没更新成（${th.progressError}）` : '',
+      th.mergeError ? `归并没判成（${th.mergeError}），新认出的照新的建了` : '',
+    ].filter(Boolean);
+    if (partial.length > 0) {
+      await recordFailure(project, {
+        scope: '定稿',
+        targetKind: 'chapter',
+        targetKey: chapter.relPath,
+        severity: 'warn',
+        op: THREADS_OP,
+        message: `叙事线记下了，但${partial.join('；')}`,
+        detail: '重新定稿这一章会再来一遍。',
+      });
+    } else {
+      await clearFailures(project, 'chapter', chapter.relPath, THREADS_OP);
+    }
   } catch (err) {
     if (err instanceof CancelledError || opts.signal?.aborted) {
       throw err;
     }
     outcome.calls += 1;
     outcome.threadsError = describeError(err);
-    log.warn(`第 ${chapter.order} 章的叙事线没判成：${outcome.threadsError}`, err);
+    log.warn(`第 ${chapter.order} 章的叙事线没认成：${outcome.threadsError}`, err);
     await recordFailure(project, {
       scope: '定稿',
       targetKind: 'chapter',
       targetKey: chapter.relPath,
       severity: 'warn',
       op: THREADS_OP,
-      message: `细纲已照正文更新，但叙事线没判成：${outcome.threadsError}`,
+      message: `细纲已照正文更新，但叙事线没认成：${outcome.threadsError}`,
       detail: '叙事线没有改动。重新定稿这一章会再判一遍。',
     });
   }

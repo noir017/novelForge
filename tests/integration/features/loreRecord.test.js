@@ -111,9 +111,10 @@ describe('定稿时顺手记', () => {
     plot = await project.getPlot(2);
   });
 
-  test('不多调：没有角色卡时只有定稿那 1 次', () => {
-    assert.equal(fake.callCount(), 1);
-    assert.equal(outcome.calls, 1);
+  // 记设定不另调：没有角色卡时只有更新细纲那 1 次，加叙事线认事件那 1 次（叙事线重做：每次定稿都认）。
+  test('不多调：记设定并在更新细纲那一次里，没有角色卡时一共 2 次（细纲 + 认叙事线）', () => {
+    assert.equal(fake.callCount(), 2);
+    assert.equal(outcome.calls, 2);
   });
 
   test('提示里有本书的分类表，与这一章正文里提到的已有设定', () => {
