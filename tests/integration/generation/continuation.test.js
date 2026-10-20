@@ -84,6 +84,8 @@ before(async () => {
     provider: './src/core/llm/provider.ts',
     generate: './src/core/generation/generate.ts',
     plotFile: './src/core/model/plotFile.ts',
+    tokenizer: './src/core/context/tokenizer.ts',
+    logger: './src/core/runtime/logger.ts',
     db: './src/core/runtime/db.ts',
   });
   gen = bundle.generate;
@@ -206,6 +208,38 @@ describe('截断后续写', () => {
 
   test('进度报了第 1 轮', () => {
     assert.ok(r.rec.progress.some((p) => p.round === 1));
+  });
+});
+
+// 一章分几次请求写成：每次请求的用量各记各的再加总。从前合进同一份，只剩最后那一次，「输入实测」报少了。
+describe('续写时用量按请求加总', () => {
+  let r;
+  before(async () => {
+    bundle.tokenizer.resetUsageStats();
+    r = await write(P2, [
+      { text: filler(850, 21), stop: 'maxTokens', usage: { inputTokens: 3000, outputTokens: 1200 } },
+      { text: filler(400, 22), stop: 'end', usage: { inputTokens: 3500, outputTokens: 600 } },
+    ]);
+  });
+
+  test('输出按两次请求相加', () => {
+    assert.equal(r.calls, 2);
+    assert.equal(bundle.tokenizer.usageStats().outputTotal, 1800);
+  });
+
+  // 估算只算了第一次请求的上下文，偏差样本只拿第一次比；续写那次的输入是另一份，不进样本。
+  test('估算偏差只拿第一次请求比', () => {
+    const stats = bundle.tokenizer.usageStats();
+    assert.equal(stats.samples, 1);
+    assert.equal(stats.actualTotal, 3000);
+    assert.equal(stats.estimatedTotal, r.built.usedTokens);
+  });
+
+  test('完成那一行报两次请求的合计', () => {
+    const line = bundle.logger.recentLogs().findLast((l) => l.message.endsWith('完成'));
+    assert.ok(line, '没有「完成」那一行');
+    assert.ok(line.detail.includes('第一次请求输入实测 3000 token'), line.detail);
+    assert.ok(line.detail.includes('2 次请求合计输入 6500、输出 1800 token'), line.detail);
   });
 });
 

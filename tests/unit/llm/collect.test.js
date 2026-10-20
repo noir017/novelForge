@@ -128,4 +128,18 @@ describe('llm/collect', () => {
     c.mergeUsage(target, {});
     assert.deepEqual(target, { inputTokens: 100, outputTokens: 20 });
   });
+
+  // 续写、修复重试各是一次新请求：请求之间相加（合并只会剩最后一次，「输入实测」就报少了）。
+  test('sumUsage 把几次请求逐字段相加', () => {
+    assert.deepEqual(
+      c.sumUsage([{ inputTokens: 100, outputTokens: 20 }, { inputTokens: 150, outputTokens: 30 }]),
+      { inputTokens: 250, outputTokens: 50 }
+    );
+  });
+
+  test('sumUsage 只加回报了的那几次，一次都没报就仍是 undefined', () => {
+    assert.deepEqual(c.sumUsage([{ inputTokens: 100 }, {}, { inputTokens: 50 }]), { inputTokens: 150 });
+    assert.deepEqual(c.sumUsage([{}, {}]), {});
+    assert.deepEqual(c.sumUsage([]), {});
+  });
 });

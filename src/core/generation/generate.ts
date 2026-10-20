@@ -31,7 +31,7 @@
 import { BuildRequest, BuiltContext, buildContext } from '../context/builder';
 import { StopSignal } from '../llm/provider';
 import { describeUsage, recordUsage } from '../context/tokenizer';
-import { mergeUsage } from '../llm/collect';
+import { mergeUsage, sumUsage } from '../llm/collect';
 import { CancelledError, LlmProvider, StreamOptions, TokenUsage } from '../llm/provider';
 import { buildProvider, resolveProvider } from '../llm/registry';
 import { readConfig } from '../config';
@@ -315,8 +315,9 @@ export async function generate(
   logAssembly(built, buildStart);
 
   let reasoning = '';
-  // 服务商分多次回报用量（Anthropic 输入/输出分开给），按字段合并成一份。
-  const usage: TokenUsage = {};
+  // 一次请求一份用量：同一次请求里服务商分几次回报（Anthropic 输入/输出分开给），按字段合并；续写、修复重试、
+  // 删修饰各是一次新的请求，各记各的，最后再加总（合到一份里只会剩最后那次）。
+  const usages: TokenUsage[] = [];
   const streamOptions: StreamOptions = {
     maxOutputTokens: config.maxOutputTokens,
     temperature: config.temperature,
@@ -334,6 +335,8 @@ export async function generate(
   ): Promise<CallOutcome> => {
     let text = '';
     let stop: StopSignal | undefined;
+    const usage: TokenUsage = {};
+    usages.push(usage);
     let firstDeltaAt = 0;
     let reportedAt = 0;
     const report = () => {
@@ -472,8 +475,8 @@ export async function generate(
       log.warn(`${what}：${result.notes.length} 处降级或说明`, result.notes.join('\n'));
     }
     // 有实测用量就记一笔：估算准不准，只有对着服务商的账单才看得出来。
-    recordUsage('创作', built.usedTokens, usage);
-    const usageNote = describeUsage(built.usedTokens, usage);
+    recordUsages(built.usedTokens, usages);
+    const usageNote = describeUsages(built.usedTokens, usages);
     log.info(
       `${what}完成`,
       `产出 ${full.length} 字，调用 ${result.calls} 次，用时 ${elapsed(startedAt)}` +
@@ -488,7 +491,10 @@ export async function generate(
     } else if (err instanceof ChainError) {
       // 链走不下去：已经收到的输出留在气泡里（作者能拿去手改），不出落盘卡片。
       handlers.onDone(full.trim());
-      log.error(`${what}失败：${err.message}`, [`调用 ${err.calls} 次`, ...err.notes].join('\n'));
+      // 请求都发出去了，用量照样记。
+      recordUsages(built.usedTokens, usages);
+      const usageNote = describeUsages(built.usedTokens, usages);
+      log.error(`${what}失败：${err.message}`, [`调用 ${err.calls} 次`, ...(usageNote ? [usageNote] : []), ...err.notes].join('\n'));
       handlers.onError(err.message);
       await noteFailure(project, request.target, `${what}失败：${err.message}`, `位置 ${where}；调用 ${err.calls} 次`);
     } else {
@@ -502,6 +508,36 @@ export async function generate(
 }
 
 // ---------------------------------------------------------------- 内部
+
+/**
+ * 记下这次生成每一次请求的实测用量。估算只算了第一次请求的上下文（`built.usedTokens`），所以只有第一次拿来
+ * 对估算偏差；后面续写、修复重试、删修饰的输入是另一份，估算记 0——`recordUsage` 据此只加输出、不进偏差样本。
+ */
+function recordUsages(estimated: number, usages: readonly TokenUsage[]): void {
+  usages.forEach((u, i) => recordUsage('创作', i === 0 ? estimated : 0, u));
+}
+
+/**
+ * 「完成」那一行的用量：只有一次请求时照旧一句；多次时偏差仍拿第一次比，另报几次请求的合计。有的请求没回报
+ * 用量（有的网关不给）时说出来，不把一部分的和当成全部。
+ */
+function describeUsages(estimated: number, usages: readonly TokenUsage[]): string | undefined {
+  const first = describeUsage(estimated, usages[0] ?? {});
+  if (usages.length < 2) {
+    return first;
+  }
+  const reported = usages.filter((u) => u.inputTokens !== undefined || u.outputTokens !== undefined);
+  if (reported.length === 0) {
+    return first;
+  }
+  const total = sumUsage(reported);
+  const parts = [
+    total.inputTokens !== undefined ? `输入 ${total.inputTokens}` : '',
+    total.outputTokens !== undefined ? `输出 ${total.outputTokens}` : '',
+  ].filter(Boolean);
+  const partial = reported.length < usages.length ? `（其中 ${reported.length} 次回报了用量）` : '';
+  return `${first ? `第一次请求${first}；` : ''}${usages.length} 次请求合计${parts.join('、')} token${partial}`;
+}
 
 /** 按产物种类接上对应的那条链（generation/structured.ts）。 */
 async function runChain(

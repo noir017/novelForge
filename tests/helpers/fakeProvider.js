@@ -11,13 +11,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
  * 一条应答可以是纯字符串（老用法），也可以是一个对象：
  *
- *   { text, stop?, reasoning?, chunks? }
+ *   { text, stop?, reasoning?, chunks?, usage? }
  *
  * - `stop`：跟在正文之后发一条 `{ type: 'stop', reason }`（'end' / 'maxTokens' / 'other'）。
  *   续写要靠它区分「模型说完了」与「被输出上限截断」。不给就不发，与真实 provider
  *   里有的网关不报收尾原因一致。
  * - `reasoning`：先发一段思考，再发正文——测「思考把输出预算吃光」要用。
  * - `chunks`：把正文切成几片分别 yield，测流式拼接。
+ * - `usage`：`{ inputTokens?, outputTokens? }`，照 Anthropic 的样子分两条发——正文之前一条只带输入、
+ *   正文之后一条只带输出（同一次请求里要按字段合并，不能相加）。不给就不发，与不报用量的网关一致。
  */
 function normalizeReply(item) {
   return typeof item === 'object' && item !== null ? item : { text: item ?? '' };
@@ -25,6 +27,9 @@ function normalizeReply(item) {
 
 async function* emit(item) {
   const r = normalizeReply(item);
+  if (r.usage?.inputTokens !== undefined) {
+    yield { type: 'usage', usage: { inputTokens: r.usage.inputTokens } };
+  }
   if (r.reasoning) {
     yield { type: 'reasoning', text: r.reasoning };
   }
@@ -36,6 +41,9 @@ async function* emit(item) {
   }
   if (!text.length && !r.reasoning) {
     yield { type: 'text', text: '' };
+  }
+  if (r.usage?.outputTokens !== undefined) {
+    yield { type: 'usage', usage: { outputTokens: r.usage.outputTokens } };
   }
   if (r.stop) {
     yield { type: 'stop', reason: r.stop };

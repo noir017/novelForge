@@ -38,6 +38,24 @@ export function mergeUsage(target: TokenUsage, patch: TokenUsage): void {
   }
 }
 
+/**
+ * 几次请求的用量加总（续写、修复重试、删修饰各是一次请求）。和 `mergeUsage` 是两回事：同一次请求里
+ * 后到的覆盖先到的，不同请求之间才相加。每个字段只加回报了它的那几次，一次都没回报就仍是 undefined——
+ * 不拿 0 冒充实测。
+ */
+export function sumUsage(list: readonly TokenUsage[]): TokenUsage {
+  const total: TokenUsage = {};
+  for (const u of list) {
+    if (u.inputTokens !== undefined) {
+      total.inputTokens = (total.inputTokens ?? 0) + u.inputTokens;
+    }
+    if (u.outputTokens !== undefined) {
+      total.outputTokens = (total.outputTokens ?? 0) + u.outputTokens;
+    }
+  }
+  return total;
+}
+
 /** 收全流，按字段合并 usage。 */
 export async function collect(
   stream: AsyncIterable<StreamEvent>,
