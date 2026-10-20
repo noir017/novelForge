@@ -23,47 +23,35 @@
  *
  * ## 几万字的章节每敲一下也不卡
  *
- * 1. 找词是一趟扫描（`locateTerms` 按第一个字建表，不是「词数 × 全文」），每份文件缓存「查过的是哪一份文字」。
- * 2. 两万字以内：改了字之后在**微任务**里重查（`highlight.ts` 的同步订阅先把各层平移完、压在改动上的丢掉，之后才轮到
- *    这里落新的一份；浏览器两次绘制之间只画一次）。更长的：至多每 300ms 重查一次（尾随），其间已经画着的那几段跟着改动平移
- *    （`highlight.ts` 自己做），只是新冒出来的词晚一点标出来。
- * 3. 重查的结果与镜像层上此刻画着的一模一样（多数按键都是这样）就不再画一遍。
- * 4. **输入法组字中途不重查**：拼音字母不该被当成英文敏感词，计数也不该跟着拼音跳；已经画着的那几段按组字前后的文字差
- *    挪到新位置（`diffChange`），不乱跳。上屏（`compositionend`）之后再查。撤销 / 重做同样先挪、再查。
- *
- * 镜像层本身（整份文字排两遍）是各图层共用的开销：查找、段落聚焦开着时本来也是这样；超过 30 万字不画，面板照样数。
+ * 什么时候重查、改了字之后画着的那几段怎么跟上、输入法组字中途不重查、两万字以上节流，都在 `liveLayer.ts`（名词高亮
+ * 也用它，两层一个口径）。这里只说「哪份文件查」（`isProse`）与「这份文字画哪几段」；查过的结果按「哪一份文字、
+ * 哪一版词表」缓存在每份文件上（`freshResult`）。
  */
 import { el, setHidden } from '../dom';
 import { toast } from '../globals';
 import type { CheckTermsView, InMessage } from '../protocol';
 import { onMessage } from '../vscodeApi';
-import { isProse, onEditorChange } from './api';
+import { isProse } from './api';
 import type { OpenFile, Pane } from './api';
 import {
   EMPTY_VOCAB,
   checkRanges,
   describeCounts,
-  diffChange,
   nextOccurrence,
   occurrenceAt,
   replaceAllEdit,
   runCheck,
-  sameRanges,
-  shiftRanges,
 } from './checkCore';
-import type { CheckCategory, CheckEntry, CheckRange, CheckResult, CheckVocab } from './checkCore';
+import type { CheckCategory, CheckEntry, CheckResult, CheckVocab } from './checkCore';
 import { checkPanelAnchor, closeCheckPanel, refreshCheckPanel, toggleCheckPanel } from './checkPanel';
 import type { CheckPanelData } from './checkPanel';
-import { clearHighlights, scrollToOffset, setHighlights, tooLargeToHighlight } from './highlight';
+import { scrollToOffset, tooLargeToHighlight } from './highlight';
+import { createLiveLayer, shownText } from './liveLayer';
+import type { LiveLayer } from './liveLayer';
 import { setStoredPrefs, storedPrefs } from './paragraphState';
-import { panes } from './store';
 
 /** 高亮镜像层上的图层名。 */
 export const CHECK_LAYER = 'check';
-/** 这么长以内的正文改了字就当场（微任务里）重查；更长的节流。与码字统计的 `SYNC_COUNT_LIMIT` 同一条线。 */
-export const CHECK_SYNC_LIMIT = 20_000;
-/** 长正文至多这么久重查一次。 */
-export const CHECK_RECHECK_MS = 300;
 
 // ---------------------------------------------------------------- 偏好
 
@@ -88,12 +76,7 @@ function setPref(key: keyof CheckPrefs, on: boolean): void {
   prefs = { ...prefs, [key]: on };
   // 同一个键里还有段落、外观、专注、统计那几项：读出整份、合上自己这一项再整份写回（setStoredPrefs）。
   setStoredPrefs({ check: prefs });
-  for (const pane of Object.values(panes)) {
-    if (pane) {
-      stateOf(pane).dirty = true;
-      checkNow(pane);
-    }
-  }
+  layer?.recheckAll(true);
 }
 
 // ---------------------------------------------------------------- 词表
@@ -126,11 +109,6 @@ function takeTerms(terms: CheckTermsView): void {
 
 // ---------------------------------------------------------------- 结果（带缓存）
 
-/** 编辑区里显示的那一份（textarea 把 `\r\n` 归一成 `\n`，位置都按它算）。 */
-function shownText(file: OpenFile): string {
-  return file.draft.includes('\r') ? file.draft.replace(/\r\n?/g, '\n') : file.draft;
-}
-
 const results = new WeakMap<OpenFile, { draft: string; version: number; result: CheckResult }>();
 
 /** 这份文件此刻的体检结果（文字或词表变了就重查）。 */
@@ -156,205 +134,18 @@ function proseOf(pane: Pane): OpenFile | undefined {
   return file && isProse(file) ? file : undefined;
 }
 
-// ---------------------------------------------------------------- 每块编辑区的状态
+// ---------------------------------------------------------------- 重查（liveLayer.ts）
 
-interface PaneState {
-  /** 下面几样是给哪个文件记的。当前路径变了就作废（`highlight.ts` 换文件时清掉所有图层）。 */
-  path: string | null;
-  /** 镜像层 `check` 图层上此刻画着的那几段（照 `highlight.ts` 的规则跟着改动平移）。 */
-  painted: CheckRange[];
-  /** `painted` 对应的是哪一份文字。 */
-  text: string;
-  /** 镜像层上那一份与 `painted` 对不上了（撤销、组字中途、上屏：`highlight.ts` 没平移或平移的不是这一份），下次必须重画。 */
-  dirty: boolean;
-  /** 输入法组字中。 */
-  composing: boolean;
-  /** 上一次查的时候当前标签是不是正文（保存回执换了 `kind` 时据此重查）。 */
-  prose: boolean;
-  /** 长正文的节流。 */
-  timer?: ReturnType<typeof setTimeout>;
-  checkedAt: number;
-}
-
-const states = new Map<Pane, PaneState>();
-
-function stateOf(pane: Pane): PaneState {
-  let st = states.get(pane);
-  if (!st) {
-    st = { path: pane.activePath, painted: [], text: '', dirty: false, composing: false, prose: false, checkedAt: 0 };
-    states.set(pane, st);
-  }
-  return st;
-}
-
-function clearTimer(st: PaneState): void {
-  if (st.timer !== undefined) {
-    clearTimeout(st.timer);
-    st.timer = undefined;
-  }
-}
-
-/** 把 `want` 画到 `check` 图层上（与此刻画着的一样、又没弄脏就不画）。 */
-function paint(pane: Pane, st: PaneState, want: CheckRange[], text: string): void {
-  st.text = text;
-  if (!st.dirty && sameRanges(st.painted, want)) {
-    return;
-  }
-  if (want.length > 0) {
-    setHighlights(pane, CHECK_LAYER, want);
-  } else {
-    clearHighlights(pane, CHECK_LAYER);
-  }
-  st.painted = want;
-  st.dirty = false;
-}
+/** 跟着正文重查的那一套（`installCheck` 里造）。 */
+let layer: LiveLayer | undefined;
 
 /** 现在就按当前文字重查、重画（不节流），状态栏与面板跟着。 */
 function checkNow(pane: Pane): void {
-  const st = stateOf(pane);
-  clearTimer(st);
-  st.checkedAt = Date.now();
-  if (st.path !== pane.activePath) {
-    resetFor(pane, st);
-  }
-  const file = proseOf(pane);
-  st.prose = !!file;
-  if (!file) {
-    paint(pane, st, [], pane.activeFile() ? shownText(pane.activeFile()!) : '');
-  } else {
-    const text = shownText(file);
-    const result = freshResult(file);
-    paint(pane, st, prefs.highlight && !tooLargeToHighlight(text) ? checkRanges(result) : [], text);
-  }
-  renderCell(pane);
-  refreshCheckPanel();
-}
-
-/** 只把已经挪过位置的那几段画上去（组字中途、长正文节流的空档里），不重查。 */
-function displayNow(pane: Pane): void {
-  const st = stateOf(pane);
-  if (st.dirty && st.path === pane.activePath) {
-    paint(pane, st, st.painted, st.text);
-  }
-}
-
-/** 换了文件：镜像层那边已经（或马上就会）清掉所有图层。 */
-function resetFor(pane: Pane, st: PaneState): void {
-  clearTimer(st);
-  st.path = pane.activePath;
-  st.painted = [];
-  const file = pane.activeFile();
-  st.text = file ? shownText(file) : '';
-  st.dirty = false;
-}
-
-/** 同一轮里攒着要做的：`check` 重查（盖过 `display`）、`display` 只画挪过位置的那几段。 */
-const pending = new Map<Pane, 'check' | 'display'>();
-
-function soon(pane: Pane, kind: 'check' | 'display'): void {
-  if (pending.size === 0) {
-    queueMicrotask(() => {
-      const list = [...pending];
-      pending.clear();
-      for (const [p, k] of list) {
-        if (k === 'check') {
-          checkNow(p);
-        } else {
-          displayNow(p);
-        }
-      }
-    });
-  }
-  if (pending.get(pane) !== 'check') {
-    pending.set(pane, kind);
-  }
-}
-
-/** 改了字之后什么时候重查（见文件头「几万字的章节每敲一下也不卡」）。 */
-function scheduleCheck(pane: Pane, st: PaneState, length: number): void {
-  if (st.composing) {
-    if (st.dirty) {
-      soon(pane, 'display');
-    }
-    return;
-  }
-  if (length <= CHECK_SYNC_LIMIT) {
-    soon(pane, 'check');
-    return;
-  }
-  if (st.dirty) {
-    soon(pane, 'display');
-  }
-  if (st.timer === undefined) {
-    st.timer = setTimeout(() => {
-      st.timer = undefined;
-      checkNow(pane);
-    }, Math.max(0, st.checkedAt + CHECK_RECHECK_MS - Date.now()));
-  }
+  layer?.checkNow(pane);
 }
 
 function recheckAll(): void {
-  for (const pane of Object.values(panes)) {
-    if (pane) {
-      checkNow(pane);
-    }
-  }
-}
-
-/** 一处改动之后：先让「此刻画着的」跟上，再安排重查。 */
-function onEdit(pane: Pane, file: OpenFile, change: { at: number; removed: string; inserted: string } | undefined): void {
-  const st = stateOf(pane);
-  if (!isProse(file) && !st.prose && st.painted.length === 0) {
-    // 不是正文：什么都没画，也不用查（几 MB 的 json 每敲一下不必过这一趟）。
-    return;
-  }
-  if (st.path !== pane.activePath) {
-    resetFor(pane, st);
-    scheduleCheck(pane, st, file.draft.length);
-    return;
-  }
-  const after = shownText(file);
-  if (
-    change &&
-    !st.composing &&
-    st.text.length - change.removed.length + change.inserted.length === after.length &&
-    st.text.slice(change.at, change.at + change.removed.length) === change.removed
-  ) {
-    // 与 highlight.ts 平移图层同一条规则：它那一份与这里记的仍然一样，不必重画。
-    st.painted = shiftRanges(st.painted, change);
-  } else {
-    // 撤销 / 重做、组字中途、上屏（改动是对着组字之前那一份算的）：按前后文字差挪，镜像层那一份必须重画。
-    const d = diffChange(st.text, after);
-    if (d) {
-      st.painted = shiftRanges(st.painted, d);
-    }
-    st.dirty = true;
-  }
-  st.text = after;
-  scheduleCheck(pane, st, after.length);
-}
-
-// ---------------------------------------------------------------- 输入法
-
-const hooked = new WeakSet<Pane>();
-
-function hook(pane: Pane): void {
-  if (hooked.has(pane)) {
-    return;
-  }
-  hooked.add(pane);
-  pane.area.addEventListener('compositionstart', () => {
-    stateOf(pane).composing = true;
-  });
-  // pane.ts 自己的 compositionend 先跑（它先挂），上屏那一下的 `edit` 已经发过了；这里收尾、安排重查。
-  pane.area.addEventListener('compositionend', () => {
-    const st = stateOf(pane);
-    st.composing = false;
-    const file = pane.activeFile();
-    if (file) {
-      scheduleCheck(pane, st, file.draft.length);
-    }
-  });
+  layer?.recheckAll();
 }
 
 // ---------------------------------------------------------------- 状态栏那一格
@@ -464,7 +255,7 @@ function freshEntry(pane: Pane, entry: Pick<CheckEntry, 'category' | 'term'>): {
   if (!file) {
     return undefined;
   }
-  if (results.get(file)?.draft !== file.draft || stateOf(pane).composing) {
+  if (results.get(file)?.draft !== file.draft || layer?.composing(pane)) {
     checkNow(pane);
   }
   const result = freshResult(file);
@@ -576,37 +367,20 @@ export function installCheck(send: (msg: InMessage) => void): void {
     }
   });
 
-  onEditorChange((ev) => {
-    if (ev.type === 'render') {
-      const pane = ev.pane;
-      hook(pane);
-      const st = stateOf(pane);
-      const file = pane.activeFile();
-      if (st.path !== pane.activePath) {
-        // 换了文件、关了标签：当场按新文件画（缓存里有就不重查）。
-        resetFor(pane, st);
-        checkNow(pane);
-      } else if (!!proseOf(pane) !== st.prose) {
-        // 同一个文件换了 `kind`（保存回执带来的）：正文与否变了，重查。
-        checkNow(pane);
-      } else if (file && st.text !== shownText(file)) {
-        // 同一个文件、文字却换了（没改过的标签被磁盘上的新版换掉）：先挪、再查。
-        onEdit(pane, file, undefined);
-      } else {
-        renderCell(pane);
-      }
-      return;
-    }
-    if (ev.file === ev.pane.activeFile()) {
-      onEdit(ev.pane, ev.file, ev.change);
-    }
+  layer = createLiveLayer({
+    layer: CHECK_LAYER,
+    applies: isProse,
+    ranges: (file, text) => {
+      // 结果总要算（状态栏那一格与面板用），画不画看开关。
+      const result = freshResult(file);
+      return prefs.highlight && !tooLargeToHighlight(text) ? checkRanges(result) : [];
+    },
+    checked: (pane) => {
+      renderCell(pane);
+      refreshCheckPanel();
+    },
+    rendered: renderCell,
   });
-
-  for (const pane of Object.values(panes)) {
-    if (pane) {
-      hook(pane);
-    }
-  }
 
   // 换了工程（或关掉了）：词表作废，等新工程的那一份；面板收起。
   window.addEventListener('nf-workspace-reset', () => {

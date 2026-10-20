@@ -10,7 +10,7 @@
  * | 上一个 / 下一个 | Enter / Shift+Enter / F3 / Shift+F3、按钮，到头绕回；组字中途的 Enter 不算 |
  * | 预填 | Ctrl+F 时一行之内的短选区填进查找框 |
  * | Aa / .* | 区分大小写、正则；正则写错了说一句、不抛 |
- * | 镜像层 | `<mark>` 与匹配一致、当前那一处另一种 class；文字一变下一帧重算；换文件清掉旧的；超大文件不画并说一句 |
+ * | 镜像层 | `<mark>` 与匹配一致、当前那一处另一种 class；文字一变下一帧重算；按行分块、改一行只换那一块；换文件清掉旧的；超大文件不画并说一句 |
  * | Esc | 关掉、清高亮、焦点回编辑区 |
  * | 替换 | Ctrl+H 展开替换行；选区正好是当前那一处才换、换完跳下一处；替换框 Enter；一处一步撤销；`$1` |
  * | 全部替换 | 一次改完、提示替换了 N 处、Ctrl+Z 一步退回 |
@@ -242,6 +242,32 @@ describe('高亮镜像层', { skip: JSDOM_SKIP }, () => {
     assert.equal(h.count(), '2/4', '当前序号留在原处');
     const content = h.main().querySelector('.ed-mirror:not(.ed-mirror-probe) .ed-mirror-content');
     assert.equal(content.textContent, `${TEXT}林昭`);
+  });
+
+  test('镜像按行分块：一行一块（行尾的换行留在块里）；改了一行只换那一块，别的块原样留着', async () => {
+    const content = h.main().querySelector('.ed-mirror:not(.ed-mirror-probe) .ed-mirror-content');
+    const before = [...content.children];
+    assert.deepEqual(before.map((b) => b.textContent), ['林昭推开门。林昭没有说话。\n', '沈氏看着林昭。林昭']);
+    const a = h.area();
+    a.value = `${a.value}。`;
+    a.setSelectionRange(a.value.length, a.value.length);
+    a.dispatchEvent(new h.ui.window.InputEvent('input', { bubbles: true, inputType: 'insertText', data: '。' }));
+    await frames();
+    const after = [...content.children];
+    assert.equal(after.length, 2);
+    assert.equal(after[0], before[0], '第一行没变：还是原来那个元素');
+    assert.notEqual(after[1], before[1]);
+    assert.equal(content.textContent, a.value);
+    assert.equal(h.marks().length, 4);
+    // 以换行结尾：末尾那个空行单独一块，放零宽空格撑高（textarea 里那一行是有的）。
+    a.value = `${a.value}\n`;
+    a.setSelectionRange(a.value.length, a.value.length);
+    a.dispatchEvent(new h.ui.window.InputEvent('input', { bubbles: true, inputType: 'insertLineBreak' }));
+    await frames();
+    const last = [...content.children];
+    assert.equal(last.length, 3);
+    assert.equal(last[0], before[0]);
+    assert.equal(last[2].textContent, '​');
   });
 
   test('换了文件：旧文件的高亮当场清掉，按新文件重算', async () => {

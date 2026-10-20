@@ -14,8 +14,8 @@
  *   里那一条共用的规则，外观面板改的就是它们）；每次渲染还从 textarea 的**计算样式**抄字体、字号、行高、字距、内边距、
  *   `white-space` / 断行规则、`tab-size`（`.mono` 文件换了字体也跟得上）；宽度取 textarea 的
  *   内容区（扣掉竖滚动条），滚动用 `transform` 跟着 textarea 平移。外观一变由 `relayoutMirror` 当场重抄。
- * - **命名图层**：查找用 `find`，段落聚焦用 `focus`（那一层的 `<mark>` 不画底色、用实色画字），日后的禁用词另起
- *   名字，互相不覆盖；同一段字落在几层里时，那一段的 `<mark>` 带上这几层的 class。
+ * - **命名图层**：查找用 `find`，段落聚焦用 `focus`（那一层的 `<mark>` 不画底色、用实色画字），写作体检用 `check`，
+ *   名词高亮用 `names`，互相不覆盖；同一段字落在几层里时，那一段的 `<mark>` 带上这几层的 class。
  *
  * ## 什么时候重画
  *
@@ -27,6 +27,23 @@
  * - 尺寸变了（`ResizeObserver`；没有就不管）：只重摆位置和宽度，文字留着让浏览器自己重排。
  * - 文字超过 `HIGHLIGHT_LIMIT`（30 万字符）不画：整份文字排两遍太费。调用方自己决定要不要说一句
  *   （查找条会说）。
+ *
+ * ## 按行分块，只换变了的那几块
+ *
+ * 镜像里一行（按 `\n` 切，行尾的 `\n` 留在这一行里）一个 `<div>`，每块记着「这一行的字 + 落在这一行的那几段」。
+ * 重画时与上一次逐块比，头尾一样的块原样留着，只换中间变了的那几块——打一个字只重建、重排一行。从前每次整份
+ * `replaceChildren`，三万字的章节、名词高亮那样几百上千处标记时每敲一下要 20~30ms（实测，超过一帧），分块之后
+ * 不到 1ms，与章节长短基本无关。
+ *
+ * 分块不改排版：`pre-wrap` 里 `\n` 本来就是强制断行，块尾的那个 `\n` 不多出一行（与 textarea 一样），空行就是只有
+ * 一个 `\n` 的块；最后一行是空的（文字以 `\n` 结尾）时放一个零宽空格把它撑出来。`text-indent` 只给第一块
+ * （`highlight.css`）——textarea 里它也只管第一行。块的 `textContent` 连起来就是 textarea 的文字。
+ *
+ * ## 鼠标底下是哪一段（`rangeAtPoint`）
+ *
+ * 镜像 `pointer-events: none`，鼠标事件全落在 textarea 上；浏览器按坐标取字（`caretPositionFromPoint`）在 textarea
+ * 上靠不住（Chromium 时有时无，WebKit 没有）。所以反过来量镜像：按纵向二分找到那一块，再在块里量那几个 `<mark>`。
+ * 名词浮窗用它（`nameMarks.ts`），只认画着的图层。
  *
  * ## 顺带：精确滚到某个字
  *
@@ -100,6 +117,8 @@ interface Mirror {
   /** 量位置用的那一份（看不见），第一次量的时候才造。 */
   probe?: { box: HTMLElement; content: HTMLElement };
   layers: Map<string, HighlightRange[]>;
+  /** `content` 里此刻的那几块，与它的子元素一一对应（见文件头「按行分块」）。没画着时是空的。 */
+  blocks: Block[];
   /** 图层每变一次加一；与 `drawn` 对得上、文字也没变时只重摆位置，不重建文字。 */
   version: number;
   /** 上一次画出来的是哪一版图层、哪一份文字。 */
@@ -108,6 +127,19 @@ interface Mirror {
   path: string | null;
   frame?: number;
   shown: boolean;
+}
+
+/** 镜像里的一行。 */
+interface Block {
+  /** 这一行在全文里的起点。 */
+  start: number;
+  /** 这一行的字，含行尾的 `\n`（最后一行没有）。 */
+  text: string;
+  /** 落在这一行里的那几段，位置相对行首。 */
+  marks: HighlightRange[];
+  /** 字与那几段拼成的指纹：与上一次的对得上就不重建。 */
+  key: string;
+  el?: HTMLElement;
 }
 
 const mirrors = new WeakMap<Pane, Mirror>();
@@ -249,7 +281,16 @@ function ensureMirror(pane: Pane): Mirror {
   box.appendChild(content);
   area.parentElement?.insertBefore(box, area);
 
-  const m: Mirror = { pane, box, content, layers: new Map(), version: 0, path: pane.activePath, shown: false };
+  const m: Mirror = {
+    pane,
+    box,
+    content,
+    layers: new Map(),
+    blocks: [],
+    version: 0,
+    path: pane.activePath,
+    shown: false,
+  };
   mirrors.set(pane, m);
 
   area.addEventListener('scroll', () => {
@@ -357,6 +398,7 @@ function render(m: Mirror): void {
       m.box.classList.add('hidden');
       m.shown = false;
     }
+    m.blocks = [];
     m.drawn = undefined;
     return;
   }
@@ -366,15 +408,163 @@ function render(m: Mirror): void {
   placeBox(area, m.box, m.content);
   // 存盘、切标签条之类的重画：图层与文字都没变，只重摆位置（字体换了也由上面抄样式跟上）。
   if (m.drawn?.version !== m.version || m.drawn.text !== text) {
-    m.content.replaceChildren(buildContent(text, ranges));
+    patchBlocks(m, splitBlocks(text, ranges));
     m.drawn = { version: m.version, text };
   }
   syncScroll(m);
 }
 
 /**
- * 文字切成段：没有高亮的是文本节点，有的是 `<mark class="ed-hl 各层的 cls">`。几层叠在一起的那一段
- * 带上全部的 class。扫一遍边界，O(n log n)。
+ * 文字按行切成块，每段高亮落到它跨过的那几行里（跨行的切成几截，各带同样的 class）。
+ * 最后一块是空行（文字以 `\n` 结尾）时照样给一块，画的时候放零宽空格撑高。
+ */
+export function splitBlocks(text: string, ranges: readonly HighlightRange[]): Block[] {
+  const blocks: Block[] = [];
+  for (let pos = 0; ; ) {
+    const nl = text.indexOf('\n', pos);
+    const end = nl === -1 ? text.length : nl + 1;
+    blocks.push({ start: pos, text: text.slice(pos, end), marks: [], key: '' });
+    if (nl === -1) {
+      break;
+    }
+    pos = end;
+  }
+  const sorted = [...ranges].sort((a, b) => a.start - b.start || a.end - b.end || (a.cls < b.cls ? -1 : a.cls > b.cls ? 1 : 0));
+  for (const r of sorted) {
+    const start = Math.max(0, Math.min(text.length, r.start));
+    const end = Math.max(0, Math.min(text.length, r.end));
+    if (end <= start) {
+      continue;
+    }
+    // 起点落在哪一块：按块的起点二分。
+    let lo = 0;
+    let hi = blocks.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (blocks[mid].start <= start) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    for (let i = lo; i < blocks.length && blocks[i].start < end; i++) {
+      const b = blocks[i];
+      const s = Math.max(start, b.start) - b.start;
+      const e = Math.min(end, b.start + b.text.length) - b.start;
+      if (e > s) {
+        b.marks.push({ start: s, end: e, cls: r.cls });
+      }
+    }
+  }
+  for (const b of blocks) {
+    b.key = b.marks.length === 0 ? b.text : `${b.text}\u0000${b.marks.map((r) => `${r.start},${r.end},${r.cls}`).join(';')}`;
+  }
+  return blocks;
+}
+
+/** 与上一次逐块比：头尾对得上的块原样留着（只更新起点），中间那一截换成新造的。 */
+function patchBlocks(m: Mirror, next: Block[]): void {
+  const old = m.blocks;
+  let head = 0;
+  while (head < old.length && head < next.length && old[head].key === next[head].key) {
+    head++;
+  }
+  let tail = 0;
+  while (
+    tail < old.length - head &&
+    tail < next.length - head &&
+    old[old.length - 1 - tail].key === next[next.length - 1 - tail].key
+  ) {
+    tail++;
+  }
+  for (let i = head; i < old.length - tail; i++) {
+    old[i].el?.remove();
+  }
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < next.length; i++) {
+    if (i < head) {
+      next[i].el = old[i].el;
+    } else if (i >= next.length - tail) {
+      next[i].el = old[old.length - (next.length - i)].el;
+    } else {
+      const el = blockElement(next[i]);
+      next[i].el = el;
+      frag.appendChild(el);
+    }
+  }
+  // 留着的块万一被别人动过（不该发生）：对不上就整份重来，不在错的 DOM 上接着补。
+  if (m.content.childElementCount !== head + tail) {
+    m.content.replaceChildren();
+    for (const b of next) {
+      b.el = blockElement(b);
+      frag.appendChild(b.el);
+    }
+    m.content.appendChild(frag);
+  } else {
+    m.content.insertBefore(frag, tail > 0 ? (old[old.length - tail].el ?? null) : null);
+  }
+  m.blocks = next;
+}
+
+function blockElement(b: Block): HTMLElement {
+  const div = document.createElement('div');
+  if (b.text === '') {
+    div.textContent = '​';
+  } else {
+    div.appendChild(buildContent(b.text, b.marks));
+  }
+  return div;
+}
+
+/**
+ * 鼠标底下（`clientX` / `clientY`，视口坐标）是 `layer` 这一层的哪一段。镜像没画着、没指着这一层的字时 undefined。
+ * 先按纵向二分找到那一行的块，再在块里量那几个 `<mark>`（`getClientRects`，折行的标记每一截都量）。
+ */
+export function rangeAtPoint(pane: Pane, layer: string, clientX: number, clientY: number): HighlightRange | undefined {
+  const m = mirrors.get(pane);
+  const ranges = m?.layers.get(layer);
+  if (!m?.shown || !ranges?.length || m.blocks.length === 0) {
+    return undefined;
+  }
+  const box = m.box.getBoundingClientRect();
+  if (clientX < box.left || clientX >= box.right || clientY < box.top || clientY >= box.bottom) {
+    return undefined;
+  }
+  // 第一块底边在鼠标下面的那一块。
+  let lo = 0;
+  let hi = m.blocks.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((m.blocks[mid].el?.getBoundingClientRect().bottom ?? 0) <= clientY) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  const block = m.blocks[lo];
+  if (!block?.el || block.marks.length === 0) {
+    return undefined;
+  }
+  const classes = new Set(ranges.map((r) => r.cls));
+  let offset = block.start;
+  for (const node of Array.from(block.el.childNodes)) {
+    const length = node.textContent?.length ?? 0;
+    if (node instanceof HTMLElement && node.tagName === 'MARK' && Array.from(node.classList).some((c) => classes.has(c))) {
+      for (const rect of Array.from(node.getClientRects())) {
+        if (clientX >= rect.left && clientX < rect.right && clientY >= rect.top && clientY < rect.bottom) {
+          const at = offset;
+          return ranges.find((r) => r.start <= at && at < r.end);
+        }
+      }
+    }
+    offset += length;
+  }
+  return undefined;
+}
+
+/**
+ * 一行的字切成段：没有高亮的是文本节点，有的是 `<mark class="ed-hl 各层的 cls">`。几层叠在一起的那一段
+ * 带上全部的 class。扫一遍边界，O(n log n)。行尾的 `\n` 不另补零宽空格——末尾的空行是单独一块（`blockElement`）。
  */
 function buildContent(text: string, ranges: HighlightRange[]): DocumentFragment {
   const frag = document.createDocumentFragment();
@@ -416,11 +606,14 @@ function buildContent(text: string, ranges: HighlightRange[]): DocumentFragment 
     }
   }
   emit(text.length);
-  // textarea 里末尾的换行后面还有一个空行；div 里没有，补一个零宽空格把那一行撑出来。
-  if (text.endsWith('\n')) {
-    frag.appendChild(document.createTextNode('​'));
-  }
   return frag;
+}
+
+/** 只在值变了时才写：写同样的值也可能让浏览器把这一层的样式标脏、整份重排，分块就白做了。 */
+function setStyle(target: HTMLElement, prop: string, value: string): void {
+  if (target.style.getPropertyValue(prop) !== value) {
+    target.style.setProperty(prop, value);
+  }
 }
 
 function copyStyles(area: HTMLTextAreaElement, target: HTMLElement): void {
@@ -428,8 +621,8 @@ function copyStyles(area: HTMLTextAreaElement, target: HTMLElement): void {
   for (const prop of COPIED_STYLES) {
     const value = cs.getPropertyValue(prop);
     if (value) {
-      target.style.setProperty(prop, value);
-    } else {
+      setStyle(target, prop, value);
+    } else if (target.style.getPropertyValue(prop)) {
       target.style.removeProperty(prop);
     }
   }
@@ -447,11 +640,11 @@ function placeBox(area: HTMLTextAreaElement, box: HTMLElement, content: HTMLElem
   const scrollbar = Math.max(0, area.offsetWidth - area.clientWidth - area.clientLeft * 2);
   const width = Math.max(0, rect.width - area.clientLeft * 2 - scrollbar);
   const height = Math.max(0, area.clientHeight);
-  box.style.left = `${rect.left - (parentRect?.left ?? 0) - (parent?.clientLeft ?? 0) + area.clientLeft}px`;
-  box.style.top = `${rect.top - (parentRect?.top ?? 0) - (parent?.clientTop ?? 0) + area.clientTop}px`;
-  box.style.width = `${width}px`;
-  box.style.height = `${height}px`;
-  content.style.width = `${width}px`;
+  setStyle(box, 'left', `${rect.left - (parentRect?.left ?? 0) - (parent?.clientLeft ?? 0) + area.clientLeft}px`);
+  setStyle(box, 'top', `${rect.top - (parentRect?.top ?? 0) - (parent?.clientTop ?? 0) + area.clientTop}px`);
+  setStyle(box, 'width', `${width}px`);
+  setStyle(box, 'height', `${height}px`);
+  setStyle(content, 'width', `${width}px`);
 }
 
 function syncScroll(m: Mirror): void {

@@ -30,6 +30,16 @@
   visibility: hidden;
 }
 
+/* 镜像按行分块（一行一个 div，editor/highlight.ts）。textarea 的 text-indent 只管全文第一行，所以只留给第一块。 */
+.ed-mirror-content > div {
+  margin: 0;
+  padding: 0;
+}
+
+.ed-mirror-content > div + div {
+  text-indent: 0;
+}
+
 /* 只有底色：不许加内边距、边框、字重——任何一样都会让镜像与 textarea 排得不一样。 */
 .ed-mirror mark {
   margin: 0;
