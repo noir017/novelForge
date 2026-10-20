@@ -1,5 +1,5 @@
 /**
- * `summary` 工具：定稿与全书摘要（定稿一章、把没定稿的章的细纲照正文同步、重建全书摘要）。
+ * `summary` 工具：定稿与全文大纲（定稿一章、把没定稿的章的细纲照正文同步、重建全文大纲）。
  *
  * | 断言 | 为什么 |
  * |---|---|
@@ -128,7 +128,7 @@ describe('同步与重建：确认框照弹，作者取消就零调用', () => {
       h.confirms.at(-1).message
     );
     assert.equal(r.error, undefined, r.error);
-    assert.ok(r.text.includes('全书摘要重建已交给 Novel Forge 执行'), r.text);
+    assert.ok(r.text.includes('全文大纲重建已交给 Novel Forge 执行'), r.text);
     assert.equal(fake.calls.length, 0);
     assert.equal(ctx.usage.calls, 0);
   });

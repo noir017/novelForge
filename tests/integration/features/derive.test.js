@@ -3,11 +3,11 @@
  *
  * | 用例组 | 钉的是什么 |
  * |---|---|
- * | 全套 | 两次确认（先只报细纲，细纲出来再报其余）；按 细纲 → 配置 → 前提 → 角色卡 → 世界观 → 大纲 → 全书摘要 的顺序；第一步照正文写出 `summaries/NNN-<章名>.md`、带 sourceHash，直接算定稿过（不再另排一遍细纲）；之后主按钮照常续写大纲 |
+ * | 全套 | 两次确认（先只报细纲，细纲出来再报其余）；按 细纲 → 配置 → 前提 → 角色卡 → 世界观 → 大纲 → 全文大纲 的顺序；第一步照正文写出 `summaries/NNN-<章名>.md`、带 sourceHash，直接算定稿过（不再另排一遍细纲）；之后主按钮照常续写大纲 |
  * | 设定条目 | 一条条目都没有时，建卡之后从名录建（出现 ≥2 章，没有就降到 1 章），次数算进第二次确认；没建成挂黄 ❗、后面照常补 |
  * | 再来一次 | 什么都齐了：零调用 |
  * | 只补空白 | 作者写过的前提、定稿过的细纲一个字不动；只排过计划的那一章拿着计划对照正文改，旧版进回收站 |
- * | 一件失败就停 | 大纲没整理成就不更新全书摘要，失败挂在大纲上（第 16 条） |
+ * | 一件失败就停 | 大纲没整理成就不更新全文大纲，失败挂在大纲上（第 16 条） |
  * | 取消 | 细纲那一步不同意就一次都不调 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -52,7 +52,7 @@ function kindOf(messages) {
   if (sys.includes('建立可检索的章节档案')) return 'plot';
   if (sys.includes('负责维护一部长篇小说的人物档案')) return 'card';
   if (sys.includes('把定稿细纲里关于一个设定的记录整理成一条设定条目')) return 'lore';
-  if (sys.includes('全书滚动摘要')) return 'global';
+  if (sys.includes('全文大纲')) return 'global';
   if (user.includes('【JSON 字段结构】')) return 'config';
   if (user.includes('整理出这一段的情节大纲')) return 'outline';
   if (user.includes('「故事前提」')) return 'premise';
@@ -173,10 +173,10 @@ describe('从已写正文补齐 · 全套', () => {
   });
 
   test('第二次把其余几样一次列全，次数按细纲算准；不再另排细纲', () => {
-    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 大纲 1 + 全书摘要 1（上限 5）
+    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 大纲 1 + 全文大纲 1（上限 5）
     assert.equal(
       h.confirms[1].message,
-      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、情节大纲、全书摘要，预计 7 次调用，最多 13 次。现在补？'
+      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、情节大纲、全文大纲，预计 7 次调用，最多 13 次。现在补？'
     );
   });
 
@@ -285,7 +285,7 @@ describe('从已写正文补齐 · 全套', () => {
     assert.equal(step.projectAction, undefined);
   });
 
-  test('全书摘要更新到第 7 章', async () => {
+  test('全文大纲更新到第 7 章', async () => {
     assert.equal((await t.project.readManifest()).globalSummaryThrough, 7);
   });
 
@@ -321,10 +321,10 @@ describe('从已写正文补齐 · 设定条目（从名录建）', () => {
   });
 
   test('确认框把设定条目算进去：出现过的都建，每条 1 次，解析不了的重来一次', () => {
-    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 设定条目 2（上限 4）+ 大纲 1 + 全书摘要 1（上限 5）
+    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 设定条目 2（上限 4）+ 大纲 1 + 全文大纲 1（上限 5）
     assert.equal(
       h.confirms[1].message,
-      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、设定条目、情节大纲、全书摘要，预计 9 次调用，最多 17 次。现在补？'
+      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、设定条目、情节大纲、全文大纲，预计 9 次调用，最多 17 次。现在补？'
     );
     assert.match(h.confirms[1].detail, /设定条目：给山门、门外建条目（细纲里出现 1 章以上、还没有条目/);
     assert.match(h.confirms[1].detail, /只读定稿细纲里提到它们的那几行，预计 2 次调用，最多 4 次/);
@@ -379,7 +379,7 @@ describe('从已写正文补齐 · 设定条目没建成也不停', () => {
     assert.match(h.confirms[1].detail, /给山门建条目（细纲里出现 1 章以上/);
   });
 
-  test('后面的大纲与全书摘要照常补', () => {
+  test('后面的大纲与全文大纲照常补', () => {
     assert.deepEqual(kinds().slice(-3), ['lore', 'outline', 'global']);
     assert.ok(!h.toasts.some((x) => x.startsWith('error:')), h.toasts.join('|'));
   });
@@ -464,7 +464,7 @@ describe('从已写正文补齐 · 一件失败就停', () => {
     await bundle.derive.deriveFromText(t.project);
   });
 
-  test('大纲没整理成：不更新全书摘要', () => {
+  test('大纲没整理成：不更新全文大纲', () => {
     assert.ok(!kinds().includes('global'), kinds().join(','));
   });
 

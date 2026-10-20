@@ -395,7 +395,7 @@ export class SessionStore {
    * 新建一个空会话（尚未落盘——没有内容的会话不该在历史里占位）。
    *
    * `seed` 让新会话继承上一个的落点：作者点「新对话」多半是想换个话题
-   * 接着在**同一个地方**写，把他弹回全书大纲纯属添乱。
+   * 接着在**同一个地方**写，把他弹回情节大纲纯属添乱。
    */
   create(seed?: {
     target?: CreationTarget;
@@ -563,7 +563,7 @@ function summarize(session: ChatSession): SessionSummary {
 /**
  * 容错读取：字段缺失或类型不对时补默认值，绝不抛。
  *
- * 认不出的 target 一律回落到全书大纲——它是唯一一个不依赖任何细纲就一定
+ * 认不出的 target 一律回落到情节大纲——它是唯一一个不依赖任何细纲就一定
  * 存在的产物。换轴之前的会话记的是章节路径，那些路径现在指不到任何东西，
  * 归一化时会落回大纲；作者重新选一章就好，比把它指到一个错的章上强。
  */
@@ -600,7 +600,7 @@ function normalize(id: string, raw: unknown): ChatSession {
  * 会话文件的 `drafts` 字段 → 一批草稿。不是数组就当空。
  *
  * **只要 `id` 在就不整体作废**：坏掉的字段按默认值补，气泡上那一轮至少还
- * 认得出产出过什么。`target` 走 `normalizeTarget`（认不出回落全书大纲），
+ * 认得出产出过什么。`target` 走 `normalizeTarget`（认不出回落情节大纲），
  * `action` 走 `normalizeAction`，两者都不抛。展开一条设定的草稿（`{ kind: 'lore', relPath }`）原样认回来——
  * 采纳时它还是那一条设定，不会被当成整批设定清单（`{ kind: 'setting', doc: 'lore' }`）。
  *

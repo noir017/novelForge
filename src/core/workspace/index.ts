@@ -973,7 +973,7 @@ export class Workspace {
   }
 
   /**
-   * 写全书滚动摘要，并把水位线记进 manifest。
+   * 写全文大纲，并把水位线记进 manifest。
    *
    * 它的上游是全部定稿过的细纲，但那是一次显式的重建动作（`through` 水位线），
    * 不是 hash 传播——所以没有 `upstreamHash`。
@@ -981,7 +981,7 @@ export class Workspace {
   async writeGlobalSummary(content: string, through: number): Promise<string> {
     const rel = this.project.relPath(this.project.globalSummaryPath);
     const fm = stringifyFrontmatter({ through, generatedBy: 'novel-forge' });
-    await this.overwrite(rel, `${fm}\n\n# 全书滚动摘要\n\n${content.trim()}\n`);
+    await this.overwrite(rel, `${fm}\n\n# 全文大纲\n\n${content.trim()}\n`);
     const manifest = await this.project.readManifest();
     manifest.globalSummaryThrough = through;
     await this.project.writeManifest(manifest);

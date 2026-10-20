@@ -30,7 +30,7 @@ import { GLOBAL_SYSTEM, REFINE_SYSTEM, STAGE_SYSTEM, SUMMARY_SYSTEM } from './su
 import { Workspace } from '../workspace';
 
 const log = scoped('定稿');
-const globalLog = scoped('全书摘要');
+const globalLog = scoped('全文大纲');
 
 /**
  * 定稿时模型交回来的结构化形态：八个小节 + 机器可读的出场人物清单 + 第九节「设定」（设定名录）。
@@ -551,9 +551,9 @@ export interface GlobalSummaryUpdate {
 }
 
 /**
- * 增量更新全书滚动摘要：旧摘要 + 它覆盖到的那一章之后、定稿过的各章的细纲，**1 次调用**出新的一版。
- * 批量写章「写完即定稿」每落后 `GLOBAL_SUMMARY_EVERY` 章调一次（百章实验里全书摘要从没生成过——
- * 它只有作者手动点「重建」这一个入口）。还没有旧摘要时就从第 1 章起汇总；新章太多、一次放不下时
+ * 增量更新全文大纲：旧的那一份 + 它覆盖到的那一章之后、定稿过的各章的细纲，**1 次调用**出新的一版。
+ * 批量写章「写完即定稿」每落后 `GLOBAL_SUMMARY_EVERY` 章调一次（百章实验里全文大纲（那时叫全书摘要）从没生成过——
+ * 它只有作者手动点「重建」这一个入口）。还没有旧的那一份时就从第 1 章起汇总；新章太多、一次放不下时
  * 只并入放得下的前面那几章，`through` 停在那里，下一次接着并。不弹框、不开任务；调用失败抛错。
  */
 export async function updateGlobalSummary(
@@ -575,7 +575,7 @@ export async function updateGlobalSummary(
     }
     const plot = await project.finalizedPlotOf(chapter);
     const content = plot ? plotDigest(plot) : '';
-    // 一章没定稿就停在它前面：全书摘要是按时间顺序的主线，跳过一章就缺一块。
+    // 一章没定稿就停在它前面：全文大纲是按时间顺序的主线，跳过一章就缺一块。
     if (!content) {
       break;
     }
@@ -603,11 +603,11 @@ export async function updateGlobalSummary(
   }
   const span = units[0].no === through ? `第 ${through} 章` : `第 ${units[0].no}–${through} 章`;
   const user = fresh
-    ? `以下是目前的全书滚动摘要（截至第 ${since} 章），以及之后${span}定稿过的逐章细纲。请在旧摘要上并入这几章，输出一份新的全书滚动摘要。\n\n# 目前的全书滚动摘要\n\n${old}\n\n# 新定稿的逐章细纲\n\n${blocks.join('\n\n')}`
-    : `以下是${span}定稿过的逐章细纲，请汇总成一份全书滚动摘要。\n\n${blocks.join('\n\n')}`;
+    ? `以下是目前的全文大纲（截至第 ${since} 章），以及之后${span}定稿过的逐章细纲。请在旧的全文大纲上并入这几章，输出一份新的全文大纲。\n\n# 目前的全文大纲\n\n${old}\n\n# 新定稿的逐章细纲\n\n${blocks.join('\n\n')}`
+    : `以下是${span}定稿过的逐章细纲，请汇总成一份全文大纲。\n\n${blocks.join('\n\n')}`;
   const config = readConfig();
   const startedAt = Date.now();
-  const text = await runner.run('更新全书摘要', (llm) =>
+  const text = await runner.run('更新全文大纲', (llm) =>
     collectText(
       llm.stream(
         [
@@ -619,15 +619,15 @@ export async function updateGlobalSummary(
     )
   );
   if (!text.trim()) {
-    throw new Error('模型返回的全书摘要是空的');
+    throw new Error('模型返回的全文大纲是空的');
   }
   await new Workspace(project).writeGlobalSummary(text.trim(), through);
-  globalLog.info(`全书摘要已更新到第 ${through} 章`, `并入${span}｜${text.trim().length} 字｜用时 ${elapsed(startedAt)}`);
+  globalLog.info(`全文大纲已更新到第 ${through} 章`, `并入${span}｜${text.trim().length} 字｜用时 ${elapsed(startedAt)}`);
   return { calls: 1, through };
 }
 
 /**
- * 一份定稿过的细纲交给全书摘要的那一段：有内容的小节一节一段。没内容是空串。
+ * 一份定稿过的细纲交给全文大纲的那一段：有内容的小节一节一段。没内容是空串。
  * 连续性事实带着证据原句，与全书主线无关，不给。
  */
 function plotDigest(plot: Plot): string {
@@ -637,15 +637,15 @@ function plotDigest(plot: Plot): string {
 }
 
 /**
- * map-reduce 重建全书摘要。
+ * map-reduce 重建全文大纲。
  *
  * 定稿过的各章细纲按 summaryBatchSize 分批 reduce 成阶段摘要，再把阶段摘要合并成
- * 一份全书摘要。这样即便有几百章，也不会一次性把所有细纲塞进窗口。
+ * 一份全文大纲。这样即便有几百章，也不会一次性把所有细纲塞进窗口。
  */
 export async function rebuildGlobalSummary(project: NovelProject): Promise<void> {
   const chapters = await project.listChapters();
   if (chapters.length === 0) {
-    globalLog.warn('还没有章节，无法重建全书摘要');
+    globalLog.warn('还没有章节，无法重建全文大纲');
     getHost().toast('还没有章节。');
     return;
   }
@@ -676,7 +676,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
   return withCallChoice(choice, async () => {
     const config = readConfig();
     // 收集定稿过的细纲。定稿之后正文又改过的照样收（上面已经问过要不要先同步），
-    // 从没定稿过的只是计划，不进全书摘要。
+    // 从没定稿过的只是计划，不进全文大纲。
     const units: { no: number; title: string; content: string }[] = [];
     const missing: number[] = [];
     for (const chapter of chapters) {
@@ -694,9 +694,9 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
       return;
     }
     if (missing.length > 0) {
-      // 「不静默截断」：少了哪几章必须说出来，否则全书摘要凭空缺一块。
+      // 「不静默截断」：少了哪几章必须说出来，否则全文大纲凭空缺一块。
       globalLog.warn(
-        `${missing.length} 章没定稿过，不会进入全书摘要`,
+        `${missing.length} 章没定稿过，不会进入全文大纲`,
         `缺失章：${missing.slice(0, 20).join('、')}${missing.length > 20 ? `…（共 ${missing.length} 章）` : ''}`
       );
     }
@@ -724,7 +724,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
     );
 
     await runTask(
-      '重建全书摘要',
+      '重建全文大纲',
       async ({ signal, report }) => {
         const startedAt = Date.now();
         const options: StreamOptions = {
@@ -757,7 +757,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
                 llm.stream(
                   [
                     { role: 'system', content: STAGE_SYSTEM },
-                    { role: 'user', content: `以下是${range}定稿过的逐章细纲，请汇总成阶段摘要。\n\n${joined}` },
+                    { role: 'user', content: `以下是${range}定稿过的逐章细纲，请汇总成阶段大纲（只写主线进展）。\n\n${joined}` },
                   ],
                   options
                 )
@@ -781,7 +781,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
           return;
         }
 
-        // 「不静默截断」：某一批失败时全书摘要会凭空缺一块，必须说出来。
+        // 「不静默截断」：某一批失败时全文大纲会凭空缺一块，必须说出来。
         const stageSummaries: string[] = [];
         const lost: string[] = [];
         for (const [i, r] of results.entries()) {
@@ -792,21 +792,21 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
           }
         }
         if (lost.length > 0) {
-          globalLog.error(`${lost.length} 批汇总失败，这几章不会进入全书摘要`, lost.join('\n'));
-          getHost().toast(`${lost.length} 批汇总失败，全书摘要会缺这几章，详见日志页。`, 'error');
+          globalLog.error(`${lost.length} 批汇总失败，这几章不会进入全文大纲`, lost.join('\n'));
+          getHost().toast(`${lost.length} 批汇总失败，全文大纲会缺这几章，详见日志页。`, 'error');
         }
         if (stageSummaries.length === 0) {
-          globalLog.error('所有批次都汇总失败，全书摘要未改动');
+          globalLog.error('所有批次都汇总失败，全文大纲未改动');
           return;
         }
 
-        // ---- reduce：阶段摘要合并成全书摘要 ----
+        // ---- reduce：阶段摘要合并成全文大纲 ----
         let finalText: string;
         if (stageSummaries.length === 1) {
           finalText = stageSummaries[0].replace(/^## .*\n+/, '');
-          globalLog.debug('只有一批，直接用阶段摘要作为全书摘要');
+          globalLog.debug('只有一批，直接用阶段摘要作为全文大纲');
         } else {
-          report({ message: '合并为全书摘要', current: batches.length, total: steps });
+          report({ message: '合并为全文大纲', current: batches.length, total: steps });
           const combined = stageSummaries.join('\n\n');
           // 合并这一步用**精标档**的窗口：它和分批汇总很可能不是同一个模型。
           const mergeBudget = mergePool.primaryBudget;
@@ -816,19 +816,19 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
             globalLog.warn(
               '阶段摘要总量超出输入预算，合并时已截断',
               `${combined.length} 字 → ${clipped.length} 字（预算 ${inputBudget} token）。` +
-                '可把「全书摘要批大小」调大以减少批数。'
+                '可把「全文大纲批大小」调大以减少批数。'
             );
           }
           const mergeStart = Date.now();
           globalLog.debug(`合并 ${stageSummaries.length} 份阶段摘要`, `约 ${estimateTokens(clipped)} token`);
-          finalText = await mergePool.run('合并全书摘要', (llm) =>
+          finalText = await mergePool.run('合并全文大纲', (llm) =>
             collectText(
               llm.stream(
                 [
                   { role: 'system', content: GLOBAL_SYSTEM },
                   {
                     role: 'user',
-                    content: `以下是各阶段摘要，请合并成一份全书滚动摘要。\n\n${clipped}`,
+                    content: `以下是各阶段大纲，请合并成一份全文大纲。\n\n${clipped}`,
                   },
                 ],
                 { ...options, maxOutputTokens: mergeBudget.maxOutputTokens }
@@ -842,13 +842,13 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
         const relPath = await new Workspace(project).writeGlobalSummary(finalText.trim(), through);
         report({ message: '完成', current: steps, total: steps });
         globalLog.info(
-          `全书摘要已重建，覆盖至第 ${through} 章`,
+          `全文大纲已重建，覆盖至第 ${through} 章`,
           `${relPath}｜${finalText.trim().length} 字（约 ${estimateTokens(finalText)} token）｜总耗时 ${elapsed(startedAt)}`
         );
-        getHost().toast(`全书摘要已重建，覆盖至第 ${through} 章（约 ${estimateTokens(finalText)} token）。`);
+        getHost().toast(`全文大纲已重建，覆盖至第 ${through} 章（约 ${estimateTokens(finalText)} token）。`);
         await getHost().openFile(project.relPath(project.globalSummaryPath));
       },
-      { scope: '全书摘要' }
+      { scope: '全文大纲' }
     );
   });
 }

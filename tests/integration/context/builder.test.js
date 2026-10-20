@@ -173,7 +173,7 @@ describe('NovelProject 读取示例工程', () => {
     assert.equal(plots.map((p) => p.no).join(','), '1,2,3,4');
   });
 
-  // 全书摘要 `summaries/global.md` 与细纲同目录，但它不是数字开头，不算细纲。
+  // 全文大纲 `summaries/global.md` 与细纲同目录，但它不是数字开头，不算细纲。
   test('细纲平铺在 summaries/ 根下，global.md 不算', () => {
     assert.deepEqual(plots.map((p) => p.relPath), [PLOT1, PLOT2, PLOT3, PLOT4]);
   });
@@ -246,8 +246,10 @@ describe('NovelProject 读取示例工程', () => {
     assert.ok(style.includes('禁用清单'));
   });
 
-  test('读到全书摘要', () => {
-    assert.ok(global.includes('未收伏笔'));
+  // 全文大纲（原全书摘要）只剩「主线进展」一节：伏笔与关系的变动归叙事线。
+  test('读到全文大纲：只有主线进展', () => {
+    assert.ok(global.startsWith('## 主线进展') && global.includes('林昭背着旧藤箱'), global.slice(0, 80));
+    assert.ok(!global.includes('未收伏笔') && !global.includes('# 全文大纲'), global.slice(0, 80));
   });
 
   test('下一个细纲号为 5（第 4 章已经排过）', () => {
@@ -270,7 +272,7 @@ describe('装配：预算充裕（128k）', () => {
     assert.ok(inc('style'));
   });
 
-  test('P2 全书摘要已注入', () => {
+  test('P2 全文大纲已注入', () => {
     assert.ok(inc('globalSummary'));
   });
 
@@ -362,8 +364,8 @@ describe('装配：预算充裕（128k）', () => {
     assert.ok(built.messages[1].content.includes('# 文风指南'));
   });
 
-  test('user 含前情提要段', () => {
-    assert.ok(built.messages[1].content.includes('# 全书前情提要'));
+  test('user 含全文大纲段（从前叫「全书前情提要」）', () => {
+    assert.ok(built.messages[1].content.includes('# 全文大纲\n'));
   });
 
   test('user 含角色设定段', () => {
@@ -1167,7 +1169,7 @@ describe('装配：discuss 模式', () => {
  * - **架构层**带 `settingDocs`（P0 force）：四件一件吃一件，前提要照着配置写、世界观
  *   要照着前提与角色写，少了上一件，这一件就是凭空编的。它**不看正文**——这一层在
  *   第一章之前，也不该被已经写出来的东西带着走。
- * - **大纲层**看全局：架构三件 + 大纲全文 + 全书摘要 + 各章细纲，不读正文原文。
+ * - **大纲层**看全局：架构三件 + 大纲全文 + 全文大纲 + 各章细纲，不读正文原文。
  * - **细纲层**看这一章在大纲里的位置、前几章排到哪（上文）、下一章要接到哪（下文），
  *   不读正文原文——排细纲要的是走向，不是措辞。更早几章不再另带一份（`plotSummary`）：
  *   细纲与定稿是同一份文件，上文与前序细纲一览已经带了。
@@ -1302,7 +1304,7 @@ describe('装配：四阶段配方', () => {
     );
   });
 
-  test('架构阶段也不带早前细纲与全书摘要（不被已经写出来的东西带着走）', () => {
+  test('架构阶段也不带早前细纲与全文大纲（不被已经写出来的东西带着走）', () => {
     assert.ok(keysOf(sIds, 'plotSummary:').length === 0 && !sIds.has('globalSummary'), [...sIds.keys()].join(','));
   });
 
@@ -2034,7 +2036,7 @@ describe('工程页数据', () => {
     );
   });
 
-  test('全书摘要覆盖章数来自 manifest', () => {
+  test('全文大纲覆盖章数来自 manifest', () => {
     assert.equal(tree.globalSummaryThrough, 3);
   });
 

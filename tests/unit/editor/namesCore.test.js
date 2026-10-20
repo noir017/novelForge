@@ -63,7 +63,7 @@ describe('namesCore › 哪些文件补全', () => {
     }
   });
 
-  test('架构几件（setting，含小说配置）、敏感词表（sensitive）、文风、全书摘要、技能、other、没给 kind 不补', () => {
+  test('架构几件（setting，含小说配置）、敏感词表（sensitive）、文风、全文大纲、技能、other、没给 kind 不补', () => {
     for (const kind of ['setting', 'sensitive', 'style', 'globalSummary', 'skill', 'other', undefined, '']) {
       assert.equal(completionApplies(kind), false, String(kind));
     }

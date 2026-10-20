@@ -188,7 +188,7 @@ export function countLabel(nodes: ProjectNode[], unit: string): string {
 }
 
 /**
- * 「文风与摘要」那一组：全书摘要、文风指南两行。情节大纲在「故事架构」那一组，叙事线在自己的页签。
+ * 「文风与摘要」那一组：全文大纲、文风指南两行。情节大纲在「故事架构」那一组，叙事线在自己的页签。
  *
  * 这几行是工程的固定文件，不给类文件操作（`buildFileRow` 不传 depth 即可），
  * 但它们的「重建」「从正文提取」是常用动作，照旧留在行内（悬停才亮）。
@@ -202,7 +202,7 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
 
   const global = buildFileRow(
     {
-      label: '全书摘要',
+      label: '全文大纲',
       relPath: tree.globalSummaryPath,
       // `globalSummaryThrough` 记的是**章号**。
       detail:
@@ -217,7 +217,7 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   global.appendChild(rowActions(linkBtn('重建', () => projectAction('rebuildGlobalSummary'))));
   onContextMenu(global, () => [
     { label: '打开', run: () => openPath(tree.globalSummaryPath) },
-    { label: '重建全书摘要', run: () => projectAction('rebuildGlobalSummary') },
+    { label: '重建全文大纲', run: () => projectAction('rebuildGlobalSummary') },
     { sep: true },
     ...baseMenuItems(),
   ]);

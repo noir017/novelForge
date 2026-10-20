@@ -146,7 +146,7 @@ export interface ProjectManifest {
   author: string;
   /** 章节索引。 */
   chapters: ManifestChapter[];
-  /** 上次重建全书摘要时，已覆盖到的最大章号。 */
+  /** 上次重建全文大纲时，已覆盖到的最大章号。 */
   globalSummaryThrough?: number;
 }
 

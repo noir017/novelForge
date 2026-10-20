@@ -122,9 +122,9 @@ describe('editorLabel · 有中文称呼的固定文件', () => {
     assert.equal(crumbs('.novelforge/outline.md'), '故事架构[.novelforge] › 情节大纲');
   });
 
-  test('文风指南、全书摘要归在文风与摘要（与工程页、「转到…」同一个叫法）', () => {
+  test('文风指南、全文大纲归在文风与摘要（与工程页、「转到…」同一个叫法）', () => {
     assert.equal(describeFile('.novelforge/style.md').title, '文风指南');
-    assert.equal(describeFile('.novelforge/summaries/global.md').title, '全书摘要');
+    assert.equal(describeFile('.novelforge/summaries/global.md').title, '全文大纲');
   });
 
   test('叙事线一条线一个文件：标签是线名、短标记「叙事线」，面包屑从叙事线目录起', () => {

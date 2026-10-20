@@ -16,7 +16,7 @@ import type { Focus } from './focus';
 
 /**
  * 本章自己的细纲（`plotSelf`）。第九节「设定」只在这里带：这一章打算引入什么、用到什么，写的人要知道；
- * 前几章细纲、细纲一览、全书摘要的输入都不带它，免得几十章的细纲一起变长。
+ * 前几章细纲、细纲一览、全文大纲的输入都不带它，免得几十章的细纲一起变长。
  */
 export function renderPlot(plot: Plot): string {
   const head = `【${plotLabel(plot.no, plot.title)} · 细纲】`;

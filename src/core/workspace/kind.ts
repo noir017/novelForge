@@ -157,7 +157,7 @@ function isMd(rel: string): boolean {
  * 路径 → 种类。**绝不抛。**
  *
  * 判定顺序有讲究：固定单文件（架构三件 / outline / style / global.md）排在各自所属
- * 目录之前——`summaries/global.md` 是全书摘要，不是一份细纲。
+ * 目录之前——`summaries/global.md` 是全文大纲，不是一份细纲。
  */
 export function kindOfPath(project: NovelProject, relPath: string): PathKind {
   const rel = normalizeRel(relPath);

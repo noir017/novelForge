@@ -803,11 +803,11 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   // 从前这一组底下还挂着一行「同步过期细纲 / 提取/更新角色卡」（单章摘要时代的遗留），
   // 那四件事在别处都有入口：同步在页顶黄条，提取在「角色」组右键，两个批量在工具栏与「章节」组右键。
   // 叙事线那一行计数也不在这里了：叙事线单占一个页签（叙事线重做第 8 个提交）。
-  test('「文风与摘要」只有全书摘要、文风指南两行，没有工具行', () => {
+  test('「文风与摘要」只有全文大纲、文风指南两行，没有工具行', () => {
     const group = [...ui.doc.querySelectorAll('#projectBody .group')]
       .find((g) => g.querySelector('.group-name')?.textContent === '文风与摘要');
     const labels = [...group.querySelectorAll('.group-body > .row .row-label')].map((n) => n.textContent);
-    assert.deepEqual(labels, ['全书摘要', '文风指南'], group.outerHTML);
+    assert.deepEqual(labels, ['全文大纲', '文风指南'], group.outerHTML);
     assert.ok(!group.textContent.includes('同步过期细纲') && !group.textContent.includes('提取/更新角色卡'), group.textContent);
   });
 

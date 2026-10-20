@@ -51,7 +51,7 @@ describe('kindOfPath · 固定单文件', () => {
   });
 
   // 它就躺在 summaries/ 里，与细纲同一个目录，必须排在细纲之前判。
-  test('summaries/global.md 是全书摘要而不是某一章的细纲', () => {
+  test('summaries/global.md 是全文大纲而不是某一章的细纲', () => {
     assert.equal(kindOf('.novelforge/summaries/global.md').kind, 'globalSummary');
   });
 

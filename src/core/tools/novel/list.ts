@@ -30,7 +30,7 @@ export const listTool: ToolDef = {
     '情节大纲是 .novelforge/outline.md，细纲在 .novelforge/summaries/（一章一份，与正文同样的相对路径、扩展名 .md：' +
     'chapters/上部/003-夜访.txt 的细纲是 .novelforge/summaries/上部/003-夜访.md；定稿会照正文改它），' +
     '正文在章节根目录（默认 chapters/，可以分子目录），' +
-    '全书摘要是 .novelforge/summaries/global.md，角色卡在 .novelforge/characters/，设定在 .novelforge/lore/，' +
+    '全文大纲是 .novelforge/summaries/global.md，角色卡在 .novelforge/characters/，设定在 .novelforge/lore/，' +
     '叙事线（剧情线，一条线一个文件，伏笔挂在线下，可选）在 .novelforge/threads/，挂不上线的伏笔在 .novelforge/threads/未归属的伏笔.md。' +
     `一次最多返回 ${LIST_LIMIT} 项，超出会截断并告诉你还有多少。`,
   parameters: objectSchema({

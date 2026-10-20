@@ -14,7 +14,7 @@ chapters/                    正文，NNN-标题.md。**唯一真相**：定稿�
 ├── 002-客栈里的女人.md
 └── 003-夜访.md
 .novelforge/
-├── project.json             章节索引（version: 1）+ 全书摘要汇总到第几章
+├── project.json             章节索引（version: 1）+ 全文大纲汇总到第几章
 ├── config.md                小说配置：类型 / 结构 / 视角 / 总章数 / 每章字数 + 七节
 ├── premise.md               故事前提（一句话前提 / 核心冲突链 / 金手指定位 / 悬念骨架）
 ├── world.md                 世界观（规则与漏洞 / 阶层与资源 / 深层危机）
@@ -22,7 +22,7 @@ chapters/                    正文，NNN-标题.md。**唯一真相**：定稿�
 ├── style.md                 文风指南（写正文时必注入）
 ├── characters/              角色卡（frontmatter + 固定小节）——也就是角色图谱
 ├── lore/                    世界观设定条目（含 keywords，命中即注入）
-└── summaries/               细纲，一章一份，与 chapters/ 里的正文相对路径相同（扩展名 .md），细纲号 = 章号；外加全书滚动摘要 global.md
+└── summaries/               细纲，一章一份，与 chapters/ 里的正文相对路径相同（扩展名 .md），细纲号 = 章号；外加全文大纲 global.md（原全书摘要，只有「主线进展」一节）
     ├── 001-楔子.md              001–003 定稿过（sourceHash 对得上正文）
     ├── 002-客栈里的女人.md
     ├── 003-夜访.md

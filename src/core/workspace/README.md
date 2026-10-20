@@ -121,7 +121,7 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
    （`NovelProject.plotPathForChapter`），配对要读盘，不在这里做；还没有正文的章，正文落点由细纲
    反推（`views/pipeline.ts` 的 `chapterTargetOf`）。
    `pathOfTarget` 对正文 target 直接抛，提示调用方改用它。
-3. **`summaries/global.md` 排在细纲之前判**：它是全书摘要（`globalSummary`），不是一份细纲。
+3. **`summaries/global.md` 排在细纲之前判**：它是全文大纲（`globalSummary`），不是一份细纲。
 4. **老工程留下的 `scenes/`、`volumes/`、`manuscripts/`、`plots/` 都判成 `other`**：那几层已经删掉
    （见 `model/pipeline.ts` 的文件头），细纲从 `plots/` 搬进了 `summaries/`、与单章摘要并成一份
    （见 `model/plotFile.ts` 的文件头）。那些文件
@@ -307,7 +307,7 @@ workspace/
 | `writeSkillBindings(text)` | 固定路径（`skills.json`）。设置页「技能」与 `skills bind` 动手前都已经问过作者，这里不再弹覆盖审阅——每换一次下拉框弹一个 JSON 的 diff 只是噪声 |
 | `updateThreads(edit)` | 固定路径（`threads.md`）。读**此刻**的原文交给 `edit`、写回它给的新原文：排线、定稿要调几十秒模型，写之前重读，作者这期间的改动才不会被一份旧全文冲掉 |
 | `setParagraphStyle(style)` | 固定路径（`config.md`）。内置编辑器「编辑 → 段落格式」：**只改 frontmatter 的 `paragraphStyle` 这一行**（`setConfigParagraphStyle`），别的字节一个不动；没有 `config.md` 就新建一份只有这一段 frontmatter 的（没有小节，「小说配置」仍算没填，主按钮不变）。经 `write` 落盘、不弹覆盖审阅（改的只是作者在菜单里点的那一个键），带读到时的 hash 当乐观锁；已经是这个值时不写 |
-| `initializeProject(meta)` | 新工程（`actions.ts` 的 `initProjectFlow`：插件命令、网页按钮、CLI 共用）：固定目录（`model` 的 `scaffold`）→ 几份空模板（架构三件、文风、情节大纲、全书摘要；落点与内容由 `model` 的 `newProjectTemplates` 给，纯数据）→ manifest（`model` 的 `createManifest`，最后写：模板写到一半失败时工程不算建好，再点一次就补齐）。**模板经 `write` 写，`mode: 'create'`，落点上已经有东西（文件或目录）就一个字节不动**——与从前 `model/project.ts` 里的 `writeIfAbsent` 同一个口径，那一处绕过了网关，而 `model/` 不能反过来依赖网关，所以拆成「数据层给脚手架与模板内容、网关写模板」。经网关不多出动作：create 不弹审阅、不存历史；这几种（setting / outline / style / globalSummary）的 handler 不记账，不写细纲，已有细纲不会被补上 `upstreamHash`、没有东西因此挂 ⟳；没有伴生也就不记日志。返回新建了哪几份 |
+| `initializeProject(meta)` | 新工程（`actions.ts` 的 `initProjectFlow`：插件命令、网页按钮、CLI 共用）：固定目录（`model` 的 `scaffold`）→ 几份空模板（架构三件、文风、情节大纲、全文大纲；落点与内容由 `model` 的 `newProjectTemplates` 给，纯数据）→ manifest（`model` 的 `createManifest`，最后写：模板写到一半失败时工程不算建好，再点一次就补齐）。**模板经 `write` 写，`mode: 'create'`，落点上已经有东西（文件或目录）就一个字节不动**——与从前 `model/project.ts` 里的 `writeIfAbsent` 同一个口径，那一处绕过了网关，而 `model/` 不能反过来依赖网关，所以拆成「数据层给脚手架与模板内容、网关写模板」。经网关不多出动作：create 不弹审阅、不存历史；这几种（setting / outline / style / globalSummary）的 handler 不记账，不写细纲，已有细纲不会被补上 `upstreamHash`、没有东西因此挂 ⟳；没有伴生也就不记日志。返回新建了哪几份 |
 
 调用方手里只有对象，让它自己去拼路径等于把命名规则复制一份出去。
 

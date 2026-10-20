@@ -374,8 +374,8 @@ export function settingsPane(opts: PaneOptions = {}): string {
       <label class="field"><span>写完正文删修饰</span><input type="checkbox" id="setTrimModifiers"></label>
     </div>
 
-    <div class="pane-head"><span>全书摘要</span></div>
-    <div class="hint">重建全书摘要时，定稿过的各章细纲先按此数量分批汇总，再合并成全书摘要。</div>
+    <div class="pane-head"><span>全文大纲</span></div>
+    <div class="hint">重建全文大纲时，定稿过的各章细纲先按此数量分批汇总，再合并成全文大纲。</div>
     <div class="grid">
       <label class="field"><span>每批章数</span><input type="number" id="setSummaryBatchSize" min="3"></label>
     </div>

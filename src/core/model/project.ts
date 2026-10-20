@@ -196,7 +196,7 @@ export class NovelProject {
     return path.join(this.novelDir, 'lore');
   }
 
-  /** `summaries/`：一章一份的细纲，外加全书摘要 `global.md`。 */
+  /** `summaries/`：一章一份的细纲，外加全文大纲 `global.md`。 */
   get summariesDir(): string {
     return path.join(this.novelDir, 'summaries');
   }
@@ -204,7 +204,7 @@ export class NovelProject {
   /**
    * 细纲（`.novelforge/summaries/`）。一章一份，**镜像正文的相对路径**：`chapters/第一卷/012-夜入青云.md`
    * 的细纲是 `summaries/第一卷/012-夜入青云.md`。各级子目录里数字开头的 `.md` 都是细纲，根下的
-   * `global.md` 是全书摘要。老工程的 `plots/` 不再扫描——那些文件一个字节都不动。
+   * `global.md` 是全文大纲。老工程的 `plots/` 不再扫描——那些文件一个字节都不动。
    */
   get plotsDir(): string {
     return this.summariesDir;
@@ -443,7 +443,7 @@ export class NovelProject {
   }
 
   /**
-   * 新工程的几份空模板：架构三件、文风、情节大纲、全书摘要。**只给落点（工作区相对路径）与内容，不碰磁盘。**
+   * 新工程的几份空模板：架构三件、文风、情节大纲、全文大纲。**只给落点（工作区相对路径）与内容，不碰磁盘。**
    *
    * 架构三件是结构完整、全是占位的空模板，`isSettingFilled` 为 false，主按钮于是从「生成小说配置」开始。
    * **不放示例角色卡**：角色图谱「有没有」看 `characters/` 下有没有卡，一张示例卡会让新工程一出生就跳过「生成角色图谱」
@@ -933,13 +933,18 @@ export class NovelProject {
     };
   }
 
-  // ---------------------------------------------------------------- 全书摘要 / 叙事线
+  // ---------------------------------------------------------------- 全文大纲 / 叙事线
 
+  /**
+   * 全文大纲（原全书摘要）的正文，去掉 H1。老文件里「已收伏笔 / 未收伏笔 / 人物关系变动」那三节当认不出的小节，
+   * 不读（叙事线重做：伏笔与关系的变动归叙事线，同一样东西只留一份）——文件一个字不动，装配与增量更新都看不见它们，
+   * 下一次更新只写「主线进展」。
+   */
   async readGlobalSummary(): Promise<string> {
     if (!(await exists(this.globalSummaryPath))) {
       return '';
     }
-    return stripH1(parseMarkdown(await readText(this.globalSummaryPath)).body);
+    return dropRetiredGlobalSections(stripH1(parseMarkdown(await readText(this.globalSummaryPath)).body));
   }
 
   /**
@@ -1308,20 +1313,41 @@ const OUTLINE_TEMPLATE = (title: string) => `# ${title} · 情节大纲
 
 `;
 
+/**
+ * 全文大纲（原全书摘要）的空模板：只有「主线进展」一节——已经写完的部分，主线是怎么走过来的。伏笔与关系的变动
+ * 归叙事线（`threads/`），往后的计划是情节大纲。
+ */
 const GLOBAL_SUMMARY_TEMPLATE = `---
 through: 0
 generatedBy: novel-forge
 ---
 
-# 全书滚动摘要
+# 全文大纲
 
 ## 主线进展
 
-（尚未生成。写完若干章后运行命令「Novel: 重建全书摘要」。）
-
-## 已收伏笔
-
-## 未收伏笔
-
-## 人物关系变动
+（尚未生成。写完若干章后运行命令「Novel: 重建全文大纲」。）
 `;
+
+/** 全文大纲从前另有的三节（全书摘要时代）。老文件里留着，不读（{@link NovelProject.readGlobalSummary}）。 */
+const RETIRED_GLOBAL_SECTIONS = new Set(['已收伏笔', '未收伏笔', '人物关系变动']);
+
+/**
+ * 去掉 {@link RETIRED_GLOBAL_SECTIONS} 那三节：标题（`##` 或 `###`，只有一批时阶段那一份直接落盘，是三级标题）
+ * 到下一个同级或更高的标题为止。别的小节、作者自己加的，原样留着。
+ */
+function dropRetiredGlobalSections(body: string): string {
+  const out: string[] = [];
+  let skipping = 0;
+  for (const line of body.split(/\r?\n/)) {
+    const h = /^(#{1,3})(?!#)\s*(.*?)\s*#*\s*$/u.exec(line);
+    if (h && (!skipping || h[1].length <= skipping)) {
+      const retired = h[1].length >= 2 && RETIRED_GLOBAL_SECTIONS.has(h[2].replace(/[\s·・、,，.。:：/-]/g, ''));
+      skipping = retired ? h[1].length : 0;
+    }
+    if (!skipping) {
+      out.push(line);
+    }
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}

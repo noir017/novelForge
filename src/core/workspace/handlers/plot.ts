@@ -10,7 +10,7 @@
  *    （定稿过的章照样只挂 ⟳，第 18 条）。**预检的永久放行（`preflightOk`）刻意不沿用**：
  *    重排过的出场是新的安排，要再问一次（五期补遗 §2）。
  * 2. **记账**：`upstreamHash` = 情节大纲里**覆盖本章那一节**的指纹（大纲没有区间
- *    标题时退回全书大纲的指纹）。谁写都记——作者在内置编辑器里改一份细纲，
+ *    标题时退回情节大纲的指纹）。谁写都记——作者在内置编辑器里改一份细纲，
  *    指纹链照样接得上。
  *
  * 复制出来的副本另有一条（`afterCopy`）：去掉定稿那一侧的指纹，`upstreamHash` 不重记——副本是一份还没写、没定稿的计划。
@@ -166,7 +166,7 @@ export function renderFinalizedPlot(input: {
   return renderPlotFile({ ...plot, writtenFrom });
 }
 
-/** 全书大纲的内容指纹。大纲没有区间标题时，它就是每一章细纲的上游。 */
+/** 情节大纲的内容指纹。大纲没有区间标题时，它就是每一章细纲的上游。 */
 export async function outlineHash(project: NovelProject): Promise<string> {
   return hash(await project.readOutline());
 }

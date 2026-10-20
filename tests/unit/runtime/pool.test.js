@@ -379,7 +379,7 @@ describe('模型分档：档位生效', () => {
     assert.equal(fast.refs.join(','), 'p/cheap', fast.refs.join(','));
   });
 
-  test('全书摘要最终合并走精标档', () => {
+  test('全文大纲最终合并走精标档', () => {
     assert.equal(merge.refs.join(','), 'p/smart', merge.refs.join(','));
   });
 

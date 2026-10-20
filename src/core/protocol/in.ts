@@ -197,7 +197,7 @@ export type InMessage =
   | { type: 'requestSummary'; plotRelPath: string }
   /**
    * 「转到…」（独立版 Ctrl+P）打开时要一份索引：章节、角色卡、设定、架构几件与大纲 / 文风 / 叙事线 /
-   * 全书摘要、草稿（`views/quickOpen.ts`）。回 `quickOpenIndex`，带同一个 `requestId`——回复是广播，
+   * 全文大纲、草稿（`views/quickOpen.ts`）。回 `quickOpenIndex`，带同一个 `requestId`——回复是广播，
    * 两个视图都收得到，只有发问的那一边认它。按需要，不常驻推送。
    */
   | { type: 'requestQuickOpen'; requestId: string }

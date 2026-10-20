@@ -22,7 +22,7 @@ export const MATERIAL_TOKENS = 6000;
 
 /**
  * 整合能推到第几章：**第一处没定稿（或定稿之后正文又改过）的章之前**。第 5 章没定稿、第 6 章定稿了，
- * 水位最多到 4——否则第 5 章日后定稿，它的事实永远进不了条目（全书摘要的增量也是这么停的）。
+ * 水位最多到 4——否则第 5 章日后定稿，它的事实永远进不了条目（全文大纲的增量也是这么停的）。
  * 一章都没写是 0。展开写下的条目水位也记这个（展开喂的定稿记录就是整合会喂的那一份）。
  */
 export async function integrationWatermark(project: NovelProject): Promise<number> {

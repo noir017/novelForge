@@ -233,7 +233,7 @@ const PLOT_EXTENSIONS: ReadonlySet<string> = new Set(['.md', '.markdown']);
  * 与 parseChapterFileName 一样**先剥扩展名再匹配前缀**：分隔符集合里含 `.`，
  * 直接对整个文件名跑正则的话 `007.md` 会被吃成「第 007 章 + 词干 md」。
  * 前缀位数也与章节一致（1–5 位）：细纲镜像正文的文件名，正文认得出的号这里必须也认得出。
- * `global.md`（全书摘要）没有数字前缀，天然不是细纲。
+ * `global.md`（全文大纲）没有数字前缀，天然不是细纲。
  */
 export function parsePlotFileName(fileName: string): PlotFileName | undefined {
   const ext = path.extname(fileName).toLowerCase();

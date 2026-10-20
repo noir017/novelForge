@@ -13,7 +13,7 @@
  *   然后按章号逐份读一次。三百章的正文约三百次读盘，每份几 KB，加起来几十毫秒。
  * - **草稿**：递归列 `drafts/`（只列不读），文件名像章节的按章号排，逐份读一次；二进制扩展名（与章节同一张黑名单）不读。
  * - **角色卡 / 设定条目**：递归列各自的区（只认 `.md`，只列不读），逐份读一次。
- * - **其他创作文件**：情节大纲、架构三件、文风指南、全书摘要六个固定路径，有的读一次；叙事线目录这一层的各条线
+ * - **其他创作文件**：情节大纲、架构三件、文风指南、全文大纲六个固定路径，有的读一次；叙事线目录这一层的各条线
  *   （只列不读），逐份读一次。
  * - 单份超过 2 MB（网关的大小上限）不读，列进 `skipped`；读不了（权限、刚被删）同样。
  *
@@ -117,7 +117,7 @@ async function pathsOf(project: NovelProject, scope: BookFindScope): Promise<str
       const present = await Promise.all([...fixed, project.globalSummaryPath].map((abs) => exists(abs)));
       return [
         ...fixed.filter((_, i) => present[i]).map((abs) => project.relPath(abs)),
-        // 叙事线一条线一个文件：排在文风后面、全书摘要前面（从前单文件 `threads.md` 的位置）。
+        // 叙事线一条线一个文件：排在文风后面、全文大纲前面（从前单文件 `threads.md` 的位置）。
         ...(await project.listThreadPaths()),
         ...(present[fixed.length] ? [project.relPath(project.globalSummaryPath)] : []),
       ];

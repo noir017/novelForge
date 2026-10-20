@@ -597,7 +597,7 @@ export async function writeManuscripts(
         reviewing ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不会停。' : '',
         mode === 'finalize' ? '每写完一章就定稿（照正文更新细纲 + 出场角色的当前状态 + 叙事线：认事件、更新当前进度、需要时归并），再写下一章。' : '只写正文，不定稿；之后在主按钮上逐章定稿。',
         plan.globalSummaryAt.length > 0
-          ? `第 ${plan.globalSummaryAt.join('、')} 章定稿之后各更新一次全书滚动摘要（落后 ${GLOBAL_SUMMARY_EVERY} 章就更新，每次 1 次调用）。`
+          ? `第 ${plan.globalSummaryAt.join('、')} 章定稿之后各更新一次全文大纲（落后 ${GLOBAL_SUMMARY_EVERY} 章就更新，每次 1 次调用）。`
           : '',
         plan.skipped.length > 0 ? `已经写过正文的第 ${plan.skipped.join('、')} 章跳过，不会被改动。` : '',
         plan.stopAt !== undefined ? `第 ${plan.stopAt} 章还没有细纲、情节大纲也没覆盖到它，写到它前面为止。` : '',
@@ -873,18 +873,18 @@ async function runWriteBatch(
             finalized++;
             log.info(`${name}已定稿`, describeFinalize(no, outcome));
             if (summaryPool && plan.globalSummaryAt.includes(no)) {
-              report({ message: `${name} · 更新全书摘要`, current: i, total });
+              report({ message: `${name} · 更新全文大纲`, current: i, total });
               try {
                 const g = await updateGlobalSummary(project, summaryPool, signal);
                 calls += g.calls;
               } catch (err) {
                 calls += 1;
                 if (err instanceof CancelledError || signal.aborted) {
-                  log.warn(`批量写章被取消，${name}定稿了、全书摘要没更新`);
+                  log.warn(`批量写章被取消，${name}定稿了、全文大纲没更新`);
                   return;
                 }
-                // 全书摘要是额外的一道：没更新成不挡写章，下一次落后得更多时再更新。
-                log.warn(`全书摘要没更新成（${describeError(err)}），接着写`);
+                // 全文大纲是额外的一道：没更新成不挡写章，下一次落后得更多时再更新。
+                log.warn(`全文大纲没更新成（${describeError(err)}），接着写`);
               }
             }
           } catch (err) {

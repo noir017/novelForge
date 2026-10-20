@@ -540,8 +540,8 @@ describe('边写边拆细纲：大纲覆盖之内没细纲的章，写到时先�
   });
 });
 
-// 百章实验里全书滚动摘要从没生成过：它只有「重建」一个入口。批量定稿每落后 10 章增量更新一次。
-describe('全书滚动摘要增量更新', () => {
+// 百章实验里全文大纲从没生成过：它只有「重建」一个入口。批量定稿每落后 10 章增量更新一次。
+describe('全文大纲增量更新', () => {
   let t;
   const users = [];
   const runner = {
@@ -561,15 +561,15 @@ describe('全书滚动摘要增量更新', () => {
   });
   after(() => cleanup(t.dir, bundle.db));
 
-  // 全书摘要的输入是定稿过的细纲（单章摘要那一份已经并进细纲了）。
-  test('还没有全书摘要：从第 1 章起汇总定稿过的细纲，through 记到最后一章', async () => {
+  // 全文大纲的输入是定稿过的细纲（单章摘要那一份已经并进细纲了）。
+  test('还没有全文大纲：从第 1 章起汇总定稿过的细纲，through 记到最后一章', async () => {
     const r = await bundle.summarize.updateGlobalSummary(t.project, runner);
     assert.deepEqual(r, { calls: 1, through: 2 });
     assert.match(users[0], /第 1–2 章定稿过的逐章细纲/);
     assert.match(t.read('.novelforge/summaries/global.md'), /through: 2[\s\S]*第 1 版：林昭一路丢玉佩/);
   });
 
-  test('之后只并入新定稿的章，旧的全书摘要一起带上；没有新章就零调用', async () => {
+  test('之后只并入新定稿的章，旧的全文大纲一起带上；没有新章就零调用', async () => {
     t.project.invalidate();
     await bundle.batch.writeManuscripts(t.project, { range: { from: 3, to: 3 }, mode: 'finalize', call: {} });
     const r = await bundle.summarize.updateGlobalSummary(t.project, runner);
@@ -580,6 +580,31 @@ describe('全书滚动摘要增量更新', () => {
     assert.doesNotMatch(users[1], /【第2章/);
     const again = await bundle.summarize.updateGlobalSummary(t.project, runner);
     assert.equal(again.calls, 0);
+  });
+
+  // 全文大纲（原全书摘要）只剩「主线进展」：老文件里另外三节当认不出的小节，留在文件里、不交给模型，下一版只写主线。
+  test('老格式（全书摘要四节）：另外三节不读、不交给模型，文件里还在', async () => {
+    const old = t.read('.novelforge/summaries/global.md').replace(
+      /\n*$/,
+      '\n\n## 已收伏笔\n\n- 玉佩之谜（第 1 章）\n\n## 未收伏笔\n\n- 断剑之谜\n\n## 人物关系变动\n\n- 林昭与沈青结盟\n'
+    );
+    t.write('.novelforge/summaries/global.md', old);
+    t.project.invalidate();
+    const read = await t.project.readGlobalSummary();
+    assert.match(read, /## 主线进展[\s\S]*第 2 版：林昭一路丢玉佩/);
+    assert.doesNotMatch(read, /已收伏笔|断剑之谜|人物关系变动|林昭与沈青结盟/);
+    assert.match(t.read('.novelforge/summaries/global.md'), /## 未收伏笔\n\n- 断剑之谜/);
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 4, to: 4 }, mode: 'finalize', call: {} });
+    const r = await bundle.summarize.updateGlobalSummary(t.project, runner);
+    assert.deepEqual(r, { calls: 1, through: 4 });
+    assert.match(users[2], /第 2 版：林昭一路丢玉佩/);
+    assert.doesNotMatch(users[2], /断剑之谜|林昭与沈青结盟/);
+  });
+
+  test('模板与写回的文件：H1 是「全文大纲」，只有「主线进展」一节', () => {
+    const text = t.read('.novelforge/summaries/global.md');
+    assert.match(text, /\n# 全文大纲\n\n## 主线进展\n/);
+    assert.doesNotMatch(text, /未收伏笔|人物关系变动/);
   });
 });
 

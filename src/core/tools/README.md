@@ -76,7 +76,7 @@ intent: (args, project) => ({
 | `generate` | 为一份产物调一次创作模型；产出当场问作者落不落盘 | `target` `capability` `ask` `targetWords` `writeMode` |
 | `write` / `edit` | 写一份文件 / 改一段文字 | 各自的 |
 | `pipeline` | `completeSettings` `batchPlots` `batchManuscripts` `newPlot` | `from` `to` `mode` `review` |
-| `summary` | 定稿与全书摘要：`finalize`（照正文反向更新那一章的细纲，再更新角色状态、记叙事线）`sync`（没定稿、或定稿后正文又改过的章逐章定稿：细纲、角色状态、叙事线）`rebuildGlobal`（从定稿过的细纲重建全书摘要） | `path` |
+| `summary` | 定稿与全文大纲：`finalize`（照正文反向更新那一章的细纲，再更新角色状态、记叙事线）`sync`（没定稿、或定稿后正文又改过的章逐章定稿：细纲、角色状态、叙事线）`rebuildGlobal`（从定稿过的细纲重建全文大纲） | `path` |
 | `characters` | `extract` `create` `createAll` `update` `rebuild` `updateAll` `rebuildAll` `cleanAliases` `mergeDuplicates` `reviewState` | `path` `name` |
 | `lore` | 设定名录：`record`（单独记一章 / 补记还没记过的定稿章，只换细纲第九节）`build`（给出现过、还没有条目的建条目）`integrate`（把定稿里的新内容并进条目）。**没有「按目录整理」**：它会搬文件，移动不给外部 agent（第 25 条） | `path` `name` |
 | `extract` | `style` `threads` | — |
@@ -88,7 +88,7 @@ intent: (args, project) => ({
 哪几个参数（`uses`）、哪几个必填（`requires`），给了不认的当场报错（[novel/actions.ts](novel/actions.ts)）。
 
 后七个都是工程页按钮背后的同一个函数，确认框照弹，**没有为外部 agent 加任何一条绕过它的路**。
-大多数 feature 报回计划调用次数（`countedBy`），角色卡、设定条目与全书摘要那几个不报，只回一句「交出去了」
+大多数 feature 报回计划调用次数（`countedBy`），角色卡、设定条目与全文大纲那几个不报，只回一句「交出去了」
 （`handed`），次数以确认框为准。
 
 ### `generate` 的写法

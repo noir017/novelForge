@@ -1363,7 +1363,7 @@ export async function bookNextStep(c: ChatController): Promise<NextStepView | un
  * 打开旧会话时把 target 补齐。
  *
  * `normalize` 是纯函数，查不了磁盘，所以只记得 `targetNo` 的会话会一律落到
- * 全书大纲。这里手上能读盘，把它还原成「正文 · 第 N 章」。
+ * 情节大纲。这里手上能读盘，把它还原成「正文 · 第 N 章」。
  */
 export async function restoreTarget(c: ChatController, session: ChatSession): Promise<void> {
   if (session.target.kind !== 'outline' || session.targetNo === undefined) {

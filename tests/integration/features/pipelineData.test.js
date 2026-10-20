@@ -85,7 +85,7 @@ after(() => {
 describe('数据层 · 目录与路径规则', () => {
   const plot = '.novelforge/summaries/012-夜入青云.md';
 
-  // 细纲与全书摘要（global.md）都在 summaries/。
+  // 细纲与全文大纲（global.md）都在 summaries/。
   test('初始化建出 summaries/', () => {
     assert.ok(t.has('.novelforge/summaries'));
   });

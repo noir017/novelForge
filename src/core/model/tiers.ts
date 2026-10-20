@@ -4,7 +4,7 @@
  * 工程页的后台任务在难度与调用量上差得很远：
  *
  * - 「把 76 章正文各总结一遍」是 76 次调用，每次只看一章、输出固定结构；
- * - 「把几十份阶段摘要合并成一份全书摘要」全书只调一次，却要跨几十万字取舍主线。
+ * - 「把几十份阶段摘要合并成一份全文大纲」全书只调一次，却要跨几十万字取舍主线。
  *
  * 两者用同一个模型，作者只能在「贵而好」与「省而糙」之间二选一。分档就是
  * 让前者走便宜模型、后者走聪明模型：**简单大量的活省钱，困难的活花钱**。
@@ -79,8 +79,8 @@ export const LLM_TASKS: LlmTask[] = [
 /** 任务的中文名。确认框与日志里出现的就是它。 */
 export const TASK_LABEL: Record<LlmTask, string> = {
   plotSummary: '定稿 · 照正文更新细纲',
-  globalSummaryStage: '全书摘要 · 分批汇总',
-  globalSummaryMerge: '全书摘要 · 最终合并',
+  globalSummaryStage: '全文大纲 · 分批汇总',
+  globalSummaryMerge: '全文大纲 · 最终合并',
   setting: '故事架构',
   plotOutline: '剧情细纲',
   manuscript: '批量写正文',

@@ -167,7 +167,7 @@ function assembleMessages(
   section('# 文风指南（务必贴合）', pick('style'));
   section('# 全局要求（每一章都要遵守）', pick('guidance'));
   section('# 故事架构', pick('setting'));
-  section('# 全书前情提要', pick('globalSummary'));
+  section('# 全文大纲', pick('globalSummary'));
   section('# 情节大纲', pick('outlineDoc'));
   section('# 故事结构指导', pick('guide'));
   section('# 相关角色设定', pick('character'));

@@ -61,10 +61,10 @@ export async function listAttachmentChoices(project: NovelProject): Promise<Pick
 
   const outlineRel = project.relPath(project.outlinePath);
   choices.push({
-    label: '全书大纲',
+    label: '情节大纲',
     detail: outlineRel,
     group: '其他',
-    value: fileAttachment('file', '全书大纲', outlineRel),
+    value: fileAttachment('file', '情节大纲', outlineRel),
   });
   const styleRel = project.relPath(project.stylePath);
   choices.push({

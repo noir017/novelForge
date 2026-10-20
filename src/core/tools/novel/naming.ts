@@ -24,7 +24,7 @@ export function describeForReview(path: PathKind, rel: string): string {
     case 'style':
       return '文风指南';
     case 'globalSummary':
-      return '全书滚动摘要';
+      return '全文大纲';
     case 'threads':
       return `叙事线 ${rel}`;
     case 'skill':

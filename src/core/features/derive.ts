@@ -7,7 +7,7 @@
  * 二、配置 → 前提 → 角色卡 → 世界观（只补空白）     ← 第二次确认：细纲出来之后次数才算得准
  *     → 设定条目（还一条都没有时，从名录建）
  *     → 情节大纲（每次 20 章，照细纲）
- *     → 全书摘要（落后就增量更新）
+ *     → 全文大纲（落后就增量更新）
  * ```
  *
  * 第一步就是定稿的第一步（`summarizeChapters`）：照正文写出 `summaries/NNN-<章名>.md`，带 `sourceHash`
@@ -87,7 +87,7 @@ const log = scoped('补齐');
 export const DERIVE_CARD_MIN_APPEARANCES = 2;
 /** 补建设定条目：名录里出现至少这么多章的（与「全部建条目」同一个门槛）。 */
 export const DERIVE_LORE_MIN_CHAPTERS = BUILD_MIN_CHAPTERS;
-/** 全书摘要一次并不完时最多再并几次。 */
+/** 全文大纲一次并不完时最多再并几次。 */
 export const GLOBAL_SUMMARY_ROUNDS = 5;
 /** 小说配置没写每章字数、已写的章也量不出来时的缺省（与补齐架构一致）。 */
 const DEFAULT_WORDS = 3000;
@@ -211,7 +211,7 @@ async function deriveRest(
     ...plan.settings.map((doc) => (doc === 'characters' ? '角色卡' : SETTING_DOC_LABEL[doc])),
     ...(plan.lore ? ['设定条目'] : []),
     ...(plan.outline.length > 0 ? ['情节大纲'] : []),
-    ...(plan.globalSummary ? ['全书摘要'] : []),
+    ...(plan.globalSummary ? ['全文大纲'] : []),
   ];
   if (labels.length === 0) {
     getHost().toast(`第 1–${through} 章的细纲、架构与情节大纲都已经有了。`);
@@ -386,9 +386,9 @@ async function deriveRest(
           }
         }
 
-        // 全书摘要：落后就增量更新；它是额外的一道，没更新成不算补齐失败。
+        // 全文大纲：落后就增量更新；它是额外的一道，没更新成不算补齐失败。
         if (!halt && !signal.aborted && plan.globalSummary && summaryPool) {
-          report({ message: '全书摘要', current: step, total: steps });
+          report({ message: '全文大纲', current: step, total: steps });
           try {
             for (let round = 0; round < GLOBAL_SUMMARY_ROUNDS; round++) {
               const g = await updateGlobalSummary(project, summaryPool, signal);
@@ -397,11 +397,11 @@ async function deriveRest(
                 break;
               }
             }
-            done.push('全书摘要');
+            done.push('全文大纲');
           } catch (err) {
             calls += 1;
             if (!(err instanceof CancelledError || signal.aborted)) {
-              log.warn(`全书摘要没更新成（${describeError(err)}），之后可在工程页点「重建」`);
+              log.warn(`全文大纲没更新成（${describeError(err)}），之后可在工程页点「重建」`);
             }
           }
         }
@@ -546,7 +546,7 @@ function tasksOf(plan: DerivePlan): LlmTask[] {
 function describePlan(plan: DerivePlan, through: number): string {
   const lines: string[] = [];
   lines.push(
-    '按 配置 → 前提 → 角色卡 → 世界观 → 设定条目 → 情节大纲 → 全书摘要 的顺序一件一件来，每件都照已写正文整理；已经有的不会被改动。一件失败就停，已经写好的留着（设定条目没建成不停）。'
+    '按 配置 → 前提 → 角色卡 → 世界观 → 设定条目 → 情节大纲 → 全文大纲 的顺序一件一件来，每件都照已写正文整理；已经有的不会被改动。一件失败就停，已经写好的留着（设定条目没建成不停）。'
   );
   if (plan.setup) {
     lines.push(`小说配置按 ${plan.setup.totalChapters} 章 × ${plan.setup.wordsPerChapter} 字展开（没写每章字数时取已写各章的平均）。`);
@@ -570,7 +570,7 @@ function describePlan(plan: DerivePlan, through: number): string {
     lines.push(`情节大纲：照细纲整理${rangeLabel(first, through)}，每次 ${OUTLINE_BATCH} 章，${plan.outline.length} 次调用。`);
   }
   if (plan.globalSummary) {
-    lines.push(`全书摘要：落后于第 ${through} 章，增量更新（一次并不完再来，最多 ${GLOBAL_SUMMARY_ROUNDS} 次）。`);
+    lines.push(`全文大纲：落后于第 ${through} 章，增量更新（一次并不完再来，最多 ${GLOBAL_SUMMARY_ROUNDS} 次）。`);
   }
   lines.push('叙事线不排：那是给后面的章的计划。以后照常拆细纲时会接着排。');
   return lines.join('\n');

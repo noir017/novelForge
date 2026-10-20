@@ -5,7 +5,7 @@
  * |---|---|
  * | 章节 | 一个章号一条：章号、标题（细纲优先，回落标题给空串）、卷目录、正文 / 细纲路径（没有就缺席）、字数；`.txt` 正文也是章；只有细纲的章；细纲按路径配对（改了名的正文不冒认旧细纲） |
  * | 角色 / 设定 | 名字与别名、设定标题、路径（子目录里的也在） |
- * | 文档 | 架构三件、大纲、文风、叙事线、全书摘要，**有文件的才列** |
+ * | 文档 | 架构三件、大纲、文风、叙事线、全文大纲，**有文件的才列** |
  * | 草稿 | 路径、文件名、文件名里的章号 |
  * | 还不是小说工程 | `initialized: false`，列表全空 |
  * | 读盘 | 章节与细纲借缓存（热的时候一章都不读）；冷的时候每个文件至多读一次；草稿只列不读 |
@@ -149,7 +149,7 @@ describe('views/quickOpen › 索引', () => {
     assert.deepEqual(index.lore, [{ title: '青云宗', path: '.novelforge/lore/门派/青云宗.md' }]);
   });
 
-  test('文档：有文件的才列（世界观删了不在），按架构 → 大纲 → 文风 → 叙事线 → 全书摘要；叙事线一条线一项（按文件名）、未归属的伏笔排最后', () => {
+  test('文档：有文件的才列（世界观删了不在），按架构 → 大纲 → 文风 → 叙事线 → 全文大纲；叙事线一条线一项（按文件名）、未归属的伏笔排最后', () => {
     assert.deepEqual(
       index.docs.map((d) => [d.key, d.label, d.path]),
       [
@@ -160,7 +160,7 @@ describe('views/quickOpen › 索引', () => {
         ['threads', '林昭与沈青', '.novelforge/threads/林昭与沈青.md'],
         ['threads', '主线', '.novelforge/threads/主线.md'],
         ['threads', '未归属的伏笔', '.novelforge/threads/未归属的伏笔.md'],
-        ['globalSummary', '全书摘要', '.novelforge/summaries/global.md'],
+        ['globalSummary', '全文大纲', '.novelforge/summaries/global.md'],
       ]
     );
   });
@@ -178,7 +178,7 @@ describe('views/quickOpen › 索引', () => {
     ]);
   });
 
-  test('全书摘要不当成一章（summaries/global.md 没有数字前缀）', () => {
+  test('全文大纲不当成一章（summaries/global.md 没有数字前缀）', () => {
     assert.ok(!index.chapters.some((c) => c.plotPath === '.novelforge/summaries/global.md'));
   });
 });

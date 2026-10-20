@@ -1,5 +1,5 @@
 /**
- * 新工程的空模板（架构三件、文风、情节大纲、全书摘要）经网关写（AGENTS 第 7 条）。
+ * 新工程的空模板（架构三件、文风、情节大纲、全文大纲）经网关写（AGENTS 第 7 条）。
  *
  * 从前 `model/project.ts` 的 `initialize` 自己 `writeIfAbsent`，绕过了网关。现在分了层：`model/` 只建固定目录、写
  * manifest（`scaffold` / `createManifest`），模板的内容也在那里定义（`newProjectTemplates`，纯数据）；写盘由

@@ -4,7 +4,7 @@
  * 后端搜的就得是角色卡那个区。经 `media/src/protocol.ts` 打进浏览器产物。
  */
 
-/** 一个范围：正文、细纲、草稿、角色卡、设定条目，以及其余几份创作文件（大纲 / 架构三件 / 文风 / 叙事线 / 全书摘要）。 */
+/** 一个范围：正文、细纲、草稿、角色卡、设定条目，以及其余几份创作文件（大纲 / 架构三件 / 文风 / 叙事线 / 全文大纲）。 */
 export type BookFindScope = 'chapter' | 'plot' | 'draft' | 'character' | 'lore' | 'doc';
 
 /** 面板上的顺序，也是结果分组的顺序。 */
@@ -27,7 +27,7 @@ export const BOOK_FIND_SCOPE_HINT: Record<BookFindScope, string> = {
   draft: 'drafts/ 下的草稿',
   character: '角色卡（.novelforge/characters/）',
   lore: '设定条目（.novelforge/lore/）',
-  doc: '情节大纲、小说配置、故事前提、世界观、文风指南、叙事线、全书摘要',
+  doc: '情节大纲、小说配置、故事前提、世界观、文风指南、叙事线、全文大纲',
 };
 
 /** 打开面板时缺省勾上哪几项：只有正文（⚑ 作者最常搜的是正文；要连细纲、角色卡一起改名时自己勾上）。 */

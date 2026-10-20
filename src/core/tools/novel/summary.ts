@@ -1,5 +1,5 @@
 /**
- * `summary` —— 定稿与全书摘要：给一章定稿、把没定稿的章的细纲照正文补上、重建全书摘要。
+ * `summary` —— 定稿与全文大纲：给一章定稿、把没定稿的章的细纲照正文补上、重建全文大纲。
  *
  * 定稿 = 反向更新细纲（照正文改那一章的细纲，带连续性事实）+ 出场角色的当前状态 + 本章推进了
  * 哪几条叙事线（第 23 条：这条链上唯一的人工闸口）。与工程页、章节工作台上的「定稿」是同一个函数。
@@ -11,7 +11,7 @@ import { describeFinalize, finalizeChapter } from '../../features/finalize';
 
 export const summaryTool = defineActionTool({
   name: 'summary',
-  summary: '定稿与全书摘要。定稿 = 照正文反向更新那一章的细纲，没有正文的章定不了稿。',
+  summary: '定稿与全文大纲。定稿 = 照正文反向更新那一章的细纲，没有正文的章定不了稿。',
 
   params: {
     path: str('那一章的章节路径或细纲路径（按章号认到同一章）。'),
@@ -43,11 +43,11 @@ export const summaryTool = defineActionTool({
       },
     },
     rebuildGlobal: {
-      label: '从定稿过的各章细纲重建全书摘要',
+      label: '从定稿过的各章细纲重建全文大纲',
       costly: true,
       async run(ctx) {
         await rebuildGlobalSummary(ctx.project);
-        return handed('全书摘要重建');
+        return handed('全文大纲重建');
       },
     },
   },

@@ -130,7 +130,7 @@
       },
       {
         "command": "novel.rebuildGlobalSummary",
-        "title": "Novel: 重建全书摘要"
+        "title": "Novel: 重建全文大纲"
       },
       {
         "command": "novel.extractCharacters",
@@ -348,7 +348,7 @@
                 "balanced",
                 "quality"
               ],
-              "description": "全书摘要 · 分批汇总。默认 fast。"
+              "description": "全文大纲 · 分批汇总。默认 fast。"
             },
             "globalSummaryMerge": {
               "type": "string",
@@ -357,7 +357,7 @@
                 "balanced",
                 "quality"
               ],
-              "description": "全书摘要 · 最终合并。默认 quality。"
+              "description": "全文大纲 · 最终合并。默认 quality。"
             },
             "loreScan": {
               "type": "string",
@@ -420,7 +420,7 @@
           "default": 3,
           "minimum": 1,
           "maximum": 16,
-          "markdownDescription": "工程页批量任务（批量定稿、重建全书摘要、批量更新角色卡、批量建卡、生成设定）的并发请求数。1 表示串行。调大能显著缩短等待，但更容易撞上服务商的限流（429）。",
+          "markdownDescription": "工程页批量任务（批量定稿、重建全文大纲、批量更新角色卡、批量建卡、生成设定）的并发请求数。1 表示串行。调大能显著缩短等待，但更容易撞上服务商的限流（429）。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.fallbackAttempts": {
@@ -436,7 +436,7 @@
           "default": 0.8,
           "minimum": 0,
           "maximum": 2,
-          "description": "采样温度。写小说建议 0.7 ~ 1.0。定稿与全书摘要这类整理任务内部固定用 0.3。",
+          "description": "采样温度。写小说建议 0.7 ~ 1.0。定稿与全文大纲这类整理任务内部固定用 0.3。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.chaptersDir": {
@@ -455,7 +455,7 @@
           "type": "number",
           "default": 15,
           "minimum": 3,
-          "description": "重建全书摘要时，每批汇总多少章定稿过的细纲。",
+          "description": "重建全文大纲时，每批汇总多少章定稿过的细纲。",
           "markdownDeprecationMessage": "已迁移至 ~/.novelforge/config.json，此处仅作兼容兜底。"
         },
         "novel.requestTimeoutMs": {

@@ -53,7 +53,7 @@ export const globalSummary: LayerFn = async (a, spec) => {
       id: 'globalSummary',
       kind: 'globalSummary',
       priority: spec.priority,
-      label: '全书滚动摘要',
+      label: '全文大纲',
       source: a.project.relPath(a.project.globalSummaryPath),
       text: summary,
     },
@@ -514,7 +514,7 @@ function isFinalized(ref: ChapterRef): boolean {
  * 却看不出少了什么。定稿之后正文又改过的标 ⚠。
  *
  * **封顶之外的合成一条 dropped**，不是一章一条：一百多章的书封在 5 章时，明细里摆九十几行
- * 「不带」只会把真正带了什么淹掉。更早的前情由全书摘要接着（它在 P2，比这一层先拿预算）。
+ * 「不带」只会把真正带了什么淹掉。更早的前情由全文大纲接着（它在 P2，比这一层先拿预算）。
  * 名额按「最近几章」数，作者手动取消勾选的那一章照样占一个名额。
  */
 export const plotSummary: LayerFn = async (a, spec) => {

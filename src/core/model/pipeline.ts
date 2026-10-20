@@ -1117,8 +1117,8 @@ export function planPlotBatches(input: {
 // ---------------------------------------------------------------- 批量写章
 
 /**
- * 批量写章「写完即定稿」时，全书滚动摘要落后这么多章就增量更新一次（1 次调用：旧摘要 + 之后各章定稿过的细纲）。
- * 百章实验里全书摘要从没生成过：它要作者手动点「重建」。
+ * 批量写章「写完即定稿」时，全文大纲落后这么多章就增量更新一次（1 次调用：旧的那一份 + 之后各章定稿过的细纲）。
+ * 百章实验里全文大纲从没生成过：它要作者手动点「重建」。
  */
 export const GLOBAL_SUMMARY_EVERY = 10;
 
@@ -1154,7 +1154,7 @@ export interface WriteBatchPlan {
    * 这次要写、但还没有细纲的章，按连续段每 {@link PLOT_BATCH} 章切成批：写到每批的第一章时先拆这一批。
    */
   plotBatches: number[][];
-  /** 写完即定稿时，在哪几章定稿之后更新一次全书滚动摘要（{@link GLOBAL_SUMMARY_EVERY}）。 */
+  /** 写完即定稿时，在哪几章定稿之后更新一次全文大纲（{@link GLOBAL_SUMMARY_EVERY}）。 */
   globalSummaryAt: number[];
   /**
    * 区间里第一章没有细纲、又超出情节大纲覆盖的章号：批量在它前面收住。后面的章要接着它的结尾写，
@@ -1184,7 +1184,7 @@ export function planWriteBatch(input: {
   plotFilledNos: readonly number[];
   /** 情节大纲覆盖到第几章（`outlineCoverage`）。缺席等于 0：没细纲的章一律收住。 */
   outlineCoverage?: number;
-  /** 全书滚动摘要覆盖到第几章（写完即定稿时据此排更新全书摘要的那几次）。缺席等于 0。 */
+  /** 全文大纲覆盖到第几章（写完即定稿时据此排更新全文大纲的那几次）。缺席等于 0。 */
   globalSummaryThrough?: number;
 }): WriteBatchPlan {
   const from = Math.max(1, Math.floor(Math.min(input.from, input.to)));
@@ -1230,7 +1230,7 @@ export function planWriteBatch(input: {
   const review = input.review === true;
   const each = [WRITE_CALLS, PLOT_CHECK_CALLS, ...(review ? [REVIEW_CALLS] : []), ...(input.mode === 'finalize' ? [FINALIZE_CALLS] : [])].reduce(addCalls);
   const writing = chapters.reduce<CallEstimate>((sum) => addCalls(sum, each), { low: 0, high: 0, max: 0 });
-  // 写完即定稿：全书滚动摘要落后 {@link GLOBAL_SUMMARY_EVERY} 章就在那一章定稿之后更新一次。
+  // 写完即定稿：全文大纲落后 {@link GLOBAL_SUMMARY_EVERY} 章就在那一章定稿之后更新一次。
   const globalSummaryAt: number[] = [];
   if (input.mode === 'finalize') {
     let through = input.globalSummaryThrough ?? 0;

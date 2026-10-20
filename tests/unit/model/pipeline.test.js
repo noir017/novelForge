@@ -1120,7 +1120,7 @@ describe('pipeline.ts · 批量写章的切分', () => {
     assert.deepEqual(plan.plotBatches, [[1, 2], [4, 5]]);
   });
 
-  test('写完即定稿：全书摘要落后 10 章就在那一章定稿之后更新一次，各算 1 次；只写正文不更新', () => {
+  test('写完即定稿：全文大纲落后 10 章就在那一章定稿之后更新一次，各算 1 次；只写正文不更新', () => {
     const filled = Array.from({ length: 30 }, (_, i) => i + 1);
     const plan = pipeline.planWriteBatch({ ...base, mode: 'finalize', plotFilledNos: filled, writtenNos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], from: 11, to: 20, globalSummaryThrough: 3 });
     assert.deepEqual(plan.globalSummaryAt, [13]);

@@ -7,7 +7,7 @@ src/
 ├── core/        核心逻辑：数据、上下文装配、功能编排、LLM 接入（见 core/README.md）
 │   ├── model/       数据层：NovelProject、Markdown 解析、创作流水线领域模型、服务商配置、会话
 │   ├── context/     ★ 分阶段装配（配方 × 层）+ 身份化提示词 + token 粗估
-│   ├── features/    创作（四层产物）/ 批量流水线 / 定稿与全书摘要 / 角色卡 / 设定 / 文风提取
+│   ├── features/    创作（四层产物）/ 批量流水线 / 定稿与全文大纲 / 角色卡 / 设定 / 文风提取
 │   ├── llm/         LlmProvider 接口与 OpenAI / Anthropic 实现
 │   ├── tools/       ★ 工具层：契约 + 注册表 + novel/ 那十二个工具（不认识 mcp/）
 │   ├── mcp/         ★ 把工具经 MCP 端给外部 agent（协议 + HTTP 传输）
