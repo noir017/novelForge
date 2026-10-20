@@ -1,11 +1,12 @@
 /**
- * 标题栏「视图」菜单里「补全」那一组（独立版）：「名词补全」（与 `Alt+/` 同一件事）与「边打边弹名词补全」开关。
- * 接在 `viewMenu.ts` 的 `GROUPS` 里（一组一个函数）。
+ * 标题栏「视图」菜单里「补全」那一组（独立版）：「名词补全」（与 `Alt+/` 同一件事）、「边打边弹名词补全」与「名词高亮」
+ * 两个开关。接在 `viewMenu.ts` 的 `GROUPS` 里（一组一个函数）。
  *
- * 状态问编辑器（`nf-names-query`，`editor/names.ts` 回答），动作经 `nf-names-command` 交给它——边打边弹是编辑器的偏好，
- * 按浏览器记（`novelforge.editor.prefs` 的 `nameAutoPopup`）。编辑器没装时整组置灰。
+ * 状态问编辑器（`nf-names-query`：补全那两项 `editor/names.ts` 回答，名词高亮 `editor/nameMarks.ts` 回答），动作经
+ * `nf-names-command` 交给它们——都是编辑器的偏好，按浏览器记（`novelforge.editor.prefs` 的 `nameAutoPopup` /
+ * `nameHighlight`）。编辑器没装时整组置灰。
  */
-import { shortcutLabel } from '../editor/shortcuts';
+import { isMacPlatform, shortcutLabel } from '../editor/shortcuts';
 import { commandNames, queryNames } from '../globals';
 import type { MenuEntry } from './menubar';
 
@@ -29,6 +30,15 @@ export function namesMenuEntries(): MenuEntry[] {
       disabled: !status.available,
       detail: `打出某个名字的开头两个字（还没打完整）就弹出来；按 Tab 接受，回车照常换段，接着打别的字就收起。关着时只在按 ${keyLabel} 时弹。`,
       run: () => commandNames('toggleAuto'),
+    },
+    {
+      label: '名词高亮',
+      checked: status.highlight,
+      disabled: !status.available,
+      detail:
+        '正文、细纲、角色卡、设定这些文件里，角色名、设定名铺一层淡底色，名录里出现过、还没建条目的名字画虚下划线。' +
+        `鼠标停在上面看一句话简介，${isMacPlatform() ? '⌘' : 'Ctrl'}+点击打开它的角色卡或设定条目。`,
+      run: () => commandNames('toggleHighlight'),
     },
   ];
 }

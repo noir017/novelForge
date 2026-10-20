@@ -81,6 +81,30 @@ function fresh(): boolean {
   return !!catalog && fetchedEpoch === epoch;
 }
 
+/** 表换了（到了新的一份、换工程作废）时叫谁：名词高亮（`nameMarks.ts`）照它重画。 */
+const catalogListeners = new Set<() => void>();
+
+function catalogChanged(): void {
+  for (const fn of [...catalogListeners]) {
+    fn();
+  }
+}
+
+/** 手上那份名词表（还没要过、换了工程时是 null）。名词高亮与补全用同一份。 */
+export function currentNameCatalog(): NameCatalog | null {
+  return catalog;
+}
+
+/** 表可能过期了就问一次（在路上的不重复问；没变的话后端只回指纹）。名词高亮打开文件、磁盘上变过时调。 */
+export function refreshNameIndex(): void {
+  refresh(false);
+}
+
+export function onNameCatalog(fn: () => void): () => void {
+  catalogListeners.add(fn);
+  return () => catalogListeners.delete(fn);
+}
+
 /** 表可能过期了就问一次（在路上的不重复问；问出去 10 秒没回音——断线了——就当丢了，可以再问）。`throttle`：边打边弹时，手上有表就至多 3 秒问一次。 */
 function refresh(throttle: boolean): void {
   if (fresh() || (waiting && Date.now() - lastAsk < WAIT_GIVE_UP_MS)) {
@@ -103,6 +127,7 @@ function onIndex(msg: Extract<OutMessage, { type: 'nameIndex' }>): void {
   waiting = null;
   if (msg.index) {
     catalog = buildNameCatalog(msg.index);
+    catalogChanged();
   } else if (!catalog) {
     // 说没变、手上却没有（换过工程之类）：重新要一份整的。
     sig = undefined;
@@ -725,6 +750,7 @@ export function installNames(postMessage: (msg: InMessage) => void): void {
     waiting = null;
     pendingTrigger = null;
     fetchedEpoch = -1;
+    catalogChanged();
   });
 
   onMessage((msg) => {

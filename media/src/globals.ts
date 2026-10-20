@@ -394,17 +394,22 @@ export interface NamesStatus {
   available: boolean;
   /** 边打边弹名词补全（缺省关）。 */
   auto: boolean;
+  /** 名词高亮（缺省开，`editor/nameMarks.ts` 回答）。 */
+  highlight: boolean;
   /** 当前那块编辑区开着的文件能补全（正文、细纲、角色卡、设定……看后端给的 kind）。 */
   canTrigger: boolean;
   /** 不能补全的原因（菜单项置灰时挂在提示上）。 */
   reason?: string;
 }
 
-/** `toggleAuto` 开关边打边弹；`trigger` 在当前那块编辑区的光标处弹出名词补全（与快捷键同一件事）。 */
-export type NamesCommandName = 'toggleAuto' | 'trigger';
+/**
+ * `toggleAuto` 开关边打边弹；`trigger` 在当前那块编辑区的光标处弹出名词补全（与快捷键同一件事）；`toggleHighlight`
+ * 开关名词高亮（`editor/nameMarks.ts` 接）。
+ */
+export type NamesCommandName = 'toggleAuto' | 'trigger' | 'toggleHighlight';
 
 export function queryNames(): NamesStatus {
-  const status: NamesStatus = { available: false, auto: false, canTrigger: false, reason: '没有内置编辑器' };
+  const status: NamesStatus = { available: false, auto: false, highlight: false, canTrigger: false, reason: '没有内置编辑器' };
   window.dispatchEvent(new CustomEvent('nf-names-query', { detail: status }));
   return status;
 }

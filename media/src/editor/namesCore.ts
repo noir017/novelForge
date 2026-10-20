@@ -1,7 +1,7 @@
 /**
- * 「名词补全」的匹配与排序（角色名、地名……）。**纯函数、零 DOM**：装配（按键、弹出框、插入）在 `names.ts`，
- * 从光标前取查询词、按开头匹配、排序、边打边弹的判定、插入时替换哪一段都在这里，单测见
- * `tests/unit/editor/namesCore.test.js`。
+ * 「名词补全」的匹配与排序（角色名、地名……），外加「名词高亮」在正文里认名字。**纯函数、零 DOM**：装配（按键、
+ * 弹出框、插入）在 `names.ts`，名词图层与悬停浮窗在 `nameMarks.ts`；从光标前取查询词、按开头匹配、排序、边打边弹的
+ * 判定、插入时替换哪一段、正文里哪几段是名字都在这里，单测见 `tests/unit/editor/namesCore.test.js`。
  *
  * ## 查询词：中文没有词边界
  *
@@ -21,7 +21,17 @@
  *
  * 只认打字与输入法上屏（带 `change` 的那一下，组字中途不算）、刚插入了字、没有选区；查询词至少
  * {@link AUTO_MIN_CHARS} 个字；**已经打完整了不弹**（查询词正好是某个名字或别名）；名字剩下那截已经在光标后面的不算。
+ *
+ * ## 名词高亮：正文里哪几段是名字（{@link nameRanges}）
+ *
+ * 与补全同一张表、同一套叫法（正名与别名，不分大小写），一趟扫完（`locateTerms`）。
+ * - **长的优先、不重叠**：「林昭阳」不会被认成「林昭」加一个「阳」；同一处起头的取最长的那个叫法。
+ * - **一个字的叫法不认**（⚑）：「道」「气」这样的设定一标就是满屏。后端给的别名本来就不收一个字的，这里连正名一起挡。
+ * - **英文叫法要整词**：前后挨着字母或数字的不算（「Lin」不认「Linear」里那一截）。中文没有词边界，照认。
+ * - **卡或条目自己那一份里不标它自己**（⚑）：角色卡通篇是这个人的名字，标出来只是满屏的底色。
+ * - 两条叫法撞了（角色的别名正好是某条设定的关键词）：表里排前面的那条算（角色 → 设定 → 未建条目）。
  */
+import { foldLatin, locateTerms } from '../protocol';
 import type { NameEntry, NameIndex, NameSource } from '../protocol';
 import type { TextChange } from './history';
 
@@ -363,4 +373,93 @@ export function insertionFor(start: number, selectionStart: number, selectionEnd
   const from = Math.min(start, selectionStart);
   const end = Math.max(selectionStart, selectionEnd);
   return { start: from, end, text: form, caret: from + form.length };
+}
+
+// ---------------------------------------------------------------- 名词高亮
+
+/** 名词图层上各来源的 class（颜色在 `css/standalone/names.css`）：角色、设定条目画淡底色，未建条目画虚下划线。 */
+export const NAME_MARK_CLASS: Readonly<Record<NameSource, string>> = {
+  character: 'ed-hl-name-character',
+  lore: 'ed-hl-name-lore',
+  unfiled: 'ed-hl-name-unfiled',
+};
+
+/** 正文里认名字用的那张表。表到了做一次，之后每次重算只查不建。 */
+export interface NameMatcher {
+  /** 要找的叫法（原样，`locateTerms` 折大小写去找）。 */
+  terms: string[];
+  /** 折过大小写的叫法 → 哪一条（撞了的取表里排前面的）。 */
+  byForm: Map<string, NameItem>;
+}
+
+/** 一段名字。 */
+export interface NameRange {
+  start: number;
+  end: number;
+  cls: string;
+  item: NameItem;
+}
+
+const LATIN_WORD = /[A-Za-z0-9\uFF10-\uFF19\uFF21-\uFF3A\uFF41-\uFF5A]/;
+
+export function buildNameMatcher(catalog: NameCatalog): NameMatcher {
+  const terms: string[] = [];
+  const byForm = new Map<string, NameItem>();
+  for (const item of catalog.items) {
+    for (const form of item.forms) {
+      const key = foldLatin(form.text);
+      if (Array.from(key).length < 2 || byForm.has(key)) {
+        continue;
+      }
+      byForm.set(key, item);
+      terms.push(form.text);
+    }
+  }
+  return { terms, byForm };
+}
+
+/** 这一段字是表里哪一条的叫法（悬停时按镜像层上那一段的字认回去）。 */
+export function nameItemOf(matcher: NameMatcher, text: string): NameItem | undefined {
+  return matcher.byForm.get(foldLatin(text));
+}
+
+/** 英文叫法前后挨着字母、数字就不是这个名字。 */
+function wholeWord(text: string, start: number, end: number): boolean {
+  if (LATIN_WORD.test(text[start]) && start > 0 && LATIN_WORD.test(text[start - 1])) {
+    return false;
+  }
+  return !(LATIN_WORD.test(text[end - 1]) && end < text.length && LATIN_WORD.test(text[end]));
+}
+
+/**
+ * 正文里哪几段是名字（见文件头「名词高亮」）。`selfPath`：正在看的这份文件——是某张卡或某个条目自己时，不标它自己。
+ * 按位置排好、互不重叠。
+ */
+export function nameRanges(matcher: NameMatcher, text: string, selfPath?: string): NameRange[] {
+  if (matcher.terms.length === 0 || !text) {
+    return [];
+  }
+  const all: NameRange[] = [];
+  for (const hit of locateTerms(text, matcher.terms, { foldCase: true })) {
+    const item = matcher.byForm.get(foldLatin(hit.term));
+    if (!item || (selfPath && item.path === selfPath)) {
+      continue;
+    }
+    for (const at of hit.offsets) {
+      const end = at + hit.term.length;
+      if (wholeWord(text, at, end)) {
+        all.push({ start: at, end, cls: NAME_MARK_CLASS[item.source], item });
+      }
+    }
+  }
+  all.sort((a, b) => a.start - b.start || b.end - a.end);
+  const out: NameRange[] = [];
+  let edge = 0;
+  for (const r of all) {
+    if (r.start >= edge) {
+      out.push(r);
+      edge = r.end;
+    }
+  }
+  return out;
 }

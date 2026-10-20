@@ -31,6 +31,7 @@ import { installConflictMerge } from './conflictMerge';
 import { installFind } from './find';
 import { installFocus } from './focus';
 import { installLook } from './look';
+import { installNameMarks } from './nameMarks';
 import { installNames } from './names';
 import { installParagraphTools } from './paragraph';
 import { installQuickOpen } from './quickOpen';
@@ -105,6 +106,8 @@ function start(stage: HTMLElement): void {
   installFind();
   // 写作体检：正文里的 check 图层、状态栏「体检」那一格与它的面板、「视图 → 体检」、「编辑敏感词表…」。
   installCheck(post);
+  // 名词高亮：names 图层、悬停浮窗、Ctrl+点击打开卡或条目、「视图 → 名词高亮」。名词表的收发归 installNames。
+  installNameMarks(post);
 
   /**
    * 第二块编辑区惰性创建：没用过的人不该多出一块空编辑区。它放草稿，也放点开一章时

@@ -2,6 +2,8 @@
  * 名词补全的候选框（editor/names.ts，Alt+/ 或边打边弹）：贴在光标那一行下面（靠近底边翻到上面），挂在 body 上
  * `position: fixed`、由 names.ts 现造现拆、算好 left / top / max-height。不是遮罩，正文照样看得见。层级压在提示条（30）
  * 上面、「转到…」面板（35）与标题栏菜单（40）下面。
+ *
+ * 后半是名词高亮（editor/nameMarks.ts）：高亮镜像层的 names 图层与悬停浮窗，见文件末尾。
  */
 
 .nc-box {
@@ -106,4 +108,118 @@
 
 .nc-note.hidden {
   display: none;
+}
+
+/*
+ * ---- 名词高亮（editor/nameMarks.ts）
+ *
+ * names 图层：角色名、设定名各一层很淡的底色，名录里出现过、还没建条目的名字画虚下划线。与 check 图层一样只碰底色与
+ * text-decoration（不占排版；highlight.css 的规矩：<mark> 不许加内边距、边框、字重），下划线颜色明写（镜像里的字是透明的）。
+ * 选择器与 check 图层一样重（:where 降一级），这份文件排在 check.css 前面：撞在同一段字上时体检的下划线与敏感词的淡底色
+ * 盖过名字的，查找的底色（.ed-mirror mark.ed-hl-find，更重）盖过两者；段落聚焦管字色，互不相干。
+ *
+ * 颜色三套主题各一份：底色要淡到满屏都是名字时也不晃眼。
+ */
+
+:root,
+:root[data-theme='dark'] {
+  --nf-name-character-bg: rgba(78, 201, 176, 0.16);
+  --nf-name-lore-bg: rgba(156, 135, 245, 0.18);
+  --nf-name-unfiled: rgba(156, 135, 245, 0.85);
+}
+
+:root[data-theme='light'] {
+  --nf-name-character-bg: rgba(0, 128, 110, 0.1);
+  --nf-name-lore-bg: rgba(110, 80, 210, 0.1);
+  --nf-name-unfiled: rgba(110, 80, 210, 0.75);
+}
+
+:root[data-theme='sepia'] {
+  --nf-name-character-bg: rgba(46, 110, 90, 0.13);
+  --nf-name-lore-bg: rgba(105, 75, 150, 0.13);
+  --nf-name-unfiled: rgba(105, 75, 150, 0.7);
+}
+
+:where(.ed-mirror) mark.ed-hl-name-character {
+  background: var(--nf-name-character-bg);
+}
+
+:where(.ed-mirror) mark.ed-hl-name-lore {
+  background: var(--nf-name-lore-bg);
+}
+
+:where(.ed-mirror) mark.ed-hl-name-unfiled {
+  text-decoration: underline dashed var(--nf-name-unfiled);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-skip-ink: none;
+}
+
+/* 按住 Ctrl（Mac 上 ⌘）指着一个能打开的名字。 */
+.ed-area.nm-link {
+  cursor: pointer;
+}
+
+/* 悬停浮窗：挂在 body 上 position: fixed，贴着鼠标；不接鼠标（不挡 textarea）。层级在提示条（30）上面、候选框（33）下面。 */
+.nm-tip {
+  position: fixed;
+  z-index: 32;
+  box-sizing: border-box;
+  min-width: 160px;
+  max-width: min(360px, calc(100vw - 8px));
+  padding: 6px 10px;
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  box-shadow: var(--nf-shadow);
+  font-size: 13px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.nm-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.nm-name {
+  font-weight: 600;
+}
+
+.nm-badge {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.nm-character .nm-badge {
+  border-color: var(--vscode-focusBorder);
+  color: var(--vscode-textLink-foreground);
+}
+
+.nm-alias,
+.nm-foot {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.nm-brief {
+  margin-top: 2px;
+}
+
+.nm-brief.nm-empty {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+.nm-foot {
+  margin-top: 4px;
+  padding-top: 3px;
+  border-top: 1px solid var(--vscode-panel-border);
 }

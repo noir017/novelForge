@@ -33,10 +33,11 @@
 @import './standalone/quickopen.css';
 @import './standalone/bookfind.css';
 @import './standalone/stats.css';
+/* 名词补全的候选框（Alt+/ 与边打边弹）、名词高亮（names 图层）与悬停浮窗。排在体检前面：names 图层与 check 图层的
+   选择器一样重，撞在同一段字上时靠先后让体检的下划线与淡底色盖过名字的 */
+@import './standalone/names.css';
 /* 写作体检：check 图层的颜色（深 / 浅 / 护眼三套）、状态栏「体检」那一格与面板 */
 @import './standalone/check.css';
-/* 名词补全的候选框（Alt+/ 与边打边弹） */
-@import './standalone/names.css';
 /* 快捷键一览（「帮助 → 快捷键一览」与 Ctrl+/） */
 @import './standalone/keys.css';
 

@@ -11,6 +11,7 @@
  * | 排序 | 最近在本文件出现（查询词之前，越近越前）→ 只在后面出现 → 没出现；同档角色 → 设定 → 未建条目、短的在前 |
  * | 边打边弹 | 至少 2 个字、打完整了不弹、剩下那截已在光标后面不弹、组字中 / 删字 / 粘贴 / 程序改写 / 有选区不弹 |
  * | 插入 | 换掉查询词（与选区），补全整个叫法，光标落在后面 |
+ * | 名词高亮 | 正名与别名都认、不分大小写；长的优先不重叠；一个字的不认；英文要整词；卡自己那一份不标它自己；三种来源三种 class；撞了的叫法归表里排前面的；按字认回那一条 |
  */
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -23,10 +24,13 @@ const {
   autoPopQuery,
   autoQueryAt,
   buildNameCatalog,
+  buildNameMatcher,
   completionApplies,
   insertionFor,
   isNameChar,
   matchNames,
+  nameItemOf,
+  nameRanges,
   queryBefore,
   queryBetween,
 } = loadModule('media/src/editor/namesCore.ts');
@@ -331,5 +335,86 @@ describe('namesCore › 插入时替换哪一段', () => {
 
   test('别名插别名', () => {
     assert.deepEqual(insertionFor(0, 1, 1, '阿昭').text, '阿昭');
+  });
+});
+
+describe('namesCore › 名词高亮：正文里哪几段是名字', () => {
+  const matcher = () => buildNameMatcher(sample());
+  /** [那一段字, class] */
+  const marks = (text, selfPath) =>
+    nameRanges(matcher(), text, selfPath).map((r) => [text.slice(r.start, r.end), r.cls.replace('ed-hl-name-', '')]);
+
+  test('正名、别名（角色别名与设定关键词）都认，三种来源三种 class', () => {
+    assert.deepEqual(marks('阿昭走进青云门，沈怀山在黑水河边等他。'), [
+      ['阿昭', 'character'],
+      ['青云门', 'lore'],
+      ['沈怀山', 'character'],
+      ['黑水河', 'unfiled'],
+    ]);
+  });
+
+  test('长的优先、不重叠：林昭阳不认成林昭；同一处起头取最长的', () => {
+    assert.deepEqual(marks('林昭阳看着林昭。'), [
+      ['林昭阳', 'character'],
+      ['林昭', 'character'],
+    ]);
+  });
+
+  test('一个字的叫法不认（满屏都是），两个字起认', () => {
+    const one = buildNameMatcher(
+      buildNameCatalog({
+        initialized: true,
+        names: [
+          { name: '道', aliases: [], source: 'lore', category: '概念', brief: '', path: 'l/道.md' },
+          { name: '灵气', aliases: ['气'], source: 'lore', category: '概念', brief: '', path: 'l/灵气.md' },
+        ],
+      })
+    );
+    const text = '道心不稳，气息全乱，灵气倒灌。';
+    assert.deepEqual(nameRanges(one, text).map((r) => text.slice(r.start, r.end)), ['灵气']);
+  });
+
+  test('英文叫法不分大小写、要整词：Linear 里那一截不算', () => {
+    assert.deepEqual(marks('lin zhao said hi. LIN ZHAO again. Lin Zhaoxyz no.'), [
+      ['lin zhao', 'character'],
+      ['LIN ZHAO', 'character'],
+    ]);
+  });
+
+  test('卡或条目自己那一份里不标它自己，别的照标', () => {
+    assert.deepEqual(marks('林昭，外号阿昭，青云宗弟子。', 'c/林昭.md'), [['青云宗', 'lore']]);
+  });
+
+  test('两条叫法撞了：归表里排前面的那条（角色先于设定）', () => {
+    const clash = buildNameMatcher(
+      buildNameCatalog({
+        initialized: true,
+        names: [
+          { name: '林昭', aliases: ['小林'], source: 'character', category: '', brief: '', path: 'c/林昭.md' },
+          { name: '小林寺', aliases: ['小林'], source: 'lore', category: '门派', brief: '', path: 'l/小林寺.md' },
+        ],
+      })
+    );
+    assert.equal(nameItemOf(clash, '小林').name, '林昭');
+    const text = '小林去了小林寺。';
+    assert.deepEqual(
+      nameRanges(clash, text).map((r) => [text.slice(r.start, r.end), r.item.name]),
+      [
+        ['小林', '林昭'],
+        ['小林寺', '小林寺'],
+      ]
+    );
+  });
+
+  test('按那一段字认回表里那一条（悬停浮窗用）：不分大小写，不认识的给 undefined', () => {
+    const m = matcher();
+    assert.equal(nameItemOf(m, '阿昭').name, '林昭');
+    assert.equal(nameItemOf(m, 'LIN ZHAO').name, 'Lin Zhao');
+    assert.equal(nameItemOf(m, '路人甲'), undefined);
+  });
+
+  test('空表、空文字：什么都不标', () => {
+    assert.deepEqual(nameRanges(buildNameMatcher(buildNameCatalog({ initialized: true, names: [] })), '林昭'), []);
+    assert.deepEqual(nameRanges(matcher(), ''), []);
   });
 });
