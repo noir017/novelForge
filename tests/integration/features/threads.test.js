@@ -1,17 +1,15 @@
 /**
- * 叙事线（七期）：工程页「从细纲排出」。
+ * 叙事线（2026-10-20 重做）：工程页「从大纲排出」（排线）。
  *
  * | 断言 | 为什么 |
  * |---|---|
- * | 没有细纲时不调模型 | 第 4 条：没有东西可排就不花钱 |
- * | 确认框报 1 次调用与档位 | 第 4 条：动手之前写明 |
- * | 只追加新线，已有的、作者写的一个字不动 | 第 3 条、第 19 条的批量路径 |
- * | 同名跳过、区间越界的丢，提示里分开说 | 第 2 条：丢了什么要说出来 |
- * | 提示里有全部细纲（梗概、关键事件、看点）与已有的线 | 修上游只给一章蓝图、看不到已有的线；章末钩子并进了看点 |
+ * | 没有情节大纲时不调模型 | 第 4 条：没有东西可排就不花钱 |
+ * | 确认框报 1 次调用与档位，说清已有的不动、主线已有就不再排 | 第 4 条：动手之前写明 |
+ * | 一条线一个新文件，伏笔写在线下；已有的、作者写的一个字不动 | 第 3 条、第 19 条的批量路径 |
+ * | 同名跳过；种类不是四种之一、主线重复、区间越界的不收，提示里分开说 | 设计稿：种类定死四种、主线全书一条；第 2 条 |
+ * | 伏笔与全书已有的重名跳过，章号不合理的只去掉章号 | 同一样东西只有一份 |
+ * | 提示里有配置、前提、角色图谱（含此人暗藏的秘密）、情节大纲与已有的线和伏笔，**不读细纲** | 线在大纲这一层排，细纲反过来照着线排 |
  * | 解析不出来挂红 ❗、文件不动；成了清掉 | 第 16 条 |
- *
- * 细纲是 `summaries/NNN-标题.md` 的八节格式。排线读的是排过的细纲（「关键事件」填了的），
- * 计划与定稿过的都算：排线本来就是在还没写的章之间排跨章的东西。
  *
  * 定稿第三步（判本章推进了哪几条线）：
  *
@@ -45,7 +43,7 @@ const file = (name) => `${THREADS}/${name}.md`;
 /** 目录里有哪几条线（文件名）。 */
 const names = () => (t.has(THREADS) ? require('fs').readdirSync(t.rel(THREADS)).sort() : []);
 
-/** 写一份还没定稿的细纲（计划）：八节里只填排线读的那几节，钩子写在「看点」里。 */
+/** 写一份还没定稿的细纲（计划）：八节里只填几节，钩子写在「看点」里。 */
 function plot(no, title, events, highlight) {
   t.write(
     `.novelforge/summaries/00${no}-${title}.md`,
@@ -53,9 +51,12 @@ function plot(no, title, events, highlight) {
   );
 }
 
+/** 排线的系统提示里认得出的那一句。 */
+const PLAN_MARK = '只从作者给的小说配置、故事前提、角色图谱与情节大纲里排出这本书的叙事线';
+
 function reply(messages) {
   const system = messages[0]?.content ?? '';
-  if (system.includes('只从作者给的故事前提、情节大纲与各章细纲里提出跨章的伏笔')) {
+  if (system.includes(PLAN_MARK)) {
     return planReply(messages);
   }
   return '（认不出这一步）';
@@ -92,32 +93,40 @@ after(() => {
   if (t) cleanup(t.dir, bundle?.db);
 });
 
-describe('排叙事线 · 还没有细纲', () => {
-  test('不调模型、不弹确认框，说清先拆细纲', async () => {
+describe('排叙事线 · 还没有情节大纲', () => {
+  test('不调模型、不弹确认框，说清先排大纲（细纲有了也不算）', async () => {
+    plot(1, '雪夜', '林昭在雪夜里被人追杀。', '追兵举起了火把');
+    project.invalidate();
     h.expect('开始排');
     fake.reset();
     assert.equal(await bundle.threads.generateThreads(project), 0);
     assert.equal(fake.callCount(), 0);
     assert.equal(h.confirms.length, 0);
-    assert.ok(h.toasts.some((x) => x.includes('先拆出细纲')), h.toasts.join('|'));
+    assert.ok(h.toasts.some((x) => x.includes('先排出情节大纲')), h.toasts.join('|'));
   });
 });
 
+/** 作者手写的一条主线：带一条伏笔。 */
 const HAND = [
   '---',
-  'kind: 支线',
-  'plan: 2-8',
+  'kind: 主线',
+  'plan: 1-20',
   '---',
   '',
-  '# 玉佩的来历',
+  '# 青云旧案',
   '',
   '## 意图',
-  '作者自己写的意图。',
+  '十年前那把火是谁放的。',
+  '',
+  '## 伏笔',
+  '- 火折子：现场留下的火折子',
   '',
   '## 进展',
   '- 作者自己加的备注',
   '',
 ].join('\n');
+
+const OUTLINE = '# 情节大纲\n\n## 第1–20章：入宗\n\n林昭背着旧案入宗，与沈青从猜忌到并肩，查出当年放火的人。\n';
 
 describe('排叙事线', () => {
   let returned;
@@ -131,20 +140,35 @@ describe('排叙事线', () => {
       '---\ngenre: 玄幻\ntotalChapters: 20\nwordsPerChapter: 3000\n---\n# 设定\n\n## 一句话\n\n少年背着旧案入宗。\n'
     );
     t.write('.novelforge/premise.md', '# 故事前提\n\n## 悬念骨架\n\n谁放的那把火。\n');
-    plot(1, '雪夜', '林昭在雪夜里被人追杀，怀里揣着一块玉佩。', '追兵举起了火把');
-    plot(2, '入宗', '林昭拜入青云宗，看见执法堂的令牌上有云纹。', '有人认出了他');
-    // 关键事件一条一行（计划与定稿同一个形状）。
-    plot(3, '试剑', '- 试剑大会上林昭断了剑。\n- 断剑落进了后山的深潭。', '断剑里藏着字');
-    t.write(file('玉佩的来历'), HAND);
+    t.write('.novelforge/outline.md', OUTLINE);
+    t.write(
+      '.novelforge/characters/沈青.md',
+      '---\nname: 沈青\n---\n\n# 沈青\n\n## 身份\n\n青云宗外门弟子\n\n## 人物关系\n\n与林昭互相猜忌\n\n## 未收伏笔\n\n她是沈家遗孤\n'
+    );
+    plot(2, '入宗', '林昭拜入青云宗。', '有人认出了他');
+    t.write(file('青云旧案'), HAND);
     project.invalidate();
     planReply = () =>
       '```json\n' +
       JSON.stringify({
         threads: [
-          { title: '玉佩 的来历', type: '伏笔', from: 1, to: 6, intent: '换个说法再提一遍' },
-          { title: '断剑之谜', type: '悬念', from: 3, to: 9, intent: '断剑里的字是谁刻的' },
-          { title: '执法堂', type: '支线', from: 2, to: 30, intent: '超出全书章数' },
-          { title: '青云旧案', type: '主线', from: 1, to: 20, intent: '十年前那把火' },
+          { title: '青云 旧案', kind: '主线', intent: '换个说法再提一遍' },
+          {
+            title: '林昭与沈青',
+            kind: '感情线',
+            from: 3,
+            to: 18,
+            intent: '从互相猜忌到并肩。',
+            foreshadowing: [
+              { title: '玉佩的来历', what: '林昭的玉佩是沈家旧物', plant: 3, resolve: 18 },
+              { title: '火 折子', what: '与已有的重名' },
+              { title: '沈青的旧伤', what: '旧伤', plant: 25 },
+            ],
+          },
+          { title: '执法堂', kind: '支线', from: 2, to: 30, intent: '超出全书章数' },
+          { title: '宗门大比', kind: '主线', intent: '主线已经有了' },
+          { title: '断剑之谜', kind: '悬念', intent: '种类不对' },
+          { title: '林昭的成长', kind: '人物线', intent: '从复仇到放下。' },
         ],
       }) +
       '\n```';
@@ -157,42 +181,44 @@ describe('排叙事线', () => {
     user = call[call.length - 1].content;
   });
 
-  test('确认框报 1 次调用、哪一档、追加不改', () => {
-    assert.ok(confirm.message.includes('要从第 1–3 章的细纲排出叙事线，预计 1 次调用'), confirm.message);
+  test('确认框报 1 次调用、哪一档，已有的不动、主线已有就不再排', () => {
+    assert.ok(confirm.message.includes('要从情节大纲排出叙事线，预计 1 次调用'), confirm.message);
     assert.ok(confirm.call.tiers.join('\n').includes('剧情细纲'), confirm.call.tiers.join('\n'));
-    assert.ok(confirm.detail.includes('已有的 1 条不会改动'), confirm.detail);
+    assert.ok(confirm.detail.includes('已有的 1 条不会改动') && confirm.detail.includes('主线已经有了'), confirm.detail);
     assert.equal(returned, 1);
     assert.equal(fake.callCount(), 1);
   });
 
-  test('提示里有全部细纲（梗概、关键事件、看点）、前提、已有的线与总章数', () => {
+  test('提示里有配置、前提、角色图谱（含此人暗藏的秘密）、情节大纲、已有的线与伏笔；不读细纲', () => {
     assert.ok(system.includes('1..20 范围内的整数'), system);
-    for (const s of ['第1章 雪夜', '第2章 入宗', '第3章 试剑', '第3章的梗概', '断剑里藏着字', '谁放的那把火', '少年背着旧案入宗']) {
+    assert.ok(system.includes('已经有了，这一次不要再排主线'), system);
+    for (const s of ['少年背着旧案入宗', '谁放的那把火', '与沈青从猜忌到并肩', '- 沈青（青云宗外门弟子）', '与林昭互相猜忌', '她是沈家遗孤']) {
       assert.ok(user.includes(s), s);
     }
-    assert.ok(user.includes('【已有的叙事线（不要重复）】\n- 玉佩的来历（第 2–8 章） · 支线'), user);
+    assert.ok(user.includes('【已有的叙事线（不要重复）】\n- 青云旧案（主线 · 计划第 1–20 章）意图：十年前那把火是谁放的。'), user);
+    assert.ok(user.includes('【已有的伏笔（不要重复）】\n火折子'), user);
+    assert.ok(!user.includes('有人认出了他') && !user.includes('拜入青云宗'), '细纲不读');
   });
 
-  // 细纲一览一章一行：一条一行的关键事件、看点用「；」接起来，不留「- 」。
-  test('细纲一览里一条一行的几节压成一行', () => {
-    assert.ok(user.includes('第3章 试剑｜梗概：第3章的梗概｜关键事件：试剑大会上林昭断了剑。；断剑落进了后山的深潭。｜看点：断剑里藏着字'), user);
-  });
-
-  test('只新建线（一条一个文件）：作者写的那条原样，同名的、越界的不收；种类认不出当支线', async () => {
-    assert.equal(t.read(file('玉佩的来历')), HAND);
-    assert.deepEqual(names(), ['断剑之谜.md', '玉佩的来历.md', '青云旧案.md'].sort());
+  test('一条线一个新文件，伏笔写在线下；作者写的那条一个字不动', async () => {
+    assert.equal(t.read(file('青云旧案')), HAND);
+    assert.deepEqual(names(), ['林昭与沈青.md', '林昭的成长.md', '青云旧案.md'].sort());
     const { threads: list } = await project.readThreads();
     const by = Object.fromEntries(list.map((x) => [x.name, x]));
-    assert.equal(by['玉佩的来历'].intent, '作者自己写的意图。');
-    assert.deepEqual([by['断剑之谜'].from, by['断剑之谜'].to, by['断剑之谜'].kind, by['断剑之谜'].origin], [3, 9, '支线', '计划']);
-    assert.equal(by['青云旧案'].kind, '主线');
+    const pair = by['林昭与沈青'];
+    assert.deepEqual([pair.kind, pair.origin, pair.from, pair.to, pair.intent], ['感情线', '计划', 3, 18, '从互相猜忌到并肩。']);
+    assert.deepEqual(pair.foreshadowing, [
+      { name: '玉佩的来历', what: '林昭的玉佩是沈家旧物', plant: 3, resolve: 18 },
+      { name: '沈青的旧伤', what: '旧伤' },
+    ]);
+    assert.deepEqual([by['林昭的成长'].kind, by['林昭的成长'].from, by['林昭的成长'].to], ['人物线', undefined, undefined]);
   });
 
-  test('提示里说清跳过与丢掉了几条，并打开文件', () => {
-    const done = h.toasts.find((x) => x.includes('排出 2 条叙事线'));
+  test('提示里说清排出几条线、几条伏笔，跳过与不合格分开说，并打开第一条', () => {
+    const done = h.toasts.find((x) => x.includes('排出 2 条叙事线、2 条伏笔'));
     assert.ok(done, h.toasts.join('|'));
-    assert.ok(done.includes('同名跳过 1 条') && done.includes('1 条不合格没收'), done);
-    assert.deepEqual(h.opened, [file('断剑之谜')]);
+    assert.ok(done.includes('同名跳过 1 条') && done.includes('3 条不合格没收'), done);
+    assert.deepEqual(h.opened, [file('林昭与沈青')]);
   });
 });
 
@@ -216,7 +242,7 @@ describe('排叙事线 · 失败与取消', () => {
     assert.match(f.message, /排叙事线失败/);
     assert.ok(h.erred());
 
-    planReply = () => JSON.stringify({ threads: [{ title: '新的一条', type: '伏笔', from: 4, to: 6, intent: '意图' }] });
+    planReply = () => JSON.stringify({ threads: [{ title: '新的一条', kind: '支线', from: 4, to: 6, intent: '意图' }] });
     fake.reset();
     h.expect('开始排');
     await bundle.threads.generateThreads(project);
@@ -226,7 +252,7 @@ describe('排叙事线 · 失败与取消', () => {
 
   test('一条都不合格也算失败，不写文件', async () => {
     const before = names();
-    planReply = () => JSON.stringify({ threads: [{ title: '断剑之谜', type: '悬念', from: 3, to: 9, intent: '重名' }] });
+    planReply = () => JSON.stringify({ threads: [{ title: '林昭的成长', kind: '人物线', intent: '重名' }] });
     fake.reset();
     h.expect('开始排');
     await bundle.threads.generateThreads(project);
@@ -280,6 +306,8 @@ describe('定稿 · 判本章推进了哪几条叙事线', () => {
     plot(4, '夜谈', '沈青与林昭夜谈，玉佩的来历揭开。', '院外有人');
     t.write(CH4, `# 第4章 夜谈\n\n${CH4_TEXT}\n`);
     t.remove(THREADS);
+    // 出场的人都没有卡：角色状态那一步不调，次数好数。
+    t.remove('.novelforge/characters');
     t.write(
       file('玉佩的来历'),
       [

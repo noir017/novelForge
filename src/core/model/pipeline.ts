@@ -1075,7 +1075,13 @@ export interface PlotBatchPlan {
   calls: CallEstimate;
 }
 
-export function planPlotBatches(input: { from: number; to: number; filledNos: readonly number[] }): PlotBatchPlan {
+export function planPlotBatches(input: {
+  from: number;
+  to: number;
+  filledNos: readonly number[];
+  /** 一条叙事线都还没有：开拆之前先从情节大纲排一次（设计稿 ⚑8，+1 次）。 */
+  planThreads?: boolean;
+}): PlotBatchPlan {
   const from = Math.max(1, Math.floor(Math.min(input.from, input.to)));
   const to = Math.max(from, Math.floor(Math.max(input.from, input.to)));
   const filled = new Set(input.filledNos);
@@ -1102,8 +1108,9 @@ export function planPlotBatches(input: { from: number; to: number; filledNos: re
     }
   }
   flush();
-  // 拆完之后从细纲排一次叙事线（只追加新线），算 1 次。
-  const calls = batches.map((b) => blueprintCalls(b.length)).reduce(addCalls, batches.length > 0 ? ONE_CALL : { low: 0, high: 0, max: 0 });
+  // 一条叙事线都还没有时，开拆之前先从情节大纲排一次，算 1 次（没有要拆的就不排）。
+  const threads = batches.length > 0 && input.planThreads === true ? ONE_CALL : { low: 0, high: 0, max: 0 };
+  const calls = batches.map((b) => blueprintCalls(b.length)).reduce(addCalls, threads);
   return { from, to, chapters, skipped, batches, calls };
 }
 
@@ -1166,7 +1173,7 @@ export interface WriteBatchPlan {
  * 覆盖的第一章在它前面收住（`stopAt`）：没有大纲，细纲就是凭空编。
  *
  * 调用次数按件加总：一章 {@link WRITE_CALLS} + 写前比对 {@link PLOT_CHECK_CALLS}，写完即审稿再加
- * {@link REVIEW_CALLS}，写完即定稿再加 {@link FINALIZE_CALLS}；每批细纲 {@link blueprintCalls}，拆完再排一次叙事线。
+ * {@link REVIEW_CALLS}，写完即定稿再加 {@link FINALIZE_CALLS}；每批细纲 {@link blueprintCalls}。
  */
 export function planWriteBatch(input: {
   from: number;
@@ -1234,9 +1241,8 @@ export function planWriteBatch(input: {
       }
     }
   }
-  // 每拆一批细纲，接着从细纲排一次叙事线（只追加新线），各算 1 次。
   const calls = [
-    ...plotBatches.map((b) => addCalls(blueprintCalls(b.length), ONE_CALL)),
+    ...plotBatches.map((b) => blueprintCalls(b.length)),
     ...globalSummaryAt.map(() => ONE_CALL),
   ].reduce(addCalls, writing);
   return {

@@ -968,8 +968,16 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
     assert.deepEqual(plan.chapters, [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     // 第 4、5 章把区间断开：1–3 一批；6–14 再按 5 章切。
     assert.deepEqual(plan.batches, [[1, 2, 3], [6, 7, 8, 9, 10], [11, 12, 13, 14]]);
-    // 三批各 1 次；上限 3n 按要写的章数加总；拆完排一次叙事线。
+    // 三批各 1 次；上限 3n 按要写的章数加总。有叙事线时不排线。
+    assert.deepEqual(plan.calls, { low: 3, high: 3, max: 36 });
+  });
+
+  // 叙事线重做（设计稿 ⚑8）：一条线都没有时开拆之前先从情节大纲排一次；拆完不再排。
+  test('一条叙事线都没有：先排一次，+1；没有要拆的就不排', () => {
+    const plan = pipeline.planPlotBatches({ from: 1, to: 14, filledNos: [4, 5], planThreads: true });
     assert.deepEqual(plan.calls, { low: 4, high: 4, max: 37 });
+    const none = pipeline.planPlotBatches({ from: 7, to: 5, filledNos: [5, 6, 7], planThreads: true });
+    assert.deepEqual(none.calls, { low: 0, high: 0, max: 0 });
   });
 
   test('区间写反了照样认；全都排过时一批都没有', () => {
@@ -1096,8 +1104,8 @@ describe('pipeline.ts · 批量写章的切分', () => {
     assert.deepEqual(plan.plotBatches, [[3, 4, 5, 6, 7], [8], [10]]);
     assert.equal(plan.stopAt, undefined);
     const writing = pipeline.planWriteBatch({ ...base, plotFilledNos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], from: 1, to: 10 }).calls;
-    // 三批细纲各 1 次（上限 3n），每批拆完各排一次叙事线。
-    assert.deepEqual(plan.calls, { low: writing.low + 6, high: writing.high + 6, max: writing.max + 15 + 3 + 3 + 3 });
+    // 三批细纲各 1 次（上限 3n）。边写边拆不排叙事线（叙事线重做：计划随细纲写进线里，不再拆完排一次）。
+    assert.deepEqual(plan.calls, { low: writing.low + 3, high: writing.high + 3, max: writing.max + 15 + 3 + 3 });
   });
 
   test('边写边拆：超出大纲覆盖的第一章在它前面收住', () => {

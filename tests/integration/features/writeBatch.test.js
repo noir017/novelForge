@@ -458,7 +458,7 @@ function blueprintsFor(messages) {
 const isBlueprint = (messages) => /chapterNumber 必须覆盖第/.test(messages[messages.length - 1].content);
 const isPlotCheck = (messages) => (messages[0]?.content ?? '').includes('你是长篇小说的连续性编辑');
 const isEvents = (messages) => (messages[0]?.content ?? '').includes('你是小说定稿事实审查员');
-const isThreads = (messages) => (messages[0]?.content ?? '').includes('只从作者给的故事前提、情节大纲与各章细纲里提出跨章的伏笔');
+const isThreads = (messages) => (messages[0]?.content ?? '').includes('只从作者给的小说配置、故事前提、角色图谱与情节大纲里排出这本书的叙事线');
 
 /** 每章正文带一句可查证的事实；定稿把它记成细纲里的连续性事实。 */
 function factfulReply(conflicts = () => []) {
@@ -468,9 +468,6 @@ function factfulReply(conflicts = () => []) {
     }
     if (isPlotCheck(messages)) {
       return JSON.stringify({ conflicts: conflicts(messages) });
-    }
-    if (isThreads(messages)) {
-      return JSON.stringify({ threads: [{ title: '玉佩的下落', type: '伏笔', from: 1, to: 8, intent: '玉佩一块块丢在哪里。' }] });
     }
     if (isSummary(messages)) {
       const no = Number(/【第(\d+)章/.exec(messages[messages.length - 1].content)?.[1] ?? 0);
@@ -501,18 +498,15 @@ describe('边写边拆细纲：大纲覆盖之内没细纲的章，写到时先�
   });
   after(() => cleanup(t.dir, bundle.db));
 
-  // 排出叙事线之后，定稿多了判叙事线那一步。
-  test('写完第 2 章、定稿之后才拆第 3–4 章（只拆这次要写的），接着排叙事线；第 1 章前面没定稿的章，不比对', () => {
+  // 叙事线重做：拆完不再排线（计划随细纲写进线里）；一条线都没有，定稿不判叙事线。
+  test('写完第 2 章、定稿之后才拆第 3–4 章（只拆这次要写的），拆完不排叙事线；第 1 章前面没定稿的章，不比对', () => {
     assert.deepEqual(order, [
       'write:1', 'summary', 'state',
       'check', 'write:2', 'summary', 'state',
-      'plots', 'threads', 'check', 'write:3', 'summary', 'state', 'events',
-      'check', 'write:4', 'summary', 'state', 'events',
+      'plots', 'check', 'write:3', 'summary', 'state',
+      'check', 'write:4', 'summary', 'state',
     ]);
-  });
-
-  test('拆完接着排叙事线，一条线一个文件', () => {
-    assert.match(t.read('.novelforge/threads/玉佩的下落.md'), /玉佩一块块丢在哪里/);
+    assert.ok(!t.has('.novelforge/threads'));
   });
 
   test('拆细纲的时候看得见前面定稿的连续性事实', () => {

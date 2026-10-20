@@ -74,6 +74,8 @@ before(async () => {
     sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: '进入宗门', 关键事件: '踩点、失手、翻墙。' },
   });
   t.write('chapters/001-夜入青云.md', '# 夜入青云\n\n雨下了三天。山门在雨里，林昭在门外。\n');
+  // 叙事线从情节大纲排：有大纲，确认框才会弹。
+  t.write('.novelforge/outline.md', '# 情节大纲\n\n## 第1–10章：入宗\n\n林昭夜入青云宗。\n');
   t.project.invalidate();
   await t.project.syncManifest();
   resetCtx();
@@ -92,8 +94,8 @@ describe('排叙事线：转发给工程页那个动作', () => {
     r = await run({ action: 'threads' });
   });
 
-  test('确认框写着从哪几章的细纲排、预计调用几次', () => {
-    assert.match(h.confirms.at(-1).message, /^要从第 1–1 章的细纲排出叙事线，预计 1 次调用/);
+  test('确认框写着从情节大纲排、预计调用几次', () => {
+    assert.match(h.confirms.at(-1).message, /^要从情节大纲排出叙事线，预计 1 次调用/);
   });
 
   test('作者取消：一次模型都不调，账上也不记', () => {

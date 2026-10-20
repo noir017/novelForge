@@ -1,5 +1,5 @@
 /**
- * 七期验收：从排好前 5 章细纲的工程起，工程页「从细纲排出」叙事线，再「批量写章」第 1–3 章、
+ * 七期验收：从排好前 5 章细纲的工程起，工程页「从大纲排出」叙事线（叙事线重做之后从情节大纲排），再「批量写章」第 1–3 章、
  * 写完即定稿。
  *
  *   排线 → 写第 1 章 → 定稿（照正文更新细纲 + 叙事线）→ 写第 2 章 → 定稿 → 写第 3 章 → 定稿
@@ -66,12 +66,12 @@ function reply(messages) {
   if (system.includes('你是长篇小说的连续性编辑')) {
     return JSON.stringify({ conflicts: [] });
   }
-  if (system.includes('只从作者给的故事前提、情节大纲与各章细纲里提出跨章的伏笔')) {
+  if (system.includes('只从作者给的小说配置、故事前提、角色图谱与情节大纲里排出这本书的叙事线')) {
     return JSON.stringify({
       threads: [
-        { title: '玉佩的来历', type: '伏笔', from: 1, to: 3, intent: '玉佩是沈家旧物。' },
-        { title: '名册之谜', type: '悬念', from: 2, to: 5, intent: '名册上少了一页。' },
-        { title: '师父的身份', type: '伏笔', from: 10, to: 20, intent: '师父另有身份。' },
+        { title: '玉佩的来历', kind: '支线', from: 1, to: 3, intent: '玉佩是沈家旧物。' },
+        { title: '名册之谜', kind: '支线', from: 2, to: 5, intent: '名册上少了一页。' },
+        { title: '师父的身份', kind: '支线', from: 10, to: 20, intent: '师父另有身份。' },
       ],
     });
   }
@@ -159,7 +159,7 @@ before(async () => {
 
   controller = new bundle.controller.ChatController(project);
   controller.attach({ kind: 'sidebar', post: () => {}, reveal() {} });
-  // 工程页「从细纲排出」：后端弹确认框，作者点「开始排」。
+  // 工程页「从大纲排出」：后端弹确认框，作者点「开始排」。
   h.expect('开始排');
   await controller.handle({ type: 'projectAction', action: 'generateThreads' });
   // 作者看了一眼，改了一条线的意图。

@@ -171,7 +171,9 @@ export function openPlotBatchForm(tree: ProjectTree): void {
           ok: false,
         };
       }
-      const plan = planPlotBatches({ from: a, to: b, filledNos: book.plotFilledNos });
+      // 一条叙事线都还没有：后端开拆之前先从情节大纲排一次（同一个 `planPlotBatches`，+1 次）。
+      const planThreads = tree.threads.total === 0;
+      const plan = planPlotBatches({ from: a, to: b, filledNos: book.plotFilledNos, planThreads });
       if (plan.batches.length === 0) {
         return { text: '这一段都已经排过细纲了。', ok: false };
       }
@@ -180,6 +182,7 @@ export function openPlotBatchForm(tree: ProjectTree): void {
           `要拆 ${plan.chapters.length} 章，分 ${plan.batches.length} 批（每批最多 ${PLOT_BATCH} 章）` +
           `${plan.skipped.length > 0 ? `，跳过已有细纲的 ${plan.skipped.length} 章` : ''}。` +
           `${describeCalls(plan.calls)}（输出被截断或格式不对时自动拆小重试）。` +
+          (planThreads ? '还没有叙事线：开拆之前先从情节大纲排一次（算在里面）。' : '') +
           (v.expandLore === 'on'
             ? '拆完展开本批新设定：每条 1 次，有几条要拆完才知道，到时再报次数、再问一次；不在这里的数里。'
             : ''),

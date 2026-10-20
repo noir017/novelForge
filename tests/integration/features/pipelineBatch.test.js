@@ -50,6 +50,10 @@ function blueprintsFor(messages, over = {}) {
   return JSON.stringify({ blueprints: items });
 }
 const OUTLINE = '# 大纲\n\n## 第1–20章：第一幕 · 入局\n\n- 林昭进入青云宗\n';
+/** 一条叙事线（有了它批量拆细纲就不先排线）。 */
+const THREAD = '.novelforge/threads/青云旧案.md';
+/** 排线的系统提示里认得出的那一句。 */
+const PLAN_MARK = '只从作者给的小说配置、故事前提、角色图谱与情节大纲里排出这本书的叙事线';
 /** 总章数 3：缺省的那一批收在第 3 章，下面批量写正文那几组只面对这三章。 */
 const CONFIG = '---\ntotalChapters: 3\n---\n\n# 小说配置\n\n## 核心梗概\n\n少年入宗。\n';
 
@@ -143,6 +147,8 @@ before(async () => {
     await skeleton(no, title, extra);
   }
   t.write('.novelforge/config.md', CONFIG);
+  // 已经有一条叙事线：批量拆细纲开跑前不再先排线（「一条叙事线都没有」那一组单独测）。
+  t.write(THREAD, '---\nkind: 主线\n---\n\n# 青云旧案\n\n## 意图\n十年前那把火。\n');
   project.invalidate();
   await project.syncManifest();
 });
@@ -226,15 +232,16 @@ describe('批量拆细纲', () => {
   });
 
   // 缺省区间是下一可写章起 5 章，收在总章数（3）。第 2 章排过，把区间断成两批：[1] 与 [3]。
-  // 拆完再排一次叙事线：第 3 次。
-  test('只为没排过细纲的章调模型，跳过的章把区间断开；拆完排一次叙事线', () => {
-    assert.equal(callCount, 3, `调了 ${callCount} 次`);
+  // 已经有叙事线：不先排线，拆完也不排（叙事线重做：拆完自动排那两处删了）。
+  test('只为没排过细纲的章调模型，跳过的章把区间断开；有叙事线时不排线', () => {
+    assert.equal(callCount, 2, `调了 ${callCount} 次`);
+    assert.ok(!fake.calls.some((c) => c[0].content.includes(PLAN_MARK)));
     assert.ok(users[0].includes('请输出第 1 章的细纲') && users[1].includes('请输出第 3 章的细纲'), users.map((u) => u.slice(-200)).join('\n'));
   });
 
   // 第 4 条：动手前说清要调几次模型——有自动修复，所以报预计与上限。
   test('确认框里写明批数与调用次数', () => {
-    assert.ok(confirm?.message.includes('要拆 2 章细纲，分 2 批，预计 3 次调用，最多 7 次'), JSON.stringify(confirm));
+    assert.ok(confirm?.message.includes('要拆 2 章细纲，分 2 批，预计 2 次调用，最多 6 次'), JSON.stringify(confirm));
   });
 
   test('确认框说清排过的不会被改动', () => {
@@ -242,7 +249,7 @@ describe('批量拆细纲', () => {
   });
 
   test('返回实际调用次数（agent 的预算记它）', () => {
-    assert.equal(returned, 3);
+    assert.equal(returned, 2);
   });
 
   test('第 1、3 章写出细纲', async () => {
@@ -406,6 +413,75 @@ describe('批量拆细纲 · 一批失败就停', () => {
 });
 
 // 批量写章（四期改成严格串行：续写链、写完即定稿、失败即停、章间停下）在 writeBatch.test.js。
+
+// 叙事线重做（设计稿 ⚑8）：批量拆细纲开跑时一条线都没有，先从情节大纲排一次（确认框写明 +1）；没排成不挡拆细纲。
+describe('批量拆细纲 · 一条叙事线都没有', () => {
+  let confirm;
+  let returned;
+  let systems;
+  let toasts;
+
+  before(async () => {
+    t.write('.novelforge/config.md', CONFIG.replace('totalChapters: 3', 'totalChapters: 30'));
+    t.remove('.novelforge/threads');
+    project.invalidate();
+    configure();
+    replyFn = (messages) =>
+      messages[0].content.includes(PLAN_MARK)
+        ? JSON.stringify({ threads: [{ title: '林昭与沈青', kind: '感情线', from: 4, to: 20, intent: '从猜忌到并肩。' }] })
+        : blueprintsFor(messages);
+    h.answers.push('开始拆细纲');
+    returned = await bundle.batch.generatePlots(project, { range: { from: 4, to: 4 } });
+    confirm = h.confirms[0];
+    systems = fake.calls.map((c) => c[0].content);
+    toasts = [...h.toasts];
+  });
+
+  test('确认框把先排的那一次算进去，说清没排成不挡拆细纲', () => {
+    assert.ok(confirm?.message.includes('要拆 1 章细纲，分 1 批，预计 2 次调用，最多 4 次'), confirm?.message);
+    assert.ok(confirm.detail.includes('还没有一条叙事线：开拆之前先从情节大纲排一次'), confirm.detail);
+  });
+
+  test('先排线、再拆细纲；返回两次', () => {
+    assert.equal(systems.length, 2);
+    assert.ok(systems[0].includes(PLAN_MARK), systems[0].slice(0, 80));
+    assert.ok(systems[1].includes('剧情编剧'), systems[1].slice(0, 80));
+    assert.equal(returned, 2);
+  });
+
+  test('线写进了叙事线目录，细纲也写好了；完成提示里说了排出几条', async () => {
+    assert.ok(t.has('.novelforge/threads/林昭与沈青.md'));
+    assert.ok(bundle.plotFile.isPlotFilled((await project.getPlot(4)).sections));
+    assert.ok(toasts.some((x) => x.includes('写好 1 章细纲') && x.includes('排出 1 条叙事线')), toasts.join('|'));
+  });
+
+  test('有线了再拆就不先排', async () => {
+    configure();
+    h.answers.push('开始拆细纲');
+    await bundle.batch.generatePlots(project, { range: { from: 5, to: 5 } });
+    assert.ok(h.confirms[0].message.includes('预计 1 次调用'), h.confirms[0].message);
+    assert.ok(!fake.calls.some((c) => c[0].content.includes(PLAN_MARK)));
+  });
+
+  test('排线没排成不挡拆细纲：细纲照写，提示里说一句，红 ❗ 挂在叙事线目录上', async () => {
+    t.remove('.novelforge/threads');
+    project.invalidate();
+    configure();
+    replyFn = (messages) => (messages[0].content.includes(PLAN_MARK) ? '我想不出来。' : blueprintsFor(messages));
+    await bundle.batch.generatePlots(project, { range: { from: 6, to: 6 }, call: {} });
+    assert.ok(bundle.plotFile.isPlotFilled((await project.getPlot(6)).sections));
+    assert.ok(h.toasts.some((x) => x.includes('叙事线没排成')), h.toasts.join('|'));
+    await sleep(50);
+    const failures = await bundle.errorLog.listActiveFailures(project);
+    assert.equal(failures['.novelforge/threads']?.[0]?.severity, 'error');
+  });
+
+  after(() => {
+    t.write('.novelforge/config.md', CONFIG);
+    t.write(THREAD, '---\nkind: 主线\n---\n\n# 青云旧案\n\n## 意图\n十年前那把火。\n');
+    project.invalidate();
+  });
+});
 
 describe('用户取消', () => {
   let callCount;

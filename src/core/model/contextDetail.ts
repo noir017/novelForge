@@ -100,8 +100,6 @@ export interface ContextLimits {
   readonly referenceSamples: number;
   /** 排叙事线：情节大纲最多带多少字。 */
   readonly threadPlanOutlineChars: number;
-  /** 排叙事线：细纲一览里每章关键事件截到多长。 */
-  readonly threadPlanEvents: number;
   /** 定稿判叙事线：最多送几条线去判。 */
   readonly threadJudge: number;
   /** 设定：整条带（正文 + 还没整合的新事实）最多几条（`lore`）。 */
@@ -141,7 +139,6 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     characterChapters: 1,
     referenceSamples: 3,
     threadPlanOutlineChars: 4000,
-    threadPlanEvents: 60,
     threadJudge: 6,
     loreFull: 2,
     loreLines: 10,
@@ -170,7 +167,6 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     characterChapters: 2,
     referenceSamples: 4,
     threadPlanOutlineChars: 6000,
-    threadPlanEvents: 90,
     threadJudge: 9,
     loreFull: 4,
     loreLines: 20,
@@ -199,7 +195,6 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     characterChapters: 3,
     referenceSamples: 5,
     threadPlanOutlineChars: 8000,
-    threadPlanEvents: 120,
     threadJudge: 12,
     loreFull: 6,
     loreLines: 40,
@@ -228,7 +223,6 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     characterChapters: 5,
     referenceSamples: 8,
     threadPlanOutlineChars: 12000,
-    threadPlanEvents: 200,
     threadJudge: 16,
     loreFull: 10,
     loreLines: 80,

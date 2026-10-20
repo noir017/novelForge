@@ -413,3 +413,86 @@ describe('threadFile.ts · 当前进度', () => {
     assert.equal(t.parseThreadFile(next, 'x/线.md').progress, '刚开头');
   });
 });
+
+describe('threadFile.ts · 排线：校验模型的输出', () => {
+  const existing = { threads: [{ name: '青云旧案', kind: '主线' }], foreshadowing: ['火折子'] };
+
+  test('先逐条校验再截：名字、种类、意图、区间、重名、主线只能一条', () => {
+    const { plans, dropped } = t.verifyThreadPlans(
+      [
+        { title: '青云 旧案', kind: '主线', intent: '重名' },
+        { title: '宗门大比', kind: '主线', intent: '主线已有' },
+        { title: '断剑之谜', kind: '悬念', intent: '种类不对' },
+        { title: '执法堂', kind: '支线', from: 2, to: 30, intent: '越界' },
+        { title: '倒过来', kind: '支线', from: 9, to: 3, intent: '区间反了' },
+        { title: '', kind: '支线', intent: '没名字' },
+        { title: '未归属的伏笔', kind: '支线', intent: '保留名' },
+        { title: '没有意图', kind: '支线' },
+        { title: '林昭与沈青', type: '感情线', from: '3', to: 18, intent: '从猜忌到并肩。' },
+        { title: '林昭的成长', kind: '人物线', intent: '从复仇到放下。' },
+      ],
+      existing,
+      20
+    );
+    assert.deepEqual(plans.map((p) => [p.name, p.kind, p.origin, p.from, p.to]), [
+      ['林昭与沈青', '感情线', '计划', 3, 18],
+      ['林昭的成长', '人物线', '计划', undefined, undefined],
+    ]);
+    assert.deepEqual(dropped.map((d) => d.why), [
+      t.SAME_THREAD,
+      '主线全书只能有一条，已经有了',
+      '种类不是主线 / 支线 / 感情线 / 人物线之一',
+      '计划区间不对（全书 20 章）',
+      '计划区间不对（全书 20 章）',
+      '没有名字',
+      '「未归属的伏笔」是保留名',
+      '意图是空的',
+    ]);
+  });
+
+  test('同一批里第二条主线不收；一次最多 8 条', () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({ title: `线${i}`, kind: i < 2 ? '主线' : '支线', intent: '意图' }));
+    const { plans, dropped } = t.verifyThreadPlans(many, { threads: [], foreshadowing: [] });
+    assert.equal(plans.length, 8);
+    assert.deepEqual(plans.filter((p) => p.kind === '主线').map((p) => p.name), ['线0']);
+    assert.deepEqual(dropped.map((d) => d.why), ['主线全书只能有一条，已经有了', '一次最多排 8 条']);
+  });
+
+  test('伏笔：与全书已有的、同一批前面的重名跳过；章号不合理只去掉章号；一条线最多 5 条', () => {
+    const fore = (title, extra = {}) => ({ title, what: `${title}是什么`, ...extra });
+    const { plans, foreshadowDropped } = t.verifyThreadPlans(
+      [
+        {
+          title: '甲',
+          kind: '支线',
+          intent: '意图',
+          foreshadowing: [fore('玉佩', { plant: 3, resolve: 18 }), fore('火 折子'), fore('旧伤', { plant: 25, resolve: 2 }), fore('一'), fore('二'), fore('三'), fore('四')],
+        },
+        { title: '乙', kind: '支线', intent: '意图', foreshadowing: [fore('玉佩')] },
+      ],
+      existing,
+      20
+    );
+    assert.deepEqual(plans[0].foreshadowing, [
+      { name: '玉佩', what: '玉佩是什么', plant: 3, resolve: 18 },
+      { name: '旧伤', what: '旧伤是什么', resolve: 2 },
+      { name: '一', what: '一是什么' },
+      { name: '二', what: '二是什么' },
+      { name: '三', what: '三是什么' },
+    ]);
+    assert.deepEqual(plans[1].foreshadowing, []);
+    assert.deepEqual(foreshadowDropped.map((d) => [d.name, d.why]), [
+      ['火 折子', '同名的伏笔已经有了'],
+      ['四', '一条线最多排 5 条伏笔'],
+      ['玉佩', '同名的伏笔已经有了'],
+    ]);
+  });
+
+  test('全书已有的伏笔名：各条线与未归属的，登记的与只在事件里出现的都算', () => {
+    const book = {
+      threads: [line([ev(3, '埋', { foreshadowing: '断剑' })], { foreshadowing: [{ name: '玉佩', what: '' }] })],
+      unfiled: { name: '未归属的伏笔', relPath: 'x', foreshadowing: [{ name: '火折子', what: '' }], events: [] },
+    };
+    assert.deepEqual(t.foreshadowNames(book), ['玉佩', '断剑', '火折子']);
+  });
+});

@@ -258,17 +258,18 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
  * 「叙事线」一行（七期）：与全书摘要同类，不进「故事架构」的 x/5——它不挡路。
  *
  * 叙事线重做之后一条线一个文件（`threads/` 目录），这一行只报几个计数、点名字不打开东西；单独一组、一条线一行
- * 是叙事线重做的第 8 个提交。还没有细纲时没有东西可排，不给按钮；排线在跑时也不给（点第二次只会撞上「已有任务在
- * 进行」）。任务名与 features/threads.ts 的 runTask 一字不差。按钮不直接花钱：后端先弹确认框，写明 1 次调用。
+ * 是叙事线重做的第 8 个提交。线从情节大纲排：还没有大纲时没有东西可排，不给按钮；排线在跑时也不给（点第二次只会
+ * 撞上「已有任务在进行」）。任务名与 features/threads.ts 的 runTask 一字不差。按钮不直接花钱：后端先弹确认框，
+ * 写明 1 次调用。
  */
 function buildThreadsRow(tree: ProjectTree): HTMLElement {
   const th = tree.threads;
-  const canPlan = tree.book.plotFilledNos.length > 0;
+  const canPlan = tree.architecture.some((a) => a.key === 'outline' && a.filled);
   const detail =
     th.total === 0
       ? canPlan
         ? '未生成'
-        : '未生成 · 拆出细纲之后可以从细纲排出'
+        : '未生成 · 有了情节大纲之后可以从大纲排出'
       : [
           `${th.total} 条`,
           `${th.open} 条进行中`,
@@ -278,7 +279,7 @@ function buildThreadsRow(tree: ProjectTree): HTMLElement {
           .filter(Boolean)
           .join(' · ');
   const row = buildFileRow({ label: '叙事线', relPath: tree.threadsPath, detail }, '🧵', undefined, { openable: false });
-  const verb = th.total === 0 ? '从细纲排出' : '从细纲补充';
+  const verb = th.total === 0 ? '从大纲排出' : '从大纲补充';
   if (canPlan && !hasTask('排叙事线')) {
     row.appendChild(rowActions(linkBtn(verb, () => projectAction('generateThreads'))));
   }

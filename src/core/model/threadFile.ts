@@ -1017,6 +1017,150 @@ export function pruneChapterEvents(raw: string, chapter: number, text: string): 
   return { text: joinLines(l), removed: gone.map((r) => r.e) };
 }
 
+// ---------------------------------------------------------------- 排线：校验模型的输出
+
+/** 一次最多排几条线（上游 `PLAN_CANDIDATE_LIMIT`；提示词要的是 3–8 条）。 */
+export const THREAD_PLAN_LIMIT = 8;
+/** 排线时一条线最多带几条伏笔。 */
+export const PLAN_FORESHADOW_LIMIT = 5;
+/** 伏笔「是什么」最长多少字。 */
+export const FORESHADOW_WHAT_MAX = 100;
+
+/** {@link verifyThreadPlans} 给重名那一条的原因。完成提示里把它和「不合格」分开说。 */
+export const SAME_THREAD = '同名的线已经有了';
+
+/** 字段可能是数字，也可能是「3」这样的字符串。 */
+function intOf(v: unknown): number | undefined {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : NaN;
+  return Number.isSafeInteger(n) ? n : undefined;
+}
+
+function strOf(v: unknown): string {
+  return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
+}
+
+function cut(text: string, max: number): string {
+  return [...text].slice(0, max).join('').trim();
+}
+
+/** 名字合不合格：1–{@link NAME_MAX} 字、不是保留名。合格返回空串。 */
+function nameProblem(name: string): string {
+  if (!name) {
+    return '没有名字';
+  }
+  if ([...name].length > NAME_MAX) {
+    return `名字超过 ${NAME_MAX} 字`;
+  }
+  if (isUnfiledName(name)) {
+    return `「${UNFILED_NAME}」是保留名`;
+  }
+  return '';
+}
+
+/** 全书已经有的伏笔名（各条线与「未归属的伏笔」里登记的、只在事件里出现过的都算）。排线、定稿认新伏笔时拿它去重。 */
+export function foreshadowNames(book: ThreadBook): string[] {
+  return [...book.threads, book.unfiled].flatMap((f) => foreshadowingOf(f, 0).map((x) => x.name));
+}
+
+/** 排线时没收的一条（线或伏笔）与原因。 */
+export interface PlanDrop {
+  name: string;
+  why: string;
+}
+
+/**
+ * 排线时模型交回来的候选 → 能新建的线（设计稿「一、排线」）。
+ *
+ * **先逐条校验、再取前 {@link THREAD_PLAN_LIMIT} 条**（七期修过的上游 #8：先截再校验，前面几条坏了，后面好的也跟着丢）：
+ *
+ * - 名字 1–30 字、不是「未归属的伏笔」，与已有的线、与同一批里前面的重名就跳过（{@link SAME_THREAD}）；
+ * - 种类必须是四种之一（认不出的不收：读文件时认不出当支线，那是容错；排线时是模型没照合同写）；
+ * - **全书只能有一条主线**：已经有了，或同一批里前面已经排了一条，就不收；
+ * - 意图截到 {@link INTENT_MAX} 字，空的不收；计划区间可以缺，给了就要 `1 ≤ from ≤ to`，知道总章数时不越界；
+ * - 伏笔每条线最多 {@link PLAN_FORESHADOW_LIMIT} 条：名字同上，与全书已有的伏笔、同一批里前面的重名跳过；
+ *   「是什么」截到 {@link FORESHADOW_WHAT_MAX} 字；埋 / 收的章号不合理的只去掉章号、伏笔照收。
+ */
+export function verifyThreadPlans(
+  raw: readonly unknown[],
+  existing: { threads: readonly Pick<Thread, 'name' | 'kind'>[]; foreshadowing: readonly string[] },
+  totalChapters?: number
+): { plans: NewThread[]; dropped: PlanDrop[]; foreshadowDropped: PlanDrop[] } {
+  const seen = new Set(existing.threads.map((t) => threadKey(t.name)));
+  let hasMain = existing.threads.some((t) => t.kind === '主线');
+  const knownFore = new Set(existing.foreshadowing.map(threadKey));
+  const plans: NewThread[] = [];
+  const dropped: PlanDrop[] = [];
+  const foreshadowDropped: PlanDrop[] = [];
+  const inBook = (n: number | undefined): boolean => n !== undefined && n >= 1 && (!totalChapters || n <= totalChapters);
+  for (const item of raw) {
+    const o = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    const name = strOf(o.title ?? o.name).replace(/^#+\s*/, '');
+    const kind = threadKindOf(strOf(o.kind ?? o.type));
+    const intent = cut(strOf(o.intent), INTENT_MAX);
+    const from = intOf(o.from);
+    const to = intOf(o.to);
+    let why = nameProblem(name);
+    if (!why && !kind) {
+      why = '种类不是主线 / 支线 / 感情线 / 人物线之一';
+    } else if (!why && !intent) {
+      why = '意图是空的';
+    } else if (!why && ((o.from !== undefined && !inBook(from)) || (o.to !== undefined && !inBook(to)) || (from !== undefined && to !== undefined && to < from))) {
+      why = totalChapters ? `计划区间不对（全书 ${totalChapters} 章）` : '计划区间不对';
+    } else if (!why && seen.has(threadKey(name))) {
+      why = SAME_THREAD;
+    } else if (!why && kind === '主线' && hasMain) {
+      why = '主线全书只能有一条，已经有了';
+    }
+    if (why) {
+      dropped.push({ name: name || '（没有名字）', why });
+      continue;
+    }
+    seen.add(threadKey(name));
+    if (plans.length >= THREAD_PLAN_LIMIT) {
+      dropped.push({ name, why: `一次最多排 ${THREAD_PLAN_LIMIT} 条` });
+      continue;
+    }
+    if (kind === '主线') {
+      hasMain = true;
+    }
+    const foreshadowing: Foreshadowing[] = [];
+    for (const f of Array.isArray(o.foreshadowing) ? o.foreshadowing : []) {
+      const x = (f && typeof f === 'object' ? f : {}) as Record<string, unknown>;
+      const fname = strOf(x.title ?? x.name);
+      const fwhy = nameProblem(fname) || (knownFore.has(threadKey(fname)) ? '同名的伏笔已经有了' : '');
+      if (fwhy) {
+        foreshadowDropped.push({ name: fname || '（没有名字）', why: fwhy });
+        continue;
+      }
+      if (foreshadowing.length >= PLAN_FORESHADOW_LIMIT) {
+        foreshadowDropped.push({ name: fname, why: `一条线最多排 ${PLAN_FORESHADOW_LIMIT} 条伏笔` });
+        continue;
+      }
+      knownFore.add(threadKey(fname));
+      let plant = intOf(x.plant);
+      let resolve = intOf(x.resolve);
+      plant = inBook(plant) ? plant : undefined;
+      resolve = inBook(resolve) && (plant === undefined || resolve! >= plant) ? resolve : undefined;
+      foreshadowing.push({
+        name: fname,
+        what: cut(strOf(x.what), FORESHADOW_WHAT_MAX),
+        ...(plant !== undefined ? { plant } : {}),
+        ...(resolve !== undefined ? { resolve } : {}),
+      });
+    }
+    plans.push({
+      name,
+      kind: kind!,
+      origin: '计划',
+      ...(from !== undefined ? { from } : {}),
+      ...(to !== undefined ? { to } : {}),
+      intent,
+      foreshadowing,
+    });
+  }
+  return { plans, dropped, foreshadowDropped };
+}
+
 // ---------------------------------------------------------------- 当前进度（机器维护、指纹守着）
 
 /** 「当前进度」的指纹。只看内容：首尾空白不算，占位文字当空（同角色卡 `stateHashOf`）。 */

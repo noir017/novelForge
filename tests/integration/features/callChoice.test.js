@@ -1,7 +1,7 @@
 /**
  * 调模型之前的确认框（`features/askCall.ts`）：两个下拉框的选项与缺省，以及作者挑了之后这一次真的照着跑
- * （docs/design/plans/2026-10-20-call-choice.md）。拿「从细纲排出叙事线」当载体：一次调用，提示里每章关键事件
- * 带多少字随上下文详细度（第 3 级 120 字、第 1 级 60 字），看得出详细度换没换。
+ * （docs/design/plans/2026-10-20-call-choice.md）。拿「从大纲排出叙事线」当载体：一次调用，提示里情节大纲
+ * 带多少字随上下文详细度（第 3 级 8000 字、第 1 级 4000 字），看得出详细度换没换。
  *
  * | 断言 | 为什么 |
  * |---|---|
@@ -24,9 +24,9 @@ let h;
 let fake;
 let t;
 
-/** 第 2 章关键事件里第 90 字之后的那一截：第 3 级带得到，第 1 级带不到。 */
+/** 情节大纲第 5000 字之后的那一截：第 3 级（8000 字）带得到，第 1 级（4000 字）带不到。 */
 const TAIL = '尾声里埋下的那枚铜钱';
-const LONG_EVENT = `${'林昭在雨夜里追着黑衣人穿过三条巷子，'.repeat(4)}${TAIL}`;
+const LONG_OUTLINE = `# 情节大纲\n\n## 第1–20章：入镇\n\n${'林昭在雨夜里追着黑衣人穿过三条巷子，'.repeat(280)}${TAIL}\n`;
 
 const SETTINGS = {
   providers: [
@@ -44,13 +44,6 @@ const SETTINGS = {
   contextDetail: 3,
   concurrency: 1,
 };
-
-function plot(no, title, events) {
-  t.write(
-    `.novelforge/summaries/00${no}-${title}.md`,
-    `---\nno: ${no}\ntitle: ${title}\ntargetWords: 3000\n---\n\n# 第${no}章 ${title}\n\n## 梗概\n\n第${no}章的梗概\n\n## 关键事件\n\n${events}\n\n## 看点\n\n- 看点\n`
-  );
-}
 
 /** 排叙事线那一次的 user 消息。 */
 const userOf = (call) => call[call.length - 1].content;
@@ -70,8 +63,7 @@ before(async () => {
   bundle.host.initHost(h.host);
   fake = installFakeProvider(bundle.registry, { reply: () => '```json\n{"threads":[]}\n```' });
   t = await makeTempProject(bundle.project, { prefix: 'callChoice', title: '青云剑录' });
-  plot(1, '入镇', '- 林昭进镇');
-  plot(2, '夜追', `- ${LONG_EVENT}`);
+  t.write('.novelforge/outline.md', LONG_OUTLINE);
 });
 
 after(() => {
@@ -101,7 +93,7 @@ describe('确认框上的两个下拉框：照缺省点「开始排」', () => {
     assert.equal(call.contextDetail, 3);
   });
 
-  test('照分档调 p/a，第 3 级带得到关键事件的尾巴', () => {
+  test('照分档调 p/a，第 3 级带得到情节大纲的尾巴', () => {
     assert.deepEqual(fake.calls.map((c) => c.ref), ['p/a']);
     assert.ok(userOf(fake.calls[0]).includes(TAIL), userOf(fake.calls[0]));
   });
@@ -118,7 +110,7 @@ describe('作者另挑了模型与级别', () => {
     assert.deepEqual(fake.calls.map((c) => c.ref), ['p/b']);
   });
 
-  test('提示照第 1 级装：关键事件只带 60 字，尾巴没了', () => {
+  test('提示照第 1 级装：情节大纲只带 4000 字，尾巴没了', () => {
     assert.ok(!userOf(fake.calls[0]).includes(TAIL), userOf(fake.calls[0]));
   });
 
