@@ -113,31 +113,32 @@
 /*
  * ---- 名词高亮（editor/nameMarks.ts）
  *
- * names 图层：角色名、设定名各一层很淡的底色，名录里出现过、还没建条目的名字画虚下划线。与 check 图层一样只碰底色与
+ * names 图层：角色名、设定名各一层底色，名录里出现过、还没建条目的名字画虚下划线。与 check 图层一样只碰底色与
  * text-decoration（不占排版；highlight.css 的规矩：<mark> 不许加内边距、边框、字重），下划线颜色明写（镜像里的字是透明的）。
  * 选择器与 check 图层一样重（:where 降一级），这份文件排在 check.css 前面：撞在同一段字上时体检的下划线与敏感词的淡底色
  * 盖过名字的，查找的底色（.ed-mirror mark.ed-hl-find，更重）盖过两者；段落聚焦管字色，互不相干。
  *
- * 颜色三套主题各一份：底色要淡到满屏都是名字时也不晃眼。
+ * 颜色三套主题各一份：底色要扫一眼就看得出哪几处是名字（最早那一版 0.1–0.18，作者嫌不显眼，2026-10-20 加深到两倍多），
+ * 名字照样各管各的色相、和查找的橙色分得开；撞在同一段字上时查找的底色照旧盖过名字的（见上）。
  */
 
 :root,
 :root[data-theme='dark'] {
-  --nf-name-character-bg: rgba(78, 201, 176, 0.16);
-  --nf-name-lore-bg: rgba(156, 135, 245, 0.18);
-  --nf-name-unfiled: rgba(156, 135, 245, 0.85);
+  --nf-name-character-bg: rgba(78, 201, 176, 0.38);
+  --nf-name-lore-bg: rgba(156, 135, 245, 0.42);
+  --nf-name-unfiled: rgb(156, 135, 245);
 }
 
 :root[data-theme='light'] {
-  --nf-name-character-bg: rgba(0, 128, 110, 0.1);
-  --nf-name-lore-bg: rgba(110, 80, 210, 0.1);
-  --nf-name-unfiled: rgba(110, 80, 210, 0.75);
+  --nf-name-character-bg: rgba(0, 160, 135, 0.24);
+  --nf-name-lore-bg: rgba(120, 80, 230, 0.24);
+  --nf-name-unfiled: rgb(110, 80, 210);
 }
 
 :root[data-theme='sepia'] {
-  --nf-name-character-bg: rgba(46, 110, 90, 0.13);
-  --nf-name-lore-bg: rgba(105, 75, 150, 0.13);
-  --nf-name-unfiled: rgba(105, 75, 150, 0.7);
+  --nf-name-character-bg: rgba(46, 125, 95, 0.3);
+  --nf-name-lore-bg: rgba(110, 70, 165, 0.28);
+  --nf-name-unfiled: rgb(105, 75, 150);
 }
 
 :where(.ed-mirror) mark.ed-hl-name-character {
@@ -150,7 +151,7 @@
 
 :where(.ed-mirror) mark.ed-hl-name-unfiled {
   text-decoration: underline dashed var(--nf-name-unfiled);
-  text-decoration-thickness: 1px;
+  text-decoration-thickness: 2px;
   text-underline-offset: 3px;
   text-decoration-skip-ink: none;
 }
