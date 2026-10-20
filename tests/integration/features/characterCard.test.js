@@ -24,7 +24,7 @@ function cardJson(overrides) {
     语言习惯: '答话极短',
     人物关系: '',
     当前状态: '在客栈',
-    未收伏笔: '',
+    暗设: '',
     ...overrides,
   });
 }

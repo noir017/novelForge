@@ -7,7 +7,7 @@
  * 移植自 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator）`narrative-thread-candidate-generator.ts`
  * 的 `generatePlanCandidates`。七期从细纲排；重做之后**从情节大纲排**：线是在大纲这一层排的，细纲反过来
  * 照着线排（二期拆细纲带上叙事线）。输入是小说配置（规模、一句话）、故事前提、角色图谱（身份、关系、
- * 此人暗藏的秘密）、情节大纲（截到 `threadPlanOutlineChars`）与已有的线和伏笔（叫它别重复）。
+ * 暗设——读者还不知道的事）、情节大纲（截到 `threadPlanOutlineChars`）与已有的线和伏笔（叫它别重复）。
  *
  * - **只新建线**（一条线一个文件 `threads/<线名>.md`，伏笔写在线下），同名的跳过，已有的一个字不动——没有东西
  *   会被吞，所以不走写入卡（第 19 条的批量路径）；作者不要哪条，删掉那个文件就是。
@@ -33,12 +33,12 @@ import { collectText } from '../llm/collect';
 import { ModelPool, createModelPool } from '../llm/pool';
 import { CancelledError, StreamOptions } from '../llm/provider';
 import { estimateTokens, takeHead } from '../context/tokenizer';
-import { clipLine } from '../context/layers/render';
+import { cardHidden, clipLine } from '../context/layers/render';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { NovelProject } from '../model/project';
-import { Chapter } from '../model/types';
+import { CHARACTER_DETAIL_LIMITS, Chapter } from '../model/types';
 import { LlmProvider } from '../llm/provider';
 import { ONE_CALL, describeCalls } from '../model/pipeline';
 import { sectionLine } from '../model/plotFile';
@@ -161,17 +161,17 @@ export async function planThreadsFromOutline(
   if (premiseText) {
     parts.push(`【故事前提】\n${premiseText}`);
   }
-  // 角色图谱：身份与关系，加上此人暗藏的秘密——排伏笔最好的原料。
-  // TODO(叙事线重做第 10 个提交)：角色卡「未收伏笔」改名「暗设」之后，这里换成读「暗设」那一节（规划时整份带）。
-  // 在那之前原样把「未收伏笔」交给模型。
+  // 角色图谱：身份与关系，加上各人的「暗设」（读者还不知道的事）——排伏笔最好的原料：伏笔管什么时候、怎么揭开，
+  // 暗设管真相是什么。排线是规划，暗设整份带（与装配器在架构 / 大纲 / 细纲时同一个口径，上限就是那一节的 120 字）。
   const roster = cards
     .map((c) => {
       const lines = [`- ${c.name}${hasContent(c.sections.身份) ? `（${clipLine(c.sections.身份, 60)}）` : ''}`];
       if (hasContent(c.sections.人物关系)) {
         lines.push(`  人物关系：${clipLine(c.sections.人物关系, 120)}`);
       }
-      if (hasContent(c.sections.未收伏笔)) {
-        lines.push(`  未收伏笔（此人暗藏的秘密或将来要揭开的事）：${clipLine(c.sections.未收伏笔, 120)}`);
+      const hidden = cardHidden(c);
+      if (hidden) {
+        lines.push(`  暗设（读者还不知道）：${clipLine(hidden, CHARACTER_DETAIL_LIMITS.暗设)}`);
       }
       return lines.join('\n');
     })

@@ -146,7 +146,12 @@ describe('排叙事线', () => {
     t.write('.novelforge/outline.md', OUTLINE);
     t.write(
       '.novelforge/characters/沈青.md',
-      '---\nname: 沈青\n---\n\n# 沈青\n\n## 身份\n\n青云宗外门弟子\n\n## 人物关系\n\n与林昭互相猜忌\n\n## 未收伏笔\n\n她是沈家遗孤\n'
+      '---\nname: 沈青\n---\n\n# 沈青\n\n## 身份\n\n青云宗外门弟子\n\n## 人物关系\n\n与林昭互相猜忌\n\n## 暗设\n\n她是沈家遗孤\n'
+    );
+    // 老卡（叙事线重做第 10 个提交之前）：「未收伏笔」是认不出的小节，排线不读。
+    t.write(
+      '.novelforge/characters/李叔.md',
+      '---\nname: 李叔\n---\n\n# 李叔\n\n## 身份\n\n镇口守卫\n\n## 未收伏笔\n\n他认得那块令牌\n'
     );
     plot(2, '入宗', '林昭拜入青云宗。', '有人认出了他');
     t.write(file('青云旧案'), HAND);
@@ -192,12 +197,13 @@ describe('排叙事线', () => {
     assert.equal(fake.callCount(), 1);
   });
 
-  test('提示里有配置、前提、角色图谱（含此人暗藏的秘密）、情节大纲、已有的线与伏笔；不读细纲', () => {
+  test('提示里有配置、前提、角色图谱（含暗设，老卡的「未收伏笔」不读）、情节大纲、已有的线与伏笔；不读细纲', () => {
     assert.ok(system.includes('1..20 范围内的整数'), system);
     assert.ok(system.includes('已经有了，这一次不要再排主线'), system);
-    for (const s of ['少年背着旧案入宗', '谁放的那把火', '与沈青从猜忌到并肩', '- 沈青（青云宗外门弟子）', '与林昭互相猜忌', '她是沈家遗孤']) {
+    for (const s of ['少年背着旧案入宗', '谁放的那把火', '与沈青从猜忌到并肩', '- 沈青（青云宗外门弟子）', '与林昭互相猜忌', '暗设（读者还不知道）：她是沈家遗孤']) {
       assert.ok(user.includes(s), s);
     }
+    assert.ok(user.includes('- 李叔（镇口守卫）') && !user.includes('他认得那块令牌') && !user.includes('未收伏笔'), user);
     assert.ok(user.includes('【已有的叙事线（不要重复）】\n- 青云旧案（主线 · 计划第 1–20 章）意图：十年前那把火是谁放的。'), user);
     assert.ok(user.includes('【已有的伏笔（不要重复）】\n火折子'), user);
     assert.ok(!user.includes('有人认出了他') && !user.includes('拜入青云宗'), '细纲不读');

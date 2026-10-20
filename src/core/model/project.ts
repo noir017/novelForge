@@ -1200,7 +1200,7 @@ export function emptyCharacterSections(): CharacterSections {
     语言习惯: '',
     人物关系: '',
     当前状态: '',
-    未收伏笔: '',
+    暗设: '',
   };
 }
 

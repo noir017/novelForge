@@ -86,7 +86,7 @@ export interface ContextLimits {
   readonly nextPlots: number;
   /** 对话历史最多占预算的几成（落定细纲另有固定的 0.6）。 */
   readonly historyCap: number;
-  /** 角色卡一律只带身份 / 当前状态 / 未收伏笔。 */
+  /** 角色卡一律只带要点：身份 / 当前状态 / 暗设（写正文时暗设不带，`context/layers/render.ts` 的 `essentialCardKeys`）。 */
   readonly essentialCards: boolean;
   /** 挑出场角色时看前几章定稿过的细纲的「出场人物」。 */
   readonly castSummaries: number;

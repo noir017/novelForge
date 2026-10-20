@@ -85,7 +85,13 @@ export interface CharacterSections {
   语言习惯: string;
   人物关系: string;
   当前状态: string;
-  未收伏笔: string;
+  /**
+   * 此人读者还不知道的事（身世、秘密、真实目的）——真相是什么。叙事线重做（设计稿「六、角色卡」⚑ 定案 B）之前叫
+   * 「未收伏笔」：伏笔并进了叙事线（「什么时候、怎么揭开」归叙事线），这一节只管真相。与设定条目的「暗设」（第 27 条）
+   * 同一个口径：规划时（架构 / 大纲 / 细纲）整份带、标明读者还不知道；写正文、续写、正文阶段的 @ 引用都不带。
+   * 老卡里的「未收伏笔」当认不出的小节，不读。
+   */
+  暗设: string;
 }
 
 export const CHARACTER_SECTION_KEYS: (keyof CharacterSections)[] = [
@@ -95,8 +101,11 @@ export const CHARACTER_SECTION_KEYS: (keyof CharacterSections)[] = [
   '语言习惯',
   '人物关系',
   '当前状态',
-  '未收伏笔',
+  '暗设',
 ];
+
+/** 角色卡的「暗设」那一节（{@link CharacterSections.暗设}）。 */
+export const CHARACTER_HIDDEN_KEY = '暗设' satisfies keyof CharacterSections;
 
 /**
  * 角色图谱生成详情时各节的字数上限（第 15 条：角色卡不能无限膨胀）。「人物关系」不在里面：
@@ -108,11 +117,14 @@ export const CHARACTER_DETAIL_LIMITS: Record<Exclude<keyof CharacterSections, '�
   性格: 120,
   语言习惯: 120,
   当前状态: 120,
-  未收伏笔: 120,
+  暗设: 120,
 };
 
-/** 续写时优先保留的角色卡小节（预算不足时只留这几节）。 */
-export const CHARACTER_ESSENTIAL_KEYS: (keyof CharacterSections)[] = ['身份', '当前状态', '未收伏笔'];
+/**
+ * 预算不足（或上下文详细度「精简」）时只留的角色卡小节。「暗设」写正文时本来就不带，规划时它是排伏笔、守秘密
+ * 最要紧的那一节，留着。
+ */
+export const CHARACTER_ESSENTIAL_KEYS: (keyof CharacterSections)[] = ['身份', '当前状态', '暗设'];
 
 /**
  * 设定条目，存于 `.novelforge/lore/<分类>/<名>.md`。格式与认法在 model/loreFile.ts。

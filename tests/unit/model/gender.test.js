@@ -17,7 +17,7 @@ const card = (over = {}) => ({
   tags: ['配角'],
   appearsIn: [],
   body: '',
-  sections: { 身份: '散修阵法师', 外貌: '', 性格: '', 语言习惯: '', 人物关系: '', 当前状态: '在溶洞疗伤', 未收伏笔: '' },
+  sections: { 身份: '散修阵法师', 外貌: '', 性格: '', 语言习惯: '', 人物关系: '', 当前状态: '在溶洞疗伤', 暗设: '' },
   ...over,
 });
 
@@ -52,14 +52,14 @@ describe('gender.ts · 规范写法', () => {
 describe('render.ts · 性别跟着名字进上下文', () => {
   test('完整角色卡与只带三节的精简版，抬头都带性别与别名', () => {
     const c = card({ gender: '女', aliases: ['清河'] });
-    assert.ok(R.renderCharacter(c, false).startsWith('【陆清河（女；又称 清河）】'), R.renderCharacter(c, false));
-    assert.ok(R.renderCharacter(c, true).startsWith('【陆清河（女；又称 清河）】'));
-    assert.ok(R.renderCharacter(card({ gender: '女' }), true).startsWith('【陆清河（女）】'));
+    assert.ok(R.renderCharacter(c, false, true).startsWith('【陆清河（女；又称 清河）】'), R.renderCharacter(c, false, true));
+    assert.ok(R.renderCharacter(c, true, true).startsWith('【陆清河（女；又称 清河）】'));
+    assert.ok(R.renderCharacter(card({ gender: '女' }), true, false).startsWith('【陆清河（女）】'));
   });
 
   test('没写性别、没有别名：与从前一样只有名字', () => {
-    assert.ok(R.renderCharacter(card(), false).startsWith('【陆清河】'));
-    assert.ok(R.renderCharacter(card({ aliases: ['清河'] }), false).startsWith('【陆清河（又称 清河）】'));
+    assert.ok(R.renderCharacter(card(), false, false).startsWith('【陆清河】'));
+    assert.ok(R.renderCharacter(card({ aliases: ['清河'] }), false, true).startsWith('【陆清河（又称 清河）】'));
   });
 
   test('角色图谱一览：名字后面是性别与别名，再是定位', () => {

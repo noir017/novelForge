@@ -205,7 +205,8 @@ describe('上下文详细度 · 写第 13 章（前 12 章都定稿了）', () =
     assert.equal(card.status, 'degraded');
     assert.ok(!card.text.includes('左眉有一道疤'), card.text);
     assert.ok(card.text.includes('在查案'), card.text);
-    assert.match(card.note, /上下文详细度「精简」只带身份\/当前状态\/未收伏笔/);
+    // 写正文时暗设不带（叙事线重做第 10 个提交），要点只剩身份 / 当前状态。
+    assert.match(card.note, /上下文详细度「精简」只带身份\/当前状态$/);
     const full = built[3].items.find((i) => i.id === 'character:林昭');
     assert.equal(full.status, 'included');
     assert.ok(full.text.includes('左眉有一道疤'));

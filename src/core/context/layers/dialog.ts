@@ -5,7 +5,7 @@ import { PromptFacts, buildSystemPrompt } from '../prompts';
 import { estimateTokens, takeHead, takeTail } from '../tokenizer';
 import { ContextItem } from '../types';
 import type { Assembly, LayerFn } from './assembly';
-import { ATTACHMENT_NOTE, LORE_HIDDEN_DROPPED_NOTE, loreBodyFor, resolveAttachment } from './render';
+import { ATTACHMENT_NOTE, LORE_HIDDEN_DROPPED_NOTE, hiddenTextIn, loreBodyFor, resolveAttachment } from './render';
 
 /**
  * 这一次装配交给提示词的事实。系统提示（这里）与输出契约（builder.ts）必须拿同一份，
@@ -84,8 +84,8 @@ export const ask: LayerFn = async (a, spec) => {
 
 export const attachments: LayerFn = async (a, spec) => {
   const attachmentCap = Math.floor(a.budget * (spec.cap ?? 1));
-  // 正文阶段作者 @ 引用一条设定：同 lore 层，暗设不带、明细里注一句（完善设定，2026-10-19）。要让正文知道，
-  // 就写进这一章细纲。别的阶段、别的种类照旧整份带。
+  // 正文阶段作者 @ 引用一条设定或一张角色卡：同 lore 层、`characters` 层，暗设不带、明细里注一句（完善设定，2026-10-19；
+  // 角色卡的暗设是叙事线重做加的）。要让正文知道，就写进这一章细纲。别的阶段、别的种类照旧整份带。
   const manuscript = a.request.action.stage === 'manuscript';
   for (const att of a.request.attachments ?? []) {
     const id = `attachment:${att.id}`;
@@ -106,11 +106,13 @@ export const attachments: LayerFn = async (a, spec) => {
       continue;
     }
     let hiddenNote = '';
-    if (manuscript && att.kind === 'lore') {
+    if (manuscript && (att.kind === 'lore' || att.kind === 'character')) {
+      // 角色卡的「暗设」空着（「（待补充）」、角色图谱写的「无」）时只是去掉一个空标题，不注。
+      const noted = att.kind === 'lore' || !!hiddenTextIn(body);
       const split = loreBodyFor(body, false);
       if (split.dropped) {
         body = split.text;
-        hiddenNote = `；${LORE_HIDDEN_DROPPED_NOTE}`;
+        hiddenNote = noted ? `；${LORE_HIDDEN_DROPPED_NOTE}` : '';
       }
     }
 

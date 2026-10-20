@@ -25,7 +25,8 @@ describe('细纲合同里的暗设', () => {
   test('不揭开就别写进去，要铺垫写进 foreshadowing，揭开写明「揭开：……」', () => {
     const c = plot('generate', { no: 6 });
     assert.ok(c.includes('【暗设】'), c);
-    assert.ok(c.includes(`标着${MARK}的，是读者还不知道的真相`), c);
+    // 角色卡的暗设（叙事线重做第 10 个提交）同一个标题、同一条规矩。
+    assert.ok(c.includes(`上面「相关世界观设定」「相关角色设定」里标着${MARK}的，是读者还不知道的真相`), c);
     assert.match(c, /不打算在这一章揭开：别写进 synopsis、keyEvents、highlights，settings 的 note 也不写/);
     assert.match(c, /要铺垫，写进 foreshadowing，只写读者看得到的那一面/);
     assert.match(c, /keyEvents 里单列一条「揭开：……」/);
@@ -46,7 +47,7 @@ describe('细纲合同里的暗设', () => {
 describe('大纲合同里的暗设', () => {
   test('哪一节揭开写明「揭开：……」，之前只写读者看得到的那一面', () => {
     const c = p.buildOutputContract({ stage: 'outline', capability: 'generate' }, { range: { from: 1, to: 20 } });
-    assert.ok(c.includes(`11. 上面「相关世界观设定」里标着${MARK}的是读者还不知道的真相`), c);
+    assert.ok(c.includes(`11. 上面「相关世界观设定」「相关角色设定」里标着${MARK}的是读者还不知道的真相`), c);
     assert.match(c, /打算在哪一节揭开，就在那一节写明「揭开：……」/);
     assert.match(c, /12\. 只输出情节大纲本身/);
   });

@@ -1,14 +1,16 @@
 import { exists, readText } from '../../model/fs';
 import { takeLast } from '../../model/contextDetail';
-import { stringifySections } from '../../model/markdown';
+import { hasContent, stringifySections } from '../../model/markdown';
 import { plotLabel } from '../../model/pipeline';
 import { Plot, PLOT_SECTION_KEYS, sectionItems } from '../../model/plotFile';
 import { NovelProject } from '../../model/project';
 import { Attachment } from '../../model/session';
 import {
   CHARACTER_ESSENTIAL_KEYS,
+  CHARACTER_HIDDEN_KEY,
   CHARACTER_SECTION_KEYS,
   CharacterCard,
+  CharacterSections,
   LoreEntry,
 } from '../../model/types';
 import { LORE_HIDDEN_MARK, PLOT_LORE_KEY, loreBrief, renderLoreLines, splitLoreHidden } from '../../model/loreFile';
@@ -73,7 +75,9 @@ function loreHead(entry: LoreEntry): string {
   return `${entry.title}${entry.category ? `〔${entry.category}〕` : ''}`;
 }
 
-/** 写正文时去掉了一条设定的暗设，明细里注的那一句（第 2 条）。lore 层与 @ 引用共用。 */
+/**
+ * 写正文时去掉了一条设定（或一张角色卡）的暗设，明细里注的那一句（第 2 条）。lore 层、`characters` 层与 @ 引用共用。
+ */
 export const LORE_HIDDEN_DROPPED_NOTE = '暗设没带：写正文不带读者还不知道的事，要让这一章揭开就写进本章细纲';
 
 /**
@@ -160,11 +164,46 @@ export function renderRosterLine(card: CharacterCard): string {
   return parts.join('\n');
 }
 
-export function renderCharacter(card: CharacterCard, essentialOnly: boolean): string {
-  const keys = essentialOnly ? CHARACTER_ESSENTIAL_KEYS : CHARACTER_SECTION_KEYS;
+/**
+ * 角色卡「暗设」那一节写了什么（叙事线重做：原「未收伏笔」）。「无」也算没写：角色图谱的提示词让模型没有就写「无」，
+ * 带进上下文只是一个空标题、写正文时还会白注一句「暗设没带」。
+ */
+export function cardHidden(card: Pick<CharacterCard, 'sections'>): string {
+  const t = (card.sections[CHARACTER_HIDDEN_KEY] ?? '').trim();
+  return hasContent(t) && t !== '无' ? t : '';
+}
+
+/**
+ * 一份文件（@ 引用的整张角色卡）里「暗设」那一节有没有字：空的、占位的、「无」都算没有。
+ * 判法同 {@link cardHidden}，只是从原文里拆（`splitLoreHidden`，以「暗设」开头的二级标题）。
+ */
+export function hiddenTextIn(raw: string): string {
+  const t = splitLoreHidden(raw).hidden.trim();
+  return hasContent(t) && t !== '无' ? t : '';
+}
+
+/**
+ * 只带要点时带哪几节（`essentialOnly`）：{@link CHARACTER_ESSENTIAL_KEYS}，写正文时去掉「暗设」。明细里那句
+ * 「只带身份/当前状态/暗设」也照它写。
+ */
+export function essentialCardKeys(withHidden: boolean): (keyof CharacterSections)[] {
+  return CHARACTER_ESSENTIAL_KEYS.filter((k) => withHidden || k !== CHARACTER_HIDDEN_KEY);
+}
+
+/**
+ * 一张角色卡（`characters` 层）。`essentialOnly`：只带要点（{@link essentialCardKeys}，预算不足或上下文详细度「精简」）。
+ *
+ * `withHidden`：带不带「暗设」那一节（叙事线重做，设计稿「六、角色卡」⚑ 定案 B）——与设定条目的暗设同一个口径
+ * （第 27 条、{@link loreBodyFor}）：写正文（正文阶段的写、接着写、重写、讨论，审稿与修稿，续写）不带，揭开靠那一章的
+ * 细纲；规划时（架构 / 大纲 / 细纲）整份带，放在最后、标题换成 {@link LORE_HIDDEN_MARK}，让模型知道这是读者还不知道的事。
+ */
+export function renderCharacter(card: CharacterCard, essentialOnly: boolean, withHidden: boolean): string {
+  const keys = (essentialOnly ? essentialCardKeys(withHidden) : CHARACTER_SECTION_KEYS).filter((k) => k !== CHARACTER_HIDDEN_KEY);
   // 性别跟着名字走，预算再紧只带三节时也在。
   const header = `【${card.name}${cardNote(card)}】`;
-  const body = stringifySections(card.sections as unknown as Record<string, string>, keys as readonly string[]);
+  const visible = stringifySections(card.sections as unknown as Record<string, string>, keys as readonly string[]);
+  const hidden = withHidden ? cardHidden(card) : '';
+  const body = [visible, hidden ? `## ${LORE_HIDDEN_MARK}\n\n${hidden}` : ''].filter(Boolean).join('\n\n');
   return `${header}\n${body || '（暂无设定）'}`;
 }
 

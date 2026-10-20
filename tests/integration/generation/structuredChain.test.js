@@ -252,7 +252,7 @@ describe('角色图谱 · 两段式', () => {
       { slotId: '4', name: '韩七', role: 'minor', narrativeDuty: '杂役', relations: [] },
     ],
   };
-  const detail = (id, name) => ({ slotId: id, name, 身份: `${name}的身份`, 外貌: '青衫', 性格: '冷', 语言习惯: '少言', 当前状态: '在山门', 未收伏笔: '无' });
+  const detail = (id, name) => ({ slotId: id, name, 身份: `${name}的身份`, 外貌: '青衫', 性格: '冷', 语言习惯: '少言', 当前状态: '在山门', 暗设: '无' });
   let r;
   let cards;
 

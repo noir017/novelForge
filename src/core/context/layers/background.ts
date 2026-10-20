@@ -13,7 +13,9 @@ import type { LayerFn } from './assembly';
 import { ChapterRef, readChapterText, readPrevManuscript } from './focus';
 import {
   LORE_HIDDEN_DROPPED_NOTE,
+  cardHidden,
   continuationTail,
+  essentialCardKeys,
   focusText,
   isPlaceholder,
   loreBodyFor,
@@ -61,9 +63,20 @@ export const globalSummary: LayerFn = async (a, spec) => {
   );
 };
 
+/**
+ * 相关角色的卡（计划出场、提到的、前几章出场的、主角）。整张带不下就只带要点（{@link essentialCardKeys}），
+ * 上下文详细度「精简」一律只带要点。
+ *
+ * 「暗设」（叙事线重做：原「未收伏笔」，设计稿「六、角色卡」⚑ 定案 B）与设定条目的暗设同一个口径（第 27 条，见下面
+ * `lore` 层）：正文阶段（写、接着写、重写、讨论正文，连同审稿与修稿——它们也是正文那一层）与续写不带，这张卡真有暗设
+ * 被去掉才在明细里注一句（第 2 条）；架构、大纲、细纲整份带，标题写「暗设（读者还不知道）」（`render.ts` 的
+ * `renderCharacter`）。
+ */
 export const characters: LayerFn = async (a, spec) => {
   const all = await a.project.listCharacters();
   const relevant = selectCharacters(all, a.request.ask, a.focus, a.limits.castSummaries);
+  const writing = a.request.action.stage === 'manuscript' || a.request.step?.kind === 'continuation';
+  const essentialLabel = essentialCardKeys(!writing).join('/');
   for (const { card, reason } of relevant) {
     const id = `character:${card.slug}`;
     const base = {
@@ -80,16 +93,18 @@ export const characters: LayerFn = async (a, spec) => {
     // 「当前状态」写到第几章（D23）：上一章没定稿时，这里说的是更早那一章结束时的样子。
     const through = describeStateThrough(card.stateThrough);
     const why = through ? `${reason}；${through}` : reason;
+    // 写正文时这张卡真有暗设被去掉：注一句（没有暗设的卡注了只是噪音）。
+    const hidden = writing && cardHidden(card) ? `；${LORE_HIDDEN_DROPPED_NOTE}` : '';
     // 上下文详细度「精简」：一律只带要点，不先试整张卡。
     if (!a.limits.essentialCards) {
-      const fullText = renderCharacter(card, false);
+      const fullText = renderCharacter(card, false, !writing);
       const fullTokens = estimateTokens(fullText);
       if (fullTokens <= a.remaining) {
-        a.admit({ ...base, text: fullText, note: why });
+        a.admit({ ...base, text: fullText, note: `${why}${hidden}` });
         continue;
       }
     }
-    const essential = renderCharacter(card, true);
+    const essential = renderCharacter(card, true, !writing);
     const essentialTokens = estimateTokens(essential);
     if (essentialTokens <= a.remaining) {
       a.accept(
@@ -98,8 +113,8 @@ export const characters: LayerFn = async (a, spec) => {
           text: essential,
           status: 'degraded',
           note: a.limits.essentialCards
-            ? `${why}；上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」只带身份/当前状态/未收伏笔`
-            : `${why}；预算不足，仅保留身份/当前状态/未收伏笔`,
+            ? `${why}；上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」只带${essentialLabel}${hidden}`
+            : `${why}；预算不足，仅保留${essentialLabel}${hidden}`,
         },
         essentialTokens
       );
