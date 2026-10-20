@@ -900,11 +900,12 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
 
   // 页签条上原来的五颗按钮（补齐架构、拆细纲…、批量写章…、＋ 角色卡、＋ 设定）在分组右键里都有，拿掉了：
   // 「故事架构」组右键「补齐架构（只补空白）」，「章节」组右键两个批量，「角色」「设定」组右键「在此新建…」。
-  test('页签条：五个页签与刷新，没有别的按钮', () => {
+  test('页签条：五个页签、存档点（⚑）与刷新，没有别的按钮', () => {
     const bar = ui.doc.getElementById('projectTabs');
     const parts = [...bar.children].map((n) => (n.classList.contains('spacer') ? '~' : n.textContent.trim()));
-    assert.deepEqual(parts, ['概览', '章节', '角色', '设定', '叙事线', '~', '⟳'], JSON.stringify(parts));
-    assert.equal(bar.querySelectorAll('[data-form], .chip-btn').length, 0);
+    assert.deepEqual(parts, ['概览', '章节', '角色', '设定', '叙事线', '~', '⚑', '⟳'], JSON.stringify(parts));
+    assert.equal(bar.querySelectorAll('.chip-btn').length, 0);
+    assert.deepEqual([...bar.querySelectorAll('[data-form]')].map((b) => b.dataset.form), ['checkpoints']);
     assert.deepEqual([...bar.querySelectorAll('[data-action]')].map((b) => b.dataset.action), ['refresh']);
   });
 

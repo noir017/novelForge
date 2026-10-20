@@ -52,6 +52,7 @@ import { countWords } from './format';
 import { exposeToast, toast } from './toast';
 import { installFolderPicker } from './folderPicker';
 import { installForm } from './form';
+import { installCheckpoints, renderCheckpointDiff, renderCheckpoints } from './checkpoints';
 import { applyWorkspaces, installWelcome } from './welcome';
 import { onMessage } from '../vscodeApi';
 
@@ -71,6 +72,7 @@ bindCommandPick(setPendingCommand);
 installProject();
 installForm();
 installPrompt();
+installCheckpoints();
 installLogs();
 installSettings();
 installWorkbench();
@@ -251,6 +253,15 @@ onMessage((msg) => {
 
     case 'prompt':
       renderPrompt(msg);
+      break;
+
+    // 工程页「存档点…」弹窗（view/checkpoints.ts）：没开着时不认。
+    case 'checkpoints':
+      renderCheckpoints(msg);
+      break;
+
+    case 'checkpointDiff':
+      renderCheckpointDiff(msg);
       break;
 
     case 'workspaces':

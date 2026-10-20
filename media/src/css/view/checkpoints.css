@@ -1,0 +1,217 @@
+/*
+ * 工程页「存档点…」弹窗（view/checkpoints.ts）。借 providerModal 那一层遮罩，两种形态都有，所以样式在 view 这边。
+ *
+ * 比服务商弹窗宽一些：「跟现在比」那一页一行要放下路径、种类、字数与两颗按钮，560px 里路径会被挤成省略号。
+ * 宽度挂在 `:has()` 上而不是开弹窗时往 `.modal` 上加类——这一层遮罩还有别人用，类加了得记着摘，中途被后端的
+ * prompt 占了这一层时就摘不掉了。
+ */
+
+.modal:has(> .modal-body > .cp-panel) {
+  max-width: 760px;
+}
+
+.cp-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.cp-list-view,
+.cp-diff-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cp-new,
+.cp-keep {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cp-new input,
+.cp-keep input {
+  flex: 1;
+  width: auto;
+}
+
+.cp-status,
+.cp-empty,
+.cp-same,
+.cp-unchanged,
+.cp-foot-hint {
+  margin: 0;
+}
+
+.cp-status.is-error {
+  color: var(--vscode-errorForeground, #f48771);
+}
+
+.cp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 一个存档点一行：左边时刻、手动 / 自动、备注与一行小字，右边按钮；「留住」那一格摊开时占满下面一整行。 */
+.cp-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  border-radius: var(--radius);
+}
+
+.cp-row .cp-keep {
+  grid-column: 1 / -1;
+}
+
+.cp-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cp-time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.cp-badge {
+  flex: 0 0 auto;
+  font-size: 0.8em;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
+
+/* 自动的淡一些：手动的是作者自己点的，多半更要紧。 */
+.cp-badge.is-auto {
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+
+.cp-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-note.is-empty {
+  color: var(--vscode-descriptionForeground);
+}
+
+.cp-row-meta {
+  margin-top: 2px;
+}
+
+.cp-skipped {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.cp-row-actions,
+.cp-file-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+/* ---- 跟现在比 */
+
+.cp-diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cp-diff-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.cp-group-head {
+  font-size: 0.9em;
+  font-weight: 600;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.cp-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.12));
+}
+
+.cp-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-kind,
+.cp-words {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.cp-words {
+  font-variant-numeric: tabular-nums;
+}
+
+.cp-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+.cp-foot-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cp-trash {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: auto;
+  font-size: 0.9em;
+}
+
+.cp-trash input {
+  width: auto;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+/* 两段式按钮的第二段：换了字，也换个颜色（同表单的「写完即定稿」），看得出再点一下就动磁盘。 */
+.cp-panel button.is-armed {
+  background: var(--vscode-inputValidation-warningBorder, #b89500);
+  border-color: var(--vscode-inputValidation-warningBorder, #b89500);
+  color: #fff;
+}

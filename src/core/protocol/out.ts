@@ -9,6 +9,7 @@ import type { CheckTermsView } from './check';
 import type { NameIndex } from './nameIndex';
 import type { ThreadsOverview } from './threadsOverview';
 import type { BookFindResult, BookReplaceSummary } from './bookFind';
+import type { CheckpointDiffView, CheckpointView } from './checkpoints';
 import type {
   EditorOpenIntent,
   EditorPane,
@@ -235,6 +236,13 @@ export type OutMessage =
   | { type: 'versions'; path: string; entries: VersionView[]; unavailable?: string }
   /** 回 `readVersion`：那一个快照的全文；读不到时给 `error`。 */
   | { type: 'versionText'; requestId: string; path: string; id: string; text?: string; error?: string }
+  /**
+   * 存档点列表（`protocol/checkpoints.ts`），新的在前。`unavailable`：存不了的原因（还不是小说工程），这时
+   * `entries` 是空的。
+   */
+  | { type: 'checkpoints'; entries: CheckpointView[]; unavailable?: string }
+  /** 回 `checkpointDiff`：这个存档点跟现在比。存档点不在了（被裁掉、清单坏了）给 `error`。 */
+  | { type: 'checkpointDiff'; id: string; diff?: CheckpointDiffView; error?: string }
   /** 回 `bookFind`：全书查找（或预览替换）的结果。认不出的 `requestId` 前端静默丢弃（另一个窗口要的、或已经叫停的）。 */
   | { type: 'bookFindResult'; requestId: string; result: BookFindResult }
   /** 回 `bookReplace`：替换了几个文件几处、跳过了哪些与为什么、指纹链怎么处理的。之后紧跟一次 `pushState`。 */

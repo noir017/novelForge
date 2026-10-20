@@ -12,6 +12,7 @@ import type { SerializedProvider } from './out';
 import type { SkillStage } from '../model/writingSkill';
 import type { ParagraphStyle } from '../model/paragraphFormat';
 import type { BookFindQuery, BookReplaceRequest } from './bookFind';
+import type { RestoreCheckpointRequest } from './checkpoints';
 
 export type Tab = 'chat' | 'project' | 'files' | 'history' | 'settings' | 'logs';
 
@@ -180,6 +181,23 @@ export type InMessage =
    * 换进来的内容存下去之前，被它盖掉的那一份已经在历史里（节流拦不住它）。
    */
   | { type: 'saveVersion'; path: string; quiet?: boolean }
+  /**
+   * 存档点（工程页「存档点…」，`protocol/checkpoints.ts`）：列出来，回 `checkpoints`。
+   */
+  | { type: 'listCheckpoints' }
+  /** 存一个手动存档点（备注可以空），之后重推 `checkpoints`。 */
+  | { type: 'createCheckpoint'; note: string }
+  /** 给一个存档点写备注；自动的写了备注就留住（变成手动，不再被裁掉）。之后重推 `checkpoints`。 */
+  | { type: 'noteCheckpoint'; id: string; note: string }
+  /** 这个存档点跟现在比，回 `checkpointDiff`。 */
+  | { type: 'checkpointDiff'; id: string }
+  /**
+   * 存档点里的那一份 ↔ 磁盘上现在这份逐段挑（`Host.mergeTexts`）。挑好的经网关直接写盘（乐观锁是打开对比时磁盘上
+   * 那一份）。宿主没有合并视图时只回一句说明。
+   */
+  | { type: 'compareCheckpointFile'; id: string; path: string }
+  /** 退回（单份或整本，面板上点了两下）。先存一个「退回之前」，逐份写回，之后重推 `checkpoints` 与 `checkpointDiff`。 */
+  | { type: 'restoreCheckpoint'; request: RestoreCheckpointRequest }
   /**
    * 全书查找替换（独立版「编辑 → 全书查找替换…」，`protocol/bookFind.ts`）：按范围逐份读盘找，回 `bookFindResult`
    * （同一个 `requestId`）。带 `query.replacement` 就是「预览替换」：每一处多带换成什么、每份文件带读到时的 hash。

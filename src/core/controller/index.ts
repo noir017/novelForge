@@ -70,6 +70,14 @@ import {
 } from './serialize';
 import { pushSettings, saveSettings, selectModel, testConnection } from './settings';
 import { compareVersion, listVersions, mergeWithDisk, readVersion, saveVersion } from './versions';
+import {
+  compareCheckpointFile,
+  pushCheckpointDiff,
+  pushCheckpoints,
+  restoreCheckpointFor,
+  saveCheckpoint,
+  setCheckpointNote,
+} from './checkpoints';
 import { editSensitiveWords, pushCheckTerms } from './check';
 import type { BookConfig } from '../model/settingFile';
 import { bookFind, bookReplace, cancelBookFind } from './bookFind';
@@ -529,6 +537,26 @@ export class ChatController {
         return;
       case 'saveVersion':
         await saveVersion(this, msg.path, msg.quiet === true);
+        return;
+
+      // 存档点（controller/checkpoints.ts）：整本书存一版、跟现在比、单份对比、退回。
+      case 'listCheckpoints':
+        await pushCheckpoints(this);
+        return;
+      case 'createCheckpoint':
+        await saveCheckpoint(this, msg.note);
+        return;
+      case 'noteCheckpoint':
+        await setCheckpointNote(this, msg.id, msg.note);
+        return;
+      case 'checkpointDiff':
+        await pushCheckpointDiff(this, msg.id);
+        return;
+      case 'compareCheckpointFile':
+        await compareCheckpointFile(this, msg.id, msg.path);
+        return;
+      case 'restoreCheckpoint':
+        await restoreCheckpointFor(this, msg.request);
         return;
 
       // 全书查找替换（controller/bookFind.ts）：查找与预览只读；替换经网关逐份写，完了 pushState。

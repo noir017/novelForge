@@ -7,6 +7,7 @@ import { el as mk } from '../dom';
 import { matchesShortcut, shortcutLabel } from '../editor/shortcuts';
 import { commandEditor, queryEditor } from '../globals';
 import { versionsMenuEntry } from './versionsMenu';
+import { openCheckpoints } from './checkpoints';
 import { quickOpenMenuEntry } from './quickOpenMenu';
 import { bookFindMenuEntry } from './bookFindMenu';
 import {
@@ -152,6 +153,13 @@ function entriesOf(key: string): MenuEntry[] {
       { label: '保存', action: 'save', disabled: !ed.dirtyCurrent, kbd: shortcutLabel('save') },
       { label: '另存为…', action: 'saveAs', disabled: !ed.hasFile },
       versionsMenuEntry(),
+      // 整本书的存档点（工程页工具栏上那颗 ⚑ 的同一个弹窗）：那颗只是个图标，这里给它一个名字。
+      {
+        label: '存档点…',
+        disabled: !ws,
+        detail: '整本书存一版、看之后改了哪几份，整本或单份退回去',
+        run: () => openCheckpoints(),
+      },
       { label: '全部保存', action: 'saveAll', disabled: !ed.dirtyAny },
       { label: '自动保存', checked: ed.autoSave, run: () => commandEditor('toggleAutoSave') },
       { label: 'sep' },

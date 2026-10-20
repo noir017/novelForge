@@ -19,7 +19,8 @@
  *   `nf-check-command`，「视图 → 补全」那一组的 `nf-names-query` / `nf-names-command`，
  *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录），
  *   对话页「加入选区」问内置编辑器选区的 `nf-selection-query`，工程页「叙事线」页签打开编辑区「叙事线总览」的
- *   `nf-threads-query` / `nf-threads-command`。
+ *   `nf-threads-query` / `nf-threads-command`，工程页「存档点…」退回时问内置编辑器哪几份没保存的
+ *   `nf-dirty-query`。
  *   `nf-pick-folder` 给目录选择器拦欢迎页的占位 prompt。
  * - `__nfShowMenu`：view 出的「在某处弹一个菜单」（编辑器标签条末尾的「▾」用），与右键菜单是同一个引擎。
  */
@@ -94,6 +95,7 @@ declare global {
     'nf-selection-query': CustomEvent<EditorSelection>;
     'nf-threads-query': CustomEvent<{ available: boolean }>;
     'nf-threads-command': CustomEvent<ThreadsOverviewCommand>;
+    'nf-dirty-query': CustomEvent<{ paths: string[] }>;
   }
 }
 
@@ -503,4 +505,17 @@ export function queryThreadsOverview(): boolean {
 export function commandThreadsOverview(focus?: string): void {
   const detail: ThreadsOverviewCommand = { name: 'open', ...(focus ? { focus } : {}) };
   window.dispatchEvent(new CustomEvent('nf-threads-command', { detail }));
+}
+
+// ---------------------------------------------------------------- 工程页「存档点…」
+
+/**
+ * 内置编辑器里开着、有未保存修改的文件（`editor/index.ts` 回答，与全书替换跳过的是同一批）。存档点退回时随请求带上，
+ * 后端跳过它们——不拿存档点里的旧稿去盖编辑器里还没存下的字。没有内置编辑器（插件形态，editor.js 没装）时没人回答，
+ * 是空的：VS Code 自己的编辑器有它自己那一套。
+ */
+export function queryDirtyPaths(): string[] {
+  const detail = { paths: [] as string[] };
+  window.dispatchEvent(new CustomEvent('nf-dirty-query', { detail }));
+  return detail.paths;
 }

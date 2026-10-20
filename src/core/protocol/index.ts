@@ -107,6 +107,14 @@ export type {
   BookReplaceSummary,
 } from './bookFind';
 
+export type {
+  CheckpointDiffEntry,
+  CheckpointDiffView,
+  CheckpointFileStatus,
+  CheckpointView,
+  RestoreCheckpointRequest,
+} from './checkpoints';
+
 export type { LogEntry, LogLevel } from '../runtime/logger';
 export type { TaskSnapshot } from '../runtime/progress';
 export type { DirListing, FsEntry } from '../files/fileTree';

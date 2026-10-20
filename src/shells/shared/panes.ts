@@ -190,13 +190,16 @@ export function projectPane(): string {
   <div class="project-tabs" id="projectTabs" role="tablist" aria-label="工程分类">
     <!-- 五个页签：章节、角色、设定、叙事线各占一页，其余（故事架构、文风与摘要）留在「概览」。各页的内容由
          view/project/index.ts 装进 #projectBody 里对应的 .project-panel。从前这一行是五颗按钮（补齐架构、
-         拆细纲、批量写章、＋ 角色卡、＋ 设定），每一颗在对应分组的右键里都有，拿掉了。 -->
+         拆细纲、批量写章、＋ 角色卡、＋ 设定），每一颗在对应分组的右键里都有，拿掉了。
+         右边刷新的左边是存档点（⚑，2026-10-20）：整本书存一版、看改了什么、整本或单份退回，不调模型；
+         弹窗在 media/src/view/checkpoints.ts。只放一个图标，与刷新并排（独立版的「文件」菜单里另有一项「存档点…」）。 -->
     <button class="project-tab active" id="projectTab-overview" data-project-tab="overview" role="tab" aria-selected="true">概览</button>
     <button class="project-tab" id="projectTab-chapters" data-project-tab="chapters" role="tab" aria-selected="false" tabindex="-1">章节</button>
     <button class="project-tab" id="projectTab-characters" data-project-tab="characters" role="tab" aria-selected="false" tabindex="-1">角色</button>
     <button class="project-tab" id="projectTab-lore" data-project-tab="lore" role="tab" aria-selected="false" tabindex="-1">设定</button>
     <button class="project-tab" id="projectTab-threads" data-project-tab="threads" role="tab" aria-selected="false" tabindex="-1">叙事线</button>
     <span class="spacer"></span>
+    <button class="icon-btn" data-form="checkpoints" aria-label="存档点" title="存档点：整本书存一版、看之后改了哪几份，整本或单份退回去（不调模型）。批量写章、全书替换这类批量动作之前会自动存一个">⚑</button>
     <button class="icon-btn" data-action="refresh" title="刷新">⟳</button>
   </div>
   <div class="project-body" id="projectBody"></div>

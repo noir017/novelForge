@@ -54,6 +54,7 @@ import {
 } from './shell';
 import {
   activePane,
+  allOpenFiles,
   announceActive,
   bindStore,
   cancelScheduledPersist,
@@ -162,6 +163,16 @@ function start(stage: HTMLElement): void {
     e.detail.text = file?.draft ?? '';
     // 焦点在哪块编辑区的正文区里：标题栏「编辑 → 撤销 / 重做」据此交给编辑器自己的历史。
     e.detail.areaFocused = Object.values(panes).some((p) => p.area === document.activeElement);
+  });
+
+  // 工程页「存档点…」退回时跳过这几份（view.js 经 `queryDirtyPaths` 问）：两块编辑区里开着、有未保存修改的，
+  // 与全书替换的 `dirtyPaths()`、关标签时的 `isDirty` 同一个判法。
+  window.addEventListener('nf-dirty-query', (e) => {
+    for (const file of allOpenFiles()) {
+      if (file.draft !== file.text) {
+        e.detail.paths.push(file.path);
+      }
+    }
   });
 
   // 对话页「加入选区」：当前那块编辑区里选中的文字。预览里的 textarea 藏着，它的选区作者看不见，不算。

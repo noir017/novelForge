@@ -30,6 +30,7 @@ import {
   renderNodes,
 } from './rows';
 import { openIdeaForm, openPlotBatchForm, openWriteBatchForm } from '../forms';
+import { openCheckpoints } from '../checkpoints';
 import { charactersEmptyRow, loreEmptyRow, nextStepRow } from './nextSteps';
 import { hideDetailTip, installDetailTip } from './detailTip';
 import { hideFailureTip, installFailureTip } from './errorTip';
@@ -288,8 +289,10 @@ export function installProject(): void {
   installFailureTip();
   installProjectTabs();
 
-  // 页签条上除了页签只剩「刷新」。
+  // 页签条上除了页签只剩「刷新」与存档点（⚑）。
   el.projectTabs.querySelector('[data-action="refresh"]')?.addEventListener('click', () => projectAction('refresh'));
+  // 存档点（2026-10-20）：不要树，列表向后端现要。
+  el.projectTabs.querySelector('[data-form="checkpoints"]')?.addEventListener('click', () => openCheckpoints());
 }
 
 export { applySummary, invalidateSummaries } from './summaryTip';
