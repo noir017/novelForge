@@ -511,8 +511,8 @@ describe('边写边拆细纲：大纲覆盖之内没细纲的章，写到时先�
     ]);
   });
 
-  test('拆完接着排叙事线，追加进 threads.md', () => {
-    assert.match(t.read('.novelforge/threads.md'), /玉佩的下落/);
+  test('拆完接着排叙事线，一条线一个文件', () => {
+    assert.match(t.read('.novelforge/threads/玉佩的下落.md'), /玉佩一块块丢在哪里/);
   });
 
   test('拆细纲的时候看得见前面定稿的连续性事实', () => {

@@ -45,6 +45,7 @@ import {
 import { Chapter, SummaryCast } from '../model/types';
 import { replaceSection, rewriteFrontmatter, stringifyFrontmatter } from '../model/markdown';
 import { LoreLine, PLOT_LORE_KEY, renderLoreLines } from '../model/loreFile';
+import { NewThread, renderThreadFile, threadFileName } from '../model/threadFile';
 import { setConfigParagraphStyle } from '../model/settingFile';
 import type { ParagraphStyle } from '../model/paragraphFormat';
 import { isMarkdownExt, isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
@@ -988,22 +989,47 @@ export class Workspace {
   }
 
   /**
-   * 改写叙事线（七期）：读**此刻**磁盘上的原文 → `edit` 给出新原文 → 写回。`edit` 返回
-   * undefined 或原样返回就不写。
-   *
-   * 为什么不让调用方先读好再交一份全文进来：排线、定稿那一次调用要几十秒，这期间作者可能
-   * 正在编辑器里改这份文件。在写之前那一刻重读、只在上面追加，作者那几十秒里的改动才不会
-   * 被一份旧的全文冲掉（第 3 条）。链外文件，没有上游指纹。
+   * 新建一条叙事线（排线、定稿时从正文认出新线）：`threads/<线名>.md`。**同名跳过**——这个文件已经在了（作者建的、
+   * 这几十秒里别处建的）就一个字节不动，返回 undefined（第 19 条：机器只追加，已有的线不改）。名字归一后撞上
+   * 已有的线（「玉佩 的来历」与「玉佩的来历」）由调用方先判，这里只看文件名。链外文件，没有上游指纹。
    */
-  async updateThreads(edit: (raw: string) => string | undefined): Promise<string | undefined> {
-    const rel = this.project.relPath(this.project.threadsPath);
-    const raw = await this.project.readThreadsText();
+  async createThread(thread: NewThread): Promise<string | undefined> {
+    const rel = `${this.project.relPath(this.project.threadsDir)}/${threadFileName(thread.name)}`;
+    if (await exists(this.project.pathOf(rel))) {
+      return undefined;
+    }
+    try {
+      await this.write(rel, { text: renderThreadFile(thread) }, { mode: 'create' });
+    } catch (err) {
+      // 刚查过不在、写的时候却有了：与已有的一样，不动它。
+      if (err instanceof WsError && (err.code === 'exists' || err.code === 'notFile')) {
+        return undefined;
+      }
+      throw err;
+    }
+    return rel;
+  }
+
+  /**
+   * 改写一份叙事线文件（一条线，或「未归属的伏笔」）：读**此刻**磁盘上的原文（还没有这份文件当空串）→ `edit`
+   * 给出新原文 → 写回（覆盖之前存一版历史）。`edit` 返回 undefined 或原样返回就不写。
+   *
+   * 为什么不让调用方先读好再交一份全文进来：排线、定稿那一次调用要几十秒，这期间作者可能正在编辑器里改这份
+   * 文件。在写之前那一刻重读、只在上面外科式地改（model/threadFile.ts），作者那几十秒里的改动才不会被一份
+   * 旧的全文冲掉（第 3 条）。只认叙事线目录里的文件（种类不是 `threads` 的拒写）。
+   */
+  async updateThread(rel: string, edit: (raw: string) => string | undefined): Promise<string | undefined> {
+    const normalized = normalizeRel(rel);
+    if (normalized === undefined || kindOfPath(this.project, normalized).kind !== 'threads') {
+      throw new WsError('protected', `「${rel}」不是叙事线目录里的文件`);
+    }
+    const raw = (await readTextIfExists(this.project.pathOf(normalized))) ?? '';
     const next = edit(raw);
     if (next === undefined || next === raw) {
       return undefined;
     }
-    await this.overwrite(rel, next);
-    return rel;
+    await this.overwrite(normalized, next);
+    return normalized;
   }
 
   /**

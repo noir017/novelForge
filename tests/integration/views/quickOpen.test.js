@@ -63,6 +63,10 @@ before(async () => {
   t.write('.novelforge/lore/门派/青云宗.md', '---\ntitle: 青云宗\nkeywords: [门派]\n---\n\n# 青云宗\n');
   t.write('drafts/第一卷/002-入镇.md', '草稿');
   t.write('drafts/随手记.md', '随手记');
+  t.write('.novelforge/threads/林昭与沈青.md', '---\nkind: 感情线\n---\n\n# 林昭与沈青\n');
+  t.write('.novelforge/threads/未归属的伏笔.md', '# 未归属的伏笔\n');
+  t.write('.novelforge/threads/主线.md', '---\nkind: 主线\n---\n\n# 主线\n');
+  // 七期的单文件不认：不列。
   t.write('.novelforge/threads.md', '# 叙事线\n');
   // 世界观删掉：没有文件的不列。
   fs.rmSync(t.rel('.novelforge/world.md'));
@@ -145,7 +149,7 @@ describe('views/quickOpen › 索引', () => {
     assert.deepEqual(index.lore, [{ title: '青云宗', path: '.novelforge/lore/门派/青云宗.md' }]);
   });
 
-  test('文档：有文件的才列（世界观删了不在，叙事线有了就在），按架构 → 大纲 → 文风 → 叙事线 → 全书摘要', () => {
+  test('文档：有文件的才列（世界观删了不在），按架构 → 大纲 → 文风 → 叙事线 → 全书摘要；叙事线一条线一项（按文件名）、未归属的伏笔排最后', () => {
     assert.deepEqual(
       index.docs.map((d) => [d.key, d.label, d.path]),
       [
@@ -153,7 +157,9 @@ describe('views/quickOpen › 索引', () => {
         ['premise', '故事前提', '.novelforge/premise.md'],
         ['outline', '情节大纲', '.novelforge/outline.md'],
         ['style', '文风指南', '.novelforge/style.md'],
-        ['threads', '叙事线', '.novelforge/threads.md'],
+        ['threads', '林昭与沈青', '.novelforge/threads/林昭与沈青.md'],
+        ['threads', '主线', '.novelforge/threads/主线.md'],
+        ['threads', '未归属的伏笔', '.novelforge/threads/未归属的伏笔.md'],
         ['globalSummary', '全书摘要', '.novelforge/summaries/global.md'],
       ]
     );
@@ -231,12 +237,13 @@ describe('views/quickOpen › 读盘', () => {
     assert.deepEqual(touched, []);
   });
 
-  test('草稿只列不读；大纲、配置、manifest 的内容一律不读', async () => {
+  test('草稿、叙事线只列不读；大纲、配置、manifest 的内容一律不读', async () => {
     const reads = await measure();
     const touched = [...reads.keys()].filter(
       (f) =>
         f.startsWith('drafts/') ||
-        ['.novelforge/outline.md', '.novelforge/config.md', '.novelforge/project.json', '.novelforge/threads.md'].includes(f)
+        ['.novelforge/outline.md', '.novelforge/config.md', '.novelforge/project.json'].includes(f) ||
+        f.startsWith('.novelforge/threads')
     );
     assert.deepEqual(touched, []);
   });

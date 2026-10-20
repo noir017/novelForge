@@ -106,6 +106,8 @@ export function isProtectedPath(project: NovelProject, relPath: string): boolean
     '.novelforge/characters',
     '.novelforge/lore',
     '.novelforge/summaries',
+    // 叙事线：一条线一个文件（model/threadFile.ts）。整个目录搬走或删掉，所有线一起「还没排过」。
+    '.novelforge/threads',
     '.novelforge/skills',
     // 场景、卷、中转站三层都已经删掉（见 model/pipeline.ts 的文件头），细纲也从 `plots/`
     // 搬进了 `summaries/`，但老工程磁盘上那几个目录还在，而且是作者的文件。留在这张表里，

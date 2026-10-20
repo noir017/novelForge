@@ -28,6 +28,7 @@
  */
 import { indexText, normalizeQuote, quoteFound } from './review';
 import { CONTEXT_DETAIL_LIMITS, DEFAULT_CONTEXT_DETAIL } from './contextDetail';
+import type { ThreadBook, ThreadEvent as FileEvent } from './threadFile';
 
 const DEFAULT_LIMITS = CONTEXT_DETAIL_LIMITS[DEFAULT_CONTEXT_DETAIL];
 
@@ -67,6 +68,8 @@ export interface Thread {
   events: ThreadEvent[];
   /** 在文件里是第几条（0 起）。同档排序时按它。 */
   index: number;
+  /** 这条线落在哪个文件上（新格式一条线一个文件，见 {@link fromThreadBook}）。 */
+  relPath?: string;
 }
 
 /** 新排出来的一条线（还没有事件）。 */
@@ -740,4 +743,45 @@ export function threadsToJudge(
   }
   const n = Math.max(0, limit);
   return { judged: ordered.slice(0, n), skipped: ordered.slice(n) };
+}
+
+// ---------------------------------------------------------------- 过渡（叙事线重做一期）
+
+/*
+ * 叙事线重做（docs/design/plans/2026-10-20-narrative-threads.md）把存储换成了一条线一个文件
+ * （model/threadFile.ts）。排线（第 5 个提交）、定稿判事件（第 6 个）、写正文那一层（第 7 个）还没换过来的
+ * 这几个提交里，它们照旧用上面这一套挑线与校验，读写经下面两个转换走新格式。三处都换完之后连这个文件一起删。
+ */
+
+/** 新格式的实际事件 → 上面那一套认的四种：推进与关系、伏笔的事件都算「推进」，收束算「回收」。 */
+const LEGACY_TYPE: Record<FileEvent['type'], ThreadEventType> = {
+  推进: '推进',
+  关系: '推进',
+  收束: '回收',
+  放弃: '放弃',
+  埋: '推进',
+  收: '推进',
+  弃: '推进',
+};
+
+/** 目录里读出来的各条线 → 上面那一套认的样子（只带实际事件；「未归属的伏笔」不是线）。 */
+export function fromThreadBook(book: ThreadBook): Thread[] {
+  return book.threads.map((t) => ({
+    title: t.name,
+    kind: t.kind,
+    ...(t.from !== undefined ? { from: t.from } : {}),
+    ...(t.to !== undefined ? { to: t.to } : {}),
+    intent: t.intent,
+    events: t.events
+      .filter((e) => !e.planned)
+      .map((e) => ({ chapter: e.chapter, type: LEGACY_TYPE[e.type], evidence: e.evidence ?? '', reason: e.what })),
+    index: t.index,
+    relPath: t.relPath,
+  }));
+}
+
+/** 上面那一套校验过的事件 → 新格式的一条实际事件。第一次露面（埋下）也只是这条线推进了一步。 */
+export function toFileEvent(e: ThreadEvent): FileEvent {
+  const type = e.type === '回收' ? '收束' : e.type === '放弃' ? '放弃' : '推进';
+  return { chapter: e.chapter, planned: false, type, what: e.reason, ...(e.evidence ? { evidence: e.evidence } : {}) };
 }

@@ -39,14 +39,17 @@ export type QuickOpenKind = 'chapter' | 'character' | 'lore' | 'doc' | 'draft';
 /** 同分时的先后：章节、角色、设定、文档、草稿。 */
 const KIND_ORDER: Record<QuickOpenKind, number> = { chapter: 0, character: 1, lore: 2, doc: 3, draft: 4 };
 
-/** 架构三件与情节大纲算「架构」（工程页「故事架构」那一组），其余几份叫「文档」。 */
+/**
+ * 架构三件与情节大纲算「架构」（工程页「故事架构」那一组），叙事线一条线一项、名字是线名，标「叙事线」，
+ * 其余几份叫「文档」。
+ */
 const DOC_BADGE: Record<QuickOpenDocKey, string> = {
   config: '架构',
   premise: '架构',
   world: '架构',
   outline: '架构',
   style: '文档',
-  threads: '文档',
+  threads: '叙事线',
   globalSummary: '文档',
 };
 

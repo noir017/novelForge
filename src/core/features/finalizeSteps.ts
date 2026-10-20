@@ -6,7 +6,7 @@
  * `summarizeChapter`，而同步更新完细纲之后要接着走这两步。
  *
  * 两步的失败各算各的：细纲已经照正文更新好了，这两步没成只挂黄 ❗ 在章节上（第 16 条：部分完成），
- * 角色卡 / `threads.md` 停在上一次，下次重新定稿会再来一遍。取消照样抛出去。
+ * 角色卡 / 叙事线停在上一次，下次重新定稿会再来一遍。取消照样抛出去。
  */
 import { CancelledError, LlmProvider } from '../llm/provider';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
@@ -103,7 +103,7 @@ export async function updateStateAndThreads(
       severity: 'warn',
       op: THREADS_OP,
       message: `细纲已照正文更新，但叙事线没判成：${outcome.threadsError}`,
-      detail: 'threads.md 没有改动。重新定稿这一章会再判一遍。',
+      detail: '叙事线没有改动。重新定稿这一章会再判一遍。',
     });
   }
   return outcome;

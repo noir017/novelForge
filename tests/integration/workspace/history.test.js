@@ -328,9 +328,25 @@ describe('各条覆盖路径都存：编辑器保存、MCP 的 edit、领域写�
     await ws.writeStyleGuide('新的文风。');
     assert.equal(snaps(t, '.novelforge/style.md').length, 1);
 
-    t.write('.novelforge/threads.md', '# 叙事线\n\n旧的。');
-    await ws.updateThreads((raw) => `${raw}\n- 新的一条\n`);
-    assert.equal(snapText(t, '.novelforge/threads.md', snaps(t, '.novelforge/threads.md')[0]), '# 叙事线\n\n旧的。');
+    const thread = '.novelforge/threads/玉佩.md';
+    t.write(thread, '# 玉佩\n\n旧的。');
+    await ws.updateThread(thread, (raw) => `${raw}\n- 新的一条\n`);
+    assert.equal(snapText(t, thread, snaps(t, thread)[0]), '# 玉佩\n\n旧的。');
+  });
+
+  test('叙事线：新建一条不存历史（没覆盖任何东西），同名已在就一个字节不动', async () => {
+    const plan = { name: '沈家旧案', kind: '支线', origin: '计划', intent: '十年前那把火。', foreshadowing: [] };
+    const rel = await ws.createThread(plan);
+    assert.equal(rel, '.novelforge/threads/沈家旧案.md');
+    assert.equal(snaps(t, rel).length, 0);
+    t.write(rel, '作者改过的。');
+    assert.equal(await ws.createThread(plan), undefined);
+    assert.equal(t.read(rel), '作者改过的。');
+  });
+
+  test('叙事线：改写只认叙事线目录里的文件', async () => {
+    await assert.rejects(() => ws.updateThread('.novelforge/style.md', (raw) => `${raw}x`), /不是叙事线目录里的文件/);
+    await assert.rejects(() => ws.updateThread('.novelforge/threads.md', (raw) => `${raw}x`), /不是叙事线目录里的文件/);
   });
 
   test('写细纲覆盖已有那份', async () => {

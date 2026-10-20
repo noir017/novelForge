@@ -5,8 +5,8 @@
  * |---|---|
  * | 确认框写明三步与次数（每章 1–3 次） | 第 4 条：动手之前写明预计调用次数 |
  * | 三章的细纲都记上 `sourceHash` | 第一步照旧：照正文更新细纲、算写完 |
- * | 角色状态与叙事线每章各走一次，按章号 1、2、3 的顺序 | 从前同步只做第一步，章算定稿了、角色状态与叙事线却停在原地；这两步要一章一章往后推，并发会抢写同一张卡、同一份 threads.md |
- * | 角色卡的「当前状态」推到最后一章，`threads.md` 记上事件 | 同步过的章与逐章定稿的章是同一个结果 |
+ * | 角色状态与叙事线每章各走一次，按章号 1、2、3 的顺序 | 从前同步只做第一步，章算定稿了、角色状态与叙事线却停在原地；这两步要一章一章往后推，并发会抢写同一张卡、同一条线 |
+ * | 角色卡的「当前状态」推到最后一章，叙事线记上事件 | 同步过的章与逐章定稿的章是同一个结果 |
  * | 返回实际调用次数 | MCP 的 `summary sync` 拿它记账 |
  * | 第一步没成的章不走后两步，红 ❗ 挂在那一章 | 细纲没更新，角色状态与叙事线没有可依据的出场人物 |
  */
@@ -27,7 +27,7 @@ let project;
 const CH = (no) => `chapters/00${no}-第${no}章.md`;
 const PLOT = (no) => `.novelforge/summaries/00${no}-第${no}章.md`;
 const CARD = '.novelforge/characters/林昭.md';
-const THREADS = '.novelforge/threads.md';
+const THREADS = '.novelforge/threads/玉佩的来历.md';
 const textOf = (no) => `林昭在第${no}章摸了摸怀里的玉佩。\n\n沈氏在第${no}章翻开名册。`;
 
 /** 给了章号就让那一章的定稿答坏（第一步失败那一节）。 */
@@ -88,7 +88,7 @@ before(async () => {
     provider: './src/core/llm/provider.ts',
     summarize: './src/core/features/summarize.ts',
     plotFile: './src/core/model/plotFile.ts',
-    threadsFile: './src/core/model/threadsFile.ts',
+    threadFile: './src/core/model/threadFile.ts',
     db: './src/core/runtime/db.ts',
     errorLog: './src/core/runtime/errorLog.ts',
   });
@@ -110,7 +110,7 @@ before(async () => {
   t.write(CARD, '---\nname: 林昭\n---\n\n# 林昭\n\n## 身份\n\n回镇的人\n\n## 当前状态\n\n');
   t.write(
     THREADS,
-    `# 叙事线\n\n${bundle.threadsFile.renderThreadBlock({ title: '玉佩的来历', kind: '伏笔', from: 1, to: 9, intent: '玉佩是沈家旧物。' })}\n`
+    bundle.threadFile.renderThreadFile({ name: '玉佩的来历', kind: '支线', origin: '计划', from: 1, to: 9, intent: '玉佩是沈家旧物。', foreshadowing: [] })
   );
 });
 
@@ -155,8 +155,8 @@ describe('同步：三章逐章定稿，角色状态与叙事线按章号走', (
     assert.ok(/stateThrough: 3/.test(text), text);
   });
 
-  test('threads.md 按章记上了三条事件', () => {
-    const [thread] = bundle.threadsFile.parseThreads(t.read(THREADS));
+  test('那条线按章记上了三条事件', () => {
+    const thread = bundle.threadFile.parseThreadFile(t.read(THREADS), THREADS);
     assert.deepEqual(thread.events.map((e) => e.chapter), [1, 2, 3]);
   });
 

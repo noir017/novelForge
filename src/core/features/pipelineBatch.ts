@@ -716,7 +716,7 @@ async function runWriteBatch(
             halt = { no, why: `的细纲没拆成（${r.reason}）`, level: 'error' };
             break;
           }
-          // 新排出来的细纲里埋了什么线：接着排一次（只追加新线；没排成不挡写章，失败挂在 threads.md 上）。
+          // 新排出来的细纲里埋了什么线：接着排一次（只新建线；没排成不挡写章，失败挂在叙事线目录上）。
           const th = await planThreads(project, plotPool, signal);
           calls += th.calls;
           if (th.cancelled) {

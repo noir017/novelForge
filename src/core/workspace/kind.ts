@@ -42,6 +42,10 @@ export type ArtifactKind =
   | 'outline'
   | 'style'
   | 'globalSummary'
+  /**
+   * 叙事线（2026-10-20 重做）：`.novelforge/threads/` 这一层的 `.md`，一条线一个文件，外加「未归属的伏笔」。
+   * 链外：没有创作阶段，由排线、定稿写（model/threadFile.ts）。七期那一份 `threads.md` 判 `other`。
+   */
   | 'threads'
   /** 写作技能：本工程的 `.novelforge/skills/**` 与阶段绑定 `.novelforge/skills.json`。 */
   | 'skill'
@@ -124,7 +128,7 @@ function dirsOf(project: NovelProject): Dirs {
     outline: project.relPath(project.outlinePath),
     style: project.relPath(project.stylePath),
     globalSummary: project.relPath(project.globalSummaryPath),
-    threads: project.relPath(project.threadsPath),
+    threads: project.relPath(project.threadsDir),
     skills: project.relPath(project.skillsDir),
     skillBindings: project.relPath(project.skillBindingsPath),
     sensitive: project.relPath(project.sensitivePath),
@@ -177,9 +181,11 @@ export function kindOfPath(project: NovelProject, relPath: string): PathKind {
   if (rel === d.globalSummary) {
     return { kind: 'globalSummary', rel };
   }
-  // 叙事线（七期）：可选的固定文件，与全书摘要同类——没有创作阶段，由工程页动作与定稿追加。
-  if (rel === d.threads) {
-    return { kind: 'threads', rel };
+  // 叙事线：`threads/` 这一层的 markdown，一条线一个文件（线不分子目录：更深的、目录本身、别的扩展名都是 `other`）。
+  // 没有创作阶段，由排线与定稿写。七期的 `threads.md` 不在这个目录里，落到最后的 `other`（不兼容，设计稿「删掉什么」）。
+  const inThreads = under(rel, d.threads);
+  if (inThreads !== undefined && inThreads) {
+    return !inThreads.includes('/') && isMd(inThreads) ? { kind: 'threads', rel } : { kind: 'other', rel };
   }
   // 写作技能：链外，没有创作阶段。装配器只经 core/skills/ 读绑定的那一份。
   if (rel === d.skillBindings || under(rel, d.skills) !== undefined) {

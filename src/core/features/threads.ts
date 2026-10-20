@@ -8,8 +8,8 @@
  * 的 `generatePlanCandidates`。上游是叙事线编辑器里的一颗按钮，候选逐条点「确认计划」才入库；
  * 这里是工程页的一个动作，走第 19 条的批量路径：
  *
- * - **只往 `threads.md` 末尾追加新线**，同名的跳过，已有的一个字不动——没有东西会被吞，
- *   所以不走写入卡；作者不要哪条，在文件里删掉就是。
+ * - **只新建线**（一条线一个文件 `threads/<线名>.md`，叙事线重做之后的格式），同名的跳过，已有的一个字不动——
+ *   没有东西会被吞，所以不走写入卡；作者不要哪条，删掉那个文件就是。
  * - 动手之前确认框写明 1 次调用与用哪一档（第 4 条）。走「剧情细纲」档（`plotOutline`）：
  *   排线和拆细纲是同一种活，在大纲与各章计划之间排跨章的东西。不带思考深度（第 26 条）。
  * - 不做修复重试：1 次就是 1 次。坏了挂红 ❗ 在「叙事线」那一行上（第 16 条），作者再点一次。
@@ -50,17 +50,17 @@ import {
   ThreadEvent,
   ThreadEventType,
   ThreadPlan,
-  appendEvents,
-  appendThreads,
   asOf,
+  fromThreadBook,
   lastEvent,
-  parseThreads,
   threadKey,
   threadStatus,
   threadsToJudge,
+  toFileEvent,
   verifyThreadEvents,
   verifyThreadPlans,
 } from '../model/threadsFile';
+import { appendEvents, threadFileName, threadKindOf } from '../model/threadFile';
 import { Workspace } from '../workspace';
 import { jsonList } from './parse';
 import { THREAD_EVENT_SYSTEM, threadPlanSystem } from './threadsPrompt';
@@ -91,20 +91,20 @@ function existingLine(t: Thread): string {
 export interface PlanThreadsOutcome {
   /** 实际调了几次模型。 */
   calls: number;
-  /** 追加进 `threads.md` 的线。 */
+  /** 新建的线（一条一个文件）。 */
   added: ThreadPlan[];
   /** 同名跳过几条。 */
   same: number;
   /** 不合格没收几条（见日志）。 */
   bad: number;
-  /** 没排成的原因（失败已经挂在 `threads.md` 上）。 */
+  /** 没排成的原因（失败已经挂在叙事线目录上）。 */
   error?: string;
   cancelled?: boolean;
 }
 
 /**
  * 从细纲排叙事线：工程页按钮与拆完细纲之后自动排（批量拆细纲、批量写章边写边拆）共用。**不弹框、不开任务、
- * 不抛**（取消单列）：确认与进度条归调用方；失败挂在 `threads.md` 上（第 16 条）。只追加新线，同名跳过（第 19 条）。
+ * 不抛**（取消单列）：确认与进度条归调用方；失败挂在叙事线目录上（第 16 条）。只新建线，同名跳过（第 19 条）。
  */
 export async function planThreads(
   project: NovelProject,
@@ -117,8 +117,8 @@ export async function planThreads(
   if (plots.length === 0) {
     return { ...out, error: '还没有细纲' };
   }
-  const existing = await project.readThreads();
-  const rel = project.relPath(project.threadsPath);
+  const existing = fromThreadBook(await project.readThreads());
+  const rel = project.relPath(project.threadsDir);
   const config = readConfig();
   const { threadPlanOutlineChars: outlineChars, threadPlanEvents } = contextLimitsOf(config);
   const first = plots[0].no;
@@ -244,13 +244,28 @@ export async function planThreads(
     return { ...out, error: reason };
   }
 
-  // 写之前重读：这几十秒里作者可能在编辑器里加了线（同名的照样跳过）。
-  let added: ThreadPlan[] = [];
-  await new Workspace(project).updateThreads((raw) => {
-    const now = new Set(parseThreads(raw).map((t) => threadKey(t.title)));
-    added = plans.filter((p) => !now.has(threadKey(p.title)));
-    return added.length > 0 ? appendThreads(raw, added) : undefined;
-  });
+  // 写之前重读：这几十秒里作者可能在编辑器里加了线（同名的照样跳过）。一条线一个新文件，已有的一个字节不动。
+  const added: ThreadPlan[] = [];
+  const now = new Set((await project.readThreads()).threads.map((t) => threadKey(t.name)));
+  const ws = new Workspace(project);
+  for (const p of plans) {
+    if (now.has(threadKey(p.title))) {
+      continue;
+    }
+    const written = await ws.createThread({
+      name: p.title,
+      kind: threadKindOf(p.kind) ?? '支线',
+      origin: '计划',
+      from: p.from,
+      to: p.to,
+      intent: p.intent,
+      foreshadowing: [],
+    });
+    if (written) {
+      added.push(p);
+      now.add(threadKey(p.title));
+    }
+  }
   await clearFailures(project, 'threads', rel, THREADS_OP);
   report({ message: '完成', current: 2, total: 2 });
   out.added = added;
@@ -269,15 +284,15 @@ export async function generateThreads(project: NovelProject): Promise<number> {
     getHost().toast('还没有细纲：先拆出细纲，再从细纲排出叙事线。', 'error');
     return 0;
   }
-  const existing = await project.readThreads();
-  const rel = project.relPath(project.threadsPath);
+  const existing = (await project.readThreads()).threads;
+  const rel = project.relPath(project.threadsDir);
   const first = plots[0].no;
   const last = plots[plots.length - 1].no;
   const answer = await askCall({
     message: `要从第 ${first}–${last} 章的细纲排出叙事线，${describeCalls(ONE_CALL)}。现在排？`,
     actions: ['开始排'],
     detail:
-      `一次最多排 ${THREAD_PLAN_LIMIT} 条，追加在 ${rel} 末尾，可以手改。` +
+      `一次最多排 ${THREAD_PLAN_LIMIT} 条，一条线一个文件，放在 ${rel}/ 里，可以手改。` +
       (existing.length > 0 ? `已有的 ${existing.length} 条不会改动，同名的跳过。` : ''),
     tasks: ['plotOutline'],
     contextDetail: true,
@@ -309,11 +324,11 @@ export async function generateThreads(project: NovelProject): Promise<number> {
         const notes = [r.same > 0 ? `同名跳过 ${r.same} 条` : '', r.bad > 0 ? `${r.bad} 条不合格没收（见日志）` : ''].filter(Boolean);
         getHost().toast(
           r.added.length > 0
-            ? `排出 ${r.added.length} 条叙事线${notes.length > 0 ? `（${notes.join('，')}）` : ''}，已追加到 ${rel}。`
-            : `排出的线在 ${rel} 里都已经有了，没有改动。`
+            ? `排出 ${r.added.length} 条叙事线${notes.length > 0 ? `（${notes.join('，')}）` : ''}，已写进 ${rel}/。`
+            : `排出的线在 ${rel}/ 里都已经有了，没有改动。`
         );
         if (r.added.length > 0) {
-          await getHost().openFile(rel);
+          await getHost().openFile(`${rel}/${threadFileName(r.added[0].title)}`);
         }
       },
       { scope: '叙事线' }
@@ -348,7 +363,7 @@ function judgeLine(full: Thread, no: number): string {
 }
 
 /**
- * 定稿第三步：判这一章推进了哪几条还没收的叙事线，证据逐字校验后追加进 `threads.md`。
+ * 定稿第三步：判这一章推进了哪几条还没收的叙事线，证据逐字校验后追加进那条线的「进展」。
  *
  * `run` 决定怎么调模型（同 `updateCharacterStates`）：单章入口直接用对话页选定的那个，批量
  * 入口传「定稿」档（`plotSummary`）的池。调用失败或解析不出来时抛错——细纲已经更新好了，由调用方把失败
@@ -364,7 +379,7 @@ export async function recordThreadEvents(
   }
 ): Promise<ThreadEventOutcome> {
   const out: ThreadEventOutcome = { calls: 0, recorded: [], dropped: [], skipped: [] };
-  const threads = await project.readThreads();
+  const threads = fromThreadBook(await project.readThreads());
   const plot = await project.plotOfChapter(chapter);
   const config = readConfig();
   const { judged, skipped } = threadsToJudge(
@@ -422,26 +437,29 @@ export async function recordThreadEvents(
   out.dropped = dropped;
 
   if (events.length > 0) {
-    const byThread = new Map<string, { title: string; events: ThreadEvent[] }>();
+    const byThread = new Map<string, { title: string; relPath: string; events: ThreadEvent[] }>();
     for (const { thread, event } of events) {
-      const entry = byThread.get(thread.title) ?? { title: thread.title, events: [] };
+      const entry = byThread.get(thread.title) ?? { title: thread.title, relPath: thread.relPath ?? '', events: [] };
       entry.events.push(event);
       byThread.set(thread.title, entry);
     }
-    // 写之前重读（同排线）：只在此刻的原文上追加。这几十秒里作者把哪条线改了名，就记不上它。
-    await new Workspace(project).updateThreads((raw) => {
-      let next = raw;
-      for (const entry of byThread.values()) {
-        const patched = appendEvents(next, entry.title, entry.events);
-        if (patched === undefined) {
-          out.dropped.push({ thread: entry.title, why: '这条线在文件里找不到了（改了名或删了）' });
-          continue;
+    // 写之前重读（同排线）：只在此刻的原文上追加。这几十秒里作者把哪条线删了，就记不上它。
+    const ws = new Workspace(project);
+    for (const entry of byThread.values()) {
+      let gone = false;
+      await ws.updateThread(entry.relPath, (raw) => {
+        if (!raw.trim()) {
+          gone = true;
+          return undefined;
         }
-        next = patched;
-        out.recorded.push(...entry.events.map((e) => ({ title: entry.title, type: e.type })));
+        return appendEvents(raw, entry.events.map(toFileEvent)).text;
+      });
+      if (gone) {
+        out.dropped.push({ thread: entry.title, why: '这条线的文件找不到了（改了名或删了）' });
+        continue;
       }
-      return next;
-    });
+      out.recorded.push(...entry.events.map((e) => ({ title: entry.title, type: e.type })));
+    }
   }
 
   log.info(

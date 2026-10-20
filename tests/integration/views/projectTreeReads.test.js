@@ -109,8 +109,10 @@ before(async () => {
   for (let i = 1; i <= PLOTS; i++) {
     await writePlot(i);
   }
-  // 叙事线（七期）：有这份文件，下面「至多读一次」那条才管得到它。
-  t.write('.novelforge/threads.md', '# 叙事线\n\n## 玉佩\n- 计划：第 1–2 章\n- 第 1 章 · 埋下：「玉佩」\n');
+  // 叙事线（一条线一个文件）：有这几份，下面「至多读一次」那条才管得到它们。七期的 threads.md 不认、不读。
+  t.write('.novelforge/threads/玉佩.md', '---\nkind: 支线\nplan: 1-2\n---\n\n# 玉佩\n\n## 进展\n- 第 1 章 · 推进：玉佩露面 〔证据：「玉佩」〕\n');
+  t.write('.novelforge/threads/未归属的伏笔.md', '# 未归属的伏笔\n\n## 伏笔\n- 断剑\n');
+  t.write('.novelforge/threads.md', '# 叙事线\n\n## 旧格式\n');
 });
 
 after(() => {
@@ -123,6 +125,13 @@ describe('工程页刷新 · 读盘次数', () => {
     const tree = await measure();
     assert.equal(tree.plotCount, PLOTS);
     assert.deepEqual(tree.threads, { exists: true, total: 1, open: 1, closed: 0, overdue: 1 });
+  });
+
+  test('叙事线目录每份读一次；七期的 threads.md 不读', async () => {
+    await measure();
+    const rel = (p) => path.relative(t.dir, p).replace(/\\/g, '/');
+    const touched = [...reads.keys()].map(rel).filter((f) => f.startsWith('.novelforge/threads'));
+    assert.deepEqual(touched.sort(), ['.novelforge/threads/未归属的伏笔.md', '.novelforge/threads/玉佩.md'].sort());
   });
 
   // 全齐了才说明各条取数路径都真的走到了：只建细纲不写正文、或者没定稿的话，

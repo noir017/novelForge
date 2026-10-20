@@ -34,7 +34,7 @@ export interface QuickOpenLore {
   path: string;
 }
 
-/** 架构三件、情节大纲、文风、叙事线、全书摘要。 */
+/** 架构三件、情节大纲、文风、叙事线（一条线一项）、全书摘要。 */
 export type QuickOpenDocKey = 'config' | 'premise' | 'world' | 'outline' | 'style' | 'threads' | 'globalSummary';
 
 export interface QuickOpenDoc {

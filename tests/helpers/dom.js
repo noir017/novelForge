@@ -481,8 +481,8 @@ function sampleTree() {
     chaptersRoot: 'chapters', charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
     globalSummaryThrough: 2, styleGuidePath: '.novelforge/style.md',
     globalSummaryPath: '.novelforge/summaries/global.md',
-    // 叙事线（七期）：排过 4 条，一条已收，一条过了回收章还开着。
-    threadsPath: '.novelforge/threads.md',
+    // 叙事线（一条线一个文件）：排过 4 条，一条已收，一条过了计划收束章还开着。
+    threadsPath: '.novelforge/threads',
     threads: { exists: true, total: 4, open: 3, closed: 1, overdue: 1 },
     // 故事架构：五件文档 + 情节大纲，顺序即生成顺序。世界观还没写。
     // 角色图谱、设定清单没有自己的文件，relPath 给的是角色目录、设定目录。这棵树已经写了正文，

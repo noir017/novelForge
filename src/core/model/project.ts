@@ -37,7 +37,7 @@ import {
   settingTemplate,
 } from './settingFile';
 import { SettingDoc, isFallbackChapterTitle, isLoreListFilled } from './pipeline';
-import { Thread, parseThreads } from './threadsFile';
+import { ThreadBook, UNFILED_NAME, parseThreadFile, parseUnfiledFile } from './threadFile';
 import {
   countWords,
   exists,
@@ -154,9 +154,17 @@ export class NovelProject {
     return path.join(this.novelDir, 'outline.md');
   }
 
-  /** 叙事线（七期）。可选：没有这份文件就是还没排过，初始化时不建。 */
-  get threadsPath(): string {
-    return path.join(this.novelDir, 'threads.md');
+  /**
+   * 叙事线（2026-10-20 重做）：一条线一个文件 `threads/<线名>.md`，格式见 model/threadFile.ts。可选：没有这个目录
+   * 就是还没排过，初始化时不建。七期那一份 `threads.md` 不再认（判 `other`，不读、不显示、不删）。
+   */
+  get threadsDir(): string {
+    return path.join(this.novelDir, 'threads');
+  }
+
+  /** 挂不上哪一条线的伏笔（`threads/未归属的伏笔.md`）。保留名：排线、定稿都不许用它当线名。 */
+  get unfiledPath(): string {
+    return path.join(this.threadsDir, `${UNFILED_NAME}.md`);
   }
 
   /**
@@ -934,17 +942,42 @@ export class NovelProject {
     return stripH1(parseMarkdown(await readText(this.globalSummaryPath)).body);
   }
 
-  /** `threads.md` 的原文。没有这份文件返回空串。 */
-  async readThreadsText(): Promise<string> {
-    if (!(await exists(this.threadsPath))) {
-      return '';
+  /**
+   * 叙事线目录里的文件（工作区相对路径，只列不读）：`threads/` 这一层的 `.md`，各条线按文件名排在前，
+   * 「未归属的伏笔」（有的话）排在最后。线不分子目录，更深的不认（与 `kindOfPath` 同一个口径）。
+   */
+  async listThreadPaths(): Promise<string[]> {
+    let names: string[];
+    try {
+      const dirents = await fs.readdir(this.threadsDir, { withFileTypes: true });
+      names = dirents.filter((d) => d.isFile() && isMarkdownPath(d.name)).map((d) => d.name);
+    } catch {
+      return [];
     }
-    return readText(this.threadsPath);
+    const unfiled = this.relPath(this.unfiledPath);
+    const rels = names
+      .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true }))
+      .map((name) => this.relPath(path.join(this.threadsDir, name)));
+    return [...rels.filter((r) => r !== unfiled), ...rels.filter((r) => r === unfiled)];
   }
 
-  /** 叙事线（解析失败退化为认不出的行跳过，绝不抛，第 1 条）。 */
-  async readThreads(): Promise<Thread[]> {
-    return parseThreads(await this.readThreadsText());
+  /**
+   * 叙事线：一次把 `threads/` 读完——各条线（按文件名排，`index` 是这个顺序）与「未归属的伏笔」。没有目录、
+   * 没有「未归属的伏笔」都当空的。解析失败退化为认不出的行跳过，绝不抛（第 1 条）。
+   */
+  async readThreads(): Promise<ThreadBook> {
+    const unfiledRel = this.relPath(this.unfiledPath);
+    const threads: ThreadBook['threads'] = [];
+    let unfiledRaw = '';
+    for (const rel of await this.listThreadPaths()) {
+      const raw = await readText(this.pathOf(rel));
+      if (rel === unfiledRel) {
+        unfiledRaw = raw;
+      } else {
+        threads.push(parseThreadFile(raw, rel, threads.length));
+      }
+    }
+    return { threads, unfiled: parseUnfiledFile(unfiledRaw, unfiledRel) };
   }
 
   // ---------------------------------------------------------------- 角色 / 设定 / 文风

@@ -1,12 +1,13 @@
 /**
- * 工程页「文风与摘要」组的「叙事线」一行（七期）。
+ * 工程页「文风与摘要」组的「叙事线」一行（七期）。叙事线重做之后一条线一个文件（`threads/` 目录），这一行先只报
+ * 计数、点名字不开东西；单独一组、一条线一行是叙事线重做的第 8 个提交。
  *
  * | 断言 | 为什么 |
  * |---|---|
  * | 说明写条数、进行中、已收、已过回收章 | 不展开文件就知道线的大概 |
  * | 没有线时「从细纲排出」，有了「从细纲补充」，都发 generateThreads | 按钮不直接花钱：后端先弹确认框 |
  * | 还没有细纲时不给按钮，说明写清先做什么 | 没有东西可排 |
- * | 文件不存在时点名字不去开它、菜单里没有「打开」 | 没有文件可开 |
+ * | 点名字不去开它、菜单里没有「打开」 | 叙事线是一个目录，不是一份文件 |
  * | 不进「故事架构」那一组 | 叙事线是可选的，不挡路（x/6 不变） |
  */
 const { describe, test, before } = require('node:test');
@@ -37,21 +38,20 @@ describe('工程页 · 叙事线一行', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.last('projectAction')?.action, 'generateThreads');
   });
 
-  test('右键：打开、从细纲补充叙事线', () => {
+  test('右键：从细纲补充叙事线；没有「打开」（叙事线是一个目录）', () => {
     const items = ui.itemsOf(ui.rightClick(threadsRow()));
-    assert.ok(items.includes('打开') && items.includes('从细纲补充叙事线'), JSON.stringify(items));
+    assert.ok(!items.includes('打开') && items.includes('从细纲补充叙事线'), JSON.stringify(items));
     assert.ok(!items.includes('删除（移到回收站）'), JSON.stringify(items));
     ui.closeMenu();
   });
 
-  test('点名字打开 threads.md', () => {
+  test('点名字不开东西', () => {
     const before = ui.sent.length;
     ui.clickEl(threadsRow().querySelector('.row-label'));
-    const opened = ui.sent.slice(before).find((m) => m.type === 'openEditor' || m.type === 'openFile');
-    assert.equal(opened?.path, '.novelforge/threads.md', JSON.stringify(ui.sent.slice(before)));
+    assert.equal(ui.sent.length, before, JSON.stringify(ui.sent.slice(before)));
   });
 
-  test('还没排过：「未生成」+「从细纲排出」；点名字不开文件、菜单里没有「打开」', () => {
+  test('还没排过：「未生成」+「从细纲排出」', () => {
     ui.post({
       type: 'project',
       tree: { ...sampleTree(), threads: { exists: false, total: 0, open: 0, closed: 0, overdue: 0 } },

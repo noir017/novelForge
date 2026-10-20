@@ -11,8 +11,8 @@
  *   约束，被装配进 prompt，但不由某一层产物「生出来」。
  * - `summaries/global.md` 的上游是全部定稿过的细纲，那是一次显式的重建动作
  *   （features/summarize.ts 的 `through` 水位线），不是 hash 传播。
- * - `threads.md`（叙事线，七期）由工程页「排叙事线」与定稿追加，是跨章的计划与记录，
- *   同样不在链上。
+ * - 叙事线（`threads/<线名>.md`，一条线一个文件）由排线与定稿写（机器只追加、当前进度有指纹守着，
+ *   见 model/threadFile.ts），是跨章的计划与记录，同样不在链上。
  *
  * 所以这里只做一件事：把 `Artifact{kind:'outlineDoc'}` 渲染成大纲文件。
  * 其余五种没有对应的结构化产物，只走 `{text}` 那条路。

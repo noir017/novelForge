@@ -12,7 +12,7 @@ import { NovelProject } from '../model/project';
 import { PLOT_SECTION_KEYS, parsePlotFileName } from '../model/plotFile';
 import { isOutlineFilled, outlineCoverage } from '../model/outlineFile';
 import { describeStateThrough } from '../model/characterState';
-import { countThreads, parseThreads } from '../model/threadsFile';
+import { Thread, isClosed, threadStateAt } from '../model/threadFile';
 import { buildBookFacts, buildPlotPipeline, buildPipelineIndex, chapterOfPlotNo } from './pipeline';
 import { chapterIndexEntryOf } from './chapterIndex';
 import {
@@ -32,6 +32,7 @@ import {
   ProjectTree,
   IdeaDefaults,
   NextStepView,
+  ThreadsView,
 } from '../protocol';
 
 const log = scoped('角色卡');
@@ -59,7 +60,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   const styleGuidePath = project.relPath(project.stylePath);
   const outlinePath = project.relPath(project.outlinePath);
   const globalSummaryPath = project.relPath(project.globalSummaryPath);
-  const threadsPath = project.relPath(project.threadsPath);
+  const threadsPath = project.relPath(project.threadsDir);
   const chaptersRoot = project.relPath(project.chaptersDir);
   const charactersRoot = project.relPath(project.charactersDir);
   const loreRoot = project.relPath(project.loreDir);
@@ -101,7 +102,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     };
   }
 
-  const [characters, lore, characterDirs, loreDirs, draftPaths, pipelineIndex, threadsText] = await Promise.all([
+  const [characters, lore, characterDirs, loreDirs, draftPaths, pipelineIndex, threadBook] = await Promise.all([
     project.listCharacters(),
     project.listLore(),
     project.listFolders(project.charactersDir),
@@ -110,7 +111,8 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     project.listDraftPaths(),
     // 全书流水线索引：大纲、配置、manifest、细纲与章节都只读一次摊给所有章。
     buildPipelineIndex(project),
-    project.readThreadsText(),
+    // 叙事线目录一次读完（一条线一个文件）。
+    project.readThreads(),
   ]);
   // 章节列表、细纲列表、manifest 与大纲原文都用流水线那一趟读到的同一份，
   // 不再单独读一次。
@@ -284,8 +286,9 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     styleGuidePath,
     globalSummaryPath,
     threadsPath,
-    // 「写到第几章」以下一可写章 − 1 算，与主按钮同一个口径。空文件当没有。
-    threads: { exists: threadsText.trim() !== '', ...countThreads(parseThreads(threadsText), book.nextChapterNo - 1) },
+    // 「写到第几章」以下一可写章 − 1 算，与主按钮同一个口径。工程页「叙事线」一组（一条线一行）是第 8 个提交的事，
+    // 这之间照旧报几个计数。
+    threads: countThreads(threadBook.threads, book.nextChapterNo - 1),
     bookStage,
     nextChapterNo: book.nextChapterNo,
     ...(next ? { next } : {}),
@@ -576,4 +579,26 @@ function compareNodes(a: ProjectNode, b: ProjectNode): number {
     return a.label.localeCompare(b.label, 'zh-Hans-CN');
   }
   return 0;
+}
+
+/**
+ * 「叙事线」那一行的计数（过渡：工程页「叙事线」一组换成一条线一行之前）。进行中含计划中；逾期是还没收、却已经
+ * 过了计划收束章的。
+ */
+function countThreads(threads: readonly Thread[], current: number): ThreadsView {
+  let open = 0;
+  let closed = 0;
+  let overdue = 0;
+  for (const t of threads) {
+    const state = threadStateAt(t, current);
+    if (isClosed(state.status)) {
+      closed++;
+    } else {
+      open++;
+      if (state.overdue) {
+        overdue++;
+      }
+    }
+  }
+  return { exists: threads.length > 0, total: threads.length, open, closed, overdue };
 }

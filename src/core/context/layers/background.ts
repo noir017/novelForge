@@ -2,7 +2,7 @@ import { isLoreSettle, loreOfTarget, plotLabel } from '../../model/pipeline';
 import { describeStateThrough } from '../../model/characterState';
 import { CONTEXT_DETAIL_LABEL, takeLast } from '../../model/contextDetail';
 import { ContinuityFact, locateEvidence, parseContinuityFacts } from '../../model/continuity';
-import { Thread, pickActiveThreads, threadCandidates } from '../../model/threadsFile';
+import { Thread, fromThreadBook, pickActiveThreads, threadCandidates } from '../../model/threadsFile';
 import { CharacterCard, LoreEntry } from '../../model/types';
 import { LORE_ENTRY_LIMITS, LORE_SETTLE_LIMITS, createLoreLookup, loreMentionIn } from '../../model/loreFile';
 import { LoreFact, LoreRecord, buildLoreIndex } from '../../views/lore';
@@ -742,13 +742,16 @@ export const evidence: LayerFn = async (a, spec) => {
  * - 一条线一个条目，按要紧程度排好（细纲提到的在最前）；note 写状态与为什么带它。
  * - 条数与字数按上下文详细度（缺省 6 条 / 1200 字），放不下的条目 dropped 并写原因（第 2 条）。
  * - 作者在明细里取消勾选的那条不占名额，后面的补上来。
- * - 没有 `threads.md`、或者没有一条有关的线：什么都不出（没有东西被截断）。
+ * - 没有叙事线、或者没有一条有关的线：什么都不出（没有东西被截断）。
+ *
+ * 叙事线重做之后一条线一个文件（model/threadFile.ts）；这一层的挑法第 7 个提交才换，这之间经 `fromThreadBook`
+ * 转成七期那一套认的样子，条目的来源是那条线自己的文件。
  */
 export const threads: LayerFn = async (a, spec) => {
   if (!Number.isFinite(a.focus.no)) {
     return;
   }
-  const list = await a.project.readThreads();
+  const list = fromThreadBook(await a.project.readThreads());
   if (list.length === 0) {
     return;
   }
@@ -758,14 +761,13 @@ export const threads: LayerFn = async (a, spec) => {
     plotText: plot ? [plot.title, ...Object.values(plot.sections)].join('\n') : '',
     names: namesOf(await a.project.listCharacters(), plot?.characters ?? []),
   };
-  const source = a.project.relPath(a.project.threadsPath);
   const idOf = (t: Thread): string => `thread:${t.index}`;
   const base = (t: Thread) => ({
     id: idOf(t),
     kind: 'thread' as const,
     priority: spec.priority,
     label: `叙事线 · ${t.title}`,
-    source,
+    source: t.relPath ?? a.project.relPath(a.project.threadsDir),
   });
 
   const excluded = threadCandidates(list, focus).filter((c) => a.excluded.has(idOf(c.thread)));

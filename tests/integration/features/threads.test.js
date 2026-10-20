@@ -39,7 +39,11 @@ let project;
 /** 排线那一次答什么。 */
 let planReply;
 
-const THREADS = '.novelforge/threads.md';
+/** 叙事线目录：一条线一个文件。 */
+const THREADS = '.novelforge/threads';
+const file = (name) => `${THREADS}/${name}.md`;
+/** 目录里有哪几条线（文件名）。 */
+const names = () => (t.has(THREADS) ? require('fs').readdirSync(t.rel(THREADS)).sort() : []);
 
 /** 写一份还没定稿的细纲（计划）：八节里只填排线读的那几节，钩子写在「看点」里。 */
 function plot(no, title, events, highlight) {
@@ -68,7 +72,7 @@ before(async () => {
     registry: './src/core/llm/registry.ts',
     threads: './src/core/features/threads.ts',
     finalize: './src/core/features/finalize.ts',
-    threadsFile: './src/core/model/threadsFile.ts',
+    threadFile: './src/core/model/threadFile.ts',
     errorLog: './src/core/runtime/errorLog.ts',
     db: './src/core/runtime/db.ts',
   });
@@ -100,13 +104,17 @@ describe('排叙事线 · 还没有细纲', () => {
 });
 
 const HAND = [
-  '# 叙事线',
+  '---',
+  'kind: 支线',
+  'plan: 2-8',
+  '---',
   '',
-  '## 玉佩的来历',
-  '- 类型：伏笔',
-  '- 计划：第 2–8 章',
-  '- 意图：作者自己写的意图。',
-  '- 事件：',
+  '# 玉佩的来历',
+  '',
+  '## 意图',
+  '作者自己写的意图。',
+  '',
+  '## 进展',
   '- 作者自己加的备注',
   '',
 ].join('\n');
@@ -127,7 +135,7 @@ describe('排叙事线', () => {
     plot(2, '入宗', '林昭拜入青云宗，看见执法堂的令牌上有云纹。', '有人认出了他');
     // 关键事件一条一行（计划与定稿同一个形状）。
     plot(3, '试剑', '- 试剑大会上林昭断了剑。\n- 断剑落进了后山的深潭。', '断剑里藏着字');
-    t.write(THREADS, HAND);
+    t.write(file('玉佩的来历'), HAND);
     project.invalidate();
     planReply = () =>
       '```json\n' +
@@ -162,7 +170,7 @@ describe('排叙事线', () => {
     for (const s of ['第1章 雪夜', '第2章 入宗', '第3章 试剑', '第3章的梗概', '断剑里藏着字', '谁放的那把火', '少年背着旧案入宗']) {
       assert.ok(user.includes(s), s);
     }
-    assert.ok(user.includes('【已有的叙事线（不要重复）】\n- 玉佩的来历（第 2–8 章） · 伏笔'), user);
+    assert.ok(user.includes('【已有的叙事线（不要重复）】\n- 玉佩的来历（第 2–8 章） · 支线'), user);
   });
 
   // 细纲一览一章一行：一条一行的关键事件、看点用「；」接起来，不留「- 」。
@@ -170,20 +178,21 @@ describe('排叙事线', () => {
     assert.ok(user.includes('第3章 试剑｜梗概：第3章的梗概｜关键事件：试剑大会上林昭断了剑。；断剑落进了后山的深潭。｜看点：断剑里藏着字'), user);
   });
 
-  test('只追加新线：作者写的原样在前，同名的、越界的不收', () => {
-    const text = t.read(THREADS);
-    assert.ok(text.startsWith(HAND.trimEnd()), text);
-    const list = bundle.threadsFile.parseThreads(text);
-    assert.deepEqual(list.map((x) => x.title), ['玉佩的来历', '断剑之谜', '青云旧案']);
-    assert.equal(list[0].intent, '作者自己写的意图。');
-    assert.deepEqual([list[1].from, list[1].to, list[1].kind], [3, 9, '悬念']);
+  test('只新建线（一条一个文件）：作者写的那条原样，同名的、越界的不收；种类认不出当支线', async () => {
+    assert.equal(t.read(file('玉佩的来历')), HAND);
+    assert.deepEqual(names(), ['断剑之谜.md', '玉佩的来历.md', '青云旧案.md'].sort());
+    const { threads: list } = await project.readThreads();
+    const by = Object.fromEntries(list.map((x) => [x.name, x]));
+    assert.equal(by['玉佩的来历'].intent, '作者自己写的意图。');
+    assert.deepEqual([by['断剑之谜'].from, by['断剑之谜'].to, by['断剑之谜'].kind, by['断剑之谜'].origin], [3, 9, '支线', '计划']);
+    assert.equal(by['青云旧案'].kind, '主线');
   });
 
   test('提示里说清跳过与丢掉了几条，并打开文件', () => {
     const done = h.toasts.find((x) => x.includes('排出 2 条叙事线'));
     assert.ok(done, h.toasts.join('|'));
     assert.ok(done.includes('同名跳过 1 条') && done.includes('1 条不合格没收'), done);
-    assert.deepEqual(h.opened, [THREADS]);
+    assert.deepEqual(h.opened, [file('断剑之谜')]);
   });
 });
 
@@ -196,12 +205,12 @@ describe('排叙事线 · 失败与取消', () => {
   });
 
   test('解析不出来：挂红 ❗、文件不动；再排一次成了就清掉', async () => {
-    const before = t.read(THREADS);
+    const before = names();
     planReply = () => '我觉得可以写几条伏笔。';
     fake.reset();
     h.expect('开始排');
     assert.equal(await bundle.threads.generateThreads(project), 1);
-    assert.equal(t.read(THREADS), before);
+    assert.deepEqual(names(), before);
     const [f] = await failuresOf(THREADS);
     assert.equal(f?.severity, 'error');
     assert.match(f.message, /排叙事线失败/);
@@ -212,16 +221,16 @@ describe('排叙事线 · 失败与取消', () => {
     h.expect('开始排');
     await bundle.threads.generateThreads(project);
     assert.deepEqual(await failuresOf(THREADS), []);
-    assert.ok(t.read(THREADS).startsWith(before.trimEnd()));
+    assert.deepEqual(names(), [...before, '新的一条.md'].sort());
   });
 
   test('一条都不合格也算失败，不写文件', async () => {
-    const before = t.read(THREADS);
+    const before = names();
     planReply = () => JSON.stringify({ threads: [{ title: '断剑之谜', type: '悬念', from: 3, to: 9, intent: '重名' }] });
     fake.reset();
     h.expect('开始排');
     await bundle.threads.generateThreads(project);
-    assert.equal(t.read(THREADS), before);
+    assert.deepEqual(names(), before);
     assert.match((await failuresOf(THREADS))[0]?.message ?? '', /都不合格/);
   });
 });
@@ -270,30 +279,28 @@ describe('定稿 · 判本章推进了哪几条叙事线', () => {
   before(async () => {
     plot(4, '夜谈', '沈青与林昭夜谈，玉佩的来历揭开。', '院外有人');
     t.write(CH4, `# 第4章 夜谈\n\n${CH4_TEXT}\n`);
+    t.remove(THREADS);
     t.write(
-      THREADS,
+      file('玉佩的来历'),
       [
-        '# 叙事线',
+        '---',
+        'kind: 支线',
+        'plan: 2-8',
+        '---',
         '',
-        '## 玉佩的来历',
-        '- 类型：伏笔',
-        '- 计划：第 2–8 章',
-        '- 意图：玉佩是沈家旧物。',
-        '- 事件：',
-        '  - 第 1 章 · 埋下：「怀里揣着一块玉佩」',
+        '# 玉佩的来历',
+        '',
+        '## 意图',
+        '玉佩是沈家旧物。',
+        '',
+        '## 进展',
+        '- 第 1 章 · 推进：玉佩露面 〔证据：「怀里揣着一块玉佩」〕',
         '- 作者自己加的备注',
-        '',
-        '## 断剑之谜',
-        '- 类型：悬念',
-        '- 计划：第 3–9 章',
-        '- 意图：断剑里的字是谁刻的。',
-        '',
-        '## 已经收了',
-        '- 计划：第 1–2 章',
-        '- 第 2 章 · 回收：「x」',
         '',
       ].join('\n')
     );
+    t.write(file('断剑之谜'), '---\nkind: 支线\nplan: 3-9\n---\n\n# 断剑之谜\n\n## 意图\n断剑里的字是谁刻的。\n');
+    t.write(file('已经收了'), '---\nplan: 1-2\n---\n\n# 已经收了\n\n## 进展\n- 第 2 章 · 收束：收了 〔证据：「x」〕\n');
     project.invalidate();
     eventReply = () =>
       JSON.stringify({
@@ -316,21 +323,22 @@ describe('定稿 · 判本章推进了哪几条叙事线', () => {
   });
 
   test('只送还没收的线去判，带着状态与区间', () => {
-    assert.ok(judgeUser.includes('- 玉佩的来历（伏笔 · 已埋下 · 计划第 2–8 章）意图：玉佩是沈家旧物。；最近：第 1 章埋下'), judgeUser);
-    assert.ok(judgeUser.includes('- 断剑之谜（悬念 · 计划中 · 计划第 3–9 章）'), judgeUser);
+    assert.ok(judgeUser.includes('- 玉佩的来历（支线 · 推进中 · 计划第 2–8 章）意图：玉佩是沈家旧物。；最近：第 1 章推进'), judgeUser);
+    assert.ok(judgeUser.includes('- 断剑之谜（支线 · 计划中 · 计划第 3–9 章）'), judgeUser);
     assert.ok(!judgeUser.includes('已经收了'), judgeUser);
     assert.ok(judgeUser.includes('林昭看着她'), judgeUser);
   });
 
-  test('证据逐字找得到的追加到对的线下，作者的行不动', () => {
-    const text = t.read(THREADS);
+  test('证据逐字找得到的追加到对的线下（回收记成收束），作者的行不动', async () => {
+    const text = t.read(file('玉佩的来历'));
     assert.match(
       text,
-      /  - 第 1 章 · 埋下：「怀里揣着一块玉佩」\n  - 第 4 章 · 回收：「那块玉佩原来是沈家的旧物」——身世揭开\n- 作者自己加的备注/
+      /- 第 1 章 · 推进：玉佩露面 〔证据：「怀里揣着一块玉佩」〕\n- 作者自己加的备注\n- 第 4 章 · 收束：身世揭开 〔证据：「那块玉佩原来是沈家的旧物」〕/
     );
-    const list = bundle.threadsFile.parseThreads(text);
-    assert.equal(bundle.threadsFile.threadStatus(list[0]), '已回收');
-    assert.deepEqual(list[1].events, []);
+    const { threads: list } = await project.readThreads();
+    const by = Object.fromEntries(list.map((x) => [x.name, x]));
+    assert.equal(bundle.threadFile.threadStatus(by['玉佩的来历']), '已收束');
+    assert.deepEqual(by['断剑之谜'].events, []);
   });
 
   test('编的证据、收了的线不记，完成提示里说出来', () => {
@@ -348,25 +356,25 @@ describe('定稿 · 判本章推进了哪几条叙事线', () => {
   });
 
   test('重新定稿同一章：同一句不重复记', async () => {
-    // 玉佩那条已经回收了，不再送去判；把它改回推进中再定稿一次，模型给同一句。
-    t.write(THREADS, t.read(THREADS).replace('第 4 章 · 回收', '第 4 章 · 推进'));
+    // 玉佩那条已经收束了，不再送去判；把它改回推进再定稿一次，模型给同一句。
+    t.write(file('玉佩的来历'), t.read(file('玉佩的来历')).replace('第 4 章 · 收束', '第 4 章 · 推进'));
     project.invalidate();
-    const before = t.read(THREADS);
+    const before = t.read(file('玉佩的来历'));
     eventReply = () =>
       JSON.stringify({ events: [{ thread: '玉佩的来历', type: '推进', evidence: '那块玉佩原来是沈家的旧物。', reason: '' }] });
     const again = await bundle.finalize.finalizeChapter(project, await chapter4());
     assert.deepEqual(again.threads.recorded, []);
-    assert.equal(t.read(THREADS), before);
+    assert.equal(t.read(file('玉佩的来历')), before);
   });
 
-  test('判叙事线失败：细纲照样更新了，黄 ❗ 挂在章节上，threads.md 不动；再成了就清掉', async () => {
-    const before = t.read(THREADS);
+  test('判叙事线失败：细纲照样更新了，黄 ❗ 挂在章节上，叙事线不动；再成了就清掉', async () => {
+    const before = t.read(file('玉佩的来历'));
     eventReply = () => '这一章没什么好说的。';
     const failed = await bundle.finalize.finalizeChapter(project, await chapter4());
     assert.ok(failed.summary);
     assert.match(failed.threadsError, /解析不出来/);
     assert.equal(failed.calls, 2);
-    assert.equal(t.read(THREADS), before);
+    assert.equal(t.read(file('玉佩的来历')), before);
     const [f] = await failuresOf(CH4);
     assert.equal(f?.severity, 'warn');
     assert.equal(f.op, 'threads');
@@ -379,7 +387,7 @@ describe('定稿 · 判本章推进了哪几条叙事线', () => {
     assert.ok(bundle.finalize.describeFinalize(4, ok).includes('叙事线没有新进展'));
   });
 
-  test('线都收了（或没有 threads.md）：不判，定稿只有更新细纲那一次', async () => {
+  test('线都收了（或没有叙事线）：不判，定稿只有更新细纲那一次', async () => {
     t.remove(THREADS);
     project.invalidate();
     fake.reset();

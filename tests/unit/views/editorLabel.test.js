@@ -122,10 +122,16 @@ describe('editorLabel · 有中文称呼的固定文件', () => {
     assert.equal(crumbs('.novelforge/outline.md'), '故事架构[.novelforge] › 情节大纲');
   });
 
-  test('文风指南、全书摘要、叙事线归在文风与摘要（与工程页、「转到…」同一个叫法）', () => {
+  test('文风指南、全书摘要归在文风与摘要（与工程页、「转到…」同一个叫法）', () => {
     assert.equal(describeFile('.novelforge/style.md').title, '文风指南');
     assert.equal(describeFile('.novelforge/summaries/global.md').title, '全书摘要');
-    assert.equal(crumbs('.novelforge/threads.md'), '文风与摘要[.novelforge] › 叙事线');
+  });
+
+  test('叙事线一条线一个文件：标签是线名、短标记「叙事线」，面包屑从叙事线目录起', () => {
+    const l = describeFile('.novelforge/threads/林昭与沈青.md');
+    assert.deepEqual({ tag: l.tag, title: l.title }, { tag: '叙事线', title: '林昭与沈青' });
+    assert.equal(crumbs('.novelforge/threads/林昭与沈青.md'), '叙事线[.novelforge/threads] › 林昭与沈青');
+    assert.equal(describeFile('.novelforge/threads.md').title, 'threads.md', '七期的单文件是 other');
   });
 
   test('敏感词表（写作体检用）也是中文称呼、归在文风与摘要', () => {

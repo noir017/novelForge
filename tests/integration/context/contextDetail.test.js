@@ -80,18 +80,11 @@ function plotText(no) {
   ].join('\n');
 }
 
-/** 五条都与第 13 章有关（区间盖住第 13 章），「精简」只带得下 3 条。 */
-const THREADS = [
-  '# 叙事线',
-  '',
-  ...['玉佩', '名册', '大火', '师父', '来信'].flatMap((name) => [
-    `## ${name}之谜`,
-    '- 类型：悬念',
-    '- 计划：第 10–20 章',
-    `- 意图：${name}的来历。`,
-    '',
-  ]),
-].join('\n');
+/** 五条都与第 13 章有关（区间盖住第 13 章），「精简」只带得下 3 条。一条线一个文件。 */
+const THREADS = ['玉佩', '名册', '大火', '师父', '来信'].map((name) => [
+  `.novelforge/threads/${name}之谜.md`,
+  `---\nkind: 支线\nplan: 10-20\n---\n\n# ${name}之谜\n\n## 意图\n${name}的来历。\n`,
+]);
 
 let bundle;
 before(() => {
@@ -116,7 +109,9 @@ async function setupManuscript() {
     '.novelforge/characters/林昭.md',
     '---\nname: 林昭\ntags: [主角]\n---\n\n# 林昭\n\n## 身份\n\n孤儿\n\n## 外貌\n\n左眉有一道疤\n\n## 当前状态\n\n在查案\n'
   );
-  t.write('.novelforge/threads.md', THREADS);
+  for (const [rel, text] of THREADS) {
+    t.write(rel, text);
+  }
   t.project.invalidate();
   const chapters = await t.project.listChapters();
   for (let no = 1; no <= N; no++) {

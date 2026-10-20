@@ -26,7 +26,7 @@ export function describeForReview(path: PathKind, rel: string): string {
     case 'globalSummary':
       return '全书滚动摘要';
     case 'threads':
-      return '叙事线';
+      return `叙事线 ${rel}`;
     case 'skill':
       return rel.endsWith('skills.json') ? '技能的阶段绑定' : `技能 ${rel}`;
     case 'sensitive':

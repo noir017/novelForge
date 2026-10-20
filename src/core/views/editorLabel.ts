@@ -34,6 +34,7 @@ const AREA_LABEL = {
   draft: '草稿',
   character: '角色',
   lore: '设定',
+  threads: '叙事线',
   skill: '技能',
 } as const;
 
@@ -80,7 +81,8 @@ export function describeEditorFile(project: NovelProject, relPath: string): Edit
     case 'globalSummary':
       return fixed(rel, STYLE_GROUP, FIXED_DOC_LABEL.globalSummary);
     case 'threads':
-      return fixed(rel, STYLE_GROUP, FIXED_DOC_LABEL.threads);
+      // 叙事线一条线一个文件（`threads/<线名>.md`）：标签上是线名，面包屑「叙事线 › 线名」，短标记「叙事线」。
+      return inArea(project.relPath(project.threadsDir), rel, AREA_LABEL.threads, AREA_LABEL.threads, plainLeaf(base));
     case 'sensitive':
       return fixed(rel, STYLE_GROUP, FIXED_DOC_LABEL.sensitive);
     case 'skill':

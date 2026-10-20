@@ -11,7 +11,7 @@
  *
  * | 断言 | 为什么 |
  * |---|---|
- * | `threads.md` 里有排出的线；第 1、2 章定稿各给对的线追加了带证据的事件 | 定稿第三步 |
+ * | 叙事线目录里有排出的线（一条一个文件）；第 1、2 章定稿各给对的线追加了带证据的事件 | 定稿第三步 |
  * | 一条伪造证据的事件被丢弃 | 证据逐字校验是那道闸 |
  * | **第 3 章写正文那一次的装配里**有「进行中的叙事线」，带着第 2 章那条事件的证据；计划中、没到区间的那条不在 | 这一期存在的理由：后一章读得到前面埋下的线 |
  * | 作者手改过的一行在三次定稿之后原样还在 | 第 3 条：机器只追加 |
@@ -36,8 +36,9 @@ let controller;
 const TITLES = ['停舟', '令牌', '夜访', '井', '名册'];
 const pad3 = (n) => String(n).padStart(3, '0');
 const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.md`;
-const THREADS = '.novelforge/threads.md';
-const AUTHOR_INTENT = '- 意图：作者改过的：名册上少了的那一页在沈氏手里。';
+const THREADS = '.novelforge/threads';
+const LEDGER = `${THREADS}/名册之谜.md`;
+const AUTHOR_INTENT = '作者改过的：名册上少了的那一页在沈氏手里。';
 
 function chapterText(no) {
   return [
@@ -109,7 +110,7 @@ before(async () => {
     provider: './src/core/llm/provider.ts',
     controller: './src/core/controller/index.ts',
     pipelineModel: './src/core/model/pipeline.ts',
-    threadsFile: './src/core/model/threadsFile.ts',
+    threadFile: './src/core/model/threadFile.ts',
     projectView: './src/core/views/projectView.ts',
     db: './src/core/runtime/db.ts',
     config: './src/core/config.ts',
@@ -162,7 +163,7 @@ before(async () => {
   h.expect('开始排');
   await controller.handle({ type: 'projectAction', action: 'generateThreads' });
   // 作者看了一眼，改了一条线的意图。
-  t.write(THREADS, t.read(THREADS).replace('- 意图：名册上少了一页。', AUTHOR_INTENT));
+  t.write(LEDGER, t.read(LEDGER).replace('名册上少了一页。', AUTHOR_INTENT));
   project.invalidate();
   // 与工程页弹窗提交的那一条一样：弹窗已经报过调用次数，带 call（作者在弹窗上没改模型与详细度）。
   await controller.handle({
@@ -181,11 +182,15 @@ after(() => {
 });
 
 describe('七期验收：排叙事线，再批量写章第 1–3 章、写完即定稿', () => {
-  const threads = () => bundle.threadsFile.parseThreads(t.read(THREADS));
-  const byTitle = (title) => threads().find((x) => x.title === title);
+  const threads = () =>
+    require('fs')
+      .readdirSync(t.rel(THREADS))
+      .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+      .map((name) => bundle.threadFile.parseThreadFile(t.read(`${THREADS}/${name}`), `${THREADS}/${name}`));
+  const byTitle = (title) => threads().find((x) => x.name === title);
 
-  test('threads.md 里有排出的三条线', () => {
-    assert.deepEqual(threads().map((x) => x.title), ['玉佩的来历', '名册之谜', '师父的身份']);
+  test('叙事线目录里有排出的三条线', () => {
+    assert.deepEqual(threads().map((x) => x.name), ['名册之谜', '师父的身份', '玉佩的来历']);
     assert.ok(t.has(CH(3)) && !t.has(CH(4)));
   });
 
@@ -193,12 +198,12 @@ describe('七期验收：排叙事线，再批量写章第 1–3 章、写完即
     assert.deepEqual(
       byTitle('玉佩的来历').events.map((e) => [e.chapter, e.type, e.evidence]),
       [
-        [1, '埋下', '林昭在第1章摸了摸怀里的玉佩。'],
-        [3, '回收', '林昭在第3章摸了摸怀里的玉佩'],
+        [1, '推进', '林昭在第1章摸了摸怀里的玉佩。'],
+        [3, '收束', '林昭在第3章摸了摸怀里的玉佩'],
       ]
     );
-    assert.deepEqual(byTitle('名册之谜').events.map((e) => [e.chapter, e.type]), [[2, '埋下']]);
-    assert.ok(!t.read(THREADS).includes('名册上被人撕掉了一页'));
+    assert.deepEqual(byTitle('名册之谜').events.map((e) => [e.chapter, e.type]), [[2, '推进']]);
+    assert.ok(!t.read(LEDGER).includes('名册上被人撕掉了一页'));
     assert.deepEqual(byTitle('师父的身份').events, []);
   });
 
@@ -206,16 +211,16 @@ describe('七期验收：排叙事线，再批量写章第 1–3 章、写完即
     const at = ch3Prompt.indexOf('# 进行中的叙事线');
     assert.ok(at > 0, ch3Prompt.slice(0, 2000));
     const section = ch3Prompt.slice(at, ch3Prompt.indexOf('\n---\n', at));
-    assert.ok(section.includes('- 名册之谜（悬念 · 已埋下 · 第 2 章埋、第 5 章前收；第 5 章之前不要揭开）'), section);
+    assert.ok(section.includes('- 名册之谜（支线 · 推进中 · 第 2 章埋、第 5 章前收；第 5 章之前不要揭开）'), section);
     assert.ok(section.includes('最近：第 2 章「沈氏在第2章翻开名册」'), section);
     assert.ok(section.includes('作者改过的：名册上少了的那一页在沈氏手里。'), section);
-    // 玉佩第 3 章才回收：写第 3 章时它还是已埋下、计划在本章前后回收。
-    assert.ok(section.includes('- 玉佩的来历（伏笔 · 已埋下 · 第 1 章埋、第 3 章前收；计划在本章前后回收，以本章细纲为准）'), section);
+    // 玉佩第 3 章才收束：写第 3 章时它还在推进、计划在本章前后回收。
+    assert.ok(section.includes('- 玉佩的来历（支线 · 推进中 · 第 1 章埋、第 3 章前收；计划在本章前后回收，以本章细纲为准）'), section);
     assert.ok(!section.includes('师父的身份'), section);
   });
 
   test('作者手改过的那一行在三次定稿之后原样还在', () => {
-    assert.ok(t.read(THREADS).includes(AUTHOR_INTENT), t.read(THREADS));
+    assert.ok(t.read(LEDGER).includes(AUTHOR_INTENT), t.read(LEDGER));
   });
 
   test('一共 12 次：排线 1 次，一章写一次、定稿更新细纲一次、叙事线一次，第 2、3 章写前各比对一次；没超过两个确认框的上限', () => {

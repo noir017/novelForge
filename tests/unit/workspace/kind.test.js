@@ -55,12 +55,21 @@ describe('kindOfPath · 固定单文件', () => {
     assert.equal(kindOf('.novelforge/summaries/global.md').kind, 'globalSummary');
   });
 
-  // 叙事线（七期）：与全书摘要同类，没有创作阶段，也不是哪一层的生成目标。
-  test('threads.md 是叙事线，不带创作层与目标', () => {
-    const k = kindOf('.novelforge/threads.md');
-    assert.equal(k.kind, 'threads');
-    assert.equal(k.stage, undefined);
-    assert.equal(k.target, undefined);
+  // 叙事线（2026-10-20 重做）：一条线一个文件，没有创作阶段，也不是哪一层的生成目标。
+  test('threads/ 这一层的 .md 是叙事线，不带创作层与目标', () => {
+    for (const rel of ['.novelforge/threads/林昭与沈青.md', '.novelforge/threads/未归属的伏笔.md']) {
+      const k = kindOf(rel);
+      assert.equal(k.kind, 'threads', rel);
+      assert.equal(k.stage, undefined);
+      assert.equal(k.target, undefined);
+    }
+  });
+
+  // 线不分子目录；七期的单文件不兼容：判 other，不读、不显示、不删。
+  test('更深一层、别的扩展名、目录本身、七期的 threads.md 都是 other', () => {
+    for (const rel of ['.novelforge/threads/旧/林昭.md', '.novelforge/threads/备注.txt', '.novelforge/threads', '.novelforge/threads.md']) {
+      assert.equal(kindOf(rel).kind, 'other', rel);
+    }
   });
 
   // 写作技能：阶段绑定与本工程的技能目录，都在链外，没有创作阶段。

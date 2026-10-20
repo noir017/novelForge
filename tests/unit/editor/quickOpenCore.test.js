@@ -64,6 +64,7 @@ function sampleIndex() {
       { key: 'config', label: '小说配置', path: '.novelforge/config.md' },
       { key: 'outline', label: '情节大纲', path: '.novelforge/outline.md' },
       { key: 'style', label: '文风指南', path: '.novelforge/style.md' },
+      { key: 'threads', label: '沈家旧案', path: '.novelforge/threads/沈家旧案.md' },
     ],
     drafts: [{ path: 'drafts/第一卷/003-夜访.md', name: '003-夜访.md', no: 3 }],
   };
@@ -223,6 +224,8 @@ describe('quickOpenCore › 标题、名字与别名', () => {
     assert.equal(first('大纲').entry.name, '情节大纲');
     assert.equal(first('大纲').entry.badge, '架构');
     assert.equal(first('文风').entry.badge, '文档');
+    // 叙事线一条线一项，名字是线名，类型标记写「叙事线」。
+    assert.equal(first('旧案').entry.badge, '叙事线');
   });
 
   test('英文不分大小写', () => {

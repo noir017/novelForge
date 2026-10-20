@@ -88,7 +88,7 @@ export interface ProjectTree {
   globalSummaryThrough: number;
   styleGuidePath: string;
   globalSummaryPath: string;
-  /** 叙事线（七期）。可选的文件：`threads.exists` 为 false 时还没排过。 */
+  /** 叙事线目录（`threads/`，一条线一个文件）。`threads.exists` 为 false 时还没排过。 */
   threadsPath: string;
   threads: ThreadsView;
   /** 全书走到哪一步（架构 / 大纲 / 细纲 / 在写 / 写完）。 */
@@ -107,11 +107,12 @@ export interface ProjectTree {
 }
 
 /**
- * 「文风与摘要」组里「叙事线」那一行的计数（七期）。`overdue` 是还没收、却已经过了计划回收章的
- * （以「下一可写章 − 1」为写到的那一章）。
+ * 「文风与摘要」组里「叙事线」那一行的计数。`overdue` 是还没收、却已经过了计划收束章的
+ * （以「下一可写章 − 1」为写到的那一章）。过渡：工程页「叙事线」单独一组、一条线一行（叙事线重做第 8 个提交）
+ * 之前先报这几个数。
  */
 export interface ThreadsView {
-  /** `threads.md` 有内容。没有时点那一行不打开文件（没有文件可开）。 */
+  /** 至少有一条线。 */
   exists: boolean;
   total: number;
   open: number;

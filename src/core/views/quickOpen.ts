@@ -3,7 +3,7 @@ import { parseChapterFileName } from '../model/chapterFile';
 import { exists } from '../model/fs';
 import { SETTING_DOC_LABEL, isFallbackChapterTitle } from '../model/pipeline';
 import { NovelProject } from '../model/project';
-import { FIXED_DOC_LABEL } from './editorLabel';
+import { FIXED_DOC_LABEL, describeEditorFile } from './editorLabel';
 import type {
   QuickOpenChapter,
   QuickOpenDoc,
@@ -86,7 +86,11 @@ export async function buildQuickOpenIndex(project: NovelProject): Promise<QuickO
   };
 }
 
-/** 架构三件、情节大纲、文风、叙事线、全书摘要：有文件的才列，按这个顺序（「故事架构」组在前）。 */
+/**
+ * 架构三件、情节大纲、文风、叙事线、全书摘要：有文件的才列，按这个顺序（「故事架构」组在前）。叙事线一条线一个文件
+ * （`threads/<线名>.md`），一条一项，名字是线名（与编辑器标签同一个叫法），类型标记由前端按 `key` 写「叙事线」；
+ * 「未归属的伏笔」排在各条线后面。
+ */
 async function listDocs(project: NovelProject): Promise<QuickOpenDoc[]> {
   const candidates: { key: QuickOpenDocKey; label: string; abs: string }[] = [
     { key: 'config', label: SETTING_DOC_LABEL.config, abs: project.configPath },
@@ -95,13 +99,19 @@ async function listDocs(project: NovelProject): Promise<QuickOpenDoc[]> {
     // 称呼与内置编辑器的标签、面包屑共用一张表（`views/editorLabel.ts`），同一份文件不叫两个名字。
     { key: 'outline', label: FIXED_DOC_LABEL.outline, abs: project.outlinePath },
     { key: 'style', label: FIXED_DOC_LABEL.style, abs: project.stylePath },
-    { key: 'threads', label: FIXED_DOC_LABEL.threads, abs: project.threadsPath },
+  ];
+  const tail: { key: QuickOpenDocKey; label: string; abs: string }[] = [
     { key: 'globalSummary', label: FIXED_DOC_LABEL.globalSummary, abs: project.globalSummaryPath },
   ];
-  const present = await Promise.all(candidates.map((c) => exists(c.abs)));
-  return candidates
-    .filter((_, i) => present[i])
-    .map((c) => ({ key: c.key, label: c.label, path: project.relPath(c.abs) }));
+  const present = await Promise.all([...candidates, ...tail].map((c) => exists(c.abs)));
+  const pick = (list: typeof candidates, offset: number): QuickOpenDoc[] =>
+    list.filter((_, i) => present[offset + i]).map((c) => ({ key: c.key, label: c.label, path: project.relPath(c.abs) }));
+  const threads: QuickOpenDoc[] = (await project.listThreadPaths()).map((rel) => ({
+    key: 'threads',
+    label: describeEditorFile(project, rel).title,
+    path: rel,
+  }));
+  return [...pick(candidates, 0), ...threads, ...pick(tail, candidates.length)];
 }
 
 /**
