@@ -1,7 +1,7 @@
 /**
  * 设定的格式定义：细纲第九节「设定」的一行一条、条目的一句话简介与分类、怎么认「同一个东西」。
  *
- * **纯函数、零 I/O**，与 plotFile.ts / threadsFile.ts 同类；条目的读写在 model/project.ts，
+ * **纯函数、零 I/O**，与 plotFile.ts / threadFile.ts 同类；条目的读写在 model/project.ts，
  * 名录（谁出现在哪几章、哪些还没建条目）在 views/lore.ts。
  *
  * ## 两处存储，各管一件事

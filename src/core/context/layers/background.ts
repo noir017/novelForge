@@ -2,7 +2,7 @@ import { isLoreSettle, loreOfTarget, plotLabel } from '../../model/pipeline';
 import { describeStateThrough } from '../../model/characterState';
 import { CONTEXT_DETAIL_LABEL, takeLast } from '../../model/contextDetail';
 import { ContinuityFact, locateEvidence, parseContinuityFacts } from '../../model/continuity';
-import { Thread, fromThreadBook, pickActiveThreads, threadCandidates } from '../../model/threadsFile';
+import { ContextThread, fitThreads, manuscriptThreads, reviewForeshadowing } from '../../model/threadFile';
 import { CharacterCard, LoreEntry } from '../../model/types';
 import { LORE_ENTRY_LIMITS, LORE_SETTLE_LIMITS, createLoreLookup, loreMentionIn } from '../../model/loreFile';
 import { LoreFact, LoreRecord, buildLoreIndex } from '../../views/lore';
@@ -733,57 +733,56 @@ export const evidence: LayerFn = async (a, spec) => {
 };
 
 /**
- * 写这一章时带哪几条**叙事线**（七期）：跨章的伏笔与线索，还没收的、和本章有关的那几条。
+ * 写这一章时带哪几条**叙事线**（2026-10-20 重做，设计稿「四」）：没收束的、和本章有关的那几条，一条线一行——现在走到哪、
+ * 本章计划干什么、没收的伏笔（没到回收章的写「第 b 章前不要揭开」）。审稿只带伏笔那一半（⚑5）。
  *
  * 移植自 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator）`generate-draft.command.ts` 的
  * `readActiveNarrativeThreads`（GD:1452-1498）。挑哪几条、怎么排、一行怎么写都在
- * model/threadsFile.ts（`pickActiveThreads`）；这一层只管登记：
+ * model/threadFile.ts（`manuscriptThreads` / `reviewForeshadowing`）；这一层只管登记：
  *
- * - 一条线一个条目，按要紧程度排好（细纲提到的在最前）；note 写状态与为什么带它。
- * - 条数与字数按上下文详细度（缺省 6 条 / 1200 字），放不下的条目 dropped 并写原因（第 2 条）。
+ * - 一条一个条目，按要紧程度排好（本章有计划的在最前）；note 写状态与为什么带它，来源是那条线自己的文件。
+ * - 条数与字数按上下文详细度（缺省 6 条 / 1200 字；审稿按 `foreshadowJudge` 条），放不下的 dropped 并写原因（第 2 条）。
  * - 作者在明细里取消勾选的那条不占名额，后面的补上来。
- * - 没有叙事线、或者没有一条有关的线：什么都不出（没有东西被截断）。
- *
- * 叙事线重做之后一条线一个文件（model/threadFile.ts）；这一层的挑法第 7 个提交才换，这之间经 `fromThreadBook`
- * 转成七期那一套认的样子，条目的来源是那条线自己的文件。
+ * - 没有叙事线、或者没有一条有关的：什么都不出（没有东西被截断）。
+ * - 写第 N 章一律按「写到第 N 章时」算（`asOf`）：重写前面的章时不带后面的事。
  */
 export const threads: LayerFn = async (a, spec) => {
   if (!Number.isFinite(a.focus.no)) {
     return;
   }
-  const list = fromThreadBook(await a.project.readThreads());
+  const book = await a.project.readThreads();
+  const reviewing = a.request.action.capability === 'review';
+  const plot = a.focus.plot;
+  const plotText = plot ? [plot.title, ...Object.values(plot.sections)].join('\n') : '';
+  const list = reviewing ? reviewForeshadowing(book, a.focus.no) : manuscriptThreads(book, a.focus.no, plotText);
   if (list.length === 0) {
     return;
   }
-  const plot = a.focus.plot;
-  const focus = {
-    no: a.focus.no,
-    plotText: plot ? [plot.title, ...Object.values(plot.sections)].join('\n') : '',
-    names: namesOf(await a.project.listCharacters(), plot?.characters ?? []),
-  };
-  const idOf = (t: Thread): string => `thread:${t.index}`;
-  const base = (t: Thread) => ({
-    id: idOf(t),
+  const idOf = (c: ContextThread): string => `thread:${c.relPath}${reviewing ? `#${c.name}` : ''}`;
+  const base = (c: ContextThread) => ({
+    id: idOf(c),
     kind: 'thread' as const,
     priority: spec.priority,
-    label: `叙事线 · ${t.title}`,
-    source: t.relPath ?? a.project.relPath(a.project.threadsDir),
+    label: `${reviewing ? '伏笔' : '叙事线'} · ${c.name}`,
+    source: c.relPath,
   });
-
-  const excluded = threadCandidates(list, focus).filter((c) => a.excluded.has(idOf(c.thread)));
-  const { picked, dropped } = pickActiveThreads(
-    list.filter((t) => !a.excluded.has(idOf(t))),
-    focus,
-    { count: a.limits.threadCount, chars: a.limits.threadChars }
+  const limits = reviewing
+    ? { count: a.limits.foreshadowJudge, chars: a.limits.threadChars }
+    : { count: a.limits.threadCount, chars: a.limits.threadChars };
+  const excluded = list.filter((c) => a.excluded.has(idOf(c)));
+  const { picked, dropped } = fitThreads(
+    list.filter((c) => !a.excluded.has(idOf(c))),
+    limits,
+    reviewing ? '伏笔' : '叙事线'
   );
-  for (const p of picked) {
-    a.admit({ ...base(p.thread), text: p.line, note: `${p.status} · ${p.why}` });
+  for (const c of picked) {
+    a.admit({ ...base(c), text: c.line, note: `${c.status} · ${c.why}` });
   }
   for (const c of excluded) {
-    a.admit({ ...base(c.thread), text: '' });
+    a.admit({ ...base(c), text: '' });
   }
   for (const d of dropped) {
-    a.reject({ ...base(d.thread), text: '' }, 'dropped', d.note);
+    a.reject({ ...base(d), text: '' }, 'dropped', d.note);
   }
 };
 

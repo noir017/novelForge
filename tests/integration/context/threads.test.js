@@ -1,15 +1,16 @@
 /**
- * 正文层的 `threads` 层（七期）：写正文时带最多 6 条和本章有关、还没收的叙事线。
+ * 正文层的 `threads` 层（叙事线重做，设计稿「四」）：写正文时带没收束、和本章有关的线，一条线一行——现在走到哪、本章计划、
+ * 没收的伏笔；审稿只带伏笔那一半。
  *
  * | 断言 | 为什么 |
  * |---|---|
- * | 一条线一个条目，按要紧程度排，note 写状态与为什么带 | 第 2 条：明细里看得出带了什么、为什么 |
- * | 计划中、没到埋下那一章、细纲没提的不带；收了的不带 | 带进去等于提示模型提前埋 |
- * | 6 条以外的 dropped 并写原因 | 第 2 条：不静默截断 |
- * | 取消勾选的不占名额 | 作者排除一条，后面的补上来 |
- * | 消息里一节，带「没到回收章不许提前揭开」 | 这一层存在的另一半理由 |
- * | 第 1 章也带 | 计划在第 1 章埋下的线，写第 1 章的人得知道（上游不带） |
- * | 续写、审稿、修稿不带 | 它们各有各的配方 |
+ * | 一条线一个条目，按要紧程度排：本章有计划 / 细纲提到 → 主线 → 收束章就在附近 → 最近动过的 | 设计稿的挑法 |
+ * | 一行写现在走到哪（当前进度）、本章计划、没收的伏笔（该收的在前，没到回收章的「第 b 章前不要揭开」） | 设计稿：这一层存在的另一半理由 |
+ * | 计划中、没到开始那一章、细纲没提的不带；收束的不带；还没到埋的伏笔不提 | 带进去等于提示模型提前写 |
+ * | 「未归属的伏笔」有该收的单独一行 | 挂不上线的伏笔也要有人提醒 |
+ * | 写到第 N 章时按那时算：当前进度写到这一章或更晚的不用，改用这一章之前的事件 | 不把后面的剧情透给前面 |
+ * | 6 条以外的 dropped 写原因、取消勾选的不占名额 | 第 2 条：不静默截断 |
+ * | 审稿只带没收的伏笔（换个标题）；续写、修稿不带 | 设计稿 ⚑5；它们各有各的配方 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -68,36 +69,74 @@ function plotText(no, events) {
 
 /** 叙事线：一条线一个文件。 */
 const DIR = '.novelforge/threads';
-const thread = (plan, intent, events = []) =>
-  `---\nkind: 支线\nplan: ${plan}\n---\n\n## 意图\n${intent}\n\n## 进展\n${events.map((e) => `- ${e}`).join('\n')}\n`;
-const THREADS = {
-  玉佩的来历: thread('2-8', '玉佩是沈家旧物。', ['第 3 章 · 推进：第一次露面 〔证据：「他摸了摸怀里的玉佩」〕']),
-  远方的来信: thread('10-12', '信是谁寄的。'),
-  青崖镇的大火: thread('1-3', '大火是谁放的。', ['第 1 章 · 推进：起火 〔证据：「火光冲天」〕']),
-  后面才埋的线: thread('9-20', '林昭的师父另有身份。'),
-  已经收了: thread('1-9', '收了的线。', ['第 2 章 · 收束：收了 〔证据：「x」〕']),
-};
-
-/** 把叙事线目录换成这几条（再加 `extra` 条计划区间第 1–9 章的）。 */
-function writeThreads(extra = 0) {
-  t.remove(DIR);
-  for (const [name, text] of Object.entries(THREADS)) {
-    t.write(`${DIR}/${name}.md`, text);
-  }
-  for (let i = 0; i < extra; i++) {
-    t.write(`${DIR}/区间内${i}.md`, thread('1-9', `第${i}条。`));
-  }
-  t.project.invalidate();
-}
+const thread = (kind, plan, { intent = '', fore = [], events = [] } = {}) =>
+  [
+    '---',
+    `kind: ${kind}`,
+    `plan: ${plan}`,
+    '---',
+    '',
+    '## 意图',
+    intent,
+    '',
+    '## 伏笔',
+    ...fore.map((f) => `- ${f}`),
+    '',
+    '## 进展',
+    ...events.map((e) => `- ${e}`),
+    '',
+  ].join('\n');
 
 let bundle;
 let t;
+
+/** 林昭与沈青：当前进度是机器写到第 4 章的；第 5 章计划推进；两条伏笔，一条第 5 章该收、一条第 18 章才收。 */
+function pairFile() {
+  return bundle.threadFile.patchProgress(
+    thread('感情线', '2-30', {
+      intent: '从互相猜忌到并肩。',
+      fore: ['玉佩的来历：沈家旧物（计划第 2 章埋、第 18 章前收）', '沈青的旧伤（第 5 章前收）'],
+      events: [
+        '第 3 章 · 推进：初遇 〔证据：「她的剑停在他喉前三寸」〕',
+        '第 3 章 · 埋〈玉佩的来历〉：玉佩露面 〔证据：「他摸了摸怀里的玉佩」〕',
+        '第 5 章 · 计划 · 推进：沈青第一次替林昭挡刀',
+      ],
+    }),
+    '两人已结盟，沈青仍瞒着身份。',
+    4
+  );
+}
+
+const THREADS = () => ({
+  林昭与沈青: pairFile(),
+  远方的来信: thread('支线', '10-12', { intent: '信是谁寄的。' }),
+  青崖镇的大火: thread('主线', '1-40', { intent: '大火是谁放的。', events: ['第 1 章 · 推进：起火 〔证据：「火光冲天」〕'] }),
+  后面才开的线: thread('支线', '9-20', { intent: '林昭的师父另有身份。' }),
+  已经收了: thread('支线', '1-9', { events: ['第 2 章 · 收束：收了 〔证据：「x」〕'] }),
+  断了的线: thread('人物线', '1-30', { intent: '林昭学会放下。', events: ['第 2 章 · 推进：林昭第一次犹豫 〔证据：「他犹豫了」〕'] }),
+  快收束的线: thread('支线', '1-7', { intent: '镇上的怪事。', events: ['第 1 章 · 推进：怪事开头 〔证据：「井里有声音」〕'] }),
+});
+const UNFILED = '# 未归属的伏笔\n\n## 伏笔\n- 提灯人：院外提灯的人（第 4 章前收）\n- 断剑（计划第 9 章埋）\n\n## 进展\n- 第 2 章 · 埋〈提灯人〉：有人提灯走过 〔证据：「提着灯」〕\n';
+
+/** 把叙事线目录换成这几条（再加 `extra` 条进行中的支线）。 */
+function writeThreads(extra = 0) {
+  t.remove(DIR);
+  for (const [name, text] of Object.entries(THREADS())) {
+    t.write(`${DIR}/${name}.md`, text);
+  }
+  t.write(`${DIR}/未归属的伏笔.md`, UNFILED);
+  for (let i = 0; i < extra; i++) {
+    t.write(`${DIR}/区间内${i}.md`, thread('支线', '1-30', { events: [`第 4 章 · 推进：第${i}条 〔证据：「x」〕`] }));
+  }
+  t.project.invalidate();
+}
 
 before(async () => {
   bundle = loadBundle({
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
     builder: './src/core/context/builder.ts',
+    threadFile: './src/core/model/threadFile.ts',
     db: './src/core/runtime/db.ts',
   });
   bundle.host.initHost(makeFakeHost().host);
@@ -105,7 +144,7 @@ before(async () => {
   for (let no = 1; no <= 4; no++) {
     t.write(`chapters/${pad3(no)}-第${no}章.md`, `# 第${no}章\n\n第${no}章的正文。\n`);
   }
-  // 第 5 章的细纲提到了「远方的来信」：它没到区间，但细纲提了就带，而且排在最前。
+  // 第 5 章的细纲提到了「远方的来信」：它没到区间，但细纲提了就带，而且排在最前那一档。
   t.write(PLOT(5), plotText(5, '林昭收到了远方的来信，信上没有落款。'));
   t.write(PLOT(1), plotText(1, '林昭在雪夜里出逃。'));
   writeThreads();
@@ -132,45 +171,54 @@ describe('threads 层 · 第 5 章', () => {
     b = await build(5);
   });
 
-  test('有关的线一条一个条目，按要紧程度排', () => {
+  test('有关的线一条一个条目，按要紧程度排：本章有计划 / 细纲提到 → 主线 → 收束章在附近、有伏笔该收 → 最近动过的', () => {
     assert.deepEqual(
-      threadItems(b).map((i) => [i.label, i.status]),
+      threadItems(b).map((i) => [i.label, i.status, i.note]),
       [
-        ['叙事线 · 远方的来信', 'included'],
-        ['叙事线 · 玉佩的来历', 'included'],
-        ['叙事线 · 青崖镇的大火', 'included'],
+        ['叙事线 · 林昭与沈青', 'included', '进行中 · 本章有计划'],
+        ['叙事线 · 远方的来信', 'included', '计划中 · 本章细纲提到了它'],
+        ['叙事线 · 青崖镇的大火', 'included', '进行中 · 主线'],
+        ['叙事线 · 快收束的线', 'included', '进行中 · 计划第 7 章收束，就在附近'],
+        ['叙事线 · 未归属的伏笔', 'included', '未归属 · 有伏笔该收了或本章有计划'],
+        ['叙事线 · 断了的线', 'included', '进行中 · 最近第 2 章动过'],
       ]
     );
   });
 
-  test('note 写状态与为什么带它，来源是那条线自己的文件', () => {
-    const [letter, jade, fire] = threadItems(b);
-    assert.equal(letter.note, '计划中 · 本章细纲提到了它');
-    assert.equal(jade.note, '推进中 · 本章在它的计划区间里');
-    assert.equal(fire.note, '推进中 · 已过计划回收的第 3 章，还没收');
-    assert.equal(jade.source, '.novelforge/threads/玉佩的来历.md');
-    assert.equal(jade.priority, 1);
+  test('来源是那条线自己的文件，优先级 P1', () => {
+    const [pair] = threadItems(b);
+    assert.equal(pair.source, '.novelforge/threads/林昭与沈青.md');
+    assert.equal(pair.priority, 1);
   });
 
-  test('计划中、还没到埋下那一章、细纲没提的不带；收了的不带', () => {
+  test('计划中、还没到开始那一章、细纲没提的不带；收束了的不带', () => {
     const labels = threadItems(b).map((i) => i.label).join('|');
-    assert.ok(!labels.includes('后面才埋的线'), labels);
+    assert.ok(!labels.includes('后面才开的线'), labels);
     assert.ok(!labels.includes('已经收了'), labels);
   });
 
-  test('消息里一节：一条一行，带不许提前揭开，排在前文正文与本章细纲之前', () => {
+  test('一行：现在走到哪、本章计划、没收的伏笔（该收的在前，没到回收章的不要揭开）', () => {
+    const [pair, letter, fire] = threadItems(b);
+    assert.equal(
+      pair.text,
+      '- 林昭与沈青（感情线 · 进行中）现在：两人已结盟，沈青仍瞒着身份；本章计划：推进——沈青第一次替林昭挡刀；没收的伏笔：沈青的旧伤（本章计划收）、玉佩的来历（第 18 章前不要揭开）'
+    );
+    assert.equal(letter.text, '- 远方的来信（支线 · 计划中）意图：信是谁寄的');
+    assert.equal(fire.text, '- 青崖镇的大火（主线 · 进行中）最近：第 1 章推进：起火');
+  });
+
+  test('「未归属的伏笔」一行：逾期的提，还没到埋的时候的不提', () => {
+    const loose = threadItems(b).find((i) => i.label === '叙事线 · 未归属的伏笔');
+    assert.equal(loose.text, '- 未归属的伏笔：提灯人（已过第 4 章，还没收）');
+  });
+
+  test('消息里一节：一条一行，说清没到回收章的伏笔不许提前揭开，排在前文正文与本章细纲之前', () => {
     const user = userOf(b);
-    const at = user.indexOf('# 进行中的叙事线（只作提醒：以本章细纲为准，细纲没写到的线不要硬塞；没到回收章的线不许提前揭开）');
+    const at = user.indexOf('# 进行中的叙事线（只作提醒：以本章细纲为准，细纲没写到的线不要硬塞；没到回收章的伏笔不许提前揭开）');
     assert.ok(at > 0, user.slice(0, 2000));
     const section = user.slice(at, user.indexOf('\n---\n', at));
-    assert.ok(
-      section.includes(
-        '- 玉佩的来历（支线 · 推进中 · 第 2 章埋、第 8 章前收；第 8 章之前不要揭开）意图：玉佩是沈家旧物。；最近：第 3 章「他摸了摸怀里的玉佩」'
-      ),
-      section
-    );
-    assert.ok(section.indexOf('远方的来信') < section.indexOf('玉佩的来历'), section);
     assert.equal(section.trim().split('\n\n').length, 2, '标题之后一条一行，中间不空行');
+    assert.ok(section.indexOf('林昭与沈青') < section.indexOf('远方的来信'), section);
     assert.ok(at < user.indexOf('# 前文正文'));
     assert.ok(at < user.indexOf('# 细纲'));
   });
@@ -178,9 +226,8 @@ describe('threads 层 · 第 5 章', () => {
 
 describe('threads 层 · 名额与排除', () => {
   test('最多 6 条，排在后面的 dropped 并写原因', async () => {
-    writeThreads(6);
-    const b = await build(5);
-    const items = threadItems(b);
+    writeThreads(3);
+    const items = threadItems(await build(5));
     assert.equal(items.filter((i) => i.status === 'included').length, 6);
     const dropped = items.filter((i) => i.status === 'dropped');
     assert.equal(dropped.length, 3);
@@ -189,10 +236,9 @@ describe('threads 层 · 名额与排除', () => {
   });
 
   test('取消勾选的那条标 excluded，不占名额', async () => {
-    writeThreads(6);
+    writeThreads(3);
     const first = threadItems(await build(5))[0];
-    const b = await build(5, { excludedIds: [first.id] });
-    const items = threadItems(b);
+    const items = threadItems(await build(5, { excludedIds: [first.id] }));
     assert.equal(items.find((i) => i.id === first.id)?.status, 'excluded');
     assert.equal(items.filter((i) => i.status === 'included').length, 6);
     assert.equal(items.filter((i) => i.status === 'dropped').length, 2);
@@ -200,17 +246,22 @@ describe('threads 层 · 名额与排除', () => {
   });
 });
 
-describe('threads 层 · 什么时候不带', () => {
-  // 状态按「写到这一章时」算：重写第 1 章时，玉佩那条（第 3 章才埋下）还是计划中、没到区间，
-  // 不带；「已经收了」那条第 2 章才回收，在第 1 章看来还开着——后面的事不透给前面。
-  test('第 1 章也带：计划从第 1 章起的线；后面几章才发生的事不算', async () => {
-    const b = await build(1);
-    const items = threadItems(b);
-    assert.deepEqual(items.map((i) => i.label), ['叙事线 · 青崖镇的大火', '叙事线 · 已经收了']);
-    assert.equal(items[0].note, '计划中 · 本章在它的计划区间里');
-    assert.ok(items.every((i) => !i.text.includes('最近')), JSON.stringify(items.map((i) => i.text)));
+describe('threads 层 · 写到第 N 章时按那时算', () => {
+  // 重写第 1 章：后面几章才发生的事、写到第 4 章的当前进度都不算；林昭与沈青第 2 章才开、第 1 章没计划，不带。
+  test('第 1 章：只带那时已经开了的线，没有「最近」与「现在」', async () => {
+    const items = threadItems(await build(1));
+    assert.deepEqual(items.map((i) => i.label), [
+      '叙事线 · 青崖镇的大火',
+      '叙事线 · 断了的线',
+      '叙事线 · 快收束的线',
+      '叙事线 · 已经收了',
+    ]);
+    assert.equal(items[0].text, '- 青崖镇的大火（主线 · 计划中）意图：大火是谁放的');
+    assert.ok(items.every((i) => !i.text.includes('最近') && !i.text.includes('现在')), JSON.stringify(items.map((i) => i.text)));
   });
+});
 
+describe('threads 层 · 什么时候不带、审稿带什么', () => {
   test('没有叙事线：一条都不出', async () => {
     t.remove(DIR);
     t.project.invalidate();
@@ -225,14 +276,29 @@ describe('threads 层 · 什么时候不带', () => {
     assert.deepEqual(threadItems(b), []);
   });
 
-  test('审稿、修稿不带', async () => {
+  test('修稿不带', async () => {
+    const revise = await build(5, { writeMode: 'revise', revision: { previousDraft: '第5章的正文。', feedback: '改一处' } });
+    assert.deepEqual(threadItems(revise), []);
+  });
+
+  // 设计稿 ⚑5：审稿提示词里两条伏笔检查的材料从前是角色卡「未收伏笔」与细纲「新增伏笔」，都并进了叙事线。
+  test('审稿只带没收的伏笔：该收的在前，没到回收章的「不该揭开」，换个标题', async () => {
     const review = await bundle.builder.buildContext(
       t.project,
       { action: REVIEW, target: { kind: 'manuscript', plotRelPath: PLOT(5) }, ask: '', reviewGoals: [] },
       config()
     );
-    assert.deepEqual(threadItems(review), []);
-    const revise = await build(5, { writeMode: 'revise', revision: { previousDraft: '第5章的正文。', feedback: '改一处' } });
-    assert.deepEqual(threadItems(revise), []);
+    assert.deepEqual(
+      threadItems(review).map((i) => i.text),
+      [
+        '- 提灯人（挂在「未归属的伏笔」· 已埋 · 已过第 4 章，还没收）是什么：院外提灯的人',
+        '- 沈青的旧伤（挂在「林昭与沈青」· 计划 · 本章计划收）',
+        '- 玉佩的来历（挂在「林昭与沈青」· 已埋 · 第 18 章前不该揭开）是什么：沈家旧物',
+      ]
+    );
+    assert.ok(threadItems(review).every((i) => i.label.startsWith('伏笔 · ')));
+    const user = userOf(review);
+    assert.ok(user.includes('# 没收的伏笔（审稿对照：计划在本章收的写到没有；没到回收章的有没有提前揭开）'), user.slice(0, 1500));
+    assert.ok(!user.includes('# 进行中的叙事线'));
   });
 });

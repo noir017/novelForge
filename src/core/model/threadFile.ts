@@ -23,7 +23,7 @@
  * - 第 3 章 · 推进：两人在镇口初遇 〔证据：「她的剑停在他喉前三寸」〕
  * ```
  *
- * 七期那一份单文件 `threads.md`（`threadsFile.ts`）把伏笔、悬念、线索混在一起，状态只有一种算法，
+ * 七期那一份单文件 `threads.md`（`threadsFile.ts`，已删）把伏笔、悬念、线索混在一起，状态只有一种算法，
  * 也看不出一条线现在走到哪。这一版只收**剧情线**（四种种类，主线全书一条），伏笔挂在线下，
  * 关系变动是线上的一个事件；「当前进度」一两句话说这条线现在走到哪，由机器维护、指纹守着。
  *
@@ -1575,6 +1575,228 @@ export function verifyProgress(raw: readonly unknown[], lines: readonly string[]
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------- 写正文、审稿：带哪几条
+
+/** 计划收束章离这一章不超过几章算「就在附近」（写正文挑线）。 */
+export const NEAR_CLOSE = 5;
+/** 写正文时一条线最多列几条没收的伏笔。 */
+export const LINE_FORESHADOW_MAX = 4;
+/** 一行里「现在」截到多长、最近事件与本章计划每条截到多长：一条线不该一个人吃掉整层的字数（七期上游 #4）。 */
+const LINE_NOW_MAX = 80;
+const LINE_ITEM_MAX = 40;
+const LINE_INTENT_MAX = 60;
+
+/** 压成一行、去掉句末的标点（一行里几段用「；」接，「。；」不好看），超长截断。 */
+function clip(text: string, max: number): string {
+  const t = (text ?? '').replace(/\s+/g, ' ').trim().replace(/[。；;，,、\s]+$/u, '');
+  return [...t].length > max ? `${[...t].slice(0, max).join('')}…` : t;
+}
+
+/** 一条要带进上下文的东西（一条线、一条伏笔，或「未归属的伏笔」那一行）。 */
+export interface ContextThread {
+  /** 那份文件的路径：条目身份与来源都用它。 */
+  relPath: string;
+  name: string;
+  /** 状态：线的状态、伏笔的状态，「未归属的伏笔」那一行是「未归属」。 */
+  status: string;
+  /** 为什么带它（写进明细）。 */
+  why: string;
+  /** 越小越靠前。 */
+  rank: number;
+  line: string;
+}
+
+/** `本章计划：推进——……；埋〈玉佩〉——……`。 */
+function plannedText(events: readonly ThreadEvent[]): string {
+  return events
+    .map((e) => `${e.type}${e.foreshadowing ? `〈${e.foreshadowing}〉` : ''}${e.what ? `——${clip(e.what, LINE_ITEM_MAX)}` : ''}`)
+    .join('；');
+}
+
+/**
+ * 一条没收的伏笔写正文时怎么提醒（设计稿「四」：没到回收章的一律写「第 b 章前不要揭开」，这是这一层存在的另一半理由）。
+ * 返回 `[排序, 说法]`；还没到埋的时候（计划中、本章也不埋）返回 undefined——提了等于叫模型提前埋。
+ */
+function foreshadowHint(f: ForeshadowState, no: number, planned: readonly ThreadEvent[]): [number, string] | undefined {
+  const mine = planned.filter((e) => e.foreshadowing && threadKey(e.foreshadowing) === threadKey(f.name));
+  if (mine.some((e) => e.type === '收') || f.resolve === no) {
+    return [0, '本章计划收'];
+  }
+  if (f.resolve !== undefined && f.resolve < no) {
+    return [0, `已过第 ${f.resolve} 章，还没收`];
+  }
+  if (mine.some((e) => e.type === '埋')) {
+    return [1, f.resolve !== undefined ? `本章计划埋，第 ${f.resolve} 章前不要揭开` : '本章计划埋，不要当场揭开'];
+  }
+  if (f.status === '计划' && !(f.plant !== undefined && f.plant <= no)) {
+    return undefined;
+  }
+  return [2, f.resolve !== undefined ? `第 ${f.resolve} 章前不要揭开` : '不要提前揭开'];
+}
+
+/** 一份文件里写第 `no` 章时要提的伏笔：`玉佩的来历（第 18 章前不要揭开）`，该收的、逾期的在前，最多 `max` 条。 */
+function foreshadowList(file: ThreadFileBase, no: number, planned: readonly ThreadEvent[], max: number): { text: string; due: boolean } {
+  const items = foreshadowingOf(file, no - 1)
+    .filter((f) => !isForeshadowClosed(f.status))
+    .map((f) => ({ f, hint: foreshadowHint(f, no, planned) }))
+    .filter((x): x is { f: ForeshadowState; hint: [number, string] } => !!x.hint)
+    .sort((a, b) => a.hint[0] - b.hint[0] || (a.f.resolve ?? Infinity) - (b.f.resolve ?? Infinity));
+  return {
+    text: items
+      .slice(0, max)
+      .map((x) => `${x.f.name}（${x.hint[1]}）`)
+      .join('、'),
+    due: items.some((x) => x.hint[0] === 0),
+  };
+}
+
+/**
+ * 写第 `no` 章时哪几条线算「有关」，按要紧程度排好（不截；设计稿「四、写正文」）：
+ *
+ * 0. 本章有计划事件的、本章细纲提到了名字的；
+ * 1. 主线；
+ * 2. 计划收束章就在附近（{@link NEAR_CLOSE} 章之内）或已经过了的、有伏笔该在本章收或已经逾期的（收束章近的在前）；
+ * 3. 最近动过的（近的在前）；计划中、本章已经在它的计划区间里的。
+ *
+ * 收束了、放弃了的不带。**计划中、还没到开始那一章、本章也没计划、细纲也没提的不带**——带进去等于提示模型提前开。
+ * 「未归属的伏笔」有要提的就单独一行（有该收的排在第 2 档，否则最后）。状态、现在走到哪都按「写到这一章时」算
+ * （{@link asOf}：当前进度写到这一章或更晚的不用，改用这一章之前最近两条实际事件）。
+ */
+export function manuscriptThreads(book: ThreadBook, no: number, plotText: string): ContextThread[] {
+  const plot = normalizeQuote(plotText);
+  const out: (ContextThread & { tie: number; index: number })[] = [];
+  for (const full of book.threads) {
+    const t = asOf(full, no);
+    const status = threadStatus(t);
+    if (isClosed(status)) {
+      continue;
+    }
+    // 本章的计划事件在 asOf 里已经去掉了（只留之前的）：从原样那一份取。
+    const planned = plannedEvents(full).filter((e) => e.chapter === no);
+    const key = threadKey(t.name);
+    const mentioned = key.length >= 2 && plot.includes(key);
+    const state = threadStateAt(t, no - 1);
+    const fores = foreshadowList(t, no, planned, LINE_FORESHADOW_MAX);
+    const near = t.to !== undefined && (t.to < no || t.to - no <= NEAR_CLOSE);
+    let rank: number;
+    let why: string;
+    let tie = 0;
+    if (planned.length > 0 || mentioned) {
+      rank = 0;
+      why = planned.length > 0 ? '本章有计划' : '本章细纲提到了它';
+    } else if (t.kind === '主线') {
+      rank = 1;
+      why = '主线';
+    } else if (near || fores.due) {
+      rank = 2;
+      why = near ? (t.to! < no ? `已过计划收束的第 ${t.to} 章` : `计划第 ${t.to} 章收束，就在附近`) : '有伏笔该收了';
+      tie = t.to ?? Number.MAX_SAFE_INTEGER;
+    } else if (state.lastActive !== undefined) {
+      rank = 3;
+      why = `最近第 ${state.lastActive} 章动过`;
+      tie = -state.lastActive;
+    } else if (status === '计划中' && t.from !== undefined && t.from <= no) {
+      rank = 3;
+      why = '本章在它的计划区间里';
+    } else {
+      continue;
+    }
+    const recent = actualEvents(t)
+      .slice(-2)
+      .map((e) => `第 ${e.chapter} 章${e.type}${e.foreshadowing ? `〈${e.foreshadowing}〉` : ''}${e.what ? `：${clip(e.what, LINE_ITEM_MAX)}` : ''}`)
+      .join('；');
+    const now = t.progress
+      ? `现在：${clip(t.progress, LINE_NOW_MAX)}`
+      : recent
+        ? `最近：${recent}`
+        : t.intent
+          ? `意图：${clip(t.intent, LINE_INTENT_MAX)}`
+          : '';
+    const head = [t.kind, status, t.to !== undefined && t.to < no ? `已过计划收束的第 ${t.to} 章` : t.to === no ? '计划在本章收束' : '']
+      .filter(Boolean)
+      .join(' · ');
+    const parts = [now, planned.length > 0 ? `本章计划：${plannedText(planned)}` : '', fores.text ? `没收的伏笔：${fores.text}` : ''].filter(Boolean);
+    out.push({ relPath: t.relPath, name: t.name, status, why, rank, line: `- ${t.name}（${head}）${parts.join('；')}`, tie, index: t.index });
+  }
+  const unfiledPlanned = plannedEvents(book.unfiled).filter((e) => e.chapter === no);
+  const loose = foreshadowList(asOf(book.unfiled, no), no, unfiledPlanned, LINE_FORESHADOW_MAX * 2);
+  if (loose.text || unfiledPlanned.length > 0) {
+    const parts = [loose.text, unfiledPlanned.length > 0 ? `本章计划：${plannedText(unfiledPlanned)}` : ''].filter(Boolean);
+    out.push({
+      relPath: book.unfiled.relPath,
+      name: UNFILED_NAME,
+      status: '未归属',
+      why: loose.due || unfiledPlanned.length > 0 ? '有伏笔该收了或本章有计划' : '挂不上线的伏笔',
+      rank: loose.due || unfiledPlanned.length > 0 ? 2 : 4,
+      line: `- ${UNFILED_NAME}：${parts.join('；')}`,
+      tie: Number.MAX_SAFE_INTEGER,
+      index: Number.MAX_SAFE_INTEGER,
+    });
+  }
+  return out
+    .sort((a, b) => a.rank - b.rank || a.tie - b.tie || a.index - b.index)
+    .map(({ tie: _tie, index: _index, ...c }) => c);
+}
+
+/**
+ * 审稿第 `no` 章时带哪几条伏笔（设计稿「四、审稿」⚑5：审稿提示词里两条伏笔检查从前的材料——角色卡「未收伏笔」、细纲
+ * 「新增伏笔」——都并进了叙事线，这一期先带伏笔部分）：写到这一章时还没收的，只提跟这一章有关的——计划在本章或更早收的、
+ * 本章计划埋或收的、已经埋下的（没到回收章就不该揭开）。还没到埋的时候的不提。一条一行，该收的在前。
+ */
+export function reviewForeshadowing(book: ThreadBook, no: number): ContextThread[] {
+  const files: { file: ThreadFileBase; line?: string }[] = [...book.threads.map((t) => ({ file: t, line: t.name })), { file: book.unfiled }];
+  const out: (ContextThread & { tie: number })[] = [];
+  for (const { file, line } of files) {
+    const planned = plannedEvents(file).filter((e) => e.chapter === no);
+    for (const f of foreshadowingOf(asOf(file, no), no - 1)) {
+      if (isForeshadowClosed(f.status)) {
+        continue;
+      }
+      const hint = foreshadowHint(f, no, planned);
+      if (!hint) {
+        continue;
+      }
+      const why = hint[1].replace('不要揭开', '不该揭开').replace('不要当场揭开', '不该当场揭开');
+      out.push({
+        relPath: file.relPath,
+        name: f.name,
+        status: f.status,
+        why,
+        rank: hint[0],
+        line: `- ${f.name}（挂在「${line ?? UNFILED_NAME}」· ${f.status} · ${why}）${f.what ? `是什么：${clip(f.what, LINE_INTENT_MAX)}` : ''}`,
+        tie: f.resolve ?? Number.MAX_SAFE_INTEGER,
+      });
+    }
+  }
+  return out.sort((a, b) => a.rank - b.rank || a.tie - b.tie).map(({ tie: _tie, ...c }) => c);
+}
+
+/**
+ * 按排好的顺序取，最多 `count` 条、一共 `chars` 字（只算各行）。放不下的那条**跳过、接着试下一条**（七期修过的上游 `break`：
+ * 一条长的挡住后面所有短的）。丢了的带原因交给调用方写进明细（第 2 条）。`what` 是明细里怎么称呼（「叙事线」「伏笔」）。
+ */
+export function fitThreads<T extends { line: string }>(
+  list: readonly T[],
+  limits: { count: number; chars: number },
+  what = '叙事线'
+): { picked: T[]; dropped: (T & { note: string })[] } {
+  const picked: T[] = [];
+  const dropped: (T & { note: string })[] = [];
+  let used = 0;
+  for (const c of list) {
+    const cost = c.line.length + (picked.length > 0 ? 1 : 0);
+    if (picked.length >= limits.count) {
+      dropped.push({ ...c, note: `${what}一次只带 ${limits.count} 条，排在后面的没带` });
+    } else if (used + cost > limits.chars) {
+      dropped.push({ ...c, note: `${what}一共只带 ${limits.chars} 字，放不下这一条` });
+    } else {
+      used += cost;
+      picked.push(c);
+    }
+  }
+  return { picked, dropped };
 }
 
 // ---------------------------------------------------------------- 当前进度（机器维护、指纹守着）

@@ -699,3 +699,50 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
     );
   });
 });
+
+describe('threadFile.ts · 写正文、审稿带哪几条', () => {
+  const pair = line(
+    [ev(3, '推进', { what: '初遇。' }), ev(3, '埋', { foreshadowing: '玉佩' }), { ...ev(5, '推进', { what: '挡刀' }), planned: true }, { ...ev(5, '埋', { foreshadowing: '断剑', what: '断剑落潭' }), planned: true }],
+    {
+      name: '林昭与沈青',
+      kind: '感情线',
+      relPath: 'p',
+      index: 0,
+      progress: '结盟了。',
+      progressThrough: 4,
+      foreshadowing: [{ name: '玉佩', what: '旧物', resolve: 18 }, { name: '断剑', what: '' }, { name: '名册', what: '', plant: 9 }],
+    }
+  );
+  const later = line([], { name: '后面才开', relPath: 'l', index: 1, from: 9 });
+  const book = { threads: [pair, later], unfiled: { name: '未归属的伏笔', relPath: 'u', foreshadowing: [], events: [] } };
+
+  test('一行：现在（去掉句末标点）、本章计划、没收的伏笔（本章计划埋的在前，还没到埋的不提）', () => {
+    const [c] = t.manuscriptThreads(book, 5, '');
+    assert.equal(c.line, '- 林昭与沈青（感情线 · 进行中）现在：结盟了；本章计划：推进——挡刀；埋〈断剑〉——断剑落潭；没收的伏笔：断剑（本章计划埋，不要当场揭开）、玉佩（第 18 章前不要揭开）');
+    assert.deepEqual([c.relPath, c.status, c.why, c.rank], ['p', '进行中', '本章有计划', 0]);
+  });
+
+  test('计划中、还没到开始那一章的不带；当前进度写到这一章或更晚的不用，改用之前的事件', () => {
+    assert.deepEqual(t.manuscriptThreads(book, 5, '').map((c) => c.name), ['林昭与沈青']);
+    const [c] = t.manuscriptThreads(book, 4, '');
+    assert.equal(c.line, '- 林昭与沈青（感情线 · 进行中）最近：第 3 章推进：初遇；第 3 章埋〈玉佩〉；没收的伏笔：玉佩（第 18 章前不要揭开）');
+  });
+
+  test('放不下的跳过、接着试下一条；明细里怎么称呼可换', () => {
+    const list = [{ line: 'a'.repeat(5) }, { line: 'b'.repeat(20) }, { line: 'c'.repeat(3) }];
+    const r = t.fitThreads(list, { count: 2, chars: 10 }, '伏笔');
+    assert.deepEqual(r.picked.map((x) => x.line), ['aaaaa', 'ccc']);
+    assert.deepEqual(r.dropped.map((x) => x.note), ['伏笔一共只带 10 字，放不下这一条']);
+    assert.deepEqual(t.fitThreads(list, { count: 1, chars: 100 }).dropped.map((x) => x.note), [
+      '叙事线一次只带 1 条，排在后面的没带',
+      '叙事线一次只带 1 条，排在后面的没带',
+    ]);
+  });
+
+  test('审稿：只提跟这一章有关的伏笔，「不要揭开」换成「不该揭开」', () => {
+    assert.deepEqual(t.reviewForeshadowing(book, 5).map((c) => c.line), [
+      '- 断剑（挂在「林昭与沈青」· 计划 · 本章计划埋，不该当场揭开）',
+      '- 玉佩（挂在「林昭与沈青」· 已埋 · 第 18 章前不该揭开）是什么：旧物',
+    ]);
+  });
+});

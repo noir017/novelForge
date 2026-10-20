@@ -90,7 +90,7 @@ import { THREAD_FIND_SYSTEM, THREAD_MERGE_SYSTEM, THREAD_PROGRESS_SYSTEM, thread
 
 const log = scoped('叙事线');
 
-/** 失败记录的 op：排线失败、定稿时判叙事线失败都记在它名下。 */
+/** 失败记录的 op：排线失败（挂在叙事线目录上）、定稿时认叙事线没成或只成了一半（挂在章节上）都记在它名下。 */
 export const THREADS_OP = 'threads';
 
 // ---------------------------------------------------------------- 排线
