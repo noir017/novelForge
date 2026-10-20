@@ -258,6 +258,14 @@ export class NovelProject {
     return path.join(this.novelDir, 'history');
   }
 
+  /**
+   * 存档点（`.novelforge/checkpoints/`）：整本书在某一刻的样子，按内容寻址去重（布局与保留见
+   * workspace/checkpoints.ts）。Novel Forge 自己的内部文件，界面上只经「存档点」面板看。
+   */
+  get checkpointsDir(): string {
+    return path.join(this.novelDir, 'checkpoints');
+  }
+
   /** 0.1.x 的 `.novel/` 目录，仅用于迁移检测。 */
   get legacyNovelDir(): string {
     return path.join(this.root, LEGACY_NOVEL_DIR);

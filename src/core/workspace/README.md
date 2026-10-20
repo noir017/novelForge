@@ -1,7 +1,7 @@
 # workspace — 工程的唯一读写网关
 
 `list` / `read` / `write` / `edit` / `move` / `copy` / `mkdir` / `remove` / `search` 九个方法（外加一批收领域对象的写入器，
-见末尾「领域写入器」），是整个工程**唯一**允许写盘的地方。网关之外还剩的写盘都是按设计不走这里的（见「历史版本」一节
+见末尾「领域写入器」；存档点的退回另有一个字节原样的 `restoreBytes`，也在那张表里），是整个工程**唯一**允许写盘的地方。网关之外还剩的写盘都是按设计不走这里的（见「历史版本」一节
 末尾那张清单），`tests/contract/gatewayWrites.test.js` 逐个文件数着，多出一处就红。
 
 ## 为什么要有这一层
@@ -68,9 +68,9 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 **区界限不在这里**：`fileOps` 的三区约束（章节挪不进角色目录）是**工程页的
 产品承诺**，比这里的工程根约束更严。那一层留在 `fileOps` 里，先判区再调网关。
 
-**写不进去的三处**（`guardWrite`、`guardCreate` 共用一道）：Novel Forge 自己的内部文件（会话 `sessions/`、工程库，`protected`）、
+**写不进去的三处**（`guardWrite`、`guardCreate` 共用一道）：Novel Forge 自己的内部文件（会话 `sessions/`、工程库、存档点 `checkpoints/`，`protected`）、
 回收站（`inTrash`）、历史版本（`inHistory`）。`write`、`move` 的落点、`copy` 的落点、`mkdir` 都过它。历史版本那一条是后补的：
-从前守卫只拦前两处，作者的操作能往「历史」面板里塞一份从没存过的「旧版」。回收站与历史版本都**读得到**（会话读当不存在）。
+从前守卫只拦前两处，作者的操作能往「历史」面板里塞一份从没存过的「旧版」。回收站与历史版本都**读得到**（会话与存档点读当不存在）。
 
 ## 复制与建目录（`copy` / `mkdir`）
 
@@ -213,6 +213,41 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 磁盘上那一份先 `snapshotNow` 一次：放回的内容一存盘就盖掉它，而按节流它可能因为「改动小」不存——作者是在版本之间跳，
 跳走之前那一版得留住。
 
+## 存档点（`checkpoints.ts`）
+
+历史版本管**一份文件**被覆盖之前的那一版；存档点管**整本书一起**：作者在工程页「存档点…」里手动存一个（带一句备注），
+批量动作之前机器自动存一个（`features/checkpoint.ts` 的 `checkpointBefore`）。之后看每个存档点跟现在比改了哪几份，
+整本或单份退回去。设计见 [docs/design/plans/2026-10-20-checkpoints.md](../../../docs/design/plans/2026-10-20-checkpoints.md)。
+**不用 git**：作者自己可能在用 git，app 自动提交会刷作者的提交历史、整本 checkout 会盖掉没提交的改动；Novel Forge 不碰 `.git`。
+
+**布局**——按内容寻址，同样的内容只存一份：
+
+```
+.novelforge/checkpoints/
+├── .gitignore                               第一次建这个目录时放进来，内容 `*`（同历史版本）
+├── objects/3f/a9c1…                         文件内容：sha256 前两位当目录、余下 62 位当文件名；字节原样，不转码、不压缩
+└── points/2026-10-20_22-30-05+0800.json     一个存档点一份清单：time / note / auto / files（路径 → sha、字节、字数）/ skipped
+```
+
+- **存哪些**（`trackedFiles`）：`kindOfPath` 不是 `other` 的，与历史版本同一个口径；只扫章节根、草稿根与 `.novelforge/`，
+  隐藏目录（含回收站）、会话、历史版本、存档点自己都不进。超过 2 MB 的单份不存，记进 `skipped`（第 2 条），跟现在比时
+  也不算「之后新建」。
+- **先写对象、最后写清单**，两样都先写临时文件再改名：清单是提交点，写到一半失败只剩没人引用的对象，清理时带走。
+- **自动的与最近一个一模一样就不另存**（沿用最近那一个）；手动的照存（只多一份清单）。
+- **保留**：手动的永远留；自动的留最近 30 个（`CHECKPOINT_AUTO_KEEP`），裁掉清单之后清理没人引用的对象（`collectGarbage`）——
+  只删写下超过一小时的（另一个进程可能正在存、对象写了清单还没写），有一份清单读不懂就整个不清。给自动的写备注就是留住它
+  （`noteCheckpoint`：变成手动）。删掉存档点的是网关自己的副本，不违背第 6 条（同历史版本的裁剪）。
+- **排队**：同一个工程的存、写备注、清理在进程里排队（`withCheckpointLock`，按工程根一把锁）。
+- **内部文件**：整个目录算 `isInternalPath`——读当不存在、写搬删都拒、`list` 与全文检索看不见，`watchPolicy` 挡掉它的变动，
+  `isProtectedPath` 也列着它。「文件」页那一层不藏东西，目录照样列得出来，点开读不到（与会话一样）。存档点只经面板看。
+
+**跟现在比**（`diffCheckpoint`）：逐份比 sha，分改过的、之后删掉的、之后新建的，每份带当时与现在的字数和此刻的乐观锁 hash
+（`hashNow`，按 utf8 读出来算 `hash`，与 `guardWrite` 读盘的口径一致），退回时原样带回来。
+
+**退回**写盘走网关的 `restoreBytes`（见「领域写入器」）：字节原样、守卫照过、覆盖之前存一版历史（跳过节流）、**不跑 handler**——
+细纲 frontmatter 里的指纹一起回到当时，不按大纲此刻重记（第 18 条）。编排（先存「退回之前」、编辑器未保存的跳过、乐观锁、
+勾了才搬进回收站、同步 manifest）在 `features/checkpoint.ts`。
+
 ## 记账下沉（网关收拢那一期唯一有意的行为变化）
 
 `upstreamHash` 从前**只在采纳路径上记**（`features/creation.ts` 的
@@ -277,6 +312,7 @@ workspace/
 ├── kind.ts         ★ 路径 → 种类（纯函数，零 I/O，绝不抛）
 ├── guard.ts        ★ 统一入口守卫（八条；写、建、复制的落点共用「写不进去的三处」，复制的来源另有 guardCopySource）
 ├── history.ts      历史版本：覆盖之前存旧内容（布局、节流、保留；绝不挡住保存）；搬家时快照跟着走（moveHistory，绝不挡住搬家）
+├── checkpoints.ts  存档点：整本书存一版（按内容寻址去重）、列、跟现在比、保留与清理；写盘是这一层自己的（内部文件）
 ├── search.ts       全文检索（朴素扫描，零模型调用）
 └── handlers/
     ├── index.ts    种类 → handler 注册表（认不出落 plain，绝不抛）
@@ -299,6 +335,7 @@ workspace/
 | `recordPreflightOk` | 细纲路径（只改 frontmatter 的 `preflightOk`：一致性预检的永久放行，一行「名字：理由」，同名换新理由；没有 frontmatter 的手写细纲不补，五期补遗 §2） |
 | `restampPlotChain(rel, patch)` | 细纲路径（只改 frontmatter 里给出的指纹键：`upstreamHash` / `writtenFrom` / `sourceHash`，值为空就删掉这个键；别的键与正文一个字节不动，不存历史版本，没有 frontmatter 的手写细纲不补）。只给全书替换的指纹链收尾用（第 18 条，`features/bookReplace.ts`）：同一次里细纲与正文都改了、原本对得上的，`writtenFrom` / `sourceHash` 刷成替换后的；细纲的 `upstreamHash` 退回替换前的判断——`write` 写细纲时总是记下大纲此刻的指纹（「谁写都记」），这一次替换不该顺手把本来挂着的 ⟳ 擦掉、也不该把没记过的手写细纲拉进链 |
 | `patchPlotLore` | 细纲路径（只换「设定」一节，没有就加在末尾，另外七节与 frontmatter 一个字不动；单独记设定、补记用。「设定」一节不进内容指纹，正文不会因此挂 ⟳） |
+| `restoreBytes(rel, bytes, { baseHash?, absent? })` | 调用方给的路径（存档点的退回，`features/checkpoint.ts`）。**字节原样**写回，不跑 handler（不渲染、不记账：细纲的指纹一起回到当时，第 18 条；章节的 manifest 由调用方最后同步一次）；不弹覆盖审阅（面板上点两下就是那一问）。守卫照过：越界、写不进去的三处、大小上限、乐观锁（`absent`：当时磁盘上没有，这期间又建出来报 `exists`）；覆盖之前存一版历史（跳过节流）；父目录不在就补齐 |
 | `createChapter` / `ensureDraft` | 章号 + 标题 / 章节路径的镜像 |
 | `createChapterAt(rel, content, plotRelPath)` | 调用方给的路径（照细纲写正文时由 `views/pipeline.ts` 的 `chapterTargetOf` 算：细纲所在的子目录）。细纲路径与新正文的镜像对不上（纯序号的 `030.md`、正文按标题落成 `030-雪夜.md`）就把细纲改名过去；镜像位置已有文件时不动、记 warn |
 | `createChapters(items)` | 同 `createChapter`，一次好几章（导入原稿）：每章照样过 `write`（同名报错退出、大小上限），只是 chapter handler 的 manifest 同步**延到最后做一次**（`WriteOptions.deferAfter`，只对章节生效）——逐章重扫全部章节是 O(n²) 次读盘，三百章十几秒。撞了同名就抛，前面写好的留着、manifest 照样同步 |

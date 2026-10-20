@@ -120,14 +120,16 @@ export function isProtectedPath(project: NovelProject, relPath: string): boolean
     '.novelforge/.trash',
     // 历史版本：网关自己存的副本（workspace/history.ts）。整个目录搬走或删掉，所有文件的历史一起没了。
     '.novelforge/history',
+    // 存档点（workspace/checkpoints.ts）：内部文件，本来就碰不到；列在这里与历史版本一样多一道保险。
+    '.novelforge/checkpoints',
   ];
   return fixed.includes(rel);
 }
 
 /**
- * Novel Forge 自己的内部文件：工程库（`novelforge.db` 与 WAL 模式带出的 `-wal` / `-shm`）与会话记录。
- * 它们不是作品内容，读出来是二进制乱码或对话流水，改坏了是整页起不来。
- * 所以列目录、搜索里看不见，读当不存在，写、改、搬一律拒绝。
+ * Novel Forge 自己的内部文件：工程库（`novelforge.db` 与 WAL 模式带出的 `-wal` / `-shm`）、会话记录与存档点。
+ * 它们不是作品内容，读出来是二进制乱码、对话流水或一堆按 hash 命名的对象，改坏了是整页起不来、存档点退不回去。
+ * 所以列目录、搜索里看不见，读当不存在，写、改、搬一律拒绝。存档点只经「存档点」面板看（workspace/checkpoints.ts）。
  */
 export function isInternalPath(project: NovelProject, rel: string): boolean {
   const db = `${project.relPath(project.novelDir)}/novelforge.db`;
@@ -135,7 +137,13 @@ export function isInternalPath(project: NovelProject, rel: string): boolean {
     return true;
   }
   const sessions = project.relPath(project.sessionsDir);
-  return rel === sessions || rel.startsWith(`${sessions}/`);
+  const checkpoints = project.relPath(project.checkpointsDir);
+  return (
+    rel === sessions ||
+    rel.startsWith(`${sessions}/`) ||
+    rel === checkpoints ||
+    rel.startsWith(`${checkpoints}/`)
+  );
 }
 
 /** 这条路径在回收站里。`.trash/` 里躺着刚删掉的东西，不是操作对象。 */
@@ -284,11 +292,11 @@ export async function guardWrite(
 /**
  * 写、建、复制的落点共用的一道：这三处**不是作者的操作对象**，什么都写不进去——
  *
- * - Novel Forge 自己的内部文件（会话、工程库）：`protected`
+ * - Novel Forge 自己的内部文件（会话、工程库、存档点）：`protected`
  * - 回收站：`inTrash`（里面躺着删掉的东西，往里写等于伪造一份「删掉过的」）
  * - 历史版本：`inHistory`（网关自己存的副本；往里塞文件，「历史」面板里就多出一份作者从没存过的「旧版」）
  *
- * 三处都**读得到**（会话除外，它读当不存在）：回收站与历史版本是作者找回东西的地方。
+ * 三处都**读得到**（会话与存档点除外，它们读当不存在）：回收站与历史版本是作者找回东西的地方。
  */
 function guardArea(project: NovelProject, rel: string): void {
   if (isInternalPath(project, rel)) {

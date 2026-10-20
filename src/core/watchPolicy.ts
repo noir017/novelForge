@@ -36,6 +36,8 @@ export function watchGlobs(config: NovelConfig): string[] {
 
 /** `.novelforge/history` 本身或它下面的任何东西（相对、绝对路径都认）。 */
 const HISTORY_RE = /(^|\/)\.novelforge\/history(\/|$)/;
+/** `.novelforge/checkpoints`（存档点）同上。 */
+const CHECKPOINTS_RE = /(^|\/)\.novelforge\/checkpoints(\/|$)/;
 
 /**
  * 给吃事件流的宿主用的过滤：这条变更该不该忽略。
@@ -57,7 +59,9 @@ export function shouldIgnoreChange(name: string): boolean {
   }
   // 历史版本同理：网关每覆盖一份产物就先往 `.novelforge/history/` 存一版（workspace/history.ts），
   // 不挡的话每存一个快照就多一轮全量重扫。插件壳那边快照是 `.txt`，`watchGlobs` 本来就扫不到。
-  if (HISTORY_RE.test(name.replace(/\\/g, '/'))) {
+  // 存档点（workspace/checkpoints.ts）一次存几十上百个对象，更要挡。
+  const posix = name.replace(/\\/g, '/');
+  if (HISTORY_RE.test(posix) || CHECKPOINTS_RE.test(posix)) {
     return true;
   }
   const ext = path.extname(name).toLowerCase();

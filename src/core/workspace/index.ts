@@ -96,7 +96,7 @@ import {
 } from './guard';
 import { Handler, HandlerCtx, handlerFor } from './handlers';
 import { renderFinalizedPlot } from './handlers/plot';
-import { moveHistory, snapshotBeforeWrite } from './history';
+import { moveHistory, snapshotBeforeWrite, snapshotNow } from './history';
 import { SearchOptions, SearchResult, search } from './search';
 
 const log = scoped('工作区');
@@ -552,6 +552,44 @@ export class Workspace {
     await fs.mkdir(abs, { recursive: true });
     this.project.invalidate();
     return { rel: normalized, message: `已新建文件夹 ${normalized}` };
+  }
+
+  // ---------------------------------------------------------------- restoreBytes
+
+  /**
+   * 把一份文件写回成存档点里的那一份（`features/checkpoint.ts` 的退回），**字节原样**。
+   *
+   * 与 `write` 不同的地方都是有意的：
+   *
+   * - **不跑 handler**（不渲染、不定落点、不记账）：退回要的是当时那一份一个字节不差——细纲 frontmatter 里的
+   *   `upstreamHash` / `writtenFrom` / `sourceHash` 一起回到当时，不按大纲此刻的指纹重记（第 18 条：整本退回之后
+   *   就是当时那条链）。章节的 manifest 由调用方在一批写完之后同步一次（同 `deferAfter`）。
+   * - **不弹覆盖审阅**：面板上点了两下「退回」就是那一问（第 3 条），乐观锁挡住这期间别处的改动。
+   *
+   * 守卫照过：越界、写不进去的三处（内部文件 / 回收站 / 历史版本）、大小上限、乐观锁——`absent: true` 表示作者看到时
+   * 磁盘上没有这一份，这期间又被建出来就报 `exists`；给了 `baseHash` 就比对，磁盘变过报冲突。覆盖之前照样给旧内容存
+   * 一版历史（跳过节流：退回是一次大改，被盖掉的那一份得在「历史」面板里找得到）。父目录不在就补齐（存档点之后整个
+   * 卷目录被删了）。
+   */
+  async restoreBytes(rel: string, bytes: Buffer, opts: { baseHash?: string; absent?: boolean } = {}): Promise<WriteResult> {
+    const normalized = normalizeRel(rel);
+    if (normalized === undefined) {
+      throw new WsError('outOfRoot', `路径超出工程目录：${rel}`);
+    }
+    if (bytes.length > MAX_EDITABLE_BYTES) {
+      throw new WsError('tooLarge', `内容超过大小上限，未写入：${normalized}`);
+    }
+    const guarded = await guardWrite(this.project, normalized, {
+      mode: opts.absent ? 'create' : 'overwrite',
+      baseHash: opts.baseHash,
+    });
+    if (guarded.existed) {
+      await snapshotNow(this.project, normalized);
+    }
+    await fs.mkdir(path.dirname(guarded.abs), { recursive: true });
+    await fs.writeFile(guarded.abs, bytes);
+    this.project.invalidate();
+    return { rel: normalized, message: `已退回 ${normalized}` };
   }
 
   // ---------------------------------------------------------------- search
