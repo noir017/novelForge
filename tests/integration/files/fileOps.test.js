@@ -194,6 +194,7 @@ describe('fileOps.ts', () => {
     });
 
     test('给出各区根目录', () => {
+      assert.equal(tree.chaptersRoot, 'chapters', tree.chaptersRoot);
       assert.equal(tree.charactersRoot, '.novelforge/characters', tree.charactersRoot);
     });
 

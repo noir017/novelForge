@@ -477,7 +477,7 @@ function sampleTree() {
       idea: '一个从火里活下来的人回到起火的地方。', totalChapters: 30, wordsPerChapter: 400,
       configHasContent: true, outlineCoverage: 20, plotFilledNos: [1, 3, 4],
     },
-    charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
+    chaptersRoot: 'chapters', charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
     globalSummaryThrough: 2, styleGuidePath: '.novelforge/style.md',
     globalSummaryPath: '.novelforge/summaries/global.md',
     // 叙事线（七期）：排过 4 条，一条已收，一条过了回收章还开着。

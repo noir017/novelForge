@@ -1993,8 +1993,8 @@ describe('工程页数据', () => {
 
   test('给出各区的根目录', () => {
     assert.ok(
-      tree.charactersRoot === '.novelforge/characters' && tree.loreRoot === '.novelforge/lore',
-      [tree.charactersRoot, tree.loreRoot].join(' ')
+      tree.chaptersRoot === 'chapters' && tree.charactersRoot === '.novelforge/characters' && tree.loreRoot === '.novelforge/lore',
+      [tree.chaptersRoot, tree.charactersRoot, tree.loreRoot].join(' ')
     );
   });
 

@@ -847,16 +847,16 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(loreItems.includes('在此新建设定'), JSON.stringify(loreItems));
   });
 
-  // ---- 章节分组：两个新建项 + 两个批量动作。
-  // 章节组没有 section（细纲目录不是作者的文件管理区，不给「新建文件夹」），
+  // ---- 章节分组：三个新建项 + 两个批量动作。
+  // 章节组没有 section（这一组按章号平铺、不画目录，不给「在此新建章节」那一套），
   // 所以它的菜单全部来自 extraItems，分隔线要自己写。
   let plotHead;
   let plotGroupItems;
-  test('章节分组菜单含两个新建项与两个批量动作', () => {
+  test('章节分组菜单含三个新建项与两个批量动作', () => {
     plotHead = [...ui.doc.querySelectorAll('#projectBody .group-head')]
       .find((n) => n.querySelector('.group-name').textContent === '章节');
     plotGroupItems = ui.itemsOf(ui.rightClick(plotHead));
-    for (const label of ['新建细纲（接在最后一章之后）', '新建章节文件（直接粘正文用）',
+    for (const label of ['新建细纲（接在最后一章之后）', '新建章节文件（直接粘正文用）', '在此新建文件夹',
       '批量拆细纲…', '批量写章…']) {
       assert.ok(plotGroupItems.includes(label), JSON.stringify(plotGroupItems));
     }
@@ -865,10 +865,16 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   // 批量拆场景随场景层一起删掉了。忘记删的话菜单里会多一条点了会炸的项。
   test('章节分组菜单不再有批量拆场景', () => {
     assert.ok(!plotGroupItems.some((x) => x.includes('拆分场景')), JSON.stringify(plotGroupItems));
+    ui.closeMenu();
   });
 
-  test('章节分组菜单没有「在此新建文件夹」', () => {
-    assert.ok(!plotGroupItems.includes('在此新建文件夹'), JSON.stringify(plotGroupItems));
+  // 工具栏的「＋ 文件夹」拿掉之后，独立版建分卷目录只剩这一个入口：落点是章节根，后端据此认出是章节区。
+  test('章节分组「在此新建文件夹」发 newFolder，落点是章节根', () => {
+    ui.pick(ui.rightClick(plotHead), '在此新建文件夹');
+    const msg = ui.last('projectAction');
+    assert.ok(msg, '没发出 projectAction');
+    assert.equal(msg.action, 'newFolder', JSON.stringify(msg));
+    assert.equal(msg.dir, 'chapters', JSON.stringify(msg));
     ui.closeMenu();
   });
 

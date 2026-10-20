@@ -95,6 +95,9 @@ function buildProjectPage(tree: ProjectTree): void {
       extraItems: () => [
         { label: '新建细纲（接在最后一章之后）', run: () => projectAction('newPlot') },
         { label: '新建章节文件（直接粘正文用）', run: () => projectAction('newChapter') },
+        // 分卷目录建在章节根下（工具栏的「＋ 文件夹」拿掉之后，独立版只剩这一个入口）。这一组按章号平铺、
+        // 不画目录，空目录在这里看不见；章节放进去之后，新的一章跟上一章落进同一个卷目录。
+        { label: '在此新建文件夹', run: () => projectAction('newFolder', undefined, tree.chaptersRoot) },
         // 整本 txt 放进工程之后切成章（零调用；后端弹框挑文件、报切分结果）。
         { label: '导入原稿（选一本 txt）…', run: () => projectAction('importManuscript') },
         { sep: true },

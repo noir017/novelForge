@@ -78,6 +78,8 @@ export interface ProjectTree {
   loreUnrecorded: number;
   failures: Record<string, FailureView[]>;
   castConflicts: CastConflictView[];
+  /** 章节区根目录（`chapters`）。「章节」组右键「在此新建文件夹」建分卷目录落在这里。 */
+  chaptersRoot: string;
   charactersRoot: string;
   loreRoot: string;
   globalSummaryThrough: number;

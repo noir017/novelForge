@@ -60,6 +60,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
   const outlinePath = project.relPath(project.outlinePath);
   const globalSummaryPath = project.relPath(project.globalSummaryPath);
   const threadsPath = project.relPath(project.threadsPath);
+  const chaptersRoot = project.relPath(project.chaptersDir);
   const charactersRoot = project.relPath(project.charactersDir);
   const loreRoot = project.relPath(project.loreDir);
 
@@ -85,6 +86,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       loreUnrecorded: 0,
       castConflicts: [],
       failures: {},
+      chaptersRoot,
       charactersRoot,
       loreRoot,
       globalSummaryThrough: 0,
@@ -275,6 +277,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     loreUnrecorded: loreIndex.unrecorded.length,
     castConflicts,
     failures,
+    chaptersRoot,
     charactersRoot,
     loreRoot,
     globalSummaryThrough: manifest.globalSummaryThrough ?? 0,
