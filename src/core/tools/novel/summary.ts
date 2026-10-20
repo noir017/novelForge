@@ -36,10 +36,10 @@ export const summaryTool = defineActionTool({
       },
     },
     sync: {
-      label: '把所有没定稿、或定稿后正文又改过的章的细纲照正文更新（只更新细纲，不动角色状态与叙事线）',
+      label: '把所有没定稿、或定稿后正文又改过的章逐章定稿（照正文更新细纲，再更新出场角色的当前状态、记下推进了哪几条叙事线）',
       costly: true,
       async run(ctx) {
-        return countedBy(await syncSummaries(ctx.project), '细纲同步');
+        return countedBy(await syncSummaries(ctx.project), '批量定稿');
       },
     },
     rebuildGlobal: {

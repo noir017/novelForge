@@ -110,9 +110,9 @@ describe('同步与重建：确认框照弹，作者取消就零调用', () => {
     const r = await run({ action: 'sync' });
     assert.equal(
       h.confirms.at(-1).message,
-      '有 1 章的细纲还没照正文更新（没定稿，或定稿后正文又改过），需要调用 1 次模型。现在同步？'
+      '有 1 章写了正文还没定稿（或定稿后正文又改过），逐章定稿：照正文更新细纲、更新出场角色的当前状态、记下推进了哪几条叙事线。预计 1–3 次调用。现在同步？'
     );
-    assert.ok(r.text.includes('细纲同步这一次没有调用模型'), r.text);
+    assert.ok(r.text.includes('批量定稿这一次没有调用模型'), r.text);
     assert.ok(r.text.includes('不要重试'), r.text);
     assert.equal(fake.calls.length, 0);
     assert.equal(ctx.usage.calls, 0);

@@ -25,27 +25,24 @@
  *
  * 单章入口（主按钮、章节工作台、右键、MCP 的 `summary finalize`）用对话页选定的那个。批量入口
  * 各走各的档（细纲与叙事线 `plotSummary`、角色状态 `characterCard`），失败换同档其余。
+ *
+ * 后两步在 finalizeSteps.ts：工程页黄条上的「立即同步」（summarize.ts 的 `syncSummaries`）更新完细纲之后
+ * 也走它们，同步过的章与逐章定稿的章是同一个结果。
  */
 import { getHost } from '../host';
 import { readConfig } from '../config';
-import { CancelledError, LlmProvider } from '../llm/provider';
+import { LlmProvider } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
-import { clearFailures, recordFailure } from '../runtime/errorLog';
-import { describeError, scoped } from '../runtime/logger';
+import { scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { NovelProject } from '../model/project';
 import { Chapter } from '../model/types';
-import { STATE_OP, StateUpdateOutcome, updateCharacterStates } from './characterState';
 import { SummaryOutcome, summarizeChapter } from './summarize';
-import { THREADS_OP, ThreadEventOutcome, recordThreadEvents } from './threads';
+import { ModelRunner, StateAndThreadsOutcome, updateStateAndThreads } from './finalizeSteps';
+
+export type { ModelRunner } from './finalizeSteps';
 
 const log = scoped('定稿');
-
-/** 调模型的那一下：单个模型直接调，分档池带 fallback。`ModelPool` 本身就长这样。 */
-export interface ModelRunner {
-  run<T>(what: string, fn: (llm: LlmProvider) => Promise<T>): Promise<T>;
-  readonly primaryBudget: { contextWindow: number; maxOutputTokens: number };
-}
 
 /** 只有一个模型（对话页选定的那个）时的 runner：不换人，窗口取全局配置。 */
 export function singleModel(llm: LlmProvider): ModelRunner {
@@ -68,16 +65,10 @@ export interface FinalizeOptions {
   onStep?(step: 'summary' | 'state' | 'threads'): void;
 }
 
-export interface FinalizeOutcome {
-  /** 实际调了几次模型。 */
+export interface FinalizeOutcome extends StateAndThreadsOutcome {
+  /** 实际调了几次模型（三步合计）。 */
   calls: number;
   summary: SummaryOutcome;
-  states?: StateUpdateOutcome;
-  /** 角色状态那一步没成（细纲照样算数）。 */
-  stateError?: string;
-  threads?: ThreadEventOutcome;
-  /** 叙事线那一步没成（细纲照样算数）。 */
-  threadsError?: string;
 }
 
 /**
@@ -106,65 +97,13 @@ export async function finalizeChapter(
   if (!summary) {
     return undefined;
   }
-  const outcome: FinalizeOutcome = { calls: 1, summary };
-
-  opts.onStep?.('state');
-  const stateRunner = opts.state ?? summaryRunner;
-  try {
-    outcome.states = await updateCharacterStates(project, chapter, summary.cast, {
-      run: (what, fn) => stateRunner.run(what, fn),
-      budget: stateRunner.primaryBudget,
-      signal: opts.signal,
-    });
-    outcome.calls += outcome.states.calls;
-    await clearFailures(project, 'chapter', chapter.relPath, STATE_OP);
-  } catch (err) {
-    if (err instanceof CancelledError || opts.signal?.aborted) {
-      throw err;
-    }
-    // 请求发出去了钱就花了：失败也记一次（解析失败、网络错误都是发出去之后的事）。
-    outcome.calls += 1;
-    outcome.stateError = describeError(err);
-    log.warn(`第 ${chapter.order} 章的角色状态没更新成：${outcome.stateError}`, err);
-    await recordFailure(project, {
-      scope: '定稿',
-      targetKind: 'chapter',
-      targetKey: chapter.relPath,
-      severity: 'warn',
-      op: STATE_OP,
-      message: `细纲已照正文更新，但角色状态没更新成：${outcome.stateError}`,
-      detail: '角色卡的当前状态停在上一次。重新定稿这一章会再更新一遍。',
-    });
-  }
-
-  opts.onStep?.('threads');
-  const threadsRunner = opts.threads ?? summaryRunner;
-  try {
-    outcome.threads = await recordThreadEvents(project, chapter, {
-      run: (what, fn) => threadsRunner.run(what, fn),
-      budget: threadsRunner.primaryBudget,
-      signal: opts.signal,
-    });
-    outcome.calls += outcome.threads.calls;
-    await clearFailures(project, 'chapter', chapter.relPath, THREADS_OP);
-  } catch (err) {
-    if (err instanceof CancelledError || opts.signal?.aborted) {
-      throw err;
-    }
-    outcome.calls += 1;
-    outcome.threadsError = describeError(err);
-    log.warn(`第 ${chapter.order} 章的叙事线没判成：${outcome.threadsError}`, err);
-    await recordFailure(project, {
-      scope: '定稿',
-      targetKind: 'chapter',
-      targetKey: chapter.relPath,
-      severity: 'warn',
-      op: THREADS_OP,
-      message: `细纲已照正文更新，但叙事线没判成：${outcome.threadsError}`,
-      detail: 'threads.md 没有改动。重新定稿这一章会再判一遍。',
-    });
-  }
-  return outcome;
+  const rest = await updateStateAndThreads(project, chapter, summary.cast, {
+    state: opts.state ?? summaryRunner,
+    threads: opts.threads ?? summaryRunner,
+    signal: opts.signal,
+    onStep: opts.onStep,
+  });
+  return { ...rest, calls: 1 + rest.calls, summary };
 }
 
 /**

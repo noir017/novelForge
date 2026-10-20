@@ -14,11 +14,14 @@ import { castFromText, parseCastEntry, renderCastEntry } from '../model/castPars
 import { NovelProject } from '../model/project';
 import { PLOT_SECTION_KEYS, Plot, PlotSectionKey, PlotSections, emptyPlotSections, parsePlotFileName } from '../model/plotFile';
 import { describeTaskModels } from '../model/tiers';
+import { CallEstimate, FINALIZE_CALLS, describeCalls } from '../model/pipeline';
 import { Chapter, SummaryCast } from '../model/types';
 import { ContinuityFact, attachEvidence, parseContinuityFacts, renderContinuityFacts } from '../model/continuity';
 import { sanitizeAliases } from '../model/naming';
 import { LoreLine, PLOT_LORE_KEY, loreLinesFromJson, parseLoreLines, renderLoreLines } from '../model/loreFile';
 import { checkLore, loreHint } from './loreRecord';
+import { STATE_OP } from './characterState';
+import { updateStateAndThreads } from './finalizeSteps';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
 import { extractJsonObject, stripCodeFence, stripTrailingCommas } from './parse';
 import { GLOBAL_SYSTEM, REFINE_SYSTEM, STAGE_SYSTEM, SUMMARY_SYSTEM } from './summarizePrompt';
@@ -244,11 +247,17 @@ async function knownNamesHint(project: NovelProject): Promise<string> {
 
 
 /**
- * 批量照正文更新所有没定稿、或定稿之后正文又改过的章的细纲（定稿的第一步，不更新角色状态与叙事线），
- * 带进度，可取消。各章之间无先后，按配置并发。
+ * 工程页黄条上的「立即同步」：把所有没定稿、或定稿之后正文又改过的章逐章定稿，带进度，可取消。三步与单章定稿
+ * 同一套（finalize.ts）：
  *
- * 返回**这一次计划调用几次模型**（确认框里那个数字；取消或无事可做时是 0）。
- * 只在这里算一次——MCP 的 `summary` 工具拿它记账。
+ * 1. 照正文更新细纲：各章之间无先后，按配置并发（`summarizeChapters`）；
+ * 2. 角色状态、叙事线（finalizeSteps.ts）：**按章号串行**——角色卡的「当前状态」要一章一章往后推，
+ *    叙事线事件按章追加，并发会两章抢写同一张卡、同一份 `threads.md`。第一步没成的章不走这两步。
+ *
+ * 从前只做第一步，章被标成已定稿、角色状态与叙事线却停在原地，而同步过的章不再「待定稿」，黄条也不会
+ * 再提醒，只能逐章重新定稿去补。中途取消时，细纲已经更新、这两步还没走到的章挂黄 ❗（第 16 条：部分完成）。
+ *
+ * 返回**实际调用了几次模型**（取消或无事可做时是 0）——MCP 的 `summary` 工具拿它记账。
  */
 export async function syncSummaries(project: NovelProject): Promise<number> {
   log.info('开始检查哪些章还没定稿');
@@ -257,7 +266,7 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
   const total = (await project.listChapters()).length;
   log.info(
     `检查完成：${total} 章中有 ${stale.length} 章没定稿或定稿后正文改过`,
-    `耗时 ${elapsed(scanStart)}${stale.length > 0 ? `｜待同步：${describeNos(stale)}` : ''}`
+    `耗时 ${elapsed(scanStart)}${stale.length > 0 ? `｜待定稿：${describeNos(stale)}` : ''}`
   );
 
   if (stale.length === 0) {
@@ -267,15 +276,18 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
 
   const config = readConfig();
   const lanes = Math.min(config.concurrency, stale.length);
+  const each = FINALIZE_CALLS;
+  const calls: CallEstimate = { low: stale.length * each.low, high: stale.length * each.high, max: stale.length * each.max };
   const confirm = await getHost().confirm(
-    `有 ${stale.length} 章的细纲还没照正文更新（没定稿，或定稿后正文又改过），需要调用 ${stale.length} 次模型。现在同步？`,
+    `有 ${stale.length} 章写了正文还没定稿（或定稿后正文又改过），逐章定稿：照正文更新细纲、更新出场角色的当前状态、记下推进了哪几条叙事线。${describeCalls(calls)}。现在同步？`,
     ['开始同步'],
     {
       modal: true,
       detail:
-        `${describeTaskModels(config, 'plotSummary')}\n` +
-        (lanes > 1 ? `并发 ${lanes} 路，各章之间没有先后依赖。` : '串行逐章处理（并发数为 1）。') +
-        '\n每章的旧版细纲先复制一份进 .novelforge/.trash/。只更新细纲，角色状态与叙事线要逐章「定稿」。',
+        `每章 ${each.low}–${each.high} 次（${each.why}）。\n` +
+        `${describeTaskModels(config, 'plotSummary')}\n${describeTaskModels(config, 'characterCard')}\n` +
+        (lanes > 1 ? `照正文更新细纲并发 ${lanes} 路；` : '照正文更新细纲逐章串行（并发数为 1）；') +
+        '角色状态与叙事线按章号逐章串行（要一章一章往后推）。\n每章的旧版细纲先复制一份进 .novelforge/.trash/。',
     }
   );
   if (confirm !== '开始同步') {
@@ -288,39 +300,91 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
     log.error('没有可用的模型，同步中止');
     return 0;
   }
+  // 角色状态走「角色卡」档（与批量写章「写完即定稿」同一个分法），没配就沿用定稿那一档。
+  const statePool = (await createModelPool({ task: 'characterCard', concurrent: false })) ?? pool;
   log.info(`使用模型 ${pool.label}`, lanes > 1 ? `并发 ${lanes} 路，轮转负载均衡` : '串行');
 
+  let used = 0;
   await runTask(
     '同步章节细纲',
     async ({ signal, report }) => {
       const startedAt = Date.now();
-      const { ok: okCount, failed } = await summarizeChapters(project, stale, { pool, lanes, signal, report });
+      const { ok: okCount, failed, updated } = await summarizeChapters(project, stale, { pool, lanes, signal, report });
+      used += okCount + failed.length;
       if (signal.aborted) {
-        log.warn(`同步被取消，已完成 ${okCount + failed.length}/${stale.length} 章`);
+        log.warn(`同步被取消，已更新 ${okCount} 章细纲，角色状态与叙事线一章都没走`);
+        await markHalfDone(project, updated);
+        return;
       }
-      report({ message: '收尾', current: okCount + failed.length, total: stale.length });
-      if (failed.length > 0) {
+
+      // 第二步：按章号串行（updated 已按章号排好）。
+      const partial: number[] = [];
+      for (let i = 0; i < updated.length; i++) {
+        const { chapter, summary } = updated[i];
+        report({ message: `角色状态与叙事线 · 第 ${chapter.order} 章《${chapter.title}》`, current: i, total: updated.length });
+        try {
+          const rest = await updateStateAndThreads(project, chapter, summary.cast, {
+            state: statePool,
+            threads: pool,
+            signal,
+          });
+          used += rest.calls;
+          if (rest.stateError || rest.threadsError) {
+            partial.push(chapter.order);
+          }
+        } catch (err) {
+          if (err instanceof CancelledError || signal.aborted) {
+            log.warn(`同步被取消，停在第 ${chapter.order} 章的角色状态与叙事线`);
+            await markHalfDone(project, updated.slice(i));
+            return;
+          }
+          throw err;
+        }
+      }
+
+      report({ message: '收尾', current: updated.length, total: updated.length });
+      const notes = [
+        failed.length > 0 ? `第 ${failed.map((f) => f.no).join('、')} 章细纲没更新成` : '',
+        partial.length > 0 ? `第 ${partial.join('、')} 章的角色状态或叙事线没更新成（挂了黄 ❗）` : '',
+      ].filter(Boolean);
+      if (notes.length > 0) {
         log.warn(
-          `同步结束：成功 ${okCount} 章，失败 ${failed.length} 章`,
+          `同步结束：定稿 ${okCount} 章，${notes.join('；')}`,
           failed.map((f) => `第 ${f.no} 章：${f.reason}`).join('\n')
         );
-        getHost().toast(
-          `完成 ${okCount} 章，第 ${failed.map((f) => f.no).join('、')} 章失败，可在日志页看原因。`
-        );
+        getHost().toast(`定稿 ${okCount} 章；${notes.join('；')}，可在日志页看原因。`);
       } else if (okCount > 0) {
-        log.info(`同步结束：${okCount} 章全部成功`, `总耗时 ${elapsed(startedAt)}`);
-        getHost().toast(`已照正文更新 ${okCount} 章细纲。`);
+        log.info(`同步结束：${okCount} 章全部定稿`, `总耗时 ${elapsed(startedAt)}`);
+        getHost().toast(`已定稿 ${okCount} 章：细纲照正文更新，角色状态与叙事线跟到了这几章。`);
       }
     },
     { scope: '定稿' }
   );
-  return stale.length;
+  return used;
+}
+
+/**
+ * 同步中途停下：细纲已经照正文更新（这几章不再「待定稿」，黄条不会再提醒），角色状态与叙事线还没走到。
+ * 挂黄 ❗ 在章节上，说清要重新定稿这一章才补得上（单章定稿成功时 `clearFailures` 会把它清掉）。
+ */
+async function markHalfDone(project: NovelProject, left: readonly { chapter: Chapter }[]): Promise<void> {
+  for (const { chapter } of left) {
+    await recordFailure(project, {
+      scope: '定稿',
+      targetKind: 'chapter',
+      targetKey: chapter.relPath,
+      severity: 'warn',
+      op: STATE_OP,
+      message: '同步中途停了：细纲已照正文更新，角色状态与叙事线还没跟上',
+      detail: '右键这一章「定稿」重新定稿一次，角色状态与叙事线就补上了。',
+    });
+  }
 }
 
 /**
  * 并发照正文更新这几章的细纲：`syncSummaries` 与「从已写正文补齐」（features/derive.ts）共用。
  * **不弹框、不开任务**，确认与进度条归调用方。失败的挂在那一章上（第 16 条），按章号排好交回去；
- * 取消的不算失败。
+ * 取消的不算失败。更新成了的连同第一步的结果（出场人物）也按章号交回去，同步拿它接着走角色状态与叙事线。
  */
 export async function summarizeChapters(
   project: NovelProject,
@@ -331,10 +395,15 @@ export async function summarizeChapters(
     signal: AbortSignal;
     report: (p: { message?: string; current?: number; total?: number }) => void;
   }
-): Promise<{ ok: number; failed: { no: number; reason: string }[] }> {
+): Promise<{
+  ok: number;
+  failed: { no: number; reason: string }[];
+  updated: { chapter: Chapter; summary: SummaryOutcome }[];
+}> {
   const { pool, lanes, signal, report } = opts;
   const startedAt = Date.now();
   const failed: { no: number; reason: string }[] = [];
+  const updated: { chapter: Chapter; summary: SummaryOutcome }[] = [];
   // 并发下「正在跑哪几章」是变动的，用一个集合维护，报进度时现拼。
   const running = new Set<number>();
   let done = 0;
@@ -370,6 +439,10 @@ export async function summarizeChapters(
         done = finished;
         if (result.status === 'fulfilled') {
           okCount++;
+          // 空章、没有可用的模型时第一步交回 undefined（已经说过原因），没有可接着走的。
+          if (result.value) {
+            updated.push({ chapter, summary: result.value });
+          }
         } else {
           const err = result.reason;
           if (!(err instanceof CancelledError || err?.name === 'CancelledError')) {
@@ -406,7 +479,8 @@ export async function summarizeChapters(
   );
   // 完成顺序是乱的，汇报前按章号排回来——「第 7、3、12 章失败」没法读。
   failed.sort((a, b) => a.no - b.no);
-  return { ok: okCount, failed };
+  updated.sort((a, b) => a.chapter.order - b.chapter.order);
+  return { ok: okCount, failed, updated };
 }
 
 /**
