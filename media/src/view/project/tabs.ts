@@ -1,22 +1,23 @@
 /**
- * 工程页的四个页签：概览 / 章节 / 角色 / 设定。
+ * 工程页的五个页签：概览 / 章节 / 角色 / 设定 / 叙事线。
  *
  * 从前一页从上到下摊着故事架构、章节、角色、设定……几百行，找一个区要翻很久。章节、角色、设定
- * 各占一页，其余（故事架构、文风与摘要、定稿进度横幅）留在「概览」。
+ * 各占一页，其余（故事架构、文风与摘要、定稿进度横幅）留在「概览」。叙事线（叙事线重做第 8 个提交）同一个思路
+ * 单占一页、排在设定后面：一条线一行，从前「文风与摘要」组里那一行计数删了。
  *
- * 四页的内容每次都全画（`index.ts` 把各组装进各自的 `.project-panel`），切页签只换哪一块露出来——
+ * 五页的内容每次都全画（`index.ts` 把各组装进各自的 `.project-panel`），切页签只换哪一块露出来——
  * 不重画、不往后端要数据；分组的右键菜单、三只浮窗挂在 `#projectBody` 上的事件委托都照旧。
  * 当前页签与折叠开合同一个待遇：只在前端，重推树不换页。
  *
- * 四页共用 `#projectBody` 这一个滚动容器（它不随重画换掉，重推树时滚动位置才留得住），
+ * 五页共用 `#projectBody` 这一个滚动容器（它不随重画换掉，重推树时滚动位置才留得住），
  * 所以各页滚到哪由这里记：切走时记下，切回来放回去。
  */
 import { el as mk } from '../../dom';
 import { el } from '../refs';
 
-export type ProjectTab = 'overview' | 'chapters' | 'characters' | 'lore';
+export type ProjectTab = 'overview' | 'chapters' | 'characters' | 'lore' | 'threads';
 
-const TABS: readonly ProjectTab[] = ['overview', 'chapters', 'characters', 'lore'];
+const TABS: readonly ProjectTab[] = ['overview', 'chapters', 'characters', 'lore', 'threads'];
 
 let current: ProjectTab = 'overview';
 const scrollOf: Partial<Record<ProjectTab, number>> = {};

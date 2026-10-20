@@ -177,7 +177,7 @@ describe('拆细纲弹窗', { skip: JSDOM_SKIP }, () => {
   // 叙事线重做（设计稿 ⚑8）：一条线都没有时后端开拆之前先排一次，弹窗把它算进去。
   test('一条叙事线都没有：说明里 +1 次，写明先从情节大纲排一次', () => {
     key(ui, ui.doc, 'Escape');
-    ui.post({ type: 'project', tree: { ...sampleTree(), threads: { exists: false, total: 0, open: 0, closed: 0, overdue: 0 } } });
+    ui.post({ type: 'project', tree: { ...sampleTree(), threads: { lines: [], current: 0 } } });
     pickFromGroup(ui, '章节', '批量拆细纲…');
     assert.ok(note(ui).includes('预计 2 次调用，最多 13 次'), note(ui));
     assert.ok(note(ui).includes('还没有叙事线：开拆之前先从情节大纲排一次'), note(ui));

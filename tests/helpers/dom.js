@@ -481,9 +481,23 @@ function sampleTree() {
     chaptersRoot: 'chapters', charactersRoot: '.novelforge/characters', loreRoot: '.novelforge/lore',
     globalSummaryThrough: 2, styleGuidePath: '.novelforge/style.md',
     globalSummaryPath: '.novelforge/summaries/global.md',
-    // 叙事线（一条线一个文件）：排过 4 条，一条已收，一条过了计划收束章还开着。
+    // 叙事线（一条线一个文件，`views/threads.ts` 现算好、排好序）：四条线——主线进行中、一条感情线断了且有伏笔逾期、
+    // 一条支线还只是计划、一条人物线已收束；最后是「未归属的伏笔」。「现在」是定稿到的第 3 章。
     threadsPath: '.novelforge/threads',
-    threads: { exists: true, total: 4, open: 3, closed: 1, overdue: 1 },
+    threads: {
+      current: 3,
+      lines: [
+        { name: '青崖旧案', relPath: '.novelforge/threads/青崖旧案.md', kind: '主线', status: '进行中', lastActive: 3,
+          detail: '主线 · 进行中 · 最近第 3 章 · 1 条伏笔没收', warnings: [], tip: '意图：查清七年前那场火\n\n当前进度（写到第 3 章）：林昭回到青崖镇' },
+        { name: '林昭与沈氏', relPath: '.novelforge/threads/林昭与沈氏.md', kind: '感情线', status: '进行中', lastActive: 1,
+          detail: '感情线 · 进行中 · 最近第 1 章 · 2 条伏笔没收', warnings: ['1 条伏笔逾期', '过了计划收束的第 2 章'], tip: '' },
+        { name: '李叔的旧账', relPath: '.novelforge/threads/李叔的旧账.md', kind: '支线', status: '计划中',
+          detail: '支线 · 计划中 · 计划第 6–12 章', warnings: [], tip: '' },
+        { name: '守卫的选择', relPath: '.novelforge/threads/守卫的选择.md', kind: '人物线', status: '已收束', lastActive: 2,
+          detail: '人物线 · 已收束 · 最近第 2 章', warnings: [], tip: '' },
+      ],
+      unfiled: { relPath: '.novelforge/threads/未归属的伏笔.md', total: 2, detail: '2 条', warnings: [] },
+    },
     // 故事架构：五件文档 + 情节大纲，顺序即生成顺序。世界观还没写。
     // 角色图谱、设定清单没有自己的文件，relPath 给的是角色目录、设定目录。这棵树已经写了正文，
     // 设定清单算填过（一条条目都没有也照实说 0 条）。

@@ -254,6 +254,39 @@ button.project-tab.active {
 }
 
 /*
+ * 「叙事线」页签（叙事线重做第 8 个提交）。标题旁那一截（排线失败的 ❗ 与「从大纲排出 / 补充」）挂在 .group-head 里、
+ * 折叠开关之外，点它不会把组折起来；与「设定」组的筛选框同一个位置。
+ */
+.threads-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-right: 4px;
+}
+
+/* 一条线一行的 ⚠（断了几章、伏笔逾期、过了计划收束章）：不截断、警告色——作者扫一眼要看的就是这几句。 */
+.thread-warn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  font-variant-numeric: tabular-nums;
+}
+
+.row-thread .row-detail {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 收束了、放弃了的线压暗：还在，但不用再管。 */
+.row-thread-closed .row-label {
+  color: var(--vscode-descriptionForeground);
+}
+
+.row-thread-closed:hover .row-label {
+  color: var(--vscode-foreground);
+}
+
+/*
  * 章节行上的流水线徽章：这一章现在该做哪一步。
  *
  * 做得很小很淡——它是全书扫一眼时的定位标记，不该跟剧情名抢注意力。
@@ -318,7 +351,7 @@ button.project-tab.active {
 }
 
 /* 行内操作平时藏起来，免得每行都挂一串链接。
-   工程页的树行已经全部改走右键菜单，这里只剩「文风与摘要」那三行的链接。 */
+   工程页的树行已经全部改走右键菜单，这里只剩「文风与摘要」那两行的链接。 */
 .row-actions {
   display: flex;
   gap: 5px;

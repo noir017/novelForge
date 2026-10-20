@@ -14,6 +14,7 @@ import type { ContextDetail } from '../model/contextDetail';
 import type { ReviewReport } from '../model/review';
 import type { ParagraphStyle } from '../model/paragraphFormat';
 import type { LoreThinKind } from '../model/loreFile';
+import type { ThreadKind, ThreadStatus } from '../model/threadFile';
 import type { SerializedAttachment } from './in';
 
 export interface ViewState {
@@ -86,8 +87,9 @@ export interface ProjectTree {
   globalSummaryThrough: number;
   styleGuidePath: string;
   globalSummaryPath: string;
-  /** 叙事线目录（`threads/`，一条线一个文件）。`threads.exists` 为 false 时还没排过。 */
+  /** 叙事线目录（`threads/`，一条线一个文件）。排线失败的红 ❗ 挂在它上面（`failures` 按它索引）。 */
   threadsPath: string;
+  /** 工程页「叙事线」页签：一条线一行，最后是「未归属的伏笔」（`views/threads.ts`）。 */
   threads: ThreadsView;
   /** 全书走到哪一步（架构 / 大纲 / 细纲 / 在写 / 写完）。 */
   bookStage: BookStage;
@@ -105,17 +107,45 @@ export interface ProjectTree {
 }
 
 /**
- * 「文风与摘要」组里「叙事线」那一行的计数。`overdue` 是还没收、却已经过了计划收束章的
- * （以「下一可写章 − 1」为写到的那一章）。过渡：工程页「叙事线」单独一组、一条线一行（叙事线重做第 8 个提交）
- * 之前先报这几个数。
+ * 工程页「叙事线」页签（叙事线重做第 8 个提交，`views/threads.ts` 现算）：一条线一行，按主线 → 支线 → 感情线 →
+ * 人物线、同种类按最近一次推进排；最后一行是「未归属的伏笔」。状态一律按「现在」（`current`）算、不落盘（第 18 条）。
  */
 export interface ThreadsView {
-  /** 至少有一条线。 */
-  exists: boolean;
+  /** 一条线一行，已经排好序。 */
+  lines: ThreadLineView[];
+  /** 「未归属的伏笔」那一行。文件里一条伏笔都没有（或没有这份文件）时缺席。 */
+  unfiled?: ThreadUnfiledView;
+  /** 「现在」：定稿到的最后一章（定稿过的章里章号最大的；一章都没定稿是 0）。 */
+  current: number;
+}
+
+/** 「叙事线」页签的一行：`林昭与沈青 · 感情线 · 进行中 · 最近第 12 章 · 2 条伏笔没收`，有问题的另加几个 ⚠。 */
+export interface ThreadLineView {
+  /** 线名（文件名就是线名）。 */
+  name: string;
+  /** 这条线的文件。点这一行打开它；当前进度作者改过的黄 ❗ 挂在它上面。 */
+  relPath: string;
+  kind: ThreadKind;
+  status: ThreadStatus;
+  /** 最近一次实际事件在第几章。 */
+  lastActive?: number;
+  /** 名字后面那一串：种类 · 状态 · 最近第 N 章（还没推进过写计划区间）· 几条伏笔没收。 */
+  detail: string;
+  /** 有问题的（不带 ⚠，前端加）：`断了 15 章`、`1 条伏笔逾期`、`过了计划收束的第 40 章`。 */
+  warnings: string[];
+  /** 鼠标移上去看的：意图与当前进度。 */
+  tip: string;
+}
+
+/** 「未归属的伏笔 · N 条」那一行。 */
+export interface ThreadUnfiledView {
+  relPath: string;
+  /** 一共几条伏笔。 */
   total: number;
-  open: number;
-  closed: number;
-  overdue: number;
+  /** `4 条`，有收了的另写「几条没收」。 */
+  detail: string;
+  /** 同一条线那一行的 ⚠（只有「几条伏笔逾期」）。 */
+  warnings: string[];
 }
 
 /** 一句话弹窗的默认值。主按钮是「生成小说配置」时随下一步一起给。 */

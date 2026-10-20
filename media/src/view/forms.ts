@@ -172,7 +172,7 @@ export function openPlotBatchForm(tree: ProjectTree): void {
         };
       }
       // 一条叙事线都还没有：后端开拆之前先从情节大纲排一次（同一个 `planPlotBatches`，+1 次）。
-      const planThreads = tree.threads.total === 0;
+      const planThreads = tree.threads.lines.length === 0;
       const plan = planPlotBatches({ from: a, to: b, filledNos: book.plotFilledNos, planThreads });
       if (plan.batches.length === 0) {
         return { text: '这一段都已经排过细纲了。', ok: false };

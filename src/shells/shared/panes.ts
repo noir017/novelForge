@@ -188,13 +188,14 @@ export function taskBar(): string {
 export function projectPane(): string {
   return `<section class="pane" id="pane-project">
   <div class="project-tabs" id="projectTabs" role="tablist" aria-label="工程分类">
-    <!-- 四个页签：章节、角色、设定各占一页，其余（故事架构、文风与摘要）留在「概览」。各页的内容由
+    <!-- 五个页签：章节、角色、设定、叙事线各占一页，其余（故事架构、文风与摘要）留在「概览」。各页的内容由
          view/project/index.ts 装进 #projectBody 里对应的 .project-panel。从前这一行是五颗按钮（补齐架构、
          拆细纲、批量写章、＋ 角色卡、＋ 设定），每一颗在对应分组的右键里都有，拿掉了。 -->
     <button class="project-tab active" id="projectTab-overview" data-project-tab="overview" role="tab" aria-selected="true">概览</button>
     <button class="project-tab" id="projectTab-chapters" data-project-tab="chapters" role="tab" aria-selected="false" tabindex="-1">章节</button>
     <button class="project-tab" id="projectTab-characters" data-project-tab="characters" role="tab" aria-selected="false" tabindex="-1">角色</button>
     <button class="project-tab" id="projectTab-lore" data-project-tab="lore" role="tab" aria-selected="false" tabindex="-1">设定</button>
+    <button class="project-tab" id="projectTab-threads" data-project-tab="threads" role="tab" aria-selected="false" tabindex="-1">叙事线</button>
     <span class="spacer"></span>
     <button class="icon-btn" data-action="refresh" title="刷新">⟳</button>
   </div>

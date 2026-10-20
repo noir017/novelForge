@@ -1,6 +1,6 @@
 /**
  * 工程页里除了树行以外的东西：可折叠分组、定稿进度横幅，
- * 以及「文风与摘要」那几行固定文件。
+ * 以及「文风与摘要」那两行固定文件。
  */
 import { el as mk, spacer } from '../../dom';
 import type { MenuItem } from '../../globals';
@@ -24,7 +24,7 @@ interface GroupOptions {
    */
   extraItems?: () => MenuItem[];
   /**
-   * 标题栏上折叠开关之外的一样东西（「设定」组的筛选框）。挂在开关**旁边**而不是里面：
+   * 标题栏上折叠开关之外的一样东西（「设定」组的筛选框、「叙事线」组的「从大纲排出」）。挂在开关**旁边**而不是里面：
    * 开关是一颗 `<button>`，放进去的话点输入框、在里面按空格回车都会把组折起来。
    */
   head?: HTMLElement;
@@ -188,7 +188,7 @@ export function countLabel(nodes: ProjectNode[], unit: string): string {
 }
 
 /**
- * 「文风与摘要」那一组：全书摘要、文风指南、叙事线三行。情节大纲在「故事架构」那一组。
+ * 「文风与摘要」那一组：全书摘要、文风指南两行。情节大纲在「故事架构」那一组，叙事线在自己的页签。
  *
  * 这几行是工程的固定文件，不给类文件操作（`buildFileRow` 不传 depth 即可），
  * 但它们的「重建」「从正文提取」是常用动作，照旧留在行内（悬停才亮）。
@@ -240,47 +240,10 @@ export function buildMetaRows(tree: ProjectTree): HTMLElement[] {
   ]);
   rows.push(style);
 
-  rows.push(buildThreadsRow(tree));
-
-  // 情节大纲不在这一组：它是「故事架构」那一组的第六行（后面一切的上游）。
+  // 情节大纲不在这一组：它是「故事架构」那一组的第六行（后面一切的上游）。叙事线也不在：它单占一个页签
+  // （叙事线重做第 8 个提交，`threads.ts`），从前这一组里那一行计数删了。
 
   return rows;
-}
-
-/**
- * 「叙事线」一行（七期）：与全书摘要同类，不进「故事架构」的 x/5——它不挡路。
- *
- * 叙事线重做之后一条线一个文件（`threads/` 目录），这一行只报几个计数、点名字不打开东西；单独一组、一条线一行
- * 是叙事线重做的第 8 个提交。线从情节大纲排：还没有大纲时没有东西可排，不给按钮；排线在跑时也不给（点第二次只会
- * 撞上「已有任务在进行」）。任务名与 features/threads.ts 的 runTask 一字不差。按钮不直接花钱：后端先弹确认框，
- * 写明 1 次调用。
- */
-function buildThreadsRow(tree: ProjectTree): HTMLElement {
-  const th = tree.threads;
-  const canPlan = tree.architecture.some((a) => a.key === 'outline' && a.filled);
-  const detail =
-    th.total === 0
-      ? canPlan
-        ? '未生成'
-        : '未生成 · 有了情节大纲之后可以从大纲排出'
-      : [
-          `${th.total} 条`,
-          `${th.open} 条进行中`,
-          th.closed > 0 ? `${th.closed} 条已收` : '',
-          th.overdue > 0 ? `⚠ ${th.overdue} 条已过回收章` : '',
-        ]
-          .filter(Boolean)
-          .join(' · ');
-  const row = buildFileRow({ label: '叙事线', relPath: tree.threadsPath, detail }, '🧵', undefined, { openable: false });
-  const verb = th.total === 0 ? '从大纲排出' : '从大纲补充';
-  if (canPlan && !hasTask('排叙事线')) {
-    row.appendChild(rowActions(linkBtn(verb, () => projectAction('generateThreads'))));
-  }
-  onContextMenu(row, () => {
-    const items: MenuItem[] = canPlan ? [{ label: `${verb}叙事线`, run: () => projectAction('generateThreads') }] : [];
-    return [...items, ...(items.length > 0 ? [{ sep: true as const }] : []), ...baseMenuItems()];
-  });
-  return row;
 }
 
 /** 行内操作的容器。平时藏起来，hover 才亮。 */

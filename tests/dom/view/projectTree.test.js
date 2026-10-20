@@ -802,11 +802,12 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
 
   // 从前这一组底下还挂着一行「同步过期细纲 / 提取/更新角色卡」（单章摘要时代的遗留），
   // 那四件事在别处都有入口：同步在页顶黄条，提取在「角色」组右键，两个批量在工具栏与「章节」组右键。
-  test('「文风与摘要」只有全书摘要、文风指南、叙事线三行，没有工具行', () => {
+  // 叙事线那一行计数也不在这里了：叙事线单占一个页签（叙事线重做第 8 个提交）。
+  test('「文风与摘要」只有全书摘要、文风指南两行，没有工具行', () => {
     const group = [...ui.doc.querySelectorAll('#projectBody .group')]
       .find((g) => g.querySelector('.group-name')?.textContent === '文风与摘要');
     const labels = [...group.querySelectorAll('.group-body > .row .row-label')].map((n) => n.textContent);
-    assert.deepEqual(labels, ['全书摘要', '文风指南', '叙事线'], group.outerHTML);
+    assert.deepEqual(labels, ['全书摘要', '文风指南'], group.outerHTML);
     assert.ok(!group.textContent.includes('同步过期细纲') && !group.textContent.includes('提取/更新角色卡'), group.textContent);
   });
 
@@ -899,10 +900,10 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
 
   // 页签条上原来的五颗按钮（补齐架构、拆细纲…、批量写章…、＋ 角色卡、＋ 设定）在分组右键里都有，拿掉了：
   // 「故事架构」组右键「补齐架构（只补空白）」，「章节」组右键两个批量，「角色」「设定」组右键「在此新建…」。
-  test('页签条：四个页签与刷新，没有别的按钮', () => {
+  test('页签条：五个页签与刷新，没有别的按钮', () => {
     const bar = ui.doc.getElementById('projectTabs');
     const parts = [...bar.children].map((n) => (n.classList.contains('spacer') ? '~' : n.textContent.trim()));
-    assert.deepEqual(parts, ['概览', '章节', '角色', '设定', '~', '⟳'], JSON.stringify(parts));
+    assert.deepEqual(parts, ['概览', '章节', '角色', '设定', '叙事线', '~', '⟳'], JSON.stringify(parts));
     assert.equal(bar.querySelectorAll('[data-form], .chip-btn').length, 0);
     assert.deepEqual([...bar.querySelectorAll('[data-action]')].map((b) => b.dataset.action), ['refresh']);
   });
@@ -918,6 +919,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     ['characters', '在此新建角色卡', 'newCharacter', '.novelforge/characters'],
     ['lore', '在此新建设定', 'newLore', '.novelforge/lore'],
     ['chapters', '新建细纲（接在最后一章之后）', 'newPlot', undefined],
+    ['threads', '从大纲补充叙事线', 'generateThreads', undefined],
   ]) {
     test(`「${tab}」页的空白处右键「${label}」发 ${action}`, () => {
       const panel = ui.doc.querySelector(`#projectBody [data-project-panel="${tab}"]`);
@@ -932,8 +934,8 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
 });
 
 /**
- * 工程页的四个页签（概览 / 章节 / 角色 / 设定）：章节、角色、设定各占一页，其余留在「概览」。
- * 四页全画、只露当前那一页；切页签不往后端要数据，重推树不换页。
+ * 工程页的五个页签（概览 / 章节 / 角色 / 设定 / 叙事线）：章节、角色、设定、叙事线各占一页，其余留在「概览」。
+ * 五页全画、只露当前那一页；切页签不往后端要数据，重推树不换页。
  */
 describe('工程页的页签', { skip: JSDOM_SKIP }, () => {
   let ui;
@@ -953,11 +955,12 @@ describe('工程页的页签', { skip: JSDOM_SKIP }, () => {
     assert.ok(tabBtn('overview').classList.contains('active'));
   });
 
-  test('「概览」是故事架构与文风与摘要；章节、角色、设定各在自己那一页', () => {
+  test('「概览」是故事架构与文风与摘要；章节、角色、设定、叙事线各在自己那一页', () => {
     assert.deepEqual(groupsIn('overview'), ['故事架构', '文风与摘要']);
     assert.deepEqual(groupsIn('chapters'), ['章节']);
     assert.deepEqual(groupsIn('characters'), ['角色', '出场人物 · 未建卡']);
     assert.equal(groupsIn('lore')[0], '设定');
+    assert.deepEqual(groupsIn('threads'), ['叙事线']);
   });
 
   test('没有作品名那一块', () => {
@@ -992,12 +995,16 @@ describe('工程页的页签', { skip: JSDOM_SKIP }, () => {
       ui.doc.querySelector('#projectTabs .project-tab.active').dispatchEvent(new ui.window.KeyboardEvent('keydown', { key, bubbles: true }));
     press('ArrowRight');
     assert.deepEqual(shown(), ['characters']);
-    press('End');
+    press('ArrowRight');
     assert.deepEqual(shown(), ['lore']);
+    press('ArrowRight');
+    assert.deepEqual(shown(), ['threads']);
     press('ArrowRight');
     assert.deepEqual(shown(), ['overview']);
     press('ArrowLeft');
-    assert.deepEqual(shown(), ['lore']);
+    assert.deepEqual(shown(), ['threads']);
+    press('End');
+    assert.deepEqual(shown(), ['threads']);
     press('Home');
     assert.deepEqual(shown(), ['overview']);
     assert.equal(ui.doc.activeElement, tabBtn('overview'));

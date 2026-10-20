@@ -12,9 +12,9 @@ import { NovelProject } from '../model/project';
 import { PLOT_SECTION_KEYS, parsePlotFileName } from '../model/plotFile';
 import { isOutlineFilled, outlineCoverage } from '../model/outlineFile';
 import { describeStateThrough } from '../model/characterState';
-import { Thread, isClosed, threadStateAt } from '../model/threadFile';
 import { buildBookFacts, buildPlotPipeline, buildPipelineIndex, chapterOfPlotNo } from './pipeline';
 import { chapterIndexEntryOf } from './chapterIndex';
+import { buildThreadsView } from './threads';
 import {
   ArchitectureRow,
   CastConflictView,
@@ -32,7 +32,6 @@ import {
   ProjectTree,
   IdeaDefaults,
   NextStepView,
-  ThreadsView,
 } from '../protocol';
 
 const log = scoped('角色卡');
@@ -92,7 +91,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       styleGuidePath,
       globalSummaryPath,
       threadsPath,
-      threads: { exists: false, total: 0, open: 0, closed: 0, overdue: 0 },
+      threads: { lines: [], current: 0 },
       bookStage: 'setting',
       nextChapterNo: 1,
       book: { idea: '', configHasContent: false, plotFilledNos: [] },
@@ -282,9 +281,8 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     styleGuidePath,
     globalSummaryPath,
     threadsPath,
-    // 「写到第几章」以下一可写章 − 1 算，与主按钮同一个口径。工程页「叙事线」一组（一条线一行）是第 8 个提交的事，
-    // 这之间照旧报几个计数。
-    threads: countThreads(threadBook.threads, book.nextChapterNo - 1),
+    // 「叙事线」页签：一条线一行。「现在」是定稿到的最后一章——线上的实际事件都是定稿写进来的。
+    threads: buildThreadsView(threadBook, finalizedThrough(rows)),
     bookStage,
     nextChapterNo: book.nextChapterNo,
     ...(next ? { next } : {}),
@@ -578,23 +576,9 @@ function compareNodes(a: ProjectNode, b: ProjectNode): number {
 }
 
 /**
- * 「叙事线」那一行的计数（过渡：工程页「叙事线」一组换成一条线一行之前）。进行中含计划中；逾期是还没收、却已经
- * 过了计划收束章的。
+ * 定稿到的最后一章：定稿过（细纲上记着 `sourceHash`）、正文还在的章里章号最大的那一章；一章都没有是 0。
+ * 定稿之后正文又改过的也算——那一章的叙事线事件是定稿那一次记下的，还在线上。
  */
-function countThreads(threads: readonly Thread[], current: number): ThreadsView {
-  let open = 0;
-  let closed = 0;
-  let overdue = 0;
-  for (const t of threads) {
-    const state = threadStateAt(t, current);
-    if (isClosed(state.status)) {
-      closed++;
-    } else {
-      open++;
-      if (state.overdue) {
-        overdue++;
-      }
-    }
-  }
-  return { exists: threads.length > 0, total: threads.length, open, closed, overdue };
+function finalizedThrough(rows: readonly { no: number; summary: { exists: boolean }; chapter: { exists: boolean } }[]): number {
+  return rows.reduce((max, r) => (r.summary.exists && r.chapter.exists && r.no > max ? r.no : max), 0);
 }

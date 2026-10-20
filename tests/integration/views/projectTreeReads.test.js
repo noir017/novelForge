@@ -124,10 +124,16 @@ describe('工程页刷新 · 读盘次数', () => {
   test('夹具确实建出了全部章（否则下面的计数没有意义）', async () => {
     const tree = await measure();
     assert.equal(tree.plotCount, PLOTS);
-    assert.deepEqual(tree.threads, { exists: true, total: 1, open: 1, closed: 0, overdue: 1 });
+    // 叙事线页签一条线一行：「现在」是定稿到的第 40 章。
+    assert.equal(tree.threads.current, PLOTS);
+    assert.deepEqual(
+      tree.threads.lines.map((l) => [l.name, l.detail, l.warnings.join('｜')]),
+      [['玉佩', '支线 · 进行中 · 最近第 1 章', `断了 ${PLOTS - 1} 章｜过了计划收束的第 2 章`]]
+    );
+    assert.equal(tree.threads.unfiled?.total, 1);
   });
 
-  test('叙事线目录每份读一次；七期的 threads.md 不读', async () => {
+  test('叙事线目录每份读一次（页签那一列与别处共用这一趟）；七期的 threads.md 不读', async () => {
     await measure();
     const rel = (p) => path.relative(t.dir, p).replace(/\\/g, '/');
     const touched = [...reads.keys()].map(rel).filter((f) => f.startsWith('.novelforge/threads'));

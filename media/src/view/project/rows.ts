@@ -7,7 +7,7 @@
  *
  * 树上的行**不挂行内按钮**，全部操作走右键菜单（页面才干净）。例外只有三处：
  * 下一个该写的章行尾的「去写这一章」、故事架构第一件没填的那一行的「去生成」（全页各一颗），
- * 以及「文风与摘要」那三行悬停才亮的「重建」「从正文提取」之类——它们不是文件管理区。
+ * 以及「文风与摘要」那两行悬停才亮的「重建」「从正文提取」之类——它们不是文件管理区。
  */
 import { el as mk } from '../../dom';
 import type { MenuItem } from '../../globals';
@@ -57,7 +57,7 @@ import { indentOf, lastTree, loreView, openFolders, openGroups } from './treeSta
  * 只要有一条是 `error`（整体失败、目标未改动）就按红色算——那比「部分完成」
  * 严重，不能被同一目标上的一条黄色记录盖过去。
  */
-function failureMark(relPath: string): HTMLElement | null {
+export function failureMark(relPath: string): HTMLElement | null {
   const failures: FailureView[] | undefined = lastTree?.failures?.[relPath];
   if (!failures || failures.length === 0) {
     return null;
@@ -446,15 +446,9 @@ function setTarget(target: CreationTarget): void {
  * 角色/设定/元数据行。
  *
  * `depth` 为 undefined 时不设缩进，也不挂类文件操作的右键菜单——
- * 「文风与摘要」那几行是工程的固定文件，不能重命名/移动/删除。`openable: false` 给还不存在的
- * 可选文件（叙事线）：点名字不去开一个没有的文件。
+ * 「文风与摘要」那几行是工程的固定文件，不能重命名/移动/删除。
  */
-export function buildFileRow(
-  f: ProjectFile,
-  icon: string,
-  depth?: number,
-  opts: { openable?: boolean } = {}
-): HTMLElement {
+export function buildFileRow(f: ProjectFile, icon: string, depth?: number): HTMLElement {
   const row = mk('div', 'row');
   if (depth !== undefined) {
     row.style.paddingLeft = `${indentOf(depth)}px`;
@@ -470,10 +464,8 @@ export function buildFileRow(
 
   const label = mk('span', 'row-label', f.label);
   label.title = f.relPath;
-  if (opts.openable !== false) {
-    // 单击开成临时标签，双击转正（见章节那一行）。
-    label.addEventListener('click', (e) => openPath(f.relPath, { preview: e.detail < 2 }));
-  }
+  // 单击开成临时标签，双击转正（见章节那一行）。
+  label.addEventListener('click', (e) => openPath(f.relPath, { preview: e.detail < 2 }));
   row.appendChild(label);
 
   if (f.detail) {

@@ -1,5 +1,5 @@
 /**
- * 工程页的装配：把树、分组、横幅拼成四个页签（概览 / 章节 / 角色 / 设定，见 tabs.ts）。
+ * 工程页的装配：把树、分组、横幅拼成五个页签（概览 / 章节 / 角色 / 设定 / 叙事线，见 tabs.ts）。
  *
  * 折叠等 UI 状态完全留在前端（treeState.ts），切一下折叠走 `rerenderProject`
  * 拿最近那份快照重画，不必往后端要一次数据。「设定」组的筛选也一样（loreFilter.ts）。
@@ -43,6 +43,7 @@ import {
 } from './loreFilter';
 import { hideSummaryTip, installSummaryTip } from './summaryTip';
 import { buildPanel, installProjectTabs } from './tabs';
+import { buildThreadRows, threadsGroupLabel, threadsHead, threadsMenuItems } from './threads';
 import { lastTree, loreView, setLastTree } from './treeState';
 
 export function renderProject(tree: ProjectTree): void {
@@ -76,7 +77,8 @@ function buildProjectPage(tree: ProjectTree): void {
   const chapters = buildPanel('chapters');
   const characters = buildPanel('characters');
   const lore = buildPanel('lore');
-  el.projectBody.append(overview, chapters, characters, lore);
+  const threads = buildPanel('threads');
+  el.projectBody.append(overview, chapters, characters, lore, threads);
 
   if (tree.staleCount > 0) {
     overview.appendChild(buildSummaryBanner(tree));
@@ -259,6 +261,17 @@ function buildProjectPage(tree: ProjectTree): void {
       })
     );
   }
+
+  // 叙事线（叙事线重做第 8 个提交）：一条线一行，作者一眼看出各条线走到哪。标题旁「从大纲排出 / 补充」（排线失败的
+  // 红 ❗ 也在那里），页里空白处右键同一项。
+  threads.appendChild(
+    buildGroup('threads', '叙事线', threadsGroupLabel(tree), {
+      panel: threads,
+      extraItems: () => threadsMenuItems(tree),
+      head: threadsHead(tree),
+      build: () => buildThreadRows(tree),
+    })
+  );
 }
 
 /** 折叠状态变了：拿最近一次收到的树重画，不往后端要数据。 */

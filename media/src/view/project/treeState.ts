@@ -23,6 +23,7 @@ export const openGroups: Record<string, boolean> = {
   loreThin: true,
   loreUnfiled: true,
   meta: true,
+  threads: true,
 };
 
 /** 展开着的文件夹（relPath 集合）。 */
