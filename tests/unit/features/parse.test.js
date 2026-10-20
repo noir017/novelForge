@@ -30,4 +30,14 @@ describe('features/parse', () => {
     assert.deepEqual(p.stringArray(['a', 1, 'b']), ['a', 'b']);
     assert.deepEqual(p.stringArray('林昭、沈氏'), ['林昭', '沈氏']);
   });
+  test('jsonList 取指定的那一组，也认 candidates、直接一个数组与夹着废话的', () => {
+    assert.deepEqual(p.jsonList('```json\n{"events":[1,2]}\n```', 'events'), [1, 2]);
+    assert.deepEqual(p.jsonList('{"candidates":[{"a":1}]}', 'threads'), [{ a: 1 }]);
+    assert.deepEqual(p.jsonList('[3]', 'conflicts'), [3]);
+    assert.deepEqual(p.jsonList('好的，结果如下：{"conflicts":[]} 以上', 'conflicts'), []);
+  });
+  test('jsonList 解不出、或那一组不是数组时返回 undefined', () => {
+    assert.equal(p.jsonList('不是 JSON', 'events'), undefined);
+    assert.equal(p.jsonList('{"events":"无"}', 'events'), undefined);
+  });
 });

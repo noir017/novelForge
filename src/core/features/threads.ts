@@ -62,7 +62,7 @@ import {
   verifyThreadPlans,
 } from '../model/threadsFile';
 import { Workspace } from '../workspace';
-import { extractJson, stripCodeFence } from './parse';
+import { jsonList } from './parse';
 import { THREAD_EVENT_SYSTEM, threadPlanSystem } from './threadsPrompt';
 
 const log = scoped('叙事线');
@@ -75,34 +75,6 @@ export const THREADS_OP = 'threads';
  * （`threadPlanOutlineChars` / `threadPlanEvents`，缺省 8000 / 120）。一览是让模型看清全书节奏的，
  * 不是让它重读每一章。
  */
-
-/**
- * 模型交回来的 JSON 里取那一组：`{"threads":[…]}` / `{"events":[…]}`，也认上游的
- * `{"candidates":[…]}` 与直接一个数组。解不出返回 undefined。
- */
-export function jsonList(raw: string, key: string): unknown[] | undefined {
-  const text = stripCodeFence(raw);
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    const inner = extractJson(text);
-    try {
-      value = inner ? JSON.parse(inner) : undefined;
-    } catch {
-      value = undefined;
-    }
-  }
-  if (Array.isArray(value)) {
-    return value;
-  }
-  if (value && typeof value === 'object') {
-    const o = value as Record<string, unknown>;
-    const list = o[key] ?? o.candidates;
-    return Array.isArray(list) ? list : undefined;
-  }
-  return undefined;
-}
 
 function clip(text: string, max: number): string {
   const t = (text ?? '').replace(/\s+/g, ' ').trim();

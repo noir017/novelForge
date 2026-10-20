@@ -16,7 +16,7 @@ import { NovelProject } from '../model/project';
 import { isPlotFilled } from '../model/plotFile';
 import { PLOT_CHECK_SYSTEM, PlotConflict, plotCheckUser, selectCheckFacts, verifyConflicts } from '../model/plotCheck';
 import { ModelRunner } from './finalize';
-import { jsonList } from './threads';
+import { jsonList } from './parse';
 
 const log = scoped('流水线');
 

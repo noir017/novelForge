@@ -71,6 +71,37 @@ export function stripTrailingCommas(json: string): string {
   return out;
 }
 
+/**
+ * 模型交回来的 JSON 里取那一组：`{"threads":[…]}` / `{"events":[…]}` / `{"conflicts":[…]}`，也认上游的
+ * `{"candidates":[…]}` 与直接一个数组。解不出返回 undefined。
+ *
+ * 从前放在 features/threads.ts（七期排线与判事件用），写前冲突检查（features/plotCheck.ts）也借它；
+ * 叙事线重做之后那一份要整个换掉，宽松取一组 JSON 这件事本来就属于这里。
+ */
+export function jsonList(raw: string, key: string): unknown[] | undefined {
+  const text = stripCodeFence(raw);
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    const inner = extractJson(text);
+    try {
+      value = inner ? JSON.parse(inner) : undefined;
+    } catch {
+      value = undefined;
+    }
+  }
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (value && typeof value === 'object') {
+    const o = value as Record<string, unknown>;
+    const list = o[key] ?? o.candidates;
+    return Array.isArray(list) ? list : undefined;
+  }
+  return undefined;
+}
+
 /** 清理字符串并按首次出现顺序去重。 */
 export function unique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];

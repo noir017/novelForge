@@ -123,7 +123,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `features/summarize.test.js` | **定稿应答（`parseSummaryResponse`）解析的两层**：JSON（尾逗号去掉再解析）→ Markdown 小节，两层都不中八节全空、不做全文兜底；不相干的 JSON 不被当成那八节；示例工程第 2 章定稿过的细纲（无 `cast` 字段）走小节反解 |
 | `features/characters.test.js` | 角色 JSON 解析的容错：坏 JSON 返回空数组而非抛错、无 name 条目被丢弃 |
 | `features/characterCardParse.test.js` | 角色卡应答解析：性格等小节读得出、泛称别名被过滤 |
-| `features/parse.test.js` | 解析小工具：剥代码围栏、取最外层 JSON 对象 / 数组、去重、顿号串转数组 |
+| `features/parse.test.js` | 解析小工具：剥代码围栏、取最外层 JSON 对象 / 数组、去重、顿号串转数组、取模型交回的那一组（`jsonList`：指定键、`candidates`、直接一个数组、夹着废话的；解不出给 undefined） |
 | `runtime/concurrency.test.js` | `runPool`：并发峰值不超 limit、结果按 index 对齐、单项失败不拖累其余、取消后不起新任务、`onSettled` 计数单调不重复；`serialize` 的串行与不卡死 |
 | `runtime/pool.test.js` | 模型池：并发轮转均摊、串行恒用首选、失败换人、重试不超 `fallbackAttempts`、取消不 fallback、剔除备选**不弹 API Key 输入框**；**分档**：空档位继承 `models`、**fallback 绝不跨档**、`primaryBudget` 取该档首选窗口 |
 | `runtime/callScope.test.js` | 「这一次」（作者在调模型之前的确认框上挑的模型与详细度，2026-10-20）：作用域外照设置；作用域里 `readConfig()` 换了详细度、多了 `pinnedModel`，对话页那个模型不动；钉了模型时池里只有它、标「这一次指定」、预算用它的窗口、失败不换人；嵌套时模型整项替换、详细度没问就沿用外面；同时跑的两次各是各的 |
