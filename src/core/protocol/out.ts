@@ -343,8 +343,10 @@ export interface SkillRow {
   compatible: boolean;
   /** 不兼容的原因，已经是给人看的话。 */
   reasons: string[];
-  /** 正文的 UTF-8 字节数。 */
+  /** 注入的 UTF-8 字节数：正文加附带文件。 */
   bytes: number;
+  /** 一起带的附带文件（技能目录里的相对路径，`references/…` 这类）。 */
+  files: string[];
   /** 本工程的技能在工程里的路径（点得开）。 */
   relPath?: string;
   /** 在本工程里绑在哪几个阶段。 */
@@ -370,8 +372,11 @@ export interface SkillInspectionView {
   description: string;
   version?: string;
   suggestedStage: SkillStage;
+  /** 注入的 UTF-8 字节数：正文加附带文件。 */
   bytes: number;
   body: string;
+  /** 引用到、会一起装、一起带的附带文件，带全文：装之前一样看得到。 */
+  attachments: { path: string; text: string }[];
   /** 装不了的原因。空 = 可以装。 */
   blockers: string[];
 }

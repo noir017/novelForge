@@ -71,7 +71,7 @@ export async function boundSkillFor(project: NovelProject, stage: SkillStage): P
   if (!skill.inspection.compatible) {
     return {
       status: 'problem',
-      note: `绑定的技能「${skillLabel(skill.inspection)}」现在不兼容（${describeIncompat(skill.inspection.reasons)}），这次没带`,
+      note: `绑定的技能「${skillLabel(skill.inspection)}」现在不兼容（${describeIncompat(skill.inspection.reasons, skill.inspection.unresolved)}），这次没带`,
     };
   }
   return { status: 'ok', skill };
@@ -100,7 +100,7 @@ export async function saveSkillBinding(
       throw new Error(`找不到技能 ${id}`);
     }
     if (!skill.inspection.compatible) {
-      throw new Error(`「${skillLabel(skill.inspection)}」不兼容（${describeIncompat(skill.inspection.reasons)}），绑不上`);
+      throw new Error(`「${skillLabel(skill.inspection)}」不兼容（${describeIncompat(skill.inspection.reasons, skill.inspection.unresolved)}），绑不上`);
     }
   }
   const { bindings, problems } = await readSkillBindings(project);

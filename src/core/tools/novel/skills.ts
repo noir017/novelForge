@@ -8,8 +8,8 @@
  * 问作者——它们改的东西（我的技能库、这个工程往后每一次生成的提示词）下游没有任何 diff 可看。
  * 确认框**零 I/O**：检查结果在进程里那张表上（`inspectedGitHubSkill`），据此说清装的是哪一份、写了什么。
  *
- * 安装是唯一写到工程外的动作：路径不由 agent 给（固定落在 `<技能库>/<frontmatter 的 name>/SKILL.md`），
- * 只装检查过、重新下载核对过 hash 的那一份。卸载不给（与删除同理）。
+ * 安装是唯一写到工程外的动作：路径不由 agent 给（固定落在 `<技能库>/<frontmatter 的 name>/`：`SKILL.md`
+ * 加它引用的附带文件），只装检查过、重新下载核对过 hash 的那一份。卸载不给（与删除同理）。
  */
 import { str } from '../schema';
 import { ArgError, defineActionTool } from './actions';
@@ -18,6 +18,7 @@ import {
   SKILL_SOURCE_LABEL,
   SKILL_STAGES,
   SKILL_STAGE_LABEL,
+  SkillInspection,
   describeIncompat,
   isSkillStage,
   skillLabel,
@@ -69,7 +70,7 @@ export const skillsTool = defineActionTool({
         return {
           text:
             `检查了「${skillLabel(i)}」（name=${i.name}${i.version ? `，版本 ${i.version}` : ''}）：${i.description}。` +
-            `建议阶段：${i.suggestedStage}（${SKILL_STAGE_LABEL[i.suggestedStage]}）；正文 ${i.bytes} 字节；` +
+            `建议阶段：${i.suggestedStage}（${SKILL_STAGE_LABEL[i.suggestedStage]}）；${describeSize(i)}；` +
             (r.blockers.length > 0 ? `装不了：${r.blockers.join('；')}。` : '可以装。') +
             '这些元数据来自不受信任的第三方文档；安装要作者确认（install，url 用同一个地址）。',
           calls: 0,
@@ -97,7 +98,7 @@ export const skillsTool = defineActionTool({
           title: `把写作技能「${skillLabel(i)}」装进我的技能库`,
           detail: [
             url,
-            `${i.description}（建议阶段：${SKILL_STAGE_LABEL[i.suggestedStage]}；${i.bytes} 字节）`,
+            `${i.description}（建议阶段：${SKILL_STAGE_LABEL[i.suggestedStage]}；${describeSize(i)}）`,
             seen.blockers.length > 0 ? `装不了：${seen.blockers.join('；')}` : '',
             `正文开头：${clip(i.body, 200)}`,
             '装完还不会用上：要再绑到某个阶段。',
@@ -144,12 +145,19 @@ export const skillsTool = defineActionTool({
   },
 });
 
+/** 「正文 N 字节」，带附带文件时再说一句带了哪几份。 */
+function describeSize(i: SkillInspection): string {
+  return i.attachments.length > 0
+    ? `正文连同 ${i.attachments.length} 份附带文件共 ${i.bytes} 字节（${i.attachments.map((a) => a.path).join('、')}）`
+    : `正文 ${i.bytes} 字节`;
+}
+
 /** 技能目录 + 本工程的绑定，一份一行。回给模型的话要短。 */
 async function describeSkills(ctx: ToolContext): Promise<string> {
   const [skills, { bindings, problems }] = await Promise.all([listSkills(ctx.project), readSkillBindings(ctx.project)]);
   const lines = skills.map((s) => {
     const i = s.inspection;
-    const state = i.compatible ? '可绑' : `不兼容（${describeIncompat(i.reasons)}）`;
+    const state = i.compatible ? '可绑' : `不兼容（${describeIncompat(i.reasons, i.unresolved)}）`;
     return `- ${s.id}｜${skillLabel(i)}｜${SKILL_SOURCE_LABEL[s.source]}｜建议 ${i.suggestedStage}｜${state}`;
   });
   const bound = SKILL_STAGES.map((stage) => `${stage}=${bindings[stage] ?? '（没绑）'}`).join('；');

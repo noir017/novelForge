@@ -76,8 +76,9 @@ function rowOf(s: LoadedSkill, bindings: Partial<Record<SkillStage, string>>): S
     version: i.version,
     suggestedStage: i.suggestedStage,
     compatible: i.compatible,
-    reasons: i.compatible ? [] : [describeIncompat(i.reasons)],
+    reasons: i.compatible ? [] : [describeIncompat(i.reasons, i.unresolved)],
     bytes: i.bytes,
+    files: i.attachments.map((a) => a.path),
     relPath: s.relPath,
     boundTo: (Object.keys(bindings) as SkillStage[]).filter((stage) => bindings[stage] === s.id),
   };
@@ -101,6 +102,7 @@ export async function inspectSkillFrom(sink: SkillsSink, url: string): Promise<v
         suggestedStage: i.suggestedStage,
         bytes: i.bytes,
         body: i.body,
+        attachments: i.attachments.map((a) => ({ path: a.path, text: a.text })),
         blockers: r.blockers,
       },
     });

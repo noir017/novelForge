@@ -31,6 +31,7 @@ const row = (over) =>
       compatible: true,
       reasons: [],
       bytes: 120,
+      files: [],
       boundTo: [],
     },
     over
@@ -162,6 +163,7 @@ describe('设置页：技能 · 检查与安装', { skip: JSDOM_SKIP }, () => {
         suggestedStage: 'drafting',
         bytes: 30,
         body: '每一场都要有一个选择。',
+        attachments: [],
         blockers: [],
       },
       over
@@ -188,6 +190,18 @@ describe('设置页：技能 · 检查与安装', { skip: JSDOM_SKIP }, () => {
     ui.post({ type: 'skillInspection', url: URL, inspection: inspection() });
     assert.equal($('#skillInspection pre').textContent, '每一场都要有一个选择。');
     assert.ok(!$('#inspectSkillBtn').disabled);
+  });
+
+  test('附带文件：数出几份，每份一个折叠块带全文', () => {
+    ui.post({
+      type: 'skillInspection',
+      url: URL,
+      inspection: inspection({ attachments: [{ path: 'references/a.md', text: '附带的' }] }),
+    });
+    assert.ok($('#skillInspection .skill-meta').textContent.includes('附带 1 份文件'));
+    const extra = [...ui.doc.querySelectorAll('#skillInspection details')].at(-1);
+    assert.deepEqual([extra.querySelector('summary').textContent, extra.querySelector('pre').textContent], ['附带文件：references/a.md', '附带的']);
+    ui.post({ type: 'skillInspection', url: URL, inspection: inspection() });
   });
 
   test('可以装：点「确认安装」发 installSkill', () => {

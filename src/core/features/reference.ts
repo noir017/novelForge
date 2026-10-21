@@ -270,7 +270,7 @@ async function offerBinding(project: NovelProject, ws: Workspace, id: string, ma
   }
   if (!skill.inspection.compatible) {
     getHost().toast(
-      `${made.join('；')}。但它现在不兼容（${describeIncompat(skill.inspection.reasons)}），绑不上——打开改掉那几处再到设置页「技能」里绑。`,
+      `${made.join('；')}。但它现在不兼容（${describeIncompat(skill.inspection.reasons, skill.inspection.unresolved)}），绑不上——打开改掉那几处再到设置页「技能」里绑。`,
       'error'
     );
     return false;

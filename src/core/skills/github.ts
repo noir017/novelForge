@@ -3,8 +3,9 @@
  *
  * 移植自 AI-Novel-Writer `electron/controllers/app-data-controller.ts:133-379`：
  *
- * 1. **检查**（`inspectGitHubSkill`）：下载、读 frontmatter、跑兼容检查、算 sha256，把
- *    「这个地址检查过、内容是这个 hash」记在进程里。不写任何文件。
+ * 1. **检查**（`inspectGitHubSkill`）：下载 `SKILL.md` 和它引用的附带文件（同一个分支、相对
+ *    `SKILL.md` 所在的目录，一份份下；`references/*.md` 这类）、读 frontmatter、跑兼容检查、对整份
+ *    清单算 sha256，把「这个地址检查过、内容是这个 hash」记在进程里。不写任何文件。
  * 2. **安装**（`installGitHubSkill`）：没检查过的地址不装；**重新下载一遍**，hash 与落点都要与
  *    检查时一致，不兼容的不装，同名的不覆盖，然后原样写进我的技能库。
  *
@@ -24,12 +25,13 @@ import {
   describeIncompat,
   githubRawUrl,
   inspectSkillMarkdown,
+  isSafeGitHubPath,
   isSafeRef,
   isSkillName,
   parseGitHubSkillUrl,
 } from '../model/writingSkill';
 import { scoped } from '../runtime/logger';
-import { LoadedSkill, installUserSkill, loadSkill } from './library';
+import { LoadedSkill, SkillFiles, collectSkillFiles, installUserSkill, loadSkill } from './library';
 
 const log = scoped('技能');
 
@@ -90,17 +92,26 @@ export async function installGitHubSkill(url: string, signal?: AbortSignal): Pro
     throw new Error('请先检查这份技能，再确认安装。');
   }
   inspected.delete(sourceUrl);
-  const { remote, raw } = await fetchSkill(sourceUrl, signal);
+  const { remote, files } = await fetchSkill(sourceUrl, signal);
   if (remote.sha256 !== confirmed.sha256 || remote.resolvedUrl !== confirmed.resolvedUrl) {
     throw new Error('这份技能在检查之后变了，请重新检查。');
   }
   if (remote.blockers.length > 0) {
     throw new Error(`装不了：${remote.blockers.join('；')}`);
   }
-  return installUserSkill(remote.inspection.name, raw);
+  return installUserSkill(remote.inspection.name, files);
 }
 
-async function fetchSkill(sourceUrl: string, signal?: AbortSignal): Promise<{ remote: RemoteSkill; raw: string }> {
+/** 整份技能的指纹：按路径排好的「路径 + 内容」，附带文件变了也算变了。 */
+function manifestHash(files: SkillFiles): string {
+  const hash = createHash('sha256');
+  for (const rel of Object.keys(files).sort()) {
+    hash.update(rel, 'utf8').update('\0').update(files[rel], 'utf8').update('\0');
+  }
+  return hash.digest('hex');
+}
+
+async function fetchSkill(sourceUrl: string, signal?: AbortSignal): Promise<{ remote: RemoteSkill; files: SkillFiles }> {
   const location = parseGitHubSkillUrl(sourceUrl);
   const timeout = (): AbortSignal =>
     signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS);
@@ -143,10 +154,40 @@ async function fetchSkill(sourceUrl: string, signal?: AbortSignal): Promise<{ re
     throw new Error('SKILL.md 超过 64 KiB');
   }
 
-  const inspection = inspectSkillMarkdown(raw);
+  // 附带文件：与 SKILL.md 同一个分支、相对它所在的目录。404 当作没有（引用了却没有，由兼容检查说）；
+  // 别的失败直接抛——那是网络或 GitHub 的问题，不该判成「这份技能不兼容」。
+  const baseDir = location.path.split('/').slice(0, -1);
+  const fetched = await collectSkillFiles(raw, async (rel) => {
+    const filePath = [...baseDir, ...rel.split('/')].join('/');
+    if (!isSafeGitHubPath(filePath)) {
+      return undefined;
+    }
+    const res = await fetch(githubRawUrl(location.owner, location.repo, ref!, filePath), {
+      headers: { Accept: 'text/plain', 'User-Agent': USER_AGENT },
+      redirect: 'error',
+      signal: timeout(),
+    });
+    if (res.status === 404) {
+      return undefined;
+    }
+    if (!res.ok) {
+      throw new Error(`附带文件 ${rel} 下载失败（HTTP ${res.status}）`);
+    }
+    if (Number(res.headers.get('content-length') ?? 0) > MAX_SKILL_BYTES) {
+      throw new Error(`附带文件 ${rel} 超过 64 KiB`);
+    }
+    return res.text();
+  });
+
+  const inspection = inspectSkillMarkdown(raw, undefined, fetched);
+  // 装进去的就是会带上的那几份：SKILL.md 原样，加上引用到的附带文件。
+  const files: SkillFiles = { 'SKILL.md': raw };
+  for (const a of inspection.attachments) {
+    files[a.path] = fetched[a.path];
+  }
   const blockers: string[] = [];
   if (!inspection.compatible) {
-    blockers.push(`不是自包含的提示词（${describeIncompat(inspection.reasons)}）`);
+    blockers.push(`不是自包含的提示词（${describeIncompat(inspection.reasons, inspection.unresolved)}）`);
   }
   if (!isSkillName(inspection.name)) {
     blockers.push(`frontmatter 里的 name「${inspection.name}」不能当目录名`);
@@ -154,11 +195,11 @@ async function fetchSkill(sourceUrl: string, signal?: AbortSignal): Promise<{ re
     blockers.push(`我的技能库里已经有「${inspection.name}」了，要换新版先卸载旧的`);
   }
   return {
-    raw,
+    files,
     remote: {
       sourceUrl,
       resolvedUrl,
-      sha256: createHash('sha256').update(raw, 'utf8').digest('hex'),
+      sha256: manifestHash(files),
       inspection,
       blockers,
     },

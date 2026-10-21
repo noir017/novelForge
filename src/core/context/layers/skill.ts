@@ -3,7 +3,8 @@
  *
  * - **自己读绑定**（与 `style` 层读 `style.md` 一样），不经 `BuildRequest` 传：对话页、agent 的
  *   `generate`、工程页批量三条路都走 `buildContext`，于是三条路带的是同一份。
- * - **整份带或整份不带，不截半截**：放不下就 dropped 并写明需要多少、剩多少（第 2 条）。
+ * - **整份带或整份不带，不截半截**：正文连同它引用的附带文件算一整块，放不下就 dropped 并写明需要
+ *   多少、剩多少（第 2 条）。
  *   不 force——一份 64 KiB 的技能强塞进一个 32k 窗口的模型，挤掉的是作者事实。配方里排在
  *   P0 那一组的最后：作者事实先拿预算，技能再拿（上游那句「作者事实……始终优先」）。
  * - **绑了却带不上的说出来**：找不到、变得不兼容、绑定文件读不懂，一律 dropped 带原因，
@@ -65,7 +66,7 @@ export const skill: LayerFn = async (a, spec) => {
     ...base,
     label: `技能 · ${label}`,
     source: relPath,
-    text: renderSkillBlock(label, inspection.body),
+    text: renderSkillBlock(label, inspection.body, inspection.attachments),
     note: `${SKILL_SOURCE_LABEL[source]} · 绑在「${SKILL_STAGE_LABEL[stage]}」阶段`,
   };
   if (a.excluded.has(item.id)) {

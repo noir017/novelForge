@@ -8,6 +8,7 @@
  * | 排在用户消息的最前面，带「作者事实和后续输出合同始终优先」 | 上游的位置与说法 |
  * | 明细里一条，写来源与阶段；本工程的点得开 | 第 2 条：看得出带了什么 |
  * | 放不下整份不带，写明需要多少；不截半截 | 第 2 条 |
+ * | 引用到的附带文件标上路径接在正文后面，与正文一起算预算 | 常规技能的 references/：模型没有读文件的工具 |
  * | 绑了却找不到 / 绑定文件读不懂：dropped 带原因，生成照常 | 不让一份技能把生成拦住 |
  * | 取消勾选的标 excluded | 与其余条目一样 |
  */
@@ -94,6 +95,27 @@ const REVIEW = { action: { stage: 'manuscript', capability: 'review' }, target: 
 const REVISE = (extra = {}) =>
   WRITE({ writeMode: 'revise', revision: { previousDraft: '第二章已经写了一半。', feedback: '- 改掉第一句' }, ...extra });
 const CONTINUE_STEP = { kind: 'continuation', tail: '第二章已经写了一半。', written: 600, remaining: 600, recovery: false };
+
+describe('skill 层 · 附带文件', () => {
+  before(() => bind({ drafting: 'builtin:fiction-humanizer-zh' }));
+
+  test('写正文：小说去 AI 味带上，四份参考标上路径接在正文后面', async () => {
+    const b = await build(WRITE());
+    const user = userOf(b);
+    assert.equal(skillItem(b)?.status, 'included');
+    assert.ok(user.startsWith('【补充写作 Skill：小说去 AI 味（fiction-humanizer-zh，写正文）】'), user.slice(0, 100));
+    const at = (p) => user.indexOf(`【附带文件：references/${p}.md】`);
+    const order = ['ai-fiction-patterns', 'scene-rewrite', 'genre-notes', 'chapter-checklist'].map(at);
+    assert.ok(order.every((n, k) => n > 0 && (k === 0 || n > order[k - 1])), JSON.stringify(order));
+  });
+
+  test('预算按正文加附带文件一起算：放不下就整份不带', async () => {
+    const item = skillItem(await build(WRITE(), config({ contextWindow: 9000, maxOutputTokens: 1000 })));
+    assert.equal(item?.status, 'dropped');
+    assert.match(item.note, /预算不足（需 \d+ token/);
+    assert.ok(Number(/需 (\d+) token/.exec(item.note)[1]) > 6000, item.note);
+  });
+});
 
 describe('skill 层 · 规划阶段', () => {
   before(() => bind({ planning: 'builtin:long-form-continuity' }));

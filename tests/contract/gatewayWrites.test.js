@@ -26,7 +26,7 @@ const ALLOWED = {
   'src/core/model/project.ts': [3, '元数据与脚手架：`.novel/` → `.novelforge/` 迁移、新工程建固定目录、写 manifest（`project.json`）'],
   'src/core/model/session.ts': [3, '会话文件（内部文件，网关拒写 `sessions/`）：落盘、删会话搬进回收站（共用 `trashPathFor` 落点）'],
   'src/core/stores.ts': [5, '工程外：`~/.novelforge/` 的设置与 API Key'],
-  'src/core/skills/library.ts': [5, '工程外：我的技能库 `~/.novelforge/skills/`（装、卸载进它自己的回收站）'],
+  'src/core/skills/library.ts': [6, '工程外：我的技能库 `~/.novelforge/skills/`（装：连同附带文件的子目录；卸载进它自己的回收站）'],
 };
 
 /**

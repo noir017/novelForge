@@ -7,6 +7,7 @@ out/
 .DS_Store
 
 src/shells/standalone/mediaAssets.ts
+src/core/skills/builtin/embedded.ts
 sample-novel/.novelforge/sessions
 
 # 工程数据库（失败记录 + 日志历史）。它是可丢弃的痕迹，不是内容——

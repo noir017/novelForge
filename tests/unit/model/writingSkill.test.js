@@ -4,6 +4,9 @@
  * | 断言 | 为什么 |
  * |---|---|
  * | frontmatter 一行一个键，正文去掉首尾空白 | 注入的就是正文那一段 |
+ * | frontmatter 按 YAML 读顶层键：列表、嵌套块、块标量、BOM、CRLF | 常规技能原样能读；嵌套块不能拍平盖掉 name |
+ * | 引用到的附带文件一起带，带不上的才算相对引用 | 常规技能的 `references/` 原样能用；模型没有读文件的工具 |
+ * | allowed-tools 不算依赖工具，hooks 声明照旧算 | 前者是给 agent 预先放行的权限，后者要执行的东西 |
  * | 没写 name 用目录名，再没有用 unnamed-writing-skill | 用户与工程技能的身份是目录名 |
  * | 六条不兼容规则逐条命中 | 只收纯提示词：装进来的东西在这里没有可执行的地方 |
  * | 建议阶段：写明的优先，否则按关键词猜 | 只是建议，绑哪都行 |
@@ -79,8 +82,18 @@ describe('inspectSkillMarkdown · 不兼容的六条', () => {
     });
   }
 
-  test('frontmatter 声明了 allowed-tools 也算依赖工具', () => {
-    assert.deepEqual(reasonsOf(md(['name: a', 'allowed-tools: [read]'], '正文')), ['tool-dependency']);
+  test('frontmatter 的 allowed-tools 不算依赖工具（给 agent 预先放行的权限）', () => {
+    assert.deepEqual(reasonsOf(md(['name: a', 'allowed-tools: [read]'], '正文')), []);
+    assert.deepEqual(reasonsOf(md(['name: a', 'allowed-tools:', '  - Read', '  - Edit'], '正文')), []);
+  });
+
+  test('frontmatter 声明了 hooks / mcp 照旧算依赖工具', () => {
+    assert.deepEqual(reasonsOf(md(['name: a', 'hooks:', '  PreToolUse: x'], '正文')), ['tool-dependency']);
+    assert.deepEqual(reasonsOf(md(['name: a', 'mcp: [server]'], '正文')), ['tool-dependency']);
+  });
+
+  test('嵌套块里的键不算顶层声明', () => {
+    assert.deepEqual(reasonsOf(md(['name: a', 'metadata:', '  scripts: none'], '正文')), []);
   });
 
   test('整份超过 64 KiB 判太大', () => {
@@ -90,6 +103,106 @@ describe('inspectSkillMarkdown · 不兼容的六条', () => {
 
   test('原因有中文说法', () => {
     assert.equal(m.describeIncompat(['script-dependency', 'content-too-large']), '依赖脚本、内容超过 64 KiB');
+  });
+});
+
+describe('frontmatter · YAML 的写法', () => {
+  const read = (front, body = '正文') => m.inspectSkillMarkdown(md(front, body), 'dir');
+
+  test('列表与嵌套块整块归上一个键，嵌套的 name / version 不盖掉顶层的', () => {
+    const i = read([
+      'name: real',
+      'allowed-tools:',
+      '  - Read',
+      '  - Bash(git:*)',
+      'metadata:',
+      '  name: fake',
+      '  version: 9.9',
+      'version: 2.0',
+    ]);
+    assert.deepEqual([i.name, i.version, i.compatible], ['real', '2.0', true]);
+  });
+
+  test('块标量：| 保留换行，> 折成一行', () => {
+    assert.equal(read(['name: a', 'description: |', '  第一行', '  第二行']).description, '第一行\n第二行');
+    assert.equal(read(['name: a', 'description: >-', '  Use when', '  rewriting.']).description, 'Use when rewriting.');
+  });
+
+  test('不加引号的值可以折到下面缩进的几行', () => {
+    assert.equal(read(['name: a', 'description: 第一段', '  接着写']).description, '第一段 接着写');
+  });
+
+  test('引号：双引号认转义，单引号认两个单引号，行尾注释去掉', () => {
+    const i = read(['name: \'it\'\'s\'', 'display_name: "场面\\"写法\\""', 'version: 1.0 # 注释']);
+    assert.deepEqual([i.name, i.displayName, i.version], ["it's", '场面"写法"', '1.0']);
+  });
+
+  test('注释行、BOM、CRLF、--- 后面的空白都认', () => {
+    const raw = '\uFEFF---  \r\n# 说明\r\nname: a\r\nstage: review\r\n---\r\n正文\r\n';
+    const i = m.inspectSkillMarkdown(raw);
+    assert.deepEqual([i.name, i.stage, i.body], ['a', 'review', '正文']);
+  });
+
+  test('空的 frontmatter 也认得出', () => {
+    assert.equal(m.inspectSkillMarkdown('---\n---\n正文', 'dir').body, '正文');
+  });
+});
+
+describe('附带文件', () => {
+  const skill = (body) => md(['name: a'], body);
+
+  test('引用到的文本文件按引用先后带上，传递引用也带，没被引用的不带', () => {
+    const i = m.inspectSkillMarkdown(skill('读 [模式](references/patterns.md)，再看 references/checklist.md。'), 'a', {
+      'references/patterns.md': '见 [细节](detail.md)。',
+      'references/detail.md': '细节',
+      'references/checklist.md': '清单',
+      'README.md': '不带',
+    });
+    assert.deepEqual(
+      i.attachments.map((a) => a.path),
+      ['references/patterns.md', 'references/checklist.md', 'references/detail.md']
+    );
+    assert.deepEqual([i.compatible, i.unresolved], [true, []]);
+  });
+
+  test('字节数与 64 KiB 都按正文加附带文件算', () => {
+    const i = m.inspectSkillMarkdown(skill('看 references/a.md'), 'a', { 'references/a.md': '一二三' });
+    assert.equal(i.bytes, Buffer.byteLength('看 references/a.md') + Buffer.byteLength('一二三'));
+    const big = m.inspectSkillMarkdown(skill('看 references/a.md'), 'a', { 'references/a.md': '字'.repeat(23000) });
+    assert.deepEqual(big.reasons, ['content-too-large']);
+  });
+
+  test('明确引用的找不到、越出技能目录、不是文本：相对引用，说出是哪几个', () => {
+    const i = m.inspectSkillMarkdown(skill('看 references/gone.md、[上一层](../x.md) 和 assets/cover.png。'), 'a', {});
+    assert.deepEqual(i.reasons, ['relative-reference']);
+    assert.deepEqual(i.unresolved, ['references/gone.md', '../x.md', 'assets/cover.png']);
+    assert.equal(m.describeIncompat(i.reasons, i.unresolved), '包含相对引用（带不上：references/gone.md、../x.md、assets/cover.png）');
+  });
+
+  test('普通链接找不到只是不带，网址与锚点不算引用', () => {
+    const i = m.inspectSkillMarkdown(skill('见 [例子](example.md)、[官网](https://x.y/a.md)、[上文](#a)。'), 'a', {});
+    assert.deepEqual([i.compatible, i.attachments], [true, []]);
+  });
+
+  test('附带文件里要跑脚本，一样不兼容', () => {
+    const i = m.inspectSkillMarkdown(skill('看 references/a.md'), 'a', { 'references/a.md': '先跑 scripts/check.py。' });
+    assert.deepEqual(i.reasons, ['script-dependency']);
+  });
+
+  test('注入时附带文件标上路径接在正文后面', () => {
+    const block = m.renderSkillBlock('甲', '正文', [{ path: 'references/a.md', text: '内容\r\n第二行\n' }]);
+    assert.ok(block.endsWith('正文\n\n【附带文件：references/a.md】\n内容\n第二行'), block);
+  });
+
+  test('skillReferences：按所在目录解析，越界的没有 path', () => {
+    const refs = m.skillReferences('[a](./b.md) [c](../../d.md)', 'references/x.md');
+    assert.deepEqual(
+      refs.map((r) => [r.target, r.path, r.strong]),
+      [
+        ['./b.md', 'references/b.md', true],
+        ['../../d.md', undefined, true],
+      ]
+    );
   });
 });
 

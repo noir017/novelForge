@@ -3,9 +3,13 @@
  *
  * | 来源 | 在哪 | 谁往里放 |
  * |---|---|---|
- * | 内置 | 代码里（[builtin/](builtin/index.ts)，一份一个文件） | 随应用发布，删不掉 |
+ * | 内置 | 仓库里的 [builtin/<名字>/](builtin/README.md)，构建时内嵌进程序 | 随应用发布，删不掉 |
  * | 我的技能库 | `~/.novelforge/skills/<名字>/SKILL.md`，所有工程共用 | 设置页「技能」或 agent 从 GitHub 装；也可以手放 |
  * | 本工程 | `.novelforge/skills/<名字>/SKILL.md`，跟着工程走、可进 Git | 作者手放 |
+ *
+ * 三个来源都是**常规的技能目录**：`SKILL.md` 加上它引用的附带文件（`references/*.md` 这类）。
+ * 读一份技能就是读 `SKILL.md`、再按引用把附带文件一层层读进来（{@link collectSkillFiles}），
+ * 交给 `inspectSkillMarkdown` 判兼容、拼正文。目录里没被引用的文件不读。
  *
  * **每次都读盘**（与 `NovelProject` 的约定一样）：作者随时可能在编辑器里改一份技能，下一次
  * 生成就该用改过的那份。一次装配只读绑定的那一份，不扫全库。
@@ -17,7 +21,8 @@
  * `.vela/skills` 会让该工程**每一个**工作流都起不来，哪怕一份技能都没绑。
  *
  * **不跟链接**：符号链接的目录与文件一律跳过（上游 `app-data-controller.ts:285-309` 同样只认
- * 真目录）。我的技能库在工程外，没有 workspace 网关替它守边界，这一条就是它的边界。
+ * 真目录），附带文件路径上的每一段也是。我的技能库在工程外，没有 workspace 网关替它守边界，
+ * 这一条就是它的边界。
  */
 import type { Dirent, Stats } from 'node:fs';
 import * as fs from 'node:fs/promises';
@@ -25,19 +30,25 @@ import * as path from 'node:path';
 import { homeDir } from '../stores';
 import type { NovelProject } from '../model/project';
 import {
+  MAX_SKILL_ATTACHMENTS,
+  MAX_SKILL_BYTES,
   SkillInspection,
   SkillSource,
   inspectSkillMarkdown,
   isSkillName,
   parseSkillId,
   skillId,
+  skillReferences,
 } from '../model/writingSkill';
 import { scoped } from '../runtime/logger';
-import { BUILTIN_SKILLS } from './builtin';
+import { BUILTIN_SKILL_DIRS } from './builtin/embedded';
 
 const log = scoped('技能');
 
 const SKILL_FILE = 'SKILL.md';
+
+/** 一份技能目录里的文件：相对路径（`/` 分隔）→ 文本。`SKILL.md` 本身也在里面。 */
+export type SkillFiles = Record<string, string>;
 
 export interface LoadedSkill {
   /** `来源:名字`。 */
@@ -73,13 +84,56 @@ function userTrashDir(): string {
 
 // ---------------------------------------------------------------- 读
 
-function builtins(): LoadedSkill[] {
-  return BUILTIN_SKILLS.map((b) => ({
-    id: skillId('builtin', b.name),
-    source: 'builtin' as const,
-    name: b.name,
-    inspection: inspectSkillMarkdown(b.raw, b.name),
-  }));
+function utf8Bytes(text: string): number {
+  return Buffer.byteLength(text, 'utf8');
+}
+
+/**
+ * 从 `SKILL.md` 出发，按引用把附带文件一层层读进来（附带文件里再引用的也读）。`read` 给相对路径、
+ * 回文本，读不到回 undefined——磁盘与 GitHub 各给一个。只读能带的（文本、在技能目录里），读到
+ * 上限（份数、字节）就停：多出来的不读，由 `inspectSkillMarkdown` 判「内容超过 64 KiB」。
+ */
+export async function collectSkillFiles(
+  raw: string,
+  read: (relPath: string) => Promise<string | undefined>
+): Promise<SkillFiles> {
+  const files: SkillFiles = { [SKILL_FILE]: raw };
+  let bytes = utf8Bytes(raw);
+  let count = 0;
+  const queue = skillReferences(raw);
+  while (queue.length > 0 && count <= MAX_SKILL_ATTACHMENTS && bytes <= MAX_SKILL_BYTES) {
+    const ref = queue.shift()!;
+    if (!ref.path || !ref.text || ref.path in files) {
+      continue;
+    }
+    const text = await read(ref.path);
+    if (text === undefined) {
+      continue;
+    }
+    files[ref.path] = text;
+    bytes += utf8Bytes(text);
+    count++;
+    queue.push(...skillReferences(text, ref.path));
+  }
+  return files;
+}
+
+/** 内置的不会变：读一次留着。 */
+let builtinCache: readonly LoadedSkill[] | undefined;
+
+function builtins(): readonly LoadedSkill[] {
+  builtinCache ??= Object.keys(BUILTIN_SKILL_DIRS)
+    .sort()
+    .map((name) => {
+      const files = BUILTIN_SKILL_DIRS[name];
+      return {
+        id: skillId('builtin', name),
+        source: 'builtin' as const,
+        name,
+        inspection: inspectSkillMarkdown(files[SKILL_FILE] ?? '', name, files),
+      };
+    });
+  return builtinCache;
 }
 
 /** 全部技能：内置 → 我的技能库 → 本工程（给了工程才扫）。各来源内按名字排。 */
@@ -156,11 +210,12 @@ async function readOne(
       return undefined;
     }
     const raw = await fs.readFile(filePath, 'utf8');
+    const files = await collectSkillFiles(raw, (rel) => readAttachment(dir, rel));
     return {
       id: skillId(source, name),
       source,
       name,
-      inspection: inspectSkillMarkdown(raw, name),
+      inspection: inspectSkillMarkdown(raw, name, files),
       relPath: source === 'project' && project ? project.relPath(filePath) : undefined,
       filePath,
     };
@@ -172,17 +227,44 @@ async function readOne(
   }
 }
 
+/** 技能目录里的一份附带文件。路径上任何一段是链接、不是普通文件、读不出来，都当没有。 */
+async function readAttachment(dir: string, rel: string): Promise<string | undefined> {
+  let current = dir;
+  try {
+    for (const seg of rel.split('/')) {
+      current = path.join(current, seg);
+      if ((await fs.lstat(current)).isSymbolicLink()) {
+        return undefined;
+      }
+    }
+    if (!(await fs.lstat(current)).isFile()) {
+      return undefined;
+    }
+    return await fs.readFile(current, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
 // ---------------------------------------------------------------- 我的技能库：装与卸
 
 /**
- * 把一份 `SKILL.md` 原样写进我的技能库。**同名的已经有了就报错退出**，不覆盖（第 3 条；
- * 上游同样拒绝同名重装——要换新版先卸载旧的）。
+ * 把一份技能（`SKILL.md` 加附带文件）原样写进我的技能库。**同名的已经有了就报错退出**，不覆盖
+ * （第 3 条；上游同样拒绝同名重装——要换新版先卸载旧的）。
  *
  * 兼容与否、是不是检查过的那一份，由调用方（[github.ts](github.ts)）把关；这里只管落盘。
  */
-export async function installUserSkill(name: string, raw: string): Promise<LoadedSkill> {
+export async function installUserSkill(name: string, files: SkillFiles): Promise<LoadedSkill> {
   if (!isSkillName(name)) {
     throw new Error(`技能名「${name}」不合法：要以字母或数字开头，只能含字母、数字、. _ -，最长 64 个字符。`);
+  }
+  if (typeof files[SKILL_FILE] !== 'string') {
+    throw new Error('没有 SKILL.md，不装。');
+  }
+  const rels = Object.keys(files);
+  const bad = rels.find((rel) => rel.split('/').some((seg) => !seg || seg === '.' || seg === '..' || seg.includes('\\')));
+  if (bad !== undefined) {
+    throw new Error(`附带文件的路径「${bad}」不合法，不装。`);
   }
   const root = userSkillsDir();
   await fs.mkdir(root, { recursive: true });
@@ -198,7 +280,13 @@ export async function installUserSkill(name: string, raw: string): Promise<Loade
     }
     throw err;
   }
-  await fs.writeFile(path.join(dir, SKILL_FILE), raw, { encoding: 'utf8', mode: 0o600 });
+  for (const rel of rels) {
+    const target = path.join(dir, ...rel.split('/'));
+    if (rel.includes('/')) {
+      await fs.mkdir(path.dirname(target), { recursive: true });
+    }
+    await fs.writeFile(target, files[rel], { encoding: 'utf8', mode: 0o600 });
+  }
   const skill = await readOne(root, name, 'user');
   if (!skill) {
     throw new Error(`「${name}」写进去之后读不回来。`);

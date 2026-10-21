@@ -1,5 +1,6 @@
 const esbuild = require('esbuild');
 const { buildMedia } = require('./scripts/build-media');
+const { embedSkills } = require('./scripts/embed-skills');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -25,6 +26,8 @@ async function main() {
   // 前端资源（media/src → dist/media/）与扩展主体一起构建：
   // F5 调试前只跑 `npm run compile`，漏了这一步 webview 会 404。
   await buildMedia({ watch });
+  // 内置写作技能是仓库里的目录，bundle 之前先内嵌成 core 能 import 的生成文件（见那个脚本）。
+  embedSkills();
 
   const ctx = await esbuild.context({
     entryPoints: ['src/shells/vscode/extension.ts'],

@@ -386,7 +386,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
 
   <div class="settings-panel" id="settingsPanelSkills" data-settings-panel="skills" role="tabpanel" aria-labelledby="settingsTabSkills">
     <div class="hint">
-      写作技能是一份<b>补充的写作方法</b>（一个目录里一份 <code>SKILL.md</code>）。给本工程的某个阶段绑上一份，
+      写作技能是一份<b>补充的写作方法</b>（一个目录里一份 <code>SKILL.md</code>，可以带它引用的 <code>references/</code> 这类文件）。给本工程的某个阶段绑上一份，
       这个阶段往后的每一次生成都会把它放在提示词最前面——对话页、外部 Agent 经 MCP 生成、工程页批量都一样。
       它只能补充写法：<b>作者事实和输出格式始终优先</b>。讨论与定稿不带。这一页的改动当场生效，不用点「保存设置」。
     </div>
@@ -397,7 +397,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
 
     <div class="pane-head"><span>从 GitHub 安装</span></div>
     <div class="hint">
-      只收自包含的纯提示词 <code>SKILL.md</code>：要跑脚本、装 hook、派子代理、调工具，或引用旁边别的文件的，都装不了。
+      只收纯提示词的技能：要跑脚本、装 hook、派子代理、调工具的，都装不了。<code>SKILL.md</code> 引用的文本文件（<code>references/*.md</code> 这类）会一起下载、生成时接在正文后面一起带；引用了却下不到的也装不了。
       先检查（只下载来看，不写任何文件），看过正文再确认安装；安装时会重新下载，与检查时那一份核对一致才装。
     </div>
     <div class="skill-install">

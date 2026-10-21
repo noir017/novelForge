@@ -14,8 +14,13 @@
 const path = require('path');
 const Module = require('module');
 const esbuild = require('esbuild');
+const { embedSkills } = require('../../scripts/embed-skills');
 
 const ROOT = path.join(__dirname, '..', '..');
+
+// 内置写作技能是仓库里的目录，core 从一个生成文件里 import 它们（见 scripts/embed-skills.js）。
+// 单跑一条测试不经过 npm 的 pre 钩子，所以在这里生成；内容没变就不写。
+embedSkills({ quiet: true });
 
 /** bundle 一次要几十毫秒，同一个进程内重复加载同一组入口时直接复用。 */
 const cache = new Map();

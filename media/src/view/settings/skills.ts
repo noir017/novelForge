@@ -57,6 +57,7 @@ export function renderSkillInspection(url: string, inspection?: SkillInspectionV
         inspection.version ? `版本 ${inspection.version}` : '',
         `建议阶段：${SKILL_STAGE_LABEL[inspection.suggestedStage]}`,
         `${inspection.bytes} 字节`,
+        inspection.attachments.length > 0 ? `附带 ${inspection.attachments.length} 份文件` : '',
       ]
         .filter(Boolean)
         .join(' · ')
@@ -70,6 +71,13 @@ export function renderSkillInspection(url: string, inspection?: SkillInspectionV
   body.appendChild(el('summary', undefined, '正文（装进来的就是这些字）'));
   body.appendChild(el('pre', undefined, inspection.body));
   card.appendChild(body);
+  // 附带文件同样整份带进每一次生成，一份一个折叠块。
+  for (const file of inspection.attachments) {
+    const more = el('details', 'skill-body');
+    more.appendChild(el('summary', undefined, `附带文件：${file.path}`));
+    more.appendChild(el('pre', undefined, file.text));
+    card.appendChild(more);
+  }
   card.appendChild(el('div', 'hint', `下载地址：${inspection.resolvedUrl}。这些内容来自第三方，装之前看一眼。`));
 
   const actions = el('div', 'actions');
@@ -160,7 +168,7 @@ function bindingField(
   none.value = '';
   select.appendChild(none);
   const current = bindings?.[stage] ?? '';
-  // 内置的阶段是写死的（三份「去 AI 味」各管一个阶段），别的阶段不列；已经绑上的照列。
+  // 内置的阶段是它 frontmatter 里写明的（随应用发布、作者改不了），别的阶段不列；已经绑上的照列。
   // 我的技能库与本工程的「建议阶段」可能是猜的，全列，只是本阶段建议的排前面。
   const listed = usable.filter((r) => r.source !== 'builtin' || r.suggestedStage === stage || r.id === current);
   const suggested = listed.filter((r) => r.suggestedStage === stage);
@@ -250,6 +258,7 @@ function libraryRow(row: SkillRow): HTMLElement {
         row.version ? `版本 ${row.version}` : '',
         `建议阶段：${SKILL_STAGE_LABEL[row.suggestedStage]}`,
         `${row.bytes} 字节`,
+        row.files.length > 0 ? `附带 ${row.files.length} 份文件` : '',
         row.boundTo.length > 0 ? `本工程绑在：${row.boundTo.map((s) => SKILL_STAGE_LABEL[s]).join('、')}` : '',
       ]
         .filter(Boolean)

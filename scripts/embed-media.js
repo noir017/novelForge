@@ -11,11 +11,14 @@
  * 可执行旁边没有 `package.json`，运行时去读只能读到 0.0.0。每一条出单文件的路
  * （独立版、桌面 sidecar、release）都先跑这个脚本，所以版本号跟着资源一起进程序。
  *
+ * 同一个理由，这里也先跑一次 embed-skills.js，把内置写作技能的目录内嵌进 core。
+ *
  * 用法：node scripts/embed-media.js
  */
 const fs = require('fs');
 const path = require('path');
 const { buildMedia, MEDIA_OUT_DIR } = require('./build-media');
+const { embedSkills } = require('./embed-skills');
 
 const ROOT = path.join(__dirname, '..');
 const STATIC_DIR = path.join(ROOT, 'media');
@@ -33,6 +36,7 @@ const MIME = {
 };
 
 async function main() {
+  embedSkills();
   await buildMedia({ quiet: true });
 
   const assets = [

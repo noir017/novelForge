@@ -4,6 +4,8 @@
  * | 断言 | 为什么 |
  * |---|---|
  * | 内置 → 我的技能库 → 本工程，身份是目录名 | 同名可以各有一份，靠前缀分开 |
+ * | 内置是仓库里的常规技能目录，上游原样（含 allowed-tools、references/）可用 | 内置不再写死在 TS 里 |
+ * | 磁盘上与 GitHub 上的附带文件按引用读进来；链接不跟；检查后附带文件变了也不装 | 三个来源同一套读法 |
  * | 链接、名字不合法、没有 SKILL.md 的目录跳过 | 我的技能库在工程外，这就是它的边界 |
  * | 没检查过不装；检查后内容变了不装；不兼容不装；同名不覆盖 | 照搬上游的五道关（第 3 条） |
  * | 检查不写任何文件 | 检查只是看 |
@@ -87,11 +89,11 @@ describe('三个来源', () => {
   test('内置 → 我的技能库 → 本工程，各来源内按名字排', async () => {
     const ids = (await skills.listSkills(t.project)).map((s) => s.id);
     assert.deepEqual(ids, [
+      'builtin:fiction-humanizer-zh',
+      'builtin:humanizer-zh',
       'builtin:long-form-continuity',
       'builtin:natural-prose-refinement',
       'builtin:plain-prose',
-      'builtin:fiction-humanizer-zh',
-      'builtin:humanizer-zh',
       'user:scene-craft',
       'project:scene-craft',
       'project:去AI味',
@@ -131,13 +133,75 @@ describe('三个来源', () => {
       skills.loadSkill('builtin:humanizer-zh'),
     ]);
     assert.deepEqual([fiction.inspection.stage, general.inspection.stage], ['drafting', 'refinement']);
-    // 小说那份把参考文件并了进来：并进来的那几节在，指路去读别的文件的那几行不在。
-    assert.ok(fiction.inspection.body.includes('### AI 小说味常见模式'));
-    assert.ok(!fiction.inspection.body.includes('references/'));
+  });
+
+  test('内置是上游原样的目录：references/ 当附带文件带上，allowed-tools 不碍事，LICENSE 不进提示词', () => {
+    const dirs = skills.BUILTIN_SKILL_DIRS;
+    const fiction = dirs['fiction-humanizer-zh'];
+    assert.ok(fiction['SKILL.md'].includes('读取 [references/ai-fiction-patterns.md](references/ai-fiction-patterns.md)'));
+    assert.ok(dirs['humanizer-zh']['SKILL.md'].includes('allowed-tools:'));
+    assert.ok('LICENSE' in fiction && 'LICENSE' in dirs['humanizer-zh']);
+  });
+
+  test('小说那份的四份参考整份带上，按正文里引用的先后', async () => {
+    const s = await skills.loadSkill('builtin:fiction-humanizer-zh');
+    assert.deepEqual(
+      s.inspection.attachments.map((a) => a.path),
+      [
+        'references/ai-fiction-patterns.md',
+        'references/scene-rewrite.md',
+        'references/genre-notes.md',
+        'references/chapter-checklist.md',
+      ]
+    );
+    assert.equal(s.inspection.attachments[0].text, skills.BUILTIN_SKILL_DIRS['fiction-humanizer-zh']['references/ai-fiction-patterns.md']);
   });
 
   test('链接过去的目录认不出', async () => {
     assert.equal(await skills.loadSkill('user:linked'), undefined);
+  });
+});
+
+describe('磁盘上的附带文件', () => {
+  before(() => {
+    home.write('skills/with-refs/SKILL.md', skillMd('with-refs', '照 [模式](references/a.md) 写，交稿前过 references/b.md。'));
+    home.write('skills/with-refs/references/a.md', '模式 A，细节见 [这里](deep/c.md)。');
+    home.write('skills/with-refs/references/deep/c.md', '更细的');
+    home.write('skills/with-refs/references/b.md', '清单');
+    home.write('skills/with-refs/README.md', '不进提示词');
+    home.write('outside.md', '技能目录外的');
+    home.write('skills/linked-ref/SKILL.md', skillMd('linked-ref', '照 references/a.md 写。'));
+    fs.mkdirSync(home.rel('skills/linked-ref/references'), { recursive: true });
+    try {
+      fs.symlinkSync(home.rel('outside.md'), home.rel('skills/linked-ref/references/a.md'));
+    } catch {
+      // Windows 上没权限建链接：放一个打不开的东西代替，这一条照样是「带不上」。
+      fs.mkdirSync(home.rel('skills/linked-ref/references/a.md'));
+    }
+  });
+
+  after(() => {
+    for (const name of ['with-refs', 'linked-ref']) {
+      fs.rmSync(home.rel('skills', name), { recursive: true, force: true });
+    }
+  });
+
+  test('按引用一层层读进来，没被引用的不读', async () => {
+    const s = await skills.loadSkill('user:with-refs');
+    assert.deepEqual(
+      s.inspection.attachments.map((a) => [a.path, a.text]),
+      [
+        ['references/a.md', '模式 A，细节见 [这里](deep/c.md)。'],
+        ['references/b.md', '清单'],
+        ['references/deep/c.md', '更细的'],
+      ]
+    );
+    assert.equal(s.inspection.compatible, true);
+  });
+
+  test('附带文件是链接：不跟，判带不上', async () => {
+    const s = await skills.loadSkill('user:linked-ref');
+    assert.deepEqual([s.inspection.compatible, s.inspection.unresolved], [false, ['references/a.md']]);
   });
 });
 
@@ -209,6 +273,38 @@ describe('从 GitHub 检查与安装', () => {
   test('下载失败说出 HTTP 状态', async () => {
     fakeGitHub({}, { 'o/r': 'main' });
     await assert.rejects(skills.inspectGitHubSkill(URL), /HTTP 404/);
+  });
+
+  test('引用到的附带文件一份份下下来，装进去是整棵目录', async () => {
+    const REF = 'https://raw.githubusercontent.com/o/r/main/skills/x/references/a.md';
+    const raw = skillMd('remote-skill', '照 references/a.md 写。');
+    const calls = fakeGitHub(
+      { 'https://raw.githubusercontent.com/o/r/main/skills/x/SKILL.md': raw, [REF]: '附带的' },
+      { 'o/r': 'main' }
+    );
+    const url = 'https://github.com/o/r/tree/main/skills/x';
+    const r = await skills.inspectGitHubSkill(url);
+    assert.ok(calls.includes(REF));
+    assert.deepEqual([r.blockers, r.inspection.attachments.map((a) => a.path)], [[], ['references/a.md']]);
+    await skills.installGitHubSkill(url);
+    assert.equal(fs.readFileSync(home.rel('skills/remote-skill/SKILL.md'), 'utf8'), raw);
+    assert.equal(fs.readFileSync(home.rel('skills/remote-skill/references/a.md'), 'utf8'), '附带的');
+  });
+
+  test('引用的附带文件下不到：检查时说带不上哪一份', async () => {
+    fakeGitHub({ [RAW]: skillMd('remote-skill', '照 references/gone.md 写。') }, { 'o/r': 'main' });
+    const r = await skills.inspectGitHubSkill(URL);
+    assert.ok(r.blockers[0].includes('带不上：references/gone.md'), r.blockers.join('|'));
+  });
+
+  test('检查之后附带文件变了：不装', async () => {
+    const REF = 'https://raw.githubusercontent.com/o/r/main/references/a.md';
+    const files = { [RAW]: skillMd('remote-skill', '照 references/a.md 写。'), [REF]: '旧的' };
+    fakeGitHub(files, { 'o/r': 'main' });
+    await skills.inspectGitHubSkill(URL);
+    files[REF] = '新的';
+    await assert.rejects(skills.installGitHubSkill(URL), /检查之后变了/);
+    assert.ok(!fs.existsSync(home.rel('skills/remote-skill')));
   });
 
   test('确认框要的检查结果不用联网就拿得到', async () => {
