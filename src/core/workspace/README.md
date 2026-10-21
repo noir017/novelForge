@@ -294,7 +294,7 @@ workspace/
 
 | 方法 | 落点由什么决定 |
 |---|---|
-| `writePlot` / `deletePlot` | 有正文：正文的镜像（文件名跟着正文，改标题只改 frontmatter 里的标题）；没有正文：已有那份所在的子目录，或调用方给的落点 `at` 的子目录，都没有就跟上一章同一个子目录，文件名按章号 + 标题（改章号要传原路径）。删除进 `.trash/` 的落点与 `remove` 同一套（`trashPathFor`），不会盖掉定稿时复制进去的旧版 |
+| `writePlot` / `deletePlot` | 有正文：正文的镜像（文件名跟着正文，改标题只改 frontmatter 里的标题）；没有正文：已有那份所在的子目录，或调用方给的落点 `at` 的子目录，都没有就跟上一章同一个子目录，文件名按章号 + 标题（改章号要传原路径）。删除进 `.trash/` 的落点与 `remove` 同一套（`trashPathFor`），不会盖掉定稿时复制进去的旧版；删掉之后各条线与「未归属的伏笔」里那一章的计划事件一起删（`dropPlannedThreadEvents`，第 28 条「计划事件随细纲走」，复跑之后加的；同一章还有另一份细纲时不删），改之前存一版历史 |
 | `recordWrittenFrom` | 细纲路径（只改 frontmatter 的 `writtenFrom`，正文一个字节不动） |
 | `recordPreflightOk` | 细纲路径（只改 frontmatter 的 `preflightOk`：一致性预检的永久放行，一行「名字：理由」，同名换新理由；没有 frontmatter 的手写细纲不补，五期补遗 §2） |
 | `restampPlotChain(rel, patch)` | 细纲路径（只改 frontmatter 里给出的指纹键：`upstreamHash` / `writtenFrom` / `sourceHash`，值为空就删掉这个键；别的键与正文一个字节不动，不存历史版本，没有 frontmatter 的手写细纲不补）。只给全书替换的指纹链收尾用（第 18 条，`features/bookReplace.ts`）：同一次里细纲与正文都改了、原本对得上的，`writtenFrom` / `sourceHash` 刷成替换后的；细纲的 `upstreamHash` 退回替换前的判断——`write` 写细纲时总是记下大纲此刻的指纹（「谁写都记」），这一次替换不该顺手把本来挂着的 ⟳ 擦掉、也不该把没记过的手写细纲拉进链 |
