@@ -1220,6 +1220,17 @@ export function threadsToJudge(
 }
 
 /**
+ * 写到第 `no` 章时还没收、也没弃的伏笔（各条线与「未归属的伏笔」里的都算，线收束了伏笔照样可能还开着），带挂在哪条线上、
+ * 写到这一章时的状态。定稿送去认（{@link foreshadowToJudge}）与归并的候选（c，{@link verifyMerges}）共用。
+ */
+export function openForeshadowing(book: ThreadBook, no: number): JudgedForeshadow[] {
+  return [
+    ...book.threads.flatMap((t) => foreshadowingOf(asOf(t, no), no - 1).map((f) => ({ ...f, line: t.name }))),
+    ...foreshadowingOf(asOf(book.unfiled, no), no - 1).map((f) => ({ ...f })),
+  ].filter((f) => !isForeshadowClosed(f.status));
+}
+
+/**
  * 定稿第 `no` 章时送哪几条伏笔去认：写到这一章时还没收、也没弃的（各条线与「未归属的伏笔」里的都算，线收束了伏笔
  * 照样可能还开着），按要紧排——计划在这一章或更早收的（逾期的、本章该收的，回收章早的在前）→ 本章计划埋或收的 →
  * 已经埋下的（埋得近的在前）→ 其余还没埋的；最多 `limit` 条（上下文详细度 `foreshadowJudge`）。
@@ -1234,10 +1245,7 @@ export function foreshadowToJudge(
       .filter((p) => p.event.foreshadowing)
       .map((p) => threadKey(p.event.foreshadowing!))
   );
-  const all: JudgedForeshadow[] = [
-    ...book.threads.flatMap((t) => foreshadowingOf(asOf(t, no), no - 1).map((f) => ({ ...f, line: t.name }))),
-    ...foreshadowingOf(asOf(book.unfiled, no), no - 1).map((f) => ({ ...f })),
-  ].filter((f) => !isForeshadowClosed(f.status));
+  const all = openForeshadowing(book, no);
   const rank = (f: JudgedForeshadow): number => {
     if (f.resolve !== undefined && f.resolve <= no) {
       return 0;
@@ -1472,31 +1480,40 @@ export interface ThreadMerge {
   into: string;
   /** 并进去了、这一章却没有另记什么时，说清为什么（完成提示照它说，不说「并进了」却什么都没写）。 */
   note?: string;
+  /** 模型给的理由（只进日志）。 */
+  reason?: string;
 }
+
+/** 归并理由最长多少字（只进日志）。 */
+const MERGE_REASON_MAX = 60;
 
 /**
  * 归并（c）的输出 → 认得出的几条：`new` 是这一次新认出的线或伏笔的名字，`into` 是同一类里已有的那一条（线并进线、伏笔并进
  * 伏笔）；一个新名字只并一次。认不出的丢掉——不并就是照新的建，什么都不会丢。
+ *
+ * 伏笔只能并进写到第 `chapter` 章时**还没收、也没弃**的那几条（{@link openForeshadowing}，送给 c 的也只有这几条）：并进收了的，
+ * 这一章新露出来的东西就没了着落（「埋」不会再记）。线不限：收束了的线又被正文接上，并进去就是它重新动了。
  */
-export function verifyMerges(raw: readonly unknown[], finds: ThreadFinds, book: ThreadBook): ThreadMerge[] {
+export function verifyMerges(raw: readonly unknown[], finds: ThreadFinds, book: ThreadBook, chapter: number): ThreadMerge[] {
   const newThreads = new Map(finds.newThreads.map((t) => [threadKey(t.name), t.name]));
   const newFore = new Map(finds.newForeshadowing.map((f) => [threadKey(f.name), f.name]));
   const threads = new Map(book.threads.map((t) => [threadKey(t.name), t.name]));
-  const fore = new Map(foreshadowNames(book).map((n) => [threadKey(n), n]));
+  const fore = new Map(openForeshadowing(book, chapter).map((f) => [threadKey(f.name), f.name]));
   const out: ThreadMerge[] = [];
   const done = new Set<string>();
   for (const item of raw) {
     const x = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
     const from = threadKey(strOf(x.new ?? x.from));
     const into = threadKey(strOf(x.into ?? x.existing));
+    const reason = cut(strOf(x.reason), MERGE_REASON_MAX);
     if (!from || done.has(from)) {
       continue;
     }
     if (newThreads.has(from) && threads.has(into)) {
-      out.push({ kind: 'thread', from: newThreads.get(from)!, into: threads.get(into)! });
+      out.push({ kind: 'thread', from: newThreads.get(from)!, into: threads.get(into)!, ...(reason ? { reason } : {}) });
       done.add(from);
     } else if (newFore.has(from) && fore.has(into)) {
-      out.push({ kind: 'foreshadowing', from: newFore.get(from)!, into: fore.get(into)! });
+      out.push({ kind: 'foreshadowing', from: newFore.get(from)!, into: fore.get(into)!, ...(reason ? { reason } : {}) });
       done.add(from);
     }
   }

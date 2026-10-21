@@ -534,6 +534,15 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
         ],
       });
     const merged = await bundle.finalize.finalizeChapter(project, await chapter4());
+    // 归并的提示：两边都给「是什么」与挂在哪条线（试跑：已有的只给了名字，约一半并错）；已有的只给还没收的。
+    const mergeUser = userOf(MERGE_MARK);
+    for (const s of [
+      '【新认出的伏笔】\n- 沈字的来历（挂在「林昭与沈青」）是什么：玉佩背面刻着沈字',
+      '- 玉佩的来历（挂在「林昭与沈青」· 已埋）是什么：林昭的玉佩是沈家旧物',
+      '- 断剑的刻字（挂在「断剑之谜」· 计划）是什么：断剑上的字是谁刻的',
+    ]) {
+      assert.ok(mergeUser.includes(s), `${s}｜${mergeUser}`);
+    }
     const sword = t.read(file('断剑之谜'));
     assert.ok(sword.includes('- 第 4 章 · 埋〈断剑的刻字〉：林昭想起断剑上的字 〔证据：「林昭看着她，忽然明白」〕'), sword);
     assert.equal(t.read(file('林昭与沈青')), before, '玉佩的来历第 1 章已经埋下，不再记第二条「埋」');

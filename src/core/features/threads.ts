@@ -65,10 +65,12 @@ import {
   appendEvents,
   appendForeshadowing,
   applyMerges,
+  asOf,
   completeFinds,
   foreshadowNames,
   foreshadowToJudge,
   isForeshadowEvent,
+  openForeshadowing,
   parseThreadFile,
   patchProgress,
   plannedFor,
@@ -448,6 +450,11 @@ function judgeForeshadow(f: JudgedForeshadow): string {
   return `- ${f.name}（挂在「${f.line ?? UNFILED_NAME}」· ${f.status}${when}）${f.what ? `是什么：${clipLine(f.what, 60)}` : ''}`;
 }
 
+/** 归并（c）时已有的一条伏笔：挂在哪条线、状态、是什么——与新认出的那几条同一个样子，让模型比的是事、不是名字。 */
+function mergeCandidate(f: JudgedForeshadow): string {
+  return `- ${f.name}（挂在「${f.line ?? UNFILED_NAME}」· ${f.status}）是什么：${f.what ? clipLine(f.what, 60) : '（没写）'}`;
+}
+
 /**
  * 定稿第三步（设计稿「三」）：叙事线 1–3 次。
  *
@@ -527,29 +534,34 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
   let finds = verifyFinds(found, { chapter: no, text, judged: lines.judged, book });
   out.dropped = [...finds.dropped];
 
-  // c. 归并：新认出的线 / 伏笔，是不是已有的那一条换了个说法。
-  const knownFore = foreshadowNames(book);
-  if ((finds.newThreads.length > 0 && book.threads.length > 0) || (finds.newForeshadowing.length > 0 && knownFore.length > 0)) {
+  // c. 归并：新认出的线 / 伏笔，是不是已有的那一条换了个说法。两边都给「是什么」与挂在哪条线（试跑：只给已有伏笔的名字，
+  // 模型只能看字面，约一半并错——「沈默脸上的尸斑」并进了「阿婆的尸斑右臂」）；伏笔的候选只有还没收的那几条。
+  const openFore = openForeshadowing(book, no);
+  if ((finds.newThreads.length > 0 && book.threads.length > 0) || (finds.newForeshadowing.length > 0 && openFore.length > 0)) {
     out.calls += 1;
     try {
       const user = [
         finds.newThreads.length > 0 ? `【新认出的叙事线】\n${finds.newThreads.map((t) => `- ${t.name}（${t.kind}）${t.intent}`).join('\n')}` : '',
-        finds.newThreads.length > 0 ? `【已有的叙事线】\n${book.threads.map((t) => `- ${t.name}（${t.kind}）${clipLine(t.intent, 60)}`).join('\n')}` : '',
-        finds.newForeshadowing.length > 0 ? `【新认出的伏笔】\n${finds.newForeshadowing.map((f) => `- ${f.name}：${f.what}`).join('\n')}` : '',
-        finds.newForeshadowing.length > 0 ? `【已有的伏笔】\n${knownFore.join('、')}` : '',
+        finds.newThreads.length > 0
+          ? `【已有的叙事线】\n${book.threads.map((t) => `- ${t.name}（${t.kind} · ${threadStatus(asOf(t, no))}）${clipLine(t.intent, 60)}`).join('\n')}`
+          : '',
+        finds.newForeshadowing.length > 0
+          ? `【新认出的伏笔】\n${finds.newForeshadowing.map((f) => `- ${f.name}（挂在「${f.line ?? UNFILED_NAME}」）是什么：${f.what || '（没写）'}`).join('\n')}`
+          : '',
+        finds.newForeshadowing.length > 0 ? `【已有的伏笔（还没收的）】\n${openFore.map(mergeCandidate).join('\n')}` : '',
         '请按要求输出 JSON。',
       ]
         .filter(Boolean)
         .join('\n\n');
       const merged = await askJson(opts, `第 ${no} 章 · 叙事线归并`, THREAD_MERGE_SYSTEM, user, 0.1, '归并结果');
       // 新伏笔的那一条「埋」改挂到已有的那条上（已有的已经埋过就如实不记，说明写在 note 里），见 applyMerges。
-      const applied = applyMerges(finds, verifyMerges(Array.isArray(merged.merges) ? merged.merges : [], finds, book), book, no);
+      const applied = applyMerges(finds, verifyMerges(Array.isArray(merged.merges) ? merged.merges : [], finds, book, no), book, no);
       finds = applied.finds;
       out.merged = applied.merges;
       if (out.merged.length > 0) {
         log.info(
           `第 ${no} 章：${out.merged.length} 条新认出的并进了已有的`,
-          out.merged.map((m) => `〈${m.from}〉→〈${m.into}〉${m.note ? `（${m.note}）` : ''}`).join('\n')
+          out.merged.map((m) => `〈${m.from}〉→〈${m.into}〉${m.reason ? `：${m.reason}` : ''}${m.note ? `（${m.note}）` : ''}`).join('\n')
         );
       }
     } catch (err) {

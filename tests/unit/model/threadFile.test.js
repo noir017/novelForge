@@ -658,7 +658,8 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
         { new: '不存在', into: '主线' },
       ],
       finds,
-      book
+      book,
+      6
     );
     assert.deepEqual(merges, [
       { kind: 'thread', from: '沈家的旧案', into: '主线' },
@@ -702,7 +703,7 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
     const find = (newForeshadowing, events = []) =>
       t.verifyFinds({ events, newThreads: [], newForeshadowing }, { chapter: 2, text: body, judged: [main], book: story });
     const run = (finds, raw) => {
-      const r = t.applyMerges(finds, t.verifyMerges(raw, finds, story), story, 2);
+      const r = t.applyMerges(finds, t.verifyMerges(raw, finds, story, 2), story, 2);
       return { merges: r.merges, events: t.completeFinds(r.finds, 2).events };
     };
     const burn = { title: '罗盘使用后的灼烧侵蚀', what: '灼烧感侵蚀活人气息', line: '沈默的灭门复仇', evidence: '余温依旧像碎炭一般留在皮肉里' };
@@ -741,6 +742,17 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
         { chapter: 1, text: body, judged: [main], book: story }
       );
       assert.equal(again.events.length, 1);
+    });
+
+    test('伏笔只能并进还没收的：并进收了的那条不认（照新的建），理由只进日志', () => {
+      const closed = t.parseThreadFile(raw.replace('\n## 进展\n', '\n## 进展\n\n- 第 1 章 · 收〈焦黑罗盘的本质〉：揭开 〔证据：「罗盘」〕'), main.relPath);
+      const book2 = { threads: [closed], unfiled: story.unfiled };
+      assert.deepEqual(t.openForeshadowing(book2, 2).map((f) => [f.name, f.status]), [['祠堂的隐秘', '已埋']]);
+      const finds = find([burn]);
+      assert.deepEqual(t.verifyMerges([{ new: '罗盘使用后的灼烧侵蚀', into: '焦黑罗盘的本质' }], finds, book2, 2), []);
+      assert.deepEqual(t.verifyMerges([{ new: '罗盘使用后的灼烧侵蚀', into: '焦黑罗盘的本质', reason: '都是罗盘的事' }], finds, story, 2), [
+        { kind: 'foreshadowing', from: '罗盘使用后的灼烧侵蚀', into: '焦黑罗盘的本质', reason: '都是罗盘的事' },
+      ]);
     });
 
     test('并掉的新线这一章没带来任何事件：note 说「这一章没有另记事件」，不替它编一条推进', () => {
