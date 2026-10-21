@@ -52,7 +52,7 @@ export interface AcceptResult {
   skipped?: boolean;
   /** 一句人话，直接进 toast。 */
   message: string;
-  /** 顺带新建的设定空条目在哪（一批细纲的第九节 `isNew`）：批量拆细纲「拆完展开本批新设定」按它接着展开。 */
+  /** 顺带新建的设定空条目在哪（一批细纲的「设定」一节 `isNew`）：批量拆细纲「拆完展开本批新设定」按它接着展开。 */
   createdLore?: string[];
 }
 
@@ -93,7 +93,7 @@ function takenNames(cards: CharacterCard[]): Set<string> {
 /**
  * 同 {@link plannedCards}：落盘时会新建哪几条设定条目，写入卡片上列出来（设定名录）。
  *
- * - 细纲（批次与单章，完善设定 §3）：第九节里 `isNew` 的新设定建空条目。
+ * - 细纲（批次与单章，完善设定 §3）：「设定」一节里 `isNew` 的新设定建空条目。
  * - 展开一条设定：建议拆出来的子条目建空条目（完善设定 §1）。
  * - 设定清单：清单里还没有条目的那几条（已有的走覆盖审阅，不算新建）。
  *
@@ -118,7 +118,7 @@ export async function plannedLore(project: NovelProject, artifact: Artifact): Pr
 }
 
 /**
- * 产物里要建空条目的那几行：细纲批次与单章细纲是第九节里 `isNew` 的，展开是建议拆出来的子条目（没有 `relPath`
+ * 产物里要建空条目的那几行：细纲批次与单章细纲是「设定」一节里 `isNew` 的，展开是建议拆出来的子条目（没有 `relPath`
  * 的那几项，一句话当说明）。别的产物没有。
  */
 function newLoreLines(artifact: Artifact): LoreLine[] {
@@ -662,11 +662,11 @@ async function createPlannedCards(project: NovelProject, ws: Workspace, items: B
 }
 
 /**
- * 细纲里本章首次引入、后面还会用到的设定（批次与单章都是第九节里 `isNew` 的那几行），以及展开一条设定时建议
+ * 细纲里本章首次引入、后面还会用到的设定（批次与单章都是「设定」一节里 `isNew` 的那几行），以及展开一条设定时建议
  * 拆出来的子条目：直接建一条空条目（设定名录，同 D19 新角色建卡；第 19 条的例外）。名字或关键词已被已有条目
  * 占了的不动，是角色卡上的人的不建（{@link plannableLore}，卡片上列的是同一份）。
  *
- * 条目上只写得出这么多：标题、所在目录（就是分类，不存在就建）、一句话（第九节的说明 / 子条目的一句话）。
+ * 条目上只写得出这么多：标题、所在目录（就是分类，不存在就建）、一句话（「设定」一节的说明 / 子条目的一句话）。
  * 正文留空，等写到了、定稿过，再从名录里「整合」——或者在工程页右键「展开」。
  */
 async function createPlannedLore(project: NovelProject, ws: Workspace, lines: readonly LoreLine[]): Promise<string[]> {

@@ -39,7 +39,7 @@ const writable = (no, title, extra = {}) => ({
   no, title, upstreamHash: '', done: false, sections: filledSections(), ...extra,
 });
 
-/** 定稿时模型答回来的八节（反向更新之后的样子）。 */
+/** 定稿时模型答回来的七节（反向更新之后的样子）。 */
 const FINALIZED = (extra = {}) => ({
   ...bundle.plotFile.emptyPlotSections(),
   梗概: '夜入青云。',
@@ -159,7 +159,7 @@ describe('数据层 · 细纲读写', () => {
     assert.equal(plotRel, '.novelforge/summaries/012-夜入青云.md', plotRel);
   });
 
-  test('八节读得回来', () => {
+  test('七节读得回来', () => {
     assert.equal(plotBack.sections.梗概, '林昭成功进入青云宗。');
     assert.ok(plotBack.sections.关键事件.includes('翻过侧峰'), plotBack.sections.关键事件);
     assert.ok(plotBack.sections.看点.includes('藏书阁'), plotBack.sections.看点);
@@ -196,7 +196,7 @@ describe('数据层 · 细纲读写', () => {
  * 老工程留下的东西：`plots/` 里的细纲、`summaries/` 子目录里按章节路径镜像的单章摘要、老四节格式的
  * 细纲、`summaries/` 根下的老单章摘要。**解析一律不抛**（第 1 条），读进来如实退化，那些文件一个字节
  * 都不动。`plots/` 不做迁移（作者定案 2）：判成 other，不读、不显示、不删，目录守卫照旧拦着；
- * `summaries/` 下的老摘要（根下与子目录里的）本来就镜像正文的路径、就是这八节、带着 sourceHash 与 cast，
+ * `summaries/` 下的老摘要（根下与子目录里的）本来就镜像正文的路径、就是这七节、带着 sourceHash 与 cast，
  * 直接当成定稿过的细纲。
  */
 describe('数据层 · 老工程留下的文件', () => {
@@ -218,7 +218,7 @@ describe('数据层 · 老工程留下的文件', () => {
     t.write(LEGACY_PLOT, LEGACY_PLOT_TEXT);
     t.write(NESTED, '---\nchapter: 1\nsourceHash: x\n---\n\n## 关键事件\n\n老卷里的一章。\n');
     t.write(OLD, OLD_TEXT);
-    // 老工程的单章摘要：frontmatter 记的是 `chapter:`，带 sourceHash 与 cast，小节本来就是八节里的那几节。
+    // 老工程的单章摘要：frontmatter 记的是 `chapter:`，带 sourceHash 与 cast，小节本来就是七节里的那几节。
     t.write('chapters/009-旧摘要.md', '# 旧摘要\n\n他回到镇上。\n');
     project.invalidate();
     const chapter9 = (await project.listChapters()).find((c) => c.order === 9);
@@ -280,8 +280,8 @@ describe('数据层 · 老工程留下的文件', () => {
     assert.equal(old?.title, '老格式');
   });
 
-  // 「目标」「剧情脉络」都不是八节里的名字：如实说「待写细纲」，而不是假装排过。
-  test('老四节细纲八节全空，算没排过', () => {
+  // 「目标」「剧情脉络」都不是七节里的名字：如实说「待写细纲」，而不是假装排过。
+  test('老四节细纲七节全空，算没排过', () => {
     assert.ok(!bundle.plotFile.isPlotFilled(old.sections), JSON.stringify(old.sections));
     assert.equal(oldPipe.stage, 'plot', oldPipe.stage);
   });
@@ -531,7 +531,7 @@ describe('新鲜度链', () => {
   });
 
   // 只改 frontmatter 里的 status 不该让下游标脏——`plotContentHash` 只哈希
-  // 八个小节（第 18b 条）。
+  // 七个小节（第 18b 条）。
   test('把细纲标成 done 不改变它的内容指纹', async () => {
     const p = await project.readPlot(plotRel);
     const before = bundle.plotFile.plotContentHash(p);

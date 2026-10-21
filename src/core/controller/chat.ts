@@ -881,7 +881,7 @@ export async function rewriteArchitecture(c: ChatController, target: CreationTar
  * 取消就什么都不做），生成照样在对话页流式输出、照样当场问写不写，已经有内容的条目覆盖前先对比（第 19、3 条）。
  * 模型严格用会话选定的那个（第 12 条，`send` 那条路本来就是）。
  *
- * 只给了名字（「待完善」里还没有条目的）：问完要求之后先在第九节给的分类目录下建一条空条目（同细纲带出新设定），
+ * 只给了名字（「待完善」里还没有条目的）：问完要求之后先在「设定」一节给的分类目录下建一条空条目（同细纲带出新设定），
  * 再展开它。名字已被已有条目（标题或关键词）占了就展开那一条；是角色卡上的人就报错退出——人不是设定。
  */
 export async function expandLore(c: ChatController, msg: { relPath?: string; name?: string; category?: string }): Promise<void> {

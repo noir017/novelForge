@@ -65,7 +65,7 @@ describe('structuredJson.ts · 语法修复的证据校验', () => {
 });
 
 describe('blueprint.ts · 细纲批次', () => {
-  test('合格的一批：字段对上细纲八节，新角色带出来', () => {
+  test('合格的一批：字段对上细纲七节，新角色带出来', () => {
     const r = B.decodeBlueprints(JSON.stringify({
       blueprints: [item(1, { newCharacters: [{ name: '沈青', role: 'supporting' }] }), item(2)],
     }));
@@ -79,7 +79,6 @@ describe('blueprint.ts · 细纲批次', () => {
       时间地点: '第 1 章的时间地点',
       关键事件: '- 第 1 章林昭在山门外踩点\n- 第 1 章翻墙进了后院',
       看点: '- 第 1 章的爽点\n- 第 1 章的钩子',
-      新增伏笔: '',
       状态变更: '第 1 章之后的处境',
       连续性事实: '',
     });
@@ -88,8 +87,8 @@ describe('blueprint.ts · 细纲批次', () => {
     assert.deepEqual(plot.threads, [{ line: '林昭与沈青', type: '推进', what: '第 1 章两人联手' }]);
   });
 
-  // 设定名录：settings 可选、宽松收；isNew 的随细纲建空条目，其余只进第九节。
-  test('settings：可选、宽松收，落盘成第九节；超过 8 条只留前 8 条', () => {
+  // 设定名录：settings 可选、宽松收；isNew 的随细纲建空条目，其余只进「设定」一节。
+  test('settings：可选、宽松收，落盘成「设定」一节；超过 8 条只留前 8 条', () => {
     const many = Array.from({ length: 10 }, (_, i) => ({ name: `地名${i}`, category: '地域' }));
     const r = B.decodeBlueprints(JSON.stringify({
       blueprints: [

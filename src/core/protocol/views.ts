@@ -72,11 +72,11 @@ export interface ProjectTree {
   /** 定稿里出现过、还没有条目的名字，按出现章数降序。 */
   loreUnfiled: LoreUnfiledEntry[];
   /**
-   * 待完善（完善设定，2026-10-19）：还没写的那几章细纲第九节点名、却还没有条目或条目还只有一句话的设定，
+   * 待完善（完善设定，2026-10-19）：还没写的那几章细纲「设定」一节点名、却还没有条目或条目还只有一句话的设定，
    * 按最早要用到的章升序。
    */
   loreThin: LoreThinEntry[];
-  /** 定稿过、但还没记过设定（细纲没有第九节）的章数。 */
+  /** 定稿过、但还没记过设定（细纲没有「设定」一节）的章数。 */
   loreUnrecorded: number;
   failures: Record<string, FailureView[]>;
   castConflicts: CastConflictView[];
@@ -328,7 +328,7 @@ export interface CastSummary {
 
 /** 一条设定在定稿里的出现与落后（工程页设定行的副标题与 `＋N`）。 */
 export interface LoreSummary {
-  /** 定稿过的细纲第九节点名它的章，升序。 */
+  /** 定稿过的细纲「设定」一节点名它的章，升序。 */
   chapters: number[];
   /** `第 3–57 章 · 12 章`；一次都没出现是空串。 */
   detail: string;
@@ -354,9 +354,9 @@ export interface LoreUnfiledEntry {
  * 没有条目带 `name` 与 `category`（后端先按分类建空条目）。
  */
 export interface LoreThinEntry {
-  /** 有条目是条目的标题；没有是细纲第九节里的写法。 */
+  /** 有条目是条目的标题；没有是细纲「设定」一节里的写法。 */
   name: string;
-  /** 有条目是条目所在的目录；没有是各章第九节写的多数票。没有是空串。 */
+  /** 有条目是条目所在的目录；没有是各章「设定」一节写的多数票。没有是空串。 */
   category: string;
   /** 条目路径；还没有条目时缺席。 */
   relPath?: string;

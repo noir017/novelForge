@@ -317,7 +317,7 @@ describe('plotFile.ts · 文件名规则', () => {
   });
 });
 
-describe('plotFile.ts · 解析与渲染（八节）', () => {
+describe('plotFile.ts · 解析与渲染（七节）', () => {
   const sections = {
     ...plotFile.emptyPlotSections(),
     梗概: '林昭雨夜翻墙进宗门，靠半枚令牌被破例留下。',
@@ -325,7 +325,6 @@ describe('plotFile.ts · 解析与渲染（八节）', () => {
     时间地点: '第 11 章当夜，青云宗外墙。',
     关键事件: '雨夜翻墙，被巡夜弟子撞见，亮出半枚令牌。',
     看点: '- 执事认出令牌，脸色变了。',
-    新增伏笔: '- 半枚令牌的另一半在谁手里。',
     状态变更: '林昭成了记名弟子。',
   };
   const plot = {
@@ -350,15 +349,24 @@ describe('plotFile.ts · 解析与渲染（八节）', () => {
     assert.equal(back.done, false);
   });
 
-  test('往返：八节', () => {
+  test('往返：七节', () => {
     assert.deepEqual(back.sections, sections);
   });
 
-  test('就是摘要那八节', () => {
+  // 叙事线二期：「新增伏笔」删了（伏笔并进了叙事线），摘要那八节剩七节。
+  test('就是摘要那八节去掉新增伏笔', () => {
     assert.deepEqual(
       [...plotFile.PLOT_SECTION_KEYS],
-      ['梗概', '出场人物', '时间地点', '关键事件', '看点', '新增伏笔', '状态变更', '连续性事实']
+      ['梗概', '出场人物', '时间地点', '关键事件', '看点', '状态变更', '连续性事实']
     );
+  });
+
+  test('老细纲里的「新增伏笔」当认不出的小节：不读、不进指纹，文件里还在', () => {
+    const old = text.replace('## 状态变更', '## 新增伏笔\n\n- 半枚令牌的另一半在谁手里。\n\n## 状态变更');
+    const parsed = plotFile.parsePlotFile(old, '.novelforge/summaries/012-夜入青云.md');
+    assert.deepEqual(parsed.sections, sections);
+    assert.equal(plotFile.plotContentHash(parsed), plotFile.plotContentHash(back));
+    assert.ok(parsed.body.includes('半枚令牌的另一半'));
   });
 
   test('渲染带「第N章 标题」一行', () => {
@@ -422,7 +430,7 @@ describe('plotFile.ts · 计划出场（「出场人物」一节）', () => {
   });
 });
 
-// 关键事件、看点、新增伏笔落盘都是一条一行的列表（计划与定稿同一个形状）；一章一行的一览要把它压成一行。
+// 关键事件、看点落盘都是一条一行的列表（计划与定稿同一个形状）；一章一行的一览要把它压成一行。
 describe('plotFile.ts · 一条一行的那几节', () => {
   test('按行切成条，去掉列表记号，空行与占位不算', () => {
     assert.deepEqual(plotFile.sectionItems('- 林昭踩点\n\n* 翻墙进了后院\n1. 落在藏书阁门口\n（待补充）'), ['林昭踩点', '翻墙进了后院', '落在藏书阁门口']);
@@ -487,7 +495,7 @@ describe('plotFile.ts · 排过没有 / 容错', () => {
   });
 });
 
-// 老工程 summaries/ 根下的单章摘要本来就是这八节，带着 sourceHash 与 cast：直接当成定稿过的细纲读。
+// 老工程 summaries/ 根下的单章摘要本来就是这七节，带着 sourceHash 与 cast：直接当成定稿过的细纲读。
 describe('plotFile.ts · 老工程的单章摘要当成定稿过的细纲', () => {
   const old = [
     '---',
@@ -552,7 +560,7 @@ describe('plotFile.ts · 内容指纹', () => {
   );
   const h = plotFile.plotContentHash(base);
 
-  test('八节里任何一节变了指纹就变', () => {
+  test('七节里任何一节变了指纹就变', () => {
     for (const key of plotFile.PLOT_SECTION_KEYS) {
       assert.notEqual(plotFile.plotContentHash({ sections: { ...base.sections, [key]: `${base.sections[key]}改` } }), h, key);
     }

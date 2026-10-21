@@ -407,7 +407,7 @@ export async function settingRaw(
 /**
  * 拆一批细纲：生成链（截断拆半、语法修复、漏章 fail-closed）→ 只补空白地落盘。批量拆细纲与批量写章
  * 「边写边拆」共用。**不抛**：失败挂在这一批第一章的细纲上（第 16 条），由调用方决定停不停；取消单列。
- * 成功时 `lore` 是这一批顺带新建的设定空条目（第九节 `isNew`）：批量拆细纲「拆完展开本批新设定」按它接着展开。
+ * 成功时 `lore` 是这一批顺带新建的设定空条目（「设定」一节 `isNew`）：批量拆细纲「拆完展开本批新设定」按它接着展开。
  */
 export async function runPlotBatch(
   project: NovelProject,

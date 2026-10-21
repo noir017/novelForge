@@ -27,10 +27,10 @@ let ws;
 const PLOT = '.novelforge/summaries/010-夜渡.md';
 const CHAPTER = 'chapters/010-夜渡.md';
 
-/** 第 10 章的细纲（八节），判「排过没有」只看「关键事件」。 */
+/** 第 10 章的细纲（七节），判「排过没有」只看「关键事件」。 */
 const plot = (sections) => ({
   no: 10, title: '夜渡', upstreamHash: '', done: false,
-  sections: { 梗概: '', 出场人物: '', 时间地点: '', 关键事件: '', 看点: '', 新增伏笔: '', 状态变更: '', 连续性事实: '', ...sections },
+  sections: { 梗概: '', 出场人物: '', 时间地点: '', 关键事件: '', 看点: '', 状态变更: '', 连续性事实: '', ...sections },
 });
 
 /** 调一次 pushState，回收这一轮推出去的最后一份流水线。 */

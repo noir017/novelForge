@@ -3,7 +3,7 @@
  *
  * 两件事：
  *
- * 1. **渲染**：`Artifact{kind:'plot'}` → `renderPlotFile`。八个小节换新；
+ * 1. **渲染**：`Artifact{kind:'plot'}` → `renderPlotFile`。七个小节换新；
  *    **标题、目标字数、done、writtenFrom、定稿记的 sourceHash 与 cast 沿用磁盘那份**——
  *    「重写细纲」改的是这一章怎么走，不该顺手把作者起的标题、定的字数、标的完成状态抹掉；
  *    `writtenFrom` 是正文那一侧记的账，细纲重写之后它对不上，正是「细纲在正文之后改过」的信号
@@ -23,7 +23,7 @@
  * - **手写的产物永不标脏**（第 18a 条）：**没有 frontmatter 的细纲不补
  *   `upstreamHash`**。它为空说明这份细纲不是这条链生出来的，拿一个凭空的过期标记
  *   去催作者重做，他会学会无视所有标记。
- * - **`plotContentHash` 只哈希八个小节，不含 frontmatter**（第 18b 条）：
+ * - **`plotContentHash` 只哈希七个小节，不含 frontmatter**（第 18b 条）：
  *   `upstreamHash` / `writtenFrom` / `sourceHash` 自己就在 frontmatter 里，算进去会让「排一次细纲」
  *   立刻使这一章的正文过期。那个哈希在 `model/plotFile.ts` 里定义。
  */
@@ -48,7 +48,7 @@ import { Handler, HandlerCtx } from './types';
 
 export const plotHandler: Handler = {
   /**
-   * 八个小节换新，其余字段按上面的规矩合并。
+   * 七个小节换新，其余字段按上面的规矩合并。
    *
    * 细纲文件不存在时（拆细纲那一步新建）就用产物自己带的标题与目标字数。
    */
@@ -67,7 +67,7 @@ export const plotHandler: Handler = {
       cast: current?.cast,
       done: current?.done ?? false,
       sections: artifact.sections,
-      // 第九节「设定」不在八节里：产物带了就换新（重排的计划），没带就沿用磁盘那份。
+      // 「设定」一节不在七节里：产物带了就换新（重排的计划），没带就沿用磁盘那份。
       lore: artifact.lore ?? current?.lore,
     });
   },
@@ -93,7 +93,7 @@ export const plotHandler: Handler = {
    * - `upstreamHash` **原样留着，不重算**：内容一字没变、章号没变（文件名照抄），它据以生成的仍是大纲里的同一节——
    *   原件挂着 ⟳ 的副本照样挂着，不被复制顺手刷成「新鲜」（`after` 会按大纲此刻的指纹重记，所以复制不走它）。
    *   **章号变了**（网关直接复制成另一个文件名）就删掉：那是另一章的那一节，留着只会凭空报 ⟳。
-   * - 作者自己定的（标题、目标字数、`status: done`、预检与冲突检查的放行）与八节、第九节原样留着。
+   * - 作者自己定的（标题、目标字数、`status: done`、预检与冲突检查的放行）与七节、「设定」一节原样留着。
    * - 没有 frontmatter 的手写细纲不补（第 18a 条）。
    */
   async afterCopy(ctx: HandlerCtx, from: string) {
@@ -127,7 +127,7 @@ export const plotHandler: Handler = {
 /**
  * 定稿反向更新之后的细纲全文。
  *
- * - **八节整体换成更新后的那一版**（作者自加的小节不留——旧版整份进了回收站）。
+ * - **七节整体换成更新后的那一版**（作者自加的小节不留——旧版整份进了回收站）。
  * - frontmatter 保留 `no` / `title` / `targetWords` / `upstreamHash` / `status` / `preflightOk` /
  *   `factCheckOk`：那些是作者定的或计划那一侧的账，定稿不该动。
  * - 写入 `sourceHash`（正文的 contentHash）与 `cast`（实际出场），并把 **`writtenFrom` 刷成更新之后的
@@ -159,7 +159,7 @@ export function renderFinalizedPlot(input: {
     sourceHash: input.sourceHash,
     cast: input.cast,
     sections: input.sections,
-    // 第九节「设定」：定稿记下的实际出现；没给（老调用）就沿用磁盘那份。
+    // 「设定」一节：定稿记下的实际出现；没给（老调用）就沿用磁盘那份。
     lore: input.lore ?? current?.lore,
   };
   const writtenFrom = plotContentHash(parsePlotFile(renderPlotFile(plot), input.rel));

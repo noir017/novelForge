@@ -5,7 +5,7 @@
  *
  * ```
  * outline.md 里覆盖第 N 章那一节 ─▶ summaries/N.md 的 upstreamHash（写细纲时记）
- * summaries/N.md 的八个小节       ─▶ summaries/N.md 的 writtenFrom （写正文时记，定稿时刷新）
+ * summaries/N.md 的七个小节       ─▶ summaries/N.md 的 writtenFrom （写正文时记，定稿时刷新）
  * chapters/N 的正文               ─▶ summaries/N.md 的 sourceHash  （定稿反向更新时记）
  * ```
  *
@@ -14,7 +14,7 @@
  * 现在是把同一份细纲照正文反向更新，旧版先复制进回收站。
  *
  * 两条不能碰的既有取舍（AGENTS 第 18 条）也在这里守：
- * - `plotContentHash` 只哈希八个小节，不含 frontmatter——记一笔 writtenFrom、
+ * - `plotContentHash` 只哈希七个小节，不含 frontmatter——记一笔 writtenFrom、
  *   标一次 done、改个标题、定稿记一笔 sourceHash 都不该让正文标脏；
  * - 手写的产物永不标脏。
  *
@@ -72,7 +72,7 @@ const writable = (no, title, extra = {}) => ({
   no, title, upstreamHash: '', done: false, sections: filled(), ...extra,
 });
 
-/** 定稿时模型答回来的八节（反向更新之后的样子）。 */
+/** 定稿时模型答回来的七节（反向更新之后的样子）。 */
 const finalized = (extra = {}) => ({
   ...bundle.plotFile.emptyPlotSections(),
   梗概: '他去了，在山门外蹲了两个时辰。',
@@ -191,7 +191,7 @@ describe('细纲 · 写入就记 upstreamHash（大纲里覆盖本章那一节�
     assert.ok(t.read(rel).includes('# 第12章 入宗'), t.read(rel).slice(0, 300));
   });
 
-  test('八节都落盘，空的留占位', () => {
+  test('七节都落盘，空的留占位', () => {
     const text = t.read(rel);
     for (const key of bundle.plotFile.PLOT_SECTION_KEYS) {
       assert.ok(text.includes(`## ${key}`), `缺「${key}」：${text}`);
@@ -409,7 +409,7 @@ describe('正文 · 落盘时在细纲上记 writtenFrom', () => {
       hashBefore = bundle.plotFile.plotContentHash(await project.readPlot(plotRel));
     });
 
-    // 出场人物现在是八节之一（计划出场），改它就是改细纲；目标字数在 frontmatter 里，改它不是。
+    // 出场人物现在是七节之一（计划出场），改它就是改细纲；目标字数在 frontmatter 里，改它不是。
     test('改目标字数，内容指纹不变', async () => {
       const p = await project.readPlot(plotRel);
       await ws.writePlot({ ...p, targetWords: 4000 });
@@ -489,7 +489,7 @@ describe('正文 → 定稿 · sourceHash 记的是章节的 contentHash', () =>
 });
 
 /**
- * 定稿是**修改**，不是重写：八节整体换成反向更新后的那一版，作者定的与计划那一侧的账
+ * 定稿是**修改**，不是重写：七节整体换成反向更新后的那一版，作者定的与计划那一侧的账
  * （标题、目标字数、大纲指纹、done、两种放行）原样留着。旧版先复制进回收站——定稿按钮本身就是
  * 作者的确认，所以直接写；但改掉的是一份作者可能逐字推敲过的计划，要找得回来。
  */
@@ -549,7 +549,7 @@ describe('定稿 · 保留 frontmatter，旧版进回收站', () => {
     assert.equal(t.read(trashRel), before1);
   });
 
-  test('八节整体换成反向更新后的那一版', () => {
+  test('七节整体换成反向更新后的那一版', () => {
     assert.deepEqual({ ...plot.sections }, finalized());
   });
 

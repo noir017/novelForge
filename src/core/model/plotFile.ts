@@ -16,7 +16,8 @@
  *
  * 从前计划（`plots/` 三节）与档案（单章摘要）各存一份。作者的原则是相似的东西不留两份，
  * 摘要那一套更完善，于是细纲换成了摘要的八节；`plots/` 不再读（老工程里那个目录判成
- * `other`，一个字节都不动）。
+ * `other`，一个字节都不动）。叙事线重做二期又删了「新增伏笔」一节，剩七节：伏笔并进了叙事线
+ * （计划写进线里，`model/threadFile.ts`），细纲里不再有任何关于线的小节。
  *
  * ## 它可以写具体场面
  *
@@ -48,16 +49,23 @@
  * - `factCheckOk: true`：批量写章写前冲突检查（features/plotCheck.ts）的放行。检查说本章细纲与前面
  *   定稿的事实矛盾、作者看过认为是刻意安排时手写这一行；与 `preflightOk` 一样不进内容指纹。
  *
- * 老工程 `summaries/` 下的单章摘要（`001-楔子.md`、`第一卷/003-深处.md`）本来就是这八节、本来就镜像
+ * 老工程 `summaries/` 下的单章摘要（`001-楔子.md`、`第一卷/003-深处.md`）本来就是这几节、本来就镜像
  * 正文的路径，带着 `sourceHash` 与 `cast`，直接当成定稿过的细纲读；它 frontmatter 里的 `chapter:`
  * 不认，章号取文件名前缀。
  *
- * ## 第九节「设定」
+ * ## 删掉的「新增伏笔」（叙事线二期）
  *
- * 八节之后另有一节「设定」（`Plot.lore`），一行一个东西：`- 名〔分类〕：本章确立的定义或规则`
- * （格式在 model/loreFile.ts）。写之前是**计划**用到、要引入的设定，定稿后是正文里**实际**出现的。
+ * 老细纲里那一节当认不出的小节留在文件里，**不读**（不进 `sections`、不进上下文、不进内容指纹），一个字节不动
+ * （第 1 条；设计稿「删掉什么、不兼容什么」）。⚑ 内容指纹因此变了（定案 A）：写过正文的章都会挂一次 ⟳
+ * （「细纲在写正文之后改过」），重新定稿才消；⟳ 只是一个记号，不把章拉回「待写」，不做迁移。
  *
- * - **不进内容指纹**（{@link plotContentHash} 只算八节），与 frontmatter 的 `cast` 一样当机器读的旁注：
+ * ## 「设定」一节
+ *
+ * 七节之后另有一节「设定」（`Plot.lore`，从前是第九节，删了「新增伏笔」之后成了第八节；代码里的标识符没改），
+ * 一行一个东西：`- 名〔分类〕：本章确立的定义或规则`（格式在 model/loreFile.ts）。写之前是**计划**用到、要引入的设定，
+ * 定稿后是正文里**实际**出现的。
+ *
+ * - **不进内容指纹**（{@link plotContentHash} 只算七节），与 frontmatter 的 `cast` 一样当机器读的旁注：
  *   给老章节补记设定时要往定稿过的细纲里加这一节，算进指纹会把这些章全挂上 ⟳；只改了「计划用到
  *   哪些设定」也不值得把正文标成过期。
  * - **有没有记过看标题在不在**：`lore` 为 undefined = 文件里没有这一节（老细纲、还没补记）；
@@ -85,9 +93,9 @@ import { LoreLine, PLOT_LORE_KEY, parseLoreLines, renderLoreLines } from './lore
 import type { SummaryCast } from './types';
 
 /**
- * 八节，照单章摘要原来的那八节。顺序即「读它们的顺序」：先知道这一章发生了什么、谁在、
- * 在哪，再看落在哪些事件上，然后是吊着读者的看点、埋下的线、人物变成了什么样，最后是
- * 后面各章必须保持一致的事实。判「排过没有」只看「关键事件」，见 {@link isPlotFilled}。
+ * 七节，照单章摘要原来的那八节去掉「新增伏笔」（叙事线二期：伏笔并进了叙事线）。顺序即「读它们的顺序」：先知道这一章
+ * 发生了什么、谁在、在哪，再看落在哪些事件上，然后是吊着读者的看点、人物变成了什么样，最后是后面各章必须保持一致的
+ * 事实。判「排过没有」只看「关键事件」，见 {@link isPlotFilled}。
  */
 export const PLOT_SECTION_KEYS = [
   '梗概',
@@ -95,7 +103,6 @@ export const PLOT_SECTION_KEYS = [
   '时间地点',
   '关键事件',
   '看点',
-  '新增伏笔',
   '状态变更',
   '连续性事实',
 ] as const;
@@ -103,7 +110,7 @@ export const PLOT_SECTION_KEYS = [
 export type PlotSectionKey = (typeof PLOT_SECTION_KEYS)[number];
 
 /**
- * 八节的内容。缺失的小节为空串。
+ * 七节的内容。缺失的小节为空串。
  *
  * - 「看点」：读者最爽、最想往下看的地方（爽点与章末吊着读者的东西）。拆书整理架构与大纲时靠它提炼卖点。
  * - 「连续性事实」：后面各章必须保持一致的事实，一条一行，每条挂一句正文里的证据原文（D18）：
@@ -120,7 +127,7 @@ export type PlotSections = Record<PlotSectionKey, string>;
  * 标题会变成文件名（`012-<标题>.md`），所以比上游（AI-Novel-Writer 的
  * `blueprint-semantic-contract.ts`，60 字）紧得多。关键事件是一条一件事的列表（与定稿时
  * 写出来的一样），合同要 3–6 条、合计 100–300 字；条数硬上限 8，总字数硬上限沿用上游的 1200。
- * 看点与新增伏笔是一条一句的列表。
+ * 看点是一条一句的列表。
  */
 export const BLUEPRINT_LIMITS = {
   title: 18,
@@ -130,9 +137,9 @@ export const BLUEPRINT_LIMITS = {
   keyEvents: 1200,
   /** 关键事件最多几条。 */
   keyEventItems: 8,
-  /** 看点、新增伏笔各最多几条。 */
+  /** 看点最多几条。 */
   listItems: 5,
-  /** 看点、新增伏笔每条最多几个字。 */
+  /** 看点每条最多几个字。 */
   listItem: 120,
   stateChange: 400,
   characters: 12,
@@ -171,7 +178,7 @@ export interface Plot {
   factCheckOk?: boolean;
   sections: PlotSections;
   /**
-   * 第九节「设定」（见文件头）。undefined = 文件里没有这一节（老细纲、还没记过）；
+   * 「设定」一节（见文件头）。undefined = 文件里没有这一节（老细纲、还没记过）；
    * 空数组 = 记过、没有设定。
    */
   lore?: LoreLine[];
@@ -273,7 +280,6 @@ export function emptyPlotSections(): PlotSections {
     时间地点: '',
     关键事件: '',
     看点: '',
-    新增伏笔: '',
     状态变更: '',
     连续性事实: '',
   };
@@ -294,7 +300,7 @@ export function isPlotFilled(sections: PlotSections): boolean {
 const LIST_MARKER = /^\s*(?:[-*·•]|\d+[.、)．])\s*/u;
 
 /**
- * 一条一行的那几节（关键事件、看点、新增伏笔）→ 一条一项：按行切，去掉行首的列表记号，
+ * 一条一行的那几节（关键事件、看点）→ 一条一项：按行切，去掉行首的列表记号，
  * 空行与占位文字（`（待补充）`）不算。**只按换行切**——一条里本来就可以有分号；
  * 作者手写成一整段的就是一项。
  */
@@ -316,10 +322,10 @@ export function sectionLine(text: string): string {
 /**
  * 细纲的内容指纹——**这一章正文的上游**。
  *
- * 只哈希**八个小节**，不含 frontmatter：`upstreamHash` / `writtenFrom` / `sourceHash` / `cast`
+ * 只哈希**七个小节**，不含 frontmatter：`upstreamHash` / `writtenFrom` / `sourceHash` / `cast`
  * 自己就在 frontmatter 里，把它算进去会让「排一次细纲」「定稿一次」立刻使刚写好的正文过期。
  * 同理不含 `status`、`preflightOk`、`factCheckOk` 与标题——作者把这一章标成 done、记一条预检放行、
- * 改个标题，都不该让它的正文标脏。第九节「设定」也不进（见文件头）。
+ * 改个标题，都不该让它的正文标脏。「设定」一节也不进；老细纲里认不出的「新增伏笔」也不进（见文件头）。
  */
 export function plotContentHash(plot: Pick<Plot, 'sections'>): string {
   return hash(PLOT_SECTION_KEYS.map((key) => plot.sections[key]).join('\n---\n'));
@@ -412,7 +418,7 @@ export function parsePlotFile(text: string, relPath: string): Plot {
   };
 }
 
-/** 第九节的标题行（`##` 或 `###`，前后空白不计）。 */
+/** 「设定」一节的标题行（`##` 或 `###`，前后空白不计）。 */
 const LORE_HEADING = new RegExp(`^#{2,3}[ \\t]*${PLOT_LORE_KEY}[ \\t]*$`, 'm');
 
 /** 渲染成落盘的 Markdown。空小节保留占位，作者手改时知道该往哪填。 */

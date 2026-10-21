@@ -139,7 +139,7 @@ describe('建条目', () => {
     assert.equal(fake.callCount(), 4);
   });
 
-  test('原料是定稿细纲里的记录：第九节那一句、连续性事实、提到它的句子，带章号', () => {
+  test('原料是定稿细纲里的记录：「设定」一节那一句、连续性事实、提到它的句子，带章号', () => {
     const user = fake.calls.map((c) => c[1].content).find((u) => u.includes('设定：停舟客栈'));
     assert.ok(user.includes('设定：停舟客栈\n分类：地域/青崖'), user);
     assert.ok(user.includes('- 第 1 章：镇上唯一的客栈'), user);

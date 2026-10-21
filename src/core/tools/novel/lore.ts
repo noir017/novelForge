@@ -7,7 +7,7 @@
  *
  * **没有「按目录整理」**：它会搬文件，而移动是第 25 条明确不给外部 agent 的——作者在工程页自己点。
  *
- * 设定出现在哪几章的唯一真相是定稿过的细纲第九节：先定稿（summary finalize，会顺手记设定），再建条目、整合。
+ * 设定出现在哪几章的唯一真相是定稿过的细纲「设定」一节：先定稿（summary finalize，会顺手记设定），再建条目、整合。
  */
 import { str } from '../schema';
 import { defineActionTool, handed } from './actions';

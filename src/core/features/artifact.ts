@@ -67,15 +67,15 @@ export type ConfigFields = Partial<
   >
 >;
 
-/** 一章细纲：八节，外加文件名要用的标题与目标字数。出场的人就写在「出场人物」一节里。 */
+/** 一章细纲：七节，外加文件名要用的标题与目标字数。出场的人就写在「出场人物」一节里。 */
 export interface PlotFields {
   sections: PlotSections;
   title?: string;
   targetWords?: number;
-  /** 第九节「设定」（计划用到、要引入的设定）。没带就沿用磁盘那份（handlers/plot.ts）。 */
+  /** 「设定」一节（计划用到、要引入的设定）。没带就沿用磁盘那份（handlers/plot.ts）。 */
   lore?: LoreLine[];
   /**
-   * 第九节里 `isNew` 的那几行（本章首次引入、后面还会用到的新设定）：采纳单章细纲时建空条目（完善设定 §3，
+   * 「设定」一节里 `isNew` 的那几行（本章首次引入、后面还会用到的新设定）：采纳单章细纲时建空条目（完善设定 §3，
    * 同批量拆细纲的 `createPlannedLore`）。不写进细纲文件——那里只有 `lore`。
    */
   newLore?: LoreLine[];
@@ -191,7 +191,7 @@ export function isArtifactEmpty(artifact: Artifact): boolean {
   }
 }
 
-/** 一句话描述，给落盘卡片与气泡末尾那一行用（「细纲 · 7/8 节」「角色图谱 · 5 人」）。 */
+/** 一句话描述，给落盘卡片与气泡末尾那一行用（「细纲 · 6/7 节」「角色图谱 · 5 人」）。 */
 export function describeArtifact(artifact: Artifact): string {
   switch (artifact.kind) {
     case 'settingDoc': {
@@ -260,14 +260,13 @@ const SETTING_TITLE: Record<SettingFileDoc, string> = {
 
 // ---------------------------------------------------------------- 细纲
 
-/** JSON 里八节的别名：蓝图合同用的是英文键。 */
+/** JSON 里七节的别名：蓝图合同用的是英文键。 */
 const PLOT_KEY_ALIASES: Record<(typeof PLOT_SECTION_KEYS)[number], string[]> = {
   梗概: ['梗概', 'synopsis', 'summary'],
   出场人物: ['出场人物', 'characters', '出场角色', '人物'],
   时间地点: ['时间地点', 'timePlace', 'time_place'],
   关键事件: ['关键事件', 'keyEvents', 'key_events', 'events', '事件'],
   看点: ['看点', 'highlights'],
-  新增伏笔: ['新增伏笔'],
   状态变更: ['状态变更', 'stateChange', 'state_change'],
   连续性事实: ['连续性事实', 'continuityFacts'],
 };
@@ -314,7 +313,7 @@ export function parsePlotStrict(text: string): PlotFields | undefined {
         sections,
         title: clipTitle(str(fromJson.title ?? fromJson.标题)),
         targetWords: num(fromJson.targetWords ?? fromJson.目标字数),
-        // 第九节「设定」：合同里可选，没写就不带（落盘时沿用磁盘那份）。`isNew` 的另记一份，采纳时建空条目。
+        // 「设定」一节：合同里可选，没写就不带（落盘时沿用磁盘那份）。`isNew` 的另记一份，采纳时建空条目。
         ...(settings !== undefined ? { lore: loreLinesFromJson(settings), ...newLoreOf(settings) } : {}),
         ...(plan.entries ? { threads: plan.entries } : {}),
         ...(plan.notes.length > 0 ? { planNotes: plan.notes } : {}),

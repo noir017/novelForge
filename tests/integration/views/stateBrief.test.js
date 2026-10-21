@@ -42,7 +42,7 @@ async function bookStepOf(p = project) {
   return { stage, step: bundle.pipeline.deriveBookNextStep(stage, facts) };
 }
 
-/** 一份细纲（八节）。`events`（关键事件）为空时这一章就还没排过。 */
+/** 一份细纲（七节）。`events`（关键事件）为空时这一章就还没排过。 */
 function writePlot1(events) {
   return ws.writePlot({
     no: 1,

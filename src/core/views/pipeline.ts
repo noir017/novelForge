@@ -15,7 +15,7 @@
  *
  * ```
  * outline.md 里覆盖第 N 章那一节 ─hash─▶ 细纲 (frontmatter.upstreamHash)
- * 细纲八个小节                    ─hash─▶ 细纲 (frontmatter.writtenFrom，正文落盘时记、定稿时刷新)
+ * 细纲七个小节                    ─hash─▶ 细纲 (frontmatter.writtenFrom，正文落盘时记、定稿时刷新)
  * chapters/…/N-标题               ─hash─▶ 细纲 (frontmatter.sourceHash，定稿反向更新时记)
  * ```
  *

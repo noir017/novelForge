@@ -10,7 +10,7 @@
  * 3. **失败挂在细纲上、成功清掉**（AGENTS 第 16 条），取消不算失败；架构与大纲没有
  *    归属的那一行，失败只进日志。
  *
- * 细纲与单章摘要并成一份之后是八节（梗概 / 出场人物 / 时间地点 / 关键事件 / 看点 / 新增伏笔 /
+ * 细纲与单章摘要并成一份之后是七节（梗概 / 出场人物 / 时间地点 / 关键事件 / 看点 /
  * 状态变更 / 连续性事实），落在 `summaries/`；架构层四件同属一个阶段，解析要看 target 才分得清。
  */
 const { describe, test, before, after } = require('node:test');
@@ -21,7 +21,7 @@ const { makeFakeHost, sleep } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 
-// 模型只答了八节里的三节：没写的小节留空，形状描述照实说「3/8 节」。
+// 模型只答了七节里的三节：没写的小节留空，形状描述照实说「3/7 节」。
 const PLOT_JSON = JSON.stringify({
   梗概: '林昭夜里摸进青云宗',
   关键事件: '踩点、失手、翻墙；收在藏书阁门口。三拍推进。',
@@ -164,7 +164,7 @@ describe('细纲层 · 产出 Draft', () => {
   });
 
   test('draft 自带一句话形状描述', () => {
-    assert.equal(out.draft.summary, '细纲 · 3/8 节', out.draft.summary);
+    assert.equal(out.draft.summary, '细纲 · 3/7 节', out.draft.summary);
   });
 
   test('draft 记下字数', () => {

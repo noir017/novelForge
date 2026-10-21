@@ -33,7 +33,7 @@ const log = scoped('定稿');
 const globalLog = scoped('全文大纲');
 
 /**
- * 定稿时模型交回来的结构化形态：八个小节 + 机器可读的出场人物清单 + 第九节「设定」（设定名录）。
+ * 定稿时模型交回来的结构化形态：七个小节 + 机器可读的出场人物清单 + 「设定」一节（设定名录）。
  *
  * 模型被要求直接输出这个形状的 JSON。小节最终要渲染成人类可读的 Markdown（作者会翻、
  * 会手改），`cast` 则是给程序用的——出场统计、角色卡的关联都吃它。`lore` 是模型给的原样，
@@ -46,7 +46,7 @@ export interface SummaryData {
 }
 
 /**
- * 定稿第一步写好的那份细纲：落盘的八节与出场人物，外加连续性事实挂证据的结果——
+ * 定稿第一步写好的那份细纲：落盘的七节与出场人物，外加连续性事实挂证据的结果——
  * 定稿（features/finalize.ts）要拿出场人物去更新角色状态，丢了几条事实要说出来。
  */
 export interface SummaryOutcome extends SummaryData {
@@ -188,7 +188,7 @@ export async function summarizeChapter(
       dropped.map((d) => `- ${d}`).join('\n')
     );
   }
-  // 第九节「设定」：名字要逐字出现在正文里、说明要找得到依据、人名不算（不调模型）。
+  // 「设定」一节：名字要逐字出现在正文里、说明要找得到依据、人名不算（不调模型）。
   const lore = await checkLore(project, chapter, rawLore, text, cast.flatMap((c) => [c.name, ...c.aliases]));
   const { rel: relPath, trashed } = await new Workspace(project).finalizePlot(chapter, sections, cast, lore);
   // 这一章好了：把它挂着的旧感叹号收掉（上次可能是超时/解析失败）。
@@ -211,7 +211,7 @@ export async function summarizeChapter(
 /**
  * 当前细纲 → 发给模型的那一段（`## 小节` 一节一段）。一节都没填（只起了个头的空壳）给空串——
  * 那时照正文从头整理。连续性事实不给：那是上一次定稿从正文里摘的，证据要回原文逐字校验，
- * 这一次照样从正文重新摘，把旧的给它只会让它照抄已经对不上的句子。第九节「设定」给：那是计划用到的，
+ * 这一次照样从正文重新摘，把旧的给它只会让它照抄已经对不上的句子。「设定」一节给：那是计划用到的，
  * 要改成实际出现的。
  */
 function renderPlanForPrompt(plan: Plot): string {
@@ -856,7 +856,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
 // ---------------------------------------------------------------- 解析
 
 /**
- * 从模型返回中解析出定稿后的八节。
+ * 从模型返回中解析出定稿后的七节。
  *
  * 两层，解析不出来就什么都不收：
  *
@@ -866,7 +866,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
  *
  * 从前还有第三层「全文塞进梗概」。那时写坏的是一份单独的摘要；现在定稿写回的就是这一章的
  * 细纲，全文塞进梗概等于拿一段没解析开的 JSON 换掉作者的计划，还记上 `sourceHash` 让这一章
- * 看起来已经定稿。所以两层都不中就返回空的八节，由 {@link summarizeChapter} 报失败、细纲不动。
+ * 看起来已经定稿。所以两层都不中就返回空的七节，由 {@link summarizeChapter} 报失败、细纲不动。
  *
  * `cast` 只在 JSON 路径上有结构化来源；其余路径从「出场人物」小节的文本反解。
  */
@@ -1012,7 +1012,7 @@ export function toSectionText(v: unknown): string {
   return '';
 }
 
-/** 从 Markdown 抽出八个固定小节（PLOT_SECTION_KEYS）。允许模型多写、少写，缺的留空。 */
+/** 从 Markdown 抽出七个固定小节（PLOT_SECTION_KEYS）。允许模型多写、少写，缺的留空。 */
 function parseSummarySections(cleaned: string): PlotSections {
   const picked = pickSections<PlotSectionKey>(cleaned, PLOT_SECTION_KEYS);
   const sections = { ...emptyPlotSections(), ...picked };

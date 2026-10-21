@@ -25,9 +25,9 @@ const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 
 /**
- * 细纲层的应答：单章也用批次合同的单项形式（`{"blueprints":[{…}]}`），字段对到八节。
- * 连续性事实不在合同里（证据要回正文定位，定稿时才有）；「新增伏笔」也不在了（叙事线二期：伏笔写成 threads 里的
- * 一条埋，写进叙事线），所以填满也只有 6/8 节。
+ * 细纲层的应答：单章也用批次合同的单项形式（`{"blueprints":[{…}]}`），字段对到七节。
+ * 连续性事实不在合同里（证据要回正文定位，定稿时才有），所以填满也只有 6/7 节。原来的「新增伏笔」删了（叙事线二期：
+ * 伏笔写成 threads 里的一条埋，写进叙事线）。
  */
 const PLOT_JSON = JSON.stringify({
   blueprints: [
@@ -169,9 +169,9 @@ describe('对细纲调 generate', () => {
     assert.ok(r.text.includes(stored[0].draft.id), r.text);
   });
 
-  // 八节里模型答了六节（连续性事实计划时为空，新增伏笔不在合同里了）。
+  // 七节里模型答了六节（连续性事实计划时为空）。
   test('返回文本里有形状描述', () => {
-    assert.ok(r.text.includes('细纲 · 6/8 节'), r.text);
+    assert.ok(r.text.includes('细纲 · 6/7 节'), r.text);
   });
 
   test('返回文本里有落点', () => {

@@ -63,7 +63,7 @@ before(async () => {
   // 第 8 章：细纲排过，正文也写好了 —— 两面俱全。
   await wsOf(project).writePlot({
     no: 8, title: '夜访', upstreamHash: '', done: false,
-    sections: { 梗概: '暴露令牌', 出场人物: '', 时间地点: '', 关键事件: '甲、乙、丙。', 看点: '', 新增伏笔: '', 状态变更: '', 连续性事实: '' },
+    sections: { 梗概: '暴露令牌', 出场人物: '', 时间地点: '', 关键事件: '甲、乙、丙。', 看点: '', 状态变更: '', 连续性事实: '' },
   });
   t.write('chapters/008-夜访.md', '# 夜访\n\n三更，林昭醒了。\n');
   // 第 9 章：**只有正文**。老工程里的每一章都是这样（直接把已有的章放进 chapters/），
@@ -169,7 +169,7 @@ describe('状态机仍然在管落在哪一层', () => {
     // 一个关键事件还没排的新章：状态机该把作者留在细纲层，而不是丢进正文。
     await wsOf(project).writePlot({
       no: 20, title: '', upstreamHash: '', done: false,
-      sections: { 梗概: '还没想好', 出场人物: '', 时间地点: '', 关键事件: '', 看点: '', 新增伏笔: '', 状态变更: '', 连续性事实: '' },
+      sections: { 梗概: '还没想好', 出场人物: '', 时间地点: '', 关键事件: '', 看点: '', 状态变更: '', 连续性事实: '' },
     });
     project.invalidate();
     planned = await select('.novelforge/summaries/020.md');

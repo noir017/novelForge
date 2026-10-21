@@ -4,7 +4,7 @@
  * 快照与出场人物索引。
  *
  * 轴是**章**，而且只有一条：细纲号 = 章号。`summaries/NNN-标题.md` 是那一章的细纲
- * （梗概 / 出场人物 / 时间地点 / 关键事件 / 看点 / 新增伏笔 / 状态变更 / 连续性事实；
+ * （梗概 / 出场人物 / 时间地点 / 关键事件 / 看点 / 状态变更 / 连续性事实；
  * 写正文之前是计划，定稿时照正文反向更新成正文写成的样子），`chapters/NNN-标题.md` 是
  * 那一章的正文（装配器读它），架构三件是 `config.md` / `premise.md` / `world.md`。从前的
  * 卷、剧情段、中转站 `manuscripts/`、拆章与单独一份的单章摘要都删掉了。
@@ -1503,9 +1503,9 @@ describe('装配：四阶段配方', () => {
     assert.equal(fullTokens(pc), 0);
   });
 
-  // 单章也用批次合同的单项形式（第 22 条：两个入口契约一致），字段对到细纲的八节（连续性事实除外）。
+  // 单章也用批次合同的单项形式（第 22 条：两个入口契约一致），字段对到细纲的七节（连续性事实除外）。
   // 关键事件与定稿的写法一样是一条一件事的数组（⚑B）。原来的 foreshadowing 换成了 threads（叙事线二期，不进细纲）。
-  test('细纲的输出契约是蓝图合同的单项形式，字段对到八节', () => {
+  test('细纲的输出契约是蓝图合同的单项形式，字段对到七节', () => {
     assert.ok(
       lastOf(pg).includes(
         '【精确 JSON 形状】{"blueprints":[{"chapterNumber":2,"title":"…","synopsis":"…","characters":["…"],"timePlace":"…","keyEvents":["…"],"highlights":["…"],"stateChange":"…","threads":[{"line":"…","type":"推进","what":"…"}]}]}'
@@ -1981,7 +1981,7 @@ describe('工程页数据', () => {
     assert.ok(token && token.detail.startsWith('巴掌大的木牌或铜牌'), token && token.detail);
   });
 
-  // 示例工程的三章定稿细纲都早于第九节「设定」，名录是空的、三章都等着补记。
+  // 示例工程的三章定稿细纲都早于「设定」一节，名录是空的、三章都等着补记。
   test('设定名录：已建条目都有一行统计，还没记过设定的定稿章计数', () => {
     assert.deepEqual(Object.keys(tree.loreByEntry).sort(), lore.map((l) => l.relPath).sort());
     assert.equal(tree.loreByEntry[lore[0].relPath].detail, '');

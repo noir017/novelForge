@@ -372,7 +372,7 @@ describe('复制一份细纲：指纹不带着把副本标成新鲜或定稿过�
     assert.equal(pipeCopy.summary.exists, false);
   });
 
-  test('作者写的部分原样：八节、标题、预检放行', () => {
+  test('作者写的部分原样：七节、标题、预检放行', () => {
     assert.deepEqual(copy.sections, origPlot.sections);
     assert.match(copyText, /^title: 回乡$/m);
     assert.match(copyText, /^preflightOk:/m);

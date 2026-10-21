@@ -1113,7 +1113,7 @@ function deriveOutlineContract(facts: PromptFacts): string {
 /**
  * 「暗设」的规矩，细纲那一份（完善设定，2026-10-19；角色卡的暗设是叙事线重做加的，同一条规矩）。条目与角色卡里读者
  * 还不知道的真相，排细纲时看得见（lore 层、`characters` 层把那一节标成 {@link LORE_HIDDEN_MARK}），写正文时看不见——揭开那一章的正文模型只能从细纲知道这件事；没揭开的
- * 写进了细纲（连第九节那句 note 也算，它随本章细纲进正文），正文照样会说漏。写细纲、落定细纲、批量拆细纲都走
+ * 写进了细纲（连「设定」一节那句 note 也算，它随本章细纲进正文），正文照样会说漏。写细纲、落定细纲、批量拆细纲都走
  * {@link blueprintContract}，同一句（第 22 条：几条路输出一字不差）。
  *
  * 要铺垫的去向（叙事线二期）：从前写进细纲的「新增伏笔」，现在写成 `threads` 里的一条「埋」——伏笔并进了叙事线，
@@ -1229,7 +1229,7 @@ function blueprintContract(facts: PromptFacts): string {
  * 蓝图 JSON 合同本身。语法修复那一步也用它当「不可变合同」（generation/structured.ts）：
  * 修复只能照着它补标点，不能照着任务去补内容。
  *
- * 字段就是细纲的八节（连续性事实除外：证据要回正文定位，定稿时才有），说法照定稿那份提示词
+ * 字段就是细纲的七节（连续性事实除外：证据要回正文定位，定稿时才有），说法照定稿那份提示词
  * （features/summarizePrompt.ts 的 `SUMMARY_SYSTEM`）改成「计划」的口吻——同一份文件，计划与定稿
  * 写的是同一件事，只是一个在写之前、一个在写之后。`threads`（叙事线二期，换掉原来的 `foreshadowing`）不进细纲：
  * 它是这一章在叙事线上的计划，写入时写进各条线（features/threadPlan.ts）。

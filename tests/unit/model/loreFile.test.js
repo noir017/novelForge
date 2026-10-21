@@ -1,12 +1,12 @@
 /**
- * 设定的格式（model/loreFile.ts）与细纲第九节「设定」（model/plotFile.ts）。
+ * 设定的格式（model/loreFile.ts）与细纲「设定」一节（model/plotFile.ts）。
  *
  * | 断言 | 为什么 |
  * |---|---|
  * | 几种手写写法都认、认不出的不崩、同名只留第一行 | 第 1 条：作者会手改 |
  * | 「（无）」读回来是空数组，渲染回去还是「（无）」 | 标题在 = 记过；没有设定也要留下记过的痕迹 |
  * | 分类路径规范成 `a/b`，「未分类」是空串 | 分类就是目录，每本书自己定、可以嵌套 |
- * | 第九节不进内容指纹 | 补记老章节不能把它们全挂上 ⟳ |
+ * | 「设定」一节不进内容指纹 | 补记老章节不能把它们全挂上 ⟳ |
  * | 没有这一节是 undefined，有标题没内容是空数组 | 「还没记过」与「记过、没有」是两回事 |
  * | 两趟认条目：关键词抢不走别人的标题 | 同 views/cast.ts 的角色卡 |
  * | 「暗设」一节拆得出来，一句话不取它 | 写正文时不带暗设（完善设定） |
@@ -19,7 +19,7 @@ const { loadModule } = require('../../helpers/load');
 const lf = loadModule('src/core/model/loreFile.ts');
 const pf = loadModule('src/core/model/plotFile.ts');
 
-describe('第九节「设定」的一行一条', () => {
+describe('「设定」一节的一行一条', () => {
   test('〔〕【】[] 都认，冒号全角半角都认，没写分类也行', () => {
     const lines = lf.parseLoreLines(
       [
@@ -167,7 +167,7 @@ describe('条目的一句话与认名字（含暗设与待完善：完善设定�
   });
 });
 
-describe('细纲的第九节', () => {
+describe('细纲的「设定」一节', () => {
   const FILE = [
     '---',
     'no: 3',
@@ -192,7 +192,7 @@ describe('细纲的第九节', () => {
     '',
   ].join('\n');
 
-  test('读出第九节，连续性事实不被它吃进去', () => {
+  test('读出「设定」一节，连续性事实不被它吃进去', () => {
     const plot = pf.parsePlotFile(FILE, '.novelforge/summaries/003-夜访.md');
     assert.deepEqual(plot.lore, [
       { name: '停舟客栈', category: '地域', note: '二层木楼' },
@@ -208,13 +208,13 @@ describe('细纲的第九节', () => {
     assert.deepEqual(empty.lore, []);
   });
 
-  test('第九节不进内容指纹', () => {
+  test('「设定」一节不进内容指纹', () => {
     const with_ = pf.parsePlotFile(FILE, '.novelforge/summaries/003-夜访.md');
     const without = pf.parsePlotFile(FILE.replace(/## 设定[\s\S]*$/, ''), '.novelforge/summaries/003-夜访.md');
     assert.equal(pf.plotContentHash(with_), pf.plotContentHash(without));
   });
 
-  test('渲染：给了才写，写在八节之后；读回来一样', () => {
+  test('渲染：给了才写，写在七节之后；读回来一样', () => {
     const plot = pf.parsePlotFile(FILE, '.novelforge/summaries/003-夜访.md');
     const text = pf.renderPlotFile({ ...plot, sourceHash: 'abc', done: false });
     assert.ok(text.indexOf('## 设定') > text.indexOf('## 连续性事实'));

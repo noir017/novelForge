@@ -3,7 +3,7 @@
 一个真实格式的示例工程，有两个用途：
 
 1. **开发调试**：按 `F5` 启动 Extension Development Host 时自动打开这里，直接可以试拆细纲 / 写正文 / 定稿 / 角色卡。它是一份「架构齐全、大纲排到第 30 章、写到第 3 章、第 4 章细纲已经排好」的书，所以主按钮会是「写第 4 章」（落点 `.novelforge/summaries/004-空匣.md`）。
-2. **测试夹具**：`tests/contract/sampleNovel.test.js` 与 `tests/integration/context/builder.test.js` 在它上面跑**只读**断言（含细纲的三个指纹：`upstreamHash`、`writtenFrom` 与对着章节正文的 `sourceHash`）——**不要随手改 `chapters/` 里的正文**，否则 hash 断言会挂；要改就把 `.novelforge/project.json` 里的 `contentHash` 与对应细纲的 `sourceHash` 一起更新。改了大纲或细纲，要把细纲 frontmatter 的 `upstreamHash`（大纲里覆盖本章那一节的指纹）与 `writtenFrom`（细纲八节的指纹）重算。需要写盘的用例一律经 `tests/helpers/tmpProject.js` 的 `copyFixture()` 复制一份出去跑，不碰这里。
+2. **测试夹具**：`tests/contract/sampleNovel.test.js` 与 `tests/integration/context/builder.test.js` 在它上面跑**只读**断言（含细纲的三个指纹：`upstreamHash`、`writtenFrom` 与对着章节正文的 `sourceHash`）——**不要随手改 `chapters/` 里的正文**，否则 hash 断言会挂；要改就把 `.novelforge/project.json` 里的 `contentHash` 与对应细纲的 `sourceHash` 一起更新。改了大纲或细纲，要把细纲 frontmatter 的 `upstreamHash`（大纲里覆盖本章那一节的指纹）与 `writtenFrom`（细纲七节的指纹）重算。需要写盘的用例一律经 `tests/helpers/tmpProject.js` 的 `copyFixture()` 复制一份出去跑，不碰这里。
 
 ## 目录
 

@@ -19,8 +19,8 @@
  * | 写正文 | 答了才落到**同号的章节**上（没有就新建、有了就追加），并在细纲上记 `writtenFrom` |
  * | 拆细纲落在占位路径 | 细纲按产物的标题落盘之后，流水线条仍认得这一章 |
  *
- * 细纲与单章摘要并成了一份：`summaries/NNN-标题.md`，八节（梗概 / 出场人物 / 时间地点 /
- * 关键事件 / 看点 / 新增伏笔 / 状态变更 / 连续性事实）；「排过没有」仍只看关键事件。
+ * 细纲与单章摘要并成了一份：`summaries/NNN-标题.md`，七节（梗概 / 出场人物 / 时间地点 /
+ * 关键事件 / 看点 / 状态变更 / 连续性事实）；「排过没有」仍只看关键事件。
  * 正文不再先落中转站。
  */
 const { describe, test, before, after } = require('node:test');
@@ -32,7 +32,7 @@ const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 
-// 模型答的是八节里的三节：没写到的小节（出场人物、伏笔……）留空，形状描述照实说「3/8 节」。
+// 模型答的是七节里的三节：没写到的小节（出场人物、状态变更……）留空，形状描述照实说「3/7 节」。
 const PLOT_JSON = JSON.stringify({
   梗概: '林昭夜里摸进青云宗',
   关键事件: '踩点、失手、翻墙；收在藏书阁门口。三拍推进。',
@@ -190,7 +190,7 @@ describe('生成一轮 → 当场问一句', () => {
 
   test('说得出写到哪、是什么形状', () => {
     assert.ok(r.gate.title.includes('夜入青云'), r.gate.title);
-    assert.ok(r.gate.detail.includes('3/8 节'), r.gate.detail);
+    assert.ok(r.gate.detail.includes('3/7 节'), r.gate.detail);
   });
 
   // 叫停整轮不在这张卡上（那是输入框旁边那颗「停止」）；拒绝那颗写的是
@@ -216,7 +216,7 @@ describe('生成一轮 → 当场问一句', () => {
 
   // 展示快照仍在：翻回来看得出这一轮产出过什么。
   test('展示快照还在', () => {
-    assert.equal(r.assistant.artifact.summary, '细纲 · 3/8 节', JSON.stringify(r.assistant.artifact));
+    assert.equal(r.assistant.artifact.summary, '细纲 · 3/7 节', JSON.stringify(r.assistant.artifact));
   });
 });
 

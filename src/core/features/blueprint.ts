@@ -14,7 +14,7 @@
  * 但**超长不算错**：上游在 `value_too_long` 时同样截断后再收（`normalizeGeneratedBlueprintText`）。
  * 超了几十个字就作废整批、再花一次调用，不划算；截断写进 `warnings`，落到卡片上。
  *
- * ## 与细纲八节的对应
+ * ## 与细纲七节的对应
  *
  * `synopsis` → 梗概，`characters` → 出场人物（计划），`timePlace` → 时间地点，`keyEvents` → 关键事件，
  * `highlights` → 看点（爽点与章末吊着读者的东西，从前单列的章末钩子并在这里），`stateChange` → 状态变更。
@@ -61,7 +61,7 @@ export interface BlueprintItem {
   /** 本章首次登场、后面还会出场的重要角色。名字一定在 `characters` 里；性别建卡时落进卡上。 */
   newCharacters: { name: string; role: string; gender?: string }[];
   /**
-   * 本章计划用到或引入的设定（第九节「设定」，设定名录）。`isNew` 的是本章首次引入、后面还会用到的，
+   * 本章计划用到或引入的设定（「设定」一节，设定名录）。`isNew` 的是本章首次引入、后面还会用到的，
    * 随细纲一起建空条目（同新角色建卡，D19）；`note` 一句话写它是什么。
    */
   settings: (LoreLine & { isNew: boolean })[];
@@ -392,9 +392,8 @@ export function checkCoverage(items: readonly BlueprintItem[], expected: readonl
 }
 
 /**
- * 一章蓝图 → 细纲的八节（落盘时用），外加第九节「设定」。出场人物写成「林昭、沈氏」一行，关键事件、
- * 看点一条一行（`- …`），与定稿写出来的样子一致；连续性事实计划时是空的。「新增伏笔」不再从合同来（叙事线二期：
- * 伏笔写成 `threads` 里的一条埋），计划时空着。
+ * 一章蓝图 → 细纲的七节（落盘时用），外加「设定」一节。出场人物写成「林昭、沈氏」一行，关键事件、
+ * 看点一条一行（`- …`），与定稿写出来的样子一致；连续性事实计划时是空的。`threads` 随产物带着，不进细纲。
  */
 export function blueprintToPlot(item: BlueprintItem): PlotFields {
   return {
@@ -404,7 +403,6 @@ export function blueprintToPlot(item: BlueprintItem): PlotFields {
       时间地点: item.timePlace,
       关键事件: listText(item.keyEvents),
       看点: listText(item.highlights),
-      新增伏笔: '',
       状态变更: item.stateChange,
       连续性事实: '',
     },

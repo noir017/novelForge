@@ -219,7 +219,7 @@ describe('章节细纲的悬停浮窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(tip());
   });
 
-  // 浮窗自己内部的滚动不能把它收掉——细纲有八个小节，滚动条是给人用的。
+  // 浮窗自己内部的滚动不能把它收掉——细纲有七个小节，滚动条是给人用的。
   test('浮窗内部滚动不收起浮窗', () => {
     tip().dispatchEvent(new ui.window.Event('scroll', { bubbles: true }));
     assert.ok(tip());

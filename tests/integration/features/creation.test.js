@@ -12,7 +12,7 @@
  * | 小说配置 / 前提 / 世界观 | `config.md` / `premise.md` / `world.md` | 覆盖前审阅；配置的 frontmatter 合并 |
  * | 角色图谱 | `characters/` 下每人一张卡 | **同名跳过**，绝不覆盖，也就不必审阅 |
  * | 情节大纲 | `outline.md` | 覆盖前审阅 |
- * | 细纲 | `summaries/NNN-标题.md` | 覆盖前审阅；八节换新，标题 / 目标字数 / 定稿记的 sourceHash 与 cast 沿用磁盘那份 |
+ * | 细纲 | `summaries/NNN-标题.md` | 覆盖前审阅；七节换新，标题 / 目标字数 / 定稿记的 sourceHash 与 cast 沿用磁盘那份 |
  * | 正文 | 同号的 `chapters/NNN-标题.md` | **追加**；落盘后在细纲上记 `writtenFrom` |
  *
  * 落盘的守卫在 `workspace/`，这里测的是分派与那几条取舍。
@@ -67,14 +67,13 @@ after(() => {
   if (t) cleanup(t.dir);
 });
 
-/** 排过的细纲八节（计划时「连续性事实」空着，几节可以不写）。关键事件一条一行，与定稿的写法一样。 */
+/** 排过的细纲七节（计划时「连续性事实」空着，几节可以不写）。关键事件一条一行，与定稿的写法一样。 */
 const SECTIONS = {
   梗概: '林昭进入青云宗',
   出场人物: '林昭、沈青',
   时间地点: '',
   关键事件: '- 他在山门外踩点，失手惊动守卫，翻墙进了后院。\n- 收在藏书阁门口。',
   看点: '藏书阁里亮着一盏灯。',
-  新增伏笔: '',
   状态变更: '',
   连续性事实: '',
 };
@@ -125,7 +124,7 @@ describe('artifact.ts · 细纲三层降级', () => {
     assert.equal(json.sections.梗概, '林昭进入青云宗');
   });
 
-  test('JSON 八节都收下', () => {
+  test('JSON 七节都收下', () => {
     assert.equal(json.sections.看点, '藏书阁里亮着一盏灯。');
     assert.equal(json.sections.关键事件, SECTIONS.关键事件);
   });
@@ -367,7 +366,7 @@ describe('artifact.ts · 空产物与描述', () => {
 
   test('细纲描述带填了几节', () => {
     const a = A.parseArtifact({ stage: 'plot', capability: 'generate' }, '{"梗概":"x","关键事件":"y"}');
-    assert.equal(A.describeArtifact(a), '细纲 · 2/8 节');
+    assert.equal(A.describeArtifact(a), '细纲 · 2/7 节');
   });
 
   test('架构文档描述带填了几节', () => {
@@ -753,7 +752,7 @@ describe('采纳 · 细纲（覆盖要审阅）', () => {
     assert.deepEqual(JSON.parse(JSON.stringify(refinalized.cast)), [{ name: '林昭', aliases: ['阿昭'] }]);
   });
 
-  test('重写定稿过的细纲：八节照样换新', () => {
+  test('重写定稿过的细纲：七节照样换新', () => {
     assert.ok(refinalized.sections.关键事件.includes('改成三拍'), refinalized.sections.关键事件);
   });
 

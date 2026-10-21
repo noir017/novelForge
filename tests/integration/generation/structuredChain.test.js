@@ -89,7 +89,7 @@ const userOf = (i) => {
   return msgs[msgs.length - 1].content;
 };
 
-// 新合同：梗概 / 出场人物 / 时间地点 / 关键事件 / 看点 / 新增伏笔 / 状态变更（连续性事实定稿时才有）。
+// 新合同：梗概 / 出场人物 / 时间地点 / 关键事件 / 看点 / 状态变更（连续性事实定稿时才有）。
 // 章末钩子并进了看点，role 与 purpose 都没了。关键事件与定稿一样是一条一件事的数组（⚑B）。
 const bp = (no, over = {}) => ({
   chapterNumber: no,

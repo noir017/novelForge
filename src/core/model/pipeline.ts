@@ -985,7 +985,7 @@ export function loreExpandCalls(n: number): CallEstimate {
 }
 
 /**
- * 写前提醒（完善设定三期，零调用、不拦、不进主按钮）：要写的章细纲第九节点名、却还只有一句话的设定（「待完善」的口径，
+ * 写前提醒（完善设定三期，零调用、不拦、不进主按钮）：要写的章细纲「设定」一节点名、却还只有一句话的设定（「待完善」的口径，
  * views/lore.ts 的 `thinLoreFor`）。工作台正文目标（`本章`）与批量写章的弹窗、确认框（`区间里`）同一句；名字最多列 5 个。
  */
 export function describeThinLore(scope: '本章' | '区间里', names: readonly string[]): string {

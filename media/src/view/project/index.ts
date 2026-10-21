@@ -180,7 +180,7 @@ function buildProjectPage(tree: ProjectTree): void {
     );
   }
 
-  // 设定名录（第九节攒出来的）：已建条目是按目录（= 分类）分组的树，每行带出现章与待整合；
+  // 设定名录（「设定」一节攒出来的）：已建条目是按目录（= 分类）分组的树，每行带出现章与待整合；
   // 标题旁一个筛选框，几百条时不用一层层翻目录。
   const unfiledAll = tree.loreUnfiled;
   const thinAll = tree.loreThin;
@@ -223,7 +223,7 @@ function buildProjectPage(tree: ProjectTree): void {
     })
   );
 
-  // 待完善（完善设定，2026-10-19）：还没写的几章细纲第九节点名、却还没有条目或条目还只有一句话的设定。
+  // 待完善（完善设定，2026-10-19）：还没写的几章细纲「设定」一节点名、却还没有条目或条目还只有一句话的设定。
   // 往前看的一组，排在往回记的「出现过 · 未建条目」前面；一个都没有就整组不画，筛选时同未建条目。
   // 标题右键「全部展开」（三期）：次数与后端确认框同一个数，只算批量会写的（作者写过的跳过，`authored`）。
   const thin = filterUnfiled(thinAll);
@@ -246,7 +246,7 @@ function buildProjectPage(tree: ProjectTree): void {
     );
   }
 
-  // 定稿过的细纲第九节里出现、但还没有条目的名字。与「出场人物 · 未建卡」同一个道理单独一组：
+  // 定稿过的细纲「设定」一节里出现、但还没有条目的名字。与「出场人物 · 未建卡」同一个道理单独一组：
   // 设定那棵是文件树（能改名/移动/删除），这些还没有文件。筛选时一个都没匹配上就整组不画。
   const unfiled = filterUnfiled(unfiledAll);
   if (unfiled.length > 0) {

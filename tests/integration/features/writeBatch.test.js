@@ -441,7 +441,7 @@ describe('结尾停在半句上、续写也没接完：写进去，然后停', (
 
 const OUTLINE = '# 情节大纲\n\n## 第1–10章：第一幕\n\n林昭回镇查案。\n';
 
-/** 按契约里写的区间应答一批细纲（新合同：八节里除连续性事实之外的字段）。 */
+/** 按契约里写的区间应答一批细纲（新合同：七节里除连续性事实之外的字段）。 */
 function blueprintsFor(messages) {
   const user = messages[messages.length - 1].content;
   const m = /chapterNumber 必须覆盖第 (\d+)(?:–(\d+))? 章的每一章/.exec(user);

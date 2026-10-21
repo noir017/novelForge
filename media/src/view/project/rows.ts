@@ -295,7 +295,7 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
         label: p.stale ? `定稿（细纲 + 角色状态 + 叙事线，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）` : '重新定稿',
         run: () => projectAction('finalizeChapter', p.chapterPath),
       });
-      // 单独记设定（设定名录，作者定案）：只对定稿过、正文没再改过的章——没定稿的第九节是计划，
+      // 单独记设定（设定名录，作者定案）：只对定稿过、正文没再改过的章——没定稿的「设定」一节是计划，
       // 记了也会被定稿冲掉。定稿时本来就会顺手记，这里是重记一次、或补老章节。
       if (!p.stale) {
         items.push({ label: '记设定（调用模型 1 次）', run: () => projectAction('recordLore', p.chapterPath) });
@@ -536,7 +536,7 @@ function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): H
 /**
  * 设定行。比普通文件行多两样东西：出现章（「第 3–57 章 · 12 章」）与「＋N」待整合标记。
  *
- * 出现章来自后端的 `loreByEntry`（`views/lore.ts` 从定稿过的细纲第九节算的），前端不自己算——
+ * 出现章来自后端的 `loreByEntry`（`views/lore.ts` 从定稿过的细纲「设定」一节算的），前端不自己算——
  * 与角色行的 `castByCard` 同一个道理。副标题仍是那一句 brief（没有就是关键词，后端给好了）。
  *
  * 出现章**另起一格放在右边、不截断**，不像角色行那样并进副标题：brief 常常二三十字，
@@ -600,7 +600,7 @@ export function buildLoreThinRows(list: LoreThinEntry[]): HTMLElement[] {
 /**
  * 「待完善」的一行：`天机阁〔宗门〕· 第 12 章起要用 · 只有一句话`。
  *
- * 往前看的一组：还没写的几章细纲第九节点名、却还没有条目或条目还只有一句话的设定——与「出现过 · 未建条目」
+ * 往前看的一组：还没写的几章细纲「设定」一节点名、却还没有条目或条目还只有一句话的设定——与「出现过 · 未建条目」
  * （往回记）正好相反，所以排在它前面。有条目的点名字打开那一条（同别的设定行）；还没有条目的点名字不做事
  * （同未建条目：没有文件可开，也不该手一滑就多出一个）。右键「展开…」，没有条目的后端先按分类建空条目再展开。
  */
@@ -705,7 +705,7 @@ export function buildLoreUnfiledRows(list: LoreUnfiledEntry[], loreRoot: string)
  *
  * 两个动作，都在右键里：「建条目」调模型一次，拿定稿细纲里提到它的那几行写成一条（不重读正文）；
  * 「新建这条设定」带着名字发 `newLore`，建一份空条目、不调模型。都落在建议的分类目录里
- * （各章第九节写的多数票；目录还没有时后端会建）。
+ * （各章「设定」一节写的多数票；目录还没有时后端会建）。
  * 与「出场人物 · 未建卡」不同，**点名字不做事**：扫列表时手一滑就在设定区里多出一个文件，
  * 不值得放在最省事的位置。
  */

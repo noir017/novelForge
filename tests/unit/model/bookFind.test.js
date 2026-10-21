@@ -119,7 +119,7 @@ describe('护住的字：frontmatter', () => {
 });
 
 describe('护住的字：解析器认的小节标题', () => {
-  test('细纲的八节与第九节「设定」的标题行不搜，内容照搜', () => {
+  test('细纲的七节与「设定」一节的标题行不搜，内容照搜', () => {
     const plot = '## 关键事件\n- 发生关键事件\n\n## 设定\n- 关键〔物品〕：一把钥匙\n\n### 关键事件：\n';
     assert.deepEqual(found(plot, 'plot', '关键'), ['关键', '关键']);
     assert.deepEqual(found(plot, 'plot', '设定'), []);

@@ -38,7 +38,7 @@ const config = {
 
 const ASK = '李叔这一章也要露一面。';
 
-/** 第 N 章的细纲（计划，八节里填了梗概、出场人物、关键事件、看点）。`events` 为空就是一个空壳。 */
+/** 第 N 章的细纲（计划，七节里填了梗概、出场人物、关键事件、看点）。`events` 为空就是一个空壳。 */
 function plotText(no, title, events) {
   return [
     '---',

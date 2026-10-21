@@ -127,7 +127,7 @@ export type InMessage =
   /**
    * 工程页设定条目、「待完善」那一行右键「展开…」（完善设定，2026-10-19）：先问一句要求（可留空），
    * 再把对话页的目标换成这一条设定、发一轮生成（展开）——同 `rewriteArchitecture` 那条路。
-   * `relPath` 是已有条目；还没有条目时给 `name` 与 `category`（细纲第九节里的名字与分类），
+   * `relPath` 是已有条目；还没有条目时给 `name` 与 `category`（细纲「设定」一节里的名字与分类），
    * 后端先按分类建空条目再展开。
    */
   | { type: 'expandLore'; relPath?: string; name?: string; category?: string }

@@ -44,7 +44,7 @@ export async function integrationWatermark(project: NovelProject): Promise<numbe
 // ---------------------------------------------------------------- 定稿过的记录
 
 /**
- * 一个名字在定稿过的细纲里的**所有记录**，带章号：第九节冒号后那一句、连续性事实里提到它的、
+ * 一个名字在定稿过的细纲里的**所有记录**，带章号：「设定」一节冒号后那一句、连续性事实里提到它的、
  * 另外几节里提到它的句子。建条目的原料。
  */
 export function recordsAbout(plots: readonly Plot[], words: readonly string[], notes: readonly LoreFact[]): LoreFact[] {
@@ -129,7 +129,7 @@ export async function loreEntryAt(
   };
 }
 
-/** 没定稿的细纲里用到这一条的一处：第九节点名它的那一行，或梗概、关键事件里提到它的一句。 */
+/** 没定稿的细纲里用到这一条的一处：「设定」一节点名它的那一行，或梗概、关键事件里提到它的一句。 */
 export interface LorePlannedUse {
   no: number;
   /** 那一章细纲的标题（可能是空串）。 */
@@ -142,13 +142,13 @@ export interface LorePlannedUse {
 export interface LoreExpansionMaterial {
   /** 已排（没定稿）的细纲里用到它的地方，按章号升序——展开是为这些情节服务的。 */
   uses: LorePlannedUse[];
-  /** 定稿过的细纲里关于它的全部记录（{@link recordsAbout}，第九节那一句也算）——已经写进正文的，不能推翻。 */
+  /** 定稿过的细纲里关于它的全部记录（{@link recordsAbout}，「设定」一节那一句也算）——已经写进正文的，不能推翻。 */
   records: LoreFact[];
 }
 
 /**
  * 展开一条设定要喂的两样原料。同一个号只认一份细纲（`pairPlots`，与名录同一个口径）；有 `sourceHash` 的是
- * 定稿过的，其余是计划。第九节里的名字按名录同一张表认（`createLoreLookup`：标题优先、关键词抢不走别人的
+ * 定稿过的，其余是计划。「设定」一节里的名字按名录同一张表认（`createLoreLookup`：标题优先、关键词抢不走别人的
  * 标题），句子里的提及按标题或关键词认（`loreMentionIn`）。`read` 里给了就直接用，不再读盘。
  */
 export async function expansionMaterial(

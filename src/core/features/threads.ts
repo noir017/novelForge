@@ -41,7 +41,6 @@ import { NovelProject } from '../model/project';
 import { CHARACTER_DETAIL_LIMITS, Chapter } from '../model/types';
 import { LlmProvider } from '../llm/provider';
 import { ONE_CALL, describeCalls } from '../model/pipeline';
-import { sectionLine } from '../model/plotFile';
 import { isOutlineFilled } from '../model/outlineFile';
 import { withCallChoice } from '../runtime/callScope';
 import { askCall } from './askCall';
@@ -460,7 +459,8 @@ function judgeForeshadow(f: JudgedForeshadow): string {
  *
  * 归并排在当前进度之前（⚑，设计稿把它列在 b 后面）：先定下事件落在哪条线上，当前进度才写得到对的那几条线。
  *
- * 一期细纲的「新增伏笔」一节还在（二期换成计划事件后删），定稿时把它当作本章计划要埋的伏笔一起交给模型。
+ * 本章计划只读各条线里这一章的计划事件（二期：拆细纲时随细纲写进线里）。一期还把细纲的「新增伏笔」当作本章计划要埋的
+ * 伏笔一起交给模型，二期细纲删了那一节，这一处跟着删——老细纲里留着的那一节当认不出的小节，不读。
  *
  * `run` 决定怎么调模型（同 `updateCharacterStates`）：单章入口直接用对话页选定的那个，批量入口传「定稿」档
  * （`plotSummary`）的池。a 调用失败或解析不出来时抛错——细纲已经更新好了，由调用方把失败挂在章节上；b、c 失败只记在
@@ -491,13 +491,10 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
     log.warn(`第 ${no} 章定稿：还没收的线与伏笔超过一次能认的条数，有 ${out.skipped.length} 条没送去`, out.skipped.join('、'));
   }
 
-  // 本章计划：各条线里这一章的计划事件；一期细纲的「新增伏笔」还在，当作本章计划要埋的伏笔。
+  // 本章计划：各条线里这一章的计划事件（拆细纲时随细纲写进线里）。
   const plan = plannedFor(book, no).map(
     (p) => `- ${p.line ?? UNFILED_NAME}：${p.event.type}${p.event.foreshadowing ? `〈${p.event.foreshadowing}〉` : ''}——${p.event.what}`
   );
-  if (plot && hasContent(plot.sections.新增伏笔)) {
-    plan.push(`- 细纲「新增伏笔」：${sectionLine(plot.sections.新增伏笔)}`);
-  }
   const rest = [
     plan.length > 0 ? `【本章计划（这一章本来要干什么，只帮你认；正文没写到的不要列）】\n${plan.join('\n')}` : '',
     `【还没收束的叙事线】\n${lines.judged.map(judgeLine).join('\n') || '（还没有）'}`,

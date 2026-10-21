@@ -1,6 +1,6 @@
 /**
  * 展开一条设定（完善设定，2026-10-19）的解码、截断、过滤与气泡往返（features/loreExpand.ts），以及它在产物层
- * （features/artifact.ts）的样子；单章细纲第九节里 `isNew` 的那几行（§3）。全部是纯函数。生成链与落盘在
+ * （features/artifact.ts）的样子；单章细纲「设定」一节里 `isNew` 的那几行（§3）。全部是纯函数。生成链与落盘在
  * tests/integration/generation/loreExpand.test.js。
  *
  * | 用例组 | 钉的是什么 |
@@ -9,7 +9,7 @@
  * | 过滤 | 关键词不收人名、别的条目的标题、名录里另记着的、拆出去的子条目；子条目丢掉已有的、人名、重名、与本条同名的，最多 3 条；问题最多 5 条、每条 60 字 |
  * | 往返 | 渲染进气泡的文本解析回来一字不差，`questions` 也在 |
  * | 产物 | 单条设定目标上解析成 `loreEntries`（第一项按路径认，其余是子条目）；解析不了是空的；设定清单那一支不受影响 |
- * | 单章细纲 | `settings` 里 `isNew` 的另记一份 `newLore`，不进第九节以外的地方 |
+ * | 单章细纲 | `settings` 里 `isNew` 的另记一份 `newLore`，不进「设定」一节以外的地方 |
  */
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -243,7 +243,7 @@ describe('单章细纲 · 新设定（完善设定 §3）', () => {
       blueprints: [{ chapterNumber: 3, title: '夜访', synopsis: '林昭夜访天机阁。', keyEvents: ['林昭入阁'], settings }],
     });
 
-  test('isNew 的另记一份 newLore，第九节照旧全收', () => {
+  test('isNew 的另记一份 newLore，「设定」一节照旧全收', () => {
     const art = A.parseArtifact(
       action,
       blueprint([

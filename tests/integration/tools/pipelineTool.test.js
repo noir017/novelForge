@@ -201,7 +201,7 @@ describe('批量拆细纲：作者同意', () => {
     assert.ok(plots.every((p) => bundle.plotFile.isPlotFilled(p.sections)), JSON.stringify(plots.map((p) => p.sections)));
   });
 
-  // 批量拆细纲改的是八个小节：作者起的标题不该被抹掉。
+  // 批量拆细纲改的是七个小节：作者起的标题不该被抹掉。
   test('标题沿用磁盘那份', async () => {
     const plot = await project.readPlot(PLOT1);
     assert.equal(plot.title, '夜入青云');

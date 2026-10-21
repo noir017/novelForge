@@ -60,7 +60,7 @@ function kindOf(messages) {
   return '?';
 }
 
-/** 整理细纲时第 no 章记下的「设定」（第九节）。缺省一条都没有。 */
+/** 整理细纲时第 no 章记下的「设定」（「设定」一节）。缺省一条都没有。 */
 let loreOf = () => [];
 
 function defaultReply(messages) {
@@ -449,7 +449,7 @@ describe('从已写正文补齐 · 只补空白', () => {
     assert.deepEqual({ title: plot.title, targetWords: plot.targetWords }, { title: '作者排的', targetWords: 999 });
   });
 
-  test('第 3 章反向更新之后：八节换成照正文整理的那一版', async () => {
+  test('第 3 章反向更新之后：七节换成照正文整理的那一版', async () => {
     const plot = await t.project.getPlot(3);
     assert.equal(plot.sections.梗概, '第 3 章：林昭与沈青查旧案。');
   });

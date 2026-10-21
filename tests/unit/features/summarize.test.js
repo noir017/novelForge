@@ -18,11 +18,10 @@ const JSON_REPLY = JSON.stringify({
   出场人物: [{ name: '林昭', aliases: ['阿昭'] }, { name: '李叔', aliases: [] }],
   时间地点: '傍晚，镇口',
   关键事件: ['递上令牌', '掌柜多看了他两眼'],
-  新增伏笔: ['令牌来历'],
   状态变更: '',
 });
 
-const STANDARD_MD = `## 梗概\n\n林昭进镇。\n\n## 出场人物\n\n林昭、李叔\n\n## 时间地点\n\n傍晚，镇口\n\n## 关键事件\n\n- 递上令牌\n\n## 新增伏笔\n\n令牌来历\n\n## 状态变更\n\n无`;
+const STANDARD_MD = `## 梗概\n\n林昭进镇。\n\n## 出场人物\n\n林昭、李叔\n\n## 时间地点\n\n傍晚，镇口\n\n## 关键事件\n\n- 递上令牌\n\n## 状态变更\n\n无`;
 
 describe('summarize.ts · parseSummaryResponse', () => {
   let sum;
@@ -90,7 +89,7 @@ describe('summarize.ts · parseSummaryResponse', () => {
       assert.equal(loose.cast[1].name, '沈氏', JSON.stringify(loose.cast));
     });
 
-    // 语法合法但不相干的 JSON 不能被认成一份细纲：降级到小节解析也拿不到东西，八节全空，
+    // 语法合法但不相干的 JSON 不能被认成一份细纲：降级到小节解析也拿不到东西，七节全空，
     // 定稿那一步据此报失败、细纲不动。
     test('JSON：不相干的 JSON 不被当成细纲', () => {
       const irrelevant = sum.parseSummaryResponse('{"text":"模型答非所问"}');
@@ -149,7 +148,7 @@ describe('summarize.ts · parseSummaryResponse', () => {
   });
 
   describe('两层都不中：什么都不收', () => {
-    test('完全无结构时八节全空（定稿报失败，细纲不动）', () => {
+    test('完全无结构时七节全空（定稿报失败，细纲不动）', () => {
       const none = sum.parseSummaryResponse('模型胡说了一通完全没有结构的内容。');
       assert.ok(Object.values(none.sections).every((v) => v === ''), JSON.stringify(none.sections));
     });
@@ -176,8 +175,9 @@ describe('summarize.ts · parseSummaryResponse', () => {
       assert.ok(realParsed.sections.出场人物.includes('沈氏'), realParsed.sections.出场人物);
     });
 
-    test('真实摘要的未收伏笔非空', () => {
-      assert.ok(realParsed.sections.新增伏笔.length > 10);
+    test('真实摘要的关键事件非空；没有「新增伏笔」这一节了（叙事线二期）', () => {
+      assert.ok(realParsed.sections.关键事件.length > 10);
+      assert.ok(!('新增伏笔' in realParsed.sections));
     });
 
     test('真实摘要能反解出出场人物', () => {

@@ -24,7 +24,7 @@ const { cleanup } = require('../../helpers/teardown');
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
 
-/** 模型交回的一章蓝图（细纲合同：八节里除连续性事实之外的字段）。标题故意和磁盘那份不一样。 */
+/** 模型交回的一章蓝图（细纲合同：七节里除连续性事实之外的字段）。标题故意和磁盘那份不一样。 */
 const bp = (no, over = {}) => ({
   chapterNumber: no,
   title: '模型起的名',
@@ -267,7 +267,7 @@ describe('批量拆细纲', () => {
     assert.equal((await project.getPlot(1)).sections.时间地点, '入宗当夜，青云宗山门');
   });
 
-  // 关键事件、看点、新增伏笔是一条一句的列表，落盘成 `- 一条` 一行，与定稿写出来的样子一致。
+  // 关键事件、看点是一条一句的列表，落盘成 `- 一条` 一行，与定稿写出来的样子一致。
   test('细纲内容来自模型：keyEvents 落进「关键事件」，一条一行', async () => {
     assert.equal((await project.getPlot(1)).sections.关键事件, '- 踩点、失手、翻墙\n- 收在藏书阁门口。');
   });
@@ -281,7 +281,7 @@ describe('批量拆细纲', () => {
     assert.equal((await project.getPlot(1)).sections.连续性事实, '');
   });
 
-  // 批量拆细纲改的是八节与规划字段，不该把作者起的名字、定的字数抹掉。
+  // 批量拆细纲改的是七节与规划字段，不该把作者起的名字、定的字数抹掉。
   test('标题沿用磁盘那份，文件名不变', () => {
     assert.ok(t.has('.novelforge/summaries/001-楔子.md'));
     assert.ok(!t.has('.novelforge/summaries/001-模型起的名.md'));
@@ -332,7 +332,7 @@ describe('批量拆细纲', () => {
     assert.ok(!users[0].includes('# 前文正文'), users[0].slice(0, 200));
   });
 
-  // 契约是蓝图合同：字段对到细纲的八节（连续性事实除外，定稿时才有）。从前那条
+  // 契约是蓝图合同：字段对到细纲的七节（连续性事实除外，定稿时才有）。从前那条
   // 「不写画面台词」的禁令删掉了——关键事件可以写到具体场面。
   test('细纲契约是蓝图合同：字段对到细纲的七节', () => {
     for (const key of ['synopsis', 'characters', 'timePlace', 'keyEvents', 'highlights', 'foreshadowing', 'stateChange']) {

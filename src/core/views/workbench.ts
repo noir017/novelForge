@@ -190,7 +190,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
   // （正文是作者自己写的）不标脏——凭空的过期标记比不标更糟。
   const stale = !!chapter && !!plot?.writtenFrom && plotContentHash(plot) !== plot.writtenFrom;
   // 写前提醒（完善设定三期）：还没写的这一章细纲点名、却还只有一句话的设定。零调用、不拦、不进主按钮（第 20 条）；
-  // 口径就是「待完善」（没定稿、也还没写正文的细纲），所以已经写了字的章不提。第九节空着就不读设定区。
+  // 口径就是「待完善」（没定稿、也还没写正文的细纲），所以已经写了字的章不提。「设定」一节空着就不读设定区。
   const thin =
     plot && !plot.sourceHash && words === 0 && (plot.lore?.length ?? 0) > 0 ? await thinLoreFor(project, [plot.no]) : [];
   return {

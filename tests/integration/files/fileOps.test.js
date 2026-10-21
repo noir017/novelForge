@@ -817,7 +817,7 @@ describe('fileOps.ts', () => {
       project.invalidate();
       handEdited = await projectView.buildPlotSummaryView(project, 'chapters/031-没细纲.md');
 
-      // 八个小节全是占位的空细纲：不退回全文，否则浮窗里摊八行「（待补充）」。
+      // 七个小节全是占位的空细纲：不退回全文，否则浮窗里摊八行「（待补充）」。
       await wsOf(project).writePlot({
         no: 31, title: '没细纲', upstreamHash: '', done: false, sections: plotFile.emptyPlotSections(),
       });

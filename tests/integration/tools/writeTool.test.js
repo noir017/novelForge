@@ -15,7 +15,7 @@
  * 顺带钉住一期下沉到写入路径上的记账：细纲的 `upstreamHash` 记的是**大纲里覆盖
  * 本章那一节**的指纹，不是全书大纲的——续写后面一段大纲不该让前面的细纲挂 ⟳。
  *
- * 细纲在 `.novelforge/summaries/NNN-标题.md`（与单章摘要并成了一份，八节）；老工程的
+ * 细纲在 `.novelforge/summaries/NNN-标题.md`（与单章摘要并成了一份，七节）；老工程的
  * `plots/` 不再是细纲，细纲草稿写不进去。
  */
 const { describe, test, before, after } = require('node:test');
@@ -44,7 +44,7 @@ const tool = () => bundle.tools.NOVEL_TOOLS.find((x) => x.name === 'write');
 const run = (args) => tool().run(ctx, args);
 
 /**
- * 一份「已解析出结构化产物」的细纲草稿：八节里排了四节，出场的人就写在「出场人物」一节里
+ * 一份「已解析出结构化产物」的细纲草稿：七节里排了四节，出场的人就写在「出场人物」一节里
  * （产物上没有单独的 characters 字段）。
  */
 function plotDraft(id, sections) {

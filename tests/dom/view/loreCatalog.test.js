@@ -112,7 +112,7 @@ describe('设定行：出现章与「＋N」', { skip: JSDOM_SKIP }, () => {
     assert.deepEqual(loreLabels(ui).sort(), ['停舟客栈', '崖字令牌', '青崖镇'].sort());
   });
 
-  // 出现章由后端从定稿过的细纲第九节算好，前端照抄。
+  // 出现章由后端从定稿过的细纲「设定」一节算好，前端照抄。
   test('右边写出现章', () => {
     const span = loreRow(ui, '青崖镇').querySelector('.lore-span');
     assert.equal(span?.textContent, '第 3–57 章 · 12 章', loreRow(ui, '青崖镇').outerHTML);

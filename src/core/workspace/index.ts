@@ -742,8 +742,8 @@ export class Workspace {
   }
 
   /**
-   * 单独记设定（设定名录）：只换掉这一章细纲的第九节「设定」，没有就加在末尾，另外八节与 frontmatter
-   * 一个字不动（`replaceSection`）。第九节不进内容指纹，所以这样补记不会让正文挂 ⟳。返回是否写了。
+   * 单独记设定（设定名录）：只换掉这一章细纲的「设定」一节，没有就加在末尾，另外七节与 frontmatter
+   * 一个字不动（`replaceSection`）。「设定」一节不进内容指纹，所以这样补记不会让正文挂 ⟳。返回是否写了。
    */
   async patchPlotLore(plotRelPath: string, lines: readonly LoreLine[]): Promise<boolean> {
     const abs = this.project.pathOf(plotRelPath);
@@ -877,7 +877,7 @@ export class Workspace {
    * 定稿：把反向更新过的细纲写回**这一章正文镜像的那一份**（还没有就在镜像位置新建一份）。返回落点，
    * 以及旧版在回收站里的位置（原来没有细纲时没有）。
    *
-   * 渲染规矩在 `handlers/plot.ts` 的 `renderFinalizedPlot`：八节整体替换，作者定的 frontmatter 留着，
+   * 渲染规矩在 `handlers/plot.ts` 的 `renderFinalizedPlot`：七节整体替换，作者定的 frontmatter 留着，
    * `sourceHash` 记正文的 `contentHash`（指纹链的最后一环），`writtenFrom` 刷成更新之后的指纹。
    *
    * **旧版先复制一份进 `.trash/`**（保留原相对路径，同名加序号，与第 6 条同一个落点）：定稿按钮本身就是
@@ -911,7 +911,7 @@ export class Workspace {
       trashed = this.project.relPath(dest);
     }
     // 回收站那一份照旧（永不裁剪，定稿完成提示里说的就是它）；历史版本里再存一版，编辑器的「历史」面板里
-    // 找得到、对比得了——八节整体换掉，节流拦不住它。
+    // 找得到、对比得了——七节整体换掉，节流拦不住它。
     await snapshotBeforeWrite(this.project, rel, text);
     await writeText(this.project.pathOf(rel), text);
     this.project.invalidate();
