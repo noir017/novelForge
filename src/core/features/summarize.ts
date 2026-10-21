@@ -193,6 +193,9 @@ export async function summarizeChapter(
   const { rel: relPath, trashed } = await new Workspace(project).finalizePlot(chapter, sections, cast, lore);
   // 这一章好了：把它挂着的旧感叹号收掉（上次可能是超时/解析失败）。
   await clearFailures(project, 'chapter', chapter.relPath, 'summarize');
+  // 批量写章停在这一章时挂在细纲上的黄 ❗（「写进去了，但没写够八成……没有定稿」）：作者看过、定稿了，它就过时了
+  // （定稿是人工闸口，第 23 条）。从前只有批量把这一章写成才清，单章定稿、立即同步之后一直挂着（试跑报告第 11 条）。
+  await clearFailures(project, 'plot', relPath, 'manuscript');
   // 批量同步一次要跑几十章，是最烧 token 的动作之一；有实测用量就记一笔，
   // 供 tokenCounter 的校准统计使用。
   recordUsage('定稿', estimated, usage);

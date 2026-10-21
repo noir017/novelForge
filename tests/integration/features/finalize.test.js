@@ -284,6 +284,23 @@ describe('定稿：不回退、没卡、失败', () => {
     await bundle.finalize.finalizeChapter(project, await chapterNo(3));
     assert.deepEqual(await failuresOf(CH(3)), []);
   });
+
+  // 试跑报告第 11 条：批量写章没写够八成停在这一章，挂在细纲上的黄 ❗ 只有批量把这一章写成才清，单章定稿之后一直挂着。
+  test('批量停在这一章挂在细纲上的黄 ❗：单章定稿之后收掉', async () => {
+    const plotRel = '.novelforge/summaries/003-第3章.md';
+    await bundle.errorLog.recordFailure(project, {
+      scope: '流水线',
+      targetKind: 'plot',
+      targetKey: plotRel,
+      severity: 'warn',
+      op: 'manuscript',
+      message: '批量写章：这一章写进去了，但只写到 1957 / 3000 字，不到目标的八成',
+      detail: '批量在这一章停下，没有定稿，也没有往下写。',
+    });
+    assert.equal((await failuresOf(plotRel)).length, 1);
+    await bundle.finalize.finalizeChapter(project, await chapterNo(3));
+    assert.deepEqual(await failuresOf(plotRel), []);
+  });
 });
 
 describe('定稿：有细纲时照正文反向更新它', () => {
