@@ -14,8 +14,8 @@
  *
  * ## 第 3 级就是从前的行为
  *
- * 「详细」那一行逐项等于这个开关出现之前写死的常量，只多了一条：更早章的细纲最多带最近
- * 60 章。从前这一层没有上限，长篇写到七八十章会把整个窗口填满。
+ * 「详细」那一行逐项等于这个开关出现之前写死的常量。从前另有一项「更早章的细纲最多带最近几章」
+ * （`summaryChapters`），2026-10-21 情节大纲一章一条之后写正文、写大纲都不再带更早几十章的细纲，那一项删了。
  *
  * ## 不分级的东西
  *
@@ -62,8 +62,6 @@ export interface ContextLimits {
   readonly fullTextChapters: number;
   /** 上一章结尾原文带多少字（`prevTail`）。 */
   readonly prevTailChars: number;
-  /** 更早章的细纲最多带最近几章（`plotSummary`，正文、大纲两张配方）。 */
-  readonly summaryChapters: number;
   /** 定稿原文片段：前几章的连续性事实全取（`evidence`）。 */
   readonly evidenceRecent: number;
   /** 定稿原文片段：最多从几章里取。0 = 整层不带。 */
@@ -89,7 +87,7 @@ export interface ContextLimits {
   readonly plotThreadChars: number;
   /** 细纲阶段的前序细纲一览最多几章（`plotList`）。 */
   readonly plotListMax: number;
-  /** 细纲单章：带前几章的细纲（`plotPrev`）。 */
+  /** 细纲单章与写正文：带前几章的细纲（`plotPrev`）。写正文时这就是全部的前几章细纲，更早的不带。 */
   readonly prevPlots: number;
   /** 细纲单章：带后几章的细纲（`plotNext`）。 */
   readonly nextPlots: number;
@@ -131,7 +129,6 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
   1: Object.freeze({
     fullTextChapters: 0,
     prevTailChars: 1000,
-    summaryChapters: 5,
     evidenceRecent: 0,
     evidenceChapters: 0,
     evidenceChars: 0,
@@ -163,7 +160,6 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
   2: Object.freeze({
     fullTextChapters: 1,
     prevTailChars: 1500,
-    summaryChapters: 20,
     evidenceRecent: 3,
     evidenceChapters: 6,
     evidenceChars: 3000,
@@ -195,7 +191,6 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
   3: Object.freeze({
     fullTextChapters: 2,
     prevTailChars: 1500,
-    summaryChapters: 60,
     evidenceRecent: 5,
     evidenceChapters: 12,
     evidenceChars: 6000,
@@ -227,7 +222,6 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
   4: Object.freeze({
     fullTextChapters: 3,
     prevTailChars: 2000,
-    summaryChapters: Infinity,
     evidenceRecent: 8,
     evidenceChapters: 20,
     evidenceChars: 10000,
@@ -302,7 +296,7 @@ export function describeContextDetail(detail: ContextDetail): string {
   return [
     `近章全文 ${n(l.fullTextChapters, '章')}`,
     `上一章结尾 ${n(l.prevTailChars, '字')}`,
-    `更早章细纲 ${l.summaryChapters === Infinity ? '不限' : `最近 ${l.summaryChapters} 章`}`,
+    `前几章细纲 ${n(l.prevPlots, '章')}`,
     `定稿原文片段 ${l.evidenceChapters <= 0 ? '不带' : `${l.evidenceChapters} 章内 ${l.evidenceChars} 字`}`,
     `叙事线 ${l.threadCount} 条`,
     `对话历史 ${Math.round(l.historyCap * 100)}%`,

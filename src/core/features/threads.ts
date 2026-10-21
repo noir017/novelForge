@@ -41,7 +41,7 @@ import { NovelProject } from '../model/project';
 import { CHARACTER_DETAIL_LIMITS, Chapter } from '../model/types';
 import { LlmProvider } from '../llm/provider';
 import { ONE_CALL, describeCalls } from '../model/pipeline';
-import { isOutlineFilled } from '../model/outlineFile';
+import { isOutlineFilled, outlineBriefs } from '../model/outlineFile';
 import { withCallChoice } from '../runtime/callScope';
 import { askCall } from './askCall';
 import { hasContent } from '../model/markdown';
@@ -180,11 +180,17 @@ export async function planThreadsFromOutline(
   if (roster) {
     parts.push(`【角色图谱】\n${roster}`);
   }
-  const chars = [...outline];
-  if (chars.length > outlineChars) {
-    log.warn('情节大纲太长，排叙事线时只带了前面一截', `${chars.length} 字 → ${outlineChars} 字`);
+  // 整份放得下带整份；放不下每章只带第一行（一章一条，第一行就是这一章的概要），还放不下才截。
+  let outlineText = outline;
+  if ([...outline].length > outlineChars) {
+    outlineText = outlineBriefs(outline);
+    log.warn('情节大纲太长，排叙事线时每章只带了第一行', `${[...outline].length} 字 → ${[...outlineText].length} 字`);
   }
-  parts.push(`【情节大纲】\n${chars.length > outlineChars ? `${chars.slice(0, outlineChars).join('')}\n……（后面略）` : outline}`);
+  const chars = [...outlineText];
+  if (chars.length > outlineChars) {
+    log.warn('情节大纲每章一行也放不下，排叙事线时只带了前面一截', `${chars.length} 字 → ${outlineChars} 字`);
+  }
+  parts.push(`【情节大纲】\n${chars.length > outlineChars ? `${chars.slice(0, outlineChars).join('')}\n……（后面略）` : outlineText}`);
   const knownFore = foreshadowNames(book);
   if (book.threads.length > 0) {
     parts.push(`【已有的叙事线（不要重复）】\n${book.threads.map(existingLine).join('\n')}`);

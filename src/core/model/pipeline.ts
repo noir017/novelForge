@@ -17,7 +17,7 @@
  *
  * ```
  * 一句话 ─▶ 架构：小说配置 → 故事前提 → 角色图谱 → 世界观 → 设定清单
- *        ─▶ 情节大纲（按章号区间分节）
+ *        ─▶ 情节大纲（一章一条）
  *        ─▶ 细纲 summaries/…/NNN-标题.md（一章一份，每批 5 章；与正文相对路径相同）
  *        ─▶ 正文 chapters/…/NNN-标题.md（直接落盘，可以按卷分子目录）
  *        ─▶ 定稿（照正文反向更新同一份细纲）
@@ -1482,12 +1482,9 @@ export interface BookFacts {
    * 见 {@link isLoreListFilled}）。
    */
   settings: Record<SettingDoc, boolean>;
-  /** 情节大纲有内容。 */
+  /** 情节大纲写过：至少认得出一章（旧格式的区间分节不认）。 */
   outlineFilled: boolean;
-  /**
-   * 情节大纲按章号区间覆盖到第几章（model/outlineFile.ts 的 `outlineCoverage`）。
-   * 有内容但没有区间标题时是 `Infinity`——说不上覆盖到哪，就不拦。
-   */
+  /** 情节大纲覆盖到第几章（model/outlineFile.ts 的 `outlineCoverage`）：最大的章号，没写过是 0。 */
   outlineCoverage: number;
   /** `config.md` 的总章数。没写就没有「写完了」这一说。 */
   totalChapters?: number;
@@ -1606,7 +1603,7 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
       if (f.gap) {
         return gapStep(f.gap, { kind: 'outline' });
       }
-      const from = f.outlineFilled && Number.isFinite(f.outlineCoverage) ? f.outlineCoverage + 1 : 1;
+      const from = f.outlineFilled ? f.outlineCoverage + 1 : 1;
       if (from < f.nextChapterNo) {
         return deriveStep(
           f,
@@ -1622,7 +1619,7 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
         label: `${verb}情节大纲（${rangeText(from, to)}）`,
         hint: f.outlineFilled
           ? `大纲只覆盖到第 ${f.outlineCoverage} 章，接下来要写的第 ${f.nextChapterNo} 章还没有着落。`
-          : '按故事结构把全书的走向排出来，按章号区间分节。一次写一段，后面的等写到了再续。',
+          : '按故事结构把全书的走向排出来，一章一条。一次写一段，后面的等写到了再续。',
         target: { kind: 'outline' },
         range: { from, to },
         calls: ONE_CALL,

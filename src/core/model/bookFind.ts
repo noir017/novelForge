@@ -18,8 +18,8 @@
  * 2. **解析器认的小节标题**：细纲的七节与「设定」一节、角色卡的七节、设定条目的三节与「暗设」（以它开头的标题都算）、
  *    架构三件的各节、文风指南的「禁用词表」——`## 关键事件` 被换成 `## 关键事情`，这一节就读不出来了，
  *    那一章从「排过细纲」退回「待写细纲」。
- *    标题行整行不搜。情节大纲的区间标题（`## 第1–20章：标题`）只护住「第1–20章」那一截（第几章到第几章决定
- *    每一章细纲的上游是哪一节），后面的标题照常。
+ *    标题行整行不搜。情节大纲的章标题（`## 第3章：标题`）只护住「第3章」那一截（章号决定每一章细纲的上游是
+ *    哪一条），后面的标题照常。
  *
  * 正文、草稿是作者的文件，一个字都不护。
  */
@@ -27,7 +27,7 @@ import { CONFIG_SECTION_KEYS, PREMISE_SECTION_KEYS, WORLD_SECTION_KEYS } from '.
 import { CHARACTER_SECTION_KEYS } from './types';
 import { LORE_BODY_KEYS, LORE_HIDDEN_KEY, PLOT_LORE_KEY } from './loreFile';
 import { PLOT_SECTION_KEYS } from './plotFile';
-import { RANGE_HEADING } from './outlineFile';
+import { OUTLINE_HEADING } from './outlineFile';
 import { BOOK_FIND_CONTEXT } from './bookFindScope';
 import { FindMatch, FindOptions, compileSearch, expandReplacement, findMatches } from './textFind';
 
@@ -95,7 +95,7 @@ interface Span {
 
 /**
  * 这份文件里哪些字不搜不换：`fence` 是整段 frontmatter（含两条围栏），`open` 是其中人写的值（可以搜）；
- * `blocked` 是 frontmatter 之外护住的几段（小节标题行、大纲区间标题的那一截）。
+ * `blocked` 是 frontmatter 之外护住的几段（小节标题行、大纲章标题的那一截）。
  */
 export interface Protection {
   fence?: Span;
@@ -132,8 +132,8 @@ export function protectionOf(text: string, kind: string): Protection {
         out.blocked.push({ start: line.start, end: line.start + line.text.length });
       }
     } else {
-      // 情节大纲：区间标题只护「第 a–b 章」那一截，后面的标题照常。
-      const m = RANGE_HEADING.exec(line.text);
+      // 情节大纲：章标题只护「第 N 章」那一截，后面的标题照常。
+      const m = OUTLINE_HEADING.exec(line.text);
       if (m && (m[3] || m[5])) {
         const trimmed = line.text.replace(/\s+$/, '');
         const titleStart = trimmed.length - (m[6] ?? '').length;

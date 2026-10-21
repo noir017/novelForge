@@ -32,7 +32,7 @@ export interface Assembly {
    * 跨层协调的便签，只有三处用得上：上一章结尾与近章全文互斥、早前细纲跳过已经带了全文的章、
    * 定稿原文片段与近章全文互斥（整章进来了，它的片段就多余了）。
    */
-  scratch: { prevTail?: ContextItem; fullTextNos: Set<number>; evidence: Map<number, ContextItem> };
+  scratch: { prevTail?: ContextItem; evidence: Map<number, ContextItem> };
 }
 
 export type LayerFn = (a: Assembly, spec: LayerSpec) => Promise<void>;

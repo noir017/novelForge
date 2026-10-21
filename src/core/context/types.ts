@@ -45,7 +45,7 @@ export type ItemKind =
   | 'character'
   /** 前面某章的正文全文。 */
   | 'manuscriptFull'
-  /** 前面某章的细纲（定稿过的，或标明是计划的）。 */
+  /** 写正文时前几章的细纲（`plotPrev` 在正文阶段的条目）：前情，单列一节，不和本章细纲混在一起。 */
   | 'plotSummary'
   /** 前面某章的定稿原文片段：连续性事实的证据所在的那几段（D18）。 */
   | 'evidence'
@@ -110,9 +110,8 @@ export type LayerId =
   | 'premiseWorld'
   /** 角色图谱一览：全部角色卡压成一人一段（名字、定位、身份、人物关系）。 */
   | 'rosterDoc'
+  /** 情节大纲，按远近带：最近 10 章整条，更早的只带第一行（model/outlineFile.ts 的 `outlineWindow`）。 */
   | 'outlineDoc'
-  /** 情节大纲里覆盖本章 / 本批的那几节。没有区间标题的大纲退回全文。 */
-  | 'outlineSlice'
   /** 故事结构指导（model/structureGuide.ts）。 */
   | 'structure'
   /** 前序细纲一览（最近 100 章，一章一行）。 */
@@ -133,7 +132,6 @@ export type LayerId =
   | 'lore'
   | 'prevTail'
   | 'manuscriptFull'
-  | 'plotSummary'
   /** 前面各章的定稿原文片段：拿定稿过的细纲里连续性事实的证据原句回到正文里取的那几段（D18）。 */
   | 'evidence'
   /** 前面各章定稿留下的连续性事实，只带事实文字（审稿，五期）。 */

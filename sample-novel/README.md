@@ -2,8 +2,8 @@
 
 一个真实格式的示例工程，有两个用途：
 
-1. **开发调试**：按 `F5` 启动 Extension Development Host 时自动打开这里，直接可以试拆细纲 / 写正文 / 定稿 / 角色卡。它是一份「架构齐全、大纲排到第 30 章、写到第 3 章、第 4 章细纲已经排好」的书，所以主按钮会是「写第 4 章」（落点 `.novelforge/summaries/004-空匣.md`）。
-2. **测试夹具**：`tests/contract/sampleNovel.test.js` 与 `tests/integration/context/builder.test.js` 在它上面跑**只读**断言（含细纲的三个指纹：`upstreamHash`、`writtenFrom` 与对着章节正文的 `sourceHash`）——**不要随手改 `chapters/` 里的正文**，否则 hash 断言会挂；要改就把 `.novelforge/project.json` 里的 `contentHash` 与对应细纲的 `sourceHash` 一起更新。改了大纲或细纲，要把细纲 frontmatter 的 `upstreamHash`（大纲里覆盖本章那一节的指纹）与 `writtenFrom`（细纲七节的指纹）重算。需要写盘的用例一律经 `tests/helpers/tmpProject.js` 的 `copyFixture()` 复制一份出去跑，不碰这里。
+1. **开发调试**：按 `F5` 启动 Extension Development Host 时自动打开这里，直接可以试拆细纲 / 写正文 / 定稿 / 角色卡。它是一份「架构齐全、大纲排到第 10 章、写到第 3 章、第 4 章细纲已经排好」的书，所以主按钮会是「写第 4 章」（落点 `.novelforge/summaries/004-空匣.md`）。
+2. **测试夹具**：`tests/contract/sampleNovel.test.js` 与 `tests/integration/context/builder.test.js` 在它上面跑**只读**断言（含细纲的三个指纹：`upstreamHash`、`writtenFrom` 与对着章节正文的 `sourceHash`）——**不要随手改 `chapters/` 里的正文**，否则 hash 断言会挂；要改就把 `.novelforge/project.json` 里的 `contentHash` 与对应细纲的 `sourceHash` 一起更新。改了大纲或细纲，要把细纲 frontmatter 的 `upstreamHash`（大纲里这一章那一条的指纹）与 `writtenFrom`（细纲七节的指纹）重算。需要写盘的用例一律经 `tests/helpers/tmpProject.js` 的 `copyFixture()` 复制一份出去跑，不碰这里。
 
 ## 目录
 
@@ -18,7 +18,7 @@ chapters/                    正文，NNN-标题.md。**唯一真相**：定稿�
 ├── config.md                小说配置：类型 / 结构 / 视角 / 总章数 / 每章字数 + 七节
 ├── premise.md               故事前提（一句话前提 / 核心冲突链 / 金手指定位 / 悬念骨架）
 ├── world.md                 世界观（规则与漏洞 / 阶层与资源 / 深层危机）
-├── outline.md               情节大纲，按章号区间分节（## 第1–10章：…）
+├── outline.md               情节大纲，一章一条（## 第3章：…）
 ├── style.md                 文风指南（写正文时必注入）
 ├── characters/              角色卡（frontmatter + 固定小节）——也就是角色图谱
 ├── lore/                    世界观设定条目（含 keywords，命中即注入）

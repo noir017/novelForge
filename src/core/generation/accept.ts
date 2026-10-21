@@ -27,7 +27,7 @@ import {
   normalizeLoreName,
   splitLoreHidden,
 } from '../model/loreFile';
-import { isOutlineFilled, mergeOutline, outlineOverlaps } from '../model/outlineFile';
+import { hasOutlineContent, isOutlineFilled, mergeOutline, outlineOverlaps } from '../model/outlineFile';
 import { hasContent } from '../model/markdown';
 import { stampState } from '../model/characterState';
 import { keepGender } from '../model/gender';
@@ -430,11 +430,12 @@ async function acceptLoreList(
 }
 
 /**
- * 情节大纲：带区间（续写的那一段）时**只替换与这一段重叠的那几节**，其余原样保留
+ * 情节大纲：带区间（续写的那一段）时**只替换落在这一段里的那几条**，其余原样保留
  * （model/outlineFile.ts 的 `mergeOutline`）；不带区间整篇替换。
  *
- * 审阅只在真的要换掉东西时弹：整篇替换一份写过的大纲，或者续写的这一段与已有的节
- * 重叠。纯续写（第 21–40 章接在第 20 章后面）一个字都不吞，不必让作者对比一遍。
+ * 审阅只在真的要换掉东西时弹：整篇替换一份有内容的大纲，续写的这一段与已有的条目重叠，
+ * 或者旧大纲一条都认不出（旧格式的区间分节、散文式）却有内容——合并时它会被整份换掉。
+ * 纯续写（第 21–40 章接在第 20 章后面）一个字都不吞，不必让作者对比一遍。
  */
 async function acceptOutline(
   project: NovelProject,
@@ -445,7 +446,7 @@ async function acceptOutline(
   const rel = project.relPath(project.outlinePath);
   const existing = await project.readOutline();
   const next = range ? mergeOutline(existing, text, range) : text;
-  const replacing = range ? outlineOverlaps(existing, range) : isOutlineFilled(existing);
+  const replacing = range && isOutlineFilled(existing) ? outlineOverlaps(existing, range) : hasOutlineContent(existing);
   const r = await ws.write(rel, { artifact: { kind: 'outlineDoc', text: next } }, {
     mode: 'overwrite',
     what: '情节大纲',

@@ -31,6 +31,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -130,7 +131,7 @@ const HAND = [
   '',
 ].join('\n');
 
-const OUTLINE = '# 情节大纲\n\n## 第1–20章：入宗\n\n林昭背着旧案入宗，与沈青从猜忌到并肩，查出当年放火的人。\n';
+const OUTLINE = outlineOf(20, { titles: { 1: '入宗' }, text: { 1: '林昭背着旧案入宗，与沈青从猜忌到并肩，查出当年放火的人。' } });
 
 describe('排叙事线', () => {
   let returned;

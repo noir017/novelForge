@@ -1,5 +1,5 @@
 /**
- * 百章实验复盘写进提示词的几条约束：大纲每节限 5 章、终局级事件只发生一次、境界写明；细纲以既成事实为准；
+ * 百章实验复盘写进提示词的几条约束：大纲一章一条、终局级事件只发生一次、境界有变化写明；细纲以既成事实为准；
  * 摘要记境界变化与毁掉的东西；正文以定稿事实为准。
  */
 const { describe, test } = require('node:test');
@@ -10,11 +10,13 @@ const p = loadModule('src/core/context/prompts.ts');
 const sp = loadModule('src/core/features/summarizePrompt.ts');
 
 describe('长篇约束 · 提示词', () => {
-  test('大纲：每节最多 5 章、终局级事件只发生一次、每节写明境界', () => {
+  test('大纲：一章一条、终局级事件只发生一次、境界有变化的那一章写明', () => {
     const c = p.buildOutputContract({ stage: 'outline', capability: 'generate' }, { range: { from: 1, to: 20 } });
-    assert.match(c, /每一节最多覆盖 5 章/);
-    assert.match(c, /终局级事件.*全书只发生一次/);
-    assert.match(c, /每节末尾写明主角此时的境界/);
+    assert.match(c, /严格使用「## 第N章：标题」的格式/);
+    assert.match(c, /不要写成「## 第a–b章」把几章合成一节/);
+    assert.match(c, /这几章一章一条，一条都不能少/);
+    assert.match(c, /终局级事件.*全书只发生一次：写明发生在哪一章/);
+    assert.match(c, /主角境界或关键资源有变化的那一章写明变成什么/);
   });
 
   test('细纲（非开篇）：前面定稿的事实是既成历史，终局级事件不再排', () => {

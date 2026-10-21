@@ -18,15 +18,26 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
 let fake;
 let t;
 
-/** 情节大纲第 5000 字之后的那一截：第 3 级（8000 字）带得到，第 1 级（4000 字）带不到。 */
+/**
+ * 情节大纲约 5800 字（一章一条，每条第二行很长）、最后一章第二行末尾是这一截：第 3 级（8000 字）整份带得到；
+ * 第 1 级（4000 字）整份放不下，每章只带第一行，带不到。
+ */
 const TAIL = '尾声里埋下的那枚铜钱';
-const LONG_OUTLINE = `# 情节大纲\n\n## 第1–20章：入镇\n\n${'林昭在雨夜里追着黑衣人穿过三条巷子，'.repeat(280)}${TAIL}\n`;
+const LONG_OUTLINE = outlineOf(20, {
+  text: Object.fromEntries(
+    Array.from({ length: 20 }, (_, i) => [
+      i + 1,
+      `第${i + 1}章的事。\n${'林昭在雨夜里追着黑衣人穿过三条巷子，'.repeat(15)}${i === 19 ? TAIL : ''}`,
+    ])
+  ),
+});
 
 const SETTINGS = {
   providers: [
@@ -110,8 +121,9 @@ describe('作者另挑了模型与级别', () => {
     assert.deepEqual(fake.calls.map((c) => c.ref), ['p/b']);
   });
 
-  test('提示照第 1 级装：情节大纲只带 4000 字，尾巴没了', () => {
+  test('提示照第 1 级装：情节大纲整份放不下 4000 字，每章只带第一行，尾巴没了', () => {
     assert.ok(!userOf(fake.calls[0]).includes(TAIL), userOf(fake.calls[0]));
+    assert.ok(userOf(fake.calls[0]).includes('- 第20章：第20章的事。'), userOf(fake.calls[0]));
   });
 
   test('设置没变', () => {

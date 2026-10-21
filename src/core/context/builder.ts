@@ -93,7 +93,7 @@ export async function buildContext(
       items.push({ ...item, text: '', tokens: 0, status, note });
     },
 
-    scratch: { fullTextNos: new Set<number>(), evidence: new Map<number, ContextItem>() },
+    scratch: { evidence: new Map<number, ContextItem>() },
   };
 
   // 强制项可能已经吃掉全部预算，后续条目自然会被判 dropped——这是有意的：
@@ -184,8 +184,8 @@ function assembleMessages(
     ].filter(Boolean);
     sections.push(`# 相关世界观设定\n\n${parts.join('\n\n')}`);
   }
-  // 细纲与正文都由远及近排列，读起来是正序的时间线。
-  section('# 早前各章细纲（由远及近；标「计划」的还没定稿，不一定是正文写成的样子）', pick('plotSummary').slice().sort(byNoAsc));
+  // 细纲与正文都由远及近排列，读起来是正序的时间线。写正文时只带前几章（`plotPrev`），不再带更早几十章。
+  section('# 前几章细纲（前情，不要在本章重演；标「计划」的还没定稿，不一定是正文写成的样子）', pick('plotSummary'));
   // 证据原文排在细纲后面、前文正文前面：读的时候是「细纲这么说 → 原文是这样写的 → 紧挨着的那几章」。
   // 说法移植自上游 chapter-materials.ts:223-227（「索引、摘要和 currentState 都不是作者事实」）。
   section(

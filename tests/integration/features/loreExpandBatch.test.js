@@ -20,6 +20,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -434,7 +435,7 @@ describe('落盘前再认一遍', () => {
 describe('拆完展开本批新设定', () => {
   let t;
   let project;
-  const OUTLINE = '# 大纲\n\n## 第1–20章：第一幕\n\n- 林昭进天机阁\n';
+  const OUTLINE = outlineOf(20, { title: '大纲', text: { 1: '林昭进天机阁。' } });
   const blueprints = (messages) => {
     const user = messages[messages.length - 1].content;
     const m = /chapterNumber 必须覆盖第 (\d+)(?:–(\d+))? 章的每一章/.exec(user);

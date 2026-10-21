@@ -10,7 +10,7 @@ import { DEFAULT_PARAGRAPH_STYLE } from '../model/paragraphFormat';
 import { BookFacts, BookStage, SETTING_DOCS, SETTING_DOC_LABEL, SettingDoc, chapterLabel, deriveBookNextStep, deriveBookStage } from '../model/pipeline';
 import { NovelProject } from '../model/project';
 import { PLOT_SECTION_KEYS, parsePlotFileName } from '../model/plotFile';
-import { isOutlineFilled, outlineCoverage } from '../model/outlineFile';
+import { hasOutlineContent, isOutlineFilled, outlineCoverage } from '../model/outlineFile';
 import { describeStateThrough } from '../model/characterState';
 import { buildBookFacts, buildPlotPipeline, buildPipelineIndex, chapterOfPlotNo } from './pipeline';
 import { chapterIndexEntryOf } from './chapterIndex';
@@ -149,11 +149,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       label: '情节大纲',
       relPath: outlinePath,
       filled: isOutlineFilled(outline),
-      detail: !isOutlineFilled(outline)
-        ? '待生成'
-        : Number.isFinite(coverage)
-          ? `覆盖到第 ${coverage} 章`
-          : '',
+      detail: isOutlineFilled(outline) ? `覆盖到第 ${coverage} 章` : hasOutlineContent(outline) ? '旧格式，待重写' : '待生成',
     },
   ];
 
@@ -293,7 +289,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     ...(next ? { next } : {}),
     book: {
       ...ideaDefaultsOf(pipelineIndex.config, book.nextChapterNo - 1),
-      outlineCoverage: Number.isFinite(coverage) && coverage > 0 ? coverage : undefined,
+      outlineCoverage: coverage > 0 ? coverage : undefined,
       plotFilledNos: [...book.plotFilledNos],
     },
     paragraphStyle: pipelineIndex.config.paragraphStyle ?? DEFAULT_PARAGRAPH_STYLE,

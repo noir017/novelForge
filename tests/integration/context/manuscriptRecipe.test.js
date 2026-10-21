@@ -218,10 +218,11 @@ describe('正文配方 · 写第 4 章（后续章）', () => {
     assert.ok(!system.includes('留出继续往下写的余地'), '一章一纲之后这一章该停在细纲约定的结束状态上');
   });
 
-  test('P1：出场角色、架构、大纲里本章那一节', () => {
+  // 写正文不带情节大纲（细纲已经是它这一章的展开），也不带更早几十章的细纲（2026-10-21）。
+  test('P1：出场角色、前几章细纲；不带情节大纲', () => {
     assert.ok(b.items.some((i) => i.kind === 'character' && i.priority === 1));
-    const slice = b.items.find((i) => i.kind === 'outlineDoc');
-    assert.equal(slice.priority, 1);
+    assert.ok(b.items.some((i) => i.kind === 'plotSummary' && i.priority === 1));
+    assert.ok(!b.items.some((i) => i.kind === 'outlineDoc'), b.items.map((i) => i.id).join(','));
   });
 });
 
@@ -263,27 +264,28 @@ describe('正文配方 · 写第 5 章（第 4 章只排了细纲、还没写正
     byId = ids(b);
   });
 
-  // 近章全文的窗口是第 3、4 章：第 4 章没有正文、不认领，留给早前细纲那一层；第 1、2 章在窗口之外，也由那一层带。
+  // 近章全文的窗口是第 3、4 章：第 4 章没有正文，它的细纲由前几章细纲那一层（第 2–4 章）带。
   test('第 4 章没有正文：近章全文不带它', () => {
     assert.ok(!byId.has('manuscriptFull:4'));
     assert.equal(byId.get('manuscriptFull:3').status, 'included');
   });
 
   test('没定稿的第 4 章照样带它的细纲，块头标「计划」并写明', () => {
-    const p4 = byId.get('plotSummary:4');
+    const p4 = byId.get(`plot:${PLOT(4, '空匣')}`);
     assert.equal(p4.status, 'included');
-    assert.equal(p4.label, '第 4 章《空匣》 · 细纲');
+    assert.equal(p4.kind, 'plotSummary');
+    assert.equal(p4.label, '第 4 章《空匣》 · 细纲（上文）');
     assert.equal(p4.source, PLOT(4, '空匣'));
-    assert.ok(p4.text.startsWith('【第 4 章《空匣》 · 计划】\n## 梗概'), p4.text.slice(0, 80));
-    assert.match(p4.text, /李叔先装不认识/);
+    assert.ok(p4.text.startsWith('【第 4 章《空匣》 · 上文 · 计划】\n梗概：'), p4.text.slice(0, 80));
     assert.equal(p4.note, '还没定稿：带的是写之前的计划');
   });
 
-  test('定稿过、对得上正文的第 1 章不标「计划」，也没有说明', () => {
-    const p1 = byId.get('plotSummary:1');
-    assert.equal(p1.status, 'included');
-    assert.ok(p1.text.startsWith('【第 1 章《楔子》】\n'), p1.text.slice(0, 40));
-    assert.equal(p1.note, undefined);
+  test('定稿过、对得上正文的第 2 章不标「计划」，也没有说明；第 1 章在前 3 章之外，不带', () => {
+    const p2 = byId.get(`plot:${PLOT(2, '客栈里的女人')}`);
+    assert.equal(p2.status, 'included');
+    assert.ok(p2.text.startsWith('【第 2 章《客栈里的女人》 · 上文】\n'), p2.text.slice(0, 40));
+    assert.equal(p2.note, undefined);
+    assert.ok(!byId.has(`plot:${PLOT(1, '楔子')}`), [...byId.keys()].join(','));
   });
 
   // 第 4 章还没写，第 5 章不该「从第 3 章结尾无缝接下去」——那等于让模型跳过第 4 章的事件。
@@ -294,12 +296,12 @@ describe('正文配方 · 写第 5 章（第 4 章只排了细纲、还没写正
     assert.ok(!user.includes('结尾的最终状态之后无缝接下去'), user.slice(-300));
   });
 
-  test('消息里一节「早前各章细纲」，说清标「计划」的还没定稿', () => {
+  test('消息里一节「前几章细纲」，说清标「计划」的还没定稿，由远及近', () => {
     const user = lastUser(b);
-    const at = user.indexOf('# 早前各章细纲（由远及近；标「计划」的还没定稿，不一定是正文写成的样子）');
+    const at = user.indexOf('# 前几章细纲（前情，不要在本章重演；标「计划」的还没定稿，不一定是正文写成的样子）');
     assert.ok(at >= 0, user.slice(0, 400));
     const section = user.slice(at, user.indexOf('\n---\n', at));
-    assert.ok(section.indexOf('【第 1 章《楔子》】') < section.indexOf('【第 4 章《空匣》 · 计划】'), section.slice(0, 200));
+    assert.ok(section.indexOf('【第 2 章《客栈里的女人》 · 上文】') < section.indexOf('【第 4 章《空匣》 · 上文 · 计划】'), section.slice(0, 200));
   });
 });
 
@@ -404,7 +406,7 @@ describe('正文配方 · 续写那几轮（精简配方）', () => {
 describe('正文配方 · 早前某章定稿之后正文又改过', () => {
   let item;
   before(async () => {
-    const ch1 = path.join(t.dir, 'chapters/001-楔子.md');
+    const ch1 = path.join(t.dir, 'chapters/002-客栈里的女人.md');
     const backup = fs.readFileSync(ch1, 'utf8');
     fs.writeFileSync(ch1, `${backup}\n\n作者后来补的一句。\n`);
     project.invalidate();
@@ -414,7 +416,7 @@ describe('正文配方 · 早前某章定稿之后正文又改过', () => {
         { action: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT(5, '名册') }, ask: '', targetWords: 1200 },
         config
       );
-      item = ids(b).get('plotSummary:1');
+      item = ids(b).get(`plot:${PLOT(2, '客栈里的女人')}`);
     } finally {
       fs.writeFileSync(ch1, backup);
       project.invalidate();
@@ -424,7 +426,7 @@ describe('正文配方 · 早前某章定稿之后正文又改过', () => {
   // 定稿过就不是计划；但细纲是照改之前的正文更新的，明细里要看得出它可能没跟上。
   test('照样带，不标「计划」，说明里打 ⚠', () => {
     assert.equal(item.status, 'included');
-    assert.ok(item.text.startsWith('【第 1 章《楔子》】\n'), item.text.slice(0, 40));
+    assert.ok(item.text.startsWith('【第 2 章《客栈里的女人》 · 上文】\n'), item.text.slice(0, 40));
     assert.equal(item.note, '⚠ 定稿之后正文又改过，这份细纲可能没跟上');
   });
 });

@@ -21,6 +21,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let t;
@@ -118,7 +119,7 @@ before(async () => {
   const ws = new bundle.ws.Workspace(project);
   await ws.write(
     project.relPath(project.outlinePath),
-    { text: '# 大纲\n\n## 第1–20章：入宗\n\n林昭入宗。\n' },
+    { text: outlineOf(20, { title: '大纲', text: { 1: '林昭入宗。' } }) },
     { mode: 'overwrite' }
   );
   // 全书两章：批量拆细纲的缺省区间（下一可写章起 5 章）收在第 2 章，一批就完。

@@ -114,12 +114,12 @@ function defaultReply(messages) {
       const m = /里第 (\d+)(?:–(\d+))? 章实际发生/.exec(user);
       const from = Number(m[1]);
       const to = Number(m[2] ?? m[1]);
-      const sections = [];
-      for (let a = from; a <= to; a += 5) {
-        const b = Math.min(to, a + 4);
-        sections.push(`## 第${a}–${b}章：查案\n\n林昭在第 ${a}–${b} 章一路查下去。`);
+      // 一章一条。
+      const entries = [];
+      for (let no = from; no <= to; no++) {
+        entries.push(`## 第${no}章：查案\n林昭在第 ${no} 章一路查下去。`);
       }
-      return sections.join('\n\n');
+      return entries.join('\n\n');
     }
     default:
       return '';

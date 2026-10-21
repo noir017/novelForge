@@ -20,6 +20,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost, sleep } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
@@ -49,7 +50,7 @@ function blueprintsFor(messages, over = {}) {
   }
   return JSON.stringify({ blueprints: items });
 }
-const OUTLINE = '# 大纲\n\n## 第1–20章：第一幕 · 入局\n\n- 林昭进入青云宗\n';
+const OUTLINE = outlineOf(20, { title: '大纲', text: { 1: '林昭进入青云宗。' } });
 /** 一条叙事线（有了它批量拆细纲就不先排线）。 */
 const THREAD = '.novelforge/threads/青云旧案.md';
 /** 排线的系统提示里认得出的那一句。 */
@@ -314,8 +315,8 @@ describe('批量拆细纲', () => {
     assert.ok(users[1].includes('踩点、失手、翻墙'), users[1].slice(0, 2000));
   });
 
-  // 上游是大纲里**覆盖本章那一节**，不是全书的指纹。
-  test('细纲记下大纲里覆盖本章那一节的指纹', async () => {
+  // 上游是大纲里**这一章那一条**，不是全书的指纹。
+  test('细纲记下大纲里这一章那一条的指纹', async () => {
     const plot = await project.getPlot(1);
     assert.equal(plot.upstreamHash, bundle.outlineFile.outlineUpstreamHash(OUTLINE, 1));
   });

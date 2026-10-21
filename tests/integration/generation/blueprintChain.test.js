@@ -21,6 +21,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -67,10 +68,12 @@ const WORLD = [
   '## 深层危机', '名册上的人正在被一个个抹掉。',
 ].join('\n\n');
 
-const OUTLINE = [
-  '## 第1–10章：第一幕 · 停舟', '林昭进镇，残令被李叔认出；沈氏试探；第二块令牌浮出水面。',
-  '## 第11–20章：第一幕 · 名册', '持令人接连出事，名册的存在被揭开。',
-].join('\n\n');
+/** 一章一条，第 1–20 章（三幕 100 章的第一幕）。 */
+const OUTLINE = outlineOf(20, {
+  heading: false,
+  titles: { 1: '停舟', 15: '名册' },
+  text: { 1: '林昭进镇，残令被李叔认出。', 15: '持令人接连出事，名册的存在被揭开。' },
+});
 
 /** 设定清单：按武侠悬疑排的目录树（「地域/青崖」是二级，「门派」空着也建），五条一批就补完详情。 */
 const LORE_LIST = JSON.stringify({
@@ -305,9 +308,11 @@ describe('二期验收：一句话 → 前 5 章细纲', () => {
     assert.equal(bundle.outlineFile.outlineCoverage(await project.readOutline()), 20);
   });
 
-  test('细纲批次只带大纲里覆盖这几章的那一节', () => {
+  // 按远近带：本批第 1–5 章与前 10 章整条，本批之后的不带。
+  test('细纲批次只带大纲里本批那几条，本批之后的不带', () => {
     const plots = userOf(8);
-    assert.ok(plots.includes('第一幕 · 停舟') && !plots.includes('名册的存在被揭开'), plots.slice(0, 4000));
+    assert.ok(plots.includes('## 第1章：停舟\n林昭进镇，残令被李叔认出。') && plots.includes('## 第5章'), plots.slice(0, 4000));
+    assert.ok(!plots.includes('## 第6章') && !plots.includes('名册的存在被揭开'), plots.slice(0, 4000));
   });
 
   // 细纲与单章摘要并成一份之后落在 summaries/ 根下；钩子并进了「看点」，每章都该有一条。

@@ -14,12 +14,12 @@
  * ## 新鲜度链：把「变更影响」做成传播，而不是一次模型调用
  *
  * ```
- * outline.md 里覆盖第 N 章那一节 ─hash─▶ 细纲 (frontmatter.upstreamHash)
+ * outline.md 里第 N 章那一条 ─hash─▶ 细纲 (frontmatter.upstreamHash)
  * 细纲七个小节                    ─hash─▶ 细纲 (frontmatter.writtenFrom，正文落盘时记、定稿时刷新)
  * chapters/…/N-标题               ─hash─▶ 细纲 (frontmatter.sourceHash，定稿反向更新时记)
  * ```
  *
- * 改了大纲的某一节，那一节覆盖的几章细纲标脏；改了某一章的细纲（包括定稿之后再改），
+ * 改了大纲里某一章那一条，那一章的细纲标脏；改了某一章的细纲（包括定稿之后再改），
  * 那一章的正文标脏；改了正文，定稿对不上了。**代价是零次模型调用、零幻觉、零 token。**
  *
  * 正文那一环的指纹记在**细纲**上而不是章节上：章节是作者的文件，可以是 `.txt`、
@@ -31,7 +31,7 @@ import { pad3, sanitizeFileName } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { Plot, isPlotFilled, parsePlotFileName, plotContentHash } from '../model/plotFile';
 import { BookConfig } from '../model/settingFile';
-import { isOutlineFilled, outlineCoverage, outlineUpstreamHash } from '../model/outlineFile';
+import { isOutlineFilled, isOutlineUpstreamStale, outlineCoverage } from '../model/outlineFile';
 import {
   BookFacts,
   ChapterGap,
@@ -77,7 +77,7 @@ export interface PlotPipeline {
     /** 有这份文件。老工程里只有正文的章为 false。 */
     exists: boolean;
     filled: boolean;
-    /** 排过这一章之后，大纲里覆盖它的那一节改过。 */
+    /** 排过这一章之后，大纲里这一章那一条改过。 */
     upstreamStale: boolean;
   };
   /** 同号的章节（正文）。 */
@@ -125,7 +125,8 @@ export async function buildPlotPipeline(
 
   // upstreamHash 为空 = 这份细纲是作者手写的（或来自还没记录指纹的旧版本）——
   // **不标脏**：手写的东西没有「上游」，拿一个凭空的过期标记去催作者重做，比不标更糟。
-  const plotStale = !!plot?.upstreamHash && plot.upstreamHash !== outlineUpstreamHash(outline, no);
+  // 大纲里已经没有这一章那一条（旧格式不认、或被删了）同理。
+  const plotStale = isOutlineUpstreamStale(plot?.upstreamHash, outline, no);
   // 同理：没记过 writtenFrom（正文是作者自己写的）不标脏——只有「记录过一次、
   // 现在对不上」才说明细纲确实在正文（或定稿）之后改过（第 18a 条）。
   const chapterStale = !!chapter && !!plot?.writtenFrom && plot.writtenFrom !== plotContentHash(plot);

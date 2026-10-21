@@ -40,7 +40,7 @@ const SETTLE_HISTORY_CAP = 0.6;
  * 对话本身」，任何阶段都不能少。差别从第五层开始。
  *
  * 架构、大纲、细纲三张按总计划 §2.3 排（二期）：设定四件一律 P0，大纲带故事结构指导，
- * 细纲带覆盖本批的那几节大纲与前序细纲一览。正文那一张（三期）带执行卡、后五章边界与全局要求。
+ * 细纲带大纲里这几章前后的条目与前序细纲一览。正文那一张（三期）带执行卡、后五章边界与全局要求。
  *
  * 每张配方（含下面四张专用的）都在 P0 那一组的最后带一层 `skill`：作者给这个阶段绑的写作技能
  * （移植自 AI-Novel-Writer 的阶段 Skill）。不 force——作者事实先拿预算，技能再拿，放不下整份
@@ -81,13 +81,14 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   ],
 
   // ---------------------------------------------------------------- 大纲
-  // 策划编辑要看全局：架构四件 + 结构指导 + 现有大纲全文 + 全文大纲与各章细纲。**不看正文原文**——
-  // 讨论故事结构时读三章原文既没用又昂贵。
+  // 策划编辑要看全局：架构四件 + 结构指导 + 现有大纲（按远近带）+ 全文大纲。**不看正文原文**——
+  // 讨论故事结构时读三章原文既没用又昂贵。**也不带前面各章的细纲**（从前的 `plotSummary`，最多 60 章整份）：
+  // 续写到后面每一次都在为前面几十章付钱，还会被那一大片概要带着走（2026-10-21）；已经写过的部分由全文大纲交代。
   //
   // ★ `structure` P0 force：大纲按总章数排结构拐点，没有章号区间，模型会按它熟悉的
   //   篇幅去排，写出来与总章数对不上。
   // ★ 现有大纲 P0 force：续写第 21–40 章时它就是「已完成的前缀」，少了它续出来的
-  //   是另一本书。（总计划 §2.3 排在 P1；续写这件事让它必须强制。）
+  //   是另一本书。按远近带：最近 10 章整条，更早的只带第一行（layers/artifacts.ts 的 `outlineDoc`）。
   outline: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
@@ -102,18 +103,18 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'characters', priority: 1 },
     { layer: 'globalSummary', priority: 2 },
     { layer: 'lore', priority: 2 },
-    { layer: 'plotSummary', priority: 3 },
   ],
 
   // ---------------------------------------------------------------- 细纲
-  // 剧情编剧要看：设定四件、大纲里覆盖这几章的那几节、前面排到哪（前序细纲一览）、
+  // 剧情编剧要看：设定四件、大纲里这几章与前 10 章的条目（更早的只带第一行）、前面排到哪（前序细纲一览）、
   // 后面已经排好了什么。**不看正文原文**：排细纲要的是走向，不是措辞。
   //
   // 单章与批次共用这一张：`plotSelf` / `plotPrev` 只在单章时出场，批次时由
-  // `plotList` 全包（见 layers/artifacts.ts）。更早几章不另带一份（从前的 `plotSummary`）：
+  // `plotList` 全包（见 layers/artifacts.ts）。更早几章不另带一份：
   // 细纲与定稿是同一份文件，`plotPrev` 与 `plotList` 已经带了，同一份不带两遍。
   //
-  // ★ `outlineSlice` P0 force：细纲是从大纲里拆出来的，少了这几节就是凭空编。
+  // ★ `outlineDoc` P0 force：细纲是从大纲里拆出来的，少了这几章的条目就是凭空编。按远近带，
+  //   这几章之后的不带（layers/artifacts.ts）。
   // ★ `plotNext` 少了它，改中间某一章时模型不知道后面已经排好了什么，收尾会与
   //   下一章的开头撞车或断裂——「转折突兀」多半出在这里。
   // ★ `recentFacts` P1：已定稿各章的连续性事实是既成历史。全文大纲排在 P2，预算紧时先被挤掉，
@@ -128,7 +129,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'plotSelf', priority: 0, force: true },
     { layer: 'settingDocs', priority: 0, force: true },
     { layer: 'rosterDoc', priority: 0, force: true },
-    { layer: 'outlineSlice', priority: 0, force: true },
+    { layer: 'outlineDoc', priority: 0, force: true },
     { layer: 'skill', priority: 0 },
     { layer: 'history', priority: 1 },
     { layer: 'plotPrev', priority: 1 },
@@ -157,9 +158,12 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // ★ `chapterSoFar` P0 force：「接着写」要从本章已写的末尾往下接，少了它就是另起一章。
   // ★ `evidence` 排在 P2 的最前面（四期，D18）：定稿过的细纲是模型对正文的转述，会走样；证据所在的
   //   原文段落才是作者认可过的那一版。它比全文大纲、设定条目更接近「这里到底写了什么」。
-  // ★ `threads` P1、紧跟大纲那一节（七期，叙事线重做后一条线一行：现在走到哪、本章计划、没收的伏笔）：
-  //   叙事线和大纲一样是「计划」，而且很短（≤1200 字）。它还带着「第 b 章前不要揭开」——这一句挤掉了，
+  // ★ `threads` P1（七期，叙事线重做后一条线一行：现在走到哪、本章计划、没收的伏笔）：
+  //   叙事线是「计划」，而且很短（≤1200 字）。它还带着「第 b 章前不要揭开」——这一句挤掉了，
   //   模型照样知道要揭开什么，只是不知道还不能揭。
+  // **不带情节大纲，也不带更早几十章的细纲**（2026-10-21，从前的 `outlineSlice` 与 `plotSummary`，后者最多 60 章）：
+  //   细纲已经是大纲这一章的展开；一大片概要会把正文带成概要腔。前情只带前几章细纲（`plotPrev` P1，梗概 / 关键事件 /
+  //   状态变更，条数随上下文详细度，缺省 3）、前两章全文、连续性事实的原文片段与全文大纲。
   // 执行卡与篇幅合同不是层：由输出契约拼在消息最末（上游 GD:657 的顺序）。
   manuscript: [
     { layer: 'system', priority: 0, force: true },
@@ -175,14 +179,13 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'skill', priority: 0 },
     { layer: 'characters', priority: 1 },
     { layer: 'premiseWorld', priority: 1 },
-    { layer: 'outlineSlice', priority: 1 },
+    { layer: 'plotPrev', priority: 1 },
     { layer: 'threads', priority: 1 },
     { layer: 'history', priority: 1 },
     { layer: 'evidence', priority: 2 },
     { layer: 'globalSummary', priority: 2 },
     { layer: 'lore', priority: 2 },
     { layer: 'manuscriptFull', priority: 3 },
-    { layer: 'plotSummary', priority: 4 },
   ],
 };
 

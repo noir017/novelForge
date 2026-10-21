@@ -28,13 +28,13 @@ describe('model/contextDetail · 级别表', () => {
 
   // 设定那四项是新加的：从前命中就整条塞、不封顶，几百条的书会把窗口填满（设定名录，2026-10-18）。
   // 拆细纲带叙事线那三项（`plotThread*` / `plotForeshadowCount`）是叙事线二期加的：从前拆细纲一条线都不带。
-  test('第 3 级逐项等于从前写死的常量，外加摘要封顶 60 章与设定封顶', () => {
+  // 「更早章细纲最多带几章」（`summaryChapters`）2026-10-21 删了：写正文、写大纲都不再带更早几十章的细纲。
+  test('第 3 级逐项等于从前写死的常量，外加设定封顶', () => {
     assert.deepEqual(
       { ...m.CONTEXT_DETAIL_LIMITS[3] },
       {
         fullTextChapters: 2,
         prevTailChars: 1500,
-        summaryChapters: 60,
         evidenceRecent: 5,
         evidenceChapters: 12,
         evidenceChars: 6000,
@@ -80,11 +80,10 @@ describe('model/contextDetail · 级别表', () => {
     }
   });
 
-  test('只有「精简」不带定稿原文片段、只带要点；只有「完整」摘要不封顶', () => {
+  test('只有「精简」不带定稿原文片段、只带要点；没有哪一级再带更早几十章的细纲', () => {
     assert.equal(m.CONTEXT_DETAIL_LIMITS[1].evidenceChapters, 0);
     assert.equal(m.CONTEXT_DETAIL_LIMITS[1].essentialCards, true);
-    assert.equal(m.CONTEXT_DETAIL_LIMITS[4].summaryChapters, Infinity);
-    assert.ok(Number.isFinite(m.CONTEXT_DETAIL_LIMITS[3].summaryChapters));
+    assert.ok([1, 2, 3, 4].every((d) => !('summaryChapters' in m.CONTEXT_DETAIL_LIMITS[d])));
   });
 
   test('表是冻结的：谁也不能顺手改掉一格', () => {
@@ -104,7 +103,7 @@ describe('model/contextDetail · 容错与解析', () => {
     assert.equal(m.contextLimitsOf({}), m.CONTEXT_DETAIL_LIMITS[3]);
     const l = m.contextLimitsOf({ contextDetail: 1, contextOverrides: { fullTextChapters: 4 } });
     assert.equal(l.fullTextChapters, 4);
-    assert.equal(l.summaryChapters, 5);
+    assert.equal(l.prevPlots, 1);
   });
 
   test('takeLast：0 是空（不是 slice(-0) 的整份），Infinity 是全部', () => {
@@ -116,11 +115,11 @@ describe('model/contextDetail · 容错与解析', () => {
     assert.notEqual(m.takeLast(list, Infinity), list, '拿到的是副本');
   });
 
-  test('说明文字：0 写「不带」，Infinity 写「不限」', () => {
+  test('说明文字：0 写「不带」，不出现 Infinity', () => {
     assert.match(m.describeContextDetail(1), /近章全文 不带/);
     assert.match(m.describeContextDetail(1), /定稿原文片段 不带/);
     assert.match(m.describeContextDetail(1), /角色卡只带要点/);
-    assert.match(m.describeContextDetail(4), /更早章细纲 不限/);
+    assert.match(m.describeContextDetail(1), /前几章细纲 1 章/);
     assert.doesNotMatch(m.describeContextDetail(4), /Infinity/);
   });
 });

@@ -30,7 +30,7 @@
  * ## frontmatter
  *
  * - `targetWords`：这一章写多少字。没写就用 `config.md` 的每章字数。
- * - `upstreamHash`：生成这份细纲时，情节大纲里覆盖本章那一节的指纹。
+ * - `upstreamHash`：生成这份细纲时，情节大纲里这一章那一条的指纹。
  * - `writtenFrom`：**正文据以写成的细纲指纹**，正文落盘那一步记，定稿时刷成反向更新之后的指纹。
  *   记在细纲这一侧，是因为章节是作者的文件、可以是 `.txt`、没有 frontmatter
  *   （第 9 条），这条链只能从这边指过去。与当前内容指纹对不上 = 细纲在正文（或定稿）之后
@@ -164,7 +164,7 @@ export interface Plot {
   cast: SummaryCast[];
   /** 这一章预计写多少字正文。 */
   targetWords?: number;
-  /** 生成这份细纲时，情节大纲里覆盖本章那一节的指纹。与当前对不上 = 上游变了。 */
+  /** 生成这份细纲时，情节大纲里这一章那一条的指纹。与当前对不上 = 上游变了。 */
   upstreamHash: string;
   /** 正文据以写成的细纲指纹。见文件头。 */
   writtenFrom: string;

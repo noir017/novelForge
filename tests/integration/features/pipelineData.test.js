@@ -15,6 +15,7 @@ const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
@@ -422,7 +423,7 @@ describe('数据层 · 给未命名的细纲起名', () => {
 describe('新鲜度链', () => {
   const plotRel = '.novelforge/summaries/012-夜入青云.md';
   const CHAPTER = 'chapters/012-夜入青云.md';
-  const OUTLINE = '# 大纲\n\n## 第1–20章：第一幕 · 入局\n\n林昭进青云宗。\n';
+  const OUTLINE = outlineOf(20, { title: '大纲', text: { 12: '林昭进青云宗。' } });
   let pFresh;
   let pOutlineChanged;
   let pWritten;
@@ -441,13 +442,13 @@ describe('新鲜度链', () => {
     t.write('.novelforge/outline.md', OUTLINE);
     project.invalidate();
 
-    // 细纲记下当时大纲里覆盖第 12 章那一节的指纹。
+    // 细纲记下当时大纲里第 12 章那一条的指纹。
     const plot = await project.readPlot(plotRel);
     const slice = bundle.outlineFile.outlineUpstreamHash(await project.readOutline(), 12);
     await wsOf(project).writePlot({ ...plot, upstreamHash: slice });
     pFresh = await build();
 
-    // 改大纲覆盖本章的那一节 → 细纲标脏。零模型调用。
+    // 改大纲里本章那一条 → 细纲标脏。零模型调用。
     t.write('.novelforge/outline.md', OUTLINE.replace('林昭进青云宗。', '林昭进青云宗（改了）。'));
     pOutlineChanged = await build();
 
@@ -484,7 +485,7 @@ describe('新鲜度链', () => {
     assert.equal(pFresh.plot.upstreamStale, false);
   });
 
-  test('改了大纲里覆盖本章那一节，细纲标脏', () => {
+  test('改了大纲里本章那一条，细纲标脏', () => {
     assert.equal(pOutlineChanged.plot.upstreamStale, true);
   });
 
@@ -658,7 +659,7 @@ describe('流水线索引 · 上游变更的日志不刷屏', () => {
   let afterMore;
   let afterCleared;
   let afterAgain;
-  /** 排过之后大纲那一节改过的细纲：upstreamHash 对不上，标脏。 */
+  /** 排过之后大纲里那一条改过的细纲：upstreamHash 对不上，标脏。 */
   const stalePlot = (no, title) => `---\nno: ${no}\ntitle: ${title}\nupstreamHash: 旧的指纹\n---\n\n## 关键事件\n\n- 计划。\n`;
   /** 手写的细纲：没有 upstreamHash，不标脏。 */
   const handPlot = (no, title) => `---\nno: ${no}\ntitle: ${title}\n---\n\n## 关键事件\n\n- 计划。\n`;
@@ -680,6 +681,8 @@ describe('流水线索引 · 上游变更的日志不刷屏', () => {
     dirs.push(p.dir);
     pr = p.project;
     bundle.logger.clearLogs();
+    // 大纲里得有第 82、83 章那两条：没有那一条就没有上游，不标脏。
+    p.write('.novelforge/outline.md', outlineOf(83, { from: 82 }));
 
     p.write('.novelforge/summaries/082-雪夜.md', stalePlot(82, '雪夜'));
     afterSame = await rebuild(3);
@@ -794,12 +797,12 @@ describe('全书事实 · 从空工程一路推到在写', () => {
     pr = p.project;
     empty = { facts: await facts(), stage: await stageOf() };
 
-    // 架构前四件与一节大纲。
+    // 架构前四件与大纲（第 1–20 章）。
     p.write('.novelforge/config.md', '---\ntotalChapters: 30\nwordsPerChapter: 400\n---\n\n# 小说配置\n\n## 核心梗概\n\n回镇查火。\n');
     p.write('.novelforge/premise.md', '# 故事前提\n\n## 核心冲突链\n\n回镇 → 被认出。\n');
     p.write('.novelforge/world.md', '# 世界观\n\n## 规则与漏洞\n\n过所制度。\n');
     p.write('.novelforge/characters/林昭.md', '---\nname: 林昭\n---\n\n# 林昭\n');
-    p.write('.novelforge/outline.md', '# 大纲\n\n## 第1–20章：第一幕\n\n进镇。\n');
+    p.write('.novelforge/outline.md', outlineOf(20, { title: '大纲' }));
     pr.invalidate();
     beforeLore = { facts: await facts(), stage: await stageOf() };
 
@@ -851,7 +854,7 @@ describe('全书事实 · 从空工程一路推到在写', () => {
     assert.deepEqual(afterSettings.facts.settings, { config: true, premise: true, characters: true, world: true, lore: true });
   });
 
-  test('大纲按区间标题算覆盖到第几章', () => {
+  test('大纲按章标题算覆盖到第几章', () => {
     assert.equal(afterSettings.facts.outlineFilled, true);
     assert.equal(afterSettings.facts.outlineCoverage, 20);
   });
@@ -948,8 +951,8 @@ describe('工作区卡', () => {
     assert.equal(plotCard.relPath, plotRel);
   });
 
-  // 上一组把大纲覆盖第 12 章的那一节改过了：作者正在看这一章，此刻正是告诉他的时候。
-  test('细纲卡说出大纲那一节变过', () => {
+  // 上一组把大纲里第 12 章那一条改过了：作者正在看这一章，此刻正是告诉他的时候。
+  test('细纲卡说出大纲那一条变过', () => {
     assert.ok(!!plotCard.warning, JSON.stringify(plotCard));
   });
 

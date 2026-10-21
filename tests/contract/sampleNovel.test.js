@@ -96,9 +96,9 @@ describe('示例工程数据一致性', () => {
     assert.equal(config.structure, 'three_act');
   });
 
-  test('情节大纲按章号区间分节，覆盖到总章数', () => {
+  test('情节大纲一章一条，覆盖到第 10 章', () => {
     const outline = loadModule('src/core/model/outlineFile.ts');
-    assert.equal(outline.outlineCoverage(read('.novelforge/outline.md')), 30);
+    assert.equal(outline.outlineCoverage(read('.novelforge/outline.md')), 10);
   });
 
   describe('每章的指纹链', () => {

@@ -112,7 +112,7 @@ export type Artifact =
    * 落盘走另一条路（generation/loreSettle.ts）。
    */
   | { kind: 'loreEntries'; entries: LoreDraft[]; questions: string[]; settle?: boolean }
-  /** `range` 给了就只替换大纲里与它重叠的那几节（model/outlineFile.ts 的 `mergeOutline`）。 */
+  /** `range` 给了就只替换大纲里落在这一段的那几条（model/outlineFile.ts 的 `mergeOutline`）。 */
   | { kind: 'outlineDoc'; text: string; range?: ChapterRange }
   | ({ kind: 'plot' } & PlotFields)
   /** 一批细纲：一章一份，按章号升序，只含区间内的章。 */

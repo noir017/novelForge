@@ -22,7 +22,7 @@ import { PLOT_SECTION_KEYS, parsePlotFileName, plotContentHash } from '../model/
 import { SETTING_SECTION_KEYS } from '../model/settingFile';
 import { hasContent, pickSections } from '../model/markdown';
 import { LORE_BODY_KEYS, LORE_HIDDEN_KEY, loreThin, splitLoreHidden } from '../model/loreFile';
-import { outlineUpstreamHash } from '../model/outlineFile';
+import { isOutlineUpstreamStale } from '../model/outlineFile';
 import {
   CreationTarget,
   SETTING_DOC_LABEL,
@@ -115,7 +115,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       layer: '情节大纲',
       relPath: project.relPath(project.outlinePath),
       sections: text.trim() ? [{ key: '大纲', text: clip(text, OUTLINE_PREVIEW) }] : [],
-      empty: text.trim() ? undefined : '这部书还没有情节大纲。按章号区间把全书的走向排出来。',
+      empty: text.trim() ? undefined : '这部书还没有情节大纲。一章一条把全书的走向排出来。',
     };
   }
 
@@ -176,10 +176,9 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       sections,
       // 上游变更在这里是一句人话，不只是流水线条上那个 ⟳。作者正在看这一章，
       // 此刻正是告诉他「它依据的大纲已经改了」最有用的时机。
-      warning:
-        plot.upstreamHash && outlineUpstreamHash(outline, plot.no) !== plot.upstreamHash
-          ? '情节大纲里覆盖这一章的那一节在细纲之后改过，两者可能已经对不上。'
-          : undefined,
+      warning: isOutlineUpstreamStale(plot.upstreamHash, outline, plot.no)
+        ? '情节大纲里这一章那一条在细纲之后改过，两者可能已经对不上。'
+        : undefined,
       // 「文件在但一节都没填」与「文件不在」对作者是同一件事：这一层还没做。
       empty: sections.length > 0 ? undefined : '这一章还没排细纲。',
     };

@@ -37,8 +37,8 @@ export function renderPlotSections(plot: Plot): string {
  * 「梗概 / 关键事件」（要去哪、要发生什么）。其余几节是那一章自己的账，
  * 摊在这里只会挤掉本章的预算，还容易被误当成本章要处理的东西。
  */
-export function renderPlotBrief(plot: Plot, relation: '上文' | '下文'): string {
-  const lines = [`【${plotLabel(plot.no, plot.title)} · ${relation}】`];
+export function renderPlotBrief(plot: Plot, relation: '上文' | '下文', tag?: string): string {
+  const lines = [`【${plotLabel(plot.no, plot.title)} · ${relation}${tag ? ` · ${tag}` : ''}】`];
   const keys = relation === '上文' ? (['梗概', '关键事件', '状态变更'] as const) : (['梗概', '关键事件'] as const);
   for (const key of keys) {
     const value = plot.sections[key]?.trim();

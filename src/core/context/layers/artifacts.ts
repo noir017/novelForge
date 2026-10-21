@@ -1,6 +1,6 @@
 import { CONTEXT_DETAIL_LABEL, takeLast } from '../../model/contextDetail';
 import { plotLabel } from '../../model/pipeline';
-import { parseOutlineRanges } from '../../model/outlineFile';
+import { outlineWindow } from '../../model/outlineFile';
 import { isPlotFilled, sectionLine } from '../../model/plotFile';
 import {
   PLOT_STRUCTURE_LABEL,
@@ -27,32 +27,72 @@ function span(from: number, to: number): string {
   return from === to ? `第 ${from} 章` : `第 ${from}–${to} 章`;
 }
 
+/**
+ * 情节大纲，按远近带（model/outlineFile.ts 的 `outlineWindow`）：离这一次要写的地方最近的 10 章带整条，
+ * 更早的只带第一行——整份塞进去，续写到后面每一次都在为前面几十章付钱，还会被那一大片概要带着走。
+ *
+ * - 大纲阶段（续写、重写、讨论）：区间之后已经排好的也只带第一行，接得上。
+ * - 细纲阶段：区间（单章就是这一章）之后的不带——排第 6–10 章用不着第 60 章，带了会被提前写掉。
+ *
+ * 一条章标题都认不出（旧格式的区间分节、散文式大纲）就不带，在明细里说清（第 2 条）。
+ */
 export const outlineDoc: LayerFn = async (a, spec) => {
   const outline = a.request.outlineDraft ?? (await a.project.readOutline());
   if (!outline.trim() || isPlaceholder(outline)) {
     return;
   }
-  const range = a.request.range;
-  // 分段重写：说清哪几节是这次刚写的新版、哪几节是待重写的旧版，免得模型照抄旧版。
+  const no = a.focus.no;
+  const range = a.request.range ?? (Number.isFinite(no) ? { from: no, to: no } : undefined);
+  const planning = a.request.action.stage === 'outline';
+  const source = a.project.relPath(a.project.outlinePath);
+  const win = outlineWindow(outline, { range, after: planning });
+  if (!win) {
+    a.reject(
+      { id: 'outlineDoc', kind: 'outlineDoc', priority: spec.priority, label: '情节大纲', source, text: '' },
+      'dropped',
+      '认不出「## 第N章：标题」这样的章标题（区间分节是旧格式，不认），重写大纲之后才带'
+    );
+    return;
+  }
+  // 分段重写：说清哪几章是这次刚写的新版、哪几章是待重写的旧版，免得模型照抄旧版。
   const rewriting = a.request.outlineDraft !== undefined && range;
   const lead = rewriting
     ? `【重写中】${range.from > 1 ? `第 1–${range.from - 1} 章是这次刚重写好的新版；` : ''}第 ${range.from} 章起是旧版，${span(range.from, range.to)}正是这一次要重写的，旧版只作参考。
 
 `
     : '';
+  const notes = [
+    rewriting ? `分段重写：第 ${range.from} 章以前是新版，以后是旧版` : '',
+    win.brief.length > 0 ? `${spansOf(win.brief)}只带第一行，${win.full.length > 0 ? `${spansOf(win.full)}带整条` : '其余不带'}` : '',
+    !planning && range ? `第 ${range.to} 章以后的不带` : '',
+  ].filter(Boolean);
   a.admit(
     {
       id: 'outlineDoc',
       kind: 'outlineDoc',
       priority: spec.priority,
       label: rewriting ? '情节大纲（重写中）' : '情节大纲',
-      source: a.project.relPath(a.project.outlinePath),
-      text: `${lead}${outline}`,
-      note: rewriting ? `分段重写：第 ${range.from} 章以前是新版，以后是旧版` : undefined,
+      source,
+      text: `${lead}${win.text}`,
+      note: notes.length > 0 ? notes.join('；') : undefined,
     },
     { force: spec.force }
   );
 };
+
+/** `[1,2,3,7,8]` → 「第 1–3 章、第 7–8 章」。 */
+function spansOf(nos: number[]): string {
+  const runs: [number, number][] = [];
+  for (const n of nos) {
+    const last = runs[runs.length - 1];
+    if (last && n === last[1] + 1) {
+      last[1] = n;
+    } else {
+      runs.push([n, n]);
+    }
+  }
+  return runs.map(([from, to]) => span(from, to)).join('、');
+}
 
 /**
  * 架构层的三份文档（小说配置 / 故事前提 / 世界观），填过的才带。
@@ -146,54 +186,6 @@ export const rosterDoc: LayerFn = async (a, spec) => {
       source: a.project.relPath(a.project.charactersDir),
       text: `【角色图谱】\n${cards.map(renderRosterLine).join('\n')}`,
       note: '每人只取身份、人物关系、当前状态的开头；完整角色卡在正文层才带',
-    },
-    { force: spec.force }
-  );
-};
-
-/**
- * 情节大纲里覆盖本章 / 本批的那几节。
- *
- * 排第 6–10 章的细纲用不着第 60 章的大纲——整份塞进去既占预算，又会让模型提前把后面
- * 的事写掉。大纲没有区间标题（老工程、散文式大纲）或者没覆盖到这几章时退回全文，
- * 并在明细里说一句（第 2 条）。
- */
-export const outlineSlice: LayerFn = async (a, spec) => {
-  const outline = a.request.outlineDraft ?? (await a.project.readOutline());
-  if (!outline.trim() || isPlaceholder(outline)) {
-    return;
-  }
-  const no = a.focus.no;
-  const range = a.request.range ?? (Number.isFinite(no) ? { from: no, to: no } : undefined);
-  const source = a.project.relPath(a.project.outlinePath);
-  const slices = range ? parseOutlineRanges(outline).filter((r) => r.from <= range.to && r.to >= range.from) : [];
-  if (!range || slices.length === 0) {
-    a.admit(
-      {
-        id: 'outlineDoc',
-        kind: 'outlineDoc',
-        priority: spec.priority,
-        label: '情节大纲',
-        source,
-        text: outline,
-        note: range ? `大纲里没有覆盖${span(range.from, range.to)}的区间节，带了全文` : undefined,
-      },
-      { force: spec.force }
-    );
-    return;
-  }
-  const text = slices
-    .map((s) => `## ${s.from === s.to ? `第${s.from}章` : `第${s.from}–${s.to}章`}${s.title ? `：${s.title}` : ''}\n${s.text}`)
-    .join('\n\n');
-  a.admit(
-    {
-      id: `outlineSlice:${range.from}-${range.to}`,
-      kind: 'outlineDoc',
-      priority: spec.priority,
-      label: `情节大纲 · 覆盖${span(range.from, range.to)}的 ${slices.length} 节`,
-      source,
-      text,
-      note: '只带覆盖这几章的区间节，其余章节的大纲不带',
     },
     { force: spec.force }
   );
@@ -300,23 +292,32 @@ export const plotSelf: LayerFn = async (a, spec) => {
  *
  * `focus.prevPlots` 已经滤掉没有细纲的章（老工程里那些），所以这里的
  * `c.plot` 一定在。
+ *
+ * 写正文时（2026-10-21）这是唯一带的前几章细纲：更早几十章的细纲不再带。条目记成 `plotSummary`，
+ * 在「前几章细纲」单列一节——和本章细纲混在「细纲」一节里，模型分不清哪份是这一章要写的。还没定稿的
+ * 块头标「计划」（模型才不会把计划当成已经发生的事）；定稿之后正文又改过的在明细里打 ⚠。
  */
 export const plotPrev: LayerFn = async (a, spec) => {
   // 批次时由前序细纲一览全包（见 `plotList`）。
   if (a.request.range) {
     return;
   }
-  for (const { plot } of a.focus.prevPlots) {
+  const writing = a.request.action.stage === 'manuscript';
+  for (const { plot, chapter } of a.focus.prevPlots) {
     if (!plot) {
       continue;
     }
+    const planned = writing && !plot.sourceHash;
+    // 定稿的上游是正文，直接比它的 hash——不必再读一遍正文。
+    const drifted = writing && !!plot.sourceHash && !!chapter && plot.sourceHash !== chapter.contentHash;
     a.admit({
       id: `plot:${plot.relPath}`,
-      kind: 'plot',
+      kind: writing ? 'plotSummary' : 'plot',
       priority: spec.priority,
       label: `${plotLabel(plot.no, plot.title)} · 细纲（上文）`,
       source: plot.relPath,
-      text: renderPlotBrief(plot, '上文'),
+      text: renderPlotBrief(plot, '上文', planned ? '计划' : undefined),
+      note: planned ? '还没定稿：带的是写之前的计划' : drifted ? '⚠ 定稿之后正文又改过，这份细纲可能没跟上' : undefined,
     });
   }
 };

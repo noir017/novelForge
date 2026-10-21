@@ -178,7 +178,7 @@ export interface IdeaDefaults {
 
 /** 工程页两个弹窗要的全书事实。 */
 export interface BookView extends IdeaDefaults {
-  /** 大纲覆盖到第几章。说不上（散文式大纲）或还没写时缺席——JSON 里放不下 Infinity。 */
+  /** 大纲覆盖到第几章。还没写（或一条章标题都认不出）时缺席。 */
   outlineCoverage?: number;
   /** 排好细纲的章号：拆细纲弹窗据此算这一段要跳过几章。 */
   plotFilledNos: number[];

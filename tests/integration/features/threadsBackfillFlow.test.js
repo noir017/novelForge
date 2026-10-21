@@ -21,6 +21,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -127,7 +128,7 @@ after(() => {
 async function writtenBook(prefix) {
   const t = await makeTempProject(bundle.project, { prefix, title: '青崖记' });
   const project = t.project;
-  t.write('.novelforge/outline.md', '# 情节大纲\n\n## 第1–20章：第一幕\n\n林昭回镇，一路查名册与玉佩。\n');
+  t.write('.novelforge/outline.md', outlineOf(20, { text: { 1: '林昭回镇，一路查名册与玉佩。' } }));
   for (let no = 1; no <= 5; no++) {
     t.write(CH(no), text(no));
   }

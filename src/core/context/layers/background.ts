@@ -442,21 +442,16 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
       source: ref.chapter?.relPath ?? ref.plot?.relPath ?? '',
     };
     if (a.excluded.has(id)) {
-      a.scratch.fullTextNos.add(plot.no);
       a.admit({ ...base, text: '' });
       continue;
     }
 
     const manuscript = await readChapterText(a.project, ref);
     if (!manuscript?.text.trim()) {
-      // 只排了细纲、还没写正文——这不是错误，是这一章还没到那一步。
-      // **不认领它**（不进 fullTextNos）：认领了细纲那一层（`plotSummary`）就会跳过它，
-      // 而它没有正文，于是从上下文里凭空消失，明细上还看不出少了什么。
-      // 留给细纲那一层，那里带它的计划并标明。
+      // 只排了细纲、还没写正文——这不是错误，是这一章还没到那一步。它在前几章之内时
+      // 细纲由 `plotPrev` 带。
       continue;
     }
-    // 确实注入了（哪怕后面降级成细纲）才认领：细纲那一层据此避免重复注入。
-    a.scratch.fullTextNos.add(plot.no);
     const block = `【${label}】\n${manuscript.text}`;
     const tokens = estimateTokens(block);
     // 这一章的定稿原文片段（`evidence` 层先装的）：整章进来了它就多余了，那份预算可以退回来用。
@@ -520,81 +515,6 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
 function isFinalized(ref: ChapterRef): boolean {
   return !!ref.plot?.sourceHash && !!ref.chapter && ref.plot.sourceHash === ref.chapter.contentHash;
 }
-
-/**
- * 更早那些章的细纲，由近及远填充，最多带最近 `summaryChapters` 章（上下文详细度，缺省 60）。
- *
- * 定稿过的细纲是那一章实际写成的样子；**还没定稿的照样带，标明是「计划」**——作者常常先把
- * 一百章细纲排完再回头写，那些章的细纲就是这里唯一的前情，直接跳过的话模型对前面一无所知，
- * 却看不出少了什么。定稿之后正文又改过的标 ⚠。
- *
- * **封顶之外的合成一条 dropped**，不是一章一条：一百多章的书封在 5 章时，明细里摆九十几行
- * 「不带」只会把真正带了什么淹掉。更早的前情由全文大纲接着（它在 P2，比这一层先拿预算）。
- * 名额按「最近几章」数，作者手动取消勾选的那一章照样占一个名额。
- */
-export const plotSummary: LayerFn = async (a, spec) => {
-  const candidates = a.focus.previous.filter((p) => !a.scratch.fullTextNos.has(p.no)).reverse();
-  const cap = a.limits.summaryChapters;
-  const beyond = candidates.slice(cap);
-  for (const ref of candidates.slice(0, cap)) {
-    const id = `plotSummary:${ref.no}`;
-    const label = plotLabel(ref.no, ref.title);
-    const base = {
-      id,
-      kind: 'plotSummary' as const,
-      priority: spec.priority,
-      label: `${label} · 细纲`,
-      source: ref.plot?.relPath ?? ref.chapter?.relPath ?? '',
-    };
-    if (a.excluded.has(id)) {
-      a.admit({ ...base, source: undefined, text: '' });
-      continue;
-    }
-
-    const content = ref.plot ? renderPlotSections(ref.plot) : '';
-    if (!content) {
-      a.reject({ ...base, text: '' }, 'dropped', ref.chapter ? '这一章有正文，但还没有细纲（定稿之后才有）' : '这一章还没有细纲');
-      continue;
-    }
-    const finalized = !!ref.plot!.sourceHash;
-    const block = `【${label}${finalized ? '' : ' · 计划'}】\n${content}`;
-    const tokens = estimateTokens(block);
-    if (tokens > a.remaining) {
-      a.reject({ ...base, text: '' }, 'dropped', '预算已满，更早的章不再注入');
-      continue;
-    }
-    a.accept(
-      {
-        ...base,
-        text: block,
-        status: 'included',
-        note: !finalized
-          ? '还没定稿：带的是写之前的计划'
-          : // 定稿的上游是正文，直接比它的 hash——不必再读一遍正文。
-            ref.chapter && ref.plot!.sourceHash !== ref.chapter.contentHash
-            ? '⚠ 定稿之后正文又改过，这份细纲可能没跟上'
-            : undefined,
-      },
-      tokens
-    );
-  }
-  if (beyond.length > 0) {
-    // `beyond` 由近及远：最后一个是最早的那章。
-    const first = beyond[beyond.length - 1].no;
-    const last = beyond[0].no;
-    a.reject(
-      {
-        id: 'plotSummary:beyond',
-        kind: 'plotSummary',
-        priority: spec.priority,
-        label: first === last ? `${plotLabel(first, beyond[0].title)} · 细纲` : `第 ${first}–${last} 章 · 细纲`,
-        text: '',
-      },
-      'dropped',
-      `上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」只带最近 ${cap} 章的细纲，更早的 ${beyond.length} 章不带`
-    );
-  }
-};
 
 /**
  * 本章已经写好的正文末尾（最后 1600 字）：「接着写」与续写那几轮从这里往下接。

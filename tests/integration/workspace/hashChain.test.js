@@ -4,7 +4,7 @@
  * 一章只有一份细纲（正文在 `summaries/` 下的镜像，相对路径相同），链上三环的上游指纹都记在它的 frontmatter 里：
  *
  * ```
- * outline.md 里覆盖第 N 章那一节 ─▶ summaries/N.md 的 upstreamHash（写细纲时记）
+ * outline.md 里第 N 章那一条     ─▶ summaries/N.md 的 upstreamHash（写细纲时记）
  * summaries/N.md 的七个小节       ─▶ summaries/N.md 的 writtenFrom （写正文时记，定稿时刷新）
  * chapters/N 的正文               ─▶ summaries/N.md 的 sourceHash  （定稿反向更新时记）
  * ```
@@ -19,14 +19,15 @@
  * - 手写的产物永不标脏。
  *
  * 另外守两条取舍：
- * - **大纲按区间分节，细纲只记覆盖本章那一节的指纹**——续写第 41–60 章不该让前 40 章的
- *   细纲全挂 ⟳；
+ * - **大纲一章一条，细纲只记这一章那一条的指纹**（大纲里没有那一条就不记）——续写第 41–60 章
+ *   不该让前 40 章的细纲全挂 ⟳；
  * - **定稿时把 writtenFrom 刷成更新后的指纹**——定稿刚改完细纲正文不挂 ⟳，定稿之后作者
  *   再改细纲，正文才挂 ⟳（作者定案 7）。
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { loadBundle } = require('../../helpers/load');
+const { outlineOf } = require('../../helpers/outline');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
@@ -83,19 +84,14 @@ const finalized = (extra = {}) => ({
   ...extra,
 });
 
-/** 按区间分节的大纲。 */
-const OUTLINE = [
-  '# 大纲',
-  '',
-  '## 第1–20章：第一幕 · 入局',
-  '',
-  '林昭进青云宗。',
-  '',
-  '## 第21–40章：第二幕 · 名册',
-  '',
-  '名册现世。',
-  '',
-].join('\n');
+/** 一章一条的大纲：第 1–40 章。第 5、12、25 章的标题与正文是下面几组用例要改的。 */
+const OUTLINE = outlineOf(40, {
+  title: '大纲',
+  titles: { 5: '入局', 25: '名册' },
+  text: { 12: '林昭进青云宗。', 25: '名册现世。' },
+});
+/** 续写的一段：第 41–60 章。 */
+const APPEND = outlineOf(60, { from: 41, heading: false, text: { 41: '火灾真相。' } });
 
 const setOutline = (text) => {
   t.write('.novelforge/outline.md', text);
@@ -140,7 +136,7 @@ after(() => {
   if (t) cleanup(t.dir);
 });
 
-describe('细纲 · 写入就记 upstreamHash（大纲里覆盖本章那一节）', () => {
+describe('细纲 · 写入就记 upstreamHash（大纲里这一章那一条）', () => {
   const rel = '.novelforge/summaries/012-入宗.md';
 
   before(async () => {
@@ -155,14 +151,15 @@ describe('细纲 · 写入就记 upstreamHash（大纲里覆盖本章那一节�
     assert.equal(fm(rel, 'upstreamHash'), await sliceHash(12));
   });
 
-  // 记的是**那一节**：拿全书的指纹的话，续写一次大纲就让前面所有章挂 ⟳。
-  test('记的是覆盖本章那一节的指纹，不是全书的', async () => {
+  // 记的是**那一条**：拿全书的指纹的话，续写一次大纲就让前面所有章挂 ⟳。
+  test('记的是这一章那一条的指纹，不是全书的', async () => {
+    assert.ok(fm(rel, 'upstreamHash'), '前置：记了');
     assert.notEqual(fm(rel, 'upstreamHash'), bundle.fs.hash(await project.readOutline()));
   });
 
   // **这是记账下沉修的那个缺陷**：改大纲之后作者在编辑器里改细纲，从前 upstreamHash
   // 不会跟着更新，那一章从此永远挂着一个洗不掉的 ⟳。
-  test('改了那一节后直接 write 细纲文本，upstreamHash 跟着更新', async () => {
+  test('改了那一条后直接 write 细纲文本，upstreamHash 跟着更新', async () => {
     setOutline(OUTLINE.replace('林昭进青云宗。', '林昭进青云宗（改过）。'));
     const next = await sliceHash(12);
     assert.notEqual(fm(rel, 'upstreamHash'), next, '前置：此刻还是旧的');
@@ -200,17 +197,17 @@ describe('细纲 · 写入就记 upstreamHash（大纲里覆盖本章那一节�
 });
 
 /**
- * 大纲是一段一段续写的，改的也往往只是其中一节。**只有覆盖那几章的细纲标脏**：
+ * 大纲是一段一段续写的，改的也往往只是其中一条。**只有那几章的细纲标脏**：
  * 从前按全书指纹算，改一句第二幕的走向就换来一屏 ⟳，作者很快学会无视它。
  */
-describe('细纲 · 大纲改了哪一节，只标脏那一节覆盖的章', () => {
+describe('细纲 · 大纲改了哪一条，只标脏那一章', () => {
   let afterAppend;
   let afterSecond;
   let afterFirst;
 
   before(async () => {
     setOutline(OUTLINE);
-    // 第 5 章在第一幕、第 25 章在第二幕、第 50 章哪一节都不覆盖（退回全书指纹）。
+    // 第 5、25 章大纲里有那一条；第 50 章没有（上游指纹是空串，不记）。
     for (const [no, title] of [[5, '入局'], [25, '名册'], [50, '远方']]) {
       await ws.writePlot(writable(no, title, { upstreamHash: await sliceHash(no) }));
     }
@@ -219,42 +216,42 @@ describe('细纲 · 大纲改了哪一节，只标脏那一节覆盖的章', () 
         await Promise.all([5, 25, 50].map(async (no) => [no, (await pipelineOf(no)).plot.upstreamStale]))
       );
 
-    // 续写一节：第 41–60 章。
-    setOutline(`${OUTLINE}## 第41–60章：第三幕 · 火\n\n火灾真相。\n`);
+    // 续写一段：第 41–60 章。
+    setOutline(`${OUTLINE}\n${APPEND}`);
     afterAppend = await staleOf();
 
-    // 只改第二幕那一节。
-    setOutline(`${OUTLINE.replace('名册现世。', '名册被烧了一半。')}## 第41–60章：第三幕 · 火\n\n火灾真相。\n`);
+    // 只改第 25 章那一条。
+    setOutline(`${OUTLINE.replace('名册现世。', '名册被烧了一半。')}\n${APPEND}`);
     afterSecond = await staleOf();
 
-    // 再改第一幕的标题——区间标题也是那一节的一部分。
-    setOutline(
-      `${OUTLINE.replace('名册现世。', '名册被烧了一半。').replace('第一幕 · 入局', '第一幕 · 回镇')}` +
-        '## 第41–60章：第三幕 · 火\n\n火灾真相。\n'
-    );
+    // 再改第 5 章的标题——标题也是那一条的一部分。
+    setOutline(`${OUTLINE.replace('名册现世。', '名册被烧了一半。').replace('## 第5章：入局', '## 第5章：回镇')}\n${APPEND}`);
     afterFirst = await staleOf();
   });
 
-  test('续写新的一节，前两幕的细纲都不挂 ⟳', () => {
+  test('前提：第 50 章写细纲时大纲里没有那一条，没记上游指纹', () => {
+    assert.equal(fm('.novelforge/summaries/050-远方.md', 'upstreamHash'), undefined);
+  });
+
+  test('续写新的一段，前面的细纲都不挂 ⟳', () => {
     assert.equal(afterAppend[5], false, JSON.stringify(afterAppend));
     assert.equal(afterAppend[25], false, JSON.stringify(afterAppend));
   });
 
-  // 第 50 章从前落在「哪一节都不覆盖」里，记的是全书指纹；新的一节正好覆盖到它，
-  // 它的上游从此换成那一节——确实变了，标脏是对的。
-  test('从前没有着落的章，被新的一节覆盖之后标脏', () => {
-    assert.equal(afterAppend[50], true, JSON.stringify(afterAppend));
+  // 第 50 章写细纲时没有上游，指纹没记——和手写的一样，续写覆盖到它也不凭空标脏（设计稿 ⚑3）。
+  test('从前没有着落的章，续写覆盖到它也不标脏', () => {
+    assert.equal(afterAppend[50], false, JSON.stringify(afterAppend));
   });
 
-  test('只改第二幕：第 25 章标脏', () => {
+  test('只改第 25 章那一条：第 25 章标脏', () => {
     assert.equal(afterSecond[25], true, JSON.stringify(afterSecond));
   });
 
-  test('只改第二幕：第 5 章不受牵连', () => {
+  test('只改第 25 章那一条：第 5 章不受牵连', () => {
     assert.equal(afterSecond[5], false, JSON.stringify(afterSecond));
   });
 
-  test('改了第一幕的区间标题：第 5 章也标脏', () => {
+  test('改了第 5 章的标题：第 5 章也标脏', () => {
     assert.equal(afterFirst[5], true, JSON.stringify(afterFirst));
   });
 

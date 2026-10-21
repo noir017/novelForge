@@ -21,6 +21,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -46,7 +47,7 @@ const CONFIG = [
   '林昭背着灭门旧案进青云宗。',
 ].join('\n');
 
-const OUTLINE = '# 情节大纲\n\n## 第1–20章：第一幕 · 入局\n\n林昭进青云宗，查出第一块令牌的来历。\n';
+const OUTLINE = outlineOf(20, { titles: { 1: '入局' }, text: { 1: '林昭进青云宗，查出第一块令牌的来历。' } });
 
 function attach() {
   posted = [];
@@ -478,7 +479,7 @@ describe('大纲续写 · 只并进那一段', () => {
   let reviewed;
 
   before(async () => {
-    fake.reset([{ text: '## 第21–30章：第二幕 · 风起\n\n名册浮出水面。', stop: 'end' }]);
+    fake.reset([{ text: outlineOf(30, { from: 21, heading: false, titles: { 21: '风起' }, text: { 21: '名册浮出水面。' } }), stop: 'end' }]);
     onGate = async () => 'proceed';
     h.expect();
     r = await send({ stage: 'outline', capability: 'generate', target: { kind: 'outline' }, range: { from: 21, to: 30 } });
@@ -494,6 +495,7 @@ describe('大纲续写 · 只并进那一段', () => {
     assert.equal(reviewed, 0);
     const outline = await project.readOutline();
     assert.ok(outline.includes('林昭进青云宗，查出第一块令牌的来历。') && outline.includes('名册浮出水面。'), outline);
-    assert.ok(outline.indexOf('第1–20章') < outline.indexOf('第21–30章'));
+    assert.ok(outline.indexOf('## 第20章') < outline.indexOf('## 第21章：风起'));
+    assert.equal((outline.match(/^## 第\d+章/gm) ?? []).length, 30, '第 1–30 章各一条');
   });
 });

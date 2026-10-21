@@ -20,6 +20,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider, filler } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -439,7 +440,7 @@ describe('结尾停在半句上、续写也没接完：写进去，然后停', (
 
 // ---------------------------------------------------------------- 边写边拆细纲、写前冲突检查（百章实验复盘）
 
-const OUTLINE = '# 情节大纲\n\n## 第1–10章：第一幕\n\n林昭回镇查案。\n';
+const OUTLINE = outlineOf(10, { text: { 1: '林昭回镇查案。' } });
 
 /** 按契约里写的区间应答一批细纲（新合同：七节里除连续性事实之外的字段）。 */
 function blueprintsFor(messages) {

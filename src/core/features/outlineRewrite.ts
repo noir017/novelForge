@@ -8,7 +8,7 @@
  * ```
  *
  * 作者写的那句要求每一段都带。每一段看得见前面几段**刚写好的新版**（`BuildRequest.outlineDraft`），
- * 区间之外还没轮到的节仍是旧版。全部写完拼成一整份，**一次**审阅、一次写入（第 3 条）；
+ * 区间之外还没轮到的条目仍是旧版。全部写完拼成一整份，**一次**审阅、一次写入（第 3 条）；
  * 中途失败时已经重写的几段照样拿去审阅，没轮到的节保留旧版——花过的钱不白扔，写不写由作者定。
  * 取消就什么都不写。
  */
@@ -17,7 +17,7 @@ import { getHost } from '../host';
 import { CancelledError } from '../llm/provider';
 import { createModelPool } from '../llm/pool';
 import { NovelProject } from '../model/project';
-import { mergeOutline, outlineCoverage, parseOutlineRanges } from '../model/outlineFile';
+import { mergeOutline, outlineCoverage } from '../model/outlineFile';
 import { OUTLINE_BATCH } from '../model/pipeline';
 import { describeTaskModels } from '../model/tiers';
 import { describeError, scoped } from '../runtime/logger';
@@ -63,12 +63,12 @@ export function planOutlineRewrite(end: number, through: number): OutlineRewrite
 }
 
 /**
- * 磁盘上的大纲能不能分段重写：要有区间标题、能说出覆盖到第几章。没写过的大纲（那是「生成」，
- * 主按钮管）与散文式大纲（说不上哪一段是哪几章）返回 undefined，调用方退回整篇一次重写。
+ * 磁盘上的大纲能不能分段重写：要认得出章标题、能说出覆盖到第几章。没写过的大纲（那是「生成」，
+ * 主按钮管）与认不出章标题的大纲（旧格式的区间分节、散文式）返回 undefined，调用方退回整篇一次重写。
  */
 export async function outlineRewritePlan(project: NovelProject): Promise<OutlineRewritePlan | undefined> {
   const end = outlineCoverage(await project.readOutline());
-  if (!(end > 0) || !Number.isFinite(end)) {
+  if (!(end > 0)) {
     return undefined;
   }
   return planOutlineRewrite(end, nextWritableChapterNo(await project.listChapters()) - 1);
@@ -130,7 +130,7 @@ export async function rewriteOutline(project: NovelProject, plan: OutlineRewrite
           if (artifact.kind !== 'outlineDoc' || isArtifactEmpty(artifact)) {
             throw new Error('模型返回的大纲是空的');
           }
-          const reached = parseOutlineRanges(artifact.text).reduce((max, r) => Math.max(max, r.to), 0);
+          const reached = outlineCoverage(artifact.text);
           if (reached < batch.to) {
             throw new Error(`这一段只写到第 ${reached} 章（要到第 ${batch.to} 章）`);
           }

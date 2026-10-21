@@ -106,9 +106,9 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `model/characterState.test.js` | 角色卡「当前状态」归谁（四期，D15）：空的与指纹对得上归机器、改过一个字或从没盖过章的非空内容归作者、首尾空白不算改过；`replaceSection` 只换那一节（连同它下面的三级标题）、没有就追加、CRLF 保留、空值写占位 |
 | `model/structureGuide.test.js` | 六种故事结构在 3 / 11 / 20 / 30 / 100 / 1000 章下的章号区间都连续、从第 1 章起到最后一章止；章数够分时每段至少一章；三幕与上游切法一致；英雄之旅与节拍表有逐段章号；给了区间就点明本批落在哪几段 |
 | `model/settingFile.test.js` | 架构三件：配置 frontmatter 各字段（枚举认中文标签、写坏的数字与非正整数退化成缺席、整份大白话不抛）、渲染往返、**模板的占位不算填过、读回来是空串**、各件「填过没有」看主体小节；分段格式 `paragraphStyle`（英文与中文都认、写坏是缺席、有值才写、`setConfigParagraphStyle` 只改这一行：已有换值 / 没有加在收尾 `---` 之前 / 没有 frontmatter 补一段、空文件补出来的那份「小说配置」仍算没填、CRLF 与 BOM 原样） |
-| `model/outlineFile.test.js` | 大纲按章号区间切片：各种区间写法与不是区间的标题、`###` 子节、CRLF、不抛；覆盖到第几章（**散文式大纲是 Infinity、只有模板脚手架是 0**）、`isOutlineFilled` 不把 `>` 说明与括号提示当内容、`outlineSliceFor` 重叠时取先出现的；`mergeOutline` 按区间合并（替换重叠的节、续写接在最后一节之后与附注之前、插在前后两节之间、保留前言） |
+| `model/outlineFile.test.js` | 情节大纲一章一条：各种章标题写法、区间标题与中文数字不认（区间标题结束上一条、自己那一节被忽略）、CRLF、不抛；覆盖到第几章（旧格式与散文式是 0、但 `hasOutlineContent` 认得出有内容，模板脚手架两样都不算）；第一行怎么取（去列表记号、截 100 字）；**按远近带**（续写：前 10 章整条、更早只带第一行；拆细纲：本批之后不带；重写：之后已有的只带第一行；没给区间：最后 10 条整条；同一章取先出现的）；`mergeOutline` 按章号合并（旧大纲认不出整份换掉、替换区间里的条目、续写接在最后一条之后与附注之前、插在前后两条之间、区间外已有的章不被换掉）；上游指纹只看这一章那一条、没有这一条是空串、判脏只在记过且对不上时 |
 | `model/thinking.test.js` | 思考深度的档位表与两家的字段映射：「不思考」是不带字段、最高档降一档的写法 |
-| `model/contextDetail.test.js` | 上下文详细度的级别表：第 3 级逐项等于从前写死的常量（外加更早章细纲封顶 60 章、拆细纲带叙事线的三项）、级别越高每一项都不少、表是冻结的；认不出的值回落第 3 级；`takeLast(x, 0)` 是空；config 里旧的两个键不再读、下一次保存时清掉；测试用的单项覆盖不从 config.json 读 |
+| `model/contextDetail.test.js` | 上下文详细度的级别表：第 3 级逐项等于从前写死的常量（外加拆细纲带叙事线的三项；`summaryChapters` 已删）、级别越高每一项都不少、表是冻结的；认不出的值回落第 3 级；`takeLast(x, 0)` 是空；config 里旧的两个键不再读、下一次保存时清掉；测试用的单项覆盖不从 config.json 读 |
 | `llm/fakeProvider.test.js` | 假模型本身：字符串应答照旧、对象应答在正文之后发 `stop`、思考先于正文、分片拼回去一字不差；`filler` 恰好 n 字、可复现、不同 seed 无公共 8-gram |
 | `context/tokenizer.test.js` | token 估算（中英文比例）、`takeTail`/`takeHead` 的预算与截断标记（样本取示例工程 `chapters/` 里的真实正文） |
 | `llm/stopSignal.test.js` | Anthropic 的收尾原因归一成 `StopSignal`：`end_turn` 归 `end`、截断归 `maxTokens`、认不出的原因归 `other`；上游不发这一条时**一个 stop 都不交**（`undefined` 意为「它没说」） |
@@ -353,6 +353,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `teardown.js` | `cleanup(dir, db)`——**先关库再删目录**：SQLite 连接开着时 Windows 上删不掉 `.novelforge/novelforge.db`，临时工程会全留在 temp 里 |
 | `dom.js` | jsdom 挂载：从 `webviewHtml.ts` / `html.ts` 抠 `<body>`、`window.eval` 加载 `dist/media/*.js`、`acquireVsCodeApi` 桩与消息泵、视图数据的夹具工厂；`mirrorLayout` 这个补丁给高亮镜像层一份可预期的假排版（量位置那一份镜像里标记的 `offsetTop` 按换行数 × 行高算、textarea 的视口高固定，尺寸在 `MIRROR_LAYOUT`），测「滚动按量出来的位置走」用；`fakeTimers` 把窗口里的定时器换成手拨的（`window.__clock.tick(ms)`），测停笔 2 秒、10 秒没回音、去抖不必真等；编辑器页内对话框的 `dialog()` / `dialogButtons()` / `answer(label)`（点了按钮再等 Promise 后续跑完）与 `flush()`；`sampleChapterIndex(plots)` 从工程树样本投影出 `chapterIndex` 消息的那几个字段；`mount({ url })` 给页面一个地址——缺省的 `about:blank` 是不透明的源，`localStorage` 一碰就抛，要测「按工程记进 localStorage」时给 `http://localhost/?project=…`；`mount({ storage })` 在跑脚本之前把这几项写进 localStorage（没给 `url` 时挂在 `http://localhost/` 上），测刷新恢复用；`mac` 让 `navigator.platform` 是 `MacIntel`（快捷键按 ⌘ / ⌥ 写）；`previewLayout` 给预览一份假排版（带 `data-line` 的一块，顶 = 第几行 × `PREVIEW_LAYOUT.line`、随预览的 `scrollTop` 上移，高 = 占几行 × 同一个数），测切换时滚动对应用 |
 | `ws.js` | e2e 的 WebSocket 客户端（收件箱 + `waitFor(match, label)` 超时） |
+| `outline.js` | `outlineOf(to, { from, text, titles, heading })`：一章一条的情节大纲夹具（旧格式的区间分节不认了，要覆盖到第 20 章就得有第 1–20 章各一条）；`text: { 1: '原句' }` 把被断言引用的那句放进对应章 |
 
 ## 约定
 

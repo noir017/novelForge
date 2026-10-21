@@ -165,24 +165,13 @@ describe('上下文详细度 · 写第 13 章（前 12 章都定稿了）', () =
     assert.ok(used[0] < used[1] && used[1] < used[2] && used[2] < used[3], used.join(' < '));
   });
 
-  test('「精简」只带最近 5 章细纲，更早的合成一条 dropped', () => {
-    const b = built[1];
+  // 写正文只带前几章细纲（`plotPrev`，上文），条数随级别 1 / 2 / 3 / 5；更早的不带，也不一章一条说「不带」（2026-10-21）。
+  test('前几章细纲 1 / 2 / 3 / 5 章，都是紧挨着的那几章', () => {
     assert.deepEqual(
-      live(b, 'plotSummary').map((i) => i.id).sort(),
-      [8, 9, 10, 11, 12].map((no) => `plotSummary:${no}`).sort()
+      [1, 2, 3, 4].map((d) => live(built[d], 'plotSummary').map((i) => i.label.match(/第 (\d+) 章/)[1]).join(',')),
+      ['12', '11,12', '10,11,12', '8,9,10,11,12']
     );
-    const beyond = b.items.filter((i) => i.id === 'plotSummary:beyond');
-    assert.equal(beyond.length, 1);
-    assert.equal(beyond[0].status, 'dropped');
-    assert.equal(beyond[0].label, '第 1–7 章 · 细纲');
-    assert.match(beyond[0].note, /上下文详细度「精简」只带最近 5 章的细纲，更早的 7 章不带/);
-    assert.ok(!b.items.some((i) => /^plotSummary:[1-7]$/.test(i.id)), '封顶之外的不一章一条');
-  });
-
-  test('「完整」与没写级别：12 章装得下，没有封顶那一条', () => {
-    for (const b of [built[4], built.none]) {
-      assert.ok(!b.items.some((i) => i.id === 'plotSummary:beyond'));
-    }
+    assert.ok(!built[4].items.some((i) => i.kind === 'plotSummary' && i.status === 'dropped'), '更早的不一章一条');
   });
 
   test('「精简」不带定稿原文片段，出一条说明', () => {

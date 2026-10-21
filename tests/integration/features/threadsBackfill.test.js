@@ -19,6 +19,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -104,7 +105,7 @@ before(async () => {
   });
   t = await makeTempProject(bundle.project, { prefix: 'threads-backfill', title: '青崖记' });
   project = t.project;
-  t.write('.novelforge/outline.md', '# 情节大纲\n\n## 第1–20章：第一幕\n\n林昭进镇，一路查名册。\n');
+  t.write('.novelforge/outline.md', outlineOf(20, { text: { 1: '林昭进镇，一路查名册。' } }));
   await writeFinalized(6);
 });
 

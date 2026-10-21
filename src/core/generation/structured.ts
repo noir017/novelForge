@@ -45,7 +45,7 @@ import { loreSettleJsonContract } from '../context/loreSettlePrompt';
 import { LORE_LIST_CALLS_MAX, LORE_LIST_DETAIL_BATCH, PLOT_BATCH, ROSTER_DETAIL_BATCH, SettingDoc, isLoreSettle } from '../model/pipeline';
 import { BookConfig } from '../model/settingFile';
 import { hasContent } from '../model/markdown';
-import { OUTLINE_SECTION_MAX, oversizedSections, parseOutlineRanges } from '../model/outlineFile';
+import { outlineRangeHeadings, parseOutline } from '../model/outlineFile';
 import { BlueprintItem, blueprintToPlot, checkCoverage, decodeBlueprints, renderBlueprints } from '../features/blueprint';
 import { CharacterDetail, IdentitySlot, assembleRoster, decodeDetails, decodeManifest, renderRoster } from '../features/roster';
 import {
@@ -651,21 +651,26 @@ export function singleShotNotes(
     notes.push('输出被输出上限截断，后半段可能缺失。调大设置页的「最大输出 token」再生成一次更稳。');
   }
   if (stage === 'outline' && range) {
-    const ranges = parseOutlineRanges(raw);
-    if (ranges.length === 0) {
-      notes.push('产出里认不出「## 第a–b章：标题」这样的区间标题，写入后算不出大纲覆盖到第几章');
+    const nos = new Set(parseOutline(raw).map((e) => e.no));
+    const merged = outlineRangeHeadings(raw);
+    if (merged > 0) {
+      notes.push(`有 ${merged} 个「## 第a–b章」这样的区间标题：大纲一章一条，区间标题不认，那几节写入后不算进任何一章`);
+    }
+    if (nos.size === 0) {
+      notes.push('产出里认不出「## 第N章：标题」这样的章标题，写入后算不出大纲覆盖到第几章');
     } else {
-      const covered = ranges.reduce((m, r) => Math.max(m, r.to), 0);
+      const covered = Math.max(...nos);
       if (covered < range.to) {
-        notes.push(`产出只覆盖到第 ${covered} 章（这一批要写到第 ${range.to} 章），写入后主按钮会接着推续写`);
+        notes.push(`产出只写到第 ${covered} 章（这一批要写到第 ${range.to} 章），写入后主按钮会接着推续写`);
       }
-      const wide = oversizedSections(ranges);
-      if (wide.length > 0) {
-        notes.push(
-          `有 ${wide.length} 节一节覆盖了 ${OUTLINE_SECTION_MAX} 章以上（${wide
-            .map((r) => `第 ${r.from}–${r.to} 章`)
-            .join('、')}）：一节的事撑不满这么多章，细纲容易把同一个高潮反复演。可以重新生成，或手动拆成几节`
-        );
+      const missing: number[] = [];
+      for (let no = range.from; no <= Math.min(covered, range.to); no++) {
+        if (!nos.has(no)) {
+          missing.push(no);
+        }
+      }
+      if (missing.length > 0) {
+        notes.push(`缺第 ${missing.join('、')} 章：这几章拆细纲时没有大纲可依，可以重新生成，或手动补上`);
       }
     }
   }

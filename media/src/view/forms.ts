@@ -220,9 +220,8 @@ function span(from: number, to: number): string {
 export function openWriteBatchForm(tree: ProjectTree): void {
   const writtenNos = tree.plots.filter((p) => p.chapterPath && p.wordCount > 0).map((p) => p.no);
   const plotFilledNos = tree.book.plotFilledNos;
-  // 大纲覆盖缺席有两种：散文式大纲（说不上覆盖到哪，当作全覆盖），或者还没写大纲。
-  const noOutline = tree.bookStage === 'setting' || tree.bookStage === 'outline';
-  const outlineCoverage = Math.min(tree.book.outlineCoverage ?? (noOutline ? 0 : Infinity), tree.book.totalChapters ?? Infinity);
+  // 大纲覆盖缺席就是还没写大纲（或一条章标题都认不出）。
+  const outlineCoverage = Math.min(tree.book.outlineCoverage ?? 0, tree.book.totalChapters ?? Infinity);
   const from = tree.nextChapterNo;
   const plan = (v: FormValues) =>
     planWriteBatch({

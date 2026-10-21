@@ -284,10 +284,18 @@ describe('装配：预算充裕（128k）', () => {
     assert.ok(inc('manuscriptFull:2'));
   });
 
-  // 近章全文只带两章（第 2、3 章），更早的第 1 章带它定稿过的细纲。
-  test('P4 第 1 章带它定稿过的细纲', () => {
-    assert.ok(inc('plotSummary:1'));
-    assert.ok(byId.get('plotSummary:1').text.startsWith('【第 1 章《楔子》】'), byId.get('plotSummary:1').text.slice(0, 40));
+  // 写正文只带前几章细纲（上文，缺省 3 章），单列「前几章细纲」；更早几十章的细纲与大纲都不带（2026-10-21）。
+  test('P1 前 3 章细纲（上文）都在，记成 plotSummary 单列一节', () => {
+    for (const p of [PLOT1, PLOT2, PLOT3]) {
+      assert.ok(inc(`plot:${p}`), [...byId.keys()].join(','));
+      assert.equal(byId.get(`plot:${p}`).kind, 'plotSummary');
+      assert.equal(byId.get(`plot:${p}`).priority, 1);
+    }
+    assert.ok(byId.get(`plot:${PLOT1}`).text.startsWith('【第 1 章《楔子》 · 上文】'), byId.get(`plot:${PLOT1}`).text.slice(0, 40));
+  });
+
+  test('写正文不带情节大纲', () => {
+    assert.ok(![...byId.keys()].some((id) => id.startsWith('outline')), [...byId.keys()].join(','));
   });
 
   test('第 4 章的细纲作为写作依据注入', () => {
@@ -1362,14 +1370,14 @@ describe('装配：四阶段配方', () => {
     assert.ok(oc.messages[0].content.includes('资深长篇小说策划编辑'), oc.messages[0].content.slice(0, 40));
   });
 
-  test('大纲阶段注入大纲全文（P0）', () => {
+  test('大纲阶段注入大纲（P0，按远近带）', () => {
     assert.ok(alive(oIds, 'outlineDoc'));
     assert.equal(oIds.get('outlineDoc').priority, 0);
   });
 
-  test('大纲全文进了「# 情节大纲」段', () => {
+  test('大纲进了「# 情节大纲」段：没给区间时最后 10 条整条', () => {
     const user = lastOf(oc);
-    assert.ok(user.includes('# 情节大纲') && user.includes('第1–10章：第一幕 · 停舟'), user.slice(0, 400));
+    assert.ok(user.includes('# 情节大纲') && user.includes('## 第1章：楔子\n林昭带着残缺的令牌进青崖镇'), user.slice(0, 400));
   });
 
   test('大纲阶段带架构三件（P0）', () => {
@@ -1381,27 +1389,20 @@ describe('装配：四阶段配方', () => {
     assert.ok(keysOf(oIds, 'manuscriptFull:').length === 0, keysOf(oIds, 'manuscriptFull:').join(','));
   });
 
-  test('大纲阶段各章细纲都在', () => {
-    assert.ok(
-      [1, 2, 3, 4].every((n) => alive(oIds, `plotSummary:${n}`)),
-      keysOf(oIds, 'plotSummary:').join(',')
-    );
-  });
-
-  // 第 4 章只排了细纲、还没写：带它的计划，块头标明，模型才不会把计划当成已经发生的事。
-  test('大纲阶段没定稿的第 4 章标「计划」，定稿过的不标', () => {
-    assert.ok(oIds.get('plotSummary:4').text.startsWith('【第 4 章《空匣》 · 计划】'), oIds.get('plotSummary:4').text.slice(0, 40));
-    assert.equal(oIds.get('plotSummary:4').note, '还没定稿：带的是写之前的计划');
-    assert.ok(oIds.get('plotSummary:3').text.startsWith('【第 3 章《夜访》】'), oIds.get('plotSummary:3').text.slice(0, 40));
-    assert.ok(lastOf(oc).includes('# 早前各章细纲（由远及近；标「计划」的还没定稿，不一定是正文写成的样子）'));
+  // 续写到后面每一次都在为前面几十章付钱：大纲阶段不再带前面各章的细纲（2026-10-21），已经写过的由全文大纲交代。
+  test('大纲阶段不带各章细纲', () => {
+    assert.ok(![...oIds.values()].some((i) => i.kind === 'plotSummary' || i.kind === 'plot'), [...oIds.keys()].join(','));
+    assert.ok(alive(oIds, 'globalSummary'), [...oIds.keys()].join(','));
   });
 
   test('大纲阶段不写「只输出正文」', () => {
     assert.ok(!oc.messages[0].content.includes('只输出正文'));
   });
 
-  test('大纲的输出契约要求按章号区间分节', () => {
-    assert.ok(lastOf(og).includes('按章号区间分节'), lastOf(og).slice(-400));
+  test('大纲的输出契约要求一章一条、写成提纲', () => {
+    const user = lastOf(og);
+    assert.ok(user.includes('「## 第N章：标题」') && user.includes('一章一条'), user.slice(-1600));
+    assert.ok(user.includes('写成提纲') && user.includes('不写描写、比喻、心理渲染和对白'), user.slice(-1600));
   });
 
   // ------------------------------------------------------------ 细纲
@@ -1467,10 +1468,12 @@ describe('装配：四阶段配方', () => {
     );
   });
 
-  // 排第 2 章用不着全书大纲：只带覆盖它的那一节（总计划 §2.3）。
-  test('细纲阶段只带大纲里覆盖本章的那一节', () => {
-    assert.ok(alive(pIds, 'outlineSlice:2-2') && !pIds.has('outlineDoc'), keysOf(pIds, 'outline').join(','));
-    assert.ok(pIds.get('outlineSlice:2-2').text.includes('第一幕'), pIds.get('outlineSlice:2-2').text);
+  // 排第 2 章用不着后面的大纲：本章与前 10 章整条，之后的不带（2026-10-21，按远近带）。
+  test('细纲阶段的大纲到本章为止', () => {
+    const item = pIds.get('outlineDoc');
+    assert.ok(alive(pIds, 'outlineDoc') && item.priority === 0, keysOf(pIds, 'outline').join(','));
+    assert.ok(item.text.includes('## 第2章：客栈里的女人') && !item.text.includes('第3章'), item.text);
+    assert.match(item.note, /第 2 章以后的不带/);
   });
 
   // 细纲是从架构与大纲里拆出来的：设定四件在这一层也是 P0（总计划 §2.3）。
@@ -1960,7 +1963,7 @@ describe('工程页数据', () => {
 
   test('情节大纲那一行报覆盖到第几章', () => {
     const row = tree.architecture.find((r) => r.key === 'outline');
-    assert.equal(row.detail, '覆盖到第 30 章');
+    assert.equal(row.detail, '覆盖到第 10 章');
   });
 
   test('角色数与磁盘一致', () => {
@@ -2346,8 +2349,8 @@ describe('装配：二期的新层与移植的契约', () => {
 
   test('续写大纲：契约写明本次范围，前面的不许重写', () => {
     const user = lastOf(outline21);
-    assert.ok(user.includes('本次必须对第 11–25 章输出完整详细的情节大纲（全书共 30 章）'), user.slice(-2000));
-    assert.ok(user.includes('第 1–10 章的大纲已在上面的「情节大纲」中给出：不得重复、改写或复述'), user.slice(-2000));
+    assert.ok(user.includes('本次必须写第 11–25 章的情节大纲（全书共 30 章）'), user.slice(-2000));
+    assert.ok(user.includes('第 1–10 章的大纲已在上面的「情节大纲」中给出（较早的只列了第一行）：不得重复、改写或复述'), user.slice(-2000));
     assert.ok(user.includes('第 26 章以后本次不写'), user.slice(-2000));
   });
 
@@ -2397,8 +2400,10 @@ describe('装配：二期的新层与移植的契约', () => {
     assert.ok(lastOf(batch).includes('# 前序细纲一览（已生成的目录进度）'));
   });
 
-  test('批次只带大纲里覆盖这几章的那一节', () => {
-    assert.ok(bIds.has('outlineSlice:4-8') && bIds.get('outlineSlice:4-8').text.includes('第一幕 · 停舟'), [...bIds.keys()].join(','));
+  test('批次带大纲里这几章与前 10 章的条目，之后的不带', () => {
+    const item = bIds.get('outlineDoc');
+    assert.ok(item && item.text.includes('## 第4章：空匣') && item.text.includes('## 第8章：铁匠铺'), [...bIds.keys()].join(','));
+    assert.ok(item.text.includes('## 第1章：楔子') && !item.text.includes('第9章'), item.text);
   });
 
   test('批次契约：覆盖第 4–8 章、容量按每章字数', () => {

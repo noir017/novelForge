@@ -8,7 +8,7 @@ import { basename } from 'node:path';
 
 /*
  * 写/改某一章时前后各带几章**细纲**：按上下文详细度（`prevPlots` / `nextPlots`，缺省 3 / 1）。
- * 更早几章的细纲（`plotSummary`，正文与大纲配方）另按 `summaryChapters` 带。
+ * 写正文时前几章细纲也走 `plotPrev`，更早的不带（2026-10-21）。
  */
 /**
  * 写正文时往后看几章的细纲（边界）。移植自 AI-Novel-Writer 的「后续章节大纲预告」

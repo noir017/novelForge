@@ -21,6 +21,7 @@ const { makeTempDir, makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider, filler } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -352,7 +353,7 @@ describe('补齐架构、批量拆细纲、批量展开设定、立即同步、�
 
   test('批量拆细纲', async () => {
     const t = await fresh('plots');
-    t.write('.novelforge/outline.md', '# 情节大纲\n\n## 第1–5章：入宗\n\n林昭入宗查旧案。\n');
+    t.write('.novelforge/outline.md', outlineOf(5, { text: { 1: '林昭入宗查旧案。' } }));
     t.project.invalidate();
     h.expect('开始拆细纲');
     await bundle.batch.generatePlots(t.project, { range: { from: 1, to: 3 } });

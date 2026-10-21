@@ -393,7 +393,7 @@ async function deriveRest(
               project.invalidate();
               const covered = outlineCoverage(await project.readOutline());
               if (!(covered >= range.to)) {
-                throw new Error(`整理出来的大纲只覆盖到第 ${Number.isFinite(covered) ? covered : 0} 章（这一次要到第 ${range.to} 章）`);
+                throw new Error(`整理出来的大纲只覆盖到第 ${covered} 章（这一次要到第 ${range.to} 章）`);
               }
               void clearFailures(project, 'setting', project.relPath(project.outlinePath), 'outline');
             } catch (err) {
@@ -516,11 +516,8 @@ async function planRest(project: NovelProject, through: number, written: Chapter
 
   const covered = isOutlineFilled(await project.readOutline()) ? facts.outlineCoverage : 0;
   const outline: { from: number; to: number }[] = [];
-  // 有内容却没有区间标题的大纲（`Infinity`）说不上覆盖到哪：不往里并。
-  if (Number.isFinite(covered)) {
-    for (let from = covered + 1; from <= through; from += OUTLINE_BATCH) {
-      outline.push({ from, to: Math.min(through, from + OUTLINE_BATCH - 1) });
-    }
+  for (let from = covered + 1; from <= through; from += OUTLINE_BATCH) {
+    outline.push({ from, to: Math.min(through, from + OUTLINE_BATCH - 1) });
   }
 
   let setup: DerivePlan['setup'];

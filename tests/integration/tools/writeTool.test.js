@@ -24,6 +24,7 @@ const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let t;
@@ -38,7 +39,7 @@ const PLOT_REL = '.novelforge/summaries/001-夜入青云.md';
 const PLOT2_REL = '.novelforge/summaries/002-藏书阁.md';
 const CHAPTER_REL = 'chapters/003-雪夜.md';
 /** 两节的大纲：第 1 章落在前一节里。 */
-const OUTLINE = '# 大纲\n\n## 第1–20章：入宗\n\n林昭入宗。\n\n## 第21–40章：下山\n\n林昭下山。\n';
+const OUTLINE = outlineOf(40, { title: '大纲', text: { 1: '林昭入宗。', 21: '林昭下山。' } });
 
 const tool = () => bundle.tools.NOVEL_TOOLS.find((x) => x.name === 'write');
 const run = (args) => tool().run(ctx, args);
@@ -163,11 +164,11 @@ describe('用 draftId 写一份细纲', () => {
     assert.ok(plot.upstreamHash, JSON.stringify(plot.upstreamHash));
   });
 
-  // ★ 记的是覆盖第 1 章那一节的指纹：以后续写第 21–40 章那一节，第 1 章不挂 ⟳。
-  test('upstreamHash 是大纲里覆盖本章那一节的指纹，不是全书的', async () => {
+  // ★ 记的是第 1 章那一条的指纹：以后改第 21 章那一条，第 1 章不挂 ⟳。
+  test('upstreamHash 是大纲里第 1 章那一条的指纹，不是全书的', async () => {
     const plot = await project.readPlot(PLOT_REL);
     assert.equal(plot.upstreamHash, bundle.outlineFile.outlineUpstreamHash(OUTLINE, 1));
-    assert.notEqual(plot.upstreamHash, bundle.outlineFile.outlineUpstreamHash(OUTLINE, undefined));
+    assert.equal(plot.upstreamHash, bundle.outlineFile.outlineUpstreamHash(OUTLINE.replace('林昭下山。', '林昭没下山。'), 1));
   });
 
   test('标题没被抹掉（重写细纲不动作者起的名字）', async () => {

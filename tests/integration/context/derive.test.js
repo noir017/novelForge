@@ -97,7 +97,7 @@ describe('derive · 平时不带', () => {
       assert.ok(!user(b).includes('# 已写正文'));
       assert.ok(!user(b).includes('从已写正文整理'));
     }
-    assert.match(user(outline), /结构拐点/);
+    assert.match(user(outline), /一章一章推演这一段/);
     assert.match(user(plot), /商业网文节奏设计原则/);
     // 平时规划阶段绑的技能照带。
     assert.ok(setting.items.some((i) => i.kind === 'skill' && i.status === 'included'));
@@ -204,8 +204,8 @@ describe('derive · 大纲', () => {
     assert.equal(items[2].note, '这一章还没定稿，带正文的开头与结尾');
     const u = user(b);
     assert.ok(u.includes('整理出这一段的情节大纲'));
-    assert.ok(u.includes('「## 第a–b章：标题」'));
-    assert.ok(!u.includes('结构拐点'));
+    assert.ok(u.includes('「## 第N章：标题」'));
+    assert.ok(!u.includes('一章一章推演这一段'));
   });
 
   // 没定稿的细纲是写之前的计划，不是「已经写成的东西」：整理大纲时不拿它当依据。

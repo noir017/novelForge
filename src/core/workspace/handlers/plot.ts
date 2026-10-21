@@ -9,9 +9,8 @@
  *    `writtenFrom` 是正文那一侧记的账，细纲重写之后它对不上，正是「细纲在正文之后改过」的信号
  *    （定稿过的章照样只挂 ⟳，第 18 条）。**预检的永久放行（`preflightOk`）刻意不沿用**：
  *    重排过的出场是新的安排，要再问一次（五期补遗 §2）。
- * 2. **记账**：`upstreamHash` = 情节大纲里**覆盖本章那一节**的指纹（大纲没有区间
- *    标题时退回情节大纲的指纹）。谁写都记——作者在内置编辑器里改一份细纲，
- *    指纹链照样接得上。
+ * 2. **记账**：`upstreamHash` = 情节大纲里**这一章那一条**的指纹（大纲里没有这一条
+ *    就不记）。谁写都记——作者在内置编辑器里改一份细纲，指纹链照样接得上。
  *
  * 复制出来的副本另有一条（`afterCopy`）：去掉定稿那一侧的指纹，`upstreamHash` 不重记——副本是一份还没写、没定稿的计划。
  *
@@ -29,7 +28,7 @@
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { hash, readTextIfExists } from '../../model/fs';
+import { readTextIfExists } from '../../model/fs';
 import { parseMarkdown, rewriteFrontmatter } from '../../model/markdown';
 import { NovelProject } from '../../model/project';
 import {
@@ -166,16 +165,11 @@ export function renderFinalizedPlot(input: {
   return renderPlotFile({ ...plot, writtenFrom });
 }
 
-/** 情节大纲的内容指纹。大纲没有区间标题时，它就是每一章细纲的上游。 */
-export async function outlineHash(project: NovelProject): Promise<string> {
-  return hash(await project.readOutline());
-}
-
 /**
- * 这一章细纲的上游指纹：情节大纲里**覆盖本章的那一节**（见 model/outlineFile.ts 的
+ * 这一章细纲的上游指纹：情节大纲里**这一章那一条**（见 model/outlineFile.ts 的
  * `outlineUpstreamHash`，流水线判脏用的是同一个函数）。
  *
- * 章号从细纲的**文件名**取（文件名是身份），取不到就用全书指纹。
+ * 章号从细纲的**文件名**取（文件名是身份），取不到、或大纲里没有这一条就是空串（不记）。
  */
 export async function plotUpstreamHash(project: NovelProject, plotRelPath: string): Promise<string> {
   const no = parsePlotFileName(path.posix.basename(plotRelPath))?.no;

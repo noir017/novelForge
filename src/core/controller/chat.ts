@@ -831,7 +831,7 @@ export async function chapterAction(c: ChatController, plotRelPath: string, acti
  * 取消就什么都不做。生成照样在对话页流式输出，覆盖前照样先对比（第 19 条）。
  * 「讨论」走 `setTarget`：只进入这一层，不花钱。
  *
- * 情节大纲有区间标题时不走对话页：按 20 章一段重写，写完一次对比（features/outlineRewrite.ts）。
+ * 情节大纲认得出章标题时不走对话页：按 20 章一段重写，写完一次对比（features/outlineRewrite.ts）。
  */
 export async function rewriteArchitecture(c: ChatController, target: CreationTarget): Promise<void> {
   if (target.kind !== 'setting' && target.kind !== 'outline') {
@@ -845,7 +845,7 @@ export async function rewriteArchitecture(c: ChatController, target: CreationTar
   if (!(await confirmDespiteGap(await c.project.listChapters(), `重写${where}`))) {
     return;
   }
-  // 有区间标题的大纲按段重写（features/outlineRewrite.ts）：一次写全书，后半段稀得像目录。
+  // 认得出章标题的大纲按段重写（features/outlineRewrite.ts）：一次写全书，后半段稀得像目录。
   const plan = target.kind === 'outline' ? await outlineRewritePlan(c.project) : undefined;
   const ask = await getHost().input({
     title: `重写${where}`,

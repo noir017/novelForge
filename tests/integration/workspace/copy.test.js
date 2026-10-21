@@ -21,6 +21,7 @@ const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -317,7 +318,7 @@ describe('复制一章正文', () => {
 
 describe('复制一份细纲：指纹不带着把副本标成新鲜或定稿过（第 18 条）', () => {
   const PLOT = '.novelforge/summaries/005-回乡.md';
-  const OUTLINE = '# 情节大纲\n\n## 第 1–10 章 · 起\n\n林昭回乡，镇上的人都变了。\n';
+  const OUTLINE = outlineOf(10, { text: { 5: '林昭回乡，镇上的人都变了。' } });
   const STALE_UP = 'deadbeefdeadbeef';
   let original;
   let origPlot;

@@ -149,7 +149,7 @@ export interface BookReplaceSummary {
   plotOnly: string[];
   /** 只改了正文、细纲没跟着改的定稿过的章：回到「待定稿」。 */
   bodyOnly: string[];
-  /** 改了情节大纲、细纲没跟着改的章（「细纲 · 第 3 章 夜访」）：细纲挂 ⟳（大纲里覆盖它的那一节变了）。 */
+  /** 改了情节大纲、细纲没跟着改的章（「细纲 · 第 3 章 夜访」）：细纲挂 ⟳（大纲里这一章那一条变了）。 */
   outlineOnly: string[];
   renamedCards: BookReplaceRenamedCard[];
   /** 整个请求没法做（正则写错、查找串为空）。 */

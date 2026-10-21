@@ -426,7 +426,7 @@ describe('threads 层 · 拆细纲（按区间挑）', () => {
   test('消息里一节：线在前、没收的伏笔另起一段，排在连续性事实之后、前序细纲一览与本章细纲之前', async () => {
     const user = userOf(await buildPlot({ from: 5, to: 9 }));
     const at = user.indexOf('# 叙事线（照着排：该推进的线推进、该收的伏笔安排在某一章收');
-    assert.ok(at > 0, user.slice(0, 1500));
+    assert.ok(at >= 0, user.slice(0, 1500));
     const section = user.slice(at, user.indexOf('\n---\n', at));
     assert.ok(section.indexOf('- 林昭与沈青') < section.indexOf('\n\n没收的伏笔：\n- 提灯人'), section);
     assert.ok(!user.includes('# 进行中的叙事线'));

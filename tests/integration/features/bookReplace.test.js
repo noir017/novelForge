@@ -24,6 +24,7 @@ const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 const made = [];
@@ -51,11 +52,15 @@ after(() => {
   for (const t of made) cleanup(t.dir, bundle.db);
 });
 
-const OUTLINE = '# 情节大纲\n\n## 第1–6章：林晚入宗\n林晚拜入青云宗。\n';
+/** 一章一条，每一条都提到「林晚」：替换时六条都变。 */
+const OUTLINE = outlineOf(6, {
+  titles: { 1: '林晚入宗', 2: '林晚下山', 3: '林晚夜访', 4: '林晚北行', 5: '林晚远行', 6: '林晚归来' },
+  text: { 1: '林晚拜入青云宗。' },
+});
 
 /**
  * 一份细纲：`fresh` 时 `writtenFrom` 记的就是这份的内容指纹；`body` 给了就定稿过（`sourceHash` = 正文指纹）。
- * `upstream`：`'fresh'` 记大纲里覆盖它的那一节，`'none'` 不记，其余原样写进去（对不上的旧指纹）。
+ * `upstream`：`'fresh'` 记大纲里这一章那一条，`'none'` 不记，其余原样写进去（对不上的旧指纹）。
  */
 function plotFile(no, title, sections, { upstream = 'fresh', written = 'fresh', body, cast } = {}) {
   const { renderPlotFile, parsePlotFile, plotContentHash, emptyPlotSections } = bundle.plotFile;
@@ -81,7 +86,7 @@ function plotFile(no, title, sections, { upstream = 'fresh', written = 'fresh', 
  * | 1 入宗 | 有「林晚」 | 有「林晚」，定稿过、指纹全对得上 | 两头都改了 → 刷新 |
  * | 2 下山 | 有「林晚」 | 有「林晚」，定稿过 | 正文未保存被跳过 → 只改了细纲 |
  * | 3 夜访 | 有「林晚」 | 没有「林晚」，定稿过 | 只改了正文 → 待定稿 |
- * | 4 北行 | — | 有「林晚」，大纲那一节早就改过（⟳） | ⟳ 照挂 |
+ * | 4 北行 | — | 有「林晚」，大纲那一条早就改过（⟳） | ⟳ 照挂 |
  * | 5 远行 | — | 有「林晚」，手写的、没记过大纲指纹 | 照旧不记 |
  * | 6 归来 | 有「林晚」 | 有「林晚」，正文写完之后细纲又改过（⟳），没定稿 | 改之前就对不上的不刷 |
  */
@@ -344,10 +349,10 @@ describe('features/bookReplace › 第 18 条：大纲与细纲', () => {
     const t = await setup('outline');
     const { request } = await previewAndRequest(t, { scopes: ['doc', 'plot', 'chapter'] });
     const summary = await replace(t, request);
-    assert.match(t.read('.novelforge/outline.md'), /## 第1–6章：林婉入宗/);
+    assert.match(t.read('.novelforge/outline.md'), /## 第1章：林婉入宗/);
     assert.equal((await row(t, 1)).plot.upstreamStale, false);
     assert.equal((await row(t, 2)).plot.upstreamStale, false);
-    // 第 3 章的细纲里没有这个名字：大纲那一节变了，它没跟着改。
+    // 第 3 章的细纲里没有这个名字：大纲里第 3 章那一条变了，它没跟着改。
     assert.equal((await row(t, 3)).plot.upstreamStale, true);
     assert.deepEqual(summary.outlineOnly, ['细纲 · 第 3 章 夜访']);
   });

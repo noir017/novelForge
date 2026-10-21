@@ -26,6 +26,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider, filler } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -72,10 +73,12 @@ const WORLD = [
   '## 深层危机', '名册上的人正在被一个个抹掉。',
 ].join('\n\n');
 
-const OUTLINE = [
-  '## 第1–10章：第一幕 · 停舟', '林昭进镇，残令被李叔认出；沈氏试探；第二块令牌浮出水面。',
-  '## 第11–20章：第一幕 · 名册', '持令人接连出事，名册的存在被揭开。',
-].join('\n\n');
+/** 一章一条，第 1–20 章（三幕 100 章的第一幕）。 */
+const OUTLINE = outlineOf(20, {
+  heading: false,
+  titles: { 1: '停舟', 15: '名册' },
+  text: { 1: '林昭进镇，残令被李叔认出。', 15: '持令人接连出事，名册的存在被揭开。' },
+});
 
 const TITLES = ['停舟', '令牌', '夜访', '井', '名册'];
 

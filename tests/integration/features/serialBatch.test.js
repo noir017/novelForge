@@ -23,6 +23,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider, filler } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -140,7 +141,7 @@ before(async () => {
   // 架构四件与大纲都在（二期那一段的产物），主按钮才会落到单章上。
   t.write('.novelforge/premise.md', '# 故事前提\n\n## 一句话前提\n\n林昭回镇，必须找出放火的人。\n\n## 核心冲突链\n\n回镇 → 受伤 → 追查。\n');
   t.write('.novelforge/world.md', '# 世界观\n\n## 规则与漏洞\n\n名册决定谁算镇上的人。\n');
-  t.write('.novelforge/outline.md', '# 情节大纲\n\n## 第1–20章：第一幕\n\n林昭进镇，一路受伤一路查。\n');
+  t.write('.novelforge/outline.md', outlineOf(20, { text: { 1: '林昭进镇，一路受伤一路查。' } }));
   const ws = new bundle.ws.Workspace(project);
   for (let no = 1; no <= 5; no++) {
     await ws.writePlot({
