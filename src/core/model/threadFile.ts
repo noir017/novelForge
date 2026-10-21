@@ -1754,8 +1754,19 @@ export function verifyProgress(raw: readonly unknown[], lines: readonly string[]
 
 /** 计划收束章离这一章不超过几章算「就在附近」（写正文挑线）。 */
 export const NEAR_CLOSE = 5;
-/** 写正文时一条线最多列几条没收的伏笔。 */
+/**
+ * 写正文时一条线最多列几条没收的伏笔。**本章细纲或本章计划提到的不算在里面**（复跑之后：主线这 4 个位置一直是同样 4 条，
+ * 当章细纲里提到的「旧铜牌与铜钱的共鸣」没列出来，正文当章就把它揭开了）——那几条一律列出，只受这一层的总字数管。
+ */
 export const LINE_FORESHADOW_MAX = 4;
+/**
+ * 细纲提到一条伏笔的门槛（⚑ 复跑之后）：伏笔名去掉虚字之后的两字词，至少这么多成出现在本章细纲（或本章计划）里，至少
+ * 两个、其中两个在名字里挨着（{@link mentionTest}）。「旧铜牌与铜钱的共鸣」对细纲里的「铜牌与铜钱的共鸣契机」算提到，
+ * 「阿婆的真实身份」对一句「阿婆」不算。
+ */
+export const MENTION_RATIO = 0.6;
+/** 没有回收章的伏笔写正文时怎么说（复跑之后：从前一律写「不要提前揭开」，没有回收章就没有「提前」可言）。 */
+const NO_RESOLVE_HINT = '还没定哪一章收，细纲没安排就别揭开';
 /** 一行里「现在」截到多长、最近事件与本章计划每条截到多长：一条线不该一个人吃掉整层的字数（七期上游 #4）。 */
 const LINE_NOW_MAX = 80;
 const LINE_ITEM_MAX = 40;
@@ -1779,6 +1790,42 @@ export interface ContextThread {
   /** 越小越靠前。 */
   rank: number;
   line: string;
+  /** 这一行里本章细纲或本章计划提到的伏笔（写正文）：这一行放不下时，明细里点名说它们没带上（第 2 条）。 */
+  mentioned?: string[];
+}
+
+/** 去掉「的之与和及」这几个虚字、按标点与空白切开的几段（同 continuity.ts 的 `textBigrams` 切法）。 */
+function wordGroups(text: string): string[][] {
+  const groups = (text ?? '').normalize('NFKC').toLocaleLowerCase().replace(/[的之与和及]/gu, '').match(/[\p{L}\p{N}]+/gu) ?? [];
+  return groups.map((g) => [...g]);
+}
+
+/** 一段里挨着的两字词，按先后。 */
+function gramsOf(chars: readonly string[]): string[] {
+  return chars.length < 2 ? [] : chars.slice(0, -1).map((c, i) => c + chars[i + 1]);
+}
+
+/**
+ * 认「本章细纲提到了这条伏笔」用的那一份：细纲全文与本章计划（计划事件的伏笔名与一句话，推迟的写法也在里面）。
+ * 返回一个判断函数：伏笔名去掉虚字之后的两字词，至少 {@link MENTION_RATIO} 出现在这一份里，至少两个，**而且有两个在名字里
+ * 是挨着的**（名字里有连着三个字出现在细纲里）——不然「井底的秘密」会被一句「井底有人」加上别处的「秘密」凑出来。名字只有
+ * 一个两字词的（「玉佩」）要整个出现。
+ */
+export function mentionTest(text: string): (name: string) => boolean {
+  const grams = new Set(wordGroups(text).flatMap(gramsOf));
+  const norm = normalizeQuote(text);
+  return (name) => {
+    const groups = wordGroups(name).map(gramsOf);
+    const total = groups.reduce((n, g) => n + g.length, 0);
+    if (total < 2) {
+      const key = threadKey(name);
+      return key.length >= 2 && norm.includes(key);
+    }
+    const hits = groups.map((g) => g.map((x) => grams.has(x)));
+    const count = hits.reduce((n, h) => n + h.filter(Boolean).length, 0);
+    const run = hits.some((h) => h.some((x, i) => x && h[i + 1]));
+    return run && count >= 2 && count / total >= MENTION_RATIO;
+  };
 }
 
 /** `本章计划：推进——……；埋〈玉佩〉——……`。 */
@@ -1806,59 +1853,109 @@ function foreshadowHint(f: ForeshadowState, no: number, planned: readonly Thread
   if (f.status === '计划' && !(f.plant !== undefined && f.plant <= no)) {
     return undefined;
   }
-  return [2, f.resolve !== undefined ? `第 ${f.resolve} 章前不要揭开` : '不要提前揭开'];
+  return [2, f.resolve !== undefined ? `第 ${f.resolve} 章前不要揭开` : NO_RESOLVE_HINT];
 }
 
-/** 一份文件里写第 `no` 章时要提的伏笔：`玉佩的来历（第 18 章前不要揭开）`，该收的、逾期的在前，最多 `max` 条。 */
-function foreshadowList(file: ThreadFileBase, no: number, planned: readonly ThreadEvent[], max: number): { text: string; due: boolean } {
+/**
+ * 一份文件里写第 `no` 章时要提的伏笔：`玉佩的来历（第 18 章前不要揭开）`，该收的、逾期的在前。
+ *
+ * **本章细纲或本章计划提到的一律列出**（`mentioned`，复跑之后），不占 `max` 那几个位置，排在同一档的最前面；还没到埋的、
+ * 本来不提的，被提到了也列出来，写「第 b 章前不要揭开」（细纲要碰它，正文最容易顺手把它揭开）。其余的最多 `max` 条。
+ */
+function foreshadowList(
+  file: ThreadFileBase,
+  no: number,
+  planned: readonly ThreadEvent[],
+  max: number,
+  mentioned: (name: string) => boolean
+): { text: string; due: boolean; mentioned: string[] } {
   const items = foreshadowingOf(file, no - 1)
     .filter((f) => !isForeshadowClosed(f.status))
-    .map((f) => ({ f, hint: foreshadowHint(f, no, planned) }))
-    .filter((x): x is { f: ForeshadowState; hint: [number, string] } => !!x.hint)
-    .sort((a, b) => a.hint[0] - b.hint[0] || (a.f.resolve ?? Infinity) - (b.f.resolve ?? Infinity));
+    .map((f) => {
+      const forced = mentioned(f.name) || planned.some((e) => e.foreshadowing && threadKey(e.foreshadowing) === threadKey(f.name));
+      const hint: [number, string] | undefined =
+        foreshadowHint(f, no, planned) ?? (forced ? [2, f.resolve !== undefined ? `第 ${f.resolve} 章前不要揭开` : NO_RESOLVE_HINT] : undefined);
+      return { f, hint, forced };
+    })
+    .filter((x): x is { f: ForeshadowState; hint: [number, string]; forced: boolean } => !!x.hint)
+    .sort(
+      (a, b) =>
+        a.hint[0] - b.hint[0] || Number(b.forced) - Number(a.forced) || (a.f.resolve ?? Infinity) - (b.f.resolve ?? Infinity)
+    );
+  let rest = 0;
+  const shown = items.filter((x) => x.forced || rest++ < max);
   return {
-    text: items
-      .slice(0, max)
-      .map((x) => `${x.f.name}（${x.hint[1]}）`)
-      .join('、'),
+    text: shown.map((x) => `${x.f.name}（${x.hint[1]}）`).join('、'),
     due: items.some((x) => x.hint[0] === 0),
+    mentioned: shown.filter((x) => x.forced).map((x) => x.f.name),
   };
+}
+
+/** 线最近两条实际事件（写正文的「最近」一栏）：**不取「埋」**（复跑之后：「埋」那一句写的多半是伏笔的谜面，不是这条线走到哪）。 */
+function recentText(t: ThreadFileBase): string {
+  return actualEvents(t)
+    .filter((e) => e.type !== '埋')
+    .slice(-2)
+    .map((e) => `第 ${e.chapter} 章${e.type}${e.foreshadowing ? `〈${e.foreshadowing}〉` : ''}${e.what ? `：${clip(e.what, LINE_ITEM_MAX)}` : ''}`)
+    .join('；');
 }
 
 /**
  * 写第 `no` 章时哪几条线算「有关」，按要紧程度排好（不截；设计稿「四、写正文」）：
  *
- * 0. 本章有计划事件的、本章细纲提到了名字的；
+ * 0. 本章有计划事件的、本章细纲提到了名字的、本章细纲或计划提到了它上面某条伏笔的；
  * 1. 主线；
  * 2. 计划收束章就在附近（{@link NEAR_CLOSE} 章之内）或已经过了的、有伏笔该在本章收或已经逾期的（收束章近的在前）；
  * 3. 最近动过的（近的在前）；计划中、本章已经在它的计划区间里的。
  *
- * 收束了、放弃了的不带。**计划中、还没到开始那一章、本章也没计划、细纲也没提的不带**——带进去等于提示模型提前开。
- * 「未归属的伏笔」有要提的就单独一行（有该收的排在第 2 档，否则最后）。状态、现在走到哪都按「写到这一章时」算
- * （{@link asOf}：当前进度写到这一章或更晚的不用，改用这一章之前最近两条实际事件）。
+ * 收束了、放弃了的不带——**它上面有本章提到的伏笔除外**，那一行只列那几条伏笔。**计划中、还没到开始那一章、本章也没
+ * 计划、细纲也没提的不带**——带进去等于提示模型提前开。「未归属的伏笔」有要提的就单独一行（有该收的、本章有计划或提到
+ * 的排在第 2 档，否则最后）。状态、现在走到哪都按「写到这一章时」算（{@link asOf}：当前进度写到这一章或更晚的不用，改用
+ * 这一章之前最近两条实际事件，「埋」不算）。
+ *
+ * 伏笔每行最多 {@link LINE_FORESHADOW_MAX} 条（未归属的一行加倍），**本章细纲或本章计划提到的不算在里面、一律列出**（复跑之后）：
+ * 一行变长了也只受这一层的总字数管，放不下时明细里点名说那几条没带上（`mentioned`）。
  */
 export function manuscriptThreads(book: ThreadBook, no: number, plotText: string): ContextThread[] {
   const plot = normalizeQuote(plotText);
+  // 「提到」认的是细纲全文与本章的计划（各条线里这一章的计划事件：伏笔名、一句话，推迟的写法也在一句话里）。
+  const mentioned = mentionTest(
+    [plotText, ...plannedFor(book, no).map((p) => `${p.event.foreshadowing ?? ''}\n${p.event.what}`)].join('\n')
+  );
   const out: (ContextThread & { tie: number; index: number })[] = [];
   for (const full of book.threads) {
     const t = asOf(full, no);
     const status = threadStatus(t);
-    if (isClosed(status)) {
-      continue;
-    }
     // 本章的计划事件在 asOf 里已经去掉了（只留之前的）：从原样那一份取。
     const planned = plannedEvents(full).filter((e) => e.chapter === no);
+    // 收束了的线不带；它上面还开着、本章又提到的伏笔照列（复跑之后：本章细纲提到的伏笔一律列出），别的伏笔不列。
+    const fores = foreshadowList(t, no, planned, isClosed(status) ? 0 : LINE_FORESHADOW_MAX, mentioned);
+    if (isClosed(status)) {
+      if (fores.mentioned.length > 0) {
+        out.push({
+          relPath: t.relPath,
+          name: t.name,
+          status,
+          why: '本章细纲提到了它上面的伏笔',
+          rank: 0,
+          line: `- ${t.name}（${t.kind} · ${status}）没收的伏笔：${fores.text}`,
+          mentioned: fores.mentioned,
+          tie: 0,
+          index: t.index,
+        });
+      }
+      continue;
+    }
     const key = threadKey(t.name);
-    const mentioned = key.length >= 2 && plot.includes(key);
+    const named = key.length >= 2 && plot.includes(key);
     const state = threadStateAt(t, no - 1);
-    const fores = foreshadowList(t, no, planned, LINE_FORESHADOW_MAX);
     const near = t.to !== undefined && (t.to < no || t.to - no <= NEAR_CLOSE);
     let rank: number;
     let why: string;
     let tie = 0;
-    if (planned.length > 0 || mentioned) {
+    if (planned.length > 0 || named || fores.mentioned.length > 0) {
       rank = 0;
-      why = planned.length > 0 ? '本章有计划' : '本章细纲提到了它';
+      why = planned.length > 0 ? '本章有计划' : named ? '本章细纲提到了它' : '本章细纲提到了它上面的伏笔';
     } else if (t.kind === '主线') {
       rank = 1;
       why = '主线';
@@ -1876,10 +1973,7 @@ export function manuscriptThreads(book: ThreadBook, no: number, plotText: string
     } else {
       continue;
     }
-    const recent = actualEvents(t)
-      .slice(-2)
-      .map((e) => `第 ${e.chapter} 章${e.type}${e.foreshadowing ? `〈${e.foreshadowing}〉` : ''}${e.what ? `：${clip(e.what, LINE_ITEM_MAX)}` : ''}`)
-      .join('；');
+    const recent = recentText(t);
     const now = t.progress
       ? `现在：${clip(t.progress, LINE_NOW_MAX)}`
       : recent
@@ -1891,19 +1985,31 @@ export function manuscriptThreads(book: ThreadBook, no: number, plotText: string
       .filter(Boolean)
       .join(' · ');
     const parts = [now, planned.length > 0 ? `本章计划：${plannedText(planned)}` : '', fores.text ? `没收的伏笔：${fores.text}` : ''].filter(Boolean);
-    out.push({ relPath: t.relPath, name: t.name, status, why, rank, line: `- ${t.name}（${head}）${parts.join('；')}`, tie, index: t.index });
+    out.push({
+      relPath: t.relPath,
+      name: t.name,
+      status,
+      why,
+      rank,
+      line: `- ${t.name}（${head}）${parts.join('；')}`,
+      ...(fores.mentioned.length > 0 ? { mentioned: fores.mentioned } : {}),
+      tie,
+      index: t.index,
+    });
   }
   const unfiledPlanned = plannedEvents(book.unfiled).filter((e) => e.chapter === no);
-  const loose = foreshadowList(asOf(book.unfiled, no), no, unfiledPlanned, LINE_FORESHADOW_MAX * 2);
+  const loose = foreshadowList(asOf(book.unfiled, no), no, unfiledPlanned, LINE_FORESHADOW_MAX * 2, mentioned);
   if (loose.text || unfiledPlanned.length > 0) {
     const parts = [loose.text, unfiledPlanned.length > 0 ? `本章计划：${plannedText(unfiledPlanned)}` : ''].filter(Boolean);
+    const urgent = loose.due || unfiledPlanned.length > 0 || loose.mentioned.length > 0;
     out.push({
       relPath: book.unfiled.relPath,
       name: UNFILED_NAME,
       status: '未归属',
-      why: loose.due || unfiledPlanned.length > 0 ? '有伏笔该收了或本章有计划' : '挂不上线的伏笔',
-      rank: loose.due || unfiledPlanned.length > 0 ? 2 : 4,
+      why: urgent ? '有伏笔该收了、本章有计划或细纲提到了' : '挂不上线的伏笔',
+      rank: urgent ? 2 : 4,
       line: `- ${UNFILED_NAME}：${parts.join('；')}`,
+      ...(loose.mentioned.length > 0 ? { mentioned: loose.mentioned } : {}),
       tie: Number.MAX_SAFE_INTEGER,
       index: Number.MAX_SAFE_INTEGER,
     });
@@ -1931,7 +2037,7 @@ export function reviewForeshadowing(book: ThreadBook, no: number): ContextThread
       if (!hint) {
         continue;
       }
-      const why = hint[1].replace('不要揭开', '不该揭开').replace('不要当场揭开', '不该当场揭开');
+      const why = hint[1].replace('不要揭开', '不该揭开').replace('不要当场揭开', '不该当场揭开').replace('就别揭开', '就不该揭开');
       out.push({
         relPath: file.relPath,
         name: f.name,

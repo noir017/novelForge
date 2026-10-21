@@ -937,7 +937,8 @@ describe('threadFile.ts · 写正文、审稿带哪几条', () => {
   test('计划中、还没到开始那一章的不带；当前进度写到这一章或更晚的不用，改用之前的事件', () => {
     assert.deepEqual(t.manuscriptThreads(book, 5, '').map((c) => c.name), ['林昭与沈青']);
     const [c] = t.manuscriptThreads(book, 4, '');
-    assert.equal(c.line, '- 林昭与沈青（感情线 · 进行中）最近：第 3 章推进：初遇；第 3 章埋〈玉佩〉；没收的伏笔：玉佩（第 18 章前不要揭开）');
+    // 「最近」不取「埋」（复跑之后：「埋」那一句写的多半是伏笔的谜面，不是这条线走到哪）。
+    assert.equal(c.line, '- 林昭与沈青（感情线 · 进行中）最近：第 3 章推进：初遇；没收的伏笔：玉佩（第 18 章前不要揭开）');
   });
 
   test('放不下的跳过、接着试下一条；明细里怎么称呼可换', () => {
@@ -949,6 +950,54 @@ describe('threadFile.ts · 写正文、审稿带哪几条', () => {
       '叙事线一次只带 1 条，排在后面的没带',
       '叙事线一次只带 1 条，排在后面的没带',
     ]);
+  });
+
+  // 复跑报告问题 5 的两个例子：细纲写「发现两枚铜牌与铜钱的共鸣契机」，伏笔叫「旧铜牌与铜钱的共鸣」。⚑ 六成、连着三个字。
+  test('细纲提没提到一条伏笔：去掉虚字之后的两字词六成出现、有两个挨着；名字只有两个字的要整个出现', () => {
+    const plot = t.mentionTest('沈默发现两枚铜牌与铜钱的共鸣契机。他捡到照骨镜残片，惊醒了无面鬼火。阿婆递来一碗水。井底有人。沉船的秘密。他摸出玉佩。');
+    assert.deepEqual(
+      ['旧铜牌与铜钱的共鸣', '照骨镜的残片', '无面鬼火的本质', '阿婆的真实身份', '井底的秘密', '玉佩', '佩剑', '名册'].map((n) => [n, plot(n)]),
+      [
+        ['旧铜牌与铜钱的共鸣', true],
+        ['照骨镜的残片', true],
+        ['无面鬼火的本质', true],
+        ['阿婆的真实身份', false],
+        ['井底的秘密', false],
+        ['玉佩', true],
+        ['佩剑', false],
+        ['名册', false],
+      ]
+    );
+  });
+
+  test('本章细纲、本章计划提到的伏笔一律列出，不占每条线 4 条的名额；收束了的线只列提到的那几条', () => {
+    const many = ['甲', '乙', '丙', '丁', '戊'].map((x, i) => ({ name: `${x}号暗格`, what: '', resolve: 20 + i }));
+    const fores = [...many, { name: '照骨镜的残片', what: '', resolve: 30 }, { name: '还远的计划', what: '', plant: 9, resolve: 40 }];
+    const main = line([ev(1, '推进', { what: '起火' }), ...fores.slice(0, 6).map((f) => ev(1, '埋', { foreshadowing: f.name }))], {
+      name: '主线',
+      kind: '主线',
+      relPath: 'm',
+      foreshadowing: fores,
+    });
+    main.events.push({ ...ev(5, '推进', { what: '〈还远的计划〉推迟到第 12 章埋' }), planned: true });
+    const closed = line([ev(1, '埋', { foreshadowing: '沉船' }), ev(2, '收束')], { name: '收了', relPath: 'c', index: 1, foreshadowing: [{ name: '沉船', what: '' }] });
+    const b = { threads: [main, closed], unfiled: { name: '未归属的伏笔', relPath: 'u', foreshadowing: [], events: [] } };
+    const rows = t.manuscriptThreads(b, 5, '他捡到照骨镜残片。沉船浮出水面。');
+    const m = rows.find((r) => r.name === '主线');
+    assert.equal(
+      m.line,
+      '- 主线（主线 · 进行中）最近：第 1 章推进：起火；本章计划：推进——〈还远的计划〉推迟到第 12 章埋；没收的伏笔：照骨镜的残片（第 30 章前不要揭开）、' +
+        '还远的计划（第 40 章前不要揭开）、甲号暗格（第 20 章前不要揭开）、乙号暗格（第 21 章前不要揭开）、丙号暗格（第 22 章前不要揭开）、丁号暗格（第 23 章前不要揭开）'
+    );
+    assert.deepEqual(m.mentioned, ['照骨镜的残片', '还远的计划']);
+    const c = rows.find((r) => r.name === '收了');
+    // 没有回收章的不硬写「不要提前揭开」。
+    assert.deepEqual([c.line, c.rank, c.why], ['- 收了（支线 · 已收束）没收的伏笔：沉船（还没定哪一章收，细纲没安排就别揭开）', 0, '本章细纲提到了它上面的伏笔']);
+    assert.ok(t.reviewForeshadowing(b, 5).some((r) => r.line === '- 沉船（挂在「收了」· 已埋 · 还没定哪一章收，细纲没安排就不该揭开）'));
+    // 没提到时：收束了的线不带，计划中、还没到埋的不提，主线照旧最多 4 条。
+    const bare = t.manuscriptThreads(b, 5, '');
+    assert.deepEqual(bare.map((r) => r.name), ['主线']);
+    assert.ok(!bare[0].line.includes('照骨镜') && !bare[0].line.includes('戊号暗格'), bare[0].line);
   });
 
   test('审稿：只提跟这一章有关的伏笔，「不要揭开」换成「不该揭开」', () => {

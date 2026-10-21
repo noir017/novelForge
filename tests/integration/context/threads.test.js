@@ -179,7 +179,7 @@ describe('threads 层 · 第 5 章', () => {
         ['叙事线 · 远方的来信', 'included', '计划中 · 本章细纲提到了它'],
         ['叙事线 · 青崖镇的大火', 'included', '进行中 · 主线'],
         ['叙事线 · 快收束的线', 'included', '进行中 · 计划第 7 章收束，就在附近'],
-        ['叙事线 · 未归属的伏笔', 'included', '未归属 · 有伏笔该收了或本章有计划'],
+        ['叙事线 · 未归属的伏笔', 'included', '未归属 · 有伏笔该收了、本章有计划或细纲提到了'],
         ['叙事线 · 断了的线', 'included', '进行中 · 最近第 2 章动过'],
       ]
     );
@@ -221,6 +221,75 @@ describe('threads 层 · 第 5 章', () => {
     assert.ok(section.indexOf('林昭与沈青') < section.indexOf('远方的来信'), section);
     assert.ok(at < user.indexOf('# 前文正文'));
     assert.ok(at < user.indexOf('# 细纲'));
+  });
+});
+
+// 复跑报告问题 5：主线这 4 个位置一直是同样 4 条，当章细纲里提到的「旧铜牌与铜钱的共鸣」「照骨镜的残片」没列出来，正文当章
+// 就把它们揭开了。细纲或本章计划提到的伏笔一律列出、不占 4 条的名额；「最近」不取「埋」；没有回收章的不硬写「不要提前揭开」。
+describe('threads 层 · 本章细纲提到的伏笔一律列出', () => {
+  const MAIN = thread('主线', '1-40', {
+    intent: '大火是谁放的。',
+    fore: [
+      '铜铃的来历：铃是沈家的（第 20 章前收）',
+      '旧账本：账上少了一笔（第 21 章前收）',
+      '井底的秘密：井底藏着东西（第 22 章前收）',
+      '老井的回声：井里有回声',
+      '师父的信：信里有名单（第 24 章前收）',
+      '照骨镜的残片：残片能照出死人（第 25 章前收）',
+      '无面鬼火的本质：鬼火是全镇的怨念（计划第 9 章埋、第 20 章前收）',
+    ],
+    events: [
+      '第 1 章 · 推进：起火 〔证据：「火光冲天」〕',
+      ...['铜铃的来历', '旧账本', '井底的秘密', '老井的回声', '师父的信', '照骨镜的残片'].map((n) => `第 1 章 · 埋〈${n}〉：露面 〔证据：「x」〕`),
+    ],
+  });
+  const CLOSED = thread('支线', '1-9', {
+    fore: ['沉船的秘密：船是被凿沉的（第 30 章前收）', '没提到的：不列（第 30 章前收）'],
+    events: ['第 1 章 · 埋〈沉船的秘密〉：露面 〔证据：「x」〕', '第 1 章 · 埋〈没提到的〉：露面 〔证据：「x」〕', '第 2 章 · 收束：收了 〔证据：「x」〕'],
+  });
+  const setUp = () => {
+    t.remove(DIR);
+    t.write(`${DIR}/青崖镇的大火.md`, MAIN);
+    t.write(`${DIR}/已经收了.md`, CLOSED);
+    t.write(PLOT(6), plotText(6, '- 林昭在祠堂捡到照骨镜残片，想起师父的信\n- 远处的无面鬼火又浮了起来\n- 沉船的秘密有了眉目'));
+    t.project.invalidate();
+  };
+  const tearDown = () => {
+    t.remove(PLOT(6));
+    writeThreads();
+  };
+
+  test('提到的排在同一档最前面、不占 4 条名额；还没到埋的被提到也列（第 b 章前不要揭开）；没有回收章的换个说法；「最近」不取「埋」', async () => {
+    setUp();
+    const items = threadItems(await build(6));
+    const fire = items.find((i) => i.label === '叙事线 · 青崖镇的大火');
+    assert.equal(
+      fire.text,
+      '- 青崖镇的大火（主线 · 进行中）最近：第 1 章推进：起火；没收的伏笔：无面鬼火的本质（第 20 章前不要揭开）、师父的信（第 24 章前不要揭开）、' +
+        '照骨镜的残片（第 25 章前不要揭开）、铜铃的来历（第 20 章前不要揭开）、旧账本（第 21 章前不要揭开）、井底的秘密（第 22 章前不要揭开）、' +
+        '老井的回声（还没定哪一章收，细纲没安排就别揭开）'
+    );
+    assert.equal(fire.note, '进行中 · 本章细纲提到了它上面的伏笔');
+    // 收束了的线不带，它上面本章提到的伏笔照列（只列提到的那几条）。
+    const closed = items.find((i) => i.label === '叙事线 · 已经收了');
+    assert.equal(closed.text, '- 已经收了（支线 · 已收束）没收的伏笔：沉船的秘密（第 30 章前不要揭开）');
+    tearDown();
+  });
+
+  test('仍受这一层的总字数管：整行放不下时，明细里点名说本章提到的那几条没带上', async () => {
+    setUp();
+    const b = await bundle.builder.buildContext(
+      t.project,
+      { action: WRITE, target: { kind: 'manuscript', plotRelPath: PLOT(6) }, ask: '', targetWords: 1200 },
+      { ...config(), contextOverrides: { threadChars: 80 } }
+    );
+    const fire = threadItems(b).find((i) => i.label === '叙事线 · 青崖镇的大火');
+    assert.equal(fire.status, 'dropped');
+    assert.equal(
+      fire.note,
+      '叙事线一共只带 80 字，放不下这一条（其中有本章细纲或计划提到的伏笔：无面鬼火的本质、师父的信、照骨镜的残片，没带上）'
+    );
+    tearDown();
   });
 });
 

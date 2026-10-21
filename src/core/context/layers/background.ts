@@ -757,6 +757,8 @@ export const evidence: LayerFn = async (a, spec) => {
  *
  * - 一条一个条目，按要紧程度排好（本章有计划的在最前）；note 写状态与为什么带它，来源是那条线自己的文件。
  * - 条数与字数按上下文详细度（缺省 6 条 / 1200 字；审稿按 `foreshadowJudge` 条），放不下的 dropped 并写原因（第 2 条）。
+ *   本章细纲或计划提到的伏笔一律列在它那条线的一行里（复跑之后，不占每条线 4 条的名额），只受这里的总字数管——那一行
+ *   放不下时，原因里点名说这几条伏笔没带上。
  * - 作者在明细里取消勾选的那条不占名额，后面的补上来。
  * - 没有叙事线、或者没有一条有关的：什么都不出（没有东西被截断）。
  * - 写第 N 章一律按「写到第 N 章时」算（`asOf`）：重写前面的章时不带后面的事。
@@ -803,7 +805,9 @@ export const threads: LayerFn = async (a, spec) => {
     a.admit({ ...base(c), text: '' });
   }
   for (const d of dropped) {
-    a.reject({ ...base(d), text: '' }, 'dropped', d.note);
+    // 本章细纲提到的伏笔一律列在那一行里（复跑之后），整行放不下时点名说它们没带上（第 2 条）。
+    const named = d.mentioned?.length ? `（其中有本章细纲或计划提到的伏笔：${d.mentioned.join('、')}，没带上）` : '';
+    a.reject({ ...base(d), text: '' }, 'dropped', `${d.note}${named}`);
   }
 };
 
