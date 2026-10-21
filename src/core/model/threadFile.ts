@@ -1168,8 +1168,11 @@ export function verifyThreadPlans(
 export const FINALIZE_EVENT_LIMIT = 8;
 /** 定稿时一章最多认出几条新线。 */
 export const FINALIZE_NEW_THREAD_LIMIT = 2;
-/** 定稿时一章最多认出几条新伏笔。 */
-export const FINALIZE_NEW_FORESHADOW_LIMIT = 5;
+/**
+ * 定稿时一章最多认出几条新伏笔。⚑ 试跑之后从 5 收到 3（2026-10-21）：模型报的新伏笔多半是章末危机、本章已经揭开的事、
+ * 普通情节，一章就报了 4 条，没收的伏笔第 7 章就超过了一次能认的条数，把排线排的伏笔挤了出去。
+ */
+export const FINALIZE_NEW_FORESHADOW_LIMIT = 3;
 /** 证据最长多少字（上游 240）。 */
 export const EVIDENCE_MAX = 240;
 /** 事件那一句话最长多少字。 */

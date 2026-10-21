@@ -631,6 +631,21 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
     assert.deepEqual(r.dropped.map((d) => [d.what, d.why]), [['新伏笔 玉佩', '这条伏笔已经有了']]);
   });
 
+  // ⚑ 试跑之后从 5 收到 3：模型报的新伏笔多半是噪音，一章就报了 4 条。
+  test('一章最多认出 3 条新伏笔（先校验后截）：单列的「埋」报出来的没见过的伏笔也算在里面', () => {
+    const r = verify({
+      newForeshadowing: [
+        { title: '沈字', what: '', evidence: '编出来的一句话' },
+        { title: '一', what: '', evidence: '背面刻着一个沈字' },
+        { title: '二', what: '', evidence: '从今往后，他不再疑她' },
+        { title: '三', what: '', evidence: '院外有人提着灯走过' },
+      ],
+      events: [{ line: '林昭与沈青', type: '埋', foreshadowing: '四', what: '', evidence: '院外有人提着灯走过' }],
+    });
+    assert.deepEqual(r.newForeshadowing.map((f) => f.name), ['一', '二', '三']);
+    assert.deepEqual(r.dropped.map((d) => d.why), ['证据在正文里找不到', '一章最多认出 3 条新伏笔']);
+  });
+
   test('一章最多 8 个事件（先校验后截）；整份不是对象也不崩', () => {
     const many = Array.from({ length: 10 }, (_, i) => ({ line: '林昭与沈青', type: '推进', what: `第${i}件`, evidence: i === 0 ? '编出来的一句话' : text.slice(i, i + 6) }));
     const r = verify({ events: many });
