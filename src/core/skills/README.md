@@ -9,7 +9,7 @@
 | [library.ts](library.ts) | 三个来源怎么读（内置 / 我的技能库 / 本工程），我的技能库怎么装与卸。**每次都读盘**；不跟链接 |
 | [github.ts](github.ts) | 从 GitHub 装：**先检查、再确认安装**，两步之间内容变了不装 |
 | [bindings.ts](bindings.ts) | 工程的阶段绑定（`.novelforge/skills.json`）：读、改、装配器问的那一句 `boundSkillFor` |
-| [builtin/](builtin/index.ts) | 三份内置技能，一份一个文件（整份 `SKILL.md` 文本，与其余来源走同一个解析器）：上游搬来两份，另有一份修正文风；`index.ts` 只定顺序 |
+| [builtin/](builtin/index.ts) | 五份内置技能，一份一个文件（整份 `SKILL.md` 文本，与其余来源走同一个解析器）：上游搬来两份，一份修正文风，另有两份外来的去 AI 味；`index.ts` 只定顺序 |
 
 纯函数（解析 `SKILL.md`、兼容检查、绑定文件的格式、一次装配算哪个阶段、GitHub 地址）在 [model/writingSkill.ts](../model/writingSkill.ts)：它零运行时 import，前端直接用里面的阶段名与来源名。
 
@@ -80,7 +80,7 @@
 |---|---|---|
 | 三个 agent 工具 | 一个 `skills` 工具的四个动作（多一个 `list`） | 四件事共用 `url` / `id` / `stage` 三个参数，合成一个工具比三个更好选（[tools/novel/index.ts](../tools/novel/index.ts)） |
 | 对话里 `/技能名` 手动调用 | 不做 | `/` 已经是阶段命令面板；上游这条路还绕过兼容检查与预算 |
-| 七个内置 | 搬了两个，另加一份修正文风 | 其余五个是上游 AI 助手对话用的，正文让模型调它自己的工具；修正文风见下 |
+| 七个内置 | 搬了两个，另加一份修正文风与两份外来的去 AI 味 | 其余五个是上游 AI 助手对话用的，正文让模型调它自己的工具；后三份见下 |
 | 名字只认 ASCII | 可以是中文 | 作者给自己的方法起中文名再自然不过 |
 | 身份取 frontmatter 的 name | 取目录名 | 只有一个名字，卸载不会删了个空 |
 | 装之前看不到正文 | 检查结果带正文 | 往后每一次生成都会带上它 |
@@ -93,5 +93,16 @@
 `builtin:plain-prose`（写正文）治过度描写：名词前堆形容词、动词前挂程度副词、「带着／透着」挂气味和情绪。八条能自己数的规矩加四组改前改后的整句示范。
 
 flash-lite 上实测**单绑它几乎没用**（修饰密度与不绑持平，删掉系统提示里三处反向要求之后「那／这＋定语」降三成，程度副词不动）：管住修饰靠的是写完之后那一轮只许删的删修饰（[generation/trim.ts](../generation/trim.ts)，设置里的「写完正文删修饰」），不是技能。它留着当提示词那一层的配合。
+
+## 外来的两份去 AI 味
+
+两份 MIT 的公开技能，正文照抄，许可原文在各自文件头：
+
+| 内置 | 上游 | 阶段 | 为过兼容检查动了什么 |
+|---|---|---|---|
+| `builtin:fiction-humanizer-zh` 小说去 AI 味 | [deedeekong07-alt/fiction-humanizer-zh](https://github.com/deedeekong07-alt/fiction-humanizer-zh) 0.1.0 | 写正文 | 原文末尾让模型按需去读同仓库四份参考文件（包含相对引用），这里把四份原文并进来、换掉指路；英文的 description 换成中文 |
+| `builtin:humanizer-zh` 去 AI 痕迹 | [op7418/Humanizer-zh](https://github.com/op7418/Humanizer-zh) 2026-09-23 修订 | 修稿 | frontmatter 声明了 `allowed-tools`（依赖工具调用），删掉；`metadata` 一并不要 |
+
+从 GitHub 装这两份都会被兼容检查拦下，所以做成内置。Humanizer-zh 是给中文文章、评论、文档去模板腔的，示例大多不是小说，改的又是已有文本，放在修稿；小说那份讲的是怎么写场景（铺垫、过程、余波，人物的目标与代价，章末钩子），放在写正文。两份都比别的内置长得多（约 1.6 万与 2 万字节），上下文紧的时候可能整份带不上，明细里会写。**还没在真实模型上比过有没有用**。
 
 从前的三份去 AI 味（写正文 / 审稿 / 修稿，共用一张十条的句式清单）实测基本无效，已撤下，原文归档在 [docs/design/archive/less-ai-tone/](../../../docs/design/archive/less-ai-tone/)，要用可以手动装进本工程。数据见 [2026-10-02-less-ai-tone.md](../../../docs/design/plans/2026-10-02-less-ai-tone.md) 与 [2026-10-03-plain-prose.md](../../../docs/design/plans/2026-10-03-plain-prose.md)。

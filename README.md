@@ -1026,7 +1026,7 @@ stage: drafting          # 建议绑在哪个阶段：planning / drafting / revi
 
 | 来源 | 在哪 | 怎么来 |
 |---|---|---|
-| 内置 | 随应用发布：「长篇连续性与场景推进」「自然语言润色」 | 删不掉 |
+| 内置 | 随应用发布：「长篇连续性与场景推进」「自然语言润色」「修正文风」，以及照抄两份公开技能的「小说去 AI 味」（[fiction-humanizer-zh](https://github.com/deedeekong07-alt/fiction-humanizer-zh)，写正文）与「去 AI 痕迹」（[Humanizer-zh](https://github.com/op7418/Humanizer-zh)，修稿），两份都是 MIT | 删不掉 |
 | 我的技能库 | `~/.novelforge/skills/<名字>/SKILL.md`，所有工程共用 | 从 GitHub 装，或者自己放一个目录进去 |
 | 本工程 | `.novelforge/skills/<名字>/SKILL.md`，跟着这本书走、可以进 Git | 自己放 |
 

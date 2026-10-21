@@ -9,11 +9,17 @@
  * 另有一份修正文风（写正文）是这边的，治名词前堆形容词的过度描写。从前的三份去 AI 味（写正文 /
  * 审稿 / 修稿）实测基本无效，已归档到 docs/design/archive/less-ai-tone/。
  *
+ * 再有两份外来的去 AI 味（MIT，许可原文在各自文件头）：小说去 AI 味（fiction-humanizer-zh，写正文）
+ * 与去 AI 痕迹（Humanizer-zh，修稿）。正文照抄上游，只为过兼容检查动了一处，各自文件头写明；
+ * 还没在真实模型上比过有没有用。
+ *
  * 写成整份 `SKILL.md` 文本而不是拆好的字段：内置与用户、工程技能走同一个解析器，兼容检查与
  * 字节数也是按真正注入的那份算的（上游内置的兼容性是拿一份短的替身算的）。
  *
  * 一份技能一个文件；这里只定顺序（`listSkills` 与设置页按这个顺序列）。
  */
+import { fictionHumanizerZh } from './fictionHumanizerZh';
+import { humanizerZh } from './humanizerZh';
 import { longFormContinuity } from './longFormContinuity';
 import { naturalProseRefinement } from './naturalProseRefinement';
 import { plainProse } from './plainProse';
@@ -25,4 +31,6 @@ export const BUILTIN_SKILLS: readonly BuiltinSkill[] = [
   longFormContinuity,
   naturalProseRefinement,
   plainProse,
+  fictionHumanizerZh,
+  humanizerZh,
 ];

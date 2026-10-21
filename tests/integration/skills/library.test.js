@@ -90,6 +90,8 @@ describe('三个来源', () => {
       'builtin:long-form-continuity',
       'builtin:natural-prose-refinement',
       'builtin:plain-prose',
+      'builtin:fiction-humanizer-zh',
+      'builtin:humanizer-zh',
       'user:scene-craft',
       'project:scene-craft',
       'project:去AI味',
@@ -121,6 +123,17 @@ describe('三个来源', () => {
   test('修正文风建议绑在写正文阶段', async () => {
     const plain = await skills.loadSkill('builtin:plain-prose');
     assert.equal(plain.inspection.stage, 'drafting');
+  });
+
+  test('两份外来的去 AI 味：小说那份在写正文，通用那份在修稿', async () => {
+    const [fiction, general] = await Promise.all([
+      skills.loadSkill('builtin:fiction-humanizer-zh'),
+      skills.loadSkill('builtin:humanizer-zh'),
+    ]);
+    assert.deepEqual([fiction.inspection.stage, general.inspection.stage], ['drafting', 'refinement']);
+    // 小说那份把参考文件并了进来：并进来的那几节在，指路去读别的文件的那几行不在。
+    assert.ok(fiction.inspection.body.includes('### AI 小说味常见模式'));
+    assert.ok(!fiction.inspection.body.includes('references/'));
   });
 
   test('链接过去的目录认不出', async () => {
