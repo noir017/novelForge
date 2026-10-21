@@ -79,6 +79,17 @@ export type {
 
 export type { CheckSensitiveTerm, CheckTermsView } from './check';
 export type { NameEntry, NameIndex, NameSource } from './nameIndex';
+export type {
+  ThreadsOverview,
+  ThreadsOverviewChapter,
+  ThreadsOverviewChapterState,
+  ThreadsOverviewCell,
+  ThreadsOverviewEvent,
+  ThreadsOverviewForeshadow,
+  ThreadsOverviewGroup,
+  ThreadsOverviewLine,
+  ThreadsOverviewSpan,
+} from './threadsOverview';
 
 export type {
   BookFindFile,

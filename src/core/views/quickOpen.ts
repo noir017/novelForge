@@ -116,9 +116,9 @@ async function listDocs(project: NovelProject): Promise<QuickOpenDoc[]> {
 
 /**
  * 卷目录：文件在 `root` 下那段相对路径的目录部分（`第一卷`、`第一卷/上`），根下是空串。
- * `root` 是空串（章节根配成了工程根）时整个相对路径都算。
+ * `root` 是空串（章节根配成了工程根）时整个相对路径都算。叙事线总览的列头（`threads.ts`）也用它标卷名。
  */
-function volumeOf(relPath: string, root: string): string {
+export function volumeOf(relPath: string, root: string): string {
   const under = root === '' ? relPath : relPath.startsWith(`${root}/`) ? relPath.slice(root.length + 1) : undefined;
   if (under === undefined) {
     return '';

@@ -35,6 +35,7 @@ import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
 import { buildPipelineIndex } from '../views/pipeline';
 import { buildQuickOpenIndex } from '../views/quickOpen';
 import { buildNameIndex, nameIndexSig } from '../views/nameIndex';
+import { buildThreadsOverview } from '../views/threads';
 import { chapterIndexOf } from '../views/chapterIndex';
 import { DEFAULT_PARAGRAPH_STYLE } from '../model/paragraphFormat';
 import {
@@ -559,6 +560,11 @@ export class ChatController {
       case 'editSensitiveWords':
         // 内置编辑器的写作体检（controller/check.ts）：没有就新建模板，然后打开。
         await editSensitiveWords(this);
+        return;
+
+      case 'requestThreadsOverview':
+        // 编辑区「叙事线总览」标签（叙事线重做三期）要矩阵：纯读盘、不调模型。回复是广播，前端认 requestId。
+        this.post({ type: 'threadsOverview', requestId: msg.requestId, overview: await buildThreadsOverview(this.project) });
         return;
 
       case 'requestNameIndex': {

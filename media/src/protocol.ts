@@ -115,6 +115,19 @@ export type {
 /** 「名词补全」的名词表（`core/protocol/nameIndex.ts`）。 */
 export type { NameEntry, NameIndex, NameSource } from '../../src/core/protocol';
 
+/** 编辑区「叙事线总览」标签的矩阵（`core/protocol/threadsOverview.ts`，叙事线重做三期）。 */
+export type {
+  ThreadsOverview,
+  ThreadsOverviewChapter,
+  ThreadsOverviewChapterState,
+  ThreadsOverviewCell,
+  ThreadsOverviewEvent,
+  ThreadsOverviewForeshadow,
+  ThreadsOverviewGroup,
+  ThreadsOverviewLine,
+  ThreadsOverviewSpan,
+} from '../../src/core/protocol';
+
 /**
  * 创作流水线的类型与那几张对照表。
  *

@@ -213,6 +213,12 @@ export type InMessage =
    */
   | { type: 'requestNameIndex'; requestId: string; have?: string }
   /**
+   * 内置编辑器「叙事线总览」标签（叙事线重做三期）要矩阵：章 × 线，线按种类分组、每条线下面是它的伏笔、最后是「未归属的
+   * 伏笔」（`views/threads.ts` 的 `buildThreadsOverview`，纯读盘、不调模型）。回 `threadsOverview`，带同一个 `requestId`
+   * （回复是广播，只有发问的那一边认它）。按需要，不常驻推送。
+   */
+  | { type: 'requestThreadsOverview'; requestId: string }
+  /**
    * `range` 只有「批量拆细纲」用：弹窗里选的区间（W5）。`call` 表示弹窗已经把
    * 调用次数写给作者看过了，带着作者在弹窗上为这一次挑的模型与详细度，后端不再弹第二个确认框
    * （弹窗与确认框算的是同一个 `planPlotBatches`，不叠弹窗）。「批量写章」（W9）同样带 `range` / `call`，另带

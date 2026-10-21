@@ -7,6 +7,7 @@ import type { ArtifactKind } from '../workspace/kind';
 import type { QuickOpenIndex } from './quickOpen';
 import type { CheckTermsView } from './check';
 import type { NameIndex } from './nameIndex';
+import type { ThreadsOverview } from './threadsOverview';
 import type { BookFindResult, BookReplaceSummary } from './bookFind';
 import type {
   EditorOpenIntent,
@@ -179,6 +180,11 @@ export type OutMessage =
    * （前端手上那份就是最新的）。认不出的 `requestId` 前端静默丢弃。
    */
   | { type: 'nameIndex'; requestId: string; sig: string; index?: NameIndex }
+  /**
+   * 回 `requestThreadsOverview`：编辑区「叙事线总览」标签要的矩阵（章 × 线，`protocol/threadsOverview.ts`）。认不出的
+   * `requestId` 前端静默丢弃（另一个视图要的）。
+   */
+  | { type: 'threadsOverview'; requestId: string; overview: ThreadsOverview }
   | {
       type: 'pipeline';
       pipeline?: PlotPipelineView;
