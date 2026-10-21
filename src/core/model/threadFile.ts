@@ -1336,7 +1336,8 @@ function unquoteEvidence(v: unknown): string {
  * - **事件**：类型认得出。线的事件（推进 / 关系 / 收束 / 放弃）的 `line` 要是送去认的线之一、或这一次新认出的线，挂不上的
  *   丢掉（关系变动挂不上就丢，设计稿）；伏笔的事件（埋 / 收 / 弃）跟着那条伏笔走——落在它所在的那条线或「未归属的伏笔」
  *   上；没见过的伏笔被「埋」了，当它是一条新伏笔（照上一条挂）；没见过的被「收」「弃」丢掉；**写到这一章之前已经埋下的
- *   再「埋」一次丢掉**（试跑：同一条伏笔记了两次「埋」）。同一条（同一处、同类型、同一条伏笔、证据归一后相同）只记一次；
+ *   再「埋」一次丢掉**（试跑：同一条伏笔记了两次「埋」）；**还没埋下的被「收」「弃」丢掉**（复跑：「计划」状态的伏笔第 1 章
+ *   就被「收」掉了）——之前埋过、或者这一章有它的「埋」才算埋下。同一条（同一处、同类型、同一条伏笔、证据归一后相同）只记一次；
  *   一章最多 {@link FINALIZE_EVENT_LIMIT} 个（先校验后截）。
  *
  * `judged` 是送去认的线（只有它们收线的事件）；`book` 用来认全书已有的线名与伏笔名。
@@ -1440,6 +1441,25 @@ export function verifyFinds(
     }
   }
 
+  /**
+   * 这一章埋下的伏笔（复跑之后，2026-10-21）：「收」「弃」要排在「埋」之后——之前埋过（{@link plantedBefore}），或者这一章
+   * 有它的「埋」（模型这一次报的、证据找得到的「埋」；重新定稿时这一章已经记下的「埋」；这一章新认出的伏笔，补的那一条「埋」）。
+   * 复跑：两条排线排的伏笔第 1 章还是「计划」就被报了「收」，照收了，从此再也不提醒「第 b 章前不要揭开」。
+   */
+  const plantedHere = new Set<string>(newFore.keys());
+  for (const x of list(o.events)) {
+    if (eventTypeOf(strOf(x.type)) === '埋' && strOf(x.foreshadowing) && !evidenceWhy(unquoteEvidence(x.evidence))) {
+      plantedHere.add(threadKey(strOf(x.foreshadowing)));
+    }
+  }
+  for (const f of [...ctx.book.threads, ctx.book.unfiled]) {
+    for (const e of actualEvents(f)) {
+      if (e.chapter === ctx.chapter && e.type === '埋' && e.foreshadowing) {
+        plantedHere.add(threadKey(e.foreshadowing));
+      }
+    }
+  }
+
   const accepted: FoundEvent[] = [];
   for (const x of list(o.events)) {
     const lineName = strOf(x.line ?? x.thread);
@@ -1457,6 +1477,8 @@ export function verifyFinds(
         why = '没写是哪一条伏笔';
       } else if (known && type === '埋' && plantedBefore.has(key)) {
         why = `这条伏笔第 ${plantedBefore.get(key)} 章已经埋下`;
+      } else if (known && type !== '埋' && !plantedBefore.has(key) && !plantedHere.has(key)) {
+        why = `这条伏笔还没埋下，不能${type}`;
       } else if (known) {
         found = { ...(known.line ? { line: known.line } : {}), event: { chapter: ctx.chapter, planned: false, type: type!, foreshadowing: known.name, what, evidence } };
       } else if (type === '埋') {
@@ -2252,7 +2274,8 @@ export interface PlannedChapter {
  * - **线的事件**（推进 / 关系 / 收束）：`line` 认得出、写到这一章时还没收束的线才记；认不出的丢掉（设计稿：其余丢掉并写进
  *   卡片与日志）。
  * - **伏笔的事件**（埋 / 收）跟着那条伏笔走，落在它所在的线或「未归属的伏笔」上，不看 `line`（同定稿 a，一期前半 ⚑7）。
- *   写到这一章时已经收了、弃了的不记；已经埋下的再「埋」不记。
+ *   写到这一章时已经收了、弃了的不记；已经埋下的再「埋」不记；**「收」要排在「埋」之后**（复跑之后）：写到这一章时已经
+ *   实际埋下，或者计划里更早的一章「埋」它（这一次不换掉的那几章里已有的计划，或这一批前面几章刚排的），不然丢掉。
  * - **没见过的伏笔**：「埋」就是一条新伏笔——`line` 认得出、还没收束就挂在那条线上，认不出进「未归属的伏笔」（设计稿），
  *   登记成 `名：是什么（计划第 N 章埋、第 b 章前收）`；「收」丢掉。名字与全书已有的、前面几章刚埋的不重复。
  * - 同一份文件里同一条只记一次。
@@ -2275,6 +2298,23 @@ export function resolvePlanEvents(
     }
   }
   const fileOf = (line: string | undefined): ThreadFileBase => (line ? lines.get(threadKey(line))! : book.unfiled);
+  /**
+   * 计划里最早哪一章「埋」它（复跑之后：计划「收」要排在计划「埋」或实际「埋」之后）。先认这一次不换掉的那几章里已有的
+   * 计划，这一批按章号走到哪、埋了哪条再加上。
+   */
+  const rewriting = new Set(chapters.map((c) => c.no));
+  const plantPlanned = new Map<string, number>();
+  const notePlant = (name: string, no: number): void => {
+    const key = threadKey(name);
+    plantPlanned.set(key, Math.min(plantPlanned.get(key) ?? Number.POSITIVE_INFINITY, no));
+  };
+  for (const f of [...book.threads, book.unfiled]) {
+    for (const e of plannedEvents(f)) {
+      if (e.type === '埋' && e.foreshadowing && !rewriting.has(e.chapter)) {
+        notePlant(e.foreshadowing, e.chapter);
+      }
+    }
+  }
   const out: PlannedChapter[] = [];
   for (const { no, entries } of [...chapters].sort((a, b) => a.no - b.no)) {
     const ch: PlannedChapter = { no, events: [], newForeshadowing: [], dropped: [], replaced: plannedFor(book, no).length };
@@ -2301,11 +2341,17 @@ export function resolvePlanEvents(
       const known = owner.get(threadKey(p.foreshadowing!));
       if (known) {
         const state = foreshadowingOf(asOf(fileOf(known.line), no), no - 1).find((f) => threadKey(f.name) === threadKey(known.name));
+        const plantAt = plantPlanned.get(threadKey(known.name));
         if (state && isForeshadowClosed(state.status)) {
           ch.dropped.push({ what: label, why: `这条伏笔已经${state.status === '已收' ? '收' : '弃'}了` });
         } else if (p.type === '埋' && state?.status === '已埋') {
           ch.dropped.push({ what: label, why: `这条伏笔第 ${state.plantedAt} 章已经埋下了` });
+        } else if (p.type === '收' && state?.status !== '已埋' && !(plantAt !== undefined && plantAt < no)) {
+          ch.dropped.push({ what: label, why: '这条伏笔还没埋，「收」要排在「埋」之后（先在更早的一章安排「埋」）' });
         } else {
+          if (p.type === '埋') {
+            notePlant(known.name, no);
+          }
           push(known.line, { chapter: no, planned: true, type: p.type, foreshadowing: known.name, what: p.what });
         }
         continue;
@@ -2322,6 +2368,7 @@ export function resolvePlanEvents(
         ...(p.resolve !== undefined ? { resolve: p.resolve } : {}),
       };
       owner.set(threadKey(foreshadowing.name), { name: foreshadowing.name, ...(line ? { line } : {}) });
+      notePlant(foreshadowing.name, no);
       ch.newForeshadowing.push({ ...(line ? { line } : {}), foreshadowing });
       push(line, { chapter: no, planned: true, type: '埋', foreshadowing: foreshadowing.name, what: p.what });
     }

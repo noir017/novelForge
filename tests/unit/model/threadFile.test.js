@@ -588,7 +588,12 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
   const verify = (raw, judged = [pair]) => t.verifyFinds(raw, { chapter: 6, text, judged, book });
 
   test('事件：线的事件只认送去的线与新线；伏笔的事件跟着伏笔走；证据逐字找得到；同一条只记一次', () => {
-    const r = verify({
+    // 玉佩、提灯人在这一章之前都埋下了（还没埋下的不能收，见下一条）。
+    const planted = {
+      threads: [{ ...pair, events: [ev(3, '埋', { foreshadowing: '玉佩' })] }, ...book.threads.slice(1)],
+      unfiled: { ...book.unfiled, events: [ev(2, '埋', { foreshadowing: '提灯人' })] },
+    };
+    const r = t.verifyFinds({
       events: [
         { line: '林昭与沈青', type: '关系', what: '猜忌 → 信任', evidence: '从今往后，他不再疑她' },
         { line: '林昭与沈青', type: '关系', what: '重复', evidence: '从今往后他不再疑她。' },
@@ -602,7 +607,7 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
         { line: '林昭与沈青', type: '收', foreshadowing: '没见过', what: 'x', evidence: '院外有人提着灯走过' },
         { line: '林昭与沈青', type: '收', what: 'x', evidence: '院外有人提着灯走过' },
       ],
-    });
+    }, { chapter: 6, text, judged: [pair], book: planted });
     assert.deepEqual(r.events.map((e) => [e.line, e.event.type, e.event.foreshadowing]), [
       ['林昭与沈青', '关系', undefined],
       ['林昭与沈青', '收', '玉佩'],
@@ -617,6 +622,49 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
       '认不出是哪一条伏笔',
       '没写是哪一条伏笔',
     ]);
+  });
+
+  // 复跑报告问题 1（rerun-repro.js 第 1 段）：排线排的伏笔第 1 章还是「计划」，a 报了「收」，校验照收，从此不再提醒「不要提前揭开」。
+  test('还没埋下的伏笔不能收、不能弃；之前埋过、这一章有它的「埋」（报的、已经记下的）、新认出的才算埋下', () => {
+    const r = verify({
+      events: [
+        { line: '林昭与沈青', type: '收', foreshadowing: '玉佩', what: '揭开', evidence: '背面刻着一个沈字' },
+        { type: '弃', foreshadowing: '提灯人', what: '作废', evidence: '院外有人提着灯走过' },
+      ],
+    });
+    assert.deepEqual(r.events, []);
+    assert.deepEqual(r.dropped, [
+      { what: '林昭与沈青〈玉佩〉', why: '这条伏笔还没埋下，不能收' },
+      { what: '？〈提灯人〉', why: '这条伏笔还没埋下，不能弃' },
+    ]);
+    // 同一章先埋后收（报的顺序不论）：两条都记。
+    const both = verify({
+      events: [
+        { line: '林昭与沈青', type: '收', foreshadowing: '玉佩', what: '揭开', evidence: '背面刻着一个沈字' },
+        { line: '林昭与沈青', type: '埋', foreshadowing: '玉佩', what: '露面', evidence: '沈青把玉佩翻过来' },
+      ],
+    });
+    assert.deepEqual(both.events.map((e) => e.event.type), ['收', '埋']);
+    // 证据找不到的「埋」不算这一章埋下了。
+    const fake = verify({
+      events: [
+        { line: '林昭与沈青', type: '埋', foreshadowing: '玉佩', what: '露面', evidence: '编出来的一句话' },
+        { line: '林昭与沈青', type: '收', foreshadowing: '玉佩', what: '揭开', evidence: '背面刻着一个沈字' },
+      ],
+    });
+    assert.deepEqual(fake.events, []);
+    // 重新定稿这一章：这一章已经记下了它的「埋」。
+    const again = t.verifyFinds(
+      { events: [{ type: '收', foreshadowing: '提灯人', what: '揭开', evidence: '院外有人提着灯走过' }] },
+      { chapter: 6, text, judged: [pair], book: { ...book, unfiled: { ...book.unfiled, events: [ev(6, '埋', { foreshadowing: '提灯人' })] } } }
+    );
+    assert.deepEqual(again.events.map((e) => [e.event.type, e.event.foreshadowing]), [['收', '提灯人']]);
+    // 这一章新认出的伏笔会补一条「埋」：同一章收它照记。
+    const fresh = verify({
+      newForeshadowing: [{ title: '断剑', what: '', evidence: '背面刻着一个沈字' }],
+      events: [{ type: '收', foreshadowing: '断剑', what: '揭开', evidence: '院外有人提着灯走过' }],
+    });
+    assert.deepEqual(fresh.events.map((e) => [e.event.type, e.event.foreshadowing]), [['收', '断剑']]);
   });
 
   test('新线：种类四选一、不重名、主线已有不收、要有证据、一章最多 2 条；事件可以挂在新线上', () => {
@@ -998,7 +1046,12 @@ describe('threadFile.ts · 拆细纲：计划落到哪份文件上（二期）',
   });
   const closed = line([ev(2, '收束')], { name: '收了的线', relPath: 'c', index: 1, foreshadowing: [{ name: '收了的伏笔', what: '' }] });
   closed.events.push(ev(2, '收', { foreshadowing: '收了的伏笔' }));
-  const unfiled = { name: '未归属的伏笔', relPath: 'u', foreshadowing: [{ name: '提灯人', what: '' }], events: [plan(6, '收', { foreshadowing: '提灯人' })] };
+  const unfiled = {
+    name: '未归属的伏笔',
+    relPath: 'u',
+    foreshadowing: [{ name: '提灯人', what: '' }],
+    events: [ev(2, '埋', { foreshadowing: '提灯人' }), plan(6, '收', { foreshadowing: '提灯人' })],
+  };
   const book = { threads: [pair, closed], unfiled };
   const entry = (line, type, extra = {}) => ({ line, type, what: '', ...extra });
 
@@ -1061,6 +1114,46 @@ describe('threadFile.ts · 拆细纲：计划落到哪份文件上（二期）',
     ]);
     assert.deepEqual(b.events, [{ line: '林昭与沈青', event: { chapter: 8, planned: true, type: '收', foreshadowing: '断剑', what: '' } }]);
     assert.equal(a.replaced, 0);
+  });
+
+  // 复跑报告问题 1：拆细纲照写了「没埋就收」（未归属的伏笔里〈无面鬼火的实体凝聚〉第 15 章计划收，从没埋过）。
+  test('计划「收」要排在「埋」之后：实际埋过、或者更早的一章计划埋它（已有的、这一批前面几章的）才记', () => {
+    const fresh = {
+      ...book,
+      threads: [
+        {
+          ...pair,
+          foreshadowing: [...pair.foreshadowing, { name: '名册', what: '', plant: 5 }, { name: '令牌', what: '' }, { name: '断剑', what: '' }],
+          events: [...pair.events, plan(5, '埋', { foreshadowing: '令牌' }), plan(9, '埋', { foreshadowing: '断剑' })],
+        },
+        closed,
+      ],
+    };
+    const [c7, c8] = t.resolvePlanEvents(fresh, [
+      {
+        no: 7,
+        entries: [
+          entry('', '收', { foreshadowing: '旧伤' }),
+          entry('', '收', { foreshadowing: '名册' }),
+          entry('', '收', { foreshadowing: '令牌' }),
+          entry('', '收', { foreshadowing: '断剑' }),
+          entry('', '埋', { foreshadowing: '名册' }),
+        ],
+      },
+      { no: 8, entries: [entry('', '收', { foreshadowing: '名册' })] },
+    ]);
+    // 旧伤从没埋过、也没有计划埋；名册「计划第 5 章埋」只是伏笔那一行写的，不算安排过；断剑计划第 9 章才埋；同一章先埋后收也不算。
+    assert.deepEqual(c7.events.map((e) => [e.event.type, e.event.foreshadowing]), [['收', '令牌'], ['埋', '名册']]);
+    assert.deepEqual(c7.dropped.map((d) => d.what), ['收〈旧伤〉', '收〈名册〉', '收〈断剑〉']);
+    assert.match(c7.dropped[0].why, /还没埋，「收」要排在「埋」之后/);
+    // 第 7 章刚排了「埋〈名册〉」，第 8 章收得到。
+    assert.deepEqual(c8.events.map((e) => [e.event.type, e.event.foreshadowing]), [['收', '名册']]);
+    // 这一次要换掉的那一章里原来的「埋」不算：第 5 章重拆、没再埋令牌，第 7 章就收不了。
+    const [, r7] = t.resolvePlanEvents(fresh, [
+      { no: 5, entries: [] },
+      { no: 7, entries: [entry('', '收', { foreshadowing: '令牌' })] },
+    ]);
+    assert.deepEqual(r7.events, []);
   });
 
   test('解码：没写是 undefined、写成别的形状当空的；逐条校验；规范化的形状原样', () => {
