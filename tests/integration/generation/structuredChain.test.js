@@ -412,6 +412,15 @@ describe('细纲批次 · 语法修复', () => {
     assert.equal(r.gate, undefined);
     assert.ok(r.errors.some((m) => m.includes('语法修复改动了细纲的内容')), r.errors.join('|'));
   });
+
+  // 复跑报告问题 7：模型在结尾多写了一个 `]`，修复只删了它，从前被判成改了内容、整批白花 2 次。
+  test('结尾多写了一个收尾括号、修复只删了它：收下', async () => {
+    fake.reset([{ text: batchOf(bp(6), bp(7)).replace(/]}$/, ']]}'), stop: 'end' }, { text: batchOf(bp(6), bp(7)), stop: 'end' }]);
+    onGate = async () => 'skip';
+    const r = await send({ stage: 'plot', capability: 'generate', target: PLOT_T(6), range: { from: 6, to: 7 } });
+    assert.equal(fake.callCount(), 2);
+    assert.ok(r.gate && r.gate.detail.includes('修了一次（只改标点）'), JSON.stringify(r.gate ?? r.errors));
+  });
 });
 
 describe('细纲批次 · 单章缺字段 → 紧凑重建', () => {

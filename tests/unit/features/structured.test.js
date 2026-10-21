@@ -50,6 +50,20 @@ describe('structuredJson.ts · 语法修复的证据校验', () => {
     assert.equal(J.preservesJsonEvidence('{"a": 1,}', '{"a": 1}'), true);
   });
 
+  // 复跑报告问题 7（rerun-repro.js 第 2 段）：拆细纲时模型在结尾多写了一个 `]`，修复只删了它，却被判成改了内容、整批拒收。
+  test('只动了最后一个值后面那一串收尾括号（多删少补、换一个）：通过；中间的括号动了照旧拒收', () => {
+    const bad = '{"blueprints":[{"chapterNumber":13,"title":"甲","threads":[{"line":"主线","type":"推进","what":"乙"}]}]]}';
+    const fixed = '{"blueprints":[{"chapterNumber":13,"title":"甲","threads":[{"line":"主线","type":"推进","what":"乙"}]}]}';
+    assert.equal(J.preservesJsonEvidence(bad, fixed), true);
+    assert.equal(J.preservesJsonEvidence('{"a": [{"b": 1}}', '{"a": [{"b": 1}]}'), true);
+    assert.equal(J.preservesJsonEvidence('{"a": [{"b": 1}]]]}', '{"a": [{"b": 1}]}'), true);
+    // 最后一个值之前的括号动了：哪个值属于哪个对象可能变了，不认。
+    assert.equal(J.preservesJsonEvidence('{"a": [1]], "b": 2}', '{"a": [1], "b": 2}'), false);
+    assert.equal(J.preservesJsonEvidence('{"a": [1]], "b": 2}', '{"a": [1, "b", 2]}'), false);
+    // 尾巴上动了括号，值却改了：照旧拒收。
+    assert.equal(J.preservesJsonEvidence(bad, fixed.replace('乙', '丙')), false);
+  });
+
   test('改了一个字、补了一个值、调了顺序：一律拒收', () => {
     assert.equal(J.preservesJsonEvidence('{"a": "林昭"', '{"a": "林照"}'), false);
     assert.equal(J.preservesJsonEvidence('{"a": 1', '{"a": 1, "b": 2}'), false);
