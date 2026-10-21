@@ -245,3 +245,47 @@ describe('对话页：预检卡片与写章卡片的说明', () => {
     assert.equal(fake.calls.length, 1, '写正文 1 次，提醒零调用');
   });
 });
+
+// 复跑报告问题 9：「阿婆的真实身份」计划第 5 章埋，到第 15 章还是「计划」，两类提醒都不管。第三类：计划埋了却一直没埋，
+// 照现有两类的做法——不拦人，预检、工作台、批量写章的确认框、对话页都显示（前端批量弹窗在 tests/dom/view/forms.test.js）。
+describe('第三类：计划埋了却一直没埋', () => {
+  const UNPLANTED = UNFILED.replace('- 提灯人（第 3 章前收）', '- 提灯人（第 3 章前收）\n- 阿婆的身份：阿婆当年在场（计划第 3 章埋）\n- 井底的回声（计划第 7 章埋）');
+  before(() => {
+    t.write(`${DIR}/未归属的伏笔.md`, UNPLANTED);
+    project.invalidate();
+  });
+  after(() => {
+    t.write(`${DIR}/未归属的伏笔.md`, UNFILED);
+    project.invalidate();
+  });
+
+  test('预检：计划第 3 章埋、写第 6 章还没埋的提；计划第 7 章才埋的不提', async () => {
+    const r = await bundle.preflight.preflightChapter(project, 6);
+    assert.deepEqual(r.threads, [
+      { kind: 'overdue', name: '玉佩的来历', resolve: 5, at: 6 },
+      { kind: 'unplanted', name: '阿婆的身份', plant: 3, at: 6 },
+    ]);
+  });
+
+  test('工作台与批量写章的确认框同一句（不拦）', async () => {
+    const card = await bundle.workbench.buildWorkbench(project, { kind: 'manuscript', plotRelPath: PLOT(6) });
+    assert.match(card.notice, /伏笔〈阿婆的身份〉计划第 3 章埋，还没埋，本章计划里也没安排埋/);
+    h.expect('仅本次忽略，照写', undefined);
+    assert.equal(await bundle.batch.writeManuscripts(project, { range: { from: 6, to: 8 } }), 0);
+    const c = h.confirms.find((x) => x.actions.includes('开始写章'));
+    // 第 8 章前面已经写过了（跳过），区间是第 6–7 章：井底的回声计划第 7 章埋，写第 7 章时还不算过。
+    assert.match(c.detail, /伏笔〈阿婆的身份〉计划第 3 章埋，写到第 6 章还没埋，区间里也没安排埋；〈青崖旧案〉/);
+    assert.doesNotMatch(c.detail, /井底的回声/);
+  });
+
+  test('对话页：没风险时进写章卡片的说明（照写）', async () => {
+    gates = [];
+    script = [{ text: filler(700, 81), stop: 'end' }];
+    const before = fake.calls.length;
+    await controller.handle({ type: 'chapterAction', plotRelPath: PLOT(6), action: 'write' });
+    const card = gates.find((g) => g.name === 'artifact');
+    assert.ok(card, JSON.stringify(gates.map((g) => g.name)));
+    assert.match(card.detail, /伏笔〈阿婆的身份〉计划第 3 章埋，还没埋，本章计划里也没安排埋/);
+    assert.equal(fake.calls.length - before, 1, '提醒零调用');
+  });
+});

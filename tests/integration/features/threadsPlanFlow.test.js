@@ -265,12 +265,18 @@ describe('叙事线重做二期验收：拆细纲带线，计划写进线里，�
     }
   });
 
-  test('写前提醒：玉佩第 3 章前要收、计划里不再收它，写第 4 章时提醒（不拦）；名册第 4 章计划里收了，不提', async () => {
+  // 复跑之后加了第三类：名册计划第 2 章埋，第 1–3 章没定稿、叙事线里还没有实际的「埋」，写第 4 章时照提（说明里注了可能不准）。
+  test('写前提醒：玉佩第 3 章前要收、计划里不再收它，写第 4 章时提醒（不拦）；名册第 4 章计划里收了，不提逾期，提还没埋', async () => {
     const pre = await bundle.preflight.preflightChapter(project, 4);
-    assert.deepEqual(pre.threads, [{ kind: 'overdue', name: '玉佩的来历', resolve: 3, at: 4 }]);
+    assert.deepEqual(pre.threads, [
+      { kind: 'overdue', name: '玉佩的来历', resolve: 3, at: 4 },
+      { kind: 'unplanted', name: '名册少的一页', plant: 2, at: 4 },
+    ]);
     const wb = await bundle.workbench.buildWorkbench(project, { kind: 'manuscript', plotRelPath: PLOT(4) });
     assert.ok(
-      wb.notice.includes('叙事线提醒：伏笔〈玉佩的来历〉计划第 3 章前收，还没收，本章计划里也没安排收（第 1–3 章还没定稿，叙事线还没记上，提醒可能不准）。只是提醒，照写不拦。'),
+      wb.notice.includes(
+        '叙事线提醒：伏笔〈玉佩的来历〉计划第 3 章前收，还没收，本章计划里也没安排收；伏笔〈名册少的一页〉计划第 2 章埋，还没埋，本章计划里也没安排埋（第 1–3 章还没定稿，叙事线还没记上，提醒可能不准）。只是提醒，照写不拦。'
+      ),
       wb.notice
     );
   });

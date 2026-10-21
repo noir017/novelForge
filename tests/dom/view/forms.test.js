@@ -353,6 +353,28 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     open();
   });
 
+  // 复跑之后的第三类：伏笔计划第 a 章埋，写到 a 之后还没埋、区间里也没安排埋。与后端同一个函数、同一句。
+  test('叙事线提醒：计划埋了却一直没埋的伏笔，说明里也提', () => {
+    const watch = {
+      lines: [],
+      foreshadowing: [],
+      unplanted: [
+        { name: '阿婆的真实身份', plant: 2, planned: [] },
+        { name: '照骨镜', plant: 3, planned: [5] },
+      ],
+    };
+    const tree = sampleTree();
+    ui.post({ type: 'project', tree: { ...tree, threads: { ...tree.threads, watch } } });
+    open();
+    type(ui, 'to', 7);
+    assert.ok(
+      note(ui).includes('叙事线提醒：伏笔〈阿婆的真实身份〉计划第 2 章埋，写到第 4 章还没埋，区间里也没安排埋。只是提醒，不拦。'),
+      note(ui)
+    );
+    ui.post({ type: 'project', tree: sampleTree() });
+    open();
+  });
+
   test('一次最多 10 章', () => {
     type(ui, 'from', 1);
     type(ui, 'to', 11);

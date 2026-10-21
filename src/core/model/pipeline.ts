@@ -996,7 +996,7 @@ export function describeThinLore(scope: '本章' | '区间里', names: readonly 
 }
 
 /**
- * 写前检查的叙事线提醒要的数（叙事线二期，设计稿「四、写前检查」）：由 model/threadFile.ts 的 `threadWatch` 从叙事线现算；
+ * 写前检查的叙事线提醒要的数（叙事线二期，设计稿「四、写前检查」；复跑之后加了第三类）：由 model/threadFile.ts 的 `threadWatch` 从叙事线现算；
  * 前端批量写章弹窗从工程页数据里拿同一份（`ThreadsView.watch`），与后端确认框同源。
  */
 export interface ThreadWatch {
@@ -1004,18 +1004,26 @@ export interface ThreadWatch {
   lines: { name: string; kind: string; lastActive: number; stall: number; planned: number[] }[];
   /** 还没收、写了计划回收章的伏笔：计划第几章前收、哪几章计划收它。 */
   foreshadowing: { name: string; resolve: number; planned: number[] }[];
+  /** 还没埋（状态「计划」）、写了计划埋的章的伏笔：计划第几章埋、哪几章计划埋它（复跑之后加的第三类提醒）。 */
+  unplanted: { name: string; plant: number; planned: number[] }[];
 }
 
-/** 一条提醒：伏笔逾期（写到第 `at` 章时已经过了第 `resolve` 章），或线断了（写到第 `at` 章时已经 `gap` 章没有实际事件）。 */
+/**
+ * 一条提醒：伏笔逾期（写到第 `at` 章时已经过了第 `resolve` 章）、伏笔计划埋了却一直没埋（写到第 `at` 章时已经过了计划埋的
+ * 第 `plant` 章），或线断了（写到第 `at` 章时已经 `gap` 章没有实际事件）。
+ */
 export type ThreadReminder =
   | { kind: 'overdue'; name: string; resolve: number; at: number }
+  | { kind: 'unplanted'; name: string; plant: number; at: number }
   | { kind: 'stalled'; name: string; lineKind: string; gap: number; at: number };
 
 /**
- * 写这几章之前的两类提醒（零调用、不拦人，第 20 条不进主按钮）。「现在」：写第 N 章时按第 N − 1 章算（`watch` 按第一章
+ * 写这几章之前的三类提醒（零调用、不拦人，第 20 条不进主按钮）。「现在」：写第 N 章时按第 N − 1 章算（`watch` 按第一章
  * `asOf` 过）。
  *
  * - **伏笔逾期**：写到某一章时已经过了计划回收章、还没收，这几章的计划里也没安排收它。
+ * - **伏笔计划埋了却没埋**（复跑之后加的：「阿婆的真实身份」计划第 5 章埋，到第 15 章还是「计划」，两类提醒都不管）：计划第
+ *   a 章埋，写第 N 章时 N > a、它还没埋，这几章的计划里也没安排埋它。同一条已经报了逾期的不再报这一类。
  * - **线断了**：进行中的线写到某一章时已经 K 章没有实际事件（K 见 `ThreadWatch.lines[].stall`），这几章的计划里也没推进它。
  *
  * 一章是「本章计划里也没有」；一批几章是「区间里都没有」（安排在区间里哪一章都算安排过：排细纲时已经定了推迟到哪一章）。
@@ -1034,6 +1042,13 @@ export function threadRemindersFor(watch: ThreadWatch | undefined, chapters: rea
     const at = nos.find((n) => n > f.resolve);
     if (at !== undefined && !planned(f.planned)) {
       out.push({ kind: 'overdue', name: f.name, resolve: f.resolve, at });
+    }
+  }
+  // 老数据（工程页那一份是前端从后端拿的，同一次构建，按理都有）缺这个字段也不崩（第 1 条）。
+  for (const f of watch.unplanted ?? []) {
+    const at = nos.find((n) => n > f.plant);
+    if (at !== undefined && !planned(f.planned) && !out.some((r) => r.kind === 'overdue' && r.name === f.name)) {
+      out.push({ kind: 'unplanted', name: f.name, plant: f.plant, at });
     }
   }
   for (const l of watch.lines) {
@@ -1063,6 +1078,9 @@ export function describeThreadReminders(
   const overdue = reminders.flatMap((r) =>
     r.kind === 'overdue' ? [`伏笔〈${r.name}〉计划第 ${r.resolve} 章前收，${one ? '还没收' : `写到第 ${r.at} 章还没收`}，${where}也没安排收`] : []
   );
+  const unplanted = reminders.flatMap((r) =>
+    r.kind === 'unplanted' ? [`伏笔〈${r.name}〉计划第 ${r.plant} 章埋，${one ? '还没埋' : `写到第 ${r.at} 章还没埋`}，${where}也没安排埋`] : []
+  );
   const stalled = reminders.flatMap((r) =>
     r.kind === 'stalled'
       ? [`〈${r.name}〉（${r.lineKind}）${one ? `已经 ${r.gap} 章没有进展` : `写到第 ${r.at} 章就断了 ${r.gap} 章`}，${where}也没安排推进`]
@@ -1071,7 +1089,7 @@ export function describeThreadReminders(
   const gap = unrecorded
     ? `（第 ${unrecorded.from === unrecorded.to ? unrecorded.from : `${unrecorded.from}–${unrecorded.to}`} 章还没定稿，叙事线还没记上，提醒可能不准）`
     : '';
-  return `叙事线提醒：${[overdue.length > 0 ? list(overdue) : '', stalled.length > 0 ? list(stalled) : ''].filter(Boolean).join('；')}${gap}。只是提醒，${one ? '照写不拦' : '不拦'}。`;
+  return `叙事线提醒：${[overdue, unplanted, stalled].filter((x) => x.length > 0).map(list).join('；')}${gap}。只是提醒，${one ? '照写不拦' : '不拦'}。`;
 }
 
 /**

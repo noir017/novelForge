@@ -1208,4 +1208,39 @@ describe('pipeline.ts · 写前检查的叙事线提醒', () => {
     assert.equal(pipeline.unrecordedBefore(6, 7), undefined);
     assert.equal(pipeline.unrecordedBefore(0, 1), undefined);
   });
+
+  // 复跑报告问题 9：「阿婆的真实身份」计划第 5 章埋，到第 15 章还是「计划」，两类提醒都不管。第三类：计划埋了却一直没埋。
+  test('第三类：计划第 a 章埋、写第 N 章时 N > a 还没埋、本章（区间里）也没安排埋；已经报了逾期的不再报这一类；老数据没有这一项不崩', () => {
+    const w = {
+      ...watch,
+      unplanted: [
+        { name: '阿婆的真实身份', plant: 5, planned: [] },
+        { name: '无面鬼火', plant: 9, planned: [] },
+        { name: '祠堂的影子', plant: 6, planned: [8] },
+        { name: '玉佩的来历', plant: 3, planned: [] },
+      ],
+    };
+    assert.deepEqual(pipeline.threadRemindersFor(w, [7]), [
+      { kind: 'overdue', name: '玉佩的来历', resolve: 5, at: 7 },
+      { kind: 'unplanted', name: '阿婆的真实身份', plant: 5, at: 7 },
+      { kind: 'unplanted', name: '祠堂的影子', plant: 6, at: 7 },
+      { kind: 'stalled', name: '青崖旧案', lineKind: '主线', gap: 5, at: 7 },
+    ]);
+    // 写第 5 章：阿婆计划第 5 章埋，还不算过（玉佩第 3 章就该埋了、还没逾期，报这一类）；第 8 章计划埋「祠堂的影子」：本章安排了
+    // 就不提；一批里哪一章安排过都算。
+    assert.deepEqual(pipeline.threadRemindersFor(w, [5]).filter((r) => r.kind === 'unplanted').map((r) => r.name), ['玉佩的来历']);
+    assert.deepEqual(pipeline.threadRemindersFor(w, [8]).filter((r) => r.kind === 'unplanted').map((r) => r.name), ['阿婆的真实身份']);
+    assert.deepEqual(pipeline.threadRemindersFor(w, [7, 8]).filter((r) => r.kind === 'unplanted').map((r) => r.name), ['阿婆的真实身份']);
+    assert.equal(
+      pipeline.describeThreadReminders('本章', pipeline.threadRemindersFor(w, [8]).filter((r) => r.kind === 'unplanted')),
+      '叙事线提醒：伏笔〈阿婆的真实身份〉计划第 5 章埋，还没埋，本章计划里也没安排埋。只是提醒，照写不拦。'
+    );
+    assert.equal(
+      pipeline.describeThreadReminders('区间里', pipeline.threadRemindersFor(w, [10, 11])),
+      '叙事线提醒：伏笔〈玉佩的来历〉计划第 5 章前收，写到第 10 章还没收，区间里也没安排收；伏笔〈旧伤〉计划第 6 章前收，写到第 10 章还没收，区间里也没安排收；' +
+        '伏笔〈阿婆的真实身份〉计划第 5 章埋，写到第 10 章还没埋，区间里也没安排埋；伏笔〈无面鬼火〉计划第 9 章埋，写到第 10 章还没埋，区间里也没安排埋；伏笔〈祠堂的影子〉计划第 6 章埋，写到第 10 章还没埋，区间里也没安排埋；' +
+        '〈青崖旧案〉（主线）写到第 10 章就断了 8 章，区间里也没安排推进。只是提醒，不拦。'
+    );
+    assert.deepEqual(pipeline.threadRemindersFor(watch, [7]).map((r) => r.kind), ['overdue', 'stalled'], '没有 unplanted 也不崩');
+  });
 });

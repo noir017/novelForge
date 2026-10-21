@@ -1352,7 +1352,30 @@ describe('threadFile.ts · 写前检查要的数（二期）', () => {
         { name: '玉佩', resolve: 5, planned: [9] },
         { name: '收了线上的', resolve: 4, planned: [] },
       ],
+      unplanted: [],
     });
+  });
+
+  // 复跑之后的第三类提醒要的数：还是「计划」、写了计划埋的章的伏笔，带哪几章计划埋它；埋了的、收了的不算。
+  test('还没埋的伏笔：状态「计划」、写了计划埋的章（带计划埋它的章）；按写到第 N 章时算', () => {
+    const story = line([ev(1, '推进'), ev(6, '埋', { foreshadowing: '名册' }), plan(12, '埋', { foreshadowing: '影子' })], {
+      name: '主线',
+      kind: '主线',
+      relPath: 'm',
+      foreshadowing: [
+        { name: '阿婆的身份', what: '', plant: 5, resolve: 18 },
+        { name: '名册', what: '', plant: 3 },
+        { name: '影子', what: '', plant: 10 },
+        { name: '没写埋的章', what: '' },
+      ],
+    });
+    const b = { threads: [story], unfiled: { name: '未归属的伏笔', relPath: 'u', foreshadowing: [], events: [] } };
+    assert.deepEqual(t.threadWatch(b).unplanted, [
+      { name: '阿婆的身份', plant: 5, planned: [] },
+      { name: '影子', plant: 10, planned: [12] },
+    ]);
+    // 写第 6 章时名册还没埋（第 6 章那一次不算之前）。
+    assert.deepEqual(t.threadWatch(b, 6).unplanted.map((f) => f.name), ['阿婆的身份', '名册', '影子']);
   });
 
   test('按写到第 N 章时算：之后的实际事件不算，计划照原样', () => {

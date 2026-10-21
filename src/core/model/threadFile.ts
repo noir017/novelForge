@@ -2653,6 +2653,7 @@ export function describeUnplannedDue(u: UnplannedDue): string {
  * - 线：进行中的才算（计划中的还没开始、收束了的不会断），带最近一次实际事件、`STALL_CHAPTERS` 的阈值、哪几章有计划事件
  *   （这条线的文件里任何一条计划事件都算安排了：推进、关系、伏笔的埋与收都说明这一章要动它）。
  * - 伏笔：还没收、也没弃、写了计划回收章的（各条线与「未归属的伏笔」里的都算，线收束了伏笔照样可能开着），带哪几章计划收它。
+ * - 还没埋的伏笔（复跑之后）：状态还是「计划」、伏笔那一行写了计划埋的章的，带哪几章计划埋它。
  */
 export function threadWatch(book: ThreadBook, no?: number): ThreadWatch {
   const at = <T extends ThreadFileBase>(f: T): T => (no === undefined ? f : asOf(f, no));
@@ -2667,16 +2668,24 @@ export function threadWatch(book: ThreadBook, no?: number): ThreadWatch {
     lines.push({ name: t.name, kind: t.kind, lastActive, stall: STALL_CHAPTERS[t.kind], planned: chapters(plannedEvents(full)) });
   }
   const foreshadowing: ThreadWatch['foreshadowing'] = [];
+  const unplanted: ThreadWatch['unplanted'] = [];
   for (const file of [...book.threads, book.unfiled] as ThreadFileBase[]) {
+    const plans = (type: ThreadEventType, name: string): number[] =>
+      chapters(plannedEvents(file).filter((e) => e.type === type && e.foreshadowing && threadKey(e.foreshadowing) === threadKey(name)));
     for (const f of foreshadowingOf(at(file), 0)) {
-      if (isForeshadowClosed(f.status) || f.resolve === undefined) {
+      if (isForeshadowClosed(f.status)) {
         continue;
       }
-      const resolving = plannedEvents(file).filter((e) => e.type === '收' && e.foreshadowing && threadKey(e.foreshadowing) === threadKey(f.name));
-      foreshadowing.push({ name: f.name, resolve: f.resolve, planned: chapters(resolving) });
+      if (f.resolve !== undefined) {
+        foreshadowing.push({ name: f.name, resolve: f.resolve, planned: plans('收', f.name) });
+      }
+      // 第三类（复跑之后）：计划第 a 章埋、还没埋。
+      if (f.status === '计划' && f.plant !== undefined) {
+        unplanted.push({ name: f.name, plant: f.plant, planned: plans('埋', f.name) });
+      }
     }
   }
-  return { lines, foreshadowing };
+  return { lines, foreshadowing, unplanted };
 }
 
 // ---------------------------------------------------------------- 当前进度（机器维护、指纹守着）
