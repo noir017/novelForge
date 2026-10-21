@@ -17,20 +17,25 @@
  * ## 与细纲八节的对应
  *
  * `synopsis` → 梗概，`characters` → 出场人物（计划），`timePlace` → 时间地点，`keyEvents` → 关键事件，
- * `highlights` → 看点（爽点与章末吊着读者的东西，从前单列的章末钩子并在这里），`foreshadowing` → 新增伏笔，
- * `stateChange` → 状态变更。连续性事实计划时没有（证据要回正文定位），定稿时才生成。
+ * `highlights` → 看点（爽点与章末吊着读者的东西，从前单列的章末钩子并在这里），`stateChange` → 状态变更。
+ * 连续性事实计划时没有（证据要回正文定位），定稿时才生成。
  * 上游的 `relationships` 不要（细纲里没有它的位置）；`newCharacters` 可选，写入细纲时直接给新角色建卡（D19）。
+ *
+ * `threads`（叙事线二期，原来的 `foreshadowing` 换成它）不进细纲：这一章在哪条线上计划发生什么（推进、关系、收束、
+ * 埋〈伏笔〉、收〈伏笔〉），写入细纲时整组换掉各条线里这一章的计划事件（generation/accept.ts → features/threadPlan.ts）。
+ * 细纲里不再有任何关于线的小节（设计稿：同一样东西只有一份）。
  *
  * `keyEvents` 是一条一件事的列表，与定稿时写出来的「关键事件」同一个形状（定稿才能逐条改，
  * 而不是把一整段重写一遍）。给成一段字也认（老合同的形状）：按换行与分号切成条。
  *
- * `title` / `synopsis` 必须非空、`keyEvents` 至少一条、`characters` 至少一个人；其余四个字段可以是空的——
- * 过渡章没有新伏笔是常事，为一个空数组作废整批、再花一次调用不划算。写成别的形状（该是数组给了一行字）
+ * `title` / `synopsis` 必须非空、`keyEvents` 至少一条、`characters` 至少一个人；其余几个字段可以是空的——
+ * 过渡章不推进哪条线是常事，为一个空数组作废整批、再花一次调用不划算。写成别的形状（该是数组给了一行字）
  * 照收，不报诊断。
  */
 import { normalizeGender } from '../model/gender';
 import { BLUEPRINT_LIMITS } from '../model/plotFile';
 import { LoreLine, loreLinesFromJson } from '../model/loreFile';
+import { PlanEntry, decodePlanEntries, planEntryJson } from '../model/threadFile';
 import type { PlotFields } from './artifact';
 import { parseJson, singleJsonObject } from './structuredJson';
 
@@ -47,9 +52,12 @@ export interface BlueprintItem {
   keyEvents: string[];
   /** 看点：一条一句。 */
   highlights: string[];
-  /** 新增伏笔：一条一句。 */
-  foreshadowing: string[];
   stateChange: string;
+  /**
+   * 这一章在叙事线上的计划（叙事线二期）：写入时整组换掉各条线里这一章的计划事件。没写（老会话里存着的草稿）是 undefined
+   * ——写入时不动这一章原来的计划（第 1 条）。
+   */
+  threads?: PlanEntry[];
   /** 本章首次登场、后面还会出场的重要角色。名字一定在 `characters` 里；性别建卡时落进卡上。 */
   newCharacters: { name: string; role: string; gender?: string }[];
   /**
@@ -301,8 +309,8 @@ export function decodeBlueprints(text: string): BlueprintDecode {
       timePlace: loose('timePlace', ['timePlace', 'time_place', '时间地点'], BLUEPRINT_LIMITS.timePlace),
       keyEvents,
       highlights: listField('highlights', ['highlights', '看点']),
-      foreshadowing: listField('foreshadowing', ['foreshadowing', '新增伏笔']),
       stateChange: loose('stateChange', ['stateChange', 'state_change', '状态变更'], BLUEPRINT_LIMITS.stateChange),
+      ...planOf(pick(o, ['threads', '叙事线']), no, warnings),
       newCharacters,
       settings: blueprintSettings(pick(o, ['settings', 'lore', '设定']), no, warnings),
     });
@@ -385,7 +393,8 @@ export function checkCoverage(items: readonly BlueprintItem[], expected: readonl
 
 /**
  * 一章蓝图 → 细纲的八节（落盘时用），外加第九节「设定」。出场人物写成「林昭、沈氏」一行，关键事件、
- * 看点与新增伏笔一条一行（`- …`），与定稿写出来的样子一致；连续性事实计划时是空的。
+ * 看点一条一行（`- …`），与定稿写出来的样子一致；连续性事实计划时是空的。「新增伏笔」不再从合同来（叙事线二期：
+ * 伏笔写成 `threads` 里的一条埋），计划时空着。
  */
 export function blueprintToPlot(item: BlueprintItem): PlotFields {
   return {
@@ -395,14 +404,22 @@ export function blueprintToPlot(item: BlueprintItem): PlotFields {
       时间地点: item.timePlace,
       关键事件: listText(item.keyEvents),
       看点: listText(item.highlights),
-      新增伏笔: listText(item.foreshadowing),
+      新增伏笔: '',
       状态变更: item.stateChange,
       连续性事实: '',
     },
     title: item.title,
     // 会话里存着的老草稿没有这个字段（第 1 条）。
     lore: (item.settings ?? []).map(({ name, category, note }) => ({ name, category, note })),
+    ...(item.threads ? { threads: item.threads } : {}),
   };
+}
+
+/** 一章的 `threads`（{@link decodePlanEntries}）：没写就不带这个字段；没收的那几条进 `warnings`（落到卡片上）。 */
+function planOf(raw: unknown, no: number, warnings: string[]): Pick<BlueprintItem, 'threads'> {
+  const { entries, notes } = decodePlanEntries(raw, no);
+  warnings.push(...notes);
+  return entries ? { threads: entries } : {};
 }
 
 /** 一章最多计划几条设定。 */
@@ -451,8 +468,8 @@ export function renderBlueprints(items: readonly BlueprintItem[]): string {
     timePlace: b.timePlace,
     keyEvents: b.keyEvents,
     highlights: b.highlights,
-    foreshadowing: b.foreshadowing,
     stateChange: b.stateChange,
+    ...(b.threads ? { threads: b.threads.map(planEntryJson) } : {}),
     ...(b.newCharacters.length > 0 ? { newCharacters: b.newCharacters } : {}),
     ...(b.settings?.length ? { settings: b.settings.map(({ name, category, isNew, note }) => ({ name, category, isNew, note })) } : {}),
   }));

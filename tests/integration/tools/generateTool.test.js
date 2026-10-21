@@ -26,7 +26,8 @@ const { cleanup } = require('../../helpers/teardown');
 
 /**
  * 细纲层的应答：单章也用批次合同的单项形式（`{"blueprints":[{…}]}`），字段对到八节。
- * 连续性事实不在合同里（证据要回正文定位，定稿时才有），所以填满也只有 7/8 节。
+ * 连续性事实不在合同里（证据要回正文定位，定稿时才有）；「新增伏笔」也不在了（叙事线二期：伏笔写成 threads 里的
+ * 一条埋，写进叙事线），所以填满也只有 6/8 节。
  */
 const PLOT_JSON = JSON.stringify({
   blueprints: [
@@ -38,8 +39,8 @@ const PLOT_JSON = JSON.stringify({
       timePlace: '深夜，青云宗山门外',
       keyEvents: ['踩点、失手、翻墙', '收在藏书阁门口。'],
       highlights: ['第三块令牌在墙内等着他'],
-      foreshadowing: ['守门弟子认得那块令牌'],
       stateChange: '林昭混进了外门',
+      threads: [{ line: '', type: '埋', foreshadowing: '令牌的来历', what: '守门弟子认得那块令牌' }],
     },
   ],
 });
@@ -168,9 +169,9 @@ describe('对细纲调 generate', () => {
     assert.ok(r.text.includes(stored[0].draft.id), r.text);
   });
 
-  // 八节里模型答了七节（连续性事实计划时为空）。
+  // 八节里模型答了六节（连续性事实计划时为空，新增伏笔不在合同里了）。
   test('返回文本里有形状描述', () => {
-    assert.ok(r.text.includes('细纲 · 7/8 节'), r.text);
+    assert.ok(r.text.includes('细纲 · 6/8 节'), r.text);
   });
 
   test('返回文本里有落点', () => {

@@ -1504,11 +1504,11 @@ describe('装配：四阶段配方', () => {
   });
 
   // 单章也用批次合同的单项形式（第 22 条：两个入口契约一致），字段对到细纲的八节（连续性事实除外）。
-  // 关键事件与定稿的写法一样是一条一件事的数组（⚑B）。
+  // 关键事件与定稿的写法一样是一条一件事的数组（⚑B）。原来的 foreshadowing 换成了 threads（叙事线二期，不进细纲）。
   test('细纲的输出契约是蓝图合同的单项形式，字段对到八节', () => {
     assert.ok(
       lastOf(pg).includes(
-        '【精确 JSON 形状】{"blueprints":[{"chapterNumber":2,"title":"…","synopsis":"…","characters":["…"],"timePlace":"…","keyEvents":["…"],"highlights":["…"],"foreshadowing":["…"],"stateChange":"…"}]}'
+        '【精确 JSON 形状】{"blueprints":[{"chapterNumber":2,"title":"…","synopsis":"…","characters":["…"],"timePlace":"…","keyEvents":["…"],"highlights":["…"],"stateChange":"…","threads":[{"line":"…","type":"推进","what":"…"}]}]}'
       ),
       lastOf(pg).slice(-1600)
     );

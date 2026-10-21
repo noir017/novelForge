@@ -5,6 +5,7 @@ import { loreFolderOf } from '../features/loreList';
 import { describeOutlineRewrite, outlineRewritePlan, rewriteOutline } from '../features/outlineRewrite';
 import { confirmDespiteGap } from '../features/chapterGap';
 import { acceptArtifact as writeArtifact, plannedCards, plannedLore } from '../generation/accept';
+import { describeThreadPlan } from '../features/threadPlan';
 import { plannedLoreSettle } from '../generation/loreSettle';
 import { Draft, generate, parseDraftArtifact } from '../generation/generate';
 import { getHost } from '../host';
@@ -381,12 +382,14 @@ export async function runTurn(
     c.current.drafts = c.drafts.bySession(c.current.id);
     const creates = await plannedCards(c.project, draft.artifact);
     const createsLore = await plannedLore(c.project, draft.artifact);
+    const threadPlan = await describeThreadPlan(c.project, draft.target, draft.artifact);
     assistantTurn.artifact = {
       where: await whereOf(c, action, draft.target, draft.range),
       summary: draft.summary ?? describeArtifact(draft.artifact),
       overwrites: await targetHasContent(c, action, draft.target, draft.range, draft.writeMode),
       ...(creates.length > 0 ? { creates } : {}),
       ...(createsLore.length > 0 ? { createsLore } : {}),
+      ...(threadPlan.length > 0 ? { threadPlan } : {}),
       ...(await settledOf(c, draft.artifact)),
       ...questionsOf(draft.artifact),
       ...(draft.notes?.length ? { notes: draft.notes } : {}),
@@ -454,12 +457,14 @@ export async function describeArtifactOf(
   }
   const creates = await plannedCards(c.project, artifact);
   const createsLore = await plannedLore(c.project, artifact);
+  const threadPlan = await describeThreadPlan(c.project, target, artifact);
   return {
     where: await whereOf(c, action, target, draft?.range),
     summary: describeArtifact(artifact),
     overwrites: await targetHasContent(c, action, target, draft?.range, draft?.writeMode),
     ...(creates.length > 0 ? { creates } : {}),
     ...(createsLore.length > 0 ? { createsLore } : {}),
+    ...(threadPlan.length > 0 ? { threadPlan } : {}),
     ...(await settledOf(c, artifact)),
     ...questionsOf(artifact),
     ...(draft?.notes?.length ? { notes: draft.notes } : {}),
@@ -740,6 +745,10 @@ function artifactDetail(art: SerializedArtifact): string {
   }
   if (art.createsLore?.length) {
     lines.push(`会新建设定条目：${art.createsLore.join('、')}`);
+  }
+  // 叙事线的计划随细纲写进各条线（叙事线二期）：写进哪几条、换掉原来的几条、没认出的，动手之前摊开。
+  if (art.threadPlan?.length) {
+    lines.push(...art.threadPlan);
   }
   // 落定设定（二期）：改已有条目的，写过内容的写入前逐条对比。
   if (art.updatesLore?.length) {

@@ -32,8 +32,8 @@ const item = (no, over = {}) => ({
   timePlace: `第 ${no} 章的时间地点`,
   keyEvents: [`第 ${no} 章林昭在山门外踩点`, `第 ${no} 章翻墙进了后院`],
   highlights: [`第 ${no} 章的爽点`, `第 ${no} 章的钩子`],
-  foreshadowing: [`第 ${no} 章的伏笔`],
   stateChange: `第 ${no} 章之后的处境`,
+  threads: [{ line: '林昭与沈青', type: '推进', what: `第 ${no} 章两人联手` }],
   ...over,
 });
 
@@ -79,11 +79,13 @@ describe('blueprint.ts · 细纲批次', () => {
       时间地点: '第 1 章的时间地点',
       关键事件: '- 第 1 章林昭在山门外踩点\n- 第 1 章翻墙进了后院',
       看点: '- 第 1 章的爽点\n- 第 1 章的钩子',
-      新增伏笔: '- 第 1 章的伏笔',
+      新增伏笔: '',
       状态变更: '第 1 章之后的处境',
       连续性事实: '',
     });
     assert.equal(plot.title, '第1章标题');
+    // 叙事线的计划（二期）不进细纲：随产物带着，写入时写进各条线。
+    assert.deepEqual(plot.threads, [{ line: '林昭与沈青', type: '推进', what: '第 1 章两人联手' }]);
   });
 
   // 设定名录：settings 可选、宽松收；isNew 的随细纲建空条目，其余只进第九节。
@@ -121,28 +123,77 @@ describe('blueprint.ts · 细纲批次', () => {
     assert.equal(without.lore, undefined);
   });
 
-  // 过渡章没有新伏笔是常事：为一个空数组作废整批再调一次不划算。
-  test('时间地点 / 看点 / 新增伏笔 / 状态变更可以缺、可以空，形状写错了照收', () => {
-    const { timePlace, highlights, foreshadowing, stateChange, ...bare } = item(1);
+  // 过渡章不动哪条线是常事：为一个空数组作废整批再调一次不划算。
+  test('时间地点 / 看点 / 状态变更 / threads 可以缺、可以空，形状写错了照收', () => {
+    const { timePlace, highlights, threads, stateChange, ...bare } = item(1);
     void timePlace;
     void highlights;
-    void foreshadowing;
+    void threads;
     void stateChange;
-    const r = B.decodeBlueprints(JSON.stringify({ blueprints: [bare, item(2, { highlights: '一行写成的看点', foreshadowing: [], stateChange: ['甲', '乙'] })] }));
+    const r = B.decodeBlueprints(JSON.stringify({ blueprints: [bare, item(2, { highlights: '一行写成的看点', threads: '不是数组', stateChange: ['甲', '乙'] })] }));
     assert.equal(r.ok, true);
-    assert.deepEqual([r.items[0].timePlace, r.items[0].highlights, r.items[0].foreshadowing, r.items[0].stateChange], ['', [], [], '']);
+    assert.deepEqual([r.items[0].timePlace, r.items[0].highlights, r.items[0].stateChange], ['', [], '']);
+    // 没写 threads：不带这个字段（写入时不动原来的计划）；写成别的形状：当空的，说一句。
+    assert.equal(r.items[0].threads, undefined);
+    assert.deepEqual(r.items[1].threads, []);
+    assert.match(r.warnings.join('\n'), /第 2 章的叙事线计划（threads）不是列表/);
     assert.deepEqual(r.items[1].highlights, ['一行写成的看点']);
     assert.equal(r.items[1].stateChange, '甲；乙');
   });
 
-  test('看点、新增伏笔超过条数与字数：截断并说明', () => {
+  test('看点超过条数与字数：截断并说明', () => {
     const r = B.decodeBlueprints(JSON.stringify({
-      blueprints: [item(1, { highlights: Array.from({ length: 7 }, (_, i) => `看点${i}`), foreshadowing: ['伏'.repeat(200)] })],
+      blueprints: [item(1, { highlights: Array.from({ length: 7 }, (_, i) => `看点${i}`) })],
     }));
     assert.equal(r.items[0].highlights.length, 5);
-    assert.equal(r.items[0].foreshadowing[0].length, 120);
     assert.match(r.warnings.join('\n'), /highlights 列了 7 条/);
-    assert.match(r.warnings.join('\n'), /foreshadowing 有一条超过 120 字/);
+  });
+
+  // 叙事线二期：原来的 foreshadowing 换成 threads（一章最多 6 条）。合同的形状在解码这一步只认结构，线认不认得出落盘时才知道。
+  test('threads：类型、伏笔名、线名逐条校验，没收的写进说明；同一条只留一条，一章最多 6 条；规范化输出原样认得', () => {
+    const r = B.decodeBlueprints(JSON.stringify({
+      blueprints: [
+        item(1, {
+          threads: [
+            { line: '林昭与沈青', type: '推进', what: '两人联手' },
+            { line: '林昭与沈青', type: '推进', what: '同一条线同一种类型，重复' },
+            { line: '', type: '埋', foreshadowing: '玉佩的来历', what: '玉佩露面', resolve: 9 },
+            { line: '青崖旧案', type: '收', foreshadowing: '断剑', what: '断剑出水', resolve: 9 },
+            { line: '青崖旧案', type: '放弃', what: '计划里不认' },
+            { line: '青崖旧案', type: '埋', what: '没写是哪一条伏笔' },
+            { type: '关系', what: '没写是哪一条线' },
+            { line: '青崖旧案', type: '收束', what: '这条线走完了' },
+            { line: '甲', type: '推进', what: '第 5 条' },
+            { line: '乙', type: '推进', what: '第 6 条' },
+            { line: '丙', type: '推进', what: '第 7 条，超了' },
+          ],
+        }),
+      ],
+    }));
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.items[0].threads, [
+      { line: '林昭与沈青', type: '推进', what: '两人联手' },
+      { line: '', type: '埋', foreshadowing: '玉佩的来历', what: '玉佩露面', resolve: 9 },
+      { line: '青崖旧案', type: '收', foreshadowing: '断剑', what: '断剑出水' },
+      { line: '青崖旧案', type: '收束', what: '这条线走完了' },
+      { line: '甲', type: '推进', what: '第 5 条' },
+      { line: '乙', type: '推进', what: '第 6 条' },
+    ]);
+    const w = r.warnings.join('\n');
+    assert.match(w, /青崖旧案 放弃：类型不是推进 \/ 关系 \/ 收束 \/ 埋 \/ 收之一，没收/);
+    assert.match(w, /青崖旧案 埋：没写是哪一条伏笔，没收/);
+    assert.match(w, /？ 关系：没写是哪一条线，没收/);
+    assert.match(w, /丙 推进：一章最多写 6 条，没收/);
+    assert.deepEqual(B.decodeBlueprints(B.renderBlueprints(r.items)).items[0].threads, r.items[0].threads);
+  });
+
+  test('单章（落定 / 写细纲）也认 threads，没写就不带', () => {
+    const one = A.parsePlotStrict(JSON.stringify({ blueprints: [item(3, { threads: [{ line: '林昭与沈青', type: '关系', what: '结盟' }, { type: '收' }] })] }));
+    assert.deepEqual(one.threads, [{ line: '林昭与沈青', type: '关系', what: '结盟' }]);
+    assert.match(one.planNotes.join('\n'), /第 3 章的叙事线计划 ？ 收：没写是哪一条伏笔/);
+    const without = A.parsePlotStrict(JSON.stringify({ blueprints: [item(3, { threads: undefined })] }));
+    assert.equal(without.threads, undefined);
+    assert.equal(without.planNotes, undefined);
   });
 
   test('裸数组、围栏、JSON 前后的废话都认', () => {

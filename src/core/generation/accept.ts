@@ -36,6 +36,7 @@ import { CreationTarget, SETTING_DOC_LABEL, WriteMode, loreOfTarget, plotOfTarge
 import { Artifact, ChapterRange, LoreDraft, LoreListEntry, PlotFields, RosterEntry } from '../features/artifact';
 import { BlueprintItem, blueprintToPlot } from '../features/blueprint';
 import { unique } from '../features/parse';
+import { describePlanWrite, writePlannedThreads } from '../features/threadPlan';
 import { chapterTargetOf } from '../views/pipeline';
 import { buildLoreIndex } from '../views/lore';
 import { integrationWatermark, loreEntryAt } from '../views/loreMaterial';
@@ -488,8 +489,9 @@ async function acceptPlot(
       return { skipped: true, message: '没有改动这一章。' };
     }
     const lore = await createPlannedLore(project, ws, fields.newLore ?? []);
+    const plan = await planThreads(project, existing.no, fields);
     log.info(`第 ${existing.no} 章的细纲已写入`, existing.relPath);
-    return { relPath: existing.relPath, message: `已写入 ${existing.relPath}${loreNote(lore)}` };
+    return { relPath: existing.relPath, message: `已写入 ${existing.relPath}${loreNote(lore)}${plan}` };
   }
 
   const no = parsePlotFileName(relPath.split('/').pop() ?? '')?.no;
@@ -512,13 +514,25 @@ async function acceptPlot(
     relPath
   );
   const lore = await createPlannedLore(project, ws, fields.newLore ?? []);
+  const plan = await planThreads(project, no, fields);
   log.info(`第 ${no} 章的细纲已新建`, rel);
-  return { relPath: rel, message: `已新建 ${rel}${loreNote(lore)}` };
+  return { relPath: rel, message: `已新建 ${rel}${loreNote(lore)}${plan}` };
 }
 
 /** 单章细纲顺带建了空条目时，toast 里那半句。 */
 function loreNote(created: readonly string[]): string {
   return created.length > 0 ? `，新建设定条目：${created.join('、')}` : '';
+}
+
+/**
+ * 单章细纲（生成、落定）写进去之后：把它在叙事线上的计划写进各条线，整组换掉这一章原来的计划（叙事线二期，
+ * features/threadPlan.ts）。合同里没写 `threads` 的不动。返回 toast 里那半句。
+ */
+async function planThreads(project: NovelProject, no: number, fields: PlotFields): Promise<string> {
+  if (!fields.threads) {
+    return '';
+  }
+  return describePlanWrite(await writePlannedThreads(project, [{ no, entries: fields.threads }], fields.planNotes));
 }
 
 /**
@@ -529,7 +543,8 @@ function loreNote(created: readonly string[]): string {
  * - **空壳**（有文件、关键事件空着）直接填，并按产物的标题改名（`004.md` → `004-雪夜.md`）。
  * - **没有文件**的新建。目标字数缺省取配置的每章字数（D3）。
  *
- * 然后给蓝图里的新角色建卡（D19，同名已有的不动）。批量那条路（features/pipelineBatch.ts）
+ * 然后给蓝图里的新角色建卡（D19，同名已有的不动），再把**真写进去的那几章**在叙事线上的计划写进各条线（叙事线二期，
+ * 整组换掉那几章原来的计划；作者在审阅里放弃的、批量跳过的章不动）。批量那条路（features/pipelineBatch.ts）
  * 也走这里——它只给空白的章，于是一张审阅都不会弹。
  */
 export async function acceptPlotBatch(
@@ -542,6 +557,8 @@ export async function acceptPlotBatch(
   const book = await project.readBookConfig();
   const written: string[] = [];
   const kept: number[] = [];
+  /** 真写进去的那几章：叙事线的计划只换它们的。 */
+  const done = new Set<number>();
   for (const item of items) {
     const fields = blueprintToPlot(item);
     const existing = await project.getPlot(item.no);
@@ -559,9 +576,11 @@ export async function acceptPlotBatch(
         kept.push(item.no);
       } else {
         written.push(r.rel);
+        done.add(item.no);
       }
       continue;
     }
+    done.add(item.no);
     written.push(
       await ws.writePlot(
         {
@@ -587,6 +606,8 @@ export async function acceptPlotBatch(
     items.flatMap((b) => (b.settings ?? []).filter((s) => s.isNew))
   );
   const lore = created.map((c) => c.name);
+  const plans = items.flatMap((b) => (done.has(b.no) && b.threads ? [{ no: b.no, entries: b.threads }] : []));
+  const plan = plans.length > 0 ? describePlanWrite(await writePlannedThreads(project, plans)).replace(/^，/, '') : '';
 
   const where = range.from === range.to ? `第 ${range.from} 章` : `第 ${range.from}–${range.to} 章`;
   const parts = [
@@ -594,6 +615,7 @@ export async function acceptPlotBatch(
     kept.length > 0 ? `保留原样的第 ${kept.join('、')} 章` : '',
     cards.length > 0 ? `新建角色卡：${cards.join('、')}` : '',
     lore.length > 0 ? `新建设定条目：${lore.join('、')}` : '',
+    plan,
   ].filter(Boolean);
   log.info(`${where}的细纲已落盘`, parts.join('；'));
   const createdLore = created.length > 0 ? { createdLore: created.map((c) => c.relPath) } : {};

@@ -33,6 +33,7 @@ import { normalizeGender } from '../model/gender';
 import { hasContent, parseMarkdown, pickSections } from '../model/markdown';
 import { PLOT_SECTION_KEYS, PlotSections, emptyPlotSections } from '../model/plotFile';
 import { LORE_BODY_KEYS, LoreLine, loreLinesFromJson, normalizeLoreName, splitLoreHidden } from '../model/loreFile';
+import { PlanEntry, decodePlanEntries } from '../model/threadFile';
 import {
   BookConfig,
   NARRATIVE_POVS,
@@ -78,6 +79,13 @@ export interface PlotFields {
    * 同批量拆细纲的 `createPlannedLore`）。不写进细纲文件——那里只有 `lore`。
    */
   newLore?: LoreLine[];
+  /**
+   * 这一章在叙事线上的计划（细纲合同的 `threads`，叙事线二期）：写入时整组换掉各条线里这一章的计划事件
+   * （features/threadPlan.ts）。不写进细纲文件。undefined = 合同里没写这个字段（手写的 Markdown、老会话的草稿）：不动原来的计划。
+   */
+  threads?: PlanEntry[];
+  /** `threads` 里没收的那几条（类型不对、没写是哪条线……）：卡片上与写入时的日志里说出来（第 2 条）。 */
+  planNotes?: string[];
 }
 
 /**
@@ -259,7 +267,7 @@ const PLOT_KEY_ALIASES: Record<(typeof PLOT_SECTION_KEYS)[number], string[]> = {
   时间地点: ['时间地点', 'timePlace', 'time_place'],
   关键事件: ['关键事件', 'keyEvents', 'key_events', 'events', '事件'],
   看点: ['看点', 'highlights'],
-  新增伏笔: ['新增伏笔', 'foreshadowing'],
+  新增伏笔: ['新增伏笔'],
   状态变更: ['状态变更', 'stateChange', 'state_change'],
   连续性事实: ['连续性事实', 'continuityFacts'],
 };
@@ -300,12 +308,16 @@ export function parsePlotStrict(text: string): PlotFields | undefined {
     // **并且不再降级**，比解析失败更糟。
     if (Object.values(sections).some((v) => v.trim())) {
       const settings = fromJson.settings ?? fromJson.设定;
+      // 叙事线的计划（二期）：与批次同一套解码（第 22 条）；没写就不带，写入时不动原来的计划。
+      const plan = decodePlanEntries(fromJson.threads ?? fromJson.叙事线, num(fromJson.chapterNumber) ?? 0);
       return {
         sections,
         title: clipTitle(str(fromJson.title ?? fromJson.标题)),
         targetWords: num(fromJson.targetWords ?? fromJson.目标字数),
         // 第九节「设定」：合同里可选，没写就不带（落盘时沿用磁盘那份）。`isNew` 的另记一份，采纳时建空条目。
         ...(settings !== undefined ? { lore: loreLinesFromJson(settings), ...newLoreOf(settings) } : {}),
+        ...(plan.entries ? { threads: plan.entries } : {}),
+        ...(plan.notes.length > 0 ? { planNotes: plan.notes } : {}),
       };
     }
   }

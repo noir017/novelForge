@@ -1976,6 +1976,209 @@ export function fitThreads<T extends { line: string }>(
   return { picked, dropped };
 }
 
+// ---------------------------------------------------------------- 拆细纲：计划事件（二期）
+
+/**
+ * 细纲合同里一章的 `threads` 一项（设计稿「二」）：这一章在哪条线上计划发生什么。`line` 是模型写的线名，落盘时才认
+ * （{@link resolvePlanEvents}）——解码时手上没有叙事线目录。
+ */
+export interface PlanEntry {
+  line: string;
+  type: ThreadEventType;
+  /** 埋 / 收的是哪一条伏笔。 */
+  foreshadowing?: string;
+  what: string;
+  /** 埋一条新伏笔时：计划第几章前收。 */
+  resolve?: number;
+}
+
+/** 一章最多写几条计划（设计稿：一章最多 6 条）。 */
+export const PLAN_EVENT_LIMIT = 6;
+
+/**
+ * 计划里能写的类型：线的推进 / 关系 / 收束，伏笔的埋 / 收。⚑ 设计稿的合同只列了「推进|关系|埋|收」四种，这里多认一个
+ * 「收束」——一条线计划在哪一章走完是排细纲时就定得下来的事，写正文那一层会提醒「本章计划：收束」。放弃、弃不是计划
+ * 出来的，不认。
+ */
+export const PLAN_EVENT_TYPES: readonly ThreadEventType[] = ['推进', '关系', '收束', '埋', '收'];
+
+/**
+ * 解码一章的 `threads`（批次的 features/blueprint.ts 与单章的 features/artifact.ts 共用，第 22 条）。**宽松收、绝不抛**：
+ * 一个可选字段写坏了不该作废整章细纲。没写（undefined / null）返回 undefined——落盘时不动这一章原来的计划（老会话里存着
+ * 的草稿没有这个字段，第 1 条）；写成别的形状当空的并说一句。
+ *
+ * 每项：类型要是 {@link PLAN_EVENT_TYPES} 之一；线的事件要写 `line`，伏笔的事件要写 `foreshadowing`（名字合格）；
+ * 「是什么」截到 {@link EVENT_WHAT_MAX} 字；`resolve` 只对埋有用、要比本章晚。同一条（同线、同类型、同一条伏笔）只留
+ * 第一条；最多 {@link PLAN_EVENT_LIMIT} 条（先校验后截）。没收的写进 `notes`（第 2 条：卡片与日志里说出来）。
+ */
+export function decodePlanEntries(raw: unknown, no: number): { entries?: PlanEntry[]; notes: string[] } {
+  if (raw === undefined || raw === null) {
+    return { notes: [] };
+  }
+  const where = no > 0 ? `第 ${no} 章的叙事线计划` : '叙事线计划';
+  if (!Array.isArray(raw)) {
+    return { entries: [], notes: [`${where}（threads）不是列表，当没有计划`] };
+  }
+  const entries: PlanEntry[] = [];
+  const notes: string[] = [];
+  for (const item of raw) {
+    const x = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    const line = strOf(x.line ?? x.thread);
+    const typeText = strOf(x.type);
+    const type = eventTypeOf(typeText);
+    const fore = strOf(x.foreshadowing);
+    const label = `${line || '？'}${fore ? `〈${fore}〉` : ''} ${typeText || '（没写类型）'}`;
+    let why = '';
+    if (!type || !PLAN_EVENT_TYPES.includes(type)) {
+      why = '类型不是推进 / 关系 / 收束 / 埋 / 收之一';
+    } else if (isForeshadowEvent(type) && !fore) {
+      why = '没写是哪一条伏笔';
+    } else if (isForeshadowEvent(type) && nameProblem(fore)) {
+      why = `伏笔${nameProblem(fore)}`;
+    } else if (!isForeshadowEvent(type) && !line) {
+      why = '没写是哪一条线';
+    }
+    if (why) {
+      notes.push(`${where} ${label}：${why}，没收`);
+      continue;
+    }
+    const entry: PlanEntry = {
+      line,
+      type: type!,
+      ...(isForeshadowEvent(type!) ? { foreshadowing: fore } : {}),
+      what: cut(strOf(x.what ?? x.reason), EVENT_WHAT_MAX),
+    };
+    const resolve = intOf(x.resolve);
+    if (type === '埋' && resolve !== undefined && resolve > no) {
+      entry.resolve = resolve;
+    }
+    const same = entries.some(
+      (e) =>
+        e.type === entry.type &&
+        threadKey(e.foreshadowing ?? '') === threadKey(entry.foreshadowing ?? '') &&
+        (isForeshadowEvent(e.type) || threadKey(e.line) === threadKey(entry.line))
+    );
+    if (same) {
+      continue;
+    }
+    if (entries.length >= PLAN_EVENT_LIMIT) {
+      notes.push(`${where} ${label}：一章最多写 ${PLAN_EVENT_LIMIT} 条，没收`);
+      continue;
+    }
+    entries.push(entry);
+  }
+  return { entries, notes };
+}
+
+/** 计划事件在细纲合同里的样子（`renderBlueprints` 写回规范化输出、作者在气泡里改了再写入时原样认得）。 */
+export function planEntryJson(e: PlanEntry): Record<string, unknown> {
+  return {
+    line: e.line,
+    type: e.type,
+    ...(e.foreshadowing ? { foreshadowing: e.foreshadowing } : {}),
+    what: e.what,
+    ...(e.resolve !== undefined ? { resolve: e.resolve } : {}),
+  };
+}
+
+/** 一章的计划落到各条线上的样子（{@link resolvePlanEvents}）。 */
+export interface PlannedChapter {
+  no: number;
+  /** 要写进去的计划事件：落在哪条线上（缺席是「未归属的伏笔」）。 */
+  events: FoundEvent[];
+  /** 这一章新登记的伏笔（埋了一条没见过的）：挂在哪条线上（缺席是「未归属的伏笔」）。 */
+  newForeshadowing: { line?: string; foreshadowing: Foreshadowing }[];
+  /** 没写进去的：哪一条、为什么。 */
+  dropped: { what: string; why: string }[];
+  /** 这一章原来有几条计划事件（写入时整组换掉）。 */
+  replaced: number;
+}
+
+/**
+ * 几章的计划 → 落到哪份文件上（设计稿「谁能写什么」：计划事件随细纲走）。纯函数，按章号先后走一遍：前面几章新埋的伏笔，
+ * 后面几章收它认得出。都按「写到这一章时」认线与伏笔的状态（{@link asOf}）。
+ *
+ * - **线的事件**（推进 / 关系 / 收束）：`line` 认得出、写到这一章时还没收束的线才记；认不出的丢掉（设计稿：其余丢掉并写进
+ *   卡片与日志）。
+ * - **伏笔的事件**（埋 / 收）跟着那条伏笔走，落在它所在的线或「未归属的伏笔」上，不看 `line`（同定稿 a，一期前半 ⚑7）。
+ *   写到这一章时已经收了、弃了的不记；已经埋下的再「埋」不记。
+ * - **没见过的伏笔**：「埋」就是一条新伏笔——`line` 认得出、还没收束就挂在那条线上，认不出进「未归属的伏笔」（设计稿），
+ *   登记成 `名：是什么（计划第 N 章埋、第 b 章前收）`；「收」丢掉。名字与全书已有的、前面几章刚埋的不重复。
+ * - 同一份文件里同一条只记一次。
+ */
+export function resolvePlanEvents(
+  book: ThreadBook,
+  chapters: readonly { no: number; entries: readonly PlanEntry[] }[]
+): PlannedChapter[] {
+  const lines = new Map(book.threads.map((t) => [threadKey(t.name), t]));
+  /** 全书已有的伏笔：名字 → 在哪份文件（线名；缺席是未归属）。 */
+  const owner = new Map<string, { name: string; line?: string }>();
+  for (const t of book.threads) {
+    for (const f of foreshadowingOf(t, 0)) {
+      owner.set(threadKey(f.name), { name: f.name, line: t.name });
+    }
+  }
+  for (const f of foreshadowingOf(book.unfiled, 0)) {
+    if (!owner.has(threadKey(f.name))) {
+      owner.set(threadKey(f.name), { name: f.name });
+    }
+  }
+  const fileOf = (line: string | undefined): ThreadFileBase => (line ? lines.get(threadKey(line))! : book.unfiled);
+  const out: PlannedChapter[] = [];
+  for (const { no, entries } of [...chapters].sort((a, b) => a.no - b.no)) {
+    const ch: PlannedChapter = { no, events: [], newForeshadowing: [], dropped: [], replaced: plannedFor(book, no).length };
+    const openLine = (name: string): Thread | undefined => {
+      const t = lines.get(threadKey(name));
+      return t && !isClosed(threadStatus(asOf(t, no))) ? t : undefined;
+    };
+    const push = (line: string | undefined, event: ThreadEvent): void => {
+      if (!ch.events.some((e) => threadKey(e.line ?? '') === threadKey(line ?? '') && sameEvent(e.event, event))) {
+        ch.events.push({ ...(line ? { line } : {}), event });
+      }
+    };
+    for (const p of entries) {
+      const label = p.foreshadowing ? `${p.type}〈${p.foreshadowing}〉` : `${p.line} ${p.type}`;
+      if (!isForeshadowEvent(p.type)) {
+        const t = openLine(p.line);
+        if (t) {
+          push(t.name, { chapter: no, planned: true, type: p.type, what: p.what });
+        } else {
+          ch.dropped.push({ what: label, why: lines.has(threadKey(p.line)) ? '这条线已经收束了' : '认不出是哪一条线' });
+        }
+        continue;
+      }
+      const known = owner.get(threadKey(p.foreshadowing!));
+      if (known) {
+        const state = foreshadowingOf(asOf(fileOf(known.line), no), no - 1).find((f) => threadKey(f.name) === threadKey(known.name));
+        if (state && isForeshadowClosed(state.status)) {
+          ch.dropped.push({ what: label, why: `这条伏笔已经${state.status === '已收' ? '收' : '弃'}了` });
+        } else if (p.type === '埋' && state?.status === '已埋') {
+          ch.dropped.push({ what: label, why: `这条伏笔第 ${state.plantedAt} 章已经埋下了` });
+        } else {
+          push(known.line, { chapter: no, planned: true, type: p.type, foreshadowing: known.name, what: p.what });
+        }
+        continue;
+      }
+      if (p.type !== '埋') {
+        ch.dropped.push({ what: label, why: '认不出是哪一条伏笔' });
+        continue;
+      }
+      const line = p.line ? openLine(p.line)?.name : undefined;
+      const foreshadowing: Foreshadowing = {
+        name: p.foreshadowing!,
+        what: cut(p.what, FORESHADOW_WHAT_MAX),
+        plant: no,
+        ...(p.resolve !== undefined ? { resolve: p.resolve } : {}),
+      };
+      owner.set(threadKey(foreshadowing.name), { name: foreshadowing.name, ...(line ? { line } : {}) });
+      ch.newForeshadowing.push({ ...(line ? { line } : {}), foreshadowing });
+      push(line, { chapter: no, planned: true, type: '埋', foreshadowing: foreshadowing.name, what: p.what });
+    }
+    out.push(ch);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- 当前进度（机器维护、指纹守着）
 
 /** 「当前进度」的指纹。只看内容：首尾空白不算，占位文字当空（同角色卡 `stateHashOf`）。 */

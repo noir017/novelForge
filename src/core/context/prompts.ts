@@ -49,6 +49,7 @@ import {
   outputKindOf,
 } from '../model/pipeline';
 import { BLUEPRINT_LIMITS, sectionItems } from '../model/plotFile';
+import { NAME_MAX, PLAN_EVENT_LIMIT, UNFILED_NAME, planScope } from '../model/threadFile';
 import { LORE_ENTRY_LIMITS, LORE_HIDDEN_MARK, LORE_LINE_LIMITS, LORE_LIST_BODY_MAX } from '../model/loreFile';
 import { OUTLINE_SECTION_MAX } from '../model/outlineFile';
 import {
@@ -1114,13 +1115,34 @@ function deriveOutlineContract(facts: PromptFacts): string {
  * 还不知道的真相，排细纲时看得见（lore 层、`characters` 层把那一节标成 {@link LORE_HIDDEN_MARK}），写正文时看不见——揭开那一章的正文模型只能从细纲知道这件事；没揭开的
  * 写进了细纲（连第九节那句 note 也算，它随本章细纲进正文），正文照样会说漏。写细纲、落定细纲、批量拆细纲都走
  * {@link blueprintContract}，同一句（第 22 条：几条路输出一字不差）。
+ *
+ * 要铺垫的去向（叙事线二期）：从前写进细纲的「新增伏笔」，现在写成 `threads` 里的一条「埋」——伏笔并进了叙事线，
+ * 细纲里不再有关于线的小节；埋的那一条只写读者看得到的那一面，进写正文上下文的是叙事线那一层（「第 b 章前不要揭开」）。
  */
 const BLUEPRINT_HIDDEN_RULE = [
   '【暗设】',
   `上面「相关世界观设定」「相关角色设定」里标着「${LORE_HIDDEN_MARK}」的，是读者还不知道的真相。`,
-  '- 不打算在这一章揭开：别写进 synopsis、keyEvents、highlights，settings 的 note 也不写；要铺垫，写进 foreshadowing，只写读者看得到的那一面（异样、传闻、疑点），不点破。',
+  '- 不打算在这一章揭开：别写进 synopsis、keyEvents、highlights，settings 的 note 也不写；要铺垫，写成 threads 里的一条「埋」，what 只写读者看得到的那一面（异样、传闻、疑点），不点破。',
   '- 打算在这一章揭开：在 keyEvents 里单列一条「揭开：……」，写清揭开什么、怎么揭开。细纲会进写正文的上下文，写正文时看不见暗设，要揭开的只能从这里知道。',
 ].join('\n');
+
+/**
+ * 「叙事线」的规矩（叙事线二期，设计稿「二」）：细纲照着线排，计划写进每章的 `threads`，写入时整组换掉各条线里这一章的
+ * 计划事件。上面「叙事线」一节标着「本批要收」「本章要收」「已过第 b 章，还没收」的伏笔是这一层最要紧的东西（`threads`
+ * 层的标记，model/threadFile.ts 的 `plotThreads`，两边同一个说法）：必须安排在这几章里收，不收要写明推迟到第几章。原来
+ * 「商业网文节奏」里那句「伏笔强制回收与释放」并进这一条。写细纲、落定细纲、批量拆细纲同一句（第 22 条）。
+ */
+function blueprintThreadRule(scope: '本章' | '本批'): string {
+  const where = scope === '本章' ? '本章' : '本批某一章';
+  return [
+    '【叙事线】',
+    `上面「叙事线」一节是这本书的剧情线与没收的伏笔（没有这一节就是还没有线）。照着排，并把${scope === '本章' ? '本章' : '每一章'}在线上计划发生的事写进${scope === '本章' ? '' : '那一章的'} threads：`,
+    '- 该推进的线写一条「推进」；人物关系计划有变的写一条「关系」；一条线计划在这一章走完写「收束」。line 照抄「叙事线」里的线名，那里没有的线不要写。',
+    `- 标着「${scope}要收」或「已过第 N 章，还没收」的伏笔，必须安排在${where}「收」；实在收不了的，给它所在的线写一条「推进」，what 里写明「〈伏笔名〉推迟到第 N 章收」和为什么。前面章节留下的危机，这里该引爆或解决的要引爆或解决。`,
+    `- 埋一条新伏笔写一条「埋」：foreshadowing 起一个短名字（${NAME_MAX} 字以内，不与已有的重名），what 只写读者看得到的那一面，resolve 写计划第几章前收；挂得上哪条线就把 line 写成那条线，挂不上给 ""（进「${UNFILED_NAME}」）。`,
+    '- 没到回收章的伏笔不要提前揭开；还没到开始那一章的线不要提前开。',
+  ].join('\n');
+}
 
 /**
  * 细纲：一批（给了区间）或一章。移植自 `chapter_blueprint_chunk`（PT:643-714）、
@@ -1173,9 +1195,10 @@ function blueprintContract(facts: PromptFacts): string {
       ? ['- 黄金三章法则：第 1 章极速抛出「生存/高压困境」，第 2 章激活金手指/最大反差变量，第 3 章完成首次「小型打脸/破局」，留钩子。']
       : []),
     '- 小高潮循环：维持每 3–5 章一个小高潮的节奏。',
-    '- 伏笔强制回收与释放：如果前面章节留下了危机，这里必须引爆或解决。',
     '- 避免水文与流水账：每一章都必须发生「实质性的事件变动」。',
     '- 悬念钩子机制：每章结尾必须有一个让读者想连续翻页的变数。',
+    '',
+    blueprintThreadRule(range ? planScope(range) : '本章'),
     '',
     BLUEPRINT_HIDDEN_RULE
   );
@@ -1208,7 +1231,8 @@ function blueprintContract(facts: PromptFacts): string {
  *
  * 字段就是细纲的八节（连续性事实除外：证据要回正文定位，定稿时才有），说法照定稿那份提示词
  * （features/summarizePrompt.ts 的 `SUMMARY_SYSTEM`）改成「计划」的口吻——同一份文件，计划与定稿
- * 写的是同一件事，只是一个在写之前、一个在写之后。
+ * 写的是同一件事，只是一个在写之前、一个在写之后。`threads`（叙事线二期，换掉原来的 `foreshadowing`）不进细纲：
+ * 它是这一章在叙事线上的计划，写入时写进各条线（features/threadPlan.ts）。
  */
 export function blueprintJsonContract(range?: { from: number; to: number }): string {
   const L = BLUEPRINT_LIMITS;
@@ -1218,20 +1242,20 @@ export function blueprintJsonContract(range?: { from: number; to: number }): str
   const first = range?.from ?? 1;
   return [
     '【不可变细纲 JSON 合同】',
-    '只输出 {"blueprints":[...]}，每项必须完整包含：chapterNumber、title、synopsis、characters、timePlace、keyEvents、highlights、foreshadowing、stateChange；newCharacters、settings 可选。',
-    `${cover}；title、synopsis 必须是非空字符串，keyEvents 至少一条，characters 至少一人；timePlace、stateChange 没有就给 ""，highlights、foreshadowing 没有就给 []。`,
+    '只输出 {"blueprints":[...]}，每项必须完整包含：chapterNumber、title、synopsis、characters、timePlace、keyEvents、highlights、stateChange、threads；newCharacters、settings 可选。',
+    `${cover}；title、synopsis 必须是非空字符串，keyEvents 至少一条，characters 至少一人；timePlace、stateChange 没有就给 ""，highlights、threads 没有就给 []。`,
     `title 是这一章的标题（不超过 ${L.title} 字，不带「第N章」）。`,
     `synopsis 用 3–5 句话写清本章计划发生什么，写清因果链（不超过 ${L.synopsis} 字）。`,
     `characters 是本章计划登场、有实质动作的人，字符串数组，写完整姓名（已有角色卡的人照抄卡上的名字），被别人提到一句的不算，最多 ${L.characters} 项。`,
     'timePlace 写本章的时间点（与上一章的相对关系亦可）与主要场景。',
     `keyEvents 是字符串数组，按发生的顺序一条一件事，3–6 条，合计 100–300 字：主角计划做什么，会遭遇什么反转，金手指怎么用——每条可以写到具体场面（谁在哪、对谁做了什么、结果怎样），但它不是正文，不写成段的描写与对白；最多 ${L.keyEventItems} 条，合计绝不得超过 ${L.keyEvents} 字。`,
     `highlights 是字符串数组，1–3 条、一条一句：本章计划让读者最爽、最想往下看的地方——爽点写清谁被谁打脸/压制、主角凭什么赢、围观者怎样反应（打脸、逆袭、收获、反转、揭秘、高光对决）；钩子写清章末吊着读者想知道什么；过渡章没有爽点就只写钩子。写具体的那一下，不写「精彩」「爽快」这类评价词。`,
-    `foreshadowing 是字符串数组，一条一句：本章计划埋下、留到后面回收的线索、疑问、承诺；没有就给 []，最多 ${L.listItems} 条。`,
     'stateChange 写本章之后，主要人物的处境、关系、实力、心态计划变成什么样。',
+    `threads 是本章在叙事线上的计划，每项 {"line":"…","type":"推进|关系|收束|埋|收","foreshadowing":"…","what":"…","resolve":N}，最多 ${PLAN_EVENT_LIMIT} 项：line 是哪条线（照抄线名）；type 是推进、关系、收束（这条线走完了）、埋、收之一；埋、收要写 foreshadowing（哪一条伏笔），推进、关系、收束不写；what 一句话写这一章在这条线上发生什么；resolve 只在埋一条新伏笔时给（计划第几章前收）。这一章不动任何线就给 []。`,
     'newCharacters 可选；只列由本章首次引入且预计后续还会出场的重要具名角色，每项 {"name":"…","role":"…","gender":"…"}，name 必须逐字复制 characters 中的一个完整姓名，role 只能是 protagonist、antagonist、supporting、minor，gender 写「男」或「女」；已经有角色卡的人、一次性路人都不要列。',
     `settings 可选；本章计划用到或引入的有专名的设定（地点、势力与组织、物品、功法与能力、制度与规矩、历史事件、专有概念；人物不算，放 characters），每项 {"name":"…","category":"…","isNew":false,"note":"…"}，最多 8 项：「相关世界观设定」里已有的照抄它的名字、isNew 给 false，note 写本章用到它的哪一面（没有就给 ""）；本章首次引入、后面还会用到的新设定 isNew 给 true，note 一句话写清它是什么（${LORE_LINE_LIMITS.note} 字以内），category 从本书的设定分类里挑（可以写子分类，如「宗门/正道」）。`,
     '数组的元素里不要写编号或「-」。不得省略必填字段、合并章节、输出近义字段、解释、Markdown 或代码围栏。',
-    `【精确 JSON 形状】{"blueprints":[{"chapterNumber":${first},"title":"…","synopsis":"…","characters":["…"],"timePlace":"…","keyEvents":["…"],"highlights":["…"],"foreshadowing":["…"],"stateChange":"…"}]}`,
+    `【精确 JSON 形状】{"blueprints":[{"chapterNumber":${first},"title":"…","synopsis":"…","characters":["…"],"timePlace":"…","keyEvents":["…"],"highlights":["…"],"stateChange":"…","threads":[{"line":"…","type":"推进","what":"…"}]}]}`,
   ].join('\n');
 }
 

@@ -823,3 +823,94 @@ describe('threadFile.ts · 拆细纲带哪几条（二期）', () => {
     assert.equal(t.planScope({ from: 3, to: 7 }), '本批');
   });
 });
+
+describe('threadFile.ts · 拆细纲：计划落到哪份文件上（二期）', () => {
+  const plan = (chapter, type, extra = {}) => ({ ...ev(chapter, type, extra), planned: true });
+  const pair = line([ev(3, '推进'), ev(3, '埋', { foreshadowing: '玉佩' }), plan(6, '推进', { what: '旧的计划' })], {
+    name: '林昭与沈青',
+    relPath: 'p',
+    index: 0,
+    foreshadowing: [{ name: '玉佩', what: '旧物', resolve: 18 }, { name: '旧伤', what: '' }],
+  });
+  const closed = line([ev(2, '收束')], { name: '收了的线', relPath: 'c', index: 1, foreshadowing: [{ name: '收了的伏笔', what: '' }] });
+  closed.events.push(ev(2, '收', { foreshadowing: '收了的伏笔' }));
+  const unfiled = { name: '未归属的伏笔', relPath: 'u', foreshadowing: [{ name: '提灯人', what: '' }], events: [plan(6, '收', { foreshadowing: '提灯人' })] };
+  const book = { threads: [pair, closed], unfiled };
+  const entry = (line, type, extra = {}) => ({ line, type, what: '', ...extra });
+
+  test('线的事件：认得出、没收束的线才记；认不出的、收束了的丢掉并说原因', () => {
+    const [c] = t.resolvePlanEvents(book, [
+      { no: 6, entries: [entry('林昭 与 沈青', '推进', { what: '挡刀' }), entry('没有这条线', '关系'), entry('收了的线', '推进')] },
+    ]);
+    assert.deepEqual(c.events, [{ line: '林昭与沈青', event: { chapter: 6, planned: true, type: '推进', what: '挡刀' } }]);
+    assert.deepEqual(c.dropped, [
+      { what: '没有这条线 关系', why: '认不出是哪一条线' },
+      { what: '收了的线 推进', why: '这条线已经收束了' },
+    ]);
+    // 第 6 章原来有两条计划（线上一条、未归属里一条）：写入时整组换掉。
+    assert.equal(c.replaced, 2);
+  });
+
+  test('伏笔的事件跟着伏笔走（不看 line）；收了的不记，已经埋下的再埋不记；没见过的被收丢掉', () => {
+    const [c] = t.resolvePlanEvents(book, [
+      {
+        no: 6,
+        entries: [
+          entry('别的线', '收', { foreshadowing: '提灯人' }),
+          entry('', '收', { foreshadowing: '玉佩' }),
+          entry('', '收', { foreshadowing: '收了的伏笔' }),
+          entry('', '埋', { foreshadowing: '玉佩' }),
+          entry('', '收', { foreshadowing: '没见过' }),
+        ],
+      },
+    ]);
+    assert.deepEqual(
+      c.events.map((e) => [e.line, e.event.type, e.event.foreshadowing]),
+      [
+        [undefined, '收', '提灯人'],
+        ['林昭与沈青', '收', '玉佩'],
+      ]
+    );
+    assert.deepEqual(c.dropped.map((d) => d.why), ['这条伏笔已经收了', '这条伏笔第 3 章已经埋下了', '认不出是哪一条伏笔']);
+  });
+
+  test('没见过的伏笔被埋：挂在认得出的线上，认不出进未归属；登记成「计划第 N 章埋、第 b 章前收」；后面几章收它认得出', () => {
+    const [a, b] = t.resolvePlanEvents(book, [
+      { no: 8, entries: [entry('林昭与沈青', '收', { foreshadowing: '断剑' })] },
+      {
+        no: 7,
+        entries: [
+          entry('林昭与沈青', '埋', { foreshadowing: '断剑', what: '断剑落潭', resolve: 9 }),
+          entry('瞎写的线', '埋', { foreshadowing: '名册', what: '名册少一页' }),
+        ],
+      },
+    ]);
+    // 按章号先后走：第 7 章先埋，第 8 章才收得到。
+    assert.deepEqual([a.no, b.no], [7, 8]);
+    assert.deepEqual(a.newForeshadowing, [
+      { line: '林昭与沈青', foreshadowing: { name: '断剑', what: '断剑落潭', plant: 7, resolve: 9 } },
+      { foreshadowing: { name: '名册', what: '名册少一页', plant: 7 } },
+    ]);
+    assert.deepEqual(a.events.map((e) => [e.line, e.event.type, e.event.foreshadowing]), [
+      ['林昭与沈青', '埋', '断剑'],
+      [undefined, '埋', '名册'],
+    ]);
+    assert.deepEqual(b.events, [{ line: '林昭与沈青', event: { chapter: 8, planned: true, type: '收', foreshadowing: '断剑', what: '' } }]);
+    assert.equal(a.replaced, 0);
+  });
+
+  test('解码：没写是 undefined、写成别的形状当空的；逐条校验；规范化的形状原样', () => {
+    assert.deepEqual(t.decodePlanEntries(undefined, 3), { notes: [] });
+    assert.deepEqual(t.decodePlanEntries('乱写', 3).entries, []);
+    const r = t.decodePlanEntries([{ line: '甲', type: '埋', foreshadowing: '未归属的伏笔' }, { line: '甲', type: '埋', foreshadowing: '玉佩', resolve: 2 }], 3);
+    assert.deepEqual(r.entries, [{ line: '甲', type: '埋', foreshadowing: '玉佩', what: '' }], '回收章不比本章晚的不要');
+    assert.match(r.notes[0], /伏笔「未归属的伏笔」是保留名/);
+    assert.deepEqual(t.planEntryJson({ line: '', type: '埋', foreshadowing: '玉佩', what: 'x', resolve: 9 }), {
+      line: '',
+      type: '埋',
+      foreshadowing: '玉佩',
+      what: 'x',
+      resolve: 9,
+    });
+  });
+});

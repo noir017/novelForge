@@ -502,6 +502,11 @@ export interface SerializedArtifact {
   /** 写入时会新建的设定空条目（设定名录：细纲里本章首次引入的设定，同 D19；展开一条设定时建议拆出的子条目）。 */
   createsLore?: string[];
   /**
+   * 细纲写入时会写进叙事线的计划（叙事线二期，同 D19：先列出来）：「叙事线计划：林昭与沈青 推进；埋〈玉佩的来历〉」，
+   * 一批几章时一章一行；认不出是哪条线、没写进去的另起一行。已经排好了的几行字（features/threadPlan.ts 的 `describeThreadPlan`）。
+   */
+  threadPlan?: string[];
+  /**
    * 落定设定（完善设定二期）会更新的已有条目（标题）。写入前逐条对比——卡片上先列出来，作者知道会弹几次对比。
    */
   updatesLore?: string[];
