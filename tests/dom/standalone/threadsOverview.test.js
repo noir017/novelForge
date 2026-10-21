@@ -8,6 +8,7 @@
  * | 能力探测 | 插件的 webview 只有 view.js：「总览」「在总览里看」「打开叙事线总览」都不画；独立版有；一条线都没有不给 |
  * | 标签 | 标签条上一个不对应文件的特殊标签（排在文件前面）；切到文件就藏起覆盖层、切回来再露出来；× / Ctrl+W 关掉回到原来那份文件；「▾」里也有它 |
  * | 矩阵 | 列头的章号、卷名、定稿状态，「定稿到第 N 章」那条竖线；按种类分组、线下面是伏笔、最后是「未归属的伏笔」 |
+ * | 叙事线判到哪（四期） | 落后于定稿时头上说判到第几章、另一条虚竖线；定稿了还没判的列头另标，悬停说这一章的计划不算偏差 |
  * | 四种格子 | ○ 只有计划、● 只有实际、◉ 计划也发生了、红圈偏差；计划区间一条淡底 |
  * | 伏笔连线 | 收了的实线、埋了没收的虚线（逾期标红）、还没埋的淡虚线；回收章一道竖线；埋 ● 收 ◆ 弃 ✕，计划的空心 |
  * | 点击 | 点格子 / 列头发 `openChapter`（有正文给正文路径，只有细纲给细纲路径，都没有说一句不发）；点线名、伏笔名、「未归属的伏笔」发 `openEditor` |
@@ -368,11 +369,39 @@ describe('叙事线总览 · 矩阵', { skip: JSDOM_SKIP }, () => {
     ]);
   });
 
-  test('「定稿到第 3 章」：一条竖线画在第 3 章右边', () => {
+  test('「定稿到第 3 章」：一条竖线画在第 3 章右边；叙事线跟上了定稿，不另画', () => {
     const now = h.doc.querySelector('.tov-grid .tov-now');
     assert.ok(now);
     assert.equal(now.style.left, `${220 + 3 * 24}px`);
     assert.equal(now.title, '定稿到第 3 章');
+    assert.equal(h.doc.querySelector('.tov-grid .tov-judged'), null);
+  });
+
+  // 四期：定稿到第 3 章、叙事线只判到第 1 章——第 2、3 章定稿了还没判。
+  test('叙事线落后于定稿：头上说判到第几章；另一条虚竖线画在第 1 章右边；还没判的列头另标、悬停说计划不算偏差', () => {
+    const o = overview({ through: 1 });
+    o.chapters = o.chapters.map((c) => (c.no === 2 || c.no === 3 ? { ...c, unjudged: true } : c));
+    // 点「总览」总是再要一次。
+    h.open();
+    h.respond(o);
+    assert.equal(h.doc.querySelector('.tov-meta').textContent, '定稿到第 3 章 · 叙事线判到第 1 章 · 2 条线 · 4 条伏笔');
+    const judged = h.doc.querySelector('.tov-grid .tov-judged');
+    assert.ok(judged);
+    assert.equal(judged.style.left, `${220 + 1 * 24}px`);
+    assert.match(judged.title, /^叙事线判到第 1 章/);
+    assert.equal(h.doc.querySelector('.tov-grid .tov-now').style.left, `${220 + 3 * 24}px`);
+    const cols = [...h.doc.querySelectorAll('.tov-nums .tov-col')];
+    assert.deepEqual(cols.map((c) => c.classList.contains('tov-col-unjudged')), [false, true, true, false, false, false]);
+    assert.match(cols[1].title, /已定稿，叙事线还没判（这一章的计划不算偏差）/);
+    assert.match(h.doc.querySelector('.tov-corner').title, /虚线：叙事线判到第 1 章/);
+  });
+
+  test('一章都没判过：头上说「叙事线还没判过」，不画虚线', () => {
+    const o = overview({ through: 0 });
+    h.open();
+    h.respond(o);
+    assert.equal(h.doc.querySelector('.tov-meta').textContent, '定稿到第 3 章 · 叙事线还没判过 · 2 条线 · 4 条伏笔');
+    assert.equal(h.doc.querySelector('.tov-grid .tov-judged'), null);
   });
 
   test('行：按种类分组，每条线下面是它的伏笔，最后是「未归属的伏笔」', () => {

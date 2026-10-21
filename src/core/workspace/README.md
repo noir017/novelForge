@@ -305,6 +305,7 @@ workspace/
 | `finalizePlot` | 章节：正文镜像的那一份细纲，没有就在镜像位置新建（见上一节「定稿写回」） |
 | `writeCharacter` / `writeLore` | slug（可带子目录） |
 | `writeStyleGuide` / `writeGlobalSummary` | 固定路径 |
+| `markThreadsJudged(no)` | 第 `no` 章的叙事线判过了（叙事线重做四期）：推 `project.json` 里的水位 `threadsThrough`（正好是水位 + 1 就推、顺着后面已经判过的接着推，更靠后的记进 `threadsJudged`；水位以内的不写盘）。同全文大纲的水位：manifest 是链外的索引，没有上游指纹；不放 SQLite（第 17 条） |
 | `writeSkillBindings(text)` | 固定路径（`skills.json`）。设置页「技能」与 `skills bind` 动手前都已经问过作者，这里不再弹覆盖审阅——每换一次下拉框弹一个 JSON 的 diff 只是噪声 |
 | `createThread(thread)` | 新建一条叙事线 `threads/<线名>.md`（排线、定稿认出新线）：**同名跳过**——文件已经在了就一个字节不动、返回 undefined（第 19、28 条：机器只追加）。链外文件，没有上游指纹 |
 | `updateThread(rel, edit)` | 改写一份叙事线文件（一条线，或「未归属的伏笔」，还没有这份文件当空串）：读**此刻**的原文交给 `edit`、写回它给的新原文（覆盖前存一版历史）：排线、定稿要调几十秒模型（拆细纲写计划事件也走它，叙事线二期），写之前重读、只在上面外科式地改，作者这期间的改动才不会被一份旧全文冲掉；种类不是 `threads` 的拒写 |
