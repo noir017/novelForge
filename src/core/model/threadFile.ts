@@ -2003,9 +2003,9 @@ function linePlanHead(t: Thread, range: { from: number; to: number }): string {
  * 知道后面有这条线，才不会另起一条、也不会提前开）。
  *
  * **伏笔**：写到区间第一章时还没收、也没弃的（线收束了，伏笔照样可能开着），一条一行。排法：计划在这几章或更早收的
- * （「本批要收」/「已过第 b 章，还没收」，回收章早的在前）→ 这几章原来有计划的 → 已经埋下的（埋得早的在前）、计划在
- * 这几章或更早埋的 → 还没定哪一章埋的。**计划在这几章之后才埋的不带**（提了等于叫模型提前埋）；还没开始的线上没定
- * 哪一章埋的也不带。
+ * （「本批要收」/「已过第 b 章，还没收」，回收章早的在前；还没埋的另说「还没埋，先埋再收」）→ 这几章原来有计划的 → 已经
+ * 埋下的（埋得早的在前）、计划在这几章或更早埋的（「本批要埋」/「计划第 a 章埋，还没埋」）→ 还没定哪一章埋的。**计划在
+ * 这几章之后才埋的不带**（提了等于叫模型提前埋）；还没开始的线上没定哪一章埋的也不带。
  */
 export function plotThreads(
   book: ThreadBook,
@@ -2084,6 +2084,11 @@ export function plotThreads(
       if (f.resolve !== undefined && f.resolve <= to) {
         rank = 0;
         hint = f.resolve < from ? `已过第 ${f.resolve} 章，还没收` : scope === '本章' ? '本章要收' : `本批要收，最晚第 ${f.resolve} 章`;
+        // 复跑之后：「收」要排在「埋」之后（resolvePlanEvents），还没埋、前面也没排过「埋」的说清楚，免得只排一条收、被丢掉。
+        const plantedPlan = file.events.some(
+          (e) => e.planned && e.type === '埋' && e.chapter < from && !!e.foreshadowing && threadKey(e.foreshadowing) === threadKey(f.name)
+        );
+        hint += f.status === '计划' && !plantedPlan ? '，还没埋，先埋再收' : '';
         tie = f.resolve;
       } else if (mine.length > 0) {
         rank = 1;
@@ -2095,7 +2100,8 @@ export function plotThreads(
         tie = f.plantedAt ?? 0;
       } else if (f.plant !== undefined && f.plant <= to) {
         rank = 2;
-        hint = `计划第 ${f.plant} 章埋${f.plant < from ? '，还没埋' : ''}${f.resolve !== undefined ? `、第 ${f.resolve} 章前收` : ''}`;
+        // 复跑之后：在这几章里该埋的标「本批要埋」，过了还没埋的标「还没埋」——合同里那条规矩认的就是这两种说法。
+        hint = `${f.plant < from ? `计划第 ${f.plant} 章埋，还没埋` : `${scope}要埋，计划第 ${f.plant} 章`}${f.resolve !== undefined ? `、第 ${f.resolve} 章前收` : ''}`;
         tie = f.plant;
       } else if (f.plant === undefined && !notYet) {
         rank = 3;
@@ -2375,6 +2381,94 @@ export function resolvePlanEvents(
     out.push(ch);
   }
   return out;
+}
+
+/** 拆细纲之后，到期却没安排的一条伏笔（{@link unplannedDue}）。 */
+export interface UnplannedDue {
+  name: string;
+  /** 挂在哪条线上（缺席是「未归属的伏笔」）。 */
+  line?: string;
+  /** 该埋（计划埋的章到了、还没埋）、该收（计划回收章到了、还没收），这一批都没安排。 */
+  need: ('埋' | '收')[];
+  plant?: number;
+  resolve?: number;
+}
+
+/**
+ * 拆细纲的程序检查（复跑之后，2026-10-21；模型只排「推进」，到期该埋的三条一条也没排）：写进去的这几章（第 a–b 章）里到期、
+ * 却没安排的伏笔。**不调模型、不拦人**，列在写入卡片的说明与日志里（features/threadPlan.ts）。都按写到第 a 章时算（{@link asOf}）：
+ *
+ * - **该埋**：还是「计划」、伏笔那一行写的计划埋的章 ≤ b（这几章里的，或者早就过了的）；
+ * - **该收**：还没收、也没弃，计划回收章 ≤ b。
+ *
+ * 算安排过的：这一批的计划落到线上之后（{@link resolvePlanEvents}：没埋就收的已经丢掉了）有它的「埋」/「收」；这一次不换掉的、
+ * 第 a 章及以后的章里原来就有它的计划「埋」/「收」（一批里跳过的已有细纲、单章重拆时后面几章的计划）；或者这一批哪一条
+ * 计划的 what 里提到了它、写明「推迟」（合同里的推迟写法：给它所在的线写一条推进，「〈伏笔名〉推迟到第 N 章收」）。
+ */
+export function unplannedDue(book: ThreadBook, chapters: readonly { no: number; entries: readonly PlanEntry[] }[]): UnplannedDue[] {
+  if (chapters.length === 0) {
+    return [];
+  }
+  const nos = chapters.map((c) => c.no);
+  const from = Math.min(...nos);
+  const to = Math.max(...nos);
+  const rewriting = new Set(nos);
+  const arranged = { 埋: new Set<string>(), 收: new Set<string>() };
+  for (const c of resolvePlanEvents(book, chapters)) {
+    for (const { event } of c.events) {
+      if ((event.type === '埋' || event.type === '收') && event.foreshadowing) {
+        arranged[event.type].add(threadKey(event.foreshadowing));
+      }
+    }
+  }
+  for (const f of [...book.threads, book.unfiled]) {
+    for (const e of plannedEvents(f)) {
+      if ((e.type === '埋' || e.type === '收') && e.foreshadowing && e.chapter >= from && !rewriting.has(e.chapter)) {
+        arranged[e.type].add(threadKey(e.foreshadowing));
+      }
+    }
+  }
+  const delays = chapters.flatMap((c) => c.entries.map((e) => e.what)).filter((w) => w.includes('推迟')).map(normalizeQuote);
+  const delayed = (name: string): boolean => {
+    const key = threadKey(name);
+    return key.length > 0 && delays.some((w) => w.includes(key));
+  };
+  const out: UnplannedDue[] = [];
+  const files: { file: ThreadFileBase; line?: string }[] = [...book.threads.map((t) => ({ file: t, line: t.name })), { file: book.unfiled }];
+  for (const { file, line } of files) {
+    for (const f of foreshadowingOf(asOf(file, from), from - 1)) {
+      if (isForeshadowClosed(f.status) || delayed(f.name)) {
+        continue;
+      }
+      const key = threadKey(f.name);
+      const need: ('埋' | '收')[] = [];
+      if (f.status === '计划' && f.plant !== undefined && f.plant <= to && !arranged.埋.has(key)) {
+        need.push('埋');
+      }
+      if (f.resolve !== undefined && f.resolve <= to && !arranged.收.has(key)) {
+        need.push('收');
+      }
+      if (need.length > 0) {
+        out.push({
+          name: f.name,
+          ...(line ? { line } : {}),
+          need,
+          ...(f.plant !== undefined ? { plant: f.plant } : {}),
+          ...(f.resolve !== undefined ? { resolve: f.resolve } : {}),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** `〈阿婆的真实身份〉（计划第 5 章埋，还没埋）`、`〈井底的秘密〉（第 13 章前收）`。 */
+export function describeUnplannedDue(u: UnplannedDue): string {
+  const parts = [
+    u.need.includes('埋') ? `计划第 ${u.plant} 章埋，还没埋` : '',
+    u.need.includes('收') ? `第 ${u.resolve} 章前收` : '',
+  ].filter(Boolean);
+  return `〈${u.name}〉（${parts.join('；')}）`;
 }
 
 // ---------------------------------------------------------------- 写前检查：两类提醒要的数（二期）

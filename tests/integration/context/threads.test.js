@@ -338,9 +338,9 @@ describe('threads 层 · 拆细纲（按区间挑）', () => {
     const fores = threadItems(await buildPlot({ from: 5, to: 9 })).filter((i) => i.label.startsWith('伏笔 · '));
     assert.deepEqual(fores.map((i) => i.text), [
       '- 提灯人（挂在「未归属的伏笔」· 已埋 · 已过第 4 章，还没收）是什么：院外提灯的人',
-      '- 沈青的旧伤（挂在「林昭与沈青」· 计划 · 本批要收，最晚第 5 章）',
+      '- 沈青的旧伤（挂在「林昭与沈青」· 计划 · 本批要收，最晚第 5 章，还没埋，先埋再收）',
       '- 玉佩的来历（挂在「林昭与沈青」· 已埋 · 第 18 章前收，之前不要揭开）是什么：沈家旧物',
-      '- 断剑（挂在「未归属的伏笔」· 计划 · 计划第 9 章埋）',
+      '- 断剑（挂在「未归属的伏笔」· 计划 · 本批要埋，计划第 9 章）',
     ]);
     assert.equal(fores[0].id, 'thread:.novelforge/threads/未归属的伏笔.md#提灯人');
   });
@@ -348,7 +348,7 @@ describe('threads 层 · 拆细纲（按区间挑）', () => {
   test('单章第 5 章：说「本章」，第 9 章才埋的不带，第 7 章收束的线不算落在这一章', async () => {
     const items = threadItems(await buildPlot({ from: 5, to: 5 }));
     const texts = items.map((i) => i.text).join('\n');
-    assert.ok(texts.includes('沈青的旧伤（挂在「林昭与沈青」· 计划 · 本章要收）'), texts);
+    assert.ok(texts.includes('沈青的旧伤（挂在「林昭与沈青」· 计划 · 本章要收，还没埋，先埋再收）'), texts);
     assert.ok(texts.includes('本章原来的计划：第 5 章推进'), texts);
     assert.ok(!texts.includes('断剑'), texts);
     assert.ok(texts.includes('- 快收束的线（支线 · 进行中 · 计划第 1–7 章）'), texts);

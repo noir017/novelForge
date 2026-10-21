@@ -1011,12 +1011,12 @@ describe('threadFile.ts · 拆细纲带哪几条（二期）', () => {
   test('伏笔：这几章或更早要收的在前（逾期的写「已过」）→ 原来有计划的 → 已埋的、计划在这几章埋的；之后才埋的不带', () => {
     const { foreshadowing } = t.plotThreads(book, { from: 5, to: 9 });
     assert.deepEqual(foreshadowing.map((c) => c.line), [
-      '- 收了线上没收的（挂在「收了的线」· 计划 · 已过第 4 章，还没收）',
+      '- 收了线上没收的（挂在「收了的线」· 计划 · 已过第 4 章，还没收，还没埋，先埋再收）',
       '- 提灯人（挂在「未归属的伏笔」· 已埋 · 已过第 4 章，还没收）是什么：院外提灯的人',
-      '- 旧伤（挂在「林昭与沈青」· 计划 · 本批要收，最晚第 7 章）本批原来的计划：第 7 章收',
+      '- 旧伤（挂在「林昭与沈青」· 计划 · 本批要收，最晚第 7 章，还没埋，先埋再收）本批原来的计划：第 7 章收',
       '- 玉佩（挂在「林昭与沈青」· 已埋 · 第 18 章前收，之前不要揭开）是什么：旧物',
-      '- 令牌（挂在「林昭与沈青」· 计划 · 计划第 5 章埋、第 20 章前收）',
-      '- 名册（挂在「林昭与沈青」· 计划 · 计划第 9 章埋）',
+      '- 令牌（挂在「林昭与沈青」· 计划 · 本批要埋，计划第 5 章、第 20 章前收）',
+      '- 名册（挂在「林昭与沈青」· 计划 · 本批要埋，计划第 9 章）',
     ]);
     // 「后面才开」那条线还没开始：它上面没定哪一章埋的伏笔不提。
     assert.ok(!foreshadowing.some((c) => c.name === '师父的信'));
@@ -1169,6 +1169,76 @@ describe('threadFile.ts · 拆细纲：计划落到哪份文件上（二期）',
       what: 'x',
       resolve: 9,
     });
+  });
+});
+
+// 复跑报告问题 3：第 11–15 章拆出来 12 条全是「推进」，到期该埋的 3 条一条也没排；补充实验里该收的漏了 1 条、也没写推迟。
+describe('threadFile.ts · 拆细纲：到期却没安排的伏笔（复跑之后）', () => {
+  const plan = (chapter, type, extra = {}) => ({ ...ev(chapter, type, extra), planned: true });
+  const main = line([ev(1, '推进'), ev(4, '埋', { foreshadowing: '井底的秘密' }), plan(14, '收', { foreshadowing: '镇子底下的骨头' })], {
+    name: '灭门复仇',
+    kind: '主线',
+    relPath: 'm',
+    foreshadowing: [
+      { name: '阿婆的真实身份', what: '', plant: 5, resolve: 18 },
+      { name: '无面鬼火的本质', what: '', plant: 9, resolve: 20 },
+      { name: '井底的秘密', what: '', resolve: 13 },
+      { name: '照骨镜的残片', what: '', resolve: 15 },
+      { name: '镇子底下的骨头', what: '', resolve: 12 },
+      { name: '还远着的', what: '', plant: 30, resolve: 40 },
+    ],
+  });
+  main.events.push(ev(8, '埋', { foreshadowing: '镇子底下的骨头' }));
+  const body = line([ev(1, '推进')], { name: '死僵化', kind: '人物线', relPath: 'b', index: 1, foreshadowing: [{ name: '尸斑的出现', what: '', plant: 12, resolve: 19 }] });
+  const book = { threads: [main, body], unfiled: { name: '未归属的伏笔', relPath: 'u', foreshadowing: [], events: [] } };
+  const entry = (lineName, type, extra = {}) => ({ line: lineName, type, what: '', ...extra });
+  const batch = (entriesOf) => [11, 12, 13, 15].map((no) => ({ no, entries: entriesOf(no) }));
+
+  test('只排了推进：到期该埋的（这几章里的、早就过了的）、该收的都列出来；第 14 章原来的计划算安排过；还远的不算', () => {
+    const due = t.unplannedDue(book, batch(() => [entry('灭门复仇', '推进')]));
+    assert.deepEqual(due.map((u) => [u.name, u.line, u.need]), [
+      ['阿婆的真实身份', '灭门复仇', ['埋']],
+      ['无面鬼火的本质', '灭门复仇', ['埋']],
+      ['井底的秘密', '灭门复仇', ['收']],
+      ['照骨镜的残片', '灭门复仇', ['收']],
+      ['尸斑的出现', '死僵化', ['埋']],
+    ]);
+    assert.deepEqual(due.map(t.describeUnplannedDue), [
+      '〈阿婆的真实身份〉（计划第 5 章埋，还没埋）',
+      '〈无面鬼火的本质〉（计划第 9 章埋，还没埋）',
+      '〈井底的秘密〉（第 13 章前收）',
+      '〈照骨镜的残片〉（第 15 章前收）',
+      '〈尸斑的出现〉（计划第 12 章埋，还没埋）',
+    ]);
+  });
+
+  test('安排了的、写明推迟的不算；没埋就收的被丢掉，照样算没安排', () => {
+    const due = t.unplannedDue(
+      book,
+      batch((no) =>
+        no === 11
+          ? [entry('', '埋', { foreshadowing: '阿婆的真实身份' }), entry('', '收', { foreshadowing: '照骨镜的残片' }), entry('', '收', { foreshadowing: '井底的秘密' })]
+          : no === 12
+            ? [entry('灭门复仇', '推进', { what: '〈无面鬼火的本质〉推迟到第 22 章埋：先收拾红姑' }), entry('', '埋', { foreshadowing: '尸斑的出现' })]
+            : []
+      )
+    );
+    // 照骨镜的残片从没埋过：第 11 章的「收」被丢掉，还是没安排。
+    assert.deepEqual(due.map((u) => [u.name, u.need]), [['照骨镜的残片', ['收']]]);
+    assert.deepEqual(t.unplannedDue(book, []), []);
+  });
+
+  test('拆细纲那一层：回收章到了、还没埋的说「先埋再收」，前面排过「埋」的不说；该埋的说「本批要埋」', () => {
+    const { foreshadowing } = t.plotThreads(
+      { ...book, threads: [{ ...main, events: [...main.events, plan(10, '埋', { foreshadowing: '照骨镜的残片' })] }, body] },
+      { from: 11, to: 15 }
+    );
+    const hint = (name) => foreshadowing.find((c) => c.name === name).why;
+    assert.equal(hint('井底的秘密'), '本批要收，最晚第 13 章');
+    assert.equal(hint('照骨镜的残片'), '本批要收，最晚第 15 章');
+    assert.equal(hint('阿婆的真实身份'), '计划第 5 章埋，还没埋、第 18 章前收');
+    assert.equal(hint('尸斑的出现'), '本批要埋，计划第 12 章、第 19 章前收');
+    assert.equal(t.plotThreads(book, { from: 11, to: 15 }).foreshadowing.find((c) => c.name === '照骨镜的残片').why, '本批要收，最晚第 15 章，还没埋，先埋再收');
   });
 });
 

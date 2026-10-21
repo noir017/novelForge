@@ -11,7 +11,9 @@
  *   （model/threadFile.ts 的 `replacePlannedEvents` / `appendForeshadowing`）；别的章、实际事件、作者写的行一个字不动，
  *   旧版由网关存历史。
  * - 认线、认伏笔在 model/threadFile.ts 的 `resolvePlanEvents`：线的事件认不出是哪条线就丢掉，伏笔的事件跟着伏笔走，没见过的
- *   伏笔被埋了就登记成新伏笔。没写进去的在卡片与日志里说出来（第 2 条）。
+ *   伏笔被埋了就登记成新伏笔，没埋就「收」的丢掉。没写进去的在卡片与日志里说出来（第 2 条）。
+ * - **到期却没安排的伏笔**（复跑之后，`unplannedDue`）：这几章里该埋、该收的伏笔，计划里既没安排、也没写推迟的，列在卡片
+ *   与日志里（批量拆细纲没有卡片，完成提示说一句「见日志」）。不调模型，也不拦人。
  *
  * 零调用：计划是细纲合同里顺带的一个字段（设计稿「调用次数」：+0）。
  */
@@ -27,10 +29,12 @@ import {
   UNFILED_NAME,
   UNFILED_TEMPLATE,
   appendForeshadowing,
+  describeUnplannedDue,
   isForeshadowEvent,
   replacePlannedEvents,
   resolvePlanEvents,
   threadKey,
+  unplannedDue,
 } from '../model/threadFile';
 import { Workspace } from '../workspace';
 import type { Artifact } from './artifact';
@@ -53,6 +57,8 @@ export interface PlanWriteOutcome {
   newForeshadowing: string[];
   /** 没写进去的（解码时就没收的、认不出是哪条线的、线的文件这几秒里没了的）。 */
   dropped: string[];
+  /** 这几章里到期、却没安排的伏笔（复跑之后的程序检查，`unplannedDue`；不拦，只说出来）。 */
+  unplanned: string[];
 }
 
 /** 落在哪条线上的键（缺席是「未归属的伏笔」，键是空串）。 */
@@ -67,11 +73,12 @@ export async function writePlannedThreads(
   chapters: readonly ChapterPlan[],
   notes: readonly string[] = []
 ): Promise<PlanWriteOutcome> {
-  const out: PlanWriteOutcome = { written: 0, removed: 0, newForeshadowing: [], dropped: [...notes] };
+  const out: PlanWriteOutcome = { written: 0, removed: 0, newForeshadowing: [], dropped: [...notes], unplanned: [] };
   if (chapters.length > 0) {
     const book = await project.readThreads();
     const planned = resolvePlanEvents(book, chapters);
     out.dropped.push(...droppedOf(planned));
+    out.unplanned = unplannedDue(book, chapters).map(describeUnplannedDue);
     const ws = new Workspace(project);
     const files: { rel: string; line?: string }[] = [
       ...book.threads.map((t) => ({ rel: t.relPath, line: t.name })),
@@ -126,6 +133,9 @@ export async function writePlannedThreads(
   if (out.dropped.length > 0) {
     log.warn(`${where}的叙事线计划有 ${out.dropped.length} 条没写进去`, out.dropped.join('\n'));
   }
+  if (out.unplanned.length > 0) {
+    log.warn(`${where}里到期的伏笔有 ${out.unplanned.length} 条没安排（既没埋 / 收，也没写推迟）`, out.unplanned.join('\n'));
+  }
   return out;
 }
 
@@ -135,6 +145,7 @@ export function describePlanWrite(o: PlanWriteOutcome): string {
     o.written > 0 || o.removed > 0 ? `叙事线记下 ${o.written} 条计划${o.removed > 0 ? `（换掉原来的 ${o.removed} 条）` : ''}` : '',
     o.newForeshadowing.length > 0 ? `新伏笔：${o.newForeshadowing.join('、')}` : '',
     o.dropped.length > 0 ? `${o.dropped.length} 条计划没写进叙事线（见日志）` : '',
+    o.unplanned.length > 0 ? `${o.unplanned.length} 条到期的伏笔没安排（见日志）` : '',
   ].filter(Boolean);
   return parts.length > 0 ? `，${parts.join('，')}` : '';
 }
@@ -171,16 +182,19 @@ export async function planOfArtifact(
  * ```
  * 叙事线计划：林昭与沈青 推进；埋〈玉佩的来历〉（新伏笔，挂在「林昭与沈青」）（原来的 2 条整组换掉）
  * 没写进叙事线的：第 3 章 某线 推进（认不出是哪一条线）
+ * 到期却没安排的伏笔：〈旧伤〉（第 5 章前收）——这一批既没安排、也没写推迟（照写不拦，写前检查还会提醒）
  * ```
  *
- * 一批几章时一章一行。合同里没写 `threads` 的产物没有这几行。
+ * 一批几章时一章一行。合同里没写 `threads` 的产物没有这几行。最后一行是复跑之后加的程序检查（`unplannedDue`，不调模型、
+ * 不拦人）：模型只排「推进」、到期该埋该收的伏笔没安排，作者在卡片上看得见，可以先改细纲再写入。
  */
 export async function describeThreadPlan(project: NovelProject, target: CreationTarget, artifact: Artifact): Promise<string[]> {
   const plan = await planOfArtifact(project, target, artifact);
   if (!plan) {
     return [];
   }
-  const planned = resolvePlanEvents(await project.readThreads(), plan.chapters);
+  const book = await project.readThreads();
+  const planned = resolvePlanEvents(book, plan.chapters);
   const single = planned.length === 1;
   const rows = planned
     .filter((c) => c.events.length > 0 || c.replaced > 0)
@@ -192,9 +206,13 @@ export async function describeThreadPlan(project: NovelProject, target: Creation
       return single ? body : `第 ${c.no} 章：${body}`;
     });
   const dropped = [...plan.notes, ...droppedOf(planned)];
+  const unplanned = unplannedDue(book, plan.chapters).map(describeUnplannedDue);
   return [
     ...(rows.length > 0 ? [single ? `叙事线计划：${rows[0]}` : `叙事线计划：\n${rows.join('\n')}`] : []),
     ...(dropped.length > 0 ? [`没写进叙事线的：${dropped.join('；')}`] : []),
+    ...(unplanned.length > 0
+      ? [`到期却没安排的伏笔：${unplanned.join('、')}——${single ? '本章' : '这一批'}既没安排、也没写推迟（照写不拦，写前检查还会提醒）`]
+      : []),
   ];
 }
 

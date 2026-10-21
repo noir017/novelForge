@@ -110,6 +110,7 @@ before(async () => {
     threadFile: './src/core/model/threadFile.ts',
     workspace: './src/core/workspace/index.ts',
     db: './src/core/runtime/db.ts',
+    logger: './src/core/runtime/logger.ts',
   });
   h = makeFakeHost();
   bundle.host.initHost(h.host);
@@ -184,8 +185,10 @@ describe('写入卡片上先列出来', () => {
       blueprints: [blueprint(6, [{ line: '青崖旧案', type: '推进', what: '六' }]), blueprint(7, [{ line: '林昭与沈青', type: '收束', what: '两人分开' }])],
     });
     const artifact = bundle.artifact.parseArtifact(PLAN, raw, target, range);
+    // 玉佩的来历第 6 章前收，这一批没安排：另起一行说出来（复跑之后的程序检查）。
     assert.deepEqual(await bundle.threadPlan.describeThreadPlan(t.project, target, artifact), [
       '叙事线计划：\n第 6 章：青崖旧案 推进\n第 7 章：林昭与沈青 收束',
+      '到期却没安排的伏笔：〈玉佩的来历〉（第 6 章前收）——这一批既没安排、也没写推迟（照写不拦，写前检查还会提醒）',
     ]);
     const bare = bundle.artifact.parseArtifact(PLAN, JSON.stringify({ blueprints: [blueprint(4)] }), { kind: 'plot', plotRelPath: PLOT(4) });
     assert.deepEqual(await bundle.threadPlan.describeThreadPlan(t.project, { kind: 'plot', plotRelPath: PLOT(4) }, bare), []);
@@ -243,5 +246,61 @@ describe('重拆、落定、审阅放弃、合同里没写', () => {
     assert.match(r.message, /叙事线记下 1 条计划/);
     const main = t.read(MAIN);
     assert.ok(main.includes('- 第 7 章 · 计划 · 推进：第 7 章') && !main.includes('第 6 章不该写进去'), main);
+  });
+});
+
+// 复跑报告问题 3：拆第 11–15 章只排了「推进」，到期该埋的三条伏笔一条也没排。拆完不调模型地查一遍，到期却没安排的说出来。
+describe('拆完查一遍：到期却没安排的伏笔', () => {
+  const NAMEBOOK = [
+    '---',
+    'kind: 主线',
+    'plan: 1-40',
+    '---',
+    '',
+    '# 青崖旧案',
+    '',
+    '## 意图',
+    '查清那场火。',
+    '',
+    '## 伏笔',
+    '- 名册：少了一页（计划第 3 章埋、第 9 章前收）',
+    '- 旧伤：左臂的疤（计划第 8 章埋）',
+    '',
+    '## 进展',
+    '- 第 1 章 · 推进：起火 〔证据：「火光冲天」〕',
+    '',
+  ].join('\n');
+
+  test('单章：该埋的（计划埋的章过了还没埋）、该收的（回收章到了）没安排，卡片另起一行、完成提示说一句、日志记下', async () => {
+    reset();
+    t.write(MAIN, NAMEBOOK);
+    t.project.invalidate();
+    const target = { kind: 'plot', plotRelPath: PLOT(6) };
+    const threads = [{ line: '青崖旧案', type: '推进', what: '只推进' }];
+    const artifact = bundle.artifact.parseArtifact(PLAN, JSON.stringify({ blueprints: [blueprint(6, threads)] }), target);
+    const lines = await bundle.threadPlan.describeThreadPlan(t.project, target, artifact);
+    assert.equal(
+      lines[lines.length - 1],
+      '到期却没安排的伏笔：〈玉佩的来历〉（第 6 章前收）、〈名册〉（计划第 3 章埋，还没埋）——本章既没安排、也没写推迟（照写不拦，写前检查还会提醒）'
+    );
+    bundle.logger.clearLogs();
+    const { result } = await acceptOne(6, threads);
+    assert.match(result.message, /2 条到期的伏笔没安排（见日志）/);
+    const logs = bundle.logger.recentLogs();
+    assert.ok(logs.some((l) => l.message.includes('到期的伏笔有 2 条没安排') && l.detail.includes('〈名册〉')), JSON.stringify(logs));
+  });
+
+  test('安排了的、写明推迟的，不算没安排；旧伤计划第 8 章埋，第 6 章还不到', async () => {
+    reset();
+    t.write(MAIN, NAMEBOOK);
+    t.project.invalidate();
+    const target = { kind: 'plot', plotRelPath: PLOT(6) };
+    const threads = [
+      { line: '', type: '收', foreshadowing: '玉佩的来历', what: '认出云纹' },
+      { line: '青崖旧案', type: '推进', what: '〈名册〉推迟到第 12 章埋，先查别的' },
+    ];
+    const artifact = bundle.artifact.parseArtifact(PLAN, JSON.stringify({ blueprints: [blueprint(6, threads)] }), target);
+    const lines = await bundle.threadPlan.describeThreadPlan(t.project, target, artifact);
+    assert.ok(!lines.some((l) => l.startsWith('到期却没安排的伏笔')), lines.join('\n'));
   });
 });

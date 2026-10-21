@@ -208,8 +208,8 @@ describe('叙事线重做二期验收：拆细纲带线，计划写进线里，�
 
   test('拆细纲的装配里有叙事线：这一批要收的伏笔标着「本批要收」，合同里有【叙事线】那一条', () => {
     assert.ok(batchPrompt.includes('# 叙事线（照着排'), batchPrompt.slice(0, 2000));
-    assert.ok(batchPrompt.includes('- 玉佩的来历（挂在「青崖旧案」· 计划 · 本批要收，最晚第 3 章）是什么：玉佩是沈家旧物'), batchPrompt);
-    assert.ok(batchPrompt.includes('- 名册少的一页（挂在「名册之谜」· 计划 · 本批要收，最晚第 4 章）'), batchPrompt);
+    assert.ok(batchPrompt.includes('- 玉佩的来历（挂在「青崖旧案」· 计划 · 本批要收，最晚第 3 章，还没埋，先埋再收）是什么：玉佩是沈家旧物'), batchPrompt);
+    assert.ok(batchPrompt.includes('- 名册少的一页（挂在「名册之谜」· 计划 · 本批要收，最晚第 4 章，还没埋，先埋再收）'), batchPrompt);
     assert.ok(batchPrompt.includes('- 师父的身份（支线 · 计划中 · 计划第 10–20 章）意图：师父另有身份；本批还不到它开始的那一章，不要提前开'), batchPrompt);
     assert.ok(batchPrompt.includes('标着「本批要收」或「已过第 N 章，还没收」的伏笔，必须安排在本批某一章「收」'), batchPrompt);
     assert.ok(!batchPrompt.includes('伏笔强制回收'));
