@@ -125,3 +125,44 @@ describe('continuity.ts · 写正文时定位原文', () => {
     assert.equal(passages.length, 1);
   });
 });
+
+// ⚑ 复跑之后（叙事线定稿 a 的证据）：逐字找不到的 7 条多半只是把「他」换成了人名、删了几个字、两句拼成一句。找最接近的原句，
+// 两字词 Dice ≥ 0.6 才算；意译、编的在 0.4 以下。例子照复跑里的几条改写。
+describe('continuity.ts · 引文逐字找不到时找最接近的原句', () => {
+  const text = [
+    '雾气越来越浓，压得人喘不过气，绝望到了极点。沈默猛地抬头，盯着雾气中那团模糊的黑影，眼中没有丝毫怯意，只有一种绝望的狠戾。',
+    '“你怕火。”沈默声音干瘪。',
+    '她没有废话，直接将手中一根尖细的骨片探了过来，那骨片尖端泛着一股阴冷的灰白。',
+    '阿婆的右臂，根本不是活人的手。他瞬间明白了，这个满口民俗禁忌、看似唯一的幸存者阿婆，同样不是个纯粹的活人。',
+  ].join('\n\n');
+
+  test('删了几个字、代词换人名：换成那一句原文', () => {
+    assert.equal(
+      c.nearestSentence(text, '沈默死死盯着雾气中那团模糊的黑影，眼中没有丝毫怯意，只有一种绝望的狠戾。').sentence,
+      '沈默猛地抬头，盯着雾气中那团模糊的黑影，眼中没有丝毫怯意，只有一种绝望的狠戾。'
+    );
+    assert.equal(
+      c.nearestSentence(text, '阿婆直接将手中一根尖细的骨片探了过来，那骨片尖端泛着一股阴冷的灰白。').sentence,
+      '她没有废话，直接将手中一根尖细的骨片探了过来，那骨片尖端泛着一股阴冷的灰白。'
+    );
+    const r = c.nearestSentence(text, '沈默瞬间明白了，这个满口民俗禁忌、看似唯一的幸存者阿婆，同样不是个纯粹的活人。');
+    assert.equal(r.sentence, '他瞬间明白了，这个满口民俗禁忌、看似唯一的幸存者阿婆，同样不是个纯粹的活人。');
+    assert.ok(r.score >= c.NEAR_QUOTE_MIN && r.score < 1, String(r.score));
+  });
+
+  test('两句拼成一句：取连着的两句；句末的右引号跟着前一句', () => {
+    assert.equal(
+      c.nearestSentence(text, '阿婆的右臂，根本不是活人的手。沈默瞬间明白了，这个幸存者阿婆，同样不是个纯粹的活人。').sentence,
+      '阿婆的右臂，根本不是活人的手。他瞬间明白了，这个满口民俗禁忌、看似唯一的幸存者阿婆，同样不是个纯粹的活人。'
+    );
+    assert.equal(c.nearestSentence(text, '“你怕火。”沈默的声音干瘪极了，像砂纸。')?.sentence, '“你怕火。”沈默声音干瘪。');
+  });
+
+  test('意译、编的、太短的：不认', () => {
+    assert.equal(c.nearestSentence(text, '沈默盯着雾中的黑影，眼中满是狠戾。'), undefined);
+    assert.equal(c.nearestSentence(text, '沈默用火折子点燃了祭坛，火光冲天。'), undefined);
+    assert.equal(c.nearestSentence(text, '他瞬间明白了'), undefined, '归一之后不到 10 个字');
+    // 两句加起来超过上限的那一段不要，只在单句里挑。
+    assert.equal(c.nearestSentence(text, '阿婆的右臂，根本不是活人的手。他瞬间明白了，这个满口民俗禁忌。', 20)?.sentence, '阿婆的右臂，根本不是活人的手。');
+  });
+});

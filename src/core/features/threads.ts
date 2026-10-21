@@ -533,6 +533,12 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
   // 证据对的是整章正文（不是截过的那一截）：截掉的后半章里的原句同样是正文。
   let finds = verifyFinds(found, { chapter: no, text, judged: lines.judged, book });
   out.dropped = [...finds.dropped];
+  if (finds.relocated?.length) {
+    log.info(
+      `第 ${no} 章：${finds.relocated.length} 条证据不是逐字原文，换成了正文里最接近的原句`,
+      finds.relocated.map((r) => `「${r.from}」→「${r.to}」`).join('\n')
+    );
+  }
 
   // c. 归并：新认出的线 / 伏笔，是不是已有的那一条换了个说法。两边都给「是什么」与挂在哪条线（试跑：只给已有伏笔的名字，
   // 模型只能看字面，约一半并错——「沈默脸上的尸斑」并进了「阿婆的尸斑右臂」）；伏笔的候选只有还没收的那几条。

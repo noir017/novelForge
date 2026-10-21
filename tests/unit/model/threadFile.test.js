@@ -624,6 +624,25 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
     ]);
   });
 
+  // 复跑报告问题 2：证据丢弃率 13%，多半是把「他」换成了人名、两句拼成一句。⚑ 找最接近的原句，够像就换成原句收下。
+  test('证据逐字找不到：正文里最接近的一句够像就换成那一句原文收下（记在 relocated 里），不够像照旧丢', () => {
+    const r = verify({
+      events: [
+        { line: '林昭与沈青', type: '关系', what: '猜忌 → 信任', evidence: '从今往后，林昭不再疑她' },
+        { line: '林昭与沈青', type: '推进', what: '编的', evidence: '林昭决定明天一早就离开青崖镇' },
+      ],
+      newThreads: [{ title: '提灯人的身份', kind: '人物线', evidence: '院外有个人提着灯走过' }],
+    });
+    assert.deepEqual(r.events.map((e) => [e.event.type, e.event.evidence]), [['关系', '从今往后，他不再疑她。']]);
+    assert.deepEqual(r.newThreads.map((x) => x.evidence), ['院外有人提着灯走过。']);
+    assert.deepEqual(r.dropped.map((d) => d.why), ['证据在正文里找不到']);
+    assert.deepEqual(r.relocated, [
+      { from: '院外有个人提着灯走过', to: '院外有人提着灯走过。' },
+      { from: '从今往后，林昭不再疑她', to: '从今往后，他不再疑她。' },
+    ]);
+    assert.equal(verify({ events: [{ line: '林昭与沈青', type: '推进', what: 'x', evidence: '从今往后，他不再疑她' }] }).relocated, undefined, '逐字找得到的不算换过');
+  });
+
   // 复跑报告问题 1（rerun-repro.js 第 1 段）：排线排的伏笔第 1 章还是「计划」，a 报了「收」，校验照收，从此不再提醒「不要提前揭开」。
   test('还没埋下的伏笔不能收、不能弃；之前埋过、这一章有它的「埋」（报的、已经记下的）、新认出的才算埋下', () => {
     const r = verify({

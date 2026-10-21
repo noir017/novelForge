@@ -50,6 +50,7 @@ import {
   stringifyFrontmatter,
 } from './markdown';
 import { indexText, normalizeQuote, quoteFound } from './review';
+import { nearestSentence } from './continuity';
 import type { ThreadWatch } from './pipeline';
 
 // ---------------------------------------------------------------- 类型
@@ -1319,6 +1320,8 @@ export interface ThreadFinds {
   newForeshadowing: FoundForeshadow[];
   /** 没收的：哪一条、为什么（第 2 条：说出来）。 */
   dropped: { what: string; why: string }[];
+  /** 证据逐字找不到、换成了正文里最接近的原句的（`from` 模型给的，`to` 换成的原文）。没有就缺席。 */
+  relocated?: { from: string; to: string }[];
 }
 
 function unquoteEvidence(v: unknown): string {
@@ -1329,7 +1332,8 @@ function unquoteEvidence(v: unknown): string {
  * 定稿第三步 a 的输出 → 能记的东西（设计稿「三、a」）。沿用七期 `verifyThreadEvents` 的口径并扩到新线与新伏笔：
  *
  * - **证据**按审稿那套归一化后至少 4 个字、在**整章**正文里找得到（七期修过的上游 #11）；截到 {@link EVIDENCE_MAX} 字。
- *   没有原文撑着的多半是编的，丢掉并说原因。
+ *   逐字找不到的，在正文里找最接近的一句（或连着的两句），够像（`NEAR_QUOTE_MIN`）就换成那一段原文收下（⚑ 复跑之后：
+ *   丢掉的多半只是把「他」换成了人名、两句拼成一句）。还是没有原文撑着的多半是编的，丢掉并说原因。
  * - **新线**：名字合格、种类是四种之一、与已有的线不重名；**主线已有就不收新主线**；一章最多 {@link FINALIZE_NEW_THREAD_LIMIT} 条。
  * - **新伏笔**：名字合格、与全书已有的伏笔不重名；`line` 认得出（已有的线、或这一次新认出的线）就挂上去，认不出的进
  *   「未归属的伏笔」；一章最多 {@link FINALIZE_NEW_FORESHADOW_LIMIT} 条。
@@ -1353,6 +1357,28 @@ export function verifyFinds(
   const evidenceWhy = (evidence: string): string =>
     quoteFound(index, evidence) ? '' : normalizeQuote(evidence).length < 4 ? '证据太短，认不出是哪一句' : '证据在正文里找不到';
   const out: ThreadFinds = { events: [], newThreads: [], newForeshadowing: [], dropped: [] };
+  /**
+   * 证据逐字找不到时，换成正文里最接近的那一句（或连着的两句）原文（⚑ 复跑之后，model/continuity.ts 的 `nearestSentence`，
+   * 照定稿挂连续性事实证据那一套）：复跑里丢掉的 7 条多半只是把「他」换成了人名、删了几个字、两句拼成一句。够像才换，
+   * 不够像照旧丢（`evidenceWhy`）。同一句只找一次；换过的哪几条最后记在 `relocated` 里（调用方写日志）。
+   */
+  const settled = new Map<string, string>();
+  const relocatedFrom = new Map<string, string>();
+  const settle = (evidence: string): string => {
+    if (!evidence || quoteFound(index, evidence)) {
+      return evidence;
+    }
+    let fixed = settled.get(evidence);
+    if (fixed === undefined) {
+      const near = nearestSentence(ctx.text, evidence, EVIDENCE_MAX);
+      fixed = near ? near.sentence : evidence;
+      settled.set(evidence, fixed);
+      if (near) {
+        relocatedFrom.set(fixed, evidence);
+      }
+    }
+    return fixed;
+  };
 
   const allThreads = new Map(ctx.book.threads.map((t) => [threadKey(t.name), t.name]));
   const judged = new Map(ctx.judged.map((t) => [threadKey(t.name), t.name]));
@@ -1384,7 +1410,7 @@ export function verifyFinds(
   for (const x of list(o.newThreads)) {
     const name = strOf(x.title ?? x.name);
     const kind = threadKindOf(strOf(x.kind ?? x.type));
-    const evidence = unquoteEvidence(x.evidence);
+    const evidence = settle(unquoteEvidence(x.evidence));
     let why = nameProblem(name);
     if (!why && allThreads.has(threadKey(name))) {
       why = '这条线已经有了';
@@ -1435,7 +1461,7 @@ export function verifyFinds(
   };
   for (const x of list(o.newForeshadowing)) {
     const name = strOf(x.title ?? x.name);
-    const why = addForeshadow(name, strOf(x.what), lineOf(x.line ?? x.thread), unquoteEvidence(x.evidence));
+    const why = addForeshadow(name, strOf(x.what), lineOf(x.line ?? x.thread), settle(unquoteEvidence(x.evidence)));
     if (why) {
       out.dropped.push({ what: `新伏笔 ${name || '（没有名字）'}`, why });
     }
@@ -1448,7 +1474,7 @@ export function verifyFinds(
    */
   const plantedHere = new Set<string>(newFore.keys());
   for (const x of list(o.events)) {
-    if (eventTypeOf(strOf(x.type)) === '埋' && strOf(x.foreshadowing) && !evidenceWhy(unquoteEvidence(x.evidence))) {
+    if (eventTypeOf(strOf(x.type)) === '埋' && strOf(x.foreshadowing) && !evidenceWhy(settle(unquoteEvidence(x.evidence)))) {
       plantedHere.add(threadKey(strOf(x.foreshadowing)));
     }
   }
@@ -1466,7 +1492,7 @@ export function verifyFinds(
     const type = eventTypeOf(strOf(x.type));
     const foreName = strOf(x.foreshadowing);
     const what = cut(strOf(x.what ?? x.reason), EVENT_WHAT_MAX);
-    const evidence = unquoteEvidence(x.evidence);
+    const evidence = settle(unquoteEvidence(x.evidence));
     const label = foreName ? `${lineName || '？'}〈${foreName}〉` : lineName || '（没有写是哪一条线）';
     let why = !type ? '事件类型认不出' : evidenceWhy(evidence);
     let found: FoundEvent | undefined;
@@ -1517,6 +1543,11 @@ export function verifyFinds(
     accepted.push(found);
   }
   out.events = accepted;
+  const used = new Set([...accepted.map((e) => e.event.evidence ?? ''), ...out.newThreads.map((t) => t.evidence), ...out.newForeshadowing.map((f) => f.evidence)]);
+  const relocated = [...relocatedFrom].filter(([to]) => used.has(to)).map(([to, from]) => ({ from, to }));
+  if (relocated.length > 0) {
+    out.relocated = relocated;
+  }
   return out;
 }
 
@@ -1712,6 +1743,7 @@ export function applyMerges(
           return { name: f.name, what: f.what, ...(line ? { line } : {}), evidence: f.evidence };
         }),
       dropped: finds.dropped,
+      ...(finds.relocated ? { relocated: finds.relocated } : {}),
     },
     merges: out,
   };

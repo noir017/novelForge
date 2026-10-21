@@ -178,6 +178,80 @@ export function attachEvidence(
   return { facts, dropped };
 }
 
+// ---------------------------------------------------------------- 引文逐字找不到时：找最接近的原句
+
+/**
+ * 最接近的原句要多像才收（⚑ 复跑之后，叙事线定稿 a 的证据）：引文与那一句（或连着的两句）的两字词按 Dice 系数算，
+ * `2 × 共有 ÷ (两边之和)`。复跑里逐字找不到的 7 条：代词换人名、删了几个字、两句拼成一句的在 0.71–0.94，意译、编的在 0.4
+ * 以下，取 0.6。
+ */
+export const NEAR_QUOTE_MIN = 0.6;
+/** 太短的引文不找近似的（归一之后不到这么多字）：几个字的近似句到处都有。 */
+export const NEAR_QUOTE_MIN_CHARS = 10;
+
+/** 两字词，按出现次数（同 {@link textBigrams} 的切法，但不去重：Dice 要数次数）。 */
+function bigramCounts(value: string): { counts: Map<string, number>; total: number } {
+  const counts = new Map<string, number>();
+  let total = 0;
+  for (const group of value.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []) {
+    const chars = [...group];
+    const grams = chars.length < 2 ? chars : chars.slice(0, -1).map((c, i) => c + chars[i + 1]);
+    for (const g of grams) {
+      counts.set(g, (counts.get(g) ?? 0) + 1);
+      total++;
+    }
+  }
+  return { counts, total };
+}
+
+/** 句子：句末标点（连同紧跟着的右引号）与换行处切开。比 {@link sentencesOf} 多认一层引号：「“你怕火。”沈默说」切在引号后面。 */
+function quoteSentences(content: string): string[] {
+  return content
+    .split(/(?<=[。！？!?])(?![”」』"'’])|(?<=[。！？!?][”」』"'’])|\n+/u)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * 引文逐字找不到时，正文里最接近的一句（或连着的两句，模型常把两句拼成一句）：两字词的 Dice 系数最高、而且到了
+ * {@link NEAR_QUOTE_MIN} 的那一段原文；引文太短（{@link NEAR_QUOTE_MIN_CHARS}）、或者都不够像时 undefined。超过 `maxChars`
+ * 的那一段不要（证据有长度上限，截了就不是一句完整的话）。
+ *
+ * 照定稿挂连续性事实证据那一套（{@link attachEvidence}：模型的话 → 用 bigram 在正文里找原句）。叙事线定稿 a 的证据是模型
+ * 「照抄」的原文，复跑里逐字找不到的 7 条多半只是把「他」换成了人名、删了几个字、两句拼成一句（model/threadFile.ts 的
+ * `verifyFinds`）：找得到够像的原句就换成原句收下，不够像照旧丢。
+ */
+export function nearestSentence(content: string, quote: string, maxChars = EVIDENCE_LIMIT): { sentence: string; score: number } | undefined {
+  const q = bigramCounts(quote);
+  const plain = (quote.match(/[\p{L}\p{N}]/gu) ?? []).length;
+  if (plain < NEAR_QUOTE_MIN_CHARS || q.total === 0) {
+    return undefined;
+  }
+  const sentences = quoteSentences(content);
+  let best: { sentence: string; score: number } | undefined;
+  for (let i = 0; i < sentences.length; i++) {
+    for (const span of [1, 2]) {
+      if (i + span > sentences.length) {
+        continue;
+      }
+      const sentence = sentences.slice(i, i + span).join('');
+      if ([...sentence].length > maxChars) {
+        continue;
+      }
+      const s = bigramCounts(sentence);
+      let shared = 0;
+      for (const [g, n] of q.counts) {
+        shared += Math.min(n, s.counts.get(g) ?? 0);
+      }
+      const score = (2 * shared) / (q.total + s.total);
+      if (!best || score > best.score) {
+        best = { sentence, score };
+      }
+    }
+  }
+  return best && best.score >= NEAR_QUOTE_MIN ? best : undefined;
+}
+
 // ---------------------------------------------------------------- 写正文：定位原文
 
 function paragraphsOf(content: string): string[] {
