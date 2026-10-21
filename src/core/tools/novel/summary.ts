@@ -1,8 +1,8 @@
 /**
  * `summary` —— 定稿与全文大纲：给一章定稿、把没定稿的章的细纲照正文补上、重建全文大纲。
  *
- * 定稿 = 反向更新细纲（照正文改那一章的细纲，带连续性事实）+ 出场角色的当前状态 + 本章推进了
- * 哪几条叙事线（第 23 条：这条链上唯一的人工闸口）。与工程页、章节工作台上的「定稿」是同一个函数。
+ * 定稿 = 反向更新细纲（照正文改那一章的细纲，带连续性事实）+ 出场角色的当前状态 + 这一章在叙事线上
+ * 发生了什么（认事件、当前进度、归并；第 23 条：这条链上唯一的人工闸口）。与工程页、章节工作台上的「定稿」是同一个函数。
  */
 import { str } from '../schema';
 import { countedBy, defineActionTool, handed } from './actions';
@@ -19,7 +19,7 @@ export const summaryTool = defineActionTool({
 
   actions: {
     finalize: {
-      label: '给一章定稿（照正文反向更新它的细纲与连续性事实，再更新出场角色的当前状态、记下本章推进了哪几条叙事线）',
+      label: '给一章定稿（照正文反向更新它的细纲与连续性事实，再更新出场角色的当前状态、认这一章在叙事线上发生了什么（带原文证据记下事件、更新各条线的当前进度，正文里新长出来的线也认出来））',
       costly: true,
       uses: ['path'],
       requires: ['path'],
@@ -36,7 +36,7 @@ export const summaryTool = defineActionTool({
       },
     },
     sync: {
-      label: '把所有没定稿、或定稿后正文又改过的章逐章定稿（照正文更新细纲，再更新出场角色的当前状态、记下推进了哪几条叙事线）',
+      label: '把所有没定稿、或定稿后正文又改过的章逐章定稿（照正文更新细纲，再更新出场角色的当前状态、认每一章在叙事线上发生了什么）',
       costly: true,
       async run(ctx) {
         return countedBy(await syncSummaries(ctx.project), '批量定稿');

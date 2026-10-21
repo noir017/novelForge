@@ -1323,7 +1323,8 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
         projectAction: 'finalizeChapter',
         label: `定稿第 ${f.no} 章`,
         hint:
-          '正文写够了。定稿照正文更新这一章的细纲与连续性事实，并把本章出场角色的当前状态更新到这一章——' +
+          '正文写够了。定稿照正文更新这一章的细纲与连续性事实，把本章出场角色的当前状态更新到这一章，' +
+          '再认这一章在叙事线上发生了什么——' +
           '后面几百章靠它们记住这里发生过什么。',
         calls: FINALIZE_CALLS,
       };

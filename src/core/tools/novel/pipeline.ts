@@ -24,7 +24,7 @@ export const pipelineTool = defineActionTool({
   params: {
     from: int('章号区间的起点。留空从下一个该写的章起。'),
     to: int('章号区间的终点（含）。要给就同时给 from。'),
-    mode: str('批量写章的模式：draft=只写正文（缺省），finalize=每写完一章就定稿（照正文更新细纲 + 出场角色的当前状态）。', [
+    mode: str('批量写章的模式：draft=只写正文（缺省），finalize=每写完一章就定稿（照正文更新细纲 + 出场角色的当前状态 + 叙事线）。', [
       'draft',
       'finalize',
     ]),

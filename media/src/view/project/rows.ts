@@ -289,8 +289,8 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
 
     // 定稿、草稿都只对有正文的章成立——两者读的都是正文。
     if (written) {
-      // 定稿 = 照正文更新细纲（带连续性事实）+ 出场角色的当前状态（四期，D17）+ 本章推进了哪几条
-      // 叙事线（七期）。调用次数与主按钮同源。
+      // 定稿 = 照正文更新细纲（带连续性事实）+ 出场角色的当前状态（四期，D17）+ 这一章在叙事线上发生了什么
+      // （叙事线重做：认事件、当前进度、归并）。调用次数与主按钮同源。
       items.push({
         label: p.stale ? `定稿（细纲 + 角色状态 + 叙事线，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）` : '重新定稿',
         run: () => projectAction('finalizeChapter', p.chapterPath),
