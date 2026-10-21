@@ -111,6 +111,8 @@ before(async () => {
     workspace: './src/core/workspace/index.ts',
     db: './src/core/runtime/db.ts',
     logger: './src/core/runtime/logger.ts',
+    fileOps: './src/core/files/fileOps.ts',
+    history: './src/core/workspace/history.ts',
   });
   h = makeFakeHost();
   bundle.host.initHost(h.host);
@@ -302,5 +304,50 @@ describe('拆完查一遍：到期却没安排的伏笔', () => {
     const artifact = bundle.artifact.parseArtifact(PLAN, JSON.stringify({ blueprints: [blueprint(6, threads)] }), target);
     const lines = await bundle.threadPlan.describeThreadPlan(t.project, target, artifact);
     assert.ok(!lines.some((l) => l.startsWith('到期却没安排的伏笔')), lines.join('\n'));
+  });
+});
+
+// 复跑报告问题 8：删掉第 13–15 章细纲之后，各条线里还留着这三章的计划，重拆时被当成「原来的计划」交给模型（那时沈怀山
+// 已经死了）；不重拆的话写前提醒也把它算成「安排过」。计划事件随细纲走（第 28 条）：删细纲时一起删。
+describe('删一章细纲：它写进线里的计划一起删', () => {
+  test('那一章的计划整组删掉（各条线与未归属的都删），别的章、实际事件、作者手写的行不动；改之前存一版历史', async () => {
+    reset();
+    await acceptOne(4, CH4_THREADS);
+    assert.ok(t.read(PAIR).includes('第 4 章 · 计划'));
+    assert.ok(t.read(UNFILED).includes('第 4 章 · 计划 · 埋〈断剑〉'));
+    const ws = new bundle.workspace.Workspace(t.project);
+    assert.equal(await ws.deletePlot(PLOT(4)), true);
+    const pair = t.read(PAIR);
+    assert.ok(!/第 4 章 · 计划/.test(pair), pair);
+    assert.ok(pair.includes('- 第 2 章 · 埋〈玉佩的来历〉：玉佩露面') && pair.includes('作者手写的一行备注'), pair);
+    assert.ok(pair.includes('第 5 章 · 计划 · 推进：第 5 章的计划，不动'), pair);
+    assert.ok(!/第 4 章 · 计划/.test(t.read(MAIN)), t.read(MAIN));
+    // 登记过的伏笔留着（只追加）；计划事件删了。
+    const loose = t.read(UNFILED);
+    assert.ok(loose.includes('- 断剑：潭底有一把断剑') && !loose.includes('第 4 章 · 计划'), loose);
+    const history = await bundle.history.listSnapshots(t.project, PAIR);
+    assert.ok(history.length > 0, '改之前存了一版历史');
+  });
+
+  test('确认框上先说有几条；取消就什么都不动', async () => {
+    reset();
+    await acceptOne(4, CH4_THREADS);
+    const before = t.read(PAIR);
+    h.expect(undefined);
+    assert.equal(await bundle.fileOps.deletePlot(t.project, PLOT(4)), false);
+    assert.equal(t.read(PAIR), before);
+    assert.match(h.confirms[h.confirms.length - 1].detail, /它写进叙事线里的 4 条计划（第 4 章）一起删掉/);
+    h.expect('删除');
+    assert.equal(await bundle.fileOps.deletePlot(t.project, PLOT(4)), true);
+    assert.ok(!/第 4 章 · 计划/.test(t.read(PAIR)));
+  });
+
+  test('没有计划的章：确认框不提叙事线，线一个字不动', async () => {
+    reset();
+    const before = t.read(MAIN);
+    h.expect('删除');
+    assert.equal(await bundle.fileOps.deletePlot(t.project, PLOT(6)), true);
+    assert.doesNotMatch(h.confirms[h.confirms.length - 1].detail, /叙事线/);
+    assert.equal(t.read(MAIN), before);
   });
 });

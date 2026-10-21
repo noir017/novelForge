@@ -5,6 +5,7 @@ import { describeError, scoped } from '../runtime/logger';
 import { isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
 import { exists, hash, readText, sanitizeFileName } from '../model/fs';
 import { NovelProject } from '../model/project';
+import { plannedFor } from '../model/threadFile';
 import { kindOfPath, normalizeRel } from '../workspace/kind';
 import { WsConflictError, WsError, isProtectedPath } from '../workspace/guard';
 import { trashPathFor } from '../workspace';
@@ -183,7 +184,10 @@ export async function renamePlot(project: NovelProject, relPath: string): Promis
   return to;
 }
 
-/** 删一章的细纲：搬进 `.trash/`。**正文不受影响。** */
+/**
+ * 删一章的细纲：搬进 `.trash/`。**正文不受影响。** 它写进叙事线里的那一章的计划事件一起删（网关的 `deletePlot`，第 28 条
+ * 「计划事件随细纲走」），确认框上先说有几条（第 3 条：删之前给一个判断的机会）。
+ */
 export async function deletePlot(project: NovelProject, relPath: string): Promise<boolean> {
   const plot = await project.readPlot(relPath);
   if (!plot) {
@@ -191,12 +195,14 @@ export async function deletePlot(project: NovelProject, relPath: string): Promis
     getHost().toast('找不到这份细纲，可能刚被改名或删除。', 'error');
     return false;
   }
+  const plans = plannedFor(await project.readThreads(), plot.no).length;
 
   const pick = await getHost().confirm(`删除第 ${plot.no} 章的细纲${plot.title ? `《${plot.title}》` : ''}？`, ['删除'], {
     modal: true,
     detail: [
       // 说出来免得作者以为正文也没了。
       '这一章的正文不受影响。',
+      ...(plans > 0 ? [`它写进叙事线里的 ${plans} 条计划（第 ${plot.no} 章）一起删掉，各条线改之前存一版历史。`] : []),
       '会移到 .novelforge/.trash/，可手动找回。',
     ].join('\n'),
   });
@@ -209,7 +215,7 @@ export async function deletePlot(project: NovelProject, relPath: string): Promis
   await project.syncManifest();
   project.invalidate();
   log.info(`已移到回收站：第 ${plot.no} 章的细纲`, relPath);
-  getHost().toast(`已移到回收站：${relPath}`);
+  getHost().toast(`已移到回收站：${relPath}${plans > 0 ? `；叙事线里第 ${plot.no} 章的计划一起删了` : ''}`);
   return true;
 }
 

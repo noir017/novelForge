@@ -45,7 +45,7 @@ import {
 import { Chapter, SummaryCast } from '../model/types';
 import { replaceSection, rewriteFrontmatter, stringifyFrontmatter } from '../model/markdown';
 import { LoreLine, PLOT_LORE_KEY, renderLoreLines } from '../model/loreFile';
-import { NewThread, renderThreadFile, threadFileName } from '../model/threadFile';
+import { NewThread, renderThreadFile, replacePlannedEvents, threadFileName } from '../model/threadFile';
 import { setConfigParagraphStyle } from '../model/settingFile';
 import type { ParagraphStyle } from '../model/paragraphFormat';
 import { isMarkdownExt, isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
@@ -642,6 +642,11 @@ export class Workspace {
    *
    * 落点与 `remove`、`finalizePlot` 同一套（`trashPathFor`：保留原相对路径，同名加序号）——定稿时
    * 复制进回收站的那一版旧计划，不能被这一次删除盖掉。
+   *
+   * **它写进叙事线里的计划事件一起删**（复跑之后，第 28 条「计划事件随细纲走」）：各条线与「未归属的伏笔」里这一章的
+   * 计划事件整组删掉（{@link dropPlannedThreadEvents}，写之前存一版历史），实际事件、别的章、作者写的行不动。从前只删细纲，
+   * 那一章的计划一直留在线里，重拆时被当成「原来的计划」交给模型，写前提醒也把它算成「安排过」。同一章还有另一份细纲
+   * （作者手里两份同号的）时不删——计划还算那一份的。
    */
   async deletePlot(plotRelPath: string): Promise<boolean> {
     const plot = await this.project.readPlot(plotRelPath);
@@ -652,7 +657,33 @@ export class Workspace {
     await fs.mkdir(path.dirname(dest), { recursive: true });
     await fs.rename(this.project.pathOf(plotRelPath), dest);
     this.project.invalidate();
+    if (!(await this.project.getPlot(plot.no))) {
+      await this.dropPlannedThreadEvents(plot.no);
+    }
     return true;
+  }
+
+  /**
+   * 删掉各条线与「未归属的伏笔」里第 `no` 章的计划事件（删一章细纲时，见 {@link deletePlot}）：外科式（`replacePlannedEvents`），
+   * 只动那几行，每份改了的先存一版历史。返回删掉了几条。
+   */
+  async dropPlannedThreadEvents(no: number): Promise<number> {
+    const book = await this.project.readThreads();
+    let removed = 0;
+    for (const rel of [...book.threads.map((t) => t.relPath), book.unfiled.relPath]) {
+      await this.updateThread(rel, (raw) => {
+        if (!raw.trim()) {
+          return undefined;
+        }
+        const r = replacePlannedEvents(raw, no, []);
+        removed += r.removed;
+        return r.removed > 0 ? r.text : undefined;
+      });
+    }
+    if (removed > 0) {
+      log.info(`第 ${no} 章的细纲删了：叙事线里那一章的 ${removed} 条计划一起删掉（旧版存进了历史版本）`);
+    }
+    return removed;
   }
 
   /**
