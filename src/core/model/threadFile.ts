@@ -1535,13 +1535,34 @@ export interface ThreadMerge {
 const MERGE_REASON_MAX = 60;
 
 /**
+ * 两个伏笔名有没有一个相同的词（去掉「的之与和及」之后的两字词，{@link wordGroups}）。归并的一道程序检查（⚑ 复跑之后）：名字就是
+ * 身份，同一个谜底换个说法，名字里多半还留着那个关键的词（「红姑的灯」→「红姑的监视」、「祠堂地下祭坛」→「祠堂的隐秘」）；
+ * 复跑里并错的两次名字一个字都不沾（「红姑的灯」→「大雾中的呼啸声」、「沈默的容器身份」→「尸斑的出现」）。
+ */
+export function namesShareWord(a: string, b: string): boolean {
+  const own = new Set(wordGroups(a).flatMap(gramsOf));
+  return wordGroups(b).flatMap(gramsOf).some((g) => own.has(g));
+}
+
+/**
  * 归并（c）的输出 → 认得出的几条：`new` 是这一次新认出的线或伏笔的名字，`into` 是同一类里已有的那一条（线并进线、伏笔并进
  * 伏笔）；一个新名字只并一次。认不出的丢掉——不并就是照新的建，什么都不会丢。
  *
  * 伏笔只能并进写到第 `chapter` 章时**还没收、也没弃**的那几条（{@link openForeshadowing}，送给 c 的也只有这几条）：并进收了的，
  * 这一章新露出来的东西就没了着落（「埋」不会再记）。线不限：收束了的线又被正文接上，并进去就是它重新动了。
+ *
+ * **更保守**（⚑ 复跑之后：并了 2 次，2 次都错，修复 3 以后并错的「埋」会记到已有伏笔上）：
+ * - 一律要模型给出理由（`reason`：两条共同指向的那一个谜底），没给的不并；
+ * - 伏笔的两个名字至少要有一个相同的词（{@link namesShareWord}），一个字都不沾的不并。
+ * 没采纳的写进 `rejected`（调用方记日志），照新的建。
  */
-export function verifyMerges(raw: readonly unknown[], finds: ThreadFinds, book: ThreadBook, chapter: number): ThreadMerge[] {
+export function verifyMerges(
+  raw: readonly unknown[],
+  finds: ThreadFinds,
+  book: ThreadBook,
+  chapter: number,
+  rejected: { what: string; why: string }[] = []
+): ThreadMerge[] {
   const newThreads = new Map(finds.newThreads.map((t) => [threadKey(t.name), t.name]));
   const newFore = new Map(finds.newForeshadowing.map((f) => [threadKey(f.name), f.name]));
   const threads = new Map(book.threads.map((t) => [threadKey(t.name), t.name]));
@@ -1556,13 +1577,26 @@ export function verifyMerges(raw: readonly unknown[], finds: ThreadFinds, book: 
     if (!from || done.has(from)) {
       continue;
     }
+    let merge: ThreadMerge | undefined;
     if (newThreads.has(from) && threads.has(into)) {
-      out.push({ kind: 'thread', from: newThreads.get(from)!, into: threads.get(into)!, ...(reason ? { reason } : {}) });
-      done.add(from);
+      merge = { kind: 'thread', from: newThreads.get(from)!, into: threads.get(into)!, ...(reason ? { reason } : {}) };
     } else if (newFore.has(from) && fore.has(into)) {
-      out.push({ kind: 'foreshadowing', from: newFore.get(from)!, into: fore.get(into)!, ...(reason ? { reason } : {}) });
-      done.add(from);
+      merge = { kind: 'foreshadowing', from: newFore.get(from)!, into: fore.get(into)!, ...(reason ? { reason } : {}) };
     }
+    if (!merge) {
+      continue;
+    }
+    const why = !reason
+      ? '没说为什么是同一件事'
+      : merge.kind === 'foreshadowing' && !namesShareWord(merge.from, merge.into)
+        ? '两个名字里没有一个相同的词'
+        : '';
+    if (why) {
+      rejected.push({ what: `〈${merge.from}〉→〈${merge.into}〉${reason ? `（${reason}）` : ''}`, why });
+      continue;
+    }
+    out.push(merge);
+    done.add(from);
   }
   return out;
 }

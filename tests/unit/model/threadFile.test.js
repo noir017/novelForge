@@ -744,19 +744,19 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
     });
     const merges = t.verifyMerges(
       [
-        { new: '沈家的旧案', into: '主线' },
-        { new: '沈家的旧案', into: '林昭与沈青' },
-        { new: '那块玉佩', into: '林昭与沈青' },
-        { new: '那块玉佩', into: '玉佩' },
-        { new: '不存在', into: '主线' },
+        { new: '沈家的旧案', into: '主线', reason: '同一桩旧案' },
+        { new: '沈家的旧案', into: '林昭与沈青', reason: '同一桩旧案' },
+        { new: '那块玉佩', into: '林昭与沈青', reason: '同一块玉佩' },
+        { new: '那块玉佩', into: '玉佩', reason: '同一块玉佩' },
+        { new: '不存在', into: '主线', reason: '没有这一条' },
       ],
       finds,
       book,
       6
     );
     assert.deepEqual(merges, [
-      { kind: 'thread', from: '沈家的旧案', into: '主线' },
-      { kind: 'foreshadowing', from: '那块玉佩', into: '玉佩' },
+      { kind: 'thread', from: '沈家的旧案', into: '主线', reason: '同一桩旧案' },
+      { kind: 'foreshadowing', from: '那块玉佩', into: '玉佩', reason: '同一块玉佩' },
     ]);
     const applied = t.applyMerges(finds, merges, book, 6);
     assert.deepEqual(applied.finds.newThreads, []);
@@ -802,7 +802,7 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
     const burn = { title: '罗盘使用后的灼烧侵蚀', what: '灼烧感侵蚀活人气息', line: '沈默的灭门复仇', evidence: '余温依旧像碎炭一般留在皮肉里' };
 
     test('已有的那条还没埋：这一章记一条「埋〈已有的〉」，证据用新伏笔的；完成提示不另加说明', () => {
-      const r = run(find([burn]), [{ new: '罗盘使用后的灼烧侵蚀', into: '焦黑罗盘的本质' }]);
+      const r = run(find([burn]), [{ new: '罗盘使用后的灼烧侵蚀', into: '焦黑罗盘的本质', reason: '都是罗盘的代价' }]);
       assert.deepEqual(r.events.map((e) => [e.line, e.event.type, e.event.foreshadowing, e.event.what, e.event.evidence]), [
         ['沈默的灭门复仇', '埋', '焦黑罗盘的本质', '灼烧感侵蚀活人气息', '余温依旧像碎炭一般留在皮肉里'],
       ]);
@@ -811,7 +811,7 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
 
     test('模型单列了「埋〈新的〉」：改叫已有的名字，同一章只记一条', () => {
       const r = run(find([burn], [{ line: '沈默的灭门复仇', type: '埋', foreshadowing: '罗盘使用后的灼烧侵蚀', what: '罗盘发烫', evidence: '滚烫的烙铁感' }]), [
-        { new: '罗盘使用后的灼烧侵蚀', into: '焦黑罗盘的本质' },
+        { new: '罗盘使用后的灼烧侵蚀', into: '焦黑罗盘的本质', reason: '都是罗盘的代价' },
       ]);
       assert.deepEqual(r.events.map((e) => [e.event.type, e.event.foreshadowing, e.event.evidence]), [['埋', '焦黑罗盘的本质', '滚烫的烙铁感']]);
     });
@@ -819,7 +819,7 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
     test('已有的那条第 1 章已经埋下：不再记第二条「埋」，说明写在 note 里（完成提示照它说）', () => {
       const altar = { title: '祠堂地下祭坛', what: '祠堂地下有祭坛', line: '沈默的灭门复仇', evidence: '祠堂地下有一座祭坛' };
       const r = run(find([altar], [{ line: '沈默的灭门复仇', type: '埋', foreshadowing: '祠堂地下祭坛', what: '祭坛', evidence: '祠堂地下有一座祭坛' }]), [
-        { new: '祠堂地下祭坛', into: '祠堂的隐秘' },
+        { new: '祠堂地下祭坛', into: '祠堂的隐秘', reason: '祠堂底下藏的就是祭坛' },
       ]);
       assert.deepEqual(r.events, []);
       assert.equal(r.merges[0].note, '〈祠堂的隐秘〉第 1 章已经埋下，这一章不再记「埋」');
@@ -846,6 +846,32 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
       assert.deepEqual(t.verifyMerges([{ new: '罗盘使用后的灼烧侵蚀', into: '焦黑罗盘的本质', reason: '都是罗盘的事' }], finds, story, 2), [
         { kind: 'foreshadowing', from: '罗盘使用后的灼烧侵蚀', into: '焦黑罗盘的本质', reason: '都是罗盘的事' },
       ]);
+    });
+
+    // 复跑报告问题 4：并了 2 次、2 次都错，理由都是「两者均指……」；修复 3 以后并错的「埋」会记到已有伏笔上。⚑ 更保守。
+    test('归并更保守：没给理由的不并；两个伏笔名一个相同的词都没有的不并（复跑里并错的两次）；没采纳的说出来', () => {
+      const threat = { title: '红姑的灯', what: '红姑的灯火逼近', line: '沈默的灭门复仇', evidence: '余温依旧像碎炭一般留在皮肉里' };
+      const vessel = { title: '沈默的容器身份', what: '沈默是容器', line: '沈默的灭门复仇', evidence: '祠堂地下有一座祭坛' };
+      const finds = find([threat, vessel, burn]);
+      const rejected = [];
+      const merges = t.verifyMerges(
+        [
+          { new: '红姑的灯', into: '焦黑罗盘的本质', reason: '两者均指代废墟外正在逼近的威胁性邪祟。' },
+          { new: '沈默的容器身份', into: '祠堂的隐秘', reason: '两者均指向沈默非活人且作为某种载体的本质。' },
+          { new: '罗盘使用后的灼烧侵蚀', into: '焦黑罗盘的本质' },
+        ],
+        finds,
+        story,
+        2,
+        rejected
+      );
+      assert.deepEqual(merges, []);
+      assert.deepEqual(rejected.map((r) => r.why), ['两个名字里没有一个相同的词', '两个名字里没有一个相同的词', '没说为什么是同一件事']);
+      assert.match(rejected[0].what, /^〈红姑的灯〉→〈焦黑罗盘的本质〉（两者均指代/);
+      // 线不看名字（同一条剧情线换个名字很常见），照样要理由。
+      assert.equal(t.namesShareWord('红姑的灯', '红姑的监视'), true);
+      assert.equal(t.namesShareWord('祠堂地下祭坛', '祠堂的隐秘'), true);
+      assert.equal(t.namesShareWord('沈默的容器身份', '尸斑的出现'), false);
     });
 
     test('并掉的新线这一章没带来任何事件：note 说「这一章没有另记事件」，不替它编一条推进', () => {

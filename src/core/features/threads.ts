@@ -554,8 +554,14 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
         .filter(Boolean)
         .join('\n\n');
       const merged = await askJson(opts, `第 ${no} 章 · 叙事线归并`, THREAD_MERGE_SYSTEM, user, 0.1, '归并结果');
+      // 复跑之后更保守：没给理由的、伏笔名一个相同的词都没有的不并（照新的建），记一笔日志。
+      const rejected: { what: string; why: string }[] = [];
+      const verified = verifyMerges(Array.isArray(merged.merges) ? merged.merges : [], finds, book, no, rejected);
+      if (rejected.length > 0) {
+        log.info(`第 ${no} 章：${rejected.length} 条归并没采纳，照新的建`, rejected.map((r) => `${r.what}：${r.why}`).join('\n'));
+      }
       // 新伏笔的那一条「埋」改挂到已有的那条上（已有的已经埋过就如实不记，说明写在 note 里），见 applyMerges。
-      const applied = applyMerges(finds, verifyMerges(Array.isArray(merged.merges) ? merged.merges : [], finds, book, no), book, no);
+      const applied = applyMerges(finds, verified, book, no);
       finds = applied.finds;
       out.merged = applied.merges;
       if (out.merged.length > 0) {

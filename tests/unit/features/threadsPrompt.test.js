@@ -52,6 +52,10 @@ describe('threadsPrompt.ts · 试跑之后补上的几句', () => {
     for (const s of ['只有确实是同一件事、同一条线，才并进已有的那一条', '同一个物件、同一个人身上的两件事不算同一件事', '拿不准就不要并', '"reason"']) {
       assert.ok(THREAD_MERGE_SYSTEM.includes(s), s);
     }
+    // 复跑之后：并错的两次理由都是「两者均指……」——同一类，不是同一件事。
+    for (const s of ['只是同一类的不算', 'reason 必须说出两条共同指向的那一个谜底或那一件事', '「两者均指向……」这种同一类的，就是不该并']) {
+      assert.ok(THREAD_MERGE_SYSTEM.includes(s), s);
+    }
   });
 
   test('排线：有感情发展、成长或堕落弧线的分别排成感情线、人物线，没有就不凑数', () => {

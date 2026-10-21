@@ -501,10 +501,10 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
         newThreads: [{ title: '沈家的旧案', kind: '支线', intent: '换个说法', evidence: '背面刻着一个小小的沈字' }],
         newForeshadowing: [],
       });
-    mergeReply = () => JSON.stringify({ merges: [{ new: '沈家的旧案', into: '沈家旧案' }] });
+    mergeReply = () => JSON.stringify({ merges: [{ new: '沈家的旧案', into: '沈家旧案', reason: '同一桩旧案换了个说法' }] });
     const merged = await bundle.finalize.finalizeChapter(project, await chapter4());
     // 新线这一章没带来任何事件：并进去了，但如实说没记什么（不替它编一条推进）。
-    assert.deepEqual(merged.threads.merged, [{ kind: 'thread', from: '沈家的旧案', into: '沈家旧案', note: '这一章没有另记事件' }]);
+    assert.deepEqual(merged.threads.merged, [{ kind: 'thread', from: '沈家的旧案', into: '沈家旧案', reason: '同一桩旧案换了个说法', note: '这一章没有另记事件' }]);
     assert.ok(!t.has(file('沈家的旧案')));
     assert.ok(userOf(MERGE_MARK).includes('- 沈家的旧案（支线）换个说法'));
     assert.ok(bundle.finalize.describeFinalize(4, merged).includes('〈沈家的旧案〉并进了〈沈家旧案〉（这一章没有另记事件）'));
@@ -523,14 +523,14 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
         newThreads: [],
         newForeshadowing: [
           { title: '沈字的来历', what: '玉佩背面刻着沈字', line: '林昭与沈青', evidence: '背面刻着一个小小的沈字' },
-          { title: '廊下的旧物', what: '林昭想起断剑上的字', line: '断剑之谜', evidence: '林昭看着她，忽然明白' },
+          { title: '廊下的断剑', what: '林昭想起断剑上的字', line: '断剑之谜', evidence: '林昭看着她，忽然明白' },
         ],
       });
     mergeReply = () =>
       JSON.stringify({
         merges: [
-          { new: '沈字的来历', into: '玉佩的来历' },
-          { new: '廊下的旧物', into: '断剑的刻字' },
+          { new: '沈字的来历', into: '玉佩的来历', reason: '玉佩的来历就是沈家' },
+          { new: '廊下的断剑', into: '断剑的刻字', reason: '断剑上的字是谁刻的' },
         ],
       });
     const merged = await bundle.finalize.finalizeChapter(project, await chapter4());
@@ -546,11 +546,11 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
     const sword = t.read(file('断剑之谜'));
     assert.ok(sword.includes('- 第 4 章 · 埋〈断剑的刻字〉：林昭想起断剑上的字 〔证据：「林昭看着她，忽然明白」〕'), sword);
     assert.equal(t.read(file('林昭与沈青')), before, '玉佩的来历第 1 章已经埋下，不再记第二条「埋」');
-    for (const name of ['沈字的来历', '廊下的旧物']) {
+    for (const name of ['沈字的来历', '廊下的断剑']) {
       assert.ok(!sword.includes(name) && !before.includes(name), name);
     }
     const said = bundle.finalize.describeFinalize(4, merged);
-    for (const s of ['埋〈断剑的刻字〉', '〈廊下的旧物〉并进了〈断剑的刻字〉；', '〈沈字的来历〉并进了〈玉佩的来历〉（〈玉佩的来历〉第 1 章已经埋下，这一章不再记「埋」）']) {
+    for (const s of ['埋〈断剑的刻字〉', '〈廊下的断剑〉并进了〈断剑的刻字〉；', '〈沈字的来历〉并进了〈玉佩的来历〉（〈玉佩的来历〉第 1 章已经埋下，这一章不再记「埋」）']) {
       assert.ok(said.includes(s), `${s}｜${said}`);
     }
   });
