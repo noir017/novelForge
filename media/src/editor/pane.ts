@@ -24,6 +24,11 @@
  * **Markdown 预览按标签记**（`OpenFile.markdownPreview`，方案 D3）：切走再切回来还是原来那样，刷新恢复也记着（⚑）。
  * 切换走 `setPreviewing`（工具栏「预览 / 编辑」、`Ctrl+Shift+V`、查找与体检之类「先切回编辑」的地方）：编辑区视口
  * 顶上那一行与预览里对应的那一块互相滚到一处（`previewSync.ts`）。`activate` 只是切标签，不再顺手切回编辑。
+ *
+ * **特殊标签**（叙事线重做三期，`store.ts` 的 `SpecialTab`：「叙事线总览」）：不对应文件的标签排在文件标签前面。切过去时
+ * `activePath` 是 null——这一块此刻没有当前文件，对当前文件做事的模块都当没开文件；画的东西由那个模块挂在 `.ed-stage` 上
+ * （`show` / `hide`），这里只管标签、谁在显示、刷新恢复。切回一份文件（`activate`、从别处打开一份到这一块）它就藏起来；
+ * 关掉它回到切过去之前的那一份。
  */
 import { setHidden } from '../dom';
 import { onContextMenu, toast } from '../globals';
@@ -69,12 +74,14 @@ import {
   announceActive,
   forgetClosed,
   noteClosed,
+  paneWithSpecial,
   pendingActive,
   pendingDrafts,
   persist,
   refreshOtherTabs,
   schedulePersist,
   setActivePane,
+  specialTabOf,
   syncDraftVisibility,
 } from './store';
 import type { ApplyEditOptions, Pane } from './store';
@@ -137,6 +144,12 @@ export function createPane(
    * 冲掉未保存的修改；其余的 editorOpen 一律当成「再打开一次」。
    */
   const reloading = new Set<string>();
+  /** 开着的特殊标签（`store.ts` 的 `SpecialTab`），按打开的先后。 */
+  const specials: string[] = [];
+  /** 正显示着的特殊标签。不是 null 时 `activePath` 是 null。 */
+  let shownSpecial: string | null = null;
+  /** 切到特殊标签之前的那份文件：关掉特殊标签时回到它（刷新恢复时是存下来的那一份）。 */
+  let specialReturn: string | null = null;
 
   const pane: Pane = {
     id,
@@ -170,6 +183,10 @@ export function createPane(
     knownDiskHash,
     refresh,
     rebase,
+    specials,
+    activeSpecial: () => shownSpecial,
+    openSpecial,
+    closeSpecial,
   };
 
   function activeFile(): OpenFile | undefined {
@@ -199,7 +216,10 @@ export function createPane(
         preview: f.preview || undefined,
         markdownPreview: f.markdownPreview || undefined,
       })),
-      active: pane.activePath,
+      // 特殊标签正显示着：记切过去之前的那一份，刷新之后关掉特殊标签还回得去。
+      active: shownSpecial ? (specialReturn && files.has(specialReturn) ? specialReturn : null) : pane.activePath,
+      ...(specials.length > 0 ? { specials: [...specials] } : {}),
+      ...(shownSpecial ? { special: shownSpecial } : {}),
     };
   }
 
@@ -222,6 +242,16 @@ export function createPane(
     const names = currentNames();
     let active: HTMLElement | null = null;
     strip.list.replaceChildren();
+    // 特殊标签排在文件标签前面（⚑）：它是这一块的一张「总表」，不随开开关关的文件挪位置。
+    for (const id of specials) {
+      const tab = buildSpecialTab(id);
+      if (tab) {
+        if (id === shownSpecial) {
+          active = tab;
+        }
+        strip.list.appendChild(tab);
+      }
+    }
     for (const file of files.values()) {
       const tab = buildTab(file, names.get(file.path) ?? { tag: '', title: file.name, desc: '' });
       if (file.path === pane.activePath) {
@@ -229,8 +259,124 @@ export function createPane(
       }
       strip.list.appendChild(tab);
     }
-    setHidden(el.tabs, files.size === 0);
+    setHidden(el.tabs, files.size === 0 && specials.length === 0);
     strip.afterRender(keep, active);
+  }
+
+  /** 特殊标签：没有脏标记、没有类型短标记；点了切过去，× 与中键关掉，右键「关闭」加它自己给的几项。 */
+  function buildSpecialTab(id: string): HTMLElement | undefined {
+    const spec = specialTabOf(id);
+    if (!spec) {
+      return undefined;
+    }
+    const { title, tip } = spec.label();
+    const tab = document.createElement('div');
+    tab.className = 'ed-tab ed-tab-special';
+    tab.classList.toggle('active', id === shownSpecial);
+    tab.dataset.special = id;
+    tab.title = tip;
+
+    const name = document.createElement('span');
+    name.className = 'ed-tab-name';
+    name.textContent = title;
+    tab.appendChild(name);
+
+    const close = document.createElement('button');
+    close.className = 'ed-tab-close';
+    close.textContent = '×';
+    close.title = '关闭';
+    close.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeSpecial(id);
+    });
+    tab.appendChild(close);
+
+    tab.addEventListener('click', () => openSpecial(id));
+    tab.addEventListener('auxclick', (e) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        closeSpecial(id);
+      }
+    });
+    onContextMenu(tab, () => [{ label: '关闭', run: () => closeSpecial(id) }, ...(spec.menu?.(pane) ?? [])]);
+    return tab;
+  }
+
+  function openSpecial(id: string, opts?: { focus?: boolean; background?: boolean; restoring?: boolean }): void {
+    if (!specialTabOf(id)) {
+      return;
+    }
+    // 同一个特殊标签同一时刻只在一块里：开在另一块里的先从那边拿走。
+    const elsewhere = paneWithSpecial(id);
+    if (elsewhere && elsewhere !== pane) {
+      elsewhere.closeSpecial(id, { quiet: true });
+    }
+    if (!specials.includes(id)) {
+      specials.push(id);
+    }
+    if (!opts?.background && shownSpecial !== id) {
+      // 切走前把光标位置留住、正在打的那一步收口（同切标签）。
+      stashCaret();
+      activeFile()?.history.seal();
+      if (pane.activePath) {
+        specialReturn = pane.activePath;
+      }
+      pane.activePath = null;
+      shownSpecial = id;
+    }
+    if (opts?.focus !== false && !opts?.background) {
+      setActivePane(pane);
+    }
+    renderAll();
+    announceActive();
+    syncDraftVisibility();
+    if (!opts?.restoring) {
+      persist();
+    }
+  }
+
+  function closeSpecial(id: string, opts?: { quiet?: boolean }): void {
+    const i = specials.indexOf(id);
+    if (i < 0) {
+      return;
+    }
+    specials.splice(i, 1);
+    specialTabOf(id)?.hide(pane);
+    const wasShown = shownSpecial === id;
+    if (wasShown) {
+      shownSpecial = null;
+    }
+    const back = specialReturn && files.has(specialReturn) ? specialReturn : [...files.keys()].pop();
+    if (wasShown && back && !opts?.quiet) {
+      // 回到切过去之前的那一份：光标、滚动、预览都照它切走时的样子（`activate` 那一套）。
+      specialReturn = null;
+      activate(back);
+      refreshOtherTabs(pane);
+      syncDraftVisibility();
+      return;
+    }
+    if (wasShown) {
+      pane.activePath = back ?? null;
+      specialReturn = null;
+      // 文件都关了、还开着别的特殊标签：显示最后那一个。
+      if (!pane.activePath && specials.length > 0) {
+        shownSpecial = specials[specials.length - 1];
+      }
+    }
+    renderAll();
+    if (!opts?.quiet) {
+      announceActive();
+      syncDraftVisibility();
+      persist();
+    }
+  }
+
+  /** 这一块认下一份文件当当前的：正显示着的特殊标签藏起来。 */
+  function leaveSpecial(): void {
+    if (shownSpecial) {
+      shownSpecial = null;
+      specialReturn = null;
+    }
   }
 
   function buildTab(file: OpenFile, label: TabName): HTMLElement {
@@ -364,6 +510,7 @@ export function createPane(
     // 切走前把光标位置留住，切回来还在原处；正在打的那一步也收口，切回来再打另起一步。
     stashCaret();
     activeFile()?.history.seal();
+    leaveSpecial();
     pane.activePath = path;
     if (!quiet) {
       setActivePane(pane);
@@ -539,6 +686,10 @@ export function createPane(
     diskSeen.delete(path);
     if (pane.activePath === path) {
       pane.activePath = [...files.keys()].pop() || null;
+      // 文件都关了、还开着特殊标签：切到它（同关掉一个标签之后显示旁边那一个）。
+      if (!pane.activePath && !shownSpecial && specials.length > 0) {
+        shownSpecial = specials[specials.length - 1];
+      }
       announceActive();
     }
   }
@@ -548,9 +699,18 @@ export function createPane(
   function renderAll(): void {
     renderTabs();
     const file = activeFile();
+    // 特殊标签：正显示着的那一个挂上、露出来，其余藏起来（画什么由那个模块管）。
+    for (const id of specials) {
+      const spec = specialTabOf(id);
+      if (id === shownSpecial) {
+        spec?.show(pane);
+      } else {
+        spec?.hide(pane);
+      }
+    }
 
     const showing = previewing(file);
-    setHidden(el.welcome, !!file);
+    setHidden(el.welcome, !!file || !!shownSpecial);
     setHidden(el.toolbar, !file);
     setHidden(el.area, !file || showing);
     setHidden(el.preview, !file || !showing);
@@ -1347,6 +1507,7 @@ export function createPane(
       if (!intent?.preview) {
         existing.preview = false;
       }
+      leaveSpecial();
       pane.activePath = incoming.path;
     } else {
       // 从另一块搬来的（带着草稿或撤销历史）优先；否则看刷新前存下的草稿。
@@ -1364,7 +1525,7 @@ export function createPane(
       file.preview = previewOf(file, carried, pending, wantPreview);
       insertFile(file, slotFor(file, intent));
       forgetClosed(file.path);
-      claimActivePath(incoming.path);
+      claimActivePath(incoming.path, !!pending && !carried);
     }
 
     renderAll();
@@ -1489,15 +1650,27 @@ export function createPane(
     return file;
   }
 
-  /** 恢复阶段按存下来的 active 定位，其余情况新开的就是当前的。 */
-  function claimActivePath(path: string): void {
+  /**
+   * 恢复阶段按存下来的 active 定位，其余情况新开的就是当前的。`restoring`：这一份是刷新恢复回来的——特殊标签正显示着时
+   * 不把它换下去（存下来的那一份记成「关掉特殊标签时回到它」）；作者此刻从别处打开的照常切过去。
+   */
+  function claimActivePath(path: string, restoring: boolean): void {
     const wanted = pendingActive.get(pane.id);
+    if (shownSpecial && restoring) {
+      if (wanted === path) {
+        specialReturn = path;
+        pendingActive.delete(pane.id);
+      }
+      return;
+    }
     if (!wanted || wanted === path) {
+      leaveSpecial();
       pane.activePath = path;
       if (wanted) {
         pendingActive.delete(pane.id);
       }
     } else if (!pane.activePath) {
+      leaveSpecial();
       pane.activePath = path;
     }
   }

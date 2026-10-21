@@ -39,6 +39,7 @@ import { installEditorReplace } from './replace';
 import { installSaveSafety } from './safety';
 import { matchesShortcut } from './shortcuts';
 import { installShortcutsPanel } from './shortcutsPanel';
+import { installThreadsOverview } from './threadsOverview';
 import { installWritingStats } from './stats';
 import { installVersions } from './versions';
 import { installViewPrefs } from './viewPrefs';
@@ -137,10 +138,10 @@ function start(stage: HTMLElement): void {
       if (activePane.activeFile()) {
         activePane.save(false);
       }
-    } else if (matchesShortcut(e, 'closeTab') && activePane.activeFile()) {
-      // Chrome 不允许拦 Ctrl+W（表里那一条写着），能拦到（桌面版）就顺手关标签页。
+    } else if (matchesShortcut(e, 'closeTab') && (activePane.activeFile() || activePane.activeSpecial())) {
+      // Chrome 不允许拦 Ctrl+W（表里那一条写着），能拦到（桌面版）就顺手关标签页。正显示着特殊标签（叙事线总览）时关它。
       e.preventDefault();
-      activePane.closeFile(activePane.activePath!);
+      closeCurrentTab();
     } else if (matchesShortcut(e, 'preview')) {
       // 预览 / 编辑（⚑ Ctrl+Shift+V，与 VS Code 的「打开预览」同一个键）：只对 Markdown 文件拦，
       // 别的文件（.txt 章节之类）照常是浏览器的「粘贴为纯文本」；焦点在对话输入框里不拦。
@@ -195,14 +196,24 @@ function start(stage: HTMLElement): void {
           pane.savePath(file.path, false);
         }
       }
-    } else if (name === 'close' && activePane.activePath) {
-      activePane.closeFile(activePane.activePath);
+    } else if (name === 'close') {
+      closeCurrentTab();
     } else if (name === 'undo') {
       activePane.undo();
     } else if (name === 'redo') {
       activePane.redo();
     }
   });
+
+  /** 关当前这一块正显示着的标签：一份文件（先问保存），或一个特殊标签（叙事线总览）。 */
+  function closeCurrentTab(): void {
+    const special = activePane.activeSpecial();
+    if (special) {
+      activePane.closeSpecial(special);
+    } else if (activePane.activePath) {
+      activePane.closeFile(activePane.activePath);
+    }
+  }
 
   window.addEventListener('nf-workspace-reset', () => {
     // 不写 localStorage：标签页按工程分开记（projectStorageKey），上一个工程的那份留着下次回来用，
@@ -212,6 +223,10 @@ function start(stage: HTMLElement): void {
     pendingActive.clear();
     clearClosed();
     for (const pane of Object.values(panes)) {
+      // 特殊标签（叙事线总览）画的是上一个工程的东西，一并关掉（不写 localStorage）。
+      for (const id of [...pane.specials]) {
+        pane.closeSpecial(id, { quiet: true });
+      }
       for (const path of [...pane.files.keys()]) {
         pane.closeSilently(path);
       }
@@ -335,6 +350,8 @@ function start(stage: HTMLElement): void {
   installFocus();
   // 「帮助 → 快捷键一览」与 Ctrl+/（⚑）：按分组列出 shortcuts.ts 那张表、可以筛选。
   installShortcutsPanel();
+  // 「叙事线总览」特殊标签（叙事线重做三期）：要在 restore() 之前登记，刷新时才认得出存下来的那个标签。
+  installThreadsOverview(post);
 
   // ---------------------------------------------------------------- 启动
 

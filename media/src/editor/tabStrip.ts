@@ -5,7 +5,7 @@
  *   （触控板的横向拨动原样认）。
  * - **当前那个自动滚进视野**：每次重画标签之后，激活的那个不在视野里就滚到刚好露出来。重画之前的
  *   滚动位置先留住——整排换掉 DOM 那一下浏览器会把它归零，不留的话点一下别的标签整排就跳回开头。
- * - **「▾」**：两块编辑区里开着的全部文件（按块分组、标出哪个没保存、哪个是当前的），点了切过去；
+ * - **「▾」**：两块编辑区里开着的全部文件（按块分组、标出哪个没保存、哪个是当前的；特殊标签「叙事线总览」排在每块前面），点了切过去；
  *   底下是最近关掉的几个，点了重新打开。弹的是 view 的那个菜单引擎（`showMenuAt`），与右键菜单
  *   同一种样子、同时只有一个。
  *
@@ -18,7 +18,7 @@ import type { MenuItem } from '../globals';
 import { tabNames } from './tabLabels';
 import type { TabName } from './tabLabels';
 import type { PaneId } from './paneElements';
-import { activePane, allOpenFiles, panes, recentClosed, reopenClosed } from './store';
+import { activePane, allOpenFiles, panes, recentClosed, reopenClosed, specialTabOf } from './store';
 
 /** 两块编辑区在界面上的叫法。 */
 export const PANE_LABEL: Record<PaneId, string> = { main: '左侧', draft: '右侧' };
@@ -99,9 +99,19 @@ export function tabText(name: TabName): string {
 function openFilesMenu(): MenuItem[] {
   const names = tabNames(allOpenFiles());
   const items: MenuItem[] = [];
-  const open = (['main', 'draft'] as const).map((id) => panes[id]).filter((p) => !!p && p.files.size > 0);
+  const open = (['main', 'draft'] as const)
+    .map((id) => panes[id])
+    .filter((p) => !!p && (p.files.size > 0 || p.specials.length > 0));
   for (const pane of open) {
     items.push({ label: `${PANE_LABEL[pane!.id]}编辑区`, disabled: true });
+    // 特殊标签（叙事线总览）排在前面，与标签条上一样。
+    for (const id of pane!.specials) {
+      const spec = specialTabOf(id);
+      if (spec) {
+        const current = pane === activePane && pane!.activeSpecial() === id;
+        items.push({ label: `${current ? '› ' : '　 '}${spec.label().title}`, run: () => pane!.openSpecial(id) });
+      }
+    }
     for (const file of pane!.files.values()) {
       const dirty = file.draft !== file.text;
       const current = pane === activePane && pane!.activePath === file.path;

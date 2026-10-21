@@ -7,6 +7,7 @@
  * 把状态放这儿，方向就只剩 index → pane → store 一条。
  */
 import { announceEditorActive, projectStorageKey } from '../globals';
+import type { MenuItem } from '../globals';
 import type { EditorFileView, EditorOpenIntent, InMessage } from '../protocol';
 import type { TextSelection } from './history';
 import type { CarriedDraft, OpenFile, PaneId } from './paneElements';
@@ -130,11 +131,74 @@ export interface Pane {
    * 不动。冲突时「对比合并」采纳之后用（`editor/replace.ts`）：作者看过了磁盘上的那一份，之后照常保存。
    */
   rebase(path: string, text: string, hash: string): void;
+  /** 这一块开着的特殊标签（不对应文件，见 {@link SpecialTab}），按打开的先后。 */
+  readonly specials: readonly string[];
+  /**
+   * 正显示着的特殊标签。显示它的时候这一块**没有当前文件**（`activePath` 是 null、`activeFile()` 是 undefined）：
+   * 保存、查找、体检、历史版本这些「对当前文件做事」的都当这一块没开文件，不会对着藏在后面的那一份动手。
+   */
+  activeSpecial(): string | null;
+  /**
+   * 打开（已经开着就切到）一个特殊标签。同一个特殊标签同一时刻只在一块里：开在另一块里的先从那边拿走（同「一个路径只属于
+   * 一块」）。`focus: false`：不认下「当前这一块」；`background`：只把标签放上标签条、不切过去（刷新恢复那些没在显示的）；
+   * `restoring`：刷新恢复时打开的，不写 localStorage（文件还没回来，这时写下去会把它们从待恢复的清单里冲掉）。
+   */
+  openSpecial(id: string, opts?: { focus?: boolean; background?: boolean; restoring?: boolean }): void;
+  /**
+   * 关掉一个特殊标签；它正显示着就回到切过去之前的那份文件（还开着的话，否则最后一份）。`quiet`：换工程时一并关掉，
+   * 不写 localStorage、不广播。
+   */
+  closeSpecial(id: string, opts?: { quiet?: boolean }): void;
 }
 
 export interface PaneSnapshot {
   open: { path: string; hash: string; draft?: string; preview?: boolean; markdownPreview?: boolean }[];
+  /** 当前那份文件。特殊标签正显示着时是切过去之前的那一份（关掉特殊标签回到它）。 */
   active: string | null;
+  /** 开着的特殊标签（叙事线总览，三期）。 */
+  specials?: string[];
+  /** 正显示着的特殊标签。 */
+  special?: string;
+}
+
+// ---------------------------------------------------------------- 特殊标签
+
+/**
+ * 编辑区里**不对应文件**的标签（叙事线重做三期：「叙事线总览」）。编辑区原本只认文件——标签就是一份打开的文件、
+ * 显示的是 textarea——这是给它开的唯一一道口子：`pane.ts` 只认这个接口，不知道里面画的是什么；画的东西照历史版本
+ * 抽屉的做法挂在这一块的 `.ed-stage` 上，盖住正文区（模块自己现造、自己藏）。
+ *
+ * - 标签排在文件标签前面，写 `label().title`，没有脏标记；点了切过去、× 与中键关掉、右键「关闭」加 `menu()` 给的几项。
+ * - 切过去时这一块没有当前文件（见 `Pane.activeSpecial`）；切回一份文件、或从别处打开一份文件到这一块，它就藏起来。
+ * - 刷新记着（`PaneSnapshot.specials` / `special`），恢复时先于文件打开，陆续回来的文件不把正显示着的它换下去。
+ */
+export interface SpecialTab {
+  /** 稳定的 id，记进 localStorage。 */
+  readonly id: string;
+  /** 标签上写什么、悬停看什么。 */
+  label(): { title: string; tip: string };
+  /** 这一块要显示它：挂上覆盖层（第一次现造）、露出来。每次重画都会调，要便宜、可以重复调。 */
+  show(pane: Pane): void;
+  /** 这一块不再显示它（切到了一份文件、关掉了、搬到了另一块）。 */
+  hide(pane: Pane): void;
+  /** 标签右键「关闭」之后的那几项。 */
+  menu?(pane: Pane): MenuItem[];
+}
+
+const specialTabs = new Map<string, SpecialTab>();
+
+/** 登记一种特殊标签（模块装的时候）。 */
+export function registerSpecialTab(tab: SpecialTab): void {
+  specialTabs.set(tab.id, tab);
+}
+
+export function specialTabOf(id: string): SpecialTab | undefined {
+  return specialTabs.get(id);
+}
+
+/** 哪一块开着这个特殊标签。同一时刻至多一块。 */
+export function paneWithSpecial(id: string): Pane | undefined {
+  return Object.values(panes).find((p) => p.specials.includes(id));
 }
 
 const STORE_KEY = 'novelforge.editor.v1';
@@ -283,10 +347,10 @@ export function paneOwning(path: string): Pane | undefined {
   return undefined;
 }
 
-/** 草稿区里没有打开的文件时整块收起来，连同那条分隔条。 */
+/** 草稿区里没有打开的文件（也没有特殊标签）时整块收起来，连同那条分隔条。 */
 export function syncDraftVisibility(): void {
   const draft = panes.draft;
-  const open = !!draft && draft.files.size > 0;
+  const open = !!draft && (draft.files.size > 0 || draft.specials.length > 0);
   draft?.root.classList.toggle('hidden', !open);
   draftResizer?.classList.toggle('hidden', !open);
 }
@@ -347,16 +411,35 @@ export function restore(): void {
     return;
   }
   const raw = saved as { open?: unknown; active?: unknown; panes?: unknown };
+  type StoredPane = { open?: unknown; active?: unknown; specials?: unknown; special?: unknown };
 
   // v1 只有一块编辑区，形状是 { open, active }——老用户的标签页不该在
   // 升级后凭空消失，按主区读进来。
-  const stored: Record<string, { open?: unknown; active?: unknown }> = Array.isArray(raw.open)
+  const stored: Record<string, StoredPane> = Array.isArray(raw.open)
     ? { main: { open: raw.open, active: raw.active } }
-    : ((raw.panes as Record<string, { open?: unknown; active?: unknown }>) ?? {});
+    : ((raw.panes as Record<string, StoredPane>) ?? {});
 
   for (const paneId of ['main', 'draft'] as const) {
     const data = stored[paneId];
-    if (!data || !Array.isArray(data.open) || data.open.length === 0) {
+    // 特殊标签（叙事线总览）：认得出的才开、同一个只开一次（记坏了的、改过名的不认，至多少一个标签，不崩）。
+    const specials = Array.isArray(data?.specials)
+      ? (data!.specials as unknown[]).filter(
+          (id): id is string => typeof id === 'string' && !!specialTabOf(id) && !paneWithSpecial(id)
+        )
+      : [];
+    const hasFiles = !!data && Array.isArray(data.open) && data.open.length > 0;
+    if (!data || (!hasFiles && specials.length === 0)) {
+      continue;
+    }
+    // 先开特殊标签：正显示着的那一个先切过去，之后陆续回来的文件不把它换下去（`claimActivePath`）。
+    const shown = typeof data.special === 'string' && specials.includes(data.special) ? data.special : undefined;
+    if (specials.length > 0) {
+      const pane = makePane(paneId);
+      for (const id of specials) {
+        pane.openSpecial(id, { focus: false, restoring: true, background: id !== shown });
+      }
+    }
+    if (!hasFiles) {
       continue;
     }
     pendingActive.set(paneId, typeof data.active === 'string' ? data.active : null);

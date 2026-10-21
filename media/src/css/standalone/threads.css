@@ -1,0 +1,494 @@
+/*
+ * 编辑区「叙事线总览」标签（叙事线重做三期，editor/threadsOverview.ts）：章 × 线的时间轴，挂在一块编辑区的 .ed-stage 上、
+ * 盖住正文区（照历史版本抽屉的做法）。只有独立版有内置编辑器，所以在 standalone 这边。
+ *
+ * - 左列（线名、伏笔名）与表头固定：.tov-scroll 是唯一的滚动容器，表头 sticky top、左列 sticky left、左上角两样都 sticky。
+ * - 格子是稀疏的：一行只有有事件的那几章才有节点（.tov-cell），列的分隔线是 .tov-track 的背景。一列多宽来自 JS 写在
+ *   .tov-scroll 上的 --tov-cell（与 threadsOverview.ts 的 CELL 同一个数），左列宽 --tov-name。
+ * - 线的格子借流水线条的 .pstage-mark（view.css 里的空心 / 实心圆点），这里只放大一点、加 ◉ 与红圈两种。
+ */
+
+.tov {
+  --tov-focus-bg: var(--vscode-list-inactiveSelectionBackground, rgba(128, 128, 128, 0.2));
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font-size: 0.86em;
+}
+
+.tov-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.tov-title {
+  font-weight: 600;
+}
+
+.tov-meta {
+  color: var(--vscode-descriptionForeground);
+}
+
+.tov-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.92em;
+}
+
+.tov-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tov-legend-sep {
+  opacity: 0.5;
+}
+
+/* ◉ 的那一圈画在外面（box-shadow），图例里给它让出地方。 */
+.tov-legend-item .tov-mark-both {
+  margin: 0 3px;
+}
+
+.tov-legend-dash {
+  display: inline-block;
+  width: 16px;
+  border-top: 2px dashed currentColor;
+}
+
+.tov-note {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 6px 10px;
+}
+
+.tov-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.tov-grid {
+  position: relative;
+  min-width: 100%;
+}
+
+/* ---- 表头 */
+
+.tov-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  height: 24px;
+  background: var(--vscode-editor-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.tov-header.tov-header-vols {
+  height: 44px;
+}
+
+.tov-corner {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  flex: 0 0 var(--tov-name);
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 8px 4px;
+  background: var(--vscode-editor-background);
+  border-right: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tov-cols {
+  position: relative;
+  flex: 0 0 auto;
+  height: 100%;
+}
+
+.tov-vols {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+}
+
+.tov-vol {
+  position: absolute;
+  top: 0;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 2px 4px 0;
+  border-left: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-foreground);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tov-vol-root {
+  border-left-color: transparent;
+}
+
+.tov-nums {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 24px;
+}
+
+/* 一列的章号：样子说这一章定稿没有——已定稿实字、底下一道绿；写了没定稿蓝；只有细纲淡；什么都没有更淡。 */
+.tov-col {
+  position: absolute;
+  bottom: 0;
+  width: var(--tov-cell);
+  height: 22px;
+  box-sizing: border-box;
+  padding-top: 3px;
+  border-bottom: 3px solid transparent;
+  text-align: center;
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.tov-col:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.tov-col-wide {
+  font-size: 0.7em;
+}
+
+.tov-col-finalized {
+  border-bottom-color: var(--vscode-charts-green, #89d185);
+}
+
+.tov-col-written {
+  border-bottom-color: var(--vscode-charts-blue, #3794ff);
+  color: var(--vscode-descriptionForeground);
+}
+
+.tov-col-planned {
+  border-bottom-color: var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+}
+
+.tov-col-none {
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+  opacity: 0.6;
+}
+
+.tov-col-now {
+  font-weight: 700;
+}
+
+/* ---- 行 */
+
+.tov-row {
+  display: flex;
+  height: 24px;
+}
+
+.tov-name {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  flex: 0 0 var(--tov-name);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0 8px;
+  background: var(--vscode-editor-background);
+  border-right: 1px solid var(--vscode-panel-border);
+  white-space: nowrap;
+}
+
+.tov-row-fore .tov-name {
+  padding-left: 26px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.tov-row-group {
+  height: 22px;
+  margin-top: 4px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.tov-row-group .tov-name {
+  font-weight: 600;
+}
+
+.tov-group-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tov-count {
+  color: var(--vscode-descriptionForeground);
+  font-weight: normal;
+}
+
+.tov-link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.tov-link:hover {
+  text-decoration: underline;
+  color: var(--vscode-textLink-foreground);
+}
+
+.tov-dot {
+  flex: 0 0 auto;
+  width: 1em;
+  text-align: center;
+  opacity: 0.75;
+}
+
+.tov-warn {
+  flex: 0 0 auto;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+/* 收束了、收了的压暗——压的是字，不是整格：左列压在格子上面，整格半透明的话横着滚时底下的记号会透上来。 */
+.tov-row-closed .tov-name > * {
+  opacity: 0.6;
+}
+
+.tov-row-overdue .tov-name .tov-link {
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
+/* 定位到的那一行（「在总览里看」）。左列那一格叠在编辑区底色上（选中色可能是半透明的，叠不上的话横着滚时底下的格子会透上来）。 */
+.tov-row.tov-focus .tov-name {
+  background: linear-gradient(var(--tov-focus-bg), var(--tov-focus-bg)), var(--vscode-editor-background);
+}
+
+.tov-row.tov-focus .tov-track {
+  background-color: var(--tov-focus-bg);
+}
+
+/* 格子的轨道：列的分隔线是背景，一行只有有事件的那几章才有节点。 */
+.tov-track {
+  position: relative;
+  flex: 0 0 auto;
+  background-image: linear-gradient(to right, var(--vscode-panel-border) 1px, transparent 1px);
+  background-size: var(--tov-cell) 100%;
+}
+
+.tov-row-group .tov-track {
+  background-image: none;
+}
+
+/* 线的计划区间：一条淡底。 */
+.tov-band {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  border-radius: 3px;
+  background: var(--vscode-charts-blue, #3794ff);
+  opacity: 0.1;
+}
+
+.tov-cell {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: var(--tov-cell);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.tov-cell:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* ---- 记号 */
+
+.tov .pstage-mark {
+  width: 9px;
+  height: 9px;
+  min-width: 9px;
+  min-height: 9px;
+  flex-basis: 9px;
+}
+
+/* ○ 只有计划：空心、不压暗。 */
+.tov-mark-plan,
+.tov-fmark-plant.tov-fmark-plan {
+  opacity: 1;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ◉ 计划也发生了：实心 + 一圈。 */
+.tov-mark-both {
+  box-shadow:
+    0 0 0 1.5px var(--vscode-editor-background),
+    0 0 0 3px var(--vscode-charts-green, #89d185);
+}
+
+/* 红圈：计划了、那一章也定稿了却没发生。 */
+.tov-mark-dev,
+.pstage-mark.tov-mark-dev {
+  opacity: 1;
+  color: var(--vscode-errorForeground, #f14c4c);
+  border-color: var(--vscode-errorForeground, #f14c4c);
+  border-width: 2px;
+}
+
+/* 伏笔：埋 ●（pstage-mark done）、收 ◆（转 45° 的方块）、弃 ✕；计划的空心。 */
+.tov-fmark-resolve {
+  display: block;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  transform: rotate(45deg);
+  background: var(--vscode-charts-purple, #b180d7);
+  border: 1.5px solid var(--vscode-charts-purple, #b180d7);
+}
+
+.tov-fmark-resolve.tov-fmark-plan {
+  background: transparent;
+  border-color: var(--vscode-descriptionForeground);
+}
+
+.tov-fmark-resolve.tov-mark-dev {
+  background: transparent;
+}
+
+.tov-fmark-drop {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* 伏笔的连线：收了的实线、埋了没收的虚线、还没埋的淡虚线；逾期标红。画在格子底下。 */
+.tov-span {
+  position: absolute;
+  top: 50%;
+  height: 0;
+  border-top: 2px solid var(--vscode-charts-purple, #b180d7);
+  opacity: 0.8;
+}
+
+.tov-span-open {
+  border-top-style: dashed;
+}
+
+.tov-span-planned {
+  border-top-style: dotted;
+  border-top-color: var(--vscode-descriptionForeground);
+  opacity: 0.6;
+}
+
+.tov-span.tov-overdue {
+  border-top-color: var(--vscode-errorForeground, #f14c4c);
+  opacity: 1;
+}
+
+/* 回收章：没收的伏笔在那一格一道竖线。 */
+.tov-due {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  border-left: 2px solid var(--vscode-charts-purple, #b180d7);
+}
+
+.tov-due.tov-overdue {
+  border-left-color: var(--vscode-errorForeground, #f14c4c);
+}
+
+/* 「定稿到第 N 章」：一条竖线，压在格子上、在左列与表头底下。 */
+.tov-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 0;
+  border-left: 2px solid var(--vscode-charts-green, #89d185);
+  pointer-events: none;
+}
+
+/* ---- 悬停浮窗 */
+
+.tov-tip {
+  position: fixed;
+  z-index: 50;
+  max-width: 420px;
+  padding: 6px 9px;
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  font-size: 0.95em;
+  line-height: 1.5;
+}
+
+.tov-tip-head {
+  font-weight: 600;
+}
+
+.tov-tip-row-name {
+  margin-bottom: 3px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.tov-tip-plan {
+  color: var(--vscode-descriptionForeground);
+}
+
+.tov-tip-type {
+  font-weight: 600;
+}
+
+.tov-tip-evidence {
+  padding-left: 1em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.tov-tip-dev {
+  margin-top: 3px;
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
+/* ---- 标签条上的特殊标签（不对应文件）：名字前一个小格子记号，没有脏标记那一格。 */
+.ed-tab-special .ed-tab-name::before {
+  content: '▦ ';
+  opacity: 0.7;
+}
+
+.ed-tab-special {
+  padding-left: 10px;
+}

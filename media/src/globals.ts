@@ -18,7 +18,8 @@
  *   「视图 → 统计」那一组的 `nf-stats-query` / `nf-stats-command`，「视图 → 体检」那一组的 `nf-check-query` /
  *   `nf-check-command`，「视图 → 补全」那一组的 `nf-names-query` / `nf-names-command`，
  *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录），
- *   对话页「加入选区」问内置编辑器选区的 `nf-selection-query`。
+ *   对话页「加入选区」问内置编辑器选区的 `nf-selection-query`，工程页「叙事线」页签打开编辑区「叙事线总览」的
+ *   `nf-threads-query` / `nf-threads-command`。
  *   `nf-pick-folder` 给目录选择器拦欢迎页的占位 prompt。
  * - `__nfShowMenu`：view 出的「在某处弹一个菜单」（编辑器标签条末尾的「▾」用），与右键菜单是同一个引擎。
  */
@@ -91,6 +92,8 @@ declare global {
     'nf-shortcuts-command': Event;
     'nf-reveal-in-files': CustomEvent<{ path: string; dir: boolean }>;
     'nf-selection-query': CustomEvent<EditorSelection>;
+    'nf-threads-query': CustomEvent<{ available: boolean }>;
+    'nf-threads-command': CustomEvent<ThreadsOverviewCommand>;
   }
 }
 
@@ -474,4 +477,30 @@ export function querySelection(): EditorSelection | undefined {
   const sel: EditorSelection = { relPath: '', text: '', start: 0, end: 0 };
   window.dispatchEvent(new CustomEvent('nf-selection-query', { detail: sel }));
   return sel.relPath && sel.text ? sel : undefined;
+}
+
+// ---------------------------------------------------------------- 叙事线总览（叙事线重做三期）
+
+/**
+ * 工程页「叙事线」页签打开编辑区里的「叙事线总览」（`editor/threadsOverview.ts`）。`focus`：打开后定位到哪一行——一条线的
+ * 文件路径，或「未归属的伏笔」那份文件的路径（右键「在总览里看」）。
+ */
+export interface ThreadsOverviewCommand {
+  name: 'open';
+  focus?: string;
+}
+
+/**
+ * 有没有地方画叙事线总览。**能力探测**：editor.js 装上了才有人回答（它探测到 `#wbEditor` 才装）；插件形态没有内置编辑器，
+ * 没人回答就是 false，工程页上的「总览」按钮与「在总览里看」都不画（AGENTS 架构要点：不判断是哪个壳）。
+ */
+export function queryThreadsOverview(): boolean {
+  const status = { available: false };
+  window.dispatchEvent(new CustomEvent('nf-threads-query', { detail: status }));
+  return status.available;
+}
+
+export function commandThreadsOverview(focus?: string): void {
+  const detail: ThreadsOverviewCommand = { name: 'open', ...(focus ? { focus } : {}) };
+  window.dispatchEvent(new CustomEvent('nf-threads-command', { detail }));
 }

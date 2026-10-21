@@ -40,6 +40,8 @@
 @import './standalone/check.css';
 /* 快捷键一览（「帮助 → 快捷键一览」与 Ctrl+/） */
 @import './standalone/keys.css';
+/* 叙事线总览（编辑区里不对应文件的特殊标签：章 × 线的时间轴，叙事线重做三期） */
+@import './standalone/threads.css';
 
 /* 覆盖 view.css 的那几处 */
 @import './standalone/side-tweaks.css';
