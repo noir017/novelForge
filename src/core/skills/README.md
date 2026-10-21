@@ -53,6 +53,8 @@
 
 **卸载**只认我的技能库：整个目录挪进 `~/.novelforge/.trash/skills/`（同名加 `-2`），不真删（第 6 条的精神；上游是直接删）。本工程绑了它的阶段一起解绑；别的工程里绑了它的，下次生成在明细里写「找不到」后不带。
 
+**仓库里备的预设**：[skills/writing/](../../../skills/writing/README.md) 有 32 份改编自 jarvis-write（Apache-2.0）的预设（16 份文风绑写正文，8 份故事味道、8 份故事骨架绑规划）。它们**不进内置**，作者照那份 README 里的地址从 GitHub 装进我的技能库；[tests/contract/skillPresets.test.js](../../../tests/contract/skillPresets.test.js) 拿安装时同一个 `inspectSkillMarkdown` 把每份过一遍。
+
 ## 阶段绑定
 
 `.novelforge/skills.json`：`{ "version": 1, "bindings": { "drafting": "user:scene-craft" } }`。每个阶段最多一份，同一份可以绑几个阶段；没绑就什么都不带。写盘走 `Workspace.writeSkillBindings`（第 7 条）。

@@ -1036,6 +1036,8 @@ stage: drafting          # 建议绑在哪个阶段：planning / drafting / revi
 
 **外部 agent 也会**：对它说「装一下这个技能，绑到写正文上」，它会先检查、再装、再绑——**安装与绑定每一次都先在对话页问你**；卸载它不会，那由你在设置页做。
 
+**仓库里备好的预设**：[skills/writing/](skills/writing/README.md) 有 32 份改编自 [jarvis-write](https://github.com/ynnyh/jarvis-write)（Apache-2.0）的预设——16 份文风（写正文）、8 份故事味道与 8 份故事骨架（规划），每份是一段写法加一段原创示范。它们不随应用发布：要用哪份，把那份 README 表里的地址贴进来装，再自己绑。还没在真实模型上比过有没有用。
+
 这套做法移植自 [AI-Novel-Writer](https://github.com/EthanYoQ/AI-Novel-Writer)（GPL-3.0）的「写作 Skill」。
 
 ---
