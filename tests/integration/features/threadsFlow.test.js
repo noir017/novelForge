@@ -292,6 +292,10 @@ describe('叙事线重做一期验收：排线，再批量写章第 1–3 章、
     project.invalidate();
     const tree = await bundle.projectView.buildProjectTree(project);
     assert.equal(tree.threads.current, 3);
+    // 写完即定稿每判完一章就推水位（四期）：叙事线判到第 3 章，不落后。
+    assert.equal(tree.threads.through, 3);
+    assert.equal(tree.threads.lag, undefined);
+    assert.equal((await project.readManifest()).threadsThrough, 3);
     assert.deepEqual(
       tree.threads.lines.map((l) => [l.name, l.detail]),
       [

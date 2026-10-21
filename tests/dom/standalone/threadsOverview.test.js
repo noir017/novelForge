@@ -42,6 +42,7 @@ function overview(extra = {}) {
   return {
     initialized: true,
     current: 3,
+    through: 3,
     volumes: true,
     chapters: [
       ch(1, 'finalized', '楔子', '', { chapterPath: 'chapters/001-楔子.md', plotPath: '.novelforge/summaries/001-楔子.md' }),
@@ -473,7 +474,7 @@ describe('叙事线总览 · 伏笔连线', { skip: JSDOM_SKIP }, () => {
     const due = row.querySelector('.tov-due');
     assert.ok(due.classList.contains('tov-overdue'));
     assert.equal(due.style.left, `${24 + 12}px`);
-    assert.match(due.title, /计划第 2 章前收——现在第 3 章，逾期/);
+    assert.match(due.title, /计划第 2 章前收——叙事线判到第 3 章，逾期/);
     assert.ok(row.classList.contains('tov-row-overdue'));
     assert.ok(row.querySelector('.tov-warn'));
   });

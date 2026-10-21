@@ -37,7 +37,7 @@ import {
   settingTemplate,
 } from './settingFile';
 import { SettingDoc, isFallbackChapterTitle, isLoreListFilled } from './pipeline';
-import { ThreadBook, UNFILED_NAME, parseThreadFile, parseUnfiledFile } from './threadFile';
+import { ThreadBook, ThreadsMark, UNFILED_NAME, parseThreadFile, parseUnfiledFile, threadsMarkOf } from './threadFile';
 import {
   countWords,
   exists,
@@ -647,6 +647,9 @@ export class NovelProject {
         // 所以哪怕整份索引丢了，也只是这一次刷新多读几个文件。
         chapters: parsed.chapters ?? [],
         globalSummaryThrough: parsed.globalSummaryThrough,
+        // 叙事线的水位（四期）：原样带着，`syncManifest` 重写索引时才不会把它冲掉；认法在 `threadsMarkOf`（手改坏了不崩）。
+        ...(parsed.threadsThrough !== undefined ? { threadsThrough: parsed.threadsThrough } : {}),
+        ...(parsed.threadsJudged !== undefined ? { threadsJudged: parsed.threadsJudged } : {}),
       };
     } catch {
       return { version: MANIFEST_VERSION, title: '未命名', author: '', chapters: [] };
@@ -983,6 +986,14 @@ export class NovelProject {
       }
     }
     return { threads, unfiled: parseUnfiledFile(unfiledRaw, unfiledRel) };
+  }
+
+  /**
+   * 叙事线判到哪（四期）：`project.json` 的水位 `threadsThrough` 与水位之后另外判过的 `threadsJudged`。手改坏了的不认（第 1 条）；
+   * 没有这两项是一章都没判过。推水位在网关（`Workspace.markThreadsJudged`）。
+   */
+  async readThreadsMark(): Promise<ThreadsMark> {
+    return threadsMarkOf(await this.readManifest());
   }
 
   // ---------------------------------------------------------------- 角色 / 设定 / 文风

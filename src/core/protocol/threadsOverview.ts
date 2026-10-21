@@ -27,6 +27,11 @@ export interface ThreadsOverviewChapter {
   /** 所在的卷目录（`第一卷`、`第一卷/上`），根下是空串；细纲、正文都没有的章沿用前一章的卷。 */
   volume: string;
   state: ThreadsOverviewChapterState;
+  /**
+   * 定稿过、叙事线却还没判（四期：在水位之后、也没另外判过）——列头另一种样子；这一列上的计划不算偏差（线里本来就还没有它的
+   * 实际事件）。只有 `finalized` 的列会有。
+   */
+  unjudged?: true;
   /** 正文路径。缺席 = 还没有正文。 */
   chapterPath?: string;
   /** 细纲路径（正文镜像的那一份，或者还没有正文时按号认的计划）。缺席 = 还没有细纲。 */
@@ -51,8 +56,8 @@ export interface ThreadsOverviewCell {
   /** 实际事件（定稿记下的、作者手写的）。 */
   actual: ThreadsOverviewEvent[];
   /**
-   * 偏差：计划了、那一章也定稿了却没发生（画红圈）。线那一行：这一章有计划、却一条实际的线事件都没有；伏笔那一行：计划在
-   * 这一章埋（收）的，到这一章为止还没埋（收、弃）。比的是**现在的**计划：定稿之后又重拆了那一章，偏差跟着变。
+   * 偏差：计划了、那一章也定稿了（四期：叙事线也判过了）却没发生（画红圈）。线那一行：这一章有计划、却一条实际的线事件都没有；
+   * 伏笔那一行：计划在这一章埋（收）的，到这一章为止还没埋（收、弃）。比的是**现在的**计划：定稿之后又重拆了那一章，偏差跟着变。
    */
   deviation: boolean;
 }
@@ -119,8 +124,13 @@ export interface ThreadsOverview {
   initialized: boolean;
   /** 第 1 章起一章一列。 */
   chapters: ThreadsOverviewChapter[];
-  /** 「现在」：定稿到的最后一章（竖线画在它右边），与工程页「叙事线」页签同一个数。一章都没定稿是 0。 */
+  /** 定稿到的最后一章（竖线画在它右边），与工程页「叙事线」页签同一个数。一章都没定稿是 0。 */
   current: number;
+  /**
+   * 叙事线判到第几章（四期：水位，不超过 {@link current}），与工程页同一个数。落后于定稿时另画一条竖线；线与伏笔的状态（逾期、
+   * 断了、连线延到哪）按它算。
+   */
+  through: number;
   /** 分卷的书（有一章在卷目录里）：列头上多一行卷名。 */
   volumes: boolean;
   groups: ThreadsOverviewGroup[];

@@ -1087,14 +1087,14 @@ export function describeThreadReminders(
       : []
   );
   const gap = unrecorded
-    ? `（第 ${unrecorded.from === unrecorded.to ? unrecorded.from : `${unrecorded.from}–${unrecorded.to}`} 章还没定稿，叙事线还没记上，提醒可能不准）`
+    ? `（第 ${unrecorded.from === unrecorded.to ? unrecorded.from : `${unrecorded.from}–${unrecorded.to}`} 章还没定稿或还没补记，叙事线还没记上，提醒可能不准）`
     : '';
   return `叙事线提醒：${[overdue, unplanted, stalled].filter((x) => x.length > 0).map(list).join('；')}${gap}。只是提醒，${one ? '照写不拦' : '不拦'}。`;
 }
 
 /**
- * 叙事线只记到第 `through` 章（定稿到的最后一章）、要写的是第 `first` 章起：中间没定稿的那几章。没有缺口是 undefined。
- * 提醒的说法里注一句（{@link describeThreadReminders}）。
+ * 叙事线只记到第 `through` 章（叙事线判到第几章：四期的水位，不超过定稿到）、要写的是第 `first` 章起：中间还没记上的那几章
+ * （没定稿的，或定稿了还没判的）。没有缺口是 undefined。提醒的说法里注一句（{@link describeThreadReminders}）。
  */
 export function unrecordedBefore(through: number, first: number): { from: number; to: number } | undefined {
   return through < first - 1 ? { from: through + 1, to: first - 1 } : undefined;

@@ -413,6 +413,13 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
     assert.equal(outcome.threads.calls, 3);
   });
 
+  test('判过一章就记进 project.json（四期）：前三章还没判，第 4 章记在水位之后，水位不动', async () => {
+    const m = await project.readManifest();
+    assert.equal(m.threadsThrough ?? 0, 0);
+    assert.deepEqual(m.threadsJudged, [4]);
+    assert.deepEqual(await project.readThreadsMark(), { through: 0, judged: [4] });
+  });
+
   test('认事件的提示：本章计划（只读线里的计划事件，老细纲的新增伏笔不读）、没收束的线（带现在走到哪）、没收的伏笔；收了的线不送', () => {
     assert.ok(findUser.includes('- 林昭与沈青：收〈玉佩的来历〉——揭开玉佩的来历'), findUser);
     assert.ok(!findUser.includes('新增伏笔') && !findUser.includes('院外的提灯人'), findUser);

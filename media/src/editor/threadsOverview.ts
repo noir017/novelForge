@@ -8,7 +8,8 @@
  * - **数据按需要**（仿「转到…」）：显示出来时发 `requestThreadsOverview { requestId }`，后端回 `threadsOverview`
  *   （`core/views/threads.ts` 的 `buildThreadsOverview`：纯读盘、不调模型、状态现算）；认 requestId（回复是广播）。显示着
  *   收到 `state` / `init`（磁盘上变过）停一下再要一次；藏着时只记一笔「过期」，下次显示再要。不进 `ProjectTree`。
- * - **画法**：横轴是章（列头标章号、分卷的书多一行卷名，列头的样子说这一章定稿没有），一条竖线标「定稿到第 N 章」；纵轴
+ * - **画法**：横轴是章（列头标章号、分卷的书多一行卷名，列头的样子说这一章定稿没有、定稿了的叙事线判过没有），一条竖线标
+ *   「定稿到第 N 章」，叙事线落后于定稿时另一条虚的标「叙事线判到第 M 章」（四期）；纵轴
  *   按种类分组，每条线下面缩进列它的伏笔，最后是「未归属的伏笔」。线的格子 ○ 只有计划、● 只有实际、◉ 计划也发生了、
  *   红圈是计划了那一章也定稿了却没发生（偏差）；伏笔一行埋 ● 到收 ◆ 连线、没收的虚线延到回收章（那一格一道竖线）、
  *   还没埋的按计划淡虚线，逾期标红、弃画 ✕，计划的埋与收画空心。圆点借流水线条的 `pstage-mark`。连线、偏差、状态
@@ -345,6 +346,8 @@ function render(): void {
     (data.unfiled?.foreshadowing.length ?? 0);
   v.meta.textContent = [
     data.current > 0 ? `定稿到第 ${data.current} 章` : '还没有定稿的章',
+    // 四期：叙事线落后于定稿时另说一句（定稿了还没判的那几列列头另一种样子，计划不算偏差）。
+    data.current > 0 && data.through < data.current ? (data.through > 0 ? `叙事线判到第 ${data.through} 章` : '叙事线还没判过') : '',
     `${lineCount} 条线`,
     foreCount > 0 ? `${foreCount} 条伏笔` : '',
   ]
@@ -406,6 +409,13 @@ function buildGrid(d: ThreadsOverview): HTMLElement {
     now.title = `定稿到第 ${d.current} 章`;
     grid.appendChild(now);
   }
+  // 「叙事线判到第 M 章」（四期）：落后于定稿时另一条虚线，画在第 M 章右边（一章都没判过就不画，表头上说了）。
+  if (d.through > 0 && d.through < d.current && d.through <= cols) {
+    const judged = el('div', 'tov-judged');
+    judged.style.left = `${NAME_WIDTH + d.through * CELL}px`;
+    judged.title = `叙事线判到第 ${d.through} 章（从第 1 章起连续判过的）；右边定稿了还没判的章，计划不算偏差`;
+    grid.appendChild(judged);
+  }
   return grid;
 }
 
@@ -413,7 +423,12 @@ function buildGrid(d: ThreadsOverview): HTMLElement {
 function buildHeader(d: ThreadsOverview): HTMLElement {
   const head = el('div', 'tov-header');
   const corner = el('div', 'tov-corner', '叙事线 ＼ 章');
-  corner.title = d.current > 0 ? `绿线：定稿到第 ${d.current} 章` : '还没有定稿的章';
+  corner.title = [
+    d.current > 0 ? `绿线：定稿到第 ${d.current} 章` : '还没有定稿的章',
+    d.through > 0 && d.through < d.current ? `虚线：叙事线判到第 ${d.through} 章` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
   head.appendChild(corner);
   const cols = el('div', 'tov-cols');
   cols.style.width = `${d.chapters.length * CELL}px`;
@@ -436,7 +451,11 @@ function buildHeader(d: ThreadsOverview): HTMLElement {
   }
   const nums = el('div', 'tov-nums');
   for (const c of d.chapters) {
-    const col = el('div', `tov-col tov-col-${c.state}${c.no === d.current ? ' tov-col-now' : ''}${c.no >= 1000 ? ' tov-col-wide' : ''}`, String(c.no));
+    const col = el(
+      'div',
+      `tov-col tov-col-${c.state}${c.unjudged ? ' tov-col-unjudged' : ''}${c.no === d.current ? ' tov-col-now' : ''}${c.no >= 1000 ? ' tov-col-wide' : ''}`,
+      String(c.no)
+    );
     col.style.left = `${(c.no - 1) * CELL}px`;
     col.dataset.ch = String(c.no);
     col.title = chapterTitle(c);
@@ -451,7 +470,8 @@ function chapterTitle(c: ThreadsOverviewChapter): string {
   const name = `第 ${c.no} 章${c.title ? `《${c.title}》` : ''}`;
   const where = c.volume ? ` · ${c.volume}` : '';
   const open = c.chapterPath ? '点击打开正文' : c.plotPath ? '点击打开细纲' : '';
-  return `${name}${where} · ${STATE_LABEL[c.state]}${open ? `\n${open}` : ''}`;
+  const judged = c.unjudged ? '，叙事线还没判（这一章的计划不算偏差）' : '';
+  return `${name}${where} · ${STATE_LABEL[c.state]}${judged}${open ? `\n${open}` : ''}`;
 }
 
 function rowShell(cls: string, cols: number): { row: HTMLElement; name: HTMLElement; track: HTMLElement } {
@@ -554,7 +574,7 @@ function foreRow(f: ThreadsOverviewForeshadow, relPath: string, cols: number, d:
   if (!closed && f.resolve !== undefined && f.resolve <= cols) {
     const due = el('div', `tov-due${f.overdue ? ' tov-overdue' : ''}`);
     due.style.left = `${(f.resolve - 1) * CELL + CELL / 2}px`;
-    due.title = `计划第 ${f.resolve} 章前收${f.overdue ? `——现在第 ${d.current} 章，逾期` : ''}`;
+    due.title = `计划第 ${f.resolve} 章前收${f.overdue ? `——叙事线判到第 ${d.through} 章，逾期` : ''}`;
     track.appendChild(due);
   }
   for (const cell of f.cells) {

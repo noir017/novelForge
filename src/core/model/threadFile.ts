@@ -2716,3 +2716,82 @@ export function patchProgress(raw: string, progress: string, through: number): s
   const fm = { progressThrough: through, progressHash: progressHashOf(progress) };
   return rewriteFrontmatter(body, fm) ?? `${stringifyFrontmatter(fm)}\n\n${body.replace(/^﻿/, '')}`;
 }
+
+// ---------------------------------------------------------------- 水位：叙事线判到第几章（四期）
+
+/**
+ * 叙事线判到哪（设计稿「九、补记已经写了的书」）：`project.json` 的 `threadsThrough` 是**水位**——从第 1 章起连续判过的最后
+ * 一章；`threadsJudged` 是水位之后另外判过的几章（不连续的，单章定稿跳着定、中间一章没判成时会有）。
+ *
+ * ⚑ **「判过」= 定稿第三步的 a（认事件）成了**：b（当前进度）、c（归并）没成也算（a 记下的照样算数，黄 ❗ 照样挂在章节上）；
+ * a 没成、取消了不算。记在 `project.json`（同全文大纲的 `globalSummaryThrough`），不放 SQLite（第 17 条：那里只放可丢的痕迹，
+ * 丢了就得把几十章重判一遍），也不放细纲的 frontmatter（定稿第一步整份重写细纲，记号跟着一起没了，还得另找一处带过去）。
+ */
+export interface ThreadsMark {
+  /** 水位：从第 1 章起连续判过的最后一章。一章都没判过是 0。 */
+  through: number;
+  /** 水位之后另外判过的章：升序、不重复、都大于 `through + 1`。 */
+  judged: number[];
+}
+
+/** 从 `project.json` 读出来的两项认成 {@link ThreadsMark}。手改坏了的（不是正整数、重复、落在水位以内）不认，不崩（第 1 条）。 */
+export function threadsMarkOf(manifest: { threadsThrough?: unknown; threadsJudged?: unknown }): ThreadsMark {
+  const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
+  let through = whole(manifest.threadsThrough) ? manifest.threadsThrough : 0;
+  const ahead = new Set(Array.isArray(manifest.threadsJudged) ? manifest.threadsJudged.filter(whole) : []);
+  // 手改出来的「水位 + 1 也在 judged 里」：顺着推上去（与 advanceThreadsMark 同一个口径）。
+  while (ahead.has(through + 1)) {
+    ahead.delete(through + 1);
+    through++;
+  }
+  return { through, judged: [...ahead].filter((no) => no > through).sort((a, b) => a - b) };
+}
+
+/**
+ * 判过第 `no` 章之后的水位：`no` 正好是水位 + 1 就往后推，并顺着后面已经判过的章接着推；更靠后的记进 `judged`；水位以内的
+ * （重新定稿早前的章）不变。单章定稿、立即同步、写完即定稿、从已写正文补记判完一章都走它。
+ */
+export function advanceThreadsMark(mark: ThreadsMark, no: number): ThreadsMark {
+  if (!Number.isInteger(no) || no <= mark.through) {
+    return mark;
+  }
+  if (no > mark.through + 1) {
+    return mark.judged.includes(no) ? mark : { through: mark.through, judged: [...mark.judged, no].sort((a, b) => a - b) };
+  }
+  return threadsMarkOf({ threadsThrough: no, threadsJudged: mark.judged });
+}
+
+/** 第 `no` 章的叙事线判过没有：在水位以内，或者水位之后另外判过。 */
+export function isThreadsJudged(mark: ThreadsMark, no: number): boolean {
+  return no <= mark.through || mark.judged.includes(no);
+}
+
+/** 定稿过、叙事线却还没判的章：`finalized`（定稿过的章号）里没判过的，升序。工程页「⚠ 第 a–b 章还没判」、补记都按它。 */
+export function unjudgedChapters(mark: ThreadsMark, finalized: Iterable<number>): number[] {
+  return [...new Set(finalized)].filter((no) => !isThreadsJudged(mark, no)).sort((a, b) => a - b);
+}
+
+/**
+ * 章号连成段：`[3, 31, 32, …, 60]` →「第 3、31–60 章」。段太多时只列前 `max` 段，后面写「等 N 章」（工程页一行放得下）。
+ * 空的给空串。
+ */
+export function describeChapterRuns(nos: readonly number[], max = 3): string {
+  const sorted = [...new Set(nos)].sort((a, b) => a - b);
+  const runs: [number, number][] = [];
+  for (const no of sorted) {
+    const last = runs[runs.length - 1];
+    if (last && no === last[1] + 1) {
+      last[1] = no;
+    } else {
+      runs.push([no, no]);
+    }
+  }
+  if (runs.length === 0) {
+    return '';
+  }
+  const text = runs
+    .slice(0, max)
+    .map(([a, b]) => (a === b ? `${a}` : `${a}–${b}`))
+    .join('、');
+  return runs.length > max ? `第 ${text} 章等 ${sorted.length} 章` : `第 ${text} 章`;
+}

@@ -15,6 +15,7 @@ import { describeStateThrough } from '../model/characterState';
 import { buildBookFacts, buildPlotPipeline, buildPipelineIndex, chapterOfPlotNo } from './pipeline';
 import { chapterIndexEntryOf } from './chapterIndex';
 import { buildThreadsView } from './threads';
+import { threadsMarkOf } from '../model/threadFile';
 import {
   ArchitectureRow,
   CastConflictView,
@@ -91,7 +92,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       styleGuidePath,
       globalSummaryPath,
       threadsPath,
-      threads: { lines: [], current: 0, watch: { lines: [], foreshadowing: [], unplanted: [] } },
+      threads: { lines: [], current: 0, through: 0, watch: { lines: [], foreshadowing: [], unplanted: [] } },
       bookStage: 'setting',
       nextChapterNo: 1,
       book: { idea: '', configHasContent: false, plotFilledNos: [] },
@@ -281,8 +282,12 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     styleGuidePath,
     globalSummaryPath,
     threadsPath,
-    // 「叙事线」页签：一条线一行。「现在」是定稿到的最后一章——线上的实际事件都是定稿写进来的。
-    threads: buildThreadsView(threadBook, finalizedThrough(rows)),
+    // 「叙事线」页签：一条线一行。线上的实际事件都是定稿写进来的：状态按叙事线判到的那一章算（四期的水位，不超过定稿到），
+    // 定稿了还没判的章另说「⚠ 第 a–b 章还没判」。
+    threads: buildThreadsView(threadBook, finalizedThrough(rows), {
+      mark: threadsMarkOf(manifest),
+      finalized: finalizedNos(rows),
+    }),
     bookStage,
     nextChapterNo: book.nextChapterNo,
     ...(next ? { next } : {}),
@@ -580,5 +585,10 @@ function compareNodes(a: ProjectNode, b: ProjectNode): number {
  * 定稿之后正文又改过的也算——那一章的叙事线事件是定稿那一次记下的，还在线上。
  */
 function finalizedThrough(rows: readonly { no: number; summary: { exists: boolean }; chapter: { exists: boolean } }[]): number {
-  return rows.reduce((max, r) => (r.summary.exists && r.chapter.exists && r.no > max ? r.no : max), 0);
+  return Math.max(0, ...finalizedNos(rows));
+}
+
+/** 定稿过、正文还在的章号（同 {@link finalizedThrough} 的口径）：叙事线「还没判」的那几章从这里面挑（四期）。 */
+function finalizedNos(rows: readonly { no: number; summary: { exists: boolean }; chapter: { exists: boolean } }[]): number[] {
+  return rows.filter((r) => r.summary.exists && r.chapter.exists).map((r) => r.no);
 }

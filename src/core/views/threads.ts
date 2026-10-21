@@ -5,12 +5,16 @@ import {
   ThreadBook,
   ThreadEvent,
   ThreadFileBase,
+  ThreadsMark,
+  describeChapterRuns,
   foreshadowingOf,
   isForeshadowClosed,
   isForeshadowEvent,
+  isThreadsJudged,
   threadKey,
   threadStateAt,
   threadWatch,
+  unjudgedChapters,
 } from '../model/threadFile';
 import { ThreadReminder, isFallbackChapterTitle, threadRemindersFor } from '../model/pipeline';
 import { NovelProject } from '../model/project';
@@ -45,6 +49,13 @@ import { volumeOf } from './quickOpen';
  *
  * 写前检查的两类提醒（二期，{@link threadReminders}）也在这里取数：工作台、对话页写正文之前、批量写章的确认框用它；
  * 前端批量写章弹窗拿工程页数据里的 `watch` 自己算（同一个 `threadRemindersFor`）。
+ *
+ * ## 两个「到哪」（四期）
+ *
+ * - **定稿到**（`current`）：定稿过、正文还在的章里章号最大的那一章。总览上那条竖线、列头的颜色按它。
+ * - **叙事线判到**（`through`）：`project.json` 的水位（从第 1 章起连续判过的，不超过定稿到）。⚑ 线的状态——断了几章、伏笔逾期、
+ *   过了计划收束章——**按它算**：定稿了却还没判的章（拆书导入、补齐整理出来的、补记停在半路的），线上本来就没有事件，按定稿到算
+ *   会让每条线都像断了、每条伏笔都像逾期。落后时工程页另说「⚠ 第 a–b 章还没判」，总览上的偏差只算判过的章。
  */
 
 /** 排序：主线 → 支线 → 感情线 → 人物线。 */
@@ -59,34 +70,62 @@ function clipLine(text: string, max: number): string {
   return chars.length > max ? `${chars.slice(0, max).join('')}…` : chars.join('');
 }
 
+/** 定稿到第几章、叙事线判到哪（四期）：工程页与总览从读盘那一半交进来。 */
+export interface ThreadsProgress {
+  /** 叙事线的水位与水位之后另外判过的章（`project.json`）。 */
+  mark: ThreadsMark;
+  /** 定稿过、正文还在的章号（与「定稿到」同一个口径）。 */
+  finalized: readonly number[];
+}
+
+/** 叙事线判到第几章：水位，不超过定稿到（定稿之后又删了细纲、正文的章不算）。 */
+export function judgedThrough(mark: ThreadsMark, current: number): number {
+  return Math.min(mark.through, current);
+}
+
 /**
- * 工程页「叙事线」页签的数据。`current` 是「现在」：定稿到的最后一章。
+ * 工程页「叙事线」页签的数据。`current` 是「定稿到」的最后一章；`progress` 是叙事线判到哪（四期），缺席当定稿过的章都判过了
+ * （判到 = 定稿到，没有落后）。线的状态按「判到」算（见上面「两个『到哪』」）。
  *
  * 排序：种类（主线 → 支线 → 感情线 → 人物线）→ 最近一次推进（近的在前；一次都没推进过的排在同种类最后，按计划
  * 开始的章）→ 目录里的顺序（文件名）。
  */
-export function buildThreadsView(book: ThreadBook, current: number): ThreadsView {
-  const lines = book.threads.map((t) => lineOf(t, current));
+export function buildThreadsView(book: ThreadBook, current: number, progress?: ThreadsProgress): ThreadsView {
+  const through = progress ? judgedThrough(progress.mark, current) : current;
+  const lines = book.threads.map((t) => lineOf(t, through));
   const order = new Map(book.threads.map((t) => [t.relPath, t]));
   lines.sort((a, b) => compareLines(order.get(a.relPath)!, a, order.get(b.relPath)!, b));
-  const unfiled = unfiledOf(book.unfiled, current);
+  const unfiled = unfiledOf(book.unfiled, through);
+  const behind = progress ? unjudgedChapters(progress.mark, progress.finalized) : [];
   // 写前提醒要的数（二期）：按现在的样子算，前端批量写章弹窗照它与要写的那几章算提醒（与后端确认框同一个函数）。
-  return { lines, ...(unfiled ? { unfiled } : {}), current, watch: threadWatch(book) };
+  return {
+    lines,
+    ...(unfiled ? { unfiled } : {}),
+    current,
+    through,
+    ...(behind.length > 0 ? { lag: { count: behind.length, text: `${describeChapterRuns(behind)}还没判` } } : {}),
+    watch: threadWatch(book),
+  };
 }
 
 /**
  * 写这几章之前的叙事线提醒（二期，设计稿「四、写前检查」）：伏笔逾期、线断了，零调用、不拦人。读一遍叙事线目录与章节，
- * 按第一章 `asOf`（写第 N 章时按第 N − 1 章算，`threadRemindersFor`）。`through` 是定稿到的最后一章（同工程页的「现在」：
- * 定稿过、正文还在的章里章号最大的），说法里拿它注一句没定稿的那几章（`unrecordedBefore`）。
+ * 按第一章 `asOf`（写第 N 章时按第 N − 1 章算，`threadRemindersFor`）。`through` 是叙事线判到第几章（四期的水位，不超过定稿到；
+ * 同工程页的「叙事线判到」），说法里拿它注一句还没记上的那几章（`unrecordedBefore`：没定稿的，或定稿了还没判的）。
  */
 export async function threadReminders(project: NovelProject, nos: readonly number[]): Promise<{ reminders: ThreadReminder[]; through: number }> {
   if (nos.length === 0) {
     return { reminders: [], through: 0 };
   }
   const first = Math.min(...nos);
-  const [book, plots, chapters] = await Promise.all([project.readThreads(), project.listPlots(), project.listChapters()]);
-  const through = chapters.reduce((max, c) => (c.order > max && project.plotFor(c.order, plots, chapters)?.sourceHash ? c.order : max), 0);
-  return { reminders: threadRemindersFor(threadWatch(book, first), nos), through };
+  const [book, plots, chapters, mark] = await Promise.all([
+    project.readThreads(),
+    project.listPlots(),
+    project.listChapters(),
+    project.readThreadsMark(),
+  ]);
+  const current = chapters.reduce((max, c) => (c.order > max && project.plotFor(c.order, plots, chapters)?.sourceHash ? c.order : max), 0);
+  return { reminders: threadRemindersFor(threadWatch(book, first), nos), through: judgedThrough(mark, current) };
 }
 
 function compareLines(ta: Thread, a: ThreadLineView, tb: Thread, b: ThreadLineView): number {
@@ -184,17 +223,22 @@ export interface OverviewChapterInput {
 }
 
 /**
- * 编辑区「叙事线总览」标签的数据（设计稿「八、叙事线总览」）：读一遍叙事线目录与章节、细纲两份列表（借缓存），交给
- * {@link buildThreadsMatrix}。**纯读盘、不调模型、不落盘**（第 18、28 条：状态一律从事件现算）。「现在」与工程页「叙事线」
- * 页签同一个口径：定稿过（细纲有 `sourceHash`）、正文还在的章里章号最大的那一章。
+ * 编辑区「叙事线总览」标签的数据（设计稿「八、叙事线总览」）：读一遍叙事线目录与章节、细纲两份列表（借缓存）、`project.json` 里
+ * 叙事线判到哪，交给 {@link buildThreadsMatrix}。**纯读盘、不调模型、不落盘**（第 18、28 条：状态一律从事件现算）。「定稿到」与
+ * 「叙事线判到」都与工程页「叙事线」页签同一个口径：定稿过（细纲有 `sourceHash`）、正文还在的章里章号最大的那一章；水位不超过它。
  *
  * 按需要（`requestThreadsOverview`），不进工程树：工程树每次文件变动都全量重推，这份只在总览开着时有用。
  */
 export async function buildThreadsOverview(project: NovelProject): Promise<ThreadsOverview> {
   if (!(await project.isInitialized())) {
-    return { initialized: false, chapters: [], current: 0, volumes: false, groups: [] };
+    return { initialized: false, chapters: [], current: 0, through: 0, volumes: false, groups: [] };
   }
-  const [book, plots, chapters] = await Promise.all([project.readThreads(), project.listPlots(), project.listChapters()]);
+  const [book, plots, chapters, mark] = await Promise.all([
+    project.readThreads(),
+    project.listPlots(),
+    project.listChapters(),
+    project.readThreadsMark(),
+  ]);
   const chaptersRoot = project.relPath(project.chaptersDir);
   const plotsRoot = project.relPath(project.plotsDir);
   // 同号的正文有两份时认路径排序第一份（与流水线、「转到…」同一个口径）。
@@ -222,11 +266,12 @@ export async function buildThreadsOverview(project: NovelProject): Promise<Threa
     };
   });
   const current = inputs.reduce((max, c) => (c.state === 'finalized' && c.no > max ? c.no : max), 0);
-  return { initialized: true, ...buildThreadsMatrix(book, inputs, current) };
+  return { initialized: true, ...buildThreadsMatrix(book, inputs, current, { mark }) };
 }
 
 /**
- * 总览的矩阵（纯函数）。`chapters` 是有细纲或正文的章，`current` 是「现在」（定稿到的最后一章）。
+ * 总览的矩阵（纯函数）。`chapters` 是有细纲或正文的章，`current` 是「定稿到」的最后一章；`opts.mark` 是叙事线判到哪（四期，缺席
+ * 当定稿过的章都判过了），`opts.limit` 是列数上限。
  *
  * - **列**：第 1 章到「计划或已写的最后一章」——有细纲或正文的章、任何事件（计划的、实际的）、伏笔计划埋与收的章、线的
  *   计划区间里最晚的那一章；中间没有文件的章补一列 `none`（卷名沿用前一章）。提得太远的截在 {@link OVERVIEW_MAX_CHAPTERS}。
@@ -234,13 +279,19 @@ export async function buildThreadsOverview(project: NovelProject): Promise<Threa
  *   的顺序：「伏笔」一节写了的在前，只在事件里出现过的跟在后面）；最后是「未归属的伏笔」（一条都没有不给）。
  * - **线的格子**：线自己的事件（推进 / 关系 / 收束 / 放弃）；没写伏笔名的伏笔事件也放在这里（没有别的行可放）。
  * - **伏笔的格子**：这条伏笔的埋 / 收 / 弃；连线见 {@link spanOf}。
+ * - **判过没有**（四期）：定稿过、叙事线还没判的列标 `unjudged`（列头另一种样子）；**偏差只算判过的章**——还没判的章上线里本来
+ *   就没有实际事件，算进去就是一片红圈（拆书导入、补齐整理出来的书）。线与伏笔的状态（断了、逾期、连线延到哪）按「叙事线判到」
+ *   （水位，不超过定稿到）算，同工程页。
  */
 export function buildThreadsMatrix(
   book: ThreadBook,
   chapters: readonly OverviewChapterInput[],
   current: number,
-  limit = OVERVIEW_MAX_CHAPTERS
+  opts: { limit?: number; mark?: ThreadsMark } = {}
 ): Omit<ThreadsOverview, 'initialized'> {
+  const limit = opts.limit ?? OVERVIEW_MAX_CHAPTERS;
+  const mark = opts.mark ?? { through: current, judged: [] };
+  const through = judgedThrough(mark, current);
   const files: ThreadFileBase[] = [...book.threads, book.unfiled];
   const fileMax = chapters.reduce((m, c) => Math.max(m, c.no), Math.max(0, current));
   const mentioned = [
@@ -257,13 +308,15 @@ export function buildThreadsMatrix(
   for (let no = 1; no <= last; no++) {
     const c = byNo.get(no);
     volume = c ? c.volume : volume;
-    columns.push(c ? { ...c } : { no, title: '', volume, state: 'none' });
+    const unjudged = c?.state === 'finalized' && !isThreadsJudged(mark, no);
+    columns.push(c ? { ...c, ...(unjudged ? { unjudged: true as const } : {}) } : { no, title: '', volume, state: 'none' });
   }
-  const finalized = new Set(columns.filter((c) => c.state === 'finalized').map((c) => c.no));
+  // 拿来判偏差的章：定稿过、叙事线也判过（四期）。
+  const finalized = new Set(columns.filter((c) => c.state === 'finalized' && !c.unjudged).map((c) => c.no));
 
   // 组里的先后与工程页同一个排法（`buildThreadsView`）：最近推进的在前，没推进过的按计划开始的章。
   const order = book.threads
-    .map((t) => ({ t, view: lineOf(t, current) }))
+    .map((t) => ({ t, view: lineOf(t, through) }))
     .sort((a, b) => compareLines(a.t, a.view, b.t, b.view));
   const groups: ThreadsOverviewGroup[] = [];
   for (const { t, view } of order) {
@@ -278,7 +331,7 @@ export function buildThreadsMatrix(
       warnings: view.warnings,
       tip: view.tip,
       cells: lineCells(t, finalized, last),
-      foreshadowing: foreshadowRows(t, current, finalized, last),
+      foreshadowing: foreshadowRows(t, through, finalized, last),
     };
     const group = groups.find((g) => g.kind === t.kind);
     if (group) {
@@ -287,10 +340,11 @@ export function buildThreadsMatrix(
       groups.push({ kind: t.kind, lines: [line] });
     }
   }
-  const unfiled = foreshadowRows(book.unfiled, current, finalized, last);
+  const unfiled = foreshadowRows(book.unfiled, through, finalized, last);
   return {
     chapters: columns,
     current,
+    through,
     volumes: columns.some((c) => c.volume !== ''),
     groups,
     ...(unfiled.length > 0 ? { unfiled: { relPath: book.unfiled.relPath, foreshadowing: unfiled } } : {}),
@@ -325,8 +379,8 @@ function cellsOf(events: readonly ThreadEvent[], last: number): ThreadsOverviewC
 }
 
 /**
- * 线那一行的格子：线自己的事件。偏差（⚑）= 这一章有计划、那一章定稿了，却**一条**实际的事件都没有——计划了推进与关系、只发生了
- * 推进的算发生了（画 ◉，悬停看得到两边各是什么）。伏笔的事件不算这条线动过：它们在伏笔那几行。
+ * 线那一行的格子：线自己的事件。偏差（⚑）= 这一章有计划、那一章定稿了（四期：叙事线也判过了），却**一条**实际的事件都没有——
+ * 计划了推进与关系、只发生了推进的算发生了（画 ◉，悬停看得到两边各是什么）。伏笔的事件不算这条线动过：它们在伏笔那几行。
  */
 function lineCells(t: Thread, finalized: ReadonlySet<number>, last: number): ThreadsOverviewCell[] {
   const cells = cellsOf(
@@ -340,8 +394,9 @@ function lineCells(t: Thread, finalized: ReadonlySet<number>, last: number): Thr
 }
 
 /**
- * 一份文件（一条线，或「未归属的伏笔」）里的伏笔，一条一行。偏差（⚑）：计划在第 N 章埋的，第 N 章定稿了、到第 N 章为止还没埋
- * （也没收、没弃）；计划在第 N 章收的，第 N 章定稿了、到第 N 章为止还没收（或弃）。提前埋了、提前收了的不算偏差。
+ * 一份文件（一条线，或「未归属的伏笔」）里的伏笔，一条一行。偏差（⚑）：计划在第 N 章埋的，第 N 章定稿了（四期：叙事线也判过了）、
+ * 到第 N 章为止还没埋（也没收、没弃）；计划在第 N 章收的，第 N 章定稿了、到第 N 章为止还没收（或弃）。提前埋了、提前收了的不算偏差。
+ * `current` 是「叙事线判到」（逾期、连线延到哪按它）。
  */
 function foreshadowRows(
   file: ThreadFileBase,

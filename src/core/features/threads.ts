@@ -601,6 +601,20 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
   return out;
 }
 
+/**
+ * 第 `no` 章的叙事线判过了（认事件 a 成了，b、c 没成也算）：推 `project.json` 里的水位（四期，`Workspace.markThreadsJudged`）。
+ * 单章定稿、立即同步、写完即定稿（都经 finalizeSteps.ts）与从已写正文补记判完一章都调它。**不抛**：水位写不进去只记一笔日志
+ * ——事件已经落在线里了，下次判这一章（重新定稿、补记）会再推一次。
+ */
+export async function noteThreadsJudged(project: NovelProject, no: number): Promise<void> {
+  try {
+    const mark = await new Workspace(project).markThreadsJudged(no);
+    log.info(`第 ${no} 章的叙事线判过了`, `水位：第 ${mark.through} 章${mark.judged.length > 0 ? `｜水位之后另外判过：${mark.judged.join('、')}` : ''}`);
+  } catch (err) {
+    log.warn(`第 ${no} 章的叙事线判过了，水位却没记上（${describeError(err)}）`, err);
+  }
+}
+
 /** 落在哪条线上的键（缺席是「未归属的伏笔」，键是空串）。 */
 const lineKey = (line: string | undefined): string => (line ? threadKey(line) : '');
 

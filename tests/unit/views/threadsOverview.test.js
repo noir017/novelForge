@@ -132,16 +132,16 @@ describe('叙事线总览 · 列', () => {
     const flat = chapters().map((c) => ({ ...c, volume: '' }));
     assert.equal(views.buildThreadsMatrix(book(), flat, 4).volumes, false);
     const empty = views.buildThreadsMatrix({ threads: [], unfiled: unfiled() }, [], 0);
-    assert.deepEqual(empty, { chapters: [], current: 0, volumes: false, groups: [] });
+    assert.deepEqual(empty, { chapters: [], current: 0, through: 0, volumes: false, groups: [] });
   });
 
   test('计划里提得太远（手误）：截在上限、说原本到第几章；有文件的章照样画全', () => {
     const b = { threads: [line('黑市', { plan: '2-30000' })], unfiled: unfiled() };
-    const m = views.buildThreadsMatrix(b, chapters(), 4, 50);
+    const m = views.buildThreadsMatrix(b, chapters(), 4, { limit: 50 });
     assert.equal(m.chapters.length, 50);
     assert.equal(m.clippedFrom, 30000);
     const many = Array.from({ length: 60 }, (_, i) => ({ no: i + 1, title: '', volume: '', state: 'planned', plotPath: `p/${i + 1}.md` }));
-    assert.equal(views.buildThreadsMatrix(b, many, 0, 50).chapters.length, 60, '有细纲的章不截');
+    assert.equal(views.buildThreadsMatrix(b, many, 0, { limit: 50 }).chapters.length, 60, '有细纲的章不截');
   });
 });
 
@@ -211,6 +211,28 @@ describe('叙事线总览 · 线的格子', () => {
   test('偏差比的是「那一章定稿了没有」，不是「现在」：现在挪到第 6 章，没定稿的第 5 章照样不算', () => {
     const pair = lineOf(views.buildThreadsMatrix(book(), chapters(), 6), '林昭与沈青');
     assert.equal(cellAt(pair, 5).deviation, false);
+  });
+
+  // 四期：定稿到第 4 章、叙事线只判到第 2 章——第 3、4 章定稿了还没判，列头另标，上面的计划不算偏差；状态按第 2 章算。
+  test('叙事线落后于定稿：还没判的列标 unjudged、计划不算偏差；判到第几章另给；逾期按判到的那一章算', () => {
+    const m = views.buildThreadsMatrix(book(), chapters(), 4, { mark: { through: 2, judged: [] } });
+    assert.equal(m.current, 4);
+    assert.equal(m.through, 2);
+    assert.deepEqual(
+      m.chapters.slice(0, 5).map((c) => [c.no, c.state, !!c.unjudged]),
+      [[1, 'finalized', false], [2, 'finalized', false], [3, 'finalized', true], [4, 'finalized', true], [5, 'written', false]]
+    );
+    const pair = lineOf(m, '林昭与沈青');
+    assert.equal(cellAt(pair, 3).deviation, false, '第 3 章还没判，计划结盟不算偏差');
+    assert.equal(cellAt(foreOf(pair, '沈青的旧伤'), 3).deviation, false);
+    // 「断剑」第 3 章前收：按定稿到（第 4 章）算是逾期，按判到（第 2 章）算还没到。
+    assert.equal(foreOf(m.unfiled, '断剑').overdue, false);
+    assert.equal(foreOf(views.buildThreadsMatrix(book(), chapters(), 4).unfiled, '断剑').overdue, true);
+    // 水位之后另外判过的那一章照算偏差、不标还没判。
+    const sparse = views.buildThreadsMatrix(book(), chapters(), 4, { mark: { through: 1, judged: [3] } });
+    assert.equal(sparse.chapters[2].unjudged, undefined);
+    assert.equal(cellAt(lineOf(sparse, '林昭与沈青'), 3).deviation, true);
+    assert.equal(sparse.chapters[1].unjudged, true);
   });
 });
 

@@ -160,6 +160,13 @@ export interface ProjectManifest {
   chapters: ManifestChapter[];
   /** 上次重建全文大纲时，已覆盖到的最大章号。 */
   globalSummaryThrough?: number;
+  /**
+   * 叙事线判到第几章（水位，叙事线重做四期）：从第 1 章起连续判过的最后一章——定稿第三步的认事件成了就算判过。缺席是 0。
+   * 认法与怎么往后推见 model/threadFile.ts 的 `ThreadsMark`。
+   */
+  threadsThrough?: number;
+  /** 水位之后另外判过的章（不连续的那几章，升序）；水位推过去就从这里拿掉。缺席是没有。 */
+  threadsJudged?: number[];
 }
 
 /**

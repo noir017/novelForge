@@ -1201,7 +1201,7 @@ describe('pipeline.ts · 写前检查的叙事线提醒', () => {
     );
     assert.equal(
       pipeline.describeThreadReminders('区间里', pipeline.threadRemindersFor(watch, [6, 7, 8]), pipeline.unrecordedBefore(4, 6)),
-      '叙事线提醒：伏笔〈玉佩的来历〉计划第 5 章前收，写到第 6 章还没收，区间里也没安排收；〈青崖旧案〉（主线）写到第 7 章就断了 5 章，区间里也没安排推进（第 5 章还没定稿，叙事线还没记上，提醒可能不准）。只是提醒，不拦。'
+      '叙事线提醒：伏笔〈玉佩的来历〉计划第 5 章前收，写到第 6 章还没收，区间里也没安排收；〈青崖旧案〉（主线）写到第 7 章就断了 5 章，区间里也没安排推进（第 5 章还没定稿或还没补记，叙事线还没记上，提醒可能不准）。只是提醒，不拦。'
     );
     assert.equal(pipeline.describeThreadReminders('本章', []), '');
     assert.deepEqual(pipeline.unrecordedBefore(3, 7), { from: 4, to: 6 });

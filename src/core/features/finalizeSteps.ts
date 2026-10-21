@@ -8,6 +8,9 @@
  * 两步的失败各算各的：细纲已经照正文更新好了，这两步没成只挂黄 ❗ 在章节上（第 16 条：部分完成），
  * 角色卡 / 叙事线停在上一次，下次重新定稿会再来一遍。叙事线那一步里认事件没成算整步没成；认出来之后当前进度或归并
  * 没成，认出来的照样记下，黄 ❗ 照样挂在章节上（说清是哪一段）。取消照样抛出去。
+ *
+ * 认事件成了，这一章的叙事线就算判过：推 `project.json` 里的水位（叙事线重做四期，`noteThreadsJudged`）。单章定稿、立即同步、
+ * 写完即定稿都走这里，水位在连续时跟着往后推；没判成的那一章挡在水位前面，「从已写正文补记」从那里接着判。
  */
 import { CancelledError, LlmProvider } from '../llm/provider';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
@@ -15,7 +18,7 @@ import { describeError, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import { Chapter, SummaryCast } from '../model/types';
 import { STATE_OP, StateUpdateOutcome, updateCharacterStates } from './characterState';
-import { THREADS_OP, ThreadsOutcome, recordThreads } from './threads';
+import { THREADS_OP, ThreadsOutcome, noteThreadsJudged, recordThreads } from './threads';
 
 const log = scoped('定稿');
 
@@ -90,6 +93,8 @@ export async function updateStateAndThreads(
     });
     outcome.threads = th;
     outcome.calls += th.calls;
+    // 认事件成了就算判过（四期）：推水位。当前进度、归并没成也算——认出来的已经记下了，黄 ❗ 照样挂在下面。
+    await noteThreadsJudged(project, chapter.order);
     // 认出来了，但当前进度或归并那一次没成、或有几条线的当前进度没写上：认出来的照样记下了，黄 ❗ 照样挂在章节上（部分完成）。
     const partial = [
       th.progressError ? `当前进度没更新成（${th.progressError}）` : '',

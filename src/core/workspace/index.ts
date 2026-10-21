@@ -45,7 +45,15 @@ import {
 import { Chapter, SummaryCast } from '../model/types';
 import { replaceSection, rewriteFrontmatter, stringifyFrontmatter } from '../model/markdown';
 import { LoreLine, PLOT_LORE_KEY, renderLoreLines } from '../model/loreFile';
-import { NewThread, renderThreadFile, replacePlannedEvents, threadFileName } from '../model/threadFile';
+import {
+  NewThread,
+  ThreadsMark,
+  advanceThreadsMark,
+  renderThreadFile,
+  replacePlannedEvents,
+  threadFileName,
+  threadsMarkOf,
+} from '../model/threadFile';
 import { setConfigParagraphStyle } from '../model/settingFile';
 import type { ParagraphStyle } from '../model/paragraphFormat';
 import { isMarkdownExt, isMarkdownPath, parseChapterFileName } from '../model/chapterFile';
@@ -1017,6 +1025,29 @@ export class Workspace {
     manifest.globalSummaryThrough = through;
     await this.project.writeManifest(manifest);
     return rel;
+  }
+
+  /**
+   * 第 `no` 章的叙事线判过了（定稿第三步的认事件成了）：推 `project.json` 里的水位（叙事线重做四期，`advanceThreadsMark`）——
+   * 正好是水位 + 1 就往后推、顺着后面已经判过的接着推；更靠后的记进 `threadsJudged`；水位以内的不动、不写盘。
+   * 单章定稿、立即同步、写完即定稿与从已写正文补记都在判完一章之后调它（features/threads.ts 的 `noteThreadsJudged`）。
+   * 同全文大纲的水位：manifest 是链外的索引，没有上游指纹。返回推过之后的样子。
+   */
+  async markThreadsJudged(no: number): Promise<ThreadsMark> {
+    const manifest = await this.project.readManifest();
+    const before = threadsMarkOf(manifest);
+    const after = advanceThreadsMark(before, no);
+    if (after === before) {
+      return before;
+    }
+    manifest.threadsThrough = after.through;
+    if (after.judged.length > 0) {
+      manifest.threadsJudged = after.judged;
+    } else {
+      delete manifest.threadsJudged;
+    }
+    await this.project.writeManifest(manifest);
+    return after;
   }
 
   /**

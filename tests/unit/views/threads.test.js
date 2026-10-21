@@ -131,9 +131,24 @@ describe('叙事线页签 · 一条线一行', () => {
     assert.deepEqual(later.lines.find((l) => l.name === '林昭与沈青').warnings, ['1 条伏笔逾期']);
   });
 
+  // 四期：定稿到第 9 章、叙事线只判到第 6 章（第 7–9 章定稿了还没判，第 8 章另外判过）——状态按判到的那一章算，另说哪几章还没判。
+  test('叙事线落后于定稿：状态按判到的那一章算，⚠ 不跟着定稿到走；另说「第 a–b 章还没判」', () => {
+    const v = views.buildThreadsView(book(), 9, { mark: { through: 6, judged: [8] }, finalized: [1, 2, 3, 4, 5, 6, 7, 8, 9] });
+    assert.equal(v.current, 9);
+    assert.equal(v.through, 6);
+    assert.deepEqual(v.lag, { count: 2, text: '第 7、9 章还没判' });
+    assert.deepEqual(v.lines.find((l) => l.name === '青崖旧案').warnings, [], '按第 6 章算没断');
+    assert.deepEqual(v.lines.find((l) => l.name === '林昭与沈青').warnings, [], '按第 6 章算没逾期');
+    // 水位比定稿到还靠后（定稿之后又删了几章）：判到不超过定稿到；没有落后就不给 lag。
+    const ahead = views.buildThreadsView(book(), 9, { mark: { through: 12, judged: [] }, finalized: [1, 2, 3, 4, 5, 6, 7, 8, 9] });
+    assert.equal(ahead.through, 9);
+    assert.equal(ahead.lag, undefined);
+    assert.deepEqual(ahead.lines.find((l) => l.name === '青崖旧案').warnings, ['断了 5 章']);
+  });
+
   test('一条线都没有：空列表', () => {
     const v = views.buildThreadsView({ threads: [], unfiled: unfiled() }, 3);
-    assert.deepEqual(v, { lines: [], current: 3, watch: { lines: [], foreshadowing: [], unplanted: [] } });
+    assert.deepEqual(v, { lines: [], current: 3, through: 3, watch: { lines: [], foreshadowing: [], unplanted: [] } });
   });
 
   // 叙事线二期：写前检查要的数也从这里出（前端批量写章弹窗拿它算提醒），按现在的样子算。

@@ -113,6 +113,8 @@ before(async () => {
   t.write('.novelforge/threads/玉佩.md', '---\nkind: 支线\nplan: 1-2\n---\n\n# 玉佩\n\n## 进展\n- 第 1 章 · 推进：玉佩露面 〔证据：「玉佩」〕\n');
   t.write('.novelforge/threads/未归属的伏笔.md', '# 未归属的伏笔\n\n## 伏笔\n- 断剑\n');
   t.write('.novelforge/threads.md', '# 叙事线\n\n## 旧格式\n');
+  // 四十章定稿时叙事线都判过了（四期的水位在 project.json）：线的状态按判到的那一章算。
+  await project.writeManifest({ ...(await project.readManifest()), threadsThrough: PLOTS });
 });
 
 after(() => {

@@ -287,11 +287,11 @@ export function openWriteBatchForm(tree: ProjectTree): void {
       const writing = new Set(p.chapters);
       const thin = (tree.loreThin ?? []).filter((t) => t.chapters.some((no) => writing.has(no)));
       // 叙事线提醒（二期，零调用、不拦）：区间里写到哪一章就过了回收章、断了几章，区间里的计划又都没安排的。与后端确认框
-      // 同一个 `threadRemindersFor`，数据是工程页「叙事线」那一份（按现在算）。
+      // 同一个 `threadRemindersFor`，数据是工程页「叙事线」那一份（按现在算）；「还没记上」的那几章按叙事线判到哪（四期）。
       const threadNote = describeThreadReminders(
         '区间里',
         threadRemindersFor(tree.threads?.watch, p.chapters),
-        unrecordedBefore(tree.threads?.current ?? 0, first)
+        unrecordedBefore(tree.threads?.through ?? tree.threads?.current ?? 0, first)
       );
       return {
         text:

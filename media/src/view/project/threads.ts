@@ -16,6 +16,8 @@
  *   `nf-threads-query` 有没有人画得了——只有内置编辑器（editor.js）回答，插件形态没有内置编辑器，「总览」与「在总览里看」
  *   都不画（设计稿 ⚑11：VS Code 插件先不做总览；不判断是哪个壳）。一条线、一条未归属的伏笔都没有时也不给（打开了是空的）。
  * - 挂伏笔靠作者在文件里剪贴（设计稿 ⚑10），这里不做「挪」。
+ * - **叙事线判到哪**（四期）：定稿了、叙事线还没判的章（拆书导入、补齐整理出来的、补记停在半路的）在页里最上面说一句
+ *   「⚠ 第 31–60 章还没判」——线的状态按判到的那一章算，这几章上线里本来就没有事件。文案由后端给（`views/threads.ts`）。
  */
 import { el as mk } from '../../dom';
 import { commandThreadsOverview, queryThreadsOverview } from '../../globals';
@@ -97,10 +99,13 @@ export function threadsHead(tree: ProjectTree): HTMLElement | undefined {
   return box.childElementCount > 0 ? box : undefined;
 }
 
-/** 这一页的全部行：一条线一行（后端已排好），最后是「未归属的伏笔」；一条都没有时说清先做什么。 */
+/** 这一页的全部行：（叙事线落后于定稿时）最上面一句「还没判」，一条线一行（后端已排好），最后是「未归属的伏笔」；一条都没有时说清先做什么。 */
 export function buildThreadRows(tree: ProjectTree): HTMLElement[] {
-  const { lines, unfiled } = tree.threads;
+  const { lines, unfiled, lag } = tree.threads;
   const rows = lines.map((line) => buildLineRow(tree, line));
+  if (lag) {
+    rows.unshift(buildLagRow(tree, lag));
+  }
   if (lines.length === 0) {
     rows.push(
       emptyRow(
@@ -114,6 +119,22 @@ export function buildThreadRows(tree: ProjectTree): HTMLElement[] {
     rows.push(buildUnfiledRow(tree, unfiled));
   }
   return rows;
+}
+
+/**
+ * 「⚠ 第 31–60 章还没判」（四期）：定稿了、叙事线还没判的章。挂在页里最上面（与角色组的「称呼冲突」同一个样子）：说清线的状态
+ * 按判到的那一章算、总览上这几章的计划不算偏差。
+ */
+function buildLagRow(tree: ProjectTree, lag: NonNullable<ProjectTree['threads']['lag']>): HTMLElement {
+  const through = tree.threads.through;
+  const row = mk(
+    'div',
+    'row-conflict threads-lag',
+    `⚠ ${lag.text}：这几章定稿了，叙事线还没记上。` +
+      `${through > 0 ? `线断了几章、伏笔逾期都按判到的第 ${through} 章算` : '线断了几章、伏笔逾期先不算'}，总览上这几章的计划不算偏差。`
+  );
+  row.title = `叙事线判到第 ${through} 章（从第 1 章起连续判过的），定稿到第 ${tree.threads.current} 章。`;
+  return row;
 }
 
 /** 状态点：进行中 ●、计划中 ○、已收束 ✓、已放弃 ✕。 */

@@ -99,6 +99,8 @@ before(async () => {
   t.write('.novelforge/threads/未归属的伏笔.md', '# 未归属的伏笔\n\n## 伏笔\n- 断剑（第 3 章前收）\n');
   // 七期的单文件不认。
   t.write('.novelforge/threads.md', '# 叙事线\n\n## 旧的线\n- 第 1 章 · 推进：不该出现\n');
+  // 第 1、2 章定稿时叙事线判过了：水位记在 project.json（四期），偏差只算判过的章。
+  await project.writeManifest({ ...(await project.readManifest()), threadsThrough: 2 });
   project.invalidate();
 });
 
@@ -172,6 +174,7 @@ describe('views/threads › buildThreadsOverview', () => {
         initialized: false,
         chapters: [],
         current: 0,
+        through: 0,
         volumes: false,
         groups: [],
       });

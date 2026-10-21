@@ -206,6 +206,12 @@
   font-weight: 700;
 }
 
+/* 定稿了、叙事线还没判（四期）：底下那道绿换成虚的，字压暗——这一列上的计划不算偏差。 */
+.tov-col-unjudged {
+  border-bottom-style: dashed;
+  color: var(--vscode-descriptionForeground);
+}
+
 /* ---- 行 */
 
 .tov-row {
@@ -436,6 +442,18 @@
   z-index: 1;
   width: 0;
   border-left: 2px solid var(--vscode-charts-green, #89d185);
+  pointer-events: none;
+}
+
+/* 「叙事线判到第 M 章」（四期）：落后于定稿时另一条，同色虚线，与上面那条分得开。 */
+.tov-judged {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 0;
+  border-left: 2px dashed var(--vscode-charts-green, #89d185);
+  opacity: 0.7;
   pointer-events: none;
 }
 

@@ -1384,3 +1384,38 @@ describe('threadFile.ts · 写前检查要的数（二期）', () => {
     assert.deepEqual(t.threadWatch(book, 2).lines.map((l) => l.name), ['青崖旧案']);
   });
 });
+
+// 四期：叙事线判到哪（project.json 的水位 threadsThrough 与水位之后另外判过的 threadsJudged）。
+describe('水位：叙事线判到第几章（四期）', () => {
+  test('认 project.json 的两项：手改坏了的不认、不崩；水位 + 1 也在 judged 里就顺着推上去', () => {
+    assert.deepEqual(t.threadsMarkOf({}), { through: 0, judged: [] });
+    assert.deepEqual(t.threadsMarkOf({ threadsThrough: 5, threadsJudged: [9, 7, 7] }), { through: 5, judged: [7, 9] });
+    assert.deepEqual(t.threadsMarkOf({ threadsThrough: '5', threadsJudged: 'x' }), { through: 0, judged: [] });
+    assert.deepEqual(t.threadsMarkOf({ threadsThrough: -3, threadsJudged: [0, 1.5, 2, 3, 8] }), { through: 0, judged: [2, 3, 8] });
+    assert.deepEqual(t.threadsMarkOf({ threadsThrough: 4, threadsJudged: [2, 5, 6, 9] }), { through: 6, judged: [9] });
+  });
+
+  test('判过一章：正好是水位 + 1 就推，并顺着后面已经判过的接着推；更靠后的记下；水位以内的不变（同一个对象）', () => {
+    let m = { through: 0, judged: [] };
+    m = t.advanceThreadsMark(m, 1);
+    assert.deepEqual(m, { through: 1, judged: [] });
+    m = t.advanceThreadsMark(m, 4);
+    m = t.advanceThreadsMark(m, 3);
+    assert.deepEqual(m, { through: 1, judged: [3, 4] });
+    assert.equal(t.advanceThreadsMark(m, 4), m, '已经记下的不重记');
+    assert.equal(t.advanceThreadsMark(m, 1), m, '重新定稿水位以内的章不动');
+    m = t.advanceThreadsMark(m, 2);
+    assert.deepEqual(m, { through: 4, judged: [] });
+    assert.equal(t.advanceThreadsMark(m, 2.5), m);
+  });
+
+  test('判过没有、定稿了还没判的章；章号连成段', () => {
+    const m = { through: 3, judged: [6] };
+    assert.deepEqual([1, 3, 4, 6, 7].map((no) => t.isThreadsJudged(m, no)), [true, true, false, true, false]);
+    assert.deepEqual(t.unjudgedChapters(m, [7, 1, 2, 4, 5, 6, 4]), [4, 5, 7]);
+    assert.equal(t.describeChapterRuns([4, 5, 7]), '第 4–5、7 章');
+    assert.equal(t.describeChapterRuns([31, 32, 33, 3]), '第 3、31–33 章');
+    assert.equal(t.describeChapterRuns([1, 3, 5, 7, 8]), '第 1、3、5 章等 5 章');
+    assert.equal(t.describeChapterRuns([]), '');
+  });
+});
