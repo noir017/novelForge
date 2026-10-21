@@ -33,6 +33,7 @@ import { withCallChoice } from '../runtime/callScope';
 import { elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { askCall } from './askCall';
+import { checkpointBefore } from './checkpoint';
 import { judgeChapterThreads } from './finalizeSteps';
 import { PlanThreadsOutcome, ThreadsOutcome, describePlanned, planThreadsFromOutline } from './threads';
 
@@ -289,6 +290,8 @@ export async function backfillThreads(project: NovelProject): Promise<number> {
     await runTask(
       BACKFILL_TASK,
       async ({ signal, report }) => {
+        // 先存一个存档点（features/checkpoint.ts）：逐章往各条线里追加事件、改写当前进度，整本退得回去。
+        await checkpointBefore(project, `从正文补记叙事线之前（${where}）`);
         const startedAt = Date.now();
         const o = await runThreadsBackfill(project, plan, { pool, planPool, signal, report });
         calls = o.calls;

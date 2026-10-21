@@ -10,7 +10,7 @@
  * | 全书替换：有要换的才存，备注里的查找串与替换串截短；一份都没换成的不存 | 第 3 步之前、有要换的才存 |
  * | 按目录整理设定、导入原稿：点头之后、动手之前存 | 同上 |
  * | 从已写正文补齐：细纲那一步存过，其余几样不另存；细纲本来就齐的，其余几样那一步自己存 | 同一件事的两步，退回去就是整件事之前 |
- * | 补齐架构、批量拆细纲、批量展开设定、立即同步各存一个 | 九处批量动作都挂上了 |
+ * | 补齐架构、批量拆细纲、批量展开设定、立即同步、从正文补记叙事线各存一个 | 十处批量动作都挂上了 |
  * | 存不下：照常跑 | ⚑11：存不下不挡批量动作 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -45,6 +45,7 @@ before(() => {
     importer: './src/core/features/importManuscript.ts',
     derive: './src/core/features/derive.ts',
     summarize: './src/core/features/summarize.ts',
+    backfill: './src/core/features/threadsBackfill.ts',
     db: './src/core/runtime/db.ts',
   });
   h = makeFakeHost({
@@ -339,7 +340,7 @@ describe('从已写正文补齐', () => {
 
 // ---------------------------------------------------------------- 其余几处
 
-describe('补齐架构、批量拆细纲、批量展开设定、立即同步', () => {
+describe('补齐架构、批量拆细纲、批量展开设定、立即同步、从正文补记叙事线', () => {
   test('补齐架构', async () => {
     const t = await fresh('settings');
     t.write('.novelforge/config.md', t.read('.novelforge/config.md').replace(/## 一句话\n\n（待补充）/, '## 一句话\n\n少年背着旧案入宗'));
@@ -377,6 +378,25 @@ describe('补齐架构、批量拆细纲、批量展开设定、立即同步', (
     h.expect('开始同步');
     await bundle.summarize.syncSummaries(t.project);
     assert.deepEqual((await list(t)).map((x) => x.note), ['同步章节细纲之前（2 章）']);
+  });
+
+  test('从正文补记叙事线（合并存档点时补上的第十处）', async () => {
+    const t = await fresh('backfill');
+    t.write('chapters/001-入宗.md', `# 入宗\n\n${filler(300, 3)}\n`);
+    t.write('chapters/002-雪夜.md', `# 雪夜\n\n${filler(300, 5)}\n`);
+    t.write('.novelforge/threads/青崖旧案.md', '---\nkind: 主线\n---\n\n# 青崖旧案\n\n## 意图\n查清七年前那场火。\n');
+    t.project.invalidate();
+    const chapters = await t.project.listChapters();
+    for (const c of chapters) {
+      const rel = `.novelforge/summaries/${c.relPath.replace(/^chapters\//, '')}`;
+      t.write(rel, `---\nno: ${c.order}\ntitle: ${c.title}\nsourceHash: ${c.contentHash}\n---\n\n# ${c.title}\n\n## 梗概\n第 ${c.order} 章。\n`);
+    }
+    t.project.invalidate();
+    h.expect('开始补记');
+    await bundle.backfill.backfillThreads(t.project);
+    const notes = (await list(t)).map((x) => x.note);
+    assert.equal(notes.length, 1, '点了「开始补记」正好存一个（认事件答空、第 1 章就停，存档点在那之前已经存了）');
+    assert.match(notes[0], /^从正文补记叙事线之前（.*第 1.*2 章.*）$/);
   });
 });
 

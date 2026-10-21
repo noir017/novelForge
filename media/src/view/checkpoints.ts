@@ -61,7 +61,7 @@ const KIND_LABEL: Record<CheckpointDiffEntry['kind'], string> = {
   outline: '大纲',
   style: '文风',
   threads: '叙事线',
-  globalSummary: '全书摘要',
+  globalSummary: '全文大纲',
   skill: '技能',
   sensitive: '敏感词表',
   other: '其他',
