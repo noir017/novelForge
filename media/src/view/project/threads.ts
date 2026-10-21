@@ -18,6 +18,8 @@
  * - 挂伏笔靠作者在文件里剪贴（设计稿 ⚑10），这里不做「挪」。
  * - **叙事线判到哪**（四期）：定稿了、叙事线还没判的章（拆书导入、补齐整理出来的、补记停在半路的）在页里最上面说一句
  *   「⚠ 第 31–60 章还没判」——线的状态按判到的那一章算，这几章上线里本来就没有事件。文案由后端给（`views/threads.ts`）。
+ *   这时标题旁多一个「从正文补记」（右键标题、页里空白处也有）：逐章走定稿第三步，后端先弹确认框写明章数与次数；补记在跑时
+ *   不给（任务名与 features/threadsBackfill.ts 的 `BACKFILL_TASK` 一字不差）。不落后时不给——没有要补的。
  */
 import { el as mk } from '../../dom';
 import { commandThreadsOverview, queryThreadsOverview } from '../../globals';
@@ -33,6 +35,13 @@ import { indentOf } from './treeState';
 
 /** 排线的任务名：与 features/threads.ts 的 runTask 一字不差。 */
 const PLAN_TASK = '排叙事线';
+/** 补记的任务名：与 features/threadsBackfill.ts 的 `BACKFILL_TASK` 一字不差。 */
+const BACKFILL_TASK = '从已写正文补记叙事线';
+
+/** 叙事线落后于定稿（有定稿了还没判的章）：给「从正文补记」。 */
+function canBackfill(tree: ProjectTree): boolean {
+  return !!tree.threads.lag;
+}
 
 /** 有情节大纲才排得出线。 */
 function canPlan(tree: ProjectTree): boolean {
@@ -66,9 +75,12 @@ function overviewItems(tree: ProjectTree, relPath: string): MenuItem[] {
   return canOverview(tree) ? [{ label: '在总览里看', run: () => commandThreadsOverview(relPath) }] : [];
 }
 
-/** 组标题与页里空白处的右键：排线那一项（有情节大纲才有）、打开总览（有内置编辑器才有）。 */
+/** 组标题与页里空白处的右键：补记（落后时才有）、排线那一项（有情节大纲才有）、打开总览（有内置编辑器才有）。 */
 export function threadsMenuItems(tree: ProjectTree): MenuItem[] {
   const items: MenuItem[] = [];
+  if (canBackfill(tree)) {
+    items.push({ label: '从已写正文补记叙事线', run: () => projectAction('backfillThreads') });
+  }
   if (canPlan(tree)) {
     items.push({ label: `${planVerb(tree)}叙事线`, run: () => projectAction('generateThreads') });
   }
@@ -78,12 +90,18 @@ export function threadsMenuItems(tree: ProjectTree): MenuItem[] {
   return items.length > 0 ? [...items, { sep: true }] : [];
 }
 
-/** 页签标题旁边那一截：排线失败的红 ❗、「从大纲排出 / 补充」与「总览」。都没有时是 undefined。 */
+/** 页签标题旁边那一截：排线失败的红 ❗、「从正文补记」（落后时）、「从大纲排出 / 补充」与「总览」。都没有时是 undefined。 */
 export function threadsHead(tree: ProjectTree): HTMLElement | undefined {
   const box = mk('span', 'threads-head');
   const mark = failureMark(tree.threadsPath);
   if (mark) {
     box.appendChild(mark);
+  }
+  if (canBackfill(tree) && !hasTask(BACKFILL_TASK)) {
+    const btn = linkBtn('从正文补记', () => projectAction('backfillThreads'));
+    btn.classList.add('threads-backfill-btn');
+    btn.title = `从已写正文补记叙事线：${tree.threads.lag!.text}，逐章认这一章在叙事线上发生了什么（先弹确认框，每章调用模型 1–3 次）；已有的不动，只往线里追加`;
+    box.appendChild(btn);
   }
   if (canPlan(tree) && !hasTask(PLAN_TASK)) {
     const btn = linkBtn(planVerb(tree), () => projectAction('generateThreads'));
@@ -131,7 +149,8 @@ function buildLagRow(tree: ProjectTree, lag: NonNullable<ProjectTree['threads'][
     'div',
     'row-conflict threads-lag',
     `⚠ ${lag.text}：这几章定稿了，叙事线还没记上。` +
-      `${through > 0 ? `线断了几章、伏笔逾期都按判到的第 ${through} 章算` : '线断了几章、伏笔逾期先不算'}，总览上这几章的计划不算偏差。`
+      `${through > 0 ? `线断了几章、伏笔逾期都按判到的第 ${through} 章算` : '线断了几章、伏笔逾期先不算'}，总览上这几章的计划不算偏差。` +
+      '点标题旁的「从正文补记」逐章补上（先问你，每章 1–3 次调用）。'
   );
   row.title = `叙事线判到第 ${through} 章（从第 1 章起连续判过的），定稿到第 ${tree.threads.current} 章。`;
   return row;

@@ -347,6 +347,11 @@ export type ProjectAction =
   | 'organizeLore'
   | 'extractStyle'
   | 'generateThreads'
+  /**
+   * 从已写正文补记叙事线（叙事线重做四期）：水位之后、定稿到之前还没判的章逐章走定稿第三步。动手前后端报章数与调用次数；
+   * 一条线都没有时先从情节大纲排一次（算在同一个确认框里）。
+   */
+  | 'backfillThreads'
   /** 拆书 A：把工程里的一本 txt 切成章节（零调用；后端弹框挑文件、报切分结果）。 */
   | 'importManuscript'
   /** 拆书 A：从已写正文补齐细纲、角色卡、架构、大纲（只补空白，两次确认）。 */

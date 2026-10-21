@@ -906,6 +906,26 @@ export const FINALIZE_CALLS: CallEstimate = {
 };
 
 /**
+ * 叙事线判一章（定稿第三步，叙事线重做四期「从已写正文补记」按章走它）：认事件 1 次，有线动过时更新当前进度 1 次，认出新线或
+ * 新伏笔时归并 1 次。
+ */
+export const THREADS_JUDGE_CALLS: CallEstimate = {
+  low: 1,
+  high: 3,
+  max: 3,
+  why: '认事件 1 次，有线动过时更新当前进度 1 次，认出新线或新伏笔时归并 1 次',
+};
+
+/** 从已写正文补记 `n` 章叙事线：每章 {@link THREADS_JUDGE_CALLS}；一条线都没有、先从情节大纲排一次时 +1。 */
+export function threadsBackfillCalls(n: number, planFirst: boolean): CallEstimate {
+  return {
+    low: n * THREADS_JUDGE_CALLS.low + (planFirst ? 1 : 0),
+    high: n * THREADS_JUDGE_CALLS.high + (planFirst ? 1 : 0),
+    max: n * THREADS_JUDGE_CALLS.max + (planFirst ? 1 : 0),
+  };
+}
+
+/**
  * 审一章：1 次；输出被截断时整份重来 1 次（截断的那一半不可信，不续接），解不出合格的
  * JSON 时按合同重建 1 次。移植自 AI-Novel-Writer `review-chapter.command.ts` 的重试（RV:288-367）。
  */

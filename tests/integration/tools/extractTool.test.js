@@ -7,7 +7,8 @@
  * |---|---|
  * | 作者取消就零调用，账上也记 0 | 文风、设定不报次数：次数只在确认框里，这里猜一个数就是第 4 条要防的对不上 |
  * | 排叙事线报次数；取消时回话说清没调模型 | 不说清楚它会原地再发一遍 |
- * | 一个参数都不认 | 三个动作都不要参数，给了就是模型记错了工具 |
+ * | 补记叙事线（四期）：没有要补的章不弹框、零调用、回话说清 | 与工程页「从正文补记」同一个函数 |
+ * | 一个参数都不认 | 几个动作都不要参数，给了就是模型记错了工具 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -105,6 +106,21 @@ describe('排叙事线：转发给工程页那个动作', () => {
   });
 });
 
+// 叙事线重做四期：从已写正文补记，与工程页「从正文补记」同一个函数。这一本一章都没定稿，没有要补的：不弹框、零调用、回话说清。
+describe('补记叙事线：转发给工程页那个动作', () => {
+  test('一章都没定稿：不弹确认框，零调用，回话说清没调模型；提示条说先定稿', async () => {
+    resetCtx();
+    h.expect();
+    const r = await run({ action: 'threadsFromText' });
+    assert.equal(r.error, undefined, r.error);
+    assert.equal(h.confirms.length, 0);
+    assert.equal(fake.calls.length, 0);
+    assert.equal(ctx.usage.calls, 0);
+    assert.ok(r.text.includes('补记叙事线这一次没有调用模型'), r.text);
+    assert.ok(h.toasts.some((x) => x.includes('还没有定稿过的章')), h.toasts.join('\n'));
+  });
+});
+
 describe('文风与设定：交出去，账上记 0', () => {
   // 样章先让作者挑（输入框）：取消就什么都不做。
   test('style：作者取消挑样章，零调用，回话指到 style.md', async () => {
@@ -133,7 +149,7 @@ describe('文风与设定：交出去，账上记 0', () => {
 describe('工具定义本身', () => {
   test('参数只有 action', () => {
     assert.deepEqual(Object.keys(tool().parameters.properties), ['action']);
-    assert.deepEqual(tool().parameters.properties.action.enum, ['style', 'threads']);
+    assert.deepEqual(tool().parameters.properties.action.enum, ['style', 'threads', 'threadsFromText']);
   });
 
   test('三个动作都调模型：costly、mutating', () => {

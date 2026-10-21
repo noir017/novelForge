@@ -2723,8 +2723,8 @@ export function patchProgress(raw: string, progress: string, through: number): s
  * 叙事线判到哪（设计稿「九、补记已经写了的书」）：`project.json` 的 `threadsThrough` 是**水位**——从第 1 章起连续判过的最后
  * 一章；`threadsJudged` 是水位之后另外判过的几章（不连续的，单章定稿跳着定、中间一章没判成时会有）。
  *
- * ⚑ **「判过」= 定稿第三步的 a（认事件）成了**：b（当前进度）、c（归并）没成也算（a 记下的照样算数，黄 ❗ 照样挂在章节上）；
- * a 没成、取消了不算。记在 `project.json`（同全文大纲的 `globalSummaryThrough`），不放 SQLite（第 17 条：那里只放可丢的痕迹，
+ * ⚑ **「判过」= 定稿第三步的 a（认事件）成了、认出来的落了盘**：b（当前进度）、c（归并）没成也算（a 记下的照样算数，黄 ❗ 照样
+ * 挂在章节上），在 b 那里取消了也算（事件已经在线里了）；a 没成、在落盘之前取消了不算。记在 `project.json`（同全文大纲的 `globalSummaryThrough`），不放 SQLite（第 17 条：那里只放可丢的痕迹，
  * 丢了就得把几十章重判一遍），也不放细纲的 frontmatter（定稿第一步整份重写细纲，记号跟着一起没了，还得另找一处带过去）。
  */
 export interface ThreadsMark {

@@ -23,6 +23,7 @@ import { deriveFromText } from '../features/derive';
 import { explainChapterGap } from '../features/chapterGap';
 import { learnFromReference } from '../features/reference';
 import { generateThreads } from '../features/threads';
+import { backfillThreads } from '../features/threadsBackfill';
 import { chapterForSummary, rebuildGlobalSummary, syncSummaries } from '../features/summarize';
 import { finalizeChapterTask } from '../features/finalize';
 import { reviewCharacterState } from '../features/characterState';
@@ -169,6 +170,9 @@ export async function projectAction(
       break;
     case 'generateThreads':
       await generateThreads(c.project);
+      break;
+    case 'backfillThreads':
+      await backfillThreads(c.project);
       break;
     case 'importManuscript':
       await importManuscript(c.project);

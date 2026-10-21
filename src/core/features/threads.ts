@@ -463,6 +463,7 @@ function mergeCandidate(f: JudgedForeshadow): string {
  *    （verifyFinds：证据逐字校验）
  * c. 归并（0–1 次）：a 报了新线 / 新伏笔、又有已有的可比 → 是不是已有的那一条换了个说法
  * 写盘：清掉这一章证据已经不在正文里的旧事件 → 新线建文件、新伏笔与事件追加（只追加，第 19 条）
+ *       → 这一章算判过，推 project.json 里的水位（四期，{@link noteThreadsJudged}）
  * b. 当前进度（0–1 次）：本章有实际事件的那几条线（作者改过的不送、挂黄 ❗）→ 各自的当前进度（指纹守着）
  * ```
  *
@@ -587,6 +588,8 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
   finds = completeFinds(finds, no);
 
   await writeFinds(project, finds, no, text, out);
+  // 认出来的落了盘，这一章就算判过（四期）：推水位。放在当前进度之前——那一次没成、被取消，认出来的也已经在线里了。
+  await noteThreadsJudged(project, no);
   await updateProgress(project, chapter, out, opts);
 
   log.info(

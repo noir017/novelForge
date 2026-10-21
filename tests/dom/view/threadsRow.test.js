@@ -11,6 +11,7 @@
  * | 当前进度作者改过的黄 ❗ 挂在那一行；排线失败的红 ❗ 挂在标题旁 | 失败留在出错的东西身上（第 16 条） |
  * | 标题旁「从大纲排出 / 从大纲补充」发 generateThreads、不折叠这一组；没有情节大纲不给 | 按钮不直接花钱，后端先弹确认框 |
  * | 一条线都没有时说清先做什么 | 空页签不该只剩一个标题 |
+ * | 叙事线落后于定稿（四期）：最上面一句「⚠ 第 a–b 章还没判」；标题旁与右键「从正文补记」发 backfillThreads，补记在跑时不给 | 拆进来的书、补记停在半路的书一眼看出差多少、从哪补 |
  * | 「故事架构」组仍是 x/6 | 叙事线是可选的，不挡路 |
  */
 const { describe, test, before } = require('node:test');
@@ -157,6 +158,57 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
     const items = ui.itemsOf(ui.rightClick(panel()));
     assert.ok(!items.some((x) => x.includes('叙事线')), JSON.stringify(items));
     ui.closeMenu();
+  });
+
+  // 四期：定稿了、叙事线还没判的章。
+  describe('叙事线落后于定稿', () => {
+    const lagged = () => {
+      const tree = sampleTree();
+      return { ...tree, threads: { ...tree.threads, current: 60, through: 30, lag: { count: 30, text: '第 31–60 章还没判' } } };
+    };
+    const backfillBtn = () => group().querySelector('.group-head .threads-head .threads-backfill-btn');
+
+    test('页里最上面一句「⚠ 第 31–60 章还没判」，说清状态按判到的那一章算；线照样一条一行', () => {
+      ui.post({ type: 'project', tree: lagged() });
+      const lag = panel().querySelector('.threads-lag');
+      assert.ok(lag, panel().innerHTML.slice(0, 500));
+      assert.match(lag.textContent, /^⚠ 第 31–60 章还没判：这几章定稿了，叙事线还没记上。线断了几章、伏笔逾期都按判到的第 30 章算/);
+      assert.ok(lag.textContent.includes('「从正文补记」'), lag.textContent);
+      assert.equal(panel().querySelector('.group-body').firstElementChild, lag);
+      assert.equal(labels().length, 5);
+    });
+
+    test('标题旁「从正文补记」发 backfillThreads，排在「从大纲补充」前面、不折叠这一组；右键标题与空白处也有', () => {
+      ui.post({ type: 'project', tree: lagged() });
+      assert.equal(backfillBtn()?.textContent, '从正文补记');
+      assert.equal(headBtn(), backfillBtn());
+      ui.sent.length = 0;
+      ui.clickEl(backfillBtn());
+      assert.equal(ui.last('projectAction')?.action, 'backfillThreads', JSON.stringify(ui.sent));
+      assert.equal(labels().length, 5, '点按钮把组折起来了');
+      ui.sent.length = 0;
+      ui.pick(ui.rightClick(group().querySelector('.group-head')), '从已写正文补记叙事线');
+      assert.equal(ui.last('projectAction')?.action, 'backfillThreads', JSON.stringify(ui.sent));
+      ui.sent.length = 0;
+      ui.pick(ui.rightClick(panel()), '从已写正文补记叙事线');
+      assert.equal(ui.last('projectAction')?.action, 'backfillThreads', JSON.stringify(ui.sent));
+    });
+
+    test('补记在跑：不给按钮（点第二次只会撞上已有任务）', () => {
+      ui.post({ type: 'tasks', tasks: [{ id: 't1', title: '从已写正文补记叙事线', message: '第 31 章', current: 0, total: 30, elapsedMs: 0 }] });
+      ui.post({ type: 'project', tree: lagged() });
+      assert.equal(backfillBtn(), null);
+      ui.post({ type: 'tasks', tasks: [] });
+    });
+
+    test('不落后：没有那一句，也没有「从正文补记」', () => {
+      ui.post({ type: 'project', tree: sampleTree() });
+      assert.equal(panel().querySelector('.threads-lag'), null);
+      assert.equal(backfillBtn(), null);
+      const items = ui.itemsOf(ui.rightClick(panel()));
+      assert.ok(!items.includes('从已写正文补记叙事线'), JSON.stringify(items));
+      ui.closeMenu();
+    });
   });
 
   test('「故事架构」组标题仍是 x/6', () => {
