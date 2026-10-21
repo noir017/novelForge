@@ -1234,9 +1234,16 @@ export function openForeshadowing(book: ThreadBook, no: number): JudgedForeshado
 }
 
 /**
- * 定稿第 `no` 章时送哪几条伏笔去认：写到这一章时还没收、也没弃的（各条线与「未归属的伏笔」里的都算，线收束了伏笔
- * 照样可能还开着），按要紧排——计划在这一章或更早收的（逾期的、本章该收的，回收章早的在前）→ 本章计划埋或收的 →
- * 已经埋下的（埋得近的在前）→ 其余还没埋的；最多 `limit` 条（上下文详细度 `foreshadowJudge`）。
+ * 定稿第 `no` 章时送哪几条伏笔去认：写到这一章时还没收、也没弃的（{@link openForeshadowing}），按要紧排，最多 `limit` 条
+ * （上下文详细度 `foreshadowJudge`）：
+ *
+ * 1. **本章计划埋或收的**（拆细纲写进线里的这一章的计划事件）；
+ * 2. **计划已经到期、却还没埋的**：计划埋的章 ≤ 本章（没写埋的章、只写了回收章的，回收章 ≤ 本章也算），到期早的在前；
+ * 3. **已埋没收的**：计划回收章近的在前（逾期的回收章更早，排得更前），没写回收章的排在后面、埋得近的在前；
+ * 4. 其余（计划还没到期的）。
+ *
+ * 试跑之后改的（2026-10-21）：从前只看计划事件与回收章，不看伏笔自己的计划埋的章——排线排的伏笔没埋时落在最末一档，
+ * 被模型自己登记的一堆「已埋」挤出去，「伙计的执念来源」计划第 8 章埋，第 8 章恰好没送去认。
  */
 export function foreshadowToJudge(
   book: ThreadBook,
@@ -1248,21 +1255,36 @@ export function foreshadowToJudge(
       .filter((p) => p.event.foreshadowing)
       .map((p) => threadKey(p.event.foreshadowing!))
   );
-  const all = openForeshadowing(book, no);
+  /** 计划到期的那一章：计划埋的章，没写就是回收章（埋总在收之前）。 */
+  const dueAt = (f: JudgedForeshadow): number | undefined => f.plant ?? f.resolve;
   const rank = (f: JudgedForeshadow): number => {
-    if (f.resolve !== undefined && f.resolve <= no) {
+    if (planned.has(threadKey(f.name))) {
       return 0;
     }
-    if (planned.has(threadKey(f.name))) {
-      return 1;
+    if (f.status === '计划') {
+      const due = dueAt(f);
+      return due !== undefined && due <= no ? 1 : 3;
     }
-    return f.status === '已埋' ? 2 : 3;
+    return 2;
   };
-  const tie = (f: JudgedForeshadow): number =>
-    rank(f) === 0 ? f.resolve! : rank(f) === 2 ? -(f.plantedAt ?? 0) : 0;
-  const ordered = all
-    .map((f, i) => ({ f, i }))
-    .sort((a, b) => rank(a.f) - rank(b.f) || tie(a.f) - tie(b.f) || a.i - b.i)
+  /** 同一档里的先后：越小越前。 */
+  const order = (f: JudgedForeshadow, r: number): number[] =>
+    r === 1 ? [dueAt(f)!] : r === 2 ? [f.resolve ?? Number.POSITIVE_INFINITY, -(f.plantedAt ?? 0)] : [];
+  const ordered = openForeshadowing(book, no)
+    .map((f, i) => ({ f, i, r: rank(f) }))
+    .sort((a, b) => {
+      if (a.r !== b.r) {
+        return a.r - b.r;
+      }
+      const x = order(a.f, a.r);
+      const y = order(b.f, b.r);
+      for (let k = 0; k < x.length; k++) {
+        if (x[k] !== y[k]) {
+          return x[k] < y[k] ? -1 : 1;
+        }
+      }
+      return a.i - b.i;
+    })
     .map((x) => x.f);
   const n = Math.max(0, limit);
   return { judged: ordered.slice(0, n), skipped: ordered.slice(n) };

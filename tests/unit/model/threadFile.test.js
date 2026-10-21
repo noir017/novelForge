@@ -535,16 +535,46 @@ describe('threadFile.ts · 定稿：送哪些去认', () => {
   });
 
   // 只在本章计划事件里出现、还没登记的（断剑）不算「没收的伏笔」：它在「本章计划」那一节里交给模型。
-  test('伏笔：该收的（逾期的在前）→ 本章计划的 → 已埋的（近的在前）→ 其余；收了的不送；未归属的也在', () => {
+  test('伏笔：计划到期却没埋的（到期早的在前）→ 已埋的 → 其余；收了的不送；未归属的也在', () => {
     const r = t.foreshadowToJudge(book, 6, 10);
     assert.deepEqual(r.judged.map((f) => [f.name, f.line, f.status]), [
+      ['火折子', '沈家旧案', '计划'],
       ['玉佩', '林昭与沈青', '计划'],
       ['提灯人', undefined, '已埋'],
       ['旧伤', '林昭与沈青', '计划'],
       ['名册', '林昭与沈青', '计划'],
-      ['火折子', '沈家旧案', '计划'],
     ]);
     assert.equal(t.foreshadowToJudge(book, 6, 2).skipped.length, 3);
+  });
+
+  // 试跑报告问题 4：没收的伏笔第 7 章就超过 foreshadowJudge，「伙计的执念来源」计划第 8 章埋，第 8 章恰好没送去认——
+  // 从前不看伏笔自己的计划埋的章，没埋的排线伏笔落在最末一档，被模型自己登记的「已埋」挤了出去。
+  test('伏笔：本章计划埋或收的 → 计划到期没埋的 → 已埋没收的（回收章近的在前、没写回收章的随后）→ 其余；上限照旧', () => {
+    const grown = Array.from({ length: 6 }, (_, i) => ev(i + 1, '埋', { foreshadowing: `自登记${i + 1}` }));
+    const big = {
+      threads: [
+        line(
+          [...grown, ev(2, '埋', { foreshadowing: '名册' }), ev(3, '埋', { foreshadowing: '旧伤' }), { ...ev(8, '收', { foreshadowing: '断剑' }), planned: true }],
+          {
+            name: '主线',
+            kind: '主线',
+            index: 0,
+            foreshadowing: [
+              { name: '名册', what: '', resolve: 30 },
+              { name: '旧伤', what: '', resolve: 9 },
+              { name: '断剑', what: '', plant: 2, resolve: 8 },
+              { name: '执念来源', what: '', plant: 8, resolve: 65 },
+              { name: '温情假象', what: '', plant: 1, resolve: 18 },
+              { name: '后面才埋', what: '', plant: 20 },
+            ],
+          }
+        ),
+      ],
+      unfiled: { name: '未归属的伏笔', relPath: 'u', foreshadowing: [], events: [] },
+    };
+    const r = t.foreshadowToJudge(big, 8, 6);
+    assert.deepEqual(r.judged.map((f) => f.name), ['断剑', '温情假象', '执念来源', '旧伤', '名册', '自登记6']);
+    assert.deepEqual(r.skipped.map((f) => f.name), ['自登记5', '自登记4', '自登记3', '自登记2', '自登记1', '后面才埋']);
   });
 });
 
