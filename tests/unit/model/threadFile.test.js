@@ -664,13 +664,94 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
       { kind: 'thread', from: '沈家的旧案', into: '主线' },
       { kind: 'foreshadowing', from: '那块玉佩', into: '玉佩' },
     ]);
-    const applied = t.applyMerges(finds, merges, book);
-    assert.deepEqual(applied.newThreads, []);
-    assert.deepEqual(applied.newForeshadowing, []);
-    assert.deepEqual(applied.events.map((e) => [e.line, e.event.type, e.event.foreshadowing]), [
-      ['主线', '推进', undefined],
-      ['林昭与沈青', '收', '玉佩'],
+    const applied = t.applyMerges(finds, merges, book, 6);
+    assert.deepEqual(applied.finds.newThreads, []);
+    assert.deepEqual(applied.finds.newForeshadowing, []);
+    // 玉佩写到第 6 章时还是「计划」：这一章就是它埋下的一章，补的「埋」排在同一章的「收」前面。
+    assert.deepEqual(applied.finds.events.map((e) => [e.line, e.event.type, e.event.foreshadowing, e.event.evidence]), [
+      ['主线', '推进', undefined, '背面刻着一个沈字'],
+      ['林昭与沈青', '埋', '玉佩', '背面刻着一个沈字'],
+      ['林昭与沈青', '收', '玉佩', '院外有人提着灯走过'],
     ]);
+    assert.deepEqual(applied.merges, merges, '都带过来了事件，没有说明');
+  });
+
+  // 试跑报告问题 2（repro.js 第 2 段）：新伏笔只写在 newForeshadowing、没单列「埋」，并进已有的以后这一章的记录整条没了。
+  describe('归并之后新伏笔的那一条「埋」挂到已有的那条上', () => {
+    const raw = [
+      '---',
+      'kind: 主线',
+      'plan: 1-100',
+      '---',
+      '',
+      '# 沈默的灭门复仇',
+      '',
+      '## 伏笔',
+      '',
+      '- 焦黑罗盘的本质：罗盘是大火余烬。（计划第 1 章埋、第 95 章前收）',
+      '- 祠堂的隐秘：祠堂里藏着灵位。',
+      '',
+      '## 进展',
+      '',
+      '- 第 1 章 · 埋〈祠堂的隐秘〉：祠堂第一次露面 〔证据：「祠堂的门半掩着」〕',
+      '',
+    ].join('\n');
+    const main = t.parseThreadFile(raw, '.novelforge/threads/沈默的灭门复仇.md');
+    const story = { threads: [main], unfiled: t.parseUnfiledFile('', '.novelforge/threads/未归属的伏笔.md') };
+    const body = '罗盘虽然渐渐平息了那种滚烫的烙铁感，但余温依旧像碎炭一般留在皮肉里。祠堂地下有一座祭坛。';
+    const find = (newForeshadowing, events = []) =>
+      t.verifyFinds({ events, newThreads: [], newForeshadowing }, { chapter: 2, text: body, judged: [main], book: story });
+    const run = (finds, raw) => {
+      const r = t.applyMerges(finds, t.verifyMerges(raw, finds, story), story, 2);
+      return { merges: r.merges, events: t.completeFinds(r.finds, 2).events };
+    };
+    const burn = { title: '罗盘使用后的灼烧侵蚀', what: '灼烧感侵蚀活人气息', line: '沈默的灭门复仇', evidence: '余温依旧像碎炭一般留在皮肉里' };
+
+    test('已有的那条还没埋：这一章记一条「埋〈已有的〉」，证据用新伏笔的；完成提示不另加说明', () => {
+      const r = run(find([burn]), [{ new: '罗盘使用后的灼烧侵蚀', into: '焦黑罗盘的本质' }]);
+      assert.deepEqual(r.events.map((e) => [e.line, e.event.type, e.event.foreshadowing, e.event.what, e.event.evidence]), [
+        ['沈默的灭门复仇', '埋', '焦黑罗盘的本质', '灼烧感侵蚀活人气息', '余温依旧像碎炭一般留在皮肉里'],
+      ]);
+      assert.equal(r.merges[0].note, undefined);
+    });
+
+    test('模型单列了「埋〈新的〉」：改叫已有的名字，同一章只记一条', () => {
+      const r = run(find([burn], [{ line: '沈默的灭门复仇', type: '埋', foreshadowing: '罗盘使用后的灼烧侵蚀', what: '罗盘发烫', evidence: '滚烫的烙铁感' }]), [
+        { new: '罗盘使用后的灼烧侵蚀', into: '焦黑罗盘的本质' },
+      ]);
+      assert.deepEqual(r.events.map((e) => [e.event.type, e.event.foreshadowing, e.event.evidence]), [['埋', '焦黑罗盘的本质', '滚烫的烙铁感']]);
+    });
+
+    test('已有的那条第 1 章已经埋下：不再记第二条「埋」，说明写在 note 里（完成提示照它说）', () => {
+      const altar = { title: '祠堂地下祭坛', what: '祠堂地下有祭坛', line: '沈默的灭门复仇', evidence: '祠堂地下有一座祭坛' };
+      const r = run(find([altar], [{ line: '沈默的灭门复仇', type: '埋', foreshadowing: '祠堂地下祭坛', what: '祭坛', evidence: '祠堂地下有一座祭坛' }]), [
+        { new: '祠堂地下祭坛', into: '祠堂的隐秘' },
+      ]);
+      assert.deepEqual(r.events, []);
+      assert.equal(r.merges[0].note, '〈祠堂的隐秘〉第 1 章已经埋下，这一章不再记「埋」');
+    });
+
+    test('已经埋下的伏笔，模型直接再报一次「埋」：不记，说清第几章已经埋下', () => {
+      const finds = find([], [{ line: '沈默的灭门复仇', type: '埋', foreshadowing: '祠堂的隐秘', what: '又见祠堂', evidence: '祠堂地下有一座祭坛' }]);
+      assert.deepEqual(finds.events, []);
+      assert.deepEqual(finds.dropped.map((d) => [d.what, d.why]), [['沈默的灭门复仇〈祠堂的隐秘〉', '这条伏笔第 1 章已经埋下']]);
+      // 重新定稿第 1 章：埋在第 1 章那一次不算「之前」，照收（同一条由去重挡住）。
+      const again = t.verifyFinds(
+        { events: [{ line: '沈默的灭门复仇', type: '埋', foreshadowing: '祠堂的隐秘', what: '祠堂', evidence: '祠堂地下有一座祭坛' }] },
+        { chapter: 1, text: body, judged: [main], book: story }
+      );
+      assert.equal(again.events.length, 1);
+    });
+
+    test('并掉的新线这一章没带来任何事件：note 说「这一章没有另记事件」，不替它编一条推进', () => {
+      const finds = t.verifyFinds(
+        { newThreads: [{ title: '复仇之路', kind: '支线', intent: '换个说法', evidence: '余温依旧像碎炭一般留在皮肉里' }] },
+        { chapter: 2, text: body, judged: [main], book: story }
+      );
+      const r = t.applyMerges(finds, [{ kind: 'thread', from: '复仇之路', into: '沈默的灭门复仇' }], story, 2);
+      assert.deepEqual(t.completeFinds(r.finds, 2).events, []);
+      assert.equal(r.merges[0].note, '这一章没有另记事件');
+    });
   });
 
   test('补上隐含的那一条：新线没有事件记一条推进，新伏笔没有埋记一条埋', () => {

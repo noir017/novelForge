@@ -503,10 +503,47 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
       });
     mergeReply = () => JSON.stringify({ merges: [{ new: '沈家的旧案', into: '沈家旧案' }] });
     const merged = await bundle.finalize.finalizeChapter(project, await chapter4());
-    assert.deepEqual(merged.threads.merged, [{ kind: 'thread', from: '沈家的旧案', into: '沈家旧案' }]);
+    // 新线这一章没带来任何事件：并进去了，但如实说没记什么（不替它编一条推进）。
+    assert.deepEqual(merged.threads.merged, [{ kind: 'thread', from: '沈家的旧案', into: '沈家旧案', note: '这一章没有另记事件' }]);
     assert.ok(!t.has(file('沈家的旧案')));
     assert.ok(userOf(MERGE_MARK).includes('- 沈家的旧案（支线）换个说法'));
-    assert.ok(bundle.finalize.describeFinalize(4, merged).includes('〈沈家的旧案〉并进了〈沈家旧案〉'));
+    assert.ok(bundle.finalize.describeFinalize(4, merged).includes('〈沈家的旧案〉并进了〈沈家旧案〉（这一章没有另记事件）'));
+  });
+
+  // 试跑报告问题 2：新伏笔只写在 newForeshadowing 里、并进已有的以后，这一章的「埋」整条没了，提示却照样说「并进了」。
+  test('新伏笔并进已有的：还没埋的那条记一条「埋」；已经埋过的不再记，完成提示照实说；新伏笔都不另登记', async () => {
+    t.write(
+      file('断剑之谜'),
+      '---\nkind: 支线\nplan: 3-9\n---\n\n# 断剑之谜\n\n## 意图\n断剑里的字是谁刻的。\n\n## 当前进度\n作者写的进度。\n\n## 伏笔\n- 断剑的刻字：断剑上的字是谁刻的（计划第 4 章埋）\n'
+    );
+    const before = t.read(file('林昭与沈青'));
+    findReply = () =>
+      JSON.stringify({
+        events: [],
+        newThreads: [],
+        newForeshadowing: [
+          { title: '沈字的来历', what: '玉佩背面刻着沈字', line: '林昭与沈青', evidence: '背面刻着一个小小的沈字' },
+          { title: '廊下的旧物', what: '林昭想起断剑上的字', line: '断剑之谜', evidence: '林昭看着她，忽然明白' },
+        ],
+      });
+    mergeReply = () =>
+      JSON.stringify({
+        merges: [
+          { new: '沈字的来历', into: '玉佩的来历' },
+          { new: '廊下的旧物', into: '断剑的刻字' },
+        ],
+      });
+    const merged = await bundle.finalize.finalizeChapter(project, await chapter4());
+    const sword = t.read(file('断剑之谜'));
+    assert.ok(sword.includes('- 第 4 章 · 埋〈断剑的刻字〉：林昭想起断剑上的字 〔证据：「林昭看着她，忽然明白」〕'), sword);
+    assert.equal(t.read(file('林昭与沈青')), before, '玉佩的来历第 1 章已经埋下，不再记第二条「埋」');
+    for (const name of ['沈字的来历', '廊下的旧物']) {
+      assert.ok(!sword.includes(name) && !before.includes(name), name);
+    }
+    const said = bundle.finalize.describeFinalize(4, merged);
+    for (const s of ['埋〈断剑的刻字〉', '〈廊下的旧物〉并进了〈断剑的刻字〉；', '〈沈字的来历〉并进了〈玉佩的来历〉（〈玉佩的来历〉第 1 章已经埋下，这一章不再记「埋」）']) {
+      assert.ok(said.includes(s), `${s}｜${said}`);
+    }
   });
 
   test('当前进度那一次没成：认出来的照样记下，黄 ❗ 挂在章节上说清是哪一段', async () => {

@@ -1302,8 +1302,9 @@ function unquoteEvidence(v: unknown): string {
  *   「未归属的伏笔」；一章最多 {@link FINALIZE_NEW_FORESHADOW_LIMIT} 条。
  * - **事件**：类型认得出。线的事件（推进 / 关系 / 收束 / 放弃）的 `line` 要是送去认的线之一、或这一次新认出的线，挂不上的
  *   丢掉（关系变动挂不上就丢，设计稿）；伏笔的事件（埋 / 收 / 弃）跟着那条伏笔走——落在它所在的那条线或「未归属的伏笔」
- *   上；没见过的伏笔被「埋」了，当它是一条新伏笔（照上一条挂）；没见过的被「收」「弃」丢掉。同一条（同一处、同类型、同一
- *   条伏笔、证据归一后相同）只记一次；一章最多 {@link FINALIZE_EVENT_LIMIT} 个（先校验后截）。
+ *   上；没见过的伏笔被「埋」了，当它是一条新伏笔（照上一条挂）；没见过的被「收」「弃」丢掉；**写到这一章之前已经埋下的
+ *   再「埋」一次丢掉**（试跑：同一条伏笔记了两次「埋」）。同一条（同一处、同类型、同一条伏笔、证据归一后相同）只记一次；
+ *   一章最多 {@link FINALIZE_EVENT_LIMIT} 个（先校验后截）。
  *
  * `judged` 是送去认的线（只有它们收线的事件）；`book` 用来认全书已有的线名与伏笔名。
  */
@@ -1331,6 +1332,15 @@ export function verifyFinds(
   for (const f of foreshadowingOf(ctx.book.unfiled, 0)) {
     if (!knownFore.has(threadKey(f.name))) {
       knownFore.set(threadKey(f.name), { name: f.name });
+    }
+  }
+  /** 写到这一章之前已经埋下的伏笔埋在第几章：再报一次「埋」不记（试跑报告第 11 条：同一条伏笔记了两次「埋」）。 */
+  const plantedBefore = new Map<string, number>();
+  for (const f of [...ctx.book.threads, ctx.book.unfiled]) {
+    for (const s of foreshadowingOf(asOf(f, ctx.chapter), 0)) {
+      if (s.plantedAt !== undefined && !plantedBefore.has(threadKey(s.name))) {
+        plantedBefore.set(threadKey(s.name), s.plantedAt);
+      }
     }
   }
 
@@ -1412,6 +1422,8 @@ export function verifyFinds(
       const known = knownFore.get(key) ?? newFore.get(key);
       if (!foreName) {
         why = '没写是哪一条伏笔';
+      } else if (known && type === '埋' && plantedBefore.has(key)) {
+        why = `这条伏笔第 ${plantedBefore.get(key)} 章已经埋下`;
       } else if (known) {
         found = { ...(known.line ? { line: known.line } : {}), event: { chapter: ctx.chapter, planned: false, type: type!, foreshadowing: known.name, what, evidence } };
       } else if (type === '埋') {
@@ -1458,6 +1470,8 @@ export interface ThreadMerge {
   kind: 'thread' | 'foreshadowing';
   from: string;
   into: string;
+  /** 并进去了、这一章却没有另记什么时，说清为什么（完成提示照它说，不说「并进了」却什么都没写）。 */
+  note?: string;
 }
 
 /**
@@ -1490,37 +1504,99 @@ export function verifyMerges(raw: readonly unknown[], finds: ThreadFinds, book: 
 }
 
 /**
- * 把归并用上：并掉的新线不建，挂在它上面的事件、新伏笔改挂到已有的那条线；并掉的新伏笔不登记，它的事件改叫已有的那条
- * 伏笔、落到那条伏笔所在的线（或「未归属的伏笔」）上。返回新的一份（原来的不动）。
+ * 补出来的「埋」插在同一条伏笔这一章的别的事件前面：同一章里状态取写在后面的那条，「收」后面跟一条「埋」会把收了的
+ * 算回「已埋」。这一章没有它的别的事件就放在最后。
  */
-export function applyMerges(finds: ThreadFinds, merges: readonly ThreadMerge[], book: ThreadBook): ThreadFinds {
+function plantFirst(events: FoundEvent[], plant: FoundEvent): void {
+  const key = threadKey(plant.event.foreshadowing ?? '');
+  const at = events.findIndex((e) => threadKey(e.event.foreshadowing ?? '') === key);
+  events.splice(at >= 0 ? at : events.length, 0, plant);
+}
+
+/**
+ * 把归并用上（第 `chapter` 章定稿）：并掉的新线不建，挂在它上面的事件、新伏笔改挂到已有的那条线；并掉的新伏笔不登记，它的
+ * 事件改叫已有的那条伏笔、落到那条伏笔所在的线（或「未归属的伏笔」）上。返回新的一份（原来的不动）与带上说明的归并。
+ *
+ * **新伏笔的那一条「埋」挂到已有的那条伏笔上**（试跑：模型多半只把新伏笔写在 `newForeshadowing` 里、不单列「埋」，隐含的
+ * 那一条要等 {@link completeFinds} 补——并掉的已经不在新伏笔里了，这一章的记录整条没了，完成提示却照样说「并进了」）：
+ * - 已有的那条写到这一章时还没埋：这一章就是它埋下的一章，记一条「埋〈已有的〉」（证据、一句话用新伏笔的；模型单列了
+ *   「埋」的，那一条改叫已有的名字），同一章只记一条；
+ * - 已经埋过了（或已经收了、弃了）：**不再记第二条「埋」**，`note` 里说清「第 N 章已经埋下，这一章不再记「埋」」——如实不记，
+ *   不编一条别的事件出来（⚑）；模型给这条新伏笔报的别的事件（收、弃）照样改名记下。
+ * 并掉的新线这一章一个事件都没带过来（也没有新伏笔挂在它上面）的，`note` 说「这一章没有另记事件」：不替它编一条推进。
+ */
+export function applyMerges(
+  finds: ThreadFinds,
+  merges: readonly ThreadMerge[],
+  book: ThreadBook,
+  chapter: number
+): { finds: ThreadFinds; merges: ThreadMerge[] } {
   if (merges.length === 0) {
-    return finds;
+    return { finds, merges: [] };
   }
   const lineInto = new Map(merges.filter((m) => m.kind === 'thread').map((m) => [threadKey(m.from), m.into]));
   const foreInto = new Map(merges.filter((m) => m.kind === 'foreshadowing').map((m) => [threadKey(m.from), m.into]));
   const ownerOf = new Map<string, string | undefined>();
-  for (const t of book.threads) {
-    for (const f of foreshadowingOf(t, 0)) {
-      ownerOf.set(threadKey(f.name), t.name);
+  /** 写到这一章之前已经不是「计划」的伏笔：埋了（埋在第几章）、收了、弃了。 */
+  const before = new Map<string, ForeshadowState>();
+  for (const file of [...book.threads, book.unfiled]) {
+    const line = file === book.unfiled ? undefined : file.name;
+    for (const f of foreshadowingOf(file, 0)) {
+      if (!ownerOf.has(threadKey(f.name))) {
+        ownerOf.set(threadKey(f.name), line);
+      }
     }
-  }
-  for (const f of foreshadowingOf(book.unfiled, 0)) {
-    if (!ownerOf.has(threadKey(f.name))) {
-      ownerOf.set(threadKey(f.name), undefined);
+    for (const f of foreshadowingOf(asOf(file, chapter), 0)) {
+      if (f.status !== '计划' && !before.has(threadKey(f.name))) {
+        before.set(threadKey(f.name), f);
+      }
     }
   }
   const relink = (line: string | undefined): string | undefined => (line ? (lineInto.get(threadKey(line)) ?? line) : line);
-  const events = finds.events.map((e) => {
+  const plantedHere = (list: readonly FoundEvent[], name: string): boolean =>
+    list.some((e) => e.event.type === '埋' && threadKey(e.event.foreshadowing ?? '') === threadKey(name));
+  const events: FoundEvent[] = [];
+  for (const e of finds.events) {
     const fore = e.event.foreshadowing;
     const into = fore ? foreInto.get(threadKey(fore)) : undefined;
     if (into) {
+      // 已有的那条已经埋过、或这一章已经记了它的一条「埋」：不再记一条。
+      if (e.event.type === '埋' && (before.has(threadKey(into)) || plantedHere(events, into))) {
+        continue;
+      }
       const line = ownerOf.get(threadKey(into));
-      return { ...(line ? { line } : {}), event: { ...e.event, foreshadowing: into } };
+      events.push({ ...(line ? { line } : {}), event: { ...e.event, foreshadowing: into } });
+      continue;
     }
     const line = relink(e.line);
-    return { ...(line ? { line } : {}), event: e.event };
-  });
+    events.push({ ...(line ? { line } : {}), event: e.event });
+  }
+  const out: ThreadMerge[] = [];
+  for (const m of merges) {
+    if (m.kind === 'foreshadowing') {
+      const done = before.get(threadKey(m.into));
+      if (done) {
+        const when = done.plantedAt ?? done.closedAt;
+        const what = done.status === '已埋' ? '埋下' : done.status === '已收' ? '收了' : '弃了';
+        out.push({ ...m, note: `〈${m.into}〉${when !== undefined ? `第 ${when} 章` : ''}已经${what}，这一章不再记「埋」` });
+        continue;
+      }
+      const f = finds.newForeshadowing.find((x) => threadKey(x.name) === threadKey(m.from));
+      if (f && !plantedHere(events, m.into)) {
+        const line = ownerOf.get(threadKey(m.into));
+        plantFirst(events, {
+          ...(line ? { line } : {}),
+          event: { chapter, planned: false, type: '埋', foreshadowing: m.into, what: f.what || f.name, evidence: f.evidence },
+        });
+      }
+      out.push({ ...m });
+    } else {
+      const carried =
+        finds.events.some((e) => threadKey(e.line ?? '') === threadKey(m.from)) ||
+        finds.newForeshadowing.some((f) => threadKey(f.line ?? '') === threadKey(m.from));
+      out.push(carried ? { ...m } : { ...m, note: '这一章没有另记事件' });
+    }
+  }
   const dedup: FoundEvent[] = [];
   for (const e of events) {
     if (!dedup.some((d) => threadKey(d.line ?? '') === threadKey(e.line ?? '') && sameEvent(d.event, e.event))) {
@@ -1528,21 +1604,25 @@ export function applyMerges(finds: ThreadFinds, merges: readonly ThreadMerge[], 
     }
   }
   return {
-    events: dedup,
-    newThreads: finds.newThreads.filter((t) => !lineInto.has(threadKey(t.name))),
-    newForeshadowing: finds.newForeshadowing
-      .filter((f) => !foreInto.has(threadKey(f.name)))
-      .map((f) => {
-        const line = relink(f.line);
-        return { name: f.name, what: f.what, ...(line ? { line } : {}), evidence: f.evidence };
-      }),
-    dropped: finds.dropped,
+    finds: {
+      events: dedup,
+      newThreads: finds.newThreads.filter((t) => !lineInto.has(threadKey(t.name))),
+      newForeshadowing: finds.newForeshadowing
+        .filter((f) => !foreInto.has(threadKey(f.name)))
+        .map((f) => {
+          const line = relink(f.line);
+          return { name: f.name, what: f.what, ...(line ? { line } : {}), evidence: f.evidence };
+        }),
+      dropped: finds.dropped,
+    },
+    merges: out,
   };
 }
 
 /**
  * 补上隐含的那一条事件：新认出的线这一章一个事件都没有，记一条「推进」（认出它的那一句就是证据）；新认出的伏笔这一章
- * 没有「埋」，记一条「埋」。这样状态现算得出来（新线进行中、新伏笔已埋），不另记一份「从哪一章起」。
+ * 没有「埋」，记一条「埋」（插在它这一章别的事件前面）。这样状态现算得出来（新线进行中、新伏笔已埋），不另记一份「从哪一章起」。
+ * 要在 {@link applyMerges} 之后调：并掉的新伏笔那一条「埋」由 applyMerges 挂到已有的那条上。
  */
 export function completeFinds(finds: ThreadFinds, chapter: number): ThreadFinds {
   const events = [...finds.events];
@@ -1554,7 +1634,7 @@ export function completeFinds(finds: ThreadFinds, chapter: number): ThreadFinds 
   for (const f of finds.newForeshadowing) {
     const planted = events.some((e) => e.event.type === '埋' && threadKey(e.event.foreshadowing ?? '') === threadKey(f.name));
     if (!planted) {
-      events.push({
+      plantFirst(events, {
         ...(f.line ? { line: f.line } : {}),
         event: { chapter, planned: false, type: '埋', foreshadowing: f.name, what: f.what, evidence: f.evidence },
       });

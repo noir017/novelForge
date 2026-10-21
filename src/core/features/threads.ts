@@ -542,8 +542,16 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
         .filter(Boolean)
         .join('\n\n');
       const merged = await askJson(opts, `第 ${no} 章 · 叙事线归并`, THREAD_MERGE_SYSTEM, user, 0.1, '归并结果');
-      out.merged = verifyMerges(Array.isArray(merged.merges) ? merged.merges : [], finds, book);
-      finds = applyMerges(finds, out.merged, book);
+      // 新伏笔的那一条「埋」改挂到已有的那条上（已有的已经埋过就如实不记，说明写在 note 里），见 applyMerges。
+      const applied = applyMerges(finds, verifyMerges(Array.isArray(merged.merges) ? merged.merges : [], finds, book), book, no);
+      finds = applied.finds;
+      out.merged = applied.merges;
+      if (out.merged.length > 0) {
+        log.info(
+          `第 ${no} 章：${out.merged.length} 条新认出的并进了已有的`,
+          out.merged.map((m) => `〈${m.from}〉→〈${m.into}〉${m.note ? `（${m.note}）` : ''}`).join('\n')
+        );
+      }
     } catch (err) {
       if (err instanceof CancelledError || opts.signal?.aborted) {
         throw err;
@@ -772,13 +780,14 @@ export function describeThreads(o: ThreadsOutcome): string {
     ...[...byLine.values()].map((x) => `${x.line}${x.types.join('、')}`),
     ...fores,
     o.newThreads.length > 0 ? `新认出 ${o.newThreads.length} 条线${o.newThreads.map((t) => `〈${t.name}〉（${t.kind}）`).join('')}` : '',
-    ...o.merged.map((m) => `〈${m.from}〉并进了〈${m.into}〉`),
+    ...o.merged.map((m) => `〈${m.from}〉并进了〈${m.into}〉${m.note ? `（${m.note}）` : ''}`),
   ].filter(Boolean);
+  const whys = [...new Set(o.dropped.map((d) => d.why))];
   const extra = [
     o.progressed.length > 0 ? `${o.progressed.join('、')}的当前进度更新到这一章` : '',
     o.guarded.length > 0 ? `${o.guarded.join('、')}的当前进度你改过，没有覆盖（线上挂了黄 ❗）` : '',
     o.unwritten.length > 0 ? `${o.unwritten.length} 条线的当前进度没写上（${o.unwritten.join('、')}：模型没回，或回的线名认不出）` : '',
-    o.dropped.length > 0 ? `另有 ${o.dropped.length} 条叙事线的记录没有收（证据在正文里找不到，或认不出是哪一条）` : '',
+    o.dropped.length > 0 ? `另有 ${o.dropped.length} 条叙事线的记录没有收（${whys.join('；')}）` : '',
     o.pruned > 0 ? `清掉 ${o.pruned} 条证据已经不在正文里的旧记录` : '',
     o.progressError ? `叙事线的当前进度没更新成（${o.progressError}）` : '',
     o.mergeError ? `叙事线的归并没判成（${o.mergeError}），新认出的照新的建了` : '',
