@@ -1,24 +1,22 @@
 /**
- * 七期验收：从排好前 5 章细纲的工程起，工程页「从大纲排出」叙事线（叙事线重做之后从情节大纲排），再「批量写章」第 1–3 章、
- * 写完即定稿。
+ * ★ 叙事线重做一期验收（设计稿「实施：逐期提交清单」一期第 11 个提交；七期那一份验收并进来了）。从排好前 5 章细纲的工程起，
+ * 工程页「从大纲排出」叙事线，作者改一条线的「当前进度」，再「批量写章」第 1–3 章、写完即定稿：
  *
- *   排线 → 写第 1 章 → 定稿（照正文更新细纲 + 叙事线）→ 写第 2 章 → 定稿 → 写第 3 章 → 定稿
+ *   排线 → 写第 1 章 → 定稿（细纲 + 认事件 + 当前进度）→ 写第 2 章 → 定稿（+ 归并）→ 写第 3 章 → 定稿
  *
- * 经 controller 发出去（与工程页那一颗按钮、弹窗提交的消息一样），假模型按脚本应答。细纲是
- * `summaries/NNN-标题.md` 的八节计划（钩子写在「看点」里）；写正文那一次靠执行卡里的「必需事件」
- * 认出是哪一章（执行卡不再列章末钩子）。
- * 没有角色卡：角色状态那一步不调，次数好数。
+ * 经 controller 发出去（与工程页那一颗按钮、弹窗提交的消息一样），假模型按脚本应答。写正文那一次靠执行卡里的
+ * 「必需事件」认出是哪一章。没有角色卡：角色状态那一步不调，次数好数。
  *
  * | 断言 | 为什么 |
  * |---|---|
- * | 叙事线目录里有排出的线（一条一个文件）；第 1、2 章定稿各给对的线追加了带证据的事件 | 定稿第三步 |
- * | 一条伪造证据的事件被丢弃 | 证据逐字校验是那道闸 |
- * | **第 3 章写正文那一次的装配里**有「进行中的叙事线」，带着各条线现在走到哪；计划中、没到区间的那条不在 | 这一期存在的理由：后一章读得到前面埋下的线 |
- * | 作者手改过的一行在三次定稿之后原样还在 | 第 3 条：机器只追加 |
+ * | 叙事线目录里有排出的线（一条一个文件，伏笔写在线下） | 排线从情节大纲排 |
+ * | 线文件里有带证据的实际事件（推进、埋、收）；伪造证据的那条没记 | 定稿第三步 a，证据逐字校验是那道闸 |
+ * | 机器维护的「当前进度」写到最后动过的那一章、盖了章 | 定稿第三步 b，作者一眼看出走到哪 |
+ * | 正文里新长出来的线建了新文件（来源：正文）、挂不上线的伏笔进「未归属的伏笔」 | 线从计划与正文两头来（作者定的第 2 条） |
+ * | 作者手改过的「当前进度」没被覆盖、那条线上挂了黄 ❗；作者改的那一行原样还在 | 第 19 条的例外：作者改过就不写；第 3 条 |
+ * | **第 3 章写正文那一次的装配里**有线：现在走到哪、作者写的进度照用、该收的伏笔；没开始的那条不在 | 后一章读得到前面的线 |
+ * | 工程页「叙事线」页签：一条线一行，主线在前，新认出的线也在，最后是「未归属的伏笔」 | 设计稿「七、工程页」 |
  * | 实际调用次数 ≤ 两个确认框报的上限之和 | 第 4 条 |
- *
- * 叙事线重做之后定稿第三步换成认事件 / 当前进度 / 归并，这一份照新格式改了夹具与应答；一期验收（第 11 个提交）另写。
- * | 工程页那一行的计数对得上 | 回收了的算已收 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -39,7 +37,11 @@ const TITLES = ['停舟', '令牌', '夜访', '井', '名册'];
 const pad3 = (n) => String(n).padStart(3, '0');
 const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.md`;
 const THREADS = '.novelforge/threads';
+const MAIN = `${THREADS}/青崖旧案.md`;
 const LEDGER = `${THREADS}/名册之谜.md`;
+const GROWN = `${THREADS}/沈氏的来意.md`;
+const UNFILED = `${THREADS}/未归属的伏笔.md`;
+const AUTHOR_PROGRESS = '作者写的：名册在沈氏手里，林昭还不知道。';
 const AUTHOR_INTENT = '作者改过的：名册上少了的那一页在沈氏手里。';
 
 function chapterText(no) {
@@ -47,20 +49,37 @@ function chapterText(no) {
     filler(260, no * 10 + 1),
     `林昭在第${no}章摸了摸怀里的玉佩。`,
     `沈氏在第${no}章翻开名册，手指停在第${no}行。`,
+    `沈氏在第${no}章敲了七下桌面。`,
     filler(260, no * 10 + 2),
   ].join('\n\n');
 }
 
 let ch3Prompt = '';
-/** 每一章判叙事线那一次答什么。 */
-const EVENTS = {
-  1: [
-    { line: '玉佩的来历', type: '推进', evidence: '林昭在第1章摸了摸怀里的玉佩。', what: '玉佩第一次露面' },
-    { line: '名册之谜', type: '推进', evidence: '名册上被人撕掉了一页', what: '正文里没有这一句' },
-  ],
-  2: [{ line: '名册之谜', type: '推进', evidence: '沈氏在第2章翻开名册', what: '名册第一次出现' }],
-  3: [{ line: '玉佩的来历', type: '收束', evidence: '林昭在第3章摸了摸怀里的玉佩', what: '身世揭开' }],
+/** 每一章认事件那一次答什么。第 1 章有一条伪造的证据；第 2 章从正文里长出一条线、一条挂不上线的伏笔。 */
+const FINDS = {
+  1: {
+    events: [
+      { line: '青崖旧案', type: '推进', evidence: '林昭在第1章摸了摸怀里的玉佩。', what: '林昭带着玉佩回镇' },
+      { line: '青崖旧案', type: '埋', foreshadowing: '玉佩的来历', evidence: '林昭在第1章摸了摸怀里的玉佩', what: '玉佩第一次露面' },
+      { line: '名册之谜', type: '推进', evidence: '名册上被人撕掉了一页', what: '正文里没有这一句' },
+    ],
+  },
+  2: {
+    events: [{ line: '名册之谜', type: '推进', evidence: '沈氏在第2章翻开名册', what: '名册第一次出现' }],
+    newThreads: [{ title: '沈氏的来意', kind: '人物线', intent: '沈氏为何盯上林昭。', evidence: '沈氏在第2章翻开名册，手指停在第2行。' }],
+    newForeshadowing: [{ title: '敲桌七下', what: '沈氏敲桌是暗号', evidence: '沈氏在第2章敲了七下桌面。' }],
+  },
+  3: {
+    events: [
+      { line: '青崖旧案', type: '推进', evidence: '林昭在第3章摸了摸怀里的玉佩', what: '林昭查到火起的那一夜' },
+      { line: '青崖旧案', type: '收', foreshadowing: '玉佩的来历', evidence: '林昭在第3章摸了摸怀里的玉佩。', what: '玉佩是沈家旧物' },
+      { line: '沈氏的来意', type: '推进', evidence: '沈氏在第3章翻开名册', what: '沈氏又翻名册' },
+    ],
+  },
 };
+
+/** 当前进度那一次送来了哪几条线（作者改过的那条不该在里面）。 */
+const progressAsked = [];
 
 function reply(messages) {
   const system = messages[0]?.content ?? '';
@@ -71,7 +90,14 @@ function reply(messages) {
   if (system.includes('只从作者给的小说配置、故事前提、角色图谱与情节大纲里排出这本书的叙事线')) {
     return JSON.stringify({
       threads: [
-        { title: '玉佩的来历', kind: '支线', from: 1, to: 3, intent: '玉佩是沈家旧物。' },
+        {
+          title: '青崖旧案',
+          kind: '主线',
+          from: 1,
+          to: 30,
+          intent: '查清七年前那场火。',
+          foreshadowing: [{ title: '玉佩的来历', what: '玉佩是沈家旧物', plant: 1, resolve: 3 }],
+        },
         { title: '名册之谜', kind: '支线', from: 2, to: 5, intent: '名册上少了一页。' },
         { title: '师父的身份', kind: '支线', from: 10, to: 20, intent: '师父另有身份。' },
       ],
@@ -90,10 +116,15 @@ function reply(messages) {
     });
   }
   if (system.includes('你是小说定稿事实审查员')) {
-    return JSON.stringify({ events: EVENTS[no] ?? [], newThreads: [], newForeshadowing: [] });
+    return JSON.stringify({ events: [], newThreads: [], newForeshadowing: [], ...FINDS[no] });
+  }
+  if (system.includes('判断它们是不是已有的某一条换了个说法')) {
+    return JSON.stringify({ merges: [] });
   }
   if (system.includes('给每一条写一两句「当前进度」')) {
-    return JSON.stringify({ progress: (EVENTS[no] ?? []).map((e) => ({ line: e.line, text: `第 ${no} 章：${e.what}` })) });
+    const lines = [...user.matchAll(/^- (.+?)（/gm)].map((m) => m[1]);
+    progressAsked.push(...lines.map((line) => `${no}:${line}`));
+    return JSON.stringify({ progress: lines.map((line) => ({ line, text: `第 ${no} 章：${line}走到了这里。` })) });
   }
   const card = /- 必需事件：第 (\d+) 章/.exec(user);
   if (card) {
@@ -134,7 +165,7 @@ before(async () => {
     errors: { LlmError: bundle.provider.LlmError, CancelledError: bundle.provider.CancelledError },
   });
 
-  t = await makeTempProject(bundle.project, { prefix: 'phase7', title: '青崖记' });
+  t = await makeTempProject(bundle.project, { prefix: 'threads-phase1', title: '青崖记' });
   project = t.project;
   t.write('.novelforge/config.md', '---\ntotalChapters: 30\nwordsPerChapter: 600\n---\n\n# 小说配置\n\n## 核心梗概\n\n回镇查案。\n');
   t.write('.novelforge/premise.md', '# 故事前提\n\n## 一句话前提\n\n林昭回镇，必须找出放火的人。\n\n## 悬念骨架\n\n玉佩与名册。\n');
@@ -167,8 +198,14 @@ before(async () => {
   // 工程页「从大纲排出」：后端弹确认框，作者点「开始排」。
   h.expect('开始排');
   await controller.handle({ type: 'projectAction', action: 'generateThreads' });
-  // 作者看了一眼，改了一条线的意图。
-  t.write(LEDGER, t.read(LEDGER).replace('名册上少了一页。', AUTHOR_INTENT));
+  // 作者看了一眼：改了一条线的意图，又自己写了它的「当前进度」。
+  t.write(
+    LEDGER,
+    t
+      .read(LEDGER)
+      .replace('名册上少了一页。', AUTHOR_INTENT)
+      .replace(/## 当前进度\n\n[^\n]*\n/, `## 当前进度\n\n${AUTHOR_PROGRESS}\n`)
+  );
   project.invalidate();
   // 与工程页弹窗提交的那一条一样：弹窗已经报过调用次数，带 call（作者在弹窗上没改模型与详细度）。
   await controller.handle({
@@ -186,57 +223,94 @@ after(() => {
   if (t) cleanup(t.dir, bundle?.db);
 });
 
-describe('七期验收：排叙事线，再批量写章第 1–3 章、写完即定稿', () => {
-  const threads = () =>
-    require('fs')
-      .readdirSync(t.rel(THREADS))
-      .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
-      .map((name) => bundle.threadFile.parseThreadFile(t.read(`${THREADS}/${name}`), `${THREADS}/${name}`));
-  const byTitle = (title) => threads().find((x) => x.name === title);
+describe('叙事线重做一期验收：排线，再批量写章第 1–3 章、写完即定稿', () => {
+  const parse = (rel) => bundle.threadFile.parseThreadFile(t.read(rel), rel);
+  const actual = (rel) => parse(rel).events.filter((e) => !e.planned).map((e) => [e.chapter, e.type, e.foreshadowing ?? '', e.evidence ?? '']);
 
-  test('叙事线目录里有排出的三条线', () => {
-    assert.deepEqual(threads().map((x) => x.name), ['名册之谜', '师父的身份', '玉佩的来历']);
+  test('叙事线目录里有排出的三条线（一条一个文件，伏笔写在线下），三章都写了', () => {
+    for (const rel of [MAIN, LEDGER, `${THREADS}/师父的身份.md`]) {
+      assert.ok(t.has(rel), rel);
+    }
+    assert.equal(parse(MAIN).kind, '主线');
+    assert.deepEqual(parse(MAIN).foreshadowing.map((f) => [f.name, f.plant, f.resolve]), [['玉佩的来历', 1, 3]]);
     assert.ok(t.has(CH(3)) && !t.has(CH(4)));
   });
 
-  test('定稿各给对的线追加了带证据的事件；伪造证据的那条没记', () => {
-    assert.deepEqual(
-      byTitle('玉佩的来历').events.map((e) => [e.chapter, e.type, e.evidence]),
-      [
-        [1, '推进', '林昭在第1章摸了摸怀里的玉佩。'],
-        [3, '收束', '林昭在第3章摸了摸怀里的玉佩'],
-      ]
-    );
-    assert.deepEqual(byTitle('名册之谜').events.map((e) => [e.chapter, e.type]), [[2, '推进']]);
+  test('线文件里有带证据的实际事件：推进、埋、收；伪造证据的那条没记', () => {
+    assert.deepEqual(actual(MAIN), [
+      [1, '推进', '', '林昭在第1章摸了摸怀里的玉佩。'],
+      [1, '埋', '玉佩的来历', '林昭在第1章摸了摸怀里的玉佩'],
+      [3, '推进', '', '林昭在第3章摸了摸怀里的玉佩'],
+      [3, '收', '玉佩的来历', '林昭在第3章摸了摸怀里的玉佩。'],
+    ]);
+    assert.deepEqual(actual(LEDGER), [[2, '推进', '', '沈氏在第2章翻开名册']]);
     assert.ok(!t.read(LEDGER).includes('名册上被人撕掉了一页'));
-    assert.deepEqual(byTitle('师父的身份').events, []);
+    assert.deepEqual(actual(`${THREADS}/师父的身份.md`), []);
   });
 
-  // 叙事线重做：一行写现在走到哪（定稿时机器维护的当前进度），不再带事件原文；计划第 3 章收束的标出来。
-  test('第 3 章写正文时：带着进行中的叙事线与它们现在走到哪', () => {
+  test('机器维护的当前进度写到最后动过的那一章、盖了章', () => {
+    const main = parse(MAIN);
+    assert.equal(main.progress, '第 3 章：青崖旧案走到了这里。');
+    assert.equal(main.progressThrough, 3);
+    assert.ok(bundle.threadFile.progressOwnedByMachine(main));
+  });
+
+  test('正文里新长出来的线建了新文件（来源：正文），挂不上线的伏笔进「未归属的伏笔」', () => {
+    const grown = parse(GROWN);
+    assert.equal(grown.kind, '人物线');
+    assert.equal(grown.origin, '正文');
+    assert.deepEqual(actual(GROWN).map(([no, type]) => [no, type]), [[2, '推进'], [3, '推进']]);
+    assert.equal(grown.progressThrough, 3);
+    const unfiled = bundle.threadFile.parseUnfiledFile(t.read(UNFILED), UNFILED);
+    assert.deepEqual(unfiled.foreshadowing.map((f) => f.name), ['敲桌七下']);
+    assert.deepEqual(unfiled.events.map((e) => [e.chapter, e.type, e.foreshadowing]), [[2, '埋', '敲桌七下']]);
+  });
+
+  test('作者手改过的当前进度没被覆盖、没送去写，那条线上挂了黄 ❗；作者改的意图原样还在', async () => {
+    const ledger = parse(LEDGER);
+    assert.equal(ledger.progress, AUTHOR_PROGRESS);
+    assert.ok(t.read(LEDGER).includes(AUTHOR_INTENT));
+    assert.ok(!progressAsked.some((x) => x.endsWith(':名册之谜')), progressAsked.join('、'));
+    project.invalidate();
+    const tree = await bundle.projectView.buildProjectTree(project);
+    const marks = tree.failures[LEDGER] ?? [];
+    assert.ok(marks.some((f) => f.severity === 'warn' && f.op === 'threadProgress' && f.message.includes('第 2 章')), JSON.stringify(marks));
+    assert.equal(tree.failures[MAIN], undefined);
+  });
+
+  test('第 3 章写正文时：装配里有线——现在走到哪、作者写的进度照用、该收的伏笔；没开始的那条不在', () => {
     const at = ch3Prompt.indexOf('# 进行中的叙事线');
     assert.ok(at > 0, ch3Prompt.slice(0, 2000));
     const section = ch3Prompt.slice(at, ch3Prompt.indexOf('\n---\n', at));
-    assert.ok(section.includes('- 名册之谜（支线 · 进行中）现在：第 2 章：名册第一次出现'), section);
-    // 玉佩第 3 章才收束：写第 3 章时它还在进行中、计划在本章收束。
-    assert.ok(section.includes('- 玉佩的来历（支线 · 进行中 · 计划在本章收束）现在：第 1 章：玉佩第一次露面'), section);
+    assert.match(section, /- 青崖旧案（主线 · 进行中[^）]*）现在：第 1 章：青崖旧案走到了这里/);
+    assert.match(section, /玉佩的来历/);
+    assert.ok(section.includes(`- 名册之谜（支线 · 进行中`) && section.includes(AUTHOR_PROGRESS.replace(/。$/, '')), section);
+    assert.ok(section.includes('沈氏的来意'), section);
     assert.ok(!section.includes('师父的身份'), section);
   });
 
-  test('作者手改过的那一行在三次定稿之后原样还在', () => {
-    assert.ok(t.read(LEDGER).includes(AUTHOR_INTENT), t.read(LEDGER));
-  });
-
-  // 叙事线重做：定稿时认事件之后，本章有线动过就再更新一次当前进度（三章都有）。
-  test('一共 15 次：排线 1 次，一章写一次、定稿更新细纲一次、认叙事线一次、当前进度一次，第 2、3 章写前各比对一次；没超过两个确认框的上限', () => {
-    assert.equal(fake.callCount(), 15);
-    const plan = bundle.pipelineModel.planWriteBatch({ from: 1, to: 3, mode: 'finalize', writtenNos: [], plotFilledNos: [1, 2, 3, 4, 5] });
-    assert.ok(fake.callCount() <= 1 + plan.calls.max);
-  });
-
-  test('工程页那一行：3 条，2 条进行中，1 条已收', async () => {
+  test('工程页「叙事线」页签：一条线一行，主线在前、新认出的线也在，最后是「未归属的伏笔」', async () => {
     project.invalidate();
     const tree = await bundle.projectView.buildProjectTree(project);
-    assert.deepEqual(tree.threads, { exists: true, total: 3, open: 2, closed: 1, overdue: 0 });
+    assert.equal(tree.threads.current, 3);
+    assert.deepEqual(
+      tree.threads.lines.map((l) => [l.name, l.detail]),
+      [
+        ['青崖旧案', '主线 · 进行中 · 最近第 3 章'],
+        ['名册之谜', '支线 · 进行中 · 最近第 2 章'],
+        ['师父的身份', '支线 · 计划中 · 计划第 10–20 章'],
+        ['沈氏的来意', '人物线 · 进行中 · 最近第 3 章'],
+      ]
+    );
+    assert.equal(tree.threads.lines[0].relPath, MAIN);
+    assert.deepEqual(tree.threads.unfiled, { relPath: UNFILED, total: 1, detail: '1 条', warnings: [] });
+  });
+
+  test('实际调用次数没超过两个确认框报的上限（排线 1 次 + 批量写章的最多几次）', () => {
+    const plan = bundle.pipelineModel.planWriteBatch({ from: 1, to: 3, mode: 'finalize', writtenNos: [], plotFilledNos: [1, 2, 3, 4, 5] });
+    assert.ok(fake.callCount() <= 1 + plan.calls.max, `${fake.callCount()} > 1 + ${plan.calls.max}`);
+    // 排线 1；一章写一次、定稿更新细纲一次、认叙事线一次、当前进度一次（每章都有线动过）；第 2 章认出新东西多一次归并；
+    // 第 2、3 章写前各比对一次。
+    assert.equal(fake.callCount(), 1 + 3 * 4 + 1 + 2);
   });
 });
