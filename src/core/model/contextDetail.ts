@@ -78,6 +78,15 @@ export interface ContextLimits {
   readonly threadCount: number;
   /** 叙事线一共多少字（只算各行）。 */
   readonly threadChars: number;
+  /**
+   * 拆细纲时带几条线（`plot` 配方的 `threads` 层，叙事线二期）。拆细纲是一批几章一起排，要知道的线比写一章多，
+   * 另设一组，不与写正文的 {@link threadCount} 共用。
+   */
+  readonly plotThreadCount: number;
+  /** 拆细纲时带几条没收的伏笔。 */
+  readonly plotForeshadowCount: number;
+  /** 拆细纲时线、伏笔各一共多少字（只算各行；两样各按这个数封顶）。 */
+  readonly plotThreadChars: number;
   /** 细纲阶段的前序细纲一览最多几章（`plotList`）。 */
   readonly plotListMax: number;
   /** 细纲单章：带前几章的细纲（`plotPrev`）。 */
@@ -130,6 +139,9 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     factsChars: 1500,
     threadCount: 3,
     threadChars: 600,
+    plotThreadCount: 4,
+    plotForeshadowCount: 6,
+    plotThreadChars: 800,
     plotListMax: 30,
     prevPlots: 1,
     nextPlots: 1,
@@ -159,6 +171,9 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     factsChars: 2000,
     threadCount: 4,
     threadChars: 900,
+    plotThreadCount: 6,
+    plotForeshadowCount: 10,
+    plotThreadChars: 1200,
     plotListMax: 50,
     prevPlots: 2,
     nextPlots: 1,
@@ -188,6 +203,9 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     factsChars: 3000,
     threadCount: 6,
     threadChars: 1200,
+    plotThreadCount: 8,
+    plotForeshadowCount: 14,
+    plotThreadChars: 1800,
     plotListMax: 100,
     prevPlots: 3,
     nextPlots: 1,
@@ -217,6 +235,9 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     factsChars: 5000,
     threadCount: 8,
     threadChars: 1800,
+    plotThreadCount: 12,
+    plotForeshadowCount: 20,
+    plotThreadChars: 2600,
     plotListMax: Infinity,
     prevPlots: 5,
     nextPlots: 2,

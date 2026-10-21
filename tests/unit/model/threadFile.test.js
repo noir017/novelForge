@@ -746,3 +746,80 @@ describe('threadFile.ts · 写正文、审稿带哪几条', () => {
     ]);
   });
 });
+
+describe('threadFile.ts · 拆细纲带哪几条（二期）', () => {
+  const plan = (chapter, type, extra = {}) => ({ ...ev(chapter, type, extra), planned: true });
+  const pair = line(
+    [ev(3, '推进', { what: '初遇。' }), ev(3, '埋', { foreshadowing: '玉佩' }), plan(6, '推进', { what: '挡刀' }), plan(7, '收', { foreshadowing: '旧伤' })],
+    {
+      name: '林昭与沈青',
+      kind: '感情线',
+      relPath: 'p',
+      index: 0,
+      from: 2,
+      to: 30,
+      intent: '从猜忌到并肩。',
+      progress: '结盟了。',
+      progressThrough: 4,
+      foreshadowing: [
+        { name: '玉佩', what: '旧物', resolve: 18 },
+        { name: '旧伤', what: '', resolve: 7 },
+        { name: '名册', what: '', plant: 9 },
+        { name: '令牌', what: '', plant: 5, resolve: 20 },
+      ],
+    }
+  );
+  const fire = line([ev(1, '推进', { what: '起火' })], { name: '大火', kind: '主线', relPath: 'f', index: 1, from: 1, to: 40 });
+  const later = line([], { name: '后面才开', relPath: 'l', index: 2, from: 12, foreshadowing: [{ name: '师父的信', what: '' }] });
+  const quiet = line([ev(2, '推进', { what: '犹豫' })], { name: '断了的线', kind: '人物线', relPath: 'q', index: 3 });
+  const closed = line([ev(2, '收束')], { name: '收了的线', relPath: 'c', index: 4, foreshadowing: [{ name: '收了线上没收的', what: '', resolve: 4 }] });
+  const unfiled = {
+    name: '未归属的伏笔',
+    relPath: 'u',
+    foreshadowing: [{ name: '提灯人', what: '院外提灯的人', resolve: 4 }],
+    events: [ev(2, '埋', { foreshadowing: '提灯人' })],
+  };
+  const book = { threads: [pair, fire, later, quiet, closed], unfiled };
+
+  test('线：这几章原来有计划的 → 主线 → 进行中的 → 还没到开始的（写明还不到）；收束了的不带', () => {
+    const { lines } = t.plotThreads(book, { from: 5, to: 9 });
+    assert.deepEqual(lines.map((c) => [c.name, c.why]), [
+      ['林昭与沈青', '本批原来有计划'],
+      ['大火', '主线'],
+      ['断了的线', '最近第 2 章动过'],
+      ['后面才开', '计划第 12 章起，本批还不到'],
+    ]);
+    assert.equal(
+      lines[0].line,
+      '- 林昭与沈青（感情线 · 进行中 · 计划第 2–30 章）意图：从猜忌到并肩；现在：结盟了；最近：第 3 章推进：初遇；第 3 章埋〈玉佩〉；本批原来的计划：第 6 章推进——挡刀'
+    );
+    assert.equal(lines[3].line, '- 后面才开（支线 · 计划中 · 计划第 12 章起）本批还不到它开始的那一章，不要提前开');
+  });
+
+  test('伏笔：这几章或更早要收的在前（逾期的写「已过」）→ 原来有计划的 → 已埋的、计划在这几章埋的；之后才埋的不带', () => {
+    const { foreshadowing } = t.plotThreads(book, { from: 5, to: 9 });
+    assert.deepEqual(foreshadowing.map((c) => c.line), [
+      '- 收了线上没收的（挂在「收了的线」· 计划 · 已过第 4 章，还没收）',
+      '- 提灯人（挂在「未归属的伏笔」· 已埋 · 已过第 4 章，还没收）是什么：院外提灯的人',
+      '- 旧伤（挂在「林昭与沈青」· 计划 · 本批要收，最晚第 7 章）本批原来的计划：第 7 章收',
+      '- 玉佩（挂在「林昭与沈青」· 已埋 · 第 18 章前收，之前不要揭开）是什么：旧物',
+      '- 令牌（挂在「林昭与沈青」· 计划 · 计划第 5 章埋、第 20 章前收）',
+      '- 名册（挂在「林昭与沈青」· 计划 · 计划第 9 章埋）',
+    ]);
+    // 「后面才开」那条线还没开始：它上面没定哪一章埋的伏笔不提。
+    assert.ok(!foreshadowing.some((c) => c.name === '师父的信'));
+  });
+
+  test('单章说「本章」；按区间第一章算：当前进度写到那一章或更晚不用，之后的事件不算', () => {
+    const { lines, foreshadowing } = t.plotThreads(book, { from: 3, to: 3 });
+    assert.equal(lines[0].name, '大火');
+    const p = lines.find((c) => c.name === '林昭与沈青');
+    assert.equal(p.line, '- 林昭与沈青（感情线 · 计划中 · 计划第 2–30 章）意图：从猜忌到并肩');
+    assert.equal(p.why, '本批在它的计划区间里'.replace('本批', '本章'));
+    // 第 7 章才收、本章没计划，也没定哪一章埋：线已经到了计划区间，照提，写明还没定。
+    assert.equal(foreshadowing.find((c) => c.name === '旧伤').why, '还没定哪一章埋');
+    assert.ok(!foreshadowing.some((c) => c.name === '令牌'), '计划第 5 章才埋');
+    assert.equal(t.planScope({ from: 3, to: 3 }), '本章');
+    assert.equal(t.planScope({ from: 3, to: 7 }), '本批');
+  });
+});

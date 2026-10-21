@@ -2,7 +2,7 @@ import { isLoreSettle, loreOfTarget, plotLabel } from '../../model/pipeline';
 import { describeStateThrough } from '../../model/characterState';
 import { CONTEXT_DETAIL_LABEL, takeLast } from '../../model/contextDetail';
 import { ContinuityFact, locateEvidence, parseContinuityFacts } from '../../model/continuity';
-import { ContextThread, fitThreads, manuscriptThreads, reviewForeshadowing } from '../../model/threadFile';
+import { ContextThread, ThreadBook, fitThreads, manuscriptThreads, plotThreads, reviewForeshadowing } from '../../model/threadFile';
 import { CharacterCard, LoreEntry } from '../../model/types';
 import { LORE_ENTRY_LIMITS, LORE_SETTLE_LIMITS, createLoreLookup, loreMentionIn } from '../../model/loreFile';
 import { LoreFact, LoreRecord, buildLoreIndex } from '../../views/lore';
@@ -760,12 +760,18 @@ export const evidence: LayerFn = async (a, spec) => {
  * - 作者在明细里取消勾选的那条不占名额，后面的补上来。
  * - 没有叙事线、或者没有一条有关的：什么都不出（没有东西被截断）。
  * - 写第 N 章一律按「写到第 N 章时」算（`asOf`）：重写前面的章时不带后面的事。
+ *
+ * 拆细纲（`plot` 配方，叙事线二期）走另一套挑法，见 {@link admitPlotThreads}。
  */
 export const threads: LayerFn = async (a, spec) => {
   if (!Number.isFinite(a.focus.no)) {
     return;
   }
   const book = await a.project.readThreads();
+  if (a.request.action.stage === 'plot') {
+    admitPlotThreads(a, spec, book);
+    return;
+  }
   const reviewing = a.request.action.capability === 'review';
   const plot = a.focus.plot;
   const plotText = plot ? [plot.title, ...Object.values(plot.sections)].join('\n') : '';
@@ -800,6 +806,48 @@ export const threads: LayerFn = async (a, spec) => {
     a.reject({ ...base(d), text: '' }, 'dropped', d.note);
   }
 };
+
+/**
+ * 拆细纲时的叙事线（叙事线二期，设计稿「二」）：细纲的 `plot` 配方（生成、讨论、落定共用）P1、`recentFacts` 旁边。
+ * 挑法在 model/threadFile.ts 的 `plotThreads`，**按区间挑**（`focus.range`：批次是那一批，单章是那一章）：
+ *
+ * - 线一条一个条目（`thread:<那条线的文件>`），伏笔一条一个条目（`thread:<所在文件>#<伏笔名>`，与审稿同一个 id 写法）；
+ *   标签分「叙事线 · 」「伏笔 · 」两种，消息里同一节、伏笔另起一段（builder.ts）。
+ * - 两组各自封顶：线按 `plotThreadCount`、伏笔按 `plotForeshadowCount`，字数各按 `plotThreadChars`；放不下的 dropped 并写
+ *   原因（第 2 条）。伏笔另算一组，是因为「本批要收」的那几条是这一层最要紧的东西，不该被几条长的线挤掉。
+ * - 取消勾选的不占名额。没有叙事线、或一条有关的都没有：什么都不出。
+ */
+function admitPlotThreads(a: Parameters<LayerFn>[0], spec: Parameters<LayerFn>[1], book: ThreadBook): void {
+  const range = a.focus.range ?? { from: a.focus.no, to: a.focus.no };
+  const { lines, foreshadowing } = plotThreads(book, range);
+  const groups: { list: ContextThread[]; what: '叙事线' | '伏笔'; count: number; idOf: (c: ContextThread) => string }[] = [
+    { list: lines, what: '叙事线', count: a.limits.plotThreadCount, idOf: (c) => `thread:${c.relPath}` },
+    { list: foreshadowing, what: '伏笔', count: a.limits.plotForeshadowCount, idOf: (c) => `thread:${c.relPath}#${c.name}` },
+  ];
+  for (const { list, what, count, idOf } of groups) {
+    const base = (c: ContextThread) => ({
+      id: idOf(c),
+      kind: 'thread' as const,
+      priority: spec.priority,
+      label: `${what} · ${c.name}`,
+      source: c.relPath,
+    });
+    const { picked, dropped } = fitThreads(
+      list.filter((c) => !a.excluded.has(idOf(c))),
+      { count, chars: a.limits.plotThreadChars },
+      what
+    );
+    for (const c of picked) {
+      a.admit({ ...base(c), text: c.line, note: `${c.status} · ${c.why}` });
+    }
+    for (const c of list.filter((x) => a.excluded.has(idOf(x)))) {
+      a.admit({ ...base(c), text: '' });
+    }
+    for (const d of dropped) {
+      a.reject({ ...base(d), text: '' }, 'dropped', d.note);
+    }
+  }
+}
 
 /** 一章的片段：定位得到的原文段落在前，定位不到的事实原句在后。 */
 function renderEvidence(

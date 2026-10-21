@@ -27,6 +27,7 @@ describe('model/contextDetail · 级别表', () => {
   });
 
   // 设定那四项是新加的：从前命中就整条塞、不封顶，几百条的书会把窗口填满（设定名录，2026-10-18）。
+  // 拆细纲带叙事线那三项（`plotThread*` / `plotForeshadowCount`）是叙事线二期加的：从前拆细纲一条线都不带。
   test('第 3 级逐项等于从前写死的常量，外加摘要封顶 60 章与设定封顶', () => {
     assert.deepEqual(
       { ...m.CONTEXT_DETAIL_LIMITS[3] },
@@ -41,6 +42,9 @@ describe('model/contextDetail · 级别表', () => {
         factsChars: 3000,
         threadCount: 6,
         threadChars: 1200,
+        plotThreadCount: 8,
+        plotForeshadowCount: 14,
+        plotThreadChars: 1800,
         plotListMax: 100,
         prevPlots: 3,
         nextPlots: 1,

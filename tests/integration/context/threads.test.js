@@ -302,3 +302,96 @@ describe('threads 层 · 什么时候不带、审稿带什么', () => {
     assert.ok(!user.includes('# 进行中的叙事线'));
   });
 });
+
+// 叙事线二期（设计稿「二」）：拆细纲的 `plot` 配方也带 threads 层，按区间挑——批次时 `plot` 是空的、`no` 只是第一章，
+// 只看第一章会把这一批后面几章该收的伏笔漏掉。
+describe('threads 层 · 拆细纲（按区间挑）', () => {
+  const PLAN = { stage: 'plot', capability: 'generate' };
+  const buildPlot = (range, extra = {}, cfg = {}) =>
+    bundle.builder.buildContext(
+      t.project,
+      { action: PLAN, target: { kind: 'plot', plotRelPath: PLOT(range.from) }, ask: '', ...(range.to > range.from ? { range } : {}), ...extra },
+      { ...config(), ...cfg }
+    );
+
+  test('批次第 5–9 章：线全带（收束的不带），这一批原来有计划的在前、还没到开始的在最后并写明', async () => {
+    const b = await buildPlot({ from: 5, to: 9 });
+    const lines = threadItems(b).filter((i) => i.label.startsWith('叙事线 · '));
+    assert.deepEqual(lines.map((i) => [i.label, i.note]), [
+      ['叙事线 · 林昭与沈青', '进行中 · 本批原来有计划'],
+      ['叙事线 · 青崖镇的大火', '进行中 · 主线'],
+      ['叙事线 · 断了的线', '进行中 · 最近第 2 章动过'],
+      ['叙事线 · 快收束的线', '进行中 · 最近第 1 章动过'],
+      ['叙事线 · 后面才开的线', '计划中 · 本批在它的计划区间里'],
+      ['叙事线 · 远方的来信', '计划中 · 计划第 10 章起，本批还不到'],
+    ]);
+    assert.equal(
+      lines[0].text,
+      '- 林昭与沈青（感情线 · 进行中 · 计划第 2–30 章）意图：从互相猜忌到并肩；现在：两人已结盟，沈青仍瞒着身份；最近：第 3 章推进：初遇；第 3 章埋〈玉佩的来历〉：玉佩露面；本批原来的计划：第 5 章推进——沈青第一次替林昭挡刀'
+    );
+    assert.equal(lines[3].text, '- 快收束的线（支线 · 进行中 · 计划在第 7 章收束）意图：镇上的怪事；最近：第 1 章推进：怪事开头');
+    assert.equal(lines[5].text, '- 远方的来信（支线 · 计划中 · 计划第 10–12 章）意图：信是谁寄的；本批还不到它开始的那一章，不要提前开');
+    assert.ok(lines.every((i) => i.priority === 1 && i.source.startsWith('.novelforge/threads/')));
+  });
+
+  test('批次第 5–9 章：没收的伏笔一条一个，这一批要收的、逾期的在前；第 9 章才埋的这一批也带', async () => {
+    const fores = threadItems(await buildPlot({ from: 5, to: 9 })).filter((i) => i.label.startsWith('伏笔 · '));
+    assert.deepEqual(fores.map((i) => i.text), [
+      '- 提灯人（挂在「未归属的伏笔」· 已埋 · 已过第 4 章，还没收）是什么：院外提灯的人',
+      '- 沈青的旧伤（挂在「林昭与沈青」· 计划 · 本批要收，最晚第 5 章）',
+      '- 玉佩的来历（挂在「林昭与沈青」· 已埋 · 第 18 章前收，之前不要揭开）是什么：沈家旧物',
+      '- 断剑（挂在「未归属的伏笔」· 计划 · 计划第 9 章埋）',
+    ]);
+    assert.equal(fores[0].id, 'thread:.novelforge/threads/未归属的伏笔.md#提灯人');
+  });
+
+  test('单章第 5 章：说「本章」，第 9 章才埋的不带，第 7 章收束的线不算落在这一章', async () => {
+    const items = threadItems(await buildPlot({ from: 5, to: 5 }));
+    const texts = items.map((i) => i.text).join('\n');
+    assert.ok(texts.includes('沈青的旧伤（挂在「林昭与沈青」· 计划 · 本章要收）'), texts);
+    assert.ok(texts.includes('本章原来的计划：第 5 章推进'), texts);
+    assert.ok(!texts.includes('断剑'), texts);
+    assert.ok(texts.includes('- 快收束的线（支线 · 进行中 · 计划第 1–7 章）'), texts);
+  });
+
+  test('消息里一节：线在前、没收的伏笔另起一段，排在连续性事实之后、前序细纲一览与本章细纲之前', async () => {
+    const user = userOf(await buildPlot({ from: 5, to: 9 }));
+    const at = user.indexOf('# 叙事线（照着排：该推进的线推进、该收的伏笔安排在某一章收');
+    assert.ok(at > 0, user.slice(0, 1500));
+    const section = user.slice(at, user.indexOf('\n---\n', at));
+    assert.ok(section.indexOf('- 林昭与沈青') < section.indexOf('\n\n没收的伏笔：\n- 提灯人'), section);
+    assert.ok(!user.includes('# 进行中的叙事线'));
+    const list = user.indexOf('# 前序细纲一览');
+    assert.ok(list < 0 || at < list);
+  });
+
+  test('线、伏笔各按上下文详细度封顶，放不下的 dropped 写原因；取消勾选的不占名额', async () => {
+    const cfg = { contextOverrides: { plotThreadCount: 2, plotForeshadowCount: 1 } };
+    const items = threadItems(await buildPlot({ from: 5, to: 9 }, {}, cfg));
+    const lines = items.filter((i) => i.label.startsWith('叙事线 · '));
+    const fores = items.filter((i) => i.label.startsWith('伏笔 · '));
+    assert.equal(lines.filter((i) => i.status === 'included').length, 2);
+    assert.ok(lines.filter((i) => i.status === 'dropped').every((i) => i.note === '叙事线一次只带 2 条，排在后面的没带'));
+    assert.deepEqual(fores.filter((i) => i.status === 'included').map((i) => i.label), ['伏笔 · 提灯人']);
+    assert.ok(fores.filter((i) => i.status === 'dropped').every((i) => i.note === '伏笔一次只带 1 条，排在后面的没带'));
+    const excluded = await buildPlot({ from: 5, to: 9 }, { excludedIds: [fores[0].id] }, cfg);
+    const after = threadItems(excluded).filter((i) => i.label.startsWith('伏笔 · '));
+    assert.equal(after.find((i) => i.id === fores[0].id).status, 'excluded');
+    assert.deepEqual(after.filter((i) => i.status === 'included').map((i) => i.label), ['伏笔 · 沈青的旧伤']);
+  });
+
+  test('讨论细纲也带（同一张配方）；没有叙事线时一条都不出', async () => {
+    const discuss = await bundle.builder.buildContext(
+      t.project,
+      { action: { stage: 'plot', capability: 'discuss' }, target: { kind: 'plot', plotRelPath: PLOT(5) }, ask: '这一章怎么排？' },
+      config()
+    );
+    assert.ok(threadItems(discuss).some((i) => i.label === '叙事线 · 林昭与沈青'));
+    t.remove(DIR);
+    t.project.invalidate();
+    const b = await buildPlot({ from: 5, to: 9 });
+    assert.deepEqual(threadItems(b), []);
+    assert.ok(!userOf(b).includes('# 叙事线（'));
+    writeThreads();
+  });
+});

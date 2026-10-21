@@ -50,6 +50,12 @@ export interface Focus {
   plot?: Plot;
   /** 「前文」的边界章号。架构与大纲阶段为 +∞，即全书都算前文。 */
   no: number;
+  /**
+   * 这一次覆盖的章号区间：细纲批次是请求给的那一批，其余落在某一章上的是 `{ from: no, to: no }`；不在哪一章上
+   * （架构、大纲、单条设定）时缺席。拆细纲的 `threads` 层按它挑线（叙事线二期）——批次时 `plot` 是空的、`no` 只是
+   * 区间第一章，只看 `no` 会把这一批后面几章该收的伏笔漏掉。
+   */
+  range?: { from: number; to: number };
   /** 这一章之前的全部章，按章号升序。 */
   previous: ChapterRef[];
   /** 紧邻的前几章（`plotPrev` 用），按章号升序。 */
@@ -115,6 +121,7 @@ export async function resolveFocus(
     target,
     plot,
     no,
+    ...(Number.isFinite(no) ? { range: range ?? { from: no, to: no } } : {}),
     previous,
     // 「上文」只在有细纲时才有内容可带（那一层渲染的是细纲的小节）。
     prevPlots: wants('plotPrev') ? takeLast(previous.filter((c) => c.plot), limits.prevPlots) : [],

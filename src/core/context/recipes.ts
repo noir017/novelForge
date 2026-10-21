@@ -118,6 +118,9 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   //   下一章的开头撞车或断裂——「转折突兀」多半出在这里。
   // ★ `recentFacts` P1：已定稿各章的连续性事实是既成历史。全文大纲排在 P2，预算紧时先被挤掉，
   //   细纲就会排出与正文矛盾的事（死了的人再出场、已经炸掉的大阵再炸一次）。
+  // ★ `threads` P1、紧跟 `recentFacts`（叙事线二期）：细纲照着线排——没收束的线现在走到哪、这一批（这一章）里该收的
+  //   伏笔、原来的计划（重拆时）。少了它，回收全靠运气；计划写进线里（细纲合同的 `threads` 字段）也无从写起。
+  //   按区间挑（`focus.range`），线与伏笔各自按上下文详细度封顶（layers/background.ts 的 `admitPlotThreads`）。
   plot: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
@@ -132,6 +135,7 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'plotList', priority: 1 },
     { layer: 'plotNext', priority: 1 },
     { layer: 'recentFacts', priority: 1 },
+    { layer: 'threads', priority: 1 },
     { layer: 'structure', priority: 1 },
     { layer: 'globalSummary', priority: 2 },
     { layer: 'characters', priority: 2 },

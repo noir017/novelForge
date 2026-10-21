@@ -198,8 +198,21 @@ function assembleMessages(
   // 叙事线（叙事线重做）：一条一行，按要紧程度排（层里排好了，不按章号）。排在前情后面、前文正文前面：
   // 读的时候是「前面发生了什么 → 哪几条线还开着 → 紧挨着的那几章」。说法的后半句是这一层存在的
   // 另一半理由——模型知道第 18 章要揭开什么，写第 3 章时最顺手的就是提前揭开。审稿只带伏笔那一半，换个说法。
+  // 拆细纲（叙事线二期）：线在前、没收的伏笔另起一段（标签是「伏笔 · 」的那几条），标题说清这一节是拿来照着排的。
   const threadLines = pick('thread');
-  if (threadLines.length > 0) {
+  if (threadLines.length > 0 && stage === 'plot') {
+    const lines = threadLines.filter((i) => !i.label.startsWith('伏笔 · '));
+    const fores = threadLines.filter((i) => i.label.startsWith('伏笔 · '));
+    sections.push(
+      [
+        '# 叙事线（照着排：该推进的线推进、该收的伏笔安排在某一章收；没到回收章的不要提前揭开，还没到开始那一章的线不要提前开）',
+        lines.length > 0 ? lines.map((i) => i.text.trim()).join('\n') : '',
+        fores.length > 0 ? `没收的伏笔：\n${fores.map((i) => i.text.trim()).join('\n')}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+    );
+  } else if (threadLines.length > 0) {
     sections.push(
       `${
         reviewing

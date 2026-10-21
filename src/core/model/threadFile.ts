@@ -1773,6 +1773,183 @@ export function reviewForeshadowing(book: ThreadBook, no: number): ContextThread
   return out.sort((a, b) => a.rank - b.rank || a.tie - b.tie).map(({ tie: _tie, ...c }) => c);
 }
 
+// ---------------------------------------------------------------- 拆细纲：带哪几条
+
+/** 拆细纲时一条线、一条伏笔最多列几条这几章原来的计划（重拆时让模型知道原来怎么排的）。 */
+const RANGE_PLAN_MAX = 4;
+
+/**
+ * 拆细纲的范围怎么称呼：一章是「本章」，几章一批是「本批」。`threads` 层的标记（「本批要收」）与细纲合同里那条规矩
+ * （context/prompts.ts）用同一个说法——合同叫模型认的就是这几个字。
+ */
+export function planScope(range: { from: number; to: number }): '本章' | '本批' {
+  return range.from === range.to ? '本章' : '本批';
+}
+
+/**
+ * `第 13 章推进——……；第 14 章埋〈玉佩〉`，最多 {@link RANGE_PLAN_MAX} 条。`bare`：一条伏笔自己那一行，不再写伏笔名与说明
+ * （`第 7 章收`）。
+ */
+function rangePlanText(events: readonly ThreadEvent[], bare = false): string {
+  const shown = events
+    .slice(0, RANGE_PLAN_MAX)
+    .map((e) =>
+      bare
+        ? `第 ${e.chapter} 章${e.type}`
+        : `第 ${e.chapter} 章${e.type}${e.foreshadowing ? `〈${e.foreshadowing}〉` : ''}${e.what ? `——${clip(e.what, LINE_ITEM_MAX)}` : ''}`
+    )
+    .join('；');
+  return events.length > RANGE_PLAN_MAX ? `${shown}……（共 ${events.length} 条）` : shown;
+}
+
+/** 一条线头上的计划区间：`计划第 3–40 章` / `计划第 3 章起` / `计划第 40 章收束`；过了、落在这几章里的另说。都没写是空串。 */
+function linePlanHead(t: Thread, range: { from: number; to: number }): string {
+  if (t.to !== undefined && t.to < range.from) {
+    return `已过计划收束的第 ${t.to} 章`;
+  }
+  if (t.to !== undefined && t.to <= range.to) {
+    return `计划在第 ${t.to} 章收束`;
+  }
+  if (t.from !== undefined && t.to !== undefined) {
+    return `计划第 ${t.from}–${t.to} 章`;
+  }
+  if (t.from !== undefined) {
+    return `计划第 ${t.from} 章起`;
+  }
+  return t.to !== undefined ? `计划第 ${t.to} 章收束` : '';
+}
+
+/**
+ * 拆第 `range` 这几章细纲时带哪几条（设计稿「二」：`plot` 配方的 `threads` 层，讨论、落定也用这一张）。排好序、不截；
+ * 线与伏笔分两组，各自封顶（上下文详细度 `plotThreadCount` / `plotForeshadowCount` / `plotThreadChars`）。都按「写到区间
+ * 第一章时」算（{@link asOf}）：重拆前面的章不带后面几章记下的事。
+ *
+ * **线**：全部没收束的，一条一行——种类、状态、计划区间、意图、现在走到哪（当前进度；写到区间第一章或更晚的不用）、
+ * 最近两条实际事件、这几章原来的计划（重拆时让模型知道原来怎么排的）。排法：这几章原来有计划的 → 主线 → 进行中的
+ * （最近动过的在前）→ 计划中、这几章已经在它的计划区间里的 → 还没到开始那一章的（⚑ 也带，写明「还不到」：拆细纲要
+ * 知道后面有这条线，才不会另起一条、也不会提前开）。
+ *
+ * **伏笔**：写到区间第一章时还没收、也没弃的（线收束了，伏笔照样可能开着），一条一行。排法：计划在这几章或更早收的
+ * （「本批要收」/「已过第 b 章，还没收」，回收章早的在前）→ 这几章原来有计划的 → 已经埋下的（埋得早的在前）、计划在
+ * 这几章或更早埋的 → 还没定哪一章埋的。**计划在这几章之后才埋的不带**（提了等于叫模型提前埋）；还没开始的线上没定
+ * 哪一章埋的也不带。
+ */
+export function plotThreads(
+  book: ThreadBook,
+  range: { from: number; to: number }
+): { lines: ContextThread[]; foreshadowing: ContextThread[] } {
+  const { from, to } = range;
+  const scope = planScope(range);
+  const inRange = (e: ThreadEvent): boolean => e.planned && e.chapter >= from && e.chapter <= to;
+  const lines: (ContextThread & { tie: number; index: number })[] = [];
+  /** 还没到开始那一章的线：它上面没定哪一章埋的伏笔不带。 */
+  const later = new Set<string>();
+  for (const full of book.threads) {
+    const t = asOf(full, from);
+    const status = threadStatus(t);
+    if (isClosed(status)) {
+      continue;
+    }
+    // 这几章的计划事件在 asOf 里已经去掉了（只留之前的）：从原样那一份取。
+    const planned = full.events.filter(inRange);
+    const linePlan = planned.filter((e) => !isForeshadowEvent(e.type));
+    const lastActive = lastActiveChapter(t);
+    const notYet = status === '计划中' && t.from !== undefined && t.from > to;
+    if (notYet) {
+      later.add(threadKey(t.name));
+    }
+    let rank: number;
+    let why: string;
+    let tie = 0;
+    if (planned.length > 0) {
+      rank = 0;
+      why = `${scope}原来有计划`;
+    } else if (t.kind === '主线') {
+      rank = 1;
+      why = '主线';
+    } else if (status === '进行中') {
+      rank = 2;
+      why = `最近第 ${lastActive} 章动过`;
+      tie = -(lastActive ?? 0);
+    } else if (!notYet) {
+      rank = 3;
+      why = `${scope}在它的计划区间里`;
+      tie = t.from ?? 0;
+    } else {
+      rank = 4;
+      why = `计划第 ${t.from} 章起，${scope}还不到`;
+      tie = t.from!;
+    }
+    const recent = actualEvents(t)
+      .slice(-2)
+      .map((e) => `第 ${e.chapter} 章${e.type}${e.foreshadowing ? `〈${e.foreshadowing}〉` : ''}${e.what ? `：${clip(e.what, LINE_ITEM_MAX)}` : ''}`)
+      .join('；');
+    const head = [t.kind, status, linePlanHead(t, range)].filter(Boolean).join(' · ');
+    const parts = [
+      t.intent ? `意图：${clip(t.intent, LINE_INTENT_MAX)}` : '',
+      t.progress ? `现在：${clip(t.progress, LINE_NOW_MAX)}` : '',
+      recent ? `最近：${recent}` : '',
+      linePlan.length > 0 ? `${scope}原来的计划：${rangePlanText(linePlan)}` : '',
+      notYet ? `${scope}还不到它开始的那一章，不要提前开` : '',
+    ].filter(Boolean);
+    lines.push({ relPath: t.relPath, name: t.name, status, why, rank, line: `- ${t.name}（${head}）${parts.join('；')}`, tie, index: t.index });
+  }
+
+  const fores: (ContextThread & { tie: number; order: number })[] = [];
+  const files: { file: ThreadFileBase; line?: string }[] = [...book.threads.map((t) => ({ file: t, line: t.name })), { file: book.unfiled }];
+  for (const { file, line } of files) {
+    const planned = file.events.filter((e) => inRange(e) && e.foreshadowing);
+    const notYet = !!line && later.has(threadKey(line));
+    for (const f of foreshadowingOf(asOf(file, from), from - 1)) {
+      if (isForeshadowClosed(f.status)) {
+        continue;
+      }
+      const mine = planned.filter((e) => threadKey(e.foreshadowing!) === threadKey(f.name));
+      let rank: number;
+      let hint: string;
+      let tie = 0;
+      if (f.resolve !== undefined && f.resolve <= to) {
+        rank = 0;
+        hint = f.resolve < from ? `已过第 ${f.resolve} 章，还没收` : scope === '本章' ? '本章要收' : `本批要收，最晚第 ${f.resolve} 章`;
+        tie = f.resolve;
+      } else if (mine.length > 0) {
+        rank = 1;
+        hint = f.resolve !== undefined ? `第 ${f.resolve} 章前收` : '还没定哪一章收';
+        tie = mine[0].chapter;
+      } else if (f.status === '已埋') {
+        rank = 2;
+        hint = f.resolve !== undefined ? `第 ${f.resolve} 章前收，之前不要揭开` : '还没定哪一章收，不要随手揭开';
+        tie = f.plantedAt ?? 0;
+      } else if (f.plant !== undefined && f.plant <= to) {
+        rank = 2;
+        hint = `计划第 ${f.plant} 章埋${f.plant < from ? '，还没埋' : ''}${f.resolve !== undefined ? `、第 ${f.resolve} 章前收` : ''}`;
+        tie = f.plant;
+      } else if (f.plant === undefined && !notYet) {
+        rank = 3;
+        hint = '还没定哪一章埋';
+      } else {
+        // 计划在这几章之后才埋、或挂在还没开始的线上：提了等于叫模型提前埋。
+        continue;
+      }
+      const parts = [f.what ? `是什么：${clip(f.what, LINE_INTENT_MAX)}` : '', mine.length > 0 ? `${scope}原来的计划：${rangePlanText(mine, true)}` : ''].filter(Boolean);
+      fores.push({
+        relPath: file.relPath,
+        name: f.name,
+        status: f.status,
+        why: hint,
+        rank,
+        line: `- ${f.name}（挂在「${line ?? UNFILED_NAME}」· ${f.status} · ${hint}）${parts.join('；')}`,
+        tie,
+        order: fores.length,
+      });
+    }
+  }
+  return {
+    lines: lines.sort((a, b) => a.rank - b.rank || a.tie - b.tie || a.index - b.index).map(({ tie: _tie, index: _index, ...c }) => c),
+    foreshadowing: fores.sort((a, b) => a.rank - b.rank || a.tie - b.tie || a.order - b.order).map(({ tie: _tie, order: _order, ...c }) => c),
+  };
+}
+
 /**
  * 按排好的顺序取，最多 `count` 条、一共 `chars` 字（只算各行）。放不下的那条**跳过、接着试下一条**（七期修过的上游 `break`：
  * 一条长的挡住后面所有短的）。丢了的带原因交给调用方写进明细（第 2 条）。`what` 是明细里怎么称呼（「叙事线」「伏笔」）。
