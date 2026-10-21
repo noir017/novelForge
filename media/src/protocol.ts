@@ -168,6 +168,10 @@ export {
   // 完善设定三期：「全部展开」与后端确认框同一个数；写前提醒在弹窗与确认框里同一句。
   loreExpandCalls,
   describeThinLore,
+  // 叙事线二期：写前检查的两类提醒（伏笔逾期、线断了），批量写章弹窗与后端确认框同一个算法、同一句。
+  threadRemindersFor,
+  describeThreadReminders,
+  unrecordedBefore,
   describeTarget,
   loreOfTarget,
 } from '../../src/core/model/pipeline';

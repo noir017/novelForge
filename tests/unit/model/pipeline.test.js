@@ -1156,3 +1156,56 @@ describe('pipeline.ts · 批量写章的切分', () => {
     assert.ok(![undefined, 'review', ''].some(pipeline.isWriteBatchMode));
   });
 });
+
+// 叙事线二期（设计稿「四、写前检查」）：两类提醒，零调用、不拦人。前端批量写章弹窗与后端确认框同一个函数、同一句。
+describe('pipeline.ts · 写前检查的叙事线提醒', () => {
+  const watch = {
+    lines: [
+      { name: '青崖旧案', kind: '主线', lastActive: 1, stall: 5, planned: [] },
+      { name: '林昭与沈青', kind: '感情线', lastActive: 2, stall: 15, planned: [7] },
+      { name: '断剑', kind: '支线', lastActive: 1, stall: 15, planned: [] },
+      { name: '师父', kind: '人物线', lastActive: 1, stall: 15, planned: [9] },
+    ],
+    foreshadowing: [
+      { name: '玉佩的来历', resolve: 5, planned: [] },
+      { name: '旧伤', resolve: 6, planned: [7] },
+      { name: '名册', resolve: 20, planned: [] },
+    ],
+  };
+
+  test('一章：写第 N 章时按第 N − 1 章算，过了回收章、断了 K 章，本章计划里也没有的才提', () => {
+    assert.deepEqual(pipeline.threadRemindersFor(watch, [7]), [
+      { kind: 'overdue', name: '玉佩的来历', resolve: 5, at: 7 },
+      { kind: 'stalled', name: '青崖旧案', lineKind: '主线', gap: 5, at: 7 },
+    ]);
+    // 第 6 章：主线只断了 4 章；旧伤第 6 章前收，写第 6 章时还不算过。
+    assert.deepEqual(pipeline.threadRemindersFor(watch, [6]).map((r) => r.name), ['玉佩的来历']);
+    // 第 8 章：旧伤第 7 章的计划在这一章之外，照报。
+    assert.deepEqual(pipeline.threadRemindersFor(watch, [8]).map((r) => r.name), ['玉佩的来历', '旧伤', '青崖旧案']);
+  });
+
+  test('一批：区间里哪一章安排过都算；at 是第一个对上的那一章；没有 watch 或区间是空的不提', () => {
+    assert.deepEqual(pipeline.threadRemindersFor(watch, [8, 6, 7]), [
+      { kind: 'overdue', name: '玉佩的来历', resolve: 5, at: 6 },
+      { kind: 'stalled', name: '青崖旧案', lineKind: '主线', gap: 5, at: 7 },
+    ]);
+    assert.deepEqual(pipeline.threadRemindersFor(undefined, [7]), []);
+    assert.deepEqual(pipeline.threadRemindersFor(watch, []), []);
+  });
+
+  test('说法：本章与区间里两种；注一句没定稿的那几章；没有提醒是空串', () => {
+    const one = pipeline.threadRemindersFor(watch, [7]);
+    assert.equal(
+      pipeline.describeThreadReminders('本章', one),
+      '叙事线提醒：伏笔〈玉佩的来历〉计划第 5 章前收，还没收，本章计划里也没安排收；〈青崖旧案〉（主线）已经 5 章没有进展，本章计划里也没安排推进。只是提醒，照写不拦。'
+    );
+    assert.equal(
+      pipeline.describeThreadReminders('区间里', pipeline.threadRemindersFor(watch, [6, 7, 8]), pipeline.unrecordedBefore(4, 6)),
+      '叙事线提醒：伏笔〈玉佩的来历〉计划第 5 章前收，写到第 6 章还没收，区间里也没安排收；〈青崖旧案〉（主线）写到第 7 章就断了 5 章，区间里也没安排推进（第 5 章还没定稿，叙事线还没记上，提醒可能不准）。只是提醒，不拦。'
+    );
+    assert.equal(pipeline.describeThreadReminders('本章', []), '');
+    assert.deepEqual(pipeline.unrecordedBefore(3, 7), { from: 4, to: 6 });
+    assert.equal(pipeline.unrecordedBefore(6, 7), undefined);
+    assert.equal(pipeline.unrecordedBefore(0, 1), undefined);
+  });
+});

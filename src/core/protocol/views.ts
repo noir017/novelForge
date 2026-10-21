@@ -8,6 +8,7 @@ import type {
   PipelineProgress,
   PlotStage,
   SettingDoc,
+  ThreadWatch,
 } from '../model/pipeline';
 import type { ThinkingDepth } from '../model/thinking';
 import type { ContextDetail } from '../model/contextDetail';
@@ -117,6 +118,11 @@ export interface ThreadsView {
   unfiled?: ThreadUnfiledView;
   /** 「现在」：定稿到的最后一章（定稿过的章里章号最大的；一章都没定稿是 0）。 */
   current: number;
+  /**
+   * 写前检查的叙事线提醒要的数（二期）：前端批量写章弹窗拿它与要写的那几章算提醒（`threadRemindersFor`，与后端确认框同源）。
+   * 按现在的样子算（不 asOf）。
+   */
+  watch: ThreadWatch;
 }
 
 /** 「叙事线」页签的一行：`林昭与沈青 · 感情线 · 进行中 · 最近第 12 章 · 2 条伏笔没收`，有问题的另加几个 ⚠。 */

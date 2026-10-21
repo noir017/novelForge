@@ -29,11 +29,14 @@ import {
   STAGE_LABEL,
   describeTarget,
   describeThinLore,
+  describeThreadReminders,
   plotLabel,
   stageOfTarget,
+  unrecordedBefore,
 } from '../model/pipeline';
 import { chapterOfPlotNo } from './pipeline';
 import { thinLoreFor } from './lore';
+import { threadReminders } from './threads';
 import { loreEntryAt } from './loreMaterial';
 import { WorkbenchSection, WorkbenchView } from '../protocol';
 
@@ -193,6 +196,14 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
   // 口径就是「待完善」（没定稿、也还没写正文的细纲），所以已经写了字的章不提。「设定」一节空着就不读设定区。
   const thin =
     plot && !plot.sourceHash && words === 0 && (plot.lore?.length ?? 0) > 0 ? await thinLoreFor(project, [plot.no]) : [];
+  // 叙事线提醒（二期）：伏笔逾期、线断了——同一个口径，还没写的章才提（写前检查）。零调用、不拦。
+  const threads = no > 0 && words === 0 ? await threadReminders(project, [no]) : undefined;
+  const notice = [
+    thin.length > 0 ? describeThinLore('本章', thin.map((t) => t.name)) : '',
+    threads ? describeThreadReminders('本章', threads.reminders, unrecordedBefore(threads.through, no)) : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
   return {
     stage: 'manuscript',
     title: `正文 · ${head}`,
@@ -207,7 +218,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       ...(plot ? sectionsOf(plot.sections, PLOT_SECTION_KEYS) : []),
     ],
     warning: stale ? '这一章的细纲在正文写完（或定稿）之后改过，现有正文可能已经与它对不上。' : undefined,
-    ...(thin.length > 0 ? { notice: describeThinLore('本章', thin.map((t) => t.name)) } : {}),
+    ...(notice ? { notice } : {}),
     empty: plot ? undefined : '这一章没有细纲，写正文时模型只能照着前文往下编。',
   };
 }

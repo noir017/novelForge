@@ -914,3 +914,29 @@ describe('threadFile.ts · 拆细纲：计划落到哪份文件上（二期）',
     });
   });
 });
+
+describe('threadFile.ts · 写前检查要的数（二期）', () => {
+  const plan = (chapter, type, extra = {}) => ({ ...ev(chapter, type, extra), planned: true });
+  const main = line([ev(1, '推进'), ev(6, '推进'), plan(8, '关系')], { name: '青崖旧案', kind: '主线', relPath: 'm', index: 0, foreshadowing: [{ name: '玉佩', what: '', resolve: 5 }, { name: '名册', what: '' }] });
+  main.events.push(plan(9, '收', { foreshadowing: '玉佩' }));
+  const later = line([], { name: '还没开始', relPath: 'l', index: 1 });
+  const closed = line([ev(2, '收束')], { name: '收了', relPath: 'c', index: 2, foreshadowing: [{ name: '收了线上的', what: '', resolve: 4 }] });
+  const unfiled = { name: '未归属的伏笔', relPath: 'u', foreshadowing: [{ name: '提灯人', what: '', resolve: 3 }], events: [ev(2, '收', { foreshadowing: '提灯人' })] };
+  const book = { threads: [main, later, closed], unfiled };
+
+  test('线只算进行中的（带阈值与有计划事件的章）；伏笔只算没收、写了回收章的（带计划收它的章）', () => {
+    assert.deepEqual(t.threadWatch(book), {
+      lines: [{ name: '青崖旧案', kind: '主线', lastActive: 6, stall: 5, planned: [8, 9] }],
+      foreshadowing: [
+        { name: '玉佩', resolve: 5, planned: [9] },
+        { name: '收了线上的', resolve: 4, planned: [] },
+      ],
+    });
+  });
+
+  test('按写到第 N 章时算：之后的实际事件不算，计划照原样', () => {
+    assert.deepEqual(t.threadWatch(book, 5).lines, [{ name: '青崖旧案', kind: '主线', lastActive: 1, stall: 5, planned: [8, 9] }]);
+    // 写第 2 章时「收了」那条线还没收束，可它只有收束那一个事件（第 2 章）——那时还是计划中，不算进行中。
+    assert.deepEqual(t.threadWatch(book, 2).lines.map((l) => l.name), ['青崖旧案']);
+  });
+});

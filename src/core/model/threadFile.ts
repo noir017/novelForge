@@ -50,6 +50,7 @@ import {
   stringifyFrontmatter,
 } from './markdown';
 import { indexText, normalizeQuote, quoteFound } from './review';
+import type { ThreadWatch } from './pipeline';
 
 // ---------------------------------------------------------------- 类型
 
@@ -2177,6 +2178,42 @@ export function resolvePlanEvents(
     out.push(ch);
   }
   return out;
+}
+
+// ---------------------------------------------------------------- 写前检查：两类提醒要的数（二期）
+
+/**
+ * 写前检查的叙事线提醒要的数（设计稿「四、写前检查」；判断在 model/pipeline.ts 的 `threadRemindersFor`，前端也打包那一份）。
+ * `no` 给了就按「写到第 `no` 章时」算（{@link asOf}：只看之前的实际事件、状态）；不给就是现在的样子（工程页数据，前端批量
+ * 写章弹窗用）。计划事件从原样那一份取——要看的正是这一章及以后有没有安排。
+ *
+ * - 线：进行中的才算（计划中的还没开始、收束了的不会断），带最近一次实际事件、`STALL_CHAPTERS` 的阈值、哪几章有计划事件
+ *   （这条线的文件里任何一条计划事件都算安排了：推进、关系、伏笔的埋与收都说明这一章要动它）。
+ * - 伏笔：还没收、也没弃、写了计划回收章的（各条线与「未归属的伏笔」里的都算，线收束了伏笔照样可能开着），带哪几章计划收它。
+ */
+export function threadWatch(book: ThreadBook, no?: number): ThreadWatch {
+  const at = <T extends ThreadFileBase>(f: T): T => (no === undefined ? f : asOf(f, no));
+  const chapters = (events: readonly ThreadEvent[]): number[] => [...new Set(events.map((e) => e.chapter))].sort((a, b) => a - b);
+  const lines: ThreadWatch['lines'] = [];
+  for (const full of book.threads) {
+    const t = at(full);
+    const lastActive = lastActiveChapter(t);
+    if (threadStatus(t) !== '进行中' || lastActive === undefined) {
+      continue;
+    }
+    lines.push({ name: t.name, kind: t.kind, lastActive, stall: STALL_CHAPTERS[t.kind], planned: chapters(plannedEvents(full)) });
+  }
+  const foreshadowing: ThreadWatch['foreshadowing'] = [];
+  for (const file of [...book.threads, book.unfiled] as ThreadFileBase[]) {
+    for (const f of foreshadowingOf(at(file), 0)) {
+      if (isForeshadowClosed(f.status) || f.resolve === undefined) {
+        continue;
+      }
+      const resolving = plannedEvents(file).filter((e) => e.type === '收' && e.foreshadowing && threadKey(e.foreshadowing) === threadKey(f.name));
+      foreshadowing.push({ name: f.name, resolve: f.resolve, planned: chapters(resolving) });
+    }
+  }
+  return { lines, foreshadowing };
 }
 
 // ---------------------------------------------------------------- 当前进度（机器维护、指纹守着）

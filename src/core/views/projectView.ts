@@ -91,7 +91,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       styleGuidePath,
       globalSummaryPath,
       threadsPath,
-      threads: { lines: [], current: 0 },
+      threads: { lines: [], current: 0, watch: { lines: [], foreshadowing: [] } },
       bookStage: 'setting',
       nextChapterNo: 1,
       book: { idea: '', configHasContent: false, plotFilledNos: [] },

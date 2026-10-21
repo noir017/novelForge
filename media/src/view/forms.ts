@@ -12,8 +12,11 @@ import {
   WRITE_BATCH_MAX,
   describeCalls,
   describeThinLore,
+  describeThreadReminders,
   planPlotBatches,
   planWriteBatch,
+  threadRemindersFor,
+  unrecordedBefore,
 } from '../protocol';
 import type { WriteBatchMode } from '../protocol';
 import type { IdeaDefaults, ProjectTree } from '../protocol';
@@ -283,6 +286,13 @@ export function openWriteBatchForm(tree: ProjectTree): void {
       // 写前提醒（完善设定三期，零调用、不拦）：要写的这几章用到、却还只有一句话的设定——就是「待完善」里要用到它们的那几条。
       const writing = new Set(p.chapters);
       const thin = (tree.loreThin ?? []).filter((t) => t.chapters.some((no) => writing.has(no)));
+      // 叙事线提醒（二期，零调用、不拦）：区间里写到哪一章就过了回收章、断了几章，区间里的计划又都没安排的。与后端确认框
+      // 同一个 `threadRemindersFor`，数据是工程页「叙事线」那一份（按现在算）。
+      const threadNote = describeThreadReminders(
+        '区间里',
+        threadRemindersFor(tree.threads?.watch, p.chapters),
+        unrecordedBefore(tree.threads?.current ?? 0, first)
+      );
       return {
         text:
           `要写 ${p.chapters.length} 章（${span(first, last)}）` +
@@ -294,7 +304,8 @@ export function openWriteBatchForm(tree: ProjectTree): void {
           `${describeCalls(p.calls)}（没写够时自动续写、开着删修饰时写完再删一次、每章写前比对一次细纲与既成事实，都算在上限里）。` +
           (p.review ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不停。' : '') +
           (p.mode === 'finalize' ? '每写完一章就定稿：照正文更新细纲与连续性事实，再更新出场角色的当前状态、认这一章在叙事线上发生了什么（带原文证据记下事件、更新各条线的当前进度，正文里新长出来的线也认出来）。' : '只写正文，之后在主按钮上逐章定稿。') +
-          (thin.length > 0 ? describeThinLore('区间里', thin.map((t) => t.name)) : ''),
+          (thin.length > 0 ? describeThinLore('区间里', thin.map((t) => t.name)) : '') +
+          threadNote,
       };
     },
     submitLabel: '开始写章',

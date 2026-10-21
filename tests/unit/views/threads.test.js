@@ -133,7 +133,14 @@ describe('叙事线页签 · 一条线一行', () => {
 
   test('一条线都没有：空列表', () => {
     const v = views.buildThreadsView({ threads: [], unfiled: unfiled() }, 3);
-    assert.deepEqual(v, { lines: [], current: 3 });
+    assert.deepEqual(v, { lines: [], current: 3, watch: { lines: [], foreshadowing: [] } });
+  });
+
+  // 叙事线二期：写前检查要的数也从这里出（前端批量写章弹窗拿它算提醒），按现在的样子算。
+  test('写前检查要的数：进行中的线与没收、写了回收章的伏笔', () => {
+    const v = views.buildThreadsView(book(), 9);
+    assert.ok(v.watch.lines.some((l) => l.name === '青崖旧案' && l.kind === '主线' && l.stall === 5), JSON.stringify(v.watch));
+    assert.ok(v.watch.foreshadowing.every((f) => Number.isInteger(f.resolve)), JSON.stringify(v.watch));
   });
 });
 

@@ -52,10 +52,11 @@ import { describePlanned, planThreadsFromOutline } from './threads';
 import { expandLoreEntries } from './lore';
 import { poolIO } from './poolIO';
 import { thinLoreFor } from '../views/lore';
+import { threadReminders } from '../views/threads';
 import { confirmDespiteGap } from './chapterGap';
 import { updateGlobalSummary } from './summarize';
 import { PLOT_CHECK_SUGGESTION, describeConflict } from '../model/plotCheck';
-import { PREFLIGHT_SUGGESTION, PreflightRisk, describeExempted, describeRisks, preflightChapter, riskKey } from './preflight';
+import { PREFLIGHT_SUGGESTION, PreflightRisk, describeExempted, describeRisks, describeThreadNotes, preflightChapter, riskKey } from './preflight';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import {
   CallEstimate,
@@ -494,7 +495,8 @@ const MODE_LABEL: Record<WriteBatchMode, string> = {
  *   **审出问题不停**（要人勾了才修，批量停下也没人勾），**审稿失败也不停**（后面几章不靠这份报告往下写），
  *   都在完成提示里说清。走 `review` 档。写进去但要停下的那一章（重演、提前登场、没写够）照样审完再停。
  * - **写前提醒**（完善设定三期）：确认框里多一行「区间里 K 条要用到的设定还只有一句话」（`thinLoreFor`，零调用）。
- *   不拦，也不在这里顺带展开——批量写章不再多一类调用。
+ *   不拦，也不在这里顺带展开——批量写章不再多一类调用。叙事线的两类提醒（二期：伏笔逾期、线断了，`threadReminders`）
+ *   同一个做法：区间里写到哪一章就过了回收章、断了几章，区间里的计划又都没安排的，确认框里多一行，不拦。
  *
  * `call`：工程页弹窗已经把切分与调用次数写给作者看过了，这是作者在那里为这一次挑的模型与详细度，不再弹第二个
  * 确认框（有角色卡要补建时除外）。MCP 的 `pipeline` 工具不带它，照旧先问。返回实际调了几次模型（取消、无事可做、
@@ -579,6 +581,11 @@ export async function writeManuscripts(
   const totalCalls = castCards.calls > 0 ? addCalls(plan.calls, cardCalls) : plan.calls;
   // 写前提醒（完善设定三期，零调用、不拦）：要写的这几章细纲点名、却还只有一句话的设定。前端弹窗算的是同一份（「待完善」）。
   const thin = await thinLoreFor(project, plan.chapters);
+  const threadNotes = await threadReminders(project, plan.chapters);
+  const threadNote = describeThreadNotes('区间里', threadNotes.reminders, threadNotes.through, plan.chapters[0]);
+  if (threadNote) {
+    log.info(`批量写章之前的叙事线提醒：${threadNotes.reminders.length} 条（不拦）`, threadNote);
+  }
   // 前端弹窗算不出补卡那几次（要读定稿过的细纲），所以有卡要补时照样再问一次（第 4 条），缺省是弹窗上的选择。
   let choice = opts.call;
   if (!choice || castCards.calls > 0) {
@@ -602,6 +609,7 @@ export async function writeManuscripts(
         plan.skipped.length > 0 ? `已经写过正文的第 ${plan.skipped.join('、')} 章跳过，不会被改动。` : '',
         plan.stopAt !== undefined ? `第 ${plan.stopAt} 章还没有细纲、情节大纲也没覆盖到它，写到它前面为止。` : '',
         thin.length > 0 ? describeThinLore('区间里', thin.map((t) => t.name)) : '',
+        threadNote,
         '一章写不出来就停；写出来但开头重演了上一章、把后面几章的人提前写了进来、没写够八成或结尾停在半句上，也写进去然后停下，等你看过再继续。',
       ]
         .filter(Boolean)

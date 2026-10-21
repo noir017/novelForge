@@ -75,7 +75,7 @@ import {
   renderReport,
   renderRevisionBrief,
 } from '../model/review';
-import { PREFLIGHT_SUGGESTION, describeExempted, describeRisks, preflightChapter } from '../features/preflight';
+import { PREFLIGHT_SUGGESTION, describeExempted, describeRisks, describeThreadNotes, preflightChapter } from '../features/preflight';
 import { clearFailures } from '../runtime/errorLog';
 import { persist } from './persist';
 import {
@@ -1023,6 +1023,8 @@ type BeforeGenerate =
  *   本章。有就在对话页亮一张卡：「仅本次忽略，照写」/「先不写」，或者填一句理由「记为刻意安排，
  *   照写」——记进这一章细纲的 `preflightOk`，以后写这一章不再为这几个人亮卡（五期补遗 §2）。记过的
  *   不拦，写章卡片的说明里提一句。接着写与修稿不查——开头已经写下了，这时候拦它没有意义。
+ * - **叙事线提醒**（叙事线二期）：伏笔逾期、线断了，同一次预检零调用地算出来，**不拦**——有风险要亮卡时写在卡片说明里，
+ *   没有风险就放进这一轮的说明（写章卡片上「· 叙事线提醒：……」），日志里也记一笔。
  */
 async function beforeGenerate(
   c: ChatController,
@@ -1047,8 +1049,14 @@ async function beforeGenerate(
   const no =
     (relPath ? (await c.project.resolvePlot(relPath))?.no ?? parsePlotFileName(basename(relPath))?.no : undefined) ??
     c.current.targetNo;
-  const { risks, exempted, plotRelPath: plotRel } = no ? await preflightChapter(c.project, no) : { risks: [], exempted: [], plotRelPath: undefined };
+  const pre = no ? await preflightChapter(c.project, no) : undefined;
+  const { risks, exempted, plotRelPath: plotRel } = pre ?? { risks: [], exempted: [], plotRelPath: undefined };
   const notes = exempted.map(describeExempted);
+  const threadNote = pre && no ? describeThreadNotes('本章', pre.threads, pre.threadsThrough, no) : '';
+  if (threadNote) {
+    log.info(`写第 ${no} 章之前的叙事线提醒：${pre!.threads.length} 条（不拦）`, threadNote);
+    notes.push(threadNote);
+  }
   // 批量写章在这一章前面停下时挂过一个黄 ❗：这一次查过了（没问题，或作者说仅本次忽略）就收掉。
   if (!no || risks.length === 0) {
     if (plotRel) {
@@ -1064,7 +1072,7 @@ async function beforeGenerate(
       turnId: ctx.assistantTurn.id,
       name: 'preflight',
       title: `写第 ${no} 章之前的一致性预检：${risks.length} 处要留意`,
-      detail: `${PREFLIGHT_SUGGESTION}\n这一步没有调用模型。`,
+      detail: `${PREFLIGHT_SUGGESTION}\n${threadNote ? `${threadNote}\n` : ''}这一步没有调用模型。`,
       danger: lines.join('\n'),
       proceed: '仅本次忽略，照写',
       skip: '先不写',

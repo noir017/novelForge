@@ -325,6 +325,34 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     open();
   });
 
+  // 叙事线二期：写前检查的两类提醒（零调用、不拦），与后端确认框同一个 `threadRemindersFor`、同一句；数据是工程页「叙事线」那一份。
+  test('叙事线提醒：区间里写到哪一章就过了回收章、断了几章，区间里的计划又都没安排的，说明里多一句', () => {
+    const watch = {
+      lines: [
+        { name: '青崖旧案', kind: '主线', lastActive: 1, stall: 5, planned: [] },
+        { name: '林昭与沈氏', kind: '感情线', lastActive: 1, stall: 15, planned: [] },
+      ],
+      foreshadowing: [
+        { name: '玉佩的来历', resolve: 3, planned: [] },
+        { name: '残令', resolve: 4, planned: [6] },
+      ],
+    };
+    const tree = sampleTree();
+    ui.post({ type: 'project', tree: { ...tree, threads: { ...tree.threads, watch } } });
+    open();
+    type(ui, 'to', 7);
+    assert.ok(
+      note(ui).includes(
+        '叙事线提醒：伏笔〈玉佩的来历〉计划第 3 章前收，写到第 4 章还没收，区间里也没安排收；〈青崖旧案〉（主线）写到第 7 章就断了 5 章，区间里也没安排推进。只是提醒，不拦。'
+      ),
+      note(ui)
+    );
+    type(ui, 'to', 6);
+    assert.ok(!note(ui).includes('青崖旧案'), note(ui));
+    ui.post({ type: 'project', tree: sampleTree() });
+    open();
+  });
+
   test('一次最多 10 章', () => {
     type(ui, 'from', 1);
     type(ui, 'to', 11);

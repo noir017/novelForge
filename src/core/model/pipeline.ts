@@ -995,6 +995,93 @@ export function describeThinLore(scope: '本章' | '区间里', names: readonly 
     : `区间里 ${names.length} 条要用到的设定还只有一句话（${list}），写之前可以先在工程页「待完善」里展开；不展开也照写。`;
 }
 
+/**
+ * 写前检查的叙事线提醒要的数（叙事线二期，设计稿「四、写前检查」）：由 model/threadFile.ts 的 `threadWatch` 从叙事线现算；
+ * 前端批量写章弹窗从工程页数据里拿同一份（`ThreadsView.watch`），与后端确认框同源。
+ */
+export interface ThreadWatch {
+  /** 进行中的线：最近一次实际事件在第几章、断了的阈值（`STALL_CHAPTERS`：主线 5 章、其余 15 章）、哪几章有计划事件。 */
+  lines: { name: string; kind: string; lastActive: number; stall: number; planned: number[] }[];
+  /** 还没收、写了计划回收章的伏笔：计划第几章前收、哪几章计划收它。 */
+  foreshadowing: { name: string; resolve: number; planned: number[] }[];
+}
+
+/** 一条提醒：伏笔逾期（写到第 `at` 章时已经过了第 `resolve` 章），或线断了（写到第 `at` 章时已经 `gap` 章没有实际事件）。 */
+export type ThreadReminder =
+  | { kind: 'overdue'; name: string; resolve: number; at: number }
+  | { kind: 'stalled'; name: string; lineKind: string; gap: number; at: number };
+
+/**
+ * 写这几章之前的两类提醒（零调用、不拦人，第 20 条不进主按钮）。「现在」：写第 N 章时按第 N − 1 章算（`watch` 按第一章
+ * `asOf` 过）。
+ *
+ * - **伏笔逾期**：写到某一章时已经过了计划回收章、还没收，这几章的计划里也没安排收它。
+ * - **线断了**：进行中的线写到某一章时已经 K 章没有实际事件（K 见 `ThreadWatch.lines[].stall`），这几章的计划里也没推进它。
+ *
+ * 一章是「本章计划里也没有」；一批几章是「区间里都没有」（安排在区间里哪一章都算安排过：排细纲时已经定了推迟到哪一章）。
+ * 一条只报一次，`at` 是第一个对上的那一章。
+ */
+export function threadRemindersFor(watch: ThreadWatch | undefined, chapters: readonly number[]): ThreadReminder[] {
+  const nos = [...chapters].sort((a, b) => a - b);
+  if (!watch || nos.length === 0) {
+    return [];
+  }
+  const first = nos[0];
+  const last = nos[nos.length - 1];
+  const planned = (list: readonly number[]): boolean => list.some((p) => p >= first && p <= last);
+  const out: ThreadReminder[] = [];
+  for (const f of watch.foreshadowing) {
+    const at = nos.find((n) => n > f.resolve);
+    if (at !== undefined && !planned(f.planned)) {
+      out.push({ kind: 'overdue', name: f.name, resolve: f.resolve, at });
+    }
+  }
+  for (const l of watch.lines) {
+    const at = nos.find((n) => n - 1 - l.lastActive >= l.stall);
+    if (at !== undefined && !planned(l.planned)) {
+      out.push({ kind: 'stalled', name: l.name, lineKind: l.kind, gap: at - 1 - l.lastActive, at });
+    }
+  }
+  return out;
+}
+
+/**
+ * 叙事线提醒的那一句：对话页（卡片说明）、工作台正文目标（`本章`）与批量写章的弹窗、确认框（`区间里`）同一句，各类最多列
+ * 5 条。`unrecorded` 是还没定稿的那几章（叙事线只记定稿过的章，它们里的推进与回收还没记上，提醒可能不准）。没有提醒是空串。
+ */
+export function describeThreadReminders(
+  scope: '本章' | '区间里',
+  reminders: readonly ThreadReminder[],
+  unrecorded?: { from: number; to: number }
+): string {
+  if (reminders.length === 0) {
+    return '';
+  }
+  const one = scope === '本章';
+  const where = one ? '本章计划里' : '区间里';
+  const list = (items: string[]): string => `${items.slice(0, 5).join('；')}${items.length > 5 ? `；等 ${items.length} 条` : ''}`;
+  const overdue = reminders.flatMap((r) =>
+    r.kind === 'overdue' ? [`伏笔〈${r.name}〉计划第 ${r.resolve} 章前收，${one ? '还没收' : `写到第 ${r.at} 章还没收`}，${where}也没安排收`] : []
+  );
+  const stalled = reminders.flatMap((r) =>
+    r.kind === 'stalled'
+      ? [`〈${r.name}〉（${r.lineKind}）${one ? `已经 ${r.gap} 章没有进展` : `写到第 ${r.at} 章就断了 ${r.gap} 章`}，${where}也没安排推进`]
+      : []
+  );
+  const gap = unrecorded
+    ? `（第 ${unrecorded.from === unrecorded.to ? unrecorded.from : `${unrecorded.from}–${unrecorded.to}`} 章还没定稿，叙事线还没记上，提醒可能不准）`
+    : '';
+  return `叙事线提醒：${[overdue.length > 0 ? list(overdue) : '', stalled.length > 0 ? list(stalled) : ''].filter(Boolean).join('；')}${gap}。只是提醒，${one ? '照写不拦' : '不拦'}。`;
+}
+
+/**
+ * 叙事线只记到第 `through` 章（定稿到的最后一章）、要写的是第 `first` 章起：中间没定稿的那几章。没有缺口是 undefined。
+ * 提醒的说法里注一句（{@link describeThreadReminders}）。
+ */
+export function unrecordedBefore(through: number, first: number): { from: number; to: number } | undefined {
+  return through < first - 1 ? { from: through + 1, to: first - 1 } : undefined;
+}
+
 /** 角色图谱的人数上下限与详情每批几人（上游 `architecture.command.ts:719-721`）。 */
 export const ROSTER_MIN = 3;
 export const ROSTER_MAX = 8;
