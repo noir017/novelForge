@@ -698,6 +698,32 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
       ]
     );
   });
+
+  // 试跑（gemini-3-flash-lite）：提示里写成「名字（种类）」，10 次里 9 次照抄回来，22 条只落盘 1 条。
+  test('当前进度：模型回的线名带了种类、括号、引号、【线】标签也认得出；原样对得上的优先', () => {
+    const sent = ['沈默的灭门复仇', '沈默与沈怀山的博弈', '林昭与沈青', '旧案', '旧案主线', '玉佩'];
+    const got = t.verifyProgress(
+      [
+        { line: '沈默的灭门复仇（主线）', text: '一' },
+        { line: '沈默与沈怀山的博弈 (人物线)', text: '二' },
+        { line: '「林昭与沈青」〈感情线〉', text: '三' },
+        { line: '旧案主线', text: '四' },
+        { line: '【线】《玉佩》', text: '五' },
+      ],
+      sent
+    );
+    assert.deepEqual(got.map((x) => [x.line, x.text]), [
+      ['沈默的灭门复仇', '一'],
+      ['沈默与沈怀山的博弈', '二'],
+      ['林昭与沈青', '三'],
+      ['旧案主线', '四'],
+      ['玉佩', '五'],
+    ]);
+    // 只有「旧案」送去了：「旧案 · 主线」去掉末尾的种类认成它。
+    assert.deepEqual(t.verifyProgress([{ line: '旧案 · 主线', text: '六' }], ['旧案']).map((x) => x.line), ['旧案']);
+    assert.deepEqual(t.verifyProgress([{ line: '旧案的余波（主线）', text: '七' }], ['旧案']), [], '去掉装饰也对不上的不收');
+    assert.equal(t.bareThreadName('【线】「沈默的灭门复仇」（主线）'), '沈默的灭门复仇');
+  });
 });
 
 describe('threadFile.ts · 写正文、审稿带哪几条', () => {

@@ -121,9 +121,10 @@ function reply(messages) {
     return JSON.stringify({ merges: [] });
   }
   if (system.includes('给每一条写一两句「当前进度」')) {
-    const lines = [...user.matchAll(/^- (.+?)（/gm)].map((m) => m[1]);
-    progressAsked.push(...lines.map((line) => `${no}:${line}`));
-    return JSON.stringify({ progress: lines.map((line) => ({ line, text: `第 ${no} 章：${line}走到了这里。` })) });
+    // 线名照真模型的样子带着种类回（试跑：gemini-3-flash-lite 10 次里 9 次回「名字（种类）」）：钉住「认不出就整条丢」的回归。
+    const lines = [...user.matchAll(/^【线】(.+)\n种类：(.+)$/gm)].map((m) => ({ line: m[1], kind: m[2] }));
+    progressAsked.push(...lines.map(({ line }) => `${no}:${line}`));
+    return JSON.stringify({ progress: lines.map(({ line, kind }) => ({ line: `${line}（${kind}）`, text: `第 ${no} 章：${line}走到了这里。` })) });
   }
   const card = /- 必需事件：第 (\d+) 章/.exec(user);
   if (card) {

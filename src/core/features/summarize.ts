@@ -370,17 +370,22 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
 /**
  * 「立即同步」完成提示里角色状态与叙事线那半句，按实际结果说（从前一律说「跟到了这几章」，一条线都没有时也这么说）：
  * 「林昭的当前状态更新到了最后定稿的那一章；叙事线：记下 5 个事件，新认出 1 条线、2 条伏笔」，什么都没有就说
- * 「叙事线没有新进展」。
+ * 「叙事线没有新进展」。没收的记录、没写上的当前进度跟在后面（第 2 条；试跑：单章定稿说了，同步没说）。
  */
 export function describeSynced(results: readonly StateAndThreadsOutcome[]): string {
   const names = [...new Set(results.flatMap((r) => r.states?.updated ?? []))];
-  const events = results.reduce((n, r) => n + (r.threads?.recorded.length ?? 0), 0);
-  const lines = results.reduce((n, r) => n + (r.threads?.newThreads.length ?? 0), 0);
-  const fores = results.reduce((n, r) => n + (r.threads?.newForeshadowing.length ?? 0), 0);
+  const sum = (f: (r: StateAndThreadsOutcome) => number): number => results.reduce((n, r) => n + f(r), 0);
+  const events = sum((r) => r.threads?.recorded.length ?? 0);
+  const lines = sum((r) => r.threads?.newThreads.length ?? 0);
+  const fores = sum((r) => r.threads?.newForeshadowing.length ?? 0);
+  const dropped = sum((r) => r.threads?.dropped.length ?? 0);
+  const unwritten = sum((r) => r.threads?.unwritten.length ?? 0);
   const found = [lines > 0 ? `${lines} 条线` : '', fores > 0 ? `${fores} 条伏笔` : ''].filter(Boolean).join('、');
   return [
     names.length > 0 ? `${names.join('、')}的当前状态更新到了最后定稿的那一章` : '',
     events > 0 ? `叙事线：记下 ${events} 个事件${found ? `，新认出 ${found}` : ''}` : '叙事线没有新进展',
+    dropped > 0 ? `另有 ${dropped} 条叙事线的记录没有收（见日志）` : '',
+    unwritten > 0 ? `${unwritten} 条线的当前进度没写上（见日志）` : '',
   ]
     .filter(Boolean)
     .join('；');

@@ -179,6 +179,16 @@ describe('同步：三章逐章定稿，角色状态与叙事线按章号走', (
     assert.ok(done.includes('林昭的当前状态更新到了最后定稿的那一章') && done.includes('叙事线：记下 3 个事件'), done);
     assert.ok(!done.includes('跟到了这几章'), done);
   });
+
+  // 试跑：单章定稿说了没收的那几条，「立即同步」的提示没说（第 2 条）。
+  test('完成提示也说没收的叙事线记录与没写上的当前进度', () => {
+    const th = (o) => ({ recorded: [], newThreads: [], newForeshadowing: [], dropped: [], unwritten: [], ...o });
+    const said = bundle.summarize.describeSynced([
+      { calls: 3, threads: th({ recorded: [{}, {}], dropped: [{ what: 'a', why: '证据在正文里找不到' }], unwritten: ['主线'] }) },
+      { calls: 2, threads: th({ dropped: [{ what: 'b', why: '认不出是哪一条线' }] }) },
+    ]);
+    assert.equal(said, '叙事线：记下 2 个事件；另有 2 条叙事线的记录没有收（见日志）；1 条线的当前进度没写上（见日志）');
+  });
 });
 
 describe('同步：第一步没成的章不走后两步', () => {

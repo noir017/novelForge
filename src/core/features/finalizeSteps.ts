@@ -90,9 +90,10 @@ export async function updateStateAndThreads(
     });
     outcome.threads = th;
     outcome.calls += th.calls;
-    // 认出来了，但当前进度或归并那一次没成：认出来的照样记下了，黄 ❗ 照样挂在章节上（部分完成）。
+    // 认出来了，但当前进度或归并那一次没成、或有几条线的当前进度没写上：认出来的照样记下了，黄 ❗ 照样挂在章节上（部分完成）。
     const partial = [
       th.progressError ? `当前进度没更新成（${th.progressError}）` : '',
+      th.unwritten.length > 0 ? `${th.unwritten.length} 条线的当前进度没写上（${th.unwritten.join('、')}）` : '',
       th.mergeError ? `归并没判成（${th.mergeError}），新认出的照新的建了` : '',
     ].filter(Boolean);
     if (partial.length > 0) {

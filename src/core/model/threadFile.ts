@@ -1563,13 +1563,41 @@ export function completeFinds(finds: ThreadFinds, chapter: number): ThreadFinds 
   return { ...finds, events };
 }
 
-/** 当前进度（b）的输出：哪条线、新的当前进度（截到 {@link PROGRESS_MAX} 字）。名字认不出、空的丢掉。 */
+/** 行首的标签（`【线】`、`线名：`）与末尾的一段括号（`（主线）`、`(支线)`、`〈…〉`、`【…】`、`[…]`、`<…>`）。 */
+const NAME_LABEL = /^\s*(?:【\s*线名?\s*】|线名?\s*[:：])\s*/u;
+const NAME_TAIL = /\s*(?:（[^（）]*）|\([^()]*\)|〈[^〈〉]*〉|<[^<>]*>|【[^【】]*】|\[[^\[\]]*\])\s*$/u;
+
+/**
+ * 模型回线名时常带的装饰去掉之后的样子（试跑：提示里写成「名字（种类）」，模型照抄「沈默的灭门复仇（主线）」）：
+ * 行首的「【线】」「线名：」、前后的引号与书名号、末尾一段段的括号，剥到不再变为止。只拿来认名字，不写进文件。
+ */
+export function bareThreadName(raw: string): string {
+  let s = (raw ?? '').trim().replace(NAME_LABEL, '');
+  for (let prev = ''; prev !== s; ) {
+    prev = s;
+    s = unquote(s).replace(/^《(.*)》$/u, '$1').replace(NAME_TAIL, '').trim();
+  }
+  return s;
+}
+
+/**
+ * 当前进度（b）的输出：哪条线、新的当前进度（截到 {@link PROGRESS_MAX} 字）。名字认不出、空的丢掉。
+ *
+ * 名字认得宽（试跑 22 条只落盘 1 条，第 2 条：不静默丢）：先按原样比，对不上再去掉装饰（{@link bareThreadName}）
+ * 比，还对不上、末尾又正好是一个种类名（「名字 · 主线」归一之后是「名字主线」）就去掉种类再比。送去的线之间
+ * 原样对得上的优先，所以一条线就叫「某某主线」也不会认错。认不出的由调用方对着送去的那几条说出来。
+ */
 export function verifyProgress(raw: readonly unknown[], lines: readonly string[]): { line: string; text: string }[] {
   const byKey = new Map(lines.map((n) => [threadKey(n), n]));
+  const lineOf = (name: string): string | undefined => {
+    const bare = threadKey(bareThreadName(name));
+    const kind = THREAD_KINDS.find((k) => bare.length > k.length && bare.endsWith(k));
+    return byKey.get(threadKey(name)) ?? byKey.get(bare) ?? (kind ? byKey.get(bare.slice(0, -kind.length)) : undefined);
+  };
   const out: { line: string; text: string }[] = [];
   for (const item of raw) {
     const x = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
-    const line = byKey.get(threadKey(strOf(x.line ?? x.thread ?? x.name)));
+    const line = lineOf(strOf(x.line ?? x.thread ?? x.name));
     const text = cut(strOf(x.text ?? x.progress ?? x['当前进度']), PROGRESS_MAX);
     if (line && text && !out.some((o) => o.line === line)) {
       out.push({ line, text });

@@ -78,6 +78,7 @@ before(async () => {
     finalize: './src/core/features/finalize.ts',
     threadFile: './src/core/model/threadFile.ts',
     errorLog: './src/core/runtime/errorLog.ts',
+    logger: './src/core/runtime/logger.ts',
     db: './src/core/runtime/db.ts',
   });
   const settings = {
@@ -393,11 +394,12 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
         newForeshadowing: [{ title: '提灯人', what: '院外提灯的人是谁', evidence: '脚步很轻' }],
       });
     mergeReply = () => JSON.stringify({ merges: [] });
+    // 线名带着种类回来（试跑里真模型就是这么回的）：照样认得出。
     progressReply = () =>
       JSON.stringify({
         progress: [
-          { line: '林昭与沈青', text: '夜谈之后两人互相信任，玉佩的来历已经揭开。' },
-          { line: '沈家旧案', text: '玉佩上的沈字露了面。' },
+          { line: '林昭与沈青（感情线）', text: '夜谈之后两人互相信任，玉佩的来历已经揭开。' },
+          { line: '「沈家旧案」', text: '玉佩上的沈字露了面。' },
           { line: '断剑之谜', text: '不该写的那一条。' },
         ],
       });
@@ -456,8 +458,10 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
     assert.equal(f?.severity, 'warn');
     assert.equal(f.op, 'threadProgress');
     const progressUser = userOf(PROGRESS_MARK);
-    assert.ok(progressUser.includes('原来的当前进度：两人刚结识，互相提防。'), progressUser);
+    assert.ok(progressUser.includes('【线】林昭与沈青\n种类：感情线\n意图：从互相猜忌到并肩。\n原来的当前进度：两人刚结识，互相提防。'), progressUser);
+    assert.ok(!progressUser.includes('林昭与沈青（'), '线名不和种类粘在一起');
     assert.ok(!progressUser.includes('断剑之谜'), progressUser);
+    assert.deepEqual(outcome.threads.unwritten, []);
   });
 
   test('编的证据、收了的线不记；完成提示里一定说叙事线', () => {
@@ -517,6 +521,29 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
     const [f] = await failuresOf(CH4);
     assert.equal(f?.severity, 'warn');
     assert.match(f.message, /叙事线记下了，但当前进度没更新成/);
+  });
+
+  test('送去写当前进度、模型没写上的线：日志、完成提示里说出来，黄 ❗ 挂在章节上（不静默丢）', async () => {
+    findReply = () =>
+      JSON.stringify({
+        events: [
+          { line: '林昭与沈青', type: '推进', what: '林昭想明白了', evidence: '林昭看着她，忽然明白' },
+          { line: '沈家旧案', type: '推进', what: '院外有人', evidence: '院外有人提着灯走过' },
+        ],
+        newThreads: [],
+        newForeshadowing: [],
+      });
+    progressReply = () => JSON.stringify({ progress: [{ line: '林昭与沈青（感情线）', text: '林昭想明白了玉佩的来历。' }] });
+    bundle.logger.clearLogs();
+    const some = await bundle.finalize.finalizeChapter(project, await chapter4());
+    assert.deepEqual(some.threads.progressed, ['林昭与沈青']);
+    assert.deepEqual(some.threads.unwritten, ['沈家旧案']);
+    assert.ok(bundle.finalize.describeFinalize(4, some).includes('1 条线的当前进度没写上（沈家旧案'), bundle.finalize.describeFinalize(4, some));
+    const logs = bundle.logger.recentLogs();
+    assert.ok(logs.some((l) => l.message.includes('1 条线的当前进度没写上') && l.detail.includes('模型回的线名：林昭与沈青（感情线）')), JSON.stringify(logs));
+    const [f] = await failuresOf(CH4);
+    assert.equal(f?.severity, 'warn');
+    assert.match(f.message, /1 条线的当前进度没写上（沈家旧案）/);
   });
 
   test('认事件失败：细纲照样更新了，黄 ❗ 挂在章节上，叙事线不动；再成了就清掉', async () => {

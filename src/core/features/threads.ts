@@ -377,6 +377,8 @@ export interface ThreadsOutcome {
   progressed: string[];
   /** 当前进度作者改过、没有覆盖的那几条线（挂了黄 ❗）。 */
   guarded: string[];
+  /** 送去写当前进度、模型却没写上的那几条线（没回这一条，或回的线名认不出；第 2 条：说出来）。 */
+  unwritten: string[];
   /** 没记的：证据找不到、认不出是哪一条…… */
   dropped: { what: string; why: string }[];
   /** 重新定稿时清掉的、证据已经不在正文里的旧事件（设计稿 ⚑7）。 */
@@ -475,6 +477,7 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
     merged: [],
     progressed: [],
     guarded: [],
+    unwritten: [],
     dropped: [],
     pruned: 0,
     skipped: [],
@@ -693,16 +696,29 @@ async function updateProgress(project: NovelProject, chapter: Chapter, out: Thre
       .filter((e) => lineKey(e.line) === lineKey(t.name))
       .map((e) => `${e.event.type}${e.event.foreshadowing ? `〈${e.event.foreshadowing}〉` : ''}：${e.event.what}`)
       .join('；');
+  // 线名单独一行（试跑：写成「名字（种类）」，模型照抄回来、对不上，22 条只落盘 1 条），种类另起一行。
   const user =
     `【第${no}章 ${chapter.title}】\n\n` +
     send
-      .map((t) => `- ${t.name}（${t.kind}）意图：${t.intent || '（没写）'}\n  原来的当前进度：${t.progress || '（空）'}\n  这一章：${mine(t)}`)
-      .join('\n') +
+      .map((t) =>
+        [`【线】${t.name}`, `种类：${t.kind}`, `意图：${t.intent || '（没写）'}`, `原来的当前进度：${t.progress || '（空）'}`, `这一章：${mine(t)}`].join('\n')
+      )
+      .join('\n\n') +
     '\n\n请按要求输出 JSON。';
   out.calls += 1;
   try {
     const answer = await askJson(opts, `第 ${no} 章 · 叙事线当前进度`, THREAD_PROGRESS_SYSTEM, user, 0.3, '当前进度');
-    const items = verifyProgress(Array.isArray(answer.progress) ? answer.progress : [], send.map((t) => t.name));
+    const list = Array.isArray(answer.progress) ? answer.progress : [];
+    const items = verifyProgress(list, send.map((t) => t.name));
+    // 送去了却没写上的：说出来（第 2 条），日志里带上模型回的线名，看得出是没回还是名字对不上。
+    out.unwritten = send.filter((t) => !items.some((i) => i.line === t.name)).map((t) => t.name);
+    if (out.unwritten.length > 0) {
+      const named = list.map((x) => (x && typeof x === 'object' ? String((x as Record<string, unknown>).line ?? '') : '')).filter(Boolean);
+      log.warn(
+        `第 ${no} 章：${out.unwritten.length} 条线的当前进度没写上（模型没回，或回的线名认不出）`,
+        `没写上的：${out.unwritten.join('、')}\n模型回的线名：${named.join('、') || '（没有）'}`
+      );
+    }
     for (const item of items) {
       const t = send.find((x) => x.name === item.line)!;
       let mineNow = true;
@@ -761,6 +777,7 @@ export function describeThreads(o: ThreadsOutcome): string {
   const extra = [
     o.progressed.length > 0 ? `${o.progressed.join('、')}的当前进度更新到这一章` : '',
     o.guarded.length > 0 ? `${o.guarded.join('、')}的当前进度你改过，没有覆盖（线上挂了黄 ❗）` : '',
+    o.unwritten.length > 0 ? `${o.unwritten.length} 条线的当前进度没写上（${o.unwritten.join('、')}：模型没回，或回的线名认不出）` : '',
     o.dropped.length > 0 ? `另有 ${o.dropped.length} 条叙事线的记录没有收（证据在正文里找不到，或认不出是哪一条）` : '',
     o.pruned > 0 ? `清掉 ${o.pruned} 条证据已经不在正文里的旧记录` : '',
     o.progressError ? `叙事线的当前进度没更新成（${o.progressError}）` : '',
