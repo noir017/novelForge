@@ -78,7 +78,7 @@ intent: (args, project) => ({
 | `pipeline` | `completeSettings` `batchPlots` `batchManuscripts` `newPlot` | `from` `to` `mode` `review` |
 | `summary` | 定稿与全文大纲：`finalize`（照正文反向更新那一章的细纲，再更新角色状态、认这一章在叙事线上发生了什么：事件、当前进度、新长出来的线）`sync`（没定稿、或定稿后正文又改过的章逐章定稿：细纲、角色状态、叙事线）`rebuildGlobal`（从定稿过的细纲重建全文大纲） | `path` |
 | `characters` | `extract` `create` `createAll` `update` `rebuild` `updateAll` `rebuildAll` `cleanAliases` `mergeDuplicates` `reviewState` | `path` `name` |
-| `lore` | 设定名录：`record`（单独记一章 / 补记还没记过的定稿章，只换细纲第九节）`build`（给出现过、还没有条目的建条目）`integrate`（把定稿里的新内容并进条目）。**没有「按目录整理」**：它会搬文件，移动不给外部 agent（第 25 条） | `path` `name` |
+| `lore` | 设定名录：`record`（单独记一章 / 补记还没记过的定稿章，只换细纲「设定」一节）`build`（给出现过、还没有条目的建条目）`integrate`（把定稿里的新内容并进条目）。**没有「按目录整理」**：它会搬文件，移动不给外部 agent（第 25 条） | `path` `name` |
 | `extract` | `style` `threads`（从情节大纲排出叙事线，与工程页「叙事线」页签的「从大纲排出」同一个函数，确认框照弹） | — |
 | `book` | `import` `derive` `learn` | `path` |
 | `skills` | `list` `inspect` `install` `bind` | `url` `id` `stage` |

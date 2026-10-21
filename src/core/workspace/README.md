@@ -107,7 +107,7 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 | `threads` | `threads/` 这一层的 `.md`（叙事线重做：一条线一个文件，「未归属的伏笔.md」也是；子目录里的、别的扩展名、目录本身、七期的 `threads.md` 判 `other`）；`threads/` 是受保护的固定目录 | 纯文本（格式与外科式写入在 `model/threadFile.ts`） | —（链外） | — |
 | `skill` | `.novelforge/skills.json` 与 `.novelforge/skills/**` | 纯文本（`plain`，不加 frontmatter） | — | — |
 | `sensitive` | `.novelforge/sensitive.txt`（自定义敏感词表，内置编辑器的写作体检用） | 纯文本（`plain`） | —（链外：没有创作阶段、不进装配器，改了它不让任何一章挂 ⟳） | — |
-| `plot` | `summaries/` 下（各级子目录都算，镜像正文的路径）+ 数字前缀 + markdown | `plotFile.ts`（八节） | 写入记大纲里覆盖本章那一节的指纹（`outlineUpstreamHash`）；定稿记的 `sourceHash` / `cast` 由 `finalizePlot` 写，重写细纲时原样沿用 | — |
+| `plot` | `summaries/` 下（各级子目录都算，镜像正文的路径）+ 数字前缀 + markdown | `plotFile.ts`（七节加「设定」一节） | 写入记大纲里覆盖本章那一节的指纹（`outlineUpstreamHash`）；定稿记的 `sourceHash` / `cast` 由 `finalizePlot` 写，重写细纲时原样沿用 | — |
 | `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | —（正文依据的细纲指纹记在细纲的 `writtenFrom` 上） | 改名/移动带草稿与细纲（整个卷目录也带，连同它们的历史版本）；写后 `syncManifest` |
 | `character` / `lore` | 各自区 + `.md`（设定条目另给 `stage: 'setting'` 与单条设定目标 `{ kind: 'lore', relPath }`，完善设定：MCP 的 `generate` 给条目路径就是展开它；设定目录、角色目录本身仍是 `other`，设定清单、角色图谱只在 `generate` 里认） | frontmatter | — | — |
 | `draft` | `drafts/` 下 | 纯文本 | — | **永不自动进上下文** |
@@ -198,7 +198,7 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 - 搬进、搬出 `.novelforge/history/` 本身的东西不搬快照（那里的东西本来就不存历史）。
 
 **定稿写回两份都留**：`.trash/` 那一份照旧（永不裁剪，定稿完成提示里说的就是它），历史版本里也存一版——编辑器的
-「历史」面板里找得到、对比得了；八节整体换掉，节流拦不住它。
+「历史」面板里找得到、对比得了；七节整体换掉，节流拦不住它。
 
 **绝不挡住保存**：存快照的任何一步失败都只记一条 warn（「没能给 … 存历史版本，照常写盘」），`snapshotBeforeWrite`
 不抛，调用方照常写盘（第 1 条）。
@@ -227,7 +227,7 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 章节改名时同步 `# 标题` 行）都不会把一章挂着的 ⟳ 刷掉。三条配套约束一条没变：
 
 - **手写的产物永不标脏**：`upstreamHash` / `writtenFrom` 为空 = 不是这条链生出来的，不给它补一个
-- **`plotContentHash` 只哈希八个小节**（定义在 `model/plotFile.ts`），不含 frontmatter——
+- **`plotContentHash` 只哈希七个小节**（定义在 `model/plotFile.ts`），不含 frontmatter——
   `upstreamHash` / `writtenFrom` / `sourceHash` 自己就在 frontmatter 里，算进去会让「排一次细纲」
   「定稿一次」立刻使这一章的正文过期
 - **不哈希状态位**——作者把某一章标成 `done`（`status: done` 在 frontmatter 里），
@@ -241,7 +241,7 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 - **旧版先复制一份进 `.trash/`**（`trashPathFor`：保留原相对路径，同名加序号）。定稿按钮本身就是
   作者的确认，所以不弹覆盖审阅；但改的是一份作者可能逐字推敲过的计划，旧的那一版要找得回来。历史版本里也照常
   存一版（见「历史版本」），编辑器的「历史」面板里对比得了。
-- **八节整体换掉**，第九节「设定」换成这一次定稿记下的（校验过的）；frontmatter 里 `no` / `title` / `targetWords` / `upstreamHash` / `status` /
+- **七节整体换掉**，「设定」一节换成这一次定稿记下的（校验过的）；frontmatter 里 `no` / `title` / `targetWords` / `upstreamHash` / `status` /
   `preflightOk` / `factCheckOk` 原样留着。
 - **写 `sourceHash`（正文的 `contentHash`）与 `cast`，并把 `writtenFrom` 刷成更新后的内容指纹**：
   不刷的话定稿刚改完细纲，正文立刻挂 ⟳；刷了之后，作者定稿后再改细纲，正文才挂 ⟳。指纹按
@@ -298,7 +298,7 @@ workspace/
 | `recordWrittenFrom` | 细纲路径（只改 frontmatter 的 `writtenFrom`，正文一个字节不动） |
 | `recordPreflightOk` | 细纲路径（只改 frontmatter 的 `preflightOk`：一致性预检的永久放行，一行「名字：理由」，同名换新理由；没有 frontmatter 的手写细纲不补，五期补遗 §2） |
 | `restampPlotChain(rel, patch)` | 细纲路径（只改 frontmatter 里给出的指纹键：`upstreamHash` / `writtenFrom` / `sourceHash`，值为空就删掉这个键；别的键与正文一个字节不动，不存历史版本，没有 frontmatter 的手写细纲不补）。只给全书替换的指纹链收尾用（第 18 条，`features/bookReplace.ts`）：同一次里细纲与正文都改了、原本对得上的，`writtenFrom` / `sourceHash` 刷成替换后的；细纲的 `upstreamHash` 退回替换前的判断——`write` 写细纲时总是记下大纲此刻的指纹（「谁写都记」），这一次替换不该顺手把本来挂着的 ⟳ 擦掉、也不该把没记过的手写细纲拉进链 |
-| `patchPlotLore` | 细纲路径（只换第九节「设定」，没有就加在末尾，另外八节与 frontmatter 一个字不动；单独记设定、补记用。第九节不进内容指纹，正文不会因此挂 ⟳） |
+| `patchPlotLore` | 细纲路径（只换「设定」一节，没有就加在末尾，另外七节与 frontmatter 一个字不动；单独记设定、补记用。「设定」一节不进内容指纹，正文不会因此挂 ⟳） |
 | `createChapter` / `ensureDraft` | 章号 + 标题 / 章节路径的镜像 |
 | `createChapterAt(rel, content, plotRelPath)` | 调用方给的路径（照细纲写正文时由 `views/pipeline.ts` 的 `chapterTargetOf` 算：细纲所在的子目录）。细纲路径与新正文的镜像对不上（纯序号的 `030.md`、正文按标题落成 `030-雪夜.md`）就把细纲改名过去；镜像位置已有文件时不动、记 warn |
 | `createChapters(items)` | 同 `createChapter`，一次好几章（导入原稿）：每章照样过 `write`（同名报错退出、大小上限），只是 chapter handler 的 manifest 同步**延到最后做一次**（`WriteOptions.deferAfter`，只对章节生效）——逐章重扫全部章节是 O(n²) 次读盘，三百章十几秒。撞了同名就抛，前面写好的留着、manifest 照样同步 |
@@ -307,7 +307,7 @@ workspace/
 | `writeStyleGuide` / `writeGlobalSummary` | 固定路径 |
 | `writeSkillBindings(text)` | 固定路径（`skills.json`）。设置页「技能」与 `skills bind` 动手前都已经问过作者，这里不再弹覆盖审阅——每换一次下拉框弹一个 JSON 的 diff 只是噪声 |
 | `createThread(thread)` | 新建一条叙事线 `threads/<线名>.md`（排线、定稿认出新线）：**同名跳过**——文件已经在了就一个字节不动、返回 undefined（第 19、28 条：机器只追加）。链外文件，没有上游指纹 |
-| `updateThread(rel, edit)` | 改写一份叙事线文件（一条线，或「未归属的伏笔」，还没有这份文件当空串）：读**此刻**的原文交给 `edit`、写回它给的新原文（覆盖前存一版历史）：排线、定稿要调几十秒模型，写之前重读、只在上面外科式地改，作者这期间的改动才不会被一份旧全文冲掉；种类不是 `threads` 的拒写 |
+| `updateThread(rel, edit)` | 改写一份叙事线文件（一条线，或「未归属的伏笔」，还没有这份文件当空串）：读**此刻**的原文交给 `edit`、写回它给的新原文（覆盖前存一版历史）：排线、定稿要调几十秒模型（拆细纲写计划事件也走它，叙事线二期），写之前重读、只在上面外科式地改，作者这期间的改动才不会被一份旧全文冲掉；种类不是 `threads` 的拒写 |
 | `setParagraphStyle(style)` | 固定路径（`config.md`）。内置编辑器「编辑 → 段落格式」：**只改 frontmatter 的 `paragraphStyle` 这一行**（`setConfigParagraphStyle`），别的字节一个不动；没有 `config.md` 就新建一份只有这一段 frontmatter 的（没有小节，「小说配置」仍算没填，主按钮不变）。经 `write` 落盘、不弹覆盖审阅（改的只是作者在菜单里点的那一个键），带读到时的 hash 当乐观锁；已经是这个值时不写 |
 | `initializeProject(meta)` | 新工程（`actions.ts` 的 `initProjectFlow`：插件命令、网页按钮、CLI 共用）：固定目录（`model` 的 `scaffold`）→ 几份空模板（架构三件、文风、情节大纲、全文大纲；落点与内容由 `model` 的 `newProjectTemplates` 给，纯数据）→ manifest（`model` 的 `createManifest`，最后写：模板写到一半失败时工程不算建好，再点一次就补齐）。**模板经 `write` 写，`mode: 'create'`，落点上已经有东西（文件或目录）就一个字节不动**——与从前 `model/project.ts` 里的 `writeIfAbsent` 同一个口径，那一处绕过了网关，而 `model/` 不能反过来依赖网关，所以拆成「数据层给脚手架与模板内容、网关写模板」。经网关不多出动作：create 不弹审阅、不存历史；这几种（setting / outline / style / globalSummary）的 handler 不记账，不写细纲，已有细纲不会被补上 `upstreamHash`、没有东西因此挂 ⟳；没有伴生也就不记日志。返回新建了哪几份 |
 
