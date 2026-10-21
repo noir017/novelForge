@@ -8,6 +8,7 @@
  *     → 设定条目（还一条都没有时，从名录建）
  *     → 情节大纲（每次 20 章，照细纲）
  *     → 全文大纲（落后就增量更新）
+ *     → 叙事线（一条线都没有时先从情节大纲排一次；再从水位之后逐章补记，每章 1–3 次）
  * ```
  *
  * 第一步就是定稿的第一步（`summarizeChapters`）：照正文写出 `summaries/NNN-<章名>.md`，带 `sourceHash`
@@ -34,9 +35,16 @@
  * 建卡要调几次，取决于细纲里认出了谁、各出场几章——细纲没齐时算不出来。所以先只报细纲；细纲出来之后
  * 第二个框把其余几样的次数一次列全。细纲本来就齐的，只弹第二个。
  *
+ * ## 叙事线（叙事线重做四期）
+ *
+ * 第一步整理出来的细纲直接算定稿过，可定稿第三步（认叙事线）没走——这些章「定稿了、叙事线还没判」。补完情节大纲之后接上
+ * 「排线 + 补记」（features/threadsBackfill.ts，与工程页「从正文补记」同一份）：一条线都没有、有（或这一次补出了）情节大纲，
+ * 先从情节大纲排一次；再从水位之后逐章补记到第 N 章。次数并进第二个确认框（每章 1–3 次，排线 +1）。它与设定条目、全文大纲
+ * 一样是额外的一道：排在最后，没排成、一章没判成都不算补齐失败（补记停在没判成的那一章、失败挂在那一章上，完成提示说一句），
+ * 已经判过的留着，之后在叙事线页签点「从正文补记」接着来。
+ *
  * ## 不做的
  *
- * - 不排叙事线、不记叙事线事件：那是给后面的章的计划，导入的章是历史（⚑）。
  * - 不带写作技能（context/layers/skill.ts）：这一次是照实整理，不是规划。
  *
  * 一件失败就停，已经写好的留着；失败挂在那一行上（第 16 条）。返回实际调了几次模型。
@@ -80,6 +88,9 @@ import { BUILD_MIN_CHAPTERS, createLoreEntries } from './lore';
 import { settingKey, settingRaw } from './pipelineBatch';
 import { poolIO } from './poolIO';
 import { summarizeChapters, updateGlobalSummary } from './summarize';
+import { ThreadsBackfillPlan, describeBackfill, planThreadsBackfill, runThreadsBackfill } from './threadsBackfill';
+import { THREADS_JUDGE_CALLS } from '../model/pipeline';
+import { describeChapterRuns } from '../model/threadFile';
 
 const log = scoped('补齐');
 
@@ -192,6 +203,8 @@ interface DerivePlan {
   outline: { from: number; to: number }[];
   globalSummary: boolean;
   setup?: { totalChapters: number; wordsPerChapter: number };
+  /** 叙事线（四期）：还没判的章逐章补记，一条线都没有时先排线。没有要判的章就缺席。 */
+  threads?: ThreadsBackfillPlan;
 }
 
 /** `before`：前面细纲那一步已经调了几次（完成提示报的是总数）；`preset`：那一步作者挑的模型与详细度。 */
@@ -212,6 +225,7 @@ async function deriveRest(
     ...(plan.lore ? ['设定条目'] : []),
     ...(plan.outline.length > 0 ? ['情节大纲'] : []),
     ...(plan.globalSummary ? ['全文大纲'] : []),
+    ...(plan.threads ? ['叙事线'] : []),
   ];
   if (labels.length === 0) {
     getHost().toast(`第 1–${through} 章的细纲、架构与情节大纲都已经有了。`);
@@ -240,7 +254,10 @@ async function deriveRest(
     // 建条目这一道是额外的：池建不出来不拦整件事，走到那一步时挂黄、接着往下补。
     const lorePool = plan.lore ? await createModelPool({ task: 'loreSynthesis', concurrent: loreLanes > 1 }) : undefined;
     const plotPool = plan.outline.length > 0 ? await createModelPool({ task: 'plotOutline', concurrent: false }) : undefined;
-    const summaryPool = plan.globalSummary ? await createModelPool({ task: 'plotSummary', concurrent: false }) : undefined;
+    const summaryPool =
+      plan.globalSummary || plan.threads ? await createModelPool({ task: 'plotSummary', concurrent: false }) : undefined;
+    // 叙事线先排线走「剧情细纲」档：情节大纲那一步建过就用它，没建（大纲本来就有）再建一个。
+    const threadsPlanPool = plan.threads?.planFirst ? (plotPool ?? (await createModelPool({ task: 'plotOutline', concurrent: false }))) : undefined;
     if ((needSetting && !settingPool) || (plan.cards && !cardPool) || (plan.outline.length > 0 && !plotPool)) {
       log.error('没有可用的模型，从已写正文补齐中止');
       return 0;
@@ -406,6 +423,32 @@ async function deriveRest(
           }
         }
 
+        // 叙事线（四期）：排线 + 补记，排在最后。额外的一道：没排成、一章没判成都不算补齐失败，完成提示里说一句。
+        let threadsNote = '';
+        if (!halt && !signal.aborted && plan.threads && summaryPool) {
+          report({ message: '叙事线', current: step, total: steps });
+          // 走到这里时情节大纲、角色卡都补好了：照盘上再认一遍要判哪几章；先排线只在确认框里报过时才排（不超过报的数，第 4 条）。
+          project.invalidate();
+          const fresh = await planThreadsBackfill(project, { upTo: through });
+          const now = { ...fresh, planFirst: fresh.planFirst && plan.threads.planFirst };
+          if (now.chapters.length > 0) {
+            const o = await runThreadsBackfill(project, now, {
+              pool: summaryPool,
+              planPool: threadsPlanPool,
+              signal,
+              report: (p) => report({ ...p, message: p.message ? `叙事线 · ${p.message}` : undefined }),
+            });
+            calls += o.calls;
+            if (o.judged.length > 0) {
+              done.push(`叙事线 ${o.judged.length} 章`);
+            }
+            if (o.failed || (o.planned?.error && !o.cancelled)) {
+              threadsNote = describeBackfill(o, now, project.relPath(project.threadsDir));
+            }
+          }
+          step++;
+        }
+
         report({ message: '收尾', current: steps, total: steps });
         log.info(`从已写正文补齐结束：${done.join('、') || '什么都没补上'}`, `调用 ${calls} 次，总耗时 ${elapsed(startedAt)}`);
         if (signal.aborted) {
@@ -416,7 +459,10 @@ async function deriveRest(
           getHost().toast(`${head ? `${head}。` : ''}${halt}，后面的已经停下。`, 'error');
           return;
         }
-        getHost().toast(`${head}（调用 ${before + calls} 次）。接下来可以续写大纲、批量写第 ${through + 1} 章以后的章。`);
+        getHost().toast(
+          `${head}（调用 ${before + calls} 次）。${threadsNote ? `${threadsNote}` : ''}接下来可以续写大纲、批量写第 ${through + 1} 章以后的章。`,
+          threadsNote ? 'error' : 'info'
+        );
       },
       { scope: '补齐' }
     );
@@ -485,6 +531,8 @@ async function planRest(project: NovelProject, through: number, written: Chapter
     setup = { totalChapters: total, wordsPerChapter: words };
   }
 
+  // 叙事线（四期）：第 1–N 章里定稿了、还没判的章；情节大纲这一次会补出来（或本来就有）就算有大纲，一条线都没有时先排。
+  const threads = await planThreadsBackfill(project, { upTo: through, outlineReady: outline.length > 0 || covered > 0 });
   return {
     settings,
     cards,
@@ -492,6 +540,7 @@ async function planRest(project: NovelProject, through: number, written: Chapter
     outline,
     globalSummary: (manifest.globalSummaryThrough ?? 0) < through,
     setup,
+    ...(threads.chapters.length > 0 ? { threads } : {}),
   };
 }
 
@@ -515,7 +564,7 @@ async function planLore(project: NovelProject): Promise<DerivePlan['lore']> {
 }
 
 /** 确认框上那个数：每一样的次数加起来。 */
-export function estimateOf(plan: Pick<DerivePlan, 'settings' | 'cards' | 'lore' | 'outline' | 'globalSummary'>): CallEstimate {
+export function estimateOf(plan: Pick<DerivePlan, 'settings' | 'cards' | 'lore' | 'outline' | 'globalSummary' | 'threads'>): CallEstimate {
   const parts: CallEstimate[] = [];
   for (const doc of plan.settings) {
     parts.push(doc === 'config' ? CONFIG_CALLS : doc === 'characters' ? EXACT_CALLS(plan.cards?.calls ?? 0) : ONE_CALL);
@@ -529,6 +578,9 @@ export function estimateOf(plan: Pick<DerivePlan, 'settings' | 'cards' | 'lore' 
   if (plan.globalSummary) {
     parts.push({ low: 1, high: 1, max: GLOBAL_SUMMARY_ROUNDS });
   }
+  if (plan.threads) {
+    parts.push(plan.threads.calls);
+  }
   return parts.reduce(addCalls, { low: 0, high: 0, max: 0 });
 }
 
@@ -538,15 +590,15 @@ function tasksOf(plan: DerivePlan): LlmTask[] {
     ...(plan.settings.some((d) => d !== 'characters') ? ['setting' as const] : []),
     ...(plan.cards ? ['characterCard' as const] : []),
     ...(plan.lore ? ['loreSynthesis' as const] : []),
-    ...(plan.outline.length > 0 ? ['plotOutline' as const] : []),
-    ...(plan.globalSummary ? ['plotSummary' as const] : []),
+    ...(plan.outline.length > 0 || plan.threads?.planFirst ? ['plotOutline' as const] : []),
+    ...(plan.globalSummary || plan.threads ? ['plotSummary' as const] : []),
   ];
 }
 
 function describePlan(plan: DerivePlan, through: number): string {
   const lines: string[] = [];
   lines.push(
-    '按 配置 → 前提 → 角色卡 → 世界观 → 设定条目 → 情节大纲 → 全文大纲 的顺序一件一件来，每件都照已写正文整理；已经有的不会被改动。一件失败就停，已经写好的留着（设定条目没建成不停）。'
+    '按 配置 → 前提 → 角色卡 → 世界观 → 设定条目 → 情节大纲 → 全文大纲 → 叙事线 的顺序一件一件来，每件都照已写正文整理；已经有的不会被改动。一件失败就停，已经写好的留着（设定条目、叙事线没补成不停）。'
   );
   if (plan.setup) {
     lines.push(`小说配置按 ${plan.setup.totalChapters} 章 × ${plan.setup.wordsPerChapter} 字展开（没写每章字数时取已写各章的平均）。`);
@@ -572,7 +624,13 @@ function describePlan(plan: DerivePlan, through: number): string {
   if (plan.globalSummary) {
     lines.push(`全文大纲：落后于第 ${through} 章，增量更新（一次并不完再来，最多 ${GLOBAL_SUMMARY_ROUNDS} 次）。`);
   }
-  lines.push('叙事线不排：那是给后面的章的计划。以后照常拆细纲时会接着排。');
+  if (plan.threads) {
+    const t = plan.threads;
+    lines.push(
+      `叙事线：${t.planFirst ? '还没有一条线，先从情节大纲排一次（1 次）；再' : ''}逐章认${describeChapterRuns(t.chapters.map((c) => c.order))}在叙事线上发生了什么` +
+        `（${t.chapters.length} 章，每章 ${THREADS_JUDGE_CALLS.low}–${THREADS_JUDGE_CALLS.high} 次，按章号串行）；一章没判成就停在那里，不算补齐失败，之后在叙事线页签点「从正文补记」接着来。`
+    );
+  }
   return lines.join('\n');
 }
 

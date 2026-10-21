@@ -3,7 +3,8 @@
  *
  * | 用例组 | 钉的是什么 |
  * |---|---|
- * | 全套 | 两次确认（先只报细纲，细纲出来再报其余）；按 细纲 → 配置 → 前提 → 角色卡 → 世界观 → 大纲 → 全文大纲 的顺序；第一步照正文写出 `summaries/NNN-<章名>.md`、带 sourceHash，直接算定稿过（不再另排一遍细纲）；之后主按钮照常续写大纲 |
+ * | 全套 | 两次确认（先只报细纲，细纲出来再报其余）；按 细纲 → 配置 → 前提 → 角色卡 → 世界观 → 大纲 → 全文大纲 → 叙事线（排线 + 逐章补记）的顺序；第一步照正文写出 `summaries/NNN-<章名>.md`、带 sourceHash，直接算定稿过（不再另排一遍细纲）；之后主按钮照常续写大纲 |
+ * | 叙事线（四期） | 一条线都没有：补完情节大纲之后先排线、再从第 1 章逐章补记，次数并进第二次确认；水位推到第 N 章；补记停在半路不算补齐失败，完成提示说一句、失败挂在那一章上 |
  * | 设定条目 | 一条条目都没有时，建卡之后从名录建（出现 ≥2 章，没有就降到 1 章），次数算进第二次确认；没建成挂黄 ❗、后面照常补 |
  * | 再来一次 | 什么都齐了：零调用 |
  * | 只补空白 | 作者写过的前提、定稿过的细纲一个字不动；只排过计划的那一章拿着计划对照正文改，旧版进回收站 |
@@ -49,6 +50,10 @@ const CONFIG_JSON = JSON.stringify({
 function kindOf(messages) {
   const sys = messages[0]?.content ?? '';
   const user = messages[messages.length - 1].content;
+  if (sys.includes('只从作者给的小说配置、故事前提、角色图谱与情节大纲里排出这本书的叙事线')) return 'threadPlan';
+  if (sys.includes('你是小说定稿事实审查员')) return 'threads';
+  if (sys.includes('给每一条写一两句「当前进度」')) return 'threadProgress';
+  if (sys.includes('判断它们是不是已有的某一条换了个说法')) return 'threadMerge';
   if (sys.includes('建立可检索的章节档案')) return 'plot';
   if (sys.includes('负责维护一部长篇小说的人物档案')) return 'card';
   if (sys.includes('把定稿细纲里关于一个设定的记录整理成一条设定条目')) return 'lore';
@@ -88,6 +93,23 @@ function defaultReply(messages) {
       return '## 一句话前提\n\n当孤儿遭遇灭门，必须入宗查案。\n\n## 核心冲突链\n\n灭门 → 入宗 → 查案。\n\n## 爽点循环\n\n残令。\n\n## 悬念骨架\n\n谁放的火。';
     case 'world':
       return '## 规则与漏洞\n\n灵脉决定修为。\n\n## 阶层与资源\n\n宗门垄断灵脉。\n\n## 深层危机\n\n灵脉在枯竭。';
+    // 叙事线（四期）：排出一条主线；每章认事件记一条推进（证据是正文开头那一句），当前进度照线名回。
+    case 'threadPlan':
+      return JSON.stringify({ threads: [{ title: '青云旧案', kind: '主线', from: 1, to: 100, intent: '查清旧案。' }] });
+    case 'threads': {
+      const no = Number(/【第(\d+)章/.exec(user)?.[1] ?? 0);
+      return JSON.stringify({
+        events: [{ line: '青云旧案', type: '推进', what: `第 ${no} 章又见沈青`, evidence: `林昭第${no}次见到沈青。` }],
+        newThreads: [],
+        newForeshadowing: [],
+      });
+    }
+    case 'threadProgress': {
+      const lines = [...user.matchAll(/^【线】(.+)$/gm)].map((m) => m[1]);
+      return JSON.stringify({ progress: lines.map((line) => ({ line, text: `${line}查到了这里。` })) });
+    }
+    case 'threadMerge':
+      return JSON.stringify({ merges: [] });
     case 'outline': {
       const m = /里第 (\d+)(?:–(\d+))? 章实际发生/.exec(user);
       const from = Number(m[1]);
@@ -173,10 +195,10 @@ describe('从已写正文补齐 · 全套', () => {
   });
 
   test('第二次把其余几样一次列全，次数按细纲算准；不再另排细纲', () => {
-    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 大纲 1 + 全文大纲 1（上限 5）
+    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 大纲 1 + 全文大纲 1（上限 5）+ 叙事线：排线 1 + 7 章 × 1–3
     assert.equal(
       h.confirms[1].message,
-      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、情节大纲、全文大纲，预计 7 次调用，最多 13 次。现在补？'
+      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、情节大纲、全文大纲、叙事线，预计 15–29 次调用，最多 35 次。现在补？'
     );
   });
 
@@ -192,11 +214,19 @@ describe('从已写正文补齐 · 全套', () => {
     assert.match(h.confirms[1].detail, /照细纲整理第 1–7 章，每次 20 章，1 次调用/);
   });
 
-  test('第二次的说明：叙事线不排', () => {
-    assert.match(h.confirms[1].detail, /叙事线不排/);
+  test('第二次的说明：叙事线一条都没有，先从情节大纲排、再逐章补记；没判成不算补齐失败', () => {
+    assert.match(
+      h.confirms[1].detail,
+      /叙事线：还没有一条线，先从情节大纲排一次（1 次）；再逐章认第 1–7 章在叙事线上发生了什么（7 章，每章 1–3 次，按章号串行）；一章没判成就停在那里，不算补齐失败/
+    );
+    assert.match(h.confirms[1].detail, /→ 全文大纲 → 叙事线 的顺序/);
   });
 
-  test('按链路顺序一件一件来', () => {
+  test('第二次的确认框列出用到的档：剧情细纲（大纲、排线）与定稿（全文大纲、叙事线）', () => {
+    assert.ok(h.confirms[1].call.tiers.length >= 4, JSON.stringify(h.confirms[1].call.tiers));
+  });
+
+  test('按链路顺序一件一件来：叙事线排在最后，先排线、再按章号逐章认事件与当前进度', () => {
     assert.deepEqual(kinds(), [
       ...Array(7).fill('plot'),
       'config',
@@ -206,11 +236,23 @@ describe('从已写正文补齐 · 全套', () => {
       'world',
       'outline',
       'global',
+      'threadPlan',
+      ...Array(7).fill(['threads', 'threadProgress']).flat(),
     ]);
+    const asked = fake.calls.filter((m) => kindOf(m) === 'threads').map((m) => Number(/【第(\d+)章/.exec(m[m.length - 1].content)[1]));
+    assert.deepEqual(asked, [1, 2, 3, 4, 5, 6, 7]);
   });
 
   test('返回实际次数', () => {
-    assert.equal(calls, 14);
+    assert.equal(calls, 29);
+  });
+
+  test('叙事线：排出的线里记下了七章的推进，水位推到第 7 章', async () => {
+    const raw = t.read('.novelforge/threads/青云旧案.md');
+    for (let no = 1; no <= 7; no++) {
+      assert.ok(raw.includes(`第 ${no} 章 · 推进：第 ${no} 章又见沈青 〔证据：「林昭第${no}次见到沈青。」〕`), raw);
+    }
+    assert.deepEqual(await t.project.readThreadsMark(), { through: 7, judged: [] });
   });
 
   test('没有细纲的章照正文从头整理：一次都没带「当前细纲」', () => {
@@ -290,7 +332,10 @@ describe('从已写正文补齐 · 全套', () => {
   });
 
   test('完成提示报出补了什么与次数', () => {
-    assert.ok(h.toasts.some((x) => x.includes('已从第 1–7 章补上：7 章细纲、') && x.includes('调用 14 次')), h.toasts.join('|'));
+    assert.ok(
+      h.toasts.some((x) => x.includes('已从第 1–7 章补上：7 章细纲、') && x.includes('全文大纲、叙事线 7 章') && x.includes('调用 29 次')),
+      h.toasts.join('|')
+    );
   });
 
   test('再来一次：什么都齐了，零调用、不弹框', async () => {
@@ -321,18 +366,19 @@ describe('从已写正文补齐 · 设定条目（从名录建）', () => {
   });
 
   test('确认框把设定条目算进去：出现过的都建，每条 1 次，解析不了的重来一次', () => {
-    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 设定条目 2（上限 4）+ 大纲 1 + 全文大纲 1（上限 5）
+    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 设定条目 2（上限 4）+ 大纲 1 + 全文大纲 1（上限 5）+ 叙事线 1 + 7 × 1–3
     assert.equal(
       h.confirms[1].message,
-      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、设定条目、情节大纲、全文大纲，预计 9 次调用，最多 17 次。现在补？'
+      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、设定条目、情节大纲、全文大纲、叙事线，预计 17–31 次调用，最多 39 次。现在补？'
     );
     assert.match(h.confirms[1].detail, /设定条目：给山门、门外建条目（细纲里出现 1 章以上、还没有条目/);
     assert.match(h.confirms[1].detail, /只读定稿细纲里提到它们的那几行，预计 2 次调用，最多 4 次/);
   });
 
   test('建卡之后、大纲之前建条目', () => {
-    assert.deepEqual(kinds(), [...Array(7).fill('plot'), 'config', 'premise', 'card', 'card', 'world', 'lore', 'lore', 'outline', 'global']);
-    assert.equal(calls, 16);
+    assert.deepEqual(kinds().slice(0, 16), [...Array(7).fill('plot'), 'config', 'premise', 'card', 'card', 'world', 'lore', 'lore', 'outline', 'global']);
+    // 后面是叙事线：排线 1 + 7 章各认事件、当前进度 2。
+    assert.equal(calls, 16 + 1 + 14);
   });
 
   test('条目建在名录给的分类目录里：标题、关键词、一句话、机器写的指纹、水位到最后一章定稿', async () => {
@@ -380,7 +426,7 @@ describe('从已写正文补齐 · 设定条目没建成也不停', () => {
   });
 
   test('后面的大纲与全文大纲照常补', () => {
-    assert.deepEqual(kinds().slice(-3), ['lore', 'outline', 'global']);
+    assert.deepEqual(kinds().filter((k) => ['lore', 'outline', 'global'].includes(k)).slice(-3), ['lore', 'outline', 'global']);
     assert.ok(!h.toasts.some((x) => x.startsWith('error:')), h.toasts.join('|'));
   });
 
@@ -388,6 +434,36 @@ describe('从已写正文补齐 · 设定条目没建成也不停', () => {
     const onLore = failures['.novelforge/lore'] ?? [];
     assert.ok(onLore.some((f) => f.severity === 'warn' && f.message.includes('设定条目一条都没建成')), JSON.stringify(failures));
     assert.deepEqual(await t.project.listLore(), []);
+  });
+});
+
+// 叙事线（四期）是额外的一道：第 4 章认事件没成，补记停在那里、不算补齐失败；已经判过的留着，水位停在第 3 章，失败挂在第 4 章上。
+describe('从已写正文补齐 · 叙事线补记停在半路也不算补齐失败', () => {
+  let t;
+  let failures;
+  before(async () => {
+    t = await fresh('derive-threads-stop');
+    replyFn = (messages) =>
+      kindOf(messages) === 'threads' && messages[messages.length - 1].content.includes('【第4章') ? '不是 JSON' : defaultReply(messages);
+    h.expect('先整理细纲', '100', '开始补齐');
+    await bundle.derive.deriveFromText(t.project);
+    failures = await bundle.errorLog.listActiveFailures(t.project);
+  });
+
+  test('前面几样都补上了；叙事线判到第 3 章，第 5–7 章一次都没调', async () => {
+    assert.ok(kinds().includes('global'));
+    const asked = fake.calls.filter((m) => kindOf(m) === 'threads').map((m) => Number(/【第(\d+)章/.exec(m[m.length - 1].content)[1]));
+    assert.deepEqual(asked, [1, 2, 3, 4]);
+    assert.deepEqual(await t.project.readThreadsMark(), { through: 3, judged: [] });
+  });
+
+  test('失败挂在第 4 章上；完成提示照样报补上了什么，另说叙事线停在第 4 章', () => {
+    const onCh4 = failures[CH(4)] ?? [];
+    assert.ok(onCh4.some((f) => f.op === 'threads' && f.message.includes('从已写正文补记叙事线没成')), JSON.stringify(failures));
+    const toast = h.toasts.find((x) => x.includes('已从第 1–7 章补上：'));
+    assert.ok(toast && toast.includes('叙事线 3 章'), h.toasts.join('|'));
+    assert.ok(toast.includes('第 4 章没判成') && toast.includes('后面 3 章没判'), toast);
+    assert.ok(toast.includes('接下来可以续写大纲'), toast);
   });
 });
 
@@ -464,8 +540,9 @@ describe('从已写正文补齐 · 一件失败就停', () => {
     await bundle.derive.deriveFromText(t.project);
   });
 
-  test('大纲没整理成：不更新全文大纲', () => {
+  test('大纲没整理成：不更新全文大纲，也不排线、不补记叙事线', () => {
     assert.ok(!kinds().includes('global'), kinds().join(','));
+    assert.ok(!kinds().some((k) => k.startsWith('thread')), kinds().join(','));
   });
 
   test('第一步整理好的细纲留着', () => {

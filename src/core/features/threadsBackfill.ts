@@ -58,9 +58,12 @@ export interface ThreadsBackfillPlan {
 
 /**
  * 补记要判哪几章。`outlineReady`：「从已写正文补齐」这一次会补出情节大纲时传 true（那时盘上还没有）；缺席看盘上的情节大纲。
- * 同号的正文有两份时认路径排序第一份（与流水线、总览同一个口径）。
+ * `upTo`：只看到第几章为止（补齐只管第 1–N 章）。同号的正文有两份时认路径排序第一份（与流水线、总览同一个口径）。
  */
-export async function planThreadsBackfill(project: NovelProject, opts: { outlineReady?: boolean } = {}): Promise<ThreadsBackfillPlan> {
+export async function planThreadsBackfill(
+  project: NovelProject,
+  opts: { outlineReady?: boolean; upTo?: number } = {}
+): Promise<ThreadsBackfillPlan> {
   const [all, mark, book] = await Promise.all([project.listChapters(), project.readThreadsMark(), project.readThreads()]);
   const byNo = new Map<number, Chapter>();
   for (const c of all) {
@@ -68,7 +71,7 @@ export async function planThreadsBackfill(project: NovelProject, opts: { outline
       byNo.set(c.order, c);
     }
   }
-  const nos = [...byNo.keys()].sort((a, b) => a - b);
+  const nos = [...byNo.keys()].filter((no) => opts.upTo === undefined || no <= opts.upTo).sort((a, b) => a - b);
   const fresh: Chapter[] = [];
   const stale: number[] = [];
   const unfinalized: number[] = [];
