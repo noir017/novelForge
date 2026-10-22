@@ -18,7 +18,7 @@ const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let t;
@@ -168,7 +168,7 @@ describe('大纲有了、还没有细纲', () => {
   let expected;
 
   before(async () => {
-    t.write('.novelforge/outline.md', outlineOf(20, { title: '大纲', text: { 1: '少年入宗，一路向北。' } }));
+    writeOutline(t, outlineOf(20, { title: '大纲', text: { 1: '少年入宗，一路向北。' } }));
     project.invalidate();
     text = await brief();
     ({ step: expected } = await bookStepOf());
@@ -339,16 +339,10 @@ describe('target 是还没落盘的下一章细纲', () => {
 });
 
 describe('⟳ 上游变更提醒', () => {
-  // 大纲里有那一章那一条，细纲记的上游对不上才标脏；没有那一条的章不标（大纲一章一条，设计稿 ⚑3）。
-  // 第 1–20 章的条目与上面一字不差，第 1 章细纲的上游照样新鲜。
-  before(() => {
-    t.write('.novelforge/outline.md', outlineOf(230, { title: '大纲', text: { 1: '少年入宗，一路向北。' } }));
-    project.invalidate();
-  });
-
+  // 细纲的上游是它自己的梗概（情节大纲里这一章那一条，docs/design/plans/2026-10-22-outline-from-plots.md）：
+  // 记过的指纹对不上此刻梗概的指纹才标脏。
   async function stalePlot(no) {
-    // 细纲记了 upstreamHash 才会标脏（手写的产物永不标脏）；'old-hash' 对不上
-    // 大纲里的任何一条。
+    // 细纲记了 upstreamHash 才会标脏（手写的产物永不标脏）；'old-hash' 对不上梗概「x」的指纹。
     await ws.writePlot({
       no,
       title: `第${no}章`,
@@ -407,7 +401,7 @@ describe('老工程 · 99 章成品、没有架构也没有细纲', () => {
     for (let i = 1; i <= 99; i++) {
       t2.write(`chapters/${String(i).padStart(3, '0')}-第${i}章.md`, `# 第${i}章\n\n${'字'.repeat(3000)}\n`);
     }
-    t2.write('.novelforge/outline.md', '# 大纲\n\n少年入宗，一路向北。\n');
+    writeOutline(t2, '# 大纲\n\n少年入宗，一路向北。\n');
     old.invalidate();
     text = await bundle.stateBrief.buildStateBrief(old);
   });

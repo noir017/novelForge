@@ -170,9 +170,6 @@ export function summaryLines(s: BookReplaceSummary): SummaryLine[] {
   if (s.bodyOnly.length > 0) {
     out.push({ text: `${listLabels(s.bodyOnly)}：只改了正文、细纲没跟着改，回到「待定稿」。`, tone: 'warn' });
   }
-  if (s.outlineOnly.length > 0) {
-    out.push({ text: `${listLabels(s.outlineOnly)}：情节大纲里覆盖它的那一节改了、细纲没跟着改，细纲会挂 ⟳。`, tone: 'warn' });
-  }
   for (const card of s.renamedCards) {
     out.push({
       text: card.nameChanged

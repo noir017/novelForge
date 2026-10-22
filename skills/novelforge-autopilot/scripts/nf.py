@@ -133,12 +133,19 @@ def finalized(chapter_file):
 
 
 def outline_coverage():
-    try:
-        text = open(nf('outline.md'), encoding='utf8').read()
-    except OSError:
-        return 0
-    nums = [int(x) for h in re.findall(r'^##\s*第\s*([\d\s–\-—~～至到]+)\s*章', text, re.M) for x in re.findall(r'\d+', h)]
-    return max(nums, default=0)
+    """情节大纲覆盖到第几章。磁盘上没有 outline.md：大纲是各章细纲「梗概」的汇总，覆盖到的就是梗概非空的最大章号。"""
+    best = 0
+    for dirpath, _, files in os.walk(nf('summaries')):
+        for name in files:
+            m = re.match(r'^(\d{1,5})[-_.\s]*.*\.(md|markdown)$', name, re.I)
+            if not m or int(m.group(1)) <= best:
+                continue
+            text = open(os.path.join(dirpath, name), encoding='utf8', errors='replace').read()
+            body = re.search(r'^#{2,3}\s*梗概\s*\n(.*?)(?=^#{1,3}\s|\Z)', text, re.M | re.S)
+            synopsis = body.group(1).strip() if body else ''
+            if synopsis and synopsis not in ('（待补充）', '(待补充)'):
+                best = int(m.group(1))
+    return best
 
 
 def char_count(path):
@@ -301,7 +308,7 @@ def cmd_outline(a):
                               'targetNo': lo, 'range': {'from': lo, 'to': hi}}):
             sys.exit('大纲这一段没写进去，停下')
         if outline_coverage() <= cov:
-            sys.exit(f'写入之后覆盖没往前走（还是第 {cov} 章），停下看 outline.md')
+            sys.exit(f'写入之后覆盖没往前走（还是第 {cov} 章），停下看工程页的情节大纲')
 
 
 def cmd_plots(a):

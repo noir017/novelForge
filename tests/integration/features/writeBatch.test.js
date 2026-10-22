@@ -20,7 +20,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider, filler } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -265,7 +265,8 @@ describe('写完即定稿；已有正文的跳过；弹窗确认过的不再问'
 describe('第一章没细纲的在它前面收住', () => {
   let t;
   before(async () => {
-    t = await fresh('wb-noplot', { blank: [3] });
+    // 第 3–5 章是空骨架、连梗概都没有：情节大纲（各章细纲梗概的汇总）只覆盖到第 2 章。
+    t = await fresh('wb-noplot', { blank: [3, 4, 5] });
     h.expect('开始写章');
     await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 5 } });
   });
@@ -499,7 +500,7 @@ describe('边写边拆细纲：大纲覆盖之内没细纲的章，写到时先�
   let blueprintPrompt;
   before(async () => {
     t = await fresh('wb-rolling', { blank: [3, 4, 5] });
-    t.write('.novelforge/outline.md', OUTLINE);
+    writeOutline(t, OUTLINE);
     t.project.invalidate();
     replyFn = factfulReply();
     await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 4 }, mode: 'finalize', call: {} });

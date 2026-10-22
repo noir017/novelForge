@@ -260,6 +260,10 @@ export async function resolveAttachment(project: NovelProject, att: Attachment):
   if (!att.relPath) {
     return '';
   }
+  // 情节大纲没有文件：各章细纲梗概的汇总。
+  if (att.relPath.replace(/\\/g, '/') === project.relPath(project.outlinePath)) {
+    return (await project.readOutline()).trim();
+  }
   const abs = project.pathOf(att.relPath);
   if (!(await exists(abs))) {
     return '';

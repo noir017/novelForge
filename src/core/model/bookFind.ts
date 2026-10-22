@@ -18,8 +18,7 @@
  * 2. **解析器认的小节标题**：细纲的七节与「设定」一节、角色卡的七节、设定条目的三节与「暗设」（以它开头的标题都算）、
  *    架构三件的各节、文风指南的「禁用词表」——`## 关键事件` 被换成 `## 关键事情`，这一节就读不出来了，
  *    那一章从「排过细纲」退回「待写细纲」。
- *    标题行整行不搜。情节大纲的章标题（`## 第3章：标题`）只护住「第3章」那一截（章号决定每一章细纲的上游是
- *    哪一条），后面的标题照常。
+ *    标题行整行不搜。（情节大纲没有文件，是各章细纲梗概的汇总，搜细纲就搜到了。）
  *
  * 正文、草稿是作者的文件，一个字都不护。
  */
@@ -27,7 +26,6 @@ import { CONFIG_SECTION_KEYS, PREMISE_SECTION_KEYS, WORLD_SECTION_KEYS } from '.
 import { CHARACTER_SECTION_KEYS } from './types';
 import { LORE_BODY_KEYS, LORE_HIDDEN_KEY, PLOT_LORE_KEY } from './loreFile';
 import { PLOT_SECTION_KEYS } from './plotFile';
-import { OUTLINE_HEADING } from './outlineFile';
 import { BOOK_FIND_CONTEXT } from './bookFindScope';
 import { FindMatch, FindOptions, compileSearch, expandReplacement, findMatches } from './textFind';
 
@@ -121,24 +119,14 @@ export function protectionOf(text: string, kind: string): Protection {
   const headings = STRUCTURAL_HEADINGS[kind];
   const keys = headings ? new Set(headings.map(normalizeKey)) : undefined;
   const prefixes = (STRUCTURAL_PREFIXES[kind] ?? []).map(normalizeKey);
-  if (!keys && kind !== 'outline') {
+  if (!keys) {
     return out;
   }
   for (const line of linesFrom(text, bodyStart)) {
-    if (keys) {
-      const heading = /^#{2,3}\s+(.+?)\s*$/.exec(line.text);
-      const key = heading ? normalizeKey(heading[1].replace(/[:：]\s*$/, '')) : '';
-      if (heading && (keys.has(key) || prefixes.some((p) => key.startsWith(p)))) {
-        out.blocked.push({ start: line.start, end: line.start + line.text.length });
-      }
-    } else {
-      // 情节大纲：章标题只护「第 N 章」那一截，后面的标题照常。
-      const m = OUTLINE_HEADING.exec(line.text);
-      if (m && (m[3] || m[5])) {
-        const trimmed = line.text.replace(/\s+$/, '');
-        const titleStart = trimmed.length - (m[6] ?? '').length;
-        out.blocked.push({ start: line.start, end: line.start + titleStart });
-      }
+    const heading = /^#{2,3}\s+(.+?)\s*$/.exec(line.text);
+    const key = heading ? normalizeKey(heading[1].replace(/[:：]\s*$/, '')) : '';
+    if (heading && (keys.has(key) || prefixes.some((p) => key.startsWith(p)))) {
+      out.blocked.push({ start: line.start, end: line.start + line.text.length });
     }
   }
   return out;

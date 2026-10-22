@@ -30,7 +30,8 @@
  * ## frontmatter
  *
  * - `targetWords`：这一章写多少字。没写就用 `config.md` 的每章字数。
- * - `upstreamHash`：生成这份细纲时，情节大纲里这一章那一条的指纹。
+ * - `upstreamHash`：排这份细纲（写下其余几节）时**这一章梗概**的指纹（{@link plotSynopsisHash}）。梗概就是情节大纲里
+ *   这一章那一条（大纲是各章梗概的汇总，model/outlineFile.ts）：在大纲里改了它、其余几节没跟，这一章挂 ⟳（{@link isPlotUpstreamStale}）。
  * - `writtenFrom`：**正文据以写成的细纲指纹**，正文落盘那一步记，定稿时刷成反向更新之后的指纹。
  *   记在细纲这一侧，是因为章节是作者的文件、可以是 `.txt`、没有 frontmatter
  *   （第 9 条），这条链只能从这边指过去。与当前内容指纹对不上 = 细纲在正文（或定稿）之后
@@ -131,7 +132,8 @@ export type PlotSections = Record<PlotSectionKey, string>;
  */
 export const BLUEPRINT_LIMITS = {
   title: 18,
-  synopsis: 400,
+  /** 梗概就是情节大纲里这一章那一条：一句话，最多再补两句。 */
+  synopsis: 150,
   timePlace: 120,
   /** 关键事件所有条目加起来最多几个字。 */
   keyEvents: 1200,
@@ -164,7 +166,7 @@ export interface Plot {
   cast: SummaryCast[];
   /** 这一章预计写多少字正文。 */
   targetWords?: number;
-  /** 生成这份细纲时，情节大纲里这一章那一条的指纹。与当前对不上 = 上游变了。 */
+  /** 排这份细纲时梗概（情节大纲里这一章那一条）的指纹。与现在的梗概对不上 = 大纲改了、细纲没跟。 */
   upstreamHash: string;
   /** 正文据以写成的细纲指纹。见文件头。 */
   writtenFrom: string;
@@ -294,6 +296,49 @@ export function emptyPlotSections(): PlotSections {
  */
 export function isPlotFilled(sections: PlotSections): boolean {
   return hasContent(sections.关键事件);
+}
+
+/**
+ * 空壳：只有梗概（情节大纲里这一章那一条），别的几节都空、没记过设定、没定稿过——大纲排到了，细纲还没拆
+ * （docs/design/plans/2026-10-22-outline-from-plots.md）。在汇总的大纲里删掉那一条时，只有空壳跟着进回收站。
+ */
+export function isPlotStub(plot: Pick<Plot, 'sections' | 'lore' | 'sourceHash'>): boolean {
+  return (
+    !plot.sourceHash &&
+    !plot.lore?.length &&
+    PLOT_SECTION_KEYS.every((key) => key === '梗概' || !hasContent(plot.sections[key]))
+  );
+}
+
+/**
+ * 梗概的指纹——细纲的上游（`upstreamHash`）。梗概空着给空串：没有上游就不记、不标脏（第 18a 条）。
+ * 换行与行尾空白不算改动。
+ */
+export function plotSynopsisHash(synopsis: string | undefined): string {
+  const text = normalizeSynopsis(synopsis ?? '');
+  return hasContent(text) ? hash(text) : '';
+}
+
+/** 梗概比较前的归一：换行统一、行尾空白去掉、首尾空行去掉。 */
+export function normalizeSynopsis(text: string): string {
+  return (text ?? '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((l) => l.replace(/\s+$/, ''))
+    .join('\n')
+    .trim();
+}
+
+/**
+ * 大纲改了、细纲没跟：记过上游指纹、这一章排过细纲（「关键事件」非空——空壳没有可跟的东西）、梗概现在的指纹对不上。
+ * 没记过（作者手写的）永不标脏（第 18a 条）。
+ */
+export function isPlotUpstreamStale(plot: Pick<Plot, 'upstreamHash' | 'sections'> | undefined): boolean {
+  if (!plot?.upstreamHash || !isPlotFilled(plot.sections)) {
+    return false;
+  }
+  const current = plotSynopsisHash(plot.sections.梗概);
+  return current !== '' && current !== plot.upstreamHash;
 }
 
 /** 行首的列表记号：`- ` `* ` `· ` `• ` `1.` `1、` `1)`。 */

@@ -135,6 +135,7 @@ before(() => {
     pipe: './src/core/views/pipeline.ts',
     lore: './src/core/views/lore.ts',
     pipeline: './src/core/model/pipeline.ts',
+    outlineFile: './src/core/model/outlineFile.ts',
     errorLog: './src/core/runtime/errorLog.ts',
     db: './src/core/runtime/db.ts',
   });
@@ -184,7 +185,7 @@ describe('从已写正文补齐 · 全套', () => {
   });
 
   test('第一次说清其余几样细纲出来再问：建卡次数要看细纲里认出了谁', () => {
-    assert.match(h.confirms[0].detail, /细纲出来之后再算建卡、设定与情节大纲要调几次/);
+    assert.match(h.confirms[0].detail, /细纲出来之后再算建卡与设定要调几次/);
   });
 
   test('总章数没写就问一句，缺省 100', () => {
@@ -195,10 +196,11 @@ describe('从已写正文补齐 · 全套', () => {
   });
 
   test('第二次把其余几样一次列全，次数按细纲算准；不再另排细纲', () => {
-    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 大纲 1 + 全文大纲 1（上限 5）+ 叙事线：排线 1 + 7 章 × 1–3
+    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 全文大纲 1（上限 5）+ 叙事线：排线 1 + 7 章 × 1–3。
+    // 情节大纲不另外整理：它是各章细纲梗概的汇总，第一步整理出细纲它就齐了。
     assert.equal(
       h.confirms[1].message,
-      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、情节大纲、全文大纲、叙事线，预计 15–29 次调用，最多 35 次。现在补？'
+      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、全文大纲、叙事线，预计 14–28 次调用，最多 34 次。现在补？'
     );
   });
 
@@ -210,8 +212,9 @@ describe('从已写正文补齐 · 全套', () => {
     assert.match(h.confirms[1].detail, /给林昭、沈青建卡（细纲里出场 2 章以上/);
   });
 
-  test('第二次的说明：大纲照细纲整理', () => {
-    assert.match(h.confirms[1].detail, /照细纲整理第 1–7 章，每次 20 章，1 次调用/);
+  test('第二次的说明：情节大纲不另外整理（细纲的梗概就是它）', () => {
+    assert.match(h.confirms[1].detail, /情节大纲不用另外整理：它是各章细纲梗概的汇总/);
+    assert.doesNotMatch(h.confirms[1].detail, /照细纲整理第/);
   });
 
   test('第二次的说明：叙事线一条都没有，先从情节大纲排、再逐章补记；没判成不算补齐失败', () => {
@@ -234,7 +237,6 @@ describe('从已写正文补齐 · 全套', () => {
       'card',
       'card',
       'world',
-      'outline',
       'global',
       'threadPlan',
       ...Array(7).fill(['threads', 'threadProgress']).flat(),
@@ -244,7 +246,7 @@ describe('从已写正文补齐 · 全套', () => {
   });
 
   test('返回实际次数', () => {
-    assert.equal(calls, 29);
+    assert.equal(calls, 28);
   });
 
   test('叙事线：排出的线里记下了七章的推进，水位推到第 7 章', async () => {
@@ -312,10 +314,11 @@ describe('从已写正文补齐 · 全套', () => {
     assert.deepEqual(rows, Array(7).fill('done'));
   });
 
-  test('写大纲时不带技能、提示词说清是整理', () => {
-    const outlineCall = fake.calls.find((m) => kindOf(m) === 'outline');
-    assert.match(outlineCall[0].content, /这一次不是从零创作：作者已经写到第 7 章/);
-    assert.ok(!outlineCall[outlineCall.length - 1].content.includes('补充写作 Skill'));
+  test('情节大纲就是第一步整理出来的细纲的梗概：覆盖到第 7 章，没为它另调模型', async () => {
+    assert.ok(!kinds().includes('outline'), kinds().join(','));
+    t.project.invalidate();
+    const outline = bundle.outlineFile.parseOutline(await t.project.readOutline());
+    assert.deepEqual(outline.map((e) => e.no), [1, 2, 3, 4, 5, 6, 7]);
   });
 
   test('之后主按钮照常往后规划：续写第 8 章起的大纲', async () => {
@@ -333,7 +336,7 @@ describe('从已写正文补齐 · 全套', () => {
 
   test('完成提示报出补了什么与次数', () => {
     assert.ok(
-      h.toasts.some((x) => x.includes('已从第 1–7 章补上：7 章细纲、') && x.includes('全文大纲、叙事线 7 章') && x.includes('调用 29 次')),
+      h.toasts.some((x) => x.includes('已从第 1–7 章补上：7 章细纲、') && x.includes('全文大纲、叙事线 7 章') && x.includes('调用 28 次')),
       h.toasts.join('|')
     );
   });
@@ -366,19 +369,19 @@ describe('从已写正文补齐 · 设定条目（从名录建）', () => {
   });
 
   test('确认框把设定条目算进去：出现过的都建，每条 1 次，解析不了的重来一次', () => {
-    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 设定条目 2（上限 4）+ 大纲 1 + 全文大纲 1（上限 5）+ 叙事线 1 + 7 × 1–3
+    // 配置 1–3 + 前提 1 + 两张卡 2 + 世界观 1 + 设定条目 2（上限 4）+ 全文大纲 1（上限 5）+ 叙事线 1 + 7 × 1–3
     assert.equal(
       h.confirms[1].message,
-      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、设定条目、情节大纲、全文大纲、叙事线，预计 17–31 次调用，最多 39 次。现在补？'
+      '从已写正文补齐第 1–7 章：小说配置、故事前提、角色卡、世界观、设定条目、全文大纲、叙事线，预计 16–30 次调用，最多 38 次。现在补？'
     );
     assert.match(h.confirms[1].detail, /设定条目：给山门、门外建条目（细纲里出现 1 章以上、还没有条目/);
     assert.match(h.confirms[1].detail, /只读定稿细纲里提到它们的那几行，预计 2 次调用，最多 4 次/);
   });
 
-  test('建卡之后、大纲之前建条目', () => {
-    assert.deepEqual(kinds().slice(0, 16), [...Array(7).fill('plot'), 'config', 'premise', 'card', 'card', 'world', 'lore', 'lore', 'outline', 'global']);
+  test('建卡之后、全文大纲之前建条目', () => {
+    assert.deepEqual(kinds().slice(0, 15), [...Array(7).fill('plot'), 'config', 'premise', 'card', 'card', 'world', 'lore', 'lore', 'global']);
     // 后面是叙事线：排线 1 + 7 章各认事件、当前进度 2。
-    assert.equal(calls, 16 + 1 + 14);
+    assert.equal(calls, 15 + 1 + 14);
   });
 
   test('条目建在名录给的分类目录里：标题、关键词、一句话、机器写的指纹、水位到最后一章定稿', async () => {
@@ -425,8 +428,8 @@ describe('从已写正文补齐 · 设定条目没建成也不停', () => {
     assert.match(h.confirms[1].detail, /给山门建条目（细纲里出现 1 章以上/);
   });
 
-  test('后面的大纲与全文大纲照常补', () => {
-    assert.deepEqual(kinds().filter((k) => ['lore', 'outline', 'global'].includes(k)).slice(-3), ['lore', 'outline', 'global']);
+  test('后面的全文大纲照常补', () => {
+    assert.deepEqual(kinds().filter((k) => ['lore', 'global'].includes(k)).slice(-2), ['lore', 'global']);
     assert.ok(!h.toasts.some((x) => x.startsWith('error:')), h.toasts.join('|'));
   });
 
@@ -535,12 +538,12 @@ describe('从已写正文补齐 · 一件失败就停', () => {
   let t;
   before(async () => {
     t = await fresh('derive-fail');
-    replyFn = (messages) => (kindOf(messages) === 'outline' ? '' : defaultReply(messages));
+    replyFn = (messages) => (kindOf(messages) === 'world' ? '' : defaultReply(messages));
     h.expect('先整理细纲', '100', '开始补齐');
     await bundle.derive.deriveFromText(t.project);
   });
 
-  test('大纲没整理成：不更新全文大纲，也不排线、不补记叙事线', () => {
+  test('世界观没整理成：不更新全文大纲，也不排线、不补记叙事线', () => {
     assert.ok(!kinds().includes('global'), kinds().join(','));
     assert.ok(!kinds().some((k) => k.startsWith('thread')), kinds().join(','));
   });
@@ -549,12 +552,12 @@ describe('从已写正文补齐 · 一件失败就停', () => {
     assert.ok(t.has(PLOT(1)));
   });
 
-  test('失败挂在大纲上，提示说清停在哪、前面补上了什么', async () => {
+  test('失败挂在世界观上，提示说清停在哪、前面补上了什么', async () => {
     const failures = await bundle.errorLog.listActiveFailures(t.project);
-    const onOutline = failures['.novelforge/outline.md'] ?? [];
-    assert.ok(onOutline.some((f) => f.message.includes('情节大纲')), JSON.stringify(failures));
+    const onWorld = failures['.novelforge/world.md'] ?? [];
+    assert.ok(onWorld.some((f) => f.message.includes('世界观')), JSON.stringify(failures));
     assert.ok(
-      h.toasts.some((x) => x.startsWith('error:') && x.includes('小说配置') && x.includes('情节大纲（第 1–7 章）没补上')),
+      h.toasts.some((x) => x.startsWith('error:') && x.includes('小说配置') && x.includes('世界观没补上')),
       h.toasts.join('|')
     );
   });

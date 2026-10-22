@@ -13,13 +13,14 @@
  * | 完成提示：判了几章、记了多少事件、新认出几条线几条伏笔、哪几章没判成、判到第几章 | 第 2 条 |
  */
 const { describe, test, before, after } = require('node:test');
+const fs = require('fs');
 const assert = require('node:assert/strict');
 const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -105,8 +106,10 @@ before(async () => {
   });
   t = await makeTempProject(bundle.project, { prefix: 'threads-backfill', title: '青崖记' });
   project = t.project;
-  t.write('.novelforge/outline.md', outlineOf(20, { text: { 1: '林昭进镇，一路查名册。' } }));
   await writeFinalized(6);
+  // 情节大纲是各章细纲梗概的汇总：第 1–6 章换成大纲那一条，第 7–20 章建只有梗概的空壳。
+  writeOutline(t, outlineOf(20, { text: { 1: '林昭进镇，一路查名册。' } }));
+  project.invalidate();
 });
 
 after(() => {
@@ -135,19 +138,26 @@ describe('要判哪几章（零调用）', () => {
     project.invalidate();
   });
 
-  test('没有情节大纲：不排线；中间没定稿的章列出来', async () => {
-    const outline = t.read('.novelforge/outline.md');
-    t.write('.novelforge/outline.md', '# 情节大纲\n');
+  test('没有情节大纲（没有一章细纲写了梗概）：不排线；中间没定稿的章列出来', async () => {
+    const dir = t.rel('.novelforge/summaries');
+    const saved = new Map();
+    for (const name of fs.readdirSync(dir).filter((f) => /^\d/.test(f))) {
+      const rel = `.novelforge/summaries/${name}`;
+      saved.set(rel, t.read(rel));
+      t.write(rel, saved.get(rel).replace(/## 梗概\n[\s\S]*?(?=\n## |$)/, '## 梗概\n'));
+    }
     t.write(PLOT(3), t.read(PLOT(3)).replace(/sourceHash: .*\n/, ''));
     project.invalidate();
     const plan = await bundle.backfill.planThreadsBackfill(project);
     assert.equal(plan.planFirst, false);
     assert.deepEqual(plan.skipped, [{ no: 3, why: '还没定稿' }]);
     assert.deepEqual(plan.calls, { low: 5, high: 15, max: 15 });
-    // 「从已写正文补齐」这一次会补出情节大纲：照样先排线。
-    assert.equal((await bundle.backfill.planThreadsBackfill(project, { outlineReady: true })).planFirst, true);
-    t.write('.novelforge/outline.md', outline);
+    for (const [rel, text] of saved) {
+      t.write(rel, text);
+    }
     await writeFinalized(6);
+    writeOutline(t, outlineOf(6, { text: { 1: '林昭进镇，一路查名册。' } }));
+    project.invalidate();
   });
 });
 

@@ -56,7 +56,6 @@ const TEMPLATE_RELS = [
   '.novelforge/premise.md',
   '.novelforge/world.md',
   '.novelforge/style.md',
-  '.novelforge/outline.md',
   '.novelforge/summaries/global.md',
 ];
 
@@ -77,17 +76,17 @@ describe('新建一个空工程', () => {
     bundle.logger.clearLogs();
     const mark = bundle.logger.recentLogs().length;
     created = await new bundle.ws.Workspace(project).initializeProject({ title: '雾港', author: '某人' });
-    templates = project.newProjectTemplates('雾港');
+    templates = project.newProjectTemplates();
     reviewed = h.reviewed.length;
     confirms = h.confirms.length;
     logs = bundle.logger.recentLogs().slice(mark).filter((e) => e.level !== 'debug');
   });
 
-  test('模板清单就是这六份', () => {
+  test('模板清单就是这五份', () => {
     assert.deepEqual(templates.map((x) => x.rel).sort(), [...TEMPLATE_RELS].sort());
   });
 
-  test('六份空模板都在，字一个不差', () => {
+  test('五份空模板都在，字一个不差', () => {
     for (const { rel, text } of templates) {
       assert.equal(t.read(rel), text, rel);
     }
@@ -97,8 +96,9 @@ describe('新建一个空工程', () => {
     assert.deepEqual([...created].sort(), [...TEMPLATE_RELS].sort());
   });
 
-  test('情节大纲的模板带作品名', () => {
-    assert.match(t.read('.novelforge/outline.md'), /雾港/);
+  // 情节大纲是各章细纲梗概的汇总（docs/design/plans/2026-10-22-outline-from-plots.md），没有文件。
+  test('不建 outline.md', () => {
+    assert.ok(!t.has('.novelforge/outline.md'));
   });
 
   test('固定目录建好了', () => {
@@ -156,9 +156,10 @@ describe('在已有东西的目录里初始化：已存在的一个字节不动'
   before(async () => {
     t = tempDir('newproj-existing');
     t.write('.novelforge/config.md', AUTHOR_CONFIG);
+    // 老工程留下的 outline.md：不再读，也一个字节不动。
     t.write('.novelforge/outline.md', AUTHOR_OUTLINE);
     t.write(CH, '# 楔子\n\n雨下了三天。\n');
-    // 一份记过 writtenFrom、没记大纲指纹的细纲：初始化不该给它补 upstreamHash，也不该让正文挂 ⟳。
+    // 一份记过 writtenFrom、没记上游指纹的细纲：初始化不该给它补 upstreamHash，也不该让正文挂 ⟳。
     const { renderPlotFile, emptyPlotSections, plotContentHash } = bundle.plotFile;
     const sections = { ...emptyPlotSections(), 梗概: '楔子的计划', 关键事件: '- 下雨' };
     t.write(PLOT, renderPlotFile({ no: 1, title: '楔子', upstreamHash: '', writtenFrom: plotContentHash({ sections }), done: false, sections }));
@@ -176,7 +177,7 @@ describe('在已有东西的目录里初始化：已存在的一个字节不动'
     againCreated = await new bundle.ws.Workspace(project).initializeProject({ title: '旧稿新开', author: '' });
   });
 
-  test('作者的配置与大纲一字不动', () => {
+  test('作者的配置与老工程的 outline.md 一字不动', () => {
     assert.equal(t.read('.novelforge/config.md'), AUTHOR_CONFIG);
     assert.equal(t.read('.novelforge/outline.md'), AUTHOR_OUTLINE);
   });
@@ -250,10 +251,10 @@ describe('初始化流程（插件命令、网页按钮、CLI 共用的 initProj
     assert.equal(ok, true);
   });
 
-  test('六份模板都在', () => {
+  test('五份模板都在，manifest 记的是作者给的书名', () => {
     for (const rel of TEMPLATE_RELS) {
       assert.ok(t.has(rel), rel);
     }
-    assert.match(t.read('.novelforge/outline.md'), /流程建的书/);
+    assert.match(t.read('.novelforge/project.json'), /流程建的书/);
   });
 });

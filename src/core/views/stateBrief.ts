@@ -162,7 +162,7 @@ async function findPipeline(
   }
   return (
     index.byNo.get(no) ??
-    buildPlotPipeline(project, { no }, { outline: index.outline, config: index.config, chapters: index.chapters })
+    buildPlotPipeline(project, { no }, { config: index.config, chapters: index.chapters })
   );
 }
 

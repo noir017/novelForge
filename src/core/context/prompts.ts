@@ -1021,9 +1021,6 @@ export function loreDetailJsonContract(): string {
  * 删掉它。续写靠的是「下一批细纲超出大纲覆盖」时状态机再推一次（D20）。
  */
 function outlineContract(facts: PromptFacts): string {
-  if (facts.derive) {
-    return deriveOutlineContract(facts);
-  }
   const { total } = scaleOf(facts);
   const genre = genreOf(facts);
   const pov = facts.book?.pov ? NARRATIVE_POV_LABEL[facts.book.pov] : undefined;
@@ -1065,13 +1062,13 @@ function outlineContract(facts: PromptFacts): string {
   ].join('\n');
 }
 
-/** 一章一条的格式：规划与整理两条路共用（第 22 条：几条路输出一字不差）。 */
+/** 一章一条的格式。 */
 const OUTLINE_ENTRY_FORMAT =
   '每一章以独立的二级标题开头，严格使用「## 第N章：标题」的格式（章号用阿拉伯数字；一章一个标题，不要写成「## 第a–b章」把几章合成一节），';
 
 /**
- * 一条写什么、怎么写：规划与整理两条路共用。提纲口吻是这一次重做的用意——大纲拆成细纲、细纲进写正文的上下文，
- * 大纲里的渲染与概括腔会一路传到正文里去。
+ * 一条写什么、怎么写。提纲口吻是一章一条那一次重做的用意——大纲拆成细纲、细纲进写正文的上下文，
+ * 大纲里的渲染与概括腔会一路传到正文里去。这一条落盘就是那一章细纲的「梗概」（大纲是各章梗概的汇总）。
  */
 const OUTLINE_ENTRY_RULE =
   '标题下第一行用一句话写这一章发生什么、结果如何（30 字左右）；下面最多再补两句：怎么做到的、留下什么后果。写成提纲：只写谁做了什么、结果怎样，不写描写、比喻、心理渲染和对白，不用「步步紧逼」「惊心动魄」这类修饰。';
@@ -1082,35 +1079,6 @@ const OUTLINE_ENTRY_RULE =
  * 同一个口径：哪一章揭开写明「揭开：……」，之前只写读者看得到的那一面。
  */
 const OUTLINE_HIDDEN_RULE = `上面「相关世界观设定」「相关角色设定」里标着「${LORE_HIDDEN_MARK}」的是读者还不知道的真相：打算在哪一章揭开，就在那一章写明「揭开：……」；揭开之前的各章只写读者看得到的那一面（铺垫、疑点），不点破。大纲会拆成细纲进写正文的上下文，写正文时看不见暗设。`;
-
-/**
- * 从已写正文整理一段情节大纲（拆书 A）：依据是那几章定稿过的细纲（`written` 层）。格式与续写大纲
- * 同一份（一章一条、`## 第N章：标题`）——后面续写大纲、拆细纲、指纹链都认这个格式。去掉的是规划用的那几条：
- * 结构拐点、节奏策略、终局事件只发生一次。
- */
-function deriveOutlineContract(facts: PromptFacts): string {
-  const { total } = scaleOf(facts);
-  const range = facts.range;
-  const where = range ? span(range.from, range.to) : '已写的这几章';
-  return [
-    `请按上面「已写正文」里${where}实际发生的事，整理出这一段的情节大纲${total ? `（全书计划 ${total} 章）` : ''}。`,
-    '',
-    ...deriveLead(facts),
-    '【范围与格式】',
-    `只写${where}，${OUTLINE_ENTRY_FORMAT}一章一条，一条都不能少。`,
-    ...(range && range.from > 1
-      ? [`第 1–${range.from - 1} 章的大纲已在上面的「情节大纲」中给出（较早的只列了第一行）：不得重复、改写或复述，从第 ${range.from} 章接着整理。`]
-      : []),
-    '',
-    '【故事结构】按正文实际的走向写；「故事结构指导」只用来判断这一段在全书结构里处在哪个位置，不要为了贴合它改写已经发生的事。',
-    '',
-    '【要求】',
-    `1. ${OUTLINE_ENTRY_RULE}`,
-    '2. 写已经发生了什么，不预告、不改写后文。抓主干与转折，不要把细纲里的每个动作都搬进来。',
-    '3. 有修炼、等级或实力体系时，主角境界或关键资源有变化的那一章照正文写明变成什么。',
-    '4. 只输出情节大纲本身，禁止一切废话或旁白。',
-  ].join('\n');
-}
 
 /**
  * 「暗设」的规矩，细纲那一份（完善设定，2026-10-19；角色卡的暗设是叙事线重做加的，同一条规矩）。条目与角色卡里读者
@@ -1254,8 +1222,8 @@ export function blueprintJsonContract(range?: { from: number; to: number }): str
     '【不可变细纲 JSON 合同】',
     '只输出 {"blueprints":[...]}，每项必须完整包含：chapterNumber、title、synopsis、characters、timePlace、keyEvents、highlights、stateChange、threads；newCharacters、settings 可选。',
     `${cover}；title、synopsis 必须是非空字符串，keyEvents 至少一条，characters 至少一人；timePlace、stateChange 没有就给 ""，highlights、threads 没有就给 []。`,
-    `title 是这一章的标题（不超过 ${L.title} 字，不带「第N章」）。`,
-    `synopsis 用 3–5 句话写清本章计划发生什么，写清因果链（不超过 ${L.synopsis} 字）。`,
+    `title 是这一章的标题（上面「情节大纲」里这一章有标题就照抄；不超过 ${L.title} 字，不带「第N章」）。`,
+    `synopsis 就是情节大纲里这一章那一条：上面「情节大纲」里已经有这一章的，照抄那几句，不改写；没有的，第一句写这一章发生什么、结果如何，最多再补两句（不超过 ${L.synopsis} 字，写成提纲，不写描写与对白）。`,
     `characters 是本章计划登场、有实质动作的人，字符串数组，写完整姓名（已有角色卡的人照抄卡上的名字），被别人提到一句的不算，最多 ${L.characters} 项。`,
     'timePlace 写本章的时间点（与上一章的相对关系亦可）与主要场景。',
     `keyEvents 是字符串数组，按发生的顺序一条一件事，3–6 条，合计 100–300 字：主角计划做什么，会遭遇什么反转，金手指怎么用——每条可以写到具体场面（谁在哪、对谁做了什么、结果怎样），但它不是正文，不写成段的描写与对白；最多 ${L.keyEventItems} 条，合计绝不得超过 ${L.keyEvents} 字。`,

@@ -82,6 +82,10 @@ before(async () => {
   vs = installVscodeStub({ level: 'full', root: t.dir, config: {} });
   // 第 4 章《空匣》示例工程里本来就排好了细纲（计划，还没写正文）；后面几章在这里补上。
   const plots = path.join(t.dir, '.novelforge/summaries');
+  // 示例工程第 5–10 章是只有梗概的空壳（大纲排到了第 10 章）：换成下面这几份，免得同一章两份细纲。
+  for (const name of fs.readdirSync(plots).filter((f) => /^0(0[5-9]|10)/.test(f))) {
+    fs.rmSync(path.join(plots, name));
+  }
   // 关键事件一条一行（与定稿的写法一样）；边界里一章一行，条与条之间用「；」接。
   fs.writeFileSync(path.join(plots, '005-名册.md'), plotText(5, '名册', '- 沈氏拿出一本残缺的名册。\n- 名册上第三个名字被划掉了。'));
   // 第 6 章只是个空壳：边界里没有可写的事，不带。

@@ -233,31 +233,68 @@ describe('mergeOutline · 按章号合并', () => {
   });
 });
 
-describe('上游指纹', () => {
-  test('第 N 章的指纹只看第 N 章那一条：改了别的章不变', () => {
-    const before = entries(5);
-    const after = before.replace('第4章的事。', '第4章改过的事。');
-    assert.equal(O.outlineUpstreamHash(before, 3), O.outlineUpstreamHash(after, 3));
-    assert.notEqual(O.outlineUpstreamHash(before, 4), O.outlineUpstreamHash(after, 4));
+/** 一份细纲（只给汇总、拆分用得到的那几样）。 */
+function plot(no, synopsis, extra = {}) {
+  const sections = { 梗概: synopsis, 出场人物: '', 时间地点: '', 关键事件: '', 看点: '', 状态变更: '', 连续性事实: '', ...(extra.sections ?? {}) };
+  return { relPath: `.novelforge/summaries/${String(no).padStart(3, '0')}.md`, no, title: extra.title ?? `标题${no}`, sections, sourceHash: extra.sourceHash ?? '', lore: extra.lore };
+}
+
+describe('从细纲汇总（docs/design/plans/2026-10-22-outline-from-plots.md）', () => {
+  test('梗概非空的一章一条，按章号排；梗概空着（或是占位文字）的那一章大纲里没有', () => {
+    const entries = O.outlineEntriesOf([plot(3, '三。'), plot(1, '一。\n后果。  '), plot(2, ''), plot(4, '（待补充）')]);
+    assert.deepEqual(entries.map((e) => e.no), [1, 3]);
+    assert.equal(entries[0].text, '一。\n后果。');
+    assert.equal(O.renderOutline(entries), '## 第1章：标题1\n一。\n后果。\n\n## 第3章：标题3\n三。');
   });
 
-  test('改了标题也算改了上游', () => {
-    assert.notEqual(O.outlineUpstreamHash(entries(3), 2), O.outlineUpstreamHash(entries(3).replace('标题2', '新标题'), 2));
+  test('给编辑器的整份：标题行、说明、一章一条；汇总出来的整份再拆回去一件事都不做', () => {
+    const plots = [plot(1, '一。'), plot(2, '二。')];
+    const doc = O.renderOutlineDoc(O.outlineEntriesOf(plots));
+    assert.ok(doc.startsWith('# 情节大纲\n\n> '));
+    assert.equal(O.outlineCoverage(doc), 2);
+    assert.deepEqual(O.planOutlineSplit(doc, plots, new Set()), { ops: [], kept: [], empty: [] });
+    assert.equal(O.renderOutlineDoc([]), `# 情节大纲\n\n${O.OUTLINE_DOC_NOTE}\n`);
+  });
+});
+
+describe('按章号拆回各章细纲（planOutlineSplit）', () => {
+  test('改梗概、改标题、新的一章；行尾空白与换行风格不算改动', () => {
+    const plots = [plot(1, '一。'), plot(2, '二。'), plot(3, '三。')];
+    const text = '## 第1章：标题1\n一。  \r\n\n## 第2章：新标题\n二。\n\n## 第3章：标题3\n三改了。\n\n## 第4章：四\n新的一章。';
+    const { ops } = O.planOutlineSplit(text, plots, new Set());
+    assert.deepEqual(ops, [
+      { op: 'update', no: 2, rel: plots[1].relPath, title: '新标题' },
+      { op: 'update', no: 3, rel: plots[2].relPath, synopsis: '三改了。' },
+      { op: 'create', no: 4, title: '四', synopsis: '新的一章。' },
+    ]);
   });
 
-  test('大纲里没有这一条、章号取不到、大纲是空的：空串', () => {
-    assert.equal(O.outlineUpstreamHash(entries(3), 9), '');
-    assert.equal(O.outlineUpstreamHash(entries(3), undefined), '');
-    assert.equal(O.outlineUpstreamHash('', 1), '');
-    assert.equal(O.outlineUpstreamHash('## 第1–20章：旧\n旧。', 1), '');
+  test('标题空着 = 沿用细纲的标题', () => {
+    assert.deepEqual(O.planOutlineSplit('## 第1章\n一。', [plot(1, '一。')], new Set()).ops, []);
   });
 
-  test('判脏：记过、大纲里还有这一条、对不上才算；没记过或这一条没了都不标', () => {
-    const h = O.outlineUpstreamHash(entries(3), 2);
-    assert.equal(O.isOutlineUpstreamStale(h, entries(3), 2), false);
-    assert.equal(O.isOutlineUpstreamStale(h, entries(3).replace('第2章的事。', '改了。'), 2), true);
-    assert.equal(O.isOutlineUpstreamStale('', entries(3), 2), false);
-    assert.equal(O.isOutlineUpstreamStale(undefined, entries(3), 2), false);
-    assert.equal(O.isOutlineUpstreamStale(h, '## 第1–20章：旧\n旧。', 2), false);
+  test('删掉的一条：空壳进回收站；排了细纲、定稿过、记过设定、写了正文的不删，记进 kept', () => {
+    const plots = [
+      plot(1, '一。'),
+      plot(2, '二。', { sections: { 关键事件: '- 有事' } }),
+      plot(3, '三。', { sourceHash: 'abc' }),
+      plot(4, '四。', { lore: [{ name: '青河', category: '地点', fact: '' }] }),
+      plot(5, '五。'),
+      plot(6, ''),
+    ];
+    const plan = O.planOutlineSplit('## 第9章：九\n九。', plots, new Set([5]));
+    assert.deepEqual(plan.ops.filter((o) => o.op === 'drop').map((o) => o.no), [1]);
+    assert.deepEqual(plan.kept, [2, 3, 4, 5]);
+  });
+
+  test('只有标题、下面没写字：没地方存，记进 empty；原来有梗概的当成删掉', () => {
+    const plan = O.planOutlineSplit('## 第1章：一\n\n## 第3章：三\n', [plot(1, '一。')], new Set());
+    assert.deepEqual(plan.empty, [3]);
+    assert.deepEqual(plan.ops, [{ op: 'drop', no: 1, rel: plot(1, '').relPath }]);
+  });
+
+  test('同一章写了两条取先出现的；区间标题与认不出的段落不算', () => {
+    const text = '## 第1章：甲\n先。\n\n## 第1章：乙\n后。\n\n## 第2–3章：旧\n旧。\n\n随手记的一段。';
+    assert.deepEqual(O.planOutlineSplit(text, [], new Set()).ops, [{ op: 'create', no: 1, title: '甲', synopsis: '先。' }]);
   });
 });

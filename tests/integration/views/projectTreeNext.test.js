@@ -12,7 +12,7 @@ const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let t;
@@ -85,7 +85,7 @@ describe('工程页的全书下一步与对话页主按钮逐字一致', () => {
   });
 
   test('有大纲、没细纲：拆细纲（第 1–5 章），落在第 1 章细纲应该在的位置', async () => {
-    t.write('.novelforge/outline.md', outlineOf(20, { text: { 1: '林昭入宗。' } }));
+    writeOutline(t, outlineOf(20, { text: { 1: '林昭入宗。' } }));
     const { tree, chat } = await both();
     assert.equal(tree.next?.label, '拆细纲（第 1–5 章）', JSON.stringify(tree.next));
     assert.equal(tree.next.no, 1);

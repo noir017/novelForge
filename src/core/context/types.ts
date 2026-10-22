@@ -213,6 +213,8 @@ export interface BuildRequest {
    * 后面的还是旧版。大纲两层读它而不读磁盘——不然后一段看不见前一段刚改了什么。
    */
   outlineDraft?: string;
+  /** 分段重写从第几章起（之前写过正文的那几章不重写）：说「哪几章是这次刚写好的新版」时用。缺席当第 1 章。 */
+  outlineRewriteFrom?: number;
   /** 额外写作指令，如「加强对白」。 */
   extraInstruction?: string;
   /**

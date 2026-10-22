@@ -145,15 +145,6 @@ describe('护住的字：解析器认的小节标题', () => {
     // 只护设定条目：别的种类里的「## 暗设」是作者写的字。
     assert.deepEqual(found('## 暗设\n', 'plot', '暗设'), ['暗设']);
   });
-
-  test('情节大纲：区间标题只护「第 a–b 章」那一截，后面的标题照搜', () => {
-    const outline = '# 情节大纲\n\n## 第1–5章：林晚入宗\n第1章林晚到了。\n\n## 第 6 章 - 第 10 章 林晚下山\n';
-    assert.deepEqual(found(outline, 'outline', '林晚'), ['林晚', '林晚', '林晚']);
-    const digits = bf.fileHits(outline, 'outline', '1').matches.map((m) => outline.slice(0, m.start).split('\n').length);
-    assert.deepEqual(digits, [4]);
-    // 不是区间标题（没有「章」）的照搜。
-    assert.deepEqual(found('## 第 3 节\n', 'outline', '3'), ['3']);
-  });
 });
 
 describe('每一处那一行的上下文', () => {

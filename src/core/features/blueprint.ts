@@ -216,7 +216,8 @@ export function decodeBlueprints(text: string): BlueprintDecode {
 
     const fields = {
       title: field('title', ['title', '标题'], Number.MAX_SAFE_INTEGER),
-      synopsis: field('synopsis', ['synopsis', '梗概'], BLUEPRINT_LIMITS.synopsis),
+      // 合同要的是一句话加最多两句（≤150 字，它就是大纲里这一章那一条）；多写几句不截——截在半句上比长一点更糟，翻倍才截。
+      synopsis: field('synopsis', ['synopsis', '梗概'], BLUEPRINT_LIMITS.synopsis * 2),
     };
     for (const v of Object.values(fields)) {
       if (typeof v !== 'string') {

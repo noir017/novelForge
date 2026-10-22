@@ -60,7 +60,6 @@ export function scopeOfKind(kind: ArtifactKind): BookFindScope | undefined {
     case 'lore':
       return kind;
     case 'setting':
-    case 'outline':
     case 'style':
     case 'threads':
     case 'globalSummary':
@@ -113,7 +112,8 @@ async function pathsOf(project: NovelProject, scope: BookFindScope): Promise<str
     case 'lore':
       return (await listMarkdownDeep(project.loreDir)).map((abs) => project.relPath(abs));
     case 'doc': {
-      const fixed = [project.outlinePath, project.configPath, project.premisePath, project.worldPath, project.stylePath];
+      // 情节大纲不在里面：它是各章细纲梗概的汇总，没有文件——搜细纲就搜到了。
+      const fixed = [project.configPath, project.premisePath, project.worldPath, project.stylePath];
       const present = await Promise.all([...fixed, project.globalSummaryPath].map((abs) => exists(abs)));
       return [
         ...fixed.filter((_, i) => present[i]).map((abs) => project.relPath(abs)),

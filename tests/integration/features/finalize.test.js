@@ -403,10 +403,11 @@ describe('定稿：有细纲时照正文反向更新它', () => {
     assert.equal(plot.sections.梗概, '林昭夜里在客栈遇袭，天亮后离开。');
   });
 
-  test('保留计划那一侧的账：标题、目标字数、大纲指纹', () => {
+  // 梗概照正文改了（它就是大纲里这一章那一条）：记过的上游指纹刷成新梗概的，不然一定稿就挂 ⟳。
+  test('保留计划那一侧的账：标题、目标字数；上游指纹刷成新梗概的', () => {
     assert.deepEqual(
       { title: plot.title, targetWords: plot.targetWords, upstreamHash: plot.upstreamHash },
-      { title: '夜雨', targetWords: 2400, upstreamHash: '0a1b2c3d4e5f6789' }
+      { title: '夜雨', targetWords: 2400, upstreamHash: bundle.plotFile.plotSynopsisHash('林昭夜里在客栈遇袭，天亮后离开。') }
     );
   });
 

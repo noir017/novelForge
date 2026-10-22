@@ -1,9 +1,16 @@
 /**
- * 情节大纲**一章一条**：`outline.md` 里的 `## 第3章：火折逼退`，下面第一行一句话写这一章发生什么、结果如何，
+ * 情节大纲**一章一条**：`## 第3章：火折逼退`，下面第一行一句话写这一章发生什么、结果如何，
  * 最多再补两句（docs/design/plans/2026-10-21-outline-per-chapter.md）。
  *
  * **纯函数、零 I/O、绝不抛。** 大纲是作者高频手改的纯 Markdown，这里只**读**它的结构：认不出来的
- * 标题与段落原样留着（合并时也不动），只是不算进任何一章。
+ * 标题与段落不算进任何一章。
+ *
+ * ## 它不是一份文件，是各章细纲「梗概」的汇总
+ *
+ * 大纲一章一句，细纲里本来就有「梗概」，同一件事存两份（docs/design/plans/2026-10-22-outline-from-plots.md）。
+ * 现在磁盘上没有 `outline.md`：读的时候把各章细纲的梗概拼成一章一条（{@link outlineEntriesOf}），存的时候按章号拆回
+ * 各章细纲（{@link planOutlineSplit}）——只有梗概、别的几节都空的细纲是「空壳」：大纲排到了，细纲还没拆。
+ * `.novelforge/outline.md` 这个路径仍是情节大纲的身份，网关（`workspace/`）接住它的读写。
  *
  * ## 为什么一章一条
  *
@@ -12,9 +19,7 @@
  *
  * 1. **按远近带**（{@link outlineWindow}）：最近 10 章带整条，更早的只带第一行，一百章也就几千字。
  * 2. **续写大纲**：总章数超过 20 时一次写 20 章，细纲快追上时再续——判「追上没有」要知道覆盖到了第几章。
- * 3. **细纲的上游指纹**：第 12 章的细纲只依赖第 12 章那一条（{@link outlineUpstreamHash}）。
- * 4. **续写的那一段落盘时按章号合并**（{@link mergeOutline}）：写第 21–40 章不该把作者手改过的
- *    前 20 章整份替换掉。
+ * 3. **续写的那一段按章号合并**（{@link mergeOutline}）：写第 21–40 章不该把作者手改过的前 20 章整份替换掉。
  *
  * ## 认哪些写法
  *
@@ -22,7 +27,8 @@
  * 要做中文数字解析，而提示词一律要求阿拉伯数字。**区间标题（`第1–4章`、`第1章-第4章`）不认**——旧格式
  * 不兼容：它结束上一条，自己那一节被忽略。
  */
-import { hash } from './fs';
+import { hasContent } from './markdown';
+import { Plot, isPlotStub, normalizeSynopsis } from './plotFile';
 
 export interface OutlineEntry {
   no: number;
@@ -298,28 +304,105 @@ export function mergeOutline(existing: string, incoming: string, range: { from: 
   return `${parts.join('\n\n')}\n`;
 }
 
-// ---------------------------------------------------------------- 上游指纹
+// ---------------------------------------------------------------- 从细纲汇总
+
+/** 汇总文档的标题行。编辑器打开的那一份带它，装配器读的（{@link outlineEntriesOf}）不带。 */
+export const OUTLINE_DOC_HEADING = '# 情节大纲';
+
+/** 汇总文档开头那段说明：给手改的作者看——存盘只认章标题与下面的梗概。 */
+export const OUTLINE_DOC_NOTE =
+  '> 一章一条，汇总自各章细纲的「梗概」。改了存盘就写回那一章的细纲；新加的章建一份只有梗概的细纲，删掉的空壳细纲进回收站。' +
+  '只认「## 第N章：标题」与下面那几句，别的文字不保存。';
 
 /**
- * 第 `no` 章细纲的上游指纹：大纲里**第 `no` 章那一条**的指纹（章号、标题、正文都算）。大纲里没有这一条
- * （没覆盖到、旧格式、或者章号取不到）给空串——空串 = 不记、不标脏：没有上游，拿一个凭空的过期标记去催
- * 作者重做，比不标更糟。
- *
- * 细纲落盘时记它（workspace/handlers/plot.ts），判脏用 {@link isOutlineUpstreamStale}——两处必须是同一个函数。
+ * 各章细纲（每个章号认下的那一份，`NovelProject.pairPlots`）→ 一章一条：章号、标题、梗概。梗概空着的不算——
+ * 那一章大纲里没有。
  */
-export function outlineUpstreamHash(outline: string, no: number | undefined): string {
-  const e = no === undefined ? undefined : outlineEntryFor(outline, no);
-  return e ? hash(`${e.no}\n${e.title}\n${e.text}`) : '';
+export function outlineEntriesOf(plots: readonly Pick<Plot, 'no' | 'title' | 'sections'>[]): OutlineEntry[] {
+  return plots
+    .filter((p) => hasContent(p.sections.梗概))
+    .map((p) => ({ no: p.no, title: p.title, text: normalizeSynopsis(p.sections.梗概) }))
+    .sort((a, b) => a.no - b.no);
+}
+
+/** 一章一条拼成大纲正文（不带标题行与说明）。 */
+export function renderOutline(entries: readonly OutlineEntry[]): string {
+  return entries.map(renderOutlineEntry).join('\n\n');
+}
+
+/** 给编辑器、覆盖审阅看的整份：标题行、说明、一章一条。 */
+export function renderOutlineDoc(entries: readonly OutlineEntry[]): string {
+  const body = renderOutline(entries);
+  return `${OUTLINE_DOC_HEADING}\n\n${OUTLINE_DOC_NOTE}\n${body ? `\n${body}\n` : ''}`;
+}
+
+// ---------------------------------------------------------------- 按章号拆回各章细纲
+
+/** 拆回去的一步。`update` 里给了哪个字段就是哪个变了。 */
+export type OutlineSplitOp =
+  | { op: 'create'; no: number; title: string; synopsis: string }
+  | { op: 'update'; no: number; rel: string; title?: string; synopsis?: string }
+  | { op: 'drop'; no: number; rel: string };
+
+export interface OutlineSplitPlan {
+  ops: OutlineSplitOp[];
+  /** 大纲里删掉了、但已经排了细纲或写了正文的章：不删，说一声。 */
+  kept: number[];
+  /** 只有章标题、下面没写一个字的章：没地方存，说一声。 */
+  empty: number[];
 }
 
 /**
- * 细纲上记的上游指纹（`stored`）还对不对得上大纲：记过、大纲里现在也有这一条、两者不同，才算过期。
- * 没记过（作者手写的）或大纲里已经没有这一条，都不标脏。
+ * 存一份汇总文档时，按章号拆回各章细纲要做哪几件事（落盘在 `Workspace.writeOutline`）。
+ *
+ * - 一条在、这一章有细纲：梗概或标题变了就改（标题空着 = 沿用细纲的标题）。
+ * - 一条在、这一章没有细纲：建一份空壳。
+ * - 原来在大纲里（梗概非空）、这一回没有了：空壳（{@link isPlotStub}，且这一章还没有正文）删掉；
+ *   排了细纲或写了正文的不删，记进 `kept`。
+ * - 同一章写了两条取先出现的；章号只按标题里写的认，**不搬细纲**（把第 5 章改叫第 6 章，等于改第 6 章、删第 5 章）。
+ *
+ * @param plots 每个章号认下的那一份细纲（`pairPlots`）
+ * @param writtenNos 已经有正文的章号
  */
-export function isOutlineUpstreamStale(stored: string | undefined, outline: string, no: number): boolean {
-  if (!stored) {
-    return false;
+export function planOutlineSplit(text: string, plots: readonly Plot[], writtenNos: ReadonlySet<number>): OutlineSplitPlan {
+  const byNo = new Map(plots.map((p) => [p.no, p]));
+  const ops: OutlineSplitOp[] = [];
+  const empty: number[] = [];
+  const present = new Set<number>();
+  for (const e of entriesByNo(text)) {
+    const synopsis = normalizeSynopsis(e.text);
+    if (!hasContent(synopsis)) {
+      empty.push(e.no);
+      continue;
+    }
+    present.add(e.no);
+    const plot = byNo.get(e.no);
+    if (!plot) {
+      ops.push({ op: 'create', no: e.no, title: e.title, synopsis });
+      continue;
+    }
+    const titleChanged = e.title !== '' && e.title !== plot.title;
+    const synopsisChanged = synopsis !== normalizeSynopsis(plot.sections.梗概);
+    if (titleChanged || synopsisChanged) {
+      ops.push({
+        op: 'update',
+        no: e.no,
+        rel: plot.relPath,
+        ...(titleChanged ? { title: e.title } : {}),
+        ...(synopsisChanged ? { synopsis } : {}),
+      });
+    }
   }
-  const current = outlineUpstreamHash(outline, no);
-  return current !== '' && current !== stored;
+  const kept: number[] = [];
+  for (const plot of plots) {
+    if (present.has(plot.no) || !hasContent(plot.sections.梗概)) {
+      continue;
+    }
+    if (isPlotStub(plot) && !writtenNos.has(plot.no)) {
+      ops.push({ op: 'drop', no: plot.no, rel: plot.relPath });
+    } else {
+      kept.push(plot.no);
+    }
+  }
+  return { ops, kept: kept.sort((a, b) => a - b), empty: empty.filter((no) => !byNo.get(no)?.sections.梗概.trim()) };
 }

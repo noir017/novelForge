@@ -17,7 +17,7 @@
 import { scoped } from '../runtime/logger';
 import { hash, sanitizeFileName, slugify, uniqueSlug } from '../model/fs';
 import { NovelProject, emptyCharacterSections, renderCharacterCard, renderLoreEntry } from '../model/project';
-import { isPlotFilled, parsePlotFileName, plotContentHash, plotFileName } from '../model/plotFile';
+import { isPlotFilled, parsePlotFileName, plotContentHash, plotSynopsisHash } from '../model/plotFile';
 import {
   LoreLine,
   LoreLookup,
@@ -41,7 +41,6 @@ import { chapterTargetOf } from '../views/pipeline';
 import { buildLoreIndex } from '../views/lore';
 import { integrationWatermark, loreEntryAt } from '../views/loreMaterial';
 import { Workspace, pathOfTarget } from '../workspace';
-import { plotUpstreamHash } from '../workspace/handlers/plot';
 import { acceptSettledLore, plannedLoreSettle } from './loreSettle';
 
 const log = scoped('创作');
@@ -433,8 +432,10 @@ async function acceptLoreList(
  * 情节大纲：带区间（续写的那一段）时**只替换落在这一段里的那几条**，其余原样保留
  * （model/outlineFile.ts 的 `mergeOutline`）；不带区间整篇替换。
  *
- * 审阅只在真的要换掉东西时弹：整篇替换一份有内容的大纲，续写的这一段与已有的条目重叠，
- * 或者旧大纲一条都认不出（旧格式的区间分节、散文式）却有内容——合并时它会被整份换掉。
+ * 大纲是各章细纲「梗概」的汇总，没有文件：合并好的整份交给网关（`Workspace.writeOutline`），由它按章号拆回各章细纲——
+ * 改梗概、新章建只有梗概的细纲、删掉的空壳进回收站（docs/design/plans/2026-10-22-outline-from-plots.md）。
+ *
+ * 审阅只在真的要换掉东西时弹：整篇替换一份有内容的大纲，或者续写的这一段与已有的条目重叠。
  * 纯续写（第 21–40 章接在第 20 章后面）一个字都不吞，不必让作者对比一遍。
  */
 async function acceptOutline(
@@ -455,8 +456,8 @@ async function acceptOutline(
   if (r.skipped) {
     return { skipped: true, message: '没有改动大纲。' };
   }
-  log.info('情节大纲已更新', `${rel}｜${next.length} 字${range ? `｜并入第 ${range.from}–${range.to} 章那一段` : ''}`);
-  return { relPath: rel, message: `已写入 ${rel}` };
+  log.info('情节大纲已更新', `${next.length} 字${range ? `｜并入第 ${range.from}–${range.to} 章那一段` : ''}`);
+  return { relPath: rel, message: r.message };
 }
 
 /**
@@ -506,7 +507,7 @@ async function acceptPlot(
       title: fields.title ?? '',
       // D3：目标字数必填。蓝图合同里没有它，缺省取配置的每章字数。
       targetWords: fields.targetWords ?? (await project.readBookConfig()).wordsPerChapter,
-      upstreamHash: await plotUpstreamHash(project, relPath),
+      upstreamHash: plotSynopsisHash(fields.sections.梗概),
       done: false,
       sections: fields.sections,
       lore: fields.lore,
@@ -541,7 +542,9 @@ async function planThreads(project: NovelProject, no: number, fields: PlotFields
  *
  * - **已经排过的章**（关键事件有内容）走覆盖审阅，一章一审：主按钮那一批永远是空白的章
  *   （model/pipeline.ts 的拆细纲区间），走到这里说明作者在这之间自己排了——不静默盖掉。
- * - **空壳**（有文件、关键事件空着）直接填，并按产物的标题改名（`004.md` → `004-雪夜.md`）。
+ * - **空壳**（有文件、关键事件空着，多半是续写大纲时建的只有梗概的那一份）直接填，并按产物的标题改名
+ *   （`004.md` → `004-雪夜.md`）。**梗概沿用空壳的**：它是情节大纲里这一章那一条，是这一批的上游，不让模型顺手改写
+ *   （docs/design/plans/2026-10-22-outline-from-plots.md）；空壳没写梗概才用产物的。
  * - **没有文件**的新建。目标字数缺省取配置的每章字数（D3）。
  *
  * 然后给蓝图里的新角色建卡（D19，同名已有的不动），再把**真写进去的那几章**在叙事线上的计划写进各条线（叙事线二期，
@@ -582,18 +585,21 @@ export async function acceptPlotBatch(
       continue;
     }
     done.add(item.no);
+    const sections = hasContent(existing?.sections.梗概)
+      ? { ...fields.sections, 梗概: existing!.sections.梗概 }
+      : fields.sections;
     written.push(
       await ws.writePlot(
         {
           no: item.no,
           title: existing?.title || fields.title || '',
           targetWords: existing?.targetWords ?? book.wordsPerChapter,
-          upstreamHash: await plotUpstreamHash(project, plotFileName(item.no, '')),
+          upstreamHash: plotSynopsisHash(sections.梗概),
           writtenFrom: existing?.writtenFrom,
           sourceHash: existing?.sourceHash,
           cast: existing?.cast,
           done: existing?.done ?? false,
-          sections: fields.sections,
+          sections,
           lore: fields.lore ?? existing?.lore,
         },
         existing?.relPath

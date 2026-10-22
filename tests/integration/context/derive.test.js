@@ -1,14 +1,15 @@
 /**
- * 从已写正文整理（拆书 A）的装配：`BuildRequest.derive` 时架构、大纲两张配方带上 `written` 层，
+ * 从已写正文整理（拆书 A）的装配：`BuildRequest.derive` 时架构那张配方带上 `written` 层，
  * 契约换成「照正文整理」的说法。细纲不再从正文整理：拆书第一步「先整理细纲」已经照正文写出了
- * 定稿过的细纲，「补细纲」那一步连同细纲配方里的 `written` 层一起删了。
+ * 定稿过的细纲，「补细纲」那一步连同细纲配方里的 `written` 层一起删了。情节大纲也不再整理：它是各章细纲梗概的
+ * 汇总，细纲齐了它就齐了（docs/design/plans/2026-10-22-outline-from-plots.md），大纲配方不再挂 `written` 层。
  *
  * | 断言 | 为什么 |
  * |---|---|
- * | 不是 derive 时一条 `written` 都没有、契约照旧 | 两张配方都挂着这一层，平时必须是空的 |
+ * | 不是 derive 时一条 `written` 都没有、契约照旧 | 配方挂着这一层，平时必须是空的 |
  * | 架构：均匀抽样 5 章的开头 + 全书梗概（取自定稿过的细纲）；系统提示说清「这一次是整理」 | 上游只看首末两章，长书中段全丢 |
  * | 梗概放不下时降级或丢弃，写明原因 | 第 2 条：不静默截断 |
- * | 大纲：区间里各章定稿过的细纲；没定稿的退回正文头尾 | 大纲照「发生了什么」整理；没定稿的细纲是计划，不是已经写成的东西 |
+ * | 大纲那一层不带已写正文，即使请求里带着 derive | 大纲配方不再挂 `written` 层 |
  * | 规划阶段绑了技能，derive 时也不带 | 照实整理，不按技能的排法改写已经发生的事 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -188,40 +189,15 @@ describe('derive · 架构', () => {
 });
 
 describe('derive · 大纲', () => {
-  test('大纲：区间里各章定稿过的细纲；没定稿的章退回正文头尾', async () => {
+  // 情节大纲是各章细纲梗概的汇总，不再照正文整理：大纲配方不挂 `written` 层，请求里带着 derive 也不带正文。
+  test('大纲配方不带已写正文，契约照旧是规划', async () => {
     const b = await build({
       action: { stage: 'outline', capability: 'generate' },
       target: { kind: 'outline' },
       range: { from: 5, to: 8 },
       derive: { through: N },
     });
-    const items = written(b);
-    assert.deepEqual(items.map((i) => i.id), ['written:5', 'written:6', 'written:7', 'written:8']);
-    assert.match(items[0].text, /梗概：第5章梗概/);
-    assert.match(items[0].text, /状态变更：第5章后林昭受了轻伤/);
-    assert.equal(items[0].source, '.novelforge/summaries/005-第5回.md');
-    assert.match(items[2].text, /第7章开头/);
-    assert.equal(items[2].note, '这一章还没定稿，带正文的开头与结尾');
-    const u = user(b);
-    assert.ok(u.includes('整理出这一段的情节大纲'));
-    assert.ok(u.includes('「## 第N章：标题」'));
-    assert.ok(!u.includes('一章一章推演这一段'));
-  });
-
-  // 没定稿的细纲是写之前的计划，不是「已经写成的东西」：整理大纲时不拿它当依据。
-  test('大纲：只排了计划、没定稿的章照样退回正文头尾', async () => {
-    t.write('.novelforge/summaries/007-第7回.md', '---\nno: 7\ntitle: 第7回\n---\n\n# 第7章 第7回\n\n## 梗概\n\n计划里的第7章。\n\n## 关键事件\n\n计划里的事件。\n');
-    t.project.invalidate();
-    const b = await build({
-      action: { stage: 'outline', capability: 'generate' },
-      target: { kind: 'outline' },
-      range: { from: 7, to: 7 },
-      derive: { through: N },
-    });
-    const [item] = written(b);
-    assert.match(item.text, /第7章开头/);
-    assert.doesNotMatch(item.text, /计划里的第7章/);
-    t.remove('.novelforge/summaries/007-第7回.md');
-    t.project.invalidate();
+    assert.deepEqual(written(b), []);
+    assert.ok(user(b).includes('一章一章推演这一段'));
   });
 });

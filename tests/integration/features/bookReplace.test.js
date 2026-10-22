@@ -24,7 +24,6 @@ const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 const made = [];
@@ -52,22 +51,16 @@ after(() => {
   for (const t of made) cleanup(t.dir, bundle.db);
 });
 
-/** 一章一条，每一条都提到「林晚」：替换时六条都变。 */
-const OUTLINE = outlineOf(6, {
-  titles: { 1: '林晚入宗', 2: '林晚下山', 3: '林晚夜访', 4: '林晚北行', 5: '林晚远行', 6: '林晚归来' },
-  text: { 1: '林晚拜入青云宗。' },
-});
-
 /**
  * 一份细纲：`fresh` 时 `writtenFrom` 记的就是这份的内容指纹；`body` 给了就定稿过（`sourceHash` = 正文指纹）。
- * `upstream`：`'fresh'` 记大纲里这一章那一条，`'none'` 不记，其余原样写进去（对不上的旧指纹）。
+ * `upstream`：`'fresh'` 记这一章梗概的指纹（梗概就是大纲里这一章那一条），`'none'` 不记，其余原样写进去（对不上的旧指纹）。
  */
 function plotFile(no, title, sections, { upstream = 'fresh', written = 'fresh', body, cast } = {}) {
   const { renderPlotFile, parsePlotFile, plotContentHash, emptyPlotSections } = bundle.plotFile;
   const plot = {
     no,
     title,
-    upstreamHash: upstream === 'fresh' ? bundle.outlineFile.outlineUpstreamHash(OUTLINE, no) : upstream === 'none' ? '' : upstream,
+    upstreamHash: upstream === 'fresh' ? bundle.plotFile.plotSynopsisHash(sections.梗概) : upstream === 'none' ? '' : upstream,
     done: false,
     sections: { ...emptyPlotSections(), ...sections },
     sourceHash: body !== undefined ? bundle.fsm.hash(body.trim()) : undefined,
@@ -86,8 +79,8 @@ function plotFile(no, title, sections, { upstream = 'fresh', written = 'fresh', 
  * | 1 入宗 | 有「林晚」 | 有「林晚」，定稿过、指纹全对得上 | 两头都改了 → 刷新 |
  * | 2 下山 | 有「林晚」 | 有「林晚」，定稿过 | 正文未保存被跳过 → 只改了细纲 |
  * | 3 夜访 | 有「林晚」 | 没有「林晚」，定稿过 | 只改了正文 → 待定稿 |
- * | 4 北行 | — | 有「林晚」，大纲那一条早就改过（⟳） | ⟳ 照挂 |
- * | 5 远行 | — | 有「林晚」，手写的、没记过大纲指纹 | 照旧不记 |
+ * | 4 北行 | — | 有「林晚」，梗概（大纲那一条）早就改过（⟳） | ⟳ 照挂 |
+ * | 5 远行 | — | 有「林晚」，手写的、没记过上游指纹 | 照旧不记 |
  * | 6 归来 | 有「林晚」 | 有「林晚」，正文写完之后细纲又改过（⟳），没定稿 | 改之前就对不上的不刷 |
  */
 async function setup(prefix) {
@@ -99,7 +92,6 @@ async function setup(prefix) {
     3: '# 夜访\n\n夜里林晚来过。\n',
     6: '# 归来\n\n林晚回来了。\n',
   };
-  t.write('.novelforge/outline.md', OUTLINE);
   t.write('chapters/001-入宗.md', bodies[1]);
   t.write('.novelforge/summaries/001-入宗.md', plotFile(1, '入宗', { 梗概: '林晚入宗', 出场人物: '林晚', 关键事件: '- 林晚推开山门' }, { body: bodies[1], cast: [{ name: '林晚', aliases: ['阿晚'] }] }));
   t.write('chapters/002-下山.md', bodies[2]);
@@ -344,17 +336,17 @@ describe('features/bookReplace › 第 18 条：细纲在这一次里却被跳�
   });
 });
 
-describe('features/bookReplace › 第 18 条：大纲与细纲', () => {
-  test('大纲与细纲一起改的对得上；大纲改了、细纲没跟着改的挂 ⟳，汇总里说出来', async () => {
+// 情节大纲没有文件，是各章细纲梗概的汇总（docs/design/plans/2026-10-22-outline-from-plots.md）：不单列，换细纲就换了它。
+describe('features/bookReplace › 第 18 条：情节大纲（各章细纲的梗概）', () => {
+  test('预览里没有 outline.md；梗概与其余几节在同一份细纲里一起换，上游对得上；汇总出来的大纲跟着变', async () => {
     const t = await setup('outline');
-    const { request } = await previewAndRequest(t, { scopes: ['doc', 'plot', 'chapter'] });
-    const summary = await replace(t, request);
-    assert.match(t.read('.novelforge/outline.md'), /## 第1章：林婉入宗/);
+    const { preview, request } = await previewAndRequest(t, { scopes: ['doc', 'plot', 'chapter'] });
+    assert.ok(!preview.files.some((f) => f.path.endsWith('outline.md')), JSON.stringify(preview.files.map((f) => f.path)));
+    await replace(t, request);
     assert.equal((await row(t, 1)).plot.upstreamStale, false);
     assert.equal((await row(t, 2)).plot.upstreamStale, false);
-    // 第 3 章的细纲里没有这个名字：大纲里第 3 章那一条变了，它没跟着改。
-    assert.equal((await row(t, 3)).plot.upstreamStale, true);
-    assert.deepEqual(summary.outlineOnly, ['细纲 · 第 3 章 夜访']);
+    t.project.invalidate();
+    assert.match(await t.project.readOutline(), /## 第1章：入宗\n林婉入宗/);
   });
 });
 

@@ -17,7 +17,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let t;
@@ -77,7 +77,7 @@ before(async () => {
   });
   t.write('chapters/001-夜入青云.md', '# 夜入青云\n\n雨下了三天。山门在雨里，林昭在门外。\n');
   // 叙事线从情节大纲排：有大纲，确认框才会弹。
-  t.write('.novelforge/outline.md', outlineOf(10, { text: { 1: '林昭夜入青云宗。' } }));
+  writeOutline(t, outlineOf(10, { text: { 1: '林昭夜入青云宗。' } }));
   t.project.invalidate();
   await t.project.syncManifest();
   resetCtx();

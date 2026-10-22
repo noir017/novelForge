@@ -23,6 +23,7 @@ const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
+const { writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let A;
@@ -58,7 +59,7 @@ before(async () => {
     keepExamples: true,
   });
   project = t.project;
-  t.write('.novelforge/outline.md', OUTLINE);
+  writeOutline(t, OUTLINE);
   project.invalidate();
   accept = (target, artifact, opts) => bundle.accept.acceptArtifact(project, target, artifact, opts);
 });
@@ -641,9 +642,9 @@ describe('采纳 · 细纲（新建：落点是占位路径）', () => {
     assert.deepEqual(plot.characters, ['林昭', '沈青']);
   });
 
-  // 上游是大纲里**覆盖本章那一节**：改第 21–40 章那一节不该让这一章挂 ⟳。
-  test('记下大纲里覆盖本章那一节的指纹', async () => {
-    assert.equal(plot.upstreamHash, bundle.outlineFile.outlineUpstreamHash(await project.readOutline(), 12));
+  // 上游是这一章的梗概（大纲里这一章那一条）：改别的章那一条不该让这一章挂 ⟳。
+  test('记下这一章梗概的指纹', () => {
+    assert.equal(plot.upstreamHash, bundle.plotFile.plotSynopsisHash(plot.sections.梗概));
   });
 
   test('H1 是「第N章 标题」', () => {
@@ -970,16 +971,17 @@ describe('采纳 · 大纲整篇替换', () => {
   let kept;
   let result;
   let outline;
+  let oldFormat;
 
   before(async () => {
+    project.invalidate();
     h.expect('保留原样');
-    kept = await accept({ kind: 'outline' }, { kind: 'outlineDoc', text: '## 第1–20章：入局\n\n不该写进去' });
+    kept = await accept({ kind: 'outline' }, { kind: 'outlineDoc', text: '## 第12章：入局\n不该写进去' });
     h.expect('覆盖');
-    result = await accept(
-      { kind: 'outline' },
-      { kind: 'outlineDoc', text: '## 第1–20章：第一幕 · 入局\n\n- 林昭进宗门' }
-    );
+    result = await accept({ kind: 'outline' }, { kind: 'outlineDoc', text: '## 第12章：第一幕\n林昭进宗门。' });
+    project.invalidate();
     outline = await project.readOutline();
+    oldFormat = await accept({ kind: 'outline' }, { kind: 'outlineDoc', text: '## 第1–20章：第一幕 · 入局\n\n- 林昭进宗门' }).catch((err) => err);
   });
 
   test('拒绝覆盖时不写盘', () => {
@@ -990,8 +992,15 @@ describe('采纳 · 大纲整篇替换', () => {
     assert.ok(result.relPath.endsWith('outline.md'), result.message);
   });
 
+  // 大纲是各章细纲梗概的汇总：整篇换掉，就是换掉各章细纲的梗概。
   test('大纲内容已换', () => {
-    assert.ok(outline.includes('林昭进宗门') && !outline.includes('不该写进去'), outline);
+    assert.ok(outline.includes('## 第12章：第一幕\n林昭进宗门。') && !outline.includes('不该写进去'), outline);
+  });
+
+  test('认不出章标题的（旧格式的区间分节）不写，不把空壳删光', async () => {
+    assert.ok(oldFormat instanceof Error && /认不出「## 第N章：标题」/.test(oldFormat.message), String(oldFormat));
+    project.invalidate();
+    assert.equal(await project.readOutline(), outline);
   });
 });
 

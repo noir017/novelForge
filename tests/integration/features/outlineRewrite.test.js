@@ -1,12 +1,15 @@
 /**
  * 分段重写情节大纲（features/outlineRewrite.ts）：工程页「情节大纲」右键「重写…」。
  *
+ * 情节大纲是各章细纲「梗概」的汇总（docs/design/plans/2026-10-22-outline-from-plots.md）：**只重写还没写正文的章**，
+ * 写过的那几条由定稿照正文写，不动；写入时按章号拆回各章细纲。
+ *
  * | 用例组 | 钉的是什么 |
  * |---|---|
- * | 分段 | 已写 / 没写各自按 20 章切、段不跨线；散文式、旧格式（区间分节）与空大纲不分段 |
- * | 全套 | 已写的段照定稿过的细纲整理、其余照架构规划；要求每段都带；后一段看得见前一段的新版；一次审阅、整份写入 |
+ * | 分段 | 只切没写的那一截，按 20 章一段；空大纲不分段；排到的章都写过了，段是空的 |
+ * | 全套 | 照架构规划；要求每段都带；后一段看得见前一段的新版；一次审阅、整份写入（拆回各章细纲），写过的章不动 |
  * | 中途失败 | 已重写的几段照样审阅写入，没轮到的保留旧版，报错 |
- * | 不写入 | 审阅时放弃：磁盘不动 |
+ * | 不写入 | 审阅时放弃：细纲一个字不动 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -15,6 +18,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
+const { writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -22,7 +26,6 @@ let fake;
 let replyFn;
 const projects = [];
 
-const OUTLINE = '.novelforge/outline.md';
 const pad3 = (n) => String(n).padStart(3, '0');
 
 /** 旧大纲：第 1–45 章，一章一条。 */
@@ -39,20 +42,22 @@ function entries(from, to, tag) {
   return out.join('\n\n');
 }
 
-/** 这一次调用要写哪一段、走哪份契约。 */
+/** 这一次调用要写哪一段。 */
 function rangeOf(messages) {
   const user = messages[messages.length - 1].content;
-  const derived = /里第 (\d+)(?:–(\d+))? 章实际发生/.exec(user);
-  if (derived) {
-    return { derive: true, from: Number(derived[1]), to: Number(derived[2] ?? derived[1]) };
-  }
   const planned = /本次必须写第 (\d+)(?:–(\d+))? 章的情节大纲/.exec(user);
-  return planned ? { derive: false, from: Number(planned[1]), to: Number(planned[2] ?? planned[1]) } : undefined;
+  return planned ? { from: Number(planned[1]), to: Number(planned[2] ?? planned[1]) } : undefined;
 }
 
 function defaultReply(messages) {
   const r = rangeOf(messages);
-  return r ? entries(r.from, r.to, r.derive ? '整理' : '新规划') : '';
+  return r ? entries(r.from, r.to, '新规划') : '';
+}
+
+/** 汇总出来的情节大纲（没有标题行与说明）。 */
+async function outlineOf(t) {
+  t.project.invalidate();
+  return t.project.readOutline();
 }
 
 before(() => {
@@ -82,7 +87,7 @@ async function fresh(prefix) {
   for (let no = 1; no <= 7; no++) {
     t.write(`chapters/${pad3(no)}-第${no}章.md`, `# 第${no}章\n\n林昭第${no}次见到沈青。\n`);
   }
-  t.write(OUTLINE, oldOutline());
+  writeOutline(t, oldOutline());
   t.project.invalidate();
   fake.reset();
   replyFn = defaultReply;
@@ -91,41 +96,24 @@ async function fresh(prefix) {
 }
 
 describe('分段', () => {
-  test('已写 / 没写各自按 20 章切，段不跨线', () => {
+  test('只切没写的那一截，按 20 章一段', () => {
     const plan = bundle.rewrite.planOutlineRewrite(114, 100);
-    assert.deepEqual(
-      plan.batches.map((b) => [b.from, b.to, b.derive]),
-      [
-        [1, 20, true],
-        [21, 40, true],
-        [41, 60, true],
-        [61, 80, true],
-        [81, 100, true],
-        [101, 114, false],
-      ]
-    );
+    assert.deepEqual(plan.batches.map((b) => [b.from, b.to]), [[101, 114]]);
+    assert.deepEqual(bundle.rewrite.planOutlineRewrite(30, 0).batches.map((b) => [b.from, b.to]), [
+      [1, 20],
+      [21, 30],
+    ]);
   });
 
-  test('一章没写：全部重新规划；写过的比大纲还长：全部照正文整理', () => {
-    assert.deepEqual(bundle.rewrite.planOutlineRewrite(30, 0).batches.map((b) => [b.from, b.to, b.derive]), [
-      [1, 20, false],
-      [21, 30, false],
-    ]);
+  test('排到的章都写过了：段是空的', () => {
     const over = bundle.rewrite.planOutlineRewrite(30, 50);
     assert.equal(over.through, 30);
-    assert.ok(over.batches.every((b) => b.derive));
+    assert.deepEqual(over.batches, []);
   });
 
-  test('散文式、旧格式（区间分节）与空大纲不分段', async () => {
-    const t = await fresh('outline-rewrite-prose');
-    t.write(OUTLINE, '# 情节大纲\n\n林昭入宗，一路查下去。\n');
-    t.project.invalidate();
-    assert.equal(await bundle.rewrite.outlineRewritePlan(t.project), undefined);
-    t.write(OUTLINE, '# 情节大纲\n\n## 第1–20章：第一幕\n\n林昭入宗。\n');
-    t.project.invalidate();
-    assert.equal(await bundle.rewrite.outlineRewritePlan(t.project), undefined);
-    t.write(OUTLINE, '');
-    t.project.invalidate();
+  test('还没有大纲（没有一章有梗概）不分段', async () => {
+    const t = await makeTempProject(bundle.project, { prefix: 'outline-rewrite-empty', title: '空' });
+    projects.push(t);
     assert.equal(await bundle.rewrite.outlineRewritePlan(t.project), undefined);
   });
 });
@@ -134,27 +122,24 @@ describe('全套', () => {
   let t;
   let plan;
   let calls;
+  let before7;
   before(async () => {
     t = await fresh('outline-rewrite-all');
+    before7 = t.read('.novelforge/summaries/007-第7章.md');
     plan = await bundle.rewrite.outlineRewritePlan(t.project);
     h.expect();
     calls = await bundle.rewrite.rewriteOutline(t.project, plan, '节奏再快一点');
   });
 
-  test('第 1–7 章照定稿过的细纲整理，第 8–45 章分两段重新规划，说明里写明次数', () => {
-    assert.deepEqual(
-      plan.batches.map((b) => [b.from, b.to, b.derive]),
-      [
-        [1, 7, true],
-        [8, 27, false],
-        [28, 45, false],
-      ]
-    );
+  test('第 1–7 章写过了不重写，第 8–45 章分两段重新规划，说明里写明次数', () => {
+    assert.deepEqual(plan.batches.map((b) => [b.from, b.to]), [
+      [8, 27],
+      [28, 45],
+    ]);
     const text = bundle.rewrite.describeOutlineRewrite(plan);
-    assert.match(text, /调用 3 次模型/);
-    assert.match(text, /第 1–7 章已经写成，照各章定稿过的细纲整理/);
-    assert.match(text, /第 8–45 章照架构重新规划/);
-    assert.equal(calls, 3);
+    assert.match(text, /按 20 章一段重写第 8–45 章，调用 2 次模型/);
+    assert.match(text, /第 1–7 章已经写了正文，那几条由定稿照正文写，不动/);
+    assert.equal(calls, 2);
     assert.deepEqual(fake.calls.map((m) => rangeOf(m)), plan.batches);
   });
 
@@ -166,21 +151,22 @@ describe('全套', () => {
 
   test('后一段看得见前一段刚写好的新版，没轮到的还是旧版', () => {
     const second = fake.calls[1].map((x) => x.content).join('\n');
-    assert.match(second, /【重写中】第 1–7 章是这次刚重写好的新版/);
-    assert.match(second, /整理第 1 章。/);
-    assert.match(second, /旧版第 26 章。/);
-    assert.doesNotMatch(second, /旧版第 1 章。/);
+    assert.match(second, /【重写中】第 8–27 章是这次刚重写好的新版/);
+    assert.match(second, /新规划第 26 章。/);
+    assert.doesNotMatch(second, /旧版第 26 章。/);
+    const first = fake.calls[0].map((x) => x.content).join('\n');
     // 这一段（第 8–27 章）之后还没轮到的旧版只带第一行。
-    assert.match(second, /后面已经排好的（只列第一行）：\n- 第28章 旧版：旧版第 28 章。/);
+    assert.match(first, /后面已经排好的（只列第一行）：\n- 第28章 旧版：旧版第 28 章。/);
   });
 
-  test('一次审阅、整份写入', () => {
+  test('一次审阅、整份写入：拆回各章细纲，写过的章一个字不动', async () => {
     assert.equal(h.reviewed.length, 1);
-    const disk = t.read(OUTLINE);
-    assert.doesNotMatch(disk, /旧版/);
-    assert.match(disk, /## 第1章：整理/);
-    assert.match(disk, /## 第8章：新规划/);
-    assert.match(disk, /## 第45章：新规划/);
+    const outline = await outlineOf(t);
+    assert.match(outline, /## 第1章：旧版\n旧版第 1 章。/);
+    assert.match(outline, /## 第8章：新规划\n新规划第 8 章。/);
+    assert.match(outline, /## 第45章：新规划/);
+    assert.doesNotMatch(outline, /旧版第 8 章/);
+    assert.equal(t.read('.novelforge/summaries/007-第7章.md'), before7);
     assert.ok(!h.erred(), h.toasts.join('\n'));
   });
 });
@@ -193,20 +179,21 @@ describe('中途失败', () => {
     h.expect();
     await bundle.rewrite.rewriteOutline(t.project, plan, '');
     assert.equal(h.reviewed.length, 1);
-    const disk = t.read(OUTLINE);
-    assert.match(disk, /## 第8章：新规划/);
-    assert.match(disk, /## 第31章：旧版/);
-    assert.ok(h.toasts.some((x) => x.startsWith('error:') && x.includes('已重写第 1–27 章的大纲，后面的保留旧版')), h.toasts.join('\n'));
+    const outline = await outlineOf(t);
+    assert.match(outline, /## 第8章：新规划/);
+    assert.match(outline, /## 第31章：旧版/);
+    assert.ok(h.toasts.some((x) => x.startsWith('error:') && x.includes('已重写第 8–27 章的大纲，后面的保留旧版')), h.toasts.join('\n'));
   });
 });
 
 describe('不写入', () => {
-  test('审阅时放弃：磁盘不动', async () => {
+  test('审阅时放弃：细纲一个字不动', async () => {
     const t = await fresh('outline-rewrite-discard');
+    const before = await outlineOf(t);
     const plan = await bundle.rewrite.outlineRewritePlan(t.project);
     h.setReviewVerdict('discard');
     h.expect();
     await bundle.rewrite.rewriteOutline(t.project, plan, '');
-    assert.equal(t.read(OUTLINE), oldOutline());
+    assert.equal(await outlineOf(t), before);
   });
 });

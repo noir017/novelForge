@@ -26,6 +26,7 @@ import { legacySettingsReader, migrateVscodeSettings } from './migrate';
 import { FileConfigStore, FileSecretStore } from '../../core/stores';
 import { VsCodeHost } from './vscodeHost';
 import { VsCodeLmProvider } from './vscodeLmProvider';
+import { OUTLINE_SCHEME, OutlineFileSystem } from './outlineFs';
 
 const log = scoped('插件');
 
@@ -75,6 +76,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (project) {
     await setInitializedContext(project);
     registerWatcher(context, project, chat);
+    registerOutlineFs(context, project);
   }
 
   const refresh = async () => {
@@ -455,6 +457,24 @@ function registerWatcher(
       }
     })
   );
+}
+
+/**
+ * 情节大纲没有文件（各章细纲梗概的汇总）：挂一个只有它的虚拟文件系统（outlineFs.ts），`openFile` 开它时走这里。
+ * 细纲变了就通知编辑器汇总变了。
+ */
+function registerOutlineFs(context: vscode.ExtensionContext, project: NovelProject): void {
+  const fs = new OutlineFileSystem(project.root);
+  const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(project.plotsDir, '**/*.md'));
+  let timer: NodeJS.Timeout | undefined;
+  const touch = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fs.touch(), 250);
+  };
+  watcher.onDidChange(touch);
+  watcher.onDidCreate(touch);
+  watcher.onDidDelete(touch);
+  context.subscriptions.push(vscode.workspace.registerFileSystemProvider(OUTLINE_SCHEME, fs, { isCaseSensitive: true }), watcher);
 }
 
 async function setInitializedContext(project: NovelProject): Promise<void> {

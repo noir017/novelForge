@@ -1604,10 +1604,11 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
         return gapStep(f.gap, { kind: 'outline' });
       }
       const from = f.outlineFilled ? f.outlineCoverage + 1 : 1;
+      // 情节大纲是各章细纲梗概的汇总：写过的章没有细纲，大纲里就没有它们那一条——补齐先给它们整理细纲（带梗概）。
       if (from < f.nextChapterNo) {
         return deriveStep(
           f,
-          from === 1 ? '还没有情节大纲' : `情节大纲只覆盖到第 ${from - 1} 章`,
+          from === 1 ? '还没有细纲，情节大纲（各章细纲梗概的汇总）也就是空的' : `${rangeText(from, f.nextChapterNo - 1)}还没有细纲，情节大纲只覆盖到第 ${from - 1} 章`,
           { kind: 'outline' }
         );
       }
@@ -1662,7 +1663,7 @@ function deriveStep(f: BookFacts, missing: string, target: CreationTarget): Next
     capability: 'generate',
     label: '从已写正文补齐…',
     hint:
-      `已经写了${rangeText(1, through)}，${missing}。照已写正文把细纲、角色卡、架构与情节大纲整理出来（只补空白），` +
+      `已经写了${rangeText(1, through)}，${missing}。照已写正文把细纲（梗概就是情节大纲那一条）、角色卡与架构整理出来（只补空白），` +
       '再接着往下写；动手之前会先列出要调几次模型。',
     target,
     projectAction: 'deriveFromText',

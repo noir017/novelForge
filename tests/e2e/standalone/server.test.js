@@ -150,7 +150,8 @@ describe('WebSocket 与 Origin 校验', () => {
 
   // 内置编辑器的章节条与上一章 / 下一章：连上就有，不等作者切到工程页（工程树只在那一页推）。
   test('连上就推章节索引：一章一行、按章号升序，正文与细纲的路径都在', () => {
-    assert.deepEqual(index.chapters.map((c) => c.no), [1, 2, 3, 4]);
+    // 示例工程第 5–10 章是只有梗概的空壳（大纲排到了第 10 章，大纲是各章细纲梗概的汇总）。
+    assert.deepEqual(index.chapters.map((c) => c.no), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     const [ch1, , , ch4] = index.chapters;
     assert.deepEqual([ch1.chapterPath, ch1.plotPath, ch1.plotExists], ['chapters/001-楔子.md', '.novelforge/summaries/001-楔子.md', true]);
     // 第 4 章只排了细纲：没有正文，主路径是细纲。

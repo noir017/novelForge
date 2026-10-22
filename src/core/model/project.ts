@@ -26,6 +26,7 @@ import {
 import { isChapterFileName, isMarkdownExt, isMarkdownPath, parseChapterFileName } from './chapterFile';
 import { Plot, isPlotFileName, parsePlotFile, parsePlotFileName, plotFileName } from './plotFile';
 import { loreCategoryOfSlug } from './loreFile';
+import { outlineEntriesOf, renderOutline, renderOutlineDoc } from './outlineFile';
 import {
   BookConfig,
   SETTING_FILE_DOCS,
@@ -150,6 +151,11 @@ export class NovelProject {
     return path.join(this.novelDir, 'style.md');
   }
 
+  /**
+   * 情节大纲的**身份**：磁盘上没有这份文件，大纲是各章细纲「梗概」的汇总（{@link readOutline}）；这个路径给编辑器标签、
+   * MCP 的读写与 `@` 引用认它，网关接住它的读写（docs/design/plans/2026-10-22-outline-from-plots.md）。老工程磁盘上若还有
+   * 一份 `outline.md`，不读、不动。
+   */
   get outlinePath(): string {
     return path.join(this.novelDir, 'outline.md');
   }
@@ -451,18 +457,17 @@ export class NovelProject {
   }
 
   /**
-   * 新工程的几份空模板：架构三件、文风、情节大纲、全文大纲。**只给落点（工作区相对路径）与内容，不碰磁盘。**
+   * 新工程的几份空模板：架构三件、文风、全文大纲（情节大纲是各章细纲梗概的汇总，没有文件）。**只给落点（工作区相对路径）与内容，不碰磁盘。**
    *
    * 架构三件是结构完整、全是占位的空模板，`isSettingFilled` 为 false，主按钮于是从「生成小说配置」开始。
    * **不放示例角色卡**：角色图谱「有没有」看 `characters/` 下有没有卡，一张示例卡会让新工程一出生就跳过「生成角色图谱」
    * （卡的格式见 README）。示例设定条目同理（设定清单「有没有」看 `lore/` 下有没有条目），何况它的关键词「设定」会被
    * 任何一句带这两个字的话命中、混进上下文。
    */
-  newProjectTemplates(title: string): { rel: string; text: string }[] {
+  newProjectTemplates(): { rel: string; text: string }[] {
     return [
       ...SETTING_FILE_DOCS.map((doc) => ({ rel: this.relPath(this.settingPath(doc)), text: settingTemplate(doc) })),
       { rel: this.relPath(this.stylePath), text: STYLE_TEMPLATE },
-      { rel: this.relPath(this.outlinePath), text: OUTLINE_TEMPLATE(title) },
       { rel: this.relPath(this.globalSummaryPath), text: GLOBAL_SUMMARY_TEMPLATE },
     ];
   }
@@ -1125,11 +1130,17 @@ export class NovelProject {
     return !raw.trim() || raw.replace(/\r\n/g, '\n').trim() === STYLE_TEMPLATE.trim();
   }
 
+  /**
+   * 情节大纲：各章细纲（每个章号认下的那一份）里梗概非空的，一章一条拼起来（`## 第N章：标题` + 梗概）。没有标题行与说明——
+   * 装配器、状态机、排叙事线读的都是这一份。给编辑器的整份见 {@link readOutlineDoc}。
+   */
   async readOutline(): Promise<string> {
-    if (!(await exists(this.outlinePath))) {
-      return '';
-    }
-    return stripH1(parseMarkdown(await readText(this.outlinePath)).body);
+    return renderOutline(outlineEntriesOf(await this.listChapterPlots()));
+  }
+
+  /** 编辑器、覆盖审阅、MCP 读到的整份情节大纲：标题行、一段说明、一章一条。存盘时按章号拆回各章细纲（网关的 `writeOutline`）。 */
+  async readOutlineDoc(): Promise<string> {
+    return renderOutlineDoc(outlineEntriesOf(await this.listChapterPlots()));
   }
 }
 
@@ -1320,16 +1331,6 @@ const STYLE_TEMPLATE = `# 文风指南
 
 - 不使用「不禁」「顿时」「仿佛整个世界」这类套话
 - 不写「总之」「综上」等议论腔
-`;
-
-/**
- * 情节大纲的空模板。章标题是给状态机读的（model/outlineFile.ts）：
- * 覆盖到第几章、第 N 章的细纲依据的是哪一条，都从这些标题里认。
- */
-const OUTLINE_TEMPLATE = (title: string) => `# ${title} · 情节大纲
-
-> 一章一条（\`## 第3章：标题\`），第一行一句话写这一章发生什么、结果如何。可以只写到一部分章，写到了再续。
-
 `;
 
 /**

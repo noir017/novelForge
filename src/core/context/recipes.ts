@@ -97,7 +97,6 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'rosterDoc', priority: 0, force: true },
     { layer: 'structure', priority: 0, force: true },
     { layer: 'outlineDoc', priority: 0, force: true },
-    { layer: 'written', priority: 0, force: true },
     { layer: 'skill', priority: 0 },
     { layer: 'history', priority: 1 },
     { layer: 'characters', priority: 1 },

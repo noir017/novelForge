@@ -21,7 +21,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -128,7 +128,7 @@ after(() => {
 async function writtenBook(prefix) {
   const t = await makeTempProject(bundle.project, { prefix, title: '青崖记' });
   const project = t.project;
-  t.write('.novelforge/outline.md', outlineOf(20, { text: { 1: '林昭回镇，一路查名册与玉佩。' } }));
+  writeOutline(t, outlineOf(20, { text: { 1: '林昭回镇，一路查名册与玉佩。' } }));
   for (let no = 1; no <= 5; no++) {
     t.write(CH(no), text(no));
   }
@@ -183,7 +183,9 @@ describe('叙事线重做四期验收：一本已写 5 章、没有任何线的�
   test('补记之前：工程页说「第 1–5 章还没判」、叙事线判到第 0 章；总览五列都标「还没判」', () => {
     assert.deepEqual(lagBefore, { lag: { count: 5, text: '第 1–5 章还没判' }, through: 0, current: 5 });
     assert.equal(overviewBefore.through, 0);
-    assert.deepEqual(overviewBefore.chapters.map((c) => [c.no, c.state, c.unjudged ?? false]), [1, 2, 3, 4, 5].map((no) => [no, 'finalized', true]));
+    assert.deepEqual(overviewBefore.chapters.slice(0, 5).map((c) => [c.no, c.state, c.unjudged ?? false]), [1, 2, 3, 4, 5].map((no) => [no, 'finalized', true]));
+    // 第 6–20 章是大纲排到了、只有梗概的空壳（大纲是各章细纲梗概的汇总）：计划中，不算「还没判」。
+    assert.ok(overviewBefore.chapters.slice(5).every((c) => c.state === 'planned' && !c.unjudged), JSON.stringify(overviewBefore.chapters.slice(5)));
   });
 
   test('确认框写明章数与次数：先排线 1 次 + 5 章 × 1–3 次', () => {

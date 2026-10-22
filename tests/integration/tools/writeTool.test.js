@@ -164,11 +164,10 @@ describe('用 draftId 写一份细纲', () => {
     assert.ok(plot.upstreamHash, JSON.stringify(plot.upstreamHash));
   });
 
-  // ★ 记的是第 1 章那一条的指纹：以后改第 21 章那一条，第 1 章不挂 ⟳。
-  test('upstreamHash 是大纲里第 1 章那一条的指纹，不是全书的', async () => {
+  // ★ 记的是这一章梗概（大纲里第 1 章那一条）的指纹：以后改别的章那一条，第 1 章不挂 ⟳。
+  test('upstreamHash 是这一章梗概的指纹，不是全书的', async () => {
     const plot = await project.readPlot(PLOT_REL);
-    assert.equal(plot.upstreamHash, bundle.outlineFile.outlineUpstreamHash(OUTLINE, 1));
-    assert.equal(plot.upstreamHash, bundle.outlineFile.outlineUpstreamHash(OUTLINE.replace('林昭下山。', '林昭没下山。'), 1));
+    assert.equal(plot.upstreamHash, bundle.plotFile.plotSynopsisHash(plot.sections.梗概));
   });
 
   test('标题没被抹掉（重写细纲不动作者起的名字）', async () => {

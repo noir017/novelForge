@@ -58,12 +58,12 @@ export interface ThreadsBackfillPlan {
 }
 
 /**
- * 补记要判哪几章。`outlineReady`：「从已写正文补齐」这一次会补出情节大纲时传 true（那时盘上还没有）；缺席看盘上的情节大纲。
+ * 补记要判哪几章。一条线都没有、有情节大纲（各章细纲梗概的汇总）时先排线。
  * `upTo`：只看到第几章为止（补齐只管第 1–N 章）。同号的正文有两份时认路径排序第一份（与流水线、总览同一个口径）。
  */
 export async function planThreadsBackfill(
   project: NovelProject,
-  opts: { outlineReady?: boolean; upTo?: number } = {}
+  opts: { upTo?: number } = {}
 ): Promise<ThreadsBackfillPlan> {
   const [all, mark, book] = await Promise.all([project.listChapters(), project.readThreadsMark(), project.readThreads()]);
   const byNo = new Map<number, Chapter>();
@@ -101,7 +101,7 @@ export async function planThreadsBackfill(
     // 没定稿的只说水位之后、定稿到之前的：定稿到之后的是还没走到定稿那一步，不归补记管。
     ...unfinalized.filter((no) => no > mark.through && no < current).map((no) => ({ no, why: '还没定稿' })),
   ].sort((a, b) => a.no - b.no);
-  const outlineReady = opts.outlineReady ?? isOutlineFilled(await project.readOutline());
+  const outlineReady = isOutlineFilled(await project.readOutline());
   const planFirst = fresh.length > 0 && book.threads.length === 0 && outlineReady;
   return { chapters: fresh, skipped, planFirst, through: mark.through, current, calls: threadsBackfillCalls(fresh.length, planFirst) };
 }

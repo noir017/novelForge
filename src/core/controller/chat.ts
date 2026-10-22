@@ -845,8 +845,12 @@ export async function rewriteArchitecture(c: ChatController, target: CreationTar
   if (!(await confirmDespiteGap(await c.project.listChapters(), `重写${where}`))) {
     return;
   }
-  // 认得出章标题的大纲按段重写（features/outlineRewrite.ts）：一次写全书，后半段稀得像目录。
+  // 有条目的大纲按段重写（features/outlineRewrite.ts）：一次写全书，后半段稀得像目录。只重写还没写正文的章。
   const plan = target.kind === 'outline' ? await outlineRewritePlan(c.project) : undefined;
+  if (plan && plan.batches.length === 0) {
+    c.toast(`情节大纲排到第 ${plan.end} 章，都已经写了正文：写过的章，大纲那一条由定稿照正文写，不重写。要往后排，用主按钮续写大纲。`);
+    return;
+  }
   const ask = await getHost().input({
     title: `重写${where}`,
     prompt: plan

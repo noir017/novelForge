@@ -24,9 +24,9 @@ export const SEARCH_LIMIT = 40;
 export const SEARCH_PER_FILE = 4;
 
 /** `kinds` 参数的候选值。与 `workspace/kind.ts` 的 `ArtifactKind` 同源。 */
+// 没有 `outline`：情节大纲是各章细纲梗概的汇总，没有文件，搜 `plot` 就搜到了。
 const KINDS: ArtifactKind[] = [
   'setting',
-  'outline',
   'style',
   'globalSummary',
   'threads',
@@ -44,8 +44,8 @@ export const searchTool: ToolDef = {
   description:
     '在工程里全文检索，返回命中的行（带路径与行号），**按章号升序**。' +
     '默认按字面量搜（作者搜的多半是人名地名），regex=true 才当正则。' +
-    'path 可限定目录，kinds 可限定产物种类（setting=小说配置 / 故事前提 / 世界观，outline=情节大纲，' +
-    'plot=细纲，chapter=正文，character=角色卡，lore=设定，style=文风指南，' +
+    'path 可限定目录，kinds 可限定产物种类（setting=小说配置 / 故事前提 / 世界观，' +
+    'plot=细纲（情节大纲就是各章细纲的「梗概」，搜它就搜到了），chapter=正文，character=角色卡，lore=设定，style=文风指南，' +
     'globalSummary=全文大纲，threads=叙事线（.novelforge/threads/ 下一条线一个文件），draft=章节草稿）。' +
     `一次最多返回 ${SEARCH_LIMIT} 条、每个文件最多 ${SEARCH_PER_FILE} 条；` +
     '有命中因为超上限被丢掉时会明确告诉你丢了几条——那时不要断言「全书只有这几处」。',
@@ -101,12 +101,17 @@ export const searchTool: ToolDef = {
   },
 };
 
-/** 认不出的种类名一律丢掉，全丢光就当没限定——不因为一个错字搜出空结果。 */
+/**
+ * 认不出的种类名一律丢掉，全丢光就当没限定——不因为一个错字搜出空结果。`outline` 认成 `plot`：情节大纲是各章细纲的梗概，
+ * 照老说法要搜大纲的，搜细纲就是。
+ */
 function pickKinds(raw: unknown): ArtifactKind[] | undefined {
   if (!Array.isArray(raw)) {
     return undefined;
   }
-  const known = raw.filter((k): k is ArtifactKind => (KINDS as string[]).includes(k as string));
+  const known = raw
+    .map((k) => (k === 'outline' ? 'plot' : k))
+    .filter((k): k is ArtifactKind => (KINDS as string[]).includes(k as string));
   return known.length > 0 ? known : undefined;
 }
 

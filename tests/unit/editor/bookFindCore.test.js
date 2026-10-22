@@ -133,7 +133,6 @@ describe('汇总', () => {
     chainKept: ['第 1 章 入宗'],
     plotOnly: ['第 2 章 下山'],
     bodyOnly: ['第 3 章 夜访'],
-    outlineOnly: ['细纲 · 第 4 章 北行'],
     renamedCards: [
       { path: '.novelforge/characters/林晚.md', label: '角色 · 林晚', name: '林婉', nameChanged: true },
       { path: '.novelforge/characters/老周.md', label: '角色 · 老周', name: '老周', nameChanged: false },
@@ -153,7 +152,6 @@ describe('汇总', () => {
     assert.match(text, /第 1 章 入宗：细纲与正文这次一起改了，指纹跟着刷新/);
     assert.match(text, /第 2 章 下山：只改了细纲、正文没跟着改，正文会挂 ⟳/);
     assert.match(text, /第 3 章 夜访：只改了正文、细纲没跟着改，回到「待定稿」/);
-    assert.match(text, /细纲 · 第 4 章 北行：情节大纲里覆盖它的那一节改了/);
     assert.match(text, /角色 · 林晚：卡里的名字改成了「林婉」，文件名没跟着改/);
     assert.match(text, /角色 · 老周：别名改了/);
     assert.match(text, /跳过了 1 个文件：/);
@@ -162,7 +160,7 @@ describe('汇总', () => {
   });
 
   test('一处都没换、整个没做', () => {
-    const none = core.summaryLines({ ...summary, files: 0, hits: 0, chainKept: [], plotOnly: [], bodyOnly: [], outlineOnly: [], renamedCards: [], skipped: [] });
+    const none = core.summaryLines({ ...summary, files: 0, hits: 0, chainKept: [], plotOnly: [], bodyOnly: [], renamedCards: [], skipped: [] });
     assert.deepEqual(none.map((l) => l.text), ['一处都没有替换。']);
     assert.deepEqual(core.summaryLines({ ...summary, error: '正则写错了' }), [{ text: '正则写错了', tone: 'error' }]);
   });

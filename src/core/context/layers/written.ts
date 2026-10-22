@@ -1,13 +1,14 @@
 /**
- * `written` 层：已写正文（拆书 A）。从作者已经写成的章里整理设定、大纲时，模型要看的那几章。
+ * `written` 层：已写正文（拆书 A）。从作者已经写成的章里整理架构时，模型要看的那几章。
  *
- * **只在 `BuildRequest.derive` 时有内容**：架构、大纲两张配方都挂着这一层，平时什么都不带。
+ * **只在 `BuildRequest.derive` 时有内容**：架构那张配方挂着这一层，平时什么都不带。
  * 「这些章已经写成、是权威事实」那句话在 builder 的小标题与契约里说。
  *
- * | 阶段 | 带什么 | 预算 |
- * |---|---|---|
- * | 架构 | 第 1–N 章的梗概与看点（一章一行），加均匀抽样几章（上下文详细度的 `deriveSamples`，缺省 5）的开头节选 | 节选按配方（强制）；梗概放不下就隔章抽，写明抽了几章 |
- * | 大纲 | 区间里各章定稿过的细纲（梗概、关键事件、看点、状态变更）；没定稿过的章退回正文头尾 | 按配方 |
+ * 带第 1–N 章的梗概与看点（一章一行），加均匀抽样几章（上下文详细度的 `deriveSamples`，缺省 5）的开头节选。
+ * 节选按配方（强制）；梗概放不下就隔章抽，写明抽了几章。
+ *
+ * 从前大纲那张配方也挂着它（照区间里各章定稿过的细纲整理大纲）。情节大纲改成各章细纲梗概的汇总之后，写过的章那一条
+ * 就是定稿写下的梗概，不再另整理（docs/design/plans/2026-10-22-outline-from-plots.md）。
  *
  * 只认**定稿过**的细纲（有 `sourceHash`）：没定稿的是写之前的计划，不是「已经写成的东西」。
  *
@@ -15,20 +16,16 @@
  * 都丢了。这里设定看全书梗概加均匀抽样。
  */
 import { plotLabel } from '../../model/pipeline';
-import { evenSample, headOf, headTail } from '../../model/importText';
+import { evenSample, headOf } from '../../model/importText';
 import { Plot } from '../../model/plotFile';
 import { NovelProject } from '../../model/project';
 import { Chapter } from '../../model/types';
 import { estimateTokens } from '../tokenizer';
 import type { LayerFn } from './assembly';
-import { labeledSection } from './render';
 
 /** 首章的节选长一点：开篇交代的东西最多。 */
 export const SAMPLE_HEAD_FIRST = 3000;
 export const SAMPLE_HEAD = 2000;
-/** 大纲那一层，没定稿过的章退回正文头尾的长度。 */
-const OUTLINE_FALLBACK_HEAD = 1500;
-const OUTLINE_FALLBACK_TAIL = 500;
 
 export const written: LayerFn = async (a, spec) => {
   const derive = a.request.derive;
@@ -39,17 +36,8 @@ export const written: LayerFn = async (a, spec) => {
   if (chapters.length === 0) {
     return;
   }
-  const stage = a.request.action.stage;
-  if (stage === 'setting') {
+  if (a.request.action.stage === 'setting') {
     await settingMaterial(a, spec, chapters);
-    return;
-  }
-  if (stage === 'outline') {
-    const range = a.request.range ?? (a.request.targetNo !== undefined ? { from: a.request.targetNo, to: a.request.targetNo } : undefined);
-    const inRange = range ? chapters.filter((c) => c.order >= range.from && c.order <= range.to) : [];
-    for (const chapter of inRange) {
-      await admitFinalized(a, spec, chapter);
-    }
   }
 };
 
@@ -126,46 +114,4 @@ async function settingMaterial(a: Parameters<LayerFn>[0], spec: Parameters<Layer
     }
   }
   a.reject({ ...base, text: '' }, 'dropped', `预算不足，梗概一章都放不下${missingNote}`);
-}
-
-/** 大纲那一层的一章：定稿过的细纲里管走向的那几节；还没定稿就退回正文头尾。 */
-async function admitFinalized(a: Parameters<LayerFn>[0], spec: Parameters<LayerFn>[1], chapter: Chapter): Promise<void> {
-  const label = plotLabel(chapter.order, chapter.title);
-  const plot = await finalizedPlot(a.project, chapter);
-  const s = plot?.sections;
-  const parts = s
-    ? [
-        ['梗概', s.梗概],
-        ['关键事件', s.关键事件],
-        ['看点', s.看点],
-        ['状态变更', s.状态变更],
-      ].filter(([, v]) => v?.trim())
-    : [];
-  if (parts.length > 0) {
-    a.admit(
-      {
-        id: `written:${chapter.order}`,
-        kind: 'written',
-        priority: spec.priority,
-        label: `${label} · 细纲`,
-        source: plot!.relPath,
-        text: `【${label}】\n${parts.map(([k, v]) => labeledSection(k!, v!)).join('\n')}`,
-      },
-      { force: spec.force }
-    );
-    return;
-  }
-  const text = await a.project.readChapterText(chapter);
-  a.admit(
-    {
-      id: `written:${chapter.order}`,
-      kind: 'written',
-      priority: spec.priority,
-      label: `${label} · 正文（头尾）`,
-      source: chapter.relPath,
-      text: `【${label}｜全章 ${chapter.wordCount} 字】\n${headTail(text, OUTLINE_FALLBACK_HEAD, OUTLINE_FALLBACK_TAIL)}`,
-      note: '这一章还没定稿，带正文的开头与结尾',
-    },
-    { force: spec.force }
-  );
 }

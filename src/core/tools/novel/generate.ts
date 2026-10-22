@@ -107,7 +107,7 @@ export const generateTool: ToolDef = {
     '层由路径决定：.novelforge/config.md、premise.md、world.md 是架构层，角色图谱给角色目录 .novelforge/characters 本身（一次排出一批角色卡），' +
     '设定清单给设定目录 .novelforge/lore 本身（一次排一批设定条目），' +
     '展开一条设定给那一条条目的路径（.novelforge/lore/ 下的 .md，如 .novelforge/lore/宗门/天机阁.md：照已排的细纲把它往前想细，可能建议拆出几条空条目），' +
-    '.novelforge/outline.md 是大纲层，.novelforge/summaries/ 下的细纲是细纲层（一章一份，与正文同样的相对路径、扩展名 .md，' +
+    '.novelforge/outline.md 是大纲层（各章细纲「梗概」的汇总，采纳时按章号写回各章细纲），.novelforge/summaries/ 下的细纲是细纲层（一章一份，与正文同样的相对路径、扩展名 .md，' +
     '如 .novelforge/summaries/上部/003-夜访.md），' +
     '正文层给那一章的章节路径（chapters/ 下，可以在子目录里；还没写过的章写成 chapters/<章号>.md 即可，' +
     '按章号认到这一章的细纲）。**细纲路径永远是细纲层**，要写正文不要给细纲路径。' +

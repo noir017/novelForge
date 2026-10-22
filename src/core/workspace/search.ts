@@ -227,7 +227,8 @@ async function collectFiles(
         continue;
       }
       const k = kindOfPath(project, childRel);
-      if (kinds && !kinds.has(k.kind)) {
+      // 情节大纲没有文件（各章细纲梗概的汇总，搜细纲就搜到了）：老工程磁盘上残留的那一份 `outline.md` 不是现在的书。
+      if ((kinds && !kinds.has(k.kind)) || k.kind === 'outline') {
         continue;
       }
       // 认不出种类的文件里，只有可能是文本的才读——图片、压缩包、可执行

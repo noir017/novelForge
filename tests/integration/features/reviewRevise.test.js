@@ -167,11 +167,10 @@ before(async () => {
   t = await makeTempProject(bundle.project, { prefix: 'phase5', title: '青崖记' });
   project = t.project;
   t.write('.novelforge/config.md', '---\ntotalChapters: 10\nwordsPerChapter: 1000\n---\n\n# 小说配置\n\n## 核心梗概\n\n回镇查案。\n');
-  // 架构三件与大纲借示例工程的：全书状态机要它们齐了，才会走到「写第 N 章」。
+  // 架构三件借示例工程的：全书状态机要它们齐了，才会走到「写第 N 章」。情节大纲是各章细纲梗概的汇总，下面写细纲就有了。
   const sample = (rel) => fs.readFileSync(path.join(__dirname, '../../../sample-novel/.novelforge', rel), 'utf8');
   t.write('.novelforge/premise.md', sample('premise.md'));
   t.write('.novelforge/world.md', sample('world.md'));
-  t.write('.novelforge/outline.md', sample('outline.md'));
   ws = new bundle.ws.Workspace(project);
   for (const no of [1, 2, 3]) {
     await writeOutline(no);

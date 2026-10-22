@@ -12,9 +12,9 @@ import { settingHandler } from './setting';
 import { plotHandler } from './plot';
 import { chapterHandler } from './chapter';
 
+// 情节大纲（`outline`）不在表里：它没有文件，读写由网关自己接住（`Workspace.writeOutline`）。
 const REGISTRY: Partial<Record<ArtifactKind, Handler>> = {
   setting: settingHandler,
-  outline: docHandler,
   style: docHandler,
   globalSummary: docHandler,
   threads: docHandler,

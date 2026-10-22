@@ -15,7 +15,7 @@ const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
@@ -423,7 +423,8 @@ describe('数据层 · 给未命名的细纲起名', () => {
 describe('新鲜度链', () => {
   const plotRel = '.novelforge/summaries/012-夜入青云.md';
   const CHAPTER = 'chapters/012-夜入青云.md';
-  const OUTLINE = outlineOf(20, { title: '大纲', text: { 12: '林昭进青云宗。' } });
+  // 只写第 12 章那一条：大纲是各章细纲的梗概，写别的章会多出几份空壳细纲（后面「缺号的不补空行」看的就是这一点）。
+  const OUTLINE = outlineOf(12, { from: 12, title: '大纲', text: { 12: '林昭进青云宗。' } });
   let pFresh;
   let pOutlineChanged;
   let pWritten;
@@ -439,17 +440,16 @@ describe('新鲜度链', () => {
   };
 
   before(async () => {
-    t.write('.novelforge/outline.md', OUTLINE);
+    writeOutline(t, OUTLINE);
     project.invalidate();
 
-    // 细纲记下当时大纲里第 12 章那一条的指纹。
+    // 细纲记下当时梗概（大纲里第 12 章那一条）的指纹。
     const plot = await project.readPlot(plotRel);
-    const slice = bundle.outlineFile.outlineUpstreamHash(await project.readOutline(), 12);
-    await wsOf(project).writePlot({ ...plot, upstreamHash: slice });
+    await wsOf(project).writePlot({ ...plot, upstreamHash: bundle.plotFile.plotSynopsisHash(plot.sections.梗概) });
     pFresh = await build();
 
     // 改大纲里本章那一条 → 细纲标脏。零模型调用。
-    t.write('.novelforge/outline.md', OUTLINE.replace('林昭进青云宗。', '林昭进青云宗（改了）。'));
+    writeOutline(t, OUTLINE.replace('林昭进青云宗。', '林昭进青云宗（改了）。'));
     pOutlineChanged = await build();
 
     // 正文写够（细纲定了 3000 字），并按正文落盘那一步的样子在细纲上记 writtenFrom。
@@ -659,10 +659,10 @@ describe('流水线索引 · 上游变更的日志不刷屏', () => {
   let afterMore;
   let afterCleared;
   let afterAgain;
-  /** 排过之后大纲里那一条改过的细纲：upstreamHash 对不上，标脏。 */
-  const stalePlot = (no, title) => `---\nno: ${no}\ntitle: ${title}\nupstreamHash: 旧的指纹\n---\n\n## 关键事件\n\n- 计划。\n`;
+  /** 排过之后梗概（大纲里那一条）改过的细纲：upstreamHash 对不上，标脏。 */
+  const stalePlot = (no, title) => `---\nno: ${no}\ntitle: ${title}\nupstreamHash: 旧的指纹\n---\n\n## 梗概\n\n改过的梗概。\n\n## 关键事件\n\n- 计划。\n`;
   /** 手写的细纲：没有 upstreamHash，不标脏。 */
-  const handPlot = (no, title) => `---\nno: ${no}\ntitle: ${title}\n---\n\n## 关键事件\n\n- 计划。\n`;
+  const handPlot = (no, title) => `---\nno: ${no}\ntitle: ${title}\n---\n\n## 梗概\n\n改过的梗概。\n\n## 关键事件\n\n- 计划。\n`;
   const staleLogs = () =>
     bundle.logger
       .recentLogs()
@@ -681,9 +681,6 @@ describe('流水线索引 · 上游变更的日志不刷屏', () => {
     dirs.push(p.dir);
     pr = p.project;
     bundle.logger.clearLogs();
-    // 大纲里得有第 82、83 章那两条：没有那一条就没有上游，不标脏。
-    p.write('.novelforge/outline.md', outlineOf(83, { from: 82 }));
-
     p.write('.novelforge/summaries/082-雪夜.md', stalePlot(82, '雪夜'));
     afterSame = await rebuild(3);
 
@@ -802,7 +799,7 @@ describe('全书事实 · 从空工程一路推到在写', () => {
     p.write('.novelforge/premise.md', '# 故事前提\n\n## 核心冲突链\n\n回镇 → 被认出。\n');
     p.write('.novelforge/world.md', '# 世界观\n\n## 规则与漏洞\n\n过所制度。\n');
     p.write('.novelforge/characters/林昭.md', '---\nname: 林昭\n---\n\n# 林昭\n');
-    p.write('.novelforge/outline.md', outlineOf(20, { title: '大纲' }));
+    writeOutline(p, outlineOf(20, { title: '大纲' }));
     pr.invalidate();
     beforeLore = { facts: await facts(), stage: await stageOf() };
 
@@ -922,6 +919,12 @@ describe('工作区卡', () => {
   before(async () => {
     const wb = (target) => bundle.workbench.buildWorkbench(project, target);
 
+    // 在情节大纲里改第 12 章那一条（大纲是各章梗概的汇总，存盘写回这一章细纲的梗概）：排过的细纲没跟，挂 ⟳。
+    const ws = wsOf(project);
+    const doc = (await ws.read('.novelforge/outline.md')).text;
+    await ws.write('.novelforge/outline.md', { text: doc.replace('夜入青云。', '夜入青云，被放走。') }, { mode: 'overwrite', review: false });
+    project.invalidate();
+
     plotCard = await wb({ kind: 'plot', plotRelPath: plotRel });
 
     // 正文层摊的是**本章细纲的各节**加篇幅：写正文时最常回头看的是「这一章要落实
@@ -951,7 +954,7 @@ describe('工作区卡', () => {
     assert.equal(plotCard.relPath, plotRel);
   });
 
-  // 上一组把大纲里第 12 章那一条改过了：作者正在看这一章，此刻正是告诉他的时候。
+  // 刚在大纲里改过第 12 章那一条：作者正在看这一章，此刻正是告诉他的时候。
   test('细纲卡说出大纲那一条变过', () => {
     assert.ok(!!plotCard.warning, JSON.stringify(plotCard));
   });

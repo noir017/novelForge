@@ -20,7 +20,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost, sleep } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let wsMod;
 const wsOf = (p) => new wsMod.Workspace(p);
@@ -87,14 +87,17 @@ function configure(extra = {}) {
   h.answers.length = 0;
 }
 
-/** 建一章只有「梗概」的骨架——还没排过（isPlotFilled 只看关键事件）。 */
+/**
+ * 建一章空骨架——还没排过（isPlotFilled 只看关键事件）。梗概也空着：梗概就是情节大纲里这一章那一条，
+ * 「大纲为空」那一组要的正是一条都没有；后面几组照大纲写（`writeOutline`）。
+ */
 async function skeleton(no, title, extra = {}) {
   return wsOf(project).writePlot({
     no,
     title,
     upstreamHash: '',
     done: false,
-    sections: { ...bundle.plotFile.emptyPlotSections(), 梗概: `第 ${no} 章要达成的事` },
+    sections: bundle.plotFile.emptyPlotSections(),
     ...extra,
   });
 }
@@ -165,8 +168,7 @@ describe('批量拆细纲 · 前置检查', () => {
 
   before(async () => {
     configure();
-    // 没有大纲就写细纲，等于让模型凭空编三章。
-    fs.writeFileSync(t.rel('.novelforge/outline.md'), '');
+    // 没有大纲就写细纲，等于让模型凭空编三章。骨架的梗概都空着：大纲（各章梗概的汇总）一条都没有。
     project.invalidate();
     h.answers.push('开始拆细纲');
     await bundle.batch.generatePlots(project);
@@ -198,7 +200,8 @@ describe('批量拆细纲', () => {
   let toastsAgain;
 
   before(async () => {
-    fs.writeFileSync(t.rel('.novelforge/outline.md'), OUTLINE);
+    writeOutline(t, OUTLINE);
+    project.invalidate();
     configure();
 
     // 先给第 2 章一份手写细纲——它必须原样保留，而且把区间断开。
@@ -260,8 +263,10 @@ describe('批量拆细纲', () => {
     }
   });
 
-  test('细纲内容来自模型：synopsis 落进「梗概」', async () => {
-    assert.equal((await project.getPlot(1)).sections.梗概, '进入宗门');
+  // 梗概就是大纲里这一章那一条，是这一批的上游：空壳上有就沿用，不让模型改写（docs/design/plans/2026-10-22-outline-from-plots.md）。
+  test('梗概沿用空壳上那一条（大纲），不换成模型的 synopsis', async () => {
+    assert.equal((await project.getPlot(1)).sections.梗概, '林昭进入青云宗。');
+    assert.equal((await project.getPlot(3)).sections.梗概, '第3章的事。');
   });
 
   test('细纲内容来自模型：timePlace 落进「时间地点」', async () => {
@@ -315,10 +320,10 @@ describe('批量拆细纲', () => {
     assert.ok(users[1].includes('踩点、失手、翻墙'), users[1].slice(0, 2000));
   });
 
-  // 上游是大纲里**这一章那一条**，不是全书的指纹。
-  test('细纲记下大纲里这一章那一条的指纹', async () => {
+  // 上游是这一章的梗概（大纲里这一章那一条），不是全书的指纹。
+  test('细纲记下这一章梗概的指纹', async () => {
     const plot = await project.getPlot(1);
-    assert.equal(plot.upstreamHash, bundle.outlineFile.outlineUpstreamHash(OUTLINE, 1));
+    assert.equal(plot.upstreamHash, bundle.plotFile.plotSynopsisHash('林昭进入青云宗。'));
   });
 
   test('系统提示是剧情编剧的身份', () => {
@@ -381,7 +386,8 @@ describe('批量拆细纲 · 一批失败就停', () => {
     toastsSnapshot = [...h.toasts];
     await sleep(50);
     failures = await bundle.errorLog.listActiveFailures(project);
-    plotsAfter = (await project.listPlots()).map((p) => p.no);
+    // 第 6 章以后本来就有只有梗概的空壳（大纲是各章梗概的汇总）：看的是有没有一份被排过。
+    plotsAfter = (await project.listPlots()).filter((p) => bundle.plotFile.isPlotFilled(p.sections)).map((p) => p.no);
     t.write('.novelforge/config.md', CONFIG);
     project.invalidate();
   });
@@ -400,7 +406,7 @@ describe('批量拆细纲 · 一批失败就停', () => {
     assert.ok(!users.some((u) => u.includes('第 11–12 章')), users.map((u) => u.slice(-200)).join('\n'));
   });
 
-  test('一份细纲都没写', () => {
+  test('一份细纲都没写（空壳还是空壳）', () => {
     assert.ok(!plotsAfter.some((no) => no >= 6), plotsAfter.join(','));
   });
 

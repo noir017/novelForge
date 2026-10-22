@@ -71,11 +71,13 @@ import {
   PlotSections,
   PreflightOk,
   WritablePlot,
+  emptyPlotSections,
   parsePlotFile,
   plotFileName,
   renderPlotFile,
   renderPreflightOk,
 } from '../model/plotFile';
+import { isOutlineFilled, parseOutline, planOutlineSplit, renderOutlineDoc } from '../model/outlineFile';
 import { Artifact } from '../features/artifact';
 import {
   ArtifactKind,
@@ -85,6 +87,7 @@ import {
 } from './kind';
 import {
   MAX_EDITABLE_BYTES,
+  WsConflictError,
   WsError,
   guardCopySource,
   guardCreate,
@@ -231,9 +234,17 @@ export class Workspace {
    * 会拿着半份正文去下结论。
    */
   async read(rel: string, opts?: { offset?: number; limit?: number }): Promise<WsFile> {
-    const abs = await guardRead(this.project, rel);
-    const normalized = normalizeRel(rel)!;
-    const full = decodeFileText(await fs.readFile(abs));
+    let full: string;
+    let normalized: string;
+    if (this.isOutline(rel)) {
+      // 情节大纲没有文件：各章细纲梗概的汇总（磁盘上残留的老 `outline.md` 不读）。
+      normalized = normalizeRel(rel)!;
+      full = await this.project.readOutlineDoc();
+    } else {
+      const abs = await guardRead(this.project, rel);
+      normalized = normalizeRel(rel)!;
+      full = decodeFileText(await fs.readFile(abs));
+    }
     const kind = kindOfPath(this.project, normalized).kind;
 
     const offset = Math.max(0, Math.trunc(opts?.offset ?? 0));
@@ -281,6 +292,10 @@ export class Workspace {
     const normalized = normalizeRel(rel);
     if (normalized === undefined) {
       throw new WsError('outOfRoot', `路径超出工程目录：${rel}`);
+    }
+
+    if (this.isOutline(normalized)) {
+      return this.writeOutline(input, { ...opts, mode });
     }
 
     const artifact = 'artifact' in input ? input.artifact : undefined;
@@ -340,9 +355,13 @@ export class Workspace {
    * `old` 命中多处且没给 `all` 时报错，不猜他要改哪一处。
    */
   async edit(rel: string, edits: TextEdit[]): Promise<WriteResult> {
-    const abs = await guardRead(this.project, rel);
+    let text: string;
+    if (this.isOutline(rel)) {
+      text = await this.project.readOutlineDoc();
+    } else {
+      text = await readText(await guardRead(this.project, rel));
+    }
     const normalized = normalizeRel(rel)!;
-    let text = await readText(abs);
     let replaced = 0;
 
     for (const edit of edits) {
@@ -612,6 +631,143 @@ export class Workspace {
   // 复制一份出去。
   //
   // 它们仍然经同一套 handler 记账与伴生，只是路径由这一层算出来。
+
+  // ---------------------------------------------------------------- 情节大纲
+
+  /** 这个路径是不是情节大纲（没有文件，读写由这一层接住）。越界、认不出的都不是。 */
+  isOutline(rel: string): boolean {
+    const normalized = normalizeRel(rel);
+    return normalized !== undefined && kindOfPath(this.project, normalized).kind === 'outline';
+  }
+
+  /**
+   * 写情节大纲：**按章号拆回各章细纲**（docs/design/plans/2026-10-22-outline-from-plots.md）。磁盘上没有 `outline.md`，
+   * 大纲是各章细纲「梗概」的汇总（`NovelProject.readOutlineDoc`）。
+   *
+   * 守卫、乐观锁、覆盖审阅都在**整份汇总**上做，与写一份文件同一个口径：越界由 `write` 先拦；超过大小上限拒；`create` 时
+   * 大纲已经有条目报同名；给了 `baseHash` 就比此刻汇总出来的那一份，对不上抛 `WsConflictError`（内置编辑器拿它出冲突条）；
+   * 覆盖之前审阅（现有 ↔ 新版，作者在合并视图里挑过的写挑过的那份）。产物（生成的大纲）先规范成一章一条再审阅——
+   * 审阅框里看到的就是会写下去的样子。
+   *
+   * 拆的规矩在 `model/outlineFile.ts` 的 `planOutlineSplit`，落盘一章一份：
+   *
+   * - 改梗概：只换「梗概」一节（外科式，别的节与 frontmatter 一个字不动，先存一版历史）——上游指纹不动，
+   *   排过细纲的章因此挂 ⟳（第 18 条）；
+   * - 改标题：经 {@link writePlot}（还没有正文时文件名跟着改，与工程页的改名同一条路）；
+   * - 新的一章：建一份只有梗概的细纲（空壳），不记上游指纹；
+   * - 删掉的空壳进回收站（{@link deletePlot}）；排了细纲或写了正文的不删，说一声。
+   *
+   * 一章写不成（落点上已经有别的文件）不挡别的章，在返回的说明里列出来。
+   */
+  async writeOutline(input: WriteInput, opts: WriteOptions = {}): Promise<WriteResult> {
+    const mode = opts.mode ?? 'create';
+    const rel = this.project.relPath(this.project.outlinePath);
+    const current = await this.project.readOutlineDoc();
+    let text: string;
+    if ('artifact' in input) {
+      if (input.artifact.kind !== 'outlineDoc') {
+        throw new Error(`「${rel}」不接 ${input.artifact.kind} 产物`);
+      }
+      text = renderOutlineDoc(parseOutline(input.artifact.text).map((e) => ({ ...e, text: e.text.trim() })));
+    } else {
+      text = mode === 'append' ? `${current.trimEnd()}\n\n${input.text}` : input.text;
+    }
+    if (Buffer.byteLength(text, 'utf8') > MAX_EDITABLE_BYTES) {
+      throw new WsError('tooLarge', '内容超过大小上限，未写入。');
+    }
+    const filled = isOutlineFilled(current);
+    if (mode === 'create' && filled) {
+      throw new WsError('exists', `已存在：${rel}`);
+    }
+    // 一条章标题都认不出（旧格式的区间分节、散文式）却要整份换掉：照拆的规矩会把大纲排到的空壳全删掉。不写，说清楚。
+    if (filled && !isOutlineFilled(text)) {
+      throw new Error('新的情节大纲里认不出「## 第N章：标题」这样的章标题，没有写入（照它拆，大纲排到的章会全被删掉）。要删某几章，在大纲里删掉那几条再保存。');
+    }
+    if (opts.baseHash && hash(current) !== opts.baseHash) {
+      log.warn(`写入被拒：${rel} 在别处被改过`, '情节大纲是各章梗概的汇总，期间有细纲改过。已把现在的版本交回调用方，未覆盖。');
+      throw new WsConflictError(current, hash(current));
+    }
+    if (mode === 'overwrite' && filled && opts.review !== false) {
+      const review = await reviewOverwrite(opts.what ?? '情节大纲', rel, current, text);
+      if (!review.ok) {
+        return { rel, skipped: true, message: `没有改动 ${rel}。` };
+      }
+      text = review.text ?? text;
+    }
+
+    const [plots, chapters] = await Promise.all([this.project.listChapterPlots(), this.project.listChapters()]);
+    const plan = planOutlineSplit(text, plots, new Set(chapters.map((c) => c.order)));
+    const done = { created: [] as number[], synopsis: [] as number[], title: [] as number[], dropped: [] as number[] };
+    const failed: string[] = [];
+    for (const op of plan.ops) {
+      try {
+        if (op.op === 'create') {
+          await this.writePlot({ no: op.no, title: op.title, upstreamHash: '', done: false, sections: { ...emptyPlotSections(), 梗概: op.synopsis } });
+          done.created.push(op.no);
+        } else if (op.op === 'drop') {
+          if (await this.deletePlot(op.rel)) {
+            done.dropped.push(op.no);
+          }
+        } else if (op.title !== undefined) {
+          const plot = await this.project.readPlot(op.rel);
+          if (!plot) {
+            throw new WsError('notFound', `找不到 ${op.rel}`);
+          }
+          await this.writePlot({ ...plot, title: op.title, sections: { ...plot.sections, 梗概: op.synopsis ?? plot.sections.梗概 } }, op.rel);
+          done.title.push(op.no);
+          if (op.synopsis !== undefined) {
+            done.synopsis.push(op.no);
+          }
+        } else if (op.synopsis !== undefined) {
+          await this.patchPlotSynopsis(op.rel, op.synopsis);
+          done.synopsis.push(op.no);
+        }
+      } catch (err) {
+        failed.push(`第 ${op.no} 章：${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (done.created.length > 0) {
+      // 新章可能落在了还没有正文的卷目录里：章节索引不用动，但细纲列表要重读。
+      this.project.invalidate();
+    }
+
+    const side = [
+      done.created.length ? `新建第 ${nos(done.created)} 章的细纲（只有梗概）` : '',
+      done.synopsis.length ? `改了第 ${nos(done.synopsis)} 章的梗概` : '',
+      done.title.length ? `改了第 ${nos(done.title)} 章的标题` : '',
+      done.dropped.length ? `第 ${nos(done.dropped)} 章只有梗概的细纲进了回收站` : '',
+      plan.kept.length ? `第 ${nos(plan.kept)} 章已经排了细纲或写了正文，大纲里删掉那一条没删它（要删去工程页删细纲）` : '',
+      plan.empty.length ? `第 ${nos(plan.empty)} 章只有标题、没写梗概，没保存` : '',
+      ...failed.map((f) => `没写成：${f}`),
+    ].filter(Boolean);
+    if (side.length > 0) {
+      log.info('写回情节大纲', side.join('｜'));
+    }
+    const changed = done.created.length + done.synopsis.length + done.title.length + done.dropped.length;
+    return {
+      rel,
+      message: changed > 0 ? `已写回情节大纲：${side.join('；')}` : side.length > 0 ? `情节大纲没有改动：${side.join('；')}` : '情节大纲没有改动。',
+      side,
+    };
+  }
+
+  /**
+   * 只换一章细纲的「梗概」一节（在汇总的大纲里改了这一章那一条）：外科式，别的节、作者加的小节与 frontmatter 一个字不动，
+   * 上游指纹也不动（排过细纲的章于是挂 ⟳，第 18 条）。改之前存一版历史。返回是否写了。
+   */
+  async patchPlotSynopsis(plotRelPath: string, synopsis: string): Promise<boolean> {
+    const raw = await readTextIfExists(this.project.pathOf(plotRelPath)).catch(() => undefined);
+    if (raw === undefined) {
+      return false;
+    }
+    const next = replaceSection(raw, '梗概', synopsis);
+    if (next === raw) {
+      return false;
+    }
+    await this.overwrite(plotRelPath, next);
+    this.project.invalidate();
+    return true;
+  }
 
   /**
    * 写一章的细纲，返回工作区相对路径。
@@ -1179,10 +1335,10 @@ export class Workspace {
    * 不能反过来依赖网关。
    *
    * 每份模板 `mode: 'create'`，**落点上已经有东西（文件或目录）就一个字节不动**——与从前 `writeIfAbsent` 同一个口径：在一个
-   * 已经写了一部分的文件夹里初始化，作者的大纲、配置原样留着。经网关不多出别的动作：
+   * 已经写了一部分的文件夹里初始化，作者的配置、文风原样留着（情节大纲是各章细纲梗概的汇总，不建文件）。经网关不多出别的动作：
    *
    * - 不弹审阅（只有 `overwrite` 才问）、不存历史版本（没覆盖任何东西）；
-   * - 不碰指纹链（第 18 条）：这几份的种类是 setting / outline / style / globalSummary，它们的 handler 都不记账；没有一份
+   * - 不碰指纹链（第 18 条）：这几份的种类是 setting / style / globalSummary，它们的 handler 都不记账；没有一份
    *   细纲被写，已有的细纲不会被补上 `upstreamHash`，也就没有东西因此挂 ⟳；
    * - 不刷日志：`write` 只在有伴生时记一条 debug，这几种没有伴生。
    *
@@ -1191,7 +1347,7 @@ export class Workspace {
   async initializeProject(meta: { title: string; author: string }): Promise<string[]> {
     await this.project.scaffold();
     const created: string[] = [];
-    for (const { rel, text } of this.project.newProjectTemplates(meta.title)) {
+    for (const { rel, text } of this.project.newProjectTemplates()) {
       if (await exists(this.project.pathOf(rel))) {
         continue;
       }
@@ -1270,6 +1426,21 @@ function appendText(guarded: { existed: boolean; current?: string }, text: strin
  * 会话删除（`model/session.ts`）也用这一份——`model/` 不能反过来依赖网关。这里重新导出，调用方不动。
  */
 export { trashPathFor };
+
+/** 章号列成「3、5–7、12」：连着的并成一段。 */
+function nos(list: readonly number[]): string {
+  const sorted = [...new Set(list)].sort((a, b) => a - b);
+  const parts: string[] = [];
+  for (let i = 0; i < sorted.length; ) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) {
+      j++;
+    }
+    parts.push(j === i ? `${sorted[i]}` : `${sorted[i]}–${sorted[j]}`);
+    i = j + 1;
+  }
+  return parts.join('、');
+}
 
 /**
  * 复制一个目录要建哪些目录、拷哪些文件（工作区相对路径，父目录在前）。符号链接不跟进去，记进 `skipped`；

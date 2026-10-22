@@ -103,11 +103,12 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 | 种类 | 判定 | 解析 / 渲染 | 上游指纹 | 伴生 |
 |---|---|---|---|---|
 | `setting` | `config.md` / `premise.md` / `world.md`（带 `doc`） | `settingFile.ts`；配置的 frontmatter 产物没给就沿用磁盘那份 | — | — |
-| `outline` / `style` / `globalSummary` | 固定路径 | 纯文本 | — | — |
+| `outline` | 固定路径 `.novelforge/outline.md`——**磁盘上没有这份文件**，见下面「情节大纲」 | 读：各章细纲梗概的汇总；写：按章号拆回各章细纲（`writeOutline`，不经 handler） | — | — |
+| `style` / `globalSummary` | 固定路径 | 纯文本 | — | — |
 | `threads` | `threads/` 这一层的 `.md`（叙事线重做：一条线一个文件，「未归属的伏笔.md」也是；子目录里的、别的扩展名、目录本身、七期的 `threads.md` 判 `other`）；`threads/` 是受保护的固定目录 | 纯文本（格式与外科式写入在 `model/threadFile.ts`） | —（链外） | — |
 | `skill` | `.novelforge/skills.json` 与 `.novelforge/skills/**` | 纯文本（`plain`，不加 frontmatter） | — | — |
 | `sensitive` | `.novelforge/sensitive.txt`（自定义敏感词表，内置编辑器的写作体检用） | 纯文本（`plain`） | —（链外：没有创作阶段、不进装配器，改了它不让任何一章挂 ⟳） | — |
-| `plot` | `summaries/` 下（各级子目录都算，镜像正文的路径）+ 数字前缀 + markdown | `plotFile.ts`（七节加「设定」一节） | 写入记大纲里覆盖本章那一节的指纹（`outlineUpstreamHash`）；定稿记的 `sourceHash` / `cast` 由 `finalizePlot` 写，重写细纲时原样沿用 | — |
+| `plot` | `summaries/` 下（各级子目录都算，镜像正文的路径）+ 数字前缀 + markdown | `plotFile.ts`（七节加「设定」一节） | 写入记这一份梗概的指纹（`plotSynopsisHash`；梗概就是情节大纲里这一章那一条）；定稿记的 `sourceHash` / `cast` 由 `finalizePlot` 写，重写细纲时原样沿用 | — |
 | `chapter` | 章节根下 + 数字前缀 + 扩展名不在黑名单 | `chapterFile.ts` | —（正文依据的细纲指纹记在细纲的 `writtenFrom` 上） | 改名/移动带草稿与细纲（整个卷目录也带，连同它们的历史版本）；写后 `syncManifest` |
 | `character` / `lore` | 各自区 + `.md`（设定条目另给 `stage: 'setting'` 与单条设定目标 `{ kind: 'lore', relPath }`，完善设定：MCP 的 `generate` 给条目路径就是展开它；设定目录、角色目录本身仍是 `other`，设定清单、角色图谱只在 `generate` 里认） | frontmatter | — | — |
 | `draft` | `drafts/` 下 | 纯文本 | — | **永不自动进上下文** |
@@ -255,9 +256,9 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 内置编辑器里改一份细纲，指纹链就断了——那一章从此再也不挂 ⟳。
 
 下沉到写入路径本身之后，**任何一次 `workspace.write` 到 plot 路径都记**。细纲的
-上游是**大纲里这一章那一条**（`plotUpstreamHash` → `outlineUpstreamHash`，大纲
-里没有这一条就不记、不标脏）——大纲一段一段续写，续写第 21–40 章不该让前 20 章
-的细纲挂 ⟳。正文那一环（`writtenFrom`）由正文落盘那一步记（`recordWrittenFrom`），
+上游是**它自己的梗概**（`plotSynopsisHash`；梗概就是情节大纲里这一章那一条，梗概空着就不记、不标脏）：写一份细纲
+等于把其余几节与梗概对齐了。在汇总的大纲里改一章那一条走的是 `writeOutline`（外科式只换「梗概」一节，不经 handler），
+指纹不动，排过细纲的那一章才挂 ⟳；续写第 21–40 章不让前 20 章挂 ⟳。正文那一环（`writtenFrom`）由正文落盘那一步记（`recordWrittenFrom`），
 作者在编辑器里手改正文不动它——chapter handler 写后只同步 manifest，所以任何一次 `write` 到章节路径（编辑器保存、
 章节改名时同步 `# 标题` 行）都不会把一章挂着的 ⟳ 刷掉。三条配套约束一条没变：
 
@@ -271,13 +272,14 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 ## 定稿写回（`finalizePlot`）
 
 定稿照正文反向更新细纲，落盘不走 `write`，而是 `Workspace.finalizePlot(chapter, sections, cast)`
-（渲染在 `handlers/plot.ts` 的 `renderFinalizedPlot`）。它不记大纲指纹——反向更新的依据是正文，不是大纲。
+（渲染在 `handlers/plot.ts` 的 `renderFinalizedPlot`）。反向更新的依据是正文；梗概照正文改了，记过的上游指纹刷成新梗概的
+（没记过的照旧不记，第 18a 条）——不然一定稿就挂 ⟳。
 
 - **旧版先复制一份进 `.trash/`**（`trashPathFor`：保留原相对路径，同名加序号）。定稿按钮本身就是
   作者的确认，所以不弹覆盖审阅；但改的是一份作者可能逐字推敲过的计划，旧的那一版要找得回来。历史版本里也照常
   存一版（见「历史版本」），编辑器的「历史」面板里对比得了。
-- **七节整体换掉**，「设定」一节换成这一次定稿记下的（校验过的）；frontmatter 里 `no` / `title` / `targetWords` / `upstreamHash` / `status` /
-  `preflightOk` / `factCheckOk` 原样留着。
+- **七节整体换掉**，「设定」一节换成这一次定稿记下的（校验过的）；frontmatter 里 `no` / `title` / `targetWords` / `status` /
+  `preflightOk` / `factCheckOk` 原样留着，`upstreamHash` 见上。
 - **写 `sourceHash`（正文的 `contentHash`）与 `cast`，并把 `writtenFrom` 刷成更新后的内容指纹**：
   不刷的话定稿刚改完细纲，正文立刻挂 ⟳；刷了之后，作者定稿后再改细纲，正文才挂 ⟳。指纹按
   「渲染 → 解析回来」的样子算，与流水线判脏同一个口径。
@@ -285,6 +287,21 @@ manifest 最后同步一次。指纹链的收尾走 `restampPlotChain`（见下�
 
 反过来，重写一份定稿过的细纲（`write` 到 plot 路径）时 `sourceHash` 与 `cast` 沿用磁盘那份：
 定稿过的章不被拉回「待写」，只让正文挂 ⟳（第 18 条）。
+
+## 情节大纲（`writeOutline`）
+
+情节大纲**没有文件**，是各章细纲「梗概」的汇总（[设计稿](../../../docs/design/plans/2026-10-22-outline-from-plots.md)）。
+`.novelforge/outline.md` 这个路径仍是它的身份：`read` / `edit` / `write` 认出它（`isOutline`）就不碰磁盘——
+
+- **读**：`NovelProject.readOutlineDoc`——标题行、一段说明、一章一条（每个章号认下的那一份细纲里梗概非空的）。hash 按这一份算，
+  内置编辑器的乐观锁、磁盘核对（`checkEditorFiles`）照常用；编辑器存盘不因「磁盘上没有这份文件」报 `FileGoneError`。
+- **写**：守卫、乐观锁、覆盖审阅都在整份汇总上做（产物先规范成一章一条再审阅）；一条章标题都认不出却要换掉有条目的大纲，拒
+  （照拆会把空壳全删掉）。然后按章号拆回各章细纲（`model/outlineFile.ts` 的 `planOutlineSplit`）：改梗概只换「梗概」一节
+  （`patchPlotSynopsis`，先存一版历史，上游指纹不动）；改标题走 `writePlot`（还没有正文时文件名跟着改）；新的一章建只有梗概的空壳；
+  删掉的空壳进回收站（`deletePlot`）；排了细纲或写了正文的不删、说一声。一章写不成不挡别的章，返回的说明里列出来。
+- **没有历史版本、不进存档点**：它没有字节；拆回去时改了的每份细纲各自存历史，存档点里有细纲就退得回。全文检索跳过磁盘上残留的
+  老 `outline.md`（不是现在的书），全书查找替换不列它（搜细纲就搜到了）。
+- 老工程磁盘上若还有一份 `outline.md`：读写都绕开它，一个字节不动、不迁移。
 
 ## 全文检索（`search.ts`）
 
@@ -320,7 +337,7 @@ workspace/
     ├── setting.ts  架构三件（小节换新、配置 frontmatter 合并）
     ├── plot.ts     渲染 + 记 upstreamHash；定稿写回的渲染（renderFinalizedPlot）；副本去掉定稿那一侧的指纹（afterCopy）
     ├── chapter.ts  草稿与细纲跟随（carryDraft / carryPlot，连同它们的快照）+ manifest 同步（删章节不删草稿、不删细纲）
-    ├── doc.ts      outline / style / globalSummary / threads / character / lore
+    ├── doc.ts      style / globalSummary / threads / character / lore（情节大纲不经 handler，见「情节大纲」）
     └── plain.ts    other / draft（纯文本，无记账）
 ```
 
@@ -347,7 +364,7 @@ workspace/
 | `createThread(thread)` | 新建一条叙事线 `threads/<线名>.md`（排线、定稿认出新线）：**同名跳过**——文件已经在了就一个字节不动、返回 undefined（第 19、28 条：机器只追加）。链外文件，没有上游指纹 |
 | `updateThread(rel, edit)` | 改写一份叙事线文件（一条线，或「未归属的伏笔」，还没有这份文件当空串）：读**此刻**的原文交给 `edit`、写回它给的新原文（覆盖前存一版历史）：排线、定稿要调几十秒模型（拆细纲写计划事件也走它，叙事线二期），写之前重读、只在上面外科式地改，作者这期间的改动才不会被一份旧全文冲掉；种类不是 `threads` 的拒写 |
 | `setParagraphStyle(style)` | 固定路径（`config.md`）。内置编辑器「编辑 → 段落格式」：**只改 frontmatter 的 `paragraphStyle` 这一行**（`setConfigParagraphStyle`），别的字节一个不动；没有 `config.md` 就新建一份只有这一段 frontmatter 的（没有小节，「小说配置」仍算没填，主按钮不变）。经 `write` 落盘、不弹覆盖审阅（改的只是作者在菜单里点的那一个键），带读到时的 hash 当乐观锁；已经是这个值时不写 |
-| `initializeProject(meta)` | 新工程（`actions.ts` 的 `initProjectFlow`：插件命令、网页按钮、CLI 共用）：固定目录（`model` 的 `scaffold`）→ 几份空模板（架构三件、文风、情节大纲、全文大纲；落点与内容由 `model` 的 `newProjectTemplates` 给，纯数据）→ manifest（`model` 的 `createManifest`，最后写：模板写到一半失败时工程不算建好，再点一次就补齐）。**模板经 `write` 写，`mode: 'create'`，落点上已经有东西（文件或目录）就一个字节不动**——与从前 `model/project.ts` 里的 `writeIfAbsent` 同一个口径，那一处绕过了网关，而 `model/` 不能反过来依赖网关，所以拆成「数据层给脚手架与模板内容、网关写模板」。经网关不多出动作：create 不弹审阅、不存历史；这几种（setting / outline / style / globalSummary）的 handler 不记账，不写细纲，已有细纲不会被补上 `upstreamHash`、没有东西因此挂 ⟳；没有伴生也就不记日志。返回新建了哪几份 |
+| `initializeProject(meta)` | 新工程（`actions.ts` 的 `initProjectFlow`：插件命令、网页按钮、CLI 共用）：固定目录（`model` 的 `scaffold`）→ 几份空模板（架构三件、文风、全文大纲；情节大纲没有文件；落点与内容由 `model` 的 `newProjectTemplates` 给，纯数据）→ manifest（`model` 的 `createManifest`，最后写：模板写到一半失败时工程不算建好，再点一次就补齐）。**模板经 `write` 写，`mode: 'create'`，落点上已经有东西（文件或目录）就一个字节不动**——与从前 `model/project.ts` 里的 `writeIfAbsent` 同一个口径，那一处绕过了网关，而 `model/` 不能反过来依赖网关，所以拆成「数据层给脚手架与模板内容、网关写模板」。经网关不多出动作：create 不弹审阅、不存历史；这几种（setting / style / globalSummary）的 handler 不记账，不写细纲，已有细纲不会被补上 `upstreamHash`、没有东西因此挂 ⟳；没有伴生也就不记日志。返回新建了哪几份 |
 
 调用方手里只有对象，让它自己去拼路径等于把命名规则复制一份出去。
 

@@ -71,11 +71,11 @@ describe('示例工程数据一致性', () => {
     assert.ok(!fs.existsSync(path.join(SAMPLE, '.novelforge/plots')));
   });
 
-  /** 每一章都有同号的细纲（示例工程是走完整条流水线写出来的），外加第 4 章排好了还没写。 */
-  test('写过的每一章都有同号的细纲，第 4 章只有细纲（细纲号 = 章号）', () => {
+  /** 每一章都有同号的细纲（示例工程是走完整条流水线写出来的），外加第 4 章排好了还没写、第 5–10 章只有梗概（大纲排到了）。 */
+  test('写过的每一章都有同号的细纲，第 4–10 章只有细纲（细纲号 = 章号）', () => {
     const plotFile = loadModule('src/core/model/plotFile.ts');
     const nos = plotFiles().map((f) => plotFile.parsePlotFileName(f).no).sort((a, b) => a - b);
-    assert.deepEqual(nos, [...manifest.chapters.map((c) => c.order).sort((a, b) => a - b), 4]);
+    assert.deepEqual(nos, [...manifest.chapters.map((c) => c.order).sort((a, b) => a - b), 4, 5, 6, 7, 8, 9, 10]);
   });
 
   test('manifest 不再记 summaryHash（定稿记在细纲上）', () => {
@@ -96,9 +96,16 @@ describe('示例工程数据一致性', () => {
     assert.equal(config.structure, 'three_act');
   });
 
-  test('情节大纲一章一条，覆盖到第 10 章', () => {
+  // 情节大纲没有文件：各章细纲梗概的汇总（docs/design/plans/2026-10-22-outline-from-plots.md）。第 5–10 章是只有梗概的空壳。
+  test('情节大纲是各章细纲梗概的汇总，覆盖到第 10 章；没有 outline.md', () => {
     const outline = loadModule('src/core/model/outlineFile.ts');
-    assert.equal(outline.outlineCoverage(read('.novelforge/outline.md')), 10);
+    const plotFile = loadModule('src/core/model/plotFile.ts');
+    const plots = plotFiles().map((f) => plotFile.parsePlotFile(read(`.novelforge/summaries/${f}`), `.novelforge/summaries/${f}`));
+    assert.equal(outline.outlineCoverage(outline.renderOutline(outline.outlineEntriesOf(plots))), 10);
+    assert.ok(!fs.existsSync(path.join(SAMPLE, '.novelforge/outline.md')));
+    for (const p of plots.filter((x) => x.no >= 5)) {
+      assert.ok(plotFile.isPlotStub(p), `第 ${p.no} 章是空壳`);
+    }
   });
 
   describe('每章的指纹链', () => {
@@ -113,14 +120,12 @@ describe('示例工程数据一致性', () => {
         assert.ok(fs.existsSync(path.join(SAMPLE, plotRel)), plotRel);
       });
 
-      // 细纲的两个指纹都对得上：它依据的那一节大纲没改过，定稿之后细纲也没再改过。
+      // 细纲的两个指纹都对得上：梗概（大纲里这一章那一条）没在排细纲之后改过，定稿之后细纲也没再改过。
       test(`第 ${entry.order} 章细纲的 upstreamHash / writtenFrom 都是新鲜的`, () => {
         const plotFile = loadModule('src/core/model/plotFile.ts');
-        const outlineFile = loadModule('src/core/model/outlineFile.ts');
         const fsm = loadModule('src/core/model/fs.ts');
         const plot = plotFile.parsePlotFile(read(plotRel), plotRel);
-        const outline = md.stripH1(md.parseMarkdown(read('.novelforge/outline.md')).body);
-        assert.equal(plot.upstreamHash, outlineFile.outlineUpstreamHash(outline, plot.no));
+        assert.equal(plot.upstreamHash, plotFile.plotSynopsisHash(plot.sections.梗概));
         const content = fsm.hash(plotFile.PLOT_SECTION_KEYS.map((k) => plot.sections[k]).join('\n---\n'));
         assert.equal(plot.writtenFrom, content);
       });
@@ -143,14 +148,12 @@ describe('示例工程数据一致性', () => {
 
     test('第 4 章是计划：关键事件排好了，没有正文、没定稿、没记 writtenFrom，上游指纹新鲜', () => {
       const plotFile = loadModule('src/core/model/plotFile.ts');
-      const outlineFile = loadModule('src/core/model/outlineFile.ts');
       const [name] = plotFiles().filter((f) => plotFile.parsePlotFileName(f).no === 4);
       const plot = plotFile.parsePlotFile(read(`.novelforge/summaries/${name}`), `.novelforge/summaries/${name}`);
-      const outline = md.stripH1(md.parseMarkdown(read('.novelforge/outline.md')).body);
       assert.ok(plotFile.isPlotFilled(plot.sections));
       assert.equal(plot.sourceHash, '');
       assert.equal(plot.writtenFrom, '');
-      assert.equal(plot.upstreamHash, outlineFile.outlineUpstreamHash(outline, 4));
+      assert.equal(plot.upstreamHash, plotFile.plotSynopsisHash(plot.sections.梗概));
       assert.ok(!manifest.chapters.some((c) => c.order === 4));
     });
   });

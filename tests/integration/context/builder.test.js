@@ -165,17 +165,19 @@ describe('NovelProject 读取示例工程', () => {
     filled = await project.settingFilled();
   });
 
-  test('扫描到 4 章细纲', () => {
-    assert.equal(plots.length, 4);
+  // 第 5–10 章是只有梗概的空壳：情节大纲排到了第 10 章（大纲是各章细纲梗概的汇总）。
+  test('扫描到 10 章细纲（第 5–10 章只有梗概）', () => {
+    assert.equal(plots.length, 10);
   });
 
   test('细纲按章号排序', () => {
-    assert.equal(plots.map((p) => p.no).join(','), '1,2,3,4');
+    assert.equal(plots.map((p) => p.no).join(','), '1,2,3,4,5,6,7,8,9,10');
   });
 
   // 全文大纲 `summaries/global.md` 与细纲同目录，但它不是数字开头，不算细纲。
   test('细纲平铺在 summaries/ 根下，global.md 不算', () => {
-    assert.deepEqual(plots.map((p) => p.relPath), [PLOT1, PLOT2, PLOT3, PLOT4]);
+    assert.deepEqual(plots.slice(0, 4).map((p) => p.relPath), [PLOT1, PLOT2, PLOT3, PLOT4]);
+    assert.ok(plots.every((p) => !p.relPath.endsWith('global.md')));
   });
 
   test('标题取自 frontmatter', () => {
@@ -183,8 +185,9 @@ describe('NovelProject 读取示例工程', () => {
   });
 
   // 「关键事件」是判「排过没有」的唯一判据。
-  test('关键事件非空（示例工程的章都排过）', () => {
-    assert.ok(plots.every((p) => p.sections.关键事件.trim()), plots.map((p) => p.no).join(','));
+  test('关键事件非空（第 1–4 章都排过），第 5–10 章只有梗概', () => {
+    assert.ok(plots.slice(0, 4).every((p) => p.sections.关键事件.trim()), plots.map((p) => p.no).join(','));
+    assert.ok(plots.slice(4).every((p) => !p.sections.关键事件.trim() && p.sections.梗概.trim()));
   });
 
   test('定稿过的细纲：出场的人取 frontmatter 的 cast，带 targetWords 与 sourceHash', () => {
@@ -252,8 +255,8 @@ describe('NovelProject 读取示例工程', () => {
     assert.ok(!global.includes('未收伏笔') && !global.includes('# 全文大纲'), global.slice(0, 80));
   });
 
-  test('下一个细纲号为 5（第 4 章已经排过）', () => {
-    assert.equal(nextNo, 5);
+  test('下一个细纲号为 11（大纲排到了第 10 章）', () => {
+    assert.equal(nextNo, 11);
   });
 });
 
@@ -1854,8 +1857,8 @@ describe('工程页数据', () => {
     assert.equal(tree.initialized, true);
   });
 
-  test('章数与磁盘一致', () => {
-    assert.equal(plots.length, 4);
+  test('章数与磁盘一致（第 5–10 章只有梗概，也是一章一行）', () => {
+    assert.equal(plots.length, 10);
   });
 
   test('章节组是扁平列表', () => {
@@ -1864,7 +1867,7 @@ describe('工程页数据', () => {
 
   // 工程页正序展示（第 1 章在上），与文件名顺序一致。
   test('章按章号正序', () => {
-    assert.equal(plots.map((p) => p.no).join(','), '1,2,3,4');
+    assert.equal(plots.map((p) => p.no).join(','), '1,2,3,4,5,6,7,8,9,10');
   });
 
   test('每一章都带阶段徽章', () => {

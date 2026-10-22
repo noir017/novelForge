@@ -427,11 +427,15 @@ describe('内部文件 · 看不见、读不到、改不了', () => {
 });
 
 describe('doc handler · 固定单文件与角色/设定', () => {
-  test('写大纲', async () => {
-    h.expect('覆盖');
-    const r = await ws.write('.novelforge/outline.md', { text: '# 大纲\n\n第一幕' }, { mode: 'overwrite' });
+  // 情节大纲没有文件：各章细纲梗概的汇总，写进去就是按章号拆回各章细纲（docs/design/plans/2026-10-22-outline-from-plots.md）。
+  test('写大纲：拆成那一章的细纲（只有梗概），读回来是汇总', async () => {
+    const r = await ws.write('.novelforge/outline.md', { text: '# 大纲\n\n## 第1章：入局\n第一幕。' }, { mode: 'overwrite' });
     assert.equal(r.skipped, undefined);
-    assert.ok(t.read('.novelforge/outline.md').includes('第一幕'));
+    assert.ok(!t.has('.novelforge/outline.md'));
+    // 第 1 章已经有正文（上面那组写的 001-楔子.md）：细纲落在正文的镜像上，标题只记在细纲里。
+    assert.match(t.read('.novelforge/summaries/001-楔子.md'), /## 梗概\n\n第一幕。/);
+    assert.match(t.read('.novelforge/summaries/001-楔子.md'), /^title: 入局$/m);
+    assert.match((await ws.read('.novelforge/outline.md')).text, /## 第1章：入局\n第一幕。/);
   });
 
   test('写角色卡', async () => {

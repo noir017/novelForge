@@ -149,14 +149,15 @@ export async function writeFileFromEditor(
   } catch (err) {
     throw asEditError(err, relPath);
   }
+  const ws = new Workspace(NovelProject.open(root));
   if (!baseHash) {
     log.warn(`强制保存 ${relPath}（用户已确认覆盖磁盘版本）`);
-  } else if (!opts?.recreate && !(await exists(abs))) {
+  } else if (!opts?.recreate && !ws.isOutline(relPath) && !(await exists(abs))) {
+    // 情节大纲本来就没有文件（各章细纲梗概的汇总），不算「磁盘上没有了」。
     log.warn(`保存被拒：${relPath} 在磁盘上已经没有了`, '没有在原路径重建，交回前端问作者。');
     throw new FileGoneError(relPath);
   }
 
-  const ws = new Workspace(NovelProject.open(root));
   try {
     const r = await ws.write(relPath, { text }, { mode: 'overwrite', review: false, baseHash });
     const bytes = Buffer.byteLength(text, 'utf8');

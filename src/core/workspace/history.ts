@@ -217,8 +217,12 @@ export async function historyUnavailable(project: NovelProject, rel: string): Pr
   if (normalized === undefined) {
     return `路径超出工程目录：${rel}`;
   }
-  if (kindOfPath(project, normalized).kind === 'other') {
-    return '这份文件不是工程里的创作产物（章节、草稿、细纲、角色卡、设定、架构、大纲、文风、叙事线……），不存历史版本。';
+  const kind = kindOfPath(project, normalized).kind;
+  if (kind === 'other') {
+    return '这份文件不是工程里的创作产物（章节、草稿、细纲、角色卡、设定、架构、文风、叙事线……），不存历史版本。';
+  }
+  if (kind === 'outline') {
+    return '情节大纲没有文件，是各章细纲「梗概」的汇总：它自己不存历史版本。存回去时改了哪一章，那一章的细纲各自存了一版（打开那一章的细纲看「历史」）。';
   }
   if (!(await isDir(project.novelDir))) {
     return '这个目录还不是小说工程（没有 .novelforge/），不存历史版本。';
@@ -300,7 +304,9 @@ async function snapshot(
   opts: { force?: boolean; now?: number }
 ): Promise<SnapshotResult> {
   const normalized = normalizeRel(rel);
-  if (normalized === undefined || kindOfPath(project, normalized).kind === 'other') {
+  // 情节大纲没有文件（各章细纲梗概的汇总）：磁盘上残留的老 `outline.md` 不是现在的书，不存。
+  const kind = normalized === undefined ? 'other' : kindOfPath(project, normalized).kind;
+  if (normalized === undefined || kind === 'other' || kind === 'outline') {
     return { skipped: 'notTracked' };
   }
   if (!(await isDir(project.novelDir))) {

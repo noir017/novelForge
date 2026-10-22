@@ -12,6 +12,7 @@ import { locateQuote } from '../../core/model/review';
 import { Attachment } from '../../core/model/session';
 import { watchGlobs } from '../../core/watchPolicy';
 import { selectionAttachment } from './attachments';
+import { isOutlinePath, outlineUri } from './outlineFs';
 
 /**
  * 插件壳的 Host 实现：把 core 的窄接口一一接回 VS Code 原生 API，
@@ -195,8 +196,10 @@ export class VsCodeHost implements Host {
     // relPath 相对当前工作区根（与 currentProject() 的口径一致）。
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const abs = root ? path.join(root, relPath) : relPath;
+    // 情节大纲没有文件（各章细纲梗概的汇总）：开在虚拟文件系统上（outlineFs.ts）。
+    const uri = root && isOutlinePath(root, relPath) ? outlineUri(root) : vscode.Uri.file(abs);
     await vscode.window.showTextDocument(
-      await vscode.workspace.openTextDocument(vscode.Uri.file(abs)),
+      await vscode.workspace.openTextDocument(uri),
       { viewColumn, preview: false }
     );
   }

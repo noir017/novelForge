@@ -117,9 +117,10 @@ before(async () => {
   t = await makeTempProject(bundle.project, { prefix: 'pipelineTool', title: '青云剑录' });
   project = t.project;
   const ws = new bundle.ws.Workspace(project);
+  // 情节大纲是各章细纲梗概的汇总：写进去就是第 1、2 章各一份只有梗概的细纲（下面再把它们起名、写几节）。
   await ws.write(
     project.relPath(project.outlinePath),
-    { text: outlineOf(20, { title: '大纲', text: { 1: '林昭入宗。' } }) },
+    { text: outlineOf(2, { title: '大纲', text: { 1: '林昭入宗。' } }) },
     { mode: 'overwrite' }
   );
   // 全书两章：批量拆细纲的缺省区间（下一可写章起 5 章）收在第 2 章，一批就完。

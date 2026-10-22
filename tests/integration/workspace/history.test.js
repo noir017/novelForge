@@ -268,12 +268,11 @@ describe('范围：只管创作产物', () => {
     assert.equal(await bundle.history.historyUnavailable(t.project, 'chapters/001.md'), undefined);
   });
 
-  test('细纲、角色卡、设定、大纲、草稿都存（各在自己的镜像目录里）', async () => {
+  test('细纲、角色卡、设定、草稿都存（各在自己的镜像目录里）', async () => {
     const files = [
       '.novelforge/summaries/001-雪夜.md',
       '.novelforge/characters/林昭.md',
       '.novelforge/lore/青云宗.md',
-      '.novelforge/outline.md',
       'drafts/001-雪夜.md',
     ];
     for (const rel of files) {
@@ -282,6 +281,19 @@ describe('范围：只管创作产物', () => {
       assert.equal(snaps(t, rel).length, 1, rel);
       assert.equal(snapText(t, rel, snaps(t, rel)[0]), `${rel} 的旧内容`, rel);
     }
+  });
+
+  // 情节大纲没有文件（各章细纲梗概的汇总）：存回去时改了梗概的那一章细纲存一版，outline.md 自己没有历史。
+  test('情节大纲存回去：改了梗概的那一章细纲存一版旧的', async () => {
+    const plot = '.novelforge/summaries/002-入镇.md';
+    t.write(plot, '---\nno: 2\ntitle: 入镇\n---\n\n# 第2章 入镇\n\n## 梗概\n\n旧的梗概。\n');
+    t.project.invalidate();
+    const doc = (await ws.read('.novelforge/outline.md')).text;
+    await overwrite(ws, '.novelforge/outline.md', doc.replace('旧的梗概。', '新的梗概。'));
+    assert.equal(snaps(t, plot).length, 1);
+    assert.match(snapText(t, plot, snaps(t, plot)[0]), /旧的梗概。/);
+    assert.match(t.read(plot), /新的梗概。/);
+    assert.equal(snaps(t, '.novelforge/outline.md').length, 0);
   });
 
   test('还不是小说工程（没有 .novelforge/）的目录里不存，也不替作者建出历史目录', async () => {

@@ -14,12 +14,12 @@
  * ## 新鲜度链：把「变更影响」做成传播，而不是一次模型调用
  *
  * ```
- * outline.md 里第 N 章那一条 ─hash─▶ 细纲 (frontmatter.upstreamHash)
- * 细纲七个小节                    ─hash─▶ 细纲 (frontmatter.writtenFrom，正文落盘时记、定稿时刷新)
- * chapters/…/N-标题               ─hash─▶ 细纲 (frontmatter.sourceHash，定稿反向更新时记)
+ * 细纲的梗概（大纲里第 N 章那一条） ─hash─▶ 细纲 (frontmatter.upstreamHash，排细纲时记、定稿时刷新)
+ * 细纲七个小节                         ─hash─▶ 细纲 (frontmatter.writtenFrom，正文落盘时记、定稿时刷新)
+ * chapters/…/N-标题                    ─hash─▶ 细纲 (frontmatter.sourceHash，定稿反向更新时记)
  * ```
  *
- * 改了大纲里某一章那一条，那一章的细纲标脏；改了某一章的细纲（包括定稿之后再改），
+ * 情节大纲是各章梗概的汇总：在大纲里改了某一章那一条，排过的那一章细纲标脏；改了某一章的细纲（包括定稿之后再改），
  * 那一章的正文标脏；改了正文，定稿对不上了。**代价是零次模型调用、零幻觉、零 token。**
  *
  * 正文那一环的指纹记在**细纲**上而不是章节上：章节是作者的文件，可以是 `.txt`、
@@ -29,9 +29,9 @@ import * as path from 'node:path';
 import { scoped } from '../runtime/logger';
 import { pad3, sanitizeFileName } from '../model/fs';
 import { NovelProject } from '../model/project';
-import { Plot, isPlotFilled, parsePlotFileName, plotContentHash } from '../model/plotFile';
+import { Plot, isPlotFilled, isPlotUpstreamStale, parsePlotFileName, plotContentHash } from '../model/plotFile';
 import { BookConfig } from '../model/settingFile';
-import { isOutlineFilled, isOutlineUpstreamStale, outlineCoverage } from '../model/outlineFile';
+import { isOutlineFilled, outlineCoverage } from '../model/outlineFile';
 import {
   BookFacts,
   ChapterGap,
@@ -112,21 +112,19 @@ export async function buildPlotPipeline(
   project: NovelProject,
   entry: { no: number; plot?: Plot; chapter?: Chapter; sections?: never },
   context?: {
-    outline?: string;
     config?: BookConfig;
     chapters?: Chapter[];
   }
 ): Promise<PlotPipeline> {
   const { no, plot } = entry;
-  const outline = context?.outline ?? (await project.readOutline());
   const config = context?.config ?? (await project.readBookConfig());
   const chapters = context?.chapters ?? (await project.listChapters());
   const chapter = entry.chapter ?? chapterOfPlotNo(chapters, no);
 
-  // upstreamHash 为空 = 这份细纲是作者手写的（或来自还没记录指纹的旧版本）——
-  // **不标脏**：手写的东西没有「上游」，拿一个凭空的过期标记去催作者重做，比不标更糟。
-  // 大纲里已经没有这一章那一条（旧格式不认、或被删了）同理。
-  const plotStale = isOutlineUpstreamStale(plot?.upstreamHash, outline, no);
+  // 上游是这一章的梗概（情节大纲里这一章那一条）：在大纲里改了、排过的细纲没跟就挂 ⟳。
+  // upstreamHash 为空 = 这份细纲是作者手写的（或来自还没记录指纹的旧版本）——**不标脏**：手写的东西没有「上游」，
+  // 拿一个凭空的过期标记去催作者重做，比不标更糟。只有梗概的空壳同理（没有可跟的东西）。
+  const plotStale = isPlotUpstreamStale(plot);
   // 同理：没记过 writtenFrom（正文是作者自己写的）不标脏——只有「记录过一次、
   // 现在对不上」才说明细纲确实在正文（或定稿）之后改过（第 18a 条）。
   const chapterStale = !!chapter && !!plot?.writtenFrom && plot.writtenFrom !== plotContentHash(plot);
@@ -198,7 +196,7 @@ export async function buildPipelineIndex(project: NovelProject): Promise<Pipelin
     project.readManifest(),
     project.readBookConfig(),
   ]);
-  const context = { outline, config, chapters };
+  const context = { config, chapters };
 
   const duplicates = duplicateChapterNos(chapters).map((n) => `第 ${n} 章`).join('、');
   if (changedSinceLastLog(project, '撞号', duplicates) && duplicates) {

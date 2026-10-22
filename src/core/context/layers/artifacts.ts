@@ -56,8 +56,9 @@ export const outlineDoc: LayerFn = async (a, spec) => {
   }
   // 分段重写：说清哪几章是这次刚写的新版、哪几章是待重写的旧版，免得模型照抄旧版。
   const rewriting = a.request.outlineDraft !== undefined && range;
+  const start = a.request.outlineRewriteFrom ?? 1;
   const lead = rewriting
-    ? `【重写中】${range.from > 1 ? `第 1–${range.from - 1} 章是这次刚重写好的新版；` : ''}第 ${range.from} 章起是旧版，${span(range.from, range.to)}正是这一次要重写的，旧版只作参考。
+    ? `【重写中】${range.from > start ? `${span(start, range.from - 1)}是这次刚重写好的新版；` : ''}第 ${range.from} 章起是旧版，${span(range.from, range.to)}正是这一次要重写的，旧版只作参考。
 
 `
     : '';

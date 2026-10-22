@@ -11,7 +11,7 @@
  * | 从回收站、历史版本里复制出来可以（⚑），原件一字不动 | 读得到就复制得出来：这是在工程里找回一份的唯一入口，回收站与历史都不被改 |
  * | 同名不覆盖 | 第 3 条 |
  * | 复制章节：manifest 同步；草稿与细纲**不跟**（⚑） | 副本是一章新的（第 8 条：按路径认细纲，旧细纲不冒认）；草稿是作者对原章的笔记 |
- * | 复制细纲：去掉定稿那一侧的指纹（`writtenFrom` / `sourceHash` / `cast`），`upstreamHash` 原样不刷新，换了章号就去掉 | 第 18 条：副本没写过、没定稿过；大纲指纹不该被复制顺手刷新成新鲜 |
+ * | 复制细纲：去掉定稿那一侧的指纹（`writtenFrom` / `sourceHash` / `cast`），`upstreamHash` 原样不刷新，换了章号就去掉 | 第 18 条：副本没写过、没定稿过；上游指纹不该被复制顺手刷新成新鲜 |
  * | 字节原样（GBK、二进制都不转码），不存历史版本 | 复制不是「读出来再写一份」；没覆盖任何东西 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -21,7 +21,6 @@ const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -74,7 +73,7 @@ before(async () => {
   bundle = loadBundle({
     host: './src/core/host.ts',
     project: './src/core/model/project.ts',
-    outlineFile: './src/core/model/outlineFile.ts',
+    plotFile: './src/core/model/plotFile.ts',
     ws: './src/core/workspace/index.ts',
     projectFiles: './src/core/files/projectFiles.ts',
     pipe: './src/core/views/pipeline.ts',
@@ -318,7 +317,6 @@ describe('复制一章正文', () => {
 
 describe('复制一份细纲：指纹不带着把副本标成新鲜或定稿过（第 18 条）', () => {
   const PLOT = '.novelforge/summaries/005-回乡.md';
-  const OUTLINE = outlineOf(10, { text: { 5: '林昭回乡，镇上的人都变了。' } });
   const STALE_UP = 'deadbeefdeadbeef';
   let original;
   let origPlot;
@@ -330,13 +328,12 @@ describe('复制一份细纲：指纹不带着把副本标成新鲜或定稿过�
   let pipeCopy;
 
   before(async () => {
-    t.write('.novelforge/outline.md', OUTLINE);
-    // 大纲在这份细纲之后改过：原件挂着 ⟳（upstreamHash 对不上大纲此刻的那一节）。
+    // 梗概（大纲里这一章那一条）在这份细纲之后改过：原件挂着 ⟳（upstreamHash 对不上此刻梗概的指纹）。
     t.write(PLOT, finalizedPlot(5, '回乡', { upstreamHash: STALE_UP, writtenFrom: '1111111111111111', sourceHash: '2222222222222222' }));
     fs.mkdirSync(t.rel('.novelforge/summaries/备份'), { recursive: true });
     project.invalidate();
     original = t.read(PLOT);
-    currentUp = bundle.outlineFile.outlineUpstreamHash(OUTLINE, 5);
+    currentUp = bundle.plotFile.plotSynopsisHash((await project.readPlot(PLOT)).sections.梗概);
 
     result = (await bundle.projectFiles.copyInto(project, [PLOT], '.novelforge/summaries/备份'))[0];
     project.invalidate();
@@ -358,7 +355,7 @@ describe('复制一份细纲：指纹不带着把副本标成新鲜或定稿过�
     assert.doesNotMatch(copyText, /^(writtenFrom|sourceHash|cast):/m);
   });
 
-  test('upstreamHash 原样留着，没被刷新成大纲此刻的指纹', () => {
+  test('upstreamHash 原样留着，没被刷新成此刻梗概的指纹', () => {
     assert.notEqual(currentUp, STALE_UP);
     assert.equal(copy.upstreamHash, STALE_UP);
   });
@@ -380,7 +377,7 @@ describe('复制一份细纲：指纹不带着把副本标成新鲜或定稿过�
     assert.equal(copyText.slice(copyText.indexOf('# 第5章')), original.slice(original.indexOf('# 第5章')));
   });
 
-  test('网关直接复制成另一个章号：大纲指纹也去掉（那是另一章的那一节，不再适用）', async () => {
+  test('网关直接复制成另一个章号：上游指纹也去掉（那是另一章了）', async () => {
     await ws.copy(PLOT, '.novelforge/summaries/备份/007-回乡.md');
     project.invalidate();
     const renumbered = await project.readPlot('.novelforge/summaries/备份/007-回乡.md');

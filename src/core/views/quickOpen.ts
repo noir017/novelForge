@@ -87,7 +87,8 @@ export async function buildQuickOpenIndex(project: NovelProject): Promise<QuickO
 }
 
 /**
- * 架构三件、情节大纲、文风、叙事线、全文大纲：有文件的才列，按这个顺序（「故事架构」组在前）。叙事线一条线一个文件
+ * 架构三件、情节大纲、文风、叙事线、全文大纲：有文件的才列，按这个顺序（「故事架构」组在前）。情节大纲没有文件
+ * （各章细纲梗概的汇总），总是列。叙事线一条线一个文件
  * （`threads/<线名>.md`），一条一项，名字是线名（与编辑器标签同一个叫法），类型标记由前端按 `key` 写「叙事线」；
  * 「未归属的伏笔」排在各条线后面。
  */
@@ -103,7 +104,7 @@ async function listDocs(project: NovelProject): Promise<QuickOpenDoc[]> {
   const tail: { key: QuickOpenDocKey; label: string; abs: string }[] = [
     { key: 'globalSummary', label: FIXED_DOC_LABEL.globalSummary, abs: project.globalSummaryPath },
   ];
-  const present = await Promise.all([...candidates, ...tail].map((c) => exists(c.abs)));
+  const present = await Promise.all([...candidates, ...tail].map((c) => (c.key === 'outline' ? true : exists(c.abs))));
   const pick = (list: typeof candidates, offset: number): QuickOpenDoc[] =>
     list.filter((_, i) => present[offset + i]).map((c) => ({ key: c.key, label: c.label, path: project.relPath(c.abs) }));
   const threads: QuickOpenDoc[] = (await project.listThreadPaths()).map((rel) => ({

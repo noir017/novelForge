@@ -244,7 +244,8 @@ export async function checkpointUnavailable(project: NovelProject): Promise<stri
 
 /**
  * 要进存档点的文件（工程内相对路径，排好序）。只扫章节根、草稿根与 `.novelforge/`；隐藏目录（含回收站）、
- * 会话、历史版本、存档点自己都不进；符号链接不跟。种类是 `other` 的不要。
+ * 会话、历史版本、存档点自己都不进；符号链接不跟。种类是 `other` 的不要；情节大纲也不要（它没有文件，是各章细纲梗概的汇总，
+ * 细纲在存档点里就退得回；磁盘上残留的老 `outline.md` 不是现在的书）。
  */
 export async function trackedFiles(project: NovelProject): Promise<string[]> {
   const skip = new Set([project.draftsDir, project.historyDir, project.checkpointsDir, project.sessionsDir, project.trashDir].map((d) => path.resolve(d)));
@@ -272,7 +273,8 @@ export async function trackedFiles(project: NovelProject): Promise<string[]> {
           !isInternalPath(project, rel) &&
           !isInHistory(project, rel) &&
           !isInTrash(project, rel) &&
-          kindOfPath(project, rel).kind !== 'other'
+          kindOfPath(project, rel).kind !== 'other' &&
+          kindOfPath(project, rel).kind !== 'outline'
         ) {
           found.add(rel);
         }

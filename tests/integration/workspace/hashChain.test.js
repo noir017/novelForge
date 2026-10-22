@@ -4,7 +4,7 @@
  * 一章只有一份细纲（正文在 `summaries/` 下的镜像，相对路径相同），链上三环的上游指纹都记在它的 frontmatter 里：
  *
  * ```
- * outline.md 里第 N 章那一条     ─▶ summaries/N.md 的 upstreamHash（写细纲时记）
+ * summaries/N.md 的梗概           ─▶ summaries/N.md 的 upstreamHash（写细纲时记；梗概就是大纲里这一章那一条）
  * summaries/N.md 的七个小节       ─▶ summaries/N.md 的 writtenFrom （写正文时记，定稿时刷新）
  * chapters/N 的正文               ─▶ summaries/N.md 的 sourceHash  （定稿反向更新时记）
  * ```
@@ -19,8 +19,8 @@
  * - 手写的产物永不标脏。
  *
  * 另外守两条取舍：
- * - **大纲一章一条，细纲只记这一章那一条的指纹**（大纲里没有那一条就不记）——续写第 41–60 章
- *   不该让前 40 章的细纲全挂 ⟳；
+ * - **情节大纲是各章细纲梗概的汇总，细纲的上游是它自己的梗概**（docs/design/plans/2026-10-22-outline-from-plots.md）：
+ *   在大纲里改了哪一章那一条，只有那一章挂 ⟳；续写第 41–60 章不让前 40 章挂 ⟳；改标题不算改上游；
  * - **定稿时把 writtenFrom 刷成更新后的指纹**——定稿刚改完细纲正文不挂 ⟳，定稿之后作者
  *   再改细纲，正文才挂 ⟳（作者定案 7）。
  */
@@ -84,22 +84,18 @@ const finalized = (extra = {}) => ({
   ...extra,
 });
 
-/** 一章一条的大纲：第 1–40 章。第 5、12、25 章的标题与正文是下面几组用例要改的。 */
-const OUTLINE = outlineOf(40, {
-  title: '大纲',
-  titles: { 5: '入局', 25: '名册' },
-  text: { 12: '林昭进青云宗。', 25: '名册现世。' },
-});
-/** 续写的一段：第 41–60 章。 */
-const APPEND = outlineOf(60, { from: 41, heading: false, text: { 41: '火灾真相。' } });
+const OUTLINE_REL = '.novelforge/outline.md';
 
-const setOutline = (text) => {
-  t.write('.novelforge/outline.md', text);
+/** 改情节大纲：读出汇总的整份、改、经网关存回去（按章号拆回各章细纲）。 */
+async function editOutline(fn) {
   project.invalidate();
-};
+  const current = (await ws.read(OUTLINE_REL)).text;
+  await ws.write(OUTLINE_REL, { text: fn(current) }, { mode: 'overwrite', review: false });
+  project.invalidate();
+}
 
-/** 第 no 章细纲的上游指纹——与网关记账、流水线判脏用的是同一个函数。 */
-const sliceHash = async (no) => bundle.outlineFile.outlineUpstreamHash(await project.readOutline(), no);
+/** 梗概的指纹——与网关记账、流水线判脏用的是同一个函数。 */
+const synopsisHash = (text) => bundle.plotFile.plotSynopsisHash(text);
 
 /** 按号取这一章的流水线（细纲 + 同号章节）。 */
 async function pipelineOf(no) {
@@ -129,47 +125,50 @@ before(async () => {
   t = await makeTempProject(bundle.project, { prefix: 'wshash' });
   project = t.project;
   ws = new bundle.ws.Workspace(project);
-  setOutline(OUTLINE);
 });
 
 after(() => {
   if (t) cleanup(t.dir);
 });
 
-describe('细纲 · 写入就记 upstreamHash（大纲里这一章那一条）', () => {
+describe('细纲 · 写入就记 upstreamHash（这一章梗概的指纹）', () => {
   const rel = '.novelforge/summaries/012-入宗.md';
 
   before(async () => {
-    await ws.writePlot(writable(12, '入宗', { upstreamHash: await sliceHash(12) }));
+    await ws.writePlot(writable(12, '入宗', { upstreamHash: synopsisHash(filled().梗概) }));
   });
 
   test('落在 summaries/ 根下，名字带三位序号', () => {
     assert.ok(t.has(rel), rel);
   });
 
-  test('frontmatter 里有 upstreamHash', async () => {
-    assert.equal(fm(rel, 'upstreamHash'), await sliceHash(12));
+  test('frontmatter 里有 upstreamHash', () => {
+    assert.equal(fm(rel, 'upstreamHash'), synopsisHash('林昭进入青云宗。'));
   });
 
-  // 记的是**那一条**：拿全书的指纹的话，续写一次大纲就让前面所有章挂 ⟳。
-  test('记的是这一章那一条的指纹，不是全书的', async () => {
-    assert.ok(fm(rel, 'upstreamHash'), '前置：记了');
-    assert.notEqual(fm(rel, 'upstreamHash'), bundle.fs.hash(await project.readOutline()));
+  // 记的是**梗概**：拿整份细纲的指纹的话，改一个关键事件也会让它自己挂 ⟳。
+  test('记的是梗概的指纹，不是整份细纲的', async () => {
+    project.invalidate();
+    assert.notEqual(fm(rel, 'upstreamHash'), bundle.plotFile.plotContentHash(await project.readPlot(rel)));
+  });
+
+  test('在情节大纲里改了这一章那一条：梗概换了、指纹没动，细纲挂 ⟳', async () => {
+    await editOutline((doc) => doc.replace('林昭进入青云宗。', '林昭进青云宗（改过）。'));
+    assert.ok(t.read(rel).includes('林昭进青云宗（改过）。'), t.read(rel));
+    assert.equal(fm(rel, 'upstreamHash'), synopsisHash('林昭进入青云宗。'));
+    assert.equal((await pipelineOf(12)).plot.upstreamStale, true);
   });
 
   // **这是记账下沉修的那个缺陷**：改大纲之后作者在编辑器里改细纲，从前 upstreamHash
   // 不会跟着更新，那一章从此永远挂着一个洗不掉的 ⟳。
-  test('改了那一条后直接 write 细纲文本，upstreamHash 跟着更新', async () => {
-    setOutline(OUTLINE.replace('林昭进青云宗。', '林昭进青云宗（改过）。'));
-    const next = await sliceHash(12);
-    assert.notEqual(fm(rel, 'upstreamHash'), next, '前置：此刻还是旧的');
-
+  test('之后直接 write 细纲文本，upstreamHash 跟着更新、不再挂 ⟳', async () => {
     const current = t.read(rel);
     await ws.write(rel, { text: current.replace('翻过侧峰', '翻过后山') }, {
       mode: 'overwrite',
       review: false,
     });
-    assert.equal(fm(rel, 'upstreamHash'), next);
+    assert.equal(fm(rel, 'upstreamHash'), synopsisHash('林昭进青云宗（改过）。'));
+    assert.equal((await pipelineOf(12)).plot.upstreamStale, false);
   });
 
   test('正文内容照样写进去了', () => {
@@ -177,11 +176,9 @@ describe('细纲 · 写入就记 upstreamHash（大纲里这一章那一条）',
   });
 
   // 不经采纳、不经 writePlot，纯 edit 一处也记账。
-  test('edit 定点改一处也记 upstreamHash', async () => {
-    setOutline(OUTLINE.replace('林昭进青云宗。', '林昭进青云宗（再改）。'));
-    const next = await sliceHash(12);
-    await ws.edit(rel, [{ old: '翻过后山', new: '绕过前山' }]);
-    assert.equal(fm(rel, 'upstreamHash'), next);
+  test('edit 定点改梗概也记 upstreamHash', async () => {
+    await ws.edit(rel, [{ old: '（改过）', new: '（再改）' }]);
+    assert.equal(fm(rel, 'upstreamHash'), synopsisHash('林昭进青云宗（再改）。'));
   });
 
   test('H1 写成「第N章 标题」', () => {
@@ -203,33 +200,33 @@ describe('细纲 · 写入就记 upstreamHash（大纲里这一章那一条）',
 describe('细纲 · 大纲改了哪一条，只标脏那一章', () => {
   let afterAppend;
   let afterSecond;
-  let afterFirst;
+  let afterTitle;
 
   before(async () => {
-    setOutline(OUTLINE);
-    // 第 5、25 章大纲里有那一条；第 50 章没有（上游指纹是空串，不记）。
-    for (const [no, title] of [[5, '入局'], [25, '名册'], [50, '远方']]) {
-      await ws.writePlot(writable(no, title, { upstreamHash: await sliceHash(no) }));
-    }
+    // 第 5、25 章排过细纲、记过梗概的指纹；第 50 章是手写的（没记指纹）。
+    await ws.writePlot(writable(5, '入局', { upstreamHash: synopsisHash('入局。'), sections: filled({ 梗概: '入局。' }) }));
+    await ws.writePlot(writable(25, '名册', { upstreamHash: synopsisHash('名册现世。'), sections: filled({ 梗概: '名册现世。' }) }));
+    await ws.writePlot(writable(50, '远方', { sections: filled({ 梗概: '远方的事。' }) }));
     const staleOf = async () =>
       Object.fromEntries(
         await Promise.all([5, 25, 50].map(async (no) => [no, (await pipelineOf(no)).plot.upstreamStale]))
       );
 
-    // 续写一段：第 41–60 章。
-    setOutline(`${OUTLINE}\n${APPEND}`);
+    // 续写一段：第 41–60 章（第 50 章那一条也在里面），与采纳续写的那一段同一个合并（按章号换掉这一段）。
+    const append = outlineOf(60, { from: 41, heading: false, text: { 41: '火灾真相。' } });
+    await editOutline((doc) => bundle.outlineFile.mergeOutline(doc, append, { from: 41, to: 60 }));
     afterAppend = await staleOf();
 
     // 只改第 25 章那一条。
-    setOutline(`${OUTLINE.replace('名册现世。', '名册被烧了一半。')}\n${APPEND}`);
+    await editOutline((doc) => doc.replace('名册现世。', '名册被烧了一半。'));
     afterSecond = await staleOf();
 
-    // 再改第 5 章的标题——标题也是那一条的一部分。
-    setOutline(`${OUTLINE.replace('名册现世。', '名册被烧了一半。').replace('## 第5章：入局', '## 第5章：回镇')}\n${APPEND}`);
-    afterFirst = await staleOf();
+    // 再改第 5 章的标题：标题不在上游指纹里。
+    await editOutline((doc) => doc.replace('## 第5章：入局', '## 第5章：回镇'));
+    afterTitle = await staleOf();
   });
 
-  test('前提：第 50 章写细纲时大纲里没有那一条，没记上游指纹', () => {
+  test('前提：第 50 章是手写的，没记上游指纹', () => {
     assert.equal(fm('.novelforge/summaries/050-远方.md', 'upstreamHash'), undefined);
   });
 
@@ -238,9 +235,17 @@ describe('细纲 · 大纲改了哪一条，只标脏那一章', () => {
     assert.equal(afterAppend[25], false, JSON.stringify(afterAppend));
   });
 
-  // 第 50 章写细纲时没有上游，指纹没记——和手写的一样，续写覆盖到它也不凭空标脏（设计稿 ⚑3）。
-  test('从前没有着落的章，续写覆盖到它也不标脏', () => {
+  test('续写的那一段没有细纲的章建了只有梗概的空壳', async () => {
+    project.invalidate();
+    const plot = await project.getPlot(41);
+    assert.equal(plot.sections.梗概, '火灾真相。');
+    assert.ok(bundle.plotFile.isPlotStub(plot));
+  });
+
+  // 第 50 章没记过上游——和手写的一样，续写换了它的梗概也不凭空标脏（第 18a 条）。
+  test('手写的那一章，续写换了它的梗概也不标脏', () => {
     assert.equal(afterAppend[50], false, JSON.stringify(afterAppend));
+    assert.ok(t.read('.novelforge/summaries/050-远方.md').includes('第50章的事。'));
   });
 
   test('只改第 25 章那一条：第 25 章标脏', () => {
@@ -251,11 +256,11 @@ describe('细纲 · 大纲改了哪一条，只标脏那一章', () => {
     assert.equal(afterSecond[5], false, JSON.stringify(afterSecond));
   });
 
-  test('改了第 5 章的标题：第 5 章也标脏', () => {
-    assert.equal(afterFirst[5], true, JSON.stringify(afterFirst));
+  test('改了第 5 章的标题：只是改名（还没有正文，文件名跟着改），不标脏', () => {
+    assert.equal(afterTitle[5], false, JSON.stringify(afterTitle));
+    assert.ok(t.has('.novelforge/summaries/005-回镇.md'));
+    assert.ok(!t.has('.novelforge/summaries/005-入局.md'));
   });
-
-  after(() => setOutline(OUTLINE));
 });
 
 describe('细纲 · 手写的产物永不标脏（第 18a 条）', () => {
@@ -370,7 +375,7 @@ describe('正文 · 落盘时在细纲上记 writtenFrom', () => {
 
     before(async () => {
       // 作者在编辑器里改细纲：走 edit，handler 顺手重记 upstreamHash。
-      await ws.edit(plotRel, [{ old: '绕过前山', new: '从后山的水道游进去' }]);
+      await ws.edit(plotRel, [{ old: '翻过后山', new: '从后山的水道游进去' }]);
       writtenFromAfterEdit = fm(plotRel, 'writtenFrom');
       stale = await pipelineOf(12);
 
@@ -487,7 +492,7 @@ describe('正文 → 定稿 · sourceHash 记的是章节的 contentHash', () =>
 
 /**
  * 定稿是**修改**，不是重写：七节整体换成反向更新后的那一版，作者定的与计划那一侧的账
- * （标题、目标字数、大纲指纹、done、两种放行）原样留着。旧版先复制进回收站——定稿按钮本身就是
+ * （标题、目标字数、done、两种放行）原样留着，上游指纹刷成新梗概的。旧版先复制进回收站——定稿按钮本身就是
  * 作者的确认，所以直接写；但改掉的是一份作者可能逐字推敲过的计划，要找得回来。
  */
 describe('定稿 · 保留 frontmatter，旧版进回收站', () => {
@@ -562,8 +567,9 @@ describe('定稿 · 保留 frontmatter，旧版进回收站', () => {
     assert.equal(plot.targetWords, 3000);
   });
 
-  test('大纲指纹留着', () => {
-    assert.equal(plot.upstreamHash, 'UPSTREAM60');
+  // 梗概照正文改了（它也是大纲里这一章那一条），记过的上游指纹刷成新梗概的——一定稿就挂 ⟳ 是误报。
+  test('上游指纹刷成新梗概的指纹', () => {
+    assert.equal(plot.upstreamHash, synopsisHash(finalized().梗概));
   });
 
   test('作者手标的 done 留着', () => {
@@ -665,7 +671,7 @@ describe('定稿 · 没有细纲的章新建一份', () => {
     assert.equal(plot.sourceHash, (await chapterOf(61)).contentHash);
   });
 
-  test('新建的那份没有大纲指纹与目标字数', () => {
+  test('新建的那份没有上游指纹与目标字数', () => {
     assert.ok(!/upstreamHash|targetWords/.test(t.read(titled.rel)), t.read(titled.rel));
   });
 
@@ -924,8 +930,8 @@ describe('细纲照样过八条守卫', () => {
   // 细纲镜像正文的相对路径：分卷的书，细纲就在 summaries/ 的卷目录里，照样是这条链上的细纲、照样记账。
   test('summaries/ 子目录里的细纲照样记账', async () => {
     const nested = '.novelforge/summaries/卷一/001-高烧.md';
-    await ws.write(nested, { text: '---\nno: 1\n---\n\n## 关键事件\n\n- 高烧\n' });
-    assert.equal(fm(nested, 'upstreamHash'), await sliceHash(1));
+    await ws.write(nested, { text: '---\nno: 1\n---\n\n## 梗概\n\n高烧那一夜。\n\n## 关键事件\n\n- 高烧\n' });
+    assert.equal(fm(nested, 'upstreamHash'), synopsisHash('高烧那一夜。'));
   });
 
   // 老工程的 plots/ 同理：代码不再读它，写进去也只是普通文本。

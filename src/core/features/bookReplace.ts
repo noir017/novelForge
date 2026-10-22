@@ -16,8 +16,8 @@
  *    网关不再弹第二次覆盖审阅）、带 `baseHash`。守卫照过、种类的记账照做（细纲照常记 `upstreamHash`）、覆盖前的那一版
  *    网关自己也会再试着存（与刚存的一样，不重复存）。章节的写后记账（重算 manifest）延到最后做一次（`deferAfter`）。
  *
- * 写的顺序按范围：其他创作文件（情节大纲在里面）→ 细纲 → 正文 → 草稿 → 角色卡 → 设定。大纲排在细纲之前：细纲写下去时
- * 网关记的是大纲**此刻**那一条的指纹，大纲先换完，同一次里一起换了的细纲才对得上换过的大纲。
+ * 写的顺序按范围：其他创作文件 → 细纲 → 正文 → 草稿 → 角色卡 → 设定。情节大纲不单列：它是各章细纲梗概的汇总，
+ * 没有文件，换细纲就换了它。
  *
  * 逐份写之前（有要换的才）先存一个存档点（`features/checkpoint.ts`）：整本退得回替换之前。
  *
@@ -32,12 +32,11 @@
  *
  * 其余照常、而且照实说出来（汇总里列章）：**只改了细纲**、正文没跟着改（正文不在范围里、没有这个词、被勾掉、未保存跳过了）——
  * 正文挂 ⟳，那是对的：计划变了，正文可能跟不上；**只改了正文**、细纲没跟着改的定稿过的章——回到「待定稿」，定稿那份
- * 细纲还说着旧的；**只改了情节大纲**、细纲没跟着改——那几章的细纲挂 ⟳。改之前就已经对不上的（本来就挂着 ⟳、本来就
- * 待定稿）不刷——那不是这次替换造成的。
+ * 细纲还说着旧的。改之前就已经对不上的（本来就挂着 ⟳、本来就待定稿）不刷——那不是这次替换造成的。
  *
- * 细纲自己的上游（`upstreamHash`，大纲里这一章那一条）同一个原则：网关写细纲时总是记下大纲此刻的指纹（「谁写都记」），
- * 这里把它退回替换之前的判断——本来挂着 ⟳ 的照旧挂（恢复原来那个指纹），本来没记过的照旧不记（第 18a 条：手写的不进链）；
- * 本来对得上的，就是网关刚记的那一个（大纲与细纲在这一次里一起换了的，正好对上）。
+ * 细纲自己的上游（`upstreamHash`，这一章梗概的指纹——梗概就是大纲里这一章那一条）同一个原则：网关写细纲时总是记下此刻
+ * 梗概的指纹（「谁写都记」），这里把它退回替换之前的判断——本来挂着 ⟳ 的照旧挂（恢复原来那个指纹），本来没记过的照旧不记
+ * （第 18a 条：手写的不进链）；本来对得上的，就是网关刚记的那一个（梗概与其余几节在同一份文件里一起换了，正好对上）。
  *
  * 角色卡「当前状态」的 `stateHash`、设定条目的 `bodyHash` **不刷**（⚑）：替换就是作者的改动，下次定稿 / 整合时机器照规矩
  * 把它们当作「作者改过」——不直接覆盖、先对比（第 19、27 条）。
@@ -55,8 +54,7 @@ import { hash } from '../model/fs';
 import { decodeFileText } from '../model/importText';
 import { asArray, asString, extractH1, parseMarkdown } from '../model/markdown';
 import { NovelProject } from '../model/project';
-import { Plot, parsePlotFile, plotContentHash } from '../model/plotFile';
-import { isOutlineUpstreamStale } from '../model/outlineFile';
+import { Plot, isPlotUpstreamStale, parsePlotFile, plotContentHash } from '../model/plotFile';
 import { BookFindScope, isBookFindScope } from '../model/bookFindScope';
 import { fileHits } from '../model/bookFind';
 import { compileSearch, replaceSelectedIn } from '../model/textFind';
@@ -122,7 +120,6 @@ export async function replaceInBook(project: NovelProject, req: BookReplaceReque
     chainKept: [],
     plotOnly: [],
     bodyOnly: [],
-    outlineOnly: [],
     renamedCards: [],
   };
   const query = typeof req.query === 'string' ? req.query : '';
@@ -226,7 +223,6 @@ export async function replaceInBook(project: NovelProject, req: BookReplaceReque
       chapterByPlot.set(mirror, { rel: c.relPath, contentHash: c.contentHash });
     }
   }
-  const outline = await project.readOutline();
   const chainBefore = new Map<string, ChainBefore>();
   for (const p of prepared.filter((x) => x.kind === 'plot')) {
     const plot = parsePlotFile(p.text, p.rel);
@@ -235,7 +231,7 @@ export async function replaceInBook(project: NovelProject, req: BookReplaceReque
       plot,
       chapterRel: chapter?.rel,
       chapterLabel: chapter ? bookFileLabel(project, chapter.rel) : undefined,
-      upstream: !plot.upstreamHash ? 'none' : isOutlineUpstreamStale(plot.upstreamHash, outline, plot.no) ? 'stale' : 'fresh',
+      upstream: !plot.upstreamHash ? 'none' : isPlotUpstreamStale(plot) ? 'stale' : 'fresh',
       writtenFresh: !!chapter && !!plot.writtenFrom && plot.writtenFrom === plotContentHash(plot),
       sourceFresh: !!chapter && !!plot.sourceHash && plot.sourceHash === chapter.contentHash,
     });
@@ -324,7 +320,7 @@ export async function replaceInBook(project: NovelProject, req: BookReplaceReque
       continue;
     }
     const patch: { upstreamHash?: string; writtenFrom?: string; sourceHash?: string } = {};
-    // 大纲 → 细纲：退回替换之前的判断（网关写细纲时总是记下大纲此刻的指纹）。
+    // 梗概 → 其余几节：退回替换之前的判断（网关写细纲时总是记下此刻梗概的指纹）。
     if (before.upstream === 'stale' && after.upstreamHash !== before.plot.upstreamHash) {
       patch.upstreamHash = before.plot.upstreamHash;
     } else if (before.upstream === 'none' && after.upstreamHash) {
@@ -357,20 +353,6 @@ export async function replaceInBook(project: NovelProject, req: BookReplaceReque
       summary.bodyOnly.push(bookFileLabel(project, chapterRel));
     }
   }
-  // 改了情节大纲：哪几章那一条变了、那几章的细纲这一次没跟着改——它们挂 ⟳，说出来。
-  const outlineRel = project.relPath(project.outlinePath);
-  if (written.has(outlineRel)) {
-    const outlineAfter = await project.readOutline();
-    for (const plot of await project.listPlots()) {
-      if (written.has(plot.relPath) || !plot.upstreamHash) {
-        continue;
-      }
-      if (!isOutlineUpstreamStale(plot.upstreamHash, outline, plot.no) && isOutlineUpstreamStale(plot.upstreamHash, outlineAfter, plot.no)) {
-        summary.outlineOnly.push(bookFileLabel(project, plot.relPath));
-      }
-    }
-  }
-
   log.info(
     `全书替换「${clip(query)}」→「${clip(replacement)}」`,
     [
@@ -379,7 +361,6 @@ export async function replaceInBook(project: NovelProject, req: BookReplaceReque
       summary.chainKept.length ? `细纲与正文一起改了、指纹跟着刷新：${summary.chainKept.join('、')}` : '',
       summary.plotOnly.length ? `只改了细纲（正文挂 ⟳）：${summary.plotOnly.join('、')}` : '',
       summary.bodyOnly.length ? `只改了正文（回到待定稿）：${summary.bodyOnly.join('、')}` : '',
-      summary.outlineOnly.length ? `只改了大纲（细纲挂 ⟳）：${summary.outlineOnly.join('、')}` : '',
     ]
       .filter(Boolean)
       .join('｜')

@@ -55,6 +55,7 @@ before(async () => {
   t.write('drafts/封面.png', '林晚');
   t.write('.novelforge/characters/林晚.md', '---\nname: 林晚\naliases: [阿晚]\n---\n\n# 林晚\n\n## 身份\n林晚是主角。\n');
   t.write('.novelforge/lore/门派/青云宗.md', '---\ntitle: 青云宗\n---\n\n# 青云宗\n\n林晚拜入的门派。\n');
+  // 老工程留下的 outline.md：情节大纲现在是各章细纲梗概的汇总，这一份不再读，也不在全书查找里。
   t.write('.novelforge/outline.md', '# 情节大纲\n\n## 第1–5章：林晚入宗\n林晚拜入青云宗。\n');
   project.invalidate();
 });
@@ -87,7 +88,6 @@ describe('views/bookFind › 按范围', () => {
       ['draft', '草稿 · 第 1 章 楔子'],
       ['character', '角色 · 林晚'],
       ['lore', '设定 · 青云宗'],
-      ['doc', '情节大纲'],
     ]);
   });
 

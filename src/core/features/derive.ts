@@ -6,13 +6,13 @@
  * 一、细纲（第 1–N 章里没定稿的、定稿后正文改过的）  ← 第一次确认：只报细纲的次数
  * 二、配置 → 前提 → 角色卡 → 世界观（只补空白）     ← 第二次确认：细纲出来之后次数才算得准
  *     → 设定条目（还一条都没有时，从名录建）
- *     → 情节大纲（每次 20 章，照细纲）
  *     → 全文大纲（落后就增量更新）
  *     → 叙事线（一条线都没有时先从情节大纲排一次；再从水位之后逐章补记，每章 1–3 次）
  * ```
  *
  * 第一步就是定稿的第一步（`summarizeChapters`）：照正文写出 `summaries/NNN-<章名>.md`，带 `sourceHash`
- * 与 `cast`——这几章因此直接算定稿过，不必再另排一遍细纲。
+ * 与 `cast`——这几章因此直接算定稿过，不必再另排一遍细纲。情节大纲是各章细纲「梗概」的汇总，细纲齐了它也就齐了：
+ * 从前另有一步「照细纲整理情节大纲，每次 20 章」，删了（docs/design/plans/2026-10-22-outline-from-plots.md）。
  *
  * 借鉴 AI-Novel-Writer 的「小说拆解」（`import-workflow.ts` 的 global / blueprints 两步，
  * `import-novel.command.ts`）：上游推演设定只看首末两章各 3000 字、导入当前工程会覆盖原有配置与角色。
@@ -21,8 +21,8 @@
  *
  * ## 为什么是这个顺序
  *
- * 与新链路往下展开的顺序一致，每一件都吃前面几件：前提照着配置写，世界观照着前提与角色，大纲要架构
- * 几件。细纲排最前：建卡要从定稿过的细纲里认出场人物，大纲照细纲整理。设定条目排在建卡之后：名录里
+ * 与新链路往下展开的顺序一致，每一件都吃前面几件：前提照着配置写，世界观照着前提与角色。
+ * 细纲排最前：建卡要从定稿过的细纲里认出场人物，情节大纲就是细纲的梗概。设定条目排在建卡之后：名录里
  * 撞上角色卡的名字是人、不是设定，卡建好了才认得出来。
  *
  * 设定条目不走架构那一件「设定清单」：有正文的书那一件本来就算填过（`isLoreListFilled`），设定照名录
@@ -37,8 +37,8 @@
  *
  * ## 叙事线（叙事线重做四期）
  *
- * 第一步整理出来的细纲直接算定稿过，可定稿第三步（认叙事线）没走——这些章「定稿了、叙事线还没判」。补完情节大纲之后接上
- * 「排线 + 补记」（features/threadsBackfill.ts，与工程页「从正文补记」同一份）：一条线都没有、有（或这一次补出了）情节大纲，
+ * 第一步整理出来的细纲直接算定稿过，可定稿第三步（认叙事线）没走——这些章「定稿了、叙事线还没判」。最后接上
+ * 「排线 + 补记」（features/threadsBackfill.ts，与工程页「从正文补记」同一份）：一条线都没有、有情节大纲（细纲整理出来了就有），
  * 先从情节大纲排一次；再从水位之后逐章补记到第 N 章。次数并进第二个确认框（每章 1–3 次，排线 +1）。它与设定条目、全文大纲
  * 一样是额外的一道：排在最后，没排成、一章没判成都不算补齐失败（补记停在没判成的那一章、失败挂在那一章上，完成提示说一句），
  * 已经判过的留着，之后在叙事线页签点「从正文补记」接着来。
@@ -55,13 +55,11 @@ import { CancelledError } from '../llm/provider';
 import { ModelPool, createModelPool } from '../llm/pool';
 import { NovelProject } from '../model/project';
 import { Chapter } from '../model/types';
-import { isOutlineFilled, outlineCoverage } from '../model/outlineFile';
 import { defaultTotalChapters, roundedAverageWords } from '../model/importText';
 import {
   CONFIG_CALLS,
   CallEstimate,
   ONE_CALL,
-  OUTLINE_BATCH,
   SETTING_DOC_LABEL,
   SettingDoc,
   addCalls,
@@ -76,7 +74,7 @@ import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { BuildRequest } from '../context/builder';
-import { ChainError, singleShotNotes } from '../generation/structured';
+import { ChainError } from '../generation/structured';
 import { acceptArtifact } from '../generation/accept';
 import { buildBookFacts, nextWritableChapterNo } from '../views/pipeline';
 import { UnfiledLore, buildLoreIndex } from '../views/lore';
@@ -156,7 +154,7 @@ async function summarizeFirst(
     detail: [
       lanes > 1 ? `并发 ${lanes} 路，各章之间没有先后依赖。` : '串行逐章处理（并发数为 1）。',
       '已经有细纲的章拿着它与正文对照着改，旧版先复制一份进 .novelforge/.trash/。',
-      '细纲出来之后再算建卡、设定与情节大纲要调几次（建卡次数要看细纲里认出了谁），到时再问你一次。',
+      '细纲出来之后再算建卡与设定要调几次（建卡次数要看细纲里认出了谁），到时再问你一次。',
     ].join('\n'),
     tasks: ['plotSummary'],
     contextDetail: false,
@@ -185,7 +183,7 @@ async function summarizeFirst(
         }
         if (r.failed.length > 0) {
           getHost().toast(
-            `第 ${r.failed.map((f) => f.no).join('、')} 章的细纲没整理成（可在日志页看原因）。建卡与大纲要照细纲来，已经停下；补上这几章再来一次。`,
+            `第 ${r.failed.map((f) => f.no).join('、')} 章的细纲没整理成（可在日志页看原因）。建卡要照细纲来，已经停下；补上这几章再来一次。`,
             'error'
           );
           return;
@@ -206,8 +204,6 @@ interface DerivePlan {
   cards?: CastCardsPlan & { min: number };
   /** 要建的设定条目（还一条都没有时，名录里出现 ≥`min` 章的）。每条 1 次，解析不了的重来一次。 */
   lore?: { targets: UnfiledLore[]; min: number };
-  /** 情节大纲每次整理的区间。 */
-  outline: { from: number; to: number }[];
   globalSummary: boolean;
   setup?: { totalChapters: number; wordsPerChapter: number };
   /** 叙事线（四期）：还没判的章逐章补记，一条线都没有时先排线。没有要判的章就缺席。 */
@@ -234,12 +230,11 @@ async function deriveRest(
   const labels = [
     ...plan.settings.map((doc) => (doc === 'characters' ? '角色卡' : SETTING_DOC_LABEL[doc])),
     ...(plan.lore ? ['设定条目'] : []),
-    ...(plan.outline.length > 0 ? ['情节大纲'] : []),
     ...(plan.globalSummary ? ['全文大纲'] : []),
     ...(plan.threads ? ['叙事线'] : []),
   ];
   if (labels.length === 0) {
-    getHost().toast(`第 1–${through} 章的细纲、架构与情节大纲都已经有了。`);
+    getHost().toast(`第 1–${through} 章的细纲与架构都已经有了（情节大纲是各章细纲梗概的汇总）。`);
     return 0;
   }
   const answer = await askCall({
@@ -264,12 +259,11 @@ async function deriveRest(
     const loreLanes = plan.lore ? Math.min(config.concurrency, Math.max(1, plan.lore.targets.length)) : 1;
     // 建条目这一道是额外的：池建不出来不拦整件事，走到那一步时挂黄、接着往下补。
     const lorePool = plan.lore ? await createModelPool({ task: 'loreSynthesis', concurrent: loreLanes > 1 }) : undefined;
-    const plotPool = plan.outline.length > 0 ? await createModelPool({ task: 'plotOutline', concurrent: false }) : undefined;
     const summaryPool =
       plan.globalSummary || plan.threads ? await createModelPool({ task: 'plotSummary', concurrent: false }) : undefined;
-    // 叙事线先排线走「剧情细纲」档：情节大纲那一步建过就用它，没建（大纲本来就有）再建一个。
-    const threadsPlanPool = plan.threads?.planFirst ? (plotPool ?? (await createModelPool({ task: 'plotOutline', concurrent: false }))) : undefined;
-    if ((needSetting && !settingPool) || (plan.cards && !cardPool) || (plan.outline.length > 0 && !plotPool)) {
+    // 叙事线先排线走「剧情细纲」档。
+    const threadsPlanPool = plan.threads?.planFirst ? await createModelPool({ task: 'plotOutline', concurrent: false }) : undefined;
+    if ((needSetting && !settingPool) || (plan.cards && !cardPool)) {
       log.error('没有可用的模型，从已写正文补齐中止');
       return 0;
     }
@@ -363,59 +357,6 @@ async function deriveRest(
             done.push(`设定条目 ${r.created} 条`);
           }
           step++;
-        }
-
-        // 情节大纲：每次 20 章，照那几章定稿过的细纲。
-        if (!halt && !signal.aborted && settingsDone) {
-          for (const range of plan.outline) {
-            const span = rangeLabel(range.from, range.to);
-            report({ message: `情节大纲 · ${span}`, current: step, total: steps });
-            const request: Omit<BuildRequest, 'providerMaxInputTokens'> = {
-              action: { stage: 'outline', capability: 'generate' },
-              target: { kind: 'outline' },
-              range,
-              ask: '',
-              derive: { through },
-            };
-            const io = poolIO(project, plotPool!, config, signal, request);
-            try {
-              const first = await io.chain.call(await io.chain.build({}), `情节大纲（${span}）`);
-              const notes = singleShotNotes('outline', first.text, first.stop, range);
-              if (notes.length > 0) {
-                log.warn(`情节大纲${span}：${notes.length} 条说明`, notes.join('\n'));
-              }
-              const artifact = parseArtifact(request.action, first.text, request.target, range);
-              if (isArtifactEmpty(artifact)) {
-                throw new Error('模型返回的大纲是空的');
-              }
-              await acceptArtifact(project, request.target, artifact);
-              calls += io.calls();
-              project.invalidate();
-              const covered = outlineCoverage(await project.readOutline());
-              if (!(covered >= range.to)) {
-                throw new Error(`整理出来的大纲只覆盖到第 ${covered} 章（这一次要到第 ${range.to} 章）`);
-              }
-              void clearFailures(project, 'setting', project.relPath(project.outlinePath), 'outline');
-            } catch (err) {
-              calls += err instanceof ChainError ? err.calls : io.calls();
-              if (stop(`情节大纲（${span}）`, err) === 'failed') {
-                void recordFailure(project, {
-                  scope: '补齐',
-                  targetKind: 'setting',
-                  targetKey: project.relPath(project.outlinePath),
-                  severity: 'error',
-                  op: 'outline',
-                  message: `从已写正文整理情节大纲（${span}）失败：${describeError(err)}`,
-                  detail: '从已写正文补齐停在这一段。后面的段要接着它整理，没有继续。',
-                });
-              }
-              break;
-            }
-          }
-          if (!halt && !signal.aborted && plan.outline.length > 0) {
-            done.push('情节大纲');
-            step++;
-          }
         }
 
         // 全文大纲：落后就增量更新；它是额外的一道，没更新成不算补齐失败。
@@ -514,12 +455,6 @@ async function planRest(project: NovelProject, through: number, written: Chapter
     }
   }
 
-  const covered = isOutlineFilled(await project.readOutline()) ? facts.outlineCoverage : 0;
-  const outline: { from: number; to: number }[] = [];
-  for (let from = covered + 1; from <= through; from += OUTLINE_BATCH) {
-    outline.push({ from, to: Math.min(through, from + OUTLINE_BATCH - 1) });
-  }
-
   let setup: DerivePlan['setup'];
   if (settings.includes('config')) {
     const words = book.wordsPerChapter ?? roundedAverageWords(written.map((c) => c.wordCount)) ?? DEFAULT_WORDS;
@@ -543,13 +478,12 @@ async function planRest(project: NovelProject, through: number, written: Chapter
     setup = { totalChapters: total, wordsPerChapter: words };
   }
 
-  // 叙事线（四期）：第 1–N 章里定稿了、还没判的章；情节大纲这一次会补出来（或本来就有）就算有大纲，一条线都没有时先排。
-  const threads = await planThreadsBackfill(project, { upTo: through, outlineReady: outline.length > 0 || covered > 0 });
+  // 叙事线（四期）：第 1–N 章里定稿了、还没判的章；一条线都没有、有情节大纲（细纲整理出来了，梗概就是大纲）时先排。
+  const threads = await planThreadsBackfill(project, { upTo: through });
   return {
     settings,
     cards,
     lore: entries.length === 0 ? await planLore(project) : undefined,
-    outline,
     globalSummary: (manifest.globalSummaryThrough ?? 0) < through,
     setup,
     ...(threads.chapters.length > 0 ? { threads } : {}),
@@ -576,16 +510,13 @@ async function planLore(project: NovelProject): Promise<DerivePlan['lore']> {
 }
 
 /** 确认框上那个数：每一样的次数加起来。 */
-export function estimateOf(plan: Pick<DerivePlan, 'settings' | 'cards' | 'lore' | 'outline' | 'globalSummary' | 'threads'>): CallEstimate {
+export function estimateOf(plan: Pick<DerivePlan, 'settings' | 'cards' | 'lore' | 'globalSummary' | 'threads'>): CallEstimate {
   const parts: CallEstimate[] = [];
   for (const doc of plan.settings) {
     parts.push(doc === 'config' ? CONFIG_CALLS : doc === 'characters' ? EXACT_CALLS(plan.cards?.calls ?? 0) : ONE_CALL);
   }
   if (plan.lore) {
     parts.push(loreEntryCalls(plan.lore.targets.length));
-  }
-  if (plan.outline.length > 0) {
-    parts.push(EXACT_CALLS(plan.outline.length));
   }
   if (plan.globalSummary) {
     parts.push({ low: 1, high: 1, max: GLOBAL_SUMMARY_ROUNDS });
@@ -602,7 +533,7 @@ function tasksOf(plan: DerivePlan): LlmTask[] {
     ...(plan.settings.some((d) => d !== 'characters') ? ['setting' as const] : []),
     ...(plan.cards ? ['characterCard' as const] : []),
     ...(plan.lore ? ['loreSynthesis' as const] : []),
-    ...(plan.outline.length > 0 || plan.threads?.planFirst ? ['plotOutline' as const] : []),
+    ...(plan.threads?.planFirst ? ['plotOutline' as const] : []),
     ...(plan.globalSummary || plan.threads ? ['plotSummary' as const] : []),
   ];
 }
@@ -610,7 +541,8 @@ function tasksOf(plan: DerivePlan): LlmTask[] {
 function describePlan(plan: DerivePlan, through: number): string {
   const lines: string[] = [];
   lines.push(
-    '按 配置 → 前提 → 角色卡 → 世界观 → 设定条目 → 情节大纲 → 全文大纲 → 叙事线 的顺序一件一件来，每件都照已写正文整理；已经有的不会被改动。一件失败就停，已经写好的留着（设定条目、叙事线没补成不停）。'
+    '按 配置 → 前提 → 角色卡 → 世界观 → 设定条目 → 全文大纲 → 叙事线 的顺序一件一件来，每件都照已写正文整理；已经有的不会被改动。一件失败就停，已经写好的留着（设定条目、叙事线没补成不停）。' +
+      '情节大纲不用另外整理：它是各章细纲梗概的汇总，细纲齐了它就齐了。'
   );
   if (plan.setup) {
     lines.push(`小说配置按 ${plan.setup.totalChapters} 章 × ${plan.setup.wordsPerChapter} 字展开（没写每章字数时取已写各章的平均）。`);
@@ -628,10 +560,6 @@ function describePlan(plan: DerivePlan, through: number): string {
       `设定条目：给${names.slice(0, 12).join('、')}${names.length > 12 ? `等 ${names.length} 条` : ''}建条目（细纲里出现 ${plan.lore.min} 章以上、还没有条目；` +
         `只读定稿细纲里提到它们的那几行，${describeCalls(loreEntryCalls(names.length))}）。建卡之后认得出是人的不建，次数只会更少。`
     );
-  }
-  if (plan.outline.length > 0) {
-    const first = plan.outline[0].from;
-    lines.push(`情节大纲：照细纲整理${rangeLabel(first, through)}，每次 ${OUTLINE_BATCH} 章，${plan.outline.length} 次调用。`);
   }
   if (plan.globalSummary) {
     lines.push(`全文大纲：落后于第 ${through} 章，增量更新（一次并不完再来，最多 ${GLOBAL_SUMMARY_ROUNDS} 次）。`);
@@ -683,10 +611,6 @@ async function deriveCards(
     }
     return { outcome: 'failed', calls: plan.calls, why: `角色卡没建成（${describeError(err)}）` };
   }
-}
-
-function rangeLabel(from: number, to: number): string {
-  return from === to ? `第 ${from} 章` : `第 ${from}–${to} 章`;
 }
 
 /**

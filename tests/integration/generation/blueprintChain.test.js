@@ -317,7 +317,8 @@ describe('二期验收：一句话 → 前 5 章细纲', () => {
 
   // 细纲与单章摘要并成一份之后落在 summaries/ 根下；钩子并进了「看点」，每章都该有一条。
   test('第 1–5 章的细纲都落了盘：标题进文件名，目标字数取每章字数', async () => {
-    const plots = await project.listPlots();
+    // 大纲是各章细纲梗概的汇总：第 6–20 章是续写大纲时建的空壳（只有梗概），看排过的那几份。
+    const plots = (await project.listPlots()).filter((p) => p.sections.关键事件.trim());
     assert.deepEqual(plots.map((p) => p.relPath), [
       '.novelforge/summaries/001-停舟.md',
       '.novelforge/summaries/002-令牌.md',

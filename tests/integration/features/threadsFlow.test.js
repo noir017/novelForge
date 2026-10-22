@@ -25,7 +25,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider, filler } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -171,7 +171,7 @@ before(async () => {
   t.write('.novelforge/config.md', '---\ntotalChapters: 30\nwordsPerChapter: 600\n---\n\n# 小说配置\n\n## 核心梗概\n\n回镇查案。\n');
   t.write('.novelforge/premise.md', '# 故事前提\n\n## 一句话前提\n\n林昭回镇，必须找出放火的人。\n\n## 悬念骨架\n\n玉佩与名册。\n');
   t.write('.novelforge/world.md', '# 世界观\n\n## 规则与漏洞\n\n名册决定谁算镇上的人。\n');
-  t.write('.novelforge/outline.md', outlineOf(20, { text: { 1: '林昭进镇，一路查名册。' } }));
+  writeOutline(t, outlineOf(20, { text: { 1: '林昭进镇，一路查名册。' } }));
   const ws = new bundle.ws.Workspace(project);
   for (let no = 1; no <= 5; no++) {
     await ws.writePlot({

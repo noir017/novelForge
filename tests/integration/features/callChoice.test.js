@@ -18,7 +18,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -74,7 +74,7 @@ before(async () => {
   bundle.host.initHost(h.host);
   fake = installFakeProvider(bundle.registry, { reply: () => '```json\n{"threads":[]}\n```' });
   t = await makeTempProject(bundle.project, { prefix: 'callChoice', title: '青云剑录' });
-  t.write('.novelforge/outline.md', LONG_OUTLINE);
+  writeOutline(t, LONG_OUTLINE);
 });
 
 after(() => {

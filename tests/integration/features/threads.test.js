@@ -31,7 +31,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -99,8 +99,9 @@ after(() => {
 });
 
 describe('排叙事线 · 还没有情节大纲', () => {
-  test('不调模型、不弹确认框，说清先排大纲（细纲有了也不算）', async () => {
-    plot(1, '雪夜', '林昭在雪夜里被人追杀。', '追兵举起了火把');
+  // 情节大纲是各章细纲梗概的汇总：细纲排了、梗概却空着，大纲里就没有这一章。
+  test('不调模型、不弹确认框，说清先排大纲（细纲排了、梗概空着也不算）', async () => {
+    t.write('.novelforge/summaries/001-雪夜.md', '---\nno: 1\ntitle: 雪夜\n---\n\n# 第1章 雪夜\n\n## 关键事件\n\n林昭在雪夜里被人追杀。\n');
     project.invalidate();
     h.expect('开始排');
     fake.reset();
@@ -145,7 +146,7 @@ describe('排叙事线', () => {
       '---\ngenre: 玄幻\ntotalChapters: 20\nwordsPerChapter: 3000\n---\n# 设定\n\n## 一句话\n\n少年背着旧案入宗。\n'
     );
     t.write('.novelforge/premise.md', '# 故事前提\n\n## 悬念骨架\n\n谁放的那把火。\n');
-    t.write('.novelforge/outline.md', OUTLINE);
+    writeOutline(t, OUTLINE);
     t.write(
       '.novelforge/characters/沈青.md',
       '---\nname: 沈青\n---\n\n# 沈青\n\n## 身份\n\n青云宗外门弟子\n\n## 人物关系\n\n与林昭互相猜忌\n\n## 暗设\n\n她是沈家遗孤\n'

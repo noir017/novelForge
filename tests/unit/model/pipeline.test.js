@@ -495,6 +495,37 @@ describe('plotFile.ts · 排过没有 / 容错', () => {
   });
 });
 
+// 情节大纲是各章细纲梗概的汇总（docs/design/plans/2026-10-22-outline-from-plots.md）：上游指纹是梗概的指纹。
+describe('plotFile.ts · 梗概是上游（空壳、梗概指纹、大纲改了细纲没跟）', () => {
+  const sections = (extra = {}) => ({ ...plotFile.emptyPlotSections(), 梗概: '林昭进镇。', ...extra });
+
+  test('梗概的指纹：换行风格与行尾空白不算改动，空着（或占位文字）给空串', () => {
+    assert.equal(plotFile.plotSynopsisHash('林昭进镇。\n后果。'), plotFile.plotSynopsisHash('  林昭进镇。  \r\n后果。\n'));
+    assert.notEqual(plotFile.plotSynopsisHash('林昭进镇。'), plotFile.plotSynopsisHash('林昭没进镇。'));
+    assert.equal(plotFile.plotSynopsisHash(''), '');
+    assert.equal(plotFile.plotSynopsisHash('（待补充）'), '');
+  });
+
+  test('空壳：只有梗概；别的节有字、记过设定、定稿过都不是', () => {
+    assert.equal(plotFile.isPlotStub({ sections: sections(), sourceHash: '' }), true);
+    assert.equal(plotFile.isPlotStub({ sections: sections({ 时间地点: '（待补充）' }), sourceHash: '' }), true);
+    assert.equal(plotFile.isPlotStub({ sections: sections({ 看点: '- 有' }), sourceHash: '' }), false);
+    assert.equal(plotFile.isPlotStub({ sections: sections(), sourceHash: 'x' }), false);
+    assert.equal(plotFile.isPlotStub({ sections: sections(), sourceHash: '', lore: [{ name: '青河', category: '地点', fact: '' }] }), false);
+  });
+
+  test('判脏：记过、排过细纲（关键事件非空）、梗概变了才算；空壳与手写的（没记过）不标', () => {
+    const filled = sections({ 关键事件: '- 进镇' });
+    const h = plotFile.plotSynopsisHash(filled.梗概);
+    assert.equal(plotFile.isPlotUpstreamStale({ upstreamHash: h, sections: filled }), false);
+    assert.equal(plotFile.isPlotUpstreamStale({ upstreamHash: h, sections: { ...filled, 梗概: '林昭没进镇。' } }), true);
+    assert.equal(plotFile.isPlotUpstreamStale({ upstreamHash: h, sections: { ...sections(), 梗概: '林昭没进镇。' } }), false);
+    assert.equal(plotFile.isPlotUpstreamStale({ upstreamHash: '', sections: { ...filled, 梗概: '改了。' } }), false);
+    assert.equal(plotFile.isPlotUpstreamStale({ upstreamHash: h, sections: { ...filled, 梗概: '' } }), false);
+    assert.equal(plotFile.isPlotUpstreamStale(undefined), false);
+  });
+});
+
 // 老工程 summaries/ 根下的单章摘要本来就是这七节，带着 sourceHash 与 cast：直接当成定稿过的细纲读。
 describe('plotFile.ts · 老工程的单章摘要当成定稿过的细纲', () => {
   const old = [
@@ -953,11 +984,11 @@ describe('pipeline.ts · 全书状态推导', () => {
     const none = pipeline.deriveBookNextStep('outline', book({ outlineFilled: false, outlineCoverage: 0, nextChapterNo: 31 }));
     assert.equal(none.projectAction, 'deriveFromText');
     assert.deepEqual(none.target, { kind: 'outline' });
-    assert.match(none.hint, /还没有情节大纲/);
+    assert.match(none.hint, /还没有细纲，情节大纲（各章细纲梗概的汇总）也就是空的/);
 
     const short = pipeline.deriveBookNextStep('outline', book({ outlineCoverage: 20, nextChapterNo: 31 }));
     assert.equal(short.projectAction, 'deriveFromText');
-    assert.match(short.hint, /只覆盖到第 20 章/);
+    assert.match(short.hint, /第 21–30 章还没有细纲，情节大纲只覆盖到第 20 章/);
   });
 
   test('大纲恰好覆盖到已写的最后一章 → 照常续写大纲', () => {

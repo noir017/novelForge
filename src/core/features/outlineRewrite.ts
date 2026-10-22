@@ -2,14 +2,13 @@
  * 重写情节大纲（工程页「情节大纲」右键「重写…」）：**按 {@link OUTLINE_BATCH} 章一段一段重写**，
  * 不是一次把全书塞给模型——一次写一百章，后半段会稀得像目录（D20）。
  *
- * ```
- * 第 1–N 章已经写成   → 每段照那几章定稿过的细纲整理（与拆书补齐同一份契约，`derive`）
- * 第 N+1 章以后       → 每段照架构重新规划（平常的续写契约）
- * ```
+ * **只重写还没写正文的章**：情节大纲是各章细纲「梗概」的汇总，写过的章那一条由定稿照正文写（就是实际写成的样子），
+ * 不再让模型照正文另整理一份（docs/design/plans/2026-10-22-outline-from-plots.md）。从前已写的那一截照定稿过的细纲
+ * 整理（`derive`），删了。
  *
  * 作者写的那句要求每一段都带。每一段看得见前面几段**刚写好的新版**（`BuildRequest.outlineDraft`），
- * 区间之外还没轮到的条目仍是旧版。全部写完拼成一整份，**一次**审阅、一次写入（第 3 条）；
- * 中途失败时已经重写的几段照样拿去审阅，没轮到的节保留旧版——花过的钱不白扔，写不写由作者定。
+ * 区间之外还没轮到的条目仍是旧版。全部写完拼成一整份，**一次**审阅、一次写入（第 3 条；写入时按章号拆回各章细纲）；
+ * 中途失败时已经重写的几段照样拿去审阅，没轮到的条目保留旧版——花过的钱不白扔，写不写由作者定。
  * 取消就什么都不写。
  */
 import { readConfig } from '../config';
@@ -34,37 +33,30 @@ const log = scoped('重写大纲');
 export interface OutlineRewriteBatch {
   from: number;
   to: number;
-  /** 这一段已经写成：照定稿过的细纲整理，不重新规划。 */
-  derive: boolean;
 }
 
 export interface OutlineRewritePlan {
-  /** 大纲现在覆盖到第几章：重写的就是第 1 章到这里。 */
+  /** 大纲现在覆盖到第几章：重写到这里。 */
   end: number;
-  /** 从第 1 章起连续有正文写到第几章（0 = 一章都没写）。 */
+  /** 从第 1 章起连续有正文写到第几章（0 = 一章都没写）：这一截不重写。 */
   through: number;
+  /** 空的 = 大纲排到的章都写过了，没有可重写的。 */
   batches: OutlineRewriteBatch[];
 }
 
-/**
- * 分段：已写的那一截与没写的那一截各自按 {@link OUTLINE_BATCH} 章切，段不跨这条线——
- * 一段里不会一半照正文整理、一半重新规划。纯函数。
- */
+/** 分段：还没写正文的那一截（第 through+1 章到第 end 章）按 {@link OUTLINE_BATCH} 章切。纯函数。 */
 export function planOutlineRewrite(end: number, through: number): OutlineRewritePlan {
   const batches: OutlineRewriteBatch[] = [];
   const cut = Math.min(Math.max(through, 0), end);
-  for (let from = 1; from <= cut; from += OUTLINE_BATCH) {
-    batches.push({ from, to: Math.min(cut, from + OUTLINE_BATCH - 1), derive: true });
-  }
   for (let from = cut + 1; from <= end; from += OUTLINE_BATCH) {
-    batches.push({ from, to: Math.min(end, from + OUTLINE_BATCH - 1), derive: false });
+    batches.push({ from, to: Math.min(end, from + OUTLINE_BATCH - 1) });
   }
   return { end, through: cut, batches };
 }
 
 /**
- * 磁盘上的大纲能不能分段重写：要认得出章标题、能说出覆盖到第几章。没写过的大纲（那是「生成」，
- * 主按钮管）与认不出章标题的大纲（旧格式的区间分节、散文式）返回 undefined，调用方退回整篇一次重写。
+ * 大纲能不能分段重写：要有条目、能说出覆盖到第几章。还没有大纲（那是「生成」，主按钮管）返回 undefined，
+ * 调用方退回整篇一次生成。排到的章都写过了，`batches` 是空的（调用方说一声，不调模型）。
  */
 export async function outlineRewritePlan(project: NovelProject): Promise<OutlineRewritePlan | undefined> {
   const end = outlineCoverage(await project.readOutline());
@@ -74,19 +66,12 @@ export async function outlineRewritePlan(project: NovelProject): Promise<Outline
   return planOutlineRewrite(end, nextWritableChapterNo(await project.listChapters()) - 1);
 }
 
-/** 问要求那一框里的说明：分几段、各怎么写、调几次（第 4 条：动手之前写明次数）。 */
+/** 问要求那一框里的说明：分几段、调几次（第 4 条：动手之前写明次数）。 */
 export function describeOutlineRewrite(plan: OutlineRewritePlan): string {
-  const parts: string[] = [];
-  const derived = plan.batches.filter((b) => b.derive);
-  const planned = plan.batches.filter((b) => !b.derive);
-  if (derived.length > 0) {
-    parts.push(`${span(1, plan.through)}已经写成，照各章定稿过的细纲整理`);
-  }
-  if (planned.length > 0) {
-    parts.push(`${span(planned[0].from, plan.end)}照架构重新规划`);
-  }
+  const from = plan.batches[0]?.from ?? plan.through + 1;
+  const kept = plan.through > 0 ? `${span(1, plan.through)}已经写了正文，那几条由定稿照正文写，不动。` : '';
   return (
-    `按 ${OUTLINE_BATCH} 章一段重写${span(1, plan.end)}，调用 ${plan.batches.length} 次模型：${parts.join('，')}。` +
+    `按 ${OUTLINE_BATCH} 章一段重写${span(from, plan.end)}，调用 ${plan.batches.length} 次模型。${kept}` +
     '这句要求每一段都带；留空就照上游重来一遍。全部写完后先让你对比再写入。'
   );
 }
@@ -99,7 +84,7 @@ export async function rewriteOutline(project: NovelProject, plan: OutlineRewrite
     log.error('没有可用的模型，重写情节大纲中止');
     return 0;
   }
-  log.info(`重写情节大纲${span(1, plan.end)}，${plan.batches.length} 段`, describeTaskModels(config, 'plotOutline'));
+  log.info(`重写情节大纲${span(plan.batches[0]?.from ?? 1, plan.end)}，${plan.batches.length} 段`, describeTaskModels(config, 'plotOutline'));
   let calls = 0;
   await runTask(
     '重写情节大纲',
@@ -117,7 +102,7 @@ export async function rewriteOutline(project: NovelProject, plan: OutlineRewrite
           range,
           ask,
           outlineDraft: draft,
-          ...(batch.derive ? { derive: { through: plan.through } } : {}),
+          outlineRewriteFrom: plan.batches[0].from,
         };
         const io = poolIO(project, pool, config, signal, request);
         try {
@@ -153,7 +138,7 @@ export async function rewriteOutline(project: NovelProject, plan: OutlineRewrite
         getHost().toast(`${halt}，大纲没有改动。`, 'error');
         return;
       }
-      const rewritten = span(1, plan.batches[done - 1].to);
+      const rewritten = span(plan.batches[0].from, plan.batches[done - 1].to);
       const r = await acceptArtifact(project, { kind: 'outline' }, { kind: 'outlineDoc', text: draft });
       if (r.skipped) {
         getHost().toast(`重写的大纲没有写入（调用 ${calls} 次）。`);
@@ -163,7 +148,7 @@ export async function rewriteOutline(project: NovelProject, plan: OutlineRewrite
         getHost().toast(`已重写${rewritten}的大纲，后面的保留旧版。${halt}。`, 'error');
         return;
       }
-      getHost().toast(`情节大纲${span(1, plan.end)}已重写（调用 ${calls} 次）。`);
+      getHost().toast(`情节大纲${span(plan.batches[0].from, plan.end)}已重写（调用 ${calls} 次）。`);
     },
     { scope: '重写大纲' }
   );

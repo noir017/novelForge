@@ -6,7 +6,7 @@
 export const MCP_INSTRUCTIONS = [
   'Novel Forge 是作者本人的小说创作工具。这几个工具读写的是他此刻在 Novel Forge 里打开的那个小说工程。',
   '',
-  '- 工程就是一堆 Markdown：.novelforge/ 下是架构（config.md / premise.md / world.md）、情节大纲（outline.md）、' +
+  '- 工程就是一堆 Markdown：.novelforge/ 下是架构（config.md / premise.md / world.md）、情节大纲（outline.md——磁盘上没有这份文件，它是各章细纲「梗概」的汇总，读写照样认这个路径，写回时按章号拆进各章细纲）、' +
     '细纲（summaries/ 下，一章一份，与正文同样的相对路径，如 summaries/上部/003-夜访.md；定稿会照正文改它）；正文在 chapters/（可以分子目录）。先 list / read / search 看清楚再动手。',
   '- 要产出内容用 generate：它在 Novel Forge 内部按分阶段装配好的上下文调创作模型。正文直接流给作者看，**不会回到你这里**；' +
     '作者在 Novel Forge 界面上点头才落盘，结论写在返回里。不要自己拼一份内容用 write 代替 generate——创作质量来自那一层的装配。',

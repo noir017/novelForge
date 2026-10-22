@@ -21,7 +21,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -313,7 +313,7 @@ describe('细纲批次 · 截断对半拆', () => {
 
   before(async () => {
     t.write('.novelforge/config.md', CONFIG);
-    t.write('.novelforge/outline.md', OUTLINE);
+    writeOutline(t, OUTLINE);
     project.invalidate();
     fake.reset([
       { text: batchOf(bp(1), bp(2)), stop: 'maxTokens' },
@@ -345,9 +345,11 @@ describe('细纲批次 · 截断对半拆', () => {
 
   // 关键事件、看点都是一条一句的列表，落盘成 `- 一条` 一行，与定稿写出来的样子一致。
   test('五份细纲都落盘：标题进文件名，目标字数取配置的每章字数', async () => {
-    const plots = await project.listPlots();
+    // 第 6–20 章只有梗概（大纲排到了、细纲还没拆）：看排过的那几份。
+    const plots = (await project.listPlots()).filter((p) => p.sections.关键事件.trim());
     assert.deepEqual(plots.map((p) => p.no), [1, 2, 3, 4, 5]);
-    assert.equal(plots[0].relPath, '.novelforge/summaries/001-第1章题.md');
+    // 标题取大纲里那一条的（空壳上已经有了），不换成模型起的。
+    assert.equal(plots[0].relPath, '.novelforge/summaries/001-入局.md');
     assert.ok(plots.every((p) => p.targetWords === 400), JSON.stringify(plots.map((p) => p.targetWords)));
     assert.equal(plots[2].sections.看点, '- 第 3 章的钩子');
     assert.equal(plots[2].sections.关键事件, '- 第 3 章的关键事件：林昭在山门外踩点。\n- 他翻墙进了后院，落在藏书阁门口。');

@@ -85,5 +85,5 @@ export async function bookReplace(c: ChatController, requestId: string, request:
 }
 
 function failed(error: string): BookReplaceSummary {
-  return { files: 0, hits: 0, replaced: [], skipped: [], chainKept: [], plotOnly: [], bodyOnly: [], outlineOnly: [], renamedCards: [], error };
+  return { files: 0, hits: 0, replaced: [], skipped: [], chainKept: [], plotOnly: [], bodyOnly: [], renamedCards: [], error };
 }

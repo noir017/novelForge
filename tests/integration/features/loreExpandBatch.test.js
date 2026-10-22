@@ -20,7 +20,7 @@ const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
 const { installFakeProvider } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
-const { outlineOf } = require('../../helpers/outline');
+const { outlineOf, writeOutline } = require('../../helpers/outline');
 
 let bundle;
 let h;
@@ -476,7 +476,7 @@ describe('拆完展开本批新设定', () => {
     t = await makeTempProject(bundle.project, { prefix: 'loreBatchPlots', title: '鬼市' });
     project = t.project;
     t.write('.novelforge/config.md', '---\ntotalChapters: 2\nwordsPerChapter: 400\n---\n\n# 小说配置\n\n## 核心梗概\n\n林昭查旧案。\n');
-    t.write('.novelforge/outline.md', OUTLINE);
+    writeOutline(t, OUTLINE);
     project.invalidate();
   });
   after(() => cleanup(t.dir, bundle.db));

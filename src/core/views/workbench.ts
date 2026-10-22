@@ -18,11 +18,10 @@
 import { scoped } from '../runtime/logger';
 import { basename } from 'node:path';
 import { NovelProject } from '../model/project';
-import { PLOT_SECTION_KEYS, parsePlotFileName, plotContentHash } from '../model/plotFile';
+import { PLOT_SECTION_KEYS, isPlotUpstreamStale, parsePlotFileName, plotContentHash } from '../model/plotFile';
 import { SETTING_SECTION_KEYS } from '../model/settingFile';
 import { hasContent, pickSections } from '../model/markdown';
 import { LORE_BODY_KEYS, LORE_HIDDEN_KEY, loreThin, splitLoreHidden } from '../model/loreFile';
-import { isOutlineUpstreamStale } from '../model/outlineFile';
 import {
   CreationTarget,
   SETTING_DOC_LABEL,
@@ -167,7 +166,6 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       };
     }
     const sections = sectionsOf(plot.sections, PLOT_SECTION_KEYS);
-    const outline = await project.readOutline();
     return {
       stage: 'plot',
       title: `细纲 · ${head}`,
@@ -176,8 +174,8 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       sections,
       // 上游变更在这里是一句人话，不只是流水线条上那个 ⟳。作者正在看这一章，
       // 此刻正是告诉他「它依据的大纲已经改了」最有用的时机。
-      warning: isOutlineUpstreamStale(plot.upstreamHash, outline, plot.no)
-        ? '情节大纲里这一章那一条在细纲之后改过，两者可能已经对不上。'
+      warning: isPlotUpstreamStale(plot)
+        ? '梗概（情节大纲里这一章那一条）在细纲排好之后改过，下面几节可能已经对不上。'
         : undefined,
       // 「文件在但一节都没填」与「文件不在」对作者是同一件事：这一层还没做。
       empty: sections.length > 0 ? undefined : '这一章还没排细纲。',
