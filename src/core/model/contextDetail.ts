@@ -33,7 +33,7 @@ export type ContextDetail = 1 | 2 | 3 | 4;
 
 export const CONTEXT_DETAILS: ContextDetail[] = [1, 2, 3, 4];
 
-/** 缺省「详细」：升级后除了更早章细纲封顶，别的一样不变。 */
+/** 缺省「详细」：逐项等于这个开关出现之前的行为。 */
 export const DEFAULT_CONTEXT_DETAIL: ContextDetail = 3;
 
 /** 下拉框、装配清单与日志共用这一份说法，前端不另写。 */
@@ -45,10 +45,10 @@ export const CONTEXT_DETAIL_LABEL: Record<ContextDetail, string> = {
 };
 
 export const CONTEXT_DETAIL_HINT: Record<ContextDetail, string> = {
-  1: '只带写这一章必需的，最省 token；长篇前情主要靠全文大纲',
+  1: '只带写这一章必需的，最省 token；规划时一章一行只列最近 30 章，更早的靠全文大纲',
   2: '近一章全文、少量定稿原文片段，日常够用',
-  3: '近两章全文、定稿原文片段、最近 60 章细纲（缺省）',
-  4: '近三章全文、更多片段，细纲不封顶，窗口能装多少装多少',
+  3: '近两章全文、定稿原文片段；规划时一章一行列最近 100 章（缺省）',
+  4: '近三章全文、更多片段；规划时一章一行不封顶，窗口能装多少装多少',
 };
 
 /**
@@ -85,7 +85,10 @@ export interface ContextLimits {
   readonly plotForeshadowCount: number;
   /** 拆细纲时线、伏笔各一共多少字（只算各行；两样各按这个数封顶）。 */
   readonly plotThreadChars: number;
-  /** 细纲阶段的前序细纲一览最多几章（`plotList`）。 */
+  /**
+   * 规划时一章一行最多带几章：细纲阶段的前序细纲一览（`plotList`），大纲阶段只带第一行的那一段（`outlineDoc`
+   * 的中段）。更早的不逐章列，交给全文大纲（2026-10-22）。
+   */
   readonly plotListMax: number;
   /** 细纲单章与写正文：带前几章的细纲（`plotPrev`）。写正文时这就是全部的前几章细纲，更早的不带。 */
   readonly prevPlots: number;
@@ -122,8 +125,8 @@ export interface ContextLimits {
 }
 
 /**
- * 每一级的上限。第 3 级逐项等于从前写死的常量，只多两样：细纲封顶 60 章；设定从前命中就整条塞、
- * 不排序不封顶，几百条的书会把窗口填满，现在按 `lore*` 四项封顶（设定名录，2026-10-18）。
+ * 每一级的上限。第 3 级逐项等于从前写死的常量，只多一样：设定从前命中就整条塞、不排序不封顶，几百条的书
+ * 会把窗口填满，现在按 `lore*` 四项封顶（设定名录，2026-10-18）。
  */
 export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits>> = Object.freeze({
   1: Object.freeze({
@@ -297,6 +300,7 @@ export function describeContextDetail(detail: ContextDetail): string {
     `近章全文 ${n(l.fullTextChapters, '章')}`,
     `上一章结尾 ${n(l.prevTailChars, '字')}`,
     `前几章细纲 ${n(l.prevPlots, '章')}`,
+    `规划时一章一行 ${n(l.plotListMax, '章')}`,
     `定稿原文片段 ${l.evidenceChapters <= 0 ? '不带' : `${l.evidenceChapters} 章内 ${l.evidenceChars} 字`}`,
     `叙事线 ${l.threadCount} 条`,
     `对话历史 ${Math.round(l.historyCap * 100)}%`,

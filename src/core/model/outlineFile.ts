@@ -17,7 +17,8 @@
  * 从前按「第 a–b 章」分节，一节 3–5 章拼成一段叙述式的摘要。章与章的分界留给细纲去猜，
  * 摘要腔顺着大纲 → 细纲 → 正文一路往下传；续写时整份大纲进一次对话，越写越胖。一章一条之后：
  *
- * 1. **按远近带**（{@link outlineWindow}）：最近 10 章带整条，更早的只带第一行，一百章也就几千字。
+ * 1. **按远近带**（{@link outlineWindow}）：最近 10 章带整条，再往前一章只带第一行、最多几章随上下文详细度，更早的
+ *    交给全文大纲——写到几百章也不随章数涨。
  * 2. **续写大纲**：总章数超过 20 时一次写 20 章，细纲快追上时再续——判「追上没有」要知道覆盖到了第几章。
  * 3. **续写的那一段按章号合并**（{@link mergeOutline}）：写第 21–40 章不该把作者手改过的前 20 章整份替换掉。
  *
@@ -27,6 +28,7 @@
  * 要做中文数字解析，而提示词一律要求阿拉伯数字。**区间标题（`第1–4章`、`第1章-第4章`）不认**——旧格式
  * 不兼容：它结束上一条，自己那一节被忽略。
  */
+import { takeLast } from './contextDetail';
 import { hasContent } from './markdown';
 import { Plot, isPlotStub, normalizeSynopsis } from './plotFile';
 
@@ -199,26 +201,35 @@ export function outlineBriefs(text: string): string {
     .join('\n');
 }
 
+/** 「后面已经排好的」那一段的开头。 */
+const LATER_LEAD = '后面已经排好的（只列第一行）：';
+
 export interface OutlineWindow {
-  text: string;
-  /** 带整条的章号，升序。 */
-  full: number[];
-  /** 只带第一行的章号，升序。 */
-  brief: number[];
+  /** 近段：带整条的，升序。 */
+  near: OutlineEntry[];
+  /** 中段：近段之前只带第一行的，升序，已按 `maxBefore` 封顶。 */
+  before: OutlineEntry[];
+  /** 远段：封顶之外更早的章号，升序。不逐章列，前情交给全文大纲。 */
+  folded: number[];
+  /** 区间之后已有的（`after` 时），升序，只带第一行。 */
+  later: OutlineEntry[];
 }
 
 /**
- * 按远近带大纲：离这一次要写的地方最近的 {@link OUTLINE_NEAR} 章带整条，更早的只带第一行。
+ * 按远近带大纲，分三段（docs/design/plans/2026-10-22-planning-context-bands.md）：离这一次要写的地方最近的
+ * {@link OUTLINE_NEAR} 章带整条（近段），再往前最多 `maxBefore` 章只带第一行（中段），更早的不逐章列（远段，
+ * 交给全文大纲）。从前更早的一章不落地全列，写到几百章光这一行一行就能把窗口撑满。
  *
- * - 给了区间 [from, to]：第 from−10 章到第 to 章带整条，更早的只带第一行；`after` 为真时 to 之后已有的
- *   也只带第一行（续写、重写大纲：后面已经排好的要接得上），否则不带（拆细纲：后面的事别提前写掉）。
- * - 没给区间（对话页讨论大纲）：最后 10 条带整条，更早的只带第一行。
+ * - 给了区间 [from, to]：第 from−10 章到第 to 章是近段；`after` 为真时 to 之后已有的也只带第一行（续写、
+ *   重写大纲：后面已经排好的要接得上）。
+ * - 没给区间（对话页讨论大纲）：最后 10 条是近段。
+ * - `maxBefore` 缺省不限；`Infinity` 也是不限，0 是中段一章都不带。
  *
  * 一条都认不出返回 undefined。
  */
 export function outlineWindow(
   text: string,
-  opts: { range?: { from: number; to: number }; after?: boolean } = {}
+  opts: { range?: { from: number; to: number }; after?: boolean; maxBefore?: number } = {}
 ): OutlineWindow | undefined {
   const entries = entriesByNo(text);
   if (entries.length === 0) {
@@ -228,19 +239,40 @@ export function outlineWindow(
   const lastNo = entries[entries.length - 1].no;
   const nearFrom = range ? range.from - OUTLINE_NEAR : entries[Math.max(0, entries.length - OUTLINE_NEAR)].no;
   const nearTo = range ? range.to : lastNo;
-  const before = entries.filter((e) => e.no < nearFrom);
-  const near = entries.filter((e) => e.no >= nearFrom && e.no <= nearTo);
-  const later = opts.after ? entries.filter((e) => e.no > nearTo) : [];
-  const parts = [
-    before.map((e) => `- ${outlineBrief(e)}`).join('\n'),
-    near.map(renderOutlineEntry).join('\n\n'),
-    later.length > 0 ? `后面已经排好的（只列第一行）：\n${later.map((e) => `- ${outlineBrief(e)}`).join('\n')}` : '',
-  ].filter(Boolean);
+  const earlier = entries.filter((e) => e.no < nearFrom);
+  const before = takeLast(earlier, opts.maxBefore ?? Infinity);
   return {
-    text: parts.join('\n\n'),
-    full: near.map((e) => e.no),
-    brief: [...before, ...later].map((e) => e.no),
+    near: entries.filter((e) => e.no >= nearFrom && e.no <= nearTo),
+    before,
+    folded: earlier.slice(0, earlier.length - before.length).map((e) => e.no),
+    later: opts.after ? entries.filter((e) => e.no > nearTo) : [],
   };
+}
+
+/** 拼成一段：中段一章一行 → 近段整条 → 「后面已经排好的」一章一行。哪一段空着就不出。 */
+export function renderOutlineWindow(win: Pick<OutlineWindow, 'before' | 'near' | 'later'>): string {
+  return [
+    win.before.map((e) => `- ${outlineBrief(e)}`).join('\n'),
+    win.near.map(renderOutlineEntry).join('\n\n'),
+    win.later.length > 0 ? `${LATER_LEAD}\n${win.later.map((e) => `- ${outlineBrief(e)}`).join('\n')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/**
+ * 拆细纲时大纲带哪几条：**这一次要拆的**——区间里的（空壳上的梗概就是这一次的上游），外加区间前面还没拆的空壳
+ * （`stubs`：没有关键事件，前序细纲一览不列它们）。已经拆过的章由前序细纲一览与前几章细纲带，同一份细纲不带两遍；
+ * 区间之后的不带（后面的事别提前写掉）。`skip`：单章时这一章的梗概已经在本章细纲里。升序。
+ */
+export function outlineToSplit(
+  text: string,
+  range: { from: number; to: number },
+  opts: { stubs: ReadonlySet<number>; skip?: number }
+): OutlineEntry[] {
+  return entriesByNo(text).filter(
+    (e) => e.no !== opts.skip && ((e.no >= range.from && e.no <= range.to) || (e.no < range.from && opts.stubs.has(e.no)))
+  );
 }
 
 // ---------------------------------------------------------------- 按章号合并

@@ -110,11 +110,14 @@ export type LayerId =
   | 'premiseWorld'
   /** 角色图谱一览：全部角色卡压成一人一段（名字、定位、身份、人物关系）。 */
   | 'rosterDoc'
-  /** 情节大纲，按远近带：最近 10 章整条，更早的只带第一行（model/outlineFile.ts 的 `outlineWindow`）。 */
+  /**
+   * 情节大纲。大纲阶段按远近带分三段：最近 10 章整条，再往前一章一行（最多 `plotListMax` 章），更早的看全文大纲；
+   * 细纲阶段只带这一次要拆的（model/outlineFile.ts 的 `outlineWindow` / `outlineToSplit`）。
+   */
   | 'outlineDoc'
   /** 故事结构指导（model/structureGuide.ts）。 */
   | 'structure'
-  /** 前序细纲一览（最近 100 章，一章一行）。 */
+  /** 前序细纲一览（一章一行，最多 `plotListMax` 章，缺省 100）。 */
   | 'plotList'
   | 'plotSelf'
   /** 前几章的细纲原文（上文）。 */

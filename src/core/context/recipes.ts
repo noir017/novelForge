@@ -88,7 +88,9 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // ★ `structure` P0 force：大纲按总章数排结构拐点，没有章号区间，模型会按它熟悉的
   //   篇幅去排，写出来与总章数对不上。
   // ★ 现有大纲 P0 force：续写第 21–40 章时它就是「已完成的前缀」，少了它续出来的
-  //   是另一本书。按远近带：最近 10 章整条，更早的只带第一行（layers/artifacts.ts 的 `outlineDoc`）。
+  //   是另一本书。按远近带分三段：最近 10 章整条（强制），再往前一章一行、最多 `plotListMax` 章（不强制），
+  //   更早的交给全文大纲（layers/artifacts.ts 的 `outlineDoc`，2026-10-22）。
+  // ★ `globalSummary` P1（从前 P2）：远段不再逐章列，前情靠它接住，不能比角色卡先被挤掉。
   outline: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
@@ -99,28 +101,30 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'outlineDoc', priority: 0, force: true },
     { layer: 'skill', priority: 0 },
     { layer: 'history', priority: 1 },
+    { layer: 'globalSummary', priority: 1 },
     { layer: 'characters', priority: 1 },
-    { layer: 'globalSummary', priority: 2 },
     { layer: 'lore', priority: 2 },
   ],
 
   // ---------------------------------------------------------------- 细纲
-  // 剧情编剧要看：设定四件、大纲里这几章与前 10 章的条目（更早的只带第一行）、前面排到哪（前序细纲一览）、
+  // 剧情编剧要看：设定四件、大纲里这一次要拆的那几条、前面排到哪（前序细纲一览，更早的看全文大纲）、
   // 后面已经排好了什么。**不看正文原文**：排细纲要的是走向，不是措辞。
   //
   // 单章与批次共用这一张：`plotSelf` / `plotPrev` 只在单章时出场，批次时由
   // `plotList` 全包（见 layers/artifacts.ts）。更早几章不另带一份：
-  // 细纲与定稿是同一份文件，`plotPrev` 与 `plotList` 已经带了，同一份不带两遍。
+  // 细纲与定稿是同一份文件，`plotPrev` 与 `plotList` 已经带了，同一份不带两遍——大纲也一样，
+  // 已经拆过的章它不再带梗概（2026-10-22）。
   //
-  // ★ `outlineDoc` P0 force：细纲是从大纲里拆出来的，少了这几章的条目就是凭空编。按远近带，
-  //   这几章之后的不带（layers/artifacts.ts）。
+  // ★ `outlineDoc` P0 force：细纲是从大纲里拆出来的，少了这几章的条目就是凭空编。只带这一次要拆的——批次那几条与
+  //   区间前还没拆的空壳（单章时这一章的梗概在本章细纲里），这几章之后的不带（layers/artifacts.ts）。
   // ★ `plotNext` 少了它，改中间某一章时模型不知道后面已经排好了什么，收尾会与
   //   下一章的开头撞车或断裂——「转折突兀」多半出在这里。
-  // ★ `recentFacts` P1：已定稿各章的连续性事实是既成历史。全文大纲排在 P2，预算紧时先被挤掉，
+  // ★ `recentFacts` P1：已定稿各章的连续性事实是既成历史。全文大纲排在它后面，预算紧时先被挤掉，
   //   细纲就会排出与正文矛盾的事（死了的人再出场、已经炸掉的大阵再炸一次）。
   // ★ `threads` P1、紧跟 `recentFacts`（叙事线二期）：细纲照着线排——没收束的线现在走到哪、这一批（这一章）里该收的
   //   伏笔、原来的计划（重拆时）。少了它，回收全靠运气；计划写进线里（细纲合同的 `threads` 字段）也无从写起。
   //   按区间挑（`focus.range`），线与伏笔各自按上下文详细度封顶（layers/background.ts 的 `admitPlotThreads`）。
+  // ★ `globalSummary` P1（从前 P2）：前序细纲一览只列最近 `plotListMax` 章，更早的前情靠它。
   plot: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
@@ -136,8 +140,8 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
     { layer: 'plotNext', priority: 1 },
     { layer: 'recentFacts', priority: 1 },
     { layer: 'threads', priority: 1 },
+    { layer: 'globalSummary', priority: 1 },
     { layer: 'structure', priority: 1 },
-    { layer: 'globalSummary', priority: 2 },
     { layer: 'characters', priority: 2 },
     // 设定名录（2026-10-18）：从 P3 提到 P2——排细纲时最该知道已有哪些地点、势力、物品，
     // 不然新的一章会另起一个名字。几百条也不怕：lore 层按上下文详细度封顶，其余只列一句话。

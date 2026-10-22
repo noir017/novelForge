@@ -1,6 +1,13 @@
 import { CONTEXT_DETAIL_LABEL, takeLast } from '../../model/contextDetail';
 import { plotLabel } from '../../model/pipeline';
-import { outlineWindow } from '../../model/outlineFile';
+import {
+  OutlineEntry,
+  outlineBrief,
+  outlineToSplit,
+  outlineWindow,
+  renderOutlineEntry,
+  renderOutlineWindow,
+} from '../../model/outlineFile';
 import { isPlotFilled, sectionLine } from '../../model/plotFile';
 import {
   PLOT_STRUCTURE_LABEL,
@@ -11,13 +18,14 @@ import {
 } from '../../model/settingFile';
 import { structureGuideText } from '../../model/structureGuide';
 import { hasContent, stringifySections } from '../../model/markdown';
+import { estimateTokens } from '../tokenizer';
 import type { LayerSpec } from '../types';
 import type { Assembly, LayerFn } from './assembly';
 import { clipLine, isPlaceholder, renderPlot, renderPlotBrief, renderRosterLine } from './render';
 
 /*
  * 前序细纲一览最多带几章：按上下文详细度（`plotListMax`），缺省 100——上游
- * `chapter_blueprint_chunk` 的「最近 100 章」。
+ * `chapter_blueprint_chunk` 的「最近 100 章」。大纲阶段只带第一行的那一段也按它封顶，更早的看全文大纲。
  */
 
 /** 批次模式下，一览里最后几章写得详细些（带看点）——下一批要紧接着它们往下排。 */
@@ -28,11 +36,12 @@ function span(from: number, to: number): string {
 }
 
 /**
- * 情节大纲，按远近带（model/outlineFile.ts 的 `outlineWindow`）：离这一次要写的地方最近的 10 章带整条，
- * 更早的只带第一行——整份塞进去，续写到后面每一次都在为前面几十章付钱，还会被那一大片概要带着走。
+ * 情节大纲，按远近带分三段（model/outlineFile.ts 的 `outlineWindow`，docs/design/plans/2026-10-22-planning-context-bands.md）：
+ * 离这一次要写的地方最近的 10 章带整条（强制），再往前最多 `plotListMax` 章只带第一行（不强制，放不下从最老的丢起），
+ * 更早的交给全文大纲——从前更早的一章不落地全列、还强制带，写到七八百章光这一层就能把窗口撑满。
  *
- * - 大纲阶段（续写、重写、讨论）：区间之后已经排好的也只带第一行，接得上。
- * - 细纲阶段：区间（单章就是这一章）之后的不带——排第 6–10 章用不着第 60 章，带了会被提前写掉。
+ * - 大纲阶段（续写、重写、讨论）：区间之后已经排好的也只带第一行，接得上（不强制，放不下从最远的丢起）。
+ * - 细纲阶段：只带这一次要拆的（{@link outlineToSplitDoc}）。
  *
  * 一条章标题都认不出（旧格式的区间分节、散文式大纲）就不带，在明细里说清（第 2 条）。
  */
@@ -45,13 +54,17 @@ export const outlineDoc: LayerFn = async (a, spec) => {
   const range = a.request.range ?? (Number.isFinite(no) ? { from: no, to: no } : undefined);
   const planning = a.request.action.stage === 'outline';
   const source = a.project.relPath(a.project.outlinePath);
-  const win = outlineWindow(outline, { range, after: planning });
+  const win = outlineWindow(outline, { range, after: planning, maxBefore: a.limits.plotListMax });
   if (!win) {
     a.reject(
       { id: 'outlineDoc', kind: 'outlineDoc', priority: spec.priority, label: '情节大纲', source, text: '' },
       'dropped',
       '认不出「## 第N章：标题」这样的章标题（区间分节是旧格式，不认），重写大纲之后才带'
     );
+    return;
+  }
+  if (!planning && range) {
+    await outlineToSplitDoc(a, spec, outline, range, source);
     return;
   }
   // 分段重写：说清哪几章是这次刚写的新版、哪几章是待重写的旧版，免得模型照抄旧版。
@@ -62,24 +75,104 @@ export const outlineDoc: LayerFn = async (a, spec) => {
 
 `
     : '';
+  // 近段强制；中段由近及远、区间之后由近及远，各自放到预算用完为止（只算一行一行，段落开头与空行忽略不计）。
+  let room = a.remaining - estimateTokens(`${lead}${renderOutlineWindow({ before: [], near: win.near, later: [] })}`);
+  const fit = (list: OutlineEntry[]): OutlineEntry[] => {
+    const kept: OutlineEntry[] = [];
+    for (const e of list) {
+      const cost = estimateTokens(`- ${outlineBrief(e)}\n`);
+      if (cost > room) {
+        break;
+      }
+      room -= cost;
+      kept.push(e);
+    }
+    return kept;
+  };
+  const before = fit([...win.before].reverse()).reverse();
+  const later = fit(win.later);
+  const cut = [...win.before.slice(0, win.before.length - before.length), ...win.later.slice(later.length)].map((e) => e.no);
+  const brief = [...before, ...later].map((e) => e.no);
   const notes = [
     rewriting ? `分段重写：第 ${range.from} 章以前是新版，以后是旧版` : '',
-    win.brief.length > 0 ? `${spansOf(win.brief)}只带第一行，${win.full.length > 0 ? `${spansOf(win.full)}带整条` : '其余不带'}` : '',
-    !planning && range ? `第 ${range.to} 章以后的不带` : '',
+    brief.length > 0 ? `${spansOf(brief)}只带第一行，${win.near.length > 0 ? `${spansOf(win.near.map((e) => e.no))}带整条` : '其余不带'}` : '',
+    win.folded.length > 0
+      ? await foldedNote(
+          a,
+          `${spansOf(win.folded)}没逐章列（一章一行最多 ${a.limits.plotListMax} 章，上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」）`,
+          win.folded
+        )
+      : '',
+    cut.length > 0 ? `预算不足，${spansOf(cut)}没带` : '',
   ].filter(Boolean);
+  const item = {
+    id: 'outlineDoc',
+    kind: 'outlineDoc' as const,
+    priority: spec.priority,
+    label: rewriting ? '情节大纲（重写中）' : '情节大纲',
+    source,
+    text: `${lead}${renderOutlineWindow({ before, near: win.near, later })}`,
+    note: notes.length > 0 ? notes.join('；') : undefined,
+  };
+  if (cut.length > 0 && !a.excluded.has(item.id)) {
+    a.accept({ ...item, status: 'degraded' }, estimateTokens(item.text));
+    return;
+  }
+  a.admit(item, { force: spec.force });
+};
+
+/**
+ * 拆细纲时的大纲：只带这一次要拆的（`outlineToSplit`）——批次是区间里那几条，外加区间前面还没拆的空壳；单章时这一章的
+ * 梗概已经在本章细纲里，只剩前面的空壳，一条都没有就不出这一层。已经拆过的章前序细纲一览（与单章时的前几章细纲）
+ * 带了，从前这里再带一遍它们的梗概，同一份细纲进了两次。
+ */
+async function outlineToSplitDoc(
+  a: Assembly,
+  spec: LayerSpec,
+  outline: string,
+  range: { from: number; to: number },
+  source: string
+): Promise<void> {
+  const stubs = new Set(a.focus.previous.filter((c) => c.plot && !isPlotFilled(c.plot.sections)).map((c) => c.no));
+  const entries = outlineToSplit(outline, range, { stubs, skip: a.request.range ? undefined : range.from });
+  if (entries.length === 0) {
+    return;
+  }
+  const early = entries.filter((e) => e.no < range.from).map((e) => e.no);
   a.admit(
     {
       id: 'outlineDoc',
       kind: 'outlineDoc',
       priority: spec.priority,
-      label: rewriting ? '情节大纲（重写中）' : '情节大纲',
+      label: '情节大纲',
       source,
-      text: `${lead}${win.text}`,
-      note: notes.length > 0 ? notes.join('；') : undefined,
+      text: entries.map(renderOutlineEntry).join('\n\n'),
+      note: [
+        early.length > 0 ? `${spansOf(early)}还没拆细纲，带梗概` : '',
+        `只带这一次要拆的：已经拆过的章看前序细纲一览，第 ${range.to} 章以后的不带`,
+      ]
+        .filter(Boolean)
+        .join('；'),
     },
     { force: spec.force }
   );
-};
+}
+
+/**
+ * 远段不逐章列、交给全文大纲：`head` 说清按哪一级封的顶，后面接全文大纲接不接得住——没有、或没写到那里时照实说
+ * （第 2 条）。不自动更新全文大纲（第 4 条）。
+ */
+async function foldedNote(a: Assembly, head: string, folded: number[]): Promise<string> {
+  const summary = await a.project.readGlobalSummary();
+  if (!summary.trim() || isPlaceholder(summary)) {
+    return `${head}，还没有全文大纲：${spansOf(folded)}这次没带`;
+  }
+  const upTo = folded[folded.length - 1];
+  const through = (await a.project.readManifest()).globalSummaryThrough ?? 0;
+  return through > 0 && through < upTo
+    ? `${head}，更早的看全文大纲；全文大纲只写到第 ${through} 章：${span(Math.max(through + 1, folded[0]), upTo)}这次没带`
+    : `${head}，更早的看全文大纲`;
+}
 
 /** `[1,2,3,7,8]` → 「第 1–3 章、第 7–8 章」。 */
 function spansOf(nos: number[]): string {
@@ -221,6 +314,8 @@ export const structure: LayerFn = async (a, spec) => {
  * - **批次**时 `plotPrev` 不出场，这里全包：更早的一章一行，最后几章带上看点（爽点与章末
  *   吊着读者的东西）——下一批要紧接着它们往下排。生成链里刚排好、还没落盘的那几章（`draftPlots`，
  *   拆半重试时的前一半）接在最后。
+ * - 最多 `plotListMax` 章，更早的看全文大纲（明细里说清它写到哪）；预算不够时从最老的丢起，不整份丢
+ *   （第 4 级不封顶，几百章的书照样带得出最近那一截）。
  */
 export const plotList: LayerFn = async (a, spec) => {
   const batch = !!a.request.range;
@@ -235,7 +330,8 @@ export const plotList: LayerFn = async (a, spec) => {
       draft: false,
     }));
   const drafts = (a.request.draftPlots ?? []).map((d) => ({ ...d, draft: true }));
-  const rows = takeLast([...disk, ...drafts], a.limits.plotListMax);
+  const all = [...disk, ...drafts];
+  const rows = takeLast(all, a.limits.plotListMax);
   if (rows.length === 0) {
     return;
   }
@@ -249,20 +345,43 @@ export const plotList: LayerFn = async (a, spec) => {
       ? `${head}：${clipLine(events, 400)}${highlights ? `｜看点：${clipLine(highlights, 120)}` : ''}`
       : `${head}：${clipLine(events, 120)}`;
   });
-  a.admit(
-    {
-      id: 'plotList',
-      kind: 'plotList',
-      priority: spec.priority,
-      label: `前序细纲一览（${rows.length} 章）`,
-      text: lines.join('\n'),
-      note:
-        disk.length + drafts.length > rows.length
-          ? `只带最近 ${a.limits.plotListMax} 章（上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」）`
-          : undefined,
-    },
-    { force: spec.force }
-  );
+  // 由近及远放到预算用完为止；强制带时整份带。
+  let kept = rows.length;
+  if (!spec.force) {
+    let room = a.remaining;
+    kept = 0;
+    while (kept < lines.length) {
+      const cost = estimateTokens(`${lines[lines.length - 1 - kept]}\n`);
+      if (cost > room) {
+        break;
+      }
+      room -= cost;
+      kept++;
+    }
+  }
+  // 一行都放不下：整份交给 admit 判 dropped，写明需要多少、剩多少。
+  const trimmed = kept > 0 && kept < rows.length;
+  const shown = trimmed ? rows.slice(rows.length - kept) : rows;
+  const folded = all.slice(0, all.length - rows.length).map((r) => r.no);
+  const notes = [
+    folded.length > 0
+      ? await foldedNote(a, `只带最近 ${a.limits.plotListMax} 章（上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」）`, folded)
+      : '',
+    trimmed ? `预算不足，${spansOf(rows.slice(0, rows.length - kept).map((r) => r.no))}没带` : '',
+  ].filter(Boolean);
+  const item = {
+    id: 'plotList',
+    kind: 'plotList' as const,
+    priority: spec.priority,
+    label: `前序细纲一览（${shown.length} 章）`,
+    text: lines.slice(lines.length - shown.length).join('\n'),
+    note: notes.length > 0 ? notes.join('；') : undefined,
+  };
+  if (trimmed && !a.excluded.has(item.id)) {
+    a.accept({ ...item, status: 'degraded' }, estimateTokens(item.text));
+    return;
+  }
+  a.admit(item, { force: spec.force });
 };
 
 export const plotSelf: LayerFn = async (a, spec) => {

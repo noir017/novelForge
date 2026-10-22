@@ -2,7 +2,7 @@
  * 上下文详细度（model/contextDetail.ts）的级别表，以及 config.ts 怎么读写它。
  *
  * 几条硬约束在这里钉住：
- * - **第 3 级逐项等于从前写死的常量**（外加摘要封顶 60 章）——缺省是它，升级不该改别的；
+ * - **第 3 级逐项等于从前写死的常量**——缺省是它，升级不该改别的；
  * - **级别越高，每一项都不少**（只有「角色卡只带要点」反过来）：表里填错一格，开关就不再单调；
  * - **认不出的值回落第 3 级**，不抛；
  * - **旧的两个键不再读**，下一次保存时从文件里清掉。
@@ -120,7 +120,16 @@ describe('model/contextDetail · 容错与解析', () => {
     assert.match(m.describeContextDetail(1), /定稿原文片段 不带/);
     assert.match(m.describeContextDetail(1), /角色卡只带要点/);
     assert.match(m.describeContextDetail(1), /前几章细纲 1 章/);
+    assert.match(m.describeContextDetail(3), /规划时一章一行 100 章/);
+    assert.match(m.describeContextDetail(4), /规划时一章一行 不限/);
     assert.doesNotMatch(m.describeContextDetail(4), /Infinity/);
+  });
+
+  // 2026-10-21 起写正文、写大纲都不带更早几十章的细纲：设置页的说明不能再说「最近 60 章细纲」。
+  test('设置页的说明不提已经删掉的细纲封顶', () => {
+    for (const d of m.CONTEXT_DETAILS) {
+      assert.doesNotMatch(m.CONTEXT_DETAIL_HINT[d], /60 章|细纲不封顶/);
+    }
   });
 });
 

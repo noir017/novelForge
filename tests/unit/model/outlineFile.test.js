@@ -2,7 +2,7 @@
  * 情节大纲一章一条（model/outlineFile.ts，docs/design/plans/2026-10-21-outline-per-chapter.md）。
  *
  * 几处要用它：续写大纲时判「覆盖到第几章」、细纲按「这一章那一条」记上游指纹、装配时按远近带
- * （最近 10 章整条，更早的只带第一行）、续写的那一段落盘时按章号合并。区间标题（旧格式）不认。
+ * （最近 10 章整条，再往前一章一行、最多 N 章，更早的交给全文大纲；拆细纲只带要拆的）、续写的那一段落盘时按章号合并。区间标题（旧格式）不认。
  * 解析一律不抛（第 1 条）。
  */
 const { describe, test, before } = require('node:test');
@@ -151,47 +151,84 @@ describe('outlineBrief', () => {
 });
 
 describe('outlineWindow · 按远近带', () => {
+  const nos = (list) => list.map((e) => e.no);
+  const seq = (from, n) => Array.from({ length: n }, (_, i) => from + i);
+  const render = (w) => O.renderOutlineWindow(w);
+
   test('一条都认不出：undefined', () => {
     assert.equal(O.outlineWindow('## 第1–20章：旧\n旧的事。', { range: { from: 21, to: 40 } }), undefined);
   });
 
   test('续写第 31–40 章：第 21–30 章整条，第 1–20 章只带第一行', () => {
     const w = O.outlineWindow(entries(30), { range: { from: 31, to: 40 }, after: true });
-    assert.deepEqual(w.full, Array.from({ length: 10 }, (_, i) => 21 + i));
-    assert.deepEqual(w.brief, Array.from({ length: 20 }, (_, i) => 1 + i));
-    assert.ok(w.text.includes('- 第1章 标题1：第1章的事。'), w.text);
-    assert.ok(!w.text.includes('第1章的后果。'), '更早的不带第二行');
-    assert.ok(w.text.includes('## 第21章：标题21\n第21章的事。\n第21章的后果。'), '最近 10 章整条');
-    assert.ok(w.text.indexOf('第20章') < w.text.indexOf('## 第21章'), '只带第一行的排在前面');
+    assert.deepEqual(nos(w.near), seq(21, 10));
+    assert.deepEqual(nos(w.before), seq(1, 20));
+    assert.deepEqual(w.folded, []);
+    const text = render(w);
+    assert.ok(text.includes('- 第1章 标题1：第1章的事。'), text);
+    assert.ok(!text.includes('第1章的后果。'), '更早的不带第二行');
+    assert.ok(text.includes('## 第21章：标题21\n第21章的事。\n第21章的后果。'), '最近 10 章整条');
+    assert.ok(text.indexOf('第20章') < text.indexOf('## 第21章'), '只带第一行的排在前面');
   });
 
-  test('拆第 41–45 章细纲：本批与前 10 章整条，本批之后的不带', () => {
+  // 2026-10-22 分三段：只带第一行的那一段按 maxBefore 封顶，更早的不逐章列（交给全文大纲）。
+  test('maxBefore：中段只留最近 N 章，更早的进 folded', () => {
+    const w = O.outlineWindow(entries(300), { range: { from: 301, to: 320 }, after: true, maxBefore: 100 });
+    assert.deepEqual(nos(w.near), seq(291, 10));
+    assert.deepEqual(nos(w.before), seq(191, 100));
+    assert.deepEqual(w.folded, seq(1, 190));
+    assert.ok(!render(w).includes('第190章'), '远段不逐章列');
+  });
+
+  test('maxBefore 为 0：中段一章都不带；缺省与 Infinity 不限', () => {
+    assert.equal(O.outlineWindow(entries(30), { range: { from: 31, to: 40 }, maxBefore: 0 }).before.length, 0);
+    assert.equal(O.outlineWindow(entries(30), { range: { from: 31, to: 40 }, maxBefore: Infinity }).before.length, 20);
+    assert.equal(O.outlineWindow(entries(30), { range: { from: 31, to: 40 } }).folded.length, 0);
+  });
+
+  test('拆第 41–45 章：本批与前 10 章是近段，本批之后的不带', () => {
     const w = O.outlineWindow(entries(60), { range: { from: 41, to: 45 } });
-    assert.deepEqual(w.full, Array.from({ length: 15 }, (_, i) => 31 + i));
-    assert.equal(w.brief.length, 30);
-    assert.ok(!w.text.includes('第46章'), w.text.slice(-200));
+    assert.deepEqual(nos(w.near), seq(31, 15));
+    assert.equal(w.before.length, 30);
+    assert.equal(w.later.length, 0);
   });
 
   test('重写第 21–40 章（after）：之后已有的只带第一行，接在最后', () => {
     const w = O.outlineWindow(entries(60), { range: { from: 21, to: 40 }, after: true });
-    assert.deepEqual(w.full, Array.from({ length: 30 }, (_, i) => 11 + i));
-    assert.deepEqual(w.brief, [...Array.from({ length: 10 }, (_, i) => 1 + i), ...Array.from({ length: 20 }, (_, i) => 41 + i)]);
-    assert.ok(w.text.includes('后面已经排好的（只列第一行）：\n- 第41章 标题41：第41章的事。'), w.text.slice(-300));
+    assert.deepEqual(nos(w.near), seq(11, 30));
+    assert.deepEqual(nos(w.before), seq(1, 10));
+    assert.deepEqual(nos(w.later), seq(41, 20));
+    assert.ok(render(w).includes('后面已经排好的（只列第一行）：\n- 第41章 标题41：第41章的事。'), render(w).slice(-300));
   });
 
   test('没给区间：最后 10 条整条，更早的只带第一行', () => {
     const w = O.outlineWindow(entries(25));
-    assert.deepEqual(w.full, Array.from({ length: 10 }, (_, i) => 16 + i));
-    assert.equal(w.brief.length, 15);
+    assert.deepEqual(nos(w.near), seq(16, 10));
+    assert.equal(w.before.length, 15);
   });
 
   test('同一章出现两次只带先出现的；按章号升序', () => {
     const w = O.outlineWindow('## 第2章：乙\n乙。\n\n## 第1章：甲\n甲。\n\n## 第2章：重复\n重复。');
-    assert.equal(w.text, '## 第1章：甲\n甲。\n\n## 第2章：乙\n乙。');
+    assert.equal(render(w), '## 第1章：甲\n甲。\n\n## 第2章：乙\n乙。');
   });
 
   test('outlineBriefs：整份每章一行', () => {
     assert.equal(O.outlineBriefs(entries(2)), '- 第1章 标题1：第1章的事。\n- 第2章 标题2：第2章的事。');
+  });
+});
+
+// 拆细纲时大纲只带这一次要拆的：已经拆过的章前序细纲一览带了，同一份细纲不带两遍（2026-10-22）。
+describe('outlineToSplit · 拆细纲带哪几条', () => {
+  const nos = (list) => list.map((e) => e.no);
+
+  test('批次：区间里的，外加区间前还没拆的空壳；区间之后的不带', () => {
+    const got = O.outlineToSplit(entries(60), { from: 41, to: 45 }, { stubs: new Set([12, 40, 50]) });
+    assert.deepEqual(nos(got), [12, 40, 41, 42, 43, 44, 45]);
+  });
+
+  test('单章：这一章自己的梗概在本章细纲里，跳过', () => {
+    assert.deepEqual(nos(O.outlineToSplit(entries(10), { from: 5, to: 5 }, { stubs: new Set(), skip: 5 })), []);
+    assert.deepEqual(nos(O.outlineToSplit(entries(10), { from: 5, to: 5 }, { stubs: new Set([3]), skip: 5 })), [3]);
   });
 });
 

@@ -1471,12 +1471,10 @@ describe('装配：四阶段配方', () => {
     );
   });
 
-  // 排第 2 章用不着后面的大纲：本章与前 10 章整条，之后的不带（2026-10-21，按远近带）。
-  test('细纲阶段的大纲到本章为止', () => {
-    const item = pIds.get('outlineDoc');
-    assert.ok(alive(pIds, 'outlineDoc') && item.priority === 0, keysOf(pIds, 'outline').join(','));
-    assert.ok(item.text.includes('## 第2章：客栈里的女人') && !item.text.includes('第3章'), item.text);
-    assert.match(item.note, /第 2 章以后的不带/);
+  // 单章：这一章的梗概在本章细纲里，前面拆过的章由上文与前序细纲一览带——大纲没有要另带的（2026-10-22）。
+  test('细纲单章不另带大纲（前面也没有还没拆的空壳）', () => {
+    assert.ok(!pIds.has('outlineDoc'), keysOf(pIds, 'outline').join(','));
+    assert.ok(!lastOf(pc).includes('# 情节大纲'), lastOf(pc).slice(0, 600));
   });
 
   // 细纲是从架构与大纲里拆出来的：设定四件在这一层也是 P0（总计划 §2.3）。
@@ -2403,10 +2401,12 @@ describe('装配：二期的新层与移植的契约', () => {
     assert.ok(lastOf(batch).includes('# 前序细纲一览（已生成的目录进度）'));
   });
 
-  test('批次带大纲里这几章与前 10 章的条目，之后的不带', () => {
+  // 前面已经拆过的章前序细纲一览带了，大纲只带这一次要拆的（2026-10-22）：同一份细纲不带两遍。
+  test('批次只带大纲里这一批的条目：前面拆过的、之后的都不带', () => {
     const item = bIds.get('outlineDoc');
     assert.ok(item && item.text.includes('## 第4章：空匣') && item.text.includes('## 第8章：铁匠铺'), [...bIds.keys()].join(','));
-    assert.ok(item.text.includes('## 第1章：楔子') && !item.text.includes('第9章'), item.text);
+    assert.ok(!item.text.includes('第1章') && !item.text.includes('第3章') && !item.text.includes('第9章'), item.text);
+    assert.match(item.note, /只带这一次要拆的：已经拆过的章看前序细纲一览，第 8 章以后的不带/);
   });
 
   test('批次契约：覆盖第 4–8 章、容量按每章字数', () => {
