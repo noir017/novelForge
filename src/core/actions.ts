@@ -1,9 +1,13 @@
 import * as path from 'node:path';
-import { resolveSectionDir } from './files/fileOps';
+import { resolveSectionDir, validateName } from './files/fileOps';
 import { getHost } from './host';
-import { emptyPlotSections } from './model/plotFile';
+import { exists, pad3, sanitizeFileName } from './model/fs';
+import { Plot, emptyPlotSections } from './model/plotFile';
 import { NovelProject } from './model/project';
+import { describeError, scoped } from './runtime/logger';
 import { Workspace } from './workspace';
+
+const log = scoped('工程');
 
 /**
  * 工程级交互流程的宿主无关实现。
@@ -70,8 +74,8 @@ export async function newPlotFlow(project: NovelProject): Promise<string> {
 }
 
 /**
- * 直接新建一个章节文件：**只建一个 0 字的文件**，不问标题、不打开它。
- * 返回相对路径。
+ * 直接新建一个章节文件：**先问章节名称**，正文建出来的同时在它的镜像位置配好细纲。不打开它。
+ * 返回正文的相对路径；作者在输入框上取消了就是 undefined，什么都不建。
  *
  * `dir` 是落点目录（工作区相对路径，如 `chapters/第一卷`），缺省或越界时落在
  * chapters/ 根下。序号是全书唯一的下一个——分卷只是收纳，不重置编号。
@@ -79,13 +83,87 @@ export async function newPlotFlow(project: NovelProject): Promise<string> {
  * 正常路径上的章节是写正文时生成的，不是从这里建的。这条留给「手里已经有一章
  * 现成的文字，想直接粘进来」——所以建完不把作者送进创作页，多半他接下来就是
  * 往里粘正文。
+ *
+ * ## 名字
+ *
+ * 2026-10-23 作者要求建之前先问名字（从前不问、一律纯序号名）。留空照旧落成纯序号名 `007.md`，以后走「重命名」再起。
+ * 细纲的标题与文件名用同一份清洗过的名字：改名时细纲的标题才认得出是跟着正文走的（`fileOps.retitleCarriedPlot`）。
+ *
+ * ## 细纲
+ *
+ * - 这一章还没有细纲：建一份空骨架（与 {@link newPlotFlow} 同一份七节），标题就是这个名字。手工建的没有上游，
+ *   `upstreamHash` 留空、永不挂 ⟳；「关键事件」空着就还算空白，批量拆细纲、从已写正文补齐照样会填它。
+ * - 这一章已经排好了细纲（拆细纲走在正文前面）：名字先填它的标题，`dir` 缺省时正文落进它所在的子目录，不另建——
+ *   一章两份细纲是错的。名字改了，细纲跟着新正文改名、改标题（{@link attachPlot}）。
+ * - 正文的镜像位置已经有一份细纲（先前留下的）：认它，不盖（第 3 条）。
  */
-export async function newChapterFlow(project: NovelProject, dir?: string): Promise<string> {
-  const target = resolveSectionDir(project, 'chapters', dir);
+export async function newChapterFlow(project: NovelProject, dir?: string): Promise<string | undefined> {
   const order = await project.nextChapterOrder();
-  const relPath = await new Workspace(project).createChapter(order, '', '', target);
-  getHost().toast(`已新建第 ${order} 章：${relPath}`);
+  const plan = await project.getPlot(order);
+  const input = await getHost().input({
+    title: `新建第 ${order} 章`,
+    prompt: plan
+      ? `这一章已经有细纲，先填了它的标题｜留空就只用序号 ${pad3(order)}`
+      : `章节名称（同时建一份空细纲）｜留空就只用序号 ${pad3(order)}`,
+    placeHolder: '如「夜入青云」',
+    value: plan?.title ?? '',
+    validate: (v) => (v.trim() ? validateName(v) : undefined),
+  });
+  if (input === undefined) {
+    return undefined;
+  }
+  const title = input.trim() ? sanitizeFileName(input) : '';
+  const planned = plan ? project.chapterPathForPlot(plan.relPath) : undefined;
+  const target = resolveSectionDir(project, 'chapters', dir || (planned && path.posix.dirname(planned)));
+  const ws = new Workspace(project);
+  const relPath = await ws.createChapter(order, title, '', target);
+  const plotRel = await attachPlot(project, ws, relPath, order, title, plan);
+  await project.syncManifest();
+  getHost().toast(`已新建第 ${order} 章：${relPath}${plotRel ? `，细纲 ${plotRel}` : ''}`);
   return relPath;
+}
+
+/**
+ * 给刚建的这一章配上细纲，返回它的路径（配不上是 undefined）。规则见 {@link newChapterFlow}。
+ *
+ * 排好的那份挪到新正文的镜像走网关的 `move`（字节原样、历史版本跟着搬），标题走 `retitlePlot`（只改标题两行）——
+ * 都不整份重渲染，作者在细纲里手加的东西一个字不丢。挪不过去（镜像位置已有别的）就两份都留着、说出来。
+ */
+async function attachPlot(
+  project: NovelProject,
+  ws: Workspace,
+  chapterRel: string,
+  no: number,
+  title: string,
+  plan: Plot | undefined
+): Promise<string | undefined> {
+  const mirror = project.plotMirrorOf(chapterRel);
+  if (!mirror) {
+    return undefined;
+  }
+  if (!plan) {
+    if (await exists(project.pathOf(mirror))) {
+      log.info('新建章节：镜像位置已经有细纲，认它、不另建', mirror);
+      return mirror;
+    }
+    // 手工新建的细纲没有上游——upstreamHash 留空，它才永远不会挂 ⟳（手写的产物永不标脏）。
+    return ws.writePlot({ no, title, upstreamHash: '', done: false, sections: emptyPlotSections() });
+  }
+  let rel = plan.relPath;
+  if (mirror !== rel) {
+    try {
+      await ws.move(rel, mirror);
+      rel = mirror;
+    } catch (err) {
+      log.warn('新建章节：排好的细纲没能挪到新正文的镜像', `${rel} → ${mirror}｜${describeError(err)}`);
+      getHost().toast(`第 ${no} 章排好的细纲 ${rel} 没能跟着新正文改名（${describeError(err)}），两份都留着。`, 'error');
+      return undefined;
+    }
+  }
+  if (title) {
+    await ws.retitlePlot(rel, plan.title, title);
+  }
+  return rel;
 }
 
 /** 目录名当默认作品名。 */

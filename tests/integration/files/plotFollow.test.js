@@ -87,6 +87,12 @@ describe('细纲跟着正文走', () => {
       assert.ok(renamedPlot && renamedPlot.includes('楔子的梗概'), String(renamedPlot));
     });
 
+    // 工程页那一行先认细纲的标题：只搬文件不改标题，改完名那一行还挂着旧名字（2026-10-23 作者提的）。
+    test('细纲里的标题跟着改成新名（frontmatter 与标题行）', () => {
+      assert.ok(renamedPlot && renamedPlot.includes('title: 入镇') && renamedPlot.includes('# 第1章 入镇'), String(renamedPlot));
+      assert.ok(!renamedPlot.includes('title: 楔子'), renamedPlot);
+    });
+
     test('旧位置的细纲不在了，不会一章两份', () => {
       assert.ok(oldPlotGone);
     });
@@ -99,6 +105,95 @@ describe('细纲跟着正文走', () => {
     test('.txt 正文改名，细纲（.md）也跟着改名', () => {
       assert.equal(txtRenamed, 'chapters/第一卷/002-旧手记.txt');
       assert.equal(txtPlot?.relPath, '.novelforge/summaries/第一卷/002-旧手记.md');
+      assert.equal(txtPlot?.title, '旧手记');
+    });
+  });
+
+  // 只改标题那两行，别的一个字节不动；作者在细纲上另起过的标题不动、说出来；标题不进指纹，改了不挂 ⟳。
+  describe('改名时细纲的标题跟着改', () => {
+    const KEPT = '---\nno: 50\ntitle: 另起的标题\n---\n\n# 第50章 另起的标题\n\n## 梗概\n\n梗概。\n';
+    const NO_FM = '# 第52章 手写\n\n## 梗概\n\n手写的。\n\n## 作者备注\n\n别删我。\n';
+    const CRLF = '---\r\nno: 53\r\ntitle: 回车\r\n---\r\n\r\n# 第53章 回车\r\n\r\n## 梗概\r\n\r\n回车的梗概。\r\n';
+    let kept;
+    let keptToasts;
+    let unnamed;
+    let noFm;
+    let crlf;
+    let hashed;
+    let writtenFrom;
+
+    before(async () => {
+      t.write('chapters/050-旧名.md', '# 旧名\n\n正文\n');
+      t.write('.novelforge/summaries/050-旧名.md', KEPT);
+      project.invalidate();
+      h.expect('新名');
+      await fileOps.renameEntry(project, 'chapters/050-旧名.md');
+      kept = t.read('.novelforge/summaries/050-新名.md');
+      keptToasts = [...h.toasts];
+
+      // 纯序号名的正文与细纲（新建时名字留空的样子）：第一次起名，细纲的空标题也填上。
+      t.write('chapters/051.md', '正文\n');
+      project.invalidate();
+      await wsOf(project).writePlot({ no: 51, title: '', upstreamHash: '', done: false, sections: { 梗概: '空着' } });
+      h.expect('起名');
+      await fileOps.renameEntry(project, 'chapters/051.md');
+      unnamed = t.read('.novelforge/summaries/051-起名.md');
+
+      t.write('chapters/052-手写.md', '# 手写\n\n正文\n');
+      t.write('.novelforge/summaries/052-手写.md', NO_FM);
+      project.invalidate();
+      h.expect('改过');
+      await fileOps.renameEntry(project, 'chapters/052-手写.md');
+      noFm = t.read('.novelforge/summaries/052-改过.md');
+
+      t.write('chapters/053-回车.txt', '正文\r\n');
+      t.write('.novelforge/summaries/053-回车.md', CRLF);
+      project.invalidate();
+      h.expect('换行');
+      await fileOps.renameEntry(project, 'chapters/053-回车.txt');
+      crlf = t.read('.novelforge/summaries/053-换行.md');
+
+      // 照细纲写过正文（记着 writtenFrom）：改名之后指纹还对得上，不挂 ⟳。
+      t.write('chapters/054-指纹.md', '# 指纹\n\n正文\n');
+      t.write('.novelforge/summaries/054-指纹.md', PLOT(54, '指纹'));
+      project.invalidate();
+      const before54 = await project.getPlot(54);
+      await wsOf(project).recordWrittenFrom(before54.relPath, bundle.plotFile.plotContentHash(before54));
+      project.invalidate();
+      writtenFrom = (await project.getPlot(54)).writtenFrom;
+      h.expect('改指纹');
+      await fileOps.renameEntry(project, 'chapters/054-指纹.md');
+      project.invalidate();
+      const after54 = await project.getPlot(54);
+      hashed = { title: after54?.title, writtenFrom: after54?.writtenFrom, now: after54 && bundle.plotFile.plotContentHash(after54) };
+    });
+
+    test('作者另起的标题不动，文件照样跟着正文搬', () => {
+      assert.equal(kept, KEPT);
+    });
+
+    test('另起的标题没跟着改，说出来了', () => {
+      assert.ok(keptToasts.some((x) => x.includes('另起的标题') && x.includes('没跟着改')), keptToasts.join(' | '));
+    });
+
+    test('细纲的空标题第一次起名也填上', () => {
+      assert.ok(unnamed.includes('title: 起名') && unnamed.includes('# 第51章 起名'), unnamed);
+      assert.ok(unnamed.includes('空着'), unnamed);
+    });
+
+    test('没有 frontmatter 的细纲只换标题行、不补 frontmatter，别的原样', () => {
+      assert.equal(noFm, NO_FM.replace('# 第52章 手写', '# 第52章 改过'));
+    });
+
+    test('CRLF 的细纲照样改，换行不变', () => {
+      assert.equal(crlf, CRLF.replace('title: 回车', 'title: 换行').replace('# 第53章 回车', '# 第53章 换行'));
+    });
+
+    test('标题不进指纹：改名之后 writtenFrom 还对得上', () => {
+      assert.equal(hashed.title, '改指纹');
+      assert.ok(writtenFrom);
+      assert.equal(hashed.writtenFrom, writtenFrom);
+      assert.equal(hashed.now, writtenFrom);
     });
   });
 

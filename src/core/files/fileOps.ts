@@ -223,7 +223,7 @@ export async function deletePlot(project: NovelProject, relPath: string): Promis
 
 /**
  * 重命名文件或文件夹。改的是**磁盘上的名字**，不动文件内容——
- * 唯一的例外见下面 renamedBody 的说明。
+ * 例外是章节：正文的 `# 标题` 行（见下面 renamedBody 的说明）与跟着搬过去的细纲里的标题（`retitleCarriedPlot`）。
  *
  * 章节文件的 `NNN-` 序号前缀由重命名保留：序号决定全书顺序，
  * 不该在改个标题时被顺手改掉。
@@ -321,6 +321,9 @@ async function renameEntryImpl(
   }
 
   // 经网关搬：同名不覆盖、固定目录保护、草稿跟随、manifest 同步都在那一层。
+  // 正文的细纲由 `carryPlot` 跟着搬；搬完再把细纲里的标题改成新名（`retitleCarriedPlot`），只认真跟过去的那一份。
+  const plotFrom = isChapterFile ? project.plotMirrorOf(rel) : undefined;
+  const hadPlot = !!plotFrom && (await exists(project.pathOf(plotFrom)));
   try {
     await ws.move(rel, nextRel);
   } catch (err) {
@@ -343,8 +346,45 @@ async function renameEntryImpl(
     return undefined;
   }
   log.info(`已重命名${isDir ? '文件夹' : ''}`, `${rel} → ${nextRel}`);
-  getHost().toast(`已重命名为 ${nextRel}`);
+  const plotNote = hadPlot ? await retitleCarriedPlot(project, ws, plotFrom!, nextRel, editable, nextStem) : '';
+  getHost().toast(`已重命名为 ${nextRel}${plotNote}`);
   return nextRel;
+}
+
+/**
+ * 章节改名之后，跟着搬过去的细纲把标题也改成新名（`Workspace.retitlePlot`），返回接在提示后面的半句。
+ *
+ * 工程页那一行先认细纲的标题，只搬文件不改标题，改完名那一行还挂着旧名字。细纲的标题与正文的旧名不一样时
+ * 不动（作者在细纲上单独起过）、说出来；细纲没跟过来（新位置已有一份，`carryPlot` 已经报过）就什么都不做。
+ * 改标题失败不算改名失败：正文与细纲都已经搬好了，记一条 warn、照实说。
+ */
+async function retitleCarriedPlot(
+  project: NovelProject,
+  ws: Workspace,
+  plotFrom: string,
+  chapterTo: string,
+  from: string,
+  to: string
+): Promise<string> {
+  const plotTo = project.plotMirrorOf(chapterTo);
+  if (!plotTo || plotTo === plotFrom || (await exists(project.pathOf(plotFrom))) || !(await exists(project.pathOf(plotTo)))) {
+    return '';
+  }
+  try {
+    const r = await ws.retitlePlot(plotTo, from, to);
+    if (r === 'kept') {
+      const title = (await project.readPlot(plotTo))?.title ?? '';
+      log.info('细纲的标题是另起的，没跟着正文改名', `${plotTo}｜「${title}」`);
+      return `；细纲的标题「${title}」是另起的，没跟着改`;
+    }
+    if (r === 'retitled') {
+      log.info('细纲的标题跟着正文改名', `${plotTo}｜「${from}」→「${to}」`);
+    }
+    return '';
+  } catch (err) {
+    log.warn('细纲的标题没能跟着改', `${plotTo}｜${describeWsError(err)}`);
+    return `；细纲的标题没能跟着改（${describeWsError(err)}）`;
+  }
 }
 
 /**

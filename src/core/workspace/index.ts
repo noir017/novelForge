@@ -43,7 +43,7 @@ import {
   writeText,
 } from '../model/fs';
 import { Chapter, SummaryCast } from '../model/types';
-import { replaceSection, rewriteFrontmatter, stringifyFrontmatter } from '../model/markdown';
+import { parseMarkdown, replaceSection, rewriteFrontmatter, stringifyFrontmatter } from '../model/markdown';
 import { LoreLine, PLOT_LORE_KEY, renderLoreLines } from '../model/loreFile';
 import {
   NewThread,
@@ -889,6 +889,44 @@ export class Workspace {
   }
 
   /**
+   * 正文改了名，细纲里的标题跟着改：frontmatter 的 `title` 与 `# 第N章 标题` 那一行。返回改了（`retitled`）、
+   * 没动作者起的标题（`kept`）、本来就一样（`same`）。
+   *
+   * 细纲文件已经由 `carryPlot` 跟着正文搬到了新镜像，可工程页那一行先认细纲的标题——不改的话文件名是新的、
+   * 显示的还是旧名字。只在细纲的标题还是正文的旧名（或空着）时改：不一样说明作者在细纲上单独起过标题
+   * （{@link writePlot} 有正文时改名只改标题），机器不动它。
+   *
+   * 只改那两行，其余一个字节不动（作者手加的小节、排版都留着），不整份重渲染；改之前存一版历史。标题不进内容指纹
+   * （`plotContentHash`），改了不挂 ⟳。细纲没有 frontmatter 时标题本来就取文件名，不补 frontmatter（与
+   * {@link recordWrittenFrom} 同一个规矩），只换标题行。
+   */
+  async retitlePlot(plotRelPath: string, from: string, to: string): Promise<'retitled' | 'kept' | 'same'> {
+    const abs = this.project.pathOf(plotRelPath);
+    const raw = await readTextIfExists(abs).catch(() => undefined);
+    const old = from.trim();
+    const title = to.trim();
+    if (raw === undefined || !title) {
+      return 'same';
+    }
+    const fmTitle = parseMarkdown(raw).frontmatter.title;
+    const current = typeof fmTitle === 'string' ? fmTitle.trim() : '';
+    if (current && current !== old) {
+      return current === title ? 'same' : 'kept';
+    }
+    const fenced = current === title ? raw : (rewriteFrontmatter(raw, { title }) ?? raw);
+    const next = fenced.replace(PLOT_TITLE_LINE, (line, head: string, sep: string, was: string) =>
+      was.trim() === old ? `${head}${sep || ' '}${title}` : line
+    );
+    if (next === raw) {
+      return 'same';
+    }
+    await snapshotBeforeWrite(this.project, plotRelPath, next);
+    await writeText(abs, next);
+    this.project.invalidate();
+    return 'retitled';
+  }
+
+  /**
    * 在细纲上记下「正文据以写成的细纲指纹」（`writtenFrom`）。正文落盘那一步调它。
    *
    * 为什么记在细纲这一侧：章节是作者的文件，可以是 `.txt`、没有 frontmatter
@@ -1491,6 +1529,9 @@ async function wordsOf(abs: string): Promise<number | undefined> {
 function safeStem(title: string): string {
   return title.trim() ? sanitizeFileName(title) : '';
 }
+
+/** 细纲的标题行 `# 第N章 标题`（`renderPlotFile` 写的样子，也认 `：` 分隔与没有标题的 `# 第N章`）。CRLF 的 `\r` 不吃进来。 */
+const PLOT_TITLE_LINE = /^(#[ \t]+第[ \t]*\d+[ \t]*章)([：:][ \t]*|[ \t]+|)(.*?)[ \t]*(?=\r?$)/m;
 
 export { WsError, WsConflictError, MAX_EDITABLE_BYTES } from './guard';
 export type { WsErrorCode } from './guard';

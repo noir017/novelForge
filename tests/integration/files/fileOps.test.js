@@ -329,10 +329,9 @@ describe('fileOps.ts', () => {
     let crossed;
 
     before(async () => {
-      // 新建章节不再问标题：文件按纯序号命名，标题等细纲写完再改名定下来。
-      // 所以这里**不排队答案**，并当场记下 input 次数以证明它没弹框
-      // （h.expect 会清空录制，晚一步取值就归零了）。
-      h.expect();
+      // 新建章节先问名字（2026-10-23 作者定的，见 newChapter.test.js），留空就是纯序号名——这里答空串，看的是落点与序号。
+      // 当场记下 input 次数（h.expect 会清空录制，晚一步取值就归零了）。
+      h.expect('');
       chapterPath = await actionsMod.newChapterFlow(project, 'chapters/第三卷');
       inputCount = h.inputs.length;
       chapterBody = read(chapterPath);
@@ -353,16 +352,18 @@ describe('fileOps.ts', () => {
       await charactersMod.newLore(project, '../../外面');
       loreEscaped = fs.existsSync(rel('.novelforge/lore/青崖镇.md'));
 
+      h.expect('');
       escaped = await actionsMod.newChapterFlow(project, '../../../外面');
+      h.expect('');
       crossed = await actionsMod.newChapterFlow(project, '.novelforge/characters');
     });
 
-    test('章节建到指定目录，名字只有序号', () => {
+    test('章节建到指定目录，名字留空就只有序号', () => {
       assert.equal(chapterPath, 'chapters/第三卷/004.md', chapterPath);
     });
 
-    test('新建不弹标题输入框', () => {
-      assert.equal(inputCount, 0, `${inputCount} 次 input`);
+    test('新建先弹一次名字输入框', () => {
+      assert.equal(inputCount, 1, `${inputCount} 次 input`);
     });
 
     // 没有标题就不写标题行：`# ` 后面空着的 H1 会让改名时的同步判据从第一天
