@@ -464,3 +464,81 @@ describe('threads 层 · 拆细纲（按区间挑）', () => {
     writeThreads();
   });
 });
+
+describe('threads 层 · 故事时间（2026-10-24）', () => {
+  const TIMELINE = `${DIR}/时间线.md`;
+  const PLAN = { stage: 'plot', capability: 'generate' };
+  const storyTime = (b) => threadItems(b).filter((i) => i.label === '故事时间');
+
+  before(() => {
+    t.write(
+      TIMELINE,
+      [
+        '---',
+        'calendar: 简单历',
+        'start: 大衍三年三月初七',
+        '---',
+        '',
+        '# 时间线',
+        '',
+        '- 第 1 章：+0 天，傍晚〔依据：「第1章的正文」〕',
+        '- 第 2 章：+2 天〔推测：赶路〕',
+        '- 第 3 章：回忆，约二十年前',
+        '- 第 4 章：+1 天，历时 2 天〔依据：「第4章的正文」〕',
+        '',
+      ].join('\n')
+    );
+    t.project.invalidate();
+  });
+
+  after(() => {
+    t.remove(TIMELINE);
+    t.project.invalidate();
+  });
+
+  test('写第 5 章：上一章是哪天（回忆不推进时间，历时推后结尾），一条、来源是时间线、不占叙事线的名额', async () => {
+    const b = await build(5);
+    const [item] = storyTime(b);
+    assert.equal(item.status, 'included');
+    assert.equal(item.source, TIMELINE);
+    assert.equal(item.priority, 1);
+    assert.equal(
+      item.text,
+      '上一章（第 4 章）：大衍三年三月初十（故事第 4 天）起，历时 2 天，到大衍三年三月十一（第 5 天）。本章的时间要接得上；本章细纲「时间地点」写了的照它。'
+    );
+    // 叙事线照旧 6 条，故事时间不占它们的名额。
+    assert.equal(threadItems(b).filter((i) => i.label.startsWith('叙事线 · ') && i.status === 'included').length, 6);
+  });
+
+  test('消息里单独成一节，排在叙事线那一节前面', async () => {
+    const user = userOf(await build(5));
+    const time = user.indexOf('# 故事时间（');
+    const lines = user.indexOf('# 进行中的叙事线');
+    assert.ok(time >= 0 && lines > time, user.slice(0, 400));
+    assert.ok(user.includes('大衍三年三月初十'));
+  });
+
+  test('拆第 5–9 章：说已写到哪一章、那一章是哪天，叫细纲写清晚多久', async () => {
+    const b = await bundle.builder.buildContext(
+      t.project,
+      { action: PLAN, target: { kind: 'plot', plotRelPath: PLOT(5) }, ask: '', range: { from: 5, to: 9 } },
+      config()
+    );
+    const [item] = storyTime(b);
+    assert.match(item.text, /^已写到第 4 章：大衍三年三月初十（故事第 4 天）起，历时 2 天/);
+    assert.match(item.text, /细纲「时间地点」写清每章比上一章晚多久/);
+  });
+
+  test('审稿不带；取消勾选就不进消息', async () => {
+    const review = await build(5, { action: REVIEW });
+    assert.deepEqual(storyTime(review), []);
+    const [item] = storyTime(await build(5));
+    const excluded = await build(5, { excludedIds: [item.id] });
+    assert.equal(storyTime(excluded)[0].status, 'excluded');
+    assert.ok(!userOf(excluded).includes('# 故事时间（'));
+  });
+
+  test('写第 1 章（之前一行都没有）：不出', async () => {
+    assert.deepEqual(storyTime(await build(1)), []);
+  });
+});

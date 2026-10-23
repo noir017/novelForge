@@ -34,6 +34,9 @@ import { TIMELINE_NAME } from './threadFile';
 
 export { TIMELINE_NAME };
 
+/** 上下文里那一条的标签（context/layers/background.ts 登记、builder.ts 拿它单独成一节）。 */
+export const STORY_TIME_LABEL = '故事时间';
+
 // ---------------------------------------------------------------- 类型
 
 /** 历法（作者定的）：简单历每月 30 天、一年 12 个月；公历是真实的月份长短与闰年。不做农历。 */
@@ -774,6 +777,23 @@ export function previousTimeNote(tl: Timeline, no: number): string {
   }
   const skipped = last.gap > 1 ? `第 ${d.chapter + 1}–${no - 1} 章` : `第 ${no - 1} 章`;
   return `${head}\n（${skipped}的时间还没记；这一章仍只判比上一章晚多久，判不出写 null）`;
+}
+
+/**
+ * 写正文、拆细纲时上下文里「故事时间」那一段（2026-10-24，设计稿「三」）：只看第 `no` 章之前的行（拆细纲传这一批的第一章）。
+ * 前面一行能推出来的都没有返回 undefined（什么都不出）。
+ */
+export function timeContextText(tl: Timeline, no: number, stage: 'write' | 'plot'): string | undefined {
+  const last = lastKnownBefore(tl, no);
+  if (!last) {
+    return undefined;
+  }
+  const d = last.day;
+  const when = describeDaySpan(tl, d);
+  const gap = last.gap > 0 ? `（第 ${d.chapter + 1}${last.gap > 1 ? `–${no - 1}` : ''} 章的时间还没记）` : '';
+  return stage === 'write'
+    ? `${last.gap > 0 ? `已记到第 ${d.chapter} 章` : `上一章（第 ${d.chapter} 章）`}：${when}${gap}。本章的时间要接得上；本章细纲「时间地点」写了的照它。`
+    : `已写到第 ${d.chapter} 章：${when}${gap}。细纲「时间地点」写清每章比上一章晚多久（当天、次日、三天后……），不要和前面打架。`;
 }
 
 /** `大衍三年三月十四 清晨（故事第 8 天）`，跨了几天的另说结尾。 */

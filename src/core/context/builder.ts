@@ -12,6 +12,7 @@ import { ChatMessage } from '../llm/provider';
 import { contextLimitsOf, normalizeContextDetail } from '../model/contextDetail';
 import { NovelProject } from '../model/project';
 import { NovelConfig } from '../model/types';
+import { STORY_TIME_LABEL } from '../model/timelineFile';
 import { estimateTokens } from './tokenizer';
 import { LAYERS, resolveFocus, type Assembly } from './layers';
 import { promptFactsOf } from './layers/dialog';
@@ -199,7 +200,12 @@ function assembleMessages(
   // 读的时候是「前面发生了什么 → 哪几条线还开着 → 紧挨着的那几章」。说法的后半句是这一层存在的
   // 另一半理由——模型知道第 18 章要揭开什么，写第 3 章时最顺手的就是提前揭开。审稿只带伏笔那一半，换个说法。
   // 拆细纲（叙事线二期）：线在前、没收的伏笔另起一段（标签是「伏笔 · 」的那几条），标题说清这一节是拿来照着排的。
-  const threadLines = pick('thread');
+  // 故事时间（2026-10-24）：叙事线那一层登记的一条，单独成一节、放在叙事线前面——日期是从时间线现算的，模型照着接、不用自己算。
+  const storyTime = pick('thread').filter((i) => i.label === STORY_TIME_LABEL);
+  if (storyTime.length > 0) {
+    sections.push(`# 故事时间（日期由前文推算，照着接，不要和前面打架）\n\n${storyTime.map((i) => i.text.trim()).join('\n')}`);
+  }
+  const threadLines = pick('thread').filter((i) => i.label !== STORY_TIME_LABEL);
   if (threadLines.length > 0 && stage === 'plot') {
     const lines = threadLines.filter((i) => !i.label.startsWith('伏笔 · '));
     const fores = threadLines.filter((i) => i.label.startsWith('伏笔 · '));

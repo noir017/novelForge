@@ -3,6 +3,7 @@ import { describeStateThrough } from '../../model/characterState';
 import { CONTEXT_DETAIL_LABEL, takeLast } from '../../model/contextDetail';
 import { ContinuityFact, locateEvidence, parseContinuityFacts } from '../../model/continuity';
 import { ContextThread, ThreadBook, fitThreads, manuscriptThreads, plotThreads, reviewForeshadowing } from '../../model/threadFile';
+import { STORY_TIME_LABEL, timeContextText } from '../../model/timelineFile';
 import { CharacterCard, LoreEntry } from '../../model/types';
 import { LORE_ENTRY_LIMITS, LORE_SETTLE_LIMITS, createLoreLookup, loreMentionIn } from '../../model/loreFile';
 import { LoreFact, LoreRecord, buildLoreIndex } from '../../views/lore';
@@ -690,11 +691,14 @@ export const threads: LayerFn = async (a, spec) => {
     return;
   }
   const book = await a.project.readThreads();
+  const reviewing = a.request.action.capability === 'review';
+  if (!reviewing) {
+    admitStoryTime(a, spec, book);
+  }
   if (a.request.action.stage === 'plot') {
     admitPlotThreads(a, spec, book);
     return;
   }
-  const reviewing = a.request.action.capability === 'review';
   const plot = a.focus.plot;
   const plotText = plot ? [plot.title, ...Object.values(plot.sections)].join('\n') : '';
   const list = reviewing ? reviewForeshadowing(book, a.focus.no) : manuscriptThreads(book, a.focus.no, plotText);
@@ -730,6 +734,26 @@ export const threads: LayerFn = async (a, spec) => {
     a.reject({ ...base(d), text: '' }, 'dropped', `${d.note}${named}`);
   }
 };
+
+/**
+ * 故事时间（2026-10-24，设计稿 docs/design/plans/2026-10-24-story-timeline.md「三」）：写第 N 章时「上一章是哪天」、拆从第 a 章起的
+ * 细纲时「已写到的最后一章是哪天」，一条（id `timeline:<时间线文件>`、标签「故事时间」），按「写到这一章时」算（只看之前的行）。
+ * 不占叙事线的条数与字数（一行几十个字，不和线抢名额）；消息里单独成一节（builder.ts）。审稿不带。没有时间线、或之前一行都推不出：
+ * 什么都不出。
+ */
+function admitStoryTime(a: Parameters<LayerFn>[0], spec: Parameters<LayerFn>[1], book: ThreadBook): void {
+  if (!book.timeline?.exists) {
+    return;
+  }
+  const plot = a.request.action.stage === 'plot';
+  const first = plot ? (a.focus.range?.from ?? a.focus.no) : a.focus.no;
+  const text = timeContextText(book.timeline, first, plot ? 'plot' : 'write');
+  if (!text) {
+    return;
+  }
+  const item = { id: `timeline:${book.timeline.relPath}`, kind: 'thread' as const, priority: spec.priority, label: STORY_TIME_LABEL, source: book.timeline.relPath };
+  a.admit(a.excluded.has(item.id) ? { ...item, text: '' } : { ...item, text, note: '按时间线现算' });
+}
 
 /**
  * 拆细纲时的叙事线（叙事线二期，设计稿「二」）：细纲的 `plot` 配方（生成、讨论、落定共用）P1、`recentFacts` 旁边。
