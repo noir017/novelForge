@@ -500,7 +500,7 @@ export type SkillBindings = Partial<Record<SkillStage, string>>;
 
 /**
  * `.novelforge/skills.json` 的内容。形状照搬上游的 `.vela/writing-skills.json`：
- * `{ "version": 1, "bindings": { "planning": "builtin:long-form-continuity" } }`。
+ * `{ "version": 1, "bindings": { "drafting": "builtin:plain-prose" } }`。
  *
  * **容错**（第 1 条）：读不懂的整份当成没绑、认不出的那一项跳过，但都写进 `problems`——
  * 装配器拿它在明细里说一声（第 2 条），不让作者以为技能带上了。上游是读不懂就整个工作流

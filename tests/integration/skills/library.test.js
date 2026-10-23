@@ -4,7 +4,7 @@
  * | 断言 | 为什么 |
  * |---|---|
  * | 内置 → 我的技能库 → 本工程，身份是目录名 | 同名可以各有一份，靠前缀分开 |
- * | 内置是仓库里的常规技能目录，上游原样（含 allowed-tools、references/）可用 | 内置不再写死在 TS 里 |
+ * | 内置是仓库里的常规技能目录，没被引用的文件不进提示词 | 内置不再写死在 TS 里 |
  * | 磁盘上与 GitHub 上的附带文件按引用读进来；链接不跟；检查后附带文件变了也不装 | 三个来源同一套读法 |
  * | 链接、名字不合法、没有 SKILL.md 的目录跳过 | 我的技能库在工程外，这就是它的边界 |
  * | 没检查过不装；检查后内容变了不装；不兼容不装；同名不覆盖 | 照搬上游的五道关（第 3 条） |
@@ -88,16 +88,7 @@ describe('三个来源', () => {
 
   test('内置 → 我的技能库 → 本工程，各来源内按名字排', async () => {
     const ids = (await skills.listSkills(t.project)).map((s) => s.id);
-    assert.deepEqual(ids, [
-      'builtin:fiction-humanizer-zh',
-      'builtin:humanizer-zh',
-      'builtin:long-form-continuity',
-      'builtin:natural-prose-refinement',
-      'builtin:plain-prose',
-      'user:scene-craft',
-      'project:scene-craft',
-      'project:去AI味',
-    ]);
+    assert.deepEqual(ids, ['builtin:plain-prose', 'user:scene-craft', 'project:scene-craft', 'project:去AI味']);
   });
 
   test('身份是目录名，frontmatter 的 name 只用来显示', async () => {
@@ -122,39 +113,15 @@ describe('三个来源', () => {
     assert.ok(list.filter((s) => s.source === 'builtin').every((s) => s.inspection.compatible));
   });
 
-  test('修正文风建议绑在写正文阶段', async () => {
+  test('去 AI 味建议绑在写正文阶段', async () => {
     const plain = await skills.loadSkill('builtin:plain-prose');
     assert.equal(plain.inspection.stage, 'drafting');
   });
 
-  test('两份外来的去 AI 味：小说那份在写正文，通用那份在修稿', async () => {
-    const [fiction, general] = await Promise.all([
-      skills.loadSkill('builtin:fiction-humanizer-zh'),
-      skills.loadSkill('builtin:humanizer-zh'),
-    ]);
-    assert.deepEqual([fiction.inspection.stage, general.inspection.stage], ['drafting', 'refinement']);
-  });
-
-  test('内置是上游原样的目录：references/ 当附带文件带上，allowed-tools 不碍事，LICENSE 不进提示词', () => {
-    const dirs = skills.BUILTIN_SKILL_DIRS;
-    const fiction = dirs['fiction-humanizer-zh'];
-    assert.ok(fiction['SKILL.md'].includes('读取 [references/ai-fiction-patterns.md](references/ai-fiction-patterns.md)'));
-    assert.ok(dirs['humanizer-zh']['SKILL.md'].includes('allowed-tools:'));
-    assert.ok('LICENSE' in fiction && 'LICENSE' in dirs['humanizer-zh']);
-  });
-
-  test('小说那份的四份参考整份带上，按正文里引用的先后', async () => {
-    const s = await skills.loadSkill('builtin:fiction-humanizer-zh');
-    assert.deepEqual(
-      s.inspection.attachments.map((a) => a.path),
-      [
-        'references/ai-fiction-patterns.md',
-        'references/scene-rewrite.md',
-        'references/genre-notes.md',
-        'references/chapter-checklist.md',
-      ]
-    );
-    assert.equal(s.inspection.attachments[0].text, skills.BUILTIN_SKILL_DIRS['fiction-humanizer-zh']['references/ai-fiction-patterns.md']);
+  test('内置目录里没被引用的文件（上游的 LICENSE）不进提示词', async () => {
+    const dir = skills.BUILTIN_SKILL_DIRS['plain-prose'];
+    assert.ok('LICENSE-fiction-humanizer-zh' in dir && 'LICENSE-humanizer-zh' in dir);
+    assert.deepEqual((await skills.loadSkill('builtin:plain-prose')).inspection.attachments, []);
   });
 
   test('链接过去的目录认不出', async () => {
@@ -337,13 +304,13 @@ describe('阶段绑定', () => {
   const bindingsText = () => t.read('.novelforge/skills.json');
 
   test('绑上一份：写进 .novelforge/skills.json', async () => {
-    await skills.saveSkillBinding(t.project, ws, 'drafting', 'builtin:long-form-continuity');
-    assert.deepEqual(JSON.parse(bindingsText()), { version: 1, bindings: { drafting: 'builtin:long-form-continuity' } });
+    await skills.saveSkillBinding(t.project, ws, 'drafting', 'builtin:plain-prose');
+    assert.deepEqual(JSON.parse(bindingsText()), { version: 1, bindings: { drafting: 'builtin:plain-prose' } });
   });
 
   test('装配器问得到那一份', async () => {
     const r = await skills.boundSkillFor(t.project, 'drafting');
-    assert.deepEqual([r.status, r.skill.id], ['ok', 'builtin:long-form-continuity']);
+    assert.deepEqual([r.status, r.skill.id], ['ok', 'builtin:plain-prose']);
   });
 
   test('没绑的阶段：none', async () => {
@@ -381,20 +348,20 @@ describe('阶段绑定', () => {
     t.write('.novelforge/skills.json', '{ 坏了');
     const r = await skills.boundSkillFor(t.project, 'planning');
     assert.ok(r.status === 'problem' && r.note.includes('读不懂'), JSON.stringify(r));
-    await assert.rejects(skills.saveSkillBinding(t.project, ws, 'planning', 'builtin:long-form-continuity'), /先手动修好或删掉/);
+    await assert.rejects(skills.saveSkillBinding(t.project, ws, 'planning', 'builtin:plain-prose'), /先手动修好或删掉/);
     assert.equal(bindingsText(), '{ 坏了');
   });
 
   test('只有别的阶段那一项读不懂：这个阶段照常', async () => {
-    t.write('.novelforge/skills.json', JSON.stringify({ version: 1, bindings: { review: 3, drafting: 'builtin:long-form-continuity' } }));
+    t.write('.novelforge/skills.json', JSON.stringify({ version: 1, bindings: { review: 3, drafting: 'builtin:plain-prose' } }));
     assert.equal((await skills.boundSkillFor(t.project, 'drafting')).status, 'ok');
     assert.equal((await skills.boundSkillFor(t.project, 'planning')).status, 'none');
   });
 
   test('卸载之后把指向它的绑定一起解掉', async () => {
-    t.write('.novelforge/skills.json', JSON.stringify({ version: 1, bindings: { review: 'user:x', drafting: 'user:x', planning: 'builtin:long-form-continuity' } }));
+    t.write('.novelforge/skills.json', JSON.stringify({ version: 1, bindings: { review: 'user:x', drafting: 'user:x', planning: 'builtin:plain-prose' } }));
     const stages = await skills.unbindSkillEverywhere(t.project, ws, 'user:x');
     assert.deepEqual(stages.sort(), ['drafting', 'review']);
-    assert.deepEqual(JSON.parse(bindingsText()).bindings, { planning: 'builtin:long-form-continuity' });
+    assert.deepEqual(JSON.parse(bindingsText()).bindings, { planning: 'builtin:plain-prose' });
   });
 });

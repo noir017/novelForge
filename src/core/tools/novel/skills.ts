@@ -43,7 +43,7 @@ export const skillsTool = defineActionTool({
 
   params: {
     url: str('GitHub 上那份 SKILL.md（或它所在目录 / 仓库）的地址。inspect 与 install 用同一个。'),
-    id: str('技能 id，list 列出的那个（如 builtin:long-form-continuity）。'),
+    id: str('技能 id，list 列出的那个（如 builtin:plain-prose）。'),
     stage: str('绑到哪个阶段：planning=架构 / 大纲 / 细纲，drafting=写正文，review=审稿，refinement=修稿。', [
       ...SKILL_STAGES,
     ]),

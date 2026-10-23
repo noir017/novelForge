@@ -60,6 +60,9 @@ before(async () => {
   t.write('chapters/001-第1章.md', '# 第1章\n\n第一章的正文。\n');
   t.write('chapters/002-第2章.md', '# 第2章\n\n第二章已经写了一半。\n');
   t.write('.novelforge/skills/场面写法/SKILL.md', '---\ndisplay_name: 场面写法\n---\n每一场都要有一个选择。\n');
+  t.write('.novelforge/skills/带参考/SKILL.md', '---\ndisplay_name: 带参考\n---\n先读 references/a.md，交稿前过 references/b.md。\n');
+  t.write('.novelforge/skills/带参考/references/a.md', '这是一条很长的参考。'.repeat(1500));
+  t.write('.novelforge/skills/带参考/references/b.md', '交稿清单。');
   home.write('skills/review-hard/SKILL.md', '---\nname: review-hard\n---\n逐条找出与细纲对不上的地方。\n');
   t.project.invalidate();
 });
@@ -97,16 +100,15 @@ const REVISE = (extra = {}) =>
 const CONTINUE_STEP = { kind: 'continuation', tail: '第二章已经写了一半。', written: 600, remaining: 600, recovery: false };
 
 describe('skill 层 · 附带文件', () => {
-  before(() => bind({ drafting: 'builtin:fiction-humanizer-zh' }));
+  before(() => bind({ drafting: 'project:带参考' }));
 
-  test('写正文：小说去 AI 味带上，四份参考标上路径接在正文后面', async () => {
+  test('写正文：两份参考标上路径接在正文后面', async () => {
     const b = await build(WRITE());
     const user = userOf(b);
     assert.equal(skillItem(b)?.status, 'included');
-    assert.ok(user.startsWith('【补充写作 Skill：小说去 AI 味（fiction-humanizer-zh，写正文）】'), user.slice(0, 100));
-    const at = (p) => user.indexOf(`【附带文件：references/${p}.md】`);
-    const order = ['ai-fiction-patterns', 'scene-rewrite', 'genre-notes', 'chapter-checklist'].map(at);
-    assert.ok(order.every((n, k) => n > 0 && (k === 0 || n > order[k - 1])), JSON.stringify(order));
+    assert.ok(user.startsWith('【补充写作 Skill：带参考】'), user.slice(0, 100));
+    const order = ['a', 'b'].map((p) => user.indexOf(`【附带文件：references/${p}.md】`));
+    assert.ok(order[0] > 0 && order[1] > order[0], JSON.stringify(order));
   });
 
   test('预算按正文加附带文件一起算：放不下就整份不带', async () => {
@@ -118,7 +120,8 @@ describe('skill 层 · 附带文件', () => {
 });
 
 describe('skill 层 · 规划阶段', () => {
-  before(() => bind({ planning: 'builtin:long-form-continuity' }));
+  // 绑定不限阶段：拿写正文那份内置绑到规划。
+  before(() => bind({ planning: 'builtin:plain-prose' }));
 
   for (const [name, req] of [
     ['架构', SETTING],
@@ -128,7 +131,7 @@ describe('skill 层 · 规划阶段', () => {
   ]) {
     test(`${name}：带上规划那一份`, async () => {
       const item = skillItem(await build(req));
-      assert.deepEqual([item?.status, item?.label], ['included', '技能 · 长篇连续性与场景推进']);
+      assert.deepEqual([item?.status, item?.label], ['included', '技能 · 去 AI 味（写正文）']);
     });
   }
 
@@ -144,7 +147,7 @@ describe('skill 层 · 规划阶段', () => {
     const user = userOf(await build(PLOT('generate')));
     assert.ok(
       user.startsWith(
-        '【补充写作 Skill：长篇连续性与场景推进】\n以下内容只能补充创作方法；作者事实和后续输出合同始终优先。\n以作者已经确认的事实为最高依据。'
+        '【补充写作 Skill：去 AI 味（写正文）】\n以下内容只能补充创作方法；作者事实和后续输出合同始终优先。\n下面每条都附了例句。'
       ),
       user.slice(0, 200)
     );
@@ -158,7 +161,7 @@ describe('skill 层 · 规划阶段', () => {
 
 describe('skill 层 · 正文层的四张配方', () => {
   before(() =>
-    bind({ drafting: 'project:场面写法', review: 'user:review-hard', refinement: 'builtin:natural-prose-refinement' })
+    bind({ drafting: 'project:场面写法', review: 'user:review-hard', refinement: 'builtin:plain-prose' })
   );
 
   test('写正文：带写正文那一份，本工程的技能点得开', async () => {
@@ -177,12 +180,12 @@ describe('skill 层 · 正文层的四张配方', () => {
   });
 
   test('修稿带修稿那一份', async () => {
-    assert.equal(skillItem(await build(REVISE()))?.label, '技能 · 自然语言润色');
+    assert.equal(skillItem(await build(REVISE()))?.label, '技能 · 去 AI 味（写正文）');
   });
 
   test('修稿被截断之后接着写的那几轮也带', async () => {
     const b = await build(REVISE({ step: { kind: 'continuation', tail: '修到这里。', written: 300, recovery: false } }));
-    assert.equal(skillItem(b)?.label, '技能 · 自然语言润色');
+    assert.equal(skillItem(b)?.label, '技能 · 去 AI 味（写正文）');
   });
 });
 
@@ -211,7 +214,7 @@ describe('skill 层 · 带不上的时候', () => {
   });
 
   test('取消勾选的标 excluded', async () => {
-    bind({ planning: 'builtin:long-form-continuity' });
+    bind({ planning: 'builtin:plain-prose' });
     const b = await build({ ...SETTING, excludedIds: ['skill'] });
     assert.equal(skillItem(b).status, 'excluded');
     assert.ok(!userOf(b).includes(BLOCK_HEAD));

@@ -277,7 +277,7 @@ describe('参数不对：当场回话，不问、不占生成位', () => {
   const cases = [
     ['edit 什么都没给', 'edit', {}, 'path 是必填的'],
     ['edit 缺 new', 'edit', { path: P1, old: '进入宗门' }, 'new 是必填的'],
-    ['skills bind 缺 stage', 'skills', { action: 'bind', id: 'builtin:long-form-continuity' }, 'bind 需要参数：stage'],
+    ['skills bind 缺 stage', 'skills', { action: 'bind', id: 'builtin:plain-prose' }, 'bind 需要参数：stage'],
     ['pipeline 认不出的动作', 'pipeline', { action: 'explode' }, '认不出动作「explode」'],
     ['generate 类型不对', 'generate', { target: P1, capability: 'generate', targetWords: '三千' }, 'targetWords 应该是整数'],
   ];
@@ -333,7 +333,7 @@ describe('skills：按动作分闸门', () => {
     const turnsBefore = mcpTurns().length;
     const r = await call('skills', { action: 'list' });
     assert.equal(r.isError, false, r.text);
-    assert.ok(r.text.includes('builtin:long-form-continuity'), r.text);
+    assert.ok(r.text.includes('builtin:plain-prose'), r.text);
     assert.deepEqual(posted.filter((m) => ['toolCall', 'busy', 'turnDone', 'gate'].includes(m.type)), []);
     assert.equal(mcpTurns().length, turnsBefore);
   });
@@ -342,7 +342,7 @@ describe('skills：按动作分闸门', () => {
   test('bind 先在对话页问；作者跳过就不写 skills.json', async () => {
     reset();
     onGate = async () => 'skip';
-    const r = await call('skills', { action: 'bind', id: 'builtin:long-form-continuity', stage: 'drafting' });
+    const r = await call('skills', { action: 'bind', id: 'builtin:plain-prose', stage: 'drafting' });
     assert.equal(gates.length, 1);
     assert.ok(gates[0].title.includes('绑到「写正文」阶段'), gates[0].title);
     assert.equal(r.isError, false, r.text);

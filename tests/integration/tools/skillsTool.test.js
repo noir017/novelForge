@@ -105,8 +105,8 @@ describe('闸门按动作分', () => {
 
   test('绑定的确认框说清阶段', () => {
     assert.equal(
-      tool().intent({ action: 'bind', id: 'builtin:long-form-continuity', stage: 'drafting' }).title,
-      '把写作技能 builtin:long-form-continuity 绑到「写正文」阶段'
+      tool().intent({ action: 'bind', id: 'builtin:plain-prose', stage: 'drafting' }).title,
+      '把写作技能 builtin:plain-prose 绑到「写正文」阶段'
     );
   });
 });
@@ -118,7 +118,7 @@ describe('list', () => {
   });
 
   test('列出内置的 id，写明可绑', () => {
-    assert.ok(r.text.includes('- builtin:long-form-continuity｜长篇连续性与场景推进｜内置｜建议 planning｜可绑'), r.text);
+    assert.ok(r.text.includes('- builtin:plain-prose｜去 AI 味（写正文）｜内置｜建议 drafting｜可绑'), r.text);
   });
 
   test('写明本工程每个阶段绑了什么', () => {
@@ -169,7 +169,7 @@ describe('检查 → 安装 → 绑定', () => {
 describe('参数与拒绝', () => {
   // stage 是 bind 的必填：缺了在动手前就拦下，带上阶段的说明。
   test('bind 没给 stage', async () => {
-    const r = await run({ action: 'bind', id: 'builtin:long-form-continuity' });
+    const r = await run({ action: 'bind', id: 'builtin:plain-prose' });
     assert.ok(r.error.startsWith('bind 需要参数：stage。stage：绑到哪个阶段'), r.error);
   });
 
@@ -179,7 +179,7 @@ describe('参数与拒绝', () => {
   });
 
   test('bind 给了认不出的 stage', async () => {
-    const r = await run({ action: 'bind', id: 'builtin:long-form-continuity', stage: 'polish' });
+    const r = await run({ action: 'bind', id: 'builtin:plain-prose', stage: 'polish' });
     assert.equal(r.error, 'stage 只能是 planning / drafting / review / refinement。');
   });
 
@@ -193,7 +193,7 @@ describe('参数与拒绝', () => {
 
   // 从前 bind 的 id 走的是 name：拿着老提示词来的模型要听到「不认 name」，而不是被静默忽略。
   test('bind 给了 name 当场报错', async () => {
-    const r = await run({ action: 'bind', name: 'builtin:long-form-continuity', stage: 'review' });
+    const r = await run({ action: 'bind', name: 'builtin:plain-prose', stage: 'review' });
     assert.equal(r.error, 'bind 不认 name。');
   });
 
