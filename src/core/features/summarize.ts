@@ -648,6 +648,28 @@ function plotDigest(plot: Plot): string {
 }
 
 /**
+ * 收集定稿过的细纲，交给全文大纲。定稿之后正文又改过的照样收（重建之前已经问过要不要先同步），
+ * 从没定稿过的只是计划，不进全文大纲（记进 `missing`）。
+ */
+async function collectDigests(
+  project: NovelProject,
+  chapters: Chapter[]
+): Promise<{ units: { no: number; title: string; content: string }[]; missing: number[] }> {
+  const units: { no: number; title: string; content: string }[] = [];
+  const missing: number[] = [];
+  for (const chapter of chapters) {
+    const plot = await project.plotOfChapter(chapter);
+    const content = plot?.sourceHash ? plotDigest(plot) : '';
+    if (content) {
+      units.push({ no: chapter.order, title: chapter.title, content });
+    } else {
+      missing.push(chapter.order);
+    }
+  }
+  return { units, missing };
+}
+
+/**
  * map-reduce 重建全文大纲。
  *
  * 定稿过的各章细纲按 summaryBatchSize 分批 reduce 成阶段摘要，再把阶段摘要合并成
@@ -662,7 +684,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
   }
 
   const stale = await project.staleChapters();
-  /** 有没定稿的章时问过一句，作者在那里挑的；没问就是设置。 */
+  /** 作者在确认框上挑的；一章定稿过的细纲都没有、没问时是设置。 */
   let choice: CallChoice = {};
   if (stale.length > 0) {
     globalLog.warn(`有 ${stale.length} 章没定稿或定稿后正文改过`, `待同步：${describeNos(stale)}`);
@@ -682,23 +704,29 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
     if (answer.action === '先同步细纲') {
       await withCallChoice(choice, () => syncSummaries(project));
     }
+  } else {
+    // 都定稿过也先报次数（第 4 条）。一章都收不到时不问，下面照常说清。
+    const { units } = await collectDigests(project, chapters);
+    if (units.length > 0) {
+      const batches = Math.ceil(units.length / Math.max(3, readConfig().summaryBatchSize));
+      const calls = batches + (batches > 1 ? 1 : 0);
+      const answer = await askCall({
+        message: `重建全文大纲：${units.length} 章定稿过的细纲分 ${batches} 批归纳${batches > 1 ? '，再合并成一份' : ''}，覆盖现在的全文大纲。${describeCalls({ low: calls, high: calls, max: calls })}。`,
+        actions: ['重建'],
+        tasks: ['globalSummaryStage', 'globalSummaryMerge'],
+        contextDetail: false,
+      });
+      if (answer?.action !== '重建') {
+        globalLog.info('用户取消了重建');
+        return;
+      }
+      choice = answer.choice;
+    }
   }
 
   return withCallChoice(choice, async () => {
     const config = readConfig();
-    // 收集定稿过的细纲。定稿之后正文又改过的照样收（上面已经问过要不要先同步），
-    // 从没定稿过的只是计划，不进全文大纲。
-    const units: { no: number; title: string; content: string }[] = [];
-    const missing: number[] = [];
-    for (const chapter of chapters) {
-      const plot = await project.plotOfChapter(chapter);
-      const content = plot?.sourceHash ? plotDigest(plot) : '';
-      if (content) {
-        units.push({ no: chapter.order, title: chapter.title, content });
-      } else {
-        missing.push(chapter.order);
-      }
-    }
+    const { units, missing } = await collectDigests(project, chapters);
     if (units.length === 0) {
       globalLog.error('没有任何定稿过的章，重建中止');
       getHost().toast('还没有任何一章定稿过，请先定稿，或运行「同步过期细纲」。');

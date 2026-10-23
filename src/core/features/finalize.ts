@@ -24,9 +24,9 @@
  *
  * ## 用哪个模型
  *
- * 单章入口（主按钮、章节工作台、右键「定稿」、MCP 的 `summary finalize`）用对话页选定的那个。批量入口
- * 各走各的档（细纲与叙事线 `plotSummary`、角色状态 `characterCard`），失败换同档其余。工程页右键「重新定稿」
- * 先弹确认框（`refinalizeChapterTask`），缺省仍是对话页那个，可以为这一次换一个、或按分档。
+ * 单章入口（主按钮、章节工作台、MCP 的 `summary finalize`）用对话页选定的那个。批量入口
+ * 各走各的档（细纲与叙事线 `plotSummary`、角色状态 `characterCard`），失败换同档其余。工程页章节右键
+ * 先弹确认框（`askFinalizeChapterTask`），缺省仍是对话页那个，可以为这一次换一个、或按分档。
  *
  * 后两步在 finalizeSteps.ts：工程页黄条上的「立即同步」（summarize.ts 的 `syncSummaries`）更新完细纲之后
  * 也走它们，同步过的章与逐章定稿的章是同一个结果。
@@ -187,24 +187,27 @@ export async function finalizeChapterTask(
 }
 
 /**
- * 工程页右键「重新定稿」：先经确认框问这一次用哪个模型、带多少上下文（features/askCall.ts），再走
- * {@link finalizeChapterTask}。模型下拉框打开时选着对话页那个——直接点「重新定稿」与不问时是同一个模型；
+ * 工程页章节右键「定稿」「重新定稿」：先经确认框问这一次用哪个模型、带多少上下文（features/askCall.ts），再走
+ * {@link finalizeChapterTask}。模型下拉框打开时选着对话页那个——直接点与不问时是同一个模型；
  * 选「按分档」就与「立即同步」一样各走各的档（细纲与叙事线 `plotSummary`、角色状态 `characterCard`），
  * 失败换同档其余。取消返回 0。
  */
-export async function refinalizeChapterTask(project: NovelProject, chapter: Chapter): Promise<number> {
+export async function askFinalizeChapterTask(project: NovelProject, chapter: Chapter): Promise<number> {
+  // 定稿过、正文没再改过的是「重新定稿」，与右键菜单上的字同一个判据。
+  const plot = await project.plotOfChapter(chapter);
+  const verb = plot?.sourceHash && plot.sourceHash === chapter.contentHash ? '重新定稿' : '定稿';
   const { why, ...calls } = FINALIZE_CALLS;
   const answer = await askCall({
-    message: `重新定稿第 ${chapter.order} 章《${chapter.title}》：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么。${describeCalls(calls)}。`,
-    actions: ['重新定稿'],
+    message: `${verb}第 ${chapter.order} 章《${chapter.title}》：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么。${describeCalls(calls)}。`,
+    actions: [verb],
     detail: `${why}。\n旧版细纲先复制一份进 .novelforge/.trash/。`,
     tasks: ['plotSummary', 'characterCard'],
     // 定稿认叙事线带几条线、几条伏笔随详细度（`recordThreads`）。
     contextDetail: true,
     preset: { model: readConfig().model || undefined },
   });
-  if (answer?.action !== '重新定稿') {
-    log.info(`作者取消了重新定稿第 ${chapter.order} 章`);
+  if (answer?.action !== verb) {
+    log.info(`作者取消了${verb}第 ${chapter.order} 章`);
     return 0;
   }
   return withCallChoice(answer.choice, async () => {
@@ -215,7 +218,7 @@ export async function refinalizeChapterTask(project: NovelProject, chapter: Chap
     }
     // 角色状态走「角色卡」档（与「立即同步」同一个分法），没配就沿用定稿那一档。
     const state = (await createModelPool({ task: 'characterCard', concurrent: false })) ?? summary;
-    log.info(`重新定稿第 ${chapter.order} 章，使用模型 ${summary.label}`);
+    log.info(`${verb}第 ${chapter.order} 章，使用模型 ${summary.label}`);
     return finalizeChapterTask(project, chapter, { summary, state, threads: summary });
   });
 }

@@ -26,6 +26,7 @@ let controller;
 let posted = [];
 let beside = [];
 let replies = [];
+let fake;
 
 const P1 = '.novelforge/summaries/001-夜入青云.md';
 const P2 = '.novelforge/summaries/002-客栈.md';
@@ -42,8 +43,9 @@ before(async () => {
     plotFile: './src/core/model/plotFile.ts',
     db: './src/core/runtime/db.ts',
   });
+  // 多配一个 strong：「重写…」的确认框上为这一轮换它。对话页选定的（`models` 首项）仍是 m。
   const settings = {
-    providers: [{ id: 'p', kind: 'vscode-lm', models: [{ name: 'm', contextWindow: 100000 }] }],
+    providers: [{ id: 'p', kind: 'vscode-lm', models: [{ name: 'm', contextWindow: 100000 }, { name: 'strong', contextWindow: 100000 }] }],
     models: ['p/m'],
     concurrency: 1,
   };
@@ -54,7 +56,7 @@ before(async () => {
     overrides: { openBeside: async (p) => { beside.push(p); } },
   });
   bundle.host.initHost(h.host);
-  installFakeProvider(bundle.registry, {
+  fake = installFakeProvider(bundle.registry, {
     reply: () => replies.shift() ?? '',
     errors: { LlmError: bundle.provider.LlmError, CancelledError: bundle.provider.CancelledError },
   });
@@ -209,8 +211,27 @@ describe('rewriteArchitecture', () => {
     assert.ok(!posted.some((m) => m.type === 'session' || m.type === 'gate'), JSON.stringify(posted.map((m) => m.type)));
   });
 
+  test('写了要求、在确认框上取消：不切层、不起生成', async () => {
+    h.expect('主角的金手指换成剑灵', undefined);
+    posted = [];
+    fake.reset();
+    await controller.handle({ type: 'rewriteArchitecture', target: { kind: 'setting', doc: 'premise' } });
+    assert.equal(h.confirms.length, 1);
+    assert.equal(fake.callCount(), 0);
+    assert.ok(!posted.some((m) => m.type === 'session' || m.type === 'gate'), JSON.stringify(posted.map((m) => m.type)));
+  });
+
+  test('确认框：报次数，模型缺省是对话页那个，带详细度下拉框', () => {
+    const [c] = h.confirms;
+    assert.deepEqual(c.actions, ['开始重写']);
+    assert.ok(c.message.startsWith('重写故事架构 · 故事前提：') && c.message.includes('预计 1 次调用'), c.message);
+    assert.equal(c.call.model, 'p/m');
+    assert.ok(c.call.contextDetail, JSON.stringify(c.call));
+  });
+
   test('写了要求：切到那一件、发一轮生成，要求进了用户那一轮，照样当场问写不写', async () => {
-    h.expect('主角的金手指换成剑灵');
+    h.expect('主角的金手指换成剑灵', '开始重写');
+    fake.reset();
     replies = [{ text: '# 故事前提\n\n少年得剑灵相助，入青云后一路逆袭打脸。\n', stop: 'end' }];
     posted = [];
     await controller.handle({ type: 'rewriteArchitecture', target: { kind: 'setting', doc: 'premise' } });
@@ -221,6 +242,17 @@ describe('rewriteArchitecture', () => {
     assert.ok(user?.content.includes('剑灵'), JSON.stringify(turns.map((u) => [u.role, u.content])));
     assert.equal(user.command, '生成这份架构文档', JSON.stringify(user));
     assert.ok(posted.some((m) => m.type === 'gate'), JSON.stringify(posted.map((m) => m.type)));
+    assert.equal(fake.calls[0].ref, 'p/m');
+  });
+
+  // 对话页这条路认确认框上换的模型（generate 认 `pinnedModel`），只这一轮。
+  test('确认框上换一个模型：这一轮只用它', async () => {
+    h.expect('', { action: '开始重写', choice: { model: 'p/strong' } });
+    replies = [{ text: '# 故事前提\n\n少年入青云。\n', stop: 'end' }];
+    fake.reset();
+    await controller.handle({ type: 'rewriteArchitecture', target: { kind: 'setting', doc: 'premise' } });
+    assert.ok(fake.callCount() >= 1, String(fake.callCount()));
+    assert.deepEqual([...new Set(fake.calls.map((m) => m.ref))], ['p/strong']);
   });
 
   test('不是架构或大纲的目标：什么都不做', async () => {

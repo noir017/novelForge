@@ -11,7 +11,7 @@ import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
 import { pickPlotsByInput } from './pickPlots';
 import { INCOMPLETE_RETRIES, STYLE_SYSTEM, collectComplete } from './stylePrompt';
-import { CallChoice } from '../model/callChoice';
+import { describeCalls } from '../model/pipeline';
 import { withCallChoice } from '../runtime/callScope';
 import { askCall } from './askCall';
 
@@ -19,7 +19,7 @@ const log = scoped('文风');
 
 /**
  * 从样章提取文风指南，写入 .novelforge/style.md。
- * 覆盖前先确认——style.md 常被作者手工调过。
+ * 挑完样章先弹确认框报次数、挑模型；要覆盖时那颗按钮是「覆盖」——style.md 常被作者手工调过。
  */
 export async function extractStyle(project: NovelProject): Promise<void> {
   // 样章取自**发布章节**：文风是从成稿里看出来的，而成稿在 chapters/。
@@ -47,26 +47,30 @@ export async function extractStyle(project: NovelProject): Promise<void> {
     getHost().toast('最多选 3 章，只取前 3 章。');
   }
 
+  const samples = picked.slice(0, 3);
   const existing = await project.readStyleGuide();
-  /** 要覆盖已有的文风指南时问过一句，作者在那里挑的；没问就是设置。 */
-  let choice: CallChoice = {};
-  if (existing.trim() && !isTemplate(existing)) {
-    const answer = await askCall({
-      message: '已存在文风指南，重新提取会覆盖当前内容（可用 Git 或撤销恢复）。',
-      actions: ['覆盖'],
-      tasks: ['extractStyle'],
-      // 带哪几章上一步已经选定了，详细度管不着这一次。
-      contextDetail: false,
-    });
-    if (answer?.action !== '覆盖') {
-      log.info('用户拒绝覆盖已有文风指南');
-      return;
-    }
-    choice = answer.choice;
+  // 已有作者调过的文风指南时那颗按钮是「覆盖」，说清会盖掉什么。
+  const overwrite = !!existing.trim() && !isTemplate(existing);
+  const button = overwrite ? '覆盖' : '开始提取';
+  const answer = await askCall({
+    message:
+      `提取文风：读第 ${samples.map((p) => p.no).join('、')} 章正文，归纳成文风指南写进 style.md，` +
+      `${describeCalls({ low: 1, high: 1, max: 1 + INCOMPLETE_RETRIES, why: `回答不完整时重问，最多再 ${INCOMPLETE_RETRIES} 次` })}。`,
+    actions: [button],
+    ...(overwrite ? { detail: '已存在文风指南，重新提取会覆盖当前内容（可用 Git 或撤销恢复）。' } : {}),
+    tasks: ['extractStyle'],
+    // 带哪几章上一步已经选定了，详细度管不着这一次。
+    contextDetail: false,
+  });
+  if (answer?.action !== button) {
+    log.info(overwrite ? '用户拒绝覆盖已有文风指南' : '用户取消了提取文风');
+    return;
+  }
+  if (overwrite) {
     log.warn('用户确认覆盖已有文风指南', `原内容 ${existing.length} 字`);
   }
 
-  return withCallChoice(choice, async () => {
+  return withCallChoice(answer.choice, async () => {
     const config = readConfig();
     // 只有一次调用，谈不上并发；走池是为了拿到「首选失败就换模型」。
     const pool = await createModelPool({ task: 'extractStyle', concurrent: false });
@@ -74,7 +78,6 @@ export async function extractStyle(project: NovelProject): Promise<void> {
       log.error('没有可用的模型，提取中止');
       return;
     }
-    const samples = picked.slice(0, 3);
     log.info(
       `准备从 ${samples.length} 章样章提取文风`,
       `章节 ${samples.map((p) => p.no).join('、')}｜模型 ${pool.label}`

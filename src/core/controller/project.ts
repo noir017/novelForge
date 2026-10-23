@@ -25,7 +25,7 @@ import { learnFromReference } from '../features/reference';
 import { generateThreads } from '../features/threads';
 import { backfillThreads } from '../features/threadsBackfill';
 import { chapterForSummary, rebuildGlobalSummary, syncSummaries } from '../features/summarize';
-import { finalizeChapterTask, refinalizeChapterTask } from '../features/finalize';
+import { askFinalizeChapterTask, finalizeChapterTask } from '../features/finalize';
 import { reviewCharacterState } from '../features/characterState';
 import { getHost } from '../host';
 import { scoped } from '../runtime/logger';
@@ -105,7 +105,7 @@ export async function projectAction(
       break;
     }
     case 'finalizeChapter':
-    case 'refinalizeChapter': {
+    case 'askFinalizeChapter': {
       if (!relPath) {
         break;
       }
@@ -118,9 +118,9 @@ export async function projectAction(
         getHost().toast('这一章还没有正文，无法定稿。', 'error');
         break;
       }
-      // 右键「重新定稿」先问这一次用哪个模型；其余入口用对话页选定的那个。
-      if (action === 'refinalizeChapter') {
-        await refinalizeChapterTask(c.project, chapter);
+      // 工程页章节右键先问这一次用哪个模型；其余入口用对话页选定的那个。
+      if (action === 'askFinalizeChapter') {
+        await askFinalizeChapterTask(c.project, chapter);
       } else {
         await finalizeChapterTask(c.project, chapter);
       }

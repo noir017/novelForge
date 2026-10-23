@@ -88,8 +88,8 @@ export function renderChips(): void {
 
 // ---------------------------------------------------------------- 待执行命令
 
-/** 挑中一个命令：变成输入框上方的一枚 chip，等一次发送。 */
-export function setPendingCommand(cmd: StageCommand): void {
+/** 挑中一个命令：变成输入框上方的一枚 chip，等一次发送。工程页章节右键「重写正文」也挂这一枚。 */
+export function setPendingCommand(cmd: Pick<StageCommand, 'capability' | 'label' | 'stage' | 'target'>): void {
   // 别的层挂过来的命令（`/落定设定`）带着自己的阶段与目标；后端跑完那一轮再回到会话原来的目标。
   pending = {
     stage: cmd.stage ?? store.session.stage,

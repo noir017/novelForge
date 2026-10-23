@@ -552,8 +552,8 @@ describe('定稿：模型返回解析不了', () => {
   });
 });
 
-// 工程页右键「重新定稿」（2026-10-23 作者要的）：先弹确认框，模型下拉框打开时选着对话页那个，可以为这一次换一个。
-describe('重新定稿（工程页右键）：先问这一次用哪个模型', () => {
+// 工程页章节右键「定稿」「重新定稿」（2026-10-23 作者要的）：先弹确认框，模型下拉框打开时选着对话页那个，可以为这一次换一个。
+describe('工程页章节右键「定稿」「重新定稿」：先问这一次用哪个模型', () => {
   const PLOT_REL = '.novelforge/summaries/001-第1章.md';
   /** 这一次的调用都交给了谁。 */
   const refsUsed = () => [...new Set(fake.calls.map((m) => m.ref))];
@@ -566,7 +566,7 @@ describe('重新定稿（工程页右键）：先问这一次用哪个模型', (
     const plot = t.read(PLOT_REL);
     h.expect();
     fake.reset();
-    assert.equal(await bundle.finalize.refinalizeChapterTask(project, await chapterNo(1)), 0);
+    assert.equal(await bundle.finalize.askFinalizeChapterTask(project, await chapterNo(1)), 0);
     assert.equal(fake.callCount(), 0);
     assert.equal(t.read(PLOT_REL), plot);
   });
@@ -583,17 +583,28 @@ describe('重新定稿（工程页右键）：先问这一次用哪个模型', (
   test('换一个模型：这一次的每次调用都用它，完成提示照旧', async () => {
     h.expect({ action: '重新定稿', choice: { model: 'fake/strong' } });
     fake.reset();
-    const calls = await bundle.finalize.refinalizeChapterTask(project, await chapterNo(1));
+    const calls = await bundle.finalize.askFinalizeChapterTask(project, await chapterNo(1));
     assert.ok(calls >= 2, String(calls));
     assert.equal(calls, fake.callCount());
     assert.deepEqual(refsUsed(), ['fake/strong']);
     assert.ok(h.toasts.some((x) => x.includes('第 1 章已定稿')), h.toasts.join('|'));
   });
 
-  test('下拉框不动直接点：用对话页那个', async () => {
-    h.expect('重新定稿');
+  // 没定稿、或定稿之后正文又改过的章，右键上写的是「定稿」：确认框上那颗按钮也是。
+  test('定稿之后正文又改过：确认框上那颗按钮是「定稿」', async () => {
+    t.write(CH(1), `# 第1章\n\n${TEXT}\n\n又补了一句。\n`);
+    h.expect();
     fake.reset();
-    await bundle.finalize.refinalizeChapterTask(project, await chapterNo(1));
+    await bundle.finalize.askFinalizeChapterTask(project, await chapterNo(1));
+    assert.deepEqual(h.confirms[0].actions, ['定稿']);
+    assert.match(h.confirms[0].message, /^定稿第 1 章/);
+    assert.equal(fake.callCount(), 0);
+  });
+
+  test('下拉框不动直接点：用对话页那个', async () => {
+    h.expect('定稿');
+    fake.reset();
+    await bundle.finalize.askFinalizeChapterTask(project, await chapterNo(1));
     assert.ok(fake.callCount() >= 2, String(fake.callCount()));
     assert.deepEqual(refsUsed(), ['fake/m']);
   });

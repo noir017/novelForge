@@ -105,11 +105,16 @@ function attach() {
   });
 }
 
-/** 右键「展开…」：`answers` 是问要求那一句的回答（undefined = 取消）。 */
+/**
+ * 右键「展开…」：`answers` 是问要求那一句的回答（undefined = 取消）。答了要求，接着的确认框缺省点「开始展开」；
+ * 要测确认框的另传 `confirm`（undefined = 取消，`{ action, choice }` = 换了模型）。
+ */
 async function expand(msg, ...answers) {
+  const [ask] = answers;
+  const confirm = answers.length > 1 ? answers[1] : '开始展开';
   posted.length = 0;
   gates = [];
-  h.expect(...answers);
+  h.expect(...(answers.length === 0 ? [] : ask === undefined ? [undefined] : [ask, confirm]));
   await controller.handle({ type: 'expandLore', ...msg });
   project.invalidate();
   return gates[0];
@@ -137,8 +142,9 @@ before(async () => {
     fs: './src/core/model/fs.ts',
     db: './src/core/runtime/db.ts',
   });
+  // 多配一个 strong：确认框上为这一轮换它。对话页选定的（`models` 首项）仍是 m。
   const settings = {
-    providers: [{ id: 'p', kind: 'vscode-lm', models: [{ name: 'm', contextWindow: 100000 }] }],
+    providers: [{ id: 'p', kind: 'vscode-lm', models: [{ name: 'm', contextWindow: 100000 }, { name: 'strong', contextWindow: 100000 }] }],
     models: ['p/m'],
     concurrency: 1,
   };
@@ -355,6 +361,16 @@ describe('只有一句话的：直接写', () => {
     assert.ok(systemOf(0).includes('把它往前想细'));
   });
 
+  test('问完要求再弹确认框：报次数，模型缺省是对话页那个，带详细度下拉框', () => {
+    assert.equal(h.confirms.length, 1);
+    const [c] = h.confirms;
+    assert.deepEqual(c.actions, ['开始展开']);
+    assert.ok(c.message.includes('展开设定「天机阁」') && c.message.includes('预计 1 次调用，最多 2 次'), c.message);
+    assert.equal(c.call.model, 'p/m');
+    assert.ok(c.call.contextDetail, JSON.stringify(c.call));
+    assert.equal(fake.calls[0].ref, 'p/m');
+  });
+
   test('对话页的目标换成这一条，命令记成「展开这条设定」', () => {
     assert.deepEqual(controller.current.target, { kind: 'lore', relPath: TJG });
     assert.equal(controller.current.stage, 'setting');
@@ -495,6 +511,15 @@ describe('只给名字', () => {
     assert.equal(fake.callCount(), 0);
     assert.ok(!(await listLore()).some((x) => x.title === '鬼市'));
   });
+
+  // 确认框问在建空条目之前：在那里取消也不留空条目。
+  test('写了要求、在确认框上取消：同样不建空条目、不调模型', async () => {
+    fake.reset([]);
+    await expand({ name: '鬼市', category: '地域' }, '多写些规矩', undefined);
+    assert.equal(h.confirms.length, 1);
+    assert.equal(fake.callCount(), 0);
+    assert.ok(!(await listLore()).some((x) => x.title === '鬼市'));
+  });
 });
 
 describe('路径上还没有文件（MCP 给了一条新路径）', () => {
@@ -632,5 +657,21 @@ describe('会话', () => {
     assert.equal(back.stage, 'setting');
     assert.equal(back.capability, 'generate');
     assert.deepEqual(back.drafts[0].target, { kind: 'lore', relPath: TJG });
+  });
+});
+
+// 对话页这条路认确认框上换的模型（generate 认 `pinnedModel`）：只这一轮，对话页选定的不变。
+describe('确认框上换一个模型', () => {
+  test('这一轮只用它', async () => {
+    fake.reset([{ text: JSON.stringify({ ...EXPANSION, children: [] }), stop: 'end' }]);
+    await expand({ name: '寒潭', category: '地域' }, '', { action: '开始展开', choice: { model: 'p/strong' } });
+    assert.equal(fake.callCount(), 1);
+    assert.equal(fake.calls[0].ref, 'p/strong');
+  });
+
+  test('下一轮不问的生成照旧用对话页那个（选择不写回设置）', async () => {
+    fake.reset([{ text: JSON.stringify({ ...EXPANSION, children: [] }), stop: 'end' }]);
+    await expand({ name: '寒潭', category: '地域' }, '');
+    assert.equal(fake.calls[0].ref, 'p/m');
   });
 });

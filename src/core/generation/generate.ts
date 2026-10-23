@@ -34,13 +34,14 @@ import { describeUsage, recordUsage } from '../context/tokenizer';
 import { mergeUsage, sumUsage } from '../llm/collect';
 import { CancelledError, LlmProvider, StreamOptions, TokenUsage } from '../llm/provider';
 import { buildProvider, resolveProvider } from '../llm/registry';
-import { readConfig } from '../config';
+import { readBudgetFallback, readConfig } from '../config';
 import { ThinkingDepth } from '../model/thinking';
 import { CONTEXT_DETAIL_LABEL } from '../model/contextDetail';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { countWords } from '../model/fs';
 import { NovelProject } from '../model/project';
+import { NovelConfig } from '../model/types';
 import { Plot, isPlotFilled, parsePlotFileName } from '../model/plotFile';
 import { NotYet, dropMentioned, notYetOnStage } from '../model/manuscriptCheck';
 import { readBannedTerms } from '../views/checkTerms';
@@ -58,7 +59,7 @@ import {
   plotOfTarget,
 } from '../model/pipeline';
 import { previousEnding } from '../context/replay';
-import { describeModelIssue, providerLabel } from '../model/providers';
+import { describeModelIssue, providerLabel, resolveModelRef } from '../model/providers';
 import { Artifact, ChapterRange, describeArtifact, isArtifactEmpty, parseArtifact } from '../features/artifact';
 import { cleanOutput } from '../features/creation';
 import {
@@ -227,6 +228,23 @@ export function parseDraftArtifact(
 }
 
 /**
+ * 作者在确认框上为这一次指定了模型（`pinnedModel`，runtime/callScope.ts；工程页「重写…」「展开…」走的是对话页这条路）：
+ * 缺省的「对话页选定的那个」换成它，窗口也换成它的（第 13 条）。引用无效时 `active` 缺席，照常报错。
+ */
+function withPinnedModel(config: NovelConfig): NovelConfig {
+  const ref = config.pinnedModel ?? config.model;
+  const active = resolveModelRef(config.providers, ref);
+  const fallback = readBudgetFallback();
+  return {
+    ...config,
+    model: ref,
+    active,
+    contextWindow: active?.model.contextWindow ?? fallback.contextWindow,
+    maxOutputTokens: active?.model.maxOutputTokens ?? fallback.maxOutputTokens,
+  };
+}
+
+/**
  * 装配 + 调模型 + 解析。**一个字都不写磁盘。**
  *
  * 失败时往 `errorLog` 记一条挂在目标细纲上，成功时清掉（第 16 条）。
@@ -241,7 +259,9 @@ export async function generate(
   let request = requested;
   // 干活那个模型的窗口优先：换了 provider 却拿对话页那个模型的窗口切上下文，
   // 是第 13 条明确点名的错法。
-  const config = options.budget ? { ...readConfig(), ...options.budget } : readConfig();
+  const base = readConfig();
+  const own = !options.provider && base.pinnedModel ? withPinnedModel(base) : base;
+  const config = options.budget ? { ...own, ...options.budget } : own;
   let provider = options.provider;
   if (!provider) {
     if (!config.active) {

@@ -66,6 +66,7 @@ before(() => {
     project: './src/core/model/project.ts',
     registry: './src/core/llm/registry.ts',
     rewrite: './src/core/features/outlineRewrite.ts',
+    controller: './src/core/controller/index.ts',
     db: './src/core/runtime/db.ts',
   });
   h = makeFakeHost({
@@ -195,5 +196,37 @@ describe('不写入', () => {
     h.expect();
     await bundle.rewrite.rewriteOutline(t.project, plan, '');
     assert.equal(await outlineOf(t), before);
+  });
+});
+
+// 工程页「情节大纲」右键「重写…」：问完要求先弹确认框报段数、挑这一次的模型（2026-10-23 作者要的），取消就不调。
+describe('从工程页右键进来', () => {
+  async function rewriteFromProjectPage(t, ...answers) {
+    const controller = new bundle.controller.ChatController(t.project);
+    controller.attach({ kind: 'sidebar', post: () => {}, reveal() {} });
+    h.expect(...answers);
+    await controller.handle({ type: 'rewriteArchitecture', target: { kind: 'outline' } });
+    controller.dispose();
+  }
+
+  test('问完要求、在确认框上取消：不调模型，大纲不动', async () => {
+    const t = await fresh('outline-rewrite-confirm-cancel');
+    const before = await outlineOf(t);
+    await rewriteFromProjectPage(t, '节奏再快一点', undefined);
+    const [c] = h.confirms;
+    assert.deepEqual(c.actions, ['开始重写']);
+    assert.ok(c.message.includes('预计 2 次调用'), c.message);
+    assert.match(c.detail, /按 20 章一段重写第 8–45 章/);
+    assert.equal(c.call.model, '', '缺省按分档（与不问时一样走情节大纲那一档）');
+    assert.ok(c.call.contextDetail, JSON.stringify(c.call));
+    assert.equal(fake.callCount(), 0);
+    assert.equal(await outlineOf(t), before);
+  });
+
+  test('点「开始重写」：照分段重写', async () => {
+    const t = await fresh('outline-rewrite-confirm-go');
+    await rewriteFromProjectPage(t, '', '开始重写');
+    assert.equal(fake.callCount(), 2);
+    assert.match(await outlineOf(t), /## 第8章：新规划/);
   });
 });

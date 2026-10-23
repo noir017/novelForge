@@ -19,6 +19,8 @@ import { stampState } from '../model/characterState';
 import { CHARACTER_SYSTEM } from './charactersPrompt';
 import { extractJsonArray, stringArray, stripCodeFence, unique } from './parse';
 import { pickPlotsByInput } from './pickPlots';
+import { withCallChoice } from '../runtime/callScope';
+import { askCall } from './askCall';
 
 const log = scoped('角色卡');
 
@@ -51,7 +53,24 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
     log.info('用户取消了章节选择');
     return;
   }
+  const answer = await askCall({
+    message: `提取角色卡：读第 ${picked.map((p) => p.no).join('、')} 章正文，新角色直接建卡，已有角色的更新逐个对比后再写。预计 1 次调用。`,
+    actions: ['开始提取'],
+    tasks: ['extractCharacters'],
+    // 读哪几章上一步已经选定了，详细度管不着这一次。
+    contextDetail: false,
+  });
+  if (answer?.action !== '开始提取') {
+    log.info('用户取消了提取角色');
+    return;
+  }
+  return withCallChoice(answer.choice, () => runExtract(project, picked));
+}
 
+/** 问完之后：一次调用读选定的几章，建新卡、对比已有的。 */
+async function runExtract(project: NovelProject, picked: { no: number; title: string; chapter: Chapter }[]): Promise<void> {
+  // 确认框之后重新读：作者挑的模型与详细度在这之后才有（features/askCall.ts）。
+  const config = readConfig();
   // 一批章节一次调用，谈不上并发；走池是为了拿到「首选失败就换模型」。
   const pool = await createModelPool({ task: 'extractCharacters', concurrent: false });
   if (!pool) {

@@ -30,7 +30,8 @@ import { linkBtn } from '../buttons';
 import { formatWords } from '../format';
 import { openIdeaForm } from '../forms';
 import { onContextMenu } from '../menu';
-import { openPath, vscode } from '../store';
+import { setPendingCommand } from '../composer';
+import { openPath, store, vscode } from '../store';
 import {
   baseMenuItems,
   characterAction,
@@ -287,18 +288,15 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
       { sep: true }
     );
 
-    // 定稿、草稿都只对有正文的章成立——两者读的都是正文。
+    // 重写、定稿、草稿都只对有正文的章成立——读的都是正文。
     if (written) {
+      items.push({ label: '重写正文', run: () => rewriteManuscript(p.plotPath) });
       // 定稿 = 照正文更新细纲（带连续性事实）+ 出场角色的当前状态（四期，D17）+ 这一章在叙事线上发生了什么
-      // （叙事线重做：认事件、当前进度、归并）。调用次数与主按钮同源。重新定稿先弹确认框挑这一次的模型。
-      items.push(
-        p.stale
-          ? {
-              label: `定稿（细纲 + 角色状态 + 叙事线，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）`,
-              run: () => projectAction('finalizeChapter', p.chapterPath),
-            }
-          : { label: '重新定稿', run: () => projectAction('refinalizeChapter', p.chapterPath) }
-      );
+      // （叙事线重做：认事件、当前进度、归并）。调用次数与主按钮同源。后端先弹确认框挑这一次的模型。
+      items.push({
+        label: p.stale ? `定稿（细纲 + 角色状态 + 叙事线，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）` : '重新定稿',
+        run: () => projectAction('askFinalizeChapter', p.chapterPath),
+      });
       // 单独记设定（设定名录，作者定案）：只对定稿过、正文没再改过的章——没定稿的「设定」一节是计划，
       // 记了也会被定稿冲掉。定稿时本来就会顺手记，这里是重记一次、或补老章节。
       if (!p.stale) {
@@ -444,6 +442,19 @@ function pct(ratio: number): string {
 
 function setTarget(target: CreationTarget): void {
   vscode.postMessage({ type: 'setTarget', target });
+}
+
+/**
+ * 章节右键「重写正文」：创作页切到这一章的正文层，输入框上方挂一枚「/重写正文」，等作者写下要求再点发送——
+ * 不自己开写。正文已经有字，发出去的「写正文」后端就按重写走（`resolveWriteMode`），写完先对比再写入。
+ */
+function rewriteManuscript(plotRelPath: string): void {
+  const target: CreationTarget = { kind: 'manuscript', plotRelPath };
+  setTarget(target);
+  // 正在生成时后端不切、说一句；这里也不挂，免得那一轮完了一发送就重写了别的章。
+  if (!store.busy) {
+    setPendingCommand({ capability: 'generate', label: '重写正文', stage: 'manuscript', target });
+  }
 }
 
 /**

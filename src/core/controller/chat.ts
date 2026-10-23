@@ -9,6 +9,9 @@ import { describeThreadPlan } from '../features/threadPlan';
 import { plannedLoreSettle } from '../generation/loreSettle';
 import { Draft, generate, parseDraftArtifact } from '../generation/generate';
 import { getHost } from '../host';
+import { readConfig } from '../config';
+import { askCall } from '../features/askCall';
+import { withCallChoice } from '../runtime/callScope';
 import { askGate, askGateNoted, cancelGates } from './gate';
 import type { GateVerdict } from './gate';
 import { scoped } from '../runtime/logger';
@@ -29,6 +32,7 @@ import {
   DEFAULT_CAPABILITY,
   LORE_EXPAND_CALLS,
   LORE_SETTLE_TARGET,
+  ONE_CALL,
   PLOT_BATCH,
   WriteMode,
   capabilitiesOn,
@@ -44,6 +48,7 @@ import {
   normalizeTarget,
   outputKindOf,
   plotOfTarget,
+  settingCalls,
   stageOfTarget,
 } from '../model/pipeline';
 import { isSettingFilled } from '../model/settingFile';
@@ -64,7 +69,7 @@ import { buildWorkbench } from '../views/workbench';
 import { Plot, isPlotFilled, parsePlotFileName } from '../model/plotFile';
 import { parseChapterFileName } from '../model/chapterFile';
 import { isPlotPath } from '../files/fileOps';
-import { Chapter } from '../model/types';
+import { Chapter, LoreEntry } from '../model/types';
 import {
   ReviewIssueEdit,
   applyReviewEdits,
@@ -828,7 +833,8 @@ export async function chapterAction(c: ChatController, plotRelPath: string, acti
  * 工程页「故事架构」那几行右键「重写…」：对那一件**直接发一轮生成**。
  *
  * 先问一句重写要求——留空就是照上游重来一遍，写了就是修改意见（生成层本来就这么读输入）；
- * 取消就什么都不做。生成照样在对话页流式输出，覆盖前照样先对比（第 19 条）。
+ * 再弹确认框报次数、挑这一次的模型与详细度（features/askCall.ts）；哪一问取消都什么都不做。
+ * 生成照样在对话页流式输出，覆盖前照样先对比（第 19 条）。
  * 「讨论」走 `setTarget`：只进入这一层，不花钱。
  *
  * 情节大纲认得出章标题时不走对话页：按 20 章一段重写，写完一次对比（features/outlineRewrite.ts）。
@@ -863,19 +869,43 @@ export async function rewriteArchitecture(c: ChatController, target: CreationTar
     return;
   }
   if (plan) {
-    await rewriteOutline(c.project, plan, ask.trim());
+    const n = plan.batches.length;
+    const answer = await askCall({
+      message: `重写${where}：${describeCalls({ low: n, high: n, max: n })}。`,
+      actions: ['开始重写'],
+      detail: describeOutlineRewrite(plan),
+      tasks: ['plotOutline'],
+      contextDetail: true,
+    });
+    if (answer?.action !== '开始重写') {
+      return;
+    }
+    await withCallChoice(answer.choice, () => rewriteOutline(c.project, plan, ask.trim()));
     await c.pushState();
     return;
   }
-  await setTarget(c, target);
-  await send(c, {
-    text: ask.trim(),
-    stage: stageOfTarget(target),
-    capability: 'generate',
-    target,
-    targetNo: c.current.targetNo ?? 1,
-    attachments: [],
-    excludedIds: [],
+  // 其余几件在对话页生成：模型缺省是对话页那个（与不问时一样），换了就只这一轮用它（generate 认 `pinnedModel`）。
+  const answer = await askCall({
+    message: `重写${where}：在对话页${ask.trim() ? '按你的要求' : '照上游'}重新生成一份，写入前先让你对比。${describeCalls(target.kind === 'setting' ? settingCalls(target.doc) : ONE_CALL)}。`,
+    actions: ['开始重写'],
+    tasks: [],
+    contextDetail: true,
+    preset: { model: readConfig().model || undefined },
+  });
+  if (answer?.action !== '开始重写') {
+    return;
+  }
+  await withCallChoice(answer.choice, async () => {
+    await setTarget(c, target);
+    await send(c, {
+      text: ask.trim(),
+      stage: stageOfTarget(target),
+      capability: 'generate',
+      target,
+      targetNo: c.current.targetNo ?? 1,
+      attachments: [],
+      excludedIds: [],
+    });
   });
 }
 
@@ -883,7 +913,7 @@ export async function rewriteArchitecture(c: ChatController, target: CreationTar
  * 工程页设定条目、「待完善」那一行右键「展开…」（完善设定，2026-10-19）：把对话页的目标换成这一条设定，
  * **直接发一轮生成**（展开）。照 {@link rewriteArchitecture} 那条路：先问一句要求（留空就照已排的细纲去想；
  * 取消就什么都不做），生成照样在对话页流式输出、照样当场问写不写，已经有内容的条目覆盖前先对比（第 19、3 条）。
- * 模型严格用会话选定的那个（第 12 条，`send` 那条路本来就是）。
+ * 问完要求再弹确认框：模型缺省是会话选定的那个（第 12 条），可以为这一轮换一个（generate 认 `pinnedModel`）。
  *
  * 只给了名字（「待完善」里还没有条目的）：问完要求之后先在「设定」一节给的分类目录下建一条空条目（同细纲带出新设定），
  * 再展开它。名字已被已有条目（标题或关键词）占了就展开那一条；是角色卡上的人就报错退出——人不是设定。
@@ -925,8 +955,31 @@ export async function expandLore(c: ChatController, msg: { relPath?: string; nam
   if (ask === undefined) {
     return;
   }
+  // 模型缺省是对话页那个（与不问时一样），换了就只这一轮用它（generate 认 `pinnedModel`）。问在建空条目之前：取消不留空条目。
+  const answer = await askCall({
+    message: `展开设定「${label}」：在对话页发一轮生成，${describeCalls(LORE_EXPAND_CALLS)}。${entry ? '' : '还没有这一条，会先建一条空条目。'}`,
+    actions: ['开始展开'],
+    tasks: [],
+    contextDetail: true,
+    preset: { model: readConfig().model || undefined },
+  });
+  if (answer?.action !== '开始展开') {
+    return;
+  }
+  await withCallChoice(answer.choice, () => expandLoreEntry(c, entry, name, msg.category, ask.trim()));
+}
+
+/** 问完之后：还没有条目就先建空条目，再把对话页的目标换成它、发一轮展开。 */
+async function expandLoreEntry(
+  c: ChatController,
+  found: LoreEntry | undefined,
+  name: string,
+  category: string | undefined,
+  ask: string
+): Promise<void> {
+  let entry = found;
   if (!entry) {
-    const folder = loreFolderOf(msg.category ?? '');
+    const folder = loreFolderOf(category ?? '');
     const slug = await uniqueSlug(c.project.loreDir, `${folder ? `${folder}/` : ''}${slugify(name)}`);
     const created = await new Workspace(c.project).writeLore({ slug, title: name, keywords: [name], brief: '', body: '' });
     c.project.invalidate();

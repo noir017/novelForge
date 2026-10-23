@@ -547,7 +547,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
 
   // 「进入这一章」与「打开正文」是两件事：前者把创作页切到这一章当前该做
   // 的那一层，后者只是读文件。
-  for (const label of ['进入这一章', '打开正文', '打开细纲', '重新定稿',
+  for (const label of ['进入这一章', '打开正文', '打开细纲', '重写正文', '重新定稿',
     '打开草稿', '重命名', '删除（移到回收站）']) {
     test(`定稿过的章菜单含「${label}」`, () => {
       assert.ok(doneItems.includes(label), JSON.stringify(doneItems));
@@ -621,13 +621,36 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   // 定稿是照正文更新细纲，读的是正文，所以带的必须是 chapters/ 那条路径。
-  // 重新定稿发的是 refinalizeChapter：后端先弹确认框挑这一次的模型。
-  test('「重新定稿」发 refinalizeChapter，带的是章节路径', () => {
+  // 右键发的是 askFinalizeChapter：后端先弹确认框挑这一次的模型。
+  test('「重新定稿」发 askFinalizeChapter，带的是章节路径', () => {
     ui.pick(ui.rightClick(plotRow('楔子')), '重新定稿');
     const msg = ui.last('projectAction');
     assert.ok(msg, '没发出 projectAction');
-    assert.equal(msg.action, 'refinalizeChapter', JSON.stringify(msg));
+    assert.equal(msg.action, 'askFinalizeChapter', JSON.stringify(msg));
     assert.equal(msg.relPath, 'chapters/001-楔子.md', JSON.stringify(msg));
+  });
+
+  // 重写正文不自己开写：切到这一章的正文层，输入框上方挂一枚「/重写正文」，等作者写下要求再发送。
+  test('「重写正文」切到这一章的正文层、挂上「/重写正文」，不发送', () => {
+    const before = ui.sent.filter((m) => m.type === 'send').length;
+    ui.pick(ui.rightClick(plotRow('楔子')), '重写正文');
+    const t = ui.last('setTarget');
+    assert.equal(t?.target.kind, 'manuscript', JSON.stringify(t));
+    assert.equal(t?.target.plotRelPath, '.novelforge/summaries/001-楔子.md', JSON.stringify(t));
+    const chip = ui.doc.querySelector('#pendingCmd .cmd-chip');
+    assert.ok(chip?.textContent.includes('重写正文'), chip?.textContent);
+    assert.equal(ui.sent.filter((m) => m.type === 'send').length, before);
+  });
+
+  test('写下要求点发送：写的是这一章的正文（后端按重写走），带着要求', () => {
+    ui.doc.getElementById('input').value = '节奏再快一点';
+    ui.clickEl(ui.doc.getElementById('sendBtn'));
+    const sent = [...ui.sent].reverse().find((m) => m.type === 'send');
+    assert.equal(sent?.payload.stage, 'manuscript', JSON.stringify(sent?.payload));
+    assert.equal(sent.payload.capability, 'generate');
+    assert.equal(sent.payload.target.plotRelPath, '.novelforge/summaries/001-楔子.md', JSON.stringify(sent.payload));
+    assert.equal(sent.payload.text, '节奏再快一点');
+    ui.post({ type: 'busy', value: false });
   });
 
   // 设定名录：定稿过、正文没再改过的章可以单独记一次设定（只换细纲「设定」一节），带的也是章节路径。
@@ -683,10 +706,10 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     ui.closeMenu();
   });
 
-  test('「定稿」发 finalizeChapter，带的是章节路径', () => {
+  test('「定稿」发 askFinalizeChapter，带的是章节路径', () => {
     ui.pick(ui.rightClick(plotRow('入镇')), '定稿（细纲 + 角色状态 + 叙事线，预计 2–5 次调用）');
     const msg = ui.last('projectAction');
-    assert.equal(msg?.action, 'finalizeChapter', JSON.stringify(msg));
+    assert.equal(msg?.action, 'askFinalizeChapter', JSON.stringify(msg));
     assert.equal(msg?.relPath, 'chapters/002-入镇.md', JSON.stringify(msg));
   });
 
@@ -706,7 +729,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   // 定稿、草稿读的都是正文——没有正文就无从谈起。
-  for (const label of ['重新定稿', '定稿（细纲 + 角色状态 + 叙事线，预计 2–5 次调用）', '打开草稿', '新建草稿']) {
+  for (const label of ['重写正文', '重新定稿', '定稿（细纲 + 角色状态 + 叙事线，预计 2–5 次调用）', '打开草稿', '新建草稿']) {
     test(`没写正文的章菜单不含「${label}」`, () => {
       assert.ok(!planningItems.includes(label), JSON.stringify(planningItems));
     });

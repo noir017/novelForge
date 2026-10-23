@@ -247,8 +247,8 @@ describe('提取角色：已有的卡逐个对比后采纳', () => {
 
   before(async () => {
     original = t.read(CARD);
-    // 第一个答案给「从哪几章提取」的输入框，第二个给「要逐个对比确认吗」。
-    h.expect('1', '逐个对比');
+    // 第一个答案给「从哪几章提取」的输入框，第二个给确认框（报次数、挑模型），第三个给「要逐个对比确认吗」。
+    h.expect('1', '开始提取', '逐个对比');
     fake.reset([JSON.stringify([{ name: '阿蘅', 性格: '阿蘅：模型说的性格' }])]);
     await bundle.characters.extractCharacters(project);
     written = t.read(CARD);
