@@ -1,7 +1,7 @@
 {
   "name": "novel-forge",
-  "displayName": "Novel Forge — 从脑洞到成书",
-  "description": "帮作者把一个脑洞逐层展开成一本完整的书：架构 / 大纲 / 细纲 / 正文逐层展开，分阶段装配上下文，同步时照正文更新细纲、整合角色卡。",
+  "displayName": "Novel Forge — 小说编辑器与工程整理",
+  "description": "写长篇小说的编辑器：照正文自动整理每章细纲、角色卡、设定与剧情线，不用作者手动维护；也能用 AI 接着往下写。",
   "version": "0.2.5",
   "publisher": "novel-forge",
   "license": "AGPL-3.0",
@@ -21,8 +21,10 @@
     "llm",
     "context",
     "outline",
+    "editor",
     "小说",
     "小说创作",
+    "小说编辑器",
     "大纲"
   ],
   "main": "./dist/extension.js",
