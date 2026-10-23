@@ -277,6 +277,11 @@ button.project-tab.active {
   font-variant-numeric: tabular-nums;
 }
 
+/* 「时间线」一行（故事时间）：名字就三个字，后面那串长，别把名字挤成「时…」；挤的是那一串（悬停看全）。 */
+.row-thread-timeline .row-label {
+  flex: 0 0 auto;
+}
+
 /* 收束了、放弃了的线压暗：还在，但不用再管。 */
 .row-thread-closed .row-label {
   color: var(--vscode-descriptionForeground);

@@ -161,7 +161,7 @@ function timelineRowOf(tl: Timeline | undefined, progress?: ThreadsProgress): Ti
     detail: [
       calc.last > 0 ? `推到第 ${calc.last} 章` : '还没有一章',
       known ? `现在：${nowOf(tl, known)}` : '',
-      calc.elapsed > 0 ? `故事里过了 ${describeElapsed(tl, calc.elapsed)}` : '',
+      calc.elapsed > 0 ? `过了 ${describeElapsed(tl, calc.elapsed)}` : '',
     ]
       .filter(Boolean)
       .join(' · '),
@@ -172,6 +172,7 @@ function timelineRowOf(tl: Timeline | undefined, progress?: ThreadsProgress): Ti
       missingText,
     ].filter(Boolean),
     tip: [
+      calc.elapsed > 0 ? `故事里过了 ${describeElapsed(tl, calc.elapsed)}（第 1 章开头到第 ${calc.last} 章结尾）` : '',
       `历法：${tl.calendar}`,
       tl.start
         ? `起点：${tl.startText}（第 1 天）`
@@ -204,6 +205,9 @@ const TIME_STATE_NOTE: Record<TimelineDay['state'], string> = {
 function timeCellsOf(tl: Timeline, calc: TimelineCalc): Map<number, ThreadsOverviewTime> {
   const out = new Map<number, ThreadsOverviewTime>();
   let prevStart: number | undefined;
+  // 月份带：回忆的章跟着前一章的月（主线还在那个月里，不把一段断成两截）；年份没变的那一段只写月。
+  let prevMonth: { month: string; label: string } | undefined;
+  let prevYear: string | undefined;
   for (const d of calc.days) {
     const label = describeDay(tl, d);
     const lines = [`第 ${d.chapter} 章 · ${label}`];
@@ -220,6 +224,13 @@ function timeCellsOf(tl: Timeline, calc: TimelineCalc): Map<number, ThreadsOverv
     }
     lines.push('点击打开时间线（在那里改）');
     const day = d.start !== undefined ? dayLabel(tl, d.start) : undefined;
+    let month = prevMonth;
+    if (day?.month && day.monthName) {
+      const year = day.month.slice(0, day.month.length - day.monthName.length);
+      month = day.month === prevMonth?.month ? prevMonth : { month: day.month, label: year === prevYear ? day.monthName : day.month };
+      prevYear = year;
+    }
+    prevMonth = month;
     const short =
       d.state === 'flashback'
         ? '忆'
@@ -233,7 +244,7 @@ function timeCellsOf(tl: Timeline, calc: TimelineCalc): Map<number, ThreadsOverv
       short,
       label,
       tip: lines.join('\n'),
-      ...(day?.month ? { month: day.month } : {}),
+      ...(month ? { month: month.month, monthLabel: month.label } : {}),
     });
     if (d.start !== undefined) {
       prevStart = d.start;

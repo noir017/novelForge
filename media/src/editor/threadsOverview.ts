@@ -460,7 +460,7 @@ function buildHeader(d: ThreadsOverview): HTMLElement {
       const month = d.chapters[start].time?.month ?? '';
       if (i === d.chapters.length || (d.chapters[i].time?.month ?? '') !== month) {
         if (month) {
-          const seg = el('div', 'tov-month', month);
+          const seg = el('div', 'tov-month', d.chapters[start].time?.monthLabel ?? month);
           seg.style.left = `${start * CELL}px`;
           seg.style.width = `${(i - start) * CELL}px`;
           seg.title = `${month}：第 ${d.chapters[start].no}–${d.chapters[i - 1].no} 章`;

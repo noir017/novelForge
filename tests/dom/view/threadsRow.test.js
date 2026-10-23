@@ -223,7 +223,7 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
           timeline: {
             relPath: TL,
             exists: true,
-            detail: '推到第 30 章 · 现在：三月十四 傍晚 · 故事里过了 46 天',
+            detail: '推到第 30 章 · 现在：三月十四 傍晚 · 过了 46 天',
             warnings: ['2 章推不出', '第 31–40 章还没推'],
             tip: '历法：简单历\n起点：三月初七（第 1 天）',
             missing: { count: 10, text: '第 31–40 章还没推' },
@@ -239,7 +239,7 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
       assert.deepEqual(labels(), ['时间线', '青崖旧案', '林昭与沈氏', '李叔的旧账', '守卫的选择', '未归属的伏笔']);
       const row = rowOf('时间线');
       assert.equal(row.querySelector('.dot').textContent, '◷');
-      assert.equal(row.querySelector('.row-detail').textContent, '推到第 30 章 · 现在：三月十四 傍晚 · 故事里过了 46 天');
+      assert.equal(row.querySelector('.row-detail').textContent, '推到第 30 章 · 现在：三月十四 傍晚 · 过了 46 天');
       assert.deepEqual(warningsOf(row), ['⚠ 2 章推不出', '⚠ 第 31–40 章还没推']);
       assert.ok(row.querySelector('.row-label').title.includes('起点：三月初七'), row.querySelector('.row-label').title);
     });

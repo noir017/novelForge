@@ -55,7 +55,7 @@ describe('历法', () => {
 
   test('简单历：年号、汉字年月、农历日子，照起点的写法输出', () => {
     const tl = simple('大衍三年三月初七');
-    assert.deepEqual(t.dayLabel(tl, 1), { full: '大衍三年三月初七', short: '初七', month: '大衍三年三月' });
+    assert.deepEqual(t.dayLabel(tl, 1), { full: '大衍三年三月初七', short: '初七', month: '大衍三年三月', monthName: '三月' });
     assert.equal(t.dayLabel(tl, 8).full, '大衍三年三月十四');
     // 每月 30 天：三月初七往后 24 天是四月初一。
     assert.equal(t.dayLabel(tl, 25).full, '大衍三年四月初一');

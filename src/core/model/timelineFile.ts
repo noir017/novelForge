@@ -391,6 +391,8 @@ export interface DayLabel {
   short: string;
   /** 月份带上那一段：`大衍三年三月`、`2026年3月`。没有起点时缺席。 */
   month?: string;
+  /** 只有月：`三月`、`3月`（月份带上年份没变时只写它）。没有起点时缺席。 */
+  monthName?: string;
 }
 
 /** 故事第 `day` 天怎么写（第 1 天 = 起点）。 */
@@ -408,7 +410,7 @@ export function dayLabel(tl: Pick<Timeline, 'calendar' | 'start'>, day: number):
   if (style.day === 'iso' || style.day === 'slash') {
     const pad = (v: number) => (style.day === 'iso' ? String(v).padStart(2, '0') : String(v));
     const sep = style.day === 'iso' ? '-' : '/';
-    return { full: `${y}${sep}${pad(m)}${sep}${pad(d)}`, short: String(d), month: `${y}${sep}${pad(m)}` };
+    return { full: `${y}${sep}${pad(m)}${sep}${pad(d)}`, short: String(d), month: `${y}${sep}${pad(m)}`, monthName: `${m}月` };
   }
   let yearPart: string;
   if (style.hasYear) {
@@ -417,9 +419,10 @@ export function dayLabel(tl: Pick<Timeline, 'calendar' | 'start'>, day: number):
     const y0 = fromOrdinal(tl.calendar, base).y;
     yearPart = yearOffsetText(y - y0, style);
   }
-  const month = `${yearPart}${monthText(m, style)}`;
+  const monthName = monthText(m, style);
+  const month = `${yearPart}${monthName}`;
   const short = style.day === 'trad' ? tradDay(d) : style.day === 'cn' ? cnNumber(d) : String(d);
-  return { full: `${month}${dayText(d, style)}`, short, month };
+  return { full: `${month}${dayText(d, style)}`, short, month, monthName };
 }
 
 /**

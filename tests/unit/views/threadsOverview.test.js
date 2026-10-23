@@ -345,6 +345,24 @@ describe('总览 · 故事时间', () => {
     assert.ok(plain.chapters.every((c) => !c.time));
   });
 
+  test('月份带：回忆的章跟着前一章的月（不断成两截）；年份没变的那一段只写月，跨年的写全', () => {
+    const m = views.buildThreadsMatrix(
+      { ...book(), timeline: timeline(['- 第 1 章：+0 天', '- 第 2 章：回忆', '- 第 3 章：+1 天', '- 第 4 章：四月初一', '- 第 5 章：大衍四年正月初一'], '大衍三年三月初七') },
+      chapters(),
+      4
+    );
+    assert.deepEqual(
+      m.chapters.slice(0, 5).map((c) => [c.time.month, c.time.monthLabel]),
+      [
+        ['大衍三年三月', '大衍三年三月'],
+        ['大衍三年三月', '大衍三年三月'],
+        ['大衍三年三月', '大衍三年三月'],
+        ['大衍三年四月', '四月'],
+        ['大衍四年一月', '大衍四年一月'],
+      ]
+    );
+  });
+
   test('没有起点：格子写第几天，没有月份带', () => {
     const m = views.buildThreadsMatrix({ ...book(), timeline: timeline(LINES, '') }, chapters(), 4);
     assert.deepEqual(m.timeline.months, false);

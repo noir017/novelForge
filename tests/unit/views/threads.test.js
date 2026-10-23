@@ -205,7 +205,7 @@ describe('叙事线页签 · 时间线一行', () => {
     assert.equal(row.relPath, REL);
     assert.equal(row.exists, true);
     // 八月十五是第 159 天；第 5 章 +3 天、历时 2 天：第 162–163 天，八月十八到十九。
-    assert.equal(row.detail, '推到第 5 章 · 现在：八月十九 · 故事里过了 163 天');
+    assert.equal(row.detail, '推到第 5 章 · 现在：八月十九 · 过了 163 天');
     assert.deepEqual(row.warnings, ['1 章推不出', '1 行认不出', '第 6–7 章还没推']);
     assert.deepEqual(row.missing, { count: 2, text: '第 6–7 章还没推' });
     assert.ok(row.tip.includes('你定的：第 4 章'), row.tip);
@@ -229,7 +229,7 @@ describe('叙事线页签 · 时间线一行', () => {
       progress(2, [1, 2])
     );
     assert.deepEqual(v.timeline.warnings, ['起点认不出']);
-    assert.equal(v.timeline.detail, '推到第 2 章 · 现在：第 5 天 · 故事里过了 5 天');
+    assert.equal(v.timeline.detail, '推到第 2 章 · 现在：第 5 天 · 过了 5 天');
   });
 });
 

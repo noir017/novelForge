@@ -145,7 +145,7 @@ export interface ThreadsView {
   timeline?: TimelineRowView;
 }
 
-/** 「叙事线」页签的「时间线」一行：`时间线 · 推到第 30 章 · 现在：三月十四 傍晚 · 故事里过了 46 天`，有问题的另加几个 ⚠。 */
+/** 「叙事线」页签的「时间线」一行：`时间线 · 推到第 30 章 · 现在：三月十四 傍晚 · 过了 46 天`，有问题的另加几个 ⚠。 */
 export interface TimelineRowView {
   /** `threads/时间线.md`（还没有这份文件时也给：补推会建它）。 */
   relPath: string;
