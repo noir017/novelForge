@@ -9,7 +9,7 @@
 | [library.ts](library.ts) | 三个来源怎么读（内置 / 我的技能库 / 本工程），附带文件按引用一层层读进来（`collectSkillFiles`，GitHub 也用它），我的技能库怎么装与卸。**每次都读盘**；不跟链接 |
 | [github.ts](github.ts) | 从 GitHub 装：**先检查、再确认安装**，`SKILL.md` 连同引用到的附带文件一起下；两步之间整份清单变了不装 |
 | [bindings.ts](bindings.ts) | 工程的阶段绑定（`.novelforge/skills.json`）：读、改、装配器问的那一句 `boundSkillFor` |
-| [builtin/](builtin/README.md) | 五份内置技能，**一个目录一份**（常规技能格式，与其余来源走同一条读法）：上游搬来两份，一份修正文风，另有两份外来的去 AI 味（上游原样）。构建时由 `scripts/embed-skills.js` 内嵌成 `builtin/embedded.ts`（生成文件，不入库） |
+| [builtin/](builtin/README.md) | 内置技能，**一个目录一份**（常规技能格式，与其余来源走同一条读法），现在只有一份去 AI 味。构建时由 `scripts/embed-skills.js` 内嵌成 `builtin/embedded.ts`（生成文件，不入库） |
 
 纯函数（解析 `SKILL.md`、兼容检查、绑定文件的格式、一次装配算哪个阶段、GitHub 地址）在 [model/writingSkill.ts](../model/writingSkill.ts)：它零运行时 import，前端直接用里面的阶段名与来源名。
 
@@ -88,7 +88,7 @@
 |---|---|---|
 | 三个 agent 工具 | 一个 `skills` 工具的四个动作（多一个 `list`） | 四件事共用 `url` / `id` / `stage` 三个参数，合成一个工具比三个更好选（[tools/novel/index.ts](../tools/novel/index.ts)） |
 | 对话里 `/技能名` 手动调用 | 不做 | `/` 已经是阶段命令面板；上游这条路还绕过兼容检查与预算 |
-| 七个内置 | 搬了两个，另加一份修正文风与两份外来的去 AI 味 | 其余五个是上游 AI 助手对话用的，正文让模型调它自己的工具；后三份见下 |
+| 七个内置 | 一份去 AI 味，上游的一个都没留 | 其余五个是上游 AI 助手对话用的，正文让模型调它自己的工具；搬来的两个各一句话，没什么用，2026-10-23 删了 |
 | 内置写死在代码里 | 仓库里的技能目录，构建时内嵌 | 上游原样的技能放进来就能用，改一份不用碰代码 |
 | frontmatter 一行一个键 | 按 YAML 读顶层键 | 常规技能的 `allowed-tools:` 列表、`metadata:` 嵌套块从前会被拍平，嵌套的 `name` 盖掉真的那个 |
 | 引用旁边的文件就不兼容 | 引用到的附带文件一起带 | 常规技能的 `references/` 是正文的一部分，只是拆开放 |
@@ -100,21 +100,12 @@
 | 卸载直接删 | 挪进回收站 | 第 6 条 |
 | 中英双语 | 只有中文 | novelForge 只写中文 |
 
-## 内置的修正文风
+## 内置的去 AI 味
 
-`builtin:plain-prose`（写正文）治过度描写：名词前堆形容词、动词前挂程度副词、「带着／透着」挂气味和情绪。八条能自己数的规矩加四组改前改后的整句示范。
+`builtin:plain-prose`（写正文）十六条规矩，每条带一句例子，外加三组改前改后：修饰（名词前堆形容词、动词前挂程度副词、「带着／透着」）、情绪别直说、三种装腔的句式、场面写经过。
 
-flash-lite 上实测**单绑它几乎没用**（修饰密度与不绑持平，删掉系统提示里三处反向要求之后「那／这＋定语」降三成，程度副词不动）：管住修饰靠的是写完之后那一轮只许删的删修饰（[generation/trim.ts](../generation/trim.ts)，设置里的「写完正文删修饰」），不是技能。它留着当提示词那一层的配合。
+修饰那几条是这边自己数出来的。flash-lite 上实测**单绑几乎没用**（修饰密度与不绑持平，删掉系统提示里三处反向要求之后「那／这＋定语」降三成，程度副词不动）：管住修饰靠的是写完之后那一轮只许删的删修饰（[generation/trim.ts](../generation/trim.ts)，设置里的「写完正文删修饰」），不是技能。它留着当提示词那一层的配合。
 
-## 外来的两份去 AI 味
-
-两份 MIT 的公开技能，目录**上游原样**（`SKILL.md`、附带文件、`LICENSE`），只在 frontmatter 里加了 `display_name` 与 `stage` 两行：
-
-| 内置 | 上游 | 阶段 |
-|---|---|---|
-| `builtin:fiction-humanizer-zh` 小说去 AI 味 | [deedeekong07-alt/fiction-humanizer-zh](https://github.com/deedeekong07-alt/fiction-humanizer-zh) 859a3fd（0.1.0），四份 `references/*.md` 当附带文件带 | 写正文 |
-| `builtin:humanizer-zh` 去 AI 痕迹 | [op7418/Humanizer-zh](https://github.com/op7418/Humanizer-zh) f4518a8（2026-09-23 修订） | 修稿 |
-
-Humanizer-zh 是给中文文章、评论、文档去模板腔的，示例大多不是小说，改的又是已有文本，放在修稿；小说那份讲的是怎么写场景（铺垫、过程、余波，人物的目标与代价，章末钩子），放在写正文。两份都比别的内置长得多（连同附带文件约 1.6 万与 2 万字节），上下文紧的时候可能整份带不上，明细里会写。**还没在真实模型上比过有没有用**。出处与内嵌见 [builtin/README.md](builtin/README.md)。
+句式与场面那几条改写自两份 MIT 的公开技能：[Humanizer-zh](https://github.com/op7418/Humanizer-zh)（f4518a8）与 [fiction-humanizer-zh](https://github.com/deedeekong07-alt/fiction-humanizer-zh)（859a3fd）。这两份 2026-10-21 曾原样内置过：前者是给文章、文档用的，挂在修稿又被修稿合同「清单没指到的段落一字不改」压住，几乎不起作用；后者的工作流与输出说明是按「用户叫你改稿」写的。两份合计约 3.8 万字节，现在只挑对小说有用的几条并进这一份，**并进来的这几条还没在真实模型上比过**。取舍见 [2026-10-03-plain-prose.md](../../../docs/design/plans/2026-10-03-plain-prose.md) 末尾。
 
 从前的三份去 AI 味（写正文 / 审稿 / 修稿，共用一张十条的句式清单）实测基本无效，已撤下，原文归档在 [docs/design/archive/less-ai-tone/](../../../docs/design/archive/less-ai-tone/)，要用可以手动装进本工程。数据见 [2026-10-02-less-ai-tone.md](../../../docs/design/plans/2026-10-02-less-ai-tone.md) 与 [2026-10-03-plain-prose.md](../../../docs/design/plans/2026-10-03-plain-prose.md)。
