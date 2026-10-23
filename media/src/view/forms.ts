@@ -249,7 +249,7 @@ export function openWriteBatchForm(tree: ProjectTree): void {
         value: 'draft',
         options: [
           { value: 'draft', label: '只写正文' },
-          { value: 'finalize', label: '写完即定稿（每写完一章就定稿）' },
+          { value: 'finalize', label: '写完即同步（每写完一章就同步）' },
         ],
       },
       {
@@ -298,11 +298,11 @@ export function openWriteBatchForm(tree: ProjectTree): void {
           `${p.skipped.length > 0 ? `，跳过已有正文的 ${p.skipped.length} 章` : ''}` +
           `${p.stopAt !== undefined ? `；第 ${p.stopAt} 章还没有细纲、大纲也没覆盖到，写到它前面为止` : ''}。` +
           (p.plotBatches.length > 0
-            ? `${p.plotBatches.map((b) => span(b[0], b[b.length - 1])).join('、')}还没有细纲，写到时先拆（拆的时候看得见前面定稿的事实）。`
+            ? `${p.plotBatches.map((b) => span(b[0], b[b.length - 1])).join('、')}还没有细纲，写到时先拆（拆的时候看得见前面同步下来的事实）。`
             : '') +
           `${describeCalls(p.calls)}（没写够时自动续写、开着删修饰时写完再删一次、每章写前比对一次细纲与既成事实，都算在上限里）。` +
           (p.review ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不停。' : '') +
-          (p.mode === 'finalize' ? '每写完一章就定稿：照正文更新细纲与连续性事实，再更新出场角色的当前状态、认这一章在叙事线上发生了什么（带原文证据记下事件、更新各条线的当前进度，正文里新长出来的线也认出来）。' : '只写正文，之后在主按钮上逐章定稿。') +
+          (p.mode === 'finalize' ? '每写完一章就同步：照正文更新细纲与连续性事实，再更新出场角色的当前状态、认这一章在叙事线上发生了什么（带原文证据记下事件、更新各条线的当前进度，正文里新长出来的线也认出来）。' : '只写正文，之后在主按钮上逐章同步。') +
           (thin.length > 0 ? describeThinLore('区间里', thin.map((t) => t.name)) : '') +
           threadNote,
       };
@@ -310,7 +310,7 @@ export function openWriteBatchForm(tree: ProjectTree): void {
     submitLabel: '开始写章',
     confirm: (v) => {
       const p = plan(v);
-      const extra = [p.review ? '写完即审稿' : '', p.mode === 'finalize' ? '写完即定稿' : ''].filter(Boolean).join('、');
+      const extra = [p.review ? '写完即审稿' : '', p.mode === 'finalize' ? '写完即同步' : ''].filter(Boolean).join('、');
       return extra ? `再点一下：${extra} ${p.chapters.length} 章` : undefined;
     },
     onSubmit: (v) => {

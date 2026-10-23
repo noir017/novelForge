@@ -172,7 +172,7 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
       ui.post({ type: 'project', tree: lagged() });
       const lag = panel().querySelector('.threads-lag');
       assert.ok(lag, panel().innerHTML.slice(0, 500));
-      assert.match(lag.textContent, /^⚠ 第 31–60 章还没判：这几章定稿了，叙事线还没记上。线断了几章、伏笔逾期都按判到的第 30 章算/);
+      assert.match(lag.textContent, /^⚠ 第 31–60 章还没判：这几章同步了，叙事线还没记上。线断了几章、伏笔逾期都按判到的第 30 章算/);
       assert.ok(lag.textContent.includes('「从正文补记」'), lag.textContent);
       assert.equal(panel().querySelector('.group-body').firstElementChild, lag);
       assert.equal(labels().length, 5);

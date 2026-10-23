@@ -112,12 +112,12 @@ export function loreEmptyRow(tree: ProjectTree): HTMLElement {
   if (tree.loreUnrecorded > 0) {
     buttons.push({
       label: '补记设定…',
-      title: `${tree.loreUnrecorded} 章定稿过、还没记过设定：读这几章正文，记下出现了哪些设定；动手前会告诉你调用几次`,
+      title: `${tree.loreUnrecorded} 章同步过、还没记过设定：读这几章正文，记下出现了哪些设定；动手前会告诉你调用几次`,
       run: () => projectAction('recordLore'),
     });
   }
   return hintRow(
-    '还没有设定条目。地点、势力、物品、概念这类要前后一致的东西各写一条；每章定稿时会记下这一章出现了哪些设定，出现过却还没建条目的会列在下面。',
+    '还没有设定条目。地点、势力、物品、概念这类要前后一致的东西各写一条；每章同步时会记下这一章出现了哪些设定，出现过却还没建条目的会列在下面。',
     buttons
   );
 }

@@ -98,7 +98,7 @@ describe('重建全文大纲：章章都定稿过也先问', () => {
   test('确认框报批数与次数：4 章分 2 批、再合并一次，共 3 次；不带详细度下拉框', () => {
     const [c] = h.confirms;
     assert.deepEqual(c.actions, ['重建']);
-    assert.ok(c.message.includes('4 章定稿过的细纲分 2 批归纳，再合并成一份') && c.message.includes('预计 3 次调用'), c.message);
+    assert.ok(c.message.includes('4 章同步过的细纲分 2 批归纳，再合并成一份') && c.message.includes('预计 3 次调用'), c.message);
     assert.equal(c.call.contextDetail, undefined, JSON.stringify(c.call));
   });
 

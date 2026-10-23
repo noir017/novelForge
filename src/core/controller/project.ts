@@ -115,7 +115,7 @@ export async function projectAction(
       const chapter = await chapterForSummary(c.project, relPath);
       if (!chapter) {
         log.warn(`找不到 ${relPath} 对应的章节，可能还没写正文或刚被改名`);
-        getHost().toast('这一章还没有正文，无法定稿。', 'error');
+        getHost().toast('这一章还没有正文，无法同步。', 'error');
         break;
       }
       // 工程页章节右键先问这一次用哪个模型；其余入口用对话页选定的那个。

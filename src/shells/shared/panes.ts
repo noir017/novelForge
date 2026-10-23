@@ -97,7 +97,7 @@ export function chatPane(opts: PaneOptions = {}): string {
     ? '把编辑器中选中的文字加入上下文'
     : '把编辑器中选中的文字加入上下文（没有选中时粘贴一段原文）';
   return `<section class="pane active" id="pane-chat">
-  <!-- 没定稿的横幅只长在工程页（那边还带进度条与分母）。对话页从前也挂着
+  <!-- 没同步的横幅只长在工程页（那边还带进度条与分母）。对话页从前也挂着
        一份纯文字版，说的是同一句话，却常年占着本就不宽裕的消息流；这里要提示
        的那件事本身也只能在工程页上处理。活动栏「工程」上的小圆点负责在别的
        页面上留个记号。 -->
@@ -113,7 +113,7 @@ export function chatPane(opts: PaneOptions = {}): string {
       <button class="pipeline-new hidden" id="renamePlotBtn" title="重命名当前章节" aria-label="重命名当前章节">✎</button>
       <button class="pipeline-new" id="newSessionBtn" title="开始新对话" aria-label="开始新对话">＋</button>
     </div>
-    <!-- 细纲 / 正文两格（可点）与定稿状态（只读）。内容由 view/pipeline.ts 画。 -->
+    <!-- 细纲 / 正文两格（可点）与同步状态（只读）。内容由 view/pipeline.ts 画。 -->
     <div class="pipeline-stages" id="pipelineStages"></div>
     <!-- 「当前产物」的入口：一行标题。悬停浮出这一层的产物，点击钉住。
          从前它是消息流顶部一张 sticky 卡片——关不掉、藏不起来，还长期占着
@@ -315,7 +315,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
 
     <div class="pane-head"><span>默认模型</span></div>
     <div class="hint">
-      工程页的定稿、提取角色卡、生成设定、提取文风等操作用这份列表：<b>串行时用第一个</b>，失败会自动换用后面的重试；
+      工程页的同步、提取角色卡、生成设定、提取文风等操作用这份列表：<b>串行时用第一个</b>，失败会自动换用后面的重试；
       <b>并发时在列表里轮转</b>做负载均衡。对话页随时可在输入框旁的下拉框里切换——切换等于把那个模型提到列表首位。
     </div>
     <div id="defaultModelList"></div>
@@ -365,7 +365,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
 
   <div class="settings-panel" id="settingsPanelContext" data-settings-panel="context" role="tabpanel" aria-labelledby="settingsTabContext">
     <div class="pane-head"><span>上下文详细度</span></div>
-    <div class="hint">每一次调用带多少前文与设定：写架构、大纲、细纲、正文、审稿、修稿，以及提取文风与角色、排叙事线、定稿判线、写前冲突检查都按它。级别越高带得越多、越贵；任何一级都不改调用次数。预算不足时仍会按明细中说明的顺序降级或省略。</div>
+    <div class="hint">每一次调用带多少前文与设定：写架构、大纲、细纲、正文、审稿、修稿，以及提取文风与角色、排叙事线、同步判线、写前冲突检查都按它。级别越高带得越多、越贵；任何一级都不改调用次数。预算不足时仍会按明细中说明的顺序降级或省略。</div>
     <div class="grid">
       <label class="field"><span>上下文详细度</span><select id="setContextDetail"></select></label>
     </div>
@@ -378,7 +378,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
     </div>
 
     <div class="pane-head"><span>全文大纲</span></div>
-    <div class="hint">重建全文大纲时，定稿过的各章细纲先按此数量分批汇总，再合并成全文大纲。</div>
+    <div class="hint">重建全文大纲时，同步过的各章细纲先按此数量分批汇总，再合并成全文大纲。</div>
     <div class="grid">
       <label class="field"><span>每批章数</span><input type="number" id="setSummaryBatchSize" min="3"></label>
     </div>
@@ -388,7 +388,7 @@ export function settingsPane(opts: PaneOptions = {}): string {
     <div class="hint">
       写作技能是一份<b>补充的写作方法</b>（一个目录里一份 <code>SKILL.md</code>，可以带它引用的 <code>references/</code> 这类文件）。给本工程的某个阶段绑上一份，
       这个阶段往后的每一次生成都会把它放在提示词最前面——对话页、外部 Agent 经 MCP 生成、工程页批量都一样。
-      它只能补充写法：<b>作者事实和输出格式始终优先</b>。讨论与定稿不带。这一页的改动当场生效，不用点「保存设置」。
+      它只能补充写法：<b>作者事实和输出格式始终优先</b>。讨论与同步不带。这一页的改动当场生效，不用点「保存设置」。
     </div>
 
     <div class="pane-head"><span>本工程的阶段绑定</span></div>

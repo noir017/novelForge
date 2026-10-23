@@ -465,7 +465,7 @@ export async function runPlotBatch(
 /** 两种模式在确认框与完成提示里的说法。 */
 const MODE_LABEL: Record<WriteBatchMode, string> = {
   draft: '只写正文',
-  finalize: '写完即定稿',
+  finalize: '写完即同步',
 };
 
 /**
@@ -599,17 +599,17 @@ export async function writeManuscripts(
       actions: ['开始写章'],
       detail: [
         castCards.plans.length > 0
-          ? `开写之前先给${castCards.plans.map((p) => p.member.name).join('、')}建角色卡（定稿里已经出场 ${CAST_CARD_MIN_APPEARANCES} 章以上、还没有卡；${castCards.calls} 次调用，算在上面的数里）。`
+          ? `开写之前先给${castCards.plans.map((p) => p.member.name).join('、')}建角色卡（同步过的章里已经出场 ${CAST_CARD_MIN_APPEARANCES} 章以上、还没有卡；${castCards.calls} 次调用，算在上面的数里）。`
           : '',
         '一章一章串行写：后一章接着前一章的结尾写。没写够时自动续写（算在上限里）。',
         plan.plotBatches.length > 0
-          ? `${plan.plotBatches.map((b) => rangeLabel(b[0], b[b.length - 1])).join('、')}还没有细纲：写到时先按情节大纲拆这一批，拆的时候看得见前面已经定稿的事实。`
+          ? `${plan.plotBatches.map((b) => rangeLabel(b[0], b[b.length - 1])).join('、')}还没有细纲：写到时先按情节大纲拆这一批，拆的时候看得见前面已经同步下来的事实。`
           : '',
-        '每章写之前先比对一次细纲与前面定稿的连续性事实（前面没定稿过的章就不调）；对不上就停在那一章前面。',
+        '每章写之前先比对一次细纲与前面同步下来的连续性事实（前面没同步过的章就不调）；对不上就停在那一章前面。',
         reviewing ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不会停。' : '',
-        mode === 'finalize' ? '每写完一章就定稿（照正文更新细纲 + 出场角色的当前状态 + 叙事线：认事件、更新当前进度、需要时归并），再写下一章。' : '只写正文，不定稿；之后在主按钮上逐章定稿。',
+        mode === 'finalize' ? '每写完一章就同步（照正文更新细纲 + 出场角色的当前状态 + 叙事线：认事件、更新当前进度、需要时归并），再写下一章。' : '只写正文，不同步；之后在主按钮上逐章同步。',
         plan.globalSummaryAt.length > 0
-          ? `第 ${plan.globalSummaryAt.join('、')} 章定稿之后各更新一次全文大纲（落后 ${GLOBAL_SUMMARY_EVERY} 章就更新，每次 1 次调用）。`
+          ? `第 ${plan.globalSummaryAt.join('、')} 章同步之后各更新一次全文大纲（落后 ${GLOBAL_SUMMARY_EVERY} 章就更新，每次 1 次调用）。`
           : '',
         plan.skipped.length > 0 ? `已经写过正文的第 ${plan.skipped.join('、')} 章跳过，不会被改动。` : '',
         plan.stopAt !== undefined ? `第 ${plan.stopAt} 章还没有细纲、情节大纲也没覆盖到它，写到它前面为止。` : '',
@@ -656,7 +656,7 @@ async function runWriteBatch(
     summaryPool = await createModelPool({ task: 'plotSummary', concurrent: false });
     statePool = (await createModelPool({ task: 'characterCard', concurrent: false })) ?? summaryPool;
     if (!summaryPool) {
-      log.error('没有可用的模型定稿，批量写章中止');
+      log.error('没有可用的模型来同步，批量写章中止');
       return 0;
     }
   }
@@ -774,7 +774,7 @@ async function runWriteBatch(
             calls += check.calls;
             if (check.conflicts.length > 0) {
               const lines = check.conflicts.map(describeConflict);
-              log.warn(`第 ${no} 章的细纲与前面定稿的事实对不上，批量停在它前面`, lines.join('\n'));
+              log.warn(`第 ${no} 章的细纲与前面同步下来的事实对不上，批量停在它前面`, lines.join('\n'));
               await recordFailure(project, {
                 scope: '流水线',
                 targetKind: 'plot',
@@ -784,7 +784,7 @@ async function runWriteBatch(
                 message: `写前冲突检查：${lines.join('；')}`,
                 detail: `批量写章停在这一章前面，没有写。${PLOT_CHECK_SUGGESTION}`,
               });
-              halt = { no, why: `的细纲与前面定稿的事实有 ${check.conflicts.length} 处对不上（${clip(lines[0], 60)}）`, level: 'info' };
+              halt = { no, why: `的细纲与前面同步下来的事实有 ${check.conflicts.length} 处对不上（${clip(lines[0], 60)}）`, level: 'info' };
               break;
             }
             void clearFailures(project, 'plot', plot.relPath, 'plotCheck');
@@ -846,7 +846,7 @@ async function runWriteBatch(
               severity: 'warn',
               op: 'manuscript',
               message: `批量写章：这一章写进去了，但${problem}`,
-              detail: '批量在这一章停下，没有定稿，也没有往下写。看过这一章（接着写、重写或手改）再继续。',
+              detail: '批量在这一章停下，没有同步，也没有往下写。看过这一章（接着写、重写或手改）再继续。',
             });
             halt = { no, why: problem, level: 'info' };
             break;
@@ -874,7 +874,7 @@ async function runWriteBatch(
         }
 
         if (mode === 'finalize') {
-          report({ message: `${name} · 定稿`, current: i, total });
+          report({ message: `${name} · 同步`, current: i, total });
           project.invalidate();
           const chapter = await project.getChapter(no);
           try {
@@ -883,12 +883,12 @@ async function runWriteBatch(
               ? await finalizeChapter(project, chapter, { signal, summary: summaryPool, state: statePool, threads: summaryPool })
               : undefined;
             if (!outcome) {
-              halt = { no, why: '写好了，但没能定稿', level: 'error' };
+              halt = { no, why: '写好了，但没能同步', level: 'error' };
               break;
             }
             calls += outcome.calls;
             finalized++;
-            log.info(`${name}已定稿`, describeFinalize(no, outcome));
+            log.info(`${name}已同步`, describeFinalize(no, outcome));
             if (summaryPool && plan.globalSummaryAt.includes(no)) {
               report({ message: `${name} · 更新全文大纲`, current: i, total });
               try {
@@ -897,7 +897,7 @@ async function runWriteBatch(
               } catch (err) {
                 calls += 1;
                 if (err instanceof CancelledError || signal.aborted) {
-                  log.warn(`批量写章被取消，${name}定稿了、全文大纲没更新`);
+                  log.warn(`批量写章被取消，${name}同步了、全文大纲没更新`);
                   return;
                 }
                 // 全文大纲是额外的一道：没更新成不挡写章，下一次落后得更多时再更新。
@@ -908,10 +908,10 @@ async function runWriteBatch(
             // 请求发出去了钱就花了：更新细纲那一次算上。
             calls += 1;
             if (err instanceof CancelledError || signal.aborted) {
-              log.warn(`批量写章被取消，${name}写好了、没定稿`);
+              log.warn(`批量写章被取消，${name}写好了、没同步`);
               return;
             }
-            halt = { no, why: `写好了，但定稿失败（${describeError(err)}）`, level: 'error' };
+            halt = { no, why: `写好了，但同步失败（${describeError(err)}）`, level: 'error' };
             break;
           }
         }
@@ -925,7 +925,7 @@ async function runWriteBatch(
 
       // 停下之后还没写的：停在的那一章之后的（那一章本身在前面那句里已经说过了）。
       const rest = halt ? plan.chapters.filter((n) => n > halt!.no) : [];
-      const done = written.length > 0 ? `${rangeLabel(written[0], written[written.length - 1])}已写好${mode === 'finalize' ? `，定稿 ${finalized} 章` : ''}` : '';
+      const done = written.length > 0 ? `${rangeLabel(written[0], written[written.length - 1])}已写好${mode === 'finalize' ? `，同步 ${finalized} 章` : ''}` : '';
       log.info(`批量写章结束：写了 ${written.length} 章`, `调用 ${calls} 次，总耗时 ${elapsed(startedAt)}`);
       const reviewed = reviews?.summary();
       const open = reviews?.sessionId

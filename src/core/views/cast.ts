@@ -260,7 +260,7 @@ function sortedNos(set: Set<number> | undefined): number[] {
  */
 export function describePlots(nos: number[], max = 6): string {
   if (nos.length === 0) {
-    return '未在定稿中出现';
+    return '未在同步过的章里出现';
   }
   const head = nos.slice(0, max).join('、');
   return nos.length > max ? `第 ${head} 章等 ${nos.length} 章` : `第 ${head} 章`;

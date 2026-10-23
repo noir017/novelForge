@@ -186,7 +186,7 @@ describe('evidence · 写第 9 章（前 8 章写过，第 8 章还没定稿）'
   test('D23：第 8 章还没定稿，明细里写明，角色状态截至第几章', () => {
     const e = byId.get('evidence:8');
     assert.equal(e.status, 'dropped');
-    assert.equal(e.note, '第 8 章还没定稿：没有连续性事实，角色状态截至第 6 章');
+    assert.equal(e.note, '第 8 章还没同步：没有连续性事实，角色状态截至第 6 章');
   });
 
   test('角色卡的说明带「状态截至第 K 章」', () => {
@@ -232,7 +232,7 @@ describe('evidence · 上一章定稿之后正文又改过', () => {
   test('D23：明细里写明事实不作数，角色状态截至第几章', () => {
     const e = b.items.find((i) => i.id === 'evidence:8');
     assert.equal(e.status, 'dropped');
-    assert.equal(e.note, '第 8 章定稿之后正文又改过：连续性事实不作数，角色状态截至第 6 章');
+    assert.equal(e.note, '第 8 章同步之后正文又改过：连续性事实不作数，角色状态截至第 6 章');
   });
 });
 

@@ -133,7 +133,7 @@ describe('建条目', () => {
     const c = h.confirms[h.confirms.length - 1];
     assert.match(
       c.message,
-      /^建 4 条设定：预计 4 次调用，最多 8 次（交回来的解析不了时这一条重来 1 次）。只读定稿过的细纲里提到它们的那几行，不重读正文。/
+      /^建 4 条设定：预计 4 次调用，最多 8 次（交回来的解析不了时这一条重来 1 次）。只读同步过的细纲里提到它们的那几行，不重读正文。/
     );
     assert.match(c.detail, /要建的：/);
     assert.equal(fake.callCount(), 4);
@@ -201,7 +201,7 @@ describe('整合', () => {
     const user = fake.calls[0][1].content;
     assert.ok(user.includes('作者写的：偏僻小镇。'), user);
     assert.ok(user.includes('- 第 3 章：七年前大火'), user);
-    assert.ok(!user.includes('城门重修') && !user.includes('新来了守军'), '第 4 章没定稿，它和它之后的都不并');
+    assert.ok(!user.includes('城门重修') && !user.includes('新来了守军'), '第 4 章没同步，它和它之后的都不并');
   });
 
   test('采纳后：关键词只增不减，水位到第 3 章，正文换成机器写的并盖上指纹', async () => {
@@ -220,7 +220,7 @@ describe('整合', () => {
     h.toasts.length = 0;
     await bundle.lore.integrateLore(project, ['.novelforge/lore/地域/青崖镇.md']);
     assert.equal(fake.callCount(), 0);
-    assert.match(h.toasts.map((x) => x.message ?? x).join('\n'), /第 4 章还没定稿/);
+    assert.match(h.toasts.map((x) => x.message ?? x).join('\n'), /第 4 章还没同步/);
   });
 
   // 完善设定（2026-10-19）：分不清是正文全揭开了还是模型漏了，暗设不能悄悄没了。

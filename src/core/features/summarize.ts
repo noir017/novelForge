@@ -30,7 +30,7 @@ import { extractJsonObject, stripCodeFence, stripTrailingCommas } from './parse'
 import { GLOBAL_SYSTEM, REFINE_SYSTEM, STAGE_SYSTEM, SUMMARY_SYSTEM } from './summarizePrompt';
 import { Workspace } from '../workspace';
 
-const log = scoped('定稿');
+const log = scoped('同步');
 const globalLog = scoped('全文大纲');
 
 /**
@@ -95,7 +95,7 @@ export async function summarizeChapter(
   const text = await project.readChapterText(chapter);
   if (!text.trim()) {
     log.warn(`第 ${chapter.order} 章《${chapter.title}》还没有正文，跳过`);
-    getHost().toast(`第 ${chapter.order} 章还没有正文，没有可定稿的东西。`);
+    getHost().toast(`第 ${chapter.order} 章还没有正文，没有可同步的东西。`);
     return undefined;
   }
 
@@ -155,24 +155,24 @@ export async function summarizeChapter(
   const { sections, cast, lore: rawLore } = parseSummaryResponse(raw);
   if (!sections.梗概.trim() && !sections.关键事件.trim()) {
     log.error(
-      `第 ${chapter.order} 章定稿解析失败：模型返回既不是 JSON 也不符合小节格式`,
+      `第 ${chapter.order} 章同步解析失败：模型返回既不是 JSON 也不符合小节格式`,
       `返回 ${raw.length} 字，开头：${raw.slice(0, 300)}`
     );
     // 也在这里记一条，而不是只靠 syncSummaries 的 onSettled：主按钮「定稿」
     // 走的是单章路径，那条异常会一路抛到命令外层，根本到不了批量编排里。
     // 同一章 + 同一动作只留最新一条，两条路径都记也不会重复显示。
     await recordFailure(project, {
-      scope: '定稿',
+      scope: '同步',
       targetKind: 'chapter',
       targetKey: chapter.relPath,
       severity: 'error',
       op: 'summarize',
-      message: '定稿失败：模型返回无法解析',
+      message: '同步失败：模型返回无法解析',
       detail:
         `模型返回 ${raw.length} 字，既不是 JSON 也不符合小节格式。细纲没有改动；` +
         '这一章的连续性事实与出场人物不会进入上下文。换个模型或稍后重试。',
     });
-    throw new Error(`第 ${chapter.order} 章定稿失败，模型返回内容无法解析。`);
+    throw new Error(`第 ${chapter.order} 章同步失败，模型返回内容无法解析。`);
   }
   // 连续性事实挂证据：在整章正文里找（截给模型的那一份可能只有前半章）。人名给出场人物的
   // 名字与别名——事实里提到谁，就先在提到他的句子里找。
@@ -199,7 +199,7 @@ export async function summarizeChapter(
   await clearFailures(project, 'plot', relPath, 'manuscript');
   // 批量同步一次要跑几十章，是最烧 token 的动作之一；有实测用量就记一笔，
   // 供 tokenCounter 的校准统计使用。
-  recordUsage('定稿', estimated, usage);
+  recordUsage('同步', estimated, usage);
   const usageNote = describeUsage(estimated, usage);
   log.info(
     `第 ${chapter.order} 章《${chapter.title}》细纲已照正文更新`,
@@ -266,17 +266,17 @@ async function knownNamesHint(project: NovelProject): Promise<string> {
  * 返回**实际调用了几次模型**（取消或无事可做时是 0）——MCP 的 `summary` 工具拿它记账。
  */
 export async function syncSummaries(project: NovelProject): Promise<number> {
-  log.info('开始检查哪些章还没定稿');
+  log.info('开始检查哪些章还没同步');
   const scanStart = Date.now();
   const stale = await project.staleChapters();
   const total = (await project.listChapters()).length;
   log.info(
-    `检查完成：${total} 章中有 ${stale.length} 章没定稿或定稿后正文改过`,
-    `耗时 ${elapsed(scanStart)}${stale.length > 0 ? `｜待定稿：${describeNos(stale)}` : ''}`
+    `检查完成：${total} 章中有 ${stale.length} 章没同步或同步后正文改过`,
+    `耗时 ${elapsed(scanStart)}${stale.length > 0 ? `｜待同步：${describeNos(stale)}` : ''}`
   );
 
   if (stale.length === 0) {
-    getHost().toast('所有写了正文的章都已定稿，细纲与正文对得上。');
+    getHost().toast('所有写了正文的章都已同步，细纲与正文对得上。');
     return 0;
   }
 
@@ -284,7 +284,7 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
   const each = FINALIZE_CALLS;
   const calls: CallEstimate = { low: stale.length * each.low, high: stale.length * each.high, max: stale.length * each.max };
   const answer = await askCall({
-    message: `有 ${stale.length} 章写了正文还没定稿（或定稿后正文又改过），逐章定稿：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么。${describeCalls(calls)}。现在同步？`,
+    message: `有 ${stale.length} 章写了正文还没同步（或同步后正文又改过），逐章同步：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么。${describeCalls(calls)}。现在同步？`,
     actions: ['开始同步'],
     detail:
       `每章 ${each.low}–${each.high} 次（${each.why}）。\n` +
@@ -358,16 +358,16 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
         ].filter(Boolean);
         if (notes.length > 0) {
           log.warn(
-            `同步结束：定稿 ${okCount} 章，${notes.join('；')}`,
+            `同步结束：${okCount} 章已同步，${notes.join('；')}`,
             failed.map((f) => `第 ${f.no} 章：${f.reason}`).join('\n')
           );
-          getHost().toast(`定稿 ${okCount} 章；${notes.join('；')}；${describeSynced(results)}。可在日志页看原因。`);
+          getHost().toast(`${okCount} 章已同步；${notes.join('；')}；${describeSynced(results)}。可在日志页看原因。`);
         } else if (okCount > 0) {
-          log.info(`同步结束：${okCount} 章全部定稿`, `总耗时 ${elapsed(startedAt)}`);
-          getHost().toast(`已定稿 ${okCount} 章：细纲照正文更新；${describeSynced(results)}。`);
+          log.info(`同步结束：${okCount} 章全部同步`, `总耗时 ${elapsed(startedAt)}`);
+          getHost().toast(`已同步 ${okCount} 章：细纲照正文更新；${describeSynced(results)}。`);
         }
       },
-      { scope: '定稿' }
+      { scope: '同步' }
     );
     return used;
   });
@@ -388,7 +388,7 @@ export function describeSynced(results: readonly StateAndThreadsOutcome[]): stri
   const unwritten = sum((r) => r.threads?.unwritten.length ?? 0);
   const found = [lines > 0 ? `${lines} 条线` : '', fores > 0 ? `${fores} 条伏笔` : ''].filter(Boolean).join('、');
   return [
-    names.length > 0 ? `${names.join('、')}的当前状态更新到了最后定稿的那一章` : '',
+    names.length > 0 ? `${names.join('、')}的当前状态更新到了最后同步的那一章` : '',
     events > 0 ? `叙事线：记下 ${events} 个事件${found ? `，新认出 ${found}` : ''}` : '叙事线没有新进展',
     dropped > 0 ? `另有 ${dropped} 条叙事线的记录没有收（见日志）` : '',
     unwritten > 0 ? `${unwritten} 条线的当前进度没写上（见日志）` : '',
@@ -404,13 +404,13 @@ export function describeSynced(results: readonly StateAndThreadsOutcome[]): stri
 async function markHalfDone(project: NovelProject, left: readonly { chapter: Chapter }[]): Promise<void> {
   for (const { chapter } of left) {
     await recordFailure(project, {
-      scope: '定稿',
+      scope: '同步',
       targetKind: 'chapter',
       targetKey: chapter.relPath,
       severity: 'warn',
       op: STATE_OP,
       message: '同步中途停了：细纲已照正文更新，角色状态与叙事线还没跟上',
-      detail: '右键这一章「定稿」重新定稿一次，角色状态与叙事线就补上了。',
+      detail: '右键这一章「同步」重新同步一次，角色状态与叙事线就补上了。',
     });
   }
 }
@@ -486,13 +486,13 @@ export async function summarizeChapters(
             // toast 里只列得下章号，而它五秒就没了。挂到那一行上，
             // 用户第二天回来还能看出是哪几章没更新成。
             void recordFailure(project, {
-              scope: '定稿',
+              scope: '同步',
               targetKind: 'chapter',
               targetKey: chapter.relPath,
               severity: 'error',
               op: 'summarize',
               message: `细纲没能照正文更新：${reason}`,
-              detail: '这一章的连续性事实与出场人物不会进入上下文。可右键「定稿」单独重试。',
+              detail: '这一章的连续性事实与出场人物不会进入上下文。可右键「同步」单独重试。',
             });
           }
         }
@@ -593,7 +593,7 @@ export async function updateGlobalSummary(
     units.push({ no: chapter.order, title: chapter.title, content });
   }
   if (units.length === 0) {
-    return { calls: 0, skipped: `第 ${since} 章之后还没有定稿过的章` };
+    return { calls: 0, skipped: `第 ${since} 章之后还没有同步过的章` };
   }
 
   const budget = runner.primaryBudget;
@@ -605,7 +605,7 @@ export async function updateGlobalSummary(
     const block = `【第${u.no}章 ${u.title}】\n${u.content}`;
     const cost = estimateTokens(block);
     if (blocks.length > 0 && used + cost > inputBudget) {
-      globalLog.warn('新定稿的章太多，这一次只并入前面几章', `并到第 ${through} 章，后面的下一次再并`);
+      globalLog.warn('新同步的章太多，这一次只并入前面几章', `并到第 ${through} 章，后面的下一次再并`);
       break;
     }
     blocks.push(block);
@@ -687,9 +687,9 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
   /** 作者在确认框上挑的；一章定稿过的细纲都没有、没问时是设置。 */
   let choice: CallChoice = {};
   if (stale.length > 0) {
-    globalLog.warn(`有 ${stale.length} 章没定稿或定稿后正文改过`, `待同步：${describeNos(stale)}`);
+    globalLog.warn(`有 ${stale.length} 章没同步或同步后正文改过`, `待同步：${describeNos(stale)}`);
     const answer = await askCall({
-      message: `有 ${stale.length} 章的细纲还没照正文更新（没定稿，或定稿后正文又改过），直接重建会缺这些章的信息。`,
+      message: `有 ${stale.length} 章的细纲还没照正文更新（没同步，或同步后正文又改过），直接重建会缺这些章的信息。`,
       actions: ['先同步细纲', '仍然重建'],
       detail: '先同步细纲：同步那一步还会再问一次次数，缺省跟着这里的选择。',
       tasks: ['globalSummaryStage', 'globalSummaryMerge'],
@@ -711,7 +711,7 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
       const batches = Math.ceil(units.length / Math.max(3, readConfig().summaryBatchSize));
       const calls = batches + (batches > 1 ? 1 : 0);
       const answer = await askCall({
-        message: `重建全文大纲：${units.length} 章定稿过的细纲分 ${batches} 批归纳${batches > 1 ? '，再合并成一份' : ''}，覆盖现在的全文大纲。${describeCalls({ low: calls, high: calls, max: calls })}。`,
+        message: `重建全文大纲：${units.length} 章同步过的细纲分 ${batches} 批归纳${batches > 1 ? '，再合并成一份' : ''}，覆盖现在的全文大纲。${describeCalls({ low: calls, high: calls, max: calls })}。`,
         actions: ['重建'],
         tasks: ['globalSummaryStage', 'globalSummaryMerge'],
         contextDetail: false,
@@ -728,14 +728,14 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
     const config = readConfig();
     const { units, missing } = await collectDigests(project, chapters);
     if (units.length === 0) {
-      globalLog.error('没有任何定稿过的章，重建中止');
-      getHost().toast('还没有任何一章定稿过，请先定稿，或运行「同步过期细纲」。');
+      globalLog.error('没有任何同步过的章，重建中止');
+      getHost().toast('还没有任何一章同步过：先同步（工程页黄条上的「立即同步」，或章节右键「同步」）。');
       return;
     }
     if (missing.length > 0) {
       // 「不静默截断」：少了哪几章必须说出来，否则全文大纲凭空缺一块。
       globalLog.warn(
-        `${missing.length} 章没定稿过，不会进入全文大纲`,
+        `${missing.length} 章没同步过，不会进入全文大纲`,
         `缺失章：${missing.slice(0, 20).join('、')}${missing.length > 20 ? `…（共 ${missing.length} 章）` : ''}`
       );
     }

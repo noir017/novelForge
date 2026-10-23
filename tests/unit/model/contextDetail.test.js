@@ -117,7 +117,7 @@ describe('model/contextDetail · 容错与解析', () => {
 
   test('说明文字：0 写「不带」，不出现 Infinity', () => {
     assert.match(m.describeContextDetail(1), /近章全文 不带/);
-    assert.match(m.describeContextDetail(1), /定稿原文片段 不带/);
+    assert.match(m.describeContextDetail(1), /原文片段 不带/);
     assert.match(m.describeContextDetail(1), /角色卡只带要点/);
     assert.match(m.describeContextDetail(1), /前几章细纲 1 章/);
     assert.match(m.describeContextDetail(3), /规划时一章一行 100 章/);

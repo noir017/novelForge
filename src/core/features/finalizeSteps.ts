@@ -20,7 +20,7 @@ import { Chapter, SummaryCast } from '../model/types';
 import { STATE_OP, StateUpdateOutcome, updateCharacterStates } from './characterState';
 import { THREADS_OP, ThreadsOutcome, recordThreads } from './threads';
 
-const log = scoped('定稿');
+const log = scoped('同步');
 
 /** 调模型的那一下：单个模型直接调，分档池带 fallback。`ModelPool` 本身就长这样。 */
 export interface ModelRunner {
@@ -74,13 +74,13 @@ export async function updateStateAndThreads(
     outcome.stateError = describeError(err);
     log.warn(`第 ${chapter.order} 章的角色状态没更新成：${outcome.stateError}`, err);
     await recordFailure(project, {
-      scope: '定稿',
+      scope: '同步',
       targetKind: 'chapter',
       targetKey: chapter.relPath,
       severity: 'warn',
       op: STATE_OP,
       message: `细纲已照正文更新，但角色状态没更新成：${outcome.stateError}`,
-      detail: '角色卡的当前状态停在上一次。重新定稿这一章会再更新一遍。',
+      detail: '角色卡的当前状态停在上一次。重新同步这一章会再更新一遍。',
     });
   }
 
@@ -133,13 +133,13 @@ export async function judgeChapterThreads(
     ].filter(Boolean);
     if (partial.length > 0) {
       await recordFailure(project, {
-        scope: opts.from === 'finalize' ? '定稿' : '叙事线',
+        scope: opts.from === 'finalize' ? '同步' : '叙事线',
         targetKind: 'chapter',
         targetKey: chapter.relPath,
         severity: 'warn',
         op: THREADS_OP,
         message: `叙事线记下了，但${partial.join('；')}`,
-        detail: '重新定稿这一章会再来一遍。',
+        detail: '重新同步这一章会再来一遍。',
       });
     } else {
       await clearFailures(project, 'chapter', chapter.relPath, THREADS_OP);
@@ -155,13 +155,13 @@ export async function judgeChapterThreads(
       project,
       opts.from === 'finalize'
         ? {
-            scope: '定稿',
+            scope: '同步',
             targetKind: 'chapter',
             targetKey: chapter.relPath,
             severity: 'warn',
             op: THREADS_OP,
             message: `细纲已照正文更新，但叙事线没认成：${threadsError}`,
-            detail: '叙事线没有改动。重新定稿这一章会再判一遍。',
+            detail: '叙事线没有改动。重新同步这一章会再判一遍。',
           }
         : {
             scope: '叙事线',
@@ -170,7 +170,7 @@ export async function judgeChapterThreads(
             severity: 'warn',
             op: THREADS_OP,
             message: `从已写正文补记叙事线没成：${threadsError}`,
-            detail: '叙事线没有改动，水位停在这一章前面。在叙事线页签再点一次「从正文补记」，会从这一章接着判；重新定稿这一章也会判。',
+            detail: '叙事线没有改动，水位停在这一章前面。在叙事线页签再点一次「从正文补记」，会从这一章接着判；重新同步这一章也会判。',
           }
     );
     // 请求发出去了钱就花了：认事件没成也记一次。

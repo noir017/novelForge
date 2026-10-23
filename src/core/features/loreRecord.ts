@@ -130,7 +130,7 @@ export async function recordChapterLore(
 ): Promise<LoreLine[]> {
   const plot = await project.plotOfChapter(chapter);
   if (!freshFinalized(chapter, plot)) {
-    throw new Error(`第 ${chapter.order} 章还没定稿，或定稿之后正文又改过`);
+    throw new Error(`第 ${chapter.order} 章还没同步，或同步之后正文又改过`);
   }
   const config = readConfig();
   const window = budget ?? { contextWindow: config.contextWindow, maxOutputTokens: config.maxOutputTokens };
@@ -221,7 +221,7 @@ export async function recordLore(project: NovelProject, relPath?: string): Promi
       return;
     }
     if (!freshFinalized(chapter, await project.plotOfChapter(chapter))) {
-      host.toast(`第 ${chapter.order} 章还没定稿，或定稿之后正文又改过：先定稿，定稿时会一并记下设定。`);
+      host.toast(`第 ${chapter.order} 章还没同步，或同步之后正文又改过：先同步，同步时会一并记下设定。`);
       return;
     }
     targets = [chapter];
@@ -240,8 +240,8 @@ export async function recordLore(project: NovelProject, relPath?: string): Promi
     if (targets.length === 0) {
       host.toast(
         skipped > 0
-          ? `没有可以补记的章：还有 ${skipped} 章定稿之后正文又改过，先重新定稿（定稿时会一并记下设定）。`
-          : '定稿过的章都已经记过设定了。'
+          ? `没有可以补记的章：还有 ${skipped} 章同步之后正文又改过，先重新同步（同步时会一并记下设定）。`
+          : '同步过的章都已经记过设定了。'
       );
       return;
     }
@@ -254,8 +254,8 @@ export async function recordLore(project: NovelProject, relPath?: string): Promi
     actions: ['开始记'],
     detail: [
       relPath
-        ? '这一章细纲原来的「设定」一节（定稿时记的）会被这一次的结果替换。'
-        : `补记的是定稿过、但还没记过设定的章（这个功能之前定稿的章都是）。${skipped > 0 ? `另有 ${skipped} 章定稿之后正文又改过，这次不记，先重新定稿。` : ''}`,
+        ? '这一章细纲原来的「设定」一节（同步时记的）会被这一次的结果替换。'
+        : `补记的是同步过、但还没记过设定的章（这个功能之前同步的章都是）。${skipped > 0 ? `另有 ${skipped} 章同步之后正文又改过，这次不记，先重新同步。` : ''}`,
       n > 1 ? '一章一章串行记，可以随时停下，已经记好的留着。' : '',
     ]
       .filter(Boolean)

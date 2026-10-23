@@ -188,7 +188,7 @@ describe('chapterAction', () => {
     posted = [];
     await controller.handle({ type: 'chapterAction', plotRelPath: P2, action: 'finalize' });
     const toasts = posted.filter((m) => m.type === 'toast').map((m) => m.message);
-    assert.ok(toasts.some((m) => m.includes('无法定稿')), JSON.stringify(toasts));
+    assert.ok(toasts.some((m) => m.includes('无法同步')), JSON.stringify(toasts));
   });
 });
 

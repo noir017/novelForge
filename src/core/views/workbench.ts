@@ -214,7 +214,7 @@ async function build(project: NovelProject, target: CreationTarget): Promise<Wor
       ...(goal ? [] : [{ key: '目标篇幅', text: '细纲与配置里都没写，所以有正文就算写够' }]),
       ...(plot ? sectionsOf(plot.sections, PLOT_SECTION_KEYS) : []),
     ],
-    warning: stale ? '这一章的细纲在正文写完（或定稿）之后改过，现有正文可能已经与它对不上。' : undefined,
+    warning: stale ? '这一章的细纲在正文写完（或同步）之后改过，现有正文可能已经与它对不上。' : undefined,
     ...(notice ? { notice } : {}),
     empty: plot ? undefined : '这一章没有细纲，写正文时模型只能照着前文往下编。',
   };

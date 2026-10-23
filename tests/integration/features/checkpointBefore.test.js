@@ -190,7 +190,7 @@ describe('批量写章', () => {
     assert.ok(calls >= 2, `调用 ${calls} 次`);
     const all = await list(t);
     assert.equal(all.length, 2);
-    assert.equal(all[0].note, '批量写章（写完即定稿）之前（第 3 章）');
+    assert.equal(all[0].note, '批量写章（写完即同步）之前（第 3 章）');
     assert.ok(CH(1) in all[0].files && CH(2) in all[0].files);
     assert.ok(!(CH(3) in all[0].files));
   });

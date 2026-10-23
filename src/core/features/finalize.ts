@@ -49,7 +49,7 @@ import { describeThreads } from './threads';
 
 export type { ModelRunner } from './finalizeSteps';
 
-const log = scoped('定稿');
+const log = scoped('同步');
 
 /** 只有一个模型（对话页选定的那个）时的 runner：不换人，窗口取全局配置。 */
 export function singleModel(llm: LlmProvider): ModelRunner {
@@ -91,7 +91,7 @@ export async function finalizeChapter(
   if (!summaryRunner) {
     const llm = await resolveProvider();
     if (!llm) {
-      log.warn(`第 ${chapter.order} 章没有定稿：没有可用的模型（未配置或未录入 API Key）`);
+      log.warn(`第 ${chapter.order} 章没有同步：没有可用的模型（未配置或未录入 API Key）`);
       getHost().toast('没有可用的模型：先在设置页配一个。', 'error');
       return undefined;
     }
@@ -120,7 +120,7 @@ export async function finalizeChapter(
  */
 export function describeFinalize(no: number, o: FinalizeOutcome): string {
   const parts = [
-    `第 ${no} 章已定稿：细纲照正文${o.summary.trashed ? '更新（旧版已放进回收站）' : '整理了一份'}，${o.summary.facts.length} 条连续性事实`,
+    `第 ${no} 章已同步：细纲照正文${o.summary.trashed ? '更新（旧版已放进回收站）' : '整理了一份'}，${o.summary.facts.length} 条连续性事实`,
   ];
   if (o.summary.dropped.length > 0) {
     parts.push(`另有 ${o.summary.dropped.length} 条在正文里找不到依据，没有收`);
@@ -158,7 +158,7 @@ export async function finalizeChapterTask(
 ): Promise<number> {
   let calls = 0;
   await runTask(
-    `定稿第 ${chapter.order} 章`,
+    `同步第 ${chapter.order} 章`,
     async ({ signal, report }) => {
       report({ message: `《${chapter.title}》 · 细纲`, current: 0, total: 3 });
       const outcome = await finalizeChapter(project, chapter, {
@@ -172,7 +172,7 @@ export async function finalizeChapterTask(
           }
         },
       });
-      report({ message: outcome ? '完成' : '未定稿', current: 3, total: 3 });
+      report({ message: outcome ? '完成' : '未同步', current: 3, total: 3 });
       if (outcome) {
         calls = outcome.calls;
         getHost().toast(
@@ -181,7 +181,7 @@ export async function finalizeChapterTask(
         );
       }
     },
-    { scope: '定稿' }
+    { scope: '同步' }
   );
   return calls;
 }
@@ -195,7 +195,7 @@ export async function finalizeChapterTask(
 export async function askFinalizeChapterTask(project: NovelProject, chapter: Chapter): Promise<number> {
   // 定稿过、正文没再改过的是「重新定稿」，与右键菜单上的字同一个判据。
   const plot = await project.plotOfChapter(chapter);
-  const verb = plot?.sourceHash && plot.sourceHash === chapter.contentHash ? '重新定稿' : '定稿';
+  const verb = plot?.sourceHash && plot.sourceHash === chapter.contentHash ? '重新同步' : '同步';
   const { why, ...calls } = FINALIZE_CALLS;
   const answer = await askCall({
     message: `${verb}第 ${chapter.order} 章《${chapter.title}》：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么。${describeCalls(calls)}。`,

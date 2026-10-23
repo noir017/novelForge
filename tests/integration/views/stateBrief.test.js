@@ -255,8 +255,8 @@ describe('选中一章 · 注入的下一步与单章状态机一字不差', () 
     project.invalidate();
     const s = await brief({ kind: 'plot', plotRelPath: PLOT1 });
     const now = await nextStepOf(PLOT1);
-    assert.ok(s.includes('状态：待定稿'), s);
-    assert.ok(s.includes(now.label) && now.label === '定稿第 1 章', s);
+    assert.ok(s.includes('状态：待同步'), s);
+    assert.ok(s.includes(now.label) && now.label === '同步第 1 章', s);
   });
 });
 
@@ -433,7 +433,7 @@ describe('老工程 · 99 章成品、没有架构也没有细纲', () => {
     const s = await bundle.stateBrief.buildStateBrief(old, { kind: 'manuscript', plotRelPath: rel });
     const now = await nextStepOf(rel, old);
     assert.ok(s.includes('当前目标：第 99 章') && s.includes(rel), s);
-    assert.ok(s.includes('状态：待定稿'), s);
+    assert.ok(s.includes('状态：待同步'), s);
     assert.ok(s.includes(now.label), `${s}\n期望含「${now.label}」`);
   });
 

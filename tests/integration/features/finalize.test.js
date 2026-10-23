@@ -181,7 +181,7 @@ describe('定稿：没有细纲时照正文整理一份，带连续性事实', (
 
   test('原来没有细纲：没有东西进回收站，完成提示说「整理了一份」', () => {
     assert.equal(outcome.summary.trashed, undefined);
-    assert.match(bundle.finalize.describeFinalize(2, outcome), /^第 2 章已定稿：细纲照正文整理了一份，2 条连续性事实/);
+    assert.match(bundle.finalize.describeFinalize(2, outcome), /^第 2 章已同步：细纲照正文整理了一份，2 条连续性事实/);
   });
 
   test('读回来：细纲的「连续性事实」一节带着证据', async () => {
@@ -303,7 +303,7 @@ describe('定稿：不回退、没卡、失败', () => {
       severity: 'warn',
       op: 'manuscript',
       message: '批量写章：这一章写进去了，但只写到 1957 / 3000 字，不到目标的八成',
-      detail: '批量在这一章停下，没有定稿，也没有往下写。',
+      detail: '批量在这一章停下，没有同步，也没有往下写。',
     });
     assert.equal((await failuresOf(plotRel)).length, 1);
     await bundle.finalize.finalizeChapter(project, await chapterNo(3));
@@ -454,7 +454,7 @@ describe('定稿：有细纲时照正文反向更新它', () => {
   test('完成提示说「旧版已放进回收站」', () => {
     assert.match(
       bundle.finalize.describeFinalize(4, outcome),
-      /^第 4 章已定稿：细纲照正文更新（旧版已放进回收站），2 条连续性事实/
+      /^第 4 章已同步：细纲照正文更新（旧版已放进回收站），2 条连续性事实/
     );
   });
 
@@ -534,7 +534,7 @@ describe('定稿：模型返回解析不了', () => {
   });
 
   test('报失败，不当成定稿完成', () => {
-    assert.ok(error && /定稿失败/.test(error.message), String(error));
+    assert.ok(error && /同步失败/.test(error.message), String(error));
   });
 
   test('细纲一个字都没动', () => {
@@ -573,21 +573,21 @@ describe('工程页章节右键「定稿」「重新定稿」：先问这一次�
 
   test('确认框报次数、只有一颗「重新定稿」；模型缺省是对话页那个，带详细度下拉框', () => {
     const [c] = h.confirms;
-    assert.deepEqual(c.actions, ['重新定稿']);
-    assert.match(c.message, /^重新定稿第 1 章《.+》：.*预计 2–5 次调用。$/);
+    assert.deepEqual(c.actions, ['重新同步']);
+    assert.match(c.message, /^重新同步第 1 章《.+》：.*预计 2–5 次调用。$/);
     assert.equal(c.call.model, 'fake/m');
     assert.ok(c.call.contextDetail, JSON.stringify(c.call));
     assert.ok(c.call.models.some((m) => m.ref === 'fake/strong'), JSON.stringify(c.call.models));
   });
 
   test('换一个模型：这一次的每次调用都用它，完成提示照旧', async () => {
-    h.expect({ action: '重新定稿', choice: { model: 'fake/strong' } });
+    h.expect({ action: '重新同步', choice: { model: 'fake/strong' } });
     fake.reset();
     const calls = await bundle.finalize.askFinalizeChapterTask(project, await chapterNo(1));
     assert.ok(calls >= 2, String(calls));
     assert.equal(calls, fake.callCount());
     assert.deepEqual(refsUsed(), ['fake/strong']);
-    assert.ok(h.toasts.some((x) => x.includes('第 1 章已定稿')), h.toasts.join('|'));
+    assert.ok(h.toasts.some((x) => x.includes('第 1 章已同步')), h.toasts.join('|'));
   });
 
   // 没定稿、或定稿之后正文又改过的章，右键上写的是「定稿」：确认框上那颗按钮也是。
@@ -596,13 +596,13 @@ describe('工程页章节右键「定稿」「重新定稿」：先问这一次�
     h.expect();
     fake.reset();
     await bundle.finalize.askFinalizeChapterTask(project, await chapterNo(1));
-    assert.deepEqual(h.confirms[0].actions, ['定稿']);
-    assert.match(h.confirms[0].message, /^定稿第 1 章/);
+    assert.deepEqual(h.confirms[0].actions, ['同步']);
+    assert.match(h.confirms[0].message, /^同步第 1 章/);
     assert.equal(fake.callCount(), 0);
   });
 
   test('下拉框不动直接点：用对话页那个', async () => {
-    h.expect('定稿');
+    h.expect('同步');
     fake.reset();
     await bundle.finalize.askFinalizeChapterTask(project, await chapterNo(1));
     assert.ok(fake.callCount() >= 2, String(fake.callCount()));

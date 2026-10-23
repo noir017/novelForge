@@ -254,7 +254,7 @@ describe('批量写章：区间与模式写进确认框', () => {
     h.expect();
     const r = await run({ action: 'batchManuscripts', from: 1, to: 2, mode: 'finalize', review: true });
     const message = h.confirms[h.confirms.length - 1].message;
-    assert.ok(message.startsWith('第 1–2 章：要写 2 章正文（写完即定稿、写完即审稿）'), message);
+    assert.ok(message.startsWith('第 1–2 章：要写 2 章正文（写完即同步、写完即审稿）'), message);
     assert.equal(fake.calls.length, 0, String(fake.calls.length));
     assert.ok(r.text.includes('没有调用模型'), r.text);
   });

@@ -235,7 +235,7 @@ describe('四期验收：批量写章第 1–3 章、写完即定稿', () => {
 
   test('第 3 章写正文时：定稿原文片段里有第 2 章证据所在的那一段', () => {
     const at = ch3Prompt.indexOf('# 定稿原文片段');
-    assert.ok(at > 0, '没有定稿原文片段那一节');
+    assert.ok(at > 0, '没有原文片段那一节');
     const section = ch3Prompt.slice(at, ch3Prompt.indexOf('\n---\n', at));
     assert.ok(section.includes('林昭在第2章受了第2处伤，血顺着左臂往下淌。'), section.slice(0, 800));
     assert.ok(section.includes('林昭在第1章受了第1处伤'), section.slice(0, 800));
@@ -246,7 +246,7 @@ describe('四期验收：批量写章第 1–3 章、写完即定稿', () => {
     const [f] = (await bundle.errorLog.listActiveFailures(project))[SHEN] ?? [];
     assert.equal(f?.severity, 'warn');
     assert.equal(f.op, 'cardState');
-    assert.match(f.message, /第 3 章定稿给出了新的「当前状态」/);
+    assert.match(f.message, /第 3 章同步时给出了新的「当前状态」/);
   });
 
   test('林昭最后是第 3 章的状态；工程页的角色行写着「状态截至第 3 章」', async () => {
@@ -266,7 +266,7 @@ describe('四期验收：批量写章第 1–3 章、写完即定稿', () => {
 
   test('完成提示：写好 3 章、定稿 3 章，带「打开第 3 章」', () => {
     const f = finished.find((x) => x.title === '批量写章');
-    assert.equal(f.message, '第 1–3 章已写好，定稿 3 章（调用 14 次）。');
+    assert.equal(f.message, '第 1–3 章已写好，同步 3 章（调用 14 次）。');
     assert.deepEqual(f.open, { plotRelPath: PLOT(3), label: '打开第 3 章' });
   });
 

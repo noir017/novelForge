@@ -177,7 +177,7 @@ describe('上下文详细度 · 写第 13 章（前 12 章都定稿了）', () =
   test('「精简」不带定稿原文片段，出一条说明', () => {
     const ev = built[1].items.filter((i) => i.kind === 'evidence');
     assert.deepEqual(ev.map((i) => [i.id, i.status]), [['evidence:off', 'dropped']]);
-    assert.match(ev[0].note, /上下文详细度「精简」不带定稿原文片段/);
+    assert.match(ev[0].note, /上下文详细度「精简」不带原文片段/);
     assert.ok(live(built[3], 'evidence').length > 0, '缺省那一级照样带');
   });
 

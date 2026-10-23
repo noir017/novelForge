@@ -898,7 +898,7 @@ describe('fileOps.ts', () => {
 
     // 有正文就能定稿：浮窗顺手告诉作者怎么补一份。
     test('有正文没细纲时提示可以定稿', () => {
-      assert.equal(none.emptyHint, '这一章还没有细纲。右键「定稿」可以照正文整理一份。');
+      assert.equal(none.emptyHint, '这一章还没有细纲。右键「同步」可以照正文整理一份。');
     });
 
     test('不存在的章退化为空视图', () => {

@@ -492,7 +492,7 @@ async function setInitializedContext(project: NovelProject): Promise<void> {
 async function pickChapter(project: NovelProject): Promise<Chapter | undefined> {
   const chapters = await project.listChapters();
   if (chapters.length === 0) {
-    getHost().toast('还没有写过正文。写完一章再定稿。');
+    getHost().toast('还没有写过正文。写完一章再同步。');
     return undefined;
   }
 

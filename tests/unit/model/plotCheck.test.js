@@ -55,7 +55,7 @@ describe('plotCheck · 校验冲突', () => {
     const r = m.verifyConflicts([{ plot: '钱执事在惊恐中毙命', fact: '钱执事已被大阵吞噬', chapter: 3, why: '他第 10 章已经死了' }], plot, facts);
     assert.equal(r.dropped, 0);
     assert.deepEqual(r.conflicts, [{ plot: '钱执事在惊恐中毙命', fact: '钱执事已被大阵吞噬，尸骨无存', chapter: 10, why: '他第 10 章已经死了' }]);
-    assert.equal(m.describeConflict(r.conflicts[0]), '细纲「钱执事在惊恐中毙命」与第 10 章的定稿事实「钱执事已被大阵吞噬，尸骨无存」矛盾：他第 10 章已经死了');
+    assert.equal(m.describeConflict(r.conflicts[0]), '细纲「钱执事在惊恐中毙命」与第 10 章同步下来的事实「钱执事已被大阵吞噬，尸骨无存」矛盾：他第 10 章已经死了');
   });
 
   test('标点、空白不同照样认', () => {

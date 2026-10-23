@@ -152,7 +152,7 @@ export async function updateCharacterStates(
         targetKey: card.relPath,
         severity: 'warn',
         op: STATE_OP,
-        message: `第 ${chapter.order} 章定稿给出了新的「当前状态」，这一节你改过，没有覆盖`,
+        message: `第 ${chapter.order} 章同步时给出了新的「当前状态」，这一节你改过，没有覆盖`,
         detail: `${proposalHead(chapter.order)}\n${u.state}\n\n右键这张卡「对比第 ${chapter.order} 章给出的状态…」可以对比后决定用不用。`,
       });
       continue;

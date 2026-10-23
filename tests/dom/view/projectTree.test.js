@@ -428,7 +428,7 @@ describe('章节组：一个章号一行', { skip: JSDOM_SKIP }, () => {
   });
 
   test('写够了没定稿的章挂「待定稿」', () => {
-    assert.equal(plotRow('入镇').querySelector('.row-stage')?.textContent, '待定稿');
+    assert.equal(plotRow('入镇').querySelector('.row-stage')?.textContent, '待同步');
   });
 
   // 一列「已完成」只是噪声。
@@ -438,7 +438,7 @@ describe('章节组：一个章号一行', { skip: JSDOM_SKIP }, () => {
 
   test('徽章的 tooltip 报三段完成度', () => {
     const title = plotRow('北行').querySelector('.row-stage').title;
-    assert.ok(title.includes('细纲 100%') && title.includes('正文 0%') && title.includes('定稿 0%'), title);
+    assert.ok(title.includes('细纲 100%') && title.includes('正文 0%') && title.includes('同步 0%'), title);
   });
 
   // ⟳ 不是错误，是「回头看一眼」：大纲里覆盖这一章的那一节改过。
@@ -547,7 +547,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
 
   // 「进入这一章」与「打开正文」是两件事：前者把创作页切到这一章当前该做
   // 的那一层，后者只是读文件。
-  for (const label of ['进入这一章', '打开正文', '打开细纲', '重写正文', '重新定稿',
+  for (const label of ['进入这一章', '打开正文', '打开细纲', '重写正文', '重新同步',
     '打开草稿', '重命名', '删除（移到回收站）']) {
     test(`定稿过的章菜单含「${label}」`, () => {
       assert.ok(doneItems.includes(label), JSON.stringify(doneItems));
@@ -623,7 +623,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   // 定稿是照正文更新细纲，读的是正文，所以带的必须是 chapters/ 那条路径。
   // 右键发的是 askFinalizeChapter：后端先弹确认框挑这一次的模型。
   test('「重新定稿」发 askFinalizeChapter，带的是章节路径', () => {
-    ui.pick(ui.rightClick(plotRow('楔子')), '重新定稿');
+    ui.pick(ui.rightClick(plotRow('楔子')), '重新同步');
     const msg = ui.last('projectAction');
     assert.ok(msg, '没发出 projectAction');
     assert.equal(msg.action, 'askFinalizeChapter', JSON.stringify(msg));
@@ -695,8 +695,8 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   // 定稿 = 照正文更新细纲（带连续性事实）+ 出场角色的当前状态（四期）+ 叙事线（七期），
   // 菜单上写着调用次数（D17）。
   test('没定稿的章给「定稿（细纲 + 角色状态 + 叙事线）」并写着调用次数', () => {
-    assert.ok(legacyItems.includes('定稿（细纲 + 角色状态 + 叙事线，预计 2–5 次调用）'), JSON.stringify(legacyItems));
-    assert.ok(!legacyItems.includes('重新定稿'), JSON.stringify(legacyItems));
+    assert.ok(legacyItems.includes('同步（细纲 + 角色状态 + 叙事线，预计 2–5 次调用）'), JSON.stringify(legacyItems));
+    assert.ok(!legacyItems.includes('重新同步'), JSON.stringify(legacyItems));
     // 没定稿的章「设定」一节是计划，记了也会被定稿冲掉：不给单独记设定。
     assert.ok(!legacyItems.includes('记设定（调用模型 1 次）'), JSON.stringify(legacyItems));
   });
@@ -707,7 +707,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   test('「定稿」发 askFinalizeChapter，带的是章节路径', () => {
-    ui.pick(ui.rightClick(plotRow('入镇')), '定稿（细纲 + 角色状态 + 叙事线，预计 2–5 次调用）');
+    ui.pick(ui.rightClick(plotRow('入镇')), '同步（细纲 + 角色状态 + 叙事线，预计 2–5 次调用）');
     const msg = ui.last('projectAction');
     assert.equal(msg?.action, 'askFinalizeChapter', JSON.stringify(msg));
     assert.equal(msg?.relPath, 'chapters/002-入镇.md', JSON.stringify(msg));
@@ -729,7 +729,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   // 定稿、草稿读的都是正文——没有正文就无从谈起。
-  for (const label of ['重写正文', '重新定稿', '定稿（细纲 + 角色状态 + 叙事线，预计 2–5 次调用）', '打开草稿', '新建草稿']) {
+  for (const label of ['重写正文', '重新同步', '同步（细纲 + 角色状态 + 叙事线，预计 2–5 次调用）', '打开草稿', '新建草稿']) {
     test(`没写正文的章菜单不含「${label}」`, () => {
       assert.ok(!planningItems.includes(label), JSON.stringify(planningItems));
     });

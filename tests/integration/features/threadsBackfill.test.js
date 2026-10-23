@@ -127,7 +127,7 @@ describe('要判哪几章（零调用）', () => {
     project.invalidate();
     const plan = await bundle.backfill.planThreadsBackfill(project);
     assert.deepEqual(plan.chapters.map((c) => c.order), [1, 3, 4, 6]);
-    assert.deepEqual(plan.skipped, [{ no: 5, why: '定稿之后正文又改过' }]);
+    assert.deepEqual(plan.skipped, [{ no: 5, why: '同步之后正文又改过' }]);
     assert.equal(plan.planFirst, true);
     assert.equal(plan.current, 6);
     assert.deepEqual(plan.calls, { low: 4 + 1, high: 12 + 1, max: 12 + 1 });
@@ -150,7 +150,7 @@ describe('要判哪几章（零调用）', () => {
     project.invalidate();
     const plan = await bundle.backfill.planThreadsBackfill(project);
     assert.equal(plan.planFirst, false);
-    assert.deepEqual(plan.skipped, [{ no: 3, why: '还没定稿' }]);
+    assert.deepEqual(plan.skipped, [{ no: 3, why: '还没同步' }]);
     assert.deepEqual(plan.calls, { low: 5, high: 15, max: 15 });
     for (const [rel, text] of saved) {
       t.write(rel, text);
@@ -174,7 +174,7 @@ describe('补记：按章串行，第 4 章没判成就停', () => {
 
   test('确认框写明章数与次数，先排线算进去；走「定稿」档与「剧情细纲」档，看详细度', () => {
     const c = h.confirms.at(-1);
-    assert.match(c.message, /^从已写正文补记叙事线：第 1–6 章定稿过、叙事线还没判/);
+    assert.match(c.message, /^从已写正文补记叙事线：第 1–6 章同步过、叙事线还没判/);
     assert.ok(c.message.includes('先从情节大纲排一次（1 次）'), c.message);
     assert.ok(c.message.includes('预计 7–19 次调用'), c.message);
     assert.deepEqual(c.actions, ['开始补记']);
@@ -210,7 +210,7 @@ describe('补记：按章串行，第 4 章没判成就停', () => {
     assert.ok(toast.includes('先从情节大纲排出 1 条叙事线'), toast);
     assert.ok(toast.includes('叙事线补记：判了 3 章（第 1–3 章），记下 4 个事件，新认出 1 条线'), toast);
     assert.ok(toast.includes('第 4 章没判成（模型返回的叙事线事件解析不出来），停在那里，后面 2 章没判'), toast);
-    assert.ok(toast.includes('叙事线判到第 3 章（定稿到第 6 章）'), toast);
+    assert.ok(toast.includes('叙事线判到第 3 章（同步到第 6 章）'), toast);
   });
 
   test('再点一次：线已经有了不再排，从第 4 章接着判，水位推到第 6 章，第 4 章上的失败清掉', async () => {
@@ -219,12 +219,12 @@ describe('补记：按章串行，第 4 章没判成就停', () => {
     h.expect('开始补记');
     await bundle.backfill.backfillThreads(project);
     const c = h.confirms.at(-1);
-    assert.match(c.message, /^从已写正文补记叙事线：第 4–6 章定稿过/);
+    assert.match(c.message, /^从已写正文补记叙事线：第 4–6 章同步过/);
     assert.ok(!c.message.includes('先从情节大纲排一次'), c.message);
     assert.deepEqual(asked.map((a) => a.no), [4, 5, 6]);
     assert.deepEqual(await project.readThreadsMark(), { through: 6, judged: [] });
     assert.deepEqual(await failuresOf(CH(4)), []);
-    assert.ok(h.toasts.at(-1).includes('叙事线判到第 6 章，跟上了定稿'), h.toasts.at(-1));
+    assert.ok(h.toasts.at(-1).includes('叙事线判到第 6 章，跟上了同步'), h.toasts.at(-1));
   });
 
   test('跟上了再点：不弹框、零调用，说清已经判到哪', async () => {
@@ -233,6 +233,6 @@ describe('补记：按章串行，第 4 章没判成就停', () => {
     assert.equal(await bundle.backfill.backfillThreads(project), 0);
     assert.equal(h.confirms.length, 0);
     assert.equal(fake.calls.length, 0);
-    assert.ok(h.toasts.at(-1).includes('叙事线已经判到第 6 章、跟上了定稿'), h.toasts.at(-1));
+    assert.ok(h.toasts.at(-1).includes('叙事线已经判到第 6 章、跟上了同步'), h.toasts.at(-1));
   });
 });

@@ -149,7 +149,7 @@ async function summarizeFirst(
 ): Promise<{ ok: boolean; calls: number; choice?: CallChoice; checkpoint?: string }> {
   const lanes = Math.min(readConfig().concurrency, stale.length);
   const answer = await askCall({
-    message: `从已写正文补齐第 1–${through} 章：先照正文给 ${stale.length} 章整理细纲（没定稿的、定稿后正文改过的），调用 ${stale.length} 次模型。现在开始？`,
+    message: `从已写正文补齐第 1–${through} 章：先照正文给 ${stale.length} 章整理细纲（没同步的、同步后正文改过的），调用 ${stale.length} 次模型。现在开始？`,
     actions: ['先整理细纲'],
     detail: [
       lanes > 1 ? `并发 ${lanes} 路，各章之间没有先后依赖。` : '串行逐章处理（并发数为 1）。',
@@ -448,7 +448,7 @@ async function planRest(project: NovelProject, through: number, written: Chapter
     }
     if (planned.plans.length === 0) {
       // 细纲里一个出场人物都认不出：建不了卡，后面几件照样补。
-      log.warn('定稿过的细纲里认不出出场人物，角色卡这一步跳过', planned.skipped.map((s) => `${s.name}（${s.reason}）`).join('、'));
+      log.warn('同步过的细纲里认不出出场人物，角色卡这一步跳过', planned.skipped.map((s) => `${s.name}（${s.reason}）`).join('、'));
       settings.splice(settings.indexOf('characters'), 1);
     } else {
       cards = { ...planned, min };
@@ -503,7 +503,7 @@ async function planLore(project: NovelProject): Promise<DerivePlan['lore']> {
     targets = unknown;
   }
   if (targets.length === 0) {
-    log.info('定稿过的细纲里没记下设定（或者都已经有条目），设定条目这一步跳过');
+    log.info('同步过的细纲里没记下设定（或者都已经有条目），设定条目这一步跳过');
     return undefined;
   }
   return { targets, min };
@@ -558,7 +558,7 @@ function describePlan(plan: DerivePlan, through: number): string {
     const names = plan.lore.targets.map((u) => u.name);
     lines.push(
       `设定条目：给${names.slice(0, 12).join('、')}${names.length > 12 ? `等 ${names.length} 条` : ''}建条目（细纲里出现 ${plan.lore.min} 章以上、还没有条目；` +
-        `只读定稿细纲里提到它们的那几行，${describeCalls(loreEntryCalls(names.length))}）。建卡之后认得出是人的不建，次数只会更少。`
+        `只读同步过的细纲里提到它们的那几行，${describeCalls(loreEntryCalls(names.length))}）。建卡之后认得出是人的不建，次数只会更少。`
     );
   }
   if (plan.globalSummary) {

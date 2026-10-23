@@ -85,15 +85,15 @@ export async function updateCharacterCard(
   const all = appearancesOf(index, card);
   if (all.length === 0) {
     log.warn(
-      `「${card.name}」未在任何定稿过的章里出现`,
+      `「${card.name}」未在任何同步过的章里出现`,
       index.summaryCount === 0
-        ? '这个工程还没有任何一章定稿过，先定稿，或运行「同步过期细纲」。'
-        : '定稿过的细纲里没有这个名字。可能是角色卡的 name/aliases 与正文里的写法对不上。'
+        ? '这个工程还没有任何一章同步过：先同步（工程页黄条上的「立即同步」，或章节右键「同步」）。'
+        : '同步过的细纲里没有这个名字。可能是角色卡的 name/aliases 与正文里的写法对不上。'
     );
     getHost().toast(
       index.summaryCount === 0
-        ? '还没有定稿过的章，请先定稿，或运行「同步过期细纲」。'
-        : `定稿过的细纲里没有出现「${card.name}」，无法自动关联章节。`,
+        ? '还没有同步过的章：先同步（工程页黄条上的「立即同步」，或章节右键「同步」）。'
+        : `同步过的细纲里没有出现「${card.name}」，无法自动关联章节。`,
       'error'
     );
     return;
@@ -118,7 +118,7 @@ export async function updateCharacterCard(
 
   const plots = (await project.listChapters()).filter((c) => nos.includes(c.order));
   if (plots.length === 0) {
-    log.warn(`「${card.name}」的出场章都已不在磁盘上`, `定稿记录：${describePlots(nos)}`);
+    log.warn(`「${card.name}」的出场章都已不在磁盘上`, `同步记录：${describePlots(nos)}`);
     getHost().toast('这些出场章的正文已不存在。', 'error');
     return;
   }
@@ -164,7 +164,7 @@ export async function planAllUpdates(project: NovelProject, scope: UpdateScope):
   for (const card of cards) {
     const all = appearancesOf(index, card);
     if (all.length === 0) {
-      result.skipped.push({ card, reason: '未在定稿中出现' });
+      result.skipped.push({ card, reason: '未在同步过的章里出现' });
       continue;
     }
     const nos = scope === 'incremental' ? all.filter((n) => n > (card.updatedThrough ?? 0)) : all;
@@ -360,8 +360,8 @@ export async function createCardForCast(project: NovelProject, name: string): Pr
   const index = await buildCastIndex(project);
   const member = index.unknown.find((m) => m.name === name);
   if (!member) {
-    log.warn(`定稿过的细纲里已经没有「${name}」了，可能刚重新定稿过`);
-    getHost().toast(`定稿过的细纲里没有「${name}」了，请刷新工程页。`, 'error');
+    log.warn(`同步过的细纲里已经没有「${name}」了，可能刚重新同步过`);
+    getHost().toast(`同步过的细纲里没有「${name}」了，请刷新工程页。`, 'error');
     return;
   }
 
@@ -547,7 +547,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
   const index = await buildCastIndex(project);
   if (index.unknown.length === 0) {
     log.info('没有未建卡的出场人物');
-    getHost().toast('定稿里出现的人都已经有角色卡了。');
+    getHost().toast('同步过的章里出现的人都已经有角色卡了。');
     return;
   }
 

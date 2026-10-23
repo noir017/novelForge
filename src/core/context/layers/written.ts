@@ -98,7 +98,7 @@ async function settingMaterial(a: Parameters<LayerFn>[0], spec: Parameters<Layer
     label: `第 1–${last} 章梗概与看点`,
   };
   const all = `【第 1–${last} 章梗概与看点（一章一行）】\n${lines.map((l) => l.line).join('\n')}`;
-  const missingNote = missing > 0 ? `；${missing} 章还没定稿，没有梗概可带` : '';
+  const missingNote = missing > 0 ? `；${missing} 章还没同步，没有梗概可带` : '';
   if (estimateTokens(all) <= a.remaining) {
     a.admit({ ...base, text: all, note: `${lines.length} 章${missingNote}` });
     return;

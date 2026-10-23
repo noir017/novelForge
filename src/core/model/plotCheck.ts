@@ -138,7 +138,7 @@ export function verifyConflicts(
 
 /** 「细纲『……』与第 10 章的定稿事实『……』矛盾：……」。日志、失败记录与完成提示共用。 */
 export function describeConflict(c: PlotConflict): string {
-  return `细纲「${clip(c.plot, 40)}」与第 ${c.chapter} 章的定稿事实「${clip(c.fact, 40)}」矛盾${c.why ? `：${c.why}` : ''}`;
+  return `细纲「${clip(c.plot, 40)}」与第 ${c.chapter} 章同步下来的事实「${clip(c.fact, 40)}」矛盾${c.why ? `：${c.why}` : ''}`;
 }
 
 /** 写在失败记录与完成提示里的那一句建议。 */

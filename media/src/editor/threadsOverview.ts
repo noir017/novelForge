@@ -55,8 +55,8 @@ const TAB_TIP = '叙事线总览：章 × 线的时间轴——每条线走到�
 const NO_WORKSPACE = '先打开一个小说工程，才有叙事线总览。';
 
 const STATE_LABEL: Record<ThreadsOverviewChapter['state'], string> = {
-  finalized: '已定稿',
-  written: '写了，还没定稿',
+  finalized: '已同步',
+  written: '写了，还没同步',
   planned: '只有细纲',
   none: '还没有细纲',
 };
@@ -261,7 +261,7 @@ function legend(): HTMLElement {
   item(lineMark('plan'), '只有计划');
   item(lineMark('actual'), '只有实际');
   item(lineMark('both'), '计划也发生了');
-  item(lineMark('dev'), '计划了、定稿了却没发生');
+  item(lineMark('dev'), '计划了、同步了却没发生');
   box.appendChild(el('span', 'tov-legend-sep', '·'));
   item(foreMark('埋', false), '埋');
   item(foreMark('收', false), '收');
@@ -345,7 +345,7 @@ function render(): void {
     data.groups.reduce((n, g) => n + g.lines.reduce((m, l) => m + l.foreshadowing.length, 0), 0) +
     (data.unfiled?.foreshadowing.length ?? 0);
   v.meta.textContent = [
-    data.current > 0 ? `定稿到第 ${data.current} 章` : '还没有定稿的章',
+    data.current > 0 ? `同步到第 ${data.current} 章` : '还没有同步的章',
     // 四期：叙事线落后于定稿时另说一句（定稿了还没判的那几列列头另一种样子，计划不算偏差）。
     data.current > 0 && data.through < data.current ? (data.through > 0 ? `叙事线判到第 ${data.through} 章` : '叙事线还没判过') : '',
     `${lineCount} 条线`,
@@ -355,7 +355,7 @@ function render(): void {
     .join(' · ');
   if (lineCount === 0 && !data.unfiled) {
     showNote(
-      '还没有叙事线。到工程页「叙事线」页签点「从大纲排出」，从情节大纲排出主线、支线、感情线、人物线；定稿时也会从正文里认出新的线。'
+      '还没有叙事线。到工程页「叙事线」页签点「从大纲排出」，从情节大纲排出主线、支线、感情线、人物线；同步时也会从正文里认出新的线。'
     );
     return;
   }
@@ -406,14 +406,14 @@ function buildGrid(d: ThreadsOverview): HTMLElement {
   if (d.current > 0 && d.current <= cols) {
     const now = el('div', 'tov-now');
     now.style.left = `${NAME_WIDTH + d.current * CELL}px`;
-    now.title = `定稿到第 ${d.current} 章`;
+    now.title = `同步到第 ${d.current} 章`;
     grid.appendChild(now);
   }
   // 「叙事线判到第 M 章」（四期）：落后于定稿时另一条虚线，画在第 M 章右边（一章都没判过就不画，表头上说了）。
   if (d.through > 0 && d.through < d.current && d.through <= cols) {
     const judged = el('div', 'tov-judged');
     judged.style.left = `${NAME_WIDTH + d.through * CELL}px`;
-    judged.title = `叙事线判到第 ${d.through} 章（从第 1 章起连续判过的）；右边定稿了还没判的章，计划不算偏差`;
+    judged.title = `叙事线判到第 ${d.through} 章（从第 1 章起连续判过的）；右边同步了还没判的章，计划不算偏差`;
     grid.appendChild(judged);
   }
   return grid;
@@ -424,7 +424,7 @@ function buildHeader(d: ThreadsOverview): HTMLElement {
   const head = el('div', 'tov-header');
   const corner = el('div', 'tov-corner', '叙事线 ＼ 章');
   corner.title = [
-    d.current > 0 ? `绿线：定稿到第 ${d.current} 章` : '还没有定稿的章',
+    d.current > 0 ? `绿线：同步到第 ${d.current} 章` : '还没有同步的章',
     d.through > 0 && d.through < d.current ? `虚线：叙事线判到第 ${d.through} 章` : '',
   ]
     .filter(Boolean)
@@ -678,7 +678,7 @@ function showTip(node: HTMLElement, info: CellInfo): void {
     tip.appendChild(eventLine(e, false));
   }
   if (info.cell.deviation) {
-    tip.appendChild(el('div', 'tov-tip-dev', '⚠ 计划了，这一章也定稿了，却没有发生'));
+    tip.appendChild(el('div', 'tov-tip-dev', '⚠ 计划了，这一章也同步了，却没有发生'));
   }
   setHidden(tip, false);
   const rect = node.getBoundingClientRect();

@@ -109,7 +109,7 @@ before(async () => {
     reply,
     errors: { LlmError: bundle.provider.LlmError, CancelledError: bundle.provider.CancelledError },
   });
-  t = await makeTempProject(bundle.project, { prefix: 'syncSummaries', title: '同步测试' });
+  t = await makeTempProject(bundle.project, { prefix: 'syncSummaries', title: '定稿测试' });
   project = t.project;
   // 林昭的卡从没盖过章、当前状态空着：归机器写。
   t.write(CARD, '---\nname: 林昭\n---\n\n# 林昭\n\n## 身份\n\n回镇的人\n\n## 当前状态\n\n');
@@ -135,7 +135,7 @@ describe('同步：三章逐章定稿，角色状态与叙事线按章号走', (
 
   test('确认框写明三步与次数', () => {
     const { message, detail } = h.confirms.at(-1);
-    assert.ok(message.startsWith('有 3 章写了正文还没定稿'), message);
+    assert.ok(message.startsWith('有 3 章写了正文还没同步'), message);
     assert.ok(message.includes('更新出场角色的当前状态、认这一章在叙事线上发生了什么'), message);
     assert.ok(message.includes('预计 6–15 次调用'), message);
     assert.ok(detail.includes('角色状态与叙事线按章号逐章串行'), detail);
@@ -174,9 +174,9 @@ describe('同步：三章逐章定稿，角色状态与叙事线按章号走', (
 
   // 叙事线重做：按实际结果说，不再一律说「跟到了这几章」。
   test('完成提示按实际结果说角色状态与叙事线', () => {
-    const done = h.toasts.map((m) => String(m.message ?? m)).find((m) => m.includes('已定稿 3 章'));
+    const done = h.toasts.map((m) => String(m.message ?? m)).find((m) => m.includes('已同步 3 章'));
     assert.ok(done, JSON.stringify(h.toasts));
-    assert.ok(done.includes('林昭的当前状态更新到了最后定稿的那一章') && done.includes('叙事线：记下 3 个事件'), done);
+    assert.ok(done.includes('林昭的当前状态更新到了最后同步的那一章') && done.includes('叙事线：记下 3 个事件'), done);
     assert.ok(!done.includes('跟到了这几章'), done);
   });
 

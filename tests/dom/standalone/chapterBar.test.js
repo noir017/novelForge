@@ -45,7 +45,7 @@ describe('章节条', { skip: JSDOM_SKIP }, () => {
   test('开着第 2 章的正文：写这一章在哪一步、写了多少', () => {
     ui.post({ type: 'editorOpen', file: file('chapters/002-入镇.md', '# 入镇\n\n正文') });
     assert.ok(!bar().classList.contains('hidden'));
-    assert.equal(info(), '第 2 章《入镇》 · 待定稿 · 2980 / 3000 字');
+    assert.equal(info(), '第 2 章《入镇》 · 待同步 · 2980 / 3000 字');
   });
 
   test('有正文：接着写、重写（要有细纲）、定稿按状态亮灭；写这一章不亮', () => {

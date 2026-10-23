@@ -206,7 +206,7 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
   // 是还没到那一步，给它一个空心点会让整列看起来全是待办。
   const written = !!p.chapterPath && p.wordCount > 0;
   const dot = mk('span', `dot${written && p.stale ? ' stale' : ''}`, written ? (p.stale ? '○' : '●') : '·');
-  dot.title = !written ? '还没写正文' : p.stale ? '还没定稿（或定稿之后正文又改过）' : '已定稿（细纲与正文对得上）';
+  dot.title = !written ? '还没写正文' : p.stale ? '还没同步（或同步之后正文又改过）' : '已同步（细纲与正文对得上）';
   row.appendChild(dot);
 
   // 生成失败过：与「过期」是两回事——过期只说明该重跑，这个说明跑过但没成。
@@ -294,7 +294,7 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
       // 定稿 = 照正文更新细纲（带连续性事实）+ 出场角色的当前状态（四期，D17）+ 这一章在叙事线上发生了什么
       // （叙事线重做：认事件、当前进度、归并）。调用次数与主按钮同源。后端先弹确认框挑这一次的模型。
       items.push({
-        label: p.stale ? `定稿（细纲 + 角色状态 + 叙事线，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）` : '重新定稿',
+        label: p.stale ? `同步（细纲 + 角色状态 + 叙事线，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）` : '重新同步',
         run: () => projectAction('askFinalizeChapter', p.chapterPath),
       });
       // 单独记设定（设定名录，作者定案）：只对定稿过、正文没再改过的章——没定稿的「设定」一节是计划，
@@ -432,7 +432,7 @@ const GROUP_OF: Partial<Record<ArchitectureRow['key'], { id: string; label: stri
 function describeProgress(p: ProjectPlotNode): string {
   return (
     `${PLOT_STAGE_LABEL[p.stage]}\n` +
-    `细纲 ${pct(p.progress.plot)}｜正文 ${pct(p.progress.manuscript)}｜定稿 ${pct(p.progress.summary)}`
+    `细纲 ${pct(p.progress.plot)}｜正文 ${pct(p.progress.manuscript)}｜同步 ${pct(p.progress.summary)}`
   );
 }
 
@@ -531,7 +531,7 @@ function buildCharacterRow(f: ProjectFile, depth: number, tree?: ProjectTree): H
         { label: `出场：${stats.detail}`, disabled: true }
       );
     } else {
-      items.push({ label: '未在定稿中出现，无法自动更新', disabled: true });
+      items.push({ label: '未在同步过的章里出现，无法自动更新', disabled: true });
     }
     // 定稿时这张卡的当前状态你改过、没被覆盖（D15）：拿机器给的那一版对比，决定用不用。
     const guarded = lastTree?.failures?.[f.relPath]?.find((x) => x.op === 'cardState');
@@ -671,7 +671,7 @@ export function buildCastRow(c: CastEntry): HTMLElement {
   row.style.paddingLeft = `${indentOf(0)}px`;
 
   const dot = mk('span', 'dot', '○');
-  dot.title = '定稿里出现过，还没有角色卡';
+  dot.title = '同步过的章里出现过，还没有角色卡';
   row.appendChild(dot);
 
   const label = mk('span', 'row-label', c.name);
@@ -730,7 +730,7 @@ function buildLoreUnfiledRow(u: LoreUnfiledEntry, loreRoot: string): HTMLElement
   row.style.paddingLeft = `${indentOf(0)}px`;
 
   const dot = mk('span', 'dot', '○');
-  dot.title = '定稿里出现过，还没有设定条目';
+  dot.title = '同步过的章里出现过，还没有设定条目';
   row.appendChild(dot);
 
   const label = mk('span', 'row-label', u.name);

@@ -137,7 +137,7 @@ describe('审稿配方 · 第 3 章', () => {
     assert.doesNotMatch(f2.text, /证据/);
     const f1 = facts.find((i) => i.id === 'facts:1');
     assert.equal(f1.status, 'dropped');
-    assert.equal(f1.note, '定稿之后正文又改过，事实不作数');
+    assert.equal(f1.note, '同步之后正文又改过，事实不作数');
     assert.ok(lastUser(b).includes('# 前几章的连续性事实（已定稿'));
   });
 

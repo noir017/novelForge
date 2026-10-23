@@ -91,11 +91,11 @@ export const loreMaterial: LayerFn = async (a, spec) => {
   admitLines(a, spec.priority, {
     id: 'loreRecord',
     kind: 'loreRecord',
-    label: `设定 · ${entry.title} · 定稿过的记录（${records.length} 条）`,
+    label: `设定 · ${entry.title} · 同步过的记录（${records.length} 条）`,
     lines: recordLines,
     budget: recordBudget,
     empty: '（定稿过的章里还没有关于它的记录。）',
-    what: '定稿过的记录',
+    what: '同步过的记录',
     nos: records.map((f) => f.no),
   });
 };
@@ -141,7 +141,7 @@ function admitLines(
     return;
   }
   const why =
-    `${o.what}共 ${o.lines.length} 行，计划与定稿记录合计封顶 ${MATERIAL_TOKENS} token，` +
+    `${o.what}共 ${o.lines.length} 行，计划与同步记录合计封顶 ${MATERIAL_TOKENS} token，` +
     (kept > 0 ? `只带了前 ${kept} 行（到第 ${o.nos[kept - 1]} 章），第 ${o.nos[kept]} 章起的没带` : '一行都没放下');
   if (kept === 0) {
     a.reject({ ...base, text: '' }, 'dropped', why);

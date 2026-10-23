@@ -69,7 +69,7 @@ export async function outlineRewritePlan(project: NovelProject): Promise<Outline
 /** 问要求那一框里的说明：分几段、调几次（第 4 条：动手之前写明次数）。 */
 export function describeOutlineRewrite(plan: OutlineRewritePlan): string {
   const from = plan.batches[0]?.from ?? plan.through + 1;
-  const kept = plan.through > 0 ? `${span(1, plan.through)}已经写了正文，那几条由定稿照正文写，不动。` : '';
+  const kept = plan.through > 0 ? `${span(1, plan.through)}已经写了正文，那几条是同步时照正文写的，不动。` : '';
   return (
     `按 ${OUTLINE_BATCH} 章一段重写${span(from, plan.end)}，调用 ${plan.batches.length} 次模型。${kept}` +
     '这句要求每一段都带；留空就照上游重来一遍。全部写完后先让你对比再写入。'

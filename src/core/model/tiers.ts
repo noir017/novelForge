@@ -78,7 +78,7 @@ export const LLM_TASKS: LlmTask[] = [
 
 /** 任务的中文名。确认框与日志里出现的就是它。 */
 export const TASK_LABEL: Record<LlmTask, string> = {
-  plotSummary: '定稿 · 照正文更新细纲',
+  plotSummary: '同步 · 照正文更新细纲',
   globalSummaryStage: '全文大纲 · 分批汇总',
   globalSummaryMerge: '全文大纲 · 最终合并',
   setting: '故事架构',
@@ -94,15 +94,15 @@ export const TASK_LABEL: Record<LlmTask, string> = {
 
 /** 设置页那张表里每行的补充说明：这活为什么归在这一档。 */
 export const TASK_HINT: Record<LlmTask, string> = {
-  plotSummary: '一章一次调用，几十上百次；输入只有单章正文与它的细纲，输出是固定结构。批量定稿时认叙事线事件、更新当前进度、归并也走这一档',
+  plotSummary: '一章一次调用，几十上百次；输入只有单章正文与它的细纲，输出是固定结构。批量同步时认叙事线事件、更新当前进度、归并也走这一档',
   globalSummaryStage: '每批一次调用，批数多且各批独立',
   globalSummaryMerge: '全书只调一次，要跨几十万字取舍主线',
   setting: '配置、前提、角色图谱、世界观各一次（角色图谱分两步）；全书只跑一次，后面每一章都吃它',
   plotOutline: '每批 5 章一次调用；要在大纲与前后章之间排出这几章的关键事件与看点，写歪了后面全歪。从情节大纲排叙事线也走这一档',
   manuscript: '一章一次调用，是最烧 token 的活；文风与语气全看它',
   review: '批量写章「写完即审稿」时一章一次；要逐字引正文、判细纲的每一项落实了没有，判错了作者会照着去改',
-  loreScan: '单独记一章、补记老章节时一章一次：读正文，只记下出现了哪些设定（定稿时顺手记的那份不走这一档）',
-  loreSynthesis: '建条目、整合每条一次，要合并定稿里的记录且不能推翻作者写的内容；按目录整理也走这一档',
+  loreScan: '单独记一章、补记老章节时一章一次：读正文，只记下出现了哪些设定（同步时顺手记的那份不走这一档）',
+  loreSynthesis: '建条目、整合每条一次，要合并同步过的章里的记录且不能推翻作者写的内容；按目录整理也走这一档',
   characterCard: '按出场章分批精炼，产物每次续写都注入上下文',
   extractCharacters: '一次调用定「谁是谁」，判错会污染整个角色体系',
   extractStyle: '一次调用，产出的文风指南每次续写都注入',

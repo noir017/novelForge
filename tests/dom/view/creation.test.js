@@ -248,7 +248,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
 
   // 定稿：写了正文、细纲还没照正文更新过 → 待定稿，并标成待办。
   test('写了没定稿报「待定稿」', () => {
-    assert.equal(summaryState()?.textContent, '待定稿');
+    assert.equal(summaryState()?.textContent, '待同步');
     assert.ok(summaryState().classList.contains('stale'), summaryState().className);
   });
 
@@ -420,7 +420,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
       workbench: workbenchView(),
       next: undefined,
     });
-    assert.equal(summaryState()?.textContent, '已定稿');
+    assert.equal(summaryState()?.textContent, '已同步');
   });
 
   test('没有下一步时收起主按钮', () => {
@@ -466,7 +466,7 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
         stage: 'manuscript',
         capability: 'generate',
         projectAction: 'finalizeChapter',
-        label: '定稿第 12 章',
+        label: '同步第 12 章',
         hint: '正文写够了。',
         target: { kind: 'manuscript', plotRelPath: PLOT_12 },
       },

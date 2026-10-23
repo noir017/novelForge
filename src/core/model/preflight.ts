@@ -195,7 +195,7 @@ function subjectStart(statement: string, names: readonly string[]): number | und
 /** 「沈秋的当前状态（截至第 5 章）写着『已死亡』，本章细纲仍安排他出场。」卡片与日志共用。 */
 export function describeRisk(r: PreflightRisk): string {
   if (r.source === 'fact') {
-    return `${r.name}在第 ${r.chapter} 章的定稿事实里写着「${r.clause}」，本章细纲仍安排这个人出场`;
+    return `${r.name}在第 ${r.chapter} 章同步下来的事实里写着「${r.clause}」，本章细纲仍安排这个人出场`;
   }
   const when = r.through === undefined ? '' : r.through <= 0 ? '（开篇状态）' : `（截至第 ${r.through} 章）`;
   return `${r.name}的当前状态${when}写着「${r.clause}」，本章细纲仍安排这个人出场`;

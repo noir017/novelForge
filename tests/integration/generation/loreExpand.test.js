@@ -333,7 +333,7 @@ describe('原料封顶', () => {
       const b = await build(TJG);
       const plan = b.items.find((i) => i.kind === 'lorePlan');
       assert.equal(plan.status, 'degraded');
-      assert.ok(/计划与定稿记录合计封顶 6000 token，只带了前 \d+ 行（到第 \d 章），第 4 章起的没带/.test(plan.note), plan.note);
+      assert.ok(/计划与同步记录合计封顶 6000 token，只带了前 \d+ 行（到第 \d 章），第 4 章起的没带/.test(plan.note), plan.note);
       assert.ok(plan.text.includes('第 3 章《第3章》（设定）'), plan.text.slice(0, 200));
       const rec = b.items.find((i) => i.kind === 'loreRecord');
       assert.equal(rec.status, 'included');

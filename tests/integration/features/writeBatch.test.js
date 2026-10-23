@@ -258,7 +258,7 @@ describe('写完即定稿；已有正文的跳过；弹窗确认过的不再问'
   });
 
   test('完成提示说定稿了几章', () => {
-    assert.match(finished.find((x) => x.title === '批量写章').message, /定稿 2 章/);
+    assert.match(finished.find((x) => x.title === '批量写章').message, /同步 2 章/);
   });
 });
 
@@ -620,10 +620,10 @@ describe('写前冲突检查：细纲与前面定稿的事实对不上，停在�
     await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', call: {} });
     const f = finished.find((x) => x.title === '批量写章');
     assert.ok(t.has(CH(1)) && !t.has(CH(2)));
-    assert.match(f.message, /第 2 章的细纲与前面定稿的事实有 1 处对不上/, f.message);
+    assert.match(f.message, /第 2 章的细纲与前面同步下来的事实有 1 处对不上/, f.message);
     const fails = await failuresOf(t, PLOT(2));
     assert.ok(
-      fails.some((x) => x.op === 'plotCheck' && /细纲「第 2 章林昭查到一点东西」与第 1 章的定稿事实「林昭在第1章丢了第1块玉佩」矛盾：玉佩已经丢了/.test(x.message)),
+      fails.some((x) => x.op === 'plotCheck' && /细纲「第 2 章林昭查到一点东西」与第 1 章同步下来的事实「林昭在第1章丢了第1块玉佩」矛盾：玉佩已经丢了/.test(x.message)),
       JSON.stringify(fails)
     );
     assert.match(fails[0].detail, /factCheckOk: true/);
@@ -799,7 +799,7 @@ describe('一致性预检：开跑之前查一遍，有问题先问', () => {
     assert.ok(t.has(CH(1)) && !t.has(CH(2)));
     assert.match(f.message, /第 2 章的一致性预检发现 1 处问题（沈秋已经死了/);
     const fails = await failuresOf(t, PLOT(2));
-    assert.ok(fails.some((x) => /沈秋在第 1 章的定稿事实里写着「沈秋被刺死在渡口」/.test(x.message)), JSON.stringify(fails));
+    assert.ok(fails.some((x) => /沈秋在第 1 章同步下来的事实里写着「沈秋被刺死在渡口」/.test(x.message)), JSON.stringify(fails));
     cleanup(t.dir, bundle.db);
   });
 });
@@ -825,7 +825,7 @@ describe('开写之前补建角色卡：定稿过的细纲里出场两章以上�
   test('确认框里说了给谁建卡、几次调用，并算进总数', () => {
     const c = h.confirms[0];
     assert.match(c.message, /预计 2–4 次调用/);
-    assert.match(c.detail, /开写之前先给老周建角色卡（定稿里已经出场 2 章以上、还没有卡；1 次调用/);
+    assert.match(c.detail, /开写之前先给老周建角色卡（同步过的章里已经出场 2 章以上、还没有卡；1 次调用/);
   });
 
   test('先建卡再写：老周有了卡，第 3 章写了', () => {

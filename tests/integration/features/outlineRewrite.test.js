@@ -139,7 +139,7 @@ describe('全套', () => {
     ]);
     const text = bundle.rewrite.describeOutlineRewrite(plan);
     assert.match(text, /按 20 章一段重写第 8–45 章，调用 2 次模型/);
-    assert.match(text, /第 1–7 章已经写了正文，那几条由定稿照正文写，不动/);
+    assert.match(text, /第 1–7 章已经写了正文，那几条是同步时照正文写的，不动/);
     assert.equal(calls, 2);
     assert.deepEqual(fake.calls.map((m) => rangeOf(m)), plan.batches);
   });

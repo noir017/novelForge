@@ -393,14 +393,14 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     type(ui, 'to', 6);
     choose('finalize');
     assert.ok(note(ui).includes('预计 10–25 次调用，最多 54 次'), note(ui));
-    assert.ok(note(ui).includes('每写完一章就定稿'), note(ui));
+    assert.ok(note(ui).includes('每写完一章就同步'), note(ui));
   });
 
   test('写完即定稿要点两下：第一下只换字，不发', () => {
     ui.sent.length = 0;
     ui.clickEl(submitBtn(ui));
     assert.ok(isOpen(ui));
-    assert.equal(submitBtn(ui).textContent, '再点一下：写完即定稿 3 章');
+    assert.equal(submitBtn(ui).textContent, '再点一下：写完即同步 3 章');
     assert.ok(!ui.sent.some((m) => m.type === 'projectAction'), JSON.stringify(ui.sent));
   });
 

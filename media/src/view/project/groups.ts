@@ -133,7 +133,7 @@ export function buildSummaryBanner(tree: ProjectTree): HTMLElement {
 
   const line = mk('div', 'banner-line');
   line.appendChild(
-    mk('span', undefined, `${tree.staleCount} 章写了正文还没定稿（或定稿之后正文又改过），这些章的连续性事实与出场人物不会进入上下文。`)
+    mk('span', undefined, `${tree.staleCount} 章写了正文还没同步（或同步之后正文又改过），这些章的连续性事实与出场人物不会进入上下文。`)
   );
   line.appendChild(spacer());
   // 同步在跑时不再显示「立即同步」——点第二次只会撞上「已有任务在进行」。
@@ -153,7 +153,7 @@ export function buildSummaryBanner(tree: ProjectTree): HTMLElement {
     fill.style.width = `${percent}%`;
     bar.appendChild(fill);
     banner.appendChild(bar);
-    banner.appendChild(mk('div', 'meta sum-meta', `已定稿 ${done} / ${total} 章（${percent}%）`));
+    banner.appendChild(mk('div', 'meta sum-meta', `已同步 ${done} / ${total} 章（${percent}%）`));
   }
   return banner;
 }
@@ -165,8 +165,8 @@ export function summaryGroupLabel(tree: ProjectTree): string {
     return tree.plotCount === 0 ? '还没有章节' : '还没有正文';
   }
   return tree.staleCount > 0
-    ? `已定稿 ${tree.summarizedCount}/${total} 章 · ${tree.staleCount} 章待定稿`
-    : `${total} 章已全部定稿`;
+    ? `已同步 ${tree.summarizedCount}/${total} 章 · ${tree.staleCount} 章待同步`
+    : `${total} 章已全部同步`;
 }
 
 /** 顶层分组的副标题：文件总数（含子文件夹里的）。 */

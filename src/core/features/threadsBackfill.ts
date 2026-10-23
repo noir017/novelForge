@@ -97,9 +97,9 @@ export async function planThreadsBackfill(
     }
   }
   const skipped = [
-    ...stale.map((no) => ({ no, why: '定稿之后正文又改过' })),
+    ...stale.map((no) => ({ no, why: '同步之后正文又改过' })),
     // 没定稿的只说水位之后、定稿到之前的：定稿到之后的是还没走到定稿那一步，不归补记管。
-    ...unfinalized.filter((no) => no > mark.through && no < current).map((no) => ({ no, why: '还没定稿' })),
+    ...unfinalized.filter((no) => no > mark.through && no < current).map((no) => ({ no, why: '还没同步' })),
   ].sort((a, b) => a.no - b.no);
   const outlineReady = isOutlineFilled(await project.readOutline());
   const planFirst = fresh.length > 0 && book.threads.length === 0 && outlineReady;
@@ -225,11 +225,11 @@ export function describeBackfill(o: ThreadsBackfillOutcome, plan: Pick<ThreadsBa
     planned,
     `叙事线补记：${head}`,
     stop,
-    plan.skipped.length > 0 ? `${describeChapterRuns(plan.skipped.map((s) => s.no))}没判（${[...new Set(plan.skipped.map((s) => s.why))].join('、')}；先定稿，定稿时会一并判）` : '',
+    plan.skipped.length > 0 ? `${describeChapterRuns(plan.skipped.map((s) => s.no))}没判（${[...new Set(plan.skipped.map((s) => s.why))].join('、')}；先同步，同步时会一并判）` : '',
     o.partial.length > 0 ? `${describeChapterRuns(o.partial)}的当前进度或归并没成（挂了黄 ❗）` : '',
     dropped > 0 ? `另有 ${dropped} 条叙事线的记录没有收（见日志）` : '',
     unwritten > 0 ? `${unwritten} 条线的当前进度没写上（见日志）` : '',
-    o.through >= plan.current ? `叙事线判到第 ${o.through} 章，跟上了定稿` : `叙事线判到第 ${o.through} 章（定稿到第 ${plan.current} 章）`,
+    o.through >= plan.current ? `叙事线判到第 ${o.through} 章，跟上了同步进度` : `叙事线判到第 ${o.through} 章（同步到第 ${plan.current} 章）`,
   ];
   return `${parts.filter(Boolean).join('；')}。`;
 }
@@ -245,10 +245,10 @@ export async function backfillThreads(project: NovelProject): Promise<number> {
   if (plan.chapters.length === 0) {
     host.toast(
       plan.skipped.length > 0
-        ? `没有可以补记的章：${describeChapterRuns(plan.skipped.map((s) => s.no))}${[...new Set(plan.skipped.map((s) => s.why))].join('或')}——先定稿，定稿时会一并判叙事线。`
+        ? `没有可以补记的章：${describeChapterRuns(plan.skipped.map((s) => s.no))}${[...new Set(plan.skipped.map((s) => s.why))].join('或')}——先同步，同步时会一并判叙事线。`
         : plan.current === 0
-          ? '还没有定稿过的章：叙事线是定稿时判的，先定稿。'
-          : `叙事线已经判到第 ${plan.through} 章、跟上了定稿，没有要补记的。要重判哪一章，重新定稿那一章。`
+          ? '还没有同步过的章：叙事线是同步时判的，先同步。'
+          : `叙事线已经判到第 ${plan.through} 章、跟上了同步进度，没有要补记的。要重判哪一章，重新同步那一章。`
     );
     return 0;
   }
@@ -257,7 +257,7 @@ export async function backfillThreads(project: NovelProject): Promise<number> {
   const rel = project.relPath(project.threadsDir);
   const answer = await askCall({
     message:
-      `从已写正文补记叙事线：${where}定稿过、叙事线还没判，逐章认这一章在叙事线上发生了什么（每章 ${THREADS_JUDGE_CALLS.low}–${THREADS_JUDGE_CALLS.high} 次）` +
+      `从已写正文补记叙事线：${where}同步过、叙事线还没判，逐章认这一章在叙事线上发生了什么（每章 ${THREADS_JUDGE_CALLS.low}–${THREADS_JUDGE_CALLS.high} 次）` +
       `${plan.planFirst ? '；还没有一条叙事线，先从情节大纲排一次（1 次）' : ''}，${describeCalls(plan.calls)}。现在补记？`,
     actions: ['开始补记'],
     detail: [
@@ -265,7 +265,7 @@ export async function backfillThreads(project: NovelProject): Promise<number> {
       `每章：${THREADS_JUDGE_CALLS.why}。只往 ${rel}/ 里追加带原文证据的事件、正文里认出的新线与新伏笔；当前进度由机器维护，你改过的不写；已有的一个字不动。`,
       plan.planFirst ? '还没有一条叙事线：先从情节大纲排一次（1 次，算在上面的数里；没排成不挡补记，线照样能从正文里认出来）。' : '',
       plan.skipped.length > 0
-        ? `${plan.skipped.map((s) => `第 ${s.no} 章${s.why}`).slice(0, 8).join('、')}${plan.skipped.length > 8 ? ` 等 ${plan.skipped.length} 章` : ''}，这一次不判——先定稿，定稿时会一并判。`
+        ? `${plan.skipped.map((s) => `第 ${s.no} 章${s.why}`).slice(0, 8).join('、')}${plan.skipped.length > 8 ? ` 等 ${plan.skipped.length} 章` : ''}，这一次不判——先同步，同步时会一并判。`
         : '',
     ]
       .filter(Boolean)

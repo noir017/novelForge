@@ -196,7 +196,7 @@ export async function buildLoreEntries(project: NovelProject, names?: readonly s
   const n = targets.length;
   const lanes = Math.max(1, Math.min(readConfig().concurrency, n));
   const answer = await askCall({
-    message: `建 ${n} 条设定：${describeCalls(loreEntryCalls(n))}。只读定稿过的细纲里提到它们的那几行，不重读正文。`,
+    message: `建 ${n} 条设定：${describeCalls(loreEntryCalls(n))}。只读同步过的细纲里提到它们的那几行，不重读正文。`,
     actions: ['开始建'],
     detail: [
       `要建的：${targets.slice(0, 20).map((u) => u.name).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,
@@ -351,10 +351,10 @@ export async function integrateLore(project: NovelProject, relPaths?: readonly s
     );
     host.toast(
       waiting
-        ? `新内容在第 ${through + 1} 章之后：第 ${through + 1} 章还没定稿（或定稿之后正文又改过），整合停在它前面。`
+        ? `新内容在第 ${through + 1} 章之后：第 ${through + 1} 章还没同步（或同步之后正文又改过），整合停在它前面。`
         : relPaths?.length
           ? '这一条没有新内容要整合。'
-          : '没有要整合的设定：条目都跟上了定稿。'
+          : '没有要整合的设定：条目都跟上了同步过的章。'
     );
     return;
   }
@@ -362,7 +362,7 @@ export async function integrateLore(project: NovelProject, relPaths?: readonly s
   const authored = plans.filter((p) => !loreOwnedByMachine(p.record.entry)).length;
   const lanes = Math.max(1, Math.min(readConfig().concurrency, n));
   const answer = await askCall({
-    message: `整合 ${n} 条设定：${describeCalls(loreEntryCalls(n))}。把定稿里的新内容并进条目（整合到第 ${through} 章）。`,
+    message: `整合 ${n} 条设定：${describeCalls(loreEntryCalls(n))}。把同步过的章里的新内容并进条目（整合到第 ${through} 章）。`,
     actions: authored < n ? ['逐条确认后开始', '机器写的直接采纳并开始'] : ['逐条确认后开始'],
     detail: [
       `要整合的：${plans.slice(0, 20).map((p) => p.record.entry.title).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,

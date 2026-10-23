@@ -437,7 +437,7 @@ export const plotPrev: LayerFn = async (a, spec) => {
       label: `${plotLabel(plot.no, plot.title)} · 细纲（上文）`,
       source: plot.relPath,
       text: renderPlotBrief(plot, '上文', planned ? '计划' : undefined),
-      note: planned ? '还没定稿：带的是写之前的计划' : drifted ? '⚠ 定稿之后正文又改过，这份细纲可能没跟上' : undefined,
+      note: planned ? '还没同步：带的是写之前的计划' : drifted ? '⚠ 同步之后正文又改过，这份细纲可能没跟上' : undefined,
     });
   }
 };

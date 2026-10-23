@@ -288,15 +288,15 @@ describe('三期验收：一句话 → 写完前 3 章', () => {
   test('主按钮的顺序：拆完细纲之后，写一章、定稿一章', () => {
     assert.deepEqual(steps.slice(7).map((s) => s.label), [
       '写第 1 章',
-      '定稿第 1 章',
+      '同步第 1 章',
       '写第 2 章',
-      '定稿第 2 章',
+      '同步第 2 章',
       '写第 3 章',
     ]);
   });
 
   test('写完第 3 章，主按钮推第 3 章的定稿', () => {
-    assert.equal(finalStep?.label, '定稿第 3 章', JSON.stringify(finalStep));
+    assert.equal(finalStep?.label, '同步第 3 章', JSON.stringify(finalStep));
     assert.equal(finalStep?.no, 3);
   });
 

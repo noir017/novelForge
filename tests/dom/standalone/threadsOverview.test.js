@@ -342,9 +342,9 @@ describe('叙事线总览 · 矩阵', { skip: JSDOM_SKIP }, () => {
   });
 
   test('头上一行：定稿到第几章、几条线、几条伏笔；图例', () => {
-    assert.equal(h.doc.querySelector('.tov-meta').textContent, '定稿到第 3 章 · 2 条线 · 4 条伏笔');
+    assert.equal(h.doc.querySelector('.tov-meta').textContent, '同步到第 3 章 · 2 条线 · 4 条伏笔');
     const legend = h.doc.querySelector('.tov-legend').textContent;
-    for (const word of ['只有计划', '只有实际', '计划也发生了', '计划了、定稿了却没发生', '埋', '收', '弃']) {
+    for (const word of ['只有计划', '只有实际', '计划也发生了', '计划了、同步了却没发生', '埋', '收', '弃']) {
       assert.ok(legend.includes(word), legend);
     }
     assert.equal(h.note(), '');
@@ -359,8 +359,8 @@ describe('叙事线总览 · 矩阵', { skip: JSDOM_SKIP }, () => {
     );
     assert.ok(cols[2].classList.contains('tov-col-now'));
     assert.equal(cols[3].style.left, '72px');
-    assert.match(cols[0].title, /第 1 章《楔子》 · 已定稿/);
-    assert.match(cols[3].title, /写了，还没定稿/);
+    assert.match(cols[0].title, /第 1 章《楔子》 · 已同步/);
+    assert.match(cols[3].title, /写了，还没同步/);
     assert.match(cols[5].title, /还没有细纲/);
     const vols = [...h.doc.querySelectorAll('.tov-vols .tov-vol')];
     assert.deepEqual(vols.map((v) => [v.textContent, v.style.left, v.style.width]), [
@@ -373,7 +373,7 @@ describe('叙事线总览 · 矩阵', { skip: JSDOM_SKIP }, () => {
     const now = h.doc.querySelector('.tov-grid .tov-now');
     assert.ok(now);
     assert.equal(now.style.left, `${220 + 3 * 24}px`);
-    assert.equal(now.title, '定稿到第 3 章');
+    assert.equal(now.title, '同步到第 3 章');
     assert.equal(h.doc.querySelector('.tov-grid .tov-judged'), null);
   });
 
@@ -384,7 +384,7 @@ describe('叙事线总览 · 矩阵', { skip: JSDOM_SKIP }, () => {
     // 点「总览」总是再要一次。
     h.open();
     h.respond(o);
-    assert.equal(h.doc.querySelector('.tov-meta').textContent, '定稿到第 3 章 · 叙事线判到第 1 章 · 2 条线 · 4 条伏笔');
+    assert.equal(h.doc.querySelector('.tov-meta').textContent, '同步到第 3 章 · 叙事线判到第 1 章 · 2 条线 · 4 条伏笔');
     const judged = h.doc.querySelector('.tov-grid .tov-judged');
     assert.ok(judged);
     assert.equal(judged.style.left, `${220 + 1 * 24}px`);
@@ -392,7 +392,7 @@ describe('叙事线总览 · 矩阵', { skip: JSDOM_SKIP }, () => {
     assert.equal(h.doc.querySelector('.tov-grid .tov-now').style.left, `${220 + 3 * 24}px`);
     const cols = [...h.doc.querySelectorAll('.tov-nums .tov-col')];
     assert.deepEqual(cols.map((c) => c.classList.contains('tov-col-unjudged')), [false, true, true, false, false, false]);
-    assert.match(cols[1].title, /已定稿，叙事线还没判（这一章的计划不算偏差）/);
+    assert.match(cols[1].title, /已同步，叙事线还没判（这一章的计划不算偏差）/);
     assert.match(h.doc.querySelector('.tov-corner').title, /虚线：叙事线判到第 1 章/);
   });
 
@@ -400,7 +400,7 @@ describe('叙事线总览 · 矩阵', { skip: JSDOM_SKIP }, () => {
     const o = overview({ through: 0 });
     h.open();
     h.respond(o);
-    assert.equal(h.doc.querySelector('.tov-meta').textContent, '定稿到第 3 章 · 叙事线还没判过 · 2 条线 · 4 条伏笔');
+    assert.equal(h.doc.querySelector('.tov-meta').textContent, '同步到第 3 章 · 叙事线还没判过 · 2 条线 · 4 条伏笔');
     assert.equal(h.doc.querySelector('.tov-grid .tov-judged'), null);
   });
 
@@ -594,10 +594,10 @@ describe('叙事线总览 · 悬停', { skip: JSDOM_SKIP }, () => {
     const dev = h.cellOf(h.row(T('青崖旧案')), 2);
     over(dev.querySelector('.tov-mark'));
     assert.equal(tip().classList.contains('hidden'), false);
-    assert.equal(tip().querySelector('.tov-tip-head').textContent, '第 2 章《入镇》 · 已定稿');
+    assert.equal(tip().querySelector('.tov-tip-head').textContent, '第 2 章《入镇》 · 已同步');
     assert.equal(tip().querySelector('.tov-tip-row-name').textContent, '青崖旧案');
     assert.deepEqual([...tip().querySelectorAll('.tov-tip-ev')].map((n) => n.textContent), ['计划 · 推进：打听名册']);
-    assert.match(tip().querySelector('.tov-tip-dev').textContent, /计划了，这一章也定稿了，却没有发生/);
+    assert.match(tip().querySelector('.tov-tip-dev').textContent, /计划了，这一章也同步了，却没有发生/);
     out(dev);
     assert.equal(tip().classList.contains('hidden'), true);
 

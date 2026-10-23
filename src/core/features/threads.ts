@@ -505,7 +505,7 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
   const fores = foreshadowToJudge(book, no, limits.foreshadowJudge);
   out.skipped = [...lines.skipped.map((t) => t.name), ...fores.skipped.map((f) => `〈${f.name}〉`)];
   if (out.skipped.length > 0) {
-    log.warn(`第 ${no} 章定稿：还没收的线与伏笔超过一次能认的条数，有 ${out.skipped.length} 条没送去`, out.skipped.join('、'));
+    log.warn(`第 ${no} 章同步：还没收的线与伏笔超过一次能认的条数，有 ${out.skipped.length} 条没送去`, out.skipped.join('、'));
   }
 
   // 本章计划：各条线里这一章的计划事件（拆细纲时随细纲写进线里）。
@@ -707,7 +707,7 @@ async function writeFinds(project: NovelProject, finds: ThreadFinds, no: number,
     }
   }
   if (out.pruned > 0) {
-    log.info(`第 ${no} 章重新定稿：清掉 ${out.pruned} 条证据已经不在正文里的旧事件（旧版存进了历史版本）`);
+    log.info(`第 ${no} 章重新同步：清掉 ${out.pruned} 条证据已经不在正文里的旧事件（旧版存进了历史版本）`);
   }
 }
 
@@ -736,8 +736,8 @@ async function updateProgress(project: NovelProject, chapter: Chapter, out: Thre
         targetKey: t.relPath,
         severity: 'warn',
         op: PROGRESS_OP,
-        message: `第 ${no} 章定稿给这条线记了新进展，「当前进度」你改过，没有覆盖`,
-        detail: '这一节你改过，就归你写了，机器不再覆盖。想让定稿接着维护，把这一节清空，下次定稿就会写。',
+        message: `第 ${no} 章同步时给这条线记了新进展，「当前进度」你改过，没有覆盖`,
+        detail: '这一节你改过，就归你写了，机器不再覆盖。想让同步接着维护，把这一节清空，下次同步就会写。',
       });
       continue;
     }

@@ -56,7 +56,7 @@ export async function checkPlotAgainstFacts(
     { recent: limits.factsChapters, chars: limits.factsChars }
   );
   if (facts.length === 0) {
-    return { calls: 0, conflicts: [], dropped: 0, skipped: '前面没有定稿过、留下连续性事实的章' };
+    return { calls: 0, conflicts: [], dropped: 0, skipped: '前面没有同步过、留下连续性事实的章' };
   }
 
   const text = [plot.sections.梗概, plot.sections.关键事件, plot.sections.看点].filter((s) => s.trim()).join('\n\n');

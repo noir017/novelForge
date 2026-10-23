@@ -151,7 +151,7 @@ describe('汇总', () => {
     const text = lines.map((l) => l.text).join('\n');
     assert.match(text, /第 1 章 入宗：细纲与正文这次一起改了，指纹跟着刷新/);
     assert.match(text, /第 2 章 下山：只改了细纲、正文没跟着改，正文会挂 ⟳/);
-    assert.match(text, /第 3 章 夜访：只改了正文、细纲没跟着改，回到「待定稿」/);
+    assert.match(text, /第 3 章 夜访：只改了正文、细纲没跟着改，回到「待同步」/);
     assert.match(text, /角色 · 林晚：卡里的名字改成了「林婉」，文件名没跟着改/);
     assert.match(text, /角色 · 老周：别名改了/);
     assert.match(text, /跳过了 1 个文件：/);

@@ -162,13 +162,13 @@ export function summaryLines(s: BookReplaceSummary): SummaryLine[] {
     });
   }
   if (s.chainKept.length > 0) {
-    out.push({ text: `${listLabels(s.chainKept)}：细纲与正文这次一起改了，指纹跟着刷新——正文不挂 ⟳，定稿过的也不退回「待定稿」。` });
+    out.push({ text: `${listLabels(s.chainKept)}：细纲与正文这次一起改了，指纹跟着刷新——正文不挂 ⟳，同步过的也不退回「待同步」。` });
   }
   if (s.plotOnly.length > 0) {
     out.push({ text: `${listLabels(s.plotOnly)}：只改了细纲、正文没跟着改，正文会挂 ⟳（可能跟不上细纲了）。`, tone: 'warn' });
   }
   if (s.bodyOnly.length > 0) {
-    out.push({ text: `${listLabels(s.bodyOnly)}：只改了正文、细纲没跟着改，回到「待定稿」。`, tone: 'warn' });
+    out.push({ text: `${listLabels(s.bodyOnly)}：只改了正文、细纲没跟着改，回到「待同步」。`, tone: 'warn' });
   }
   for (const card of s.renamedCards) {
     out.push({

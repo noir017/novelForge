@@ -236,9 +236,9 @@ function renderStages(): void {
     const text = !current.chapter.exists || current.chapter.words === 0
       ? '未写正文'
       : current.summary.exists && !current.summary.stale
-        ? '已定稿'
-        : '待定稿';
-    const s = mk('span', `psummary${text === '待定稿' ? ' stale' : ''}`, text);
+        ? '已同步'
+        : '待同步';
+    const s = mk('span', `psummary${text === '待同步' ? ' stale' : ''}`, text);
     box.appendChild(s);
   }
 }

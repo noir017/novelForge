@@ -281,7 +281,7 @@ describe('正文配方 · 写第 5 章（第 4 章只排了细纲、还没写正
     assert.equal(p4.label, '第 4 章《空匣》 · 细纲（上文）');
     assert.equal(p4.source, PLOT(4, '空匣'));
     assert.ok(p4.text.startsWith('【第 4 章《空匣》 · 上文 · 计划】\n梗概：'), p4.text.slice(0, 80));
-    assert.equal(p4.note, '还没定稿：带的是写之前的计划');
+    assert.equal(p4.note, '还没同步：带的是写之前的计划');
   });
 
   test('定稿过、对得上正文的第 2 章不标「计划」，也没有说明；第 1 章在前 3 章之外，不带', () => {
@@ -431,6 +431,6 @@ describe('正文配方 · 早前某章定稿之后正文又改过', () => {
   test('照样带，不标「计划」，说明里打 ⚠', () => {
     assert.equal(item.status, 'included');
     assert.ok(item.text.startsWith('【第 2 章《客栈里的女人》 · 上文】\n'), item.text.slice(0, 40));
-    assert.equal(item.note, '⚠ 定稿之后正文又改过，这份细纲可能没跟上');
+    assert.equal(item.note, '⚠ 同步之后正文又改过，这份细纲可能没跟上');
   });
 });

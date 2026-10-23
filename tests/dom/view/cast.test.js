@@ -102,7 +102,7 @@ describe('角色的出场统计与更新菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   test('未出场的角色说明原因', () => {
-    assert.ok(liItems.includes('未在定稿中出现，无法自动更新'), JSON.stringify(liItems));
+    assert.ok(liItems.includes('未在同步过的章里出现，无法自动更新'), JSON.stringify(liItems));
     ui.closeMenu();
   });
 

@@ -496,7 +496,7 @@ export const manuscriptFull: LayerFn = async (a, spec) => {
             source: ref.plot!.relPath,
             text: outlineBlock,
             status: 'degraded',
-            note: `正文需 ${tokens} token 放不下，已降级为细纲${planned ? '（还没定稿，是写之前的计划）' : ''}`,
+            note: `正文需 ${tokens} token 放不下，已降级为细纲${planned ? '（还没同步，是写之前的计划）' : ''}`,
           },
           outlineTokens
         );
@@ -601,9 +601,9 @@ export const evidence: LayerFn = async (a, spec) => {
   if (evidenceChapters <= 0 || evidenceChars <= 0) {
     if (previous.some((p) => p.chapter && p.chapter.wordCount > 0)) {
       a.reject(
-        { id: 'evidence:off', kind: 'evidence', priority: spec.priority, label: '定稿原文片段', text: '' },
+        { id: 'evidence:off', kind: 'evidence', priority: spec.priority, label: '原文片段', text: '' },
         'dropped',
-        `上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」不带定稿原文片段`
+        `上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」不带原文片段`
       );
     }
     return;
@@ -620,7 +620,7 @@ export const evidence: LayerFn = async (a, spec) => {
     if (!ref.chapter || ref.chapter.wordCount <= 0) {
       continue;
     }
-    const label = `${plotLabel(ref.no, ref.title)} · 定稿原文`;
+    const label = `${plotLabel(ref.no, ref.title)} · 原文片段`;
     const base = { id: `evidence:${ref.no}`, kind: 'evidence' as const, priority: spec.priority, label, source: ref.chapter.relPath };
     const finalized = isFinalized(ref);
     if (ref === prev && !finalized) {
@@ -629,8 +629,8 @@ export const evidence: LayerFn = async (a, spec) => {
         { ...base, text: '' },
         'dropped',
         ref.plot?.sourceHash
-          ? `第 ${ref.no} 章定稿之后正文又改过：连续性事实不作数${through !== undefined ? `，角色状态截至第 ${through} 章` : ''}`
-          : `第 ${ref.no} 章还没定稿：没有连续性事实${through !== undefined ? `，角色状态截至第 ${through} 章` : ''}`
+          ? `第 ${ref.no} 章同步之后正文又改过：连续性事实不作数${through !== undefined ? `，角色状态截至第 ${through} 章` : ''}`
+          : `第 ${ref.no} 章还没同步：没有连续性事实${through !== undefined ? `，角色状态截至第 ${through} 章` : ''}`
       );
       continue;
     }
@@ -651,7 +651,7 @@ export const evidence: LayerFn = async (a, spec) => {
     const text = await a.project.readChapterText(ref.chapter);
     const { block, missing } = renderEvidence(ref.no, ref.title, text, facts);
     if (block.length > budget) {
-      a.reject({ ...base, text: '' }, 'dropped', `定稿原文片段一共只带 ${evidenceChars} 字，更近的几章已经用完了`);
+      a.reject({ ...base, text: '' }, 'dropped', `原文片段一共只带 ${evidenceChars} 字，更近的几章已经用完了`);
       continue;
     }
     const notes = [i >= recentFrom ? `${facts.length} 条连续性事实` : `${facts.length} 条涉及本章角色的连续性事实`];
@@ -896,7 +896,7 @@ export const recentFacts: LayerFn = async (a, spec) => {
       a.reject(
         { ...base, text: '' },
         'dropped',
-        ref.plot?.sourceHash ? '定稿之后正文又改过，事实不作数' : '这一章还没定稿，没有连续性事实'
+        ref.plot?.sourceHash ? '同步之后正文又改过，事实不作数' : '这一章还没同步，没有连续性事实'
       );
       continue;
     }

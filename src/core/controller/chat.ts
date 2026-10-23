@@ -801,7 +801,7 @@ export async function chapterAction(c: ChatController, plotRelPath: string, acti
   }
   if (action === 'finalize') {
     if (!entry.chapter) {
-      c.toast('这一章还没有正文，无法定稿。', 'error');
+      c.toast('这一章还没有正文，无法同步。', 'error');
       return;
     }
     await c.dispatch({ type: 'projectAction', action: 'finalizeChapter', relPath: entry.chapter.relPath });
@@ -854,7 +854,7 @@ export async function rewriteArchitecture(c: ChatController, target: CreationTar
   // 有条目的大纲按段重写（features/outlineRewrite.ts）：一次写全书，后半段稀得像目录。只重写还没写正文的章。
   const plan = target.kind === 'outline' ? await outlineRewritePlan(c.project) : undefined;
   if (plan && plan.batches.length === 0) {
-    c.toast(`情节大纲排到第 ${plan.end} 章，都已经写了正文：写过的章，大纲那一条由定稿照正文写，不重写。要往后排，用主按钮续写大纲。`);
+    c.toast(`情节大纲排到第 ${plan.end} 章，都已经写了正文：写过的章，大纲那一条是同步时照正文写的，不重写。要往后排，用主按钮续写大纲。`);
     return;
   }
   const ask = await getHost().input({

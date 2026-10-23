@@ -433,7 +433,7 @@ export async function buildPlotSummaryView(
       relPath: '',
       sections: [],
       emptyHint: chapter
-        ? '这一章还没有细纲。右键「定稿」可以照正文整理一份。'
+        ? '这一章还没有细纲。右键「同步」可以照正文整理一份。'
         : '这一章还没有细纲。',
     };
   }

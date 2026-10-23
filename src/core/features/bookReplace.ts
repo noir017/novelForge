@@ -360,7 +360,7 @@ export async function replaceInBook(project: NovelProject, req: BookReplaceReque
       summary.skipped.length ? `跳过 ${summary.skipped.length} 份：${summary.skipped.map((s) => `${s.path}（${s.reason}）`).join('、')}` : '',
       summary.chainKept.length ? `细纲与正文一起改了、指纹跟着刷新：${summary.chainKept.join('、')}` : '',
       summary.plotOnly.length ? `只改了细纲（正文挂 ⟳）：${summary.plotOnly.join('、')}` : '',
-      summary.bodyOnly.length ? `只改了正文（回到待定稿）：${summary.bodyOnly.join('、')}` : '',
+      summary.bodyOnly.length ? `只改了正文（回到待同步）：${summary.bodyOnly.join('、')}` : '',
     ]
       .filter(Boolean)
       .join('｜')

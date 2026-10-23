@@ -120,7 +120,7 @@ export const plotHandler: Handler = {
     }
     await fs.writeFile(abs, next, 'utf8');
     ctx.project.invalidate();
-    return [`细纲副本 ${ctx.rel} 去掉了 ${dropped.join(' / ')}（副本没写过、没定稿过）`];
+    return [`细纲副本 ${ctx.rel} 去掉了 ${dropped.join(' / ')}（副本没写过、没同步过）`];
   },
 };
 

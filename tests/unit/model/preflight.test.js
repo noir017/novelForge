@@ -116,7 +116,7 @@ describe('preflight.ts · 定稿事实', () => {
     assert.equal(risks[0].source, 'fact');
     assert.equal(risks[0].chapter, 10);
     assert.equal(risks[0].relPath, 's/010.md');
-    assert.equal(p.describeRisk(risks[0]), '钱执事在第 10 章的定稿事实里写着「尸骨无存」，本章细纲仍安排这个人出场');
+    assert.equal(p.describeRisk(risks[0]), '钱执事在第 10 章同步下来的事实里写着「尸骨无存」，本章细纲仍安排这个人出场');
   });
 
   test('「钱执事的……」不算以他做主语', () => {

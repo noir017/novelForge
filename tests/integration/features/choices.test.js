@@ -126,7 +126,7 @@ describe('characterChoices', () => {
     const list = await choices.characterChoices(t.project);
     const anon = list.find((c) => c.label === '无名');
     assert.equal(anon.description, undefined);
-    assert.equal(anon.detail, '未在定稿中出现');
+    assert.equal(anon.detail, '未在同步过的章里出现');
   });
 
   test('detail 是出场章的人话描述', async () => {

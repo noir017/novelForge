@@ -193,7 +193,7 @@ describe('NovelProject 读取示例工程', () => {
   test('定稿过的细纲：出场的人取 frontmatter 的 cast，带 targetWords 与 sourceHash', () => {
     assert.deepEqual(plots[2].characters, ['林昭', '年轻守卫']);
     assert.equal(plots[2].targetWords, 650);
-    assert.ok(plots[2].sourceHash, '第 3 章定稿过');
+    assert.ok(plots[2].sourceHash, '第 3 章同步过');
   });
 
   test('没定稿的细纲：出场的人取「出场人物」一节（计划），没有 sourceHash', () => {
@@ -496,7 +496,7 @@ describe('装配：降级成细纲时，「计划」只标没定稿过的章', (
     const item = await degradedP3((f) => f.write(PLOT3, f.read(PLOT3).replace(/^sourceHash: .*\r?\n/m, '')));
     assert.equal(item.status, 'degraded', item.note);
     assert.ok(item.text.startsWith('【第 3 章《夜访》 · 细纲（计划，没定稿）】\n'), item.text.slice(0, 40));
-    assert.match(item.note, /已降级为细纲（还没定稿，是写之前的计划）$/);
+    assert.match(item.note, /已降级为细纲（还没同步，是写之前的计划）$/);
   });
 });
 
@@ -2208,7 +2208,7 @@ describe('出场人物索引', () => {
   });
 
   test('describePlots 空列表有说法', () => {
-    assert.equal(castMod.describePlots([]), '未在定稿中出现');
+    assert.equal(castMod.describePlots([]), '未在同步过的章里出现');
   });
 });
 

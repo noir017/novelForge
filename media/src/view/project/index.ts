@@ -199,7 +199,7 @@ function buildProjectPage(tree: ProjectTree): void {
         const pending = Object.values(tree.loreByEntry).filter((s) => s.pending > 0).length;
         const items = [
           ...(unrecorded > 0
-            ? [{ label: `补记设定（${unrecorded} 章定稿过、还没记）`, run: () => projectAction('recordLore') }]
+            ? [{ label: `补记设定（${unrecorded} 章同步过、还没记）`, run: () => projectAction('recordLore') }]
             : []),
           ...(pending > 0
             ? [{ label: `整合设定（${pending} 条有新内容）`, run: () => projectAction('integrateLore') }]

@@ -46,8 +46,8 @@ export const CONTEXT_DETAIL_LABEL: Record<ContextDetail, string> = {
 
 export const CONTEXT_DETAIL_HINT: Record<ContextDetail, string> = {
   1: '只带写这一章必需的，最省 token；规划时一章一行只列最近 30 章，更早的靠全文大纲',
-  2: '近一章全文、少量定稿原文片段，日常够用',
-  3: '近两章全文、定稿原文片段；规划时一章一行列最近 100 章（缺省）',
+  2: '近一章全文、少量原文片段，日常够用',
+  3: '近两章全文、原文片段；规划时一章一行列最近 100 章（缺省）',
   4: '近三章全文、更多片段；规划时一章一行不封顶，窗口能装多少装多少',
 };
 
@@ -301,7 +301,7 @@ export function describeContextDetail(detail: ContextDetail): string {
     `上一章结尾 ${n(l.prevTailChars, '字')}`,
     `前几章细纲 ${n(l.prevPlots, '章')}`,
     `规划时一章一行 ${n(l.plotListMax, '章')}`,
-    `定稿原文片段 ${l.evidenceChapters <= 0 ? '不带' : `${l.evidenceChapters} 章内 ${l.evidenceChars} 字`}`,
+    `原文片段 ${l.evidenceChapters <= 0 ? '不带' : `${l.evidenceChapters} 章内 ${l.evidenceChars} 字`}`,
     `叙事线 ${l.threadCount} 条`,
     `对话历史 ${Math.round(l.historyCap * 100)}%`,
     ...(l.essentialCards ? ['角色卡只带要点'] : []),

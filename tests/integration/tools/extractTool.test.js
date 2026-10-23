@@ -118,7 +118,7 @@ describe('补记叙事线：转发给工程页那个动作', () => {
     assert.equal(fake.calls.length, 0);
     assert.equal(ctx.usage.calls, 0);
     assert.ok(r.text.includes('补记叙事线这一次没有调用模型'), r.text);
-    assert.ok(h.toasts.some((x) => x.includes('还没有定稿过的章')), h.toasts.join('\n'));
+    assert.ok(h.toasts.some((x) => x.includes('还没有同步过的章')), h.toasts.join('\n'));
   });
 });
 

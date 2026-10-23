@@ -197,14 +197,14 @@ describe('名录的三件维护：补记、整合、按目录整理、建条目�
   test('设定组菜单：有几件待办就写几件，外加按目录整理', () => {
     const items = ui.itemsOf(ui.rightClick(loreHead()));
     ui.closeMenu();
-    for (const label of ['补记设定（4 章定稿过、还没记）', '整合设定（2 条有新内容）', '按目录整理…']) {
+    for (const label of ['补记设定（4 章同步过、还没记）', '整合设定（2 条有新内容）', '按目录整理…']) {
       assert.ok(items.includes(label), JSON.stringify(items));
     }
   });
 
   test('三项各发各的动作，都不带对象（次数在后端的确认框里报）', () => {
     for (const [label, action] of [
-      ['补记设定（4 章定稿过、还没记）', 'recordLore'],
+      ['补记设定（4 章同步过、还没记）', 'recordLore'],
       ['整合设定（2 条有新内容）', 'integrateLore'],
       ['按目录整理…', 'organizeLore'],
     ]) {

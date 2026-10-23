@@ -189,7 +189,7 @@ describe('叙事线重做四期验收：一本已写 5 章、没有任何线的�
   });
 
   test('确认框写明章数与次数：先排线 1 次 + 5 章 × 1–3 次', () => {
-    assert.match(confirm.message, /^从已写正文补记叙事线：第 1–5 章定稿过、叙事线还没判/);
+    assert.match(confirm.message, /^从已写正文补记叙事线：第 1–5 章同步过、叙事线还没判/);
     assert.ok(confirm.message.includes('先从情节大纲排一次（1 次）') && confirm.message.includes('预计 6–16 次调用'), confirm.message);
     assert.deepEqual(confirm.actions, ['开始补记']);
   });
@@ -225,7 +225,7 @@ describe('叙事线重做四期验收：一本已写 5 章、没有任何线的�
   test('完成提示说清判了几章、记了多少事件、新认出几条线；跟上了定稿', () => {
     const toast = h.toasts.at(-1);
     assert.ok(toast.includes('叙事线补记：判了 5 章（第 1–5 章），记下 7 个事件，新认出 1 条线'), toast);
-    assert.ok(toast.includes('叙事线判到第 5 章，跟上了定稿'), toast);
+    assert.ok(toast.includes('叙事线判到第 5 章，跟上了同步'), toast);
   });
 
   test('实际调用次数不超过确认框报的上限', () => {
@@ -240,7 +240,7 @@ describe('叙事线重做四期验收：一本已写 5 章、没有任何线的�
     book.project.invalidate();
     h.expect();
     await book.controller.handle({ type: 'projectAction', action: 'finalizeChapter', relPath: CH(6) });
-    assert.ok(h.toasts.some((x) => x.includes('第 6 章已定稿')), h.toasts.join('|'));
+    assert.ok(h.toasts.some((x) => x.includes('第 6 章已同步')), h.toasts.join('|'));
     assert.deepEqual(await book.project.readThreadsMark(), { through: 6, judged: [] });
     assert.ok(actualOf(book.t, MAIN).some(([no, type]) => no === 6 && type === '推进'));
     const tree = await treeOf(book.project);
@@ -276,7 +276,7 @@ describe('叙事线重做四期验收：补记到第 3 章没判成——水位�
     assert.deepEqual(tree.threads.lag, { count: 3, text: '第 3–5 章还没判' });
     assert.equal(tree.threads.through, 2);
     const toast = h.toasts.at(-1);
-    assert.ok(toast.startsWith('error: ') && toast.includes('第 3 章没判成') && toast.includes('叙事线判到第 2 章（定稿到第 5 章）'), toast);
+    assert.ok(toast.startsWith('error: ') && toast.includes('第 3 章没判成') && toast.includes('叙事线判到第 2 章（同步到第 5 章）'), toast);
   });
 
   test('第 3 章单章重新定稿判成了：水位一章一章推到第 3 章（第 4、5 章仍待补记）', async () => {

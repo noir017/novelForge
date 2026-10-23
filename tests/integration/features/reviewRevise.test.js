@@ -315,7 +315,7 @@ describe('五期验收', () => {
     // 修过稿，第 2 章细纲的 sourceHash 就对不上正文了：主按钮先推重新定稿（连续性事实与角色状态
     // 要跟着修订稿走）。定稿记的就是修订稿的 contentHash。
     test('修稿之后下一步是重新定稿第 2 章；定稿之后才是写第 3 章', async () => {
-      assert.equal((await nextStep()).label, '定稿第 2 章');
+      assert.equal((await nextStep()).label, '同步第 2 章');
       const ch2 = await project.getChapter(2);
       await writeOutline(2, { sourceHash: ch2.contentHash });
       project.invalidate();

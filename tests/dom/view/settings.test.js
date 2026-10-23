@@ -109,7 +109,7 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
     select.value = '1';
     select.dispatchEvent(new ui.window.Event('change', { bubbles: true }));
     assert.match(hint(), /近章全文 不带/, hint());
-    assert.match(hint(), /定稿原文片段 不带/, hint());
+    assert.match(hint(), /原文片段 不带/, hint());
   });
 
   test('上下文参数独立提交：详细度是数字，负载里没有旧的两个键', () => {
@@ -160,7 +160,7 @@ describe('设置页：模型分档', { skip: JSDOM_SKIP }, () => {
 
   // 单章摘要并进了细纲：定稿那一次调用就是照正文更新细纲，任务名照实说。
   test('第一行是定稿（照正文更新细纲）', () => {
-    assert.equal(nameOf(0), '定稿 · 照正文更新细纲', nameOf(0));
+    assert.equal(nameOf(0), '同步 · 照正文更新细纲', nameOf(0));
   });
 
   test('定稿默认落在快速档', () => {

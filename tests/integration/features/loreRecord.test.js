@@ -167,7 +167,7 @@ describe('单独记一章', () => {
     fake.reset();
     await bundle.loreRecord.recordLore(project, CH(3));
     assert.equal(fake.callCount(), 0);
-    assert.match(h.toasts.map((x) => x.message ?? x).join('\n'), /第 3 章还没定稿/);
+    assert.match(h.toasts.map((x) => x.message ?? x).join('\n'), /第 3 章还没同步/);
   });
 });
 
@@ -190,7 +190,7 @@ describe('补记', () => {
     await bundle.loreRecord.recordLore(project);
     const c = h.confirms[h.confirms.length - 1];
     assert.match(c.message, /读1 章正文，每章调用模型 1 次，共 1 次/);
-    assert.match(c.detail, /另有 1 章定稿之后正文又改过，这次不记/);
+    assert.match(c.detail, /另有 1 章同步之后正文又改过，这次不记/);
     assert.equal(fake.callCount(), 1);
     project.invalidate();
     assert.deepEqual((await project.getPlot(1)).lore, [{ name: '停舟客栈', category: '地域', note: '' }]);

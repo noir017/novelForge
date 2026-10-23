@@ -28,11 +28,11 @@ describe('定稿进度显示', { skip: JSDOM_SKIP }, () => {
 
   // 「定稿之后正文又改过」也算：那一章的细纲已经跟不上正文了。
   test('横幅说明有几章没定稿', () => {
-    assert.ok(banner().textContent.includes('1 章写了正文还没定稿（或定稿之后正文又改过）'), banner().textContent);
+    assert.ok(banner().textContent.includes('1 章写了正文还没同步（或同步之后正文又改过）'), banner().textContent);
   });
 
   test('横幅给出已完成／总数', () => {
-    assert.ok(banner().textContent.includes('已定稿 2 / 3 章'), banner().textContent);
+    assert.ok(banner().textContent.includes('已同步 2 / 3 章'), banner().textContent);
   });
 
   test('横幅给出百分比', () => {
@@ -53,7 +53,7 @@ describe('定稿进度显示', { skip: JSDOM_SKIP }, () => {
   });
 
   test('分组副标题带进度', () => {
-    assert.ok(groupMeta('文风与摘要').includes('已定稿 2/3 章 · 1 章待定稿'), groupMeta('文风与摘要'));
+    assert.ok(groupMeta('文风与摘要').includes('已同步 2/3 章 · 1 章待同步'), groupMeta('文风与摘要'));
   });
 
   // 同步跑起来后，重复点只会撞上「已有任务」，所以按钮撤掉。
@@ -74,7 +74,7 @@ describe('定稿进度显示', { skip: JSDOM_SKIP }, () => {
   });
 
   test('分组副标题改为已全部定稿', () => {
-    assert.ok(groupMeta('文风与摘要').includes('3 章已全部定稿'), groupMeta('文风与摘要'));
+    assert.ok(groupMeta('文风与摘要').includes('3 章已全部同步'), groupMeta('文风与摘要'));
   });
 });
 
@@ -243,7 +243,7 @@ describe('页头任务条 · 所有页签都看得见', { skip: JSDOM_SKIP }, ()
   });
 
   test('不能停在中间的任务没有这一颗', () => {
-    ui.post({ type: 'tasks', tasks: [{ id: 's1', title: '定稿第 3 章', message: '《夜访》 · 细纲', current: 0, total: 3, elapsedMs: 0 }] });
+    ui.post({ type: 'tasks', tasks: [{ id: 's1', title: '同步第 3 章', message: '《夜访》 · 细纲', current: 0, total: 3, elapsedMs: 0 }] });
     assert.ok(!buttons().some((b) => b.textContent === '写完这一章就停'));
   });
 
@@ -267,7 +267,7 @@ describe('页头任务条 · 所有页签都看得见', { skip: JSDOM_SKIP }, ()
   });
 
   test('没带按钮的只是一句话', () => {
-    ui.post({ type: 'taskDone', title: '定稿第 3 章', message: '第 3 章已定稿。', level: 'info' });
+    ui.post({ type: 'taskDone', title: '同步第 3 章', message: '第 3 章已同步。', level: 'info' });
     assert.equal(ui.doc.getElementById('toast').querySelector('.toast-action'), null);
   });
 

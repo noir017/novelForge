@@ -396,7 +396,7 @@ export function commandsFor(stage: CreationStage, target?: CreationTarget): Stag
  */
 function hintOf(stage: CreationStage, capability: Capability, target?: CreationTarget): string {
   if (target?.kind === 'lore' && capability === 'generate') {
-    return '照已排细纲里要用到它的地方把这一条往前想细（含暗设），附几条还没定的问题；定稿里写过的不推翻，可采纳写入';
+    return '照已排细纲里要用到它的地方把这一条往前想细（含暗设），附几条还没定的问题；同步过的章里写过的不推翻，可采纳写入';
   }
   if (isLoreSettle({ stage, capability })) {
     return (
@@ -602,7 +602,7 @@ export type PlotStage = 'plot' | 'manuscript' | 'finalize' | 'done';
 export const PLOT_STAGE_LABEL: Record<PlotStage, string> = {
   plot: '待写细纲',
   manuscript: '待写正文',
-  finalize: '待定稿',
+  finalize: '待同步',
   done: '已完成',
 };
 
@@ -884,7 +884,7 @@ export const PLOT_CHECK_CALLS: CallEstimate = {
   low: 0,
   high: 1,
   max: 2,
-  why: '前面有定稿过的章时，写之前比对一次细纲与既成事实；输出不合格重来 1 次',
+  why: '前面有同步过的章时，写之前比对一次细纲与既成事实；输出不合格重来 1 次',
 };
 
 /**
@@ -1107,7 +1107,7 @@ export function describeThreadReminders(
       : []
   );
   const gap = unrecorded
-    ? `（第 ${unrecorded.from === unrecorded.to ? unrecorded.from : `${unrecorded.from}–${unrecorded.to}`} 章还没定稿或还没补记，叙事线还没记上，提醒可能不准）`
+    ? `（第 ${unrecorded.from === unrecorded.to ? unrecorded.from : `${unrecorded.from}–${unrecorded.to}`} 章还没同步或还没补记，叙事线还没记上，提醒可能不准）`
     : '';
   return `叙事线提醒：${[overdue, unplanted, stalled].filter((x) => x.length > 0).map(list).join('；')}${gap}。只是提醒，${one ? '照写不拦' : '不拦'}。`;
 }
@@ -1446,9 +1446,9 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
         stage: 'manuscript',
         capability: 'generate',
         projectAction: 'finalizeChapter',
-        label: `定稿第 ${f.no} 章`,
+        label: `同步第 ${f.no} 章`,
         hint:
-          '正文写够了。定稿照正文更新这一章的细纲与连续性事实，把本章出场角色的当前状态更新到这一章，' +
+          '正文写够了。同步会照正文更新这一章的细纲与连续性事实，把本章出场角色的当前状态更新到这一章，' +
           '再认这一章在叙事线上发生了什么——' +
           '后面几百章靠它们记住这里发生过什么。',
         calls: FINALIZE_CALLS,

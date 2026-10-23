@@ -128,8 +128,8 @@ export function buildThreadRows(tree: ProjectTree): HTMLElement[] {
     rows.push(
       emptyRow(
         canPlan(tree)
-          ? '还没有叙事线。点标题旁的「从大纲排出」，从情节大纲排出主线、支线、感情线、人物线；定稿时也会从正文里认出新的线。'
-          : '还没有叙事线。先排出情节大纲，再从大纲排出叙事线；定稿时也会从正文里认出新的线。'
+          ? '还没有叙事线。点标题旁的「从大纲排出」，从情节大纲排出主线、支线、感情线、人物线；同步时也会从正文里认出新的线。'
+          : '还没有叙事线。先排出情节大纲，再从大纲排出叙事线；同步时也会从正文里认出新的线。'
       )
     );
   }
@@ -148,11 +148,11 @@ function buildLagRow(tree: ProjectTree, lag: NonNullable<ProjectTree['threads'][
   const row = mk(
     'div',
     'row-conflict threads-lag',
-    `⚠ ${lag.text}：这几章定稿了，叙事线还没记上。` +
+    `⚠ ${lag.text}：这几章同步了，叙事线还没记上。` +
       `${through > 0 ? `线断了几章、伏笔逾期都按判到的第 ${through} 章算` : '线断了几章、伏笔逾期先不算'}，总览上这几章的计划不算偏差。` +
       '点标题旁的「从正文补记」逐章补上（先问你，每章 1–3 次调用）。'
   );
-  row.title = `叙事线判到第 ${through} 章（从第 1 章起连续判过的），定稿到第 ${tree.threads.current} 章。`;
+  row.title = `叙事线判到第 ${through} 章（从第 1 章起连续判过的），同步到第 ${tree.threads.current} 章。`;
   return row;
 }
 

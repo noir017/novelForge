@@ -139,7 +139,7 @@ describe('derive · 架构', () => {
     assert.match(synopsis.text, /第1章梗概/);
     // 看点跟在同一行梗概后面，多条用分号连起来。
     assert.match(synopsis.text, /第1章梗概：林昭查到了第1条线索。｜看点：第1章看点：执事当众被林昭拆穿；门外是谁/);
-    assert.match(synopsis.note, /2 章还没定稿，没有梗概可带/);
+    assert.match(synopsis.note, /2 章还没同步，没有梗概可带/);
 
     assert.match(system(b), /这一次不是从零创作：作者已经写到第 8 章/);
     const u = user(b);

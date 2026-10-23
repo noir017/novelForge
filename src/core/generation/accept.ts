@@ -854,7 +854,7 @@ async function acceptManuscript(
   }
   await project.syncManifest();
 
-  log.info(`已${how}第 ${dest.no} 章：${text.length} 字`, `${rel}｜定稿过的话要重新定稿`);
+  log.info(`已${how}第 ${dest.no} 章：${text.length} 字`, `${rel}｜同步过的话要重新同步`);
   return { relPath: rel, message: how === '追加' ? `已追加到 ${rel}` : `已写入 ${rel}` };
 }
 
