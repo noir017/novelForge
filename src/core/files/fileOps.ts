@@ -103,11 +103,13 @@ export async function newFolder(
 ): Promise<string | undefined> {
   const info = sectionRoots(project).find((s) => s.section === section)!;
   const parent = resolveDirWithin(info, parentRel) ?? info.root;
+  // 章节根下的一级目录就是一卷（2026-10-23）：「章节」页签右键「新建卷…」走这里，说法换成卷。
+  const volume = section === 'chapters' && parent === info.root;
 
   const name = await getHost().input({
-    title: '新建文件夹',
-    prompt: `在 ${parent}/ 下新建文件夹`,
-    placeHolder: '如「第一卷」',
+    title: volume ? '新建卷' : '新建文件夹',
+    prompt: volume ? `卷名（建在 ${parent}/ 下，接下来新建的章默认落进最新的一卷）` : `在 ${parent}/ 下新建文件夹`,
+    placeHolder: volume ? '如「第二卷」' : '如「第一卷」',
     validate: (v) => validateName(v),
   });
   if (!name) {
@@ -124,8 +126,8 @@ export async function newFolder(
     getHost().toast(why, 'error');
     return undefined;
   }
-  log.info(`已新建文件夹 ${rel}`);
-  getHost().toast(`已新建文件夹 ${rel}`);
+  log.info(`已新建${volume ? '卷' : '文件夹'} ${rel}`);
+  getHost().toast(volume ? `已新建卷 ${rel}，接下来新建的章默认落进这一卷` : `已新建文件夹 ${rel}`);
   return rel;
 }
 

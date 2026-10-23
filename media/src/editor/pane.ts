@@ -736,6 +736,7 @@ export function createPane(
       el.statusPos.textContent = '';
       renderSaveState(el.statusSave, undefined);
       el.statusFile.textContent = '';
+      el.plotBtn.classList.add('hidden');
       el.draftBtn.classList.add('hidden');
       emitEditorChange({ type: 'render', pane });
       return;
@@ -748,7 +749,8 @@ export function createPane(
     el.previewBtn.textContent = showing ? '编辑' : '预览';
     el.previewBtn.title = `${showing ? '回到编辑' : '预览 Markdown'}（${shortcutLabel('preview')}）`;
     el.area.classList.toggle('mono', CODE_RE.test(file.path));
-    // draftPath 由后端给出（它知道什么算章节），前端不自己判断。
+    // draftPath 由后端给出（它知道什么算章节），前端不自己判断。细纲与草稿一样只对章节给。
+    setHidden(el.plotBtn, !file.draftPath);
     setHidden(el.draftBtn, !file.draftPath);
 
     if (el.area.value !== viewText(file.draft)) {
@@ -1407,6 +1409,14 @@ export function createPane(
     const file = activeFile();
     if (file) {
       post({ type: 'openExternal', path: file.path });
+    }
+  });
+
+  el.plotBtn.addEventListener('click', () => {
+    const file = activeFile();
+    // 与「草稿」一样传**章节**路径：细纲落在哪由后端推导，还没有就按模板建一份。
+    if (file) {
+      post({ type: 'openPlot', path: file.path });
     }
   });
 

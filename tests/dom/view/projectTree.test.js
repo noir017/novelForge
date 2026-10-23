@@ -879,7 +879,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   // ---- 章节分组：三个新建项 + 两个批量动作。
-  // 章节组没有 section（这一组按章号平铺、不画目录，不给「在此新建章节」那一套），
+  // 章节组没有 section（这一组按章号排、卷是一级目录，不给「在此新建章节」那一套），
   // 所以它的菜单全部来自 extraItems，分隔线要自己写。
   let plotHead;
   let plotGroupItems;
@@ -887,7 +887,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     plotHead = [...ui.doc.querySelectorAll('#projectBody .group-head')]
       .find((n) => n.querySelector('.group-name').textContent === '章节');
     plotGroupItems = ui.itemsOf(ui.rightClick(plotHead));
-    for (const label of ['新建细纲（接在最后一章之后）', '新建章节文件（直接粘正文用）', '在此新建文件夹',
+    for (const label of ['新建细纲（接在最后一章之后）', '新建章节文件（直接粘正文用）', '新建卷…',
       '批量拆细纲…', '批量写章…']) {
       assert.ok(plotGroupItems.includes(label), JSON.stringify(plotGroupItems));
     }
@@ -899,9 +899,9 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     ui.closeMenu();
   });
 
-  // 工具栏的「＋ 文件夹」拿掉之后，独立版建分卷目录只剩这一个入口：落点是章节根，后端据此认出是章节区。
-  test('章节分组「在此新建文件夹」发 newFolder，落点是章节根', () => {
-    ui.pick(ui.rightClick(plotHead), '在此新建文件夹');
+  // 卷 = 章节根下的一级目录（2026-10-23，原「在此新建文件夹」）：落点是章节根，后端据此认出是章节区、说法换成卷。
+  test('章节分组「新建卷…」发 newFolder，落点是章节根', () => {
+    ui.pick(ui.rightClick(plotHead), '新建卷…');
     const msg = ui.last('projectAction');
     assert.ok(msg, '没发出 projectAction');
     assert.equal(msg.action, 'newFolder', JSON.stringify(msg));

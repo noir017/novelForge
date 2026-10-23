@@ -54,6 +54,7 @@ export type {
   ProjectFileNode,
   ProjectNode,
   ProjectTree,
+  VolumeView,
   WriteLength,
   SerializedArtifact,
   SerializedDigest,

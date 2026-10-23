@@ -110,8 +110,14 @@ export type InMessage =
   | { type: 'openEditor'; path: string; pane?: EditorPane; preview?: boolean; replace?: string }
   | { type: 'openDraft'; path: string }
   /**
-   * 打开一章（W6 章节工作台）：正文在主区、这一章的细纲并排在旁边。宿主没有「并排打开」
-   * 这一项能力时只开一份。收的是这一章的细纲路径（还没有细纲时是它应该在的位置）。
+   * 内置编辑器工具栏的「细纲」（2026-10-23）：并排打开这一章的细纲，还没有就按模板建一份。`path` 是**章节**路径，
+   * 与 `openDraft` 一样由后端在真实章节列表里认这一章、推出细纲的落点。
+   */
+  | { type: 'openPlot'; path: string }
+  /**
+   * 打开一章（W6 章节工作台）：正文在主区、这一章的细纲并排在旁边（还没有细纲就按模板建一份；上一次并排开的是
+   * 草稿就开这一章的草稿）。宿主没有「并排打开」这一项能力时只开一份。收的是这一章的细纲路径（还没有细纲时是它
+   * 应该在的位置）或章节路径。
    * `preview`：工程页单击那一行的名字，两份都开成临时标签（原样带回 `editorOpen`）。
    */
   | { type: 'openChapter'; plotRelPath: string; preview?: boolean }

@@ -3,6 +3,7 @@ import { resolveSectionDir, validateName } from './files/fileOps';
 import { getHost } from './host';
 import { exists, pad3, sanitizeFileName } from './model/fs';
 import { Plot, emptyPlotSections } from './model/plotFile';
+import { isFallbackChapterTitle } from './model/pipeline';
 import { NovelProject } from './model/project';
 import { describeError, scoped } from './runtime/logger';
 import { Workspace } from './workspace';
@@ -42,7 +43,7 @@ export async function initProjectFlow(project: NovelProject, defaultTitle: strin
 /**
  * 新建一章的细纲：**只建一份空骨架**，不问标题、不打开它。返回相对路径。
  *
- * 章号取细纲与 `chapters/` 两边的最大号 +1（`nextPlotNo`），与上一章落在同一个子目录
+ * 章号取细纲与 `chapters/` 两边的最大号 +1（`nextPlotNo`），与上一章落在同一个子目录，有刚建的空卷就进最新的一卷
  * （分卷的书写到第二卷时就在 `summaries/第二卷/`；写正文时正文照它落进 `chapters/第二卷/`）。
  * 正常路径上细纲是「拆细纲」一批一批生成的；这条留给作者想在末尾手工加一章。
  *
@@ -77,8 +78,9 @@ export async function newPlotFlow(project: NovelProject): Promise<string> {
  * 直接新建一个章节文件：**先问章节名称**，正文建出来的同时在它的镜像位置配好细纲。不打开它。
  * 返回正文的相对路径；作者在输入框上取消了就是 undefined，什么都不建。
  *
- * `dir` 是落点目录（工作区相对路径，如 `chapters/第一卷`），缺省或越界时落在
- * chapters/ 根下。序号是全书唯一的下一个——分卷只是收纳，不重置编号。
+ * `dir` 是落点目录（工作区相对路径，如 `chapters/第一卷`），越界时落在 chapters/ 根下；缺省时与新排的细纲
+ * 同一个规矩（`subdirForNewChapter`）：有刚建的空卷就进最新的一卷，否则跟上一章放在一起。
+ * 序号是全书唯一的下一个——分卷只是收纳，不重置编号。
  *
  * 正常路径上的章节是写正文时生成的，不是从这里建的。这条留给「手里已经有一章
  * 现成的文字，想直接粘进来」——所以建完不把作者送进创作页，多半他接下来就是
@@ -114,7 +116,13 @@ export async function newChapterFlow(project: NovelProject, dir?: string): Promi
   }
   const title = input.trim() ? sanitizeFileName(input) : '';
   const planned = plan ? project.chapterPathForPlot(plan.relPath) : undefined;
-  const target = resolveSectionDir(project, 'chapters', dir || (planned && path.posix.dirname(planned)));
+  // 没给落点、也没有排好的细纲：与新排的细纲同一个规矩——有刚建的空卷就进最新的一卷，否则跟上一章。
+  const landing =
+    dir ||
+    (planned
+      ? path.posix.dirname(planned)
+      : project.relPath(path.join(project.chaptersDir, await project.subdirForNewChapter(order))));
+  const target = resolveSectionDir(project, 'chapters', landing);
   const ws = new Workspace(project);
   const relPath = await ws.createChapter(order, title, '', target);
   const plotRel = await attachPlot(project, ws, relPath, order, title, plan);
@@ -142,12 +150,11 @@ async function attachPlot(
     return undefined;
   }
   if (!plan) {
-    if (await exists(project.pathOf(mirror))) {
+    const made = await ensureChapterPlot(project, ws, { relPath: chapterRel, order: no, title });
+    if (made && !made.created) {
       log.info('新建章节：镜像位置已经有细纲，认它、不另建', mirror);
-      return mirror;
     }
-    // 手工新建的细纲没有上游——upstreamHash 留空，它才永远不会挂 ⟳（手写的产物永不标脏）。
-    return ws.writePlot({ no, title, upstreamHash: '', done: false, sections: emptyPlotSections() });
+    return made?.rel;
   }
   let rel = plan.relPath;
   if (mirror !== rel) {
@@ -164,6 +171,32 @@ async function attachPlot(
     await ws.retitlePlot(rel, plan.title, title);
   }
   return rel;
+}
+
+/**
+ * 这一章正文镜像位置上的细纲：已经有就认它；没有就按模板建一份空骨架（与 {@link newPlotFlow} 同一份七节，
+ * 标题是这一章的名字，没有名字的章留空）。返回路径与是不是刚建的；正文不在章节根下、推不出镜像时是 undefined。
+ *
+ * 新建章节文件配细纲、工程页点开一章（细纲并排）、内置编辑器工具栏的「细纲」（2026-10-23）都走这里。
+ */
+export async function ensureChapterPlot(
+  project: NovelProject,
+  ws: Workspace,
+  chapter: { relPath: string; order: number; title: string }
+): Promise<{ rel: string; created: boolean } | undefined> {
+  const mirror = project.plotMirrorOf(chapter.relPath);
+  if (!mirror) {
+    return undefined;
+  }
+  if (await exists(project.pathOf(mirror))) {
+    return { rel: mirror, created: false };
+  }
+  // 「第 9 章」是 listChapters 给没有名字的章的回落值，不是名字，不进细纲的标题与文件名。
+  const title = isFallbackChapterTitle(chapter.order, chapter.title) ? '' : chapter.title;
+  // 手工新建的细纲没有上游——upstreamHash 留空，它才永远不会挂 ⟳（手写的产物永不标脏）。
+  const rel = await ws.writePlot({ no: chapter.order, title, upstreamHash: '', done: false, sections: emptyPlotSections() });
+  log.info(`按模板给第 ${chapter.order} 章建了细纲`, rel);
+  return { rel, created: true };
 }
 
 /** 目录名当默认作品名。 */

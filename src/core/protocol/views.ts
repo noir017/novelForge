@@ -64,6 +64,12 @@ export interface ProjectTree {
   architecture: ArchitectureRow[];
   /** 章节组的全部行，一个章号一行，升序。 */
   plots: ProjectPlotNode[];
+  /**
+   * 「章节」页签的分卷（2026-10-23）：`chapters/` 下的一级目录，按卷里最小的章号排，还空着的卷排在最后。
+   * 有章直接放在章节根下时多一段「未分卷」（`name` 是空串），照章号排在它该在的位置。
+   * 一卷都没建是空数组——页签照旧一章一行平铺。
+   */
+  volumes: VolumeView[];
   characters: ProjectNode[];
   lore: ProjectNode[];
   cast: CastEntry[];
@@ -81,7 +87,7 @@ export interface ProjectTree {
   loreUnrecorded: number;
   failures: Record<string, FailureView[]>;
   castConflicts: CastConflictView[];
-  /** 章节区根目录（`chapters`）。「章节」组右键「在此新建文件夹」建分卷目录落在这里。 */
+  /** 章节区根目录（`chapters`）。「章节」组右键「新建卷…」建的卷目录落在这里。 */
   chaptersRoot: string;
   charactersRoot: string;
   loreRoot: string;
@@ -203,8 +209,8 @@ export interface ArchitectureRow {
  * 工程页「章节」组里的一行：**一个章号**。细纲号 = 章号，所以细纲与正文是同一行
  * 的两面，各自有没有、齐不齐都写在这一行上。
  *
- * 扁平列表，不折目录——顺序恰恰是这一层最要紧的信息，折进目录反而看不出来。
- * `chapters/` 下的分卷子目录因此不体现在这里（作者仍可以建，文件操作照常）。
+ * 一行一章、按章号排——顺序恰恰是这一层最要紧的信息。分了卷的书（`chapters/` 下有一级目录）按卷分段画
+ * （{@link ProjectTree.volumes}），卷里照旧按章号；卷里更深的子目录不体现在这里（作者仍可以建，文件操作照常）。
  */
 export interface ProjectPlotNode {
   /** 章号。 */
@@ -212,6 +218,8 @@ export interface ProjectPlotNode {
   /** 界面上那一行的完整说法（「第 12 章《夜访》」）。 */
   label: string;
   title: string;
+  /** 这一章在哪一卷（{@link VolumeView.name}）：有正文看正文，否则看细纲。直接放在章节根下是空串。 */
+  volume: string;
   /**
    * 这一行的**主路径**：有正文就是正文，否则是细纲（还没有细纲时是它应该在的位置）。
    * 它是这一章在协议上的身份——`selectPlot` / 重命名 / 删除都拿它去认那一章。
@@ -235,6 +243,24 @@ export interface ProjectPlotNode {
   /** 有草稿文件。只有正文才有草稿。 */
   hasDraft: boolean;
   draftPath: string;
+}
+
+/**
+ * 「章节」页签上的一卷（2026-10-23）：`chapters/` 下的一个一级目录，细纲在 `summaries/` 下镜像同一个目录。
+ * 卷只是收纳——章号全书连续，不按卷重排。
+ */
+export interface VolumeView {
+  /** 卷名（目录名）。直接放在章节根下的那几章是空串，界面上叫「未分卷」。 */
+  name: string;
+  /** 卷目录（`chapters/第二卷`）；「未分卷」是章节根。卷标题右键「在此卷新建章节文件」的落点。 */
+  relPath: string;
+  /** 这一卷的第一章与最后一章（章号）。还空着的卷两个都缺席。 */
+  from?: number;
+  to?: number;
+  /** 这一卷已写正文的字数。 */
+  words: number;
+  /** 接在最后新排的细纲、新建的章节文件默认落进这一卷（`NovelProject.subdirForNewChapter`）。最多一卷是 true。 */
+  latest: boolean;
 }
 
 /**

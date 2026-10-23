@@ -30,6 +30,12 @@ export const openGroups: Record<string, boolean> = {
 export const openFolders = new Set<string>();
 
 /**
+ * 「章节」页签上**折起来的**卷（卷目录的 relPath 集合）。与文件夹相反，卷默认展开：章节页签一进来就是要看章，
+ * 卷都折着等于什么都看不见。
+ */
+export const foldedVolumes = new Set<string>();
+
+/**
  * 设定名录的两样前端状态，与折叠开合同一个待遇：只在前端，不进后端，重推树不清。
  *
  * - `filter`：「设定」组标题旁筛选框里的字。文件一变后端就整棵重推，筛选串要是跟着树走，

@@ -18,6 +18,7 @@ export interface PaneRefs {
   saveBtn: HTMLButtonElement;
   revertBtn: HTMLButtonElement;
   previewBtn: HTMLButtonElement;
+  plotBtn: HTMLButtonElement;
   draftBtn: HTMLButtonElement;
   externalBtn: HTMLButtonElement;
   area: HTMLTextAreaElement;
@@ -131,6 +132,7 @@ export function mainRefs(root: HTMLElement): PaneRefs {
     saveBtn: byId('edSaveBtn'),
     revertBtn: byId('edRevertBtn'),
     previewBtn: byId('edPreviewBtn'),
+    plotBtn: byId('edPlotBtn'),
     draftBtn: byId('edDraftBtn'),
     externalBtn: byId('edExternalBtn'),
     area: byId('edArea'),
@@ -161,6 +163,8 @@ export function createPaneElements(welcomeText: string): PaneRefs {
   const path = el('span', 'ed-path');
   const previewBtn = el('button', 'chip-btn', '预览');
   previewBtn.title = '预览 Markdown';
+  const plotBtn = el('button', 'chip-btn hidden', '细纲');
+  plotBtn.title = '打开这一章的细纲（并排；还没有就按模板建一份）';
   const draftBtn = el('button', 'chip-btn hidden', '草稿');
   const revertBtn = el('button', 'chip-btn', '还原');
   revertBtn.title = '放弃修改，重新从磁盘读取';
@@ -168,7 +172,7 @@ export function createPaneElements(welcomeText: string): PaneRefs {
   externalBtn.title = '用系统默认程序打开';
   const saveBtn = el('button', 'primary', '保存');
   saveBtn.title = '保存（Ctrl+S）';
-  toolbar.append(path, previewBtn, draftBtn, revertBtn, externalBtn, saveBtn);
+  toolbar.append(path, previewBtn, plotBtn, draftBtn, revertBtn, externalBtn, saveBtn);
 
   const conflict = el('div', 'ed-conflict hidden');
   const conflictText = el('span', 'ed-conflict-text');
@@ -196,7 +200,7 @@ export function createPaneElements(welcomeText: string): PaneRefs {
   root.append(tabs, toolbar, conflict, stage, status);
 
   return {
-    root, tabs, toolbar, path, saveBtn, revertBtn, previewBtn, draftBtn, externalBtn,
+    root, tabs, toolbar, path, saveBtn, revertBtn, previewBtn, plotBtn, draftBtn, externalBtn,
     area, preview, welcome, conflict, conflictText, conflictTake, conflictForce,
     statusWords, statusPos, statusSave, statusFile,
   };

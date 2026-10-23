@@ -509,10 +509,12 @@ function sampleTree() {
       { key: 'lore', label: '设定清单', relPath: '.novelforge/lore', filled: true, detail: '0 条' },
       { key: 'outline', label: '情节大纲', relPath: '.novelforge/outline.md', filled: true, detail: '覆盖到第 20 章' },
     ],
-    // 章节列表是扁平的，一个章号一行，升序。
+    // 章节列表是扁平的，一个章号一行，升序。这棵树没分卷（`volumes` 空、每行 `volume` 是空串），页签照旧平铺；
+    // 分卷的画法见 tests/dom/view/volumes.test.js 的 `volumeTree()`。
+    volumes: [],
     plots: [
       // 第 1 章：写完且定稿过，细纲与正文对得上，还带一份草稿。
-      { no: 1, label: '第 1 章《楔子》', title: '楔子',
+      { no: 1, label: '第 1 章《楔子》', title: '楔子', volume: '',
         relPath: 'chapters/001-楔子.md',
         plotPath: '.novelforge/summaries/001-楔子.md', plotExists: true,
         chapterPath: 'chapters/001-楔子.md',
@@ -522,7 +524,7 @@ function sampleTree() {
         progress: { plot: 1, manuscript: 1, summary: 1 } },
       // 第 2 章：**作者手写的章**——只有正文、没有细纲（plotPath 是它应在的位置，定稿时照正文
       // 整理一份落在那里）。写够了目标字数、还没定稿 → 待定稿。
-      { no: 2, label: '第 2 章《入镇》', title: '入镇',
+      { no: 2, label: '第 2 章《入镇》', title: '入镇', volume: '',
         relPath: 'chapters/002-入镇.md',
         plotPath: '.novelforge/summaries/002-入镇.md', plotExists: false,
         chapterPath: 'chapters/002-入镇.md',
@@ -531,7 +533,7 @@ function sampleTree() {
         draftPath: 'drafts/002-入镇.md', hasDraft: false,
         progress: { plot: 0, manuscript: 1, summary: 0 } },
       // 第 3 章：写完且定稿过。
-      { no: 3, label: '第 3 章《夜访》', title: '夜访',
+      { no: 3, label: '第 3 章《夜访》', title: '夜访', volume: '',
         relPath: 'chapters/003-夜访.md',
         plotPath: '.novelforge/summaries/003-夜访.md', plotExists: true,
         chapterPath: 'chapters/003-夜访.md',
@@ -541,7 +543,7 @@ function sampleTree() {
         progress: { plot: 1, manuscript: 1, summary: 1 } },
       // 第 4 章：细纲排好了、正文还没写（目标 3000 字）；情节大纲里覆盖它的那一节
       // 在细纲之后改过（⟳）。它就是 nextChapterNo——主路径因此是细纲。
-      { no: 4, label: '第 4 章《北行》', title: '北行',
+      { no: 4, label: '第 4 章《北行》', title: '北行', volume: '',
         relPath: '.novelforge/summaries/004-北行.md',
         plotPath: '.novelforge/summaries/004-北行.md', plotExists: true,
         chapterPath: '',
@@ -550,7 +552,7 @@ function sampleTree() {
         draftPath: '', hasDraft: false,
         progress: { plot: 1, manuscript: 0, summary: 0 } },
       // 第 5 章：细纲只有一个骨架（「关键事件」是空的）→ 待写细纲。
-      { no: 5, label: '第 5 章《赤星》', title: '赤星',
+      { no: 5, label: '第 5 章《赤星》', title: '赤星', volume: '',
         relPath: '.novelforge/summaries/005-赤星.md',
         plotPath: '.novelforge/summaries/005-赤星.md', plotExists: true,
         chapterPath: '',

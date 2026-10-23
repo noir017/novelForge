@@ -52,7 +52,7 @@ import {
 } from './chat';
 import type { PendingGate } from './gate';
 import { cancelGates, resendGates, resolveGate } from './gate';
-import { fileAction, openChapter, openDraft, pushDirListings, revealQuote } from './files';
+import { fileAction, openChapter, openDraft, openPlot, pushDirListings, revealQuote } from './files';
 import { characterAction, projectAction, setParagraphStyle } from './project';
 import {
   deleteSession,
@@ -163,6 +163,12 @@ export class ChatController {
    * @internal controller/ 同包用；壳不要读。
    */
   watchedDirs: string[] = [];
+  /**
+   * 打开一章时旁边并排开哪一份（2026-10-23 作者定）：上一次并排开的是草稿（工具栏「草稿」、章节右键「打开草稿」）
+   * 就开这一章的草稿，否则开细纲；工具栏「细纲」点过就换回细纲。只记在这个窗口的内存里，重启回到细纲。
+   * @internal controller/ 同包用；壳不要读。
+   */
+  companion: 'plot' | 'draft' = 'plot';
   /** dispose 过了。异步挂载的订阅据此就地退订，不往死通道上挂。 */
   private disposed = false;
   /**
@@ -466,6 +472,10 @@ export class ChatController {
 
       case 'openDraft':
         await openDraft(this, msg.path);
+        return;
+
+      case 'openPlot':
+        await openPlot(this, msg.path);
         return;
 
       case 'openChapter':

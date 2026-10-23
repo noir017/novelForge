@@ -112,6 +112,7 @@ ${settingsPane(caps)}
     <div class="ed-toolbar hidden" id="edToolbar">
       <span class="ed-path" id="edPath"></span>
       <button class="chip-btn" id="edPreviewBtn" title="预览 Markdown">预览</button>
+      <button class="chip-btn hidden" id="edPlotBtn" title="打开这一章的细纲（并排；还没有就按模板建一份）">细纲</button>
       <button class="chip-btn hidden" id="edDraftBtn" title="打开这一章的草稿（并排）">草稿</button>
       <button class="chip-btn" id="edRevertBtn" title="放弃修改，重新从磁盘读取">还原</button>
       <button class="chip-btn" id="edExternalBtn" title="用系统默认程序打开">外部打开</button>

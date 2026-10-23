@@ -7,6 +7,9 @@
  * | 宿主不能并排 | 只开正文（能力探测，不判断是哪个壳） |
  * | 还没有正文 | 只开细纲 |
  * | 两样都没有 | 说找不到，不开一个空文件 |
+ * | 有正文、还没有细纲（2026-10-23） | 按模板建一份空骨架（标题是章名、没有上游指纹）再并排开；建过一次再点就认它、不另建 |
+ * | 上一次并排开的是草稿（2026-10-23） | 点开一章旁边开这一章的草稿（没有就建）、不开细纲；工具栏「细纲」（`openPlot`）点过就换回细纲 |
+ * | 工具栏「细纲」 | 并排开这一章的细纲，还没有就按模板建；不认真实章节列表之外的路径 |
  * | 工具条「接着写」 | 等于对这一章按主按钮：切到正文层、按那种写法生成，照样当场问写不写 |
  * | 工具条「定稿」 | 走定稿那条工程动作 |
  */
@@ -155,6 +158,80 @@ describe('openChapter', () => {
       t.remove('.novelforge/summaries/第二卷');
       project.invalidate();
     }
+  });
+});
+
+describe('openChapter：没有细纲按模板建、旁边开哪一份跟上一次走', () => {
+  const CH4 = 'chapters/004-远行.md';
+  const P4 = '.novelforge/summaries/004-远行.md';
+  const D1 = 'drafts/001-夜入青云.md';
+  const D4 = 'drafts/004-远行.md';
+  const results = {};
+
+  before(async () => {
+    t.write(CH4, '# 远行\n\n天还没亮。\n');
+    project.invalidate();
+    results.first = await open(CH4);
+    results.made = await project.readPlot(P4);
+    results.again = await open(CH4);
+
+    // 工具栏「草稿」开过一次草稿：之后点开一章，旁边开的是草稿。
+    beside = [];
+    await controller.handle({ type: 'openDraft', path: CH1 });
+    results.draftBtn = [...beside];
+    results.draftMode = await open(P1);
+    results.draftMode4 = await open(CH4);
+
+    // 工具栏「细纲」：并排开细纲，换回细纲。
+    beside = [];
+    await controller.handle({ type: 'openPlot', path: CH1 });
+    results.plotBtn = [...beside];
+    results.plotMode = await open(P1);
+
+    posted = [];
+    beside = [];
+    await controller.handle({ type: 'openPlot', path: 'chapters/不存在.md' });
+    results.unknown = { beside: [...beside], toasts: posted.filter((m) => m.type === 'toast').map((m) => `${m.level}: ${m.message}`) };
+  });
+
+  after(() => {
+    // 第 4 章有正文、2–3 章没有会让后面「重写…」先问一句章号断了（features/chapterGap.ts）。
+    for (const rel of [CH4, P4, D1, D4]) t.remove(rel);
+    project.invalidate();
+  });
+
+  test('有正文没细纲：按模板建一份再并排开', () => {
+    assert.deepEqual(results.first.opened, [CH4]);
+    assert.deepEqual(results.first.beside, [P4]);
+    assert.equal(results.made?.title, '远行');
+    assert.equal(results.made?.upstreamHash ?? '', '');
+    assert.deepEqual(Object.values(results.made.sections).filter((v) => v.trim()), []);
+  });
+
+  test('再点就认那一份，不另建', () => {
+    assert.deepEqual(results.again.beside, [P4]);
+    assert.ok(!results.again.toasts.some((m) => m.startsWith('error:')), JSON.stringify(results.again.toasts));
+  });
+
+  test('点过「草稿」之后，点开一章旁边开草稿、不开细纲', () => {
+    assert.deepEqual(results.draftBtn, [D1]);
+    assert.deepEqual(results.draftMode.opened, [CH1]);
+    assert.deepEqual(results.draftMode.beside, [D1]);
+  });
+
+  test('那一章还没有草稿就建一份', () => {
+    assert.deepEqual(results.draftMode4.beside, [D4]);
+    assert.ok(t.has(D4));
+  });
+
+  test('点过「细纲」就换回细纲', () => {
+    assert.deepEqual(results.plotBtn, [P1]);
+    assert.deepEqual(results.plotMode.beside, [P1]);
+  });
+
+  test('「细纲」不认章节列表之外的路径', () => {
+    assert.deepEqual(results.unknown.beside, []);
+    assert.ok(results.unknown.toasts.some((m) => m.startsWith('error:')), JSON.stringify(results.unknown.toasts));
   });
 });
 

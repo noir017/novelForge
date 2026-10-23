@@ -960,10 +960,12 @@ describe('fileOps.ts', () => {
     let missingErred;
 
     before(async () => {
+      // 落点写明在 summaries/ 根下：前面「新建文件夹」那几条在章节根下留了几个空目录（第四卷、越界……），
+      // 不给落点的话接在最后的这一章会落进最新的空卷（2026-10-23 分卷，见 volumes.test.js）。这组测的是改名，不是落点。
       created = await wsOf(project).writePlot({
         no: NO, title: '', upstreamHash: '', done: false,
         sections: { ...plotFile.emptyPlotSections(), 梗概: '进宗门', 关键事件: '甲乙丙' },
-      });
+      }, undefined, '.novelforge/summaries/040.md');
 
       // 纯序号名（新建出来的样子）的第一次命名：还没有正文，文件名跟着标题走。
       h.expect('入宗风波');

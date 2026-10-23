@@ -25,6 +25,7 @@ import type {
   ProjectFile,
   ProjectNode,
   ProjectTree,
+  VolumeView,
 } from '../../protocol';
 import { linkBtn } from '../buttons';
 import { formatWords } from '../format';
@@ -46,7 +47,7 @@ import type { Section } from './actions';
 import { SECTIONS } from './actions';
 import { showProjectTab } from './tabs';
 import type { ProjectTab } from './tabs';
-import { indentOf, lastTree, loreView, openFolders, openGroups } from './treeState';
+import { foldedVolumes, indentOf, lastTree, loreView, openFolders, openGroups } from './treeState';
 
 /**
  * 失败标记。有未解决的失败记录时插在文件名之前，鼠标移上去看原因
@@ -195,12 +196,12 @@ function openTargetOf(p: ProjectPlotNode): string {
  * 例外（W2）：扫一眼就知道从哪接着写，而且全书只有这一行有，不会变成一排按钮。
  * 它只是「进入这一章」，真正花钱的那一下仍然是对话页的主按钮（第 20 条：只推一个）。
  */
-function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
+function buildPlotRow(p: ProjectPlotNode, nextNo: number, depth = 0): HTMLElement {
   // row-plot + data-plot 是悬停浮窗的抓手：事件委托在 projectBody 上，
   // 行被重渲染丢弃也不会留下失效的监听器。
   const row = mk('div', `row row-plot${p.no === nextNo ? ' row-next' : ''}`);
   row.dataset.plot = p.relPath;
-  row.style.paddingLeft = `${indentOf(0)}px`;
+  row.style.paddingLeft = `${indentOf(depth)}px`;
 
   // 圆点报定稿：细纲照正文更新过、而且对得上。还没写正文的章无从定稿——那不是「过期」，
   // 是还没到那一步，给它一个空心点会让整列看起来全是待办。
@@ -218,12 +219,12 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
 
   const opens = openTargetOf(p);
   const label = mk('span', 'row-label', p.label);
-  label.title = p.chapterPath && p.plotExists
-    ? `${p.chapterPath}\n点击打开正文，细纲并排在旁边；右键「进入这一章」去做下一步`
+  label.title = p.chapterPath
+    ? `${p.chapterPath}\n点击打开正文，细纲并排在旁边（还没有就按模板建一份；上一次并排开的是草稿就开草稿）；右键「进入这一章」去做下一步`
     : `${opens}\n点击在编辑器里打开；右键「进入这一章」去做下一步`;
   // 点名字 = **打开这一章**（W6 章节工作台）：正文在主区、细纲并排在旁边。在工程页上扫
   // 章节列表时，想看的多半就是这一章写成了什么样、对不对得上细纲。并排是宿主的能力，
-  // 由后端按能力决定开几份；「进入这一章」在右键菜单与行尾那颗按钮里。
+  // 由后端按能力决定开几份、旁边开细纲还是草稿（跟上一次走，细纲没有就按模板建）；「进入这一章」在右键菜单与行尾那颗按钮里。
   // 单击开成临时标签（下一次单击别的章换掉它），双击（第二下点击）开成正常标签——转正。
   label.addEventListener('click', (e) =>
     vscode.postMessage({ type: 'openChapter', plotRelPath: p.relPath, ...(e.detail < 2 ? { preview: true } : {}) })
@@ -323,6 +324,83 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
 /** 章节组的全部行。扁平列表——顺序即章号。 */
 export function buildPlotRows(plots: ProjectPlotNode[], nextNo: number): HTMLElement[] {
   return plots.map((p) => buildPlotRow(p, nextNo));
+}
+
+/**
+ * 分了卷的书（2026-10-23）：一卷一个可折叠的标题行，下面是这一卷的章，卷里照旧按章号。
+ * 卷的先后、哪一卷是新章的落点都是后端排好的（`ProjectTree.volumes`）。
+ */
+export function buildVolumeRows(tree: ProjectTree): HTMLElement[] {
+  const rows: HTMLElement[] = [];
+  for (const v of tree.volumes) {
+    rows.push(buildVolumeRow(v, tree.chaptersRoot));
+    if (foldedVolumes.has(v.relPath)) {
+      continue;
+    }
+    const plots = tree.plots.filter((p) => p.volume === v.name);
+    rows.push(
+      ...(plots.length === 0
+        ? [emptyRow(v.latest ? '（空卷：接下来新建的章落在这里）' : '（空卷）', 1)]
+        : plots.map((p) => buildPlotRow(p, tree.nextChapterNo, 1)))
+    );
+  }
+  return rows;
+}
+
+/**
+ * 卷的标题行：`📂 第二卷  第 31–45 章 · 4.2 万字`。点行体折叠 / 展开，其余走右键。
+ * 直接放在章节根下的那几章叫「未分卷」：它不是目录，右键没有重命名与删除。
+ */
+function buildVolumeRow(v: VolumeView, chaptersRoot: string): HTMLElement {
+  const row = mk('div', `row row-dir row-volume${v.latest ? ' is-latest' : ''}`);
+  row.dataset.volume = v.relPath;
+  row.style.paddingLeft = `${indentOf(0)}px`;
+  const open = !foldedVolumes.has(v.relPath);
+
+  const caret = mk('span', 'caret', open ? '▾' : '▸');
+  row.appendChild(caret);
+
+  const label = mk('span', 'row-label row-dir-label', `${open ? '📂' : '📁'} ${v.name || '未分卷'}`);
+  label.title = v.name ? v.relPath : `${v.relPath}/\n直接放在章节根下、不在哪一卷里的章`;
+  row.appendChild(label);
+
+  const span = v.from === undefined ? '空' : v.from === v.to ? `第 ${v.from} 章` : `第 ${v.from}–${v.to} 章`;
+  const meta = mk('span', 'meta', `${span}${v.words > 0 ? ` · ${formatWords(v.words)}` : ''}${v.latest ? ' · 新章落这里' : ''}`);
+  if (v.latest) {
+    meta.title = '新建细纲、新建章节文件、拆细纲排出的新章默认落进这一卷';
+  }
+  row.appendChild(meta);
+
+  const toggle = () => {
+    if (foldedVolumes.has(v.relPath)) {
+      foldedVolumes.delete(v.relPath);
+    } else {
+      foldedVolumes.add(v.relPath);
+    }
+    rerender();
+  };
+  caret.addEventListener('click', toggle);
+  label.addEventListener('click', toggle);
+
+  onContextMenu(row, () => [
+    { label: open ? '折叠' : '展开', run: toggle },
+    { sep: true },
+    {
+      label: v.name ? '在此卷新建章节文件' : '新建章节文件（不放进卷里）',
+      run: () => projectAction('newChapter', undefined, v.relPath),
+    },
+    { label: '新建卷…', run: () => projectAction('newFolder', undefined, chaptersRoot) },
+    // 卷就是一个目录：改名时细纲、草稿跟着走（网关的 carryPlot / carryDraft）；删除只把正文挪进回收站，
+    // 细纲留着、退回那几章的计划（与删一章同一个规矩）。没有「移动到…」——卷不进卷。
+    ...(v.name
+      ? [
+          { sep: true as const },
+          { label: '重命名', run: () => fileAction('rename', v.relPath) },
+          { label: '删除（移到回收站）', danger: true, run: () => fileAction('delete', v.relPath) },
+        ]
+      : []),
+  ]);
+  return row;
 }
 
 /**

@@ -290,6 +290,15 @@ export class NovelProject {
     return under.replace(/\\/g, '/');
   }
 
+  /** 细纲在 `summaries/` 下的那段相对路径（正斜杠）。不在 `summaries/` 下时 undefined。 */
+  private underPlots(plotRelPath: string): string | undefined {
+    const under = path.relative(this.plotsDir, this.pathOf(plotRelPath));
+    if (!under || under.startsWith('..') || path.isAbsolute(under)) {
+      return undefined;
+    }
+    return under.replace(/\\/g, '/');
+  }
+
   /**
    * 正文（文件或目录）→ 细纲那边的镜像（工作区相对路径，正斜杠）。不在章节根下时 undefined。
    *
@@ -341,16 +350,27 @@ export class NovelProject {
 
   /**
    * 还没有正文、也还没有细纲的第 N 章落在哪个子目录（相对章节根与 `summaries/` 的同一段，`''` = 根）：
-   * **跟上一章放在一起**。上一章 = 章号比它小的里面最大的那一章；它有正文看正文所在的子目录，
-   * 只有细纲看细纲所在的子目录。前面一章都没有就是根。
    *
-   * 分卷的书写到第二卷时，新排的细纲与新写的正文于是都落进 `第二卷/`，不会掉回根下。
+   * - **接在全书最后、又有一卷还空着**（作者右键「新建卷」刚建的，正文与细纲都还没有）：落进空着的最后一卷
+   *   （{@link listVolumes} 的顺序）——新的一卷从这一章开始（2026-10-23 作者定：新建的默认放进最新一卷）。
+   * - 否则**跟上一章放在一起**。上一章 = 章号比它小的里面最大的那一章；它有正文看正文所在的子目录，
+   *   只有细纲看细纲所在的子目录。前面一章都没有就是根。
+   *
+   * 分卷的书写到第二卷时，新排的细纲与新写的正文于是都落进 `第二卷/`，不会掉回根下；
+   * 补中间空着的章号时仍跟上一章，不会被拉进最新的一卷。
    */
   async subdirForNewChapter(no: number): Promise<string> {
-    const [plots, chapters] = await Promise.all([this.listPlots(), this.listChapters()]);
+    const [plots, chapters, volumes] = await Promise.all([this.listPlots(), this.listChapters(), this.listVolumes()]);
     let best: { no: number; dir: string } | undefined;
+    let last = 0;
+    const used = new Set<string>();
     const consider = (candidate: number, dir: string | undefined) => {
-      if (dir !== undefined && candidate < no && (!best || candidate > best.no)) {
+      last = Math.max(last, candidate);
+      if (dir === undefined) {
+        return;
+      }
+      used.add(dir.split('/')[0]);
+      if (candidate < no && (!best || candidate > best.no)) {
         best = { no: candidate, dir };
       }
     };
@@ -361,11 +381,18 @@ export class NovelProject {
       consider(chapter.order, under === undefined ? undefined : path.posix.dirname(under));
     }
     for (const plot of plots) {
-      // 正文在的章看正文：上一轮已经按正文算过了，细纲只补「还没有正文」的那几号。
+      const under = this.underPlots(plot.relPath);
       if (!written.has(plot.no)) {
-        const under = path.relative(this.plotsDir, this.pathOf(plot.relPath)).replace(/\\/g, '/');
-        consider(plot.no, path.posix.dirname(under));
+        // 正文在的章看正文：上一轮已经按正文算过了，细纲只补「还没有正文」的那几号。
+        consider(plot.no, under === undefined ? undefined : path.posix.dirname(under));
+      } else if (under !== undefined) {
+        // 落点仍看正文，但细纲占着的卷也不算空。
+        used.add(under.split('/')[0]);
       }
+    }
+    const empty = no > last ? volumes.filter((v) => !used.has(v)) : [];
+    if (empty.length > 0) {
+      return empty[empty.length - 1];
     }
     const dir = best?.dir ?? '';
     return dir === '.' ? '' : dir;
@@ -1109,6 +1136,24 @@ export class NovelProject {
     await walk(dirAbs, 1);
     out.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
     return out;
+  }
+
+  /**
+   * 分卷（2026-10-23）：章节根下的一级目录名，空的也在内（作者右键「新建卷」刚建好、还没往里放章）。
+   * 按名字排（数字按大小：`第2卷` 在 `第10卷` 前面）。一卷就是一个目录，卷里还可以再分子目录；
+   * 细纲在 `summaries/` 下镜像同一个目录，卷只是收纳——章号全书连续，不按卷重排。
+   */
+  async listVolumes(): Promise<string[]> {
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await fs.readdir(this.chaptersDir, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+    return entries
+      .filter((e) => e.isDirectory() && !isIgnoredDir(e.name))
+      .map((e) => e.name)
+      .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true }));
   }
 
   async readStyleGuide(): Promise<string> {

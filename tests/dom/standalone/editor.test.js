@@ -40,6 +40,20 @@ describe('内置编辑器：两块编辑区', { skip: JSDOM_SKIP }, () => {
     assert.ok(!ui.doc.getElementById('edDraftBtn').classList.contains('hidden'));
   });
 
+  // 2026-10-23：草稿旁边多一颗「细纲」，同样只对章节给，传章节路径（细纲在哪、要不要按模板建由后端定）。
+  test('是章节时显示「细纲」按钮，排在「草稿」前面', () => {
+    const plot = ui.doc.getElementById('edPlotBtn');
+    assert.ok(!plot.classList.contains('hidden'));
+    assert.equal(plot.nextElementSibling, ui.doc.getElementById('edDraftBtn'));
+  });
+
+  test('点「细纲」发 openPlot，带的是章节路径', () => {
+    ui.clickEl(ui.doc.getElementById('edPlotBtn'));
+    const req = ui.last('openPlot');
+    assert.ok(req, '没发出 openPlot');
+    assert.equal(req.path, 'chapters/001-楔子.md', JSON.stringify(req));
+  });
+
   test('点「草稿」发 openDraft，带的是章节路径', () => {
     ui.clickEl(ui.doc.getElementById('edDraftBtn'));
     const req = ui.last('openDraft');
@@ -83,9 +97,10 @@ describe('内置编辑器：两块编辑区', { skip: JSDOM_SKIP }, () => {
   });
 
   // ---- 非章节文件不显示「草稿」按钮
-  test('非章节不显示「草稿」按钮', () => {
+  test('非章节不显示「草稿」「细纲」按钮', () => {
     ui.post({ type: 'editorOpen', file: file('.novelforge/style.md', '# 文风指南') });
     assert.ok(ui.doc.getElementById('edDraftBtn').classList.contains('hidden'));
+    assert.ok(ui.doc.getElementById('edPlotBtn').classList.contains('hidden'));
   });
 
   // ---- 一个路径只属于一块：把主区的正文改开到草稿区

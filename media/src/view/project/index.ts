@@ -26,6 +26,7 @@ import {
   buildLoreThinRows,
   buildLoreUnfiledRows,
   buildPlotRows,
+  buildVolumeRows,
   emptyRow,
   renderNodes,
 } from './rows';
@@ -107,16 +108,15 @@ function buildProjectPage(tree: ProjectTree): void {
     })
   );
 
-  // 一个章号一行（细纲号 = 章号）。细纲与正文是同一行的两面。
+  // 一个章号一行（细纲号 = 章号）。细纲与正文是同一行的两面。分了卷的书按卷分段，卷里照旧按章号。
   chapters.appendChild(
     buildGroup('plots', '章节', `${tree.chapterCount} 章 · ${formatWords(tree.totalWords)}`, {
       panel: chapters,
       extraItems: () => [
         { label: '新建细纲（接在最后一章之后）', run: () => projectAction('newPlot') },
         { label: '新建章节文件（直接粘正文用）', run: () => projectAction('newChapter') },
-        // 分卷目录建在章节根下（工具栏的「＋ 文件夹」拿掉之后，独立版只剩这一个入口）。这一组按章号平铺、
-        // 不画目录，空目录在这里看不见；章节放进去之后，新的一章跟上一章落进同一个卷目录。
-        { label: '在此新建文件夹', run: () => projectAction('newFolder', undefined, tree.chaptersRoot) },
+        // 卷 = 章节根下的一级目录（2026-10-23）。建好就在下面多一段空卷，接下来新建的章默认落进最新的一卷。
+        { label: '新建卷…', run: () => projectAction('newFolder', undefined, tree.chaptersRoot) },
         // 整本 txt 放进工程之后切成章（零调用；后端弹框挑文件、报切分结果）。
         { label: '导入原稿（选一本 txt）…', run: () => projectAction('importManuscript') },
         { sep: true },
@@ -126,16 +126,17 @@ function buildProjectPage(tree: ProjectTree): void {
         { sep: true },
       ],
       build: () => {
+        const rows = tree.volumes.length > 0 ? buildVolumeRows(tree) : buildPlotRows(tree.plots, tree.nextChapterNo);
         // 空分组与「下一章还没有细纲那一行」（拆细纲那一档）都写出全书的下一步（W12）。
         // 有下一章那一行时它自己带「去写这一章」，不再多说一句。
         if (tree.plots.length === 0) {
           return [
+            ...rows,
             tree.next
               ? nextStepRow(tree.next, tree)
               : emptyRow('还没有章节。先把故事架构与情节大纲写好，再拆出细纲；已经有写好的稿子，就把 txt 放进工程，右键「导入原稿」。'),
           ];
         }
-        const rows = buildPlotRows(tree.plots, tree.nextChapterNo);
         const hasNextRow = tree.plots.some((p) => p.no === tree.nextChapterNo);
         return !hasNextRow && tree.next ? [...rows, nextStepRow(tree.next, tree)] : rows;
       },

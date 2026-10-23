@@ -14,6 +14,8 @@ import { scoped } from '../runtime/logger';
 import { EditorOpenIntent, FileOpResult, InMessage } from '../protocol';
 import { retargetPlot } from './chat';
 import { Workspace } from '../workspace';
+import { ensureChapterPlot } from '../actions';
+import type { Chapter } from '../model/types';
 import { parsePlotFileName } from '../model/plotFile';
 import { parseChapterFileName } from '../model/chapterFile';
 import { basename } from 'node:path';
@@ -44,30 +46,67 @@ export async function pushDirListings(
 }
 
 /**
- * 打开某章的草稿。首次点击按需创建，已存在原样打开（绝不覆盖）。
+ * 打开某章的草稿。首次点击按需创建，已存在原样打开（绝不覆盖）。之后点开一章，旁边并排开的换成草稿（`companion`）。
  *
  * **必须先在真实章节列表里查到这一章**：这条路径会写盘，拿前端传上来的
  * 任意相对路径去拼 `drafts/<任意>` 就等于开了一个绕过区守卫的写入口子。
  * 别为了省一次扫描把这一步优化掉。
  */
 export async function openDraft(c: ChatController, chapterRelPath: string): Promise<void> {
+  const chapter = await knownChapter(c, chapterRelPath);
+  if (!chapter) {
+    return;
+  }
+  const rel = await new Workspace(c.project).ensureDraft(chapter);
+  log.info(`打开第 ${chapter.order} 章的草稿`, rel);
+  c.companion = 'draft';
+  await openCompanion(rel);
+  // 刚建出来的草稿要让 hasDraft 立刻翻过来，菜单文案跟着变。
+  await c.pushState();
+}
+
+/**
+ * 内置编辑器工具栏的「细纲」（2026-10-23）：并排打开这一章的细纲，还没有就按模板建一份（`ensureChapterPlot`）。
+ * 之后点开一章，旁边并排开的换回细纲（`companion`）。与 {@link openDraft} 同一个守法：先在真实章节列表里查到这一章。
+ */
+export async function openPlot(c: ChatController, chapterRelPath: string): Promise<void> {
+  const chapter = await knownChapter(c, chapterRelPath);
+  if (!chapter) {
+    return;
+  }
+  const plot = await ensureChapterPlot(c.project, new Workspace(c.project), chapter);
+  if (!plot) {
+    c.toast('这一章不在章节目录下，推不出细纲该放在哪。', 'error');
+    return;
+  }
+  log.info(`打开第 ${chapter.order} 章的细纲`, plot.rel);
+  c.companion = 'plot';
+  await openCompanion(plot.rel);
+  if (plot.created) {
+    // 工程页那一行的「打开细纲」、浮窗都认 plotExists，刚建的要立刻翻过来。
+    await c.pushState();
+  }
+}
+
+/** 前端给的章节路径 → 真实章节列表里的那一章。找不到就说一句、重推一次（多半刚被改名或删除）。 */
+async function knownChapter(c: ChatController, chapterRelPath: string): Promise<Chapter | undefined> {
   const chapter = (await c.project.listChapters()).find((ch) => ch.relPath === chapterRelPath);
   if (!chapter) {
     log.warn(`找不到章节 ${chapterRelPath}，可能刚被改名或删除`);
     c.toast('找不到这一章，可能刚被改名或删除。', 'error');
     await c.pushState();
-    return;
   }
-  const rel = await new Workspace(c.project).ensureDraft(chapter);
-  log.info(`打开第 ${chapter.order} 章的草稿`, rel);
+  return chapter;
+}
+
+/** 草稿、细纲这类伴生文件：宿主能并排就开在旁边，不能就照常打开。 */
+async function openCompanion(rel: string): Promise<void> {
   const host = getHost();
   if (host.openBeside) {
     await host.openBeside(rel);
   } else {
     await host.openFile(rel);
   }
-  // 刚建出来的草稿要让 hasDraft 立刻翻过来，菜单文案跟着变。
-  await c.pushState();
 }
 
 /**
@@ -79,7 +118,10 @@ export async function openDraft(c: ChatController, chapterRelPath: string): Prom
  * 还没写正文的章只开细纲；两样都没有才说找不到。
  *
  * 细纲是**正文镜像的那一份**（`summaries/` 下与正文相同的相对路径）；给的是章节路径时就认那个文件，
- * 同号的正文有两份也开得准。
+ * 同号的正文有两份也开得准。**有正文却还没有细纲**时按模板建一份再开（2026-10-23 作者定，`ensureChapterPlot`）。
+ *
+ * **旁边开哪一份跟上一次走**（2026-10-23）：上一次并排开的是草稿（`c.companion`），就开这一章的草稿（没有就建），
+ * 不开细纲。
  *
  * `intent.preview`：工程页单击那一行的名字，两份都开成临时标签（内置编辑器认，原样带回 `editorOpen`）。
  */
@@ -100,10 +142,30 @@ export async function openChapter(c: ChatController, plotRelPath: string, intent
     return;
   }
   await host.openFile(chapter.relPath, open);
-  if (plot && host.openBeside) {
-    await host.openBeside(plot.relPath, open);
+  if (!host.openBeside) {
+    log.info(`打开第 ${chapter.order} 章`, chapter.relPath);
+    return;
   }
-  log.info(`打开第 ${chapter.order} 章`, `${chapter.relPath}${plot && host.openBeside ? ` ｜ 并排 ${plot.relPath}` : ''}`);
+  const ws = new Workspace(c.project);
+  let beside = plot?.relPath;
+  // 刚建了东西就重推：工程页那一行的 hasDraft / plotExists 要立刻翻过来。
+  let refresh = false;
+  if (c.companion === 'draft') {
+    beside = await ws.ensureDraft(chapter);
+    // 草稿可能是刚建的——与 openDraft 一样每次都推。
+    refresh = true;
+  } else if (!beside) {
+    const made = await ensureChapterPlot(c.project, ws, chapter);
+    beside = made?.rel;
+    refresh = !!made?.created;
+  }
+  if (beside) {
+    await host.openBeside(beside, open);
+  }
+  log.info(`打开第 ${chapter.order} 章`, `${chapter.relPath}${beside ? ` ｜ 并排 ${beside}` : ''}`);
+  if (refresh) {
+    await c.pushState();
+  }
 }
 
 /**

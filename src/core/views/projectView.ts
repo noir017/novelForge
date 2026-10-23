@@ -14,6 +14,7 @@ import { isOutlineFilled, outlineCoverage } from '../model/outlineFile';
 import { describeStateThrough } from '../model/characterState';
 import { buildBookFacts, buildPlotPipeline, buildPipelineIndex, chapterOfPlotNo } from './pipeline';
 import { chapterIndexEntryOf } from './chapterIndex';
+import { volumeOf } from './quickOpen';
 import { buildThreadsView } from './threads';
 import { threadsMarkOf } from '../model/threadFile';
 import {
@@ -33,6 +34,7 @@ import {
   ProjectTree,
   IdeaDefaults,
   NextStepView,
+  VolumeView,
 } from '../protocol';
 
 const log = scoped('角色卡');
@@ -75,6 +77,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
       summarizedCount: 0,
       architecture: [],
       plots: [],
+      volumes: [],
       characters: [],
       lore: [],
       cast: [],
@@ -100,7 +103,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     };
   }
 
-  const [characters, lore, characterDirs, loreDirs, draftPaths, pipelineIndex, threadBook] = await Promise.all([
+  const [characters, lore, characterDirs, loreDirs, draftPaths, pipelineIndex, threadBook, volumeNames] = await Promise.all([
     project.listCharacters(),
     project.listLore(),
     project.listFolders(project.charactersDir),
@@ -111,18 +114,23 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     buildPipelineIndex(project),
     // 叙事线目录一次读完（一条线一个文件）。
     project.readThreads(),
+    // 分卷：章节根下的一级目录，空卷也要（刚建、还没放章的那一卷在页签上看得见）。
+    project.listVolumes(),
   ]);
   // 章节列表、细纲列表、manifest 与大纲原文都用流水线那一趟读到的同一份，
   // 不再单独读一次。
   const { rows, chapters, plots, manifest, outline } = pipelineIndex;
   const book = await buildBookFacts(project, pipelineIndex, { characters, lore });
 
+  const plotsRoot = project.relPath(project.plotsDir);
   const plotRows: ProjectPlotNode[] = rows.map((p) => {
     const chapterPath = p.chapter.relPath;
     const draftPath = chapterPath ? (project.draftRelPathFor(chapterPath) ?? '') : '';
     return {
       // 章节条、上一章 / 下一章用的那几个字段与这里同一个函数算（views/chapterIndex.ts）。
       ...chapterIndexEntryOf(p),
+      // 一卷是章节根下的一级目录：卷里再分的子目录（`第一卷/上`）算在这一卷里。
+      volume: (chapterPath ? volumeOf(chapterPath, chaptersRoot) : volumeOf(p.plot.relPath, plotsRoot)).split('/')[0],
       // 空章不算没定稿：那不是「定稿旧了」，是还没写。
       stale: p.chapter.words > 0 && p.summary.stale,
       progress: p.progress,
@@ -252,6 +260,9 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     config: () => pipelineIndex.config,
     plotPathOf: (no) => rows.find((r) => r.no === no)?.plot.relPath ?? project.plotPathOfNo(no),
   });
+  // 「新章落这里」与真正的落点同一个函数：接在最后一章之后的那一章落进哪个子目录。
+  const after = rows.reduce((max, r) => Math.max(max, r.no), 0) + 1;
+  const landing = (await project.subdirForNewChapter(after)).split('/')[0];
   return {
     initialized: true,
     plotCount: plotRows.length,
@@ -261,6 +272,7 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     summarizedCount: written.length - staleCount,
     architecture,
     plots: plotRows,
+    volumes: buildVolumes(volumeNames, plotRows, chaptersRoot, landing),
     characters: nest(charactersRoot, characterLeaves, characterDirs),
     lore: nest(loreRoot, loreLeaves, loreDirs),
     cast,
@@ -455,6 +467,39 @@ export async function buildPlotSummaryView(
     sections.push({ name: '细纲', text: body });
   }
   return { no, title, label, exists: true, finalized, stale, relPath: plot.relPath, sections };
+}
+
+/**
+ * 「章节」页签的分卷（2026-10-23）。卷按卷里最小的章号排——章号全书连续，卷的先后跟着章走；还空着的卷排在最后
+ * （`listVolumes` 的顺序），作者刚建的那一卷就在底下。直接放在章节根下的章是「未分卷」一段（`name` 为空），
+ * 照它的章号排。只有细纲、`chapters/` 下还没有那个目录的卷（拆了细纲、正文还没写）也算一卷。
+ *
+ * 一卷都没有（`chapters/` 下没有目录、章全在根下）就是空数组，页签照旧平铺。`landing` 是新章落进的那一卷。
+ */
+function buildVolumes(names: string[], rows: ProjectPlotNode[], chaptersRoot: string, landing: string): VolumeView[] {
+  const spans = new Map<string, { from: number; to: number; words: number }>();
+  for (const r of rows) {
+    const span = spans.get(r.volume);
+    if (span) {
+      span.from = Math.min(span.from, r.no);
+      span.to = Math.max(span.to, r.no);
+      span.words += r.wordCount;
+    } else {
+      spans.set(r.volume, { from: r.no, to: r.no, words: r.wordCount });
+    }
+  }
+  const filled = [...spans.keys()].sort((a, b) => spans.get(a)!.from - spans.get(b)!.from);
+  const empty = names.filter((n) => !spans.has(n));
+  if (empty.length === 0 && filled.every((n) => n === '')) {
+    return [];
+  }
+  return [...filled, ...empty].map((name) => ({
+    name,
+    relPath: name ? `${chaptersRoot}/${name}` : chaptersRoot,
+    ...(spans.has(name) ? { from: spans.get(name)!.from, to: spans.get(name)!.to } : {}),
+    words: spans.get(name)?.words ?? 0,
+    latest: name === landing,
+  }));
 }
 
 /**
