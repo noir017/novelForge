@@ -7,7 +7,7 @@
  * | 会话文件里那份与模型实际收到的一字不差 | 拿去核对「当时发了什么」，差一个字就不可信 |
  * | `turnDone` 只带 `fullContext` 标记，不带消息 | 一轮几万字，不随每次推会话来回搬 |
  * | 回复带回同一个 `requestId` | 回复是广播，两个视图都收得到，前端靠它认是不是自己点的 |
- * | 拼出来的文字里每条消息原样都在 | 复制出去的就是那份 |
+ * | 拼出来的文字里每条消息原样都在，开头就是系统提示 | 复制出去的就是那份，粘进网页版 AI 就能接着做 |
  * | 老回复、找不到的轮次回一句为什么 | 不回空串冒充复制成功 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -114,7 +114,10 @@ describe('copyContext', () => {
     for (const m of fake.calls[1]) {
       assert.ok(replies[0].text.includes(m.content), `少了一条 ${m.role}`);
     }
-    assert.match(replies[0].text, /^【完整上下文】估算 \d+ \/ \d+ token · 详细度：详细 · \d+ 条消息\n/);
+    // 粘进网页版 AI 用：开头就是系统提示，不加说明；带了历史，用户 / 模型那几条标【我】/【你】。
+    const system = fake.calls[1].find((m) => m.role === 'system').content;
+    assert.ok(replies[0].text.startsWith(system));
+    assert.match(replies[0].text, /\n---\n\n【你】\n可以换成一把会说话的剑。\n/);
   });
 
   test('功能加上之前的回复：说没留下', async () => {

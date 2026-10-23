@@ -22,7 +22,7 @@ const digest = {
   items: [{ id: 'style', label: '文风指南', kind: 'style', priority: 0, tokens: 1200, status: 'included' }],
 };
 
-const FULL = '【完整上下文】估算 1200 / 100000 token · 详细度：详细 · 2 条消息\n\n━━━━━━━━ system ━━━━━━━━\n你是作者。';
+const FULL = '你是作者。\n\n---\n\n# 我的要求\n\n写第 3 章。';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 

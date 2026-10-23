@@ -19,7 +19,6 @@ import {
 } from './pipeline';
 import { ThinkingDepth, isThinkingDepth } from './thinking';
 import { ReviewReport, normalizeReport } from './review';
-import { CONTEXT_DETAIL_LABEL, isContextDetail } from './contextDetail';
 
 /**
  * 会话存储：`.novelforge/sessions/<id>.json`。
@@ -518,34 +517,23 @@ export function contextMessagesOf(turn: ChatTurn): ContextMessage[] | undefined 
 }
 
 /**
- * 「复制完整上下文」复制出去的那份文字：一行说明，然后按发送顺序排每一条消息，消息之间
- * 隔一行角色名（system / user / assistant，与服务商 API 的叫法一致）。**消息正文原样，
- * 一个字都不改**——这份东西是拿去核对「当时到底发了什么」的。没留下完整消息时返回 undefined。
+ * 「复制完整上下文」复制出去的那份文字：**粘进网页版 AI 的对话框就能接着做这一轮的活**，
+ * 所以只有消息本身，不加任何说明（估算 token、详细度、调了几次模型都不写）。
+ *
+ * 按发送顺序排，消息之间用装配器隔小节的那条 `---`。系统提示在最前、不标；只有一条用户消息时
+ * 也不标；带了历史时每条用户 / 模型消息前面一行「【我】」/「【你】」——与提示词里的人称一致
+ * （系统提示管模型叫「你」，「# 我的要求」的「我」是作者），不标的话网页 AI 分不清哪段是它
+ * 自己上一轮说的。**消息正文原样，一个字都不改。** 没留下完整消息时返回 undefined。
  */
 export function renderContextText(turn: ChatTurn): string | undefined {
   const messages = contextMessagesOf(turn);
   if (!messages) {
     return undefined;
   }
-  const facts: string[] = [];
-  const digest = turn.context;
-  if (digest) {
-    facts.push(`估算 ${digest.usedTokens} / ${digest.budget} token`);
-    if (isContextDetail(digest.detail)) {
-      facts.push(`详细度：${CONTEXT_DETAIL_LABEL[digest.detail]}`);
-    }
-  }
-  facts.push(`${messages.length} 条消息`);
-  const lines = [`【完整上下文】${facts.join(' · ')}`];
-  // 续写、修复那几轮各自另装一份（续写是精简配方），这里与装配清单一样只说第一次。
-  const calls = turn.artifact?.calls ?? turn.review?.calls;
-  if (calls && calls > 1) {
-    lines.push(`这一轮一共调了 ${calls} 次模型，下面是第一次调用发出去的那一份；续写、修复那几轮另行装配。`);
-  }
-  for (const m of messages) {
-    lines.push('', `━━━━━━━━ ${m.role} ━━━━━━━━`, m.content);
-  }
-  return lines.join('\n');
+  const dialog = messages.filter((m) => m.role !== 'system').length > 1;
+  return messages
+    .map((m) => (dialog && m.role !== 'system' ? `${m.role === 'user' ? '【我】' : '【你】'}\n${m.content}` : m.content))
+    .join('\n\n---\n\n');
 }
 
 function summarize(session: ChatSession): SessionSummary {

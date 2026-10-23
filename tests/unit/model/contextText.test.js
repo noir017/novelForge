@@ -4,9 +4,9 @@
  *
  * | 断言 | 为什么 |
  * |---|---|
- * | 消息正文原样，按发送顺序、角色名隔开 | 这份东西是拿去核对「当时到底发了什么」的，改一个字就不可信 |
- * | 头一行写估算 token、详细度、几条消息 | 贴到别处之后还认得出是哪一级、多大的一份 |
- * | 调了几次模型的写明只是第一次那一份 | 续写那几轮另行装配，不说的话会以为续写也是这一份 |
+ * | 只有消息本身，不写估算 token、详细度、几条消息、调了几次 | 拿去粘进网页版 AI 接着做，多一行说明模型就当成要求 |
+ * | 消息正文原样，按发送顺序、`---` 隔开 | 改一个字就不是当时那一轮了 |
+ * | 带了历史才标【我】/【你】，系统提示不标 | 网页 AI 得分得清哪段是它自己上一轮说的；只有一问时标了是多余的字 |
  * | 手改坏了就当没有 | 不拼半份冒充全份（第 1 条：不抛） |
  * | `serializeTurn` 只给 `fullContext`，不带消息 | 一轮几万字，随每次推会话来回搬是纯浪费 |
  */
@@ -29,31 +29,30 @@ const assistant = (extra) => Object.assign({ id: 'a1', role: 'assistant', conten
 const digest = { usedTokens: 1234, budget: 100000, clamped: false, detail: 3, items: [] };
 
 describe('拼出来的完整上下文', () => {
-  const text = renderContextText(assistant({ context: digest, contextMessages: messages }));
-
-  test('头一行：估算 token、详细度、几条消息', () => {
-    assert.equal(text.split('\n')[0], '【完整上下文】估算 1234 / 100000 token · 详细度：详细 · 4 条消息');
+  test('只有一问：系统提示与这一轮的话原样相接，什么都不加', () => {
+    const text = renderContextText(assistant({ context: digest, contextMessages: [messages[0], messages[3]] }));
+    assert.equal(text, `${messages[0].content}\n\n---\n\n${messages[3].content}`);
   });
 
-  test('每条消息原样、按顺序，前面一行角色名', () => {
-    const body = text.split('\n').slice(1).join('\n');
-    const expected = messages.map((m) => `\n━━━━━━━━ ${m.role} ━━━━━━━━\n${m.content}`).join('\n');
-    assert.equal(body, expected);
+  test('带了历史：系统提示不标，其余每条前面标【我】/【你】，正文原样、按顺序', () => {
+    const text = renderContextText(assistant({ context: digest, contextMessages: messages }));
+    assert.equal(
+      text,
+      [
+        messages[0].content,
+        `【我】\n${messages[1].content}`,
+        `【你】\n${messages[2].content}`,
+        `【我】\n${messages[3].content}`,
+      ].join('\n\n---\n\n')
+    );
   });
 
-  test('只调了一次就不说「第一次」', () => {
-    assert.doesNotMatch(text, /第一次调用/);
-  });
-
-  test('调了几次的写明这是第一次那一份', () => {
+  test('不写估算 token、详细度、几条消息，调了几次模型也不说', () => {
     const multi = renderContextText(
       assistant({ context: digest, contextMessages: messages, artifact: { where: 'x', summary: 'y', overwrites: false, calls: 3 } })
     );
-    assert.match(multi.split('\n')[1], /一共调了 3 次模型，下面是第一次调用发出去的那一份/);
-  });
-
-  test('没有装配清单（不该有，但会话可能被手改）也拼得出来', () => {
-    assert.match(renderContextText(assistant({ contextMessages: messages })), /^【完整上下文】4 条消息\n/);
+    assert.equal(multi, renderContextText(assistant({ contextMessages: messages })));
+    assert.doesNotMatch(multi, /完整上下文|token|详细度|条消息|调了|system|assistant/);
   });
 });
 
