@@ -211,6 +211,90 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
     });
   });
 
+  // 故事时间（2026-10-24）：「时间线」一行排在各条线前面。
+  describe('时间线', () => {
+    const TL = '.novelforge/threads/时间线.md';
+    const withTimeline = (patch = {}) => {
+      const tree = sampleTree();
+      return {
+        ...tree,
+        threads: {
+          ...tree.threads,
+          timeline: {
+            relPath: TL,
+            exists: true,
+            detail: '推到第 30 章 · 现在：三月十四 傍晚 · 故事里过了 46 天',
+            warnings: ['2 章推不出', '第 31–40 章还没推'],
+            tip: '历法：简单历\n起点：三月初七（第 1 天）',
+            missing: { count: 10, text: '第 31–40 章还没推' },
+            ...patch,
+          },
+        },
+      };
+    };
+    const timeBtn = () => group().querySelector('.group-head .threads-head .threads-time-btn');
+
+    test('排在各条线前面：推到第几章、现在是哪天、过了多久，⚠ 另起几格', () => {
+      ui.post({ type: 'project', tree: withTimeline() });
+      assert.deepEqual(labels(), ['时间线', '青崖旧案', '林昭与沈氏', '李叔的旧账', '守卫的选择', '未归属的伏笔']);
+      const row = rowOf('时间线');
+      assert.equal(row.querySelector('.dot').textContent, '◷');
+      assert.equal(row.querySelector('.row-detail').textContent, '推到第 30 章 · 现在：三月十四 傍晚 · 故事里过了 46 天');
+      assert.deepEqual(warningsOf(row), ['⚠ 2 章推不出', '⚠ 第 31–40 章还没推']);
+      assert.ok(row.querySelector('.row-label').title.includes('起点：三月初七'), row.querySelector('.row-label').title);
+    });
+
+    test('点名字打开时间线文件；右键：打开、补推', () => {
+      ui.post({ type: 'project', tree: withTimeline() });
+      ui.sent.length = 0;
+      ui.clickEl(rowOf('时间线').querySelector('.row-label'));
+      assert.equal(ui.last('openFile')?.path, TL, JSON.stringify(ui.sent));
+      const items = ui.itemsOf(ui.rightClick(rowOf('时间线')));
+      assert.ok(items.includes('打开') && items.includes('从正文补推故事时间'), JSON.stringify(items));
+      ui.closeMenu();
+      ui.sent.length = 0;
+      ui.pick(ui.rightClick(rowOf('时间线')), '从正文补推故事时间');
+      assert.equal(ui.last('projectAction')?.action, 'backfillTimeline', JSON.stringify(ui.sent));
+    });
+
+    test('标题旁「补推时间」发 backfillTimeline、不折叠这一组；标题右键也有；补推在跑时不给', () => {
+      ui.post({ type: 'project', tree: withTimeline() });
+      assert.equal(timeBtn()?.textContent, '补推时间');
+      ui.sent.length = 0;
+      ui.clickEl(timeBtn());
+      assert.equal(ui.last('projectAction')?.action, 'backfillTimeline', JSON.stringify(ui.sent));
+      assert.equal(labels().length, 6, '点按钮把组折起来了');
+      ui.sent.length = 0;
+      ui.pick(ui.rightClick(group().querySelector('.group-head')), '从正文补推故事时间');
+      assert.equal(ui.last('projectAction')?.action, 'backfillTimeline', JSON.stringify(ui.sent));
+      ui.post({ type: 'tasks', tasks: [{ id: 't1', title: '从正文补推故事时间', message: '第 31 章', current: 0, total: 2, elapsedMs: 0 }] });
+      ui.post({ type: 'project', tree: withTimeline() });
+      assert.equal(timeBtn(), null);
+      ui.post({ type: 'tasks', tasks: [] });
+    });
+
+    test('没有要补推的：不给「补推时间」；补推失败的红 ❗ 挂在这一行', () => {
+      const tree = withTimeline({ missing: undefined, warnings: [] });
+      tree.failures = { [TL]: [{ at: '2026-10-24T00:00:00Z', severity: 'error', op: 'timelineBackfill', message: '补推停在第 31 章' }] };
+      ui.post({ type: 'project', tree });
+      assert.equal(timeBtn(), null);
+      assert.ok(rowOf('时间线').querySelector('.row-failure.is-error'));
+      const items = ui.itemsOf(ui.rightClick(rowOf('时间线')));
+      assert.ok(!items.includes('从正文补推故事时间'), JSON.stringify(items));
+      ui.closeMenu();
+    });
+
+    test('还没有时间线文件（只有要补推的）：点名字不打开，右键没有「打开」', () => {
+      ui.post({ type: 'project', tree: withTimeline({ exists: false, detail: '还没有一章' }) });
+      ui.sent.length = 0;
+      ui.clickEl(rowOf('时间线').querySelector('.row-label'));
+      assert.equal(ui.last('openFile'), undefined);
+      const items = ui.itemsOf(ui.rightClick(rowOf('时间线')));
+      assert.ok(!items.includes('打开') && items.includes('从正文补推故事时间'), JSON.stringify(items));
+      ui.closeMenu();
+    });
+  });
+
   test('「故事架构」组标题仍是 x/6', () => {
     ui.post({ type: 'project', tree: sampleTree() });
     const head = [...ui.doc.querySelectorAll('#projectBody .group')].find((g) => g.querySelector('.group-name')?.textContent === '故事架构');

@@ -749,3 +749,79 @@ describe('叙事线总览 · 换工程', { skip: JSDOM_SKIP }, () => {
     assert.equal(h.shown(), false);
   });
 });
+
+// 故事时间（2026-10-24）：表头的月份带、线上面一行「故事时间」，点它打开时间线文件。
+describe('叙事线总览 · 故事时间', { skip: JSDOM_SKIP }, () => {
+  const TL = T('时间线');
+  const time = (state, short, label, month, tip = `${label}\n点击打开时间线（在那里改）`) => ({ state, short, label, tip, ...(month ? { month } : {}) });
+  /** 第 1–2 章三月，第 3 章四月；第 2 章与第 1 章同一天；第 4 章推不出；第 5 章回忆；第 6 章没有时间。 */
+  function withTime() {
+    const o = overview();
+    const times = [
+      time('evidence', '初七', '大衍三年三月初七 傍晚', '大衍三年三月'),
+      time('guess', '', '大衍三年三月初七 夜里', '大衍三年三月'),
+      time('anchor', '初一', '大衍三年四月初一', '大衍三年四月'),
+      time('unknown', '?', '大衍三年四月初一', '大衍三年四月'),
+      time('flashback', '忆', '回忆（约二十年前）'),
+    ];
+    o.chapters = o.chapters.map((c, i) => (times[i] ? { ...c, time: times[i] } : c));
+    return { ...o, timeline: { relPath: TL, months: true } };
+  }
+  let h;
+  beforeEach(() => {
+    h = harness();
+    h.open();
+    h.respond(withTime());
+  });
+
+  test('表头多一条月份带：连着几章同一个月并成一段，没有时间的章断开；和卷名那一行叠在一起', () => {
+    const months = [...h.doc.querySelectorAll('.tov-months .tov-month')];
+    assert.deepEqual(months.map((m) => [m.textContent, m.style.left, m.style.width]), [
+      ['大衍三年三月', '0px', '48px'],
+      ['大衍三年四月', '48px', '48px'],
+    ]);
+    const head = h.doc.querySelector('.tov-header');
+    assert.ok(head.classList.contains('tov-header-months') && head.classList.contains('tov-header-vols'));
+  });
+
+  test('线上面一行「故事时间」：几号、同一天画点、推不出 ?、回忆「忆」；没有时间的章不画', () => {
+    const row = h.row(TL);
+    assert.ok(row?.classList.contains('tov-row-time'));
+    // 排在表头之后、第一组之前。
+    assert.ok(row.previousElementSibling.classList.contains('tov-header'));
+    const cells = [...row.querySelectorAll('.tov-time')];
+    assert.deepEqual(cells.map((c) => c.textContent), ['初七', '·', '初一', '?', '忆']);
+    assert.deepEqual(
+      cells.map((c) => c.className.replace('tov-time tov-time-', '')),
+      ['evidence', 'guess', 'anchor', 'unknown', 'flashback']
+    );
+    assert.equal(cells[2].style.left, '48px');
+    assert.match(cells[0].title, /大衍三年三月初七 傍晚/);
+  });
+
+  test('点「故事时间」名字、点格子：打开时间线文件（这一行是拿来改时间的），开在总览所在的这一块', () => {
+    const n = h.ui.sent.length;
+    h.ui.clickEl(h.row(TL).querySelector('.tov-link'));
+    h.ui.clickEl(h.row(TL).querySelectorAll('.tov-time')[3]);
+    assert.deepEqual(h.sentAfter(n), [
+      { type: 'openEditor', path: TL, pane: 'main' },
+      { type: 'openEditor', path: TL, pane: 'main' },
+    ]);
+  });
+
+  test('列头与线格子的悬停带上那一章的日期', () => {
+    const col = h.doc.querySelector('.tov-nums .tov-col');
+    assert.match(col.title, /^第 1 章《楔子》 · 大衍三年三月初七 傍晚 · 已同步/);
+    const node = h.cellOf(h.row(T('青崖旧案')), 1);
+    node.dispatchEvent(new h.window.MouseEvent('mouseover', { bubbles: true }));
+    assert.match(h.doc.querySelector('.tov-tip .tov-tip-head').textContent, /大衍三年三月初七 傍晚/);
+  });
+
+  test('没有时间线：没有这一行，也没有月份带', () => {
+    const plain = harness();
+    plain.open();
+    plain.respond(overview());
+    assert.equal(plain.doc.querySelector('.tov-row-time'), null);
+    assert.equal(plain.doc.querySelector('.tov-months'), null);
+  });
+});

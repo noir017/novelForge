@@ -139,6 +139,26 @@ export interface ThreadsView {
    * 按现在的样子算（不 asOf）。
    */
   watch: ThreadWatch;
+  /**
+   * 「时间线」那一行（故事时间，2026-10-24，排在各条线前面）。时间线文件不在、也没有要补推的章时缺席。
+   */
+  timeline?: TimelineRowView;
+}
+
+/** 「叙事线」页签的「时间线」一行：`时间线 · 推到第 30 章 · 现在：三月十四 傍晚 · 故事里过了 46 天`，有问题的另加几个 ⚠。 */
+export interface TimelineRowView {
+  /** `threads/时间线.md`（还没有这份文件时也给：补推会建它）。 */
+  relPath: string;
+  /** 文件在不在。 */
+  exists: boolean;
+  /** 名字后面那一串。 */
+  detail: string;
+  /** 有问题的（不带 ⚠，前端加）：`2 章推不出`、`1 行认不出`、`起点认不出`、`第 3–30 章还没推`。 */
+  warnings: string[];
+  /** 鼠标移上去看的：历法与起点、推不出与作者定的是哪几章、怎么改。 */
+  tip: string;
+  /** 同步过、叙事线判过、时间线里还没有的章（「补推时间」那一项）。没有时缺席。 */
+  missing?: { count: number; text: string };
 }
 
 /** 「叙事线」页签的一行：`林昭与沈青 · 感情线 · 进行中 · 最近第 12 章 · 2 条伏笔没收`，有问题的另加几个 ⚠。 */

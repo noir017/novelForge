@@ -306,3 +306,60 @@ describe('叙事线总览 · 伏笔的格子与连线', () => {
     assert.equal(cellAt(row, 3).deviation, true, '第 3 章该收没收');
   });
 });
+
+// 故事时间（2026-10-24）：一列一格、月份带、伏笔埋了多少天。
+describe('总览 · 故事时间', () => {
+  const tl = loadBundle({ tl: './src/core/model/timelineFile.ts' }).tl;
+  const timeline = (lines, start = '三月初七') =>
+    tl.parseTimelineFile(['---', 'calendar: 简单历', `start: ${start}`, '---', '', '# 时间线', '', ...lines, ''].join('\n'), `${DIR}/时间线.md`);
+  const LINES = [
+    '- 第 1 章：+0 天，傍晚〔依据：「起」〕',
+    '- 第 2 章：+2 天〔推测：赶路〕',
+    '- 第 3 章：+1 天〔依据：「次日」〕',
+    '- 第 4 章：+5 天，历时 2 天',
+  ];
+
+  test('一列一格：几号、全称、悬停；同一天不写字；月份带的名字；有时间线才给 timeline', () => {
+    const m = views.buildThreadsMatrix({ ...book(), timeline: timeline([...LINES, '- 第 5 章：+0 天〔依据：「当天」〕']) }, chapters(), 4);
+    assert.deepEqual(m.timeline, { relPath: `${DIR}/时间线.md`, months: true });
+    const t = m.chapters.slice(0, 6).map((c) => c.time && [c.time.state, c.time.short, c.time.label, c.time.month ?? '']);
+    // 第 5 章 +0 天：接在第 4 章的结尾（历时 2 天，到十六）那一天，和第 4 章开头不是同一天，照写几号。
+    assert.deepEqual(t, [
+      ['evidence', '初七', '三月初七 傍晚', '三月'],
+      ['guess', '初九', '三月初九', '三月'],
+      ['evidence', '初十', '三月初十', '三月'],
+      ['anchor', '十五', '三月十五', '三月'],
+      ['evidence', '十六', '三月十六', '三月'],
+      undefined,
+    ]);
+    // 同一天（开头一样）的格子不写字。
+    const same = views.buildThreadsMatrix({ ...book(), timeline: timeline(['- 第 1 章：+0 天', '- 第 2 章：+0 天']) }, chapters(), 4);
+    assert.deepEqual(same.chapters.slice(0, 2).map((c) => c.time.short), ['初七', '']);
+    const tip = m.chapters[3].time.tip;
+    assert.ok(tip.includes('故事第 9 天，历时 2 天，到三月十六；比上一章：+5 天'), tip);
+    assert.ok(tip.includes('你定的'), tip);
+    assert.ok(m.chapters[1].time.tip.includes('推测：赶路'), m.chapters[1].time.tip);
+    // 没有时间线：没有这一项，列上也没有 time。
+    const plain = views.buildThreadsMatrix(book(), chapters(), 4);
+    assert.equal(plain.timeline, undefined);
+    assert.ok(plain.chapters.every((c) => !c.time));
+  });
+
+  test('没有起点：格子写第几天，没有月份带', () => {
+    const m = views.buildThreadsMatrix({ ...book(), timeline: timeline(LINES, '') }, chapters(), 4);
+    assert.deepEqual(m.timeline.months, false);
+    assert.deepEqual(m.chapters.slice(0, 4).map((c) => c.time.short), ['1', '3', '4', '9']);
+  });
+
+  test('时间线写到更后面的章：列跟着画到那一章', () => {
+    const m = views.buildThreadsMatrix({ ...book(), timeline: timeline([...LINES, '- 第 14 章：+1 天']) }, chapters(), 4);
+    assert.equal(m.chapters.length, 14);
+    assert.equal(m.chapters[13].time.state, 'anchor');
+  });
+
+  test('埋了没收的伏笔：悬停说故事里过了几天（埋的那一章开头到叙事线判到的那一章结尾）', () => {
+    const m = views.buildThreadsMatrix({ ...book(), timeline: timeline(LINES) }, chapters(), 4);
+    const token = foreOf(lineOf(m, '青崖旧案'), '令牌');
+    assert.ok(token.tip.includes('第 3 章埋下，还没收（故事里已经过了 6 天）'), token.tip);
+  });
+});

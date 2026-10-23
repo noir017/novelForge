@@ -9,6 +9,7 @@
  * 前端只画（`media/src/editor/threadsOverview.ts`）。设计见 docs/design/plans/2026-10-20-narrative-threads.md「八」。
  */
 import type { ForeshadowStatus, ThreadEventType, ThreadKind, ThreadStatus } from '../model/threadFile';
+import type { TimelineDayState } from '../model/timelineFile';
 
 /**
  * 一章（一列）的定稿状态：
@@ -36,6 +37,22 @@ export interface ThreadsOverviewChapter {
   chapterPath?: string;
   /** 细纲路径（正文镜像的那一份，或者还没有正文时按号认的计划）。缺席 = 还没有细纲。 */
   plotPath?: string;
+  /** 这一章的故事时间（2026-10-24，从时间线现算）。时间线里写到的最后一章之后缺席。 */
+  time?: ThreadsOverviewTime;
+}
+
+/** 「故事时间」那一行的一格。 */
+export interface ThreadsOverviewTime {
+  /** 有依据 / 推测 / 推不出 / 没推 / 作者定的 / 回忆 / 认不出。 */
+  state: TimelineDayState;
+  /** 格子里写的：几号（`十四`、`14`），没有起点是第几天（`46`）；回忆是 `忆`；推不出、认不出是 `?`；和上一章同一天、没推是空串（画一个点）。 */
+  short: string;
+  /** 全称：`大衍三年三月十四 清晨`、`第 46 天`、`回忆（约二十年前）`（线与伏笔格子的悬停也带上它）。 */
+  label: string;
+  /** 悬停看的：全称、故事第几天、比上一章晚多久、历时、依据 / 推测 / 推不出的理由。 */
+  tip: string;
+  /** 月份带上那一段（有起点时）：`大衍三年三月`。 */
+  month?: string;
 }
 
 /** 格子里的一条事件（悬停看）。 */
@@ -136,6 +153,10 @@ export interface ThreadsOverview {
   groups: ThreadsOverviewGroup[];
   /** 「未归属的伏笔」。一条伏笔都没有时缺席。 */
   unfiled?: { relPath: string; foreshadowing: ThreadsOverviewForeshadow[] };
+  /**
+   * 故事时间（2026-10-24）：有时间线文件时给——画「故事时间」那一行（点格子、点名字打开这份文件），`months` 时表头多一条月份带。
+   */
+  timeline?: { relPath: string; months: boolean };
   /**
    * 计划里提到的章号太远（多半是手误，`plan: 3-30000`）、列数被截在上限（`views/threads.ts` 的 `OVERVIEW_MAX_CHAPTERS`）时，
    * 原本要画到第几章。截掉的那几章上的事件不画，界面上照实说一句（第 2 条的精神：不静默截断）。

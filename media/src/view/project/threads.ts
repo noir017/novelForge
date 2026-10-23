@@ -24,7 +24,7 @@
 import { el as mk } from '../../dom';
 import { commandThreadsOverview, queryThreadsOverview } from '../../globals';
 import type { MenuItem } from '../../globals';
-import type { ProjectTree, ThreadLineView, ThreadUnfiledView } from '../../protocol';
+import type { ProjectTree, ThreadLineView, ThreadUnfiledView, TimelineRowView } from '../../protocol';
 import { linkBtn } from '../buttons';
 import { onContextMenu } from '../menu';
 import { openPath } from '../store';
@@ -37,6 +37,13 @@ import { indentOf } from './treeState';
 const PLAN_TASK = '排叙事线';
 /** 补记的任务名：与 features/threadsBackfill.ts 的 `BACKFILL_TASK` 一字不差。 */
 const BACKFILL_TASK = '从已写正文补记叙事线';
+/** 补推故事时间的任务名：与 features/timelineBackfill.ts 的 `TIMELINE_BACKFILL_TASK` 一字不差。 */
+const TIME_BACKFILL_TASK = '从正文补推故事时间';
+
+/** 同步过、叙事线判过、时间线里还没有的章（2026-10-24）：给「补推时间」。 */
+function canBackfillTime(tree: ProjectTree): boolean {
+  return !!tree.threads.timeline?.missing;
+}
 
 /** 叙事线落后于定稿（有定稿了还没判的章）：给「从正文补记」。 */
 function canBackfill(tree: ProjectTree): boolean {
@@ -67,7 +74,7 @@ export function threadsGroupLabel(tree: ProjectTree): string {
  * 「叙事线总览」画得了、也有东西可画：有内置编辑器（能力探测，插件形态没有人回答）、至少有一条线或一条未归属的伏笔。
  */
 function canOverview(tree: ProjectTree): boolean {
-  return (tree.threads.lines.length > 0 || !!tree.threads.unfiled) && queryThreadsOverview();
+  return (tree.threads.lines.length > 0 || !!tree.threads.unfiled || !!tree.threads.timeline?.exists) && queryThreadsOverview();
 }
 
 /** 一行右键「在总览里看」：打开编辑区里的叙事线总览，定位到这一行。没有内置编辑器时不给。 */
@@ -80,6 +87,9 @@ export function threadsMenuItems(tree: ProjectTree): MenuItem[] {
   const items: MenuItem[] = [];
   if (canBackfill(tree)) {
     items.push({ label: '从已写正文补记叙事线', run: () => projectAction('backfillThreads') });
+  }
+  if (canBackfillTime(tree)) {
+    items.push({ label: '从正文补推故事时间', run: () => projectAction('backfillTimeline') });
   }
   if (canPlan(tree)) {
     items.push({ label: `${planVerb(tree)}叙事线`, run: () => projectAction('generateThreads') });
@@ -103,6 +113,12 @@ export function threadsHead(tree: ProjectTree): HTMLElement | undefined {
     btn.title = `从已写正文补记叙事线：${tree.threads.lag!.text}，逐章认这一章在叙事线上发生了什么（先弹确认框，每章调用模型 1–3 次）；已有的不动，只往线里追加`;
     box.appendChild(btn);
   }
+  if (canBackfillTime(tree) && !hasTask(TIME_BACKFILL_TASK)) {
+    const btn = linkBtn('补推时间', () => projectAction('backfillTimeline'));
+    btn.classList.add('threads-time-btn');
+    btn.title = `从正文补推故事时间：${tree.threads.timeline!.missing!.text}，几章一批判每章比上一章晚几天（先弹确认框，写明调用次数）；只往时间线里填空，你写的行不动`;
+    box.appendChild(btn);
+  }
   if (canPlan(tree) && !hasTask(PLAN_TASK)) {
     const btn = linkBtn(planVerb(tree), () => projectAction('generateThreads'));
     btn.title = '从情节大纲排叙事线（先弹确认框，调用模型 1 次）；已有的线不动，同名跳过';
@@ -117,10 +133,16 @@ export function threadsHead(tree: ProjectTree): HTMLElement | undefined {
   return box.childElementCount > 0 ? box : undefined;
 }
 
-/** 这一页的全部行：（叙事线落后于定稿时）最上面一句「还没判」，一条线一行（后端已排好），最后是「未归属的伏笔」；一条都没有时说清先做什么。 */
+/**
+ * 这一页的全部行：（叙事线落后于定稿时）最上面一句「还没判」，「时间线」一行（有的话），一条线一行（后端已排好），最后是「未归属的伏笔」；
+ * 一条线都没有时说清先做什么。
+ */
 export function buildThreadRows(tree: ProjectTree): HTMLElement[] {
-  const { lines, unfiled, lag } = tree.threads;
+  const { lines, unfiled, lag, timeline } = tree.threads;
   const rows = lines.map((line) => buildLineRow(tree, line));
+  if (timeline) {
+    rows.unshift(buildTimelineRow(tree, timeline));
+  }
   if (lag) {
     rows.unshift(buildLagRow(tree, lag));
   }
@@ -153,6 +175,35 @@ function buildLagRow(tree: ProjectTree, lag: NonNullable<ProjectTree['threads'][
       '点标题旁的「从正文补记」逐章补上（先问你，每章 1–3 次调用）。'
   );
   row.title = `叙事线判到第 ${through} 章（从第 1 章起连续判过的），同步到第 ${tree.threads.current} 章。`;
+  return row;
+}
+
+/**
+ * 「时间线」一行（故事时间，2026-10-24）：`时间线 · 推到第 30 章 · 现在：三月十四 傍晚 · 故事里过了 46 天`，有问题的另加 ⚠。点名字打开
+ * `threads/时间线.md`（日期在这里与总览上看，改在文件里）；右键：打开、在总览里看、补推时间。补推失败的红 ❗ 挂在这一行上。
+ */
+function buildTimelineRow(tree: ProjectTree, tl: TimelineRowView): HTMLElement {
+  const row = mk('div', 'row row-thread row-thread-timeline');
+  row.style.paddingLeft = `${indentOf(0)}px`;
+  row.appendChild(mk('span', 'dot', '◷'));
+  const mark = failureMark(tl.relPath);
+  if (mark) {
+    row.appendChild(mark);
+  }
+  const label = mk('span', 'row-label', '时间线');
+  label.title = [tl.tip, tl.exists ? `${tl.relPath}\n点击打开时间线` : '还没有时间线文件：同步或补推时第一次推出时间就建。'].join('\n\n');
+  if (tl.exists) {
+    label.addEventListener('click', (e) => openPath(tl.relPath, { preview: e.detail < 2 }));
+  }
+  row.appendChild(label);
+  row.appendChild(mk('span', 'meta row-detail', tl.detail));
+  appendWarnings(row, tl.warnings);
+  onContextMenu(row, () => [
+    ...(tl.exists ? [{ label: '打开', run: () => openPath(tl.relPath) }, ...overviewItems(tree, tl.relPath)] : []),
+    ...(canBackfillTime(tree) ? [{ label: '从正文补推故事时间', run: () => projectAction('backfillTimeline') }] : []),
+    { sep: true },
+    ...baseMenuItems(),
+  ]);
   return row;
 }
 

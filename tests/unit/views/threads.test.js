@@ -183,3 +183,53 @@ describe('叙事线页签 · 未归属的伏笔', () => {
     assert.equal(views.buildThreadsView({ threads: [], unfiled: tf.parseUnfiledFile('', `${DIR}/未归属的伏笔.md`) }, 3).unfiled, undefined);
   });
 });
+
+// 故事时间（2026-10-24）：「时间线」一行。
+describe('叙事线页签 · 时间线一行', () => {
+  const tl = loadBundle({ tl: './src/core/model/timelineFile.ts' }).tl;
+  const REL = '.novelforge/threads/时间线.md';
+  const timeline = (lines, start = '三月初七') =>
+    tl.parseTimelineFile(['---', 'calendar: 简单历', `start: ${start}`, '---', '', '# 时间线', '', ...lines, ''].join('\n'), REL);
+  const progress = (through, finalized) => ({ mark: { through, judged: [] }, finalized });
+
+  test('推到第几章、现在是哪天、过了多久；推不出、认不出、你定的、叙事线判过却还没推的', () => {
+    const t = timeline([
+      '- 第 1 章：+0 天，傍晚〔依据：「起」〕',
+      '- 第 2 章：+?〔推不出：没交代〕',
+      '- 第 3 章：过了好一阵',
+      '- 第 4 章：八月十五',
+      '- 第 5 章：+3 天，历时 2 天〔依据：「三日后」〕',
+    ]);
+    const v = views.buildThreadsView({ threads: [], unfiled: { name: '未归属的伏笔', relPath: '', foreshadowing: [], events: [] }, timeline: t }, 8, progress(7, [1, 2, 3, 4, 5, 6, 7, 8]));
+    const row = v.timeline;
+    assert.equal(row.relPath, REL);
+    assert.equal(row.exists, true);
+    // 八月十五是第 159 天；第 5 章 +3 天、历时 2 天：第 162–163 天，八月十八到十九。
+    assert.equal(row.detail, '推到第 5 章 · 现在：八月十九 · 故事里过了 163 天');
+    assert.deepEqual(row.warnings, ['1 章推不出', '1 行认不出', '第 6–7 章还没推']);
+    assert.deepEqual(row.missing, { count: 2, text: '第 6–7 章还没推' });
+    assert.ok(row.tip.includes('你定的：第 4 章'), row.tip);
+    assert.ok(row.tip.includes('起点：三月初七（第 1 天）'), row.tip);
+  });
+
+  test('没有文件、也没有要补推的：不画；没有文件、有要补推的：画，exists 为 false', () => {
+    const empty = tl.emptyTimeline(REL);
+    const base = { threads: [], unfiled: { name: '未归属的伏笔', relPath: '', foreshadowing: [], events: [] }, timeline: empty };
+    assert.equal(views.buildThreadsView(base, 3, progress(0, [1, 2, 3])).timeline, undefined);
+    const row = views.buildThreadsView(base, 3, progress(3, [1, 2, 3])).timeline;
+    assert.equal(row.exists, false);
+    assert.equal(row.detail, '还没有一章');
+    assert.deepEqual(row.missing, { count: 3, text: '第 1–3 章还没推' });
+  });
+
+  test('起点认不出：⚠ 一句，只显示第几天', () => {
+    const v = views.buildThreadsView(
+      { threads: [], unfiled: { name: '未归属的伏笔', relPath: '', foreshadowing: [], events: [] }, timeline: timeline(['- 第 1 章：+0 天', '- 第 2 章：+4 天'], '很久以前') },
+      2,
+      progress(2, [1, 2])
+    );
+    assert.deepEqual(v.timeline.warnings, ['起点认不出']);
+    assert.equal(v.timeline.detail, '推到第 2 章 · 现在：第 5 天 · 故事里过了 5 天');
+  });
+});
+

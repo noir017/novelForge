@@ -38,6 +38,7 @@ export type {
   ThreadLineView,
   ThreadsView,
   ThreadUnfiledView,
+  TimelineRowView,
   CastConflictView,
   CastEntry,
   CastSummary,
@@ -90,6 +91,7 @@ export type {
   ThreadsOverviewGroup,
   ThreadsOverviewLine,
   ThreadsOverviewSpan,
+  ThreadsOverviewTime,
 } from './threadsOverview';
 
 export type {

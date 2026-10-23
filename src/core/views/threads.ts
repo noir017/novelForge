@@ -16,6 +16,16 @@ import {
   threadWatch,
   unjudgedChapters,
 } from '../model/threadFile';
+import {
+  Timeline,
+  TimelineCalc,
+  TimelineDay,
+  computeTimeline,
+  dayLabel,
+  describeDay,
+  describeDelta,
+  describeElapsed,
+} from '../model/timelineFile';
 import { ThreadReminder, isFallbackChapterTitle, threadRemindersFor } from '../model/pipeline';
 import { NovelProject } from '../model/project';
 import {
@@ -30,7 +40,9 @@ import {
   ThreadsOverviewGroup,
   ThreadsOverviewLine,
   ThreadsOverviewSpan,
+  ThreadsOverviewTime,
   ThreadsView,
+  TimelineRowView,
 } from '../protocol';
 import { volumeOf } from './quickOpen';
 
@@ -97,6 +109,7 @@ export function buildThreadsView(book: ThreadBook, current: number, progress?: T
   lines.sort((a, b) => compareLines(order.get(a.relPath)!, a, order.get(b.relPath)!, b));
   const unfiled = unfiledOf(book.unfiled, through);
   const behind = progress ? unjudgedChapters(progress.mark, progress.finalized) : [];
+  const timeline = timelineRowOf(book.timeline, progress);
   // 写前提醒要的数（二期）：按现在的样子算，前端批量写章弹窗照它与要写的那几章算提醒（与后端确认框同一个函数）。
   return {
     lines,
@@ -105,7 +118,128 @@ export function buildThreadsView(book: ThreadBook, current: number, progress?: T
     through,
     ...(behind.length > 0 ? { lag: { count: behind.length, text: `${describeChapterRuns(behind)}还没判` } } : {}),
     watch: threadWatch(book),
+    ...(timeline ? { timeline } : {}),
   };
+}
+
+// ---------------------------------------------------------------- 故事时间（2026-10-24）
+
+/** 时间线里有没有这一章的行（认得出、认不出的都算：认不出的是作者的，补推不碰）。 */
+function hasTimeLine(tl: Timeline, no: number): boolean {
+  return tl.entries.some((e) => e.chapter === no) || tl.bad.includes(no);
+}
+
+/** 「现在」：最后一章跨了几天的说结尾那一天，否则说开头与时段。 */
+function nowOf(tl: Timeline, d: TimelineDay): string {
+  return d.span > 1 && d.end !== undefined ? dayLabel(tl, d.end).full : describeDay(tl, d);
+}
+
+/**
+ * 「时间线」那一行（设计稿 docs/design/plans/2026-10-24-story-timeline.md「三」）：推到第几章、现在是哪天、故事里过了多久；推不出的、
+ * 认不出的、起点认不出、叙事线判过却还没推的章各一个 ⚠。文件不在、也没有要补推的章时不画。
+ */
+function timelineRowOf(tl: Timeline | undefined, progress?: ThreadsProgress): TimelineRowView | undefined {
+  if (!tl) {
+    return undefined;
+  }
+  const missing = progress
+    ? [...progress.finalized].filter((no) => isThreadsJudged(progress.mark, no) && !hasTimeLine(tl, no)).sort((a, b) => a - b)
+    : [];
+  if (!tl.exists && missing.length === 0) {
+    return undefined;
+  }
+  const calc = computeTimeline(tl);
+  const known = [...calc.days].reverse().find((d) => d.start !== undefined && d.state !== 'missing');
+  const of = (state: TimelineDay['state']) => calc.days.filter((d) => d.state === state).map((d) => d.chapter);
+  const unknown = of('unknown');
+  const bad = of('bad');
+  const anchors = of('anchor');
+  const missingText = missing.length > 0 ? `${describeChapterRuns(missing)}还没推` : '';
+  return {
+    relPath: tl.relPath,
+    exists: tl.exists,
+    detail: [
+      calc.last > 0 ? `推到第 ${calc.last} 章` : '还没有一章',
+      known ? `现在：${nowOf(tl, known)}` : '',
+      calc.elapsed > 0 ? `故事里过了 ${describeElapsed(tl, calc.elapsed)}` : '',
+    ]
+      .filter(Boolean)
+      .join(' · '),
+    warnings: [
+      unknown.length > 0 ? `${unknown.length} 章推不出` : '',
+      bad.length > 0 ? `${bad.length} 行认不出` : '',
+      tl.startText && !tl.start ? '起点认不出' : '',
+      missingText,
+    ].filter(Boolean),
+    tip: [
+      `历法：${tl.calendar}`,
+      tl.start
+        ? `起点：${tl.startText}（第 1 天）`
+        : tl.startText
+          ? `起点「${tl.startText}」认不出，先只显示第几天`
+          : '起点：没填，只显示第几天（在文件开头 start 后面写第 1 章那一天，如「大衍三年三月初七」）',
+      unknown.length > 0 ? `推不出（按紧接上一章算）：${describeChapterRuns(unknown)}` : '',
+      bad.length > 0 ? `认不出（按紧接上一章算）：${describeChapterRuns(bad)}` : '',
+      anchors.length > 0 ? `你定的：${describeChapterRuns(anchors)}` : '',
+      missingText ? `${missingText}：同步过、叙事线也判过，点标题旁的「补推时间」补上` : '',
+      '要定死哪一章，把那一行的「+N 天」改成日期或「第 N 天」，后面的章跟着顺延。',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    ...(missing.length > 0 ? { missing: { count: missing.length, text: missingText } } : {}),
+  };
+}
+
+const TIME_STATE_NOTE: Record<TimelineDay['state'], string> = {
+  evidence: '',
+  guess: '',
+  unknown: '推不出，按紧接上一章算',
+  missing: '时间线里还没有这一章，按紧接上一章算',
+  anchor: '你定的',
+  flashback: '整章是回忆，不推进时间',
+  bad: '这一行认不出，按紧接上一章算',
+};
+
+/** 总览「故事时间」那一行：一章一格（时间线里写到的最后一章为止）。和上一章同一天的格子不写字（画一个点）。 */
+function timeCellsOf(tl: Timeline, calc: TimelineCalc): Map<number, ThreadsOverviewTime> {
+  const out = new Map<number, ThreadsOverviewTime>();
+  let prevStart: number | undefined;
+  for (const d of calc.days) {
+    const label = describeDay(tl, d);
+    const lines = [`第 ${d.chapter} 章 · ${label}`];
+    if (d.start !== undefined) {
+      const span = d.span > 1 && d.end !== undefined ? `，历时 ${d.span} 天，到${dayLabel(tl, d.end).full}` : '';
+      const delta = d.delta !== undefined ? `；比上一章：${describeDelta(d.delta)}` : '';
+      lines.push(`故事第 ${d.start} 天${span}${delta}`);
+    }
+    if (d.basis) {
+      lines.push(d.basis.kind === '依据' ? `依据：「${d.basis.text}」` : `${d.basis.kind}：${d.basis.text}`);
+    }
+    if (TIME_STATE_NOTE[d.state]) {
+      lines.push(TIME_STATE_NOTE[d.state]);
+    }
+    lines.push('点击打开时间线（在那里改）');
+    const day = d.start !== undefined ? dayLabel(tl, d.start) : undefined;
+    const short =
+      d.state === 'flashback'
+        ? '忆'
+        : d.state === 'unknown' || d.state === 'bad'
+          ? '?'
+          : d.state === 'missing' || d.start === prevStart
+            ? ''
+            : (day?.short ?? '');
+    out.set(d.chapter, {
+      state: d.state,
+      short,
+      label,
+      tip: lines.join('\n'),
+      ...(day?.month ? { month: day.month } : {}),
+    });
+    if (d.start !== undefined) {
+      prevStart = d.start;
+    }
+  }
+  return out;
 }
 
 /**
@@ -294,23 +428,33 @@ export function buildThreadsMatrix(
   const through = judgedThrough(mark, current);
   const files: ThreadFileBase[] = [...book.threads, book.unfiled];
   const fileMax = chapters.reduce((m, c) => Math.max(m, c.no), Math.max(0, current));
+  const tl = book.timeline?.exists ? book.timeline : undefined;
+  const calc = tl ? computeTimeline(tl) : undefined;
   const mentioned = [
     ...files.flatMap((f) => f.events.map((e) => e.chapter)),
     ...files.flatMap((f) => f.foreshadowing.flatMap((x) => [x.plant ?? 0, x.resolve ?? 0])),
     ...book.threads.flatMap((t) => [t.from ?? 0, t.to ?? 0]),
+    calc?.last ?? 0,
   ];
   const wanted = mentioned.reduce((m, n) => Math.max(m, n), fileMax);
   const last = Math.min(wanted, Math.max(limit, fileMax));
 
   const byNo = new Map(chapters.map((c) => [c.no, c]));
+  const times = tl && calc ? timeCellsOf(tl, calc) : new Map<number, ThreadsOverviewTime>();
   const columns: ThreadsOverviewChapter[] = [];
   let volume = '';
   for (let no = 1; no <= last; no++) {
     const c = byNo.get(no);
     volume = c ? c.volume : volume;
     const unjudged = c?.state === 'finalized' && !isThreadsJudged(mark, no);
-    columns.push(c ? { ...c, ...(unjudged ? { unjudged: true as const } : {}) } : { no, title: '', volume, state: 'none' });
+    const time = times.get(no);
+    columns.push({
+      ...(c ? { ...c, ...(unjudged ? { unjudged: true as const } : {}) } : { no, title: '', volume, state: 'none' as const }),
+      ...(time ? { time } : {}),
+    });
   }
+  // 伏笔埋下至今多少天（悬停伏笔名看）：埋的那一章开头到叙事线判到的那一章结尾。
+  const dayOf = (no: number): TimelineDay | undefined => calc?.days[no - 1];
   // 拿来判偏差的章：定稿过、叙事线也判过（四期）。
   const finalized = new Set(columns.filter((c) => c.state === 'finalized' && !c.unjudged).map((c) => c.no));
 
@@ -331,7 +475,7 @@ export function buildThreadsMatrix(
       warnings: view.warnings,
       tip: view.tip,
       cells: lineCells(t, finalized, last),
-      foreshadowing: foreshadowRows(t, through, finalized, last),
+      foreshadowing: foreshadowRows(t, through, finalized, last, dayOf),
     };
     const group = groups.find((g) => g.kind === t.kind);
     if (group) {
@@ -340,7 +484,7 @@ export function buildThreadsMatrix(
       groups.push({ kind: t.kind, lines: [line] });
     }
   }
-  const unfiled = foreshadowRows(book.unfiled, through, finalized, last);
+  const unfiled = foreshadowRows(book.unfiled, through, finalized, last, dayOf);
   return {
     chapters: columns,
     current,
@@ -348,6 +492,7 @@ export function buildThreadsMatrix(
     volumes: columns.some((c) => c.volume !== ''),
     groups,
     ...(unfiled.length > 0 ? { unfiled: { relPath: book.unfiled.relPath, foreshadowing: unfiled } } : {}),
+    ...(tl ? { timeline: { relPath: tl.relPath, months: columns.some((c) => !!c.time?.month) } } : {}),
     ...(wanted > last ? { clippedFrom: wanted } : {}),
   };
 }
@@ -402,7 +547,8 @@ function foreshadowRows(
   file: ThreadFileBase,
   current: number,
   finalized: ReadonlySet<number>,
-  last: number
+  last: number,
+  dayOf: (no: number) => TimelineDay | undefined = () => undefined
 ): ThreadsOverviewForeshadow[] {
   return foreshadowingOf(file, current).map((f) => {
     const key = threadKey(f.name);
@@ -432,7 +578,7 @@ function foreshadowRows(
       ...(f.closedAt !== undefined ? { closedAt: f.closedAt } : {}),
       overdue: f.overdue,
       ...(span ? { span } : {}),
-      tip: foreshadowTip(f),
+      tip: foreshadowTip(f, plantedDays(f, current, dayOf)),
       cells,
     };
   });
@@ -476,8 +622,18 @@ function spanOf(
   return clip({ from, to: Math.max(...ends), kind: 'planned' });
 }
 
-/** 悬停伏笔名看的几行：是什么、计划第几章埋 / 第几章前收、现在怎样。 */
-function foreshadowTip(f: ForeshadowState): string {
+/** 埋下、还没收的伏笔埋了多少天：埋的那一章开头到 `current` 那一章结尾（时间线推得出两头才有）。 */
+function plantedDays(f: ForeshadowState, current: number, dayOf: (no: number) => TimelineDay | undefined): number | undefined {
+  if (f.status !== '已埋' || f.plantedAt === undefined) {
+    return undefined;
+  }
+  const from = dayOf(f.plantedAt)?.start;
+  const to = dayOf(current)?.end;
+  return from !== undefined && to !== undefined && to >= from ? to - from : undefined;
+}
+
+/** 悬停伏笔名看的几行：是什么、计划第几章埋 / 第几章前收、现在怎样（埋了多少天，时间线推得出时）。 */
+function foreshadowTip(f: ForeshadowState, days?: number): string {
   const plan = [f.plant !== undefined ? `计划第 ${f.plant} 章埋` : '', f.resolve !== undefined ? `第 ${f.resolve} 章前收` : '']
     .filter(Boolean)
     .join('、');
@@ -487,7 +643,7 @@ function foreshadowTip(f: ForeshadowState): string {
       : f.status === '已弃'
         ? `第 ${f.closedAt} 章弃了`
         : f.status === '已埋'
-          ? `第 ${f.plantedAt} 章埋下，还没收`
+          ? `第 ${f.plantedAt} 章埋下，还没收${days !== undefined ? `（故事里已经过了 ${days} 天）` : ''}`
           : '还没埋';
   return [f.what, plan, `${state}${f.overdue ? `，过了第 ${f.resolve} 章（逾期）` : ''}`].filter(Boolean).join('\n');
 }
