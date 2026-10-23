@@ -24,7 +24,7 @@ export const pipelineTool = defineActionTool({
   params: {
     from: int('章号区间的起点。留空从下一个该写的章起。'),
     to: int('章号区间的终点（含）。要给就同时给 from。'),
-    mode: str('批量写章的模式：draft=只写正文（缺省），finalize=每写完一章就定稿（照正文更新细纲 + 出场角色的当前状态 + 叙事线）。', [
+    mode: str('批量写章的模式：draft=只写正文（缺省），finalize=每写完一章就同步（照正文更新细纲 + 出场角色的当前状态 + 叙事线）。', [
       'draft',
       'finalize',
     ]),
@@ -54,7 +54,7 @@ export const pipelineTool = defineActionTool({
       intent(args) {
         const scope = [
           describeRange(args),
-          args.mode === 'finalize' ? '写完即定稿' : '',
+          args.mode === 'finalize' ? '写完即同步' : '',
           args.review === true ? '写完即审稿' : '',
         ]
           .filter(Boolean)
@@ -67,7 +67,7 @@ export const pipelineTool = defineActionTool({
       },
       async run(ctx, args) {
         if (args.mode !== undefined && !isWriteBatchMode(args.mode)) {
-          throw new ArgError('mode 只能是 draft（只写正文）或 finalize（写完即定稿）。');
+          throw new ArgError('mode 只能是 draft（只写正文）或 finalize（写完即同步）。');
         }
         return countedBy(
           await writeManuscripts(ctx.project, {

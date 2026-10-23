@@ -38,10 +38,10 @@ export const extractTool = defineActionTool({
     },
     threadsFromText: {
       label:
-        '从已写正文补记叙事线：定稿过、叙事线还没判的章按章号逐章认这一章在叙事线上发生了什么（每章 1–3 次；一条线都没有时先从情节大纲排一次），只往 .novelforge/threads/ 里追加',
+        '从已写正文补记叙事线：同步过、叙事线还没判的章按章号逐章认这一章在叙事线上发生了什么（每章 1–3 次；一条线都没有时先从情节大纲排一次），只往 .novelforge/threads/ 里追加',
       costly: true,
       async run(ctx) {
-        return countedBy(await backfillThreads(ctx.project), '补记叙事线', '没有要补记的章（叙事线已经跟上定稿，或还没有定稿过的章）');
+        return countedBy(await backfillThreads(ctx.project), '补记叙事线', '没有要补记的章（叙事线已经跟上同步进度，或还没有同步过的章）');
       },
     },
   },

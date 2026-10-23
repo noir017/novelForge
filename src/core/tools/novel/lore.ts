@@ -16,7 +16,7 @@ import { recordLore } from '../../features/loreRecord';
 
 export const loreTool = defineActionTool({
   name: 'lore',
-  summary: '设定条目（地点、势力、物品、概念……）。出现在哪几章以各章定稿过的细纲为准：先定稿再建条目、整合。',
+  summary: '设定条目（地点、势力、物品、概念……）。出现在哪几章以各章同步过的细纲为准：先同步再建条目、整合。',
 
   params: {
     path: str('章节路径（record），或设定条目的工程内相对路径（integrate）。'),
@@ -25,7 +25,7 @@ export const loreTool = defineActionTool({
 
   actions: {
     record: {
-      label: '记设定：给了 path 就单独记那一章（只换细纲的「设定」一节），没给就补记所有还没记过的定稿章',
+      label: '记设定：给了 path 就单独记那一章（只换细纲的「设定」一节），没给就补记所有同步过、还没记过设定的章',
       costly: true,
       uses: ['path'],
       async run(ctx, args) {
@@ -35,7 +35,7 @@ export const loreTool = defineActionTool({
       },
     },
     build: {
-      label: '给定稿里出现过、还没有条目的设定建条目；给了 name 就建那一条，没给就建出现 2 章以上的全部',
+      label: '给同步过的章里出现过、还没有条目的设定建条目；给了 name 就建那一条，没给就建出现 2 章以上的全部',
       costly: true,
       uses: ['name'],
       async run(ctx, args) {
@@ -45,7 +45,7 @@ export const loreTool = defineActionTool({
       },
     },
     integrate: {
-      label: '把定稿里的新内容并进设定条目；给了 path 就整合那一条，没给就是有新内容的全部',
+      label: '把同步过的章里的新内容并进设定条目；给了 path 就整合那一条，没给就是有新内容的全部',
       costly: true,
       uses: ['path'],
       async run(ctx, args) {

@@ -111,7 +111,7 @@ describe('同步与重建：确认框照弹，作者取消就零调用', () => {
       h.confirms.at(-1).message,
       '有 1 章写了正文还没同步（或同步后正文又改过），逐章同步：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么。预计 2–5 次调用。现在同步？'
     );
-    assert.ok(r.text.includes('批量定稿这一次没有调用模型'), r.text);
+    assert.ok(r.text.includes('批量同步这一次没有调用模型'), r.text);
     assert.ok(r.text.includes('不要重试'), r.text);
     assert.equal(fake.calls.length, 0);
     assert.equal(ctx.usage.calls, 0);
@@ -169,7 +169,7 @@ describe('定稿：还没有正文就不花钱', () => {
 
   // 不是参数错，是执行失败：error 前面挂着动作的说法，模型知道是哪一步没成。
   test('error 以动作的说法开头', () => {
-    assert.ok(r.error.startsWith('给一章定稿'), r.error);
+    assert.ok(r.error.startsWith('同步一章'), r.error);
   });
 
   test('一次模型都没调，也一次都不报', () => {
@@ -246,10 +246,10 @@ describe('工具定义本身', () => {
   });
 
   // 定稿 = 照正文反向更新细纲（带连续性事实）+ 出场角色的当前状态 + 叙事线。
-  test('finalize 的说法是「定稿」：反向更新细纲与连续性事实，再更新角色状态、认这一章在叙事线上发生了什么', () => {
+  test('finalize 的说法是「同步」：反向更新细纲与连续性事实，再更新角色状态、认这一章在叙事线上发生了什么', () => {
     assert.ok(
       tool().description.includes(
-        'finalize=给一章定稿（照正文反向更新它的细纲与连续性事实，再更新出场角色的当前状态、认这一章在叙事线上发生了什么（带原文证据记下事件、更新各条线的当前进度，正文里新长出来的线也认出来））（调模型，要 path）'
+        'finalize=同步一章（照正文反向更新它的细纲与连续性事实，再更新出场角色的当前状态、认这一章在叙事线上发生了什么（带原文证据记下事件、更新各条线的当前进度，正文里新长出来的线也认出来））（调模型，要 path）'
       ),
       tool().description
     );

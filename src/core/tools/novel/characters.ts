@@ -23,7 +23,7 @@ const CARD = ['path'];
 
 export const charactersTool = defineActionTool({
   name: 'characters',
-  summary: '角色卡。出场人物以各章定稿过的细纲为准：先定稿（summary finalize）再建卡、更新卡。',
+  summary: '角色卡。出场人物以各章同步过的细纲为准：先同步（summary finalize）再建卡、更新卡。',
 
   params: {
     path: str('那张角色卡的工程内相对路径。'),
@@ -51,7 +51,7 @@ export const charactersTool = defineActionTool({
       },
     },
     createAll: {
-      label: '给定稿里所有还没有卡的出场人物建卡',
+      label: '给同步过的章里所有还没有卡的出场人物建卡',
       costly: true,
       async run(ctx) {
         await createCardsForAllCast(ctx.project);
@@ -111,7 +111,7 @@ export const charactersTool = defineActionTool({
       },
     },
     reviewState: {
-      label: '定稿时作者改过、机器没覆盖的那张卡的「当前状态」：拿出机器那一版请作者对比决定换不换',
+      label: '同步时作者改过、机器没覆盖的那张卡的「当前状态」：拿出机器那一版请作者对比决定换不换',
       costly: false,
       uses: CARD,
       requires: CARD,

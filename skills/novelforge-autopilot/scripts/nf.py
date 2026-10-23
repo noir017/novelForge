@@ -11,7 +11,7 @@
   python nf.py settings                       # 工程页「补齐架构」：前提 / 角色图谱 / 世界观
   python nf.py outline                        # 情节大纲一段段续写，直到覆盖全书
   python nf.py plots [--from 1] [--to N]      # 工程页「批量拆细纲」
-  python nf.py write [--to N] [--review]      # 批量写章（写完即定稿），停了就补、接着下一批
+  python nf.py write [--to N] [--review]      # 批量写章（写完即同步），停了就补、接着下一批
   python nf.py wait                           # 等工程页的长任务跑完
 """
 import argparse, json, os, re, sys, time
@@ -121,9 +121,9 @@ def plot_of(chapter_file):
 
 
 def finalized(chapter_file):
-    """这一章定稿过没有：它镜像的那份细纲的 frontmatter 里记了 `sourceHash`（定稿时记的正文指纹）。
+    """这一章同步过没有：它镜像的那份细纲的 frontmatter 里记了 `sourceHash`（同步时记的正文指纹）。
     细纲拆好之后文件就在，不能拿「文件在不在」判断。这里也不核对正文后来改没改——那要复刻
-    服务端的 contentHash；批量写章停下来的那几章都是从没定稿过的，这一条就够用。"""
+    服务端的 contentHash；批量写章停下来的那几章都是从没同步过的，这一条就够用。"""
     plot = plot_of(chapter_file)
     if not plot:
         return False
@@ -251,7 +251,7 @@ def cmd_status(a):
         fs = chapter_files()
         print('全书    ', cfg, '大纲覆盖到第', outline_coverage(), '章')
         print('细纲    ', len(plot_files()), '份')
-        print('正文    ', len(fs), '章；未定稿', [f for f in fs if not finalized(f)][:20])
+        print('正文    ', len(fs), '章；未同步', [f for f in fs if not finalized(f)][:20])
 
 
 def cmd_send(a):
@@ -324,7 +324,7 @@ def cmd_plots(a):
 
 def cmd_write(a):
     """批量写章的外层循环。批量一次最多 10 章，并且会在三种情况下停：人物提前登场、没写够八成、重演。
-    停下的那一章已经落盘但没定稿——这里先补（字数不够就「接着写」一次），再定稿，再起下一批。"""
+    停下的那一章已经落盘但没同步——这里先补（字数不够就「接着写」一次），再同步，再起下一批。"""
     select_model()
     cfg = book_config()
     total = a.to or cfg.get('totalChapters') or sys.exit('config.md 里没有 totalChapters')
@@ -351,18 +351,18 @@ def cmd_write(a):
                         time.sleep(4)
                 send({'type': 'switchTab', 'tab': 'project'})
                 continue
-            say('定稿', f, wc, '字')
+            say('同步', f, wc, '字')
             send({'type': 'projectAction', 'action': 'finalizeChapter', 'relPath': os.path.relpath(os.path.join(chapters_dir(), f), project_root()).replace('\\', '/')})
             time.sleep(8)
             wait_tasks()
             if not finalized(f):
                 time.sleep(15)
                 if not finalized(f):
-                    sys.exit(f'{f} 定稿没成，停下看 log.txt')
+                    sys.exit(f'{f} 同步没成，停下看 log.txt')
             continue
         n = next_chapter_no()
         if n > total:
-            say('全部', total, '章已写完并定稿')
+            say('全部', total, '章已写完并同步')
             return
         hi = min(n + 9, total)
         say('批量写章', n, '-', hi)

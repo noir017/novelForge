@@ -443,7 +443,7 @@ describe('工具定义本身', () => {
   // 确认框上看得出这一下要动哪几章、要不要定稿——那是作者决定点不点的依据。
   test('动手前那一问写着区间与模式', () => {
     const intent = tool().intent({ action: 'batchManuscripts', from: 5, to: 8, mode: 'finalize', review: true });
-    assert.ok(intent.detail.includes('第 5–8 章，写完即定稿，写完即审稿'), intent.detail);
+    assert.ok(intent.detail.includes('第 5–8 章，写完即同步，写完即审稿'), intent.detail);
   });
 
   test('action 是这四个动作的枚举', () => {
