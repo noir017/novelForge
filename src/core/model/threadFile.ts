@@ -52,6 +52,7 @@ import {
 import { indexText, normalizeQuote, quoteFound } from './review';
 import { nearestSentence } from './continuity';
 import type { ThreadWatch } from './pipeline';
+import type { Timeline } from './timelineFile';
 
 // ---------------------------------------------------------------- 类型
 
@@ -127,6 +128,11 @@ export type UnfiledForeshadowing = ThreadFileBase;
 export interface ThreadBook {
   threads: Thread[];
   unfiled: UnfiledForeshadowing;
+  /**
+   * 故事时间（`threads/时间线.md`，2026-10-24，model/timelineFile.ts）。`readThreads` 总会给（没有这份文件时 `exists` 为 false）；
+   * 手搭的 ThreadBook（测试、纯函数的调用方）可以不给，当没有时间线。
+   */
+  timeline?: Timeline;
 }
 
 /** 状态（现算，不落盘）。 */
@@ -137,6 +143,9 @@ export type ForeshadowStatus = '计划' | '已埋' | '已收' | '已弃';
 
 /** 「未归属的伏笔」的文件名（不含扩展名）。排线、定稿都不许用它当线名。 */
 export const UNFILED_NAME = '未归属的伏笔';
+
+/** 故事时间那份文件的文件名（不含扩展名，model/timelineFile.ts）。也是保留名：排线、定稿都不许用它当线名。 */
+export const TIMELINE_NAME = '时间线';
 
 /** 意图最长多少字（排线写，之后机器不改）。 */
 export const INTENT_MAX = 200;
@@ -165,6 +174,11 @@ export function threadKey(name: string): string {
 
 export function isUnfiledName(name: string): boolean {
   return threadKey(name) === threadKey(UNFILED_NAME);
+}
+
+/** 叙事线目录里的保留名：「未归属的伏笔」与「时间线」。 */
+export function isReservedThreadName(name: string): boolean {
+  return isUnfiledName(name) || threadKey(name) === threadKey(TIMELINE_NAME);
 }
 
 /** 一条线落在哪个文件名上（不含目录）。 */
@@ -1053,8 +1067,8 @@ function nameProblem(name: string): string {
   if ([...name].length > NAME_MAX) {
     return `名字超过 ${NAME_MAX} 字`;
   }
-  if (isUnfiledName(name)) {
-    return `「${UNFILED_NAME}」是保留名`;
+  if (isReservedThreadName(name)) {
+    return `「${isUnfiledName(name) ? UNFILED_NAME : TIMELINE_NAME}」是保留名`;
   }
   return '';
 }

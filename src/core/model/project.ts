@@ -38,7 +38,8 @@ import {
   settingTemplate,
 } from './settingFile';
 import { SettingDoc, isFallbackChapterTitle, isLoreListFilled } from './pipeline';
-import { ThreadBook, ThreadsMark, UNFILED_NAME, parseThreadFile, parseUnfiledFile, threadsMarkOf } from './threadFile';
+import { TIMELINE_NAME, ThreadBook, ThreadsMark, UNFILED_NAME, parseThreadFile, parseUnfiledFile, threadsMarkOf } from './threadFile';
+import { parseTimelineFile } from './timelineFile';
 import {
   countWords,
   exists,
@@ -171,6 +172,11 @@ export class NovelProject {
   /** 挂不上哪一条线的伏笔（`threads/未归属的伏笔.md`）。保留名：排线、定稿都不许用它当线名。 */
   get unfiledPath(): string {
     return path.join(this.threadsDir, `${UNFILED_NAME}.md`);
+  }
+
+  /** 故事时间（`threads/时间线.md`，2026-10-24，格式见 model/timelineFile.ts）。也是保留名。同步时第一次推出时间才建。 */
+  get timelinePath(): string {
+    return path.join(this.threadsDir, `${TIMELINE_NAME}.md`);
   }
 
   /**
@@ -992,7 +998,7 @@ export class NovelProject {
 
   /**
    * 叙事线目录里的文件（工作区相对路径，只列不读）：`threads/` 这一层的 `.md`，各条线按文件名排在前，
-   * 「未归属的伏笔」（有的话）排在最后。线不分子目录，更深的不认（与 `kindOfPath` 同一个口径）。
+   * 「未归属的伏笔」「时间线」（有的话）排在最后。线不分子目录，更深的不认（与 `kindOfPath` 同一个口径）。
    */
   async listThreadPaths(): Promise<string[]> {
     let names: string[];
@@ -1002,30 +1008,34 @@ export class NovelProject {
     } catch {
       return [];
     }
-    const unfiled = this.relPath(this.unfiledPath);
+    const special = [this.relPath(this.unfiledPath), this.relPath(this.timelinePath)];
     const rels = names
       .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true }))
       .map((name) => this.relPath(path.join(this.threadsDir, name)));
-    return [...rels.filter((r) => r !== unfiled), ...rels.filter((r) => r === unfiled)];
+    return [...rels.filter((r) => !special.includes(r)), ...special.filter((r) => rels.includes(r))];
   }
 
   /**
-   * 叙事线：一次把 `threads/` 读完——各条线（按文件名排，`index` 是这个顺序）与「未归属的伏笔」。没有目录、
-   * 没有「未归属的伏笔」都当空的。解析失败退化为认不出的行跳过，绝不抛（第 1 条）。
+   * 叙事线：一次把 `threads/` 读完——各条线（按文件名排，`index` 是这个顺序）、「未归属的伏笔」与故事时间（「时间线」）。没有目录、
+   * 没有那两份保留文件都当空的。解析失败退化为认不出的行跳过，绝不抛（第 1 条）。
    */
   async readThreads(): Promise<ThreadBook> {
     const unfiledRel = this.relPath(this.unfiledPath);
+    const timelineRel = this.relPath(this.timelinePath);
     const threads: ThreadBook['threads'] = [];
     let unfiledRaw = '';
+    let timelineRaw = '';
     for (const rel of await this.listThreadPaths()) {
       const raw = await readText(this.pathOf(rel));
       if (rel === unfiledRel) {
         unfiledRaw = raw;
+      } else if (rel === timelineRel) {
+        timelineRaw = raw;
       } else {
         threads.push(parseThreadFile(raw, rel, threads.length));
       }
     }
-    return { threads, unfiled: parseUnfiledFile(unfiledRaw, unfiledRel) };
+    return { threads, unfiled: parseUnfiledFile(unfiledRaw, unfiledRel), timeline: parseTimelineFile(timelineRaw, timelineRel) };
   }
 
   /**
