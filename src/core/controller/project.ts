@@ -24,6 +24,7 @@ import { explainChapterGap } from '../features/chapterGap';
 import { learnFromReference } from '../features/reference';
 import { generateThreads } from '../features/threads';
 import { backfillThreads } from '../features/threadsBackfill';
+import { backfillTimeline } from '../features/timelineBackfill';
 import { chapterForSummary, rebuildGlobalSummary, syncSummaries } from '../features/summarize';
 import { askFinalizeChapterTask, finalizeChapterTask } from '../features/finalize';
 import { reviewCharacterState } from '../features/characterState';
@@ -179,6 +180,9 @@ export async function projectAction(
       break;
     case 'backfillThreads':
       await backfillThreads(c.project);
+      break;
+    case 'backfillTimeline':
+      await backfillTimeline(c.project);
       break;
     case 'importManuscript':
       await importManuscript(c.project);

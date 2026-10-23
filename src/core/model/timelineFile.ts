@@ -754,6 +754,28 @@ export function lastKnownBefore(tl: Timeline, no: number): { day: TimelineDay; g
   return undefined;
 }
 
+/**
+ * 认事件、补推时交给模型的「上一章的时间」（只看第 `no` 章之前的行）：`第 11 章：三月十四 傍晚（故事第 8 天）〔依据：「…」〕`。
+ * 第 1 章、前面一行都没有、中间隔着没记的章，各说一句。
+ */
+export function previousTimeNote(tl: Timeline, no: number): string {
+  if (no <= 1) {
+    return '这是第 1 章：days 写 0。';
+  }
+  const last = lastKnownBefore(tl, no);
+  if (!last) {
+    return '前面的章还没记时间：只按正文判这一章比上一章晚几天，判不出写 null。';
+  }
+  const d = last.day;
+  const basis = d.basis ? `〔${d.basis.kind}：${d.basis.kind === '依据' ? `「${cut(d.basis.text, 40)}」` : cut(d.basis.text, 40)}〕` : '';
+  const head = `第 ${d.chapter} 章：${describeDaySpan(tl, d)}${basis}`;
+  if (last.gap === 0) {
+    return head;
+  }
+  const skipped = last.gap > 1 ? `第 ${d.chapter + 1}–${no - 1} 章` : `第 ${no - 1} 章`;
+  return `${head}\n（${skipped}的时间还没记；这一章仍只判比上一章晚多久，判不出写 null）`;
+}
+
 /** `大衍三年三月十四 清晨（故事第 8 天）`，跨了几天的另说结尾。 */
 export function describeDaySpan(tl: Pick<Timeline, 'calendar' | 'start'>, d: TimelineDay): string {
   const head = `${describeDay(tl, d)}（故事第 ${d.start} 天）`;

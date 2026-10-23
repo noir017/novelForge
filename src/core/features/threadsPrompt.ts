@@ -14,6 +14,22 @@
  */
 import { FINALIZE_EVENT_LIMIT, FINALIZE_NEW_FORESHADOW_LIMIT, FINALIZE_NEW_THREAD_LIMIT } from '../model/threadFile';
 
+/** 一章的故事时间长什么样（定稿认事件的 `time`、补推的 `times` 里的一项共用，model/timelineFile.ts 的 `verifyTime` 校验）。 */
+const TIME_SHAPE =
+  '{ "days": 1, "span": 1, "part": "清晨", "flashback": "", "evidence": "正文里交代时间的那一句，逐字", "reason": "" }';
+
+/**
+ * 判一章故事时间的规矩（2026-10-24，设计稿 docs/design/plans/2026-10-24-story-timeline.md「一」）：只报相对量——本章开头比上一章
+ * 结尾晚几天，日期由程序从第 1 章往后累加（模型跨几十章算日子会算错）。判不出写 null，不许猜；证据照事件的口径逐字。
+ */
+const TIME_RULES = `时间（time，每一章都要给）：只判这一章开头比上一章结尾晚多久，不要算日期。
+- days：同一天写 0，第二天写 1，三个月后写 90，往回跳（本章写的是上一章之前的事）写负数；正文没交代、场面也接不上、看不出来就写 null，不要猜。
+- span：本章从开头到结尾跨了几天，同一天里写完是 1。
+- part：本章开头的时段（凌晨、清晨、上午、中午、下午、傍晚、夜里、深夜之一），看不出就空着。
+- flashback：整章都是回忆或倒叙时，写大约多久以前（例如「约二十年前」）；否则空着。章里夹一段回忆不算。
+- evidence：正文里交代时间的那一句（「次日清晨」「三天后」「入冬了」所在的那一句），逐字复制；没有这样一句、是从场面接续判出来的（上一章正在打斗，本章接着打），evidence 空着，在 reason 里写为什么这么判，30 字以内。
+- 「上一章的时间」只用来帮你判这一章晚了多久，不要照抄它。`;
+
 /** 排线。`totalChapters` 不知道时不写章号上限；`mainExists` 时叫它别再排主线。 */
 export function threadPlanSystem(totalChapters?: number, mainExists = false): string {
   const range = totalChapters ? `1..${totalChapters} 范围内的整数` : '正整数';
@@ -66,7 +82,8 @@ export const THREAD_FIND_SYSTEM = `你是小说定稿事实审查员。只根据
   ],
   "newForeshadowing": [
     { "title": "新伏笔的名字，12 字以内", "what": "埋下的是什么，一句陈述句，40 字以内", "line": "挂在哪条线上（给出的线或新线的名字；挂不上就不写）", "evidence": "正文里逐字出现的一句短摘录" }
-  ]
+  ],
+  "time": ${TIME_SHAPE}
 }
 
 七种类型：
@@ -93,8 +110,10 @@ export const THREAD_FIND_SYSTEM = `你是小说定稿事实审查员。只根据
 - 「本章计划」里写的是这一章本来要干什么，只用来帮你认；正文里没写到的不要列。
 - 新线只收剧情线（种类四选一），主线全书只有一条；「玉佩的来历」这种要日后揭开的东西是伏笔，不是线。已经给出的线与伏笔不要当新的再报，给出的伏笔已经埋下的不要再报「埋」。
 - 给出的伏笔标着「计划」的还没埋下：正文里第一次露出来报「埋」；还没埋下的伏笔不能直接报「收」「弃」（这一章先露出来、又当场揭开的，「埋」「收」两条都报）。
-- 一条线在本章没有动静就不要列；什么都没有就返回 {"events": [], "newThreads": [], "newForeshadowing": []}。
-- 事件最多 ${FINALIZE_EVENT_LIMIT} 条，新线最多 ${FINALIZE_NEW_THREAD_LIMIT} 条，新伏笔最多 ${FINALIZE_NEW_FORESHADOW_LIMIT} 条。所有内容用简体中文。`;
+- 一条线在本章没有动静就不要列；没有事件、新线、新伏笔就给空数组。
+- 事件最多 ${FINALIZE_EVENT_LIMIT} 条，新线最多 ${FINALIZE_NEW_THREAD_LIMIT} 条，新伏笔最多 ${FINALIZE_NEW_FORESHADOW_LIMIT} 条。所有内容用简体中文。
+
+${TIME_RULES}`;
 
 /** 定稿第三步 b：更新当前进度。线名单独一行（【线】），种类另起一行：写成「名字（种类）」时模型会照抄回来、对不上。 */
 export const THREAD_PROGRESS_SYSTEM = `你是小说的连载编辑。下面几条叙事线在这一章都有了新进展，每条线以「【线】线名」开头。给每一条写一两句「当前进度」：这条线现在走到哪了，读者此刻知道什么、还悬着什么。
@@ -141,3 +160,22 @@ export const THREAD_MERGE_SYSTEM = `你是小说的连载编辑。定稿时从�
 - 线比的是意图：同一条剧情线换了个名字才并；同一个人的另一件事、另一段关系是另一条线。
 - 拿不准就不要并；一条都不该并就返回 {"merges": []}。
 - 所有内容用简体中文。`;
+
+/**
+ * 从正文补推故事时间（2026-10-24，设计稿「二」）：叙事线判过、时间线里还没有的章，几章一批，只判时间。
+ */
+export const TIME_BACKFILL_SYSTEM = `你是小说的时间校对员。下面是按章号排好的连续几章已定稿正文。给每一章判一次故事时间：这一章开头比上一章结尾晚多久。只根据正文，不推测正文没写的事。
+
+请只输出一个 JSON 对象，除 JSON 外不要输出任何文字、解释或前后缀：
+
+{
+  "times": [
+    { "chapter": 12, "days": 1, "span": 1, "part": "清晨", "flashback": "", "evidence": "正文里交代时间的那一句，逐字", "reason": "" }
+  ]
+}
+
+要求：
+- 给出的每一章都要有一项，chapter 照抄章号；第一章的「上一章」是「这一批之前那一章」，后面每一章的「上一章」就是它前面那一章。
+- 每一章各管各的：evidence 只能从这一章的正文里摘。
+
+${TIME_RULES.replace('时间（time，每一章都要给）：', '每一项：')}`;

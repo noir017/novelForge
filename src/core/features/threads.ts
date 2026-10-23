@@ -47,6 +47,15 @@ import { askCall } from './askCall';
 import { hasContent } from '../model/markdown';
 import { PREMISE_SECTION_KEYS } from '../model/settingFile';
 import {
+  TimelineEntry,
+  TimelineWrite,
+  describeTimeEntry,
+  emptyTimeline,
+  previousTimeNote,
+  upsertTimelineEntry,
+  verifyTime,
+} from '../model/timelineFile';
+import {
   FoundEvent,
   FoundForeshadow,
   Foreshadowing,
@@ -397,16 +406,23 @@ export interface ThreadsOutcome {
   progressError?: string;
   /** 归并那一次没成（新认出的照新的建了）。 */
   mergeError?: string;
+  /**
+   * 这一章的故事时间（2026-10-24，并进认事件那一次）：写进时间线的那一行与写成了什么样（`kept` = 时间线里这一章已经有了，没动）；
+   * 模型没给是 `missing`（不写这一行，之后补推能补上）。认事件没成时缺席。
+   */
+  time?: { entry: TimelineEntry; action: TimelineWrite } | { missing: true };
+  /** 时间那一行没写进去（认出来的事件照样记下了）。 */
+  timeError?: string;
 }
 
-interface StepOpts {
+export interface StepOpts {
   run: <T>(what: string, fn: (llm: LlmProvider) => Promise<T>) => Promise<T>;
   budget: { contextWindow: number; maxOutputTokens: number };
   signal?: AbortSignal;
 }
 
-/** 调一次模型、取回 JSON 对象。解析不出来抛错（`what` 写进错误里）。 */
-async function askJson(opts: StepOpts, label: string, system: string, user: string, temperature: number, what: string): Promise<Record<string, unknown>> {
+/** 调一次模型、取回 JSON 对象。解析不出来抛错（`what` 写进错误里）。补推故事时间（features/timelineBackfill.ts）也用它。 */
+export async function askJsonObject(opts: StepOpts, label: string, system: string, user: string, temperature: number, what: string): Promise<Record<string, unknown>> {
   const config = readConfig();
   const options: StreamOptions = {
     maxOutputTokens: opts.budget.maxOutputTokens,
@@ -508,11 +524,14 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
     log.warn(`第 ${no} 章同步：还没收的线与伏笔超过一次能认的条数，有 ${out.skipped.length} 条没送去`, out.skipped.join('、'));
   }
 
+  // 上一章的时间（2026-10-24）：只帮模型判这一章晚了多久，日期由程序算。
+  const timeline = book.timeline ?? emptyTimeline(project.relPath(project.timelinePath));
   // 本章计划：各条线里这一章的计划事件（拆细纲时随细纲写进线里）。
   const plan = plannedFor(book, no).map(
     (p) => `- ${p.line ?? UNFILED_NAME}：${p.event.type}${p.event.foreshadowing ? `〈${p.event.foreshadowing}〉` : ''}——${p.event.what}`
   );
   const rest = [
+    `【上一章的时间】\n${previousTimeNote(timeline, no)}`,
     plan.length > 0 ? `【本章计划（这一章本来要干什么，只帮你认；正文没写到的不要列）】\n${plan.join('\n')}` : '',
     `【还没收束的叙事线】\n${lines.judged.map(judgeLine).join('\n') || '（还没有）'}`,
     `【还没收的伏笔】\n${fores.judged.map(judgeForeshadow).join('\n') || '（还没有）'}`,
@@ -529,7 +548,7 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
 
   // a. 认事件。
   out.calls = 1;
-  const found = await askJson(
+  const found = await askJsonObject(
     opts,
     `第 ${no} 章 · 叙事线`,
     THREAD_FIND_SYSTEM,
@@ -566,7 +585,7 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
       ]
         .filter(Boolean)
         .join('\n\n');
-      const merged = await askJson(opts, `第 ${no} 章 · 叙事线归并`, THREAD_MERGE_SYSTEM, user, 0.1, '归并结果');
+      const merged = await askJsonObject(opts, `第 ${no} 章 · 叙事线归并`, THREAD_MERGE_SYSTEM, user, 0.1, '归并结果');
       // 复跑之后更保守：没给理由的、伏笔名一个相同的词都没有的不并（照新的建），记一笔日志。
       const rejected: { what: string; why: string }[] = [];
       const verified = verifyMerges(Array.isArray(merged.merges) ? merged.merges : [], finds, book, no, rejected);
@@ -596,6 +615,8 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
   await writeFinds(project, finds, no, text, out);
   // 认出来的落了盘，这一章就算判过（四期）：推水位。放在当前进度之前——那一次没成、被取消，认出来的也已经在线里了。
   await noteThreadsJudged(project, no);
+  // 故事时间（2026-10-24）：同一次调用里报的，跟着认出来的一起落盘，也在当前进度之前。
+  await recordTime(project, no, found.time, text, out);
   await updateProgress(project, chapter, out, opts);
 
   log.info(
@@ -626,6 +647,58 @@ export async function noteThreadsJudged(project: NovelProject, no: number): Prom
 
 /** 落在哪条线上的键（缺席是「未归属的伏笔」，键是空串）。 */
 const lineKey = (line: string | undefined): string => (line ? threadKey(line) : '');
+
+/**
+ * 把模型报的这一章的时间写进 `threads/时间线.md`（2026-10-24，设计稿「一、同步时推」）：校验（`verifyTime`：证据逐字、days 为 null
+ * 记推不出）之后**只填空**（`upsertTimelineEntry`：没有这一章的行才写，`+?`〔推不出〕与证据已经不在正文里的才换，作者的行不动）。
+ * 写之前那一刻重读（`updateThread`）。模型没给、写不进去都只记日志与结果，不算认事件失败。
+ */
+export async function recordTime(project: NovelProject, no: number, raw: unknown, text: string, out: ThreadsOutcome): Promise<void> {
+  const verified = verifyTime(raw, { chapter: no, text });
+  if (!verified) {
+    out.time = { missing: true };
+    log.warn(`第 ${no} 章：模型没给这一章的时间，时间线里这一章先空着（叙事线页签可以补推）`);
+    return;
+  }
+  if (verified.notes.length > 0) {
+    log.info(`第 ${no} 章的时间：校验时改过`, verified.notes.join('\n'));
+  }
+  try {
+    const action = await writeTimeEntry(project, verified.entry, text);
+    out.time = { entry: verified.entry, action };
+  } catch (err) {
+    if (err instanceof CancelledError) {
+      throw err;
+    }
+    out.timeError = describeError(err);
+    log.warn(`第 ${no} 章的时间没写进时间线：${out.timeError}`, err);
+  }
+}
+
+/** 一行时间写进时间线（只填空）。返回写成了什么样。 */
+export async function writeTimeEntry(project: NovelProject, entry: TimelineEntry, chapterText: string): Promise<TimelineWrite> {
+  let action: TimelineWrite = 'kept';
+  await new Workspace(project).updateThread(project.relPath(project.timelinePath), (raw) => {
+    const r = upsertTimelineEntry(raw, entry, chapterText);
+    action = r.action;
+    return r.action === 'kept' ? undefined : r.text;
+  });
+  return action;
+}
+
+/** 完成提示里时间那一句（{@link describeThreads} 末尾、补记的汇总）。没有就是空串。 */
+export function describeTimeOutcome(o: Pick<ThreadsOutcome, 'time' | 'timeError'>): string {
+  if (o.timeError) {
+    return `时间没记上（${o.timeError}）`;
+  }
+  if (!o.time) {
+    return '';
+  }
+  if ('missing' in o.time) {
+    return '模型没给这一章的时间（叙事线页签可以补推）';
+  }
+  return o.time.action === 'kept' ? '时间线里这一章已经有了，没改（要重推，删掉那一行再同步）' : describeTimeEntry(o.time.entry);
+}
 
 /**
  * 写盘：清掉这一章证据已经不在正文里的机器事件（⚑7）→ 新线一条一个新文件 → 已有的线与「未归属的伏笔」追加新伏笔与
@@ -762,7 +835,7 @@ async function updateProgress(project: NovelProject, chapter: Chapter, out: Thre
     '\n\n请按要求输出 JSON。';
   out.calls += 1;
   try {
-    const answer = await askJson(opts, `第 ${no} 章 · 叙事线当前进度`, THREAD_PROGRESS_SYSTEM, user, 0.3, '当前进度');
+    const answer = await askJsonObject(opts, `第 ${no} 章 · 叙事线当前进度`, THREAD_PROGRESS_SYSTEM, user, 0.3, '当前进度');
     const list = Array.isArray(answer.progress) ? answer.progress : [];
     const items = verifyProgress(list, send.map((t) => t.name));
     // 送去了却没写上的：说出来（第 2 条），日志里带上模型回的线名，看得出是没回还是名字对不上。
@@ -838,6 +911,7 @@ export function describeThreads(o: ThreadsOutcome): string {
     o.pruned > 0 ? `清掉 ${o.pruned} 条证据已经不在正文里的旧记录` : '',
     o.progressError ? `叙事线的当前进度没更新成（${o.progressError}）` : '',
     o.mergeError ? `叙事线的归并没判成（${o.mergeError}），新认出的照新的建了` : '',
+    describeTimeOutcome(o),
   ].filter(Boolean);
   return [news.length > 0 ? `叙事线：${news.join('；')}` : '叙事线没有新进展', ...extra].join('；');
 }

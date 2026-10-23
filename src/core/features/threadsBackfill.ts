@@ -205,9 +205,11 @@ export function describeBackfill(o: ThreadsBackfillOutcome, plan: Pick<ThreadsBa
   const dropped = sum((r) => r.dropped.length);
   const unwritten = sum((r) => r.unwritten.length);
   const found = [lines > 0 ? `${lines} 条线` : '', fores > 0 ? `${fores} 条伏笔` : ''].filter(Boolean).join('、');
+  // 故事时间（2026-10-24）：认事件那一次顺带推的，写进时间线的那几章。
+  const timed = o.results.filter((r) => r.time && 'entry' in r.time && r.time.action !== 'kept').length;
   const head =
     o.judged.length > 0
-      ? `判了 ${o.judged.length} 章（${describeChapterRuns(o.judged)}），${events > 0 ? `记下 ${events} 个事件` : '没有记下事件'}${found ? `，新认出 ${found}` : ''}`
+      ? `判了 ${o.judged.length} 章（${describeChapterRuns(o.judged)}），${events > 0 ? `记下 ${events} 个事件` : '没有记下事件'}${found ? `，新认出 ${found}` : ''}${timed > 0 ? `，推了 ${timed} 章的故事时间` : ''}`
       : '一章都没判';
   const planned = o.planned
     ? o.planned.error
