@@ -108,7 +108,15 @@ before(async () => {
     db: './src/core/runtime/db.ts',
     errorLog: './src/core/runtime/errorLog.ts',
   });
-  h = makeFakeHost({ supportsVscodeLm: true, settings: makeSettings({ contextWindow: 16000, maxOutputTokens: 1000 }) });
+  // 多配一个模型 strong：右键「重新定稿」的确认框上为这一次换它。对话页选定的（`models` 首项）仍是 m。
+  h = makeFakeHost({
+    supportsVscodeLm: true,
+    settings: makeSettings({
+      contextWindow: 16000,
+      maxOutputTokens: 1000,
+      providers: [{ id: 'fake', kind: 'vscode-lm', models: [{ name: 'm' }, { name: 'strong' }] }],
+    }),
+  });
   bundle.host.initHost(h.host);
   fake = installFakeProvider(bundle.registry, { reply });
   t = await makeTempProject(bundle.project, { prefix: 'finalize', title: '定稿测试' });
@@ -541,5 +549,52 @@ describe('定稿：模型返回解析不了', () => {
   test('失败挂在章节上，说明细纲没有改动', async () => {
     const marks = await failuresOf('chapters/006-雾巷.md');
     assert.ok(marks.some((m) => /无法解析/.test(m.message) && /细纲没有改动/.test(m.detail ?? '')), JSON.stringify(marks));
+  });
+});
+
+// 工程页右键「重新定稿」（2026-10-23 作者要的）：先弹确认框，模型下拉框打开时选着对话页那个，可以为这一次换一个。
+describe('重新定稿（工程页右键）：先问这一次用哪个模型', () => {
+  const PLOT_REL = '.novelforge/summaries/001-第1章.md';
+  /** 这一次的调用都交给了谁。 */
+  const refsUsed = () => [...new Set(fake.calls.map((m) => m.ref))];
+
+  before(() => {
+    stateReply = () => JSON.stringify({ updates: [] });
+  });
+
+  test('取消：不调模型，细纲一个字不动', async () => {
+    const plot = t.read(PLOT_REL);
+    h.expect();
+    fake.reset();
+    assert.equal(await bundle.finalize.refinalizeChapterTask(project, await chapterNo(1)), 0);
+    assert.equal(fake.callCount(), 0);
+    assert.equal(t.read(PLOT_REL), plot);
+  });
+
+  test('确认框报次数、只有一颗「重新定稿」；模型缺省是对话页那个，带详细度下拉框', () => {
+    const [c] = h.confirms;
+    assert.deepEqual(c.actions, ['重新定稿']);
+    assert.match(c.message, /^重新定稿第 1 章《.+》：.*预计 2–5 次调用。$/);
+    assert.equal(c.call.model, 'fake/m');
+    assert.ok(c.call.contextDetail, JSON.stringify(c.call));
+    assert.ok(c.call.models.some((m) => m.ref === 'fake/strong'), JSON.stringify(c.call.models));
+  });
+
+  test('换一个模型：这一次的每次调用都用它，完成提示照旧', async () => {
+    h.expect({ action: '重新定稿', choice: { model: 'fake/strong' } });
+    fake.reset();
+    const calls = await bundle.finalize.refinalizeChapterTask(project, await chapterNo(1));
+    assert.ok(calls >= 2, String(calls));
+    assert.equal(calls, fake.callCount());
+    assert.deepEqual(refsUsed(), ['fake/strong']);
+    assert.ok(h.toasts.some((x) => x.includes('第 1 章已定稿')), h.toasts.join('|'));
+  });
+
+  test('下拉框不动直接点：用对话页那个', async () => {
+    h.expect('重新定稿');
+    fake.reset();
+    await bundle.finalize.refinalizeChapterTask(project, await chapterNo(1));
+    assert.ok(fake.callCount() >= 2, String(fake.callCount()));
+    assert.deepEqual(refsUsed(), ['fake/m']);
   });
 });

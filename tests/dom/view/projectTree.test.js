@@ -621,11 +621,12 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   // 定稿是照正文更新细纲，读的是正文，所以带的必须是 chapters/ 那条路径。
-  test('「重新定稿」发 finalizeChapter，带的是章节路径', () => {
+  // 重新定稿发的是 refinalizeChapter：后端先弹确认框挑这一次的模型。
+  test('「重新定稿」发 refinalizeChapter，带的是章节路径', () => {
     ui.pick(ui.rightClick(plotRow('楔子')), '重新定稿');
     const msg = ui.last('projectAction');
     assert.ok(msg, '没发出 projectAction');
-    assert.equal(msg.action, 'finalizeChapter', JSON.stringify(msg));
+    assert.equal(msg.action, 'refinalizeChapter', JSON.stringify(msg));
     assert.equal(msg.relPath, 'chapters/001-楔子.md', JSON.stringify(msg));
   });
 

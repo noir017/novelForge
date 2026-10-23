@@ -341,6 +341,8 @@ export type ProjectAction =
   | 'newLore'
   | 'newFolder'
   | 'finalizeChapter'
+  /** 工程页右键「重新定稿」：与 `finalizeChapter` 同一件事，先弹确认框挑这一次的模型与详细度。 */
+  | 'refinalizeChapter'
   | 'syncSummaries'
   | 'rebuildGlobalSummary'
   | 'generatePlots'

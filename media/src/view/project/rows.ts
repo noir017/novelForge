@@ -290,11 +290,15 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number): HTMLElement {
     // 定稿、草稿都只对有正文的章成立——两者读的都是正文。
     if (written) {
       // 定稿 = 照正文更新细纲（带连续性事实）+ 出场角色的当前状态（四期，D17）+ 这一章在叙事线上发生了什么
-      // （叙事线重做：认事件、当前进度、归并）。调用次数与主按钮同源。
-      items.push({
-        label: p.stale ? `定稿（细纲 + 角色状态 + 叙事线，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）` : '重新定稿',
-        run: () => projectAction('finalizeChapter', p.chapterPath),
-      });
+      // （叙事线重做：认事件、当前进度、归并）。调用次数与主按钮同源。重新定稿先弹确认框挑这一次的模型。
+      items.push(
+        p.stale
+          ? {
+              label: `定稿（细纲 + 角色状态 + 叙事线，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）`,
+              run: () => projectAction('finalizeChapter', p.chapterPath),
+            }
+          : { label: '重新定稿', run: () => projectAction('refinalizeChapter', p.chapterPath) }
+      );
       // 单独记设定（设定名录，作者定案）：只对定稿过、正文没再改过的章——没定稿的「设定」一节是计划，
       // 记了也会被定稿冲掉。定稿时本来就会顺手记，这里是重记一次、或补老章节。
       if (!p.stale) {

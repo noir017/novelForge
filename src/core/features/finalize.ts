@@ -24,20 +24,25 @@
  *
  * ## 用哪个模型
  *
- * 单章入口（主按钮、章节工作台、右键、MCP 的 `summary finalize`）用对话页选定的那个。批量入口
- * 各走各的档（细纲与叙事线 `plotSummary`、角色状态 `characterCard`），失败换同档其余。
+ * 单章入口（主按钮、章节工作台、右键「定稿」、MCP 的 `summary finalize`）用对话页选定的那个。批量入口
+ * 各走各的档（细纲与叙事线 `plotSummary`、角色状态 `characterCard`），失败换同档其余。工程页右键「重新定稿」
+ * 先弹确认框（`refinalizeChapterTask`），缺省仍是对话页那个，可以为这一次换一个、或按分档。
  *
  * 后两步在 finalizeSteps.ts：工程页黄条上的「立即同步」（summarize.ts 的 `syncSummaries`）更新完细纲之后
  * 也走它们，同步过的章与逐章定稿的章是同一个结果。
  */
 import { getHost } from '../host';
 import { readConfig } from '../config';
+import { createModelPool } from '../llm/pool';
 import { LlmProvider } from '../llm/provider';
 import { resolveProvider } from '../llm/registry';
+import { withCallChoice } from '../runtime/callScope';
 import { scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
+import { FINALIZE_CALLS, describeCalls } from '../model/pipeline';
 import { NovelProject } from '../model/project';
 import { Chapter } from '../model/types';
+import { askCall } from './askCall';
 import { SummaryOutcome, summarizeChapter } from './summarize';
 import { ModelRunner, StateAndThreadsOutcome, updateStateAndThreads } from './finalizeSteps';
 import { describeThreads } from './threads';
@@ -144,15 +149,20 @@ export function describeFinalize(no: number, o: FinalizeOutcome): string {
 
 /**
  * 单章定稿的外壳：进度、日志、完成提示。主按钮、章节工作台、工程页右键与 VS Code 的
- * 「定稿这一章」命令共用这一份（第 11 条：不闷着干活）。返回实际调用次数。
+ * 「定稿这一章」命令共用这一份（第 11 条：不闷着干活）。`runners` 缺省用对话页选定的那个。返回实际调用次数。
  */
-export async function finalizeChapterTask(project: NovelProject, chapter: Chapter): Promise<number> {
+export async function finalizeChapterTask(
+  project: NovelProject,
+  chapter: Chapter,
+  runners: Pick<FinalizeOptions, 'summary' | 'state' | 'threads'> = {}
+): Promise<number> {
   let calls = 0;
   await runTask(
     `定稿第 ${chapter.order} 章`,
     async ({ signal, report }) => {
       report({ message: `《${chapter.title}》 · 细纲`, current: 0, total: 3 });
       const outcome = await finalizeChapter(project, chapter, {
+        ...runners,
         signal,
         onStep: (step) => {
           if (step === 'state') {
@@ -174,4 +184,38 @@ export async function finalizeChapterTask(project: NovelProject, chapter: Chapte
     { scope: '定稿' }
   );
   return calls;
+}
+
+/**
+ * 工程页右键「重新定稿」：先经确认框问这一次用哪个模型、带多少上下文（features/askCall.ts），再走
+ * {@link finalizeChapterTask}。模型下拉框打开时选着对话页那个——直接点「重新定稿」与不问时是同一个模型；
+ * 选「按分档」就与「立即同步」一样各走各的档（细纲与叙事线 `plotSummary`、角色状态 `characterCard`），
+ * 失败换同档其余。取消返回 0。
+ */
+export async function refinalizeChapterTask(project: NovelProject, chapter: Chapter): Promise<number> {
+  const { why, ...calls } = FINALIZE_CALLS;
+  const answer = await askCall({
+    message: `重新定稿第 ${chapter.order} 章《${chapter.title}》：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么。${describeCalls(calls)}。`,
+    actions: ['重新定稿'],
+    detail: `${why}。\n旧版细纲先复制一份进 .novelforge/.trash/。`,
+    tasks: ['plotSummary', 'characterCard'],
+    // 定稿认叙事线带几条线、几条伏笔随详细度（`recordThreads`）。
+    contextDetail: true,
+    preset: { model: readConfig().model || undefined },
+  });
+  if (answer?.action !== '重新定稿') {
+    log.info(`作者取消了重新定稿第 ${chapter.order} 章`);
+    return 0;
+  }
+  return withCallChoice(answer.choice, async () => {
+    const summary = await createModelPool({ task: 'plotSummary', concurrent: false });
+    if (!summary) {
+      getHost().toast('没有可用的模型：先在设置页配一个。', 'error');
+      return 0;
+    }
+    // 角色状态走「角色卡」档（与「立即同步」同一个分法），没配就沿用定稿那一档。
+    const state = (await createModelPool({ task: 'characterCard', concurrent: false })) ?? summary;
+    log.info(`重新定稿第 ${chapter.order} 章，使用模型 ${summary.label}`);
+    return finalizeChapterTask(project, chapter, { summary, state, threads: summary });
+  });
 }
