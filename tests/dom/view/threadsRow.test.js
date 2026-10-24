@@ -8,6 +8,7 @@
  * | 一条线一行，照后端排好的顺序；名字 · 种类 · 状态 · 最近第 N 章 · 几条伏笔没收，⚠ 另起一格 | 一眼看出各条线走到哪、哪条要管 |
  * | 最后一行是「未归属的伏笔 · N 条」；没有就不画 | 挂不上线的伏笔有个地方看 |
  * | 点一行打开那条线的文件，右键「打开」，没有删除 / 改名 | 一条线就是一份 Markdown，作者直接改 |
+ * | 右键「标为收束…」「标为放弃…」发 closeThread / abandonThread（带线的文件）：进行中两样都有，计划中只有放弃，收束了的都没有 | 同步漏报了收束的线由作者补一笔（2026-10-24）；后端先问 |
  * | 当前进度作者改过的黄 ❗ 挂在那一行；排线失败的红 ❗ 挂在标题旁 | 失败留在出错的东西身上（第 16 条） |
  * | 标题旁「从大纲排出 / 从大纲补充」发 generateThreads、不折叠这一组；没有情节大纲不给 | 按钮不直接花钱，后端先弹确认框 |
  * | 一条线都没有时说清先做什么 | 空页签不该只剩一个标题 |
@@ -94,6 +95,26 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
     ui.sent.length = 0;
     ui.pick(ui.rightClick(rowOf('青崖旧案')), '打开');
     assert.equal(ui.last('openFile')?.path, '.novelforge/threads/青崖旧案.md', JSON.stringify(ui.sent));
+  });
+
+  test('右键「标为收束…」「标为放弃…」：进行中两样都有，计划中只有放弃，收束了的都没有', () => {
+    const itemsOf = (name) => {
+      const items = ui.itemsOf(ui.rightClick(rowOf(name)));
+      ui.closeMenu();
+      return items.filter((x) => x.startsWith('标为'));
+    };
+    assert.deepEqual(itemsOf('青崖旧案'), ['标为收束…', '标为放弃…']);
+    assert.deepEqual(itemsOf('李叔的旧账'), ['标为放弃…']);
+    assert.deepEqual(itemsOf('守卫的选择'), []);
+    assert.deepEqual(itemsOf('未归属的伏笔'), []);
+    ui.sent.length = 0;
+    ui.pick(ui.rightClick(rowOf('青崖旧案')), '标为收束…');
+    assert.deepEqual(
+      { action: ui.last('projectAction')?.action, relPath: ui.last('projectAction')?.relPath },
+      { action: 'closeThread', relPath: '.novelforge/threads/青崖旧案.md' }
+    );
+    ui.pick(ui.rightClick(rowOf('李叔的旧账')), '标为放弃…');
+    assert.equal(ui.last('projectAction')?.action, 'abandonThread');
   });
 
   test('组标题：几条 · 几条进行中', () => {

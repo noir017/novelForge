@@ -23,6 +23,13 @@
  * | 收了的线不送、模型提了也不记；重新定稿不重复记，证据已经不在正文里的这一章旧事件清掉 | 设计稿 ⚑7 |
  * | 归并：新认出的其实是已有的那一条，不另建 | 同一样东西只有一份 |
  * | 认事件失败整步没成，当前进度没成只算部分完成；都挂黄 ❗ 在章节上 | 第 16 条 |
+ *
+ * 工程页「标为收束 / 放弃」（2026-10-24）：
+ *
+ * | 断言 | 为什么 |
+ * |---|---|
+ * | 先问一句，取消不写；记在最近一次有动静的那一章、同章写在最后，只追加一行；不带证据，重新同步不清掉 | 同步漏报的收束后面补不回来，作者补一笔；第 3 条 |
+ * | 还没发生过事的只能放弃，记在叙事线判到的那一章；已经收了的不再记 | 没开始的线谈不上收束 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -637,5 +644,76 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
     assert.ok(bundle.finalize.describeFinalize(4, none).includes('叙事线没有新进展'));
     // 什么都没认出：不建线的文件；目录里只有同步时推出来的时间线（故事时间单独一步，2026-10-24 重做）。
     assert.deepEqual(require('fs').readdirSync(require('path').join(t.dir, THREADS)), ['时间线.md']);
+  });
+});
+
+// 2026-10-24：同步漏报了收束（第 7 章就走完了），后面几十章都不会再补报，这条线一直挂「断了 N 章」——作者在工程页上补一笔。
+describe('工程页：作者标为收束 / 放弃', () => {
+  /** 第 7 章其实已经走完的人物线：最后一条线的事件是推进，同一章收了它唯一的伏笔。 */
+  const ODD = [
+    '---',
+    'kind: 人物线',
+    '---',
+    '',
+    '# 异样的目力',
+    '',
+    '## 意图',
+    '林昭能看见别人看不见的东西。',
+    '',
+    '## 伏笔',
+    '- 目力的来历：为什么看得见',
+    '',
+    '## 进展',
+    '- 第 2 章 · 埋〈目力的来历〉：雪地里看见脚印 〔证据：「他看见了雪下的脚印」〕',
+    '- 第 7 章 · 推进：师父说这是正常的 〔证据：「这本是常事」〕',
+    '- 第 7 章 · 收〈目力的来历〉：师父说破了来历 〔证据：「你娘也是这样」〕',
+    '',
+  ].join('\n');
+  const PLANNED = ['---', 'kind: 支线', 'plan: 30-40', '---', '', '# 北境商路', '', '## 意图', '商路之争。', ''].join('\n');
+  const statusOf = async (name) => {
+    project.invalidate();
+    const line = (await project.readThreads()).threads.find((x) => x.name === name);
+    return bundle.threadFile.threadStatus(line);
+  };
+
+  before(async () => {
+    t.write(file('异样的目力'), ODD);
+    t.write(file('北境商路'), PLANNED);
+    await project.writeManifest({ ...(await project.readManifest()), threadsThrough: 82 });
+    project.invalidate();
+  });
+
+  test('取消不写；标为收束：记在最近一次有动静的那一章，同章写在最后，状态变成已收束', async () => {
+    assert.equal(await statusOf('异样的目力'), '进行中');
+    h.confirms.length = 0;
+    await bundle.threads.markThreadEnded(project, file('异样的目力'), '收束');
+    assert.equal(t.read(file('异样的目力')), ODD, '没答就是取消，文件不动');
+    assert.match(h.confirms[0].message, /异样的目力/);
+    assert.match(h.confirms[0].detail, /第 7 章/);
+    assert.match(h.confirms[0].detail, /不调模型/);
+
+    h.expect('标为收束');
+    await bundle.threads.markThreadEnded(project, file('异样的目力'), '收束');
+    const text = t.read(file('异样的目力'));
+    assert.equal(text, `${ODD}- 第 7 章 · 收束：作者标为收束\n`, '只追加一行，别的字节不动');
+    assert.equal(await statusOf('异样的目力'), '已收束');
+    // 不带证据：重新同步第 7 章、正文里找不到也不清掉它。
+    assert.equal(bundle.threadFile.pruneChapterEvents(text, 7, '正文全改了').text.includes('作者标为收束'), true);
+
+    h.toasts.length = 0;
+    await bundle.threads.markThreadEnded(project, file('异样的目力'), '放弃');
+    assert.ok(h.toasts.some((x) => x.includes('已经是「已收束」了')), h.toasts.join('|'));
+  });
+
+  test('还没发生过事的线标不了收束，只能放弃，记在叙事线判到的那一章', async () => {
+    h.toasts.length = 0;
+    await bundle.threads.markThreadEnded(project, file('北境商路'), '收束');
+    assert.equal(t.read(file('北境商路')), PLANNED);
+    assert.ok(h.toasts.some((x) => x.includes('标不了收束')), h.toasts.join('|'));
+
+    h.expect('标为放弃');
+    await bundle.threads.markThreadEnded(project, file('北境商路'), '放弃');
+    assert.match(t.read(file('北境商路')), /## 进展\n\n- 第 82 章 · 放弃：作者标为放弃\n/);
+    assert.equal(await statusOf('北境商路'), '已放弃');
   });
 });

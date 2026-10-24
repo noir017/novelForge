@@ -22,7 +22,7 @@ import { importManuscript } from '../features/importManuscript';
 import { deriveFromText } from '../features/derive';
 import { explainChapterGap } from '../features/chapterGap';
 import { learnFromReference } from '../features/reference';
-import { generateThreads } from '../features/threads';
+import { generateThreads, markThreadEnded } from '../features/threads';
 import { backfillThreads } from '../features/threadsBackfill';
 import { backfillTimeline, refreshTimeline } from '../features/timelineBackfill';
 import { editTimelineEntry, setTimelineStart } from '../features/timelineEdit';
@@ -200,6 +200,12 @@ export async function projectAction(
     case 'setTimelineStart':
       // 时间线组第一行：点了改历法与起点；右键「填为起点」带倒推出来的那一天（name），直接填。
       await setTimelineStart(c.project, batch.name);
+      break;
+    case 'closeThread':
+    case 'abandonThread':
+      if (relPath) {
+        await markThreadEnded(c.project, relPath, action === 'closeThread' ? '收束' : '放弃');
+      }
       break;
     case 'importManuscript':
       await importManuscript(c.project);

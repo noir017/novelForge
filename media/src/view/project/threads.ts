@@ -16,6 +16,8 @@
  *   `nf-threads-query` 有没有人画得了——只有内置编辑器（editor.js）回答，插件形态没有内置编辑器，「总览」与「在总览里看」
  *   都不画（设计稿 ⚑11：VS Code 插件先不做总览；不判断是哪个壳）。一条线、一条未归属的伏笔都没有时也不给（打开了是空的）。
  * - 挂伏笔靠作者在文件里剪贴（设计稿 ⚑10），这里不做「挪」。
+ * - **一行右键「标为收束」「标为放弃」**（2026-10-24）：同步漏报了收束的线（第 7 章就走完了，却一直挂「断了 75 章」）由作者补一笔。
+ *   进行中的两样都给，计划中的只给放弃，收束、放弃了的不给。不调模型，后端先问一句（features/threads.ts 的 `markThreadEnded`）。
  * - **叙事线判到哪**（四期）：定稿了、叙事线还没判的章（拆书导入、补齐整理出来的、补记停在半路的）在页里最上面说一句
  *   「⚠ 第 31–60 章还没判」——线的状态按判到的那一章算，这几章上线里本来就没有事件。文案由后端给（`views/threads.ts`）。
  *   这时标题旁多一个「从正文补记」（右键标题、页里空白处也有）：逐章走定稿第三步，后端先弹确认框写明章数与次数；补记在跑时
@@ -409,10 +411,23 @@ function buildLineRow(tree: ProjectTree, line: ThreadLineView): HTMLElement {
   onContextMenu(row, () => [
     { label: '打开', run: () => openPath(line.relPath) },
     ...overviewItems(tree, line.relPath),
+    ...endingItems(line),
     { sep: true },
     ...baseMenuItems(),
   ]);
   return row;
+}
+
+/** 「标为收束」「标为放弃」：进行中的两样都给，计划中的只给放弃（还没发生过事，谈不上收束），收束、放弃了的不给。 */
+function endingItems(line: ThreadLineView): MenuItem[] {
+  if (line.status === '已收束' || line.status === '已放弃') {
+    return [];
+  }
+  return [
+    { sep: true },
+    ...(line.status === '进行中' ? [{ label: '标为收束…', run: () => projectAction('closeThread', line.relPath) }] : []),
+    { label: '标为放弃…', run: () => projectAction('abandonThread', line.relPath) },
+  ];
 }
 
 /** 「未归属的伏笔 · N 条」：挂不上哪条线的伏笔。作者把一行伏笔连同它的事件剪到某条线的文件里，就是挂上了。 */

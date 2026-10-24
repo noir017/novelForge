@@ -69,7 +69,11 @@ import {
   completeFinds,
   foreshadowNames,
   foreshadowToJudge,
+  foreshadowingOf,
+  isClosed,
+  isForeshadowClosed,
   isForeshadowEvent,
+  lastActiveChapter,
   openForeshadowing,
   parseThreadFile,
   patchProgress,
@@ -840,4 +844,67 @@ export function describeThreads(o: ThreadsOutcome): string {
     o.mergeError ? `叙事线的归并没判成（${o.mergeError}），新认出的照新的建了` : '',
   ].filter(Boolean);
   return [news.length > 0 ? `叙事线：${news.join('；')}` : '叙事线没有新进展', ...extra].join('；');
+}
+
+// ---------------------------------------------------------------- 作者标收束 / 放弃
+
+/** 作者在工程页上能给一条线标的两种结局。 */
+export type ThreadEnding = '收束' | '放弃';
+
+/**
+ * 工程页叙事线一行右键「标为收束」「标为放弃」（2026-10-24 作者定的）：同步漏报了收束，这条线就一直「进行中」、挂着「断了 N 章」——
+ * 认事件只列本章有动静的线，后面几十章都不会再补报。零调用，先问一句；在这条线最近一次实际事件那一章**追加**一条作者事件
+ * （不带证据：重新同步那一章不会清掉它，见 `pruneChapterEvents`；同章写在最后，状态取它）。还没有实际事件的线只能放弃，记在
+ * 叙事线判到的那一章。挂在它下面还没收的伏笔不动（照样提醒，要收要弃在文件里记）。
+ */
+export async function markThreadEnded(project: NovelProject, relPath: string, type: ThreadEnding): Promise<void> {
+  const host = getHost();
+  const t = (await project.readThreads()).threads.find((x) => x.relPath === relPath);
+  if (!t) {
+    host.toast('找不到这条线的文件，可能刚被改名或删掉了。', 'error');
+    return;
+  }
+  const status = threadStatus(t);
+  if (isClosed(status)) {
+    host.toast(`〈${t.name}〉已经是「${status}」了。`);
+    return;
+  }
+  const last = lastActiveChapter(t);
+  if (last === undefined && type === '收束') {
+    host.toast(`〈${t.name}〉还没有发生过任何事，标不了收束；不打算写了就标为放弃。`, 'error');
+    return;
+  }
+  const chapter = last ?? Math.max(1, (await project.readThreadsMark()).through);
+  const open = foreshadowingOf(t, chapter).filter((f) => !isForeshadowClosed(f.status)).length;
+  const verb = `标为${type}`;
+  const picked = await host.confirm(`把〈${t.name}〉${verb}？`, [verb], {
+    modal: true,
+    detail: [
+      `在第 ${chapter} 章${last !== undefined ? '（它最近一次有动静的那一章）' : '（叙事线判到的那一章）'}记一条「${type}」，不调模型。`,
+      '之后它不再算断了、不再送去同步认事件，写正文与拆细纲也不再带它。',
+      open > 0 ? `挂在它下面还有 ${open} 条伏笔没收，这里不动，要收要弃在文件里记。` : '',
+      '想撤销，打开这条线的文件删掉那一行。',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  });
+  if (picked !== verb) {
+    return;
+  }
+  const event: ThreadEvent = { chapter, planned: false, type, what: `作者${verb}` };
+  let added = false;
+  await new Workspace(project).updateThread(relPath, (raw) => {
+    if (!raw.trim()) {
+      return undefined;
+    }
+    const r = appendEvents(raw, [event]);
+    added = r.added.length > 0;
+    return r.text;
+  });
+  if (added) {
+    log.info(`〈${t.name}〉作者${verb}`, `记在第 ${chapter} 章`);
+    host.toast(`〈${t.name}〉已${verb}（记在第 ${chapter} 章）。`);
+  } else {
+    host.toast(`〈${t.name}〉没记上：这条线的文件没了，或那一章已经有一样的一条。`, 'error');
+  }
 }

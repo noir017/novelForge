@@ -392,6 +392,12 @@ export type ProjectAction =
   | 'editTimeline'
   /** 时间线组第一行（0 次）：改历法与起点；`name` 给了就是「填为起点」——直接填那一天，不问。 */
   | 'setTimelineStart'
+  /**
+   * 工程页叙事线一行右键「标为收束」「标为放弃」（2026-10-24）：`relPath` 是那条线的文件。零调用，后端先问一句，在它最近一次
+   * 有动静的那一章追加一条作者事件（features/threads.ts 的 `markThreadEnded`）。
+   */
+  | 'closeThread'
+  | 'abandonThread'
   /** 拆书 A：把工程里的一本 txt 切成章节（零调用；后端弹框挑文件、报切分结果）。 */
   | 'importManuscript'
   /** 拆书 A：从已写正文补齐细纲、角色卡、架构、大纲（只补空白，两次确认）。 */
