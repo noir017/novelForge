@@ -27,7 +27,7 @@ export interface TimelineOverview {
   calendar: { name: '简单历' | '公历'; start: string; suggestion?: { start: string; note: string } };
   /** ⚠ 一条一行（不带 ⚠，前端加）：对账、推不出、认不出、起点、还没推。`chapter` 给了的点了展开那一章。 */
   issues: TimelineIssueView[];
-  /** 筛选下拉里的线：有实际事件的线，按种类（主线 → 支线 → 感情线 → 人物线）与目录里的先后；「未归属的伏笔」排最后。 */
+  /** 筛选下拉里的线：有实际事件的线，按种类（主线 → 支线 → 感情线 → 人物线）与目录里的先后；「未归属的伏笔」排最后。颜色同卡片。 */
   threads: TimelineOverviewThread[];
   /** 轴：按故事日子从早到晚，一个日子一项（没有章的日子不给）。 */
   days: TimelineOverviewDay[];
@@ -39,7 +39,7 @@ export interface TimelineOverview {
   last: number;
 }
 
-/** 一条线：名字与颜色（0–7 循环；-1 是「未归属的伏笔」，灰）。 */
+/** 一条线：名字与颜色（0–7 按线的先后各一色、不循环；第 9 条线起与「未归属的伏笔」一样是 -1，灰——名字总写在标签上）。 */
 export interface TimelineOverviewThread {
   name: string;
   color: number;
@@ -72,6 +72,8 @@ export interface TimelineOverviewCard {
   when: string;
   /** 比上一章：`+2 天`、`同一天`、`往回 3 天`；第 1 章、回忆、没推缺席。 */
   delta?: string;
+  /** 结尾是故事第几天（前端照它算「N 天后」：下一个日子比它晚 2 天以上才画）。回忆缺席。 */
+  end?: number;
   /** 依据「…」、推测：…、推不出：…、正文写明八月十五、你定的、还没推（截短；全文在 `detail`）。 */
   note: string;
   /** 这一章在各条线上实际发生的事（计划的不给），按线的先后、同一条线里照文件里的先后。 */

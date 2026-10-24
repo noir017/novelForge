@@ -170,6 +170,17 @@ describe('时间线总览 · 卡片上的事件', () => {
     const quiet = views.buildTimelineMatrix(book(LINES, threads()), chapters(3));
     assert.ok(!quiet.threads.some((t) => t.name === '未归属的伏笔'));
   });
+
+  test('颜色不循环：前 8 条线各一色，第 9 条起与「未归属的伏笔」一样灰（-1）', () => {
+    const many = Array.from({ length: 10 }, (_, i) => line(`线${i}`, '支线', [ev(1, '推进', `事${i}`)], i));
+    const m = views.buildTimelineMatrix(book(LINES, many), chapters(3));
+    assert.deepEqual(m.threads.map((t) => t.color), [0, 1, 2, 3, 4, 5, 6, 7, -1, -1]);
+  });
+
+  test('卡片带结尾是第几天（前端算「N 天后」）；回忆没有', () => {
+    const m = views.buildTimelineMatrix(book(['- 第 1 章：+0 天，历时 3 天', '- 第 2 章：回忆'], []), chapters(2));
+    assert.deepEqual(m.days[0].cards.map((c) => [c.no, c.end]), [[1, 3], [2, undefined]]);
+  });
 });
 
 describe('时间线总览 · 标题栏与动作', () => {

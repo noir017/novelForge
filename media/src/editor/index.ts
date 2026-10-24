@@ -40,6 +40,7 @@ import { installSaveSafety } from './safety';
 import { matchesShortcut } from './shortcuts';
 import { installShortcutsPanel } from './shortcutsPanel';
 import { installThreadsOverview } from './threadsOverview';
+import { installTimelineOverview } from './timelineOverview';
 import { installWritingStats } from './stats';
 import { installVersions } from './versions';
 import { installViewPrefs } from './viewPrefs';
@@ -361,8 +362,9 @@ function start(stage: HTMLElement): void {
   installFocus();
   // 「帮助 → 快捷键一览」与 Ctrl+/（⚑）：按分组列出 shortcuts.ts 那张表、可以筛选。
   installShortcutsPanel();
-  // 「叙事线总览」特殊标签（叙事线重做三期）：要在 restore() 之前登记，刷新时才认得出存下来的那个标签。
+  // 「叙事线总览」「时间线总览」两个特殊标签（叙事线重做三期；2026-10-24）：要在 restore() 之前登记，刷新时才认得出存下来的标签。
   installThreadsOverview(post);
+  installTimelineOverview(post);
 
   // ---------------------------------------------------------------- 启动
 

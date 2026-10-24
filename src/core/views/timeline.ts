@@ -330,7 +330,10 @@ export interface TimelinePageChapterInput {
   finalized: boolean;
 }
 
-/** 线的颜色几种（前端 `--tlp-c0` 到 `--tlp-c7`）。 */
+/**
+ * 线的颜色几种（前端 `--tlp-c0` 到 `--tlp-c7`，一套校验过色盲区分度的分类色）：按线的先后各一色、**不循环**——第 9 条线起与「未归属的
+ * 伏笔」一样灰（循环的话两条线撞色；名字总写在标签上，颜色只是帮着认）。
+ */
 const THREAD_COLORS = 8;
 /** 卡片上的依据、推测截多少字（全文在详情里）。 */
 const CARD_NOTE_CHARS = 60;
@@ -364,7 +367,7 @@ function issueOnCard(text: string, no: number): string {
  * - **回忆的章**（⚑5）：挂在阅读顺序上前一章那一天里（卡片按章号排，它就跟在那一章后面）；前面一章都没有的挂在第一天；一天都推不出
  *   （整本只有回忆）时给一个第 0 天。
  * - **卡片**：时段、比上一章、依据（截短）、这一章在各条线上**实际**发生的事（计划的不给；线按种类与目录里的先后，颜色按这个先后
- *   8 色循环，⚑4，「未归属的伏笔」灰），一条都没有时给细纲的梗概；对账报了的另列。
+ *   前 8 条各一色、不循环，⚑4，第 9 条起与「未归属的伏笔」一样灰），一条都没有时给细纲的梗概；对账报了的另列。
  * - 时间线写到的最后一章之后、同步过还没推的章不上轴（⚑6，`issues` 里有一条「还没推」）。
  */
 export function buildTimelineMatrix(book: ThreadBook, chapters: readonly TimelinePageChapterInput[]): Omit<TimelineOverview, 'initialized'> {
@@ -385,7 +388,7 @@ export function buildTimelineMatrix(book: ThreadBook, chapters: readonly Timelin
   // 线的先后与颜色：种类（主线 → 支线 → 感情线 → 人物线），同种类按目录里的先后。
   const kindOrder = new Map(THREAD_KINDS.map((k, i) => [k, i]));
   const ordered = [...book.threads].sort((a, b) => (kindOrder.get(a.kind) ?? 0) - (kindOrder.get(b.kind) ?? 0) || a.index - b.index);
-  const files = [...ordered.map((t, i) => ({ file: t, name: t.name, color: i % THREAD_COLORS })), { file: book.unfiled, name: UNFILED_NAME, color: -1 }];
+  const files = [...ordered.map((t, i) => ({ file: t, name: t.name, color: i < THREAD_COLORS ? i : -1 })), { file: book.unfiled, name: UNFILED_NAME, color: -1 }];
   const eventsOf = new Map<number, TimelineOverviewEvent[]>();
   const used = new Set<string>();
   for (const { file, name, color } of files) {
@@ -414,6 +417,7 @@ export function buildTimelineMatrix(book: ThreadBook, chapters: readonly Timelin
       state: d.state,
       when: d.state === 'missing' ? '还没推' : d.state === 'bad' ? '那一行认不出' : cardWhen(tl, d),
       ...(d.delta !== undefined && d.state !== 'missing' && d.state !== 'bad' ? { delta: describeDelta(d.delta) } : {}),
+      ...(d.end !== undefined ? { end: d.end } : {}),
       note: noteOf(d, CARD_NOTE_CHARS),
       events,
       ...(synopsis ? { synopsis } : {}),

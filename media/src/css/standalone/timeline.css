@@ -1,0 +1,376 @@
+/*
+ * 编辑区「时间线总览」标签（2026-10-24，editor/timelineOverview.ts）：竖着按故事里的日子排，挂在一块编辑区的 .ed-stage 上、盖住正文区
+ * （同叙事线总览）。只有独立版有内置编辑器，所以在 standalone 这边。
+ *
+ * - .tlp-scroll 是唯一的滚动容器；月份分隔（.tlp-month）sticky 在顶上。一个日子一行（.tlp-day）：左列那一天（定宽、右对齐）、中间竖轴
+ *   （.tlp-rail：一条线一个点）、右边那一天的卡片。两个日子之间空了几天的那一行（.tlp-gap）竖轴画成点线。
+ * - 线的颜色 --tlp-c0 到 --tlp-c7 是一套校验过色盲区分度的分类色（固定顺序、不循环；深色一套、浅色与护眼一套）。只上在线名前的小色块上，
+ *   线名照正文的颜色写（颜色只是帮着认，名字总写着）。
+ * - 状态点的颜色同工程页「时间线」组（css/view/project.css）：推不出黄、认不出红、推测与没推淡、你定的与正文写明的用强调色。
+ */
+
+:root,
+:root[data-theme='dark'] {
+  --tlp-c0: #3987e5;
+  --tlp-c1: #d95926;
+  --tlp-c2: #199e70;
+  --tlp-c3: #c98500;
+  --tlp-c4: #d55181;
+  --tlp-c5: #008300;
+  --tlp-c6: #9085e9;
+  --tlp-c7: #e66767;
+}
+
+:root[data-theme='light'],
+:root[data-theme='sepia'] {
+  --tlp-c0: #2a78d6;
+  --tlp-c1: #eb6834;
+  --tlp-c2: #1baf7a;
+  --tlp-c3: #eda100;
+  --tlp-c4: #e87ba4;
+  --tlp-c5: #008300;
+  --tlp-c6: #6250d6;
+  --tlp-c7: #e34948;
+}
+
+.tlp {
+  --tlp-when: 7.5em;
+  --tlp-rail: 20px;
+  --tlp-indent: calc(1.1em + 6px);
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font-size: 0.9em;
+}
+
+.tlp-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.tlp-title {
+  font-weight: 600;
+}
+
+.tlp-meta {
+  color: var(--vscode-descriptionForeground);
+}
+
+.tlp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+}
+
+.tlp-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.tlp-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tlp-thread {
+  max-width: 14em;
+}
+
+/* 对账一条一行，不加框（同工程页那一组）；多了自己滚，不把时间轴挤没。 */
+.tlp-issues {
+  flex: 0 0 auto;
+  max-height: 28%;
+  overflow: auto;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.tlp-issue {
+  padding: 1px 0;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  font-size: 0.92em;
+  line-height: 1.5;
+}
+
+.tlp-issue.is-link {
+  cursor: pointer;
+}
+
+.tlp-issue.is-link:hover {
+  text-decoration: underline;
+}
+
+.tlp-note {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 10px 14px;
+}
+
+.tlp-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 16px 40px;
+}
+
+.tlp-axis {
+  max-width: 1000px;
+}
+
+/* ---- 月份、空了几天 */
+
+.tlp-month {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 0 4px;
+  background: var(--vscode-editor-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  font-weight: 600;
+}
+
+.tlp-gap {
+  position: relative;
+  padding: 3px 0 3px calc(var(--tlp-when) + var(--tlp-rail) + 10px);
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.86em;
+}
+
+.tlp-gap::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--tlp-when) + var(--tlp-rail) / 2 - 1px);
+  border-left: 2px dotted var(--vscode-panel-border);
+}
+
+/* ---- 一个日子一行 */
+
+.tlp-day {
+  display: grid;
+  grid-template-columns: var(--tlp-when) var(--tlp-rail) minmax(0, 1fr);
+}
+
+.tlp-when {
+  padding: 8px 10px 0 0;
+  text-align: right;
+}
+
+.tlp-date {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tlp-sub {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.82em;
+}
+
+.tlp-rail {
+  position: relative;
+}
+
+.tlp-rail::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 1px);
+  border-left: 2px solid var(--vscode-panel-border);
+}
+
+.tlp-node {
+  position: absolute;
+  top: 13px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: var(--vscode-textLink-foreground, #3794ff);
+  box-shadow: 0 0 0 2px var(--vscode-editor-background);
+}
+
+.tlp-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 0 10px 10px;
+}
+
+/* ---- 卡片 */
+
+.tlp-card {
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tlp-card:hover {
+  border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.tlp-card.is-selected {
+  border-color: var(--vscode-focusBorder, #007fd4);
+  box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007fd4);
+}
+
+/* 对账报了：左边一道红边（借 andrea-novel-helper 的「对不上直接标红」）。 */
+.tlp-card.has-issue {
+  border-left: 3px solid var(--vscode-errorForeground, #f14c4c);
+}
+
+/* 回忆：虚线框、缩进，跟在阅读顺序上前一章后面（不在轴上）。 */
+.tlp-card.tlp-flashback {
+  margin-left: 28px;
+  border-style: dashed;
+}
+
+/* 还没推、认不出：照推算的位置放着，淡一些。 */
+.tlp-card.tlp-missing,
+.tlp-card.tlp-bad {
+  opacity: 0.75;
+}
+
+.tlp-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tlp-dot {
+  flex: 0 0 1.1em;
+  text-align: center;
+}
+
+.tlp-card-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.tlp-card-time {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.92em;
+  white-space: nowrap;
+}
+
+.tlp-card-note,
+.tlp-more,
+.tlp-synopsis {
+  padding-left: var(--tlp-indent);
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.92em;
+  line-height: 1.5;
+}
+
+.tlp-card-issue {
+  padding-left: var(--tlp-indent);
+  color: var(--vscode-errorForeground, #f14c4c);
+  font-size: 0.92em;
+  line-height: 1.5;
+}
+
+.tlp-events {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding-left: var(--tlp-indent);
+  line-height: 1.5;
+}
+
+.tlp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  padding: 0 6px 0 4px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 3px;
+  font-size: 0.86em;
+  vertical-align: 1px;
+}
+
+.tlp-swatch {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--tlp-color, var(--vscode-descriptionForeground));
+}
+
+.tlp-c0 { --tlp-color: var(--tlp-c0); }
+.tlp-c1 { --tlp-color: var(--tlp-c1); }
+.tlp-c2 { --tlp-color: var(--tlp-c2); }
+.tlp-c3 { --tlp-color: var(--tlp-c3); }
+.tlp-c4 { --tlp-color: var(--tlp-c4); }
+.tlp-c5 { --tlp-color: var(--tlp-c5); }
+.tlp-c6 { --tlp-color: var(--tlp-c6); }
+.tlp-c7 { --tlp-color: var(--tlp-c7); }
+
+.tlp-evidence {
+  padding-left: 1em;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+}
+
+/* 展开的详情：能选中复制。 */
+.tlp-detail {
+  margin-top: 6px;
+  padding: 6px 0 0 var(--tlp-indent);
+  border-top: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.92em;
+  line-height: 1.6;
+  cursor: text;
+  user-select: text;
+}
+
+/* ---- 状态点（同工程页「时间线」组） */
+
+.tlp-guess .tlp-dot,
+.tlp-missing .tlp-dot,
+.tlp-flashback .tlp-dot {
+  color: var(--vscode-descriptionForeground);
+}
+
+.tlp-unknown .tlp-dot {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.tlp-bad .tlp-dot {
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.tlp-anchor .tlp-dot,
+.tlp-dated .tlp-dot {
+  color: var(--vscode-textLink-foreground, #3794ff);
+}

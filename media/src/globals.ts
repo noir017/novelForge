@@ -19,7 +19,7 @@
  *   `nf-check-command`，「视图 → 补全」那一组的 `nf-names-query` / `nf-names-command`，
  *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录），
  *   对话页「加入选区」问内置编辑器选区的 `nf-selection-query`，工程页「叙事线」页签打开编辑区「叙事线总览」的
- *   `nf-threads-query` / `nf-threads-command`，工程页「存档点…」退回时问内置编辑器哪几份没保存的
+ *   `nf-threads-query` / `nf-threads-command`（工程页「时间线」组打开「时间线总览」的 `nf-timeline-query` / `nf-timeline-command` 同样），工程页「存档点…」退回时问内置编辑器哪几份没保存的
  *   `nf-dirty-query`。
  *   `nf-pick-folder` 给目录选择器拦欢迎页的占位 prompt。
  * - `__nfShowMenu`：view 出的「在某处弹一个菜单」（编辑器标签条末尾的「▾」用），与右键菜单是同一个引擎。
@@ -95,6 +95,8 @@ declare global {
     'nf-selection-query': CustomEvent<EditorSelection>;
     'nf-threads-query': CustomEvent<{ available: boolean }>;
     'nf-threads-command': CustomEvent<ThreadsOverviewCommand>;
+    'nf-timeline-query': CustomEvent<{ available: boolean }>;
+    'nf-timeline-command': CustomEvent<TimelineOverviewCommand>;
     'nf-dirty-query': CustomEvent<{ paths: string[] }>;
   }
 }
@@ -505,6 +507,29 @@ export function queryThreadsOverview(): boolean {
 export function commandThreadsOverview(focus?: string): void {
   const detail: ThreadsOverviewCommand = { name: 'open', ...(focus ? { focus } : {}) };
   window.dispatchEvent(new CustomEvent('nf-threads-command', { detail }));
+}
+
+// ---------------------------------------------------------------- 时间线总览（2026-10-24）
+
+/**
+ * 工程页「时间线」组打开编辑区里的「时间线总览」（`editor/timelineOverview.ts`）。`chapter`：打开后展开哪一章、滚过去（点一章、
+ * 点一条带章号的 ⚠）。
+ */
+export interface TimelineOverviewCommand {
+  name: 'open';
+  chapter?: number;
+}
+
+/** 有没有地方画时间线总览。**能力探测**（同 {@link queryThreadsOverview}）：插件形态没有内置编辑器，没人回答就是 false。 */
+export function queryTimelineOverview(): boolean {
+  const status = { available: false };
+  window.dispatchEvent(new CustomEvent('nf-timeline-query', { detail: status }));
+  return status.available;
+}
+
+export function commandTimelineOverview(chapter?: number): void {
+  const detail: TimelineOverviewCommand = { name: 'open', ...(chapter !== undefined ? { chapter } : {}) };
+  window.dispatchEvent(new CustomEvent('nf-timeline-command', { detail }));
 }
 
 // ---------------------------------------------------------------- 工程页「存档点…」
