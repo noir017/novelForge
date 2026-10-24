@@ -1,6 +1,6 @@
 # 预设写作技能
 
-这里的 32 份写作技能改编自 [jarvis-write](https://github.com/ynnyh/jarvis-write) 的三类预设：文风胶囊（写正文）、味道锚（规划）、故事骨架（规划）。它们**不随应用发布**，要用哪份就从 GitHub 装进「我的技能库」，再绑到对应的阶段。
+这里备了 33 份写作技能：32 份改编自 [jarvis-write](https://github.com/ynnyh/jarvis-write) 的三类预设：文风胶囊（写正文）、味道锚（规划）、故事骨架（规划）；另有 1 份是本仓库自己写的[对峙场面去 AI 味](#去-ai-味写正文)（写正文）。它们**不随应用发布**，要用哪份就从 GitHub 装进「我的技能库」，再绑到对应的阶段。
 
 ## 怎么用
 
@@ -58,6 +58,14 @@
 | [废柴逆袭·草根翻身流](https://github.com/noir017/novelForge/tree/main/skills/writing/pattern-underdog) | `pattern-underdog` | 人人踩一脚的底层少年一路翻盘一类的草根逆袭。 |
 | [马甲大佬·多重身份流](https://github.com/noir017/novelForge/tree/main/skills/writing/pattern-secret-identity) | `pattern-secret-identity` | 马甲遍地的扫地僧、全网追的大神就在身边一类的多重身份。 |
 | [甜宠撒糖·糖点密集流](https://github.com/noir017/novelForge/tree/main/skills/writing/pattern-sweet-daily) | `pattern-sweet-daily` | 双向暗恋、欢喜冤家、日常发糖一类的密集甜宠。 |
+
+## 去 AI 味（写正文）
+
+| 技能 | 名字 | 一句话 |
+|---|---|---|
+| [高潮对峙与逻辑去AI味（写正文/修稿）](https://github.com/noir017/novelForge/tree/main/skills/writing/tension-logic-humanizer) | `tension-logic-humanizer` | 对峙交锋、绝境反转一类的高张力场面：伪装者不露强硬动作，删掉金手指参数、报账式求饶与流水账转场。 |
+
+这一份不是改编的：照作者自己一段稿子的改前改后写成，随本仓库的许可（AGPL-3.0），所以 frontmatter 里没有 `license` 与 `origin` 两行。它也是写正文的技能，和文风、内置的「去 AI 味」只能三选一。
 
 ## 来源与改动
 
