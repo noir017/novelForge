@@ -1,0 +1,190 @@
+/*
+ * 触屏（2026-10-24）：Android 壳与手机浏览器打开的就是这一页。区分只用能力探测——
+ * `(hover: none)`：这台设备的主要指针不能悬停（手指）；`(pointer: coarse)`：主要指针粗（手指）。
+ * 放大点击目标那一段另认 `(pointer: none)`：系统里没登记触屏、却照样有人点的设备（Android 模拟器 / 容器、电视盒子
+ * 之类）报的是没有指针，按手指的尺寸给不吃亏。
+ * 不看 UA、不问是哪个壳；鼠标桌面上这几条都不成立，这里一条都不生效。
+ * 窄屏布局（≤900px）是另一回事，在 narrow.css；平板横屏可以是宽屏 + 触屏。
+ */
+
+@media (hover: none) {
+  /*
+   * 长按不选字。长按在手指下就是右键（Chromium 发 contextmenu，弹我们的菜单），可它同时会把手指旁边的字选上、
+   * 冒出选择柄。列表、树、页签、按钮、卡片这些界面元素不是拿来复制的：整页先关掉选字，再给正文与要复制的内容打开。
+   * 输入框、编辑区、预览、对话里的正文与生成的正文、思考过程、工具调用的详情、审稿报告、日志、浮窗里的细纲与失败原因、
+   * 合并视图与历史版本预览、代码片段——这些长按照常选字（菜单照样弹，编辑区的菜单里有剪切 / 复制 / 粘贴）。
+   */
+  body.workbench {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  body.workbench :is(
+      input,
+      textarea,
+      [contenteditable],
+      .ed-preview,
+      .ed-version-preview,
+      .msg-body,
+      .msg-error,
+      .gen-body,
+      .reasoning-body,
+      .tool-detail-text,
+      .review-summary,
+      .review-item-body,
+      .review-quote,
+      .gate-detail,
+      .gate-args,
+      .log-msg,
+      .log-detail,
+      .summary-tip,
+      .failure-tip,
+      .wbt-text,
+      .merge-old,
+      .merge-new,
+      .merge-same,
+      .merge-result,
+      .nf-about-card p,
+      pre,
+      code
+    ) {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  /* 悬停才露出来的东西在手指下常显：没有「移上去」这回事，藏着就等于没有。 */
+  .row-actions {
+    opacity: 1;
+  }
+
+  .msg-menu-btn {
+    opacity: 0.6;
+  }
+
+  /* 没激活的标签上的 × 原本悬停才亮——看不见却点得着，手指一碰就关掉了一个标签。 */
+  .ed-tab .ed-tab-close {
+    opacity: 0.5;
+  }
+}
+
+@media (pointer: coarse), (pointer: none) {
+  /*
+   * 点击目标放大到手指点得中（40px 上下；Material 的下限是 48dp，这里取 40 左右，免得一屏只放得下七八行）。
+   * 只改高度与内边距，不改字号：字号是外观的事，手机上本来就按 density 放大过。
+   */
+  :root {
+    --nf-title-height: 44px;
+    --nf-ctl-height: 34px;
+    --nf-ctl-padding-x: 12px;
+  }
+
+  /* 标题栏：菜单与右边两颗图标按钮 */
+  .wb-menu-btn {
+    min-width: 40px;
+  }
+
+  .icon-btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  /* 活动栏（窄屏上是横排的一行页签）与工程页的页签 */
+  .workbench .tab {
+    min-height: 40px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  button.project-tab {
+    min-height: 40px;
+  }
+
+  /* 菜单项：标题栏下拉、右键菜单、气泡上的 ⋯ 菜单 */
+  .wb-menu-item {
+    height: 40px;
+  }
+
+  .ctx-menu button,
+  .msg-menu button {
+    min-height: 40px;
+    padding: 0 12px;
+  }
+
+  /* 工程页的树与文件页的树：行高 40，折叠箭头在整行高度里都点得着 */
+  .group-toggle {
+    min-height: 40px;
+    align-items: center;
+  }
+
+  .row {
+    min-height: 40px;
+    align-items: center;
+  }
+
+  .row-dir > .caret {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    flex-basis: 24px;
+    margin-left: -6px;
+  }
+
+  .fx-row {
+    min-height: 40px;
+    line-height: 40px;
+  }
+
+  /* 失败的感叹号：手指点它看失败原因（view/project/errorTip.ts），给它一圈够大的点击区 */
+  .row-failure {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    min-height: 32px;
+  }
+
+  /* 编辑器：标签条、标签上的 ×、工具栏与章节条的按钮 */
+  .ed-tabs {
+    min-height: 42px;
+  }
+
+  .ed-tab-close {
+    width: 32px;
+    height: 32px;
+  }
+
+  .ed-tabs-more {
+    width: 40px;
+  }
+
+  .ed-toolbar,
+  .ed-chapter-bar {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  /* 对话页：流水线条的三格、输入框旁的按钮与下拉框（高度跟 --nf-ctl-height） */
+  .pstage {
+    min-height: 34px;
+  }
+
+  .pipeline-new {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  /* 日志、历史这类一行一条的列表 */
+  .log-row {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  /* 拖拽调宽的分隔条（宽屏 + 触屏，比如平板横屏）：点击区加宽到 16px（左右各借 8px，占的宽度仍是 0） */
+  .wb-resizer {
+    flex-basis: 16px;
+    margin-left: -8px;
+    margin-right: -8px;
+  }
+}

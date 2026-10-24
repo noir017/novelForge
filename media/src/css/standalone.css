@@ -50,5 +50,6 @@
 @import './standalone/toast.css';
 @import './standalone/offline.css';
 
-/* 媒体查询放最后 */
+/* 媒体查询放最后：触屏（hover: none / pointer: coarse）先，窄屏压在最后 */
+@import './standalone/touch.css';
 @import './standalone/narrow.css';
