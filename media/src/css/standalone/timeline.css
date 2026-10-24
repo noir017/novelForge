@@ -336,7 +336,8 @@
 .tlp-c6 { --tlp-color: var(--tlp-c6); }
 .tlp-c7 { --tlp-color: var(--tlp-c7); }
 
-.tlp-evidence {
+/* 事件的原文（展开时）。类名别用 `tlp-<状态>`：卡片与图例上已经挂着 `tlp-evidence` 这类状态类。 */
+.tlp-quote {
   padding-left: 1em;
   color: var(--vscode-descriptionForeground);
   font-size: 0.9em;

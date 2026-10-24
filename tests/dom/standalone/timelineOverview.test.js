@@ -254,7 +254,7 @@ describe('时间线总览 · 竖轴与卡片', { skip: JSDOM_SKIP }, () => {
       ]
     );
     assert.equal(c1.querySelector('.tlp-more').textContent, '还有 1 条，点开看');
-    assert.equal(c1.querySelector('.tlp-evidence'), null, '收着时不带原文');
+    assert.equal(c1.querySelector('.tlp-quote'), null, '收着时不带原文');
     assert.equal(c1.querySelector('.tlp-detail'), null);
     // 第 2 章：推测、同一天；没事件给梗概。
     const c2 = h.card(2);
@@ -278,7 +278,7 @@ describe('时间线总览 · 竖轴与卡片', { skip: JSDOM_SKIP }, () => {
     assert.ok(c1.classList.contains('is-open') && c1.classList.contains('is-selected'));
     assert.equal(c1.querySelectorAll('.tlp-event').length, 4);
     assert.equal(c1.querySelector('.tlp-more'), null);
-    assert.deepEqual([...c1.querySelectorAll('.tlp-evidence')].map((e) => e.textContent), ['「雨下了三天」', '「剑停在喉前三寸」', '「他摸了摸玉佩」', '「半截断剑」']);
+    assert.deepEqual([...c1.querySelectorAll('.tlp-quote')].map((e) => e.textContent), ['「雨下了三天」', '「剑停在喉前三寸」', '「他摸了摸玉佩」', '「半截断剑」']);
     assert.equal(c1.querySelector('.tlp-detail').textContent, '第 1 章 · 详情');
     // 点另一张：它选中，第 1 张还展开着、不再选中。
     h.ui.clickEl(h.card(2));

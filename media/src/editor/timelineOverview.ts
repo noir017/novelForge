@@ -482,7 +482,7 @@ function eventEl(e: TimelineOverviewEvent, withEvidence: boolean): HTMLElement {
   const label = e.foreshadowing ? `${e.type}〈${e.foreshadowing}〉` : e.type === '推进' ? '' : e.type;
   row.appendChild(el('span', 'tlp-event-what', label ? `${label}：${e.what}` : e.what));
   if (withEvidence && e.evidence) {
-    row.appendChild(el('div', 'tlp-evidence', `「${e.evidence}」`));
+    row.appendChild(el('div', 'tlp-quote', `「${e.evidence}」`));
   }
   return row;
 }
