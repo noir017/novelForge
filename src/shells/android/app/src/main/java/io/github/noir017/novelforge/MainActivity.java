@@ -203,7 +203,8 @@ public class MainActivity extends Activity {
             Uri u = Uri.parse(url);
             base = new Uri.Builder().scheme(u.getScheme()).encodedAuthority(u.getEncodedAuthority()).build();
             String token = prefs.getString("remote_token", "");
-            showPanel("正在连接 " + base + "…", false);
+            // 地址不通时 WebView 要等半分钟才报错，这期间也得能改地址
+            showPanel("正在连接 " + base + "…", true);
             if (token.isEmpty()) web.loadUrl(base + "/");
             else login(token);
             return;
@@ -335,19 +336,21 @@ public class MainActivity extends Activity {
         form.addView(where);
         Button grant = new Button(this);
         grant.setText("改放 Documents/NovelForge（授权）");
+        grant.setAllCaps(false);
         grant.setOnClickListener(v -> requestStorage());
         form.addView(grant, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         EditText url = new EditText(this);
-        url.setHint("服务器地址，如 http://192.168.1.10:3680");
-        url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        url.setHint("地址，如 192.168.1.10:3680");
         url.setSingleLine(true);
+        url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         url.setText(prefs.getString("remote_url", ""));
         form.addView(url);
         EditText token = new EditText(this);
-        token.setHint("访问令牌（NOVELFORGE_TOKEN，可空：空着就在网页上登录）");
-        token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        token.setHint("访问令牌（可空，空着就在网页上登录）");
+        // setSingleLine 会换掉遮挡字符的 TransformationMethod，必须排在设密码类型之前，不然令牌明文显示
         token.setSingleLine(true);
+        token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         token.setText(prefs.getString("remote_token", ""));
         form.addView(token);
 
