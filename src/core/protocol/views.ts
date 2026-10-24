@@ -16,6 +16,7 @@ import type { ReviewReport } from '../model/review';
 import type { ParagraphStyle } from '../model/paragraphFormat';
 import type { LoreThinKind } from '../model/loreFile';
 import type { ThreadKind, ThreadStatus } from '../model/threadFile';
+import type { TimelineDayState } from '../model/timelineFile';
 import type { SerializedAttachment } from './in';
 
 export interface ViewState {
@@ -140,25 +141,83 @@ export interface ThreadsView {
    */
   watch: ThreadWatch;
   /**
-   * 「时间线」那一行（故事时间，2026-10-24，排在各条线前面）。时间线文件不在、也没有要补推的章时缺席。
+   * 「时间线」那一组（故事时间，2026-10-24；同日重做：从叙事线组里的一行改成叙事线页签里单独一组，排在叙事线组前面）。
+   * 时间线文件不在、也没有要补推的章时缺席。
    */
-  timeline?: TimelineRowView;
+  timeline?: TimelineGroupView;
 }
 
-/** 「叙事线」页签的「时间线」一行：`时间线 · 推到第 30 章 · 现在：三月十四 傍晚 · 过了 46 天`，有问题的另加几个 ⚠。 */
-export interface TimelineRowView {
+/**
+ * 叙事线页签的「时间线」组（2026-10-24 重做，设计稿 docs/design/plans/2026-10-24-story-timeline-rework.md「五」）：标题、历法与起点那一行、
+ * 对账一条一行、章按月（没起点按卷、卷也没有每 20 章）分段一章一行。文案都由后端给（`views/threads.ts`），前端只渲染、只加 ⚠。
+ */
+export interface TimelineGroupView {
   /** `threads/时间线.md`（还没有这份文件时也给：补推会建它）。 */
   relPath: string;
   /** 文件在不在。 */
   exists: boolean;
-  /** 名字后面那一串。 */
-  detail: string;
-  /** 有问题的（不带 ⚠，前端加）：`2 章推不出`、`1 行认不出`、`起点认不出`、`第 3–30 章还没推`。 */
-  warnings: string[];
-  /** 鼠标移上去看的：历法与起点、推不出与作者定的是哪几章、怎么改。 */
-  tip: string;
-  /** 同步过、时间线里还没有的章（「补推时间」那一项）。没有时缺席。 */
+  /** 组标题后面那一串：`推到第 30 章 · 故事第 46 天（大衍三年四月十九 夜里）`。 */
+  label: string;
+  /** 历法与起点那一行。 */
+  calendar: TimelineCalendarView;
+  /** ⚠ 一条一行（不带 ⚠，前端加）：对账、推不出、认不出、起点认不出、还没推。 */
+  issues: TimelineIssueView[];
+  /** 章分段，按章号。 */
+  segments: TimelineSegmentView[];
+  /** 同步过、时间线里还没有（或还推不出）的章（「补推时间」那一项）。没有时缺席。 */
   missing?: { count: number; text: string };
+  /** 机器写的行有几行（「重推」那一项：0 时不给）。 */
+  machine: number;
+  /** 最后一章的章号（「从这一章起重推」到哪一章）。 */
+  last: number;
+}
+
+/** 「时间线」组的第一行：`简单历 · 起点 大衍三年三月初七（第 1 章那一天）`。 */
+export interface TimelineCalendarView {
+  text: string;
+  tip: string;
+  /** 改起点那一问的预填。 */
+  calendarName: '简单历' | '公历';
+  start: string;
+  /** 没起点、正文写明过日子时：倒推出来的起点（右键「填为起点」）。 */
+  suggestion?: { start: string; note: string };
+}
+
+/** 对账、计数的一条。`chapter` 给了的点了打开时间线、定位到那一章（前端按 `chapter` 找那一行）。 */
+export interface TimelineIssueView {
+  text: string;
+  chapter?: number;
+}
+
+/** 一段：`大衍三年三月 · 第 1–12 章 · 14 天`。 */
+export interface TimelineSegmentView {
+  /** 折叠状态的键（前端按它记）。 */
+  key: string;
+  label: string;
+  detail: string;
+  chapters: TimelineChapterView[];
+}
+
+/** 一章一行：`● 第 13 章 夜袭 · 初一 清晨 → 夜里 · +2 天 · 依据「两日后的清晨」`。 */
+export interface TimelineChapterView {
+  no: number;
+  title: string;
+  /** 正文（点这一行打开它）；还没有正文时缺席。 */
+  chapterPath?: string;
+  state: TimelineDayState;
+  /** 那一天：`十四 清晨 → 夜里`，没起点 `第 8 天 清晨`，回忆 `回忆（约二十年前）`，没推 `还没推`。 */
+  when: string;
+  /** 比上一章：`+2 天`、`同一天`、`往回 3 天`；第 1 章、回忆、没推缺席。 */
+  delta?: string;
+  /** 行尾：`依据「…」`、`推测：…`、`推不出：…`、`正文写明八月十五`、`你定的`。 */
+  note: string;
+  tip: string;
+  /** 「改时间…」那一问的预填：这一行现在的值（`+2 天`、`八月十五`）；没有这一行是空串。 */
+  value: string;
+  /** 这一行是机器写的（「重推这一章」给不给）。 */
+  machine: boolean;
+  /** 对账报了这一章。 */
+  issue?: boolean;
 }
 
 /** 「叙事线」页签的一行：`林昭与沈青 · 感情线 · 进行中 · 最近第 12 章 · 2 条伏笔没收`，有问题的另加几个 ⚠。 */

@@ -596,3 +596,14 @@
   color: var(--vscode-descriptionForeground);
   font-style: italic;
 }
+
+/* 正文写明了日子、按它对齐的章（2026-10-24 重做）：同「你定的」一样是可信的那一种，用强调色。 */
+.tov-time-dated {
+  color: var(--vscode-textLink-foreground, #3794ff);
+  font-weight: 700;
+}
+
+/* 对账报了的章：红底，悬停里说为什么。 */
+.tov-time.is-issue {
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 22%, transparent);
+}

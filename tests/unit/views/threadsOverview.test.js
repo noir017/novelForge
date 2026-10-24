@@ -321,7 +321,7 @@ describe('总览 · 故事时间', () => {
 
   test('一列一格：几号、全称、悬停；同一天不写字；月份带的名字；有时间线才给 timeline', () => {
     const m = views.buildThreadsMatrix({ ...book(), timeline: timeline([...LINES, '- 第 5 章：+0 天〔依据：「当天」〕']) }, chapters(), 4);
-    assert.deepEqual(m.timeline, { relPath: `${DIR}/时间线.md`, months: true });
+    assert.deepEqual(m.timeline, { relPath: `${DIR}/时间线.md`, months: true, label: '故事第 10 天' });
     const t = m.chapters.slice(0, 6).map((c) => c.time && [c.time.state, c.time.short, c.time.label, c.time.month ?? '']);
     // 第 5 章 +0 天：接在第 4 章的结尾（历时 2 天，到十六）那一天，和第 4 章开头不是同一天，照写几号。
     assert.deepEqual(t, [

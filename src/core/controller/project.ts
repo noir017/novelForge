@@ -25,6 +25,7 @@ import { learnFromReference } from '../features/reference';
 import { generateThreads } from '../features/threads';
 import { backfillThreads } from '../features/threadsBackfill';
 import { backfillTimeline, refreshTimeline } from '../features/timelineBackfill';
+import { editTimelineEntry, setTimelineStart } from '../features/timelineEdit';
 import { chapterForSummary, rebuildGlobalSummary, syncSummaries } from '../features/summarize';
 import { askFinalizeChapterTask, finalizeChapterTask } from '../features/finalize';
 import { reviewCharacterState } from '../features/characterState';
@@ -187,6 +188,18 @@ export async function projectAction(
     case 'refreshTimeline':
       // 区间来自时间线组：右键一章「重推这一章」「从这一章起重推」；标题旁「重推」不带（全部）。
       await refreshTimeline(c.project, normalizeRange(batch.range) ?? {});
+      break;
+    case 'editTimeline': {
+      // 时间线组右键一章「改时间…」：章号放在 name 里（还没有正文的章也能改）。
+      const no = Number(batch.name);
+      if (Number.isInteger(no) && no > 0) {
+        await editTimelineEntry(c.project, no);
+      }
+      break;
+    }
+    case 'setTimelineStart':
+      // 时间线组第一行：点了改历法与起点；右键「填为起点」带倒推出来的那一天（name），直接填。
+      await setTimelineStart(c.project, batch.name);
       break;
     case 'importManuscript':
       await importManuscript(c.project);

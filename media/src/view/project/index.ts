@@ -45,7 +45,7 @@ import {
 } from './loreFilter';
 import { hideSummaryTip, installSummaryTip } from './summaryTip';
 import { buildPanel, installProjectTabs } from './tabs';
-import { buildThreadRows, threadsGroupLabel, threadsHead, threadsMenuItems } from './threads';
+import { buildThreadRows, buildTimelineRows, threadsGroupLabel, threadsHead, threadsMenuItems, timelineGroupLabel, timelineHead, timelineMenuItems } from './threads';
 import { lastTree, loreView, setLastTree } from './treeState';
 
 export function renderProject(tree: ProjectTree): void {
@@ -260,6 +260,17 @@ function buildProjectPage(tree: ProjectTree): void {
             ? [{ label: `给全部 ${frequent} 个建条目`, run: () => projectAction('buildLore') }, { sep: true }]
             : [],
         build: () => buildLoreUnfiledRows(unfiled, tree.loreRoot),
+      })
+    );
+  }
+
+  // 时间线（故事时间，2026-10-24 重做）：叙事线页签里单独一组，排在叙事线组前面。时间线文件不在、也没有要补推的章时不画。
+  if (tree.threads.timeline) {
+    threads.appendChild(
+      buildGroup('timeline', '时间线', timelineGroupLabel(tree), {
+        extraItems: () => timelineMenuItems(tree),
+        head: timelineHead(tree),
+        build: () => buildTimelineRows(tree, rerenderProject),
       })
     );
   }

@@ -1257,9 +1257,32 @@ export function recentTimeNote(tl: Timeline, no: number, count = RECENT_TIME_CHA
   return lines.join('\n');
 }
 
+/** 这个月是哪个季节（不放宽，同 {@link monthFitsSeason} 的口径）。 */
+export function seasonOfMonth(cal: TimelineCalendar, month: number): TimelineSeason {
+  return SEASONS.find((s) => seasonMonths(cal, s).includes(month)) ?? '春';
+}
+
+/** 一天不带年份的短说法：`三月十二`、`3月12日`；没有起点 `第 8 天`。 */
+function shortDay(tl: Pick<Timeline, 'calendar' | 'start'>, day: number): string {
+  const l = dayLabel(tl, day);
+  if (!l.monthName || !tl.start) {
+    return l.full;
+  }
+  return tl.start.style.day === 'num' || tl.start.style.day === 'iso' || tl.start.style.day === 'slash' ? `${l.monthName}${l.short}日` : `${l.monthName}${l.short}`;
+}
+
+/** 写正文、拆细纲时「最近几章」那一句最多带几章。 */
+const CONTEXT_RECENT_CHAPTERS = 4;
+
 /**
- * 写正文、拆细纲时上下文里「故事时间」那一段（2026-10-24，设计稿「三」）：只看第 `no` 章之前的行（拆细纲传这一批的第一章）。
- * 前面一行能推出来的都没有返回 undefined（什么都不出）。
+ * 写正文、拆细纲时上下文里「故事时间」那一段（2026-10-24，设计稿「三」；同日重做扩成几行：结尾时段、眼下的季节、最近几章的节奏）：
+ * 只看第 `no` 章之前的行（拆细纲传这一批的第一章）。前面一行能推出来的都没有返回 undefined（什么都不出）。
+ *
+ * ```
+ * 上一章（第 11 章）：大衍三年三月十四 傍晚 → 深夜（故事第 8 天）。眼下是春天。
+ * 最近几章：第 8 章 三月十二（+1 天）；第 9 章 同一天；第 10 章 推不出；第 11 章 三月十四（+2 天）。
+ * 本章的时间要接得上；本章细纲「时间地点」写了的照它。
+ * ```
  */
 export function timeContextText(tl: Timeline, no: number, stage: 'write' | 'plot'): string | undefined {
   const last = lastKnownBefore(tl, no);
@@ -1269,9 +1292,28 @@ export function timeContextText(tl: Timeline, no: number, stage: 'write' | 'plot
   const d = last.day;
   const when = describeDaySpan(tl, d);
   const gap = last.gap > 0 ? `（第 ${d.chapter + 1}${last.gap > 1 ? `–${no - 1}` : ''} 章的时间还没记）` : '';
+  const month = tl.start && d.end !== undefined ? monthOfDay(tl, d.end) : undefined;
+  const season = month !== undefined ? `眼下是${seasonOfMonth(tl.calendar, month)}天。` : '';
+  const calc = computeTimeline(tl, no - 1);
+  const recent: string[] = [];
+  for (let c = Math.max(1, no - CONTEXT_RECENT_CHAPTERS); c < no; c++) {
+    const x = calc.days[c - 1];
+    if (!x || x.state === 'missing' || x.state === 'bad') {
+      recent.push(`第 ${c} 章 没记`);
+    } else if (x.state === 'flashback') {
+      recent.push(`第 ${c} 章 回忆`);
+    } else if (x.state === 'unknown') {
+      recent.push(`第 ${c} 章 推不出`);
+    } else if (x.delta === 0) {
+      recent.push(`第 ${c} 章 同一天`);
+    } else {
+      recent.push(`第 ${c} 章 ${shortDay(tl, x.start!)}${x.delta !== undefined ? `（${describeDelta(x.delta)}）` : ''}`);
+    }
+  }
+  const rhythm = recent.length > 1 ? `\n最近几章：${recent.join('；')}。` : '';
   return stage === 'write'
-    ? `${last.gap > 0 ? `已记到第 ${d.chapter} 章` : `上一章（第 ${d.chapter} 章）`}：${when}${gap}。本章的时间要接得上；本章细纲「时间地点」写了的照它。`
-    : `已写到第 ${d.chapter} 章：${when}${gap}。细纲「时间地点」写清每章比上一章晚多久（当天、次日、三天后……），不要和前面打架。`;
+    ? `${last.gap > 0 ? `已记到第 ${d.chapter} 章` : `上一章（第 ${d.chapter} 章）`}：${when}${gap}。${season}${rhythm}\n本章的时间要接得上；本章细纲「时间地点」写了的照它。`
+    : `已写到第 ${d.chapter} 章：${when}${gap}。${season}${rhythm}\n细纲「时间地点」写清每章比上一章晚多久（当天、次日、三天后……），不要和前面打架。`;
 }
 
 /** `大衍三年三月十四 清晨 → 夜里（故事第 8 天）`，跨了几天的另说结尾。 */
@@ -1436,6 +1478,121 @@ export function upsertTimelineEntry(
     lines.push('');
   }
   return { text: bom + lines.join(eol), action: 'added' };
+}
+
+// ---------------------------------------------------------------- 作者在界面上改（2026-10-24 重做，设计稿「五」）
+
+/**
+ * 「改时间…」那一问的字认不认得（写法同文件里一行冒号后面那一截：`八月十五`、`第 20 天`、`+3 天`、`同日`、`回忆`，可以带时段与历时）。
+ * 认得返回 undefined，认不出返回说给作者听的一句。清空（删掉这一行）也认。
+ */
+export function checkTimeInput(text: string, tl: Pick<Timeline, 'calendar' | 'start'>): string | undefined {
+  const t = text.trim();
+  if (!t) {
+    return undefined;
+  }
+  const got = parseTimelineLine(`第 1 章：${t}`, tl.calendar);
+  if (!got || !('entry' in got)) {
+    return `认不出「${t}」：写「八月十五」「第 20 天」「+3 天」「同日」「次日」「回忆」这几种，可以带时段（「八月十五，傍晚」）`;
+  }
+  if (got.entry.value.kind === 'date' && !tl.start) {
+    return '还没填起点，写日期算不出是第几天：先点时间线组第一行填起点，或者写「第 N 天」「+N 天」';
+  }
+  return undefined;
+}
+
+/**
+ * 把第 N 章那一行改成作者给的值（「改时间…」）：值换成作者写的、**去掉行尾的〔依据〕〔推测〕〔推不出〕**（改过就是作者定的，机器不再动，
+ * ⚑11），时段、历时、〔文中〕〔季节〕没另写就照留；作者写了时段、历时的照作者的。清空 = 删掉这一行（留给机器重推）。没有这一行就按章号
+ * 插进去；还没有这份文件按模板新建。别的行、frontmatter 一个字不动。字认不出返回 undefined（调用方先用 {@link checkTimeInput} 拦）。
+ */
+export function setTimelineValue(raw: string, chapter: number, text: string): { text: string; action: 'added' | 'replaced' | 'removed' | 'kept' } | undefined {
+  const source = raw && raw.trim() ? raw : TIMELINE_TEMPLATE;
+  const cal = calendarOf(asString(parseMarkdown(source).frontmatter.calendar));
+  const wanted = text.trim();
+  const typed = wanted ? parseTimelineLine(`第 ${chapter} 章：${wanted}`, cal) : undefined;
+  if (wanted && (!typed || !('entry' in typed))) {
+    return undefined;
+  }
+  const bom = source.startsWith('﻿') ? '﻿' : '';
+  const body = bom ? source.slice(1) : source;
+  const eol = body.includes('\r\n') ? '\r\n' : '\n';
+  const lines = body.split(/\r?\n/u);
+  let from = 0;
+  if (lines[0]?.trim() === '---') {
+    const end = lines.findIndex((l, i) => i > 0 && l.trim() === '---');
+    from = end > 0 ? end + 1 : 0;
+  }
+  for (let i = from; i < lines.length; i++) {
+    const m = BULLET.exec(lines[i]);
+    const got = parseTimelineLine(lines[i].replace(BULLET, '').trim(), cal);
+    if (!got || ('entry' in got ? got.entry.chapter : got.chapter) !== chapter) {
+      continue;
+    }
+    if (!wanted) {
+      lines.splice(i, 1);
+      return { text: bom + lines.join(eol), action: 'removed' };
+    }
+    const old = 'entry' in got ? got.entry : undefined;
+    const row = `${m ? m[0] : ''}${renderTimelineLine(merged(chapter, (typed as { entry: TimelineEntry }).entry, wanted, old))}`;
+    if (row === lines[i]) {
+      return { text: raw, action: 'kept' };
+    }
+    lines[i] = row;
+    return { text: bom + lines.join(eol), action: 'replaced' };
+  }
+  if (!wanted) {
+    return { text: raw, action: 'kept' };
+  }
+  const entry = merged(chapter, (typed as { entry: TimelineEntry }).entry, wanted, undefined);
+  const r = upsertTimelineEntry(source, entry, '', 'fill');
+  return { text: r.text, action: 'added' };
+}
+
+/** 作者写的值并上原来那一行还用得着的几样（时段、历时、〔文中〕〔季节〕）。行尾的依据一律去掉。 */
+function merged(chapter: number, typed: TimelineEntry, text: string, old: TimelineEntry | undefined): TimelineEntry {
+  const saidSpan = /(?:历时|共|跨)\s*\S+\s*(?:天|日|周|星期|月|年)/u.test(text);
+  return {
+    chapter,
+    value: typed.value,
+    ...((typed.part ?? old?.part) ? { part: typed.part ?? old?.part } : {}),
+    ...((typed.endPart ?? old?.endPart) ? { endPart: typed.endPart ?? old?.endPart } : {}),
+    span: saidSpan ? typed.span : (old?.span ?? 1),
+    ...((typed.dateMark ?? old?.dateMark) ? { dateMark: typed.dateMark ?? old?.dateMark } : {}),
+    ...((typed.seasonMark ?? old?.seasonMark) ? { seasonMark: typed.seasonMark ?? old?.seasonMark } : {}),
+  };
+}
+
+/**
+ * 改 frontmatter 的 `calendar` 与 `start`（时间线组第一行「改历法与起点」「填为起点」）：只换这两个键那一行，没有就加在收口的 `---`
+ * 前面；还没有这份文件按模板新建。别的一个字不动。
+ */
+export function setTimelineHead(raw: string, head: { calendar?: TimelineCalendar; start?: string }): string {
+  const source = raw && raw.trim() ? raw : TIMELINE_TEMPLATE;
+  const bom = source.startsWith('﻿') ? '﻿' : '';
+  const body = bom ? source.slice(1) : source;
+  const eol = body.includes('\r\n') ? '\r\n' : '\n';
+  const lines = body.split(/\r?\n/u);
+  if (lines[0]?.trim() !== '---' || lines.findIndex((l, i) => i > 0 && l.trim() === '---') < 0) {
+    lines.unshift('---', '---');
+  }
+  const close = lines.findIndex((l, i) => i > 0 && l.trim() === '---');
+  const set = (key: string, value: string) => {
+    const at = lines.findIndex((l, i) => i > 0 && i < close && new RegExp(`^${key}\\s*:`, 'u').test(l));
+    const row = `${key}: ${value}`;
+    if (at > 0) {
+      lines[at] = row;
+    } else {
+      lines.splice(lines.findIndex((l, i) => i > 0 && l.trim() === '---'), 0, row);
+    }
+  };
+  if (head.calendar) {
+    set('calendar', head.calendar);
+  }
+  if (head.start !== undefined) {
+    set('start', head.start.trim());
+  }
+  return bom + lines.join(eol);
 }
 
 // ---------------------------------------------------------------- 模型的输出

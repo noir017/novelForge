@@ -504,7 +504,12 @@ describe('threads 层 · 故事时间（2026-10-24）', () => {
     assert.equal(item.priority, 1);
     assert.equal(
       item.text,
-      '上一章（第 4 章）：大衍三年三月初十（故事第 4 天）起，历时 2 天，到大衍三年三月十一（第 5 天）。本章的时间要接得上；本章细纲「时间地点」写了的照它。'
+      [
+        '上一章（第 4 章）：大衍三年三月初十（故事第 4 天）起，历时 2 天，到大衍三年三月十一（第 5 天）。眼下是春天。',
+        // 最近几章的节奏（2026-10-24 重做）：回忆不推进时间。
+        '最近几章：第 1 章 三月初七；第 2 章 三月初九（+2 天）；第 3 章 回忆；第 4 章 三月初十（+1 天）。',
+        '本章的时间要接得上；本章细纲「时间地点」写了的照它。',
+      ].join('\n')
     );
     // 叙事线照旧 6 条，故事时间不占它们的名额。
     assert.equal(threadItems(b).filter((i) => i.label.startsWith('叙事线 · ') && i.status === 'included').length, 6);
@@ -526,6 +531,7 @@ describe('threads 层 · 故事时间（2026-10-24）', () => {
     );
     const [item] = storyTime(b);
     assert.match(item.text, /^已写到第 4 章：大衍三年三月初十（故事第 4 天）起，历时 2 天/);
+    assert.match(item.text, /眼下是春天。/);
     assert.match(item.text, /细纲「时间地点」写清每章比上一章晚多久/);
   });
 

@@ -20,29 +20,43 @@
  *   「⚠ 第 31–60 章还没判」——线的状态按判到的那一章算，这几章上线里本来就没有事件。文案由后端给（`views/threads.ts`）。
  *   这时标题旁多一个「从正文补记」（右键标题、页里空白处也有）：逐章走定稿第三步，后端先弹确认框写明章数与次数；补记在跑时
  *   不给（任务名与 features/threadsBackfill.ts 的 `BACKFILL_TASK` 一字不差）。不落后时不给——没有要补的。
+ * - **故事时间单独一组「时间线」**（2026-10-24 重做，设计稿 docs/design/plans/2026-10-24-story-timeline-rework.md「五」）：排在叙事线组前面，
+ *   {@link buildTimelineRows}。第一行历法与起点（点了改），对账一条一行，章按月分段（最后一段默认展开、其余收起，⚑9）一章一行；点一章
+ *   打开正文（⚑10），右键改时间、重推这一章、从这一章起重推。标题旁「补推时间」「重推」「总览」，都先由后端弹确认框。文案后端给。
  */
 import { el as mk } from '../../dom';
 import { commandThreadsOverview, queryThreadsOverview } from '../../globals';
 import type { MenuItem } from '../../globals';
-import type { ProjectTree, ThreadLineView, ThreadUnfiledView, TimelineRowView } from '../../protocol';
+import type { ProjectTree, ThreadLineView, ThreadUnfiledView, TimelineChapterView, TimelineGroupView, TimelineSegmentView } from '../../protocol';
 import { linkBtn } from '../buttons';
 import { onContextMenu } from '../menu';
-import { openPath } from '../store';
+import { openPath, vscode } from '../store';
 import { hasTask } from '../tasks';
 import { baseMenuItems, projectAction } from './actions';
 import { emptyRow, failureMark } from './rows';
-import { indentOf } from './treeState';
+import { indentOf, timelineFolds } from './treeState';
 
 /** 排线的任务名：与 features/threads.ts 的 runTask 一字不差。 */
 const PLAN_TASK = '排叙事线';
 /** 补记的任务名：与 features/threadsBackfill.ts 的 `BACKFILL_TASK` 一字不差。 */
 const BACKFILL_TASK = '从已写正文补记叙事线';
-/** 补推故事时间的任务名：与 features/timelineBackfill.ts 的 `TIMELINE_BACKFILL_TASK` 一字不差。 */
+/** 补推、重推故事时间的任务名：与 features/timelineBackfill.ts 的 `TIMELINE_BACKFILL_TASK` / `TIMELINE_REFRESH_TASK` 一字不差。 */
 const TIME_BACKFILL_TASK = '从正文补推故事时间';
+const TIME_REFRESH_TASK = '重推故事时间';
 
-/** 同步过、时间线里还没有的章（2026-10-24）：给「补推时间」。 */
+/** 补推、重推有一样在跑：两样都不给（同时跑会互相写同一份时间线）。 */
+function timeTaskRunning(): boolean {
+  return hasTask(TIME_BACKFILL_TASK) || hasTask(TIME_REFRESH_TASK);
+}
+
+/** 同步过、时间线里还没有（或还推不出）的章（2026-10-24）：给「补推时间」。 */
 function canBackfillTime(tree: ProjectTree): boolean {
   return !!tree.threads.timeline?.missing;
+}
+
+/** 时间线里有机器写的行：给「重推」。 */
+function canRefreshTime(tree: ProjectTree): boolean {
+  return (tree.threads.timeline?.machine ?? 0) > 0;
 }
 
 /** 叙事线落后于定稿（有定稿了还没判的章）：给「从正文补记」。 */
@@ -88,9 +102,6 @@ export function threadsMenuItems(tree: ProjectTree): MenuItem[] {
   if (canBackfill(tree)) {
     items.push({ label: '从已写正文补记叙事线', run: () => projectAction('backfillThreads') });
   }
-  if (canBackfillTime(tree)) {
-    items.push({ label: '从正文补推故事时间', run: () => projectAction('backfillTimeline') });
-  }
   if (canPlan(tree)) {
     items.push({ label: `${planVerb(tree)}叙事线`, run: () => projectAction('generateThreads') });
   }
@@ -113,12 +124,6 @@ export function threadsHead(tree: ProjectTree): HTMLElement | undefined {
     btn.title = `从已写正文补记叙事线：${tree.threads.lag!.text}，逐章认这一章在叙事线上发生了什么（先弹确认框，每章调用模型 1–3 次）；已有的不动，只往线里追加`;
     box.appendChild(btn);
   }
-  if (canBackfillTime(tree) && !hasTask(TIME_BACKFILL_TASK)) {
-    const btn = linkBtn('补推时间', () => projectAction('backfillTimeline'));
-    btn.classList.add('threads-time-btn');
-    btn.title = `从正文补推故事时间：${tree.threads.timeline!.missing!.text}，几章一批判每章比上一章晚几天（先弹确认框，写明调用次数）；只往时间线里填空，你写的行不动`;
-    box.appendChild(btn);
-  }
   if (canPlan(tree) && !hasTask(PLAN_TASK)) {
     const btn = linkBtn(planVerb(tree), () => projectAction('generateThreads'));
     btn.title = '从情节大纲排叙事线（先弹确认框，调用模型 1 次）；已有的线不动，同名跳过';
@@ -134,15 +139,12 @@ export function threadsHead(tree: ProjectTree): HTMLElement | undefined {
 }
 
 /**
- * 这一页的全部行：（叙事线落后于定稿时）最上面一句「还没判」，「时间线」一行（有的话），一条线一行（后端已排好），最后是「未归属的伏笔」；
+ * 叙事线组的全部行：（叙事线落后于定稿时）最上面一句「还没判」，一条线一行（后端已排好），最后是「未归属的伏笔」；
  * 一条线都没有时说清先做什么。
  */
 export function buildThreadRows(tree: ProjectTree): HTMLElement[] {
-  const { lines, unfiled, lag, timeline } = tree.threads;
+  const { lines, unfiled, lag } = tree.threads;
   const rows = lines.map((line) => buildLineRow(tree, line));
-  if (timeline) {
-    rows.unshift(buildTimelineRow(tree, timeline));
-  }
   if (lag) {
     rows.unshift(buildLagRow(tree, lag));
   }
@@ -178,33 +180,203 @@ function buildLagRow(tree: ProjectTree, lag: NonNullable<ProjectTree['threads'][
   return row;
 }
 
-/**
- * 「时间线」一行（故事时间，2026-10-24）：`时间线 · 推到第 30 章 · 现在：三月十四 傍晚 · 故事里过了 46 天`，有问题的另加 ⚠。点名字打开
- * `threads/时间线.md`（日期在这里与总览上看，改在文件里）；右键：打开、在总览里看、补推时间。补推失败的红 ❗ 挂在这一行上。
- */
-function buildTimelineRow(tree: ProjectTree, tl: TimelineRowView): HTMLElement {
-  const row = mk('div', 'row row-thread row-thread-timeline');
-  row.style.paddingLeft = `${indentOf(0)}px`;
-  row.appendChild(mk('span', 'dot', '◷'));
+/** 一章的状态点：有依据 ●、推测 ○、推不出 ?、没推 ·、你定的 ★、正文写明 ◆、回忆 ↺、认不出 ✕。 */
+const TIME_DOT: Record<TimelineChapterView['state'], string> = {
+  evidence: '●',
+  guess: '○',
+  unknown: '?',
+  missing: '·',
+  anchor: '★',
+  dated: '◆',
+  flashback: '↺',
+  bad: '✕',
+};
+
+const TIME_STATE: Record<TimelineChapterView['state'], string> = {
+  evidence: '有原文依据',
+  guess: '推测的',
+  unknown: '推不出',
+  missing: '还没推',
+  anchor: '你定的',
+  dated: '正文写明了日子',
+  flashback: '整章是回忆',
+  bad: '那一行认不出',
+};
+
+/** 「时间线」组标题后面那一串。 */
+export function timelineGroupLabel(tree: ProjectTree): string {
+  return tree.threads.timeline?.label ?? '';
+}
+
+/** 时间线组标题与组里空白处的右键：补推、重推、改起点、打开文件、总览。 */
+export function timelineMenuItems(tree: ProjectTree): MenuItem[] {
+  const tl = tree.threads.timeline;
+  if (!tl) {
+    return [];
+  }
+  const busy = timeTaskRunning();
+  return [
+    ...(canBackfillTime(tree) && !busy ? [{ label: '从正文补推故事时间', run: () => projectAction('backfillTimeline') }] : []),
+    ...(canRefreshTime(tree) && !busy ? [{ label: `重推机器写的 ${tl.machine} 行…`, run: () => projectAction('refreshTimeline') }] : []),
+    { label: '改历法与起点…', run: () => projectAction('setTimelineStart') },
+    ...(tl.exists ? [{ label: '打开时间线文件', run: () => openPath(tl.relPath) }] : []),
+    ...overviewItems(tree, tl.relPath),
+    { sep: true },
+  ];
+}
+
+/** 时间线组标题旁边那一截：补推 / 重推失败的红 ❗、「补推时间」「重推」「总览」。都没有时是 undefined。 */
+export function timelineHead(tree: ProjectTree): HTMLElement | undefined {
+  const tl = tree.threads.timeline;
+  if (!tl) {
+    return undefined;
+  }
+  const box = mk('span', 'threads-head');
   const mark = failureMark(tl.relPath);
   if (mark) {
-    row.appendChild(mark);
+    box.appendChild(mark);
   }
-  const label = mk('span', 'row-label', '时间线');
-  label.title = [tl.tip, tl.exists ? `${tl.relPath}\n点击打开时间线` : '还没有时间线文件：同步或补推时第一次推出时间就建。'].join('\n\n');
-  if (tl.exists) {
-    label.addEventListener('click', (e) => openPath(tl.relPath, { preview: e.detail < 2 }));
+  const busy = timeTaskRunning();
+  if (canBackfillTime(tree) && !busy) {
+    const btn = linkBtn('补推时间', () => projectAction('backfillTimeline'));
+    btn.classList.add('threads-time-btn');
+    btn.title = `从正文补推故事时间：${tl.missing!.text}，几章一批判每章比上一章晚几天（先弹确认框，写明调用次数）；只往时间线里填空，你写的行不动`;
+    box.appendChild(btn);
   }
+  if (canRefreshTime(tree) && !busy) {
+    const btn = linkBtn('重推', () => projectAction('refreshTimeline'));
+    btn.classList.add('threads-refresh-btn');
+    btn.title = `机器写的 ${tl.machine} 行照正文重新推一遍（先弹确认框，写明会换掉几行、调用次数）；你定的行一个字不动`;
+    box.appendChild(btn);
+  }
+  if (canOverview(tree)) {
+    const btn = linkBtn('总览', () => commandThreadsOverview(tl.relPath));
+    btn.classList.add('threads-overview-btn');
+    btn.title = '在编辑区打开叙事线总览：最上面一组就是时间线，一章一格写这一章是哪天';
+    box.appendChild(btn);
+  }
+  return box.childElementCount > 0 ? box : undefined;
+}
+
+/**
+ * 「时间线」组的全部行：历法与起点、对账一条一行、各段（段头 + 一章一行）。`rerender` 是折叠之后重画（同章节页签的卷）。
+ */
+export function buildTimelineRows(tree: ProjectTree, rerender: () => void): HTMLElement[] {
+  const tl = tree.threads.timeline;
+  if (!tl) {
+    return [];
+  }
+  const rows: HTMLElement[] = [buildCalendarRow(tl)];
+  for (const issue of tl.issues) {
+    const row = mk('div', 'row-conflict timeline-issue', `⚠ ${issue.text}`);
+    if (tl.exists) {
+      row.title = '点击打开时间线（在那里改，或者右键那一章「改时间」）';
+      row.addEventListener('click', () => openPath(tl.relPath));
+    }
+    rows.push(row);
+  }
+  const lastKey = tl.segments[tl.segments.length - 1]?.key;
+  for (const seg of tl.segments) {
+    // 最后一段默认展开、其余默认收起（⚑9）；作者点过的照作者的。
+    const open = timelineFolds.open.has(seg.key) || (seg.key === lastKey && !timelineFolds.closed.has(seg.key));
+    rows.push(buildSegmentHead(seg, open, seg.key === lastKey, rerender));
+    if (open) {
+      for (const c of seg.chapters) {
+        rows.push(buildTimeChapterRow(tree, tl, c));
+      }
+    }
+  }
+  if (tl.segments.length === 0) {
+    rows.push(emptyRow('时间线里还没有一章。同步时会推这一章的时间；已经同步过的章点标题旁的「补推时间」。'));
+  }
+  return rows;
+}
+
+/** 第一行：历法与起点。点了改；没起点、正文写明过日子时右键「填为起点」。 */
+function buildCalendarRow(tl: TimelineGroupView): HTMLElement {
+  const row = mk('div', 'row row-thread row-timeline-calendar');
+  row.style.paddingLeft = `${indentOf(0)}px`;
+  row.appendChild(mk('span', 'dot', '◷'));
+  const label = mk('span', 'row-label', tl.calendar.text);
+  label.title = tl.calendar.tip;
+  label.addEventListener('click', () => projectAction('setTimelineStart'));
   row.appendChild(label);
-  row.appendChild(mk('span', 'meta row-detail', tl.detail));
-  appendWarnings(row, tl.warnings);
+  const suggestion = tl.calendar.suggestion;
   onContextMenu(row, () => [
-    ...(tl.exists ? [{ label: '打开', run: () => openPath(tl.relPath) }, ...overviewItems(tree, tl.relPath)] : []),
-    ...(canBackfillTime(tree) ? [{ label: '从正文补推故事时间', run: () => projectAction('backfillTimeline') }] : []),
+    { label: '改历法与起点…', run: () => projectAction('setTimelineStart') },
+    ...(suggestion ? [{ label: `填为起点「${suggestion.start}」（${suggestion.note}）`, run: () => projectAction('setTimelineStart', undefined, undefined, suggestion.start) }] : []),
+    ...(tl.exists ? [{ label: '打开时间线文件', run: () => openPath(tl.relPath) }] : []),
     { sep: true },
     ...baseMenuItems(),
   ]);
   return row;
+}
+
+/** 一段的段头：`▾ 大衍三年三月 · 第 1–12 章 · 14 天`，点了折叠。 */
+function buildSegmentHead(seg: TimelineSegmentView, open: boolean, last: boolean, rerender: () => void): HTMLElement {
+  const row = mk('div', 'row row-dir row-timeline-segment');
+  row.dataset.segment = seg.key;
+  row.style.paddingLeft = `${indentOf(0)}px`;
+  const caret = mk('span', 'caret', open ? '▾' : '▸');
+  row.appendChild(caret);
+  row.appendChild(mk('span', 'row-label row-dir-label', seg.label));
+  row.appendChild(mk('span', 'meta', seg.detail));
+  const toggle = () => {
+    // 记下作者的选择：默认展开的（最后一段）折起来记在 closed，默认收起的展开记在 open。
+    if (open) {
+      timelineFolds.open.delete(seg.key);
+      if (last) {
+        timelineFolds.closed.add(seg.key);
+      }
+    } else {
+      timelineFolds.closed.delete(seg.key);
+      if (!last) {
+        timelineFolds.open.add(seg.key);
+      }
+    }
+    rerender();
+  };
+  row.addEventListener('click', toggle);
+  return row;
+}
+
+/** 一章一行：状态点、章号与章名、那一天、比上一章、依据；点了打开正文，右键改时间与重推。 */
+function buildTimeChapterRow(tree: ProjectTree, tl: TimelineGroupView, c: TimelineChapterView): HTMLElement {
+  const row = mk('div', `row row-thread row-time-chapter time-${c.state}${c.issue ? ' has-issue' : ''}`);
+  row.dataset.chapter = String(c.no);
+  row.style.paddingLeft = `${indentOf(1)}px`;
+  const dot = mk('span', 'dot', TIME_DOT[c.state]);
+  dot.title = TIME_STATE[c.state];
+  row.appendChild(dot);
+  const label = mk('span', 'row-label', `第 ${c.no} 章${c.title ? ` ${c.title}` : ''}`);
+  label.title = [c.tip, c.chapterPath ? '点击打开这一章；右键改时间' : '右键改时间'].join('\n\n');
+  if (c.chapterPath) {
+    const path = c.chapterPath;
+    label.addEventListener('click', (e) => openPath(path, { preview: e.detail < 2 }));
+  }
+  row.appendChild(label);
+  row.appendChild(mk('span', 'meta row-detail', [c.when, c.delta ?? '', c.note].filter(Boolean).join(' · ')));
+  if (c.issue) {
+    appendWarnings(row, ['对不上']);
+  }
+  const busy = timeTaskRunning();
+  onContextMenu(row, () => [
+    { label: '改时间…', run: () => projectAction('editTimeline', undefined, undefined, String(c.no)) },
+    ...(!busy && (c.machine || c.state === 'missing') ? [{ label: '重推这一章', run: () => refreshRange(c.no, c.no) }] : []),
+    ...(!busy && tl.last > c.no ? [{ label: `从这一章起重推（到第 ${tl.last} 章）`, run: () => refreshRange(c.no, tl.last) }] : []),
+    { sep: true },
+    ...(c.chapterPath ? [{ label: '打开这一章', run: () => openPath(c.chapterPath!) }] : []),
+    ...(tl.exists ? [{ label: '打开时间线文件', run: () => openPath(tl.relPath) }] : []),
+    ...overviewItems(tree, tl.relPath),
+    { sep: true },
+    ...baseMenuItems(),
+  ]);
+  return row;
+}
+
+/** 重推一段（后端先弹确认框）。 */
+function refreshRange(from: number, to: number): void {
+  vscode.postMessage({ type: 'projectAction', action: 'refreshTimeline', range: { from, to } });
 }
 
 /** 状态点：进行中 ●、计划中 ○、已收束 ✓、已放弃 ✕。 */

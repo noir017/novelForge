@@ -24,6 +24,7 @@ export const openGroups: Record<string, boolean> = {
   loreUnfiled: true,
   meta: true,
   threads: true,
+  timeline: true,
 };
 
 /** 展开着的文件夹（relPath 集合）。 */
@@ -46,6 +47,12 @@ export const foldedVolumes = new Set<string>();
  * 用一个对象而不是两个 `export let`：别的模块改不了导入进来的 let 绑定。
  */
 export const loreView = { filter: '', showAllUnfiled: false };
+
+/**
+ * 「时间线」组各段的折叠（2026-10-24 重做）：最后一段默认展开、其余默认收起（⚑9），作者点过的记在这里——默认收起的点开了进 `open`，
+ * 默认展开的（最后一段）折起来进 `closed`。同折叠开合，只在前端。
+ */
+export const timelineFolds = { open: new Set<string>(), closed: new Set<string>() };
 
 /** 最近一次收到的树。折叠时拿它重画即可。 */
 export let lastTree: ProjectTree | null = null;

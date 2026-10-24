@@ -295,6 +295,8 @@ export async function buildProjectTree(project: NovelProject): Promise<ProjectTr
     threads: buildThreadsView(threadBook, finalizedThrough(rows), {
       mark: threadsMarkOf(manifest),
       finalized: finalizedNos(rows),
+      // 「时间线」组一章一行要章名、正文与卷（2026-10-24 重做）。
+      chapters: plotRows.map((p) => ({ no: p.no, title: p.title, chapterPath: p.chapterPath, volume: p.volume })),
     }),
     bookStage,
     nextChapterNo: book.nextChapterNo,

@@ -55,6 +55,8 @@ export interface ThreadsOverviewTime {
   month?: string;
   /** 那一段上写的字：年份跟前一段一样时只写月（`四月`），第一段与跨了年的写全。 */
   monthLabel?: string;
+  /** 对账报了这一章（2026-10-24 重做）：格子标红，悬停里说为什么（已经写在 `tip` 里）。 */
+  issue?: boolean;
 }
 
 /** 格子里的一条事件（悬停看）。 */
@@ -157,8 +159,9 @@ export interface ThreadsOverview {
   unfiled?: { relPath: string; foreshadowing: ThreadsOverviewForeshadow[] };
   /**
    * 故事时间（2026-10-24）：有时间线文件时给——画「故事时间」那一行（点格子、点名字打开这份文件），`months` 时表头多一条月份带。
+   * 同日重做：那一行单独成一组「时间线」，排在主线组前面，组名后写 `label`（「故事第 46 天」）。
    */
-  timeline?: { relPath: string; months: boolean };
+  timeline?: { relPath: string; months: boolean; label: string };
   /**
    * 计划里提到的章号太远（多半是手误，`plan: 3-30000`）、列数被截在上限（`views/threads.ts` 的 `OVERVIEW_MAX_CHAPTERS`）时，
    * 原本要画到第几章。截掉的那几章上的事件不画，界面上照实说一句（第 2 条的精神：不静默截断）。

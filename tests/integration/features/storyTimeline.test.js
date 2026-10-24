@@ -12,6 +12,7 @@
  * | 补推：同步过、正文没再改过、时间线里没有（或还推不出）的章，不要求叙事线判过；不连号的断开成两批；带上一章的结尾 | 作者定的第 4 条；第 4 条 |
  * | 补推：一批没成就停，失败挂在时间线文件上，再点一次接着推、清掉失败；模型漏了的说出来 | 第 2、16 条 |
  * | 重推：机器写的行（依据还在也换）照新推的换，作者写的不动；能只推一段；确认框说会换掉几行、几行不动 | 作者定的第 5 条；第 3、4 条 |
+ * | 改时间：问一句（预填现在的值、认不出的不放行），写下的就是作者定的；清空删掉那一行；改起点先挑历法再问起点，「填为起点」不问 | 作者定的第 2 条；0 次 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -104,6 +105,7 @@ before(async () => {
     finalize: './src/core/features/finalize.ts',
     backfill: './src/core/features/threadsBackfill.ts',
     timeBackfill: './src/core/features/timelineBackfill.ts',
+    timeEdit: './src/core/features/timelineEdit.ts',
     errorLog: './src/core/runtime/errorLog.ts',
     timeline: './src/core/model/timelineFile.ts',
     threadsPrompt: './src/core/features/threadsPrompt.ts',
@@ -324,5 +326,58 @@ describe('模型报的章号对不上：按先后认作送去的那一章', () =
     assert.equal(o.time.missing, undefined);
     assert.ok(t.read(TIMELINE).includes('- 第 1 章：+4 天'), t.read(TIMELINE));
     timeOf = () => undefined;
+  });
+});
+
+describe('作者在界面上改：改时间、改历法与起点（0 次）', () => {
+  test('改时间：预填现在的值、校验写法；写下的去掉行尾那一段，之后重推不动它', async () => {
+    fake.reset();
+    const before = timelineOf().entries.find((e) => e.chapter === 3);
+    assert.ok(bundle.timeline.isMachineEntry(before));
+    h.expect('+6 天，傍晚');
+    await bundle.timeEdit.editTimelineEntry(project, 3);
+    const ask = h.inputs.at(-1);
+    assert.equal(ask.title, '第 3 章的时间');
+    assert.equal(ask.value, bundle.timeline.renderTimeValue(before.value) + (before.part ? `，${before.part}` : ''));
+    assert.match(ask.validate('过了好一阵'), /^认不出/);
+    assert.equal(ask.validate('第 20 天'), undefined);
+    const after = timelineOf().entries.find((e) => e.chapter === 3);
+    assert.deepEqual(after.value, { kind: 'delta', days: 6 });
+    assert.equal(after.part, '傍晚');
+    assert.equal(after.basis, undefined);
+    assert.ok(h.toasts.at(-1).includes('这一行是你定的'), h.toasts.at(-1));
+    assert.equal(fake.callCount(), 0);
+    // 重推第 3 章：你定的，不动。
+    h.expect();
+    await bundle.timeBackfill.refreshTimeline(project, { from: 3, to: 3 });
+    assert.equal(fake.callCount(), 0);
+    assert.deepEqual(timelineOf().entries.find((e) => e.chapter === 3).value, { kind: 'delta', days: 6 });
+  });
+
+  test('改时间：清空就是删掉那一行；取消（没答）什么都不动', async () => {
+    const before = t.read(TIMELINE);
+    h.expect(undefined);
+    await bundle.timeEdit.editTimelineEntry(project, 3);
+    assert.equal(t.read(TIMELINE), before);
+    h.expect('');
+    await bundle.timeEdit.editTimelineEntry(project, 3);
+    assert.ok(!timelineOf().entries.some((e) => e.chapter === 3));
+    assert.ok(h.toasts.at(-1).includes('删掉了'), h.toasts.at(-1));
+  });
+
+  test('改历法与起点：先挑历法、再问起点（校验写法）；「填为起点」直接填、不问', async () => {
+    h.expect('公历', '2026-03-07');
+    await bundle.timeEdit.setTimelineStart(project);
+    assert.deepEqual(h.picks.at(-1).choices.map((c) => c.value), ['简单历', '公历']);
+    assert.match(h.inputs.at(-1).validate('很久以前'), /^认不出/);
+    let tl = timelineOf();
+    assert.equal(tl.calendar, '公历');
+    assert.equal(tl.startText, '2026-03-07');
+    h.expect();
+    await bundle.timeEdit.setTimelineStart(project, '2026-03-05');
+    assert.equal(h.inputs.length + h.picks.length, 0);
+    tl = timelineOf();
+    assert.equal(tl.calendar, '公历');
+    assert.equal(tl.startText, '2026-03-05');
   });
 });

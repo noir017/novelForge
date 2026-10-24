@@ -750,7 +750,7 @@ describe('叙事线总览 · 换工程', { skip: JSDOM_SKIP }, () => {
   });
 });
 
-// 故事时间（2026-10-24）：表头的月份带、线上面一行「故事时间」，点它打开时间线文件。
+// 故事时间（2026-10-24）：表头的月份带、线上面一行「故事时间」，点它打开时间线文件；同日重做：那一行单独成一组「时间线」，排在主线组前面。
 describe('叙事线总览 · 故事时间', { skip: JSDOM_SKIP }, () => {
   const TL = T('时间线');
   const time = (state, short, label, month, tip = `${label}\n点击打开时间线（在那里改）`) => ({ state, short, label, tip, ...(month ? { month } : {}) });
@@ -765,7 +765,8 @@ describe('叙事线总览 · 故事时间', { skip: JSDOM_SKIP }, () => {
       time('flashback', '忆', '回忆（约二十年前）'),
     ];
     o.chapters = o.chapters.map((c, i) => (times[i] ? { ...c, time: times[i] } : c));
-    return { ...o, timeline: { relPath: TL, months: true } };
+    o.chapters[3] = { ...o.chapters[3], time: { ...o.chapters[3].time, issue: true } };
+    return { ...o, timeline: { relPath: TL, months: true, label: '故事第 26 天' } };
   }
   let h;
   beforeEach(() => {
@@ -784,16 +785,18 @@ describe('叙事线总览 · 故事时间', { skip: JSDOM_SKIP }, () => {
     assert.ok(head.classList.contains('tov-header-months') && head.classList.contains('tov-header-vols'));
   });
 
-  test('线上面一行「故事时间」：几号、同一天画点、推不出 ?、回忆「忆」；没有时间的章不画', () => {
-    const row = h.row(TL);
-    assert.ok(row?.classList.contains('tov-row-time'));
-    // 排在表头之后、第一组之前。
-    assert.ok(row.previousElementSibling.classList.contains('tov-header'));
+  test('「时间线」一组排在表头之后、主线组之前，组名后写故事第几天；下面一行「故事时间」：几号、同一天画点、推不出 ?、回忆「忆」；对账报了的标红', () => {
+    const row = h.doc.querySelector('.tov-row-time');
+    assert.equal(row.dataset.path, TL);
+    const head = row.previousElementSibling;
+    assert.ok(head.classList.contains('tov-row-group'));
+    assert.equal(head.textContent, '时间线故事第 26 天');
+    assert.ok(head.previousElementSibling.classList.contains('tov-header'));
     const cells = [...row.querySelectorAll('.tov-time')];
     assert.deepEqual(cells.map((c) => c.textContent), ['初七', '·', '初一', '?', '忆']);
     assert.deepEqual(
       cells.map((c) => c.className.replace('tov-time tov-time-', '')),
-      ['evidence', 'guess', 'anchor', 'unknown', 'flashback']
+      ['evidence', 'guess', 'anchor', 'unknown is-issue', 'flashback']
     );
     assert.equal(cells[2].style.left, '48px');
     assert.match(cells[0].title, /大衍三年三月初七 傍晚/);
@@ -801,8 +804,9 @@ describe('叙事线总览 · 故事时间', { skip: JSDOM_SKIP }, () => {
 
   test('点「故事时间」名字、点格子：打开时间线文件（这一行是拿来改时间的），开在总览所在的这一块', () => {
     const n = h.ui.sent.length;
-    h.ui.clickEl(h.row(TL).querySelector('.tov-link'));
-    h.ui.clickEl(h.row(TL).querySelectorAll('.tov-time')[3]);
+    const row = h.doc.querySelector('.tov-row-time');
+    h.ui.clickEl(row.querySelector('.tov-link'));
+    h.ui.clickEl(row.querySelectorAll('.tov-time')[3]);
     assert.deepEqual(h.sentAfter(n), [
       { type: 'openEditor', path: TL, pane: 'main' },
       { type: 'openEditor', path: TL, pane: 'main' },

@@ -386,7 +386,9 @@ function buildGrid(d: ThreadsOverview): HTMLElement {
   const grid = el('div', 'tov-grid');
   grid.style.width = `${NAME_WIDTH + cols * CELL}px`;
   grid.appendChild(buildHeader(d));
+  // 时间线单独一组（2026-10-24 重做，同工程页的叙事线页签），排在主线组前面。
   if (d.timeline) {
+    grid.appendChild(groupRow('时间线', d.timeline.label, d.timeline.relPath, '一章一格：这一章开头是哪天。点击打开时间线文件；改时间也可以在工程页叙事线页签的「时间线」组里右键那一章。'));
     grid.appendChild(timeRow(d, d.timeline.relPath, cols));
   }
   for (const group of d.groups) {
@@ -521,7 +523,7 @@ function timeRow(d: ThreadsOverview, relPath: string, cols: number): HTMLElement
     if (!c.time) {
       continue;
     }
-    const cell = el('span', `tov-time tov-time-${c.time.state}`, c.time.short || '·');
+    const cell = el('span', `tov-time tov-time-${c.time.state}${c.time.issue ? ' is-issue' : ''}`, c.time.short || '·');
     cell.style.left = `${(c.no - 1) * CELL}px`;
     cell.dataset.path = relPath;
     cell.title = c.time.tip;
@@ -530,14 +532,14 @@ function timeRow(d: ThreadsOverview, relPath: string, cols: number): HTMLElement
   return row;
 }
 
-/** 种类那一行（「主线 · 1 条」），「未归属的伏笔」那一行也是它（带路径，点名字打开那份文件）。 */
-function groupRow(label: string, count: string, relPath?: string): HTMLElement {
+/** 种类那一行（「主线 · 1 条」），「未归属的伏笔」「时间线」那一行也是它（带路径，点名字打开那份文件）。 */
+function groupRow(label: string, count: string, relPath?: string, tip?: string): HTMLElement {
   const row = el('div', 'tov-row tov-row-group');
   const name = el('div', 'tov-name');
   if (relPath) {
     const link = el('span', 'tov-link', label);
     link.dataset.path = relPath;
-    link.title = `${relPath}\n挂不上哪一条线的伏笔。点击打开这份文件；把一行伏笔连同它的事件剪到某条线的文件里，就是挂上了。`;
+    link.title = `${relPath}\n${tip ?? '挂不上哪一条线的伏笔。点击打开这份文件；把一行伏笔连同它的事件剪到某条线的文件里，就是挂上了。'}`;
     name.appendChild(link);
     row.dataset.path = relPath;
   } else {

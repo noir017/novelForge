@@ -12,6 +12,7 @@
  * | 标题旁「从大纲排出 / 从大纲补充」发 generateThreads、不折叠这一组；没有情节大纲不给 | 按钮不直接花钱，后端先弹确认框 |
  * | 一条线都没有时说清先做什么 | 空页签不该只剩一个标题 |
  * | 叙事线落后于定稿（四期）：最上面一句「⚠ 第 a–b 章还没判」；标题旁与右键「从正文补记」发 backfillThreads，补记在跑时不给 | 拆进来的书、补记停在半路的书一眼看出差多少、从哪补 |
+ * | 时间线单独一组排在叙事线前面：起点一行、对账、按月分段（最后一段展开）、一章一行；右键改时间与重推；标题旁补推、重推 | 2026-10-24 重做：作者要它独立成组，能改能重推 |
  * | 「故事架构」组仍是 x/6 | 叙事线是可选的，不挡路 |
  */
 const { describe, test, before } = require('node:test');
@@ -212,8 +213,22 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
   });
 
   // 故事时间（2026-10-24）：「时间线」一行排在各条线前面。
-  describe('时间线', () => {
+  // 故事时间（2026-10-24；同日重做成叙事线页签里单独一组，设计稿 2026-10-24-story-timeline-rework.md「五」）。
+  describe('时间线一组', () => {
     const TL = '.novelforge/threads/时间线.md';
+    const chapter = (no, patch = {}) => ({
+      no,
+      title: `第${no}章`,
+      chapterPath: `chapters/0${no}.md`,
+      state: 'evidence',
+      when: `三月十${no} 清晨`,
+      delta: '+1 天',
+      note: '依据「次日」',
+      tip: `第 ${no} 章 · 三月十${no} 清晨`,
+      value: '+1 天',
+      machine: true,
+      ...patch,
+    });
     const withTimeline = (patch = {}) => {
       const tree = sampleTree();
       return {
@@ -223,75 +238,133 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
           timeline: {
             relPath: TL,
             exists: true,
-            detail: '推到第 30 章 · 现在：三月十四 傍晚 · 过了 46 天',
-            warnings: ['2 章推不出', '第 31–40 章还没推'],
-            tip: '历法：简单历\n起点：三月初七（第 1 天）',
-            missing: { count: 10, text: '第 31–40 章还没推' },
+            label: '推到第 5 章 · 故事第 12 天（三月十八 夜里）',
+            calendar: { text: '简单历 · 起点 三月初七（第 1 章那一天）', tip: '点这一行改历法与起点。', calendarName: '简单历', start: '三月初七' },
+            issues: [{ text: '第 4 章：前面推下来是三月十一，正文写三月十四（差 3 天），已按正文对齐', chapter: 4 }],
+            segments: [
+              { key: 'timeline:二月', label: '二月', detail: '第 1–2 章 · 2 天', chapters: [chapter(1), chapter(2)] },
+              { key: 'timeline:三月', label: '三月', detail: '第 3–5 章 · 4 天', chapters: [chapter(3), chapter(4, { state: 'dated', note: '正文写明三月十四', issue: true }), chapter(5, { state: 'unknown', machine: true })] },
+            ],
+            missing: { count: 2, text: '第 6–7 章还没推出来' },
+            machine: 4,
+            last: 7,
             ...patch,
           },
         },
       };
     };
-    const timeBtn = () => group().querySelector('.group-head .threads-head .threads-time-btn');
+    const groups = () => [...panel().querySelectorAll('.group')];
+    const tlGroup = () => groups().find((g) => g.querySelector('.group-name')?.textContent === '时间线');
+    const tlRows = () => [...tlGroup().querySelectorAll('.row, .timeline-issue')];
+    const chapterRow = (no) => tlGroup().querySelector(`.row-time-chapter[data-chapter="${no}"]`);
+    const headBtn = (cls) => tlGroup().querySelector(`.group-head .threads-head .${cls}`);
 
-    test('排在各条线前面：推到第几章、现在是哪天、过了多久，⚠ 另起几格', () => {
+    test('单独一组，排在叙事线组前面；叙事线组里没有时间线那一行；组标题后面是推到哪、故事第几天', () => {
       ui.post({ type: 'project', tree: withTimeline() });
-      assert.deepEqual(labels(), ['时间线', '青崖旧案', '林昭与沈氏', '李叔的旧账', '守卫的选择', '未归属的伏笔']);
-      const row = rowOf('时间线');
-      assert.equal(row.querySelector('.dot').textContent, '◷');
-      assert.equal(row.querySelector('.row-detail').textContent, '推到第 30 章 · 现在：三月十四 傍晚 · 过了 46 天');
-      assert.deepEqual(warningsOf(row), ['⚠ 2 章推不出', '⚠ 第 31–40 章还没推']);
-      assert.ok(row.querySelector('.row-label').title.includes('起点：三月初七'), row.querySelector('.row-label').title);
+      assert.deepEqual(groups().map((g) => g.querySelector('.group-name').textContent), ['时间线', '叙事线']);
+      assert.ok(!labels().includes('时间线'));
+      assert.match(tlGroup().querySelector('.group-head').textContent, /推到第 5 章 · 故事第 12 天（三月十八 夜里）/);
     });
 
-    test('点名字打开时间线文件；右键：打开、补推', () => {
+    test('第一行历法与起点：点了改；有起点建议时右键「填为起点」带上那一天', () => {
+      ui.post({ type: 'project', tree: withTimeline() });
+      const cal = tlGroup().querySelector('.row-timeline-calendar');
+      assert.equal(cal.querySelector('.row-label').textContent, '简单历 · 起点 三月初七（第 1 章那一天）');
+      ui.sent.length = 0;
+      ui.clickEl(cal.querySelector('.row-label'));
+      assert.equal(ui.last('projectAction')?.action, 'setTimelineStart', JSON.stringify(ui.sent));
+      const tree = withTimeline({ calendar: { text: '简单历 · 没填起点：…', tip: '', calendarName: '简单历', start: '', suggestion: { start: '三月初五', note: '第 2 章写了「三月初七」' } } });
+      ui.post({ type: 'project', tree });
+      ui.sent.length = 0;
+      ui.pick(ui.rightClick(tlGroup().querySelector('.row-timeline-calendar')), '填为起点「三月初五」（第 2 章写了「三月初七」）');
+      assert.deepEqual([ui.last('projectAction')?.action, ui.last('projectAction')?.name], ['setTimelineStart', '三月初五']);
+    });
+
+    test('对账一条一行（⚠），点了打开时间线文件；章行上对账报了的另挂一格 ⚠', () => {
+      ui.post({ type: 'project', tree: withTimeline() });
+      const issue = tlGroup().querySelector('.timeline-issue');
+      assert.equal(issue.textContent, '⚠ 第 4 章：前面推下来是三月十一，正文写三月十四（差 3 天），已按正文对齐');
+      ui.sent.length = 0;
+      ui.clickEl(issue);
+      assert.equal(ui.last('openFile')?.path, TL);
+      assert.deepEqual(warningsOf(chapterRow(4)), ['⚠ 对不上']);
+    });
+
+    test('按段画：最后一段默认展开、其余收起；点段头折起、展开', () => {
+      ui.post({ type: 'project', tree: withTimeline() });
+      const heads = () => [...tlGroup().querySelectorAll('.row-timeline-segment')];
+      assert.deepEqual(heads().map((h) => h.textContent), ['▸二月第 1–2 章 · 2 天', '▾三月第 3–5 章 · 4 天']);
+      assert.equal(chapterRow(1), null);
+      assert.ok(chapterRow(3));
+      ui.clickEl(heads()[0]);
+      assert.ok(chapterRow(1));
+      ui.clickEl(heads()[1]);
+      assert.equal(chapterRow(3), null);
+      // 重推树不把作者的折叠换掉。
+      ui.post({ type: 'project', tree: withTimeline() });
+      assert.ok(chapterRow(1));
+      assert.equal(chapterRow(3), null);
+      ui.clickEl(heads()[0]);
+      ui.clickEl(heads()[1]);
+    });
+
+    test('一章一行：状态点、章号章名、那一天 · 比上一章 · 依据；点了打开正文', () => {
+      ui.post({ type: 'project', tree: withTimeline() });
+      const row = chapterRow(4);
+      assert.equal(row.querySelector('.dot').textContent, '◆');
+      assert.equal(chapterRow(5).querySelector('.dot').textContent, '?');
+      assert.equal(row.querySelector('.row-label').textContent, '第 4 章 第4章');
+      assert.equal(row.querySelector('.row-detail').textContent, '三月十4 清晨 · +1 天 · 正文写明三月十四');
+      ui.sent.length = 0;
+      ui.clickEl(row.querySelector('.row-label'));
+      assert.equal(ui.last('openFile')?.path, 'chapters/04.md');
+    });
+
+    test('右键一章：改时间（带章号）、重推这一章、从这一章起重推（到最后一章）', () => {
       ui.post({ type: 'project', tree: withTimeline() });
       ui.sent.length = 0;
-      ui.clickEl(rowOf('时间线').querySelector('.row-label'));
-      assert.equal(ui.last('openFile')?.path, TL, JSON.stringify(ui.sent));
-      const items = ui.itemsOf(ui.rightClick(rowOf('时间线')));
-      assert.ok(items.includes('打开') && items.includes('从正文补推故事时间'), JSON.stringify(items));
+      ui.pick(ui.rightClick(chapterRow(4)), '改时间…');
+      assert.deepEqual([ui.last('projectAction')?.action, ui.last('projectAction')?.name], ['editTimeline', '4']);
+      ui.pick(ui.rightClick(chapterRow(4)), '重推这一章');
+      assert.deepEqual({ ...ui.last('projectAction')?.range }, { from: 4, to: 4 });
+      ui.pick(ui.rightClick(chapterRow(4)), '从这一章起重推（到第 7 章）');
+      assert.deepEqual([ui.last('projectAction')?.action, { ...ui.last('projectAction')?.range }], ['refreshTimeline', { from: 4, to: 7 }]);
+      // 你定的那一行：不给「重推这一章」（机器不动它）。
+      ui.post({ type: 'project', tree: withTimeline({ segments: [{ key: 'timeline:三月', label: '三月', detail: '', chapters: [chapter(3, { state: 'anchor', machine: false })] }] }) });
+      const items = ui.itemsOf(ui.rightClick(chapterRow(3)));
+      assert.ok(items.includes('改时间…') && !items.includes('重推这一章'), JSON.stringify(items));
       ui.closeMenu();
-      ui.sent.length = 0;
-      ui.pick(ui.rightClick(rowOf('时间线')), '从正文补推故事时间');
-      assert.equal(ui.last('projectAction')?.action, 'backfillTimeline', JSON.stringify(ui.sent));
     });
 
-    test('标题旁「补推时间」发 backfillTimeline、不折叠这一组；标题右键也有；补推在跑时不给', () => {
+    test('标题旁「补推时间」「重推」：发 backfillTimeline / refreshTimeline（全部）、不折叠这一组；有一样在跑时两样都不给', () => {
       ui.post({ type: 'project', tree: withTimeline() });
-      assert.equal(timeBtn()?.textContent, '补推时间');
+      assert.equal(headBtn('threads-time-btn')?.textContent, '补推时间');
+      assert.equal(headBtn('threads-refresh-btn')?.textContent, '重推');
       ui.sent.length = 0;
-      ui.clickEl(timeBtn());
+      ui.clickEl(headBtn('threads-time-btn'));
       assert.equal(ui.last('projectAction')?.action, 'backfillTimeline', JSON.stringify(ui.sent));
-      assert.equal(labels().length, 6, '点按钮把组折起来了');
-      ui.sent.length = 0;
-      ui.pick(ui.rightClick(group().querySelector('.group-head')), '从正文补推故事时间');
-      assert.equal(ui.last('projectAction')?.action, 'backfillTimeline', JSON.stringify(ui.sent));
-      ui.post({ type: 'tasks', tasks: [{ id: 't1', title: '从正文补推故事时间', message: '第 31 章', current: 0, total: 2, elapsedMs: 0 }] });
+      ui.clickEl(headBtn('threads-refresh-btn'));
+      assert.deepEqual([ui.last('projectAction')?.action, ui.last('projectAction')?.range], ['refreshTimeline', undefined]);
+      assert.ok(chapterRow(3), '点按钮把组折起来了');
+      ui.post({ type: 'tasks', tasks: [{ id: 't1', title: '重推故事时间', message: '第 1–5 章', current: 0, total: 2, elapsedMs: 0 }] });
       ui.post({ type: 'project', tree: withTimeline() });
-      assert.equal(timeBtn(), null);
+      assert.equal(headBtn('threads-time-btn'), null);
+      assert.equal(headBtn('threads-refresh-btn'), null);
       ui.post({ type: 'tasks', tasks: [] });
     });
 
-    test('没有要补推的：不给「补推时间」；补推失败的红 ❗ 挂在这一行', () => {
-      const tree = withTimeline({ missing: undefined, warnings: [] });
-      tree.failures = { [TL]: [{ at: '2026-10-24T00:00:00Z', severity: 'error', op: 'timelineBackfill', message: '补推停在第 31 章' }] };
+    test('没有要补推、没有机器写的行：两颗都不给；补推失败的红 ❗ 挂在组标题旁', () => {
+      const tree = withTimeline({ missing: undefined, machine: 0 });
+      tree.failures = { [TL]: [{ at: '2026-10-24T00:00:00Z', severity: 'error', op: 'timelineBackfill', message: '补推停在第 6 章' }] };
       ui.post({ type: 'project', tree });
-      assert.equal(timeBtn(), null);
-      assert.ok(rowOf('时间线').querySelector('.row-failure.is-error'));
-      const items = ui.itemsOf(ui.rightClick(rowOf('时间线')));
-      assert.ok(!items.includes('从正文补推故事时间'), JSON.stringify(items));
-      ui.closeMenu();
+      assert.equal(headBtn('threads-time-btn'), null);
+      assert.equal(headBtn('threads-refresh-btn'), null);
+      assert.ok(tlGroup().querySelector('.group-head .row-failure.is-error'));
     });
 
-    test('还没有时间线文件（只有要补推的）：点名字不打开，右键没有「打开」', () => {
-      ui.post({ type: 'project', tree: withTimeline({ exists: false, detail: '还没有一章' }) });
-      ui.sent.length = 0;
-      ui.clickEl(rowOf('时间线').querySelector('.row-label'));
-      assert.equal(ui.last('openFile'), undefined);
-      const items = ui.itemsOf(ui.rightClick(rowOf('时间线')));
-      assert.ok(!items.includes('打开') && items.includes('从正文补推故事时间'), JSON.stringify(items));
-      ui.closeMenu();
+    test('没有时间线：整组不画', () => {
+      ui.post({ type: 'project', tree: sampleTree() });
+      assert.equal(tlGroup(), undefined);
     });
   });
 

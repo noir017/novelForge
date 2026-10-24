@@ -277,9 +277,48 @@ button.project-tab.active {
   font-variant-numeric: tabular-nums;
 }
 
-/* 「时间线」一行（故事时间）：名字就三个字，后面那串长，别把名字挤成「时…」；挤的是那一串（悬停看全）。 */
-.row-thread-timeline .row-label {
-  flex: 0 0 auto;
+/*
+ * 「时间线」组（故事时间，2026-10-24 重做）。第一行历法与起点：点了改，名字那一截就是整句话，让它占满。章行的点按状态着色：
+ * 推不出黄、认不出红、没推与推测淡、你定的与正文写明的用强调色——扫一眼看得出哪几章靠不住。
+ */
+.row-timeline-calendar .row-label {
+  flex: 1 1 auto;
+  cursor: pointer;
+}
+
+.timeline-issue {
+  cursor: pointer;
+}
+
+.row-timeline-segment {
+  cursor: pointer;
+}
+
+.row-time-chapter .row-label {
+  flex: 0 1 auto;
+}
+
+.row-time-chapter.time-guess .dot,
+.row-time-chapter.time-missing .dot,
+.row-time-chapter.time-flashback .dot {
+  color: var(--vscode-descriptionForeground);
+}
+
+.row-time-chapter.time-missing .row-detail {
+  opacity: 0.7;
+}
+
+.row-time-chapter.time-unknown .dot {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.row-time-chapter.time-bad .dot {
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.row-time-chapter.time-anchor .dot,
+.row-time-chapter.time-dated .dot {
+  color: var(--vscode-textLink-foreground, #3794ff);
 }
 
 /* 收束了、放弃了的线压暗：还在，但不用再管。 */

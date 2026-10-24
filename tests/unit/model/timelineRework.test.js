@@ -430,3 +430,58 @@ describe('试跑之后：写法与繁体', () => {
     assert.equal(calc.elapsed, 5);
   });
 });
+
+describe('作者在界面上改（「改时间…」「改历法与起点」）', () => {
+  const raw = file('三月初七', [
+    '- 第 1 章：+0 天，傍晚 → 深夜〔依据：「起」〕',
+    '- 第 2 章：+1 天，历时 2 天〔依据：「次日」〕〔文中：三月初九「三月初九」〕',
+    '- 第 4 章：怎么也认不出',
+  ]);
+
+  test('认得的写法、清空都放行；认不出的、没起点写日期的说清', () => {
+    const tl = t.parseTimelineFile(raw, REL);
+    assert.equal(t.checkTimeInput('八月十五，傍晚', tl), undefined);
+    assert.equal(t.checkTimeInput('第 20 天', tl), undefined);
+    assert.equal(t.checkTimeInput('+3 天', tl), undefined);
+    assert.equal(t.checkTimeInput('', tl), undefined);
+    assert.match(t.checkTimeInput('过了好一阵', tl), /^认不出「过了好一阵」/);
+    assert.match(t.checkTimeInput('八月十五', { calendar: '简单历' }), /^还没填起点/);
+  });
+
+  test('改一行：值换成作者写的、行尾的依据去掉（就是作者定的），时段、历时、〔文中〕照留；作者写了时段的照作者的', () => {
+    const out = t.setTimelineValue(raw, 2, '+3 天');
+    assert.equal(out.action, 'replaced');
+    assert.ok(out.text.includes('- 第 2 章：+3 天，历时 2 天〔文中：三月初九「三月初九」〕\n'), out.text);
+    const e = t.parseTimelineFile(out.text, REL).entries.find((x) => x.chapter === 2);
+    assert.equal(t.isMachineEntry(e), false);
+    const withPart = t.setTimelineValue(raw, 1, '八月十五，清晨');
+    assert.ok(withPart.text.includes('- 第 1 章：八月十五，清晨 → 深夜\n'), withPart.text);
+    // 别的行一个字不动。
+    assert.ok(withPart.text.includes('- 第 4 章：怎么也认不出'));
+    assert.ok(withPart.text.startsWith('---\ncalendar: 简单历\nstart: 三月初七\n'));
+  });
+
+  test('认不出的那一行也能改；没有这一行按章号插进去；清空就是删掉；认不出的字不写', () => {
+    assert.ok(t.setTimelineValue(raw, 4, '同日').text.includes('- 第 4 章：+0 天\n'));
+    const added = t.setTimelineValue(raw, 3, '第 9 天');
+    assert.equal(added.action, 'added');
+    assert.match(added.text, /- 第 2 章：[^\n]*\n- 第 3 章：第 9 天\n- 第 4 章/);
+    const removed = t.setTimelineValue(raw, 1, '');
+    assert.equal(removed.action, 'removed');
+    assert.ok(!removed.text.includes('第 1 章'));
+    assert.equal(t.setTimelineValue(raw, 9, '').action, 'kept');
+    assert.equal(t.setTimelineValue(raw, 2, '过了好一阵'), undefined);
+    // 还没有这份文件：按模板新建。
+    assert.ok(t.setTimelineValue('', 1, '三月初七').text.includes('# 时间线'));
+  });
+
+  test('改历法与起点：只换那两个键；没有就加；还没有文件按模板新建', () => {
+    const out = t.setTimelineHead(raw, { calendar: '公历', start: '2026-03-07' });
+    assert.ok(out.startsWith('---\ncalendar: 公历\nstart: 2026-03-07\ngeneratedBy: novel-forge\n---\n'), out);
+    assert.ok(out.includes('- 第 4 章：怎么也认不出'));
+    const bare = t.setTimelineHead('---\ngeneratedBy: x\n---\n\n# 时间线\n', { start: '三月初五' });
+    assert.ok(bare.startsWith('---\ngeneratedBy: x\nstart: 三月初五\n---\n'), bare);
+    assert.match(t.setTimelineHead('', { start: '三月初五' }), /^---\ncalendar: 简单历\nstart: 三月初五\n/);
+    assert.equal(t.parseTimelineFile(t.setTimelineHead(raw, { start: '' }), REL).startText, '');
+  });
+});
