@@ -1,5 +1,6 @@
 /**
- * 独立版 Web 服务：Bun.serve 提供静态页 + /ws WebSocket。
+ * 独立版 Web 服务：静态页 + /ws WebSocket。Bun 下是 `Bun.serve`，没有 Bun 的地方（Android 壳里的 node）
+ * 走 `node:http` + `ws`，两边的差别收在 [serve.ts](serve.ts)，路由与收发只在这里写一份。
  * 缺省只绑 127.0.0.1、无鉴权——服务本机作者。部署到服务器时绑别的地址、配上令牌，
  * 规则与理由见 [auth.ts](auth.ts)。
  *
@@ -25,6 +26,7 @@ import { LOGIN_PATH, TOKEN_ENV, handleLogin, isAllowedOrigin, isAuthorized, logi
 import { FileHost } from './fileHost';
 import { standalonePage } from './page';
 import { currentScope, ScopedHost } from './scopedHost';
+import { serve, ServerSocket } from './serve';
 import { WindowConn, WorkspaceHub } from './workspaceHub';
 
 const log = scoped('服务');
@@ -56,7 +58,7 @@ export async function startServer(opts: ServeOptions): Promise<number> {
     addLogSink((entry) => console.log(formatLogEntry(entry)));
   }
 
-  const clients = new Map<BunServerWebSocket, WindowConn>();
+  const clients = new Map<ServerSocket, WindowConn>();
 
   const broadcast = (msg: OutMessage) => {
     const text = JSON.stringify(msg);
@@ -82,7 +84,7 @@ export async function startServer(opts: ServeOptions): Promise<number> {
     allowOrigin: (origin, req) => isAllowedOrigin(origin, req, port, !!token),
   });
 
-  const server = Bun.serve({
+  const server = await serve({
     port: opts.port,
     hostname: host,
 
@@ -173,7 +175,7 @@ export async function startServer(opts: ServeOptions): Promise<number> {
         }
         let msg: InMessage;
         try {
-          msg = JSON.parse(String(raw)) as InMessage;
+          msg = JSON.parse(raw) as InMessage;
         } catch (err) {
           log.error(`处理网页消息失败：${describeError(err)}`, err);
           return;

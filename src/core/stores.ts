@@ -9,9 +9,14 @@ import { ConfigStore, PersistedSettings } from './config';
  * 迁移完成后切过来）。落点统一在 ~/.novelforge/。
  */
 
-/** ~/.novelforge/ —— 配置与密钥的用户主目录存储。 */
+/**
+ * ~/.novelforge/ —— 配置与密钥的用户主目录存储。
+ *
+ * 环境变量 `NOVELFORGE_HOME` 可以把它挪到别处：Android 壳把家目录设成放书的公共目录
+ * （新建一本书、打开文件夹都从家目录起），密钥却不能跟着落到别的 app 也读得到的地方，就指回 app 私有目录。
+ */
 export function homeDir(): string {
-  return path.join(os.homedir(), '.novelforge');
+  return process.env.NOVELFORGE_HOME?.trim() || path.join(os.homedir(), '.novelforge');
 }
 
 export class FileConfigStore implements ConfigStore {

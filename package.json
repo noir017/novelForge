@@ -565,9 +565,11 @@
     "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.90.0",
+    "@types/ws": "^8.18.2",
     "esbuild": "^0.23.0",
     "jsdom": "^29.1.1",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "ws": "^8.22.0"
   },
   "bin": {
     "novelforge": "./bin/novelforge.js"
