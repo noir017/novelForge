@@ -157,7 +157,7 @@ export interface TimelineRowView {
   warnings: string[];
   /** 鼠标移上去看的：历法与起点、推不出与作者定的是哪几章、怎么改。 */
   tip: string;
-  /** 同步过、叙事线判过、时间线里还没有的章（「补推时间」那一项）。没有时缺席。 */
+  /** 同步过、时间线里还没有的章（「补推时间」那一项）。没有时缺席。 */
   missing?: { count: number; text: string };
 }
 

@@ -109,7 +109,7 @@ describe('同步与重建：确认框照弹，作者取消就零调用', () => {
     const r = await run({ action: 'sync' });
     assert.equal(
       h.confirms.at(-1).message,
-      '有 1 章写了正文还没同步（或同步后正文又改过），逐章同步：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么。预计 2–5 次调用。现在同步？'
+      '有 1 章写了正文还没同步（或同步后正文又改过），逐章同步：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么、推这一章的故事时间。预计 3–6 次调用。现在同步？'
     );
     assert.ok(r.text.includes('批量同步这一次没有调用模型'), r.text);
     assert.ok(r.text.includes('不要重试'), r.text);
@@ -205,15 +205,15 @@ describe('定稿：按章号认，给细纲路径也行', () => {
     assert.ok(t.has('.novelforge/.trash/.novelforge/summaries/001-夜入青云.md'));
   });
 
-  // 更新细纲 1 次 + 认叙事线 1 次（叙事线重做：线是空的也认）；没有角色卡，角色状态不调。
-  test('调了两次、记了两次，气泡里也说了', () => {
-    assert.equal(fake.calls.length, 2, String(fake.calls.length));
-    assert.equal(ctx.usage.calls, 2);
-    assert.ok(reports.some((m) => m.includes('调用模型 2 次')), JSON.stringify(reports));
+  // 更新细纲 1 次 + 认叙事线 1 次（叙事线重做：线是空的也认）+ 故事时间 1 次（2026-10-24 重做）；没有角色卡，角色状态不调。
+  test('调了三次、记了三次，气泡里也说了', () => {
+    assert.equal(fake.calls.length, 3, String(fake.calls.length));
+    assert.equal(ctx.usage.calls, 3);
+    assert.ok(reports.some((m) => m.includes('调用模型 3 次')), JSON.stringify(reports));
   });
 
   test('display 写着这一下调了几次', () => {
-    assert.deepEqual(r.display, { title: 'summary finalize', detail: '2 次调用' });
+    assert.deepEqual(r.display, { title: 'summary finalize', detail: '3 次调用' });
   });
 
   test('越界路径给 error，且不调模型', async () => {
@@ -246,10 +246,10 @@ describe('工具定义本身', () => {
   });
 
   // 定稿 = 照正文反向更新细纲（带连续性事实）+ 出场角色的当前状态 + 叙事线。
-  test('finalize 的说法是「同步」：反向更新细纲与连续性事实，再更新角色状态、认这一章在叙事线上发生了什么', () => {
+  test('finalize 的说法是「同步」：反向更新细纲与连续性事实，再更新角色状态、认这一章在叙事线上发生了什么、推故事时间', () => {
     assert.ok(
       tool().description.includes(
-        'finalize=同步一章（照正文反向更新它的细纲与连续性事实，再更新出场角色的当前状态、认这一章在叙事线上发生了什么（带原文证据记下事件、更新各条线的当前进度，正文里新长出来的线也认出来））（调模型，要 path）'
+        'finalize=同步一章（照正文反向更新它的细纲与连续性事实，再更新出场角色的当前状态、认这一章在叙事线上发生了什么（带原文证据记下事件、更新各条线的当前进度，正文里新长出来的线也认出来）、推这一章的故事时间）（调模型，要 path）'
       ),
       tool().description
     );

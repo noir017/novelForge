@@ -1,5 +1,5 @@
 /**
- * 定稿的后两步：角色状态、叙事线（见 finalize.ts 顶上那张图的第 2、3 步）。单章定稿（`finalizeChapter`）与
+ * 定稿的后三步：角色状态、叙事线、故事时间（见 finalize.ts 顶上那张图的第 2、3、4 步）。单章定稿（`finalizeChapter`）与
  * 工程页黄条上的「立即同步」（summarize.ts 的 `syncSummaries`）共用这一份。
  *
  * 单放一个文件是为了 summarize.ts 与 finalize.ts 不互相 import：定稿的第一步就是 summarize.ts 的
@@ -11,6 +11,9 @@
  *
  * 认事件成了，这一章的叙事线就算判过：推 `project.json` 里的水位（叙事线重做四期，`recordThreads` 里的 `noteThreadsJudged`）。
  * 单章定稿、立即同步、写完即定稿都走这里，水位在连续时跟着往后推；没判成的那一章挡在水位前面，「从已写正文补记」从那里接着判。
+ *
+ * 故事时间（2026-10-24 重做）单独一步、单独一次（features/storyTime.ts 的 `recordChapterTime`），与叙事线各算各的：认事件没成不挡它，
+ * 它没成只挂黄 ❗ 在章节上。用叙事线那一个模型（同是「定稿」档）。
  */
 import { CancelledError, LlmProvider } from '../llm/provider';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
@@ -19,6 +22,7 @@ import { NovelProject } from '../model/project';
 import { Chapter, SummaryCast } from '../model/types';
 import { STATE_OP, StateUpdateOutcome, updateCharacterStates } from './characterState';
 import { THREADS_OP, ThreadsOutcome, recordThreads } from './threads';
+import { TimeResult, recordChapterTime } from './storyTime';
 
 const log = scoped('同步');
 
@@ -29,7 +33,7 @@ export interface ModelRunner {
 }
 
 export interface StateAndThreadsOutcome {
-  /** 这两步实际调了几次模型（1–4）。 */
+  /** 这三步实际调了几次模型（2–5：角色状态 0–1、叙事线 1–3、故事时间 1）。 */
   calls: number;
   states?: StateUpdateOutcome;
   /** 角色状态那一步没成（细纲照样算数）。 */
@@ -37,11 +41,15 @@ export interface StateAndThreadsOutcome {
   threads?: ThreadsOutcome;
   /** 叙事线那一步（认事件）没成（细纲照样算数）。 */
   threadsError?: string;
+  /** 故事时间那一步写成了什么样（模型漏了这一章是 `missing`）。 */
+  time?: TimeResult;
+  /** 故事时间那一步没成（时间线没动）。 */
+  timeError?: string;
 }
 
 /**
- * 细纲照正文更新好之后：更新本章出场角色的当前状态，再认这一章在叙事线上发生了什么（认事件 / 当前进度 / 归并）。`cast` 是第一步交回来的
- * 出场人物（定稿后的细纲为准，第 14 条）。
+ * 细纲照正文更新好之后：更新本章出场角色的当前状态，再认这一章在叙事线上发生了什么（认事件 / 当前进度 / 归并），最后推这一章的故事时间。
+ * `cast` 是第一步交回来的出场人物（定稿后的细纲为准，第 14 条）。
  */
 export async function updateStateAndThreads(
   project: NovelProject,
@@ -51,7 +59,7 @@ export async function updateStateAndThreads(
     state: ModelRunner;
     threads: ModelRunner;
     signal?: AbortSignal;
-    onStep?(step: 'state' | 'threads'): void;
+    onStep?(step: 'state' | 'threads' | 'time'): void;
   }
 ): Promise<StateAndThreadsOutcome> {
   const outcome: StateAndThreadsOutcome = { calls: 0 };
@@ -92,6 +100,16 @@ export async function updateStateAndThreads(
   }
   if (th.threadsError) {
     outcome.threadsError = th.threadsError;
+  }
+
+  opts.onStep?.('time');
+  const time = await recordChapterTime(project, chapter, opts.threads, { signal: opts.signal });
+  outcome.calls += time.calls;
+  if (time.time) {
+    outcome.time = time.time;
+  }
+  if (time.timeError) {
+    outcome.timeError = time.timeError;
   }
   return outcome;
 }

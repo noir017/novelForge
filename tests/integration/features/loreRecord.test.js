@@ -17,7 +17,7 @@ const assert = require('node:assert/strict');
 const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
-const { installFakeProvider, makeSettings } = require('../../helpers/fakeProvider');
+const { installFakeProvider, makeSettings, TIME_MARK, timeReply } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 
 let bundle;
@@ -60,6 +60,10 @@ function reply(messages) {
   }
   if (system.includes('负责记下这一章正文里出现了哪些设定')) {
     return recordReply();
+  }
+  // 故事时间（同步时单独一次，2026-10-24 重做）：都紧接上一章。
+  if ((messages[0]?.content ?? '').includes(TIME_MARK)) {
+    return timeReply(messages);
   }
   return '（认不出这一步）';
 }
@@ -110,10 +114,10 @@ describe('定稿时顺手记', () => {
     plot = await project.getPlot(2);
   });
 
-  // 记设定不另调：没有角色卡时只有更新细纲那 1 次，加叙事线认事件那 1 次（叙事线重做：每次定稿都认）。
-  test('不多调：记设定并在更新细纲那一次里，没有角色卡时一共 2 次（细纲 + 认叙事线）', () => {
-    assert.equal(fake.callCount(), 2);
-    assert.equal(outcome.calls, 2);
+  // 记设定不另调：没有角色卡时只有更新细纲那 1 次，加叙事线认事件那 1 次（叙事线重做：每次定稿都认）、故事时间那 1 次。
+  test('不多调：记设定并在更新细纲那一次里，没有角色卡时一共 3 次（细纲 + 认叙事线 + 故事时间）', () => {
+    assert.equal(fake.callCount(), 3);
+    assert.equal(outcome.calls, 3);
   });
 
   test('提示里有本书的分类表，与这一章正文里提到的已有设定', () => {

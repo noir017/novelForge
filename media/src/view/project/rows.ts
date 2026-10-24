@@ -295,7 +295,7 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number, depth = 0): HTMLElemen
       // 定稿 = 照正文更新细纲（带连续性事实）+ 出场角色的当前状态（四期，D17）+ 这一章在叙事线上发生了什么
       // （叙事线重做：认事件、当前进度、归并）。调用次数与主按钮同源。后端先弹确认框挑这一次的模型。
       items.push({
-        label: p.stale ? `同步（细纲 + 角色状态 + 叙事线，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）` : '重新同步',
+        label: p.stale ? `同步（细纲 + 角色状态 + 叙事线 + 故事时间，${describeCalls(FINALIZE_CALLS).replace(/（.*）$/, '')}）` : '重新同步',
         run: () => projectAction('askFinalizeChapter', p.chapterPath),
       });
       // 单独记设定（设定名录，作者定案）：只对定稿过、正文没再改过的章——没定稿的「设定」一节是计划，

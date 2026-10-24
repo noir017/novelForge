@@ -284,12 +284,12 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
   const each = FINALIZE_CALLS;
   const calls: CallEstimate = { low: stale.length * each.low, high: stale.length * each.high, max: stale.length * each.max };
   const answer = await askCall({
-    message: `有 ${stale.length} 章写了正文还没同步（或同步后正文又改过），逐章同步：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么。${describeCalls(calls)}。现在同步？`,
+    message: `有 ${stale.length} 章写了正文还没同步（或同步后正文又改过），逐章同步：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么、推这一章的故事时间。${describeCalls(calls)}。现在同步？`,
     actions: ['开始同步'],
     detail:
       `每章 ${each.low}–${each.high} 次（${each.why}）。\n` +
       (lanes > 1 ? `照正文更新细纲并发 ${lanes} 路；` : '照正文更新细纲逐章串行（并发数为 1）；') +
-      '角色状态与叙事线按章号逐章串行（要一章一章往后推）。\n每章的旧版细纲先复制一份进 .novelforge/.trash/。',
+      '角色状态、叙事线与故事时间按章号逐章串行（要一章一章往后推）。\n每章的旧版细纲先复制一份进 .novelforge/.trash/。',
     tasks: ['plotSummary', 'characterCard'],
     // 定稿认叙事线带几条线、几条伏笔随详细度（`recordThreads`）。
     contextDetail: true,
@@ -329,7 +329,7 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
         const results: StateAndThreadsOutcome[] = [];
         for (let i = 0; i < updated.length; i++) {
           const { chapter, summary } = updated[i];
-          report({ message: `角色状态与叙事线 · 第 ${chapter.order} 章《${chapter.title}》`, current: i, total: updated.length });
+          report({ message: `角色状态、叙事线与故事时间 · 第 ${chapter.order} 章《${chapter.title}》`, current: i, total: updated.length });
           try {
             const rest = await updateStateAndThreads(project, chapter, summary.cast, {
               state: statePool,
@@ -338,7 +338,7 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
             });
             used += rest.calls;
             results.push(rest);
-            if (rest.stateError || rest.threadsError || rest.threads?.progressError || rest.threads?.mergeError) {
+            if (rest.stateError || rest.threadsError || rest.timeError || rest.threads?.progressError || rest.threads?.mergeError) {
               partial.push(chapter.order);
             }
           } catch (err) {
@@ -354,7 +354,7 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
         report({ message: '收尾', current: updated.length, total: updated.length });
         const notes = [
           failed.length > 0 ? `第 ${failed.map((f) => f.no).join('、')} 章细纲没更新成` : '',
-          partial.length > 0 ? `第 ${partial.join('、')} 章的角色状态或叙事线没更新成（挂了黄 ❗）` : '',
+          partial.length > 0 ? `第 ${partial.join('、')} 章的角色状态、叙事线或故事时间没更新成（挂了黄 ❗）` : '',
         ].filter(Boolean);
         if (notes.length > 0) {
           log.warn(
@@ -387,9 +387,18 @@ export function describeSynced(results: readonly StateAndThreadsOutcome[]): stri
   const dropped = sum((r) => r.threads?.dropped.length ?? 0);
   const unwritten = sum((r) => r.threads?.unwritten.length ?? 0);
   const found = [lines > 0 ? `${lines} 条线` : '', fores > 0 ? `${fores} 条伏笔` : ''].filter(Boolean).join('、');
+  // 故事时间（2026-10-24 重做）：写进时间线的（推不出记了 +? 的也算）、其中正文写明了日子的、推不出的、你定的没改的。
+  const timed = results.filter((r) => r.time?.entry && !r.time.authored && r.time.action !== 'kept');
+  const dated = timed.filter((r) => r.time?.entry?.dateMark).length;
+  const unknown = timed.filter((r) => r.time?.entry?.value.kind === 'unknown').length;
+  const timeText =
+    timed.length > 0
+      ? `故事时间：推了 ${timed.length} 章${[dated > 0 ? `${dated} 章正文写明了日子` : '', unknown > 0 ? `${unknown} 章推不出（按紧接上一章算）` : ''].filter(Boolean).map((s) => `，${s}`).join('')}`
+      : '';
   return [
     names.length > 0 ? `${names.join('、')}的当前状态更新到了最后同步的那一章` : '',
     events > 0 ? `叙事线：记下 ${events} 个事件${found ? `，新认出 ${found}` : ''}` : '叙事线没有新进展',
+    timeText,
     dropped > 0 ? `另有 ${dropped} 条叙事线的记录没有收（见日志）` : '',
     unwritten > 0 ? `${unwritten} 条线的当前进度没写上（见日志）` : '',
   ]

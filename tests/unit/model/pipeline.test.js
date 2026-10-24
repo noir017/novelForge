@@ -1039,14 +1039,14 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
 
   // D17：定稿 = 摘要 + 出场角色的当前状态；叙事线重做之后叙事线 1–3 次（认事件每次都跑，设计稿 ⚑6），
   // 所以最少 2 次。
-  test('定稿第 N 章报「预计 2–5 次调用」，并说清各做什么', () => {
+  test('定稿第 N 章报「预计 3–6 次调用」，并说清各做什么', () => {
     const step = pipeline.deriveNextStep('finalize', { no: 3, words: 900, ratio: 1, upstreamStale: false });
     assert.equal(step.label, '同步第 3 章');
     assert.equal(step.projectAction, 'finalizeChapter');
     assert.deepEqual(step.calls, pipeline.FINALIZE_CALLS);
     assert.equal(
       pipeline.describeCalls(step.calls),
-      '预计 2–5 次调用（照正文更新细纲 1 次；本章出场的人有角色卡时更新角色状态 1 次；叙事线认事件 1 次，有线动过时更新当前进度 1 次，认出新线或新伏笔时归并 1 次）'
+      '预计 3–6 次调用（照正文更新细纲 1 次；本章出场的人有角色卡时更新角色状态 1 次；叙事线认事件 1 次，有线动过时更新当前进度 1 次，认出新线或新伏笔时归并 1 次；故事时间 1 次）'
     );
   });
 
@@ -1105,9 +1105,9 @@ describe('pipeline.ts · 批量写章的切分', () => {
     assert.deepEqual(plan.calls, { low: 3, high: 9, max: 33 });
   });
 
-  test('写完即定稿：每章再加定稿的 2–5 次', () => {
+  test('写完即定稿：每章再加定稿的 3–6 次', () => {
     const plan = pipeline.planWriteBatch({ ...base, mode: 'finalize', from: 1, to: 3 });
-    assert.deepEqual(plan.calls, { low: 9, high: 24, max: 48 });
+    assert.deepEqual(plan.calls, { low: 12, high: 27, max: 51 });
     assert.equal(plan.mode, 'finalize');
     assert.equal(plan.review, false);
   });
@@ -1118,7 +1118,7 @@ describe('pipeline.ts · 批量写章的切分', () => {
     assert.equal(plan.review, true);
     assert.deepEqual(plan.calls, { low: 6, high: 12, max: 42 });
     const both = pipeline.planWriteBatch({ ...base, mode: 'finalize', review: true, from: 1, to: 3 });
-    assert.deepEqual(both.calls, { low: 12, high: 27, max: 57 });
+    assert.deepEqual(both.calls, { low: 15, high: 30, max: 60 });
   });
 
   // 第 19 条批量那一面：已有产物的一律跳过，不问、不覆盖。

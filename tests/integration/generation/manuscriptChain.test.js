@@ -24,7 +24,7 @@ const assert = require('node:assert/strict');
 const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
-const { installFakeProvider, filler } = require('../../helpers/fakeProvider');
+const { installFakeProvider, filler, TIME_MARK, timeReply } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 const { outlineOf } = require('../../helpers/outline');
 
@@ -177,6 +177,10 @@ function reply(messages) {
     }
     return JSON.stringify({ blueprints });
   }
+  // 故事时间（同步时单独一次，2026-10-24 重做）：都紧接上一章。
+  if ((messages[0]?.content ?? '').includes(TIME_MARK)) {
+    return timeReply(messages);
+  }
   return '（认不出这一步）';
 }
 
@@ -306,11 +310,11 @@ describe('三期验收：一句话 → 写完前 3 章', () => {
     }
   });
 
-  // 第 4 条：二期 9 次 + 第 1 章 1 + 定稿 3 + 第 2 章 2（截断续写一轮）+ 定稿 3 + 第 3 章 1。
-  // 定稿三次：照正文更新细纲一次，林昭有角色卡、再更新一次角色状态（四期，D17），认一次叙事线（叙事线重做：
-  // 线是空的也认）。
-  test('一共调了 19 次模型', () => {
-    assert.equal(fake.callCount(), 19);
+  // 第 4 条：二期 9 次 + 第 1 章 1 + 定稿 4 + 第 2 章 2（截断续写一轮）+ 定稿 4 + 第 3 章 1。
+  // 定稿四次：照正文更新细纲一次，林昭有角色卡、再更新一次角色状态（四期，D17），认一次叙事线（叙事线重做：
+  // 线是空的也认），推一次故事时间（2026-10-24 重做）。
+  test('一共调了 21 次模型', () => {
+    assert.equal(fake.callCount(), 21);
   });
 
   test('三章都落在 chapters/，标题取细纲的，正文写了进去', async () => {

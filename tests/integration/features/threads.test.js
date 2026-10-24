@@ -29,7 +29,7 @@ const assert = require('node:assert/strict');
 const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
-const { installFakeProvider } = require('../../helpers/fakeProvider');
+const { installFakeProvider, TIME_MARK, timeReply } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 const { outlineOf, writeOutline } = require('../../helpers/outline');
 
@@ -62,6 +62,10 @@ function reply(messages) {
   const system = messages[0]?.content ?? '';
   if (system.includes(PLAN_MARK)) {
     return planReply(messages);
+  }
+  // 故事时间（同步时单独一次，2026-10-24 重做）：都紧接上一章。
+  if ((messages[0]?.content ?? '').includes(TIME_MARK)) {
+    return timeReply(messages);
   }
   return '（认不出这一步）';
 }
@@ -410,8 +414,8 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
     findUser = userOf(FIND_MARK);
   });
 
-  test('次数：更新细纲 1 + 认事件 1 + 归并 1 + 当前进度 1', () => {
-    assert.equal(outcome.calls, 4);
+  test('次数：更新细纲 1 + 认事件 1 + 归并 1 + 当前进度 1 + 故事时间 1', () => {
+    assert.equal(outcome.calls, 5);
     assert.equal(outcome.threads.calls, 3);
   });
 
@@ -607,7 +611,7 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
     const failed = await bundle.finalize.finalizeChapter(project, await chapter4());
     assert.ok(failed.summary);
     assert.match(failed.threadsError, /解析不出来/);
-    assert.equal(failed.calls, 2);
+    assert.equal(failed.calls, 3);
     assert.equal(t.read(file('林昭与沈青')), before);
     const [f] = await failuresOf(CH4);
     assert.equal(f?.severity, 'warn');
@@ -621,16 +625,17 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
     assert.ok(bundle.finalize.describeFinalize(4, ok).includes('叙事线没有新进展'));
   });
 
-  test('一条线都没有也认（正文里长出来的线只能在这里认出来）：定稿最少 2 次', async () => {
+  test('一条线都没有也认（正文里长出来的线只能在这里认出来）：定稿最少 3 次（加故事时间）', async () => {
     t.remove(THREADS);
     project.invalidate();
     fake.reset();
     findReply = () => JSON.stringify({ events: [], newThreads: [], newForeshadowing: [] });
     const none = await bundle.finalize.finalizeChapter(project, await chapter4());
-    assert.equal(none.calls, 2);
+    assert.equal(none.calls, 3);
     assert.equal(none.threads.calls, 1);
     assert.ok(userOf(FIND_MARK).includes('【还没收束的叙事线】\n（还没有）'));
     assert.ok(bundle.finalize.describeFinalize(4, none).includes('叙事线没有新进展'));
-    assert.ok(!t.has(THREADS), '什么都没认出，不建目录');
+    // 什么都没认出：不建线的文件；目录里只有同步时推出来的时间线（故事时间单独一步，2026-10-24 重做）。
+    assert.deepEqual(require('fs').readdirSync(require('path').join(t.dir, THREADS)), ['时间线.md']);
   });
 });

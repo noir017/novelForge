@@ -19,7 +19,7 @@ const assert = require('node:assert/strict');
 const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
-const { installFakeProvider } = require('../../helpers/fakeProvider');
+const { installFakeProvider, TIME_MARK, timeReply } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 const { outlineOf, writeOutline } = require('../../helpers/outline');
 
@@ -86,6 +86,10 @@ function reply(messages) {
   if (system.includes('给每一条写一两句「当前进度」')) {
     const lines = [...user.matchAll(/^【线】(.+)$/gm)].map((m) => m[1]);
     return JSON.stringify({ progress: lines.map((line) => ({ line, text: `第 ${no} 章：${line}走到了这里。` })) });
+  }
+  // 故事时间（同步时单独一次，2026-10-24 重做）：都紧接上一章。
+  if ((messages[0]?.content ?? '').includes(TIME_MARK)) {
+    return timeReply(messages);
   }
   return '（认不出这一步）';
 }

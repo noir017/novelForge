@@ -24,7 +24,7 @@ import { explainChapterGap } from '../features/chapterGap';
 import { learnFromReference } from '../features/reference';
 import { generateThreads } from '../features/threads';
 import { backfillThreads } from '../features/threadsBackfill';
-import { backfillTimeline } from '../features/timelineBackfill';
+import { backfillTimeline, refreshTimeline } from '../features/timelineBackfill';
 import { chapterForSummary, rebuildGlobalSummary, syncSummaries } from '../features/summarize';
 import { askFinalizeChapterTask, finalizeChapterTask } from '../features/finalize';
 import { reviewCharacterState } from '../features/characterState';
@@ -183,6 +183,10 @@ export async function projectAction(
       break;
     case 'backfillTimeline':
       await backfillTimeline(c.project);
+      break;
+    case 'refreshTimeline':
+      // 区间来自时间线组：右键一章「重推这一章」「从这一章起重推」；标题旁「重推」不带（全部）。
+      await refreshTimeline(c.project, normalizeRange(batch.range) ?? {});
       break;
     case 'importManuscript':
       await importManuscript(c.project);

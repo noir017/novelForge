@@ -19,7 +19,7 @@ export const summaryTool = defineActionTool({
 
   actions: {
     finalize: {
-      label: '同步一章（照正文反向更新它的细纲与连续性事实，再更新出场角色的当前状态、认这一章在叙事线上发生了什么（带原文证据记下事件、更新各条线的当前进度，正文里新长出来的线也认出来））',
+      label: '同步一章（照正文反向更新它的细纲与连续性事实，再更新出场角色的当前状态、认这一章在叙事线上发生了什么（带原文证据记下事件、更新各条线的当前进度，正文里新长出来的线也认出来）、推这一章的故事时间）',
       costly: true,
       uses: ['path'],
       requires: ['path'],
@@ -36,7 +36,7 @@ export const summaryTool = defineActionTool({
       },
     },
     sync: {
-      label: '把所有没同步、或同步后正文又改过的章逐章同步（照正文更新细纲，再更新出场角色的当前状态、认每一章在叙事线上发生了什么）',
+      label: '把所有没同步、或同步后正文又改过的章逐章同步（照正文更新细纲，再更新出场角色的当前状态、认每一章在叙事线上发生了什么、推每一章的故事时间）',
       costly: true,
       async run(ctx) {
         return countedBy(await syncSummaries(ctx.project), '批量同步');

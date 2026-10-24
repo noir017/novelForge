@@ -40,7 +40,7 @@ const BACKFILL_TASK = '从已写正文补记叙事线';
 /** 补推故事时间的任务名：与 features/timelineBackfill.ts 的 `TIMELINE_BACKFILL_TASK` 一字不差。 */
 const TIME_BACKFILL_TASK = '从正文补推故事时间';
 
-/** 同步过、叙事线判过、时间线里还没有的章（2026-10-24）：给「补推时间」。 */
+/** 同步过、时间线里还没有的章（2026-10-24）：给「补推时间」。 */
 function canBackfillTime(tree: ProjectTree): boolean {
   return !!tree.threads.timeline?.missing;
 }

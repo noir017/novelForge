@@ -23,7 +23,7 @@ const assert = require('node:assert/strict');
 const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
-const { installFakeProvider, filler } = require('../../helpers/fakeProvider');
+const { installFakeProvider, filler, TIME_MARK, timeReply } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 const { outlineOf, writeOutline } = require('../../helpers/outline');
 
@@ -134,6 +134,10 @@ function reply(messages) {
       ch3Prompt = user;
     }
     return { text: chapterText(n), stop: 'end' };
+  }
+  // 故事时间（同步时单独一次，2026-10-24 重做）：都紧接上一章。
+  if ((messages[0]?.content ?? '').includes(TIME_MARK)) {
+    return timeReply(messages);
   }
   return '（认不出这一步）';
 }
@@ -313,8 +317,8 @@ describe('叙事线重做一期验收：排线，再批量写章第 1–3 章、
   test('实际调用次数没超过两个确认框报的上限（排线 1 次 + 批量写章的最多几次）', () => {
     const plan = bundle.pipelineModel.planWriteBatch({ from: 1, to: 3, mode: 'finalize', writtenNos: [], plotFilledNos: [1, 2, 3, 4, 5] });
     assert.ok(fake.callCount() <= 1 + plan.calls.max, `${fake.callCount()} > 1 + ${plan.calls.max}`);
-    // 排线 1；一章写一次、定稿更新细纲一次、认叙事线一次、当前进度一次（每章都有线动过）；第 2 章认出新东西多一次归并；
+    // 排线 1；一章写一次、定稿更新细纲一次、认叙事线一次、当前进度一次（每章都有线动过）、故事时间一次；第 2 章认出新东西多一次归并；
     // 第 2、3 章写前各比对一次。
-    assert.equal(fake.callCount(), 1 + 3 * 4 + 1 + 2);
+    assert.equal(fake.callCount(), 1 + 3 * 5 + 1 + 2);
   });
 });

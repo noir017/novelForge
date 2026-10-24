@@ -136,14 +136,14 @@ function nowOf(tl: Timeline, d: TimelineDay): string {
 
 /**
  * 「时间线」那一行（设计稿 docs/design/plans/2026-10-24-story-timeline.md「三」）：推到第几章、现在是哪天、故事里过了多久；推不出的、
- * 认不出的、起点认不出、叙事线判过却还没推的章各一个 ⚠。文件不在、也没有要补推的章时不画。
+ * 认不出的、起点认不出、同步过却还没推的章各一个 ⚠。文件不在、也没有要补推的章时不画。
  */
 function timelineRowOf(tl: Timeline | undefined, progress?: ThreadsProgress): TimelineRowView | undefined {
   if (!tl) {
     return undefined;
   }
   const missing = progress
-    ? [...progress.finalized].filter((no) => isThreadsJudged(progress.mark, no) && !hasTimeLine(tl, no)).sort((a, b) => a - b)
+    ? [...progress.finalized].filter((no) => !hasTimeLine(tl, no)).sort((a, b) => a - b)
     : [];
   if (!tl.exists && missing.length === 0) {
     return undefined;
@@ -182,7 +182,7 @@ function timelineRowOf(tl: Timeline | undefined, progress?: ThreadsProgress): Ti
       unknown.length > 0 ? `推不出（按紧接上一章算）：${describeChapterRuns(unknown)}` : '',
       bad.length > 0 ? `认不出（按紧接上一章算）：${describeChapterRuns(bad)}` : '',
       anchors.length > 0 ? `你定的：${describeChapterRuns(anchors)}` : '',
-      missingText ? `${missingText}：同步过、叙事线也判过，点标题旁的「补推时间」补上` : '',
+      missingText ? `${missingText}：同步过，点标题旁的「补推时间」补上` : '',
       '要定死哪一章，把那一行的「+N 天」改成日期或「第 N 天」，后面的章跟着顺延。',
     ]
       .filter(Boolean)

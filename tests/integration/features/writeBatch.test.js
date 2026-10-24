@@ -18,7 +18,7 @@ const assert = require('node:assert/strict');
 const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
-const { installFakeProvider, filler } = require('../../helpers/fakeProvider');
+const { installFakeProvider, filler, TIME_MARK, timeReply } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 const { outlineOf, writeOutline } = require('../../helpers/outline');
 
@@ -82,11 +82,18 @@ function isFind(messages) {
   return (messages[0]?.content ?? '').includes('你是小说定稿事实审查员');
 }
 const NOTHING_FOUND = JSON.stringify({ events: [], newThreads: [], newForeshadowing: [] });
+/** 定稿最后一步认故事时间（2026-10-24 重做：单独一次）。 */
+function isTime(messages) {
+  return (messages[0]?.content ?? '').includes(TIME_MARK);
+}
 
 /** 缺省的应答：正文一次写够，定稿（照正文更新细纲）与状态各给一份，叙事线什么都认不出。 */
 function defaultReply(messages) {
   if (isFind(messages)) {
     return NOTHING_FOUND;
+  }
+  if (isTime(messages)) {
+    return timeReply(messages);
   }
   if (isSummary(messages)) {
     const no = Number(/【第(\d+)章/.exec(messages[messages.length - 1].content)?.[1] ?? 0);
@@ -230,10 +237,10 @@ describe('写完即定稿；已有正文的跳过；弹窗确认过的不再问'
     assert.equal(h.confirms.length, 0);
   });
 
-  test('写一章、定稿一章（更新细纲 + 角色状态 + 认叙事线），再写下一章；第 2 章跳过', () => {
-    const order = fake.calls.map((m) => (isSummary(m) ? 'summary' : isState(m) ? 'state' : isFind(m) ? 'threads' : `write:${chapterOf(m).no}`));
-    assert.deepEqual(order, ['write:1', 'summary', 'state', 'threads', 'write:3', 'summary', 'state', 'threads']);
-    assert.equal(calls, 8);
+  test('写一章、定稿一章（更新细纲 + 角色状态 + 认叙事线 + 故事时间），再写下一章；第 2 章跳过', () => {
+    const order = fake.calls.map((m) => (isSummary(m) ? 'summary' : isState(m) ? 'state' : isFind(m) ? 'threads' : isTime(m) ? 'time' : `write:${chapterOf(m).no}`));
+    assert.deepEqual(order, ['write:1', 'summary', 'state', 'threads', 'time', 'write:3', 'summary', 'state', 'threads', 'time']);
+    assert.equal(calls, 10);
   });
 
   test('作者写的第 2 章一个字没动', () => {
@@ -482,6 +489,9 @@ function factfulReply(conflicts = () => []) {
     if (isEvents(messages)) {
       return NOTHING_FOUND;
     }
+    if (isTime(messages)) {
+      return timeReply(messages);
+    }
     if (isSummary(messages)) {
       const no = Number(/【第(\d+)章/.exec(messages[messages.length - 1].content)?.[1] ?? 0);
       return JSON.stringify({ 梗概: '事。', 出场人物: [{ name: '林昭', aliases: [] }], 关键事件: [], 连续性事实: [`林昭在第${no}章丢了第${no}块玉佩`] });
@@ -505,21 +515,23 @@ describe('边写边拆细纲：大纲覆盖之内没细纲的章，写到时先�
     replyFn = factfulReply();
     await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 4 }, mode: 'finalize', call: {} });
     order = fake.calls.map((m) =>
-      isBlueprint(m) ? 'plots' : isThreads(m) ? 'threads' : isEvents(m) ? 'events' : isPlotCheck(m) ? 'check' : isSummary(m) ? 'summary' : isState(m) ? 'state' : `write:${chapterOf(m).no}`
+      isBlueprint(m) ? 'plots' : isThreads(m) ? 'threads' : isEvents(m) ? 'events' : isTime(m) ? 'time' : isPlotCheck(m) ? 'check' : isSummary(m) ? 'summary' : isState(m) ? 'state' : `write:${chapterOf(m).no}`
     );
     blueprintPrompt = fake.calls.find(isBlueprint)?.at(-1).content ?? '';
   });
   after(() => cleanup(t.dir, bundle.db));
 
-  // 叙事线重做：拆完不再排线（计划随细纲写进线里）；定稿每次都认一遍叙事线（线是空的也认）。
+  // 叙事线重做：拆完不再排线（计划随细纲写进线里）；定稿每次都认一遍叙事线（线是空的也认）、推一次故事时间。
   test('写完第 2 章、定稿之后才拆第 3–4 章（只拆这次要写的），拆完不排叙事线；第 1 章前面没定稿的章，不比对', () => {
     assert.deepEqual(order, [
-      'write:1', 'summary', 'state', 'events',
-      'check', 'write:2', 'summary', 'state', 'events',
-      'plots', 'check', 'write:3', 'summary', 'state', 'events',
-      'check', 'write:4', 'summary', 'state', 'events',
+      'write:1', 'summary', 'state', 'events', 'time',
+      'check', 'write:2', 'summary', 'state', 'events', 'time',
+      'plots', 'check', 'write:3', 'summary', 'state', 'events', 'time',
+      'check', 'write:4', 'summary', 'state', 'events', 'time',
     ]);
-    assert.ok(!t.has('.novelforge/threads'));
+    // 一条线都没排：叙事线目录里只有同步时推出来的时间线。
+    assert.ok(!t.has('.novelforge/threads/未归属的伏笔.md'));
+    assert.ok(t.has('.novelforge/threads/时间线.md'));
   });
 
   test('拆细纲的时候看得见前面定稿的连续性事实', () => {
@@ -861,7 +873,7 @@ describe('写完即审稿', () => {
       }
       if (isSummary(messages)) {
         order.push('定稿');
-      } else if (!isState(messages) && !isFind(messages)) {
+      } else if (!isState(messages) && !isFind(messages) && !isTime(messages)) {
         order.push('写');
       }
       return defaultReply(messages);

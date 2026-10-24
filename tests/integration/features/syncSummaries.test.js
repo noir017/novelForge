@@ -15,7 +15,7 @@ const assert = require('node:assert/strict');
 const { loadBundle } = require('../../helpers/load');
 const { makeTempProject } = require('../../helpers/tmpProject');
 const { makeFakeHost } = require('../../helpers/fakeHost');
-const { installFakeProvider } = require('../../helpers/fakeProvider');
+const { installFakeProvider, TIME_MARK, timeReply } = require('../../helpers/fakeProvider');
 const { cleanup } = require('../../helpers/teardown');
 
 let bundle;
@@ -66,6 +66,10 @@ function reply(messages) {
   }
   if (system.includes(PROGRESS_MARK)) {
     return JSON.stringify({ progress: [{ line: '玉佩的来历', text: `第 ${no} 章，玉佩还在林昭怀里。` }] });
+  }
+  // 故事时间（同步时单独一次，2026-10-24 重做）：都紧接上一章。
+  if ((messages[0]?.content ?? '').includes(TIME_MARK)) {
+    return timeReply(messages);
   }
   return '（认不出这一步）';
 }
@@ -133,12 +137,12 @@ describe('同步：三章逐章定稿，角色状态与叙事线按章号走', (
     used = await bundle.summarize.syncSummaries(project);
   });
 
-  test('确认框写明三步与次数', () => {
+  test('确认框写明四步与次数', () => {
     const { message, detail } = h.confirms.at(-1);
     assert.ok(message.startsWith('有 3 章写了正文还没同步'), message);
-    assert.ok(message.includes('更新出场角色的当前状态、认这一章在叙事线上发生了什么'), message);
-    assert.ok(message.includes('预计 6–15 次调用'), message);
-    assert.ok(detail.includes('角色状态与叙事线按章号逐章串行'), detail);
+    assert.ok(message.includes('更新出场角色的当前状态、认这一章在叙事线上发生了什么、推这一章的故事时间'), message);
+    assert.ok(message.includes('预计 9–18 次调用'), message);
+    assert.ok(detail.includes('角色状态、叙事线与故事时间按章号逐章串行'), detail);
   });
 
   test('三章的细纲都记上了正文的指纹', async () => {
@@ -167,9 +171,9 @@ describe('同步：三章逐章定稿，角色状态与叙事线按章号走', (
     assert.equal(thread.progressThrough, 3);
   });
 
-  test('返回实际调用次数：3 章 ×（细纲、角色状态、认叙事线、当前进度）', () => {
-    assert.equal(used, 12);
-    assert.equal(fake.calls.length, 12);
+  test('返回实际调用次数：3 章 ×（细纲、角色状态、认叙事线、当前进度、故事时间）', () => {
+    assert.equal(used, 15);
+    assert.equal(fake.calls.length, 15);
   });
 
   // 叙事线重做：按实际结果说，不再一律说「跟到了这几章」。
@@ -177,6 +181,7 @@ describe('同步：三章逐章定稿，角色状态与叙事线按章号走', (
     const done = h.toasts.map((m) => String(m.message ?? m)).find((m) => m.includes('已同步 3 章'));
     assert.ok(done, JSON.stringify(h.toasts));
     assert.ok(done.includes('林昭的当前状态更新到了最后同步的那一章') && done.includes('叙事线：记下 3 个事件'), done);
+    assert.ok(done.includes('故事时间：推了 3 章'), done);
     assert.ok(!done.includes('跟到了这几章'), done);
   });
 
@@ -215,8 +220,8 @@ describe('同步：第一步没成的章不走后两步', () => {
     assert.ok(!(await project.readPlot(PLOT(4)))?.sourceHash);
   });
 
-  test('失败的那一次也算钱：2 次更新细纲 + 第 5 章的 3 次', () => {
-    assert.equal(used, 5);
+  test('失败的那一次也算钱：2 次更新细纲 + 第 5 章的 4 次', () => {
+    assert.equal(used, 6);
   });
 
   test('收尾提示说出哪一章细纲没更新成', () => {

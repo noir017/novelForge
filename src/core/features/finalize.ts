@@ -7,9 +7,11 @@
  * 2. 角色状态（0–1 次）：本章出场、已经建卡的人 → 按归属写、或挂黄 ❗
  * 3. 叙事线（1–3 次）：a 认事件（线是空的也认）→ c 有新线 / 新伏笔时归并 → 证据逐字校验后追加
  *    → b 本章动过的线更新当前进度（作者改过的不写）
+ * 4. 故事时间（1 次，2026-10-24 重做）：上一章的结尾 + 前面几章的时间 + 本章正文 → 晚几天、章内几跳、结尾时段、正文写明的日子
+ *    → 证据逐字校验后写进 threads/时间线.md（机器写的行照新推的换，作者的不动；features/storyTime.ts）
  * ```
  *
- * 后两步读的都是第一步更新过的那份细纲（出场人物）与正文。
+ * 后几步读的都是第一步更新过的那份细纲（出场人物、时间地点）与正文。
  *
  * 前两步移植自 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator）`finalize-chapter.command.ts` 的
  * `buildFinalizePostProcessSteps`（FC:246-563）的后两步。知识库导入、定稿收据、来源 hash、
@@ -19,8 +21,8 @@
  * ## 几步的失败各算各的
  *
  * 更新细纲是这一章能不能「记住」的那一步：它失败了整个定稿就算没成，红 ❗ 挂在章节上，细纲
- * 一个字不动。角色状态、叙事线失败时细纲照样算数——黄 ❗ 挂在章节上（第 16 条：
- * 部分完成），角色卡 / 叙事线停在上一次，下次重新定稿会再来一遍。
+ * 一个字不动。角色状态、叙事线、故事时间失败时细纲照样算数——黄 ❗ 挂在章节上（第 16 条：
+ * 部分完成），角色卡 / 叙事线 / 时间线停在上一次，下次重新定稿会再来一遍。
  *
  * ## 用哪个模型
  *
@@ -28,7 +30,7 @@
  * 各走各的档（细纲与叙事线 `plotSummary`、角色状态 `characterCard`），失败换同档其余。工程页章节右键
  * 先弹确认框（`askFinalizeChapterTask`），缺省仍是对话页那个，可以为这一次换一个、或按分档。
  *
- * 后两步在 finalizeSteps.ts：工程页黄条上的「立即同步」（summarize.ts 的 `syncSummaries`）更新完细纲之后
+ * 后三步在 finalizeSteps.ts：工程页黄条上的「立即同步」（summarize.ts 的 `syncSummaries`）更新完细纲之后
  * 也走它们，同步过的章与逐章定稿的章是同一个结果。
  */
 import { getHost } from '../host';
@@ -46,6 +48,7 @@ import { askCall } from './askCall';
 import { SummaryOutcome, summarizeChapter } from './summarize';
 import { ModelRunner, StateAndThreadsOutcome, updateStateAndThreads } from './finalizeSteps';
 import { describeThreads } from './threads';
+import { describeTimeOutcome } from './storyTime';
 
 export type { ModelRunner } from './finalizeSteps';
 
@@ -66,14 +69,14 @@ export interface FinalizeOptions {
   summary?: ModelRunner;
   /** 角色状态那一步用谁。缺省同更新细纲。 */
   state?: ModelRunner;
-  /** 叙事线那一步（认事件、当前进度、归并）用谁。缺省同更新细纲（读一章、按合同摘出东西，是同一种活）。 */
+  /** 叙事线那一步（认事件、当前进度、归并）与故事时间那一步用谁。缺省同更新细纲（读一章、按合同摘出东西，是同一种活）。 */
   threads?: ModelRunner;
   /** 走到第几步了（任务条上那一行）。 */
-  onStep?(step: 'summary' | 'state' | 'threads'): void;
+  onStep?(step: 'summary' | 'state' | 'threads' | 'time'): void;
 }
 
 export interface FinalizeOutcome extends StateAndThreadsOutcome {
-  /** 实际调了几次模型（三步合计，2–5）。 */
+  /** 实际调了几次模型（四步合计，3–6）。 */
   calls: number;
   summary: SummaryOutcome;
 }
@@ -144,6 +147,10 @@ export function describeFinalize(no: number, o: FinalizeOutcome): string {
   } else if (o.threads) {
     parts.push(describeThreads(o.threads));
   }
+  const time = describeTimeOutcome(o);
+  if (time) {
+    parts.push(time);
+  }
   return `${parts.join('；')}。`;
 }
 
@@ -160,24 +167,26 @@ export async function finalizeChapterTask(
   await runTask(
     `同步第 ${chapter.order} 章`,
     async ({ signal, report }) => {
-      report({ message: `《${chapter.title}》 · 细纲`, current: 0, total: 3 });
+      report({ message: `《${chapter.title}》 · 细纲`, current: 0, total: 4 });
       const outcome = await finalizeChapter(project, chapter, {
         ...runners,
         signal,
         onStep: (step) => {
           if (step === 'state') {
-            report({ message: `《${chapter.title}》 · 角色状态`, current: 1, total: 3 });
+            report({ message: `《${chapter.title}》 · 角色状态`, current: 1, total: 4 });
           } else if (step === 'threads') {
-            report({ message: `《${chapter.title}》 · 叙事线`, current: 2, total: 3 });
+            report({ message: `《${chapter.title}》 · 叙事线`, current: 2, total: 4 });
+          } else if (step === 'time') {
+            report({ message: `《${chapter.title}》 · 故事时间`, current: 3, total: 4 });
           }
         },
       });
-      report({ message: outcome ? '完成' : '未同步', current: 3, total: 3 });
+      report({ message: outcome ? '完成' : '未同步', current: 4, total: 4 });
       if (outcome) {
         calls = outcome.calls;
         getHost().toast(
           describeFinalize(chapter.order, outcome),
-          outcome.stateError || outcome.threadsError ? 'error' : 'info'
+          outcome.stateError || outcome.threadsError || outcome.timeError ? 'error' : 'info'
         );
       }
     },
@@ -198,7 +207,7 @@ export async function askFinalizeChapterTask(project: NovelProject, chapter: Cha
   const verb = plot?.sourceHash && plot.sourceHash === chapter.contentHash ? '重新同步' : '同步';
   const { why, ...calls } = FINALIZE_CALLS;
   const answer = await askCall({
-    message: `${verb}第 ${chapter.order} 章《${chapter.title}》：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么。${describeCalls(calls)}。`,
+    message: `${verb}第 ${chapter.order} 章《${chapter.title}》：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么、推这一章的故事时间。${describeCalls(calls)}。`,
     actions: [verb],
     detail: `${why}。\n旧版细纲先复制一份进 .novelforge/.trash/。`,
     tasks: ['plotSummary', 'characterCard'],

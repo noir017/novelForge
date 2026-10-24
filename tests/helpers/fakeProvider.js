@@ -162,4 +162,17 @@ function makeSettings(extra = {}) {
   };
 }
 
-module.exports = { installFakeProvider, makeSettings, sleep, filler };
+/** 认故事时间那一次的系统提示（features/timePrompt.ts 的开头）：同步一章时单独一次（2026-10-24 重做）。 */
+const TIME_MARK = '你是小说的时间校对员';
+
+/**
+ * 认故事时间的最小应答：送来的每一章都「紧接上一章」（同一天、没有依据）。不关心时间的测试在自己的应答里接上它，
+ * 同步就不会因为这一次答不上来挂黄 ❗。
+ */
+function timeReply(messages) {
+  const user = messages[messages.length - 1]?.content ?? '';
+  const nos = [...user.matchAll(/【第(\d+)章 /g)].map((m) => Number(m[1]));
+  return JSON.stringify({ times: nos.map((chapter) => ({ chapter, days: 0, reason: '紧接上一章' })) });
+}
+
+module.exports = { installFakeProvider, makeSettings, sleep, filler, TIME_MARK, timeReply };

@@ -1,6 +1,7 @@
 /**
  * 定稿：照正文反向更新这一章的细纲（带连续性事实与证据），再用一次调用更新本章出场角色的当前状态；叙事线那一步
- * （认事件每次都跑，叙事线重做）这里一条线都没有、什么都认不出，只算 1 次——它自己的断言在 features/threads.test.js。
+ * （认事件每次都跑，叙事线重做）这里一条线都没有、什么都认不出，只算 1 次——它自己的断言在 features/threads.test.js；故事时间
+ * 那一步（2026-10-24 重做：单独一次）也算 1 次——它自己的断言在 features/storyTimeline.test.js。
  *
  * | 断言 | 为什么 |
  * |---|---|
@@ -13,7 +14,7 @@
  * | 带着细纲也不多调：更新细纲仍是 1 次 | 调用次数和从前写摘要那一次一样（`FINALIZE_CALLS` 不变） |
  * | 机器的卡换上新状态、只动那一节 | D15；整卡重渲染会抹掉作者自加的小节 |
  * | 作者改过的卡不写、挂黄 ❗，对比后能采用或放弃 | 第 3 条：不静默覆盖 |
- * | 出场的人都没卡时只有细纲与认叙事线那 2 次 | 第 4 条：预计 2–5 次，不白调 |
+ * | 出场的人都没卡时只有细纲、认叙事线与故事时间那 3 次 | 第 4 条：预计 3–6 次，不白调 |
  * | 不回退到更早的章 | 重新定稿早前的章不该把状态倒回去 |
  * | 角色状态失败时细纲照样在，黄 ❗ 挂在章节上 | 第 16 条：部分完成 |
  */
@@ -69,6 +70,11 @@ function reply(messages) {
   // 叙事线认事件：一条线都没有，什么都认不出。
   if (system.includes('你是小说定稿事实审查员')) {
     return JSON.stringify({ events: [], newThreads: [], newForeshadowing: [] });
+  }
+  // 故事时间：同一天。
+  if (system.includes('你是小说的时间校对员')) {
+    const no = Number(/【第(\d+)章 /.exec(messages[messages.length - 1].content)?.[1] ?? 0);
+    return JSON.stringify({ times: [{ chapter: no, days: 0, reason: '紧接上一章' }] });
   }
   return '（认不出这一步）';
 }
@@ -152,12 +158,12 @@ describe('定稿：没有细纲时照正文整理一份，带连续性事实', (
     plotText = t.read('.novelforge/summaries/002-第2章.md');
   });
 
-  test('一共 3 次：细纲一次、角色状态一次、认叙事线一次', () => {
-    assert.equal(fake.callCount(), 3);
+  test('一共 4 次：细纲一次、角色状态一次、认叙事线一次、故事时间一次', () => {
+    assert.equal(fake.callCount(), 4);
   });
 
   test('outcome 记的调用次数与实际一致', () => {
-    assert.equal(outcome.calls, 3);
+    assert.equal(outcome.calls, 4);
   });
 
   test('没有细纲：用 SUMMARY_SYSTEM，不带「当前细纲」那段规则', () => {
@@ -265,12 +271,12 @@ describe('定稿：不回退、没卡、失败', () => {
     assert.match(t.read(CARD('林昭')), /左臂带伤/);
   });
 
-  test('出场的人都没建卡：只有更新细纲与认叙事线那两次', async () => {
+  test('出场的人都没建卡：只有更新细纲、认叙事线与故事时间那三次', async () => {
     t.remove('.novelforge/characters');
     fake.reset();
     const outcome = await bundle.finalize.finalizeChapter(project, await chapterNo(1));
-    assert.equal(outcome.calls, 2);
-    assert.equal(fake.callCount(), 2);
+    assert.equal(outcome.calls, 3);
+    assert.equal(fake.callCount(), 3);
     assert.match(bundle.finalize.describeFinalize(1, outcome), /出场的人都还没有角色卡/);
   });
 
@@ -279,7 +285,7 @@ describe('定稿：不回退、没卡、失败', () => {
     stateReply = () => '模型答非所问';
     t.remove('.novelforge/summaries/003-第3章.md');
     const outcome = await bundle.finalize.finalizeChapter(project, await chapterNo(3));
-    assert.equal(outcome.calls, 3);
+    assert.equal(outcome.calls, 4);
     assert.ok(outcome.stateError);
     assert.ok(t.has('.novelforge/summaries/003-第3章.md'));
     const [f] = await failuresOf(CH(3));
@@ -458,17 +464,17 @@ describe('定稿：有细纲时照正文反向更新它', () => {
     );
   });
 
-  test('带着细纲也不多调：更新细纲 1 次、角色状态 1 次、认叙事线 1 次，一共 3 次', () => {
-    assert.equal(fake.callCount(), 3);
+  test('带着细纲也不多调：更新细纲 1 次、角色状态 1 次、认叙事线 1 次、故事时间 1 次，一共 4 次', () => {
+    assert.equal(fake.callCount(), 4);
   });
 
   test('outcome 记的调用次数与实际一致', () => {
-    assert.equal(outcome.calls, 3);
+    assert.equal(outcome.calls, 4);
   });
 
-  test('定稿的次数估算：2–5 次（叙事线重做：认事件每次都跑）', () => {
+  test('定稿的次数估算：3–6 次（叙事线重做：认事件每次都跑；故事时间单独一次）', () => {
     const { low, high, max } = bundle.pipeline.FINALIZE_CALLS;
-    assert.deepEqual({ low, high, max }, { low: 2, high: 5, max: 5 });
+    assert.deepEqual({ low, high, max }, { low: 3, high: 6, max: 6 });
   });
 
   test('再定稿一次：回收站里同名的旧版不被覆盖，新的一份加 -2', async () => {
@@ -574,7 +580,7 @@ describe('工程页章节右键「定稿」「重新定稿」：先问这一次�
   test('确认框报次数、只有一颗「重新定稿」；模型缺省是对话页那个，带详细度下拉框', () => {
     const [c] = h.confirms;
     assert.deepEqual(c.actions, ['重新同步']);
-    assert.match(c.message, /^重新同步第 1 章《.+》：.*预计 2–5 次调用。$/);
+    assert.match(c.message, /^重新同步第 1 章《.+》：.*预计 3–6 次调用。$/);
     assert.equal(c.call.model, 'fake/m');
     assert.ok(c.call.contextDetail, JSON.stringify(c.call));
     assert.ok(c.call.models.some((m) => m.ref === 'fake/strong'), JSON.stringify(c.call.models));
