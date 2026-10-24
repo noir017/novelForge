@@ -12,15 +12,23 @@
  *
  * 定位在 [../tip.ts](../tip.ts)，四只浮窗共用一份。这里传 `minHeight: 0` 关掉
  * 「压高度」那一步：浮窗只有一行、滚不动，压出来的 max-height 等于把字截掉。
+ *
+ * **触屏**：兼容鼠标事件不当悬停（`touch.ts`）；入口是长按那一行弹的菜单最前面一项「看完整说明」（只在说明真的被截断时
+ * 给），弹出来是钉住的，按在别处就收。
  */
 import { el as mk, closestFrom } from '../../dom';
+import type { MenuContext, MenuItem } from '../../globals';
+import { lastPointerWasTouch } from '../../touch';
+import { onTouchPeek } from '../menu';
 import { el } from '../refs';
-import { placeTip } from '../tip';
+import { closeOnOutsidePress, placeTip } from '../tip';
 
 const HOVER_DELAY_MS = 350;
 const CLOSE_DELAY_MS = 150;
 
 let tip: HTMLElement | null = null;
+/** 钉住的（触屏的入口）：收起时撤掉「按在外面就收」的监听。 */
+let unpin: (() => void) | null = null;
 /** 当前浮窗对应的副标题（浮窗开着时再次悬停它不该关掉重开）。 */
 let tipTarget: HTMLElement | null = null;
 /** 正在等延迟的那一个副标题（延迟到点时用它定位）。 */
@@ -45,10 +53,33 @@ export function hideDetailTip(): void {
   }
   hoverTarget = null;
   tipTarget = null;
+  unpin?.();
+  unpin = null;
   if (tip) {
     tip.remove();
     tip = null;
   }
+}
+
+/** 长按一行：这一行的说明被截断了就给「看完整说明」。 */
+function peekItems(at: MenuContext): MenuItem[] {
+  const row = at.target?.closest<HTMLElement>('.row');
+  const detail = row?.querySelector<HTMLElement>('.row-detail');
+  if (!row || !detail || !el.projectBody.contains(row) || !isTruncated(detail)) {
+    return [];
+  }
+  return [
+    {
+      label: '看完整说明',
+      run: () => {
+        hideDetailTip();
+        if (detail.isConnected) {
+          showTip(detail);
+          unpin = tip ? closeOnOutsidePress(tip, hideDetailTip) : null;
+        }
+      },
+    },
+  ];
 }
 
 /** 鼠标挪到别处：给一点宽限再收，鼠标在副标题上微动不会闪。 */
@@ -98,7 +129,13 @@ function showTip(node: HTMLElement): void {
 export function installDetailTip(): void {
   // 事件委托挂在 projectBody 上：树每次重渲染都换掉全部行，
   // 逐行 addEventListener 会随重渲染次数堆积（与 summaryTip 同一套取舍）。
+  onTouchPeek(peekItems);
+
   el.projectBody.addEventListener('mouseover', (e) => {
+    // 手指点一下之后补发的兼容鼠标事件不是悬停；钉住的浮窗也不跟鼠标走。
+    if (lastPointerWasTouch() || unpin) {
+      return;
+    }
     const detail = closestFrom<HTMLElement>(e.target, '.row-detail');
     if (detail) {
       scheduleShow(detail);
@@ -108,7 +145,9 @@ export function installDetailTip(): void {
   });
 
   el.projectBody.addEventListener('mouseleave', () => {
-    hideDetailTip();
+    if (!lastPointerWasTouch() && !unpin) {
+      hideDetailTip();
+    }
   });
 
   // 右键菜单弹出来时浮窗该让路，两个都是 fixed 会叠在一起。

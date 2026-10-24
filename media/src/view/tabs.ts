@@ -6,6 +6,7 @@
  */
 import { closestFrom } from '../dom';
 import type { Tab } from '../protocol';
+import { avoidSoftKeyboard } from '../touch';
 import { clearUnseenErrors } from './logs';
 import { el } from './refs';
 import { vscode } from './store';
@@ -17,7 +18,8 @@ export function showTab(tab: string): void {
   for (const pane of document.querySelectorAll('.pane')) {
     pane.classList.toggle('active', pane.id === `pane-${tab}`);
   }
-  if (tab === 'chat') {
+  // 手机上不顺手聚焦（一聚焦就弹软键盘盖住半屏，见 touch.ts 的 avoidSoftKeyboard）。
+  if (tab === 'chat' && !avoidSoftKeyboard()) {
     el.input.focus();
   }
   if (tab === 'logs') {

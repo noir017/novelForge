@@ -68,3 +68,22 @@ export function placeTip(anchor: Element, box: HTMLElement, opts: PlaceTipOption
   box.style.left = `${left}px`;
   box.style.top = `${top}px`;
 }
+
+/**
+ * 钉住的浮窗（触屏上的入口：长按菜单里的「看一眼」、点失败的感叹号）：手指没有「移开」，收起改成**按在浮窗外面**
+ * （捕获阶段的 `pointerdown`，按在浮窗里——滚动、选字——不算）。返回撤掉监听的函数；浮窗收起时调它。
+ * Esc、页面滚动、右键照旧由各只浮窗自己收。
+ */
+export function closeOnOutsidePress(box: HTMLElement, close: () => void): () => void {
+  const onDown = (e: Event): void => {
+    if (!box.contains(e.target as Node)) {
+      close();
+    }
+  };
+  // 推到下一轮再挂：钉住它的那一下（菜单项的 click）之前那个 pointerdown 早过去了，但同一轮里接着到的事件不该把它收掉。
+  const timer = setTimeout(() => document.addEventListener('pointerdown', onDown, true), 0);
+  return () => {
+    clearTimeout(timer);
+    document.removeEventListener('pointerdown', onDown, true);
+  };
+}

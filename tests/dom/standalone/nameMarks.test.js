@@ -10,6 +10,7 @@
  * | 名词图层 | 打开正文就要名词表；表到了角色 / 设定 / 未建条目三种 class；打出一个名字同一轮里标上；撤销跟着；角色卡里不标它自己；配置文件不画；与体检叠在同一段字上两层 class 都在 |
  * | 浮窗 | 停够 400ms 才弹：名字、类型、别名命中写「这里写的是」、一句话、底下那一行；没停够就移开不弹；移到别处、打字、换文件就收起；拖选区时不弹 |
  * | Ctrl+点击 | 角色名、设定名在这一块打开卡或条目（按下被拦下）；未建条目说一句；不按 Ctrl 照常放光标；按住 Ctrl 指着能打开的名字时手形 |
+ * | 触屏 | 手指点名字当场弹浮窗（底下写长按能打开什么），补发的兼容鼠标事件不当悬停，点别的字收起；右键（长按）名字菜单最前面「打开「林昭」的角色卡」 |
  * | 「视图 → 名词高亮」 | 缺省开；关掉清图层、不弹浮窗、记进偏好且不冲掉别的；再开重画、删掉那一项；刷新之后照旧关着、也不去要名词表 |
  * | 样式 | names 图层只碰底色与下划线（不占排版），与体检一样重且排在它前面；三套主题都给了三个颜色 |
  */
@@ -333,6 +334,61 @@ describe('名词高亮：悬停浮窗与 Ctrl+点击', { skip: JSDOM_SKIP }, () 
     assert.ok(h.tip());
     h.open('chapters/002-别处.md', '这里什么都没有。');
     assert.equal(h.tip(), null);
+  });
+});
+
+describe('名词高亮：触屏（手指点名字、长按打开）', { skip: JSDOM_SKIP }, () => {
+  let h;
+  let at;
+  /** 手指点一下：先一下手指的 pointerdown，再是 Chromium 补发的兼容 mousemove / mousedown / click。 */
+  const tap = (point) => {
+    h.area().dispatchEvent(new h.ui.window.PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', ...point }));
+    h.mouse('mousemove', point);
+    h.mouse('mousedown', point);
+    h.mouse('click', point);
+  };
+  before(async () => {
+    h = harness();
+    at = fakeLayout(h.ui);
+    h.open(CH, '阿昭走进青云门。\n黑水河边。');
+    h.serve();
+    await flush();
+  });
+
+  test('手指点在名字上：当场弹浮窗（不等悬停），底下一行写长按能打开什么；不打开卡片', async () => {
+    const before = h.count('openEditor');
+    tap(at(0, 1));
+    assert.ok(h.tip());
+    assert.equal(h.tipText('nm-name'), '林昭');
+    assert.equal(h.tipText('nm-foot'), '长按名字可以打开角色卡');
+    assert.equal(h.count('openEditor'), before);
+    // 补发的兼容 mousemove 不当悬停：过了悬停延迟也不另弹、不收
+    await dwell();
+    assert.equal(h.tipText('nm-name'), '林昭');
+  });
+
+  test('手指点别的字：收起；点未建条目：说它还没建条目', () => {
+    tap(at(0, 3));
+    assert.equal(h.tip(), null);
+    tap(at(1, 1));
+    assert.equal(h.tipText('nm-foot'), '设定名录里出现过，还没建条目');
+  });
+
+  test('长按（右键）名字：菜单最前面「打开「林昭」的角色卡」，点了在这一块打开；不是名字、未建条目不给', () => {
+    let menu = h.ui.rightClick(h.area(), at(0, 0).clientX, at(0, 0).clientY);
+    assert.deepEqual(h.ui.itemsOf(menu).slice(0, 2), ['打开「林昭」的角色卡', '剪切']);
+    h.ui.pick(menu, '打开「林昭」的角色卡');
+    const msg = h.ui.last('openEditor');
+    assert.deepEqual([msg.path, msg.pane], [CARD, 'main']);
+    menu = h.ui.rightClick(h.area(), at(0, 4).clientX, at(0, 4).clientY);
+    assert.equal(h.ui.itemsOf(menu)[0], '打开「青云宗」的设定条目');
+    h.ui.closeMenu();
+    menu = h.ui.rightClick(h.area(), at(0, 3).clientX, at(0, 3).clientY);
+    assert.equal(h.ui.itemsOf(menu)[0], '剪切');
+    h.ui.closeMenu();
+    menu = h.ui.rightClick(h.area(), at(1, 1).clientX, at(1, 1).clientY);
+    assert.equal(h.ui.itemsOf(menu)[0], '剪切');
+    h.ui.closeMenu();
   });
 });
 

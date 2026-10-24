@@ -11,6 +11,10 @@
  *   `pointer-events: none`，不挡鼠标；打字、滚动、按下鼠标、移开、输入法组字、换文件就收起。按住鼠标拖选区时不弹。
  * - **Ctrl+点击**（Mac 上 ⌘+点击，Mac 的 Ctrl+点击是右键）：在这一块编辑区打开它的角色卡或设定条目（`openEditor`，正常
  *   标签，与「转到…」一样）；未建条目没有文件，说一句。按着 Ctrl 指着能打开的名字时鼠标变成手形。
+ * - **右键（触屏上是长按）一个名字**：菜单最前面一项「打开「林昭」的角色卡」（`api.ts` 的 `addAreaMenu`），未建条目不给。
+ * - **触屏**：手指没有悬停，点一下之后补发的兼容鼠标事件也不当悬停（`touch.ts`）。**手指点在名字上**（光标照常落在那儿）
+ *   就弹同一只浮窗，底下一行写「长按打开……」；再点一下别处、打字、滚动、失焦就收。不做成点一下就打开卡片（点正文是要
+ *   放光标、要看的是这个名字本身）。
  *
  * 名词表与补全是同一份（`names.ts` 管收发：带指纹问、没变只回指纹、磁盘上变过才算过期），这里只在当前文件归这一层管时
  * 要，表换了整层重画。开关在「视图 → 名词高亮」（缺省开 ⚑，`novelforge.editor.prefs` 的 `nameHighlight`，只认明明白白
@@ -18,11 +22,12 @@
  */
 import { el } from '../dom';
 import { toast } from '../globals';
+import type { MenuItem } from '../globals';
 import type { InMessage } from '../protocol';
 import { onMessage } from '../vscodeApi';
 import { onEditorChange } from './api';
 import type { OpenFile, Pane } from './api';
-import { nextFrame, rangeAtPoint, tooLargeToHighlight } from './highlight';
+import { measureOffset, nextFrame, rangeAtPoint, tooLargeToHighlight } from './highlight';
 import type { HighlightRange } from './highlight';
 import { createLiveLayer } from './liveLayer';
 import type { LiveLayer } from './liveLayer';
@@ -30,6 +35,8 @@ import { currentNameCatalog, onNameCatalog, refreshNameIndex } from './names';
 import { buildNameMatcher, completionApplies, nameItemOf, nameRanges } from './namesCore';
 import type { NameCatalog, NameItem, NameMatcher } from './namesCore';
 import { onPrefsChange, setStoredPrefs, storedPrefs } from './paragraphState';
+import { isTouchEvent, lastPointerWasTouch, trackPointer } from '../touch';
+import { addAreaMenu } from './api';
 import { isMacPlatform } from './shortcuts';
 import { panes } from './store';
 
@@ -122,12 +129,13 @@ function hideTip(): void {
     clearTimeout(timer);
     timer = undefined;
   }
+  tappedTip = false;
   current = null;
   tip?.remove();
   tip = null;
 }
 
-function buildTip(item: NameItem, written: string): HTMLElement {
+function buildTip(item: NameItem, written: string, touch = false): HTMLElement {
   const box = el('div', `nm-tip nm-${item.source}`);
   box.setAttribute('role', 'tooltip');
   const head = el('div', 'nm-head');
@@ -137,8 +145,11 @@ function buildTip(item: NameItem, written: string): HTMLElement {
     box.appendChild(el('div', 'nm-alias', `这里写的是「${written}」`));
   }
   box.appendChild(item.brief ? el('div', 'nm-brief', item.brief) : el('div', 'nm-brief nm-empty', '还没有一句话简介'));
+  const what = item.source === 'character' ? '角色卡' : '设定条目';
   const foot = item.path
-    ? `${modLabel()}+点击打开${item.source === 'character' ? '角色卡' : '设定条目'}`
+    ? touch
+      ? `长按名字可以打开${what}`
+      : `${modLabel()}+点击打开${what}`
     : '设定名录里出现过，还没建条目';
   box.appendChild(el('div', 'nm-foot', foot));
   return box;
@@ -156,11 +167,64 @@ function placeTip(box: HTMLElement, x: number, y: number): void {
   box.style.top = `${top}px`;
 }
 
-function showTip(pane: Pane, hit: { range: HighlightRange; item: NameItem }, x: number, y: number): void {
+function showTip(pane: Pane, hit: { range: HighlightRange; item: NameItem }, x: number, y: number, touch = false): void {
   tip?.remove();
-  tip = buildTip(hit.item, pane.area.value.slice(hit.range.start, hit.range.end));
+  tip = buildTip(hit.item, pane.area.value.slice(hit.range.start, hit.range.end), touch);
   document.body.appendChild(tip);
   placeTip(tip, x, y);
+}
+
+/** 手指点在一个名字上：光标照常落下，同时弹它的浮窗（触屏没有悬停）。点别处、打字、滚动、失焦照旧收起。 */
+function onTap(pane: Pane, e: MouseEvent): void {
+  if (!isTouchEvent(e) || layer?.composing(pane)) {
+    return;
+  }
+  const hit = nameAt(pane, e.clientX, e.clientY);
+  hideTip();
+  if (!hit) {
+    return;
+  }
+  current = { pane, start: hit.range.start, end: hit.range.end };
+  showTip(pane, hit, e.clientX, e.clientY, true);
+  tappedTip = true;
+}
+
+/** 正开着的浮窗是手指点出来的（软键盘弹出来、页面变矮时要跟着那个名字挪）。 */
+let tappedTip = false;
+
+/**
+ * 手指点出来的浮窗跟着名字挪：点一下正文，软键盘随即弹出来，页面变矮、编辑区收起章节条与工具栏（narrow.css），名字挪了地方，
+ * 浮窗还停在点下去的那个坐标上（多半已经在键盘底下）。窗口尺寸变了就按那个名字现在的位置重摆，量不出来或滚出了编辑区就收起。
+ */
+function followTappedTip(): void {
+  if (!tip || !tappedTip || !current) {
+    return;
+  }
+  const { pane, start } = current;
+  const area = pane.area;
+  const rect = area.getBoundingClientRect();
+  const pos = measureOffset(pane, start);
+  if (!pos) {
+    hideTip();
+    return;
+  }
+  const top = rect.top + area.clientTop + pos.top - area.scrollTop;
+  if (rect.height > 0 && (top + pos.height <= rect.top || top >= rect.bottom)) {
+    hideTip();
+    return;
+  }
+  placeTip(tip, rect.left + area.clientLeft + pos.left - area.scrollLeft + 12, top + pos.height / 2);
+}
+
+/** 右键（长按）一个能打开的名字：菜单最前面给「打开「林昭」的角色卡」。未建条目没有文件，不给。 */
+function menuItems(pane: Pane, at: { x: number; y: number }): MenuItem[] {
+  const hit = nameAt(pane, at.x, at.y);
+  const path = hit?.item.path;
+  if (!hit || !path) {
+    return [];
+  }
+  const what = hit.item.source === 'character' ? '角色卡' : '设定条目';
+  return [{ label: `打开「${hit.item.name}」的${what}`, run: () => post({ type: 'openEditor', path, pane: pane.id }) }];
 }
 
 // ---------------------------------------------------------------- 鼠标
@@ -211,6 +275,10 @@ function probe(): void {
 }
 
 function onMove(pane: Pane, e: MouseEvent): void {
+  // 手指点一下之后补发的兼容 mousemove 不是悬停（手指的浮窗走 onTap）。
+  if (lastPointerWasTouch()) {
+    return;
+  }
   pointer = { pane, x: e.clientX, y: e.clientY, mod: modHeld(e), dragging: e.buttons !== 0 };
   if (frame === undefined) {
     frame = nextFrame(probe);
@@ -246,12 +314,17 @@ function hook(pane: Pane): void {
   const area = pane.area;
   area.addEventListener('mousemove', (e) => onMove(pane, e));
   area.addEventListener('mousedown', (e) => onDown(pane, e));
+  area.addEventListener('click', (e) => onTap(pane, e));
   area.addEventListener('mouseleave', () => {
     pointer = null;
     setLinkCursor(pane, false);
-    hideTip();
+    // 手指点出来的浮窗不跟鼠标走：点完之后补发的兼容 mouseleave 不收它（点别处、打字、滚动照旧收）。
+    if (!lastPointerWasTouch()) {
+      hideTip();
+    }
   });
-  for (const type of ['keydown', 'scroll', 'wheel', 'compositionstart', 'blur'] as const) {
+  // 右键（长按）弹菜单时也收：两样都是 fixed 的，叠在一起谁都读不清。
+  for (const type of ['keydown', 'scroll', 'wheel', 'compositionstart', 'blur', 'contextmenu'] as const) {
     area.addEventListener(type, (e) => {
       // 光按下修饰键不算（按住 Ctrl 正是要点它）。
       if (e instanceof KeyboardEvent && ['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) {
@@ -297,6 +370,8 @@ function wantsIndex(): boolean {
 /** 装一次（`index.ts`，在 `installNames` 之后：名词表的收发归它）。 */
 export function installNameMarks(send: (msg: InMessage) => void): void {
   post = send;
+  trackPointer();
+  addAreaMenu(menuItems);
   layer = createLiveLayer({
     layer: NAMES_LAYER,
     applies: (file) => completionApplies(file.kind),
@@ -325,6 +400,8 @@ export function installNameMarks(send: (msg: InMessage) => void): void {
   document.addEventListener('keydown', onModKey, true);
   document.addEventListener('keyup', onModKey, true);
   window.addEventListener('blur', hideTip);
+  // 软键盘弹出 / 收起：页面变矮又变高，手指点出来的浮窗跟着名字挪（下一帧，等新排版落定）。
+  window.addEventListener('resize', () => nextFrame(followTappedTip));
 
   // 表换了（到了新的一份、换工程作废）：整层按新表重画。
   onNameCatalog(() => {

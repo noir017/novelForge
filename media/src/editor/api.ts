@@ -31,6 +31,7 @@
  * onEditorChange((ev) => redrawHighlights(ev.pane));
  * ```
  */
+import type { MenuContext, MenuItem } from '../globals';
 import type { TextChange, TextSelection } from './history';
 import type { OpenFile } from './paneElements';
 import { activePane, panes } from './store';
@@ -124,6 +125,29 @@ export function runKeyHandlers(e: KeyboardEvent, ctx: EditorContext): boolean {
     }
   }
   return false;
+}
+
+/**
+ * 正文区右键（触屏上是长按）菜单里功能模块加的项：按在哪个字上给什么（名词高亮给「打开林昭的角色卡」）。
+ * 排在剪切 / 复制 / 粘贴前面，中间隔一条线；没有就给空数组。返回取消挂载的函数。
+ */
+export type AreaMenuProvider = (pane: Pane, at: MenuContext) => MenuItem[];
+
+const areaMenuProviders: AreaMenuProvider[] = [];
+
+export function addAreaMenu(provide: AreaMenuProvider): () => void {
+  areaMenuProviders.push(provide);
+  return () => {
+    const i = areaMenuProviders.indexOf(provide);
+    if (i >= 0) {
+      areaMenuProviders.splice(i, 1);
+    }
+  };
+}
+
+/** pane.ts 用：正文区那张菜单最前面的几项。 */
+export function areaMenuItems(pane: Pane, at: MenuContext): MenuItem[] {
+  return areaMenuProviders.flatMap((provide) => provide(pane, at));
 }
 
 /** 事件目标落在哪一块编辑区里（查找条、预览也算在那一块里）。 */

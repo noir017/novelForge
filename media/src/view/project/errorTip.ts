@@ -15,19 +15,26 @@
  *   全量推过来了（每条几十字、只有出错的目标才有），直接读缓存即可。
  *
  * 定位在 [../tip.ts](../tip.ts)，四只浮窗共用一份。
+ *
+ * **触屏**：兼容鼠标事件不当悬停（`touch.ts`）。两个入口，弹出来都是钉住的（按在外面才收）：手指点感叹号本身
+ * （点的就是这个标记、看的就是它，不跳到别处），以及长按那一行弹的菜单最前面一项「看失败原因」。
  */
 import { el as mk, closestFrom } from '../../dom';
+import type { MenuContext, MenuItem } from '../../globals';
 import type { FailureView } from '../../protocol';
+import { isTouchEvent, lastPointerWasTouch } from '../../touch';
 import { logTime } from '../format';
+import { onTouchPeek } from '../menu';
 import { el } from '../refs';
-import { placeTip } from '../tip';
+import { closeOnOutsidePress, placeTip } from '../tip';
 import { lastTree } from './treeState';
 
 const HOVER_DELAY_MS = 300;
 /** 收起的宽限期：够鼠标从行跨到浮窗，又不至于让它赖着不走。 */
 const CLOSE_DELAY_MS = 200;
 
-let tip: { key: string; box: HTMLElement } | null = null;
+/** `unpin` 有值说明是钉住的（触屏的入口）。 */
+let tip: { key: string; box: HTMLElement; unpin?: () => void } | null = null;
 /** 正在等延迟的那个感叹号（延迟到点时用它定位）。 */
 let hoverTarget: HTMLElement | null = null;
 let hoverTimer: ReturnType<typeof setTimeout> | null = null;
@@ -42,6 +49,7 @@ export function hideFailureTip(): void {
   cancelScheduledHide();
   hoverTarget = null;
   if (tip) {
+    tip.unpin?.();
     tip.box.remove();
     tip = null;
   }
@@ -99,10 +107,38 @@ function showTip(node: HTMLElement, key: string, failures: FailureView[]): void 
   box.appendChild(buildBody(failures));
   // 鼠标进了浮窗就别收——用户正在读，或者要选中复制。
   box.addEventListener('mouseenter', cancelScheduledHide);
-  box.addEventListener('mouseleave', scheduleHide);
+  box.addEventListener('mouseleave', () => {
+    if (!tip?.unpin) {
+      scheduleHide();
+    }
+  });
   document.body.appendChild(box);
   tip = { key, box };
   placeTip(node, box);
+}
+
+/** 钉住一只失败浮窗（触屏：点感叹号、长按菜单里的「看失败原因」）。 */
+function pinFailureTip(mark: HTMLElement): void {
+  hideFailureTip();
+  const key = mark.dataset.failureKey ?? '';
+  const failures = lastTree?.failures?.[key];
+  if (!key || !failures || failures.length === 0 || !mark.isConnected) {
+    return;
+  }
+  showTip(mark, key, failures);
+  if (tip) {
+    tip.unpin = closeOnOutsidePress(tip.box, hideFailureTip);
+  }
+}
+
+/** 长按一行：这一行挂着失败标记就给「看失败原因」。 */
+function peekItems(at: MenuContext): MenuItem[] {
+  const row = at.target?.closest<HTMLElement>('.row');
+  const mark = row?.querySelector<HTMLElement>('.row-failure');
+  if (!row || !mark || !el.projectBody.contains(row)) {
+    return [];
+  }
+  return [{ label: '看失败原因', run: () => pinFailureTip(mark) }];
 }
 
 function buildBody(failures: FailureView[]): DocumentFragment {
@@ -135,7 +171,22 @@ function buildBody(failures: FailureView[]): DocumentFragment {
 export function installFailureTip(): void {
   // 事件委托挂在 projectBody 上：树每次重渲染都换掉全部行，逐行
   // addEventListener 会随重渲染次数堆积（与另两只浮窗同一套取舍）。
+  onTouchPeek(peekItems);
+
+  // 手指点感叹号：看的就是这个标记，钉住它的浮窗（鼠标点它不做事，悬停就看得到）。
+  el.projectBody.addEventListener('click', (e) => {
+    const mark = closestFrom<HTMLElement>(e.target, '.row-failure');
+    if (mark && isTouchEvent(e)) {
+      e.stopPropagation();
+      pinFailureTip(mark);
+    }
+  });
+
   el.projectBody.addEventListener('mouseover', (e) => {
+    // 手指点一下之后补发的兼容鼠标事件不是悬停；钉住的浮窗也不跟鼠标走。
+    if (lastPointerWasTouch() || tip?.unpin) {
+      return;
+    }
     const mark = closestFrom<HTMLElement>(e.target, '.row-failure');
     if (mark) {
       cancelScheduledHide();
@@ -150,6 +201,9 @@ export function installFailureTip(): void {
   });
 
   el.projectBody.addEventListener('mouseleave', () => {
+    if (lastPointerWasTouch() || tip?.unpin) {
+      return;
+    }
     if (tip) {
       scheduleHide();
     } else {

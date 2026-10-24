@@ -22,6 +22,9 @@ import {
   showWelcome,
 } from './welcome';
 import { hasWorkspace, store, vscode } from './store';
+import { placeNear, visibleArea } from './menuPlace';
+import type { Placement } from './menuPlace';
+import { lastPointerWasTouch, trackPointer } from '../touch';
 import { paragraphMenuEntries } from './paragraphMenu';
 import { shortcutsMenuEntry } from './shortcutsMenu';
 import { viewMenuEntries } from './viewMenu';
@@ -61,6 +64,7 @@ export function installMenubar(): void {
   if (!bar) {
     return;
   }
+  trackPointer();
 
   // 点菜单不抢焦点：「编辑」里的撤销 / 剪切 / 粘贴作用于点菜单之前光标所在的那个输入框，
   // 按钮在 mousedown 时把焦点拿走的话（Chromium 会），那几项就一律置灰、也没处可作用。
@@ -79,8 +83,10 @@ export function installMenubar(): void {
     openMenu(btn.dataset.menu, btn);
   });
 
+  // 已经开着一个菜单时移到别的菜单按钮上就换过去。手指点别的按钮之前补发的 mouseover 不算：
+  // 不然先换过去、紧接着的 click 又看见「点的正是开着的那个」就把它关了——手指想换菜单却全关掉。
   bar.addEventListener('mouseover', (e) => {
-    if (!openKey) {
+    if (!openKey || lastPointerWasTouch()) {
       return;
     }
     const btn = (e.target as HTMLElement | null)?.closest<HTMLButtonElement>('.wb-menu-btn');
@@ -121,9 +127,16 @@ function openMenu(key: string, btn: HTMLElement): void {
   // 功能模块自带的项接在后面（「编辑」里段落那一组，见 paragraphMenu.ts）。
   drop = buildDrop([...entriesOf(key), ...(key === 'edit' ? paragraphMenuEntries() : [])]);
   document.body.appendChild(drop);
-  const rect = btn.getBoundingClientRect();
-  drop.style.left = `${Math.round(rect.left)}px`;
-  drop.style.top = `${Math.round(rect.bottom)}px`;
+  // 整个落在可视区里（窄屏上「帮助」的下拉从前伸出右边，见 menuPlace.ts）。
+  place(drop, placeNear(btn.getBoundingClientRect(), drop.offsetWidth, drop.offsetHeight, visibleArea(), 'below'));
+}
+
+function place(menu: HTMLElement, at: Placement): void {
+  menu.style.left = `${Math.round(at.left)}px`;
+  menu.style.top = `${Math.round(at.top)}px`;
+  if (at.maxHeight !== undefined) {
+    menu.style.maxHeight = `${Math.floor(at.maxHeight)}px`;
+  }
 }
 
 function closeMenubar(): void {
@@ -237,8 +250,25 @@ function buildDrop(entries: MenuEntry[], submenu = false): HTMLElement {
     }
     if (entry.submenu) {
       // 置灰的子菜单不展开（「段落格式」在没开工程时就是这样）。
-      btn.addEventListener('mouseenter', () => (entry.disabled ? hideSubmenu() : showSubmenu(btn, entry.submenu!)));
-      btn.addEventListener('click', (e) => e.stopPropagation());
+      // 手指点之前补发的 mouseenter 不展开：窄屏上子菜单会贴边盖住手指底下这一点，紧跟着的 click 就落到子菜单的某一项上
+      // （Android 实机上点「打开最近打开的」直接打开了最近的第一本书）。手指靠下面的 click 展开。
+      btn.addEventListener('mouseenter', () => {
+        if (lastPointerWasTouch()) {
+          return;
+        }
+        if (entry.disabled) {
+          hideSubmenu();
+        } else {
+          showSubmenu(btn, entry.submenu!);
+        }
+      });
+      // 点一下也展开：手指没有「移上去」。
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!entry.disabled) {
+          showSubmenu(btn, entry.submenu!);
+        }
+      });
     } else {
       btn.addEventListener('mouseenter', () => hideSubmenu());
       btn.addEventListener('click', (e) => {
@@ -311,9 +341,8 @@ function showSubmenu(anchor: HTMLElement, entries: SubEntry[]): void {
   }
   subDrop.addEventListener('mousedown', keepFocus);
   document.body.appendChild(subDrop);
-  const rect = anchor.getBoundingClientRect();
-  subDrop.style.left = `${Math.round(rect.right)}px`;
-  subDrop.style.top = `${Math.round(rect.top)}px`;
+  // 父菜单项右边、顶对齐；右边放不下翻到左边，再不行就贴边盖住一点父菜单（窄屏上从前直接伸出屏幕）。
+  place(subDrop, placeNear(anchor.getBoundingClientRect(), subDrop.offsetWidth, subDrop.offsetHeight, visibleArea(), 'side'));
 }
 
 function hideSubmenu(): void {

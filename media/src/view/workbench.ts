@@ -33,6 +33,7 @@ import type { WorkbenchView } from '../protocol';
 import { el } from './refs';
 import { openPath } from './store';
 import { placeTip } from './tip';
+import { lastPointerWasTouch } from '../touch';
 
 /** 与另外三只浮窗同一档延迟：够快，又不至于划过时闪。 */
 const HOVER_DELAY_MS = 300;
@@ -207,11 +208,19 @@ function buildHead(view: WorkbenchView): HTMLElement {
 }
 
 export function installWorkbench(): void {
+  // 手指点一下之后补发的兼容鼠标事件不是悬停（`touch.ts`）：触屏上只认点，点一下就是钉住。
   el.workbench.addEventListener('mouseenter', () => {
+    if (lastPointerWasTouch()) {
+      return;
+    }
     cancelScheduledHide();
     scheduleShow();
   });
-  el.workbench.addEventListener('mouseleave', scheduleHide);
+  el.workbench.addEventListener('mouseleave', () => {
+    if (!lastPointerWasTouch()) {
+      scheduleHide();
+    }
+  });
 
   // 点一下钉住：照着细纲往输入框里写要求时鼠标要回输入框，那一刻浮窗得留得住。
   // 再点一次收起——同一个入口，同一个键。

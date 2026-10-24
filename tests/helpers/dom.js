@@ -99,6 +99,15 @@ const SHIMS = {
   confirm(window) {
     window.confirm = () => true;
   },
+  /** 窄屏（≤900px）：jsdom 没有 `matchMedia`，按宽度的那条媒体查询说成立，别的（深浅色偏好之类）不成立。脚本装载时就要问。 */
+  narrow(window) {
+    window.matchMedia = (query) => ({
+      matches: /max-width:\s*900px/.test(query),
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    });
+  },
   /**
    * 手拨的时钟：窗口里的 `setTimeout` / `clearTimeout` / `setInterval` / `clearInterval` 换成假的，
    * `window.__clock.tick(ms)` 往前拨——拨到点的按时间先后跑，跑的时候新挂上的只要也在这段里照样跑。

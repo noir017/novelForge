@@ -30,7 +30,9 @@
  * `-webkit-touch-callout: none` 关掉（见 css/view/base.css）。
  */
 import { el as mk } from '../dom';
-import type { ContextMenuRegistrar, MenuItem } from '../globals';
+import type { ContextMenuRegistrar, MenuContext, MenuItem } from '../globals';
+import { isTouchEvent, trackPointer } from '../touch';
+import { placeAtPoint, visibleArea } from './menuPlace';
 
 /** 当前打开的菜单（同时只允许一个）。`btn` 有值即为 ⋯ 菜单。 */
 let openMenu: { btn: HTMLElement | null; menu: HTMLElement } | null = null;
@@ -83,7 +85,8 @@ export function buildMenuElement(items: MenuItem[], className: string): HTMLElem
 /**
  * 在视口坐标 (x, y) 处弹出菜单。挂在 body 上、position: fixed——
  * 右键可能发生在任何容器里（含内部滚动的工程页），跟着容器走会被裁掉。
- * 贴近右/下边缘时向左/向上翻转，不让菜单掉出屏幕。
+ * **整个落在可视区里**（`menuPlace.ts` 的 `placeAtPoint`）：右 / 下放不下往左 / 往上翻，翻过去还放不下就平移贴边，
+ * 比可视区还高就压 `max-height` 在菜单里滚——手机竖屏在下半屏长按，从前菜单会被屏幕底边截掉一截。
  */
 function showContextMenu(items: MenuItem[], x: number, y: number): HTMLElement | undefined {
   closeMenu();
@@ -97,13 +100,13 @@ function showContextMenu(items: MenuItem[], x: number, y: number): HTMLElement |
   document.body.appendChild(menu);
   openMenu = { btn: null, menu };
 
-  // jsdom 里 offsetWidth 恒为 0，翻转逻辑自动退化为「贴光标」，不影响断言。
-  const w = menu.offsetWidth;
-  const h = menu.offsetHeight;
-  const vw = window.innerWidth || 0;
-  const vh = window.innerHeight || 0;
-  menu.style.left = `${w > 0 && x + w > vw ? Math.max(0, x - w) : x}px`;
-  menu.style.top = `${h > 0 && y + h > vh ? Math.max(0, y - h) : y}px`;
+  // jsdom 里 offsetWidth 恒为 0，摆法自动退化为「贴光标」，不影响断言。
+  const place = placeAtPoint(x, y, menu.offsetWidth, menu.offsetHeight, visibleArea());
+  menu.style.left = `${place.left}px`;
+  menu.style.top = `${place.top}px`;
+  if (place.maxHeight !== undefined) {
+    menu.style.maxHeight = `${place.maxHeight}px`;
+  }
   return menu;
 }
 
@@ -129,24 +132,40 @@ export function toggleButtonMenu(btn: HTMLElement, items: MenuItem[]): void {
  * 那一行时就已经知道全部上下文（节点、所属区、落点目录），反查得把这些
  * 再拼一遍。行被重渲染丢弃后条目自动回收。
  */
-const menuProviders = new WeakMap<Element, () => MenuItem[]>();
+const menuProviders = new WeakMap<Element, (at: MenuContext) => MenuItem[]>();
 
-/** 给一个元素登记右键菜单。`provide` 返回菜单项数组，右键那一刻才调用。 */
+/** 给一个元素登记右键菜单。`provide` 返回菜单项数组，右键那一刻才调用（带着按在哪、是不是长按）。 */
 export const onContextMenu: ContextMenuRegistrar = (node, provide) => {
   menuProviders.set(node, provide);
   return node;
 };
 
 /** 从事件目标往上找第一个登记过菜单的祖先。 */
-function resolveMenuItems(target: EventTarget | null): MenuItem[] | null {
-  let node = target instanceof Element ? target : null;
+function resolveMenuItems(at: MenuContext): MenuItem[] | null {
+  let node = at.target;
   for (; node; node = node.parentElement) {
     const provide = menuProviders.get(node);
     if (provide) {
-      return provide();
+      return provide(at);
     }
   }
   return null;
+}
+
+/**
+ * 触屏上长按弹的菜单最前面的「看一眼」。悬停浮窗（工程页的细纲、被截断的说明、失败原因）在手指下没有入口——
+ * 手指没有「停在上面」这回事——这几项就是它们的入口：各只浮窗登记一个，长按那一刻按按下去的地方给项（没有就给空数组）。
+ * 鼠标右键不给（鼠标悬停就看得到，菜单里不重复）。
+ */
+type PeekProvider = (at: MenuContext) => MenuItem[];
+const peekProviders: PeekProvider[] = [];
+
+export function onTouchPeek(provide: PeekProvider): void {
+  peekProviders.push(provide);
+}
+
+function peekItems(at: MenuContext): MenuItem[] {
+  return at.touch ? peekProviders.flatMap((provide) => provide(at)) : [];
 }
 
 /**
@@ -156,6 +175,7 @@ function resolveMenuItems(target: EventTarget | null): MenuItem[] | null {
  * `fallback` 是所有页面都有的兜底菜单（一个刷新）。
  */
 export function installMenus(fallback: () => MenuItem[]): void {
+  trackPointer();
   window.__nfContextMenu = onContextMenu;
   // 编辑器标签条末尾的「▾」：不是右键，但弹的是同一种菜单（同时只有一个、点别处收起）。
   window.__nfShowMenu = showContextMenu;
@@ -196,7 +216,10 @@ export function installMenus(fallback: () => MenuItem[]): void {
       x = rect.left;
       y = rect.bottom;
     }
-    showContextMenu(resolveMenuItems(e.target) ?? fallback(), x, y);
+    const at: MenuContext = { target: e.target instanceof Element ? e.target : null, x, y, touch: isTouchEvent(e) };
+    const items = resolveMenuItems(at) ?? fallback();
+    const peeks = peekItems(at);
+    showContextMenu(peeks.length > 0 ? [...peeks, { sep: true }, ...items] : items, x, y);
   };
 
   // window 的捕获阶段：页面里最早的一站，谁都没机会先把它拦掉。

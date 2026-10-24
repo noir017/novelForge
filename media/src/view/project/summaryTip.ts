@@ -18,12 +18,19 @@
  *
  * 定位（挂 body、`position: fixed`、夹进视口）在 [../tip.ts](../tip.ts)，
  * 四只浮窗共用一份。
+ *
+ * **触屏**（手指没有悬停）：手指点一下之后补发的那串兼容鼠标事件不当悬停（`touch.ts`）；入口是长按章节行弹的菜单最前面
+ * 那一项「细纲速览」（`menu.ts` 的 `onTouchPeek`），弹出来的浮窗是钉住的——按在浮窗外面才收（`tip.ts` 的
+ * `closeOnOutsidePress`）。点章节名照旧是打开这一章，不改。
  */
 import { el as mk, closestFrom } from '../../dom';
+import type { MenuContext, MenuItem } from '../../globals';
 import type { PlotSummaryView } from '../../protocol';
+import { lastPointerWasTouch } from '../../touch';
+import { onTouchPeek } from '../menu';
 import { el } from '../refs';
 import { vscode } from '../store';
-import { placeTip } from '../tip';
+import { closeOnOutsidePress, placeTip } from '../tip';
 
 const HOVER_DELAY_MS = 450;
 /** 收起的宽限期：够鼠标从行跨到浮窗，又不至于让它赖着不走。 */
@@ -37,8 +44,8 @@ const summaryPending = new Set<string>();
 let hoverTimer: ReturnType<typeof setTimeout> | null = null;
 /** 收起的宽限计时。与 hoverTimer 是两件事，别合并。 */
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
-/** 当前浮窗。 */
-let hoverTip: { relPath: string; box: HTMLElement } | null = null;
+/** 当前浮窗。`unpin` 有值说明是钉住的（触屏的入口），收起时撤掉「按在外面就收」的监听。 */
+let hoverTip: { relPath: string; box: HTMLElement; unpin?: () => void } | null = null;
 /** 正在等延迟的那一行（延迟到点时用它定位）。 */
 let hoverRow: HTMLElement | null = null;
 
@@ -57,6 +64,7 @@ export function hideSummaryTip(): void {
   cancelScheduledHide();
   hoverRow = null;
   if (hoverTip) {
+    hoverTip.unpin?.();
     hoverTip.box.remove();
     hoverTip = null;
   }
@@ -102,11 +110,41 @@ function scheduleSummaryTip(row: HTMLElement): void {
       return;
     }
     showSummaryTip(hoverRow, relPath);
-    if (!summaryCache.has(relPath) && !summaryPending.has(relPath)) {
-      summaryPending.add(relPath);
-      vscode.postMessage({ type: 'requestSummary', plotRelPath: relPath });
-    }
+    requestIfMissing(relPath);
   }, HOVER_DELAY_MS);
+}
+
+function requestIfMissing(relPath: string): void {
+  if (!summaryCache.has(relPath) && !summaryPending.has(relPath)) {
+    summaryPending.add(relPath);
+    vscode.postMessage({ type: 'requestSummary', plotRelPath: relPath });
+  }
+}
+
+/**
+ * 触屏的入口：长按章节行，菜单最前面一项「细纲速览」。点了把这一章的细纲钉在行旁边，按在浮窗外面才收。
+ * 按在别的地方（故事架构那几行也带 `.row-plot`，但没有 `data-plot`）不给。
+ */
+function peekItems(at: MenuContext): MenuItem[] {
+  const row = at.target?.closest<HTMLElement>('.row-plot[data-plot]');
+  const relPath = row?.dataset.plot;
+  if (!row || !relPath || !el.projectBody.contains(row)) {
+    return [];
+  }
+  return [{ label: '细纲速览', run: () => pinSummaryTip(row, relPath) }];
+}
+
+/** 钉住一只细纲浮窗（触屏）。 */
+export function pinSummaryTip(row: HTMLElement, relPath: string): void {
+  hideSummaryTip();
+  if (!row.isConnected) {
+    return;
+  }
+  showSummaryTip(row, relPath);
+  if (hoverTip) {
+    hoverTip.unpin = closeOnOutsidePress(hoverTip.box, hideSummaryTip);
+  }
+  requestIfMissing(relPath);
 }
 
 /** 建出浮窗并贴在行的下方/上方。数据还没到就先显示「读取中」。 */
@@ -116,7 +154,12 @@ function showSummaryTip(row: HTMLElement, relPath: string): void {
   // 鼠标进了浮窗就别收——用户正在读，或者要滚动、选中复制。
   // 监听挂在 box 上，box 每次都是新建的，收起时随元素一起回收。
   box.addEventListener('mouseenter', cancelScheduledHide);
-  box.addEventListener('mouseleave', scheduleHide);
+  box.addEventListener('mouseleave', () => {
+    // 钉住的（触屏）不跟鼠标走：手指点进浮窗之后补发的兼容鼠标事件也会走到这儿。
+    if (!hoverTip?.unpin) {
+      scheduleHide();
+    }
+  });
   document.body.appendChild(box);
   hoverTip = { relPath, box };
   placeTip(row, box);
@@ -191,7 +234,13 @@ function cssEscape(value: string): string {
 export function installSummaryTip(): void {
   // 事件委托挂在 projectBody 上：树每次重渲染都换掉全部行，
   // 逐行 addEventListener 会随重渲染次数堆积。
+  onTouchPeek(peekItems);
+
   el.projectBody.addEventListener('mouseover', (e) => {
+    // 手指点一下之后补发的兼容鼠标事件不是悬停（`touch.ts`）；钉住的浮窗也不跟鼠标走。
+    if (lastPointerWasTouch() || hoverTip?.unpin) {
+      return;
+    }
     // 只认带 data-plot 的章节行。「故事架构」那几行为了与章节行同一个版式也带
     // `.row-plot`，但它们没有细纲可弹：认进来的话会撤销收起却不另开一只，
     // 上一章的浮窗就一直挂着，指着一行鼠标早已不在的地方。
@@ -210,6 +259,9 @@ export function installSummaryTip(): void {
   });
 
   el.projectBody.addEventListener('mouseleave', () => {
+    if (lastPointerWasTouch() || hoverTip?.unpin) {
+      return;
+    }
     // 往浮窗方向移出去也会触发这里，同样给宽限。
     if (hoverTip) {
       scheduleHide();

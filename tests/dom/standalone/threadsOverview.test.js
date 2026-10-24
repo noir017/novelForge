@@ -12,6 +12,7 @@
  * | 四种格子 | ○ 只有计划、● 只有实际、◉ 计划也发生了、红圈偏差；计划区间一条淡底 |
  * | 伏笔连线 | 收了的实线、埋了没收的虚线（逾期标红）、还没埋的淡虚线；回收章一道竖线；埋 ● 收 ◆ 弃 ✕，计划的空心 |
  * | 点击 | 点格子 / 列头发 `openChapter`（有正文给正文路径，只有细纲给细纲路径，都没有说一句不发）；点线名、伏笔名、「未归属的伏笔」发 `openEditor` |
+ * | 触屏与右键 | 手指点格子 / 列头只弹浮窗、不发 `openChapter`（兼容鼠标事件不收它，点别处收）；鼠标照旧打开；右键（长按）格子给「打开第 N 章」 |
  * | 悬停 | 那一格的计划与实际事件、证据、偏差说一句 |
  * | 定位 | 右键「在总览里看」打开并标出那一行 |
  * | 数据 | 按需要（requestId）；别人的 requestId 不认；显示着收到 `state` 停一下再要；藏着时不要，切回来再要 |
@@ -613,6 +614,72 @@ describe('叙事线总览 · 悬停', { skip: JSDOM_SKIP }, () => {
     assert.equal(tip().querySelector('.tov-tip-ev').textContent, '埋〈玉佩的来历〉：玉佩露面「他摸了摸怀里的玉佩」');
     // 用户内容一律 textContent：证据里的尖括号原样是字。
     h.doc.querySelector('.tov').dispatchEvent(new h.window.Event('scroll'));
+  });
+});
+
+describe('叙事线总览 · 触屏与右键', { skip: JSDOM_SKIP }, () => {
+  let h;
+  const tip = () => h.doc.querySelector('.tov .tov-tip');
+  const shownTip = () => !tip().classList.contains('hidden');
+  /** 手指按下（Chromium 在手指点一下之后才补发 click；`touch.ts` 认最近一次指针是不是手指）。 */
+  const finger = (node) => node.dispatchEvent(new h.window.PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+  const mouse = (node) => node.dispatchEvent(new h.window.PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }));
+  beforeEach(() => {
+    h = harness();
+    h.open();
+    h.respond();
+  });
+
+  test('手指点一格：弹浮窗看这一格本身，不打开那一章；点别处收起', () => {
+    const cell = h.cellOf(h.row(T('青崖旧案')), 2);
+    const n = h.ui.sent.length;
+    finger(cell);
+    h.ui.clickEl(cell.querySelector('.tov-mark') ?? cell);
+    assert.deepEqual(h.sentAfter(n), []);
+    assert.equal(shownTip(), true);
+    assert.equal(tip().querySelector('.tov-tip-head').textContent, '第 2 章《入镇》 · 已同步');
+    // 兼容鼠标事件（手指点完补发的 mouseout）不收它
+    cell.dispatchEvent(new h.window.MouseEvent('mouseout', { bubbles: true, relatedTarget: h.doc.body }));
+    assert.equal(shownTip(), true);
+    // 点表格里别处：收起
+    const scroll = h.doc.querySelector('.tov-scroll');
+    finger(scroll);
+    h.ui.clickEl(scroll);
+    assert.equal(shownTip(), false);
+  });
+
+  test('手指点列头：浮窗里写这一章的说明，「点击打开」换成「长按打开」；不发 openChapter', () => {
+    const col = h.doc.querySelector('.tov-nums .tov-col[data-ch="4"]');
+    const n = h.ui.sent.length;
+    finger(col);
+    h.ui.clickEl(col);
+    assert.deepEqual(h.sentAfter(n), []);
+    assert.equal(shownTip(), true);
+    assert.match(tip().querySelector('.tov-tip-head').textContent, /^第 4 章/);
+    assert.ok([...tip().querySelectorAll('.tov-tip-row-name')].some((r) => r.textContent === '长按打开这一章'));
+  });
+
+  test('鼠标点格子照旧打开那一章（桌面不变）', () => {
+    const cell = h.cellOf(h.row(T('青崖旧案')), 1);
+    const n = h.ui.sent.length;
+    mouse(cell);
+    h.ui.clickEl(cell);
+    assert.deepEqual(h.sentAfter(n), [{ type: 'openChapter', plotRelPath: 'chapters/001-楔子.md' }]);
+  });
+
+  test('右键（长按）格子：「打开第 N 章」与「刷新」；还没写的写「打开第 N 章的细纲」；空白处只有刷新', () => {
+    finger(h.cellOf(h.row(T('青崖旧案')), 1));
+    let menu = h.ui.rightClick(h.cellOf(h.row(T('青崖旧案')), 1));
+    assert.deepEqual(h.ui.itemsOf(menu), ['打开第 1 章', '刷新']);
+    const n = h.ui.sent.length;
+    h.ui.pick(menu, '打开第 1 章');
+    assert.deepEqual(h.sentAfter(n), [{ type: 'openChapter', plotRelPath: 'chapters/001-楔子.md' }]);
+    menu = h.ui.rightClick(h.cellOf(h.row(T('青崖旧案')), 5));
+    assert.deepEqual(h.ui.itemsOf(menu), ['打开第 5 章的细纲', '刷新']);
+    h.ui.closeMenu();
+    menu = h.ui.rightClick(h.doc.querySelector('.tov-scroll'));
+    assert.deepEqual(h.ui.itemsOf(menu), ['刷新']);
+    h.ui.closeMenu();
   });
 });
 

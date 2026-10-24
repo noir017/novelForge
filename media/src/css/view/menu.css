@@ -57,11 +57,14 @@
 
 /* 右键菜单挂在 body 上跟着光标走：要压过设置弹窗（20）与 toast（30），
    否则在弹窗里右键会看不见菜单。 */
+/* 比可视区还高时 menu.ts 压一个 max-height（menuPlace.ts），菜单里滚。 */
 .ctx-menu {
   position: fixed;
   z-index: 40;
   min-width: 148px;
   max-width: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .msg-menu button,

@@ -16,15 +16,17 @@
  *   都是后端算好的，这里只画。左列（线名、伏笔名）与表头固定（`position: sticky`），横向滚动；格子是稀疏的，一行只
  *   画有事件的那几章，几千章也画得动。
  * - **交互**：悬停格子看那几条事件与证据；点格子、点列头打开那一章（`openChapter`：正文进主区、细纲并排，还没写的打开细纲）；
- *   点线名、伏笔名、「未归属的伏笔」打开那份文件（开在总览所在的这一块）。
+ *   点线名、伏笔名、「未归属的伏笔」打开那份文件（开在总览所在的这一块）。右键格子、列头给「打开第 N 章」。
+ *   **触屏**（手指没有悬停，`touch.ts` 认这一下是不是手指）：点格子、点列头弹那只浮窗（看这一格本身），**不**打开那一章——
+ *   打开走长按菜单里的「打开第 N 章」；点别处、滚动就收。兼容鼠标事件不当悬停。
  * - **入口**：工程页「叙事线」页签标题旁的「总览」与右键「在总览里看」（经 `nf-threads-command`，带 `focus` 就定位到那一行）。
  *   工程页先问 `nf-threads-query` 有没有人画得了——只有这个模块回答，插件形态没有 editor.js，入口就不画（能力探测）。
  *
  * 用户内容一律 `textContent`。样式在 `css/standalone/threads.css`。
  */
 import { el, setHidden } from '../dom';
-import { toast } from '../globals';
-import type { ThreadsOverviewCommand } from '../globals';
+import { onContextMenu, toast } from '../globals';
+import type { MenuContext, MenuItem, ThreadsOverviewCommand } from '../globals';
 import type {
   InMessage,
   OutMessage,
@@ -35,6 +37,7 @@ import type {
   ThreadsOverviewForeshadow,
   ThreadsOverviewLine,
 } from '../protocol';
+import { isTouchEvent, lastPointerWasTouch, trackPointer } from '../touch';
 import { onMessage } from '../vscodeApi';
 import { claimRequest, newRequestId } from './replace';
 import { revealEditor } from './shell';
@@ -47,6 +50,15 @@ export const THREADS_OVERVIEW_TAB = 'threads-overview';
 /** 一列多宽、左列多宽（px）。CSS 经 `--tov-cell` / `--tov-name` 拿同一个数。 */
 const CELL = 24;
 const NAME_WIDTH = 220;
+/** 窄屏（手机竖屏）上左列收窄：360px 宽时 220 只剩六七列章可看。 */
+const NAME_WIDTH_NARROW = 128;
+
+/** 这一次画的左列宽：按视口宽度挑（能力探测，不认是什么设备）。CSS 与几条竖线的位置都按它。 */
+let nameWidth = NAME_WIDTH;
+
+function currentNameWidth(): number {
+  return window.matchMedia?.('(max-width: 600px)').matches ? NAME_WIDTH_NARROW : NAME_WIDTH;
+}
 /** 显示着时收到 `state` 之后停多久再要一次（作者连着存几次只要一次）。 */
 const REFRESH_DELAY_MS = 600;
 
@@ -237,17 +249,44 @@ function ensureView(): View {
   const note = el('p', 'hint tov-note hidden');
   const scroll = el('div', 'tov-scroll');
   scroll.style.setProperty('--tov-cell', `${CELL}px`);
-  scroll.style.setProperty('--tov-name', `${NAME_WIDTH}px`);
+  scroll.style.setProperty('--tov-name', `${nameWidth}px`);
   const tip = el('div', 'tov-tip hidden');
   tip.setAttribute('role', 'tooltip');
   root.append(head, note, scroll, tip);
 
+  trackPointer();
   scroll.addEventListener('click', onClick);
   scroll.addEventListener('mouseover', onOver);
   scroll.addEventListener('mouseout', onOut);
   scroll.addEventListener('scroll', hideTip);
+  onContextMenu(scroll, menuItems);
+  // 手指点出来的浮窗没有「移开」：按在表格外面（标题栏、说明）也收。
+  root.addEventListener('pointerdown', (e) => {
+    if (!scroll.contains(e.target as Node)) {
+      hideTip();
+    }
+  });
   view = { root, meta, note, scroll, tip };
   return view;
+}
+
+/** 右键（触屏上是长按）格子或列头：「打开第 N 章」（同点格子；触屏上点格子只看浮窗，打开走这里）。别处给「刷新」。 */
+function menuItems(at: MenuContext): MenuItem[] {
+  hideTip();
+  const chapter = at.target?.closest<HTMLElement>('.tov-cell, .tov-col');
+  const no = Number(chapter?.dataset.ch);
+  const items: MenuItem[] = [];
+  if (no > 0) {
+    const c = data?.chapters[no - 1];
+    items.push({
+      label: c?.chapterPath || !c?.plotPath ? `打开第 ${no} 章` : `打开第 ${no} 章的细纲`,
+      disabled: !c?.chapterPath && !c?.plotPath,
+      run: () => openChapter(no),
+    });
+    items.push({ sep: true });
+  }
+  items.push({ label: '刷新', run: () => request() });
+  return items;
 }
 
 /** 图例：线的四种格子、伏笔的几样记号。 */
@@ -383,8 +422,10 @@ function showNote(text: string): void {
 
 function buildGrid(d: ThreadsOverview): HTMLElement {
   const cols = d.chapters.length;
+  nameWidth = currentNameWidth();
+  view?.scroll.style.setProperty('--tov-name', `${nameWidth}px`);
   const grid = el('div', 'tov-grid');
-  grid.style.width = `${NAME_WIDTH + cols * CELL}px`;
+  grid.style.width = `${nameWidth + cols * CELL}px`;
   grid.appendChild(buildHeader(d));
   for (const group of d.groups) {
     grid.appendChild(groupRow(group.kind, `${group.lines.length} 条`));
@@ -405,14 +446,14 @@ function buildGrid(d: ThreadsOverview): HTMLElement {
   // 「定稿到第 N 章」：一条竖线画在第 N 章右边。
   if (d.current > 0 && d.current <= cols) {
     const now = el('div', 'tov-now');
-    now.style.left = `${NAME_WIDTH + d.current * CELL}px`;
+    now.style.left = `${nameWidth + d.current * CELL}px`;
     now.title = `同步到第 ${d.current} 章`;
     grid.appendChild(now);
   }
   // 「叙事线判到第 M 章」（四期）：落后于定稿时另一条虚线，画在第 M 章右边（一章都没判过就不画，表头上说了）。
   if (d.through > 0 && d.through < d.current && d.through <= cols) {
     const judged = el('div', 'tov-judged');
-    judged.style.left = `${NAME_WIDTH + d.through * CELL}px`;
+    judged.style.left = `${nameWidth + d.through * CELL}px`;
     judged.title = `叙事线判到第 ${d.through} 章（从第 1 章起连续判过的）；右边同步了还没判的章，计划不算偏差`;
     grid.appendChild(judged);
   }
@@ -626,9 +667,36 @@ function onClick(e: MouseEvent): void {
     return;
   }
   const chapter = target?.closest<HTMLElement>('.tov-cell, .tov-col');
+  // 手指点一格：看这一格本身（弹浮窗），不跳去打开正文；打开在长按菜单里。点别处收起。
+  if (isTouchEvent(e)) {
+    const info = chapter && cellInfo.get(chapter);
+    if (info) {
+      showTip(chapter, info);
+    } else if (chapter?.classList.contains('tov-col') && chapter.title) {
+      showColumnTip(chapter);
+    } else {
+      hideTip();
+    }
+    return;
+  }
   if (chapter?.dataset.ch) {
     openChapter(Number(chapter.dataset.ch));
   }
+}
+
+/** 手指点列头：浮窗里写这一章的说明（鼠标悬停时是原生提示 `title`，手指看不到）。 */
+function showColumnTip(col: HTMLElement): void {
+  if (!view) {
+    return;
+  }
+  const tip = view.tip;
+  const [head, ...rest] = col.title.split('\n');
+  tip.replaceChildren(el('div', 'tov-tip-head', head));
+  for (const line of rest) {
+    // 「点击打开正文」那一行是鼠标的说法；手指点了只看，打开在长按菜单里。
+    tip.appendChild(el('div', 'tov-tip-row-name', line.startsWith('点击') ? '长按打开这一章' : line));
+  }
+  placeTipBox(col);
 }
 
 /** 打开那一章：正文进主区、细纲并排（`openChapter`，同工程页点章节行）；还没写的打开细纲。 */
@@ -643,6 +711,10 @@ function openChapter(no: number): void {
 }
 
 function onOver(e: MouseEvent): void {
+  // 手指点一下之后补发的兼容鼠标事件不是悬停（手指的浮窗走 onClick）。
+  if (lastPointerWasTouch()) {
+    return;
+  }
   const node = (e.target as HTMLElement | null)?.closest<HTMLElement>('.tov-cell');
   if (!node) {
     return;
@@ -654,6 +726,9 @@ function onOver(e: MouseEvent): void {
 }
 
 function onOut(e: MouseEvent): void {
+  if (lastPointerWasTouch()) {
+    return;
+  }
   const from = (e.target as HTMLElement | null)?.closest<HTMLElement>('.tov-cell');
   const to = (e.relatedTarget as HTMLElement | null)?.closest?.('.tov-cell');
   if (from && from !== to) {
@@ -683,6 +758,15 @@ function showTip(node: HTMLElement, info: CellInfo): void {
   if (info.cell.deviation) {
     tip.appendChild(el('div', 'tov-tip-dev', '⚠ 计划了，这一章也同步了，却没有发生'));
   }
+  placeTipBox(node);
+}
+
+/** 露出浮窗、贴着那一格摆：下面放不下翻上去，横向夹进视口。 */
+function placeTipBox(node: HTMLElement): void {
+  if (!view) {
+    return;
+  }
+  const tip = view.tip;
   setHidden(tip, false);
   const rect = node.getBoundingClientRect();
   const width = tip.offsetWidth || 280;

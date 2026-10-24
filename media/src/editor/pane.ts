@@ -32,10 +32,12 @@
  */
 import { setHidden } from '../dom';
 import { onContextMenu, toast } from '../globals';
+import { avoidSoftKeyboard } from '../touch';
 import type { MenuItem } from '../globals';
 import type { EditorFileView, EditorOpenIntent, InMessage } from '../protocol';
 import { locateQuote } from '../protocol';
 import {
+  areaMenuItems,
   clampSelection,
   emitEditorChange,
   indentUnit,
@@ -524,7 +526,8 @@ export function createPane(
         el.preview.focus({ preventScroll: true });
       }
     } else {
-      if (!quiet) {
+      // 手机上切过来只是看：不把焦点放进正文区（一聚焦就弹软键盘），点进正文才打字。
+      if (!quiet && !avoidSoftKeyboard()) {
         el.area.focus();
       }
       if (file.caret !== undefined) {
@@ -1120,12 +1123,16 @@ export function createPane(
   onContextMenu(el.tabs, () => (pane.activePath ? tabMenuItems(pane.activePath) : []));
 
   // 正文区菜单：预览模式没有可编辑内容，provider 返回空数组即不弹。
-  onContextMenu(el.area, () => {
+  // 功能模块加的项（按在名字上：打开它的卡或条目）排在最前面，见 api.ts 的 addAreaMenu。
+  onContextMenu(el.area, (at) => {
     if (previewing(activeFile())) {
       return [];
     }
     const hasSel = el.area.selectionStart !== el.area.selectionEnd;
+    const extra = areaMenuItems(pane, at);
     return [
+      ...extra,
+      ...(extra.length > 0 ? [{ sep: true } as const] : []),
       { label: '剪切', disabled: !hasSel, run: () => areaCut(pane) },
       { label: '复制', disabled: !hasSel, run: () => areaCopy(el.area) },
       { label: '粘贴', run: () => void areaPaste(pane) },

@@ -37,8 +37,19 @@ export interface MenuAction {
   disabled?: boolean;
 }
 
+/**
+ * 右键（触屏上是长按）那一下：按在哪个元素上、视口坐标、是不是手指长按（`touch.ts` 认的）。菜单项多半用不着它，
+ * 要按「按在哪个字上」给项的（编辑区里的名字、叙事线总览的格子）才看。
+ */
+export interface MenuContext {
+  target: Element | null;
+  x: number;
+  y: number;
+  touch: boolean;
+}
+
 /** 「这个元素上右键给什么菜单」的登记函数。`provide` 在右键那一刻才调用。 */
-export type ContextMenuRegistrar = <T extends Element>(node: T, provide: () => MenuItem[]) => T;
+export type ContextMenuRegistrar = <T extends Element>(node: T, provide: (at: MenuContext) => MenuItem[]) => T;
 
 /** 标题栏问编辑器「现在开着什么、脏不脏」。没人听时全是空值。 */
 export interface EditorStatus {
