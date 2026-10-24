@@ -18,14 +18,26 @@ import {
 } from '../../model/settingFile';
 import { structureGuideText } from '../../model/structureGuide';
 import { hasContent, stringifySections } from '../../model/markdown';
+import { CharacterCard } from '../../model/types';
 import { estimateTokens } from '../tokenizer';
 import type { LayerSpec } from '../types';
 import type { Assembly, LayerFn } from './assembly';
-import { clipLine, isPlaceholder, renderPlot, renderPlotBrief, renderRosterLine } from './render';
+import {
+  cardNote,
+  clipLine,
+  focusText,
+  isLeadCard,
+  isPlaceholder,
+  matchesKeywords,
+  renderPlot,
+  renderPlotBrief,
+  renderRosterLine,
+  selectCharacters,
+} from './render';
 
 /*
- * 前序细纲一览最多带几章：按上下文详细度（`plotListMax`），缺省 100——上游
- * `chapter_blueprint_chunk` 的「最近 100 章」。大纲阶段只带第一行的那一段也按它封顶，更早的看全文大纲。
+ * 前序细纲一览最多带几章：按上下文详细度（`plotListMax`），缺省 30（2026-10-24 从 100 降下来：更早的全文大纲已经交代，
+ * 两份各说一遍）。大纲阶段只带第一行的那一段另按 `outlineBriefMax` 封顶（缺省 100），更早的看全文大纲。
  */
 
 /** 批次模式下，一览里最后几章写得详细些（带看点）——下一批要紧接着它们往下排。 */
@@ -37,7 +49,7 @@ function span(from: number, to: number): string {
 
 /**
  * 情节大纲，按远近带分三段（model/outlineFile.ts 的 `outlineWindow`，docs/design/plans/2026-10-22-planning-context-bands.md）：
- * 离这一次要写的地方最近的 10 章带整条（强制），再往前最多 `plotListMax` 章只带第一行（不强制，放不下从最老的丢起），
+ * 离这一次要写的地方最近的 10 章带整条（强制），再往前最多 `outlineBriefMax` 章只带第一行（不强制，放不下从最老的丢起），
  * 更早的交给全文大纲——从前更早的一章不落地全列、还强制带，写到七八百章光这一层就能把窗口撑满。
  *
  * - 大纲阶段（续写、重写、讨论）：区间之后已经排好的也只带第一行，接得上（不强制，放不下从最远的丢起）。
@@ -54,7 +66,7 @@ export const outlineDoc: LayerFn = async (a, spec) => {
   const range = a.request.range ?? (Number.isFinite(no) ? { from: no, to: no } : undefined);
   const planning = a.request.action.stage === 'outline';
   const source = a.project.relPath(a.project.outlinePath);
-  const win = outlineWindow(outline, { range, after: planning, maxBefore: a.limits.plotListMax });
+  const win = outlineWindow(outline, { range, after: planning, maxBefore: a.limits.outlineBriefMax });
   if (!win) {
     a.reject(
       { id: 'outlineDoc', kind: 'outlineDoc', priority: spec.priority, label: '情节大纲', source, text: '' },
@@ -99,7 +111,7 @@ export const outlineDoc: LayerFn = async (a, spec) => {
     win.folded.length > 0
       ? await foldedNote(
           a,
-          `${spansOf(win.folded)}没逐章列（一章一行最多 ${a.limits.plotListMax} 章，上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」）`,
+          `${spansOf(win.folded)}没逐章列（一章一行最多 ${a.limits.outlineBriefMax} 章，上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」）`,
           win.folded
         )
       : '',
@@ -261,29 +273,113 @@ export const guidance: LayerFn = async (a, spec) => {
 };
 
 /**
- * 角色图谱一览：全部角色卡压成一人一段（名字、定位、身份、人物关系、当前状态）。
+ * 角色图谱一览：角色卡压成一人一段（名字、定位、身份、人物关系、当前状态）。
  *
  * 架构的后几件、大纲、细纲批次都要知道「这本书里有谁、彼此什么关系」，但用不着每个人的
  * 外貌与语言习惯——那是写正文时的事（正文层带的是完整角色卡）。每段截短写在明细里。
+ *
+ * 架构阶段全员一人一段：几件一件吃一件，世界观、设定清单要照着所有人写。规划时（大纲、细纲，2026-10-24）
+ * 只给近期活跃的一段，其余只列名字（{@link splitPlanningRoster}）——写到八十章、四十几张卡时，全员一人一段就上万
+ * token，大半是早就退场的人，而上下文详细度调到哪一级都不少一个字。
  */
 export const rosterDoc: LayerFn = async (a, spec) => {
   const cards = await a.project.listCharacters();
   if (cards.length === 0) {
     return;
   }
-  a.admit(
-    {
-      id: 'roster',
-      kind: 'setting',
-      priority: spec.priority,
-      label: `角色图谱（${cards.length} 人）`,
-      source: a.project.relPath(a.project.charactersDir),
-      text: `【角色图谱】\n${cards.map(renderRosterLine).join('\n')}`,
-      note: '每人只取身份、人物关系、当前状态的开头；完整角色卡在正文层才带',
-    },
-    { force: spec.force }
-  );
+  const { stage } = a.request.action;
+  const split = stage === 'outline' || stage === 'plot' ? await splitPlanningRoster(a, cards) : undefined;
+  const base = {
+    id: 'roster',
+    kind: 'setting' as const,
+    priority: spec.priority,
+    label: `角色图谱（${cards.length} 人）`,
+    source: a.project.relPath(a.project.charactersDir),
+  };
+  if (!split) {
+    a.admit(
+      {
+        ...base,
+        text: `【角色图谱】\n${cards.map(renderRosterLine).join('\n')}`,
+        note: '每人只取身份、人物关系、当前状态的开头；完整角色卡在正文层才带',
+      },
+      { force: spec.force }
+    );
+    return;
+  }
+  const { full, carded, named } = split;
+  const recent = a.limits.rosterRecent;
+  const text = [
+    '【角色图谱】',
+    ...full.map(renderRosterLine),
+    carded.length > 0 ? `整张卡在下面「相关角色设定」里：${carded.map((c) => c.name).join('、')}。` : '',
+    named.length > 0
+      ? `其余角色（近 ${recent} 章没出场，只列名字；再出场时照用这些名字）：${named.map((c) => `${c.name}${cardNote(c)}`).join('、')}。`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const note = [
+    full.length > 0 ? `${full.length} 人（主角、近 ${recent} 章出场的、这一次提到的）取身份、人物关系、当前状态的开头` : '',
+    carded.length > 0 ? `整张卡在「相关角色设定」的 ${carded.length} 人只点名` : '',
+    named.length > 0 ? `其余 ${named.length} 人只列名字` : '',
+  ]
+    .filter(Boolean)
+    .join('；');
+  a.admit({ ...base, text, note: `${note}（上下文详细度「${CONTEXT_DETAIL_LABEL[a.detail]}」）` }, { force: spec.force });
 };
+
+/**
+ * 规划时角色图谱怎么分三拨：
+ *
+ * - **一段**（身份、关系、当前状态的开头）：主角，近 `rosterRecent` 章的细纲里出场或在梗概里提到的（往前数这么多章，
+ *   连同这一次要排的那几章——拆细纲的空壳、重写大纲的旧版），以及作者这一次的话里提到的。
+ * - **只点名**：角色卡层（`characters`，同一份 `selectCharacters`）整张带的那几个人，一段再带一遍就重复了。「精简」那一级
+ *   角色卡只带要点、没有人物关系，不点名、照给一段；作者在明细里取消了的那张卡也照给一段。
+ * - **只列名字**：其余的人。名字还在，模型排到他们时照用、不另起一个。
+ *
+ * 返回 undefined 时全员一段（与架构阶段一样）：「完整」那一级；或者往前数这么多章都没有细纲可看（刚开书、老工程只有正文）——
+ * 那时谁算活跃无从判断，宁可多带。
+ */
+async function splitPlanningRoster(
+  a: Assembly,
+  cards: CharacterCard[]
+): Promise<{ full: CharacterCard[]; carded: CharacterCard[]; named: CharacterCard[] } | undefined> {
+  const recent = a.limits.rosterRecent;
+  if (!Number.isFinite(recent)) {
+    return undefined;
+  }
+  const plots = await a.project.listPlots();
+  // 这一次落在哪几章：拆细纲是那一批（单章就是这一章），续写、重写大纲是给的区间，讨论大纲时接在已有的最后一章后面。
+  const last = plots.reduce((max, p) => Math.max(max, p.no), 0);
+  const range = a.focus.range ?? a.request.range ?? { from: last + 1, to: last + 1 };
+  const seen = plots
+    .filter((p) => p.no >= range.from - recent && p.no <= range.to)
+    .map((p) => [...p.characters, p.sections.出场人物 ?? '', p.sections.梗概 ?? ''].join('\n'))
+    .filter((t) => t.trim());
+  if (seen.length === 0) {
+    return undefined;
+  }
+  const haystacks = [a.request.ask, focusText(a.focus), ...seen];
+  const carded = a.limits.essentialCards
+    ? []
+    : selectCharacters(cards, a.request.ask, a.focus, a.limits.castSummaries)
+        .map((h) => h.card)
+        .filter((c) => !a.excluded.has(`character:${c.slug}`));
+  const deferred = new Set(carded.map((c) => c.slug));
+  const full: CharacterCard[] = [];
+  const named: CharacterCard[] = [];
+  for (const card of cards) {
+    if (deferred.has(card.slug)) {
+      continue;
+    }
+    const names = [card.name, ...card.aliases];
+    const active = isLeadCard(card) || haystacks.some((h) => matchesKeywords(h, names));
+    (active ? full : named).push(card);
+  }
+  // 一个都没省下来就是全员一段：说法与架构阶段一样，不另报。
+  return carded.length === 0 && named.length === 0 ? undefined : { full, carded, named };
+}
 
 /**
  * 故事结构指导：按总章数算好的章号区间（model/structureGuide.ts）。

@@ -291,10 +291,13 @@ describe('上下文详细度 · 细纲阶段（第 36 章，前面 35 章、后�
     assert.deepEqual(count(built[4]), [5, 2]);
   });
 
-  test('前序细纲一览：「精简」只带最近 30 章并说明；「完整」不限', () => {
+  // 2026-10-24 一览单独一组数（10 / 20 / 30 / 不限），不再与大纲的中段共用 30 / 50 / 100 / 不限。
+  test('前序细纲一览：「精简」只带最近 10 章、「详细」30 章并说明；「完整」不限', () => {
     const list = (b) => b.items.find((i) => i.id === 'plotList');
-    assert.match(list(built[1]).label, /（30 章）/);
-    assert.match(list(built[1]).note, /只带最近 30 章（上下文详细度「精简」）/);
+    assert.match(list(built[1]).label, /（10 章）/);
+    assert.match(list(built[1]).note, /只带最近 10 章（上下文详细度「精简」）/);
+    assert.match(list(built[3]).label, /（30 章）/);
+    assert.match(list(built[3]).note, /只带最近 30 章（上下文详细度「详细」）/);
     assert.match(list(built[4]).label, /（30 章）/);
     assert.equal(list(built[4]).note, undefined);
   });

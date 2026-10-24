@@ -108,16 +108,19 @@ export type LayerId =
   | 'guidance'
   /** 写正文用的架构：小说配置（除全局要求）、故事前提、世界观，一件一条。 */
   | 'premiseWorld'
-  /** 角色图谱一览：全部角色卡压成一人一段（名字、定位、身份、人物关系）。 */
+  /**
+   * 角色图谱一览：角色卡压成一人一段（名字、定位、身份、人物关系、当前状态）。架构阶段全员；规划时只给近期活跃的一段，
+   * 其余只列名字（`rosterRecent`）。
+   */
   | 'rosterDoc'
   /**
-   * 情节大纲。大纲阶段按远近带分三段：最近 10 章整条，再往前一章一行（最多 `plotListMax` 章），更早的看全文大纲；
+   * 情节大纲。大纲阶段按远近带分三段：最近 10 章整条，再往前一章一行（最多 `outlineBriefMax` 章），更早的看全文大纲；
    * 细纲阶段只带这一次要拆的（model/outlineFile.ts 的 `outlineWindow` / `outlineToSplit`）。
    */
   | 'outlineDoc'
   /** 故事结构指导（model/structureGuide.ts）。 */
   | 'structure'
-  /** 前序细纲一览（一章一行，最多 `plotListMax` 章，缺省 100）。 */
+  /** 前序细纲一览（一章一行，最多 `plotListMax` 章，缺省 30）。 */
   | 'plotList'
   | 'plotSelf'
   /** 前几章的细纲原文（上文）。 */

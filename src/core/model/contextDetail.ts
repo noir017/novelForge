@@ -16,6 +16,9 @@
  *
  * 「详细」那一行逐项等于这个开关出现之前写死的常量。从前另有一项「更早章的细纲最多带最近几章」
  * （`summaryChapters`），2026-10-21 情节大纲一章一条之后写正文、写大纲都不再带更早几十章的细纲，那一项删了。
+ * 2026-10-24 规划时又收了两样（docs/design/plans/2026-10-24-planning-roster-plotlist.md）：前序细纲一览从 100 章
+ * 降到 30 章（`plotListMax`，大纲的中段另成 `outlineBriefMax`、数不变），角色图谱只给近 20 章出场的带身份
+ * （`rosterRecent`，从前全员）。
  *
  * ## 不分级的东西
  *
@@ -45,10 +48,10 @@ export const CONTEXT_DETAIL_LABEL: Record<ContextDetail, string> = {
 };
 
 export const CONTEXT_DETAIL_HINT: Record<ContextDetail, string> = {
-  1: '只带写这一章必需的，最省 token；规划时一章一行只列最近 30 章，更早的靠全文大纲',
+  1: '只带写这一章必需的，最省 token；规划时一章一行：大纲最近 30 章、细纲最近 10 章，更早的靠全文大纲',
   2: '近一章全文、少量原文片段，日常够用',
-  3: '近两章全文、原文片段；规划时一章一行列最近 100 章（缺省）',
-  4: '近三章全文、更多片段；规划时一章一行不封顶，窗口能装多少装多少',
+  3: '近两章全文、原文片段；规划时一章一行：大纲最近 100 章、细纲最近 30 章（缺省）',
+  4: '近三章全文、更多片段；规划时一章一行不封顶、角色图谱全员，窗口能装多少装多少',
 };
 
 /**
@@ -86,10 +89,19 @@ export interface ContextLimits {
   /** 拆细纲时线、伏笔各一共多少字（只算各行；两样各按这个数封顶）。 */
   readonly plotThreadChars: number;
   /**
-   * 规划时一章一行最多带几章：细纲阶段的前序细纲一览（`plotList`），大纲阶段只带第一行的那一段（`outlineDoc`
-   * 的中段）。更早的不逐章列，交给全文大纲（2026-10-22）。
+   * 大纲阶段一章一行最多带几章（`outlineDoc` 只带第一行的那一段，中段）。更早的不逐章列，交给全文大纲（2026-10-22）。
+   */
+  readonly outlineBriefMax: number;
+  /**
+   * 细纲阶段的前序细纲一览（`plotList`）最多带几章，更早的交给全文大纲。从前与大纲的中段共用一个数（缺省 100），
+   * 写到八十章时一览与全文大纲把同一段前情各说一遍，2026-10-24 单独一组、调小。
    */
   readonly plotListMax: number;
+  /**
+   * 规划时（大纲、细纲）角色图谱里带身份、关系、当前状态的：近几章出场的（与这一次提到的）。其余只列名字；
+   * `Infinity` = 全员都带（2026-10-24）。
+   */
+  readonly rosterRecent: number;
   /** 细纲单章与写正文：带前几章的细纲（`plotPrev`）。写正文时这就是全部的前几章细纲，更早的不带。 */
   readonly prevPlots: number;
   /** 细纲单章：带后几章的细纲（`plotNext`）。 */
@@ -125,8 +137,8 @@ export interface ContextLimits {
 }
 
 /**
- * 每一级的上限。第 3 级逐项等于从前写死的常量，只多一样：设定从前命中就整条塞、不排序不封顶，几百条的书
- * 会把窗口填满，现在按 `lore*` 四项封顶（设定名录，2026-10-18）。
+ * 每一级的上限。第 3 级逐项等于从前写死的常量，只多三样：设定从前命中就整条塞、不排序不封顶，几百条的书
+ * 会把窗口填满，现在按 `lore*` 四项封顶（设定名录，2026-10-18）；前序细纲一览与角色图谱（2026-10-24，见文件头）。
  */
 export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits>> = Object.freeze({
   1: Object.freeze({
@@ -142,7 +154,9 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     plotThreadCount: 4,
     plotForeshadowCount: 6,
     plotThreadChars: 800,
-    plotListMax: 30,
+    outlineBriefMax: 30,
+    plotListMax: 10,
+    rosterRecent: 10,
     prevPlots: 1,
     nextPlots: 1,
     historyCap: 0.15,
@@ -173,7 +187,9 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     plotThreadCount: 6,
     plotForeshadowCount: 10,
     plotThreadChars: 1200,
-    plotListMax: 50,
+    outlineBriefMax: 50,
+    plotListMax: 20,
+    rosterRecent: 15,
     prevPlots: 2,
     nextPlots: 1,
     historyCap: 0.2,
@@ -204,7 +220,9 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     plotThreadCount: 8,
     plotForeshadowCount: 14,
     plotThreadChars: 1800,
-    plotListMax: 100,
+    outlineBriefMax: 100,
+    plotListMax: 30,
+    rosterRecent: 20,
     prevPlots: 3,
     nextPlots: 1,
     historyCap: 0.3,
@@ -235,7 +253,9 @@ export const CONTEXT_DETAIL_LIMITS: Readonly<Record<ContextDetail, ContextLimits
     plotThreadCount: 12,
     plotForeshadowCount: 20,
     plotThreadChars: 2600,
+    outlineBriefMax: Infinity,
     plotListMax: Infinity,
+    rosterRecent: Infinity,
     prevPlots: 5,
     nextPlots: 2,
     historyCap: 0.4,
@@ -300,7 +320,9 @@ export function describeContextDetail(detail: ContextDetail): string {
     `近章全文 ${n(l.fullTextChapters, '章')}`,
     `上一章结尾 ${n(l.prevTailChars, '字')}`,
     `前几章细纲 ${n(l.prevPlots, '章')}`,
-    `规划时一章一行 ${n(l.plotListMax, '章')}`,
+    `大纲一章一行 ${n(l.outlineBriefMax, '章')}`,
+    `细纲一览 ${n(l.plotListMax, '章')}`,
+    `角色图谱 ${l.rosterRecent === Infinity ? '全员' : `近 ${l.rosterRecent} 章出场的`}`,
     `原文片段 ${l.evidenceChapters <= 0 ? '不带' : `${l.evidenceChapters} 章内 ${l.evidenceChars} 字`}`,
     `叙事线 ${l.threadCount} 条`,
     `对话历史 ${Math.round(l.historyCap * 100)}%`,

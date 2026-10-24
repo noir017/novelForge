@@ -334,12 +334,17 @@ export function selectCharacters(
     if (hits.has(card.slug)) {
       continue;
     }
-    if (card.tags.some((t) => /主角|主要人物|main/i.test(t))) {
+    if (isLeadCard(card)) {
       hits.set(card.slug, { card, reason: '主角，始终注入' });
     }
   }
 
   return [...hits.values()];
+}
+
+/** 主角（标签里有「主角」「主要人物」或 main）：角色卡层始终带，规划时角色图谱也始终给一段。 */
+export function isLeadCard(card: Pick<CharacterCard, 'tags'>): boolean {
+  return card.tags.some((t) => /主角|主要人物|main/i.test(t));
 }
 
 /** 返回命中的关键词，未命中返回 undefined。 */

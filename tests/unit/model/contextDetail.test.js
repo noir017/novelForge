@@ -29,7 +29,8 @@ describe('model/contextDetail · 级别表', () => {
   // 设定那四项是新加的：从前命中就整条塞、不封顶，几百条的书会把窗口填满（设定名录，2026-10-18）。
   // 拆细纲带叙事线那三项（`plotThread*` / `plotForeshadowCount`）是叙事线二期加的：从前拆细纲一条线都不带。
   // 「更早章细纲最多带几章」（`summaryChapters`）2026-10-21 删了：写正文、写大纲都不再带更早几十章的细纲。
-  test('第 3 级逐项等于从前写死的常量，外加设定封顶', () => {
+  // 2026-10-24：前序细纲一览从 100 降到 30（大纲的中段另成 `outlineBriefMax`，仍是 100）；角色图谱规划时只给近 20 章出场的一段。
+  test('第 3 级逐项等于从前写死的常量，外加设定封顶、细纲一览与角色图谱', () => {
     assert.deepEqual(
       { ...m.CONTEXT_DETAIL_LIMITS[3] },
       {
@@ -45,7 +46,9 @@ describe('model/contextDetail · 级别表', () => {
         plotThreadCount: 8,
         plotForeshadowCount: 14,
         plotThreadChars: 1800,
-        plotListMax: 100,
+        outlineBriefMax: 100,
+        plotListMax: 30,
+        rosterRecent: 20,
         prevPlots: 3,
         nextPlots: 1,
         historyCap: 0.3,
@@ -120,8 +123,8 @@ describe('model/contextDetail · 容错与解析', () => {
     assert.match(m.describeContextDetail(1), /原文片段 不带/);
     assert.match(m.describeContextDetail(1), /角色卡只带要点/);
     assert.match(m.describeContextDetail(1), /前几章细纲 1 章/);
-    assert.match(m.describeContextDetail(3), /规划时一章一行 100 章/);
-    assert.match(m.describeContextDetail(4), /规划时一章一行 不限/);
+    assert.match(m.describeContextDetail(3), /大纲一章一行 100 章 · 细纲一览 30 章 · 角色图谱 近 20 章出场的/);
+    assert.match(m.describeContextDetail(4), /大纲一章一行 不限 · 细纲一览 不限 · 角色图谱 全员/);
     assert.doesNotMatch(m.describeContextDetail(4), /Infinity/);
   });
 

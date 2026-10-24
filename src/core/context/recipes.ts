@@ -88,9 +88,11 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // ★ `structure` P0 force：大纲按总章数排结构拐点，没有章号区间，模型会按它熟悉的
   //   篇幅去排，写出来与总章数对不上。
   // ★ 现有大纲 P0 force：续写第 21–40 章时它就是「已完成的前缀」，少了它续出来的
-  //   是另一本书。按远近带分三段：最近 10 章整条（强制），再往前一章一行、最多 `plotListMax` 章（不强制），
+  //   是另一本书。按远近带分三段：最近 10 章整条（强制），再往前一章一行、最多 `outlineBriefMax` 章（不强制），
   //   更早的交给全文大纲（layers/artifacts.ts 的 `outlineDoc`，2026-10-22）。
   // ★ `globalSummary` P1（从前 P2）：远段不再逐章列，前情靠它接住，不能比角色卡先被挤掉。
+  // 角色图谱（大纲、细纲两张同一个带法，2026-10-24）：仍是 P0 force，但只给主角、近 `rosterRecent` 章出场的与这一次提到的
+  // 一人一段，角色卡层整张带的只点名，其余只列名字（layers/artifacts.ts 的 `rosterDoc`）。从前全员一人一段，四十几张卡就上万 token。
   outline: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },
@@ -124,7 +126,8 @@ export const STAGE_RECIPES: Record<CreationStage, LayerSpec[]> = {
   // ★ `threads` P1、紧跟 `recentFacts`（叙事线二期）：细纲照着线排——没收束的线现在走到哪、这一批（这一章）里该收的
   //   伏笔、原来的计划（重拆时）。少了它，回收全靠运气；计划写进线里（细纲合同的 `threads` 字段）也无从写起。
   //   按区间挑（`focus.range`），线与伏笔各自按上下文详细度封顶（layers/background.ts 的 `admitPlotThreads`）。
-  // ★ `globalSummary` P1（从前 P2）：前序细纲一览只列最近 `plotListMax` 章，更早的前情靠它。
+  // ★ `globalSummary` P1（从前 P2）：前序细纲一览只列最近 `plotListMax` 章（缺省 30，2026-10-24 从 100 降下来），更早的前情靠它。
+  // 角色图谱的带法同大纲那一张。
   plot: [
     { layer: 'system', priority: 0, force: true },
     { layer: 'ask', priority: 0, force: true },

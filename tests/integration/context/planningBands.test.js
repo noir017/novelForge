@@ -3,7 +3,7 @@
  *
  * | 断言 | 为什么 |
  * |---|---|
- * | 续写大纲：最近 10 章整条，再往前一章一行最多 `plotListMax` 章，更早的不逐章列 | 从前更早的一章不落地全列、还强制带，七八百章撑爆窗口 |
+ * | 续写大纲：最近 10 章整条，再往前一章一行最多 `outlineBriefMax` 章，更早的不逐章列 | 从前更早的一章不落地全列、还强制带，七八百章撑爆窗口 |
  * | 明细说清更早的看全文大纲、全文大纲写到哪、没有全文大纲时照实说 | 第 2 条：不静默截断 |
  * | 全文大纲在大纲、细纲两张配方里是 P1 | 远段靠它接住 |
  * | 一章一行的那一段放不下从最老的丢起，条目标 degraded、写明哪几章没带 | 第 4 级不封顶也不会超长 |
@@ -147,9 +147,10 @@ describe('拆细纲：同一份细纲不带两遍', () => {
     withProject(30, async (build) => {
       const built = await build(BATCH);
       const list = item(built, 'plotList');
-      assert.equal(list.label, '前序细纲一览（100 章）');
+      // 2026-10-24 一览从 100 章降到 30 章；大纲的中段仍是 100（上面续写大纲那几条）。
+      assert.equal(list.label, '前序细纲一览（30 章）');
       assert.ok(!list.text.includes('第148章'), '空壳不进一览');
-      assert.match(list.note, /只带最近 100 章（上下文详细度「详细」），更早的看全文大纲；全文大纲只写到第 30 章：第 31–\d+ 章这次没带/);
+      assert.match(list.note, /只带最近 30 章（上下文详细度「详细」），更早的看全文大纲；全文大纲只写到第 30 章：第 31–\d+ 章这次没带/);
       assert.equal(item(built, 'globalSummary').priority, 1);
     }));
 
