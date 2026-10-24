@@ -1090,6 +1090,70 @@ export function pruneChapterEvents(raw: string, chapter: number, text: string): 
   return { text: joinLines(l), removed: gone.map((r) => r.e) };
 }
 
+/** 从一份文件里剪下来的一条伏笔：「伏笔」里它那一行、「进展」里它的事件，都是原样的行（去掉了项目符号）。 */
+export interface CutForeshadowing {
+  row?: string;
+  events: { line: string; e: ThreadEvent }[];
+}
+
+/**
+ * 把一条伏笔从这份文件里剪下来（2026-10-24：「未归属的伏笔」被收的时候，挂到模型说的那条线上）：「伏笔」里它那一行、「进展」里
+ * 它的全部事件（计划的、实际的）。别的行一行不动。这份文件里没有它返回 undefined。
+ */
+export function cutForeshadowing(raw: string, name: string): { text: string; cut: CutForeshadowing } | undefined {
+  const base = raw ?? '';
+  const key = threadKey(name);
+  const l = splitLines(base);
+  const gone: number[] = [];
+  let row: string | undefined;
+  const fore = findSection(l.lines, 'foreshadowing');
+  if (fore) {
+    for (let i = fore.head + 1; i < fore.end; i++) {
+      const line = l.lines[i].replace(BULLET, '').trim();
+      const f = line ? parseForeshadowLine(line) : undefined;
+      if (f && threadKey(f.name) === key) {
+        row = line;
+        gone.push(i);
+        break;
+      }
+    }
+  }
+  const sec = findSection(l.lines, 'events');
+  const events = sec
+    ? eventRows(l, sec)
+        .filter((r) => r.e.foreshadowing && threadKey(r.e.foreshadowing) === key)
+        .map((r) => ({ i: r.i, line: l.lines[r.i].replace(BULLET, '').trim(), e: r.e }))
+    : [];
+  if (row === undefined && events.length === 0) {
+    return undefined;
+  }
+  for (const i of [...gone, ...events.map((x) => x.i)].sort((a, b) => b - a)) {
+    l.lines.splice(i, 1);
+  }
+  return { text: joinLines(l), cut: { ...(row !== undefined ? { row } : {}), events: events.map(({ line, e }) => ({ line, e })) } };
+}
+
+/**
+ * 把剪下来的那一条贴进另一份文件：伏笔那一行接在「伏笔」末尾（没有这一节就在「进展」前面建），事件按章号插进「进展」——行原样，
+ * 只换成这份文件的项目符号。这份文件里已经有同名的伏笔就不贴那一行（事件照贴）。
+ */
+export function pasteForeshadowing(raw: string, cut: CutForeshadowing): string {
+  const l = splitLines(raw ?? '');
+  if (cut.row !== undefined) {
+    const f = parseForeshadowLine(cut.row);
+    const known = parseBody(parseMarkdown(raw ?? '').body).foreshadowing.some((x) => f && threadKey(x.name) === threadKey(f.name));
+    if (!known) {
+      const sec = ensureSection(l, 'foreshadowing', 'events');
+      insertAfter(l, lastFilled(l.lines, sec), sec, [`${bulletOf(l, sec)}${cut.row}`]);
+    }
+  }
+  for (const { line, e } of cut.events) {
+    const sec = ensureSection(l, 'events');
+    insertEvents(l, sec, e, [`${bulletOf(l, sec)}${line}`]);
+  }
+  return finish(l);
+}
+
 // ---------------------------------------------------------------- 排线：校验模型的输出
 
 /** 一次最多排几条线（上游 `PLAN_CANDIDATE_LIMIT`；提示词要的是 3–8 条）。 */
@@ -1393,6 +1457,11 @@ export interface ThreadFinds {
   dropped: { what: string; why: string }[];
   /** 证据逐字找不到、换成了正文里最接近的原句的（`from` 模型给的，`to` 换成的原文）。没有就缺席。 */
   relocated?: { from: string; to: string }[];
+  /**
+   * 要从「未归属的伏笔」挪到线上的伏笔（2026-10-24）：这一章收了、弃了它，模型说它在送去认的哪一条线上。写盘时整条剪过去
+   * （`cutForeshadowing` / `pasteForeshadowing`），这一章的那条事件也落在那条线上。没有就缺席。
+   */
+  rehomed?: { name: string; line: string }[];
 }
 
 function unquoteEvidence(v: unknown): string {
@@ -1413,7 +1482,8 @@ function unquoteEvidence(v: unknown): string {
  *   上；没见过的伏笔被「埋」了，当它是一条新伏笔（照上一条挂）；没见过的被「收」「弃」丢掉；**写到这一章之前已经埋下的
  *   再「埋」一次丢掉**（试跑：同一条伏笔记了两次「埋」）；**还没埋下的被「收」「弃」丢掉**（复跑：「计划」状态的伏笔第 1 章
  *   就被「收」掉了）——之前埋过、或者这一章有它的「埋」才算埋下。同一条（同一处、同类型、同一条伏笔、证据归一后相同）只记一次；
- *   一章最多 {@link FINALIZE_EVENT_LIMIT} 个（先校验后截）。
+ *   一章最多 {@link FINALIZE_EVENT_LIMIT} 个（先校验后截）。**「未归属的伏笔」被收、被弃**，`line` 又是送去认的线之一的，挪到那条线上
+ *   （`rehomed`，2026-10-24：从前 `line` 一律不看，挂不上的伏笔收了也一直在未归属里）。
  *
  * `judged` 是送去认的线（只有它们收线的事件）；`book` 用来认全书已有的线名与伏笔名。
  */
@@ -1558,7 +1628,9 @@ export function verifyFinds(
   }
 
   const accepted: FoundEvent[] = [];
+  const rehomed = new Map<string, { name: string; line: string }>();
   for (const x of list(o.events)) {
+    let moving: { name: string; line: string } | undefined;
     const lineName = strOf(x.line ?? x.thread);
     const type = eventTypeOf(strOf(x.type));
     const foreName = strOf(x.foreshadowing);
@@ -1577,6 +1649,11 @@ export function verifyFinds(
       } else if (known && type !== '埋' && !plantedBefore.has(key) && !plantedHere.has(key)) {
         why = `这条伏笔还没埋下，不能${type}`;
       } else if (known) {
+        // 未归属的被收、被弃，模型说了在哪条送去认的线上：挪过去（记下了才算，见下面）。
+        const home = !known.line && type !== '埋' ? judged.get(threadKey(lineName)) : undefined;
+        if (home && !rehomed.has(key)) {
+          moving = { name: known.name, line: home };
+        }
         found = { ...(known.line ? { line: known.line } : {}), event: { chapter: ctx.chapter, planned: false, type: type!, foreshadowing: known.name, what, evidence } };
       } else if (type === '埋') {
         // 没见过的伏笔被埋下了：它就是一条新伏笔，照 `line` 挂。
@@ -1612,8 +1689,18 @@ export function verifyFinds(
       continue;
     }
     accepted.push(found);
+    if (moving) {
+      rehomed.set(threadKey(moving.name), moving);
+    }
   }
-  out.events = accepted;
+  // 挪走的那几条，这一章它们的事件（前后哪一条都算，「埋」「收」同一章报的也在）都落在挪去的那条线上。
+  out.events = accepted.map((e) => {
+    const home = e.event.foreshadowing ? rehomed.get(threadKey(e.event.foreshadowing)) : undefined;
+    return home ? { ...e, line: home.line } : e;
+  });
+  if (rehomed.size > 0) {
+    out.rehomed = [...rehomed.values()];
+  }
   const used = new Set([...accepted.map((e) => e.event.evidence ?? ''), ...out.newThreads.map((t) => t.evidence), ...out.newForeshadowing.map((f) => f.evidence)]);
   const relocated = [...relocatedFrom].filter(([to]) => used.has(to)).map(([to, from]) => ({ from, to }));
   if (relocated.length > 0) {
@@ -1815,6 +1902,7 @@ export function applyMerges(
         }),
       dropped: finds.dropped,
       ...(finds.relocated ? { relocated: finds.relocated } : {}),
+      ...(finds.rehomed ? { rehomed: finds.rehomed } : {}),
     },
     merges: out,
   };

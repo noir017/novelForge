@@ -718,3 +718,57 @@ describe('工程页：作者标为收束 / 放弃', () => {
     assert.equal(await statusOf('北境商路'), '已放弃');
   });
 });
+
+// 2026-10-24：未归属的伏笔在某一章被收了，模型说它在哪条送去认的线上——整条（伏笔那一行与它的全部事件）挪过去。
+describe('定稿 · 未归属的伏笔被收时挪到线上', () => {
+  const UNFILED = [
+    '# 未归属的伏笔',
+    '',
+    '## 伏笔',
+    '- 提灯人：院外提灯的人是谁',
+    '- 别的伏笔：不动的那一条',
+    '',
+    '## 进展',
+    '- 第 2 章 · 埋〈提灯人〉：灯影 〔证据：「院外有灯」〕',
+    '- 第 3 章 · 埋〈别的伏笔〉：x 〔证据：「x」〕',
+    '',
+  ].join('\n');
+  let outcome;
+
+  before(async () => {
+    t.write(CH4, `# 第4章 夜谈\n\n${CH4_TEXT}\n`);
+    t.remove('.novelforge/characters');
+    writeThreads();
+    t.write(file('未归属的伏笔'), UNFILED);
+    project.invalidate();
+    findReply = () =>
+      JSON.stringify({
+        events: [{ line: '林昭与沈青', type: '收', foreshadowing: '提灯人', what: '提灯的是沈青', evidence: '院外有人提着灯走过' }],
+        newThreads: [],
+        newForeshadowing: [],
+      });
+    progressReply = () => JSON.stringify({ progress: [{ line: '林昭与沈青', text: '提灯人是沈青。' }] });
+    fake = installFakeProvider(bundle.registry, { reply: finalizeReply });
+    outcome = await bundle.finalize.finalizeChapter(project, await chapter4());
+  });
+
+  test('伏笔那一行与它的事件原样挪到线上，这一章的「收」接在后面；未归属里别的行不动', () => {
+    const pair = t.read(file('林昭与沈青'));
+    assert.match(pair, /- 玉佩的来历：[^\n]*\n- 提灯人：院外提灯的人是谁\n/);
+    assert.match(pair, /- 第 2 章 · 埋〈提灯人〉：灯影 〔证据：「院外有灯」〕\n/);
+    assert.ok(pair.indexOf('第 2 章 · 埋〈提灯人〉') < pair.indexOf('第 4 章 · 收〈提灯人〉'), pair);
+    const unfiled = t.read(file('未归属的伏笔'));
+    assert.ok(!unfiled.includes('提灯人'), unfiled);
+    assert.ok(unfiled.includes('- 别的伏笔：不动的那一条') && unfiled.includes('第 3 章 · 埋〈别的伏笔〉'), unfiled);
+  });
+
+  test('读回来：提灯人挂在线上、已收；完成提示说挪了', async () => {
+    project.invalidate();
+    const book = await project.readThreads();
+    const pair = book.threads.find((x) => x.name === '林昭与沈青');
+    assert.equal(bundle.threadFile.foreshadowingOf(pair, 4).find((f) => f.name === '提灯人')?.status, '已收');
+    assert.ok(!bundle.threadFile.foreshadowingOf(book.unfiled, 4).some((f) => f.name === '提灯人'));
+    assert.deepEqual(outcome.threads.rehomed, [{ name: '提灯人', line: '林昭与沈青' }]);
+    assert.ok(bundle.finalize.describeFinalize(4, outcome).includes('〈提灯人〉从未归属挪到了〈林昭与沈青〉'));
+  });
+});

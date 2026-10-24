@@ -434,6 +434,48 @@ describe('threadFile.ts · 外科式写入', () => {
   });
 });
 
+describe('threadFile.ts · 剪下、贴上一条伏笔（2026-10-24）', () => {
+  const FROM = [
+    '# 未归属的伏笔',
+    '',
+    '## 伏笔',
+    '* 提灯人：院外提灯的人是谁（第 9 章前收）',
+    '* 别的：不动',
+    '',
+    '## 进展',
+    '* 第 2 章 · 埋〈提灯人〉：灯影 〔证据：「院外有灯」〕',
+    '* 第 3 章 · 埋〈别的〉：x',
+    '* 第 5 章 · 计划 · 收〈提灯人〉：揭开',
+    '',
+  ].join('\r\n');
+  const TO = ['# 线', '', '## 伏笔', '- 玉佩：旧物', '', '## 进展', '- 第 1 章 · 推进：开头', '- 第 4 章 · 推进：中间', '- 第 6 章 · 推进：后来', ''].join('\n');
+
+  test('剪：伏笔那一行与它的全部事件（计划的、实际的），别的行与换行符不动；没有它返回 undefined', () => {
+    const r = t.cutForeshadowing(FROM, '提 灯人');
+    assert.equal(r.text, ['# 未归属的伏笔', '', '## 伏笔', '* 别的：不动', '', '## 进展', '* 第 3 章 · 埋〈别的〉：x', ''].join('\r\n'));
+    assert.equal(r.cut.row, '提灯人：院外提灯的人是谁（第 9 章前收）');
+    assert.deepEqual(r.cut.events.map((x) => x.line), ['第 2 章 · 埋〈提灯人〉：灯影 〔证据：「院外有灯」〕', '第 5 章 · 计划 · 收〈提灯人〉：揭开']);
+    assert.equal(t.cutForeshadowing(FROM, '没有这一条'), undefined);
+  });
+
+  test('贴：伏笔接在「伏笔」末尾，事件按章号插进「进展」，行原样、换成这份的项目符号；读回来状态对', () => {
+    const { cut } = t.cutForeshadowing(FROM, '提灯人');
+    const out = t.pasteForeshadowing(TO, cut);
+    assert.equal(
+      out,
+      [
+        '# 线', '', '## 伏笔', '- 玉佩：旧物', '- 提灯人：院外提灯的人是谁（第 9 章前收）', '',
+        '## 进展', '- 第 1 章 · 推进：开头', '- 第 2 章 · 埋〈提灯人〉：灯影 〔证据：「院外有灯」〕', '- 第 4 章 · 推进：中间',
+        '- 第 5 章 · 计划 · 收〈提灯人〉：揭开', '- 第 6 章 · 推进：后来', '',
+      ].join('\n')
+    );
+    const back = t.parseThreadFile(out, REL);
+    assert.deepEqual(t.foreshadowingOf(back, 6).map((f) => [f.name, f.status]), [['玉佩', '计划'], ['提灯人', '已埋']]);
+    // 已经有同名的那一行就不再贴（事件照贴）。
+    assert.equal(t.pasteForeshadowing(out, { row: '提灯人：另一种说法', events: [] }), out);
+  });
+});
+
 describe('threadFile.ts · 当前进度', () => {
   test('空的、指纹对得上的归机器；改过的、没记过指纹却有内容的归作者', () => {
     assert.equal(t.progressOwnedByMachine({ progress: '' }), true);
@@ -775,6 +817,44 @@ describe('threadFile.ts · 定稿：校验认出来的东西', () => {
       ['那盏灯', '林昭与沈青'],
     ]);
     assert.deepEqual(r.dropped.map((d) => [d.what, d.why]), [['新伏笔 玉佩', '这条伏笔已经有了']]);
+  });
+
+  // 2026-10-24：从前伏笔事件的 line 一律不看，挂不上线的伏笔收了也一直留在未归属里。
+  test('未归属的伏笔被收、被弃，line 是送去认的线：挪过去（rehomed），这一章它的事件都落在那条线上；别的情况不挪', () => {
+    const planted = {
+      threads: [{ ...pair, events: [ev(3, '埋', { foreshadowing: '玉佩' })] }, ...book.threads.slice(1)],
+      unfiled: {
+        ...book.unfiled,
+        foreshadowing: [{ name: '提灯人', what: '' }, { name: '断剑', what: '' }, { name: '名册', what: '' }, { name: '旧信', what: '' }],
+        events: [ev(2, '埋', { foreshadowing: '提灯人' }), ev(2, '埋', { foreshadowing: '断剑' })],
+      },
+    };
+    const r = t.verifyFinds(
+      {
+        events: [
+          { line: '林昭与沈青', type: '收', foreshadowing: '提灯人', what: '露面', evidence: '院外有人提着灯走过' },
+          { line: '没送去的线', type: '收', foreshadowing: '断剑', what: 'x', evidence: '背面刻着一个沈字' },
+          // 同一章先埋又收：「埋」那一条也跟着落到线上。
+          { type: '埋', foreshadowing: '名册', what: 'x', evidence: '从今往后，他不再疑她' },
+          { line: '林昭与沈青', type: '收', foreshadowing: '名册', what: 'x', evidence: '从今往后，他不再疑她' },
+          // 已经挂在线上的不挪。
+          { line: '主线', type: '收', foreshadowing: '玉佩', what: 'x', evidence: '背面刻着一个沈字' },
+        ],
+      },
+      { chapter: 6, text, judged: [pair, book.threads[1]], book: planted }
+    );
+    assert.deepEqual(r.events.map((e) => [e.line, e.event.type, e.event.foreshadowing]), [
+      ['林昭与沈青', '收', '提灯人'],
+      [undefined, '收', '断剑'],
+      ['林昭与沈青', '埋', '名册'],
+      ['林昭与沈青', '收', '名册'],
+      ['林昭与沈青', '收', '玉佩'],
+    ]);
+    assert.deepEqual(r.rehomed, [
+      { name: '提灯人', line: '林昭与沈青' },
+      { name: '名册', line: '林昭与沈青' },
+    ]);
+    assert.equal(verify({ events: [] }).rehomed, undefined);
   });
 
   // ⚑ 试跑之后从 5 收到 3：模型报的新伏笔多半是噪音，一章就报了 4 条。

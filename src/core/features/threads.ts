@@ -47,6 +47,7 @@ import { askCall } from './askCall';
 import { hasContent } from '../model/markdown';
 import { PREMISE_SECTION_KEYS } from '../model/settingFile';
 import {
+  CutForeshadowing,
   FoundEvent,
   FoundForeshadow,
   Foreshadowing,
@@ -67,6 +68,7 @@ import {
   applyMerges,
   asOf,
   completeFinds,
+  cutForeshadowing,
   foreshadowNames,
   foreshadowToJudge,
   foreshadowingOf,
@@ -76,6 +78,7 @@ import {
   lastActiveChapter,
   openForeshadowing,
   parseThreadFile,
+  pasteForeshadowing,
   patchProgress,
   plannedFor,
   progressOwnedByMachine,
@@ -90,6 +93,7 @@ import {
   verifyThreadPlans,
 } from '../model/threadFile';
 import { Workspace } from '../workspace';
+import { readTextIfExists } from '../model/fs';
 import { extractJsonObject, jsonList, stripCodeFence, stripTrailingCommas } from './parse';
 import { THREAD_FIND_SYSTEM, THREAD_MERGE_SYSTEM, THREAD_PROGRESS_SYSTEM, threadPlanSystem } from './threadsPrompt';
 
@@ -397,6 +401,8 @@ export interface ThreadsOutcome {
   pruned: number;
   /** 线与伏笔太多、这一次没送去认的。 */
   skipped: string[];
+  /** 从「未归属的伏笔」挪到线上的（这一章收了、弃了它，模型说它在那条线上；2026-10-24）。没有就缺席。 */
+  rehomed?: { name: string; line: string }[];
   /** 当前进度那一次没成（认出来的照样记下了）。 */
   progressError?: string;
   /** 归并那一次没成（新认出的照新的建了）。 */
@@ -675,6 +681,20 @@ async function writeFinds(project: NovelProject, finds: ThreadFinds, no: number,
     ...now.threads.map((t) => ({ rel: t.relPath, line: t.name })),
     { rel: now.unfiled.relPath },
   ];
+  // 从「未归属的伏笔」挪到线上的（2026-10-24）：先照它现在的样子（清过这一章证据已经不在的旧事件）剪出要贴的行；线那边贴上了，
+  // 未归属那边（最后写）才剪掉——线的文件这几十秒里没了，就不剪，这条伏笔照旧留在未归属里。
+  const moves = new Map<string, { name: string; cut: CutForeshadowing }[]>();
+  if (finds.rehomed?.length) {
+    let rest = pruneChapterEvents((await readTextIfExists(project.pathOf(now.unfiled.relPath))) ?? '', no, text).text;
+    for (const m of finds.rehomed) {
+      const c = cutForeshadowing(rest, m.name);
+      if (c) {
+        rest = c.text;
+        moves.set(lineKey(m.line), [...(moves.get(lineKey(m.line)) ?? []), { name: m.name, cut: c.cut }]);
+      }
+    }
+  }
+  const pasted: { name: string; line: string }[] = [];
   for (const f of files) {
     const key = lineKey(f.line);
     if (done.has(key)) {
@@ -686,6 +706,9 @@ async function writeFinds(project: NovelProject, finds: ThreadFinds, no: number,
     let added: ThreadEvent[] = [];
     let addedFore: Foreshadowing[] = [];
     let removed = 0;
+    const incoming = moves.get(key) ?? [];
+    const leaving = f.line ? [] : pasted.map((p) => p.name);
+    let moved = false;
     await ws.updateThread(f.rel, (raw) => {
       const exists = !!raw.trim();
       if (!exists && (f.line || (mine.length === 0 && myFores.length === 0))) {
@@ -694,7 +717,15 @@ async function writeFinds(project: NovelProject, finds: ThreadFinds, no: number,
       }
       const pruned = pruneChapterEvents(exists ? raw : UNFILED_TEMPLATE, no, text);
       removed = pruned.removed.length;
-      const withFore = appendForeshadowing(pruned.text, asForeshadowing(myFores));
+      let base = pruned.text;
+      for (const m of incoming) {
+        base = pasteForeshadowing(base, m.cut);
+      }
+      for (const name of leaving) {
+        base = cutForeshadowing(base, name)?.text ?? base;
+      }
+      moved = true;
+      const withFore = appendForeshadowing(base, asForeshadowing(myFores));
       addedFore = withFore.added;
       const withEvents = appendEvents(withFore.text, mine.map((e) => e.event));
       added = withEvents.added;
@@ -703,6 +734,13 @@ async function writeFinds(project: NovelProject, finds: ThreadFinds, no: number,
     out.pruned += removed;
     out.newForeshadowing.push(...addedFore.map((x) => ({ name: x.name, ...(f.line ? { line: f.line } : {}) })));
     out.recorded.push(...mine.filter((e) => added.includes(e.event)));
+    if (moved && f.line) {
+      pasted.push(...incoming.map((m) => ({ name: m.name, line: f.line! })));
+    }
+  }
+  if (pasted.length > 0) {
+    out.rehomed = pasted;
+    log.info(`第 ${no} 章：${pasted.length} 条未归属的伏笔挪到了线上`, pasted.map((p) => `〈${p.name}〉→〈${p.line}〉`).join('\n'));
   }
   // 落在一条已经找不到的线上的（这几十秒里作者删了、改了名）：记不上，说出来。
   for (const [key, mine] of events) {
@@ -854,6 +892,7 @@ export function describeThreads(o: ThreadsOutcome): string {
     ...fores,
     o.newThreads.length > 0 ? `新认出 ${o.newThreads.length} 条线${o.newThreads.map((t) => `〈${t.name}〉（${t.kind}）`).join('')}` : '',
     ...o.merged.map((m) => `〈${m.from}〉并进了〈${m.into}〉${m.note ? `（${m.note}）` : ''}`),
+    ...(o.rehomed ?? []).map((m) => `〈${m.name}〉从未归属挪到了〈${m.line}〉`),
   ].filter(Boolean);
   const whys = [...new Set(o.dropped.map((d) => d.why))];
   const extra = [
