@@ -231,15 +231,43 @@ jobs:
           name: bundles
           path: artifacts/bundles
 
-      # 三个 job 的产物散在各自子目录里，摊平到一层好上传。
-      - name: 摊平产物
+      # 三个 job 的产物散在各自子目录里，摊平到一层、统一改名再上传。
+      #
+      # 各家打包器的名字各是各的（Tauri 用产品名「Novel Forge」，空格到了 GitHub 上变成点：
+      # `Novel.Forge_0.2.6_x64-setup.exe`；vsce 是 `novel-forge-0.2.6.vsix`；独立版不带版本号），
+      # Windows 下桌面安装器和独立版又都是 .exe，下载页上分不出谁是谁。一律改成
+      # `NovelForge-<版本>-<形态>-<系统>-<架构>`：形态是 desktop（桌面版，装了双击打开）、
+      # server（独立版，跑起来用浏览器打开）、vscode（插件）；架构一律写 x64（deb 叫 amd64、rpm 叫 x86_64）。
+      # 只在这里改：前面各 job 的中间产物名照旧（.vscodeignore 按 dist/novelforge* 排除独立版）。
+      # 每个源文件必须正好一个，产物多了、少了都停下，不静默漏传。
+      - name: 摊平产物并统一改名
         run: |
+          p="NovelForge-${{ needs.version.outputs.version }}"
           mkdir -p out
-          find artifacts -type f \
-            \( -name '*.vsix' -o -name '*.deb' -o -name '*.rpm' \
-               -o -name '*.exe' -o -name '*.msi' \
-               -o -name 'novelforge-linux-x64' \) \
-            -exec cp {} out/ \;
+          put() {
+            local hits n
+            hits="$(find artifacts -type f -name "$1")"
+            n="$(printf '%s' "$hits" | grep -c . || true)"
+            if [ "$n" -ne 1 ]; then
+              echo "::error::产物 $1 应当正好 1 个，找到 $n 个"
+              printf '%s\n' "$hits"
+              exit 1
+            fi
+            cp "$hits" "out/$2"
+          }
+          put '*-setup.exe'                "$p-desktop-windows-x64-setup.exe"
+          put '*.msi'                      "$p-desktop-windows-x64.msi"
+          put '*.deb'                      "$p-desktop-linux-x64.deb"
+          put '*.rpm'                      "$p-desktop-linux-x64.rpm"
+          put 'novelforge-windows-x64.exe' "$p-server-windows-x64.exe"
+          put 'novelforge-linux-x64'       "$p-server-linux-x64"
+          put '*.vsix'                     "$p-vscode.vsix"
+          total="$(find artifacts -type f | wc -l)"
+          if [ "$total" -ne "$(ls out | wc -l)" ]; then
+            echo "::error::产物里有 $total 个文件，只认领了 $(ls out | wc -l) 个——新的产物要在上面加一行改名"
+            find artifacts -type f
+            exit 1
+          fi
           ls -lh out
 
       # 一律先出草稿：作者在 GitHub 上看过产物再点公开。
