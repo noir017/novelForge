@@ -2,7 +2,7 @@
   "name": "novel-forge",
   "displayName": "Novel Forge — 小说编辑器与工程整理",
   "description": "写长篇小说的编辑器：照正文自动整理每章细纲、角色卡、设定与剧情线，不用作者手动维护；也能用 AI 接着往下写。",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "publisher": "novel-forge",
   "license": "AGPL-3.0",
   "repository": {
