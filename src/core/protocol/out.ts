@@ -8,6 +8,7 @@ import type { QuickOpenIndex } from './quickOpen';
 import type { CheckTermsView } from './check';
 import type { NameIndex } from './nameIndex';
 import type { ThreadsOverview } from './threadsOverview';
+import type { TimelineOverview } from './timelineOverview';
 import type { BookFindResult, BookReplaceSummary } from './bookFind';
 import type { CheckpointDiffView, CheckpointView } from './checkpoints';
 import type {
@@ -186,6 +187,8 @@ export type OutMessage =
    * `requestId` 前端静默丢弃（另一个视图要的）。
    */
   | { type: 'threadsOverview'; requestId: string; overview: ThreadsOverview }
+  /** 回 `requestTimelineOverview`：编辑区「时间线总览」标签要的数据（`protocol/timelineOverview.ts`）。认不出的 `requestId` 前端静默丢弃。 */
+  | { type: 'timelineOverview'; requestId: string; overview: TimelineOverview }
   | {
       type: 'pipeline';
       pipeline?: PlotPipelineView;

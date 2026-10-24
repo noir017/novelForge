@@ -307,7 +307,8 @@ describe('叙事线总览 · 伏笔的格子与连线', () => {
   });
 });
 
-// 故事时间（2026-10-24）：一列一格、月份带、伏笔埋了多少天。
+// 故事时间（2026-10-24）：伏笔埋了多少天。同日「时间线总览」：「时间线」一组与月份带挪去时间线总览（tests/unit/views/timeline.test.js），
+// 这里每列只留一句「这一章是哪天」（悬停用）。
 describe('总览 · 故事时间', () => {
   const tl = loadBundle({ tl: './src/core/model/timelineFile.ts' }).tl;
   const timeline = (lines, start = '三月初七') =>
@@ -319,60 +320,22 @@ describe('总览 · 故事时间', () => {
     '- 第 4 章：+5 天，历时 2 天',
   ];
 
-  test('一列一格：几号、全称、悬停；同一天不写字；月份带的名字；有时间线才给 timeline', () => {
-    const m = views.buildThreadsMatrix({ ...book(), timeline: timeline([...LINES, '- 第 5 章：+0 天〔依据：「当天」〕']) }, chapters(), 4);
-    assert.deepEqual(m.timeline, { relPath: `${DIR}/时间线.md`, months: true, label: '故事第 10 天' });
-    const t = m.chapters.slice(0, 6).map((c) => c.time && [c.time.state, c.time.short, c.time.label, c.time.month ?? '']);
-    // 第 5 章 +0 天：接在第 4 章的结尾（历时 2 天，到十六）那一天，和第 4 章开头不是同一天，照写几号。
-    assert.deepEqual(t, [
-      ['evidence', '初七', '三月初七 傍晚', '三月'],
-      ['guess', '初九', '三月初九', '三月'],
-      ['evidence', '初十', '三月初十', '三月'],
-      ['anchor', '十五', '三月十五', '三月'],
-      ['evidence', '十六', '三月十六', '三月'],
-      undefined,
-    ]);
-    // 同一天（开头一样）的格子不写字。
-    const same = views.buildThreadsMatrix({ ...book(), timeline: timeline(['- 第 1 章：+0 天', '- 第 2 章：+0 天']) }, chapters(), 4);
-    assert.deepEqual(same.chapters.slice(0, 2).map((c) => c.time.short), ['初七', '']);
-    const tip = m.chapters[3].time.tip;
-    assert.ok(tip.includes('故事第 9 天，历时 2 天，到三月十六；比上一章：+5 天'), tip);
-    assert.ok(tip.includes('你定的'), tip);
-    assert.ok(m.chapters[1].time.tip.includes('推测：赶路'), m.chapters[1].time.tip);
-    // 没有时间线：没有这一项，列上也没有 time。
-    const plain = views.buildThreadsMatrix(book(), chapters(), 4);
-    assert.equal(plain.timeline, undefined);
-    assert.ok(plain.chapters.every((c) => !c.time));
-  });
-
-  test('月份带：回忆的章跟着前一章的月（不断成两截）；年份没变的那一段只写月，跨年的写全', () => {
-    const m = views.buildThreadsMatrix(
-      { ...book(), timeline: timeline(['- 第 1 章：+0 天', '- 第 2 章：回忆', '- 第 3 章：+1 天', '- 第 4 章：四月初一', '- 第 5 章：大衍四年正月初一'], '大衍三年三月初七') },
-      chapters(),
-      4
-    );
+  test('每列一句「这一章是哪天」；不再给 timeline（没有「时间线」一组与月份带）；回忆、没起点照写', () => {
+    const m = views.buildThreadsMatrix({ ...book(), timeline: timeline([...LINES, '- 第 5 章：回忆，约二十年前']) }, chapters(), 4);
+    assert.equal(m.timeline, undefined);
     assert.deepEqual(
-      m.chapters.slice(0, 5).map((c) => [c.time.month, c.time.monthLabel]),
-      [
-        ['大衍三年三月', '大衍三年三月'],
-        ['大衍三年三月', '大衍三年三月'],
-        ['大衍三年三月', '大衍三年三月'],
-        ['大衍三年四月', '四月'],
-        ['大衍四年一月', '大衍四年一月'],
-      ]
+      m.chapters.slice(0, 6).map((c) => c.time),
+      ['三月初七 傍晚', '三月初九', '三月初十', '三月十五', '回忆（约二十年前）', undefined]
     );
+    const bare = views.buildThreadsMatrix({ ...book(), timeline: timeline(LINES, '') }, chapters(), 4);
+    assert.deepEqual(bare.chapters.slice(0, 4).map((c) => c.time), ['第 1 天 傍晚', '第 3 天', '第 4 天', '第 9 天']);
+    // 没有时间线：列上没有 time。
+    assert.ok(views.buildThreadsMatrix(book(), chapters(), 4).chapters.every((c) => !c.time));
   });
 
-  test('没有起点：格子写第几天，没有月份带', () => {
-    const m = views.buildThreadsMatrix({ ...book(), timeline: timeline(LINES, '') }, chapters(), 4);
-    assert.deepEqual(m.timeline.months, false);
-    assert.deepEqual(m.chapters.slice(0, 4).map((c) => c.time.short), ['1', '3', '4', '9']);
-  });
-
-  test('时间线写到更后面的章：列跟着画到那一章', () => {
+  test('时间线写到更后面的章：列不跟着加（总览只画线与伏笔用得到的章）', () => {
     const m = views.buildThreadsMatrix({ ...book(), timeline: timeline([...LINES, '- 第 14 章：+1 天']) }, chapters(), 4);
-    assert.equal(m.chapters.length, 14);
-    assert.equal(m.chapters[13].time.state, 'anchor');
+    assert.ok(m.chapters.length < 14, String(m.chapters.length));
   });
 
   test('埋了没收的伏笔：悬停说故事里过了几天（埋的那一章开头到叙事线判到的那一章结尾）', () => {

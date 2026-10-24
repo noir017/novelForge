@@ -243,6 +243,11 @@ export type InMessage =
    */
   | { type: 'requestThreadsOverview'; requestId: string }
   /**
+   * 内置编辑器「时间线总览」标签（2026-10-24）要数据：竖着按故事日子排、一章一张卡片（`views/threads.ts` 的 `buildTimelineOverview`，
+   * 纯读盘、不调模型）。回 `timelineOverview`，带同一个 `requestId`。按需要，不常驻推送。
+   */
+  | { type: 'requestTimelineOverview'; requestId: string }
+  /**
    * `range` 只有「批量拆细纲」用：弹窗里选的区间（W5）。`call` 表示弹窗已经把
    * 调用次数写给作者看过了，带着作者在弹窗上为这一次挑的模型与详细度，后端不再弹第二个确认框
    * （弹窗与确认框算的是同一个 `planPlotBatches`，不叠弹窗）。「批量写章」（W9）同样带 `range` / `call`，另带

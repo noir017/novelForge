@@ -103,15 +103,6 @@
   height: 44px;
 }
 
-/* 故事时间的月份带（2026-10-24）：卷名那一行下面再一行；没有卷名时就在最上面。 */
-.tov-header.tov-header-months {
-  height: 44px;
-}
-
-.tov-header.tov-header-vols.tov-header-months {
-  height: 64px;
-}
-
 .tov-corner {
   position: sticky;
   left: 0;
@@ -159,32 +150,6 @@
 
 .tov-vol-root {
   border-left-color: transparent;
-}
-
-.tov-months {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 20px;
-}
-
-.tov-header-vols .tov-months {
-  top: 20px;
-}
-
-.tov-month {
-  position: absolute;
-  top: 0;
-  height: 20px;
-  box-sizing: border-box;
-  padding: 2px 4px 0;
-  border-left: 1px solid var(--vscode-panel-border);
-  color: var(--vscode-descriptionForeground);
-  font-size: 0.85em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .tov-nums {
@@ -544,66 +509,4 @@
 
 .ed-tab-special {
   padding-left: 10px;
-}
-
-/* ---- 故事时间那一行（2026-10-24）：一章一格写几号；和上一章同一天画一个点；推不出黄、没推与认不出灰、回忆斜体、作者定的加粗。 */
-
-.tov-row-time {
-  border-bottom: 1px solid var(--vscode-panel-border);
-}
-
-.tov-row-time .tov-name {
-  font-weight: 600;
-}
-
-.tov-time {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: var(--tov-cell);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  font-size: 0.72em;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.tov-time:hover {
-  background: var(--vscode-list-hoverBackground);
-}
-
-.tov-time-guess {
-  color: var(--vscode-descriptionForeground);
-}
-
-.tov-time-unknown {
-  color: var(--vscode-editorWarning-foreground, #cca700);
-  font-weight: 600;
-}
-
-.tov-time-missing,
-.tov-time-bad {
-  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
-}
-
-.tov-time-anchor {
-  font-weight: 700;
-}
-
-.tov-time-flashback {
-  color: var(--vscode-descriptionForeground);
-  font-style: italic;
-}
-
-/* 正文写明了日子、按它对齐的章（2026-10-24 重做）：同「你定的」一样是可信的那一种，用强调色。 */
-.tov-time-dated {
-  color: var(--vscode-textLink-foreground, #3794ff);
-  font-weight: 700;
-}
-
-/* 对账报了的章：红底，悬停里说为什么。 */
-.tov-time.is-issue {
-  background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 22%, transparent);
 }

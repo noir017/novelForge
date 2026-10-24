@@ -95,8 +95,14 @@ export type {
   ThreadsOverviewGroup,
   ThreadsOverviewLine,
   ThreadsOverviewSpan,
-  ThreadsOverviewTime,
 } from './threadsOverview';
+export type {
+  TimelineOverview,
+  TimelineOverviewCard,
+  TimelineOverviewDay,
+  TimelineOverviewEvent,
+  TimelineOverviewThread,
+} from './timelineOverview';
 
 export type {
   BookFindFile,

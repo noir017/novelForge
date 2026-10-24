@@ -16,23 +16,9 @@ import {
   threadWatch,
   unjudgedChapters,
 } from '../model/threadFile';
-import {
-  Timeline,
-  TimelineCalc,
-  TimelineDay,
-  TimelineEntry,
-  computeTimeline,
-  dayLabel,
-  describeDateMark,
-  describeDay,
-  describeDayRange,
-  describeDelta,
-  isMachineEntry,
-  renderTimeValue,
-  suggestStart,
-  timelineIssues,
-} from '../model/timelineFile';
+import { TimelineDay, computeTimeline } from '../model/timelineFile';
 import { ThreadReminder, isFallbackChapterTitle, threadRemindersFor } from '../model/pipeline';
+import type { Plot } from '../model/plotFile';
 import { NovelProject } from '../model/project';
 import {
   ThreadLineView,
@@ -46,13 +32,11 @@ import {
   ThreadsOverviewGroup,
   ThreadsOverviewLine,
   ThreadsOverviewSpan,
-  ThreadsOverviewTime,
   ThreadsView,
-  TimelineChapterView,
-  TimelineGroupView,
-  TimelineSegmentView,
+  TimelineOverview,
 } from '../protocol';
 import { volumeOf } from './quickOpen';
+import { TimelineProgress, buildTimelineMatrix, chapterDayLabels, timelineGroupOf } from './timeline';
 
 /**
  * 叙事线一览（叙事线重做第 8 个提交，设计见 docs/design/plans/2026-10-20-narrative-threads.md「七、工程页」）：工程页
@@ -65,7 +49,8 @@ import { volumeOf } from './quickOpen';
  * - **一行怎么写由这里给**（与设定名录、出场人物同一个道理：文案只有一份），前端只渲染、只加 ⚠。
  *
  * 和 `views/lore.ts`、`views/cast.ts` 并排；三期的「叙事线总览」（章 × 线的时间轴，{@link buildThreadsOverview}）也从这里出数据：
- * 一行的说法、排序与「现在」都与工程页同一份。
+ * 一行的说法、排序与「现在」都与工程页同一份。故事时间的「时间线」组与「时间线总览」的数据在 `views/timeline.ts`（2026-10-24 挪出去），
+ * 时间线总览读盘的那一半（{@link buildTimelineOverview}）和叙事线总览共用读章节的那一段，所以在这里。
  *
  * 写前检查的两类提醒（二期，{@link threadReminders}）也在这里取数：工作台、对话页写正文之前、批量写章的确认框用它；
  * 前端批量写章弹窗拿工程页数据里的 `watch` 自己算（同一个 `threadRemindersFor`）。
@@ -90,14 +75,10 @@ function clipLine(text: string, max: number): string {
   return chars.length > max ? `${chars.slice(0, max).join('')}…` : chars.join('');
 }
 
-/** 定稿到第几章、叙事线判到哪（四期）：工程页与总览从读盘那一半交进来。 */
-export interface ThreadsProgress {
+/** 定稿到第几章、叙事线判到哪（四期）：工程页与总览从读盘那一半交进来。「时间线」组要的同步过的章与各章章名也在这里（`TimelineProgress`）。 */
+export interface ThreadsProgress extends TimelineProgress {
   /** 叙事线的水位与水位之后另外判过的章（`project.json`）。 */
   mark: ThreadsMark;
-  /** 定稿过、正文还在的章号（与「定稿到」同一个口径）。 */
-  finalized: readonly number[];
-  /** 各章的章名、正文路径与卷（「时间线」组一章一行用）。缺席时那几样空着。 */
-  chapters?: readonly TimelineChapterInput[];
 }
 
 /** 叙事线判到第几章：水位，不超过定稿到（定稿之后又删了细纲、正文的章不算）。 */
@@ -130,299 +111,6 @@ export function buildThreadsView(book: ThreadBook, current: number, progress?: T
     watch: threadWatch(book),
     ...(timeline ? { timeline } : {}),
   };
-}
-
-// ---------------------------------------------------------------- 故事时间（2026-10-24；同日重做成单独一组）
-
-/** 工程页交进来的章（时间线组一章一行要章名、正文路径与卷）。 */
-export interface TimelineChapterInput {
-  no: number;
-  title: string;
-  /** 正文路径（还没有正文是空串）。 */
-  chapterPath: string;
-  /** 卷名（直接放在章节根下是空串）。 */
-  volume: string;
-}
-
-/** 时间线里有没有这一章的行（认得出、认不出的都算：认不出的是作者的，补推不碰）。 */
-function hasTimeLine(tl: Timeline, no: number): boolean {
-  return tl.entries.some((e) => e.chapter === no) || tl.bad.includes(no);
-}
-
-/** 「现在」：最后一章的结尾那一天与结尾时段（跨了几天的说结尾那一天）。 */
-function nowOf(tl: Timeline, d: TimelineDay): string {
-  const day = d.end ?? d.start;
-  if (day === undefined) {
-    return describeDay(tl, d);
-  }
-  const part = d.endPart ?? (d.span > 1 ? undefined : d.part);
-  return `${dayLabel(tl, day).full}${part ? ` ${part}` : ''}`;
-}
-
-/** 没起点时每多少章一段（也没有卷的时候）。 */
-const TIMELINE_SEGMENT_CHAPTERS = 20;
-
-/**
- * 「时间线」那一组（设计稿 docs/design/plans/2026-10-24-story-timeline-rework.md「五」）：标题、历法与起点、对账一条一行、章按月分段
- * 一章一行。文件不在、也没有要补推的章时不画。`chapters` 给了才有章名、正文路径与卷（工程页给；单测可以不给）。
- */
-function timelineGroupOf(tl: Timeline | undefined, progress?: ThreadsProgress): TimelineGroupView | undefined {
-  if (!tl) {
-    return undefined;
-  }
-  const missing = progress
-    ? [...progress.finalized].filter((no) => {
-        const e = tl.entries.find((x) => x.chapter === no);
-        return !hasTimeLine(tl, no) || (e?.value.kind === 'unknown' && isMachineEntry(e));
-      })
-    : [];
-  missing.sort((a, b) => a - b);
-  const blank = missing.filter((no) => !hasTimeLine(tl, no));
-  if (!tl.exists && blank.length === 0) {
-    return undefined;
-  }
-  const calc = computeTimeline(tl);
-  const issues = timelineIssues(tl, calc);
-  const flagged = new Set(issues.map((i) => i.chapter));
-  const known = [...calc.days].reverse().find((d) => d.start !== undefined && d.state !== 'missing');
-  const of = (state: TimelineDay['state']) => calc.days.filter((d) => d.state === state).map((d) => d.chapter);
-  const unknown = of('unknown');
-  const bad = of('bad');
-  const blankText = blank.length > 0 ? `${describeChapterRuns(blank)}还没推` : '';
-  const suggestion = suggestStart(tl, calc);
-  const byNo = new Map((progress?.chapters ?? []).map((c) => [c.no, c]));
-  const entries = new Map(tl.entries.map((e) => [e.chapter, e]));
-
-  const label = [
-    calc.last > 0 ? `推到第 ${calc.last} 章` : '还没有一章',
-    known ? `故事第 ${known.end ?? known.start} 天${tl.start ? `（${nowOf(tl, known)}）` : ''}` : '',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-
-  const calendar: TimelineGroupView['calendar'] = {
-    text: tl.start
-      ? `${tl.calendar} · 起点 ${tl.startText}（第 1 章那一天）`
-      : tl.startText
-        ? `${tl.calendar} · 起点「${tl.startText}」认不出，先只显示第几天`
-        : suggestion
-          ? `${tl.calendar} · 没填起点：第 ${suggestion.chapter} 章写了「${suggestion.mark}」，第 1 章是${suggestion.text}`
-          : `${tl.calendar} · 没填起点，只显示第几天`,
-    tip: [
-      tl.calendar === '简单历' ? '简单历：每月 30 天、一年 12 个月，节日按农历口径（中秋是八月十五）。' : '公历：真实的月份长短与闰年。',
-      tl.start ? '' : '填了起点，日期才看得出来，正文写明的日子才拿来对齐、季节才拿来对账。',
-      suggestion ? `右键「填为起点」就填「${suggestion.text}」。` : '',
-      '点这一行改历法与起点。',
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    calendarName: tl.calendar,
-    start: tl.startText,
-    ...(suggestion ? { suggestion: { start: suggestion.text, note: `第 ${suggestion.chapter} 章写了「${suggestion.mark}」` } } : {}),
-  };
-
-  const issueViews: TimelineGroupView['issues'] = [
-    ...issues.map((i) => ({ text: i.text, chapter: i.chapter })),
-    ...(unknown.length > 0 && !issues.some((i) => i.kind === 'unknownRun') ? [{ text: `${describeChapterRuns(unknown)}推不出（按紧接上一章算，右键那一章「改时间」）` }] : []),
-    ...(bad.length > 0 ? [{ text: `${describeChapterRuns(bad)}那一行认不出（按紧接上一章算）`, chapter: bad[0] }] : []),
-    ...(blankText ? [{ text: `${blankText}：同步过，点标题旁的「补推时间」补上` }] : []),
-  ];
-
-  const rows: TimelineChapterView[] = calc.days.map((d) => chapterRowOf(tl, d, entries.get(d.chapter), byNo.get(d.chapter), flagged.has(d.chapter)));
-  // 同步过、时间线里还没有、又写在最后一行之后的章也列出来（「还没推」）。
-  for (const no of blank.filter((n) => n > calc.last)) {
-    const c = byNo.get(no);
-    rows.push({ no, title: c?.title ?? '', ...(c?.chapterPath ? { chapterPath: c.chapterPath } : {}), state: 'missing', when: '还没推', note: '', tip: `第 ${no} 章还没推`, value: '', machine: false });
-  }
-  rows.sort((a, b) => a.no - b.no);
-
-  return {
-    relPath: tl.relPath,
-    exists: tl.exists,
-    label,
-    calendar,
-    issues: issueViews,
-    segments: segmentsOf(tl, calc, rows, byNo),
-    ...(missing.length > 0 ? { missing: { count: missing.length, text: `${describeChapterRuns(missing)}还没推出来` } } : {}),
-    machine: tl.entries.filter(isMachineEntry).length,
-    last: Math.max(calc.last, ...rows.map((r) => r.no), 0),
-  };
-}
-
-/** 一章一行。 */
-function chapterRowOf(tl: Timeline, d: TimelineDay, e: TimelineEntry | undefined, c: TimelineChapterInput | undefined, issue: boolean): TimelineChapterView {
-  const when = d.state === 'missing' ? '还没推' : d.state === 'bad' ? '那一行认不出' : rowWhen(tl, d);
-  const note =
-    d.state === 'dated' && d.dateMark
-      ? `正文写明${describeDateMark(d.dateMark)}`
-      : d.state === 'anchor'
-        ? '你定的'
-        : d.basis
-          ? d.basis.kind === '依据'
-            ? `依据「${clipLine(d.basis.text, 30)}」`
-            : `${d.basis.kind}：${clipLine(d.basis.text, 30)}`
-          : '';
-  return {
-    no: d.chapter,
-    title: c?.title ?? '',
-    ...(c?.chapterPath ? { chapterPath: c.chapterPath } : {}),
-    state: d.state,
-    when,
-    ...(d.delta !== undefined && d.state !== 'missing' && d.state !== 'bad' ? { delta: describeDelta(d.delta) } : {}),
-    note,
-    tip: dayTip(tl, d).join('\n'),
-    value: e ? renderTimeValue(e.value) : '',
-    machine: !!e && isMachineEntry(e),
-    ...(issue ? { issue: true as const } : {}),
-  };
-}
-
-/** 一天不带年份：`三月十四`、`3月14日`（年份在段头上）。没起点是 `第 8 天`。 */
-function dayNoYear(tl: Timeline, day: number): string {
-  const l = dayLabel(tl, day);
-  if (!l.month || !l.monthName) {
-    return l.full;
-  }
-  return tl.start && (tl.start.style.day === 'iso' || tl.start.style.day === 'slash')
-    ? `${l.monthName}${l.short}日`
-    : l.full.slice(l.month.length - l.monthName.length);
-}
-
-/** 一行里那一天：`三月十四 清晨 → 夜里`、`三月十四 清晨 → 三月十六 夜里`；没起点 `第 8 天 清晨`；回忆 `回忆（约二十年前）`。 */
-function rowWhen(tl: Timeline, d: TimelineDay): string {
-  if (d.state === 'flashback' || d.start === undefined) {
-    return describeDay(tl, d);
-  }
-  const head = `${dayNoYear(tl, d.start)}${d.part ? ` ${d.part}` : ''}`;
-  if (d.span > 1 && d.end !== undefined) {
-    return `${head} → ${dayNoYear(tl, d.end)}${d.endPart ? ` ${d.endPart}` : ''}`;
-  }
-  return d.endPart ? `${head} → ${d.endPart}` : head;
-}
-
-/**
- * 分段：填了起点按月（回忆、没推的章跟着前一章的月），没起点按卷，卷也没有每 {@link TIMELINE_SEGMENT_CHAPTERS} 章一段。
- */
-function segmentsOf(tl: Timeline, calc: TimelineCalc, rows: TimelineChapterView[], byNo: Map<number, TimelineChapterInput>): TimelineSegmentView[] {
-  const days = new Map(calc.days.map((d) => [d.chapter, d]));
-  const keyOf = (no: number, prev: string): string => {
-    const d = days.get(no);
-    if (tl.start) {
-      return d?.start !== undefined && d.state !== 'flashback' && d.state !== 'missing' ? (dayLabel(tl, d.start).month ?? prev) : prev;
-    }
-    if ([...byNo.values()].some((c) => c.volume)) {
-      return byNo.get(no)?.volume ?? prev;
-    }
-    const k = Math.floor((no - 1) / TIMELINE_SEGMENT_CHAPTERS);
-    return `第 ${k * TIMELINE_SEGMENT_CHAPTERS + 1}–${(k + 1) * TIMELINE_SEGMENT_CHAPTERS} 章`;
-  };
-  const out: TimelineSegmentView[] = [];
-  let prev = '';
-  for (const row of rows) {
-    const key = keyOf(row.no, prev) || prev;
-    prev = key;
-    const last = out[out.length - 1];
-    if (last && last.key === `timeline:${key}`) {
-      last.chapters.push(row);
-    } else {
-      out.push({ key: `timeline:${key}`, label: key || '未分卷', detail: '', chapters: [row] });
-    }
-  }
-  for (const seg of out) {
-    const nos = seg.chapters.map((c) => c.no);
-    const ds = nos.map((n) => days.get(n)).filter((d): d is TimelineDay => d?.start !== undefined && d.state !== 'flashback' && d.state !== 'missing');
-    const from = Math.min(...ds.map((d) => d.start!));
-    const to = Math.max(...ds.map((d) => d.end ?? d.start!));
-    const range = nos.length === 1 ? `第 ${nos[0]} 章` : `第 ${nos[0]}–${nos[nos.length - 1]} 章`;
-    seg.detail = ds.length > 0 ? `${range} · ${tl.start ? `${to - from + 1} 天` : `故事第 ${from === to ? from : `${from}–${to}`} 天`}` : range;
-  }
-  return out;
-}
-
-/** 一章的悬停（工程页那一行与总览那一格共用）：全称、故事第几天、比上一章晚多久、历时、依据 / 推测、正文写明的、对账。 */
-function dayTip(tl: Timeline, d: TimelineDay): string[] {
-  const lines = [`第 ${d.chapter} 章 · ${describeDayRange(tl, d)}`];
-  if (d.start !== undefined && d.state !== 'flashback') {
-    const span = d.span > 1 && d.end !== undefined ? `，历时 ${d.span} 天，到${dayLabel(tl, d.end).full}` : '';
-    const delta = d.delta !== undefined ? `；比上一章：${describeDelta(d.delta)}` : '';
-    lines.push(`故事第 ${d.start} 天${span}${delta}`);
-  }
-  if (d.basis) {
-    lines.push(d.basis.kind === '依据' ? `依据：「${d.basis.text}」` : `${d.basis.kind}：${d.basis.text}`);
-  }
-  if (d.dateMark) {
-    lines.push(`正文写明：${describeDateMark(d.dateMark)}${d.dateMark.offset > 0 ? `（开头后 ${d.dateMark.offset} 天）` : ''}${d.dateMark.quote ? `「${d.dateMark.quote}」` : ''}`);
-  }
-  if (d.aligned && !d.aligned.unknown && d.aligned.drift !== 0) {
-    lines.push(`前面推下来是${dayLabel(tl, d.aligned.estimate).full}，按正文对齐了（差 ${Math.abs(d.aligned.drift)} 天）`);
-  }
-  if (d.seasonMark) {
-    lines.push(`季节：${d.seasonMark.season}${d.seasonMark.quote ? `「${d.seasonMark.quote}」` : ''}`);
-  }
-  if (TIME_STATE_NOTE[d.state]) {
-    lines.push(TIME_STATE_NOTE[d.state]);
-  }
-  return lines;
-}
-
-const TIME_STATE_NOTE: Record<TimelineDay['state'], string> = {
-  evidence: '',
-  guess: '',
-  unknown: '推不出，按紧接上一章算',
-  missing: '时间线里还没有这一章，按紧接上一章算',
-  anchor: '你定的',
-  dated: '正文写明了日子，按它对齐',
-  flashback: '整章是回忆，不推进时间',
-  bad: '这一行认不出，按紧接上一章算',
-};
-
-/**
- * 总览「故事时间」那一行：一章一格（时间线里写到的最后一章为止）。和上一章同一天的格子不写字（画一个点）。对账报了的章标 `issue`
- * （2026-10-24 重做），悬停里带上那一条。
- */
-function timeCellsOf(tl: Timeline, calc: TimelineCalc): Map<number, ThreadsOverviewTime> {
-  const out = new Map<number, ThreadsOverviewTime>();
-  const issues = new Map<number, string[]>();
-  for (const i of timelineIssues(tl, calc)) {
-    issues.set(i.chapter, [...(issues.get(i.chapter) ?? []), i.text]);
-  }
-  let prevStart: number | undefined;
-  // 月份带：回忆的章跟着前一章的月（主线还在那个月里，不把一段断成两截）；年份没变的那一段只写月。
-  let prevMonth: { month: string; label: string } | undefined;
-  let prevYear: string | undefined;
-  for (const d of calc.days) {
-    const label = describeDay(tl, d);
-    const flagged = issues.get(d.chapter) ?? [];
-    const lines = [...dayTip(tl, d), ...flagged.map((t) => `⚠ ${t}`), '点击打开时间线（在那里改）'];
-    const day = d.start !== undefined ? dayLabel(tl, d.start) : undefined;
-    let month = prevMonth;
-    if (day?.month && day.monthName) {
-      const year = day.month.slice(0, day.month.length - day.monthName.length);
-      month = day.month === prevMonth?.month ? prevMonth : { month: day.month, label: year === prevYear ? day.monthName : day.month };
-      prevYear = year;
-    }
-    prevMonth = month;
-    const short =
-      d.state === 'flashback'
-        ? '忆'
-        : d.state === 'unknown' || d.state === 'bad'
-          ? '?'
-          : d.state === 'missing' || d.start === prevStart
-            ? ''
-            : (day?.short ?? '');
-    out.set(d.chapter, {
-      state: d.state,
-      short,
-      label,
-      tip: lines.join('\n'),
-      ...(month ? { month: month.month, monthLabel: month.label } : {}),
-      ...(flagged.length > 0 ? { issue: true as const } : {}),
-    });
-    if (d.start !== undefined) {
-      prevStart = d.start;
-    }
-  }
-  return out;
 }
 
 /**
@@ -540,6 +228,40 @@ export interface OverviewChapterInput {
 }
 
 /**
+ * 两份总览（叙事线总览、时间线总览）读章节的那一半，同一个口径：有细纲或正文的章（读细纲、章节两份列表，借缓存），配上它的细纲。
+ * 同号的正文有两份时认路径排序第一份（与流水线、「转到…」同一个口径）；细纲按路径配对（`NovelProject.plotFor`）：有正文只认它镜像的
+ * 那一份，没有正文按号认计划。
+ */
+async function overviewChapters(project: NovelProject): Promise<{ input: OverviewChapterInput; plot?: Plot }[]> {
+  const [plots, chapters] = await Promise.all([project.listPlots(), project.listChapters()]);
+  const chaptersRoot = project.relPath(project.chaptersDir);
+  const plotsRoot = project.relPath(project.plotsDir);
+  const chapterOf = new Map<number, (typeof chapters)[number]>();
+  for (const c of chapters) {
+    if (!chapterOf.has(c.order)) {
+      chapterOf.set(c.order, c);
+    }
+  }
+  const nos = [...new Set([...chapterOf.keys(), ...plots.map((p) => p.no)])].sort((a, b) => a - b);
+  return nos.map((no) => {
+    const chapter = chapterOf.get(no);
+    const plot = project.plotFor(no, plots, chapters);
+    const title = plot?.title || (chapter && !isFallbackChapterTitle(no, chapter.title) ? chapter.title : '');
+    const state: OverviewChapterInput['state'] =
+      chapter && plot?.sourceHash ? 'finalized' : chapter && chapter.wordCount > 0 ? 'written' : 'planned';
+    const input: OverviewChapterInput = {
+      no,
+      title,
+      volume: chapter ? volumeOf(chapter.relPath, chaptersRoot) : plot ? volumeOf(plot.relPath, plotsRoot) : '',
+      state,
+      ...(chapter ? { chapterPath: chapter.relPath } : {}),
+      ...(plot ? { plotPath: plot.relPath } : {}),
+    };
+    return { input, ...(plot ? { plot } : {}) };
+  });
+}
+
+/**
  * 编辑区「叙事线总览」标签的数据（设计稿「八、叙事线总览」）：读一遍叙事线目录与章节、细纲两份列表（借缓存）、`project.json` 里
  * 叙事线判到哪，交给 {@link buildThreadsMatrix}。**纯读盘、不调模型、不落盘**（第 18、28 条：状态一律从事件现算）。「定稿到」与
  * 「叙事线判到」都与工程页「叙事线」页签同一个口径：定稿过（细纲有 `sourceHash`）、正文还在的章里章号最大的那一章；水位不超过它。
@@ -550,40 +272,32 @@ export async function buildThreadsOverview(project: NovelProject): Promise<Threa
   if (!(await project.isInitialized())) {
     return { initialized: false, chapters: [], current: 0, through: 0, volumes: false, groups: [] };
   }
-  const [book, plots, chapters, mark] = await Promise.all([
-    project.readThreads(),
-    project.listPlots(),
-    project.listChapters(),
-    project.readThreadsMark(),
-  ]);
-  const chaptersRoot = project.relPath(project.chaptersDir);
-  const plotsRoot = project.relPath(project.plotsDir);
-  // 同号的正文有两份时认路径排序第一份（与流水线、「转到…」同一个口径）。
-  const chapterOf = new Map<number, (typeof chapters)[number]>();
-  for (const c of chapters) {
-    if (!chapterOf.has(c.order)) {
-      chapterOf.set(c.order, c);
-    }
-  }
-  const nos = [...new Set([...chapterOf.keys(), ...plots.map((p) => p.no)])].sort((a, b) => a - b);
-  const inputs: OverviewChapterInput[] = nos.map((no) => {
-    const chapter = chapterOf.get(no);
-    // 细纲按路径配对（`NovelProject.plotFor`）：有正文只认它镜像的那一份，没有正文按号认计划。
-    const plot = project.plotFor(no, plots, chapters);
-    const title = plot?.title || (chapter && !isFallbackChapterTitle(no, chapter.title) ? chapter.title : '');
-    const state: OverviewChapterInput['state'] =
-      chapter && plot?.sourceHash ? 'finalized' : chapter && chapter.wordCount > 0 ? 'written' : 'planned';
-    return {
-      no,
-      title,
-      volume: chapter ? volumeOf(chapter.relPath, chaptersRoot) : plot ? volumeOf(plot.relPath, plotsRoot) : '',
-      state,
-      ...(chapter ? { chapterPath: chapter.relPath } : {}),
-      ...(plot ? { plotPath: plot.relPath } : {}),
-    };
-  });
+  const [book, rows, mark] = await Promise.all([project.readThreads(), overviewChapters(project), project.readThreadsMark()]);
+  const inputs = rows.map((r) => r.input);
   const current = inputs.reduce((max, c) => (c.state === 'finalized' && c.no > max ? c.no : max), 0);
   return { initialized: true, ...buildThreadsMatrix(book, inputs, current, { mark }) };
+}
+
+/**
+ * 编辑区「时间线总览」标签的数据（2026-10-24，设计稿 docs/design/plans/2026-10-24-timeline-page.md）：读时间线与叙事线（卡片上带这一章
+ * 在各条线上发生的事）、章节与细纲（章名、梗概、时间地点、同步过没有），交给 `views/timeline.ts` 的 `buildTimelineMatrix`。
+ * 纯读盘、不调模型、不落盘；按需要（`requestTimelineOverview`），不进工程树（同叙事线总览）。
+ */
+export async function buildTimelineOverview(project: NovelProject): Promise<TimelineOverview> {
+  if (!(await project.isInitialized())) {
+    return { initialized: false, relPath: '', exists: false, meta: '', tip: '', calendar: { name: '简单历', start: '' }, issues: [], threads: [], days: [], machine: 0, last: 0 };
+  }
+  const [book, rows] = await Promise.all([project.readThreads(), overviewChapters(project)]);
+  const inputs = rows.map(({ input, plot }) => ({
+    no: input.no,
+    title: input.title,
+    ...(input.chapterPath ? { chapterPath: input.chapterPath } : {}),
+    ...(input.plotPath ? { plotPath: input.plotPath } : {}),
+    synopsis: plot?.sections['梗概'] ?? '',
+    timePlace: plot?.sections['时间地点'] ?? '',
+    finalized: input.state === 'finalized',
+  }));
+  return { initialized: true, ...buildTimelineMatrix(book, inputs) };
 }
 
 /**
@@ -617,13 +331,13 @@ export function buildThreadsMatrix(
     ...files.flatMap((f) => f.events.map((e) => e.chapter)),
     ...files.flatMap((f) => f.foreshadowing.flatMap((x) => [x.plant ?? 0, x.resolve ?? 0])),
     ...book.threads.flatMap((t) => [t.from ?? 0, t.to ?? 0]),
-    calc?.last ?? 0,
   ];
   const wanted = mentioned.reduce((m, n) => Math.max(m, n), fileMax);
   const last = Math.min(wanted, Math.max(limit, fileMax));
 
   const byNo = new Map(chapters.map((c) => [c.no, c]));
-  const times = tl && calc ? timeCellsOf(tl, calc) : new Map<number, ThreadsOverviewTime>();
+  // 这一章是哪天（列头与格子的悬停带一句；2026-10-24 时间线总览：「时间线」一组与月份带挪去时间线总览了）。
+  const times = tl && calc ? chapterDayLabels(tl, calc) : new Map<number, string>();
   const columns: ThreadsOverviewChapter[] = [];
   let volume = '';
   for (let no = 1; no <= last; no++) {
@@ -675,9 +389,6 @@ export function buildThreadsMatrix(
     volumes: columns.some((c) => c.volume !== ''),
     groups,
     ...(unfiled.length > 0 ? { unfiled: { relPath: book.unfiled.relPath, foreshadowing: unfiled } } : {}),
-    ...(tl && calc
-      ? { timeline: { relPath: tl.relPath, months: columns.some((c) => !!c.time?.month), label: calc.elapsed > 0 ? `故事第 ${calc.elapsed} 天` : '还没有一章' } }
-      : {}),
     ...(wanted > last ? { clippedFrom: wanted } : {}),
   };
 }

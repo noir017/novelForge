@@ -35,7 +35,7 @@ import { buildPlotSummaryView, buildProjectTree } from '../views/projectView';
 import { buildPipelineIndex } from '../views/pipeline';
 import { buildQuickOpenIndex } from '../views/quickOpen';
 import { buildNameIndex, nameIndexSig } from '../views/nameIndex';
-import { buildThreadsOverview } from '../views/threads';
+import { buildThreadsOverview, buildTimelineOverview } from '../views/threads';
 import { chapterIndexOf } from '../views/chapterIndex';
 import { DEFAULT_PARAGRAPH_STYLE } from '../model/paragraphFormat';
 import {
@@ -603,6 +603,11 @@ export class ChatController {
       case 'requestThreadsOverview':
         // 编辑区「叙事线总览」标签（叙事线重做三期）要矩阵：纯读盘、不调模型。回复是广播，前端认 requestId。
         this.post({ type: 'threadsOverview', requestId: msg.requestId, overview: await buildThreadsOverview(this.project) });
+        return;
+
+      case 'requestTimelineOverview':
+        // 编辑区「时间线总览」标签（2026-10-24）要数据：纯读盘、不调模型。回复是广播，前端认 requestId。
+        this.post({ type: 'timelineOverview', requestId: msg.requestId, overview: await buildTimelineOverview(this.project) });
         return;
 
       case 'requestNameIndex': {

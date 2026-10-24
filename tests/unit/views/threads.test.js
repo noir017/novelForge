@@ -194,7 +194,7 @@ describe('叙事线页签 · 时间线一组', () => {
   const progress = (through, finalized, n = 0) => ({ mark: { through, judged: [] }, finalized, ...(n ? { chapters: chapters(n) } : {}) });
   const unfiled = { name: '未归属的伏笔', relPath: '', foreshadowing: [], events: [] };
 
-  test('标题：推到第几章、故事第几天（现在是哪天、结尾时段）；历法与起点一行；机器写的几行、要补推的', () => {
+  test('标题：推到第几章、故事第几天（现在是哪天、结尾时段）；历法与起点（标题的悬停）；机器写的几行、要补推的', () => {
     const t = timeline([
       '- 第 1 章：+0 天，傍晚〔依据：「起」〕',
       '- 第 2 章：+?〔推不出：没交代〕',
@@ -208,14 +208,17 @@ describe('叙事线页签 · 时间线一组', () => {
     // 八月十五是第 159 天；第 5 章 +3 天、历时 2 天：第 162–163 天，八月十八到十九。
     assert.equal(v.label, '推到第 5 章 · 故事第 163 天（八月十九 夜里）');
     assert.equal(v.calendar.text, '简单历 · 起点 三月初七（第 1 章那一天）');
+    assert.ok(v.calendar.tip.endsWith('右键改历法与起点。'), v.calendar.tip);
     assert.equal(v.calendar.start, '三月初七');
     assert.equal(v.machine, 3);
     // 要补推的：没有那一行的（第 6–8 章）与机器写的 +?（第 2 章）。
     assert.deepEqual(v.missing, { count: 4, text: '第 2、6–8 章还没推出来' });
-    assert.deepEqual(
-      v.issues.map((i) => i.text),
-      ['第 2 章推不出（按紧接上一章算，右键那一章「改时间」）', '第 3 章那一行认不出（按紧接上一章算）', '第 6–8 章还没推：同步过，点标题旁的「补推时间」补上']
-    );
+    // 推不出、认不出的带上第一章（点了在总览里展开它）；还没推的不带。
+    assert.deepEqual(v.issues, [
+      { text: '第 2 章推不出（按紧接上一章算，右键那一章「改时间」）', chapter: 2 },
+      { text: '第 3 章那一行认不出（按紧接上一章算）', chapter: 3 },
+      { text: '第 6–8 章还没推：同步过，点标题旁的「补推时间」补上' },
+    ]);
     assert.equal(v.last, 8);
   });
 
@@ -242,11 +245,12 @@ describe('叙事线页签 · 时间线一组', () => {
     assert.deepEqual([c6.state, c6.when, c6.value], ['missing', '还没推', '']);
   });
 
-  test('对账报了的章标出来；没起点、正文写明过日子：起点建议；没起点没有卷时每 20 章一段', () => {
+  test('对账报了的章标出来；没起点、正文写明过日子：起点建议是第一条 ⚠（右键填为起点）；没起点没有卷时每 20 章一段', () => {
     const t = timeline(['- 第 1 章：+0 天〔依据：「起」〕', '- 第 2 章：+2 天〔依据：「两日后」〕〔文中：三月初七「三月初七」〕'], '');
     const v = views.buildThreadsView({ threads: [], unfiled, timeline: t }, 2, progress(2, [1, 2])).timeline;
-    assert.equal(v.calendar.text, '简单历 · 没填起点：第 2 章写了「三月初七」，第 1 章是三月初五');
+    assert.equal(v.calendar.text, '简单历 · 没填起点，只显示第几天');
     assert.deepEqual(v.calendar.suggestion, { start: '三月初五', note: '第 2 章写了「三月初七」' });
+    assert.deepEqual(v.issues[0], { text: '没填起点：第 2 章写了「三月初七」，第 1 章是三月初五（右键填为起点）', start: true });
     assert.deepEqual(v.segments.map((s) => [s.label, s.detail]), [['第 1–20 章', '第 1–2 章 · 故事第 1–3 天']]);
     const flagged = views.buildThreadsView(
       { threads: [], unfiled, timeline: timeline(['- 第 1 章：+0 天〔依据：「起」〕', '- 第 2 章：+10 天〔依据：「十日后」〕〔文中：三月二十五「三月二十五」〕']) },
@@ -272,9 +276,10 @@ describe('叙事线页签 · 时间线一组', () => {
     assert.deepEqual(v.segments.flatMap((s) => s.chapters.map((c) => [c.no, c.when])), [[1, '还没推'], [2, '还没推'], [3, '还没推']]);
   });
 
-  test('起点认不出：第一行说一句，只显示第几天', () => {
+  test('起点认不出：标题的悬停与一条 ⚠ 各说一句，只显示第几天', () => {
     const v = views.buildThreadsView({ threads: [], unfiled, timeline: timeline(['- 第 1 章：+0 天', '- 第 2 章：+4 天'], '很久以前') }, 2, progress(2, [1, 2])).timeline;
     assert.equal(v.calendar.text, '简单历 · 起点「很久以前」认不出，先只显示第几天');
+    assert.deepEqual(v.issues[0], { text: '起点「很久以前」认不出，先只显示第几天（右键改历法与起点）', start: true });
     assert.equal(v.label, '推到第 2 章 · 故事第 5 天');
   });
 });

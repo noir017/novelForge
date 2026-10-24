@@ -148,8 +148,9 @@ export interface ThreadsView {
 }
 
 /**
- * 叙事线页签的「时间线」组（2026-10-24 重做，设计稿 docs/design/plans/2026-10-24-story-timeline-rework.md「五」）：标题、历法与起点那一行、
- * 对账一条一行、章按月（没起点按卷、卷也没有每 20 章）分段一章一行。文案都由后端给（`views/threads.ts`），前端只渲染、只加 ⚠。
+ * 叙事线页签的「时间线」组（2026-10-24 重做，设计稿 docs/design/plans/2026-10-24-story-timeline-rework.md「五」）：标题、对账一条一行、
+ * 章按月（没起点按卷、卷也没有每 20 章）分段一章一行。文案都由后端给（`views/timeline.ts`），前端只渲染、只加 ⚠。同日「时间线总览」
+ * （docs/design/plans/2026-10-24-timeline-page.md）：历法与起点那一行去掉（挪到组标题的悬停里），点一章打开总览。
  */
 export interface TimelineGroupView {
   /** `threads/时间线.md`（还没有这份文件时也给：补推会建它）。 */
@@ -158,9 +159,9 @@ export interface TimelineGroupView {
   exists: boolean;
   /** 组标题后面那一串：`推到第 30 章 · 故事第 46 天（大衍三年四月十九 夜里）`。 */
   label: string;
-  /** 历法与起点那一行。 */
+  /** 历法与起点（组标题的悬停、右键「改历法与起点」的预填）。 */
   calendar: TimelineCalendarView;
-  /** ⚠ 一条一行（不带 ⚠，前端加）：对账、推不出、认不出、起点认不出、还没推。 */
+  /** ⚠ 一条一行（不带 ⚠，前端加）：没填起点（有建议时）、起点认不出、对账、推不出、认不出、还没推。 */
   issues: TimelineIssueView[];
   /** 章分段，按章号。 */
   segments: TimelineSegmentView[];
@@ -172,7 +173,10 @@ export interface TimelineGroupView {
   last: number;
 }
 
-/** 「时间线」组的第一行：`简单历 · 起点 大衍三年三月初七（第 1 章那一天）`。 */
+/**
+ * 历法与起点（2026-10-24 时间线总览：原来是「时间线」组的第一行、点了就改，作者嫌反人类——挪到组标题的悬停里，改走右键）。
+ * `text` 是 `简单历 · 起点 大衍三年三月初七（第 1 章那一天）`，`tip` 是历法怎么算。
+ */
 export interface TimelineCalendarView {
   text: string;
   tip: string;
@@ -183,10 +187,14 @@ export interface TimelineCalendarView {
   suggestion?: { start: string; note: string };
 }
 
-/** 对账、计数的一条。`chapter` 给了的点了打开时间线、定位到那一章（前端按 `chapter` 找那一行）。 */
+/**
+ * 对账、计数的一条。`chapter` 给了的点了打开时间线总览、展开那一章。`start`：说的是起点（没填、认不出；2026-10-24 历法那一行去掉之后
+ * 挪到这里），右键给「改历法与起点」与「填为起点」。
+ */
 export interface TimelineIssueView {
   text: string;
   chapter?: number;
+  start?: true;
 }
 
 /** 一段：`大衍三年三月 · 第 1–12 章 · 14 天`。 */
@@ -202,7 +210,7 @@ export interface TimelineSegmentView {
 export interface TimelineChapterView {
   no: number;
   title: string;
-  /** 正文（点这一行打开它）；还没有正文时缺席。 */
+  /** 正文（右键「打开这一章」；点这一行打开的是时间线总览）；还没有正文时缺席。 */
   chapterPath?: string;
   state: TimelineDayState;
   /** 那一天：`十四 清晨 → 夜里`，没起点 `第 8 天 清晨`，回忆 `回忆（约二十年前）`，没推 `还没推`。 */

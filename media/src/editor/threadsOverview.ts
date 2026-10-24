@@ -386,11 +386,6 @@ function buildGrid(d: ThreadsOverview): HTMLElement {
   const grid = el('div', 'tov-grid');
   grid.style.width = `${NAME_WIDTH + cols * CELL}px`;
   grid.appendChild(buildHeader(d));
-  // 时间线单独一组（2026-10-24 重做，同工程页的叙事线页签），排在主线组前面。
-  if (d.timeline) {
-    grid.appendChild(groupRow('时间线', d.timeline.label, d.timeline.relPath, '一章一格：这一章开头是哪天。点击打开时间线文件；改时间也可以在工程页叙事线页签的「时间线」组里右键那一章。'));
-    grid.appendChild(timeRow(d, d.timeline.relPath, cols));
-  }
   for (const group of d.groups) {
     grid.appendChild(groupRow(group.kind, `${group.lines.length} 条`));
     for (const line of group.lines) {
@@ -454,26 +449,6 @@ function buildHeader(d: ThreadsOverview): HTMLElement {
     cols.appendChild(row);
     head.classList.add('tov-header-vols');
   }
-  // 故事时间的月份带（2026-10-24，有起点时）：连着几章在同一个月就并成一段，同卷名那一行的画法；没有时间的章断开。
-  if (d.timeline?.months) {
-    const row = el('div', 'tov-months');
-    let start = 0;
-    for (let i = 1; i <= d.chapters.length; i++) {
-      const month = d.chapters[start].time?.month ?? '';
-      if (i === d.chapters.length || (d.chapters[i].time?.month ?? '') !== month) {
-        if (month) {
-          const seg = el('div', 'tov-month', d.chapters[start].time?.monthLabel ?? month);
-          seg.style.left = `${start * CELL}px`;
-          seg.style.width = `${(i - start) * CELL}px`;
-          seg.title = `${month}：第 ${d.chapters[start].no}–${d.chapters[i - 1].no} 章`;
-          row.appendChild(seg);
-        }
-        start = i;
-      }
-    }
-    cols.appendChild(row);
-    head.classList.add('tov-header-months');
-  }
   const nums = el('div', 'tov-nums');
   for (const c of d.chapters) {
     const col = el(
@@ -492,7 +467,7 @@ function buildHeader(d: ThreadsOverview): HTMLElement {
 }
 
 function chapterTitle(c: ThreadsOverviewChapter): string {
-  const name = `第 ${c.no} 章${c.title ? `《${c.title}》` : ''}${c.time ? ` · ${c.time.label}` : ''}`;
+  const name = `第 ${c.no} 章${c.title ? `《${c.title}》` : ''}${c.time ? ` · ${c.time}` : ''}`;
   const where = c.volume ? ` · ${c.volume}` : '';
   const open = c.chapterPath ? '点击打开正文' : c.plotPath ? '点击打开细纲' : '';
   const judged = c.unjudged ? '，叙事线还没判（这一章的计划不算偏差）' : '';
@@ -508,38 +483,14 @@ function rowShell(cls: string, cols: number): { row: HTMLElement; name: HTMLElem
   return { row, name, track };
 }
 
-/**
- * 「故事时间」那一行（2026-10-24）：一章一格写这一章开头是几号（没有起点写第几天），和上一章同一天的画一个点；推不出的黄、
- * 没推的灰、回忆写「忆」。悬停看全文（`title`）；点名字、点格子都打开时间线文件——这一行是拿来改时间的。
- */
-function timeRow(d: ThreadsOverview, relPath: string, cols: number): HTMLElement {
-  const { row, name, track } = rowShell('tov-row-time', cols);
-  row.dataset.path = relPath;
-  const link = el('span', 'tov-link', '故事时间');
-  link.dataset.path = relPath;
-  link.title = `${relPath}\n一章一格：这一章开头是哪天（按时间线从第 1 章往后推算）。点击打开时间线，在那里改。`;
-  name.appendChild(link);
-  for (const c of d.chapters) {
-    if (!c.time) {
-      continue;
-    }
-    const cell = el('span', `tov-time tov-time-${c.time.state}${c.time.issue ? ' is-issue' : ''}`, c.time.short || '·');
-    cell.style.left = `${(c.no - 1) * CELL}px`;
-    cell.dataset.path = relPath;
-    cell.title = c.time.tip;
-    track.appendChild(cell);
-  }
-  return row;
-}
-
-/** 种类那一行（「主线 · 1 条」），「未归属的伏笔」「时间线」那一行也是它（带路径，点名字打开那份文件）。 */
-function groupRow(label: string, count: string, relPath?: string, tip?: string): HTMLElement {
+/** 种类那一行（「主线 · 1 条」），「未归属的伏笔」那一行也是它（带路径，点名字打开那份文件）。 */
+function groupRow(label: string, count: string, relPath?: string): HTMLElement {
   const row = el('div', 'tov-row tov-row-group');
   const name = el('div', 'tov-name');
   if (relPath) {
     const link = el('span', 'tov-link', label);
     link.dataset.path = relPath;
-    link.title = `${relPath}\n${tip ?? '挂不上哪一条线的伏笔。点击打开这份文件；把一行伏笔连同它的事件剪到某条线的文件里，就是挂上了。'}`;
+    link.title = `${relPath}\n挂不上哪一条线的伏笔。点击打开这份文件；把一行伏笔连同它的事件剪到某条线的文件里，就是挂上了。`;
     name.appendChild(link);
     row.dataset.path = relPath;
   } else {
@@ -668,7 +619,7 @@ function applyFocus(): void {
 
 function onClick(e: MouseEvent): void {
   const target = e.target as HTMLElement | null;
-  const link = target?.closest<HTMLElement>('.tov-link, .tov-time');
+  const link = target?.closest<HTMLElement>('.tov-link');
   if (link?.dataset.path) {
     // 打开那份文件，开在总览所在的这一块（正常标签：作者明说要看它）。
     post({ type: 'openEditor', path: link.dataset.path, pane: host?.id ?? 'main' });
@@ -719,7 +670,7 @@ function showTip(node: HTMLElement, info: CellInfo): void {
   tip.replaceChildren();
   const c = data?.chapters[info.cell.chapter - 1];
   const head = c
-    ? `第 ${c.no} 章${c.title ? `《${c.title}》` : ''} · ${STATE_LABEL[c.state]}${c.time ? ` · ${c.time.label}` : ''}`
+    ? `第 ${c.no} 章${c.title ? `《${c.title}》` : ''} · ${STATE_LABEL[c.state]}${c.time ? ` · ${c.time}` : ''}`
     : `第 ${info.cell.chapter} 章`;
   tip.appendChild(el('div', 'tov-tip-head', head));
   tip.appendChild(el('div', 'tov-tip-row-name', info.row));

@@ -141,7 +141,15 @@ export type {
   ThreadsOverviewGroup,
   ThreadsOverviewLine,
   ThreadsOverviewSpan,
-  ThreadsOverviewTime,
+} from '../../src/core/protocol';
+
+/** 编辑区「时间线总览」标签的数据（`core/protocol/timelineOverview.ts`，2026-10-24）。 */
+export type {
+  TimelineOverview,
+  TimelineOverviewCard,
+  TimelineOverviewDay,
+  TimelineOverviewEvent,
+  TimelineOverviewThread,
 } from '../../src/core/protocol';
 
 /**
