@@ -50,7 +50,7 @@
 
   .wb-editor {
     position: fixed;
-    inset: 38px 0 0;
+    inset: var(--nf-title-height) 0 0;
     z-index: 15;
     display: none;
     box-shadow: var(--nf-shadow);
@@ -68,6 +68,137 @@
   :root {
     --nf-ed-pad-x: 16px;
     --nf-ed-pad-y: 14px;
+  }
+
+  /*
+   * 标题栏：完整目录换成书名（view/welcome.ts 两份都写着），菜单收紧一点。360px 宽时菜单与两颗按钮占去两百多像素，
+   * 工程目录只露得出 `/storage/emulated/0/Docu…`。
+   */
+  .wb-title-full {
+    display: none;
+  }
+
+  .wb-title-short {
+    display: inline;
+  }
+
+  .wb-menu-btn {
+    padding: 0 7px;
+  }
+
+  .wb-title-text {
+    margin-left: 4px;
+  }
+
+  /*
+   * 编辑区顶上的工具栏与章节条：一行装不下就横着滚（按钮不缩、字不折），不往下折行占掉正文的高度。
+   * 从前按钮把面包屑与章节说明挤成 0 宽，「保存」「同步」伸出右边、点不到。
+   */
+  .ed-toolbar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .ed-toolbar::-webkit-scrollbar {
+    height: 0;
+  }
+
+  .ed-toolbar > * {
+    flex-shrink: 0;
+  }
+
+  /* 面包屑留出能读的一截；「保存」挪到它后面第一个，不用滚就点得到。 */
+  .ed-path {
+    order: -2;
+    flex: 1 0 8em;
+    max-width: 55%;
+  }
+
+  .ed-toolbar > .primary {
+    order: -1;
+  }
+
+  /* 章节条两行：上一章 · 这一章的说明 · 下一章；底下一行是对这一章能做的几件事，横着滚。 */
+  .ed-chapter-bar {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .ed-chapter-actions {
+    order: 1;
+    flex: 1 1 100%;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .ed-chapter-actions::-webkit-scrollbar {
+    height: 0;
+  }
+
+  .ed-chapter-actions > * {
+    flex-shrink: 0;
+  }
+
+  /* 状态栏：文件名让位（标签与面包屑上都有），其余各格不折行；还放不下就横着滚。 */
+  .ed-status {
+    gap: 10px;
+    padding: 4px 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    white-space: nowrap;
+  }
+
+  .ed-status::-webkit-scrollbar {
+    height: 0;
+  }
+
+  .ed-status > * {
+    flex-shrink: 0;
+  }
+
+  .ed-status > #edStatusFile,
+  .ed-status > .ed-status-file {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /*
+   * 欢迎页在编辑区里（.ed-stage），窄屏上编辑区是收着的覆盖层：「帮助 → 欢迎页面」与刚变成空窗口时由 view/welcome.ts
+   * 把它翻上来（加 editor-open）。三栏在窄屏上排成一栏。
+   */
+  .nf-welcome {
+    padding: 24px 20px;
+  }
+
+  body.no-workspace #nfWelcome,
+  body.show-welcome #nfWelcome {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .nf-welcome-col {
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+/*
+ * 软键盘弹出来、可视高度只剩三百来像素时，正在对话输入框（或编辑区）里打字：收起活动栏、流水线条、下一步那一行与输入框底下那行小字，
+ * 把高度让给输入框与「发送」——不收的话 360×640 的手机上「发送」那一行正好压在键盘底下（Android 壳是 adjustResize，
+ * 整页跟着变矮，矮到装不下时被裁掉的是最底下那几行）。只在焦点在输入框里时收，横屏不打字时活动栏照常在。
+ */
+@media (max-width: 900px) and (max-height: 480px) {
+  body.workbench:has(#input:focus) :is(.tabbar, .pipeline, .nextstep, .composer-meta) {
+    display: none;
+  }
+
+  /* 编辑区同理：光标在正文里时收起章节条与工具栏（标签条、状态栏留着），不然键盘上面只剩两三行字。 */
+  body.workbench:has(.ed-area:focus) :is(.ed-chapter-bar, .ed-toolbar) {
+    display: none;
   }
 }
 

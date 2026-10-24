@@ -156,7 +156,9 @@ export function initResizers(shell: Shell): void {
   // 两侧都留出可用空间，别让谁被拖没。
   const setSideWidth = (px: number) => {
     sideWidth = Math.max(300, Math.min(px, Math.max(320, window.innerWidth - 360)));
-    shell.side.style.width = `${sideWidth}px`;
+    // 写变量不写 width：行内的 width 压得过窄屏那条 `width: auto`，桌面上拖宽过的人把窗口缩窄（或分屏）时，
+    // 侧栏会顶着几百像素的宽度把整页撑出横向滚动。
+    shell.side.style.setProperty('--nf-side-width', `${sideWidth}px`);
   };
   const setDraftWidth = (px: number) => {
     draftWidth = Math.max(240, Math.min(px, Math.max(260, window.innerWidth - 640)));

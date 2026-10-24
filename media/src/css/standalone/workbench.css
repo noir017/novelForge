@@ -1,21 +1,34 @@
 /* 工作台骨架：标题栏 + 活动栏 + 侧栏 + 拖拽分隔条。 */
 
+/*
+ * 列宽写死成 `minmax(0, 1fr)`：缺省的 auto 列会被里面最宽的 min-content 撑开（标题栏里不折行的工程路径就有几百像素），
+ * 窄屏上整页于是比视口宽、右边一截被切掉，手机浏览器还会把页面缩小去装它。
+ * 高度用 100% 而不是 100vh：手机上弹出软键盘时 100vh 不一定跟着变（Chromium 缺省只缩可视区），
+ * 100% 跟的是布局视口——Android 壳是 adjustResize、页面头上又声明了 `interactive-widget=resizes-content`，
+ * 键盘弹出时布局视口缩到键盘上沿，整页跟着变矮，输入框不会压在键盘底下。
+ */
 body.workbench {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  height: 100vh;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
   overflow: hidden;
   background: var(--vscode-editor-background);
 }
 
 /* ---- 标题栏 */
 
+/* 标题栏高度：窄屏上编辑区那层覆盖从它下沿开始（narrow.css），触屏上加高到手指点得中（touch.css）。 */
+:root {
+  --nf-title-height: 38px;
+}
+
 .wb-title {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 0 8px 0 10px;
-  height: 38px;
+  height: var(--nf-title-height);
   flex: 0 0 auto;
   background: var(--nf-titlebar-background);
   border-bottom: 1px solid var(--vscode-panel-border);
@@ -25,7 +38,13 @@ body.workbench {
 
 .wb-logo {
   display: flex;
+  flex: 0 0 auto;
   color: var(--vscode-textLink-foreground);
+}
+
+/* 标题栏上挤不下时让的只有工程名那一段（它自己带省略号），菜单与右边两颗按钮一律不缩。 */
+.wb-title > .icon-btn {
+  flex: 0 0 auto;
 }
 
 .wb-logo svg {
@@ -130,12 +149,14 @@ body.workbench {
 
 /* ---- 拖拽分隔条 */
 
+/* touch-action: none —— 手指拖它时浏览器不拿这一下去滚页面、缩放（指针事件才一路发过来，见 editor/shell.ts）。 */
 .wb-resizer {
   flex: 0 0 5px;
   margin-left: -3px;
   margin-right: -2px;
   z-index: 5;
   cursor: col-resize;
+  touch-action: none;
   background: transparent;
   transition: background 120ms ease;
 }

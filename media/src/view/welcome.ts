@@ -235,9 +235,21 @@ export function showWelcome(): void {
     return;
   }
   if (store.currentId === null) {
+    revealNarrowEditor();
     return;
   }
   document.body.classList.add('show-welcome');
+  revealNarrowEditor();
+}
+
+/**
+ * 窄屏（≤900px，与 `narrow.css`、`editor/shell.ts` 的 `NARROW_WIDTH` 同一个界）上编辑区是收着的覆盖层，欢迎页在它里面：
+ * 要给人看就得翻上来，与编辑器打开文件时的 `revealEditor` 是同一个类。宽屏上编辑区常驻，什么都不做。
+ */
+function revealNarrowEditor(): void {
+  if (window.matchMedia?.('(max-width: 900px)').matches) {
+    document.body.classList.add('editor-open');
+  }
 }
 
 export function hideWelcome(): void {
@@ -280,10 +292,19 @@ export function applyWorkspaces(msg: {
   // 先改网址再重置编辑器：标签页按网址上的工程分开记，重置之后要读的是新工程那一份。
   syncUrl(msg.currentId);
   const empty = msg.currentId === null;
+  const wasEmpty = document.body.classList.contains('no-workspace');
   document.body.classList.toggle('no-workspace', empty);
   if (empty) {
     document.body.classList.remove('show-welcome');
     fileName = null;
+    // 窄屏上欢迎页所在的编辑区是收着的覆盖层：刚变成空窗口（含一打开页面就是空窗口）时把它翻上来
+    // （标题栏 ▤ 照样能收起，去设置页配模型）。
+    if (!wasEmpty || prev === undefined) {
+      revealNarrowEditor();
+    }
+  } else if (wasEmpty && prev !== undefined) {
+    // 从欢迎页打开了一本书：窄屏上把覆盖着的编辑区收起来，露出侧栏（打开之后会切到「工程 → 章节」）。
+    document.body.classList.remove('editor-open');
   }
   if (prev !== undefined && msg.currentId !== prev) {
     resetEditor();
@@ -367,18 +388,24 @@ function syncComposerLock(): void {
   el.nextStepBtn.disabled = !on || store.busy;
 }
 
+/**
+ * 标题栏写两份，CSS 按宽度挑一份露出来（`menubar.css` / `narrow.css`）：宽屏地方够，写工程的完整目录
+ * （`.wb-title-full`）；窄屏（手机竖屏只剩一百来像素）写书名——工程文件夹的名字（`.wb-title-short`），整条路径在那儿
+ * 只露得出 `/storage/emulated/0/Docu…` 这样谁也认不出的开头。浏览器标签页窄，只写名字。完整目录总在悬停提示上。
+ */
 function updateTitle(item?: WorkspaceItem): void {
   const current = item ?? (store.currentId ? { id: store.currentId, root: store.currentId, name: nameOf(store.currentId) } : undefined);
   const titleText = document.getElementById('wbTitleText');
   let title = 'Novel Forge';
-  // 标题栏地方够，写工程的完整目录；浏览器标签页窄，只写名字。
   let barText = title;
+  let shortText = title;
   if (current) {
     title = fileName ? `${fileName} - ${current.name} - Novel Forge` : `${current.name} - Novel Forge`;
     barText = fileName ? `${fileName} - ${current.root} - Novel Forge` : `${current.root} - Novel Forge`;
+    shortText = current.name;
   }
   if (titleText) {
-    titleText.textContent = barText;
+    titleText.replaceChildren(mk('span', 'wb-title-full', barText), mk('span', 'wb-title-short', shortText));
     titleText.title = current?.root ?? '';
   }
   document.title = title;
