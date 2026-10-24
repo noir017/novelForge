@@ -452,7 +452,7 @@ function judgeLine(t: LineThread): string {
 
 /** 送去认的一条伏笔。 */
 function judgeForeshadow(f: JudgedForeshadow): string {
-  const when = f.resolve !== undefined ? ` · 计划第 ${f.resolve} 章前收` : '';
+  const when = f.resolveBy !== undefined ? ` · 计划第 ${f.resolveBy} 章前收` : '';
   return `- ${f.name}（挂在「${f.line ?? UNFILED_NAME}」· ${f.status}${when}）${f.what ? `是什么：${clipLine(f.what, 60)}` : ''}`;
 }
 

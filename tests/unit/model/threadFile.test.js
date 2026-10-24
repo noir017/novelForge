@@ -260,6 +260,55 @@ describe('threadFile.ts · 状态现算', () => {
       ]
     );
   });
+
+  test('推迟算数：那一行写的回收章、计划里收它的那一章、写明的「推迟到第 N 章收」取晚的；那一行不动', () => {
+    const fore = [{ name: '信物之谜', what: '', plant: 3, resolve: 14 }];
+    const planted = ev(3, '埋', { foreshadowing: '信物之谜' });
+    // 只有那一行：第 82 章逾期。
+    const bare = t.foreshadowingOf(line([planted], { foreshadowing: fore }), 82)[0];
+    assert.deepEqual([bare.resolve, bare.resolveBy, bare.overdue], [14, 14, true]);
+    // 拆细纲写了推迟（线上的一条计划推进）：按第 90 章算，第 82 章不逾期；过了第 90 章照样逾期。
+    const delay = { ...ev(81, '推进', { what: '〈信物之谜〉推迟到第 90 章收：它扩成了主干' }), planned: true };
+    const x = line([planted, delay], { foreshadowing: fore });
+    const f = t.foreshadowingOf(x, 82)[0];
+    assert.deepEqual([f.resolve, f.resolveBy, f.overdue], [14, 90, false]);
+    assert.equal(t.foreshadowingOf(x, 91)[0].overdue, true);
+    // 计划里收它的那一章更晚，也按它算。
+    const planClose = { ...ev(95, '收', { foreshadowing: '信物之谜' }), planned: true };
+    assert.equal(t.foreshadowingOf(line([planted, delay, planClose], { foreshadowing: fore }), 92)[0].resolveBy, 95);
+    // asOf 去掉了推迟那一条：把原样那一份的事件传进去才认得到。
+    const at83 = t.asOf(x, 81);
+    assert.equal(t.foreshadowingOf(at83, 82)[0].overdue, true);
+    assert.equal(t.foreshadowingOf(at83, 82, x.events)[0].overdue, false);
+  });
+
+  test('推迟算数：写正文、拆细纲、写前提醒都不再催着收', () => {
+    const delay = { ...ev(81, '推进', { what: '〈信物之谜〉推迟到第 90 章收' }), planned: true };
+    const story = line([ev(3, '埋', { foreshadowing: '信物之谜' }), ev(80, '推进'), delay], {
+      name: '主线',
+      kind: '主线',
+      foreshadowing: [{ name: '信物之谜', what: '', plant: 3, resolve: 14 }],
+    });
+    const book = { threads: [story], unfiled: { name: '未归属的伏笔', relPath: 'u', foreshadowing: [], events: [] } };
+    // 写第 83 章：「第 90 章前不要揭开」，不是「已过第 14 章，还没收」。
+    assert.match(t.manuscriptThreads(book, 83, '').map((c) => c.line).join('\n'), /信物之谜（第 90 章前不要揭开）/);
+    // 拆第 86–88 章（推迟写在更早那一批的计划里）：不在「本批要收」那一档。
+    assert.equal(t.plotThreads(book, { from: 86, to: 88 }).foreshadowing.find((c) => c.name === '信物之谜').why, '第 90 章前收，之前不要揭开');
+    // 重拆推迟所在的第 81 章：那一章原来的计划这一次整组换掉，不算。
+    assert.equal(t.plotThreads(book, { from: 81, to: 85 }).foreshadowing.find((c) => c.name === '信物之谜').why, '已过第 14 章，还没收');
+    // 写前提醒（threadRemindersFor 在 model/pipeline.ts，单测在 threadReminders.test.js）要的数按第 90 章算。
+    assert.deepEqual(t.threadWatch(book, 83).foreshadowing, [{ name: '信物之谜', resolve: 90, planned: [] }]);
+  });
+
+  test('deferralOf：认伏笔名后面的「推迟到第 N 章收 / 埋」，不认到别的伏笔头上', () => {
+    assert.deepEqual(t.deferralOf('〈信物之谜〉推迟到第 90 章收', '信物之谜'), { chapter: 90, type: '收' });
+    assert.deepEqual(t.deferralOf('信物之谜推迟至第９０章再揭开', '信物 之谜'), { chapter: 90, type: '收' });
+    assert.deepEqual(t.deferralOf('〈阿婆的身份〉推迟到第 12 章埋', '阿婆的身份'), { chapter: 12, type: '埋' });
+    assert.deepEqual(t.deferralOf('〈信物之谜〉推迟到第 90 章', '信物之谜'), { chapter: 90, type: '收' }, '没写动词当收');
+    assert.equal(t.deferralOf('〈信物之谜〉照常推进，〈血契的代价〉推迟到第 30 章收', '信物之谜'), undefined);
+    assert.equal(t.deferralOf('〈血契的代价〉推迟到第 30 章收', '信物之谜'), undefined);
+    assert.equal(t.deferralOf('信物之谜露了一角', '信物之谜'), undefined);
+  });
 });
 
 describe('threadFile.ts · 渲染与新建', () => {
@@ -1346,10 +1395,11 @@ describe('threadFile.ts · 写前检查要的数（二期）', () => {
   const book = { threads: [main, later, closed], unfiled };
 
   test('线只算进行中的（带阈值与有计划事件的章）；伏笔只算没收、写了回收章的（带计划收它的章）', () => {
+    // 玉佩那一行写第 5 章前收，计划排到了第 9 章收：按晚的算（2026-10-24 推迟算数）。
     assert.deepEqual(t.threadWatch(book), {
       lines: [{ name: '青崖旧案', kind: '主线', lastActive: 6, stall: 5, planned: [8, 9] }],
       foreshadowing: [
-        { name: '玉佩', resolve: 5, planned: [9] },
+        { name: '玉佩', resolve: 9, planned: [9] },
         { name: '收了线上的', resolve: 4, planned: [] },
       ],
       unplanted: [],
@@ -1370,9 +1420,10 @@ describe('threadFile.ts · 写前检查要的数（二期）', () => {
       ],
     });
     const b = { threads: [story], unfiled: { name: '未归属的伏笔', relPath: 'u', foreshadowing: [], events: [] } };
+    // 影子那一行写第 10 章埋，计划排到了第 12 章：按晚的算（2026-10-24 推迟算数）。
     assert.deepEqual(t.threadWatch(b).unplanted, [
       { name: '阿婆的身份', plant: 5, planned: [] },
-      { name: '影子', plant: 10, planned: [12] },
+      { name: '影子', plant: 12, planned: [12] },
     ]);
     // 写第 6 章时名册还没埋（第 6 章那一次不算之前）。
     assert.deepEqual(t.threadWatch(b, 6).unplanted.map((f) => f.name), ['阿婆的身份', '名册', '影子']);

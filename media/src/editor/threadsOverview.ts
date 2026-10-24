@@ -603,7 +603,7 @@ function foreRow(f: ThreadsOverviewForeshadow, relPath: string, cols: number, d:
   name.appendChild(link);
   if (f.overdue) {
     const warn = el('span', 'tov-warn', '⚠');
-    warn.title = `过了第 ${f.resolve} 章还没收（逾期）`;
+    warn.title = `过了第 ${f.resolveBy ?? f.resolve} 章还没收（逾期）`;
     name.appendChild(warn);
   }
 
@@ -615,15 +615,16 @@ function foreRow(f: ThreadsOverviewForeshadow, relPath: string, cols: number, d:
       f.span.kind === 'done'
         ? `第 ${f.span.from}–${f.span.to} 章`
         : f.span.kind === 'open'
-          ? `第 ${f.span.from} 章埋下，还没收${f.resolve !== undefined ? `（计划第 ${f.resolve} 章前收）` : ''}`
+          ? `第 ${f.span.from} 章埋下，还没收${(f.resolveBy ?? f.resolve) !== undefined ? `（计划第 ${f.resolveBy ?? f.resolve} 章前收）` : ''}`
           : `计划第 ${f.span.from} 章埋、第 ${f.span.to} 章前收`;
     track.appendChild(span);
   }
-  // 回收章：没收的伏笔在它那一格画一道竖线（逾期的标红）。
+  // 回收章（伏笔那一行写的）：没收的伏笔在它那一格画一道竖线（逾期的标红）。推迟过的另说推迟到哪，虚线越过竖线。
   if (!closed && f.resolve !== undefined && f.resolve <= cols) {
     const due = el('div', `tov-due${f.overdue ? ' tov-overdue' : ''}`);
     due.style.left = `${(f.resolve - 1) * CELL + CELL / 2}px`;
-    due.title = `计划第 ${f.resolve} 章前收${f.overdue ? `——叙事线判到第 ${d.through} 章，逾期` : ''}`;
+    const deferred = f.resolveBy !== undefined && f.resolveBy !== f.resolve ? `，推迟到第 ${f.resolveBy} 章` : '';
+    due.title = `计划第 ${f.resolve} 章前收${deferred}${f.overdue ? `——叙事线判到第 ${d.through} 章，逾期` : ''}`;
     track.appendChild(due);
   }
   for (const cell of f.cells) {

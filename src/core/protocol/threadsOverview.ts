@@ -103,10 +103,12 @@ export interface ThreadsOverviewForeshadow {
   /** 伏笔那一行写的计划：第几章埋、第几章前收。 */
   plant?: number;
   resolve?: number;
+  /** 按第几章前收算（推迟过的比 {@link resolve} 晚：计划里收它的那一章、写明的「推迟到第 N 章收」取晚的）。 */
+  resolveBy?: number;
   /** 实际埋在第几章、收（弃）在第几章。 */
   plantedAt?: number;
   closedAt?: number;
-  /** 过了计划回收章还没收、也没弃（按「现在」算）。 */
+  /** 过了 {@link resolveBy} 还没收、也没弃（按「现在」算）。 */
   overdue: boolean;
   span?: ThreadsOverviewSpan;
   /** 悬停伏笔名看的几行：是什么、计划、现在怎样。 */

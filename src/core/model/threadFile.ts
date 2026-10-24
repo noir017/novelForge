@@ -623,24 +623,78 @@ export function threadStateAt(thread: Thread, current: number): ThreadState {
   };
 }
 
-/** 一条伏笔此刻的样子。 */
+/** 一条伏笔此刻的样子。`plant`、`resolve` 是伏笔那一行写的；推迟过的按 `plantBy`、`resolveBy` 算。 */
 export interface ForeshadowState extends Foreshadowing {
   status: ForeshadowStatus;
   /** 实际埋在第几章。 */
   plantedAt?: number;
   /** 实际收（或弃）在第几章。 */
   closedAt?: number;
-  /** 过了计划回收章（`resolve`）还没收、也没弃。 */
+  /** 按第几章前埋算（{@link dueOf}：那一行写的、计划里埋它的那一章、写明的「推迟到第 N 章埋」取晚的）。都没写时缺席。 */
+  plantBy?: number;
+  /** 按第几章前收算（同上，收）。都没写时缺席。 */
+  resolveBy?: number;
+  /** 过了 {@link resolveBy} 还没收、也没弃。 */
   overdue: boolean;
 }
 
 const FORESHADOW_STATUS: Record<ForeshadowEventType, ForeshadowStatus> = { 埋: '已埋', 收: '已收', 弃: '已弃' };
 
 /**
+ * 推迟的写法（拆细纲合同：给伏笔所在的线写一条推进，「〈伏笔名〉推迟到第 N 章收」）。认的是归一形（去空白与标点），
+ * 动词缺席当「收」。
+ */
+const DEFER_RE = /推迟(?:到|至)?第?(\d+)章(?:再|才)?(埋下|埋设|埋|回收|收回|揭开|兑现|收)?/u;
+/** 伏笔名之后多远以内的「推迟到第 N 章」算它的（同一句话里还提到别的伏笔时，不认到后面那一条的头上）。 */
+const DEFER_NEAR = 4;
+
+/** 一句话里写明的「〈伏笔名〉推迟到第 N 章收 / 埋」。没写、或推迟的不是这一条，返回 undefined。 */
+export function deferralOf(what: string, name: string): { chapter: number; type: '埋' | '收' } | undefined {
+  const key = threadKey(name);
+  const text = normalizeQuote(what);
+  const at = key ? text.indexOf(key) : -1;
+  if (at < 0) {
+    return undefined;
+  }
+  const m = DEFER_RE.exec(text.slice(at + key.length));
+  const chapter = m ? Number(m[1]) : 0;
+  return m && m.index <= DEFER_NEAR && chapter > 0 ? { chapter, type: m[2]?.startsWith('埋') ? '埋' : '收' } : undefined;
+}
+
+/**
+ * 一条伏笔按第几章前埋、第几章前收算（⚑ 2026-10-24 作者定的，改了二期 ⚑6「推迟只是一句话」）：伏笔那一行写的、计划里埋 / 收它的
+ * 那一章、`events` 里任何一条写明的「〈伏笔名〉推迟到第 N 章收 / 埋」，**取晚的**。伏笔那一行机器照旧不改（第 28 条）。
+ * 从原样那一份的事件里认：写第 N 章时 {@link asOf} 去掉了这一章及以后的计划，可那正是推迟到的地方。
+ */
+export function dueOf(f: Foreshadowing, events: readonly ThreadEvent[]): { plant?: number; resolve?: number } {
+  const key = threadKey(f.name);
+  let plant = f.plant;
+  let resolve = f.resolve;
+  const later = (a: number | undefined, b: number): number => (a === undefined || b > a ? b : a);
+  for (const e of events) {
+    if (e.planned && e.foreshadowing && threadKey(e.foreshadowing) === key) {
+      if (e.type === '收') {
+        resolve = later(resolve, e.chapter);
+      } else if (e.type === '埋') {
+        plant = later(plant, e.chapter);
+      }
+    }
+    const d = e.what ? deferralOf(e.what, f.name) : undefined;
+    if (d?.type === '收') {
+      resolve = later(resolve, d.chapter);
+    } else if (d) {
+      plant = later(plant, d.chapter);
+    }
+  }
+  return { ...(plant !== undefined ? { plant } : {}), ...(resolve !== undefined ? { resolve } : {}) };
+}
+
+/**
  * 这份文件里的伏笔，各自现在的状态。「伏笔」一节写了的在前（按写的顺序），只在事件里出现过名字的
  * 跟在后面（作者只记了一笔事件、没在「伏笔」里登记，也算一条）。状态取章号最大的那条实际的埋 / 收 / 弃。
+ * `plans` 是认推迟用的事件（{@link dueOf}），缺省是这份文件自己的；传进来的是 {@link asOf} 过的，就把原样那一份的事件传进来。
  */
-export function foreshadowingOf(file: ThreadFileBase, current: number): ForeshadowState[] {
+export function foreshadowingOf(file: ThreadFileBase, current: number, plans: readonly ThreadEvent[] = file.events): ForeshadowState[] {
   const list: Foreshadowing[] = [...file.foreshadowing];
   const known = new Set(list.map((f) => threadKey(f.name)));
   for (const e of file.events) {
@@ -658,12 +712,15 @@ export function foreshadowingOf(file: ThreadFileBase, current: number): Foreshad
     const planted = mine.filter((e) => e.type === '埋');
     const plantedAt = planted.length > 0 ? Math.min(...planted.map((e) => e.chapter)) : undefined;
     const closedAt = status === '已收' || status === '已弃' ? last!.chapter : undefined;
+    const by = dueOf(f, plans);
     return {
       ...f,
       status,
       ...(plantedAt !== undefined ? { plantedAt } : {}),
       ...(closedAt !== undefined ? { closedAt } : {}),
-      overdue: (status === '计划' || status === '已埋') && f.resolve !== undefined && current > f.resolve,
+      ...(by.plant !== undefined ? { plantBy: by.plant } : {}),
+      ...(by.resolve !== undefined ? { resolveBy: by.resolve } : {}),
+      overdue: (status === '计划' || status === '已埋') && by.resolve !== undefined && current > by.resolve,
     };
   });
 }
@@ -1243,8 +1300,8 @@ export function threadsToJudge(
  */
 export function openForeshadowing(book: ThreadBook, no: number): JudgedForeshadow[] {
   return [
-    ...book.threads.flatMap((t) => foreshadowingOf(asOf(t, no), no - 1).map((f) => ({ ...f, line: t.name }))),
-    ...foreshadowingOf(asOf(book.unfiled, no), no - 1).map((f) => ({ ...f })),
+    ...book.threads.flatMap((t) => foreshadowingOf(asOf(t, no), no - 1, t.events).map((f) => ({ ...f, line: t.name }))),
+    ...foreshadowingOf(asOf(book.unfiled, no), no - 1, book.unfiled.events).map((f) => ({ ...f })),
   ].filter((f) => !isForeshadowClosed(f.status));
 }
 
@@ -1270,8 +1327,8 @@ export function foreshadowToJudge(
       .filter((p) => p.event.foreshadowing)
       .map((p) => threadKey(p.event.foreshadowing!))
   );
-  /** 计划到期的那一章：计划埋的章，没写就是回收章（埋总在收之前）。 */
-  const dueAt = (f: JudgedForeshadow): number | undefined => f.plant ?? f.resolve;
+  /** 计划到期的那一章：计划埋的章，没写就是回收章（埋总在收之前）。推迟过的按推迟到的那一章。 */
+  const dueAt = (f: JudgedForeshadow): number | undefined => f.plantBy ?? f.resolveBy;
   const rank = (f: JudgedForeshadow): number => {
     if (planned.has(threadKey(f.name))) {
       return 0;
@@ -1284,7 +1341,7 @@ export function foreshadowToJudge(
   };
   /** 同一档里的先后：越小越前。 */
   const order = (f: JudgedForeshadow, r: number): number[] =>
-    r === 1 ? [dueAt(f)!] : r === 2 ? [f.resolve ?? Number.POSITIVE_INFINITY, -(f.plantedAt ?? 0)] : [];
+    r === 1 ? [dueAt(f)!] : r === 2 ? [f.resolveBy ?? Number.POSITIVE_INFINITY, -(f.plantedAt ?? 0)] : [];
   const ordered = openForeshadowing(book, no)
     .map((f, i) => ({ f, i, r: rank(f) }))
     .sort((a, b) => {
@@ -1921,19 +1978,19 @@ function plannedText(events: readonly ThreadEvent[]): string {
  */
 function foreshadowHint(f: ForeshadowState, no: number, planned: readonly ThreadEvent[]): [number, string] | undefined {
   const mine = planned.filter((e) => e.foreshadowing && threadKey(e.foreshadowing) === threadKey(f.name));
-  if (mine.some((e) => e.type === '收') || f.resolve === no) {
+  if (mine.some((e) => e.type === '收') || f.resolveBy === no) {
     return [0, '本章计划收'];
   }
-  if (f.resolve !== undefined && f.resolve < no) {
-    return [0, `已过第 ${f.resolve} 章，还没收`];
+  if (f.resolveBy !== undefined && f.resolveBy < no) {
+    return [0, `已过第 ${f.resolveBy} 章，还没收`];
   }
   if (mine.some((e) => e.type === '埋')) {
-    return [1, f.resolve !== undefined ? `本章计划埋，第 ${f.resolve} 章前不要揭开` : '本章计划埋，不要当场揭开'];
+    return [1, f.resolveBy !== undefined ? `本章计划埋，第 ${f.resolveBy} 章前不要揭开` : '本章计划埋，不要当场揭开'];
   }
-  if (f.status === '计划' && !(f.plant !== undefined && f.plant <= no)) {
+  if (f.status === '计划' && !(f.plantBy !== undefined && f.plantBy <= no)) {
     return undefined;
   }
-  return [2, f.resolve !== undefined ? `第 ${f.resolve} 章前不要揭开` : NO_RESOLVE_HINT];
+  return [2, f.resolveBy !== undefined ? `第 ${f.resolveBy} 章前不要揭开` : NO_RESOLVE_HINT];
 }
 
 /**
@@ -1947,20 +2004,21 @@ function foreshadowList(
   no: number,
   planned: readonly ThreadEvent[],
   max: number,
-  mentioned: (name: string) => boolean
+  mentioned: (name: string) => boolean,
+  plans: readonly ThreadEvent[]
 ): { text: string; due: boolean; mentioned: string[] } {
-  const items = foreshadowingOf(file, no - 1)
+  const items = foreshadowingOf(file, no - 1, plans)
     .filter((f) => !isForeshadowClosed(f.status))
     .map((f) => {
       const forced = mentioned(f.name) || planned.some((e) => e.foreshadowing && threadKey(e.foreshadowing) === threadKey(f.name));
       const hint: [number, string] | undefined =
-        foreshadowHint(f, no, planned) ?? (forced ? [2, f.resolve !== undefined ? `第 ${f.resolve} 章前不要揭开` : NO_RESOLVE_HINT] : undefined);
+        foreshadowHint(f, no, planned) ?? (forced ? [2, f.resolveBy !== undefined ? `第 ${f.resolveBy} 章前不要揭开` : NO_RESOLVE_HINT] : undefined);
       return { f, hint, forced };
     })
     .filter((x): x is { f: ForeshadowState; hint: [number, string]; forced: boolean } => !!x.hint)
     .sort(
       (a, b) =>
-        a.hint[0] - b.hint[0] || Number(b.forced) - Number(a.forced) || (a.f.resolve ?? Infinity) - (b.f.resolve ?? Infinity)
+        a.hint[0] - b.hint[0] || Number(b.forced) - Number(a.forced) || (a.f.resolveBy ?? Infinity) - (b.f.resolveBy ?? Infinity)
     );
   let rest = 0;
   const shown = items.filter((x) => x.forced || rest++ < max);
@@ -2009,7 +2067,7 @@ export function manuscriptThreads(book: ThreadBook, no: number, plotText: string
     // 本章的计划事件在 asOf 里已经去掉了（只留之前的）：从原样那一份取。
     const planned = plannedEvents(full).filter((e) => e.chapter === no);
     // 收束了的线不带；它上面还开着、本章又提到的伏笔照列（复跑之后：本章细纲提到的伏笔一律列出），别的伏笔不列。
-    const fores = foreshadowList(t, no, planned, isClosed(status) ? 0 : LINE_FORESHADOW_MAX, mentioned);
+    const fores = foreshadowList(t, no, planned, isClosed(status) ? 0 : LINE_FORESHADOW_MAX, mentioned, full.events);
     if (isClosed(status)) {
       if (fores.mentioned.length > 0) {
         out.push({
@@ -2078,7 +2136,7 @@ export function manuscriptThreads(book: ThreadBook, no: number, plotText: string
     });
   }
   const unfiledPlanned = plannedEvents(book.unfiled).filter((e) => e.chapter === no);
-  const loose = foreshadowList(asOf(book.unfiled, no), no, unfiledPlanned, LINE_FORESHADOW_MAX * 2, mentioned);
+  const loose = foreshadowList(asOf(book.unfiled, no), no, unfiledPlanned, LINE_FORESHADOW_MAX * 2, mentioned, book.unfiled.events);
   if (loose.text || unfiledPlanned.length > 0) {
     const parts = [loose.text, unfiledPlanned.length > 0 ? `本章计划：${plannedText(unfiledPlanned)}` : ''].filter(Boolean);
     const urgent = loose.due || unfiledPlanned.length > 0 || loose.mentioned.length > 0;
@@ -2109,7 +2167,7 @@ export function reviewForeshadowing(book: ThreadBook, no: number): ContextThread
   const out: (ContextThread & { tie: number })[] = [];
   for (const { file, line } of files) {
     const planned = plannedEvents(file).filter((e) => e.chapter === no);
-    for (const f of foreshadowingOf(asOf(file, no), no - 1)) {
+    for (const f of foreshadowingOf(asOf(file, no), no - 1, file.events)) {
       if (isForeshadowClosed(f.status)) {
         continue;
       }
@@ -2125,7 +2183,7 @@ export function reviewForeshadowing(book: ThreadBook, no: number): ContextThread
         why,
         rank: hint[0],
         line: `- ${f.name}（挂在「${line ?? UNFILED_NAME}」· ${f.status} · ${why}）${f.what ? `是什么：${clip(f.what, LINE_INTENT_MAX)}` : ''}`,
-        tie: f.resolve ?? Number.MAX_SAFE_INTEGER,
+        tie: f.resolveBy ?? Number.MAX_SAFE_INTEGER,
       });
     }
   }
@@ -2259,7 +2317,9 @@ export function plotThreads(
   for (const { file, line } of files) {
     const planned = file.events.filter((e) => inRange(e) && e.foreshadowing);
     const notYet = !!line && later.has(threadKey(line));
-    for (const f of foreshadowingOf(asOf(file, from), from - 1)) {
+    // 推迟认原样那一份，这几章原来的计划除外（这一次整组换掉）。
+    const plans = file.events.filter((e) => !inRange(e));
+    for (const f of foreshadowingOf(asOf(file, from), from - 1, plans)) {
       if (isForeshadowClosed(f.status)) {
         continue;
       }
@@ -2267,29 +2327,29 @@ export function plotThreads(
       let rank: number;
       let hint: string;
       let tie = 0;
-      if (f.resolve !== undefined && f.resolve <= to) {
+      if (f.resolveBy !== undefined && f.resolveBy <= to) {
         rank = 0;
-        hint = f.resolve < from ? `已过第 ${f.resolve} 章，还没收` : scope === '本章' ? '本章要收' : `本批要收，最晚第 ${f.resolve} 章`;
+        hint = f.resolveBy < from ? `已过第 ${f.resolveBy} 章，还没收` : scope === '本章' ? '本章要收' : `本批要收，最晚第 ${f.resolveBy} 章`;
         // 复跑之后：「收」要排在「埋」之后（resolvePlanEvents），还没埋、前面也没排过「埋」的说清楚，免得只排一条收、被丢掉。
         const plantedPlan = file.events.some(
           (e) => e.planned && e.type === '埋' && e.chapter < from && !!e.foreshadowing && threadKey(e.foreshadowing) === threadKey(f.name)
         );
         hint += f.status === '计划' && !plantedPlan ? '，还没埋，先埋再收' : '';
-        tie = f.resolve;
+        tie = f.resolveBy;
       } else if (mine.length > 0) {
         rank = 1;
-        hint = f.resolve !== undefined ? `第 ${f.resolve} 章前收` : '还没定哪一章收';
+        hint = f.resolveBy !== undefined ? `第 ${f.resolveBy} 章前收` : '还没定哪一章收';
         tie = mine[0].chapter;
       } else if (f.status === '已埋') {
         rank = 2;
-        hint = f.resolve !== undefined ? `第 ${f.resolve} 章前收，之前不要揭开` : '还没定哪一章收，不要随手揭开';
+        hint = f.resolveBy !== undefined ? `第 ${f.resolveBy} 章前收，之前不要揭开` : '还没定哪一章收，不要随手揭开';
         tie = f.plantedAt ?? 0;
-      } else if (f.plant !== undefined && f.plant <= to) {
+      } else if (f.plantBy !== undefined && f.plantBy <= to) {
         rank = 2;
         // 复跑之后：在这几章里该埋的标「本批要埋」，过了还没埋的标「还没埋」——合同里那条规矩认的就是这两种说法。
-        hint = `${f.plant < from ? `计划第 ${f.plant} 章埋，还没埋` : `${scope}要埋，计划第 ${f.plant} 章`}${f.resolve !== undefined ? `、第 ${f.resolve} 章前收` : ''}`;
-        tie = f.plant;
-      } else if (f.plant === undefined && !notYet) {
+        hint = `${f.plantBy < from ? `计划第 ${f.plantBy} 章埋，还没埋` : `${scope}要埋，计划第 ${f.plantBy} 章`}${f.resolveBy !== undefined ? `、第 ${f.resolveBy} 章前收` : ''}`;
+        tie = f.plantBy;
+      } else if (f.plantBy === undefined && !notYet) {
         rank = 3;
         hint = '还没定哪一章埋';
       } else {
@@ -2622,16 +2682,18 @@ export function unplannedDue(book: ThreadBook, chapters: readonly { no: number; 
   const out: UnplannedDue[] = [];
   const files: { file: ThreadFileBase; line?: string }[] = [...book.threads.map((t) => ({ file: t, line: t.name })), { file: book.unfiled }];
   for (const { file, line } of files) {
-    for (const f of foreshadowingOf(asOf(file, from), from - 1)) {
+    // 推迟认原样那一份，这一次换掉的那几章原来的计划除外（这一批的推迟在上面 `delayed` 里认）。
+    const plans = file.events.filter((e) => !rewriting.has(e.chapter));
+    for (const f of foreshadowingOf(asOf(file, from), from - 1, plans)) {
       if (isForeshadowClosed(f.status) || delayed(f.name)) {
         continue;
       }
       const key = threadKey(f.name);
       const need: ('埋' | '收')[] = [];
-      if (f.status === '计划' && f.plant !== undefined && f.plant <= to && !arranged.埋.has(key)) {
+      if (f.status === '计划' && f.plantBy !== undefined && f.plantBy <= to && !arranged.埋.has(key)) {
         need.push('埋');
       }
-      if (f.resolve !== undefined && f.resolve <= to && !arranged.收.has(key)) {
+      if (f.resolveBy !== undefined && f.resolveBy <= to && !arranged.收.has(key)) {
         need.push('收');
       }
       if (need.length > 0) {
@@ -2639,8 +2701,8 @@ export function unplannedDue(book: ThreadBook, chapters: readonly { no: number; 
           name: f.name,
           ...(line ? { line } : {}),
           need,
-          ...(f.plant !== undefined ? { plant: f.plant } : {}),
-          ...(f.resolve !== undefined ? { resolve: f.resolve } : {}),
+          ...(f.plantBy !== undefined ? { plant: f.plantBy } : {}),
+          ...(f.resolveBy !== undefined ? { resolve: f.resolveBy } : {}),
         });
       }
     }
@@ -2686,16 +2748,16 @@ export function threadWatch(book: ThreadBook, no?: number): ThreadWatch {
   for (const file of [...book.threads, book.unfiled] as ThreadFileBase[]) {
     const plans = (type: ThreadEventType, name: string): number[] =>
       chapters(plannedEvents(file).filter((e) => e.type === type && e.foreshadowing && threadKey(e.foreshadowing) === threadKey(name)));
-    for (const f of foreshadowingOf(at(file), 0)) {
+    for (const f of foreshadowingOf(at(file), 0, file.events)) {
       if (isForeshadowClosed(f.status)) {
         continue;
       }
-      if (f.resolve !== undefined) {
-        foreshadowing.push({ name: f.name, resolve: f.resolve, planned: plans('收', f.name) });
+      if (f.resolveBy !== undefined) {
+        foreshadowing.push({ name: f.name, resolve: f.resolveBy, planned: plans('收', f.name) });
       }
       // 第三类（复跑之后）：计划第 a 章埋、还没埋。
-      if (f.status === '计划' && f.plant !== undefined) {
-        unplanted.push({ name: f.name, plant: f.plant, planned: plans('埋', f.name) });
+      if (f.status === '计划' && f.plantBy !== undefined) {
+        unplanted.push({ name: f.name, plant: f.plantBy, planned: plans('埋', f.name) });
       }
     }
   }

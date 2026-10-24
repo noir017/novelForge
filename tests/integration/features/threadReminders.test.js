@@ -168,7 +168,8 @@ describe('预检：叙事线的两类提醒（不进 risks）', () => {
     assert.deepEqual(r.risks, []);
     assert.deepEqual(r.threads, [
       { kind: 'overdue', name: '玉佩的来历', resolve: 5, at: 8 },
-      { kind: 'overdue', name: '旧伤', resolve: 6, at: 8 },
+      // 旧伤那一行写第 6 章前收，计划排到了第 7 章：按晚的算（2026-10-24 推迟算数），第 8 章照样过了。
+      { kind: 'overdue', name: '旧伤', resolve: 7, at: 8 },
       { kind: 'stalled', name: '青崖旧案', lineKind: '主线', gap: 6, at: 8 },
     ]);
     assert.equal(r.threadsThrough, 4);
@@ -243,7 +244,7 @@ describe('对话页：预检卡片与写章卡片的说明', () => {
     assert.ok(gates.every((g) => g.name !== 'preflight'), JSON.stringify(gates.map((g) => g.name)));
     const card = gates.find((g) => g.name === 'artifact');
     assert.ok(card, JSON.stringify(gates.map((g) => g.name)));
-    assert.match(card.detail, /· 叙事线提醒：伏笔〈玉佩的来历〉计划第 5 章前收，还没收，本章计划里也没安排收；伏笔〈旧伤〉计划第 6 章前收/);
+    assert.match(card.detail, /· 叙事线提醒：伏笔〈玉佩的来历〉计划第 5 章前收，还没收，本章计划里也没安排收；伏笔〈旧伤〉计划第 7 章前收/);
     assert.equal(fake.calls.length, 1, '写正文 1 次，提醒零调用');
   });
 });

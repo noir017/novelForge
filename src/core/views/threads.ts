@@ -759,6 +759,7 @@ function foreshadowRows(
       status: f.status,
       ...(f.plant !== undefined ? { plant: f.plant } : {}),
       ...(f.resolve !== undefined ? { resolve: f.resolve } : {}),
+      ...(f.resolveBy !== undefined ? { resolveBy: f.resolveBy } : {}),
       ...(f.plantedAt !== undefined ? { plantedAt: f.plantedAt } : {}),
       ...(f.closedAt !== undefined ? { closedAt: f.closedAt } : {}),
       overdue: f.overdue,
@@ -773,9 +774,9 @@ function foreshadowRows(
  * 伏笔一行上的连线（设计稿：埋 ● 到收 ◆ 之间连一条线，没收的虚线延到计划回收章）：
  *
  * - 收了、弃了：从埋的那一章实线连到收（弃）的那一章；
- * - 埋了没收：虚线从埋的那一章延到计划回收章——伏笔那一行写的回收章与计划里收它的那一章（推迟了的会更晚）**取晚的**（⚑，
- *   二期留的那个问题：两样都画，回收章那一格另有一道竖线，计划的收画空心 ◆）；逾期的延到「现在」；一样都没写也延到「现在」
- *   （它还挂着）；
+ * - 埋了没收：虚线从埋的那一章延到计划回收章——伏笔那一行写的回收章、计划里收它的那一章、写明的「推迟到第 N 章收」**取晚的**
+ *   （`resolveBy`；⚑，二期留的那个问题：两样都画，回收章那一格另有一道竖线，计划的收画空心 ◆）；逾期的延到「现在」；一样都没写
+ *   也延到「现在」（它还挂着）；
  * - 还没埋：按计划从埋的那一章（伏笔那一行写的，没写取计划里埋它的那一章）到回收章画一条淡虚线；缺一头不画。
  *
  * 超过最后一列的截到最后一列。
@@ -793,7 +794,7 @@ function spanOf(
     return clip({ from: f.plantedAt ?? f.closedAt, to: f.closedAt, kind: 'done' });
   }
   const ends = [
-    ...(f.resolve !== undefined ? [f.resolve] : []),
+    ...(f.resolveBy !== undefined ? [f.resolveBy] : []),
     ...plannedResolves,
     ...(f.overdue ? [current] : []),
   ];
@@ -817,9 +818,18 @@ function plantedDays(f: ForeshadowState, current: number, dayOf: (no: number) =>
   return from !== undefined && to !== undefined && to >= from ? to - from : undefined;
 }
 
-/** 悬停伏笔名看的几行：是什么、计划第几章埋 / 第几章前收、现在怎样（埋了多少天，时间线推得出时）。 */
+/** 悬停伏笔名看的几行：是什么、计划第几章埋 / 第几章前收（推迟过的另说推迟到哪）、现在怎样（埋了多少天，时间线推得出时）。 */
 function foreshadowTip(f: ForeshadowState, days?: number): string {
-  const plan = [f.plant !== undefined ? `计划第 ${f.plant} 章埋` : '', f.resolve !== undefined ? `第 ${f.resolve} 章前收` : '']
+  const later = (written: number | undefined, by: number | undefined): string =>
+    by !== undefined && by !== written ? `${written !== undefined ? '，' : ''}推迟到第 ${by} 章` : '';
+  const plan = [
+    f.plant !== undefined || f.plantBy !== undefined
+      ? `${f.plant !== undefined ? `计划第 ${f.plant} 章埋` : '计划'}${later(f.plant, f.plantBy)}${f.plant === undefined ? '埋' : ''}`
+      : '',
+    f.resolve !== undefined || f.resolveBy !== undefined
+      ? `${f.resolve !== undefined ? `第 ${f.resolve} 章前收` : ''}${later(f.resolve, f.resolveBy)}${f.resolve === undefined ? '收' : ''}`
+      : '',
+  ]
     .filter(Boolean)
     .join('、');
   const state =
@@ -830,5 +840,5 @@ function foreshadowTip(f: ForeshadowState, days?: number): string {
         : f.status === '已埋'
           ? `第 ${f.plantedAt} 章埋下，还没收${days !== undefined ? `（故事里已经过了 ${days} 天）` : ''}`
           : '还没埋';
-  return [f.what, plan, `${state}${f.overdue ? `，过了第 ${f.resolve} 章（逾期）` : ''}`].filter(Boolean).join('\n');
+  return [f.what, plan, `${state}${f.overdue ? `，过了第 ${f.resolveBy} 章（逾期）` : ''}`].filter(Boolean).join('\n');
 }
