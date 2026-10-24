@@ -105,7 +105,7 @@ export async function buildTimeInput(
     if (body.length < texts[k].length) {
       log.info(`第 ${c.order} 章正文较长，认时间时截了中间`, `${[...texts[k]].length} 字 → 约 ${perChars} 字（留头尾）`);
     }
-    parts.push(`【第${c.order}章 ${c.title}】\n${timePlace ? `（细纲记的时间地点：${timePlace}）\n` : ''}\n${body}`);
+    parts.push(`【第${c.order}章 ${c.title}】\n${timePlace ? `（细纲记的时间地点，只当提示，不是正文：${timePlace}）\n` : ''}\n${body}`);
   }
   parts.push(`请给第 ${chapters.map((c) => c.order).join('、')} 章各判一次时间，按要求输出 JSON。`);
   return parts.join('\n\n');
@@ -150,26 +150,36 @@ export async function judgeTimes(
 ): Promise<TimeResult[]> {
   const timeline = (await project.readThreads()).timeline ?? emptyTimeline(project.relPath(project.timelinePath));
   const texts = await Promise.all(chapters.map((c) => project.readChapterText(c)));
+  const hints = await Promise.all(chapters.map(async (c) => (await project.plotOfChapter(c))?.sections.时间地点?.replace(/\s+/gu, ' ').trim() || undefined));
   const budget = Math.max(2000, opts.budget.contextWindow - opts.budget.maxOutputTokens - estimateTokens(TIME_SYSTEM) - 500);
   const user = await buildTimeInput(project, chapters, texts, timeline, budget);
   const answer = await askJsonObject(opts, opts.label, TIME_SYSTEM, user, 0.2, '故事时间');
   // 老的单章形状（`{"time":{…}}`）、模型把一项直接摊在最外层的，也认。
   const list = Array.isArray(answer.times) ? answer.times : answer.time ? [{ chapter: chapters[0].order, ...(answer.time as object) }] : [];
+  const wanted = new Set(chapters.map((c) => c.order));
   const byNo = new Map<number, unknown>();
+  const strays: unknown[] = [];
   for (const item of list) {
     const no = item && typeof item === 'object' ? Number((item as Record<string, unknown>).chapter) : NaN;
-    if (Number.isInteger(no) && !byNo.has(no)) {
+    if (wanted.has(no) && !byNo.has(no)) {
       byNo.set(no, item);
+    } else if (item && typeof item === 'object') {
+      strays.push(item);
     }
   }
-  if (chapters.length === 1 && byNo.size === 0 && list.length === 1) {
-    byNo.set(chapters[0].order, list[0]);
+  // 章号对不上的按先后补给还没着落的章（试跑：正文里写着「第二十二回」，模型照它填了 22）。
+  for (const c of chapters) {
+    if (!byNo.has(c.order) && strays.length > 0) {
+      const item = strays.shift() as Record<string, unknown>;
+      log.info(`第 ${c.order} 章：模型报的章号是 ${String(item.chapter)}，按先后认作这一章`);
+      byNo.set(c.order, item);
+    }
   }
   const existing = new Map(timeline.entries.map((e) => [e.chapter, e]));
   const out: TimeResult[] = [];
   for (let k = 0; k < chapters.length; k++) {
     const c = chapters[k];
-    const verified = verifyTime(byNo.get(c.order), { chapter: c.order, text: texts[k], calendar: timeline.calendar });
+    const verified = verifyTime(byNo.get(c.order), { chapter: c.order, text: texts[k], calendar: timeline.calendar, ...(hints[k] ? { hint: hints[k] } : {}) });
     if (!verified) {
       log.warn(`第 ${c.order} 章：模型没给这一章的时间，时间线里这一章没动`);
       out.push({ chapter: c.order, missing: true });

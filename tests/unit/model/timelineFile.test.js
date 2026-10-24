@@ -334,11 +334,14 @@ describe('模型的输出', () => {
     assert.deepEqual(v.notes, []);
   });
 
-  test('证据找不到：换成最接近的原句；还找不到改记推测', () => {
-    const near = t.verifyTime({ days: 1, evidence: '林昭推开窗户，镇口有人在等' }, { chapter: 4, text });
+  test('证据找不到：换成最接近的原句；还找不到改记推测；那一句没写时间也改记推测（重做）', () => {
+    const long = '次日清晨，连下了三天的雨终于停了。林昭推开窗，镇口已经有人在等。';
+    const near = t.verifyTime({ days: 1, evidence: '次日清晨，下了三天的雨终于停了' }, { chapter: 4, text: long });
     assert.equal(near.entry.basis.kind, '依据');
-    assert.equal(near.entry.basis.text, '林昭推开窗，镇口已经有人在等。');
+    assert.equal(near.entry.basis.text, '次日清晨，连下了三天的雨终于停了。');
     assert.equal(near.notes.length, 1);
+    const scene = t.verifyTime({ days: 1, evidence: '林昭推开窗，镇口已经有人在等。' }, { chapter: 4, text });
+    assert.deepEqual(scene.entry.basis, { kind: '推测', text: '依据那一句没写时间' });
     const lost = t.verifyTime({ days: 1, evidence: '三个月之后的一个黄昏' }, { chapter: 4, text });
     assert.deepEqual(lost.entry.basis, { kind: '推测', text: '依据在正文里找不到' });
   });

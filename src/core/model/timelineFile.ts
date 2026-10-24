@@ -321,7 +321,7 @@ export function parseDate(raw: string): CalendarDate | undefined {
       : 'trad'
     : /^[0-9]/u.test(g.d)
       ? 'num'
-      : g.suffix
+      : g.suffix && !/^初|[廿卅]/u.test(g.d)
         ? 'cn'
         : 'trad';
   const yearStyle: DateStyle['year'] = !g.y || /^[0-9]/u.test(g.y) ? 'num' : /^[〇零○一二两三四五六七八九]{2,}$/u.test(g.y) ? 'cnDigits' : 'cn';
@@ -511,14 +511,26 @@ export function dayNearest(tl: Pick<Timeline, 'calendar' | 'start'>, date: Calen
   if (base === undefined) {
     return undefined;
   }
-  if (date.y !== undefined) {
+  if (date.y !== undefined && date.m > 0) {
     const o = ordinalOf(tl.calendar, date.y, date.m, date.d);
     return o === undefined ? undefined : o - base + 1;
   }
   const ref = fromOrdinal(tl.calendar, base + estimate - 1);
+  // 候选：前后一年里的这一天；只写了日的（m 是 0），前后一个月里的这一天。
+  const candidates: { y: number; m: number }[] = [];
+  if (date.m > 0) {
+    for (let y = ref.y - 1; y <= ref.y + 1; y++) {
+      candidates.push({ y, m: date.m });
+    }
+  } else {
+    for (let k = -1; k <= 1; k++) {
+      const i = ref.y * 12 + (ref.m - 1) + k;
+      candidates.push({ y: Math.floor(i / 12), m: (((i % 12) + 12) % 12) + 1 });
+    }
+  }
   let best: number | undefined;
-  for (let y = ref.y - 1; y <= ref.y + 1; y++) {
-    const o = ordinalOf(tl.calendar, y, date.m, date.d);
+  for (const { y, m } of candidates) {
+    const o = ordinalOf(tl.calendar, y, m, date.d);
     if (o === undefined) {
       continue;
     }
@@ -592,10 +604,26 @@ export function festivalDate(cal: TimelineCalendar, name: string): { m: number; 
   return hit ? { m: hit[0], d: hit[1] } : undefined;
 }
 
+const DAY_ONLY = /^(初[一二三四五六七八九十]|[0-9０-９]{1,2}|[一二两三四五六七八九十廿卅]{1,3})\s*[日号號]?$/u;
+
+/**
+ * 〔文中〕的日期：认 {@link parseDate} 的几种写法，也认只写了日的（「二十一日」「十五」，古典小说里常见）——只写日的 `m` 是 0，推算时取
+ * 离推算最近的那个月里的这一天（{@link dayNearest}）。
+ */
+export function parseMarkDate(raw: string): CalendarDate | undefined {
+  const full = parseDate(raw);
+  if (full) {
+    return full;
+  }
+  const m = DAY_ONLY.exec(asciiDigits(raw.trim()).replace(/\s+/gu, ''));
+  const d = m ? parseNumber(m[1]) : undefined;
+  return d !== undefined && d >= 1 && d <= 31 ? { m: 0, d, style: { era: '', hasYear: false, year: 'num', month: 'cn', day: 'trad' } } : undefined;
+}
+
 /** 〔文中〕那一天：写了日期的认日期，只写了节日的按历法换。认不出返回 undefined。 */
 export function markDate(cal: TimelineCalendar, mark: TimelineDateMark): CalendarDate | undefined {
   if (mark.date) {
-    const d = parseDate(mark.date);
+    const d = parseMarkDate(mark.date);
     if (d) {
       return d;
     }
@@ -758,7 +786,7 @@ function parseDateMark(body: string): TimelineDateMark | undefined {
   const first = (m ? m[1] : parts[0]).trim();
   let date: string | undefined;
   let festival = m ? m[2].trim() : undefined;
-  if (parseDate(first)) {
+  if (parseMarkDate(first)) {
     date = first;
   } else if (!festival && first) {
     festival = first;
@@ -929,8 +957,11 @@ export interface TimelineDay {
    * （差几天是预料之中的，对账不报，⚑2）。
    */
   aligned?: { estimate: number; drift: number; unknown?: true };
-  /** 〔文中〕和作者定的那一天（作者的锚点，或第 1 章 = 起点）对不上：正文写的是第几天。 */
-  conflict?: number;
+  /**
+   * 〔文中〕没拿来对齐、又和这一章对不上：正文写的是第几天（`day`），为什么没对齐（`why`）——作者的锚点（`anchor`）、第 1 章就是
+   * 起点（`start`），或者正文只写了日、没写月（`dayOnly`：月份可能差出去，只对账不对齐，试跑之后定的）。
+   */
+  conflict?: { day: number; why: 'anchor' | 'start' | 'dayOnly' };
 }
 
 export interface TimelineCalc {
@@ -938,7 +969,7 @@ export interface TimelineCalc {
   days: TimelineDay[];
   /** 文件里写到第几章（认得出、认不出的行都算）。没有一行是 0。 */
   last: number;
-  /** 故事里过了几天（最后一章的结尾）。一行都没有是 0。 */
+  /** 故事里过了几天（走到的最远那一天，一般就是最后一章的结尾）。一行都没有是 0。 */
   elapsed: number;
 }
 
@@ -956,6 +987,7 @@ export function computeTimeline(tl: Timeline, upTo?: number): TimelineCalc {
   const last = upTo === undefined ? fileLast : Math.min(fileLast, upTo);
   const days: TimelineDay[] = [];
   let prevEnd = 0;
+  let furthest = 0;
   let started = false;
   for (let no = 1; no <= last; no++) {
     const e = byNo.get(no);
@@ -986,20 +1018,21 @@ export function computeTimeline(tl: Timeline, upTo?: number): TimelineCalc {
     }
     const span = e?.span ?? 1;
     let aligned: TimelineDay['aligned'];
-    let conflict: number | undefined;
+    let conflict: TimelineDay['conflict'];
     const md = e?.dateMark ? markDate(tl.calendar, e.dateMark) : undefined;
     if (e?.dateMark && md && tl.start && state !== 'bad') {
       const offset = Math.max(0, Math.min(e.dateMark.offset, span - 1));
       const at = dayNearest(tl, md, start + offset);
+      const why = state === 'anchor' ? 'anchor' : !started ? 'start' : md.m === 0 ? 'dayOnly' : undefined;
       if (at !== undefined && at - offset !== start) {
-        if (state === 'anchor' || !started) {
-          conflict = at - offset;
+        if (why) {
+          conflict = { day: at - offset, why };
         } else {
           aligned = { estimate: start, drift: at - offset - start, ...(state === 'unknown' ? { unknown: true as const } : {}) };
           start = at - offset;
         }
       }
-      if (at !== undefined && state !== 'anchor' && started) {
+      if (at !== undefined && !why) {
         state = 'dated';
       }
     }
@@ -1019,9 +1052,11 @@ export function computeTimeline(tl: Timeline, upTo?: number): TimelineCalc {
       ...(conflict !== undefined ? { conflict } : {}),
     });
     prevEnd = end;
+    furthest = Math.max(furthest, end);
     started = true;
   }
-  return { days, last, elapsed: started ? prevEnd : 0 };
+  // 故事里过了几天：走到的最远那一天（往回跳、照正文往回对齐的章不把它拉回去）。
+  return { days, last, elapsed: started ? furthest : 0 };
 }
 
 // ---------------------------------------------------------------- 对账（现算，0 次，2026-10-24 重做）
@@ -1075,14 +1110,18 @@ export function timelineIssues(tl: Timeline, calc: TimelineCalc): TimelineIssue[
         text: `第 ${d.chapter} 章：前面推下来是${dayLabel(tl, d.aligned.estimate).full}，正文写${mark}（差 ${Math.abs(d.aligned.drift)} 天），已按正文对齐`,
       });
     }
-    if (d.conflict !== undefined) {
+    // 只写了日的差 1 天不报（同对齐的偏差，⚑3）；作者的锚点、起点对不上一天也报。
+    if (d.conflict && (d.conflict.why !== 'dayOnly' || Math.abs(d.conflict.day - d.start) >= TIME_DRIFT_WARN)) {
+      const here = dayLabel(tl, d.start).full;
       out.push({
         kind: 'conflict',
         chapter: d.chapter,
         text:
-          d.delta === undefined && d.state !== 'anchor'
+          d.conflict.why === 'start'
             ? `第 ${d.chapter} 章：起点是${tl.startText}，正文写${mark}`
-            : `第 ${d.chapter} 章：你定的是${dayLabel(tl, d.start).full}，正文写${mark}`,
+            : d.conflict.why === 'anchor'
+              ? `第 ${d.chapter} 章：你定的是${here}，正文写${mark}`
+              : `第 ${d.chapter} 章：推出来是${here}，正文写${mark}（只写了日，没按它对齐）`,
       });
     }
     if (d.seasonMark && tl.start && d.end !== undefined && d.span <= SEASON_CHECK_MAX_SPAN) {
@@ -1092,7 +1131,8 @@ export function timelineIssues(tl: Timeline, calc: TimelineCalc): TimelineIssue[
         fits = m === undefined || monthFitsSeason(tl.calendar, m, d.seasonMark.season);
       }
       if (!fits) {
-        const quote = d.seasonMark.quote ? `（「${cut(d.seasonMark.quote, 20)}」）` : '';
+        const q = d.seasonMark.quote ?? '';
+        const quote = q ? `（「${cut(q, 20)}${[...q].length > 20 ? '…' : ''}」）` : '';
         out.push({
           kind: 'season',
           chapter: d.chapter,
@@ -1121,7 +1161,8 @@ export function suggestStart(tl: Timeline, calc: TimelineCalc): { text: string; 
       continue;
     }
     const md = markDate(tl.calendar, d.dateMark);
-    const o = md ? ordinalOf(tl.calendar, md.y ?? (tl.calendar === '简单历' ? 1 : GREGORIAN_YEARLESS), md.m, md.d) : undefined;
+    // 只写了日的推不出起点是几月。
+    const o = md && md.m > 0 ? ordinalOf(tl.calendar, md.y ?? (tl.calendar === '简单历' ? 1 : GREGORIAN_YEARLESS), md.m, md.d) : undefined;
     if (!md || o === undefined) {
       continue;
     }
@@ -1415,6 +1456,27 @@ function strOf(v: unknown): string {
   return typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '';
 }
 
+/**
+ * 一句里写没写着时间（设计稿「三 · 校验」，试跑之后加的）：时段与天色（夜、晨、黄昏、天亮）、过了多久（三日、半月、一年）、日子（次日、
+ * 昨夜、明儿、三月初七、二十一日）、季节、节令。只写场面、动作的句子当不得时间的依据——模型常拿本章第一句充数。
+ */
+const TIME_HINT = new RegExp(
+  [
+    '[夜晨晓曉昼晝午昏晚宵暮]',
+    '天[光色亮明黑边邊]|日[头頭光子]|月[光色亮]|太阳|太陽|朝阳|朝陽|夕阳|夕陽|旭日',
+    '[一二两兩三四五六七八九十百千几幾数數半0-9０-９]+\\s*[个個]?\\s*(?:天|日|夜|晚|月|年|载|載|旬|周|週|星期|时辰|時辰|更)',
+    '[春夏秋冬]|节|節',
+    '次日|翌日|隔[天日]|[昨今明当當那这這同][天日晚夜早儿兒朝]',
+    '[正腊冬]月|[一二三四五六七八九十]+月|初[一二三四五六七八九十]|[十廿卅二三]?[十]?[一二三四五六七八九十][日号]',
+  ].join('|'),
+  'u'
+);
+
+/** 这一句能不能当时间的依据。 */
+export function mentionsTime(sentence: string): boolean {
+  return TIME_HINT.test(sentence);
+}
+
 /** 正文里找一句：逐字找得到原样返回；找不到换最接近的一句（够长时）；都不行返回 undefined。`changed` 说有没有换。 */
 function locateEvidence(index: QuoteIndex, text: string, quote: string): { quote: string; changed: boolean } | undefined {
   if (!quote) {
@@ -1445,8 +1507,18 @@ function quoteMentionsDate(quote: string, date: CalendarDate | undefined, festiv
       return true;
     }
   }
+  if (date.m === 0) {
+    for (const m of quote.matchAll(DAY_IN_TEXT)) {
+      if (parseNumber(m[1]) === date.d) {
+        return true;
+      }
+    }
+  }
   return false;
 }
+
+/** 一句里只写了日的地方：`二十一日`、`初三`、`十五那天`。 */
+const DAY_IN_TEXT = /(初[一二三四五六七八九十]|[0-9０-９]{1,2}|[一二两三四五六七八九十廿卅]{1,3})\s*(?:[日号號]|那[天日])/gu;
 
 /**
  * 校验模型给的一章的时间（认时间的 `times` 里的一项，2026-10-24 重做；老的认事件 `time` 也认）。`raw` 不是对象返回 undefined（模型
@@ -1461,7 +1533,10 @@ function quoteMentionsDate(quote: string, date: CalendarDate | undefined, festiv
  * - `date`（〔文中〕）：证据要在正文里，而且证据里写着这个日期或这个节日；日期认不出、节日在这个历法里换不出日子的不收；`offset` 夹在
  *   0 到历时 − 1。`season`（〔季节〕）：春夏秋冬之一，证据要在正文里。
  */
-export function verifyTime(raw: unknown, ctx: { chapter: number; text: string; calendar?: TimelineCalendar }): VerifiedTime | undefined {
+export function verifyTime(
+  raw: unknown,
+  ctx: { chapter: number; text: string; calendar?: TimelineCalendar; hint?: string }
+): VerifiedTime | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return undefined;
   }
@@ -1499,6 +1574,10 @@ export function verifyTime(raw: unknown, ctx: { chapter: number; text: string; c
         notes.push(`章内一跳（${days} 天）的依据在正文里找不到，不算：「${ev}」`);
         continue;
       }
+      if (days > 0 && !mentionsTime(found.quote)) {
+        notes.push(`章内一跳（${days} 天）的依据那一句没写时间，不算：「${found.quote}」`);
+        continue;
+      }
       span = Math.min(TIME_DAYS_MAX, span + days);
     }
   } else {
@@ -1507,14 +1586,23 @@ export function verifyTime(raw: unknown, ctx: { chapter: number; text: string; c
   }
 
   let evidence = cut(unquote(strOf(o.evidence)), TIME_BASIS_MAX);
+  let hinted: string | undefined;
   if (evidence) {
     const found = locateEvidence(index, ctx.text, evidence);
     if (found?.changed) {
       notes.push(`时间的依据不是逐字原文，换成了最接近的原句：「${evidence}」→「${found.quote}」`);
+    } else if (!found && ctx.hint && normalizeQuote(ctx.hint).includes(normalizeQuote(evidence))) {
+      // 试跑：送去的「细纲记的时间地点」被当成依据抄了回来。照细纲判的，记推测、说清是照细纲。
+      notes.push(`时间的依据抄的是细纲：「${evidence}」`);
+      hinted = `照细纲：${cut(ctx.hint, 26)}`;
     } else if (!found) {
       notes.push(`时间的依据在正文里找不到：「${evidence}」`);
     }
     evidence = found?.quote ?? '';
+    if (evidence && !mentionsTime(evidence)) {
+      notes.push(`时间的依据那一句没写时间，改记推测：「${evidence}」`);
+      evidence = '';
+    }
   }
   const rawDays = o.days === null || o.days === undefined || strOf(o.days) === '?' ? undefined : intOf(o.days);
   const days = rawDays !== undefined && Math.abs(rawDays) <= TIME_DAYS_MAX ? rawDays : undefined;
@@ -1534,11 +1622,23 @@ export function verifyTime(raw: unknown, ctx: { chapter: number; text: string; c
     value = { kind: 'delta', days };
     basis = evidence
       ? { kind: '依据', text: evidence }
-      : { kind: '推测', text: reason || (notes.some((n) => n.startsWith('时间的依据')) ? '依据在正文里找不到' : '紧接上一章') };
+      : {
+          kind: '推测',
+          text:
+            reason ||
+            hinted ||
+            (notes.some((n) => n.startsWith('时间的依据那一句没写时间'))
+              ? '依据那一句没写时间'
+              : notes.some((n) => n.startsWith('时间的依据'))
+                ? '依据在正文里找不到'
+                : '紧接上一章'),
+        };
   }
   if (flashback) {
     span = 1;
   }
+  // 同一天里开头、结尾是同一个时段：只写一个（试跑里「夜里 → 夜里」）。
+  const end = endPart && !(span === 1 && endPart === part) ? endPart : undefined;
   const dateMark = flashback ? undefined : verifyDateMark(o.date, { cal, text: ctx.text, index, span, notes });
   const seasonMark = verifySeasonMark(o.season, { text: ctx.text, index, notes });
   return {
@@ -1546,7 +1646,7 @@ export function verifyTime(raw: unknown, ctx: { chapter: number; text: string; c
       chapter: ctx.chapter,
       value,
       ...(part && !flashback ? { part } : {}),
-      ...(endPart && !flashback ? { endPart } : {}),
+      ...(end && !flashback ? { endPart: end } : {}),
       span,
       ...(basis ? { basis } : {}),
       ...(dateMark ? { dateMark } : {}),
@@ -1567,7 +1667,7 @@ function verifyDateMark(
   const o = raw as Record<string, unknown>;
   const dateText = cut(strOf(o.date), AGO_MAX);
   const festival = cut(strOf(o.festival), AGO_MAX) || undefined;
-  const date = dateText ? parseDate(dateText) : undefined;
+  const date = dateText ? parseMarkDate(dateText) : undefined;
   if (!date && !(festival && festivalDate(ctx.cal, festival))) {
     if (dateText || festival) {
       ctx.notes.push(
@@ -1586,9 +1686,21 @@ function verifyDateMark(
     ctx.notes.push(`正文写明的日子「${dateText || festival}」在依据那一句里没写着，不收：「${found.quote}」`);
     return undefined;
   }
+  // 模型只写了日、原文里写着月和日的，按原文的写（试跑：「次日乃是四月二十六日」报成了「二十六日」）。
+  let full = dateText;
+  if (date && date.m === 0) {
+    for (const m of found.quote.matchAll(DATE_IN_TEXT)) {
+      const d = parseDate(m[0]);
+      if (d && d.d === date.d) {
+        full = m[0].replace(/\s+/gu, '').replace(/[号號]$/u, '日');
+        ctx.notes.push(`正文写明的日子只报了「${dateText}」，照原文写成「${full}」`);
+        break;
+      }
+    }
+  }
   const offsetRaw = intOf(o.offset);
   const offset = Math.max(0, Math.min(offsetRaw ?? 0, ctx.span - 1));
-  return { ...(date ? { date: dateText } : {}), ...(festival ? { festival } : {}), offset, quote: found.quote };
+  return { ...(date ? { date: full } : {}), ...(festival ? { festival } : {}), offset, quote: found.quote };
 }
 
 /** 〔季节〕：模型给的 `season`（`{ season, evidence }`）。 */

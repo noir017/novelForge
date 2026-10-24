@@ -160,7 +160,7 @@ describe('同步一章：单独一次认时间', () => {
     assert.ok(u.includes('第 1 章：第 1 天 清晨 → 第 3 天 夜里（故事第 1–3 天）'), u);
     assert.ok(u.includes('【第 1 章的结尾】（上一章最后一段：本章开头接着哪个时刻，看这里）\n'), u);
     assert.ok(u.includes('第1章的末尾，灯灭了。'), u);
-    assert.ok(u.includes('（细纲记的时间地点：次日清晨，青崖镇。）'), u);
+    assert.ok(u.includes('（细纲记的时间地点，只当提示，不是正文：次日清晨，青崖镇。）'), u);
     assert.ok(u.includes('请给第 2 章各判一次时间'), u);
   });
 
@@ -313,5 +313,16 @@ describe('重推：机器写的行照新推的换', () => {
     await bundle.timeBackfill.refreshTimeline(project, { from: 2, to: 2 });
     assert.equal(fake.callCount(), 0);
     assert.ok(h.toasts.at(-1).includes('第 2 章没有可以重推时间的章：第 2 章是你定的（机器不动）'), h.toasts.at(-1));
+  });
+});
+
+// 真实模型试跑之后补的（2026-10-24）：正文里写着「第二十二回」，模型照它填了 chapter 22。
+describe('模型报的章号对不上：按先后认作送去的那一章', () => {
+  test('单章同步：报成别的章号也写进这一章', async () => {
+    timeOf = (no) => ({ ...defaultTime(no), chapter: 22, days: 4 });
+    const o = await bundle.finalize.finalizeChapter(project, await chapterNo(1));
+    assert.equal(o.time.missing, undefined);
+    assert.ok(t.read(TIMELINE).includes('- 第 1 章：+4 天'), t.read(TIMELINE));
+    timeOf = () => undefined;
   });
 });

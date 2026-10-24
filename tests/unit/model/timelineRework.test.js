@@ -158,10 +158,10 @@ describe('推算：按正文写明的日子对齐', () => {
     ]);
     const { days } = t.computeTimeline(tl);
     assert.equal(days[0].start, 1);
-    assert.equal(days[0].conflict, 3);
+    assert.deepEqual(days[0].conflict, { day: 3, why: 'start' });
     assert.equal(days[1].state, 'anchor');
     assert.equal(days[1].start, 10);
-    assert.equal(days[1].conflict, 12);
+    assert.deepEqual(days[1].conflict, { day: 12, why: 'anchor' });
     const none = tlOf('', ['- 第 1 章：+0 天〔依据：「起」〕', '- 第 2 章：+2 天〔依据：「两日后」〕〔文中：三月二十「三月二十」〕']);
     const d = t.computeTimeline(none).days[1];
     assert.equal(d.state, 'evidence');
@@ -364,5 +364,69 @@ describe('前面几章的时间', () => {
     );
     assert.equal(t.recentTimeNote(tl, 1), '这是第 1 章：days 写 0。');
     assert.ok(t.recentTimeNote(tlOf('', []), 4).startsWith('前面的章还没记时间'));
+  });
+});
+
+// 真实模型试跑之后补的（2026-10-24，设计稿「实施状态」）。
+describe('试跑之后：依据要写着时间、只写日的日子、同一个时段不写两遍', () => {
+  test('依据那一句没写时间（本章第一句充数）：改记推测；章内一跳的依据没写时间：这一跳不算', () => {
+    assert.equal(t.mentionsTime('夜色在浓重的雾气里被一点点击碎'), true);
+    assert.equal(t.mentionsTime('至二十一日，就賈母內院中搭了家常小巧戲台'), true);
+    assert.equal(t.mentionsTime('次日便先送過衣服玩物禮去'), true);
+    assert.equal(t.mentionsTime('过了三天，他才回来'), true);
+    assert.equal(t.mentionsTime('浓雾压在青羊镇的残垣断壁上，散发着一股化不开的焦臭。'), false);
+    assert.equal(t.mentionsTime('山道尽头，浓雾如被泼了陈年墨汁，粘稠得化不开。'), false);
+    const text = '浓雾压在青羊镇的残垣断壁上。\n\n他喘了口气，又往前走。';
+    const v = t.verifyTime({ days: 0, evidence: '浓雾压在青羊镇的残垣断壁上', jumps: [{ days: 2, evidence: '他喘了口气，又往前走' }] }, { chapter: 2, text });
+    assert.deepEqual(v.entry.basis, { kind: '推测', text: '依据那一句没写时间' });
+    assert.equal(v.entry.span, 1);
+  });
+
+  test('开头、结尾同一个时段（同一天里）：只写开头', () => {
+    const text = '夜里，林昭出了城。';
+    assert.equal(t.verifyTime({ days: 0, part: '夜里', endPart: '夜里', evidence: '夜里，林昭出了城' }, { chapter: 2, text }).entry.endPart, undefined);
+    assert.equal(t.verifyTime({ days: 0, part: '夜里', endPart: '清晨', evidence: '夜里，林昭出了城' }, { chapter: 2, text }).entry.endPart, '清晨');
+  });
+
+  test('只写了日的〔文中〕：认、写回；不对齐、只对账（月份可能差出去）；证据里要写着这一天，原文写着月日的照原文；不拿来建议起点', () => {
+    assert.deepEqual(entry('第 3 章：+1 天〔文中：二十一日「至二十一日」〕').dateMark, { date: '二十一日', offset: 0, quote: '至二十一日' });
+    assert.deepEqual(t.parseMarkDate('二十一日'), { m: 0, d: 21, style: { era: '', hasYear: false, year: 'num', month: 'cn', day: 'trad' } });
+    // 推下来是正月十八（第 18 天），正文写「二十一日」：不对齐，对账说一句（离推算最近的是正月二十一，第 21 天）。
+    const tl = tlOf('正月初一', ['- 第 1 章：+0 天〔依据：「起」〕', '- 第 2 章：+17 天〔依据：「十七日后」〕〔文中：二十一日「至二十一日」〕']);
+    const calc = t.computeTimeline(tl);
+    const d = calc.days[1];
+    assert.equal(d.start, 18);
+    assert.equal(d.state, 'evidence');
+    assert.deepEqual(d.conflict, { day: 21, why: 'dayOnly' });
+    assert.deepEqual(t.timelineIssues(tl, calc).map((i) => i.text), ['第 2 章：推出来是正月十八，正文写二十一日（只写了日，没按它对齐）']);
+    const text = '次日便先送過衣服玩物禮去。至二十一日，就賈母內院中搭了家常小巧戲台。';
+    const v = t.verifyTime({ days: 0, evidence: '次日便先送過衣服玩物禮去', date: { date: '二十一日', evidence: '至二十一日，就賈母內院中搭了家常小巧戲台' } }, { chapter: 1, text });
+    assert.equal(v.entry.dateMark.date, '二十一日');
+    assert.equal(t.verifyTime({ days: 0, date: { date: '二十二日', evidence: '至二十一日，就賈母內院中搭了家常小巧戲台' } }, { chapter: 1, text }).entry.dateMark, undefined);
+    // 原文写着「四月二十六日」，模型只报了「二十六日」：照原文收。
+    const full = t.verifyTime({ days: 1, date: { date: '二十六日', evidence: '至次日乃是四月二十六日' } }, { chapter: 6, text: '至次日乃是四月二十六日，原來這日未時交芒种節。' });
+    assert.equal(full.entry.dateMark.date, '四月二十六日');
+    const none = tlOf('', ['- 第 1 章：+0 天〔依据：「起」〕〔文中：二十一日「至二十一日」〕']);
+    assert.equal(t.suggestStart(none, t.computeTimeline(none)), undefined);
+  });
+});
+
+describe('试跑之后：依据抄的是细纲', () => {
+  test('送去的「细纲记的时间地点」被当成依据抄回来：记推测，说清是照细纲', () => {
+    const v = t.verifyTime({ days: 0, evidence: '夜色初降，青羊镇废墟' }, { chapter: 1, text: '浓雾压在镇上。', hint: '夜色初降，青羊镇废墟，沈家老宅断壁后。' });
+    assert.deepEqual(v.entry.basis, { kind: '推测', text: '照细纲：夜色初降，青羊镇废墟，沈家老宅断壁后。' });
+  });
+});
+
+describe('试跑之后：写法与繁体', () => {
+  test('「初三日」按农历的样子写（不写成「一日」）；繁体的时间线索也认；往回对齐不把「过了几天」拉成负数', () => {
+    const tl = tlOf('五月初三日', ['- 第 1 章：+0 天〔依据：「起」〕', '- 第 2 章：+28 天〔依据：「二十八日后」〕']);
+    assert.equal(t.dayLabel(tl, 29).full, '六月初一');
+    assert.equal(t.mentionsTime('我怎么就忘了你兩三個月'), true);
+    assert.equal(t.mentionsTime('至次日天明，方才起來'), true);
+    const back = tlOf('三月初一', ['- 第 1 章：+0 天，历时 5 天〔依据：「起」〕', '- 第 2 章：+0 天〔依据：「当天」〕〔文中：二月二十五「二月二十五」〕']);
+    const calc = t.computeTimeline(back);
+    assert.equal(calc.days[1].start, -5);
+    assert.equal(calc.elapsed, 5);
   });
 });
