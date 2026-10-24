@@ -92,9 +92,40 @@ describe('pipeline.ts · Stage × Capability', () => {
       assert.ok(cmds.length > 0, s);
       assert.ok(cmds.every((c) => c.capability !== 'discuss'), s);
     }
-    assert.deepEqual(pipeline.commandsFor('plot').map((c) => c.label), ['落定细纲', '写细纲', '落定设定']);
-    assert.deepEqual(pipeline.commandsFor('manuscript').map((c) => c.label), ['写正文', '审稿', '落定设定']);
+    assert.deepEqual(pipeline.commandsFor('plot').map((c) => c.label), ['落定细纲', '写细纲', '续写大纲', '落定设定']);
+    assert.deepEqual(pipeline.commandsFor('manuscript').map((c) => c.label), ['写正文', '审稿', '续写大纲', '落定设定']);
     assert.ok(pipeline.commandOf('manuscript', 'review').keys.includes('sg'));
+  });
+
+  // 2026-10-24：停在一章上找不到续写大纲（回全书只有目标下拉框最上面那一项）。
+  test('/续写大纲 每一层都有：带着情节大纲的阶段与目标，排在落定设定前面', () => {
+    for (const s of pipeline.CREATION_STAGES.filter((x) => x !== 'outline')) {
+      const cmd = pipeline.commandsFor(s).at(-2);
+      assert.equal(cmd.label, '续写大纲', s);
+      assert.equal(cmd.capability, 'generate');
+      assert.equal(cmd.stage, 'outline');
+      assert.deepEqual(cmd.target, { kind: 'outline' });
+      assert.ok(cmd.keys.includes('xxdg'), cmd.keys.join(','));
+      assert.ok(!cmd.keys.includes('sc'), '不抢这一层自己的「生成」的别名');
+      assert.ok(cmd.hint.includes('往后排 20 章') && cmd.hint.includes('跑完回到这一层') && cmd.hint.includes('预计 1 次调用'), cmd.hint);
+    }
+  });
+
+  test('大纲那一层：续写大纲就是这一层自己的「生成」，不重复挂', () => {
+    const cmds = pipeline.commandsFor('outline', { kind: 'outline' });
+    assert.deepEqual(cmds.map((c) => c.label), ['续写大纲', '落定设定']);
+    assert.equal(cmds[0].stage, undefined);
+    assert.ok(cmds[0].keys.includes('sc') && cmds[0].keys.includes('xxdg'), cmds[0].keys.join(','));
+    assert.ok(!cmds[0].hint.includes('跑完回到这一层'), cmds[0].hint);
+    assert.equal(pipeline.commandOf('outline', 'generate', { kind: 'outline' }).label, '续写大纲');
+    // 别的层挂过来的那一条不算那一层自己的：细纲层问 generate 得到的是写细纲。
+    assert.equal(pipeline.commandOf('plot', 'generate').label, '写细纲');
+  });
+
+  test('isOutlineContinue：大纲那一层的生成', () => {
+    assert.equal(pipeline.isOutlineContinue({ stage: 'outline', capability: 'generate' }), true);
+    assert.equal(pipeline.isOutlineContinue({ stage: 'outline', capability: 'discuss' }), false);
+    assert.equal(pipeline.isOutlineContinue({ stage: 'plot', capability: 'generate' }), false);
   });
 
   // 完善设定二期：聊细纲、聊正文时定下的设定当场就能落，不必先切到设定目录。
@@ -112,8 +143,8 @@ describe('pipeline.ts · Stage × Capability', () => {
 
   test('目标就是设定目录时它是这一层自己的 settle，不重复挂', () => {
     const cmds = pipeline.commandsFor('setting', { kind: 'setting', doc: 'lore' });
-    assert.deepEqual(cmds.map((c) => c.label), ['生成这份架构文档', '落定设定']);
-    assert.equal(cmds[1].stage, undefined);
+    assert.deepEqual(cmds.map((c) => c.label), ['生成这份架构文档', '续写大纲', '落定设定']);
+    assert.equal(cmds[2].stage, undefined);
     assert.equal(pipeline.commandOf('setting', 'settle', { kind: 'setting', doc: 'lore' }).label, '落定设定');
   });
 
@@ -879,6 +910,35 @@ describe('pipeline.ts · 全书状态推导', () => {
     const f = book({ outlineCoverage: 40, nextChapterNo: 25, gap: { from: 25, to: 31, later: 9, last: 40 } });
     assert.equal(pipeline.deriveBookStage(f), 'plots');
     assert.equal(pipeline.deriveBookNextStep('plots', f).projectAction, undefined);
+  });
+
+  // 作者自己点的续写（`/续写大纲`、工程页右键）：任何时候都能点，区间与主按钮同一个算法。
+  test('outlineNextRange：从覆盖的下一章起 20 章，收在总章数；还没有大纲从第 1 章起', () => {
+    assert.deepEqual(pipeline.outlineNextRange(book({ outlineCoverage: 82 })), { from: 83, to: 100 });
+    assert.deepEqual(pipeline.outlineNextRange(book({ outlineCoverage: 40, totalChapters: undefined })), { from: 41, to: 60 });
+    assert.deepEqual(pipeline.outlineNextRange(book({ outlineFilled: false, outlineCoverage: 0 })), { from: 1, to: 20 });
+  });
+
+  test('outlineContinuation：主按钮还在推写正文时也续得了', () => {
+    const f = book({ outlineCoverage: 90, nextChapterNo: 83, nextPlotFilled: false, totalChapters: 200 });
+    assert.equal(pipeline.deriveBookStage(f), 'plots');
+    assert.deepEqual(pipeline.outlineContinuation(f), { range: { from: 91, to: 110 } });
+  });
+
+  test('outlineContinuation：排到最后一章了不续，说总章数', () => {
+    const r = pipeline.outlineContinuation(book({ outlineCoverage: 100, nextChapterNo: 83 }));
+    assert.match(r.blocked, /已经排到第 100 章，全书共 100 章/);
+  });
+
+  test('outlineContinuation：要续的那一段里有已写的正文不续，指去从已写正文补齐', () => {
+    const r = pipeline.outlineContinuation(book({ outlineCoverage: 20, nextChapterNo: 31 }));
+    assert.match(r.blocked, /情节大纲只排到第 20 章，可第 21–30 章里已经有正文/);
+    assert.match(r.blocked, /从已写正文补齐/);
+    const none = pipeline.outlineContinuation(book({ outlineFilled: false, outlineCoverage: 0, nextChapterNo: 4 }));
+    assert.match(none.blocked, /^还没有情节大纲，可第 1–3 章里已经有正文/);
+    // 断了一截：缺口后面写到第 82 章，大纲却只排到第 24 章。
+    const gap = { from: 25, to: 31, later: 51, last: 82 };
+    assert.match(pipeline.outlineContinuation(book({ outlineCoverage: 24, nextChapterNo: 25, gap })).blocked, /第 25–82 章里已经有正文/);
   });
 
   test('下一章没有细纲 → 拆细纲，一批 5 章', () => {

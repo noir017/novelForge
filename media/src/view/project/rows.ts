@@ -11,7 +11,7 @@
  */
 import { el as mk } from '../../dom';
 import type { MenuItem } from '../../globals';
-import { FINALIZE_CALLS, LORE_ENTRY_CALLS, LORE_EXPAND_CALLS, PLOT_STAGE_LABEL, describeCalls } from '../../protocol';
+import { FINALIZE_CALLS, LORE_ENTRY_CALLS, LORE_EXPAND_CALLS, OUTLINE_TARGET, PLOT_STAGE_LABEL, describeCalls, labelOf, outlineNextRange } from '../../protocol';
 import type {
   ArchitectureRow,
   CastConflictView,
@@ -32,6 +32,7 @@ import { formatWords } from '../format';
 import { openIdeaForm } from '../forms';
 import { onContextMenu } from '../menu';
 import { setPendingCommand } from '../composer';
+import { showTab } from '../tabs';
 import { openPath, store, vscode } from '../store';
 import {
   baseMenuItems,
@@ -482,10 +483,39 @@ function buildArchitectureRow(a: ArchitectureRow, isNext: boolean, tree?: Projec
           { label: '重写…', run: () => vscode.postMessage({ type: 'rewriteArchitecture', target }) },
         ]
       : [{ label: '进入这一层（去生成）', run: () => setTarget(target) }]),
+    // 情节大纲往后排一段：已填的、没填的都给（没填就是从第 1 章排起）。
+    ...(a.key === 'outline' && tree ? [continueOutlineItem(tree)] : []),
     { sep: true },
     ...baseMenuItems(),
   ]);
   return row;
+}
+
+/**
+ * 「续写大纲（第 a–b 章）」：工程页「情节大纲」那一行与「章节」组标题的右键里各一份（2026-10-24）。对话页输入框上方
+ * 挂一枚「/续写大纲」，等作者写下要求（可留空）再点发送——与章节右键「重写正文」同一个路子，不自己开写，调用次数写在
+ * 命令的提示里。它是跨层命令：会话停在哪一章都不动，跑完回到那里。区间与后端真续的那一段同一个算法（`outlineNextRange`）；
+ * 已经排到全书最后一章时置灰。
+ */
+export function continueOutlineItem(tree: ProjectTree): MenuItem {
+  const coverage = tree.book.outlineCoverage ?? 0;
+  const total = tree.book.totalChapters;
+  const { from, to } = outlineNextRange({ outlineFilled: coverage > 0, outlineCoverage: coverage, totalChapters: total });
+  if (total && from > total) {
+    return { label: `续写大纲（已排到第 ${coverage} 章，全书共 ${total} 章）`, disabled: true };
+  }
+  return {
+    label: `续写大纲（${from === to ? `第 ${from} 章` : `第 ${from}–${to} 章`}）`,
+    run: () => {
+      // 正在生成时不挂，免得那一轮完了一发送就续了（同「重写正文」）。
+      if (store.busy) {
+        return;
+      }
+      showTab('chat');
+      vscode.postMessage({ type: 'switchTab', tab: 'chat' });
+      setPendingCommand({ capability: 'generate', label: labelOf('outline', 'generate'), stage: 'outline', target: OUTLINE_TARGET });
+    },
+  };
 }
 
 /**

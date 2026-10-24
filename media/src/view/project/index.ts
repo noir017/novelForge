@@ -27,6 +27,7 @@ import {
   buildLoreUnfiledRows,
   buildPlotRows,
   buildVolumeRows,
+  continueOutlineItem,
   emptyRow,
   renderNodes,
 } from './rows';
@@ -122,6 +123,8 @@ function buildProjectPage(tree: ProjectTree): void {
         // 零调用：全部章节拼成一份 txt，写到工程根下的「导出/<书名>.txt」，已有就覆盖（2026-10-24）。
         { label: '导出全文（txt）', run: () => projectAction('exportBook') },
         { sep: true },
+        // 续写大纲排在拆细纲前面：大纲排到哪，细纲才拆得到哪。它是对话页的一轮、一次一段（2026-10-24）。
+        continueOutlineItem(tree),
         // 两个批量动作都「只补不改」：已经有产物的章一律跳过。都先开弹窗选区间。
         { label: '批量拆细纲…', run: () => openPlotBatchForm(tree) },
         { label: '批量写章…', run: () => openWriteBatchForm(tree) },

@@ -3,7 +3,7 @@
  *
  * 界面要回答三个问题，这里管前两个（第三个是工作区卡，见 workbench.ts）：
  *
- * - **我现在在哪一层？** —— 位置信息条 + 细纲 / 正文两格与定稿状态
+ * - **我现在在哪一层？** —— 位置信息条 + 大纲 / 细纲 / 正文三格与定稿状态
  * - **我接下来该干什么？** —— 下一步条（一个主按钮；其余动作在输入区的 `/` 命令里）
  *
  * ## 为什么是一个按钮而不是七个
@@ -177,11 +177,11 @@ function renderCrumb(): void {
 // ---------------------------------------------------------------- 三格状态
 
 /**
- * 细纲 / 正文两个可点的按钮（点了就切到那一层），加一个「定稿」状态点。
+ * 大纲 / 细纲 / 正文三个可点的按钮（点了就切到那一层），加一个「定稿」状态点。
  *
  * 从前这里是「卷纲 / 剧情 / 正文」三层——卷那一层删掉了，一章一纲之后这一章的
- * 上游链只剩两格。定稿不是一个创作阶段（它是写完之后的一步工程动作），
- * 所以只给状态，不给按钮。
+ * 上游链只剩细纲、正文两格。定稿不是一个创作阶段（它是写完之后的一步工程动作），
+ * 所以只给状态，不给按钮。「大纲」那一格见 {@link outlineCell}。
  *
  * 完成度落成三态圆点（未开始 / 进行中 / 已完成），不用百分比条——这里
  * 表达的是状态机走到哪，不是「完成了百分之几」。
@@ -197,11 +197,13 @@ function renderStages(): void {
   clear(box);
 
   const relPath = plotOfTarget(store.session.target);
-  // 架构与大纲两层没有「这一章的两格」可言，整条收起来。
+  // 架构与大纲两层没有「这一章的三格」可言，整条收起来。
   setHidden(box, !relPath);
   if (!relPath) {
     return;
   }
+
+  box.appendChild(outlineCell());
 
   const progress: PipelineProgress = current?.progress ?? { plot: 0, manuscript: 0, summary: 0 };
   const cells: { stage: CreationStage; ratio: number; stale: boolean }[] = [
@@ -241,6 +243,34 @@ function renderStages(): void {
     const s = mk('span', `psummary${text === '待同步' ? ' stale' : ''}`, text);
     box.appendChild(s);
   }
+}
+
+/**
+ * 「大纲」那一格（2026-10-24）：这一章在情节大纲里有没有那一条（就是这一章细纲的梗概），点了回到全书那一层
+ * （目标是情节大纲，主按钮是全书的下一步）。从前停在一章上，回全书只有目标下拉框最上面那一项，找不到续写大纲。
+ *
+ * 大纲是这一章的上游、不是这一章的一层，所以从不高亮。没排进大纲挂 ⚠；流水线还没推到（刚切过来）时
+ * 只画空心、不挂——没数据不该说「没排到」。
+ */
+function outlineCell(): HTMLElement {
+  const outline = current?.outline;
+  const covered = !!outline?.covered;
+  const btn = mk('button', `pstage${covered ? ' done' : ''}`);
+  const mark = mk('span', `pstage-mark ${covered ? 'done' : 'todo'}`);
+  mark.setAttribute('aria-hidden', 'true');
+  btn.appendChild(mark);
+  btn.appendChild(mk('span', 'pstage-label', '大纲'));
+
+  const reach = outline?.coverage ? `大纲排到第 ${outline.coverage} 章` : '还没有情节大纲';
+  const state = !outline ? '' : covered ? `情节大纲里有这一章（${reach}）· ` : `情节大纲里还没有这一章（${reach}）· `;
+  btn.title = `${state}点了回到全书那一层；往后排大纲在任何一层打 /续写大纲`;
+  if (outline && !covered) {
+    const warn = mk('span', 'pstage-stale', '⚠');
+    warn.title = `情节大纲里还没有这一章（${reach}）`;
+    btn.appendChild(warn);
+  }
+  btn.addEventListener('click', () => go({ kind: 'outline' }));
+  return btn;
 }
 
 /**

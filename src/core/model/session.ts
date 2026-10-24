@@ -116,6 +116,11 @@ export interface ChatTurn {
    * 落完回到原来的目标——于是事后会话停在哪一层都推不出它来。记下来是为了「重来一轮」照样换过去再换回来。
    */
   settleLore?: boolean;
+  /**
+   * 仅 user 轮：这一轮是续写情节大纲（`/续写大纲` 或主按钮的「生成 / 续写情节大纲」，2026-10-24）。`/续写大纲` 在任何
+   * 一层都能下，同 {@link settleLore}：临时换到情节大纲、跑完回到原来的目标，「重来一轮」照样换过去再换回来。
+   */
+  continueOutline?: boolean;
   /** 仅 assistant 轮：本次装配明细。 */
   context?: ContextDigest;
   /**

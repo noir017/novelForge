@@ -7,7 +7,8 @@
  *   == 独立版壳上的创作页 ==（770）
  *
  * 一章一纲之后（commit 4e0d289）：阶段是「架构 / 大纲 / 细纲 / 正文」，流水线条上
- * 一章只剩「细纲 / 正文」两格加一个定稿状态；卷纲那一格、目标字数输入框都没了。
+ * 一章只剩「细纲 / 正文」两格加一个定稿状态；卷纲那一格、目标字数输入框都没了。2026-10-24 前面
+ * 又挂了一格「大纲」（这一章排进大纲没有，点了回到全书那一层）。
  * 主按钮发的是**状态机给的 target 与 range**——从前发的是会话当下的 target，
  * 按钮上写着一件事、落盘时写到了另一处（§3.1-1）。
  */
@@ -204,11 +205,26 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     assert.ok([...ui.doc.querySelectorAll('#pipelineCrumb .crumb')].every((n) => n.tagName === 'SPAN'));
   });
 
-  // 一章一纲之后这一章的上游链只剩两格：它的细纲 → 它的正文。定稿不是一个
-  // 创作阶段（它是写完之后的一步工程动作），只给状态不给按钮。
-  test('展开两格：细纲 / 正文', () => {
+  // 一章一纲之后这一章的上游链：它的细纲 → 它的正文，前面再挂一格「大纲」（2026-10-24：停在一章上
+  // 找不到回全书的路）。定稿不是一个创作阶段（它是写完之后的一步工程动作），只给状态不给按钮。
+  test('展开三格：大纲 / 细纲 / 正文', () => {
     assert.ok(!stagesBox().classList.contains('hidden'));
-    assert.deepEqual(stages().map((n) => n.querySelector('.pstage-label').textContent), ['细纲', '正文']);
+    assert.deepEqual(stages().map((n) => n.querySelector('.pstage-label').textContent), ['大纲', '细纲', '正文']);
+  });
+
+  // 大纲那一格报的是这一章在情节大纲里有没有那一条，不是这一章的一层：排进去了实心、不挂 ⚠、从不高亮。
+  test('大纲那一格：这一章排进了大纲', () => {
+    assert.ok(stage('大纲').querySelector('.pstage-mark.done'), stage('大纲').outerHTML);
+    assert.ok(!stage('大纲').querySelector('.pstage-stale'), stage('大纲').outerHTML);
+    assert.ok(!stage('大纲').classList.contains('active'));
+    assert.match(stage('大纲').title, /情节大纲里有这一章（大纲排到第 20 章）/);
+    assert.match(stage('大纲').title, /\/续写大纲/);
+  });
+
+  test('点大纲那一格回到全书那一层', () => {
+    ui.clickEl(stage('大纲'));
+    assert.equal(lastSetTarget()?.target.kind, 'outline', JSON.stringify(lastSetTarget()));
+    assert.equal(lastSetTarget()?.target.plotRelPath, undefined);
   });
 
   // 章名后面不再挂状态徽章：这一章走到哪，下一行的两格加定稿状态已经说了，同一件事不说两遍。
@@ -405,6 +421,20 @@ describe('创作流水线条与下一步', { skip: JSDOM_SKIP }, () => {
     ui.post({ type: 'pipeline', pipeline: pipelineView(), workbench: workbenchView() });
     assert.equal(summaryState()?.textContent, '未写正文');
     assert.ok(!summaryState().classList.contains('stale'), summaryState().className);
+  });
+
+  // 图上那一种：新建的第 83 章，大纲只排到第 82 章——大纲那一格空心挂 ⚠，悬停说排到第几章。
+  test('这一章还没排进大纲：大纲那一格空心挂 ⚠', () => {
+    ui.post({ type: 'pipeline', pipeline: pipelineView({ outline: { covered: false, coverage: 11 } }), workbench: workbenchView() });
+    assert.ok(stage('大纲').querySelector('.pstage-mark.todo'), stage('大纲').outerHTML);
+    assert.equal(stage('大纲').querySelector('.pstage-stale')?.textContent, '⚠', stage('大纲').outerHTML);
+    assert.match(stage('大纲').title, /情节大纲里还没有这一章（大纲排到第 11 章）/);
+  });
+
+  test('一章大纲都没有时说还没有情节大纲', () => {
+    ui.post({ type: 'pipeline', pipeline: pipelineView({ outline: { covered: false, coverage: 0 } }), workbench: workbenchView() });
+    assert.match(stage('大纲').title, /情节大纲里还没有这一章（还没有情节大纲）/);
+    ui.post({ type: 'pipeline', pipeline: pipelineView(), workbench: workbenchView() });
   });
 
   // ---- 全做完的章不催 ----
@@ -754,9 +784,10 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   });
 
   // 讨论不进面板（打字就是在讨论）。细纲层有 `/落定细纲` 与 `/写细纲` 两条——细纲是「先跟人聊、聊出结论
-  // 再落文件」的东西；末尾再挂一条哪一层都有的 `/落定设定`（完善设定二期：聊定了的设定当场落成条目）。
-  test('细纲层三个命令：两条自己的，加上哪一层都有的落定设定', () => {
-    assert.deepEqual(items(), ['/落定细纲', '/写细纲', '/落定设定']);
+  // 再落文件」的东西；末尾再挂两条哪一层都有的：`/续写大纲`（2026-10-24：停在一章上也能往后排大纲）与
+  // `/落定设定`（完善设定二期：聊定了的设定当场落成条目）。
+  test('细纲层四个命令：两条自己的，加上哪一层都有的续写大纲与落定设定', () => {
+    assert.deepEqual(items(), ['/落定细纲', '/写细纲', '/续写大纲', '/落定设定']);
   });
 
   test('面板里没有讨论', () => {
@@ -780,11 +811,11 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   // 面板里剩下的每一条都会写文件（讨论不是命令），每条都标出来。
   test('每条命令都标记写文件', () => {
     const writes = [...ui.doc.querySelectorAll('.cmd-item')].filter((n) => n.classList.contains('cmd-writes'));
-    assert.equal(writes.length, 3, String(writes.length));
+    assert.equal(writes.length, 4, String(writes.length));
   });
 
   test('每条命令都挂「写文件」标签', () => {
-    assert.equal(ui.doc.querySelectorAll('.cmd-item .cmd-tag').length, 3);
+    assert.equal(ui.doc.querySelectorAll('.cmd-item .cmd-tag').length, 4);
   });
 
   // 键入过滤：ascii 别名与中文标签都认。`ld` 是「落定」，两条落定都在；`ldsd` 只剩落定设定。
@@ -800,7 +831,7 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
   test('退格恢复全部', () => {
     backspace();
     backspace();
-    assert.equal(items().length, 3, items().join('|'));
+    assert.equal(items().length, 4, items().join('|'));
   });
 
   // 退到 `/` 之前就不是在下命令了，面板该收。
@@ -933,7 +964,7 @@ describe('/ 命令面板', { skip: JSDOM_SKIP }, () => {
       session: emptySession({ target: { kind: 'setting', doc: 'config' }, stage: 'setting', capability: 'discuss' }),
     });
     type('/');
-    assert.deepEqual(items(), ['/生成这份架构文档', '/落定设定']);
+    assert.deepEqual(items(), ['/生成这份架构文档', '/续写大纲', '/落定设定']);
     key('Escape');
     setValue('');
   });
@@ -998,13 +1029,19 @@ describe('选中一章进入当前阶段', { skip: JSDOM_SKIP }, () => {
   });
 
   // 第一项是回到全书那一层的入口：主按钮就是全书的下一步。
-  test('第一项是「全书（架构与大纲）」', () => {
-    assert.equal(options()[0].textContent, '全书（架构与大纲）');
+  test('第一项是「全书（架构 · 大纲）」', () => {
+    assert.equal(options()[0].textContent, '全书（架构 · 大纲）');
     assert.equal(options()[0].value, '0');
   });
 
+  // 不隔开的话「全书」看着就像列表里的又一章（2026-10-24）。分隔线选不中。
+  test('「全书」与章之间隔一条选不中的分隔线', () => {
+    assert.ok(options()[1].disabled);
+    assert.equal(options()[1].dataset.rel, undefined);
+  });
+
   test('每个章号一行，最近的在上面', () => {
-    assert.deepEqual(options().slice(1).map((o) => o.textContent), ['第 12 章《夜入青云》', '第 11 章《青崖》']);
+    assert.deepEqual(options().slice(2).map((o) => o.textContent), ['第 12 章《夜入青云》', '第 11 章《青崖》']);
   });
 
   test('会话停在大纲时下拉停在「全书」', () => {
@@ -1128,9 +1165,9 @@ describe('独立版壳上的创作页', { skip: JSDOM_SKIP }, () => {
     ui.doc.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   });
 
-  test('独立版渲染两格', () => {
+  test('独立版渲染三格', () => {
     const labels = [...ui.doc.querySelectorAll('#pipelineStages .pstage-label')].map((n) => n.textContent);
-    assert.deepEqual(labels, ['细纲', '正文']);
+    assert.deepEqual(labels, ['大纲', '细纲', '正文']);
   });
 
   test('独立版渲染主按钮', () => {

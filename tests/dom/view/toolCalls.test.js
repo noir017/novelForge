@@ -258,17 +258,17 @@ describe('直接发送就是讨论', { skip: JSDOM_SKIP }, () => {
     assert.equal(input().value, '');
   });
 
-  // 挑了 `/命令`（生成情节大纲、写细纲…）才回到确定性的单步。
+  // 挑了 `/命令`（续写大纲、写细纲…）才回到确定性的单步。
   //
   // 挑的命令必须**属于当前会话那一层**：面板读的是 `commandsFor(session.stage)`，
-  // 而这个会话停在大纲层（`emptySession` 的缺省），那一层只有「生成情节大纲」一条
+  // 而这个会话停在大纲层（`emptySession` 的缺省），那一层自己的只有「续写大纲」一条
   // （拆卷随卷那一层删了）。挑一条别的层的命令，`find` 会返回 undefined，
   // 用例炸在 clickEl 上而不是在断言上——所以先断言它找得到。
   test('挑了命令时发的还是 send', () => {
     ui.post({ type: 'busy', value: false });
     input().value = '/';
     input().dispatchEvent(new ui.window.Event('input', { bubbles: true }));
-    const pick = [...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('生成情节大纲'));
+    const pick = [...ui.doc.querySelectorAll('.cmd-item')].find((n) => n.textContent.includes('续写大纲'));
     assert.ok(pick, [...ui.doc.querySelectorAll('.cmd-item')].map((n) => n.textContent).join('|'));
     ui.clickEl(pick);
     input().value = '前二十章先把主角送进宗门';

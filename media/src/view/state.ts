@@ -67,8 +67,10 @@ export function renderState(state: ViewState): void {
  * 当前创作目标是哪一章。
  *
  * 它不只是「采纳写到哪」了——装配的每一层都跟着它走，所以选项里带上
- * `relPath`（目标一律按路径标识，章号会撞）。第一项「全书（架构与大纲）」没有
- * relPath：选它就是回到全书那一层，主按钮是全书的下一步。
+ * `relPath`（目标一律按路径标识，章号会撞）。第一项「全书（架构 · 大纲）」没有
+ * relPath：选它就是回到全书那一层，主按钮是全书的下一步。它与下面那一串章之间隔一条
+ * 选不中的分隔线——不隔开的话它看着就像列表里的又一章（2026-10-24，作者找不到回全书的路）。
+ * 停在一章上时，流水线条上的「大纲」那一格也回到这一层。
  *
  * 列的是**每个章号一行**，最近的在上面。说法由后端给（`p.label`）。
  */
@@ -77,8 +79,16 @@ function renderTargetSelect(state: ViewState): void {
 
   const bookOpt = document.createElement('option');
   bookOpt.value = '0';
-  bookOpt.textContent = '全书（架构与大纲）';
+  bookOpt.textContent = '全书（架构 · 大纲）';
   el.targetSelect.appendChild(bookOpt);
+
+  if (state.plots.length > 0) {
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.value = '';
+    sep.textContent = '──────────';
+    el.targetSelect.appendChild(sep);
+  }
 
   for (const p of [...state.plots].reverse()) {
     const opt = document.createElement('option');

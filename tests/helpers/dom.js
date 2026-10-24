@@ -391,6 +391,8 @@ const pipelineView = (extra) =>
       plotRelPath: '.novelforge/summaries/012-夜入青云.md',
       no: 12,
       title: '夜入青云',
+      // 情节大纲里有没有这一章（就是这一章细纲的梗概），大纲排到第几章。流水线条上「大纲」那一格画它。
+      outline: { covered: true, coverage: 20 },
       plot: {
         relPath: '.novelforge/summaries/012-夜入青云.md',
         exists: true,

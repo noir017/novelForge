@@ -56,8 +56,8 @@ describe('单条设定目标 · 归一', () => {
 describe('单条设定目标 · 说法与调用次数', () => {
   test('生成叫「展开这条设定」，/展开 认得出；能力按阶段与目标算（讨论 + 生成，单条设定上没有落定）', () => {
     const cmds = pipeline.commandsFor('setting', L);
-    // 末尾那条 `/落定设定` 是哪一层都有的（完善设定二期），不是这一条自己的。
-    assert.deepEqual(cmds.map((c) => c.label), ['展开这条设定', '落定设定']);
+    // 末尾那两条 `/续写大纲`、`/落定设定` 是哪一层都有的（完善设定二期、2026-10-24），不是这一条自己的。
+    assert.deepEqual(cmds.map((c) => c.label), ['展开这条设定', '续写大纲', '落定设定']);
     assert.deepEqual(pipeline.capabilitiesOn('setting', L), ['discuss', 'generate']);
     assert.ok(cmds[0].keys.includes('expand') && cmds[0].keys.includes('zk'), cmds[0].keys.join(','));
     assert.ok(cmds[0].keys.includes('generate'));
@@ -69,9 +69,9 @@ describe('单条设定目标 · 说法与调用次数', () => {
   test('设定清单、世界观等几件的说法不动', () => {
     assert.equal(pipeline.labelOf('setting', 'generate'), '生成这份架构文档');
     assert.equal(pipeline.labelOf('setting', 'generate', { kind: 'setting', doc: 'lore' }), '生成这份架构文档');
-    assert.deepEqual(pipeline.commandsFor('setting').map((c) => c.label), ['生成这份架构文档', '落定设定']);
+    assert.deepEqual(pipeline.commandsFor('setting').map((c) => c.label), ['生成这份架构文档', '续写大纲', '落定设定']);
     assert.ok(!pipeline.commandsFor('setting').some((c) => c.keys.includes('expand')));
-    assert.deepEqual(pipeline.commandsFor('plot', { kind: 'plot', plotRelPath: 'x' }).map((c) => c.label), ['落定细纲', '写细纲', '落定设定']);
+    assert.deepEqual(pipeline.commandsFor('plot', { kind: 'plot', plotRelPath: 'x' }).map((c) => c.label), ['落定细纲', '写细纲', '续写大纲', '落定设定']);
   });
 
   test('展开预计 1 次，最多 2 次（语法坏了修一次）', () => {

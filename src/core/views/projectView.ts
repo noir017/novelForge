@@ -379,6 +379,7 @@ export async function buildPlotPipelineView(
     plotRelPath: p.plot.relPath,
     no: p.no,
     title: p.title,
+    outline: { covered: hasContent(plot?.sections.梗概), coverage: outlineCoverage(await project.readOutline()) },
     plot: p.plot,
     chapter: p.chapter,
     summary: p.summary,

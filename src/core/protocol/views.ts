@@ -384,6 +384,11 @@ export interface PlotPipelineView {
   /** 章号。 */
   no: number;
   title: string;
+  /**
+   * 情节大纲：这一章在不在里面（大纲是各章细纲梗概的汇总，就是这一章的梗概写了没有），大纲排到第几章（没有是 0）。
+   * 流水线条上「大纲」那一格画它（2026-10-24）。
+   */
+  outline: { covered: boolean; coverage: number };
   plot: { relPath: string; exists: boolean; filled: boolean; upstreamStale: boolean };
   /** 同号的正文。 */
   chapter: {

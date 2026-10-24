@@ -33,6 +33,7 @@ import {
   LORE_EXPAND_CALLS,
   LORE_SETTLE_TARGET,
   ONE_CALL,
+  OUTLINE_TARGET,
   PLOT_BATCH,
   WriteMode,
   capabilitiesOn,
@@ -44,8 +45,10 @@ import {
   describeTarget,
   isCreationStage,
   isLoreSettle,
+  isOutlineContinue,
   isSameTarget,
   normalizeTarget,
+  outlineContinuation,
   outputKindOf,
   plotOfTarget,
   settingCalls,
@@ -136,7 +139,19 @@ export async function send(
       c.toast('落定设定要把刚才讨论里定下来的设定写成条目，可这个对话里还没有讨论。先聊几句，或者在输入框里写明要定下什么。', 'error');
       return;
     }
-    const back = settlingLore ? spotOf(c) : undefined;
+    // `/续写大纲`（2026-10-24）也在任何一层都能下，跑完同样回到原来的地方。前端不知道大纲排到了第几章，不带区间：
+    // 这里按大纲现在排到哪算（与主按钮同一份 `outlineNextRange`）；主按钮带着状态机算好的区间来，照用。
+    // 续不了（排满了、要续的那一段已经有正文）就说一句，不调模型。
+    const continuingOutline = isOutlineContinue(payload);
+    let range = normalizeRange(payload.range);
+    if (continuingOutline && !range) {
+      const plan = outlineContinuation(await buildBookFacts(c.project));
+      if ('blocked' in plan) {
+        c.toast(plan.blocked, 'error');
+        return;
+      }
+      range = plan.range;
+    }
 
     const userTurn: ChatTurn = {
       id: makeTurnId(),
@@ -149,12 +164,15 @@ export async function send(
       attachments: c.pending.length > 0 ? [...c.pending] : undefined,
       excludedIds: payload.excludedIds.length > 0 ? payload.excludedIds : undefined,
       // 重来一轮时要原样重跑，而那条路上前端给的是输入框当下的参数。
-      range: normalizeRange(payload.range),
+      range,
       setup: normalizeSetup(payload.setup),
       writeMode: normalizeWriteMode(payload.writeMode),
       ...(settlingLore ? { settleLore: true } : {}),
+      ...(continuingOutline ? { continueOutline: true } : {}),
       ...(extra ?? {}),
     };
+    const away = awayOf(userTurn);
+    const back = away && !atSpot(c, away) ? spotOf(c) : undefined;
     c.current.turns.push(userTurn);
     if (c.current.turns.length === 1) {
       c.current.title = deriveTitle(turnPreview(userTurn));
@@ -172,8 +190,8 @@ export async function send(
     try {
       await runTurn(c, payload, userTurn, lease);
     } finally {
-      if (back) {
-        await returnTo(c, back);
+      if (away && back) {
+        await returnTo(c, back, away);
       }
     }
   } finally {
@@ -200,41 +218,57 @@ export async function retry(c: ChatController, turnId: string, payload: SendPayl
   // 丢掉这条用户消息之后的所有轮次——重来意味着从这里分叉。
   c.current.turns.splice(idx + 1);
   c.post({ type: 'session', session: serializeSession(c.current) });
-  // `/落定设定` 那一轮：会话早已回到原来的目标，照样换过去、跑完再换回来（同 `send`）。
-  const back = userTurn.settleLore ? spotOf(c) : undefined;
-  if (back) {
-    c.current.target = LORE_SETTLE_TARGET;
-    c.current.stage = 'setting';
-    c.current.capability = 'settle';
+  // `/落定设定`、`/续写大纲` 那一轮：会话早已回到原来的目标，照样换过去、跑完再换回来（同 `send`）。
+  const away = awayOf(userTurn);
+  const back = away && !atSpot(c, away) ? spotOf(c) : undefined;
+  if (away && back) {
+    c.current.target = away.target;
+    c.current.stage = away.stage;
+    c.current.capability = away.capability;
   }
   try {
     await runTurn(c, { ...payload, text: userTurn.content }, userTurn);
   } finally {
-    if (back) {
-      await returnTo(c, back);
+    if (away && back) {
+      await returnTo(c, back, away);
     }
   }
 }
 
-/** 会话停在哪：目标、阶段、能力。`/落定设定` 那一轮之前记下，落完回到这里。 */
+/** 会话停在哪：目标、阶段、能力。跨层命令那一轮之前记下，跑完回到这里。 */
 type Spot = Pick<ChatSession, 'target' | 'stage' | 'capability'>;
 
 function spotOf(c: ChatController): Spot {
   return { target: c.current.target, stage: c.current.stage, capability: c.current.capability };
 }
 
+function atSpot(c: ChatController, spot: Spot): boolean {
+  return c.current.stage === spot.stage && c.current.capability === spot.capability && isSameTarget(c.current.target, spot.target);
+}
+
+/** 跨层命令这一轮要换到哪（`/落定设定` → 设定目录，`/续写大纲` → 情节大纲）。别的轮次就在会话停着的地方跑。 */
+function awayOf(turn: Pick<ChatTurn, 'settleLore' | 'continueOutline'>): (Spot & { label: string }) | undefined {
+  if (turn.settleLore) {
+    return { target: LORE_SETTLE_TARGET, stage: 'setting', capability: 'settle', label: '落定设定' };
+  }
+  if (turn.continueOutline) {
+    return { target: OUTLINE_TARGET, stage: 'outline', capability: 'generate', label: '续写大纲' };
+  }
+  return undefined;
+}
+
 /**
- * `/落定设定` 那一轮完了（写了、没写、出错、被停）：回到之前停着的那个目标。这一轮期间作者已经另选了目标的
+ * 跨层命令那一轮完了（写了、没写、出错、被停）：回到之前停着的那个目标。这一轮期间作者已经另选了目标的
  * （生成跑完、落盘卡片还在等的那会儿，切目标不被挡）不动——那是他自己选的。
  */
-async function returnTo(c: ChatController, back: Spot): Promise<void> {
-  if (!isLoreSettle(c.current) || !isSameTarget(c.current.target, LORE_SETTLE_TARGET)) {
+async function returnTo(c: ChatController, back: Spot, away: Spot & { label: string }): Promise<void> {
+  if (!atSpot(c, away)) {
     return;
   }
   c.current.target = back.target;
   c.current.stage = back.stage;
   c.current.capability = back.capability;
-  log.info(`落定设定完了，创作目标回到 ${await describeCurrentTarget(c)}`);
+  log.info(`${away.label}完了，创作目标回到 ${await describeCurrentTarget(c)}`);
   await persist(c);
   c.post({ type: 'session', session: serializeSession(c.current) });
   await pushPipeline(c);

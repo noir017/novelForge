@@ -160,7 +160,8 @@ export function isCapability(value: unknown): value is Capability {
 const CAPABILITY_LABEL_IN: Partial<Record<CreationStage, Partial<Record<Capability, string>>>> = {
   // 架构那一层的 `settle` 只在设定目录上有（{@link capabilitiesOn}），所以就叫「落定设定」。
   setting: { generate: '生成这份架构文档', settle: '落定设定' },
-  outline: { generate: '生成情节大纲' },
+  // 大纲那一层的「生成」只往后排一段（{@link outlineNextRange}），整份重排走工程页「情节大纲」右键「重写…」。
+  outline: { generate: '续写大纲' },
   plot: { generate: '写细纲', settle: '落定细纲' },
   manuscript: { generate: '写正文' },
 };
@@ -321,7 +322,7 @@ export interface StageCommand {
   /** `/` 面板的过滤键。中文标签之外再给 ascii 别名，免得为了打一个命令切输入法。 */
   keys: string[];
   /**
-   * 这条命令不在当前这一层下：发送时阶段与目标换成这两个（`/落定设定`，任何一层的面板里都有）。
+   * 这条命令不在当前这一层下：发送时阶段与目标换成这两个（`/续写大纲`、`/落定设定`，任何一层的面板里都有）。
    * 缺席就是当前这一层、当前的目标。
    */
   stage?: CreationStage;
@@ -342,6 +343,17 @@ const CAPABILITY_KEYS_ON_LORE: Partial<Record<Capability, string[]>> = { generat
 /** `/落定设定` 多认两个别名：首字母 `ldsd`，以及 `lore`（与 `/ld` 一起打时和落定细纲分得开）。 */
 const LORE_SETTLE_KEYS = ['ldsd', 'lore'];
 
+/** `/续写大纲` 的别名：首字母 `xxdg`、`xx`，以及 `outline`。 */
+const OUTLINE_CONTINUE_KEYS = ['xxdg', 'xx', 'outline'];
+
+/** `/续写大纲` 在别的层下时的目标：情节大纲。 */
+export const OUTLINE_TARGET: CreationTarget = { kind: 'outline' };
+
+/** 这一个动作是不是续写情节大纲：大纲那一层只有这一种「生成」（主按钮的「生成 / 续写情节大纲」也是它）。 */
+export function isOutlineContinue(action: { stage: CreationStage; capability: Capability }): boolean {
+  return action.stage === 'outline' && action.capability === 'generate';
+}
+
 /**
  * 这个阶段能下哪些命令。顺序即面板里的顺序。
  *
@@ -356,6 +368,10 @@ const LORE_SETTLE_KEYS = ['ldsd', 'lore'];
  * **`/落定设定` 每一层都有**（完善设定二期）：讨论细纲、正文时聊定了的设定，当场就能落成条目，不必先切到
  * 设定目录。它挂在末尾，带着自己的阶段与目标（{@link LORE_SETTLE_TARGET}）；目标本来就是设定目录时它就是
  * 这一层自己的 `settle`，不重复挂。
+ *
+ * **`/续写大纲` 也是每一层都有**（2026-10-24）：写细纲、写正文时发现大纲快不够用了，不必先切回全书那一层。
+ * 它排在 `/落定设定` 前面，带着自己的阶段与目标（{@link OUTLINE_TARGET}），跑完回到原来那一层；大纲那一层
+ * 它就是这一层自己的「生成」。
  */
 export function commandsFor(stage: CreationStage, target?: CreationTarget): StageCommand[] {
   const onLore = target?.kind === 'lore';
@@ -369,13 +385,33 @@ export function commandsFor(stage: CreationStage, target?: CreationTarget): Stag
         ...CAPABILITY_KEYS[capability],
         ...((onLore && CAPABILITY_KEYS_ON_LORE[capability]) || []),
         ...(isLoreSettle({ stage, capability }) ? LORE_SETTLE_KEYS : []),
+        ...(isOutlineContinue({ stage, capability }) ? OUTLINE_CONTINUE_KEYS : []),
       ],
     }));
+  const continueOutline: StageCommand[] =
+    stage === 'outline'
+      ? []
+      : [
+          {
+            capability: 'generate',
+            label: labelOf('outline', 'generate'),
+            hint: outlineContinueHint(true),
+            keys: [...OUTLINE_CONTINUE_KEYS],
+            stage: 'outline',
+            target: OUTLINE_TARGET,
+          },
+        ];
   if (own.some((c) => isLoreSettle({ stage, capability: c.capability }))) {
-    return own;
+    // 设定目录上的落定设定是这一层自己的，照样排在最后。
+    return [
+      ...own.filter((c) => !isLoreSettle({ stage, capability: c.capability })),
+      ...continueOutline,
+      ...own.filter((c) => isLoreSettle({ stage, capability: c.capability })),
+    ];
   }
   return [
     ...own,
+    ...continueOutline,
     {
       capability: 'settle',
       label: labelOf('setting', 'settle', LORE_SETTLE_TARGET),
@@ -412,7 +448,19 @@ function hintOf(stage: CreationStage, capability: Capability, target?: CreationT
       return '按你在输入框里描述的走向填成这一章的细纲';
     }
   }
+  if (isOutlineContinue({ stage, capability })) {
+    return outlineContinueHint(false);
+  }
   return CAPABILITY_HINT[capability];
+}
+
+/** `/续写大纲` 的 tooltip。`away`：从别的层下的，跑完回到那一层。 */
+function outlineContinueHint(away: boolean): string {
+  return (
+    `从情节大纲排到的下一章起往后排 ${OUTLINE_BATCH} 章（不超过全书章数；还没有大纲就从第 1 章排起），` +
+    `输入框里有字就当这一段的要求，可采纳写入${away ? '，跑完回到这一层' : ''}；整份重排在工程页「情节大纲」右键「重写…」。` +
+    describeCalls(ONE_CALL)
+  );
 }
 
 /**
@@ -1604,7 +1652,7 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
       if (f.gap) {
         return gapStep(f.gap, { kind: 'outline' });
       }
-      const from = f.outlineFilled ? f.outlineCoverage + 1 : 1;
+      const { from, to } = outlineNextRange(f);
       // 情节大纲是各章细纲梗概的汇总：写过的章没有细纲，大纲里就没有它们那一条——补齐先给它们整理细纲（带梗概）。
       if (from < f.nextChapterNo) {
         return deriveStep(
@@ -1613,7 +1661,6 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
           { kind: 'outline' }
         );
       }
-      const to = Math.max(from, Math.min(from + OUTLINE_BATCH - 1, f.totalChapters ?? Infinity));
       const verb = f.outlineFilled ? '续写' : '生成';
       return {
         stage: 'outline',
@@ -1651,6 +1698,45 @@ export function deriveBookNextStep(stage: BookStage, f: BookFacts): NextStepPlan
     case 'complete':
       return undefined;
   }
+}
+
+/**
+ * 续写情节大纲接着排哪几章：从大纲排到的下一章起，一次 {@link OUTLINE_BATCH} 章，不超过总章数；还没有大纲从第 1 章起。
+ * 主按钮（全书那一档的 `outline`）、`/续写大纲` 与工程页的「续写大纲」都按这一份排。
+ */
+export function outlineNextRange(
+  f: Pick<BookFacts, 'outlineFilled' | 'outlineCoverage' | 'totalChapters'>
+): { from: number; to: number } {
+  const from = f.outlineFilled ? f.outlineCoverage + 1 : 1;
+  return { from, to: Math.max(from, Math.min(from + OUTLINE_BATCH - 1, f.totalChapters ?? Infinity)) };
+}
+
+/**
+ * 作者自己点的续写大纲（`/续写大纲`、工程页右键）：续哪几章，续不了时说为什么。
+ *
+ * 主按钮推到续写那一步时状态机已经保证续得了；作者自己点的可能在任何时候，两种情况不调模型：
+ *
+ * - 大纲已经排到全书最后一章——没有可续的；
+ * - 要续的那一段里已经有写过的正文（大纲没覆盖到已写的章，或已写的正文中间断了一截）——写过的章该照正文整理细纲
+ *   （「从已写正文补齐」），不是往前编一条计划（同主按钮的 `deriveStep`）。
+ */
+export function outlineContinuation(f: BookFacts): { range: { from: number; to: number } } | { blocked: string } {
+  const range = outlineNextRange(f);
+  if (f.totalChapters && range.from > f.totalChapters) {
+    return {
+      blocked: `情节大纲已经排到第 ${f.outlineCoverage} 章，全书共 ${f.totalChapters} 章，没有可续的了。要往后加章，先在小说配置里把总章数改大。`,
+    };
+  }
+  const lastWritten = f.gap?.last ?? f.nextChapterNo - 1;
+  if (range.from <= lastWritten) {
+    return {
+      blocked:
+        `${range.from === 1 ? '还没有情节大纲' : `情节大纲只排到第 ${range.from - 1} 章`}，` +
+        `可${rangeText(range.from, lastWritten)}里已经有正文。写过的章该照正文整理细纲（梗概就是大纲那一条），` +
+        '不是往前编：先在工程页「故事架构」右键「从已写正文补齐…」，再续写。',
+    };
+  }
+  return { range };
 }
 
 /**

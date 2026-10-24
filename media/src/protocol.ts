@@ -215,6 +215,9 @@ export {
   unrecordedBefore,
   describeTarget,
   loreOfTarget,
+  // 续写大纲（2026-10-24）：工程页右键上的「续写（第 a–b 章）」与后端真续的那一段是同一个算法。
+  OUTLINE_TARGET,
+  outlineNextRange,
 } from '../../src/core/model/pipeline';
 
 /**
