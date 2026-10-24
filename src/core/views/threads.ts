@@ -197,6 +197,7 @@ const TIME_STATE_NOTE: Record<TimelineDay['state'], string> = {
   unknown: '推不出，按紧接上一章算',
   missing: '时间线里还没有这一章，按紧接上一章算',
   anchor: '你定的',
+  dated: '正文写明了日子，按它对齐',
   flashback: '整章是回忆，不推进时间',
   bad: '这一行认不出，按紧接上一章算',
 };
