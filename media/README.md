@@ -32,6 +32,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 | `src/protocol.ts` | — | — | 从 `core/protocol` 转出全部消息类型 |
 | `src/globals.ts` | — | — | 三个产物之间的交集（toast、右键菜单、自定义事件） |
 | `src/dom.ts` / `src/vscodeApi.ts` | — | — | 建 DOM 的小工具、取 webview API 与收消息 |
+| `src/touch.ts` | — | — | 触屏的能力探测：这一次指针是不是手指、要不要避开软键盘（view.js 与 editor.js 各打一份，见「触屏与窄屏」） |
 | [icon.svg](icon.svg) | —（静态文件，不经构建） | 两者 | 活动栏与编辑器标签页图标。`stroke="currentColor"`，跟随主题色 |
 
 各子目录的划分：
@@ -168,6 +169,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
   - 线的格子借流水线条的 `pstage-mark`：`.tov-mark-plan` ○、`.tov-mark-actual` ●、`.tov-mark-both` ◉（实心外加一圈 `box-shadow`）、`.tov-mark-dev` 红圈；计划区间 `.tov-band` 一条淡底。
   - 伏笔一行：埋 `.tov-fmark-plant`（`pstage-mark`，实际的实心、计划的空心）、收 `.tov-fmark-resolve`（转 45° 的方块，计划的空心）、弃 `.tov-fmark-drop` ✕，一格里实际的先画（弃 → 收 → 埋），没有实际的画计划的；连线 `.tov-span-done / -open / -planned`（实线 / 虚线 / 淡点线，逾期 `.tov-overdue` 标红），没收的在回收章那一格一道竖线 `.tov-due`。
 - **交互**：`.tov-scroll` 上的事件委托。悬停 `.tov-cell` 弹 `.tov-tip`（`position: fixed`、`pointer-events: none`，挂在覆盖层里）：第几章、哪一行、计划与实际的事件、证据、偏差说一句；移开、滚动就收。点 `.tov-cell` / 列头 `.tov-col` 发 `openChapter`（有正文给正文路径，只有细纲给细纲路径——同工程页点章节行：正文进主区、细纲并排；都没有就 toast、不发）；点线名、伏笔名、「未归属的伏笔」（`.tov-link`）发 `openEditor`，开在总览所在的这一块（正常标签）。窄屏打开时 `revealEditor()`。用户内容一律 `textContent`。
+  - **手指**（2026-10-24，见[触屏与窄屏](#触屏与窄屏手机android-壳)）：点格子 / 列头**只弹浮窗看这一格**、不打开那一章（作者定的点击语义：点一项显示它本身，不跳正文），列头浮窗里「点击打开」换成「长按打开这一章」，点别处收；兼容鼠标事件不当悬停。右键 / 长按格子与列头给「打开第 N 章」（只有细纲的「打开第 N 章的细纲」，都没有置灰）与「刷新」，空白处只有「刷新」——鼠标右键也有这一份。窄屏（≤600px）左列收到 128px（`currentNameWidth()`，量一次、宽度变了下次重画跟上）。
 - **故事时间**（2026-10-24）：列头与格子的悬停带上「这一章是哪天」（`ThreadsOverviewChapter.time`，一句话）。同日「时间线总览」：原来主线组前面的「时间线」一组、「故事时间」一行与表头的月份带都挪去了[时间线总览](#时间线总览编辑区里的另一个特殊标签)，这里只管线与伏笔。
 
 ## 时间线总览（编辑区里的另一个特殊标签）
@@ -337,6 +339,7 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 - **认名字**（`nameRanges`）：正名与别名一趟扫完（`locateTerms`，折大小写）；长的优先、不重叠；一个字的叫法不认（⚑，满屏）；英文叫法要整词；**卡或条目自己那一份里不标它自己**（⚑，按 `path` 认）；两条叫法撞了归表里排前面的（角色 → 设定 → 未建条目）。每份文件按「哪一份文字、哪一张表」缓存。
 - **`names` 图层**：`<mark class="ed-hl ed-hl-name-<来源>">`，角色 / 设定各一种淡底色，未建条目虚下划线（作者定的）。什么时候重算、打字 / 输入法 / 撤销时怎么跟上与体检同一套（`liveLayer.ts`）。选择器与 `check` 图层一样重（`:where(.ed-mirror) mark.…`），`names.css` 在 `standalone.css` 里排在 `check.css` 前面：撞在同一段字上时体检的下划线与敏感词淡底色盖过名字的；查找的底色更重，盖过两者。
 - **悬停浮窗**：`mousemove` 记下位置，下一帧用 `rangeAtPoint` 量是不是名字、按那一段的字认回表里那一条（`nameItemOf`）；换了一个名字重新计时，停够 `HOVER_DELAY_MS`（400ms）再认一次、还是它才弹。框挂 `body`、`position: fixed`、`pointer-events: none`（不挡鼠标），贴着鼠标往下摆、靠近底边翻上去。写正名、类型（角色 / 分类 / 「分类 · 未建条目」）、别名命中时「这里写的是……」、一句话（没有就说没有）、底下一行 Ctrl+点击能打开什么。移开、移出编辑区、打字（光按修饰键不算）、滚动、滚轮、组字、失焦、换文件、编辑区重画就收起；按着鼠标拖选区时不弹；关着名词高亮时不弹（浮窗靠画着的那一层认名字）。
+- **手指**（2026-10-24）：手指点在名字上**当场弹浮窗**（不等悬停；点之后补发的 mousemove / mouseleave 不当鼠标），浮窗底下那行换成「长按名字可以打开角色卡 / 设定条目」；点别的字、长按（`contextmenu`）收起。软键盘顶起来之后跟着名字挪（`resize` 时重量，挪出编辑区就收）。长按名字的菜单最前面「打开「X」的角色卡 / 设定条目」（`api.ts` 的 `addAreaMenu` 往正文区右键菜单前面加项；鼠标右键名字也有这一项，未建条目不给）。
 - **Ctrl+点击**（Mac 上 ⌘+点击，`isMacPlatform`：Mac 的 Ctrl+点击是右键）：`mousedown` 时量是不是名字，是就 `preventDefault`（不挪光标）、发 `openEditor { path, pane: 这一块 }`（正常标签，与「转到…」一样）；未建条目没有文件，`toast` 说一句。按住修饰键指着能打开的名字时 textarea 加 `nm-link`（手形），`keydown` / `keyup` 修饰键时跟着重量。快捷键表只收键盘（`shortcuts.test.js` 逐条去按），Ctrl+点击写在浮窗、菜单说明与 README 里。
 
 ## 资源管理器（「文件」页）
@@ -357,6 +360,24 @@ npm run typecheck      # 含 media/tsconfig.json，前端与协议对不上会�
 - **跟现在比**：发 `checkpointDiff`、说「正在比…」，只认同一个 id 的回复（返回列表之后才到的不认）。三组按「改过的 / 之后删掉的 / 之后新建的」排，组标题带份数，一样的只报个数；一行是路径、种类（按后端给的 `kind`，前端不拿路径猜；架构三件合称「架构」，同「转到…」）、字数（「3,011 → 2,870 字」「当时 / 现在 N 字」，千位加逗号、不折成万字——两个数要对得出差了多少）。「对比」只给改过的与删掉的，而且只在页面上有 `#mergeModal`（只有独立版放它）时才有——**能力探测**，插件那边后端也没有 `mergeTexts`；发 `compareCheckpointFile`，挑好之后后端直接写盘、重推比较。
 - **退回点两下**（与表单的 `confirm`、全书替换同一个做法）：第一下只换字（「确定退回这一份？」「确定整本退回（N 份）」）并挂 `is-armed`（同表单两段式的警示色），点在别处（document 捕获阶段的 `click`）或重画就退回第一段。单份带 `paths: [这一份]`；整本带改过的 + 删掉的，勾了「也把存档点之后新建的 N 份搬进回收站」（缺省不勾）才带 `trash`。`expect` 是这一次比较里每份的 `hashNow`，当时磁盘上没有的给 `null`（后端的乐观锁）；`dirty` 经 `nf-dirty-query` 问。发出去之后「正在退回…」、按钮置灰；后端重推 `checkpoints` 与这个存档点的 `checkpointDiff`，停在这一页重画，勾选框回到不勾。
 - **`nf-dirty-query`**（`globals.ts` 的 `queryDirtyPaths()`）：view.js 发一个 `{ paths: [] }`，editor.js（`editor/index.ts`）把两块编辑区里开着、`draft !== text` 的路径推进去——与全书替换的 `dirtyPaths()`、关标签时的 `isDirty` 同一个判法。插件形态没有 editor.js、没人回答，是空数组：VS Code 自己的编辑器有它自己那一套。
+
+## 触屏与窄屏（手机、Android 壳）
+
+2026-10-24 在 Android 壳（WebView）与 360×640 的无头浏览器里逐项看过之后改的。**区分形态只用能力探测**：媒体查询 `(hover: none)`、`(pointer: coarse)`（与模拟器 / 容器里没登记触屏时的 `(pointer: none)`）、`(max-width: 900px)`、`(max-height: 480px)`，以及**这一次**指针的 `pointerType`——不看 UA、不问是不是 Android 壳（`tests/contract/shellPurity.test.js`）。桌面上的鼠标行为一处没变（关键画面前后逐像素比过）。`tests/dom/standalone/touch.test.js`、`tests/unit/view/menuPlace.test.js` 钉这一组。
+
+- **`src/touch.ts`**：`trackPointer()` 在捕获阶段记下最近一次 `pointerdown / pointerover / pointermove` 的 `pointerType`；`lastPointerWasTouch()` / `isTouchEvent(e)` 分清「鼠标停在这儿」与「手指点了一下之后 Chromium 补发的 mouseover / mousemove / mousedown / click」——悬停浮窗、标题栏菜单、叙事线总览都靠它不把手指当悬停。同一台机器可以既有鼠标又有触屏，所以按这一次的指针认。`avoidSoftKeyboard()`：切页签、打开 / 切换文件时**不顺手聚焦**对话输入框与正文区（手机上一聚焦就弹软键盘盖住半屏；页面刚载入还没指针时看 `(hover: none)`），作者明确要打字的（弹窗、挑了命令、预览切回编辑）照旧聚焦。两个产物各打包一份、各装一次。
+- **整页不横向溢出**：`body.workbench` 的列写死 `minmax(0, 1fr)`（标题栏里不折行的完整路径从前把 grid 的 auto 列撑到 min-content，手机把整页缩小、菜单也跟着像是被截）；高度用 `100%` 不用 `100vh`。窄屏标题栏只露书名（`welcome.ts` 写两份 `.wb-title-full` / `.wb-title-short`，CSS 按宽度挑，`title` 是完整目录），菜单按钮不折字。编辑区顶上的章节条按钮行、工具栏（面包屑与「保存」排最前）与状态栏在窄屏上**各自横着滚**，不再挤成零宽。
+- **菜单整个落在可视区里**（`view/menuPlace.ts`，纯函数）：右键菜单在点上——右边放不下往左翻、再不行贴边，下面放不下往上翻、再不行平移贴底，比可视区还高从顶上开始压 `max-height`、菜单里滚；标题栏下拉贴按钮下沿、伸出右边就与按钮右沿对齐；子菜单父项右边 → 左边 → 贴边。可视区认 `visualViewport`（软键盘顶起来之后那一块）。桌面上同样受益（右下角照旧往左上翻）。点子菜单的父项也展开（手指没有悬停），手指点之前补发的 `mouseenter` / `mouseover` **不**展开子菜单、不换菜单——不然窄屏上贴边的子菜单盖到手指底下，紧跟的 click 落在子菜单项上（实机上一点「打开最近打开的」就打开了第一本书）。
+- **长按不选字**（`css/standalone/touch.css`，`(hover: none)`）：整页 `user-select: none`，再给输入框、正文区、预览、对话正文、报告卡、浮窗、日志、合并视图、`pre` / `code` 打开——长按菜单、行、按钮不再选中一片字，要复制的照常能选。悬停才露的行内按钮、气泡的 ⋯、标签上的 × 常显。
+- **点击目标**（`(pointer: coarse), (pointer: none)`）：标题栏加高到 44px（`--nf-title-height`，窄屏覆盖层跟着它走）、菜单项与右键菜单项 40px、树的行与页签 40px、图标按钮 40×40、一排控件 34px、分隔条加宽。只在这两种指针下生效，桌面不变。
+- **悬停才看得到的东西，手指的入口**（作者的点击语义：单击只选中 / 展开 / 去专门页，设置与改值走右键 = 长按；点一项显示它本身、不跳正文）：
+  - 工程页三只浮窗：长按章节行，菜单最前面多「细纲速览」（挂着失败的还有「看失败原因」）、说明被截断的行多「看完整说明」——`view/menu.ts` 的 `onTouchPeek(provide)` 登记，只在这次是手指（`MenuContext.touch`）时加，鼠标右键没有。点了**钉住**浮窗（`unpin`），按在浮窗外面才收（`tip.ts` 的 `closeOnOutsidePress`，按下照常落到底下）；手指点感叹号直接钉住失败浮窗、不打开这一章。
+  - 工作区卡：手指点入口就是钉住（不当悬停弹 / 收）。
+  - 名词高亮、叙事线总览：见上面两节的「手指」。
+  - 右键菜单登记函数现在拿到 `MenuContext { target, x, y, touch }`（`globals.ts`），按需要分手指与鼠标。
+- **软键盘**：页头声明 `interactive-widget=resizes-content`（键盘顶起来时缩布局视口；Android 壳另有 `adjustResize`）。窄屏且可视高度 ≤480px 时：焦点在对话输入框里收起活动栏、流水线条、下一步、输入框下那行小字；焦点在正文区里收起章节条与工具栏（`:has(:focus)`），光标那一行与「发送」都露得出来。弹窗本来就在上半屏，输入框不被盖。
+- **窄屏的欢迎页**：空窗口与「帮助 → 欢迎页面」把编辑区那层覆盖翻上来（欢迎页在里面），打开一本书之后收起、露出侧栏（`welcome.ts` 的 `revealNarrowEditor`）。
+- **没做 / 做不到**：原生 `title=` 提示（流水线条大纲那一格的 ⚠、行上的小圆点、时间线卡片上的完整日期）手指看不到；「外部打开」在手机上没有可打开的程序；redroid 没有触屏设备，报的是 `(pointer: none)` 而不是 `coarse`，真机上的 `coarse` 没实测过（两种都写进了同一条媒体查询）。
 
 ## 测试
 
