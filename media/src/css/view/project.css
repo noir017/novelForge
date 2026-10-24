@@ -287,7 +287,22 @@ button.project-tab.active {
 }
 
 .timeline-issue {
+  padding: 1px 10px 1px 30px;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  font-size: 0.85em;
+  line-height: 1.5;
   cursor: pointer;
+}
+
+.timeline-issue:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* 状态点的字形宽窄不一（★ ◆ · ?），定一个宽度，章名才对得齐。 */
+.row-time-chapter .dot {
+  display: inline-block;
+  width: 1em;
+  text-align: center;
 }
 
 .row-timeline-segment {

@@ -268,7 +268,8 @@ export function buildTimelineRows(tree: ProjectTree, rerender: () => void): HTML
   }
   const rows: HTMLElement[] = [buildCalendarRow(tl)];
   for (const issue of tl.issues) {
-    const row = mk('div', 'row-conflict timeline-issue', `⚠ ${issue.text}`);
+    // 一条一行、不加框（叙事线组的「还没判」是一句话的大框；对账可能有好几条，框起来要占半屏）。
+    const row = mk('div', 'timeline-issue', `⚠ ${issue.text}`);
     if (tl.exists) {
       row.title = '点击打开时间线（在那里改，或者右键那一章「改时间」）';
       row.addEventListener('click', () => openPath(tl.relPath));
