@@ -376,6 +376,113 @@ describe('出场索引 · 只认定稿过的细纲', () => {
   });
 });
 
+// ================================================================ 剧作称谓
+
+describe('剧作称谓：不是名字，也不是别名', () => {
+  let d;
+  let index;
+
+  before(async () => {
+    // 正文里夹着作者的笔记时，模型写下的出场人物会是 `主角(林昭)`、光一个 `反派`。
+    d = makeTempDir('cast-labels');
+    d.write('.novelforge/project.md', '---\ntitle: 测\n---\n\n# 测\n');
+    makePlot(1, ['主角(林昭、阿昭)', '反派', '沈氏'], d);
+    makePlot(2, ['林昭(主角)', '沈氏'], d);
+    index = await castMod.buildCastIndex(new projectMod.NovelProject(d.dir));
+  });
+
+  after(() => {
+    if (d) cleanup(d.dir);
+  });
+
+  test('只认整词：称谓是，故事里真有人这么叫的不是', () => {
+    assert.deepEqual(
+      ['主角', '反派', '男主角', '路人甲', '韩厉', '掌柜', '头领', '反派韩厉'].map((w) => naming.isRoleLabel(w)),
+      [true, true, true, true, false, false, false, false]
+    );
+  });
+
+  test('别名里的称谓被剔掉（带修饰语的也算），说得出为什么', () => {
+    assert.deepEqual(naming.sanitizeAliases(['主角', '阿昭', '小反派'], '林昭'), ['阿昭']);
+    assert.match(naming.explainDroppedAliases(['主角'], '林昭')[0].reason, /剧作称谓/);
+  });
+
+  test('名字是称谓：别名里第一个真名升上来，称谓交回去', () => {
+    assert.deepEqual(naming.resolveRoleLabelName('反派', ['她', '韩厉', '头领']), {
+      name: '韩厉',
+      aliases: ['头领'],
+      label: '反派',
+    });
+  });
+
+  test('名字是称谓、别名里没有真名：不是一个人', () => {
+    assert.equal(naming.resolveRoleLabelName('主角', ['他']), undefined);
+  });
+
+  test('名字不是称谓：原样返回（泛称当正式名的也不动）', () => {
+    assert.deepEqual(naming.resolveRoleLabelName('掌柜', ['老周']), { name: '掌柜', aliases: ['老周'] });
+  });
+
+  test('细纲里的 `主角(林昭)` 记到林昭头上，光一个 `反派` 不列', () => {
+    const names = index.unknown.map((m) => m.name);
+    assert.ok(!names.includes('主角') && !names.includes('反派'), names.join('、'));
+    assert.deepEqual(index.unknown.find((m) => m.name === '林昭')?.plots, [1, 2]);
+  });
+});
+
+describe('维护：称谓卡并进真名那张', () => {
+  let d;
+  let groups;
+  let confirms;
+  let names;
+  let keeper;
+
+  before(async () => {
+    d = makeTempDir('cast-label-cards');
+    d.write('.novelforge/project.md', '---\ntitle: 测\n---\n\n# 测\n');
+    // 提取角色时建出来的那一对：`反派.md` 挂着真名，戏份反而记得比真名那张多。
+    makeCard('韩厉', [], { appearsIn: [3], updatedThrough: 3, firstAppear: 3, lastSeen: 3 }, d);
+    makeCard('反派', ['韩厉', '头领'], { appearsIn: [3, 4, 5], updatedThrough: 5, firstAppear: 3, lastSeen: 5 }, d);
+    // 光一个称谓、对不上任何一张真名卡：只能请作者自己改名或删掉。
+    makeCard('主角', [], {}, d);
+    const project = new projectMod.NovelProject(d.dir);
+    groups = await maintenance.findDuplicateCards(project);
+    h.confirms.length = 0;
+    h.expect('逐组处理', '保留「韩厉」');
+    await maintenance.mergeDuplicateCharacterCards(project);
+    confirms = [...h.confirms];
+    const cards = await project.listCharacters();
+    names = cards.map((c) => c.name).sort();
+    keeper = cards.find((c) => c.name === '韩厉');
+  });
+
+  after(() => {
+    if (d) cleanup(d.dir);
+  });
+
+  test('认出韩厉 / 反派是一组，算强证据', () => {
+    assert.deepEqual(
+      groups.map((g) => [g.strength, g.cards.map((c) => c.name)]),
+      [['summary', ['韩厉', '反派']]]
+    );
+  });
+
+  test('保留哪一张的按钮里真名那张排第一，哪怕称谓卡戏份多', () => {
+    const ask = confirms.find((c) => c.message.startsWith('合并'));
+    assert.deepEqual(ask?.actions, ['保留「韩厉」', '保留「反派」']);
+  });
+
+  test('合并后只剩真名卡与光称谓的那张；真名卡收下「头领」，不收「反派」', () => {
+    assert.deepEqual(names, ['主角', '韩厉']);
+    assert.deepEqual(keeper.aliases, ['头领']);
+  });
+
+  test('光称谓的那张写进了确认框，请作者改名或删掉', () => {
+    const first = confirms.find((c) => c.message.includes('组疑似重复'));
+    assert.match(first?.detail ?? '', /「主角」的名字是剧作称谓/);
+  });
+});
+
 // ================================================================ 维护命令
 
 describe('维护：清理别名', () => {

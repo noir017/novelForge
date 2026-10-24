@@ -89,6 +89,19 @@ describe('summarize.ts · parseSummaryResponse', () => {
       assert.equal(loose.cast[1].name, '沈氏', JSON.stringify(loose.cast));
     });
 
+    // 正文里夹着作者笔记时模型会把称谓当名字：换成别名里的真名，同一个人并成一条，光一个称谓的不列。
+    test('JSON：出场人物里的剧作称谓换成真名', () => {
+      const labeled = sum.parseSummaryResponse(
+        JSON.stringify({
+          梗概: 'x',
+          关键事件: ['甲'],
+          出场人物: [{ name: '林昭', aliases: [] }, { name: '主角', aliases: ['林昭', '阿昭'] }, { name: '反派', aliases: [] }],
+        })
+      );
+      assert.deepEqual(labeled.cast, [{ name: '林昭', aliases: ['阿昭'] }]);
+      assert.equal(labeled.sections.出场人物, '林昭(阿昭)');
+    });
+
     // 语法合法但不相干的 JSON 不能被认成一份细纲：降级到小节解析也拿不到东西，七节全空，
     // 定稿那一步据此报失败、细纲不动。
     test('JSON：不相干的 JSON 不被当成细纲', () => {

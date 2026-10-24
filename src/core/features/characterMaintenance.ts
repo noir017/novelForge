@@ -6,7 +6,7 @@ import { rewriteFrontmatter } from '../model/markdown';
 import { readText } from '../model/fs';
 import { NovelProject } from '../model/project';
 import { CharacterCard } from '../model/types';
-import { DroppedAlias, explainDroppedAliases, normalizeName, sanitizeAliases } from '../model/naming';
+import { DroppedAlias, explainDroppedAliases, isRoleLabel, normalizeName, sanitizeAliases } from '../model/naming';
 import { runTask } from '../runtime/progress';
 import { Workspace } from '../workspace';
 
@@ -146,17 +146,20 @@ export interface DuplicateGroup {
   cards: CharacterCard[];
   /** 证据说明，直接进确认框。 */
   evidence: string;
-  /** 摘要给出的证据强度：`summary` 有据可查，`naming` 只是名字长得像。 */
+  /** 证据强度：`summary` 有据可查（摘要聚类、正式名撞车、称谓卡挂着真名），`naming` 只是名字长得像。 */
   strength: 'summary' | 'naming';
 }
 
 /**
  * 找出疑似重复的角色卡。导出供冒烟测试直接验证判据。
  *
- * 两类候选，强度不同：
+ * 三类候选，强度不同：
  *
  * - **摘要证据**：几章摘要互相声明这几个称呼是同一个人，且从没在同一章里
  *   各自出场。这是 [../identity.ts](../identity.ts) 的聚类结论，可靠。
+ * - **称谓卡**：卡名是剧作称谓（`反派`，[../model/naming.ts](../model/naming.ts)），别名里
+ *   挂着另一张卡的正式名——提取角色时模型把称谓当了名字、把真名塞进别名，同一个人建了两张。
+ *   这是按别名认卡的唯一一处：称谓本身不是任何人的名字，不会把两个真人认成一个。
  * - **名字包含**：一张卡的名字是另一张的后缀（`古月赤城` ⊃ `赤城`）。
  *   只能算提示——`学堂家老 / 刑堂家老` 也满足，那是两个人。所以凡是被
  *   同章共现否掉的一律不列，剩下的也标明「只是名字像」。
@@ -206,7 +209,28 @@ export async function findDuplicateCards(project: NovelProject): Promise<Duplica
     }
   }
 
-  // ---- 2. 名字包含（弱提示） ----
+  // ---- 2. 称谓卡挂着真名 ----
+  for (const card of cards.filter((c) => isRoleLabel(c.name))) {
+    const owners: CharacterCard[] = [];
+    for (const alias of card.aliases) {
+      const owner = cardByName.get(normalizeName(alias));
+      if (owner && owner.slug !== card.slug && !owners.includes(owner) && !paired.has(pairKey(owner.slug, card.slug))) {
+        owners.push(owner);
+      }
+    }
+    // 别名里挂了两个真人的名字就说不清是谁，交给作者自己看，不列。
+    if (owners.length !== 1) {
+      continue;
+    }
+    paired.add(pairKey(owners[0].slug, card.slug));
+    groups.push({
+      cards: [owners[0], card],
+      strength: 'summary',
+      evidence: `「${card.name}」是剧作称谓、不是名字，它的别名「${owners[0].name}」是另一张卡的正式名，多半是同一个人。`,
+    });
+  }
+
+  // ---- 3. 名字包含（弱提示） ----
   for (const a of cards) {
     for (const b of cards) {
       if (a.slug === b.slug || a.name.length <= b.name.length || !a.name.endsWith(b.name)) {
@@ -262,9 +286,20 @@ function pairKey(a: string, b: string): string {
  */
 export async function mergeDuplicateCharacterCards(project: NovelProject): Promise<void> {
   const groups = await findDuplicateCards(project);
+  // 名字是称谓、又对不上任何一张真名卡的：没法替作者并，只能请作者改名或删掉。
+  const grouped = new Set(groups.flatMap((g) => g.cards.map((c) => c.slug)));
+  const labelOnly = (await project.listCharacters()).filter((c) => isRoleLabel(c.name) && !grouped.has(c.slug));
+  const labelHint =
+    labelOnly.length > 0
+      ? `${labelOnly.map((c) => `「${c.name}」`).join('')}的名字是剧作称谓、找不到真名那张卡，请改成真名或删掉：` +
+        labelOnly.map((c) => c.relPath).join('、')
+      : '';
+  if (labelOnly.length > 0) {
+    log.warn('有角色卡的名字是剧作称谓', labelHint);
+  }
   if (groups.length === 0) {
     log.info('没有发现重复角色卡');
-    getHost().toast('没有发现重复的角色卡。');
+    getHost().toast(labelHint ? `没有发现重复的角色卡。${labelHint}` : '没有发现重复的角色卡。');
     return;
   }
 
@@ -282,7 +317,10 @@ export async function mergeDuplicateCharacterCards(project: NovelProject): Promi
         `● ${strong} 组有摘要证据，○ ${groups.length - strong} 组只是名字像，需要你自己判断。`,
         '不调模型。每组都会先问保留哪一张；被合并的卡搬进 .novelforge/.trash/，可手动找回。'
           + '注意：**被合并卡的正文小节不会自动融合**，合并后建议对保留的卡跑一次「从头重建角色卡」。',
-      ].join('\n\n'),
+        labelHint,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
     }
   );
   if (pick !== '逐组处理') {
@@ -301,8 +339,10 @@ export async function mergeDuplicateCharacterCards(project: NovelProject): Promi
       log.info('跳过一组重复卡', `${group.cards.map((c) => c.name).join(' / ')}｜其中的卡已在上一组里被合并`);
       continue;
     }
-    // 戏份重的排前面：多半就是该保留的那张。
-    const sorted = [...alive].sort((a, b) => b.appearsIn.length - a.appearsIn.length);
+    // 戏份重的排前面：多半就是该保留的那张。名字是称谓的（`反派`）永远排最后——该留的是真名那张。
+    const sorted = [...alive].sort(
+      (a, b) => Number(isRoleLabel(a.name)) - Number(isRoleLabel(b.name)) || b.appearsIn.length - a.appearsIn.length
+    );
     // 按钮太多的模态框没法看。只让前几张当候选，其余照样会被并进去（详情里列全）。
     const choices = sorted.slice(0, 4);
     const labels = choices.map((c) => `保留「${c.name}」`);

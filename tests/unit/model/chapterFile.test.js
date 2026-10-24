@@ -31,6 +31,20 @@ describe('章节文件名规则', () => {
     });
   }
 
+  // 作者放在卷目录里的笔记：整个标题就是笔记词（可带编号）才不算，词只在开头或结尾的照样是章节。
+  const notes = ['047 细纲.txt', '048 作话.txt', '049-大纲.md', '050_笔记', '051 细纲2.txt', '052-Notes.md', '053.设定.txt'];
+  for (const name of notes) {
+    test(`笔记「${name}」不算章节`, () => {
+      assert.ok(!chapterFile.isChapterFileName(name));
+    });
+  }
+  const titled = ['047-设定崩塌.txt', '012-草稿纸上的名字.txt', '003-大纲之外.md', '020-作话之后', '031-备份计划.txt'];
+  for (const name of titled) {
+    test(`标题里带笔记词的「${name}」仍是章节`, () => {
+      assert.ok(chapterFile.isChapterFileName(name));
+    });
+  }
+
   test('解析出序号/词干/扩展名', () => {
     const parsed = chapterFile.parseChapterFileName('001-楔子.txt');
     assert.equal(parsed.order, 1, JSON.stringify(parsed));

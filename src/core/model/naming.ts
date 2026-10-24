@@ -17,11 +17,32 @@
  * **只用来过滤 aliases，绝不过滤 name。** 这条边界很重要：`店小二`、`家老`、
  * `房东` 这类以泛称当正式名的角色确实存在（`local/` 里就有三张这样的卡），
  * 把 name 也过一遍会让他们凭空消失。
+ *
+ * 唯一的例外是**剧作称谓**（`主角`、`反派`、`男主`……，{@link resolveRoleLabelName}）：
+ * 那是作者与读者看故事时的说法，故事里没有人这么叫他。正文里混进作者的笔记
+ * （「反派在此处需要透露……」）时，模型会把称谓填进 name、把真名塞进别名，
+ * 建出 `反派.md` 与真名那张卡两张抢同一个称呼的卡。
  */
 
 /** 代词与泛指——任何情况下都不是称呼。 */
 const PRONOUNS = new Set(
   '他 她 它 他们 她们 它们 自己 本人 某人 此人 那人 众人 大家 对方 双方 两人 二人 三人 一行人 所有人'.split(' ')
+);
+
+/**
+ * 剧作称谓：作者视角的角色分类，既不是名字也不是别名（可以进 tags）。
+ *
+ * 只收「故事里不会有人这么叫」的词。`老板`、`头领`、`掌柜` 这类故事里真有人喊的不收；
+ * `BOSS` 在游戏文里是故事内的叫法，也不收。
+ */
+const ROLE_LABELS = new Set(
+  [
+    '主角 主人公 主角团 男主 女主 男主角 女主角 男一 女一 男二 女二 男一号 女一号 男二号 女二号',
+    '配角 男配 女配 反派 大反派 男反派 女反派 路人 路人甲 路人乙 龙套 炮灰',
+  ]
+    .join(' ')
+    .split(/\s+/)
+    .filter(Boolean)
 );
 
 /**
@@ -113,9 +134,10 @@ function isFullyGeneric(word: string): boolean {
     if (failed.has(rest)) {
       return false;
     }
-    // 泛称词最长 4 字（`中年人`/`老太婆`/`大小姐`），从长到短试。
+    // 泛称词最长 4 字（`中年人`/`老太婆`/`大小姐`），从长到短试。剧作称谓也当泛称吃（`小反派`）。
     for (let len = Math.min(4, rest.length); len >= 1; len--) {
-      if (GENERIC_WORDS.has(rest.slice(0, len)) && consume(rest.slice(len), true)) {
+      const head = rest.slice(0, len);
+      if ((GENERIC_WORDS.has(head) || ROLE_LABELS.has(head)) && consume(rest.slice(len), true)) {
         return true;
       }
     }
@@ -155,6 +177,30 @@ export function sanitizeAliases(aliases: readonly string[], selfName?: string): 
 export interface DroppedAlias {
   alias: string;
   reason: string;
+}
+
+/** 这个词是不是剧作称谓（`主角`、`反派`……）？只认整词。 */
+export function isRoleLabel(word: string): boolean {
+  return ROLE_LABELS.has(word.trim());
+}
+
+/**
+ * 正式名是剧作称谓时换成真名：别名里第一个专属称呼升成正式名，其余留作别名。
+ *
+ * `{ name: '反派', aliases: ['韩厉', '头领'] }` → `{ name: '韩厉', aliases: ['头领'], label: '反派' }`。
+ * 别名里没有能当名字的，返回 undefined——这一条不是一个能建卡的人。正式名不是称谓时
+ * 原样返回（别名照传进来的，不在这里过滤）。`label` 只在换过名时给出，调用方可以放进 tags。
+ */
+export function resolveRoleLabelName(
+  name: string,
+  aliases: readonly string[]
+): { name: string; aliases: string[]; label?: string } | undefined {
+  const label = name.trim();
+  if (!isRoleLabel(label)) {
+    return { name: label, aliases: [...aliases] };
+  }
+  const [real, ...rest] = sanitizeAliases(aliases, label);
+  return real ? { name: real, aliases: rest, label } : undefined;
 }
 
 /**
@@ -201,6 +247,9 @@ function reasonFor(alias: string): string {
   }
   if (SENTENCE_MARKERS.test(alias)) {
     return '描述短语，不是称呼';
+  }
+  if (isRoleLabel(alias)) {
+    return '剧作称谓，故事里没人这么叫';
   }
   return '泛称，换个人也能这么叫';
 }

@@ -10,7 +10,7 @@ import { pickSections } from '../model/markdown';
 import { readConfig } from '../config';
 import { describeError, elapsed, formatDuration, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
-import { castFromText, parseCastEntry, renderCastEntry } from '../model/castParse';
+import { castFromText, parseCastEntry, pushCast, renderCastEntry } from '../model/castParse';
 import { NovelProject } from '../model/project';
 import { PLOT_SECTION_KEYS, Plot, PlotSectionKey, PlotSections, emptyPlotSections, parsePlotFileName } from '../model/plotFile';
 import { CallChoice } from '../model/callChoice';
@@ -986,14 +986,8 @@ function parseSummaryJson(text: string): SummaryData | undefined {
  */
 function parseCastField(v: unknown): SummaryCast[] {
   const out: SummaryCast[] = [];
-  const seen = new Set<string>();
-  const push = (entry: SummaryCast | undefined) => {
-    if (!entry?.name || seen.has(entry.name)) {
-      return;
-    }
-    seen.add(entry.name);
-    out.push(entry);
-  };
+  // 正式名是「主角」「反派」这类剧作称谓的换成真名、换不出来的丢掉（model/castParse.ts）。
+  const push = (entry: SummaryCast | undefined) => pushCast(out, entry);
 
   if (typeof v === 'string') {
     return castFromText(v);

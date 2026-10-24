@@ -68,4 +68,74 @@ describe('characters.ts · parseCharacterResponse', () => {
       assert.equal(ch.parseCharacterResponse('[{"name":"甲","aliases":"a、b"}]')[0].aliases.length, 2);
     });
   });
+
+  // 正文里混进作者的笔记（「反派在此处需要透露……」）时，模型会把称谓填进 name、真名塞进别名。
+  describe('剧作称谓', () => {
+    let labeled;
+
+    before(() => {
+      labeled = ch.parseCharacterResponse(
+        JSON.stringify([
+          { name: '反派', aliases: ['韩厉', '头领'], tags: ['配角'] },
+          { name: '林昭', aliases: ['主角', '阿昭'] },
+          { name: '主角', aliases: [] },
+        ])
+      );
+    });
+
+    test('称谓当名字的换成别名里的真名，称谓挪进 tags', () => {
+      assert.deepEqual(
+        { name: labeled[0].name, aliases: labeled[0].aliases, tags: labeled[0].tags },
+        { name: '韩厉', aliases: ['头领'], tags: ['配角', '反派'] }
+      );
+    });
+
+    test('别名里的称谓被剔掉', () => {
+      assert.deepEqual(labeled[1].aliases, ['阿昭']);
+    });
+
+    test('光一个称谓、没有真名的不建卡', () => {
+      assert.deepEqual(labeled.map((c) => c.name), ['韩厉', '林昭']);
+    });
+  });
+});
+
+describe('characters.ts · mergeWithinBatch', () => {
+  let ch;
+
+  before(() => {
+    ch = loadModule('src/core/features/characters.ts');
+  });
+
+  test('同名的两条并成一条：别名标签取并集，小节先到先得、空的用后一条补', () => {
+    const merged = ch.mergeWithinBatch(
+      ch.parseCharacterResponse(
+        JSON.stringify([
+          { name: '韩厉', aliases: [], tags: ['反派'], 身份: '黑风寨寨主' },
+          { name: '反派', aliases: ['韩厉', '头领'], 身份: '黑风寨头领', 性格: '多疑', 性别: '男' },
+        ])
+      )
+    );
+    assert.equal(merged.length, 1);
+    assert.deepEqual(
+      { aliases: merged[0].aliases, tags: merged[0].tags, gender: merged[0].gender },
+      { aliases: ['头领'], tags: ['反派'], gender: '男' }
+    );
+    assert.equal(merged[0].sections.身份, '黑风寨寨主');
+    assert.equal(merged[0].sections.性格, '多疑');
+  });
+
+  // 模型把两个人列成两条，就是认为他们是两个人；那条别名才是错的（方源的卡挂过孪生弟弟「方正」）。
+  test('别名是同一批另一条的正式名：去掉别名，两个人都留着', () => {
+    const merged = ch.mergeWithinBatch(
+      ch.parseCharacterResponse(JSON.stringify([{ name: '方源', aliases: ['方正', '古月方源'] }, { name: '方正', aliases: [] }]))
+    );
+    assert.deepEqual(
+      merged.map((c) => [c.name, c.aliases]),
+      [
+        ['方源', ['古月方源']],
+        ['方正', []],
+      ]
+    );
+  });
 });

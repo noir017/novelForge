@@ -11,7 +11,7 @@ import { readText, slugify, uniqueSlug } from '../model/fs';
 import { NovelProject, emptyCharacterSections, renderCharacterCard } from '../model/project';
 import { CHARACTER_SECTION_KEYS, Chapter, CharacterCard, CharacterSections } from '../model/types';
 import { LORE_PLACEHOLDER_PREFIX } from '../model/loreFile';
-import { sanitizeAliases } from '../model/naming';
+import { normalizeName, resolveRoleLabelName, sanitizeAliases } from '../model/naming';
 import { keepGender, normalizeGender } from '../model/gender';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
@@ -164,6 +164,7 @@ async function mergeCharacters(
   existing: CharacterCard[],
   range: { firstNo: number; lastNo: number; nos: number[] }
 ): Promise<void> {
+  const batch = mergeWithinBatch(parsed);
   const byName = new Map<string, CharacterCard>();
   // 正式名先占位，别名后补：一张卡上写错的别名（模型给方源挂过 `方正`）
   // 抢不走另一张卡的正式名。泛称别名（`姐姐`/`她`）一律不进表——它们谁都能用。
@@ -181,7 +182,7 @@ async function mergeCharacters(
   const created: string[] = [];
   const pendingDiff: ParsedCharacter[] = [];
 
-  for (const item of parsed) {
+  for (const item of batch) {
     const match = byName.get(item.name) ?? item.aliases.map((a) => byName.get(a)).find(Boolean);
     if (match) {
       pendingDiff.push(item);
@@ -412,13 +413,60 @@ export function parseCharacterResponse(raw: string): ParsedCharacter[] {
         sections[key] = value.filter((v) => typeof v === 'string').map((v) => `- ${v}`).join('\n');
       }
     }
+    // 「反派（别名：韩厉）」：称谓不是名字，换成别名里的真名、称谓挪进 tags；别名里没有真名的不建卡。
+    const resolved = resolveRoleLabelName(name, sanitizeAliases(unique(stringArray(obj.aliases)), name));
+    if (!resolved) {
+      log.warn(`「${name}」是剧作称谓，别名里也没有真名，不建卡`);
+      continue;
+    }
+    if (resolved.label) {
+      log.info(`「${resolved.label}」是剧作称谓，改用别名里的「${resolved.name}」`);
+    }
     out.push({
-      name,
-      aliases: sanitizeAliases(unique(stringArray(obj.aliases)), name),
-      tags: unique(stringArray(obj.tags)),
+      name: resolved.name,
+      aliases: resolved.aliases,
+      tags: unique([...stringArray(obj.tags), ...(resolved.label ? [resolved.label] : [])]),
       gender: normalizeGender(obj.性别 ?? obj.gender),
       sections,
     });
+  }
+  return out;
+}
+
+/**
+ * 同一次返回里的条目先互相对一遍，再去和已有的卡比。
+ *
+ * - **同名的并成一条**：别名、标签取并集，小节以先出现的为准、空的用后一条补，性别同理。
+ *   「反派（别名：韩厉）」换名之后就是第二个「韩厉」，不并会建出 `韩厉.md` 与 `韩厉-2.md`。
+ * - **别名是同一批另一条的正式名，删掉这个别名，不并**：模型把两个人列成两条，就是认为
+ *   他们是两个人（与「同章共现即两人」同一个道理，AGENTS 第 14 条）；那个别名才是错的——
+ *   实战里方源的卡挂过孪生弟弟「方正」，按别名并会把方正整个人吞掉。
+ */
+export function mergeWithinBatch(parsed: readonly ParsedCharacter[]): ParsedCharacter[] {
+  const out: ParsedCharacter[] = [];
+  for (const item of parsed) {
+    const same = out.find((p) => normalizeName(p.name) === normalizeName(item.name));
+    if (!same) {
+      out.push({ ...item, aliases: [...item.aliases], tags: [...item.tags], sections: { ...item.sections } });
+      continue;
+    }
+    same.aliases = sanitizeAliases(unique([...same.aliases, ...item.aliases]), same.name);
+    same.tags = unique([...same.tags, ...item.tags]);
+    same.gender = keepGender(same.gender, item.gender);
+    for (const key of CHARACTER_SECTION_KEYS) {
+      if (!same.sections[key]?.trim() && item.sections[key]?.trim()) {
+        same.sections[key] = item.sections[key];
+      }
+    }
+    log.info(`同一批里「${item.name}」出现了两次，已并成一条`);
+  }
+  const names = new Set(out.map((p) => normalizeName(p.name)));
+  for (const item of out) {
+    const borrowed = item.aliases.filter((a) => names.has(normalizeName(a)) && normalizeName(a) !== normalizeName(item.name));
+    if (borrowed.length > 0) {
+      item.aliases = item.aliases.filter((a) => !borrowed.includes(a));
+      log.warn(`「${item.name}」的别名 ${borrowed.join('、')} 是同一批另一个人的名字，已去掉`);
+    }
   }
   return out;
 }

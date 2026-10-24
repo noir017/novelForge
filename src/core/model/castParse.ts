@@ -1,4 +1,4 @@
-import { sanitizeAliases } from './naming';
+import { resolveRoleLabelName, sanitizeAliases } from './naming';
 import { SummaryCast } from './types';
 
 /**
@@ -47,15 +47,35 @@ export function parseCast(v: string | string[] | undefined): SummaryCast[] | und
   }
   const list = Array.isArray(v) ? v : [v];
   const out: SummaryCast[] = [];
-  const seen = new Set<string>();
   for (const raw of list) {
-    const entry = parseCastEntry(raw);
-    if (entry && !seen.has(entry.name)) {
-      seen.add(entry.name);
-      out.push(entry);
-    }
+    pushCast(out, parseCastEntry(raw));
   }
   return out;
+}
+
+/**
+ * 一条出场人物落进清单。正式名是剧作称谓的（`主角(林昭)`，model/naming.ts）换成真名，换不出来的
+ * （光一个 `反派`）丢掉——它不是一个人；换完撞上前面已有的同一个人，别名并过去。别名不在这里过滤，
+ * 调用方各自过泛称关。老细纲 frontmatter 里已经写下的 `主角(林昭)` 读出来也就是林昭。
+ */
+export function pushCast(out: SummaryCast[], entry: SummaryCast | undefined): void {
+  if (!entry?.name) {
+    return;
+  }
+  const resolved = resolveRoleLabelName(entry.name, entry.aliases);
+  if (!resolved) {
+    return;
+  }
+  const same = out.find((c) => c.name === resolved.name);
+  if (!same) {
+    out.push({ name: resolved.name, aliases: resolved.aliases });
+    return;
+  }
+  for (const alias of resolved.aliases) {
+    if (alias !== same.name && !same.aliases.includes(alias)) {
+      same.aliases.push(alias);
+    }
+  }
 }
 
 /**
@@ -88,7 +108,7 @@ export function castFromText(text: string): SummaryCast[] {
         seen.add(entry.name);
         // 别名同样要过泛称关：这条回退路径产出的 cast 与 JSON 路径的一样，
         // 会被 identity.ts 拿去判断「谁是谁」。
-        out.push({ name: entry.name, aliases: sanitizeAliases(entry.aliases, entry.name) });
+        pushCast(out, { name: entry.name, aliases: sanitizeAliases(entry.aliases, entry.name) });
       }
     }
   }

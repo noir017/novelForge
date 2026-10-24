@@ -587,7 +587,7 @@ describe('从已写正文补齐 · 取消与没有正文', () => {
     const t = await fresh('derive-mid-gap');
     t.remove(CH(3));
     t.remove(CH(4));
-    t.write('chapters/005-作话.md', '作者有话说');
+    t.write('chapters/005-番外.md', '番外一则');
     t.project.invalidate();
     const chapters = await t.project.listChapters();
     assert.deepEqual(bundle.pipe.chapterGapOf(chapters), { from: 3, to: 4, later: 3, last: 7 });
